@@ -1,0 +1,121 @@
+{
+  "name": "dsh-one",
+  "displayName": "DSH One",
+  "description": "装这一个插件即可在 VSCode 里使用完整的 DeepSeek Harness (dsh)：自动下载运行时、启动 dsh web 服务并内嵌官方界面。",
+  "version": "0.1.0",
+  "publisher": "dsh-one",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "dshOne.open",
+        "title": "打开面板",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.openInTab",
+        "title": "在编辑器标签页打开",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.restart",
+        "title": "重启服务",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.stop",
+        "title": "停止服务",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.checkUpdates",
+        "title": "检查 dsh 更新",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.showLogs",
+        "title": "显示日志",
+        "category": "DSH One"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dsh-one",
+          "title": "DSH One",
+          "icon": "assets/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "dsh-one": [
+        {
+          "id": "dshOne.sidebar",
+          "name": "DSH",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DSH One",
+      "properties": {
+        "dshOne.channel": {
+          "type": "string",
+          "enum": [
+            "stable",
+            "rc"
+          ],
+          "default": "rc",
+          "description": "dsh 版本通道：stable 使用 npm dist-tags.latest；rc 取 registry 中最新版本号（含 prerelease）。"
+        },
+        "dshOne.pinnedVersion": {
+          "type": "string",
+          "default": "",
+          "description": "非空则钉死使用该 dsh 版本，并禁用自动更新。"
+        },
+        "dshOne.autoUpdate": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否在后台自动检查并安装 dsh 新版本（每 12 小时最多检查一次）。"
+        },
+        "dshOne.useSystemDsh": {
+          "type": "boolean",
+          "default": false,
+          "description": "为 true 时跳过运行时下载，直接使用 PATH 上的 dsh。"
+        },
+        "dshOne.port": {
+          "type": "number",
+          "default": 3080,
+          "minimum": 0,
+          "description": "dsh web 服务端口。0 表示由操作系统分配；非 0 时会先探测该端口上是否已有 dsh 实例并收养之。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "package": "npm run build && vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.2"
+  }
+}
