@@ -10,7 +10,7 @@
 | Remote（SSH/WSL/容器）未验证 | 缺陷 | 声明了 `extensionKind: ["workspace"]`（跑在远端），webview 里访问 127.0.0.1 依赖 VSCode 自动端口转发，理论上可行但没实测过。 |
 | 多窗口 port=0 各起各的 | 缺陷 | `port: 0` 时跳过复用探测（`src/server/manager.ts:136`），每个窗口各 spawn 一个 dsh 实例。多个实例并发写 `~/.dsh` 正是复用机制要防的场景，目前靠"默认端口非 0"规避。 |
 | 运行时目录无 GC | 缺陷 | `runtimes/dsh/<version>/` 按版本累积，旧版本只在作为 last-good 时有意义，其余永不清理；单个 dsh 安装约 280MB，长期用会明显占盘。 |
-| 首次下载 dsh 约 7 分钟、只有一个进度条 | 缺陷 | 首次体验 = Node 下载 + `npm install`（455 个包），实测约 7 分钟，期间只有通知进度条的阶段性文案（`src/runtime/dshRuntime.ts:181`），没有百分比也没有可取消。 |
+| 首次安装 dsh 约 6 分钟、其中大半是 npm 纯 CPU 解析 | 缺陷 | 实测 `npm install @deepseek-ai/dsh` 总耗时 5m46s、CPU 时间 5m11s：dsh 的插件包大量把同伴声明为 peerDependency，npm Arborist 的 peer 解析在 455 个包的树上回溯爆炸（无网络、无写盘、单核 100%）。`--legacy-peer-deps` 能把安装压到 19s 但会漏装 22 个 peer 包导致运行失败，不可用。根治需上游 dsh 调整依赖声明；目前只能靠分阶段进度 + "CPU 密集"提示缓解观感。 |
 | 真实 UI 未经人工点验 | 缺陷 | iframe 嵌入官方 UI 的完整链路（含 `dsh_embed=vscode` 的侧栏隐藏效果）没有人工验证记录；单测只覆盖 `src/pure/`。 |
 
 ## 候选方向

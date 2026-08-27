@@ -4,6 +4,7 @@ import { promisify } from 'node:util'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { pickVersion, type Channel, type Packument } from '../pure/registry.ts'
+import { dirSize } from '../pure/dirSize.ts'
 import { gt } from '../pure/semver.ts'
 import type { Logger } from '../log.ts'
 import type { NodeRuntime } from './node.ts'
@@ -130,28 +131,84 @@ async function installDsh(
     `@deepseek-ai/dsh@${version}`,
     '--no-audit',
     '--no-fund',
+    // http level logs every registry request — makes "is it stuck?" answerable
+    // from the output channel.
+    '--loglevel',
+    'http',
   ]
-  report?.(`npm install @deepseek-ai/dsh@${version}…`)
   logger.info(`running: ${npm.cmd} ${args.join(' ')}`)
 
-  // npm gives no usable progress output, so poll the node_modules package
-  // count instead — a moving number tells the user the install is alive.
+  // npm install has two observable phases, distinguishable from its HTTP log:
+  // resolution fetches registry metadata (plain package URLs), then
+  // download+extraction fetches tarballs (URLs containing '/-/'). Track the
+  // phases separately and only ever display the current phase's own progress.
   const nmDir = path.join(prefix, 'node_modules')
   const startedAt = Date.now()
+  let phase: 'resolve' | 'extract' | 'verify' = 'resolve'
+  let metaFetches = 0
+  let tarballFetches = 0
+  let lastFetchTotal = 0
+  let lastFetchAdvanceAt = Date.now()
+
+  const phaseMessage = (extracted: number, mb: string): string => {
+    const secs = Math.round((Date.now() - startedAt) / 1000)
+    switch (phase) {
+      case 'resolve': {
+        // Resolution of dsh's peer-heavy tree is CPU-bound inside npm and can
+        // take minutes with zero new fetches — say so instead of looking dead.
+        const stalled = Date.now() - lastFetchAdvanceAt > 15_000
+        const hint = stalled ? '，正在计算依赖树（CPU 密集，可能需数分钟）' : ''
+        return `阶段 1/3：解析依赖 ｜ 已获取 ${metaFetches} 个包元数据，${secs}s${hint}`
+      }
+      case 'extract':
+        return `阶段 2/3：下载并解压 ｜ 已下载 ${tarballFetches} 个包，已解压 ${extracted} 个，共 ${mb} MB，${secs}s`
+      case 'verify':
+        return '阶段 3/3：校验安装…'
+    }
+  }
+
   const ticker = setInterval(() => {
     void (async () => {
-      let count = 0
+      const fetchTotal = metaFetches + tarballFetches
+      if (fetchTotal !== lastFetchTotal) {
+        lastFetchTotal = fetchTotal
+        lastFetchAdvanceAt = Date.now()
+      }
+      let extracted = 0
       try {
-        count = (await fs.readdir(nmDir)).filter((e) => !e.startsWith('.')).length
+        extracted = (await fs.readdir(nmDir)).filter((e) => !e.startsWith('.')).length
       } catch {
         // node_modules not created yet
       }
-      const secs = Math.round((Date.now() - startedAt) / 1000)
-      report?.(`npm install @deepseek-ai/dsh@${version}…（已安装 ${count} 个包，${secs}s）`)
+      const mb = ((await dirSize(nmDir)) / 1024 / 1024).toFixed(1)
+      report?.(phaseMessage(extracted, mb))
     })()
   }, 2_000)
+  report?.(phaseMessage(0, '0.0'))
 
-  const install = execFileP(npm.cmd, args, { timeout: 10 * 60_000 })
+  // dsh's dependency tree takes ~6min to resolve+install on a fast machine
+  // (CPU-bound peer resolution) — 10min is too tight for slower machines.
+  const install = execFileP(npm.cmd, args, { timeout: 20 * 60_000 })
+  // npm writes all log output to stderr; stream both into the output channel.
+  install.child.stdout?.on('data', (d: Buffer) => logger.info(`[npm] ${d.toString().trimEnd()}`))
+  install.child.stderr?.on('data', (d: Buffer) => {
+    const text = d.toString()
+    for (const line of text.split('\n')) {
+      // Warm-cache runs log 'http cache <url> (cache hit)' instead of
+      // 'http fetch GET' — both count as resolved metadata/tarballs.
+      if (!line.includes('http fetch GET') && !line.includes('http cache')) continue
+      if (line.includes('/-/')) {
+        tarballFetches += 1
+        if (phase === 'resolve') {
+          phase = 'extract'
+          logger.info('阶段 1/3 完成，进入阶段 2/3：下载并解压包文件')
+        }
+      } else {
+        metaFetches += 1
+      }
+    }
+    logger.info(`[npm] ${text.trimEnd()}`)
+  })
   const cancelSub = token?.onCancellationRequested(() => {
     logger.warn(`npm install for dsh@${version} cancelled by user, killing npm (pid=${install.child.pid})`)
     install.child.kill('SIGTERM')
@@ -169,7 +226,9 @@ async function installDsh(
     clearInterval(ticker)
   }
 
-  report?.('校验安装…')
+  phase = 'verify'
+  logger.info('阶段 2/3 完成，进入阶段 3/3：校验安装')
+  report?.(phaseMessage(0, '0.0'))
   try {
     await verifyInstall(node.nodePath, binJs, logger)
   } catch (err) {
@@ -222,11 +281,25 @@ export async function ensureDsh(
   }
 
   try {
+    // Long download ahead: reveal the log (focus stays put) so the user can
+    // watch the detailed npm output — progress notifications can't carry a
+    // "show logs" button.
+    logger.show()
     const installed = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'DSH One: 下载 dsh 运行时', cancellable: true },
       async (progress, token) =>
         withInstallLock(() =>
-          installDsh(context, logger, node, version, (m) => progress.report({ message: m }), token),
+          installDsh(
+            context,
+            logger,
+            node,
+            version,
+            (m) => {
+              progress.report({ message: m })
+              logger.info(m.replaceAll('\n', ' '))
+            },
+            token,
+          ),
         ),
     )
     await updatePointer(currentFile, lastGoodFile, version, logger)

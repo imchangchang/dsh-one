@@ -179,9 +179,14 @@ export async function ensureNode(context: vscode.ExtensionContext, logger: Logge
   return vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'DSH One: 下载 Node.js 运行时', cancellable: true },
     async (progress, token) => {
+      logger.show() // reveal the log (focus stays put) for the long download
       const cancel = new AbortController()
       token.onCancellationRequested(() => cancel.abort())
-      progress.report({ message: '查询最新 LTS 版本…' })
+      const report = (message: string): void => {
+        progress.report({ message })
+        logger.info(message)
+      }
+      report('查询最新 LTS 版本…')
       const version = await latestLtsVersion()
       const asset = nodeAssetName(version)
       const installDir = path.join(runtimesDir, version)
@@ -191,7 +196,7 @@ export async function ensureNode(context: vscode.ExtensionContext, logger: Logge
       try {
         await fs.mkdir(tmp, { recursive: true })
         const archivePath = path.join(tmp, asset)
-        progress.report({ message: `下载 ${asset}…` })
+        report(`下载 ${asset}…`)
         let reportedPct = 0
         await downloadToFile(
           `https://nodejs.org/dist/v${version}/${asset}`,
@@ -200,17 +205,18 @@ export async function ensureNode(context: vscode.ExtensionContext, logger: Logge
           (fraction) => {
             const pct = Math.floor(fraction * 100)
             progress.report({ message: `下载 ${asset}… ${pct}%`, increment: pct - reportedPct })
+            if (pct % 10 === 0 && pct > reportedPct) logger.info(`下载 ${asset}… ${pct}%`)
             reportedPct = pct
           },
           cancel.signal,
         )
 
-        progress.report({ message: '校验 SHA256…' })
+        report('校验 SHA256…')
         const shasumsPath = path.join(tmp, 'SHASUMS256.txt')
         await downloadToFile(`https://nodejs.org/dist/v${version}/SHASUMS256.txt`, shasumsPath, logger)
         await verifySha256(archivePath, await fs.readFile(shasumsPath, 'utf8'), asset)
 
-        progress.report({ message: '解压…' })
+        report('解压…')
         const extractDir = path.join(tmp, 'x')
         await extract(archivePath, extractDir)
         const inner = path.join(extractDir, asset.replace(/\.(zip|tar\.gz)$/, ''))
