@@ -19,11 +19,13 @@ npm install -g @deepseek-ai/dsh@next
 1. **定位 dsh**：优先用配置 `dshOne.dshPath` 指定的可执行文件；否则在 PATH 上找 `dsh`。找不到就报错并引导安装。
 2. **启动服务**：先探测配置端口（默认 3080）——POST `/api/host.describe` 并校验回包 `rpcId` 一致，确认是 dsh 就直接**收养复用**该实例（只连接，永不 kill）；否则自己 spawn `dsh web --host 127.0.0.1 --port <端口>`。就绪需要双重确认：先解析 stdout 的 `dsh web: http://127.0.0.1:<端口>` 行，再做一次 `host.describe` 身份确认。
 3. **显示**：侧边栏 WebviewView 或编辑器标签页 WebviewPanel，内容是一个指向 `http://127.0.0.1:<端口>/?dsh_embed=vscode` 的 iframe。注意：`dsh_embed=vscode` 是给官方预留的嵌入参数，截至 dsh 0.1.1-rc.2 官方 UI 并未消费它（隐藏侧栏的效果尚不存在）。
-4. **workspace 预置**：服务就绪后，扩展把当前 VSCode 文件夹注册为 dsh workspace（`workspace.create`，幂等）并确保其下有会话，dsh UI 启动时按"最近活跃 workspace"策略直接落在当前文件夹上。空窗口时反向生效：侦听 dsh 的 host 事件流，用户在 dsh 里打开目录后提示在 VSCode 中打开该文件夹。
+4. **workspace 预置**：服务就绪后，扩展把当前 VSCode 文件夹注册为 dsh workspace（`workspace.create`，幂等）并确保其下有会话，dsh UI 启动时按"最近活跃 workspace"策略直接落在当前文件夹上。
+5. **Sessions 树视图**：侧边栏顶部有原生会话列表，按 workspace 分组（当前文件夹置顶），支持新建 / 重命名 / 归档会话、在其他 workspace 上"打开文件夹"；列表订阅 dsh 的 host 事件流自动刷新。
 
 ## 使用
 
 - 点击活动栏的 DSH One 图标打开侧边栏；首次使用会自动定位 dsh 并启动服务（未安装 dsh 时会提示安装）。
+- 侧边栏 Sessions 树视图：查看/新建/重命名/归档会话，点击会话聚焦 dsh 面板（受限于嵌入 UI 无法深链切换会话）。
 - 命令面板（`Ctrl/Cmd+Shift+P`）：
   - `DSH One: 打开面板` / `DSH One: 在编辑器标签页打开`
   - `DSH One: 重启服务` / `DSH One: 停止服务`

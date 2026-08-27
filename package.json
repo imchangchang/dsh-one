@@ -52,6 +52,33 @@
         "command": "dshOne.showLogs",
         "title": "显示日志",
         "category": "DSH One"
+      },
+      {
+        "command": "dshOne.sessions.refresh",
+        "title": "刷新会话列表",
+        "category": "DSH One",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dshOne.session.new",
+        "title": "新建会话",
+        "category": "DSH One",
+        "icon": "$(add)"
+      },
+      {
+        "command": "dshOne.session.rename",
+        "title": "重命名会话",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.session.archive",
+        "title": "归档会话",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.workspace.openFolder",
+        "title": "在 VSCode 中打开文件夹",
+        "category": "DSH One"
       }
     ],
     "viewsContainers": {
@@ -66,9 +93,50 @@
     "views": {
       "dsh-one": [
         {
+          "id": "dshOne.sessions",
+          "name": "Sessions"
+        },
+        {
           "id": "dshOne.sidebar",
           "name": "DSH",
           "type": "webview"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "dshOne.sessions",
+        "contents": "dsh 服务未运行，暂无会话。\n[启动 dsh 服务](command:dshOne.open)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "dshOne.sessions.refresh",
+          "when": "view == dshOne.sessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "dshOne.session.new",
+          "when": "view == dshOne.sessions",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "dshOne.session.rename",
+          "when": "view == dshOne.sessions && viewItem == dshSession",
+          "group": "inline@1"
+        },
+        {
+          "command": "dshOne.session.archive",
+          "when": "view == dshOne.sessions && viewItem == dshSession",
+          "group": "inline@2"
+        },
+        {
+          "command": "dshOne.workspace.openFolder",
+          "when": "view == dshOne.sessions && viewItem == dshWorkspace.other",
+          "group": "inline@1"
         }
       ]
     },

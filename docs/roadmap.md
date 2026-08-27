@@ -4,11 +4,11 @@
 
 现状是 iframe 嵌入 dsh web UI。已决策的演进方向：**VSCode 原生前端**，聊天面设计参考 Claude Code 的 VSCode 扩展（CLI 本体 + 薄桥接扩展的分层，dsh 对应 CLI、本扩展对应 VSCode 侧前端）。分三个阶段。
 
-### 阶段一：管理面原生化（下一步）
+### 阶段一：管理面原生化（已完成）
 
-- Session TreeView：会话列表 / 新建 / 切换 / 归档。
-- workspace 映射自动化。
-- 届时退役扩展侧的 preseed / workspaceBridge 补丁（`src/server/manager.ts` 的 `preseedWorkspace`、`src/server/workspaceBridge.ts`）——它们是为迁就嵌入 UI 而生的迂回实现。
+- Session TreeView：会话列表 / 新建 / 重命名 / 归档 / 聚焦（`src/ui/sessionTree.ts`）。已知过渡限制：嵌入的 dsh web UI 无深链，点击会话只能聚焦面板，无法远程切换会话——待阶段二自写聊天面后解决。
+- workspace 映射自动化：Sessions 树按 workspace 分组，当前文件夹置顶，其他 workspace 可从上下文菜单"在 VSCode 中打开文件夹"。
+- 反向桥补丁已退役（`src/server/workspaceBridge.ts` 连同 `src/pure/workspace.ts` 已删除）；`src/server/manager.ts` 的 `preseedWorkspace` 仍保留——嵌入 UI 的落地策略还依赖它。
 
 ### 阶段二：聊天面自写 webview
 
@@ -66,5 +66,5 @@
 | --- | --- | --- |
 | Remote 实测 | 增强 | 在 SSH / WSL / devcontainer 三种环境各过一遍发版点验清单（见 `docs/development.md`），根据结果决定改代码还是改 README 的限制声明。 |
 | 心跳看门狗防孤儿 | 增强 | 目前 VSCode 崩溃（非 deactivate 路径）会留下孤儿 dsh 进程。可以加周期性心跳文件，dsh 侧或扩展重启时发现陈旧实例做提示/回收（回收必须沿用收养语义，只动自己 spawn 过的）。 |
-| 上游融合：dsh_embed 与 postMessage 桥 | 增强 | 扩展侧融合（workspace 预置 + 空窗口侦听桥）已落地，但受限于 dsh 客户端能力：rc.2 未消费 `dsh_embed=vscode`（侧栏无法隐藏）、无 workspace 锁定模式、无 postMessage 桥（无法深链/跟随打开）。需给上游 dsh 提 issue/PR。阶段一/二落地后本项自然消解。 |
+| 上游融合：dsh_embed 与 postMessage 桥 | 增强 | 扩展侧融合（workspace 预置，空窗口侦听桥已随阶段一退役）已落地，但受限于 dsh 客户端能力：rc.2 未消费 `dsh_embed=vscode`（侧栏无法隐藏）、无 workspace 锁定模式、无 postMessage 桥（无法深链/跟随打开）。需给上游 dsh 提 issue/PR。阶段二落地后本项自然消解。 |
 | Copilot LM Provider | 增强 | 把 dsh 的模型能力注册为 VSCode Language Model Provider（`vscode.lm`），让 Copilot Chat 等消费。属于新能力探索，优先级最低。 |
