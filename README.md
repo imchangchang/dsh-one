@@ -58,6 +58,12 @@ npm run package   # vsce 打出 .vsix
 
 零运行时依赖：仅用 Node 内置模块 + vscode API。
 
+详细开发文档：
+
+- [docs/architecture.md](docs/architecture.md) — 模块结构、核心流程、设计决策及出处
+- [docs/development.md](docs/development.md) — 环境、构建/调试、发版流程
+- [docs/roadmap.md](docs/roadmap.md) — 已知不足与候选方向
+
 ## License
 
 MIT © dsh-one contributors
