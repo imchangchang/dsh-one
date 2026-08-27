@@ -82,12 +82,30 @@ function nodeBinPath(installDir: string): string {
     : path.join(installDir, 'bin', 'node')
 }
 
-async function downloadToFile(url: string, dest: string, logger: Logger): Promise<void> {
+async function downloadToFile(
+  url: string,
+  dest: string,
+  logger: Logger,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<void> {
   logger.info(`downloading ${url}`)
-  const res = await fetch(url, { signal: AbortSignal.timeout(10 * 60_000) })
+  const res = await fetch(url, {
+    signal: AbortSignal.any([AbortSignal.timeout(10 * 60_000), ...(signal ? [signal] : [])]),
+  })
   if (!res.ok || !res.body) throw new Error(`download failed: HTTP ${res.status} for ${url}`)
-  const buf = Buffer.from(await res.arrayBuffer())
-  await fs.writeFile(dest, buf)
+  const total = Number(res.headers.get('content-length') ?? 0)
+  const reader = res.body.getReader()
+  const chunks: Buffer[] = []
+  let received = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(Buffer.from(value))
+    received += value.length
+    if (total > 0) onProgress?.(received / total)
+  }
+  await fs.writeFile(dest, Buffer.concat(chunks))
 }
 
 async function verifySha256(file: string, shasums: string, assetName: string): Promise<void> {
@@ -159,8 +177,10 @@ export async function ensureNode(context: vscode.ExtensionContext, logger: Logge
   }
 
   return vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'DSH One: 下载 Node.js 运行时', cancellable: false },
-    async (progress) => {
+    { location: vscode.ProgressLocation.Notification, title: 'DSH One: 下载 Node.js 运行时', cancellable: true },
+    async (progress, token) => {
+      const cancel = new AbortController()
+      token.onCancellationRequested(() => cancel.abort())
       progress.report({ message: '查询最新 LTS 版本…' })
       const version = await latestLtsVersion()
       const asset = nodeAssetName(version)
@@ -172,7 +192,18 @@ export async function ensureNode(context: vscode.ExtensionContext, logger: Logge
         await fs.mkdir(tmp, { recursive: true })
         const archivePath = path.join(tmp, asset)
         progress.report({ message: `下载 ${asset}…` })
-        await downloadToFile(`https://nodejs.org/dist/v${version}/${asset}`, archivePath, logger)
+        let reportedPct = 0
+        await downloadToFile(
+          `https://nodejs.org/dist/v${version}/${asset}`,
+          archivePath,
+          logger,
+          (fraction) => {
+            const pct = Math.floor(fraction * 100)
+            progress.report({ message: `下载 ${asset}… ${pct}%`, increment: pct - reportedPct })
+            reportedPct = pct
+          },
+          cancel.signal,
+        )
 
         progress.report({ message: '校验 SHA256…' })
         const shasumsPath = path.join(tmp, 'SHASUMS256.txt')

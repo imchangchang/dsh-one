@@ -115,6 +115,7 @@ async function installDsh(
   node: NodeRuntime,
   version: string,
   report?: (message: string) => void,
+  token?: vscode.CancellationToken,
 ): Promise<string> {
   const prefix = path.join(dshRoot(context), version)
   const binJs = path.join(prefix, BIN_JS_REL)
@@ -132,11 +133,40 @@ async function installDsh(
   ]
   report?.(`npm install @deepseek-ai/dsh@${version}…`)
   logger.info(`running: ${npm.cmd} ${args.join(' ')}`)
+
+  // npm gives no usable progress output, so poll the node_modules package
+  // count instead — a moving number tells the user the install is alive.
+  const nmDir = path.join(prefix, 'node_modules')
+  const startedAt = Date.now()
+  const ticker = setInterval(() => {
+    void (async () => {
+      let count = 0
+      try {
+        count = (await fs.readdir(nmDir)).filter((e) => !e.startsWith('.')).length
+      } catch {
+        // node_modules not created yet
+      }
+      const secs = Math.round((Date.now() - startedAt) / 1000)
+      report?.(`npm install @deepseek-ai/dsh@${version}…（已安装 ${count} 个包，${secs}s）`)
+    })()
+  }, 2_000)
+
+  const install = execFileP(npm.cmd, args, { timeout: 10 * 60_000 })
+  const cancelSub = token?.onCancellationRequested(() => {
+    logger.warn(`npm install for dsh@${version} cancelled by user, killing npm (pid=${install.child.pid})`)
+    install.child.kill('SIGTERM')
+  })
   try {
-    await execFileP(npm.cmd, args, { timeout: 10 * 60_000 })
+    await install
   } catch (err) {
     await fs.rm(prefix, { recursive: true, force: true }).catch(() => undefined)
+    if (token?.isCancellationRequested) {
+      throw new Error(`已取消 dsh@${version} 的下载`)
+    }
     throw new Error(`npm install failed for dsh@${version}: ${err}`)
+  } finally {
+    cancelSub?.dispose()
+    clearInterval(ticker)
   }
 
   report?.('校验安装…')
@@ -193,9 +223,11 @@ export async function ensureDsh(
 
   try {
     const installed = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: 'DSH One: 下载 dsh 运行时', cancellable: false },
-      async (progress) =>
-        withInstallLock(() => installDsh(context, logger, node, version, (m) => progress.report({ message: m }))),
+      { location: vscode.ProgressLocation.Notification, title: 'DSH One: 下载 dsh 运行时', cancellable: true },
+      async (progress, token) =>
+        withInstallLock(() =>
+          installDsh(context, logger, node, version, (m) => progress.report({ message: m }), token),
+        ),
     )
     await updatePointer(currentFile, lastGoodFile, version, logger)
     return { kind: 'managed', nodePath: node.nodePath, binJs: installed, version }
