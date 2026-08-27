@@ -1,7 +1,7 @@
 {
   "name": "dsh-one",
   "displayName": "DSH One",
-  "description": "装这一个插件即可在 VSCode 里使用完整的 DeepSeek Harness (dsh)：自动下载运行时、启动 dsh web 服务并内嵌官方界面。",
+  "description": "dsh 与 VSCode 的桥接插件：定位本机已安装的 dsh，从 VSCode 直接启动或复用 dsh web 服务，并内嵌界面、同步 workspace。",
   "version": "0.1.0",
   "publisher": "dsh-one",
   "license": "MIT",
@@ -49,11 +49,6 @@
         "category": "DSH One"
       },
       {
-        "command": "dshOne.checkUpdates",
-        "title": "检查 dsh 更新",
-        "category": "DSH One"
-      },
-      {
         "command": "dshOne.showLogs",
         "title": "显示日志",
         "category": "DSH One"
@@ -80,35 +75,16 @@
     "configuration": {
       "title": "DSH One",
       "properties": {
-        "dshOne.channel": {
-          "type": "string",
-          "enum": [
-            "stable",
-            "rc"
-          ],
-          "default": "rc",
-          "description": "dsh 版本通道：stable 使用 npm dist-tags.latest；rc 取 registry 中最新版本号（含 prerelease）。"
-        },
-        "dshOne.pinnedVersion": {
+        "dshOne.dshPath": {
           "type": "string",
           "default": "",
-          "description": "非空则固定使用该 dsh 版本，并禁用自动更新。"
-        },
-        "dshOne.autoUpdate": {
-          "type": "boolean",
-          "default": true,
-          "description": "是否在后台自动检查并安装 dsh 新版本（每 12 小时最多检查一次）。"
-        },
-        "dshOne.useSystemDsh": {
-          "type": "boolean",
-          "default": false,
-          "description": "为 true 时跳过运行时下载，直接使用 PATH 上的 dsh。"
+          "description": "dsh 可执行文件路径。留空则从 PATH 查找。"
         },
         "dshOne.port": {
           "type": "number",
           "default": 3080,
           "minimum": 0,
-          "description": "dsh web 服务端口。0 表示由操作系统分配；非 0 时会先探测该端口上是否已有 dsh 实例并复用之。"
+          "description": "dsh web 服务端口。0 表示由操作系统分配；非 0 时会先探测该端口上是否已有 dsh 实例并复用之。注意 0 会让 dsh UI 的会话恢复失效（localStorage 按 origin 隔离）。"
         }
       }
     }

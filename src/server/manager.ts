@@ -5,8 +5,9 @@ import * as os from 'node:os'
 import { makeDescribeRequest, validateDescribeResponse } from '../pure/envelope.ts'
 import { parseReadyLine } from '../pure/readyLine.ts'
 import { gte } from '../pure/semver.ts'
+import { ensureSession, ensureWorkspace } from './dshRpc.ts'
+import { locateDsh } from './locateDsh.ts'
 import type { Logger } from '../log.ts'
-import type { DshRuntime } from '../runtime/dshRuntime.ts'
 
 /** dsh learned --no-open in 0.1.0-rc.7; older builds exit on the unknown flag. */
 const NO_OPEN_MIN_VERSION = '0.1.0-rc.7'
@@ -81,7 +82,6 @@ export class ServerManager implements vscode.Disposable {
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly logger: Logger,
-    private readonly resolveRuntime: () => Promise<DshRuntime>,
   ) {}
 
   getStatus(): ServerStatus {
@@ -137,12 +137,13 @@ export class ServerManager implements vscode.Disposable {
       const adoptedUrl = await probeDsh(port, this.logger)
       if (adoptedUrl) {
         this.logger.info(`adopting existing dsh at ${adoptedUrl} (will never kill it)`)
+        await this.preseedWorkspace(adoptedUrl)
         this.setStatus({ state: 'running', url: adoptedUrl, port, adopted: true })
         return this.status
       }
     }
 
-    const runtime = await this.resolveRuntime()
+    const dsh = await locateDsh(this.logger)
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir()
 
     // Sanitize the environment: the extension host injects NODE_OPTIONS /
@@ -153,24 +154,20 @@ export class ServerManager implements vscode.Disposable {
 
     const args = ['web', '--host', '127.0.0.1', '--port', String(port)]
     // --no-open only exists in dsh >= 0.1.0-rc.7; older versions would exit.
-    if (runtime.version !== 'unknown' && gte(runtime.version, NO_OPEN_MIN_VERSION)) {
+    // An unparseable version is treated as modern.
+    if (dsh.version === 'unknown' || gte(dsh.version, NO_OPEN_MIN_VERSION)) {
       args.push('--no-open')
     }
 
-    const [cmd, cmdArgs] =
-      runtime.kind === 'system'
-        ? [runtime.command, args]
-        : [runtime.nodePath, [runtime.binJs, ...args]]
-    this.logger.info(`spawning: ${cmd} ${cmdArgs.join(' ')} (cwd=${workspaceRoot})`)
+    this.logger.info(`spawning: ${dsh.command} ${args.join(' ')} (cwd=${workspaceRoot})`)
 
     // .cmd shims cannot be spawned directly on Windows — route through a shell.
-    const needsShell = process.platform === 'win32' && runtime.kind === 'system'
-    const child = spawn(cmd, cmdArgs, {
+    const child = spawn(dsh.command, args, {
       cwd: workspaceRoot,
       env,
       windowsHide: true,
       detached: process.platform !== 'win32',
-      shell: needsShell,
+      shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     this.child = child
@@ -202,9 +199,27 @@ export class ServerManager implements vscode.Disposable {
     })
 
     const ready = await this.waitReady(child, tail)
+    await this.preseedWorkspace(ready)
     this.setStatus({ state: 'running', url: ready, adopted: false, port: Number(new URL(ready).port) })
     this.logger.info(`dsh is ready at ${ready}`)
     return this.status
+  }
+
+  /**
+   * Register the VSCode folder as a dsh workspace and give it a session, so
+   * the web UI's "most recent workspace" startup strategy lands on it
+   * directly instead of a workspace picker. Best-effort: failures only log.
+   */
+  private async preseedWorkspace(url: string): Promise<void> {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!folder) return
+    try {
+      const workspace = await ensureWorkspace(url, folder)
+      const sessionId = await ensureSession(url, workspace)
+      this.logger.info(`preseeded workspace ${workspace.workspaceId} (${folder}) with session ${sessionId}`)
+    } catch (err) {
+      this.logger.warn(`workspace preseed failed: ${err instanceof Error ? err.message : err}`)
+    }
   }
 
   /**
