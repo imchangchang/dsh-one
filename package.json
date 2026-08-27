@@ -5,6 +5,14 @@
   "version": "0.1.0",
   "publisher": "dsh-one",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/imchangchang/dsh-one.git"
+  },
+  "bugs": {
+    "url": "https://github.com/imchangchang/dsh-one/issues"
+  },
+  "homepage": "https://github.com/imchangchang/dsh-one",
   "engines": {
     "vscode": "^1.96.0"
   },
