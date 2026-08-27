@@ -167,12 +167,20 @@ async function installDsh(
     }
   }
 
+  let stallLogged = false
   const ticker = setInterval(() => {
     void (async () => {
       const fetchTotal = metaFetches + tarballFetches
       if (fetchTotal !== lastFetchTotal) {
         lastFetchTotal = fetchTotal
         lastFetchAdvanceAt = Date.now()
+      }
+      // The notification gets a live 2s refresh, but the output channel can
+      // only append (no in-place update) — so the log only records meaningful
+      // events, not every tick.
+      if (phase === 'resolve' && !stallLogged && Date.now() - lastFetchAdvanceAt > 15_000) {
+        stallLogged = true
+        logger.info('元数据请求停滞，npm 进入 CPU 密集的依赖树计算（可能需数分钟）')
       }
       let extracted = 0
       try {
@@ -227,7 +235,19 @@ async function installDsh(
   }
 
   phase = 'verify'
-  logger.info('阶段 2/3 完成，进入阶段 3/3：校验安装')
+  {
+    // One completion summary instead of the per-tick stream.
+    let extracted = 0
+    try {
+      extracted = (await fs.readdir(nmDir)).filter((e) => !e.startsWith('.')).length
+    } catch {
+      // ignore
+    }
+    const mb = ((await dirSize(nmDir)) / 1024 / 1024).toFixed(1)
+    const secs = Math.round((Date.now() - startedAt) / 1000)
+    logger.info(`阶段 2/3 完成：下载 ${tarballFetches} 个包，解压 ${extracted} 个，共 ${mb} MB，耗时 ${secs}s`)
+  }
+  logger.info('进入阶段 3/3：校验安装')
   report?.(phaseMessage(0, '0.0'))
   try {
     await verifyInstall(node.nodePath, binJs, logger)
@@ -294,10 +314,7 @@ export async function ensureDsh(
             logger,
             node,
             version,
-            (m) => {
-              progress.report({ message: m })
-              logger.info(m.replaceAll('\n', ' '))
-            },
+            (m) => progress.report({ message: m }),
             token,
           ),
         ),
