@@ -95,6 +95,20 @@ async function findSystemDsh(logger: Logger): Promise<DshRuntime> {
   return { kind: 'system', command: cmd, version }
 }
 
+/**
+ * Serialize npm installs. The service-start path (ensureDsh) and the update
+ * check (checkForUpdates) can otherwise race two npm processes into the same
+ * prefix, corrupting each other's node_modules (observed as ENOTEMPTY /
+ * TAR_ENTRY_ERROR from parallel npm installs).
+ */
+let installChain: Promise<unknown> = Promise.resolve()
+
+function withInstallLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = installChain.then(fn)
+  installChain = run.catch(() => undefined)
+  return run
+}
+
 async function installDsh(
   context: vscode.ExtensionContext,
   logger: Logger,
@@ -180,7 +194,8 @@ export async function ensureDsh(
   try {
     const installed = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'DSH One: 下载 dsh 运行时', cancellable: false },
-      async (progress) => installDsh(context, logger, node, version, (m) => progress.report({ message: m })),
+      async (progress) =>
+        withInstallLock(() => installDsh(context, logger, node, version, (m) => progress.report({ message: m }))),
     )
     await updatePointer(currentFile, lastGoodFile, version, logger)
     return { kind: 'managed', nodePath: node.nodePath, binJs: installed, version }
@@ -235,7 +250,7 @@ export async function checkForUpdates(
 ): Promise<UpdateCheckResult> {
   const cfg = readConfig()
   if (cfg.useSystemDsh) return { message: '正在使用系统 dsh，跳过更新检查' }
-  if (cfg.pinnedVersion) return { message: `已钉死版本 ${cfg.pinnedVersion}，跳过更新检查` }
+  if (cfg.pinnedVersion) return { message: `已固定使用版本 ${cfg.pinnedVersion}，跳过更新检查` }
   if (!cfg.autoUpdate && !opts.force) return { message: '自动更新已关闭' }
 
   if (!opts.force) {
@@ -258,7 +273,7 @@ export async function checkForUpdates(
   }
 
   logger.info(`installing dsh update ${current?.version ?? '(none)'} -> ${target}`)
-  const binJs = await installDsh(context, logger, node, target)
+  const binJs = await withInstallLock(() => installDsh(context, logger, node, target))
   await updatePointer(path.join(root, 'current.json'), path.join(root, 'last-good.json'), target, logger)
   return {
     installed: target,

@@ -65,9 +65,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   )
 
   // Background update check (throttled to once per 12h inside checkForUpdates).
+  // Goes through resolveAll() so it shares the memoized runtime resolution with
+  // the service start path instead of installing concurrently with it.
   void (async () => {
     try {
-      const node = await ensureNode(context, logger)
+      const { node } = await resolveAll()
       const result = await checkForUpdates(context, logger, node)
       if (result.installed) notifyUpdate(result, manager)
     } catch (err) {
