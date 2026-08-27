@@ -3,6 +3,7 @@ import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
 import { archiveSession, createSession, renameSession } from './server/dshRpc.ts'
 import { DshViewProvider, openInTab } from './ui/webview.ts'
+import { ChatViewProvider } from './ui/chatView.ts'
 import { SessionNode, SessionTreeProvider, WorkspaceNode } from './ui/sessionTree.ts'
 import { StatusBar } from './ui/statusbar.ts'
 
@@ -22,13 +23,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const provider = new DshViewProvider(manager)
   const statusBar = new StatusBar(manager)
   const sessions = new SessionTreeProvider(manager, logger)
+  const chatView = new ChatViewProvider(manager, logger, context.extensionUri)
+
+  // Chat/session reconciliation after every tree rebuild: drop the attached
+  // session when it vanished host-side (archived/deleted elsewhere), and land
+  // on the current workspace's newest session once per server run.
+  let autoAttachedUrl: string | null = null
+  const reconcileChat = sessions.onDidChangeTreeData(() => {
+    const url = sessions.runningUrl
+    if (!url) {
+      autoAttachedUrl = null
+      return
+    }
+    const current = chatView.currentSessionId
+    if (current && !sessions.hasSession(current)) {
+      chatView.setSession(null)
+      return
+    }
+    if (!current && autoAttachedUrl !== url) {
+      const latest = sessions.latestCurrentSessionId()
+      if (latest) {
+        autoAttachedUrl = url
+        chatView.setSession(latest)
+      }
+    }
+  })
 
   context.subscriptions.push(
     logger,
     manager,
     statusBar,
     sessions,
+    chatView,
+    reconcileChat,
     vscode.window.registerWebviewViewProvider('dshOne.sidebar', provider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+    vscode.window.registerWebviewViewProvider('dshOne.chat', chatView, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.window.registerTreeDataProvider('dshOne.sessions', sessions),
@@ -51,10 +82,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.sessions.refresh', async () => {
       await sessions.refresh()
     }),
-    // Session click: only focuses the sidebar — the embedded dsh web UI has
-    // no deep link to switch sessions remotely (see ui/sessionTree.ts).
-    vscode.commands.registerCommand('dshOne.session.open', () => {
-      return vscode.commands.executeCommand('dshOne.sidebar.focus')
+    // Session click: attach the native chat view and focus it. The embedded
+    // dsh web UI (sidebar) is left alone — it cannot follow session switches.
+    vscode.commands.registerCommand('dshOne.session.open', (node?: SessionNode) => {
+      if (node) chatView.setSession(node.model.sessionId)
+      return vscode.commands.executeCommand('dshOne.chat.focus')
     }),
     vscode.commands.registerCommand('dshOne.session.new', async (node?: WorkspaceNode) => {
       const url = sessions.runningUrl
@@ -64,13 +96,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.showWarningMessage('没有可用的 workspace，请先在 VSCode 中打开文件夹。')
         return
       }
+      let sessionId: string
       try {
-        await createSession(url, workspaceId)
+        sessionId = await createSession(url, workspaceId)
       } catch (err) {
         vscode.window.showErrorMessage(`新建会话失败：${errorText(err)}`)
         return
       }
       await sessions.refresh()
+      chatView.setSession(sessionId)
+      void vscode.commands.executeCommand('dshOne.chat.focus')
     }),
     vscode.commands.registerCommand('dshOne.session.rename', async (node?: SessionNode) => {
       const url = sessions.runningUrl
@@ -105,6 +140,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return
       }
       await sessions.refresh()
+      // Archiving the attached chat session drops the chat back to empty.
+      if (chatView.currentSessionId === node.model.sessionId) chatView.setSession(null)
     }),
     vscode.commands.registerCommand('dshOne.workspace.openFolder', async (node?: WorkspaceNode) => {
       if (!node) return

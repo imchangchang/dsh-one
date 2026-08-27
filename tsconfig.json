@@ -3,7 +3,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "types": ["node", "vscode"],
     "strict": true,
     "noEmit": true,

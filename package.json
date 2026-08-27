@@ -97,6 +97,11 @@
           "name": "Sessions"
         },
         {
+          "id": "dshOne.chat",
+          "name": "Chat",
+          "type": "webview"
+        },
+        {
           "id": "dshOne.sidebar",
           "name": "DSH",
           "type": "webview"
@@ -169,5 +174,9 @@
     "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.24.2",
     "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.14",
+    "marked": "^18.0.11"
   }
 }

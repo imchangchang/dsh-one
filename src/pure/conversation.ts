@@ -1,0 +1,367 @@
+/**
+ * Conversation folding: turns the raw dsh session-event stream (history pages
+ * plus live mux increments) into the renderable ChatMessage[] of
+ * src/pure/chatContract.ts. Pure logic — no `vscode` import.
+ *
+ * The wire types below are hand-written loose mirrors of the dsh contracts
+ * (dsh-session SessionEvent, dsh-llm StreamChunk, dsh-tools presentation);
+ * the extension does not depend on those packages, so the folder reads
+ * payloads defensively and ignores what it does not know.
+ */
+import type { ChatAssistantMessage, ChatBlock, ChatMessage, ChatToolBlock } from './chatContract.ts'
+
+/** Subset of dsh-llm's StreamChunk the folder folds. */
+export type StreamChunkData =
+  | { type: 'block-start'; index: number; blockType: string }
+  | { type: 'text-delta'; index: number; text: string }
+  | { type: 'reasoning-delta'; index: number; text: string }
+  | { type: 'tool-call-delta'; index: number; id: string; name?: string; argumentsDelta: string }
+  | { type: 'block-end'; index: number; block: { type: string; text?: unknown } }
+  | { type: 'usage'; usage: unknown }
+  | { type: 'finish'; reason: unknown }
+
+/** Loose SessionEvent mirror; `data` is narrowed per `type` inside the folder. */
+export interface SessionEventLike {
+  type: string
+  seq: number
+  time?: number
+  data?: unknown
+}
+
+/**
+ * Loose ToolEventView mirror covering the fields the folder extracts
+ * (generic title/rawInput/locations, terminal title/description/cwd/output,
+ * diff title/diffs). Absent view means the generic fallback card.
+ */
+export interface ToolEventViewLike {
+  for: 'call' | 'result'
+  view: {
+    card?: string
+    title?: string
+    description?: string
+    cwd?: string
+    rawInput?: unknown
+    output?: string
+    exitCode?: number
+    locations?: Array<{ path: string; line?: number }>
+    diffs?: Array<{ path: string; oldText: string | null; newText: string }>
+  }
+}
+
+/** One history page entry: the raw event plus its pagination-time view. */
+export interface HistoryEntryLike {
+  event: SessionEventLike
+  view?: ToolEventViewLike
+}
+
+interface ChunkEventData {
+  turn: number
+  step: number
+  chunk: StreamChunkData
+}
+
+interface AssistantMessageEventData {
+  turn: number
+  step: number
+  message?: { id?: string; content?: Array<{ type: string; text?: unknown }> }
+  interrupted?: true
+}
+
+interface ToolCallEventData {
+  turn: number
+  step: number
+  callId: string
+  name: string
+  arguments?: string
+}
+
+interface ToolResultEventData {
+  turn: number
+  step: number
+  message?: {
+    content?: Array<{
+      toolCallId?: string
+      content?: Array<{ type: string; text?: unknown }>
+      isError?: boolean
+    }>
+  }
+  error?: { name: string; code: string }
+}
+
+/** Cap on folded tool-result text; longer output is cut with an ellipsis. */
+const OUTPUT_LIMIT = 4000
+
+function truncate(text: string): string {
+  return text.length > OUTPUT_LIMIT ? `${text.slice(0, OUTPUT_LIMIT)}\n…` : text
+}
+
+/** Join the text blocks of a message content array; other block kinds are skipped. */
+function textOfBlocks(content: Array<{ type: string; text?: unknown }> | undefined): string {
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter((b) => b && (b.type === 'text' || b.type === 'reasoning') && typeof b.text === 'string')
+    .map((b) => b.text as string)
+    .join('\n')
+}
+
+/**
+ * Stateful folder over one session's event log. Feed it a history window with
+ * applyHistory (full reset — the reconnect baseline), then live events with
+ * applyEvent. One turn folds into one assistant message whose blocks follow
+ * event order: streamed text/reasoning (chunk block-index aware) and tool
+ * cards paired by callId.
+ */
+export class ConversationFolder {
+  private msgs: ChatMessage[] = []
+  /** The open assistant message of the current turn, null between turns. */
+  private current: ChatAssistantMessage | null = null
+  /** Chunk block index → position in current.blocks (per step). */
+  private blockPos = new Map<number, number>()
+  /** `${turn}:${step}` of the step that streamed chunks, for dedupe. */
+  private stepKey: string | null = null
+  /** Whether the current step already contributed streamed/folded content. */
+  private stepStreamed = false
+  private openTurns = new Set<number>()
+  private tools = new Map<string, ChatToolBlock>()
+
+  /** Reset and fold a full history window (initial load / re-baseline). */
+  applyHistory(entries: readonly HistoryEntryLike[]): void {
+    this.msgs = []
+    this.current = null
+    this.blockPos.clear()
+    this.stepKey = null
+    this.stepStreamed = false
+    this.openTurns.clear()
+    this.tools.clear()
+    for (const entry of entries) this.applyEvent(entry.event, entry.view)
+  }
+
+  /** Fold one event; returns true when the rendered messages changed. */
+  applyEvent(event: SessionEventLike, view?: ToolEventViewLike): boolean {
+    const data = (event.data ?? {}) as Record<string, unknown>
+    switch (event.type) {
+      case 'turn/start': {
+        this.openTurns.add(Number(data.turn))
+        this.current = null
+        this.stepKey = null
+        this.stepStreamed = false
+        return true
+      }
+      case 'turn/end': {
+        this.openTurns.delete(Number(data.turn))
+        const msg = this.current
+        if (msg) {
+          msg.complete = true
+          const kind = (data.reason as { kind?: string } | undefined)?.kind
+          if (kind === 'aborted' || kind === 'interrupted') msg.interrupted = true
+        }
+        this.current = null
+        this.stepKey = null
+        return true
+      }
+      case 'user/message': {
+        const text = textOfBlocks(data.content as Array<{ type: string; text?: unknown }> | undefined)
+        const id = typeof data.id === 'string' && data.id ? data.id : `user-${event.seq}`
+        // Host-injected context (AGENTS.md instructions, runtime snapshots)
+        // arrives as user/message too, tagged by data.source.kind. Genuine
+        // human input is kind 'user'. Fallback: the <system-reminder> prefix.
+        const sourceKind = (data.source as { kind?: string } | undefined)?.kind
+        const context =
+          sourceKind && sourceKind !== 'user'
+            ? sourceKind
+            : !sourceKind && text.startsWith('<system-reminder>')
+              ? 'legacy-instructions'
+              : undefined
+        this.msgs.push({ kind: 'user', id, text, ...(context ? { context } : {}) })
+        this.current = null
+        this.stepKey = null
+        return true
+      }
+      case 'assistant/chunk':
+        return this.applyChunk(event.data as ChunkEventData, event.seq)
+      case 'assistant/message':
+        return this.applyAssistantMessage(event.data as AssistantMessageEventData, event.seq)
+      case 'tool/call':
+        return this.applyToolCall(event.data as ToolCallEventData, view, event.seq)
+      case 'tool/result':
+        return this.applyToolResult(event.data as ToolResultEventData, view, event.seq)
+      default:
+        return false
+    }
+  }
+
+  /** Renderable snapshot. The live array is returned; postMessage serializes it. */
+  messages(): ChatMessage[] {
+    return this.msgs
+  }
+
+  /** A turn without its turn/end: the session is mid-turn. */
+  hasOpenTurn(): boolean {
+    return this.openTurns.size > 0
+  }
+
+  private ensureAssistant(turn: number, seq: number): ChatAssistantMessage {
+    if (this.current) return this.current
+    const msg: ChatAssistantMessage = {
+      kind: 'assistant',
+      id: Number.isFinite(turn) ? `assistant-t${turn}` : `assistant-s${seq}`,
+      blocks: [],
+      complete: false,
+    }
+    this.msgs.push(msg)
+    this.current = msg
+    return msg
+  }
+
+  private applyChunk(data: ChunkEventData, seq: number): boolean {
+    const chunk = data?.chunk
+    if (!chunk || typeof chunk.type !== 'string') return false
+    const msg = this.ensureAssistant(Number(data.turn), seq)
+    const key = `${Number(data.turn)}:${Number(data.step)}`
+    if (key !== this.stepKey) {
+      this.stepKey = key
+      this.stepStreamed = false
+      this.blockPos.clear()
+    }
+    switch (chunk.type) {
+      case 'block-start': {
+        if (chunk.blockType !== 'text' && chunk.blockType !== 'reasoning') return false
+        this.stepStreamed = true
+        this.blockPos.set(chunk.index, msg.blocks.length)
+        msg.blocks.push({ type: chunk.blockType, text: '' } as ChatBlock)
+        msg.complete = false
+        return true
+      }
+      case 'text-delta':
+      case 'reasoning-delta': {
+        const type = chunk.type === 'text-delta' ? 'text' : 'reasoning'
+        this.stepStreamed = true
+        let pos = this.blockPos.get(chunk.index)
+        if (pos === undefined || msg.blocks[pos]?.type !== type) {
+          // Tolerate a delta whose block-start fell outside the history window.
+          pos = msg.blocks.length
+          this.blockPos.set(chunk.index, pos)
+          msg.blocks.push({ type, text: '' } as ChatBlock)
+        }
+        msg.complete = false
+        if (!chunk.text) return false
+        const block = msg.blocks[pos] as { text: string }
+        block.text += chunk.text
+        return true
+      }
+      case 'block-end': {
+        const type = chunk.block?.type
+        if (type !== 'text' && type !== 'reasoning') return false
+        const text = typeof chunk.block?.text === 'string' ? chunk.block.text : undefined
+        const pos = this.blockPos.get(chunk.index)
+        if (pos === undefined) {
+          msg.blocks.push({ type, text: text ?? '' } as ChatBlock)
+          return true
+        }
+        // The assembled block is authoritative; adopt it when it disagrees.
+        const block = msg.blocks[pos] as { text: string }
+        if (text !== undefined && text !== block.text) {
+          block.text = text
+          return true
+        }
+        return false
+      }
+      default:
+        // tool-call-delta / usage / finish: tool cards come from tool/call events.
+        return false
+    }
+  }
+
+  private applyAssistantMessage(data: AssistantMessageEventData, seq: number): boolean {
+    const msg = this.ensureAssistant(Number(data?.turn), seq)
+    const key = `${Number(data?.turn)}:${Number(data?.step)}`
+    if (key !== this.stepKey) {
+      this.stepKey = key
+      this.stepStreamed = false
+    }
+    if (!this.stepStreamed) {
+      // No chunk stream seen for this step (e.g. a compacted log): fold content.
+      for (const block of data?.message?.content ?? []) {
+        if ((block.type === 'text' || block.type === 'reasoning') && typeof block.text === 'string') {
+          msg.blocks.push({ type: block.type, text: block.text } as ChatBlock)
+        }
+      }
+      this.stepStreamed = true
+    }
+    msg.complete = true
+    if (data?.interrupted) msg.interrupted = true
+    return true
+  }
+
+  private applyToolCall(data: ToolCallEventData, view: ToolEventViewLike | undefined, seq: number): boolean {
+    if (!data || typeof data.callId !== 'string') return false
+    const msg = this.ensureAssistant(Number(data.turn), seq)
+    const block: ChatToolBlock = {
+      type: 'tool',
+      callId: data.callId,
+      name: data.name,
+      status: 'running',
+      title: data.name,
+    }
+    if (view?.for === 'call') this.applyCallView(block, view.view)
+    msg.blocks.push(block)
+    this.tools.set(data.callId, block)
+    msg.complete = false
+    return true
+  }
+
+  private applyToolResult(data: ToolResultEventData, view: ToolEventViewLike | undefined, seq: number): boolean {
+    const result = data?.message?.content?.[0]
+    const callId = result?.toolCallId
+    if (typeof callId !== 'string') return false
+    let block = this.tools.get(callId)
+    if (!block) {
+      // Result whose call fell outside the window: materialize a generic card.
+      const msg = this.ensureAssistant(Number(data.turn), seq)
+      block = { type: 'tool', callId, name: callId, status: 'running', title: callId }
+      msg.blocks.push(block)
+      this.tools.set(callId, block)
+    }
+    block.status = data.error || result?.isError === true ? 'error' : 'done'
+    const text = textOfBlocks(result?.content)
+    if (text) block.output = truncate(text)
+    if (view?.for === 'result') this.applyResultView(block, view.view)
+    return true
+  }
+
+  private applyCallView(block: ChatToolBlock, v: ToolEventViewLike['view']): void {
+    if (!v) return
+    if (typeof v.title === 'string' && v.title) block.title = v.title
+    switch (v.card) {
+      case 'generic':
+        if (typeof v.rawInput === 'string' && v.rawInput) block.detail = v.rawInput
+        else if (v.locations?.[0]) block.detail = v.locations[0].path
+        break
+      case 'terminal': {
+        const detail = v.description ?? v.cwd
+        if (detail) block.detail = detail
+        break
+      }
+      case 'diff': {
+        const d = v.diffs?.[0]
+        if (d) block.diff = { oldText: d.oldText ?? '', newText: d.newText }
+        break
+      }
+    }
+  }
+
+  private applyResultView(block: ChatToolBlock, v: ToolEventViewLike['view']): void {
+    if (!v) return
+    if (typeof v.title === 'string' && v.title) block.title = v.title
+    switch (v.card) {
+      case 'terminal':
+        if (typeof v.output === 'string') block.output = truncate(v.output)
+        break
+      case 'diff': {
+        const d = v.diffs?.[0]
+        if (d) block.diff = { oldText: d.oldText ?? '', newText: d.newText }
+        break
+      }
+    }
+  }
+}

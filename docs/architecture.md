@@ -9,7 +9,7 @@
 ```
 dsh-one/
 ├── package.json            # 清单：命令、配置项、侧边栏 view、extensionKind
-├── build.mjs               # esbuild 打包脚本，输出单文件 dist/extension.js
+├── build.mjs               # esbuild 打包脚本，双入口：dist/extension.js（宿主）+ dist/chatWebview.js（聊天前端）
 ├── src/
 │   ├── extension.ts        # activate/deactivate 入口，注册命令与 view
 │   ├── log.ts              # 输出通道日志，写入前对 URL query 值脱敏
@@ -21,8 +21,11 @@ dsh-one/
 │   ├── ui/
 │   │   ├── webview.ts      # 侧边栏 WebviewView + 编辑器标签页 WebviewPanel，iframe 嵌入
 │   │   ├── sessionTree.ts  # Sessions 树视图（TreeDataProvider）：基线拉取 + 事件防抖刷新
+│   │   ├── chatView.ts     # Chat 视图（WebviewViewProvider）：持有 ChatSessionController，推状态/收动作
+│   │   ├── chat/           # 聊天 webview 前端（浏览器上下文，esbuild 打包进 dist/chatWebview.js）
 │   │   └── statusbar.ts    # 状态栏指示
 │   └── pure/               # 纯逻辑，禁止 import vscode（可用 node --test 直接单测）
+│       ├── chatContract.ts # 宿主 ↔ 聊天 webview 的消息契约 + ChatState 模型（接口冻结）
 │       ├── envelope.ts     # host.describe RPC 信封构造与 rpcId 回显校验
 │       ├── readyLine.ts    # 解析 stdout 就绪行 `dsh web: http://127.0.0.1:<port>`
 │       ├── semver.ts       # 最小 semver 实现（支持 prerelease），零依赖
@@ -32,11 +35,12 @@ dsh-one/
 
 各模块职责要点：
 
-- `src/extension.ts`：只做装配。`activate()`（`src/extension.ts:15`）注册命令与 view；`deactivate()`（:118）**必须是同步的**，见下文设计决策 5。
+- `src/extension.ts`：只做装配。`activate()`（`src/extension.ts:16`）注册命令与 view；`deactivate()`（:155）**必须是同步的**，见下文设计决策 5。
 - `src/server/locateDsh.ts`：`locateDsh()`（`src/server/locateDsh.ts:28`）三步定位：`dshOne.dshPath` 配置非空则用它，否则用 PATH 上的 `dsh`；对候选跑 `dsh --version` 验证并提取版本号（给 `--no-open` 等版本 gate 用）；失败则抛出"未找到 dsh，请安装"的引导错误。
 - `src/server/manager.ts`：`ServerManager`（:71）是整个扩展的核心，持有 `ServerStatus` 并通过 `onDidChangeState` 事件通知 UI。
 - `src/ui/webview.ts`：`bind()`（:108）把任一 webview 绑定到 `ServerManager` 状态流；运行中时渲染 iframe（`dshFrame()`，:95），否则渲染启动/错误页。
-- `src/ui/sessionTree.ts`：`SessionTreeProvider` 在 `running` 状态下拉取 workspace.list + session.list 基线，并通过 `subscribeHostEvents()`（`src/server/hostEvents.ts`）订阅 host 事件，500ms 防抖刷新；模型构建全部下沉到 `src/pure/sessionTree.ts`。
+- `src/ui/sessionTree.ts`：`SessionTreeProvider` 在 `running` 状态下拉取 workspace.list + session.list 基线，并通过 `subscribeHostEvents()`（`src/server/hostEvents.ts`）订阅 host 事件，500ms 防抖刷新；模型构建全部下沉到 `src/pure/sessionTree.ts`。另外暴露 `hasSession()` / `latestCurrentSessionId()` 给聊天视图做会话兜底与默认附着。
+- `src/ui/chatView.ts`：`ChatViewProvider`（原生聊天面，`dshOne.chat`）持有当前会话的 `ChatSessionController`（`src/server/chatSession.ts`），把其 `onDidChange` 的 ChatState 快照直推 webview（controller 内部已节流），webview 动作（send/stop/approval/answer）路由回 controller。`setSession()` 换会话；服务非 running 或换 URL 时清空回空态。前端在 `src/ui/chat/webview.ts`，marked + dompurify 渲染 markdown，esbuild 打包成 `dist/chatWebview.js` 由 HTML 模板以 nonce 引用（CSP 惯例同 webview.ts）。
 - `src/pure/`：与 vscode 解耦的业务规则。所有"容易写错的判断"（rpcId 校验、semver 比较、就绪行解析、会话树构建）都下沉到这里，保证可以脱离 VSCode 单测。
 
 ## 核心流程一：dsh 定位（locateDsh）
@@ -91,10 +95,10 @@ dsh-one/
 2. **先探后起 + 收养语义。** 两个 dsh 实例共享 `~/.dsh` 并发写会永久损坏会话日志（seq gap，Skylake0216 插件已有实际故障案例）。所以启动前必须先探测，已有实例就收养且绝不 kill。实现：`src/server/manager.ts:136-144`、`:277`（`killOwned` 注释）。
 3. **spawn 环境净化。** env 里删掉扩展宿主注入的 `NODE_OPTIONS` / `ELECTRON_RUN_AS_NODE`（会让普通 node 子进程异常）；Windows 下 `.cmd` shim 不能直接 spawn，走 `shell: true`。实现：`src/server/manager.ts:151-153`、`:170`。
 4. **`--no-open` 按版本 gate。** 只有 dsh ≥ 0.1.0-rc.7 认识该参数，旧版收到会直接退出（Xizhi1024 插件已出现过这个 critical bug）。实现：`src/server/manager.ts:12-13`、`:158`。
-5. **`deactivate` 同步清理。** VSCode 退出时不会等待 async 清理，所以 `deactivate()` 里只能同步发 SIGTERM，再 spawn 一个 detached reaper（`sh -c 'sleep 3 && kill -KILL -<pgid>'`）3 秒后强制终止作为后备，即使扩展宿主已退出也能执行。Windows 用 `taskkill /T /F` 杀整棵进程树（单个 kill 覆盖不到 dsh 的工具子进程）。实现：`src/extension.ts:118`、`src/server/manager.ts:318`（`killSync`）。
+5. **`deactivate` 同步清理。** VSCode 退出时不会等待 async 清理，所以 `deactivate()` 里只能同步发 SIGTERM，再 spawn 一个 detached reaper（`sh -c 'sleep 3 && kill -KILL -<pgid>'`）3 秒后强制终止作为后备，即使扩展宿主已退出也能执行。Windows 用 `taskkill /T /F` 杀整棵进程树（单个 kill 覆盖不到 dsh 的工具子进程）。实现：`src/extension.ts:155`、`src/server/manager.ts:318`（`killSync`）。
 6. **就绪双确认。** stdout 就绪行给实际端口，再补一次 RPC 身份确认，防端口被无关 HTTP 服务占用造成误判。实现：`src/server/manager.ts:230`（`waitReady`）。
 7. **iframe 嵌入官方 UI（现阶段）。** 调研的 28 个竞品里，重写派每家都在追官方协议叫苦；iframe 嵌入零 UI 同步成本。URL 带 `dsh_embed=vscode` 是给官方预留的嵌入参数（截至 0.1.1-rc.2 未被消费）。长期方向是原生前端，见 `docs/roadmap.md`。实现：`src/ui/webview.ts:95`。
-8. **零运行时依赖。** 只用 Node 22 内置模块 + vscode API，esbuild 打单文件 bundle。依据：`package.json` 无 `dependencies`，只有 devDependencies；`build.mjs` 单入口打包。
+8. **零运行时依赖（扩展宿主）。** 扩展宿主只用 Node 22 内置模块 + vscode API，esbuild 打单文件 bundle。**修订（阶段二）**：聊天 webview 前端（`src/ui/chat/`）允许打包依赖——marked + dompurify 由 esbuild 内联进 `dist/chatWebview.js`，无运行时外部加载；宿主 bundle（`dist/extension.js`）仍零依赖。依据：`package.json` 的 `dependencies` 仅被 webview entry 引用；`build.mjs` 双入口打包。
 
 ## 日志与安全细节
 

@@ -1,20 +1,34 @@
 import esbuild from 'esbuild'
 
-const result = await esbuild.build({
-  entryPoints: ['src/extension.ts'],
-  bundle: true,
-  outfile: 'dist/extension.js',
-  platform: 'node',
-  format: 'cjs',
-  target: 'node22',
-  external: ['vscode'],
-  sourcemap: true,
-  logLevel: 'warning',
-})
+const results = await Promise.all([
+  // Extension host bundle.
+  esbuild.build({
+    entryPoints: ['src/extension.ts'],
+    bundle: true,
+    outfile: 'dist/extension.js',
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    external: ['vscode'],
+    sourcemap: true,
+    logLevel: 'warning',
+  }),
+  // Chat webview frontend bundle (runs in the browser context of the webview).
+  esbuild.build({
+    entryPoints: ['src/ui/chat/webview.ts'],
+    bundle: true,
+    outfile: 'dist/chatWebview.js',
+    platform: 'browser',
+    format: 'iife',
+    target: 'es2022',
+    sourcemap: true,
+    logLevel: 'warning',
+  }),
+])
 
-if (result.warnings.length > 0) {
+if (results.some((r) => r.warnings.length > 0)) {
   console.error('esbuild finished with warnings')
   process.exitCode = 1
 } else {
-  console.log('built dist/extension.js')
+  console.log('built dist/extension.js + dist/chatWebview.js')
 }

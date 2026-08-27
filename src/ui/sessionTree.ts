@@ -42,10 +42,8 @@ export class SessionNode extends vscode.TreeItem {
       ? new vscode.ThemeIcon('comment-discussion', new vscode.ThemeColor('charts.green'))
       : new vscode.ThemeIcon('comment-discussion')
     this.contextValue = 'dshSession'
-    // Transitional limitation: the embedded dsh web UI exposes no deep link,
-    // so we cannot make it switch sessions remotely — clicking only focuses
-    // the sidebar. Real switching lands with the native chat surface
-    // (roadmap phase 2).
+    // Clicking attaches the native chat view (dshOne.chat, roadmap phase 2);
+    // the embedded dsh web UI still has no deep link to follow along.
     this.command = { command: 'dshOne.session.open', title: '打开会话', arguments: [this] }
   }
 }
@@ -60,6 +58,8 @@ type TreeNode = WorkspaceNode | SessionNode
  */
 export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, vscode.Disposable {
   private workspaces: WorkspaceNodeModel[] = []
+  /** Non-archived ids from the last successful session.list (blank included). */
+  private knownSessionIds = new Set<string>()
   private url: string | null = null
   private hostEvents: vscode.Disposable | null = null
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -86,6 +86,16 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
     return this.workspaces.find((w) => w.isCurrent)?.workspaceId ?? this.workspaces[0]?.workspaceId ?? null
   }
 
+  /** Whether the host still knows this (non-archived) session — chat fallback. */
+  hasSession(sessionId: string): boolean {
+    return this.knownSessionIds.has(sessionId)
+  }
+
+  /** Newest visible session of the current workspace, for default attach. */
+  latestCurrentSessionId(): string | null {
+    return this.workspaces.find((w) => w.isCurrent)?.sessions[0]?.sessionId ?? null
+  }
+
   private onStateChange(status: ServerStatus): void {
     const url = status.state === 'running' && status.url ? status.url : null
     if (url === this.url) return
@@ -103,6 +113,7 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
       void this.refresh()
     } else {
       this.workspaces = []
+      this.knownSessionIds = new Set()
       this.onDidChangeTreeDataEmitter.fire(undefined)
     }
   }
@@ -121,10 +132,14 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
     if (!url) return
     try {
       const [workspaceList, sessions] = await Promise.all([listWorkspaces(url), listSessions(url)])
+      const archived = new Set(workspaceList.archivedSessionIds)
+      this.knownSessionIds = new Set(
+        sessions.map((s) => s.sessionId).filter((id) => !archived.has(id)),
+      )
       this.workspaces = buildSessionTree(
         workspaceList.items,
         sessions,
-        new Set(workspaceList.archivedSessionIds),
+        archived,
         sessionTitle,
         vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
       )

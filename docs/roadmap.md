@@ -10,14 +10,18 @@
 - workspace 映射自动化：Sessions 树按 workspace 分组，当前文件夹置顶，其他 workspace 可从上下文菜单"在 VSCode 中打开文件夹"。
 - 反向桥补丁已退役（`src/server/workspaceBridge.ts` 连同 `src/pure/workspace.ts` 已删除）；`src/server/manager.ts` 的 `preseedWorkspace` 仍保留——嵌入 UI 的落地策略还依赖它。
 
-### 阶段二：聊天面自写 webview
+### 阶段二：聊天面自写 webview（骨架完成）
 
-侧边栏 WebviewView 自写聊天界面。**已排除 Chat Participant API**，原因：
+侧边栏新增原生聊天视图 `dshOne.chat`（WebviewView），设计参考 Claude Code：工具调用卡片可见可折叠、权限确认/提问内联在对话流上方不打断焦点、运行中发送按钮变为常驻停止按钮。架构：宿主侧 `src/ui/chatView.ts` 持有 `ChatSessionController`（`src/server/chatSession.ts`，折叠 mux 事件为 ChatState），前端 `src/ui/chat/webview.ts`（marked + dompurify 渲染 markdown，esbuild 打包）按 `src/pure/chatContract.ts` 的冻结契约收发消息。Sessions 树点击会话即附着并聚焦聊天视图；新建会话直接落入聊天；归档/删除当前会话或服务停止时回空态；每次服务运行首次刷新自动附着当前 workspace 最新会话。
+
+**已排除 Chat Participant API**，原因：
 
 - 权限确认 / 工具块 / thinking / 内嵌 diff 全部是 proposed API，无法发布 Marketplace；
 - 输入框模型、模式切换器是 Copilot 私有 UI，第三方拿不到。
 
 行业佐证：Cline / Roo Code / Continue 全部选自写 webview。
+
+骨架已知缺口（待后续补齐）：无图片附件、无模型/模式切换、无消息分页（历史全量渲染）、空白会话不在树中显示故自动附着只挑有内容的会话。
 
 ### 阶段三：聊天面精化（借鉴 Claude Code 设计）
 

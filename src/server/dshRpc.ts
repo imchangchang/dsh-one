@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto'
+import type { HistoryEntryLike } from '../pure/conversation.ts'
 
 export interface WorkspaceView {
   workspaceId: string
@@ -106,4 +107,57 @@ export async function ensureSession(baseUrl: string, workspace: WorkspaceView): 
   const payload = blank ? { sessionId: blank.sessionId } : { workspaceId: workspace.workspaceId }
   const value = await callRpc<{ sessionId: string }>(baseUrl, 'session.create', payload)
   return value.sessionId
+}
+
+/** Loose mirror of one session.history page value (apiproxy sessions.d.ts). */
+export interface SessionHistoryPage {
+  events: HistoryEntryLike[]
+  hasMore: boolean
+  /** Projection baseline; only the tail page (beforeSeq omitted) carries it. */
+  projections?: {
+    asOfSeq: number
+    values: Record<string, unknown>
+  }
+}
+
+/**
+ * Answer one pending server-request frame (approval/question) by echoing its
+ * rpcId through POST /api/respond. Throws unless the host accepts; a repeated
+ * or late answer comes back as not-pending.
+ */
+export async function respond(baseUrl: string, rpcId: string, value: unknown): Promise<void> {
+  const res = await fetch(`${baseUrl}/api/respond`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ type: 'client-response', rpcId, result: { ok: true, value } }),
+    signal: AbortSignal.timeout(15_000),
+  })
+  const body = (await res.json()) as { accepted?: boolean; reason?: string }
+  if (!res.ok || body.accepted !== true) {
+    throw new Error(`respond ${rpcId} rejected: ${body.reason ?? `HTTP ${res.status}`}`)
+  }
+}
+
+/** Send one text prompt; slash commands ride the same entry point. */
+export async function promptSession(
+  baseUrl: string,
+  sessionId: string,
+  text: string,
+  mode: 'queue' | 'steer' = 'queue',
+): Promise<void> {
+  await callRpc(baseUrl, 'session.prompt', { sessionId, mode, content: [{ type: 'text', text }] })
+}
+
+/** Stop the session's active turn; queued work survives the cancellation. */
+export async function cancelSession(baseUrl: string, sessionId: string): Promise<void> {
+  await callRpc(baseUrl, 'session.cancel', { sessionId })
+}
+
+/** Read one history page; omitting beforeSeq reads the tail page. */
+export async function sessionHistory(
+  baseUrl: string,
+  sessionId: string,
+  beforeSeq?: number,
+): Promise<SessionHistoryPage> {
+  return callRpc(baseUrl, 'session.history', beforeSeq === undefined ? { sessionId } : { sessionId, beforeSeq })
 }

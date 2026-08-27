@@ -21,11 +21,12 @@ npm install -g @deepseek-ai/dsh@next
 3. **显示**：侧边栏 WebviewView 或编辑器标签页 WebviewPanel，内容是一个指向 `http://127.0.0.1:<端口>/?dsh_embed=vscode` 的 iframe。注意：`dsh_embed=vscode` 是给官方预留的嵌入参数，截至 dsh 0.1.1-rc.2 官方 UI 并未消费它（隐藏侧栏的效果尚不存在）。
 4. **workspace 预置**：服务就绪后，扩展把当前 VSCode 文件夹注册为 dsh workspace（`workspace.create`，幂等）并确保其下有会话，dsh UI 启动时按"最近活跃 workspace"策略直接落在当前文件夹上。
 5. **Sessions 树视图**：侧边栏顶部有原生会话列表，按 workspace 分组（当前文件夹置顶），支持新建 / 重命名 / 归档会话、在其他 workspace 上"打开文件夹"；列表订阅 dsh 的 host 事件流自动刷新。
+6. **原生 Chat 面板**：侧边栏 Chat 视图是 VSCode 原生的聊天界面（自写 webview，非 iframe）：markdown 渲染、工具调用卡片（含内联 diff）、内联权限确认与提问、运行中一键停止。点击 Sessions 树中的会话即附着并聚焦；新建会话直接落入聊天面板。
 
 ## 使用
 
 - 点击活动栏的 DSH One 图标打开侧边栏；首次使用会自动定位 dsh 并启动服务（未安装 dsh 时会提示安装）。
-- 侧边栏 Sessions 树视图：查看/新建/重命名/归档会话，点击会话聚焦 dsh 面板（受限于嵌入 UI 无法深链切换会话）。
+- 侧边栏 Sessions 树视图：查看/新建/重命名/归档会话，点击会话在原生 Chat 面板中打开；嵌入的 dsh web 面板（DSH 视图）仍保留作对照。
 - 命令面板（`Ctrl/Cmd+Shift+P`）：
   - `DSH One: 打开面板` / `DSH One: 在编辑器标签页打开`
   - `DSH One: 重启服务` / `DSH One: 停止服务`
@@ -57,11 +58,11 @@ npm install -g @deepseek-ai/dsh@next
 npm install
 npm test          # node --test 纯逻辑单测（需要 Node ≥ 22.6）
 npm run typecheck
-npm run build     # esbuild 打单文件 bundle 到 dist/extension.js
+npm run build     # esbuild 打包 dist/extension.js（宿主）+ dist/chatWebview.js（聊天前端）
 npm run package   # vsce 打出 .vsix
 ```
 
-零运行时依赖：仅用 Node 内置模块 + vscode API。
+扩展宿主零运行时依赖：仅用 Node 内置模块 + vscode API。聊天 webview 前端使用 marked + dompurify，由 esbuild 内联打包进 `dist/chatWebview.js`，无运行时外部加载。
 
 详细开发文档：
 
