@@ -13,14 +13,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   logger.info(`dsh-one activating (platform=${process.platform}/${process.arch})`)
 
   // Runtime resolution is shared and memoized: the server start path and the
-  // background update check must not download things twice.
+  // background update check must not download things twice. A rejected
+  // resolution (e.g. user cancelled the download, network error) must NOT be
+  // cached — otherwise every retry returns the same failure until reload.
   let runtimePromise: Promise<{ node: NodeRuntime; dsh: DshRuntime }> | null = null
   const resolveAll = (): Promise<{ node: NodeRuntime; dsh: DshRuntime }> => {
-    runtimePromise ??= (async () => {
-      const node = await ensureNode(context, logger)
-      const dsh = await ensureDsh(context, logger, node)
-      return { node, dsh }
-    })()
+    if (!runtimePromise) {
+      const p = (async () => {
+        const node = await ensureNode(context, logger)
+        const dsh = await ensureDsh(context, logger, node)
+        return { node, dsh }
+      })()
+      runtimePromise = p
+      p.catch(() => {
+        if (runtimePromise === p) runtimePromise = null
+      })
+    }
     return runtimePromise
   }
 
