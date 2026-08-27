@@ -7,7 +7,7 @@ function label(status: ServerStatus): { text: string; tooltip: string } {
       return {
         text: `$(zap) DSH: 运行中 :${status.port ?? '?'}`,
         tooltip: status.adopted
-          ? `DSH One — 已连接现有实例 ${status.url}（收养的进程不会被插件终止）`
+          ? `DSH One — 已复用已有实例 ${status.url}（该实例由外部启动，不会被插件终止）`
           : `DSH One — ${status.url}`,
       }
     case 'starting':

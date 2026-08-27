@@ -92,7 +92,7 @@
         "dshOne.pinnedVersion": {
           "type": "string",
           "default": "",
-          "description": "非空则钉死使用该 dsh 版本，并禁用自动更新。"
+          "description": "非空则固定使用该 dsh 版本，并禁用自动更新。"
         },
         "dshOne.autoUpdate": {
           "type": "boolean",
@@ -108,7 +108,7 @@
           "type": "number",
           "default": 3080,
           "minimum": 0,
-          "description": "dsh web 服务端口。0 表示由操作系统分配；非 0 时会先探测该端口上是否已有 dsh 实例并收养之。"
+          "description": "dsh web 服务端口。0 表示由操作系统分配；非 0 时会先探测该端口上是否已有 dsh 实例并复用之。"
         }
       }
     }

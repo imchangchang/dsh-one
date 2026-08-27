@@ -48,7 +48,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 - **验证 last-good 回退**：把 `current.json` 指到一个不存在的版本号，或把目标版本目录里的 `lib/bin.js` 删掉，`ensureDsh` 自检会失败并回退（`src/runtime/dshRuntime.ts:188-201`）。
 - **强制走系统 Node 之外的下载路径**：临时把 PATH 里的 node 摘掉（或在 dev host 里用干净环境）。
 - **重置更新检查节流**：12h 节流时间戳在 `globalState`（`dshOne.lastUpdateCheck`），不在磁盘目录里；直接用命令 `DSH One: 检查 dsh 更新`（force，绕过节流）即可，不用清状态。
-- **验证收养语义**：先手动 `dsh web --port 3080` 起一个实例，再打开面板，状态栏 tooltip 应显示"已连接现有实例"，关闭 VSCode 后该实例应仍在运行。
+- **验证复用语义**：先手动 `dsh web --port 3080` 起一个实例，再打开面板，状态栏 tooltip 应显示"已复用已有实例"，关闭 VSCode 后该实例应仍在运行。
 
 ## 发版流程
 
@@ -67,8 +67,8 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 
 - [ ] 删掉 globalStorage 目录模拟全新用户，F5 或安装 VSIX 后打开面板：Node 下载 → dsh 下载 → 服务启动 → iframe 加载出官方 UI，全链路无报错。
 - [ ] `dsh_embed=vscode` 生效：iframe 里官方 UI 的侧栏是隐藏的。
-- [ ] 状态栏四态（运行中/启动中/已停止/错误）显示正确，收养时 tooltip 有提示。
-- [ ] 手动起一个 `dsh web --port 3080` 再开面板，确认收养且不 kill。
-- [ ] 关闭 VSCode 后确认 spawn 的 dsh 进程被回收（`ps` / 任务管理器），收养的不被动。
+- [ ] 状态栏四态（运行中/启动中/已停止/错误）显示正确，复用已有实例时 tooltip 有提示。
+- [ ] 手动起一个 `dsh web --port 3080` 再开面板，确认复用该实例且不 kill。
+- [ ] 关闭 VSCode 后确认 spawn 的 dsh 进程被回收（`ps` / 任务管理器），复用的实例不受影响。
 - [ ] `DSH One: 重启服务` / `停止服务` / `检查 dsh 更新` / `显示日志` 四个命令各点一次。
 - [ ] Windows 和 macOS 至少各过一遍上面的流程（spawn/杀进程路径分平台）。

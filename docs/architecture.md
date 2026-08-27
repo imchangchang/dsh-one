@@ -12,12 +12,12 @@ dsh-one/
 ├── build.mjs               # esbuild 打包脚本，输出单文件 dist/extension.js
 ├── src/
 │   ├── extension.ts        # activate/deactivate 入口，注册命令与 view
-│   ├── log.ts              # 输出通道日志，写入前对 URL query 打码
+│   ├── log.ts              # 输出通道日志，写入前对 URL query 值脱敏
 │   ├── runtime/
 │   │   ├── node.ts         # Node ≥ 22 运行时解析（系统优先，否则下载 LTS）
 │   │   └── dshRuntime.ts   # dsh 运行时解析（npm install 到 globalStorage）与自动更新
 │   ├── server/
-│   │   └── manager.ts      # dsh web 进程生命周期：探测/收养/spawn/就绪/清理
+│   │   └── manager.ts      # dsh web 进程生命周期：探测/复用/spawn/就绪/清理
 │   ├── ui/
 │   │   ├── webview.ts      # 侧边栏 WebviewView + 编辑器标签页 WebviewPanel，iframe 嵌入
 │   │   └── statusbar.ts    # 状态栏指示
@@ -56,11 +56,11 @@ dsh-one/
 
 注意 spawn 时不走 `dsh` 可执行文件，而是直接 `node <prefix>/node_modules/@deepseek-ai/dsh/lib/bin.js`（`BIN_JS_REL`，`src/runtime/dshRuntime.ts:14`），原因见设计决策 3。
 
-## 核心流程二：服务启动（探测 → 收养/spawn → 就绪双确认 → webview 加载）
+## 核心流程二：服务启动（探测 → 复用/spawn → 就绪双确认 → webview 加载）
 
 入口 `ServerManager.ensureStarted()`（`src/server/manager.ts:97`），单例语义：并发调用共享同一个 in-flight Promise；实际逻辑在 `start()`（:130）。
 
-1. **探测与收养**（:136-143）：`port > 0` 时先 `probeDsh(port)`（:44）——POST `http://127.0.0.1:<port>/api/host.describe`，信封是 `{type:'client-request', rpcId:<uuid>, method:'host.describe', payload:{}}`（`makeDescribeRequest()`，`src/pure/envelope.ts:14`）；只有回包 JSON 的 `rpcId` 与发出的一致才认定是 dsh（`isDshResponse()`，`src/pure/envelope.ts:22`）。探测通过 → 状态置为 `running` 且 `adopted: true`，**收养实例永不 kill**。`port = 0` 跳过探测。
+1. **探测与复用**（:136-143）：`port > 0` 时先 `probeDsh(port)`（:44）——POST `http://127.0.0.1:<port>/api/host.describe`，信封是 `{type:'client-request', rpcId:<uuid>, method:'host.describe', payload:{}}`（`makeDescribeRequest()`，`src/pure/envelope.ts:14`）；只有回包 JSON 的 `rpcId` 与发出的一致才认定是 dsh（`isDshResponse()`，`src/pure/envelope.ts:22`）。探测通过 → 状态置为 `running` 且 `adopted: true`，**复用的实例永不 kill**。`port = 0` 跳过探测。
 2. **spawn**（:145-177）：解析运行时（可能触发上面的下载流程）；构造 env 时删除 `NODE_OPTIONS` 和 `ELECTRON_RUN_AS_NODE`（:150-152）；参数为 `web --host 127.0.0.1 --port <port>`，仅当 dsh 版本 ≥ 0.1.0-rc.7 时追加 `--no-open`（`gte()` 判断，:156）；POSIX 下 `detached: true` 让 dsh 自成进程组（后面整组杀），Windows 下系统 dsh 走 `shell: true`（.cmd shim 不能直接 spawn，:167）。工作目录取第一个 workspace folder，没有则用 home（:146）。
 3. **就绪双确认**（`waitReady()`，:215）：
    - 第一层：监听 stdout，解析 `dsh web: http://127.0.0.1:\d+` 就绪行（`parseReadyLine()`，`src/pure/readyLine.ts:15`）拿到**实际端口**（port=0 时尤其重要）。
@@ -68,7 +68,7 @@ dsh-one/
    - 失败路径：90s 超时（`START_TIMEOUT_MS`，:13）、进程提前退出、spawn 错误，都会带上 `TailBuffer`（:29，保留最后 40 行输出）作为错误详情。
 4. **webview 加载**：状态变为 `running` 后，`onDidChangeState` 触发 `bind()` 重渲染，`dshFrame()`（`src/ui/webview.ts:95`）输出 `<iframe src="http://127.0.0.1:<port>/?dsh_embed=vscode">`。侧边栏是懒启动——第一次打开侧边栏才触发 `ensureStarted()`（`src/ui/webview.ts:129`）；`openInTab()`（:133）同理。CSP 只允许 `frame-src http://127.0.0.1:* http://localhost:*`（:47-51）。
 
-进程退出有 `exit` 监听兜底（`src/server/manager.ts:188-202`）：非主动停止的退出会把状态置为 `error` 并弹"查看日志/重试"。
+进程退出有 `exit` 监听作为后备（`src/server/manager.ts:188-202`）：非主动停止的退出会把状态置为 `error` 并弹"查看日志/重试"。
 
 ## 状态与配置
 
@@ -104,15 +104,15 @@ dsh-one/
 以下结论来自对 marketplace 上 28 个 dsh 相关插件的逐一源码调研，完整报告在父仓库 `../docs/05-vscode插件调研.md`（不在本仓库内）。
 
 1. **运行时按需下载，不打进 VSIX。** 实测 `npm install @deepseek-ai/dsh` 的依赖树是 455 个包 / 约 280MB / 11 个平台相关原生 .node（node-pty、sharp、koffi 等）。打进 VSIX 又胖又锁平台；在用户机上跑 npm 会自动装对平台的二进制。副作用是天然支持跟踪 dsh 发布节奏——扩展不发版也能上新 dsh。实现：`src/runtime/dshRuntime.ts:98`（`installDsh`）。
-2. **先探后起 + 收养语义。** 两个 dsh 实例共享 `~/.dsh` 并发写会永久损坏会话日志（seq gap，Skylake0216 插件实锤）。所以启动前必须先探测，已有实例就收养且绝不 kill。实现：`src/server/manager.ts:136-143`、`:261`（`killOwned` 注释）。
+2. **先探后起 + 复用语义。** 两个 dsh 实例共享 `~/.dsh` 并发写会永久损坏会话日志（seq gap，Skylake0216 插件已有实际故障案例）。所以启动前必须先探测，已有实例就复用且绝不 kill。实现：`src/server/manager.ts:136-143`、`:261`（`killOwned` 注释）。
 3. **spawn 直跑 `node bin.js`。** 绕开 Windows `.cmd` shim 的 EINVAL / 杀不干净问题；env 里删掉扩展宿主注入的 `NODE_OPTIONS` / `ELECTRON_RUN_AS_NODE`（会让普通 node 子进程异常）。实现：`src/runtime/dshRuntime.ts:14`、`src/server/manager.ts:150-167`。
-4. **`--no-open` 按版本 gate。** 只有 dsh ≥ 0.1.0-rc.7 认识该参数，旧版收到会直接退出（Xizhi1024 插件的 critical bug 实锤）。实现：`src/server/manager.ts:11-12`、`:156`。
-5. **`deactivate` 同步清理。** VSCode 退出时不会等待 async 清理，所以 `deactivate()` 里只能同步发 SIGTERM，再 spawn 一个 detached reaper（`sh -c 'sleep 3 && kill -KILL -<pgid>'`）3 秒后兜底强杀，即使扩展宿主已退出也能执行。Windows 用 `taskkill /T /F` 杀整棵进程树（dsh 的工具子进程会逃逸单个 kill）。实现：`src/extension.ts:94`、`src/server/manager.ts:303`（`killSync`）。
+4. **`--no-open` 按版本 gate。** 只有 dsh ≥ 0.1.0-rc.7 认识该参数，旧版收到会直接退出（Xizhi1024 插件已出现过这个 critical bug）。实现：`src/server/manager.ts:11-12`、`:156`。
+5. **`deactivate` 同步清理。** VSCode 退出时不会等待 async 清理，所以 `deactivate()` 里只能同步发 SIGTERM，再 spawn 一个 detached reaper（`sh -c 'sleep 3 && kill -KILL -<pgid>'`）3 秒后强制终止作为后备，即使扩展宿主已退出也能执行。Windows 用 `taskkill /T /F` 杀整棵进程树（单个 kill 覆盖不到 dsh 的工具子进程）。实现：`src/extension.ts:94`、`src/server/manager.ts:303`（`killSync`）。
 6. **就绪双确认。** stdout 就绪行给实际端口，再补一次 RPC 身份确认，防端口被无关 HTTP 服务占用造成误判。实现：`src/server/manager.ts:215`（`waitReady`）。
 7. **iframe 嵌入官方 UI，不重写。** 调研的 28 个竞品里，重写派每家都在追官方协议叫苦；iframe 嵌入零 UI 同步成本。URL 带 `dsh_embed=vscode` 让 dsh 隐藏自身侧栏。实现：`src/ui/webview.ts:96`。
 8. **零运行时依赖。** 只用 Node 22 内置模块 + vscode API，esbuild 打单文件 bundle。依据：`package.json` 无 `dependencies`，只有 devDependencies；`build.mjs` 单入口打包。
 
 ## 日志与安全细节
 
-- 所有日志走 `Logger`（`src/log.ts:18`），写入前 `sanitize()` 会把 URL 的 query 值打码成 `***`（`src/log.ts:9`），避免 token 类参数进日志。新增日志点请走 `Logger`，不要 `console.log`。
+- 所有日志走 `Logger`（`src/log.ts:18`），写入前 `sanitize()` 会把 URL 的 query 值脱敏成 `***`（`src/log.ts:9`），避免 token 类参数进日志。新增日志点请走 `Logger`，不要 `console.log`。
 - webview CSP 收紧：`default-src 'none'`，frame 只允许 127.0.0.1/localhost，script 必须带 nonce（`src/ui/webview.ts:46-51`）。
