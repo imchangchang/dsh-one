@@ -2,10 +2,17 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Extension",
+      "name": "Run Extension (isolated)",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        // Isolate this dev host from your normal VSCode: no shared settings,
+        // no installed extensions, and globalStorage (Node/dsh runtimes the
+        // extension downloads) lands in .dev-host/ instead of ~/Library.
+        "--user-data-dir=${workspaceFolder}/.dev-host/user-data",
+        "--extensions-dir=${workspaceFolder}/.dev-host/extensions"
+      ],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"]
     }
   ]
