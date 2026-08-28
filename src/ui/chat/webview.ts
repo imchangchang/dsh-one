@@ -446,7 +446,7 @@ function renderImageChips(images: ChatImage[]): HTMLElement {
   const row = el('div', 'msg-images')
   for (const image of images) {
     const chip = el('span', 'image-chip msg-image-chip')
-    chip.appendChild(el('span', 'chip-name', `🖼 ${image.name ?? '图片'}`))
+    chip.appendChild(el('span', 'chip-name', image.name ?? '图片'))
     chip.title = '点击预览'
     chip.addEventListener('click', () => {
       const dataUrl = attachmentCache.get(image.attachmentId)
@@ -493,8 +493,8 @@ function renderMessage(m: ChatMessage): HTMLElement {
       return det
     }
     const row = el('div', 'msg user')
-    if (m.images && m.images.length > 0) row.appendChild(renderImageChips(m.images))
     if (m.text) row.appendChild(el('div', 'bubble', m.text))
+    if (m.images && m.images.length > 0) row.appendChild(renderImageChips(m.images))
     return row
   }
   const row = el('div', 'msg assistant')

@@ -93,7 +93,7 @@ const STYLE = `
     display: flex; flex-direction: column; gap: 10px;
   }
   .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
-  .msg.user { display: flex; justify-content: flex-end; }
+  .msg.user { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
   .msg.user .bubble {
     max-width: 85%; padding: 6px 10px; border-radius: 8px;
     background: var(--vscode-input-background);
@@ -255,7 +255,7 @@ const STYLE = `
   }
   #input:focus { outline: 1px solid var(--vscode-focusBorder); }
   .send-button { flex: none; }
-  .msg-images { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .msg-images { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   .msg-image-chip { cursor: zoom-in; padding-right: 8px; }
   .msg-image-chip:hover { filter: brightness(1.15); }
   .jump-latest {
