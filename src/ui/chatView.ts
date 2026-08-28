@@ -281,6 +281,11 @@ const STYLE = `
   .slash-popup .menu-item.selected { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
   .slash-popup .menu-item.hint-row { cursor: default; opacity: .75; }
   .slash-popup .menu-item.hint-row:hover { background: none; color: inherit; }
+  .command-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 2px 10px; font-size: 12px; opacity: .85; }
+  .command-row .command-line { font-family: var(--vscode-editor-font-family, monospace); }
+  .command-row .command-text { opacity: .75; white-space: pre-wrap; word-break: break-word; }
+  .command-row.error .command-text { color: var(--vscode-errorForeground, #f66); opacity: 1; }
+  .command-row .spinner { align-self: center; }
   .image-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .image-chip {
     display: inline-flex; align-items: center; gap: 6px;
@@ -594,10 +599,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   /**
-   * Execute one slash-command line and surface the outcome as a composer
-   * notice: the host's receipt text, an "unknown command" fallback for
-   * unrecognized lines (the web composer shows the same feedback), or a plain
-   * dispatch confirmation when a success carries no text.
+   * Execute one slash-command line. Matched commands need no local echo: the
+   * host logs command/run before the handler and command/done after it, and
+   * those events render as flow nodes in the message stream (same as the
+   * official web client). Only an unmatched line — which logs nothing
+   * host-side — gets a composer notice here.
    */
   private async runCommand(
     controller: ChatSessionController,
@@ -605,15 +611,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     images?: OutgoingImage[],
   ): Promise<void> {
     const outcome = await executeCommand(controller.url, controller.sessionId, line, images)
-    const text = !outcome.matched
-      ? `未知或格式错误的命令：${line}`
-      : outcome.kind === 'error'
-        ? (outcome.text ?? `命令执行失败：${line}`)
-        : // A bare success carries no receipt (e.g. /compact starting in the
-          // background); confirm the dispatch so the UI never looks dead.
-          (outcome.text ?? `已执行 ${line}`)
-    if (text) {
-      const message: ToWebviewMessage = { type: 'commandResult', text }
+    if (!outcome.matched) {
+      const message: ToWebviewMessage = { type: 'commandResult', text: `未知或格式错误的命令：${line}` }
       void this.view?.webview.postMessage(message)
     }
   }

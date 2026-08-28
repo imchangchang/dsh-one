@@ -423,3 +423,34 @@ test('user message without source falls back to the system-reminder prefix', () 
   assert.equal(legacy.context, 'legacy-instructions')
   assert.equal(plain.context, undefined)
 })
+
+test('command/run pushes a running flow node and command/done settles it', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('command/run', { commandId: 'cmd-1', name: 'compact', source: { kind: 'user' } }))
+  f.applyEvent(ev('command/run', { commandId: 'cmd-2', name: 'permission', args: 'read-only', source: { kind: 'user' } }))
+  f.applyEvent(ev('command/done', { commandId: 'cmd-1', kind: 'success', text: 'Compacted 12 history items (~900 tokens).' }))
+  f.applyEvent(ev('command/done', { commandId: 'cmd-2', kind: 'error', text: 'unknown preset "x"' }))
+
+  const [compact, permission] = f.messages()
+  assert.deepEqual(compact, {
+    kind: 'command',
+    id: 'cmd-1',
+    name: 'compact',
+    status: 'success',
+    text: 'Compacted 12 history items (~900 tokens).',
+  })
+  assert.deepEqual(permission, {
+    kind: 'command',
+    id: 'cmd-2',
+    name: 'permission',
+    args: 'read-only',
+    status: 'error',
+    text: 'unknown preset "x"',
+  })
+})
+
+test('command/done without its run in the window folds to nothing', () => {
+  const f = new ConversationFolder()
+  assert.equal(f.applyEvent(ev('command/done', { commandId: 'cmd-x', kind: 'success' })), false)
+  assert.equal(f.messages().length, 0)
+})

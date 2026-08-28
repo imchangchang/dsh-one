@@ -846,6 +846,14 @@ function renderMessage(m: ChatMessage): HTMLElement {
     if (attachments.childElementCount > 0) row.appendChild(attachments)
     return row
   }
+  if (m.kind === 'command') {
+    // Slash-command lifecycle flow node (dsh command/run + command/done).
+    const row = el('div', `msg command-row ${m.status}`)
+    row.appendChild(el('span', 'command-line', `/${m.name}${m.args ? ` ${m.args}` : ''}`))
+    if (m.status === 'running') row.appendChild(el('span', 'spinner'))
+    if (m.text) row.appendChild(el('span', 'command-text', m.text))
+    return row
+  }
   const row = el('div', 'msg assistant')
   for (const block of m.blocks) row.appendChild(renderBlock(block))
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))

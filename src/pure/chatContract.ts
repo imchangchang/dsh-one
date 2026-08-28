@@ -73,7 +73,22 @@ export interface ChatAssistantMessage {
   interrupted?: boolean
 }
 
-export type ChatMessage = ChatUserMessage | ChatAssistantMessage
+/**
+ * One slash-command lifecycle (dsh `command/run` + `command/done` pair),
+ * rendered as a flow node like the official web client does.
+ */
+export interface ChatCommandMessage {
+  kind: 'command'
+  /** The host-minted commandId pairing run and done. */
+  id: string
+  name: string
+  args?: string
+  status: 'running' | 'success' | 'error'
+  /** Handler receipt text from command/done, when the handler produced one. */
+  text?: string
+}
+
+export type ChatMessage = ChatUserMessage | ChatAssistantMessage | ChatCommandMessage
 
 /** A host approval request awaiting the user's decision. */
 export interface PendingApproval {

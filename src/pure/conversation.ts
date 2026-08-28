@@ -8,7 +8,15 @@
  * the extension does not depend on those packages, so the folder reads
  * payloads defensively and ignores what it does not know.
  */
-import type { ChatAssistantMessage, ChatBlock, ChatFile, ChatImage, ChatMessage, ChatToolBlock } from './chatContract.ts'
+import type {
+  ChatAssistantMessage,
+  ChatBlock,
+  ChatCommandMessage,
+  ChatFile,
+  ChatImage,
+  ChatMessage,
+  ChatToolBlock,
+} from './chatContract.ts'
 
 /** Subset of dsh-llm's StreamChunk the folder folds. */
 export type StreamChunkData =
@@ -244,6 +252,22 @@ export class ConversationFolder {
         return this.applyToolCall(event.data as ToolCallEventData, view, event.seq)
       case 'tool/result':
         return this.applyToolResult(event.data as ToolResultEventData, view, event.seq)
+      case 'command/run': {
+        const commandId = typeof data.commandId === 'string' && data.commandId ? data.commandId : `command-${event.seq}`
+        const name = typeof data.name === 'string' ? data.name : 'command'
+        const args = typeof data.args === 'string' && data.args.trim() ? data.args.trim() : undefined
+        this.msgs.push({ kind: 'command', id: commandId, name, ...(args ? { args } : {}), status: 'running' })
+        return true
+      }
+      case 'command/done': {
+        const commandId = typeof data.commandId === 'string' ? data.commandId : ''
+        // Pair by id; a done without its run in the window folds to nothing.
+        const msg = this.msgs.find((m): m is ChatCommandMessage => m.kind === 'command' && m.id === commandId)
+        if (!msg) return false
+        msg.status = data.kind === 'error' ? 'error' : 'success'
+        if (typeof data.text === 'string' && data.text.trim()) msg.text = data.text
+        return true
+      }
       default:
         return false
     }
