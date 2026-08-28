@@ -64,16 +64,19 @@ const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
  * Static mirror of dsh's built-in slash commands (the host's commands/list RPC
  * serves the same six; `model` below is our own submenu entry — the host has
  * no /model command). Commands execute via commands/execute, not session.prompt.
+ * `hint` mirrors the host's input hint and drives the composer's arg hints.
  */
-const SLASH_COMMANDS: Array<{ name: string; description: string }> = [
+const SLASH_COMMANDS: Array<{ name: string; description: string; hint?: string }> = [
   { name: 'compact', description: '压缩较早的会话历史' },
   { name: 'export', description: '导出本会话日志（ZIP）' },
-  { name: 'feedback', description: '记录本会话反馈' },
-  { name: 'goal', description: '设置或查看长任务目标' },
-  { name: 'permission', description: '切换权限预设' },
-  { name: 'plan', description: '进入或退出计划模式' },
+  { name: 'feedback', description: '记录本会话反馈', hint: '<text>' },
+  { name: 'goal', description: '设置或查看长任务目标', hint: '[<objective>|clear|edit <objective>|pause|resume]' },
+  { name: 'permission', description: '切换权限预设', hint: '<preset>' },
+  { name: 'plan', description: '进入或退出计划模式', hint: '[off|message]' },
   { name: 'model', description: '选择本会话使用的模型' },
 ]
+/** Commands the composer's slash completion offers (excludes our non-host `model` entry). */
+const COMPLETABLE_COMMANDS = SLASH_COMMANDS.filter((c) => c.name !== 'model')
 
 /** Shield glyphs copied verbatim from dsh-client-ui-conversation's PermissionSelect. */
 const SHIELD_OUTLINE =
@@ -184,6 +187,115 @@ function showPopover(anchor: HTMLElement, body: HTMLElement): void {
   popover = p
   document.addEventListener('mousedown', onPopoverOutside, true)
   document.addEventListener('keydown', onPopoverKey, true)
+}
+
+/**
+ * Slash-command completion popup (kimi-code / Claude Code style): while the
+ * composer value starts with '/', lists matching commands above the input,
+ * then argument completions (/permission presets) or the host's arg hint.
+ * Distinct from the shared menu popover: it survives renders that keep the
+ * composer and is refreshed by the input event instead of clicks.
+ */
+interface SlashRow {
+  label: string
+  right?: string
+  /** Complete the line; absent on pure hint rows. */
+  apply?: (input: HTMLTextAreaElement) => void
+}
+
+let slashPopupEl: HTMLElement | null = null
+let slashRows: SlashRow[] = []
+let slashIndex = 0
+
+function hideSlashPopup(): void {
+  slashPopupEl?.remove()
+  slashPopupEl = null
+  slashRows = []
+  slashIndex = 0
+}
+
+function positionSlashPopup(input: HTMLTextAreaElement): void {
+  if (!slashPopupEl) return
+  const rect = input.getBoundingClientRect()
+  slashPopupEl.style.left = `${Math.max(4, rect.left)}px`
+  slashPopupEl.style.width = `${rect.width}px`
+  slashPopupEl.style.bottom = `${window.innerHeight - rect.top + 6}px`
+}
+
+/** Recompute the rows from the current value; hide when nothing applies. */
+function updateSlashPopup(input: HTMLTextAreaElement): void {
+  slashRows = computeSlashRows(input)
+  if (slashRows.length === 0) {
+    hideSlashPopup()
+    return
+  }
+  slashIndex = slashRows.findIndex((r) => r.apply !== undefined)
+  if (!slashPopupEl) {
+    slashPopupEl = el('div', 'popover slash-popup')
+    document.body.appendChild(slashPopupEl)
+  }
+  slashPopupEl.textContent = ''
+  slashRows.forEach((row, i) => {
+    const item = el('div', i === slashIndex ? 'menu-item selected' : 'menu-item')
+    item.appendChild(el('span', undefined, row.label))
+    if (row.right) item.appendChild(el('span', 'menu-right', row.right))
+    if (row.apply) {
+      // mousedown + preventDefault: completing must not blur the textarea.
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault()
+        row.apply?.(input)
+      })
+    } else {
+      item.classList.add('hint-row')
+    }
+    slashPopupEl?.appendChild(item)
+  })
+  positionSlashPopup(input)
+}
+
+function moveSlashSelection(dir: number): void {
+  if (!slashPopupEl || slashRows.length === 0) return
+  const selectable = slashRows.map((r, i) => (r.apply ? i : -1)).filter((i) => i >= 0)
+  if (selectable.length === 0) return
+  const at = selectable.indexOf(slashIndex)
+  slashIndex = selectable[(at + dir + selectable.length) % selectable.length]
+  slashPopupEl.querySelectorAll('.menu-item').forEach((item, i) => {
+    item.classList.toggle('selected', i === slashIndex)
+  })
+}
+
+/** Rows for the current composer value: command names, preset args, or one hint row. */
+function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
+  const value = input.value
+  if (!value.startsWith('/') || value.includes('\n')) return []
+  /** Filling the value and dispatching `input` re-enters updateSlashPopup. */
+  const complete = (text: string) => () => {
+    input.value = text
+    input.focus()
+    input.setSelectionRange(text.length, text.length)
+    input.dispatchEvent(new Event('input'))
+  }
+  const sp = value.indexOf(' ')
+  if (sp === -1) {
+    const filter = value.slice(1).toLowerCase()
+    if (filter.includes(' ')) return []
+    return COMPLETABLE_COMMANDS.filter((c) => c.name.startsWith(filter)).map((c) => ({
+      label: `/${c.name}`,
+      right: c.description,
+      apply: complete(`/${c.name} `),
+    }))
+  }
+  const name = value.slice(1, sp)
+  const argPrefix = value.slice(sp + 1)
+  if (name === 'permission') {
+    const options = state?.permissions?.options ?? []
+    return options
+      .filter((o) => o.value !== argPrefix && (o.value.startsWith(argPrefix) || o.label.toLowerCase().includes(argPrefix.toLowerCase())))
+      .map((o) => ({ label: o.label, right: o.value, apply: complete(`/permission ${o.value}`) }))
+  }
+  const cmd = COMPLETABLE_COMMANDS.find((c) => c.name === name)
+  if (cmd?.hint) return [{ label: `参数：${cmd.hint}` }]
+  return []
 }
 
 function menuItem(
@@ -331,7 +443,16 @@ function openCommandMenu(anchor: HTMLElement): void {
             return
           }
           closePopover()
-          insertSlashCommand(c.name)
+          if (c.hint) {
+            // Takes arguments: seed the composer token (the completion popup
+            // then shows the arg hint) instead of firing a bare line.
+            insertSlashCommand(c.name)
+          } else {
+            // No-argument commands execute right away, like the web client's
+            // menu picks. The send path routes leading-slash lines to the
+            // command channel.
+            post({ type: 'send', text: `/${c.name}` })
+          }
         },
       }),
     )
@@ -344,11 +465,10 @@ function insertSlashCommand(name: string): void {
   if (!input || input.disabled) return
   // Slash commands must lead the prompt; prepend ahead of any draft (its args).
   input.value = `/${name} ` + input.value
-  autoGrow(input)
   input.focus()
   input.setSelectionRange(input.value.length, input.value.length)
-  const send = document.querySelector<HTMLButtonElement>('.send-button')
-  if (send && state?.canSend && !state.running) send.disabled = false
+  // The input event refreshes the send button, auto-grow, and the arg hint popup.
+  input.dispatchEvent(new Event('input'))
 }
 
 /** Inline rename: swap the header title for an input; Enter commits, Esc/blur cancels. */
@@ -433,6 +553,9 @@ function render(): void {
   ])
   const keepComposer =
     oldComposer !== null && hadFocus && stashedDraft === undefined && composerSig === lastComposerSig
+  // A rebuilt composer gets fresh listeners; the popup re-opens below when the
+  // draft still starts with '/'. With a kept composer it only re-anchors.
+  if (!keepComposer) hideSlashPopup()
   // The scroller element also persists (whenever a session is on screen):
   // replacing it mid-gesture breaks a native scrollbar drag in flight, so
   // only its children are rebuilt below. (Scrollbar drags dispatch no
@@ -557,6 +680,9 @@ function render(): void {
       // A rebuilt composer at least keeps the caret where it was.
       if (inputSel) input.setSelectionRange(inputSel.start, inputSel.end)
     }
+    if (input.value.startsWith('/')) updateSlashPopup(input)
+  } else if (slashPopupEl && oldInput) {
+    positionSlashPopup(oldInput)
   }
 }
 
@@ -998,6 +1124,7 @@ function renderInput(draft: string | undefined): HTMLElement {
   }
   const sendCurrent = (steer = false): void => {
     if (!state || !state.canSend) return
+    hideSlashPopup()
     // Staged file chips travel as <attachment> path lines appended to the
     // prompt text (dsh has no file content part); the folder parses them
     // back into chips for history rendering.
@@ -1029,6 +1156,39 @@ function renderInput(draft: string | undefined): HTMLElement {
   button.addEventListener('click', () => sendCurrent())
   button.title = state?.running ? 'Enter 排队发送，⌘/Ctrl+Enter 立即插话' : ''
   input.addEventListener('keydown', (e) => {
+    // Slash completion owns these keys while open: arrows navigate, Tab/Enter
+    // complete, Escape dismisses (an Escape with no popup falls through).
+    if (slashPopupEl && !e.isComposing) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        moveSlashSelection(1)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        moveSlashSelection(-1)
+        return
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        slashRows[slashIndex]?.apply?.(input)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        hideSlashPopup()
+        return
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        const apply = slashRows[slashIndex]?.apply
+        if (apply) {
+          e.preventDefault()
+          apply(input)
+          return
+        }
+        // Hint-only popup: Enter falls through and sends the line as-is.
+      }
+    }
     // isComposing: don't send while an IME candidate window is open.
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault()
@@ -1071,7 +1231,9 @@ function renderInput(draft: string | undefined): HTMLElement {
   input.addEventListener('input', () => {
     autoGrow(input)
     updateButton()
+    updateSlashPopup(input)
   })
+  input.addEventListener('blur', () => hideSlashPopup())
   input.addEventListener('paste', (e) => {
     // Every clipboard file becomes an attachment, images or not — the host
     // sniffs the bytes, so a missing declared type (macOS file promises) is fine.

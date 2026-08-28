@@ -277,6 +277,10 @@ const STYLE = `
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
   .menu-hint { padding: 8px; opacity: .7; }
+  .slash-popup { max-height: 40vh; }
+  .slash-popup .menu-item.selected { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+  .slash-popup .menu-item.hint-row { cursor: default; opacity: .75; }
+  .slash-popup .menu-item.hint-row:hover { background: none; color: inherit; }
   .image-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .image-chip {
     display: inline-flex; align-items: center; gap: 6px;
@@ -591,8 +595,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
   /**
    * Execute one slash-command line and surface the outcome as a composer
-   * notice: the host's receipt text when it has one, otherwise a fallback for
-   * unrecognized lines (the web composer shows the same "unknown" feedback).
+   * notice: the host's receipt text, an "unknown command" fallback for
+   * unrecognized lines (the web composer shows the same feedback), or a plain
+   * dispatch confirmation when a success carries no text.
    */
   private async runCommand(
     controller: ChatSessionController,
@@ -604,7 +609,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       ? `未知或格式错误的命令：${line}`
       : outcome.kind === 'error'
         ? (outcome.text ?? `命令执行失败：${line}`)
-        : outcome.text
+        : // A bare success carries no receipt (e.g. /compact starting in the
+          // background); confirm the dispatch so the UI never looks dead.
+          (outcome.text ?? `已执行 ${line}`)
     if (text) {
       const message: ToWebviewMessage = { type: 'commandResult', text }
       void this.view?.webview.postMessage(message)
