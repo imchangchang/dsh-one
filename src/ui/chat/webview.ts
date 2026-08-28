@@ -298,6 +298,75 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
   return []
 }
 
+/** Compact token count: 517 / 12.2K / 517K / 1.2M (dsh-web's formatTokens). */
+function formatTokens(n: number): string {
+  const scaled = (v: number): string => (v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10))
+  if (n < 1e3) return String(n)
+  if (n < 1e6) return `${scaled(n / 1e3)}K`
+  return `${scaled(n / 1e6)}M`
+}
+
+/** Ring geometry copied from dsh-web's ContextMeter: 14px viewBox, 2px stroke. */
+const RING_RADIUS = 5.5
+const RING_CIRC = 2 * Math.PI * RING_RADIUS
+
+function ringDashOffset(percent: number): string {
+  return String(RING_CIRC * (1 - percent / 100))
+}
+
+/** Occupancy ring SVG; the fill arc carries a stable class for in-place updates. */
+function ringSvg(percent: number): string {
+  return (
+    `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">` +
+    `<circle class="context-ring-track" cx="7" cy="7" r="${RING_RADIUS}"/>` +
+    `<circle class="context-ring-fill" cx="7" cy="7" r="${RING_RADIUS}" ` +
+    `stroke-dasharray="${RING_CIRC}" stroke-dashoffset="${ringDashOffset(percent)}" transform="rotate(-90 7 7)"/>` +
+    `</svg>`
+  )
+}
+
+/** Breakdown legend, in bar-segment order (dsh-web ContextMeter rows). */
+const CONTEXT_ROWS: Array<{ key: 'systemTokens' | 'toolsTokens' | 'messageTokens'; label: string; color: string }> = [
+  { key: 'systemTokens', label: '系统提示词', color: '#8b9bb4' },
+  { key: 'toolsTokens', label: '工具', color: '#a78bfa' },
+  { key: 'messageTokens', label: '对话消息', color: '#5a9cf8' },
+]
+
+/** Click-open panel next to the ring: occupancy figure plus the breakdown bars. */
+function openContextPanel(anchor: HTMLElement): void {
+  const usage = state?.contextUsage
+  if (!usage) return
+  const body = el('div', 'context-panel')
+  const header = el('div', 'cp-header')
+  header.appendChild(el('span', 'cp-percent', `上下文已用 ${usage.percent}%`))
+  header.appendChild(
+    el('span', 'cp-figures', `~${formatTokens(usage.usedTokens)} / ${formatTokens(usage.contextWindow)}`),
+  )
+  body.appendChild(header)
+  const breakdown = usage.breakdown
+  if (breakdown) {
+    const bar = el('div', 'cp-bar')
+    const rows = el('div', 'cp-rows')
+    for (const rowDef of CONTEXT_ROWS) {
+      const value = breakdown[rowDef.key]
+      const segment = el('span', 'cp-seg')
+      segment.style.background = rowDef.color
+      segment.style.width = `${Math.min(100, (value / usage.contextWindow) * 100)}%`
+      bar.appendChild(segment)
+      const row = el('div', 'cp-row')
+      const swatch = el('span', 'cp-swatch')
+      swatch.style.background = rowDef.color
+      row.appendChild(swatch)
+      row.appendChild(el('span', undefined, rowDef.label))
+      row.appendChild(el('span', 'cp-value', `~${formatTokens(value)}`))
+      rows.appendChild(row)
+    }
+    body.appendChild(bar)
+    body.appendChild(rows)
+  }
+  showPopover(anchor, body)
+}
+
 function menuItem(
   label: string,
   opts: { right?: string; checked?: boolean; glyph?: string; onClick: () => void },
@@ -657,6 +726,19 @@ function render(): void {
       else oldComposer.appendChild(el('div', 'input-stats', state.statsLine))
     } else {
       stats?.remove()
+    }
+    // Same in-place treatment for the context ring: the arc, title, and
+    // late availability update without rebuilding the composer.
+    const ring = oldComposer.querySelector<HTMLElement>('.context-ring')
+    if (ring) {
+      const usage = state.contextUsage
+      ring.style.display = usage ? '' : 'none'
+      if (usage) {
+        ring.title = `上下文已用 ${usage.percent}%`
+        ring
+          .querySelector('.context-ring-fill')
+          ?.setAttribute('stroke-dashoffset', ringDashOffset(usage.percent))
+      }
     }
   } else {
     app.appendChild(renderInput(draft))
@@ -1275,6 +1357,15 @@ function renderInput(draft: string | undefined): HTMLElement {
   })
   updateButton()
   row.appendChild(input)
+  // Context-occupancy ring (dsh ContextMeter): hidden until the provider
+  // reports both a pressure sample and the route's context window.
+  const usage = state?.contextUsage
+  const ring = buttonEl('context-ring', '')
+  ring.innerHTML = ringSvg(usage?.percent ?? 0)
+  ring.title = usage ? `上下文已用 ${usage.percent}%` : '上下文用量'
+  ring.style.display = usage ? '' : 'none'
+  ring.addEventListener('click', () => openContextPanel(ring))
+  row.appendChild(ring)
   // While a turn runs, stop gets its own button; send stays available and
   // queues the prompt (dsh mode 'queue').
   if (state?.running) {

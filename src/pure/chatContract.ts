@@ -169,6 +169,18 @@ export interface ChatState {
   queue?: QueuedItem[]
   /** Live background jobs (session/jobs frames); settled jobs drop out of the snapshot. */
   jobs?: JobItem[]
+  /**
+   * Context-occupancy meter data (dsh `contextPressure` + `contextBreakdown`
+   * projections). Absent until the provider reports both a pressure sample
+   * and the route's context window — the ring hides until then (web parity).
+   */
+  contextUsage?: {
+    percent: number
+    usedTokens: number
+    contextWindow: number
+    /** Heuristic composition (system prompt / tools / conversation). */
+    breakdown?: { systemTokens: number; toolsTokens: number; messageTokens: number }
+  }
 }
 
 /** One live background job (bash, subagent, …) shown above the composer. */

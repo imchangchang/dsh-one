@@ -147,6 +147,61 @@ function asPermissionSelect(value: unknown): PermissionSelectLike | null {
   return v
 }
 
+/** Loose mirror of the `contextPressure` projection value (dsh-token-meter). */
+interface ContextPressureLike {
+  pressureTokens?: number
+  projectedTokens?: number
+  contextWindow?: number
+}
+
+/** Loose mirror of the `contextBreakdown` projection value (dsh-token-meter). */
+interface ContextBreakdownLike {
+  systemTokens: number
+  toolsTokens: number
+  messageTokens: number
+}
+
+/** Narrow an unknown projection value to ContextPressureLike; null when malformed. */
+function asContextPressure(value: unknown): ContextPressureLike | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Record<string, unknown>
+  for (const k of ['pressureTokens', 'projectedTokens', 'contextWindow']) {
+    if (v[k] !== undefined && typeof v[k] !== 'number') return null
+  }
+  return value as ContextPressureLike
+}
+
+/** Narrow an unknown projection value to ContextBreakdownLike; null when malformed. */
+function asContextBreakdown(value: unknown): ContextBreakdownLike | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Record<string, unknown>
+  if (typeof v.systemTokens !== 'number' || typeof v.toolsTokens !== 'number' || typeof v.messageTokens !== 'number') {
+    return null
+  }
+  return value as ContextBreakdownLike
+}
+
+/**
+ * Composer ring data from the two token-meter projections. The numerator is
+ * projectedTokens — the provider sample carried forward over surface movement,
+ * so compaction shows immediately — with pressureTokens as the legacy
+ * fallback (same rule as the web client's contextOccupancy). Undefined until
+ * both a sample and the context window are known.
+ */
+function contextUsageOf(
+  pressure: ContextPressureLike | undefined,
+  breakdown: ContextBreakdownLike | undefined,
+): ChatState['contextUsage'] {
+  const used = pressure?.projectedTokens ?? pressure?.pressureTokens
+  if (used === undefined || pressure?.contextWindow === undefined) return undefined
+  return {
+    percent: Math.min(100, Math.round((used / pressure.contextWindow) * 100)),
+    usedTokens: used,
+    contextWindow: pressure.contextWindow,
+    ...(breakdown ? { breakdown } : {}),
+  }
+}
+
 /**
  * Owns one attached chat session: loads history, subscribes the mux stream,
  * folds events into ChatState (src/pure/chatContract.ts) and answers user
@@ -174,6 +229,11 @@ export class ChatSessionController implements vscode.Disposable {
   /** Formatted stats line from the `sessionStats` projection (higher seq wins). */
   private statsLine: string | undefined
   private statsSeq = -1
+  /** Context-occupancy projections (token-meter), each higher seq wins. */
+  private contextPressure: ContextPressureLike | undefined
+  private pressureSeq = -1
+  private contextBreakdown: ContextBreakdownLike | undefined
+  private breakdownSeq = -1
   /** Image intake limits from the `imageLimits` projection; undefined = no pre-check. */
   imageLimits: ImageLimits | undefined
   /** Footer model pill, filled by refreshModels(). */
@@ -207,6 +267,7 @@ export class ChatSessionController implements vscode.Disposable {
       modelLabel: this.modelLabel,
       permissions: this.permissions,
       statsLine: this.statsLine,
+      contextUsage: contextUsageOf(this.contextPressure, this.contextBreakdown),
     }
   }
 
@@ -330,10 +391,16 @@ export class ChatSessionController implements vscode.Disposable {
         // higher-seq-wins rule as the title.
         this.permissionsSeq = projections.asOfSeq
         this.statsSeq = projections.asOfSeq
+        this.pressureSeq = projections.asOfSeq
+        this.breakdownSeq = projections.asOfSeq
         this.applyPermissionsValue(projections.values.permissions)
         this.applyStatsValue(projections.values.sessionStats)
         const limits = asImageLimits(projections.values.imageLimits)
         if (limits) this.imageLimits = limits
+        const pressure = asContextPressure(projections.values.contextPressure)
+        if (pressure) this.contextPressure = pressure
+        const breakdown = asContextBreakdown(projections.values.contextBreakdown)
+        if (breakdown) this.contextBreakdown = breakdown
       }
     } catch (error) {
       this.logger.warn(`chat: history baseline failed for ${this.sessionId}: ${errorText(error)}`)
@@ -414,6 +481,24 @@ export class ChatSessionController implements vscode.Disposable {
           case 'imageLimits': {
             const limits = asImageLimits(payload.value)
             if (limits) this.imageLimits = limits
+            return
+          }
+          case 'contextPressure': {
+            if (seq <= this.pressureSeq) return
+            const pressure = asContextPressure(payload.value)
+            if (!pressure) return
+            this.pressureSeq = seq
+            this.contextPressure = pressure
+            this.push(true)
+            return
+          }
+          case 'contextBreakdown': {
+            if (seq <= this.breakdownSeq) return
+            const breakdown = asContextBreakdown(payload.value)
+            if (!breakdown) return
+            this.breakdownSeq = seq
+            this.contextBreakdown = breakdown
+            this.push(true)
             return
           }
           default:

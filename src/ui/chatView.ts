@@ -286,6 +286,25 @@ const STYLE = `
   .command-row .command-text { opacity: .75; white-space: pre-wrap; word-break: break-word; }
   .command-row.error .command-text { color: var(--vscode-errorForeground, #f66); opacity: 1; }
   .command-row .spinner { align-self: center; }
+  .context-ring {
+    display: inline-flex; align-items: center; padding: 3px; border: 0; border-radius: 50%;
+    background: none; cursor: pointer; color: var(--vscode-descriptionForeground); flex: none;
+  }
+  .context-ring:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(127,127,127,.3)); }
+  .context-ring-track { fill: none; stroke: var(--vscode-widget-border, rgba(127,127,127,.35)); stroke-width: 2px; }
+  .context-ring-fill { fill: none; stroke: currentColor; stroke-width: 2px; stroke-linecap: round; }
+  .context-panel { min-width: 230px; font-size: 12px; line-height: 20px; }
+  .context-panel .cp-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .context-panel .cp-percent { font-weight: 600; }
+  .context-panel .cp-figures { font-variant-numeric: tabular-nums; opacity: .8; }
+  .context-panel .cp-bar {
+    display: flex; gap: 1px; height: 4px; margin: 10px 0 8px; border-radius: 2px;
+    overflow: hidden; background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
+  }
+  .context-panel .cp-seg { height: 100%; min-width: 2px; border-radius: 1px; }
+  .context-panel .cp-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .context-panel .cp-swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .context-panel .cp-value { margin-left: auto; font-variant-numeric: tabular-nums; opacity: .8; }
   .image-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .image-chip {
     display: inline-flex; align-items: center; gap: 6px;
