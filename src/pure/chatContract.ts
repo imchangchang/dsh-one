@@ -42,12 +42,20 @@ export interface ChatImage {
   height?: number
 }
 
+/** A non-image file attached to a user message (its on-disk path is the payload). */
+export interface ChatFile {
+  name: string
+  path: string
+}
+
 export interface ChatUserMessage {
   kind: 'user'
   id: string
   text: string
   /** Images attached to this message, in content order. */
   images?: ChatImage[]
+  /** Non-image files attached to this message (parsed back out of the prompt text). */
+  files?: ChatFile[]
   /**
    * Host-injected context masquerading as a user message (source.kind from
    * the user/message event, e.g. 'agent-instructions' or a plugin snapshot).

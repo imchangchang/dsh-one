@@ -344,6 +344,32 @@ test('user messages keep image content parts as attachment references', () => {
   assert.equal(plain.images, undefined)
 })
 
+test('attachment lines in user text fold into file chips', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(
+    ev('user/message', {
+      id: 'u1',
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: '这个文件能读吗？\n<attachment>/Users/a/手册.xlsx</attachment>\n<attachment>/tmp/dsh-one-attachments/1-note.txt</attachment>',
+        },
+      ],
+      source: { kind: 'user' },
+    }),
+  )
+
+  const msg = f.messages()[0]
+  assert.equal(msg.kind, 'user')
+  if (msg.kind !== 'user') return
+  assert.equal(msg.text, '这个文件能读吗？')
+  assert.deepEqual(msg.files, [
+    { name: '手册.xlsx', path: '/Users/a/手册.xlsx' },
+    { name: '1-note.txt', path: '/tmp/dsh-one-attachments/1-note.txt' },
+  ])
+})
+
 test('tool output is truncated to the output limit', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('turn/start', { turn: 1 }))

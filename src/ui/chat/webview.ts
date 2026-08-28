@@ -9,6 +9,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type {
   ChatBlock,
+  ChatFile,
   ChatImage,
   ChatMessage,
   ChatState,
@@ -434,28 +435,33 @@ function contextLabel(kind: string): string {
 /** Attachment id whose bytes are being fetched to open a preview on arrival. */
 let pendingPreview: string | null = null
 
-/** Compact chips for a user message's attached images; click fetches bytes (once) and previews. */
-function renderImageChips(images: ChatImage[]): HTMLElement {
-  const row = el('div', 'msg-images')
-  for (const image of images) {
-    const chip = el('span', 'image-chip msg-image-chip')
-    chip.appendChild(el('span', 'chip-name', image.name ?? '图片'))
-    chip.title = '点击预览'
-    chip.addEventListener('click', () => {
-      const dataUrl = attachmentCache.get(image.attachmentId)
-      if (dataUrl) {
-        openLightbox(dataUrl)
-        return
-      }
-      pendingPreview = image.attachmentId
-      if (!attachmentRequested.has(image.attachmentId)) {
-        attachmentRequested.add(image.attachmentId)
-        post({ type: 'requestAttachment', attachmentId: image.attachmentId })
-      }
-    })
-    row.appendChild(chip)
-  }
-  return row
+/** Compact chip for one attached image; click fetches bytes (once) and previews. */
+function imageChip(image: ChatImage): HTMLElement {
+  const chip = el('span', 'image-chip msg-image-chip')
+  chip.appendChild(el('span', 'chip-name', image.name ?? '图片'))
+  chip.title = '点击预览'
+  chip.addEventListener('click', () => {
+    const dataUrl = attachmentCache.get(image.attachmentId)
+    if (dataUrl) {
+      openLightbox(dataUrl)
+      return
+    }
+    pendingPreview = image.attachmentId
+    if (!attachmentRequested.has(image.attachmentId)) {
+      attachmentRequested.add(image.attachmentId)
+      post({ type: 'requestAttachment', attachmentId: image.attachmentId })
+    }
+  })
+  return chip
+}
+
+/** Compact chip for one attached file; the path is the payload, no preview. */
+function fileChip(file: ChatFile): HTMLElement {
+  const chip = el('span', 'image-chip')
+  const name = el('span', 'chip-name', file.name)
+  name.title = file.path
+  chip.appendChild(name)
+  return chip
 }
 
 /** Full-screen preview overlay for one image; click or Escape closes. */
@@ -487,7 +493,10 @@ function renderMessage(m: ChatMessage): HTMLElement {
     }
     const row = el('div', 'msg user')
     if (m.text) row.appendChild(el('div', 'bubble', m.text))
-    if (m.images && m.images.length > 0) row.appendChild(renderImageChips(m.images))
+    const attachments = el('div', 'msg-images')
+    if (m.images) for (const image of m.images) attachments.appendChild(imageChip(image))
+    if (m.files) for (const file of m.files) attachments.appendChild(fileChip(file))
+    if (attachments.childElementCount > 0) row.appendChild(attachments)
     return row
   }
   const row = el('div', 'msg assistant')
@@ -721,8 +730,12 @@ function renderInput(draft: string | undefined): HTMLElement {
   }
   const sendCurrent = (): void => {
     if (!state || state.running || !state.canSend) return
-    // Staged file chips travel as plain paths appended to the prompt text.
-    const text = [input.value.trim(), ...pendingFiles.map((f) => f.path)].filter(Boolean).join('\n')
+    // Staged file chips travel as <attachment> path lines appended to the
+    // prompt text (dsh has no file content part); the folder parses them
+    // back into chips for history rendering.
+    const text = [input.value.trim(), ...pendingFiles.map((f) => `<attachment>${f.path}</attachment>`)]
+      .filter(Boolean)
+      .join('\n')
     if (!text && pendingImages.length === 0) return
     const images = pendingImages
     pendingImages = []

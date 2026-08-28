@@ -8,7 +8,7 @@
  * the extension does not depend on those packages, so the folder reads
  * payloads defensively and ignores what it does not know.
  */
-import type { ChatAssistantMessage, ChatBlock, ChatImage, ChatMessage, ChatToolBlock } from './chatContract.ts'
+import type { ChatAssistantMessage, ChatBlock, ChatFile, ChatImage, ChatMessage, ChatToolBlock } from './chatContract.ts'
 
 /** Subset of dsh-llm's StreamChunk the folder folds. */
 export type StreamChunkData =
@@ -109,8 +109,7 @@ function textOfBlocks(content: Array<{ type: string; text?: unknown }> | undefin
  * references. dsh stores image bytes in its attachment store, so the content
  * part carries `{ attachment: { attachmentId, mediaType, ... } }` instead of
  * inline data; the UI fetches bytes lazily via session.attachment.
- */
-function imagesOfBlocks(content: unknown): ChatImage[] {
+ */function imagesOfBlocks(content: unknown): ChatImage[] {
   if (!Array.isArray(content)) return []
   const images: ChatImage[] = []
   for (const block of content) {
@@ -130,6 +129,29 @@ function imagesOfBlocks(content: unknown): ChatImage[] {
     })
   }
   return images
+}
+
+/**
+ * File attachments ride the prompt text as `<attachment>PATH</attachment>`
+ * lines (dsh's PromptContentPart only has text and image parts). Split them
+ * back out so the UI renders chips instead of raw paths; the wrapper stays
+ * model-legible for the agent and in dsh's own web UI.
+ */
+const ATTACHMENT_LINE = /^<attachment>(.+)<\/attachment>$/
+
+function splitAttachments(text: string): { text: string; files: ChatFile[] } {
+  const files: ChatFile[] = []
+  const kept: string[] = []
+  for (const line of text.split('\n')) {
+    const match = ATTACHMENT_LINE.exec(line.trim())
+    if (match) {
+      const p = match[1]
+      files.push({ name: p.split('/').pop() ?? p, path: p })
+    } else {
+      kept.push(line)
+    }
+  }
+  return { text: kept.join('\n').replace(/\n+$/, ''), files }
 }
 
 /**
@@ -188,7 +210,8 @@ export class ConversationFolder {
         return true
       }
       case 'user/message': {
-        const text = textOfBlocks(data.content as Array<{ type: string; text?: unknown }> | undefined)
+        const rawText = textOfBlocks(data.content as Array<{ type: string; text?: unknown }> | undefined)
+        const { text, files } = splitAttachments(rawText)
         const images = imagesOfBlocks(data.content)
         const id = typeof data.id === 'string' && data.id ? data.id : `user-${event.seq}`
         // Host-injected context (AGENTS.md instructions, runtime snapshots)
@@ -207,6 +230,7 @@ export class ConversationFolder {
           text,
           ...(context ? { context } : {}),
           ...(images.length > 0 ? { images } : {}),
+          ...(files.length > 0 ? { files } : {}),
         })
         this.current = null
         this.stepKey = null
