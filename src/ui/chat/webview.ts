@@ -409,6 +409,17 @@ function render(): void {
     app.appendChild(pending)
   }
 
+  if (state.queue && state.queue.length > 0) {
+    const queue = el('div', 'queue')
+    for (const item of state.queue) {
+      const row = el('div', 'queue-item')
+      row.appendChild(el('span', 'queue-tag', item.placement === 'steering' ? '插话中' : '排队中'))
+      row.appendChild(el('span', 'queue-text', item.text || '（空消息）'))
+      queue.appendChild(row)
+    }
+    app.appendChild(queue)
+  }
+
   app.appendChild(renderInput(draft))
   if (stickToBottom) messages.scrollTop = messages.scrollHeight
   else if (prevScrollTop !== null) messages.scrollTop = prevScrollTop

@@ -143,6 +143,18 @@ export interface ChatState {
   }
   /** Footer session-stats line, host-formatted (src/pure/sessionStats.ts); rendered verbatim. */
   statsLine?: string
+  /**
+   * Still-pending queued/steering inbox items (session/queue frames). These
+   * are not durable session events, so they never appear in `messages`.
+   */
+  queue?: QueuedItem[]
+}
+
+/** One queued prompt awaiting the agent, shown above the composer. */
+export interface QueuedItem {
+  id: string
+  placement: 'queued' | 'steering'
+  text: string
 }
 
 /** One selectable reasoning-effort tier of a catalog model. */

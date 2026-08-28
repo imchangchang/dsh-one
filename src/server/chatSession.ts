@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
-import type { ChatState, OutgoingImage, PendingRequest, QuestionAnswerInput } from '../pure/chatContract.ts'
+import type { ChatState, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem } from '../pure/chatContract.ts'
 import { ConversationFolder } from '../pure/conversation.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
@@ -22,6 +22,13 @@ interface QuestionItem {
   header?: string
   options?: Array<{ label: string; description?: string }>
   multiSelect?: boolean
+}
+
+/** Loose mirror of QueuedInboxItem (apiproxy events.d.ts); context items are invisible until claimed. */
+interface QueuedInboxItemLike {
+  id: string
+  placement: 'queued' | 'steering' | 'context'
+  message?: { content?: Array<{ type: string; text?: unknown }> }
 }
 
 /** Loose mirror of PermissionSelect (dsh-permission-presets types; `permissions` projection value). */
@@ -74,6 +81,28 @@ function modelLabelOf(models: SessionModels): string {
   return label
 }
 
+/** Flatten a queued message to a short preview: text blocks joined, attachments counted. */
+function queueTextOf(item: QueuedInboxItemLike): string {
+  const content = item.message?.content
+  if (!Array.isArray(content)) return ''
+  const images = content.filter((b) => b && b.type === 'image').length
+  let files = 0
+  const texts: string[] = []
+  for (const b of content) {
+    if (!b || b.type !== 'text' || typeof b.text !== 'string') continue
+    const kept: string[] = []
+    for (const line of b.text.split('\n')) {
+      // Attachment lines the composer appended ride this text block too.
+      if (/^<attachment>.+<\/attachment>$/.test(line.trim())) files += 1
+      else kept.push(line)
+    }
+    texts.push(kept.join('\n'))
+  }
+  const text = texts.join('\n').trim()
+  const notes = [images > 0 ? `[图片 ×${images}]` : '', files > 0 ? `[文件 ×${files}]` : ''].filter(Boolean)
+  return [...notes, text].filter(Boolean).join(' ')
+}
+
 /** Narrow an unknown projection value to SessionStatsLike; null when malformed. */
 function asStats(value: unknown): SessionStatsLike | null {
   if (!value || typeof value !== 'object') return null
@@ -119,6 +148,8 @@ export class ChatSessionController implements vscode.Disposable {
 
   private readonly folder = new ConversationFolder()
   private pending: PendingRequest[] = []
+  /** Latest session/queue snapshot, user-visible placements only. */
+  private queue: QueuedItem[] = []
   private sessionTitle: string | undefined
   /** Watermark for the title projection's higher-seq-wins rule. */
   private titleSeq = -1
@@ -154,6 +185,7 @@ export class ChatSessionController implements vscode.Disposable {
       sessionTitle: this.sessionTitle,
       messages: this.folder.messages(),
       pending: [...this.pending],
+      queue: [...this.queue],
       running: this.folder.hasOpenTurn(),
       canSend: this.ready && !this.disposed,
       modelLabel: this.modelLabel,
@@ -382,8 +414,24 @@ export class ChatSessionController implements vscode.Disposable {
         if (this.pending.length !== before) this.push(true)
         return
       }
+      case 'session/queue': {
+        // Whole-snapshot replacement: queued prompts are not durable events,
+        // so this frame is the only place they are visible until claimed.
+        const items = Array.isArray(payload.items) ? (payload.items as QueuedInboxItemLike[]) : []
+        this.queue = items
+          .filter((item): item is QueuedInboxItemLike & { placement: 'queued' | 'steering' } =>
+            item.placement === 'queued' || item.placement === 'steering',
+          )
+          .map((item) => ({
+            id: String(item.id),
+            placement: item.placement,
+            text: queueTextOf(item),
+          }))
+        this.push(true)
+        return
+      }
       default:
-        // session/queue and session/jobs carry no chat rendering yet.
+        // session/jobs carries no chat rendering yet.
         return
     }
   }
