@@ -538,8 +538,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
   /**
    * Attachment picker: images are read into base64 and staged via the shared
-   * validator; any other file already lives on disk, so its path goes straight
-   * into the composer as prompt text (no temp copy needed).
+   * validator; any other file already lives on disk, so it is staged as a
+   * path chip (no temp copy needed).
    */
   private async pickFiles(controller: ChatSessionController): Promise<void> {
     const uris = await vscode.window.showOpenDialog({
@@ -570,7 +570,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
     this.stageImages(controller, images, skipped)
     if (paths.length > 0) {
-      const message: ToWebviewMessage = { type: 'insertText', text: `${paths.join(' ')} ` }
+      const message: ToWebviewMessage = {
+        type: 'filesPicked',
+        files: paths.map((p) => ({ name: path.basename(p), path: p })),
+      }
       void this.view?.webview.postMessage(message)
     }
   }
@@ -579,12 +582,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
    * Paste intake: every clipboard file becomes an attachment. Images (sniffed
    * from bytes, or a declared image/* type) go through the same staging and
    * limit validation as the picker; anything else is written to a temp file
-   * and its path is inserted into the composer for the agent to read.
+   * and staged as a path chip for the agent to read.
    */
   private async stagePastedFiles(controller: ChatSessionController, files: OutgoingImage[]): Promise<void> {
     if (files.length === 0) return
     const images: OutgoingImage[] = []
-    const paths: string[] = []
+    const staged: Array<{ name: string; path: string }> = []
     const skipped: string[] = []
     for (const file of files) {
       const name = file.name ?? '附件'
@@ -595,7 +598,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         continue
       }
       try {
-        paths.push(await this.saveTempAttachment(name, bytes))
+        staged.push({ name, path: await this.saveTempAttachment(name, bytes) })
       } catch (err) {
         skipped.push(`${name}（写入临时文件失败：${err instanceof Error ? err.message : String(err)}）`)
       }
@@ -604,8 +607,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
     }
     this.stageImages(controller, images)
-    if (paths.length > 0) {
-      const message: ToWebviewMessage = { type: 'insertText', text: `${paths.join(' ')} ` }
+    if (staged.length > 0) {
+      const message: ToWebviewMessage = { type: 'filesPicked', files: staged }
       void this.view?.webview.postMessage(message)
     }
   }

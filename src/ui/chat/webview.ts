@@ -18,6 +18,7 @@ import type {
   OutgoingImage,
   PendingApproval,
   PendingQuestion,
+  StagedFile,
   ToWebviewMessage,
 } from '../../pure/chatContract.ts'
 
@@ -36,6 +37,8 @@ let state: ChatState | null = null
 let stickToBottom = true
 /** Images staged in the composer, sent with the next `send`. */
 let pendingImages: OutgoingImage[] = []
+/** Non-image files staged as chips; their paths join the prompt text on send. */
+let pendingFiles: StagedFile[] = []
 /** Session the staged images belong to; a switch drops them. */
 let stagedForSession: string | null = null
 /** Latest model catalog reply; dropped on session switch, refetched on menu open. */
@@ -95,12 +98,16 @@ window.addEventListener('message', (event) => {
     state = msg.state
     if (state.sessionId !== stagedForSession) {
       pendingImages = []
+      pendingFiles = []
       modelCatalog = null
       stagedForSession = state.sessionId
     }
     render()
   } else if (msg?.type === 'imagesPicked' && Array.isArray(msg.images)) {
     pendingImages = [...pendingImages, ...msg.images]
+    render()
+  } else if (msg?.type === 'filesPicked' && Array.isArray(msg.files)) {
+    pendingFiles = [...pendingFiles, ...msg.files]
     render()
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
@@ -113,20 +120,6 @@ window.addEventListener('message', (event) => {
       openLightbox(dataUrl)
     }
     render()
-  } else if (msg?.type === 'insertText' && typeof msg.text === 'string') {
-    // Attachment paths land at the cursor as ordinary prompt text.
-    const input = document.getElementById('input') as HTMLTextAreaElement | null
-    if (input && !input.disabled) {
-      const start = input.selectionStart ?? input.value.length
-      const end = input.selectionEnd ?? start
-      input.value = input.value.slice(0, start) + msg.text + input.value.slice(end)
-      autoGrow(input)
-      input.focus()
-      const pos = start + msg.text.length
-      input.setSelectionRange(pos, pos)
-      const send = document.querySelector<HTMLButtonElement>('.send-button')
-      if (send && state?.canSend && !state.running) send.disabled = false
-    }
   }
 })
 
@@ -668,7 +661,7 @@ function renderInput(draft: string | undefined): HTMLElement {
   const wrap = el('div', 'input-area')
   const canSend = !!state?.canSend
 
-  if (pendingImages.length > 0) {
+  if (pendingImages.length > 0 || pendingFiles.length > 0) {
     const chips = el('div', 'image-chips')
     pendingImages.forEach((img, i) => {
       const chip = el('span', 'image-chip')
@@ -683,6 +676,20 @@ function renderInput(draft: string | undefined): HTMLElement {
       remove.title = '移除图片'
       remove.addEventListener('click', () => {
         pendingImages.splice(i, 1)
+        render()
+      })
+      chip.appendChild(remove)
+      chips.appendChild(chip)
+    })
+    pendingFiles.forEach((file, i) => {
+      const chip = el('span', 'image-chip')
+      const name = el('span', 'chip-name', file.name)
+      name.title = file.path
+      chip.appendChild(name)
+      const remove = buttonEl('chip-remove', '×')
+      remove.title = '移除文件'
+      remove.addEventListener('click', () => {
+        pendingFiles.splice(i, 1)
         render()
       })
       chip.appendChild(remove)
@@ -708,15 +715,18 @@ function renderInput(draft: string | undefined): HTMLElement {
       button.disabled = false
     } else {
       button.textContent = '发送'
-      button.disabled = !canSend || (input.value.trim().length === 0 && pendingImages.length === 0)
+      button.disabled =
+        !canSend || (input.value.trim().length === 0 && pendingImages.length === 0 && pendingFiles.length === 0)
     }
   }
   const sendCurrent = (): void => {
     if (!state || state.running || !state.canSend) return
-    const text = input.value.trim()
+    // Staged file chips travel as plain paths appended to the prompt text.
+    const text = [input.value.trim(), ...pendingFiles.map((f) => f.path)].filter(Boolean).join('\n')
     if (!text && pendingImages.length === 0) return
     const images = pendingImages
     pendingImages = []
+    pendingFiles = []
     post({ type: 'send', text, ...(images.length > 0 ? { images } : {}) })
     input.value = ''
     render()

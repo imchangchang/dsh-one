@@ -100,6 +100,16 @@ export interface OutgoingImage {
   name?: string
 }
 
+/**
+ * A non-image file staged in the composer as a chip. Bytes stay on disk
+ * (picked in place, or a temp copy for pastes); the path joins the prompt
+ * text on send so the agent can read the file itself.
+ */
+export interface StagedFile {
+  name: string
+  path: string
+}
+
 /** Whole-chat snapshot pushed host → webview (throttled; replaces state). */
 export interface ChatState {
   sessionId: string | null
@@ -146,8 +156,8 @@ export interface ModelCatalog {
 export type ToWebviewMessage =
   | { type: 'state'; state: ChatState }
   | { type: 'imagesPicked'; images: OutgoingImage[] }
+  | { type: 'filesPicked'; files: StagedFile[] }
   | { type: 'modelCatalog'; catalog: ModelCatalog }
-  | { type: 'insertText'; text: string }
   | { type: 'attachmentData'; attachmentId: string; mediaType: string; data: string }
 
 export type FromWebviewMessage =
