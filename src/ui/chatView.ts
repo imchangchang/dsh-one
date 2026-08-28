@@ -16,7 +16,8 @@ import {
   sessionModels,
 } from '../server/dshRpc.ts'
 import type { SessionModelSelection } from '../server/dshRpc.ts'
-import type { ChatState, FromWebviewMessage, OutgoingImage, ToWebviewMessage } from '../pure/chatContract.ts'
+import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
+import type { SessionsStore } from './sessionsStore.ts'
 
 /** Media type by file extension (dsh ImageMediaType: png/jpeg/webp/gif). */
 const IMAGE_MEDIA_TYPES: Record<string, string> = {
@@ -39,7 +40,6 @@ const EMPTY_STATE: ChatState = {
 function nonce(): string {
   return crypto.randomBytes(16).toString('base64')
 }
-
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -76,7 +76,81 @@ const STYLE = `
     font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
     color: var(--vscode-foreground);
   }
-  #app { display: flex; flex-direction: column; height: 100%; }
+  #app { display: flex; flex-direction: row; height: 100%; }
+  /* 宽屏：左 sessions 面板 + 右聊天列；窄屏（<720px）改上下布局，面板限高自滚动。 */
+  .chat-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .sessions-panel {
+    width: 260px; flex: none; display: flex; flex-direction: column;
+    border-right: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .sessions-header {
+    flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .sessions-search {
+    flex: 1; min-width: 0; padding: 3px 6px; font-family: inherit; font-size: 12px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
+  }
+  .sessions-search:focus { outline: 1px solid var(--vscode-focusBorder); }
+  .sessions-tool {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; padding: 0; background: transparent; border: 0;
+    color: inherit; opacity: 0.7; cursor: pointer; border-radius: 4px;
+  }
+  .sessions-tool:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  .sessions-tool svg { display: block; }
+  .sessions-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .workspace-row {
+    display: flex; align-items: center; gap: 6px; padding: 4px 10px 2px;
+    font-weight: 600; font-size: 12px;
+  }
+  .workspace-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .workspace-badge {
+    flex: none; font-size: 10px; font-weight: 400; padding: 0 5px; border-radius: 8px;
+    background: var(--vscode-badge-background, rgba(127,127,127,.25));
+    color: var(--vscode-badge-foreground, var(--vscode-foreground));
+  }
+  .session-row {
+    display: flex; align-items: center; gap: 7px; margin: 0 4px; padding: 3px 6px 3px 14px;
+    cursor: pointer; border-radius: 4px;
+  }
+  .session-row:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
+  .session-row.active {
+    background: var(--vscode-list-activeSelectionBackground, rgba(0,122,204,.35));
+    color: var(--vscode-list-activeSelectionForeground, inherit);
+  }
+  .session-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex: none;
+    background: var(--vscode-descriptionForeground, #888); opacity: 0.35;
+  }
+  .session-dot.running { background: var(--vscode-testing-iconPassed, #73c991); opacity: 1; }
+  .session-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .session-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-time { font-size: 11px; opacity: 0.55; }
+  .row-actions { display: none; gap: 2px; flex: none; }
+  .session-row:hover .row-actions, .workspace-row:hover .row-actions { display: inline-flex; }
+  .row-action {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; padding: 0; background: transparent; border: 0;
+    color: inherit; opacity: 0.7; cursor: pointer; border-radius: 3px;
+  }
+  .row-action:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  .row-action svg { display: block; }
+  .sessions-empty {
+    padding: 20px 12px; display: flex; flex-direction: column; align-items: center;
+    gap: 6px; text-align: center;
+  }
+  .sessions-empty .empty-hint { font-size: 12px; }
+  .sessions-empty button { margin-top: 4px; }
+  @media (max-width: 719px) {
+    #app { flex-direction: column; }
+    .sessions-panel {
+      width: auto; max-height: 40%; border-right: 0;
+      border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    }
+    .chat-col { min-height: 0; }
+  }
   .chat-header {
     display: flex; align-items: center; gap: 8px;
     padding: 4px 12px; font-weight: 600; flex: none;
@@ -382,6 +456,7 @@ const STYLE = `
   }
   .empty-title { font-weight: 600; }
   .empty-hint { opacity: 0.7; font-size: 0.9em; }
+  .empty button { margin-top: 8px; padding: 4px 14px; }
 `
 
 function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
@@ -412,23 +487,29 @@ function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
 /**
  * Native chat view (`dshOne.chat`): owns the current ChatSessionController,
  * pushes its (throttled) ChatState snapshots to the webview verbatim and
- * routes user actions back. With no session — or a non-running server — the
- * webview gets EMPTY_STATE and shows its placeholder copy.
+ * routes user actions back. Also owns the sessions panel: SessionsStore 的
+ * 快照随 store 变更/服务状态变化/视图 resolve 推给 webview，面板动作经
+ * onMessage 顶部的免 controller 分支路由（会话操作复用 extension.ts 的命令）。
+ * With no session — or a non-running server — the webview gets EMPTY_STATE
+ * and shows its placeholder copy.
  */
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | null = null
   private controller: ChatSessionController | null = null
   private controllerSub: vscode.Disposable | null = null
   private readonly managerSub: vscode.Disposable
+  private readonly storeSub: vscode.Disposable
 
   constructor(
     private readonly manager: ServerManager,
     private readonly logger: Logger,
     private readonly extensionUri: vscode.Uri,
-    /** Fired after a chat-initiated session mutation (e.g. rename) so the tree can rebuild. */
+    private readonly store: SessionsStore,
+    /** Fired after a chat-initiated session mutation (e.g. rename) so the store can rebuild. */
     private readonly onSessionsChanged?: () => void,
   ) {
     this.managerSub = manager.onDidChangeState((s) => this.onServerState(s))
+    this.storeSub = store.onDidChange(() => this.pushSessions())
   }
 
   /** Session currently shown, null when the view is in its empty state. */
@@ -449,7 +530,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       if (this.view === view) this.view = null
     })
     // A late-resolved view still needs the state attached before it appeared.
-    this.push(this.controller?.getState() ?? EMPTY_STATE)
+    this.push(this.controller?.getState() ?? this.emptyState())
+    this.pushSessions()
   }
 
   /**
@@ -473,6 +555,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     this.attach(new ChatSessionController(url, sessionId, this.logger))
   }
 
+  /** EMPTY_STATE plus the startup-failure marker when the server is in error. */
+  private emptyState(): ChatState {
+    const status = this.manager.getStatus()
+    return status.state === 'error' && status.reason === 'dshNotFound'
+      ? { ...EMPTY_STATE, serverError: 'dshNotFound' }
+      : EMPTY_STATE
+  }
+
   private attach(controller: ChatSessionController | null): void {
     this.controllerSub?.dispose()
     this.controllerSub = null
@@ -481,7 +571,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     if (controller) {
       this.controllerSub = controller.onDidChange((state) => this.push(state))
     }
-    this.push(controller?.getState() ?? EMPTY_STATE)
+    this.push(controller?.getState() ?? this.emptyState())
   }
 
   private onServerState(status: ServerStatus): void {
@@ -492,6 +582,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     } else if (this.controller && this.controller.url !== status.url) {
       this.attach(null)
     }
+    // 面板空态依赖 serverState/dshNotFound，状态变化时同步推一次。
+    this.pushSessions()
   }
 
   private push(state: ChatState): void {
@@ -499,7 +591,58 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     void this.view?.webview.postMessage(message)
   }
 
+  /** Store 快照 + 服务状态，合成面板用的 SessionsSnapshot。 */
+  private pushSessions(): void {
+    const status = this.manager.getStatus()
+    const snapshot: SessionsSnapshot = {
+      ...this.store.snapshot(),
+      serverState: status.state,
+      dshNotFound: status.state === 'error' && status.reason === 'dshNotFound',
+    }
+    const message: ToWebviewMessage = { type: 'sessions', snapshot }
+    void this.view?.webview.postMessage(message)
+  }
+
   private async onMessage(m: FromWebviewMessage): Promise<void> {
+    // Install guide works with no session (and no server) attached.
+    if (m?.type === 'openInstallPage') {
+      void vscode.commands.executeCommand('dshOne.openInstallPage')
+      return
+    }
+    // Sessions 面板的动作同样不需要附着会话：会话操作复用 extension.ts 里
+    // 改造后的命令（收普通参数），排序/搜索/刷新直接落在 store 上。
+    switch (m?.type) {
+      case 'sessionOpen':
+        this.setSession(m.sessionId)
+        return
+      case 'sessionNew':
+        void vscode.commands.executeCommand('dshOne.session.new', m.workspaceId)
+        return
+      case 'sessionRename':
+        void vscode.commands.executeCommand('dshOne.session.rename', m.sessionId, m.title)
+        return
+      case 'sessionArchive':
+        void vscode.commands.executeCommand('dshOne.session.archive', m.sessionId, m.title)
+        return
+      case 'workspaceAdd':
+        void vscode.commands.executeCommand('dshOne.workspace.add')
+        return
+      case 'workspaceOpenFolder':
+        void vscode.commands.executeCommand('dshOne.workspace.openFolder', m.path)
+        return
+      case 'sessionsRefresh':
+        void this.store.refresh()
+        return
+      case 'sessionsSearch':
+        this.store.setQuery(typeof m.query === 'string' && m.query.trim() !== '' ? m.query : null)
+        return
+      case 'sessionsSort':
+        this.store.setSortOrder(m.order)
+        return
+      case 'serverStart':
+        void this.manager.ensureStarted()
+        return
+    }
     const controller = this.controller
     if (!controller || !m || typeof m.type !== 'string') return
     try {
@@ -864,6 +1007,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
   dispose(): void {
     this.managerSub.dispose()
+    this.storeSub.dispose()
     this.controllerSub?.dispose()
     this.controller?.dispose()
     this.controller = null

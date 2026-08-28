@@ -6,7 +6,6 @@ import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import {
   buildSessionTree,
   type SessionInput,
-  type SessionNodeModel,
   type SessionSortOrder,
   type WorkspaceInput,
   type WorkspaceNodeModel,
@@ -18,7 +17,7 @@ const REFRESH_DEBOUNCE_MS = 500
 /** workspaceState key for the persisted sort preference (UI-only state). */
 const SORT_STATE_KEY = 'sessions.sortOrder'
 
-/** Host event methods that can change the tree; anything else is ignored. */
+/** Host event methods that can change the list; anything else is ignored. */
 const REFRESH_METHODS = new Set([
   'host/session-added',
   'host/session-removed',
@@ -29,40 +28,20 @@ const REFRESH_METHODS = new Set([
   'host/archived-sessions-changed',
 ])
 
-export class WorkspaceNode extends vscode.TreeItem {
-  constructor(readonly model: WorkspaceNodeModel) {
-    super(model.label, vscode.TreeItemCollapsibleState.Expanded)
-    this.iconPath = new vscode.ThemeIcon('folder')
-    this.contextValue = model.isCurrent ? 'dshWorkspace.current' : 'dshWorkspace.other'
-    this.description = model.isCurrent ? '当前' : undefined
-    this.tooltip = model.path
-  }
+/** The sessions panel model as pushed to the chat webview (不含服务状态，由 ChatViewProvider 补充). */
+export interface SessionsStoreSnapshot {
+  workspaces: WorkspaceNodeModel[]
+  query: string | null
+  sortOrder: SessionSortOrder
 }
-
-export class SessionNode extends vscode.TreeItem {
-  constructor(readonly model: SessionNodeModel) {
-    super(model.label, vscode.TreeItemCollapsibleState.None)
-    this.description = model.description
-    // Running sessions get a colored icon so they stand out in the list.
-    this.iconPath = model.running
-      ? new vscode.ThemeIcon('comment-discussion', new vscode.ThemeColor('charts.green'))
-      : new vscode.ThemeIcon('comment-discussion')
-    this.contextValue = 'dshSession'
-    // Clicking attaches the native chat view (dshOne.chat, roadmap phase 2);
-    // the embedded dsh web UI still has no deep link to follow along.
-    this.command = { command: 'dshOne.session.open', title: '打开会话', arguments: [this] }
-  }
-}
-
-type TreeNode = WorkspaceNode | SessionNode
 
 /**
- * Sessions tree (`dshOne.sessions`): workspaces with their visible sessions.
- * While the server runs it keeps a baseline from workspace.list +
- * session.list and re-fetches (debounced) on relevant host events; when the
- * server is down the tree is empty (a viewsWelcome hint takes over).
+ * Sessions 数据层：原 SessionTreeProvider 去掉 vscode TreeItem 后的纯数据部分。
+ * 服务运行时以 workspace.list + session.list 为基线缓存，相关 host 事件
+ * 500ms 防抖后重拉；消费方（Chat webview 的 sessions 面板）渲染 snapshot()，
+ * 变更经 onDidChange 通知。
  */
-export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, vscode.Disposable {
+export class SessionsStore implements vscode.Disposable {
   private workspaces: WorkspaceNodeModel[] = []
   /** Non-archived ids from the last successful session.list (blank included). */
   private knownSessionIds = new Set<string>()
@@ -76,8 +55,9 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
   private hostEvents: vscode.Disposable | null = null
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
   private readonly stateSub: vscode.Disposable
-  private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<TreeNode | undefined>()
-  readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event
+  private readonly onDidChangeEmitter = new vscode.EventEmitter<void>()
+  /** Fired after every model rebuild (refresh, sort, query, server down). */
+  readonly onDidChange = this.onDidChangeEmitter.event
 
   constructor(
     private readonly manager: ServerManager,
@@ -113,7 +93,7 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
     return this.workspaces.find((w) => w.isCurrent)?.sessions[0]?.sessionId ?? null
   }
 
-  /** Current search query (null = unfiltered), for the input box default. */
+  /** Current search query (null = unfiltered). */
   get currentQuery(): string | null {
     return this.query
   }
@@ -122,22 +102,26 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
     return this.sortOrder
   }
 
+  /** Current panel model for the webview. */
+  snapshot(): SessionsStoreSnapshot {
+    return { workspaces: this.workspaces, query: this.query, sortOrder: this.sortOrder }
+  }
+
   /** Rebuild with a new sort order; the preference survives reloads. */
   setSortOrder(order: SessionSortOrder): void {
     if (order === this.sortOrder) return
     this.sortOrder = order
     void this.state?.update(SORT_STATE_KEY, order)
     this.rebuildModel()
-    this.onDidChangeTreeDataEmitter.fire(undefined)
+    this.onDidChangeEmitter.fire()
   }
 
-  /** Set (or clear with null/empty) the search query and reflect it in when-clauses. */
+  /** Set (or clear with null/empty) the search query. */
   setQuery(query: string | null): void {
     const trimmed = query?.trim() ?? ''
     this.query = trimmed === '' ? null : trimmed
-    void vscode.commands.executeCommand('setContext', 'dshOne.sessions.searchActive', this.query !== null)
     this.rebuildModel()
-    this.onDidChangeTreeDataEmitter.fire(undefined)
+    this.onDidChangeEmitter.fire()
   }
 
   private onStateChange(status: ServerStatus): void {
@@ -161,7 +145,7 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
       this.rawWorkspaces = []
       this.rawSessions = []
       this.rawArchived = new Set()
-      this.onDidChangeTreeDataEmitter.fire(undefined)
+      this.onDidChangeEmitter.fire()
     }
   }
 
@@ -188,9 +172,9 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
       this.rawArchived = archived
       this.rebuildModel()
     } catch (err) {
-      this.logger.warn(`sessions tree: refresh failed — ${err instanceof Error ? err.message : err}`)
+      this.logger.warn(`sessions store: refresh failed — ${err instanceof Error ? err.message : err}`)
     }
-    this.onDidChangeTreeDataEmitter.fire(undefined)
+    this.onDidChangeEmitter.fire()
   }
 
   /** Rebuild the display model from the cached baseline + current sort/query. */
@@ -206,20 +190,10 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
     )
   }
 
-  getTreeItem(element: TreeNode): vscode.TreeItem {
-    return element
-  }
-
-  getChildren(element?: TreeNode): TreeNode[] {
-    if (!element) return this.workspaces.map((w) => new WorkspaceNode(w))
-    if (element instanceof WorkspaceNode) return element.model.sessions.map((s) => new SessionNode(s))
-    return []
-  }
-
   dispose(): void {
     this.stateSub.dispose()
     this.hostEvents?.dispose()
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
-    this.onDidChangeTreeDataEmitter.dispose()
+    this.onDidChangeEmitter.dispose()
   }
 }

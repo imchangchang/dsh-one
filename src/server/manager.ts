@@ -6,7 +6,7 @@ import { makeDescribeRequest, validateDescribeResponse } from '../pure/envelope.
 import { parseReadyLine } from '../pure/readyLine.ts'
 import { gte } from '../pure/semver.ts'
 import { ensureSession, ensureWorkspace } from './dshRpc.ts'
-import { locateDsh } from './locateDsh.ts'
+import { locateDsh, DshNotFoundError } from './locateDsh.ts'
 import type { Logger } from '../log.ts'
 
 /** dsh learned --no-open in 0.1.0-rc.7; older builds exit on the unknown flag. */
@@ -28,6 +28,8 @@ export interface ServerStatus {
   /** true when we connected to an already-running instance we must never kill. */
   adopted?: boolean
   error?: string
+  /** Why startup failed; 'dshNotFound' means no dsh executable was located. */
+  reason?: 'dshNotFound'
 }
 
 class TailBuffer {
@@ -115,7 +117,11 @@ export class ServerManager implements vscode.Disposable {
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err)
         this.logger.error(`failed to start dsh: ${message}`)
-        this.setStatus({ state: 'error', error: message })
+        this.setStatus({
+          state: 'error',
+          error: message,
+          reason: err instanceof DshNotFoundError ? 'dshNotFound' : undefined,
+        })
         return this.status
       })
       .finally(() => {

@@ -11,6 +11,9 @@ export interface LocatedDsh {
 const NOT_FOUND_MESSAGE =
   '未找到 dsh。请先安装：npm install -g @deepseek-ai/dsh@next；或在设置 dshOne.dshPath 中指定 dsh 可执行文件路径。'
 
+/** Thrown when no dsh executable could be located; the UI offers an install link. */
+export class DshNotFoundError extends Error {}
+
 /** Extract the first semver-shaped token from `dsh --version` output. */
 function extractVersion(text: string): string {
   for (const token of text.split(/\s+/)) {
@@ -41,7 +44,7 @@ export async function locateDsh(logger: Logger): Promise<LocatedDsh> {
     encoding: 'utf8',
   })
   if (result.error || result.status !== 0) {
-    throw new Error(NOT_FOUND_MESSAGE)
+    throw new DshNotFoundError(NOT_FOUND_MESSAGE)
   }
 
   const version = extractVersion(`${result.stdout ?? ''}\n${result.stderr ?? ''}`)

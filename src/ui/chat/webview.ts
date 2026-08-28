@@ -22,9 +22,11 @@ import type {
   PendingApproval,
   PendingQuestion,
   QueuedItem,
+  SessionsSnapshot,
   StagedFile,
   ToWebviewMessage,
 } from '../../pure/chatContract.ts'
+import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../../pure/sessionTree.ts'
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
@@ -141,6 +143,21 @@ function md(text: string): string {
   return DOMPurify.sanitize(marked.parse(text, { async: false }))
 }
 
+// 布局骨架：左 sessions 面板 + 右聊天列（窄屏改上下，样式见 chatView.ts 的
+// STYLE 媒体查询）。两个区域独立重建：聊天快照走 render()，会话快照走
+// renderSessions()，互不打扰（面板重建不应打断 composer 的 IME 输入）。
+const sessionsPanel = el('aside', 'sessions-panel')
+const chatCol = el('div', 'chat-col')
+app.appendChild(sessionsPanel)
+app.appendChild(chatCol)
+
+/** 最新 sessions 快照；null = 尚未收到（面板显示占位）。 */
+let sessionsSnapshot: SessionsSnapshot | null = null
+/** 搜索框草稿，跨面板重建保留（同 composer 的 draft 模式）。 */
+let sessionsSearchDraft = ''
+/** 搜索输入的防抖计时器。 */
+let searchDebounce: ReturnType<typeof setTimeout> | null = null
+
 window.addEventListener('message', (event) => {
   const msg = event.data as ToWebviewMessage
   if (msg?.type === 'state' && msg.state) {
@@ -155,6 +172,9 @@ window.addEventListener('message', (event) => {
       stagedForSession = state.sessionId
     }
     render()
+  } else if (msg?.type === 'sessions' && msg.snapshot) {
+    sessionsSnapshot = msg.snapshot
+    renderSessions()
   } else if (msg?.type === 'commandResult' && typeof msg.text === 'string' && msg.text.trim()) {
     commandNotices = [...commandNotices, msg.text]
     render()
@@ -208,7 +228,7 @@ function closePopover(): void {
   document.removeEventListener('keydown', onPopoverKey, true)
 }
 
-function showPopover(anchor: HTMLElement, body: HTMLElement): void {
+function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' | 'below' = 'above'): void {
   closePopover()
   const p = el('div', 'popover')
   p.appendChild(body)
@@ -219,7 +239,12 @@ function showPopover(anchor: HTMLElement, body: HTMLElement): void {
   // panel's right-hand figures off-screen.
   const left = Math.min(rect.left, window.innerWidth - p.offsetWidth - 4)
   p.style.left = `${Math.max(4, left)}px`
-  p.style.bottom = `${window.innerHeight - rect.top + 6}px`
+  // 锚点在面板顶部（sessions 头部的排序按钮）时向下展开，否则保持向上。
+  if (placement === 'below') {
+    p.style.top = `${rect.bottom + 6}px`
+  } else {
+    p.style.bottom = `${window.innerHeight - rect.top + 6}px`
+  }
   popover = p
   document.addEventListener('mousedown', onPopoverOutside, true)
   document.addEventListener('keydown', onPopoverKey, true)
@@ -638,6 +663,8 @@ function startInlineRename(header: HTMLElement): void {
 function render(): void {
   // Menus are transient and anchored to composer elements that are rebuilt here.
   closePopover()
+  // 当前附着会话的高亮跟随 ChatState，不走面板重建（避免打断悬停与搜索输入）。
+  syncSessionHighlight()
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
   const hadFocus = oldInput !== null && document.activeElement === oldInput
   const draft = oldInput?.value
@@ -672,7 +699,7 @@ function render(): void {
   // while the composer is focused we keep the live element in the DOM unless
   // composer-relevant state actually changed. The stats line is excluded from
   // the signature — it tracks the stream and is patched in place instead.
-  const oldComposer = app.querySelector<HTMLElement>('.input-area')
+  const oldComposer = chatCol.querySelector<HTMLElement>('.input-area')
   const composerSig = JSON.stringify([
     state?.sessionId ?? null,
     state?.canSend ?? false,
@@ -693,21 +720,21 @@ function render(): void {
   // only its children are rebuilt below. (Scrollbar drags dispatch no
   // pointer events to the page, so there is no way to defer renders instead.)
   const keepMessages = oldMessages !== null && !!state?.sessionId
-  for (const child of Array.from(app.children)) {
+  for (const child of Array.from(chatCol.children)) {
     if (keepMessages && child === oldMessages) continue
     if (keepComposer && child === oldComposer) continue
     child.remove()
   }
   if (!state || !state.sessionId) {
     lastComposerSig = null
-    app.appendChild(renderEmpty())
+    chatCol.appendChild(renderEmpty(state))
     return
   }
   // Regions above the composer; insert before the preserved composer when kept.
   const anchor = keepComposer ? oldComposer : null
   const add = (node: HTMLElement): void => {
-    if (anchor) app.insertBefore(node, anchor)
-    else app.appendChild(node)
+    if (anchor) chatCol.insertBefore(node, anchor)
+    else chatCol.appendChild(node)
   }
   if (state.sessionTitle) {
     const header = el('div', 'chat-header')
@@ -717,8 +744,8 @@ function render(): void {
     rename.addEventListener('click', () => startInlineRename(header))
     header.appendChild(rename)
     const headerAnchor = keepMessages ? oldMessages : anchor
-    if (headerAnchor) app.insertBefore(header, headerAnchor)
-    else app.appendChild(header)
+    if (headerAnchor) chatCol.insertBefore(header, headerAnchor)
+    else chatCol.appendChild(header)
   }
 
   const messages = oldMessages ?? el('div', 'messages')
@@ -785,7 +812,7 @@ function render(): void {
     // in-flight IME composition survive; only patch the stats line in place.
     patchStatsRow(oldComposer, state.statsLine, state.contextUsage)
   } else {
-    app.appendChild(renderInput(draft))
+    chatCol.appendChild(renderInput(draft))
   }
   lastComposerSig = composerSig
   if (stickToBottom) messages.scrollTop = messages.scrollHeight
@@ -812,14 +839,234 @@ function render(): void {
   }
 }
 
-function renderEmpty(): HTMLElement {
+function renderEmpty(state: ChatState | null): HTMLElement {
   const wrap = el('div', 'empty')
+  if (state?.serverError === 'dshNotFound') {
+    wrap.appendChild(el('div', 'empty-title', '未检测到 dsh 安装'))
+    wrap.appendChild(
+      el('div', 'empty-hint', 'DSH One 需要本机安装 dsh 才能使用。安装完成后回到这里即可自动启动。'),
+    )
+    const btn = buttonEl(undefined, '查看安装指南')
+    btn.addEventListener('click', () => post({ type: 'openInstallPage' }))
+    wrap.appendChild(btn)
+    return wrap
+  }
   wrap.appendChild(el('div', 'empty-title', 'dsh 聊天'))
   wrap.appendChild(
-    el('div', 'empty-hint', '在 Sessions 视图中点击一个会话开始聊天。若列表为空，请先启动 dsh 服务。'),
+    el('div', 'empty-hint', '在会话列表中点击一个会话开始聊天。若列表为空，请先启动 dsh 服务。'),
   )
   return wrap
 }
+
+/* ---------------- Sessions 面板（原 dshOne.sessions 树视图合并而来） ---------------- */
+
+/** 描边小图标（面板行内按钮；消息操作行的 fill 图标风格在这里不适用）。 */
+function strokeSvg(paths: string[]): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('width', '14')
+  svg.setAttribute('height', '14')
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('fill', 'none')
+  for (const d of paths) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', d)
+    path.setAttribute('stroke', 'currentColor')
+    path.setAttribute('stroke-width', '1.3')
+    path.setAttribute('stroke-linecap', 'round')
+    path.setAttribute('stroke-linejoin', 'round')
+    svg.appendChild(path)
+  }
+  return svg
+}
+
+const PENCIL_ICON = ['M11.3 3.1l1.6 1.6L5.6 12H4v-1.6l7.3-7.3z', 'M10.3 4.1l1.6 1.6']
+const ARCHIVE_ICON = ['M2.5 3h11v2.5h-11z', 'M3.8 5.5v7.5h8.4V5.5', 'M6.4 7.8h3.2']
+const FOLDER_ICON = ['M2 4.5c0-.8.7-1.5 1.5-1.5h2.6l1.4 1.6h5c.8 0 1.5.7 1.5 1.5v5.4c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5v-7z']
+const REFRESH_ICON = ['M13.2 8a5.2 5.2 0 1 1-1.6-3.7', 'M13.4 2.4v2.6h-2.6']
+const SORT_ICON = ['M4.5 3v10', 'M4.5 13l-2.2-2.6', 'M4.5 13l2.2-2.6', 'M11.5 13V3', 'M11.5 3L9.3 5.6', 'M11.5 3l2.2 2.6']
+const PLUS_ICON = ['M8 3.5v9', 'M3.5 8h9']
+
+/** 排序菜单选项，与 store 持久化的 SessionSortOrder 一一对应。 */
+const SORT_OPTIONS: Array<{ order: SessionSortOrder; label: string }> = [
+  { order: 'updatedDesc', label: '最近更新优先' },
+  { order: 'updatedAsc', label: '最早更新优先' },
+  { order: 'title', label: '按标题排序' },
+]
+
+/** 面板头部的图标按钮。 */
+function panelTool(icon: string[], title: string): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.className = 'sessions-tool'
+  b.title = title
+  b.setAttribute('aria-label', title)
+  b.appendChild(strokeSvg(icon))
+  return b
+}
+
+/** 行内悬停按钮；阻止冒泡，避免触发行点击（附着会话）。 */
+function rowAction(icon: string[], title: string, onClick: () => void): HTMLButtonElement {
+  const b = panelTool(icon, title)
+  b.className = 'row-action'
+  b.addEventListener('click', (e) => {
+    e.stopPropagation()
+    onClick()
+  })
+  return b
+}
+
+function openSortMenu(anchor: HTMLElement): void {
+  const snap = sessionsSnapshot
+  if (!snap) return
+  const body = el('div')
+  for (const opt of SORT_OPTIONS) {
+    body.appendChild(
+      menuItem(opt.label, {
+        checked: snap.sortOrder === opt.order,
+        onClick: () => {
+          closePopover()
+          if (snap.sortOrder !== opt.order) post({ type: 'sessionsSort', order: opt.order })
+        },
+      }),
+    )
+  }
+  // 锚点在面板顶部，向下展开。
+  showPopover(anchor, body, 'below')
+}
+
+/** 重建 sessions 面板；搜索框内容与焦点跨重建保留（同 composer 的 draft 模式）。 */
+function renderSessions(): void {
+  const snap = sessionsSnapshot
+  const oldSearch = sessionsPanel.querySelector<HTMLInputElement>('.sessions-search')
+  const searchFocused = oldSearch !== null && document.activeElement === oldSearch
+  const searchSel =
+    searchFocused && oldSearch ? { start: oldSearch.selectionStart, end: oldSearch.selectionEnd } : null
+  sessionsPanel.textContent = ''
+
+  const header = el('div', 'sessions-header')
+  const search = document.createElement('input')
+  search.className = 'sessions-search'
+  search.placeholder = '搜索会话'
+  search.value = sessionsSearchDraft
+  search.addEventListener('input', () => {
+    sessionsSearchDraft = search.value
+    // 输入防抖：不必每个字符都往返一次宿主（重建虽是本地的，消息却不是）。
+    if (searchDebounce !== null) clearTimeout(searchDebounce)
+    searchDebounce = setTimeout(() => {
+      searchDebounce = null
+      post({ type: 'sessionsSearch', query: sessionsSearchDraft.trim() === '' ? null : sessionsSearchDraft })
+    }, 200)
+  })
+  header.appendChild(search)
+  const sortBtn = panelTool(SORT_ICON, '排序方式')
+  sortBtn.addEventListener('click', () => openSortMenu(sortBtn))
+  header.appendChild(sortBtn)
+  const refreshBtn = panelTool(REFRESH_ICON, '刷新会话列表')
+  refreshBtn.addEventListener('click', () => post({ type: 'sessionsRefresh' }))
+  header.appendChild(refreshBtn)
+  const addBtn = panelTool(PLUS_ICON, '新建 workspace')
+  addBtn.addEventListener('click', () => post({ type: 'workspaceAdd' }))
+  header.appendChild(addBtn)
+  sessionsPanel.appendChild(header)
+
+  const list = el('div', 'sessions-list')
+  if (!snap) {
+    list.appendChild(el('div', 'sessions-empty', '加载中…'))
+  } else if (snap.serverState !== 'running') {
+    list.appendChild(renderServerEmpty(snap))
+  } else if (snap.workspaces.length === 0) {
+    // 搜索激活时 buildSessionTree 会丢弃无匹配的 workspace，此时即"无结果"。
+    const hint = snap.query ? `没有匹配「${snap.query}」的会话。` : '暂无 workspace。点击上方 + 选择文件夹新建。'
+    const box = el('div', 'sessions-empty')
+    box.appendChild(el('div', 'empty-hint', hint))
+    list.appendChild(box)
+  } else {
+    for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
+  }
+  sessionsPanel.appendChild(list)
+
+  if (searchFocused) {
+    search.focus()
+    if (searchSel) search.setSelectionRange(searchSel.start, searchSel.end)
+  }
+}
+
+/** 服务未运行时的面板空态：安装引导（dshNotFound）或启动按钮。 */
+function renderServerEmpty(snap: SessionsSnapshot): HTMLElement {
+  const box = el('div', 'sessions-empty')
+  if (snap.dshNotFound) {
+    box.appendChild(el('div', 'empty-title', '未检测到 dsh 安装'))
+    box.appendChild(el('div', 'empty-hint', '安装完成后回到这里即可自动启动。'))
+    const btn = buttonEl(undefined, '查看安装指南')
+    btn.addEventListener('click', () => post({ type: 'openInstallPage' }))
+    box.appendChild(btn)
+    return box
+  }
+  if (snap.serverState === 'starting') {
+    box.appendChild(el('div', 'empty-hint', '正在启动 dsh 服务…'))
+    return box
+  }
+  box.appendChild(el('div', 'empty-hint', 'dsh 服务未运行，暂无会话。'))
+  const btn = buttonEl(undefined, '启动 dsh 服务')
+  btn.addEventListener('click', () => post({ type: 'serverStart' }))
+  box.appendChild(btn)
+  return box
+}
+
+function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
+  const group = el('div', 'workspace-group')
+  const head = el('div', 'workspace-row')
+  head.title = w.path
+  head.appendChild(el('span', 'workspace-label', w.label))
+  if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', '当前'))
+  const headActions = el('span', 'row-actions')
+  headActions.appendChild(
+    rowAction(PLUS_ICON, '新建会话', () => post({ type: 'sessionNew', workspaceId: w.workspaceId })),
+  )
+  // 当前文件夹已在 VSCode 里打开，只有其他 workspace 需要"打开文件夹"。
+  if (!w.isCurrent) {
+    headActions.appendChild(
+      rowAction(FOLDER_ICON, '在 VSCode 中打开文件夹', () => post({ type: 'workspaceOpenFolder', path: w.path })),
+    )
+  }
+  head.appendChild(headActions)
+  group.appendChild(head)
+  for (const s of w.sessions) group.appendChild(renderSessionRow(s))
+  return group
+}
+
+function renderSessionRow(s: SessionNodeModel): HTMLElement {
+  const row = el('div', 'session-row')
+  row.dataset.sessionId = s.sessionId
+  if (state?.sessionId === s.sessionId) row.classList.add('active')
+  row.title = s.label
+  // 运行中的会话用绿色圆点标出（沿用原树视图 charts.green 的语义）。
+  row.appendChild(el('span', s.running ? 'session-dot running' : 'session-dot'))
+  const main = el('span', 'session-main')
+  main.appendChild(el('span', 'session-title', s.label))
+  main.appendChild(el('span', 'session-time', s.description))
+  row.appendChild(main)
+  const actions = el('span', 'row-actions')
+  actions.appendChild(
+    rowAction(PENCIL_ICON, '重命名会话', () => post({ type: 'sessionRename', sessionId: s.sessionId, title: s.label })),
+  )
+  actions.appendChild(
+    rowAction(ARCHIVE_ICON, '归档会话', () => post({ type: 'sessionArchive', sessionId: s.sessionId, title: s.label })),
+  )
+  row.appendChild(actions)
+  row.addEventListener('click', () => post({ type: 'sessionOpen', sessionId: s.sessionId }))
+  return row
+}
+
+/** 只切换 .active 高亮，不重建面板（render() 每次快照都会调用）。 */
+function syncSessionHighlight(): void {
+  const currentId = state?.sessionId ?? null
+  sessionsPanel.querySelectorAll<HTMLElement>('.session-row').forEach((rowEl) => {
+    rowEl.classList.toggle('active', rowEl.dataset.sessionId === currentId)
+  })
+}
+
+renderSessions()
 
 function contextLabel(kind: string): string {
   if (kind === 'agent-instructions' || kind === 'legacy-instructions') return '工作区指令'

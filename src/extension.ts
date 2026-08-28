@@ -1,14 +1,16 @@
 import * as vscode from 'vscode'
 import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
-import { archiveSession, createSession, renameSession } from './server/dshRpc.ts'
+import { archiveSession, createSession, ensureWorkspace, renameSession } from './server/dshRpc.ts'
 import { openInTab } from './ui/webview.ts'
 import { ChatViewProvider } from './ui/chatView.ts'
-import { SessionNode, SessionTreeProvider, WorkspaceNode } from './ui/sessionTree.ts'
-import type { SessionSortOrder } from './pure/sessionTree.ts'
+import { SessionsStore } from './ui/sessionsStore.ts'
 import { StatusBar } from './ui/statusbar.ts'
 
 let server: ServerManager | undefined
+
+/** Official dsh product page with the "Get started" install instructions. */
+const DSH_INSTALL_URL = 'https://www.deepseek.com/harness/'
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -28,14 +30,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const statusBar = new StatusBar(manager)
-  const sessions = new SessionTreeProvider(manager, logger, context.workspaceState)
-  const chatView = new ChatViewProvider(manager, logger, context.extensionUri, () => void sessions.refresh())
+  const sessions = new SessionsStore(manager, logger, context.workspaceState)
+  const chatView = new ChatViewProvider(manager, logger, context.extensionUri, sessions, () => void sessions.refresh())
 
-  // Chat/session reconciliation after every tree rebuild: drop the attached
+  // Chat/session reconciliation after every store rebuild: drop the attached
   // session when it vanished host-side (archived/deleted elsewhere), and land
   // on the current workspace's newest session once per server run.
   let autoAttachedUrl: string | null = null
-  const reconcileChat = sessions.onDidChangeTreeData(() => {
+  const reconcileChat = sessions.onDidChange(() => {
     const url = sessions.runningUrl
     if (!url) {
       autoAttachedUrl = null
@@ -65,10 +67,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerWebviewViewProvider('dshOne.chat', chatView, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
-    vscode.window.registerTreeDataProvider('dshOne.sessions', sessions),
     vscode.commands.registerCommand('dshOne.open', () => {
       void manager.ensureStarted()
-      return vscode.commands.executeCommand('dshOne.sessions.focus')
+      return vscode.commands.executeCommand('dshOne.chat.focus')
     }),
     // Status bar click: open the dsh web UI in the system browser (starting
     // the service first when needed).
@@ -91,48 +92,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.sessions.refresh', async () => {
       await sessions.refresh()
     }),
-    // Filter sessions by title/id; an empty input clears the filter.
-    vscode.commands.registerCommand('dshOne.sessions.search', async () => {
-      const query = await vscode.window.showInputBox({
-        title: '搜索会话',
-        prompt: '按标题或会话 ID 过滤，留空清除搜索',
-        value: sessions.currentQuery ?? '',
-      })
-      if (query === undefined) return
-      sessions.setQuery(query)
-    }),
-    vscode.commands.registerCommand('dshOne.sessions.clearSearch', () => {
-      sessions.setQuery(null)
-    }),
-    vscode.commands.registerCommand('dshOne.sessions.sort', async () => {
-      const current = sessions.currentSortOrder
-      const items: (vscode.QuickPickItem & { order: SessionSortOrder })[] = [
-        { order: 'updatedDesc', label: '最近更新优先' },
-        { order: 'updatedAsc', label: '最早更新优先' },
-        { order: 'title', label: '按标题排序' },
-      ]
-      for (const item of items) {
-        if (item.order === current) item.description = '当前'
-      }
-      const pick = await vscode.window.showQuickPick(items, { title: '会话排序方式' })
-      if (pick) sessions.setSortOrder(pick.order)
-    }),
-    // Session click: attach the native chat view and focus it.
-    vscode.commands.registerCommand('dshOne.session.open', (node?: SessionNode) => {
-      if (node) chatView.setSession(node.model.sessionId)
+    // Session click in the webview panel: attach the chat to it.
+    vscode.commands.registerCommand('dshOne.session.open', (sessionId?: string) => {
+      if (typeof sessionId === 'string') chatView.setSession(sessionId)
       return vscode.commands.executeCommand('dshOne.chat.focus')
     }),
-    vscode.commands.registerCommand('dshOne.session.new', async (node?: WorkspaceNode) => {
+    vscode.commands.registerCommand('dshOne.session.new', async (workspaceId?: string) => {
       const url = sessions.runningUrl
       if (!url) return
-      const workspaceId = node?.model.workspaceId ?? sessions.defaultWorkspaceId()
-      if (!workspaceId) {
+      const targetWorkspaceId = typeof workspaceId === 'string' ? workspaceId : sessions.defaultWorkspaceId()
+      if (!targetWorkspaceId) {
         vscode.window.showWarningMessage('没有可用的 workspace，请先在 VSCode 中打开文件夹。')
         return
       }
       let sessionId: string
       try {
-        sessionId = await createSession(url, workspaceId)
+        sessionId = await createSession(url, targetWorkspaceId)
       } catch (err) {
         vscode.window.showErrorMessage(`新建会话失败：${errorText(err)}`)
         return
@@ -141,47 +116,71 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       chatView.setSession(sessionId)
       void vscode.commands.executeCommand('dshOne.chat.focus')
     }),
-    vscode.commands.registerCommand('dshOne.session.rename', async (node?: SessionNode) => {
+    vscode.commands.registerCommand('dshOne.session.rename', async (sessionId?: string, currentTitle?: string) => {
       const url = sessions.runningUrl
-      if (!url || !node) return
+      if (!url || typeof sessionId !== 'string') return
       const title = await vscode.window.showInputBox({
         title: '重命名会话',
         prompt: '输入新的会话标题',
-        value: node.model.label,
+        value: typeof currentTitle === 'string' ? currentTitle : '',
       })
       if (title === undefined) return
       try {
-        await renameSession(url, node.model.sessionId, title)
+        await renameSession(url, sessionId, title)
       } catch (err) {
         vscode.window.showErrorMessage(`重命名会话失败：${errorText(err)}`)
         return
       }
       await sessions.refresh()
     }),
-    vscode.commands.registerCommand('dshOne.session.archive', async (node?: SessionNode) => {
+    vscode.commands.registerCommand('dshOne.session.archive', async (sessionId?: string, currentTitle?: string) => {
       const url = sessions.runningUrl
-      if (!url || !node) return
+      if (!url || typeof sessionId !== 'string') return
       const pick = await vscode.window.showWarningMessage(
-        `确认归档会话「${node.model.label}」？归档后会从列表中隐藏。`,
+        `确认归档会话「${typeof currentTitle === 'string' ? currentTitle : sessionId}」？归档后会从列表中隐藏。`,
         { modal: true },
         '归档',
       )
       if (pick !== '归档') return
       try {
-        await archiveSession(url, node.model.sessionId)
+        await archiveSession(url, sessionId)
       } catch (err) {
         vscode.window.showErrorMessage(`归档会话失败：${errorText(err)}`)
         return
       }
       await sessions.refresh()
       // Archiving the attached chat session drops the chat back to empty.
-      if (chatView.currentSessionId === node.model.sessionId) chatView.setSession(null)
+      if (chatView.currentSessionId === sessionId) chatView.setSession(null)
     }),
-    vscode.commands.registerCommand('dshOne.workspace.openFolder', async (node?: WorkspaceNode) => {
-      if (!node) return
-      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(node.model.path), {
+    vscode.commands.registerCommand('dshOne.workspace.openFolder', async (path?: string) => {
+      if (typeof path !== 'string' || !path) return
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(path), {
         forceNewWindow: false,
       })
+    }),
+    vscode.commands.registerCommand('dshOne.openInstallPage', async () => {
+      await vscode.env.openExternal(vscode.Uri.parse(DSH_INSTALL_URL))
+    }),
+    // Title-area "+": register a picked folder as a new dsh workspace.
+    vscode.commands.registerCommand('dshOne.workspace.add', async () => {
+      const url = sessions.runningUrl
+      if (!url) return
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: '添加为 workspace',
+        title: '新建 workspace：选择文件夹',
+      })
+      const path = picked?.[0]?.fsPath
+      if (!path) return
+      try {
+        await ensureWorkspace(url, path)
+      } catch (err) {
+        vscode.window.showErrorMessage(`新建 workspace 失败：${errorText(err)}`)
+        return
+      }
+      await sessions.refresh()
     }),
   )
 }

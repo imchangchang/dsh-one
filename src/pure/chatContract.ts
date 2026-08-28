@@ -4,6 +4,7 @@
  * ChatMessage[]; the webview renders ChatState snapshots verbatim. Treat this
  * file as an interface freeze: change it only when both sides change together.
  */
+import type { SessionSortOrder, WorkspaceNodeModel } from './sessionTree.ts'
 
 /** One renderable block inside an assistant message. */
 export interface ChatTextBlock {
@@ -168,6 +169,11 @@ export interface ChatState {
   running: boolean
   /** Server + session ready for input. */
   canSend: boolean
+  /**
+   * Set only in the no-session empty state when the server failed to start;
+   * the webview replaces its placeholder with the matching guidance.
+   */
+  serverError?: 'dshNotFound'
   /** Footer model pill, host-computed from session.models ("DeepSeek-V4-Flash High" style). */
   modelLabel?: string
   /** Permission preset select from the `permissions` projection; absent hides the control. */
@@ -239,8 +245,24 @@ export interface ModelCatalog {
   groups: Array<{ id: string; name: string; models: ModelCatalogModel[] }>
 }
 
+/**
+ * Sessions 面板快照（host → webview）：store 的会话树模型加上服务状态，
+ * 供面板自身渲染空态（启动服务 / 安装引导），不再依赖 viewsWelcome。
+ */
+export interface SessionsSnapshot {
+  workspaces: WorkspaceNodeModel[]
+  /** 当前搜索词（null = 未过滤）。 */
+  query: string | null
+  sortOrder: SessionSortOrder
+  /** ServerStatus.state 的拷贝（pure 层不 import server 模块）。 */
+  serverState: 'stopped' | 'starting' | 'running' | 'error'
+  /** 启动失败原因是未找到 dsh 可执行文件。 */
+  dshNotFound: boolean
+}
+
 export type ToWebviewMessage =
   | { type: 'state'; state: ChatState }
+  | { type: 'sessions'; snapshot: SessionsSnapshot }
   | { type: 'imagesPicked'; images: OutgoingImage[] }
   | { type: 'filesPicked'; files: StagedFile[] }
   | { type: 'modelCatalog'; catalog: ModelCatalog }
@@ -267,3 +289,25 @@ export type FromWebviewMessage =
   | { type: 'feedback'; messageId: string; rating: 'positive' | 'negative' | null }
   /** Fork the session at a completed turn's last event seq (ChatAssistantMessage.seq). */
   | { type: 'fork'; atSeq: number }
+  /** Open the official dsh install page in the system browser. */
+  | { type: 'openInstallPage' }
+  /** Sessions 面板：附着一个会话（点击会话行）。 */
+  | { type: 'sessionOpen'; sessionId: string }
+  /** Sessions 面板：在指定 workspace 新建会话（缺省由宿主选默认 workspace）。 */
+  | { type: 'sessionNew'; workspaceId?: string }
+  /** Sessions 面板：重命名会话；title 为当前标题，供宿主输入框预填。 */
+  | { type: 'sessionRename'; sessionId: string; title: string }
+  /** Sessions 面板：归档会话；title 供宿主确认框展示。 */
+  | { type: 'sessionArchive'; sessionId: string; title: string }
+  /** Sessions 面板：选文件夹注册新 workspace。 */
+  | { type: 'workspaceAdd' }
+  /** Sessions 面板：在 VSCode 中打开该 workspace 的文件夹。 */
+  | { type: 'workspaceOpenFolder'; path: string }
+  /** Sessions 面板：手动刷新列表。 */
+  | { type: 'sessionsRefresh' }
+  /** Sessions 面板：设置/清除搜索词。 */
+  | { type: 'sessionsSearch'; query: string | null }
+  /** Sessions 面板：切换排序方式。 */
+  | { type: 'sessionsSort'; order: SessionSortOrder }
+  /** Sessions 面板空态：启动 dsh 服务。 */
+  | { type: 'serverStart' }

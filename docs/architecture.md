@@ -20,8 +20,8 @@ dsh-one/
 │   │   └── hostEvents.ts   # 订阅 host 事件流（WS /api/events.host），转发 method
 │   ├── ui/
 │   │   ├── webview.ts      # 编辑器标签页 WebviewPanel，iframe 嵌入 dsh web
-│   │   ├── sessionTree.ts  # Sessions 树视图（TreeDataProvider）：基线拉取 + 事件防抖刷新
-│   │   ├── chatView.ts     # Chat 视图（WebviewViewProvider）：持有 ChatSessionController，推状态/收动作
+│   │   ├── sessionsStore.ts # Sessions 数据层：基线拉取 + 事件防抖刷新（无 TreeItem，供 chat webview 消费）
+│   │   ├── chatView.ts     # Chat 视图（WebviewViewProvider）：持有 ChatSessionController 与 SessionsStore，推状态/收动作
 │   │   ├── chat/           # 聊天 webview 前端（浏览器上下文，esbuild 打包进 dist/chatWebview.js）
 │   │   └── statusbar.ts    # 状态栏指示
 │   └── pure/               # 纯逻辑，禁止 import vscode（可用 node --test 直接单测）
@@ -35,12 +35,12 @@ dsh-one/
 
 各模块职责要点：
 
-- `src/extension.ts`：只做装配。`activate()`（`src/extension.ts:16`）注册命令与 view；`deactivate()`（:155）**必须是同步的**，见下文设计决策 5。
-- `src/server/locateDsh.ts`：`locateDsh()`（`src/server/locateDsh.ts:28`）三步定位：`dshOne.dshPath` 配置非空则用它，否则用 PATH 上的 `dsh`；对候选跑 `dsh --version` 验证并提取版本号（给 `--no-open` 等版本 gate 用）；失败则抛出"未找到 dsh，请安装"的引导错误。
+- `src/extension.ts`：只做装配。`activate()`（`src/extension.ts:19`）注册命令与 view；`deactivate()`（:188）**必须是同步的**，见下文设计决策 5。
+- `src/server/locateDsh.ts`：`locateDsh()`（`src/server/locateDsh.ts:28`）三步定位：`dshOne.dshPath` 配置非空则用它，否则用 PATH 上的 `dsh`；对候选跑 `dsh --version` 验证并提取版本号（给 `--no-open` 等版本 gate 用）；失败则抛出 `DshNotFoundError`（"未找到 dsh，请安装"的引导错误），`ServerManager` 据此在 `ServerStatus.reason` 上标记 `dshNotFound`，UI 据此展示安装引导（Chat 空态经 `ChatState.serverError`，sessions 面板空态经 `SessionsSnapshot.dshNotFound`），按钮跳转到官方安装页 <https://www.deepseek.com/harness/>（`dshOne.openInstallPage`）。
 - `src/server/manager.ts`：`ServerManager`（:71）是整个扩展的核心，持有 `ServerStatus` 并通过 `onDidChangeState` 事件通知 UI。
 - `src/ui/webview.ts`：`bind()`（:108）把任一 webview 绑定到 `ServerManager` 状态流；运行中时渲染 iframe（`dshFrame()`，:95），否则渲染启动/错误页。
-- `src/ui/sessionTree.ts`：`SessionTreeProvider` 在 `running` 状态下拉取 workspace.list + session.list 基线并缓存，通过 `subscribeHostEvents()`（`src/server/hostEvents.ts`）订阅 host 事件，500ms 防抖刷新；模型构建全部下沉到 `src/pure/sessionTree.ts`。支持视图标题栏的搜索过滤（标题/会话 ID 子串，大小写不敏感，`setQuery()` 同步 `dshOne.sessions.searchActive` 上下文键控制"清除搜索"按钮与 viewsWelcome）与排序（最近/最早更新、按标题）；搜索/排序只基于缓存基线本地重建模型，不发 RPC；排序偏好持久化在 `workspaceState`（纯 UI 偏好，非 dsh 数据缓存）。另外暴露 `hasSession()` / `latestCurrentSessionId()` 给聊天视图做会话兜底与默认附着。
-- `src/ui/chatView.ts`：`ChatViewProvider`（原生聊天面，`dshOne.chat`）持有当前会话的 `ChatSessionController`（`src/server/chatSession.ts`），把其 `onDidChange` 的 ChatState 快照直推 webview（controller 内部已节流），webview 动作（send/stop/approval/answer/feedback/fork）路由回 controller。`setSession()` 换会话；服务非 running 或换 URL 时清空回空态。前端在 `src/ui/chat/webview.ts`，marked + dompurify 渲染 markdown，esbuild 打包成 `dist/chatWebview.js` 由 HTML 模板以 nonce 引用（CSP 惯例同 webview.ts）。
+- `src/ui/sessionsStore.ts`：`SessionsStore` 是原 Sessions 树视图（`dshOne.sessions`，已并入 chat webview 面板）的数据层——在 `running` 状态下拉取 workspace.list + session.list 基线并缓存，通过 `subscribeHostEvents()`（`src/server/hostEvents.ts`）订阅 host 事件，500ms 防抖刷新；模型构建全部下沉到 `src/pure/sessionTree.ts`。支持搜索过滤（标题/会话 ID 子串，大小写不敏感）与排序（最近/最早更新、按标题）；搜索/排序只基于缓存基线本地重建模型，不发 RPC；排序偏好持久化在 `workspaceState`（纯 UI 偏好，非 dsh 数据缓存）。变更经 `onDidChange` 通知（ChatViewProvider 推 sessions 快照给 webview、extension.ts 做聊天附着兜底）。另外暴露 `hasSession()` / `latestCurrentSessionId()` 给聊天视图做会话兜底与默认附着。
+- `src/ui/chatView.ts`：`ChatViewProvider`（原生聊天面，`dshOne.chat`）持有当前会话的 `ChatSessionController`（`src/server/chatSession.ts`）与 `SessionsStore`，把 controller 的 ChatState 快照与 store 的 SessionsSnapshot（附服务状态，供面板空态）直推 webview（controller 内部已节流），webview 动作路由回来：聊天动作（send/stop/approval/answer/feedback/fork）落到 controller，sessions 面板动作（sessionOpen/New/Rename/Archive、workspaceAdd/OpenFolder、搜索/排序/刷新、serverStart）走 onMessage 顶部的免 controller 分支，会话操作复用 `src/extension.ts` 里收普通参数的命令。`setSession()` 换会话；服务非 running 或换 URL 时清空回空态。前端在 `src/ui/chat/webview.ts`，marked + dompurify 渲染 markdown，esbuild 打包成 `dist/chatWebview.js` 由 HTML 模板以 nonce 引用（CSP 惯例同 webview.ts）。布局：宽屏（≥720px）左 sessions 面板（260px）右聊天列，窄屏改上下（面板在上、限高 40% 自滚动），由 STYLE 里的媒体查询切换。
 - `src/pure/`：与 vscode 解耦的业务规则。所有"容易写错的判断"（rpcId 校验、semver 比较、就绪行解析、会话树构建）都下沉到这里，保证可以脱离 VSCode 单测。
 
 ## 核心流程一：dsh 定位（locateDsh）
@@ -48,7 +48,7 @@ dsh-one/
 入口在 `ServerManager.start()` 内（`src/server/manager.ts:146`）。没有下载、没有版本指针、没有更新检查——升级 dsh 由用户自己 `npm update -g`。
 
 1. `dshOne.dshPath` 非空 → 用配置路径；否则用 `dsh`（走 PATH 查找）。
-2. 对候选同步跑 `--version` 验证（`src/server/locateDsh.ts:38`）：失败（不存在/退出码非 0）→ 抛出引导安装的错误（`npm install -g @deepseek-ai/dsh@next` 或配置 `dshOne.dshPath`）。
+2. 对候选同步跑 `--version` 验证（`src/server/locateDsh.ts:38`）：失败（不存在/退出码非 0）→ 抛出 `DshNotFoundError`（引导安装文案：`npm install -g @deepseek-ai/dsh@next` 或配置 `dshOne.dshPath`）。
 3. 从输出提取 semver 版本号（:15-21），提取不到记为 `unknown`（按新版对待）。
 
 ## 核心流程二：服务启动（探测 → 收养/spawn → 就绪双确认 → webview 加载）
