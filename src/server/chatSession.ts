@@ -1,13 +1,24 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
 import type { ChatState, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem } from '../pure/chatContract.ts'
-import { ConversationFolder } from '../pure/conversation.ts'
+import { ConversationFolder, applyFeedbackRatings } from '../pure/conversation.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
 import type { SessionStatsLike } from '../pure/sessionStats.ts'
 import { subscribeMuxEvents } from './muxEvents.ts'
 import type { MuxFrame } from './muxEvents.ts'
-import { cancelSession, promptSession, respond, sessionHistory, sessionModels, updateQueue } from './dshRpc.ts'
+import {
+  cancelSession,
+  deleteMessageFeedback,
+  forkSession,
+  listMessageFeedback,
+  promptSession,
+  putMessageFeedback,
+  respond,
+  sessionHistory,
+  sessionModels,
+  updateQueue,
+} from './dshRpc.ts'
 import type { ImageLimits, SessionModels } from './dshRpc.ts'
 
 /** Streaming snapshots are pushed at most this often; structural changes flush immediately. */
@@ -238,6 +249,8 @@ export class ChatSessionController implements vscode.Disposable {
   imageLimits: ImageLimits | undefined
   /** Footer model pill, filled by refreshModels(). */
   private modelLabel: string | undefined
+  /** Stored per-message ratings: host messageId → rating + optimistic-lock version. */
+  private feedback = new Map<string, { rating: 'positive' | 'negative'; version: string }>()
   private ready = false
   private mux: vscode.Disposable | undefined
   private flushTimer: ReturnType<typeof setTimeout> | undefined
@@ -334,6 +347,43 @@ export class ChatSessionController implements vscode.Disposable {
     await updateQueue(this.url, this.sessionId, itemId, { kind: 'edit', content })
   }
 
+  /**
+   * Set (or clear, rating null) the user's rating on one assistant message.
+   * The put/delete values do not reliably carry the fresh optimistic-lock
+   * version, so the local map is rebuilt from a fresh list afterwards.
+   */
+  async rateMessage(messageId: string, rating: 'positive' | 'negative' | null): Promise<void> {
+    const existing = this.feedback.get(messageId)
+    if (rating === null) {
+      if (!existing) return
+      await deleteMessageFeedback(this.url, this.sessionId, messageId, existing.version)
+    } else {
+      await putMessageFeedback(this.url, this.sessionId, messageId, rating, existing?.version ?? null)
+    }
+    await this.refreshFeedback()
+  }
+
+  /** Fork this session at a completed turn's last event seq; returns the child session id. */
+  async fork(atSeq: number): Promise<string> {
+    return forkSession(this.url, this.sessionId, atSeq)
+  }
+
+  /** Fetch messageFeedback/list and merge the ratings into the folded messages. */
+  private async refreshFeedback(): Promise<void> {
+    const items = await listMessageFeedback(this.url, this.sessionId)
+    if (this.disposed) return
+    this.feedback.clear()
+    for (const item of items) {
+      if (!item || typeof item.messageId !== 'string') continue
+      if (item.rating !== 'positive' && item.rating !== 'negative') continue
+      this.feedback.set(item.messageId, {
+        rating: item.rating,
+        version: typeof item.version === 'string' ? item.version : '',
+      })
+    }
+    if (applyFeedbackRatings(this.folder.messages(), this.feedback)) this.push(true)
+  }
+
   async respondApproval(rpcId: string, outcome: 'allowed-once' | 'rejected'): Promise<void> {
     const entry = this.pending.find((p) => p.kind === 'approval' && p.rpcId === rpcId)
     if (!entry || entry.kind !== 'approval') throw new Error(`approval ${rpcId} is not pending`)
@@ -404,6 +454,12 @@ export class ChatSessionController implements vscode.Disposable {
       }
     } catch (error) {
       this.logger.warn(`chat: history baseline failed for ${this.sessionId}: ${errorText(error)}`)
+    }
+    try {
+      // Ancillary baseline; a feedback outage must not sink the history above.
+      await this.refreshFeedback()
+    } catch (error) {
+      this.logger.warn(`chat: feedback baseline failed for ${this.sessionId}: ${errorText(error)}`)
     }
     if (this.disposed) return
     this.mux = subscribeMuxEvents(this.url, this.logger, (frame) => this.onFrame(frame))

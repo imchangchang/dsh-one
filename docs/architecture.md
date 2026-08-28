@@ -39,8 +39,8 @@ dsh-one/
 - `src/server/locateDsh.ts`：`locateDsh()`（`src/server/locateDsh.ts:28`）三步定位：`dshOne.dshPath` 配置非空则用它，否则用 PATH 上的 `dsh`；对候选跑 `dsh --version` 验证并提取版本号（给 `--no-open` 等版本 gate 用）；失败则抛出"未找到 dsh，请安装"的引导错误。
 - `src/server/manager.ts`：`ServerManager`（:71）是整个扩展的核心，持有 `ServerStatus` 并通过 `onDidChangeState` 事件通知 UI。
 - `src/ui/webview.ts`：`bind()`（:108）把任一 webview 绑定到 `ServerManager` 状态流；运行中时渲染 iframe（`dshFrame()`，:95），否则渲染启动/错误页。
-- `src/ui/sessionTree.ts`：`SessionTreeProvider` 在 `running` 状态下拉取 workspace.list + session.list 基线，并通过 `subscribeHostEvents()`（`src/server/hostEvents.ts`）订阅 host 事件，500ms 防抖刷新；模型构建全部下沉到 `src/pure/sessionTree.ts`。另外暴露 `hasSession()` / `latestCurrentSessionId()` 给聊天视图做会话兜底与默认附着。
-- `src/ui/chatView.ts`：`ChatViewProvider`（原生聊天面，`dshOne.chat`）持有当前会话的 `ChatSessionController`（`src/server/chatSession.ts`），把其 `onDidChange` 的 ChatState 快照直推 webview（controller 内部已节流），webview 动作（send/stop/approval/answer）路由回 controller。`setSession()` 换会话；服务非 running 或换 URL 时清空回空态。前端在 `src/ui/chat/webview.ts`，marked + dompurify 渲染 markdown，esbuild 打包成 `dist/chatWebview.js` 由 HTML 模板以 nonce 引用（CSP 惯例同 webview.ts）。
+- `src/ui/sessionTree.ts`：`SessionTreeProvider` 在 `running` 状态下拉取 workspace.list + session.list 基线并缓存，通过 `subscribeHostEvents()`（`src/server/hostEvents.ts`）订阅 host 事件，500ms 防抖刷新；模型构建全部下沉到 `src/pure/sessionTree.ts`。支持视图标题栏的搜索过滤（标题/会话 ID 子串，大小写不敏感，`setQuery()` 同步 `dshOne.sessions.searchActive` 上下文键控制"清除搜索"按钮与 viewsWelcome）与排序（最近/最早更新、按标题）；搜索/排序只基于缓存基线本地重建模型，不发 RPC；排序偏好持久化在 `workspaceState`（纯 UI 偏好，非 dsh 数据缓存）。另外暴露 `hasSession()` / `latestCurrentSessionId()` 给聊天视图做会话兜底与默认附着。
+- `src/ui/chatView.ts`：`ChatViewProvider`（原生聊天面，`dshOne.chat`）持有当前会话的 `ChatSessionController`（`src/server/chatSession.ts`），把其 `onDidChange` 的 ChatState 快照直推 webview（controller 内部已节流），webview 动作（send/stop/approval/answer/feedback/fork）路由回 controller。`setSession()` 换会话；服务非 running 或换 URL 时清空回空态。前端在 `src/ui/chat/webview.ts`，marked + dompurify 渲染 markdown，esbuild 打包成 `dist/chatWebview.js` 由 HTML 模板以 nonce 引用（CSP 惯例同 webview.ts）。
 - `src/pure/`：与 vscode 解耦的业务规则。所有"容易写错的判断"（rpcId 校验、semver 比较、就绪行解析、会话树构建）都下沉到这里，保证可以脱离 VSCode 单测。
 
 ## 核心流程一：dsh 定位（locateDsh）

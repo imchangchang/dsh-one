@@ -177,6 +177,13 @@ const STYLE = `
   .diff-line.add::before { content: '+ '; }
   .streaming { opacity: 0.6; }
   .interrupted { opacity: 0.6; font-size: 0.85em; }
+  .msg-actions { display: flex; gap: 8px; margin-top: 2px; }
+  .msg-actions button.link {
+    background: transparent; color: var(--vscode-textLink-foreground, #4da3ff);
+    padding: 0 2px; font-size: 11px; border-radius: 4px; opacity: 0.75;
+  }
+  .msg-actions button.link:hover:not(:disabled) { text-decoration: underline; opacity: 1; }
+  .msg-actions button.link.active { opacity: 1; font-weight: 600; text-decoration: underline; }
   .pending {
     flex: none; padding: 6px 12px; display: flex; flex-direction: column; gap: 8px;
     border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
@@ -551,6 +558,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         case 'requestAttachment':
           await this.sendAttachment(controller, m.attachmentId)
           return
+        case 'feedback':
+          await controller.rateMessage(m.messageId, m.rating)
+          return
+        case 'fork':
+          await this.forkAt(controller, m.atSeq)
+          return
       }
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
@@ -678,6 +691,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       vscode.window.showErrorMessage(`导出会话日志失败：${detail}`)
+    }
+  }
+
+  /** Fork the session at a completed turn, then switch the view to the child session. */
+  private async forkAt(controller: ChatSessionController, atSeq: number): Promise<void> {
+    try {
+      const childId = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: '正在创建分支会话…' },
+        () => controller.fork(atSeq),
+      )
+      // The tree learns about the child via this hook; the chat switches over.
+      this.onSessionsChanged?.()
+      this.setSession(childId)
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      vscode.window.showErrorMessage(`创建分支会话失败：${detail}`)
     }
   }
 

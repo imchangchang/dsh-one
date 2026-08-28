@@ -307,6 +307,81 @@ export async function updateQueue(
   await callRpc(baseUrl, 'session.updateQueue', { sessionId, itemId, action })
 }
 
+/** One stored per-message rating (messageFeedback/list item). */
+export interface MessageFeedbackItem {
+  messageId: string
+  rating: 'positive' | 'negative'
+  note?: string
+  version: string
+}
+
+/**
+ * The messageFeedback/* methods proxy to a remote service, so inside the
+ * gateway result (which callRpc already unwrapped) the value carries a second
+ * {ok, value|error} envelope. This strips that inner layer.
+ */
+function unwrapRemote<T>(
+  method: string,
+  value: { ok?: boolean; value?: T; error?: { code?: string; message?: string } },
+): T {
+  if (!value || value.ok !== true || value.value === undefined) {
+    throw new Error(`${method} failed: ${value?.error?.message ?? 'malformed response'}`)
+  }
+  return value.value
+}
+
+/** All stored feedback ratings of one session. */
+export async function listMessageFeedback(baseUrl: string, sessionId: string): Promise<MessageFeedbackItem[]> {
+  const value = unwrapRemote<{ items?: MessageFeedbackItem[] }>(
+    'messageFeedback/list',
+    await callRpc(baseUrl, 'messageFeedback/list', { args: { request: { sessionId } } }),
+  )
+  return Array.isArray(value.items) ? value.items : []
+}
+
+/**
+ * Upsert one rating. `ifVersion` is the optimistic lock: the stored entry's
+ * version when one exists, null for a first rating.
+ */
+export async function putMessageFeedback(
+  baseUrl: string,
+  sessionId: string,
+  messageId: string,
+  rating: 'positive' | 'negative',
+  ifVersion: string | null,
+): Promise<void> {
+  unwrapRemote<unknown>(
+    'messageFeedback/put',
+    await callRpc(baseUrl, 'messageFeedback/put', { args: { request: { sessionId, messageId, rating, ifVersion } } }),
+  )
+}
+
+/** Remove one rating; `ifVersion` must be the stored entry's version. */
+export async function deleteMessageFeedback(
+  baseUrl: string,
+  sessionId: string,
+  messageId: string,
+  ifVersion: string,
+): Promise<void> {
+  unwrapRemote<unknown>(
+    'messageFeedback/delete',
+    await callRpc(baseUrl, 'messageFeedback/delete', { args: { request: { sessionId, messageId, ifVersion } } }),
+  )
+}
+
+/**
+ * Fork the session, keeping history up to `atSeq` (a completed turn's last
+ * event seq; omitted forks at the tail). Returns the child session id.
+ */
+export async function forkSession(baseUrl: string, sessionId: string, atSeq?: number): Promise<string> {
+  const value = await callRpc<{ sessionId: string }>(
+    baseUrl,
+    'session.fork',
+    atSeq === undefined ? { sessionId } : { sessionId, atSeq },
+  )
+  return value.sessionId
+}
+
 /** Filename convention the host endpoint owns (same as the web client). */
 export function sessionLogZipFilename(sessionId: string): string {
   return `dsh-session-${sessionId.replace(/[^A-Za-z0-9_-]/g, '_')}.zip`

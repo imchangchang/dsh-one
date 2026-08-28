@@ -210,6 +210,8 @@ export class ConversationFolder {
         const msg = this.current
         if (msg) {
           msg.complete = true
+          // The turn's final seq is the fork point for session.fork.
+          msg.seq = event.seq
           const kind = (data.reason as { kind?: string } | undefined)?.kind
           if (kind === 'aborted' || kind === 'interrupted') msg.interrupted = true
         }
@@ -284,12 +286,16 @@ export class ConversationFolder {
   }
 
   private ensureAssistant(turn: number, seq: number): ChatAssistantMessage {
-    if (this.current) return this.current
+    if (this.current) {
+      this.current.seq = seq
+      return this.current
+    }
     const msg: ChatAssistantMessage = {
       kind: 'assistant',
       id: Number.isFinite(turn) ? `assistant-t${turn}` : `assistant-s${seq}`,
       blocks: [],
       complete: false,
+      seq,
     }
     this.msgs.push(msg)
     this.current = msg
@@ -357,6 +363,10 @@ export class ConversationFolder {
 
   private applyAssistantMessage(data: AssistantMessageEventData, seq: number): boolean {
     const msg = this.ensureAssistant(Number(data?.turn), seq)
+    // The host-persisted id powers messageFeedback; on a multi-step turn the
+    // last step's message is the one the web client's fork rule refers to.
+    const messageId = data?.message?.id
+    if (typeof messageId === 'string' && messageId) msg.messageId = messageId
     const key = `${Number(data?.turn)}:${Number(data?.step)}`
     if (key !== this.stepKey) {
       this.stepKey = key
@@ -409,6 +419,8 @@ export class ConversationFolder {
     const text = textOfBlocks(result?.content)
     if (text) block.output = truncate(text)
     if (view?.for === 'result') this.applyResultView(block, view.view)
+    // A result paired to an earlier call skipped ensureAssistant; still bump seq.
+    if (this.current) this.current.seq = seq
     return true
   }
 
@@ -447,4 +459,25 @@ export class ConversationFolder {
       }
     }
   }
+}
+
+/**
+ * Merge stored feedback ratings (messageFeedback/list, keyed by host
+ * messageId) into folded assistant messages. Returns true when any message's
+ * rating changed, so callers can skip a redundant snapshot push.
+ */
+export function applyFeedbackRatings(
+  messages: ChatMessage[],
+  ratings: ReadonlyMap<string, { rating: 'positive' | 'negative' }>,
+): boolean {
+  let changed = false
+  for (const msg of messages) {
+    if (msg.kind !== 'assistant') continue
+    const rating = msg.messageId ? ratings.get(msg.messageId)?.rating : undefined
+    if (msg.feedbackRating !== rating) {
+      msg.feedbackRating = rating
+      changed = true
+    }
+  }
+  return changed
 }

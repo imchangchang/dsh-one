@@ -71,6 +71,21 @@ export interface ChatAssistantMessage {
   /** false while the turn is still streaming. */
   complete: boolean
   interrupted?: boolean
+  /**
+   * Host-persisted message id (assistant/message's data.message.id), required
+   * by the messageFeedback RPCs. Absent while streaming or when the host never
+   * persisted one — the webview disables the feedback buttons then. On a
+   * multi-step turn this is the LAST step's id, matching the fork rule
+   * ("branch from the completed turn's last message").
+   */
+  messageId?: string
+  /**
+   * Seq of the last event folded into this message (turn/end once the turn
+   * completed): the atSeq fork point for session.fork.
+   */
+  seq?: number
+  /** The user's stored rating for this message (messageFeedback/list), if any. */
+  feedbackRating?: 'positive' | 'negative'
 }
 
 /**
@@ -248,3 +263,7 @@ export type FromWebviewMessage =
   | { type: 'queueSteer'; itemId: string }
   | { type: 'queueRemove'; itemId: string }
   | { type: 'requestAttachment'; attachmentId: string }
+  /** Set/clear the user's rating on one assistant message (null clears). */
+  | { type: 'feedback'; messageId: string; rating: 'positive' | 'negative' | null }
+  /** Fork the session at a completed turn's last event seq (ChatAssistantMessage.seq). */
+  | { type: 'fork'; atSeq: number }

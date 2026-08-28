@@ -8,6 +8,7 @@
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type {
+  ChatAssistantMessage,
   ChatBlock,
   ChatFile,
   ChatImage,
@@ -952,7 +953,76 @@ function renderMessage(m: ChatMessage): HTMLElement {
   for (const block of m.blocks) row.appendChild(renderBlock(block))
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
   if (m.interrupted) row.appendChild(el('div', 'interrupted', '已中断'))
+  if (m.complete) row.appendChild(renderAssistantActions(m))
   return row
+}
+
+/** Plain-text content of one assistant message (text + reasoning blocks). */
+function assistantText(m: ChatAssistantMessage): string {
+  return m.blocks
+    .filter((b) => b.type === 'text' || b.type === 'reasoning')
+    .map((b) => (b as { text: string }).text)
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+/** Action row under a completed assistant message: copy / feedback / fork. */
+function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
+  const actions = el('div', 'msg-actions')
+  const copy = buttonEl('link', '复制')
+  copy.title = '复制这条回答的全文'
+  copy.addEventListener('click', () => {
+    const text = assistantText(m)
+    if (!text) return
+    // Top-level document: the async clipboard API is available.
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        copy.textContent = '已复制'
+        setTimeout(() => {
+          copy.textContent = '复制'
+        }, 1200)
+      },
+      () => {
+        copy.textContent = '复制失败'
+      },
+    )
+  })
+  actions.appendChild(copy)
+
+  const messageId = m.messageId
+  const ratings: Array<{ rating: 'positive' | 'negative'; label: string; hint: string }> = [
+    { rating: 'positive', label: '有用', hint: '这个回答有帮助' },
+    { rating: 'negative', label: '没用', hint: '这个回答没帮助' },
+  ]
+  for (const { rating, label, hint } of ratings) {
+    const btn = buttonEl(m.feedbackRating === rating ? 'link active' : 'link', label)
+    if (!messageId) {
+      // The host never persisted an id for this message: feedback RPCs need it.
+      btn.disabled = true
+      btn.title = '这条消息暂不支持反馈'
+    } else {
+      btn.title = hint
+      btn.addEventListener('click', () => {
+        btn.disabled = true
+        // Clicking the active rating again clears it.
+        post({ type: 'feedback', messageId, rating: m.feedbackRating === rating ? null : rating })
+      })
+    }
+    actions.appendChild(btn)
+  }
+
+  // Fork rule (web parity): only from a completed, non-interrupted turn.
+  if (m.seq !== undefined && !m.interrupted) {
+    const atSeq = m.seq
+    const fork = buttonEl('link', '分支')
+    fork.title = '从这条消息创建一个分支会话'
+    fork.addEventListener('click', () => {
+      fork.disabled = true
+      post({ type: 'fork', atSeq })
+    })
+    actions.appendChild(fork)
+  }
+  return actions
 }
 
 function renderBlock(block: ChatBlock): HTMLElement {

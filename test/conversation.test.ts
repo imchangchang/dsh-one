@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ConversationFolder } from '../src/pure/conversation.ts'
+import { ConversationFolder, applyFeedbackRatings } from '../src/pure/conversation.ts'
 import type { SessionEventLike, StreamChunkData, ToolEventViewLike } from '../src/pure/conversation.ts'
 import type { ChatAssistantMessage, ChatToolBlock } from '../src/pure/chatContract.ts'
 
@@ -453,4 +453,82 @@ test('command/done without its run in the window folds to nothing', () => {
   const f = new ConversationFolder()
   assert.equal(f.applyEvent(ev('command/done', { commandId: 'cmd-x', kind: 'success' })), false)
   assert.equal(f.messages().length, 0)
+})
+
+test('assistant/message captures the host message id and turn/end the fork seq', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: 'part one' }))
+  f.applyEvent(
+    ev('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { id: 'a1', content: [{ type: 'text', text: 'part one' }] },
+    }),
+  )
+  f.applyEvent(toolCallEv('c1', 'Bash', '{}'))
+  f.applyEvent(toolResultEv('c1', 'ok'))
+  f.applyEvent(chunkEv(1, 2, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 2, { type: 'text-delta', index: 0, text: 'part two' }))
+  const lastMsg = ev('assistant/message', {
+    turn: 1,
+    step: 2,
+    message: { id: 'a2', content: [{ type: 'text', text: 'part two' }] },
+  })
+  f.applyEvent(lastMsg)
+  const end = ev('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  f.applyEvent(end)
+
+  const msg = lastAssistant(f)
+  // Multi-step turn: the LAST step's id wins (the web client's fork rule
+  // refers to the completed turn's last message).
+  assert.equal(msg.messageId, 'a2')
+  assert.equal(msg.seq, end.seq)
+  assert.equal(msg.complete, true)
+})
+
+test('messageId stays unset when assistant/message carries no id', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: 'hi' }))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+
+  const msg = lastAssistant(f)
+  assert.equal(msg.messageId, undefined)
+  assert.equal(typeof msg.seq, 'number')
+})
+
+test('applyFeedbackRatings merges ratings by messageId and reports changes', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(
+    ev('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { id: 'a1', content: [{ type: 'text', text: 'one' }] },
+    }),
+  )
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+  f.applyEvent(ev('turn/start', { turn: 2 }))
+  f.applyEvent(
+    ev('assistant/message', {
+      turn: 2,
+      step: 1,
+      message: { id: 'a2', content: [{ type: 'text', text: 'two' }] },
+    }),
+  )
+  f.applyEvent(ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+
+  const ratings = new Map([['a2', { rating: 'positive' as const }]])
+  assert.equal(applyFeedbackRatings(f.messages(), ratings), true)
+  const [first, second] = f.messages() as ChatAssistantMessage[]
+  assert.equal(first.feedbackRating, undefined)
+  assert.equal(second.feedbackRating, 'positive')
+
+  // A stable merge reports no change; a cleared rating does.
+  assert.equal(applyFeedbackRatings(f.messages(), ratings), false)
+  assert.equal(applyFeedbackRatings(f.messages(), new Map()), true)
+  assert.equal(second.feedbackRating, undefined)
 })
