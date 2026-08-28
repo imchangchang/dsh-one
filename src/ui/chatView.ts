@@ -185,7 +185,10 @@ const STYLE = `
   .question-header { font-size: 0.8em; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.04em; }
   .question-text { white-space: pre-wrap; }
   .question-options { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 6px; }
-  .option-btn { text-align: left; }
+  .option-btn { text-align: left; display: flex; align-items: baseline; }
+  .option-btn::before { content: '•'; flex: none; margin-right: 8px; opacity: 0.5; }
+  .option-btn:hover:not(:disabled)::before,
+  .option-btn.selected::before { opacity: 1; }
   .option-btn:hover:not(:disabled) { filter: brightness(1.2); outline: 1px solid var(--vscode-focusBorder); }
   .option-btn.selected { outline: 1px solid var(--vscode-focusBorder); }
   .question-detail { margin-top: 6px; }
