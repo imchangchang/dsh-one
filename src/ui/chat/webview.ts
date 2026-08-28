@@ -433,10 +433,15 @@ function render(): void {
   ])
   const keepComposer =
     oldComposer !== null && hadFocus && stashedDraft === undefined && composerSig === lastComposerSig
-  if (keepComposer) {
-    for (const child of Array.from(app.children)) if (child !== oldComposer) child.remove()
-  } else {
-    app.textContent = ''
+  // The scroller element also persists (whenever a session is on screen):
+  // replacing it mid-gesture breaks a native scrollbar drag in flight, so
+  // only its children are rebuilt below. (Scrollbar drags dispatch no
+  // pointer events to the page, so there is no way to defer renders instead.)
+  const keepMessages = oldMessages !== null && !!state?.sessionId
+  for (const child of Array.from(app.children)) {
+    if (keepMessages && child === oldMessages) continue
+    if (keepComposer && child === oldComposer) continue
+    child.remove()
   }
   if (!state || !state.sessionId) {
     lastComposerSig = null
@@ -456,21 +461,26 @@ function render(): void {
     rename.title = '重命名会话'
     rename.addEventListener('click', () => startInlineRename(header))
     header.appendChild(rename)
-    add(header)
+    const headerAnchor = keepMessages ? oldMessages : anchor
+    if (headerAnchor) app.insertBefore(header, headerAnchor)
+    else app.appendChild(header)
   }
 
-  const messages = el('div', 'messages')
-  messages.id = 'messages'
+  const messages = oldMessages ?? el('div', 'messages')
+  if (!oldMessages) {
+    messages.id = 'messages'
+    messages.addEventListener('scroll', () => {
+      stickToBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 40
+      const jump = messages.querySelector<HTMLElement>('.jump-latest')
+      if (jump) jump.style.display = stickToBottom ? 'none' : ''
+    })
+  }
+  messages.textContent = ''
   for (const m of state.messages) messages.appendChild(renderMessage(m))
   for (const notice of commandNotices) messages.appendChild(el('div', 'command-notice', notice))
   if (state.messages.length === 0) {
     messages.appendChild(el('div', 'muted-hint', '会话还没有消息，在下方输入开始。'))
   }
-  messages.addEventListener('scroll', () => {
-    stickToBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 40
-    const jump = messages.querySelector<HTMLElement>('.jump-latest')
-    if (jump) jump.style.display = stickToBottom ? 'none' : ''
-  })
   // "Back to latest" floater: sticky at the scroller's bottom while the user
   // reads history; hidden while pinned to the tail.
   const jump = buttonEl('jump-latest', '↓ 回到最新')
@@ -481,7 +491,7 @@ function render(): void {
     jump.style.display = 'none'
   })
   messages.appendChild(jump)
-  add(messages)
+  if (!keepMessages) add(messages)
 
   if (state.pending.length > 0) {
     const pending = el('div', 'pending')
