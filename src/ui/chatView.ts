@@ -6,7 +6,15 @@ import * as path from 'node:path'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { ChatSessionController } from '../server/chatSession.ts'
-import { executeCommand, renameSession, selectModel, sessionAttachment, sessionModels } from '../server/dshRpc.ts'
+import {
+  executeCommand,
+  exportSessionLog,
+  renameSession,
+  selectModel,
+  sessionAttachment,
+  sessionLogZipFilename,
+  sessionModels,
+} from '../server/dshRpc.ts'
 import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { ChatState, FromWebviewMessage, OutgoingImage, ToWebviewMessage } from '../pure/chatContract.ts'
 
@@ -641,6 +649,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     if (!outcome.matched) {
       const message: ToWebviewMessage = { type: 'commandResult', text: `未知或格式错误的命令：${line}` }
       void this.view?.webview.postMessage(message)
+      return
+    }
+    // `/export` only marks the request host-side ("Session log download
+    // requested."); the bytes come from /api/session.export, which the
+    // browser client hands to its download manager. Here we save via dialog.
+    const name = line.trim().slice(1).split(/\s/, 1)[0]
+    if (name === 'export' && outcome.kind === 'success') {
+      await this.saveSessionLog(controller)
+    }
+  }
+
+  /** Fetch the session-log ZIP and let the user pick where to save it. */
+  private async saveSessionLog(controller: ChatSessionController): Promise<void> {
+    try {
+      const zip = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: '正在导出会话日志…' },
+        () => exportSessionLog(controller.url, controller.sessionId),
+      )
+      const target = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Downloads', sessionLogZipFilename(controller.sessionId))),
+        filters: { ZIP: ['zip'] },
+        saveLabel: '保存会话日志',
+      })
+      if (!target) return
+      await fs.writeFile(target.fsPath, zip)
+      void vscode.window.showInformationMessage(`会话日志已保存到 ${target.fsPath}`)
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      vscode.window.showErrorMessage(`导出会话日志失败：${detail}`)
     }
   }
 

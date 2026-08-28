@@ -306,3 +306,26 @@ export async function updateQueue(
 ): Promise<void> {
   await callRpc(baseUrl, 'session.updateQueue', { sessionId, itemId, action })
 }
+
+/** Filename convention the host endpoint owns (same as the web client). */
+export function sessionLogZipFilename(sessionId: string): string {
+  return `dsh-session-${sessionId.replace(/[^A-Za-z0-9_-]/g, '_')}.zip`
+}
+
+/**
+ * Download the session-log ZIP the `/export` command asks for. The command
+ * handler only marks the request; the bytes come from this plain GET
+ * endpoint (the official web client hands the same URL to the browser's
+ * download manager).
+ */
+export async function exportSessionLog(baseUrl: string, sessionId: string): Promise<Uint8Array> {
+  const url = new URL('/api/session.export', baseUrl)
+  url.searchParams.set('sessionId', sessionId)
+  url.searchParams.set('includeDescendants', 'true')
+  const res = await fetch(url)
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`session.export: HTTP ${res.status}${detail ? ` ${detail}` : ''}`)
+  }
+  return new Uint8Array(await res.arrayBuffer())
+}
