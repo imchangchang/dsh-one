@@ -100,9 +100,9 @@ const STYLE = `
   }
   .sessions-tool:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
   .sessions-tool svg { display: block; }
-  .sessions-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .sessions-list { flex: 1; overflow-y: auto; padding: 2px 0; }
   .workspace-row {
-    display: flex; align-items: center; gap: 6px; padding: 4px 10px 2px;
+    display: flex; align-items: center; gap: 6px; padding: 3px 10px 1px;
     font-weight: 600; font-size: 12px;
   }
   .workspace-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -112,8 +112,8 @@ const STYLE = `
     color: var(--vscode-badge-foreground, var(--vscode-foreground));
   }
   .session-row {
-    display: flex; align-items: center; gap: 7px; margin: 0 4px; padding: 3px 6px 3px 14px;
-    cursor: pointer; border-radius: 4px;
+    display: flex; align-items: center; gap: 6px; margin: 0 4px; padding: 1px 6px 1px 12px;
+    cursor: pointer; border-radius: 4px; font-size: 12px; line-height: 20px;
   }
   .session-row:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
   .session-row.active {
@@ -121,13 +121,14 @@ const STYLE = `
     color: var(--vscode-list-activeSelectionForeground, inherit);
   }
   .session-dot {
-    width: 7px; height: 7px; border-radius: 50%; flex: none;
+    width: 6px; height: 6px; border-radius: 50%; flex: none;
     background: var(--vscode-descriptionForeground, #888); opacity: 0.35;
   }
   .session-dot.running { background: var(--vscode-testing-iconPassed, #73c991); opacity: 1; }
-  .session-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  .session-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .session-time { font-size: 11px; opacity: 0.55; }
+  /* 紧凑单行：标题省略号 + 右对齐的相对时间（对齐原原生树的观感）。 */
+  .session-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+  .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-time { flex: none; font-size: 11px; opacity: 0.55; }
   .row-actions { display: none; gap: 2px; flex: none; }
   .session-row:hover .row-actions, .workspace-row:hover .row-actions { display: inline-flex; }
   .row-action {
