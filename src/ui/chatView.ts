@@ -295,7 +295,7 @@ const STYLE = `
   }
   .context-bar-fill {
     display: block; height: 100%; min-width: 2px; border-radius: 2px;
-    background: var(--vscode-descriptionForeground);
+    background: var(--vscode-progressBar-background, var(--vscode-button-background));
   }
   .context-panel { width: 240px; font-size: 12px; line-height: 20px; }
   .context-panel .cp-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
