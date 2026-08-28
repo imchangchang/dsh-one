@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
-import type { ChatState, OutgoingImage, PendingRequest } from '../pure/chatContract.ts'
+import type { ChatState, OutgoingImage, PendingRequest, QuestionAnswerInput } from '../pure/chatContract.ts'
 import { ConversationFolder } from '../pure/conversation.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
@@ -194,20 +194,22 @@ export class ChatSessionController implements vscode.Disposable {
     await respond(this.url, rpcId, { sessionId: this.sessionId, approvalId: entry.approvalId, outcome })
   }
 
-  async answerQuestion(rpcId: string, answer: string): Promise<void> {
+  async answerQuestion(rpcId: string, answers: QuestionAnswerInput[]): Promise<void> {
     const items = this.questionItems.get(rpcId)
     if (!items) throw new Error(`question ${rpcId} is not pending`)
-    // The webview answers with one string: when it matches an option label it
-    // selects that option, otherwise it rides as the free-text custom answer —
-    // applied to every question of the batch (one ask, one answer).
+    // Same encoding as the web client's QuestionComposer: per-question
+    // selected labels plus an optional free-text custom answer, ids echoed.
     const value = {
       sessionId: this.sessionId,
       answer: {
-        answers: items.map((q) =>
-          q.options?.some((o) => o.label === answer)
-            ? { id: q.id, selected: [answer] }
-            : { id: q.id, selected: [], custom: answer },
-        ),
+        answers: items.map((q, i) => {
+          const a = answers[i]
+          return {
+            id: q.id,
+            selected: a?.selected ?? [],
+            ...(a?.custom ? { custom: a.custom } : {}),
+          }
+        }),
       },
     }
     await respond(this.url, rpcId, value)

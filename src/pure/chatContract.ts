@@ -100,6 +100,12 @@ export interface PendingQuestion {
 
 export type PendingRequest = PendingApproval | PendingQuestion
 
+/** One per-question answer draft the webview submits (mirrors AskUserQuestionAnswerItem minus the id). */
+export interface QuestionAnswerInput {
+  selected: string[]
+  custom?: string
+}
+
 /** One base64 file the webview staged (picker) or pasted for the next prompt. */
 export interface OutgoingImage {
   /** Declared MIME type; may be empty for clipboard file-promises — the host sniffs bytes. */
@@ -172,7 +178,7 @@ export type FromWebviewMessage =
   | { type: 'send'; text: string; images?: OutgoingImage[] }
   | { type: 'stop' }
   | { type: 'approval'; rpcId: string; outcome: 'allowed-once' | 'rejected' }
-  | { type: 'answer'; rpcId: string; answer: string }
+  | { type: 'answer'; rpcId: string; answers: QuestionAnswerInput[] }
   | { type: 'pickFiles' }
   | { type: 'filesPasted'; files: OutgoingImage[] }
   | { type: 'requestModels' }

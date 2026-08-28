@@ -48,8 +48,8 @@ let modelCatalog: ModelCatalog | null = null
 const attachmentCache = new Map<string, string>()
 /** Attachment ids already requested, so re-renders don't repost while a fetch is in flight. */
 const attachmentRequested = new Set<string>()
-/** Half-answered pending questions: rpcId → question index → picked labels / typed text. */
-const answerDrafts = new Map<string, Map<number, string | Set<string>>>()
+/** Half-answered pending questions: rpcId → question index → draft. */
+const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
 
 /** Static mirror of dsh's built-in slash commands (no list API as of rc.2). */
 const SLASH_COMMANDS: Array<{ name: string; description: string }> = [
@@ -580,7 +580,13 @@ function renderApproval(p: PendingApproval): HTMLElement {
   return card
 }
 
-function questionDraft(rpcId: string): Map<number, string | Set<string>> {
+/** Per-question answer draft: picked option labels plus free-text custom input. */
+interface QuestionDraft {
+  selected: Set<string>
+  custom: string
+}
+
+function questionDraft(rpcId: string): Map<number, QuestionDraft> {
   let d = answerDrafts.get(rpcId)
   if (!d) {
     d = new Map()
@@ -589,15 +595,31 @@ function questionDraft(rpcId: string): Map<number, string | Set<string>> {
   return d
 }
 
+function draftFor(rpcId: string, index: number): QuestionDraft {
+  const d = questionDraft(rpcId)
+  let v = d.get(index)
+  if (!v) {
+    v = { selected: new Set(), custom: '' }
+    d.set(index, v)
+  }
+  return v
+}
+
 function submitAnswer(p: PendingQuestion): void {
   const d = answerDrafts.get(p.rpcId)
-  const parts = p.questions.map((_, i) => {
+  // Same encoding as dsh's web QuestionComposer: a custom answer replaces the
+  // selection for single-select questions, and accompanies it for multi-select.
+  const answers = p.questions.map((q, i) => {
     const v = d?.get(i)
-    if (v instanceof Set) return [...v].join('、')
-    return v ?? ''
+    const custom = v?.custom.trim() ?? ''
+    const selected = [...(v?.selected ?? [])]
+    return {
+      selected: custom === '' || q.multiSelect ? selected : [],
+      ...(custom ? { custom } : {}),
+    }
   })
   answerDrafts.delete(p.rpcId)
-  post({ type: 'answer', rpcId: p.rpcId, answer: parts.join('\n') })
+  post({ type: 'answer', rpcId: p.rpcId, answers })
 }
 
 function renderQuestion(p: PendingQuestion): HTMLElement {
@@ -607,19 +629,17 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
     const wrap = el('div', 'question')
     if (q.header) wrap.appendChild(el('div', 'question-header', q.header))
     wrap.appendChild(el('div', 'question-text', q.question))
-    const draft = questionDraft(p.rpcId)
+    const draft = draftFor(p.rpcId, i)
     if (q.options && q.options.length > 0) {
       if (q.multiSelect) {
-        const picked = (draft.get(i) as Set<string> | undefined) ?? new Set<string>()
-        draft.set(i, picked)
         for (const opt of q.options) {
           const label = el('label', 'checkbox')
           const box = document.createElement('input')
           box.type = 'checkbox'
-          box.checked = picked.has(opt.label)
+          box.checked = draft.selected.has(opt.label)
           box.addEventListener('change', () => {
-            if (box.checked) picked.add(opt.label)
-            else picked.delete(opt.label)
+            if (box.checked) draft.selected.add(opt.label)
+            else draft.selected.delete(opt.label)
           })
           label.appendChild(box)
           label.appendChild(el('span', '', opt.description ? `${opt.label} — ${opt.description}` : opt.label))
@@ -630,9 +650,10 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
         for (const opt of q.options) {
           const btn = buttonEl('secondary option-btn', opt.label)
           if (opt.description) btn.title = opt.description
-          if (draft.get(i) === opt.label) btn.classList.add('selected')
+          if (draft.custom === '' && draft.selected.has(opt.label)) btn.classList.add('selected')
           btn.addEventListener('click', () => {
-            draft.set(i, opt.label)
+            draft.selected = new Set([opt.label])
+            draft.custom = ''
             // A lone single-select question answers immediately, Claude Code style.
             if (single) submitAnswer(p)
             else render()
@@ -641,18 +662,30 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
         }
         wrap.appendChild(group)
       }
-    } else {
-      const input = document.createElement('input')
-      input.type = 'text'
-      input.value = (draft.get(i) as string | undefined) ?? ''
-      input.addEventListener('input', () => draft.set(i, input.value))
-      wrap.appendChild(input)
     }
+    // Every question also takes a free-text "Other" answer, like the web UI.
+    const customRow = el('div', 'question-custom')
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.placeholder = q.options?.length ? '其他（自定义回答，Enter 提交）' : '输入回答，Enter 提交'
+    input.value = draft.custom
+    input.addEventListener('input', () => {
+      draft.custom = input.value
+      if (input.value && !q.multiSelect) draft.selected.clear()
+    })
+    input.addEventListener('keydown', (e) => {
+      // isComposing: Enter confirms an IME candidate, not the answer.
+      if (e.key === 'Enter' && !e.isComposing && single) {
+        e.preventDefault()
+        submitAnswer(p)
+      }
+    })
+    customRow.appendChild(input)
+    wrap.appendChild(customRow)
     card.appendChild(wrap)
   })
-  // Multi-question / multi-select / text answers need an explicit confirm.
-  const needsConfirm =
-    !single || p.questions.some((q) => q.multiSelect || !q.options || q.options.length === 0)
+  // Multi-question asks and multi-select questions need an explicit confirm.
+  const needsConfirm = !single || p.questions.some((q) => q.multiSelect)
   if (needsConfirm) {
     const actions = el('div', 'pending-actions')
     const ok = buttonEl('', '确认')
@@ -711,25 +744,21 @@ function renderInput(draft: string | undefined): HTMLElement {
   const input = document.createElement('textarea')
   input.id = 'input'
   input.rows = 1
-  input.placeholder = canSend
-    ? '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件'
-    : '服务未就绪，暂时无法发送'
+  input.placeholder = !canSend
+    ? '服务未就绪，暂时无法发送'
+    : state?.running
+      ? '输入消息，Enter 排队发送，Shift+Enter 换行'
+      : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件'
   input.disabled = !canSend
   if (draft) input.value = draft
 
-  const button = buttonEl('send-button', '')
+  const button = buttonEl('send-button', '发送')
   const updateButton = (): void => {
-    if (state?.running) {
-      button.textContent = '停止'
-      button.disabled = false
-    } else {
-      button.textContent = '发送'
-      button.disabled =
-        !canSend || (input.value.trim().length === 0 && pendingImages.length === 0 && pendingFiles.length === 0)
-    }
+    button.disabled =
+      !canSend || (input.value.trim().length === 0 && pendingImages.length === 0 && pendingFiles.length === 0)
   }
   const sendCurrent = (): void => {
-    if (!state || state.running || !state.canSend) return
+    if (!state || !state.canSend) return
     // Staged file chips travel as <attachment> path lines appended to the
     // prompt text (dsh has no file content part); the folder parses them
     // back into chips for history rendering.
@@ -744,10 +773,7 @@ function renderInput(draft: string | undefined): HTMLElement {
     input.value = ''
     render()
   }
-  button.addEventListener('click', () => {
-    if (state?.running) post({ type: 'stop' })
-    else sendCurrent()
-  })
+  button.addEventListener('click', sendCurrent)
   input.addEventListener('keydown', (e) => {
     // isComposing: don't send while an IME candidate window is open.
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -792,6 +818,13 @@ function renderInput(draft: string | undefined): HTMLElement {
   })
   updateButton()
   row.appendChild(input)
+  // While a turn runs, stop gets its own button; send stays available and
+  // queues the prompt (dsh mode 'queue').
+  if (state?.running) {
+    const stop = buttonEl('secondary stop-button', '停止')
+    stop.addEventListener('click', () => post({ type: 'stop' }))
+    row.appendChild(stop)
+  }
   row.appendChild(button)
   wrap.appendChild(row)
 

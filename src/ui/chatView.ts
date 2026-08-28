@@ -416,7 +416,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           await controller.respondApproval(m.rpcId, m.outcome)
           return
         case 'answer':
-          await controller.answerQuestion(m.rpcId, m.answer)
+          await controller.answerQuestion(m.rpcId, m.answers)
           return
         case 'pickFiles':
           await this.pickFiles(controller)
