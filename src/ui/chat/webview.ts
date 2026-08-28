@@ -75,8 +75,8 @@ const SLASH_COMMANDS: Array<{ name: string; description: string; hint?: string }
   { name: 'plan', description: '进入或退出计划模式', hint: '[off|message]' },
   { name: 'model', description: '选择本会话使用的模型' },
 ]
-/** Commands the composer's slash completion offers (excludes our non-host `model` entry). */
-const COMPLETABLE_COMMANDS = SLASH_COMMANDS.filter((c) => c.name !== 'model')
+/** Commands the composer's slash completion offers; `/model` is client-side (the send path intercepts it and opens the model menu, like the official web client). */
+const COMPLETABLE_COMMANDS = SLASH_COMMANDS
 
 /** Shield glyphs copied verbatim from dsh-client-ui-conversation's PermissionSelect. */
 const SHIELD_OUTLINE =
@@ -1234,6 +1234,15 @@ function renderInput(draft: string | undefined): HTMLElement {
       .filter(Boolean)
       .join('\n')
     if (!text && pendingImages.length === 0) return
+    // `/model` is a client-side command (dsh-client-ui-model-selection): the
+    // host has no such command, so open the model menu instead of sending.
+    if (text === '/model' && !recall) {
+      input.value = ''
+      render()
+      const pill = document.querySelector<HTMLElement>('.input-footer .pill[title="模型"]')
+      if (pill) openModelMenu(pill)
+      return
+    }
     if (recall?.kind === 'queue') {
       // Queue edits carry text only (the host rejects non-text content), so
       // staged images stay staged and only the text goes to the queue item.
