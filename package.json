@@ -34,6 +34,11 @@
         "category": "DSH One"
       },
       {
+        "command": "dshOne.openExternal",
+        "title": "在浏览器中打开 dsh 页面",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.openInTab",
         "title": "打开 dsh 页面",
         "category": "DSH One",

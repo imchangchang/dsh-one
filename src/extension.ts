@@ -69,6 +69,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void manager.ensureStarted()
       return vscode.commands.executeCommand('dshOne.sessions.focus')
     }),
+    // Status bar click: open the dsh web UI in the system browser (starting
+    // the service first when needed).
+    vscode.commands.registerCommand('dshOne.openExternal', async () => {
+      const status = await manager.ensureStarted()
+      if (status.url) await vscode.env.openExternal(vscode.Uri.parse(status.url))
+    }),
     vscode.commands.registerCommand('dshOne.openInTab', () => {
       openInTab(manager)
     }),
