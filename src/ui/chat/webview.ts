@@ -37,6 +37,12 @@ marked.setOptions({ gfm: true, breaks: true })
 let state: ChatState | null = null
 /** Auto-scroll only when the user is already near the bottom. */
 let stickToBottom = true
+/**
+ * ScrollTop the last render left behind. Compared against the live position
+ * at the next render to detect user scrolls synchronously — the scroll event
+ * dispatches asynchronously and would otherwise race with streaming renders.
+ */
+let pinnedScrollTop: number | null = null
 /** Images staged in the composer, sent with the next `send`. */
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
@@ -379,8 +385,16 @@ function render(): void {
   const hadFocus = document.activeElement?.id === 'input'
   const draft = (document.getElementById('input') as HTMLTextAreaElement | null)?.value
   // The rebuild wipes scroll state; remember it so a user reading history
-  // mid-stream is not thrown back to the top.
-  const prevScrollTop = document.getElementById('messages')?.scrollTop ?? null
+  // mid-stream is not thrown back to the top. Also re-evaluate pinning from
+  // the LIVE position whenever it moved away from where the last render left
+  // it: scroll events dispatch asynchronously, so a streaming render running
+  // on the stale stickToBottom would yank the view back to the bottom while
+  // the user is scrolling up.
+  const oldMessages = document.getElementById('messages')
+  const prevScrollTop = oldMessages?.scrollTop ?? null
+  if (oldMessages && (pinnedScrollTop === null || Math.abs(oldMessages.scrollTop - pinnedScrollTop) > 1)) {
+    stickToBottom = oldMessages.scrollHeight - oldMessages.scrollTop - oldMessages.clientHeight < 40
+  }
   // Same for the inline queue editor: it is rebuilt per snapshot, so keep
   // its focus and cursor across re-renders.
   const oldQueueEditor = document.querySelector<HTMLTextAreaElement>('.queue-editor')
@@ -462,6 +476,9 @@ function render(): void {
   app.appendChild(renderInput(draft))
   if (stickToBottom) messages.scrollTop = messages.scrollHeight
   else if (prevScrollTop !== null) messages.scrollTop = prevScrollTop
+  // Read back the clamped value: this is the position the next render compares
+  // against to tell user scrolls apart from content growth.
+  pinnedScrollTop = messages.scrollTop
   const queueEditor = document.querySelector<HTMLTextAreaElement>('.queue-editor')
   if (queueEditor && queueFocus) {
     queueEditor.focus()
