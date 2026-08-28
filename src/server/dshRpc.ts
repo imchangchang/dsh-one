@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto'
 import type { HistoryEntryLike } from '../pure/conversation.ts'
+import type { OutgoingImage } from '../pure/chatContract.ts'
 
 export interface WorkspaceView {
   workspaceId: string
@@ -138,14 +139,76 @@ export async function respond(baseUrl: string, rpcId: string, value: unknown): P
   }
 }
 
-/** Send one text prompt; slash commands ride the same entry point. */
+/** Send one prompt; slash commands ride the same entry point. Images precede the text block. */
 export async function promptSession(
   baseUrl: string,
   sessionId: string,
   text: string,
   mode: 'queue' | 'steer' = 'queue',
+  images?: OutgoingImage[],
 ): Promise<void> {
-  await callRpc(baseUrl, 'session.prompt', { sessionId, mode, content: [{ type: 'text', text }] })
+  const content: unknown[] = (images ?? []).map((img) => ({
+    type: 'image',
+    mediaType: img.mediaType,
+    data: img.data,
+    ...(img.name ? { name: img.name } : {}),
+  }))
+  if (text) content.push({ type: 'text', text })
+  await callRpc(baseUrl, 'session.prompt', { sessionId, mode, content })
+}
+
+/** Loose mirror of ModelSelection (apiproxy sessions.d.ts). */
+export interface SessionModelSelection {
+  provider: string
+  model: string
+  reasoningEffort?: string
+}
+
+/** Loose mirror of ModelCatalogModel; only the fields the UI reads. */
+export interface SessionCatalogModel {
+  id: string
+  name: string
+  description?: string
+  reasoning?: {
+    efforts: Array<{ id: string; name: string; description?: string }>
+    defaultEffort?: string
+  }
+}
+
+/** Loose mirror of ImageAttachmentLimits (dsh-attachment types; `imageLimits` projection value). */
+export interface ImageLimits {
+  maxImageBytes: number
+  maxImagesPerMessage: number
+  maxMessageImageBytes: number
+  mediaTypes: readonly string[]
+}
+
+/** Loose mirror of SessionModels (apiproxy sessions.d.ts). */
+export interface SessionModels {
+  current: SessionModelSelection
+  routable: boolean
+  groups: Array<{ id: string; name: string; models: SessionCatalogModel[] }>
+  failures: Array<{ id: string; name: string; message: string }>
+}
+
+/** Advisory model directory for one session (session.models). */
+export async function sessionModels(baseUrl: string, sessionId: string): Promise<SessionModels> {
+  return callRpc(baseUrl, 'session.models', { sessionId })
+}
+
+/** Select provider/model(/effort) for the session's next step (session.selectModel). */
+export async function selectModel(
+  baseUrl: string,
+  sessionId: string,
+  selection: SessionModelSelection,
+): Promise<SessionModelSelection> {
+  const value = await callRpc<{ selected: SessionModelSelection }>(baseUrl, 'session.selectModel', {
+    sessionId,
+    provider: selection.provider,
+    model: selection.model,
+    ...(selection.reasoningEffort !== undefined ? { reasoningEffort: selection.reasoningEffort } : {}),
+  })
+  return value.selected
 }
 
 /** Stop the session's active turn; queued work survives the cancellation. */

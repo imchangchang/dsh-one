@@ -35,8 +35,9 @@
       },
       {
         "command": "dshOne.openInTab",
-        "title": "在编辑器标签页打开",
-        "category": "DSH One"
+        "title": "打开 dsh 页面",
+        "category": "DSH One",
+        "icon": "$(globe)"
       },
       {
         "command": "dshOne.restart",
@@ -100,11 +101,6 @@
           "id": "dshOne.chat",
           "name": "Chat",
           "type": "webview"
-        },
-        {
-          "id": "dshOne.sidebar",
-          "name": "DSH",
-          "type": "webview"
         }
       ]
     },
@@ -125,6 +121,11 @@
           "command": "dshOne.session.new",
           "when": "view == dshOne.sessions",
           "group": "navigation@2"
+        },
+        {
+          "command": "dshOne.openInTab",
+          "when": "view == dshOne.sessions",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [

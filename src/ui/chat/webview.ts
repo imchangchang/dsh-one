@@ -13,8 +13,11 @@ import type {
   ChatState,
   ChatToolBlock,
   FromWebviewMessage,
+  ModelCatalog,
+  OutgoingImage,
   PendingApproval,
   PendingQuestion,
+  ToWebviewMessage,
 } from '../../pure/chatContract.ts'
 
 interface VsCodeApi {
@@ -30,8 +33,34 @@ marked.setOptions({ gfm: true, breaks: true })
 let state: ChatState | null = null
 /** Auto-scroll only when the user is already near the bottom. */
 let stickToBottom = true
+/** Images staged in the composer, sent with the next `send`. */
+let pendingImages: OutgoingImage[] = []
+/** Session the staged images belong to; a switch drops them. */
+let stagedForSession: string | null = null
+/** Latest model catalog reply; dropped on session switch, refetched on menu open. */
+let modelCatalog: ModelCatalog | null = null
 /** Half-answered pending questions: rpcId → question index → picked labels / typed text. */
 const answerDrafts = new Map<string, Map<number, string | Set<string>>>()
+
+/** Static mirror of dsh's built-in slash commands (no list API as of rc.2). */
+const SLASH_COMMANDS: Array<{ name: string; description: string }> = [
+  { name: 'compact', description: '压缩较早的会话历史' },
+  { name: 'export', description: '导出本会话日志（ZIP）' },
+  { name: 'feedback', description: '记录本会话反馈' },
+  { name: 'goal', description: '设置或查看长任务目标' },
+  { name: 'permission', description: '切换权限预设' },
+  { name: 'plan', description: '进入或退出计划模式' },
+  { name: 'model', description: '选择本会话使用的模型' },
+]
+
+/** Shield glyphs copied verbatim from dsh-client-ui-conversation's PermissionSelect. */
+const SHIELD_OUTLINE =
+  'M8.20554 0.899994L14.7901 3.36857V7.01026C14.7901 12 11.0466 14.2103 8.20554 15.3C5.36446 14.2103 1.62012 12 1.62012 7.01026V3.36857L8.20554 0.899994Z'
+const PERMISSION_GLYPHS: Record<string, string> = {
+  'read-only': `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="${SHIELD_OUTLINE}" stroke="currentColor" stroke-width="1.31831" stroke-linejoin="round"/><path d="M12.1654 5.7552L8.9447 9.41475C8.73044 9.65816 8.53628 9.8804 8.35774 10.0423C8.1713 10.2114 7.94235 10.3717 7.64016 10.4254C7.48207 10.4535 7.32 10.4552 7.16151 10.4294C6.85843 10.3801 6.62728 10.2223 6.43836 10.0559C6.25752 9.89653 6.06037 9.67732 5.84264 9.43705L4.72925 8.20897L5.63557 7.38707L6.74897 8.61594C6.98603 8.87755 7.12974 9.03533 7.24673 9.13839C7.31033 9.19443 7.34485 9.21476 7.35823 9.22122C7.38068 9.22484 7.40352 9.22515 7.42593 9.22122C7.40522 9.22502 7.42893 9.23294 7.53583 9.136C7.65132 9.03126 7.79316 8.87139 8.02643 8.60638L11.2479 4.94763L12.1654 5.7552Z" fill="currentColor"/></svg>`,
+  'workspace-write': `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8.08887 0.251709C8.20479 0.23085 8.32486 0.241168 8.43652 0.282959L15.0215 2.75171C15.2787 2.84819 15.4492 3.09414 15.4492 3.3689V7.0105C15.4492 7.10986 15.4441 7.2081 15.4414 7.30542C15.0285 7.07175 14.5905 6.87695 14.1309 6.73022V3.82495L8.20508 1.60327L2.2793 3.82495V7.0105C2.27936 9.7171 3.4745 11.5379 5.02734 12.7947C5.01025 12.9942 5 13.1962 5 13.4001C5.00001 13.7617 5.02722 14.1169 5.08008 14.4636C2.91555 13.0393 0.961014 10.752 0.960938 7.0105V3.3689C0.960938 3.09417 1.13146 2.84821 1.38867 2.75171L7.97461 0.282959L8.08887 0.251709Z" fill="currentColor"/><path d="M11.3525 5.64688V6.85688H5V5.64688H11.3525Z" fill="currentColor"/><path d="M9.5824 8.29376V9.50376H5V8.29376H9.5824Z" fill="currentColor"/><path d="M14.6647 15.6852H10.0338C10.3878 15.3751 10.7567 15.0517 11.0772 14.7706C11.2531 14.6164 11.4144 14.4746 11.5511 14.3547H14.6647V15.6852Z" fill="currentColor"/><path d="M8.14852 14.1308L7.33925 15.4976C7.22458 15.6912 7.42245 15.9194 7.63037 15.8333L9.09785 15.2254L15.0399 10.0719L14.0905 8.97733L8.14852 14.1308Z" fill="currentColor"/></svg>`,
+  'danger-full-access': `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="${SHIELD_OUTLINE}" stroke="currentColor" stroke-width="1.31831" stroke-linejoin="round"/><path d="M9.10094 4.5V8.75939H7.59888V4.5H9.10094Z" fill="currentColor"/><path d="M9.10094 9.8114V11.5H7.59888V9.8114H9.10094Z" fill="currentColor"/></svg>`,
+}
 
 function post(message: FromWebviewMessage): void {
   vscode.postMessage(message)
@@ -56,14 +85,226 @@ function md(text: string): string {
 }
 
 window.addEventListener('message', (event) => {
-  const msg = event.data as { type?: string; state?: ChatState }
+  const msg = event.data as ToWebviewMessage
   if (msg?.type === 'state' && msg.state) {
     state = msg.state
+    if (state.sessionId !== stagedForSession) {
+      pendingImages = []
+      modelCatalog = null
+      stagedForSession = state.sessionId
+    }
     render()
+  } else if (msg?.type === 'imagesPicked' && Array.isArray(msg.images)) {
+    pendingImages = [...pendingImages, ...msg.images]
+    render()
+  } else if (msg?.type === 'modelCatalog' && msg.catalog) {
+    modelCatalog = msg.catalog
+    if (modelMenuBody) renderModelMenuRoot(modelMenuBody, msg.catalog)
   }
 })
 
+/** Open composer popover; attached to document.body so it survives render(). */
+let popover: HTMLElement | null = null
+/** Body of the open model menu awaiting the catalog reply. */
+let modelMenuBody: HTMLElement | null = null
+
+function onPopoverOutside(e: MouseEvent): void {
+  if (popover && !popover.contains(e.target as Node)) closePopover()
+}
+
+function onPopoverKey(e: KeyboardEvent): void {
+  if (e.key === 'Escape') closePopover()
+}
+
+function closePopover(): void {
+  popover?.remove()
+  popover = null
+  modelMenuBody = null
+  document.removeEventListener('mousedown', onPopoverOutside, true)
+  document.removeEventListener('keydown', onPopoverKey, true)
+}
+
+function showPopover(anchor: HTMLElement, body: HTMLElement): void {
+  closePopover()
+  const p = el('div', 'popover')
+  p.appendChild(body)
+  document.body.appendChild(p)
+  const rect = anchor.getBoundingClientRect()
+  p.style.left = `${Math.max(4, rect.left)}px`
+  p.style.bottom = `${window.innerHeight - rect.top + 6}px`
+  popover = p
+  document.addEventListener('mousedown', onPopoverOutside, true)
+  document.addEventListener('keydown', onPopoverKey, true)
+}
+
+function menuItem(
+  label: string,
+  opts: { right?: string; checked?: boolean; glyph?: string; onClick: () => void },
+): HTMLElement {
+  const item = el('div', opts.checked ? 'menu-item checked' : 'menu-item')
+  item.appendChild(el('span', 'check', '✓'))
+  if (opts.glyph) {
+    const g = el('span', 'glyph')
+    g.innerHTML = opts.glyph // build-time constant strings, not user input
+    item.appendChild(g)
+  }
+  item.appendChild(el('span', undefined, label))
+  if (opts.right) item.appendChild(el('span', 'menu-right', opts.right))
+  item.addEventListener('click', opts.onClick)
+  return item
+}
+
+function openPermissionMenu(anchor: HTMLElement): void {
+  const perms = state?.permissions
+  if (!perms) return
+  const body = el('div')
+  for (const o of perms.options) {
+    body.appendChild(
+      menuItem(o.label, {
+        glyph: PERMISSION_GLYPHS[o.value],
+        checked: o.value === perms.current,
+        onClick: () => {
+          closePopover()
+          if (o.value !== perms.current) post({ type: 'setPermission', value: o.value })
+        },
+      }),
+    )
+  }
+  showPopover(anchor, body)
+}
+
+function openModelMenu(anchor: HTMLElement): void {
+  const body = el('div')
+  showPopover(anchor, body)
+  modelMenuBody = body
+  if (modelCatalog) {
+    renderModelMenuRoot(body, modelCatalog)
+  } else {
+    body.appendChild(el('div', 'menu-hint', '加载中…'))
+  }
+  // Always refetch so the menu reflects the server's current selection.
+  post({ type: 'requestModels' })
+}
+
+function renderModelMenuRoot(body: HTMLElement, catalog: ModelCatalog): void {
+  body.textContent = ''
+  const model = catalog.groups
+    .find((g) => g.id === catalog.current.provider)
+    ?.models.find((m) => m.id === catalog.current.model)
+  body.appendChild(
+    menuItem('模型', {
+      right: `${model?.name ?? catalog.current.model} ›`,
+      onClick: () => renderModelMenuModels(body, catalog),
+    }),
+  )
+  const efforts = model?.efforts ?? []
+  if (efforts.length > 0) {
+    const effortId = catalog.current.reasoningEffort ?? model?.defaultEffort
+    const effort = efforts.find((e) => e.id === effortId)
+    body.appendChild(
+      menuItem('推理等级', {
+        right: `${effort?.name ?? effortId ?? '默认'} ›`,
+        onClick: () => renderModelMenuEfforts(body, catalog),
+      }),
+    )
+  }
+}
+
+function renderModelMenuModels(body: HTMLElement, catalog: ModelCatalog): void {
+  body.textContent = ''
+  body.appendChild(menuItem('‹ 返回', { onClick: () => renderModelMenuRoot(body, catalog) }))
+  for (const g of catalog.groups) {
+    body.appendChild(el('div', 'menu-group', g.name))
+    for (const m of g.models) {
+      const isCurrent = catalog.current.provider === g.id && catalog.current.model === m.id
+      body.appendChild(
+        menuItem(m.name, {
+          checked: isCurrent,
+          onClick: () => {
+            closePopover()
+            if (isCurrent) return
+            // Keep the current effort only when the new model supports it.
+            const keep = m.efforts.some((e) => e.id === catalog.current.reasoningEffort)
+            post({
+              type: 'setModel',
+              provider: g.id,
+              model: m.id,
+              reasoningEffort: keep ? catalog.current.reasoningEffort : undefined,
+            })
+          },
+        }),
+      )
+    }
+  }
+}
+
+function renderModelMenuEfforts(body: HTMLElement, catalog: ModelCatalog): void {
+  body.textContent = ''
+  body.appendChild(menuItem('‹ 返回', { onClick: () => renderModelMenuRoot(body, catalog) }))
+  const model = catalog.groups
+    .find((g) => g.id === catalog.current.provider)
+    ?.models.find((m) => m.id === catalog.current.model)
+  const effortId = catalog.current.reasoningEffort ?? model?.defaultEffort
+  for (const e of model?.efforts ?? []) {
+    body.appendChild(
+      menuItem(e.name, {
+        right: e.description,
+        checked: e.id === effortId,
+        onClick: () => {
+          closePopover()
+          if (e.id !== catalog.current.reasoningEffort) {
+            post({
+              type: 'setModel',
+              provider: catalog.current.provider,
+              model: catalog.current.model,
+              reasoningEffort: e.id,
+            })
+          }
+        },
+      }),
+    )
+  }
+}
+
+function openCommandMenu(anchor: HTMLElement): void {
+  const body = el('div')
+  for (const c of SLASH_COMMANDS) {
+    body.appendChild(
+      menuItem(`/${c.name}`, {
+        right: c.description,
+        onClick: () => {
+          if (c.name === 'model') {
+            openModelMenu(anchor)
+            return
+          }
+          if (c.name === 'permission') {
+            openPermissionMenu(anchor)
+            return
+          }
+          closePopover()
+          insertSlashCommand(c.name)
+        },
+      }),
+    )
+  }
+  showPopover(anchor, body)
+}
+
+function insertSlashCommand(name: string): void {
+  const input = document.getElementById('input') as HTMLTextAreaElement | null
+  if (!input || input.disabled) return
+  // Slash commands must lead the prompt; prepend ahead of any draft (its args).
+  input.value = `/${name} ` + input.value
+  autoGrow(input)
+  input.focus()
+  input.setSelectionRange(input.value.length, input.value.length)
+  const send = document.querySelector<HTMLButtonElement>('.send-button')
+  if (send && state?.canSend && !state.running) send.disabled = false
+}
+
 function render(): void {
+  // Menus are transient and anchored to composer elements that are rebuilt here.
+  closePopover()
   const hadFocus = document.activeElement?.id === 'input'
   const draft = (document.getElementById('input') as HTMLTextAreaElement | null)?.value
   app.textContent = ''
@@ -71,7 +312,15 @@ function render(): void {
     app.appendChild(renderEmpty())
     return
   }
-  if (state.sessionTitle) app.appendChild(el('div', 'chat-header', state.sessionTitle))
+  if (state.sessionTitle) {
+    const header = el('div', 'chat-header')
+    header.appendChild(el('span', 'chat-title', state.sessionTitle))
+    const rename = buttonEl('rename-session', '✎')
+    rename.title = '重命名会话'
+    rename.addEventListener('click', () => post({ type: 'renameSession' }))
+    header.appendChild(rename)
+    app.appendChild(header)
+  }
 
   const messages = el('div', 'messages')
   messages.id = 'messages'
@@ -296,13 +545,33 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
 
 function renderInput(draft: string | undefined): HTMLElement {
   const wrap = el('div', 'input-area')
+  const canSend = !!state?.canSend
+
+  if (pendingImages.length > 0) {
+    const chips = el('div', 'image-chips')
+    pendingImages.forEach((img, i) => {
+      const chip = el('span', 'image-chip')
+      chip.appendChild(el('span', 'chip-name', img.name ?? '图片'))
+      const remove = buttonEl('chip-remove', '×')
+      remove.title = '移除图片'
+      remove.addEventListener('click', () => {
+        pendingImages.splice(i, 1)
+        render()
+      })
+      chip.appendChild(remove)
+      chips.appendChild(chip)
+    })
+    wrap.appendChild(chips)
+  }
+
+  const row = el('div', 'input-row')
   const input = document.createElement('textarea')
   input.id = 'input'
   input.rows = 1
-  input.placeholder = state?.canSend
-    ? '输入消息，Enter 发送，Shift+Enter 换行'
+  input.placeholder = canSend
+    ? '输入消息，Enter 发送，Shift+Enter 换行，可直接粘贴图片'
     : '服务未就绪，暂时无法发送'
-  input.disabled = !state?.canSend
+  input.disabled = !canSend
   if (draft) input.value = draft
 
   const button = buttonEl('send-button', '')
@@ -312,17 +581,18 @@ function renderInput(draft: string | undefined): HTMLElement {
       button.disabled = false
     } else {
       button.textContent = '发送'
-      button.disabled = !state?.canSend || input.value.trim().length === 0
+      button.disabled = !canSend || (input.value.trim().length === 0 && pendingImages.length === 0)
     }
   }
   const sendCurrent = (): void => {
     if (!state || state.running || !state.canSend) return
     const text = input.value.trim()
-    if (!text) return
-    post({ type: 'send', text })
+    if (!text && pendingImages.length === 0) return
+    const images = pendingImages
+    pendingImages = []
+    post({ type: 'send', text, ...(images.length > 0 ? { images } : {}) })
     input.value = ''
-    autoGrow(input)
-    updateButton()
+    render()
   }
   button.addEventListener('click', () => {
     if (state?.running) post({ type: 'stop' })
@@ -339,9 +609,76 @@ function renderInput(draft: string | undefined): HTMLElement {
     autoGrow(input)
     updateButton()
   })
+  input.addEventListener('paste', (e) => {
+    const items = Array.from(e.clipboardData?.items ?? []).filter(
+      (item) => item.kind === 'file' && item.type.startsWith('image/'),
+    )
+    if (items.length === 0) return
+    // Clipboard carries an image: stage it as an attachment instead of text.
+    e.preventDefault()
+    void (async () => {
+      const images: OutgoingImage[] = []
+      for (const [i, item] of items.entries()) {
+        const file = item.getAsFile()
+        if (!file) continue
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(file)
+        })
+        const comma = dataUrl.indexOf(',')
+        const ext = item.type.split('/')[1] ?? 'png'
+        images.push({
+          mediaType: item.type,
+          data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
+          name: `pasted-${Date.now()}-${i + 1}.${ext}`,
+        })
+      }
+      // Host validates against the session's image limits and posts accepted ones back.
+      if (images.length > 0) post({ type: 'imagesPasted', images })
+    })()
+  })
   updateButton()
-  wrap.appendChild(input)
-  wrap.appendChild(button)
+  row.appendChild(input)
+  row.appendChild(button)
+  wrap.appendChild(row)
+
+  const footer = el('div', 'input-footer')
+  const addImage = buttonEl('pill', '+')
+  addImage.title = '添加图片'
+  addImage.disabled = !canSend
+  addImage.addEventListener('click', () => post({ type: 'pickImages' }))
+  footer.appendChild(addImage)
+  const commands = buttonEl('pill', '/')
+  commands.title = '命令'
+  commands.disabled = !canSend
+  commands.addEventListener('click', () => openCommandMenu(commands))
+  footer.appendChild(commands)
+  if (state?.permissions) {
+    const perms = state.permissions
+    const current = perms.options.find((o) => o.value === perms.current)
+    const perm = buttonEl('pill', '')
+    const glyph = current ? PERMISSION_GLYPHS[current.value] : undefined
+    if (glyph) {
+      const g = el('span', 'glyph')
+      g.innerHTML = glyph // build-time constant, not user input
+      perm.appendChild(g)
+    }
+    perm.appendChild(el('span', undefined, current?.label ?? perms.current))
+    perm.title = '权限模式'
+    perm.disabled = !canSend
+    perm.addEventListener('click', () => openPermissionMenu(perm))
+    footer.appendChild(perm)
+  }
+  const model = buttonEl('pill', state?.modelLabel ?? '选择模型')
+  model.title = '模型'
+  model.disabled = !canSend
+  model.addEventListener('click', () => openModelMenu(model))
+  footer.appendChild(model)
+  wrap.appendChild(footer)
+
+  if (state?.statsLine) wrap.appendChild(el('div', 'input-stats', state.statsLine))
   return wrap
 }
 

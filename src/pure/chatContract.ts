@@ -81,6 +81,13 @@ export interface PendingQuestion {
 
 export type PendingRequest = PendingApproval | PendingQuestion
 
+/** One base64 image the webview staged for the next prompt (dsh PromptContentPart image). */
+export interface OutgoingImage {
+  mediaType: string
+  data: string
+  name?: string
+}
+
 /** Whole-chat snapshot pushed host → webview (throttled; replaces state). */
 export interface ChatState {
   sessionId: string | null
@@ -91,12 +98,52 @@ export interface ChatState {
   running: boolean
   /** Server + session ready for input. */
   canSend: boolean
+  /** Footer model pill, host-computed from session.models ("DeepSeek-V4-Flash High" style). */
+  modelLabel?: string
+  /** Permission preset select from the `permissions` projection; absent hides the control. */
+  permissions?: {
+    options: Array<{ value: string; label: string }>
+    current: string
+  }
+  /** Footer session-stats line, host-formatted (src/pure/sessionStats.ts); rendered verbatim. */
+  statsLine?: string
 }
 
-export type ToWebviewMessage = { type: 'state'; state: ChatState }
+/** One selectable reasoning-effort tier of a catalog model. */
+export interface ModelCatalogEffort {
+  id: string
+  name: string
+  description?: string
+}
+
+/** One selectable model in a provider group. */
+export interface ModelCatalogModel {
+  id: string
+  name: string
+  description?: string
+  efforts: ModelCatalogEffort[]
+  defaultEffort?: string
+}
+
+/** Model catalog for one session, sent host → webview on `requestModels`. */
+export interface ModelCatalog {
+  current: { provider: string; model: string; reasoningEffort?: string }
+  groups: Array<{ id: string; name: string; models: ModelCatalogModel[] }>
+}
+
+export type ToWebviewMessage =
+  | { type: 'state'; state: ChatState }
+  | { type: 'imagesPicked'; images: OutgoingImage[] }
+  | { type: 'modelCatalog'; catalog: ModelCatalog }
 
 export type FromWebviewMessage =
-  | { type: 'send'; text: string }
+  | { type: 'send'; text: string; images?: OutgoingImage[] }
   | { type: 'stop' }
   | { type: 'approval'; rpcId: string; outcome: 'allowed-once' | 'rejected' }
   | { type: 'answer'; rpcId: string; answer: string }
+  | { type: 'pickImages' }
+  | { type: 'imagesPasted'; images: OutgoingImage[] }
+  | { type: 'requestModels' }
+  | { type: 'setModel'; provider: string; model: string; reasoningEffort?: string }
+  | { type: 'setPermission'; value: string }
+  | { type: 'renameSession' }

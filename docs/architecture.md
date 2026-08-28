@@ -19,7 +19,7 @@ dsh-one/
 │   │   ├── dshRpc.ts       # host RPC 客户端（workspace.create、session 增删改查等）
 │   │   └── hostEvents.ts   # 订阅 host 事件流（WS /api/events.host），转发 method
 │   ├── ui/
-│   │   ├── webview.ts      # 侧边栏 WebviewView + 编辑器标签页 WebviewPanel，iframe 嵌入
+│   │   ├── webview.ts      # 编辑器标签页 WebviewPanel，iframe 嵌入 dsh web
 │   │   ├── sessionTree.ts  # Sessions 树视图（TreeDataProvider）：基线拉取 + 事件防抖刷新
 │   │   ├── chatView.ts     # Chat 视图（WebviewViewProvider）：持有 ChatSessionController，推状态/收动作
 │   │   ├── chat/           # 聊天 webview 前端（浏览器上下文，esbuild 打包进 dist/chatWebview.js）
@@ -61,7 +61,7 @@ dsh-one/
    - 第一层：监听 stdout，解析 `dsh web: http://127.0.0.1:\d+` 就绪行（`parseReadyLine()`，`src/pure/readyLine.ts`）拿到**实际端口**（port=0 时尤其重要）。
    - 第二层：对该端口再做一次 `probeDsh()`，rpcId 回显通过才算 ready（`src/server/manager.ts:268`）。防止"端口被无关 HTTP 服务占用、stdout 行却解析到了"的误判。
    - 失败路径：90s 超时（`START_TIMEOUT_MS`，:14）、进程提前退出、spawn 错误，都会带上 `TailBuffer`（:30，保留最后 40 行输出）作为错误详情。
-4. **webview 加载**：状态变为 `running` 后，`onDidChangeState` 触发 `bind()` 重渲染，`dshFrame()`（`src/ui/webview.ts:95`）输出 `<iframe src="http://127.0.0.1:<port>/?dsh_embed=vscode">`。侧边栏是懒启动——第一次打开侧边栏才触发 `ensureStarted()`；`openInTab()`（:133）同理。CSP 只允许 `frame-src http://127.0.0.1:* http://localhost:*`（:48）。
+4. **webview 加载**：状态变为 `running` 后，`onDidChangeState` 触发 `bind()` 重渲染，`dshFrame()`（`src/ui/webview.ts:95`）输出 `<iframe src="http://127.0.0.1:<port>/?dsh_embed=vscode">`。dsh web 只在编辑区标签页展示——`openInTab()`（:133）是懒启动入口，第一次打开标签页才触发 `ensureStarted()`。CSP 只允许 `frame-src http://127.0.0.1:* http://localhost:*`（:48）。
 
 进程退出有 `exit` 监听作为后备（`src/server/manager.ts:185-199`）：非主动停止的退出会把状态置为 `error` 并弹"查看日志/重试"。
 

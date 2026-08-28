@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
 import { archiveSession, createSession, renameSession } from './server/dshRpc.ts'
-import { DshViewProvider, openInTab } from './ui/webview.ts'
+import { openInTab } from './ui/webview.ts'
 import { ChatViewProvider } from './ui/chatView.ts'
 import { SessionNode, SessionTreeProvider, WorkspaceNode } from './ui/sessionTree.ts'
 import { StatusBar } from './ui/statusbar.ts'
@@ -20,7 +20,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const manager = new ServerManager(context, logger)
   server = manager
 
-  const provider = new DshViewProvider(manager)
   const statusBar = new StatusBar(manager)
   const sessions = new SessionTreeProvider(manager, logger)
   const chatView = new ChatViewProvider(manager, logger, context.extensionUri)
@@ -56,16 +55,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sessions,
     chatView,
     reconcileChat,
-    vscode.window.registerWebviewViewProvider('dshOne.sidebar', provider, {
-      webviewOptions: { retainContextWhenHidden: true },
-    }),
     vscode.window.registerWebviewViewProvider('dshOne.chat', chatView, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.window.registerTreeDataProvider('dshOne.sessions', sessions),
     vscode.commands.registerCommand('dshOne.open', () => {
       void manager.ensureStarted()
-      return vscode.commands.executeCommand('dshOne.sidebar.focus')
+      return vscode.commands.executeCommand('dshOne.sessions.focus')
     }),
     vscode.commands.registerCommand('dshOne.openInTab', () => {
       openInTab(manager)
@@ -82,8 +78,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.sessions.refresh', async () => {
       await sessions.refresh()
     }),
-    // Session click: attach the native chat view and focus it. The embedded
-    // dsh web UI (sidebar) is left alone — it cannot follow session switches.
+    // Session click: attach the native chat view and focus it.
     vscode.commands.registerCommand('dshOne.session.open', (node?: SessionNode) => {
       if (node) chatView.setSession(node.model.sessionId)
       return vscode.commands.executeCommand('dshOne.chat.focus')

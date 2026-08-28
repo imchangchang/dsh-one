@@ -104,7 +104,7 @@ function render(status: ServerStatus): string {
   return status.state === 'running' && status.url ? dshFrame(status.url) : statusPage(nonce(), status)
 }
 
-/** Binds one webview (sidebar view or editor panel) to the server status. */
+/** Binds one editor webview panel to the server status. */
 function bind(webview: vscode.Webview, manager: ServerManager, onDidDispose: vscode.Event<void>): void {
   webview.html = render(manager.getStatus())
   const sub = manager.onDidChangeState((s) => {
@@ -119,17 +119,7 @@ function bind(webview: vscode.Webview, manager: ServerManager, onDidDispose: vsc
   })
 }
 
-export class DshViewProvider implements vscode.WebviewViewProvider {
-  constructor(private readonly manager: ServerManager) {}
-
-  resolveWebviewView(view: vscode.WebviewView): void {
-    view.webview.options = { enableScripts: true }
-    bind(view.webview, this.manager, view.onDidDispose)
-    // Lazy start: first time the user opens the sidebar, the service boots.
-    void this.manager.ensureStarted()
-  }
-}
-
+/** Open the dsh web UI as a full editor-area tab. */
 export function openInTab(manager: ServerManager): vscode.WebviewPanel {
   const panel = vscode.window.createWebviewPanel('dshOne.tab', 'DSH One', vscode.ViewColumn.Active, {
     enableScripts: true,

@@ -21,11 +21,12 @@
 
 行业佐证：Cline / Roo Code / Continue 全部选自写 webview。
 
-骨架已知缺口（待后续补齐）：无图片附件、无模型/模式切换、无消息分页（历史全量渲染）、空白会话不在树中显示故自动附着只挑有内容的会话。
+骨架已知缺口（待后续补齐）：无消息分页（历史全量渲染）、空白会话不在树中显示故自动附着只挑有内容的会话。
+
+输入区已对齐 dsh web：`+` 图片附件（受 `imageLimits` 投影限额预检）、权限模式选择器（`permissions` 投影 + `/permission` 斜杠命令切换）、模型选择器（`session.models` / `session.selectModel`）、会话统计行（`sessionStats` 投影，`src/pure/sessionStats.ts` 格式化）。
 
 ### 阶段三：聊天面精化（借鉴 Claude Code 设计）
 
-- 权限模式指示器常驻输入框底部；
 - 权限确认内联在对话流中，不打断焦点；
 - 工具调用默认可见、可折叠，另有 Focus view；
 - diff 双层：聊天内 inline + 一键跳原生 diff 视图；
