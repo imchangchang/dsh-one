@@ -33,10 +33,21 @@ export interface ChatToolBlock {
 
 export type ChatBlock = ChatTextBlock | ChatReasoningBlock | ChatToolBlock
 
+/** One image attached to a user message — a durable dsh attachment reference (bytes fetched lazily). */
+export interface ChatImage {
+  attachmentId: string
+  mediaType: string
+  name?: string
+  width?: number
+  height?: number
+}
+
 export interface ChatUserMessage {
   kind: 'user'
   id: string
   text: string
+  /** Images attached to this message, in content order. */
+  images?: ChatImage[]
   /**
    * Host-injected context masquerading as a user message (source.kind from
    * the user/message event, e.g. 'agent-instructions' or a plugin snapshot).
@@ -137,6 +148,7 @@ export type ToWebviewMessage =
   | { type: 'imagesPicked'; images: OutgoingImage[] }
   | { type: 'modelCatalog'; catalog: ModelCatalog }
   | { type: 'insertText'; text: string }
+  | { type: 'attachmentData'; attachmentId: string; mediaType: string; data: string }
 
 export type FromWebviewMessage =
   | { type: 'send'; text: string; images?: OutgoingImage[] }
@@ -149,3 +161,4 @@ export type FromWebviewMessage =
   | { type: 'setModel'; provider: string; model: string; reasoningEffort?: string }
   | { type: 'setPermission'; value: string }
   | { type: 'renameSession'; title: string }
+  | { type: 'requestAttachment'; attachmentId: string }

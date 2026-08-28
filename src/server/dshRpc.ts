@@ -224,3 +224,16 @@ export async function sessionHistory(
 ): Promise<SessionHistoryPage> {
   return callRpc(baseUrl, 'session.history', beforeSeq === undefined ? { sessionId } : { sessionId, beforeSeq })
 }
+
+/** Fetch one attachment's bytes (base64) plus its reference metadata. */
+export async function sessionAttachment(
+  baseUrl: string,
+  sessionId: string,
+  attachmentId: string,
+): Promise<{ mediaType: string; data: string }> {
+  const value = await callRpc<{ attachment: { mediaType?: string }; data: string }>(baseUrl, 'session.attachment', {
+    sessionId,
+    attachmentId,
+  })
+  return { mediaType: value.attachment?.mediaType ?? 'application/octet-stream', data: value.data }
+}

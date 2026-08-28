@@ -8,7 +8,7 @@
  * the extension does not depend on those packages, so the folder reads
  * payloads defensively and ignores what it does not know.
  */
-import type { ChatAssistantMessage, ChatBlock, ChatMessage, ChatToolBlock } from './chatContract.ts'
+import type { ChatAssistantMessage, ChatBlock, ChatImage, ChatMessage, ChatToolBlock } from './chatContract.ts'
 
 /** Subset of dsh-llm's StreamChunk the folder folds. */
 export type StreamChunkData =
@@ -105,6 +105,34 @@ function textOfBlocks(content: Array<{ type: string; text?: unknown }> | undefin
 }
 
 /**
+ * Extract image blocks of a message content array as durable attachment
+ * references. dsh stores image bytes in its attachment store, so the content
+ * part carries `{ attachment: { attachmentId, mediaType, ... } }` instead of
+ * inline data; the UI fetches bytes lazily via session.attachment.
+ */
+function imagesOfBlocks(content: unknown): ChatImage[] {
+  if (!Array.isArray(content)) return []
+  const images: ChatImage[] = []
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue
+    const b = block as { type?: unknown; attachment?: unknown }
+    if (b.type !== 'image') continue
+    const a = b.attachment as
+      | { attachmentId?: unknown; mediaType?: unknown; name?: unknown; width?: unknown; height?: unknown }
+      | undefined
+    if (!a || typeof a.attachmentId !== 'string' || !a.attachmentId) continue
+    images.push({
+      attachmentId: a.attachmentId,
+      mediaType: typeof a.mediaType === 'string' ? a.mediaType : 'image/png',
+      ...(typeof a.name === 'string' ? { name: a.name } : {}),
+      ...(typeof a.width === 'number' ? { width: a.width } : {}),
+      ...(typeof a.height === 'number' ? { height: a.height } : {}),
+    })
+  }
+  return images
+}
+
+/**
  * Stateful folder over one session's event log. Feed it a history window with
  * applyHistory (full reset — the reconnect baseline), then live events with
  * applyEvent. One turn folds into one assistant message whose blocks follow
@@ -161,6 +189,7 @@ export class ConversationFolder {
       }
       case 'user/message': {
         const text = textOfBlocks(data.content as Array<{ type: string; text?: unknown }> | undefined)
+        const images = imagesOfBlocks(data.content)
         const id = typeof data.id === 'string' && data.id ? data.id : `user-${event.seq}`
         // Host-injected context (AGENTS.md instructions, runtime snapshots)
         // arrives as user/message too, tagged by data.source.kind. Genuine
@@ -172,7 +201,13 @@ export class ConversationFolder {
             : !sourceKind && text.startsWith('<system-reminder>')
               ? 'legacy-instructions'
               : undefined
-        this.msgs.push({ kind: 'user', id, text, ...(context ? { context } : {}) })
+        this.msgs.push({
+          kind: 'user',
+          id,
+          text,
+          ...(context ? { context } : {}),
+          ...(images.length > 0 ? { images } : {}),
+        })
         this.current = null
         this.stepKey = null
         return true

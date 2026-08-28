@@ -304,6 +304,46 @@ test('applyHistory resets state for a re-baseline', () => {
   assert.deepEqual(f.messages()[0], { kind: 'user', id: 'u1', text: 'only user text' })
 })
 
+test('user messages keep image content parts as attachment references', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(
+    ev('user/message', {
+      id: 'u1',
+      role: 'user',
+      content: [
+        { type: 'text', text: '这个图片你能看么？' },
+        {
+          type: 'image',
+          attachment: {
+            attachmentId: 'sha256:abc123',
+            mediaType: 'image/png',
+            name: 'pasted.png',
+            width: 800,
+            height: 600,
+            bytes: 12345,
+          },
+        },
+      ],
+      source: { kind: 'user' },
+    }),
+  )
+
+  const msg = f.messages()[0]
+  assert.equal(msg.kind, 'user')
+  if (msg.kind !== 'user') return
+  assert.equal(msg.text, '这个图片你能看么？')
+  assert.deepEqual(msg.images, [
+    { attachmentId: 'sha256:abc123', mediaType: 'image/png', name: 'pasted.png', width: 800, height: 600 },
+  ])
+
+  // Text-only messages carry no images field.
+  f.applyEvent(userEv('u2', 'plain'))
+  const plain = f.messages()[1]
+  assert.equal(plain.kind, 'user')
+  if (plain.kind !== 'user') return
+  assert.equal(plain.images, undefined)
+})
+
 test('tool output is truncated to the output limit', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('turn/start', { turn: 1 }))

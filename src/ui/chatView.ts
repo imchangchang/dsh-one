@@ -6,7 +6,7 @@ import * as path from 'node:path'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { ChatSessionController } from '../server/chatSession.ts'
-import { renameSession, selectModel, sessionModels } from '../server/dshRpc.ts'
+import { renameSession, selectModel, sessionAttachment, sessionModels } from '../server/dshRpc.ts'
 import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { ChatState, FromWebviewMessage, OutgoingImage, ToWebviewMessage } from '../pure/chatContract.ts'
 
@@ -255,6 +255,19 @@ const STYLE = `
   }
   #input:focus { outline: 1px solid var(--vscode-focusBorder); }
   .send-button { flex: none; }
+  .msg-images { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .msg-image-thumb {
+    max-width: 120px; max-height: 80px; border-radius: 6px; cursor: zoom-in;
+    border: 1px solid var(--vscode-panelBorder);
+    background: var(--vscode-editor-background);
+  }
+  .msg-image-thumb.pending { width: 120px; height: 80px; opacity: 0.4; }
+  .lightbox {
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 30; cursor: zoom-out;
+  }
+  .lightbox img { max-width: 95%; max-height: 95%; }
   .empty {
     flex: 1; display: flex; flex-direction: column; align-items: center;
     justify-content: center; gap: 8px; padding: 24px; text-align: center;
@@ -271,6 +284,8 @@ function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
     "default-src 'none'",
     "style-src 'unsafe-inline'",
     `script-src 'nonce-${n}'`,
+    // Message attachments render as data: URLs fetched via session.attachment.
+    "img-src data:",
   ].join('; ')
   return `<!DOCTYPE html>
 <html>
@@ -419,6 +434,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         case 'renameSession':
           await this.renameCurrentSession(controller, m.title)
           return
+        case 'requestAttachment':
+          await this.sendAttachment(controller, m.attachmentId)
+          return
       }
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
@@ -452,6 +470,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       vscode.window.showErrorMessage(`获取模型列表失败：${detail}`)
+    }
+  }
+
+  /** Fetch one attachment's bytes and push them to the webview for inline rendering. */
+  private async sendAttachment(controller: ChatSessionController, attachmentId: string): Promise<void> {
+    if (typeof attachmentId !== 'string' || !attachmentId) return
+    try {
+      const { mediaType, data } = await sessionAttachment(controller.url, controller.sessionId, attachmentId)
+      const message: ToWebviewMessage = { type: 'attachmentData', attachmentId, mediaType, data }
+      void this.view?.webview.postMessage(message)
+    } catch (err) {
+      // Thumbnail stays a placeholder; not worth an error popup.
+      const detail = err instanceof Error ? err.message : String(err)
+      this.logger.warn(`chat: attachment ${attachmentId} fetch failed — ${detail}`)
     }
   }
 

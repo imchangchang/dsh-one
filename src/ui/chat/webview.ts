@@ -9,6 +9,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type {
   ChatBlock,
+  ChatImage,
   ChatMessage,
   ChatState,
   ChatToolBlock,
@@ -39,6 +40,10 @@ let pendingImages: OutgoingImage[] = []
 let stagedForSession: string | null = null
 /** Latest model catalog reply; dropped on session switch, refetched on menu open. */
 let modelCatalog: ModelCatalog | null = null
+/** Attachment id → data URL, filled by attachmentData replies; lives for the webview's lifetime. */
+const attachmentCache = new Map<string, string>()
+/** Attachment ids already requested, so re-renders don't repost while a fetch is in flight. */
+const attachmentRequested = new Set<string>()
 /** Half-answered pending questions: rpcId → question index → picked labels / typed text. */
 const answerDrafts = new Map<string, Map<number, string | Set<string>>>()
 
@@ -100,6 +105,9 @@ window.addEventListener('message', (event) => {
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
     if (modelMenuBody) renderModelMenuRoot(modelMenuBody, msg.catalog)
+  } else if (msg?.type === 'attachmentData' && typeof msg.attachmentId === 'string') {
+    attachmentCache.set(msg.attachmentId, `data:${msg.mediaType};base64,${msg.data}`)
+    render()
   } else if (msg?.type === 'insertText' && typeof msg.text === 'string') {
     // Attachment paths land at the cursor as ordinary prompt text.
     const input = document.getElementById('input') as HTMLTextAreaElement | null
@@ -409,6 +417,47 @@ function contextLabel(kind: string): string {
   return '上下文注入'
 }
 
+/** Thumbnails row for a user message's attached images; bytes arrive lazily. */
+function renderImageThumbs(images: ChatImage[]): HTMLElement {
+  const row = el('div', 'msg-images')
+  for (const image of images) {
+    const thumb = document.createElement('img')
+    thumb.className = 'msg-image-thumb'
+    thumb.alt = image.name ?? '附件图片'
+    const dataUrl = attachmentCache.get(image.attachmentId)
+    if (dataUrl) {
+      thumb.src = dataUrl
+      thumb.addEventListener('click', () => openLightbox(dataUrl))
+    } else {
+      thumb.classList.add('pending')
+      if (!attachmentRequested.has(image.attachmentId)) {
+        attachmentRequested.add(image.attachmentId)
+        post({ type: 'requestAttachment', attachmentId: image.attachmentId })
+      }
+    }
+    row.appendChild(thumb)
+  }
+  return row
+}
+
+/** Full-screen preview overlay for one image; click or Escape closes. */
+function openLightbox(dataUrl: string): void {
+  const overlay = el('div', 'lightbox')
+  const img = document.createElement('img')
+  img.src = dataUrl
+  overlay.appendChild(img)
+  const close = (): void => {
+    overlay.remove()
+    document.removeEventListener('keydown', onKey, true)
+  }
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') close()
+  }
+  overlay.addEventListener('click', close)
+  document.addEventListener('keydown', onKey, true)
+  document.body.appendChild(overlay)
+}
+
 function renderMessage(m: ChatMessage): HTMLElement {
   if (m.kind === 'user') {
     // Host-injected context renders collapsed; only real human input bubbles.
@@ -419,7 +468,8 @@ function renderMessage(m: ChatMessage): HTMLElement {
       return det
     }
     const row = el('div', 'msg user')
-    row.appendChild(el('div', 'bubble', m.text))
+    if (m.images && m.images.length > 0) row.appendChild(renderImageThumbs(m.images))
+    if (m.text) row.appendChild(el('div', 'bubble', m.text))
     return row
   }
   const row = el('div', 'msg assistant')
