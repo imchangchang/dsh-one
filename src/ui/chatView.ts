@@ -539,7 +539,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     const uris = await vscode.window.showOpenDialog({
       canSelectMany: true,
       openLabel: '添加附件',
-      filters: { 图片: ['png', 'jpg', 'jpeg', 'webp', 'gif'], 所有文件: ['*'] },
+      // No filters: any file type is a valid attachment (images are inlined,
+      // everything else goes into the prompt as a path).
     })
     if (!uris || uris.length === 0) return
     const skipped: string[] = []
