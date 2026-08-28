@@ -290,8 +290,10 @@ const STYLE = `
   .command-row .spinner { align-self: center; }
   .context-bar { flex: none; width: 72px; padding: 4px 2px; border: 0; background: none; cursor: pointer; }
   .context-bar-track {
-    display: block; height: 4px; border-radius: 2px; overflow: hidden;
+    display: block; height: 6px; border-radius: 3px; overflow: hidden;
+    border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.55));
     background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
+    box-sizing: border-box;
   }
   .context-bar-fill {
     display: block; height: 100%; min-width: 2px; border-radius: 2px;
@@ -302,8 +304,10 @@ const STYLE = `
   .context-panel .cp-percent { font-weight: 600; }
   .context-panel .cp-figures { font-variant-numeric: tabular-nums; opacity: .95; flex: none; }
   .context-panel .cp-bar {
-    display: flex; gap: 1px; height: 4px; margin: 10px 0 8px; border-radius: 2px;
+    display: flex; gap: 1px; height: 6px; margin: 10px 0 8px; border-radius: 3px;
+    border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.55));
     overflow: hidden; background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
+    box-sizing: border-box;
   }
   .context-panel .cp-seg { height: 100%; min-width: 2px; border-radius: 1px; }
   .context-panel .cp-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
