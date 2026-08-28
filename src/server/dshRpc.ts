@@ -33,14 +33,24 @@ interface RpcResponse<T> {
   result?: { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 }
 
-/** Generic unary Gateway RPC call (same envelope as the host.describe probe). */
-export async function callRpc<T>(baseUrl: string, method: string, payload: unknown): Promise<T> {
+/**
+ * Generic unary Gateway RPC call (same envelope as the host.describe probe).
+ * `timeoutMs` guards against a hung gateway; pass `null` for calls whose
+ * duration is workload-bound (e.g. commands/execute awaits a whole
+ * compaction), where a client-side deadline would abort real work.
+ */
+export async function callRpc<T>(
+  baseUrl: string,
+  method: string,
+  payload: unknown,
+  timeoutMs: number | null = 15_000,
+): Promise<T> {
   const rpcId = crypto.randomUUID()
   const res = await fetch(`${baseUrl}/api/${method}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ type: 'client-request', rpcId, method, payload }),
-    signal: AbortSignal.timeout(15_000),
+    ...(timeoutMs === null ? {} : { signal: AbortSignal.timeout(timeoutMs) }),
   })
   const body = (await res.json()) as RpcResponse<T>
   if (!res.ok || body.rpcId !== rpcId || !body.result) {
@@ -183,17 +193,25 @@ export async function executeCommand(
 ): Promise<CommandOutcome> {
   const value = await callRpc<
     { commandId: string; result: { kind: 'success'; text?: string } | { kind: 'error'; text: string } } | undefined
-  >(baseUrl, 'commands/execute', {
-    args: {
-      agentId: sessionId,
-      line,
-      images: (images ?? []).map((img) => ({
-        mediaType: img.mediaType,
-        data: img.data,
-        ...(img.name ? { name: img.name } : {}),
-      })),
+  >(
+    baseUrl,
+    'commands/execute',
+    {
+      args: {
+        agentId: sessionId,
+        line,
+        images: (images ?? []).map((img) => ({
+          mediaType: img.mediaType,
+          data: img.data,
+          ...(img.name ? { name: img.name } : {}),
+        })),
+      },
     },
-  })
+    // The RPC settles only when the handler does — /compact awaits the whole
+    // compaction — so no client-side deadline; the command/run flow node
+    // already shows the work in progress.
+    null,
+  )
   if (value === undefined) return { matched: false }
   return { matched: true, kind: value.result.kind, text: value.result.text }
 }
