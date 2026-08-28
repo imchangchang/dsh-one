@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 
-function label(status: ServerStatus): { text: string; tooltip: string } {
+function label(status: ServerStatus): { text: string; tooltip: string; color: vscode.ThemeColor } {
   switch (status.state) {
     case 'running':
       return {
@@ -9,13 +9,26 @@ function label(status: ServerStatus): { text: string; tooltip: string } {
         tooltip: status.adopted
           ? `DSH One — 已复用已有实例 ${status.url}（该实例由外部启动，不会被插件终止）`
           : `DSH One — ${status.url}`,
+        color: new vscode.ThemeColor('charts.green'),
       }
     case 'starting':
-      return { text: '$(sync~spin) DSH: 启动中', tooltip: 'DSH One — 服务启动中' }
+      return {
+        text: '$(sync~spin) DSH: 启动中',
+        tooltip: 'DSH One — 服务启动中',
+        color: new vscode.ThemeColor('charts.yellow'),
+      }
     case 'error':
-      return { text: '$(error) DSH: 错误', tooltip: 'DSH One — 服务出错，点击查看' }
+      return {
+        text: '$(error) DSH: 错误',
+        tooltip: 'DSH One — 服务出错，点击查看',
+        color: new vscode.ThemeColor('charts.red'),
+      }
     default:
-      return { text: '$(circle-slash) DSH: 已停止', tooltip: 'DSH One — 服务已停止，点击打开' }
+      return {
+        text: '$(circle-slash) DSH: 已停止',
+        tooltip: 'DSH One — 服务已停止，点击打开',
+        color: new vscode.ThemeColor('disabledForeground'),
+      }
   }
 }
 
@@ -31,9 +44,10 @@ export class StatusBar implements vscode.Disposable {
   }
 
   private update(status: ServerStatus): void {
-    const { text, tooltip } = label(status)
+    const { text, tooltip, color } = label(status)
     this.item.text = text
     this.item.tooltip = tooltip
+    this.item.color = color
   }
 
   dispose(): void {

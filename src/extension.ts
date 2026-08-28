@@ -20,6 +20,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const manager = new ServerManager(context, logger)
   server = manager
 
+  // Auto-start (or adopt) the dsh web service on activation, so opening the
+  // chat/session views never begins with a manual click.
+  if (vscode.workspace.getConfiguration('dshOne').get<boolean>('autoStart', true)) {
+    void manager.ensureStarted()
+  }
+
   const statusBar = new StatusBar(manager)
   const sessions = new SessionTreeProvider(manager, logger)
   const chatView = new ChatViewProvider(manager, logger, context.extensionUri, () => void sessions.refresh())

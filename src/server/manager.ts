@@ -15,6 +15,9 @@ const START_TIMEOUT_MS = 90_000
 const PROBE_TIMEOUT_MS = 3_000
 const KILL_GRACE_MS = 5_000
 const TAIL_LINES = 40
+const HEALTH_INTERVAL_MS = 30_000
+/** How far past the configured port we scan for a free fallback port. */
+const PORT_FALLBACK_ATTEMPTS = 50
 
 export type ServerState = 'stopped' | 'starting' | 'running' | 'error'
 
@@ -39,10 +42,15 @@ class TailBuffer {
 }
 
 /**
- * POST /api/host.describe and verify the rpcId echo — this is how we know a
- * port actually speaks dsh Gateway RPC (and isn't some other web server).
+ * Tri-state port probe (modeled on dsh-vscode's probeService): POST
+ * /api/host.describe and verify the rpcId echo.
+ * - 'dsh': the port speaks dsh Gateway RPC — safe to adopt.
+ * - 'foreign': something answered HTTP but failed validation — occupied.
+ * - 'down': no response — free to spawn on.
  */
-export async function probeDsh(port: number, logger: Logger): Promise<string | null> {
+export type PortProbe = 'dsh' | 'foreign' | 'down'
+
+export async function probePort(port: number, logger: Logger): Promise<PortProbe> {
   const rpcId = crypto.randomUUID()
   const url = `http://127.0.0.1:${port}/api/host.describe`
   try {
@@ -55,13 +63,18 @@ export async function probeDsh(port: number, logger: Logger): Promise<string | n
     const text = await res.text()
     if (res.ok && validateDescribeResponse(text, rpcId)) {
       logger.info(`probe: ${url} answered host.describe (rpcId echoed)`)
-      return `http://127.0.0.1:${port}`
+      return 'dsh'
     }
-    logger.info(`probe: ${url} responded but failed rpcId validation`)
-    return null
+    logger.info(`probe: ${url} responded but failed rpcId validation (foreign service)`)
+    return 'foreign'
   } catch {
-    return null
+    return 'down'
   }
+}
+
+/** POST /api/host.describe and return the base URL only when the port is dsh. */
+export async function probeDsh(port: number, logger: Logger): Promise<string | null> {
+  return (await probePort(port, logger)) === 'dsh' ? `http://127.0.0.1:${port}` : null
 }
 
 /**
@@ -75,6 +88,7 @@ export class ServerManager implements vscode.Disposable {
   private ownedPid: number | null = null
   private inflight: Promise<ServerStatus> | null = null
   private stopping = false
+  private healthTimer: NodeJS.Timeout | null = null
 
   private readonly onDidChangeStateEmitter = new vscode.EventEmitter<ServerStatus>()
   readonly onDidChangeState = this.onDidChangeStateEmitter.event
@@ -117,6 +131,7 @@ export class ServerManager implements vscode.Disposable {
 
   async stop(): Promise<void> {
     this.stopping = true
+    this.stopHealthCheck()
     try {
       await this.killOwned(KILL_GRACE_MS)
     } finally {
@@ -132,14 +147,30 @@ export class ServerManager implements vscode.Disposable {
     const cfg = vscode.workspace.getConfiguration('dshOne')
     const port = cfg.get<number>('port', 3080)
 
-    // Probe before spawn: adopt an already-running dsh on the configured port.
+    // Probe before spawn: adopt an already-running dsh on the configured port;
+    // when a foreign service occupies it, fall back to a nearby free port
+    // (runtime-only substitution, the user's setting is never rewritten).
+    let spawnPort = port
     if (port > 0) {
-      const adoptedUrl = await probeDsh(port, this.logger)
-      if (adoptedUrl) {
+      const probe = await probePort(port, this.logger)
+      if (probe === 'dsh') {
+        const adoptedUrl = `http://127.0.0.1:${port}`
         this.logger.info(`adopting existing dsh at ${adoptedUrl} (will never kill it)`)
         await this.preseedWorkspace(adoptedUrl)
         this.setStatus({ state: 'running', url: adoptedUrl, port, adopted: true })
+        this.startHealthCheck(port)
         return this.status
+      }
+      if (probe === 'foreign') {
+        const free = await this.findFreePort(port)
+        if (free === null) {
+          throw new Error(`端口 ${port} 被其他程序占用，且 ${port + 1}–${port + PORT_FALLBACK_ATTEMPTS} 均不可用`)
+        }
+        this.logger.warn(`port ${port} is occupied by a foreign service; falling back to ${free}`)
+        void vscode.window.showWarningMessage(
+          `DSH One: 端口 ${port} 被其他程序占用，本次已改用端口 ${free}（未修改设置）`,
+        )
+        spawnPort = free
       }
     }
 
@@ -184,6 +215,7 @@ export class ServerManager implements vscode.Disposable {
     })
     child.on('exit', (code, signal) => {
       this.logger.warn(`dsh process exited (code=${code}, signal=${signal})`)
+      this.stopHealthCheck()
       if (!this.stopping && this.status.state !== 'error') {
         this.setStatus({
           state: 'error',
@@ -201,8 +233,46 @@ export class ServerManager implements vscode.Disposable {
     const ready = await this.waitReady(child, tail)
     await this.preseedWorkspace(ready)
     this.setStatus({ state: 'running', url: ready, adopted: false, port: Number(new URL(ready).port) })
+    this.startHealthCheck(Number(new URL(ready).port))
     this.logger.info(`dsh is ready at ${ready}`)
     return this.status
+  }
+
+  /** First port after `start` that answers nothing; null when the range is full. */
+  private async findFreePort(start: number): Promise<number | null> {
+    for (let p = start + 1; p <= start + PORT_FALLBACK_ATTEMPTS && p <= 65535; p++) {
+      if ((await probePort(p, this.logger)) === 'down') return p
+    }
+    return null
+  }
+
+  /**
+   * Post-ready health check (dsh-vscode's design): probe every 30s; a lost
+   * server — including an adopted instance we do not own — drops the status
+   * back to stopped so the UI stops claiming "running". An owned child that
+   * stops answering is killed so the next start gets its port back.
+   */
+  private startHealthCheck(port: number): void {
+    this.stopHealthCheck()
+    this.healthTimer = setInterval(() => {
+      void probeDsh(port, this.logger).then(async (url) => {
+        if (url || this.status.state !== 'running') return
+        this.logger.warn(`health probe failed on :${port}; marking the server stopped`)
+        this.stopHealthCheck()
+        await this.killOwned(KILL_GRACE_MS)
+        this.child = null
+        this.ownedPid = null
+        this.setStatus({ state: 'stopped' })
+      })
+    }, HEALTH_INTERVAL_MS)
+    this.healthTimer.unref()
+  }
+
+  private stopHealthCheck(): void {
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer)
+      this.healthTimer = null
+    }
   }
 
   /**
@@ -316,6 +386,7 @@ export class ServerManager implements vscode.Disposable {
    * escalates to SIGKILL after 3s even if the extension host exits first.
    */
   killSync(): void {
+    this.stopHealthCheck()
     const pid = this.ownedPid
     if (pid === null) return
     this.logger.info(`deactivate: terminating owned dsh (pid=${pid})`)

@@ -154,6 +154,11 @@
           "default": "",
           "description": "dsh 可执行文件路径。留空则从 PATH 查找。"
         },
+        "dshOne.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "激活扩展时自动启动（或复用）dsh web 服务。"
+        },
         "dshOne.port": {
           "type": "number",
           "default": 3080,

@@ -25,7 +25,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 
 1. `npm run build`（launch 配置没有挂 preLaunchTask，改了代码要自己先 build）。
 2. 在 VSCode 里打开本仓库，按 F5，会拉起一个 Extension Development Host 窗口。
-3. 在宿主窗口的 `src/` 里下断点即可（有 sourcemap）。dev host 窗口里点活动栏的 DSH One 图标触发首次启动流程；日志在 dev host 的"输出 → DSH One"面板。
+3. 在宿主窗口的 `src/` 里下断点即可（有 sourcemap）。dev host 激活即自动启动 dsh（`dshOne.autoStart`，默认开）；日志在 dev host 的"输出 → DSH One"面板。
 
 注意：
 

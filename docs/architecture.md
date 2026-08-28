@@ -55,15 +55,16 @@ dsh-one/
 
 入口 `ServerManager.ensureStarted()`（`src/server/manager.ts:97`），单例语义：并发调用共享同一个 in-flight Promise；实际逻辑在 `start()`（:130）。
 
-1. **探测与收养**（:136-144）：`port > 0` 时先 `probeDsh(port)`（:45）——POST `http://127.0.0.1:<port>/api/host.describe`，信封是 `{type:'client-request', rpcId:<uuid>, method:'host.describe', payload:{}}`（`makeDescribeRequest()`，`src/pure/envelope.ts`）；只有回包 JSON 的 `rpcId` 与发出的一致才认定是 dsh（`validateDescribeResponse()`，同文件）。探测通过 → 状态置为 `running` 且 `adopted: true`，**收养的实例永不 kill**。`port = 0` 跳过探测。
+1. **探测与收养**：`port > 0` 时先 `probePort(port)` 三态探测——POST `http://127.0.0.1:<port>/api/host.describe`，信封是 `{type:'client-request', rpcId:<uuid>, method:'host.describe', payload:{}}`（`makeDescribeRequest()`，`src/pure/envelope.ts`）；只有回包 JSON 的 `rpcId` 与发出的一致才算 `'dsh'`（`validateDescribeResponse()`，同文件），有 HTTP 应答但校验失败算 `'foreign'`，无应答算 `'down'`。`'dsh'` → 状态置为 `running` 且 `adopted: true`，**收养的实例永不 kill**；`'foreign'` → 从 `port+1` 起扫最多 50 个候选找空闲端口**临时顶替**（不写回用户设置，弹窗告知）；`'down'` → 原端口 spawn。`port = 0` 跳过探测。
 2. **spawn**（:146-174）：`locateDsh()` 定位可执行文件；构造 env 时删除 `NODE_OPTIONS` 和 `ELECTRON_RUN_AS_NODE`（:151-153）；参数为 `web --host 127.0.0.1 --port <port>`，仅当版本 ≥ 0.1.0-rc.7（或 `unknown`）时追加 `--no-open`（`gte()` 判断，:158）；POSIX 下 `detached: true` 让 dsh 自成进程组（后面整组杀），Windows 下走 `shell: true`（.cmd shim 不能直接 spawn，:170）。工作目录取第一个 workspace folder，没有则用 home（:147）。
 3. **就绪双确认**（`waitReady()`，:230）：
    - 第一层：监听 stdout，解析 `dsh web: http://127.0.0.1:\d+` 就绪行（`parseReadyLine()`，`src/pure/readyLine.ts`）拿到**实际端口**（port=0 时尤其重要）。
    - 第二层：对该端口再做一次 `probeDsh()`，rpcId 回显通过才算 ready（`src/server/manager.ts:268`）。防止"端口被无关 HTTP 服务占用、stdout 行却解析到了"的误判。
    - 失败路径：90s 超时（`START_TIMEOUT_MS`，:14）、进程提前退出、spawn 错误，都会带上 `TailBuffer`（:30，保留最后 40 行输出）作为错误详情。
-4. **webview 加载**：状态变为 `running` 后，`onDidChangeState` 触发 `bind()` 重渲染，`dshFrame()`（`src/ui/webview.ts:95`）输出 `<iframe src="http://127.0.0.1:<port>/?dsh_embed=vscode">`。dsh web 只在编辑区标签页展示——`openInTab()`（:133）是懒启动入口，第一次打开标签页才触发 `ensureStarted()`。CSP 只允许 `frame-src http://127.0.0.1:* http://localhost:*`（:48）。
+4. **健康检查**：ready 后每 30s 重新探测一次（收养与自己拉起的实例都查）。失联即回到 `stopped`——自己拉起的进程还会被 kill 掉回收端口，避免"状态栏显示运行中、实际已死"的假状态。
+5. **webview 加载**：状态变为 `running` 后，`onDidChangeState` 触发 `bind()` 重渲染，`dshFrame()`（`src/ui/webview.ts:95`）输出 `<iframe src="http://127.0.0.1:<port>/?dsh_embed=vscode">`。dsh web 只在编辑区标签页展示（`openInTab()`，:133）。CSP 只允许 `frame-src http://127.0.0.1:* http://localhost:*`（:48）。
 
-进程退出有 `exit` 监听作为后备（`src/server/manager.ts:185-199`）：非主动停止的退出会把状态置为 `error` 并弹"查看日志/重试"。
+激活扩展时默认自动 `ensureStarted()`（配置 `dshOne.autoStart`，默认 `true`），不再需要手动点击触发首次启动。进程退出有 `exit` 监听作为后备（`src/server/manager.ts:185-199`）：非主动停止的退出会把状态置为 `error` 并弹"查看日志/重试"。
 
 ## 状态与配置
 
@@ -82,6 +83,7 @@ dsh-one/
 | --- | --- | --- |
 | `dshOne.dshPath` | `""` | `locateDsh()`（`src/server/locateDsh.ts:29`） |
 | `dshOne.port` | `3080` | `ServerManager.start()`（`src/server/manager.ts:133`） |
+| `dshOne.autoStart` | `true` | `activate()`（`src/extension.ts`） |
 
 ### 磁盘与全局状态
 
