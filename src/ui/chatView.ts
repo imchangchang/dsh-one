@@ -66,6 +66,12 @@ const STYLE = `
     cursor: pointer; padding: 2px 4px; border-radius: 4px; font-size: 12px; line-height: 1;
   }
   .chat-header .rename-session:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  .chat-header .rename-input {
+    flex: 1; min-width: 0; font: inherit; font-weight: 600;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
+    border-radius: 4px; padding: 1px 6px; outline: none;
+  }
   .messages {
     flex: 1; overflow-y: auto; padding: 8px 12px;
     display: flex; flex-direction: column; gap: 10px;
@@ -393,7 +399,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           await this.setPermission(controller, m.value)
           return
         case 'renameSession':
-          await this.renameCurrentSession(controller)
+          await this.renameCurrentSession(controller, m.title)
           return
       }
     } catch (err) {
@@ -462,15 +468,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   /** Rename the attached session; the title projection push refreshes the header. */
-  private async renameCurrentSession(controller: ChatSessionController): Promise<void> {
-    const title = await vscode.window.showInputBox({
-      title: '重命名会话',
-      prompt: '输入新的会话标题',
-      value: controller.getState().sessionTitle ?? '',
-    })
-    if (title === undefined) return
+  private async renameCurrentSession(controller: ChatSessionController, title: string): Promise<void> {
+    const trimmed = title.trim()
+    if (!trimmed) return
     try {
-      await renameSession(controller.url, controller.sessionId, title)
+      await renameSession(controller.url, controller.sessionId, trimmed)
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       vscode.window.showErrorMessage(`重命名会话失败：${detail}`)

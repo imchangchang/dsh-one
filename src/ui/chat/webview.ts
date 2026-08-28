@@ -302,6 +302,38 @@ function insertSlashCommand(name: string): void {
   if (send && state?.canSend && !state.running) send.disabled = false
 }
 
+/** Inline rename: swap the header title for an input; Enter commits, Esc/blur cancels. */
+function startInlineRename(header: HTMLElement): void {
+  const titleEl = header.querySelector('.chat-title')
+  if (!titleEl || !state?.sessionId) return
+  const original = state.sessionTitle ?? ''
+  const input = document.createElement('input')
+  input.className = 'rename-input'
+  input.value = original
+  titleEl.replaceWith(input)
+  header.querySelector('.rename-session')?.remove()
+  input.focus()
+  input.select()
+  let settled = false
+  const cancel = (): void => {
+    if (settled) return
+    settled = true
+    render()
+  }
+  input.addEventListener('keydown', (e) => {
+    // isComposing: Enter confirms an IME candidate, not the rename.
+    if (e.key === 'Enter' && !e.isComposing) {
+      const title = input.value.trim()
+      if (title && title !== original) post({ type: 'renameSession', title })
+      cancel()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      cancel()
+    }
+  })
+  input.addEventListener('blur', cancel)
+}
+
 function render(): void {
   // Menus are transient and anchored to composer elements that are rebuilt here.
   closePopover()
@@ -317,7 +349,7 @@ function render(): void {
     header.appendChild(el('span', 'chat-title', state.sessionTitle))
     const rename = buttonEl('rename-session', '✎')
     rename.title = '重命名会话'
-    rename.addEventListener('click', () => post({ type: 'renameSession' }))
+    rename.addEventListener('click', () => startInlineRename(header))
     header.appendChild(rename)
     app.appendChild(header)
   }

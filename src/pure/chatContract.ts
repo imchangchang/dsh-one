@@ -146,4 +146,4 @@ export type FromWebviewMessage =
   | { type: 'requestModels' }
   | { type: 'setModel'; provider: string; model: string; reasoningEffort?: string }
   | { type: 'setPermission'; value: string }
-  | { type: 'renameSession' }
+  | { type: 'renameSession'; title: string }
