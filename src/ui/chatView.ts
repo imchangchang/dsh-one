@@ -177,13 +177,20 @@ const STYLE = `
   .diff-line.add::before { content: '+ '; }
   .streaming { opacity: 0.6; }
   .interrupted { opacity: 0.6; font-size: 0.85em; }
-  .msg-actions { display: flex; gap: 8px; margin-top: 2px; }
-  .msg-actions button.link {
-    background: transparent; color: var(--vscode-textLink-foreground, #4da3ff);
-    padding: 0 2px; font-size: 11px; border-radius: 4px; opacity: 0.75;
+  .msg-actions { display: flex; align-items: center; gap: 10px; height: 28px; margin-top: 2px; }
+  .msg-actions .icon-action {
+    width: 28px; height: 28px; padding: 6px; display: inline-flex;
+    align-items: center; justify-content: center;
+    color: var(--vscode-descriptionForeground, #888);
+    background: transparent; border: none; border-radius: 50%; cursor: pointer;
   }
-  .msg-actions button.link:hover:not(:disabled) { text-decoration: underline; opacity: 1; }
-  .msg-actions button.link.active { opacity: 1; font-weight: 600; text-decoration: underline; }
+  .msg-actions .icon-action:hover:not(:disabled) {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.17));
+    color: var(--vscode-foreground, #ccc);
+  }
+  .msg-actions .icon-action:disabled { cursor: default; opacity: 0.4; }
+  .msg-actions .icon-action.active { color: var(--vscode-foreground, #ccc); }
+  .msg-actions .icon-action svg { display: block; }
   .pending {
     flex: none; padding: 6px 12px; display: flex; flex-direction: column; gap: 8px;
     border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));

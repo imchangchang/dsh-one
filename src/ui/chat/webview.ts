@@ -7,6 +7,7 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { MESSAGE_ACTION_ICONS, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
@@ -104,6 +105,36 @@ function buttonEl(className: string | undefined, text: string): HTMLButtonElemen
   if (className) b.className = className
   b.textContent = text
   return b
+}
+
+/** Icon-only ghost button matching the dsh web UI's message action style. */
+function iconButton(icon: IconDef, title: string): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.className = 'icon-action'
+  b.title = title
+  b.setAttribute('aria-label', title)
+  b.appendChild(iconSvg(icon))
+  return b
+}
+
+function iconSvg(icon: IconDef): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('width', '16')
+  svg.setAttribute('height', '16')
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('fill', 'none')
+  for (const d of icon.paths) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', d)
+    path.setAttribute('fill', 'currentColor')
+    if (icon.fillRule) {
+      path.setAttribute('fill-rule', icon.fillRule)
+      path.setAttribute('clip-rule', icon.fillRule)
+    }
+    svg.appendChild(path)
+  }
+  return svg
 }
 
 function md(text: string): string {
@@ -969,39 +1000,42 @@ function assistantText(m: ChatAssistantMessage): string {
 /** Action row under a completed assistant message: copy / feedback / fork. */
 function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
   const actions = el('div', 'msg-actions')
-  const copy = buttonEl('link', '复制')
-  copy.title = '复制这条回答的全文'
+  const copy = iconButton(MESSAGE_ACTION_ICONS.copy, '复制')
+  const copyIcon = copy.firstChild as SVGSVGElement
+  const checkIcon = iconSvg(MESSAGE_ACTION_ICONS.check)
   copy.addEventListener('click', () => {
     const text = assistantText(m)
     if (!text) return
     // Top-level document: the async clipboard API is available.
     void navigator.clipboard.writeText(text).then(
       () => {
-        copy.textContent = '已复制'
+        copy.replaceChild(checkIcon, copyIcon)
+        copy.title = '已复制'
         setTimeout(() => {
-          copy.textContent = '复制'
-        }, 1200)
+          copy.replaceChild(copyIcon, checkIcon)
+          copy.title = '复制'
+        }, 1000)
       },
       () => {
-        copy.textContent = '复制失败'
+        copy.title = '复制失败'
       },
     )
   })
   actions.appendChild(copy)
 
   const messageId = m.messageId
-  const ratings: Array<{ rating: 'positive' | 'negative'; label: string; hint: string }> = [
-    { rating: 'positive', label: '有用', hint: '这个回答有帮助' },
-    { rating: 'negative', label: '没用', hint: '这个回答没帮助' },
+  const ratings: Array<{ rating: 'positive' | 'negative'; icon: IconDef; hint: string }> = [
+    { rating: 'positive', icon: MESSAGE_ACTION_ICONS.like, hint: '有用' },
+    { rating: 'negative', icon: MESSAGE_ACTION_ICONS.dislike, hint: '没用' },
   ]
-  for (const { rating, label, hint } of ratings) {
-    const btn = buttonEl(m.feedbackRating === rating ? 'link active' : 'link', label)
+  for (const { rating, icon, hint } of ratings) {
+    const btn = iconButton(icon, hint)
+    if (m.feedbackRating === rating) btn.classList.add('active')
     if (!messageId) {
       // The host never persisted an id for this message: feedback RPCs need it.
       btn.disabled = true
       btn.title = '这条消息暂不支持反馈'
     } else {
-      btn.title = hint
       btn.addEventListener('click', () => {
         btn.disabled = true
         // Clicking the active rating again clears it.
@@ -1014,7 +1048,7 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
   // Fork rule (web parity): only from a completed, non-interrupted turn.
   if (m.seq !== undefined && !m.interrupted) {
     const atSeq = m.seq
-    const fork = buttonEl('link', '分支')
+    const fork = iconButton(MESSAGE_ACTION_ICONS.branch, '分支')
     fork.title = '从这条消息创建一个分支会话'
     fork.addEventListener('click', () => {
       fork.disabled = true
