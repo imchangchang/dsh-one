@@ -43,6 +43,8 @@ let stickToBottom = true
  * dispatches asynchronously and would otherwise race with streaming renders.
  */
 let pinnedScrollTop: number | null = null
+/** Signature of the composer-relevant state at the last render; see render(). */
+let lastComposerSig: string | null = null
 /** Images staged in the composer, sent with the next `send`. */
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
@@ -382,8 +384,10 @@ function startInlineRename(header: HTMLElement): void {
 function render(): void {
   // Menus are transient and anchored to composer elements that are rebuilt here.
   closePopover()
-  const hadFocus = document.activeElement?.id === 'input'
-  const draft = (document.getElementById('input') as HTMLTextAreaElement | null)?.value
+  const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
+  const hadFocus = oldInput !== null && document.activeElement === oldInput
+  const draft = oldInput?.value
+  const inputSel = hadFocus ? { start: oldInput.selectionStart, end: oldInput.selectionEnd } : null
   // The rebuild wipes scroll state; remember it so a user reading history
   // mid-stream is not thrown back to the top. Also re-evaluate pinning from
   // the LIVE position whenever it moved away from where the last render left
@@ -402,10 +406,38 @@ function render(): void {
     oldQueueEditor && document.activeElement === oldQueueEditor
       ? { start: oldQueueEditor.selectionStart, end: oldQueueEditor.selectionEnd }
       : null
-  app.textContent = ''
+  // Composer preservation: detaching the textarea (even re-appending it one
+  // line later) aborts an in-flight IME composition and drops the caret, so
+  // while the composer is focused we keep the live element in the DOM unless
+  // composer-relevant state actually changed. The stats line is excluded from
+  // the signature — it tracks the stream and is patched in place instead.
+  const oldComposer = app.querySelector<HTMLElement>('.input-area')
+  const composerSig = JSON.stringify([
+    state?.sessionId ?? null,
+    state?.canSend ?? false,
+    state?.running ?? false,
+    state?.permissions ?? null,
+    state?.modelLabel ?? null,
+    pendingImages.map((i) => i.name ?? ''),
+    pendingFiles.map((f) => f.path),
+  ])
+  const keepComposer =
+    oldComposer !== null && hadFocus && stashedDraft === undefined && composerSig === lastComposerSig
+  if (keepComposer) {
+    for (const child of Array.from(app.children)) if (child !== oldComposer) child.remove()
+  } else {
+    app.textContent = ''
+  }
   if (!state || !state.sessionId) {
+    lastComposerSig = null
     app.appendChild(renderEmpty())
     return
+  }
+  // Regions above the composer; insert before the preserved composer when kept.
+  const anchor = keepComposer ? oldComposer : null
+  const add = (node: HTMLElement): void => {
+    if (anchor) app.insertBefore(node, anchor)
+    else app.appendChild(node)
   }
   if (state.sessionTitle) {
     const header = el('div', 'chat-header')
@@ -414,7 +446,7 @@ function render(): void {
     rename.title = '重命名会话'
     rename.addEventListener('click', () => startInlineRename(header))
     header.appendChild(rename)
-    app.appendChild(header)
+    add(header)
   }
 
   const messages = el('div', 'messages')
@@ -439,21 +471,21 @@ function render(): void {
     jump.style.display = 'none'
   })
   messages.appendChild(jump)
-  app.appendChild(messages)
+  add(messages)
 
   if (state.pending.length > 0) {
     const pending = el('div', 'pending')
     for (const p of state.pending) {
       pending.appendChild(p.kind === 'approval' ? renderApproval(p) : renderQuestion(p))
     }
-    app.appendChild(pending)
+    add(pending)
   }
 
   if (state.queue && state.queue.length > 0) {
     if (editingQueueItem && !state.queue.some((item) => item.id === editingQueueItem)) editingQueueItem = null
     const queue = el('div', 'queue')
     for (const item of state.queue) queue.appendChild(renderQueueItem(item))
-    app.appendChild(queue)
+    add(queue)
   } else {
     editingQueueItem = null
   }
@@ -470,10 +502,23 @@ function render(): void {
       )
       jobs.appendChild(row)
     }
-    app.appendChild(jobs)
+    add(jobs)
   }
 
-  app.appendChild(renderInput(draft))
+  if (keepComposer && oldComposer) {
+    // The composer element was never detached, so focus, caret, and any
+    // in-flight IME composition survive; only patch the stats line in place.
+    const stats = oldComposer.querySelector<HTMLElement>('.input-stats')
+    if (state.statsLine) {
+      if (stats) stats.textContent = state.statsLine
+      else oldComposer.appendChild(el('div', 'input-stats', state.statsLine))
+    } else {
+      stats?.remove()
+    }
+  } else {
+    app.appendChild(renderInput(draft))
+  }
+  lastComposerSig = composerSig
   if (stickToBottom) messages.scrollTop = messages.scrollHeight
   else if (prevScrollTop !== null) messages.scrollTop = prevScrollTop
   // Read back the clamped value: this is the position the next render compares
@@ -484,9 +529,15 @@ function render(): void {
     queueEditor.focus()
     queueEditor.setSelectionRange(queueFocus.start, queueFocus.end)
   }
-  const input = document.getElementById('input') as HTMLTextAreaElement
-  autoGrow(input)
-  if (hadFocus) input.focus()
+  if (!keepComposer) {
+    const input = document.getElementById('input') as HTMLTextAreaElement
+    autoGrow(input)
+    if (hadFocus) {
+      input.focus()
+      // A rebuilt composer at least keeps the caret where it was.
+      if (inputSel) input.setSelectionRange(inputSel.start, inputSel.end)
+    }
+  }
 }
 
 function renderEmpty(): HTMLElement {
