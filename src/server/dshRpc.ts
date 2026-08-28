@@ -139,14 +139,15 @@ export async function respond(baseUrl: string, rpcId: string, value: unknown): P
   }
 }
 
-/** Send one prompt; slash commands ride the same entry point. Images precede the text block. */
+/** Send one prompt; slash commands ride the same entry point. Images precede the text block.
+ *  Returns the command's receipt text when the prompt was a slash command. */
 export async function promptSession(
   baseUrl: string,
   sessionId: string,
   text: string,
   mode: 'queue' | 'steer' = 'queue',
   images?: OutgoingImage[],
-): Promise<void> {
+): Promise<string | undefined> {
   const content: unknown[] = (images ?? []).map((img) => ({
     type: 'image',
     mediaType: img.mediaType,
@@ -154,7 +155,12 @@ export async function promptSession(
     ...(img.name ? { name: img.name } : {}),
   }))
   if (text) content.push({ type: 'text', text })
-  await callRpc(baseUrl, 'session.prompt', { sessionId, mode, content })
+  const value = await callRpc<{ accepted: true; command?: { kind: string; text?: string } }>(
+    baseUrl,
+    'session.prompt',
+    { sessionId, mode, content },
+  )
+  return value.command?.text
 }
 
 /** Loose mirror of ModelSelection (apiproxy sessions.d.ts). */

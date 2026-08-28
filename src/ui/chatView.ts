@@ -93,6 +93,11 @@ const STYLE = `
     display: flex; flex-direction: column; gap: 10px;
   }
   .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
+  .command-notice {
+    font-size: 0.9em; opacity: 0.8; white-space: pre-wrap; word-break: break-word;
+    border-left: 2px solid var(--vscode-panel-border, rgba(127,127,127,.4));
+    padding: 4px 10px;
+  }
   .msg.user { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
   .msg.user .bubble {
     max-width: 85%; padding: 6px 10px; border-radius: 8px;
@@ -183,6 +188,12 @@ const STYLE = `
   .option-btn { text-align: left; }
   .option-btn:hover:not(:disabled) { filter: brightness(1.2); outline: 1px solid var(--vscode-focusBorder); }
   .option-btn.selected { outline: 1px solid var(--vscode-focusBorder); }
+  .question-detail { margin-top: 6px; }
+  .question-detail summary { cursor: pointer; opacity: 0.75; font-size: 0.9em; }
+  .question-detail .md {
+    margin-top: 6px; max-height: 320px; overflow-y: auto; padding: 8px 10px;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.25)); border-radius: 6px;
+  }
   .question label.checkbox {
     display: flex; gap: 6px; align-items: baseline; margin-top: 4px; cursor: pointer;
   }
@@ -232,6 +243,7 @@ const STYLE = `
     border-radius: 4px; font-family: inherit; font-size: 0.9em;
   }
   .queue + .input-area { border-top: 0; }
+  .queue + .queue { border-top: 0; padding-top: 0; }
   .input-row { display: flex; gap: 8px; align-items: flex-end; }
   .input-footer { display: flex; gap: 6px; align-items: center; }
   .input-stats {
@@ -435,7 +447,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           const text = typeof m.text === 'string' ? m.text.trim() : ''
           const images = Array.isArray(m.images) ? m.images : []
           if (!text && images.length === 0) return
-          await controller.send(text, images)
+          const receipt = await controller.send(text, images, m.steer === true)
+          if (receipt) {
+            const message: ToWebviewMessage = { type: 'commandResult', text: receipt }
+            void this.view?.webview.postMessage(message)
+          }
           return
         }
         case 'stop': {

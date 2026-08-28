@@ -93,8 +93,12 @@ export interface PendingQuestion {
   questions: Array<{
     question: string
     header?: string
+    /** Supporting detail (e.g. the full plan markdown of a plan review), rendered but never answered back. */
+    detail?: string
     options?: Array<{ label: string; description?: string }>
     multiSelect?: boolean
+    /** Presentation intent; plan-review highlights the option named by `approve`. */
+    intent?: { kind: string; approve?: string }
   }>
 }
 
@@ -148,6 +152,17 @@ export interface ChatState {
    * are not durable session events, so they never appear in `messages`.
    */
   queue?: QueuedItem[]
+  /** Live background jobs (session/jobs frames); settled jobs drop out of the snapshot. */
+  jobs?: JobItem[]
+}
+
+/** One live background job (bash, subagent, …) shown above the composer. */
+export interface JobItem {
+  id: string
+  kind: string
+  label: string
+  status: 'running' | 'stopping'
+  detail?: string
 }
 
 /** One queued prompt awaiting the agent, shown above the composer. */
@@ -189,9 +204,10 @@ export type ToWebviewMessage =
   | { type: 'modelCatalog'; catalog: ModelCatalog }
   | { type: 'attachmentData'; attachmentId: string; mediaType: string; data: string }
   | { type: 'restoreDraft'; text: string }
+  | { type: 'commandResult'; text: string }
 
 export type FromWebviewMessage =
-  | { type: 'send'; text: string; images?: OutgoingImage[] }
+  | { type: 'send'; text: string; images?: OutgoingImage[]; steer?: boolean }
   | { type: 'stop' }
   | { type: 'approval'; rpcId: string; outcome: 'allowed-once' | 'rejected' }
   | { type: 'answer'; rpcId: string; answers: QuestionAnswerInput[] }

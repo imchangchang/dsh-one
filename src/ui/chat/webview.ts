@@ -102,8 +102,12 @@ window.addEventListener('message', (event) => {
       pendingImages = []
       pendingFiles = []
       modelCatalog = null
+      commandNotices = []
       stagedForSession = state.sessionId
     }
+    render()
+  } else if (msg?.type === 'commandResult' && typeof msg.text === 'string' && msg.text.trim()) {
+    commandNotices = [...commandNotices, msg.text]
     render()
   } else if (msg?.type === 'imagesPicked' && Array.isArray(msg.images)) {
     pendingImages = [...pendingImages, ...msg.images]
@@ -398,6 +402,7 @@ function render(): void {
   const messages = el('div', 'messages')
   messages.id = 'messages'
   for (const m of state.messages) messages.appendChild(renderMessage(m))
+  for (const notice of commandNotices) messages.appendChild(el('div', 'command-notice', notice))
   if (state.messages.length === 0) {
     messages.appendChild(el('div', 'muted-hint', '会话还没有消息，在下方输入开始。'))
   }
@@ -433,6 +438,21 @@ function render(): void {
     app.appendChild(queue)
   } else {
     editingQueueItem = null
+  }
+
+  if (state.jobs && state.jobs.length > 0) {
+    const jobs = el('div', 'queue')
+    for (const job of state.jobs) {
+      const row = el('div', 'queue-item')
+      const tag = el('span', 'queue-tag', job.kind)
+      row.appendChild(tag)
+      if (job.status === 'running') row.appendChild(el('span', 'spinner'))
+      row.appendChild(
+        el('span', 'queue-text', `${job.label}${job.detail ? `（${job.detail}）` : ''}${job.status === 'stopping' ? ' — 停止中' : ''}`),
+      )
+      jobs.appendChild(row)
+    }
+    app.appendChild(jobs)
   }
 
   app.appendChild(renderInput(draft))
@@ -471,6 +491,8 @@ let editingQueueItem: string | null = null
 const queueEditDrafts = new Map<string, string>()
 /** Composer draft arriving while no input element exists yet (restoreDraft before first render). */
 let stashedDraft: string | undefined
+/** Slash-command receipt texts shown at the message tail; cleared on session switch. */
+let commandNotices: string[] = []
 
 /** One queued inbox row: tag + preview, plus steer/edit/remove actions for queued items. */
 function renderQueueItem(item: QueuedItem): HTMLElement {
@@ -728,6 +750,15 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
     const wrap = el('div', 'question')
     if (q.header) wrap.appendChild(el('div', 'question-header', q.header))
     wrap.appendChild(el('div', 'question-text', q.question))
+    if (q.detail) {
+      // Plan reviews carry the full plan markdown here; keep it collapsible.
+      const det = el('details', 'question-detail')
+      det.appendChild(el('summary', '', '查看详情'))
+      const body = el('div', 'md')
+      body.innerHTML = md(q.detail)
+      det.appendChild(body)
+      wrap.appendChild(det)
+    }
     const draft = draftFor(p.rpcId, i)
     if (q.options && q.options.length > 0) {
       if (q.multiSelect) {
@@ -747,7 +778,9 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
       } else {
         const group = el('div', 'question-options')
         for (const opt of q.options) {
-          const btn = buttonEl('secondary option-btn', opt.label)
+          // A plan-review intent names its approve option; render it primary.
+          const isApprove = q.intent?.kind === 'plan-review' && q.intent.approve === opt.label
+          const btn = buttonEl(isApprove ? 'option-btn' : 'secondary option-btn', opt.label)
           if (opt.description) btn.title = opt.description
           if (draft.custom === '' && draft.selected.has(opt.label)) btn.classList.add('selected')
           btn.addEventListener('click', () => {
@@ -846,7 +879,7 @@ function renderInput(draft: string | undefined): HTMLElement {
   input.placeholder = !canSend
     ? '服务未就绪，暂时无法发送'
     : state?.running
-      ? '输入消息，Enter 排队发送，Shift+Enter 换行'
+      ? '输入消息，Enter 排队发送，⌘Enter 立即插话'
       : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件'
   input.disabled = !canSend
   if (stashedDraft) {
@@ -861,7 +894,7 @@ function renderInput(draft: string | undefined): HTMLElement {
     button.disabled =
       !canSend || (input.value.trim().length === 0 && pendingImages.length === 0 && pendingFiles.length === 0)
   }
-  const sendCurrent = (): void => {
+  const sendCurrent = (steer = false): void => {
     if (!state || !state.canSend) return
     // Staged file chips travel as <attachment> path lines appended to the
     // prompt text (dsh has no file content part); the folder parses them
@@ -873,16 +906,18 @@ function renderInput(draft: string | undefined): HTMLElement {
     const images = pendingImages
     pendingImages = []
     pendingFiles = []
-    post({ type: 'send', text, ...(images.length > 0 ? { images } : {}) })
+    post({ type: 'send', text, ...(images.length > 0 ? { images } : {}), ...(steer ? { steer } : {}) })
     input.value = ''
     render()
   }
-  button.addEventListener('click', sendCurrent)
+  button.addEventListener('click', () => sendCurrent())
+  button.title = state?.running ? 'Enter 排队发送，⌘/Ctrl+Enter 立即插话' : ''
   input.addEventListener('keydown', (e) => {
     // isComposing: don't send while an IME candidate window is open.
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault()
-      sendCurrent()
+      // ⌘/Ctrl+Enter steers: interrupt the active turn instead of queueing.
+      sendCurrent(e.metaKey || e.ctrlKey)
     }
   })
   input.addEventListener('input', () => {

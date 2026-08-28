@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
-import type { ChatState, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem } from '../pure/chatContract.ts'
+import type { ChatState, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem } from '../pure/chatContract.ts'
 import { ConversationFolder } from '../pure/conversation.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
@@ -19,9 +19,11 @@ const MAX_HISTORY_PAGES = 100
 interface QuestionItem {
   id: string
   question: string
+  detail?: string
   header?: string
   options?: Array<{ label: string; description?: string }>
   multiSelect?: boolean
+  intent?: { kind: string; approve?: string }
 }
 
 /** Loose mirror of QueuedInboxItem (apiproxy events.d.ts); context items are invisible until claimed. */
@@ -29,6 +31,15 @@ interface QueuedInboxItemLike {
   id: string
   placement: 'queued' | 'steering' | 'context'
   message?: { content?: Array<{ type: string; text?: unknown }> }
+}
+
+/** Loose mirror of JobView (apiproxy jobs.d.ts). */
+interface JobViewLike {
+  id: string
+  kind: string
+  label: string
+  status: 'running' | 'stopping' | 'completed' | 'killed' | 'failed'
+  detail?: string
 }
 
 /** Loose mirror of PermissionSelect (dsh-permission-presets types; `permissions` projection value). */
@@ -152,6 +163,8 @@ export class ChatSessionController implements vscode.Disposable {
   private queue: QueuedItem[] = []
   /** Raw queued items by id, kept so queue edits can preserve non-text content. */
   private queueRaw = new Map<string, QueuedInboxItemLike>()
+  /** Latest session/jobs snapshot, live jobs only. */
+  private jobs: JobItem[] = []
   private sessionTitle: string | undefined
   /** Watermark for the title projection's higher-seq-wins rule. */
   private titleSeq = -1
@@ -188,6 +201,7 @@ export class ChatSessionController implements vscode.Disposable {
       messages: this.folder.messages(),
       pending: [...this.pending],
       queue: [...this.queue],
+      jobs: [...this.jobs],
       running: this.folder.hasOpenTurn(),
       canSend: this.ready && !this.disposed,
       modelLabel: this.modelLabel,
@@ -196,9 +210,10 @@ export class ChatSessionController implements vscode.Disposable {
     }
   }
 
-  async send(text: string, images?: OutgoingImage[]): Promise<void> {
+  /** Returns the slash-command receipt text when the prompt was a command. */
+  async send(text: string, images?: OutgoingImage[], steer = false): Promise<string | undefined> {
     try {
-      await promptSession(this.url, this.sessionId, text, 'queue', images)
+      return await promptSession(this.url, this.sessionId, text, steer ? 'steer' : 'queue', images)
     } catch (error) {
       this.logger.error(`chat: prompt failed: ${errorText(error)}`)
       throw error
@@ -437,8 +452,10 @@ export class ChatSessionController implements vscode.Disposable {
           questions: items.map((q) => ({
             question: q.question,
             header: q.header,
+            detail: q.detail,
             options: q.options,
             multiSelect: q.multiSelect,
+            intent: q.intent,
           })),
         })
         this.push(true)
@@ -470,8 +487,24 @@ export class ChatSessionController implements vscode.Disposable {
         return
       }
       default:
-        // session/jobs carries no chat rendering yet.
         return
+      case 'session/jobs': {
+        // Whole-snapshot replacement, same convergence model as session/queue.
+        const jobs = Array.isArray(payload.jobs) ? (payload.jobs as JobViewLike[]) : []
+        this.jobs = jobs
+          .filter((j): j is JobViewLike & { status: 'running' | 'stopping' } =>
+            j.status === 'running' || j.status === 'stopping',
+          )
+          .map((j) => ({
+            id: String(j.id),
+            kind: String(j.kind),
+            label: String(j.label),
+            status: j.status,
+            ...(j.detail ? { detail: String(j.detail) } : {}),
+          }))
+        this.push(true)
+        return
+      }
     }
   }
 
