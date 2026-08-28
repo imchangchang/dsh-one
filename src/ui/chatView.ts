@@ -286,6 +286,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly manager: ServerManager,
     private readonly logger: Logger,
     private readonly extensionUri: vscode.Uri,
+    /** Fired after a chat-initiated session mutation (e.g. rename) so the tree can rebuild. */
+    private readonly onSessionsChanged?: () => void,
   ) {
     this.managerSub = manager.onDidChangeState((s) => this.onServerState(s))
   }
@@ -473,6 +475,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     if (!trimmed) return
     try {
       await renameSession(controller.url, controller.sessionId, trimmed)
+      this.onSessionsChanged?.()
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       vscode.window.showErrorMessage(`重命名会话失败：${detail}`)

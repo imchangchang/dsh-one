@@ -22,7 +22,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const statusBar = new StatusBar(manager)
   const sessions = new SessionTreeProvider(manager, logger)
-  const chatView = new ChatViewProvider(manager, logger, context.extensionUri)
+  const chatView = new ChatViewProvider(manager, logger, context.extensionUri, () => void sessions.refresh())
 
   // Chat/session reconciliation after every tree rebuild: drop the attached
   // session when it vanished host-side (archived/deleted elsewhere), and land
