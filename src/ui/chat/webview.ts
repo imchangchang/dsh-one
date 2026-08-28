@@ -182,7 +182,11 @@ function showPopover(anchor: HTMLElement, body: HTMLElement): void {
   p.appendChild(body)
   document.body.appendChild(p)
   const rect = anchor.getBoundingClientRect()
-  p.style.left = `${Math.max(4, rect.left)}px`
+  // Keep the popover inside the viewport: anchors near the right edge (e.g.
+  // the context bar at the end of the stats row) would otherwise clip the
+  // panel's right-hand figures off-screen.
+  const left = Math.min(rect.left, window.innerWidth - p.offsetWidth - 4)
+  p.style.left = `${Math.max(4, left)}px`
   p.style.bottom = `${window.innerHeight - rect.top + 6}px`
   popover = p
   document.addEventListener('mousedown', onPopoverOutside, true)
