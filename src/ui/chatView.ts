@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
@@ -44,6 +45,21 @@ function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
   return `${bytes} B`
+}
+
+/**
+ * Magic-byte sniffing for the four raster formats dsh accepts. Clipboard
+ * file-promises often carry no declared MIME type, so the bytes are the only
+ * reliable source (dsh itself verifies stored bytes the same way).
+ */
+function sniffImageMediaType(bytes: Buffer): string | undefined {
+  if (bytes.length >= 8 && bytes.readUInt32BE(0) === 0x89504e47) return 'image/png'
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes.length >= 6 && bytes.toString('ascii', 0, 4) === 'GIF8') return 'image/gif'
+  if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') {
+    return 'image/webp'
+  }
+  return undefined
 }
 
 const STYLE = `
@@ -384,8 +400,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         case 'pickImages':
           await this.pickImages(controller)
           return
-        case 'imagesPasted':
-          this.stageImages(controller, Array.isArray(m.images) ? m.images : [])
+        case 'filesPasted':
+          await this.stagePastedFiles(controller, Array.isArray(m.files) ? m.files : [])
           return
         case 'requestModels':
           await this.sendModelCatalog(controller)
@@ -509,6 +525,52 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       images.push({ mediaType, data: Buffer.from(data).toString('base64'), name })
     }
     this.stageImages(controller, images, skipped)
+  }
+
+  /**
+   * Paste intake: every clipboard file becomes an attachment. Images (sniffed
+   * from bytes, or a declared image/* type) go through the same staging and
+   * limit validation as the picker; anything else is written to a temp file
+   * and its path is inserted into the composer for the agent to read.
+   */
+  private async stagePastedFiles(controller: ChatSessionController, files: OutgoingImage[]): Promise<void> {
+    if (files.length === 0) return
+    const images: OutgoingImage[] = []
+    const paths: string[] = []
+    const skipped: string[] = []
+    for (const file of files) {
+      const name = file.name ?? '附件'
+      const bytes = Buffer.from(file.data, 'base64')
+      const mediaType = sniffImageMediaType(bytes) ?? file.mediaType.trim().toLowerCase()
+      if (mediaType.startsWith('image/')) {
+        images.push({ ...file, mediaType })
+        continue
+      }
+      try {
+        paths.push(await this.saveTempAttachment(name, bytes))
+      } catch (err) {
+        skipped.push(`${name}（写入临时文件失败：${err instanceof Error ? err.message : String(err)}）`)
+      }
+    }
+    if (skipped.length > 0) {
+      vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
+    }
+    this.stageImages(controller, images)
+    if (paths.length > 0) {
+      const message: ToWebviewMessage = { type: 'insertText', text: `${paths.join(' ')} ` }
+      void this.view?.webview.postMessage(message)
+    }
+  }
+
+  /** Persist a non-image paste under the OS temp dir; returns the file path. */
+  private async saveTempAttachment(name: string, bytes: Buffer): Promise<string> {
+    const dir = path.join(os.tmpdir(), 'dsh-one-attachments')
+    await fs.mkdir(dir, { recursive: true })
+    const safe = name.replace(/[^\w.-]+/g, '_') || 'attachment'
+    const file = path.join(dir, `${Date.now()}-${safe}`)
+    await fs.writeFile(file, bytes)
+    this.logger.info(`chat: pasted file saved to ${file}`)
+    return file
   }
 
   /**

@@ -100,6 +100,20 @@ window.addEventListener('message', (event) => {
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
     if (modelMenuBody) renderModelMenuRoot(modelMenuBody, msg.catalog)
+  } else if (msg?.type === 'insertText' && typeof msg.text === 'string') {
+    // Attachment paths land at the cursor as ordinary prompt text.
+    const input = document.getElementById('input') as HTMLTextAreaElement | null
+    if (input && !input.disabled) {
+      const start = input.selectionStart ?? input.value.length
+      const end = input.selectionEnd ?? start
+      input.value = input.value.slice(0, start) + msg.text + input.value.slice(end)
+      autoGrow(input)
+      input.focus()
+      const pos = start + msg.text.length
+      input.setSelectionRange(pos, pos)
+      const send = document.querySelector<HTMLButtonElement>('.send-button')
+      if (send && state?.canSend && !state.running) send.disabled = false
+    }
   }
 })
 
@@ -601,7 +615,7 @@ function renderInput(draft: string | undefined): HTMLElement {
   input.id = 'input'
   input.rows = 1
   input.placeholder = canSend
-    ? '输入消息，Enter 发送，Shift+Enter 换行，可直接粘贴图片'
+    ? '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件'
     : '服务未就绪，暂时无法发送'
   input.disabled = !canSend
   if (draft) input.value = draft
@@ -642,33 +656,34 @@ function renderInput(draft: string | undefined): HTMLElement {
     updateButton()
   })
   input.addEventListener('paste', (e) => {
-    const items = Array.from(e.clipboardData?.items ?? []).filter(
-      (item) => item.kind === 'file' && item.type.startsWith('image/'),
-    )
+    // Every clipboard file becomes an attachment, images or not — the host
+    // sniffs the bytes, so a missing declared type (macOS file promises) is fine.
+    const items = Array.from(e.clipboardData?.items ?? []).filter((item) => item.kind === 'file')
     if (items.length === 0) return
-    // Clipboard carries an image: stage it as an attachment instead of text.
     e.preventDefault()
     void (async () => {
-      const images: OutgoingImage[] = []
+      const files: OutgoingImage[] = []
       for (const [i, item] of items.entries()) {
         const file = item.getAsFile()
         if (!file) continue
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(String(reader.result))
-          reader.onerror = () => reject(reader.error)
-          reader.readAsDataURL(file)
-        })
-        const comma = dataUrl.indexOf(',')
-        const ext = item.type.split('/')[1] ?? 'png'
-        images.push({
-          mediaType: item.type,
-          data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
-          name: `pasted-${Date.now()}-${i + 1}.${ext}`,
-        })
+        try {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result))
+            reader.onerror = () => reject(reader.error)
+            reader.readAsDataURL(file)
+          })
+          const comma = dataUrl.indexOf(',')
+          files.push({
+            mediaType: file.type || item.type,
+            data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
+            name: file.name || `pasted-${Date.now()}-${i + 1}`,
+          })
+        } catch {
+          // Unreadable clipboard item: skip it, keep the rest.
+        }
       }
-      // Host validates against the session's image limits and posts accepted ones back.
-      if (images.length > 0) post({ type: 'imagesPasted', images })
+      if (files.length > 0) post({ type: 'filesPasted', files })
     })()
   })
   updateButton()

@@ -81,8 +81,9 @@ export interface PendingQuestion {
 
 export type PendingRequest = PendingApproval | PendingQuestion
 
-/** One base64 image the webview staged for the next prompt (dsh PromptContentPart image). */
+/** One base64 file the webview staged (picker) or pasted for the next prompt. */
 export interface OutgoingImage {
+  /** Declared MIME type; may be empty for clipboard file-promises — the host sniffs bytes. */
   mediaType: string
   data: string
   name?: string
@@ -135,6 +136,7 @@ export type ToWebviewMessage =
   | { type: 'state'; state: ChatState }
   | { type: 'imagesPicked'; images: OutgoingImage[] }
   | { type: 'modelCatalog'; catalog: ModelCatalog }
+  | { type: 'insertText'; text: string }
 
 export type FromWebviewMessage =
   | { type: 'send'; text: string; images?: OutgoingImage[] }
@@ -142,7 +144,7 @@ export type FromWebviewMessage =
   | { type: 'approval'; rpcId: string; outcome: 'allowed-once' | 'rejected' }
   | { type: 'answer'; rpcId: string; answer: string }
   | { type: 'pickImages' }
-  | { type: 'imagesPasted'; images: OutgoingImage[] }
+  | { type: 'filesPasted'; files: OutgoingImage[] }
   | { type: 'requestModels' }
   | { type: 'setModel'; provider: string; model: string; reasoningEffort?: string }
   | { type: 'setPermission'; value: string }
