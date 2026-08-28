@@ -7,7 +7,7 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { MESSAGE_ACTION_ICONS, type IconDef } from './icons.ts'
+import { MESSAGE_ACTION_ICONS, PANEL_ICONS, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
@@ -124,11 +124,17 @@ function iconSvg(icon: IconDef): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('width', '16')
   svg.setAttribute('height', '16')
-  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('viewBox', icon.viewBox ?? '0 0 16 16')
   svg.setAttribute('fill', 'none')
-  for (const d of icon.paths) {
+  for (const p of icon.paths) {
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    path.setAttribute('d', d)
+    if (typeof p === 'string') {
+      path.setAttribute('d', p)
+    } else {
+      path.setAttribute('d', p.d)
+      if (p.transform) path.setAttribute('transform', p.transform)
+      if (p.opacity) path.setAttribute('opacity', p.opacity)
+    }
     path.setAttribute('fill', 'currentColor')
     if (icon.fillRule) {
       path.setAttribute('fill-rule', icon.fillRule)
@@ -209,8 +215,19 @@ window.addEventListener('message', (event) => {
 
 /** Open composer popover; attached to document.body so it survives render(). */
 let popover: HTMLElement | null = null
+/** Anchor the open popover tracks; renders re-anchor or close on disconnect. */
+let popoverAnchor: HTMLElement | null = null
+let popoverPlacement: 'above' | 'below' = 'above'
 /** Body of the open model menu awaiting the catalog reply. */
 let modelMenuBody: HTMLElement | null = null
+/** 菜单打开期间保持 hover 背景的来源行（会话行的 ⋯ 菜单/右键菜单）。 */
+let menuOpenRow: HTMLElement | null = null
+
+function markMenuRow(row: HTMLElement | null): void {
+  menuOpenRow?.classList.remove('menu-open')
+  menuOpenRow = row
+  menuOpenRow?.classList.add('menu-open')
+}
 
 function onPopoverOutside(e: MouseEvent): void {
   if (popover && !popover.contains(e.target as Node)) closePopover()
@@ -223,9 +240,28 @@ function onPopoverKey(e: KeyboardEvent): void {
 function closePopover(): void {
   popover?.remove()
   popover = null
+  popoverAnchor = null
   modelMenuBody = null
+  markMenuRow(null)
   document.removeEventListener('mousedown', onPopoverOutside, true)
   document.removeEventListener('keydown', onPopoverKey, true)
+}
+
+/** (Re)position the open popover from its anchor's live rect. */
+function positionPopover(): void {
+  if (!popover || !popoverAnchor) return
+  const rect = popoverAnchor.getBoundingClientRect()
+  // Keep the popover inside the viewport: anchors near the right edge (e.g.
+  // the context bar at the end of the stats row) would otherwise clip the
+  // panel's right-hand figures off-screen.
+  const left = Math.min(rect.left, window.innerWidth - popover.offsetWidth - 4)
+  popover.style.left = `${Math.max(4, left)}px`
+  // 锚点在面板顶部（sessions 头部的排序按钮）时向下展开，否则保持向上。
+  if (popoverPlacement === 'below') {
+    popover.style.top = `${rect.bottom + 6}px`
+  } else {
+    popover.style.bottom = `${window.innerHeight - rect.top + 6}px`
+  }
 }
 
 function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' | 'below' = 'above'): void {
@@ -233,19 +269,30 @@ function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' 
   const p = el('div', 'popover')
   p.appendChild(body)
   document.body.appendChild(p)
-  const rect = anchor.getBoundingClientRect()
-  // Keep the popover inside the viewport: anchors near the right edge (e.g.
-  // the context bar at the end of the stats row) would otherwise clip the
-  // panel's right-hand figures off-screen.
-  const left = Math.min(rect.left, window.innerWidth - p.offsetWidth - 4)
-  p.style.left = `${Math.max(4, left)}px`
-  // 锚点在面板顶部（sessions 头部的排序按钮）时向下展开，否则保持向上。
-  if (placement === 'below') {
-    p.style.top = `${rect.bottom + 6}px`
-  } else {
-    p.style.bottom = `${window.innerHeight - rect.top + 6}px`
-  }
   popover = p
+  popoverAnchor = anchor
+  popoverPlacement = placement
+  positionPopover()
+  document.addEventListener('mousedown', onPopoverOutside, true)
+  document.addEventListener('keydown', onPopoverKey, true)
+}
+
+/**
+ * 坐标定位的弹层（右键菜单）：固定在鼠标位置并钳制在视口内。
+ * popoverAnchor 置为 null —— render()/renderSessions() 的存活检查
+ * 对无锚点弹层保持不动（不关闭、不 reposition）。
+ */
+function showPopoverAt(x: number, y: number, body: HTMLElement): void {
+  closePopover()
+  const p = el('div', 'popover')
+  p.appendChild(body)
+  document.body.appendChild(p) // 先挂到 DOM 才能量尺寸
+  popover = p
+  popoverAnchor = null
+  const left = Math.min(x, window.innerWidth - p.offsetWidth - 4)
+  const top = Math.min(y, window.innerHeight - p.offsetHeight - 4)
+  p.style.left = `${Math.max(4, left)}px`
+  p.style.top = `${Math.max(4, top)}px`
   document.addEventListener('mousedown', onPopoverOutside, true)
   document.addEventListener('keydown', onPopoverKey, true)
 }
@@ -457,17 +504,24 @@ function openContextPanel(anchor: HTMLElement): void {
 
 function menuItem(
   label: string,
-  opts: { right?: string; checked?: boolean; glyph?: string; onClick: () => void },
+  opts: { right?: string; checked?: boolean; glyph?: string; icon?: SVGSVGElement; onClick: () => void },
 ): HTMLElement {
   const item = el('div', opts.checked ? 'menu-item checked' : 'menu-item')
-  item.appendChild(el('span', 'check', '✓'))
   if (opts.glyph) {
     const g = el('span', 'glyph')
     g.innerHTML = opts.glyph // build-time constant strings, not user input
     item.appendChild(g)
   }
+  // 左侧图标位（dsh web 菜单模式）：调用方预先渲染好 SVG。
+  if (opts.icon) {
+    const ic = el('span', 'menu-item-icon')
+    ic.appendChild(opts.icon)
+    item.appendChild(ic)
+  }
   item.appendChild(el('span', undefined, label))
   if (opts.right) item.appendChild(el('span', 'menu-right', opts.right))
+  // 选中态 check 放尾部（dsh web 模式），未选中不渲染。
+  if (opts.checked) item.appendChild(el('span', 'check', '✓'))
   item.addEventListener('click', opts.onClick)
   return item
 }
@@ -661,8 +715,6 @@ function startInlineRename(header: HTMLElement): void {
 }
 
 function render(): void {
-  // Menus are transient and anchored to composer elements that are rebuilt here.
-  closePopover()
   // 当前附着会话的高亮跟随 ChatState，不走面板重建（避免打断悬停与搜索输入）。
   syncSessionHighlight()
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
@@ -710,8 +762,15 @@ function render(): void {
     pendingImages.map((i) => i.name ?? ''),
     pendingFiles.map((f) => f.path),
   ])
+  // An open popover anchored inside the composer (permission/model menu) also
+  // pins it: rebuilding would destroy the anchor and kill the menu mid-stream.
+  const popoverInComposer =
+    popover !== null && popoverAnchor !== null && (oldComposer?.contains(popoverAnchor) ?? false)
   const keepComposer =
-    oldComposer !== null && hadFocus && stashedDraft === undefined && composerSig === lastComposerSig
+    oldComposer !== null &&
+    (hadFocus || popoverInComposer) &&
+    stashedDraft === undefined &&
+    composerSig === lastComposerSig
   // A rebuilt composer gets fresh listeners; the popup re-opens below when the
   // draft still starts with '/'. With a kept composer it only re-anchors.
   if (!keepComposer) hideSlashPopup()
@@ -724,6 +783,16 @@ function render(): void {
     if (keepMessages && child === oldMessages) continue
     if (keepComposer && child === oldComposer) continue
     child.remove()
+  }
+  // Menus anchored to surviving elements (kept composer, sessions header)
+  // stay open across snapshot renders — re-anchor in case the layout shifted
+  // under them; only close when the rebuild above actually removed the anchor.
+  // popoverAnchor === null：坐标定位菜单（会话右键），没有锚点，保持原样。
+  if (popover) {
+    if (popoverAnchor === null) {
+      // 坐标定位：不关闭、不 reposition。
+    } else if (popoverAnchor.isConnected) positionPopover()
+    else closePopover()
   }
   if (!state || !state.sessionId) {
     lastComposerSig = null
@@ -860,7 +929,7 @@ function renderEmpty(state: ChatState | null): HTMLElement {
 
 /* ---------------- Sessions 面板（原 dshOne.sessions 树视图合并而来） ---------------- */
 
-/** 描边小图标（面板行内按钮；消息操作行的 fill 图标风格在这里不适用）。 */
+/** 描边小图标：dsh web 无对应物的本地扩展图标（排序、置顶图钉）保留描边风格。 */
 function strokeSvg(paths: string[]): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('width', '14')
@@ -879,12 +948,9 @@ function strokeSvg(paths: string[]): SVGSVGElement {
   return svg
 }
 
-const PENCIL_ICON = ['M11.3 3.1l1.6 1.6L5.6 12H4v-1.6l7.3-7.3z', 'M10.3 4.1l1.6 1.6']
-const ARCHIVE_ICON = ['M2.5 3h11v2.5h-11z', 'M3.8 5.5v7.5h8.4V5.5', 'M6.4 7.8h3.2']
-const FOLDER_ICON = ['M2 4.5c0-.8.7-1.5 1.5-1.5h2.6l1.4 1.6h5c.8 0 1.5.7 1.5 1.5v5.4c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5v-7z']
-const REFRESH_ICON = ['M13.2 8a5.2 5.2 0 1 1-1.6-3.7', 'M13.4 2.4v2.6h-2.6']
 const SORT_ICON = ['M4.5 3v10', 'M4.5 13l-2.2-2.6', 'M4.5 13l2.2-2.6', 'M11.5 13V3', 'M11.5 3L9.3 5.6', 'M11.5 3l2.2 2.6']
-const PLUS_ICON = ['M8 3.5v9', 'M3.5 8h9']
+/** 图钉描边图标（会话行的置顶标记与置顶菜单项）。 */
+const PIN_ICON = ['M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z', 'M8 9.5v4']
 
 /** 排序菜单选项，与 store 持久化的 SessionSortOrder 一一对应。 */
 const SORT_OPTIONS: Array<{ order: SessionSortOrder; label: string }> = [
@@ -894,18 +960,18 @@ const SORT_OPTIONS: Array<{ order: SessionSortOrder; label: string }> = [
 ]
 
 /** 面板头部的图标按钮。 */
-function panelTool(icon: string[], title: string): HTMLButtonElement {
+function panelTool(icon: SVGSVGElement, title: string): HTMLButtonElement {
   const b = document.createElement('button')
   b.type = 'button'
   b.className = 'sessions-tool'
   b.title = title
   b.setAttribute('aria-label', title)
-  b.appendChild(strokeSvg(icon))
+  b.appendChild(icon)
   return b
 }
 
-/** 行内悬停按钮；阻止冒泡，避免触发行点击（附着会话）。 */
-function rowAction(icon: string[], title: string, onClick: () => void): HTMLButtonElement {
+/** 行内悬停按钮；阻止冒泡，避免触发行点击（附着会话/折叠分组）。 */
+function rowAction(icon: SVGSVGElement, title: string, onClick: () => void): HTMLButtonElement {
   const b = panelTool(icon, title)
   b.className = 'row-action'
   b.addEventListener('click', (e) => {
@@ -942,6 +1008,14 @@ function renderSessions(): void {
   const searchSel =
     searchFocused && oldSearch ? { start: oldSearch.selectionStart, end: oldSearch.selectionEnd } : null
   sessionsPanel.textContent = ''
+  // 面板重建会带走锚点在其中的弹层（如排序菜单）：锚还在就重定位，没了才关。
+  // popoverAnchor === null：坐标定位菜单（会话右键），保持原样不动。
+  if (popover) {
+    if (popoverAnchor === null) {
+      // 坐标定位：不关闭、不 reposition。
+    } else if (popoverAnchor.isConnected) positionPopover()
+    else closePopover()
+  }
 
   const header = el('div', 'sessions-header')
   const search = document.createElement('input')
@@ -958,14 +1032,36 @@ function renderSessions(): void {
     }, 200)
   })
   header.appendChild(search)
-  const sortBtn = panelTool(SORT_ICON, '排序方式')
+  const sortBtn = panelTool(strokeSvg(SORT_ICON), '排序方式')
   sortBtn.addEventListener('click', () => openSortMenu(sortBtn))
   header.appendChild(sortBtn)
-  const refreshBtn = panelTool(REFRESH_ICON, '刷新会话列表')
+  const refreshBtn = panelTool(iconSvg(PANEL_ICONS.refresh), '刷新会话列表')
   refreshBtn.addEventListener('click', () => post({ type: 'sessionsRefresh' }))
   header.appendChild(refreshBtn)
-  const addBtn = panelTool(PLUS_ICON, '新建 workspace')
-  addBtn.addEventListener('click', () => post({ type: 'workspaceAdd' }))
+  // + 号开菜单（dsh web 模式）：添加已有文件夹 / 创建工作区。
+  const addBtn = panelTool(iconSvg(PANEL_ICONS.plus), '添加工作区')
+  addBtn.addEventListener('click', () => {
+    const body = el('div')
+    body.appendChild(
+      menuItem('添加已有文件夹…', {
+        icon: iconSvg(PANEL_ICONS.folderOpen),
+        onClick: () => {
+          closePopover()
+          post({ type: 'workspaceAdd' })
+        },
+      }),
+    )
+    body.appendChild(
+      menuItem('创建工作区…', {
+        icon: iconSvg(PANEL_ICONS.plus),
+        onClick: () => {
+          closePopover()
+          post({ type: 'workspaceCreate' })
+        },
+      }),
+    )
+    showPopover(addBtn, body, 'below')
+  })
   header.appendChild(addBtn)
   sessionsPanel.appendChild(header)
 
@@ -976,7 +1072,7 @@ function renderSessions(): void {
     list.appendChild(renderServerEmpty(snap))
   } else if (snap.workspaces.length === 0) {
     // 搜索激活时 buildSessionTree 会丢弃无匹配的 workspace，此时即"无结果"。
-    const hint = snap.query ? `没有匹配「${snap.query}」的会话。` : '暂无 workspace。点击上方 + 选择文件夹新建。'
+    const hint = snap.query ? `没有匹配「${snap.query}」的会话。` : '暂无工作区。点击上方 + 添加已有文件夹或创建工作区。'
     const box = el('div', 'sessions-empty')
     box.appendChild(el('div', 'empty-hint', hint))
     list.appendChild(box)
@@ -1015,23 +1111,38 @@ function renderServerEmpty(snap: SessionsSnapshot): HTMLElement {
 
 function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   const group = el('div', 'workspace-group')
-  const head = el('div', 'workspace-row')
+  const collapsed = sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false
+  const head = el('div', collapsed ? 'workspace-row' : 'workspace-row expanded')
   head.title = w.path
+  // 行首图标槽（dsh web 分组行模式）：默认文件夹（折叠=闭合/展开=打开），
+  // hover 时 CSS 切换成实心三角，展开态三角 rotate(90deg)。
+  const folderIcon = el('span', 'ws-folder')
+  folderIcon.appendChild(iconSvg(collapsed ? PANEL_ICONS.folder : PANEL_ICONS.folderOpen))
+  head.appendChild(folderIcon)
+  const arrow = el('span', 'ws-arrow')
+  arrow.appendChild(iconSvg(PANEL_ICONS.triangle))
+  head.appendChild(arrow)
   head.appendChild(el('span', 'workspace-label', w.label))
   if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', '当前'))
   const headActions = el('span', 'row-actions')
   headActions.appendChild(
-    rowAction(PLUS_ICON, '新建会话', () => post({ type: 'sessionNew', workspaceId: w.workspaceId })),
+    rowAction(iconSvg(PANEL_ICONS.plus), '新建会话', () => post({ type: 'sessionNew', workspaceId: w.workspaceId })),
   )
   // 当前文件夹已在 VSCode 里打开，只有其他 workspace 需要"打开文件夹"。
   if (!w.isCurrent) {
     headActions.appendChild(
-      rowAction(FOLDER_ICON, '在 VSCode 中打开文件夹', () => post({ type: 'workspaceOpenFolder', path: w.path })),
+      rowAction(iconSvg(PANEL_ICONS.folderOpen), '在 VSCode 中打开文件夹', () =>
+        post({ type: 'workspaceOpenFolder', path: w.path }),
+      ),
     )
   }
   head.appendChild(headActions)
+  // 整行点击 = 折叠/展开（行内按钮已 stopPropagation）。
+  head.addEventListener('click', () =>
+    post({ type: 'workspaceCollapse', workspaceId: w.workspaceId, collapsed: !collapsed }),
+  )
   group.appendChild(head)
-  for (const s of w.sessions) group.appendChild(renderSessionRow(s))
+  if (!collapsed) for (const s of w.sessions) group.appendChild(renderSessionRow(s))
   return group
 }
 
@@ -1040,22 +1151,78 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   row.dataset.sessionId = s.sessionId
   if (state?.sessionId === s.sessionId) row.classList.add('active')
   row.title = s.label
+  const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
   // 运行中的会话用绿色圆点标出（沿用原树视图 charts.green 的语义）。
   row.appendChild(el('span', s.running ? 'session-dot running' : 'session-dot'))
   const main = el('span', 'session-main')
+  if (pinned) {
+    const pin = el('span', 'session-pin')
+    pin.appendChild(strokeSvg(PIN_ICON))
+    main.appendChild(pin)
+  }
   main.appendChild(el('span', 'session-title', s.label))
   main.appendChild(el('span', 'session-time', s.description))
   row.appendChild(main)
+  // dsh web 会话行模式：hover 只出一个 ⋯ 按钮，点击在按钮下方开会话菜单。
   const actions = el('span', 'row-actions')
-  actions.appendChild(
-    rowAction(PENCIL_ICON, '重命名会话', () => post({ type: 'sessionRename', sessionId: s.sessionId, title: s.label })),
-  )
-  actions.appendChild(
-    rowAction(ARCHIVE_ICON, '归档会话', () => post({ type: 'sessionArchive', sessionId: s.sessionId, title: s.label })),
-  )
+  const more = rowAction(iconSvg(PANEL_ICONS.ellipsis), '更多操作', () => {
+    showPopover(more, buildSessionMenuBody(s), 'below')
+    markMenuRow(row)
+  })
+  actions.appendChild(more)
   row.appendChild(actions)
   row.addEventListener('click', () => post({ type: 'sessionOpen', sessionId: s.sessionId }))
+  row.addEventListener('contextmenu', (e) => {
+    // 拦掉浏览器原生 Cut/Copy/Paste 菜单，弹坐标定位的同一个会话菜单。
+    e.preventDefault()
+    showPopoverAt(e.clientX, e.clientY, buildSessionMenuBody(s))
+    markMenuRow(row)
+  })
   return row
+}
+
+/** 会话菜单内容（⋯ 按钮与右键菜单共用）：重命名 / 置顶 / 分叉会话 / 归档会话。 */
+function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
+  const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
+  const body = el('div')
+  body.appendChild(
+    menuItem('重命名', {
+      icon: iconSvg(PANEL_ICONS.edit),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionRename', sessionId: s.sessionId, title: s.label })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem(pinned ? '取消置顶' : '置顶', {
+      icon: strokeSvg(PIN_ICON),
+      checked: pinned,
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionPin', sessionId: s.sessionId, pin: !pinned })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem('分叉会话', {
+      icon: iconSvg(MESSAGE_ACTION_ICONS.branch),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionFork', sessionId: s.sessionId })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem('归档会话', {
+      icon: iconSvg(PANEL_ICONS.archive),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionArchive', sessionId: s.sessionId, title: s.label })
+      },
+    }),
+  )
+  return body
 }
 
 /** 只切换 .active 高亮，不重建面板（render() 每次快照都会调用）。 */

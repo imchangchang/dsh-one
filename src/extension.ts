@@ -1,7 +1,10 @@
 import * as vscode from 'vscode'
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
-import { archiveSession, createSession, ensureWorkspace, renameSession } from './server/dshRpc.ts'
+import { archiveSession, createSession, ensureWorkspace, forkSession, renameSession } from './server/dshRpc.ts'
 import { openInTab } from './ui/webview.ts'
 import { ChatViewProvider } from './ui/chatView.ts'
 import { SessionsStore } from './ui/sessionsStore.ts'
@@ -152,6 +155,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Archiving the attached chat session drops the chat back to empty.
       if (chatView.currentSessionId === sessionId) chatView.setSession(null)
     }),
+    vscode.commands.registerCommand('dshOne.session.fork', async (sessionId?: string) => {
+      const url = sessions.runningUrl
+      if (!url || typeof sessionId !== 'string') return
+      let newSessionId: string
+      try {
+        newSessionId = await forkSession(url, sessionId)
+      } catch (err) {
+        vscode.window.showErrorMessage(`分支会话失败：${errorText(err)}`)
+        return
+      }
+      await sessions.refresh()
+      chatView.setSession(newSessionId)
+    }),
     vscode.commands.registerCommand('dshOne.workspace.openFolder', async (path?: string) => {
       if (typeof path !== 'string' || !path) return
       await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(path), {
@@ -178,6 +194,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await ensureWorkspace(url, path)
       } catch (err) {
         vscode.window.showErrorMessage(`新建 workspace 失败：${errorText(err)}`)
+        return
+      }
+      await sessions.refresh()
+    }),
+    // Create a brand-new workspace: make a folder under the dsh global
+    // directory (~/.dsh/workspaces/<name>) and register it in one step.
+    vscode.commands.registerCommand('dshOne.workspace.create', async () => {
+      const url = sessions.runningUrl
+      if (!url) return
+      const dshHome = path.join(os.homedir(), '.dsh')
+      try {
+        await fs.access(dshHome)
+      } catch {
+        vscode.window.showErrorMessage('未找到 dsh 全局目录 ~/.dsh，请先安装并运行一次 dsh 再创建工作区。')
+        return
+      }
+      const workspacesDir = path.join(dshHome, 'workspaces')
+      const name = await vscode.window.showInputBox({
+        title: '创建工作区',
+        prompt: '将在 ~/.dsh/workspaces/ 下创建同名目录，并注册为 dsh workspace。',
+        placeHolder: '工作区名称',
+        validateInput: async (value) => {
+          const trimmed = value.trim()
+          if (!trimmed) return '名称不能为空'
+          if (/[/\\]/.test(trimmed) || trimmed === '.' || trimmed === '..') return '名称不能包含路径分隔符'
+          try {
+            await fs.access(path.join(workspacesDir, trimmed))
+            return '该名称的工作区已存在'
+          } catch {
+            return null
+          }
+        },
+      })
+      if (!name) return
+      const dir = path.join(workspacesDir, name.trim())
+      try {
+        await fs.mkdir(dir, { recursive: true })
+        await ensureWorkspace(url, dir)
+      } catch (err) {
+        vscode.window.showErrorMessage(`创建工作区失败：${errorText(err)}`)
         return
       }
       await sessions.refresh()

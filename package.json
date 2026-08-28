@@ -78,6 +78,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "dshOne.workspace.create",
+        "title": "创建工作区",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.openInstallPage",
         "title": "查看 dsh 安装指南",
         "category": "DSH One"
@@ -90,6 +95,11 @@
       {
         "command": "dshOne.session.archive",
         "title": "归档会话",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.session.fork",
+        "title": "分叉会话",
         "category": "DSH One"
       },
       {

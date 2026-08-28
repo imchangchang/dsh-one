@@ -26,6 +26,8 @@ export interface SessionNodeModel {
   /** Relative time string, e.g. "3 小时前". */
   description: string
   running: boolean
+  /** Client-side pin (dsh has no pin API); pinned sessions sort first. */
+  pinned: boolean
 }
 
 export interface WorkspaceNodeModel {
@@ -44,6 +46,8 @@ export interface SessionTreeViewOptions {
   sort?: SessionSortOrder
   /** Case-insensitive substring matched against the session label and id. */
   query?: string
+  /** Client-side pinned ids; pinned sessions sort before unpinned within a workspace. */
+  pinned?: ReadonlySet<string>
 }
 
 const MINUTE_MS = 60_000
@@ -63,8 +67,9 @@ export function formatRelativeTime(updatedAt: number, now: number): string {
  * Build the ordered tree model. Blank sessions (unstarted conversations the
  * client reuses for "new session") and archived ones are hidden. The
  * workspace matching `currentFolder` comes first (flagged isCurrent); the
- * rest follow their updatedAt descending. Sessions within a workspace follow
- * `view.sort` (default updatedAt descending). A non-empty `view.query`
+ * rest follow their updatedAt descending. Sessions within a workspace put
+ * `view.pinned` ids first, then follow `view.sort` (default updatedAt
+ * descending). A non-empty `view.query`
  * keeps only sessions whose label or id contains it (case-insensitive) and
  * drops workspaces left without a match. Sessions not referenced by any
  * workspace's sessionIds are ignored.
@@ -103,6 +108,9 @@ export function buildSessionTree(
           session.sessionId.toLowerCase().includes(query),
       )
       .sort((a, b) => {
+        const aPinned = view.pinned?.has(a.session.sessionId) === true
+        const bPinned = view.pinned?.has(b.session.sessionId) === true
+        if (aPinned !== bPinned) return aPinned ? -1 : 1
         if (sort === 'updatedAsc') return a.session.updatedAt - b.session.updatedAt
         if (sort === 'title') return a.label.localeCompare(b.label)
         return b.session.updatedAt - a.session.updatedAt
@@ -117,6 +125,7 @@ export function buildSessionTree(
         label,
         description: formatRelativeTime(session.updatedAt, now),
         running: session.running,
+        pinned: view.pinned?.has(session.sessionId) === true,
       })),
     }
   })

@@ -16,6 +16,9 @@ const REFRESH_DEBOUNCE_MS = 500
 
 /** workspaceState key for the persisted sort preference (UI-only state). */
 const SORT_STATE_KEY = 'sessions.sortOrder'
+/** workspaceState keys for pinned sessions and collapsed workspaces (UI-only; dsh 无此概念）. */
+const PINNED_STATE_KEY = 'sessions.pinned'
+const COLLAPSED_STATE_KEY = 'sessions.collapsed'
 
 /** Host event methods that can change the list; anything else is ignored. */
 const REFRESH_METHODS = new Set([
@@ -33,6 +36,10 @@ export interface SessionsStoreSnapshot {
   workspaces: WorkspaceNodeModel[]
   query: string | null
   sortOrder: SessionSortOrder
+  /** Client-pinned session ids (dsh 无置顶 API，纯本地 UI 状态）. */
+  pinned: string[]
+  /** Collapsed workspace ids. */
+  collapsed: string[]
 }
 
 /**
@@ -51,6 +58,8 @@ export class SessionsStore implements vscode.Disposable {
   private rawArchived: ReadonlySet<string> = new Set()
   private sortOrder: SessionSortOrder = 'updatedDesc'
   private query: string | null = null
+  private pinned = new Set<string>()
+  private collapsed = new Set<string>()
   private url: string | null = null
   private hostEvents: vscode.Disposable | null = null
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -68,6 +77,8 @@ export class SessionsStore implements vscode.Disposable {
     if (savedSort === 'updatedDesc' || savedSort === 'updatedAsc' || savedSort === 'title') {
       this.sortOrder = savedSort
     }
+    this.pinned = new Set(state?.get<string[]>(PINNED_STATE_KEY) ?? [])
+    this.collapsed = new Set(state?.get<string[]>(COLLAPSED_STATE_KEY) ?? [])
     this.stateSub = manager.onDidChangeState((status) => this.onStateChange(status))
     this.onStateChange(manager.getStatus())
   }
@@ -104,7 +115,32 @@ export class SessionsStore implements vscode.Disposable {
 
   /** Current panel model for the webview. */
   snapshot(): SessionsStoreSnapshot {
-    return { workspaces: this.workspaces, query: this.query, sortOrder: this.sortOrder }
+    return {
+      workspaces: this.workspaces,
+      query: this.query,
+      sortOrder: this.sortOrder,
+      pinned: [...this.pinned],
+      collapsed: [...this.collapsed],
+    }
+  }
+
+  /** Pin/unpin a session (client-side only); persists across reloads. */
+  setPinned(sessionId: string, pin: boolean): void {
+    const changed = pin ? !this.pinned.has(sessionId) : this.pinned.delete(sessionId)
+    if (pin) this.pinned.add(sessionId)
+    if (!changed) return
+    void this.state?.update(PINNED_STATE_KEY, [...this.pinned])
+    this.rebuildModel()
+    this.onDidChangeEmitter.fire()
+  }
+
+  /** Collapse/expand a workspace group; persists across reloads. */
+  setCollapsed(workspaceId: string, collapse: boolean): void {
+    const changed = collapse ? !this.collapsed.has(workspaceId) : this.collapsed.delete(workspaceId)
+    if (collapse) this.collapsed.add(workspaceId)
+    if (!changed) return
+    void this.state?.update(COLLAPSED_STATE_KEY, [...this.collapsed])
+    this.onDidChangeEmitter.fire()
   }
 
   /** Rebuild with a new sort order; the preference survives reloads. */
@@ -186,7 +222,7 @@ export class SessionsStore implements vscode.Disposable {
       sessionTitle,
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
       Date.now(),
-      { sort: this.sortOrder, query: this.query ?? undefined },
+      { sort: this.sortOrder, query: this.query ?? undefined, pinned: this.pinned },
     )
   }
 

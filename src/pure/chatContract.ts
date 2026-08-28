@@ -258,6 +258,10 @@ export interface SessionsSnapshot {
   serverState: 'stopped' | 'starting' | 'running' | 'error'
   /** 启动失败原因是未找到 dsh 可执行文件。 */
   dshNotFound: boolean
+  /** 本地置顶的会话 id（dsh 无置顶 API，纯客户端状态）。 */
+  pinned: string[]
+  /** 折叠的 workspace id。 */
+  collapsed: string[]
 }
 
 export type ToWebviewMessage =
@@ -301,6 +305,8 @@ export type FromWebviewMessage =
   | { type: 'sessionArchive'; sessionId: string; title: string }
   /** Sessions 面板：选文件夹注册新 workspace。 */
   | { type: 'workspaceAdd' }
+  /** Sessions 面板：在 dsh 全局目录（~/.dsh/workspaces/）下新建目录并注册为 workspace。 */
+  | { type: 'workspaceCreate' }
   /** Sessions 面板：在 VSCode 中打开该 workspace 的文件夹。 */
   | { type: 'workspaceOpenFolder'; path: string }
   /** Sessions 面板：手动刷新列表。 */
@@ -309,5 +315,11 @@ export type FromWebviewMessage =
   | { type: 'sessionsSearch'; query: string | null }
   /** Sessions 面板：切换排序方式。 */
   | { type: 'sessionsSort'; order: SessionSortOrder }
+  /** Sessions 面板：置顶/取消置顶会话（本地状态）。 */
+  | { type: 'sessionPin'; sessionId: string; pin: boolean }
+  /** Sessions 面板：折叠/展开一个 workspace 分组。 */
+  | { type: 'workspaceCollapse'; workspaceId: string; collapsed: boolean }
+  /** Sessions 面板：从会话尾部创建分支会话并附着。 */
+  | { type: 'sessionFork'; sessionId: string }
   /** Sessions 面板空态：启动 dsh 服务。 */
   | { type: 'serverStart' }

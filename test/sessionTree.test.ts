@@ -180,6 +180,20 @@ test('a whitespace-only query behaves as no filter', () => {
   assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', 'w2'])
 })
 
+test('pinned sessions sort first, then follow the chosen order', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c'])],
+    [s('a', { updatedAt: NOW - 3000 }), s('b', { updatedAt: NOW - 1000 }), s('c', { updatedAt: NOW - 2000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { pinned: new Set(['a']) },
+  )
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'b', 'c'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.pinned), [true, false, false])
+})
+
 test('formatRelativeTime covers every tier', () => {
   assert.equal(formatRelativeTime(NOW - 500, NOW), '刚刚')
   assert.equal(formatRelativeTime(NOW - 59_000, NOW), '刚刚')

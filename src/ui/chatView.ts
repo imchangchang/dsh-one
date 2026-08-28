@@ -78,9 +78,13 @@ const STYLE = `
   }
   #app { display: flex; flex-direction: row; height: 100%; }
   /* 宽屏：左 sessions 面板 + 右聊天列；窄屏（<720px）改上下布局，面板限高自滚动。 */
-  .chat-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .chat-col {
+    flex: 1; min-width: 0; display: flex; flex-direction: column;
+    background: var(--vscode-editor-background, transparent);
+  }
   .sessions-panel {
     width: 260px; flex: none; display: flex; flex-direction: column;
+    background: var(--vscode-sideBar-background, transparent);
     border-right: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
   .sessions-header {
@@ -102,9 +106,22 @@ const STYLE = `
   .sessions-tool svg { display: block; }
   .sessions-list { flex: 1; overflow-y: auto; padding: 2px 0; }
   .workspace-row {
-    display: flex; align-items: center; gap: 6px; padding: 3px 10px 1px;
-    font-weight: 600; font-size: 12px;
+    display: flex; align-items: center; gap: 6px; padding: 0 10px;
+    height: 32px; box-sizing: border-box; overflow: hidden;
+    font-weight: 600; font-size: 12px; cursor: pointer;
   }
+  .workspace-row:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
+  /* 行首图标槽：默认文件夹图标，hover 换成实心三角（dsh web 分组行模式）。 */
+  .ws-folder, .ws-arrow {
+    flex: none; width: 16px; height: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .ws-arrow { display: none; }
+  .workspace-row:hover .ws-arrow { display: inline-flex; }
+  .workspace-row:hover .ws-folder { display: none; }
+  .ws-arrow svg { transition: transform .15s ease; }
+  .workspace-row.expanded .ws-arrow svg { transform: rotate(90deg); }
   .workspace-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .workspace-badge {
     flex: none; font-size: 10px; font-weight: 400; padding: 0 5px; border-radius: 8px;
@@ -112,10 +129,13 @@ const STYLE = `
     color: var(--vscode-badge-foreground, var(--vscode-foreground));
   }
   .session-row {
-    display: flex; align-items: center; gap: 6px; margin: 0 4px; padding: 1px 6px 1px 12px;
-    cursor: pointer; border-radius: 4px; font-size: 12px; line-height: 20px;
+    display: flex; align-items: center; gap: 6px; margin: 0 4px; padding: 0 6px 0 12px;
+    height: 32px; box-sizing: border-box; overflow: hidden;
+    cursor: pointer; border-radius: 4px; font-size: 12px;
   }
   .session-row:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
+  /* 会话菜单打开期间保持来源行的 hover 背景（webview.ts 的 .menu-open）。 */
+  .session-row.menu-open { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
   .session-row.active {
     background: var(--vscode-list-activeSelectionBackground, rgba(0,122,204,.35));
     color: var(--vscode-list-activeSelectionForeground, inherit);
@@ -125,12 +145,20 @@ const STYLE = `
     background: var(--vscode-descriptionForeground, #888); opacity: 0.35;
   }
   .session-dot.running { background: var(--vscode-testing-iconPassed, #73c991); opacity: 1; }
+  /* 置顶会话标题前的小图钉图标。 */
+  .session-pin {
+    flex: none; width: 11px; height: 11px; margin-right: 4px;
+    color: var(--vscode-descriptionForeground);
+    display: inline-flex; align-items: center;
+  }
   /* 紧凑单行：标题省略号 + 右对齐的相对时间（对齐原原生树的观感）。 */
   .session-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
   .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .session-time { flex: none; font-size: 11px; opacity: 0.55; }
   .row-actions { display: none; gap: 2px; flex: none; }
   .session-row:hover .row-actions, .workspace-row:hover .row-actions { display: inline-flex; }
+  /* 菜单打开期间 ⋯ 按钮不随 hover 离开而消失。 */
+  .session-row.menu-open .row-actions { display: inline-flex; }
   .row-action {
     display: inline-flex; align-items: center; justify-content: center;
     width: 20px; height: 20px; padding: 0; background: transparent; border: 0;
@@ -362,16 +390,27 @@ const STYLE = `
   .pill:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground, rgba(127,127,127,.3)); }
   .pill .glyph { display: inline-flex; flex: none; }
   .popover {
-    position: fixed; z-index: 20; min-width: 200px; max-width: 340px; max-height: 50vh; overflow-y: auto;
+    position: fixed; z-index: 20; min-width: 180px; max-width: 340px; max-height: 50vh; overflow-y: auto;
     background: var(--vscode-menu-background, var(--vscode-dropdown-background));
     color: var(--vscode-menu-foreground, var(--vscode-dropdown-foreground));
     border: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
-    border-radius: 6px; padding: 4px; box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    border-radius: 12px; padding: 4px;
+    box-shadow: 0 0 1px 0 rgba(0,0,0,.2), 0 12px 32px 0 rgba(0,0,0,.14);
   }
-  .menu-item { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+  /* 菜单项几何对齐 dsh web：30px 行高、8px 圆角、左图标位 14px tertiary 色。 */
+  .menu-item {
+    display: flex; align-items: center; gap: 8px; min-height: 30px; box-sizing: border-box;
+    padding: 4px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-size: 12px;
+  }
   .menu-item:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
-  .menu-item .check { width: 12px; flex: none; opacity: 0; }
-  .menu-item.checked .check { opacity: 1; }
+  .menu-item .menu-item-icon {
+    flex: none; width: 14px; height: 14px; display: inline-flex;
+    align-items: center; justify-content: center;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .menu-item .menu-item-icon svg { width: 14px; height: 14px; display: block; }
+  /* 选中态的 check 放菜单项尾部（dsh web 模式），仅 checked 时渲染。 */
+  .menu-item .check { margin-left: auto; flex: none; }
   .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
@@ -628,6 +667,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       case 'workspaceAdd':
         void vscode.commands.executeCommand('dshOne.workspace.add')
         return
+      case 'workspaceCreate':
+        void vscode.commands.executeCommand('dshOne.workspace.create')
+        return
       case 'workspaceOpenFolder':
         void vscode.commands.executeCommand('dshOne.workspace.openFolder', m.path)
         return
@@ -639,6 +681,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return
       case 'sessionsSort':
         this.store.setSortOrder(m.order)
+        return
+      case 'sessionPin':
+        this.store.setPinned(m.sessionId, m.pin)
+        return
+      case 'workspaceCollapse':
+        this.store.setCollapsed(m.workspaceId, m.collapsed)
+        return
+      case 'sessionFork':
+        void vscode.commands.executeCommand('dshOne.session.fork', m.sessionId)
         return
       case 'serverStart':
         void this.manager.ensureStarted()
