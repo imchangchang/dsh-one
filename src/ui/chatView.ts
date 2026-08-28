@@ -397,8 +397,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         case 'answer':
           await controller.answerQuestion(m.rpcId, m.answer)
           return
-        case 'pickImages':
-          await this.pickImages(controller)
+        case 'pickFiles':
+          await this.pickFiles(controller)
           return
         case 'filesPasted':
           await this.stagePastedFiles(controller, Array.isArray(m.files) ? m.files : [])
@@ -498,23 +498,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
   }
 
-  /** Image picker: read files into base64, then stage them via the shared validator. */
-  private async pickImages(controller: ChatSessionController): Promise<void> {
+  /**
+   * Attachment picker: images are read into base64 and staged via the shared
+   * validator; any other file already lives on disk, so its path goes straight
+   * into the composer as prompt text (no temp copy needed).
+   */
+  private async pickFiles(controller: ChatSessionController): Promise<void> {
     const uris = await vscode.window.showOpenDialog({
       canSelectMany: true,
-      openLabel: '添加图片',
-      filters: { 图片: ['png', 'jpg', 'jpeg', 'webp', 'gif'] },
+      openLabel: '添加附件',
+      filters: { 图片: ['png', 'jpg', 'jpeg', 'webp', 'gif'], 所有文件: ['*'] },
     })
     if (!uris || uris.length === 0) return
     const skipped: string[] = []
     const images: OutgoingImage[] = []
+    const paths: string[] = []
     for (const uri of uris) {
-      const name = path.basename(uri.fsPath)
       const mediaType = IMAGE_MEDIA_TYPES[path.extname(uri.fsPath).toLowerCase()]
       if (!mediaType) {
-        skipped.push(`${name}（不支持的格式）`)
+        paths.push(uri.fsPath)
         continue
       }
+      const name = path.basename(uri.fsPath)
       let data: Uint8Array
       try {
         data = await fs.readFile(uri.fsPath)
@@ -525,6 +530,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       images.push({ mediaType, data: Buffer.from(data).toString('base64'), name })
     }
     this.stageImages(controller, images, skipped)
+    if (paths.length > 0) {
+      const message: ToWebviewMessage = { type: 'insertText', text: `${paths.join(' ')} ` }
+      void this.view?.webview.postMessage(message)
+    }
   }
 
   /**

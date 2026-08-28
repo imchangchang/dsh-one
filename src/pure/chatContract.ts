@@ -143,7 +143,7 @@ export type FromWebviewMessage =
   | { type: 'stop' }
   | { type: 'approval'; rpcId: string; outcome: 'allowed-once' | 'rejected' }
   | { type: 'answer'; rpcId: string; answer: string }
-  | { type: 'pickImages' }
+  | { type: 'pickFiles' }
   | { type: 'filesPasted'; files: OutgoingImage[] }
   | { type: 'requestModels' }
   | { type: 'setModel'; provider: string; model: string; reasoningEffort?: string }

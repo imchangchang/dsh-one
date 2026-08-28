@@ -693,9 +693,9 @@ function renderInput(draft: string | undefined): HTMLElement {
 
   const footer = el('div', 'input-footer')
   const addImage = buttonEl('pill', '+')
-  addImage.title = '添加图片'
+  addImage.title = '添加附件（图片或文件）'
   addImage.disabled = !canSend
-  addImage.addEventListener('click', () => post({ type: 'pickImages' }))
+  addImage.addEventListener('click', () => post({ type: 'pickFiles' }))
   footer.appendChild(addImage)
   const commands = buttonEl('pill', '/')
   commands.title = '命令'
