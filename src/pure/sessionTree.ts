@@ -36,6 +36,16 @@ export interface WorkspaceNodeModel {
   sessions: SessionNodeModel[]
 }
 
+/** Sort orders offered by the Sessions view title menu. */
+export type SessionSortOrder = 'updatedDesc' | 'updatedAsc' | 'title'
+
+export interface SessionTreeViewOptions {
+  /** Session ordering within each workspace; workspaces themselves are unaffected. */
+  sort?: SessionSortOrder
+  /** Case-insensitive substring matched against the session label and id. */
+  query?: string
+}
+
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
@@ -53,8 +63,11 @@ export function formatRelativeTime(updatedAt: number, now: number): string {
  * Build the ordered tree model. Blank sessions (unstarted conversations the
  * client reuses for "new session") and archived ones are hidden. The
  * workspace matching `currentFolder` comes first (flagged isCurrent); the
- * rest follow their updatedAt descending, as do sessions within a workspace.
- * Sessions not referenced by any workspace's sessionIds are ignored.
+ * rest follow their updatedAt descending. Sessions within a workspace follow
+ * `view.sort` (default updatedAt descending). A non-empty `view.query`
+ * keeps only sessions whose label or id contains it (case-insensitive) and
+ * drops workspaces left without a match. Sessions not referenced by any
+ * workspace's sessionIds are ignored.
  */
 export function buildSessionTree(
   workspaces: WorkspaceInput[],
@@ -63,8 +76,11 @@ export function buildSessionTree(
   titleOf: (s: SessionInput) => string | null,
   currentFolder?: string,
   now: number = Date.now(),
+  view: SessionTreeViewOptions = {},
 ): WorkspaceNodeModel[] {
   const byId = new Map(sessions.map((s) => [s.sessionId, s]))
+  const query = view.query?.trim().toLowerCase() ?? ''
+  const sort = view.sort ?? 'updatedDesc'
 
   const ordered = [...workspaces].sort((a, b) => {
     const aCurrent = currentFolder !== undefined && a.path === currentFolder
@@ -73,22 +89,37 @@ export function buildSessionTree(
     return Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
   })
 
-  return ordered.map((w) => {
+  const nodes = ordered.map((w) => {
     const visible = w.sessionIds
       .map((id) => byId.get(id))
       .filter((s): s is SessionInput => !!s && !s.blank && !archivedSessionIds.has(s.sessionId))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      // The label is needed for both query matching and title sort, so
+      // resolve it once before filtering.
+      .map((s) => ({ session: s, label: titleOf(s) ?? `会话 ${s.sessionId.slice(0, 8)}` }))
+      .filter(
+        ({ session, label }) =>
+          query === '' ||
+          label.toLowerCase().includes(query) ||
+          session.sessionId.toLowerCase().includes(query),
+      )
+      .sort((a, b) => {
+        if (sort === 'updatedAsc') return a.session.updatedAt - b.session.updatedAt
+        if (sort === 'title') return a.label.localeCompare(b.label)
+        return b.session.updatedAt - a.session.updatedAt
+      })
     return {
       workspaceId: w.workspaceId,
       path: w.path,
       label: w.title,
       isCurrent: currentFolder !== undefined && w.path === currentFolder,
-      sessions: visible.map((s) => ({
-        sessionId: s.sessionId,
-        label: titleOf(s) ?? `会话 ${s.sessionId.slice(0, 8)}`,
-        description: formatRelativeTime(s.updatedAt, now),
-        running: s.running,
+      sessions: visible.map(({ session, label }) => ({
+        sessionId: session.sessionId,
+        label,
+        description: formatRelativeTime(session.updatedAt, now),
+        running: session.running,
       })),
     }
   })
+  // Under an active query, a workspace with no matching session is noise.
+  return query === '' ? nodes : nodes.filter((w) => w.sessions.length > 0)
 }

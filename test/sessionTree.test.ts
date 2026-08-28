@@ -101,6 +101,85 @@ test('description carries the relative time; running flag passes through', () =>
   assert.equal(tree[0].sessions[0].running, true)
 })
 
+test('sort updatedAsc reverses the session order within a workspace', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c'])],
+    [s('a', { updatedAt: NOW - 3000 }), s('b', { updatedAt: NOW - 1000 }), s('c', { updatedAt: NOW - 2000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { sort: 'updatedAsc' },
+  )
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'c', 'b'])
+})
+
+test('sort title orders by label, not by recency', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c'])],
+    [s('a', { updatedAt: NOW }), s('b', { updatedAt: NOW - 2000 }), s('c', { updatedAt: NOW - 1000 })],
+    new Set(),
+    (x) => new Map([['a', 'zebra'], ['b', 'apple'], ['c', 'mango']]).get(x.sessionId) ?? null,
+    undefined,
+    NOW,
+    { sort: 'title' },
+  )
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b', 'c', 'a'])
+})
+
+test('query filters by title, case-insensitive, and drops empty workspaces', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b']), ws('w2', ['c'])],
+    [s('a'), s('b', { updatedAt: NOW - 1000 }), s('c')],
+    new Set(),
+    (x) => new Map([['a', '修复登录页'], ['b', 'Login hotfix'], ['c', '写周报']]).get(x.sessionId) ?? null,
+    undefined,
+    NOW,
+    { query: 'LOGIN' },
+  )
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b'])
+})
+
+test('query also matches the session id', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['abc123def', 'zzz999yyy'])],
+    [s('abc123def'), s('zzz999yyy', { updatedAt: NOW - 1000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { query: 'ABC123' },
+  )
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['abc123def'])
+})
+
+test('query keeps blank/archived hidden and combines with sort', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['keep1', 'gone', 'empty', 'keep2'])],
+    [s('keep1', { updatedAt: NOW - 1000 }), s('gone'), s('empty', { blank: true }), s('keep2', { updatedAt: NOW - 2000 })],
+    new Set(['gone']),
+    (x) => (x.sessionId.startsWith('keep') ? '匹配目标' : null),
+    undefined,
+    NOW,
+    { query: '匹配', sort: 'updatedAsc' },
+  )
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['keep2', 'keep1'])
+})
+
+test('a whitespace-only query behaves as no filter', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a']), ws('w2', ['b'])],
+    [s('a'), s('b')],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { query: '   ' },
+  )
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', 'w2'])
+})
+
 test('formatRelativeTime covers every tier', () => {
   assert.equal(formatRelativeTime(NOW - 500, NOW), '刚刚')
   assert.equal(formatRelativeTime(NOW - 59_000, NOW), '刚刚')

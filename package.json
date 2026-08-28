@@ -66,6 +66,24 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "dshOne.sessions.search",
+        "title": "搜索会话",
+        "category": "DSH One",
+        "icon": "$(search)"
+      },
+      {
+        "command": "dshOne.sessions.clearSearch",
+        "title": "清除搜索",
+        "category": "DSH One",
+        "icon": "$(search-stop)"
+      },
+      {
+        "command": "dshOne.sessions.sort",
+        "title": "会话排序",
+        "category": "DSH One",
+        "icon": "$(list-filter)"
+      },
+      {
         "command": "dshOne.session.new",
         "title": "新建会话",
         "category": "DSH One",
@@ -112,11 +130,27 @@
     "viewsWelcome": [
       {
         "view": "dshOne.sessions",
-        "contents": "dsh 服务未运行，暂无会话。\n[启动 dsh 服务](command:dshOne.open)"
+        "contents": "dsh 服务未运行，暂无会话。\n[启动 dsh 服务](command:dshOne.open)",
+        "when": "workbenchState != empty && !dshOne.sessions.searchActive"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "dshOne.sessions.search",
+          "when": "view == dshOne.sessions",
+          "group": "navigation@0"
+        },
+        {
+          "command": "dshOne.sessions.clearSearch",
+          "when": "view == dshOne.sessions && dshOne.sessions.searchActive",
+          "group": "navigation@0"
+        },
+        {
+          "command": "dshOne.sessions.sort",
+          "when": "view == dshOne.sessions",
+          "group": "1_sort@1"
+        },
         {
           "command": "dshOne.sessions.refresh",
           "when": "view == dshOne.sessions",

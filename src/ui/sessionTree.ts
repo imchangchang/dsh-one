@@ -5,12 +5,18 @@ import { listSessions, listWorkspaces, sessionTitle } from '../server/dshRpc.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import {
   buildSessionTree,
+  type SessionInput,
   type SessionNodeModel,
+  type SessionSortOrder,
+  type WorkspaceInput,
   type WorkspaceNodeModel,
 } from '../pure/sessionTree.ts'
 
 /** Debounce window for host-event-driven refreshes. */
 const REFRESH_DEBOUNCE_MS = 500
+
+/** workspaceState key for the persisted sort preference (UI-only state). */
+const SORT_STATE_KEY = 'sessions.sortOrder'
 
 /** Host event methods that can change the tree; anything else is ignored. */
 const REFRESH_METHODS = new Set([
@@ -60,6 +66,12 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
   private workspaces: WorkspaceNodeModel[] = []
   /** Non-archived ids from the last successful session.list (blank included). */
   private knownSessionIds = new Set<string>()
+  /** Last fetched baseline, kept so search/sort rebuild locally without RPC. */
+  private rawWorkspaces: WorkspaceInput[] = []
+  private rawSessions: SessionInput[] = []
+  private rawArchived: ReadonlySet<string> = new Set()
+  private sortOrder: SessionSortOrder = 'updatedDesc'
+  private query: string | null = null
   private url: string | null = null
   private hostEvents: vscode.Disposable | null = null
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -70,7 +82,12 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
   constructor(
     private readonly manager: ServerManager,
     private readonly logger: Logger,
+    private readonly state?: vscode.Memento,
   ) {
+    const savedSort = state?.get<string>(SORT_STATE_KEY)
+    if (savedSort === 'updatedDesc' || savedSort === 'updatedAsc' || savedSort === 'title') {
+      this.sortOrder = savedSort
+    }
     this.stateSub = manager.onDidChangeState((status) => this.onStateChange(status))
     this.onStateChange(manager.getStatus())
   }
@@ -96,6 +113,33 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
     return this.workspaces.find((w) => w.isCurrent)?.sessions[0]?.sessionId ?? null
   }
 
+  /** Current search query (null = unfiltered), for the input box default. */
+  get currentQuery(): string | null {
+    return this.query
+  }
+
+  get currentSortOrder(): SessionSortOrder {
+    return this.sortOrder
+  }
+
+  /** Rebuild with a new sort order; the preference survives reloads. */
+  setSortOrder(order: SessionSortOrder): void {
+    if (order === this.sortOrder) return
+    this.sortOrder = order
+    void this.state?.update(SORT_STATE_KEY, order)
+    this.rebuildModel()
+    this.onDidChangeTreeDataEmitter.fire(undefined)
+  }
+
+  /** Set (or clear with null/empty) the search query and reflect it in when-clauses. */
+  setQuery(query: string | null): void {
+    const trimmed = query?.trim() ?? ''
+    this.query = trimmed === '' ? null : trimmed
+    void vscode.commands.executeCommand('setContext', 'dshOne.sessions.searchActive', this.query !== null)
+    this.rebuildModel()
+    this.onDidChangeTreeDataEmitter.fire(undefined)
+  }
+
   private onStateChange(status: ServerStatus): void {
     const url = status.state === 'running' && status.url ? status.url : null
     if (url === this.url) return
@@ -114,6 +158,9 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
     } else {
       this.workspaces = []
       this.knownSessionIds = new Set()
+      this.rawWorkspaces = []
+      this.rawSessions = []
+      this.rawArchived = new Set()
       this.onDidChangeTreeDataEmitter.fire(undefined)
     }
   }
@@ -136,17 +183,27 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<TreeNode>, v
       this.knownSessionIds = new Set(
         sessions.map((s) => s.sessionId).filter((id) => !archived.has(id)),
       )
-      this.workspaces = buildSessionTree(
-        workspaceList.items,
-        sessions,
-        archived,
-        sessionTitle,
-        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-      )
+      this.rawWorkspaces = workspaceList.items
+      this.rawSessions = sessions
+      this.rawArchived = archived
+      this.rebuildModel()
     } catch (err) {
       this.logger.warn(`sessions tree: refresh failed — ${err instanceof Error ? err.message : err}`)
     }
     this.onDidChangeTreeDataEmitter.fire(undefined)
+  }
+
+  /** Rebuild the display model from the cached baseline + current sort/query. */
+  private rebuildModel(): void {
+    this.workspaces = buildSessionTree(
+      this.rawWorkspaces,
+      this.rawSessions,
+      this.rawArchived,
+      sessionTitle,
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      Date.now(),
+      { sort: this.sortOrder, query: this.query ?? undefined },
+    )
   }
 
   getTreeItem(element: TreeNode): vscode.TreeItem {

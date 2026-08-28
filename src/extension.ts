@@ -5,6 +5,7 @@ import { archiveSession, createSession, renameSession } from './server/dshRpc.ts
 import { openInTab } from './ui/webview.ts'
 import { ChatViewProvider } from './ui/chatView.ts'
 import { SessionNode, SessionTreeProvider, WorkspaceNode } from './ui/sessionTree.ts'
+import type { SessionSortOrder } from './pure/sessionTree.ts'
 import { StatusBar } from './ui/statusbar.ts'
 
 let server: ServerManager | undefined
@@ -27,7 +28,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const statusBar = new StatusBar(manager)
-  const sessions = new SessionTreeProvider(manager, logger)
+  const sessions = new SessionTreeProvider(manager, logger, context.workspaceState)
   const chatView = new ChatViewProvider(manager, logger, context.extensionUri, () => void sessions.refresh())
 
   // Chat/session reconciliation after every tree rebuild: drop the attached
@@ -89,6 +90,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('dshOne.sessions.refresh', async () => {
       await sessions.refresh()
+    }),
+    // Filter sessions by title/id; an empty input clears the filter.
+    vscode.commands.registerCommand('dshOne.sessions.search', async () => {
+      const query = await vscode.window.showInputBox({
+        title: '搜索会话',
+        prompt: '按标题或会话 ID 过滤，留空清除搜索',
+        value: sessions.currentQuery ?? '',
+      })
+      if (query === undefined) return
+      sessions.setQuery(query)
+    }),
+    vscode.commands.registerCommand('dshOne.sessions.clearSearch', () => {
+      sessions.setQuery(null)
+    }),
+    vscode.commands.registerCommand('dshOne.sessions.sort', async () => {
+      const current = sessions.currentSortOrder
+      const items: (vscode.QuickPickItem & { order: SessionSortOrder })[] = [
+        { order: 'updatedDesc', label: '最近更新优先' },
+        { order: 'updatedAsc', label: '最早更新优先' },
+        { order: 'title', label: '按标题排序' },
+      ]
+      for (const item of items) {
+        if (item.order === current) item.description = '当前'
+      }
+      const pick = await vscode.window.showQuickPick(items, { title: '会话排序方式' })
+      if (pick) sessions.setSortOrder(pick.order)
     }),
     // Session click: attach the native chat view and focus it.
     vscode.commands.registerCommand('dshOne.session.open', (node?: SessionNode) => {
