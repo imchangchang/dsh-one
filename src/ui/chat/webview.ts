@@ -106,7 +106,12 @@ window.addEventListener('message', (event) => {
     modelCatalog = msg.catalog
     if (modelMenuBody) renderModelMenuRoot(modelMenuBody, msg.catalog)
   } else if (msg?.type === 'attachmentData' && typeof msg.attachmentId === 'string') {
-    attachmentCache.set(msg.attachmentId, `data:${msg.mediaType};base64,${msg.data}`)
+    const dataUrl = `data:${msg.mediaType};base64,${msg.data}`
+    attachmentCache.set(msg.attachmentId, dataUrl)
+    if (pendingPreview === msg.attachmentId) {
+      pendingPreview = null
+      openLightbox(dataUrl)
+    }
     render()
   } else if (msg?.type === 'insertText' && typeof msg.text === 'string') {
     // Attachment paths land at the cursor as ordinary prompt text.
@@ -361,6 +366,9 @@ function render(): void {
   closePopover()
   const hadFocus = document.activeElement?.id === 'input'
   const draft = (document.getElementById('input') as HTMLTextAreaElement | null)?.value
+  // The rebuild wipes scroll state; remember it so a user reading history
+  // mid-stream is not thrown back to the top.
+  const prevScrollTop = document.getElementById('messages')?.scrollTop ?? null
   app.textContent = ''
   if (!state || !state.sessionId) {
     app.appendChild(renderEmpty())
@@ -384,7 +392,19 @@ function render(): void {
   }
   messages.addEventListener('scroll', () => {
     stickToBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 40
+    const jump = messages.querySelector<HTMLElement>('.jump-latest')
+    if (jump) jump.style.display = stickToBottom ? 'none' : ''
   })
+  // "Back to latest" floater: sticky at the scroller's bottom while the user
+  // reads history; hidden while pinned to the tail.
+  const jump = buttonEl('jump-latest', '↓ 回到最新')
+  jump.style.display = stickToBottom ? 'none' : ''
+  jump.addEventListener('click', () => {
+    stickToBottom = true
+    messages.scrollTop = messages.scrollHeight
+    jump.style.display = 'none'
+  })
+  messages.appendChild(jump)
   app.appendChild(messages)
 
   if (state.pending.length > 0) {
@@ -397,6 +417,7 @@ function render(): void {
 
   app.appendChild(renderInput(draft))
   if (stickToBottom) messages.scrollTop = messages.scrollHeight
+  else if (prevScrollTop !== null) messages.scrollTop = prevScrollTop
   const input = document.getElementById('input') as HTMLTextAreaElement
   autoGrow(input)
   if (hadFocus) input.focus()
@@ -417,25 +438,29 @@ function contextLabel(kind: string): string {
   return '上下文注入'
 }
 
-/** Thumbnails row for a user message's attached images; bytes arrive lazily. */
-function renderImageThumbs(images: ChatImage[]): HTMLElement {
+/** Attachment id whose bytes are being fetched to open a preview on arrival. */
+let pendingPreview: string | null = null
+
+/** Compact chips for a user message's attached images; click fetches bytes (once) and previews. */
+function renderImageChips(images: ChatImage[]): HTMLElement {
   const row = el('div', 'msg-images')
   for (const image of images) {
-    const thumb = document.createElement('img')
-    thumb.className = 'msg-image-thumb'
-    thumb.alt = image.name ?? '附件图片'
-    const dataUrl = attachmentCache.get(image.attachmentId)
-    if (dataUrl) {
-      thumb.src = dataUrl
-      thumb.addEventListener('click', () => openLightbox(dataUrl))
-    } else {
-      thumb.classList.add('pending')
+    const chip = el('span', 'image-chip msg-image-chip')
+    chip.appendChild(el('span', 'chip-name', `🖼 ${image.name ?? '图片'}`))
+    chip.title = '点击预览'
+    chip.addEventListener('click', () => {
+      const dataUrl = attachmentCache.get(image.attachmentId)
+      if (dataUrl) {
+        openLightbox(dataUrl)
+        return
+      }
+      pendingPreview = image.attachmentId
       if (!attachmentRequested.has(image.attachmentId)) {
         attachmentRequested.add(image.attachmentId)
         post({ type: 'requestAttachment', attachmentId: image.attachmentId })
       }
-    }
-    row.appendChild(thumb)
+    })
+    row.appendChild(chip)
   }
   return row
 }
@@ -468,7 +493,7 @@ function renderMessage(m: ChatMessage): HTMLElement {
       return det
     }
     const row = el('div', 'msg user')
-    if (m.images && m.images.length > 0) row.appendChild(renderImageThumbs(m.images))
+    if (m.images && m.images.length > 0) row.appendChild(renderImageChips(m.images))
     if (m.text) row.appendChild(el('div', 'bubble', m.text))
     return row
   }
@@ -647,7 +672,13 @@ function renderInput(draft: string | undefined): HTMLElement {
     const chips = el('div', 'image-chips')
     pendingImages.forEach((img, i) => {
       const chip = el('span', 'image-chip')
-      chip.appendChild(el('span', 'chip-name', img.name ?? '图片'))
+      const name = el('span', 'chip-name', img.name ?? '图片')
+      name.style.cursor = 'zoom-in'
+      name.title = '点击预览'
+      name.addEventListener('click', () => {
+        openLightbox(`data:${img.mediaType || 'image/png'};base64,${img.data}`)
+      })
+      chip.appendChild(name)
       const remove = buttonEl('chip-remove', '×')
       remove.title = '移除图片'
       remove.addEventListener('click', () => {

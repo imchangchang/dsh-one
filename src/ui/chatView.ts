@@ -256,12 +256,18 @@ const STYLE = `
   #input:focus { outline: 1px solid var(--vscode-focusBorder); }
   .send-button { flex: none; }
   .msg-images { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
-  .msg-image-thumb {
-    max-width: 120px; max-height: 80px; border-radius: 6px; cursor: zoom-in;
-    border: 1px solid var(--vscode-panelBorder);
-    background: var(--vscode-editor-background);
+  .msg-image-chip { cursor: zoom-in; padding-right: 8px; }
+  .msg-image-chip:hover { filter: brightness(1.15); }
+  .jump-latest {
+    position: sticky; bottom: 4px; align-self: flex-end; flex: none;
+    margin-bottom: -30px; z-index: 5;
+    border-radius: 14px; padding: 4px 12px; font-size: 12px;
+    background: var(--vscode-editorWidget-background, var(--vscode-button-secondaryBackground, rgba(127,127,127,.3)));
+    color: var(--vscode-foreground);
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
   }
-  .msg-image-thumb.pending { width: 120px; height: 80px; opacity: 0.4; }
+  .jump-latest:hover { filter: brightness(1.1); }
   .lightbox {
     position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7);
     display: flex; align-items: center; justify-content: center;
