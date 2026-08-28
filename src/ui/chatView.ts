@@ -249,6 +249,8 @@ const STYLE = `
   .queue + .queue { border-top: 0; padding-top: 0; }
   .input-row { display: flex; gap: 8px; align-items: flex-end; }
   .input-footer { display: flex; gap: 6px; align-items: center; }
+  .stats-row { display: flex; align-items: center; gap: 10px; }
+  .stats-row .input-stats { flex: 1; min-width: 0; }
   .input-stats {
     font-size: 11px; opacity: 0.65; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap;
@@ -286,17 +288,19 @@ const STYLE = `
   .command-row .command-text { opacity: .75; white-space: pre-wrap; word-break: break-word; }
   .command-row.error .command-text { color: var(--vscode-errorForeground, #f66); opacity: 1; }
   .command-row .spinner { align-self: center; }
-  .context-ring {
-    display: inline-flex; align-items: center; padding: 3px; border: 0; border-radius: 50%;
-    background: none; cursor: pointer; color: var(--vscode-descriptionForeground); flex: none;
+  .context-bar { flex: none; width: 72px; padding: 4px 2px; border: 0; background: none; cursor: pointer; }
+  .context-bar-track {
+    display: block; height: 4px; border-radius: 2px; overflow: hidden;
+    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
   }
-  .context-ring:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(127,127,127,.3)); }
-  .context-ring-track { fill: none; stroke: var(--vscode-widget-border, rgba(127,127,127,.35)); stroke-width: 2px; }
-  .context-ring-fill { fill: none; stroke: currentColor; stroke-width: 2px; stroke-linecap: round; }
-  .context-panel { min-width: 230px; font-size: 12px; line-height: 20px; }
+  .context-bar-fill {
+    display: block; height: 100%; min-width: 2px; border-radius: 2px;
+    background: var(--vscode-descriptionForeground);
+  }
+  .context-panel { width: 240px; font-size: 12px; line-height: 20px; }
   .context-panel .cp-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .context-panel .cp-percent { font-weight: 600; }
-  .context-panel .cp-figures { font-variant-numeric: tabular-nums; opacity: .8; }
+  .context-panel .cp-figures { font-variant-numeric: tabular-nums; opacity: .95; flex: none; }
   .context-panel .cp-bar {
     display: flex; gap: 1px; height: 4px; margin: 10px 0 8px; border-radius: 2px;
     overflow: hidden; background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
@@ -304,7 +308,7 @@ const STYLE = `
   .context-panel .cp-seg { height: 100%; min-width: 2px; border-radius: 1px; }
   .context-panel .cp-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
   .context-panel .cp-swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
-  .context-panel .cp-value { margin-left: auto; font-variant-numeric: tabular-nums; opacity: .8; }
+  .context-panel .cp-value { margin-left: auto; font-variant-numeric: tabular-nums; opacity: .95; flex: none; }
   .image-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .image-chip {
     display: inline-flex; align-items: center; gap: 6px;

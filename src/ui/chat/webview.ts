@@ -306,31 +306,58 @@ function formatTokens(n: number): string {
   return `${scaled(n / 1e6)}M`
 }
 
-/** Ring geometry copied from dsh-web's ContextMeter: 14px viewBox, 2px stroke. */
-const RING_RADIUS = 5.5
-const RING_CIRC = 2 * Math.PI * RING_RADIUS
-
-function ringDashOffset(percent: number): string {
-  return String(RING_CIRC * (1 - percent / 100))
-}
-
-/** Occupancy ring SVG; the fill arc carries a stable class for in-place updates. */
-function ringSvg(percent: number): string {
-  return (
-    `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">` +
-    `<circle class="context-ring-track" cx="7" cy="7" r="${RING_RADIUS}"/>` +
-    `<circle class="context-ring-fill" cx="7" cy="7" r="${RING_RADIUS}" ` +
-    `stroke-dasharray="${RING_CIRC}" stroke-dashoffset="${ringDashOffset(percent)}" transform="rotate(-90 7 7)"/>` +
-    `</svg>`
-  )
-}
-
 /** Breakdown legend, in bar-segment order (dsh-web ContextMeter rows). */
 const CONTEXT_ROWS: Array<{ key: 'systemTokens' | 'toolsTokens' | 'messageTokens'; label: string; color: string }> = [
   { key: 'systemTokens', label: '系统提示词', color: '#8b9bb4' },
   { key: 'toolsTokens', label: '工具', color: '#a78bfa' },
   { key: 'messageTokens', label: '对话消息', color: '#5a9cf8' },
 ]
+
+/** Occupancy bar at the stats row's right end; hidden until the first sample. */
+function contextBar(): HTMLElement {
+  const bar = buttonEl('context-bar', '')
+  const track = el('span', 'context-bar-track')
+  track.appendChild(el('span', 'context-bar-fill'))
+  bar.appendChild(track)
+  bar.addEventListener('click', () => openContextPanel(bar))
+  return bar
+}
+
+/** Patch the bar in place (both initial render and kept-composer updates). */
+function patchContextBar(bar: HTMLElement, usage: ChatState['contextUsage']): void {
+  bar.style.display = usage ? '' : 'none'
+  if (!usage) return
+  bar.title = `上下文已用 ${usage.percent}%（~${formatTokens(usage.usedTokens)} / ${formatTokens(usage.contextWindow)}）`
+  const fill = bar.querySelector<HTMLElement>('.context-bar-fill')
+  if (fill) fill.style.width = `${usage.percent}%`
+}
+
+/** Stats row at the composer's foot: stats line left, occupancy bar right. */
+function statsRow(statsLine: string | undefined, usage: ChatState['contextUsage']): HTMLElement {
+  const row = el('div', 'stats-row')
+  row.appendChild(el('div', 'input-stats', statsLine ?? ''))
+  const bar = contextBar()
+  patchContextBar(bar, usage)
+  row.appendChild(bar)
+  return row
+}
+
+/** In-place stats-row update for the kept-composer path (no rebuild). */
+function patchStatsRow(composer: HTMLElement, statsLine: string | undefined, usage: ChatState['contextUsage']): void {
+  let row = composer.querySelector<HTMLElement>('.stats-row')
+  if (!statsLine && !usage) {
+    row?.remove()
+    return
+  }
+  if (!row) {
+    row = statsRow(undefined, undefined)
+    composer.appendChild(row)
+  }
+  const stats = row.querySelector<HTMLElement>('.input-stats')
+  if (stats) stats.textContent = statsLine ?? ''
+  const bar = row.querySelector<HTMLElement>('.context-bar')
+  if (bar) patchContextBar(bar, usage)
+}
 
 /** Click-open panel next to the ring: occupancy figure plus the breakdown bars. */
 function openContextPanel(anchor: HTMLElement): void {
@@ -720,26 +747,7 @@ function render(): void {
   if (keepComposer && oldComposer) {
     // The composer element was never detached, so focus, caret, and any
     // in-flight IME composition survive; only patch the stats line in place.
-    const stats = oldComposer.querySelector<HTMLElement>('.input-stats')
-    if (state.statsLine) {
-      if (stats) stats.textContent = state.statsLine
-      else oldComposer.appendChild(el('div', 'input-stats', state.statsLine))
-    } else {
-      stats?.remove()
-    }
-    // Same in-place treatment for the context ring: the arc, title, and
-    // late availability update without rebuilding the composer.
-    const ring = oldComposer.querySelector<HTMLElement>('.context-ring')
-    if (ring) {
-      const usage = state.contextUsage
-      ring.style.display = usage ? '' : 'none'
-      if (usage) {
-        ring.title = `上下文已用 ${usage.percent}%`
-        ring
-          .querySelector('.context-ring-fill')
-          ?.setAttribute('stroke-dashoffset', ringDashOffset(usage.percent))
-      }
-    }
+    patchStatsRow(oldComposer, state.statsLine, state.contextUsage)
   } else {
     app.appendChild(renderInput(draft))
   }
@@ -1357,15 +1365,6 @@ function renderInput(draft: string | undefined): HTMLElement {
   })
   updateButton()
   row.appendChild(input)
-  // Context-occupancy ring (dsh ContextMeter): hidden until the provider
-  // reports both a pressure sample and the route's context window.
-  const usage = state?.contextUsage
-  const ring = buttonEl('context-ring', '')
-  ring.innerHTML = ringSvg(usage?.percent ?? 0)
-  ring.title = usage ? `上下文已用 ${usage.percent}%` : '上下文用量'
-  ring.style.display = usage ? '' : 'none'
-  ring.addEventListener('click', () => openContextPanel(ring))
-  row.appendChild(ring)
   // While a turn runs, stop gets its own button; send stays available and
   // queues the prompt (dsh mode 'queue').
   if (state?.running) {
@@ -1410,7 +1409,7 @@ function renderInput(draft: string | undefined): HTMLElement {
   footer.appendChild(model)
   wrap.appendChild(footer)
 
-  if (state?.statsLine) wrap.appendChild(el('div', 'input-stats', state.statsLine))
+  if (state?.statsLine || state?.contextUsage) wrap.appendChild(statsRow(state?.statsLine, state?.contextUsage))
   return wrap
 }
 
