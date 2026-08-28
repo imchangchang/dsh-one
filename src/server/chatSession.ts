@@ -213,13 +213,30 @@ export class ChatSessionController implements vscode.Disposable {
     this.push(true)
   }
 
-  async stop(): Promise<void> {
+  /**
+   * Stop the active turn and drain the queue. dsh's cancel deliberately
+   * preserves pending inbox work (it resumes FIFO once cancellation
+   * settles), so "stop" here also removes every queued prompt and returns
+   * their texts for the composer to restore as drafts.
+   */
+  async stop(): Promise<string[]> {
     try {
       await cancelSession(this.url, this.sessionId)
     } catch (error) {
       this.logger.error(`chat: cancel failed: ${errorText(error)}`)
       throw error
     }
+    const restored: string[] = []
+    for (const item of this.queue) {
+      try {
+        await updateQueue(this.url, this.sessionId, item.id, { kind: 'remove' })
+        if (item.editText) restored.push(item.editText)
+      } catch (error) {
+        // A concurrently claimed item is already running — nothing to restore.
+        this.logger.warn(`chat: removing queued ${item.id} failed: ${errorText(error)}`)
+      }
+    }
+    return restored
   }
 
   /** Turn one queued prompt into an immediate steer. */

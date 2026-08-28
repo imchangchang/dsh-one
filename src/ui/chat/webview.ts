@@ -121,7 +121,16 @@ window.addEventListener('message', (event) => {
       pendingPreview = null
       openLightbox(dataUrl)
     }
-    render()
+  } else if (msg?.type === 'restoreDraft' && typeof msg.text === 'string') {
+    // Texts of queue items drained by stop: back into the composer as drafts.
+    const input = document.getElementById('input') as HTMLTextAreaElement | null
+    if (input) {
+      input.value = input.value.trim() ? `${input.value.trimEnd()}\n${msg.text}` : msg.text
+      input.dispatchEvent(new Event('input'))
+      input.focus()
+    } else {
+      stashedDraft = stashedDraft ? `${stashedDraft}\n${msg.text}` : msg.text
+    }
   }
 })
 
@@ -460,6 +469,8 @@ let pendingPreview: string | null = null
 let editingQueueItem: string | null = null
 /** Unsaved queue-editor text by item id; survives the rebuild-per-snapshot rendering. */
 const queueEditDrafts = new Map<string, string>()
+/** Composer draft arriving while no input element exists yet (restoreDraft before first render). */
+let stashedDraft: string | undefined
 
 /** One queued inbox row: tag + preview, plus steer/edit/remove actions for queued items. */
 function renderQueueItem(item: QueuedItem): HTMLElement {
@@ -838,7 +849,12 @@ function renderInput(draft: string | undefined): HTMLElement {
       ? '输入消息，Enter 排队发送，Shift+Enter 换行'
       : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件'
   input.disabled = !canSend
-  if (draft) input.value = draft
+  if (stashedDraft) {
+    input.value = draft?.trim() ? `${draft.trimEnd()}\n${stashedDraft}` : stashedDraft
+    stashedDraft = undefined
+  } else if (draft) {
+    input.value = draft
+  }
 
   const button = buttonEl('send-button', '发送')
   const updateButton = (): void => {

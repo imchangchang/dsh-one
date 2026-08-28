@@ -438,9 +438,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           await controller.send(text, images)
           return
         }
-        case 'stop':
-          await controller.stop()
+        case 'stop': {
+          const restored = await controller.stop()
+          if (restored.length > 0) {
+            const message: ToWebviewMessage = { type: 'restoreDraft', text: restored.join('\n') }
+            void this.view?.webview.postMessage(message)
+          }
           return
+        }
         case 'approval':
           await controller.respondApproval(m.rpcId, m.outcome)
           return

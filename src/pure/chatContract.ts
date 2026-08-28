@@ -188,6 +188,7 @@ export type ToWebviewMessage =
   | { type: 'filesPicked'; files: StagedFile[] }
   | { type: 'modelCatalog'; catalog: ModelCatalog }
   | { type: 'attachmentData'; attachmentId: string; mediaType: string; data: string }
+  | { type: 'restoreDraft'; text: string }
 
 export type FromWebviewMessage =
   | { type: 'send'; text: string; images?: OutgoingImage[] }
