@@ -139,15 +139,18 @@ export async function respond(baseUrl: string, rpcId: string, value: unknown): P
   }
 }
 
-/** Send one prompt; slash commands ride the same entry point. Images precede the text block.
- *  Returns the command's receipt text when the prompt was a slash command. */
+/**
+ * Send one prompt; images precede the text block. Note: this HTTP path treats
+ * a leading-slash line as plain prompt text — slash commands must go through
+ * {@link executeCommand} instead (same split as the official web client).
+ */
 export async function promptSession(
   baseUrl: string,
   sessionId: string,
   text: string,
   mode: 'queue' | 'steer' = 'queue',
   images?: OutgoingImage[],
-): Promise<string | undefined> {
+): Promise<void> {
   const content: unknown[] = (images ?? []).map((img) => ({
     type: 'image',
     mediaType: img.mediaType,
@@ -155,12 +158,44 @@ export async function promptSession(
     ...(img.name ? { name: img.name } : {}),
   }))
   if (text) content.push({ type: 'text', text })
-  const value = await callRpc<{ accepted: true; command?: { kind: string; text?: string } }>(
-    baseUrl,
-    'session.prompt',
-    { sessionId, mode, content },
-  )
-  return value.command?.text
+  await callRpc<{ accepted: true }>(baseUrl, 'session.prompt', { sessionId, mode, content })
+}
+
+/** Admission outcome of one slash-command line (dsh-commands `commands/execute`). */
+export interface CommandOutcome {
+  /** False when the host did not recognize the line as a command at all. */
+  matched: boolean
+  kind?: 'success' | 'error'
+  text?: string
+}
+
+/**
+ * Execute one slash-command line against the session's agent via the generic
+ * /api RPC channel — the channel the official web client's composer uses.
+ * The host logs the lifecycle (command/run, command/done); the returned text
+ * is the handler's receipt, which the web client renders as a flow node.
+ */
+export async function executeCommand(
+  baseUrl: string,
+  sessionId: string,
+  line: string,
+  images?: OutgoingImage[],
+): Promise<CommandOutcome> {
+  const value = await callRpc<
+    { commandId: string; result: { kind: 'success'; text?: string } | { kind: 'error'; text: string } } | undefined
+  >(baseUrl, 'commands/execute', {
+    args: {
+      agentId: sessionId,
+      line,
+      images: (images ?? []).map((img) => ({
+        mediaType: img.mediaType,
+        data: img.data,
+        ...(img.name ? { name: img.name } : {}),
+      })),
+    },
+  })
+  if (value === undefined) return { matched: false }
+  return { matched: true, kind: value.result.kind, text: value.result.text }
 }
 
 /** Loose mirror of ModelSelection (apiproxy sessions.d.ts). */

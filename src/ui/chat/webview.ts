@@ -52,7 +52,11 @@ const attachmentRequested = new Set<string>()
 /** Half-answered pending questions: rpcId → question index → draft. */
 const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
 
-/** Static mirror of dsh's built-in slash commands (no list API as of rc.2). */
+/**
+ * Static mirror of dsh's built-in slash commands (the host's commands/list RPC
+ * serves the same six; `model` below is our own submenu entry — the host has
+ * no /model command). Commands execute via commands/execute, not session.prompt.
+ */
 const SLASH_COMMANDS: Array<{ name: string; description: string }> = [
   { name: 'compact', description: '压缩较早的会话历史' },
   { name: 'export', description: '导出本会话日志（ZIP）' },

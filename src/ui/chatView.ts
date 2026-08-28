@@ -6,7 +6,7 @@ import * as path from 'node:path'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { ChatSessionController } from '../server/chatSession.ts'
-import { renameSession, selectModel, sessionAttachment, sessionModels } from '../server/dshRpc.ts'
+import { executeCommand, renameSession, selectModel, sessionAttachment, sessionModels } from '../server/dshRpc.ts'
 import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { ChatState, FromWebviewMessage, OutgoingImage, ToWebviewMessage } from '../pure/chatContract.ts'
 
@@ -450,11 +450,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           const text = typeof m.text === 'string' ? m.text.trim() : ''
           const images = Array.isArray(m.images) ? m.images : []
           if (!text && images.length === 0) return
-          const receipt = await controller.send(text, images, m.steer === true)
-          if (receipt) {
-            const message: ToWebviewMessage = { type: 'commandResult', text: receipt }
-            void this.view?.webview.postMessage(message)
+          // Leading-slash lines are commands, not prompts (same routing as the
+          // official web composer); session.prompt would leak them to the model.
+          if (text.startsWith('/')) {
+            await this.runCommand(controller, text, images)
+            return
           }
+          await controller.send(text, images, m.steer === true)
           return
         }
         case 'stop': {
@@ -569,9 +571,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   /**
-   * Permission preset switch; rides the /permission slash command (no dedicated
-   * RPC). Mirrors the web client: `danger-full-access` requires an explicit
-   * risk confirmation first.
+   * Permission preset switch; rides the /permission slash command through the
+   * dedicated command channel (session.prompt would not dispatch it). Mirrors
+   * the web client: `danger-full-access` requires an explicit risk
+   * confirmation first. The resulting permission/preset event refreshes the
+   * footer pill through the permissions projection push.
    */
   private async setPermission(controller: ChatSessionController, value: string): Promise<void> {
     if (value === 'danger-full-access') {
@@ -582,7 +586,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       )
       if (!confirm) return
     }
-    await controller.send(`/permission ${value}`)
+    await this.runCommand(controller, `/permission ${value}`)
+  }
+
+  /**
+   * Execute one slash-command line and surface the outcome as a composer
+   * notice: the host's receipt text when it has one, otherwise a fallback for
+   * unrecognized lines (the web composer shows the same "unknown" feedback).
+   */
+  private async runCommand(
+    controller: ChatSessionController,
+    line: string,
+    images?: OutgoingImage[],
+  ): Promise<void> {
+    const outcome = await executeCommand(controller.url, controller.sessionId, line, images)
+    const text = !outcome.matched
+      ? `未知或格式错误的命令：${line}`
+      : outcome.kind === 'error'
+        ? (outcome.text ?? `命令执行失败：${line}`)
+        : outcome.text
+    if (text) {
+      const message: ToWebviewMessage = { type: 'commandResult', text }
+      void this.view?.webview.postMessage(message)
+    }
   }
 
   /** Rename the attached session; the title projection push refreshes the header. */

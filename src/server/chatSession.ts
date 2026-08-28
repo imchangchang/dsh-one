@@ -210,10 +210,10 @@ export class ChatSessionController implements vscode.Disposable {
     }
   }
 
-  /** Returns the slash-command receipt text when the prompt was a command. */
-  async send(text: string, images?: OutgoingImage[], steer = false): Promise<string | undefined> {
+  /** Queue (or steer) one user prompt. Slash commands do not belong here — see chatView's runCommand. */
+  async send(text: string, images?: OutgoingImage[], steer = false): Promise<void> {
     try {
-      return await promptSession(this.url, this.sessionId, text, steer ? 'steer' : 'queue', images)
+      await promptSession(this.url, this.sessionId, text, steer ? 'steer' : 'queue', images)
     } catch (error) {
       this.logger.error(`chat: prompt failed: ${errorText(error)}`)
       throw error
