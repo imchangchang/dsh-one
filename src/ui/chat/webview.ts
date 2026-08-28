@@ -115,6 +115,8 @@ window.addEventListener('message', (event) => {
       pendingFiles = []
       modelCatalog = null
       commandNotices = []
+      recall = null
+      recallDraft = ''
       stagedForSession = state.sessionId
     }
     render()
@@ -406,6 +408,13 @@ function render(): void {
     oldQueueEditor && document.activeElement === oldQueueEditor
       ? { start: oldQueueEditor.selectionStart, end: oldQueueEditor.selectionEnd }
       : null
+  // A recalled queue item claimed by the agent (or removed) drops the recall;
+  // the text stays in the composer as a plain draft.
+  const recallQueueId = recall?.kind === 'queue' ? recall.itemId : null
+  if (recallQueueId && state && !(state.queue ?? []).some((q) => q.id === recallQueueId)) {
+    recall = null
+    recallDraft = ''
+  }
   // Composer preservation: detaching the textarea (even re-appending it one
   // line later) aborts an in-flight IME composition and drops the caret, so
   // while the composer is focused we keep the live element in the DOM unless
@@ -418,6 +427,7 @@ function render(): void {
     state?.running ?? false,
     state?.permissions ?? null,
     state?.modelLabel ?? null,
+    recall ? (recall.kind === 'queue' ? `queue:${recall.itemId}` : recall.kind) : null,
     pendingImages.map((i) => i.name ?? ''),
     pendingFiles.map((f) => f.path),
   ])
@@ -559,6 +569,14 @@ function contextLabel(kind: string): string {
 let pendingPreview: string | null = null
 /** Queue item currently being edited inline, null when none. */
 let editingQueueItem: string | null = null
+/**
+ * Composer recall mode entered by ArrowUp: 'queue' loads the last queued
+ * message into the composer and send saves it back; 'history' recalls the
+ * last genuine user message and send re-sends it as a new prompt.
+ */
+let recall: { kind: 'queue'; itemId: string } | { kind: 'history' } | null = null
+/** Draft stashed when a recall replaced it; restored by Escape. */
+let recallDraft = ''
 /** Unsaved queue-editor text by item id; survives the rebuild-per-snapshot rendering. */
 const queueEditDrafts = new Map<string, string>()
 /** Composer draft arriving while no input element exists yet (restoreDraft before first render). */
@@ -950,9 +968,11 @@ function renderInput(draft: string | undefined): HTMLElement {
   input.rows = 1
   input.placeholder = !canSend
     ? '服务未就绪，暂时无法发送'
-    : state?.running
-      ? '输入消息，Enter 排队发送，⌘Enter 立即插话'
-      : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件'
+    : recall?.kind === 'queue'
+      ? '正在修改排队消息，Enter 保存，Esc 取消'
+      : state?.running
+        ? '输入消息，Enter 排队发送，⌘Enter 立即插话，↑ 修改排队消息'
+        : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件，↑ 召回上一条'
   input.disabled = !canSend
   if (stashedDraft) {
     input.value = draft?.trim() ? `${draft.trimEnd()}\n${stashedDraft}` : stashedDraft
@@ -961,7 +981,7 @@ function renderInput(draft: string | undefined): HTMLElement {
     input.value = draft
   }
 
-  const button = buttonEl('send-button', '发送')
+  const button = buttonEl('send-button', recall?.kind === 'queue' ? '保存' : '发送')
   const updateButton = (): void => {
     button.disabled =
       !canSend || (input.value.trim().length === 0 && pendingImages.length === 0 && pendingFiles.length === 0)
@@ -975,6 +995,20 @@ function renderInput(draft: string | undefined): HTMLElement {
       .filter(Boolean)
       .join('\n')
     if (!text && pendingImages.length === 0) return
+    if (recall?.kind === 'queue') {
+      // Queue edits carry text only (the host rejects non-text content), so
+      // staged images stay staged and only the text goes to the queue item.
+      const itemId = recall.itemId
+      recall = null
+      recallDraft = ''
+      pendingFiles = []
+      post({ type: 'queueEdit', itemId, text })
+      input.value = ''
+      render()
+      return
+    }
+    recall = null
+    recallDraft = ''
     const images = pendingImages
     pendingImages = []
     pendingFiles = []
@@ -990,6 +1024,38 @@ function renderInput(draft: string | undefined): HTMLElement {
       e.preventDefault()
       // ⌘/Ctrl+Enter steers: interrupt the active turn instead of queueing.
       sendCurrent(e.metaKey || e.ctrlKey)
+      return
+    }
+    if (e.key === 'Escape' && recall) {
+      // Cancel the recall: the recalled text goes away, the stashed draft returns.
+      e.preventDefault()
+      recall = null
+      input.value = recallDraft
+      recallDraft = ''
+      render()
+      return
+    }
+    // ArrowUp on the first line with no selection recalls: the last queued
+    // message for editing when the inbox has one, else the last genuine user
+    // message for re-sending. A recall in progress keeps ArrowUp as caret move.
+    if (e.key === 'ArrowUp' && !e.isComposing && !recall && state?.canSend) {
+      if (input.selectionStart !== input.selectionEnd) return
+      if (input.value.slice(0, input.selectionStart).includes('\n')) return
+      const lastQueued = [...(state.queue ?? [])].reverse().find((q) => q.placement === 'queued')
+      const lastUser = lastQueued
+        ? null
+        : [...state.messages].reverse().find((m) => m.kind === 'user' && !m.context && m.text.trim())
+      if (!lastQueued && !lastUser) return
+      e.preventDefault()
+      recallDraft = input.value
+      if (lastQueued) {
+        recall = { kind: 'queue', itemId: lastQueued.id }
+        input.value = lastQueued.editText
+      } else if (lastUser && lastUser.kind === 'user') {
+        recall = { kind: 'history' }
+        input.value = lastUser.text
+      }
+      render()
     }
   })
   input.addEventListener('input', () => {
