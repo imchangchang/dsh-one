@@ -7,7 +7,7 @@ import { formatStatsLine } from '../pure/sessionStats.ts'
 import type { SessionStatsLike } from '../pure/sessionStats.ts'
 import { subscribeMuxEvents } from './muxEvents.ts'
 import type { MuxFrame } from './muxEvents.ts'
-import { cancelSession, promptSession, respond, sessionHistory, sessionModels } from './dshRpc.ts'
+import { cancelSession, promptSession, respond, sessionHistory, sessionModels, updateQueue } from './dshRpc.ts'
 import type { ImageLimits, SessionModels } from './dshRpc.ts'
 
 /** Streaming snapshots are pushed at most this often; structural changes flush immediately. */
@@ -81,26 +81,26 @@ function modelLabelOf(models: SessionModels): string {
   return label
 }
 
-/** Flatten a queued message to a short preview: text blocks joined, attachments counted. */
-function queueTextOf(item: QueuedInboxItemLike): string {
+/** Flatten a queued message: preview strips attachment lines, editText keeps them. */
+function queueItemOf(item: QueuedInboxItemLike): { text: string; editText: string } {
   const content = item.message?.content
-  if (!Array.isArray(content)) return ''
+  if (!Array.isArray(content)) return { text: '', editText: '' }
   const images = content.filter((b) => b && b.type === 'image').length
   let files = 0
-  const texts: string[] = []
+  const previewLines: string[] = []
+  const editLines: string[] = []
   for (const b of content) {
     if (!b || b.type !== 'text' || typeof b.text !== 'string') continue
-    const kept: string[] = []
     for (const line of b.text.split('\n')) {
+      editLines.push(line)
       // Attachment lines the composer appended ride this text block too.
       if (/^<attachment>.+<\/attachment>$/.test(line.trim())) files += 1
-      else kept.push(line)
+      else previewLines.push(line)
     }
-    texts.push(kept.join('\n'))
   }
-  const text = texts.join('\n').trim()
+  const text = previewLines.join('\n').trim()
   const notes = [images > 0 ? `[图片 ×${images}]` : '', files > 0 ? `[文件 ×${files}]` : ''].filter(Boolean)
-  return [...notes, text].filter(Boolean).join(' ')
+  return { text: [...notes, text].filter(Boolean).join(' '), editText: editLines.join('\n').trim() }
 }
 
 /** Narrow an unknown projection value to SessionStatsLike; null when malformed. */
@@ -150,6 +150,8 @@ export class ChatSessionController implements vscode.Disposable {
   private pending: PendingRequest[] = []
   /** Latest session/queue snapshot, user-visible placements only. */
   private queue: QueuedItem[] = []
+  /** Raw queued items by id, kept so queue edits can preserve non-text content. */
+  private queueRaw = new Map<string, QueuedInboxItemLike>()
   private sessionTitle: string | undefined
   /** Watermark for the title projection's higher-seq-wins rule. */
   private titleSeq = -1
@@ -218,6 +220,25 @@ export class ChatSessionController implements vscode.Disposable {
       this.logger.error(`chat: cancel failed: ${errorText(error)}`)
       throw error
     }
+  }
+
+  /** Turn one queued prompt into an immediate steer. */
+  async steerQueued(itemId: string): Promise<void> {
+    await updateQueue(this.url, this.sessionId, itemId, { kind: 'steer' })
+  }
+
+  /** Drop one queued prompt. */
+  async removeQueued(itemId: string): Promise<void> {
+    await updateQueue(this.url, this.sessionId, itemId, { kind: 'remove' })
+  }
+
+  /** Replace a queued prompt's text, preserving its non-text content (images). */
+  async editQueued(itemId: string, text: string): Promise<void> {
+    const item = this.queueRaw.get(itemId)
+    if (!item) throw new Error(`queue item ${itemId} is not pending`)
+    const kept = (item.message?.content ?? []).filter((b) => b && b.type !== 'text')
+    const content: unknown[] = [...kept, ...(text.trim() ? [{ type: 'text', text }] : [])]
+    await updateQueue(this.url, this.sessionId, itemId, { kind: 'edit', content })
   }
 
   async respondApproval(rpcId: string, outcome: 'allowed-once' | 'rejected'): Promise<void> {
@@ -418,15 +439,16 @@ export class ChatSessionController implements vscode.Disposable {
         // Whole-snapshot replacement: queued prompts are not durable events,
         // so this frame is the only place they are visible until claimed.
         const items = Array.isArray(payload.items) ? (payload.items as QueuedInboxItemLike[]) : []
+        this.queueRaw.clear()
         this.queue = items
           .filter((item): item is QueuedInboxItemLike & { placement: 'queued' | 'steering' } =>
             item.placement === 'queued' || item.placement === 'steering',
           )
-          .map((item) => ({
-            id: String(item.id),
-            placement: item.placement,
-            text: queueTextOf(item),
-          }))
+          .map((item) => {
+            const id = String(item.id)
+            this.queueRaw.set(id, item)
+            return { id, placement: item.placement, ...queueItemOf(item) }
+          })
         this.push(true)
         return
       }

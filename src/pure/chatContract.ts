@@ -154,7 +154,10 @@ export interface ChatState {
 export interface QueuedItem {
   id: string
   placement: 'queued' | 'steering'
+  /** Short preview: attachment lines stripped, image/file counts prefixed. */
   text: string
+  /** Full original text (attachment lines included) for the inline editor. */
+  editText: string
 }
 
 /** One selectable reasoning-effort tier of a catalog model. */
@@ -197,4 +200,7 @@ export type FromWebviewMessage =
   | { type: 'setModel'; provider: string; model: string; reasoningEffort?: string }
   | { type: 'setPermission'; value: string }
   | { type: 'renameSession'; title: string }
+  | { type: 'queueEdit'; itemId: string; text: string }
+  | { type: 'queueSteer'; itemId: string }
+  | { type: 'queueRemove'; itemId: string }
   | { type: 'requestAttachment'; attachmentId: string }

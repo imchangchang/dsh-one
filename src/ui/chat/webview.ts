@@ -19,6 +19,7 @@ import type {
   OutgoingImage,
   PendingApproval,
   PendingQuestion,
+  QueuedItem,
   StagedFile,
   ToWebviewMessage,
 } from '../../pure/chatContract.ts'
@@ -363,6 +364,13 @@ function render(): void {
   // The rebuild wipes scroll state; remember it so a user reading history
   // mid-stream is not thrown back to the top.
   const prevScrollTop = document.getElementById('messages')?.scrollTop ?? null
+  // Same for the inline queue editor: it is rebuilt per snapshot, so keep
+  // its focus and cursor across re-renders.
+  const oldQueueEditor = document.querySelector<HTMLTextAreaElement>('.queue-editor')
+  const queueFocus =
+    oldQueueEditor && document.activeElement === oldQueueEditor
+      ? { start: oldQueueEditor.selectionStart, end: oldQueueEditor.selectionEnd }
+      : null
   app.textContent = ''
   if (!state || !state.sessionId) {
     app.appendChild(renderEmpty())
@@ -410,19 +418,22 @@ function render(): void {
   }
 
   if (state.queue && state.queue.length > 0) {
+    if (editingQueueItem && !state.queue.some((item) => item.id === editingQueueItem)) editingQueueItem = null
     const queue = el('div', 'queue')
-    for (const item of state.queue) {
-      const row = el('div', 'queue-item')
-      row.appendChild(el('span', 'queue-tag', item.placement === 'steering' ? '插话中' : '排队中'))
-      row.appendChild(el('span', 'queue-text', item.text || '（空消息）'))
-      queue.appendChild(row)
-    }
+    for (const item of state.queue) queue.appendChild(renderQueueItem(item))
     app.appendChild(queue)
+  } else {
+    editingQueueItem = null
   }
 
   app.appendChild(renderInput(draft))
   if (stickToBottom) messages.scrollTop = messages.scrollHeight
   else if (prevScrollTop !== null) messages.scrollTop = prevScrollTop
+  const queueEditor = document.querySelector<HTMLTextAreaElement>('.queue-editor')
+  if (queueEditor && queueFocus) {
+    queueEditor.focus()
+    queueEditor.setSelectionRange(queueFocus.start, queueFocus.end)
+  }
   const input = document.getElementById('input') as HTMLTextAreaElement
   autoGrow(input)
   if (hadFocus) input.focus()
@@ -445,6 +456,72 @@ function contextLabel(kind: string): string {
 
 /** Attachment id whose bytes are being fetched to open a preview on arrival. */
 let pendingPreview: string | null = null
+/** Queue item currently being edited inline, null when none. */
+let editingQueueItem: string | null = null
+/** Unsaved queue-editor text by item id; survives the rebuild-per-snapshot rendering. */
+const queueEditDrafts = new Map<string, string>()
+
+/** One queued inbox row: tag + preview, plus steer/edit/remove actions for queued items. */
+function renderQueueItem(item: QueuedItem): HTMLElement {
+  const row = el('div', 'queue-item')
+  row.appendChild(el('span', 'queue-tag', item.placement === 'steering' ? '插话中' : '排队中'))
+
+  if (editingQueueItem === item.id) {
+    const editor = document.createElement('textarea')
+    editor.className = 'queue-editor'
+    editor.value = queueEditDrafts.get(item.id) ?? item.editText
+    editor.rows = Math.min(6, Math.max(1, item.editText.split('\n').length))
+    editor.addEventListener('input', () => queueEditDrafts.set(item.id, editor.value))
+    editor.addEventListener('keydown', (e) => {
+      // isComposing: don't save while an IME candidate window is open.
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault()
+        save.click()
+      } else if (e.key === 'Escape') {
+        cancel.click()
+      }
+    })
+    row.appendChild(editor)
+    const actions = el('div', 'queue-actions')
+    const save = buttonEl('', '保存')
+    save.addEventListener('click', () => {
+      const text = queueEditDrafts.get(item.id) ?? editor.value
+      editingQueueItem = null
+      queueEditDrafts.delete(item.id)
+      post({ type: 'queueEdit', itemId: item.id, text })
+    })
+    const cancel = buttonEl('secondary', '取消')
+    cancel.addEventListener('click', () => {
+      editingQueueItem = null
+      queueEditDrafts.delete(item.id)
+      render()
+    })
+    actions.appendChild(save)
+    actions.appendChild(cancel)
+    row.appendChild(actions)
+    return row
+  }
+
+  row.appendChild(el('span', 'queue-text', item.text || '（空消息）'))
+  if (item.placement === 'queued') {
+    const actions = el('div', 'queue-actions')
+    const steer = buttonEl('link', '插话')
+    steer.title = '立即打断当前轮，用这条消息插话'
+    steer.addEventListener('click', () => post({ type: 'queueSteer', itemId: item.id }))
+    const edit = buttonEl('link', '编辑')
+    edit.addEventListener('click', () => {
+      editingQueueItem = item.id
+      render()
+    })
+    const remove = buttonEl('link', '删除')
+    remove.addEventListener('click', () => post({ type: 'queueRemove', itemId: item.id }))
+    actions.appendChild(steer)
+    actions.appendChild(edit)
+    actions.appendChild(remove)
+    row.appendChild(actions)
+  }
+  return row
+}
 
 /** Compact chip for one attached image; click fetches bytes (once) and previews. */
 function imageChip(image: ChatImage): HTMLElement {

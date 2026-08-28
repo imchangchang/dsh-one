@@ -237,3 +237,13 @@ export async function sessionAttachment(
   })
   return { mediaType: value.attachment?.mediaType ?? 'application/octet-stream', data: value.data }
 }
+
+/** Mutate one still-pending queued inbox item (edit / remove / steer). */
+export async function updateQueue(
+  baseUrl: string,
+  sessionId: string,
+  itemId: string,
+  action: { kind: 'edit'; content: unknown[] } | { kind: 'remove' } | { kind: 'steer' },
+): Promise<void> {
+  await callRpc(baseUrl, 'session.updateQueue', { sessionId, itemId, action })
+}

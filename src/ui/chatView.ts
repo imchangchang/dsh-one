@@ -219,6 +219,18 @@ const STYLE = `
     opacity: 0.8; overflow: hidden; text-overflow: ellipsis;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
+  .queue-actions { display: flex; gap: 4px; flex: none; margin-left: auto; }
+  .queue-actions button.link {
+    background: transparent; color: var(--vscode-textLink-foreground, #4da3ff);
+    padding: 0 4px; font-size: 11px; border-radius: 4px;
+  }
+  .queue-actions button.link:hover { text-decoration: underline; }
+  .queue-editor {
+    flex: 1; min-width: 0; resize: none; box-sizing: border-box; padding: 4px 8px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
+    border-radius: 4px; font-family: inherit; font-size: 0.9em;
+  }
   .queue + .input-area { border-top: 0; }
   .input-row { display: flex; gap: 8px; align-items: flex-end; }
   .input-footer { display: flex; gap: 6px; align-items: center; }
@@ -456,6 +468,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           return
         case 'renameSession':
           await this.renameCurrentSession(controller, m.title)
+          return
+        case 'queueEdit':
+          await controller.editQueued(m.itemId, m.text)
+          return
+        case 'queueSteer':
+          await controller.steerQueued(m.itemId)
+          return
+        case 'queueRemove':
+          await controller.removeQueued(m.itemId)
           return
         case 'requestAttachment':
           await this.sendAttachment(controller, m.attachmentId)
