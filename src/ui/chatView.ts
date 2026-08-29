@@ -537,6 +537,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   private view: vscode.WebviewView | null = null
   private controller: ChatSessionController | null = null
   private controllerSub: vscode.Disposable | null = null
+  /** Last title projection seen from the attached session (auto-rename watch). */
+  private lastSessionTitle: string | undefined
   private readonly managerSub: vscode.Disposable
   private readonly storeSub: vscode.Disposable
 
@@ -609,8 +611,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     this.controller?.dispose()
     this.controller = controller
     if (controller) {
-      this.controllerSub = controller.onDidChange((state) => this.push(state))
+      this.controllerSub = controller.onDidChange((state) => {
+        this.push(state)
+        // dsh 自动命名经会话内的 title 投影到达，host 事件流没有对应事件，
+        // sessions 面板不会自己刷新——标题变化时主动重拉一次基线。
+        if (state.sessionTitle !== this.lastSessionTitle) {
+          this.lastSessionTitle = state.sessionTitle
+          void this.store.refresh()
+        }
+      })
     }
+    this.lastSessionTitle = controller?.getState().sessionTitle
     this.push(controller?.getState() ?? this.emptyState())
   }
 

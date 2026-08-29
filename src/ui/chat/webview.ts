@@ -717,6 +717,12 @@ function startInlineRename(header: HTMLElement): void {
 function render(): void {
   // 当前附着会话的高亮跟随 ChatState，不走面板重建（避免打断悬停与搜索输入）。
   syncSessionHighlight()
+  // <details> 展开状态按会话隔离：换会话时清空（key 是位置序号，跨会话无意义）。
+  const detailsSid = state?.sessionId ?? null
+  if (detailsSid !== detailsSession) {
+    detailsOpen.clear()
+    detailsSession = detailsSid
+  }
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
   const hadFocus = oldInput !== null && document.activeElement === oldInput
   const draft = oldInput?.value
@@ -827,7 +833,7 @@ function render(): void {
     })
   }
   messages.textContent = ''
-  for (const m of state.messages) messages.appendChild(renderMessage(m))
+  state.messages.forEach((m, mi) => messages.appendChild(renderMessage(m, `m${mi}`)))
   for (const notice of commandNotices) messages.appendChild(el('div', 'command-notice', notice))
   if (state.messages.length === 0) {
     messages.appendChild(el('div', 'muted-hint', '会话还没有消息，在下方输入开始。'))
@@ -1369,12 +1375,28 @@ function openLightbox(dataUrl: string): void {
   document.body.appendChild(overlay)
 }
 
-function renderMessage(m: ChatMessage): HTMLElement {
+/**
+ * Expanded state of <details> blocks, keyed by message/block position so
+ * streaming snapshot rebuilds don't collapse what the user opened.
+ * Cleared on session switch (keys are positional, only valid per session).
+ */
+const detailsOpen = new Map<string, boolean>()
+let detailsSession: string | null = null
+
+/** <details> whose open state persists across re-renders under `key`. */
+function detailsEl(key: string, className: string, summaryText: string): HTMLDetailsElement {
+  const det = el('details', className) as HTMLDetailsElement
+  det.open = detailsOpen.get(key) ?? false
+  det.addEventListener('toggle', () => detailsOpen.set(key, det.open))
+  det.appendChild(el('summary', '', summaryText))
+  return det
+}
+
+function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (m.kind === 'user') {
     // Host-injected context renders collapsed; only real human input bubbles.
     if (m.context) {
-      const det = el('details', 'msg context')
-      det.appendChild(el('summary', '', `📎 ${contextLabel(m.context)}（已随消息注入）`))
+      const det = detailsEl(`${key}:ctx`, 'msg context', `📎 ${contextLabel(m.context)}（已随消息注入）`)
       det.appendChild(el('div', 'context-body', m.text))
       return det
     }
@@ -1395,7 +1417,7 @@ function renderMessage(m: ChatMessage): HTMLElement {
     return row
   }
   const row = el('div', 'msg assistant')
-  for (const block of m.blocks) row.appendChild(renderBlock(block))
+  m.blocks.forEach((block, bi) => row.appendChild(renderBlock(block, `${key}:b${bi}`)))
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
   if (m.interrupted) row.appendChild(el('div', 'interrupted', '已中断'))
   if (m.complete) row.appendChild(renderAssistantActions(m))
@@ -1473,7 +1495,7 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
   return actions
 }
 
-function renderBlock(block: ChatBlock): HTMLElement {
+function renderBlock(block: ChatBlock, key: string): HTMLElement {
   switch (block.type) {
     case 'text': {
       const div = el('div', 'md')
@@ -1481,17 +1503,16 @@ function renderBlock(block: ChatBlock): HTMLElement {
       return div
     }
     case 'reasoning': {
-      const det = el('details', 'reasoning')
-      det.appendChild(el('summary', '', '思考过程'))
+      const det = detailsEl(`${key}:reason`, 'reasoning', '思考过程')
       det.appendChild(el('div', 'reasoning-body', block.text))
       return det
     }
     case 'tool':
-      return renderTool(block)
+      return renderTool(block, key)
   }
 }
 
-function renderTool(block: ChatToolBlock): HTMLElement {
+function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   const card = el('div', `tool tool-${block.status}`)
   const head = el('div', 'tool-head')
   if (block.status === 'running') {
@@ -1508,8 +1529,7 @@ function renderTool(block: ChatToolBlock): HTMLElement {
   if (block.detail) card.appendChild(el('div', 'tool-detail', block.detail))
   if (block.diff) card.appendChild(renderDiff(block.diff))
   if (block.output) {
-    const det = el('details', 'tool-output')
-    det.appendChild(el('summary', '', '输出'))
+    const det = detailsEl(`${key}:out`, 'tool-output', '输出')
     det.appendChild(el('pre', '', block.output))
     card.appendChild(det)
   }
@@ -1598,8 +1618,7 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
     wrap.appendChild(el('div', 'question-text', q.question))
     if (q.detail) {
       // Plan reviews carry the full plan markdown here; keep it collapsible.
-      const det = el('details', 'question-detail')
-      det.appendChild(el('summary', '', '查看详情'))
+      const det = detailsEl(`q:${p.rpcId}:${i}`, 'question-detail', '查看详情')
       const body = el('div', 'md')
       body.innerHTML = md(q.detail)
       det.appendChild(body)
