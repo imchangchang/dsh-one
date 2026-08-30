@@ -14,6 +14,9 @@ import {
 /** Debounce window for host-event-driven refreshes. */
 const REFRESH_DEBOUNCE_MS = 500
 
+/** Local tick for relative-time labels; rebuilds from the cached baseline, no RPC. */
+const RELATIVE_TIME_TICK_MS = 60_000
+
 /** workspaceState key for the persisted sort preference (UI-only state). */
 const SORT_STATE_KEY = 'sessions.sortOrder'
 /** workspaceState keys for pinned sessions and collapsed workspaces (UI-only; dsh 无此概念）. */
@@ -45,7 +48,8 @@ export interface SessionsStoreSnapshot {
 /**
  * Sessions 数据层：原 SessionTreeProvider 去掉 vscode TreeItem 后的纯数据部分。
  * 服务运行时以 workspace.list + session.list 为基线缓存，相关 host 事件
- * 500ms 防抖后重拉；消费方（Chat webview 的 sessions 面板）渲染 snapshot()，
+ * 500ms 防抖后重拉；另有 60s 本地 tick 纯重建模型（不发 RPC）刷新相对时间
+ * 文案。消费方（Chat webview 的 sessions 面板）渲染 snapshot()，
  * 变更经 onDidChange 通知。
  */
 export class SessionsStore implements vscode.Disposable {
@@ -63,6 +67,7 @@ export class SessionsStore implements vscode.Disposable {
   private url: string | null = null
   private hostEvents: vscode.Disposable | null = null
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
+  private tickTimer: ReturnType<typeof setInterval> | null = null
   private readonly stateSub: vscode.Disposable
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>()
   /** Fired after every model rebuild (refresh, sort, query, server down). */
@@ -170,10 +175,21 @@ export class SessionsStore implements vscode.Disposable {
       clearTimeout(this.refreshTimer)
       this.refreshTimer = null
     }
+    if (this.tickTimer) {
+      clearInterval(this.tickTimer)
+      this.tickTimer = null
+    }
     if (url) {
       this.hostEvents = subscribeHostEvents(url, this.logger, (method) => {
         if (REFRESH_METHODS.has(method)) this.scheduleRefresh()
       })
+      // dsh web 的相对时间也只在渲染时取 Date.now()、不轮询；这里用本地
+      // tick 纯重建模型（不发 RPC），让"N 分钟前"随时间走。
+      this.tickTimer = setInterval(() => {
+        if (this.rawSessions.length === 0) return
+        this.rebuildModel()
+        this.onDidChangeEmitter.fire()
+      }, RELATIVE_TIME_TICK_MS)
       void this.refresh()
     } else {
       this.workspaces = []
@@ -230,6 +246,7 @@ export class SessionsStore implements vscode.Disposable {
     this.stateSub.dispose()
     this.hostEvents?.dispose()
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
+    if (this.tickTimer) clearInterval(this.tickTimer)
     this.onDidChangeEmitter.dispose()
   }
 }
