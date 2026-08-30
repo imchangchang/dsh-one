@@ -17,6 +17,8 @@ dsh-one/
 │   │   ├── locateDsh.ts    # 定位 dsh 可执行文件（dshPath 配置 → PATH → 报错引导安装）
 │   │   ├── manager.ts      # dsh web 进程生命周期：探测/收养/spawn/就绪/清理
 │   │   ├── dshRpc.ts       # host RPC 客户端（workspace.create、session 增删改查等）
+│   │   ├── muxEvents.ts    # 订阅会话事件流（WS /api/events.mux）；无重连，见 docs/backlog/mux-reconnect.md
+│   │   ├── chatSession.ts  # ChatSessionController：历史基线 + mux 事件折叠为 ChatState，回答用户动作
 │   │   └── hostEvents.ts   # 订阅 host 事件流（WS /api/events.host），转发 method
 │   ├── ui/
 │   │   ├── webview.ts      # 编辑器标签页 WebviewPanel，iframe 嵌入 dsh web
