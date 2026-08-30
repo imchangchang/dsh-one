@@ -27,6 +27,7 @@ import type {
   ToWebviewMessage,
 } from '../../pure/chatContract.ts'
 import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../../pure/sessionTree.ts'
+import { formatDuration } from '../../pure/sessionStats.ts'
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
@@ -717,6 +718,10 @@ function startInlineRename(header: HTMLElement): void {
 function render(): void {
   // 当前附着会话的高亮跟随 ChatState，不走面板重建（避免打断悬停与搜索输入）。
   syncSessionHighlight()
+  // The turn-status clock interval is owned by the row it updates; the rebuild
+  // below discards that row, so drop the timer first and re-arm it later if
+  // the turn is still open. Never leave an interval pointing at detached DOM.
+  clearTurnStatusTimer()
   // <details> 展开状态按会话隔离：换会话时清空（key 是位置序号，跨会话无意义）。
   const detailsSid = state?.sessionId ?? null
   if (detailsSid !== detailsSession) {
@@ -802,6 +807,7 @@ function render(): void {
   }
   if (!state || !state.sessionId) {
     lastComposerSig = null
+    turnStatusStart = null
     chatCol.appendChild(renderEmpty(state))
     return
   }
@@ -837,6 +843,13 @@ function render(): void {
   for (const notice of commandNotices) messages.appendChild(el('div', 'command-notice', notice))
   if (state.messages.length === 0) {
     messages.appendChild(el('div', 'muted-hint', '会话还没有消息，在下方输入开始。'))
+  }
+  // Turn-status row: last item of the conversation flow while a turn is open
+  // (official-client parity), gone the moment the turn ends.
+  if (state.running) {
+    messages.appendChild(renderTurnStatus())
+  } else {
+    turnStatusStart = null
   }
   // "Back to latest" floater: sticky at the scroller's bottom while the user
   // reads history; hidden while pinned to the tail.
@@ -1392,6 +1405,44 @@ function detailsEl(key: string, className: string, summaryText: string): HTMLDet
   return det
 }
 
+/**
+ * Turn-status row, mirroring the official web client's TurnStatus: while a
+ * turn is open, a shimmering "Deep diving..." sits at the tail of the message
+ * flow; from 15s on, an elapsed clock ticks to its right. The clock's
+ * interval rewrites only its own text node, so it never forces a list
+ * re-render (which would disturb scroll/collapse state). The start timestamp
+ * survives snapshot re-renders for the whole open turn; it is reset when
+ * running flips back to false.
+ */
+let turnStatusStart: number | null = null
+let turnStatusTimer: ReturnType<typeof setInterval> | null = null
+
+/** Drop the clock interval; every render calls this before rebuilding. */
+function clearTurnStatusTimer(): void {
+  if (turnStatusTimer !== null) {
+    clearInterval(turnStatusTimer)
+    turnStatusTimer = null
+  }
+}
+
+function renderTurnStatus(): HTMLElement {
+  if (turnStatusStart === null) turnStatusStart = Date.now()
+  const start = turnStatusStart
+  const row = el('div', 'turn-status')
+  row.setAttribute('role', 'status')
+  row.setAttribute('aria-live', 'polite')
+  row.appendChild(el('span', 'turn-status-text', 'Deep diving...'))
+  const clock = el('span', 'turn-status-clock')
+  const tick = (): void => {
+    const elapsed = Date.now() - start
+    clock.textContent = elapsed >= 15000 ? formatDuration(elapsed) : ''
+  }
+  tick()
+  row.appendChild(clock)
+  turnStatusTimer = setInterval(tick, 1000)
+  return row
+}
+
 function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (m.kind === 'user') {
     // Host-injected context renders collapsed; only real human input bubbles.
@@ -1420,7 +1471,19 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   m.blocks.forEach((block, bi) => row.appendChild(renderBlock(block, `${key}:b${bi}`)))
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
   if (m.interrupted) row.appendChild(el('div', 'interrupted', '已中断'))
-  if (m.complete) row.appendChild(renderAssistantActions(m))
+  if (m.turnError) row.appendChild(renderTurnError(m.turnError))
+  // Copy/feedback/fork are meaningless on an empty error-only message.
+  if (m.complete && !(m.turnError && m.blocks.length === 0)) row.appendChild(renderAssistantActions(m))
+  return row
+}
+
+/** Turn failure row, mirroring the official web client's TurnErrorItem. */
+function renderTurnError(err: { message: string; code?: string }): HTMLElement {
+  const row = el('div', 'turn-error')
+  row.appendChild(el('span', 'turn-error-dot'))
+  row.appendChild(el('span', 'turn-error-title', '本轮运行失败'))
+  row.appendChild(el('span', 'turn-error-message', err.message))
+  if (err.code) row.appendChild(el('span', 'turn-error-code', err.code))
   return row
 }
 

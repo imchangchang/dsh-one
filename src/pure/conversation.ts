@@ -207,13 +207,41 @@ export class ConversationFolder {
       }
       case 'turn/end': {
         this.openTurns.delete(Number(data.turn))
-        const msg = this.current
+        const kind = (data.reason as { kind?: string } | undefined)?.kind
+        // Turn-level failure (e.g. model context overflow → 401): fold into a
+        // turnError on the assistant message instead of dropping it, matching
+        // the official web client's TurnErrorItem.
+        const turnError =
+          kind === 'error'
+            ? ((): { message: string; code?: string } | undefined => {
+                const err = (data.reason as { error?: unknown } | undefined)?.error as
+                  | { message?: unknown; code?: unknown }
+                  | undefined
+                if (typeof err?.message !== 'string' || !err.message) return undefined
+                return typeof err.code === 'string' && err.code
+                  ? { message: err.message, code: err.code }
+                  : { message: err.message }
+              })()
+            : undefined
+        let msg = this.current
+        if (!msg && turnError) {
+          // The turn failed before any assistant content: still surface an
+          // (empty) assistant message so the error row has somewhere to live.
+          msg = {
+            kind: 'assistant',
+            id: `assistant-s${event.seq}`,
+            blocks: [],
+            complete: true,
+            seq: event.seq,
+          }
+          this.msgs.push(msg)
+        }
         if (msg) {
           msg.complete = true
           // The turn's final seq is the fork point for session.fork.
           msg.seq = event.seq
-          const kind = (data.reason as { kind?: string } | undefined)?.kind
           if (kind === 'aborted' || kind === 'interrupted') msg.interrupted = true
+          if (turnError) msg.turnError = turnError
         }
         this.current = null
         this.stepKey = null

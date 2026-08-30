@@ -26,6 +26,7 @@ dsh-one/
 │   │   └── statusbar.ts    # 状态栏指示
 │   └── pure/               # 纯逻辑，禁止 import vscode（可用 node --test 直接单测）
 │       ├── chatContract.ts # 宿主 ↔ 聊天 webview 的消息契约 + ChatState 模型（接口冻结）
+│       ├── conversation.ts # 会话事件折叠成 ChatMessage 列表；turn 失败（turn/end error reason）折叠成「本轮运行失败」错误行
 │       ├── envelope.ts     # host.describe RPC 信封构造与 rpcId 回显校验
 │       ├── readyLine.ts    # 解析 stdout 就绪行 `dsh web: http://127.0.0.1:<port>`
 │       ├── semver.ts       # 最小 semver 实现（支持 prerelease），零依赖

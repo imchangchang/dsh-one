@@ -73,6 +73,12 @@ export interface ChatAssistantMessage {
   complete: boolean
   interrupted?: boolean
   /**
+   * Turn-level failure from turn/end reason {kind:'error'} (e.g. a 401 from
+   * the model provider). Rendered as an error row like the official web
+   * client's TurnErrorItem; not marked interrupted.
+   */
+  turnError?: { message: string; code?: string }
+  /**
    * Host-persisted message id (assistant/message's data.message.id), required
    * by the messageFeedback RPCs. Absent while streaming or when the host never
    * persisted one — the webview disables the feedback buttons then. On a

@@ -280,6 +280,50 @@ const STYLE = `
   .diff-line.add::before { content: '+ '; }
   .streaming { opacity: 0.6; }
   .interrupted { opacity: 0.6; font-size: 0.85em; }
+  .turn-status {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 0.85em;
+  }
+  .turn-status-text {
+    background: linear-gradient(
+      90deg,
+      var(--vscode-descriptionForeground, #888) 0%,
+      var(--vscode-foreground, #ccc) 50%,
+      var(--vscode-descriptionForeground, #888) 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: turn-status-shimmer 1.8s linear infinite;
+  }
+  @keyframes turn-status-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .turn-status-text { animation: none; }
+  }
+  .turn-status-clock {
+    color: var(--vscode-descriptionForeground, #888);
+    font-variant-numeric: tabular-nums;
+  }
+  .turn-error {
+    display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+    margin-top: 4px; font-size: 0.85em;
+    color: var(--vscode-errorForeground, #f14c4c);
+  }
+  .turn-error-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex: none; align-self: center;
+    background: var(--vscode-errorForeground, #f14c4c);
+  }
+  .turn-error-title { font-weight: 600; }
+  .turn-error-message { opacity: 0.9; white-space: pre-wrap; }
+  .turn-error-code {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.85em; padding: 0 4px; border-radius: 3px;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+  }
   .msg-actions { display: flex; align-items: center; gap: 10px; height: 28px; margin-top: 2px; }
   .msg-actions .icon-action {
     width: 28px; height: 28px; padding: 6px; display: inline-flex;

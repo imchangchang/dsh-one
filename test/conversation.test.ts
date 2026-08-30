@@ -291,6 +291,41 @@ test('turn/end with an aborted reason marks an unfinished message interrupted', 
   assert.equal(msg.interrupted, true)
 })
 
+test('turn/end with an error reason and no content yields an empty assistant message with turnError', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(userEv('u1', 'hi'))
+  f.applyEvent(
+    ev('turn/end', {
+      turn: 1,
+      reason: { kind: 'error', error: { code: 'AUTH', message: '401 unauthorized' } },
+    }),
+  )
+
+  const msg = lastAssistant(f)
+  assert.deepEqual(msg.blocks, [])
+  assert.equal(msg.complete, true)
+  assert.deepEqual(msg.turnError, { message: '401 unauthorized', code: 'AUTH' })
+  assert.equal(msg.interrupted, undefined)
+  assert.equal(f.hasOpenTurn(), false)
+})
+
+test('turn/end with an error reason keeps partial content and marks turnError, not interrupted', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: 'partial' }))
+  f.applyEvent(
+    ev('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'context length exceeded' } } }),
+  )
+
+  const msg = lastAssistant(f)
+  assert.deepEqual(msg.blocks, [{ type: 'text', text: 'partial' }])
+  assert.equal(msg.complete, true)
+  assert.deepEqual(msg.turnError, { message: 'context length exceeded' })
+  assert.equal(msg.interrupted, undefined)
+})
+
 test('applyHistory resets state for a re-baseline', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('turn/start', { turn: 1 }))
