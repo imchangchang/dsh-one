@@ -226,6 +226,34 @@ window.addEventListener('message', (event) => {
   }
 })
 
+/**
+ * Esc / Ctrl+C 打断当前 turn，等价于点「停止」按钮。优先级最低：
+ * 弹层、图片预览（capture 阶段）与斜杠补全、草稿召回、重命名输入
+ * （元素自身的 bubble 阶段）都先消费 Esc 并 preventDefault，这里靠
+ * defaultPrevented 让路。本处理器挂在 document 的 bubble 阶段，
+ * 保证最后执行。Ctrl+C 在有选区（输入框内或页面上）时保持复制语义。
+ */
+document.addEventListener('keydown', (e) => {
+  if (!state?.running) return
+  if (e.key === 'Escape') {
+    if (e.defaultPrevented) return
+    e.preventDefault()
+    post({ type: 'stop' })
+    return
+  }
+  if (e.key === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+    const active = document.activeElement
+    const fieldSelection =
+      (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) &&
+      active.selectionStart !== null &&
+      active.selectionStart !== active.selectionEnd
+    const sel = window.getSelection()
+    const pageSelection = !!sel && !sel.isCollapsed && sel.toString() !== ''
+    if (fieldSelection || pageSelection) return
+    post({ type: 'stop' })
+  }
+})
+
 /** Open composer popover; attached to document.body so it survives render(). */
 let popover: HTMLElement | null = null
 /** Anchor the open popover tracks; renders re-anchor or close on disconnect. */
@@ -249,7 +277,11 @@ function onPopoverOutside(e: MouseEvent): void {
 }
 
 function onPopoverKey(e: KeyboardEvent): void {
-  if (e.key === 'Escape') closePopover()
+  if (e.key === 'Escape') {
+    // 消费掉这次 Esc：弹层优先于全局「Esc 打断 turn」（后者按 defaultPrevented 让路）。
+    e.preventDefault()
+    closePopover()
+  }
 }
 
 function closePopover(): void {
@@ -1764,7 +1796,11 @@ function openLightbox(dataUrl: string): void {
     document.removeEventListener('keydown', onKey, true)
   }
   const onKey = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape') close()
+    if (e.key === 'Escape') {
+      // 同弹层：消费掉 Esc，全局「Esc 打断 turn」按 defaultPrevented 让路。
+      e.preventDefault()
+      close()
+    }
   }
   overlay.addEventListener('click', close)
   document.addEventListener('keydown', onKey, true)
@@ -2256,7 +2292,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     : recall?.kind === 'queue'
       ? '正在修改排队消息，Enter 保存，Esc 取消'
       : state?.running
-        ? '输入消息，Enter 排队发送，⌘Enter 立即插话，↑ 修改排队消息'
+        ? '输入消息，Enter 排队发送，⌘Enter 立即插话，↑ 修改排队消息，Esc 打断'
         : hero
           ? '描述你想要构建的内容'
           : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件，↑ 召回上一条'
@@ -2334,7 +2370,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         slashRows[slashIndex]?.apply?.(input)
         return
       }
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         e.preventDefault()
         hideSlashPopup()
         return
@@ -2356,7 +2392,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       sendCurrent(e.metaKey || e.ctrlKey)
       return
     }
-    if (e.key === 'Escape' && recall) {
+    if (e.key === 'Escape' && !e.defaultPrevented && recall) {
       // Cancel the recall: the recalled text goes away, the stashed draft returns.
       e.preventDefault()
       recall = null

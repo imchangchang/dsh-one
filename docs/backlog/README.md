@@ -11,7 +11,6 @@
 | [dsh 服务与 VSCode 生命周期解绑](dsh-survive-reload.md) | 需求（方案已讨论，5 个决策点待拍板） | P1（reload 会中断进行中的 session） | 未做 |
 | [流式输出时视图跟随最新位置](stream-follow-latest.md) | 遗留问题 | P1（根因待复现确认） | 未做 |
 | [未分组会话在面板不可见](ungrouped-sessions.md) | 需求（已调研） | P1 | 未做 |
-| [Esc / Ctrl+C 打断当前 turn](esc-interrupt-turn.md) | 需求（决策已定） | P2 | 未做 |
 | [对话引用（@会话）](session-reference.md) | 需求（已调研，形态已定：显示标题） | P2 | 未做 |
 | [会话处理完成后不自动标未读](auto-unread-on-finish.md) | 需求（dsh web 有等价的「已完成」自动标记，属对齐缺口） | P2 | 未做 |
 | [工作区软移除](workspace-soft-remove.md) | 需求（已调研，依赖「未分组会话」条目） | P2 | 未做 |
