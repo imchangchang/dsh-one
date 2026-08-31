@@ -8,7 +8,7 @@
 
 - Session TreeView：会话列表 / 新建 / 重命名 / 归档 / 聚焦（`src/ui/sessionTree.ts`）。已知过渡限制：嵌入的 dsh web UI 无深链，点击会话只能聚焦面板，无法远程切换会话——待阶段二自写聊天面后解决。
 - workspace 映射自动化：Sessions 树按 workspace 分组，当前文件夹置顶，其他 workspace 可从上下文菜单"在 VSCode 中打开文件夹"。
-- 反向桥补丁已退役（`src/server/workspaceBridge.ts` 连同 `src/pure/workspace.ts` 已删除）；`src/server/manager.ts` 的 `preseedWorkspace` 仍保留——嵌入 UI 的落地策略还依赖它。
+- 反向桥补丁已退役（`src/server/workspaceBridge.ts` 连同 `src/pure/workspace.ts` 已删除）；`src/server/manager.ts` 的 `preseedWorkspace` 也已去掉——影响方向拍板为 dsh → VS Code 单向，当前文件夹不再反向注册回 dsh（被删的工作区不再复活）。
 
 ### 阶段二：聊天面自写 webview（骨架完成）
 
