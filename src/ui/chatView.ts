@@ -319,14 +319,13 @@ const STYLE = `
   /* 等待插话的气泡（官方 data-pending-steering）：降不透明度表未落地。 */
   .msg.user.steering-pending .bubble { opacity: 0.7; }
   .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
-  /* @会话引用 chip（mention）：气泡与 md 块共用，胶囊形链接样式。 */
+  /* @会话引用（mention）：气泡与 md 块共用，超链接样式——一眼看出是引用，点击打开对应会话。 */
   .session-mention {
-    display: inline-block; padding: 0 6px; border: none; border-radius: 999px;
-    background: var(--vscode-badge-background, rgba(90,156,248,.25));
-    color: var(--vscode-badge-foreground, var(--vscode-textLink-foreground));
+    display: inline; padding: 0; border: none; background: none;
+    color: var(--vscode-textLink-foreground);
     font: inherit; cursor: pointer; white-space: nowrap;
   }
-  .session-mention:hover { filter: brightness(1.15); }
+  .session-mention:hover { text-decoration: underline; }
   .md { line-height: 1.5; word-break: break-word; }
   .md > :first-child { margin-top: 0; }
   .md > :last-child { margin-bottom: 0; }

@@ -203,10 +203,10 @@ function md(text: string): string {
   })
 }
 
-/** @会话 chip：点击附着被引用的会话（复用 sessions 面板的 sessionOpen 通路）。 */
+/** @会话超链接 chip：点击打开被引用的会话（复用 sessions 面板的 sessionOpen 通路）。 */
 function sessionMentionChip(label: string, sessionId: string): HTMLElement {
   const chip = buttonEl('session-mention', `@${label}`)
-  chip.title = `引用会话 ${sessionId}，点击附着`
+  chip.title = `引用会话 ${sessionId}，点击打开`
   chip.addEventListener('click', () => post({ type: 'sessionOpen', sessionId }))
   return chip
 }
