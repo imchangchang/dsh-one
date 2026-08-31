@@ -159,7 +159,7 @@ const STYLE = `
     color: var(--vscode-list-activeSelectionForeground, inherit);
   }
   /* 行首状态槽：宽度固定（对齐官方 dsh web 的 16px slot），四种标记同一位置
-     居中——待交互黄点 > 运行中像素环 > 未读蓝点 > 置顶图钉；空闲会话留空。 */
+     居中——待交互黄点 > 运行中像素环 > 已完成/未读绿点 > 置顶图钉；空闲会话留空。 */
   .session-status {
     width: 16px; height: 16px; flex: none;
     display: inline-flex; align-items: center; justify-content: center;
@@ -175,11 +175,12 @@ const STYLE = `
     25%, 37.4% { opacity: 0.35; }
     37.5%, to { opacity: 0.15; }
   }
-  /* 未读：蓝色实心点 + 标题加粗（官方无未读概念，本地状态沿用同一强调色）。 */
+  /* 已完成/未读提醒：绿色实心点 + 标题加粗（对齐官方 StateDot completed
+     「已完成」视觉；本地未读沿用同一槽位，仅换颜色，合并逻辑不变）。 */
   .session-dot {
     width: 6px; height: 6px; border-radius: 50%;
-    background: var(--vscode-charts-blue, #5686fe);
   }
+  .session-dot.completed { background: var(--vscode-charts-green, #89d185); }
   /* 待审批/待回答/计划待审：黄色实心点（官方 StateDot warning，
      --dsw-alias-state-warn-primary 的 VS Code 对应色）。 */
   .session-dot.warning { background: var(--vscode-charts-yellow, #e5c07b); }
