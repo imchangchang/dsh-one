@@ -12,10 +12,18 @@
 - 聊天流内联横条：`webview.ts` `state.jobs` 渲染 queue 行（`renderJobsMenuRow`），任务完成/失败后消失。
 - 官方行为尚未逐点核实（会话内是否真的没有内联横条、chip 是否有别的主次关系）。
 
-## 建议方案
+## 方案（已定 2026-08-31，人工确认）
 
-先对照官方 dsh web 确认行为（界面或源码），再决定：删内联横条（只留头部 chip）或保留。删除时注意 `state.jobs` 若只服务横条可一并清理，别影响头部 chip 的 `backgroundJobs` 数据源。
+**删掉聊天流内联横条，只留头部 chip**（对齐官方）。
+
+- 移除 `webview.ts` 里 `state.jobs` 驱动的 queue 横条渲染（~1485 附近）。
+- 核实 `state.jobs` 是否只服务横条：若没有其他消费点，一并清理该状态；头部 chip 用的 `backgroundJobs` 数据源**必须保留**。
+- 清理不再使用的样式和渲染函数（`renderJobsMenuRow` 是否还被 `openJobsMenu` 的任务菜单用，保留任务菜单）。
 
 ## 涉及代码位置
 
 - `src/ui/chat/webview.ts`（queue 横条渲染 ~1485、头部 chip ~1316、`openJobsMenu` ~1011）
+
+## 变更记录
+
+- 2026-08-31 认领（worktree: agent/jobs-inline-bar-vs-head-chip）→ doing
