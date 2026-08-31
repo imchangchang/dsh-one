@@ -288,6 +288,21 @@ export class ConversationFolder {
         // arrives as user/message too, tagged by data.source.kind. Genuine
         // human input is kind 'user'. Fallback: the <system-reminder> prefix.
         const sourceKind = (data.source as { kind?: string } | undefined)?.kind
+        // session-reference 注入上下文紧跟在触发它的直接用户消息之后，其
+        // source.references 带着 {sessionId, label}——直接消息落盘的是可读
+        // @label 文本，回挂过去气泡才能把引用渲染成可点击链接。
+        if (sourceKind === 'session-reference') {
+          const refs = (data.source as { references?: unknown } | undefined)?.references
+          const prev = this.msgs[this.msgs.length - 1]
+          if (Array.isArray(refs) && prev?.kind === 'user' && prev.context === undefined) {
+            prev.references = refs.flatMap((r) => {
+              const item = r as { sessionId?: unknown; label?: unknown }
+              return typeof item?.sessionId === 'string' && typeof item?.label === 'string'
+                ? [{ sessionId: item.sessionId, label: item.label }]
+                : []
+            })
+          }
+        }
         const context =
           sourceKind && sourceKind !== 'user'
             ? sourceKind

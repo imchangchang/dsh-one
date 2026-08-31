@@ -65,6 +65,13 @@ export interface ChatUserMessage {
    * Absent for genuine human input. The UI collapses these by default.
    */
   context?: string
+  /**
+   * 本消息引用的会话（{sessionId, label}，按 mention 出现顺序）。host 解析
+   * 引用后落盘的是可读 @label 文本，URI 信息只留在紧随其后的
+   * session-reference 注入上下文 source.references 里，fold 时回挂到这条
+   * 消息上，气泡据此把 @label 渲染成可点击链接。
+   */
+  references?: Array<{ sessionId: string; label: string }>
 }
 
 export interface ChatAssistantMessage {
