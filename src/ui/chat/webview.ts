@@ -98,6 +98,12 @@ window.addEventListener('pointerup', () => {
 window.addEventListener('pointercancel', () => {
   scrollPointerDown = false
 })
+/**
+ * 「加载更早」请求挂起时的锚点：发请求时的首条消息 id 与条数。响应落地
+ * （loadingEarlier 由 true 翻回 false）那一帧若消息从顶部插入，渲染后按
+ * 新增高度补偿 scrollTop，保住用户正在读的位置。
+ */
+let earlierAnchor: { firstId: string | undefined; count: number; seenLoading: boolean } | null = null
 /** Signature of the composer-relevant state at the last render; see render(). */
 let lastComposerSig: string | null = null
 /** Images staged in the composer, sent with the next `send`. */
@@ -144,6 +150,13 @@ const PERMISSION_GLYPHS: Record<string, string> = {
 
 function post(message: FromWebviewMessage): void {
   vscode.postMessage(message)
+}
+
+/** 请求加载更早的一页历史（按钮点击与上翻到顶共用）；挂起期间防重入。 */
+function maybeLoadEarlier(): void {
+  if (!state?.hasEarlierHistory || state.loadingEarlier === true || earlierAnchor !== null) return
+  earlierAnchor = { firstId: state.messages[0]?.id, count: state.messages.length, seenLoading: false }
+  post({ type: 'loadEarlier' })
 }
 
 function el(tag: string, className?: string, text?: string): HTMLElement {
@@ -246,6 +259,7 @@ window.addEventListener('message', (event) => {
       commandNotices = []
       recall = null
       recallDraft = ''
+      earlierAnchor = null
       stagedForSession = state.sessionId
     }
     render()
@@ -1064,6 +1078,7 @@ function render(): void {
   // flight (see userScrollIntentActive).
   const oldMessages = document.getElementById('messages')
   const prevScrollTop = oldMessages?.scrollTop ?? null
+  const prevScrollHeight = oldMessages?.scrollHeight ?? null
   if (
     oldMessages &&
     pinnedScrollTop !== null &&
@@ -1269,6 +1284,8 @@ function render(): void {
       }
       const jump = messages.querySelector<HTMLElement>('.jump-latest')
       if (jump) jump.style.display = stickToBottom ? 'none' : ''
+      // 上翻到顶部附近时按需加载更早一页（按钮之外的第二触发路径）。
+      if (messages.scrollTop < 80) maybeLoadEarlier()
     })
     messages.addEventListener('wheel', noteUserScrollIntent, { passive: true })
     messages.addEventListener('touchmove', noteUserScrollIntent, { passive: true })
@@ -1308,6 +1325,16 @@ function render(): void {
   const steeringItems = (state.queue ?? []).filter((item) => item.placement === 'steering')
   const queuedItems = (state.queue ?? []).filter((item) => item.placement === 'queued')
   messages.textContent = ''
+  // 「加载更早」入口（对齐官方 dsh web ChatView 的分页按钮）：还有更早历史
+  // 或一页正在加载时显示在消息流顶部。
+  if (state.hasEarlierHistory || state.loadingEarlier === true) {
+    const olderWrap = el('div', 'older')
+    const btn = buttonEl(undefined, state.loadingEarlier === true ? '加载中…' : '加载更早')
+    btn.disabled = state.loadingEarlier === true
+    btn.addEventListener('click', maybeLoadEarlier)
+    olderWrap.appendChild(btn)
+    messages.appendChild(olderWrap)
+  }
   state.messages.forEach((m, mi) => messages.appendChild(renderMessage(m, `m${mi}`)))
   for (const notice of commandNotices) messages.appendChild(el('div', 'command-notice', notice))
   if (state.messages.length === 0 && steeringItems.length === 0) {
@@ -1376,8 +1403,19 @@ function render(): void {
     chatCol.appendChild(renderInput(draft))
   }
   lastComposerSig = composerSig
+  // 「加载更早」的锚定配对：先记下 loadingEarlier 曾为 true（请求确实被
+  // 接受），它翻回 false 的这一帧若消息从顶部插入（首条变了或条数多了），
+  // 按新增高度补偿 scrollTop；无论是否插入都解除锚点（空页/失败同样落地）。
+  const earlier = earlierAnchor
+  if (earlier !== null && state.loadingEarlier === true) earlier.seenLoading = true
+  const landed = earlier !== null && earlier.seenLoading && state.loadingEarlier !== true ? earlier : null
+  const prepended =
+    landed !== null && (state.messages.length > landed.count || state.messages[0]?.id !== landed.firstId)
   if (stickToBottom) messages.scrollTop = messages.scrollHeight
-  else if (prevScrollTop !== null) messages.scrollTop = prevScrollTop
+  else if (prevScrollTop !== null && prepended && prevScrollHeight !== null) {
+    messages.scrollTop = prevScrollTop + (messages.scrollHeight - prevScrollHeight)
+  } else if (prevScrollTop !== null) messages.scrollTop = prevScrollTop
+  if (landed !== null) earlierAnchor = null
   // Read back the clamped value: this is the position the next render compares
   // against to tell user scrolls apart from content growth.
   pinnedScrollTop = messages.scrollTop

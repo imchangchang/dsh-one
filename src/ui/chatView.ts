@@ -698,6 +698,14 @@ const STYLE = `
     box-shadow: 0 2px 8px rgba(0,0,0,.25);
   }
   .jump-latest:hover { filter: brightness(1.1); }
+  /* 消息流顶部的「加载更早」入口（对齐官方 dsh web ChatView 的分页按钮）。 */
+  .older { display: flex; justify-content: center; }
+  .older button {
+    background: transparent; color: var(--vscode-descriptionForeground, #888);
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    border-radius: 12px; padding: 3px 12px; font-size: 12px;
+  }
+  .older button:hover:not(:disabled) { color: var(--vscode-foreground); }
   .lightbox {
     position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7);
     display: flex; align-items: center; justify-content: center;
