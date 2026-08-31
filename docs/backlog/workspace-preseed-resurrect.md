@@ -1,6 +1,6 @@
 # 当前工作区在 dsh 里被删除后，重新载入插件会复活成一个空行
 
-记录于 2026-09-01。用户截图实证，机制已在代码里核实（2026-09-01 对运行中的 dsh 实例 + 扩展源码逐链路验证）。
+记录于 2026-09-01。用户截图实证，机制已在代码里核实（2026-09-01 对运行中的 dsh 实例 + 扩展源码逐链路验证）。修复方向同日拍板：去掉 preseed 的注册行为，见「建议方案」。
 
 ## 背景与现象
 
@@ -23,13 +23,14 @@
 - `manager.ts:222` 把 `workspaceRoot` 直接用作 spawn 的 cwd（`manager.ts:247`），目录不存在时 posix_spawn ENOENT，dsh 服务起不来；
 - adopt 已有实例时不走 spawn，但 `preseedWorkspace` 的 `ensureWorkspace` 会被 dsh 的 `realpath` 拒绝，仅 catch 记日志。
 
-## 建议方案
+## 建议方案（方向已拍板，2026-09-01）
 
-1. preseed 尊重用户的删除决定：扩展把"用户主动移除过当前工作区"记进持久状态（如 workspaceState），`preseedWorkspace` 检查到该标记就跳过；用户在扩展里重新添加该文件夹时清除标记。这是"去不掉"的直接解。
-2. 展示层兜底：`buildSessionTree` 的 label 改为 `w.title || basename(w.path) || w.path`，空 title 不至于渲染成无名行。
-3. spawn 前检查 `workspaceRoot` 是否仍存在（`fs.stat`），不存在则回退 `os.homedir()` 并记日志，避免目录被删后整个服务起不来。
+拍板：**影响方向是 dsh → VS Code 单向**。dsh 可以通过"在 VSCode 中打开文件夹"改变 VS Code 的当前工作区，但 VS Code 的当前工作区是什么不应该反向影响 dsh。具体：
 
-第 1 项是行为变更，需要先拍板语义（移除当前工作区后是否永久不再预注册）；第 2、3 项是纯防御，可先做。
+1. **去掉 `preseedWorkspace` 的注册行为**：当前 VS Code 文件夹不在 dsh 工作区列表里就什么都不做，不注册、不建会话——被用户删掉的工作区因此不再复活。dsh 侧只需匹配：当前 VS Code 工作区在 dsh 工作区列表里，就把对应工作区标记为「当前」（`buildSessionTree` 的 `isCurrent` 已经是纯展示匹配，不用动）。
+2. 配套影响（已确认有回退，不是阻塞项）：不再预建会话后，当前文件夹不是 dsh 工作区时 `sessionsStore.latestCurrentSessionId()` 返回 null，聊天面板停在空态（`extension.ts:51-57` 的 auto-attach 逻辑天然跳过），用户手动选会话即可。`preseedWorkspace` 里的 `ensureSession` 随注册一起去掉。
+3. 展示层兜底（防御，可顺手做）：`buildSessionTree` 的 label 改为 `w.title || basename(w.path) || w.path`，空 title 不至于渲染成无名行。
+4. spawn 前检查 `workspaceRoot` 是否仍存在（`fs.stat`），不存在则回退 `os.homedir()` 并记日志，避免目录被删后整个服务起不来（防御，独立于上面的拍板）。
 
 ## 涉及代码位置
 
