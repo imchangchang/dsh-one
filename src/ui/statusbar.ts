@@ -1,34 +1,64 @@
 import * as vscode from 'vscode'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 
-function label(status: ServerStatus): { text: string; tooltip: string; color: vscode.ThemeColor } {
+function text(status: ServerStatus): string {
   switch (status.state) {
     case 'running':
-      return {
-        text: `$(zap) DSH: 运行中 :${status.port ?? '?'}`,
-        tooltip: status.adopted
-          ? `DSH One — 已复用已有实例 ${status.url}（该实例由外部启动，不会被插件终止）；点击管理服务`
-          : `DSH One — ${status.url}；点击管理服务（打开/重启/停止）`,
-        color: new vscode.ThemeColor('charts.green'),
-      }
+      return `$(zap) DSH: 运行中 :${status.port ?? '?'}`
     case 'starting':
-      return {
-        text: '$(sync~spin) DSH: 启动中',
-        tooltip: 'DSH One — 服务启动中',
-        color: new vscode.ThemeColor('charts.yellow'),
-      }
+      return '$(sync~spin) DSH: 启动中'
     case 'error':
-      return {
-        text: '$(error) DSH: 错误',
-        tooltip: 'DSH One — 服务出错，点击查看与重试',
-        color: new vscode.ThemeColor('charts.red'),
-      }
+      return '$(error) DSH: 错误'
     default:
-      return {
-        text: '$(circle-slash) DSH: 已停止',
-        tooltip: 'DSH One — 服务已停止，点击启动',
-        color: new vscode.ThemeColor('disabledForeground'),
+      return '$(circle-slash) DSH: 已停止'
+  }
+}
+
+function color(status: ServerStatus): vscode.ThemeColor {
+  switch (status.state) {
+    case 'running':
+      return new vscode.ThemeColor('charts.green')
+    case 'starting':
+      return new vscode.ThemeColor('charts.yellow')
+    case 'error':
+      return new vscode.ThemeColor('charts.red')
+    default:
+      return new vscode.ThemeColor('disabledForeground')
+  }
+}
+
+/**
+ * 悬停 tooltip 兼作管理菜单：VS Code 的 QuickPick 只能固定在窗口顶部弹出，
+ * 而 MarkdownString tooltip 支持 command 链接、且贴着状态栏弹出——低频的
+ * 重启/停止/日志放这里，单击则直达高频的「打开浏览器」。
+ */
+function tooltip(status: ServerStatus): vscode.MarkdownString {
+  const md = new vscode.MarkdownString(undefined, true)
+  md.isTrusted = true
+  switch (status.state) {
+    case 'running': {
+      md.appendMarkdown(`**DSH One** — ${status.url}\n\n`)
+      if (status.adopted) {
+        md.appendMarkdown('复用外部启动的实例，不会被插件停止\n\n')
       }
+      md.appendMarkdown('[$(globe) 在浏览器中打开](command:dshOne.openExternal)')
+      if (!status.adopted) {
+        md.appendMarkdown('　[$(refresh) 重启服务](command:dshOne.restart)　[$(debug-stop) 停止服务](command:dshOne.stop)')
+      }
+      md.appendMarkdown('　[$(output) 显示日志](command:dshOne.showLogs)')
+      return md
+    }
+    case 'starting':
+      md.appendMarkdown('**DSH One** — 服务启动中…')
+      return md
+    case 'error':
+      md.appendMarkdown('**DSH One** — 服务出错\n\n')
+      md.appendMarkdown('[$(refresh) 重试启动](command:dshOne.openExternal)　[$(output) 显示日志](command:dshOne.showLogs)')
+      return md
+    default:
+      md.appendMarkdown('**DSH One** — 服务已停止\n\n')
+      md.appendMarkdown('[$(play) 启动服务](command:dshOne.openExternal)　[$(output) 显示日志](command:dshOne.showLogs)')
+      return md
   }
 }
 
@@ -37,17 +67,16 @@ export class StatusBar implements vscode.Disposable {
   private readonly sub: vscode.Disposable
 
   constructor(manager: ServerManager) {
-    this.item.command = 'dshOne.statusMenu'
+    this.item.command = 'dshOne.openExternal'
     this.sub = manager.onDidChangeState((s) => this.update(s))
     this.update(manager.getStatus())
     this.item.show()
   }
 
   private update(status: ServerStatus): void {
-    const { text, tooltip, color } = label(status)
-    this.item.text = text
-    this.item.tooltip = tooltip
-    this.item.color = color
+    this.item.text = text(status)
+    this.item.tooltip = tooltip(status)
+    this.item.color = color(status)
   }
 
   dispose(): void {
