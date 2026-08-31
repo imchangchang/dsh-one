@@ -2201,9 +2201,12 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
   if (m.interrupted) row.appendChild(el('div', 'interrupted', '已中断'))
   if (m.turnError) row.appendChild(renderTurnError(m.turnError))
-  // Copy/feedback/fork are meaningless on an empty marker-only message
-  // (turn failed or was interrupted before any content).
-  if (m.complete && !(m.blocks.length === 0 && (m.turnError || m.interrupted))) {
+  // Copy/feedback/fork attach only to the turn's final message (turnEnd): a
+  // turn split by mid-turn injected user/messages folds into several complete
+  // messages, and the bar must not repeat on each. Also meaningless on an
+  // empty marker-only message (turn failed or was interrupted before any
+  // content).
+  if (m.turnEnd && !(m.blocks.length === 0 && (m.turnError || m.interrupted))) {
     row.appendChild(renderAssistantActions(m))
   }
   return row
