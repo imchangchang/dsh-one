@@ -184,7 +184,11 @@ export interface ChatState {
   loading?: boolean
   messages: ChatMessage[]
   pending: PendingRequest[]
-  /** The attached agent is mid-turn. */
+  /**
+   * 附着会话的运行位：服务端 running（session.list 摘要 + host/session-status
+   * 帧，经 SessionsStore 中继）为权威值；基线未覆盖该会话前回退到 mux 事件
+   * 折叠的 hasOpenTurn()。
+   */
   running: boolean
   /** Server + session ready for input. */
   canSend: boolean

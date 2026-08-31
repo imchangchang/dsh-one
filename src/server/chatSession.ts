@@ -267,6 +267,14 @@ export class ChatSessionController implements vscode.Disposable {
   /** Stored per-message ratings: host messageId → rating + optimistic-lock version. */
   private feedback = new Map<string, { rating: 'positive' | 'negative'; version: string }>()
   private ready = false
+  /**
+   * 服务端 running 位（session.list 摘要 + host/session-status 帧，由
+   * ChatViewProvider 从 SessionsStore 中继；官方 handleRunning 同款数据
+   * 渠道）。undefined = 基线还没覆盖本会话，回退到 mux 事件折叠的
+   * hasOpenTurn()——history 未落地或纯排队期间折叠值可能偏差，服务段位
+   * 是权威值。
+   */
+  private serverRunning: boolean | undefined
   private mux: vscode.Disposable | undefined
   private flushTimer: ReturnType<typeof setTimeout> | undefined
   private lastFlush = 0
@@ -301,7 +309,7 @@ export class ChatSessionController implements vscode.Disposable {
       pending: [...this.pending],
       queue: [...this.queue],
       jobs: [...this.jobs],
-      running: this.folder.hasOpenTurn(),
+      running: this.serverRunning ?? this.folder.hasOpenTurn(),
       canSend: this.ready && !this.disposed,
       loading: !this.ready,
       modelLabel: this.modelLabel,
@@ -313,6 +321,14 @@ export class ChatSessionController implements vscode.Disposable {
         ? { agentPreset: { options: this.agentPresetOptions, current: this.agentPresetCurrent } }
         : {}),
     }
+  }
+
+  /**
+   * 中继服务端 running 位（SessionsStore.runningFor）。只更新字段、不自行
+   * push——值随调用方的下一次快照带出（store 变更时 ChatViewProvider 会重推）。
+   */
+  setServerRunning(running: boolean | undefined): void {
+    this.serverRunning = running
   }
 
   /** Queue (or steer) one user prompt. Slash commands do not belong here — see chatView's runCommand. */
