@@ -3,6 +3,8 @@
  * labels. No `vscode` import — unit-testable with node --test.
  */
 
+import { basename } from 'node:path'
+
 export interface WorkspaceInput {
   workspaceId: string
   path: string
@@ -182,7 +184,9 @@ export function buildSessionTree(
     return {
       workspaceId: w.workspaceId,
       path: w.path,
-      label: w.title,
+      // 空 title 兜底（防御：dsh 侧 title 正常是 basename(path)，渲染层
+      // 不赌它非空）；basename 为空（如根路径）时退回完整 path。
+      label: w.title || basename(w.path) || w.path,
       isCurrent: currentFolder !== undefined && w.path === currentFolder,
       sessions: toSessionNodes(visible),
     }
