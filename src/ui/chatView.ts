@@ -10,6 +10,7 @@ import {
   deleteWorkspace,
   executeCommand,
   exportSessionLog,
+  listFileReferences,
   renameSession,
   selectModel,
   sessionAttachment,
@@ -17,6 +18,7 @@ import {
   sessionModels,
 } from '../server/dshRpc.ts'
 import type { SessionModelSelection } from '../server/dshRpc.ts'
+import type { FileRefCandidate } from '../pure/fileReference.ts'
 import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import { orderJobs } from '../pure/activityTree.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
@@ -1154,6 +1156,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         case 'renameSession':
           await this.renameCurrentSession(controller, m.title)
           return
+        case 'fileRefList': {
+          // @ 补全候选：失败静默降级为空列表（对齐 web——这个领域失败只是
+          // 少出候选，不弹错误打断输入）。
+          let items: FileRefCandidate[] = []
+          try {
+            items = await listFileReferences(controller.url, controller.sessionId, m.query)
+          } catch (err) {
+            this.logger.warn(`chat: fileRefList(${JSON.stringify(m.query)}) failed — ${err instanceof Error ? err.message : err}`)
+          }
+          const message: ToWebviewMessage = { type: 'fileRefList', requestId: m.requestId, items }
+          void this.view?.webview.postMessage(message)
+          return
+        }
         case 'queueEdit':
           await controller.editQueued(m.itemId, m.text)
           return

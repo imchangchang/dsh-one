@@ -50,6 +50,7 @@ import {
   mentionDisplayToken,
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
+import { activeAtToken, formatFileMention, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
@@ -297,6 +298,13 @@ window.addEventListener('message', (event) => {
     } else {
       stashedDraft = stashedDraft ? `${stashedDraft}\n${msg.text}` : msg.text
     }
+  } else if (msg?.type === 'fileRefList') {
+    // 乱序/过期响应丢弃；token 没变才存结果并重算弹窗（token 已消失时
+    // updateSlashPopup 自己算不出行，弹窗保持关闭）。
+    if (msg.requestId !== fileRefSeq) return
+    fileRefResult = { key: fileRefRequestKey, items: Array.isArray(msg.items) ? msg.items : [] }
+    const input = document.getElementById('input') as HTMLTextAreaElement | null
+    if (input) updateSlashPopup(input)
   }
 })
 
@@ -441,6 +449,14 @@ let slashRows: SlashRow[] = []
 let slashIndex = 0
 
 /**
+ * @ 文件候选的请求/响应状态：requestId 递增防乱序，key 是触发时的完整
+ * token（`@sub/que`），响应只在 token 没变时上屏。host 端失败回空列表。
+ */
+let fileRefSeq = 0
+let fileRefRequestKey = ''
+let fileRefResult: { key: string; items: FileRefCandidate[] } | null = null
+
+/**
  * 显示 token（`@标题`）→ canonical mention 的映射，发送时由
  * expandMentionBindings 展开（src/pure/sessionMention.ts）。@ 补全和
  * mention 粘贴都会登记。常驻不清理：token 指向的是固定会话，之后的
@@ -453,6 +469,8 @@ function hideSlashPopup(): void {
   slashPopupEl = null
   slashRows = []
   slashIndex = 0
+  // 下次再触发 @ 时重新取文件候选，避免上屏陈旧目录。
+  fileRefResult = null
 }
 
 function positionSlashPopup(input: HTMLTextAreaElement): void {
@@ -465,9 +483,9 @@ function positionSlashPopup(input: HTMLTextAreaElement): void {
 
 /** Recompute the rows from the current value; hide when nothing applies. */
 function updateSlashPopup(input: HTMLTextAreaElement): void {
-  // 斜杠命令整行匹配优先；不匹配时退到光标处的 @ 会话补全。
+  // 斜杠命令整行匹配优先；不匹配时退到光标处的 @ 补全（文件 + 会话）。
   slashRows = computeSlashRows(input)
-  if (slashRows.length === 0) slashRows = computeMentionRows(input)
+  if (slashRows.length === 0) slashRows = computeRefRows(input)
   if (slashRows.length === 0) {
     hideSlashPopup()
     return
@@ -542,31 +560,68 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
 }
 
 /**
- * @ 会话补全（对话引用）：光标前的 `@query` 触发，候选来自会话列表快照
- * （不含当前会话——引用自己没有意义）。选中后输入框只留 `@标题` 显示
- * token，canonical mention 记在 mentionBindings 里，发送时才展开
- * （textarea 做不到官方 contenteditable 的原子引用，这是拍板的 b) 路线）。
+ * @ 补全（对齐 dsh web）：光标前的 `@query`（或未闭合 `@"query`）触发，
+ * 文件/文件夹候选在前（host fileReferences/list，异步返回），当前工作区
+ * 的会话候选在后；引号 token 只出文件。引用其它会话主要靠会话面板的
+ * "复制引用"，这里只补本工作区的会话。
  */
-function computeMentionRows(input: HTMLTextAreaElement): SlashRow[] {
+function computeRefRows(input: HTMLTextAreaElement): SlashRow[] {
   if (input.selectionStart !== input.selectionEnd) return []
-  const upto = input.value.slice(0, input.selectionStart)
-  const m = /(?:^|\s)@([^\s@]{0,30})$/.exec(upto)
-  if (!m) return []
-  const query = m[1].toLowerCase()
-  const tokenStart = upto.length - m[1].length - 1
-  const cursor = upto.length
+  const at = activeAtToken(input.value.slice(0, input.selectionStart))
+  if (!at) return []
+  // token 变了才发新请求；响应到达后由消息处理分支重算本函数上屏。
+  if (fileRefResult?.key !== at.prefix) {
+    fileRefSeq += 1
+    fileRefRequestKey = at.prefix
+    fileRefResult = null
+    post({ type: 'fileRefList', requestId: fileRefSeq, query: at.query })
+  }
+  return [...fileRows(input, at), ...(at.quoted ? [] : sessionRows(input, at))]
+}
+
+/** 文件/文件夹候选行；响应未到达或已过期时为空（会话行先顶着）。 */
+function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] {
+  if (fileRefResult === null || fileRefResult.key !== at.prefix) return []
+  const cursor = input.selectionStart
+  const tokenStart = cursor - at.prefix.length
+  return fileRefResult.items.flatMap((c) => {
+    const mention = formatFileMention(c, at.quoted)
+    if (mention === undefined) return [] // 编辑器语法无法安全表示的路径不出候选
+    const directory = c.kind === 'directory'
+    const name = c.path.slice(c.path.lastIndexOf('/') + 1)
+    return [{
+      label: `@${name}${directory ? '/' : ''}`,
+      right: c.path,
+      apply: () => {
+        // 目录不补空格：token 保持活跃（@dir/ 或 @"dir/），弹窗继续出下一层。
+        const tail = directory ? '' : ' '
+        input.value = `${input.value.slice(0, tokenStart)}${mention}${tail}${input.value.slice(cursor)}`
+        input.focus()
+        const caret = tokenStart + mention.length + tail.length
+        input.setSelectionRange(caret, caret)
+        input.dispatchEvent(new Event('input'))
+      },
+    }]
+  })
+}
+
+/**
+ * 当前工作区的会话候选行（不含当前会话——引用自己没有意义）。选中后
+ * 输入框只留 `@标题` 显示 token，canonical mention 记在 mentionBindings
+ * 里，发送时才展开（textarea 做不到官方 contenteditable 的原子引用，
+ * 这是拍板的 b) 路线）。
+ */
+function sessionRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] {
   const snap = sessionsSnapshot
   if (!snap) return []
-  const candidates: Array<{ s: SessionNodeModel; group: string; currentGroup: boolean }> = []
-  for (const w of snap.workspaces) {
-    for (const s of w.sessions) {
-      if (s.sessionId === state?.sessionId) continue
-      candidates.push({ s, group: w.label, currentGroup: w.isCurrent })
-    }
-  }
-  return candidates
+  const query = at.query.toLowerCase()
+  const tokenStart = input.selectionStart - at.prefix.length
+  const cursor = input.selectionStart
+  return snap.workspaces
+    .filter((w) => w.isCurrent)
+    .flatMap((w) => w.sessions.map((s) => ({ s, group: w.label })))
+    .filter(({ s }) => s.sessionId !== state?.sessionId)
     .filter(({ s }) => s.label.toLowerCase().includes(query) || s.sessionId.toLowerCase().includes(query))
-    .sort((a, b) => Number(b.currentGroup) - Number(a.currentGroup))
     .slice(0, 10)
     .map(({ s, group }) => ({
       label: `@${s.label}`,

@@ -6,6 +6,7 @@
  */
 import type { SessionSortOrder, WorkspaceNodeModel } from './sessionTree.ts'
 import type { ActivityJob } from './activityTree.ts'
+import type { FileRefCandidate } from './fileReference.ts'
 
 /** One renderable block inside an assistant message. */
 export interface ChatTextBlock {
@@ -373,6 +374,8 @@ export type ToWebviewMessage =
   | { type: 'attachmentData'; attachmentId: string; mediaType: string; data: string }
   | { type: 'restoreDraft'; text: string }
   | { type: 'commandResult'; text: string }
+  /** @ 补全的文件/文件夹候选响应；requestId 回声，过期的响应由 webview 丢弃。 */
+  | { type: 'fileRefList'; requestId: number; items: FileRefCandidate[] }
 
 export type FromWebviewMessage =
   | { type: 'send'; text: string; images?: OutgoingImage[]; steer?: boolean }
@@ -441,3 +444,5 @@ export type FromWebviewMessage =
   | { type: 'sessionCopyId'; sessionId: string }
   /** Sessions 面板空态：启动 dsh 服务。 */
   | { type: 'serverStart' }
+  /** 输入框 @ 补全：请求当前会话 cwd 下的文件/文件夹候选（fileReferences/list）。 */
+  | { type: 'fileRefList'; requestId: number; query: string }
