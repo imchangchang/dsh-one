@@ -139,6 +139,24 @@ test('label uses the title, falling back to a short id', () => {
   assert.equal(tree[0].sessions[1].label, '会话 plain123')
 })
 
+test('workspace label falls back to basename(path), then to path', () => {
+  const tree = buildSessionTree(
+    [
+      ws('named', ['a'], { title: '有名字', path: '/repo/named' }),
+      ws('untitled', ['b'], { title: '', path: '/repo/untitled-dir' }),
+      ws('rootish', ['c'], { title: '', path: '/' }),
+    ],
+    [s('a'), s('b'), s('c')],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+  )
+  assert.equal(tree[0].label, '有名字')
+  assert.equal(tree[1].label, 'untitled-dir')
+  assert.equal(tree[2].label, '/')
+})
+
 test('description carries the relative time; running flag passes through', () => {
   const tree = buildSessionTree(
     [ws('w1', ['a'])],
