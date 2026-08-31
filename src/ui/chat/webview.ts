@@ -1101,10 +1101,15 @@ function render(): void {
       if (jump) jump.style.display = stickToBottom ? 'none' : ''
     })
   }
+  // 插话（steering）和排队分开展示，对齐官方 dsh web：等待插话的消息直接
+  // 进对话流末尾（用户气泡 + 「等待插话」标记），排队消息留在输入框上方。
+  // 混在一个队列区里时，先插话再排队的快照顺序会让两条消息看起来颠倒。
+  const steeringItems = (state.queue ?? []).filter((item) => item.placement === 'steering')
+  const queuedItems = (state.queue ?? []).filter((item) => item.placement === 'queued')
   messages.textContent = ''
   state.messages.forEach((m, mi) => messages.appendChild(renderMessage(m, `m${mi}`)))
   for (const notice of commandNotices) messages.appendChild(el('div', 'command-notice', notice))
-  if (state.messages.length === 0) {
+  if (state.messages.length === 0 && steeringItems.length === 0) {
     messages.appendChild(el('div', 'muted-hint', '会话还没有消息，在下方输入开始。'))
   }
   // Turn-status row: last item of the conversation flow while a turn is open
@@ -1114,6 +1119,10 @@ function render(): void {
   } else {
     turnStatusStart = null
   }
+  // Pending steering bubbles sit at the tail of the transcript, after the
+  // turn status — the spot their durable user message lands once claimed
+  // (official PendingSteeringBubble). Snapshot order = send order.
+  for (const item of steeringItems) messages.appendChild(renderSteeringItem(item))
   // "Back to latest" floater: sticky at the scroller's bottom while the user
   // reads history; hidden while pinned to the tail.
   const jump = buttonEl('jump-latest', '↓ 回到最新')
@@ -1134,10 +1143,10 @@ function render(): void {
     add(pending)
   }
 
-  if (state.queue && state.queue.length > 0) {
-    if (editingQueueItem && !state.queue.some((item) => item.id === editingQueueItem)) editingQueueItem = null
+  if (queuedItems.length > 0) {
+    if (editingQueueItem && !queuedItems.some((item) => item.id === editingQueueItem)) editingQueueItem = null
     const queue = el('div', 'queue')
-    for (const item of state.queue) queue.appendChild(renderQueueItem(item))
+    for (const item of queuedItems) queue.appendChild(renderQueueItem(item))
     add(queue)
   } else {
     editingQueueItem = null
@@ -1726,10 +1735,10 @@ let stashedDraft: string | undefined
 /** Slash-command receipt texts shown at the message tail; cleared on session switch. */
 let commandNotices: string[] = []
 
-/** One queued inbox row: tag + preview, plus steer/edit/remove actions for queued items. */
+/** One queued inbox row: tag + preview, plus steer/edit/remove actions. */
 function renderQueueItem(item: QueuedItem): HTMLElement {
   const row = el('div', 'queue-item')
-  row.appendChild(el('span', 'queue-tag', item.placement === 'steering' ? '插话中' : '排队中'))
+  row.appendChild(el('span', 'queue-tag', '排队中'))
 
   if (editingQueueItem === item.id) {
     const editor = document.createElement('textarea')
@@ -1768,23 +1777,32 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
   }
 
   row.appendChild(el('span', 'queue-text', item.text || '（空消息）'))
-  if (item.placement === 'queued') {
-    const actions = el('div', 'queue-actions')
-    const steer = buttonEl('link', '插话')
-    steer.title = '立即打断当前轮，用这条消息插话'
-    steer.addEventListener('click', () => post({ type: 'queueSteer', itemId: item.id }))
-    const edit = buttonEl('link', '编辑')
-    edit.addEventListener('click', () => {
-      editingQueueItem = item.id
-      render()
-    })
-    const remove = buttonEl('link', '删除')
-    remove.addEventListener('click', () => post({ type: 'queueRemove', itemId: item.id }))
-    actions.appendChild(steer)
-    actions.appendChild(edit)
-    actions.appendChild(remove)
-    row.appendChild(actions)
-  }
+  const actions = el('div', 'queue-actions')
+  const steer = buttonEl('link', '插话')
+  steer.title = '立即打断当前轮，用这条消息插话'
+  steer.addEventListener('click', () => post({ type: 'queueSteer', itemId: item.id }))
+  const edit = buttonEl('link', '编辑')
+  edit.addEventListener('click', () => {
+    editingQueueItem = item.id
+    render()
+  })
+  const remove = buttonEl('link', '删除')
+  remove.addEventListener('click', () => post({ type: 'queueRemove', itemId: item.id }))
+  actions.appendChild(steer)
+  actions.appendChild(edit)
+  actions.appendChild(remove)
+  row.appendChild(actions)
+  return row
+}
+
+/**
+ * 等待插话的 steering 消息：渲染成对话流末尾的用户气泡（官方
+ * PendingSteeringBubble 的视觉语言），插话落地后原位变成正式用户消息。
+ */
+function renderSteeringItem(item: QueuedItem): HTMLElement {
+  const row = el('div', 'msg user steering-pending')
+  row.appendChild(el('div', 'bubble', item.text || '（空消息）'))
+  row.appendChild(el('span', 'queue-tag', '等待插话'))
   return row
 }
 

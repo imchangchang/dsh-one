@@ -300,6 +300,8 @@ const STYLE = `
     border: 1px solid var(--vscode-input-border, transparent);
     white-space: pre-wrap; word-break: break-word;
   }
+  /* 等待插话的气泡（官方 data-pending-steering）：降不透明度表未落地。 */
+  .msg.user.steering-pending .bubble { opacity: 0.7; }
   .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
   .md { line-height: 1.5; word-break: break-word; }
   .md > :first-child { margin-top: 0; }
