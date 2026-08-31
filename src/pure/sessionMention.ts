@@ -101,6 +101,31 @@ export function splitSessionMentions(text: string): Array<string | SessionMentio
 }
 
 /**
+ * host 解析引用后落盘的是可读文本（mention 被替换成 `@label`），气泡里
+ * 不再有 canonical URI 可切。这个函数用注入上下文 source.references 里的
+ * {sessionId, label} 把可读 `@label` 重新切成 mention 段：按引用顺序各取
+ * 第一次出现，找不到的引用跳过（文本里恰好有同名 `@label` 时可能切到
+ * 用户自己打的字，可接受的边界）。
+ */
+export function splitReadableMentions(
+  text: string,
+  references: readonly SessionMention[],
+): Array<string | SessionMention> {
+  const segments: Array<string | SessionMention> = []
+  let rest = text
+  for (const ref of references) {
+    const needle = `@${ref.label}`
+    const at = rest.indexOf(needle)
+    if (at < 0) continue
+    if (at > 0) segments.push(rest.slice(0, at))
+    segments.push({ sessionId: ref.sessionId, label: ref.label })
+    rest = rest.slice(at + needle.length)
+  }
+  if (rest) segments.push(rest)
+  return segments
+}
+
+/**
  * 发送前把输入框里的显示 token（`@标题`）展开为 canonical mention。
  * bindings 由 @ 补全在插入时记录（token → mention）；按 token 长度从长到短
  * 替换，避免 `@A` 抢在 `@A B` 前面命中。token 不含 `[`，不会误伤已展开的
