@@ -501,6 +501,70 @@ test('mid-turn injected user message finalizes the split assistant message', () 
   assert.equal(lastAssistant(f).complete, false)
 })
 
+test('turn 中途注入 user/message 切断后，turnEnd 只落在本 turn 最后一条消息', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: '先跑命令' }))
+  f.applyEvent(
+    ev('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { id: 'a1', content: [{ type: 'text', text: '先跑命令' }] },
+    }),
+  )
+  // 子代理完成通知插在 turn 中间，把 turn 切成两条 assistant 消息。
+  f.applyEvent(userEv('ctx1', 'Background subagent reported: done'))
+  f.applyEvent(chunkEv(1, 2, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 2, { type: 'text-delta', index: 0, text: '继续' }))
+  f.applyEvent(
+    ev('assistant/message', {
+      turn: 1,
+      step: 2,
+      message: { id: 'a2', content: [{ type: 'text', text: '继续' }] },
+    }),
+  )
+  const end = ev('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  f.applyEvent(end)
+
+  const [first, , second] = f.messages() as ChatAssistantMessage[]
+  // 前半截 complete 但不是 turnEnd：操作栏不再在它身上重复出现。
+  assert.equal(first.complete, true)
+  assert.equal(first.turnEnd, undefined)
+  assert.equal(second.complete, true)
+  assert.equal(second.turnEnd, true)
+  assert.equal(second.seq, end.seq)
+  assert.equal(second.messageId, 'a2')
+})
+
+test('turn/end 时 current 已被注入消息切断为 null：按 id 从尾部找回并标记 turnEnd', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: '部分输出' }))
+  // 注入的 user/message 把 current 置空；turn 随后直接结束，本 turn 再无
+  // assistant 事件——找回路径要捞到被切断的那条（assistant-t1）。
+  f.applyEvent(userEv('ctx1', 'injected context'))
+  const end = ev('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  f.applyEvent(end)
+
+  const msg = f.messages()[0] as ChatAssistantMessage
+  assert.equal(msg.kind, 'assistant')
+  assert.equal(msg.complete, true)
+  assert.equal(msg.turnEnd, true)
+  assert.equal(msg.seq, end.seq)
+})
+
+test('turn/end 落在历史窗口外（本 turn 无消息可找回）时不标记任何消息', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(userEv('u1', 'hi'))
+  // turn/start 与 assistant 内容都在窗口外，只剩一个孤儿 turn/end。
+  f.applyEvent(ev('turn/end', { turn: 9, reason: { kind: 'completed' } }))
+
+  assert.equal(f.messages().length, 1)
+  assert.equal(f.messages()[0].kind, 'user')
+})
+
 test('command/run pushes a running flow node and command/done settles it', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('command/run', { commandId: 'cmd-1', name: 'compact', source: { kind: 'user' } }))

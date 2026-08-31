@@ -72,6 +72,13 @@ export interface ChatAssistantMessage {
   blocks: ChatBlock[]
   /** false while the turn is still streaming. */
   complete: boolean
+  /**
+   * 本 turn 的最后一条 assistant 消息（turn/end 时标记）。turn 中途注入的
+   * user/message 会把一个 turn 切成多条消息，操作栏（复制/反馈/分支）只挂
+   * 在 turnEnd 消息上，不再每条 complete 消息各出现一次。turn/end 落在
+   * 历史窗口外的消息没有此标记（无操作栏，可接受——fork 点本来也不可靠）。
+   */
+  turnEnd?: boolean
   interrupted?: boolean
   /**
    * Turn-level failure from turn/end reason {kind:'error'} (e.g. a 401 from
