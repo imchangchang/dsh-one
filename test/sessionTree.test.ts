@@ -278,6 +278,23 @@ test('unread marks nodes without affecting order', () => {
   assert.deepEqual(tree[0].sessions.map((n) => n.unread), [false, true])
 })
 
+test('pendingInteractions flag matching nodes only, absent without the option', () => {
+  const withPending = buildSessionTree(
+    [ws('w1', ['a', 'b'])],
+    [s('a'), s('b')],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { pendingInteractions: new Map([['b', 'approval']]) },
+  )
+  assert.equal(withPending[0].sessions[0].pendingInteraction, undefined)
+  assert.equal(withPending[0].sessions[1].pendingInteraction, 'approval')
+
+  const without = buildSessionTree([ws('w1', ['a'])], [s('a')], new Set(), noTitles, undefined, NOW)
+  assert.equal(without[0].sessions[0].pendingInteraction, undefined)
+})
+
 test('lineage children never appear as rows; a running one flags the parent descendantRunning', () => {
   const tree = buildSessionTree(
     [ws('w1', ['parent'])],
