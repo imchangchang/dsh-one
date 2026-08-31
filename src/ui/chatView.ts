@@ -326,13 +326,17 @@ const STYLE = `
   /* 等待插话的气泡（官方 data-pending-steering）：降不透明度表未落地。 */
   .msg.user.steering-pending .bubble { opacity: 0.7; }
   .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
-  /* @会话引用（mention）：气泡与 md 块共用，超链接样式——一眼看出是引用，点击打开对应会话。 */
+  /* @会话引用（mention）：图标 + 标题，对齐 dsh web refChip——链接色、字重 500、行内 flex。 */
   .session-mention {
-    display: inline; padding: 0; border: none; background: none;
+    display: inline-flex; align-items: center; gap: 3px; margin: 0 2px;
+    padding: 0; border: none; background: none; vertical-align: baseline;
     color: var(--vscode-textLink-foreground);
-    font: inherit; cursor: pointer; white-space: nowrap;
+    font: inherit; font-weight: 500; cursor: pointer; white-space: nowrap;
   }
+  .session-mention svg { flex: none; }
   .session-mention:hover { text-decoration: underline; }
+  /* 跨会话召回上下文行：图标与文字基线对齐。 */
+  .msg.context summary svg { vertical-align: -2px; margin-right: 3px; }
   .md { line-height: 1.5; word-break: break-word; }
   .md > :first-child { margin-top: 0; }
   .md > :last-child { margin-bottom: 0; }
