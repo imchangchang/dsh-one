@@ -24,6 +24,8 @@
 
 ### Changed
 
+- 会话面板的 workspace 标识与 dsh web 融合：当前 VSCode 打开的 workspace 行尾标签从「当前」改为「vscode」（语义不变，只是标明"这个文件夹开在 VSCode 里"）；附着会话所在 workspace 的文件夹图标染 deepseek 蓝（对齐 dsh web 官方标识），折叠组同样生效，随附着会话切换实时跟随（复用 syncSessionHighlight 的免重建通道，凭组元素上的 workspaceId 回查快照模型）。
+
 - 空会话（还没有任何消息）的聊天区改为官方 dsh web 空态的居中排版（对齐 HeroShell + composer 卡片）：居中 hero 标题「探索未至之境」+「预览版」徽章（26px/500），其下一行 chip——只读 workspace 名（文件夹图标 + 名称，来自 workspace.list 基线；官方是可点开的选择器，我们没有更换 blank 会话所属 workspace 的链路，故只读）和 preset 选择 chip（从 composer 底部挪入，交互不变，下拉向下展开），再下是居中的大圆角 composer 卡片（max-width 780px 自适应收缩、22px 圆角、浮层底色、柔和双层阴影，placeholder 对齐官方「描述你想要构建的内容」，输入字号 16px/24px，附件/斜杠命令/权限/模型 pill/发送按钮功能不变）。一旦有了消息或 turn 进行中即恢复常规的消息流 + 底部 composer 布局；原「会话还没有消息」提示随之移除（被 hero 取代）。
 
 - 聊天头部样式逐项对齐官方 dsh web 会话头部：标题从 13px/600 改为 14px/20px/500（官方 crumbCurrent），头部 padding 加大（12px 12px 8px）、元素间距 8→10px；「N 个子代理」「N 个后台任务」chip 从徽章底色改为透明底小字（12px，descriptionForeground），文字版「⌄」换成官方 IconChevronDownOutline14 矢量图标，hover 只提亮文字不再整片变亮；只读 preset 标签改为独立的浅底胶囊（22px 高、圆角 6px、最大宽 160px 截断），前置官方 IconAgentPresetOutline16 三环图标（14px、70% 不透明度）。

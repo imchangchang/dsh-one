@@ -1788,6 +1788,9 @@ function renderServerEmpty(snap: SessionsSnapshot): HTMLElement {
 
 function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   const group = el('div', 'workspace-group')
+  // 组元素记下 workspaceId，syncSessionHighlight 凭它回查模型（折叠组没有
+  // 渲染会话行，不能只靠 DOM 找 .active）。
+  group.dataset.workspaceId = w.workspaceId
   // 「未分组」虚拟组：无路径、不能新建会话/打开终端与文件夹（对齐 dsh web，
   // 组头只有折叠交互），只保留折叠。
   const ungrouped = w.workspaceId === UNGROUPED_WORKSPACE_ID
@@ -1797,6 +1800,9 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   const collapsed = empty || (sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false)
   const head = el('div', collapsed ? 'workspace-row' : 'workspace-row expanded')
   if (empty) head.classList.add('empty')
+  // 附着会话落在本组时文件夹图标染蓝（dsh web 同款标识），折叠组也生效；
+  // 此后随 ChatState 的同步由 syncSessionHighlight 负责，不走面板重建。
+  head.classList.toggle('has-active', w.sessions.some((s) => s.sessionId === state?.sessionId))
   head.title = ungrouped ? '不属于任何工作区的会话' : w.path
   // 行首图标槽（dsh web 分组行模式）：默认文件夹（折叠=闭合/展开=打开），
   // hover 时 CSS 切换成实心三角，展开态三角 rotate(90deg)。
@@ -1807,7 +1813,7 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   arrow.appendChild(iconSvg(PANEL_ICONS.triangle))
   head.appendChild(arrow)
   head.appendChild(el('span', 'workspace-label', w.label))
-  if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', '当前'))
+  if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', 'vscode'))
   if (!ungrouped) {
     const headActions = el('span', 'row-actions')
     headActions.appendChild(
@@ -1961,11 +1967,17 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   return body
 }
 
-/** 只切换 .active 高亮，不重建面板（render() 每次快照都会调用）。 */
+/** 只切换 .active 高亮与所在组的蓝色文件夹图标，不重建面板（render() 每次快照都会调用）。 */
 function syncSessionHighlight(): void {
   const currentId = state?.sessionId ?? null
   sessionsPanel.querySelectorAll<HTMLElement>('.session-row').forEach((rowEl) => {
     rowEl.classList.toggle('active', rowEl.dataset.sessionId === currentId)
+  })
+  // 折叠组没有渲染会话行，凭组元素上的 workspaceId 回查快照模型判定。
+  sessionsPanel.querySelectorAll<HTMLElement>('.workspace-group').forEach((groupEl) => {
+    const w = sessionsSnapshot?.workspaces.find((ws) => ws.workspaceId === groupEl.dataset.workspaceId)
+    const hasActive = w?.sessions.some((s) => s.sessionId === currentId) ?? false
+    groupEl.querySelector('.workspace-row')?.classList.toggle('has-active', hasActive)
   })
 }
 

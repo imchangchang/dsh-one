@@ -132,6 +132,8 @@ const STYLE = `
   /* 空组无可展开内容：hover 不切换成三角，保持闭合文件夹图标。 */
   .workspace-row.empty:hover .ws-arrow { display: none; }
   .workspace-row.empty:hover .ws-folder { display: inline-flex; }
+  /* 附着会话所在 workspace 的文件夹图标染 deepseek 蓝（dsh web 同款标识）。 */
+  .workspace-row.has-active .ws-folder { color: var(--vscode-charts-blue, #5686fe); }
   .ws-arrow svg { transition: transform .15s ease; }
   .workspace-row.expanded .ws-arrow svg { transform: rotate(90deg); }
   .workspace-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
