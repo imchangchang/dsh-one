@@ -200,6 +200,19 @@ export class SessionsStore implements vscode.Disposable {
     this.onDidChangeEmitter.fire()
   }
 
+  /**
+   * Collapse every workspace group of the current model at once —
+   * one persistence write + one notification, not N × setCollapsed.
+   * 搜索过滤时只折叠当前可见的组（workspaces 即过滤后的模型）。
+   */
+  collapseAll(): void {
+    const ids = this.workspaces.map((w) => w.workspaceId)
+    if (ids.every((id) => this.collapsed.has(id))) return
+    for (const id of ids) this.collapsed.add(id)
+    void this.state?.update(COLLAPSED_STATE_KEY, [...this.collapsed])
+    this.onDidChangeEmitter.fire()
+  }
+
   /** Rebuild with a new sort order; the preference survives reloads. */
   setSortOrder(order: SessionSortOrder): void {
     if (order === this.sortOrder) return

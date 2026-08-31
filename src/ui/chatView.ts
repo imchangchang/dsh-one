@@ -985,6 +985,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       case 'workspaceCollapse':
         this.store.setCollapsed(m.workspaceId, m.collapsed)
         return
+      case 'workspacesCollapseAll':
+        this.store.collapseAll()
+        return
       case 'sessionFork':
         void vscode.commands.executeCommand('dshOne.session.fork', m.sessionId)
         return

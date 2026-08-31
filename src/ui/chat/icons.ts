@@ -146,6 +146,14 @@ const terminal: IconDef = {
   ],
 }
 
+/** 双上三角（本地扩展，dsh web 无对应物）：会话面板「折叠全部」按钮。 */
+const chevronsUp: IconDef = {
+  paths: [
+    'M8 2.5L13.5 8L12.44 9.06L8 4.62L3.56 9.06L2.5 8L8 2.5Z',
+    'M8 7.5L13.5 13L12.44 14.06L8 9.62L3.56 14.06L2.5 13L8 7.5Z',
+  ],
+}
+
 export const PANEL_ICONS = {
   edit,
   archive,
@@ -158,4 +166,5 @@ export const PANEL_ICONS = {
   plus,
   chevronDown,
   terminal,
+  chevronsUp,
 } as const

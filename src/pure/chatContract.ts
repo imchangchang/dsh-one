@@ -386,6 +386,8 @@ export type FromWebviewMessage =
   | { type: 'sessionUnread'; sessionId: string; unread: boolean }
   /** Sessions 面板：折叠/展开一个 workspace 分组。 */
   | { type: 'workspaceCollapse'; workspaceId: string; collapsed: boolean }
+  /** Sessions 面板：一键折叠当前列表里的所有 workspace 分组。 */
+  | { type: 'workspacesCollapseAll' }
   /** Sessions 面板：从会话尾部创建分支会话并附着。 */
   | { type: 'sessionFork'; sessionId: string }
   /** Sessions 面板空态：启动 dsh 服务。 */
