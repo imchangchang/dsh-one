@@ -254,11 +254,15 @@ const STYLE = `
     cursor: pointer; border-radius: 4px;
   }
   .chat-header .chat-title:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  /* 面包屑里的当前子代理标题：小号字（官方 .crumbSubagent 12px/18px，
+     与「N 个子代理」chip 同字号），不和父会话标题同级。 */
+  .chat-header .chat-title.crumb-subagent { font-size: 12px; line-height: 18px; }
   /* 面包屑（对齐官方 dsh web 的子代理进入逻辑）：父会话标题是可点链接，
-     灰字 hover 提亮；斜杠分隔符不响应点击。 */
+     灰字常规字重（官方祖先 crumb 400，只有当前段 500），hover 提亮；
+     斜杠分隔符不响应点击。 */
   .chat-header .crumb-parent {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0;
-    font-size: 14px; font-weight: 500; line-height: 20px; padding: 2px 4px;
+    font-size: 14px; font-weight: 400; line-height: 20px; padding: 2px 4px;
     background: transparent; border: 0; cursor: pointer;
     color: var(--vscode-descriptionForeground);
   }

@@ -1172,8 +1172,10 @@ function render(): void {
       header.appendChild(el('span', 'crumb-sep', '/'))
     }
     // 标题 ellipsis 截断但 hover 出完整标题（原生 title tooltip）；
-    // 单击标题直接进改名（本地增强，官方无此交互）。
-    const titleSpan = el('span', 'chat-title', state.sessionTitle ?? '')
+    // 单击标题直接进改名（本地增强，官方无此交互）。面包屑里附着的是
+    // 子代理会话时，当前标题用小号字（官方 .crumbSubagent：12px/18px，
+    // 与「N 个子代理」chip 同字号），不与父会话标题同级。
+    const titleSpan = el('span', state.parentSession ? 'chat-title crumb-subagent' : 'chat-title', state.sessionTitle ?? '')
     if (state.sessionTitle) {
       titleSpan.title = state.sessionTitle
       titleSpan.addEventListener('click', () => startInlineRename(header))
