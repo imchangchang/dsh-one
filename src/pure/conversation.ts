@@ -225,6 +225,22 @@ export class ConversationFolder {
             : undefined
         const interrupted = kind === 'aborted' || kind === 'interrupted'
         let msg = this.current
+        if (!msg) {
+          // current 可能已被 turn 中途注入的 user/message 切断为 null：按
+          // ensureAssistant 的 id 规则从尾部找回本 turn 最后一条 assistant
+          // 消息（turn/end 落在历史窗口外时找不到，不标记 turnEnd）。
+          const turn = Number(data.turn)
+          if (Number.isFinite(turn)) {
+            const id = `assistant-t${turn}`
+            for (let i = this.msgs.length - 1; i >= 0; i--) {
+              const m = this.msgs[i]
+              if (m.kind === 'assistant' && m.id === id) {
+                msg = m
+                break
+              }
+            }
+          }
+        }
         if (!msg && (turnError || interrupted)) {
           // The turn failed / was cancelled before any assistant content:
           // still surface an (empty) assistant message so the error row /
@@ -242,6 +258,7 @@ export class ConversationFolder {
           msg.complete = true
           // The turn's final seq is the fork point for session.fork.
           msg.seq = event.seq
+          msg.turnEnd = true
           if (interrupted) msg.interrupted = true
           if (turnError) msg.turnError = turnError
         }

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { agentPresetLabel, defaultAgentPresetId, resolveAgentPresets, type AgentPresetLike } from '../src/pure/agentPreset.ts'
+import { agentPresetDescription, agentPresetLabel, defaultAgentPresetId, resolveAgentPresets, type AgentPresetLike } from '../src/pure/agentPreset.ts'
 
 const preset = (id: string, opts: Partial<AgentPresetLike> = {}): AgentPresetLike => ({ id, ...opts })
 
@@ -71,4 +71,12 @@ test('agentPresetLabel localizes known system ids, passes others through', () =>
   assert.equal(agentPresetLabel('minimal'), '极简模式')
   assert.equal(agentPresetLabel('cordis'), '创造模式')
   assert.equal(agentPresetLabel('my-custom'), 'my-custom')
+})
+
+test('agentPresetDescription returns Chinese copy for known system ids, undefined otherwise', () => {
+  assert.equal(agentPresetDescription('standard')?.includes('功能完整的编码 Agent'), true)
+  assert.equal(agentPresetDescription('code')?.includes('Code Mode SDK'), true)
+  assert.equal(agentPresetDescription('minimal')?.includes('str_replace_editor'), true)
+  assert.equal(agentPresetDescription('cordis')?.includes('自定义 Agent preset'), true)
+  assert.equal(agentPresetDescription('my-custom'), undefined)
 })

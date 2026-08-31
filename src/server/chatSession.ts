@@ -22,7 +22,7 @@ import {
   updateQueue,
 } from './dshRpc.ts'
 import type { ImageLimits, SessionModels } from './dshRpc.ts'
-import { agentPresetLabel, defaultAgentPresetId, resolveAgentPresets } from '../pure/agentPreset.ts'
+import { agentPresetDescription, agentPresetLabel, defaultAgentPresetId, resolveAgentPresets } from '../pure/agentPreset.ts'
 import type { AgentPresetOption } from '../pure/agentPreset.ts'
 
 /** Streaming snapshots are pushed at most this often; structural changes flush immediately. */
@@ -607,6 +607,16 @@ export class ChatSessionController implements vscode.Disposable {
    */
   agentPresetLabelFor(id: string): string {
     return this.agentPresetOptions.find((o) => o.id === id)?.label ?? agentPresetLabel(id)
+  }
+
+  /**
+   * Preset id → 头部标签悬停 tooltip 的描述（官方 AgentPresetLabel 的
+   * tooltip）：与 agentPresetLabelFor 同源——roster 选项的 description；
+   * roster 未就绪或未知 id 回退已知 system id 的中文描述，user preset 在
+   * roster 未就绪前没有描述。
+   */
+  agentPresetDescriptionFor(id: string): string | undefined {
+    return this.agentPresetOptions.find((o) => o.id === id)?.description ?? agentPresetDescription(id)
   }
 
   /**
