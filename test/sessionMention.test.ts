@@ -7,6 +7,7 @@ import {
   formatSessionMention,
   mentionDisplayToken,
   parseSessionMentions,
+  splitReadableMentions,
   splitSessionMentions,
 } from '../src/pure/sessionMention.ts'
 
@@ -95,4 +96,26 @@ test('mentionDisplayToken 标题重复时追加序号直到唯一', () => {
   assert.equal(t2, '@周报 (2)')
   bindings.set(t2, formatSessionMention('周报', 'id-2'))
   assert.equal(mentionDisplayToken('周报', 'id-3', bindings), '@周报 (3)')
+})
+
+test('splitReadableMentions 按引用顺序切出可读 @label', () => {
+  const refs = [
+    { sessionId: 'id-1', label: '会话甲' },
+    { sessionId: 'id-2', label: '会话乙' },
+  ]
+  assert.deepEqual(splitReadableMentions('@会话甲 和 @会话乙 都看下', refs), [
+    { sessionId: 'id-1', label: '会话甲' },
+    ' 和 ',
+    { sessionId: 'id-2', label: '会话乙' },
+    ' 都看下',
+  ])
+})
+
+test('splitReadableMentions 找不到的引用跳过，无命中时返回整段文本', () => {
+  const refs = [{ sessionId: 'id-1', label: '不存在' }]
+  assert.deepEqual(splitReadableMentions('普通文本', refs), ['普通文本'])
+  assert.deepEqual(splitReadableMentions('@甲 @甲', [{ sessionId: 'id-1', label: '甲' }]), [
+    { sessionId: 'id-1', label: '甲' },
+    ' @甲',
+  ])
 })

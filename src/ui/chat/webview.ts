@@ -48,6 +48,7 @@ import {
   expandMentionBindings,
   formatSessionMention,
   mentionDisplayToken,
+  splitReadableMentions,
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { activeAtToken, formatFileMention, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
@@ -2296,9 +2297,12 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
     if (m.files) for (const file of m.files) attachments.appendChild(fileChip(file))
     if (attachments.childElementCount > 0) row.appendChild(attachments)
     if (m.text) {
-      // 气泡是纯文本（不走 markdown），mention 在这里按段拼成可点击 chip。
+      // 气泡是纯文本（不走 markdown），mention 按段拼成可点击链接。host
+      // 解析过的引用落盘为可读 @label 文本，URI 由 fold 回挂在 m.references
+      // 里，优先用它切；未解析的原始 mention（如引用失败残留）走 URI 匹配。
       const bubble = el('div', 'bubble')
-      for (const seg of splitSessionMentions(m.text)) {
+      const segments = m.references?.length ? splitReadableMentions(m.text, m.references) : splitSessionMentions(m.text)
+      for (const seg of segments) {
         if (typeof seg === 'string') bubble.appendChild(document.createTextNode(seg))
         else bubble.appendChild(sessionMentionChip(seg.label, seg.sessionId))
       }

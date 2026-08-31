@@ -475,6 +475,61 @@ test('user message without source falls back to the system-reminder prefix', () 
   assert.equal(plain.context, undefined)
 })
 
+test('session-reference context attaches its references to the triggering user message', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(userEv('u1', '@会话甲 这个看下'))
+  f.applyEvent(
+    ev('user/message', {
+      id: 'ref1',
+      role: 'user',
+      content: [{ type: 'text', text: '## Referenced sessions\n…snapshot…' }],
+      source: {
+        kind: 'session-reference',
+        form: 'recall',
+        version: 1,
+        references: [
+          { sessionId: 'id-1', label: '会话甲', capturedThroughSeq: 5, inputIndex: 0 },
+          { sessionId: 42 }, // 畸形条目被丢弃
+        ],
+      },
+    }),
+  )
+
+  const [human, ctx] = f.messages()
+  assert.deepEqual(human, {
+    kind: 'user',
+    id: 'u1',
+    text: '@会话甲 这个看下',
+    references: [{ sessionId: 'id-1', label: '会话甲' }],
+  })
+  assert.equal((ctx as { context?: string }).context, 'session-reference')
+  assert.equal((ctx as { references?: unknown }).references, undefined)
+})
+
+test('session-reference context with no preceding plain user message attaches nowhere', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(
+    ev('user/message', {
+      id: 'ctx1',
+      role: 'user',
+      content: [{ type: 'text', text: '<system-reminder>\nworkspace instructions…' }],
+      source: { kind: 'agent-instructions', form: 'instructions' },
+    }),
+  )
+  f.applyEvent(
+    ev('user/message', {
+      id: 'ref1',
+      role: 'user',
+      content: [{ type: 'text', text: '## Referenced sessions\n…' }],
+      source: { kind: 'session-reference', references: [{ sessionId: 'id-1', label: '会话甲' }] },
+    }),
+  )
+
+  const [instructions, ctx] = f.messages()
+  assert.equal((instructions as { references?: unknown }).references, undefined)
+  assert.equal((ctx as { references?: unknown }).references, undefined)
+})
+
 test('mid-turn injected user message finalizes the split assistant message', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('turn/start', { turn: 1 }))
