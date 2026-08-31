@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSessionTree, formatRelativeTime, type SessionInput, type WorkspaceInput } from '../src/pure/sessionTree.ts'
+import { buildSessionTree, formatRelativeTime, UNGROUPED_WORKSPACE_ID, type SessionInput, type WorkspaceInput } from '../src/pure/sessionTree.ts'
 
 const NOW = 1_700_000_000_000 // fixed epoch ms for deterministic tests
 
@@ -70,9 +70,59 @@ test('hides archived and blank sessions', () => {
   assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['keep'])
 })
 
-test('ignores sessions not referenced by any workspace', () => {
-  const tree = buildSessionTree([ws('w1', ['a'])], [s('a'), s('stray')], new Set(), noTitles, undefined, NOW)
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a'])
+test('sessions not referenced by any workspace form a「未分组」group appended last', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a'])],
+    [s('a'), s('stray1', { updatedAt: NOW - 1000 }), s('stray2', { updatedAt: NOW - 2000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+  )
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', UNGROUPED_WORKSPACE_ID])
+  const ungrouped = tree[1]
+  assert.equal(ungrouped.label, '未分组')
+  assert.equal(ungrouped.path, '')
+  assert.equal(ungrouped.isCurrent, false)
+  assert.deepEqual(ungrouped.sessions.map((n) => n.sessionId), ['stray1', 'stray2'])
+})
+
+test('ungrouped group hides blank/archived orphans and vanishes when empty', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a'])],
+    [s('a'), s('stray-blank', { blank: true }), s('stray-gone')],
+    new Set(['stray-gone']),
+    noTitles,
+    undefined,
+    NOW,
+  )
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1'])
+})
+
+test('query filters ungrouped sessions and drops the group without a match', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a'])],
+    [s('a'), s('stray1'), s('stray2')],
+    new Set(),
+    (x) => (x.sessionId === 'stray1' ? '未分组目标' : '其他'),
+    undefined,
+    NOW,
+    { query: '未分组目标' },
+  )
+  assert.deepEqual(tree.map((n) => n.workspaceId), [UNGROUPED_WORKSPACE_ID])
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['stray1'])
+})
+
+test('ungrouped group stays last even against the current folder', () => {
+  const tree = buildSessionTree(
+    [ws('w1', [], { path: '/repo' })],
+    [s('stray')],
+    new Set(),
+    noTitles,
+    '/repo',
+    NOW,
+  )
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', UNGROUPED_WORKSPACE_ID])
 })
 
 test('label uses the title, falling back to a short id', () => {

@@ -27,7 +27,7 @@ import type {
   ToWebviewMessage,
 } from '../../pure/chatContract.ts'
 import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../../pure/sessionTree.ts'
-import { formatRelativeTime } from '../../pure/sessionTree.ts'
+import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTree.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import { isCommandTool, toolAction, truncateLines } from '../../pure/toolLine.ts'
 import {
@@ -1518,13 +1518,16 @@ function renderServerEmpty(snap: SessionsSnapshot): HTMLElement {
 
 function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   const group = el('div', 'workspace-group')
+  // 「未分组」虚拟组：无路径、不能新建会话/打开终端与文件夹（对齐 dsh web，
+  // 组头只有折叠交互），只保留折叠。
+  const ungrouped = w.workspaceId === UNGROUPED_WORKSPACE_ID
   // 空组没有任何会话，恒按闭合态渲染：闭合文件夹图标、无 expanded 类，
   // hover 三角也不出现（.workspace-row.empty 的 CSS 规则），点击行头不响应。
   const empty = w.sessions.length === 0
   const collapsed = empty || (sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false)
   const head = el('div', collapsed ? 'workspace-row' : 'workspace-row expanded')
   if (empty) head.classList.add('empty')
-  head.title = w.path
+  head.title = ungrouped ? '不属于任何工作区的会话' : w.path
   // 行首图标槽（dsh web 分组行模式）：默认文件夹（折叠=闭合/展开=打开），
   // hover 时 CSS 切换成实心三角，展开态三角 rotate(90deg)。
   const folderIcon = el('span', 'ws-folder')
@@ -1535,24 +1538,26 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   head.appendChild(arrow)
   head.appendChild(el('span', 'workspace-label', w.label))
   if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', '当前'))
-  const headActions = el('span', 'row-actions')
-  headActions.appendChild(
-    rowAction(iconSvg(PANEL_ICONS.plus), '新建会话', () => post({ type: 'sessionNew', workspaceId: w.workspaceId })),
-  )
-  headActions.appendChild(
-    rowAction(iconSvg(PANEL_ICONS.terminal), '在终端中打开', () =>
-      post({ type: 'workspaceOpenTerminal', path: w.path }),
-    ),
-  )
-  // 当前文件夹已在 VSCode 里打开，只有其他 workspace 需要"打开文件夹"。
-  if (!w.isCurrent) {
+  if (!ungrouped) {
+    const headActions = el('span', 'row-actions')
     headActions.appendChild(
-      rowAction(iconSvg(PANEL_ICONS.folderOpen), '在 VSCode 中打开文件夹', () =>
-        post({ type: 'workspaceOpenFolder', path: w.path }),
+      rowAction(iconSvg(PANEL_ICONS.plus), '新建会话', () => post({ type: 'sessionNew', workspaceId: w.workspaceId })),
+    )
+    headActions.appendChild(
+      rowAction(iconSvg(PANEL_ICONS.terminal), '在终端中打开', () =>
+        post({ type: 'workspaceOpenTerminal', path: w.path }),
       ),
     )
+    // 当前文件夹已在 VSCode 里打开，只有其他 workspace 需要"打开文件夹"。
+    if (!w.isCurrent) {
+      headActions.appendChild(
+        rowAction(iconSvg(PANEL_ICONS.folderOpen), '在 VSCode 中打开文件夹', () =>
+          post({ type: 'workspaceOpenFolder', path: w.path }),
+        ),
+      )
+    }
+    head.appendChild(headActions)
   }
-  head.appendChild(headActions)
   // 整行点击 = 折叠/展开（行内按钮已 stopPropagation）；空组无可展开内容，不响应。
   if (!empty) {
     head.addEventListener('click', () =>

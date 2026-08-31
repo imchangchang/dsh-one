@@ -6,6 +6,7 @@ import type { SessionSummary } from '../server/dshRpc.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import {
   buildSessionTree,
+  UNGROUPED_WORKSPACE_ID,
   type SessionInput,
   type SessionSortOrder,
   type WorkspaceInput,
@@ -127,7 +128,9 @@ export class SessionsStore implements vscode.Disposable {
 
   /** Workspace for title-area commands: the current folder's, else the first. */
   defaultWorkspaceId(): string | null {
-    return this.workspaces.find((w) => w.isCurrent)?.workspaceId ?? this.workspaces[0]?.workspaceId ?? null
+    // 「未分组」虚拟组不是真 workspace，不能作为新建会话的目标。
+    const real = this.workspaces.filter((w) => w.workspaceId !== UNGROUPED_WORKSPACE_ID)
+    return real.find((w) => w.isCurrent)?.workspaceId ?? real[0]?.workspaceId ?? null
   }
 
   /** Whether the host still knows this (non-archived) session — chat fallback. */
@@ -157,10 +160,12 @@ export class SessionsStore implements vscode.Disposable {
   /**
    * Title of the workspace that owns `sessionId`, from the workspace.list
    * baseline (its sessionIds include blank sessions, unlike the display tree).
-   * Undefined before the first refresh that knows the session.
+   * Sessions no workspace references report「未分组」——与面板的虚拟组同名；
+   * undefined before the first refresh that knows the session.
    */
   workspaceLabelFor(sessionId: string): string | undefined {
-    return this.rawWorkspaces.find((w) => w.sessionIds.includes(sessionId))?.title
+    const owned = this.rawWorkspaces.find((w) => w.sessionIds.includes(sessionId))?.title
+    return owned ?? (this.knownSessionIds.has(sessionId) ? '未分组' : undefined)
   }
 
   get currentSortOrder(): SessionSortOrder {

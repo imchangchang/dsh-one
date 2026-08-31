@@ -57,6 +57,14 @@ export interface WorkspaceNodeModel {
 /** Sort orders offered by the Sessions view title menu. */
 export type SessionSortOrder = 'updatedDesc' | 'updatedAsc' | 'title'
 
+/**
+ * Sentinel workspaceId of the synthetic「未分组」group: sessions no
+ * registered workspace references (dsh CLI in unregistered dirs, direct-API
+ * sessions, leftovers of removed workspaces). Collapse state persists under
+ * this key like any real workspace id.
+ */
+export const UNGROUPED_WORKSPACE_ID = '__ungrouped__'
+
 export interface SessionTreeViewOptions {
   /** Session ordering within each workspace; workspaces themselves are unaffected. */
   sort?: SessionSortOrder
@@ -90,7 +98,8 @@ export function formatRelativeTime(updatedAt: number, now: number): string {
  * descending). A non-empty `view.query`
  * keeps only sessions whose label or id contains it (case-insensitive) and
  * drops workspaces left without a match. Sessions not referenced by any
- * workspace's sessionIds are ignored.
+ * workspace's sessionIds form a synthetic「未分组」group (UNGROUPED_WORKSPACE_ID,
+ * empty path) appended last — same as dsh web's ungrouped section.
  */
 export function buildSessionTree(
   workspaces: WorkspaceInput[],
@@ -105,19 +114,10 @@ export function buildSessionTree(
   const query = view.query?.trim().toLowerCase() ?? ''
   const sort = view.sort ?? 'updatedDesc'
 
-  const ordered = [...workspaces].sort((a, b) => {
-    const aCurrent = currentFolder !== undefined && a.path === currentFolder
-    const bCurrent = currentFolder !== undefined && b.path === currentFolder
-    if (aCurrent !== bCurrent) return aCurrent ? -1 : 1
-    return Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
-  })
-
-  const nodes = ordered.map((w) => {
-    const visible = w.sessionIds
-      .map((id) => byId.get(id))
-      .filter((s): s is SessionInput => !!s && !s.blank && !archivedSessionIds.has(s.sessionId))
-      // The label is needed for both query matching and title sort, so
-      // resolve it once before filtering.
+  // 会话行流水线：label 解析（query 匹配和 title 排序都要用，先算一次）→
+  // 查询过滤 → pinned 优先 + view.sort。workspace 组与「未分组」组共用。
+  const toSessionNodes = (list: SessionInput[]): SessionNodeModel[] =>
+    list
       .map((s) => ({ session: s, label: titleOf(s) ?? `会话 ${s.sessionId.slice(0, 8)}` }))
       .filter(
         ({ session, label }) =>
@@ -133,21 +133,51 @@ export function buildSessionTree(
         if (sort === 'title') return a.label.localeCompare(b.label)
         return b.session.updatedAt - a.session.updatedAt
       })
-    return {
-      workspaceId: w.workspaceId,
-      path: w.path,
-      label: w.title,
-      isCurrent: currentFolder !== undefined && w.path === currentFolder,
-      sessions: visible.map(({ session, label }) => ({
+      .map(({ session, label }) => ({
         sessionId: session.sessionId,
         label,
         description: formatRelativeTime(session.updatedAt, now),
         running: session.running,
         pinned: view.pinned?.has(session.sessionId) === true,
         unread: view.unread?.has(session.sessionId) === true,
-      })),
+      }))
+
+  const ordered = [...workspaces].sort((a, b) => {
+    const aCurrent = currentFolder !== undefined && a.path === currentFolder
+    const bCurrent = currentFolder !== undefined && b.path === currentFolder
+    if (aCurrent !== bCurrent) return aCurrent ? -1 : 1
+    return Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+  })
+
+  const nodes = ordered.map((w) => {
+    const visible = w.sessionIds
+      .map((id) => byId.get(id))
+      .filter((s): s is SessionInput => !!s && !s.blank && !archivedSessionIds.has(s.sessionId))
+    return {
+      workspaceId: w.workspaceId,
+      path: w.path,
+      label: w.title,
+      isCurrent: currentFolder !== undefined && w.path === currentFolder,
+      sessions: toSessionNodes(visible),
     }
   })
+
+  // 未被任何 workspace 引用的会话：合成「未分组」虚拟组排在最后。
+  const referenced = new Set(workspaces.flatMap((w) => w.sessionIds))
+  const orphans = sessions.filter(
+    (s) => !referenced.has(s.sessionId) && !s.blank && !archivedSessionIds.has(s.sessionId),
+  )
+  const orphanNodes = toSessionNodes(orphans)
+  if (orphanNodes.length > 0) {
+    nodes.push({
+      workspaceId: UNGROUPED_WORKSPACE_ID,
+      path: '',
+      label: '未分组',
+      isCurrent: false,
+      sessions: orphanNodes,
+    })
+  }
+
   // Under an active query, a workspace with no matching session is noise.
   return query === '' ? nodes : nodes.filter((w) => w.sessions.length > 0)
 }
