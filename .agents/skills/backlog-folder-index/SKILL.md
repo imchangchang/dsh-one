@@ -1,6 +1,6 @@
 ---
 name: backlog-folder-index
-description: 在 git 仓库里用「文件夹即索引」结构维护 backlog：docs/backlog/open + closed，一个条目一个文件，文件名用语义化 kebab-name（不带序号前缀），git mv 改状态，不维护任何手工索引表。提出与修改分离：发现需求/问题只核实并记录进 open/，不顺手改代码，修改动作等单独确认。多 session / 多 agent / 多 worktree 并发写 backlog 不会互相冲突。当用户要记录、整理、查看 backlog、遗留问题、待办事项，或要在新工程里搭建这套 backlog 结构时使用。
+description: 在 git 仓库里用「文件夹即索引」结构维护 backlog：docs/backlog/open + doing + done + closed，一个条目一个文件，文件名用语义化 kebab-name（不带序号前缀），改状态 = git mv 到对应目录 + 在文件里追加变更记录，不维护任何手工索引表。状态机：认领 → doing，开发完成 → done（不合入主线），主线合入测试通过人工确认 → closed，测试有问题 done 退回 open。提出与修改分离：发现需求/问题只核实并记录进 open/，不顺手改代码，修改动作等单独确认。多 session / 多 agent / 多 worktree 并发写 backlog 不会互相冲突。当用户要记录、整理、查看 backlog、遗留问题、待办事项，或要在新工程里搭建这套 backlog 结构时使用。
 ---
 
 # Backlog：文件夹即索引
@@ -16,10 +16,12 @@ description: 在 git 仓库里用「文件夹即索引」结构维护 backlog：
 ```
 docs/backlog/
 ├── README.md          # 只有约定说明，没有索引表
-├── open/              # 未做 / 进行中 / 部分完成
+├── open/              # 待认领（含想法级条目）
 │   ├── marketplace-publish.md
 │   └── mux-reconnect.md
-└── closed/            # 已解决
+├── doing/             # 已认领，开发中
+├── done/              # 开发完成，待主线合入测试
+└── closed/            # 已合入并人工确认
     └── ...
 ```
 
@@ -33,10 +35,27 @@ backlog 只存「提出」阶段的产物。需求、问题、修改动作是三
 - 每次提出/核实完就停下，产出写进条目，**不顺手把代码改了**——修复/开发等单独确认。
 - 角色靠 session 分工：提问题、核实根因、执行修改可以是不同的 session，谁提出不代表谁来做。
 
+## 状态流转
+
+状态机：`open`（待认领）→ `doing`（开发中）→ `done`（开发完成，待主线合入）→ `closed`（合入并确认）；合入测试有问题时 `done` 退回 `open`。
+
+- **open → doing**：认领。`git mv open/x.md doing/`，随即建 worktree 开发（见 worktree-dev-flow）。
+- **doing → done**：开发完成、自测通过。`git mv doing/x.md done/`。此时**不合入主线**，等主线 agent 合入测试。
+- **done → closed**：主线合入测试通过 + 人工确认。`git mv done/x.md closed/`。
+- **done → open**：合入测试发现问题。`git mv done/x.md open/`，对应 agent 重新认领再走一遍。
+
+每次改状态**同时**在文件末尾的「变更记录」追加一行（由改状态的一方写）：
+
+```
+- 2026-09-05 认领（worktree: agent/mux-reconnect）→ doing
+- 2026-09-06 开发完成，自测通过 → done
+- 2026-09-07 主线合入测试通过，人工确认 → closed
+```
+
 ## 规则
 
 - **一个条目一个文件**，命名 `kebab-name.md`，只写描述内容的语义化名字，不加序号/日期前缀。
-- **改状态就是 `git mv`**：`git mv docs/backlog/open/x.md docs/backlog/closed/`，不动文件内容。
+- **改状态就是 `git mv` + 在文件末尾「变更记录」追加一行**（见「状态流转」），两件事一起做。
 - **绝不建手工索引表/状态看板文件**。`ls docs/backlog/open` 就是当前待办。
 - 条目内容包含：背景与现象、根因或现状、建议方案、涉及代码位置。有前置依赖在正文写一行「前置：kebab-name」。
 - 引用条目用文件名（"做 mux-reconnect"）。
@@ -44,14 +63,14 @@ backlog 只存「提出」阶段的产物。需求、问题、修改动作是三
 
 ## 在新工程搭建
 
-1. 建目录：`mkdir -p docs/backlog/open docs/backlog/closed`（closed 放空，git 不跟踪空目录的话加一个 `.gitkeep`）。
-2. 把上面的「目录结构」「准入与流程」「规则」三节写进 `docs/backlog/README.md`。
+1. 建目录：`mkdir -p docs/backlog/open docs/backlog/doing docs/backlog/done docs/backlog/closed`（空目录 git 不跟踪，加 `.gitkeep`）。
+2. 把上面的「目录结构」「准入与流程」「状态流转」「规则」四节写进 `docs/backlog/README.md`。
 3. 在工程的 `AGENTS.md`（或等价的 agent 约定文件）里加一行指向：`backlog 维护见 docs/backlog/README.md，加条目建文件、改状态 git mv，不要建索引表`。
 4. 已有 markdown  backlog 的迁移：每条拆成独立文件、按语义起 kebab-name、挪进 open/，删掉旧索引表，全仓库 grep 旧路径修引用。
 
 ## 边界：什么时候该换 bd
 
-这套结构回答"有什么活"，回答不了"现在能干什么"——没有结构化的依赖和认领状态。当出现这些信号时换 [beads (bd)](https://github.com/steveyegge/beads)：多个 agent 需要自动领任务、条目间依赖链复杂（blocked-by 成网）、open 里长期超过 ~30 条。
+这套结构回答"有什么活、认领到哪了"，回答不了"现在能自动干什么"——没有结构化的依赖和自动派活。当出现这些信号时换 [beads (bd)](https://github.com/steveyegge/beads)：多个 agent 需要自动领任务、条目间依赖链复杂（blocked-by 成网）、open 里长期超过 ~30 条。
 
 ## 复用这个 skill 本身
 
