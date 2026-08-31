@@ -594,6 +594,11 @@ const STYLE = `
   .preset-item .check { align-self: center; }
   .preset-item .job-dot-slot { align-self: center; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
+  /* 弹窗内非首个分组上方加分割线（@ 补全的「文件」「会话」分组）。 */
+  .slash-popup .menu-group:not(:first-child) {
+    border-top: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
+    margin-top: 4px; padding-top: 7px;
+  }
   .menu-hint { padding: 8px; opacity: .7; }
   .slash-popup { max-height: 40vh; }
   .slash-popup .menu-item.selected { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }

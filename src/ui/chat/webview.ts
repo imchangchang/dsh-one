@@ -443,6 +443,8 @@ interface SlashRow {
   right?: string
   /** Complete the line; absent on pure hint rows. */
   apply?: (input: HTMLTextAreaElement) => void
+  /** 分组小标题行（不可选、无 hover），行间带分割线，如 @ 补全的「文件」「会话」。 */
+  header?: true
 }
 
 let slashPopupEl: HTMLElement | null = null
@@ -498,6 +500,11 @@ function updateSlashPopup(input: HTMLTextAreaElement): void {
   }
   slashPopupEl.textContent = ''
   slashRows.forEach((row, i) => {
+    if (row.header) {
+      // 每行恰好一个子元素，moveSlashSelection 按子下标对齐 slashRows。
+      slashPopupEl?.appendChild(el('div', 'menu-group', row.label))
+      return
+    }
     const item = el('div', i === slashIndex ? 'menu-item selected' : 'menu-item')
     item.appendChild(el('span', undefined, row.label))
     if (row.right) item.appendChild(el('span', 'menu-right', row.right))
@@ -521,7 +528,8 @@ function moveSlashSelection(dir: number): void {
   if (selectable.length === 0) return
   const at = selectable.indexOf(slashIndex)
   slashIndex = selectable[(at + dir + selectable.length) % selectable.length]
-  slashPopupEl.querySelectorAll('.menu-item').forEach((item, i) => {
+  // header 行也是子元素，按子下标（而非 .menu-item 过滤后的下标）对齐 slashRows。
+  slashPopupEl.querySelectorAll(':scope > *').forEach((item, i) => {
     item.classList.toggle('selected', i === slashIndex)
   })
 }
@@ -562,9 +570,9 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
 
 /**
  * @ 补全（对齐 dsh web）：光标前的 `@query`（或未闭合 `@"query`）触发，
- * 文件/文件夹候选在前（host fileReferences/list，异步返回），当前工作区
- * 的会话候选在后；引号 token 只出文件。引用其它会话主要靠会话面板的
- * "复制引用"，这里只补本工作区的会话。
+ * 文件/文件夹候选在前（host fileReferences/list，异步返回），当前会话
+ * 所属工作区的会话候选在后，两组各有小标题 + 分割线；引号 token 只出
+ * 文件。引用其它会话主要靠会话面板的"复制引用"，这里只补本工作区的会话。
  */
 function computeRefRows(input: HTMLTextAreaElement): SlashRow[] {
   if (input.selectionStart !== input.selectionEnd) return []
@@ -577,7 +585,12 @@ function computeRefRows(input: HTMLTextAreaElement): SlashRow[] {
     fileRefResult = null
     post({ type: 'fileRefList', requestId: fileRefSeq, query: at.query })
   }
-  return [...fileRows(input, at), ...(at.quoted ? [] : sessionRows(input, at))]
+  const files = fileRows(input, at)
+  const sessions = at.quoted ? [] : sessionRows(input, at)
+  return [
+    ...(files.length > 0 ? [{ label: '文件', header: true } as SlashRow, ...files] : []),
+    ...(sessions.length > 0 ? [{ label: '会话', header: true } as SlashRow, ...sessions] : []),
+  ]
 }
 
 /** 文件/文件夹候选行；响应未到达或已过期时为空（会话行先顶着）。 */
