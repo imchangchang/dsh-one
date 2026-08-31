@@ -363,7 +363,7 @@ const STYLE = `
   .diff-line.add { background: var(--vscode-diffEditor-insertedTextBackground, rgba(80,255,80,.14)); }
   .diff-line.add::before { content: '+ '; }
   .streaming { opacity: 0.6; }
-  .interrupted { opacity: 0.6; font-size: 0.85em; }
+  .interrupted { color: var(--vscode-errorForeground, #f14c4c); font-size: 0.85em; }
   .turn-status {
     display: flex; align-items: baseline; gap: 8px;
     font-size: 0.85em;

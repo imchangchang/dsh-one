@@ -291,6 +291,22 @@ test('turn/end with an aborted reason marks an unfinished message interrupted', 
   assert.equal(msg.interrupted, true)
 })
 
+test('turn/end with an aborted reason and no content yields an empty assistant message marked interrupted', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(userEv('u1', 'hi'))
+  // 用户刚发完就取消：turn/end 到达时还没有任何 assistant 内容，
+  // 标记不能丢——补一条空 assistant 消息承载「已中断」。
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }))
+
+  const msg = lastAssistant(f)
+  assert.deepEqual(msg.blocks, [])
+  assert.equal(msg.complete, true)
+  assert.equal(msg.interrupted, true)
+  assert.equal(msg.turnError, undefined)
+  assert.equal(f.hasOpenTurn(), false)
+})
+
 test('turn/end with an error reason and no content yields an empty assistant message with turnError', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('turn/start', { turn: 1 }))

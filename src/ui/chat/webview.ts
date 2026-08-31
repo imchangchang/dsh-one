@@ -1891,8 +1891,11 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
   if (m.interrupted) row.appendChild(el('div', 'interrupted', '已中断'))
   if (m.turnError) row.appendChild(renderTurnError(m.turnError))
-  // Copy/feedback/fork are meaningless on an empty error-only message.
-  if (m.complete && !(m.turnError && m.blocks.length === 0)) row.appendChild(renderAssistantActions(m))
+  // Copy/feedback/fork are meaningless on an empty marker-only message
+  // (turn failed or was interrupted before any content).
+  if (m.complete && !(m.blocks.length === 0 && (m.turnError || m.interrupted))) {
+    row.appendChild(renderAssistantActions(m))
+  }
   return row
 }
 

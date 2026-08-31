@@ -223,10 +223,12 @@ export class ConversationFolder {
                   : { message: err.message }
               })()
             : undefined
+        const interrupted = kind === 'aborted' || kind === 'interrupted'
         let msg = this.current
-        if (!msg && turnError) {
-          // The turn failed before any assistant content: still surface an
-          // (empty) assistant message so the error row has somewhere to live.
+        if (!msg && (turnError || interrupted)) {
+          // The turn failed / was cancelled before any assistant content:
+          // still surface an (empty) assistant message so the error row /
+          // 已中断 marker has somewhere to live.
           msg = {
             kind: 'assistant',
             id: `assistant-s${event.seq}`,
@@ -240,7 +242,7 @@ export class ConversationFolder {
           msg.complete = true
           // The turn's final seq is the fork point for session.fork.
           msg.seq = event.seq
-          if (kind === 'aborted' || kind === 'interrupted') msg.interrupted = true
+          if (interrupted) msg.interrupted = true
           if (turnError) msg.turnError = turnError
         }
         this.current = null
