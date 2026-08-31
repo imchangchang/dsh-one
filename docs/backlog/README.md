@@ -17,5 +17,4 @@
 | [工作区软移除](workspace-soft-remove.md) | 需求（已调研，依赖「未分组会话」条目） | P2 | 未做 |
 | [数据渠道对齐官方的四个优化项](official-channel-alignment.md) | 优化（审计遗留；第 1、2 项可视作 P2） | P3 | 未做 |
 | [官方 UI 对齐的零散遗留项](ui-parity-leftovers.md) | 优化（7 小项，其中 2 项等 host 支持） | P3 | 未做 |
-| [无会话 workspace 组头图标显示为展开态](empty-workspace-expanded-icon.md) | 界面问题（已核实，根因明确） | P3 | 未做 |
 | [会话面板增加「折叠所有工作区」按钮](collapse-all-workspaces.md) | 需求（方案已列） | P3 | 未做 |

@@ -122,6 +122,9 @@ const STYLE = `
   .ws-arrow { display: none; }
   .workspace-row:hover .ws-arrow { display: inline-flex; }
   .workspace-row:hover .ws-folder { display: none; }
+  /* 空组无可展开内容：hover 不切换成三角，保持闭合文件夹图标。 */
+  .workspace-row.empty:hover .ws-arrow { display: none; }
+  .workspace-row.empty:hover .ws-folder { display: inline-flex; }
   .ws-arrow svg { transition: transform .15s ease; }
   .workspace-row.expanded .ws-arrow svg { transform: rotate(90deg); }
   .workspace-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
