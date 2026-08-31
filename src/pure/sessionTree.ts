@@ -1,9 +1,15 @@
 /**
  * Pure model for the Sessions tree view: grouping, filtering, ordering and
  * labels. No `vscode` import — unit-testable with node --test.
+ *
+ * 注意：本文件也进聊天 webview 的浏览器 bundle（esbuild browser 平台），
+ * 不能用 node: 内置模块——basename 语义用下面的 basenameOf 手写。
  */
 
-import { basename } from 'node:path'
+/** 末段路径名（同时认 '/' 和 '\\'，先剥尾部分隔符）；空路径/根路径返回 ''。 */
+function basenameOf(p: string): string {
+  return p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? ''
+}
 
 export interface WorkspaceInput {
   workspaceId: string
@@ -186,7 +192,7 @@ export function buildSessionTree(
       path: w.path,
       // 空 title 兜底（防御：dsh 侧 title 正常是 basename(path)，渲染层
       // 不赌它非空）；basename 为空（如根路径）时退回完整 path。
-      label: w.title || basename(w.path) || w.path,
+      label: w.title || basenameOf(w.path) || w.path,
       isCurrent: currentFolder !== undefined && w.path === currentFolder,
       sessions: toSessionNodes(visible),
     }
