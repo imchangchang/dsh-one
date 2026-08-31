@@ -11,3 +11,5 @@
 | [对话引用（@会话）](session-reference.md) | 需求（已调研） | 未做 |
 | [流式输出时视图跟随最新位置](stream-follow-latest.md) | 遗留问题 | 未做 |
 | [未分组会话在面板不可见](ungrouped-sessions.md) | 需求（已调研） | 未做 |
+| [数据渠道对齐官方的四个优化项](official-channel-alignment.md) | 优化（审计遗留） | 未做 |
+| [官方 UI 对齐的零散遗留项](ui-parity-leftovers.md) | 优化（7 小项） | 未做 |
