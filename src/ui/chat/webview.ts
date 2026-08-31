@@ -92,6 +92,21 @@ function userScrollIntentActive(): boolean {
   return scrollPointerDown || Date.now() < scrollIntentUntil
 }
 
+/**
+ * 程序滚到最新并复位跟随态：发送消息这类"用户要看最新"的动作调用。
+ * 无条件滚到底，再按现有 isNearBottom 判定从实际位置重估跟随态（滚到
+ * 底距底为 0，必然进入跟随）——与用户滚动判定共用同一套距离语义，不
+ * 绕过跟随机制。程序滚动不标记用户意图，scroll 监听里
+ * userScrollIntentActive() 为假，不会把跟随态误解掉。
+ */
+function pinToLatest(): void {
+  const messages = document.getElementById('messages')
+  if (!messages) return
+  messages.scrollTop = messages.scrollHeight
+  stickToBottom = isNearBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight)
+  pinnedScrollTop = messages.scrollTop
+}
+
 // Scrollbar drags dispatch no events to the page between pointerdown and
 // pointerup; track the button globally so mid-drag scrolls count as user-driven.
 window.addEventListener('pointerup', () => {
@@ -2596,6 +2611,8 @@ function submitAnswer(p: PendingQuestion): void {
   })
   answerDrafts.delete(p.rpcId)
   post({ type: 'answer', rpcId: p.rpcId, answers })
+  // 提交答案同样延续对话流（回复继续流式输出），滚到底并复位跟随态。
+  pinToLatest()
 }
 
 function renderQuestion(p: PendingQuestion): HTMLElement {
@@ -2831,6 +2848,9 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     post({ type: 'send', text: expanded, ...(images.length > 0 ? { images } : {}), ...(steer ? { steer } : {}) })
     input.value = ''
     render()
+    // 发送是"看最新"信号：本轮 render 之后无条件滚到底并复位跟随态，
+    // 后续流式输出继续贴底（host 快照回来后 render 会按跟随态钉住）。
+    pinToLatest()
   }
   button.addEventListener('click', () => sendCurrent())
   button.title = state?.running ? 'Enter 排队发送，⌘/Ctrl+Enter 立即插话' : ''
