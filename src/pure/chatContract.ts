@@ -212,13 +212,16 @@ export interface ChatState {
    */
   presetLabel?: string
   /**
-   * 头部「N 个子代理」chip 的下拉行：本会话正在运行的 continuable 子代理
-   * （session.list 基线里 parentSessionId 指向本会话且 running 的会话），
-   * 由 ChatViewProvider 从 SessionsStore 组合；没有运行中子代理时缺省。
+   * 头部「N 个子代理」chip 的下拉行：本会话的全部 continuable 子代理
+   * （session.list 基线里 parentSessionId 指向本会话的会话，含已完成的），
+   * 由 ChatViewProvider 从 SessionsStore 组合并按 运行中优先 + 新近优先
+   * 排好；一个子代理都没有时缺省（chip 不渲染）。
    */
-  runningSubagents?: Array<{
+  subagents?: Array<{
     sessionId: string
     title: string
+    /** 运行中画像素环，已完成画灰点（对齐官方 activity 状态区分）。 */
+    running: boolean
     totalTokens?: number
     /** Epoch milliseconds（session.list 的 updatedAt）。 */
     updatedAt: number

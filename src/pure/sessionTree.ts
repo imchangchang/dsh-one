@@ -44,6 +44,11 @@ export interface SessionNodeModel {
   pinned: boolean
   /** Client-side unread marker (dsh has no unread API); display-only, no sort effect. */
   unread: boolean
+  /**
+   * 有运行中的血缘后代（子代理）——host 的 running 只管 agent 自身相位，
+   * 父会话挂载等待子代理时是 idle；展示层用这个补忙碌指示（像素环）。
+   */
+  descendantRunning: boolean
 }
 
 export interface WorkspaceNodeModel {
@@ -99,7 +104,9 @@ export function formatRelativeTime(updatedAt: number, now: number): string {
  * keeps only sessions whose label or id contains it (case-insensitive) and
  * drops workspaces left without a match. Sessions not referenced by any
  * workspace's sessionIds form a synthetic「未分组」group (UNGROUPED_WORKSPACE_ID,
- * empty path) appended last — same as dsh web's ungrouped section.
+ * empty path) appended last — same as dsh web's ungrouped section. Lineage
+ * children (parentSessionId set) never appear as rows; they only feed the
+ * parent's descendantRunning busy flag.
  */
 export function buildSessionTree(
   workspaces: WorkspaceInput[],
@@ -113,6 +120,24 @@ export function buildSessionTree(
   const byId = new Map(sessions.map((s) => [s.sessionId, s]))
   const query = view.query?.trim().toLowerCase() ?? ''
   const sort = view.sort ?? 'updatedDesc'
+
+  // 血缘：parentSessionId 把子代理挂在父会话下。子代理行不进任何组
+  // （workspace 不引用它们，也未分组组也不收——见下方 orphans 过滤），
+  // 只在这里贡献「有运行中后代」的忙碌判定。
+  const childrenOf = new Map<string, SessionInput[]>()
+  for (const s of sessions) {
+    if (!s.parentSessionId) continue
+    const kids = childrenOf.get(s.parentSessionId) ?? []
+    kids.push(s)
+    childrenOf.set(s.parentSessionId, kids)
+  }
+  const hasRunningDescendant = (sessionId: string, seen: ReadonlySet<string> = new Set()): boolean => {
+    if (seen.has(sessionId)) return false
+    const nextSeen = new Set(seen).add(sessionId)
+    return (childrenOf.get(sessionId) ?? []).some(
+      (k) => k.running || hasRunningDescendant(k.sessionId, nextSeen),
+    )
+  }
 
   // 会话行流水线：label 解析（query 匹配和 title 排序都要用，先算一次）→
   // 查询过滤 → pinned 优先 + view.sort。workspace 组与「未分组」组共用。
@@ -140,6 +165,7 @@ export function buildSessionTree(
         running: session.running,
         pinned: view.pinned?.has(session.sessionId) === true,
         unread: view.unread?.has(session.sessionId) === true,
+        descendantRunning: hasRunningDescendant(session.sessionId),
       }))
 
   const ordered = [...workspaces].sort((a, b) => {
@@ -163,9 +189,12 @@ export function buildSessionTree(
   })
 
   // 未被任何 workspace 引用的会话：合成「未分组」虚拟组排在最后。
+  // 血缘子行（有 parentSessionId 的子代理）不算未分组——它们属于父会话，
+  // 只参与忙碌聚合，不在面板单列。
   const referenced = new Set(workspaces.flatMap((w) => w.sessionIds))
   const orphans = sessions.filter(
-    (s) => !referenced.has(s.sessionId) && !s.blank && !archivedSessionIds.has(s.sessionId),
+    (s) =>
+      !referenced.has(s.sessionId) && !s.parentSessionId && !s.blank && !archivedSessionIds.has(s.sessionId),
   )
   const orphanNodes = toSessionNodes(orphans)
   if (orphanNodes.length > 0) {

@@ -212,6 +212,8 @@ const STYLE = `
   .job-dot.done { background: var(--vscode-testing-iconPassed, #73c991); }
   .job-dot.warning { background: var(--vscode-editorWarning-foreground, #cca700); }
   .job-dot.error { background: var(--vscode-errorForeground, #f14c4c); }
+  /* 子代理下拉的「已完成」状态点（对齐官方 ready 蓝块；运行中行用像素环）。 */
+  .job-dot.settled-dot { background: var(--vscode-charts-blue, #5686fe); }
   .job-kind {
     flex: none; font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: 4px;
     background: var(--vscode-badge-background, rgba(127,127,127,.25));
@@ -552,6 +554,7 @@ const STYLE = `
     margin-top: 1px; font-size: 11px; line-height: 1.4; opacity: 0.6; white-space: normal;
   }
   .preset-item .check { align-self: center; }
+  .preset-item .job-dot-slot { align-self: center; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
   .menu-hint { padding: 8px; opacity: .7; }
   .slash-popup { max-height: 40vh; }
@@ -903,10 +906,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     if (!state.sessionId) return state
     const subagents = this.store
       .rawList()
-      .filter((s) => s.parentSessionId === state.sessionId && s.running)
+      // 全部 continuable 子代理（含已完成），运行中优先、再按新近排序；
+      // 状态点由 webview 按 running 字段画。
+      .filter((s) => s.parentSessionId === state.sessionId)
+      .sort((a, b) => Number(b.running) - Number(a.running) || b.updatedAt - a.updatedAt)
       .map((s) => ({
         sessionId: s.sessionId,
         title: s.title ?? `会话 ${s.sessionId.slice(0, 8)}`,
+        running: s.running,
         ...(s.totalTokens !== undefined ? { totalTokens: s.totalTokens } : {}),
         updatedAt: s.updatedAt,
       }))
@@ -917,7 +924,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       !state.agentPreset && presetId !== undefined ? this.controller?.agentPresetLabelFor(presetId) : undefined
     return {
       ...state,
-      ...(subagents.length > 0 ? { runningSubagents: subagents } : {}),
+      ...(subagents.length > 0 ? { subagents } : {}),
       ...(jobs.length > 0 ? { backgroundJobs: jobs } : {}),
       ...(workspaceLabel ? { workspaceLabel } : {}),
       ...(presetLabel ? { presetLabel } : {}),

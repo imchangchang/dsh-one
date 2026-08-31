@@ -18,12 +18,13 @@ const ws = (
 
 const s = (
   sessionId: string,
-  opts: { updatedAt?: number; running?: boolean; blank?: boolean } = {},
+  opts: { updatedAt?: number; running?: boolean; blank?: boolean; parentSessionId?: string } = {},
 ): SessionInput => ({
   sessionId,
   updatedAt: opts.updatedAt ?? NOW,
   running: opts.running ?? false,
   blank: opts.blank ?? false,
+  ...(opts.parentSessionId ? { parentSessionId: opts.parentSessionId } : {}),
 })
 
 const noTitles = () => null
@@ -257,6 +258,42 @@ test('unread marks nodes without affecting order', () => {
   // 未读只是展示标记，不参与排序（仍按 updatedAt 倒序）。
   assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'b'])
   assert.deepEqual(tree[0].sessions.map((n) => n.unread), [false, true])
+})
+
+test('lineage children never appear as rows; a running one flags the parent descendantRunning', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['parent'])],
+    [s('parent'), s('child', { running: true, parentSessionId: 'parent' })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+  )
+  // 子代理行不进 workspace 组，也不进「未分组」组。
+  assert.equal(tree.length, 1)
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['parent'])
+  assert.equal(tree[0].sessions[0].running, false)
+  assert.equal(tree[0].sessions[0].descendantRunning, true)
+})
+
+test('descendantRunning is transitive and clears when all descendants are idle', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['p1', 'p2'])],
+    [
+      s('p1'),
+      s('p2'),
+      s('child', { parentSessionId: 'p1' }),
+      s('grandchild', { running: true, parentSessionId: 'child' }),
+      s('idle-child', { parentSessionId: 'p2' }),
+    ],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+  )
+  // 孙子 running 也会沿血缘传导到 p1；p2 的子代理空闲则不标。
+  assert.equal(tree[0].sessions.find((n) => n.sessionId === 'p1')?.descendantRunning, true)
+  assert.equal(tree[0].sessions.find((n) => n.sessionId === 'p2')?.descendantRunning, false)
 })
 
 test('formatRelativeTime covers every tier', () => {

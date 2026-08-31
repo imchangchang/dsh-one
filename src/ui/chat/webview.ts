@@ -707,16 +707,21 @@ function renderModelMenuEfforts(body: HTMLElement, catalog: ModelCatalog): void 
   }
 }
 
-/** 头部「N 个子代理」chip 的下拉：每行标题 + 第二行摘要（相对时间 · token 用量）。 */
+/** 头部「N 个子代理」chip 的下拉：每行状态点（运行中像素环/已完成灰点）+ 标题 + 第二行摘要（相对时间 · token 用量）。 */
 function openSubagentMenu(anchor: HTMLElement): void {
-  const subs = state?.runningSubagents
+  const subs = state?.subagents
   if (!subs || subs.length === 0) return
   const body = el('div')
   for (const sub of subs) {
     const item = el('div', 'menu-item preset-item')
+    const slot = el('span', 'job-dot-slot')
+    if (sub.running) slot.appendChild(spinSvg())
+    else slot.appendChild(el('span', 'job-dot settled-dot'))
+    item.appendChild(slot)
     const main = el('div', 'preset-item-main')
     main.appendChild(el('div', 'preset-item-name', sub.title))
     const summary = [
+      sub.running ? '进行中' : '已完成',
       formatRelativeTime(sub.updatedAt, Date.now()),
       sub.totalTokens !== undefined ? `${formatTokens(sub.totalTokens)} tok` : '',
     ]
@@ -1036,7 +1041,7 @@ function render(): void {
     else chatCol.appendChild(node)
   }
   const jobsLabel = state.backgroundJobs ? jobsChipLabel(state.backgroundJobs) : null
-  if (state.sessionTitle || state.presetLabel || (state.runningSubagents?.length ?? 0) > 0 || jobsLabel) {
+  if (state.sessionTitle || state.presetLabel || (state.subagents?.length ?? 0) > 0 || jobsLabel) {
     const header = el('div', 'chat-header')
     // 标题 ellipsis 截断但 hover 出完整标题（原生 title tooltip）。
     const titleSpan = el('span', 'chat-title', state.sessionTitle ?? '')
@@ -1050,12 +1055,13 @@ function render(): void {
       header.appendChild(rename)
     }
     // 「N 个子代理」chip（对齐官方 SubagentHeader trigger：透明底小字 + chevron）：
-    // 点击弹下拉，行点击附着子会话。
-    if (state.runningSubagents && state.runningSubagents.length > 0) {
+    // 点击弹下拉，行点击附着子会话。chip 在有运行中子代理时带像素环。
+    if (state.subagents && state.subagents.length > 0) {
       const chip = buttonEl('header-chip', '')
-      chip.appendChild(el('span', undefined, `${state.runningSubagents.length} 个子代理`))
+      if (state.subagents.some((sub) => sub.running)) chip.appendChild(spinSvg())
+      chip.appendChild(el('span', undefined, `${state.subagents.length} 个子代理`))
       chip.appendChild(iconSvg(PANEL_ICONS.chevronDown, 14))
-      chip.title = '正在运行的子代理'
+      chip.title = '子代理'
       chip.addEventListener('click', () => openSubagentMenu(chip))
       header.appendChild(chip)
     }
@@ -1577,9 +1583,12 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
   // 行首状态槽对齐官方 dsh web：固定宽度，三种标记同一位置居中——
   // 运行中像素环 > 未读蓝点 > 置顶图钉；组合状态下被挤掉的图钉退到标题前。
+  // 忙碌判定并入「有运行中后代」：父会话挂载等待子代理时自身是 idle，
+  // 但整组仍在活动（host 的 running 不含子代理相位）。
+  const busy = s.running || s.descendantRunning
   const slot = el('span', 'session-status')
-  const slotTaken = s.running || s.unread
-  if (s.running) slot.appendChild(spinSvg())
+  const slotTaken = busy || s.unread
+  if (busy) slot.appendChild(spinSvg())
   else if (s.unread) slot.appendChild(el('span', 'session-dot'))
   else if (pinned) slot.appendChild(makePinIcon())
   row.appendChild(slot)
