@@ -43,6 +43,7 @@ import { attachmentDataUrl, isImageMediaType } from '../../pure/composerAttachme
 import { USER_SCROLL_INTENT_MS, isNearBottom, isScrollKey } from '../../pure/scrollFollow.ts'
 import { formatDuration } from '../../pure/sessionStats.ts'
 import {
+  SESSION_REFERENCE_SCHEME,
   decodeSessionReferenceUri,
   expandMentionBindings,
   formatSessionMention,
@@ -202,10 +203,10 @@ function md(text: string): string {
   })
 }
 
-/** @会话 chip：点击附着被引用的会话（复用 sessions 面板的 sessionOpen 通路）。 */
+/** @会话超链接 chip：点击打开被引用的会话（复用 sessions 面板的 sessionOpen 通路）。 */
 function sessionMentionChip(label: string, sessionId: string): HTMLElement {
   const chip = buttonEl('session-mention', `@${label}`)
-  chip.title = `引用会话 ${sessionId}，点击附着`
+  chip.title = `引用会话 ${sessionId}，点击打开`
   chip.addEventListener('click', () => post({ type: 'sessionOpen', sessionId }))
   return chip
 }
@@ -426,9 +427,10 @@ let slashRows: SlashRow[] = []
 let slashIndex = 0
 
 /**
- * @ 补全插入的显示 token（`@标题`）→ canonical mention 的映射，发送时由
- * expandMentionBindings 展开（src/pure/sessionMention.ts）。常驻不清理：
- * token 指向的是固定会话，之后的消息里再写同一 token 也应展开成同一引用。
+ * 显示 token（`@标题`）→ canonical mention 的映射，发送时由
+ * expandMentionBindings 展开（src/pure/sessionMention.ts）。@ 补全和
+ * mention 粘贴都会登记。常驻不清理：token 指向的是固定会话，之后的
+ * 消息里再写同一 token 也应展开成同一引用。
  */
 const mentionBindings = new Map<string, string>()
 
@@ -565,6 +567,42 @@ function computeMentionRows(input: HTMLTextAreaElement): SlashRow[] {
         input.dispatchEvent(new Event('input'))
       },
     }))
+}
+
+/**
+ * 粘贴板文本含 canonical 会话 mention（"复制引用"的产物 `@[标题](dsh-session:...)`）
+ * 时接管粘贴：mention 换成 @ 补全同款的显示 token 并登记 mentionBindings
+ * （发送时才展开）；光标前正在输入的 @query 触发词一并吃掉，先打 @ 再粘贴
+ * 不会变成 `@@标题`。末尾是 mention 时补一个空格，与接着输入的文字隔开。
+ * 返回是否已处理；普通文本粘贴返回 false，走默认行为。
+ */
+function pasteSessionMentions(input: HTMLTextAreaElement, e: ClipboardEvent): boolean {
+  const pasted = e.clipboardData?.getData('text/plain')
+  if (!pasted || !pasted.includes(SESSION_REFERENCE_SCHEME)) return false
+  const segments = splitSessionMentions(pasted)
+  if (!segments.some((seg) => typeof seg !== 'string')) return false
+  e.preventDefault()
+  const inserted = segments
+    .map((seg) => {
+      if (typeof seg === 'string') return seg
+      const token = mentionDisplayToken(seg.label, seg.sessionId, mentionBindings)
+      mentionBindings.set(token, formatSessionMention(seg.label, seg.sessionId))
+      return token
+    })
+    .join('')
+  let before = input.value.slice(0, input.selectionStart)
+  if (inserted.startsWith('@')) {
+    const trigger = /(^|\s)@[^\s@]{0,30}$/.exec(before)
+    if (trigger) before = before.slice(0, before.length - trigger[0].length) + trigger[1]
+  }
+  const after = input.value.slice(input.selectionEnd)
+  const endsWithMention = typeof segments[segments.length - 1] !== 'string'
+  const pad = endsWithMention && !/^\s/.test(after) ? ' ' : ''
+  input.value = before + inserted + pad + after
+  const caret = before.length + inserted.length + pad.length
+  input.setSelectionRange(caret, caret)
+  input.dispatchEvent(new Event('input'))
+  return true
 }
 
 /** Compact token count: 517 / 12.2K / 517K / 1.2M (dsh-web's formatTokens). */
@@ -2713,7 +2751,10 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     // Every clipboard file becomes an attachment, images or not — the host
     // sniffs the bytes, so a missing declared type (macOS file promises) is fine.
     const items = Array.from(e.clipboardData?.items ?? []).filter((item) => item.kind === 'file')
-    if (items.length === 0) return
+    if (items.length === 0) {
+      pasteSessionMentions(input, e)
+      return
+    }
     e.preventDefault()
     void (async () => {
       const files: OutgoingImage[] = []
