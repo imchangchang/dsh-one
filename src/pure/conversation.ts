@@ -194,6 +194,19 @@ export class ConversationFolder {
     for (const entry of entries) this.applyEvent(entry.event, entry.view)
   }
 
+  /**
+   * Prepend an older history page (「加载更早」). The host aligns page
+   * boundaries to message boundaries, so the older page folds in a scratch
+   * folder and its (complete) messages go in front of the current ones;
+   * existing fold state (the open streaming turn, tool pairing) is untouched.
+   */
+  prependHistory(entries: readonly HistoryEntryLike[]): void {
+    if (entries.length === 0) return
+    const older = new ConversationFolder()
+    for (const entry of entries) older.applyEvent(entry.event, entry.view)
+    this.msgs = [...older.messages(), ...this.msgs]
+  }
+
   /** Fold one event; returns true when the rendered messages changed. */
   applyEvent(event: SessionEventLike, view?: ToolEventViewLike): boolean {
     const data = (event.data ?? {}) as Record<string, unknown>
@@ -338,6 +351,9 @@ export class ConversationFolder {
   }
 
   private ensureAssistant(turn: number, seq: number): ChatAssistantMessage {
+    // 窗口分页下 turn/start 可能落在窗口外（长 turn 的工具事件就能把页填满）；
+    // 窗口是日志的连续后缀，内容事件的 turn 没有配对的 turn/end 就是还在跑。
+    if (Number.isFinite(turn)) this.openTurns.add(turn)
     if (this.current) {
       this.current.seq = seq
       return this.current

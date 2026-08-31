@@ -178,10 +178,18 @@ export interface ChatState {
   sessionId: string | null
   sessionTitle?: string
   /**
-   * 历史基线（session.history 翻页）还在加载：webview 此时显示加载占位而不是
+   * 历史基线（session.history 尾部窗口）还在加载：webview 此时显示加载占位而不是
    * 空会话 hero，避免切换会话时 hero 闪一帧再被消息流替换。
    */
   loading?: boolean
+  /**
+   * 历史窗口之前还有更早的消息（session.history 的 hasMore；窗口分页，
+   * 对齐官方 loadOlder）：webview 在消息列表顶部显示「加载更早」，点击或
+   * 上翻到顶时发 loadEarlier。
+   */
+  hasEarlierHistory?: boolean
+  /** 一页更早历史正在加载：按钮变加载态，webview 的滚动锚定也靠它配对。 */
+  loadingEarlier?: boolean
   messages: ChatMessage[]
   pending: PendingRequest[]
   /**
@@ -387,6 +395,8 @@ export type FromWebviewMessage =
   | { type: 'feedback'; messageId: string; rating: 'positive' | 'negative' | null }
   /** Fork the session at a completed turn's last event seq (ChatAssistantMessage.seq). */
   | { type: 'fork'; atSeq: number }
+  /** 加载更早的一页历史（窗口分页；ChatState.hasEarlierHistory 为 true 时才有意义）。 */
+  | { type: 'loadEarlier' }
   /** Open the official dsh install page in the system browser. */
   | { type: 'openInstallPage' }
   /** Sessions 面板：附着一个会话（点击会话行）。 */

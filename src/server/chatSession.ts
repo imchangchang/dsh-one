@@ -24,11 +24,11 @@ import {
 import type { ImageLimits, SessionModels } from './dshRpc.ts'
 import { agentPresetDescription, agentPresetLabel, defaultAgentPresetId, resolveAgentPresets } from '../pure/agentPreset.ts'
 import type { AgentPresetOption } from '../pure/agentPreset.ts'
+import { extendWindowCursor, pageMeetsWindow, windowCursorOf } from '../pure/historyWindow.ts'
+import type { HistoryWindowCursor } from '../pure/historyWindow.ts'
 
 /** Streaming snapshots are pushed at most this often; structural changes flush immediately. */
 const FLUSH_INTERVAL_MS = 100
-/** Safety bound on the history back-pagination at attach time. */
-const MAX_HISTORY_PAGES = 100
 /** Mux reconnect backoff: 1s doubling up to this cap. */
 const RECONNECT_MAX_MS = 30_000
 
@@ -245,6 +245,12 @@ export class ChatSessionController implements vscode.Disposable {
   /** Agent preset picker state (blank sessions only): roster options + the pinned id. */
   private agentPresetOptions: AgentPresetOption[] = []
   private agentPresetCurrent: string | undefined
+  /** Seq watermark of agentPresetCurrent：窗口分页下更早的页后到，旧选择不得覆盖新值。 */
+  private agentPresetSeq = -1
+  /** 历史窗口游标（窗口分页）：earliestSeq 之前的更早历史可按需 loadEarlier。 */
+  private historyCursor: HistoryWindowCursor = { earliestSeq: undefined, hasMore: false }
+  /** 一页更早历史正在加载（防重入；ChatState.loadingEarlier 驱动按钮加载态）。 */
+  private loadingEarlier = false
   /** Watermark for the title projection's higher-seq-wins rule. */
   private titleSeq = -1
   /** Permission select from the `permissions` projection (higher seq wins). */
@@ -312,6 +318,8 @@ export class ChatSessionController implements vscode.Disposable {
       running: this.serverRunning ?? this.folder.hasOpenTurn(),
       canSend: this.ready && !this.disposed,
       loading: !this.ready,
+      hasEarlierHistory: this.historyCursor.hasMore,
+      loadingEarlier: this.loadingEarlier,
       modelLabel: this.modelLabel,
       permissions: this.permissions,
       statsLine: this.statsLine,
@@ -415,6 +423,37 @@ export class ChatSessionController implements vscode.Disposable {
     return forkSession(this.url, this.sessionId, atSeq)
   }
 
+  /**
+   * 「加载更早」：以窗口首事件 seq 为 beforeSeq 向前翻一页（对齐官方
+   * loadOlder），拼到已折叠消息的前面。页与窗口衔接不上（日志有洞）就
+   * 停止向前翻——硬拼会把断档两侧的内容接成错位对话。
+   */
+  async loadEarlier(): Promise<void> {
+    const beforeSeq = this.historyCursor.earliestSeq
+    if (!this.ready || this.loadingEarlier || !this.historyCursor.hasMore || beforeSeq === undefined) return
+    this.loadingEarlier = true
+    this.push(true)
+    try {
+      const page = await sessionHistory(this.url, this.sessionId, beforeSeq)
+      if (this.disposed) return
+      if (!pageMeetsWindow(page, this.historyCursor)) {
+        this.logger.warn(`chat: history page of ${this.sessionId} discontinuous before seq ${beforeSeq}; stop paging`)
+        this.historyCursor = { ...this.historyCursor, hasMore: false }
+        return
+      }
+      this.folder.prependHistory(page.events)
+      for (const entry of page.events) this.foldPresetMarkers(entry.event)
+      this.historyCursor = extendWindowCursor(this.historyCursor, page)
+      // 新拼进来的消息可能带着已存的评分（messageFeedback 基线早已拉过）。
+      applyFeedbackRatings(this.folder.messages(), this.feedback)
+    } catch (error) {
+      this.logger.warn(`chat: load earlier history failed for ${this.sessionId}: ${errorText(error)}`)
+    } finally {
+      this.loadingEarlier = false
+      this.push(true)
+    }
+  }
+
   /** Fetch messageFeedback/list and merge the ratings into the folded messages. */
   private async refreshFeedback(): Promise<void> {
     const items = await listMessageFeedback(this.url, this.sessionId)
@@ -470,23 +509,23 @@ export class ChatSessionController implements vscode.Disposable {
 
   /**
    * History + projection baseline. Used by init and by reconnect re-baseline:
-   * a full reset, so callers must not hold folded state across it.
+   * a full reset, so callers must not hold folded state across it. 只拉尾部
+   * 一个窗口（对齐官方 Session.doOpen 的 maxMessages 窗口），更早的历史由
+   * loadEarlier 按需向前翻；重连 re-baseline 同样只回到尾窗（官方 resync
+   * 也是 reset the window and rerun open）。
    */
   private async loadBaseline(): Promise<void> {
-    let page = await sessionHistory(this.url, this.sessionId)
+    const page = await sessionHistory(this.url, this.sessionId)
     const projections = page.projections
-    let events: HistoryEntryLike[] = page.events
-    let pages = 1
-    while (page.hasMore && events.length > 0 && pages < MAX_HISTORY_PAGES) {
-      page = await sessionHistory(this.url, this.sessionId, events[0].event.seq)
-      events = [...page.events, ...events]
-      pages += 1
-    }
-    if (page.hasMore) this.logger.warn(`chat: history of ${this.sessionId} truncated at ${MAX_HISTORY_PAGES} pages`)
+    const events: HistoryEntryLike[] = page.events
+    this.historyCursor = windowCursorOf(page)
     this.folder.applyHistory(events)
     // Preset picker 的两个判定都来自会话日志：任何 turn/start = 已启动
     // （preset 锁定），最后一条 agent-preset/selected = 当前 preset。
     for (const entry of events) this.foldPresetMarkers(entry.event)
+    // 窗口可能把全部 turn/start 切到界外（turn 跨页）：窗口里已有对话内容
+    // （user/assistant 消息）同样说明会话早已开跑，preset 已锁定。
+    if (this.folder.messages().some((m) => m.kind === 'user' || m.kind === 'assistant')) this.turnStarted = true
     this.maxSeqFolded = events.reduce((max, entry) => Math.max(max, entry.event.seq), -1)
     if (projections) {
       this.titleSeq = projections.asOfSeq
@@ -596,8 +635,13 @@ export class ChatSessionController implements vscode.Disposable {
       return
     }
     if (event.type === 'agent-preset/selected') {
+      // higher seq wins：loadEarlier 会把更早的页后补进来，旧选择不能覆盖新值。
+      if (event.seq <= this.agentPresetSeq) return
       const id = (event.data as Record<string, unknown> | undefined)?.agentPreset
-      if (typeof id === 'string' && id) this.agentPresetCurrent = id
+      if (typeof id === 'string' && id) {
+        this.agentPresetCurrent = id
+        this.agentPresetSeq = event.seq
+      }
     }
   }
 

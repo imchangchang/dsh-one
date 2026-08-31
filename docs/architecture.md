@@ -19,7 +19,7 @@ dsh-one/
 │   │   ├── spawnDsh.ts     # 短命启动器：detached spawn dsh 后立即退出，使其脱离扩展宿主进程树（防 reload 树杀）
 │   │   ├── dshRpc.ts       # host RPC 客户端（workspace.create、session 增删改查等）
 │   │   ├── muxEvents.ts    # 订阅会话事件流（WS /api/events.mux）；无重连，见 docs/backlog/mux-reconnect.md
-│   │   ├── chatSession.ts  # ChatSessionController：历史基线 + mux 事件折叠为 ChatState，回答用户动作；running 位读服务段位（SessionsStore 中继）
+│   │   ├── chatSession.ts  # ChatSessionController：历史窗口基线（session.history 尾窗 + loadEarlier 向前翻页）+ mux 事件折叠为 ChatState，回答用户动作；running 位读服务段位（SessionsStore 中继）
 │   │   └── hostEvents.ts   # 订阅 host 事件流（WS /api/events.host），转发 method + 原始 payload
 │   ├── ui/
 │   │   ├── webview.ts      # 编辑器标签页 WebviewPanel，iframe 嵌入 dsh web
@@ -31,6 +31,7 @@ dsh-one/
 │   └── pure/               # 纯逻辑，禁止 import vscode（可用 node --test 直接单测）
 │       ├── chatContract.ts # 宿主 ↔ 聊天 webview 的消息契约 + ChatState 模型（接口冻结）
 │       ├── conversation.ts # 会话事件折叠成 ChatMessage 列表；turn 失败（turn/end error reason）折叠成「本轮运行失败」错误行
+│       ├── historyWindow.ts # session.history 窗口分页：窗口参数拼装（对齐官方 maxMessages: 50）、游标推进与页衔接判定
 │       ├── contextMeter.ts # 上下文容量条分级与预估：perTurn = used/turns，剩余轮数定绿/黄/红，超限即 overflow
 │       ├── agentPreset.ts  # Agent preset 文案：roster → 选项（官方 system preset 中文化、broken 过滤、默认行、头部只读标签映射）
 │       ├── toolLine.ts     # 工具行式排版：工具名 → kimi-cli 风格动作短语；工具输出前 N 行截断（共 N 行提示）
