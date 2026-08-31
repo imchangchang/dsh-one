@@ -20,3 +20,7 @@
 
 - `src/pure/scrollFollow.ts` — 贴底跟随的纯函数判定
 - `src/ui/chat/webview.ts` — 聊天 webview，发送消息与滚动行为都在这里
+
+## 变更记录
+
+- 2026-08-31 认领（worktree: agent/scroll-to-bottom-on-send）→ doing

@@ -23,3 +23,7 @@
 - `src/server/muxEvents.ts`、`src/ui/jobsStore.ts`（jobs 订阅）
 - `src/server/hostEvents.ts`、`src/ui/sessionsStore.ts`（host 帧订阅）
 - 参考实现：`src/server/chatSession.ts`（`RECONNECT_MAX_MS`、`reconnectAttempts`、重基线缝合）
+
+## 变更记录
+
+- 2026-08-31 认领（worktree: agent/mux-reconnect）→ doing
