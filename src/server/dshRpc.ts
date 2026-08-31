@@ -3,6 +3,7 @@ import type { HistoryEntryLike } from '../pure/conversation.ts'
 import { historyWindowRequest } from '../pure/historyWindow.ts'
 import type { OutgoingImage } from '../pure/chatContract.ts'
 import type { AgentPresetLike } from '../pure/agentPreset.ts'
+import type { FileRefCandidate } from '../pure/fileReference.ts'
 
 export interface WorkspaceView {
   workspaceId: string
@@ -391,6 +392,19 @@ export async function listMessageFeedback(baseUrl: string, sessionId: string): P
     await callRpc(baseUrl, 'messageFeedback/list', { args: { request: { sessionId } } }),
   )
   return Array.isArray(value.items) ? value.items : []
+}
+
+/**
+ * @ 补全的文件/文件夹候选（fileReferences/list Remote，与 dsh web 同一个
+ * 端点）。路径相对会话 cwd；query 是 @ 后的原文，空串或带 / 时按目录层级
+ * 列举，否则全局排名搜索（host 侧上限 20 条）。
+ */
+export async function listFileReferences(baseUrl: string, sessionId: string, query: string): Promise<FileRefCandidate[]> {
+  const value = unwrapRemote<FileRefCandidate[]>(
+    'fileReferences/list',
+    await callRpc(baseUrl, 'fileReferences/list', { args: { agentId: sessionId, query } }),
+  )
+  return Array.isArray(value) ? value : []
 }
 
 /**
