@@ -1482,20 +1482,9 @@ function render(): void {
     editingQueueItem = null
   }
 
-  if (state.jobs && state.jobs.length > 0) {
-    const jobs = el('div', 'queue')
-    for (const job of state.jobs) {
-      const row = el('div', 'queue-item')
-      const tag = el('span', 'queue-tag', job.kind)
-      row.appendChild(tag)
-      if (job.status === 'running') row.appendChild(el('span', 'spinner'))
-      row.appendChild(
-        el('span', 'queue-text', `${job.label}${job.detail ? `（${job.detail}）` : ''}${job.status === 'stopping' ? ' — 停止中' : ''}`),
-      )
-      jobs.appendChild(row)
-    }
-    add(jobs)
-  }
+  // Live-jobs 内联横条已移除（对齐官方 dsh web：只留头部「N 个后台任务」chip）：
+  // 任务信息由 state.backgroundJobs → 头部 chip / openJobsMenu 菜单承担。
+  // state.jobs 仍被上方 blankHero 空态判断消费，链路保留。
 
   if (keepComposer && oldComposer) {
     // The composer element was never detached, so focus, caret, and any

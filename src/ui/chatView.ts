@@ -564,7 +564,6 @@ const STYLE = `
     border-radius: 4px; font-family: inherit; font-size: 0.9em;
   }
   .queue + .input-area { border-top: 0; }
-  .queue + .queue { border-top: 0; padding-top: 0; }
   .input-row { display: flex; gap: 8px; align-items: center; }
   .input-footer { display: flex; gap: 6px; align-items: center; }
   .stats-row { display: flex; align-items: center; gap: 10px; }
