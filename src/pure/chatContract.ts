@@ -241,7 +241,9 @@ export interface ChatState {
   statsLine?: string
   /**
    * Still-pending queued/steering inbox items (session/queue frames). These
-   * are not durable session events, so they never appear in `messages`.
+   * are not durable session events, so they never appear in `messages`;
+   * the webview renders `queued` ones above the composer and `steering`
+   * ones as pending bubbles at the transcript tail (official web parity).
    */
   queue?: QueuedItem[]
   /** Live background jobs (session/jobs frames); settled jobs drop out of the snapshot. */
@@ -275,7 +277,7 @@ export interface JobItem {
   detail?: string
 }
 
-/** One queued prompt awaiting the agent, shown above the composer. */
+/** One pending inbox prompt: `queued` shows above the composer, `steering` at the transcript tail. */
 export interface QueuedItem {
   id: string
   placement: 'queued' | 'steering'
