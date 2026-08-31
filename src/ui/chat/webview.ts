@@ -1562,6 +1562,12 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
         ),
       )
     }
+    // 软移除（dsh web 同款）：只删注册表记录，确认弹窗在 host 侧。
+    headActions.appendChild(
+      rowAction(iconSvg(PANEL_ICONS.remove), '从列表移除', () =>
+        post({ type: 'workspaceRemove', workspaceId: w.workspaceId, label: w.label }),
+      ),
+    )
     head.appendChild(headActions)
   }
   // 整行点击 = 折叠/展开（行内按钮已 stopPropagation）；空组无可展开内容，不响应。

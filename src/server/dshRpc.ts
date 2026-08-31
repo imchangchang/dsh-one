@@ -146,6 +146,15 @@ export async function ensureWorkspace(baseUrl: string, path: string): Promise<Wo
 }
 
 /**
+ * Soft-remove a workspace: only the registry record goes away — the folder
+ * on disk and its session logs are kept, and its sessions fall back to
+ * ungrouped (dsh web's delete semantics; dsh 本来就没有彻底删除能力）。
+ */
+export async function deleteWorkspace(baseUrl: string, workspaceId: string): Promise<void> {
+  await callRpc(baseUrl, 'workspace.delete', { workspaceId })
+}
+
+/**
  * Make sure the workspace has a session for the UI to land on. Reuses a blank
  * session when one exists (same rule as the official client), otherwise
  * creates a fresh one.

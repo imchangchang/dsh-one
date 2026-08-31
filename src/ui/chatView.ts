@@ -7,6 +7,7 @@ import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { ChatSessionController } from '../server/chatSession.ts'
 import {
+  deleteWorkspace,
   executeCommand,
   exportSessionLog,
   renameSession,
@@ -20,6 +21,10 @@ import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, To
 import { orderJobs } from '../pure/activityTree.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
 /** Media type by file extension (dsh ImageMediaType: png/jpeg/webp/gif). */
 const IMAGE_MEDIA_TYPES: Record<string, string> = {
@@ -997,6 +1002,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       case 'workspacesCollapseAll':
         this.store.collapseAll()
         return
+      case 'workspaceRemove':
+        void this.removeWorkspace(m.workspaceId, m.label)
+        return
       case 'sessionFork':
         void vscode.commands.executeCommand('dshOne.session.fork', m.sessionId)
         return
@@ -1164,6 +1172,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       if (!confirm) return
     }
     await this.runCommand(controller, `/permission ${value}`)
+  }
+
+  /**
+   * 软移除 workspace（dsh web 同款语义）：modal 确认后调 host 的
+   * workspace.delete——只删注册表记录，磁盘文件夹与会话日志保留，
+   * 组内会话归入「未分组」。当前 VSCode 窗口打开的 workspace 也允许移除。
+   */
+  private async removeWorkspace(workspaceId: string, label: string): Promise<void> {
+    const url = this.store.runningUrl
+    if (!url) return
+    const confirm = await vscode.window.showWarningMessage(
+      `将把“${label}”从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在“未分组”下。`,
+      { modal: true },
+      '从列表移除',
+    )
+    if (!confirm) return
+    try {
+      await deleteWorkspace(url, workspaceId)
+    } catch (error) {
+      this.logger.warn(`workspace: remove ${workspaceId} failed: ${errorText(error)}`)
+      vscode.window.showWarningMessage(`移除工作区失败：${errorText(error)}`)
+      return
+    }
+    await this.store.refresh()
   }
 
   /**

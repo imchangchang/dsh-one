@@ -154,6 +154,13 @@ const chevronsUp: IconDef = {
   ],
 }
 
+/** 叉号（本地扩展）：workspace 组头「从列表移除」。 */
+const remove: IconDef = {
+  paths: [
+    'M8 7.06L4.28 3.34L3.34 4.28L7.06 8L3.34 11.72L4.28 12.66L8 8.94L11.72 12.66L12.66 11.72L8.94 8L12.66 4.28L11.72 3.34L8 7.06Z',
+  ],
+}
+
 export const PANEL_ICONS = {
   edit,
   archive,
@@ -167,4 +174,5 @@ export const PANEL_ICONS = {
   chevronDown,
   terminal,
   chevronsUp,
+  remove,
 } as const
