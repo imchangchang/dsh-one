@@ -33,3 +33,4 @@
 ## 变更记录
 
 - 2026-08-31 认领（worktree: agent/jobs-inline-bar-vs-head-chip）→ doing
+- 2026-08-31 开发完成，自测通过 → done
