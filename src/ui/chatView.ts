@@ -854,6 +854,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     this.controllerSub = null
     this.controller?.dispose()
     this.controller = controller
+    // 附着中的会话不打「已完成」标记，附着即清除（store 侧内存集合）。
+    this.store.setAttachedSession(controller?.sessionId ?? null)
     if (controller) {
       this.controllerSub = controller.onDidChange((state) => {
         this.push(state)

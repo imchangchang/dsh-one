@@ -86,6 +86,14 @@ export class SessionsStore implements vscode.Disposable {
   private pinned = new Set<string>()
   private collapsed = new Set<string>()
   private unread = new Set<string>()
+  /**
+   * 自动「已完成」标记：观测到 running true→false 跳变且当时未附着的会话。
+   * 对齐官方 dsh web 语义——纯内存、不持久化，刷新 VS Code 后消失；
+   * 与手动未读（unread，持久化）分存，仅在展示层合并。
+   */
+  private completed = new Set<string>()
+  /** 当前附着的会话（由 ChatViewProvider 告知）：完成标记排除它，附着即清除。 */
+  private attachedId: string | null = null
   private url: string | null = null
   private hostEvents: vscode.Disposable | null = null
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -191,6 +199,18 @@ export class SessionsStore implements vscode.Disposable {
     this.onDidChangeEmitter.fire()
   }
 
+  /**
+   * Chat view 附着/脱离会话时同步：附着中的会话不打完成标记（官方语义：
+   * 当前选中的会话不标），且附着即清除其已有标记。
+   */
+  setAttachedSession(sessionId: string | null): void {
+    this.attachedId = sessionId
+    if (sessionId && this.completed.delete(sessionId)) {
+      this.rebuildModel()
+      this.onDidChangeEmitter.fire()
+    }
+  }
+
   /** Collapse/expand a workspace group; persists across reloads. */
   setCollapsed(workspaceId: string, collapse: boolean): void {
     const changed = collapse ? !this.collapsed.has(workspaceId) : this.collapsed.delete(workspaceId)
@@ -279,6 +299,7 @@ export class SessionsStore implements vscode.Disposable {
     const url = this.runningUrl
     if (!url) return
     try {
+      const prevRunning = new Map(this.rawSessions.map((s) => [s.sessionId, s.running]))
       const [workspaceList, sessions] = await Promise.all([listWorkspaces(url), listSessions(url)])
       const archived = new Set(workspaceList.archivedSessionIds)
       this.knownSessionIds = new Set(
@@ -287,6 +308,15 @@ export class SessionsStore implements vscode.Disposable {
       this.rawWorkspaces = workspaceList.items
       this.rawSessions = sessions.map((s) => toSessionInput(s))
       this.rawArchived = archived
+      // 完成标记（官方语义）：running 的 true→false 跳变入集（附着中的会话除外），
+      // 重新开始运行出集。首次刷新无旧基线，不会误标——VS Code 没开期间
+      // 完成的会话不会有标记，与官方"页面没开期间不记"一致。
+      for (const s of this.rawSessions) {
+        if (s.running) this.completed.delete(s.sessionId)
+        else if (prevRunning.get(s.sessionId) === true && s.sessionId !== this.attachedId) {
+          this.completed.add(s.sessionId)
+        }
+      }
       this.rebuildModel()
     } catch (err) {
       this.logger.warn(`sessions store: refresh failed — ${err instanceof Error ? err.message : err}`)
@@ -296,6 +326,9 @@ export class SessionsStore implements vscode.Disposable {
 
   /** Rebuild the display model from the cached baseline + current sort/query. */
   private rebuildModel(): void {
+    // 展示层合流：手动未读（持久化）与自动完成标记（内存）共用同一蓝点，
+    // 官方 dsh web 也是同一状态槽位的 done 圆点，视觉等价。
+    const unreadDisplay = this.completed.size === 0 ? this.unread : new Set([...this.unread, ...this.completed])
     this.workspaces = buildSessionTree(
       this.rawWorkspaces,
       this.rawSessions,
@@ -304,7 +337,7 @@ export class SessionsStore implements vscode.Disposable {
       (s) => s.title ?? null,
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
       Date.now(),
-      { sort: this.sortOrder, query: this.query ?? undefined, pinned: this.pinned, unread: this.unread },
+      { sort: this.sortOrder, query: this.query ?? undefined, pinned: this.pinned, unread: unreadDisplay },
     )
   }
 
