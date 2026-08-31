@@ -1426,10 +1426,10 @@ function renderEmpty(state: ChatState | null): HTMLElement {
 /* ---------------- Sessions 面板（原 dshOne.sessions 树视图合并而来） ---------------- */
 
 /** 描边小图标：dsh web 无对应物的本地扩展图标（排序、置顶图钉）保留描边风格。 */
-function strokeSvg(paths: string[]): SVGSVGElement {
+function strokeSvg(paths: string[], size = 14): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', '14')
-  svg.setAttribute('height', '14')
+  svg.setAttribute('width', String(size))
+  svg.setAttribute('height', String(size))
   svg.setAttribute('viewBox', '0 0 16 16')
   svg.setAttribute('fill', 'none')
   for (const d of paths) {
@@ -1616,10 +1616,13 @@ function renderSessions(): void {
     }, 200)
   })
   header.appendChild(search)
-  const sortBtn = panelTool(strokeSvg(SORT_ICON), '排序方式')
+  // 四个头部图标的 glyph 在各自 viewBox 里的占比不同（refresh 几乎撑满 16px，
+  // boxed 只有 11x11），统一渲染尺寸会显得一大一小。按 glyph 实际油墨范围
+  // 分别定渲染尺寸，让视觉大小都落在 ~11.5px：sort 16 / refresh 12 / boxed 16 / plus 14。
+  const sortBtn = panelTool(strokeSvg(SORT_ICON, 16), '排序方式')
   sortBtn.addEventListener('click', () => openSortMenu(sortBtn))
   header.appendChild(sortBtn)
-  const refreshBtn = panelTool(iconSvg(PANEL_ICONS.refresh), '刷新会话列表')
+  const refreshBtn = panelTool(iconSvg(PANEL_ICONS.refresh, 12), '刷新会话列表')
   refreshBtn.addEventListener('click', () => post({ type: 'sessionsRefresh' }))
   header.appendChild(refreshBtn)
   // 折叠/展开切换（仿 VSCode 的 ⊞/⊟）：有可展开的组就显示 ⊟（点击全部折叠）；
@@ -1636,7 +1639,7 @@ function renderSessions(): void {
   )
   header.appendChild(collapseAllBtn)
   // + 号开菜单（dsh web 模式）：添加已有文件夹 / 创建工作区。
-  const addBtn = panelTool(iconSvg(PANEL_ICONS.plus), '添加工作区')
+  const addBtn = panelTool(iconSvg(PANEL_ICONS.plus, 14), '添加工作区')
   addBtn.addEventListener('click', () => {
     const body = el('div')
     body.appendChild(
