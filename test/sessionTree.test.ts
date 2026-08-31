@@ -194,6 +194,21 @@ test('pinned sessions sort first, then follow the chosen order', () => {
   assert.deepEqual(tree[0].sessions.map((n) => n.pinned), [true, false, false])
 })
 
+test('unread marks nodes without affecting order', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b'])],
+    [s('a', { updatedAt: NOW - 1000 }), s('b', { updatedAt: NOW - 2000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { unread: new Set(['b']) },
+  )
+  // 未读只是展示标记，不参与排序（仍按 updatedAt 倒序）。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'b'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.unread), [false, true])
+})
+
 test('formatRelativeTime covers every tier', () => {
   assert.equal(formatRelativeTime(NOW - 500, NOW), '刚刚')
   assert.equal(formatRelativeTime(NOW - 59_000, NOW), '刚刚')

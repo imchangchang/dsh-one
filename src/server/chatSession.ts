@@ -11,15 +11,19 @@ import {
   cancelSession,
   deleteMessageFeedback,
   forkSession,
+  listAgentPresets,
   listMessageFeedback,
   promptSession,
   putMessageFeedback,
   respond,
+  selectAgentPreset,
   sessionHistory,
   sessionModels,
   updateQueue,
 } from './dshRpc.ts'
 import type { ImageLimits, SessionModels } from './dshRpc.ts'
+import { agentPresetLabel, defaultAgentPresetId, resolveAgentPresets } from '../pure/agentPreset.ts'
+import type { AgentPresetOption } from '../pure/agentPreset.ts'
 
 /** Streaming snapshots are pushed at most this often; structural changes flush immediately. */
 const FLUSH_INTERVAL_MS = 100
@@ -202,6 +206,7 @@ function asContextBreakdown(value: unknown): ContextBreakdownLike | null {
 function contextUsageOf(
   pressure: ContextPressureLike | undefined,
   breakdown: ContextBreakdownLike | undefined,
+  turns: number | undefined,
 ): ChatState['contextUsage'] {
   const used = pressure?.projectedTokens ?? pressure?.pressureTokens
   if (used === undefined || pressure?.contextWindow === undefined) return undefined
@@ -210,6 +215,7 @@ function contextUsageOf(
     usedTokens: used,
     contextWindow: pressure.contextWindow,
     ...(breakdown ? { breakdown } : {}),
+    ...(turns !== undefined ? { turns } : {}),
   }
 }
 
@@ -232,6 +238,11 @@ export class ChatSessionController implements vscode.Disposable {
   /** Latest session/jobs snapshot, live jobs only. */
   private jobs: JobItem[] = []
   private sessionTitle: string | undefined
+  /** True once any turn/start event exists (history or live stream): the agent preset locks then. */
+  private turnStarted = false
+  /** Agent preset picker state (blank sessions only): roster options + the pinned id. */
+  private agentPresetOptions: AgentPresetOption[] = []
+  private agentPresetCurrent: string | undefined
   /** Watermark for the title projection's higher-seq-wins rule. */
   private titleSeq = -1
   /** Permission select from the `permissions` projection (higher seq wins). */
@@ -239,6 +250,8 @@ export class ChatSessionController implements vscode.Disposable {
   private permissionsSeq = -1
   /** Formatted stats line from the `sessionStats` projection (higher seq wins). */
   private statsLine: string | undefined
+  /** Closed-turn count from the same projection, for the context meter's per-turn estimate. */
+  private statsTurns: number | undefined
   private statsSeq = -1
   /** Context-occupancy projections (token-meter), each higher seq wins. */
   private contextPressure: ContextPressureLike | undefined
@@ -277,10 +290,15 @@ export class ChatSessionController implements vscode.Disposable {
       jobs: [...this.jobs],
       running: this.folder.hasOpenTurn(),
       canSend: this.ready && !this.disposed,
+      loading: !this.ready,
       modelLabel: this.modelLabel,
       permissions: this.permissions,
       statsLine: this.statsLine,
-      contextUsage: contextUsageOf(this.contextPressure, this.contextBreakdown),
+      contextUsage: contextUsageOf(this.contextPressure, this.contextBreakdown, this.statsTurns),
+      // 只透给空会话：turn 一开跑 host 就锁定 preset（agent-preset-locked）。
+      ...(!this.turnStarted && this.agentPresetOptions.length > 0 && this.agentPresetCurrent
+        ? { agentPreset: { options: this.agentPresetOptions, current: this.agentPresetCurrent } }
+        : {}),
     }
   }
 
@@ -433,6 +451,9 @@ export class ChatSessionController implements vscode.Disposable {
       }
       if (page.hasMore) this.logger.warn(`chat: history of ${this.sessionId} truncated at ${MAX_HISTORY_PAGES} pages`)
       this.folder.applyHistory(events)
+      // Preset picker 的两个判定都来自会话日志：任何 turn/start = 已启动
+      // （preset 锁定），最后一条 agent-preset/selected = 当前 preset。
+      for (const entry of events) this.foldPresetMarkers(entry.event)
       if (projections) {
         this.titleSeq = projections.asOfSeq
         const title = projections.values.title
@@ -469,6 +490,61 @@ export class ChatSessionController implements vscode.Disposable {
     this.refreshModels().catch((error: unknown) => {
       this.logger.warn(`chat: session.models failed for ${this.sessionId}: ${errorText(error)}`)
     })
+    // Preset roster：空会话的选择 chip 与已开跑会话的头部 preset 标签
+    // （id → roster 显示名，见 agentPresetLabelFor）共用同一份，所以开没开跑
+    // 都拉一次（官方 AgentPresetLabel 同样在 roster 就绪后按 id 查 name）。
+    // 拉取失败只记日志。
+    this.refreshAgentPresets().catch((error: unknown) => {
+      this.logger.warn(`chat: agentPreset.list failed for ${this.sessionId}: ${errorText(error)}`)
+    })
+  }
+
+  /** Fold the preset-relevant markers of one session event (history or live). */
+  private foldPresetMarkers(event: SessionEventLike): void {
+    if (event.type === 'turn/start') {
+      this.turnStarted = true
+      return
+    }
+    if (event.type === 'agent-preset/selected') {
+      const id = (event.data as Record<string, unknown> | undefined)?.agentPreset
+      if (typeof id === 'string' && id) this.agentPresetCurrent = id
+    }
+  }
+
+  /**
+   * Fetch the preset roster. The pinned id (log marker or roster default) is
+   * the blank-session picker's current value; the options double as the
+   * id → display-name table for the started-session header label.
+   */
+  private async refreshAgentPresets(): Promise<void> {
+    const { presets } = await listAgentPresets(this.url)
+    if (this.disposed) return
+    const options = resolveAgentPresets(presets)
+    if (options.length === 0) return
+    this.agentPresetOptions = options
+    if (!this.turnStarted && !this.agentPresetCurrent) this.agentPresetCurrent = defaultAgentPresetId(presets)
+    this.push(true)
+  }
+
+  /**
+   * Preset id → 头部标签的显示名（官方 AgentPresetLabel 的映射：roster 里有
+   * 的用 roster name —— user preset 由此显示中文名而非裸 id；roster 未就绪
+   * 或未知 id 回退 agentPresetLabel：已知 system id 中文名，否则原样 id）。
+   */
+  agentPresetLabelFor(id: string): string {
+    return this.agentPresetOptions.find((o) => o.id === id)?.label ?? agentPresetLabel(id)
+  }
+
+  /**
+   * Pin an agent preset on this (blank) session. Throws on failure — the host
+   * answers agent-preset-locked once a turn exists; the caller only logs it.
+   * On success the host also appends an agent-preset/selected event, so the
+   * stream confirms the same id shortly after.
+   */
+  async setAgentPreset(id: string): Promise<void> {
+    const selected = await selectAgentPreset(this.url, this.sessionId, id)
+    this.agentPresetCurrent = selected
+    this.push(true)
   }
 
   /** Fold one `permissions` projection value into state (baseline or push frame). */
@@ -489,6 +565,7 @@ export class ChatSessionController implements vscode.Disposable {
     const stats = asStats(value)
     if (!stats) return
     this.statsLine = formatStatsLine(stats)
+    this.statsTurns = stats.turns
   }
 
   private onFrame(frame: MuxFrame): void {
@@ -506,8 +583,12 @@ export class ChatSessionController implements vscode.Disposable {
       case 'session/event': {
         const event = payload.event as SessionEventLike
         const view = payload.view as ToolEventViewLike | undefined
+        // turn/start 与 agent-preset/selected 不进对话流，但影响 preset chip
+        // 的可见性与当前值——状态变了就补一次 push。
+        const presetAffecting = event.type === 'turn/start' || event.type === 'agent-preset/selected'
+        this.foldPresetMarkers(event)
         // Chunk deltas stream-throttle; every other event is structural.
-        if (this.folder.applyEvent(event, view)) this.push(event.type !== 'assistant/chunk')
+        if (this.folder.applyEvent(event, view) || presetAffecting) this.push(event.type !== 'assistant/chunk')
         return
       }
       case 'session/projection': {

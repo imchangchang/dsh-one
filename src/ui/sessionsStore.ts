@@ -1,7 +1,8 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
 import { subscribeHostEvents } from '../server/hostEvents.ts'
-import { listSessions, listWorkspaces, sessionTitle } from '../server/dshRpc.ts'
+import { listSessions, listWorkspaces, sessionTitle, sessionTotalTokens } from '../server/dshRpc.ts'
+import type { SessionSummary } from '../server/dshRpc.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import {
   buildSessionTree,
@@ -14,6 +15,22 @@ import {
 /** Debounce window for host-event-driven refreshes. */
 const REFRESH_DEBOUNCE_MS = 500
 
+/** Map one session.list entry onto the pure-layer SessionInput. */
+function toSessionInput(s: SessionSummary): SessionInput {
+  const totalTokens = sessionTotalTokens(s)
+  return {
+    sessionId: s.sessionId,
+    updatedAt: s.updatedAt,
+    running: s.running,
+    blank: s.blank,
+    title: sessionTitle(s),
+    ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
+    ...(s.origin ? { origin: s.origin } : {}),
+    ...(s.agentPreset !== undefined ? { agentPreset: s.agentPreset } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+  }
+}
+
 /** Local tick for relative-time labels; rebuilds from the cached baseline, no RPC. */
 const RELATIVE_TIME_TICK_MS = 60_000
 
@@ -22,6 +39,8 @@ const SORT_STATE_KEY = 'sessions.sortOrder'
 /** workspaceState keys for pinned sessions and collapsed workspaces (UI-only; dsh 无此概念）. */
 const PINNED_STATE_KEY = 'sessions.pinned'
 const COLLAPSED_STATE_KEY = 'sessions.collapsed'
+/** workspaceState key for manually unread-marked sessions (UI-only; dsh 无未读概念）. */
+const UNREAD_STATE_KEY = 'sessions.unread'
 
 /** Host event methods that can change the list; anything else is ignored. */
 const REFRESH_METHODS = new Set([
@@ -43,6 +62,8 @@ export interface SessionsStoreSnapshot {
   pinned: string[]
   /** Collapsed workspace ids. */
   collapsed: string[]
+  /** Manually unread-marked session ids (dsh 无未读 API，纯本地 UI 状态）. */
+  unread: string[]
 }
 
 /**
@@ -64,6 +85,7 @@ export class SessionsStore implements vscode.Disposable {
   private query: string | null = null
   private pinned = new Set<string>()
   private collapsed = new Set<string>()
+  private unread = new Set<string>()
   private url: string | null = null
   private hostEvents: vscode.Disposable | null = null
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -84,6 +106,7 @@ export class SessionsStore implements vscode.Disposable {
     }
     this.pinned = new Set(state?.get<string[]>(PINNED_STATE_KEY) ?? [])
     this.collapsed = new Set(state?.get<string[]>(COLLAPSED_STATE_KEY) ?? [])
+    this.unread = new Set(state?.get<string[]>(UNREAD_STATE_KEY) ?? [])
     this.stateSub = manager.onDidChangeState((status) => this.onStateChange(status))
     this.onStateChange(manager.getStatus())
   }
@@ -114,6 +137,24 @@ export class SessionsStore implements vscode.Disposable {
     return this.query
   }
 
+  /**
+   * Cached session.list baseline (non-archived and archived alike, blank
+   * included) — for the activity tree, which needs parentSessionId/origin/
+   * totalTokens that the display model drops. No extra RPC.
+   */
+  rawList(): readonly SessionInput[] {
+    return this.rawSessions
+  }
+
+  /**
+   * Title of the workspace that owns `sessionId`, from the workspace.list
+   * baseline (its sessionIds include blank sessions, unlike the display tree).
+   * Undefined before the first refresh that knows the session.
+   */
+  workspaceLabelFor(sessionId: string): string | undefined {
+    return this.rawWorkspaces.find((w) => w.sessionIds.includes(sessionId))?.title
+  }
+
   get currentSortOrder(): SessionSortOrder {
     return this.sortOrder
   }
@@ -126,6 +167,7 @@ export class SessionsStore implements vscode.Disposable {
       sortOrder: this.sortOrder,
       pinned: [...this.pinned],
       collapsed: [...this.collapsed],
+      unread: [...this.unread],
     }
   }
 
@@ -135,6 +177,16 @@ export class SessionsStore implements vscode.Disposable {
     if (pin) this.pinned.add(sessionId)
     if (!changed) return
     void this.state?.update(PINNED_STATE_KEY, [...this.pinned])
+    this.rebuildModel()
+    this.onDidChangeEmitter.fire()
+  }
+
+  /** Mark a session read/unread (client-side only); persists across reloads. */
+  setUnread(sessionId: string, unread: boolean): void {
+    const changed = unread ? !this.unread.has(sessionId) : this.unread.delete(sessionId)
+    if (unread) this.unread.add(sessionId)
+    if (!changed) return
+    void this.state?.update(UNREAD_STATE_KEY, [...this.unread])
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -220,7 +272,7 @@ export class SessionsStore implements vscode.Disposable {
         sessions.map((s) => s.sessionId).filter((id) => !archived.has(id)),
       )
       this.rawWorkspaces = workspaceList.items
-      this.rawSessions = sessions
+      this.rawSessions = sessions.map((s) => toSessionInput(s))
       this.rawArchived = archived
       this.rebuildModel()
     } catch (err) {
@@ -235,10 +287,11 @@ export class SessionsStore implements vscode.Disposable {
       this.rawWorkspaces,
       this.rawSessions,
       this.rawArchived,
-      sessionTitle,
+      // 标题在 toSessionInput 里已从 title 投影解析好。
+      (s) => s.title ?? null,
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
       Date.now(),
-      { sort: this.sortOrder, query: this.query ?? undefined, pinned: this.pinned },
+      { sort: this.sortOrder, query: this.query ?? undefined, pinned: this.pinned, unread: this.unread },
     )
   }
 

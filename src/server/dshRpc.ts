@@ -1,6 +1,7 @@
 import * as crypto from 'node:crypto'
 import type { HistoryEntryLike } from '../pure/conversation.ts'
 import type { OutgoingImage } from '../pure/chatContract.ts'
+import type { AgentPresetLike } from '../pure/agentPreset.ts'
 
 export interface WorkspaceView {
   workspaceId: string
@@ -68,6 +69,25 @@ export function sessionTitle(s: SessionSummary): string | null {
   return typeof title === 'string' && title.length > 0 ? title : null
 }
 
+/**
+ * Total token usage from the `tokenUsage` projection (sum of its four
+ * buckets); undefined when the host has not reported one. Loose on purpose:
+ * any numeric bucket counts, so new bucket names are picked up for free.
+ */
+export function sessionTotalTokens(s: SessionSummary): number | undefined {
+  const usage = s.projections?.values.tokenUsage
+  if (typeof usage !== 'object' || usage === null) return undefined
+  let total = 0
+  let seen = false
+  for (const value of Object.values(usage as Record<string, unknown>)) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      total += value
+      seen = true
+    }
+  }
+  return seen ? total : undefined
+}
+
 /** All workspaces in display order, plus the global archived-session set. */
 export async function listWorkspaces(
   baseUrl: string,
@@ -99,6 +119,24 @@ export async function renameSession(baseUrl: string, sessionId: string, title: s
 /** Hide a session from lists (idempotent host-side; reversible in dsh). */
 export async function archiveSession(baseUrl: string, sessionId: string): Promise<void> {
   await callRpc<{ archivedSessionIds: string[] }>(baseUrl, 'workspace.archiveSession', { sessionId })
+}
+
+/**
+ * Agent preset roster (agentPreset.list). Entries are passed through loosely
+ * (AgentPresetLike); broken rows are the picker's problem, not the RPC layer's.
+ */
+export async function listAgentPresets(baseUrl: string): Promise<{ presets: AgentPresetLike[] }> {
+  const value = await callRpc<{ presets?: AgentPresetLike[] }>(baseUrl, 'agentPreset.list', {})
+  return { presets: Array.isArray(value.presets) ? value.presets : [] }
+}
+
+/**
+ * Pin an agent preset on a blank session; returns the applied id. Only valid
+ * before the first turn — the host answers agent-preset-locked afterwards.
+ */
+export async function selectAgentPreset(baseUrl: string, sessionId: string, agentPreset: string): Promise<string> {
+  const value = await callRpc<{ agentPreset: string }>(baseUrl, 'agentPreset.select', { sessionId, agentPreset })
+  return value.agentPreset
 }
 
 /** Idempotently register `path` as a dsh workspace; returns the canonical entry. */

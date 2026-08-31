@@ -27,6 +27,18 @@ import type {
   ToWebviewMessage,
 } from '../../pure/chatContract.ts'
 import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../../pure/sessionTree.ts'
+import { formatRelativeTime } from '../../pure/sessionTree.ts'
+import { meterLevel } from '../../pure/contextMeter.ts'
+import { isCommandTool, toolAction, truncateLines } from '../../pure/toolLine.ts'
+import {
+  formatJobDuration,
+  isLiveJob,
+  jobDotState,
+  jobStatusLabel,
+  jobsChipLabel,
+  type ActivityJob,
+} from '../../pure/activityTree.ts'
+import { attachmentDataUrl, isImageMediaType } from '../../pure/composerAttachment.ts'
 import { formatDuration } from '../../pure/sessionStats.ts'
 
 interface VsCodeApi {
@@ -121,10 +133,10 @@ function iconButton(icon: IconDef, title: string): HTMLButtonElement {
   return b
 }
 
-function iconSvg(icon: IconDef): SVGSVGElement {
+function iconSvg(icon: IconDef, size = 16): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', '16')
-  svg.setAttribute('height', '16')
+  svg.setAttribute('width', String(size))
+  svg.setAttribute('height', String(size))
   svg.setAttribute('viewBox', icon.viewBox ?? '0 0 16 16')
   svg.setAttribute('fill', 'none')
   for (const p of icon.paths) {
@@ -223,6 +235,8 @@ let popoverPlacement: 'above' | 'below' = 'above'
 let modelMenuBody: HTMLElement | null = null
 /** 菜单打开期间保持 hover 背景的来源行（会话行的 ⋯ 菜单/右键菜单）。 */
 let menuOpenRow: HTMLElement | null = null
+/** 后台任务下拉的耗时 tick（打开且有运行中行时挂上，关闭弹层时清理）。 */
+let jobsTick: ReturnType<typeof setInterval> | null = null
 
 function markMenuRow(row: HTMLElement | null): void {
   menuOpenRow?.classList.remove('menu-open')
@@ -244,6 +258,10 @@ function closePopover(): void {
   popoverAnchor = null
   modelMenuBody = null
   markMenuRow(null)
+  if (jobsTick !== null) {
+    clearInterval(jobsTick)
+    jobsTick = null
+  }
   document.removeEventListener('mousedown', onPopoverOutside, true)
   document.removeEventListener('keydown', onPopoverKey, true)
 }
@@ -436,7 +454,13 @@ function contextBar(): HTMLElement {
 function patchContextBar(bar: HTMLElement, usage: ChatState['contextUsage']): void {
   bar.style.display = usage ? '' : 'none'
   if (!usage) return
-  bar.title = `上下文已用 ${usage.percent}%（~${formatTokens(usage.usedTokens)} / ${formatTokens(usage.contextWindow)}）`
+  // 按剩余轮数分级变色（src/pure/contextMeter.ts）：充足绿 / <10 轮黄 / <5 轮红 / 超窗口红。
+  const meter = meterLevel(usage.usedTokens, usage.contextWindow, usage.turns)
+  bar.classList.remove('level-ok', 'level-warn', 'level-danger', 'level-overflow')
+  bar.classList.add(`level-${meter.level}`)
+  bar.title = `上下文已用 ${usage.percent}%（~${formatTokens(usage.usedTokens)} / ${formatTokens(usage.contextWindow)}）${
+    meter.level === 'overflow' ? '；已超出当前模型窗口' : ''
+  }`
   const fill = bar.querySelector<HTMLElement>('.context-bar-fill')
   if (fill) fill.style.width = `${usage.percent}%`
 }
@@ -479,6 +503,12 @@ function openContextPanel(anchor: HTMLElement): void {
     el('span', 'cp-figures', `~${formatTokens(usage.usedTokens)} / ${formatTokens(usage.contextWindow)}`),
   )
   body.appendChild(header)
+  const meter = meterLevel(usage.usedTokens, usage.contextWindow, usage.turns)
+  if (meter.level === 'overflow') {
+    body.appendChild(
+      el('div', 'cp-overflow', '上下文已超出当前模型窗口：建议先切回之前的模型执行 /compact 压缩，再切换模型。'),
+    )
+  }
   const breakdown = usage.breakdown
   if (breakdown) {
     const bar = el('div', 'cp-bar')
@@ -499,6 +529,12 @@ function openContextPanel(anchor: HTMLElement): void {
     }
     body.appendChild(bar)
     body.appendChild(rows)
+  }
+  // 实时预估：平均每轮增长 usedTokens/turns，换算剩余轮数（口径见 contextMeter.ts）。
+  if (meter.perTurn !== null && meter.turnsLeft !== null) {
+    body.appendChild(
+      el('div', 'cp-estimate', `预估 ≈${formatTokens(meter.perTurn)}/轮，约还可持续 ${meter.turnsLeft} 轮`),
+    )
   }
   showPopover(anchor, body)
 }
@@ -639,8 +675,109 @@ function renderModelMenuEfforts(body: HTMLElement, catalog: ModelCatalog): void 
   }
 }
 
-function openCommandMenu(anchor: HTMLElement): void {
+/** 头部「N 个子代理」chip 的下拉：每行标题 + 第二行摘要（相对时间 · token 用量）。 */
+function openSubagentMenu(anchor: HTMLElement): void {
+  const subs = state?.runningSubagents
+  if (!subs || subs.length === 0) return
   const body = el('div')
+  for (const sub of subs) {
+    const item = el('div', 'menu-item preset-item')
+    const main = el('div', 'preset-item-main')
+    main.appendChild(el('div', 'preset-item-name', sub.title))
+    const summary = [
+      formatRelativeTime(sub.updatedAt, Date.now()),
+      sub.totalTokens !== undefined ? `${formatTokens(sub.totalTokens)} tok` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    main.appendChild(el('div', 'preset-item-desc', summary))
+    item.appendChild(main)
+    item.addEventListener('click', () => {
+      closePopover()
+      post({ type: 'sessionOpen', sessionId: sub.sessionId })
+    })
+    body.appendChild(item)
+  }
+  // 锚点在头部，向下展开。
+  showPopover(anchor, body, 'below')
+}
+
+/**
+ * 头部「N 个后台任务运行中」chip 的下拉（对齐官方 JobListAction 菜单）：
+ * 每行 状态点（运行中像素环/完成绿/取消琥珀/失败红）+ kind 徽标 + 命令摘要
+ * + 状态文案（detail 优先，如 "exit code: 0"）+ 耗时；已结束行淡化。
+ */
+function openJobsMenu(anchor: HTMLElement): void {
+  const jobs = state?.backgroundJobs
+  if (!jobs || jobs.length === 0) return
+  const now = Date.now()
+  const body = el('div', 'jobs-menu')
+  for (const job of jobs) body.appendChild(renderJobsMenuRow(job, now))
+  showPopover(anchor, body, 'below')
+  // 有运行中的行时挂 1s tick，只改写耗时文本节点（closePopover 统一清理）。
+  if (jobs.some(isLiveJob)) {
+    jobsTick = setInterval(() => {
+      popover?.querySelectorAll<HTMLElement>('[data-job-live-start]').forEach((t) => {
+        t.textContent = formatJobDuration(Date.now() - Number(t.dataset.jobLiveStart))
+      })
+    }, 1000)
+  }
+}
+
+/** 下拉里的一行 job；now 由调用方取一次，保证同一帧渲染的行耗时一致。 */
+function renderJobsMenuRow(job: ActivityJob, now: number): HTMLElement {
+  const live = isLiveJob(job)
+  const row = el('div', live ? 'jobs-menu-row' : 'jobs-menu-row settled')
+  const slot = el('span', 'job-dot-slot')
+  const dot = jobDotState(job.status)
+  if (dot === 'ongoing') slot.appendChild(spinSvg())
+  else slot.appendChild(el('span', `job-dot ${dot}`))
+  row.appendChild(slot)
+  row.appendChild(el('span', 'job-kind', job.kind))
+  const label = el('span', 'job-label', job.label)
+  label.title = job.label
+  row.appendChild(label)
+  const statusText = job.detail ?? jobStatusLabel(job.status)
+  const status = el('span', 'job-status', statusText)
+  status.title = statusText
+  row.appendChild(status)
+  const duration = el('span', 'job-duration')
+  if (live) {
+    duration.dataset.jobLiveStart = String(job.startedAt)
+    duration.textContent = formatJobDuration(now - job.startedAt)
+    duration.title = `已运行 ${duration.textContent}`
+  } else {
+    duration.textContent = formatJobDuration((job.finishedAt ?? job.startedAt) - job.startedAt)
+    duration.title = `耗时 ${duration.textContent}`
+  }
+  row.appendChild(duration)
+  return row
+}
+
+/** Agent preset 下拉：一行一个选项（名称 + 描述），当前选中打勾；风格沿用权限/模型选择器。 */
+function openAgentPresetMenu(anchor: HTMLElement, placement: 'above' | 'below' = 'above'): void {
+  const ap = state?.agentPreset
+  if (!ap) return
+  const body = el('div')
+  for (const opt of ap.options) {
+    const checked = opt.id === ap.current
+    const item = el('div', checked ? 'menu-item checked preset-item' : 'menu-item preset-item')
+    const main = el('div', 'preset-item-main')
+    main.appendChild(el('div', 'preset-item-name', opt.label))
+    if (opt.description) main.appendChild(el('div', 'preset-item-desc', opt.description))
+    item.appendChild(main)
+    // 选中态 check 放尾部（dsh web 模式），仅 checked 时渲染。
+    if (checked) item.appendChild(el('span', 'check', '✓'))
+    item.addEventListener('click', () => {
+      closePopover()
+      if (!checked) post({ type: 'setAgentPreset', id: opt.id })
+    })
+    body.appendChild(item)
+  }
+  showPopover(anchor, body, placement)
+}
+
+function openCommandMenu(anchor: HTMLElement): void {  const body = el('div')
   for (const c of SLASH_COMMANDS) {
     body.appendChild(
       menuItem(`/${c.name}`, {
@@ -763,25 +900,46 @@ function render(): void {
   // composer-relevant state actually changed. The stats line is excluded from
   // the signature — it tracks the stream and is patched in place instead.
   const oldComposer = chatCol.querySelector<HTMLElement>('.input-area')
+  const oldHero = chatCol.querySelector<HTMLElement>(':scope > .hero')
+  // 空会话（无消息、无待办/队列/公告）按官方 dsh web 空态居中排版（hero 标题 +
+  // workspace/preset chip 行 + 大圆角 composer 卡片）；开跑后回常规流式布局。
+  const blankHero =
+    state !== null &&
+    state.sessionId !== null &&
+    state.loading !== true &&
+    state.messages.length === 0 &&
+    !state.running &&
+    state.pending.length === 0 &&
+    (state.queue?.length ?? 0) === 0 &&
+    (state.jobs?.length ?? 0) === 0 &&
+    commandNotices.length === 0
   const composerSig = JSON.stringify([
     state?.sessionId ?? null,
     state?.canSend ?? false,
     state?.running ?? false,
     state?.permissions ?? null,
     state?.modelLabel ?? null,
+    state?.agentPreset ?? null,
+    state?.workspaceLabel ?? null,
     recall ? (recall.kind === 'queue' ? `queue:${recall.itemId}` : recall.kind) : null,
     pendingImages.map((i) => i.name ?? ''),
     pendingFiles.map((f) => f.path),
   ])
-  // An open popover anchored inside the composer (permission/model menu) also
-  // pins it: rebuilding would destroy the anchor and kill the menu mid-stream.
+  // An open popover anchored inside the composer (permission/model menu) or the
+  // hero chip row (blank-session preset picker) also pins the layout: rebuilding
+  // would destroy the anchor and kill the menu mid-stream.
   const popoverInComposer =
-    popover !== null && popoverAnchor !== null && (oldComposer?.contains(popoverAnchor) ?? false)
+    popover !== null &&
+    popoverAnchor !== null &&
+    ((oldComposer?.contains(popoverAnchor) ?? false) || (oldHero?.contains(popoverAnchor) ?? false))
+  // 两种布局下 composer 的挂载位置不同（hero 内 / chatCol 直接子级），保留
+  // 策略只在布局不变时生效，避免把已随旧布局拆除的 composer 当成存活锚点。
   const keepComposer =
     oldComposer !== null &&
     (hadFocus || popoverInComposer) &&
     stashedDraft === undefined &&
-    composerSig === lastComposerSig
+    composerSig === lastComposerSig &&
+    (oldHero !== null && oldHero.contains(oldComposer)) === blankHero
   // A rebuilt composer gets fresh listeners; the popup re-opens below when the
   // draft still starts with '/'. With a kept composer it only re-anchors.
   if (!keepComposer) hideSlashPopup()
@@ -789,10 +947,10 @@ function render(): void {
   // replacing it mid-gesture breaks a native scrollbar drag in flight, so
   // only its children are rebuilt below. (Scrollbar drags dispatch no
   // pointer events to the page, so there is no way to defer renders instead.)
-  const keepMessages = oldMessages !== null && !!state?.sessionId
+  const keepMessages = oldMessages !== null && !!state?.sessionId && !blankHero
   for (const child of Array.from(chatCol.children)) {
     if (keepMessages && child === oldMessages) continue
-    if (keepComposer && child === oldComposer) continue
+    if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
     child.remove()
   }
   // Menus anchored to surviving elements (kept composer, sessions header)
@@ -811,19 +969,83 @@ function render(): void {
     chatCol.appendChild(renderEmpty(state))
     return
   }
+  // 历史基线加载中：只显示加载占位，hero 和消息流都等基线落地再渲染——
+  // 否则切换会话时会先闪一帧空会话 hero（服务未就绪）再跳成消息流。
+  if (state.loading === true) {
+    turnStatusStart = null
+    chatCol.appendChild(el('div', 'muted-hint loading-hint', '加载会话…'))
+    return
+  }
+  if (blankHero) {
+    turnStatusStart = null
+    if (keepComposer && oldHero && oldComposer) {
+      // 整个 hero（含 composer）保持不动：焦点、光标、进行中的 IME 组合都
+      // 不中断；只有跟踪数据流的 stats 行就地修补。
+      patchStatsRow(oldComposer, state.statsLine, state.contextUsage)
+      if (slashPopupEl && oldInput) positionSlashPopup(oldInput)
+    } else {
+      chatCol.appendChild(renderHero(state, draft))
+      const input = document.getElementById('input') as HTMLTextAreaElement
+      autoGrow(input)
+      if (hadFocus) {
+        input.focus()
+        // A rebuilt composer at least keeps the caret where it was.
+        if (inputSel) input.setSelectionRange(inputSel.start, inputSel.end)
+      }
+      if (input.value.startsWith('/')) updateSlashPopup(input)
+    }
+    lastComposerSig = composerSig
+    return
+  }
   // Regions above the composer; insert before the preserved composer when kept.
   const anchor = keepComposer ? oldComposer : null
   const add = (node: HTMLElement): void => {
     if (anchor) chatCol.insertBefore(node, anchor)
     else chatCol.appendChild(node)
   }
-  if (state.sessionTitle) {
+  const jobsLabel = state.backgroundJobs ? jobsChipLabel(state.backgroundJobs) : null
+  if (state.sessionTitle || state.presetLabel || (state.runningSubagents?.length ?? 0) > 0 || jobsLabel) {
     const header = el('div', 'chat-header')
-    header.appendChild(el('span', 'chat-title', state.sessionTitle))
-    const rename = buttonEl('rename-session', '✎')
-    rename.title = '重命名会话'
-    rename.addEventListener('click', () => startInlineRename(header))
-    header.appendChild(rename)
+    // 标题 ellipsis 截断但 hover 出完整标题（原生 title tooltip）。
+    const titleSpan = el('span', 'chat-title', state.sessionTitle ?? '')
+    if (state.sessionTitle) titleSpan.title = state.sessionTitle
+    header.appendChild(titleSpan)
+    // 重命名按钮紧跟标题（官方无此元素，本地增强）。
+    if (state.sessionTitle) {
+      const rename = buttonEl('rename-session', '✎')
+      rename.title = '重命名会话'
+      rename.addEventListener('click', () => startInlineRename(header))
+      header.appendChild(rename)
+    }
+    // 「N 个子代理」chip（对齐官方 SubagentHeader trigger：透明底小字 + chevron）：
+    // 点击弹下拉，行点击附着子会话。
+    if (state.runningSubagents && state.runningSubagents.length > 0) {
+      const chip = buttonEl('header-chip', '')
+      chip.appendChild(el('span', undefined, `${state.runningSubagents.length} 个子代理`))
+      chip.appendChild(iconSvg(PANEL_ICONS.chevronDown, 14))
+      chip.title = '正在运行的子代理'
+      chip.addEventListener('click', () => openSubagentMenu(chip))
+      header.appendChild(chip)
+    }
+    // 「N 个后台任务运行中」chip（对齐官方 JobListAction）：有运行中 job
+    // 时 chip 带像素环；点击弹下拉（状态点 + kind 徽标 + 摘要 + 状态/耗时）。
+    if (state.backgroundJobs && jobsLabel) {
+      const chip = buttonEl('header-chip', '')
+      if (state.backgroundJobs.some(isLiveJob)) chip.appendChild(spinSvg())
+      chip.appendChild(el('span', undefined, jobsLabel))
+      chip.appendChild(iconSvg(PANEL_ICONS.chevronDown, 14))
+      chip.title = '后台任务'
+      chip.addEventListener('click', () => openJobsMenu(chip))
+      header.appendChild(chip)
+    }
+    // 只读 preset 标签（对齐官方 AgentPresetLabel：浅底胶囊 + 14px 三环图标；
+    // 空会话的选择 chip 在 hero，二者互斥）。
+    if (state.presetLabel) {
+      const chip = el('span', 'preset-chip')
+      chip.appendChild(presetIconSvg())
+      chip.appendChild(el('span', undefined, state.presetLabel))
+      header.appendChild(chip)
+    }
     const headerAnchor = keepMessages ? oldMessages : anchor
     if (headerAnchor) chatCol.insertBefore(header, headerAnchor)
     else chatCol.appendChild(header)
@@ -927,6 +1149,48 @@ function render(): void {
   }
 }
 
+/**
+ * 空会话 hero（官方 dsh web 空态 HeroShell）：整列水平居中——标题
+ * 「探索未至之境」+「预览版」徽章，其下 workspace 名（只读）与 preset 选择
+ * chip 行，再下是包成大圆角卡片的 composer（样式见 chatView.ts 的 .hero）。
+ */
+function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
+  const hero = el('div', 'hero')
+  const stack = el('div', 'hero-stack')
+  const headline = el('div', 'hero-headline')
+  headline.appendChild(el('span', 'hero-headline-text', '探索未至之境'))
+  headline.appendChild(el('span', 'hero-badge', '预览版'))
+  stack.appendChild(headline)
+  const chips = el('div', 'hero-chips')
+  if (state.workspaceLabel) {
+    // 官方此 chip 是 workspace 选择器；我们没有更换 blank 会话所属 workspace
+    // 的链路，只做只读展示（文件夹图标 + 名称，无 chevron）。
+    const ws = el('span', 'hero-chip')
+    ws.appendChild(iconSvg(PANEL_ICONS.folder, 16))
+    ws.appendChild(el('span', 'label', state.workspaceLabel))
+    chips.appendChild(ws)
+  }
+  if (state.agentPreset) {
+    // 从 composer 底部挪到 hero 的 preset 选择 chip（交互不变，仍弹下拉）。
+    const ap = state.agentPreset
+    const current = ap.options.find((o) => o.id === ap.current)
+    const preset = buttonEl('hero-chip', '')
+    preset.appendChild(presetIconSvg())
+    preset.appendChild(el('span', 'label', current?.label ?? ap.current))
+    const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
+    chev.classList.add('chevron')
+    preset.appendChild(chev)
+    preset.title = 'Agent 模式'
+    preset.disabled = !state.canSend
+    preset.addEventListener('click', () => openAgentPresetMenu(preset, 'below'))
+    chips.appendChild(preset)
+  }
+  if (chips.hasChildNodes()) stack.appendChild(chips)
+  stack.appendChild(renderInput(draft, true))
+  hero.appendChild(stack)
+  return hero
+}
+
 function renderEmpty(state: ChatState | null): HTMLElement {
   const wrap = el('div', 'empty')
   if (state?.serverError === 'dshNotFound') {
@@ -970,6 +1234,94 @@ function strokeSvg(paths: string[]): SVGSVGElement {
 const SORT_ICON = ['M4.5 3v10', 'M4.5 13l-2.2-2.6', 'M4.5 13l2.2-2.6', 'M11.5 13V3', 'M11.5 3L9.3 5.6', 'M11.5 3l2.2 2.6']
 /** 图钉描边图标（会话行的置顶标记与置顶菜单项）。 */
 const PIN_ICON = ['M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z', 'M8 9.5v4']
+
+/** 置顶图钉 svg（行首状态槽与标题前两种位置共用）。 */
+function makePinIcon(): SVGSVGElement {
+  const svg = strokeSvg(PIN_ICON)
+  svg.classList.add('pin-icon')
+  return svg
+}
+/** 圆点描边图标（「标为未读」菜单项；官方无未读概念，本地扩展图标）。 */
+const UNREAD_ICON = ['M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8z']
+/** 文档描边图标（待发送文件 chip 的类型小图标，本地扩展）。 */
+const FILE_ICON = ['M4.2 2h4.6L12 5.2V14H4.2z', 'M8.8 2v3.2H12']
+
+/**
+ * 运行中像素环：复刻官方 dsh web StateDot(ongoing)——10×10 画布上 8 个
+ * 2×2 方块沿环排布，各自带负的 animationDelay 错相，配合 .session-spin 的
+ * chase keyframes（chatView.ts）形成转圈追逐效果。
+ */
+const SPIN_CELLS: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [4, 0],
+  [8, 0],
+  [8, 4],
+  [8, 8],
+  [4, 8],
+  [0, 8],
+  [0, 4],
+]
+
+/**
+ * 官方 IconAgentPresetOutline16（dsh-client-ui-primitives）的逐元素复刻：
+ * 圆环路径用 mask 在三个节点处镂空。IconDef 不支持 mask，故单独构建。
+ */
+function presetIconSvg(): SVGSVGElement {
+  const NS = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(NS, 'svg')
+  svg.setAttribute('width', '14')
+  svg.setAttribute('height', '14')
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('fill', 'none')
+  const mask = document.createElementNS(NS, 'mask')
+  mask.setAttribute('id', 'preset-icon-mask')
+  const bg = document.createElementNS(NS, 'rect')
+  bg.setAttribute('width', '16')
+  bg.setAttribute('height', '16')
+  bg.setAttribute('fill', 'white')
+  mask.appendChild(bg)
+  for (const [cx, cy] of [
+    ['7.9995', '3.28319'],
+    ['3.51122', '11.3855'],
+    ['12.4878', '11.3855'],
+  ]) {
+    const c = document.createElementNS(NS, 'circle')
+    c.setAttribute('cx', cx)
+    c.setAttribute('cy', cy)
+    c.setAttribute('r', '1.712')
+    c.setAttribute('fill', 'black')
+    mask.appendChild(c)
+  }
+  svg.appendChild(mask)
+  const ring = document.createElementNS(NS, 'path')
+  ring.setAttribute('mask', 'url(#preset-icon-mask)')
+  ring.setAttribute(
+    'd',
+    'M12.2881 11.0425C12.6002 11.3723 13.0413 11.5786 13.5312 11.5786L13.5342 11.5776C13.1476 12.3233 12.6119 12.9785 11.9639 13.5005C10.9327 14.3309 9.6199 14.8286 8.19336 14.8286C7.29864 14.8285 6.45056 14.6313 5.6875 14.2808C6.08309 14.0281 6.36707 13.6189 6.45215 13.1392C6.99022 13.3561 7.57767 13.476 8.19336 13.4761C9.30019 13.4761 10.3157 13.0915 11.1152 12.4478C11.5935 12.0626 11.9924 11.5848 12.2881 11.0425ZM4.14746 4.36475C4.25569 4.83228 4.55488 5.2247 4.95898 5.4585C4.07956 6.30639 3.53144 7.49605 3.53125 8.81396C3.53125 9.69534 3.77613 10.5202 4.20117 11.2231C3.74959 11.3817 3.38395 11.7232 3.19531 12.1597C2.5541 11.2032 2.17969 10.052 2.17969 8.81396C2.17989 7.05087 2.93868 5.4646 4.14746 4.36475ZM8.19336 2.80029C8.85717 2.80029 9.49784 2.90834 10.0967 3.10791C12.3237 3.85044 13.9725 5.86061 14.1846 8.28369C13.9832 8.20048 13.7627 8.15382 13.5312 8.15381C13.2802 8.15381 13.042 8.20907 12.8271 8.30615C12.6281 6.47264 11.3666 4.95616 9.66895 4.39014C9.2063 4.236 8.70989 4.15186 8.19336 4.15186C7.96112 4.15189 7.7329 4.16981 7.50977 4.20264C7.51947 4.12886 7.52637 4.05348 7.52637 3.97705C7.52628 3.56604 7.3811 3.18914 7.13965 2.89404C7.48183 2.83352 7.83381 2.80033 8.19336 2.80029Z',
+  )
+  ring.setAttribute('fill', 'currentColor')
+  svg.appendChild(ring)
+  return svg
+}
+
+function spinSvg(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('width', '10')
+  svg.setAttribute('height', '10')
+  svg.setAttribute('viewBox', '0 0 10 10')
+  svg.setAttribute('shape-rendering', 'crispEdges')
+  svg.classList.add('session-spin')
+  SPIN_CELLS.forEach(([x, y], i) => {
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+    rect.setAttribute('x', String(x))
+    rect.setAttribute('y', String(y))
+    rect.setAttribute('width', '2')
+    rect.setAttribute('height', '2')
+    rect.style.animationDelay = `${(i - SPIN_CELLS.length) * 125}ms`
+    svg.appendChild(rect)
+  })
+  return svg
+}
 
 /** 排序菜单选项，与 store 持久化的 SessionSortOrder 一一对应。 */
 const SORT_OPTIONS: Array<{ order: SessionSortOrder; label: string }> = [
@@ -1147,6 +1499,11 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   headActions.appendChild(
     rowAction(iconSvg(PANEL_ICONS.plus), '新建会话', () => post({ type: 'sessionNew', workspaceId: w.workspaceId })),
   )
+  headActions.appendChild(
+    rowAction(iconSvg(PANEL_ICONS.terminal), '在终端中打开', () =>
+      post({ type: 'workspaceOpenTerminal', path: w.path }),
+    ),
+  )
   // 当前文件夹已在 VSCode 里打开，只有其他 workspace 需要"打开文件夹"。
   if (!w.isCurrent) {
     headActions.appendChild(
@@ -1171,15 +1528,21 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   if (state?.sessionId === s.sessionId) row.classList.add('active')
   row.title = s.label
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
-  // 运行中的会话用绿色圆点标出（沿用原树视图 charts.green 的语义）。
-  row.appendChild(el('span', s.running ? 'session-dot running' : 'session-dot'))
+  // 行首状态槽对齐官方 dsh web：固定宽度，三种标记同一位置居中——
+  // 运行中像素环 > 未读蓝点 > 置顶图钉；组合状态下被挤掉的图钉退到标题前。
+  const slot = el('span', 'session-status')
+  const slotTaken = s.running || s.unread
+  if (s.running) slot.appendChild(spinSvg())
+  else if (s.unread) slot.appendChild(el('span', 'session-dot'))
+  else if (pinned) slot.appendChild(makePinIcon())
+  row.appendChild(slot)
   const main = el('span', 'session-main')
-  if (pinned) {
+  if (pinned && slotTaken) {
     const pin = el('span', 'session-pin')
-    pin.appendChild(strokeSvg(PIN_ICON))
+    pin.appendChild(makePinIcon())
     main.appendChild(pin)
   }
-  main.appendChild(el('span', 'session-title', s.label))
+  main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title', s.label))
   main.appendChild(el('span', 'session-time', s.description))
   row.appendChild(main)
   // dsh web 会话行模式：hover 只出一个 ⋯ 按钮，点击在按钮下方开会话菜单。
@@ -1200,7 +1563,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   return row
 }
 
-/** 会话菜单内容（⋯ 按钮与右键菜单共用）：重命名 / 置顶 / 分叉会话 / 归档会话。 */
+/** 会话菜单内容（⋯ 按钮与右键菜单共用）：重命名 / 置顶 / 标为未读 / 分叉会话 / 归档会话。 */
 function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
   const body = el('div')
@@ -1220,6 +1583,16 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
       onClick: () => {
         closePopover()
         post({ type: 'sessionPin', sessionId: s.sessionId, pin: !pinned })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem(s.unread ? '标为已读' : '标为未读', {
+      icon: strokeSvg(UNREAD_ICON),
+      checked: s.unread,
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionUnread', sessionId: s.sessionId, unread: !s.unread })
       },
     }),
   )
@@ -1575,28 +1948,55 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
   }
 }
 
+/**
+ * 工具调用行（kimi-cli / dsh web 行式排版）：状态图标 + 英文动作短语 +
+ * host 计算的标题（如文件路径），命令类工具另起一行等宽预览（$ 前缀、
+ * 截断省略）。不再是带边框的卡片容器。
+ */
 function renderTool(block: ChatToolBlock, key: string): HTMLElement {
-  const card = el('div', `tool tool-${block.status}`)
-  const head = el('div', 'tool-head')
+  const row = el('div', `tool tool-${block.status}`)
+  const line = el('div', 'tool-line')
   if (block.status === 'running') {
-    head.appendChild(el('span', 'spinner'))
+    line.appendChild(el('span', 'spinner'))
   } else {
-    head.appendChild(
+    line.appendChild(
       el('span', block.status === 'done' ? 'tool-status-done' : 'tool-status-error',
         block.status === 'done' ? '✓' : '✕'),
     )
   }
-  head.appendChild(el('span', 'tool-name', block.name))
-  if (block.title) head.appendChild(el('span', 'tool-title', block.title))
-  card.appendChild(head)
-  if (block.detail) card.appendChild(el('div', 'tool-detail', block.detail))
-  if (block.diff) card.appendChild(renderDiff(block.diff))
-  if (block.output) {
-    const det = detailsEl(`${key}:out`, 'tool-output', '输出')
-    det.appendChild(el('pre', '', block.output))
-    card.appendChild(det)
+  line.appendChild(el('span', 'tool-action', toolAction(block.name)))
+  if (block.title) line.appendChild(el('span', 'tool-title', block.title))
+  row.appendChild(line)
+  if (block.detail) {
+    row.appendChild(
+      el('div', 'tool-detail', isCommandTool(block.name) ? `$ ${block.detail}` : block.detail),
+    )
   }
-  return card
+  if (block.diff) row.appendChild(renderDiff(block.diff))
+  if (block.output) row.appendChild(renderToolOutput(block.output, `${key}:out`))
+  return row
+}
+
+/**
+ * 工具输出：默认只渲染前 OUTPUT_PREVIEW_LINES 行 + 「… 共 N 行，点击展开」
+ * 提示（kimi-cli 的 "… (N more lines)" 对应物），点击展开全部、再次点击收起。
+ * 展开状态记在 detailsOpen（key 按消息/块位置），流式重建不冲掉——同
+ * detailsEl 的持久化机制。
+ */
+function renderToolOutput(output: string, key: string): HTMLElement {
+  const box = el('div', 'tool-output')
+  const { preview, totalLines, truncated } = truncateLines(output)
+  const open = detailsOpen.get(key) ?? false
+  box.appendChild(el('pre', '', open ? output : preview))
+  if (truncated) {
+    const toggle = el('div', 'tool-output-toggle', open ? '收起输出' : `… 共 ${totalLines} 行，点击展开`)
+    toggle.addEventListener('click', () => {
+      detailsOpen.set(key, !open)
+      render()
+    })
+    box.appendChild(toggle)
+  }
+  return box
 }
 
 function renderDiff(diff: { oldText: string; newText: string }): HTMLElement {
@@ -1759,44 +2159,81 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
   return card
 }
 
-function renderInput(draft: string | undefined): HTMLElement {
+/**
+ * 待发送图片：对齐官方 AttachmentRail 的圆角缩略图（点击放大预览，hover
+ * 右上角出 × 移除）。字节已在 webview 内存里，直接用 data: URL 渲染（CSP
+ * 已允许 img-src data:，无需 objectURL）；加载失败回退为文件名 chip。
+ */
+function pendingImageThumb(img: OutgoingImage, index: number): HTMLElement {
+  const name = img.name ?? '图片'
+  if (!isImageMediaType(img.mediaType)) return pendingImageFallback(img, index)
+  const item = el('span', 'attach-thumb')
+  item.title = `${name}（点击预览）`
+  const dataUrl = attachmentDataUrl(img.mediaType, img.data)
+  const image = document.createElement('img')
+  image.src = dataUrl
+  image.alt = name
+  image.addEventListener('error', () => item.replaceWith(pendingImageFallback(img, index)))
+  const remove = buttonEl('thumb-remove', '×')
+  remove.title = '移除图片'
+  remove.addEventListener('click', (e) => {
+    e.stopPropagation()
+    pendingImages.splice(index, 1)
+    render()
+  })
+  item.addEventListener('click', () => openLightbox(dataUrl))
+  item.appendChild(image)
+  item.appendChild(remove)
+  return item
+}
+
+/** 缩略图不可用时的回退：原来的文件名 chip（保留点击预览与移除）。 */
+function pendingImageFallback(img: OutgoingImage, index: number): HTMLElement {
+  const chip = el('span', 'image-chip')
+  const name = el('span', 'chip-name', img.name ?? '图片')
+  name.style.cursor = 'zoom-in'
+  name.title = '点击预览'
+  name.addEventListener('click', () => {
+    openLightbox(attachmentDataUrl(img.mediaType, img.data))
+  })
+  chip.appendChild(name)
+  const remove = buttonEl('chip-remove', '×')
+  remove.title = '移除图片'
+  remove.addEventListener('click', () => {
+    pendingImages.splice(index, 1)
+    render()
+  })
+  chip.appendChild(remove)
+  return chip
+}
+
+/** 待发送文件：文件名 chip + 文档小图标；path 是 payload，无预览。 */
+function pendingFileChip(file: StagedFile, index: number): HTMLElement {
+  const chip = el('span', 'image-chip')
+  const icon = el('span', 'file-chip-icon')
+  icon.appendChild(strokeSvg(FILE_ICON))
+  chip.appendChild(icon)
+  const name = el('span', 'chip-name', file.name)
+  name.title = file.path
+  chip.appendChild(name)
+  const remove = buttonEl('chip-remove', '×')
+  remove.title = '移除文件'
+  remove.addEventListener('click', () => {
+    pendingFiles.splice(index, 1)
+    render()
+  })
+  chip.appendChild(remove)
+  return chip
+}
+
+function renderInput(draft: string | undefined, hero = false): HTMLElement {
   const wrap = el('div', 'input-area')
   const canSend = !!state?.canSend
 
   if (pendingImages.length > 0 || pendingFiles.length > 0) {
     const chips = el('div', 'image-chips')
-    pendingImages.forEach((img, i) => {
-      const chip = el('span', 'image-chip')
-      const name = el('span', 'chip-name', img.name ?? '图片')
-      name.style.cursor = 'zoom-in'
-      name.title = '点击预览'
-      name.addEventListener('click', () => {
-        openLightbox(`data:${img.mediaType || 'image/png'};base64,${img.data}`)
-      })
-      chip.appendChild(name)
-      const remove = buttonEl('chip-remove', '×')
-      remove.title = '移除图片'
-      remove.addEventListener('click', () => {
-        pendingImages.splice(i, 1)
-        render()
-      })
-      chip.appendChild(remove)
-      chips.appendChild(chip)
-    })
-    pendingFiles.forEach((file, i) => {
-      const chip = el('span', 'image-chip')
-      const name = el('span', 'chip-name', file.name)
-      name.title = file.path
-      chip.appendChild(name)
-      const remove = buttonEl('chip-remove', '×')
-      remove.title = '移除文件'
-      remove.addEventListener('click', () => {
-        pendingFiles.splice(i, 1)
-        render()
-      })
-      chip.appendChild(remove)
-      chips.appendChild(chip)
-    })
+    pendingImages.forEach((img, i) => chips.appendChild(pendingImageThumb(img, i)))
+    pendingFiles.forEach((file, i) => chips.appendChild(pendingFileChip(file, i)))
     wrap.appendChild(chips)
   }
 
@@ -1810,7 +2247,9 @@ function renderInput(draft: string | undefined): HTMLElement {
       ? '正在修改排队消息，Enter 保存，Esc 取消'
       : state?.running
         ? '输入消息，Enter 排队发送，⌘Enter 立即插话，↑ 修改排队消息'
-        : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件，↑ 召回上一条'
+        : hero
+          ? '描述你想要构建的内容'
+          : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件，↑ 召回上一条'
   input.disabled = !canSend
   if (stashedDraft) {
     input.value = draft?.trim() ? `${draft.trimEnd()}\n${stashedDraft}` : stashedDraft
@@ -2014,6 +2453,19 @@ function renderInput(draft: string | undefined): HTMLElement {
     perm.disabled = !canSend
     perm.addEventListener('click', () => openPermissionMenu(perm))
     footer.appendChild(perm)
+  }
+  if (state?.agentPreset && !hero) {
+    // Agent preset chip：只在空会话出现（state.agentPreset 由宿主按此条件透传）。
+    // hero 布局里它挪到标题下的 chip 行（renderHero），footer 不再重复。
+    const ap = state.agentPreset
+    const current = ap.options.find((o) => o.id === ap.current)
+    const preset = buttonEl('pill', '')
+    preset.appendChild(presetIconSvg())
+    preset.appendChild(el('span', 'label', current?.label ?? ap.current))
+    preset.title = 'Agent 模式'
+    preset.disabled = !canSend
+    preset.addEventListener('click', () => openAgentPresetMenu(preset))
+    footer.appendChild(preset)
   }
   const model = buttonEl('pill', state?.modelLabel ?? '选择模型')
   model.title = '模型'

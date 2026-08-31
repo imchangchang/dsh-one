@@ -18,6 +18,20 @@ export interface SessionInput {
   updatedAt: number
   running: boolean
   blank: boolean
+  /** Parent session for continuable subagent sessions (session.list). */
+  parentSessionId?: string
+  /** Host-assigned origin marker (e.g. 'subagent'); informational only. */
+  origin?: string
+  /** Sum of the tokenUsage projection's buckets, when the host reports one. */
+  totalTokens?: number
+  /** Title projection resolved at fetch time (null when untitled). */
+  title?: string | null
+  /**
+   * Host-assigned composition (session.list 的 agentPreset 字段，官方
+   * sessionSummarySchema 同款；创建时即定，新旧会话都有）。显示树不用它，
+   * rawList 消费方（聊天头部 preset 标签）用。
+   */
+  agentPreset?: string
 }
 
 export interface SessionNodeModel {
@@ -28,6 +42,8 @@ export interface SessionNodeModel {
   running: boolean
   /** Client-side pin (dsh has no pin API); pinned sessions sort first. */
   pinned: boolean
+  /** Client-side unread marker (dsh has no unread API); display-only, no sort effect. */
+  unread: boolean
 }
 
 export interface WorkspaceNodeModel {
@@ -48,6 +64,8 @@ export interface SessionTreeViewOptions {
   query?: string
   /** Client-side pinned ids; pinned sessions sort before unpinned within a workspace. */
   pinned?: ReadonlySet<string>
+  /** Client-side unread ids; purely a display flag (bold title + dot). */
+  unread?: ReadonlySet<string>
 }
 
 const MINUTE_MS = 60_000
@@ -126,6 +144,7 @@ export function buildSessionTree(
         description: formatRelativeTime(session.updatedAt, now),
         running: session.running,
         pinned: view.pinned?.has(session.sessionId) === true,
+        unread: view.unread?.has(session.sessionId) === true,
       })),
     }
   })

@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- 切换会话时先闪一帧空会话 hero（「服务未就绪，暂时无法发送」的居中排版）再跳成消息流：根因是 session.history 基线翻页期间 getState 已带 sessionId 但消息为空、canSend 为 false，命中了空会话 hero 分支。ChatState 新增 `loading`（历史基线未就绪时为 true），加载期间只显示「加载会话…」居中占位，hero 与消息流都等基线落地再渲染。
+
+- 旧会话的聊天头部不显示 preset 标签：原实现靠扫会话日志里的 agent-preset/selected 事件，创建时指定 preset 的会话没有这条事件、旧会话也可能翻不到。改为对齐官方 AgentPresetLabel 的渠道——`composeHeader()` 从 session.list 基线取附着会话的 agentPreset id（官方 sessionSummarySchema 字段，host 创建时即定、实测 77 个会话全部有值），经 roster（agentPreset.list）映射成显示名：user preset 显示 roster 的 name 而非裸 id，roster 未就绪或未知 id 回退已知 system id 中文名/原样 id；roster 拉取不再局限于空会话，store 刷新时标签随之更新。后台任务 chip 的 mux 渠道经核对即官方 web 客户端同款（dsh-client-connection 的 openMux → /api/events.mux 的 session/jobs 帧），未改动。
+
+- 会话行首三种标记（运行中像素环/未读蓝点/置顶图钉）位置不对齐、图钉偏小：状态槽加宽到官方 dsh web 的 16px，三种标记统一收进槽内同一位置居中（优先级 运行中 > 未读 > 置顶），图钉从 11px 放大到 13px；组合状态（置顶 + 运行中/未读）时被挤出槽位的图钉退到标题前。
+
+- 会话行首的「运行中」标记与官方不符（原来是绿色小圆点、空闲会话也有灰点）：对齐 dsh web 官方 StateDot——运行中改为 8 格像素环追逐动画（deepseek 蓝，1s 错相旋转），空闲会话行首留空不再画点。
+
 - turn 失败（如模型上下文超限返回 401）时界面只显示一条空 assistant 消息、看起来像没回复：现在按 dsh web 官方样式显示「本轮运行失败」错误行（红点 + 错误 message + 可选 code 角标），错误来自 host `turn/end` 的 error reason。
 
 - 会话列表的相对时间（"N 分钟前"）长时间不刷新：新增 60s 本地 tick，用缓存基线纯重建模型（不发 RPC）更新时间文案。dsh web 官方同样不轮询（渲染时取一次当前时间），此处是超出官方行为的体验修正。
@@ -16,9 +24,32 @@
 
 ### Changed
 
+- 空会话（还没有任何消息）的聊天区改为官方 dsh web 空态的居中排版（对齐 HeroShell + composer 卡片）：居中 hero 标题「探索未至之境」+「预览版」徽章（26px/500），其下一行 chip——只读 workspace 名（文件夹图标 + 名称，来自 workspace.list 基线；官方是可点开的选择器，我们没有更换 blank 会话所属 workspace 的链路，故只读）和 preset 选择 chip（从 composer 底部挪入，交互不变，下拉向下展开），再下是居中的大圆角 composer 卡片（max-width 780px 自适应收缩、22px 圆角、浮层底色、柔和双层阴影，placeholder 对齐官方「描述你想要构建的内容」，输入字号 16px/24px，附件/斜杠命令/权限/模型 pill/发送按钮功能不变）。一旦有了消息或 turn 进行中即恢复常规的消息流 + 底部 composer 布局；原「会话还没有消息」提示随之移除（被 hero 取代）。
+
+- 聊天头部样式逐项对齐官方 dsh web 会话头部：标题从 13px/600 改为 14px/20px/500（官方 crumbCurrent），头部 padding 加大（12px 12px 8px）、元素间距 8→10px；「N 个子代理」「N 个后台任务」chip 从徽章底色改为透明底小字（12px，descriptionForeground），文字版「⌄」换成官方 IconChevronDownOutline14 矢量图标，hover 只提亮文字不再整片变亮；只读 preset 标签改为独立的浅底胶囊（22px 高、圆角 6px、最大宽 160px 截断），前置官方 IconAgentPresetOutline16 三环图标（14px、70% 不透明度）。
+
+- 左栏顶部「会话 | 任务」tab 与任务看板界面移除：后台任务的入口收敛到聊天头部的「N 个后台任务」chip（对齐官方 dsh web 形态），看板专属的「显示全部」勾选、详情面板、ActivitySnapshot 推送链路一并删除；jobsStore 的 mux 数据链路保留，改供头部 chip 使用。
+
 - Sessions 树视图合并进 Chat 面板（原生 tree view 移除）：宽屏（≥720px）为左右两栏（左会话列表 260px、右聊天），窄屏改上下布局（会话列表在上、限高 40% 自滚动）。搜索框、排序切换、刷新、新建 workspace/会话、重命名/归档、打开文件夹等操作全部移至面板内；服务未运行/未安装 dsh 的空态与启动、安装引导按钮也随之迁入面板。
 
 ### Added
+
+- 会话面板的 workspace 行 hover 操作新增「在终端中打开」图标（终端样式，+ 号旁）：点击后以该 workspace 文件夹为 cwd 新建 VS Code 终端并显示，终端名为文件夹名；当前/非当前 workspace 均可用。
+
+- 聊天头部新增「N 个后台任务运行中」chip（对齐官方 dsh-client-ui-jobs 的 JobListAction）：附着会话有后台 job 时出现（有运行中的显示运行中数并带像素环，全部结束显示「N 个后台任务」），点击弹下拉——每行状态点（运行中像素环/已完成绿/已取消琥珀/已失败红）+ kind 徽标（bash 等）+ 命令摘要 + 状态文案（host detail 优先，如 "exit code: 0"）+ 耗时（23秒 / 4分58秒 / 1小时2分，运行中的打开下拉后 1s 跳动），已结束行淡化；行序为运行中在前（开始时间升序）、已结束在后（完成时间降序）。数据复用 jobsStore 的 mux 全局 session/jobs 帧，实时刷新。
+
+- composer 待发送附件列表对齐官方 AttachmentRail：图片附件从文字 chip 改为 48px 圆角缩略图（object-fit: cover，直接用内存里的 data: URL 渲染，CSP 已允许 img-src data:，未引入 objectURL），点击缩略图放大预览，hover 右上角出 × 移除（触屏常显，reduced-motion 去过渡）；加载失败回退为原文件名 chip。文件附件 chip 保留真实文件名并加文档小图标；多个附件横排、超出换行。
+
+- 会话菜单（⋯/右键）新增「标为未读 / 标为已读」：未读是纯客户端状态（官方 dsh 无未读概念与 API），与置顶一样持久化在 workspaceState；未读会话行首显示蓝色圆点（运行中时被像素环占用，仍有标题加粗兜底）且标题加粗，打开（附着）会话自动清未读。官方同样没有自动未读逻辑，故只做手动标记。
+
+- 聊天头部信息区对齐官方 dsh web：标题后新增「N 个子代理」chip（附着会话正在运行的 continuable 子代理，点击弹下拉——每行标题 + 相对时间/token 用量摘要，行点击附着子会话；无运行中子代理时不显示）和只读 preset 标签（如「标准模式」，来自 session.list 基线的 agentPreset 字段，与空会话 hero 里的选择 chip 互斥）。头部标题过长仍 ellipsis 截断，但 hover 显示完整标题，chips 不再挤压标题（flex:none）。
+
+- 对话排版向 dsh web 官方 / kimi-cli 靠拢：工具调用从卡片容器改为行式排版——状态图标（成功 ✓ 绿、失败 ✕ 红、运行中旋转圈）+ kimi-cli 风格英文动作短语（bash→"Ran a command"、read→"Read <路径>"、write→"Using Write" 等，未知工具回退原名）+ 等宽命令/参数预览行（bash 类带 `$ ` 前缀、截断省略）；工具输出默认只显示前 5 行 + 「… 共 N 行，点击展开」提示（点击展开全部、再次点击收起，展开状态跨流式重建保留）；思考过程保持可折叠并改为灰色小字。
+- 「Deep diving...」状态行的扫光改为蓝色系渐变（对齐官方 deepseek 蓝，深/浅主题通用），15 秒后的耗时计时逻辑不变。
+
+- 空会话（还没开始任何 turn）出现 Agent preset 选择 chip（最初在 composer 底部模型 pill 旁，后随空态 hero 排版挪到 hero 标题下的 chip 行）：点击弹下拉，一行一个 preset（名称 + 描述，官方四个 system preset 用中文文案：标准模式/PTC 模式/极简模式/创造模式；user preset 用 roster 自己的 name/description），当前选中打勾。选择走主机 agentPreset.select；会话开跑后 host 即锁定（agent-preset-locked），chip 随之消失。
+
+- 对话框右下角的上下文容量条按余量变色并给出实时预估：以 sessionStats 的轮数估算平均每轮上下文增长（perTurn = usedTokens / turns），换算剩余轮数（向下取整）；剩余 ≥10 轮绿色、<10 轮黄色、<5 轮红色，turns < 1 或无法估计时按充足处理。切到更小窗口的模型导致已用量超限时直接红色（与轮数无关），bar 悬停提示与点击弹出的面板里都有超限说明（建议先切回之前的模型执行 /compact 压缩，再切换模型）；面板在可估计时追加一行预估「≈N/轮，约还可持续 M 轮」。
 
 - 发送后等待模型响应期间（turn 打开、尚无输出）在对话流末尾显示状态行「Deep diving...」（对齐 dsh web 官方 TurnStatus 的渐变闪烁动画），超过 15 秒右侧追加每 1 秒跳动的已耗时（如 1m23s）；turn 结束即消失。
 - 初始版本：运行时按需下载（Node + dsh）、dsh web 服务管理（探测/复用/spawn/清理）、侧边栏与编辑器标签页内嵌官方 UI、状态栏、自动更新。

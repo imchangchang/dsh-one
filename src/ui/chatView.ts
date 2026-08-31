@@ -17,7 +17,9 @@ import {
 } from '../server/dshRpc.ts'
 import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
+import { orderJobs } from '../pure/activityTree.ts'
 import type { SessionsStore } from './sessionsStore.ts'
+import { JobsStore } from './jobsStore.ts'
 
 /** Media type by file extension (dsh ImageMediaType: png/jpeg/webp/gif). */
 const IMAGE_MEDIA_TYPES: Record<string, string> = {
@@ -140,17 +142,36 @@ const STYLE = `
     background: var(--vscode-list-activeSelectionBackground, rgba(0,122,204,.35));
     color: var(--vscode-list-activeSelectionForeground, inherit);
   }
+  /* 行首状态槽：宽度固定（对齐官方 dsh web 的 16px slot），三种标记同一位置
+     居中——运行中像素环 > 未读蓝点 > 置顶图钉；空闲会话留空。 */
+  .session-status {
+    width: 16px; height: 16px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  /* 槽内图钉（strokeSvg 固定输出 14px，缩到 13px 与槽匹配）。 */
+  .session-status svg.pin-icon { width: 13px; height: 13px; display: block; color: var(--vscode-descriptionForeground); }
+  /* 运行中：官方 dsh web StateDot(ongoing) 的 8 格像素环追逐动画，deepseek 蓝。 */
+  .session-spin { display: block; color: var(--vscode-charts-blue, #5686fe); }
+  .session-spin rect { fill: currentColor; opacity: 0.15; animation: session-spin-chase 1s infinite; }
+  @keyframes session-spin-chase {
+    0%, 12.4% { opacity: 1; }
+    12.5%, 24.9% { opacity: 0.6; }
+    25%, 37.4% { opacity: 0.35; }
+    37.5%, to { opacity: 0.15; }
+  }
+  /* 未读：蓝色实心点 + 标题加粗（官方无未读概念，本地状态沿用同一强调色）。 */
   .session-dot {
-    width: 6px; height: 6px; border-radius: 50%; flex: none;
-    background: var(--vscode-descriptionForeground, #888); opacity: 0.35;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--vscode-charts-blue, #5686fe);
   }
-  .session-dot.running { background: var(--vscode-testing-iconPassed, #73c991); opacity: 1; }
-  /* 置顶会话标题前的小图钉图标。 */
+  .session-title.unread { font-weight: 600; }
+  /* 组合状态（置顶 + 运行中/未读）时被挤出槽位的图钉，退到标题前。 */
   .session-pin {
-    flex: none; width: 11px; height: 11px; margin-right: 4px;
+    flex: none; width: 13px; height: 13px; margin-right: 2px;
     color: var(--vscode-descriptionForeground);
-    display: inline-flex; align-items: center;
+    display: inline-flex; align-items: center; align-self: center;
   }
+  .session-pin svg { width: 13px; height: 13px; display: block; }
   /* 紧凑单行：标题省略号 + 右对齐的相对时间（对齐原原生树的观感）。 */
   .session-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
   .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -172,6 +193,33 @@ const STYLE = `
   }
   .sessions-empty .empty-hint { font-size: 12px; }
   .sessions-empty button { margin-top: 4px; }
+  /* 头部「N 个后台任务运行中」chip 的下拉（对齐官方 JobListAction 菜单）：
+     状态点 + kind 徽标 + 命令摘要 + 状态文案 + 耗时；已结束行淡化。 */
+  .jobs-menu { display: flex; flex-direction: column; gap: 1px; min-width: 260px; max-width: 360px; }
+  .jobs-menu-row {
+    display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+    border-radius: 6px; font-size: 12px;
+  }
+  .jobs-menu-row.settled { opacity: 0.65; }
+  .job-dot-slot {
+    width: 10px; height: 10px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .job-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .job-dot.done { background: var(--vscode-testing-iconPassed, #73c991); }
+  .job-dot.warning { background: var(--vscode-editorWarning-foreground, #cca700); }
+  .job-dot.error { background: var(--vscode-errorForeground, #f14c4c); }
+  .job-kind {
+    flex: none; font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: 4px;
+    background: var(--vscode-badge-background, rgba(127,127,127,.25));
+    color: var(--vscode-badge-foreground, var(--vscode-foreground));
+  }
+  .job-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job-status {
+    flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 11px; opacity: 0.75;
+  }
+  .job-duration { flex: none; font-size: 11px; opacity: 0.55; font-variant-numeric: tabular-nums; }
   @media (max-width: 719px) {
     #app { flex-direction: column; }
     .sessions-panel {
@@ -181,20 +229,43 @@ const STYLE = `
     .chat-col { min-height: 0; }
   }
   .chat-header {
-    display: flex; align-items: center; gap: 8px;
-    padding: 4px 12px; font-weight: 600; flex: none;
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 12px 8px; flex: none;
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
   .chat-header .chat-title {
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+    /* 不拉伸（flex:1 会把紧跟其后的重命名按钮顶到行尾）：收缩自适应，
+       超长才 ellipsis；重命名按钮与 chips 依次跟在文字后面。 */
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0;
+    font-size: 14px; font-weight: 500; line-height: 20px; padding: 2px 4px;
   }
+  /* 头部可点 chip（子代理 / 后台任务下拉）：透明底小字，hover 只提亮文字
+     —— 对齐官方 SubagentHeader 的 trigger（ZKlsPq_trigger）。 */
+  .header-chip {
+    flex: none; display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; font-weight: 400; line-height: 18px; padding: 3px 4px;
+    border: 0; border-radius: 6px; cursor: pointer;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+  }
+  .header-chip:hover { color: var(--vscode-foreground); }
+  /* 只读 preset 标签：浅底胶囊 + 14px 图标，对齐官方 AgentPresetLabel（SVAs4q_label）。 */
+  .preset-chip {
+    flex: none; display: inline-flex; align-items: center; gap: 4px;
+    max-width: 160px; height: 22px; padding: 0 6px 0 4px;
+    font-size: 12px; border-radius: 6px; overflow: hidden;
+    background: var(--vscode-editor-inactiveSelectionBackground, rgba(127,127,127,.16));
+    color: var(--vscode-foreground);
+  }
+  .preset-chip svg { flex: none; opacity: 0.7; }
+  .preset-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chat-header .rename-session {
     flex: none; background: transparent; border: 0; color: inherit; opacity: 0.6;
     cursor: pointer; padding: 2px 4px; border-radius: 4px; font-size: 12px; line-height: 1;
   }
   .chat-header .rename-session:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
   .chat-header .rename-input {
-    flex: 1; min-width: 0; font: inherit; font-weight: 600;
+    flex: 1; min-width: 0; font: inherit; font-weight: 500;
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
     border-radius: 4px; padding: 1px 6px; outline: none;
@@ -204,6 +275,8 @@ const STYLE = `
     display: flex; flex-direction: column; gap: 10px;
   }
   .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
+  /* 切换会话时历史基线加载中的占位：撑满聊天列垂直居中。 */
+  .loading-hint { flex: 1; display: flex; align-items: center; justify-content: center; }
   .command-notice {
     font-size: 0.9em; opacity: 0.8; white-space: pre-wrap; word-break: break-word;
     border-left: 2px solid var(--vscode-panel-border, rgba(127,127,127,.4));
@@ -229,7 +302,7 @@ const STYLE = `
   }
   .reasoning {
     border-left: 2px solid var(--vscode-panel-border, rgba(127,127,127,.4));
-    padding-left: 8px;
+    padding-left: 8px; color: var(--vscode-descriptionForeground, #888); font-size: 0.9em;
   }
   .msg.context {
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.25));
@@ -242,15 +315,18 @@ const STYLE = `
   }
   .reasoning summary { cursor: pointer; opacity: 0.75; font-size: 0.9em; }
   .reasoning-body { white-space: pre-wrap; font-size: 0.9em; opacity: 0.8; margin-top: 4px; }
-  .tool {
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    border-radius: 6px; padding: 6px 10px; font-size: 0.92em;
+  /* 工具调用：行式排版（kimi-cli / dsh web 观感），不再用卡片边框容器。 */
+  .tool { padding: 1px 0; font-size: 0.92em; }
+  .tool-line { display: flex; align-items: baseline; gap: 6px; overflow: hidden; }
+  .tool-line .spinner { align-self: center; width: 10px; height: 10px; border-width: 1.5px; }
+  .tool-action { flex: none; }
+  .tool-title {
+    opacity: 0.65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em;
   }
-  .tool-head { display: flex; align-items: center; gap: 6px; }
-  .tool-name { font-weight: 600; font-family: var(--vscode-editor-font-family, monospace); }
-  .tool-title { opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 命令/参数预览一行：等宽、截断省略，比动作行略缩进。 */
   .tool-detail {
-    opacity: 0.7; margin-top: 2px; font-size: 0.88em;
+    opacity: 0.7; margin: 1px 0 0 20px; font-size: 0.88em;
     font-family: var(--vscode-editor-font-family, monospace);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
@@ -263,12 +339,17 @@ const STYLE = `
     animation: spin 0.9s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .tool-output summary { cursor: pointer; opacity: 0.75; margin-top: 4px; }
+  /* 工具输出：默认只渲染前几行，「共 N 行」提示行点击展开/收起（webview 侧截断）。 */
+  .tool-output { margin: 2px 0 0 20px; }
   .tool-output pre {
-    max-height: 200px; overflow: auto; white-space: pre-wrap;
+    max-height: 320px; overflow: auto; white-space: pre-wrap; margin: 0;
     background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
-    padding: 6px; border-radius: 4px; font-size: 0.88em;
+    padding: 6px 8px; border-radius: 4px; font-size: 0.88em;
   }
+  .tool-output-toggle {
+    cursor: pointer; opacity: 0.6; margin-top: 2px; font-size: 0.85em;
+  }
+  .tool-output-toggle:hover { opacity: 1; }
   .diff {
     margin-top: 4px; border-radius: 4px; overflow: hidden;
     font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em;
@@ -285,11 +366,12 @@ const STYLE = `
     font-size: 0.85em;
   }
   .turn-status-text {
+    /* 蓝色系扫光（对齐官方 Deep diving 的 deepseek 蓝渐变），深/浅主题通用。 */
     background: linear-gradient(
       90deg,
-      var(--vscode-descriptionForeground, #888) 0%,
-      var(--vscode-foreground, #ccc) 50%,
-      var(--vscode-descriptionForeground, #888) 100%
+      #4d6bfe 0%,
+      #b3c5ff 50%,
+      #4d6bfe 100%
     );
     background-size: 200% 100%;
     -webkit-background-clip: text;
@@ -433,6 +515,9 @@ const STYLE = `
   }
   .pill:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground, rgba(127,127,127,.3)); }
   .pill .glyph { display: inline-flex; flex: none; }
+  /* pill 内嵌图标 + 文字标签（如 Agent 模式）：图标不缩、标签自身省略号。 */
+  .pill svg { flex: none; }
+  .pill .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .popover {
     position: fixed; z-index: 20; min-width: 180px; max-width: 340px; max-height: 50vh; overflow-y: auto;
     background: var(--vscode-menu-background, var(--vscode-dropdown-background));
@@ -457,6 +542,13 @@ const STYLE = `
   .menu-item .check { margin-left: auto; flex: none; }
   .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
+  /* agent preset 下拉项：名称 + 描述两行（描述较长，单行 menu-right 放不下）。 */
+  .preset-item { align-items: flex-start; white-space: normal; }
+  .preset-item .preset-item-main { flex: 1; min-width: 0; }
+  .preset-item .preset-item-desc {
+    margin-top: 1px; font-size: 11px; line-height: 1.4; opacity: 0.6; white-space: normal;
+  }
+  .preset-item .check { align-self: center; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
   .menu-hint { padding: 8px; opacity: .7; }
   .slash-popup { max-height: 40vh; }
@@ -479,6 +571,12 @@ const STYLE = `
     display: block; height: 100%; min-width: 2px; border-radius: 2px;
     background: var(--vscode-progressBar-background, var(--vscode-button-background));
   }
+  /* 余量分级变色（src/pure/contextMeter.ts）：充足显式绿，<10 轮黄，<5 轮/超窗口红。 */
+  .context-bar.level-ok .context-bar-fill { background: var(--vscode-testing-iconPassed, #73c991); }
+  .context-bar.level-warn .context-bar-fill { background: var(--vscode-editorWarning-foreground, #cca700); }
+  .context-bar.level-danger .context-bar-fill,
+  .context-bar.level-overflow .context-bar-fill { background: var(--vscode-errorForeground, #f14c4c); }
+  .context-bar.level-overflow .context-bar-track { border-color: var(--vscode-errorForeground, #f14c4c); }
   .context-panel { width: 240px; font-size: 12px; line-height: 20px; }
   .context-panel .cp-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .context-panel .cp-percent { font-weight: 600; }
@@ -493,7 +591,14 @@ const STYLE = `
   .context-panel .cp-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
   .context-panel .cp-swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
   .context-panel .cp-value { margin-left: auto; font-variant-numeric: tabular-nums; opacity: .95; flex: none; }
-  .image-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  /* 实时预估行（≈N/轮，约还可持续 M 轮）。 */
+  .context-panel .cp-estimate { margin-top: 10px; font-size: 11px; opacity: 0.7; }
+  /* 超出当前模型窗口的红色提示行。 */
+  .context-panel .cp-overflow {
+    margin-top: 8px; font-size: 12px; line-height: 1.5;
+    color: var(--vscode-errorForeground, #f14c4c);
+  }
+  .image-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .image-chip {
     display: inline-flex; align-items: center; gap: 6px;
     background: var(--vscode-badge-background, rgba(127,127,127,.25));
@@ -507,6 +612,29 @@ const STYLE = `
     cursor: pointer; font-size: 12px; line-height: 1; opacity: 0.8;
   }
   .image-chip .chip-remove:hover { opacity: 1; }
+  /* 文件 chip 的类型小图标（strokeSvg 固定 14px，缩到容器尺寸）。 */
+  .file-chip-icon { display: inline-flex; width: 12px; height: 12px; flex: none; }
+  .file-chip-icon svg { width: 12px; height: 12px; display: block; }
+  /* 待发送图片缩略图（对齐官方 AttachmentRail：方图 cover，hover 右上角出移除钮）。 */
+  .attach-thumb {
+    position: relative; width: 48px; height: 48px; flex: none;
+    border-radius: 10px; overflow: hidden; cursor: zoom-in;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
+    background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
+  }
+  .attach-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .attach-thumb .thumb-remove {
+    position: absolute; top: 3px; right: 3px; z-index: 1;
+    width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #fff);
+    cursor: pointer; font-size: 12px; line-height: 1;
+    opacity: 0; transition: opacity .2s ease-in-out;
+  }
+  .attach-thumb:hover .thumb-remove, .attach-thumb .thumb-remove:focus-visible { opacity: 1; }
+  @media (pointer: coarse) { .attach-thumb .thumb-remove { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .attach-thumb .thumb-remove { transition: none; } }
   #input {
     flex: 1; resize: none; box-sizing: border-box; padding: 6px 8px;
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
@@ -541,6 +669,56 @@ const STYLE = `
   .empty-title { font-weight: 600; }
   .empty-hint { opacity: 0.7; font-size: 0.9em; }
   .empty button { margin-top: 8px; padding: 4px 14px; }
+  /* 空会话 hero（官方 dsh web 空态 HeroShell，pXSMma_*）：整列水平居中。 */
+  .hero {
+    flex: 1; min-height: 0; overflow-y: auto;
+    display: flex; flex-direction: column; justify-content: center; padding: 24px;
+  }
+  .hero-stack {
+    width: 100%; max-width: 780px; margin: 0 auto;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .hero-headline {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    color: var(--vscode-foreground);
+  }
+  .hero-headline-text { font-size: 26px; font-weight: 500; line-height: 32px; }
+  .hero-badge {
+    align-self: flex-start; margin-top: 4px; white-space: nowrap;
+    font-size: 12px; font-weight: 500; line-height: 18px; padding: 1px 7px 0;
+    border-radius: 24px;
+    color: var(--vscode-textLink-foreground, #4da3ff);
+    border: 1px solid var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    background: var(--vscode-editor-inactiveSelectionBackground, rgba(90,140,255,.12));
+  }
+  .hero-chips { display: flex; align-items: center; gap: 4px; padding-left: 8px; }
+  .hero-chip {
+    display: inline-flex; align-items: center; gap: 4px; min-height: 28px;
+    max-width: 360px; padding: 0 8px; border: 0; border-radius: 16px;
+    background: transparent; color: var(--vscode-foreground);
+    font-size: 13px; font-weight: 500; line-height: 20px;
+  }
+  .hero-chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hero-chip svg { flex: none; }
+  .hero-chip svg.chevron { color: var(--vscode-descriptionForeground); }
+  button.hero-chip { cursor: pointer; }
+  button.hero-chip:hover:not(:disabled) {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.18));
+  }
+  /* hero 里的 composer 大圆角卡片（官方 uV2eYG_card：22px 圆角 + 浮层底 +
+     柔和双层阴影；深色主题下 editorWidget 底即浮层提亮，阴影近似不可见）。 */
+  .hero .input-area {
+    gap: 8px; padding: 10px 12px 8px;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    border-radius: 22px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    box-shadow: 0 4px 12px rgba(0,0,0,.02), 0 2px 8px rgba(0,0,0,.04);
+  }
+  .hero #input {
+    background: transparent; border-color: transparent;
+    font-size: 16px; line-height: 24px;
+  }
+  .hero #input:focus { outline: none; }
 `
 
 function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
@@ -574,6 +752,10 @@ function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
  * routes user actions back. Also owns the sessions panel: SessionsStore 的
  * 快照随 store 变更/服务状态变化/视图 resolve 推给 webview，面板动作经
  * onMessage 顶部的免 controller 分支路由（会话操作复用 extension.ts 的命令）。
+ * 头部信息区的 chips（后台任务 / 子代理）数据来自 JobsStore（mux 全局
+ * session/jobs 帧，含已结束的 job）与 store 的 session.list 基线，经
+ * composeHeader 合成 ChatState.backgroundJobs / runningSubagents 随 state
+ * 推送（JobsStore/store 变更与附着切换时重推）。
  * With no session — or a non-running server — the webview gets EMPTY_STATE
  * and shows its placeholder copy.
  */
@@ -585,6 +767,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   private lastSessionTitle: string | undefined
   private readonly managerSub: vscode.Disposable
   private readonly storeSub: vscode.Disposable
+  private readonly jobs: JobsStore
+  private readonly jobsSub: vscode.Disposable
 
   constructor(
     private readonly manager: ServerManager,
@@ -595,7 +779,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly onSessionsChanged?: () => void,
   ) {
     this.managerSub = manager.onDidChangeState((s) => this.onServerState(s))
-    this.storeSub = store.onDidChange(() => this.pushSessions())
+    this.storeSub = store.onDidChange(() => {
+      this.pushSessions()
+      // 聊天头部的「N 个子代理」chip 来自 session.list 基线（子代理开跑/收尾
+      // 触发 host 事件 → store 刷新），附着会话时重推一次 state。
+      if (this.controller) this.push(this.controller.getState())
+    })
+    this.jobs = new JobsStore(manager, logger)
+    // 头部「N 个后台任务」chip 的数据源（mux 全局 session/jobs 帧）：
+    // 基线变化时重推当前 state，composeHeader 重新组合下拉行。
+    this.jobsSub = this.jobs.onDidChange(() => {
+      if (this.controller) this.push(this.controller.getState())
+    })
   }
 
   /** Session currently shown, null when the view is in its empty state. */
@@ -638,6 +833,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       this.attach(null)
       return
     }
+    // 打开（附着）即视为已读。
+    this.store.setUnread(sessionId, false)
     this.attach(new ChatSessionController(url, sessionId, this.logger))
   }
 
@@ -682,8 +879,44 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   private push(state: ChatState): void {
-    const message: ToWebviewMessage = { type: 'state', state }
+    const message: ToWebviewMessage = { type: 'state', state: this.composeHeader(state) }
     void this.view?.webview.postMessage(message)
+  }
+
+  /**
+   * 头部信息区：附着会话正在运行的 continuable 子代理（SessionsStore 的
+   * session.list 基线里 parentSessionId 指向它且 running 的行）、全部后台
+   * job（JobsStore 的 mux 基线，含已结束，按官方 JobListAction 行序）、
+   * 空会话 hero 区的 workspace 名（workspace.list 基线，blank 会话也在所属
+   * workspace 的 sessionIds 里），以及头部只读 preset 标签——渠道对齐官方
+   * AgentPresetLabel：session.list 基线的 agentPreset id（官方
+   * sessionSummarySchema 字段，创建时即定、新旧会话都有）经 controller 的
+   * roster 映射成显示名。空会话由 hero 的选择 chip 呈现当前 preset（
+   * state.agentPreset 在），标签不重复。字段为空时都缺省，webview 不渲染。
+   */
+  private composeHeader(state: ChatState): ChatState {
+    if (!state.sessionId) return state
+    const subagents = this.store
+      .rawList()
+      .filter((s) => s.parentSessionId === state.sessionId && s.running)
+      .map((s) => ({
+        sessionId: s.sessionId,
+        title: s.title ?? `会话 ${s.sessionId.slice(0, 8)}`,
+        ...(s.totalTokens !== undefined ? { totalTokens: s.totalTokens } : {}),
+        updatedAt: s.updatedAt,
+      }))
+    const jobs = orderJobs(this.jobs.jobs().get(state.sessionId) ?? [])
+    const workspaceLabel = this.store.workspaceLabelFor(state.sessionId)
+    const presetId = this.store.rawList().find((s) => s.sessionId === state.sessionId)?.agentPreset
+    const presetLabel =
+      !state.agentPreset && presetId !== undefined ? this.controller?.agentPresetLabelFor(presetId) : undefined
+    return {
+      ...state,
+      ...(subagents.length > 0 ? { runningSubagents: subagents } : {}),
+      ...(jobs.length > 0 ? { backgroundJobs: jobs } : {}),
+      ...(workspaceLabel ? { workspaceLabel } : {}),
+      ...(presetLabel ? { presetLabel } : {}),
+    }
   }
 
   /** Store 快照 + 服务状态，合成面板用的 SessionsSnapshot。 */
@@ -728,6 +961,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       case 'workspaceOpenFolder':
         void vscode.commands.executeCommand('dshOne.workspace.openFolder', m.path)
         return
+      case 'workspaceOpenTerminal':
+        void vscode.commands.executeCommand('dshOne.workspace.openTerminal', m.path)
+        return
       case 'sessionsRefresh':
         void this.store.refresh()
         return
@@ -739,6 +975,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return
       case 'sessionPin':
         this.store.setPinned(m.sessionId, m.pin)
+        return
+      case 'sessionUnread':
+        this.store.setUnread(m.sessionId, m.unread)
         return
       case 'workspaceCollapse':
         this.store.setCollapsed(m.workspaceId, m.collapsed)
@@ -800,6 +1039,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         case 'setPermission':
           await this.setPermission(controller, m.value)
           return
+        case 'setAgentPreset': {
+          // 失败（尤其 agent-preset-locked：会话已开跑）只记日志，不打扰用户。
+          try {
+            await controller.setAgentPreset(m.id)
+          } catch (err) {
+            this.logger.warn(`chat: setAgentPreset(${m.id}) failed — ${err instanceof Error ? err.message : err}`)
+          }
+          return
+        }
         case 'renameSession':
           await this.renameCurrentSession(controller, m.title)
           return
@@ -1115,6 +1363,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   dispose(): void {
     this.managerSub.dispose()
     this.storeSub.dispose()
+    this.jobsSub.dispose()
+    this.jobs.dispose()
     this.controllerSub?.dispose()
     this.controller?.dispose()
     this.controller = null

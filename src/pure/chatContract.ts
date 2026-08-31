@@ -5,6 +5,7 @@
  * file as an interface freeze: change it only when both sides change together.
  */
 import type { SessionSortOrder, WorkspaceNodeModel } from './sessionTree.ts'
+import type { ActivityJob } from './activityTree.ts'
 
 /** One renderable block inside an assistant message. */
 export interface ChatTextBlock {
@@ -169,6 +170,11 @@ export interface StagedFile {
 export interface ChatState {
   sessionId: string | null
   sessionTitle?: string
+  /**
+   * 历史基线（session.history 翻页）还在加载：webview 此时显示加载占位而不是
+   * 空会话 hero，避免切换会话时 hero 闪一帧再被消息流替换。
+   */
+  loading?: boolean
   messages: ChatMessage[]
   pending: PendingRequest[]
   /** The attached agent is mid-turn. */
@@ -182,6 +188,47 @@ export interface ChatState {
   serverError?: 'dshNotFound'
   /** Footer model pill, host-computed from session.models ("DeepSeek-V4-Flash High" style). */
   modelLabel?: string
+  /**
+   * Agent preset picker for blank sessions（空会话 hero 区的选择 chip）：
+   * roster options + the current id (last agent-preset/selected event,
+   * else the roster default). Absent once any turn has started — the host
+   * locks the preset then (agent-preset-locked).
+   */
+  agentPreset?: {
+    options: Array<{ id: string; label: string; description?: string }>
+    current: string
+  }
+  /**
+   * 空会话 hero 区的 workspace 名 chip（官方空态的 workspace 触发器，我们只读
+   * 展示）：附着会话所属 workspace 的 title，由 ChatViewProvider 从
+   * SessionsStore 的 workspace.list 基线（含 blank 会话）合成。
+   */
+  workspaceLabel?: string
+  /**
+   * 头部 preset 只读标签（如「标准模式」）：渠道对齐官方 AgentPresetLabel——
+   * ChatViewProvider 从 session.list 基线取附着会话的 agentPreset id（创建时
+   * 即定，新旧会话都有），经 controller 的 roster 映射成显示名；与空会话
+   * hero 的 agentPreset 选择 chip 互斥，不会同时出现。
+   */
+  presetLabel?: string
+  /**
+   * 头部「N 个子代理」chip 的下拉行：本会话正在运行的 continuable 子代理
+   * （session.list 基线里 parentSessionId 指向本会话且 running 的会话），
+   * 由 ChatViewProvider 从 SessionsStore 组合；没有运行中子代理时缺省。
+   */
+  runningSubagents?: Array<{
+    sessionId: string
+    title: string
+    totalTokens?: number
+    /** Epoch milliseconds（session.list 的 updatedAt）。 */
+    updatedAt: number
+  }>
+  /**
+   * 头部「N 个后台任务运行中」chip 的下拉行：本会话的全部后台 job（含
+   * 已结束的），由 ChatViewProvider 从 JobsStore 的 mux 基线组合并按官方
+   * JobListAction 行序排好；一个 job 都没有时缺省（chip 不渲染）。
+   */
+  backgroundJobs?: ActivityJob[]
   /** Permission preset select from the `permissions` projection; absent hides the control. */
   permissions?: {
     options: Array<{ value: string; label: string }>
@@ -207,6 +254,12 @@ export interface ChatState {
     contextWindow: number
     /** Heuristic composition (system prompt / tools / conversation). */
     breakdown?: { systemTokens: number; toolsTokens: number; messageTokens: number }
+    /**
+     * Closed-turn count from the `sessionStats` projection; the webview's
+     * context meter (src/pure/contextMeter.ts) uses it for the per-turn
+     * growth estimate. Absent until the first closed turn.
+     */
+    turns?: number
   }
 }
 
@@ -268,6 +321,8 @@ export interface SessionsSnapshot {
   pinned: string[]
   /** 折叠的 workspace id。 */
   collapsed: string[]
+  /** 手动标记未读的会话 id（dsh 无未读 API，纯客户端状态）。 */
+  unread: string[]
 }
 
 export type ToWebviewMessage =
@@ -290,6 +345,8 @@ export type FromWebviewMessage =
   | { type: 'requestModels' }
   | { type: 'setModel'; provider: string; model: string; reasoningEffort?: string }
   | { type: 'setPermission'; value: string }
+  /** Pick an agent preset on a blank session (composer chip dropdown). */
+  | { type: 'setAgentPreset'; id: string }
   | { type: 'renameSession'; title: string }
   | { type: 'queueEdit'; itemId: string; text: string }
   | { type: 'queueSteer'; itemId: string }
@@ -315,6 +372,8 @@ export type FromWebviewMessage =
   | { type: 'workspaceCreate' }
   /** Sessions 面板：在 VSCode 中打开该 workspace 的文件夹。 */
   | { type: 'workspaceOpenFolder'; path: string }
+  /** Sessions 面板：在 VSCode 终端中打开该 workspace 的文件夹。 */
+  | { type: 'workspaceOpenTerminal'; path: string }
   /** Sessions 面板：手动刷新列表。 */
   | { type: 'sessionsRefresh' }
   /** Sessions 面板：设置/清除搜索词。 */
@@ -323,6 +382,8 @@ export type FromWebviewMessage =
   | { type: 'sessionsSort'; order: SessionSortOrder }
   /** Sessions 面板：置顶/取消置顶会话（本地状态）。 */
   | { type: 'sessionPin'; sessionId: string; pin: boolean }
+  /** Sessions 面板：标记未读/已读会话（本地状态）。 */
+  | { type: 'sessionUnread'; sessionId: string; unread: boolean }
   /** Sessions 面板：折叠/展开一个 workspace 分组。 */
   | { type: 'workspaceCollapse'; workspaceId: string; collapsed: boolean }
   /** Sessions 面板：从会话尾部创建分支会话并附着。 */

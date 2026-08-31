@@ -174,6 +174,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         forceNewWindow: false,
       })
     }),
+    vscode.commands.registerCommand('dshOne.workspace.openTerminal', (path?: string) => {
+      if (typeof path !== 'string' || !path) return
+      const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
+      vscode.window.createTerminal({ name, cwd: path }).show()
+    }),
     vscode.commands.registerCommand('dshOne.openInstallPage', async () => {
       await vscode.env.openExternal(vscode.Uri.parse(DSH_INSTALL_URL))
     }),
