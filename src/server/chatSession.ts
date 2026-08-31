@@ -29,6 +29,8 @@ import type { AgentPresetOption } from '../pure/agentPreset.ts'
 const FLUSH_INTERVAL_MS = 100
 /** Safety bound on the history back-pagination at attach time. */
 const MAX_HISTORY_PAGES = 100
+/** Mux reconnect backoff: 1s doubling up to this cap. */
+const RECONNECT_MAX_MS = 30_000
 
 /** Loose mirror of AskUserQuestionItem (dsh-user-questions types). */
 interface QuestionItem {
@@ -269,6 +271,17 @@ export class ChatSessionController implements vscode.Disposable {
   private flushTimer: ReturnType<typeof setTimeout> | undefined
   private lastFlush = 0
   private disposed = false
+  /** Highest event seq folded so far (history baseline or live stream). */
+  private maxSeqFolded = -1
+  /** Reconnect state: backoff step, pending timer, and whether the next
+   *  session/subscribed frame must be gap-checked against maxSeqFolded. */
+  private reconnectAttempts = 0
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  private awaitingRebaseline = false
+  /** While a reconnect re-baseline fetches history, live events buffer here
+   *  and refold onto the fresh baseline (they may postdate the fetch). */
+  private rebaselineInFlight = false
+  private pendingLiveEvents: Array<{ event: SessionEventLike; view: ToolEventViewLike | undefined }> = []
   /** Original question items by rpcId; the answer payload echoes their ids. */
   private readonly questionItems = new Map<string, QuestionItem[]>()
 
@@ -433,46 +446,57 @@ export class ChatSessionController implements vscode.Disposable {
     this.disposed = true
     if (this.flushTimer) clearTimeout(this.flushTimer)
     this.flushTimer = undefined
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = undefined
     this.mux?.dispose()
     this.emitter.dispose()
+  }
+
+  /**
+   * History + projection baseline. Used by init and by reconnect re-baseline:
+   * a full reset, so callers must not hold folded state across it.
+   */
+  private async loadBaseline(): Promise<void> {
+    let page = await sessionHistory(this.url, this.sessionId)
+    const projections = page.projections
+    let events: HistoryEntryLike[] = page.events
+    let pages = 1
+    while (page.hasMore && events.length > 0 && pages < MAX_HISTORY_PAGES) {
+      page = await sessionHistory(this.url, this.sessionId, events[0].event.seq)
+      events = [...page.events, ...events]
+      pages += 1
+    }
+    if (page.hasMore) this.logger.warn(`chat: history of ${this.sessionId} truncated at ${MAX_HISTORY_PAGES} pages`)
+    this.folder.applyHistory(events)
+    // Preset picker 的两个判定都来自会话日志：任何 turn/start = 已启动
+    // （preset 锁定），最后一条 agent-preset/selected = 当前 preset。
+    for (const entry of events) this.foldPresetMarkers(entry.event)
+    this.maxSeqFolded = events.reduce((max, entry) => Math.max(max, entry.event.seq), -1)
+    if (projections) {
+      this.titleSeq = projections.asOfSeq
+      const title = projections.values.title
+      this.sessionTitle = typeof title === 'string' && title ? title : undefined
+      // Other projections share the baseline watermark and the same
+      // higher-seq-wins rule as the title.
+      this.permissionsSeq = projections.asOfSeq
+      this.statsSeq = projections.asOfSeq
+      this.pressureSeq = projections.asOfSeq
+      this.breakdownSeq = projections.asOfSeq
+      this.applyPermissionsValue(projections.values.permissions)
+      this.applyStatsValue(projections.values.sessionStats)
+      const limits = asImageLimits(projections.values.imageLimits)
+      if (limits) this.imageLimits = limits
+      const pressure = asContextPressure(projections.values.contextPressure)
+      if (pressure) this.contextPressure = pressure
+      const breakdown = asContextBreakdown(projections.values.contextBreakdown)
+      if (breakdown) this.contextBreakdown = breakdown
+    }
   }
 
   /** Baseline: fold the full history window, then subscribe the mux stream. */
   private async init(): Promise<void> {
     try {
-      let page = await sessionHistory(this.url, this.sessionId)
-      const projections = page.projections
-      let events: HistoryEntryLike[] = page.events
-      let pages = 1
-      while (page.hasMore && events.length > 0 && pages < MAX_HISTORY_PAGES) {
-        page = await sessionHistory(this.url, this.sessionId, events[0].event.seq)
-        events = [...page.events, ...events]
-        pages += 1
-      }
-      if (page.hasMore) this.logger.warn(`chat: history of ${this.sessionId} truncated at ${MAX_HISTORY_PAGES} pages`)
-      this.folder.applyHistory(events)
-      // Preset picker 的两个判定都来自会话日志：任何 turn/start = 已启动
-      // （preset 锁定），最后一条 agent-preset/selected = 当前 preset。
-      for (const entry of events) this.foldPresetMarkers(entry.event)
-      if (projections) {
-        this.titleSeq = projections.asOfSeq
-        const title = projections.values.title
-        this.sessionTitle = typeof title === 'string' && title ? title : undefined
-        // Other projections share the baseline watermark and the same
-        // higher-seq-wins rule as the title.
-        this.permissionsSeq = projections.asOfSeq
-        this.statsSeq = projections.asOfSeq
-        this.pressureSeq = projections.asOfSeq
-        this.breakdownSeq = projections.asOfSeq
-        this.applyPermissionsValue(projections.values.permissions)
-        this.applyStatsValue(projections.values.sessionStats)
-        const limits = asImageLimits(projections.values.imageLimits)
-        if (limits) this.imageLimits = limits
-        const pressure = asContextPressure(projections.values.contextPressure)
-        if (pressure) this.contextPressure = pressure
-        const breakdown = asContextBreakdown(projections.values.contextBreakdown)
-        if (breakdown) this.contextBreakdown = breakdown
-      }
+      await this.loadBaseline()
     } catch (error) {
       this.logger.warn(`chat: history baseline failed for ${this.sessionId}: ${errorText(error)}`)
     }
@@ -483,7 +507,7 @@ export class ChatSessionController implements vscode.Disposable {
       this.logger.warn(`chat: feedback baseline failed for ${this.sessionId}: ${errorText(error)}`)
     }
     if (this.disposed) return
-    this.mux = subscribeMuxEvents(this.url, this.logger, (frame) => this.onFrame(frame))
+    this.attach()
     this.ready = true
     this.push(true)
     // Model label rides no projection; fetch it once the stream is attached.
@@ -499,9 +523,59 @@ export class ChatSessionController implements vscode.Disposable {
     })
   }
 
+  /** Attach the mux stream; the close callback drives reconnect. */
+  private attach(): void {
+    this.mux = subscribeMuxEvents(
+      this.url,
+      this.logger,
+      (frame) => this.onFrame(frame),
+      () => this.onMuxClose(),
+    )
+  }
+
+  /**
+   * Stream dropped (host restart, hot reload, network blip, sleep/wake).
+   * Re-subscribe with 1s doubling backoff capped at RECONNECT_MAX_MS; the
+   * next session/subscribed frame gap-checks lastSeq and re-baselines when
+   * events were missed while we were blind.
+   */
+  private onMuxClose(): void {
+    if (this.disposed) return
+    const delay = Math.min(1000 * 2 ** this.reconnectAttempts, RECONNECT_MAX_MS)
+    this.reconnectAttempts += 1
+    this.logger.warn(`chat: mux stream for ${this.sessionId} closed; reconnecting in ${delay}ms`)
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined
+      if (this.disposed) return
+      this.awaitingRebaseline = true
+      this.attach()
+    }, delay)
+  }
+
+  /**
+   * Re-fold the full history baseline after a reconnect gap, then drain live
+   * events buffered during the fetch. Queue/jobs/pending snapshots are left
+   * alone: they re-converge on the host's next whole-snapshot frames.
+   */
+  private async rebaseline(): Promise<void> {
+    this.rebaselineInFlight = true
+    try {
+      await this.loadBaseline()
+    } catch (error) {
+      this.logger.warn(`chat: reconnect re-baseline failed for ${this.sessionId}: ${errorText(error)}`)
+    }
+    this.rebaselineInFlight = false
+    const buffered = this.pendingLiveEvents
+    this.pendingLiveEvents = []
+    for (const { event, view } of buffered) {
+      this.foldPresetMarkers(event)
+      this.folder.applyEvent(event, view)
+    }
+    this.push(true)
+  }
+
   /** Fold the preset-relevant markers of one session event (history or live). */
-  private foldPresetMarkers(event: SessionEventLike): void {
-    if (event.type === 'turn/start') {
+  private foldPresetMarkers(event: SessionEventLike): void {    if (event.type === 'turn/start') {
       this.turnStarted = true
       return
     }
@@ -577,12 +651,28 @@ export class ChatSessionController implements vscode.Disposable {
     }
     if (payload.sessionId !== this.sessionId) return
     switch (frame.method) {
-      case 'session/subscribed':
+      case 'session/subscribed': {
         this.logger.info(`chat: subscribed to ${this.sessionId} (lastSeq ${String(payload.lastSeq)})`)
+        // A healthy subscription resets the backoff ladder.
+        this.reconnectAttempts = 0
+        if (!this.awaitingRebaseline) return
+        this.awaitingRebaseline = false
+        // Reconnected: events between maxSeqFolded and lastSeq are lost.
+        // Only a gap justifies the full re-baseline.
+        const lastSeq = typeof payload.lastSeq === 'number' ? payload.lastSeq : -1
+        if (lastSeq > this.maxSeqFolded) void this.rebaseline()
         return
+      }
       case 'session/event': {
         const event = payload.event as SessionEventLike
         const view = payload.view as ToolEventViewLike | undefined
+        if (typeof event.seq === 'number' && event.seq > this.maxSeqFolded) this.maxSeqFolded = event.seq
+        // A re-baseline fetch is in flight: buffer so the fresh baseline can
+        // refold events that may postdate the fetch window.
+        if (this.rebaselineInFlight) {
+          this.pendingLiveEvents.push({ event, view })
+          return
+        }
         // turn/start 与 agent-preset/selected 不进对话流，但影响 preset chip
         // 的可见性与当前值——状态变了就补一次 push。
         const presetAffecting = event.type === 'turn/start' || event.type === 'agent-preset/selected'

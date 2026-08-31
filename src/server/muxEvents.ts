@@ -14,11 +14,18 @@ export interface MuxFrame {
 
 /**
  * Subscribe to the mux event stream (downlink-only; the server closes client
- * messages with 1008). No reconnect logic — callers re-subscribe on state
- * changes. Fires onFrame for every frame, including control frames like
- * session/subscribed.
+ * messages with 1008). Fires onFrame for every frame, including control
+ * frames like session/subscribed. Reconnect is the caller's job: onClose
+ * fires when the stream drops (never after dispose), so the caller can
+ * re-subscribe with backoff.
  */
-export function subscribeMuxEvents(url: string, logger: Logger, onFrame: (frame: MuxFrame) => void): vscode.Disposable {
+export function subscribeMuxEvents(
+  url: string,
+  logger: Logger,
+  onFrame: (frame: MuxFrame) => void,
+  onClose?: () => void,
+): vscode.Disposable {
+  let disposed = false
   const socket = new WebSocket(`${url.replace(/^http/, 'ws')}/api/events.mux`)
   socket.onopen = () => {
     logger.info('mux events: subscribed')
@@ -36,9 +43,13 @@ export function subscribeMuxEvents(url: string, logger: Logger, onFrame: (frame:
   }
   socket.onclose = () => {
     logger.info('mux events: stream closed')
+    if (!disposed) onClose?.()
   }
   socket.onerror = () => {
     logger.warn('mux events: stream errored')
   }
-  return new vscode.Disposable(() => socket.close())
+  return new vscode.Disposable(() => {
+    disposed = true
+    socket.close()
+  })
 }
