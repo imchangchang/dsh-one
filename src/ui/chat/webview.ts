@@ -218,10 +218,21 @@ function md(text: string): string {
   })
 }
 
-/** @会话超链接 chip：点击打开被引用的会话（复用 sessions 面板的 sessionOpen 通路）。 */
+/** 会话引用图标：dsh web ReferenceIcon 的 session 分支（16x16 聊天气泡 + 两行）。 */
+const SESSION_REF_ICON: IconDef = {
+  paths: [
+    "M8 0.597656C3.91296 0.597656 0.599716 3.91103 0.599609 7.99805C0.599609 9.13171 0.854567 10.2079 1.31152 11.1699L1.59277 11.7607L2.77441 11.1992L2.49414 10.6084L2.36035 10.3076C2.06865 9.59612 1.90723 8.81645 1.90723 7.99805C1.90733 4.63362 4.63554 1.90625 8 1.90625C11.3644 1.90635 14.0917 4.63368 14.0918 7.99805C14.0918 11.3625 11.3644 14.0907 8 14.0908C7.311 14.0908 6.80642 14.0414 6.35938 13.918C5.919 13.7963 5.50105 13.5929 5.00098 13.2441C4.26805 12.7329 3.21756 12.5526 2.35156 13.0996L2.33789 13.1084L2.32422 13.1182L1.74805 13.5234L2.18164 14.8184L3.05957 14.2002C3.37505 14.0068 3.84248 14.0319 4.25195 14.3174C4.84447 14.7307 5.39718 15.009 6.01172 15.1787C6.61963 15.3465 7.25579 15.3984 8 15.3984C12.087 15.3983 15.4004 12.0851 15.4004 7.99805C15.4003 3.9111 12.087 0.59776 8 0.597656ZM4.56836 8.50977V9.80371H8.12402V8.50977H4.56836ZM4.56836 7.30078H11.4619V6.00684H4.56836V7.30078Z",
+  ],
+}
+
+/** @会话超链接 chip：图标 + 标题（对齐 dsh web 的 refChip），点击打开被引用的会话。 */
 function sessionMentionChip(label: string, sessionId: string): HTMLElement {
-  const chip = buttonEl('session-mention', `@${label}`)
+  const chip = document.createElement('button')
+  chip.type = 'button'
+  chip.className = 'session-mention'
   chip.title = `引用会话 ${sessionId}，点击打开`
+  chip.appendChild(iconSvg(SESSION_REF_ICON, 14))
+  chip.appendChild(el('span', undefined, label))
   chip.addEventListener('click', () => post({ type: 'sessionOpen', sessionId }))
   return chip
 }
@@ -2071,6 +2082,7 @@ renderSessions()
 function contextLabel(kind: string): string {
   if (kind === 'agent-instructions' || kind === 'legacy-instructions') return '工作区指令'
   if (kind === 'plugin') return '运行时上下文'
+  if (kind === 'session-reference') return '跨会话召回'
   return '上下文注入'
 }
 
@@ -2303,7 +2315,14 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (m.kind === 'user') {
     // Host-injected context renders collapsed; only real human input bubbles.
     if (m.context) {
-      const det = detailsEl(`${key}:ctx`, 'msg context', `📎 ${contextLabel(m.context)}（已随消息注入）`)
+      // 会话引用上下文用 dsh web 的图标 +「跨会话召回」表述，其余保持 📎。
+      const det = el('details', 'msg context') as HTMLDetailsElement
+      det.open = detailsOpen.get(`${key}:ctx`) ?? false
+      det.addEventListener('toggle', () => detailsOpen.set(`${key}:ctx`, det.open))
+      const summary = el('summary')
+      summary.appendChild(m.context === 'session-reference' ? iconSvg(SESSION_REF_ICON, 14) : el('span', undefined, '📎'))
+      summary.appendChild(el('span', undefined, ` ${contextLabel(m.context)}（已随消息注入）`))
+      det.appendChild(summary)
       det.appendChild(el('div', 'context-body', m.text))
       return det
     }
