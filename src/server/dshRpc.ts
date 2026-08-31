@@ -206,7 +206,13 @@ export async function promptSession(
     ...(img.name ? { name: img.name } : {}),
   }))
   if (text) content.push({ type: 'text', text })
-  await callRpc<{ accepted: true }>(baseUrl, 'session.prompt', { sessionId, mode, content })
+  // clientTimeZone：官方 prompt 的可选字段，服务端相对时间类文案会用到用户时区。
+  await callRpc<{ accepted: true }>(baseUrl, 'session.prompt', {
+    sessionId,
+    mode,
+    content,
+    clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  })
 }
 
 /** Admission outcome of one slash-command line (dsh-commands `commands/execute`). */

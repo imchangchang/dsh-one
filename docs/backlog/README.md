@@ -15,6 +15,6 @@
 | [对话引用（@会话）](session-reference.md) | 需求（已调研，形态已定：显示标题） | P2 | 未做 |
 | [会话处理完成后不自动标未读](auto-unread-on-finish.md) | 需求（dsh web 有等价的「已完成」自动标记，属对齐缺口） | P2 | 未做 |
 | [工作区软移除](workspace-soft-remove.md) | 需求（已调研，依赖「未分组会话」条目） | P2 | 未做 |
-| [数据渠道对齐官方的四个优化项](official-channel-alignment.md) | 优化（审计遗留；第 1、2 项可视作 P2） | P3 | 未做 |
+| [数据渠道对齐官方的三个优化项](official-channel-alignment.md) | 优化（审计遗留；第 1、2 项可视作 P2；原第 4 项 clientTimeZone 已完成） | P3 | 未做 |
 | [官方 UI 对齐的零散遗留项](ui-parity-leftovers.md) | 优化（7 小项，其中 2 项等 host 支持） | P3 | 未做 |
 | [会话面板增加「折叠所有工作区」按钮](collapse-all-workspaces.md) | 需求（方案已列） | P3 | 未做 |
