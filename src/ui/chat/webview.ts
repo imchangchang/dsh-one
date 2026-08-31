@@ -7,7 +7,7 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { MESSAGE_ACTION_ICONS, PANEL_ICONS, type IconDef } from './icons.ts'
+import { CONTEXT_BROWSE_ICON, MESSAGE_ACTION_ICONS, PANEL_ICONS, THINK_ICON, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
@@ -2318,12 +2318,12 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (m.kind === 'user') {
     // Host-injected context renders collapsed; only real human input bubbles.
     if (m.context) {
-      // 会话引用上下文用 dsh web 的图标 +「跨会话召回」表述，其余保持 📎。
+      // 会话引用上下文用 dsh web 的 ReferenceIcon session 分支，其余用 IconBrowseOutline16。
       const det = el('details', 'msg context') as HTMLDetailsElement
       det.open = detailsOpen.get(`${key}:ctx`) ?? false
       det.addEventListener('toggle', () => detailsOpen.set(`${key}:ctx`, det.open))
       const summary = el('summary')
-      summary.appendChild(m.context === 'session-reference' ? iconSvg(SESSION_REF_ICON, 14) : el('span', undefined, '📎'))
+      summary.appendChild(m.context === 'session-reference' ? iconSvg(SESSION_REF_ICON, 14) : iconSvg(CONTEXT_BROWSE_ICON, 14))
       summary.appendChild(el('span', undefined, ` ${contextLabel(m.context)}（已随消息注入）`))
       det.appendChild(summary)
       det.appendChild(el('div', 'context-body', m.text))
@@ -2464,6 +2464,7 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
     }
     case 'reasoning': {
       const det = detailsEl(`${key}:reason`, 'reasoning', '思考过程')
+      det.querySelector('summary')?.prepend(iconSvg(THINK_ICON, 14))
       det.appendChild(el('div', 'reasoning-body', block.text))
       return det
     }
@@ -2482,11 +2483,12 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   const line = el('div', 'tool-line')
   if (block.status === 'running') {
     line.appendChild(el('span', 'spinner'))
-  } else {
-    line.appendChild(
-      el('span', block.status === 'done' ? 'tool-status-done' : 'tool-status-error',
-        block.status === 'done' ? '✓' : '✕'),
-    )
+  } else if (block.status === 'error') {
+    // 失败用 dsh web 的 StateDot（error 红点）；done 不挂状态标（dsh web 里
+    // settled 工具行只显示工具自身图标，无额外状态覆盖）。
+    const dot = el('span', 'tool-state-dot')
+    dot.setAttribute('data-state', 'error')
+    line.appendChild(dot)
   }
   line.appendChild(el('span', 'tool-action', toolAction(block.name)))
   if (block.title) line.appendChild(el('span', 'tool-title', block.title))

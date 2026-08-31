@@ -362,7 +362,11 @@ const STYLE = `
     white-space: pre-wrap; word-break: break-word; margin-top: 6px;
     max-height: 300px; overflow-y: auto; opacity: 0.85;
   }
-  .reasoning summary { cursor: pointer; opacity: 0.75; font-size: 0.9em; }
+  .reasoning summary {
+    cursor: pointer; opacity: 0.75; font-size: 0.9em;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .reasoning summary svg { flex: none; }
   .reasoning-body { white-space: pre-wrap; font-size: 0.9em; opacity: 0.8; margin-top: 4px; }
   /* 工具调用：行式排版（kimi-cli / dsh web 观感），不再用卡片边框容器。 */
   .tool { padding: 1px 0; font-size: 0.92em; }
@@ -379,8 +383,21 @@ const STYLE = `
     font-family: var(--vscode-editor-font-family, monospace);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .tool-status-done { color: var(--vscode-testing-iconPassed, #73c991); }
-  .tool-status-error { color: var(--vscode-testing-iconFailed, #f14c4c); }
+  /* 工具失败 StateDot：dsh web 的彩色圆点（外层 10% 光晕 + 内层实心点），
+     颜色按 data-state 取；done 态不渲染状态点。 */
+  .tool-state-dot {
+    position: relative; display: inline-block; flex: none;
+    width: 8px; height: 8px; align-self: center;
+  }
+  .tool-state-dot::before {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    background: currentColor; opacity: 0.1;
+  }
+  .tool-state-dot::after {
+    content: ""; position: absolute; top: 20%; right: 20%; bottom: 20%; left: 20%;
+    border-radius: 50%; background: currentColor;
+  }
+  .tool-state-dot[data-state="error"] { color: var(--vscode-testing-iconFailed, #f14c4c); }
   .spinner {
     width: 12px; height: 12px; border-radius: 50%; flex: none;
     border: 2px solid var(--vscode-editorWidget-border, #555);
