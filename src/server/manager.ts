@@ -231,7 +231,16 @@ export class ServerManager implements vscode.Disposable {
     }
 
     const dsh = await locateDsh(this.logger)
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir()
+    let workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir()
+    // 当前文件夹可能已从磁盘删除（VS Code 仍持有过期路径）——spawn 的
+    // cwd 不存在会直接 ENOENT、服务起不来，回退 home 目录。
+    try {
+      await fsp.stat(workspaceRoot)
+    } catch {
+      const fallback = os.homedir()
+      this.logger.warn(`workspace root ${workspaceRoot} no longer exists; spawning with cwd=${fallback}`)
+      workspaceRoot = fallback
+    }
 
     // Sanitize the environment: the extension host injects NODE_OPTIONS /
     // ELECTRON_RUN_AS_NODE, both of which break a plain node child process.
