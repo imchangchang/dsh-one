@@ -67,5 +67,10 @@ $SUMMARY"
 git worktree remove "$WT"
 git branch -d "$BRANCH" >/dev/null
 git tag -d "done/$SLUG" >/dev/null
+
+# 扩展运行时装载的是主线的 dist/；合并只带了源码，不重建则 reload 后还是旧代码。
+echo "== 重建主线 dist =="
+npm run build
+
 echo
-echo "已合入 main 并清理 worktree / 分支 / done 标记。"
+echo "已合入 main 并清理 worktree / 分支 / done 标记（dist 已重建，reload 窗口生效）。"
