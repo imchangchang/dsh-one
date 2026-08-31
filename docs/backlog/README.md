@@ -8,6 +8,7 @@
 
 | 条目 | 类型 | 优先级 | 状态 |
 | --- | --- | --- | --- |
+| [dsh 服务与 VSCode 生命周期解绑](dsh-survive-reload.md) | 需求（方案已讨论，5 个决策点待拍板） | P1（reload 会中断进行中的 session） | 未做 |
 | [流式输出时视图跟随最新位置](stream-follow-latest.md) | 遗留问题 | P1（根因待复现确认） | 未做 |
 | [未分组会话在面板不可见](ungrouped-sessions.md) | 需求（已调研） | P1 | 未做 |
 | [Esc / Ctrl+C 打断当前 turn](esc-interrupt-turn.md) | 需求（决策已定） | P2 | 未做 |
