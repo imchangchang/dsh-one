@@ -2,15 +2,17 @@ import * as vscode from 'vscode'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 
 function text(status: ServerStatus): string {
+  // 前导 $(dsh-fish) 是扩展贡献的自定义字体图标（contributes.icons，
+  // 字体由 assets/icon.svg 经 fantasticon 生成）；状态靠颜色 + 文字区分。
   switch (status.state) {
     case 'running':
-      return `$(zap) DSH: 运行中 :${status.port ?? '?'}`
+      return `$(dsh-fish) DSH: 运行中 :${status.port ?? '?'}`
     case 'starting':
-      return '$(sync~spin) DSH: 启动中'
+      return '$(dsh-fish) DSH: 启动中…'
     case 'error':
-      return '$(error) DSH: 错误'
+      return '$(dsh-fish) DSH: 错误'
     default:
-      return '$(circle-slash) DSH: 已停止'
+      return '$(dsh-fish) DSH: 已停止'
   }
 }
 

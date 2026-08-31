@@ -28,6 +28,15 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "icons": {
+      "dsh-fish": {
+        "description": "dsh 像素鱼图标",
+        "default": {
+          "fontPath": "assets/dsh-icon.woff",
+          "fontCharacter": "\\f101"
+        }
+      }
+    },
     "commands": [
       {
         "command": "dshOne.open",
