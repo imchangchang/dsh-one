@@ -869,7 +869,6 @@ function startInlineRename(header: HTMLElement): void {
   input.className = 'rename-input'
   input.value = original
   titleEl.replaceWith(input)
-  header.querySelector('.rename-session')?.remove()
   input.focus()
   input.select()
   let settled = false
@@ -1056,17 +1055,14 @@ function render(): void {
       header.appendChild(parent)
       header.appendChild(el('span', 'crumb-sep', '/'))
     }
-    // 标题 ellipsis 截断但 hover 出完整标题（原生 title tooltip）。
+    // 标题 ellipsis 截断但 hover 出完整标题（原生 title tooltip）；
+    // 单击标题直接进改名（本地增强，官方无此交互）。
     const titleSpan = el('span', 'chat-title', state.sessionTitle ?? '')
-    if (state.sessionTitle) titleSpan.title = state.sessionTitle
-    header.appendChild(titleSpan)
-    // 重命名按钮紧跟标题（官方无此元素，本地增强）。
     if (state.sessionTitle) {
-      const rename = buttonEl('rename-session', '✎')
-      rename.title = '重命名会话'
-      rename.addEventListener('click', () => startInlineRename(header))
-      header.appendChild(rename)
+      titleSpan.title = state.sessionTitle
+      titleSpan.addEventListener('click', () => startInlineRename(header))
     }
+    header.appendChild(titleSpan)
     // 「N 个子代理」chip（对齐官方 SubagentHeader trigger：透明底小字 + chevron）：
     // 点击弹下拉，行点击附着子会话。chip 在有运行中子代理时带像素环。
     if (state.subagents && state.subagents.length > 0) {

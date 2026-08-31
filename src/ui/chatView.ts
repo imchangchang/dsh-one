@@ -245,11 +245,13 @@ const STYLE = `
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
   .chat-header .chat-title {
-    /* 不拉伸（flex:1 会把紧跟其后的重命名按钮顶到行尾）：收缩自适应，
-       超长才 ellipsis；重命名按钮与 chips 依次跟在文字后面。 */
+    /* 不拉伸（flex:1 会把紧跟其后的 chips 顶到行尾）：收缩自适应，
+       超长才 ellipsis；chips 依次跟在文字后面。单击标题进改名。 */
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0;
     font-size: 14px; font-weight: 500; line-height: 20px; padding: 2px 4px;
+    cursor: pointer; border-radius: 4px;
   }
+  .chat-header .chat-title:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
   /* 面包屑（对齐官方 dsh web 的子代理进入逻辑）：父会话标题是可点链接，
      灰字 hover 提亮；斜杠分隔符不响应点击。 */
   .chat-header .crumb-parent {
@@ -283,11 +285,6 @@ const STYLE = `
   }
   .preset-chip svg { flex: none; opacity: 0.7; }
   .preset-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chat-header .rename-session {
-    flex: none; background: transparent; border: 0; color: inherit; opacity: 0.6;
-    cursor: pointer; padding: 2px 4px; border-radius: 4px; font-size: 12px; line-height: 1;
-  }
-  .chat-header .rename-session:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
   .chat-header .rename-input {
     flex: 1; min-width: 0; font: inherit; font-weight: 500;
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
