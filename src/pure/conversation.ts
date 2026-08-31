@@ -351,6 +351,9 @@ export class ConversationFolder {
   }
 
   private ensureAssistant(turn: number, seq: number): ChatAssistantMessage {
+    // 窗口分页下 turn/start 可能落在窗口外（长 turn 的工具事件就能把页填满）；
+    // 窗口是日志的连续后缀，内容事件的 turn 没有配对的 turn/end 就是还在跑。
+    if (Number.isFinite(turn)) this.openTurns.add(turn)
     if (this.current) {
       this.current.seq = seq
       return this.current

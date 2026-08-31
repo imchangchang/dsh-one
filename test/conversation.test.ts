@@ -730,3 +730,15 @@ test('prependHistory with an empty page is a no-op', () => {
   f.prependHistory([])
   assert.equal(f.messages().length, 2)
 })
+
+test('tail window without turn/start still reports the unclosed turn as running', () => {
+  // 窗口分页：长 turn 的 turn/start 落在窗口外，但窗口是连续后缀——内容事件
+  // 的 turn 没有配对 turn/end 就是还在跑。
+  const f = new ConversationFolder()
+  f.applyEvent(userEv('u9', '问题'))
+  f.applyEvent(chunkEv(9, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(9, 1, { type: 'text-delta', index: 0, text: '回答中' }))
+  assert.equal(f.hasOpenTurn(), true)
+  f.applyEvent(ev('turn/end', { turn: 9, reason: { kind: 'completed' } }))
+  assert.equal(f.hasOpenTurn(), false)
+})
