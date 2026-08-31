@@ -607,10 +607,12 @@ function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] {
 }
 
 /**
- * 当前工作区的会话候选行（不含当前会话——引用自己没有意义）。选中后
- * 输入框只留 `@标题` 显示 token，canonical mention 记在 mentionBindings
- * 里，发送时才展开（textarea 做不到官方 contenteditable 的原子引用，
- * 这是拍板的 b) 路线）。
+ * 当前会话所属工作区的会话候选行（不含当前会话——引用自己没有意义）。
+ * 注意不是 isCurrent 组：isCurrent 跟的是 VS Code 打开的文件夹，当前会话
+ * 可能属于别的工作区。空会话不在任何组的可见列表里，退回 workspaceLabel
+ * 匹配。选中后输入框只留 `@标题` 显示 token，canonical mention 记在
+ * mentionBindings 里，发送时才展开（textarea 做不到官方 contenteditable
+ * 的原子引用，这是拍板的 b) 路线）。
  */
 function sessionRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] {
   const snap = sessionsSnapshot
@@ -618,15 +620,17 @@ function sessionRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] 
   const query = at.query.toLowerCase()
   const tokenStart = input.selectionStart - at.prefix.length
   const cursor = input.selectionStart
-  return snap.workspaces
-    .filter((w) => w.isCurrent)
-    .flatMap((w) => w.sessions.map((s) => ({ s, group: w.label })))
-    .filter(({ s }) => s.sessionId !== state?.sessionId)
-    .filter(({ s }) => s.label.toLowerCase().includes(query) || s.sessionId.toLowerCase().includes(query))
+  const own =
+    snap.workspaces.find((w) => w.sessions.some((s) => s.sessionId === state?.sessionId)) ??
+    snap.workspaces.find((w) => state?.workspaceLabel !== undefined && w.label === state.workspaceLabel)
+  if (!own) return []
+  return own.sessions
+    .filter((s) => s.sessionId !== state?.sessionId)
+    .filter((s) => s.label.toLowerCase().includes(query) || s.sessionId.toLowerCase().includes(query))
     .slice(0, 10)
-    .map(({ s, group }) => ({
+    .map((s) => ({
       label: `@${s.label}`,
-      right: group,
+      right: own.label,
       apply: () => {
         const token = mentionDisplayToken(s.label, s.sessionId, mentionBindings)
         mentionBindings.set(token, formatSessionMention(s.label, s.sessionId))
