@@ -409,5 +409,9 @@ export type FromWebviewMessage =
   | { type: 'workspaceRemove'; workspaceId: string; label: string }
   /** Sessions 面板：从会话尾部创建分支会话并附着。 */
   | { type: 'sessionFork'; sessionId: string }
+  /** Sessions 面板：复制会话的 canonical 引用 mention（@[标题](dsh-session:...)）到剪贴板。 */
+  | { type: 'sessionCopyReference'; sessionId: string; title: string }
+  /** Sessions 面板：复制会话 ID 到剪贴板。 */
+  | { type: 'sessionCopyId'; sessionId: string }
   /** Sessions 面板空态：启动 dsh 服务。 */
   | { type: 'serverStart' }

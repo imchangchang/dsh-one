@@ -42,6 +42,13 @@ import {
 import { attachmentDataUrl, isImageMediaType } from '../../pure/composerAttachment.ts'
 import { USER_SCROLL_INTENT_MS, isNearBottom, isScrollKey } from '../../pure/scrollFollow.ts'
 import { formatDuration } from '../../pure/sessionStats.ts'
+import {
+  decodeSessionReferenceUri,
+  expandMentionBindings,
+  formatSessionMention,
+  mentionDisplayToken,
+  splitSessionMentions,
+} from '../../pure/sessionMention.ts'
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
@@ -189,7 +196,27 @@ function iconSvg(icon: IconDef, size = 16): SVGSVGElement {
 }
 
 function md(text: string): string {
-  return DOMPurify.sanitize(marked.parse(text, { async: false }))
+  // 默认 URI 白名单之外放行 dsh-session:，mention 链接才能活到 decorate 那步。
+  return DOMPurify.sanitize(marked.parse(text, { async: false }), {
+    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|dsh-session):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
+  })
+}
+
+/** @会话 chip：点击附着被引用的会话（复用 sessions 面板的 sessionOpen 通路）。 */
+function sessionMentionChip(label: string, sessionId: string): HTMLElement {
+  const chip = buttonEl('session-mention', `@${label}`)
+  chip.title = `引用会话 ${sessionId}，点击附着`
+  chip.addEventListener('click', () => post({ type: 'sessionOpen', sessionId }))
+  return chip
+}
+
+/** md 块渲染后，把 mention 链接（@[label](dsh-session:...)）换成可点击 chip。 */
+function decorateSessionMentions(container: HTMLElement): void {
+  container.querySelectorAll<HTMLAnchorElement>('a[href^="dsh-session:"]').forEach((a) => {
+    const sessionId = decodeSessionReferenceUri(a.getAttribute('href') ?? '')
+    if (!sessionId) return // 坏 URI 保持原样
+    a.replaceWith(sessionMentionChip(a.textContent ?? sessionId, sessionId))
+  })
 }
 
 // 布局骨架：左 sessions 面板 + 右聊天列（窄屏改上下，样式见 chatView.ts 的
@@ -398,6 +425,13 @@ let slashPopupEl: HTMLElement | null = null
 let slashRows: SlashRow[] = []
 let slashIndex = 0
 
+/**
+ * @ 补全插入的显示 token（`@标题`）→ canonical mention 的映射，发送时由
+ * expandMentionBindings 展开（src/pure/sessionMention.ts）。常驻不清理：
+ * token 指向的是固定会话，之后的消息里再写同一 token 也应展开成同一引用。
+ */
+const mentionBindings = new Map<string, string>()
+
 function hideSlashPopup(): void {
   slashPopupEl?.remove()
   slashPopupEl = null
@@ -415,7 +449,9 @@ function positionSlashPopup(input: HTMLTextAreaElement): void {
 
 /** Recompute the rows from the current value; hide when nothing applies. */
 function updateSlashPopup(input: HTMLTextAreaElement): void {
+  // 斜杠命令整行匹配优先；不匹配时退到光标处的 @ 会话补全。
   slashRows = computeSlashRows(input)
+  if (slashRows.length === 0) slashRows = computeMentionRows(input)
   if (slashRows.length === 0) {
     hideSlashPopup()
     return
@@ -487,6 +523,48 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
   const cmd = COMPLETABLE_COMMANDS.find((c) => c.name === name)
   if (cmd?.hint) return [{ label: `参数：${cmd.hint}` }]
   return []
+}
+
+/**
+ * @ 会话补全（对话引用）：光标前的 `@query` 触发，候选来自会话列表快照
+ * （不含当前会话——引用自己没有意义）。选中后输入框只留 `@标题` 显示
+ * token，canonical mention 记在 mentionBindings 里，发送时才展开
+ * （textarea 做不到官方 contenteditable 的原子引用，这是拍板的 b) 路线）。
+ */
+function computeMentionRows(input: HTMLTextAreaElement): SlashRow[] {
+  if (input.selectionStart !== input.selectionEnd) return []
+  const upto = input.value.slice(0, input.selectionStart)
+  const m = /(?:^|\s)@([^\s@]{0,30})$/.exec(upto)
+  if (!m) return []
+  const query = m[1].toLowerCase()
+  const tokenStart = upto.length - m[1].length - 1
+  const cursor = upto.length
+  const snap = sessionsSnapshot
+  if (!snap) return []
+  const candidates: Array<{ s: SessionNodeModel; group: string; currentGroup: boolean }> = []
+  for (const w of snap.workspaces) {
+    for (const s of w.sessions) {
+      if (s.sessionId === state?.sessionId) continue
+      candidates.push({ s, group: w.label, currentGroup: w.isCurrent })
+    }
+  }
+  return candidates
+    .filter(({ s }) => s.label.toLowerCase().includes(query) || s.sessionId.toLowerCase().includes(query))
+    .sort((a, b) => Number(b.currentGroup) - Number(a.currentGroup))
+    .slice(0, 10)
+    .map(({ s, group }) => ({
+      label: `@${s.label}`,
+      right: group,
+      apply: () => {
+        const token = mentionDisplayToken(s.label, s.sessionId, mentionBindings)
+        mentionBindings.set(token, formatSessionMention(s.label, s.sessionId))
+        input.value = `${input.value.slice(0, tokenStart)}${token} ${input.value.slice(cursor)}`
+        input.focus()
+        const caret = tokenStart + token.length + 1
+        input.setSelectionRange(caret, caret)
+        input.dispatchEvent(new Event('input'))
+      },
+    }))
 }
 
 /** Compact token count: 517 / 12.2K / 517K / 1.2M (dsh-web's formatTokens). */
@@ -1068,7 +1146,8 @@ function render(): void {
         // A rebuilt composer at least keeps the caret where it was.
         if (inputSel) input.setSelectionRange(inputSel.start, inputSel.end)
       }
-      if (looksLikeSlashCommand(input.value)) updateSlashPopup(input)
+      // 重建后恢复补全弹窗（含 @ 会话补全；无候选时 updateSlashPopup 自行隐藏）
+      updateSlashPopup(input)
     }
     lastComposerSig = composerSig
     return
@@ -1274,7 +1353,8 @@ function render(): void {
       // A rebuilt composer at least keeps the caret where it was.
       if (inputSel) input.setSelectionRange(inputSel.start, inputSel.end)
     }
-    if (looksLikeSlashCommand(input.value)) updateSlashPopup(input)
+    // 同上：重建后恢复补全弹窗（含 @ 会话补全）
+    updateSlashPopup(input)
   } else if (slashPopupEl && oldInput) {
     positionSlashPopup(oldInput)
   }
@@ -1727,7 +1807,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   return row
 }
 
-/** 会话菜单内容（⋯ 按钮与右键菜单共用）：重命名 / 置顶 / 标为未读 / 分叉会话 / 归档会话。 */
+/** 会话菜单内容（⋯ 按钮与右键菜单共用）：重命名 / 置顶 / 标为未读 / 分叉会话 / 复制引用 / 复制会话 ID / 归档会话。 */
 function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
   const body = el('div')
@@ -1766,6 +1846,24 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
       onClick: () => {
         closePopover()
         post({ type: 'sessionFork', sessionId: s.sessionId })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem('复制引用', {
+      icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionCopyReference', sessionId: s.sessionId, title: s.label })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem('复制会话 ID', {
+      icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionCopyId', sessionId: s.sessionId })
       },
     }),
   )
@@ -2036,7 +2134,15 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
     if (m.images) for (const image of m.images) attachments.appendChild(messageImageThumb(image))
     if (m.files) for (const file of m.files) attachments.appendChild(fileChip(file))
     if (attachments.childElementCount > 0) row.appendChild(attachments)
-    if (m.text) row.appendChild(el('div', 'bubble', m.text))
+    if (m.text) {
+      // 气泡是纯文本（不走 markdown），mention 在这里按段拼成可点击 chip。
+      const bubble = el('div', 'bubble')
+      for (const seg of splitSessionMentions(m.text)) {
+        if (typeof seg === 'string') bubble.appendChild(document.createTextNode(seg))
+        else bubble.appendChild(sessionMentionChip(seg.label, seg.sessionId))
+      }
+      row.appendChild(bubble)
+    }
     return row
   }
   if (m.kind === 'command') {
@@ -2146,6 +2252,7 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
     case 'text': {
       const div = el('div', 'md')
       div.innerHTML = md(block.text)
+      decorateSessionMentions(div)
       return div
     }
     case 'reasoning': {
@@ -2483,6 +2590,9 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       .filter(Boolean)
       .join('\n')
     if (!text && pendingImages.length === 0) return
+    // @ 补全插入的显示 token 在这里展开成 canonical mention（host 按 mention
+    // 注入被引用会话的只读快照）；用户手动删改过的 token 不匹配，原样发送。
+    const expanded = expandMentionBindings(text, mentionBindings)
     // `/model` is a client-side command (dsh-client-ui-model-selection): the
     // host has no such command, so open the model menu instead of sending.
     if (text === '/model' && !recall) {
@@ -2499,7 +2609,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       recall = null
       recallDraft = ''
       pendingFiles = []
-      post({ type: 'queueEdit', itemId, text })
+      post({ type: 'queueEdit', itemId, text: expanded })
       input.value = ''
       render()
       return
@@ -2509,7 +2619,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     const images = pendingImages
     pendingImages = []
     pendingFiles = []
-    post({ type: 'send', text, ...(images.length > 0 ? { images } : {}), ...(steer ? { steer } : {}) })
+    post({ type: 'send', text: expanded, ...(images.length > 0 ? { images } : {}), ...(steer ? { steer } : {}) })
     input.value = ''
     render()
   }

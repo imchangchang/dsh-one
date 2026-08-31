@@ -20,6 +20,7 @@ import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import { orderJobs } from '../pure/activityTree.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
+import { formatSessionMention } from '../pure/sessionMention.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
 
@@ -314,6 +315,14 @@ const STYLE = `
   /* 等待插话的气泡（官方 data-pending-steering）：降不透明度表未落地。 */
   .msg.user.steering-pending .bubble { opacity: 0.7; }
   .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
+  /* @会话引用 chip（mention）：气泡与 md 块共用，胶囊形链接样式。 */
+  .session-mention {
+    display: inline-block; padding: 0 6px; border: none; border-radius: 999px;
+    background: var(--vscode-badge-background, rgba(90,156,248,.25));
+    color: var(--vscode-badge-foreground, var(--vscode-textLink-foreground));
+    font: inherit; cursor: pointer; white-space: nowrap;
+  }
+  .session-mention:hover { filter: brightness(1.15); }
   .md { line-height: 1.5; word-break: break-word; }
   .md > :first-child { margin-top: 0; }
   .md > :last-child { margin-bottom: 0; }
@@ -1041,6 +1050,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return
       case 'sessionFork':
         void vscode.commands.executeCommand('dshOne.session.fork', m.sessionId)
+        return
+      case 'sessionCopyReference': {
+        // host 的 session-reference 插件解析 mention 并注入被引用会话的只读快照。
+        const mention = formatSessionMention(m.title, m.sessionId)
+        await vscode.env.clipboard.writeText(mention)
+        void vscode.window.showInformationMessage('已复制会话引用，粘贴到输入框即可 @ 这个会话')
+        return
+      }
+      case 'sessionCopyId':
+        await vscode.env.clipboard.writeText(m.sessionId)
+        void vscode.window.showInformationMessage('已复制会话 ID')
         return
       case 'serverStart':
         void this.manager.ensureStarted()
