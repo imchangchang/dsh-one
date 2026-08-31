@@ -250,6 +250,19 @@ const STYLE = `
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0;
     font-size: 14px; font-weight: 500; line-height: 20px; padding: 2px 4px;
   }
+  /* 面包屑（对齐官方 dsh web 的子代理进入逻辑）：父会话标题是可点链接，
+     灰字 hover 提亮；斜杠分隔符不响应点击。 */
+  .chat-header .crumb-parent {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0;
+    font-size: 14px; font-weight: 500; line-height: 20px; padding: 2px 4px;
+    background: transparent; border: 0; cursor: pointer;
+    color: var(--vscode-descriptionForeground);
+  }
+  .chat-header .crumb-parent:hover { color: var(--vscode-foreground); }
+  .chat-header .crumb-sep {
+    flex: none; font-size: 14px; line-height: 20px; user-select: none;
+    color: var(--vscode-descriptionForeground); opacity: 0.6;
+  }
   /* 头部可点 chip（子代理 / 后台任务下拉）：透明底小字，hover 只提亮文字
      —— 对齐官方 SubagentHeader 的 trigger（ZKlsPq_trigger）。 */
   .header-chip {
@@ -913,12 +926,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
    * AgentPresetLabel：session.list 基线的 agentPreset id（官方
    * sessionSummarySchema 字段，创建时即定、新旧会话都有）经 controller 的
    * roster 映射成显示名。空会话由 hero 的选择 chip 呈现当前 preset（
-   * state.agentPreset 在），标签不重复。字段为空时都缺省，webview 不渲染。
+   * state.agentPreset 在），标签不重复。附着的是子代理会话时另合成面包屑
+   * 父段 parentSession（「父标题 / 子标题」，点击回父会话，对齐官方
+   * dsh web 的子代理进入逻辑）。字段为空时都缺省，webview 不渲染。
    */
   private composeHeader(state: ChatState): ChatState {
     if (!state.sessionId) return state
-    const subagents = this.store
-      .rawList()
+    const raw = this.store.rawList()
+    const subagents = raw
       // 全部 continuable 子代理（含已完成），运行中优先、再按新近排序；
       // 状态点由 webview 按 running 字段画。
       .filter((s) => s.parentSessionId === state.sessionId)
@@ -932,14 +947,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       }))
     const jobs = orderJobs(this.jobs.jobs().get(state.sessionId) ?? [])
     const workspaceLabel = this.store.workspaceLabelFor(state.sessionId)
-    const presetId = this.store.rawList().find((s) => s.sessionId === state.sessionId)?.agentPreset
+    const self = raw.find((s) => s.sessionId === state.sessionId)
+    // 面包屑父段：附着的是子代理会话（基线里带 parentSessionId）时合成
+    // 「父会话标题 /」，webview 点击回到父会话（官方 dsh web 的进入逻辑）。
+    const parentId = self?.parentSessionId
+    const parent = parentId ? raw.find((s) => s.sessionId === parentId) : undefined
+    const parentSession = parentId
+      ? { sessionId: parentId, title: parent?.title ?? `会话 ${parentId.slice(0, 8)}` }
+      : undefined
     const presetLabel =
-      !state.agentPreset && presetId !== undefined ? this.controller?.agentPresetLabelFor(presetId) : undefined
+      !state.agentPreset && self?.agentPreset !== undefined
+        ? this.controller?.agentPresetLabelFor(self.agentPreset)
+        : undefined
     return {
       ...state,
       ...(subagents.length > 0 ? { subagents } : {}),
       ...(jobs.length > 0 ? { backgroundJobs: jobs } : {}),
       ...(workspaceLabel ? { workspaceLabel } : {}),
+      ...(parentSession ? { parentSession } : {}),
       ...(presetLabel ? { presetLabel } : {}),
     }
   }
