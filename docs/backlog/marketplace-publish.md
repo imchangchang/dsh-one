@@ -13,10 +13,10 @@
 
 ## 待做（工程侧）
 
-1. **`package.json` 的 `publisher` 改为 `cgeng`**（当前是占位值 `dsh-one`）。
-2. **补市场图标**：`assets/icon.svg` 导出 256×256 PNG，加 `"icon": "assets/icon.png"`。市场图标只接受位图，SVG 不行。
-3. **试打包**：`npm run package`（build + `vsce package`），清掉所有报错/警告，确认 `.vsix` 里不含 `node_modules`（esbuild 已打平依赖，`.vscodeignore` 已排除）。
-4. 确认 GitHub 仓库 `imchangchang/dsh-one` 为 public 且最新代码已推送（README 相对路径图片依赖它解析）。
+1. ~~`package.json` 的 `publisher` 改为 `cgeng`~~（已完成，2026-10-29）。
+2. ~~补市场图标~~（已完成：无头 Chrome 把 `assets/icon.svg` 截成 256×256 `assets/icon.png`，package.json 加 `"icon"`）。
+3. ~~试打包~~（已完成：`vsce package` 零报错零警告，vsix 不含 node_modules；顺手把内部文档 `docs/**` 加进 `.vscodeignore`，包内只剩 LICENSE/changelog/readme/assets/dist）。
+4. GitHub 仓库 `imchangchang/dsh-one` 已确认 **public**（gh 实测）；代码推送待做——本地 main 领先 origin/main 21 个提交，发布前需推送（README 相对路径图片依赖它解析）。
 
 ## 待做（账号侧，需用户本人）
 
