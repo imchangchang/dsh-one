@@ -13,14 +13,14 @@
 
 ## 待做（工程侧）
 
-1. ~~`package.json` 的 `publisher` 改为 `cgeng`~~（已完成，2026-10-29）。
-2. ~~补市场图标~~（已完成：无头 Chrome 把 `assets/icon.svg` 截成 256×256 `assets/icon.png`，package.json 加 `"icon"`）。
+1. ~~`package.json` 的 `publisher` 改为 `cgeng`~~（已完成，2026-08-31）。
+2. ~~补市场图标~~（已完成，2026-08-31）：最终采用 Recraft 生成的像素鲸鱼稿，按像素提取鲸鱼形状、规范为 `#2563EB`、裁剪居中，导出 512×512 透明底 `assets/icon.png`，package.json 已加 `"icon"`。注意：Recraft 的"透明背景"是画上去的棋盘格（灰块掩在蓝底上露出鲸鱼），必须按像素后处理，不能直接用。
 3. ~~试打包~~（已完成：`vsce package` 零报错零警告，vsix 不含 node_modules；顺手把内部文档 `docs/**` 加进 `.vscodeignore`，包内只剩 LICENSE/changelog/readme/assets/dist）。
 4. GitHub 仓库 `imchangchang/dsh-one` 已确认 **public**（gh 实测）；代码推送待做——本地 main 领先 origin/main 21 个提交，发布前需推送（README 相对路径图片依赖它解析）。
 
 ## 待做（账号侧，需用户本人）
 
-5. 到 [marketplace 管理页](https://marketplace.visualstudio.com/manage) 创建 publisher，ID 填 `cgeng`。
+5. ~~到 [marketplace 管理页](https://marketplace.visualstudio.com/manage) 创建 publisher~~（已完成 2026-08-31，ID `cgeng`）。
 6. `vsce login cgeng`（粘贴 PAT）→ `vsce publish` 首发。
 7. 发布后干净环境安装验证一遍。
 

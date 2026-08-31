@@ -4,6 +4,7 @@
   "description": "dsh 与 VSCode 的桥接插件：定位本机已安装的 dsh，从 VSCode 直接启动或复用 dsh web 服务，并内嵌界面、同步 workspace。",
   "version": "0.1.0",
   "publisher": "cgeng",
+  "icon": "assets/icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
