@@ -9,8 +9,14 @@
 ## 现状
 
 - 头部 chip：`webview.ts` 用 `jobsChipLabel(state.backgroundJobs)` 渲染，点击 `openJobsMenu` 弹出任务菜单。
-- 聊天流内联横条：`webview.ts` `state.jobs` 渲染 queue 行（`renderJobsMenuRow`），任务完成/失败后消失。
+- 聊天流内联横条：`webview.ts` `state.jobs` 渲染 queue 行，任务完成/失败后消失。
 - 官方行为尚未逐点核实（会话内是否真的没有内联横条、chip 是否有别的主次关系）。
+
+## 核实结论（开发时）
+
+- 横条渲染（`webview.ts` ~1485）是内联写的 `queue-item`/`queue-tag`/`queue-text` 行，**不是** `renderJobsMenuRow`；`renderJobsMenuRow` 只被 `openJobsMenu` 的任务菜单（~1011）使用，保留。
+- `state.jobs` 除横条渲染外，还被 blankHero 空态判断（`webview.ts` ~1223）消费，不是只服务横条；故 `state.jobs` 状态链路（server `chatSession.ts` 推送 + `ChatState.jobs` 类型）保留，未整个清理。头部 chip 用的 `state.backgroundJobs`（JobsStore → mux 基线）是独立数据源，未动。
+- 横条复用的 `.queue*` CSS 类（`.queue`/`.queue-item`/`.queue-tag`/`.queue-text`）同时被待办队列（`state.queue` 渲染）使用，保留；仅 `.queue + .queue` 是横条场景专用（待办队列与横条相邻），已删。`.jobs-menu*`（任务菜单）与 `.spinner`（多处使用）均保留。
 
 ## 方案（已定 2026-08-31，人工确认）
 
@@ -27,3 +33,4 @@
 ## 变更记录
 
 - 2026-08-31 认领（worktree: agent/jobs-inline-bar-vs-head-chip）→ doing
+- 2026-08-31 开发完成，自测通过 → done
