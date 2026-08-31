@@ -214,6 +214,8 @@ window.addEventListener('message', (event) => {
       pendingPreview = null
       openLightbox(dataUrl)
     }
+    // 消息缩略图可能正挂着这张图的占位方块，重渲染换成真图。
+    render()
   } else if (msg?.type === 'restoreDraft' && typeof msg.text === 'string') {
     // Texts of queue items drained by stop: back into the composer as drafts.
     const input = document.getElementById('input') as HTMLTextAreaElement | null
@@ -1786,6 +1788,35 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
   return row
 }
 
+/**
+ * 消息里的图片：和待发送图片同款的方形小缩略图（复用 attach-thumb，点击
+ * 放大）。字节走 session.attachment 懒取——渲染时未缓存就发
+ * requestAttachment 并先画占位方块，attachmentData 到达后 render() 换成
+ * 真图；加载失败回退为文件名 chip（保留点击预览）。
+ */
+function messageImageThumb(image: ChatImage): HTMLElement {
+  const name = image.name ?? '图片'
+  const dataUrl = attachmentCache.get(image.attachmentId)
+  if (!dataUrl) {
+    if (!attachmentRequested.has(image.attachmentId)) {
+      attachmentRequested.add(image.attachmentId)
+      post({ type: 'requestAttachment', attachmentId: image.attachmentId })
+    }
+    const ph = el('span', 'attach-thumb msg-thumb-loading', '…')
+    ph.title = `${name}（加载中…）`
+    return ph
+  }
+  const item = el('span', 'attach-thumb')
+  item.title = `${name}（点击预览）`
+  const img = document.createElement('img')
+  img.src = dataUrl
+  img.alt = name
+  img.addEventListener('error', () => item.replaceWith(imageChip(image)))
+  item.addEventListener('click', () => openLightbox(dataUrl))
+  item.appendChild(img)
+  return item
+}
+
 /** Compact chip for one attached image; click fetches bytes (once) and previews. */
 function imageChip(image: ChatImage): HTMLElement {
   const chip = el('span', 'image-chip msg-image-chip')
@@ -1901,11 +1932,12 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
       return det
     }
     const row = el('div', 'msg user')
-    if (m.text) row.appendChild(el('div', 'bubble', m.text))
+    // 附件在文字气泡上方（对齐 dsh web）：图片显示方形缩略图，文件仍是名称 chip。
     const attachments = el('div', 'msg-images')
-    if (m.images) for (const image of m.images) attachments.appendChild(imageChip(image))
+    if (m.images) for (const image of m.images) attachments.appendChild(messageImageThumb(image))
     if (m.files) for (const file of m.files) attachments.appendChild(fileChip(file))
     if (attachments.childElementCount > 0) row.appendChild(attachments)
+    if (m.text) row.appendChild(el('div', 'bubble', m.text))
     return row
   }
   if (m.kind === 'command') {

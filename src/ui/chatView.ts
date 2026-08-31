@@ -656,6 +656,11 @@ const STYLE = `
   #input:focus { outline: 1px solid var(--vscode-focusBorder); }
   .send-button { flex: none; }
   .msg-images { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  /* 消息图片缩略图复用 .attach-thumb 方图；加载中的占位方块居中省略号。 */
+  .msg-thumb-loading {
+    display: inline-grid; place-items: center; cursor: wait;
+    color: var(--vscode-descriptionForeground, rgba(127,127,127,.8));
+  }
   .msg-image-chip { cursor: zoom-in; padding-right: 8px; }
   .msg-image-chip:hover { filter: brightness(1.15); }
   .jump-latest {
