@@ -174,13 +174,14 @@ const STYLE = `
     background: var(--vscode-charts-blue, #5686fe);
   }
   .session-title.unread { font-weight: 600; }
-  /* 组合状态（置顶 + 运行中/未读）时被挤出槽位的图钉，退到标题前。 */
+  /* 组合状态（置顶 + 运行中/未读）时被挤出槽位的图钉，退到标题前。
+     main 的 flex gap 已有 8px，用 -2px margin 收回到与行 gap 一致的 6px。 */
   .session-pin {
-    flex: none; width: 13px; height: 13px; margin-right: 2px;
+    flex: none; width: 14px; height: 14px; margin-right: -2px;
     color: var(--vscode-descriptionForeground);
     display: inline-flex; align-items: center; align-self: center;
   }
-  .session-pin svg { width: 13px; height: 13px; display: block; }
+  .session-pin svg { width: 14px; height: 14px; display: block; }
   /* 紧凑单行：标题省略号 + 右对齐的相对时间（对齐原原生树的观感）。 */
   .session-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
   .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
