@@ -238,6 +238,15 @@ export class SessionsStore implements vscode.Disposable {
     this.onDidChangeEmitter.fire()
   }
 
+  /** collapseAll 的反向操作：只展开当前可见的组，被搜索过滤掉的组保持原状。 */
+  expandAll(): void {
+    const ids = this.workspaces.map((w) => w.workspaceId)
+    if (ids.every((id) => !this.collapsed.has(id))) return
+    for (const id of ids) this.collapsed.delete(id)
+    void this.state?.update(COLLAPSED_STATE_KEY, [...this.collapsed])
+    this.onDidChangeEmitter.fire()
+  }
+
   /** Rebuild with a new sort order; the preference survives reloads. */
   setSortOrder(order: SessionSortOrder): void {
     if (order === this.sortOrder) return

@@ -1002,6 +1002,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       case 'workspacesCollapseAll':
         this.store.collapseAll()
         return
+      case 'workspacesExpandAll':
+        this.store.expandAll()
+        return
       case 'workspaceRemove':
         void this.removeWorkspace(m.workspaceId, m.label)
         return
