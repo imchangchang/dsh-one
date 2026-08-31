@@ -150,6 +150,27 @@ export interface PendingQuestion {
 
 export type PendingRequest = PendingApproval | PendingQuestion
 
+/** 会话列表行首的待交互状态（官方 dsh web PendingInteractionStatus 同款三态）。 */
+export type PendingInteraction = 'approval' | 'question' | 'plan-review'
+
+/**
+ * question/requested 帧到列表状态的映射（官方 dsh-client-runtime
+ * questionInteractionStatus 同款判定）：单问、带 detail、非多选、选项 ≤2
+ * 且其中一个选项 label 命中 intent.approve 的 plan-review 才算「计划评审」，
+ * 其余一律按普通「待回答」。
+ */
+export function questionInteractionStatus(
+  questions: PendingQuestion['questions'],
+): PendingInteraction {
+  if (questions.length !== 1) return 'question'
+  const q = questions[0]
+  if (q.intent?.kind !== 'plan-review' || q.detail === undefined) return 'question'
+  if (q.multiSelect === true) return 'question'
+  const options = q.options ?? []
+  if (options.length > 2) return 'question'
+  return options.some((o) => o.label === q.intent?.approve) ? 'plan-review' : 'question'
+}
+
 /** One per-question answer draft the webview submits (mirrors AskUserQuestionAnswerItem minus the id). */
 export interface QuestionAnswerInput {
   selected: string[]
