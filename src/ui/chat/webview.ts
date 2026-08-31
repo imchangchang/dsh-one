@@ -1447,13 +1447,13 @@ function renderSessions(): void {
   const refreshBtn = panelTool(iconSvg(PANEL_ICONS.refresh), '刷新会话列表')
   refreshBtn.addEventListener('click', () => post({ type: 'sessionsRefresh' }))
   header.appendChild(refreshBtn)
-  // 折叠/展开切换（仿 VSCode 的 +/-）：有可展开的组就显示 -（点击全部折叠）；
-  // 全部折叠时显示 +（点击全部展开）。空组恒闭合、不可展开，不参与判定。
+  // 折叠/展开切换（仿 VSCode 的 ⊞/⊟）：有可展开的组就显示 ⊟（点击全部折叠）；
+  // 全部折叠时显示 ⊞（点击全部展开）。空组恒闭合、不可展开，不参与判定。
   const expandable = snap?.workspaces.filter((w) => w.sessions.length > 0) ?? []
   const allCollapsed =
     expandable.length > 0 && expandable.every((w) => snap?.collapsed.includes(w.workspaceId) ?? false)
   const collapseAllBtn = panelTool(
-    iconSvg(allCollapsed ? PANEL_ICONS.plus : PANEL_ICONS.minus),
+    iconSvg(allCollapsed ? PANEL_ICONS.boxedPlus : PANEL_ICONS.boxedMinus),
     allCollapsed ? '展开所有工作区' : '折叠所有工作区',
   )
   collapseAllBtn.addEventListener('click', () =>

@@ -146,9 +146,23 @@ const terminal: IconDef = {
   ],
 }
 
-/** 减号（本地扩展，dsh web 无对应物）：会话面板「折叠全部」按钮，横杠与 plus 同粗。 */
-const minus: IconDef = {
-  paths: ['M1.5 7.34961H14.5V8.65039H1.5V7.34961Z'],
+/**
+ * 方框加减号（本地扩展，仿 VSCode 树形控件的 ⊞/⊟ 折叠图标）：
+ * 会话面板「折叠/展开全部」按钮，与裸 plus（添加工作区）区分开。
+ * 方框 11x11、线宽 1.2，glyph 笔画与 plus 同粗（1.3）。
+ */
+const BOX_OUTLINE =
+  'M4.5 2.5H11.5A2 2 0 0 1 13.5 4.5V11.5A2 2 0 0 1 11.5 13.5H4.5A2 2 0 0 1 2.5 11.5V4.5A2 2 0 0 1 4.5 2.5Z' +
+  'M4.5 3.7H11.5A0.8 0.8 0 0 1 12.3 4.5V11.5A0.8 0.8 0 0 1 11.5 12.3H4.5A0.8 0.8 0 0 1 3.7 11.5V4.5A0.8 0.8 0 0 1 4.5 3.7Z'
+
+const boxedMinus: IconDef = {
+  fillRule: 'evenodd',
+  paths: [BOX_OUTLINE, 'M5.3 7.35H10.7V8.65H5.3Z'],
+}
+
+const boxedPlus: IconDef = {
+  fillRule: 'evenodd',
+  paths: [BOX_OUTLINE, 'M8.65 5.3V7.35H10.7V8.65H8.65V10.7H7.35V8.65H5.3V7.35H7.35V5.3Z'],
 }
 
 /** 叉号（本地扩展）：workspace 组头「从列表移除」。 */
@@ -170,6 +184,7 @@ export const PANEL_ICONS = {
   plus,
   chevronDown,
   terminal,
-  minus,
+  boxedMinus,
+  boxedPlus,
   remove,
 } as const
