@@ -8,7 +8,6 @@ import * as path from 'node:path'
 import { makeDescribeRequest, validateDescribeResponse } from '../pure/envelope.ts'
 import { parseReadyLine } from '../pure/readyLine.ts'
 import { gte } from '../pure/semver.ts'
-import { ensureSession, ensureWorkspace } from './dshRpc.ts'
 import { locateDsh, DshNotFoundError } from './locateDsh.ts'
 import type { Logger } from '../log.ts'
 
@@ -189,7 +188,6 @@ export class ServerManager implements vscode.Disposable {
           const ownedUrl = `http://127.0.0.1:${ownedPort}`
           this.logger.info(`re-owning dsh at ${ownedUrl} (pid=${owned.pid}, spawned by a previous window)`)
           this.ownedPid = owned.pid
-          await this.preseedWorkspace(ownedUrl)
           this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false })
           this.startHealthCheck(ownedPort)
           return this.status
@@ -209,7 +207,12 @@ export class ServerManager implements vscode.Disposable {
       if (probe === 'dsh') {
         const adoptedUrl = `http://127.0.0.1:${port}`
         this.logger.info(`adopting existing dsh at ${adoptedUrl} (will never kill it)`)
-        await this.preseedWorkspace(adoptedUrl)
+        // 不再 preseed：影响方向是 dsh → VS Code 单向，当前文件夹不在 dsh
+        // 工作区列表里就什么都不做（不注册、不建会话），被用户删掉的工作区
+        // 不再在 reload 后复活。已知配套变化：当前文件夹无 dsh 会话时
+        // sessionsStore.latestCurrentSessionId() 返回 null，聊天面板停在
+        // 空态（extension.ts 的 auto-attach 对 null 天然跳过），用户手动
+        // 选会话即可。
         this.setStatus({ state: 'running', url: adoptedUrl, port, adopted: true })
         this.startHealthCheck(port)
         return this.status
@@ -262,7 +265,6 @@ export class ServerManager implements vscode.Disposable {
     const actualPort = Number(new URL(ready).port)
     // port=0 时启动后才知道实际端口，回填 pidfile 供下次 re-own。
     if (actualPort !== spawnPort) await this.writeOwned({ pid: dshPid, port: actualPort })
-    await this.preseedWorkspace(ready)
     this.setStatus({ state: 'running', url: ready, adopted: false, port: actualPort })
     this.startHealthCheck(actualPort)
     this.logger.info(`dsh is ready at ${ready}`)
@@ -302,23 +304,6 @@ export class ServerManager implements vscode.Disposable {
     if (this.healthTimer) {
       clearInterval(this.healthTimer)
       this.healthTimer = null
-    }
-  }
-
-  /**
-   * Register the VSCode folder as a dsh workspace and give it a session, so
-   * the web UI's "most recent workspace" startup strategy lands on it
-   * directly instead of a workspace picker. Best-effort: failures only log.
-   */
-  private async preseedWorkspace(url: string): Promise<void> {
-    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (!folder) return
-    try {
-      const workspace = await ensureWorkspace(url, folder)
-      const sessionId = await ensureSession(url, workspace)
-      this.logger.info(`preseeded workspace ${workspace.workspaceId} (${folder}) with session ${sessionId}`)
-    } catch (err) {
-      this.logger.warn(`workspace preseed failed: ${err instanceof Error ? err.message : err}`)
     }
   }
 
