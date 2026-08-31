@@ -146,12 +146,9 @@ const terminal: IconDef = {
   ],
 }
 
-/** 双上三角（本地扩展，dsh web 无对应物）：会话面板「折叠全部」按钮。 */
-const chevronsUp: IconDef = {
-  paths: [
-    'M8 2.5L13.5 8L12.44 9.06L8 4.62L3.56 9.06L2.5 8L8 2.5Z',
-    'M8 7.5L13.5 13L12.44 14.06L8 9.62L3.56 14.06L2.5 13L8 7.5Z',
-  ],
+/** 减号（本地扩展，dsh web 无对应物）：会话面板「折叠全部」按钮，横杠与 plus 同粗。 */
+const minus: IconDef = {
+  paths: ['M1.5 7.34961H14.5V8.65039H1.5V7.34961Z'],
 }
 
 /** 叉号（本地扩展）：workspace 组头「从列表移除」。 */
@@ -173,6 +170,6 @@ export const PANEL_ICONS = {
   plus,
   chevronDown,
   terminal,
-  chevronsUp,
+  minus,
   remove,
 } as const

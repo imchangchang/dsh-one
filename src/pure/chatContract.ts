@@ -391,6 +391,8 @@ export type FromWebviewMessage =
   | { type: 'workspaceCollapse'; workspaceId: string; collapsed: boolean }
   /** Sessions 面板：一键折叠当前列表里的所有 workspace 分组。 */
   | { type: 'workspacesCollapseAll' }
+  /** Sessions 面板：一键展开当前列表里的所有 workspace 分组。 */
+  | { type: 'workspacesExpandAll' }
   /** Sessions 面板：从列表软移除 workspace（文件夹与会话保留，会话归入未分组）。 */
   | { type: 'workspaceRemove'; workspaceId: string; label: string }
   /** Sessions 面板：从会话尾部创建分支会话并附着。 */
