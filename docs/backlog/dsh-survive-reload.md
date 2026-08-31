@@ -6,6 +6,8 @@
 
 dsh-one spawn 出来的 dsh web 服务与 VSCode 窗口生命周期绑定：关闭窗口或 reload window（包括用 dsh-one 打开另一个 workspace 文件夹触发的隐式 reload）时，`deactivate()` 会杀掉 dsh，重新激活后再重新 spawn。后果是 reload 期间正在进行的 session/turn 被中断。用户明确期望：即使是 VSCode 拉起的 dsh，也不要随 VSCode 关闭。
 
+日志佐证（2026-08-31 复查）：Extension Development Host 当天 reload 11 次（exthost.log 均为 renderer 主动 terminate、exit 0，与网络故障无关——同机主窗口同日零重启），每次 deactivate 杀掉 owned dsh web，重新激活后日志均为 `spawning:` 而非 `adopting existing`，:3080 服务随之中断重启。开发调试期间一天十余次，印证 P1 优先级。
+
 ## 现状与根因
 
 `src/server/manager.ts`：
