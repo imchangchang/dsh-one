@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto'
 import type { HistoryEntryLike } from '../pure/conversation.ts'
+import { historyWindowRequest } from '../pure/historyWindow.ts'
 import type { OutgoingImage } from '../pure/chatContract.ts'
 import type { AgentPresetLike } from '../pure/agentPreset.ts'
 
@@ -328,13 +329,13 @@ export async function cancelSession(baseUrl: string, sessionId: string): Promise
   await callRpc(baseUrl, 'session.cancel', { sessionId })
 }
 
-/** Read one history page; omitting beforeSeq reads the tail page. */
+/** Read one history window; omitting beforeSeq reads the tail page. */
 export async function sessionHistory(
   baseUrl: string,
   sessionId: string,
   beforeSeq?: number,
 ): Promise<SessionHistoryPage> {
-  return callRpc(baseUrl, 'session.history', beforeSeq === undefined ? { sessionId } : { sessionId, beforeSeq })
+  return callRpc(baseUrl, 'session.history', historyWindowRequest(sessionId, beforeSeq))
 }
 
 /** Fetch one attachment's bytes (base64) plus its reference metadata. */

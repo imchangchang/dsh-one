@@ -1162,6 +1162,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         case 'fork':
           await this.forkAt(controller, m.atSeq)
           return
+        case 'loadEarlier':
+          await controller.loadEarlier()
+          return
       }
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
