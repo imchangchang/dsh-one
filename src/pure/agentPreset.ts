@@ -77,3 +77,13 @@ export function defaultAgentPresetId(roster: readonly AgentPresetLike[]): string
 export function agentPresetLabel(id: string): string {
   return SYSTEM_PRESET_LABELS[id]?.label ?? id
 }
+
+/**
+ * Preset id → 头部标签悬停 tooltip 的描述文案（与 agentPresetLabel 同模式
+ * 的兜底映射）：已知 system preset id 用中文描述，其余返回 undefined——
+ * user preset 的描述只能查 roster（ChatSessionController.agentPresetDescriptionFor），
+ * roster 未就绪时没有可兜底的文案。
+ */
+export function agentPresetDescription(id: string): string | undefined {
+  return SYSTEM_PRESET_LABELS[id]?.description
+}

@@ -935,7 +935,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
    * workspace 的 sessionIds 里），以及头部只读 preset 标签——渠道对齐官方
    * AgentPresetLabel：session.list 基线的 agentPreset id（官方
    * sessionSummarySchema 字段，创建时即定、新旧会话都有）经 controller 的
-   * roster 映射成显示名。空会话由 hero 的选择 chip 呈现当前 preset（
+   * roster 映射成显示名，roster 的 description 作为悬停 tooltip
+   * （presetDescription，对齐官方 AgentPresetLabel 的悬停描述）。空会话由
+   * hero 的选择 chip 呈现当前 preset（
    * state.agentPreset 在），标签不重复。附着的是子代理会话时另合成面包屑
    * 父段 parentSession（「父标题 / 子标题」，点击回父会话，对齐官方
    * dsh web 的子代理进入逻辑）。字段为空时都缺省，webview 不渲染。
@@ -965,9 +967,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     const parentSession = parentId
       ? { sessionId: parentId, title: parent?.title ?? `会话 ${parentId.slice(0, 8)}` }
       : undefined
+    const presetId = self?.agentPreset
     const presetLabel =
-      !state.agentPreset && self?.agentPreset !== undefined
-        ? this.controller?.agentPresetLabelFor(self.agentPreset)
+      !state.agentPreset && presetId !== undefined ? this.controller?.agentPresetLabelFor(presetId) : undefined
+    const presetDescription =
+      !state.agentPreset && presetId !== undefined
+        ? this.controller?.agentPresetDescriptionFor(presetId)
         : undefined
     return {
       ...state,
@@ -976,6 +981,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       ...(workspaceLabel ? { workspaceLabel } : {}),
       ...(parentSession ? { parentSession } : {}),
       ...(presetLabel ? { presetLabel } : {}),
+      ...(presetDescription ? { presetDescription } : {}),
     }
   }
 

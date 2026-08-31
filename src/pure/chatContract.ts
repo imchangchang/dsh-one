@@ -219,6 +219,11 @@ export interface ChatState {
    */
   presetLabel?: string
   /**
+   * 头部 preset 标签的悬停 tooltip（官方 AgentPresetLabel 悬停显示 preset
+   * 描述）：与 presetLabel 同源的 roster description；没有描述时缺省。
+   */
+  presetDescription?: string
+  /**
    * 头部面包屑的父会话段（对齐官方 dsh web 的子代理进入逻辑：附着的是
    * 子代理会话时，标题区显示「父会话标题 / 子会话标题」，点父会话标题
    * 回到父会话内容）：附着会话在 session.list 基线里带 parentSessionId
