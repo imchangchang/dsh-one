@@ -1960,7 +1960,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   row.title = s.label
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
   // 行首状态槽对齐官方 dsh web：固定宽度，四种标记同一位置居中——
-  // 待交互黄点 > 运行中像素环 > 未读蓝点 > 置顶图钉（官方语义：pending
+  // 待交互黄点 > 运行中像素环 > 已完成/未读绿点 > 置顶图钉（官方语义：pending
   // interaction is primary，live activity outranks completion reminders）；
   // 组合状态下被挤掉的图钉退到标题前。
   // 忙碌判定并入「有运行中后代」：父会话挂载等待子代理时自身是 idle，
@@ -1979,7 +1979,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
           : '等待回答'
     slot.appendChild(dot)
   } else if (busy) slot.appendChild(spinSvg())
-  else if (s.unread) slot.appendChild(el('span', 'session-dot'))
+  else if (s.unread) slot.appendChild(el('span', 'session-dot completed'))
   else if (pinned) slot.appendChild(makePinIcon())
   row.appendChild(slot)
   const main = el('span', 'session-main')

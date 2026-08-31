@@ -518,7 +518,7 @@ export class SessionsStore implements vscode.Disposable {
 
   /** Rebuild the display model from the cached baseline + current sort/query. */
   private rebuildModel(): void {
-    // 展示层合流：手动未读（持久化）与自动完成标记（内存）共用同一蓝点，
+    // 展示层合流：手动未读（持久化）与自动完成标记（内存）共用同一绿点，
     // 官方 dsh web 也是同一状态槽位的 done 圆点，视觉等价。
     const unreadDisplay = this.completed.size === 0 ? this.unread : new Set([...this.unread, ...this.completed])
     // 一个会话可能同时挂着多个 pending（如审批+提问）：折叠成单状态时
