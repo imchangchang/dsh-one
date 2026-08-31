@@ -28,6 +28,7 @@ import type {
 } from '../../pure/chatContract.ts'
 import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../../pure/sessionTree.ts'
 import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTree.ts'
+import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import { isCommandTool, toolAction, truncateLines } from '../../pure/toolLine.ts'
 import {
@@ -426,7 +427,7 @@ function moveSlashSelection(dir: number): void {
 /** Rows for the current composer value: command names, preset args, or one hint row. */
 function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
   const value = input.value
-  if (!value.startsWith('/') || value.includes('\n')) return []
+  if (!looksLikeSlashCommand(value) || value.includes('\n')) return []
   /** Filling the value and dispatching `input` re-enters updateSlashPopup. */
   const complete = (text: string) => () => {
     input.value = text
@@ -1029,7 +1030,7 @@ function render(): void {
         // A rebuilt composer at least keeps the caret where it was.
         if (inputSel) input.setSelectionRange(inputSel.start, inputSel.end)
       }
-      if (input.value.startsWith('/')) updateSlashPopup(input)
+      if (looksLikeSlashCommand(input.value)) updateSlashPopup(input)
     }
     lastComposerSig = composerSig
     return
@@ -1181,7 +1182,7 @@ function render(): void {
       // A rebuilt composer at least keeps the caret where it was.
       if (inputSel) input.setSelectionRange(inputSel.start, inputSel.end)
     }
-    if (input.value.startsWith('/')) updateSlashPopup(input)
+    if (looksLikeSlashCommand(input.value)) updateSlashPopup(input)
   } else if (slashPopupEl && oldInput) {
     positionSlashPopup(oldInput)
   }
