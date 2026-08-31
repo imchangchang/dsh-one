@@ -16,6 +16,12 @@
 
 不做包引用，直接从 dsh web 源码把图标拷过来用：找到 dsh web 里对应图标的 SVG path，更新 `src/ui/chat/icons.ts` 里的镜像条目（或补上缺失的），保证对话框里的图标和 dsh web 官方界面一致。dsh web 图标源头是 `dsh-client-ui-primitives` 组件集（本机 checkout 里没有该源码包，实际定义被打进 `@deepseek-ai/dsh-web-frontend` 的 dist bundle，需从 bundle 里反查 path 或找到原始源码）。
 
+### 已核实（2026-08-31）
+
+- 图标源已定位并完整抽取：`dsh-client-ui-primitives` 的 70 个命名图标（`IconXxxN`）被打进 `@deepseek-ai/dsh-web-frontend/dist/assets/index-*.js`，用 `=({size,className})=>f.jsx("svg",...)` 的形式定义，可从 bundle 精确反查每个图标的 viewBox + path。
+- 现有镜像全部一致：`icons.ts` 里 copy/check/like/dislike/branch/edit/archive/ellipsis/triangle/folder/folderOpen/search/refresh/plus/chevronDown 与 dsh web 同名图标的 path 逐一比对，**无漂移**。
+- 仍未用 dsh web 图标的点：推理块标题「思考过程」无图标（dsh web 用 `IconThinkOutline14` + title "Think"）；工具行完成/失败用 ✓/✕ 文本字形（dsh web 用 `IconCheckOutline16` / `IconCloseOutline16`）；上下文注入非 session-reference 分支用 📎 表情符。
+
 ## 涉及代码位置
 
 - dsh-one：`src/ui/chat/icons.ts`（镜像的 SVG path）、`src/ui/chat/webview.ts`（`iconSvg()` 及 `MESSAGE_ACTION_ICONS` / `PANEL_ICONS` 消费点）。
