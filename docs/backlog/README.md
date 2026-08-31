@@ -14,4 +14,4 @@
 | [对话引用（@会话）](session-reference.md) | 需求（已调研，形态已定：显示标题） | P2 | 未做 |
 | [会话滚动位置恢复失败时回到底部](chat-scroll-restore-fallback.md) | 遗留问题（上游 dsh 包；已实测核实，方案已定） | P2 | 未做 |
 | [数据渠道对齐官方的三个优化项](official-channel-alignment.md) | 优化（审计遗留；第 1、2 项可视作 P2；原第 4 项 clientTimeZone 已完成） | P3 | 未做 |
-| [官方 UI 对齐的零散遗留项](ui-parity-leftovers.md) | 优化（7 小项，其中 2 项等 host 支持） | P3 | 未做 |
+| [官方 UI 对齐的零散遗留项](ui-parity-leftovers.md) | 优化（8 小项，其中 2 项等 host 支持） | P3 | 未做 |
