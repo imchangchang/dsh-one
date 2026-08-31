@@ -1244,11 +1244,12 @@ function render(): void {
       header.appendChild(chip)
     }
     // 只读 preset 标签（对齐官方 AgentPresetLabel：浅底胶囊 + 14px 三环图标；
-    // 空会话的选择 chip 在 hero，二者互斥）。
+    // 空会话的选择 chip 在 hero，二者互斥）。悬停 tooltip 显示 roster 描述。
     if (state.presetLabel) {
       const chip = el('span', 'preset-chip')
       chip.appendChild(presetIconSvg())
       chip.appendChild(el('span', undefined, state.presetLabel))
+      if (state.presetDescription) chip.title = state.presetDescription
       header.appendChild(chip)
     }
     const headerAnchor = keepMessages ? oldMessages : anchor
@@ -1431,7 +1432,7 @@ function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
     const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
     chev.classList.add('chevron')
     preset.appendChild(chev)
-    preset.title = 'Agent 模式'
+    preset.title = current?.description ?? 'Agent 模式'
     preset.disabled = !state.canSend
     preset.addEventListener('click', () => openAgentPresetMenu(preset, 'below'))
     chips.appendChild(preset)
@@ -2831,7 +2832,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     const preset = buttonEl('pill', '')
     preset.appendChild(presetIconSvg())
     preset.appendChild(el('span', 'label', current?.label ?? ap.current))
-    preset.title = 'Agent 模式'
+    preset.title = current?.description ?? 'Agent 模式'
     preset.disabled = !canSend
     preset.addEventListener('click', () => openAgentPresetMenu(preset))
     footer.appendChild(preset)
