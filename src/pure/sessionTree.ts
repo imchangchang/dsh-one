@@ -6,6 +6,8 @@
  * 不能用 node: 内置模块——basename 语义用下面的 basenameOf 手写。
  */
 
+import type { PendingInteraction } from './chatContract.ts'
+
 /** 末段路径名（同时认 '/' 和 '\\'，先剥尾部分隔符）；空路径/根路径返回 ''。 */
 function basenameOf(p: string): string {
   return p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? ''
@@ -57,6 +59,12 @@ export interface SessionNodeModel {
    * 父会话挂载等待子代理时是 idle；展示层用这个补忙碌指示（像素环）。
    */
   descendantRunning: boolean
+  /**
+   * 有待用户处理的交互（approval/question/plan-review）——mux 全局帧跟踪
+   * 的活跃事实，行首黄色标记，展示优先级高于忙碌与未读（官方语义：
+   * pending interaction is primary）。
+   */
+  pendingInteraction?: PendingInteraction
 }
 
 export interface WorkspaceNodeModel {
@@ -87,6 +95,8 @@ export interface SessionTreeViewOptions {
   pinned?: ReadonlySet<string>
   /** Client-side unread ids; purely a display flag (bold title + dot). */
   unread?: ReadonlySet<string>
+  /** Mux-tracked pending interaction per session; display-only yellow dot. */
+  pendingInteractions?: ReadonlyMap<string, PendingInteraction>
 }
 
 const MINUTE_MS = 60_000
@@ -166,15 +176,19 @@ export function buildSessionTree(
         if (sort === 'title') return a.label.localeCompare(b.label)
         return b.session.updatedAt - a.session.updatedAt
       })
-      .map(({ session, label }) => ({
-        sessionId: session.sessionId,
-        label,
-        description: formatRelativeTime(session.updatedAt, now),
-        running: session.running,
-        pinned: view.pinned?.has(session.sessionId) === true,
-        unread: view.unread?.has(session.sessionId) === true,
-        descendantRunning: hasRunningDescendant(session.sessionId),
-      }))
+      .map(({ session, label }) => {
+        const pendingInteraction = view.pendingInteractions?.get(session.sessionId)
+        return {
+          sessionId: session.sessionId,
+          label,
+          description: formatRelativeTime(session.updatedAt, now),
+          running: session.running,
+          pinned: view.pinned?.has(session.sessionId) === true,
+          unread: view.unread?.has(session.sessionId) === true,
+          descendantRunning: hasRunningDescendant(session.sessionId),
+          ...(pendingInteraction !== undefined ? { pendingInteraction } : {}),
+        }
+      })
 
   const ordered = [...workspaces].sort((a, b) => {
     const aCurrent = currentFolder !== undefined && a.path === currentFolder

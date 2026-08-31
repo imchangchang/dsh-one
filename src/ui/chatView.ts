@@ -156,8 +156,8 @@ const STYLE = `
     background: var(--vscode-list-activeSelectionBackground, rgba(0,122,204,.35));
     color: var(--vscode-list-activeSelectionForeground, inherit);
   }
-  /* 行首状态槽：宽度固定（对齐官方 dsh web 的 16px slot），三种标记同一位置
-     居中——运行中像素环 > 未读蓝点 > 置顶图钉；空闲会话留空。 */
+  /* 行首状态槽：宽度固定（对齐官方 dsh web 的 16px slot），四种标记同一位置
+     居中——待交互黄点 > 运行中像素环 > 未读蓝点 > 置顶图钉；空闲会话留空。 */
   .session-status {
     width: 16px; height: 16px; flex: none;
     display: inline-flex; align-items: center; justify-content: center;
@@ -178,6 +178,9 @@ const STYLE = `
     width: 6px; height: 6px; border-radius: 50%;
     background: var(--vscode-charts-blue, #5686fe);
   }
+  /* 待审批/待回答/计划待审：黄色实心点（官方 StateDot warning，
+     --dsw-alias-state-warn-primary 的 VS Code 对应色）。 */
+  .session-dot.warning { background: var(--vscode-charts-yellow, #e5c07b); }
   .session-title.unread { font-weight: 600; }
   /* 组合状态（置顶 + 运行中/未读）时被挤出槽位的图钉，退到标题前。
      main 的 flex gap 已有 8px，用 -2px margin 收回到与行 gap 一致的 6px。 */

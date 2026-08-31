@@ -1,11 +1,15 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
 import { subscribeHostEvents } from '../server/hostEvents.ts'
+import { subscribeMuxEvents } from '../server/muxEvents.ts'
+import type { MuxFrame } from '../server/muxEvents.ts'
 import { listSessions, listWorkspaces, sessionTitle, sessionTotalTokens } from '../server/dshRpc.ts'
 import type { SessionSummary } from '../server/dshRpc.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { applyHostFrame, parseHostFrame } from '../pure/hostFrames.ts'
 import type { HostFrame } from '../pure/hostFrames.ts'
+import { questionInteractionStatus, type PendingInteraction } from '../pure/chatContract.ts'
+import type { PendingQuestion } from '../pure/chatContract.ts'
 import {
   buildSessionTree,
   UNGROUPED_WORKSPACE_ID,
@@ -60,7 +64,9 @@ export interface SessionsStoreSnapshot {
  * 服务运行时以 workspace.list + session.list 为基线缓存，host 事件逐帧增量
  * 维护（对齐官方 dsh-client-runtime：帧载荷自带增量所需的全部字段，不再
  * 防抖全量重拉）；另有 60s 本地 tick 纯重建模型（不发 RPC）刷新相对时间
- * 文案。消费方（Chat webview 的 sessions 面板）渲染 snapshot()，
+ * 文案。待交互状态（approval/question/plan-review 黄点）不走基线——由全局
+ * mux 下行的 requested/resolved 帧实时跟踪（对齐官方 dsh web 侧栏）。
+ * 消费方（Chat webview 的 sessions 面板）渲染 snapshot()，
  * 变更经 onDidChange 通知。
  */
 export class SessionsStore implements vscode.Disposable {
@@ -82,10 +88,19 @@ export class SessionsStore implements vscode.Disposable {
    * 与手动未读（unread，持久化）分存，仅在展示层合并。
    */
   private completed = new Set<string>()
+  /**
+   * 待交互跟踪：sessionId →（稳定 key → 状态）。对齐官方 dsh-client-runtime
+   * 的 pendingInteractions——session.list 不带审批/提问状态，该信息只从
+   * 全局 mux 下行的 server-request 帧来（approval/question 的 requested/
+   * resolved），连接时 host 会重放所有仍 pending 的请求。key 沿用官方：
+   * `a:<approvalId>` / `q:<rpcId>`。
+   */
+  private pendingInteractions = new Map<string, Map<string, PendingInteraction>>()
   /** 当前附着的会话（由 ChatViewProvider 告知）：完成标记排除它，附着即清除。 */
   private attachedId: string | null = null
   private url: string | null = null
   private hostEvents: vscode.Disposable | null = null
+  private mux: vscode.Disposable | null = null
   private tickTimer: ReturnType<typeof setInterval> | null = null
   /**
    * refresh() 拉基线期间到达的 host 帧先缓冲、拉到后重放到新基线上——
@@ -275,12 +290,27 @@ export class SessionsStore implements vscode.Disposable {
     this.hostEvents = null
     this.pendingHostFrames = []
     this.refreshInFlight = false
+    this.mux?.dispose()
+    this.mux = null
+    if (this.pendingInteractions.size > 0) {
+      // 连接代际切换：旧代的 pending 状态不可信，清掉靠新连接的 mux 重放恢复。
+      this.pendingInteractions = new Map()
+    }
     if (this.tickTimer) {
       clearInterval(this.tickTimer)
       this.tickTimer = null
     }
     if (url) {
       this.hostEvents = subscribeHostEvents(url, this.logger, (method, payload) => this.onHostFrame(method, payload))
+      // 全局 mux 下行：approval/question 的 requested/resolved 帧喂
+      // pendingInteractions（官方 web 侧栏黄点的同一数据源）。mux 无重连
+      // （同 jobsStore 的已知限制），断流时清掉 pending 避免黄点过期滞留。
+      this.mux = subscribeMuxEvents(url, this.logger, (frame) => this.onMuxFrame(frame), () => {
+        if (this.pendingInteractions.size === 0) return
+        this.pendingInteractions = new Map()
+        this.rebuildModel()
+        this.onDidChangeEmitter.fire()
+      })
       // dsh web 的相对时间也只在渲染时取 Date.now()、不轮询；这里用本地
       // tick 纯重建模型（不发 RPC），让"N 分钟前"随时间走。
       this.tickTimer = setInterval(() => {
@@ -347,6 +377,68 @@ export class SessionsStore implements vscode.Disposable {
     else if (prev === true && sessionId !== this.attachedId) this.completed.add(sessionId)
   }
 
+  /**
+   * 全局 mux 帧入口：只关心 approval/question 的 requested/resolved。
+   * 与 chatSession 的单会话过滤不同，这里按帧自带 sessionId 分桶跟踪所有
+   * 会话——官方侧栏黄点对未实例化的会话也要亮，靠的就是这条全局流。
+   */
+  private onMuxFrame(frame: MuxFrame): void {
+    const payload = (frame.payload ?? {}) as Record<string, unknown>
+    const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : null
+    if (!sessionId) return
+    let changed = false
+    switch (frame.method) {
+      case 'approval/requested':
+        if (payload.approvalId !== undefined) {
+          changed = this.trackPending(sessionId, `a:${String(payload.approvalId)}`, 'approval')
+        }
+        break
+      case 'approval/resolved':
+        if (payload.approvalId !== undefined) {
+          changed = this.resolvePending(sessionId, `a:${String(payload.approvalId)}`)
+        }
+        break
+      case 'question/requested': {
+        if (typeof frame.rpcId !== 'string') return
+        const questions = Array.isArray(payload.questions)
+          ? (payload.questions as PendingQuestion['questions'])
+          : []
+        changed = this.trackPending(sessionId, `q:${frame.rpcId}`, questionInteractionStatus(questions))
+        break
+      }
+      case 'question/resolved':
+        if (typeof payload.questionRpcId === 'string') {
+          changed = this.resolvePending(sessionId, `q:${payload.questionRpcId}`)
+        }
+        break
+      default:
+        return
+    }
+    if (!changed) return
+    this.rebuildModel()
+    this.onDidChangeEmitter.fire()
+  }
+
+  /** Add or refresh one stable pending-interaction identity; true on change. */
+  private trackPending(sessionId: string, key: string, status: PendingInteraction): boolean {
+    let interactions = this.pendingInteractions.get(sessionId)
+    if (!interactions) {
+      interactions = new Map()
+      this.pendingInteractions.set(sessionId, interactions)
+    }
+    if (interactions.get(key) === status) return false
+    interactions.set(key, status)
+    return true
+  }
+
+  /** Settle one pending-interaction identity; true on change. */
+  private resolvePending(sessionId: string, key: string): boolean {
+    const interactions = this.pendingInteractions.get(sessionId)
+    if (!interactions?.delete(key)) return false
+    if (interactions.size === 0) this.pendingInteractions.delete(sessionId)
+    return true
+  }
+
   /** Re-fetch the baseline and rebuild the model. Failures only log. */
   async refresh(): Promise<void> {
     const url = this.runningUrl
@@ -383,6 +475,14 @@ export class SessionsStore implements vscode.Disposable {
     // 展示层合流：手动未读（持久化）与自动完成标记（内存）共用同一蓝点，
     // 官方 dsh web 也是同一状态槽位的 done 圆点，视觉等价。
     const unreadDisplay = this.completed.size === 0 ? this.unread : new Set([...this.unread, ...this.completed])
+    // 一个会话可能同时挂着多个 pending（如审批+提问）：折叠成单状态时
+    // 非 approval 优先（官方同规则——提问/计划评审比审批更需要用户输入）。
+    const pendingDisplay = new Map<string, PendingInteraction>()
+    for (const [sessionId, interactions] of this.pendingInteractions) {
+      const statuses = [...interactions.values()]
+      const status = statuses.find((c) => c !== 'approval') ?? statuses[0]
+      if (status !== undefined) pendingDisplay.set(sessionId, status)
+    }
     this.workspaces = buildSessionTree(
       this.rawWorkspaces,
       this.rawSessions,
@@ -391,13 +491,20 @@ export class SessionsStore implements vscode.Disposable {
       (s) => s.title ?? null,
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
       Date.now(),
-      { sort: this.sortOrder, query: this.query ?? undefined, pinned: this.pinned, unread: unreadDisplay },
+      {
+        sort: this.sortOrder,
+        query: this.query ?? undefined,
+        pinned: this.pinned,
+        unread: unreadDisplay,
+        pendingInteractions: pendingDisplay,
+      },
     )
   }
 
   dispose(): void {
     this.stateSub.dispose()
     this.hostEvents?.dispose()
+    this.mux?.dispose()
     if (this.tickTimer) clearInterval(this.tickTimer)
     this.onDidChangeEmitter.dispose()
   }
