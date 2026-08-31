@@ -10,4 +10,4 @@
 
 ## backlog 维护
 
-见 skill **`backlog-folder-index`**（正本在 `.agents/skills/backlog-folder-index/`），本仓库的落地约定在 `docs/backlog/README.md`。一句话版：加条目 = 在 `docs/backlog/open/` 建 `NNN-name.md`，改状态 = `git mv`，不要建任何手工索引表。
+见 skill **`backlog-folder-index`**（正本在 `.agents/skills/backlog-folder-index/`），本仓库的落地约定在 `docs/backlog/README.md`。一句话版：加条目 = 在 `docs/backlog/open/` 建 `kebab-name.md`（不带序号前缀），改状态 = `git mv`，不要建任何手工索引表。
