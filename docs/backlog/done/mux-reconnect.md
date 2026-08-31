@@ -27,3 +27,4 @@
 ## 变更记录
 
 - 2026-08-31 认领（worktree: agent/mux-reconnect）→ doing
+- 2026-08-31 开发完成，自测通过 → done
