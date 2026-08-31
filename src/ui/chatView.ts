@@ -19,6 +19,7 @@ import {
 import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import { orderJobs } from '../pure/activityTree.ts'
+import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
 
@@ -1023,9 +1024,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           const text = typeof m.text === 'string' ? m.text.trim() : ''
           const images = Array.isArray(m.images) ? m.images : []
           if (!text && images.length === 0) return
-          // Leading-slash lines are commands, not prompts (same routing as the
-          // official web composer); session.prompt would leak them to the model.
-          if (text.startsWith('/')) {
+          // Slash commands route to runCommand; pasted absolute paths like
+          // /Users/… are prompts for the model, not commands.
+          if (looksLikeSlashCommand(text)) {
             await this.runCommand(controller, text, images)
             return
           }
