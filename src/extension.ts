@@ -10,8 +10,6 @@ import { ChatViewProvider } from './ui/chatView.ts'
 import { SessionsStore } from './ui/sessionsStore.ts'
 import { StatusBar } from './ui/statusbar.ts'
 
-let server: ServerManager | undefined
-
 /** Official dsh product page with the "Get started" install instructions. */
 const DSH_INSTALL_URL = 'https://www.deepseek.com/harness/'
 
@@ -24,7 +22,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   logger.info(`dsh-one activating (platform=${process.platform}/${process.arch})`)
 
   const manager = new ServerManager(context, logger)
-  server = manager
 
   // Auto-start (or adopt) the dsh web service on activation, so opening the
   // chat/session views never begins with a manual click.
@@ -247,6 +244,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): void {
-  // Must be synchronous: VSCode does not await async cleanup on shutdown.
-  server?.killSync()
+  // dsh 与 VSCode 生命周期解绑：reload/关窗不再终止 dsh（pidfile 记录身份，
+  // 下个窗口 re-own；只有 dshOne.stop/restart 会杀）。本地资源由
+  // context.subscriptions 自动 dispose，这里无事可做。
 }

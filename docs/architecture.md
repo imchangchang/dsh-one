@@ -36,7 +36,7 @@ dsh-one/
 │       ├── activityTree.ts # 后台任务 chip 模型：job 排序/状态点/状态文案/耗时格式化（对齐官方 JobListAction）
 │       ├── composerAttachment.ts # composer 附件：image/* 判定与缩略图 data: URL 构造
 │       ├── envelope.ts     # host.describe RPC 信封构造与 rpcId 回显校验
-│       ├── readyLine.ts    # 解析 stdout 就绪行 `dsh web: http://127.0.0.1:<port>`
+│       ├── readyLine.ts    # 解析就绪行 `dsh web: http://127.0.0.1:<port>`（port=0 时从日志文件拿实际端口）
 │       ├── semver.ts       # 最小 semver 实现（支持 prerelease），零依赖
 │       └── sessionTree.ts  # Sessions 树模型构建：分组/过滤/排序（置顶优先）/标签/相对时间/未读标记
 └── test/                   # src/pure 的单测（node:test）
@@ -44,7 +44,7 @@ dsh-one/
 
 各模块职责要点：
 
-- `src/extension.ts`：只做装配。`activate()`（`src/extension.ts:19`）注册命令与 view；`deactivate()`（:188）**必须是同步的**，见下文设计决策 5。
+- `src/extension.ts`：只做装配。`activate()`（`src/extension.ts:19`）注册命令与 view；`deactivate()` 是空操作——dsh 不随窗口退出，本地资源由 `context.subscriptions` 自动 dispose，见下文设计决策 5。
 - `src/server/locateDsh.ts`：`locateDsh()`（`src/server/locateDsh.ts:28`）三步定位：`dshOne.dshPath` 配置非空则用它，否则用 PATH 上的 `dsh`；对候选跑 `dsh --version` 验证并提取版本号（给 `--no-open` 等版本 gate 用）；失败则抛出 `DshNotFoundError`（"未找到 dsh，请安装"的引导错误），`ServerManager` 据此在 `ServerStatus.reason` 上标记 `dshNotFound`，UI 据此展示安装引导（Chat 空态经 `ChatState.serverError`，sessions 面板空态经 `SessionsSnapshot.dshNotFound`），按钮跳转到官方安装页 <https://www.deepseek.com/harness/>（`dshOne.openInstallPage`）。
 - `src/server/manager.ts`：`ServerManager`（:71）是整个扩展的核心，持有 `ServerStatus` 并通过 `onDidChangeState` 事件通知 UI。
 - `src/ui/webview.ts`：`bind()`（:108）把任一 webview 绑定到 `ServerManager` 状态流；运行中时渲染 iframe（`dshFrame()`，:95），否则渲染启动/错误页。
@@ -62,20 +62,18 @@ dsh-one/
 2. 对候选同步跑 `--version` 验证（`src/server/locateDsh.ts:38`）：失败（不存在/退出码非 0）→ 抛出 `DshNotFoundError`（引导安装文案：`npm install -g @deepseek-ai/dsh@next` 或配置 `dshOne.dshPath`）。
 3. 从输出提取 semver 版本号（:15-21），提取不到记为 `unknown`（按新版对待）。
 
-## 核心流程二：服务启动（探测 → 收养/spawn → 就绪双确认 → webview 加载）
+## 核心流程二：服务启动（re-own → 探测收养/spawn → 轮询就绪 → webview 加载）
 
-入口 `ServerManager.ensureStarted()`（`src/server/manager.ts:97`），单例语义：并发调用共享同一个 in-flight Promise；实际逻辑在 `start()`（:130）。
+入口 `ServerManager.ensureStarted()`，单例语义：并发调用共享同一个 in-flight Promise；实际逻辑在 `start()`。
 
-1. **探测与收养**：`port > 0` 时先 `probePort(port)` 三态探测——POST `http://127.0.0.1:<port>/api/host.describe`，信封是 `{type:'client-request', rpcId:<uuid>, method:'host.describe', payload:{}}`（`makeDescribeRequest()`，`src/pure/envelope.ts`）；只有回包 JSON 的 `rpcId` 与发出的一致才算 `'dsh'`（`validateDescribeResponse()`，同文件），有 HTTP 应答但校验失败算 `'foreign'`，无应答算 `'down'`。`'dsh'` → 状态置为 `running` 且 `adopted: true`，**收养的实例永不 kill**；`'foreign'` → 从 `port+1` 起扫最多 50 个候选找空闲端口**临时顶替**（不写回用户设置，弹窗告知）；`'down'` → 原端口 spawn。`port = 0` 跳过探测。
-2. **spawn**（:146-174）：`locateDsh()` 定位可执行文件；构造 env 时删除 `NODE_OPTIONS` 和 `ELECTRON_RUN_AS_NODE`（:151-153）；参数为 `web --host 127.0.0.1 --port <port>`，仅当版本 ≥ 0.1.0-rc.7（或 `unknown`）时追加 `--no-open`（`gte()` 判断，:158）；POSIX 下 `detached: true` 让 dsh 自成进程组（后面整组杀），Windows 下走 `shell: true`（.cmd shim 不能直接 spawn，:170）。工作目录取第一个 workspace folder，没有则用 home（:147）。
-3. **就绪双确认**（`waitReady()`，:230）：
-   - 第一层：监听 stdout，解析 `dsh web: http://127.0.0.1:\d+` 就绪行（`parseReadyLine()`，`src/pure/readyLine.ts`）拿到**实际端口**（port=0 时尤其重要）。
-   - 第二层：对该端口再做一次 `probeDsh()`，rpcId 回显通过才算 ready（`src/server/manager.ts:268`）。防止"端口被无关 HTTP 服务占用、stdout 行却解析到了"的误判。
-   - 失败路径：90s 超时（`START_TIMEOUT_MS`，:14）、进程提前退出、spawn 错误，都会带上 `TailBuffer`（:30，保留最后 40 行输出）作为错误详情。
-4. **健康检查**：ready 后每 30s 重新探测一次（收养与自己拉起的实例都查）。失联即回到 `stopped`——自己拉起的进程还会被 kill 掉回收端口，避免"状态栏显示运行中、实际已死"的假状态。
-5. **webview 加载**：状态变为 `running` 后，`onDidChangeState` 触发 `bind()` 重渲染，`dshFrame()`（`src/ui/webview.ts:95`）输出 `<iframe src="http://127.0.0.1:<port>/?dsh_embed=vscode">`。dsh web 只在编辑区标签页展示（`openInTab()`，:133）。CSP 只允许 `frame-src http://127.0.0.1:* http://localhost:*`（:48）。
+1. **re-own（reload 存活认领）**：dsh 与 VSCode 窗口生命周期已解绑（设计决策 5），上一个宿主 spawn 的 dsh 可能仍在跑。先读 globalStorage 的 pidfile（`dsh-owned.json`，记 `{pid, port}`）：pid 存活（`process.kill(pid, 0)`）且端口通过 host.describe 身份确认 → 恢复 owned 身份（stop/restart 照常可杀）。记录过期（pid 死/端口不应答）则删除 pidfile 继续正常流程。已知风险（已拍板接受）：dsh 死后 pid 被复用且端口被另一手动 dsh 占用时，stop 会误杀复用 pid 的进程组——host.describe 响应不含 pid，无法更严格验证。
+2. **探测与收养**：`port > 0` 时先 `probePort(port)` 三态探测——POST `http://127.0.0.1:<port>/api/host.describe`，信封是 `{type:'client-request', rpcId:<uuid>, method:'host.describe', payload:{}}`（`makeDescribeRequest()`，`src/pure/envelope.ts`）；只有回包 JSON 的 `rpcId` 与发出的一致才算 `'dsh'`（`validateDescribeResponse()`，同文件），有 HTTP 应答但校验失败算 `'foreign'`，无应答算 `'down'`。`'dsh'` → 状态置为 `running` 且 `adopted: true`，**收养的实例永不 kill**；`'foreign'` → 从 `port+1` 起扫最多 50 个候选找空闲端口**临时顶替**（不写回用户设置，弹窗告知）；`'down'` → 原端口 spawn。`port = 0` 跳过探测。
+3. **spawn**：`locateDsh()` 定位可执行文件；构造 env 时删除 `NODE_OPTIONS` 和 `ELECTRON_RUN_AS_NODE`；参数为 `web --host 127.0.0.1 --port <实际端口>`（fallback 端口也正确传给 dsh），仅当版本 ≥ 0.1.0-rc.7（或 `unknown`）时追加 `--no-open`（`gte()` 判断）。「父死子存」三件套：`detached: true` 自成进程组、`child.unref()` 不拖住宿主、stdio 重定向到 globalStorage 的 `dsh-web.log`（pipe 读端随宿主退出会让 dsh 写日志吃 EPIPE 崩溃；日志每次 spawn 截断）。spawn 成功即写 pidfile。Windows 下 `.cmd` shim 走 `shell: true`。
+4. **就绪轮询**（`waitReady()`）：dsh 端口被占时直接启动失败（不会自己换端口），所以固定端口每 250ms 轮询 `probeDsh()` 直到应答，不依赖 stdout 就绪行。`port = 0`（系统分配）是例外：实际端口从日志文件的 `dsh web: http://127.0.0.1:<port>` 行解析（`parseReadyLine()`，`src/pure/readyLine.ts`）后再确认。失败路径：90s 超时（`START_TIMEOUT_MS`）、进程提前退出、spawn 错误，都带日志文件尾部 40 行作为错误详情。
+5. **健康检查**：ready 后每 30s 重新探测一次（收养、re-own、自己拉起的实例都查）。失联即回到 `stopped`——owned 实例还会被 kill 掉回收端口，避免"状态栏显示运行中、实际已死"的假状态。re-own 的实例没有进程句柄，意外退出只能靠健康检查发现（不弹窗；spawn 路径的即时弹窗保留）。
+6. **webview 加载**：状态变为 `running` 后，`onDidChangeState` 触发 `bind()` 重渲染，`dshFrame()`（`src/ui/webview.ts:95`）输出 `<iframe src="http://127.0.0.1:<port>/?dsh_embed=vscode">`。dsh web 只在编辑区标签页展示（`openInTab()`，:133）。CSP 只允许 `frame-src http://127.0.0.1:* http://localhost:*`（:48）。
 
-激活扩展时默认自动 `ensureStarted()`（配置 `dshOne.autoStart`，默认 `true`），不再需要手动点击触发首次启动。进程退出有 `exit` 监听作为后备（`src/server/manager.ts:185-199`）：非主动停止的退出会把状态置为 `error` 并弹"查看日志/重试"。
+激活扩展时默认自动 `ensureStarted()`（配置 `dshOne.autoStart`，默认 `true`），不再需要手动点击触发首次启动。进程退出有 `exit` 监听作为后备：本次宿主 spawn 的进程非主动停止退出时把状态置为 `error` 并弹"查看日志/重试"。
 
 ## 状态与配置
 
@@ -98,7 +96,7 @@ dsh-one/
 
 ### 磁盘与全局状态
 
-扩展自身不持有任何运行时缓存。dsh 的数据（会话日志、workspace 元数据）在 `~/.dsh`，由 dsh 自己管理，扩展不读写。
+扩展在 globalStorage 写两份运行时文件：dsh 的 stdout/stderr 日志 `dsh-web.log`（每次 spawn 截断）与 pidfile `dsh-owned.json`（`{pid, port}`，reload 后 re-own 用，stop/kill 时删除）。dsh 的数据（会话日志、workspace 元数据）在 `~/.dsh`，由 dsh 自己管理，扩展不读写。
 
 ## 设计决策及出处
 
@@ -108,8 +106,8 @@ dsh-one/
 2. **先探后起 + 收养语义。** 两个 dsh 实例共享 `~/.dsh` 并发写会永久损坏会话日志（seq gap，Skylake0216 插件已有实际故障案例）。所以启动前必须先探测，已有实例就收养且绝不 kill。实现：`src/server/manager.ts:136-144`、`:277`（`killOwned` 注释）。
 3. **spawn 环境净化。** env 里删掉扩展宿主注入的 `NODE_OPTIONS` / `ELECTRON_RUN_AS_NODE`（会让普通 node 子进程异常）；Windows 下 `.cmd` shim 不能直接 spawn，走 `shell: true`。实现：`src/server/manager.ts:151-153`、`:170`。
 4. **`--no-open` 按版本 gate。** 只有 dsh ≥ 0.1.0-rc.7 认识该参数，旧版收到会直接退出（Xizhi1024 插件已出现过这个 critical bug）。实现：`src/server/manager.ts:12-13`、`:158`。
-5. **`deactivate` 同步清理。** VSCode 退出时不会等待 async 清理，所以 `deactivate()` 里只能同步发 SIGTERM，再 spawn 一个 detached reaper（`sh -c 'sleep 3 && kill -KILL -<pgid>'`）3 秒后强制终止作为后备，即使扩展宿主已退出也能执行。Windows 用 `taskkill /T /F` 杀整棵进程树（单个 kill 覆盖不到 dsh 的工具子进程）。实现：`src/extension.ts:155`、`src/server/manager.ts:318`（`killSync`）。
-6. **就绪双确认。** stdout 就绪行给实际端口，再补一次 RPC 身份确认，防端口被无关 HTTP 服务占用造成误判。实现：`src/server/manager.ts:230`（`waitReady`）。
+5. **dsh 与窗口生命周期解绑（2026-10 反转原决策）。** 原设计在 `deactivate()` 里同步 SIGTERM + detached reaper 补 SIGKILL，导致 reload window 就中断进行中的 session（开发期一天十余次）。现改为「父死子存」：spawn 时 `detached + unref + stdio 重定向到日志文件`（pipe 读端随宿主退出会让 dsh 吃 EPIPE，必须先解决），身份写 globalStorage pidfile，下个宿主 re-own；dsh 只在用户显式 `dshOne.stop` / `dshOne.restart` 时被杀（POSIX 整组 SIGTERM→SIGKILL，Windows `taskkill /T /F`）。副作用：终端升级 dsh 后需手动 restart 生效（已拍板暂不做版本提示）。
+6. **就绪轮询 + 身份确认。** dsh 端口被占直接启动失败（不换端口），固定端口轮询 probeDsh 即可；port=0 例外，从日志文件解析就绪行拿实际端口后再 RPC 确认。实现：`src/server/manager.ts`（`waitReady`）。
 7. **iframe 嵌入官方 UI（现阶段）。** 调研的 28 个竞品里，重写派每家都在追官方协议叫苦；iframe 嵌入零 UI 同步成本。URL 带 `dsh_embed=vscode` 是给官方预留的嵌入参数（截至 0.1.1-rc.2 未被消费）。长期方向是原生前端，见 `docs/roadmap.md`。实现：`src/ui/webview.ts:95`。
 8. **零运行时依赖（扩展宿主）。** 扩展宿主只用 Node 22 内置模块 + vscode API，esbuild 打单文件 bundle。**修订（阶段二）**：聊天 webview 前端（`src/ui/chat/`）允许打包依赖——marked + dompurify 由 esbuild 内联进 `dist/chatWebview.js`，无运行时外部加载；宿主 bundle（`dist/extension.js`）仍零依赖。依据：`package.json` 的 `dependencies` 仅被 webview entry 引用；`build.mjs` 双入口打包。
 
