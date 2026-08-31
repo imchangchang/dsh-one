@@ -42,6 +42,12 @@ import {
 import { attachmentDataUrl, isImageMediaType } from '../../pure/composerAttachment.ts'
 import { USER_SCROLL_INTENT_MS, isNearBottom, isScrollKey } from '../../pure/scrollFollow.ts'
 import { formatDuration } from '../../pure/sessionStats.ts'
+import {
+  decodeSessionReferenceUri,
+  expandMentionBindings,
+  formatSessionMention,
+  mentionDisplayToken,
+} from '../../pure/sessionMention.ts'
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
@@ -398,6 +404,13 @@ let slashPopupEl: HTMLElement | null = null
 let slashRows: SlashRow[] = []
 let slashIndex = 0
 
+/**
+ * @ 补全插入的显示 token（`@标题`）→ canonical mention 的映射，发送时由
+ * expandMentionBindings 展开（src/pure/sessionMention.ts）。常驻不清理：
+ * token 指向的是固定会话，之后的消息里再写同一 token 也应展开成同一引用。
+ */
+const mentionBindings = new Map<string, string>()
+
 function hideSlashPopup(): void {
   slashPopupEl?.remove()
   slashPopupEl = null
@@ -415,7 +428,9 @@ function positionSlashPopup(input: HTMLTextAreaElement): void {
 
 /** Recompute the rows from the current value; hide when nothing applies. */
 function updateSlashPopup(input: HTMLTextAreaElement): void {
+  // 斜杠命令整行匹配优先；不匹配时退到光标处的 @ 会话补全。
   slashRows = computeSlashRows(input)
+  if (slashRows.length === 0) slashRows = computeMentionRows(input)
   if (slashRows.length === 0) {
     hideSlashPopup()
     return
@@ -487,6 +502,48 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
   const cmd = COMPLETABLE_COMMANDS.find((c) => c.name === name)
   if (cmd?.hint) return [{ label: `参数：${cmd.hint}` }]
   return []
+}
+
+/**
+ * @ 会话补全（对话引用）：光标前的 `@query` 触发，候选来自会话列表快照
+ * （不含当前会话——引用自己没有意义）。选中后输入框只留 `@标题` 显示
+ * token，canonical mention 记在 mentionBindings 里，发送时才展开
+ * （textarea 做不到官方 contenteditable 的原子引用，这是拍板的 b) 路线）。
+ */
+function computeMentionRows(input: HTMLTextAreaElement): SlashRow[] {
+  if (input.selectionStart !== input.selectionEnd) return []
+  const upto = input.value.slice(0, input.selectionStart)
+  const m = /(?:^|\s)@([^\s@]{0,30})$/.exec(upto)
+  if (!m) return []
+  const query = m[1].toLowerCase()
+  const tokenStart = upto.length - m[1].length - 1
+  const cursor = upto.length
+  const snap = sessionsSnapshot
+  if (!snap) return []
+  const candidates: Array<{ s: SessionNodeModel; group: string; currentGroup: boolean }> = []
+  for (const w of snap.workspaces) {
+    for (const s of w.sessions) {
+      if (s.sessionId === state?.sessionId) continue
+      candidates.push({ s, group: w.label, currentGroup: w.isCurrent })
+    }
+  }
+  return candidates
+    .filter(({ s }) => s.label.toLowerCase().includes(query) || s.sessionId.toLowerCase().includes(query))
+    .sort((a, b) => Number(b.currentGroup) - Number(a.currentGroup))
+    .slice(0, 10)
+    .map(({ s, group }) => ({
+      label: `@${s.label}`,
+      right: group,
+      apply: () => {
+        const token = mentionDisplayToken(s.label, s.sessionId, mentionBindings)
+        mentionBindings.set(token, formatSessionMention(s.label, s.sessionId))
+        input.value = `${input.value.slice(0, tokenStart)}${token} ${input.value.slice(cursor)}`
+        input.focus()
+        const caret = tokenStart + token.length + 1
+        input.setSelectionRange(caret, caret)
+        input.dispatchEvent(new Event('input'))
+      },
+    }))
 }
 
 /** Compact token count: 517 / 12.2K / 517K / 1.2M (dsh-web's formatTokens). */
@@ -1068,7 +1125,8 @@ function render(): void {
         // A rebuilt composer at least keeps the caret where it was.
         if (inputSel) input.setSelectionRange(inputSel.start, inputSel.end)
       }
-      if (looksLikeSlashCommand(input.value)) updateSlashPopup(input)
+      // 重建后恢复补全弹窗（含 @ 会话补全；无候选时 updateSlashPopup 自行隐藏）
+      updateSlashPopup(input)
     }
     lastComposerSig = composerSig
     return
@@ -1274,7 +1332,8 @@ function render(): void {
       // A rebuilt composer at least keeps the caret where it was.
       if (inputSel) input.setSelectionRange(inputSel.start, inputSel.end)
     }
-    if (looksLikeSlashCommand(input.value)) updateSlashPopup(input)
+    // 同上：重建后恢复补全弹窗（含 @ 会话补全）
+    updateSlashPopup(input)
   } else if (slashPopupEl && oldInput) {
     positionSlashPopup(oldInput)
   }
@@ -2501,6 +2560,9 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       .filter(Boolean)
       .join('\n')
     if (!text && pendingImages.length === 0) return
+    // @ 补全插入的显示 token 在这里展开成 canonical mention（host 按 mention
+    // 注入被引用会话的只读快照）；用户手动删改过的 token 不匹配，原样发送。
+    const expanded = expandMentionBindings(text, mentionBindings)
     // `/model` is a client-side command (dsh-client-ui-model-selection): the
     // host has no such command, so open the model menu instead of sending.
     if (text === '/model' && !recall) {
@@ -2517,7 +2579,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       recall = null
       recallDraft = ''
       pendingFiles = []
-      post({ type: 'queueEdit', itemId, text })
+      post({ type: 'queueEdit', itemId, text: expanded })
       input.value = ''
       render()
       return
@@ -2527,7 +2589,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     const images = pendingImages
     pendingImages = []
     pendingFiles = []
-    post({ type: 'send', text, ...(images.length > 0 ? { images } : {}), ...(steer ? { steer } : {}) })
+    post({ type: 'send', text: expanded, ...(images.length > 0 ? { images } : {}), ...(steer ? { steer } : {}) })
     input.value = ''
     render()
   }
