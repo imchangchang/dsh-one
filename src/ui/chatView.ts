@@ -7,6 +7,7 @@ import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { ChatSessionController } from '../server/chatSession.ts'
 import {
+  createSession,
   deleteWorkspace,
   executeCommand,
   exportSessionLog,
@@ -19,7 +20,8 @@ import {
 } from '../server/dshRpc.ts'
 import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { FileRefCandidate } from '../pure/fileReference.ts'
-import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
+import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, StagedFile, ToWebviewMessage } from '../pure/chatContract.ts'
+import { contextMenuResource } from '../pure/contextResource.ts'
 import { orderJobs } from '../pure/activityTree.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
 import { formatSessionMention } from '../pure/sessionMention.ts'
@@ -835,6 +837,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   private readonly storeSub: vscode.Disposable
   private readonly jobs: JobsStore
   private readonly jobsSub: vscode.Disposable
+  /**
+   * 右键「发送到当前会话」暂存的附件：webview 尚未解析（用户还没打开过
+   * Chat 面板）时先落这两个队列，视图 resolve 后再投给 composer。只活到
+   * 下一次 flush——成功后清空，不跨会话堆积。
+   */
+  private pendingStagedFiles: StagedFile[] = []
+  private pendingStagedImages: OutgoingImage[] = []
 
   constructor(
     private readonly manager: ServerManager,
@@ -883,6 +892,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     // A late-resolved view still needs the state attached before it appeared.
     this.push(this.controller?.getState() ?? this.emptyState())
     this.pushSessions()
+    // 右键暂存的附件可能一直等在这里（面板此前没打开过）。
+    this.flushStaged()
   }
 
   /**
@@ -939,6 +950,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
     this.lastSessionTitle = controller?.getState().sessionTitle
     this.push(controller?.getState() ?? this.emptyState())
+    // 附着会话切换后重投一次暂存附件（state 先到，webview 的 stagedForSession
+    // 已更新，filesPicked 不会被当旧会话的附件丢弃）。
+    this.flushStaged()
   }
 
   private onServerState(status: ServerStatus): void {
@@ -1474,11 +1488,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   /**
-   * Validate staged images (from the picker or a webview paste) against the
-   * session's image limits, then post the accepted ones back to the webview.
+   * Validate staged images (from the picker, a webview paste, or the context
+   * menu) against the session's image limits; returns the accepted ones.
+   * Skipped files are appended to `skipped` with human-readable reasons.
    */
-  private stageImages(controller: ChatSessionController, images: OutgoingImage[], skipped: string[] = []): void {
-    if (images.length === 0 && skipped.length === 0) return
+  private validateImages(controller: ChatSessionController, images: OutgoingImage[], skipped: string[]): OutgoingImage[] {
     const limits = controller.imageLimits
     const accepted: OutgoingImage[] = []
     let acceptedBytes = 0
@@ -1508,12 +1522,122 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       accepted.push(image)
       acceptedBytes += byteLength
     }
+    return accepted
+  }
+
+  /** Validate then post accepted images back to the webview (picker/paste path). */
+  private stageImages(controller: ChatSessionController, images: OutgoingImage[], skipped: string[] = []): void {
+    if (images.length === 0 && skipped.length === 0) return
+    const accepted = this.validateImages(controller, images, skipped)
     if (skipped.length > 0) {
       vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
     }
     if (accepted.length > 0) {
       const message: ToWebviewMessage = { type: 'imagesPicked', images: accepted }
       void this.view?.webview.postMessage(message)
+    }
+  }
+
+  /**
+   * 把暂存的附件投给 webview 的 composer（等同点「添加附件」）。视图还没
+   * 解析或没有附着会话时留在队列，等 resolveWebviewView / attach 重投；
+   * 有视图却没有会话可挂时清空队列（附件无处可去）。
+   */
+  private flushStaged(): void {
+    if (!this.view) return
+    if (!this.controller) {
+      this.pendingStagedFiles = []
+      this.pendingStagedImages = []
+      return
+    }
+    if (this.pendingStagedImages.length > 0) {
+      const message: ToWebviewMessage = { type: 'imagesPicked', images: this.pendingStagedImages }
+      void this.view.webview.postMessage(message)
+      this.pendingStagedImages = []
+    }
+    if (this.pendingStagedFiles.length > 0) {
+      const message: ToWebviewMessage = { type: 'filesPicked', files: this.pendingStagedFiles }
+      void this.view.webview.postMessage(message)
+      this.pendingStagedFiles = []
+    }
+  }
+
+  /**
+   * 右键「发送到当前会话」：把当前文件作为附件暂存到当前活跃会话的
+   * composer，与点「添加附件」等价。无附着会话时自动附着当前 workspace
+   * 最新的会话，一个都没有则新建；图片走图片附件（缩略图 + 限额校验），
+   * 其他文件以路径 chip 暂存，发送时拼进 prompt 让 agent 自己读。
+   */
+  async attachFileToSession(arg: unknown): Promise<void> {
+    const target = contextMenuResource(arg)
+    const active = vscode.window.activeTextEditor?.document.uri
+    const fsPath = target?.fsPath ?? active?.fsPath
+    const scheme = target?.scheme ?? active?.scheme
+    if (!fsPath) {
+      vscode.window.showWarningMessage('没有可发送的文件：请先在编辑器中打开文件，或在资源管理器中右键一个文件。')
+      return
+    }
+    if (scheme !== undefined && scheme !== 'file') {
+      vscode.window.showWarningMessage(`只能发送本地文件（当前资源 scheme 是 ${scheme}）。`)
+      return
+    }
+    const status = await this.manager.ensureStarted()
+    if (status.state !== 'running' || !status.url) {
+      vscode.window.showErrorMessage('DSH 服务未就绪，无法发送文件。')
+      return
+    }
+    // 无附着会话：自动附着当前 workspace 最新的会话；没有则新建一个。
+    if (!this.currentSessionId) {
+      const sessionId = this.store.latestCurrentSessionId() ?? (await this.ensureNewSession())
+      if (!sessionId) return
+      this.setSession(sessionId)
+    }
+    const controller = this.controller
+    if (!controller) return
+    const name = path.basename(fsPath)
+    const mediaType = IMAGE_MEDIA_TYPES[path.extname(fsPath).toLowerCase()]
+    if (mediaType) {
+      let data: Uint8Array
+      try {
+        data = await fs.readFile(fsPath)
+      } catch (err) {
+        vscode.window.showErrorMessage(`读取文件失败：${errorText(err)}`)
+        return
+      }
+      const skipped: string[] = []
+      const accepted = this.validateImages(controller, [{ mediaType, data: Buffer.from(data).toString('base64'), name }], skipped)
+      if (skipped.length > 0) {
+        vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
+        return
+      }
+      this.pendingStagedImages.push(...accepted)
+    } else {
+      this.pendingStagedFiles.push({ name, path: fsPath })
+    }
+    this.flushStaged()
+    void vscode.commands.executeCommand('dshOne.chat.focus')
+    vscode.window.showInformationMessage(`已把 ${name} 添加到当前会话，发送时作为附件带上。`)
+  }
+
+  /**
+   * 在默认 workspace 下新建会话（右键发送时没有可附着会话的兜底）。
+   * 失败或没有可用 workspace 时返回 null 并已提示用户。
+   */
+  private async ensureNewSession(): Promise<string | null> {
+    const url = this.store.runningUrl
+    if (!url) return null
+    const targetWorkspaceId = this.store.defaultWorkspaceId()
+    if (!targetWorkspaceId) {
+      vscode.window.showWarningMessage('没有可用的 workspace，请先在 VSCode 中打开文件夹。')
+      return null
+    }
+    try {
+      const sessionId = await createSession(url, targetWorkspaceId)
+      await this.store.refresh()
+      return sessionId
+    } catch (err) {
+      vscode.window.showErrorMessage(`新建会话失败：${errorText(err)}`)
+      return null
     }
   }
 

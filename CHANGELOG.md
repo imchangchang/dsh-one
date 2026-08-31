@@ -36,6 +36,8 @@
 
 ### Added
 
+- 编辑器与资源管理器右键文件新增「发送到当前会话」（`DSH One: 发送到当前会话`）：把当前文件作为附件暂存到当前 Chat 面板活跃会话的 composer，与点「添加附件」等价——图片走图片附件（48px 缩略图 + 会话图片限额校验），其他文件以路径 chip 暂存，发送时以 `<attachment>路径</attachment>` 拼进 prompt 让 agent 自己读。没有附着会话时自动附着当前 workspace 最新的会话，一个都没有则新建；Chat 面板没打开过也不丢（附件先落 host 队列，视图 resolve 后再投）。右键目标优先取菜单上下文（explorer 的 Uri / editor 的 resourceUri），编辑器内右键兜底用当前活动编辑器。
+
 - 会话面板的 workspace 行 hover 操作新增「在终端中打开」图标（终端样式，+ 号旁）：点击后以该 workspace 文件夹为 cwd 新建 VS Code 终端并显示，终端名为文件夹名；当前/非当前 workspace 均可用。
 
 - 聊天头部新增「N 个后台任务运行中」chip（对齐官方 dsh-client-ui-jobs 的 JobListAction）：附着会话有后台 job 时出现（有运行中的显示运行中数并带像素环，全部结束显示「N 个后台任务」），点击弹下拉——每行状态点（运行中像素环/已完成绿/已取消琥珀/已失败红）+ kind 徽标（bash 等）+ 命令摘要 + 状态文案（host detail 优先，如 "exit code: 0"）+ 耗时（23秒 / 4分58秒 / 1小时2分，运行中的打开下拉后 1s 跳动），已结束行淡化；行序为运行中在前（开始时间升序）、已结束在后（完成时间降序）。数据复用 jobsStore 的 mux 全局 session/jobs 帧，实时刷新。
