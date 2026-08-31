@@ -2,22 +2,18 @@ import * as vscode from 'vscode'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 
 /**
- * 单块状态栏：所有内容都在一个 item 的 text 里，视觉上是完整一体
- * （无间隙、hover 高亮覆盖整块）。git 那种「多段紧凑分组」用的是
- * VS Code 内部的 compact priority（workbench addEntry 私有），扩展
- * API 的 priority 只接受 number，逐块高亮和块间距都改不了——单 item
- * 内嵌图标是扩展能做到的最「一体」形态。
+ * 单块状态栏：$(dsh-fish) 图标 + 状态文字。动作全在悬停 tooltip 里
+ * （command 链接，贴着状态栏弹出），文本里不再重复放动作图标；点击
+ * 整块 = 打开浏览器（高频）。
  *
- * 前导 $(dsh-fish) 是扩展贡献的字体图标（contributes.icons）。尾部三
- * 个图标是动作的视觉提示，真正可点的动作在悬停 tooltip 里（command
- * 链接，贴着状态栏弹出）；点击整块 = 打开浏览器（高频）。
+ * 注：git 状态栏那种「多段紧凑分组」是 VS Code 内部 addEntry 的
+ * compact priority，扩展 API 的 priority 只接受 number（1.135 ext
+ * host 会丢弃非数字），逐块高亮和块间距扩展都改不了，所以不做分段。
  */
 function text(status: ServerStatus): string {
   switch (status.state) {
-    case 'running': {
-      const actions = status.adopted ? '　$(globe)' : '　$(globe)　$(refresh)　$(debug-stop)'
-      return `$(dsh-fish) DSH: 运行中 :${status.port ?? '?'}${actions}`
-    }
+    case 'running':
+      return `$(dsh-fish) DSH: 运行中 :${status.port ?? '?'}`
     case 'starting':
       return '$(dsh-fish) DSH: 启动中…'
     case 'error':
