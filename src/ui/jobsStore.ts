@@ -6,6 +6,8 @@ import type { ActivityJob } from '../pure/activityTree.ts'
 
 /** Debounce window for mux-driven change notifications. */
 const JOBS_DEBOUNCE_MS = 200
+/** Mux reconnect backoff: 1s doubling up to this cap. */
+const RECONNECT_MAX_MS = 30_000
 
 /**
  * Loose mirror of JobView (apiproxy jobs.d.ts), keeping every status — unlike
@@ -30,13 +32,18 @@ interface JobViewLike {
  * 个 /api/events.mux 下行（MUX_EVENTS_PATH），dsh-client-ui-jobs 的
  * JobListAction 读的 jobsBySession 正是由 session/jobs 帧喂出来的。
  * 生命周期对齐 SessionsStore：跟随 manager.onDidChangeState 的 url 订阅/退订。
- * 已知限制：mux 无重连（docs/backlog/mux-reconnect.md），断流后任务列表随之停滞。
+ * mux 断流自动重连（close 回调驱动 1s 翻倍退避、上限 30s）：重连后 host 重放
+ * 所有会话的 session/jobs 基线，列表随之恢复，无需额外重拉。
  */
 export class JobsStore implements vscode.Disposable {
   private jobsBySession = new Map<string, ActivityJob[]>()
   private url: string | null = null
   private mux: vscode.Disposable | null = null
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
+  /** Reconnect state: backoff step and pending timer; any live frame resets. */
+  private reconnectAttempts = 0
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private disposed = false
   private readonly stateSub: vscode.Disposable
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>()
   /** Fired (debounced) after any jobs snapshot changed, including server down. */
@@ -61,12 +68,23 @@ export class JobsStore implements vscode.Disposable {
     this.url = url
     this.mux?.dispose()
     this.mux = null
+    // 订阅代际切换：旧代的退避状态作废，等新连接自行复位。
+    this.reconnectAttempts = 0
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer)
       this.debounceTimer = null
     }
     if (url) {
-      this.mux = subscribeMuxEvents(url, this.logger, (frame) => this.onFrame(frame.method, frame.payload))
+      this.mux = subscribeMuxEvents(
+        url,
+        this.logger,
+        (frame) => this.onFrame(frame.method, frame.payload),
+        () => this.onMuxClose(url),
+      )
     } else if (this.jobsBySession.size > 0) {
       this.jobsBySession = new Map()
       this.onDidChangeEmitter.fire()
@@ -74,6 +92,8 @@ export class JobsStore implements vscode.Disposable {
   }
 
   private onFrame(method: string, payload: unknown): void {
+    // Any delivered frame means the stream is live again; drop the backoff.
+    this.reconnectAttempts = 0
     if (method !== 'session/jobs') return
     const p = (payload ?? {}) as Record<string, unknown>
     const sessionId = typeof p.sessionId === 'string' ? p.sessionId : null
@@ -99,6 +119,29 @@ export class JobsStore implements vscode.Disposable {
     this.scheduleFire()
   }
 
+  /**
+   * Stream dropped (host restart, hot reload, network blip, sleep/wake).
+   * Re-subscribe with 1s doubling backoff capped at RECONNECT_MAX_MS; the
+   * host replays the session/jobs baselines on the fresh connection, so
+   * re-attaching alone re-baselines the list.
+   */
+  private onMuxClose(url: string): void {
+    if (this.disposed) return
+    const delay = Math.min(1000 * 2 ** this.reconnectAttempts, RECONNECT_MAX_MS)
+    this.reconnectAttempts += 1
+    this.logger.warn(`jobs: mux stream closed; reconnecting in ${delay}ms`)
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      if (this.disposed || this.url !== url) return
+      this.mux = subscribeMuxEvents(
+        url,
+        this.logger,
+        (frame) => this.onFrame(frame.method, frame.payload),
+        () => this.onMuxClose(url),
+      )
+    }, delay)
+  }
+
   private scheduleFire(): void {
     if (this.debounceTimer) clearTimeout(this.debounceTimer)
     this.debounceTimer = setTimeout(() => {
@@ -108,8 +151,10 @@ export class JobsStore implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.disposed = true
     this.stateSub.dispose()
     this.mux?.dispose()
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     if (this.debounceTimer) clearTimeout(this.debounceTimer)
     this.onDidChangeEmitter.dispose()
   }

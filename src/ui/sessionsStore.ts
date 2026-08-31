@@ -37,6 +37,8 @@ function toSessionInput(s: SessionSummary): SessionInput {
 
 /** Local tick for relative-time labels; rebuilds from the cached baseline, no RPC. */
 const RELATIVE_TIME_TICK_MS = 60_000
+/** Host-event reconnect backoff: 1s doubling up to this cap. */
+const RECONNECT_MAX_MS = 30_000
 
 /** workspaceState key for the persisted sort preference (UI-only state). */
 const SORT_STATE_KEY = 'sessions.sortOrder'
@@ -108,6 +110,10 @@ export class SessionsStore implements vscode.Disposable {
    */
   private refreshInFlight = false
   private pendingHostFrames: HostFrame[] = []
+  /** Host 流重连状态：退避步数与待执行重连定时器；基线重拉成功即复位。 */
+  private reconnectAttempts = 0
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private disposed = false
   private readonly stateSub: vscode.Disposable
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>()
   /** Fired after every model rebuild (refresh, sort, query, server down). */
@@ -286,6 +292,12 @@ export class SessionsStore implements vscode.Disposable {
     const url = status.state === 'running' && status.url ? status.url : null
     if (url === this.url) return
     this.url = url
+    // 订阅代际切换：旧代的重连状态作废，等新连接自行复位。
+    this.reconnectAttempts = 0
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     this.hostEvents?.dispose()
     this.hostEvents = null
     this.pendingHostFrames = []
@@ -301,10 +313,16 @@ export class SessionsStore implements vscode.Disposable {
       this.tickTimer = null
     }
     if (url) {
-      this.hostEvents = subscribeHostEvents(url, this.logger, (method, payload) => this.onHostFrame(method, payload))
+      this.hostEvents = subscribeHostEvents(
+        url,
+        this.logger,
+        (method, payload) => this.onHostFrame(method, payload),
+        () => this.onHostClose(url),
+      )
       // 全局 mux 下行：approval/question 的 requested/resolved 帧喂
-      // pendingInteractions（官方 web 侧栏黄点的同一数据源）。mux 无重连
-      // （同 jobsStore 的已知限制），断流时清掉 pending 避免黄点过期滞留。
+      // pendingInteractions（官方 web 侧栏黄点的同一数据源）。此订阅不重连：
+      // pending 是瞬时态，断流即清、不补恢复（黄点随下一次订阅代际由 host
+      // 重放回来），避免断流盲区里的过期状态滞留。
       this.mux = subscribeMuxEvents(url, this.logger, (frame) => this.onMuxFrame(frame), () => {
         if (this.pendingInteractions.size === 0) return
         this.pendingInteractions = new Map()
@@ -332,7 +350,8 @@ export class SessionsStore implements vscode.Disposable {
   /**
    * Host 帧入口：解析后逐帧增量应用到缓存基线（对齐官方 host 帧的增量
    * 语义，见 src/pure/hostFrames.ts）。全量重拉只保留给基线场景：服务状态
-   * 变化、手动刷新、聊天侧标题变化（title 走 mux 投影，host 流没有对应帧）。
+   * 变化、手动刷新、host 流重连、聊天侧标题变化（title 走 mux 投影，host
+   * 流没有对应帧）。
    */
   private onHostFrame(method: string, payload: unknown): void {
     const frame = parseHostFrame(method, payload)
@@ -342,6 +361,31 @@ export class SessionsStore implements vscode.Disposable {
       return
     }
     this.applyFrame(frame)
+  }
+
+  /**
+   * Host 事件流断开（host 重启、热重载、网络抖动、休眠唤醒）。流不重放，
+   * 断流盲区里的增量帧无法补发，重连后必须重拉基线再增量。1s 翻倍退避
+   * （上限 RECONNECT_MAX_MS）；refresh() 成功即视为恢复、重置退避。
+   */
+  private onHostClose(url: string): void {
+    if (this.disposed) return
+    const delay = Math.min(1000 * 2 ** this.reconnectAttempts, RECONNECT_MAX_MS)
+    this.reconnectAttempts += 1
+    this.logger.warn(`sessions store: host events stream closed; reconnecting in ${delay}ms`)
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      if (this.disposed || this.url !== url) return
+      this.hostEvents?.dispose()
+      this.hostEvents = subscribeHostEvents(
+        url,
+        this.logger,
+        (method, payload) => this.onHostFrame(method, payload),
+        () => this.onHostClose(url),
+      )
+      // 以全量基线为准，重新开始增量（拉取期间到达的帧由 refresh 缓冲重放）。
+      void this.refresh()
+    }, delay)
   }
 
   /** Apply one parsed host frame; no-op frames（状态未变/未知 id）不触发重建。 */
@@ -457,6 +501,8 @@ export class SessionsStore implements vscode.Disposable {
       // 完成标记（官方语义）：首次刷新无旧基线，不会误标——VS Code 没开期间
       // 完成的会话不会有标记，与官方"页面没开期间不记"一致。
       for (const s of this.rawSessions) this.noteRunningFlip(s.sessionId, prevRunning.get(s.sessionId), s.running)
+      // 基线重拉成功：host 流已恢复（初始连接/手动刷新时本就是 0，无副作用）。
+      this.reconnectAttempts = 0
       this.rebuildModel()
     } catch (err) {
       this.logger.warn(`sessions store: refresh failed — ${err instanceof Error ? err.message : err}`)
@@ -502,9 +548,11 @@ export class SessionsStore implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.disposed = true
     this.stateSub.dispose()
     this.hostEvents?.dispose()
     this.mux?.dispose()
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     if (this.tickTimer) clearInterval(this.tickTimer)
     this.onDidChangeEmitter.dispose()
   }
