@@ -8,6 +8,7 @@
 
 | 条目 | 类型 | 优先级 | 状态 |
 | --- | --- | --- | --- |
+| [发布到 VS Code Marketplace](marketplace-publish.md) | 事务（账号侧大半已就绪，工程侧 4 小项） | P1（本周目标） | 进行中 |
 | [dsh 服务与 VSCode 生命周期解绑](dsh-survive-reload.md) | 需求（方案已讨论，5 个决策点待拍板） | P1（reload 会中断进行中的 session） | 未做 |
 | [流式输出时视图跟随最新位置](stream-follow-latest.md) | 遗留问题 | P1（根因待复现确认） | 未做 |
 | [子代理运行时的状态可见性](subagent-activity-visibility.md) | 遗留问题（已实测取证，2 小项） | P2（父会话等待子代理时看似空闲） | 未做 |
