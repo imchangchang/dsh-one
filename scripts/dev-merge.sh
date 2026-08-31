@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 用法: scripts/dev-merge.sh <slug>   —— 在主线运行，把已完成的 worktree 分支合入 main。
-# 流程：校验 -> 在 worktree 里 rebase 到最新 main -> rebase 后复测 -> --no-ff 合入 -> 清理。
+# 流程：校验 -> 上主线锁 -> 在 worktree 里 rebase 到最新 main -> rebase 后复测 -> --no-ff 合入 -> 清理。
+# 主线不开发，只负责测试、集成和合入；合并期间持有 .dev-lock，防止并发合并。
 # 不带参数时列出所有待合并的 done 标记。
 set -euo pipefail
 
@@ -23,6 +24,18 @@ git rev-parse --verify --quiet "refs/tags/done/$SLUG" >/dev/null || {
   echo "done/$SLUG 不在分支最新提交上（rebase 或新提交后没重跑 dev-finish）。" >&2; exit 1; }
 [ -z "$(git status --porcelain)" ] || {
   echo "主线有未提交改动，先收尾再合并：" >&2; git status --short; exit 1; }
+
+# 主线锁：标记"主线正在合并/集成"，其他 session 看到锁就别动主线。
+LOCK=.dev-lock
+[ ! -f "$LOCK" ] || {
+  echo "主线正被占用（$LOCK）：" >&2; cat "$LOCK" >&2
+  echo "等对方跑完；确认是残留锁就用 scripts/dev-unlock.sh 释放。" >&2; exit 1; }
+cat > "$LOCK" <<EOF
+task: merge $SLUG
+branch: main
+since: $(date '+%Y-%m-%d %H:%M:%S')
+EOF
+trap 'rm -f "$MAIN_ROOT/$LOCK"' EXIT
 
 WT=$(git worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '
   /^worktree /{p=$2} /^branch /{if ($2==b) print p}')
