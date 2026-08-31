@@ -20,6 +20,7 @@ import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import { orderJobs } from '../pure/activityTree.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
+import { formatSessionMention } from '../pure/sessionMention.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
 
@@ -1041,6 +1042,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return
       case 'sessionFork':
         void vscode.commands.executeCommand('dshOne.session.fork', m.sessionId)
+        return
+      case 'sessionCopyReference': {
+        // host 的 session-reference 插件解析 mention 并注入被引用会话的只读快照。
+        const mention = formatSessionMention(m.title, m.sessionId)
+        await vscode.env.clipboard.writeText(mention)
+        void vscode.window.showInformationMessage('已复制会话引用，粘贴到输入框即可 @ 这个会话')
+        return
+      }
+      case 'sessionCopyId':
+        await vscode.env.clipboard.writeText(m.sessionId)
+        void vscode.window.showInformationMessage('已复制会话 ID')
         return
       case 'serverStart':
         void this.manager.ensureStarted()

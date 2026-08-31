@@ -1727,7 +1727,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   return row
 }
 
-/** 会话菜单内容（⋯ 按钮与右键菜单共用）：重命名 / 置顶 / 标为未读 / 分叉会话 / 归档会话。 */
+/** 会话菜单内容（⋯ 按钮与右键菜单共用）：重命名 / 置顶 / 标为未读 / 分叉会话 / 复制引用 / 复制会话 ID / 归档会话。 */
 function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
   const body = el('div')
@@ -1766,6 +1766,24 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
       onClick: () => {
         closePopover()
         post({ type: 'sessionFork', sessionId: s.sessionId })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem('复制引用', {
+      icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionCopyReference', sessionId: s.sessionId, title: s.label })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem('复制会话 ID', {
+      icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionCopyId', sessionId: s.sessionId })
       },
     }),
   )
