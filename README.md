@@ -1,5 +1,7 @@
 # DSH One
 
+[![CI](https://github.com/imchangchang/dsh-one/actions/workflows/ci.yml/badge.svg)](https://github.com/imchangchang/dsh-one/actions/workflows/ci.yml)
+
 [DeepSeek Harness](https://www.npmjs.com/package/@deepseek-ai/dsh)（dsh）与 VSCode 之间的桥接插件：dsh 由你自己安装，DSH One 负责定位并启动它，把 dsh 界面嵌进 VSCode，并把当前文件夹预置为 dsh workspace。VSCode 就是 dsh 的启动器和显示器。
 
 > 非官方社区项目，与 DeepSeek 官方无关。"dsh" 名称归其原项目所有。
