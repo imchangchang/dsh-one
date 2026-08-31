@@ -86,6 +86,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.stop', async () => {
       await manager.stop()
     }),
+    // Status bar click: dsh 已不随窗口退出，状态栏是它的管理入口。
+    vscode.commands.registerCommand('dshOne.statusMenu', async () => {
+      const status = manager.getStatus()
+      const picks: (vscode.QuickPickItem & { run?: () => unknown })[] = []
+      if (status.state === 'running' && status.url) {
+        const url = status.url
+        picks.push({ label: '$(globe) 在浏览器中打开', run: () => vscode.env.openExternal(vscode.Uri.parse(url)) })
+        if (!status.adopted) {
+          picks.push(
+            { label: '$(refresh) 重启服务', description: `:${status.port ?? '?'}`, run: () => manager.restart() },
+            { label: '$(debug-stop) 停止服务', run: () => manager.stop() },
+          )
+        }
+      } else if (status.state !== 'starting') {
+        picks.push({ label: '$(play) 启动服务', run: () => manager.ensureStarted() })
+      }
+      picks.push({ label: '$(output) 显示日志', run: () => logger.show() })
+      const pick = await vscode.window.showQuickPick(picks, {
+        placeHolder: status.adopted ? '复用的是外部启动的 dsh 实例，不会被插件停止' : 'dsh 服务',
+      })
+      await pick?.run?.()
+    }),
     vscode.commands.registerCommand('dshOne.showLogs', () => {
       logger.show()
     }),

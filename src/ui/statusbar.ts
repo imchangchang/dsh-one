@@ -7,8 +7,8 @@ function label(status: ServerStatus): { text: string; tooltip: string; color: vs
       return {
         text: `$(zap) DSH: 运行中 :${status.port ?? '?'}`,
         tooltip: status.adopted
-          ? `DSH One — 已复用已有实例 ${status.url}（该实例由外部启动，不会被插件终止）；点击在浏览器打开`
-          : `DSH One — ${status.url}；点击在浏览器打开`,
+          ? `DSH One — 已复用已有实例 ${status.url}（该实例由外部启动，不会被插件终止）；点击管理服务`
+          : `DSH One — ${status.url}；点击管理服务（打开/重启/停止）`,
         color: new vscode.ThemeColor('charts.green'),
       }
     case 'starting':
@@ -20,13 +20,13 @@ function label(status: ServerStatus): { text: string; tooltip: string; color: vs
     case 'error':
       return {
         text: '$(error) DSH: 错误',
-        tooltip: 'DSH One — 服务出错，点击查看',
+        tooltip: 'DSH One — 服务出错，点击查看与重试',
         color: new vscode.ThemeColor('charts.red'),
       }
     default:
       return {
         text: '$(circle-slash) DSH: 已停止',
-        tooltip: 'DSH One — 服务已停止，点击启动并在浏览器打开',
+        tooltip: 'DSH One — 服务已停止，点击启动',
         color: new vscode.ThemeColor('disabledForeground'),
       }
   }
@@ -37,7 +37,7 @@ export class StatusBar implements vscode.Disposable {
   private readonly sub: vscode.Disposable
 
   constructor(manager: ServerManager) {
-    this.item.command = 'dshOne.openExternal'
+    this.item.command = 'dshOne.statusMenu'
     this.sub = manager.onDidChangeState((s) => this.update(s))
     this.update(manager.getStatus())
     this.item.show()
