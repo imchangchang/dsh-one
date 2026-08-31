@@ -40,6 +40,7 @@ import {
   type ActivityJob,
 } from '../../pure/activityTree.ts'
 import { attachmentDataUrl, isImageMediaType } from '../../pure/composerAttachment.ts'
+import { USER_SCROLL_INTENT_MS, isNearBottom, isScrollKey } from '../../pure/scrollFollow.ts'
 import { formatDuration } from '../../pure/sessionStats.ts'
 
 interface VsCodeApi {
@@ -59,8 +60,36 @@ let stickToBottom = true
  * ScrollTop the last render left behind. Compared against the live position
  * at the next render to detect user scrolls synchronously — the scroll event
  * dispatches asynchronously and would otherwise race with streaming renders.
+ * Only trusted while userScrollIntentActive(); content growth moves scrollTop
+ * without any user gesture.
  */
 let pinnedScrollTop: number | null = null
+/**
+ * User-scroll intent: wheel/touch/keyboard gestures and scrollbar drags mark
+ * the moments where a scroll position change is user-driven. Scroll events and
+ * the render() head only re-evaluate stickToBottom while intent is active, so
+ * content growth and our own programmatic pins are never misread as the user
+ * scrolling up.
+ */
+let scrollIntentUntil = 0
+let scrollPointerDown = false
+
+function noteUserScrollIntent(): void {
+  scrollIntentUntil = Date.now() + USER_SCROLL_INTENT_MS
+}
+
+function userScrollIntentActive(): boolean {
+  return scrollPointerDown || Date.now() < scrollIntentUntil
+}
+
+// Scrollbar drags dispatch no events to the page between pointerdown and
+// pointerup; track the button globally so mid-drag scrolls count as user-driven.
+window.addEventListener('pointerup', () => {
+  scrollPointerDown = false
+})
+window.addEventListener('pointercancel', () => {
+  scrollPointerDown = false
+})
 /** Signature of the composer-relevant state at the last render; see render(). */
 let lastComposerSig: string | null = null
 /** Images staged in the composer, sent with the next `send`. */
@@ -913,11 +942,19 @@ function render(): void {
   // the LIVE position whenever it moved away from where the last render left
   // it: scroll events dispatch asynchronously, so a streaming render running
   // on the stale stickToBottom would yank the view back to the bottom while
-  // the user is scrolling up.
+  // the user is scrolling up. The diff alone used to decide this, but content
+  // growth shifts scrollTop too and got misread as a user scroll — now the
+  // re-evaluation only runs while a wheel/touch/keyboard/drag gesture is in
+  // flight (see userScrollIntentActive).
   const oldMessages = document.getElementById('messages')
   const prevScrollTop = oldMessages?.scrollTop ?? null
-  if (oldMessages && (pinnedScrollTop === null || Math.abs(oldMessages.scrollTop - pinnedScrollTop) > 1)) {
-    stickToBottom = oldMessages.scrollHeight - oldMessages.scrollTop - oldMessages.clientHeight < 40
+  if (
+    oldMessages &&
+    pinnedScrollTop !== null &&
+    userScrollIntentActive() &&
+    Math.abs(oldMessages.scrollTop - pinnedScrollTop) > 1
+  ) {
+    stickToBottom = isNearBottom(oldMessages.scrollHeight, oldMessages.scrollTop, oldMessages.clientHeight)
   }
   // Same for the inline queue editor: it is rebuilt per snapshot, so keep
   // its focus and cursor across re-renders.
@@ -1103,11 +1140,47 @@ function render(): void {
   const messages = oldMessages ?? el('div', 'messages')
   if (!oldMessages) {
     messages.id = 'messages'
+    // Only gesture-driven scrolls re-evaluate pinning; programmatic moves
+    // (our own pins, restore of prevScrollTop, content-growth clamping during
+    // the rebuild) leave stickToBottom alone.
     messages.addEventListener('scroll', () => {
-      stickToBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 40
+      if (userScrollIntentActive()) {
+        stickToBottom = isNearBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight)
+      }
       const jump = messages.querySelector<HTMLElement>('.jump-latest')
       if (jump) jump.style.display = stickToBottom ? 'none' : ''
     })
+    messages.addEventListener('wheel', noteUserScrollIntent, { passive: true })
+    messages.addEventListener('touchmove', noteUserScrollIntent, { passive: true })
+    messages.addEventListener('keydown', (e) => {
+      if (isScrollKey(e.key)) noteUserScrollIntent()
+    })
+    messages.addEventListener('pointerdown', () => {
+      scrollPointerDown = true
+    })
+    // Async height growth (markdown/attachment images finishing loading,
+    // <details> toggling) changes scrollHeight without a scroll event, so the
+    // view would silently drift off the tail. Neither event bubbles — listen
+    // in the capture phase and re-pin while following.
+    const repinIfFollowing = (): void => {
+      if (!stickToBottom) return
+      messages.scrollTop = messages.scrollHeight
+      pinnedScrollTop = messages.scrollTop
+    }
+    messages.addEventListener(
+      'load',
+      (e) => {
+        if (e.target instanceof HTMLImageElement) repinIfFollowing()
+      },
+      true,
+    )
+    messages.addEventListener(
+      'toggle',
+      (e) => {
+        if (e.target instanceof HTMLDetailsElement) repinIfFollowing()
+      },
+      true,
+    )
   }
   // 插话（steering）和排队分开展示，对齐官方 dsh web：等待插话的消息直接
   // 进对话流末尾（用户气泡 + 「等待插话」标记），排队消息留在输入框上方。
