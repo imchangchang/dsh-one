@@ -113,11 +113,32 @@
         "category": "DSH One"
       },
       {
+        "command": "dshOne.session.attachFile",
+        "title": "发送到当前会话",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.workspace.openFolder",
         "title": "在 VSCode 中打开文件夹",
         "category": "DSH One"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "dshOne.session.attachFile",
+          "when": "editorIsOpen",
+          "group": "navigation@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "dshOne.session.attachFile",
+          "when": "resourceScheme == file && !explorerResourceIsFolder",
+          "group": "navigation@1"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {

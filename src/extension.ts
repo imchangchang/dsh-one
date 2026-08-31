@@ -165,6 +165,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await sessions.refresh()
       chatView.setSession(newSessionId)
     }),
+    // Editor/explorer 右键「发送到当前会话」：把当前文件作为附件暂存到当前
+    // 活跃会话的 composer（等同点「添加附件」）。
+    vscode.commands.registerCommand('dshOne.session.attachFile', (arg?: unknown) => {
+      void chatView.attachFileToSession(arg)
+    }),
     vscode.commands.registerCommand('dshOne.workspace.openFolder', async (path?: string) => {
       if (typeof path !== 'string' || !path) return
       await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(path), {
