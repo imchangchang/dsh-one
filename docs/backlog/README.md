@@ -10,6 +10,5 @@
 | --- | --- | --- | --- |
 | [发布到 VS Code Marketplace](marketplace-publish.md) | 事务（工程侧全部完成，代码已推送；账号侧只剩 vsce login + publish） | P1（本周目标） | 进行中 |
 | [会话滚动位置恢复失败时回到底部](chat-scroll-restore-fallback.md) | 遗留问题（上游 dsh 包；已实测核实，方案已定） | P2 | 未做 |
-| [数据渠道对齐官方的三个优化项](official-channel-alignment.md) | 优化（审计遗留；第 1、2 项可视作 P2；原第 4 项 clientTimeZone 已完成） | P3 | 未做 |
-| [官方 UI 对齐的零散遗留项](ui-parity-leftovers.md) | 优化（8 小项，其中 2 项等 host 支持） | P3 | 未做 |
+| [官方 UI 对齐的零散遗留项](ui-parity-leftovers.md) | 优化（8 小项剩 6，其中 2 项等 host 支持） | P3 | 部分完成 |
 | [开源项目质量基线补强](oss-quality-baseline.md) | 优化（CI 已完成；剩 README 截图，不阻塞发布） | P3 | 部分完成 |
