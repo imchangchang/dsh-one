@@ -3,14 +3,15 @@ import type { Logger } from '../log.ts'
 
 /**
  * Subscribes to the dsh host event stream (`WS <url>/api/events.host`).
- * Frames are `{type:'server-request', rpcId, method, payload}`; only the
- * method string is forwarded to `onEvent`. There is no reconnect logic —
- * the caller re-subscribes when the server state changes again.
+ * Frames are `{type:'server-request', rpcId, method, payload}`; method and
+ * the raw payload are forwarded to `onEvent`（载荷解析下沉到
+ * src/pure/hostFrames.ts）。There is no reconnect logic — the caller
+ * re-subscribes when the server state changes again.
  */
 export function subscribeHostEvents(
   url: string,
   logger: Logger,
-  onEvent: (method: string) => void,
+  onEvent: (method: string, payload: unknown) => void,
 ): vscode.Disposable {
   const socket = new WebSocket(`${url.replace(/^http/, 'ws')}/api/events.host`)
   socket.onopen = () => {
@@ -18,13 +19,13 @@ export function subscribeHostEvents(
   }
   socket.onmessage = (event) => {
     if (typeof event.data !== 'string') return
-    let method: string | undefined
+    let frame: { method?: string; payload?: unknown }
     try {
-      method = (JSON.parse(event.data) as { method?: string }).method
+      frame = JSON.parse(event.data) as { method?: string; payload?: unknown }
     } catch {
       return
     }
-    if (method) onEvent(method)
+    if (frame.method) onEvent(frame.method, frame.payload)
   }
   socket.onclose = () => {
     logger.info('host events: stream closed')

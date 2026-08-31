@@ -825,7 +825,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       this.pushSessions()
       // 聊天头部的「N 个子代理」chip 来自 session.list 基线（子代理开跑/收尾
       // 触发 host 事件 → store 刷新），附着会话时重推一次 state。
-      if (this.controller) this.push(this.controller.getState())
+      if (this.controller) {
+        // 中继服务端 running 位（session-status 增量随 store 变更到达）。
+        this.controller.setServerRunning(this.store.runningFor(this.controller.sessionId))
+        this.push(this.controller.getState())
+      }
     })
     this.jobs = new JobsStore(manager, logger)
     // 头部「N 个后台任务」chip 的数据源（mux 全局 session/jobs 帧）：
@@ -896,6 +900,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     // 附着中的会话不打「已完成」标记，附着即清除（store 侧内存集合）。
     this.store.setAttachedSession(controller?.sessionId ?? null)
     if (controller) {
+      // 附着即取一次服务端 running 位（基线未覆盖时为 undefined，controller
+      // 内部回退 mux 折叠值）；之后随 store 变更中继。
+      controller.setServerRunning(this.store.runningFor(controller.sessionId))
       this.controllerSub = controller.onDidChange((state) => {
         this.push(state)
         // dsh 自动命名经会话内的 title 投影到达，host 事件流没有对应事件，
