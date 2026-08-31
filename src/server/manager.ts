@@ -103,6 +103,8 @@ export class ServerManager implements vscode.Disposable {
   private ownedPid: number | null = null
   private inflight: Promise<ServerStatus> | null = null
   private stopping = false
+  /** stop() 递增；进行中的 start 失败时据此判断是用户喊停而非真错误。 */
+  private stopGeneration = 0
   private healthTimer: NodeJS.Timeout | null = null
 
   private readonly onDidChangeStateEmitter = new vscode.EventEmitter<ServerStatus>()
@@ -126,15 +128,20 @@ export class ServerManager implements vscode.Disposable {
   ensureStarted(): Promise<ServerStatus> {
     if (this.status.state === 'running') return Promise.resolve(this.status)
     if (this.inflight) return this.inflight
+    const generation = this.stopGeneration
     this.inflight = this.start()
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err)
         this.logger.error(`failed to start dsh: ${message}`)
-        this.setStatus({
-          state: 'error',
-          error: message,
-          reason: err instanceof DshNotFoundError ? 'dshNotFound' : undefined,
-        })
+        // 用户中途 stop()（启动中的 dsh 被杀导致 start 失败）不置 error，
+        // 否则状态栏会留下一个误导性的错误态。
+        if (generation === this.stopGeneration) {
+          this.setStatus({
+            state: 'error',
+            error: message,
+            reason: err instanceof DshNotFoundError ? 'dshNotFound' : undefined,
+          })
+        }
         return this.status
       })
       .finally(() => {
@@ -150,6 +157,7 @@ export class ServerManager implements vscode.Disposable {
 
   async stop(): Promise<void> {
     this.stopping = true
+    this.stopGeneration++
     this.stopHealthCheck()
     try {
       await this.killOwned(KILL_GRACE_MS)
@@ -175,14 +183,15 @@ export class ServerManager implements vscode.Disposable {
       const alive = pidAlive(owned.pid)
       this.logger.info(`pidfile found: pid=${owned.pid} port=${owned.port} alive=${alive}`)
       if (alive) {
-        const probe = await probePort(owned.port, this.logger)
-        if (probe === 'dsh') {
-          const ownedUrl = `http://127.0.0.1:${owned.port}`
+        // port=0（系统分配）时 pidfile 里没有实际端口，从日志文件的就绪行拿。
+        const ownedPort = owned.port > 0 ? owned.port : await this.readyPortFromLog()
+        if (ownedPort !== null && (await probePort(ownedPort, this.logger)) === 'dsh') {
+          const ownedUrl = `http://127.0.0.1:${ownedPort}`
           this.logger.info(`re-owning dsh at ${ownedUrl} (pid=${owned.pid}, spawned by a previous window)`)
           this.ownedPid = owned.pid
           await this.preseedWorkspace(ownedUrl)
-          this.setStatus({ state: 'running', url: ownedUrl, port: owned.port, adopted: false })
-          this.startHealthCheck(owned.port)
+          this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false })
+          this.startHealthCheck(ownedPort)
           return this.status
         }
       }
@@ -250,9 +259,12 @@ export class ServerManager implements vscode.Disposable {
     await this.writeOwned({ pid: dshPid, port: spawnPort })
 
     const ready = await this.waitReady(dshPid, spawnPort)
+    const actualPort = Number(new URL(ready).port)
+    // port=0 时启动后才知道实际端口，回填 pidfile 供下次 re-own。
+    if (actualPort !== spawnPort) await this.writeOwned({ pid: dshPid, port: actualPort })
     await this.preseedWorkspace(ready)
-    this.setStatus({ state: 'running', url: ready, adopted: false, port: Number(new URL(ready).port) })
-    this.startHealthCheck(Number(new URL(ready).port))
+    this.setStatus({ state: 'running', url: ready, adopted: false, port: actualPort })
+    this.startHealthCheck(actualPort)
     this.logger.info(`dsh is ready at ${ready}`)
     return this.status
   }
@@ -332,10 +344,24 @@ export class ServerManager implements vscode.Disposable {
       })
       let out = ''
       let errOut = ''
+      let settled = false
+      const fail = (err: Error): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(hangTimer)
+        proc.kill()
+        reject(err)
+      }
+      // 启动器正常是毫秒级退出；挂死（极端情况）不能拖着 start() 永远
+      // 停在 starting，10s 兜底杀掉并报错。
+      const hangTimer = setTimeout(() => fail(new Error('dsh 启动器无响应（10s 超时）')), 10_000)
       proc.stdout?.on('data', (d: Buffer) => (out += d.toString()))
       proc.stderr?.on('data', (d: Buffer) => (errOut += d.toString()))
-      proc.once('error', (err) => reject(new Error(`无法启动 dsh 启动器: ${err.message}`)))
+      proc.once('error', (err) => fail(new Error(`无法启动 dsh 启动器: ${err.message}`)))
       proc.once('exit', (code) => {
+        if (settled) return
+        settled = true
+        clearTimeout(hangTimer)
         const pid = Number(out.trim())
         if (code === 0 && Number.isInteger(pid) && pid > 0) {
           resolve(pid)
@@ -380,7 +406,12 @@ export class ServerManager implements vscode.Disposable {
         )
       }, START_TIMEOUT_MS)
 
+      let probing = false
       const poll = setInterval(() => {
+        // 探测超时（3s）远长于轮询间隔（250ms），挂起的端口会叠加并发
+        // 请求；用 busy 标志串行化。
+        if (probing) return
+        probing = true
         void (async () => {
           if (!pidAlive(pid)) {
             const tail = await this.readLogTail()
@@ -396,7 +427,9 @@ export class ServerManager implements vscode.Disposable {
           }
           const url = await probeDsh(candidate, this.logger)
           if (url) done(url)
-        })()
+        })().finally(() => {
+          probing = false
+        })
       }, READY_POLL_MS)
     })
   }
@@ -469,6 +502,22 @@ export class ServerManager implements vscode.Disposable {
 
   private async clearOwned(): Promise<void> {
     await fsp.rm(this.ownedFile(), { force: true }).catch(() => undefined)
+  }
+
+  /** port=0 spawn 的实际端口只能从日志文件的就绪行解析（读前 64KB）；读不到返回 null。 */
+  private async readyPortFromLog(): Promise<number | null> {
+    try {
+      const handle = await fsp.open(this.logFile(), 'r')
+      try {
+        const buf = Buffer.alloc(64 * 1024)
+        const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
+        return parseReadyLine(buf.toString('utf8', 0, bytesRead))?.port ?? null
+      } finally {
+        await handle.close()
+      }
+    } catch {
+      return null
+    }
   }
 
   /** 日志文件尾部（错误详情用）；读不到返回空串。 */
