@@ -24,6 +24,8 @@
 
 ### Changed
 
+- 「发送到当前会话」右键菜单项改为 `DSH One: 发送到当前会话`（标题自带 DSH One 标识，右键菜单不显示 category，不加前缀看不出是谁的菜单）：编辑器/资源管理器菜单里的位置从最顶的 navigation 组移到中间独立分组 `2_dshOne`（与相邻分组自动以分割线隔开）；添加成功后的右下角提示移除（composer 里出现的附件 chip 本身就是反馈，不再弹 toast）。
+
 - 会话面板的 workspace 标识与 dsh web 融合：当前 VSCode 打开的 workspace 行尾标签从「当前」改为「vscode」（语义不变，只是标明"这个文件夹开在 VSCode 里"）；附着会话所在 workspace 的文件夹图标染 deepseek 蓝（对齐 dsh web 官方标识），折叠组同样生效，随附着会话切换实时跟随（复用 syncSessionHighlight 的免重建通道，凭组元素上的 workspaceId 回查快照模型）。
 
 - 空会话（还没有任何消息）的聊天区改为官方 dsh web 空态的居中排版（对齐 HeroShell + composer 卡片）：居中 hero 标题「探索未至之境」+「预览版」徽章（26px/500），其下一行 chip——只读 workspace 名（文件夹图标 + 名称，来自 workspace.list 基线；官方是可点开的选择器，我们没有更换 blank 会话所属 workspace 的链路，故只读）和 preset 选择 chip（从 composer 底部挪入，交互不变，下拉向下展开），再下是居中的大圆角 composer 卡片（max-width 780px 自适应收缩、22px 圆角、浮层底色、柔和双层阴影，placeholder 对齐官方「描述你想要构建的内容」，输入字号 16px/24px，附件/斜杠命令/权限/模型 pill/发送按钮功能不变）。一旦有了消息或 turn 进行中即恢复常规的消息流 + 底部 composer 布局；原「会话还没有消息」提示随之移除（被 hero 取代）。

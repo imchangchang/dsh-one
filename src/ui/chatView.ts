@@ -1633,7 +1633,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
     this.flushStaged()
     void vscode.commands.executeCommand('dshOne.chat.focus')
-    vscode.window.showInformationMessage(`已把 ${name} 添加到当前会话，发送时作为附件带上。`)
   }
 
   /**
