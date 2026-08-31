@@ -540,9 +540,12 @@ function moveSlashSelection(dir: number): void {
   const at = selectable.indexOf(slashIndex)
   slashIndex = selectable[(at + dir + selectable.length) % selectable.length]
   // header 行也是子元素，按子下标（而非 .menu-item 过滤后的下标）对齐 slashRows。
-  slashPopupEl.querySelectorAll(':scope > *').forEach((item, i) => {
+  const children = Array.from(slashPopupEl.querySelectorAll(':scope > *'))
+  children.forEach((item, i) => {
     item.classList.toggle('selected', i === slashIndex)
   })
+  // 键盘翻动时让选中项滚进可视区（弹窗 overflow-y 是独立的滚动容器）。
+  children[slashIndex]?.scrollIntoView({ block: 'nearest' })
 }
 
 /** Rows for the current composer value: command names, preset args, or one hint row. */
