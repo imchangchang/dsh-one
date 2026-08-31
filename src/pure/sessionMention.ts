@@ -81,6 +81,26 @@ export function parseSessionMentions(text: string): { text: string; references: 
 }
 
 /**
+ * 把文本按 mention 切成段（文本段为 string，mention 段为 SessionMention），
+ * 供纯文本渲染（用户气泡）交替拼 DOM。坏 URI 留在文本段里。
+ */
+export function splitSessionMentions(text: string): Array<string | SessionMention> {
+  const segments: Array<string | SessionMention> = []
+  let last = 0
+  for (const match of text.matchAll(MENTION_PATTERN)) {
+    const uri = match[2] ?? match[3]
+    const sessionId = decodeSessionReferenceUri(uri)
+    if (sessionId === null) continue
+    const at = match.index
+    if (at > last) segments.push(text.slice(last, at))
+    segments.push({ sessionId, label: match[1] === undefined ? sessionId : unescapeLabel(match[1]) })
+    last = at + match[0].length
+  }
+  if (last < text.length) segments.push(text.slice(last))
+  return segments
+}
+
+/**
  * 发送前把输入框里的显示 token（`@标题`）展开为 canonical mention。
  * bindings 由 @ 补全在插入时记录（token → mention）；按 token 长度从长到短
  * 替换，避免 `@A` 抢在 `@A B` 前面命中。token 不含 `[`，不会误伤已展开的

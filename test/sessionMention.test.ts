@@ -7,6 +7,7 @@ import {
   formatSessionMention,
   mentionDisplayToken,
   parseSessionMentions,
+  splitSessionMentions,
 } from '../src/pure/sessionMention.ts'
 
 test('URI 编解码往返：普通 id 与含特殊字符的 id 都无损', () => {
@@ -50,6 +51,18 @@ test('parseSessionMentions 对坏 URI 容错：原样保留，不进 references'
   const { text, references } = parseSessionMentions('看 @[坏](dsh-session:%%%) 这个')
   assert.equal(text, '看 @[坏](dsh-session:%%%) 这个')
   assert.deepEqual(references, [])
+})
+
+test('splitSessionMentions 交替切出文本段与 mention 段', () => {
+  const uri = encodeSessionReferenceUri('s1')
+  assert.deepEqual(splitSessionMentions(`问 @[旧会话](${uri}) 一下`), [
+    '问 ',
+    { sessionId: 's1', label: '旧会话' },
+    ' 一下',
+  ])
+  // 无 mention 时原样一段；坏 URI 留在文本段里
+  assert.deepEqual(splitSessionMentions('没有引用'), ['没有引用'])
+  assert.deepEqual(splitSessionMentions('坏 @[x](dsh-session:%%%)'), ['坏 @[x](dsh-session:%%%)'])
 })
 
 test('expandMentionBindings 长 token 优先，全部出现都替换', () => {

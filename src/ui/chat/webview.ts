@@ -47,6 +47,7 @@ import {
   expandMentionBindings,
   formatSessionMention,
   mentionDisplayToken,
+  splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 
 interface VsCodeApi {
@@ -195,7 +196,27 @@ function iconSvg(icon: IconDef, size = 16): SVGSVGElement {
 }
 
 function md(text: string): string {
-  return DOMPurify.sanitize(marked.parse(text, { async: false }))
+  // 默认 URI 白名单之外放行 dsh-session:，mention 链接才能活到 decorate 那步。
+  return DOMPurify.sanitize(marked.parse(text, { async: false }), {
+    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|dsh-session):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
+  })
+}
+
+/** @会话 chip：点击附着被引用的会话（复用 sessions 面板的 sessionOpen 通路）。 */
+function sessionMentionChip(label: string, sessionId: string): HTMLElement {
+  const chip = buttonEl('session-mention', `@${label}`)
+  chip.title = `引用会话 ${sessionId}，点击附着`
+  chip.addEventListener('click', () => post({ type: 'sessionOpen', sessionId }))
+  return chip
+}
+
+/** md 块渲染后，把 mention 链接（@[label](dsh-session:...)）换成可点击 chip。 */
+function decorateSessionMentions(container: HTMLElement): void {
+  container.querySelectorAll<HTMLAnchorElement>('a[href^="dsh-session:"]').forEach((a) => {
+    const sessionId = decodeSessionReferenceUri(a.getAttribute('href') ?? '')
+    if (!sessionId) return // 坏 URI 保持原样
+    a.replaceWith(sessionMentionChip(a.textContent ?? sessionId, sessionId))
+  })
 }
 
 // 布局骨架：左 sessions 面板 + 右聊天列（窄屏改上下，样式见 chatView.ts 的
@@ -2113,7 +2134,15 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
     if (m.images) for (const image of m.images) attachments.appendChild(messageImageThumb(image))
     if (m.files) for (const file of m.files) attachments.appendChild(fileChip(file))
     if (attachments.childElementCount > 0) row.appendChild(attachments)
-    if (m.text) row.appendChild(el('div', 'bubble', m.text))
+    if (m.text) {
+      // 气泡是纯文本（不走 markdown），mention 在这里按段拼成可点击 chip。
+      const bubble = el('div', 'bubble')
+      for (const seg of splitSessionMentions(m.text)) {
+        if (typeof seg === 'string') bubble.appendChild(document.createTextNode(seg))
+        else bubble.appendChild(sessionMentionChip(seg.label, seg.sessionId))
+      }
+      row.appendChild(bubble)
+    }
     return row
   }
   if (m.kind === 'command') {
@@ -2223,6 +2252,7 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
     case 'text': {
       const div = el('div', 'md')
       div.innerHTML = md(block.text)
+      decorateSessionMentions(div)
       return div
     }
     case 'reasoning': {
