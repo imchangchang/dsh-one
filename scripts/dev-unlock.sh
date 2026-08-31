@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 用法: scripts/dev-unlock.sh [--force]   —— 释放主线开发锁（.dev-lock）。
-# 还有未提交改动时拒绝释放，除非 --force（改动会留给下一个 session，一般不该这么干）。
+# 用法: scripts/dev-unlock.sh [--force]   —— 释放主线锁（.dev-lock）。
+# 主线锁由 scripts/dev-merge.sh 在合并/集成期间持有，正常会自动释放；
+# 这个脚本只用于清理残留锁（比如合并进程被杀掉）。
 set -euo pipefail
 
 MAIN_ROOT=$(cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd)
