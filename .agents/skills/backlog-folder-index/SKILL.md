@@ -1,6 +1,6 @@
 ---
 name: backlog-folder-index
-description: 在 git 仓库里用「文件夹即索引」结构维护 backlog：docs/backlog/open + closed，一个条目一个文件，文件名用语义化 kebab-name（不带序号前缀），git mv 改状态，不维护任何手工索引表。多 session / 多 agent / 多 worktree 并发写 backlog 不会互相冲突。当用户要记录、整理、查看 backlog、遗留问题、待办事项，或要在新工程里搭建这套 backlog 结构时使用。
+description: 在 git 仓库里用「文件夹即索引」结构维护 backlog：docs/backlog/open + closed，一个条目一个文件，文件名用语义化 kebab-name（不带序号前缀），git mv 改状态，不维护任何手工索引表。提出与修改分离：发现需求/问题只核实并记录进 open/，不顺手改代码，修改动作等单独确认。多 session / 多 agent / 多 worktree 并发写 backlog 不会互相冲突。当用户要记录、整理、查看 backlog、遗留问题、待办事项，或要在新工程里搭建这套 backlog 结构时使用。
 ---
 
 # Backlog：文件夹即索引
@@ -23,19 +23,19 @@ docs/backlog/
     └── ...
 ```
 
-## 准入：什么能进 backlog
+## 准入与流程：提出 ≠ 修改
 
-`open/` 只放**已确认**的条目，不承载想法和疑问。澄清/核实发生在进 backlog 之前，在对话里完成，确认后才建文件。
+backlog 只存「提出」阶段的产物。需求、问题、修改动作是三类不同的活：**发现问题 ≠ 被授权修复，提出需求 ≠ 被授权开发**。「修改动作」是独立环节，只有被明确要求时才执行。
 
-- **需求**：澄清需求 → 提出方案 → 确认做法 → 建条目进 `open/`。
-- **问题**：核实问题 → 定位根因 → 建条目进 `open/`。
-- 方案/根因未定、只是"想做/可能有 bug"的，不进 `open/`。
-- 进 `open/` 时把背景、根因/现状、建议方案写进条目（见「规则」），确认结果别只留在对话里。
+- **提需求**：澄清需求 → 提出方案 → 确认做法 → 建条目进 `open/`，到此为止。
+- **提问题**：核实问题 → 定位根因 → 把根因写进条目 → 建条目进 `open/`，到此为止。
+- **想法级条目也允许**：方案/根因未定的可以先进 `open/`，正文注明「想法：未确认」，后续再细化。
+- 每次提出/核实完就停下，产出写进条目，**不顺手把代码改了**——修复/开发等单独确认。
+- 角色靠 session 分工：提问题、核实根因、执行修改可以是不同的 session，谁提出不代表谁来做。
 
 ## 规则
 
 - **一个条目一个文件**，命名 `kebab-name.md`，只写描述内容的语义化名字，不加序号/日期前缀。
-- **优先级不靠文件名表达**，需要时在正文首部写一行「优先级：高/中/低」。
 - **改状态就是 `git mv`**：`git mv docs/backlog/open/x.md docs/backlog/closed/`，不动文件内容。
 - **绝不建手工索引表/状态看板文件**。`ls docs/backlog/open` 就是当前待办。
 - 条目内容包含：背景与现象、根因或现状、建议方案、涉及代码位置。有前置依赖在正文写一行「前置：kebab-name」。
@@ -45,7 +45,7 @@ docs/backlog/
 ## 在新工程搭建
 
 1. 建目录：`mkdir -p docs/backlog/open docs/backlog/closed`（closed 放空，git 不跟踪空目录的话加一个 `.gitkeep`）。
-2. 把上面的「目录结构」和「规则」两节写进 `docs/backlog/README.md`。
+2. 把上面的「目录结构」「准入与流程」「规则」三节写进 `docs/backlog/README.md`。
 3. 在工程的 `AGENTS.md`（或等价的 agent 约定文件）里加一行指向：`backlog 维护见 docs/backlog/README.md，加条目建文件、改状态 git mv，不要建索引表`。
 4. 已有 markdown  backlog 的迁移：每条拆成独立文件、按语义起 kebab-name、挪进 open/，删掉旧索引表，全仓库 grep 旧路径修引用。
 
