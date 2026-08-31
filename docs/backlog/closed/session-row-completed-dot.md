@@ -29,3 +29,4 @@
 
 - 2026-08-31 认领（worktree: agent/session-row-completed-dot）→ doing
 - 2026-08-31 开发完成，自测通过 → done
+- 2026-08-31 主线合入测试通过，人工确认 → closed
