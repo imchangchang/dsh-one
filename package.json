@@ -114,8 +114,7 @@
       },
       {
         "command": "dshOne.session.attachFile",
-        "title": "发送到当前会话",
-        "category": "DSH One"
+        "title": "DSH One: 发送到当前会话"
       },
       {
         "command": "dshOne.workspace.openFolder",
@@ -128,14 +127,14 @@
         {
           "command": "dshOne.session.attachFile",
           "when": "editorIsOpen",
-          "group": "navigation@1"
+          "group": "2_dshOne@1"
         }
       ],
       "explorer/context": [
         {
           "command": "dshOne.session.attachFile",
           "when": "resourceScheme == file && !explorerResourceIsFolder",
-          "group": "navigation@1"
+          "group": "2_dshOne@1"
         }
       ]
     },
