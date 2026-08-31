@@ -10,6 +10,7 @@
 | --- | --- | --- | --- |
 | [发布到 VS Code Marketplace](marketplace-publish.md) | 事务（工程侧只剩推送代码；账号侧待用户） | P1（本周目标） | 进行中 |
 | [流式输出时视图跟随最新位置](stream-follow-latest.md) | 遗留问题 | P1（根因待复现确认） | 未做 |
+| [粘贴以 / 开头的绝对路径会被当成斜杠命令](slash-path-misroute.md) | 遗留问题（已核实，方案已定） | P2 | 未做 |
 | [对话引用（@会话）](session-reference.md) | 需求（已调研，形态已定：显示标题） | P2 | 未做 |
 | [会话滚动位置恢复失败时回到底部](chat-scroll-restore-fallback.md) | 遗留问题（上游 dsh 包；已实测核实，方案已定） | P2 | 未做 |
 | [数据渠道对齐官方的三个优化项](official-channel-alignment.md) | 优化（审计遗留；第 1、2 项可视作 P2；原第 4 项 clientTimeZone 已完成） | P3 | 未做 |
