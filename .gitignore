@@ -2,3 +2,5 @@ node_modules/
 dist/
 *.vsix
 .dev-host/
+.worktrees/
+.dev-lock
