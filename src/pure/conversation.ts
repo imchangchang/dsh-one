@@ -272,6 +272,11 @@ export class ConversationFolder {
           ...(images.length > 0 ? { images } : {}),
           ...(files.length > 0 ? { files } : {}),
         })
+        // turn 中途插入的 user/message（子代理完成通知等注入上下文）会切断
+        // 当前 assistant 消息：下一步的 chunk 会另起一条，被丢下的这条再也
+        // 等不到 assistant/message 或 turn/end 来标 complete（tool/call 刚把
+        // 它标回 false），不补一下 webview 会在它尾巴上永久挂流式光标。
+        if (this.current) this.current.complete = true
         this.current = null
         this.stepKey = null
         return true

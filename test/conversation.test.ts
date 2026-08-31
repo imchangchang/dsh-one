@@ -475,6 +475,32 @@ test('user message without source falls back to the system-reminder prefix', () 
   assert.equal(plain.context, undefined)
 })
 
+test('mid-turn injected user message finalizes the split assistant message', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: '先跑命令' }))
+  f.applyEvent(
+    ev('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { id: 'a1', content: [{ type: 'text', text: '先跑命令' }] },
+    }),
+  )
+  f.applyEvent(toolCallEv('c1', 'bash', '{}'))
+  f.applyEvent(toolResultEv('c1', '25'))
+  // 子代理完成通知以 user/message 插在 turn 中间，把 turn 切成两条
+  // assistant 消息；前一条到此为止，不能一直挂着流式光标。
+  f.applyEvent(userEv('ctx1', 'Background subagent reported: done'))
+  f.applyEvent(chunkEv(1, 2, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 2, { type: 'text-delta', index: 0, text: '继续' }))
+
+  const split = f.messages()[0] as ChatAssistantMessage
+  assert.equal(split.kind, 'assistant')
+  assert.equal(split.complete, true)
+  assert.equal(lastAssistant(f).complete, false)
+})
+
 test('command/run pushes a running flow node and command/done settles it', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('command/run', { commandId: 'cmd-1', name: 'compact', source: { kind: 'user' } }))
