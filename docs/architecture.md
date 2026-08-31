@@ -18,7 +18,7 @@ dsh-one/
 │   │   ├── manager.ts      # dsh web 进程生命周期：re-own/探测收养/spawn/就绪/清理
 │   │   ├── spawnDsh.ts     # 短命启动器：detached spawn dsh 后立即退出，使其脱离扩展宿主进程树（防 reload 树杀）
 │   │   ├── dshRpc.ts       # host RPC 客户端（workspace.create、session 增删改查等）
-│   │   ├── muxEvents.ts    # 订阅会话事件流（WS /api/events.mux）；无重连，见 docs/backlog/mux-reconnect.md
+│   │   ├── muxEvents.ts    # 订阅会话事件流（WS /api/events.mux）的公共助手；chatSession 侧有退避重连（bc23e7c），jobsStore 侧无，见 docs/backlog/mux-reconnect.md
 │   │   ├── chatSession.ts  # ChatSessionController：历史窗口基线（session.history 尾窗 + loadEarlier 向前翻页）+ mux 事件折叠为 ChatState，回答用户动作；running 位读服务段位（SessionsStore 中继）
 │   │   └── hostEvents.ts   # 订阅 host 事件流（WS /api/events.host），转发 method + 原始 payload
 │   ├── ui/

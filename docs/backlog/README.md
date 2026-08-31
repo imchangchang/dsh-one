@@ -9,5 +9,6 @@
 | 条目 | 类型 | 优先级 | 状态 |
 | --- | --- | --- | --- |
 | [发布到 VS Code Marketplace](marketplace-publish.md) | 事务（工程侧全部完成，代码已推送；账号侧只剩 vsce login + publish） | P1（本周目标） | 进行中 |
+| [事件流断线重连的剩余缺口](mux-reconnect.md) | 遗留问题（聊天流已修；剩 jobs/host 两条订阅无重连） | P2 | 未做 |
 | [官方 UI 对齐的零散遗留项](ui-parity-leftovers.md) | 优化（8 小项剩 6，其中 2 项等 host 支持） | P3 | 部分完成 |
 | [开源项目质量基线补强](oss-quality-baseline.md) | 优化（CI 已完成；剩 README 截图，不阻塞发布） | P3 | 部分完成 |
