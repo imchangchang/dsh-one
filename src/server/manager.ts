@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as fsp from 'node:fs/promises'
@@ -64,6 +64,7 @@ export async function probePort(port: number, logger: Logger): Promise<PortProbe
     logger.info(`probe: ${url} responded but failed rpcId validation (foreign service)`)
     return 'foreign'
   } catch {
+    logger.info(`probe: ${url} no response (down)`)
     return 'down'
   }
 }
@@ -98,7 +99,6 @@ interface OwnedRecord {
  */
 export class ServerManager implements vscode.Disposable {
   private status: ServerStatus = { state: 'stopped' }
-  private child: ChildProcess | null = null
   /** PID of the process group we own; null when adopted or stopped. */
   private ownedPid: number | null = null
   private inflight: Promise<ServerStatus> | null = null
@@ -154,7 +154,6 @@ export class ServerManager implements vscode.Disposable {
     try {
       await this.killOwned(KILL_GRACE_MS)
     } finally {
-      this.child = null
       this.ownedPid = null
       this.setStatus({ state: 'stopped' })
       this.stopping = false
@@ -172,14 +171,23 @@ export class ServerManager implements vscode.Disposable {
     // 启动的 dsh 占用时，stop 会误杀复用 pid 的进程组——host.describe 不含
     // pid，无法更严格地验证。
     const owned = await this.readOwned()
-    if (owned && pidAlive(owned.pid) && (await probePort(owned.port, this.logger)) === 'dsh') {
-      const ownedUrl = `http://127.0.0.1:${owned.port}`
-      this.logger.info(`re-owning dsh at ${ownedUrl} (pid=${owned.pid}, spawned by a previous window)`)
-      this.ownedPid = owned.pid
-      await this.preseedWorkspace(ownedUrl)
-      this.setStatus({ state: 'running', url: ownedUrl, port: owned.port, adopted: false })
-      this.startHealthCheck(owned.port)
-      return this.status
+    if (owned) {
+      const alive = pidAlive(owned.pid)
+      this.logger.info(`pidfile found: pid=${owned.pid} port=${owned.port} alive=${alive}`)
+      if (alive) {
+        const probe = await probePort(owned.port, this.logger)
+        if (probe === 'dsh') {
+          const ownedUrl = `http://127.0.0.1:${owned.port}`
+          this.logger.info(`re-owning dsh at ${ownedUrl} (pid=${owned.pid}, spawned by a previous window)`)
+          this.ownedPid = owned.pid
+          await this.preseedWorkspace(ownedUrl)
+          this.setStatus({ state: 'running', url: ownedUrl, port: owned.port, adopted: false })
+          this.startHealthCheck(owned.port)
+          return this.status
+        }
+      }
+    } else {
+      this.logger.info('no pidfile found, falling through to probe/spawn')
     }
     await this.clearOwned() // 记录过期（pid 已死或端口不应答），清掉再走正常流程
 
@@ -228,52 +236,20 @@ export class ServerManager implements vscode.Disposable {
 
     this.logger.info(`spawning: ${dsh.command} ${args.join(' ')} (cwd=${workspaceRoot})`)
 
-    // 父死子存的三件套：detached 自成进程组、unref 不拖住宿主、stdio 重定向
-    // 到日志文件（pipe 的读端在宿主里，宿主退出后 dsh 写日志会吃 EPIPE 崩溃）。
+    // 父死子存：单层 detached+unref 不够——实测 VS Code 在 reload 后会对扩展
+    // 宿主的进程树做 SIGTERM 树杀（pgrep -P 递归，terminateProcess.sh），
+    // detached 的 dsh 因 ppid 链仍在而被带走。所以经短命启动器
+    // （dist/spawnDsh.js）双层 spawn：启动器拉起 dsh（detached + stdio 进日志
+    // 文件）后立即退出，dsh 被 launchd 收养，从宿主的进程树上消失。
     // 日志文件每次 spawn 截断（已拍板：截断而非滚动保留）。
     await fsp.mkdir(this.context.globalStorageUri.fsPath, { recursive: true })
-    const logFd = fs.openSync(this.logFile(), 'w')
-    // .cmd shims cannot be spawned directly on Windows — route through a shell.
-    const child = spawn(dsh.command, args, {
-      cwd: workspaceRoot,
-      env,
-      windowsHide: true,
-      detached: true,
-      shell: process.platform === 'win32',
-      stdio: ['ignore', logFd, logFd],
-    })
-    child.unref()
-    child.once('spawn', () => fs.closeSync(logFd))
-    child.once('error', () => {
-      try {
-        fs.closeSync(logFd)
-      } catch {
-        // already closed
-      }
-    })
-    this.child = child
-    this.ownedPid = child.pid ?? null
+    const launcher = path.join(this.context.extensionUri.fsPath, 'dist', 'spawnDsh.js')
+    const dshPid = await this.spawnViaLauncher(launcher, dsh.command, args, env, workspaceRoot)
+    this.ownedPid = dshPid
     this.logger.info(`dsh logs to ${this.logFile()}`)
-    if (this.ownedPid !== null) await this.writeOwned({ pid: this.ownedPid, port: spawnPort })
+    await this.writeOwned({ pid: dshPid, port: spawnPort })
 
-    child.on('exit', (code, signal) => {
-      this.logger.warn(`dsh process exited (code=${code}, signal=${signal})`)
-      this.stopHealthCheck()
-      this.child = null
-      this.ownedPid = null
-      void this.clearOwned()
-      if (!this.stopping && this.status.state !== 'error') {
-        void this.readLogTail().then((tail) => {
-          this.setStatus({ state: 'error', error: `dsh 意外退出 (code=${code}, signal=${signal})\n${tail}` })
-        })
-        vscode.window.showErrorMessage('DSH One: dsh 服务意外退出', '查看日志', '重试').then((pick) => {
-          if (pick === '查看日志') this.logger.show()
-          if (pick === '重试') void this.ensureStarted()
-        })
-      }
-    })
-
-    const ready = await this.waitReady(child, spawnPort)
+    const ready = await this.waitReady(dshPid, spawnPort)
     await this.preseedWorkspace(ready)
     this.setStatus({ state: 'running', url: ready, adopted: false, port: Number(new URL(ready).port) })
     this.startHealthCheck(Number(new URL(ready).port))
@@ -303,7 +279,6 @@ export class ServerManager implements vscode.Disposable {
         this.logger.warn(`health probe failed on :${port}; marking the server stopped`)
         this.stopHealthCheck()
         await this.killOwned(KILL_GRACE_MS)
-        this.child = null
         this.ownedPid = null
         this.setStatus({ state: 'stopped' })
       })
@@ -336,20 +311,55 @@ export class ServerManager implements vscode.Disposable {
   }
 
   /**
+   * 经短命启动器拉起 dsh，返回 dsh 的真实 pid。启动器自身以
+   * ELECTRON_RUN_AS_NODE 跑在扩展宿主自带的 Electron/Node 二进制上
+   * （不依赖 PATH 里有 node）；它的唯一职责是 detached spawn dsh 后立刻
+   * 退出，让 dsh 被 launchd 收养、脱离宿主进程树。
+   */
+  private spawnViaLauncher(
+    launcher: string,
+    dshCommand: string,
+    args: string[],
+    env: NodeJS.ProcessEnv,
+    cwd: string,
+  ): Promise<number> {
+    return new Promise<number>((resolve, reject) => {
+      const proc = spawn(process.execPath, [launcher, dshCommand, this.logFile(), ...args], {
+        cwd,
+        env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let out = ''
+      let errOut = ''
+      proc.stdout?.on('data', (d: Buffer) => (out += d.toString()))
+      proc.stderr?.on('data', (d: Buffer) => (errOut += d.toString()))
+      proc.once('error', (err) => reject(new Error(`无法启动 dsh 启动器: ${err.message}`)))
+      proc.once('exit', (code) => {
+        const pid = Number(out.trim())
+        if (code === 0 && Number.isInteger(pid) && pid > 0) {
+          resolve(pid)
+        } else {
+          reject(new Error(`dsh 启动器失败 (code=${code}): ${errOut.trim() || out.trim()}`))
+        }
+      })
+    })
+  }
+
+  /**
    * Readiness by polling: dsh 端口被占时直接启动失败（不会自己换端口），
    * 所以固定端口轮询 probeDsh 即可，不依赖 stdout 就绪行。port=0（系统分配）
    * 是例外——实际端口只能从日志文件里的 `dsh web: …` 就绪行拿到再确认。
-   * 进程提前退出 / spawn 错误 / 90s 超时都会带上日志文件尾部作为错误详情。
+   * 进程提前退出（pid 消失）/ 90s 超时都会带上日志文件尾部作为错误详情。
+   * 双层 spawn 后扩展不再持有 dsh 的进程句柄，早退只能靠 pid 存活判断。
    */
-  private waitReady(child: ChildProcess, port: number): Promise<string> {
+  private waitReady(pid: number, port: number): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       let settled = false
 
       const cleanup = (): void => {
         clearTimeout(timer)
         clearInterval(poll)
-        child.off('exit', onExit)
-        child.off('error', onError)
       }
       const fail = (err: Error): void => {
         if (settled) return
@@ -370,17 +380,13 @@ export class ServerManager implements vscode.Disposable {
         )
       }, START_TIMEOUT_MS)
 
-      const onExit = (code: number | null): void => {
-        void this.readLogTail().then((tail) => fail(new Error(`dsh 提前退出 (code=${code})\n${tail}`)))
-      }
-      const onError = (err: Error): void => {
-        fail(new Error(`无法启动 dsh 进程: ${err.message}`))
-      }
-      child.once('exit', onExit)
-      child.once('error', onError)
-
       const poll = setInterval(() => {
         void (async () => {
+          if (!pidAlive(pid)) {
+            const tail = await this.readLogTail()
+            fail(new Error(`dsh 提前退出\n${tail}`))
+            return
+          }
           let candidate = port
           if (candidate === 0) {
             const text = await fsp.readFile(this.logFile(), 'utf8').catch(() => '')
@@ -428,7 +434,6 @@ export class ServerManager implements vscode.Disposable {
         }
       }
     }
-    this.child = null
     this.ownedPid = null
     await this.clearOwned()
   }

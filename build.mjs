@@ -24,11 +24,23 @@ const results = await Promise.all([
     sourcemap: true,
     logLevel: 'warning',
   }),
+  // Short-lived dsh launcher, spawned standalone by ServerManager so dsh gets
+  // reparented to launchd and escapes the extension host's process tree.
+  esbuild.build({
+    entryPoints: ['src/server/spawnDsh.ts'],
+    bundle: true,
+    outfile: 'dist/spawnDsh.js',
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    sourcemap: false,
+    logLevel: 'warning',
+  }),
 ])
 
 if (results.some((r) => r.warnings.length > 0)) {
   console.error('esbuild finished with warnings')
   process.exitCode = 1
 } else {
-  console.log('built dist/extension.js + dist/chatWebview.js')
+  console.log('built dist/extension.js + dist/chatWebview.js + dist/spawnDsh.js')
 }
