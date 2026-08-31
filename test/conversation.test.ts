@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ConversationFolder, applyFeedbackRatings } from '../src/pure/conversation.ts'
-import type { SessionEventLike, StreamChunkData, ToolEventViewLike } from '../src/pure/conversation.ts'
+import type { HistoryEntryLike, SessionEventLike, StreamChunkData, ToolEventViewLike } from '../src/pure/conversation.ts'
 import type { ChatAssistantMessage, ChatToolBlock } from '../src/pure/chatContract.ts'
 
 let seq = 0
@@ -672,4 +672,61 @@ test('applyFeedbackRatings merges ratings by messageId and reports changes', () 
   assert.equal(applyFeedbackRatings(f.messages(), ratings), false)
   assert.equal(applyFeedbackRatings(f.messages(), new Map()), true)
   assert.equal(second.feedbackRating, undefined)
+})
+
+/** 一个完整 turn 的历史事件（turn/start → user/message → assistant/message → turn/end）。 */
+function turnEntries(turn: number, userText: string, replyText: string): HistoryEntryLike[] {
+  return [
+    { event: ev('turn/start', { turn }) },
+    { event: userEv(`u${turn}`, userText) },
+    {
+      event: ev('assistant/message', {
+        turn,
+        step: 1,
+        message: { id: `a${turn}`, content: [{ type: 'text', text: replyText }] },
+      }),
+    },
+    { event: ev('turn/end', { turn, reason: { kind: 'completed' } }) },
+  ]
+}
+
+test('prependHistory folds an older page in front of the current window', () => {
+  const f = new ConversationFolder()
+  f.applyHistory(turnEntries(2, '第二问', '第二答'))
+  f.prependHistory(turnEntries(1, '第一问', '第一答'))
+
+  const msgs = f.messages()
+  assert.deepEqual(
+    msgs.map((m) => (m.kind === 'user' ? m.text : m.kind === 'assistant' ? (m.blocks[0] as { text: string }).text : m.name)),
+    ['第一问', '第一答', '第二问', '第二答'],
+  )
+  assert.equal(f.hasOpenTurn(), false)
+  // 旧页是完整消息：拼进来的 assistant 消息都是 complete。
+  assert.equal((msgs[1] as ChatAssistantMessage).complete, true)
+})
+
+test('prependHistory does not disturb an open streaming turn', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 2 }))
+  f.applyEvent(chunkEv(2, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(2, 1, { type: 'text-delta', index: 0, text: '流式中' }))
+
+  f.prependHistory(turnEntries(1, '旧问', '旧答'))
+
+  // 旧消息在前，进行中的 turn 仍在尾部且保持未完成。
+  assert.equal(f.messages().length, 3)
+  const tail = lastAssistant(f)
+  assert.deepEqual(tail.blocks, [{ type: 'text', text: '流式中' }])
+  assert.equal(tail.complete, false)
+  assert.equal(f.hasOpenTurn(), true)
+  //  prepend 后仍能继续折叠进行中的流式增量。
+  f.applyEvent(chunkEv(2, 1, { type: 'text-delta', index: 0, text: '……继续' }))
+  assert.deepEqual(tail.blocks, [{ type: 'text', text: '流式中……继续' }])
+})
+
+test('prependHistory with an empty page is a no-op', () => {
+  const f = new ConversationFolder()
+  f.applyHistory(turnEntries(1, '问', '答'))
+  f.prependHistory([])
+  assert.equal(f.messages().length, 2)
 })

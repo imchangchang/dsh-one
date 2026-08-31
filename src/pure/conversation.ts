@@ -194,6 +194,19 @@ export class ConversationFolder {
     for (const entry of entries) this.applyEvent(entry.event, entry.view)
   }
 
+  /**
+   * Prepend an older history page (「加载更早」). The host aligns page
+   * boundaries to message boundaries, so the older page folds in a scratch
+   * folder and its (complete) messages go in front of the current ones;
+   * existing fold state (the open streaming turn, tool pairing) is untouched.
+   */
+  prependHistory(entries: readonly HistoryEntryLike[]): void {
+    if (entries.length === 0) return
+    const older = new ConversationFolder()
+    for (const entry of entries) older.applyEvent(entry.event, entry.view)
+    this.msgs = [...older.messages(), ...this.msgs]
+  }
+
   /** Fold one event; returns true when the rendered messages changed. */
   applyEvent(event: SessionEventLike, view?: ToolEventViewLike): boolean {
     const data = (event.data ?? {}) as Record<string, unknown>
