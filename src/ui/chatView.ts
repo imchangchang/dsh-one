@@ -196,6 +196,12 @@ const STYLE = `
   .messages {
     flex: 1; overflow-y: auto; padding: 8px 12px;
     display: flex; flex-direction: column; gap: 10px;
+    /* macOS 触控板滚到底后继续下滑时，禁止本容器自身的弹性回弹（rubber band），
+       贴底惯性直接 clamp 住，避免回弹动画被程序滚动反复打断（见
+       docs/backlog/doing/scroll-bottom-momentum-jitter.md）。本容器是页面唯一
+       滚动容器（html/body/#app 均 height:100% 且不设 overflow，不参与滚动链），
+       非 macOS 无行为差异。 */
+    overscroll-behavior-y: none;
   }
   .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
   /* 切换会话时历史基线加载中的占位：撑满聊天列垂直居中。 */
