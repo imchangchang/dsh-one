@@ -2652,32 +2652,12 @@ function renderWorkflowMember(m: WorkflowRunMemberView): HTMLElement {
   return row
 }
 
-/** 状态徽标点（官方 StateDot）：running 是 4×4 扫描动画矩阵，终态是发光圆点。 */
+/** 状态徽标点（官方 StateDot）：running 用转圈像素环（spinSvg，与会话「正在运行」一致），终态是发光圆点。 */
 function workflowStateDot(status: WorkflowRunStatus): Node {
-  if (workflowDotState(status) === 'ongoing') return workflowMatrixDot()
+  if (workflowDotState(status) === 'ongoing') return spinSvg()
   const dot = el('span', 'workflow-dot')
   dot.setAttribute('data-state', workflowDotState(status))
   return dot
-}
-
-function workflowMatrixDot(): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('viewBox', '0 0 10 10')
-  svg.classList.add('workflow-matrix')
-  let i = 0
-  for (let y = 0; y < 4; y++) {
-    for (let x = 0; x < 4; x++) {
-      const cell = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-      cell.setAttribute('x', String(x * 2.5))
-      cell.setAttribute('y', String(y * 2.5))
-      cell.setAttribute('width', '1.5')
-      cell.setAttribute('height', '1.5')
-      cell.style.animationDelay = `${(i * 62.5).toFixed(1)}ms`
-      i += 1
-      svg.appendChild(cell)
-    }
-  }
-  return svg
 }
 
 /** Turn failure row, mirroring the official web client's TurnErrorItem. */
