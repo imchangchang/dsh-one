@@ -572,8 +572,16 @@ function enhanceCodeBlocks(container: HTMLElement, prefix: string): void {
   container.querySelectorAll<HTMLPreElement>('pre > code').forEach((code, i) => {
     const pre = code.parentElement as HTMLPreElement
     const text = code.textContent ?? ''
-    const { head, tail, hidden } = codeBlockPreview(text)
     const key = `${prefix}:code:${i}`
+    // 代码块内容恰为整段 JSON → 渲染 JsonTree（复用工具输出的树容器：自带右上角
+    // 整树复制按钮、展开态持久化在 jsonTreeOpen）。此时不再套 md-code-bar / 「其余 N
+    // 行」折叠——树本身用节点展开/收起控制空间，避免同一段 JSON 两个复制按钮。
+    const treeValue = tryParseJsonTree(text)
+    if (treeValue) {
+      pre.replaceWith(renderJsonTree(treeValue, key))
+      return
+    }
+    const { head, tail, hidden } = codeBlockPreview(text)
     const open = detailsOpen.get(key) ?? false
     const lang = Array.from(code.classList)
       .find((c) => c.startsWith('language-'))
@@ -2799,6 +2807,12 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
 function renderBlock(block: ChatBlock, key: string): HTMLElement {
   switch (block.type) {
     case 'text': {
+      // 整段正文恰为 JSON 对象/数组字面量 → 直接渲染 JsonTree（不再走 markdown / code
+      // block 折叠）。混合正文仍走 markdown（其中 ```json 围栏块经 enhanceCodeBlocks
+      // 逐块接入树）。检测保守（tryParseJsonTree：只认整段合法对象/数组，裸标量/prose
+      // 不误判——消息正文语义与工具输出同源）。
+      const treeValue = tryParseJsonTree(block.text)
+      if (treeValue) return renderJsonTree(treeValue, key)
       const div = el('div', 'md')
       div.innerHTML = md(block.text)
       decorateSessionMentions(div)
@@ -2953,7 +2967,13 @@ function renderJsonOrText(text: string, key: string): HTMLElement {
  */
 function renderToolOutput(output: string, key: string): HTMLElement {
   const value = tryParseJsonTree(output)
-  if (value) return renderJsonTree(value, key)
+  if (value) {
+    // JSON → 树；套一层 tool-output 保持与非 JSON 输出一致的 20px 左缩进（树容器
+    // 自身无左缩进，缩进由上下文提供）。
+    const box = el('div', 'tool-output')
+    box.appendChild(renderJsonTree(value, key))
+    return box
+  }
   const box = el('div', 'tool-output')
   const { preview, totalLines, truncated } = truncateLines(output)
   const open = detailsOpen.get(key) ?? false

@@ -561,6 +561,43 @@
       expect: '点击 `checks` 容器的箭头后它展开：箭头从右指转向下指，`checks` 下缩进出现子 key `gateway` / `auth` / `billing`（每个再是折叠容器 `{…}`）；`checks` 行从 `checks: {…}` 变为 `checks: {` 并在其下出现闭合 `}` 行；其余原始值行（status/degraded/retries/debug）与根结构保持（各自缩进层级正确，vscode-dark 主题）。初始渲染时 `checks` 收起、`gateway` 等子 key 不与它并列——这在默认态截图核对。',
     },
 
+    // ---- 消息正文里的 JSON 也接入 JsonTree ----
+    // 助手正文恰为整段 JSON 对象字面量（无 ```json 围栏）：当前应渲染成树（而非走
+    // markdown 的 <p> 纯文本）。
+    'json-message-bare': {
+      state: base({
+        messages: [
+          u('把服务健康状况整理成 JSON 给我。'),
+          at(JSON.stringify({
+            status: 'ok',
+            checks: {
+              gateway: { healthy: true, latency_ms: 12 },
+              auth: { healthy: true, latency_ms: 31 },
+            },
+            degraded: false,
+            retries: 0,
+          }, null, 2)),
+        ],
+      }),
+      theme: 'dark',
+      title: '消息正文 JSON（裸对象字面量 → 树）',
+      expect: '助手消息直接把整段 JSON 渲染成 JsonTree（无 markdown 语法残留、无 `<p>` 纯文本、无 code block 折叠「其余 N 行」）：根 `{` 展开、`checks` 容器折叠 `{…}`、`status`/`degraded`/`retries` 原始值按类型着色（string 玫红/true·false 蓝 keyword/0 蓝 number）；树右上角整树「复制」按钮；每行行尾 hover 出现节点复制图标。',
+    },
+
+    // 助手正文里有一个 ```json 围栏代码块：该块应渲染成树，围栏外的普通文本保持
+    // markdown。
+    'json-message-fenced': {
+      state: base({
+        messages: [
+          u('给我一个健康检查结果。'),
+          at('检查结果如下：\n\n```json\n{\n  "status": "ok",\n  "checks": {\n    "gateway": { "healthy": true }\n  },\n  "retries": 0\n}\n```\n\n需要的话我可以再跑一次。'),
+        ],
+      }),
+      theme: 'dark',
+      title: '消息正文 JSON（```json 围栏块 → 树）',
+      expect: '助手消息里有围栏外的普通文本（「检查结果如下：」与「需要的话我可以再跑一次。」，走 markdown），中间插入的 ```json 代码块渲染成 JsonTree：根 `{` 展开、`checks` 折叠 `{…}`、`status`/`retries` 原始值着色；树右上角整树「复制」按钮；不再显示 code block 的「… 共 N 行，点击展开」折叠（树用节点展开/收起控制空间）。',
+    },
+
     // workflow-run-card-cannot-collapse 条目（click 触达 render()）。
     'workflow-running': {
       state: base({

@@ -534,8 +534,9 @@ const STYLE = `
     --jt-ellipsis: #5f6368; --jt-hover: rgb(60 64 67 / 4%);
   }
   /* JsonTree 复制按钮：对齐 md-code-copy 的克制样式——右上角小「复制」按钮，
-     复制整树 pretty JSON（copyPrettyJson），成功短暂变「已复制」。 */
-  .json-tree-shell { margin: 2px 0 0 20px; }
+     复制整树 pretty JSON（copyPrettyJson），成功短暂变「已复制」。左缩进由上下文
+     提供（消息正文=0 与 markdown code block 对齐；工具内=工具展开体的 20px）。 */
+  .json-tree-shell { margin: 2px 0; }
   .json-tree-bar {
     display: flex; align-items: center; justify-content: flex-end;
     gap: 8px; margin-bottom: 2px;
