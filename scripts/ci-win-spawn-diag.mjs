@@ -1,7 +1,9 @@
-// 临时诊断（spawn-dsh-windows-output-pipe 第二轮）：验证 detached 下
-// cmd 内部重定向能否落盘、detached 是否断一切 stdio 输出。
+// 临时诊断（spawn-dsh-windows-output-pipe 第三轮）：验证
+// - P3': cmd /c 内部重定向（无引号路径）在 detached 下能否落盘
+// - P3'': 带空格路径的内部引号能否被 cmd 正确解析
+// - P4: node 直跑 dsh.js（resolveDshJs 同款路径推断）+ detached + fd 直传
 // 数据拿到后本文件删除。
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -31,39 +33,58 @@ const run = (label, cmd, args, opts, timeoutMs = 8000) =>
     setTimeout(() => done('timeout'), timeoutMs)
   })
 
-const f = (n) => path.join(os.tmpdir(), n)
-const show = (n) => {
-  const p = f(n)
-  console.log(`  ${n}=${fs.existsSync(p) ? JSON.stringify(fs.readFileSync(p, 'utf8')) : '(missing)'}`)
-}
-
 const main = async () => {
-  // F1（核心）：detached + cmd 内部重定向——生产实现（spawnDsh.ts win32 分支）的同款路径
-  await run(
-    'F1_cmd_redir_detached',
-    'cmd.exe',
-    ['/d', '/s', '/c', `dsh --version > "${f('f1.log')}" 2>&1`],
-    { detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
-  )
-  show('f1.log')
-  // F2：detached + node 直跑 + pipe——detached 下 node 自己的输出能否读到
-  await run('F2_node_detached_pipe', process.execPath, ['-e', "console.log('NODE_DETACHED_OUT')"], {
+  const dir = os.tmpdir()
+  const f = (n) => path.join(dir, n)
+  const show = (p) => {
+    console.log(`  ${p}=${fs.existsSync(p) ? JSON.stringify(fs.readFileSync(p, 'utf8')) : '(missing)'}`)
+  }
+
+  // P3'：cmd /c 内部重定向，路径无空格（不引号包裹）+ detached
+  await run('P3_nospace_redir_detached', 'cmd.exe', ['/d', '/s', '/c', `dsh --version > ${f('p3.log')} 2>&1`], {
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
-  // F3：无 detached + cmd 内部重定向——对照
-  await run('F3_cmd_redir_nodetach', 'cmd.exe', ['/d', '/s', '/c', `dsh --version > "${f('f3.log')}" 2>&1`], {
+  show(f('p3.log'))
+
+  // P3''：带空格目录路径（内部引号）+ detached
+  const spacedDir = path.join(dir, 'has space')
+  fs.mkdirSync(spacedDir, { recursive: true })
+  const spacedLog = path.join(spacedDir, 'p3s.log')
+  await run('P3_spaced_redir_detached', 'cmd.exe', ['/d', '/s', '/c', `dsh --version > "${spacedLog}" 2>&1`], {
+    detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
-  show('f3.log')
-  // F4：detached + 进程自己写文件（不经 stdout）——确认 detached 进程本身可工作
-  await run(
-    'F4_node_self_write',
-    process.execPath,
-    ['-e', `require('node:fs').writeFileSync(${JSON.stringify(f('f4.txt'))}, 'SELF_WRITE_OK')`],
-    { detached: true, stdio: 'ignore' },
-  )
-  show('f4.txt')
+  show(spacedLog)
+
+  // P3' 无 detached 对照
+  await run('P3_nospace_redir_nodetach', 'cmd.exe', ['/d', '/s', '/c', `dsh --version > ${f('p3nd.log')} 2>&1`], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  show(f('p3nd.log'))
+
+  // P4：node 直跑 dsh.js + detached + fd 直传（与新版 spawnDsh.ts win32 主路径一致）
+  const where = spawnSync('cmd.exe', ['/d', '/s', '/c', 'where dsh.cmd'], { encoding: 'utf8' })
+  const shim = (where.stdout ?? '').trim().split(/\r?\n/)[0]
+  console.log(`  dsh.cmd=${shim || '(not found)'}`)
+  const dshJs = shim ? path.join(path.dirname(shim), 'node_modules', '@deepseek-ai', 'dsh', 'bin', 'dsh.js') : ''
+  console.log(`  dsh.js exists=${dshJs ? fs.existsSync(dshJs) : false} (${dshJs})`)
+  if (dshJs && fs.existsSync(dshJs)) {
+    const fd = fs.openSync(f('p4.log'), 'w')
+    const c = spawn('node', [dshJs, '--version'], {
+      detached: true,
+      windowsHide: true,
+      stdio: ['ignore', fd, fd],
+    })
+    c.unref()
+    await new Promise((resolve) => {
+      c.once('error', resolve)
+      c.once('exit', resolve)
+      setTimeout(resolve, 8000)
+    })
+    fs.closeSync(fd)
+    show(f('p4.log'))
+  }
   console.log('DIAG_DONE')
 }
 

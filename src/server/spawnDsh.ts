@@ -5,6 +5,7 @@
 // 成功时 stdout 打印一行 dsh pid。
 import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 const [dshCommand, logFile, ...args] = process.argv.slice(2)
 
@@ -14,6 +15,28 @@ const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 delete env.NODE_OPTIONS
 
+// 解析 npm 全局 shim（dsh.cmd）背后的 dsh.js：npm 的 cmd shim 模板固定为
+// `node <shim目录>\node_modules\@deepseek-ai\dsh\bin\dsh.js`。找不到返回 null
+//（自定义 dshPath 等场景走 cmd /c 回退路径）。
+function resolveDshJs(command: string): string | null {
+  let shimPath = command
+  if (!path.isAbsolute(shimPath)) {
+    let found: string | null = null
+    for (const dir of (process.env.PATH ?? '').split(';')) {
+      if (dir === '') continue
+      const candidate = path.join(dir, 'dsh.cmd')
+      if (fs.existsSync(candidate)) {
+        found = candidate
+        break
+      }
+    }
+    shimPath = found ?? ''
+  }
+  if (shimPath === '' || !shimPath.toLowerCase().endsWith('.cmd')) return null
+  const js = path.join(path.dirname(shimPath), 'node_modules', '@deepseek-ai', 'dsh', 'bin', 'dsh.js')
+  return fs.existsSync(js) ? js : null
+}
+
 // 确保 stdout 的 pid 真正 flush 后再退出：process.exit 不会等待异步 stdout 写，
 // 末尾空写一个空 chunk 当屏障，等它回调时前面的 pid 已落到管道。
 const flushExit = (code: number): void => {
@@ -21,30 +44,53 @@ const flushExit = (code: number): void => {
 }
 
 if (process.platform === 'win32') {
-  // Windows：dsh 是 .cmd shim，必须经 cmd.exe 执行。CI 实测（node 22，
-  // windows-latest）detached（DETACHED_PROCESS）下子进程 stdio 输出链断裂：
-  // pipe 收集、文件 fd 直传均 0 字节；与包装方式无关（Node shell:true 自动
-  // 包装 / 显式 cmd.exe /c / PowerShell 通道均无输出，去掉 detached 立即正常）。
-  // 因此日志输出不依赖 stdio 句柄传递：重定向（> log 2>&1）由 cmd 自己完成，
-  // 启动器在 spawn 事件后立即退出；dsh 常驻时由 cmd 持续写日志文件。
-  // 每次 spawn 用 > 截断日志（与 POSIX 的 openSync 'w' 一致）。
-  const quote = (s: string): string => (/\s/.test(s) ? `"${s}"` : s)
-  const cmdLine = [quote(dshCommand), ...args.map(quote), '>', quote(logFile), '2>&1'].join(' ')
-  const child = spawn('cmd.exe', ['/d', '/s', '/c', cmdLine], {
-    detached: true,
-    shell: false,
-    windowsHide: true,
-    stdio: 'ignore',
-    env,
-  })
-  child.unref()
-  child.once('spawn', () => {
-    process.stdout.write(`${child.pid}\n`, () => process.exit(0))
-  })
-  child.once('error', (err) => {
-    process.stderr.write(String(err))
-    process.exit(1)
-  })
+  // Windows：dsh 默认是 npm 全局装的 .cmd shim（dsh.cmd）。CI 实测（node 22，
+  // windows-latest）detached（DETACHED_PROCESS）下 cmd.exe / PowerShell 这类
+  // 控制台外壳的输出链断裂：pipe 收集、文件 fd 直传均 0 字节，且与包装方式
+  // 无关（Node shell:true 自动包装 / 显式 cmd.exe /c / PowerShell 通道均无输出，
+  // 去掉 detached 立即正常）；node 直跑则输出正常（实测）。因此绕开 cmd 层：
+  // 优先解析 npm shim 背后的 dsh.js，用 node 直跑（detached + stdio 进日志 fd，
+  // 与 POSIX 同款）；解析失败（自定义 dshPath 等）回退 cmd.exe /c 内部重定向
+  //（> log 2>&1 由 cmd 自己写文件，不依赖 stdio 句柄传递）。
+  const dshJs = resolveDshJs(dshCommand)
+  if (dshJs !== null) {
+    const logFd = fs.openSync(logFile, 'w')
+    const child = spawn('node', [dshJs, ...args], {
+      detached: true,
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', logFd, logFd],
+      env,
+    })
+    child.unref()
+    child.once('spawn', () => {
+      fs.closeSync(logFd)
+      process.stdout.write(`${child.pid}\n`, () => process.exit(0))
+    })
+    child.once('error', (err) => {
+      fs.closeSync(logFd)
+      process.stderr.write(String(err))
+      process.exit(1)
+    })
+  } else {
+    const quote = (s: string): string => (/\s/.test(s) ? `"${s}"` : s)
+    const cmdLine = [quote(dshCommand), ...args.map(quote), '>', quote(logFile), '2>&1'].join(' ')
+    const child = spawn('cmd.exe', ['/d', '/s', '/c', cmdLine], {
+      detached: true,
+      shell: false,
+      windowsHide: true,
+      stdio: 'ignore',
+      env,
+    })
+    child.unref()
+    child.once('spawn', () => {
+      process.stdout.write(`${child.pid}\n`, () => process.exit(0))
+    })
+    child.once('error', (err) => {
+      process.stderr.write(String(err))
+      process.exit(1)
+    })
+  }
 } else if (process.env.DSH_FORCE_PIPE === '1') {
   // 调试开关：任意平台强制走 pipe 收集路径（原生 shell 包装），
   // 用于本地/CI 实测 pipe 路径；真实 win32 分支无法在 mac 上现跑。
