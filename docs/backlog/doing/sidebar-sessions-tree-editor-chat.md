@@ -66,3 +66,4 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - 2026-09-01 开发完成（doing → done）：未分组虚拟组恒展开、不折叠、不写持久化，无会话时不显示。
 - 2026-09-01 验收打回（done → doing）：侧栏残留拆分前的窄屏布局，sessions 面板只占 40% 高度、下方留白（原 chat-col 位置）；需删除 chat-col 死 CSS 与窄屏 media query，让面板撑满侧栏。
 - 2026-09-01 开发完成（doing → done）：删除窄屏 media query 与 chat-col 死 CSS，sessions 面板撑满整个侧栏。
+- 2026-09-01 验收打回（done → doing）：① 未分组未参与统一折叠，「折叠全部」后图标不变 +；② 刷新按钮无视觉反馈；③ 图标按钮悬停无功能提示（原生 title 不显示）。需回退未分组强制展开特殊化，并补刷新反馈与自定义 tooltip。
