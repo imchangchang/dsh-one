@@ -96,6 +96,33 @@
       expect: '助手消息：`<h2>` 分级标题「各环节分工总览」；三列表格（环节/谁负责/能否自动化）带网格线 + 表头底色、列宽随内容收窄左对齐、不溢出；引用块左栏线；圆点列表；主题色链接；hr 分隔线；任务清单保留 checkbox 且去圆点。',
     },
 
+    'markdown-link-click': {
+      state: base({
+        messages: [
+          u('把接口文档里的链接给我。'),
+          at('参考 [示例站点](https://example.com)，反馈发 [邮箱](mailto:feedback@example.com)。'),
+        ],
+      }),
+      interact: `(() => {
+        const a = document.querySelector('.md a[href^="https://"]')
+        a?.click()
+      })()`,
+      title: 'chat 链接点击：外部链接不导航',
+      expect: '助手消息渲染出两个链接（https 示例站点 / mailto 邮箱，主题链接色）；点击 https 链接后页面**不导航**——截图仍是 chat 界面（该消息与 composer 原样保留），没有变成 example.com 的页面；webview 侧已拦下默认导航并 post openExternal（宿主用系统浏览器打开，走真实 dev-ui-test 验收）。',
+    },
+
+    'markdown-link-menu': {
+      state: base({
+        messages: [u('把接口文档里的链接给我。'), at('参考 [示例站点](https://example.com)。')],
+      }),
+      interact: `(() => {
+        const a = document.querySelector('.md a[href^="https://"]')
+        a?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 320, clientY: 220 }))
+      })()`,
+      title: 'chat 链接右键菜单：内置浏览器选项',
+      expect: '右键点击 https 链接后弹出自绘菜单（popover，定位于鼠标附近）：两项「在系统浏览器中打开」「在 VS Code 内置浏览器中打开」（均带浏览图标）；页面不导航，chat 界面（消息/composer）原样保留。',
+    },
+
     'session-mention': {
       // 用户气泡走纯文本渲染，mention 按 `@[label](dsh-session:...)` 切成 chip + 正文。
       state: base({

@@ -71,7 +71,9 @@ curl -s -m 15 -X POST "$DAEMON/command" -H 'Content-Type: application/json' \
 sleep 0.5
 
 for s in "${scenarios[@]}"; do
-  url="http://127.0.0.1:$PORT/test/ui/harness.html?scenario=$s"
+  # _=<ts> 属文档级防缓存：python http.server 无 Cache-Control，浏览器启发式
+  # 缓存会在 scenarios.js/dist 更新后仍把旧页面（含旧内联脚本）拿来用。
+  url="http://127.0.0.1:$PORT/test/ui/harness.html?scenario=$s&_=$(date +%s%N)"
   # 每场景开一个干净 tab（newTab:true），截图后关闭，避免 tab 累积让 daemon 卡住
   curl -s -m 20 -X POST "$DAEMON/command" -H 'Content-Type: application/json' \
     -d "{\"action\":\"navigate\",\"args\":{\"url\":\"$url\",\"newTab\":true,\"group_title\":\"DSH One UI 视觉验证\"},\"session\":\"$SESSION\"}" >/dev/null
