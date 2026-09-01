@@ -1319,6 +1319,13 @@ export class ChatViewProvider implements vscode.Disposable {
       void vscode.commands.executeCommand('dshOne.openInstallPage')
       return
     }
+    // 子代理下拉名称 / 会话 @ 引用 chip 点击：打开（或揭示）editor 面板并附着
+    // 该会话。拆分时此分支被丢（原合并 webview 里切换到会话），补回——不依赖
+    // 当前 controller，故放在 controller 判定之前。
+    if (m?.type === 'sessionOpen' && typeof m.sessionId === 'string') {
+      this.openSession(m.sessionId)
+      return
+    }
     // 拆分后会话列表为原生 tree，webview（editor 面板）不再发送 sessions 面板
     // 消息；其余全部落在 controller 上。
     const controller = this.controller
