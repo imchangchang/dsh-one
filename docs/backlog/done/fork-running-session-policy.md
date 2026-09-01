@@ -56,3 +56,13 @@ fork 一个会话时存在限制/不一致：
 2. **fork 快照副本里的 subagent 调用卡加标注**（提示该子代理已不在本会话，点击不会跳到仍在跑的子代理）——做。
 
 - 2026-09-01 认领（worktree: agent/fork-policy-ui）→ doing
+
+## 变更记录（开发完成，doing → done）
+
+- 2026-09-01 开发完成（worktree: agent/fork-policy-ui）。改动 1：列表「分叉会话」在
+  无完成轮次的会话上禁用 + 提示（数据源核定 = session.list 摘要行的
+  `sessionStats` 投影 `turns` 字段，经 `projections.values.sessionStats` 读出；
+  `blank` 区分不了「有无完成轮次」，see 正文「数据源核定」）。改动 2：fork 快照副本里的
+  subagent 调用卡在子代理不在本会话血缘树时加「快照副本：原子代理已不在本会话」标注。
+  自测 typecheck/test（214）/build 全绿 + ui-visual 场景验证（fork-disable /
+  subagent 快照与血缘内两态均截图 + DOM 断言）→ `docs/backlog/done/`。
