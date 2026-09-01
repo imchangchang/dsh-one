@@ -12,7 +12,7 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 - worktree 里高频小提交，commit message 写清每步做了什么——合并后靠分支历史还原开发过程。
 - 完成 = 自测通过 + 打 `done/<slug>` 标记；合入只能由主线做，且**串行合入**：一次只跑一个 dev-merge，等它完全结束（含末尾重建 dist）再合下一个任务。
 - **worktree 开发 session 不主动合入主线**：职责止于 dev-finish（自测通过 + done 标记），dev-merge 只由主线 agent 跑，开发 session 不得自行合入。
-- 不要并行起抢同一资源的东西（同端口 dev server、同一个应用实例）；worktree 只隔离代码。
+- 不要并行起抢同一资源的东西（同端口 dev server、同一个应用实例）；worktree 只隔离代码。例外：`dev-ui-test.sh` 起的隔离 VSCode 实例——user-data-dir 每个 worktree 一份，可并行。
 - 任务划分尽量不动同一批文件；做完尽快合，拖越久 rebase 冲突越多。
 
 ## 流程
@@ -22,14 +22,15 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 1. 认领 backlog 条目：`git mv docs/backlog/open/<条目>.md docs/backlog/doing/`，文件末尾追加变更记录（见 backlog-folder-index）。
 2. `scripts/dev-start.sh <任务名>`——任意位置跑：建 worktree + 分支 + 装依赖。
 3. `cd .worktrees/<slug>` 进去开发，高频小提交。
-4. `scripts/dev-finish.sh`——worktree 里跑：检查已提交 → 自测 → 打 `done/<slug>` 标记；随后 backlog 条目 `doing → done`（git mv + 追加变更记录）。
+4. UI 类改动：`scripts/dev-ui-test.sh`——构建 dist 后起该 worktree 专属的隔离 VSCode 实例（设置/扩展隔离在 `.dev-host/`，不碰日常 VSCode），人工验证渲染与交互没问题再继续；纯逻辑改动可跳过。视觉验证放在这一步，避免「合入主线才发现问题再打回」。
+5. `scripts/dev-finish.sh`——worktree 里跑：检查已提交 → 自测 → 打 `done/<slug>` 标记；随后 backlog 条目 `doing → done`（git mv + 追加变更记录）。
 
 **到此为止**：不跑 dev-merge、不合入主线，那是主线 agent 的活。
 
 **主线 agent**（main 上）：
 
 1. `scripts/dev-merge.sh <slug>`——校验 → rebase 到最新 main → 复测 → --no-ff 合入 → 清理。合入串行进行，一次一个任务。
-2. 合入测试通过 + 人工确认 → backlog 条目 `done → closed`；测试有问题 → `done → open`（对应 agent 重新认领再走一遍），代码层面怎么处理见下面「合入后测试发现问题」。
+2. 视觉验证已在 worktree 阶段做完，合入后只做回归：复测（typecheck/test/build）+ 已验功能抽查，通过 → backlog 条目 `done → closed`；测试有问题 → `done → open`（对应 agent 重新认领再走一遍），代码层面怎么处理见下面「合入后测试发现问题」。
 3. `scripts/dev-merge.sh` 不带参数：列出所有待合并任务（即 `docs/backlog/done/` 里的条目）。
 
 rebase 有冲突时：进 worktree 解决 → 重跑 `dev-finish.sh`（backlog 记录同步更新）→ 回主线重跑 `dev-merge.sh <slug>`。主线始终不被冲突污染。
@@ -44,7 +45,7 @@ rebase 有冲突时：进 worktree 解决 → 重跑 `dev-finish.sh`（backlog �
 
 ## 在新工程搭建
 
-1. 把 `references/scripts/` 下四个脚本复制到工程的 `scripts/` 目录，`chmod +x`。
+1. 把 `references/scripts/` 下五个脚本复制到工程的 `scripts/` 目录，`chmod +x`（`dev-ui-test.sh` 仅 VSCode 扩展类项目需要，其他项目跳过）。
 2. 按工程实际改脚本里的三处适配点：
    - `dev-start.sh`：依赖安装命令（现写的是 `npm ci`，按项目换成 `pnpm install` / `uv sync` / `make deps` 等；无依赖可删）
    - `dev-finish.sh` 和 `dev-merge.sh`：自测命令（现写的是 `npm run typecheck && npm test && npm run build`，换成项目的检查命令）
