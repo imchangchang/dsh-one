@@ -47,3 +47,5 @@
 - 2026-09-01 记录问题，核实根因 → open
 
 - 2026-09-01 认领（worktree: agent/fork-grouped-as-subagent）→ doing
+
+- 2026-09-01 开发完成：三处判定收紧为 origin === "subagent"，普通 fork 不再被视为子代理（自测通过）→ done
