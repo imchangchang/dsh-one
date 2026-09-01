@@ -247,6 +247,16 @@ function menuItem(
 const SORT_ICON = ['M4.5 3v10', 'M4.5 13l-2.2-2.6', 'M4.5 13l2.2-2.6', 'M11.5 13V3', 'M11.5 3L9.3 5.6', 'M11.5 3l2.2 2.6']
 const PIN_ICON = ['M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z', 'M8 9.5v4']
 const UNREAD_ICON = ['M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8z']
+/** 垃圾桶描边图标（「从列表移除」，VS Code codicon trash 的简化线条画法：
+ *  桶盖横线 + 提手 + 梯形桶身（上宽下窄）+ 三条竖线）。 */
+const TRASH_ICON = [
+  'M2.8 4.3h10.4',
+  'M6.2 4.3v-1h3.6v1',
+  'M4.1 4.3l.7 9.1h6.4l.7-9.1',
+  'M6.3 6.7v4.6',
+  'M8 6.7v4.6',
+  'M9.7 6.7v4.6',
+]
 
 function makePinIcon(): SVGSVGElement {
   const svg = strokeSvg(PIN_ICON)
@@ -503,7 +513,7 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
       )
     }
     headActions.appendChild(
-      rowAction(iconSvg(PANEL_ICONS.remove), '从列表移除', () =>
+      rowAction(strokeSvg(TRASH_ICON, 16), '从列表移除', () =>
         post({ type: 'workspaceRemove', workspaceId: w.workspaceId, label: w.label }),
       ),
     )
