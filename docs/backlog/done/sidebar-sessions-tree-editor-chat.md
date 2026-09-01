@@ -63,3 +63,4 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - 2026-09-01 验收打回继续开发（done → doing）：侧栏原生 tree 交互太弱（功能点击层级深、无内联搜索框、像素状态/加粗/active 高亮丢失），用户拍板恢复为 webview sessions 面板（交互全保留），chat 留在 editor WebviewPanel。
 - 2026-09-01 开发完成（doing → done）：按验收反馈改为「侧栏 webview sessions 面板 + chat 留 editor WebviewPanel」。
 - 2026-09-01 验收打回（done → doing）：未分组组折叠时显示标题 + 下方一片空白，用户要求去掉；未分组组改为恒展开、无会话时不显示。
+- 2026-09-01 开发完成（doing → done）：未分组虚拟组恒展开、不折叠、不写持久化，无会话时不显示。
