@@ -52,7 +52,7 @@ import {
 import { subagentInTree, subagentIdFromOutput } from '../../pure/subagentCard.ts'
 import { codeBlockPreview } from '../../pure/codeBlock.ts'
 import { alignDiffLines } from '../../pure/diffAlign.ts'
-import { producedBasename, producedFolderOf } from '../../pure/producedFiles.ts'
+import { producedBasename } from '../../pure/producedFiles.ts'
 import {
   formatJobDuration,
   isLiveJob,
@@ -2830,12 +2830,10 @@ const PRODUCED_SHOWN_LIMIT = 6
 
 /**
  * 产物行（对齐 dsh web ProducedFiles）：label + 最多 6 个文件 chip
- * （点击在 VSCode 编辑器打开该文件）+ 多余折叠成「+N 个文件」+
- * 「在 VSCode 中打开」按钮（打开产物所在文件夹：工作区已打开时切到
- * 资源管理器定位，未打开时切换工作区）。官方 web 的宽度自适应测量在
- * 这里简化为固定上限；按钮在 web 只在折叠出现时渲染，dsh-one 的
- * 「打开文件夹」语义对任意数量都有用，恒渲染（无父目录的裸文件名
- * 除外——没有文件夹可开）。
+ * （点击在 VSCode 编辑器打开该文件）+ 多余折叠成「+N 个文件」。
+ * 官方 web 的「在文件夹中显示」按钮在 VSCode 扩展里意义不大（工作区
+ * 打开时点开只是定位资源管理器），已按用户验收反馈去掉；宽度自适应
+ * 测量也简化为固定上限。
  */
 function renderProducedFiles(paths: string[]): HTMLElement {
   const row = el('div', 'produced-files')
@@ -2853,14 +2851,6 @@ function renderProducedFiles(paths: string[]): HTMLElement {
   const hidden = paths.length - shown.length
   if (hidden > 0) lane.appendChild(el('span', 'produced-more', `+ ${hidden} 个文件`))
   row.appendChild(lane)
-  const folder = producedFolderOf(paths)
-  if (folder !== undefined) {
-    const open = el('button', 'produced-open-folder') as HTMLButtonElement
-    open.type = 'button'
-    open.textContent = '在 VSCode 中打开'
-    open.addEventListener('click', () => post({ type: 'producedOpenFolder', path: folder }))
-    row.appendChild(open)
-  }
   return row
 }
 

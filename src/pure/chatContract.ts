@@ -518,8 +518,6 @@ export type FromWebviewMessage =
   | { type: 'fork'; atSeq: number }
   /** 产物 chip 点击：在 VSCode 编辑器打开该文件（绝对路径，任意位置）。 */
   | { type: 'producedOpenFile'; path: string }
-  /** 「在 VSCode 中打开」按钮：打开/定位产物所在文件夹（绝对目录路径）。 */
-  | { type: 'producedOpenFolder'; path: string }
   /** 加载更早的一页历史（窗口分页；ChatState.hasEarlierHistory 为 true 时才有意义）。 */
   | { type: 'loadEarlier' }
   /** Open the official dsh install page in the system browser. */
