@@ -52,3 +52,5 @@ cd /Users/cgeng/Workspaces/dsh-one/.worktrees/diff-split-view && bash /Users/cge
 2. 默认只显示前 8 行对，尾部有「… 展开其余 N 行差异」提示，点击展开全部、再次点击收起，状态在流式重建后保持；
 3. 两栏之间有竖分隔线，左右行水平对齐（滚动是整块随页面滚动）。
 也可用 ui-visual 场景快速看：`scripts/ui-visual.sh` 后读 `/tmp/dsh-ui-shots/diff-side-by-side*.png`（需 image-capable 模型）。
+
+- 2026-09-01 合入 main（merge 93dc8ea）,人工窗口验收通过 → closed
