@@ -598,6 +598,40 @@
       expect: '助手消息里有围栏外的普通文本（「检查结果如下：」与「需要的话我可以再跑一次。」，走 markdown），中间插入的 ```json 代码块渲染成 JsonTree：根 `{` 展开、`checks` 折叠 `{…}`、`status`/`retries` 原始值着色；树右上角整树「复制」按钮；不再显示 code block 的「… 共 N 行，点击展开」折叠（树用节点展开/收起控制空间）。',
     },
 
+    // ---- 超大 JSON：超过行数阈值（>300 行 pretty）回退 code block 折叠 ----
+    // 生成 rows: [{n,v}...]：M 个对象 → 4*M+5 行，M=75 → 305 行，超过阈值 → 应回退成
+    // code block（含头部条「json」语言标签 + 复制按钮 + 「… 其余 N 行」折叠）。
+    'json-message-over': {
+      state: base({
+        messages: [
+          u('给我一份大的健康检查数据。'),
+          at('批量结果：\n\n```json\n' + JSON.stringify({
+            total: 75,
+            rows: Array.from({ length: 75 }, (_, i) => ({ n: i, v: `row-${i}` })),
+          }, null, 2) + '\n```\n\n以上。'),
+        ],
+      }),
+      theme: 'dark',
+      title: '消息正文 JSON（超阈值 → code block 折叠）',
+      expect: '助手消息里的 ```json 代码块**不渲染成树**，而是回退到 code block：头部条有语言标签「json」+「复制」按钮（code block 复制），正文折叠成「头部行 + … 其余 N 行 + 尾部行」，点「展开其余 N 行」可展开全部（对齐 codeBlockPreview 的 16 行阈值）；树形态（右箭头缩进/节点展开/整树复制按钮）**不出现**。围栏外的普通文本（「批量结果：」「以上。」）走 markdown。',
+    },
+
+    // 略低于阈值：M=73 → 4*73+5=297 行，<=300 → 仍渲染成树。
+    'json-message-under': {
+      state: base({
+        messages: [
+          u('给我一份小的健康检查数据。'),
+          at('结果：\n\n```json\n' + JSON.stringify({
+            total: 73,
+            rows: Array.from({ length: 73 }, (_, i) => ({ n: i, v: `row-${i}` })),
+          }, null, 2) + '\n```'),
+        ],
+      }),
+      theme: 'dark',
+      title: '消息正文 JSON（低于阈值 → 仍树）',
+      expect: '助手消息里的 ```json 代码块（297 行 pretty，低于阈值）仍渲染成 JsonTree：根 `{` 展开、`rows` 折叠 `[…]`、`total` 原始值着色、树右上角整树「复制」按钮；不出现 code block 的「… 共 N 行」折叠。',
+    },
+
     // workflow-run-card-cannot-collapse 条目（click 触达 render()）。
     'workflow-running': {
       state: base({

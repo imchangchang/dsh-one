@@ -224,3 +224,15 @@ export function jsonValueAtPath(value: JsonValue, path: JsonPath): JsonValue | u
   }
   return current
 }
+
+/**
+ * JSON 树渲染的行数阈值：pretty JSON（2 空格序列化，口径与 copyPrettyJson 一致）
+ * 超过该行数时回退 code block 折叠渲染——避免超大 JSON 在展开的根层级渲染出大量
+ * DOM 行（性能兜底）。等于/低于阈值维持树形态。
+ */
+export const JSON_TREE_MAX_LINES = 300
+
+/** 阈值判定：`value` 的 2 空格序列化行数是否超过 {@link JSON_TREE_MAX_LINES}。 */
+export function jsonTreeThresholdExceeded(value: JsonValue): boolean {
+  return jsonTreeCopyText(value).split('\n').length > JSON_TREE_MAX_LINES
+}

@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  JSON_TREE_MAX_LINES,
   JSON_TREE_ROOT_KEY,
   defaultJsonTreeExpanded,
   flattenJsonTree,
@@ -8,9 +9,11 @@ import {
   isOpenFromSet,
   jsonPathKey,
   jsonTreeCopyText,
+  jsonTreeThresholdExceeded,
   jsonValueAtPath,
   tryParseJsonTree,
   type JsonTreeRow,
+  type JsonValue,
 } from '../src/pure/jsonTree.ts'
 
 /** `key` is absent on close rows; type-safe field read for assertions. */
@@ -230,4 +233,30 @@ test('flattened rows resolve to their sub-values via jsonValueAtPath', () => {
   assert.ok(checksRow && 'path' in checksRow && statusRow && 'path' in statusRow)
   assert.deepEqual(jsonValueAtPath(root, checksRow.path), { gateway: { healthy: true } })
   assert.equal(jsonValueAtPath(root, statusRow.path), 'ok')
+})
+
+/* ---------------- 行数阈值（超大 JSON 回退 code block 折叠） ---------------- */
+
+test('threshold uses the 2-space pretty-JSON line count (copyPrettyJson 口径)', () => {
+  assert.equal(JSON_TREE_MAX_LINES, 300)
+  // 一个 298 项的数组 → 2 空格序列化恰好 300 行（298 项 + [ 与 ]），等于阈值不超。
+  const at300 = Array.from({ length: 298 }, (_, i) => i)
+  assert.equal(jsonTreeCopyText(at300).split('\n').length, 300)
+  assert.equal(jsonTreeThresholdExceeded(at300), false)
+  // 299 项 → 301 行，超过阈值。
+  const over = Array.from({ length: 299 }, (_, i) => i)
+  assert.equal(jsonTreeCopyText(over).split('\n').length, 301)
+  assert.equal(jsonTreeThresholdExceeded(over), true)
+})
+
+test('small values stay under the threshold; big nested objects exceed', () => {
+  assert.equal(jsonTreeThresholdExceeded({ a: 1, b: [1, 2] }), false)
+  assert.equal(jsonTreeThresholdExceeded('scalar'), false)
+  const big: { rows: JsonValue[] } = { rows: [] }
+  for (let i = 0; i < 160; i++) {
+    // 每个对象 4 行（{ / "n" / "v" / }），160*4=640 行，远超阈值。
+    big.rows.push({ n: i, v: `row-${i}` })
+  }
+  assert.ok(jsonTreeCopyText(big).split('\n').length > JSON_TREE_MAX_LINES)
+  assert.equal(jsonTreeThresholdExceeded(big), true)
 })

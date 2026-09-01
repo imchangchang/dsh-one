@@ -38,6 +38,7 @@ import {
   flattenJsonTree,
   jsonPathKey,
   jsonTreeCopyText,
+  jsonTreeThresholdExceeded,
   jsonValueAtPath,
   tryParseJsonTree,
   type JsonContainer,
@@ -577,7 +578,9 @@ function enhanceCodeBlocks(container: HTMLElement, prefix: string): void {
     // 整树复制按钮、展开态持久化在 jsonTreeOpen）。此时不再套 md-code-bar / 「其余 N
     // 行」折叠——树本身用节点展开/收起控制空间，避免同一段 JSON 两个复制按钮。
     const treeValue = tryParseJsonTree(text)
-    if (treeValue) {
+    // JSON 块：不超过行数阈值渲染成树；超过阈值回退到原 code block（本函数下面的
+    // 折叠 + code block 复制按钮兜底，避免超大 JSON 树渲染巨量 DOM 行）。
+    if (treeValue && !jsonTreeThresholdExceeded(treeValue)) {
       pre.replaceWith(renderJsonTree(treeValue, key))
       return
     }
@@ -2808,11 +2811,14 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
   switch (block.type) {
     case 'text': {
       // 整段正文恰为 JSON 对象/数组字面量 → 直接渲染 JsonTree（不再走 markdown / code
-      // block 折叠）。混合正文仍走 markdown（其中 ```json 围栏块经 enhanceCodeBlocks
-      // 逐块接入树）。检测保守（tryParseJsonTree：只认整段合法对象/数组，裸标量/prose
-      // 不误判——消息正文语义与工具输出同源）。
+      // block 折叠）。超过行数阈值（jsonTreeThresholdExceeded，2 空格 pretty 行数）则回退
+      // code block 渲染（含「其余 N 行」折叠 + 复制按钮），避免超大 JSON 渲染大量 DOM 行。
+      // 混合正文仍走 markdown（其中 ```json 围栏块经 enhanceCodeBlocks 逐块接入树）。
+      // 检测保守（tryParseJsonTree：只认整段合法对象/数组，裸标量/prose 不误判）。
       const treeValue = tryParseJsonTree(block.text)
-      if (treeValue) return renderJsonTree(treeValue, key)
+      if (treeValue) {
+        return jsonTreeThresholdExceeded(treeValue) ? renderJsonCodeBlock(block.text, key) : renderJsonTree(treeValue, key)
+      }
       const div = el('div', 'md')
       div.innerHTML = md(block.text)
       decorateSessionMentions(div)
@@ -2949,14 +2955,32 @@ function toolInOut(label: string, text: string, key: string, asJson: boolean): H
 }
 
 /**
- * 一段工具文本的渲染入口：JSON 对象/数组字面量 → JsonTree；否则纯文本 <pre>。
- * 检测保守（见 jsonTree.ts）——只有整段文本恰为合法 JSON 字面量才建树，误判
+ * 一段工具文本的渲染入口：JSON 对象/数组字面量且不超过行数阈值 → JsonTree；否则纯文本
+ * <pre>。检测保守（见 jsonTree.ts）——只有整段文本恰为合法 JSON 字面量才建树，误判
  * 会破坏普通文本展示。
  */
 function renderJsonOrText(text: string, key: string): HTMLElement {
   const value = tryParseJsonTree(text)
-  if (value) return renderJsonTree(value, key)
+  if (value && !jsonTreeThresholdExceeded(value)) return renderJsonTree(value, key)
   return el('pre', '', text)
+}
+
+/**
+ * 整段正文恰为 JSON 但超过行数阈值时的兜底：把它包成一个 ```json 代码块（synthesize
+ * <pre><code class="language-json">）再走 enhanceCodeBlocks，得到与普通代码块一致的
+ * 头部条（语言标签 + code block 复制按钮）与「… 其余 N 行」折叠——超大 JSON 不再
+ * 渲染成树的巨量 DOM 行。
+ */
+function renderJsonCodeBlock(text: string, key: string): HTMLElement {
+  const holder = el('div', 'md')
+  const pre = el('pre')
+  const code = el('code')
+  code.classList.add('language-json')
+  code.textContent = text
+  pre.appendChild(code)
+  holder.appendChild(pre)
+  enhanceCodeBlocks(holder, key)
+  return holder.firstChild as HTMLElement
 }
 
 /**
@@ -2967,9 +2991,9 @@ function renderJsonOrText(text: string, key: string): HTMLElement {
  */
 function renderToolOutput(output: string, key: string): HTMLElement {
   const value = tryParseJsonTree(output)
-  if (value) {
+  if (value && !jsonTreeThresholdExceeded(value)) {
     // JSON → 树；套一层 tool-output 保持与非 JSON 输出一致的 20px 左缩进（树容器
-    // 自身无左缩进，缩进由上下文提供）。
+    // 自身无左缩进，缩进由上下文提供）。超阈值回退非 JSON 折叠路径（兜底）。
     const box = el('div', 'tool-output')
     box.appendChild(renderJsonTree(value, key))
     return box
