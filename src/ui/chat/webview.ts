@@ -46,13 +46,14 @@ import {
 } from '../../pure/activityTree.ts'
 import { attachmentDataUrl, isImageMediaType } from '../../pure/composerAttachment.ts'
 import {
+  SETTLE_IDLE_MS,
   USER_SCROLL_INTENT_MS,
   archiveScrollPosition,
   isAtBottom,
   isScrollKey,
   reconcileScrollPinning,
   restoreScrollTarget,
-  shouldPinNow,
+  shouldSettlePinNow,
   type ScrollArchive,
 } from '../../pure/scrollFollow.ts'
 import { formatDuration } from '../../pure/sessionStats.ts'
@@ -122,30 +123,63 @@ let scrollSession: string | null = null
  */
 let scrollIntentUntil = 0
 let scrollPointerDown = false
-/** settle 恢复 pin 的一次性定时器：意图窗口过期后重查一次贴底（见 noteUserScrollIntent）。 */
-let scrollSettleTimer: ReturnType<typeof setTimeout> | null = null
+/**
+ * 最近一次滚动活动（wheel/scroll/pointerdown/滚动手势）的时间戳。用于「滚动空闲判定」
+ * （迭代 3）：原生弹性回归动画期间 scroll 事件持续到达，只要距今 < SETTLE_IDLE_MS 就
+ * 认为是「滚动还在动」，禁止写 scrollTop——写会打断回归动画（terminate inertia →
+ * 回弹被重置 → 再弹 → 连续碰撞）。
+ */
+let lastScrollActivityAt = 0
+/** 滚动空闲 debounce 定时器：在每次滚动活动上重排，到期跑 maybeSettlePin。 */
+let scrollIdleTimer: ReturnType<typeof setTimeout> | null = null
 
 function noteUserScrollIntent(): void {
   scrollIntentUntil = Date.now() + USER_SCROLL_INTENT_MS
-  // 意图窗口过后（动量/手势 settle）重查一次贴底：流式输出刚好在动量末尾停止、
-  // 无后续 render / 无后续 scroll 事件补 pin 时，视口会悬在离底几~几十像素处。
-  // 定时器在意图过期后再跑（无用户意图），仅当「仍跟随 + 已脱底」才补一次回底，
-  // 不干扰惯性、不碰读历史的位置。
-  if (scrollSettleTimer !== null) clearTimeout(scrollSettleTimer)
-  scrollSettleTimer = setTimeout(() => {
-    scrollSettleTimer = null
-    const messages = document.getElementById('messages')
-    if (!messages) return
-    if (!shouldPinNow(stickToBottom, userScrollIntentActive(), isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight))) return
-    messages.scrollTop = messages.scrollHeight
-    pinnedScrollTop = messages.scrollTop
-    const jump = messages.querySelector<HTMLElement>('.jump-latest')
-    if (jump) jump.style.display = 'none'
-  }, USER_SCROLL_INTENT_MS + 30)
 }
 
 function userScrollIntentActive(): boolean {
   return scrollPointerDown || Date.now() < scrollIntentUntil
+}
+
+/** 滚动空闲评价：最近 SETTLE_IDLE_MS 内仍有滚动活动（含回归动画的 scroll 事件流）。 */
+function scrollActiveRecently(): boolean {
+  return Date.now() - lastScrollActivityAt < SETTLE_IDLE_MS
+}
+
+/** 排一次滚动空闲 debounce：滚动活动结束时跑 maybeSettlePin（会被后续活动反复推迟）。 */
+function deferSettlePin(): void {
+  if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer)
+  scrollIdleTimer = setTimeout(() => {
+    scrollIdleTimer = null
+    maybeSettlePin()
+  }, SETTLE_IDLE_MS)
+}
+
+/** 标记一次滚动活动并重排 idle debounce（回归动画期间 scroll 事件流会一直推迟它）。 */
+function noteScrollActivity(): void {
+  lastScrollActivityAt = Date.now()
+  deferSettlePin()
+}
+
+/** 用户滚动手势（wheel/touch/keyboard）：既标记意图窗口（200ms），也标记滚动活动。 */
+function onScrollGesture(): void {
+  noteUserScrollIntent()
+  noteScrollActivity()
+}
+
+/**
+ * 滚动真正停后（debounce 到期、无滚动活动）才允许补一次回底。回归动画期间 scroll
+ * 事件持续到来 → debounce 被反复推迟 → 动画真结束时才可能写。滚动停后视口通常已贴底
+ * （atBottom，shouldSettlePinNow 为假，零打扰）；脱底漂移（内容增长）写一次吸回。
+ */
+function maybeSettlePin(): void {
+  const messages = document.getElementById('messages')
+  if (!messages) return
+  if (!shouldSettlePinNow(stickToBottom, userScrollIntentActive(), isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight), scrollActiveRecently())) return
+  messages.scrollTop = messages.scrollHeight
+  pinnedScrollTop = messages.scrollTop
+  const jump = messages.querySelector<HTMLElement>('.jump-latest')
+  if (jump) jump.style.display = 'none'
 }
 
 /**
@@ -1788,6 +1822,9 @@ function render(): void {
     // follow state was still false — correct that one direction (fixes a
     // stale "回到最新" floater), but never set false on a programmatic scroll.
     messages.addEventListener('scroll', () => {
+      // 任何 scroll（含回归动画的 scroll 事件流）都算滚动活动：更新 idle 时间戳并
+      // 重排 debounce——动画期间 debounce 被反复推迟，真正停滚动才可能 settle 补 pin。
+      noteScrollActivity()
       stickToBottom = reconcileScrollPinning(
         stickToBottom,
         userScrollIntentActive(),
@@ -1795,38 +1832,27 @@ function render(): void {
       )
       const jump = messages.querySelector<HTMLElement>('.jump-latest')
       if (jump) jump.style.display = stickToBottom ? 'none' : ''
-      // settle 恢复 pin：意图不活跃且仍跟随且已脱底时，直接回底补一次 pin（写后更新
-      // 程序滚动锁，防下一帧把自己误判为用户滚离）。兜「动量末尾内容增长把视口拖离
-      // 尾部、流式又刚好在此结束、无后续 render 补 pin」的恢复空洞。条件安全：意图
-      // 活跃不干扰惯性；非跟随态（读历史）不碰历史位置。
-      if (shouldPinNow(stickToBottom, userScrollIntentActive(), isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight))) {
-        messages.scrollTop = messages.scrollHeight
-        pinnedScrollTop = messages.scrollTop
-        if (jump) jump.style.display = 'none'
-      }
       // 上翻到顶部附近时按需加载更早一页（按钮之外的第二触发路径）。
       if (messages.scrollTop < 80) maybeLoadEarlier()
     })
-    messages.addEventListener('wheel', noteUserScrollIntent, { passive: true })
-    messages.addEventListener('touchmove', noteUserScrollIntent, { passive: true })
+    messages.addEventListener('wheel', onScrollGesture, { passive: true })
+    messages.addEventListener('touchmove', onScrollGesture, { passive: true })
     messages.addEventListener('keydown', (e) => {
-      if (isScrollKey(e.key)) noteUserScrollIntent()
+      if (isScrollKey(e.key)) onScrollGesture()
     })
     messages.addEventListener('pointerdown', () => {
       scrollPointerDown = true
+      noteScrollActivity()
     })
     // Async height growth (markdown/attachment images finishing loading,
     // <details> toggling) changes scrollHeight without a scroll event, so the
     // view would silently drift off the tail. Neither event bubbles — listen
     // in the capture phase and re-pin while following.
     const repinIfFollowing = (): void => {
-      if (!stickToBottom) return
-      // 用户手势/动量未结束（wheel/touch 事件仍在持续到达 = 意图仍在）时
-      // 不写 scrollTop，避免打断浏览器原生惯性动画（WebKit bug 255193 承认
-      // 设 scrollTop 会终止惯性）。等意图过期后由下一帧渲染回底。
-      if (userScrollIntentActive()) return
-      messages.scrollTop = messages.scrollHeight
-      pinnedScrollTop = messages.scrollTop
+      // 图片 load / details toggle 引发的异步高度增长：走「滚动空闲」判定。回归动画期间
+      // 不得直接写（加载事件本身不代表滚动已停），交给 maybeSettlePin——仅在滚动真正
+      // 停、无意图、仍跟随、已脱底时才补 pin（幂等：已贴底/非跟随/意图内都不写）。
+      maybeSettlePin()
     }
     messages.addEventListener(
       'load',
@@ -1969,13 +1995,15 @@ function render(): void {
   // 到的 scrollHeight 是瞬态值（布局批量，尚未 settle 到真实高度），按它写会
   // clamp 到瞬态 max，下一帧 settle 后视口悬空（单帧抖动，与 hermes-webui
   // PR #5685 同构）。改 microtask 在同步栈 unwind、paint 前读 settle 后的
-  // 真实高度再写；且只在无用户滚动意图时写（贴底惯性动量期间不打断原生滚动
-  // 动画，见 backlog 行为层修复）。意图活跃/内容不长时幂等跳过。
+  // 真实高度再写；写时机用「滚动空闲」判定（shouldSettlePinNow）：无滚动活动时
+  // 保留 pre-paint 立即写（普通流式无交互，不能丢 pre-paint 语义）；最近
+  // SETTLE_IDLE_MS 内有滚动/回归动画则跳过——动画期间写会打断回归（不抢惯性），
+  // 交给滚动活动自己排的 idle debounce 在动画真正结束后补 pin。
   if (stickToBottom) {
     queueMicrotask(() => {
       const m = document.getElementById('messages')
       if (!m) return
-      if (!shouldPinNow(stickToBottom, userScrollIntentActive(), isAtBottom(m.scrollHeight, m.scrollTop, m.clientHeight))) return
+      if (!shouldSettlePinNow(stickToBottom, userScrollIntentActive(), isAtBottom(m.scrollHeight, m.scrollTop, m.clientHeight), scrollActiveRecently())) return
       m.scrollTop = m.scrollHeight
       // 写回程序滚动锁：下一帧 render 头部拿它跟实时位置对比以区分用户滚动，
       // pin 得靠它避免自己被误判为用户滚离。

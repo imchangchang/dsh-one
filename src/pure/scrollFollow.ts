@@ -16,6 +16,15 @@ export const AT_BOTTOM_PX = 2
 /** wheel/touch/键盘手势后，scroll 事件在该窗口内仍算作用户滚动。 */
 export const USER_SCROLL_INTENT_MS = 200
 
+/**
+ * 滚动空闲 debounce 窗口：最后一次滚动活动（wheel/scroll/pointer 等）距今 ≤ 该值
+ * 就认为滚动还在动（含原生弹性回归动画——回归期间 scroll 事件持续到达），此时不写
+ * scrollTop；超过该值才认为滚动真正停，允许 settle 补 pin。回归动画通常发生在最后一个
+ * wheel 事件 200ms 之后（意图窗口已过期），以「滚动空闲」而非「意图过期」作为写时机，
+ * 避免在回归动画中途写 scrollTop 打断动画（迭代 2 的碰撞主犯）。
+ */
+export const SETTLE_IDLE_MS = 120
+
 /** 距底距离；内容不足一屏（scrollHeight <= clientHeight）时为 0。 */
 export function distanceFromBottom(scrollHeight: number, scrollTop: number, clientHeight: number): number {
   return Math.max(0, scrollHeight - scrollTop - clientHeight)
@@ -38,6 +47,23 @@ export function isAtBottom(scrollHeight: number, scrollTop: number, clientHeight
  */
 export function shouldPinNow(stickToBottom: boolean, intentActive: boolean, atBottom: boolean): boolean {
   return stickToBottom && !intentActive && !atBottom
+}
+
+/**
+ * settle（滚动空闲后）补 pin 的决策：在 shouldPinNow 基础上叠加「滚动必须有真正停」。
+ * - scrollActive：最近 SETTLE_IDLE_MS 内还有滚动活动（含弹性回归动画的 scroll 事件流）。
+ *   此时写 scrollTop 会打断回归动画（Set scrollTop 终止惯性 → 回弹被重置 → 再弹 → 连续
+ *   碰撞），禁止写；等滚动真正停（debounce 到期、scrollActive 为假）才允许。
+ * 滚动停后如果视口已贴底（atBottom）则 shouldPinNow 为假、不写（零打扰）；脱底漂移
+ * （内容增长）的情况写一次吸回。
+ */
+export function shouldSettlePinNow(
+  stickToBottom: boolean,
+  intentActive: boolean,
+  atBottom: boolean,
+  scrollActive: boolean,
+): boolean {
+  return shouldPinNow(stickToBottom, intentActive, atBottom) && !scrollActive
 }
 
 /**

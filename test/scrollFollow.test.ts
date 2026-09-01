@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   AT_BOTTOM_PX,
+  SETTLE_IDLE_MS,
   archiveScrollPosition,
   distanceFromBottom,
   isAtBottom,
@@ -9,6 +10,7 @@ import {
   reconcileScrollPinning,
   restoreScrollTarget,
   shouldPinNow,
+  shouldSettlePinNow,
 } from '../src/pure/scrollFollow.ts'
 
 test('distanceFromBottom 基本计算', () => {
@@ -106,4 +108,27 @@ test('shouldPinNow 已贴底幂等跳过', () => {
 test('shouldPinNow 非跟随态（用户已滚离读历史）决不写', () => {
   assert.equal(shouldPinNow(false, false, false), false)
   assert.equal(shouldPinNow(false, true, true), false)
+})
+
+test('SETTLE_IDLE_MS 是滚动空闲判定窗口（约 120ms）', () => {
+  assert.equal(SETTLE_IDLE_MS, 120)
+})
+
+test('shouldSettlePinNow 滚动空闲且满足 shouldPinNow 才写（迭代 3）', () => {
+  // 滚动真正停（scrollActive=false）+ 跟随 + 无意图 + 未贴底 → 写
+  assert.equal(shouldSettlePinNow(true, false, false, false), true)
+})
+
+test('shouldSettlePinNow 滚动活动（回归动画）期间决不写', () => {
+  // 回归动画期间 scroll 事件持续到达 → scrollActive=true，即使其它条件满足也禁止写
+  assert.equal(shouldSettlePinNow(true, false, false, true), false)
+})
+
+test('shouldSettlePinNow 滚动活动优先于其它条件（无论意图/贴底）', () => {
+  assert.equal(shouldSettlePinNow(true, true, false, true), false)
+  assert.equal(shouldSettlePinNow(true, false, true, true), false)
+})
+
+test('shouldSettlePinNow 非跟随态（读历史）即使滚动停也不写', () => {
+  assert.equal(shouldSettlePinNow(false, false, false, false), false)
 })
