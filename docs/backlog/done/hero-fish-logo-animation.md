@@ -20,3 +20,4 @@
 - 图标来源：`dsh-client-ui-primitives`（打进 `@deepseek-ai/dsh-web-frontend` dist bundle）
 
 - 2026-09-05 认领（worktree: agent/hero-fish-logo-animation）→ doing
+- 2026-09-05 开发完成（fish logo SVG 已从官方 dist bundle 反查镜像，自测通过）→ done
