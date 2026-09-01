@@ -39,3 +39,4 @@
 
 - 2026-09-01 认领（worktree: agent/chat-scroll-pinning-drift）→ doing
 - 2026-09-01 开发完成，自测通过（typecheck + 205 tests + build），DOM mock 验证三个症状（流式抖动/回到最新误显/切回位置错）均已修复 → done
+- 2026-09-01 主线合入测试通过（merge b8a44c9），人工验收通过 → closed
