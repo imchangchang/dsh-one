@@ -61,8 +61,8 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<SessionTree
     private readonly getActiveSessionId: () => string | null,
     activeChanged: vscode.Event<string | null>,
   ) {
-    this.storeSub = store.onDidChange(() => this.emitChange())
-    this.activeSub = activeChanged(() => this.emitChange())
+    this.storeSub = store.onDidChange(() => this.refresh())
+    this.activeSub = activeChanged(() => this.refresh())
   }
 
   getTreeItem(node: SessionTreeNode): vscode.TreeItem {
@@ -82,13 +82,13 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<SessionTree
   /** 一键折叠列表里的所有 workspace 组。 */
   collapseAll(): void {
     this.forceCollapsible = vscode.TreeItemCollapsibleState.Collapsed
-    this.emitChange()
+    this._onDidChangeTreeData.fire(undefined)
   }
 
   /** 一键展开列表里的所有 workspace 组。 */
   expandAll(): void {
     this.forceCollapsible = vscode.TreeItemCollapsibleState.Expanded
-    this.emitChange()
+    this._onDidChangeTreeData.fire(undefined)
   }
 
   private workspaceNode(w: WorkspaceNodeModel): SessionTreeNode {
@@ -172,7 +172,9 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<SessionTree
     return new vscode.ThemeIcon('circle-outline')
   }
 
-  private emitChange(): void {
+  /** 常规刷新（store/高亮变化）：重置一击态，交回 VS Code 原生展开持久。 */
+  private refresh(): void {
+    this.forceCollapsible = null
     this._onDidChangeTreeData.fire(undefined)
   }
 

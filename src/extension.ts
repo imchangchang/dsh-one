@@ -98,8 +98,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   })
 
-  // 树空态（服务未运行/未安装）：原生 tree 用 message 承载引导文案，交互
-  // 引导按钮（启动/安装）走 editor 面板空态与 view/title 命令。
+  // 树空态（服务未运行/未安装/无工作区/搜索无结果）：原生 tree 用 message
+  // 承载引导文案，交互按钮（启动/安装）走 editor 面板空态与 view/title 命令。
   const treeMessageSub = sessions.onDidChange(() => {
     const status = manager.getStatus()
     if (status.state === 'error' && status.reason === 'dshNotFound') {
@@ -107,7 +107,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } else if (status.state !== 'running') {
       treeView.message = 'dsh 服务未运行，暂无会话。可点击「打开面板」启动。'
     } else {
-      treeView.message = undefined
+      const snap = sessions.snapshot()
+      if (snap.query) {
+        treeView.message =
+          snap.workspaces.length === 0 ? `没有匹配「${snap.query}」的会话。` : undefined
+      } else {
+        treeView.message =
+          snap.workspaces.length === 0
+            ? '暂无工作区。点击上方 + 添加已有文件夹或创建工作区。'
+            : undefined
+      }
     }
   })
 
