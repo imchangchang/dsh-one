@@ -49,3 +49,4 @@ dsh-one 的会话创建以 workspace 为起点：先选工作区，再在某个�
 - 2026-09-01 认领 → doing（并行开发 session）
 - 2026-09-01 开发完成，自测通过（typecheck + 253 tests + build）→ done
   - 人工验收方法：`cd dsh-one/.worktrees/start-ungrouped-conversation && bash dsh-one/scripts/dev-ui-test.sh`，弹出隔离 VSCode 后：① 侧栏 DSH One 面板出现「未分组」组行（即使没有任何未分组会话）；② hover 未分组组行出现「+」，点击后聊天面板打开一个空会话 hero（hero 显示「未分组」chip）；③ 侧栏未分组组此时仍为空（blank 会话隐藏，发送第一条消息后出现在未分组组下）；④ 发送一条消息，会话出现在未分组组内；⑤ 终端 `ls $TMPDIR/dsh-ungrouped-*` 能看到以日期+会话id 命名的临时目录。
+- 2026-09-01 主线合入（dev-merge 复测通过），人工 dev-ui-test 验收通过 → closed
