@@ -225,7 +225,7 @@
         s.pinned = ['sess-3']
         return s
       })(),
-      interact: `document.querySelector('.session-row[data-session-id="sess-3"] .row-action')?.click()`,
+      interact: `(() => { const row = document.querySelector('.session-row[data-session-id="sess-3"]'); row?.classList.add('menu-open'); row?.querySelector('.row-action')?.click() })()`,
       title: '侧栏面板（会话 ⋯ 菜单）',
       expect: '点击会话行尾 ⋯ 后弹出菜单，自上而下：重命名 / 置顶（带 ✓ 选中态）/ 标为未读 / 分叉会话 / 复制引用 / 归档会话；「复制会话 ID」不在菜单里；置顶会话的菜单项「置顶」带 checked；全部项可用（无 disabled 灰置）。',
     },
@@ -238,7 +238,9 @@
         return s
       })(),
       interact: `(() => {
-        const btn = document.querySelector('.session-row[data-session-id="sess-1"] .row-action')
+        const row = document.querySelector('.session-row[data-session-id="sess-1"]')
+        row?.classList.add('menu-open')
+        const btn = row?.querySelector('.row-action')
         btn?.click()
         setTimeout(() => {
           const items = document.querySelectorAll('.menu-item.disabled')
@@ -258,7 +260,7 @@
         s.unread = ['sess-2']
         return s
       })(),
-      interact: `document.querySelector('.session-row[data-session-id="sess-2"] .row-action')?.click()`,
+      interact: `(() => { const row = document.querySelector('.session-row[data-session-id="sess-2"]'); row?.classList.add('menu-open'); row?.querySelector('.row-action')?.click() })()`,
       title: '侧栏面板（未读会话菜单：归档禁用）',
       expect: '未读（非运行）会话的 ⋯ 菜单：「标为已读」可用（选中态 ✓）；「归档会话」灰置，悬停提示「未读的会话不能归档」（截图核对项本体与灰置样式）；其余项正常；无「复制会话 ID」。',
     },
