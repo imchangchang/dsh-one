@@ -37,3 +37,7 @@ dsh-one 的平台差异是真实存在的，但集中在 `src/server/` 的进程
 
 - 2026-09-01 认领（worktree: agent/ci-windows-spawn-smoke）→ doing
 - 2026-09-01 开发完成：ci.yml 冒烟改「轮询等待（~20s）+ 失败诊断（which dsh / npm prefix -g / node -v / PATH / log 大小 / 对照 dsh --version）」，mac 本地演练通过（typecheck/test 208/build 全绿），ci 修复 commit 3cefcd9；done 标记见 dev-finish → done
+- 2026-09-01 第二轮：轮询+诊断后仍失败且根因已定位——**spawnDsh.js 的 Windows 输出路径 bug**：诊断显示 dsh 在 PATH（/c/npm/prefix/dsh）、对照 `dsh --version` 0.3s 输出 0.1.1-rc.2、spawn 出 pid、**日志 0 字节**。即 Windows 上 `spawn(detached+shell+stdio 传文件 fd)` 输出不落盘。方案：spawnDsh.ts Windows 分支改 pipe 收集 + 驻留最多 2s 写盘，POSIX 不动。→ 继续 fix-forward（重新 open）
+
+- 2026-09-01 认领（worktree: agent/spawn-dsh-windows-fd）→ doing
+- 2026-09-01 开发完成：`spawnDsh.ts` Windows 分支改用 `stdio:['ignore','pipe','pipe']` 收集 stdout+stderr，子进程退出或兜底 2s 后写盘退；POSIX 分支保持不变；加 `DSH_FORCE_PIPE=1` 注入开关便于任一平台实测 pipe 分支。本地 mac 实测 POSIX 路径（pid + 日志版本）、pipe 路径（pid + 日志版本 + 提前退 <2s）、常驻场景（sleep 10 → 2s 兜底、日志空、退出码 0、detached 子进程存活）。typecheck/test(208)/build 全绿，commit 5a48654；done 标记见 dev-finish → done
