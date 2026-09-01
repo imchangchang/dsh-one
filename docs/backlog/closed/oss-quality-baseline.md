@@ -23,3 +23,5 @@
 - 2026-09-01 评审确认：做（用户标注）
 
 - 2026-09-01 认领（→ doing）：先做 README 顶部加图标（README.md + assets/icon.png），topic/元数据后续再议。
+
+- 2026-09-01 合入确认（done → closed）：README 顶部图标已合入 main 并重建 dist（223 测试全绿）。
