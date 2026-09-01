@@ -36,6 +36,13 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 
 `src/pure/` 下的模块（envelope / readyLine / semver / workspace）用 `node --test` 直接跑单测，而 `node --test` 环境里没有 `vscode` 模块——一旦 import 就整个跑不了。所以约定：**pure 里只能出现 Node 内置模块和纯类型**。反过来，凡是"不碰 vscode API 的判断逻辑"（协议校验、正则解析、列表 diff）都应下沉到 pure，换取可测性。现有的文件头部注释都写明了这条约定，新增 pure 模块照做。
 
+## 逻辑 bug：先写失败单测再修
+
+`src/pure/` 里的 bug 修法：先在 `test/` 用 `node --test` 复现成一条**失败**测试，修码期间**不许碰测试文件**，修完让测试转绿。这样 bug 固化进回归，治标也治本。
+
+- 这条**只对 `src/pure/`（可被 `node --test` 覆盖的那层）成立**。
+- **UI bug 不适用**：渲染/布局/交互单测测不到，走 `ai-visual-validation`（浏览器渲染 + 截图对照期望）+ 人工 `dev-ui-test` 窗口，见 `worktree-dev-flow` skill 的人工门禁环节。
+
 ## 手动模拟异常场景
 
 - **未安装 dsh**：临时把 PATH 里的 dsh 摘掉（或把 `dshOne.dshPath` 指到不存在的路径），打开面板应报"未找到 dsh"并引导安装。
