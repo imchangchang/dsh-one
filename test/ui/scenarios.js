@@ -1,7 +1,10 @@
-// Chat webview 场景目录。每个场景定义一个 UI 渲染输入（state / sessions / modelCatalog），
-// harness.html 按 ?scenario=<name> 选取并推给 webview，得到对应的界面状态。
+// Webview 场景目录（chat webview + 侧栏 sessions 面板）。每个场景定义一个 UI
+// 渲染输入（state / sessions / modelCatalog），harness.html 按 ?scenario=<name>
+// 选取并推给 webview，得到对应的界面状态。
 // 用途：视觉回归 / UI 改动验证 —— 各种状态（含边角、错误态）都能确定性渲染、截图。
 // 只增不改字段名；新增场景往 window.SCENARIOS 里加一个条目即可。
+// 侧栏面板场景（view: 'sessions'）只投喂 sessions 快照；interact 字段是一段 JS
+// 字符串，快照投喂后延迟执行，用于打开菜单/进入行内重命名等交互态再截图。
 (function () {
   const UNGROUPED = '__ungrouped__'
   const rid = (p) => p + Math.random().toString(36).slice(2, 7)
@@ -11,7 +14,10 @@
   const at = (text, extra) => ({ kind: 'assistant', id: rid('a'), complete: true, turnEnd: true, blocks: [{ type: 'text', text }, ...(extra || [])] })
   const toolBlock = (over) => ({ type: 'tool', callId: rid('t'), name: 'bash', status: 'done', title: 'bash', detail: 'npm test', output: '7 passed, 0 failed', ...over })
 
-  // ---- 默认会话树（侧边栏）快照 ----
+  // ---- 侧栏会话树快照构造器 ----
+  const sess = (sessionId, label, description, over) => ({
+    sessionId, label, description, running: false, pinned: false, unread: false, descendantRunning: false, ...over,
+  })
   window.sessionsTree = function (activeId) {
     return {
       query: null,
@@ -21,18 +27,22 @@
       pinned: [],
       collapsed: [],
       unread: ['sess-2'],
+      activeSessionId: activeId ?? null,
+      attachedSessionId: null,
+      contentSearchHasMore: false,
+      contentSearchError: false,
       workspaces: [
         {
           workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true,
           sessions: [
-            { sessionId: 'sess-1', label: 'DSH One 示例会话', description: '3 小时前', running: false, pinned: false, unread: false, descendantRunning: false },
-            { sessionId: 'sess-2', label: '重构 sessionStore', description: '5 小时前', running: false, pinned: false, unread: true, descendantRunning: false },
+            sess('sess-1', 'DSH One 示例会话', '3 小时前'),
+            sess('sess-2', '重构 sessionStore', '5 小时前', { unread: true }),
           ],
         },
         {
           workspaceId: 'ws-research', path: '/Users/cgeng/Workspaces/dsh-web', label: 'dsh-web research', isCurrent: false,
           sessions: [
-            { sessionId: 'sess-3', label: 'dsh web 可展开 UI 调研', description: '昨天', running: false, pinned: false, unread: false, descendantRunning: false },
+            sess('sess-3', 'dsh web 可展开 UI 调研', '昨天'),
           ],
         },
         { workspaceId: UNGROUPED, path: '', label: '未分组', isCurrent: false, sessions: [] },
@@ -57,10 +67,12 @@
     ...over,
   })
 
-  // 每个场景 = { state, title, expect }：
-  //   state  — ChatState/SessionsSnapshot（渲染输入，见 harness.html）
-  //   title  — 显示名（给 agent / 人看）
-  //   expect — 该状态应该呈现的逻辑与排版（agent 读截图后逐条对照核对，非像素 diff）
+  // 每个场景 = { state, title, expect }（+ 可选 view/interact）：
+  //   view    — 'sessions' 时加载侧栏面板 bundle（只投喂 sessions）
+  //   state   — ChatState / SessionsSnapshot 渲染输入（见 harness.html）
+  //   interact — 投喂后执行的交互 JS（如模拟点击打开菜单）
+  //   title   — 显示名（给 agent / 人看）
+  //   expect  — 该状态应该呈现的逻辑与排版（agent 读截图后逐条对照核对，非像素 diff）
   const catalog = {
     conversation: {
       state: base({
@@ -140,13 +152,147 @@
       expect: 'footer 模型 pill 可点开下拉：DeepSeek 组 → DeepSeek-V4-Flash → High/Low 档位，当前为 high。',
     },
 
+    // ================= 侧栏 sessions 面板（拆分后独立 webview） =================
+
     sessions: {
-      // 附着 sess-2（state.sessionId 决定高亮/文件夹染蓝）+ sess-1 未读（SessionNodeModel.unread）。
-      // 注：搜索过滤是宿主端 buildSessionTree 预过滤后才喂给 webview 的，静态 snapshot 需自己预过滤才可见；此处聚焦可观测的附着+未读。
-      state: base({ sessionId: 'sess-2', sessionTitle: '重构 sessionStore', presetLabel: '深度思考', messages: [u('把 store 改成 immutable 吧。'), at('可以。把派生状态集中到 reducer，避免多处直接改 store。', [toolBlock({ detail: 'src/pure/sessionTree.ts' })])] }),
-      sessions: (() => { const s = window.sessionsTree('sess-2'); s.workspaces[0].sessions[0].unread = true; s.workspaces[0].sessions[1].unread = false; return s })(),
-      title: '侧边栏（附着 + 未读）',
-      expect: '附着 sess-2：dsh-one 文件夹染蓝 + 「重构 sessionStore」行高亮；「DSH One 示例会话」带未读圆点（session-title unread）；dsh-web research 分组正常列出。',
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        s.workspaces[0].sessions = [
+          sess('sess-1', 'DSH One 示例会话', '3 小时前', { running: true }),
+          sess('sess-2', '重构 sessionStore', '5 小时前', { unread: true }),
+          sess('sess-3', '置顶的调研会话', '昨天', { pinned: true }),
+          sess('sess-4', '当前附加的会话', '10 分钟前'),
+        ]
+        s.workspaces[1].sessions = [
+          sess('sess-5', 'dsh web 可展开 UI 调研', '9 小时前', { pendingInteraction: 'approval' }),
+        ]
+        s.workspaces[2].sessions = [sess('sess-6', '未分组里的孤儿会话', '2 小时前')]
+        s.pinned = ['sess-3']
+        s.unread = ['sess-2']
+        s.attachedSessionId = 'sess-4'
+        return s
+      })(),
+      title: '侧栏面板（综合列表）',
+      expect: '头部工具栏（搜索框/排序/刷新/折叠全部/添加工作区）；dsh-one 组：vscode 标签、文件夹染蓝（组内有 active 行）、组名右侧角标（环 1 → 运行中 + 绿点 1 → 未读）、「sess-4 当前附加的会话」行高亮（active）；行首状态槽：sess-1 像素环、sess-2 未读绿点 + 标题加粗、sess-3 置顶图钉（槽位空时）；workspace 行尾 hover 动作仅结构存在（截图为静态，不核对 hover）；dsh-web research 组：sess-5 黄色待审批点（pendingInteraction）；未分组虚拟组显示「sess-6 未分组里的孤儿会话」。',
+    },
+
+    'sessions-search': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        s.query = '重构'
+        s.collapsed = ['ws-main'] // 搜索态应强制展开，忽略折叠持久化
+        s.workspaces[0].sessions = [
+          sess('sess-2', '重构 sessionStore', '5 小时前'),
+          sess('sess-4', '搜索词在内容里的大杂烩', '10 分钟前', { contentSnippet: '去重构了一下 sessionStore 的派生逻辑，顺手把派生状态集中到 reducer。' }),
+        ]
+        s.contentSearchHasMore = true
+        return s
+      })(),
+      title: '侧栏面板（搜索：标题/内容命中 + 高亮）',
+      // 输入框词由用户输入流驱动（sessionsSearchDraft 模块态），快照不回填；
+      // 补一个输入模拟让前端态完整（draft + has-text → 清除 ✕ 可见）。
+      interact: `(() => { const i = document.querySelector('.sessions-search'); i.value = '重构'; i.dispatchEvent(new Event('input', { bubbles: true })) })()`,
+      expect: '搜索框内有关键词「重构」、右侧出现清除 ✕（search-clear）；「ws-main」组头展开（忽略 collapsed）：sess-2 行标题里「重构」加粗+变色（mark.dsh-mark）；sess-4 行下方 .session-snippet 浅色小字块，命中词「重构」同样 mark 高亮；底部「还有更多匹配会话，可尝试更精确的关键词」提示行。',
+    },
+
+    'sessions-search-degraded': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.query = 'session'
+        s.contentSearchError = true
+        return s
+      })(),
+      interact: `(() => { const i = document.querySelector('.sessions-search'); i.value = 'session'; i.dispatchEvent(new Event('input', { bubbles: true })) })()`,
+      title: '侧栏面板（全文搜索降级提示）',
+      expect: '搜索框有关键词「session」+ 清除 ✕；列表底部一条「全文搜索不可用，仅按标题匹配（dsh 搜索索引未启用）」提示行（sessions-search-degraded）；该行悬停有 data-tip 详情（截图为静态，核对行本体与样式）。',
+    },
+
+    'sessions-collapsed': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        s.collapsed = ['ws-main', 'ws-research', UNGROUPED]
+        return s
+      })(),
+      title: '侧栏面板（全部折叠）',
+      expect: '三个组头（dsh-one / dsh-web research / 未分组）都折叠：文件夹闭合图标 + 向右箭头 + 组名；组下不渲染任何会话行；头部「折叠所有工作区」按钮图标为 +（boxedPlus，表示点击展开全部）；组角标仍显示（折叠/展开一致）。',
+    },
+
+    'sessions-menu': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.workspaces[0].sessions = [sess('sess-3', '置顶的调研会话', '昨天', { pinned: true })]
+        s.pinned = ['sess-3']
+        return s
+      })(),
+      interact: `(() => { const row = document.querySelector('.session-row[data-session-id="sess-3"]'); row?.classList.add('menu-open'); row?.querySelector('.row-action')?.click() })()`,
+      title: '侧栏面板（会话 ⋯ 菜单）',
+      expect: '点击会话行尾 ⋯ 后弹出菜单，自上而下：重命名 / 置顶（带 ✓ 选中态）/ 标为未读 / 分叉会话 / 复制引用 / 归档会话；「复制会话 ID」不在菜单里；置顶会话的菜单项「置顶」带 checked；全部项可用（无 disabled 灰置）。',
+    },
+
+    'sessions-menu-busy': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.workspaces[0].sessions = [sess('sess-1', 'DSH One 示例会话', '3 小时前', { running: true })]
+        return s
+      })(),
+      interact: `(() => {
+        const row = document.querySelector('.session-row[data-session-id="sess-1"]')
+        row?.classList.add('menu-open')
+        const btn = row?.querySelector('.row-action')
+        btn?.click()
+        setTimeout(() => {
+          const items = document.querySelectorAll('.menu-item.disabled')
+          const last = items[items.length - 1] // 「归档会话」禁用项
+          if (last) last.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+        }, 150)
+      })()`,
+      title: '侧栏面板（运行中会话菜单：禁用 + 悬停提示）',
+      expect: '运行中会话（行首像素环）的 ⋯ 菜单：重命名/置顶/分叉/复制引用正常；「标为已读/未读」与「归档会话」灰置（.menu-item.disabled）；悬停「归档会话」项时其下方出现 tooltip 气泡「运行中的会话不能归档」；无「复制会话 ID」。',
+    },
+
+    'sessions-menu-unread': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-2')
+        s.workspaces[0].sessions = [sess('sess-2', '重构 sessionStore', '5 小时前', { unread: true })]
+        s.unread = ['sess-2']
+        return s
+      })(),
+      interact: `(() => { const row = document.querySelector('.session-row[data-session-id="sess-2"]'); row?.classList.add('menu-open'); row?.querySelector('.row-action')?.click() })()`,
+      title: '侧栏面板（未读会话菜单：归档禁用）',
+      expect: '未读（非运行）会话的 ⋯ 菜单：「标为已读」可用（选中态 ✓）；「归档会话」灰置，悬停提示「未读的会话不能归档」（截图核对项本体与灰置样式）；其余项正常；无「复制会话 ID」。',
+    },
+
+    'sessions-rename': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        s.workspaces[0].sessions = [sess('sess-4', '当前附加的会话', '10 分钟前')]
+        s.attachedSessionId = 'sess-4' // editor 面板开着且附着 → 单击行内重命名
+        return s
+      })(),
+      interact: `document.querySelector('.session-row[data-session-id="sess-4"]')?.click() // 已打开会话单击 → 行内重命名`,
+      title: '侧栏面板（行内重命名编辑态）',
+      expect: '点击已附加（active 高亮 + attachedSessionId）的会话行后，该行标题位置变为输入框（.rename-input，prefill 原标题、全选）；行内其他元素（状态槽/时间/⋯）仍在；未附加会话单击是打开会话（见 sessions-active-pending）。',
+    },
+
+    'sessions-active-pending': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        s.workspaces[0].sessions = [sess('sess-4', '当前附加的会话', '10 分钟前')]
+        s.attachedSessionId = null // 仅高亮（懒加载待附着）：面板没开 → 单击打开会话
+        return s
+      })(),
+      interact: `document.querySelector('.session-row[data-session-id="sess-4"]')?.click() // 未附着（仅高亮）→ 打开会话，不进重命名`,
+      title: '侧栏面板（仅高亮未附着：点击打开）',
+      expect: '会话行高亮（active）但 attachedSessionId 为 null（reload 后面板未开、懒加载待附着的典型态）；点击行后**不出现** rename-input——行保持标题文本；行为是 post sessionOpen 而非重命名。',
     },
   }
 
@@ -159,6 +305,7 @@
   window.BASELINE_SCENARIOS = [
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
+    'sessions-search', 'sessions-collapsed',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()

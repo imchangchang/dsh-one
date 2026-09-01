@@ -224,6 +224,38 @@ test('query also matches the session id', () => {
   assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['abc123def'])
 })
 
+test('query keeps content-hit sessions without a title/id match and passes the snippet', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b']), ws('w2', ['c'])],
+    [s('a'), s('b', { updatedAt: NOW - 1000 }), s('c')],
+    new Set(),
+    (x) => new Map([['a', '服务器问题排查'], ['b', '写周报'], ['c', '登录页']]).get(x.sessionId) ?? null,
+    undefined,
+    NOW,
+    { query: '容器', contentHits: new Map([['a', 'k8s 容器崩溃 p0']]) },
+  )
+  // b（无标题/ID 命中、无内容命中）被过滤；w2 整组无命中被丢弃。
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a'])
+  assert.equal(tree[0].sessions[0].contentSnippet, 'k8s 容器崩溃 p0')
+})
+
+test('content-hit orphan sessions appear in ungrouped and carry the snippet', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a'])],
+    [s('a'), s('stray', { updatedAt: NOW - 1000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { query: 'k8s', contentHits: new Map([['stray', 'k8s 容器']]) },
+  )
+  // w1 的 'a' 无命中被丢弃；孤儿 'stray' 内容命中，进未分组。
+  assert.deepEqual(tree.map((n) => n.workspaceId), [UNGROUPED_WORKSPACE_ID])
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['stray'])
+  assert.equal(tree[0].sessions[0].contentSnippet, 'k8s 容器')
+})
+
 test('query keeps blank/archived hidden and combines with sort', () => {
   const tree = buildSessionTree(
     [ws('w1', ['keep1', 'gone', 'empty', 'keep2'])],

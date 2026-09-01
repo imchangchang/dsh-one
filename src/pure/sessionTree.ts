@@ -65,6 +65,11 @@ export interface SessionNodeModel {
    * pending interaction is primary）。
    */
   pendingInteraction?: PendingInteraction
+  /**
+   * 内容命中的最佳匹配片段（session.search 返回，≤240 码点；纯层只透传，
+   * 不负责高亮）。内容命中即作为 query 过滤的保留条件之一（不必标题/ID 命中）。
+   */
+  contentSnippet?: string
 }
 
 export interface WorkspaceNodeModel {
@@ -97,6 +102,12 @@ export interface SessionTreeViewOptions {
   unread?: ReadonlySet<string>
   /** Mux-tracked pending interaction per session; display-only yellow dot. */
   pendingInteractions?: ReadonlyMap<string, PendingInteraction>
+  /**
+   * 会话内容全文搜索命中（session.search）：sessionId → 最佳匹配片段。query
+   * 过滤时除标题/ID 命中外，内容命中（此处有项）的会话也保留，snippet 随
+   * 节点透传。纯层只用于过滤与透传，不做高亮。
+   */
+  contentHits?: ReadonlyMap<string, string>
 }
 
 const MINUTE_MS = 60_000
@@ -158,7 +169,8 @@ export function buildSessionTree(
   }
 
   // 会话行流水线：label 解析（query 匹配和 title 排序都要用，先算一次）→
-  // 查询过滤 → pinned 优先 + view.sort。workspace 组与「未分组」组共用。
+  // 查询过滤（标题/ID 命中 或 内容命中）→ pinned 优先 + view.sort。
+  // workspace 组与「未分组」组共用。
   const toSessionNodes = (list: SessionInput[]): SessionNodeModel[] =>
     list
       .map((s) => ({ session: s, label: titleOf(s) ?? `会话 ${s.sessionId.slice(0, 8)}` }))
@@ -166,7 +178,8 @@ export function buildSessionTree(
         ({ session, label }) =>
           query === '' ||
           label.toLowerCase().includes(query) ||
-          session.sessionId.toLowerCase().includes(query),
+          session.sessionId.toLowerCase().includes(query) ||
+          view.contentHits?.has(session.sessionId) === true,
       )
       .sort((a, b) => {
         const aPinned = view.pinned?.has(a.session.sessionId) === true
@@ -178,6 +191,7 @@ export function buildSessionTree(
       })
       .map(({ session, label }) => {
         const pendingInteraction = view.pendingInteractions?.get(session.sessionId)
+        const snippet = view.contentHits?.get(session.sessionId)
         return {
           sessionId: session.sessionId,
           label,
@@ -187,6 +201,7 @@ export function buildSessionTree(
           unread: view.unread?.has(session.sessionId) === true,
           descendantRunning: hasRunningDescendant(session.sessionId),
           ...(pendingInteraction !== undefined ? { pendingInteraction } : {}),
+          ...(snippet !== undefined ? { contentSnippet: snippet } : {}),
         }
       })
 

@@ -434,6 +434,23 @@ export interface SessionsSnapshot {
   collapsed: string[]
   /** 手动标记未读的会话 id（dsh 无未读 API，纯客户端状态）。 */
   unread: string[]
+  /**
+   * 高亮的会话 id（editor ChatViewProvider 的 activeSessionId）：面板开着且
+   * 附着时为当前附着会话，否则是懒加载待附着目标。侧栏据此画 active 行高亮
+   * 与所属 workspace 的蓝色文件夹。拆分后 chat 在 editor 面板，会话高亮归
+   * 侧栏渲染，故由宿主下发。
+   */
+  activeSessionId: string | null
+  /**
+   * editor 面板当前真实附着的会话 id（面板未开或未附着为 null）。与
+   * activeSessionId 不同，从不回退到懒加载 pending 目标——侧栏「已打开会话
+   * 单击 = 行内重命名」的判定用它，避免 reload 等人面板没开但高亮时误入重命名。
+   */
+  attachedSessionId: string | null
+  /** 内容全文搜索（session.search）是否被 20 条上限截断；面板据此显示轻提示。 */
+  contentSearchHasMore: boolean
+  /** 最近一次内容搜索是否失败（后端索引未启用等）；true 时面板显示「仅按标题匹配」提示。 */
+  contentSearchError: boolean
 }
 
 export type ToWebviewMessage =
@@ -479,6 +496,8 @@ export type FromWebviewMessage =
   | { type: 'sessionNew'; workspaceId?: string }
   /** Sessions 面板：重命名会话；title 为当前标题，供宿主输入框预填。 */
   | { type: 'sessionRename'; sessionId: string; title: string }
+  /** 行内重命名直接提交（不走 showInputBox 弹窗）：sessionId + 新标题，宿主直接 RPC。 */
+  | { type: 'sessionRenameDirect'; sessionId: string; title: string }
   /** Sessions 面板：归档会话；title 供宿主确认框展示。 */
   | { type: 'sessionArchive'; sessionId: string; title: string }
   /** Sessions 面板：选文件夹注册新 workspace。 */
@@ -511,8 +530,6 @@ export type FromWebviewMessage =
   | { type: 'sessionFork'; sessionId: string }
   /** Sessions 面板：复制会话的 canonical 引用 mention（@[标题](dsh-session:...)）到剪贴板。 */
   | { type: 'sessionCopyReference'; sessionId: string; title: string }
-  /** Sessions 面板：复制会话 ID 到剪贴板。 */
-  | { type: 'sessionCopyId'; sessionId: string }
   /** Sessions 面板空态：启动 dsh 服务。 */
   | { type: 'serverStart' }
   /** 输入框 @ 补全：请求当前会话 cwd 下的文件/文件夹候选（fileReferences/list）。 */

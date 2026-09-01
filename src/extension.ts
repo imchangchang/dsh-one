@@ -8,6 +8,7 @@ import { archiveSession, createSession, ensureWorkspace, forkSession, renameSess
 import { openInTab } from './ui/webview.ts'
 import { ChatViewProvider } from './ui/chatView.ts'
 import { SessionsStore } from './ui/sessionsStore.ts'
+import { SessionsViewProvider } from './ui/sessionsView.ts'
 import { StatusBar } from './ui/statusbar.ts'
 
 /** Official dsh product page with the "Get started" install instructions. */
@@ -33,9 +34,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const sessions = new SessionsStore(manager, logger, context.workspaceState)
   const chatView = new ChatViewProvider(manager, logger, context.extensionUri, sessions, () => void sessions.refresh())
 
+  // 侧栏 sessions 面板（webview view）：只渲染会话列表，高亮读 chatView 的
+  // activeSessionId（附着的、或懒加载待附着目标），附着变化时重推快照。
+  const sessionsView = new SessionsViewProvider(
+    manager,
+    logger,
+    context.extensionUri,
+    sessions,
+    () => chatView.activeSessionId,
+    () => chatView.attachedSessionId,
+    chatView.onActiveSessionChanged,
+  )
+
   // Chat/session reconciliation after every store rebuild: drop the attached
-  // session when it vanished host-side (archived/deleted elsewhere), and land
-  // on the current workspace's newest session once per server run.
+  // session when it vanished host-side (archived/deleted elsewhere), and
+  // lazily remember the current workspace's newest session once per server
+  // run (拆分后改懒加载：只侧栏高亮，等 panel 打开再落）。
   let autoAttachedUrl: string | null = null
   const reconcileChat = sessions.onDidChange(() => {
     const url = sessions.runningUrl
@@ -52,7 +66,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const latest = sessions.latestCurrentSessionId()
       if (latest) {
         autoAttachedUrl = url
-        chatView.setSession(latest)
+        chatView.setLazyPending(latest)
+        // 面板已开着（如服务重启后 controller 被清空）：立刻落地懒加载目标。
+        if (chatView.isOpen) chatView.openPanel()
       }
     }
   })
@@ -63,13 +79,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     statusBar,
     sessions,
     chatView,
+    sessionsView,
     reconcileChat,
-    vscode.window.registerWebviewViewProvider('dshOne.chat', chatView, {
+    vscode.window.registerWebviewViewProvider('dshOne.chat', sessionsView, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.commands.registerCommand('dshOne.open', () => {
       void manager.ensureStarted()
-      return vscode.commands.executeCommand('dshOne.chat.focus')
+      chatView.openPanel()
     }),
     // Status bar click: open the dsh web UI in the system browser (starting
     // the service first when needed).
@@ -92,10 +109,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.sessions.refresh', async () => {
       await sessions.refresh()
     }),
-    // Session click in the webview panel: attach the chat to it.
+    // Click a session in the sidebar panel: open (or reveal) the editor panel
+    // & attach (reused by the sessions webview via the command).
     vscode.commands.registerCommand('dshOne.session.open', (sessionId?: string) => {
-      if (typeof sessionId === 'string') chatView.setSession(sessionId)
-      return vscode.commands.executeCommand('dshOne.chat.focus')
+      if (typeof sessionId === 'string') chatView.openSession(sessionId)
     }),
     vscode.commands.registerCommand('dshOne.session.new', async (workspaceId?: string) => {
       const url = sessions.runningUrl
@@ -113,8 +130,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return
       }
       await sessions.refresh()
-      chatView.setSession(sessionId)
-      void vscode.commands.executeCommand('dshOne.chat.focus')
+      chatView.openSession(sessionId)
     }),
     vscode.commands.registerCommand('dshOne.session.rename', async (sessionId?: string, currentTitle?: string) => {
       const url = sessions.runningUrl
@@ -136,8 +152,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.session.archive', async (sessionId?: string, currentTitle?: string) => {
       const url = sessions.runningUrl
       if (!url || typeof sessionId !== 'string') return
+      const label = typeof currentTitle === 'string' ? currentTitle : sessionId
       const pick = await vscode.window.showWarningMessage(
-        `确认归档会话「${typeof currentTitle === 'string' ? currentTitle : sessionId}」？归档后会从列表中隐藏。`,
+        `确认归档会话「${label}」？归档后会从列表中隐藏。`,
         { modal: true },
         '归档',
       )
@@ -163,7 +180,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return
       }
       await sessions.refresh()
-      chatView.setSession(newSessionId)
+      chatView.openSession(newSessionId)
     }),
     // Editor/explorer 右键「发送到当前会话」：把当前文件作为附件暂存到当前
     // 活跃会话的 composer（等同点「添加附件」）。

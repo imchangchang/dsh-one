@@ -151,7 +151,7 @@
       "dsh-one": [
         {
           "id": "dshOne.chat",
-          "name": "Chat",
+          "name": "Sessions",
           "type": "webview"
         }
       ]

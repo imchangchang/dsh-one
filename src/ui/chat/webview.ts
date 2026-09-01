@@ -264,6 +264,105 @@ function iconSvg(icon: IconDef, size = 16): SVGSVGElement {
   return svg
 }
 
+/** 描边小图标：dsh web 无对应物的本地扩展图标保留描边风格。 */
+function strokeSvg(paths: string[], size = 14): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('width', String(size))
+  svg.setAttribute('height', String(size))
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('fill', 'none')
+  for (const d of paths) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', d)
+    path.setAttribute('stroke', 'currentColor')
+    path.setAttribute('stroke-width', '1.3')
+    path.setAttribute('stroke-linecap', 'round')
+    path.setAttribute('stroke-linejoin', 'round')
+    svg.appendChild(path)
+  }
+  return svg
+}
+
+/** 文档描边图标（待发送文件 chip 的类型小图标，本地扩展）。 */
+const FILE_ICON = ['M4.2 2h4.6L12 5.2V14H4.2z', 'M8.8 2v3.2H12']
+
+/**
+ * 运行中像素环：复刻官方 dsh web StateDot(ongoing)——10×10 画布上 8 个
+ * 2×2 方块沿环排布，各自带负的 animationDelay 错相，配合 .session-spin 的
+ * chase keyframes（chatView.ts）形成转圈追逐效果。
+ */
+const SPIN_CELLS: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [4, 0],
+  [8, 0],
+  [8, 4],
+  [8, 8],
+  [4, 8],
+  [0, 8],
+  [0, 4],
+]
+
+/**
+ * 官方 IconAgentPresetOutline16（dsh-client-ui-primitives）的逐元素复刻：
+ * 圆环路径用 mask 在三个节点处镂空。IconDef 不支持 mask，故单独构建。
+ */
+function presetIconSvg(): SVGSVGElement {
+  const NS = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(NS, 'svg')
+  svg.setAttribute('width', '14')
+  svg.setAttribute('height', '14')
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('fill', 'none')
+  const mask = document.createElementNS(NS, 'mask')
+  mask.setAttribute('id', 'preset-icon-mask')
+  const bg = document.createElementNS(NS, 'rect')
+  bg.setAttribute('width', '16')
+  bg.setAttribute('height', '16')
+  bg.setAttribute('fill', 'white')
+  mask.appendChild(bg)
+  for (const [cx, cy] of [
+    ['7.9995', '3.28319'],
+    ['3.51122', '11.3855'],
+    ['12.4878', '11.3855'],
+  ]) {
+    const c = document.createElementNS(NS, 'circle')
+    c.setAttribute('cx', cx)
+    c.setAttribute('cy', cy)
+    c.setAttribute('r', '1.712')
+    c.setAttribute('fill', 'black')
+    mask.appendChild(c)
+  }
+  svg.appendChild(mask)
+  const ring = document.createElementNS(NS, 'path')
+  ring.setAttribute('mask', 'url(#preset-icon-mask)')
+  ring.setAttribute(
+    'd',
+    'M12.2881 11.0425C12.6002 11.3723 13.0413 11.5786 13.5312 11.5786L13.5342 11.5776C13.1476 12.3233 12.6119 12.9785 11.9639 13.5005C10.9327 14.3309 9.6199 14.8286 8.19336 14.8286C7.29864 14.8285 6.45056 14.6313 5.6875 14.2808C6.08309 14.0281 6.36707 13.6189 6.45215 13.1392C6.99022 13.3561 7.57767 13.476 8.19336 13.4761C9.30019 13.4761 10.3157 13.0915 11.1152 12.4478C11.5935 12.0626 11.9924 11.5848 12.2881 11.0425ZM4.14746 4.36475C4.25569 4.83228 4.55488 5.2247 4.95898 5.4585C4.07956 6.30639 3.53144 7.49605 3.53125 8.81396C3.53125 9.69534 3.77613 10.5202 4.20117 11.2231C3.74959 11.3817 3.38395 11.7232 3.19531 12.1597C2.5541 11.2032 2.17969 10.052 2.17969 8.81396C2.17989 7.05087 2.93868 5.4646 4.14746 4.36475ZM8.19336 2.80029C8.85717 2.80029 9.49784 2.90834 10.0967 3.10791C12.3237 3.85044 13.9725 5.86061 14.1846 8.28369C13.9832 8.20048 13.7627 8.15382 13.5312 8.15381C13.2802 8.15381 13.042 8.20907 12.8271 8.30615C12.6281 6.47264 11.3666 4.95616 9.66895 4.39014C9.2063 4.236 8.70989 4.15186 8.19336 4.15186C7.96112 4.15189 7.7329 4.16981 7.50977 4.20264C7.51947 4.12886 7.52637 4.05348 7.52637 3.97705C7.52628 3.56604 7.3811 3.18914 7.13965 2.89404C7.48183 2.83352 7.83381 2.80033 8.19336 2.80029Z',
+  )
+  ring.setAttribute('fill', 'currentColor')
+  svg.appendChild(ring)
+  return svg
+}
+
+function spinSvg(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('width', '10')
+  svg.setAttribute('height', '10')
+  svg.setAttribute('viewBox', '0 0 10 10')
+  svg.setAttribute('shape-rendering', 'crispEdges')
+  svg.classList.add('session-spin')
+  SPIN_CELLS.forEach(([x, y], i) => {
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+    rect.setAttribute('x', String(x))
+    rect.setAttribute('y', String(y))
+    rect.setAttribute('width', '2')
+    rect.setAttribute('height', '2')
+    rect.style.animationDelay = `${(i - SPIN_CELLS.length) * 125}ms`
+    svg.appendChild(rect)
+  })
+  return svg
+}
+
 /**
  * 品牌鱼标 svg：官方 FishLogo 组件（dsh-client-ui-primitives）的镜像——
  * 宽度 size、高度按 17.04/23.16 等比，className 调用方给。
@@ -395,20 +494,13 @@ function enhanceCodeBlocks(container: HTMLElement, prefix: string): void {
   })
 }
 
-// 布局骨架：左 sessions 面板 + 右聊天列（窄屏改上下，样式见 chatView.ts 的
-// STYLE 媒体查询）。两个区域独立重建：聊天快照走 render()，会话快照走
-// renderSessions()，互不打扰（面板重建不应打断 composer 的 IME 输入）。
-const sessionsPanel = el('aside', 'sessions-panel')
+// 布局骨架：拆分后侧栏会话列表为原生 tree，本 webview（editor WebviewPanel）
+// 只渲染聊天列。聊天快照走 render()，会话快照仅留作 @ 补全的数据源（不再渲染面板）。
 const chatCol = el('div', 'chat-col')
-app.appendChild(sessionsPanel)
 app.appendChild(chatCol)
 
-/** 最新 sessions 快照；null = 尚未收到（面板显示占位）。 */
+/** 最新 sessions 快照；null = 尚未收到。仅作 @ 提及补全的数据源。 */
 let sessionsSnapshot: SessionsSnapshot | null = null
-/** 搜索框草稿，跨面板重建保留（同 composer 的 draft 模式）。 */
-let sessionsSearchDraft = ''
-/** 搜索输入的防抖计时器。 */
-let searchDebounce: ReturnType<typeof setTimeout> | null = null
 
 window.addEventListener('message', (event) => {
   const msg = event.data as ToWebviewMessage
@@ -426,8 +518,8 @@ window.addEventListener('message', (event) => {
     }
     render()
   } else if (msg?.type === 'sessions' && msg.snapshot) {
+    // 拆分后侧栏为原生 tree；这里只更新 @ 提及补全的会话数据源。
     sessionsSnapshot = msg.snapshot
-    renderSessions()
   } else if (msg?.type === 'commandResult' && typeof msg.text === 'string' && msg.text.trim()) {
     commandNotices = [...commandNotices, msg.text]
     render()
@@ -582,7 +674,7 @@ function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' 
 
 /**
  * 坐标定位的弹层（右键菜单）：固定在鼠标位置并钳制在视口内。
- * popoverAnchor 置为 null —— render()/renderSessions() 的存活检查
+ * popoverAnchor 置为 null —— render() 的存活检查
  * 对无锚点弹层保持不动（不关闭、不 reposition）。
  */
 function showPopoverAt(x: number, y: number, body: HTMLElement): void {
@@ -1326,8 +1418,6 @@ function startInlineRename(header: HTMLElement): void {
 }
 
 function render(): void {
-  // 当前附着会话的高亮跟随 ChatState，不走面板重建（避免打断悬停与搜索输入）。
-  syncSessionHighlight()
   // The turn-status clock interval is owned by the row it updates; the rebuild
   // below discards that row, so drop the timer first and re-arm it later if
   // the turn is still open. Never leave an interval pointing at detached DOM.
@@ -1856,501 +1946,6 @@ function renderEmpty(state: ChatState | null): HTMLElement {
   )
   return wrap
 }
-
-/* ---------------- Sessions 面板（原 dshOne.sessions 树视图合并而来） ---------------- */
-
-/** 描边小图标：dsh web 无对应物的本地扩展图标（排序、置顶图钉）保留描边风格。 */
-function strokeSvg(paths: string[], size = 14): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', String(size))
-  svg.setAttribute('height', String(size))
-  svg.setAttribute('viewBox', '0 0 16 16')
-  svg.setAttribute('fill', 'none')
-  for (const d of paths) {
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    path.setAttribute('d', d)
-    path.setAttribute('stroke', 'currentColor')
-    path.setAttribute('stroke-width', '1.3')
-    path.setAttribute('stroke-linecap', 'round')
-    path.setAttribute('stroke-linejoin', 'round')
-    svg.appendChild(path)
-  }
-  return svg
-}
-
-const SORT_ICON = ['M4.5 3v10', 'M4.5 13l-2.2-2.6', 'M4.5 13l2.2-2.6', 'M11.5 13V3', 'M11.5 3L9.3 5.6', 'M11.5 3l2.2 2.6']
-/** 图钉描边图标（会话行的置顶标记与置顶菜单项）。 */
-const PIN_ICON = ['M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z', 'M8 9.5v4']
-
-/** 置顶图钉 svg（行首状态槽与标题前两种位置共用）。 */
-function makePinIcon(): SVGSVGElement {
-  const svg = strokeSvg(PIN_ICON)
-  svg.classList.add('pin-icon')
-  return svg
-}
-/** 圆点描边图标（「标为未读」菜单项；官方无未读概念，本地扩展图标）。 */
-const UNREAD_ICON = ['M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8z']
-/** 文档描边图标（待发送文件 chip 的类型小图标，本地扩展）。 */
-const FILE_ICON = ['M4.2 2h4.6L12 5.2V14H4.2z', 'M8.8 2v3.2H12']
-
-/**
- * 运行中像素环：复刻官方 dsh web StateDot(ongoing)——10×10 画布上 8 个
- * 2×2 方块沿环排布，各自带负的 animationDelay 错相，配合 .session-spin 的
- * chase keyframes（chatView.ts）形成转圈追逐效果。
- */
-const SPIN_CELLS: ReadonlyArray<readonly [number, number]> = [
-  [0, 0],
-  [4, 0],
-  [8, 0],
-  [8, 4],
-  [8, 8],
-  [4, 8],
-  [0, 8],
-  [0, 4],
-]
-
-/**
- * 官方 IconAgentPresetOutline16（dsh-client-ui-primitives）的逐元素复刻：
- * 圆环路径用 mask 在三个节点处镂空。IconDef 不支持 mask，故单独构建。
- */
-function presetIconSvg(): SVGSVGElement {
-  const NS = 'http://www.w3.org/2000/svg'
-  const svg = document.createElementNS(NS, 'svg')
-  svg.setAttribute('width', '14')
-  svg.setAttribute('height', '14')
-  svg.setAttribute('viewBox', '0 0 16 16')
-  svg.setAttribute('fill', 'none')
-  const mask = document.createElementNS(NS, 'mask')
-  mask.setAttribute('id', 'preset-icon-mask')
-  const bg = document.createElementNS(NS, 'rect')
-  bg.setAttribute('width', '16')
-  bg.setAttribute('height', '16')
-  bg.setAttribute('fill', 'white')
-  mask.appendChild(bg)
-  for (const [cx, cy] of [
-    ['7.9995', '3.28319'],
-    ['3.51122', '11.3855'],
-    ['12.4878', '11.3855'],
-  ]) {
-    const c = document.createElementNS(NS, 'circle')
-    c.setAttribute('cx', cx)
-    c.setAttribute('cy', cy)
-    c.setAttribute('r', '1.712')
-    c.setAttribute('fill', 'black')
-    mask.appendChild(c)
-  }
-  svg.appendChild(mask)
-  const ring = document.createElementNS(NS, 'path')
-  ring.setAttribute('mask', 'url(#preset-icon-mask)')
-  ring.setAttribute(
-    'd',
-    'M12.2881 11.0425C12.6002 11.3723 13.0413 11.5786 13.5312 11.5786L13.5342 11.5776C13.1476 12.3233 12.6119 12.9785 11.9639 13.5005C10.9327 14.3309 9.6199 14.8286 8.19336 14.8286C7.29864 14.8285 6.45056 14.6313 5.6875 14.2808C6.08309 14.0281 6.36707 13.6189 6.45215 13.1392C6.99022 13.3561 7.57767 13.476 8.19336 13.4761C9.30019 13.4761 10.3157 13.0915 11.1152 12.4478C11.5935 12.0626 11.9924 11.5848 12.2881 11.0425ZM4.14746 4.36475C4.25569 4.83228 4.55488 5.2247 4.95898 5.4585C4.07956 6.30639 3.53144 7.49605 3.53125 8.81396C3.53125 9.69534 3.77613 10.5202 4.20117 11.2231C3.74959 11.3817 3.38395 11.7232 3.19531 12.1597C2.5541 11.2032 2.17969 10.052 2.17969 8.81396C2.17989 7.05087 2.93868 5.4646 4.14746 4.36475ZM8.19336 2.80029C8.85717 2.80029 9.49784 2.90834 10.0967 3.10791C12.3237 3.85044 13.9725 5.86061 14.1846 8.28369C13.9832 8.20048 13.7627 8.15382 13.5312 8.15381C13.2802 8.15381 13.042 8.20907 12.8271 8.30615C12.6281 6.47264 11.3666 4.95616 9.66895 4.39014C9.2063 4.236 8.70989 4.15186 8.19336 4.15186C7.96112 4.15189 7.7329 4.16981 7.50977 4.20264C7.51947 4.12886 7.52637 4.05348 7.52637 3.97705C7.52628 3.56604 7.3811 3.18914 7.13965 2.89404C7.48183 2.83352 7.83381 2.80033 8.19336 2.80029Z',
-  )
-  ring.setAttribute('fill', 'currentColor')
-  svg.appendChild(ring)
-  return svg
-}
-
-function spinSvg(): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', '10')
-  svg.setAttribute('height', '10')
-  svg.setAttribute('viewBox', '0 0 10 10')
-  svg.setAttribute('shape-rendering', 'crispEdges')
-  svg.classList.add('session-spin')
-  SPIN_CELLS.forEach(([x, y], i) => {
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-    rect.setAttribute('x', String(x))
-    rect.setAttribute('y', String(y))
-    rect.setAttribute('width', '2')
-    rect.setAttribute('height', '2')
-    rect.style.animationDelay = `${(i - SPIN_CELLS.length) * 125}ms`
-    svg.appendChild(rect)
-  })
-  return svg
-}
-
-/** 排序菜单选项，与 store 持久化的 SessionSortOrder 一一对应。 */
-const SORT_OPTIONS: Array<{ order: SessionSortOrder; label: string }> = [
-  { order: 'updatedDesc', label: '最近更新优先' },
-  { order: 'updatedAsc', label: '最早更新优先' },
-  { order: 'title', label: '按标题排序' },
-]
-
-/** 面板头部的图标按钮。 */
-function panelTool(icon: SVGSVGElement, title: string): HTMLButtonElement {
-  const b = document.createElement('button')
-  b.type = 'button'
-  b.className = 'sessions-tool'
-  b.title = title
-  b.setAttribute('aria-label', title)
-  b.appendChild(icon)
-  return b
-}
-
-/** 行内悬停按钮；阻止冒泡，避免触发行点击（附着会话/折叠分组）。 */
-function rowAction(icon: SVGSVGElement, title: string, onClick: () => void): HTMLButtonElement {
-  const b = panelTool(icon, title)
-  b.className = 'row-action'
-  b.addEventListener('click', (e) => {
-    e.stopPropagation()
-    onClick()
-  })
-  return b
-}
-
-function openSortMenu(anchor: HTMLElement): void {
-  const snap = sessionsSnapshot
-  if (!snap) return
-  const body = el('div')
-  for (const opt of SORT_OPTIONS) {
-    body.appendChild(
-      menuItem(opt.label, {
-        checked: snap.sortOrder === opt.order,
-        onClick: () => {
-          closePopover()
-          if (snap.sortOrder !== opt.order) post({ type: 'sessionsSort', order: opt.order })
-        },
-      }),
-    )
-  }
-  // 锚点在面板顶部，向下展开。
-  showPopover(anchor, body, 'below')
-}
-
-/** 重建 sessions 面板；搜索框内容与焦点跨重建保留（同 composer 的 draft 模式）。 */
-function renderSessions(): void {
-  const snap = sessionsSnapshot
-  const oldSearch = sessionsPanel.querySelector<HTMLInputElement>('.sessions-search')
-  const searchFocused = oldSearch !== null && document.activeElement === oldSearch
-  const searchSel =
-    searchFocused && oldSearch ? { start: oldSearch.selectionStart, end: oldSearch.selectionEnd } : null
-  sessionsPanel.textContent = ''
-  // 面板重建会带走锚点在其中的弹层（如排序菜单）：锚还在就重定位，没了才关。
-  // popoverAnchor === null：坐标定位菜单（会话右键），保持原样不动。
-  if (popover) {
-    if (popoverAnchor === null) {
-      // 坐标定位：不关闭、不 reposition。
-    } else if (popoverAnchor.isConnected) positionPopover()
-    else closePopover()
-  }
-
-  const header = el('div', 'sessions-header')
-  const search = document.createElement('input')
-  search.className = 'sessions-search'
-  search.placeholder = '搜索会话'
-  search.value = sessionsSearchDraft
-  search.addEventListener('input', () => {
-    sessionsSearchDraft = search.value
-    // 输入防抖：不必每个字符都往返一次宿主（重建虽是本地的，消息却不是）。
-    if (searchDebounce !== null) clearTimeout(searchDebounce)
-    searchDebounce = setTimeout(() => {
-      searchDebounce = null
-      post({ type: 'sessionsSearch', query: sessionsSearchDraft.trim() === '' ? null : sessionsSearchDraft })
-    }, 200)
-  })
-  header.appendChild(search)
-  // 四个头部图标的 glyph 在各自 viewBox 里的占比不同（refresh 几乎撑满 16px，
-  // boxed 只有 11x11），统一渲染尺寸会显得一大一小。按 glyph 实际油墨范围
-  // 分别定渲染尺寸，让视觉大小都落在 ~11.5px：sort 16 / refresh 12 / boxed 16 / plus 14。
-  const sortBtn = panelTool(strokeSvg(SORT_ICON, 16), '排序方式')
-  sortBtn.addEventListener('click', () => openSortMenu(sortBtn))
-  header.appendChild(sortBtn)
-  const refreshBtn = panelTool(iconSvg(PANEL_ICONS.refresh, 12), '刷新会话列表')
-  refreshBtn.addEventListener('click', () => post({ type: 'sessionsRefresh' }))
-  header.appendChild(refreshBtn)
-  // 折叠/展开切换（仿 VSCode 的 ⊞/⊟）：有可展开的组就显示 ⊟（点击全部折叠）；
-  // 全部折叠时显示 ⊞（点击全部展开）。空组恒闭合、不可展开，不参与判定。
-  const expandable = snap?.workspaces.filter((w) => w.sessions.length > 0) ?? []
-  const allCollapsed =
-    expandable.length > 0 && expandable.every((w) => snap?.collapsed.includes(w.workspaceId) ?? false)
-  const collapseAllBtn = panelTool(
-    iconSvg(allCollapsed ? PANEL_ICONS.boxedPlus : PANEL_ICONS.boxedMinus),
-    allCollapsed ? '展开所有工作区' : '折叠所有工作区',
-  )
-  collapseAllBtn.addEventListener('click', () =>
-    post({ type: allCollapsed ? 'workspacesExpandAll' : 'workspacesCollapseAll' }),
-  )
-  header.appendChild(collapseAllBtn)
-  // + 号开菜单（dsh web 模式）：添加已有文件夹 / 创建工作区。
-  const addBtn = panelTool(iconSvg(PANEL_ICONS.plus, 14), '添加工作区')
-  addBtn.addEventListener('click', () => {
-    const body = el('div')
-    body.appendChild(
-      menuItem('添加已有文件夹…', {
-        icon: iconSvg(PANEL_ICONS.folderOpen),
-        onClick: () => {
-          closePopover()
-          post({ type: 'workspaceAdd' })
-        },
-      }),
-    )
-    body.appendChild(
-      menuItem('创建工作区…', {
-        icon: iconSvg(PANEL_ICONS.plus),
-        onClick: () => {
-          closePopover()
-          post({ type: 'workspaceCreate' })
-        },
-      }),
-    )
-    showPopover(addBtn, body, 'below')
-  })
-  header.appendChild(addBtn)
-  sessionsPanel.appendChild(header)
-
-  const list = el('div', 'sessions-list')
-  if (!snap) {
-    list.appendChild(el('div', 'sessions-empty', '加载中…'))
-  } else if (snap.serverState !== 'running') {
-    list.appendChild(renderServerEmpty(snap))
-  } else if (snap.workspaces.length === 0) {
-    // 搜索激活时 buildSessionTree 会丢弃无匹配的 workspace，此时即"无结果"。
-    const hint = snap.query ? `没有匹配「${snap.query}」的会话。` : '暂无工作区。点击上方 + 添加已有文件夹或创建工作区。'
-    const box = el('div', 'sessions-empty')
-    box.appendChild(el('div', 'empty-hint', hint))
-    list.appendChild(box)
-  } else {
-    for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
-  }
-  sessionsPanel.appendChild(list)
-
-  if (searchFocused) {
-    search.focus()
-    if (searchSel) search.setSelectionRange(searchSel.start, searchSel.end)
-  }
-}
-
-/** 服务未运行时的面板空态：安装引导（dshNotFound）或启动按钮。 */
-function renderServerEmpty(snap: SessionsSnapshot): HTMLElement {
-  const box = el('div', 'sessions-empty')
-  if (snap.dshNotFound) {
-    box.appendChild(el('div', 'empty-title', '未检测到 dsh 安装'))
-    box.appendChild(el('div', 'empty-hint', '安装完成后回到这里即可自动启动。'))
-    const btn = buttonEl(undefined, '查看安装指南')
-    btn.addEventListener('click', () => post({ type: 'openInstallPage' }))
-    box.appendChild(btn)
-    return box
-  }
-  if (snap.serverState === 'starting') {
-    box.appendChild(el('div', 'empty-hint', '正在启动 dsh 服务…'))
-    return box
-  }
-  box.appendChild(el('div', 'empty-hint', 'dsh 服务未运行，暂无会话。'))
-  const btn = buttonEl(undefined, '启动 dsh 服务')
-  btn.addEventListener('click', () => post({ type: 'serverStart' }))
-  box.appendChild(btn)
-  return box
-}
-
-function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
-  const group = el('div', 'workspace-group')
-  // 组元素记下 workspaceId，syncSessionHighlight 凭它回查模型（折叠组没有
-  // 渲染会话行，不能只靠 DOM 找 .active）。
-  group.dataset.workspaceId = w.workspaceId
-  // 「未分组」虚拟组：无路径、不能新建会话/打开终端与文件夹（对齐 dsh web，
-  // 组头只有折叠交互），只保留折叠。
-  const ungrouped = w.workspaceId === UNGROUPED_WORKSPACE_ID
-  // 空组没有任何会话，恒按闭合态渲染：闭合文件夹图标、无 expanded 类，
-  // hover 三角也不出现（.workspace-row.empty 的 CSS 规则），点击行头不响应。
-  const empty = w.sessions.length === 0
-  const collapsed = empty || (sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false)
-  const head = el('div', collapsed ? 'workspace-row' : 'workspace-row expanded')
-  if (empty) head.classList.add('empty')
-  // 附着会话落在本组时文件夹图标染蓝（dsh web 同款标识），折叠组也生效；
-  // 此后随 ChatState 的同步由 syncSessionHighlight 负责，不走面板重建。
-  head.classList.toggle('has-active', w.sessions.some((s) => s.sessionId === state?.sessionId))
-  head.title = ungrouped ? '不属于任何工作区的会话' : w.path
-  // 行首图标槽（dsh web 分组行模式）：默认文件夹（折叠=闭合/展开=打开），
-  // hover 时 CSS 切换成实心三角，展开态三角 rotate(90deg)。
-  const folderIcon = el('span', 'ws-folder')
-  folderIcon.appendChild(iconSvg(collapsed ? PANEL_ICONS.folder : PANEL_ICONS.folderOpen))
-  head.appendChild(folderIcon)
-  const arrow = el('span', 'ws-arrow')
-  arrow.appendChild(iconSvg(PANEL_ICONS.triangle))
-  head.appendChild(arrow)
-  head.appendChild(el('span', 'workspace-label', w.label))
-  if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', 'vscode'))
-  if (!ungrouped) {
-    const headActions = el('span', 'row-actions')
-    headActions.appendChild(
-      rowAction(iconSvg(PANEL_ICONS.plus), '新建会话', () => post({ type: 'sessionNew', workspaceId: w.workspaceId })),
-    )
-    headActions.appendChild(
-      rowAction(iconSvg(PANEL_ICONS.terminal), '在终端中打开', () =>
-        post({ type: 'workspaceOpenTerminal', path: w.path }),
-      ),
-    )
-    // 当前文件夹已在 VSCode 里打开，只有其他 workspace 需要"打开文件夹"。
-    if (!w.isCurrent) {
-      headActions.appendChild(
-        rowAction(iconSvg(PANEL_ICONS.folderOpen), '在 VSCode 中打开文件夹', () =>
-          post({ type: 'workspaceOpenFolder', path: w.path }),
-        ),
-      )
-    }
-    // 软移除（dsh web 同款）：只删注册表记录，确认弹窗在 host 侧。
-    headActions.appendChild(
-      rowAction(iconSvg(PANEL_ICONS.remove), '从列表移除', () =>
-        post({ type: 'workspaceRemove', workspaceId: w.workspaceId, label: w.label }),
-      ),
-    )
-    head.appendChild(headActions)
-  }
-  // 整行点击 = 折叠/展开（行内按钮已 stopPropagation）；空组无可展开内容，不响应。
-  if (!empty) {
-    head.addEventListener('click', () =>
-      post({ type: 'workspaceCollapse', workspaceId: w.workspaceId, collapsed: !collapsed }),
-    )
-  }
-  group.appendChild(head)
-  if (!collapsed) for (const s of w.sessions) group.appendChild(renderSessionRow(s))
-  return group
-}
-
-function renderSessionRow(s: SessionNodeModel): HTMLElement {
-  const row = el('div', 'session-row')
-  row.dataset.sessionId = s.sessionId
-  if (state?.sessionId === s.sessionId) row.classList.add('active')
-  row.title = s.label
-  const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
-  // 行首状态槽对齐官方 dsh web：固定宽度，四种标记同一位置居中——
-  // 待交互黄点 > 运行中像素环 > 已完成/未读绿点 > 置顶图钉（官方语义：pending
-  // interaction is primary，live activity outranks completion reminders）；
-  // 组合状态下被挤掉的图钉退到标题前。
-  // 忙碌判定并入「有运行中后代」：父会话挂载等待子代理时自身是 idle，
-  // 但整组仍在活动（host 的 running 不含子代理相位）。
-  const busy = s.running || s.descendantRunning
-  const slot = el('span', 'session-status')
-  const slotTaken = s.pendingInteraction !== undefined || busy || s.unread
-  if (s.pendingInteraction !== undefined) {
-    const dot = el('span', 'session-dot warning')
-    // 文案对齐官方 status.waitingApproval / status.planReview / status.waitingAnswer。
-    dot.title =
-      s.pendingInteraction === 'approval'
-        ? '等待审批'
-        : s.pendingInteraction === 'plan-review'
-          ? '计划待审'
-          : '等待回答'
-    slot.appendChild(dot)
-  } else if (busy) slot.appendChild(spinSvg())
-  else if (s.unread) slot.appendChild(el('span', 'session-dot completed'))
-  else if (pinned) slot.appendChild(makePinIcon())
-  row.appendChild(slot)
-  const main = el('span', 'session-main')
-  if (pinned && slotTaken) {
-    const pin = el('span', 'session-pin')
-    pin.appendChild(makePinIcon())
-    main.appendChild(pin)
-  }
-  main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title', s.label))
-  main.appendChild(el('span', 'session-time', s.description))
-  row.appendChild(main)
-  // dsh web 会话行模式：hover 只出一个 ⋯ 按钮，点击在按钮下方开会话菜单。
-  const actions = el('span', 'row-actions')
-  const more = rowAction(iconSvg(PANEL_ICONS.ellipsis), '更多操作', () => {
-    showPopover(more, buildSessionMenuBody(s), 'below')
-    markMenuRow(row)
-  })
-  actions.appendChild(more)
-  row.appendChild(actions)
-  row.addEventListener('click', () => post({ type: 'sessionOpen', sessionId: s.sessionId }))
-  row.addEventListener('contextmenu', (e) => {
-    // 拦掉浏览器原生 Cut/Copy/Paste 菜单，弹坐标定位的同一个会话菜单。
-    e.preventDefault()
-    showPopoverAt(e.clientX, e.clientY, buildSessionMenuBody(s))
-    markMenuRow(row)
-  })
-  return row
-}
-
-/** 会话菜单内容（⋯ 按钮与右键菜单共用）：重命名 / 置顶 / 标为未读 / 分叉会话 / 复制引用 / 复制会话 ID / 归档会话。 */
-function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
-  const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
-  const body = el('div')
-  body.appendChild(
-    menuItem('重命名', {
-      icon: iconSvg(PANEL_ICONS.edit),
-      onClick: () => {
-        closePopover()
-        post({ type: 'sessionRename', sessionId: s.sessionId, title: s.label })
-      },
-    }),
-  )
-  body.appendChild(
-    menuItem(pinned ? '取消置顶' : '置顶', {
-      icon: strokeSvg(PIN_ICON),
-      checked: pinned,
-      onClick: () => {
-        closePopover()
-        post({ type: 'sessionPin', sessionId: s.sessionId, pin: !pinned })
-      },
-    }),
-  )
-  body.appendChild(
-    menuItem(s.unread ? '标为已读' : '标为未读', {
-      icon: strokeSvg(UNREAD_ICON),
-      checked: s.unread,
-      onClick: () => {
-        closePopover()
-        post({ type: 'sessionUnread', sessionId: s.sessionId, unread: !s.unread })
-      },
-    }),
-  )
-  body.appendChild(
-    menuItem('分叉会话', {
-      icon: iconSvg(MESSAGE_ACTION_ICONS.branch),
-      onClick: () => {
-        closePopover()
-        post({ type: 'sessionFork', sessionId: s.sessionId })
-      },
-    }),
-  )
-  body.appendChild(
-    menuItem('复制引用', {
-      icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
-      onClick: () => {
-        closePopover()
-        post({ type: 'sessionCopyReference', sessionId: s.sessionId, title: s.label })
-      },
-    }),
-  )
-  body.appendChild(
-    menuItem('复制会话 ID', {
-      icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
-      onClick: () => {
-        closePopover()
-        post({ type: 'sessionCopyId', sessionId: s.sessionId })
-      },
-    }),
-  )
-  body.appendChild(
-    menuItem('归档会话', {
-      icon: iconSvg(PANEL_ICONS.archive),
-      onClick: () => {
-        closePopover()
-        post({ type: 'sessionArchive', sessionId: s.sessionId, title: s.label })
-      },
-    }),
-  )
-  return body
-}
-
-/** 只切换 .active 高亮与所在组的蓝色文件夹图标，不重建面板（render() 每次快照都会调用）。 */
-function syncSessionHighlight(): void {
-  const currentId = state?.sessionId ?? null
-  sessionsPanel.querySelectorAll<HTMLElement>('.session-row').forEach((rowEl) => {
-    rowEl.classList.toggle('active', rowEl.dataset.sessionId === currentId)
-  })
-  // 折叠组没有渲染会话行，凭组元素上的 workspaceId 回查快照模型判定。
-  sessionsPanel.querySelectorAll<HTMLElement>('.workspace-group').forEach((groupEl) => {
-    const w = sessionsSnapshot?.workspaces.find((ws) => ws.workspaceId === groupEl.dataset.workspaceId)
-    const hasActive = w?.sessions.some((s) => s.sessionId === currentId) ?? false
-    groupEl.querySelector('.workspace-row')?.classList.toggle('has-active', hasActive)
-  })
-}
-
-renderSessions()
 
 function contextLabel(kind: string): string {
   if (kind === 'agent-instructions' || kind === 'legacy-instructions') return '工作区指令'
