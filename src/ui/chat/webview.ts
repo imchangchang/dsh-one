@@ -1084,16 +1084,18 @@ function openSubagentMenu(anchor: HTMLElement): void {
   const subs = state?.subagents
   if (!subs || subs.length === 0) return
   const body = el('div')
-  for (const sub of subs) appendSubagentRow(body, sub, 0)
+  for (const sub of subs) appendSubagentRow(body, sub)
   // 锚点在头部，向下展开。
   showPopover(anchor, body, 'below')
 }
 
-/** 递归渲染一个子代理节点及其全体后代（children），`depth` 控制缩进层级。 */
-function appendSubagentRow(container: HTMLElement, sub: SubagentNode, depth: number): void {
+/** 递归渲染一个子代理节点及其全体后代（children）：每个节点包一层
+ * .subagent-node，后代装进 .subagent-children 嵌套容器——缩进与层级引导线
+ * （竖轨 + 横向支线，对齐 dsh web SubagentHeader 成员树）都由容器承担，
+ * 行本身不再按 depth 算绝对 padding。 */
+function appendSubagentRow(container: HTMLElement, sub: SubagentNode): void {
+  const node = el('div', 'subagent-node')
   const item = el('div', 'menu-item preset-item')
-  // 每级 16px 缩进（对齐 dsh web 阶段/成员列表的缩进节奏），首层不缩。
-  if (depth > 0) item.style.paddingLeft = `${depth * 16}px`
   const slot = el('span', 'job-dot-slot')
   if (sub.running) slot.appendChild(spinSvg())
   else slot.appendChild(el('span', 'job-dot settled-dot'))
@@ -1113,9 +1115,15 @@ function appendSubagentRow(container: HTMLElement, sub: SubagentNode, depth: num
     closePopover()
     post({ type: 'sessionOpen', sessionId: sub.sessionId })
   })
-  container.appendChild(item)
-  // 递归挂后代：孙一辈及以下逐级缩进。
-  for (const child of sub.children ?? []) appendSubagentRow(container, child, depth + 1)
+  node.appendChild(item)
+  container.appendChild(node)
+  // 后代挂进嵌套容器：每层 16px 相对缩进 + 引导线，层级一眼可辨。
+  const kids = sub.children ?? []
+  if (kids.length > 0) {
+    const childWrap = el('div', 'subagent-children')
+    for (const child of kids) appendSubagentRow(childWrap, child)
+    node.appendChild(childWrap)
+  }
 }
 
 /** 该子代理的血缘树里是否有任一节点在跑（含孙一辈及以下）。 */
