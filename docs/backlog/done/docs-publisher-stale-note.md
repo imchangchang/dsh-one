@@ -20,3 +20,9 @@
 - `docs/development.md`（发版流程第一节）
 
 - 2026-09-01 认领 → doing（并行开发 session）
+- 2026-09-01 开发完成，自测通过（typecheck + test + build 全绿）→ done
+
+## 开发完成
+
+- 改动：`docs/development.md` 发版流程第 1 步由「改 publisher：`dsh-one` 是占位、发布前必须改成你的 publisher ID」改为「确认 publisher：`"publisher"` 应是你要发布的 marketplace 账号（现为 `cgeng`），发布前确认即可，无需修改」。`package.json` 的 publisher 已是 `cgeng`（2026-08-31 定下）。
+- 人工验收方法：纯文档改动，无 UI。验收 = 在合并后的主线执行 `grep -n "publisher" docs/development.md`，发版流程第 1 步不再出现 `dsh-one` 占位或「必须改成你的 publisher ID」的说法，而是「确认 publisher…现为 `cgeng`」。可顺带 `grep -n '"publisher"' package.json` 确认值为 `cgeng`。
