@@ -22,7 +22,7 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 1. 认领 backlog 条目：`git mv docs/backlog/open/<条目>.md docs/backlog/doing/`，文件末尾追加变更记录（见 backlog-folder-index）。
 2. `scripts/dev-start.sh <任务名>`——任意位置跑：建 worktree + 分支 + 装依赖。
 3. `cd .worktrees/<slug>` 进去开发，高频小提交。
-4. UI 类改动：`scripts/dev-ui-test.sh`——构建 dist 后起该 worktree 专属的隔离 VSCode 实例（设置/扩展隔离在 `/tmp/dsh-uidev/<slug>/`，不碰日常 VSCode），人工验证渲染与交互没问题再继续；纯逻辑改动可跳过。**视觉验收是合入前的强制 gate**：headless 的开发子代理开不了 GUI，这一步由「人工」在 dev-finish 之后、dev-merge 之前执行（`dev-finish` 只代表自测通过，`done → closed` 最终以人工窗口验收通过为前提），避免「合入主线才发现问题再打回」。
+4. UI 类改动：`scripts/dev-ui-test.sh`——构建 dist 后起该 worktree 专属的隔离 VSCode 实例（设置/扩展隔离在 `/tmp/dsh-uidev/<slug>/`，不碰日常 VSCode），人工验证渲染与交互没问题再继续；纯逻辑改动可跳过。**视觉验收是合入前的强制 gate**：这一步由「人工」在 dev-finish 之后、dev-merge 之前执行（`dev-finish` 只代表自测通过，`done → closed` 最终以人工窗口验收通过为前提），避免「合入主线才发现问题再打回」。**headless 的代理（开发子代理/后台会话）起不了 GUI：`code` 命令会静默返回 exit 0 但窗口不弹出、`/tmp/dsh-uidev/<slug>/user-data` 不生、`ps` 也常被沙箱挡，别自己试**。这一步直接把命令丢给用户本人，在真实终端跑，等验收结果回传再继续。
 5. `scripts/dev-finish.sh`——worktree 里跑：检查已提交 → 自测 → 打 `done/<slug>` 标记；随后 backlog 条目 `doing → done`（git mv + 追加变更记录）。
 
 **到此为止**：不跑 dev-merge、不合入主线，那是主线 agent 的活。
@@ -58,8 +58,9 @@ rebase 有冲突时：进 worktree 解决 → 重跑 `dev-finish.sh`（backlog �
 
 - `dev-merge.sh` 的校验会拒绝：缺 done 标记、done 标记不在分支最新提交上（rebase/新提交后没重跑 dev-finish）、主线有未提交改动。遇到拒绝按提示处理，不要绕过校验手动 merge。
 - `dev-ui-test.sh` 的窗口闪退/起不来：先查 `--user-data-dir` 路径长度——VSCode 的 IPC socket（`<user-data-dir>/1.x-main.sock`）超 103 字符会 `listen EINVAL`、主进程启动即退（表现是 Dock 图标出现又消失）。脚本已把隔离目录放在短路径 `/tmp/dsh-uidev/<slug>/`；长 slug 更容易踩这个，别把 user-data-dir 放回 worktree 里的长路径。
+- **worktree 里的 `scripts/` 是建分支那个时间点的快照**：skill 后来新增或改过的脚本（如 `dev-ui-test.sh`）不会自动出现在既有 worktree 里，worktree 自带的 `dev-merge.sh` 也可能是旧版。跑新版脚本时**用主线的路径、cwd 留在 worktree 内**：`bash <main>/scripts/dev-ui-test.sh`（脚本靠 `git rev-parse --show-toplevel` 定位当前 worktree，脚本路径可以和 cwd 分离）。别在 worktree 里直接 `scripts/dev-ui-test.sh` 而期望它是新版。
 - 测试产物别污染主线：手动测试/复现命令生成的临时文件（测试数据、diff 样例、临时脚本等）写到 `$TMPDIR` 或 `/tmp`、worktree 的 `.dev-host/`，不要落在 main 仓库根目录——主线出现 untracked 文件会挡 `dev-merge.sh` 校验，也污染仓库。
-- 四个脚本是参考实现（来自一个 Node/TypeScript 项目），逻辑通用，但只有安装/自测命令是项目相关的。
+- 五个脚本是参考实现（来自一个 Node/TypeScript 项目），逻辑通用，但只有安装/自测命令是项目相关的。
 
 ## 复用这个 skill 本身
 
