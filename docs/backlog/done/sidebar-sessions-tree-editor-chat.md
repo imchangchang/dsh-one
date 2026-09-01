@@ -73,3 +73,4 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - 2026-09-01 验收打回（done → doing）：chat 面板默认右侧一列（ViewColumn.Beside），用户要求默认占满编辑区；改 openPanel() 默认 ViewColumn.Active。
 - 2026-09-01 开发完成（doing → done）：openPanel() 默认改 ViewColumn.Active（当前活动编辑器列、占满该列宽）；无面板位置配置项需同步。
 - 2026-09-01 验收打回（done → doing）：搜索增强——① 搜索输入后命中组默认展开（query 非空时命中组强制展开、忽略折叠状态；清空后恢复）；② 会话内容全文搜索。后确认 dsh 无全文搜索接口，用户取消内容搜索，仅保留需求①。
+- 2026-09-01 开发完成（doing → done）：搜索输入后命中组默认展开（query 非空强制展开、清空恢复原折叠状态），折叠全部按钮与展示态自洽；内容全文搜索不做。
