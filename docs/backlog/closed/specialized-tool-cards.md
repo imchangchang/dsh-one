@@ -25,6 +25,7 @@ dsh-one `renderTool`（webview.ts:2790）所有工具一律通用行（图标 + 
 - 2026-09-01 认领 → doing（并行开发 session）
 - 2026-09-01 开发完成 → done（worktree: agent/specialized-tool-cards）
 - 2026-09-01 修复：流式输出时展开区内部滚动位置保持（14a0ca6）
+- 2026-09-02 主线合入测试通过，人工验收通过 → closed（merge 1a94189）
 
 ## 开发完成（2026-09-01）
 
