@@ -513,7 +513,7 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   const arrow = el('span', 'ws-arrow')
   arrow.appendChild(iconSvg(PANEL_ICONS.triangle))
   head.appendChild(arrow)
-  head.appendChild(el('span', 'workspace-label', w.label))
+  head.appendChild(el('span', 'workspace-label')).appendChild(highlightText(w.label))
   if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', 'vscode'))
   if (!ungrouped) {
     const headActions = el('span', 'row-actions')
@@ -584,7 +584,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
     pin.appendChild(makePinIcon())
     main.appendChild(pin)
   }
-  main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title', s.label))
+  main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title')).appendChild(highlightText(s.label))
   main.appendChild(el('span', 'session-time', s.description))
   row.appendChild(main)
   const actions = el('span', 'row-actions')
@@ -609,30 +609,33 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
  */
 function renderContentSnippet(sessionId: string, snippet: string): HTMLElement {
   const block = el('div', 'session-snippet')
-  block.appendChild(highlightSnippet(snippet))
+  block.appendChild(highlightText(snippet))
   block.addEventListener('click', () => post({ type: 'sessionOpen', sessionId }))
   return block
 }
 
-/** 用当前 query 在 snippet 里定位首个（大小写不敏感）命中并包 <mark> 高亮。 */
-function highlightSnippet(snippet: string): HTMLElement {
-  const span = el('span', 'session-snippet-text')
+/**
+ * 用当前 query 定位 text 里的首个（大小写不敏感）命中词并包 <mark class="dsh-mark">
+ * 高亮；query 为空或无命中则原样。返回一个无 class 的 span，供标题/组名/片段复用。
+ */
+function highlightText(text: string): HTMLElement {
+  const span = el('span')
   const qRaw = sessionsSnapshot?.query
   const q = typeof qRaw === 'string' ? qRaw.trim().toLowerCase() : ''
   if (!q) {
-    span.textContent = snippet
+    span.textContent = text
     return span
   }
-  const idx = snippet.toLowerCase().indexOf(q)
+  const idx = text.toLowerCase().indexOf(q)
   if (idx < 0) {
-    span.textContent = snippet
+    span.textContent = text
     return span
   }
-  if (idx > 0) span.appendChild(document.createTextNode(snippet.slice(0, idx)))
+  if (idx > 0) span.appendChild(document.createTextNode(text.slice(0, idx)))
   const mark = el('mark', 'dsh-mark')
-  mark.textContent = snippet.slice(idx, idx + q.length)
+  mark.textContent = text.slice(idx, idx + q.length)
   span.appendChild(mark)
-  if (idx + q.length < snippet.length) span.appendChild(document.createTextNode(snippet.slice(idx + q.length)))
+  if (idx + q.length < text.length) span.appendChild(document.createTextNode(text.slice(idx + q.length)))
   return span
 }
 

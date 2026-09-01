@@ -158,8 +158,11 @@ const SESSIONS_STYLE = `
     word-break: break-word; cursor: pointer; border-radius: 4px;
   }
   .session-snippet:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  /* 命中关键词高亮：加粗 + 变色（无底色，用户要求"加底色不好看"）。 */
-  .session-snippet .dsh-mark {
+  /* 命中关键词高亮：加粗 + 变色（无底色，用户要求"加底色不好看"）。对内容片段、
+     会话行标题、workspace 组名三处统一生效。 */
+  .session-snippet .dsh-mark,
+  .session-title .dsh-mark,
+  .workspace-label .dsh-mark {
     font-weight: 600; color: var(--vscode-charts-blue, #5686fe); background: none;
   }
   /* 内容搜索结果超过 20 条的底部轻提示（非交互）。 */
