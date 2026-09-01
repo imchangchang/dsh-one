@@ -19,3 +19,4 @@ dsh web 的 markdown 代码块有行数折叠（「展开其余 N 行」）和�
 - `src/ui/chat/webview.ts`（markdown 代码块渲染）
 - 2026-09-01 认领（worktree: agent/code-block-collapse-copy）→ doing
 - 2026-09-01 开发完成 → done
+- 2026-09-01 主线合入测试通过、人工确认 → closed
