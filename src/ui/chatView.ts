@@ -707,6 +707,30 @@ const STYLE = `
   .msg-actions .icon-action:disabled { cursor: default; opacity: 0.4; }
   .msg-actions .icon-action.active { color: var(--vscode-foreground, #ccc); }
   .msg-actions .icon-action svg { display: block; }
+  .produced-files {
+    display: grid; grid-template-columns: max-content minmax(0, 1fr);
+    align-items: center; gap: 6px 8px; margin-top: 10px;
+    font-size: 13px; line-height: 22px;
+  }
+  .produced-label { color: var(--vscode-descriptionForeground, #888); grid-area: 1/1; }
+  .produced-lane {
+    grid-area: 1/2; display: flex; align-items: center; gap: 8px;
+    min-width: 0; overflow: hidden; flex-wrap: nowrap;
+  }
+  .produced-file {
+    flex: none; max-width: 320px; margin: 0; padding: 0 8px;
+    border: none; border-radius: 6px; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.17));
+    color: var(--vscode-descriptionForeground, #aaa); font: inherit; cursor: pointer;
+    text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
+  }
+  .produced-file:hover { color: var(--vscode-foreground, #ccc); text-decoration: underline; }
+  .produced-more { flex: none; white-space: nowrap; color: var(--vscode-descriptionForeground, #888); }
+  .produced-open-folder {
+    grid-area: 2/2; justify-self: start; margin: 0; padding: 0 2px; line-height: 20px;
+    border: none; border-radius: 4px; background: transparent; font: inherit; cursor: pointer;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .produced-open-folder:hover { color: var(--vscode-descriptionForeground, #bbb); text-decoration: underline; }
   /* Pending 接管面板（approval/question/plan-review 挂 composer 区，对齐 dsh
      web QuestionFlow / PlanReviewPanel）：容器占输入区位置，一个 pending 一块。 */
   .pending-panel {
@@ -1712,6 +1736,36 @@ export class ChatViewProvider implements vscode.Disposable {
         case 'fork':
           await this.forkAt(controller, m.atSeq)
           return
+        case 'producedOpenFile': {
+          // 产物 chip 点击：在 VSCode 编辑器打开该文件（任意绝对路径）。
+          const path = typeof m.path === 'string' ? m.path : ''
+          if (!path) return
+          try {
+            await vscode.window.showTextDocument(vscode.Uri.file(path))
+          } catch (err) {
+            this.logger.warn(`chat: producedOpenFile(${path}) failed — ${err instanceof Error ? err.message : err}`)
+            vscode.window.showErrorMessage(`无法打开产物文件：${path}`)
+          }
+          return
+        }
+        case 'producedOpenFolder': {
+          // 「在 VSCode 中打开」：产物所在文件夹已在当前工作区内 → 切到资源
+          // 管理器定位；未打开 → 切换 VSCode 工作区到该文件夹（打开即展示）。
+          const path = typeof m.path === 'string' ? m.path : ''
+          if (!path) return
+          try {
+            const uri = vscode.Uri.file(path)
+            if (vscode.workspace.getWorkspaceFolder(uri) !== undefined) {
+              await vscode.commands.executeCommand('revealInExplorer', uri)
+            } else {
+              await vscode.commands.executeCommand('vscode.openFolder', uri)
+            }
+          } catch (err) {
+            this.logger.warn(`chat: producedOpenFolder(${path}) failed — ${err instanceof Error ? err.message : err}`)
+            vscode.window.showErrorMessage(`无法打开产物文件夹：${path}`)
+          }
+          return
+        }
         case 'loadEarlier':
           await controller.loadEarlier()
           return

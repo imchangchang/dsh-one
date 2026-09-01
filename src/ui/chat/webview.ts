@@ -52,6 +52,7 @@ import {
 import { subagentInTree, subagentIdFromOutput } from '../../pure/subagentCard.ts'
 import { codeBlockPreview } from '../../pure/codeBlock.ts'
 import { alignDiffLines } from '../../pure/diffAlign.ts'
+import { producedBasename, producedFolderOf } from '../../pure/producedFiles.ts'
 import {
   formatJobDuration,
   isLiveJob,
@@ -2656,6 +2657,10 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
   if (m.interrupted) row.appendChild(el('div', 'interrupted', '已中断'))
   if (m.turnError) row.appendChild(renderTurnError(m.turnError))
+  // 产物行（对齐 dsh web ProducedFiles 的 turn-tail 槽位）：在操作栏之前。
+  if (m.producedFiles && m.producedFiles.length > 0) {
+    row.appendChild(renderProducedFiles(m.producedFiles))
+  }
   // Copy/feedback/fork attach only to the turn's final message (turnEnd): a
   // turn split by mid-turn injected user/messages folds into several complete
   // messages, and the bar must not repeat on each. Also meaningless on an
@@ -2818,6 +2823,45 @@ function assistantText(m: ChatAssistantMessage): string {
     .map((b) => (b as { text: string }).text)
     .filter(Boolean)
     .join('\n\n')
+}
+
+/** 最多六个 chip 竞争一行展示；其余路径只保留在计数里（对齐官方 SHOWN_LIMIT）。 */
+const PRODUCED_SHOWN_LIMIT = 6
+
+/**
+ * 产物行（对齐 dsh web ProducedFiles）：label + 最多 6 个文件 chip
+ * （点击在 VSCode 编辑器打开该文件）+ 多余折叠成「+N 个文件」+
+ * 「在 VSCode 中打开」按钮（打开产物所在文件夹：工作区已打开时切到
+ * 资源管理器定位，未打开时切换工作区）。官方 web 的宽度自适应测量在
+ * 这里简化为固定上限；按钮在 web 只在折叠出现时渲染，dsh-one 的
+ * 「打开文件夹」语义对任意数量都有用，恒渲染（无父目录的裸文件名
+ * 除外——没有文件夹可开）。
+ */
+function renderProducedFiles(paths: string[]): HTMLElement {
+  const row = el('div', 'produced-files')
+  row.appendChild(el('span', 'produced-label', '产物'))
+  const lane = el('div', 'produced-lane')
+  const shown = paths.slice(0, PRODUCED_SHOWN_LIMIT)
+  for (const path of shown) {
+    const chip = el('button', 'produced-file') as HTMLButtonElement
+    chip.type = 'button'
+    chip.title = path
+    chip.textContent = producedBasename(path)
+    chip.addEventListener('click', () => post({ type: 'producedOpenFile', path }))
+    lane.appendChild(chip)
+  }
+  const hidden = paths.length - shown.length
+  if (hidden > 0) lane.appendChild(el('span', 'produced-more', `+ ${hidden} 个文件`))
+  row.appendChild(lane)
+  const folder = producedFolderOf(paths)
+  if (folder !== undefined) {
+    const open = el('button', 'produced-open-folder') as HTMLButtonElement
+    open.type = 'button'
+    open.textContent = '在 VSCode 中打开'
+    open.addEventListener('click', () => post({ type: 'producedOpenFolder', path: folder }))
+    row.appendChild(open)
+  }
+  return row
 }
 
 /** Action row under a completed assistant message: copy / feedback / fork. */
