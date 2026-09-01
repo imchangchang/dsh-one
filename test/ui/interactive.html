@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH One — chat webview 可交互 mock 后台</title>
+<link rel="stylesheet" href="/test/ui/style.css">
+<style>body { margin: 0; font-family: sans-serif; } #app { min-height: 100vh; }</style>
+</head>
+<body>
+<div id="app"></div>
+
+<!-- mock 宿主 API：把所有发回宿主的动作转发给 mockHost.onMessage -->
+<script>window.acquireVsCodeApi = function () { return { postMessage: function (msg) { mockHost.onMessage(msg) } } }</script>
+
+<script src="/dist/chatWebview.js"></script>
+
+<script>
+  // ============================ 可交互 mock 后台 ============================
+  // 维护一份 mock 的 SessionsSnapshot + 每会话独立 ChatState，接住 webview 发上来的动作
+  // （send/stop/sessionOpen/setModel/loadEarlier/sessionsSearch…），改状态后把
+  // state/sessions 快照推回去。等价于真实宿主 chatView.ts 的行为，但不连 dsh、不跑 Node。
+  const mockHost = (() => {
+    const rid = (p) => p + Math.random().toString(36).slice(2, 7)
+    const UNGROUPED = '__ungrouped__'
+
+    const u = (text) => ({ kind: 'user', id: rid('u'), text })
+    const toolBlock = (over) => ({ type: 'tool', callId: rid('t'), name: 'bash', status: 'done', title: 'bash', detail: 'npm test', output: '7 passed, 0 failed', ...over })
+
+    function session(id, title, preset, messages) {
+      return { sessionId: id, sessionTitle: title, presetLabel: preset, modelLabel: 'DeepSeek-V4-Flash High', messages }
+    }
+    function aText(text, extra) { return { kind: 'assistant', id: rid('a'), complete: true, turnEnd: true, blocks: [{ type: 'text', text }, ...(extra || [])] } }
+
+    const store = [
+      session('sess-1', 'DSH One 示例会话', '标准模式', [
+        u('你帮我看看这个插件的架构，总结一下核心思路。'),
+        aText('这个插件是 **dsh 与 VSCode 的桥接**：定位本机 dsh，从 VSCode 启动或复用 dsh web 服务。'),
+      ]),
+      session('sess-2', '重构 sessionStore', '深度思考', [
+        u('把 store 改成 immutable 吧。'),
+        aText('可以。把派生状态集中到 reducer，避免多处直接改 store 后渲染不一致。', [toolBlock({ detail: 'src/pure/sessionTree.ts' })]),
+      ]),
+    ]
+    const byId = Object.fromEntries(store.map((s) => [s.sessionId, s]))
+
+    const wsMain = { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true, sessions: ['sess-1', 'sess-2'] }
+    const wsUn = { workspaceId: UNGROUPED, path: '', label: '未分组', isCurrent: false, sessions: [] }
+    const snap = { query: null, sortOrder: 'updatedDesc', serverState: 'running', dshNotFound: false, pinned: [], collapsed: [], unread: [] }
+    let currentId = store[0].sessionId
+    const modelCatalog = { current: { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'high' }, groups: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', efforts: [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }], defaultEffort: 'high' }] }] }
+    let streamTimer = null
+
+    const cur = () => byId[currentId]
+
+    function stateOf(s) {
+      return {
+        sessionId: s.sessionId, sessionTitle: s.sessionTitle, messages: s.messages,
+        pending: [], running: !!s._running, canSend: !s._running,
+        modelLabel: s.modelLabel, presetLabel: s.presetLabel, statsLine: `${s.messages.length} 条消息 · 45s`,
+      }
+    }
+    function workspaceViews() {
+      return [wsMain, wsUn].map((w) => ({
+        workspaceId: w.workspaceId, path: w.path, label: w.label,
+        isCurrent: w.sessions.includes(currentId),
+        sessions: w.sessions.map((id) => { const s = byId[id]; return { sessionId: id, label: s.sessionTitle, description: '3 小时前', running: !!s._running, pinned: snap.pinned.includes(id), unread: snap.unread.includes(id), descendantRunning: false } }),
+      }))
+    }
+    const post = (m) => window.postMessage(m, '*')
+    function pushState() { post({ type: 'state', state: stateOf(cur()) }) }
+    function pushSession() { post({ type: 'sessions', snapshot: { ...snap, workspaces: workspaceViews() } }) }
+
+    // 单条 assistant 消息流式：先空文本，逐截增量，末尾追加工具卡 + complete。
+    function startStream(sess, userText) {
+      sess.messages.push(u(userText)); sess._running = true; pushState()
+      const asst = { kind: 'assistant', id: rid('a'), complete: false, blocks: [{ type: 'text', text: '' }] }
+      sess.messages.push(asst)
+      const chunks = ['好的，', '这是 **mock 后台** 的流式回复，', '用来测试 UI 对增量更新、工具卡、', '以及终止处理是否正常。']
+      let i = 0
+      streamTimer = setInterval(() => {
+        i++
+        asst.blocks[0].text = chunks.slice(0, i).join('')
+        pushState()
+        if (i >= chunks.length) {
+          clearInterval(streamTimer); streamTimer = null
+          asst.blocks[0].text = chunks.join('') + '以上就是完整回复。'
+          asst.blocks.push(toolBlock())
+          asst.complete = true; asst.turnEnd = true
+          sess._running = false
+          pushState()
+        }
+      }, 450)
+    }
+
+    const handlers = {
+      send(m) { if (typeof m.text === 'string' && m.text.trim()) startStream(cur(), m.text) },
+      stop() { if (streamTimer) { clearInterval(streamTimer); streamTimer = null; cur()._running = false; const last = cur().messages.at(-1); if (last?.kind === 'assistant') last.complete = true; pushState() } },
+      requestModels() { post({ type: 'modelCatalog', catalog: modelCatalog }) },
+      setModel(m) { modelCatalog.current = { provider: 'deepseek', model: m.model, reasoningEffort: m.reasoningEffort }; cur().modelLabel = m.model; pushState() },
+      sessionOpen(m) { if (byId[m.sessionId]) { currentId = m.sessionId; pushSession(); pushState() } },
+      sessionNew() { const id = rid('sess'); const s = session(id, '新会话', '标准模式', []); byId[id] = s; wsMain.sessions.unshift(id); currentId = id; pushSession(); pushState() },
+      sessionRename(m) { const s = byId[m.sessionId]; if (s) s.sessionTitle = m.title; pushSession() },
+      sessionArchive(m) { delete byId[m.sessionId]; wsMain.sessions = wsMain.sessions.filter((x) => x !== m.sessionId); if (currentId === m.sessionId) currentId = store[0].sessionId; pushSession(); pushState() },
+      sessionsRefresh() { pushSession() },
+      sessionsSearch(m) { snap.query = m.query; pushSession() },
+      sessionsSort(m) { snap.sortOrder = m.order; pushSession() },
+      sessionPin(m) { const i = snap.pinned.indexOf(m.sessionId); if (m.pin && i < 0) snap.pinned.push(m.sessionId); if (!m.pin && i >= 0) snap.pinned.splice(i, 1); pushSession() },
+      sessionUnread(m) { const i = snap.unread.indexOf(m.sessionId); if (m.unread && i < 0) snap.unread.push(m.sessionId); if (!m.unread && i >= 0) snap.unread.splice(i, 1); pushSession() },
+      workspaceCollapse(m) { const i = snap.collapsed.indexOf(m.workspaceId); if (m.collapsed && i < 0) snap.collapsed.push(m.workspaceId); if (!m.collapsed && i >= 0) snap.collapsed.splice(i, 1); pushSession() },
+      serverStart() { snap.serverState = 'running'; pushSession() },
+      loadEarlier() { const s = cur(); s.messages.unshift({ kind: 'user', id: rid('u'), text: '（更早的一条历史）' }); s.messages.unshift({ kind: 'assistant', id: rid('a'), complete: true, blocks: [{ type: 'text', text: '这是历史窗口更早的内容。' }] }); pushState() },
+    }
+
+    function onMessage(msg) { const h = handlers[msg && msg.type]; if (h) h(msg); else console.log('[mock host] unhandled', JSON.stringify(msg)) }
+
+    pushSession(); pushState(); post({ type: 'modelCatalog', catalog: modelCatalog })
+    return { onMessage }
+  })()
+</script>
+</body>
+</html>
