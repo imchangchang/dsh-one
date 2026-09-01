@@ -24,6 +24,7 @@ dsh-one `renderTool`（webview.ts:2790）所有工具一律通用行（图标 + 
 
 - 2026-09-01 认领 → doing（并行开发 session）
 - 2026-09-01 开发完成 → done（worktree: agent/specialized-tool-cards）
+- 2026-09-01 修复：流式输出时展开区内部滚动位置保持（14a0ca6）
 
 ## 开发完成（2026-09-01）
 
@@ -57,6 +58,13 @@ dsh-one `renderTool`（webview.ts:2790）所有工具一律通用行（图标 + 
 
 自测：typecheck + 266 测试 + build 全绿；DOM 断言（WebBridge evaluate）验证 6 场景
 关键元素/层级符合预期。
+
+修复记录（14a0ca6）：用户反馈对话输出时 skill 卡展开的说明指令没法滚动。根因：
+流式快照每帧全量重建消息 DOM，details 展开态有 detailsOpen 持久化，但展开区内部
+滚动容器的 scrollTop 随重建归零。修复：内部滚动容器打 data-scroll-key（skill
+指令卡、cordis 源码段、IN/OUT 卡、工具输出、todo 清单、上下文注入 body），
+render() 重建前存档、重建后恢复，换会话随 detailsOpen 清空。WebBridge 验证
+滚动位置保持 + 46 场景视觉回归无异常。
 
 人工验收方法（dev-ui-test 隔离 VSCode，一条命令）：
 ```
