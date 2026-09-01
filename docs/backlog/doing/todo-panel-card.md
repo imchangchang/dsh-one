@@ -35,3 +35,7 @@ dsh web 输入框上方有一个可折叠的「任务」条（`任务 3 进行�
 - `src/pure/chatContract.ts`
 - `src/ui/chatView.ts`
 - `src/ui/chat/webview.ts`
+
+## 变更记录
+
+- 2026-09-01 认领（worktree: agent/todo-cards）→ doing

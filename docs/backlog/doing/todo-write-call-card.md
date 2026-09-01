@@ -29,3 +29,7 @@ dsh web 聊天流里一次 `todo_write` 工具调用会渲染成任务卡（`更
 - `src/pure/conversation.ts`
 - `src/pure/chatContract.ts`
 - `src/ui/chat/webview.ts`
+
+## 变更记录
+
+- 2026-09-01 认领（worktree: agent/todo-cards）→ doing

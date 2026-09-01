@@ -19,3 +19,7 @@
 
 - `src/ui/chat/webview.ts`（openJobsMenu 弹层、jobsTick）
 - `src/pure/activityTree.ts`（orderJobs/jobsChipLabel 等，可能微调）
+
+## 变更记录
+
+- 2026-09-01 认领（worktree: agent/header-jobs-interaction-polish）→ doing

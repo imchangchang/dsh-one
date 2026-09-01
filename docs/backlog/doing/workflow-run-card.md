@@ -31,3 +31,7 @@ dsh web 聊天流里一个 workflow 运行会渲染成可展开的卡片（如 `
 - `src/server/chatSession.ts`（接入 baseline/live/rebaseline）
 - `src/pure/chatContract.ts`（ChatState.workflowRuns）
 - `src/ui/chat/webview.ts`（卡片渲染 + 折叠状态机）
+
+## 变更记录
+
+- 2026-09-01 认领（worktree: agent/workflow-run-card）→ doing
