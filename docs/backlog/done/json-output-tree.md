@@ -32,3 +32,9 @@ JSON 输出（工具输出等）用 JsonTree 逐节点展开：检测输出为 J
   webview 渲染 + chatView STYLE + gen-ui-harness 抽出；scenarios 加 json-output /
   json-output-expand 两个 dark 视觉场景（后者模拟点箭头展开）。非 JSON 输出保持纯文本，
   现有 conversation/tool 场景无回归。自测 typecheck/test/build 全绿。
+- 2026-09-01 补充（用户拍板：五项决策除「官方复制按钮」外保持现实现）：JSON 树右上角加
+  「复制」按钮——复制整棵树 2 空格 pretty JSON（copyPrettyJson，新增
+  src/pure/jsonTree.ts 的 jsonTreeCopyText + 2 单测）；成功按钮短暂「已复制」（1s 还原）、
+  失败改 title，反馈对齐既有 code-block-copy（md-code-copy）；样式沿用 json-tree 配色 +
+  md-code-copy 的克制按钮。scenarios 加 json-output-copy 场景（monkeypatch clipboard 断言
+  复制内容 + 按钮反馈）。自测 typecheck/test/build 全绿（240 测试）。
