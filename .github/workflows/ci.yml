@@ -7,7 +7,13 @@ on:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # 三平台矩阵：每个 OS 都跑 typecheck + test + build + package + spawn 冒烟，
+      # 覆盖 src/server/ 真正的平台分歧点（Windows dsh.cmd 分派、mac/POSIX detached spawn）。
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,3 +24,25 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm run package
+      # spawnDsh 冒烟：全局装 dsh，再用 detached 启动器跑一次 --version，
+      # 验证 Windows 的 .cmd shim 分派（shell: true）与各平台的 detached spawn。
+      # 先装再跑，顺序固定。
+      - name: Install dsh (spawn smoke)
+        run: npm i -g @deepseek-ai/dsh@next
+      - name: Spawn dsh smoke
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/dsh-smoke.log"
+          rm -f "$LOG"
+          PID="$(node dist/spawnDsh.js dsh "$LOG" --version)"
+          test -n "$PID" || { echo "launcher returned no pid"; exit 1; }
+          echo "spawned dsh pid=$PID"
+          sleep 3
+          if grep -Eq 'v?[0-9]+\.[0-9]+\.[0-9]+|version' "$LOG"; then
+            echo "dsh smoke OK"
+          else
+            echo "dsh produced no version output; log:"
+            cat "$LOG"
+            exit 1
+          fi
