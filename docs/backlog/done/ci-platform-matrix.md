@@ -42,3 +42,5 @@ dsh-one 的平台差异是真实存在的，但集中在 `src/server/` 的进程
 - 2026-09-01 认领（worktree: agent/spawn-dsh-windows-fd）→ doing
 - 2026-09-01 开发完成：`spawnDsh.ts` Windows 分支改用 `stdio:['ignore','pipe','pipe']` 收集 stdout+stderr，子进程退出或兜底 2s 后写盘退；POSIX 分支保持不变；加 `DSH_FORCE_PIPE=1` 注入开关便于任一平台实测 pipe 分支。本地 mac 实测 POSIX 路径（pid + 日志版本）、pipe 路径（pid + 日志版本 + 提前退 <2s）、常驻场景（sleep 10 → 2s 兜底、日志空、退出码 0、detached 子进程存活）。typecheck/test(208)/build 全绿，commit 5a48654；done 标记见 dev-finish → done
 - 2026-09-01 第三轮：pipe 修复后仍 0 字节，定位为 spawnDsh Windows detached+shell 管道问题（功能无碍、诊断日志缺失），单独立条 spawn-dsh-windows-output-pipe。Windows 冒烟改 PowerShell 直跑 dsh --version，mac/ubuntu 保持 spawn 冒烟。待 Windows 冒烟改完 CI 绿后收尾。
+
+- 2026-09-01 收尾（worktree: agent/ci-windows-smoke-direct）：ci.yml「Spawn dsh smoke」按平台拆成两个互斥 step——mac/ubuntu 保持 detached spawn 冒烟（posix 逻辑不动），windows 改 PowerShell 直跑 `dsh --version` 验证「Windows 上 dsh 可用」（`$LASTEXITCODE` 退出码判断，不 grep 输出）。js-yaml 解析通过、typecheck/test/build 全绿，done 标记见 dev-finish。待主线合入并推送后 CI 三平台复跑，Windows 冒烟绿 → 本条目关闭。
