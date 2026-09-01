@@ -158,9 +158,9 @@ const SESSIONS_STYLE = `
     word-break: break-word; cursor: pointer; border-radius: 4px;
   }
   .session-snippet:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  /* 命中关键词高亮：与面板视觉一致的自定义背景（非浏览器默认黄）。 */
+  /* 命中关键词高亮：加粗 + 变色（无底色，用户要求"加底色不好看"）。 */
   .session-snippet .dsh-mark {
-    background: rgba(86, 134, 254, .22); color: inherit; border-radius: 2px; padding: 0 1px;
+    font-weight: 600; color: var(--vscode-charts-blue, #5686fe); background: none;
   }
   /* 内容搜索结果超过 20 条的底部轻提示（非交互）。 */
   .sessions-search-more { padding: 6px 12px; font-size: 11px; opacity: 0.6; }

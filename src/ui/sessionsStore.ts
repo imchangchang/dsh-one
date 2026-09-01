@@ -61,6 +61,8 @@ export interface SessionsStoreSnapshot {
   unread: string[]
   /** 内容搜索是否被 20 条上限截断（展示「还有更多匹配」轻提示用）。 */
   contentSearchHasMore: boolean
+  /** 最近一次内容搜索是否失败（后端索引未启用等）；展示「仅按标题匹配」轻提示。 */
+  contentSearchError: boolean
 }
 
 /**
@@ -91,6 +93,8 @@ export class SessionsStore implements vscode.Disposable {
   private contentHits = new Map<string, string>()
   /** 最近一次内容搜索是否被 20 条上限截断。 */
   private contentSearchHasMore = false
+  /** 最近一次内容搜索是否失败（后端索引未启用等）；true 时展示降级提示。 */
+  private contentSearchError = false
   /** 内容搜索代际：每次 setQuery 递增，回调只认最新代际（丢弃过期响应）。 */
   private searchGeneration = 0
   /**
@@ -223,6 +227,7 @@ export class SessionsStore implements vscode.Disposable {
       collapsed: [...this.collapsed],
       unread: [...this.unread],
       contentSearchHasMore: this.contentSearchHasMore,
+      contentSearchError: this.contentSearchError,
     }
   }
 
@@ -308,6 +313,7 @@ export class SessionsStore implements vscode.Disposable {
     this.searchGeneration += 1
     this.contentHits = new Map()
     this.contentSearchHasMore = false
+    this.contentSearchError = false
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
     void this.runContentSearch()
@@ -315,8 +321,9 @@ export class SessionsStore implements vscode.Disposable {
 
   /**
    * 内容全文搜索（session.search，索引 user/assistant 消息）。
-   * 降级：后端未挂索引/失败时静默回退为仅有标题/ID 匹配（已同步 rebuild
-   * 过），只记录日志；竞态：只接受当前代际的响应。
+   * 降级：后端未挂索引/失败时回退为仅有标题/ID 匹配（已同步 rebuild 过），
+   * 记录日志并置 contentSearchError=true（面板显示「仅按标题匹配」轻提示）；
+   * 竞态：只接受当前代际的响应。
    */
   private async runContentSearch(): Promise<void> {
     const url = this.runningUrl
@@ -335,6 +342,7 @@ export class SessionsStore implements vscode.Disposable {
       }
       this.contentHits = hits
       this.contentSearchHasMore = result.hasMore === true
+      this.contentSearchError = false
     } catch (err) {
       if (this.disposed || generation !== this.searchGeneration) return
       this.logger.warn(
@@ -342,6 +350,7 @@ export class SessionsStore implements vscode.Disposable {
       )
       this.contentHits = new Map()
       this.contentSearchHasMore = false
+      this.contentSearchError = true
     }
     this.rebuildModel()
     this.onDidChangeEmitter.fire()

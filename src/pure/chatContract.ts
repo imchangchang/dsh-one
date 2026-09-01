@@ -442,6 +442,8 @@ export interface SessionsSnapshot {
   activeSessionId: string | null
   /** 内容全文搜索（session.search）是否被 20 条上限截断；面板据此显示轻提示。 */
   contentSearchHasMore: boolean
+  /** 最近一次内容搜索是否失败（后端索引未启用等）；true 时面板显示「仅按标题匹配」提示。 */
+  contentSearchError: boolean
 }
 
 export type ToWebviewMessage =

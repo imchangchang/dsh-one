@@ -463,6 +463,12 @@ function renderSessions(): void {
       list.appendChild(el('div', 'sessions-search-more', '还有更多匹配会话，可尝试更精确的关键词'))
     }
   }
+  // 内容搜索降级：后端索引未启用等导致全文搜索失败——给用户可见提示，不静默。
+  if (snap && snap.query != null && snap.query !== '' && snap.contentSearchError) {
+    list.appendChild(
+      el('div', 'sessions-search-more sessions-search-degraded', '全文搜索不可用，仅按标题匹配（dsh 搜索索引未启用）'),
+    )
+  }
   sessionsPanel.appendChild(list)
 }
 
