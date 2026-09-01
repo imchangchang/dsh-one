@@ -95,77 +95,6 @@ const STYLE = `
     flex: 1; min-width: 0; display: flex; flex-direction: column;
     background: var(--vscode-editor-background, transparent);
   }
-  .sessions-panel {
-    width: 260px; flex: none; display: flex; flex-direction: column;
-    background: var(--vscode-sideBar-background, transparent);
-    border-right: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .sessions-header {
-    flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 8px;
-    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .sessions-search {
-    flex: 1; min-width: 0; padding: 3px 6px; font-family: inherit; font-size: 12px;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
-  }
-  .sessions-search:focus { outline: 1px solid var(--vscode-focusBorder); }
-  .sessions-tool {
-    flex: none; display: inline-flex; align-items: center; justify-content: center;
-    width: 24px; height: 24px; padding: 0; background: transparent; border: 0;
-    color: inherit; opacity: 0.7; cursor: pointer; border-radius: 4px;
-  }
-  .sessions-tool:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
-  .sessions-tool svg { display: block; }
-  .sessions-list { flex: 1; overflow-y: auto; padding: 2px 0; }
-  .workspace-row {
-    display: flex; align-items: center; gap: 6px; padding: 0 10px;
-    height: 32px; box-sizing: border-box; overflow: hidden;
-    font-weight: 600; font-size: 12px; cursor: pointer;
-  }
-  .workspace-row:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  /* 行首图标槽：默认文件夹图标，hover 换成实心三角（dsh web 分组行模式）。 */
-  .ws-folder, .ws-arrow {
-    flex: none; width: 16px; height: 16px;
-    display: inline-flex; align-items: center; justify-content: center;
-    color: var(--vscode-descriptionForeground, #888);
-  }
-  .ws-arrow { display: none; }
-  .workspace-row:hover .ws-arrow { display: inline-flex; }
-  .workspace-row:hover .ws-folder { display: none; }
-  /* 空组无可展开内容：hover 不切换成三角，保持闭合文件夹图标。 */
-  .workspace-row.empty:hover .ws-arrow { display: none; }
-  .workspace-row.empty:hover .ws-folder { display: inline-flex; }
-  /* 附着会话所在 workspace 的文件夹图标染 deepseek 蓝（dsh web 同款标识）。 */
-  .workspace-row.has-active .ws-folder { color: var(--vscode-charts-blue, #5686fe); }
-  .ws-arrow svg { transition: transform .15s ease; }
-  .workspace-row.expanded .ws-arrow svg { transform: rotate(90deg); }
-  .workspace-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .workspace-badge {
-    flex: none; font-size: 10px; font-weight: 400; padding: 0 5px; border-radius: 8px;
-    background: var(--vscode-badge-background, rgba(127,127,127,.25));
-    color: var(--vscode-badge-foreground, var(--vscode-foreground));
-  }
-  .session-row {
-    display: flex; align-items: center; gap: 6px; margin: 0 4px; padding: 0 6px 0 12px;
-    height: 32px; box-sizing: border-box; overflow: hidden;
-    cursor: pointer; border-radius: 4px; font-size: 12px;
-  }
-  .session-row:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  /* 会话菜单打开期间保持来源行的 hover 背景（webview.ts 的 .menu-open）。 */
-  .session-row.menu-open { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  .session-row.active {
-    background: var(--vscode-list-activeSelectionBackground, rgba(0,122,204,.35));
-    color: var(--vscode-list-activeSelectionForeground, inherit);
-  }
-  /* 行首状态槽：宽度固定（对齐官方 dsh web 的 16px slot），四种标记同一位置
-     居中——待交互黄点 > 运行中像素环 > 已完成/未读绿点 > 置顶图钉；空闲会话留空。 */
-  .session-status {
-    width: 16px; height: 16px; flex: none;
-    display: inline-flex; align-items: center; justify-content: center;
-  }
-  /* 槽内图钉（strokeSvg 固定输出 14px，缩到 13px 与槽匹配）。 */
-  .session-status svg.pin-icon { width: 13px; height: 13px; display: block; color: var(--vscode-descriptionForeground); }
   /* 运行中：官方 dsh web StateDot(ongoing) 的 8 格像素环追逐动画，deepseek 蓝。 */
   .session-spin { display: block; color: var(--vscode-charts-blue, #5686fe); }
   .session-spin rect { fill: currentColor; opacity: 0.15; animation: session-spin-chase 1s infinite; }
@@ -175,45 +104,6 @@ const STYLE = `
     25%, 37.4% { opacity: 0.35; }
     37.5%, to { opacity: 0.15; }
   }
-  /* 已完成/未读提醒：绿色实心点 + 标题加粗（对齐官方 StateDot completed
-     「已完成」视觉；本地未读沿用同一槽位，仅换颜色，合并逻辑不变）。 */
-  .session-dot {
-    width: 6px; height: 6px; border-radius: 50%;
-  }
-  .session-dot.completed { background: var(--vscode-charts-green, #89d185); }
-  /* 待审批/待回答/计划待审：黄色实心点（官方 StateDot warning，
-     --dsw-alias-state-warn-primary 的 VS Code 对应色）。 */
-  .session-dot.warning { background: var(--vscode-charts-yellow, #e5c07b); }
-  .session-title.unread { font-weight: 600; }
-  /* 组合状态（置顶 + 运行中/未读）时被挤出槽位的图钉，退到标题前。
-     main 的 flex gap 已有 8px，用 -2px margin 收回到与行 gap 一致的 6px。 */
-  .session-pin {
-    flex: none; width: 14px; height: 14px; margin-right: -2px;
-    color: var(--vscode-descriptionForeground);
-    display: inline-flex; align-items: center; align-self: center;
-  }
-  .session-pin svg { width: 14px; height: 14px; display: block; }
-  /* 紧凑单行：标题省略号 + 右对齐的相对时间（对齐原原生树的观感）。 */
-  .session-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-  .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .session-time { flex: none; font-size: 11px; opacity: 0.55; }
-  .row-actions { display: none; gap: 2px; flex: none; }
-  .session-row:hover .row-actions, .workspace-row:hover .row-actions { display: inline-flex; }
-  /* 菜单打开期间 ⋯ 按钮不随 hover 离开而消失。 */
-  .session-row.menu-open .row-actions { display: inline-flex; }
-  .row-action {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 20px; height: 20px; padding: 0; background: transparent; border: 0;
-    color: inherit; opacity: 0.7; cursor: pointer; border-radius: 3px;
-  }
-  .row-action:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
-  .row-action svg { display: block; }
-  .sessions-empty {
-    padding: 20px 12px; display: flex; flex-direction: column; align-items: center;
-    gap: 6px; text-align: center;
-  }
-  .sessions-empty .empty-hint { font-size: 12px; }
-  .sessions-empty button { margin-top: 4px; }
   /* 头部「N 个后台任务运行中」chip 的下拉（对齐官方 JobListAction 菜单）：
      状态点 + kind 徽标 + 命令摘要 + 状态文案 + 耗时；已结束行淡化。 */
   .jobs-menu { display: flex; flex-direction: column; gap: 1px; min-width: 260px; max-width: 360px; }
@@ -245,10 +135,6 @@ const STYLE = `
   .job-duration { flex: none; font-size: 11px; opacity: 0.55; font-variant-numeric: tabular-nums; }
   @media (max-width: 719px) {
     #app { flex-direction: column; }
-    .sessions-panel {
-      width: auto; max-height: 40%; border-right: 0;
-      border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    }
     .chat-col { min-height: 0; }
   }
   .chat-header {
@@ -1420,6 +1306,7 @@ export class ChatViewProvider implements vscode.Disposable {
       ...this.store.snapshot(),
       serverState: status.state,
       dshNotFound: status.state === 'error' && status.reason === 'dshNotFound',
+      activeSessionId: this.activeSessionId,
     }
     const message: ToWebviewMessage = { type: 'sessions', snapshot }
     void this.panel?.webview.postMessage(message)

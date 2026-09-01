@@ -434,6 +434,12 @@ export interface SessionsSnapshot {
   collapsed: string[]
   /** 手动标记未读的会话 id（dsh 无未读 API，纯客户端状态）。 */
   unread: string[]
+  /**
+   * 当前附着/高亮的会话 id（editor ChatViewProvider 的 activeSessionId）：
+   * 侧栏 sessions 面板据此画 active 行高亮与所属 workspace 的蓝色文件夹。
+   * 拆分后 chat 在 editor 面板，会话高亮归侧栏渲染，故由宿主下发。
+   */
+  activeSessionId: string | null
 }
 
 export type ToWebviewMessage =
