@@ -28,3 +28,4 @@
 
 - `src/ui/chat/webview.ts`（renderDiff / diff 渲染及折叠）
 - `src/ui/chatView.ts`（diff CSS）
+- 2026-09-01 评审确认：做（用户标注）

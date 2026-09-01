@@ -23,3 +23,4 @@ JSON 输出（工具输出等）用 JsonTree 逐节点展开：检测输出为 J
 
 - `src/ui/chat/webview.ts`（输出渲染，JSON 检测 + JsonTree）
 - 前置：`src/pure/conversation.ts`（输出全文恢复）
+- 2026-09-01 评审确认：做（用户标注）

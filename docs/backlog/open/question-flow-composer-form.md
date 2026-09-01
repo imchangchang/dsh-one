@@ -22,3 +22,4 @@ dsh-one 渲染为**消息流内 pending 卡**（webview.ts:2721 renderApproval /
 ## 变更记录
 
 - 2026-09-01 记录 → open
+- 2026-09-01 评审确认：做（用户标注）

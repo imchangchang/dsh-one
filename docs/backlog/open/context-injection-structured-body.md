@@ -18,3 +18,4 @@ dsh web 的上下文注入（ContextInjectionRow）展开后按 form 渲染结�
 
 - `src/ui/chat/webview.ts`（上下文注入渲染）
 - host 侧（source 解析，上游支持）
+- 2026-09-01 评审确认：做（用户标注）

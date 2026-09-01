@@ -31,3 +31,4 @@ ch态前 chat 在 edttor WebviewPanel（单例），切换回会话 = 同一面�
 ## 规模
 
 大改动（接近 sidebar-sessions-tree-editor-chat 的量级）：状态/订阅路由重构，多文件，建议分步实现每步自测。前置/相关：`chat-tab-title-and-icon`（tab 标题/图标）。
+- 2026-09-01 评审确认：做（用户标注）

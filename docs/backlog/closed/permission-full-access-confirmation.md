@@ -16,3 +16,4 @@ dsh-one（webview.ts:1097-1119 `openPermissionMenu`）：点任意选项立即 `
 ## 变更记录
 
 - 2026-09-01 记录 → open
+- 2026-09-01 评审核实：已有实现（VS Code 风险弹窗 chatView.ts:1505-1514），关闭（用户确认）

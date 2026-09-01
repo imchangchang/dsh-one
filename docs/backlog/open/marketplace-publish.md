@@ -28,3 +28,4 @@
 
 - PAT 只显示一次，用户自行保存；不要入库、不要进 git。
 - 浏览器自动化通道已就绪：kimi-webbridge 已装为 dsh 全局 skill（`~/.dsh/skills/kimi-webbridge`），后续发布操作可代点。
+- 2026-09-01 评审确认：做（用户标注）

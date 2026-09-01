@@ -20,3 +20,4 @@ dsh-one 只在 SLASH_COMMANDS 里注册了 `/plan` 命令（webview.ts:191），
 ## 变更记录
 
 - 2026-09-01 记录 → open
+- 2026-09-01 评审确认：做（用户标注）
