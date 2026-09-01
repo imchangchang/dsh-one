@@ -47,8 +47,9 @@ import { attachmentDataUrl, isImageMediaType } from '../../pure/composerAttachme
 import {
   USER_SCROLL_INTENT_MS,
   archiveScrollPosition,
-  isNearBottom,
+  isAtBottom,
   isScrollKey,
+  reconcileScrollPinning,
   restoreScrollTarget,
   type ScrollArchive,
 } from '../../pure/scrollFollow.ts'
@@ -130,7 +131,7 @@ function userScrollIntentActive(): boolean {
 
 /**
  * 程序滚到最新并复位跟随态：发送消息这类"用户要看最新"的动作调用。
- * 无条件滚到底，再按现有 isNearBottom 判定从实际位置重估跟随态（滚到
+ * 无条件滚到底，再按现有 isAtBottom 判定从实际位置重估跟随态（滚到
  * 底距底为 0，必然进入跟随）——与用户滚动判定共用同一套距离语义，不
  * 绕过跟随机制。程序滚动不标记用户意图，scroll 监听里
  * userScrollIntentActive() 为假，不会把跟随态误解掉。
@@ -139,7 +140,7 @@ function pinToLatest(): void {
   const messages = document.getElementById('messages')
   if (!messages) return
   messages.scrollTop = messages.scrollHeight
-  stickToBottom = isNearBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight)
+  stickToBottom = isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight)
   pinnedScrollTop = messages.scrollTop
 }
 
@@ -1452,17 +1453,14 @@ function render(): void {
     userScrollIntentActive() &&
     Math.abs(oldMessages.scrollTop - pinnedScrollTop) > 1
   ) {
-    stickToBottom = isNearBottom(oldMessages.scrollHeight, oldMessages.scrollTop, oldMessages.clientHeight)
+    stickToBottom = isAtBottom(oldMessages.scrollHeight, oldMessages.scrollTop, oldMessages.clientHeight)
   }
   // Per-session 滚动记忆：容器里还是 scrollSession 的内容（换会话的 loading
   // 帧也如此），每帧按实时位置刷新增档，切走时读到的就是离开时的位置。
   // 换会话帧再取新会话的存档定恢复目标：无存档默认贴底；prevScrollTop 是
   // 旧会话的位置，跨会话绝不复用（落地分支见 render 尾）。
   if (oldMessages && scrollSession !== null) {
-    scrollPositions.set(
-      scrollSession,
-      archiveScrollPosition(oldMessages.scrollHeight, oldMessages.scrollTop, oldMessages.clientHeight),
-    )
+    scrollPositions.set(scrollSession, archiveScrollPosition(oldMessages.scrollTop, stickToBottom))
   }
   const newSid = state?.sessionId ?? null
   const switchingSession = newSid !== scrollSession
@@ -1702,13 +1700,19 @@ function render(): void {
   const messages = oldMessages ?? el('div', 'messages')
   if (!oldMessages) {
     messages.id = 'messages'
-    // Only gesture-driven scrolls re-evaluate pinning; programmatic moves
-    // (our own pins, restore of saved/prev scrollTop, content-growth clamping
-    // during the rebuild) leave stickToBottom alone.
+    // Only gesture-driven scrolls re-evaluate pinning bidirectionally;
+    // programmatic moves (our own pins, restore of saved/prev scrollTop,
+    // content-growth clamping during the rebuild) leave stickToBottom alone
+    // unless the view actually landed at the bottom: a content shrink or a
+    // restore clamped to the new bottom makes the view at-bottom while the
+    // follow state was still false — correct that one direction (fixes a
+    // stale "回到最新" floater), but never set false on a programmatic scroll.
     messages.addEventListener('scroll', () => {
-      if (userScrollIntentActive()) {
-        stickToBottom = isNearBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight)
-      }
+      stickToBottom = reconcileScrollPinning(
+        stickToBottom,
+        userScrollIntentActive(),
+        isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight),
+      )
       const jump = messages.querySelector<HTMLElement>('.jump-latest')
       if (jump) jump.style.display = stickToBottom ? 'none' : ''
       // 上翻到顶部附近时按需加载更早一页（按钮之外的第二触发路径）。
@@ -1858,8 +1862,14 @@ function render(): void {
   } else if (!switchingSession && prevScrollTop !== null) messages.scrollTop = prevScrollTop
   if (landed !== null) earlierAnchor = null
   // Read back the clamped value: this is the position the next render compares
-  // against to tell user scrolls apart from content growth.
-  pinnedScrollTop = messages.scrollTop
+  // against to tell user scrolls apart from content growth. 若恢复的 scrollTop
+  // 被浏览器 clamp 到新的底部（切走期间内容收缩/变短到不足一屏），实际
+  // 视口已贴底但跟随态可能仍残留 false——按 clamp 结果单向同步一次，修
+  // 「切回后贴底仍显示回到最新」。
+  const clampedScrollTop = messages.scrollTop
+  pinnedScrollTop = clampedScrollTop
+  if (isAtBottom(messages.scrollHeight, clampedScrollTop, messages.clientHeight)) stickToBottom = true
+  jump.style.display = stickToBottom ? 'none' : ''
   // 内容已按新会话重建落地，容器归属切换到新会话（loading 帧不动它，
   // 因为容器里还是旧会话内容）。
   scrollSession = newSid

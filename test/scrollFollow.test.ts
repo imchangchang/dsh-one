@@ -1,11 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  NEAR_BOTTOM_PX,
+  AT_BOTTOM_PX,
   archiveScrollPosition,
   distanceFromBottom,
-  isNearBottom,
+  isAtBottom,
   isScrollKey,
+  reconcileScrollPinning,
   restoreScrollTarget,
 } from '../src/pure/scrollFollow.ts'
 
@@ -19,30 +20,47 @@ test('distanceFromBottom 负值钳到 0（内容不足一屏 / 过滚动）', ()
   assert.equal(distanceFromBottom(1000, 900, 200), 0)
 })
 
-test('isNearBottom 距底 <40px 即跟随', () => {
-  assert.equal(isNearBottom(1000, 761, 200), true) // 距底 39
-  assert.equal(isNearBottom(1000, 760, 200), false) // 距底 40
-  assert.equal(isNearBottom(1000, 0, 200), false)
-  // 内容不足一屏恒为跟随
-  assert.equal(isNearBottom(100, 0, 200), true)
-  // 阈值本身可调，测试与常量联动
-  assert.equal(NEAR_BOTTOM_PX, 40)
+test('isAtBottom 精确贴底：距底 ≤ AT_BOTTOM_PX（替代旧 40px 容差）', () => {
+  assert.equal(isAtBottom(1000, 798, 200), true) // 距底 2
+  assert.equal(isAtBottom(1000, 797, 200), false) // 距底 3 → 滚离，停跟随
+  assert.equal(AT_BOTTOM_PX, 2)
+  // 内容不足一屏恒为贴底
+  assert.equal(isAtBottom(100, 0, 200), true)
 })
 
-test('archiveScrollPosition 按实时位置生成存档', () => {
-  // 贴底：只记 atBottom，scrollTop 随内容增长会失效，恢复时不使用
-  assert.deepEqual(archiveScrollPosition(1000, 761, 200), { scrollTop: 761, atBottom: true })
-  // 翻历史：记当时位置
-  assert.deepEqual(archiveScrollPosition(1000, 300, 200), { scrollTop: 300, atBottom: false })
-  // 内容不足一屏视为贴底
-  assert.deepEqual(archiveScrollPosition(100, 0, 200), { scrollTop: 0, atBottom: true })
+test('isAtBottom 旧 40px 容差范围内的"滚离"不再算贴底（修流式抖动）', () => {
+  // 用户滚离底部 20px（旧 isNearBottom 判定其为贴底）→ 现在精确判定为已滚离
+  assert.equal(isAtBottom(1000, 780, 200), false) // 距底 20
+})
+
+test('archiveScrollPosition 用离开时跟随态记 atBottom（修切回位置错）', () => {
+  // 跟随中离开：atBottom=true，滚动位置无意义（恢复时忽略）
+  assert.deepEqual(archiveScrollPosition(761, true), { scrollTop: 761, atBottom: true })
+  // 滚离底部（跟随态已置 false）：记当时位置，恢复时回去
+  assert.deepEqual(archiveScrollPosition(761, false), { scrollTop: 761, atBottom: false })
+})
+
+test('reconcileScrollPinning 手势窗口内双向调整（修流式抖动）', () => {
+  // 手势滚到底 → 跟随
+  assert.equal(reconcileScrollPinning(false, true, true), true)
+  // 手势滚离 20px → 停跟随
+  assert.equal(reconcileScrollPinning(true, true, false), false)
+})
+
+test('reconcileScrollPinning 非手势只做单向修正（修「回到最新」误显）', () => {
+  // 内容收缩/程序滚动把视图钳到贴底，但跟随态残留 false → 置 true
+  assert.equal(reconcileScrollPinning(false, false, true), true)
+  // 非手势滚离（此时跟随态已是 false，视口并不贴底）→ 维持 false，jump 显示
+  assert.equal(reconcileScrollPinning(false, false, false), false)
+  // 非手势滚动绝不主动把跟随态置 false（防程序滚动误判为滚离）
+  assert.equal(reconcileScrollPinning(true, false, false), true)
 })
 
 test('restoreScrollTarget 无存档默认贴底', () => {
   assert.deepEqual(restoreScrollTarget(undefined), { stickToBottom: true, scrollTop: null })
 })
 
-test('restoreScrollTarget 贴底存档恢复跟随', () => {
+test('restoreScrollTarget 贴底（跟随中离开）存档恢复跟随', () => {
   assert.deepEqual(restoreScrollTarget({ scrollTop: 760, atBottom: true }), {
     stickToBottom: true,
     scrollTop: null,
