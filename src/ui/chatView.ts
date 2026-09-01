@@ -1156,6 +1156,10 @@ export class ChatViewProvider implements vscode.Disposable {
           localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')],
         },
       )
+      // tab 图标用 dsh 官方品牌图标（assets/dsh-favicon.svg，拷自已安装的
+      // @deepseek-ai/dsh-web-frontend/dist/favicon.svg；iconPath 是宿主层行为，
+      // 无需把 assets 加进 localResourceRoots）。
+      panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'assets', 'dsh-favicon.svg')
       panel.webview.html = chatHtml(panel.webview, this.extensionUri)
       const msg = panel.webview.onDidReceiveMessage((m: FromWebviewMessage) => void this.onMessage(m))
       panel.onDidDispose(() => {
@@ -1234,15 +1238,20 @@ export class ChatViewProvider implements vscode.Disposable {
         // 自动再拉出，避免交互被静默吞掉（拆分后所有此类交互都在编辑区）。
         if (state.pending.length > 0 && !this.panel) this.openPanel()
         // dsh 自动命名经会话内的 title 投影到达，host 事件流没有对应事件，
-        // sessions 面板不会自己刷新——标题变化时主动重拉一次基线。
+        // sessions 面板不会自己刷新——标题变化时主动重拉一次基线，并同步
+        // 编辑器 tab 标题（标题投影即 tab 标题源，含用户重命名）。
         if (state.sessionTitle !== this.lastSessionTitle) {
           this.lastSessionTitle = state.sessionTitle
           void this.store.refresh()
+          this.syncPanelTitle()
         }
       })
     }
     this.lastSessionTitle = controller?.getState().sessionTitle
     this.push(controller?.getState() ?? this.emptyState())
+    // tab 标题随附着会话同步（含空态回落「DSH One」；标题投影的后续更新由
+    // controller.onDidChange 里的 syncPanelTitle 跟进）。
+    this.syncPanelTitle()
     // 附着会话切换后重投一次暂存附件（state 先到，webview 的 stagedForSession
     // 已更新，filesPicked 不会被当旧会话的附件丢弃）。
     this.flushStaged()
@@ -1263,6 +1272,19 @@ export class ChatViewProvider implements vscode.Disposable {
   private push(state: ChatState): void {
     const message: ToWebviewMessage = { type: 'state', state: this.composeHeader(state) }
     void this.panel?.webview.postMessage(message)
+  }
+
+  /**
+   * 把编辑器 tab 标题同步到附着会话的标题（含 dsh 自动命名/用户重命名，均经
+   * controller 的 title 投影到达）。会话未命名时以「会话 <ID 前 8 位>」兜底，
+   * 无会话空态回落「DSH One」。面板已销毁（panel 为 null）时跳过，不写悬空引用。
+   */
+  private syncPanelTitle(): void {
+    if (!this.panel) return
+    const state = this.controller?.getState()
+    this.panel.title = !state?.sessionId
+      ? 'DSH One'
+      : state.sessionTitle ?? `会话 ${state.sessionId.slice(0, 8)}`
   }
 
   /**
