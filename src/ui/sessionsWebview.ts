@@ -534,6 +534,27 @@ function renderServerEmpty(snap: SessionsSnapshot): HTMLElement {
   return box
 }
 
+/** 组名右侧角标：待交互（黄点）、运行中（像素环）、未读/已完成（绿点）三个独立计数。 */
+function appendWorkspaceCounts(head: HTMLElement, sessions: SessionNodeModel[]): void {
+  const pending = sessions.filter((s) => s.pendingInteraction !== undefined).length
+  const running = sessions.filter((s) => s.running || s.descendantRunning).length
+  const unread = sessions.filter((s) => s.unread).length
+  if (pending === 0 && running === 0 && unread === 0) return
+  const counts = el('span', 'ws-counts')
+  if (pending > 0) appendCountBadge(counts, el('span', 'session-dot warning'), pending, '待交互')
+  if (running > 0) appendCountBadge(counts, spinSvg(), running, '运行中')
+  if (unread > 0) appendCountBadge(counts, el('span', 'session-dot completed'), unread, '未读')
+  head.appendChild(counts)
+}
+
+function appendCountBadge(container: HTMLElement, badge: HTMLElement | SVGSVGElement, count: number, label: string): void {
+  const item = el('span', 'ws-count')
+  item.setAttribute('data-tip', label)
+  item.appendChild(badge)
+  item.appendChild(el('span', undefined, String(count)))
+  container.appendChild(item)
+}
+
 function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   const group = el('div', 'workspace-group')
   group.dataset.workspaceId = w.workspaceId
@@ -554,6 +575,8 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   arrow.appendChild(iconSvg(PANEL_ICONS.triangle))
   head.appendChild(arrow)
   head.appendChild(el('span', 'workspace-label')).appendChild(highlightText(w.label))
+  // 组名右侧角标：待交互 / 运行中 / 未读 计数（各自独立，有则显示）。
+  appendWorkspaceCounts(head, w.sessions)
   if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', 'vscode'))
   if (!ungrouped) {
     const headActions = el('span', 'row-actions')
