@@ -69,7 +69,8 @@ export interface SessionsStoreSnapshot {
  * 文案。待交互状态（approval/question/plan-review 黄点）不走基线——由全局
  * mux 下行的 requested/resolved 帧实时跟踪（对齐官方 dsh web 侧栏）。
  * 消费方（Chat webview 的 sessions 面板）渲染 snapshot()，
- * 变更经 onDidChange 通知。
+ * 变更经 onDidChange 通知。会话标题除基线外还由 mux 的 session/projection
+ * 推送帧实时更新（自动命名经此到达，host 事件流没有标题帧）。
  */
 export class SessionsStore implements vscode.Disposable {
   private workspaces: WorkspaceNodeModel[] = []
@@ -98,6 +99,12 @@ export class SessionsStore implements vscode.Disposable {
    * `a:<approvalId>` / `q:<rpcId>`。
    */
   private pendingInteractions = new Map<string, Map<string, PendingInteraction>>()
+  /**
+   * 标题投影的 seq 水位（对齐官方 ProjectionValueStore：帧 seq 小于等于已见
+   * 值丢弃，基线/推送乱序不会把新标题回退成旧的）。基线重拉用各行
+   * projections.asOfSeq 播种，之后由 mux 的 session/projection 帧推进。
+   */
+  private titleSeqs = new Map<string, number>()
   /** 当前附着的会话（由 ChatViewProvider 告知）：完成标记排除它，附着即清除。 */
   private attachedId: string | null = null
   private url: string | null = null
@@ -422,9 +429,12 @@ export class SessionsStore implements vscode.Disposable {
   }
 
   /**
-   * 全局 mux 帧入口：只关心 approval/question 的 requested/resolved。
-   * 与 chatSession 的单会话过滤不同，这里按帧自带 sessionId 分桶跟踪所有
-   * 会话——官方侧栏黄点对未实例化的会话也要亮，靠的就是这条全局流。
+   * 全局 mux 帧入口：approval/question 的 requested/resolved 喂
+   * pendingInteractions，session/projection 的 title 帧实时更新基线标题
+   * （子代理自动命名不再等下一次基线重拉——host 事件流没有标题帧，标题
+   * 只走这条投影推送）。与 chatSession 的单会话过滤不同，这里按帧自带
+   * sessionId 分桶跟踪所有会话——官方侧栏黄点对未实例化的会话也要亮，
+   * 靠的就是这条全局流。
    */
   private onMuxFrame(frame: MuxFrame): void {
     const payload = (frame.payload ?? {}) as Record<string, unknown>
@@ -432,6 +442,18 @@ export class SessionsStore implements vscode.Disposable {
     if (!sessionId) return
     let changed = false
     switch (frame.method) {
+      case 'session/projection': {
+        if (payload.key !== 'title' || typeof payload.seq !== 'number') return
+        const existing = this.rawSessions.find((s) => s.sessionId === sessionId)
+        if (!existing) return
+        if (payload.seq <= (this.titleSeqs.get(sessionId) ?? -1)) return
+        this.titleSeqs.set(sessionId, payload.seq)
+        const title = typeof payload.value === 'string' && payload.value.length > 0 ? payload.value : null
+        if (existing.title === title) return
+        this.rawSessions = this.rawSessions.map((s) => (s.sessionId === sessionId ? { ...s, title } : s))
+        changed = true
+        break
+      }
       case 'approval/requested':
         if (payload.approvalId !== undefined) {
           changed = this.trackPending(sessionId, `a:${String(payload.approvalId)}`, 'approval')
@@ -494,6 +516,10 @@ export class SessionsStore implements vscode.Disposable {
       const archived = new Set(workspaceList.archivedSessionIds)
       this.rawWorkspaces = workspaceList.items
       this.rawSessions = sessions.map((s) => toSessionInput(s))
+      // 标题投影 seq 水位按基线切点播种：之后的 title 推送帧只认更新的 seq。
+      for (const s of sessions) {
+        if (typeof s.projections?.asOfSeq === 'number') this.titleSeqs.set(s.sessionId, s.projections.asOfSeq)
+      }
       this.rawArchived = archived
       this.knownSessionIds = new Set(
         this.rawSessions.map((s) => s.sessionId).filter((id) => !this.rawArchived.has(id)),
