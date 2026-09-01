@@ -858,6 +858,11 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   body.appendChild(
     menuItem('分叉会话', {
       icon: iconSvg(MESSAGE_ACTION_ICONS.branch),
+      // 列表级 fork 不带 atSeq，服务端回退到最后一个 turn/end 切点；会话
+      // 从未完成过任何轮次（无 turn/end）会返回 fork-unavailable。这里在无
+      // 完成轮次的会话上禁用（对齐官方「轮次未结束不出现 fork」）。
+      disabled: !s.hasCompletedTurn,
+      disabledTip: '会话没有已完成轮次，无法分叉',
       onClick: () => {
         closePopover()
         post({ type: 'sessionFork', sessionId: s.sessionId })

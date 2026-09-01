@@ -18,7 +18,7 @@ const ws = (
 
 const s = (
   sessionId: string,
-  opts: { updatedAt?: number; running?: boolean; blank?: boolean; parentSessionId?: string; origin?: string; title?: string | null } = {},
+  opts: { updatedAt?: number; running?: boolean; blank?: boolean; parentSessionId?: string; origin?: string; title?: string | null; sessionStatsTurns?: number } = {},
 ): SessionInput => ({
   sessionId,
   updatedAt: opts.updatedAt ?? NOW,
@@ -27,6 +27,7 @@ const s = (
   title: opts.title,
   ...(opts.parentSessionId ? { parentSessionId: opts.parentSessionId } : {}),
   ...(opts.origin ? { origin: opts.origin } : {}),
+  ...(opts.sessionStatsTurns !== undefined ? { sessionStatsTurns: opts.sessionStatsTurns } : {}),
 })
 
 const noTitles = () => null
@@ -327,6 +328,24 @@ test('pendingInteractions flag matching nodes only, absent without the option', 
 
   const without = buildSessionTree([ws('w1', ['a'])], [s('a')], new Set(), noTitles, undefined, NOW)
   assert.equal(without[0].sessions[0].pendingInteraction, undefined)
+})
+
+test('hasCompletedTurn derives from the sessionStats turns count (absent = false)', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['done', 'nodone', 'fresh'])],
+    [
+      s('done', { sessionStatsTurns: 3 }),
+      s('nodone', { sessionStatsTurns: 0 }),
+      s('fresh'), // absent projection → no completed turn
+    ],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+  )
+  assert.equal(tree[0].sessions.find((n) => n.sessionId === 'done')?.hasCompletedTurn, true)
+  assert.equal(tree[0].sessions.find((n) => n.sessionId === 'nodone')?.hasCompletedTurn, false)
+  assert.equal(tree[0].sessions.find((n) => n.sessionId === 'fresh')?.hasCompletedTurn, false)
 })
 
 test('lineage children never appear as rows; a running one flags the parent descendantRunning', () => {

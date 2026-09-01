@@ -13,10 +13,16 @@
   const u = (text) => ({ kind: 'user', id: rid('u'), text })
   const at = (text, extra) => ({ kind: 'assistant', id: rid('a'), complete: true, turnEnd: true, blocks: [{ type: 'text', text }, ...(extra || [])] })
   const toolBlock = (over) => ({ type: 'tool', callId: rid('t'), name: 'bash', status: 'done', title: 'bash', detail: 'npm test', output: '7 passed, 0 failed', ...over })
+  // 一条已完结的 subagent 工具调用卡（fork 快照里的占位结果 / 正常会话里的历史调用）。
+  const subagentBlock = (subagentId) => toolBlock({
+    name: 'subagent', title: '子代理', detail: undefined,
+    args: JSON.stringify({ description: '调研会话 fork 行为', prompt: '请总结 dsh-one 的 fork 行为。', run_in_background: true }),
+    output: `started subagent ${subagentId}`,
+  })
 
   // ---- 侧栏会话树快照构造器 ----
   const sess = (sessionId, label, description, over) => ({
-    sessionId, label, description, running: false, pinned: false, unread: false, descendantRunning: false, ...over,
+    sessionId, label, description, running: false, pinned: false, unread: false, descendantRunning: false, hasCompletedTurn: true, ...over,
   })
   window.sessionsTree = function (activeId) {
     return {
@@ -131,6 +137,33 @@
       theme: 'dark',
       title: '会话引用 chip 基线（暗色）',
       expect: '用户气泡（右侧）内：一个 @会话引用 chip（🔗 图标 + 链接色「DSH-ONE子代理嵌套支持情况」字重 500），chip 之后紧跟着正文「根据这个对话，分析一下嵌套子代理的依赖关系。」，两者在同一行；chip 内文字与同行正文文字基线对齐（不再相对抬高 2px）。chip 是行内 flex 无边框背景，链接色，hover 下划线（截图为静态不核对 hover）。',
+    },
+
+    'subagent-card-snapshot': {
+      // fork 快照副本：会话自己的聊天流里有一条 subagent 调用卡（历史复制来的
+      // 占位结果），但血缘树（state.subagents）不含该子代理 → 应加「快照副本」标注。
+      state: base({
+        messages: [
+          u('让子代理调研一下会话 fork 行为。'),
+          at('已派子代理去调研。', [subagentBlock('session-sub-1')]),
+        ],
+        subagents: [],
+      }),
+      title: '聊天流：subagent 调用卡（快照副本标注）',
+      expect: '助手消息里有一条 subagent 工具调用卡（动作短语「Ran a subagent」+ 标题「子代理」）；卡下方出现一行醒目但克制的小字标注「快照副本：原子代理已不在本会话」（警示色，比普通 detail 略醒目，单行不撑开卡）；顶部无「N 个子代理」chip（state.subagents 为空，血缘树不含该子代理）。',
+    },
+
+    'subagent-card-live': {
+      // 正常会话：同一条 subagent 调用卡，但血缘树含该子代理 → 不应加标注。
+      state: base({
+        messages: [
+          u('让子代理调研一下会话 fork 行为。'),
+          at('已派子代理去调研。', [subagentBlock('session-sub-1')]),
+        ],
+        subagents: [{ sessionId: 'session-sub-1', title: '调研会话 fork', running: false, updatedAt: 1_700_000_000_000 }],
+      }),
+      title: '聊天流：subagent 调用卡（血缘内，不标注）',
+      expect: '同一条 subagent 工具调用卡（「Ran a subagent」+「子代理」），但**不出现**「快照副本：原子代理已不在本会话」标注（该子代理在本会话血缘树里）；顶部出现「1 个子代理」chip（血缘树含该子代理，点击可展开下拉）。',
     },
 
     empty: {
@@ -311,6 +344,27 @@
       interact: `(() => { const row = document.querySelector('.session-row[data-session-id="sess-2"]'); row?.classList.add('menu-open'); row?.querySelector('.row-action')?.click() })()`,
       title: '侧栏面板（未读会话菜单：归档禁用）',
       expect: '未读（非运行）会话的 ⋯ 菜单：「标为已读」可用（选中态 ✓）；「归档会话」灰置，悬停提示「未读的会话不能归档」（截图核对项本体与灰置样式）；其余项正常；无「复制会话 ID」。',
+    },
+
+    'sessions-menu-fork-disabled': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-9')
+        s.workspaces[0].sessions = [sess('sess-9', '从未完成的会话', '10 分钟前', { hasCompletedTurn: false })]
+        return s
+      })(),
+      interact: `(() => {
+        const row = document.querySelector('.session-row[data-session-id="sess-9"]')
+        row?.classList.add('menu-open')
+        row?.querySelector('.row-action')?.click()
+        setTimeout(() => {
+          const items = [...document.querySelectorAll('.menu-item')]
+          const fork = items.find((i) => i.textContent?.includes('分叉会话'))
+          if (fork) fork.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+        }, 150)
+      })()`,
+      title: '侧栏面板（从未完成轮次的会话：分叉禁用 + 悬停提示）',
+      expect: '从未完成过轮次的会话（hasCompletedTurn=false）的 ⋯ 菜单：「分叉会话」灰置（.menu-item.disabled，置灰不响应点击）；悬停该项时其下方出现 tooltip 气泡「会话没有已完成轮次，无法分叉」；「重命名/置顶/标为未读/复制引用」正常；「归档会话」正常（非运行/未读/无待处理）；无「复制会话 ID」。',
     },
 
     'sessions-rename': {

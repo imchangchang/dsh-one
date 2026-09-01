@@ -33,6 +33,7 @@ import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTr
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../pure/toolLine.ts'
+import { subagentInTree, subagentIdFromOutput } from '../../pure/subagentCard.ts'
 import { codeBlockPreview } from '../../pure/codeBlock.ts'
 import {
   formatJobDuration,
@@ -2656,6 +2657,22 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
 }
 
 /**
+ * 「快照副本」标注：当一条 `subagent` 工具调用卡对应的子代理不在本会话的
+ * 血缘树里（该次调用是 fork 快照复制来的历史，子代理仍挂在原父会话下），
+ * 在卡片上追加一行醒目但克制的说明——提示点击不会跳到仍在跑的子代理。
+ * 已完结（非 running）才算：快照里的调用是占位结果；运行中的调用等它先
+ * 落血缘，避免把 in-flight 误标。后台 job / 前台结果不产出 lineage id，
+ * 解析不到就不标。
+ */
+function subagentSnapshotNote(block: ChatToolBlock): HTMLElement | null {
+  if (block.name !== 'subagent' || block.status === 'running') return null
+  const id = subagentIdFromOutput(block.output)
+  if (!id) return null
+  if (subagentInTree(state?.subagents, id)) return null
+  return el('div', 'tool-snapshot-note', '快照副本：原子代理已不在本会话')
+}
+
+/**
  * 工具调用行（kimi-cli / dsh web 行式排版）：状态图标 + 英文动作短语 +
  * host 计算的标题（如文件路径），命令类工具另起一行等宽预览（$ 前缀、
  * 截断省略）。不再是带边框的卡片容器。
@@ -2668,6 +2685,7 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
 function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   const row = el('div', `tool tool-${block.status}`)
   const line = el('div', 'tool-line')
+  const snapshotNote = subagentSnapshotNote(block)
   if (block.status === 'running') {
     line.appendChild(el('span', 'spinner'))
   } else if (block.status === 'error') {
@@ -2687,6 +2705,7 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
     if (s.activeExtra > 0) line.appendChild(el('span', 'tool-todo-extra', `+${s.activeExtra}`))
     row.appendChild(line)
     if (block.output) row.appendChild(renderToolOutput(block.output, `${key}:out`))
+    if (snapshotNote) row.appendChild(snapshotNote)
     return row
   }
   line.appendChild(el('span', 'tool-action', toolAction(block.name)))
@@ -2703,6 +2722,7 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
       )
     }
     if (block.diff) row.appendChild(renderDiff(block.diff, `${key}:diff`))
+    if (snapshotNote) row.appendChild(snapshotNote)
     return row
   }
 
@@ -2730,6 +2750,7 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   det.appendChild(body)
   row.appendChild(det)
   if (block.diff) row.appendChild(renderDiff(block.diff, `${key}:diff`))
+  if (snapshotNote) row.appendChild(snapshotNote)
   return row
 }
 

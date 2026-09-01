@@ -350,6 +350,13 @@ const STYLE = `
     font-family: var(--vscode-editor-font-family, monospace);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  /* 快照副本标注：fork 复制来的 subagent 调用卡（该子代理已不在本会话血缘
+     树，点进去不会跳到仍运行的原子代理）。单行小字、警示色，比普通 detail
+     略醒目但不撑开卡片。 */
+  .tool-snapshot-note {
+    margin: 2px 0 0 20px; font-size: 0.85em; font-weight: 500;
+    color: var(--vscode-editorWarning-foreground, #cca700);
+  }
   /* 工具失败 StateDot：dsh web 的彩色圆点（外层 10% 光晕 + 内层实心点），
      颜色按 data-state 取；done 态不渲染状态点。 */
   .tool-state-dot {

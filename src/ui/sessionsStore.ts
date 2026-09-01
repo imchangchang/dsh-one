@@ -3,7 +3,7 @@ import type { Logger } from '../log.ts'
 import { subscribeHostEvents } from '../server/hostEvents.ts'
 import { subscribeMuxEvents } from '../server/muxEvents.ts'
 import type { MuxFrame } from '../server/muxEvents.ts'
-import { listSessions, listWorkspaces, searchSessions, sessionTitle, sessionTotalTokens } from '../server/dshRpc.ts'
+import { listSessions, listWorkspaces, searchSessions, sessionTitle, sessionTotalTokens, sessionCompletedTurns } from '../server/dshRpc.ts'
 import type { SessionSummary } from '../server/dshRpc.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { applyHostFrame, parseHostFrame } from '../pure/hostFrames.ts'
@@ -22,6 +22,7 @@ import {
 /** Map one session.list entry onto the pure-layer SessionInput. */
 function toSessionInput(s: SessionSummary): SessionInput {
   const totalTokens = sessionTotalTokens(s)
+  const completedTurns = sessionCompletedTurns(s)
   return {
     sessionId: s.sessionId,
     updatedAt: s.updatedAt,
@@ -32,6 +33,7 @@ function toSessionInput(s: SessionSummary): SessionInput {
     ...(s.origin ? { origin: s.origin } : {}),
     ...(s.agentPreset !== undefined ? { agentPreset: s.agentPreset } : {}),
     ...(totalTokens !== undefined ? { totalTokens } : {}),
+    ...(completedTurns > 0 ? { sessionStatsTurns: completedTurns } : {}),
   }
 }
 
