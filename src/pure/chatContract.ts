@@ -36,6 +36,9 @@ export interface ChatToolBlock {
    * previews the first lines and expands to the whole text on click.
    * Absent while running.
    */
+  /** 该次调用的输入参数（tool/call 的 data.arguments 原始 JSON 字符串，未加工），
+   * 供工具卡展开显示 IN。缺省 = 事件没带参数，或窗口外落地的 result 卡。 */
+  args?: string
   output?: string
   /**
    * todo_write 调用的 planSummary，由该次调用 args 的 JSON 快照算出（对齐官方

@@ -130,6 +130,18 @@ test('tool call/result pair through running, done and error', () => {
   assert.equal(blocks[1].output, 'boom')
 })
 
+test('tool/call folds raw arguments onto the block for IN display', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(toolCallEv('c1', 'bash', '{"command":"ls -la","cwd":"/tmp"}'))
+  f.applyEvent(toolCallEv('c2', 'read', ''))
+
+  const blocks = lastAssistant(f).blocks as ChatToolBlock[]
+  assert.equal(blocks[0].args, '{"command":"ls -la","cwd":"/tmp"}')
+  // 空 arguments 原样保留（webview 侧据此决定不渲染 IN 卡片）。
+  assert.equal(blocks[1].args, '')
+})
+
 test('tool result with an error field marks the card error', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('turn/start', { turn: 1 }))
