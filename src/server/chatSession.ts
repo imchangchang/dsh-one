@@ -321,6 +321,9 @@ export class ChatSessionController implements vscode.Disposable {
   private todosSeq = -1
   /** Image intake limits from the `imageLimits` projection; undefined = no pre-check. */
   imageLimits: ImageLimits | undefined
+  /** Plan-mode state from the `plan` projection (higher seq wins); undefined = host has no plan projection. */
+  private plan: { active: boolean; pending: boolean } | undefined
+  private planSeq = -1
   /** Footer model pill, filled by refreshModels(). */
   private modelLabel: string | undefined
   /**
@@ -383,6 +386,7 @@ export class ChatSessionController implements vscode.Disposable {
       modelLabel: this.modelLabel,
       modelAvailable: this.modelRoutable,
       permissions: this.permissions,
+      plan: this.plan,
       statsLine: this.statsLine,
       todos: this.todos,
       contextUsage: contextUsageOf(this.contextPressure, this.contextBreakdown, this.statsTurns, this.windowUnknown),
@@ -644,9 +648,11 @@ export class ChatSessionController implements vscode.Disposable {
       this.pressureSeq = projections.asOfSeq
       this.breakdownSeq = projections.asOfSeq
       this.todosSeq = projections.asOfSeq
+      this.planSeq = projections.asOfSeq
       this.applyPermissionsValue(projections.values.permissions)
       this.applyStatsValue(projections.values.sessionStats)
       this.applyTodosValue(projections.values.todos)
+      this.applyPlanValue(projections.values.plan)
       const limits = asImageLimits(projections.values.imageLimits)
       if (limits) this.imageLimits = limits
       const pressure = asContextPressure(projections.values.contextPressure)
@@ -842,6 +848,18 @@ export class ChatSessionController implements vscode.Disposable {
     )
   }
 
+  /**
+   * Fold one `plan` projection value (dsh-plan-mode's wire view
+   * `{active, pending}`). Malformed values are dropped, keeping the last
+   * good state.
+   */
+  private applyPlanValue(value: unknown): void {
+    if (!value || typeof value !== 'object') return
+    const v = value as Record<string, unknown>
+    if (typeof v.active !== 'boolean' || typeof v.pending !== 'boolean') return
+    this.plan = { active: v.active, pending: v.pending }
+  }
+
   private onFrame(frame: MuxFrame): void {
     if (this.disposed) return
     const payload = (frame.payload ?? {}) as Record<string, unknown>
@@ -935,6 +953,13 @@ export class ChatSessionController implements vscode.Disposable {
             if (seq <= this.todosSeq) return
             this.todosSeq = seq
             this.applyTodosValue(payload.value)
+            this.push(true)
+            return
+          }
+          case 'plan': {
+            if (seq <= this.planSeq) return
+            this.planSeq = seq
+            this.applyPlanValue(payload.value)
             this.push(true)
             return
           }

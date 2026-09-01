@@ -471,6 +471,13 @@ export interface ChatState {
    * and the route's context window — the ring hides until then (web parity).
    */
   contextUsage?: ContextUsage
+  /**
+   * Plan-mode state from the host-computed `plan` projection (dsh-plan-mode):
+   * `active` is the committed flip, `pending` means a /plan command is in
+   * flight toward the opposite state. Absent when the host has no plan
+   * projection — the webview renders no chip then (web PlanChip parity).
+   */
+  plan?: { active: boolean; pending: boolean }
 }
 
 /**
