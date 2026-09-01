@@ -230,6 +230,45 @@ document.addEventListener(
   true,
 )
 
+/**
+ * 外链右键菜单：单击外链默认用系统浏览器打开（上面的 click 拦截），右键给
+ * 「VS Code 内置浏览器打开」的选择。同样拦掉默认行为（浏览器/VS Code 的
+ * 原生菜单），弹自绘菜单；非 http(s)/mailto 锚点（dsh-session: 残留）不弹。
+ */
+document.addEventListener(
+  'contextmenu',
+  (e) => {
+    const target = e.target as HTMLElement | null
+    const a = target?.closest?.('a[href]') as HTMLAnchorElement | null
+    if (!a) return
+    const href = a.getAttribute('href') ?? ''
+    if (!/^(https?|mailto):/i.test(href)) return
+    e.preventDefault()
+    e.stopPropagation()
+    const body = el('div')
+    body.appendChild(
+      menuItem('在系统浏览器中打开', {
+        icon: iconSvg(CONTEXT_BROWSE_ICON),
+        onClick: () => {
+          closePopover()
+          post({ type: 'openExternal', url: href })
+        },
+      }),
+    )
+    body.appendChild(
+      menuItem('在 VS Code 内置浏览器中打开', {
+        icon: iconSvg(CONTEXT_BROWSE_ICON),
+        onClick: () => {
+          closePopover()
+          post({ type: 'openInBuiltinBrowser', url: href })
+        },
+      }),
+    )
+    showPopoverAt(e.clientX, e.clientY, body)
+  },
+  true,
+)
+
 /** 请求加载更早的一页历史（按钮点击与上翻到顶共用）；挂起期间防重入。 */
 function maybeLoadEarlier(): void {
   if (!state?.hasEarlierHistory || state.loadingEarlier === true || earlierAnchor !== null) return

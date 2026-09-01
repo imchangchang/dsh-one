@@ -1380,6 +1380,18 @@ export class ChatViewProvider implements vscode.Disposable {
       }
       return
     }
+    // 外链右键菜单「内置浏览器打开」：VS Code 自带 Simple Browser（简单浏览器
+    // 扩展）；不可用（被禁用/未安装）时兜底系统浏览器，不静默失败。
+    if (m?.type === 'openInBuiltinBrowser' && typeof m.url === 'string') {
+      if (!/^(https?|mailto):/i.test(m.url)) return
+      try {
+        await vscode.commands.executeCommand('simpleBrowser.show', m.url)
+      } catch (err) {
+        this.logger.warn(`chat: simpleBrowser.show(${m.url}) failed — ${err instanceof Error ? err.message : err}`)
+        void vscode.env.openExternal(vscode.Uri.parse(m.url))
+      }
+      return
+    }
     // 子代理下拉名称 / 会话 @ 引用 chip 点击：打开（或揭示）editor 面板并附着
     // 该会话。拆分时此分支被丢（原合并 webview 里切换到会话），补回——不依赖
     // 当前 controller，故放在 controller 判定之前。

@@ -111,6 +111,8 @@
       serverStart() { snap.serverState = 'running'; pushSession() },
       // 外链点击：真实宿主用系统默认浏览器打开；mock 里只是把 URL 亮出来。
       openExternal(m) { window.alert(`[mock host] openExternal → ${m.url}`) },
+      // 外链右键菜单「内置浏览器打开」：真实宿主跑 simpleBrowser.show。
+      openInBuiltinBrowser(m) { window.alert(`[mock host] openInBuiltinBrowser → ${m.url}`) },
       loadEarlier() { const s = cur(); s.messages.unshift({ kind: 'user', id: rid('u'), text: '（更早的一条历史）' }); s.messages.unshift({ kind: 'assistant', id: rid('a'), complete: true, blocks: [{ type: 'text', text: '这是历史窗口更早的内容。' }] }); pushState() },
     }
 

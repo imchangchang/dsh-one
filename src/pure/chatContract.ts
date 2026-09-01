@@ -494,6 +494,8 @@ export type FromWebviewMessage =
   | { type: 'openInstallPage' }
   /** 对话里的外链（http/https/mailto 锚点）被点击；webview 已阻止自身导航。 */
   | { type: 'openExternal'; url: string }
+  /** 外链右键菜单选了「VS Code 内置浏览器打开」（Simple Browser）。 */
+  | { type: 'openInBuiltinBrowser'; url: string }
   /** Sessions 面板：附着一个会话（点击会话行）。 */
   | { type: 'sessionOpen'; sessionId: string }
   /** Sessions 面板：在指定 workspace 新建会话（缺省由宿主选默认 workspace）。 */

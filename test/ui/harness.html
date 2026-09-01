@@ -31,29 +31,36 @@
      window.__posted 供场景/调试检查） -->
 <script>window.acquireVsCodeApi = function () { return { postMessage: function (m) { (window.__posted = window.__posted || []).push(m) } } }</script>
 
-<script src="/test/ui/scenarios.js"></script>
-
 <script>
-  // 按 ?scenario=<name> 选场景；默认 conversation。场景可选 view 字段：
-  //   view: 'sessions' → 加载侧栏 sessions 面板 bundle（dist/sessionsWebview.js），
-  //   只投喂 sessions 快照；缺省（chat webview）投喂 sessions/state/modelCatalog。
-  // 场景可选 interact 字段（一段 JS 字符串）：快照投喂后延迟执行，用于模拟
-  // 点击打开菜单/进入行内重命名等交互态，再被脚本截图。
-  const q = new URLSearchParams(location.search)
-  const name = q.get('scenario') || window.DEFAULT_SCENARIO
-  const scen = window.SCENARIOS[name] || window.SCENARIOS[window.DEFAULT_SCENARIO]
-  if (scen.theme === 'dark') document.body.setAttribute('data-theme', 'dark')
-  const post = (m) => window.postMessage(m, '*')
-  const bundle = scen.view === 'sessions' ? '/dist/sessionsWebview.js' : '/dist/chatWebview.js'
-  const s = document.createElement('script')
-  s.src = bundle
-  s.onload = () => {
-    post({ type: 'sessions', snapshot: scen.sessions || window.sessionsTree(scen.state && scen.state.sessionId) })
-    if (scen.state) post({ type: 'state', state: scen.state })
-    if (scen.modelCatalog) post({ type: 'modelCatalog', catalog: scen.modelCatalog })
-    if (scen.interact) setTimeout(() => (0, eval)(scen.interact), 300)
+  // 子资源统一带 ?v=Date.now() 防缓存：python http.server 不设 Cache-Control，
+  // 浏览器启发式缓存会把旧 scenarios.js / dist 拿来用——改了场景或重建 dist 后
+  // 重跑还拿到旧文件，白白浪费一轮截图。场景文件必须在 bundle 之前就绪。
+  const bust = `?v=${Date.now()}`
+  const scenScript = document.createElement('script')
+  scenScript.src = `/test/ui/scenarios.js${bust}`
+  scenScript.onload = () => {
+    // 按 ?scenario=<name> 选场景；默认 conversation。场景可选 view 字段：
+    //   view: 'sessions' → 加载侧栏 sessions 面板 bundle（dist/sessionsWebview.js），
+    //   只投喂 sessions 快照；缺省（chat webview）投喂 sessions/state/modelCatalog。
+    // 场景可选 interact 字段（一段 JS 字符串）：快照投喂后延迟执行，用于模拟
+    // 点击打开菜单/进入行内重命名等交互态，再被脚本截图。
+    const q = new URLSearchParams(location.search)
+    const name = q.get('scenario') || window.DEFAULT_SCENARIO
+    const scen = window.SCENARIOS[name] || window.SCENARIOS[window.DEFAULT_SCENARIO]
+    if (scen.theme === 'dark') document.body.setAttribute('data-theme', 'dark')
+    const post = (m) => window.postMessage(m, '*')
+    const bundle = (scen.view === 'sessions' ? '/dist/sessionsWebview.js' : '/dist/chatWebview.js') + bust
+    const s = document.createElement('script')
+    s.src = bundle
+    s.onload = () => {
+      post({ type: 'sessions', snapshot: scen.sessions || window.sessionsTree(scen.state && scen.state.sessionId) })
+      if (scen.state) post({ type: 'state', state: scen.state })
+      if (scen.modelCatalog) post({ type: 'modelCatalog', catalog: scen.modelCatalog })
+      if (scen.interact) setTimeout(() => (0, eval)(scen.interact), 300)
+    }
+    document.head.appendChild(s)
   }
-  document.head.appendChild(s)
+  document.head.appendChild(scenScript)
 </script>
 </body>
 </html>
