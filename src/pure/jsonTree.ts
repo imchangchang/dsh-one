@@ -194,3 +194,12 @@ function walk(
 export function isExpandable(row: Extract<JsonTreeRow, { type: 'container' }>): boolean {
   return row.entryCount > 0
 }
+
+/**
+ * Whole-tree copy text for the copy button: 2-space pretty JSON of the parsed
+ * value (对齐官方 JsonTree 的 copyPrettyJson —— 从解析值重新序列化，不再带代码
+ * 围栏、统一缩进），供 webview 的「复制」按钮写入剪贴板。
+ */
+export function jsonTreeCopyText(value: JsonContainer): string {
+  return JSON.stringify(value, null, 2)
+}

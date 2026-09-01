@@ -7,6 +7,7 @@ import {
   isJsonTree,
   isOpenFromSet,
   jsonPathKey,
+  jsonTreeCopyText,
   tryParseJsonTree,
   type JsonTreeRow,
 } from '../src/pure/jsonTree.ts'
@@ -183,4 +184,17 @@ test('closing the root collapses the whole tree to a single container row', () =
   const root = rows[0] as Extract<(typeof rows)[0], { type: 'container' }>
   assert.equal(root.open, false)
   assert.equal(root.entryCount, 1)
+})
+
+/* ---------------- 复制文本（整树 pretty JSON） ---------------- */
+
+test('jsonTreeCopyText pretty-prints the whole tree with two-space indent', () => {
+  assert.equal(jsonTreeCopyText({ a: 1, b: [1, 2], c: null }), '{\n  "a": 1,\n  "b": [\n    1,\n    2\n  ],\n  "c": null\n}')
+  assert.equal(jsonTreeCopyText({ status: 'ok' }), '{\n  "status": "ok"\n}')
+})
+
+test('jsonTreeCopyText normalizes a fenced parse back to clean pretty JSON', () => {
+  const value = tryParseJsonTree('```json\n{"a":1}\n```')
+  assert.ok(value)
+  assert.equal(jsonTreeCopyText(value!), '{\n  "a": 1\n}')
 })
