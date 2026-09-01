@@ -30,3 +30,4 @@ dsh-one webview 里，@会话引用 chip（蓝色链接）和同一行后面的�
 - `src/ui/chat/webview.ts`（`sessionMentionChip()`，图标在前文字在后的结构）
 
 - 2026-09-01 认领（worktree: agent/session-mention-baseline-offset）→ doing
+- 2026-09-01 开发完成：给 `.session-mention` 补 `::before` 零宽空格作带文本基线的首个 flex 项（`margin-left: -3px` 抵消 gap），浏览器实测 chip 文字与同行正文偏移从 -1.25px 降到 0；新增暗色主题验证场景 `session-mention` 并加入基线冒烟集 → done
