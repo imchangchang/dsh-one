@@ -22,3 +22,4 @@ workflow 卡里 running 状态成员改用 spinSvg 转圈（和会话运行中�
 - 2026-09-01 认领（worktree: agent/workflow-running-member-spin-icon）→ doing
 
 - 2026-09-01 开发完成 → done
+- 2026-09-01 主线合入测试通过、人工确认 → closed
