@@ -236,11 +236,14 @@ function menuItem(
     icon?: SVGSVGElement
     /** 禁用态：加 .menu-item.disabled（置灰、不响应点击），onClick 不绑定。 */
     disabled?: boolean
+    /** 禁用原因的悬停提示（data-tip）；仅 disabled 时设置。 */
+    disabledTip?: string
     onClick: () => void
   },
 ): HTMLElement {
   const item = el('div', opts.checked ? 'menu-item checked' : 'menu-item')
   if (opts.disabled) item.classList.add('disabled')
+  if (opts.disabled && opts.disabledTip) item.setAttribute('data-tip', opts.disabledTip)
   if (opts.glyph) {
     const g = el('span', 'glyph')
     g.innerHTML = opts.glyph // build-time constant strings, not user input
@@ -700,10 +703,11 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   })
   actions.appendChild(more)
   row.appendChild(actions)
-  // 情境化点击：当前附着会话 → 行内重命名；其他 → 打开会话。编辑中忽略行点击。
+  // 情境化点击：editor 面板真实附着（attachedSessionId，非仅高亮的待附着
+  // 目标）的会话 → 行内重命名；其他 → 打开会话。编辑中忽略行点击。
   row.addEventListener('click', () => {
     if (s.sessionId === editingSessionId) return
-    if (s.sessionId === currentSessionId) startRowRename(s.sessionId, s.label)
+    if (sessionsSnapshot?.attachedSessionId === s.sessionId) startRowRename(s.sessionId, s.label)
     else post({ type: 'sessionOpen', sessionId: s.sessionId })
   })
   row.addEventListener('contextmenu', (e) => {
@@ -844,6 +848,7 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
       checked: s.unread,
       // 运行中会话的手动未读语义混乱，置灰禁用（与行首 busy 判定一致）。
       disabled: s.running || s.descendantRunning,
+      disabledTip: '运行中的会话不支持手动标为已读/未读',
       onClick: () => {
         closePopover()
         post({ type: 'sessionUnread', sessionId: s.sessionId, unread: !s.unread })
@@ -873,6 +878,12 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
       icon: iconSvg(PANEL_ICONS.archive),
       // 运行中/未读/待处理的会话归档后状态难追踪，置灰禁用。
       disabled: s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined,
+      disabledTip:
+        s.pendingInteraction !== undefined
+          ? '待处理的会话不能归档'
+          : s.running || s.descendantRunning
+            ? '运行中的会话不能归档'
+            : '未读的会话不能归档',
       onClick: () => {
         closePopover()
         post({ type: 'sessionArchive', sessionId: s.sessionId, title: s.label })

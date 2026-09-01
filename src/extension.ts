@@ -42,6 +42,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.extensionUri,
     sessions,
     () => chatView.activeSessionId,
+    () => chatView.attachedSessionId,
     chatView.onActiveSessionChanged,
   )
 

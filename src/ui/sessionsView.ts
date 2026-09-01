@@ -296,6 +296,8 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
     private readonly store: SessionsStore,
     /** 高亮会话 id（附着的、或懒加载待附着目标），来自 editor 面板。 */
     private readonly getActiveSessionId: () => string | null,
+    /** editor 面板真实附着的会话 id（面板未开为 null），行内重命名判定用。 */
+    private readonly getAttachedSessionId: () => string | null,
     activeChanged: vscode.Event<string | null>,
   ) {
     this.managerSub = manager.onDidChangeState(() => this.pushSessions())
@@ -327,6 +329,7 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       serverState: status.state,
       dshNotFound: status.state === 'error' && status.reason === 'dshNotFound',
       activeSessionId: this.getActiveSessionId(),
+      attachedSessionId: this.getAttachedSessionId(),
     }
     const message: { type: 'sessions'; snapshot: SessionsSnapshot } = { type: 'sessions', snapshot }
     void this.view.webview.postMessage(message)

@@ -435,11 +435,18 @@ export interface SessionsSnapshot {
   /** 手动标记未读的会话 id（dsh 无未读 API，纯客户端状态）。 */
   unread: string[]
   /**
-   * 当前附着/高亮的会话 id（editor ChatViewProvider 的 activeSessionId）：
-   * 侧栏 sessions 面板据此画 active 行高亮与所属 workspace 的蓝色文件夹。
-   * 拆分后 chat 在 editor 面板，会话高亮归侧栏渲染，故由宿主下发。
+   * 高亮的会话 id（editor ChatViewProvider 的 activeSessionId）：面板开着且
+   * 附着时为当前附着会话，否则是懒加载待附着目标。侧栏据此画 active 行高亮
+   * 与所属 workspace 的蓝色文件夹。拆分后 chat 在 editor 面板，会话高亮归
+   * 侧栏渲染，故由宿主下发。
    */
   activeSessionId: string | null
+  /**
+   * editor 面板当前真实附着的会话 id（面板未开或未附着为 null）。与
+   * activeSessionId 不同，从不回退到懒加载 pending 目标——侧栏「已打开会话
+   * 单击 = 行内重命名」的判定用它，避免 reload 等人面板没开但高亮时误入重命名。
+   */
+  attachedSessionId: string | null
   /** 内容全文搜索（session.search）是否被 20 条上限截断；面板据此显示轻提示。 */
   contentSearchHasMore: boolean
   /** 最近一次内容搜索是否失败（后端索引未启用等）；true 时面板显示「仅按标题匹配」提示。 */

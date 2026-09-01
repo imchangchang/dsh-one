@@ -1114,6 +1114,17 @@ export class ChatViewProvider implements vscode.Disposable {
   }
 
   /**
+   * Session the editor panel is actually attached to right now. Panel closed
+   * (or open without an attached controller) yields null — unlike
+   * activeSessionId this never falls back to the lazy-pending target, so the
+   * sidebar can tell「已打开且附着」（单击 = 行内重命名）from「仅高亮待附着」
+   * （单击 = 打开会话）.
+   */
+  get attachedSessionId(): string | null {
+    return this.panel !== null ? (this.controller?.sessionId ?? null) : null
+  }
+
+  /**
    * 懒加载自动附着：store 变化发现「无当前会话但出现了最新会话」时记下
    * target（仅侧栏高亮，不碰 controller），等 panel 下次 open() 再落。
    */
@@ -1308,6 +1319,7 @@ export class ChatViewProvider implements vscode.Disposable {
       serverState: status.state,
       dshNotFound: status.state === 'error' && status.reason === 'dshNotFound',
       activeSessionId: this.activeSessionId,
+      attachedSessionId: this.attachedSessionId,
     }
     const message: ToWebviewMessage = { type: 'sessions', snapshot }
     void this.panel?.webview.postMessage(message)

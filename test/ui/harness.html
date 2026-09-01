@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DSH One — chat webview 视觉场景</title>
+<title>DSH One — webview 视觉场景</title>
 <link rel="stylesheet" href="/test/ui/style.css">
 <style>body { margin: 0; font-family: sans-serif; } #app { min-height: 100vh; }</style>
 </head>
@@ -13,21 +13,28 @@
 <!-- mock 宿主 API：webview 只用到 postMessage，这里吞掉发回宿主的动作 -->
 <script>window.acquireVsCodeApi = function () { return { postMessage: function () {} } }</script>
 
-<script src="/dist/chatWebview.js"></script>
 <script src="/test/ui/scenarios.js"></script>
 
 <script>
-  // 按 ?scenario=<name> 选场景；默认 conversation。装载后把该场景的
-  // sessions / state / modelCatalog 推给 webview，得到对应界面状态。
+  // 按 ?scenario=<name> 选场景；默认 conversation。场景可选 view 字段：
+  //   view: 'sessions' → 加载侧栏 sessions 面板 bundle（dist/sessionsWebview.js），
+  //   只投喂 sessions 快照；缺省（chat webview）投喂 sessions/state/modelCatalog。
+  // 场景可选 interact 字段（一段 JS 字符串）：快照投喂后延迟执行，用于模拟
+  // 点击打开菜单/进入行内重命名等交互态，再被脚本截图。
   const q = new URLSearchParams(location.search)
   const name = q.get('scenario') || window.DEFAULT_SCENARIO
   const scen = window.SCENARIOS[name] || window.SCENARIOS[window.DEFAULT_SCENARIO]
   const post = (m) => window.postMessage(m, '*')
-  window.addEventListener('load', () => {
+  const bundle = scen.view === 'sessions' ? '/dist/sessionsWebview.js' : '/dist/chatWebview.js'
+  const s = document.createElement('script')
+  s.src = bundle
+  s.onload = () => {
     post({ type: 'sessions', snapshot: scen.sessions || window.sessionsTree(scen.state && scen.state.sessionId) })
-    post({ type: 'state', state: scen.state })
+    if (scen.state) post({ type: 'state', state: scen.state })
     if (scen.modelCatalog) post({ type: 'modelCatalog', catalog: scen.modelCatalog })
-  })
+    if (scen.interact) setTimeout(() => (0, eval)(scen.interact), 300)
+  }
+  document.head.appendChild(s)
 </script>
 </body>
 </html>
