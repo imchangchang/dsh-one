@@ -33,3 +33,4 @@
 ## 变更记录
 
 - 2026-09-01 核实并定位根因（源码核对 dsh-one webview.ts 与官方 dsh-client-ui-conversation/lib/client.js），写入 open→open
+- 2026-09-01 认领（worktree: agent/session-switch-scroll-restore）→ doing
