@@ -113,6 +113,40 @@ function textOfBlocks(content: Array<{ type: string; text?: unknown }> | undefin
 }
 
 /**
+ * todo_write 调用 args 的 planSummary（对齐官方 dsh-client-ui-tool 的
+ * planSummary/TodoRow）：解析该次调用 `data.arguments` 的 JSON 字符串
+ * （`{todos:[{content,status}]}`），done=completed 数、total=条数、
+ * activeContent=首个 in_progress 条目的 content（须非空字符串，否则 null）、
+ * activeExtra=其余 in_progress 数。解析失败或缺 todos 数组时返回 undefined
+ * （工具卡不渲染任务摘要，回落通用行）。
+ */
+function planSummaryOf(argumentsRaw: string | undefined): ChatToolBlock['todos'] | undefined {
+  if (!argumentsRaw || !argumentsRaw.trim()) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(argumentsRaw)
+  } catch {
+    return undefined
+  }
+  const todos = (parsed as { todos?: unknown } | null | undefined)?.todos
+  if (!Array.isArray(todos)) return undefined
+  const items = todos.filter(
+    (t): t is { content: unknown; status: unknown } =>
+      typeof t === 'object' && t !== null && typeof (t as { content?: unknown }).content === 'string',
+  )
+  if (items.length === 0) return undefined
+  const active = items.filter((t) => t.status === 'in_progress')
+  const firstActive = active[0]
+  return {
+    done: items.filter((t) => t.status === 'completed').length,
+    total: items.length,
+    activeContent:
+      typeof firstActive?.content === 'string' && firstActive.content.length > 0 ? firstActive.content : null,
+    activeExtra: active.length - 1,
+  }
+}
+
+/**
  * Extract image blocks of a message content array as durable attachment
  * references. dsh stores image bytes in its attachment store, so the content
  * part carries `{ attachment: { attachmentId, mediaType, ... } }` instead of
@@ -480,6 +514,12 @@ export class ConversationFolder {
       title: data.name,
     }
     if (view?.for === 'call') this.applyCallView(block, view.view)
+    // todo_write 的事件 arguments 是模型原始 JSON 字符串（整表快照），比 host
+    // 渲染 view 的 rawInput 更可靠；解析出 planSummary 供 webview 渲染任务卡。
+    if (data.name === 'todo_write') {
+      const summary = planSummaryOf(data.arguments)
+      if (summary) block.todos = summary
+    }
     msg.blocks.push(block)
     this.tools.set(data.callId, block)
     msg.complete = false
