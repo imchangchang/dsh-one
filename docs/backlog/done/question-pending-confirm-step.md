@@ -31,3 +31,5 @@
 - 2026-09-01 记录 → open
 
 - 2026-09-01 认领 → doing
+
+- 2026-09-01 开发完成，自测通过（typecheck 208 tests build + AI 视觉验证）→ done
