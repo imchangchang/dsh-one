@@ -1,6 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isCommandTool, toolAction, truncateLines, OUTPUT_PREVIEW_LINES } from '../src/pure/toolLine.ts'
+import {
+  isCommandTool,
+  prettyJson,
+  toolAction,
+  truncateLines,
+  OUTPUT_PREVIEW_LINES,
+} from '../src/pure/toolLine.ts'
 
 test('known tool names map to kimi-cli style action phrases', () => {
   assert.equal(toolAction('bash'), 'Ran a command')
@@ -45,4 +51,17 @@ test('longer outputs truncate to the first lines with a line count', () => {
 test('empty and single-line outputs never truncate', () => {
   assert.deepEqual(truncateLines(''), { preview: '', totalLines: 1, truncated: false })
   assert.equal(truncateLines('one line').truncated, false)
+})
+
+test('prettyJson pretty-prints valid JSON with two-space indent', () => {
+  assert.equal(
+    prettyJson('{"command":"ls","cwd":"/tmp"}'),
+    '{\n  "command": "ls",\n  "cwd": "/tmp"\n}',
+  )
+  assert.equal(prettyJson('{"todos":[{"content":"a"}]}'), '{\n  "todos": [\n    {\n      "content": "a"\n    }\n  ]\n}')
+})
+
+test('prettyJson falls back to raw text on invalid JSON', () => {
+  assert.equal(prettyJson('{not json'), '{not json')
+  assert.equal(prettyJson(''), '')
 })
