@@ -64,3 +64,4 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - 2026-09-01 开发完成（doing → done）：按验收反馈改为「侧栏 webview sessions 面板 + chat 留 editor WebviewPanel」。
 - 2026-09-01 验收打回（done → doing）：未分组组折叠时显示标题 + 下方一片空白，用户要求去掉；未分组组改为恒展开、无会话时不显示。
 - 2026-09-01 开发完成（doing → done）：未分组虚拟组恒展开、不折叠、不写持久化，无会话时不显示。
+- 2026-09-01 验收打回（done → doing）：侧栏残留拆分前的窄屏布局，sessions 面板只占 40% 高度、下方留白（原 chat-col 位置）；需删除 chat-col 死 CSS 与窄屏 media query，让面板撑满侧栏。
