@@ -1289,6 +1289,15 @@ export class ChatViewProvider implements vscode.Disposable {
     return ids
   }
 
+  /** 把当前打开的会话集合同步给 store（完成标记排除打开中的会话）。 */
+  private syncAttachedSessions(): void {
+    const ids: string[] = []
+    for (const tab of this.tabs.values()) {
+      if (tab.panel && tab.sessionId) ids.push(tab.sessionId)
+    }
+    this.store.setAttachedSessions(ids)
+  }
+
   /**
    * 打开（或聚焦）一个会话的 tab：已有 tab → reveal（服务重启清空 controller
    * 后重新附着）；没有 → 在当前活动编辑器列新建 tab（一个会话一个 tab）。
@@ -1296,6 +1305,8 @@ export class ChatViewProvider implements vscode.Disposable {
    */
   openSession(sessionId: string): void {
     if (!sessionId) return
+    // 显式打开（侧栏/命令/恢复）都会带出会话，挂起的重启恢复目标作废。
+    this.pendingRestoreSessionId = null
     const existing = this.tabs.get(sessionId)
     if (existing) {
       if (!existing.controller) this.attachController(existing, sessionId)
@@ -1451,6 +1462,7 @@ export class ChatViewProvider implements vscode.Disposable {
     this.tabs.set(sessionId ?? ChatViewProvider.EMPTY_TAB_KEY, tab)
     this.push(tab, this.emptyState())
     this.syncPanelTitle(tab)
+    this.syncAttachedSessions()
     this.pushSessions()
     return tab
   }
@@ -1523,6 +1535,7 @@ export class ChatViewProvider implements vscode.Disposable {
     })
     this.push(tab, tab.controller?.getState() ?? this.emptyState())
     this.syncPanelTitle(tab)
+    this.syncAttachedSessions()
     this.pushSessions()
     this.revealTab(tab)
   }
@@ -1547,6 +1560,7 @@ export class ChatViewProvider implements vscode.Disposable {
     const key = tab.sessionId ?? ChatViewProvider.EMPTY_TAB_KEY
     if (this.tabs.get(key) === tab) this.tabs.delete(key)
     panel?.dispose()
+    this.syncAttachedSessions()
   }
 
   /** 服务 down / 重启：释放所有 controller（panel 保留显示空态，等待恢复）。 */
