@@ -23,6 +23,7 @@ import type { FileRefCandidate } from '../pure/fileReference.ts'
 import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, StagedFile, ToWebviewMessage } from '../pure/chatContract.ts'
 import { contextMenuResource } from '../pure/contextResource.ts'
 import { orderJobs } from '../pure/activityTree.ts'
+import { buildSubagentTree } from '../pure/sessionTree.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
 import { formatSessionMention } from '../pure/sessionMention.ts'
 import type { SessionsStore } from './sessionsStore.ts'
@@ -1007,18 +1008,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   private composeHeader(state: ChatState): ChatState {
     if (!state.sessionId) return state
     const raw = this.store.rawList()
-    const subagents = raw
-      // 全部 continuable 子代理（含已完成），运行中优先、再按新近排序；
-      // 状态点由 webview 按 running 字段画。
-      .filter((s) => s.parentSessionId === state.sessionId)
-      .sort((a, b) => Number(b.running) - Number(a.running) || b.updatedAt - a.updatedAt)
-      .map((s) => ({
-        sessionId: s.sessionId,
-        title: s.title ?? `会话 ${s.sessionId.slice(0, 8)}`,
-        running: s.running,
-        ...(s.totalTokens !== undefined ? { totalTokens: s.totalTokens } : {}),
-        updatedAt: s.updatedAt,
-      }))
+    // 血缘树：直接子代理为顶层项，每项的 children 递归挂各自后代
+    // （子代理再开子代理）。每层按 运行中优先 + 新近优先 在纯函数里排好；
+    // 状态点由 webview 按 running 字段画。
+    const subagents = buildSubagentTree(raw, state.sessionId)
     const jobs = orderJobs(this.jobs.jobs().get(state.sessionId) ?? [])
     const workspaceLabel = this.store.workspaceLabelFor(state.sessionId)
     const self = raw.find((s) => s.sessionId === state.sessionId)
