@@ -27,3 +27,4 @@ chat 在 editor WebviewPanel（拆分后）里打开后，tab 标题固定显示
 小改动，单独一轮或随多 tab 条目一起做（见 multi-tab-chat-sessions）。
 
 - 2026-09-01 认领（worktree: agent/chat-tab-title-and-icon）→ doing
+- 2026-09-01 开发完成，自测通过（typecheck + 205 tests + build）：tab 标题随会话名（含自动命名，回落「会话 <ID 前 8 位>」，空态「DSH One」）+ tab 图标用 dsh 官方 favicon（拷贝至 assets/dsh-favicon.svg，注明来自 @deepseek-ai/dsh-web-frontend/dist/favicon.svg）→ done
