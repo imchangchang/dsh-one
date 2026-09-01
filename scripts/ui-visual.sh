@@ -80,9 +80,11 @@ for s in "${scenarios[@]}"; do
   curl -s -m 20 -X POST "$DAEMON/command" -H 'Content-Type: application/json' \
     -d "{\"action\":\"screenshot\",\"args\":{\"format\":\"png\",\"path\":\"$out\"},\"session\":\"$SESSION\"}" >/dev/null
   echo "  $s -> $out"
-  curl -s -m 15 -X POST "$DAEMON/command" -H 'Content-Type: application/json' \
-    -d "{\"action\":\"close_tab\",\"args\":{},\"session\":\"$SESSION\"}" >/dev/null 2>&1 || true
 done
+
+# 清掉累积的 tab 分组（别在循环里 close_tab——快速开关会让 daemon 卡住）
+curl -s -m 15 -X POST "$DAEMON/command" -H 'Content-Type: application/json' \
+  -d "{\"action\":\"close_session\",\"args\":{},\"session\":\"$SESSION\"}" >/dev/null 2>&1 || true
 
 echo
 echo "done; mode=$MODE; ${#scenarios[@]} shots; ls $OUT"
