@@ -58,3 +58,4 @@ macOS 触控板：会话已经在底部（贴底跟随中），再向下惯性�
 - 2026-09-01 用户确认：仅流式输出期间抖动；输出完成后不抖（坐实「写帧窗口 = 渲染推送窗口」）
 - 2026-09-01 认领（worktree: agent/scroll-bottom-momentum-jitter）→ doing
 - 2026-09-01 完成开发（worktree: agent/scroll-bottom-momentum-jitter）：防线层 `.messages { overscroll-behavior-y: none }`（判定弹性作用在 `.messages`——页面唯一滚动容器，`html/body/#app` 均 `height:100%` 且不设 `overflow`，不参与滚动链）+ 行为层意图门控（render 滚底与 `repinIfFollowing` 在 `userScrollIntentActive` 时跳过，不抢原生惯性动画）+ render 滚底改 microtask 重锚定写 settle 值（`shouldPinNow` 纯函数）；自测 typecheck / test(209) / build 全绿，baseline 15 场景 + 流式推送×意图窗口动态检查通过；惯性碰撞机制本身需真实触控板人工确认 → done
+- 2026-09-01 迭代 2（人工验收反馈后补）：① 根层回弹——`.messages` 的 `none` 盖不住 webview 根文档（html/body 页面级）回弹，`overscroll-behavior-y: none` 补到 `html, body`（`.messages` 上保留）；② settle 恢复 pin——动量末尾视口脱底 + 流式无后续 render 时悬空，`noteUserScrollIntent` 加意图过期后一次性定时器 + scroll 监听加同步 settle-restore（都用 `shouldPinNow`），兜住「输出刚好在动量结束时停止」的恢复空洞；自测全绿，动态检查（意图窗口内 microtask 跳过 + settle 定时器恢复回底）通过 → done
