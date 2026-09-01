@@ -36,12 +36,28 @@ const SESSIONS_STYLE = `
     flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 8px;
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
+  /* 搜索框外裹一个相对定位容器，✕ 清空按钮绝对定位其右侧。 */
+  .search-wrap {
+    flex: 1; min-width: 0; position: relative;
+    display: flex; align-items: center;
+  }
   .sessions-search {
-    flex: 1; min-width: 0; padding: 3px 6px; font-family: inherit; font-size: 12px;
+    flex: 1; min-width: 0; padding: 3px 22px 3px 6px; font-family: inherit; font-size: 12px;
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
   }
   .sessions-search:focus { outline: 1px solid var(--vscode-focusBorder); }
+  /* 一键清除 ✕：默认隐藏，输入非空时显示；半透明 hover 变实，风格同 .sessions-tool。 */
+  .search-clear {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    width: 20px; height: 20px; padding: 0;
+    display: none; align-items: center; justify-content: center;
+    background: transparent; border: 0; border-radius: 3px;
+    color: var(--vscode-descriptionForeground, #888); opacity: 0.7; cursor: pointer;
+  }
+  .search-wrap.has-text .search-clear { display: inline-flex; }
+  .search-clear:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  .search-clear svg { display: block; }
   .sessions-tool {
     flex: none; display: inline-flex; align-items: center; justify-content: center;
     width: 24px; height: 24px; padding: 0; background: transparent; border: 0;

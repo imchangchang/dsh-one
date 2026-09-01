@@ -255,6 +255,8 @@ const TRASH_ICON = [
   'M8 6.7v4.6',
   'M9.7 6.7v4.6',
 ]
+/** 一键清除 ✕ 描边图标（搜索框右侧按钮，与排序/置顶图钉同 stroke 风格）。 */
+const CLEAR_ICON = ['M4 4l8 8', 'M12 4l-8 8']
 
 function makePinIcon(): SVGSVGElement {
   const svg = strokeSvg(PIN_ICON)
@@ -357,21 +359,46 @@ function computeAllCollapsed(snap: SessionsSnapshot | null): boolean {
 /** header（含搜索框）只建一次：搜索框 DOM 永不销毁，IME 输入不受快照重建打断。 */
 function buildSessionsHeader(): HTMLElement {
   const header = el('div', 'sessions-header')
+  const searchWrap = el('div', 'search-wrap')
   const search = document.createElement('input')
   search.className = 'sessions-search'
   search.placeholder = '搜索会话'
   // 后端 session.search 只接受 1–500 字符；输入上限对齐，避免截断歧义。
   search.maxLength = 500
   search.value = sessionsSearchDraft
+  // 一键清除 ✕：header 持久，按钮首建后只按 has-text toggle，不重建。
+  const clearBtn = document.createElement('button')
+  clearBtn.type = 'button'
+  clearBtn.className = 'search-clear'
+  clearBtn.setAttribute('aria-label', '清除搜索')
+  clearBtn.setAttribute('data-tip', '清除搜索')
+  clearBtn.appendChild(strokeSvg(CLEAR_ICON, 12))
+  const updateClear = (): void => {
+    searchWrap.classList.toggle('has-text', sessionsSearchDraft.trim() !== '')
+  }
+  updateClear()
   search.addEventListener('input', () => {
     sessionsSearchDraft = search.value
+    updateClear()
     if (searchDebounce !== null) clearTimeout(searchDebounce)
     searchDebounce = setTimeout(() => {
       searchDebounce = null
       post({ type: 'sessionsSearch', query: sessionsSearchDraft.trim() === '' ? null : sessionsSearchDraft })
     }, 200)
   })
-  header.appendChild(search)
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    sessionsSearchDraft = ''
+    search.value = ''
+    updateClear()
+    search.focus()
+    // 与手动清空输入一致：走现有路径关闭搜索过滤。
+    post({ type: 'sessionsSearch', query: null })
+    if (searchDebounce !== null) clearTimeout(searchDebounce)
+  })
+  searchWrap.appendChild(search)
+  searchWrap.appendChild(clearBtn)
+  header.appendChild(searchWrap)
   const sortBtn = panelTool(strokeSvg(SORT_ICON, 16), '排序方式')
   sortBtn.addEventListener('click', () => openSortMenu(sortBtn))
   header.appendChild(sortBtn)
