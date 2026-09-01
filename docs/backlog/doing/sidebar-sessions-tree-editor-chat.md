@@ -94,3 +94,4 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - 2026-09-01 开发完成（doing → done）：chatView.onMessage 补回 sessionOpen → openSession；对照 FromWebviewMessage 全部成员，仅 sessionOpen 被丢（其余均已处理）。
 - 2026-09-01 验收打回（done → doing）：会话行点击改情境化——已打开（currentSessionId 高亮）的行内重命名、未打开的打开会话；行内重命名跨列表重建保留，右键重命名保持 VSCode 弹窗。
 - 2026-09-01 开发完成（doing → done）：会话行点击情境化（已打开→行内重命名、未打开→打开会话）；行内重命名跨重建保留、经 sessionRenameDirect 直接 RPC，右键弹窗不改。
+- 2026-09-01 验收打回（done → doing）：运行中会话的 ⋯/右键菜单「标记为已读/未读」置灰禁用（运行中手动未读语义混乱）。
