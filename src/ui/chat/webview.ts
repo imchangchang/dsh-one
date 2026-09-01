@@ -38,6 +38,7 @@ import {
   jobDotState,
   jobStatusLabel,
   jobsChipLabel,
+  orderJobs,
   type ActivityJob,
 } from '../../pure/activityTree.ts'
 import { attachmentDataUrl, isImageMediaType } from '../../pure/composerAttachment.ts'
@@ -383,7 +384,16 @@ function markMenuRow(row: HTMLElement | null): void {
 }
 
 function onPopoverOutside(e: MouseEvent): void {
-  if (popover && !popover.contains(e.target as Node)) closePopover()
+  // 锚点（触发按钮）不算外部：官方 useDismissOnOutsidePointer 同样排除
+  // trigger 子树——点已打开菜单的 trigger 应走自身的 toggle 逻辑，而不是
+  // 先被 mousedown 关掉再被 click 重新打开。
+  if (
+    popover &&
+    !popover.contains(e.target as Node) &&
+    !(popoverAnchor !== null && popoverAnchor.contains(e.target as Node))
+  ) {
+    closePopover()
+  }
 }
 
 function onPopoverKey(e: KeyboardEvent): void {
@@ -1024,11 +1034,19 @@ function subagentLineageRunning(sub: SubagentNode): boolean {
  * + 状态文案（detail 优先，如 "exit code: 0"）+ 耗时；已结束行淡化。
  */
 function openJobsMenu(anchor: HTMLElement): void {
+  // 点 trigger 切换开合（对齐官方 JobListAction 的 onClick toggle）：
+  // 弹层已挂在这个 chip 上时再点一下是关闭，而不是重建重开。
+  if (popover !== null && popoverAnchor === anchor) {
+    closePopover()
+    return
+  }
   const jobs = state?.backgroundJobs
   if (!jobs || jobs.length === 0) return
   const now = Date.now()
   const body = el('div', 'jobs-menu')
-  for (const job of jobs) body.appendChild(renderJobsMenuRow(job, now))
+  // 官方 ordered()：live 前按 startedAt 升序，settled 按 finishedAt 降序
+  // （activityTree.orderJobs 已按官方语义实现并有单测）。
+  for (const job of orderJobs(jobs)) body.appendChild(renderJobsMenuRow(job, now))
   showPopover(anchor, body, 'below')
   // 有运行中的行时挂 1s tick，只改写耗时文本节点（closePopover 统一清理）。
   if (jobs.some(isLiveJob)) {
