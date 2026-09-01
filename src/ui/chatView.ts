@@ -830,6 +830,25 @@ const STYLE = `
   }
   .preset-item .check { align-self: center; }
   .preset-item .job-dot-slot { align-self: center; }
+  /* 子代理下拉的层级树（对齐 dsh web SubagentHeader 成员树）：每层嵌套容器
+     左缩 16px + 4px 轨距，竖轨与横向支线用 VS Code 树缩进参考线色；末行
+     竖轨半高收尾成 └。多层的祖辈竖轨随容器自然贯通。 */
+  .subagent-node { position: relative; min-width: 0; }
+  .subagent-node > .menu-item { position: relative; }
+  .subagent-children { position: relative; margin-left: 16px; padding-left: 4px; }
+  .subagent-children::before {
+    content: ""; position: absolute; left: 0; top: -19px; height: 19px;
+    border-left: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(127,127,127,.35));
+  }
+  .subagent-children > .subagent-node::before {
+    content: ""; position: absolute; top: 0; bottom: 0; left: -4px;
+    border-left: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(127,127,127,.35));
+  }
+  .subagent-children > .subagent-node:last-child::before { height: 19px; bottom: auto; }
+  .subagent-children > .subagent-node > .menu-item::before {
+    content: ""; position: absolute; top: 19px; left: -4px; width: 12px;
+    border-top: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(127,127,127,.35));
+  }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
   /* 弹窗内非首个分组上方加分割线（@ 补全的「文件」「会话」分组）。 */
   .slash-popup .menu-group:not(:first-child) {

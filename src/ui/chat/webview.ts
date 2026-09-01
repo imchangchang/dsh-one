@@ -141,6 +141,8 @@ window.addEventListener('pointercancel', () => {
 let earlierAnchor: { firstId: string | undefined; count: number; seenLoading: boolean } | null = null
 /** Signature of the composer-relevant state at the last render; see render(). */
 let lastComposerSig: string | null = null
+/** Signature of the header-relevant state at the last render; see render(). */
+let lastHeaderSig: string | null = null
 /** Images staged in the composer, sent with the next `send`. */
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
@@ -1082,16 +1084,18 @@ function openSubagentMenu(anchor: HTMLElement): void {
   const subs = state?.subagents
   if (!subs || subs.length === 0) return
   const body = el('div')
-  for (const sub of subs) appendSubagentRow(body, sub, 0)
+  for (const sub of subs) appendSubagentRow(body, sub)
   // 锚点在头部，向下展开。
   showPopover(anchor, body, 'below')
 }
 
-/** 递归渲染一个子代理节点及其全体后代（children），`depth` 控制缩进层级。 */
-function appendSubagentRow(container: HTMLElement, sub: SubagentNode, depth: number): void {
+/** 递归渲染一个子代理节点及其全体后代（children）：每个节点包一层
+ * .subagent-node，后代装进 .subagent-children 嵌套容器——缩进与层级引导线
+ * （竖轨 + 横向支线，对齐 dsh web SubagentHeader 成员树）都由容器承担，
+ * 行本身不再按 depth 算绝对 padding。 */
+function appendSubagentRow(container: HTMLElement, sub: SubagentNode): void {
+  const node = el('div', 'subagent-node')
   const item = el('div', 'menu-item preset-item')
-  // 每级 16px 缩进（对齐 dsh web 阶段/成员列表的缩进节奏），首层不缩。
-  if (depth > 0) item.style.paddingLeft = `${depth * 16}px`
   const slot = el('span', 'job-dot-slot')
   if (sub.running) slot.appendChild(spinSvg())
   else slot.appendChild(el('span', 'job-dot settled-dot'))
@@ -1111,9 +1115,15 @@ function appendSubagentRow(container: HTMLElement, sub: SubagentNode, depth: num
     closePopover()
     post({ type: 'sessionOpen', sessionId: sub.sessionId })
   })
-  container.appendChild(item)
-  // 递归挂后代：孙一辈及以下逐级缩进。
-  for (const child of sub.children ?? []) appendSubagentRow(container, child, depth + 1)
+  node.appendChild(item)
+  container.appendChild(node)
+  // 后代挂进嵌套容器：每层 16px 相对缩进 + 引导线，层级一眼可辨。
+  const kids = sub.children ?? []
+  if (kids.length > 0) {
+    const childWrap = el('div', 'subagent-children')
+    for (const child of kids) appendSubagentRow(childWrap, child)
+    node.appendChild(childWrap)
+  }
 }
 
 /** 该子代理的血缘树里是否有任一节点在跑（含孙一辈及以下）。 */
@@ -1338,6 +1348,7 @@ function render(): void {
   // the signature — it tracks the stream and is patched in place instead.
   const oldComposer = chatCol.querySelector<HTMLElement>('.input-area')
   const oldHero = chatCol.querySelector<HTMLElement>(':scope > .hero')
+  const oldHeader = chatCol.querySelector<HTMLElement>('.chat-header')
   // 空会话（无消息、无待办/队列/公告/任务清单）按官方 dsh web 空态居中排版
   // （hero 标题 + workspace/preset chip 行 + 大圆角 composer 卡片）；开跑后
   // 回常规流式布局。有任务清单说明会话已在干活，不走 hero。
@@ -1387,8 +1398,31 @@ function render(): void {
   // only its children are rebuilt below. (Scrollbar drags dispatch no
   // pointer events to the page, so there is no way to defer renders instead.)
   const keepMessages = oldMessages !== null && !!state?.sessionId && !blankHero
+  // Header preservation（与 composer 同款 keep 模式）：子代理/后台任务 chip 是
+  // popover 锚点，流式快照每帧重建 header 会把锚点 remove 掉，保活逻辑随即
+  // closePopover——弹层刚开就被下一帧杀掉。header 相关状态实质没变时保留
+  // 原元素，锚点稳定、弹层存活。耗时/相对时间等渲染期派生值不进签名。
+  const headerSig = JSON.stringify([
+    state?.sessionId ?? null,
+    state?.sessionTitle ?? null,
+    state?.parentSession ?? null,
+    state?.presetLabel ?? null,
+    state?.presetDescription ?? null,
+    state?.subagents ?? null,
+    state?.backgroundJobs ?? null,
+  ])
+  // 改名中的 header 不保留：标题 span 已被输入框就地替换，保留会让输入框
+  // 在 commit/cancel 后的 render 里残留（重建才会还原成标题）。
+  const keepHeader =
+    oldHeader !== null &&
+    !!state?.sessionId &&
+    state.loading !== true &&
+    !blankHero &&
+    headerSig === lastHeaderSig &&
+    oldHeader.querySelector('.rename-input') === null
   for (const child of Array.from(chatCol.children)) {
     if (keepMessages && child === oldMessages) continue
+    if (keepHeader && child === oldHeader) continue
     if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
     child.remove()
   }
@@ -1404,6 +1438,7 @@ function render(): void {
   }
   if (!state || !state.sessionId) {
     lastComposerSig = null
+    lastHeaderSig = null
     turnStatusStart = null
     chatCol.appendChild(renderEmpty(state))
     return
@@ -1435,6 +1470,7 @@ function render(): void {
       updateSlashPopup(input)
     }
     lastComposerSig = composerSig
+    lastHeaderSig = headerSig
     return
   }
   // Regions above the composer; insert before the preserved composer when kept.
@@ -1444,7 +1480,15 @@ function render(): void {
     else chatCol.appendChild(node)
   }
   const jobsLabel = state.backgroundJobs ? jobsChipLabel(state.backgroundJobs) : null
-  if (state.sessionTitle || state.parentSession || state.presetLabel || (state.subagents?.length ?? 0) > 0 || jobsLabel) {
+  const headerWanted = !!(
+    state.sessionTitle ||
+    state.parentSession ||
+    state.presetLabel ||
+    (state.subagents?.length ?? 0) > 0 ||
+    jobsLabel
+  )
+  // keepHeader 时旧 header 原位存活且内容实质未变：跳过重建，chip 锚点不断。
+  if (headerWanted && !(keepHeader && oldHeader)) {
     const header = el('div', 'chat-header')
     // 面包屑（对齐官方 dsh web 的子代理进入逻辑）：附着子代理会话时标题区
     // 是「父会话标题 / 子会话标题」，点父会话标题回到父会话内容。
@@ -1651,6 +1695,7 @@ function render(): void {
     chatCol.appendChild(renderInput(draft))
   }
   lastComposerSig = composerSig
+  lastHeaderSig = headerSig
   // 「加载更早」的锚定配对：先记下 loadingEarlier 曾为 true（请求确实被
   // 接受），它翻回 false 的这一帧若消息从顶部插入（首条变了或条数多了），
   // 按新增高度补偿 scrollTop；无论是否插入都解除锚点（空页/失败同样落地）。

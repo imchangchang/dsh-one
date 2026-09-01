@@ -52,3 +52,8 @@ dsh web / dsh-one 的会话树里，子代理可通过 `parentSessionId` 形成�
 3. **可读性差**。两小点：(a) 缩进用了**绝对值** `paddingLeft = depth*16px`，而 `.menu-item` 基础左内边距已 10px，子级实际只比父级多 6px，层级几乎看不出——需改成相对增量或加大每级缩进，并加层级连接线/引导线（用户点名要，参考 dsh web 阶段/成员树的竖线）；(b) 子代理标题初始是「会话 xxxxxx」代号，后续会自动更新为真实标题，但 dsh-one 前端刷新慢、不及时同步（用户补充），需查会话标题更新（host 帧 → SessionsStore 基线 → composeHeader 重推）的时延链路。
 
 - 2026-09-05 认领（worktree: agent/subagent-header-tree，基于 main 现状继续修实测问题）→ doing
+
+- 2026-09-05 实测三问题修复完成，自测通过（typecheck+test+build，180 测试）→ done：
+  1. 弹层被刷新消失：header 纳入 render 保留逻辑（签名不变不重建，chip 锚点稳定）。
+  2. 嵌套平铺：数据侧核实无缺失（host session.list/session-added 均上报孙一辈直属 parentSessionId，活 host 实测确认；buildSubagentTree 有嵌套测试）——平铺是缩进 6px 差的视觉效果，随问题 3 的引导线修复。
+  3. 可读性：下拉改嵌套容器 + 16px/级相对缩进 + 竖轨/支线引导线（对齐 dsh web 成员树）；标题时延链路费在「host 无标题事件帧」，已消费 mux session/projection 标题推送（seq 水位防乱序）实时更新。
