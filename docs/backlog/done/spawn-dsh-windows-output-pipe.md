@@ -43,7 +43,9 @@
     https://github.com/imchangchang/dsh-one/actions/runs/33527829261
     （windows-latest 冒烟输出 `spawned dsh pid=… → dsh smoke OK`，
     日志含 `0.1.1-rc.2`；mac/ubuntu 同步全绿）。root commit 1eaf9ea，
-    收尾删除临时诊断步骤/脚本后最终 push 复测。
+    收尾删除临时诊断步骤/脚本后最终 push 复测：
+    https://github.com/imchangchang/dsh-one/actions/runs/33528482138
+    （最终版 e699aa0，三平台全绿）。
   - 人工验收方法（Windows 真机）：
     1. 快速冒烟（无 VSCode）：`node dist/spawnDsh.js dsh <任意日志路径> --version`，
        等 2-3s 后日志文件应含版本号（如 `0.1.1-rc.2`），此前恒为 0 字节。
