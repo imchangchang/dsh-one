@@ -47,7 +47,7 @@ dsh-one hero 工作区 chip 只读展示（webview.ts:1902-1909，注释明确�
 **人工验收方法**（真实 VSCode，dev-ui-test）：
 
 ```
-cd <repo-root>/.worktrees/workspace-picker-blank-session && bash <repo-root>/scripts/dev-ui-test.sh
+cd /Users/cgeng/Workspaces/dsh-one/.worktrees/workspace-picker-blank-session && bash /Users/cgeng/Workspaces/dsh-one/scripts/dev-ui-test.sh
 ```
 
 1. 打开 DSH One chat 面板，新开一个空白会话（列表里没有消息的会话，或新建会话），出现 hero（鱼标 + 探索未至之境）：workspace chip 显示当前 workspace 名，尾部有 chevron（与 preset chip 同款）。
