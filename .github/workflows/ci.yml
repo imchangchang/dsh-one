@@ -82,14 +82,6 @@ jobs:
             fi
             exit 1
           fi
-      # 临时诊断（spawn-dsh-windows-output-pipe 第二轮）：验证 detached 下
-      # cmd 内部重定向能否落盘、detached 是否断一切 stdio 输出；数据拿到后
-      # 本步骤与 scripts/ci-win-spawn-diag.mjs 一起删除。
-      # 放在冒烟之前：冒烟失败（exit 1）不会挡住诊断数据。
-      - name: 'Spawn combo diagnostics round 2 (temporary)'
-        if: runner.os == 'Windows'
-        shell: bash
-        run: node scripts/ci-win-spawn-diag.mjs
       - name: 'Spawn dsh smoke (windows: via spawnDsh.js)'
         if: runner.os == 'Windows'
         shell: pwsh
