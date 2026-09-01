@@ -2,6 +2,7 @@ import * as vscode from 'vscode'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
 import { archiveSession, createSession, ensureWorkspace, forkSession, renameSession } from './server/dshRpc.ts'
@@ -124,13 +125,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       let sessionId: string
       try {
-        sessionId = await createSession(url, targetWorkspaceId)
+        sessionId = await createSession(url, { workspaceId: targetWorkspaceId })
       } catch (err) {
         vscode.window.showErrorMessage(`新建会话失败：${errorText(err)}`)
         return
       }
       await sessions.refresh()
       chatView.openSession(sessionId)
+    }),
+    // 新建「未分组」对话：不挂任何 workspace 的会话。预分配会话 id，临时
+    // 目录（os.tmpdir()，跨平台等价于 /tmp）以 日期+会话id 命名作为会话
+    // cwd——host 会创建该目录且不注册 workspace，会话在列表归入「未分组」。
+    vscode.commands.registerCommand('dshOne.session.newUngrouped', async () => {
+      const url = sessions.runningUrl
+      if (!url) return
+      const sessionId = `session-${randomUUID()}`
+      const stamp = new Date().toISOString().slice(0, 10).replaceAll('-', '')
+      const cwd = path.join(os.tmpdir(), `dsh-ungrouped-${stamp}-${sessionId}`)
+      let createdId: string
+      try {
+        createdId = await createSession(url, { cwd, sessionId })
+      } catch (err) {
+        vscode.window.showErrorMessage(`新建未分组会话失败：${errorText(err)}`)
+        return
+      }
+      await sessions.refresh()
+      chatView.openSession(createdId)
     }),
     vscode.commands.registerCommand('dshOne.session.rename', async (sessionId?: string, currentTitle?: string) => {
       const url = sessions.runningUrl

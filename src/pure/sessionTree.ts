@@ -149,9 +149,12 @@ export function formatRelativeTime(updatedAt: number, now: number): string {
  * keeps only sessions whose label or id contains it (case-insensitive) and
  * drops workspaces left without a match. Sessions not referenced by any
  * workspace's sessionIds form a synthetic「未分组」group (UNGROUPED_WORKSPACE_ID,
- * empty path) appended last — same as dsh web's ungrouped section. Lineage
- * subagents (origin === 'subagent') never appear as rows; they only feed
- * the parent's descendantRunning busy flag. Plain forks (parentSessionId
+ * empty path) appended last — same as dsh web's ungrouped section. The
+ *「未分组」group always renders (its sessions may be empty): the panel relies
+ * on its header row as the "new ungrouped conversation" entry point. Under a
+ * non-empty query the final empty-group filter drops it like any other group.
+ * Lineage subagents (origin === 'subagent') never appear as rows; they only
+ * feed the parent's descendantRunning busy flag. Plain forks (parentSessionId
  * set, no origin) are normal sessions and do appear as rows.
  */
 export function buildSessionTree(
@@ -246,9 +249,11 @@ export function buildSessionTree(
     }
   })
 
-  // 未被任何 workspace 引用的会话：合成「未分组」虚拟组排在最后。
-  // 真子代理（origin === 'subagent'）不算未分组——它们属于父会话，只参与
-  // 忙碌聚合，不在面板单列；普通 fork 会话是独立会话，无归属时进未分组。
+  // 未被任何 workspace 引用的会话：合成「未分组」虚拟组排在最后。该组
+  // 恒渲染（无会话时也保留空组头）——面板靠它的行头按钮提供「新建未分组
+  // 对话」入口；非空 query 下由末尾的空组过滤丢弃。真子代理
+  // （origin === 'subagent'）不算未分组——它们属于父会话，只参与忙碌聚合，
+  // 不在面板单列；普通 fork 会话是独立会话，无归属时进未分组。
   const referenced = new Set(workspaces.flatMap((w) => w.sessionIds))
   const orphans = sessions.filter(
     (s) =>
@@ -257,16 +262,13 @@ export function buildSessionTree(
       !s.blank &&
       !archivedSessionIds.has(s.sessionId),
   )
-  const orphanNodes = toSessionNodes(orphans)
-  if (orphanNodes.length > 0) {
-    nodes.push({
-      workspaceId: UNGROUPED_WORKSPACE_ID,
-      path: '',
-      label: '未分组',
-      isCurrent: false,
-      sessions: orphanNodes,
-    })
-  }
+  nodes.push({
+    workspaceId: UNGROUPED_WORKSPACE_ID,
+    path: '',
+    label: '未分组',
+    isCurrent: false,
+    sessions: toSessionNodes(orphans),
+  })
 
   // Under an active query, a workspace with no matching session is noise.
   return query === '' ? nodes : nodes.filter((w) => w.sessions.length > 0)

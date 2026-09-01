@@ -501,11 +501,20 @@ function renderSessions(): void {
     list.appendChild(el('div', 'sessions-empty', '加载中…'))
   } else if (snap.serverState !== 'running') {
     list.appendChild(renderServerEmpty(snap))
-  } else if (snap.workspaces.length === 0) {
-    const hint = snap.query ? `没有匹配「${snap.query}」的会话。` : '暂无工作区。点击上方 + 添加已有文件夹或创建工作区。'
-    const box = el('div', 'sessions-empty')
-    box.appendChild(el('div', 'empty-hint', hint))
-    list.appendChild(box)
+  } else if (snap.workspaces.every((w) => w.workspaceId === UNGROUPED_WORKSPACE_ID)) {
+    // 没有真实 workspace：保留「添加工作区」引导，同时仍渲染「未分组」组
+    // （空组头 + 新建按钮，「新建未分组对话」入口恒可达）。搜索态下未分组
+    // 有命中时不显示提示（下方组即结果），无命中才显示「没有匹配」。
+    if (snap.query === null) {
+      const box = el('div', 'sessions-empty')
+      box.appendChild(el('div', 'empty-hint', '暂无工作区。点击上方 + 添加已有文件夹或创建工作区。'))
+      list.appendChild(box)
+    } else if (snap.workspaces.length === 0) {
+      const box = el('div', 'sessions-empty')
+      box.appendChild(el('div', 'empty-hint', `没有匹配「${snap.query}」的会话。`))
+      list.appendChild(box)
+    }
+    for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
   } else {
     for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
     if (snap.contentSearchHasMore) {
@@ -619,11 +628,14 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   appendWorkspaceCounts(labelGroup, w.sessions)
   head.appendChild(labelGroup)
   if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', 'vscode'))
+  const headActions = el('span', 'row-actions')
+  // 未分组组也有「新建会话」：创建不挂 workspace 的会话（cwd 走宿主临时目录）。
+  headActions.appendChild(
+    rowAction(iconSvg(PANEL_ICONS.plus), ungrouped ? '新建未分组对话' : '新建会话', () =>
+      ungrouped ? post({ type: 'sessionNewUngrouped' }) : post({ type: 'sessionNew', workspaceId: w.workspaceId }),
+    ),
+  )
   if (!ungrouped) {
-    const headActions = el('span', 'row-actions')
-    headActions.appendChild(
-      rowAction(iconSvg(PANEL_ICONS.plus), '新建会话', () => post({ type: 'sessionNew', workspaceId: w.workspaceId })),
-    )
     headActions.appendChild(
       rowAction(iconSvg(PANEL_ICONS.terminal), '在终端中打开', () =>
         post({ type: 'workspaceOpenTerminal', path: w.path }),
@@ -641,8 +653,8 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
         post({ type: 'workspaceRemove', workspaceId: w.workspaceId, label: w.label }),
       ),
     )
-    head.appendChild(headActions)
   }
+  head.appendChild(headActions)
   // 空组无可展开内容不响应点击；其余（含未分组）点击折叠/展开。
   if (!empty) {
     head.addEventListener('click', () =>

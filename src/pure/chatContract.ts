@@ -515,6 +515,8 @@ export type FromWebviewMessage =
   | { type: 'sessionOpen'; sessionId: string }
   /** Sessions 面板：在指定 workspace 新建会话（缺省由宿主选默认 workspace）。 */
   | { type: 'sessionNew'; workspaceId?: string }
+  /** Sessions 面板：新建不挂 workspace 的「未分组」会话（cwd 走宿主临时目录）。 */
+  | { type: 'sessionNewUngrouped' }
   /** Sessions 面板：重命名会话；title 为当前标题，供宿主输入框预填。 */
   | { type: 'sessionRename'; sessionId: string; title: string }
   /** 行内重命名直接提交（不走 showInputBox 弹窗）：sessionId + 新标题，宿主直接 RPC。 */

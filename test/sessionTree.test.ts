@@ -41,7 +41,7 @@ test('groups sessions under their workspace, ordered by updatedAt desc', () => {
     undefined,
     NOW,
   )
-  assert.equal(tree.length, 1)
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', UNGROUPED_WORKSPACE_ID])
   assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b', 'c', 'a'])
 })
 
@@ -58,8 +58,8 @@ test('current folder first and flagged; others by workspace updatedAt desc', () 
     '/repo',
     NOW,
   )
-  assert.deepEqual(tree.map((n) => n.workspaceId), ['cur', 'new', 'old'])
-  assert.deepEqual(tree.map((n) => n.isCurrent), [true, false, false])
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['cur', 'new', 'old', UNGROUPED_WORKSPACE_ID])
+  assert.deepEqual(tree.map((n) => n.isCurrent), [true, false, false, false])
 })
 
 test('hides archived and blank sessions', () => {
@@ -91,7 +91,7 @@ test('sessions not referenced by any workspace form a「未分组」group append
   assert.deepEqual(ungrouped.sessions.map((n) => n.sessionId), ['stray1', 'stray2'])
 })
 
-test('ungrouped group hides blank/archived orphans and vanishes when empty', () => {
+test('ungrouped group hides blank/archived orphans but persists with empty sessions', () => {
   const tree = buildSessionTree(
     [ws('w1', ['a'])],
     [s('a'), s('stray-blank', { blank: true }), s('stray-gone')],
@@ -100,7 +100,9 @@ test('ungrouped group hides blank/archived orphans and vanishes when empty', () 
     undefined,
     NOW,
   )
-  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1'])
+  // 空未分组组仍保留（组头是「新建未分组对话」的入口）。
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', UNGROUPED_WORKSPACE_ID])
+  assert.deepEqual(tree[1].sessions, [])
 })
 
 test('query filters ungrouped sessions and drops the group without a match', () => {
@@ -281,7 +283,7 @@ test('a whitespace-only query behaves as no filter', () => {
     NOW,
     { query: '   ' },
   )
-  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', 'w2'])
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', 'w2', UNGROUPED_WORKSPACE_ID])
 })
 
 test('pinned sessions sort first, then follow the chosen order', () => {
@@ -357,9 +359,10 @@ test('lineage children never appear as rows; a running one flags the parent desc
     undefined,
     NOW,
   )
-  // 真子代理行不进 workspace 组，也不进「未分组」组。
-  assert.equal(tree.length, 1)
+  // 真子代理行不进 workspace 组，也不进「未分组」组（该组仍存在但为空）。
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', UNGROUPED_WORKSPACE_ID])
   assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['parent'])
+  assert.deepEqual(tree[1].sessions, [])
   assert.equal(tree[0].sessions[0].running, false)
   assert.equal(tree[0].sessions[0].descendantRunning, true)
 })
