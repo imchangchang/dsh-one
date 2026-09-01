@@ -80,3 +80,4 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - 2026-09-01 开发完成（doing → done）：header（含搜索框）只建一次、列表单独重建，刷新不再销毁搜索框 DOM，IME 输入不再被打断。
 - 2026-09-01 验收打回（done → doing）：全文搜索实际不可用——dsh 索引 opt-in 默认未启用（openAt never），主线已在用户 profile patch 启用（openAt first-search）；dsh-one 侧：高亮改加粗+变色（去底色）、搜索失败加可见提示。
 - 2026-09-01 开发完成（doing → done）：高亮去掉底色改为加粗+charts.blue 变色；contentSearchError 标记 +「仅按标题匹配」轻提示，降级不再静默。
+- 2026-09-01 验收打回（done → doing）：只有内容命中 snippet 里有高亮，标题命中的会话行标题与 workspace 组名里的关键词未高亮；补上与 snippet 一致的加粗+变色样式。
