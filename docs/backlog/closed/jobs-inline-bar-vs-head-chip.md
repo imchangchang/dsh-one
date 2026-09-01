@@ -26,3 +26,4 @@ dsh web 会话内有一个可展开的后台任务卡片（示例：并行 workf
 - 2026-08-31 认领 → doing
 - 2026-08-31 开发完成，自测通过 → done（删除横条，已合入）
 - 2026-08-31 方向调整：改做 dsh web 风格卡片 → open
+- 2026-09-01 关闭：经研究，该方向（后台任务卡片）实际拆成 4 个更具体的独立条目——`workflow-run-card`（workflow 运行卡）、`todo-panel-card`（任务清单卡）、`todo-write-call-card`（消息内 todo 卡）、`header-jobs-interaction-polish`（header 弹层微调）。本条目作为总纲已无独立内容，避免与 4 个条目重复，关闭。→ closed
