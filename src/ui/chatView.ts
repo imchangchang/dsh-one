@@ -400,6 +400,99 @@ const STYLE = `
     border-radius: 50%; background: currentColor;
   }
   .tool-state-dot[data-state="error"] { color: var(--vscode-testing-iconFailed, #f14c4c); }
+  /* workflow 运行卡片（对齐 dsh web WorkflowRunPanel：run→phase→member 三层折叠）。
+     行几何照搬官方：runHeader 32px 浅灰底圆角条、phase 32px 无底、member 24px，
+     逐级缩进 16px；徽标 = StateDot（running 矩阵动画 / 终态发光圆点）。 */
+  .workflow-run { width: 100%; min-width: 0; margin: 2px 0; }
+  .workflow-run-header,
+  .workflow-phase-header {
+    display: flex; align-items: center; gap: 6px; width: 100%; box-sizing: border-box;
+    height: 32px; padding: 0 8px; border: 0; border-radius: 8px; cursor: pointer;
+    background: none; color: inherit; font: inherit; text-align: left;
+  }
+  .workflow-run-header {
+    background: var(--vscode-toolbar-background, rgba(127,127,127,.1));
+  }
+  .workflow-run-header:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.2)); }
+  .workflow-phase-header { border-radius: 6px; }
+  .workflow-phase-header:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.08)); }
+  .workflow-chevron { flex: none; transition: transform .15s ease; }
+  .workflow-chevron.collapsed { transform: rotate(-90deg); }
+  .workflow-run-title {
+    max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 14px; font-weight: 510; color: var(--vscode-foreground);
+  }
+  .workflow-sep {
+    flex: none; width: 2px; height: 2px; border-radius: 50%;
+    background: var(--vscode-descriptionForeground, #888); opacity: .6;
+  }
+  .workflow-run-count {
+    flex: 1; min-width: 0; font-size: 12px; color: var(--vscode-descriptionForeground, #888);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .workflow-status-tail {
+    flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px;
+    font-size: 11px; font-weight: 510; color: var(--vscode-foreground);
+  }
+  .workflow-phase-list {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 4px 0 0 16px;
+  }
+  .workflow-phase-title {
+    max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 14px; color: var(--vscode-foreground);
+  }
+  .workflow-phase-count {
+    flex: 1; min-width: 0; font-size: 13px; color: var(--vscode-descriptionForeground, #888);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .workflow-phase-status {
+    flex: none; width: 132px; text-align: right; font-size: 13px; color: var(--vscode-foreground);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .workflow-members {
+    display: flex; flex-direction: column; gap: 2px; padding-left: 16px;
+  }
+  .workflow-member {
+    display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box;
+    min-height: 24px; padding: 0 4px; border-radius: 4px;
+  }
+  .workflow-dot-slot {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 24px;
+  }
+  .workflow-member-label {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 13px; color: var(--vscode-foreground);
+  }
+  .workflow-member-status {
+    flex: none; width: 64px; text-align: right; font-size: 13px; color: var(--vscode-foreground);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .workflow-empty { padding: 2px 4px 4px; font-size: 13px; color: var(--vscode-descriptionForeground, #888); }
+  /* StateDot 发光圆点（dsh web 同款：10% 外圈晕影 + 60% 实心内点，data-state 变色）。 */
+  .workflow-dot {
+    position: relative; display: inline-block; flex: none;
+    width: 10px; height: 10px;
+  }
+  .workflow-dot::before {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    background: currentColor; opacity: 0.1;
+  }
+  .workflow-dot::after {
+    content: ""; position: absolute; top: 20%; right: 20%; bottom: 20%; left: 20%;
+    border-radius: 50%; background: currentColor;
+  }
+  .workflow-dot[data-state="done"] { color: var(--vscode-testing-iconPassed, #73c991); }
+  .workflow-dot[data-state="warning"] { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .workflow-dot[data-state="error"] { color: var(--vscode-errorForeground, #f14c4c); }
+  /* running 态：4×4 矩阵扫描动画（官方 StateDot ongoing）。 */
+  .workflow-matrix { flex: none; display: block; width: 10px; height: 10px; color: var(--vscode-charts-blue, #5686fe); }
+  .workflow-matrix rect { fill: currentColor; opacity: 0.15; animation: workflow-chase 1s linear infinite; }
+  @keyframes workflow-chase {
+    0%, 100% { opacity: 0.15; }
+    50% { opacity: 1; }
+  }
   .spinner {
     width: 12px; height: 12px; border-radius: 50%; flex: none;
     border: 2px solid var(--vscode-editorWidget-border, #555);

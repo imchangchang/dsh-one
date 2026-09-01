@@ -32,6 +32,23 @@ dsh web 聊天流里一个 workflow 运行会渲染成可展开的卡片（如 `
 - `src/pure/chatContract.ts`（ChatState.workflowRuns）
 - `src/ui/chat/webview.ts`（卡片渲染 + 折叠状态机）
 
+## 实现核实（2026-09-01 开发时对照代码现状）
+
+- 两份研究报告与代码现状一致；按文档主建议实现：折叠挂在 `folder.applyEvent`
+  之外（`WorkflowRunFolder` 独立维护），事件经 mux `session/event` / history
+  两条通道到达后即被折叠，无需改后端。
+- 卡片放在聊天流里（对齐官方 chat node），`WorkflowRunView` 多带 `anchorSeq`
+  （run 最后一条事件 seq），webview 按「第一条 seq ≥ anchorSeq 的消息之后」
+  插位；`chatView.ts` 的 `composeHeader` 是 `...state` 展开，workflowRuns 自动
+  透传，无需改转发逻辑（该文件只加了卡片 CSS）。
+- interrupted 语义按研究文档的「可省略」路径处理：类型保留五值（UI 徽标/聚合
+  文案映射完整），推导不含 interrupted（无 location 模型）。
+- MemberRow 纯展示、不做点击打开子会话（官方 navigableMembers 依赖 sessions
+  快照，dsh-one 未带）；空 label 显示「空成员名」。
+- 「N 个成员」等运行级/阶段级尾部只在折叠态渲染（官方 DisclosureRow 的
+  keepContentWhenOpen 语义）；展开态内容 = phase 列表 / 成员列表。
+
 ## 变更记录
 
 - 2026-09-01 认领（worktree: agent/workflow-run-card）→ doing
+- 2026-09-01 开发完成，自测通过 → done
