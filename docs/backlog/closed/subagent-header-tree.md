@@ -57,3 +57,5 @@ dsh web / dsh-one 的会话树里，子代理可通过 `parentSessionId` 形成�
   1. 弹层被刷新消失：header 纳入 render 保留逻辑（签名不变不重建，chip 锚点稳定）。
   2. 嵌套平铺：数据侧核实无缺失（host session.list/session-added 均上报孙一辈直属 parentSessionId，活 host 实测确认；buildSubagentTree 有嵌套测试）——平铺是缩进 6px 差的视觉效果，随问题 3 的引导线修复。
   3. 可读性：下拉改嵌套容器 + 16px/级相对缩进 + 竖轨/支线引导线（对齐 dsh web 成员树）；标题时延链路费在「host 无标题事件帧」，已消费 mux session/projection 标题推送（seq 水位防乱序）实时更新。
+
+- 2026-09-05 主线合入测试通过，人工验收通过 → closed

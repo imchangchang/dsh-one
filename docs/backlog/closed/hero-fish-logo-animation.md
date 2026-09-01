@@ -21,3 +21,5 @@
 
 - 2026-09-05 认领（worktree: agent/hero-fish-logo-animation）→ doing
 - 2026-09-05 开发完成（fish logo SVG 已从官方 dist bundle 反查镜像，自测通过）→ done
+
+- 2026-09-05 主线合入测试通过，人工验收通过 → closed
