@@ -32,3 +32,4 @@
   - 补充核实：根因 1 确认——chatView.panel.onDidDispose 不触发任何事件，侧栏快照停留在关闭前（attachedSessionId 未归零）；根因 2 确认——chat webview 无锚点拦截，点击导航 webview 自身。方案按上面两条执行。
 - 2026-09-05 开发完成，自测通过（typecheck/208 tests/build + harness 场景「markdown-link-click」验证链接点击不导航、openExternal 已发出）→ done
 - 2026-09-05 追加（dev-ui-test 前用户要求）：右键外链菜单加「VS Code 内置浏览器打开」选项（单击仍系统浏览器；宿主 simpleBrowser.show，失败兜底 env.openExternal）；harness 新增 markdown-link-menu 场景 → done（补记）
+- 2026-09-05 主线合入测试通过（dev-merge 重放/复测全绿 + 用户 dev-ui-test 验收通过），人工确认 → closed
