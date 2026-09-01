@@ -39,3 +39,4 @@ dsh web 聊天流里一次 `todo_write` 工具调用会渲染成任务卡（`更
 
 - 2026-09-01 认领（worktree: agent/todo-cards）→ doing
 - 2026-09-01 开发完成，自测通过 → done
+- 2026-09-01 主线合入测试通过，人工确认 → closed

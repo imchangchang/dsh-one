@@ -52,3 +52,4 @@ dsh web 聊天流里一个 workflow 运行会渲染成可展开的卡片（如 `
 
 - 2026-09-01 认领（worktree: agent/workflow-run-card）→ doing
 - 2026-09-01 开发完成，自测通过 → done
+- 2026-09-01 主线合入测试通过，人工确认 → closed
