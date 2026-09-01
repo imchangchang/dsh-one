@@ -22,7 +22,25 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 1. 认领 backlog 条目：`git mv docs/backlog/open/<条目>.md docs/backlog/doing/`，文件末尾追加变更记录（见 backlog-folder-index）。
 2. `scripts/dev-start.sh <任务名>`——任意位置跑：建 worktree + 分支 + 装依赖。
 3. `cd .worktrees/<slug>` 进去开发，高频小提交。
-4. UI 类改动：`scripts/dev-ui-test.sh`——构建 dist 后起该 worktree 专属的隔离 VSCode 实例（设置/扩展隔离在 `/tmp/dsh-uidev/<slug>/`，不碰日常 VSCode），人工验证渲染与交互没问题再继续；纯逻辑改动可跳过。**视觉验收是合入前的强制 gate**：这一步由「人工」在 dev-finish 之后、dev-merge 之前执行（`dev-finish` 只代表自测通过，`done → closed` 最终以人工窗口验收通过为前提），避免「合入主线才发现问题再打回」。**headless 的代理（开发子代理/后台会话）起不了 GUI：`code` 命令会静默返回 exit 0 但窗口不弹出、`/tmp/dsh-uidev/<slug>/user-data` 不生、`ps` 也常被沙箱挡，别自己试**。这一步直接把命令丢给用户本人，在真实终端跑，等验收结果回传再继续。
+4. UI 类改动：`scripts/dev-ui-test.sh`——构建 dist 后起该 worktree 专属的隔离 VSCode 实例（设置/扩展隔离在 `/tmp/dsh-uidev/<slug>/`，不碰日常 VSCode），人工验证渲染与交互没问题再继续；纯逻辑改动可跳过。**视觉验收是合入前的强制 gate**：这一步由「人工」在 dev-finish 之后、dev-merge 之前执行（`dev-finish` 只代表自测通过，`done → closed` 最终以人工窗口验收通过为前提），避免「合入主线才发现问题再打回」。**headless 的代理（开发子代理/后台会话）起不了 GUI：`code` 命令会静默返回 exit 0 但窗口不弹出、`/tmp/dsh-uidev/<slug>/user-data` 不生、`ps` 也常被沙箱挡，别自己试**。这一步直接把命令丢给用户本人，在真实终端跑，等验收结果回传再继续。**交给用户的单元 = 一条可复制的命令 + 应有的现象，分单下发**（示例）：
+
+```
+【测试命令】（单条，复制即跑，已含进入 worktree）
+cd <repo-root>/.worktrees/<slug> && bash <repo-root>/scripts/dev-ui-test.sh
+
+【应有现象】
+1. 弹出隔离 VSCode 窗口（标题 = 该 worktree 目录，user-data 在 /tmp/dsh-uidev/<slug>/）
+2. 左侧活动栏出现 DSH One 图标，点击能打开 chat 面板
+3. 扩展激活无报错（输出面板"DSH One"）
+4. <本功能特有检查点，由开发 session 按预期行为写>
+```
+
+规则：
+
+- **一个单元 = 一个功能/一个窗口门禁**。worktree 里有多个要验的功能就拆成多个单元，各自"一条命令 + 各自现象"，不要全塞进一条消息。
+- **命令只给 dev-ui-test 这一条**。`ui-visual.sh`（截图）、`npm test`、`dev-finish` 是别的步骤，**不混进**这个给窗口门禁的单元——它们不能替代人的眼。
+- **命令里必须包含 `cd <repo-root>/.worktrees/<slug>`**：`dev-ui-test.sh` 靠 `git rev-parse --show-toplevel` 定位当前 worktree，cwd 在 worktree 里它才把**这个 worktree** 当扩展加载；cwd 在主线会打开主线而不是本任务。
+- 这是**纯对话框交接**：不生成脚本文件、不改 `dev-ui-test.sh`，就是交给人复制即跑。
 5. `scripts/dev-finish.sh`——worktree 里跑：检查已提交 → 自测 → 打 `done/<slug>` 标记；随后 backlog 条目 `doing → done`（git mv + 追加变更记录）。
 
 **到此为止**：不跑 dev-merge、不合入主线，那是主线 agent 的活。
