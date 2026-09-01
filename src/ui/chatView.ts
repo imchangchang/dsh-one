@@ -1213,6 +1213,11 @@ export class ChatViewProvider implements vscode.Disposable {
     return this.controller?.sessionId ?? null
   }
 
+  /** Whether the editor panel is currently open. */
+  get isOpen(): boolean {
+    return this.panel !== null
+  }
+
   /**
    * Session highlighted by the sidebar tree: the attached session when the
    * panel is open, else the lazily-pending auto-attach target. The tree reads

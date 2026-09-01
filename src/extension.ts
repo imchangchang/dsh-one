@@ -94,6 +94,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (latest) {
         autoAttachedUrl = url
         chatView.setLazyPending(latest)
+        // 面板已开着（如服务重启后 controller 被清空）：立刻落地懒加载目标。
+        if (chatView.isOpen) chatView.openPanel()
       }
     }
   })
