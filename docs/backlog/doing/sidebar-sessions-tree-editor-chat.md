@@ -92,3 +92,4 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - 2026-09-01 开发完成（doing → done）：角标计数互斥（待交互>运行中>未读，只入一桶）；角标用 .workspace-label-group 紧跟标题（组 flex:1、badge 右对齐），省略号行为不变。
 - 2026-09-01 验收打回（done → doing）：点击 chat 头部「N 个子代理」名称与 @ 会话引用 chip 无法进入子代理会话——拆分时 chatView.onMessage 的 sessionOpen 处理丢失，补回；顺带核对其他被丢的 case。
 - 2026-09-01 开发完成（doing → done）：chatView.onMessage 补回 sessionOpen → openSession；对照 FromWebviewMessage 全部成员，仅 sessionOpen 被丢（其余均已处理）。
+- 2026-09-01 验收打回（done → doing）：会话行点击改情境化——已打开（currentSessionId 高亮）的行内重命名、未打开的打开会话；行内重命名跨列表重建保留，右键重命名保持 VSCode 弹窗。
