@@ -59,3 +59,4 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 这是**大改动**：sessions 面板交互整套从 webview 前端重写成扩展宿主端原生 tree，牵扯多文件、状态与持久化迁移；建议单独 worktree、分步实现并每步自测。前置/相关：无外部依赖。
 
 - 2026-09-01 认领（worktree: agent/sidebar-sessions-tree-editor-chat）→ doing
+- 2026-09-01 开发完成（doing → done）
