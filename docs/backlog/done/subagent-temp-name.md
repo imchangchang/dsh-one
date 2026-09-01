@@ -62,3 +62,4 @@ dsh web 里委托子代理后，头部「N 个子代理」下拉里的每一行�
 **自动命名不移除**：子代理会话自身 title 照旧经 title 投影生成（sessionsStore 的 session/projection 帧消费链不动）；改的只是菜单行显示名（`SubagentNode.title` 的取值源）。
 
 - 2026-09-01 认领（worktree: agent/subagent-temp-name）→ doing
+- 2026-09-01 开发完成：走候选 1 实现（新增 `subagent.list` RPC 客户端 + `SubagentCatalogStore` 按父会话缓存目录，`buildSubagentTree` 经 `labelOf` 用 `entry.label ?? entry.id` 取名，回退既有 title/短 id；子树签名判定目录失效、eager 一次性取深层）。typecheck/test(228)/build 全绿；done 标记见 dev-finish → done
