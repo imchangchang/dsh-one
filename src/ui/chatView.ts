@@ -400,6 +400,29 @@ const STYLE = `
     border-radius: 50%; background: currentColor;
   }
   .tool-state-dot[data-state="error"] { color: var(--vscode-testing-iconFailed, #f14c4c); }
+  /* 工具卡展开（对齐 dsh web DisclosureRow）：整行（summary）可点，折叠态保留
+     摘要行，展开出 IN/OUT 卡片，内容 150px 内滚动。chevron 朝下表示可展开，
+     展开后旋转朝上；展开态持久化在 detailsOpen（key 按消息/块位置）。 */
+  .tool-disclosure summary {
+    cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px;
+    list-style: none;
+  }
+  .tool-disclosure summary::-webkit-details-marker { display: none; }
+  .tool-disclosure summary .tool-line { flex: 1; min-width: 0; }
+  .tool-disclosure summary .tool-detail { flex-basis: 100%; margin: 0 0 0 20px; }
+  .tool-disclosure .tool-chevron {
+    flex: none; align-self: center; color: var(--vscode-descriptionForeground, #888);
+    transition: transform .15s ease;
+  }
+  .tool-disclosure[open] .tool-chevron { transform: rotate(180deg); }
+  .tool-disclosure-body { margin: 2px 0 0 20px; }
+  .tool-inout { margin-top: 4px; }
+  .tool-inout-label { font-size: 0.8em; font-weight: 600; opacity: 0.6; }
+  .tool-inout pre {
+    max-height: 150px; overflow: auto; white-space: pre-wrap; margin: 0;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+    padding: 6px 8px; border-radius: 4px; font-size: 0.88em;
+  }
   /* workflow 运行卡片（对齐 dsh web WorkflowRunPanel：run→phase→member 三层折叠）。
      行几何照搬官方：runHeader 32px 浅灰底圆角条、phase 32px 无底、member 24px，
      逐级缩进 16px；徽标 = StateDot（running 矩阵动画 / 终态发光圆点）。 */

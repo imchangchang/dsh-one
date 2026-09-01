@@ -507,6 +507,8 @@ export class ConversationFolder {
       name: data.name,
       status: 'running',
       title: data.name,
+      // 输入参数原样快照（模型原始 JSON 字符串），供工具卡展开显示 IN。
+      args: data.arguments,
     }
     if (view?.for === 'call') this.applyCallView(block, view.view)
     // todo_write 的事件 arguments 是模型原始 JSON 字符串（整表快照），比 host

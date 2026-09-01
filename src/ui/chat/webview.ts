@@ -32,7 +32,7 @@ import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../
 import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTree.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
-import { isCommandTool, toolAction, truncateLines } from '../../pure/toolLine.ts'
+import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../pure/toolLine.ts'
 import {
   formatJobDuration,
   isLiveJob,
@@ -2786,6 +2786,9 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
  * 截断省略）。不再是带边框的卡片容器。
  * todo_write 调用带 planSummary 时换成任务卡（对齐 web TodoRow）：动作短语
  * 用「更新任务清单」，摘要 =「0/4 已完成 · 首个进行中项」，+N 挂尾部。
+ * 其他工具带输入参数（args）或输出（output）时整行可点展开（对齐 dsh web
+ * DisclosureRow）：折叠态保留摘要，展开出 IN（参数 JSON）+ OUT（结果）卡片，
+ * 各 150px 内滚动。
  */
 function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   const row = el('div', `tool tool-${block.status}`)
@@ -2813,15 +2816,56 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   }
   line.appendChild(el('span', 'tool-action', toolAction(block.name)))
   if (block.title) line.appendChild(el('span', 'tool-title', block.title))
-  row.appendChild(line)
+
+  const hasArgs = typeof block.args === 'string' && block.args.length > 0
+  const hasOutput = typeof block.output === 'string' && block.output.length > 0
+  if (!hasArgs && !hasOutput) {
+    // 无 IN 也无 OUT：保持原单行，不套展开容器。
+    row.appendChild(line)
+    if (block.detail) {
+      row.appendChild(
+        el('div', 'tool-detail', isCommandTool(block.name) ? `$ ${block.detail}` : block.detail),
+      )
+    }
+    if (block.diff) row.appendChild(renderDiff(block.diff))
+    return row
+  }
+
+  // 可展开：整行（含 chevron）即摘要，点击展开出 IN/OUT；展开态持久化在
+  // detailsOpen（key 按消息/块位置），流式重建不冲掉。
+  const det = el('details', 'tool-disclosure') as HTMLDetailsElement
+  det.open = detailsOpen.get(`${key}:tool`) ?? false
+  det.addEventListener('toggle', () => detailsOpen.set(`${key}:tool`, det.open))
+  const summary = el('summary')
+  const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
+  chev.classList.add('tool-chevron')
+  line.appendChild(chev)
+  summary.appendChild(line)
   if (block.detail) {
-    row.appendChild(
+    summary.appendChild(
       el('div', 'tool-detail', isCommandTool(block.name) ? `$ ${block.detail}` : block.detail),
     )
   }
+  det.appendChild(summary)
+  const body = el('div', 'tool-disclosure-body')
+  if (hasArgs) body.appendChild(toolInOut('IN', prettyJson(block.args as string)))
+  if (hasOutput) body.appendChild(toolInOut('OUT', block.output as string))
+  det.appendChild(body)
+  row.appendChild(det)
+  // diff 卡保持折叠态直接可见（详情区只补 IN/OUT），不藏进展开区。
   if (block.diff) row.appendChild(renderDiff(block.diff))
-  if (block.output) row.appendChild(renderToolOutput(block.output, `${key}:out`))
   return row
+}
+
+/**
+ * 工具卡展开区的一张 IN/OUT 卡片：小标签 + 150px 内滚动的等宽内容
+ * （对齐 dsh web DisclosureRow 的展开形态）。
+ */
+function toolInOut(label: string, text: string): HTMLElement {
+  const box = el('div', 'tool-inout')
+  box.appendChild(el('div', 'tool-inout-label', label))
+  box.appendChild(el('pre', '', text))
+  return box
 }
 
 /**

@@ -80,3 +80,15 @@ export function truncateLines(text: string, maxLines: number = OUTPUT_PREVIEW_LI
   if (totalLines <= maxLines) return { preview: text, totalLines, truncated: false }
   return { preview: lines.slice(0, maxLines).join('\n'), totalLines, truncated: true }
 }
+
+/**
+ * 工具输入参数的可读 JSON：合法就 2 空格缩进美化（工具卡展开的 IN 展示），
+ * 解析失败原样返回——模型偶发输出非严格 JSON，退化为原文不吞信息。
+ */
+export function prettyJson(text: string): string {
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2)
+  } catch {
+    return text
+  }
+}
