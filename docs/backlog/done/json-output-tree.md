@@ -44,3 +44,11 @@ JSON 输出（工具输出等）用 JsonTree 逐节点展开：检测输出为 J
   title（照消息操作栏 copy 先例），容器按钮不变。scenarios 加 json-output-node-copy 场景
   （点 checks 容器行 + status 原始值行图标，断言各自 pretty JSON）。自测 typecheck/test/
   build 全绿（243 测试）。
+- 2026-09-01 补充（用户拍板：消息正文里的 JSON 也接入 JsonTree）：renderBlock 文本分支
+  整段正文为 JSON 字面量直接建树；enhanceCodeBlocks 里 pre>code 内容恰为整段 JSON 则
+  替换成树（```json 围栏块经 marked 后即内层 JSON）。树形态自带右上角复制按钮、不再套
+  md-code-bar；「其余 N 行」折叠在树形态不适用（体验取舍留待确认是否加行数阈值兜底）。
+  .json-tree-shell 去掉硬编码左缩进改由上下文提供（消息正文=0 对齐 markdown、工具内=20px，
+  todos 输出套 .tool-output），修双重缩进。展开态共用 jsonTreeOpen（key 区分消息/工具）。
+  scenarios 加 json-message-bare / json-message-fenced。自测 typecheck/test/build 全绿
+  （243 测试）。
