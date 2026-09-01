@@ -31,3 +31,4 @@
 
 - 2026-09-01 认领（worktree: agent/webview-render-test）→ doing
 - 2026-09-01 开发完成（自测通过：typecheck/test/build 全绿）→ done
+- 2026-09-01 合入 main（89fc712）+ 主线基线冒烟通过（11 场景出图，抽查 conversation/sessions 渲染正确）+ 人工确认 → closed
