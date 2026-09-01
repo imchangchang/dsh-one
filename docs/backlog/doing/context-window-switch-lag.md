@@ -36,3 +36,5 @@ contextBar 的容量分母 `contextWindow` 来自 `contextPressure` 投影；该
 - `node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api-proxy.js`（`selectModel`）
 - `src/server/chatSession.ts` / `src/pure/contextMeter.ts` / `src/ui/chat/webview.ts`（dsh-one 侧）
 - 2026-09-01 评审确认：做（用户标注）
+
+- 2026-09-01 认领（worktree: agent/context-window-switch-lag）→ doing

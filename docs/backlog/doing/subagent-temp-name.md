@@ -44,3 +44,5 @@ dsh web 里委托子代理后，头部「N 个子代理」下拉里的每一行�
   - `node_modules/@deepseek-ai/dsh-host-apiproxy/lib/types/api/subagents.schema.js`（`subagent.list` 响应 `label`）
   - `node_modules/@deepseek-ai/dsh-tool-subagent/lib/index.js`（`label: args.description`）
 - 2026-09-01 评审确认：做（用户标注）
+
+- 2026-09-01 认领（worktree: agent/subagent-temp-name）→ doing
