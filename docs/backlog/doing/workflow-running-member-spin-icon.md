@@ -19,3 +19,4 @@ workflow 卡里 running 状态成员改用 spinSvg 转圈（和会话运行中�
 ## 涉及代码位置
 
 - `src/ui/chat/webview.ts`（workflow 卡 MemberRow / StateDot 渲染，running 分支）
+- 2026-09-01 认领（worktree: agent/workflow-running-member-spin-icon）→ doing

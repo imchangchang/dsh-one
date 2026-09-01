@@ -22,3 +22,4 @@ dsh web 的工具调用卡可以展开，显示 IN（输入参数 JSON）和 OUT
 - `src/ui/chat/webview.ts`（renderTool 工具卡）
 - `src/pure/conversation.ts`（applyToolCall 折叠，args/result 可用性）
 - `src/pure/chatContract.ts`（ChatToolBlock 可能需带 args/result）
+- 2026-09-01 认领（worktree: agent/tool-call-expandable）→ doing

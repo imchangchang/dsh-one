@@ -17,3 +17,4 @@ dsh web 的 markdown 代码块有行数折叠（「展开其余 N 行」）和�
 ## 涉及代码位置
 
 - `src/ui/chat/webview.ts`（markdown 代码块渲染）
+- 2026-09-01 认领（worktree: agent/code-block-collapse-copy）→ doing
