@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
-import { deleteWorkspace } from '../server/dshRpc.ts'
+import { deleteWorkspace, renameSession } from '../server/dshRpc.ts'
 import { formatSessionMention } from '../pure/sessionMention.ts'
 import type { FromWebviewMessage, SessionsSnapshot } from '../pure/chatContract.ts'
 import type { SessionsStore } from './sessionsStore.ts'
@@ -156,6 +156,13 @@ const SESSIONS_STYLE = `
   /* 紧凑单行：标题省略号 + 右对齐的相对时间（对齐原原生树的观感）。 */
   .session-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
   .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 行内重命名输入框：对齐 chat 内改名（session/main 内的 rename-input）。 */
+  .session-main .rename-input {
+    flex: 1; min-width: 0; font: inherit; font-weight: 500;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
+    border-radius: 4px; padding: 1px 6px; outline: none;
+  }
   .session-time { flex: none; font-size: 11px; opacity: 0.55; }
   .row-actions { display: none; gap: 2px; flex: none; }
   .session-row:hover .row-actions, .workspace-row:hover .row-actions { display: inline-flex; }
@@ -333,6 +340,9 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       case 'sessionRename':
         void vscode.commands.executeCommand('dshOne.session.rename', m.sessionId, m.title)
         return
+      case 'sessionRenameDirect':
+        void this.renameSessionDirect(m.sessionId, m.title)
+        return
       case 'sessionArchive':
         void vscode.commands.executeCommand('dshOne.session.archive', m.sessionId, m.title)
         return
@@ -398,6 +408,20 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       default:
         return
     }
+  }
+
+  /** 行内重命名直接提交：绕过 showInputBox 弹窗，RPC 改名 + 刷新基线。 */
+  private async renameSessionDirect(sessionId: string, title: string): Promise<void> {
+    const url = this.store.runningUrl
+    const trimmed = title.trim()
+    if (!url || !trimmed) return
+    try {
+      await renameSession(url, sessionId, trimmed)
+    } catch (err) {
+      this.logger.warn(`sessions: rename ${sessionId} failed: ${errorText(err)}`)
+      return
+    }
+    await this.store.refresh()
   }
 
   /**

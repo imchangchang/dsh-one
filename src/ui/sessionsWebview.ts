@@ -90,6 +90,14 @@ let sessionsSearchDraft = ''
 let searchDebounce: ReturnType<typeof setTimeout> | null = null
 /** 当前附着/高亮会话 id（快照的 activeSessionId），驱动 active/has-active。 */
 let currentSessionId: string | null = null
+/* 行内重命名编辑态：跨列表重建保留（快照/60s tick 不销毁输入框）。 */
+let editingSessionId: string | null = null
+let editDraft = ''
+let editOriginalLabel = ''
+let editSelStart = 0
+let editSelEnd = 0
+/** 列表重建进行中：blur 不应把编辑当取消（重建销毁输入框触发的 blur 要忽略）。 */
+let rebuildInProgress = false
 
 const sessionsPanel = el('aside', 'sessions-panel')
 app.appendChild(sessionsPanel)
@@ -472,6 +480,8 @@ function renderSessions(): void {
     sessionsPanel.appendChild(sessionsHeaderEl)
   }
   updateCollapseAllIcon()
+  // 列表重建期间，销毁在编输入框触发的 blur 不应把编辑当取消（rebuildGuard）。
+  rebuildInProgress = true
   const oldList = sessionsPanel.querySelector<HTMLElement>('.sessions-list')
   oldList?.remove()
   const list = el('div', 'sessions-list')
@@ -510,6 +520,15 @@ function renderSessions(): void {
     list.appendChild(degraded)
   }
   sessionsPanel.appendChild(list)
+  rebuildInProgress = false
+  // 行内改名跨重建保留：重建后恢复编辑输入框的焦点与选区。
+  if (editingSessionId) {
+    const input = sessionsPanel.querySelector<HTMLInputElement>('.session-main .rename-input')
+    if (input) {
+      input.focus()
+      input.setSelectionRange(editSelStart, editSelEnd)
+    }
+  }
 }
 
 /** 服务未运行时的面板空态：安装引导（dshNotFound）或启动按钮。 */
@@ -657,7 +676,12 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
     pin.appendChild(makePinIcon())
     main.appendChild(pin)
   }
-  main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title')).appendChild(highlightText(s.label))
+  // 行内重命名：编辑中的该行渲染为输入框（prefill 标题），保留跨重建。
+  if (s.sessionId === editingSessionId) {
+    main.appendChild(renderRenameInput(s))
+  } else {
+    main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title')).appendChild(highlightText(s.label))
+  }
   main.appendChild(el('span', 'session-time', s.description))
   row.appendChild(main)
   const actions = el('span', 'row-actions')
@@ -667,13 +691,83 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   })
   actions.appendChild(more)
   row.appendChild(actions)
-  row.addEventListener('click', () => post({ type: 'sessionOpen', sessionId: s.sessionId }))
+  // 情境化点击：当前附着会话 → 行内重命名；其他 → 打开会话。编辑中忽略行点击。
+  row.addEventListener('click', () => {
+    if (s.sessionId === editingSessionId) return
+    if (s.sessionId === currentSessionId) startRowRename(s.sessionId, s.label)
+    else post({ type: 'sessionOpen', sessionId: s.sessionId })
+  })
   row.addEventListener('contextmenu', (e) => {
     e.preventDefault()
     showPopoverAt(e.clientX, e.clientY, buildSessionMenuBody(s))
     markMenuRow(row)
   })
   return row
+}
+
+/** 行内重命名的输入框：Enter(Esc/失焦) 语义对齐 chat 内改名。 */
+function renderRenameInput(s: SessionNodeModel): HTMLInputElement {
+  const input = document.createElement('input')
+  input.className = 'rename-input'
+  input.value = editDraft
+  input.addEventListener('input', () => {
+    editDraft = input.value
+    editSelStart = input.selectionStart ?? editDraft.length
+    editSelEnd = input.selectionEnd ?? editDraft.length
+  })
+  input.addEventListener('keydown', (e) => {
+    // isComposing: Enter 确认的是 IME 候选，不是改名。
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault()
+      commitRowRename()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      cancelRowRename()
+    }
+  })
+  input.addEventListener('blur', () => {
+    if (rebuildInProgress) return
+    cancelRowRename()
+  })
+  return input
+}
+
+/** 进入行内重命名：记录编辑态并重建列表（渲染输入框 + 全选）。 */
+function startRowRename(sessionId: string, label: string): void {
+  editingSessionId = sessionId
+  editDraft = label
+  editOriginalLabel = label
+  editSelStart = 0
+  editSelEnd = label.length
+  renderSessions()
+}
+
+/** Enter 提交：标题非空且变化才发 sessionRename；随后退出编辑态并重建。 */
+function commitRowRename(): void {
+  const sessionId = editingSessionId
+  const title = editDraft.trim()
+  editingSessionId = null
+  editFocusedCleanup()
+  // 与 chat 改名一致：空输入/未变化不发消息，恢复行渲染。
+  if (sessionId && title && title !== editOriginalLabel) {
+    post({ type: 'sessionRenameDirect', sessionId, title })
+  }
+  if (sessionId) renderSessions()
+}
+
+/** Esc / 失焦 取消：退出编辑态并重建行。 */
+function cancelRowRename(): void {
+  const sessionId = editingSessionId
+  editingSessionId = null
+  editFocusedCleanup()
+  if (sessionId) renderSessions()
+}
+
+function editFocusedCleanup(): void {
+  editDraft = ''
+  editOriginalLabel = ''
+  editSelStart = 0
+  editSelEnd = 0
 }
 
 /**

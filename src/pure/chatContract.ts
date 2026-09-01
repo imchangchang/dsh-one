@@ -489,6 +489,8 @@ export type FromWebviewMessage =
   | { type: 'sessionNew'; workspaceId?: string }
   /** Sessions 面板：重命名会话；title 为当前标题，供宿主输入框预填。 */
   | { type: 'sessionRename'; sessionId: string; title: string }
+  /** 行内重命名直接提交（不走 showInputBox 弹窗）：sessionId + 新标题，宿主直接 RPC。 */
+  | { type: 'sessionRenameDirect'; sessionId: string; title: string }
   /** Sessions 面板：归档会话；title 供宿主确认框展示。 */
   | { type: 'sessionArchive'; sessionId: string; title: string }
   /** Sessions 面板：选文件夹注册新 workspace。 */
