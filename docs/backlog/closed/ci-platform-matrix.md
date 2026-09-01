@@ -30,3 +30,6 @@ dsh-one 的平台差异是真实存在的，但集中在 `src/server/` 的进程
 - `src/server/locateDsh.ts`、`src/server/spawnDsh.ts`、`src/server/manager.ts`
 
 - 2026-09-01 认领（worktree: agent/ci-platform-matrix）→ doing
+
+- 2026-09-01 开发完成，本地 mac 自测通过（typecheck/test 205/build/package/spawn 冒烟），done 标记 61ba52f
+- 2026-09-01 主线合入测试通过（merge 1165c63），无 UI 变化跳过人工窗口验收，待 push 后 CI 三平台验证 → closed
