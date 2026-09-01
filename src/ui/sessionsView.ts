@@ -202,11 +202,12 @@ const SESSIONS_STYLE = `
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
   .menu-hint { padding: 8px; opacity: .7; }
-  /* 自实现悬停提示：fixed 定位挂在 body 上，不随 .sessions-list 滚动裁剪。 */
+  /* 自实现悬停提示：fixed 定位挂在 body 上，不随 .sessions-list 滚动裁剪。
+     pre-wrap 让含换行的 data-tip（如降级详情）多行展示，长词可折行。 */
   .dsh-tooltip {
     position: fixed; z-index: 40; pointer-events: none;
     padding: 3px 8px; border-radius: 6px; font-size: 11px; line-height: 16px;
-    white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+    white-space: pre-wrap; word-break: break-word; max-width: 380px;
     background: var(--vscode-menu-background, var(--vscode-dropdown-background));
     color: var(--vscode-menu-foreground, var(--vscode-foreground));
     border: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));

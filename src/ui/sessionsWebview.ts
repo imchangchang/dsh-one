@@ -465,9 +465,22 @@ function renderSessions(): void {
   }
   // 内容搜索降级：后端索引未启用等导致全文搜索失败——给用户可见提示，不静默。
   if (snap && snap.query != null && snap.query !== '' && snap.contentSearchError) {
-    list.appendChild(
-      el('div', 'sessions-search-more sessions-search-degraded', '全文搜索不可用，仅按标题匹配（dsh 搜索索引未启用）'),
+    const degraded = el(
+      'div',
+      'sessions-search-more sessions-search-degraded',
+      '全文搜索不可用，仅按标题匹配（dsh 搜索索引未启用）',
     )
+    // 悬停显示更详细的原因与启用索引的方法（复用自实现 tooltip）。
+    degraded.setAttribute(
+      'data-tip',
+      `dsh 全文搜索默认 opt-in：session-query 索引 openAt: "never"（未启用），session.search 被禁用。
+启用：编辑 ~/.dsh/profiles/web/cordis.patch.yml，追加以下配置后重启 dsh 服务：
+- id: session-query-sqlite
+  config:
+    path: !!js dshHomePath('session-query.sqlite')
+    openAt: first-search`,
+    )
+    list.appendChild(degraded)
   }
   sessionsPanel.appendChild(list)
 }
