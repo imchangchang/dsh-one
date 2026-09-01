@@ -92,9 +92,14 @@ const SESSIONS_STYLE = `
   .workspace-row.has-active .ws-folder { color: var(--vscode-charts-blue, #5686fe); }
   .ws-arrow svg { transition: transform .15s ease; }
   .workspace-row.expanded .ws-arrow svg { transform: rotate(90deg); }
-  .workspace-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* label + counts 包在组里：组占 flex:1（badge 仍右对齐），组内 counts 紧跟
+     label 文本（label 只收缩不伸展，省略号行为不变）。 */
+  .workspace-label-group {
+    flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .workspace-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 组名右侧角标：待交互/运行中/未读 计数（小字 + 小图标，紧凑、不挤压 label/badge）。 */
-  .ws-counts { flex: none; display: inline-flex; align-items: center; gap: 6px; margin-left: 2px; }
+  .ws-counts { flex: none; display: inline-flex; align-items: center; gap: 6px; }
   .ws-count { display: inline-flex; align-items: center; gap: 2px; font-size: 10px; line-height: 1; opacity: 0.75; }
   .workspace-badge {
     flex: none; font-size: 10px; font-weight: 400; padding: 0 5px; border-radius: 8px;

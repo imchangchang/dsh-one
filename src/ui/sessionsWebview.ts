@@ -536,9 +536,15 @@ function renderServerEmpty(snap: SessionsSnapshot): HTMLElement {
 
 /** 组名右侧角标：待交互（黄点）、运行中（像素环）、未读/已完成（绿点）三个独立计数。 */
 function appendWorkspaceCounts(head: HTMLElement, sessions: SessionNodeModel[]): void {
-  const pending = sessions.filter((s) => s.pendingInteraction !== undefined).length
-  const running = sessions.filter((s) => s.running || s.descendantRunning).length
-  const unread = sessions.filter((s) => s.unread).length
+  // 每会话只入一个桶，优先级与会话行首状态槽一致：待交互 > 运行中 > 未读。
+  let pending = 0
+  let running = 0
+  let unread = 0
+  for (const s of sessions) {
+    if (s.pendingInteraction !== undefined) pending += 1
+    else if (s.running || s.descendantRunning) running += 1
+    else if (s.unread) unread += 1
+  }
   if (pending === 0 && running === 0 && unread === 0) return
   const counts = el('span', 'ws-counts')
   if (pending > 0) appendCountBadge(counts, el('span', 'session-dot warning'), pending, '待交互')
@@ -574,9 +580,13 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   const arrow = el('span', 'ws-arrow')
   arrow.appendChild(iconSvg(PANEL_ICONS.triangle))
   head.appendChild(arrow)
-  head.appendChild(el('span', 'workspace-label')).appendChild(highlightText(w.label))
-  // 组名右侧角标：待交互 / 运行中 / 未读 计数（各自独立，有则显示）。
-  appendWorkspaceCounts(head, w.sessions)
+  // 组名右侧角标：待交互 / 运行中 / 未读 计数（各自独立、互斥，有则显示）。
+  // 用 .workspace-label-group 包住 label + counts，组占 flex:1（badge 仍右对齐），
+  // 组内 counts 紧跟 label 文本，不被推到行右端。
+  const labelGroup = el('span', 'workspace-label-group')
+  labelGroup.appendChild(el('span', 'workspace-label')).appendChild(highlightText(w.label))
+  appendWorkspaceCounts(labelGroup, w.sessions)
+  head.appendChild(labelGroup)
   if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', 'vscode'))
   if (!ungrouped) {
     const headActions = el('span', 'row-actions')
