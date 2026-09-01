@@ -2804,7 +2804,6 @@ function submitAnswer(p: PendingQuestion): void {
 
 function renderQuestion(p: PendingQuestion): HTMLElement {
   const card = el('div', 'pending-card')
-  const single = p.questions.length === 1
   p.questions.forEach((q, i) => {
     const wrap = el('div', 'question')
     if (q.header) wrap.appendChild(el('div', 'question-header', q.header))
@@ -2829,6 +2828,7 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
           box.addEventListener('change', () => {
             if (box.checked) draft.selected.add(opt.label)
             else draft.selected.delete(opt.label)
+            updateOkState()
           })
           label.appendChild(box)
           label.appendChild(el('span', '', opt.description ? `${opt.label} — ${opt.description}` : opt.label))
@@ -2843,11 +2843,10 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
           if (opt.description) btn.title = opt.description
           if (draft.custom === '' && draft.selected.has(opt.label)) btn.classList.add('selected')
           btn.addEventListener('click', () => {
+            // 点击只选中，提交一律走底部的「确认」按钮：直接提交容易误触。
             draft.selected = new Set([opt.label])
             draft.custom = ''
-            // A lone single-select question answers immediately, Claude Code style.
-            if (single) submitAnswer(p)
-            else render()
+            render()
           })
           group.appendChild(btn)
         }
@@ -2858,35 +2857,36 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
     const customRow = el('div', 'question-custom')
     const input = document.createElement('input')
     input.type = 'text'
-    input.placeholder = q.options?.length ? '其他（自定义回答，Enter 提交）' : '输入回答，Enter 提交'
+    input.placeholder = q.options?.length ? '其他（自定义回答）' : '输入回答'
     input.value = draft.custom
     input.addEventListener('input', () => {
       draft.custom = input.value
       if (input.value && !q.multiSelect) draft.selected.clear()
-    })
-    input.addEventListener('keydown', (e) => {
-      // isComposing: Enter confirms an IME candidate, not the answer.
-      if (e.key === 'Enter' && !e.isComposing && single) {
-        e.preventDefault()
-        submitAnswer(p)
-      }
+      updateOkState()
     })
     customRow.appendChild(input)
     wrap.appendChild(customRow)
     card.appendChild(wrap)
   })
-  // Multi-question asks and multi-select questions need an explicit confirm.
-  const needsConfirm = !single || p.questions.some((q) => q.multiSelect)
-  if (needsConfirm) {
-    const actions = el('div', 'pending-actions')
-    const ok = buttonEl('', '确认')
-    ok.addEventListener('click', () => {
-      ok.disabled = true
-      submitAnswer(p)
+  // 所有问题（含单选）都显式点「确认」才提交，避免点选即继续的误触。
+  // 没有任何选择/输入时确认不可点：必须「选择了之后」才允许确认。
+  const actions = el('div', 'pending-actions')
+  const ok = buttonEl('', '确认')
+  const hasAnswer = () =>
+    p.questions.some((_, i) => {
+      const v = answerDrafts.get(p.rpcId)?.get(i)
+      return (v?.selected.size ?? 0) > 0 || (v?.custom.trim() ?? '') !== ''
     })
-    actions.appendChild(ok)
-    card.appendChild(actions)
+  const updateOkState = () => {
+    ok.disabled = !hasAnswer()
   }
+  updateOkState()
+  ok.addEventListener('click', () => {
+    ok.disabled = true
+    submitAnswer(p)
+  })
+  actions.appendChild(ok)
+  card.appendChild(actions)
   return card
 }
 

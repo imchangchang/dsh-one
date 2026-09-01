@@ -128,13 +128,20 @@
     question: {
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
       title: '工具提问',
-      expect: '底部 pending 卡显示问题「用哪种排序？」+ header + 单项选择（最新优先/最旧优先）+ 「其他（自定义回答，Enter 提交）」输入框。',
+      expect: '底部 pending 卡显示问题「用哪种排序？」+ header + 单项选择（最新优先/最旧优先）+ 「其他（自定义回答）」输入框 + 底部「确认」按钮（初始禁用——半透明不可点）。',
+    },
+
+    'question-selected': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
+      title: '工具提问（已选一项，未确认）',
+      interact: `document.querySelectorAll('.question-options .option-btn')[0]?.click()`,
+      expect: '点击「最新优先」后：该选项高亮（selected outline，· 实心），**pending 卡仍在**（没有提交——答案没有发走、对话没有继续）；「确认」按钮变为可用（不透明）。',
     },
 
     'plan-review': {
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-3', sessionId: 'sess-1', questions: [{ question: '批准这个方案吗？', detail: '### 方案\n把 sessionStore 改成 immutable，并拆分 reducer。', options: [{ label: '批准' }, { label: '拒绝' }], intent: { kind: 'plan-review', approve: '批准' } }] }] }),
       title: '计划评审',
-      expect: '底部 pending 卡「批准这个方案吗？」+「▶ 查看详情」可展开 detail；两个 bullet 选项（批准/拒绝，无主次之分——CSS 只有 hover/选中做 outline）+「其他（自定义回答，Enter 提交）」输入框。',
+      expect: '底部 pending 卡「批准这个方案吗？」+「▶ 查看详情」可展开 detail；两个 bullet 选项（批准/拒绝，无主次之分——CSS 只有 hover/选中做 outline）+「其他（自定义回答）」输入框 + 底部「确认」按钮（初始禁用）。',
     },
 
     todos: {
