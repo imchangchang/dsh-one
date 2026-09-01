@@ -397,8 +397,12 @@ function renderSessions(): void {
     }, 450)
   })
   header.appendChild(refreshBtn)
+  // 搜索态：命中组强制展开（忽略折叠状态），因此「折叠所有」按钮按展示态
+  // 恒为「折叠所有工作区」；清空搜索后回到原折叠判断。
+  const inSearch = snap?.query != null && snap.query !== ''
   const expandable = snap?.workspaces.filter((w) => w.sessions.length > 0) ?? []
-  const allCollapsed = expandable.length > 0 && expandable.every((w) => snap?.collapsed.includes(w.workspaceId) ?? false)
+  const allCollapsed =
+    !inSearch && expandable.length > 0 && expandable.every((w) => snap?.collapsed.includes(w.workspaceId) ?? false)
   const collapseAllBtn = panelTool(
     iconSvg(allCollapsed ? PANEL_ICONS.boxedPlus : PANEL_ICONS.boxedMinus),
     allCollapsed ? '展开所有工作区' : '折叠所有工作区',
@@ -481,8 +485,10 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   group.dataset.workspaceId = w.workspaceId
   const ungrouped = w.workspaceId === UNGROUPED_WORKSPACE_ID
   const empty = w.sessions.length === 0
-  // 未分组参与统一折叠（与普通 workspace 组一致），服从 collapsed 持久化。
-  const collapsed = empty || (sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false)
+  // 搜索态：命中组（buildSessionTree 已过滤掉无匹配的组）强制展开，忽略
+  // collapsed 持久化；清空搜索后回到原折叠状态显示。
+  const inSearch = sessionsSnapshot?.query != null && sessionsSnapshot.query !== ''
+  const collapsed = inSearch ? false : empty || (sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false)
   const head = el('div', collapsed ? 'workspace-row' : 'workspace-row expanded')
   if (empty) head.classList.add('empty')
   head.classList.toggle('has-active', w.sessions.some((s) => s.sessionId === currentSessionId))
