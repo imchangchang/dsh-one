@@ -22,12 +22,14 @@ import type {
   OutgoingImage,
   PendingApproval,
   PendingQuestion,
+  PendingRequest,
   QueuedItem,
   SessionsSnapshot,
   StagedFile,
   SubagentNode,
   ToWebviewMessage,
 } from '../../pure/chatContract.ts'
+import { questionInteractionStatus } from '../../pure/chatContract.ts'
 import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../../pure/sessionTree.ts'
 import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTree.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
@@ -250,6 +252,18 @@ const attachmentCache = new Map<string, string>()
 const attachmentRequested = new Set<string>()
 /** Half-answered pending questions: rpcId → question index → draft. */
 const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
+/** Composer-takeover panel per pending rpcId: current page (question index) and minimized state. */
+const panelState = new Map<string, { page: number; minimized: boolean }>()
+
+/** Lazy panel-state accessor: defaults page 0 / expanded. */
+function panelStateFor(rpcId: string): { page: number; minimized: boolean } {
+  let s = panelState.get(rpcId)
+  if (!s) {
+    s = { page: 0, minimized: false }
+    panelState.set(rpcId, s)
+  }
+  return s
+}
 
 /**
  * Static mirror of dsh's built-in slash commands (the host's commands/list RPC
@@ -1662,16 +1676,27 @@ function render(): void {
     oldQueueEditor && document.activeElement === oldQueueEditor
       ? { start: oldQueueEditor.selectionStart, end: oldQueueEditor.selectionEnd }
       : null
-  // Pending 卡（approval/question）保活：与 composer/header 同款策略。流式
-  // 快照每帧重建 pending 区，正在输入回答的输入框被销毁重造（draft 文本靠
-  // answerDrafts 恢复，但焦点/光标/进行中的 IME 组合全丢——用户明明在打
-  // 字却每 100ms 被打断一次）。焦点在卡内且 pending 内容未变时保留原元素。
-  const oldPending = chatCol.querySelector<HTMLElement>(':scope > .pending')
+  // Pending 面板（approval/question/plan-review 接管 composer 区）保活：与
+  // composer/header 同款策略。流式快照每帧重建面板，正在输入回答的输入框
+  // 被销毁重造（draft 文本靠 answerDrafts 恢复，但焦点/光标/进行中的 IME
+  // 组合全丢）。焦点在面板内且 pending 内容未变时保留原元素。
+  const oldPending = chatCol.querySelector<HTMLElement>(':scope > .pending-panel')
   const pendingFocus = oldPending !== null && oldPending.contains(document.activeElement)
   // 签名带 sessionId：换会话时旧会话的 pending 卡必须移除，不能因内容
   // 恰好相同（rpcId 全局唯一，理论不会，但防御起见）被保活成跨会话残留。
+  // 签名含面板本地状态（分页/最小化）：翻页、收起、去聊天里说等就地状态
+  // 变化必须打破保活触发重建，否则焦点在面板内时新状态不会上屏。
   const pendingSig =
-    state && state.pending.length > 0 ? JSON.stringify([state.sessionId, state.pending]) : null
+    state && state.pending.length > 0
+      ? JSON.stringify([
+          state.sessionId,
+          state.pending,
+          state.pending.map((p) => {
+            const s = panelState.get(p.rpcId)
+            return [p.rpcId, s?.page ?? 0, s?.minimized ?? false]
+          }),
+        ])
+      : null
   const keepPending =
     oldPending !== null &&
     pendingFocus &&
@@ -1733,7 +1758,11 @@ function render(): void {
     (hadFocus || popoverInComposer) &&
     stashedDraft === undefined &&
     composerSig === lastComposerSig &&
-    (oldHero !== null && oldHero.contains(oldComposer)) === blankHero
+    (oldHero !== null && oldHero.contains(oldComposer)) === blankHero &&
+    // Pending 接管面板（approval/question/plan-review）存在时不保留 composer：
+    // 输入区整个换成面板，原输入框被移除（draft 内容仍保留，pending 结束后
+    // 恢复普通 composer 时按 draft 还原）。
+    (state?.pending.length ?? 0) === 0
   // A rebuilt composer gets fresh listeners; the popup re-opens below when the
   // draft still starts with '/'. With a kept composer it only re-anchors.
   if (!keepComposer) hideSlashPopup()
@@ -1823,7 +1852,9 @@ function render(): void {
     return
   }
   // Regions above the composer; insert before the preserved composer when kept.
-  const anchor = keepComposer ? oldComposer : null
+  // Pending 面板同样充当 anchor：保活面板时消息流/todo/queue 重建要插到它
+  // 前面，否则追加到 chatCol 末尾会把面板挤到中间去。
+  const anchor = keepPending ? oldPending : keepComposer ? oldComposer : null
   const add = (node: HTMLElement): void => {
     if (anchor) chatCol.insertBefore(node, anchor)
     else chatCol.appendChild(node)
@@ -2003,14 +2034,6 @@ function render(): void {
   messages.appendChild(jump)
   if (!keepMessages) add(messages)
 
-  if (state.pending.length > 0 && !keepPending) {
-    const pending = el('div', 'pending')
-    for (const p of state.pending) {
-      pending.appendChild(p.kind === 'approval' ? renderApproval(p) : renderQuestion(p))
-    }
-    add(pending)
-  }
-
   // 任务清单卡（对齐官方 input.dock id=todo order 0，排在排队消息之前）：
   // 缺省/null（首写前 / turn/start 后）与 [] 空数组都不渲染。
   if (state.todos && state.todos.length > 0) {
@@ -2047,7 +2070,11 @@ function render(): void {
   // 任务信息由 state.backgroundJobs → 头部 chip / openJobsMenu 菜单承担。
   // state.jobs 仍被上方 blankHero 空态判断消费，链路保留。
 
-  if (keepComposer && oldComposer) {
+  if (state.pending.length > 0) {
+    // Pending 接管 composer 区：消息流尾部不再渲染 pending 卡（对齐 dsh web
+    // 的 QuestionFlow / PlanReviewPanel 挂 conversation.composer 的形态）。
+    if (!keepPending) chatCol.appendChild(renderPendingPanel(state.pending))
+  } else if (keepComposer && oldComposer) {
     // The composer element was never detached, so focus, caret, and any
     // in-flight IME composition survive; only patch the stats line in place.
     patchStatsRow(oldComposer, state.statsLine, state.contextUsage)
@@ -3210,10 +3237,33 @@ function renderDiff(diff: { oldText: string; newText: string }, key: string): HT
   return box
 }
 
-function renderApproval(p: PendingApproval): HTMLElement {
-  const card = el('div', 'pending-card')
-  card.appendChild(el('div', 'pending-title', `权限请求：${p.toolName}`))
-  if (p.reason) card.appendChild(el('div', 'pending-reason', p.reason))
+/**
+ * Pending 面板容器：接管 composer 区（对齐 dsh web 的 QuestionFlow /
+ * PlanReviewPanel 挂 conversation.composer 的形态）。消息流尾部不再渲染
+ * pending 卡；输入区整个被面板替换，普通 composer 在 pending 期间不显示。
+ * 面板本地状态（分页/最小化）按 rpcId 存 panelState，随 pending 解析清掉。
+ */
+function renderPendingPanel(pending: PendingRequest[]): HTMLElement {
+  // 清理已解析交互的本地状态（approval 无分页/最小化之外的额外状态，
+  // question 的 answerDrafts 在提交时清，这里只清 panelState 残留）。
+  const live = new Set(pending.map((p) => p.rpcId))
+  for (const rpcId of panelState.keys()) {
+    if (!live.has(rpcId)) panelState.delete(rpcId)
+  }
+  const panel = el('div', 'pending-panel')
+  for (const p of pending) {
+    panel.appendChild(p.kind === 'approval' ? renderApprovalPanel(p) : renderQuestionPanel(p))
+  }
+  return panel
+}
+
+function renderApprovalPanel(p: PendingApproval): HTMLElement {
+  const panel = el('div', 'pending-block')
+  panel.appendChild(panelHeader(p.rpcId, '权限请求'))
+  if (panelStateFor(p.rpcId).minimized) return panel
+  const body = el('div', 'panel-body')
+  body.appendChild(el('div', 'pending-title', p.toolName))
+  if (p.reason) body.appendChild(el('div', 'pending-reason', p.reason))
   const actions = el('div', 'pending-actions')
   const allow = buttonEl('', '允许一次')
   const deny = buttonEl('secondary', '拒绝')
@@ -3230,8 +3280,82 @@ function renderApproval(p: PendingApproval): HTMLElement {
   })
   actions.appendChild(allow)
   actions.appendChild(deny)
-  card.appendChild(actions)
-  return card
+  body.appendChild(actions)
+  panel.appendChild(body)
+  return panel
+}
+
+/**
+ * Pending 面板头部：标题 + 分页器（多题时）+ 最小化/最大化按钮。最小化后
+ * 只留这一行，正文隐藏（对齐 dsh web QuestionFlow 的 header 最小化）。
+ */
+function panelHeader(rpcId: string, title: string, pager: HTMLElement | null = null): HTMLElement {
+  const st = panelStateFor(rpcId)
+  const header = el('div', 'panel-header')
+  header.appendChild(el('span', 'panel-title', title))
+  if (pager) header.appendChild(pager)
+  const toggle = buttonEl('panel-toggle', '')
+  toggle.title = st.minimized ? '展开' : '最小化'
+  toggle.appendChild(iconSvg(PANEL_ICONS.chevronUp, 14))
+  toggle.classList.toggle('minimized', st.minimized)
+  toggle.addEventListener('click', () => {
+    st.minimized = !st.minimized
+    render()
+  })
+  header.appendChild(toggle)
+  return header
+}
+
+/** 分页器「1/N」+ 上一题/下一题（对齐 dsh web QuestionFlow 分页）。 */
+function questionPager(p: PendingQuestion): HTMLElement | null {
+  const n = p.questions.length
+  if (n <= 1) return null
+  const st = panelStateFor(p.rpcId)
+  // 题目数可能因 pending 更新而变少：显示前先 clamp（renderQuestionPanel
+  // 渲染时也 clamp，两处一致避免「3/2」这类越界显示）。
+  if (st.page >= n) st.page = n - 1
+  const pager = el('div', 'panel-pager')
+  const prev = buttonEl('secondary pager-btn', '‹')
+  prev.disabled = st.page <= 0
+  prev.addEventListener('click', () => {
+    st.page = Math.max(0, st.page - 1)
+    render()
+  })
+  pager.appendChild(prev)
+  pager.appendChild(el('span', 'pager-count', `${st.page + 1}/${n}`))
+  const next = buttonEl('secondary pager-btn', '›')
+  next.disabled = st.page >= n - 1
+  next.addEventListener('click', () => {
+    st.page = Math.min(n - 1, st.page + 1)
+    render()
+  })
+  pager.appendChild(next)
+  return pager
+}
+
+/** 最小化态的回答输入行：在聊天里说，Enter 提交为自定义回答。 */
+function renderPanelAnswer(p: PendingQuestion, index: number): HTMLElement {
+  const row = el('div', 'panel-answer')
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.placeholder = '在聊天里说…（Enter 提交为回答）'
+  const send = buttonEl('', '提交')
+  const submit = (): void => {
+    const text = input.value.trim()
+    if (!text) return
+    if (questionInteractionStatus(p.questions) === 'plan-review') submitPlanReview(p, [], text)
+    else submitAnswer(p, { index, text })
+  }
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault()
+      submit()
+    }
+  })
+  send.addEventListener('click', submit)
+  row.appendChild(input)
+  row.appendChild(send)
+  return row
 }
 
 /** Per-question answer draft: picked option labels plus free-text custom input. */
@@ -3259,100 +3383,60 @@ function draftFor(rpcId: string, index: number): QuestionDraft {
   return v
 }
 
-function submitAnswer(p: PendingQuestion): void {
+function submitAnswer(p: PendingQuestion, chatOverride?: { index: number; text: string }): void {
   const d = answerDrafts.get(p.rpcId)
   // Same encoding as dsh's web QuestionComposer: a custom answer replaces the
   // selection for single-select questions, and accompanies it for multi-select.
+  // `chatOverride` 是「去聊天里说」路径：把该题的自定义回答替换成输入框文本。
   const answers = p.questions.map((q, i) => {
     const v = d?.get(i)
-    const custom = v?.custom.trim() ?? ''
-    const selected = [...(v?.selected ?? [])]
+    const custom = chatOverride && chatOverride.index === i ? chatOverride.text.trim() : (v?.custom.trim() ?? '')
+    const selected = chatOverride && chatOverride.index === i ? [] : [...(v?.selected ?? [])]
     return {
       selected: custom === '' || q.multiSelect ? selected : [],
       ...(custom ? { custom } : {}),
     }
   })
   answerDrafts.delete(p.rpcId)
+  panelState.delete(p.rpcId)
   post({ type: 'answer', rpcId: p.rpcId, answers })
   // 提交答案同样延续对话流（回复继续流式输出），滚到底并复位跟随态。
   pinToLatest()
 }
 
-function renderQuestion(p: PendingQuestion): HTMLElement {
-  const card = el('div', 'pending-card')
-  p.questions.forEach((q, i) => {
-    const wrap = el('div', 'question')
-    if (q.header) wrap.appendChild(el('div', 'question-header', q.header))
-    wrap.appendChild(el('div', 'question-text', q.question))
-    if (q.detail) {
-      // Plan reviews carry the full plan markdown here; keep it collapsible.
-      const det = detailsEl(`q:${p.rpcId}:${i}`, 'question-detail', '查看详情')
-      const body = el('div', 'md')
-      body.innerHTML = md(q.detail)
-      enhanceCodeBlocks(body, `q:${p.rpcId}:${i}`)
-      det.appendChild(body)
-      wrap.appendChild(det)
+/** plan-review 三分按钮的直接提交：确认执行/拒绝走选项，去聊天里说走 custom。 */
+function submitPlanReview(p: PendingQuestion, selected: string[], custom = ''): void {
+  const answers = p.questions.map((q, i) => {
+    const s = i === 0 ? selected : []
+    return {
+      selected: custom === '' || q.multiSelect ? s : [],
+      ...(custom ? { custom } : {}),
     }
-    const draft = draftFor(p.rpcId, i)
-    if (q.options && q.options.length > 0) {
-      if (q.multiSelect) {
-        for (const opt of q.options) {
-          const label = el('label', 'checkbox')
-          const box = document.createElement('input')
-          box.type = 'checkbox'
-          box.checked = draft.selected.has(opt.label)
-          box.addEventListener('change', () => {
-            if (box.checked) draft.selected.add(opt.label)
-            else draft.selected.delete(opt.label)
-            updateOkState()
-          })
-          label.appendChild(box)
-          label.appendChild(el('span', '', opt.description ? `${opt.label} — ${opt.description}` : opt.label))
-          wrap.appendChild(label)
-        }
-      } else {
-        const group = el('div', 'question-options')
-        for (const opt of q.options) {
-          // A plan-review intent names its approve option; render it primary.
-          const isApprove = q.intent?.kind === 'plan-review' && q.intent.approve === opt.label
-          const btn = buttonEl(isApprove ? 'option-btn' : 'secondary option-btn', opt.label)
-          if (opt.description) btn.title = opt.description
-          if (draft.custom === '' && draft.selected.has(opt.label)) btn.classList.add('selected')
-          btn.addEventListener('click', () => {
-            // 点击只选中，提交一律走底部的「确认」按钮：直接提交容易误触。
-            draft.selected = new Set([opt.label])
-            draft.custom = ''
-            // 保活态下 render() 不会重建 pending 卡，选中高亮与自定义输入
-            // 框必须就地更新；无保活时下次快照重建也会按 draft 恢复同态。
-            group.querySelectorAll('.option-btn').forEach((b) => b.classList.toggle('selected', b === btn))
-            const customInput = wrap.querySelector<HTMLInputElement>('.question-custom input')
-            if (customInput) customInput.value = ''
-            updateOkState()
-          })
-          group.appendChild(btn)
-        }
-        wrap.appendChild(group)
-      }
-    }
-    // Every question also takes a free-text "Other" answer, like the web UI.
-    const customRow = el('div', 'question-custom')
-    const input = document.createElement('input')
-    input.type = 'text'
-    input.placeholder = q.options?.length ? '其他（自定义回答）' : '输入回答'
-    input.value = draft.custom
-    input.addEventListener('input', () => {
-      draft.custom = input.value
-      if (input.value && !q.multiSelect) draft.selected.clear()
-      updateOkState()
-    })
-    customRow.appendChild(input)
-    wrap.appendChild(customRow)
-    card.appendChild(wrap)
   })
-  // 所有问题（含单选）都显式点「确认」才提交，避免点选即继续的误触。
-  // 没有任何选择/输入时确认不可点：必须「选择了之后」才允许确认。
+  answerDrafts.delete(p.rpcId)
+  panelState.delete(p.rpcId)
+  post({ type: 'answer', rpcId: p.rpcId, answers })
+  pinToLatest()
+}
+
+function renderQuestionPanel(p: PendingQuestion): HTMLElement {
+  // plan-review 单题走 PlanReviewPanel 形态：warn strip + 计划 Markdown +
+  // 确认执行/拒绝/去聊天里说三分结构（对齐 dsh web PlanReviewPanel）。
+  if (questionInteractionStatus(p.questions) === 'plan-review') return renderPlanReviewPanel(p)
+  const st = panelStateFor(p.rpcId)
+  const n = p.questions.length
+  const page = Math.min(st.page, n - 1)
+  const panel = el('div', 'pending-block')
+  panel.appendChild(panelHeader(p.rpcId, '等待你的回答', questionPager(p)))
+  if (st.minimized) {
+    panel.appendChild(renderPanelAnswer(p, page))
+    return panel
+  }
+  const body = el('div', 'panel-body')
   const actions = el('div', 'pending-actions')
-  const ok = buttonEl('', '确认')
+  const ok = buttonEl('', '提交')
+  // 所有问题（含单选）都显式点「提交」才发送，避免点选即继续的误触。
+  // 没有任何选择/输入时提交不可点：必须「选择了之后」才允许提交。
   const hasAnswer = () =>
     p.questions.some((_, i) => {
       const v = answerDrafts.get(p.rpcId)?.get(i)
@@ -3366,9 +3450,151 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
     ok.disabled = true
     submitAnswer(p)
   })
+  body.appendChild(renderQuestionItem(p, page, updateOkState))
+  if (n > 1 && page < n - 1) {
+    // 跳过本题（对齐 dsh web QuestionFlow）：此题不答，清空草稿并翻到下一题；
+    // 最后一题没有下一题可跳，直接提交即可。
+    const skip = buttonEl('secondary', '跳过本题')
+    skip.addEventListener('click', () => {
+      answerDrafts.get(p.rpcId)?.delete(page)
+      st.page = page + 1
+      render()
+    })
+    actions.appendChild(skip)
+  }
   actions.appendChild(ok)
-  card.appendChild(actions)
-  return card
+  body.appendChild(actions)
+  panel.appendChild(body)
+  return panel
+}
+
+/** 单题渲染（当前分页页）：header/question 文本/折叠 detail/选项/自定义输入。 */
+function renderQuestionItem(
+  p: PendingQuestion,
+  index: number,
+  updateOkState: () => void,
+): HTMLElement {
+  const q = p.questions[index]
+  const wrap = el('div', 'question')
+  if (q.header) wrap.appendChild(el('div', 'question-header', q.header))
+  wrap.appendChild(el('div', 'question-text', q.question))
+  if (q.detail) {
+    // 非 plan-review 的普通问题，detail 保持折叠（plan-review 的计划全文在
+    // PlanReviewPanel 里直接展开，不走这里）。
+    const det = detailsEl(`q:${p.rpcId}:${index}`, 'question-detail', '查看详情')
+    const body = el('div', 'md')
+    body.innerHTML = md(q.detail)
+    enhanceCodeBlocks(body, `q:${p.rpcId}:${index}`)
+    det.appendChild(body)
+    wrap.appendChild(det)
+  }
+  const draft = draftFor(p.rpcId, index)
+  if (q.options && q.options.length > 0) {
+    if (q.multiSelect) {
+      for (const opt of q.options) {
+        const label = el('label', 'checkbox')
+        const box = document.createElement('input')
+        box.type = 'checkbox'
+        box.checked = draft.selected.has(opt.label)
+        box.addEventListener('change', () => {
+          if (box.checked) draft.selected.add(opt.label)
+          else draft.selected.delete(opt.label)
+          updateOkState()
+        })
+        label.appendChild(box)
+        label.appendChild(el('span', '', opt.description ? `${opt.label} — ${opt.description}` : opt.label))
+        wrap.appendChild(label)
+      }
+    } else {
+      const group = el('div', 'question-options')
+      for (const opt of q.options) {
+        const btn = buttonEl('secondary option-btn', opt.label)
+        if (opt.description) btn.title = opt.description
+        if (draft.custom === '' && draft.selected.has(opt.label)) btn.classList.add('selected')
+        btn.addEventListener('click', () => {
+          // 点击只选中，提交一律走底部的「提交」按钮：直接提交容易误触。
+          draft.selected = new Set([opt.label])
+          draft.custom = ''
+          // 保活态下 render() 不会重建面板，选中高亮与自定义输入框必须就地
+          // 更新；无保活时下次快照重建也会按 draft 恢复同态。
+          group.querySelectorAll('.option-btn').forEach((b) => b.classList.toggle('selected', b === btn))
+          const customInput = wrap.querySelector<HTMLInputElement>('.question-custom input')
+          if (customInput) customInput.value = ''
+          updateOkState()
+        })
+        group.appendChild(btn)
+      }
+      wrap.appendChild(group)
+    }
+  }
+  // Every question also takes a free-text "Other" answer, like the web UI.
+  const customRow = el('div', 'question-custom')
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.placeholder = q.options?.length ? '其他（自定义回答）' : '输入回答'
+  input.value = draft.custom
+  input.addEventListener('input', () => {
+    draft.custom = input.value
+    if (input.value && !q.multiSelect) draft.selected.clear()
+    updateOkState()
+  })
+  customRow.appendChild(input)
+  wrap.appendChild(customRow)
+  return wrap
+}
+
+/** PlanReviewPanel：warn strip「计划待审」+ 计划 Markdown + 确认/拒绝/去聊天里说。 */
+function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
+  const st = panelStateFor(p.rpcId)
+  const q = p.questions[0]
+  const panel = el('div', 'pending-block')
+  panel.appendChild(panelHeader(p.rpcId, '计划待审'))
+  if (st.minimized) {
+    panel.appendChild(renderPanelAnswer(p, 0))
+    return panel
+  }
+  const body = el('div', 'panel-body')
+  // Warn strip：计划待审（对齐 dsh web PlanReviewPanel 的警示条）。
+  const warn = el('div', 'plan-warn')
+  warn.appendChild(el('span', 'plan-warn-icon', '⚠'))
+  warn.appendChild(el('span', 'plan-warn-text', '计划待审'))
+  body.appendChild(warn)
+  // 计划 Markdown：detail 直接展开全文（不复折叠），限高滚动。
+  if (q.detail) {
+    const plan = el('div', 'md plan-md')
+    plan.innerHTML = md(q.detail)
+    enhanceCodeBlocks(plan, `plan:${p.rpcId}`)
+    body.appendChild(plan)
+  }
+  // 三分结构：确认执行（approve 选项，主按钮）/ 拒绝（另一选项）/ 去聊天里说。
+  const approve = q.intent?.approve
+  const reject = q.options?.find((o) => o.label !== approve)?.label
+  const actions = el('div', 'pending-actions plan-actions')
+  const ok = buttonEl('option-btn', approve ?? '确认执行')
+  ok.addEventListener('click', () => {
+    ok.disabled = true
+    submitPlanReview(p, approve ? [approve] : [])
+  })
+  const no = buttonEl('secondary option-btn', reject ?? '拒绝')
+  no.addEventListener('click', () => {
+    no.disabled = true
+    submitPlanReview(p, reject ? [reject] : [])
+  })
+  const chat = buttonEl('secondary option-btn', '去聊天里说')
+  chat.title = '收起面板，直接在输入框里用自然语言回复'
+  chat.addEventListener('click', () => {
+    st.minimized = true
+    render()
+    // 收起后聚焦回答输入行（panel-answer 的首个输入框）。
+    const input = chatCol.querySelector<HTMLInputElement>('.pending-panel .panel-answer input')
+    input?.focus()
+  })
+  actions.appendChild(ok)
+  actions.appendChild(no)
+  actions.appendChild(chat)
+  body.appendChild(actions)
+  panel.appendChild(body)
+  return panel
 }
 
 /**

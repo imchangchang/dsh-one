@@ -181,27 +181,54 @@
 
     approval: {
       state: base({ pending: [{ kind: 'approval', rpcId: 'rpc-1', sessionId: 'sess-1', approvalId: 'appr-1', toolName: 'bash', reason: '允许执行 npm test 吗？' }] }),
-      title: '权限批准',
-      expect: '底部 pending 卡「权限请求：bash / 允许执行 npm test 吗？」+ 「允许一次/拒绝」两个按钮；历史消息保留。',
+      title: '权限批准（composer 接管面板）',
+      expect: '输入区位置（composer 处）渲染接管面板，**不在消息流尾部**：面板 header「权限请求」+ 右上最小化按钮（chevron）；面板正文：工具名「bash」+ 原因「允许执行 npm test 吗？」+ 「允许一次/拒绝」两个按钮；消息流尾部**没有**旧的 pending 卡；普通 composer 输入框**不显示**（输入区被面板替换）。',
     },
 
     question: {
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
-      title: '工具提问',
-      expect: '底部 pending 卡显示问题「用哪种排序？」+ header + 单项选择（最新优先/最旧优先）+ 「其他（自定义回答）」输入框 + 底部「确认」按钮（初始禁用——半透明不可点）。',
+      title: '工具提问（composer 接管面板）',
+      expect: '输入区位置渲染接管面板：header「等待你的回答」+ 最小化按钮（单题**无**分页器）；正文：问题「用哪种排序？」+ header「排序方向」+ 单项选择（最新优先/最旧优先）+ 「其他（自定义回答）」输入框 + 「提交」按钮（初始禁用——半透明不可点）；消息流尾部无 pending 卡，无普通 composer。',
     },
 
     'question-selected': {
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
-      title: '工具提问（已选一项，未确认）',
+      title: '工具提问（已选一项，未提交）',
       interact: `document.querySelectorAll('.question-options .option-btn')[0]?.click()`,
-      expect: '点击「最新优先」后：该选项高亮（selected outline，· 实心），**pending 卡仍在**（没有提交——答案没有发走、对话没有继续）；「确认」按钮变为可用（不透明）。',
+      expect: '点击「最新优先」后：该选项高亮（selected outline，· 实心），**接管面板仍在**（没有提交——答案没有发走、对话没有继续）；「提交」按钮变为可用（不透明）。',
+    },
+
+    'question-multi': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-4', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }, { question: '要不要包含测试目录？', options: [{ label: '包含' }, { label: '不包含' }] }] }] }),
+      title: '多题问答（分页器 1/2）',
+      expect: '接管面板 header「等待你的回答」+ 分页器（‹ 1/2 ›，上一题 ‹ 禁用、下一题 › 可用）+ 最小化按钮；正文只有**第一题**（排序方向题），第二题不出现；「跳过本题」+「提交」两个按钮；提交禁用（未选任何答案——半透明不可点），跳过可点。',
+    },
+
+    'question-page2': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-4', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }, { question: '要不要包含测试目录？', options: [{ label: '包含' }, { label: '不包含' }] }] }] }),
+      title: '多题问答（翻到第 2 题）',
+      interact: `document.querySelector('.panel-pager .pager-btn:last-child')?.click()`,
+      expect: '分页器显示 ‹ 2/2 ›（上一题 ‹ 可用、下一题 › 禁用）；正文只显示**第二题**「要不要包含测试目录？」；「跳过本题」不显示（最后一题没有下一题可跳）；「提交」按钮存在。',
+    },
+
+    'question-minimized': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
+      title: '问答面板最小化（去聊天里说）',
+      interact: `document.querySelector('.panel-toggle')?.click()`,
+      expect: '面板只剩 header 一行（「等待你的回答」+ 展开按钮，chevron 朝上/翻转）+ 回答输入行：输入框（placeholder「在聊天里说…（Enter 提交为回答）」）+「提交」按钮；正文（题目/选项）隐藏；无普通 composer。',
+    },
+
+    'plan-review-chat': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-3', sessionId: 'sess-1', questions: [{ question: '批准这个方案吗？', detail: '### 方案\n把 sessionStore 改成 immutable，并拆分 reducer。', options: [{ label: '批准' }, { label: '拒绝' }], intent: { kind: 'plan-review', approve: '批准' } }] }] }),
+      title: '计划评审（去聊天里说后）',
+      interact: `[...document.querySelectorAll('.plan-actions button')].find((b) => b.textContent.includes('去聊天里说'))?.click()`,
+      expect: '点击「去聊天里说」后：面板最小化（只剩 header「计划待审」+ 展开按钮）+ 回答输入行（「在聊天里说…」输入框 + 提交按钮）；warn strip/计划 Markdown/三分按钮全部隐藏。',
     },
 
     'plan-review': {
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-3', sessionId: 'sess-1', questions: [{ question: '批准这个方案吗？', detail: '### 方案\n把 sessionStore 改成 immutable，并拆分 reducer。', options: [{ label: '批准' }, { label: '拒绝' }], intent: { kind: 'plan-review', approve: '批准' } }] }] }),
-      title: '计划评审',
-      expect: '底部 pending 卡「批准这个方案吗？」+「▶ 查看详情」可展开 detail；两个 bullet 选项（批准/拒绝，无主次之分——CSS 只有 hover/选中做 outline）+「其他（自定义回答）」输入框 + 底部「确认」按钮（初始禁用）。',
+      title: '计划评审（PlanReviewPanel 三分结构）',
+      expect: '接管面板 header「计划待审」+ 最小化按钮；正文：**warn strip 警示条**（⚠ 图标 + 「计划待审」，黄色底/边框）+ 计划 Markdown 全文直接展开（### 方案 + 正文，限高滚动，**无**「查看详情」折叠） + 三分按钮行：「批准」（主按钮 option-btn 样式，bullet ·）+「拒绝」（次要按钮）+「去聊天里说」（次要按钮）；**不再有**「其他（自定义回答）」输入框与「确认」按钮（三分结构替代）；消息流尾部无 pending 卡。',
     },
 
     todos: {
