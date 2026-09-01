@@ -31,3 +31,21 @@
 - 2026-09-01 评审确认：做（用户标注）
 
 - 2026-09-01 认领 → doing（并行开发 session）
+
+- 2026-09-02 开发完成，自测通过（typecheck + 253 测试 + build 全绿）→ done
+
+### 开发完成说明（2026-09-02）
+
+实现：goal 条幅对齐 dsh web 的 GoalBar（`dsh-client-ui-goal` 源码：input.dock id=goal order 10，todo 与 queue 之间垂直叠放、不互斥；active/paused/blocked 渲染、complete/无 goal 不渲染；clear 无确认；编辑条内内联；plan mode 不联动——以上三点经用户确认）。
+
+数据链路（无伪造数据）：`goal` 投影经 `session/projection` 帧 + history 基线折叠（chatSession.ts，与 todos 同机制），`goals/pause|resume|edit|clear` RPC（dshRpc.ts，CAS ref 由投影携带）。webview 渲染条幅（renderGoalBar），图标取自官方 primitives bundle（GOAL_ICONS）。
+
+涉及文件：`src/pure/chatContract.ts`、`src/server/dshRpc.ts`、`src/server/chatSession.ts`、`src/ui/chatView.ts`、`src/ui/chat/icons.ts`、`src/ui/chat/webview.ts`、`test/ui/scenarios.js`（6 个视觉场景，goal-active 进基线）。
+
+**人工验收方法**（真实 VSCode，`dev-ui-test.sh`）：
+1. 输入区上方无条幅；发送 `/goal 帮我调研 dsh 的 goal 机制`，待 dsh 返回后出现「进行中的目标」条幅（goal 图标 + objective 截断 + 暂停/编辑/清除按钮），位于 todo 卡与排队消息之间（有排队消息时确认叠放顺序 todo → goal → queue）。
+2. 点暂停按钮 → 条幅变「已暂停的目标」，暂停变恢复按钮；点恢复 → 回到「进行中的目标」。
+3. 点编辑按钮 → 条内出现预填 objective 的输入框（自动聚焦），改文本回车/点保存 → 条幅显示新 objective；Escape 取消。
+4. 点清除按钮 → 条幅消失；再次 `/goal ...` 可重新创建。
+5. `/goal complete` 之类使目标完成后条幅消失（不渲染 complete）。
+6. 视觉回归：`scripts/ui-visual.sh`（AI 已跑过 22 项 DOM 断言全过；人工可抽查截图）。
