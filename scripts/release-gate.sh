@@ -28,20 +28,21 @@ tag_exists() { git rev-parse -q --verify "refs/tags/v$1" >/dev/null; }
 worktree_clean() { [ -z "$(git status --porcelain)" ]; }
 find_vsix() { ls -t dsh-one-*.vsix 2>/dev/null | head -1 || true; }
 
-# 校验 vsix：内容（dist/assets/package.json/README/LICENSE，无 src/test/docs/map/ts）+ 版本 == 期望
+# 校验 vsix：内容（dist/assets/package.json/readme/LICENSE，无 src/test/docs/scripts/.agents/map/ts）+ 版本 == 期望
 verify_vsix() {
   local vsix=$1 expect=$2 actual list
   [ -f "$vsix" ] || die "找不到 vsix: $vsix"
-  actual=$(unzip -p "$vsix" package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
+  actual=$(unzip -p "$vsix" '*/package.json' | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
   [ "$actual" = "$expect" ] || die "vsix 内版本 $actual != 期望 $expect"
   list=$(unzip -l "$vsix")
-  for f in dist/extension.js package.json README.md LICENSE; do
-    echo "$list" | grep -q "$f" || die "vsix 缺少 $f"
+  for f in 'dist/extension.js' 'package.json' 'readme' 'license'; do
+    echo "$list" | grep -qi "$f" || die "vsix 缺少 $f"
   done
   echo "$list" | grep -q 'assets/' || die "vsix 缺少 assets/"
-  for bad in ' src/' ' test/' ' docs/' '.map' '.ts' 'node_modules/'; do
+  for bad in ' src/' ' test/' ' docs/' ' scripts/' '.agents/' 'AGENTS.md' '.map' 'node_modules/'; do
     echo "$list" | grep -q "$bad" && die "vsix 不应包含 $bad"
   done
+  echo "$list" | grep -Eq '\.ts([[:space:]]|$)' && die "vsix 不应包含 .ts 文件"
   say "  vsix 内容与版本校验通过（version=${actual}）"
 }
 
@@ -71,7 +72,7 @@ plan() {
     say "  3. 停下：人工 review + git commit（建议只提交这两个文件）"
   fi
   say "  4. 干净 checkout（临时 worktree @ HEAD）→ npm ci → typecheck + test + build + vsce package"
-  say "  5. 验 vsix 内容（dist/assets/package.json/README/LICENSE，无 src/test/docs/map/ts）与版本 == <版本>"
+  say "  5. 验 vsix 内容（dist/assets/package.json/readme/LICENSE，无 src/test/docs/scripts/.agents/map/ts）与版本 == <版本>"
   say "  6. 打 annotated tag v<版本>（指向 HEAD）并校验 == 打包 commit"
   say "  7. 把 vsix 复制到仓库根目录"
 }

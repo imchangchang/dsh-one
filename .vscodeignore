@@ -11,3 +11,6 @@ tsconfig.json
 build.mjs
 .gitignore
 docs/**
+scripts/**
+.agents/**
+AGENTS.md
