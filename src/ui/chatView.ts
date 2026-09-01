@@ -222,6 +222,10 @@ const STYLE = `
     color: var(--vscode-textLink-foreground);
     font: inherit; font-weight: 500; cursor: pointer; white-space: nowrap;
   }
+  /* 给 chip 补一个带文本基线的首个 flex 项：inline-flex 容器基线原先退化为盒底边
+     （第一个子项是 SVG 图标、无文本基线），导致 chip 文字相对同行正文抬高。
+     content 是零宽空格（有文本基线）；margin-left 抵消 gap:3px 多出的间距。 */
+  .session-mention::before { content: '​'; margin-left: -3px; }
   .session-mention svg { flex: none; }
   .session-mention:hover { text-decoration: underline; }
   /* 跨会话召回上下文行：图标与文字基线对齐。 */

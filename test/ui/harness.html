@@ -5,7 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DSH One — webview 视觉场景</title>
 <link rel="stylesheet" href="/test/ui/style.css">
-<style>body { margin: 0; font-family: sans-serif; } #app { min-height: 100vh; }</style>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  #app { min-height: 100vh; }
+  /* 场景可选 theme:'dark'：替代 VS Code 注入的 --vscode-* 变量，模拟暗色界面。 */
+  body[data-theme='dark'] {
+    --vscode-editor-background: #1e1e1e;
+    --vscode-foreground: #cccccc;
+    --vscode-input-background: #2d2d30;
+    --vscode-input-foreground: #cccccc;
+    --vscode-descriptionForeground: #9d9d9d;
+    --vscode-panel-border: rgba(127,127,127,.35);
+    --vscode-textLink-foreground: #4daafc;
+    --vscode-charts-blue: #4daafc;
+    --vscode-focusBorder: #4daafc;
+    --vscode-textCodeBlock-background: rgba(255,255,255,.1);
+    background: #1e1e1e; color: #cccccc;
+  }
+</style>
 </head>
 <body>
 <div id="app"></div>
@@ -24,6 +41,7 @@
   const q = new URLSearchParams(location.search)
   const name = q.get('scenario') || window.DEFAULT_SCENARIO
   const scen = window.SCENARIOS[name] || window.SCENARIOS[window.DEFAULT_SCENARIO]
+  if (scen.theme === 'dark') document.body.setAttribute('data-theme', 'dark')
   const post = (m) => window.postMessage(m, '*')
   const bundle = scen.view === 'sessions' ? '/dist/sessionsWebview.js' : '/dist/chatWebview.js'
   const s = document.createElement('script')

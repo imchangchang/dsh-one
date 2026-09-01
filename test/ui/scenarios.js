@@ -96,6 +96,16 @@
       expect: '助手消息：`<h2>` 分级标题「各环节分工总览」；三列表格（环节/谁负责/能否自动化）带网格线 + 表头底色、列宽随内容收窄左对齐、不溢出；引用块左栏线；圆点列表；主题色链接；hr 分隔线；任务清单保留 checkbox 且去圆点。',
     },
 
+    'session-mention': {
+      // 用户气泡走纯文本渲染，mention 按 `@[label](dsh-session:...)` 切成 chip + 正文。
+      state: base({
+        messages: [u('@[DSH-ONE子代理嵌套支持情况](dsh-session:InNlc3MtMSI) 根据这个对话，分析一下嵌套子代理的依赖关系。')],
+      }),
+      theme: 'dark',
+      title: '会话引用 chip 基线（暗色）',
+      expect: '用户气泡（右侧）内：一个 @会话引用 chip（🔗 图标 + 链接色「DSH-ONE子代理嵌套支持情况」字重 500），chip 之后紧跟着正文「根据这个对话，分析一下嵌套子代理的依赖关系。」，两者在同一行；chip 内文字与同行正文文字基线对齐（不再相对抬高 2px）。chip 是行内 flex 无边框背景，链接色，hover 下划线（截图为静态不核对 hover）。',
+    },
+
     empty: {
       // blankHero 要求 sessionId !== null（空白会话已附着）且无消息/待办/队列/jobs。
       state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
@@ -306,6 +316,7 @@
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
     'sessions-search', 'sessions-collapsed',
+    'session-mention',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()
