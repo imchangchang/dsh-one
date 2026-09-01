@@ -83,3 +83,4 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - 2026-09-01 验收打回（done → doing）：只有内容命中 snippet 里有高亮，标题命中的会话行标题与 workspace 组名里的关键词未高亮；补上与 snippet 一致的加粗+变色样式。
 - 2026-09-01 开发完成（doing → done）：highlightText 泛化复用，会话行标题与 workspace 组名的关键词也加粗+变色高亮，与内容 snippet 一致。
 - 2026-09-01 验收打回（done → doing）：「全文搜索不可用」提示行悬停时无详情；加悬停气泡，显示索引未启用原因与启用索引操作步骤（tooltip 支持多行）。
+- 2026-09-01 开发完成（doing → done）：降级提示行加 data-tip 悬停详情（索引未启用原因 + 编辑 cordis.patch.yml 启用 openAt:first-search 的步骤）；tooltip 支持多行/长词折行。
