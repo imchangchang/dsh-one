@@ -248,6 +248,16 @@
       expect: '点击 contextBar 弹出面板：头部「上下文已用 100%（~260K / 256K）」；面板内出现一行红色提示「上下文已超出当前模型窗口：建议先切回之前的模型执行 /compact 压缩，再切换模型。」；bar 为红色（level-overflow），title 含「已超出当前模型窗口」。',
     },
 
+    'context-switch-window-unknown': {
+      state: base({
+        // 切到「本进程从未观察过窗口」的模型（映射无记录）：明确占位，不沿用旧窗口。
+        contextUsage: { windowUnknown: true, usedTokens: 245_000 },
+      }),
+      interact: `document.querySelector('.context-bar')?.click()`,
+      title: 'contextBar：切换后窗口未知（占位）',
+      expect: '右下角 contextBar 显示灰字占位「窗口未知」（而非旧 1M 窗口的占用比例）；悬停 title 为说明（该模型尚未产生上下文数据、发送下一条消息后显示）；点击占位弹出面板：头部「窗口用量未知」+「已用 ~245K」+ 说明行（中性灰，非红色错误）。',
+    },
+
     // ================= 侧栏 sessions 面板（拆分后独立 webview） =================
 
     sessions: {

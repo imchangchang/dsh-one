@@ -1086,6 +1086,9 @@ const CONTEXT_ROWS: Array<{ key: 'systemTokens' | 'toolsTokens' | 'messageTokens
   { key: 'messageTokens', label: '对话消息', color: '#5a9cf8' },
 ]
 
+/** 「窗口未知」占位的悬停说明：说明原因 + 何时恢复。 */
+const WINDOW_UNKNOWN_TOOLTIP = '当前窗口用量未知：该模型尚未在当前会话中产生上下文数据，发送下一条消息后将显示窗口占用。'
+
 /** Occupancy bar at the stats row's right end; hidden until the first sample. */
 function contextBar(): HTMLElement {
   const bar = buttonEl('context-bar', '')
@@ -1096,10 +1099,33 @@ function contextBar(): HTMLElement {
   return bar
 }
 
+/** 按模式确保 bar 内容结构：unknown → 灰字占位；known → track+fill（重建仅在切换时）。 */
+function setBarContent(bar: HTMLElement, mode: 'unknown' | 'known'): void {
+  const isUnknown = !bar.querySelector('.context-bar-fill')
+  if (isUnknown === (mode === 'unknown')) return
+  if (mode === 'unknown') {
+    bar.textContent = '窗口未知'
+  } else {
+    bar.textContent = ''
+    const track = el('span', 'context-bar-track')
+    track.appendChild(el('span', 'context-bar-fill'))
+    bar.appendChild(track)
+  }
+}
+
 /** Patch the bar in place (both initial render and kept-composer updates). */
 function patchContextBar(bar: HTMLElement, usage: ChatState['contextUsage']): void {
   bar.style.display = usage ? '' : 'none'
   if (!usage) return
+  if (usage.windowUnknown) {
+    // 切到从未观察过窗口的模型：明示「窗口未知」占位，不沿用旧窗口误导；悬停解释原因。
+    setBarContent(bar, 'unknown')
+    bar.classList.remove('level-ok', 'level-warn', 'level-danger', 'level-overflow')
+    bar.classList.add('level-unknown')
+    bar.title = WINDOW_UNKNOWN_TOOLTIP
+    return
+  }
+  setBarContent(bar, 'known')
   // 按剩余轮数分级变色（src/pure/contextMeter.ts）：充足绿 / <10 轮黄 / <5 轮红 / 超窗口红。
   const meter = meterLevel(usage.usedTokens, usage.contextWindow, usage.turns)
   bar.classList.remove('level-ok', 'level-warn', 'level-danger', 'level-overflow')
@@ -1142,6 +1168,19 @@ function patchStatsRow(composer: HTMLElement, statsLine: string | undefined, usa
 function openContextPanel(anchor: HTMLElement): void {
   const usage = state?.contextUsage
   if (!usage) return
+  if (usage.windowUnknown) {
+    // 「窗口未知」占位：无比例可给，面板只说明原因与恢复时机（与 bar 的悬停一致）。
+    const body = el('div', 'context-panel')
+    const header = el('div', 'cp-header')
+    header.appendChild(el('span', 'cp-percent', '窗口用量未知'))
+    if (usage.usedTokens !== undefined) header.appendChild(el('span', 'cp-figures', `已用 ~${formatTokens(usage.usedTokens)}`))
+    body.appendChild(header)
+    body.appendChild(
+      el('div', 'cp-unknown', '该模型尚未在当前会话中产生上下文数据，无法给出窗口占用比例；发送下一条消息后将显示窗口用量。'),
+    )
+    showPopover(anchor, body)
+    return
+  }
   const body = el('div', 'context-panel')
   const header = el('div', 'cp-header')
   header.appendChild(el('span', 'cp-percent', `上下文已用 ${usage.percent}%`))

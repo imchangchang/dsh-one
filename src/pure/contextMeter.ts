@@ -31,6 +31,22 @@ export interface ContextPressureLike {
   contextWindow?: number
 }
 
+/** 「窗口未知」占位值：切到从未观察过窗口的模型时，无诚实比例可给。 */
+export interface ContextUsageUnknown {
+  windowUnknown: true
+  usedTokens?: number
+}
+
+/**
+ * 构成「窗口未知」占位：保留最后一次压力采样的已用量（若有），窗口与
+ * 比例置为「未知」。用于切到映射无记录的模型时，明确标示非误报的未知状态。
+ * 拿到窗口（下一条消息的 request/context）后由 `pressureWithContextWindow`
+ * 恢复成正常比例。
+ */
+export function contextUsageUnknown(used: number | undefined): ContextUsageUnknown {
+  return used === undefined ? { windowUnknown: true } : { windowUnknown: true, usedTokens: used }
+}
+
 /**
  * 切换模型后立即用新模型窗口重算压力值：只覆写 `contextWindow`，保留
  * 分子（pressureTokens/projectedTokens，与模型无关）。contextBar 的

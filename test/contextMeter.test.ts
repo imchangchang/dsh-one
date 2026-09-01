@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { meterLevel, pressureWithContextWindow } from '../src/pure/contextMeter.ts'
+import { meterLevel, pressureWithContextWindow, contextUsageUnknown } from '../src/pure/contextMeter.ts'
 
 test('ample headroom is ok with an estimate', () => {
   // perTurn 1K，剩余 90K → 90 轮。
@@ -67,4 +67,11 @@ test('切到更小窗口后立即用新窗口重算：未超限 → warn/danger�
   // 已用量 260K 超过 256K 新窗口 → overflow（不管轮数），这是"超新窗口"的显示。
   const o = meterLevel(260_000, 256_000, 5)
   assert.deepEqual(o, { level: 'overflow', perTurn: null, turnsLeft: null })
+})
+
+test('contextUsageUnknown：窗口未知占位，保留已用量（映射无记录时不沿用旧窗口）', () => {
+  // 有已用量采样：占位带上 usedTokens（panel 仍能显示「已用 ~245K」）。
+  assert.deepEqual(contextUsageUnknown(245_000), { windowUnknown: true, usedTokens: 245_000 })
+  // 无采样（从未有过压力）：纯占位。
+  assert.deepEqual(contextUsageUnknown(undefined), { windowUnknown: true })
 })

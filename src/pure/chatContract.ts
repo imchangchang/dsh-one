@@ -361,20 +361,33 @@ export interface ChatState {
    * projections). Absent until the provider reports both a pressure sample
    * and the route's context window — the ring hides until then (web parity).
    */
-  contextUsage?: {
-    percent: number
-    usedTokens: number
-    contextWindow: number
-    /** Heuristic composition (system prompt / tools / conversation). */
-    breakdown?: { systemTokens: number; toolsTokens: number; messageTokens: number }
-    /**
-     * Closed-turn count from the `sessionStats` projection; the webview's
-     * context meter (src/pure/contextMeter.ts) uses it for the per-turn
-     * growth estimate. Absent until the first closed turn.
-     */
-    turns?: number
-  }
+  contextUsage?: ContextUsage
 }
+
+/**
+ * Context-occupancy meter value. Either a real ratio (the ring shows the
+ * fraction), or a 「窗口未知」placeholder: the user switched to a model whose
+ * context window we have never observed, so no honest ratio exists yet (the
+ * payload can still carry the used-token count from the last sample). The
+ * placeholder recovers to the real ratio once the next request/context for
+ * that model arrives.
+ */
+export type ContextUsage =
+  | { windowUnknown: true; usedTokens?: number }
+  | {
+      windowUnknown?: false
+      percent: number
+      usedTokens: number
+      contextWindow: number
+      /** Heuristic composition (system prompt / tools / conversation). */
+      breakdown?: { systemTokens: number; toolsTokens: number; messageTokens: number }
+      /**
+       * Closed-turn count from the `sessionStats` projection; the webview's
+       * context meter (src/pure/contextMeter.ts) uses it for the per-turn
+       * growth estimate. Absent until the first closed turn.
+       */
+      turns?: number
+    }
 
 /** One live background job (bash, subagent, …) shown above the composer. */
 export interface JobItem {

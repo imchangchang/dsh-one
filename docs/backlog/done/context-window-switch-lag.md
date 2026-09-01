@@ -32,13 +32,14 @@ contextBar 的容量分母 `contextWindow` 来自 `contextPressure` 投影；该
 
 **实现：客户端学习式映射 + selectModel 回调重算。**
 
-1. 在 `ChatSessionController` 里加一个模块级 `MODEL_CONTEXT_WINDOW`（`provider/model → contextWindow`），在 `loadBaseline`（扫历史事件）、`onFrame` 的 `session/event`（实时）、`rebaseline`（缓冲重放）里，凡看到 `request/context` 就 `rememberModelContextWindow` 记录。
-2. 新增 `applyModelSwitch(selection)`：`selectModel` 成功后，用它查新模型窗口；命中则把 `this.contextPressure.contextWindow` 覆写为新窗口并 `push(true)`，contextBar 立即重算。
-3. 超限显示复用现有路径：`contextUsageOf` 用覆写后的 `contextWindow` 算 percent，`meterLevel(used, window, turns)` 在 `used > window` 时返回 `overflow`，webview 的 `level-overflow`（红）与 `cp-overflow` 面板提示（「已超出当前模型窗口」）自动生效，无需另造 UI。
+1. 在 `ChatSessionController` 里加一个模块级 `MODEL_CONTEXT_WINDOW`（`provider/model → contextWindow`），在 `loadBaseline`（扫历史事件）、`onFrame` 的 `session/event`（实时）、`rebaseline`（缓冲重放）里，凡看到 `request/context` 就 `observeRequestContext` 记录。
+2. 新增 `applyModelSwitch(selection)`：`selectModel` 成功后，用它查新模型窗口；命中则把 `this.contextPressure.contextWindow` 覆写为新窗口并 `push(true)`，contextBar 立即重算；**未命中则进「窗口未知」占位**（`windowUnknown=true`，contextBar 显示灰字「窗口未知」，明示非误报的未知态，不再沿用旧窗口误导）。
+3. 拿到窗口恢复：观察到的 `request/context` 若属于当前所选模型且正处占位态，则清 `windowUnknown` 并同步用新窗口覆写 `contextPressure` 再 `push`——一次推送直达正确比例，避免占位↔旧值↔新值的闪态。
+4. 超限显示复用现有路径：`contextUsageOf` 用覆写后的 `contextWindow` 算 percent，`meterLevel(used, window, turns)` 在 `used > window` 时返回 `overflow`，webview 的 `level-overflow`（红）与 `cp-overflow` 面板提示（「已超出当前模型窗口」）自动生效，无需另造 UI。
 
 **取舍与已知残留：**
 - 服务端事件路径未动：候选 1（selectModel 时 append `request/context`）需改官方包或发模拟事件（不可靠），弃。
-- 窗口未知的边缘：若目标模型从未在本 dsh-one 进程内被观察过（map 无记录），覆写不发生，contextBar 保持旧窗口直至下一条消息发出（`request/context` 补上）。这是无 RPC 前提下的诚实残留，常见场景（用户在两三个已知模型间切换）已被 map 覆盖。
+- 窗口未知的显示（已按用户拍板实现）：切到从未观察过窗口的模型时，contextBar 显示灰字「窗口未知」占位 + 悬停/点开说明（「该模型尚未在当前会话中产生上下文数据，发送下一条消息后将显示窗口用量」），拿到下一条消息的 `request/context` 后恢复正常比例。占位高度与正常 bar 一致（`.context-bar` 固定 14px 高）避免切换跳变；这属体验取舍，如改其它占位视觉，见条目「⚠️ 待确认」。
 - 覆写在重连 re-baseline（`loadBaseline` 重读投影）时可能被旧窗口回退，但 re-baseline 只在断线重连时发生，且届时用户通常已发过新消息（新窗口已就位）。可接受。
 - 真正的服务端权威修法：让官方包在 `selectModel` 响应里带 `context.contextWindow`，或在 `selectModel` 时发一条 `request/context`。dsh-one 不能改官方包，故不采用。
 
@@ -54,3 +55,4 @@ contextBar 的容量分母 `contextWindow` 来自 `contextPressure` 投影；该
 - 2026-09-01 认领（worktree: agent/context-window-switch-lag）→ doing
 - 2026-09-01 定案：候选 2 + 客户端学习式映射（`request/context` 观察 → `provider/model→contextWindow` map → `applyModelSwitch` 覆写 `contextPressure.contextWindow`）；核实 selectModel 响应与模型目录均不带 context，客户端无 RPC 可查窗口；候选 1（动服务端事件）弃。
 - 2026-09-01 开发完成（dev-finish 自测通过，done 标记 cc9838a）→ done。实现：`pressureWithContextWindow` 纯函数 + `MODEL_CONTEXT_WINDOW` 学习映射 + `applyModelSwitch`（chatSession.ts）+ chatView.ts 在 selectModel 成功后调用；contextMeter.test.ts 补重算/超限用例，scenarios.js 加 `context-switch-smaller-window` / `context-switch-overflow` 两场景。未跑 dev-ui-test（需人工窗验）。
+- 2026-09-01 按用户拍板补「窗口未知」占位（A3 升级版）：`contextUsage` 加 `windowUnknown` 变体，`contextUsageUnknown` 纯函数 + `observeRequestContext` 恢复逻辑（chatSession.ts），webview.ts 渲染灰字占位 + 悬停/点开说明，`.context-bar` 固定高度防跳变；scenarios.js 加 `context-switch-window-unknown` 场景，contextMeter.test.ts 补 `contextUsageUnknown` 用例，206→226 全绿。
