@@ -689,6 +689,105 @@
       interact: `document.querySelector('.workflow-run-header')?.click()`,
       expect: '终态（failed，含失败成员 → abnormal 默认展开）run 卡点击 header 后**立即**收起：chevron collapsed、尾部「2 个成员 · 失败」，members 列表不再渲染；run 卡片保留标题行。',
     },
+
+    // ---- 工具 diff 卡（左右分栏：左 old 右 new，LCS 行对齐 + 前 8 行对折叠） ----
+    // 示例 diff 含全部四种行对：modify（修改，左右同排红/绿）、equal（相同行不着色）、
+    // add（纯新增，右栏绿 + 左栏灰空位）、del（纯删除，左栏红 + 右栏灰空位）。
+    // 13 行对 > 8：默认折叠到前 8 行对 + 「展开其余 5 行差异」。
+    'diff-side-by-side': {
+      state: base({
+        messages: [
+          u('把接口超时改成可配置的。'),
+          at('改好了，改动如下：', [
+            toolBlock({
+              name: 'edit', title: 'Edited src/client.ts', detail: 'src/client.ts',
+              diff: {
+                oldText: [
+                  'const TIMEOUT_MS = 30000',
+                  '',
+                  'export async function fetchClient(url: string) {',
+                  '  const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })',
+                  '  if (!res.ok) throw new Error(`HTTP ${res.status}`)',
+                  '  return res.json()',
+                  '}',
+                  '',
+                  '// 旧配置直接硬编码',
+                  'const retries = 2',
+                  'const backoff = 500',
+                  'const maxRetries = 5',
+                ].join('\n'),
+                newText: [
+                  'const DEFAULT_TIMEOUT_MS = 30000',
+                  '',
+                  'export async function fetchClient(url: string, opts: { timeoutMs?: number } = {}) {',
+                  '  const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS',
+                  '  const res = await fetch(url, { signal: AbortSignal.timeout(timeout) })',
+                  '  if (!res.ok) throw new Error(`HTTP ${res.status}`)',
+                  '  return res.json()',
+                  '}',
+                  '',
+                  '// 新配置从环境变量读取',
+                  'const retries = Number(process.env.HTTP_RETRIES ?? 2)',
+                  'const maxRetries = 5',
+                ].join('\n'),
+              },
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: 'diff 卡左右分栏（折叠态）',
+      expect: '工具卡动作行（edit / Edited src/client.ts / src/client.ts）下方是左右分栏 diff：外框一圈细边框，两列等宽网格，左栏老文本、右栏新文本；第 1 行对是修改行（左红底右绿底、文字在同一水平线），第 2 行对是相同空行（两栏都不着色）；分栏间有竖向分隔线；只显示前 8 行对，末尾「… 展开其余 5 行差异」提示；diff 卡与工具卡动作行之间有小间距。',
+    },
+
+    // 展开态：点击「展开其余」后显示全部 13 行对：修改行左右同排红/绿、纯新增行右绿
+    // 左灰、纯删除行左红右灰、相同行不着色；行对齐逐行成立。
+    'diff-side-by-side-open': {
+      state: base({
+        messages: [
+          u('把接口超时改成可配置的。'),
+          at('改好了，改动如下：', [
+            toolBlock({
+              name: 'edit', title: 'Edited src/client.ts', detail: 'src/client.ts',
+              diff: {
+                oldText: [
+                  'const TIMEOUT_MS = 30000',
+                  '',
+                  'export async function fetchClient(url: string) {',
+                  '  const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })',
+                  '  if (!res.ok) throw new Error(`HTTP ${res.status}`)',
+                  '  return res.json()',
+                  '}',
+                  '',
+                  '// 旧配置直接硬编码',
+                  'const retries = 2',
+                  'const backoff = 500',
+                  'const maxRetries = 5',
+                ].join('\n'),
+                newText: [
+                  'const DEFAULT_TIMEOUT_MS = 30000',
+                  '',
+                  'export async function fetchClient(url: string, opts: { timeoutMs?: number } = {}) {',
+                  '  const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS',
+                  '  const res = await fetch(url, { signal: AbortSignal.timeout(timeout) })',
+                  '  if (!res.ok) throw new Error(`HTTP ${res.status}`)',
+                  '  return res.json()',
+                  '}',
+                  '',
+                  '// 新配置从环境变量读取',
+                  'const retries = Number(process.env.HTTP_RETRIES ?? 2)',
+                  'const maxRetries = 5',
+                ].join('\n'),
+              },
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: 'diff 卡左右分栏（展开态，点击「展开其余」）',
+      interact: `document.querySelector('.diff-toggle')?.click()`,
+      expect: '点击「… 展开其余 5 行差异」后显示全部 13 行对：修改行左右同排（左红右绿，如 `const TIMEOUT_MS` 行对、`export async function fetchClient` 行对）；`  const res = await fetch(url, { signal: AbortSignal.timeout(timeout) })` 那行是纯新增（右栏绿、左栏灰空位）；`const backoff = 500` 是纯删除（左栏红、右栏灰空位）；`const retries = 2` 与 `const retries = Number(process.env.HTTP_RETRIES ?? 2)` 同排红/绿、末尾 `const maxRetries = 5` 两栏相同不着色；左右栏逐行水平对齐；toggle 文案变成「收起差异」。',
+    },
   }
 
   catalog.conversation.sessions = window.sessionsTree('sess-1')
@@ -701,7 +800,7 @@
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
     'sessions-search', 'sessions-collapsed',
-    'session-mention', 'workflow-running', 'workflow-finished',
+    'session-mention', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()
