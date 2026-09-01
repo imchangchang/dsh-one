@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon.png" alt="DSH One" width="96">
+</p>
+
 # DSH One
 
 [![CI](https://github.com/imchangchang/dsh-one/actions/workflows/ci.yml/badge.svg)](https://github.com/imchangchang/dsh-one/actions/workflows/ci.yml)
