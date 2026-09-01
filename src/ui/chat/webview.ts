@@ -52,6 +52,7 @@ import {
   isScrollKey,
   reconcileScrollPinning,
   restoreScrollTarget,
+  shouldPinNow,
   type ScrollArchive,
 } from '../../pure/scrollFollow.ts'
 import { formatDuration } from '../../pure/sessionStats.ts'
@@ -1794,6 +1795,10 @@ function render(): void {
     // in the capture phase and re-pin while following.
     const repinIfFollowing = (): void => {
       if (!stickToBottom) return
+      // 用户手势/动量未结束（wheel/touch 事件仍在持续到达 = 意图仍在）时
+      // 不写 scrollTop，避免打断浏览器原生惯性动画（WebKit bug 255193 承认
+      // 设 scrollTop 会终止惯性）。等意图过期后由下一帧渲染回底。
+      if (userScrollIntentActive()) return
       messages.scrollTop = messages.scrollHeight
       pinnedScrollTop = messages.scrollTop
     }
@@ -1917,8 +1922,9 @@ function render(): void {
   const landed = earlier !== null && earlier.seenLoading && state.loadingEarlier !== true ? earlier : null
   const prepended =
     landed !== null && (state.messages.length > landed.count || state.messages[0]?.id !== landed.firstId)
-  if (stickToBottom) messages.scrollTop = messages.scrollHeight
-  else if (restoreScrollTop !== null) messages.scrollTop = restoreScrollTop
+  // 恢复/补偿路径（换会话恢复历史位置、加载更早、非贴底跳转）同步写：它们是
+  // 用户明确动作，不涉及「抢原生惯性动画」，也无需等布局 settle。
+  if (restoreScrollTop !== null) messages.scrollTop = restoreScrollTop
   else if (!switchingSession && prevScrollTop !== null && prepended && prevScrollHeight !== null) {
     messages.scrollTop = prevScrollTop + (messages.scrollHeight - prevScrollHeight)
   } else if (!switchingSession && prevScrollTop !== null) messages.scrollTop = prevScrollTop
@@ -1927,11 +1933,29 @@ function render(): void {
   // against to tell user scrolls apart from content growth. 若恢复的 scrollTop
   // 被浏览器 clamp 到新的底部（切走期间内容收缩/变短到不足一屏），实际
   // 视口已贴底但跟随态可能仍残留 false——按 clamp 结果单向同步一次，修
-  // 「切回后贴底仍显示回到最新」。
+  // 「切回后贴底仍显示回到最新」。贴底跟随路径的真实 scrollTop 由下方
+  // microtask 写回后覆盖，这里先给个占位值避免依赖上一次渲染的脏值。
   const clampedScrollTop = messages.scrollTop
   pinnedScrollTop = clampedScrollTop
   if (isAtBottom(messages.scrollHeight, clampedScrollTop, messages.clientHeight)) stickToBottom = true
   jump.style.display = stickToBottom ? 'none' : ''
+  // 贴底跟随滚底：同步段不写 scrollTop。栈内（textContent='' + 重追加后）读
+  // 到的 scrollHeight 是瞬态值（布局批量，尚未 settle 到真实高度），按它写会
+  // clamp 到瞬态 max，下一帧 settle 后视口悬空（单帧抖动，与 hermes-webui
+  // PR #5685 同构）。改 microtask 在同步栈 unwind、paint 前读 settle 后的
+  // 真实高度再写；且只在无用户滚动意图时写（贴底惯性动量期间不打断原生滚动
+  // 动画，见 backlog 行为层修复）。意图活跃/内容不长时幂等跳过。
+  if (stickToBottom) {
+    queueMicrotask(() => {
+      const m = document.getElementById('messages')
+      if (!m) return
+      if (!shouldPinNow(stickToBottom, userScrollIntentActive(), isAtBottom(m.scrollHeight, m.scrollTop, m.clientHeight))) return
+      m.scrollTop = m.scrollHeight
+      // 写回程序滚动锁：下一帧 render 头部拿它跟实时位置对比以区分用户滚动，
+      // pin 得靠它避免自己被误判为用户滚离。
+      pinnedScrollTop = m.scrollTop
+    })
+  }
   // 内容已按新会话重建落地，容器归属切换到新会话（loading 帧不动它，
   // 因为容器里还是旧会话内容）。
   scrollSession = newSid
