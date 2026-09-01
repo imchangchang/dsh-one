@@ -48,6 +48,7 @@ import {
 } from '../../pure/jsonTree.ts'
 import { subagentInTree, subagentIdFromOutput } from '../../pure/subagentCard.ts'
 import { codeBlockPreview } from '../../pure/codeBlock.ts'
+import { alignDiffLines } from '../../pure/diffAlign.ts'
 import {
   formatJobDuration,
   isLiveJob,
@@ -3175,21 +3176,30 @@ function jsonPrimitiveSpan(p: JsonPrimitiveKind): HTMLElement {
 const DIFF_PREVIEW_LINES = 8
 
 /**
- * diff 块：默认只渲染前 DIFF_PREVIEW_LINES 行（del/add 各算各行），其余行
- * 折叠成「展开其余 N 行差异」toggle（对齐 dsh web DiffBlock）。展开状态记在
+ * diff 块（左右分栏）：左栏 oldText、右栏 newText，行对逐行对齐（LCS，见
+ * diffAlign.ts）。默认只渲染前 DIFF_PREVIEW_LINES 行对，其余折叠成「展开其余
+ * N 行差异」toggle（对齐 dsh web DiffBlock 的行折叠）。展开状态记在
  * detailsOpen（key 按消息/块位置），流式重建不冲掉。
  */
 function renderDiff(diff: { oldText: string; newText: string }, key: string): HTMLElement {
   const box = el('div', 'diff')
-  const lines = [
-    ...diff.oldText.split('\n').map((line) => ({ cls: 'del', text: line })),
-    ...diff.newText.split('\n').map((line) => ({ cls: 'add', text: line })),
-  ]
+  const pairs = alignDiffLines(diff.oldText, diff.newText)
+  const grid = el('div', 'diff-grid')
   const open = detailsOpen.get(key) ?? false
-  const shown = open ? lines : lines.slice(0, DIFF_PREVIEW_LINES)
-  for (const { cls, text } of shown) box.appendChild(el('div', `diff-line ${cls}`, text))
-  if (lines.length > DIFF_PREVIEW_LINES) {
-    const hidden = lines.length - DIFF_PREVIEW_LINES
+  const shown = open ? pairs : pairs.slice(0, DIFF_PREVIEW_LINES)
+  for (const p of shown) {
+    const row = el('div', 'diff-row')
+    const oldCell = el('div', `diff-cell old${p.oldLine === null ? ' empty' : ''}`, p.oldLine ?? '')
+    const newCell = el('div', `diff-cell new${p.newLine === null ? ' empty' : ''}`, p.newLine ?? '')
+    if (p.kind === 'del' || p.kind === 'modify') oldCell.classList.add('del')
+    if (p.kind === 'add' || p.kind === 'modify') newCell.classList.add('add')
+    row.appendChild(oldCell)
+    row.appendChild(newCell)
+    grid.appendChild(row)
+  }
+  box.appendChild(grid)
+  if (pairs.length > DIFF_PREVIEW_LINES) {
+    const hidden = pairs.length - DIFF_PREVIEW_LINES
     const toggle = el('div', 'diff-toggle', open ? '收起差异' : `… 展开其余 ${hidden} 行差异`)
     toggle.addEventListener('click', () => {
       detailsOpen.set(key, !open)

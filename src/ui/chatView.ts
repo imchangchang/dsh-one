@@ -592,12 +592,16 @@ const STYLE = `
   .diff {
     margin-top: 4px; border-radius: 4px; overflow: hidden;
     font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
-  .diff-line { white-space: pre-wrap; padding: 0 6px; }
-  .diff-line.del { background: var(--vscode-diffEditor-removedTextBackground, rgba(255,80,80,.18)); }
-  .diff-line.del::before { content: '- '; }
-  .diff-line.add { background: var(--vscode-diffEditor-insertedTextBackground, rgba(80,255,80,.14)); }
-  .diff-line.add::before { content: '+ '; }
+  /* 左右分栏：每行一个两列 grid，左 old 右 new，行对逐行对齐。 */
+  .diff-row { display: grid; grid-template-columns: 1fr 1fr; }
+  .diff-cell { white-space: pre-wrap; padding: 0 6px; min-height: 1.1em; overflow-wrap: anywhere; }
+  .diff-cell.old { border-right: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3)); }
+  .diff-cell.del { background: var(--vscode-diffEditor-removedTextBackground, rgba(255,80,80,.18)); }
+  .diff-cell.add { background: var(--vscode-diffEditor-insertedTextBackground, rgba(80,255,80,.14)); }
+  /* 纯增/删行的空侧：淡灰占位，提示该行无对应内容。 */
+  .diff-cell.empty { background: rgba(127,127,127,.08); }
   /* diff 行折叠 toggle（对齐 dsh web DiffBlock「展开其余 N 行差异」）。 */
   .diff-toggle {
     cursor: pointer; opacity: 0.6; margin-top: 2px; font-size: 0.85em; padding-left: 6px;
