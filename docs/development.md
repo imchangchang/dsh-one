@@ -50,24 +50,17 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 
 ## 发版流程
 
-1. **确认 publisher**：`package.json` 的 `"publisher"` 应是你要发布的 marketplace 账号（现为 `cgeng`），发布前确认即可，无需修改。
-2. 更新 `package.json` 的 `version` 和 `CHANGELOG.md`。
-3. `npm run typecheck && npm test && npm run package`，确认打出 `.vsix`。
-4. 登录与发布（PAT 来自 Azure DevOps，scope 要勾 Marketplace > Manage）：
+发布门禁：`scripts/release-gate.sh`（默认 dry-run 只输出计划与只读校验，`--apply` 才执行）。两段式：
+
+1. `scripts/release-gate.sh`：看计划与当前状态校验（version / CHANGELOG / tag / 工作树）。
+2. `scripts/release-gate.sh --apply`：交互输入新版本 → bump `package.json` 的 `version` + 把 `CHANGELOG.md` 的 `[Unreleased]` 收口成 `[x.y.z]` → 停下。
+3. review 后提交（建议只提交这两个文件）：`git commit -m "release: v<x.y.z>"`。
+4. 重跑 `scripts/release-gate.sh --apply`：干净 checkout（临时 worktree @ HEAD）→ `npm ci` → typecheck/test/build/vsce package → 验 vsix 内容与版本 → 打 `git tag v<x.y.z>`（== 打包 commit）。产出的 vsix 复制到仓库根目录。
+5. 按 `docs/release-checklist.md` 人工验收（沙盒装机 + README 确认）。**发布用的就是这份 vsix，不重新打包。**
+6. 登录与发布（PAT 来自 Azure DevOps，scope 要勾 Marketplace > Manage；release-gate 不跑 publish，这一步由人执行）：
    ```bash
    npx vsce login <publisher>
-   npx vsce publish        # 或 npx vsce publish patch/minor 顺带 bump version
+   npx vsce publish
    ```
 
-### 发 marketplace 前的人工点验清单
-
-目前没有任何端到端自动化覆盖真实 dsh，发布前必须人工过一遍：
-
-- [ ] 模拟未安装 dsh 的环境（摘掉 PATH 上的 dsh）：打开面板报错并引导安装，无其他异常。
-- [ ] 装好 dsh 后打开面板：定位 → 启动服务 → iframe 加载出官方 UI，全链路无报错。
-- [ ] `dsh_embed=vscode` 生效：iframe 里官方 UI 的侧栏是隐藏的。
-- [ ] 状态栏四态（运行中/启动中/已停止/错误）显示正确，收养已有实例时 tooltip 有提示。
-- [ ] 手动起一个 `dsh web --port 3080` 再开面板，确认收养该实例且不 kill。
-- [ ] 关闭 VSCode 后确认 spawn 的 dsh 进程被回收（`ps` / 任务管理器），收养的实例不受影响。
-- [ ] `DSH One: 打开面板` / `在编辑器标签页打开` / `重启服务` / `停止服务` / `显示日志` 各点一次。
-- [ ] Windows 和 macOS 至少各过一遍上面的流程（spawn/杀进程路径分平台）。
+注意：`package.json` 的 `"publisher"` 应是你发布的 marketplace 账号（现为 `cgeng`），发布前确认即可，无需修改。
