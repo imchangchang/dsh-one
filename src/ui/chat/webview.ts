@@ -2415,7 +2415,11 @@ function renderWorkflowRunHeader(run: WorkflowRunView, disp: WorkflowDisclosureS
   row.setAttribute('aria-expanded', String(disp.open))
   row.title = run.name
   row.addEventListener('click', () => {
+    // 立刻重渲染：click 只更新了 workflowDisclosure Map，DOM 要等下一个 state
+    // snapshot 才会按新状态重画；运行中且事件稀疏/停顿的卡（或已收尾不再有新
+    // snapshot 的终态卡）点了会像没反应，所以这里同步触发一次 render()。
     workflowDisclosure.set(run.runId, toggleWorkflowDisclosure(workflowDisclosure.get(run.runId) ?? disp))
+    render()
   })
   row.appendChild(workflowChevron(disp.open))
   row.appendChild(el('span', 'workflow-run-title', run.name))
@@ -2445,7 +2449,9 @@ function renderWorkflowPhase(run: WorkflowRunView, phase: WorkflowRunPhaseView):
   header.type = 'button'
   header.setAttribute('aria-expanded', String(disp.open))
   header.addEventListener('click', () => {
+    // 同上：phase 级折叠也要点击立即生效，不等下一个 snapshot。
     workflowDisclosure.set(key, toggleWorkflowDisclosure(workflowDisclosure.get(key) ?? disp))
+    render()
   })
   header.appendChild(workflowChevron(disp.open))
   header.appendChild(el('span', 'workflow-phase-title', phase.phase ?? ''))
