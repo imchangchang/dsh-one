@@ -44,7 +44,14 @@ import {
   type ActivityJob,
 } from '../../pure/activityTree.ts'
 import { attachmentDataUrl, isImageMediaType } from '../../pure/composerAttachment.ts'
-import { USER_SCROLL_INTENT_MS, isNearBottom, isScrollKey } from '../../pure/scrollFollow.ts'
+import {
+  USER_SCROLL_INTENT_MS,
+  archiveScrollPosition,
+  isNearBottom,
+  isScrollKey,
+  restoreScrollTarget,
+  type ScrollArchive,
+} from '../../pure/scrollFollow.ts'
 import { formatDuration } from '../../pure/sessionStats.ts'
 import {
   SESSION_REFERENCE_SCHEME,
@@ -92,6 +99,17 @@ let stickToBottom = true
  * without any user gesture.
  */
 let pinnedScrollTop: number | null = null
+/**
+ * Per-session 滚动存档：每个会话记住自己最后的位置（贴底记 atBottom，
+ * 翻历史记 scrollTop），换会话时先存档旧会话、再按新会话存档恢复——
+ * 不再把上个会话容器的 scrollTop 套到新内容上。
+ */
+const scrollPositions = new Map<string, ScrollArchive>()
+/**
+ * messages 容器当前内容所属的会话 id；与快照的 state.sessionId 不同即
+ * 处于换会话过程（loading 帧容器里还是旧会话内容）。无容器内容时为 null。
+ */
+let scrollSession: string | null = null
 /**
  * User-scroll intent: wheel/touch/keyboard gestures and scrollbar drags mark
  * the moments where a scroll position change is user-driven. Scroll events and
@@ -1346,6 +1364,24 @@ function render(): void {
   ) {
     stickToBottom = isNearBottom(oldMessages.scrollHeight, oldMessages.scrollTop, oldMessages.clientHeight)
   }
+  // Per-session 滚动记忆：容器里还是 scrollSession 的内容（换会话的 loading
+  // 帧也如此），每帧按实时位置刷新增档，切走时读到的就是离开时的位置。
+  // 换会话帧再取新会话的存档定恢复目标：无存档默认贴底；prevScrollTop 是
+  // 旧会话的位置，跨会话绝不复用（落地分支见 render 尾）。
+  if (oldMessages && scrollSession !== null) {
+    scrollPositions.set(
+      scrollSession,
+      archiveScrollPosition(oldMessages.scrollHeight, oldMessages.scrollTop, oldMessages.clientHeight),
+    )
+  }
+  const newSid = state?.sessionId ?? null
+  const switchingSession = newSid !== scrollSession
+  let restoreScrollTop: number | null = null
+  if (switchingSession) {
+    const target = restoreScrollTarget(newSid !== null ? scrollPositions.get(newSid) : undefined)
+    stickToBottom = target.stickToBottom
+    restoreScrollTop = target.scrollTop
+  }
   // Same for the inline queue editor: it is rebuilt per snapshot, so keep
   // its focus and cursor across re-renders.
   const oldQueueEditor = document.querySelector<HTMLTextAreaElement>('.queue-editor')
@@ -1459,6 +1495,7 @@ function render(): void {
     lastComposerSig = null
     lastHeaderSig = null
     turnStatusStart = null
+    scrollSession = null
     chatCol.appendChild(renderEmpty(state))
     return
   }
@@ -1471,6 +1508,7 @@ function render(): void {
   }
   if (blankHero) {
     turnStatusStart = null
+    scrollSession = null
     if (keepComposer && oldHero && oldComposer) {
       // 整个 hero（含 composer）保持不动：焦点、光标、进行中的 IME 组合都
       // 不中断；只有跟踪数据流的 stats 行就地修补。
@@ -1575,8 +1613,8 @@ function render(): void {
   if (!oldMessages) {
     messages.id = 'messages'
     // Only gesture-driven scrolls re-evaluate pinning; programmatic moves
-    // (our own pins, restore of prevScrollTop, content-growth clamping during
-    // the rebuild) leave stickToBottom alone.
+    // (our own pins, restore of saved/prev scrollTop, content-growth clamping
+    // during the rebuild) leave stickToBottom alone.
     messages.addEventListener('scroll', () => {
       if (userScrollIntentActive()) {
         stickToBottom = isNearBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight)
@@ -1724,13 +1762,17 @@ function render(): void {
   const prepended =
     landed !== null && (state.messages.length > landed.count || state.messages[0]?.id !== landed.firstId)
   if (stickToBottom) messages.scrollTop = messages.scrollHeight
-  else if (prevScrollTop !== null && prepended && prevScrollHeight !== null) {
+  else if (restoreScrollTop !== null) messages.scrollTop = restoreScrollTop
+  else if (!switchingSession && prevScrollTop !== null && prepended && prevScrollHeight !== null) {
     messages.scrollTop = prevScrollTop + (messages.scrollHeight - prevScrollHeight)
-  } else if (prevScrollTop !== null) messages.scrollTop = prevScrollTop
+  } else if (!switchingSession && prevScrollTop !== null) messages.scrollTop = prevScrollTop
   if (landed !== null) earlierAnchor = null
   // Read back the clamped value: this is the position the next render compares
   // against to tell user scrolls apart from content growth.
   pinnedScrollTop = messages.scrollTop
+  // 内容已按新会话重建落地，容器归属切换到新会话（loading 帧不动它，
+  // 因为容器里还是旧会话内容）。
+  scrollSession = newSid
   const queueEditor = document.querySelector<HTMLTextAreaElement>('.queue-editor')
   if (queueEditor && queueFocus) {
     queueEditor.focus()
