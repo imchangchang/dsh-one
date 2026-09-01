@@ -2052,7 +2052,7 @@ export class ChatViewProvider implements vscode.Disposable {
       return null
     }
     try {
-      const sessionId = await createSession(url, targetWorkspaceId)
+      const sessionId = await createSession(url, { workspaceId: targetWorkspaceId })
       await this.store.refresh()
       return sessionId
     } catch (err) {
