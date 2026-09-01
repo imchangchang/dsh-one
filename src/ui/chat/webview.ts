@@ -38,8 +38,10 @@ import {
   flattenJsonTree,
   jsonPathKey,
   jsonTreeCopyText,
+  jsonValueAtPath,
   tryParseJsonTree,
   type JsonContainer,
+  type JsonPath,
   type JsonPrimitiveKind,
   type JsonTreeRow,
 } from '../../pure/jsonTree.ts'
@@ -3004,7 +3006,7 @@ function renderJsonTree(value: JsonContainer, outputKey: string): HTMLElement {
   const tree = el('div', 'json-tree')
   const isOpen = (pathKey: string) => jsonTreeOpen.get(`${outputKey}:${pathKey}`) ?? pathKey === JSON_TREE_ROOT_KEY
   const rows = flattenJsonTree(value, isOpen)
-  for (const row of rows) tree.appendChild(renderJsonTreeRow(row, outputKey))
+  for (const row of rows) tree.appendChild(renderJsonTreeRow(row, outputKey, value))
   shell.appendChild(tree)
   return shell
 }
@@ -3016,7 +3018,7 @@ function toggleJsonTree(outputKey: string, rowPathKey: string, currentOpen: bool
 }
 
 /** 渲染一行 JSON 树节点（container/primitive/close），缩进按 depth。 */
-function renderJsonTreeRow(row: JsonTreeRow, outputKey: string): HTMLElement {
+function renderJsonTreeRow(row: JsonTreeRow, outputKey: string, rootValue: JsonContainer): HTMLElement {
   const line = el('div', 'json-tree-row')
   line.style.paddingLeft = `${row.depth * 14}px`
   if (row.type === 'close') {
@@ -3052,6 +3054,8 @@ function renderJsonTreeRow(row: JsonTreeRow, outputKey: string): HTMLElement {
   }
   if (row.type === 'primitive') {
     line.appendChild(jsonPrimitiveSpan(row.primitive))
+    // 节点级复制：非根行尾部放 hover 出现的复制图标（复制该标量）。
+    if (row.key !== null) line.appendChild(renderJsonNodeCopy(rootValue, row.path))
     return line
   }
   // container：展开显示开括号（子行 + 关闭行随后）；收起显示 `{…}` 预览；
@@ -3068,7 +3072,45 @@ function renderJsonTreeRow(row: JsonTreeRow, outputKey: string): HTMLElement {
     line.appendChild(jsonPunct(open))
     line.appendChild(jsonPunct(close))
   }
+  // 节点级复制：容器行尾部放 hover 出现的复制图标（复制整个容器的值；根行
+  // key===null 不放——整树复制已由右上角按钮承担，避免同一值两个复制入口）。
+  if (row.key !== null) line.appendChild(renderJsonNodeCopy(rootValue, row.path))
   return line
+}
+
+/**
+ * 一行树节点的尾部复制图标（hover 出现，克制样式与容器级按钮一致）：点击复制
+ * 该节点（路径解析出的子值）的 pretty JSON。反馈与容器按钮同款——成功把图标短暂
+ * 换成勾、title「已复制」1s 后还原，失败改 title；行级空间小，用图标变化而非文案。
+ */
+function renderJsonNodeCopy(rootValue: JsonContainer, path: JsonPath): HTMLElement {
+  const btn = el('button', 'json-tree-copy-icon') as HTMLButtonElement
+  btn.type = 'button'
+  btn.title = '复制'
+  const copyIcon = iconSvg(MESSAGE_ACTION_ICONS.copy, 12)
+  const checkIcon = iconSvg(MESSAGE_ACTION_ICONS.check, 12)
+  btn.appendChild(copyIcon)
+  // 路径解析在 click 时做（流式重建后行可能已失效）；解析不到就不复制。
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const subValue = jsonValueAtPath(rootValue, path)
+    if (subValue === undefined) return
+    const text = jsonTreeCopyText(subValue)
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        btn.replaceChild(checkIcon, copyIcon)
+        btn.title = '已复制'
+        setTimeout(() => {
+          btn.replaceChild(copyIcon, checkIcon)
+          btn.title = '复制'
+        }, 1000)
+      },
+      () => {
+        btn.title = '复制失败'
+      },
+    )
+  })
+  return btn
 }
 
 function jsonPunct(text: string): HTMLElement {

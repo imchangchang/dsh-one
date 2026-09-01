@@ -488,6 +488,40 @@
       expect: '树上/右上角「复制」按钮可点击；点击后把整棵树的 2 空格 pretty JSON 写入剪贴板（interact 里 monkeypatch 的 __copied 应等于整树 pretty JSON，即 `{\n  "status": "ok",\n  "checks": {\n    "gateway": {\n      "healthy": true\n    }\n  },\n  "retries": 0,\n  "debug": null\n}`）。视觉上按钮仍在、与 json-output 默认态一致；按钮文案成功时应短暂变「已复制」（截图静态，不核对文案变化）。',
     },
 
+    // 节点级复制：每行（非根、含容器/原始值行）行尾 hover 出现小复制图标，点击复制该
+    // 节点的 pretty JSON。interact 把两次点击的复制内容 append 到 __copiedList 再断言
+    // 首个（checks 容器）与第二个（status 原始值）分别等于各自节点的 pretty JSON。
+    'json-output-node-copy': {
+      state: base({
+        messages: [
+          u('查一下这几个服务的健康状态。'),
+          at('开始健康检查。', [
+            toolBlock({
+              name: 'bash', title: 'bash', detail: 'curl /health',
+              output: JSON.stringify({
+                status: 'ok',
+                checks: { gateway: { healthy: true } },
+                retries: 0,
+                debug: null,
+              }, null, 2),
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: '工具输出 JSON 树（节点级复制）',
+      interact: `(() => {
+        window.__copiedList = []
+        try { navigator.clipboard.writeText = async (t) => { window.__copiedList.push(t) } } catch (e) {}
+        document.querySelector('.tool-disclosure summary')?.click()
+        setTimeout(() => {
+          document.querySelector('.json-tree-row[data-path="$.checks"] .json-tree-copy-icon')?.click()
+          document.querySelector('.json-tree-row[data-path="$.status"] .json-tree-copy-icon')?.click()
+        }, 20)
+      })()`,
+      expect: '每行（checks 容器行、status 原始值行等）行尾在 hover 时出现小复制图标（默认隐藏，深度低）；点击 checks 行的图标复制到的是 checks 容器自己的 pretty JSON（`{\n  "gateway": {\n    "healthy": true\n  }\n}`），点击 status 行图标复制到的是 `"ok"`（原始值）——interact 里 __copiedList 依次应为这两个值。整树右上角「复制」按钮仍保留。行级图标成功时短暂换勾（截图静态见图标本身，不核对成功态）。',
+    },
+
     // 同上 JSON 树，但额外点开 `checks` 容器：验证箭头展开交互——嵌套节点展开
     // 出子 key（gateway/auth/billing），箭头从右指转向下指。
     'json-output-expand': {

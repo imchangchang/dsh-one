@@ -464,8 +464,22 @@
     background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
     color: var(--vscode-foreground);
   }
+  /* 节点级复制图标：行尾小图标，默认隐藏，hover 该行时出现（与容器级按钮同款克制
+     灰色），点击复制该行节点的 pretty JSON；成功图标短暂换勾。 */
   .json-tree-row { position: relative; min-height: 16px; }
   .json-tree-row:hover { background: var(--jt-hover); }
+  .json-tree-copy-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; margin-left: 4px; padding: 0;
+    background: none; border: none; border-radius: 3px; cursor: pointer;
+    color: var(--vscode-descriptionForeground, #888);
+    opacity: 0; vertical-align: middle;
+  }
+  .json-tree-row:hover .json-tree-copy-icon { opacity: 1; }
+  .json-tree-copy-icon:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    color: var(--vscode-foreground); opacity: 1;
+  }
   .json-tree-key { color: var(--jt-property); font-weight: 400; }
   .json-tree-label-clickable { cursor: pointer; }
   .json-tree-label-clickable:hover { text-decoration: underline; }
