@@ -29,3 +29,4 @@
 - 这是 UI 类改动，合入前须人工在 dev-ui-test 窗口做视觉验收（headless 代理起不了 GUI）。
 - 2026-09-01 认领（worktree: agent/chat-markdown-render）→ doing
 - 2026-09-01 开发完成（自测通过）→ done
+- 2026-09-01 rebase 到最新 main 后自测（typecheck + 200 test + build）通过；ai-visual-validation 截图核对 markdown 表格等 GFM 样式符合期望，且 conversation 基线无回归 → 待主线 merge
