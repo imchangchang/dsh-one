@@ -229,9 +229,18 @@ document.addEventListener('pointerout', (e) => {
 
 function menuItem(
   label: string,
-  opts: { right?: string; checked?: boolean; glyph?: string; icon?: SVGSVGElement; onClick: () => void },
+  opts: {
+    right?: string
+    checked?: boolean
+    glyph?: string
+    icon?: SVGSVGElement
+    /** 禁用态：加 .menu-item.disabled（置灰、不响应点击），onClick 不绑定。 */
+    disabled?: boolean
+    onClick: () => void
+  },
 ): HTMLElement {
   const item = el('div', opts.checked ? 'menu-item checked' : 'menu-item')
+  if (opts.disabled) item.classList.add('disabled')
   if (opts.glyph) {
     const g = el('span', 'glyph')
     g.innerHTML = opts.glyph // build-time constant strings, not user input
@@ -245,7 +254,7 @@ function menuItem(
   item.appendChild(el('span', undefined, label))
   if (opts.right) item.appendChild(el('span', 'menu-right', opts.right))
   if (opts.checked) item.appendChild(el('span', 'check', '✓'))
-  item.addEventListener('click', opts.onClick)
+  if (!opts.disabled) item.addEventListener('click', opts.onClick)
   return item
 }
 
@@ -833,6 +842,8 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
     menuItem(s.unread ? '标为已读' : '标为未读', {
       icon: strokeSvg(UNREAD_ICON),
       checked: s.unread,
+      // 运行中会话的手动未读语义混乱，置灰禁用（与行首 busy 判定一致）。
+      disabled: s.running || s.descendantRunning,
       onClick: () => {
         closePopover()
         post({ type: 'sessionUnread', sessionId: s.sessionId, unread: !s.unread })

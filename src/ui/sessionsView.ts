@@ -221,6 +221,11 @@ const SESSIONS_STYLE = `
     padding: 4px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-size: 12px;
   }
   .menu-item:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+  /* 禁用态菜单项：置灰、cursor 默认、hover 无高亮（onClick 未绑定）。 */
+  .menu-item.disabled,
+  .menu-item.disabled:hover {
+    opacity: .45; cursor: default; background: none; color: inherit;
+  }
   .menu-item .menu-item-icon {
     flex: none; width: 14px; height: 14px; display: inline-flex;
     align-items: center; justify-content: center;
