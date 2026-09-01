@@ -31,7 +31,11 @@ export interface ChatToolBlock {
   detail?: string
   /** Inline diff payload from a diff view. */
   diff?: { oldText: string; newText: string }
-  /** Result text, truncated by the folder. Absent while running. */
+  /**
+   * Result text, kept in full — the folder does not truncate; the webview
+   * previews the first lines and expands to the whole text on click.
+   * Absent while running.
+   */
   output?: string
   /**
    * todo_write 调用的 planSummary，由该次调用 args 的 JSON 快照算出（对齐官方

@@ -96,13 +96,6 @@ interface ToolResultEventData {
   error?: { name: string; code: string }
 }
 
-/** Cap on folded tool-result text; longer output is cut with an ellipsis. */
-const OUTPUT_LIMIT = 4000
-
-function truncate(text: string): string {
-  return text.length > OUTPUT_LIMIT ? `${text.slice(0, OUTPUT_LIMIT)}\n…` : text
-}
-
 /** Join the text blocks of a message content array; other block kinds are skipped. */
 function textOfBlocks(content: Array<{ type: string; text?: unknown }> | undefined): string {
   if (!Array.isArray(content)) return ''
@@ -542,7 +535,7 @@ export class ConversationFolder {
     }
     block.status = data.error || result?.isError === true ? 'error' : 'done'
     const text = textOfBlocks(result?.content)
-    if (text) block.output = truncate(text)
+    if (text) block.output = text
     if (view?.for === 'result') this.applyResultView(block, view.view)
     // A result paired to an earlier call skipped ensureAssistant; still bump seq.
     if (this.current) this.current.seq = seq
@@ -575,7 +568,7 @@ export class ConversationFolder {
     if (typeof v.title === 'string' && v.title) block.title = v.title
     switch (v.card) {
       case 'terminal':
-        if (typeof v.output === 'string') block.output = truncate(v.output)
+        if (typeof v.output === 'string') block.output = v.output
         break
       case 'diff': {
         const d = v.diffs?.[0]

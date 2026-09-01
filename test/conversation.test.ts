@@ -421,16 +421,16 @@ test('attachment lines in user text fold into file chips', () => {
   ])
 })
 
-test('tool output is truncated to the output limit', () => {
+test('tool output is kept in full (no folding-layer truncation)', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('turn/start', { turn: 1 }))
   f.applyEvent(toolCallEv('c1', 'bash', '{}'))
-  f.applyEvent(toolResultEv('c1', 'x'.repeat(5000)))
+  const text = 'x'.repeat(5000)
+  f.applyEvent(toolResultEv('c1', text))
 
   const block = lastAssistant(f).blocks[0] as ChatToolBlock
   assert.equal(block.status, 'done')
-  assert.equal(block.output?.length, 4002) // 4000 chars + '\n…'
-  assert.ok(block.output?.endsWith('…'))
+  assert.equal(block.output, text) // 全文保留，截断只发生在展示层
 })
 
 test('host-injected context user messages are flagged, human input is not', () => {
