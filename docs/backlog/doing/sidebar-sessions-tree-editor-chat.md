@@ -86,3 +86,4 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - 2026-09-01 开发完成（doing → done）：降级提示行加 data-tip 悬停详情（索引未启用原因 + 编辑 cordis.patch.yml 启用 openAt:first-search 的步骤）；tooltip 支持多行/长词折行。
 - 2026-09-01 验收打回（done → doing）：搜索框输入关键词后加一键清除 ✕ 按钮，点击清空关键词（关闭搜索过滤）。
 - 2026-09-01 开发完成（doing → done）：搜索框加一键清除 ✕（stroke 线条图标、输入非空显示、点击清空并关闭过滤），header 不重建。
+- 2026-09-01 验收打回（done → doing）：workspace 组名右侧加角标——统计组下会话的运行中/待交互/未读数量（符号 + 数字，有则显示）。
