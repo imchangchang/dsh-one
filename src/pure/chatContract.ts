@@ -440,6 +440,8 @@ export interface SessionsSnapshot {
    * 拆分后 chat 在 editor 面板，会话高亮归侧栏渲染，故由宿主下发。
    */
   activeSessionId: string | null
+  /** 内容全文搜索（session.search）是否被 20 条上限截断；面板据此显示轻提示。 */
+  contentSearchHasMore: boolean
 }
 
 export type ToWebviewMessage =

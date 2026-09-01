@@ -363,6 +363,8 @@ function renderSessions(): void {
   const search = document.createElement('input')
   search.className = 'sessions-search'
   search.placeholder = '搜索会话'
+  // 后端 session.search 只接受 1–500 字符；输入上限对齐，避免截断歧义。
+  search.maxLength = 500
   search.value = sessionsSearchDraft
   search.addEventListener('input', () => {
     sessionsSearchDraft = search.value
@@ -449,6 +451,9 @@ function renderSessions(): void {
     list.appendChild(box)
   } else {
     for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
+    if (snap.contentSearchHasMore) {
+      list.appendChild(el('div', 'sessions-search-more', '还有更多匹配会话，可尝试更精确的关键词'))
+    }
   }
   sessionsPanel.appendChild(list)
 
@@ -533,7 +538,12 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   }
   group.appendChild(head)
   // 未分组恒展开（collapsed 恒 false），总会渲染会话行。
-  if (!collapsed) for (const s of w.sessions) group.appendChild(renderSessionRow(s))
+  if (!collapsed) {
+    for (const s of w.sessions) {
+      group.appendChild(renderSessionRow(s))
+      if (s.contentSnippet) group.appendChild(renderContentSnippet(s.sessionId, s.contentSnippet))
+    }
+  }
   return group
 }
 
@@ -582,6 +592,39 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
     markMenuRow(row)
   })
   return row
+}
+
+/**
+ * 内容命中的会话片段块（跟在会话行下面）：整块点击与父行一致（打开会话）；
+ * 命中关键词用 <mark class="dsh-mark"> 高亮（非浏览器默认黄），找不到就原样显示。
+ */
+function renderContentSnippet(sessionId: string, snippet: string): HTMLElement {
+  const block = el('div', 'session-snippet')
+  block.appendChild(highlightSnippet(snippet))
+  block.addEventListener('click', () => post({ type: 'sessionOpen', sessionId }))
+  return block
+}
+
+/** 用当前 query 在 snippet 里定位首个（大小写不敏感）命中并包 <mark> 高亮。 */
+function highlightSnippet(snippet: string): HTMLElement {
+  const span = el('span', 'session-snippet-text')
+  const qRaw = sessionsSnapshot?.query
+  const q = typeof qRaw === 'string' ? qRaw.trim().toLowerCase() : ''
+  if (!q) {
+    span.textContent = snippet
+    return span
+  }
+  const idx = snippet.toLowerCase().indexOf(q)
+  if (idx < 0) {
+    span.textContent = snippet
+    return span
+  }
+  if (idx > 0) span.appendChild(document.createTextNode(snippet.slice(0, idx)))
+  const mark = el('mark', 'dsh-mark')
+  mark.textContent = snippet.slice(idx, idx + q.length)
+  span.appendChild(mark)
+  if (idx + q.length < snippet.length) span.appendChild(document.createTextNode(snippet.slice(idx + q.length)))
+  return span
 }
 
 /** 会话菜单内容（⋯ 按钮与右键菜单共用）。 */

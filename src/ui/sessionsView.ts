@@ -150,6 +150,20 @@ const SESSIONS_STYLE = `
   }
   .sessions-empty .empty-hint { font-size: 12px; }
   .sessions-empty button { margin-top: 4px; }
+  /* 内容命中的片段块：跟会话行下面，暗色小字最多 2 行，点击与父行一致。 */
+  .session-snippet {
+    margin: 0 4px 0 12px; padding: 1px 6px 2px; font-size: 11px; line-height: 16px;
+    color: var(--vscode-descriptionForeground, #888);
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    word-break: break-word; cursor: pointer; border-radius: 4px;
+  }
+  .session-snippet:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
+  /* 命中关键词高亮：与面板视觉一致的自定义背景（非浏览器默认黄）。 */
+  .session-snippet .dsh-mark {
+    background: rgba(86, 134, 254, .22); color: inherit; border-radius: 2px; padding: 0 1px;
+  }
+  /* 内容搜索结果超过 20 条的底部轻提示（非交互）。 */
+  .sessions-search-more { padding: 6px 12px; font-size: 11px; opacity: 0.6; }
   button {
     background: var(--vscode-button-background); color: var(--vscode-button-foreground);
     border: 0; border-radius: 4px; padding: 4px 12px; cursor: pointer;

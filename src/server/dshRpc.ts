@@ -339,6 +339,27 @@ export async function sessionHistory(
   return callRpc(baseUrl, 'session.history', historyWindowRequest(sessionId, beforeSeq))
 }
 
+/** One session.search hit: the session plus its single best-match snippet. */
+export interface SessionSearchHit {
+  sessionId: string
+  snippet: string
+}
+
+/** session.search result: ≤20 sessions, snippet ≤240 code points each. */
+export interface SessionSearchResult {
+  items: SessionSearchHit[]
+  hasMore: boolean
+}
+
+/**
+ * Full-text session search over user/assistant messages (index-backed).
+ * On a backend without the index mounted this throws (dsh `internal` error);
+ * callers must degrade to title/ID-only matching.
+ */
+export async function searchSessions(baseUrl: string, query: string): Promise<SessionSearchResult> {
+  return callRpc<SessionSearchResult>(baseUrl, 'session.search', { query })
+}
+
 /** Fetch one attachment's bytes (base64) plus its reference metadata. */
 export async function sessionAttachment(
   baseUrl: string,

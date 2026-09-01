@@ -3,7 +3,7 @@ import type { Logger } from '../log.ts'
 import { subscribeHostEvents } from '../server/hostEvents.ts'
 import { subscribeMuxEvents } from '../server/muxEvents.ts'
 import type { MuxFrame } from '../server/muxEvents.ts'
-import { listSessions, listWorkspaces, sessionTitle, sessionTotalTokens } from '../server/dshRpc.ts'
+import { listSessions, listWorkspaces, searchSessions, sessionTitle, sessionTotalTokens } from '../server/dshRpc.ts'
 import type { SessionSummary } from '../server/dshRpc.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { applyHostFrame, parseHostFrame } from '../pure/hostFrames.ts'
@@ -59,6 +59,8 @@ export interface SessionsStoreSnapshot {
   collapsed: string[]
   /** Manually unread-marked session ids (dsh 无未读 API，纯本地 UI 状态）. */
   unread: string[]
+  /** 内容搜索是否被 20 条上限截断（展示「还有更多匹配」轻提示用）。 */
+  contentSearchHasMore: boolean
 }
 
 /**
@@ -85,6 +87,12 @@ export class SessionsStore implements vscode.Disposable {
   private pinned = new Set<string>()
   private collapsed = new Set<string>()
   private unread = new Set<string>()
+  /** 内容搜索命中：sessionId → 最佳匹配片段（query 非空时由 session.search 填充）。 */
+  private contentHits = new Map<string, string>()
+  /** 最近一次内容搜索是否被 20 条上限截断。 */
+  private contentSearchHasMore = false
+  /** 内容搜索代际：每次 setQuery 递增，回调只认最新代际（丢弃过期响应）。 */
+  private searchGeneration = 0
   /**
    * 自动「已完成」标记：观测到 running true→false 跳变且当时未附着的会话。
    * 对齐官方 dsh web 语义——纯内存、不持久化，刷新 VS Code 后消失；
@@ -214,6 +222,7 @@ export class SessionsStore implements vscode.Disposable {
       pinned: [...this.pinned],
       collapsed: [...this.collapsed],
       unread: [...this.unread],
+      contentSearchHasMore: this.contentSearchHasMore,
     }
   }
 
@@ -294,6 +303,46 @@ export class SessionsStore implements vscode.Disposable {
   setQuery(query: string | null): void {
     const trimmed = query?.trim() ?? ''
     this.query = trimmed === '' ? null : trimmed
+    // 每次 setQuery 先同步清算：清空内容命中 + 递增代际（废弃在途搜索），
+    // 再即时 rebuild（标题/ID 命中），最后异步补内容搜索。
+    this.searchGeneration += 1
+    this.contentHits = new Map()
+    this.contentSearchHasMore = false
+    this.rebuildModel()
+    this.onDidChangeEmitter.fire()
+    void this.runContentSearch()
+  }
+
+  /**
+   * 内容全文搜索（session.search，索引 user/assistant 消息）。
+   * 降级：后端未挂索引/失败时静默回退为仅有标题/ID 匹配（已同步 rebuild
+   * 过），只记录日志；竞态：只接受当前代际的响应。
+   */
+  private async runContentSearch(): Promise<void> {
+    const url = this.runningUrl
+    const q = this.query
+    if (!url || !q) return
+    const generation = this.searchGeneration
+    const query = q.length > 500 ? q.slice(0, 500) : q
+    try {
+      const result = await searchSessions(url, query)
+      if (this.disposed || generation !== this.searchGeneration) return
+      const hits = new Map<string, string>()
+      for (const item of result.items) {
+        if (item && typeof item.sessionId === 'string' && item.sessionId) {
+          hits.set(item.sessionId, item.snippet ?? '')
+        }
+      }
+      this.contentHits = hits
+      this.contentSearchHasMore = result.hasMore === true
+    } catch (err) {
+      if (this.disposed || generation !== this.searchGeneration) return
+      this.logger.warn(
+        `sessions store: session.search(${JSON.stringify(query)}) failed — ${err instanceof Error ? err.message : err}`,
+      )
+      this.contentHits = new Map()
+      this.contentSearchHasMore = false
+    }
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -572,6 +621,7 @@ export class SessionsStore implements vscode.Disposable {
         pinned: this.pinned,
         unread: unreadDisplay,
         pendingInteractions: pendingDisplay,
+        contentHits: this.contentHits,
       },
     )
   }
