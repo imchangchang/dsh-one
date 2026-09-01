@@ -24,6 +24,7 @@ import type {
   QueuedItem,
   SessionsSnapshot,
   StagedFile,
+  SubagentNode,
   ToWebviewMessage,
 } from '../../pure/chatContract.ts'
 import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../../pure/sessionTree.ts'
@@ -971,36 +972,50 @@ function renderModelMenuEfforts(body: HTMLElement, catalog: ModelCatalog): void 
   }
 }
 
-/** 头部「N 个子代理」chip 的下拉：每行状态点（运行中像素环/已完成灰点）+ 标题 + 第二行摘要（相对时间 · token 用量）。 */
+/** 头部「N 个子代理」chip 的下拉：树形缩进列表。每行状态点（运行中像素环/
+ * 已完成灰点）+ 标题 + 第二行摘要（相对时间 · token 用量）；子代理自己的
+ * 子代理（children）按层级缩进展示，行点击附着对应子会话。 */
 function openSubagentMenu(anchor: HTMLElement): void {
   const subs = state?.subagents
   if (!subs || subs.length === 0) return
   const body = el('div')
-  for (const sub of subs) {
-    const item = el('div', 'menu-item preset-item')
-    const slot = el('span', 'job-dot-slot')
-    if (sub.running) slot.appendChild(spinSvg())
-    else slot.appendChild(el('span', 'job-dot settled-dot'))
-    item.appendChild(slot)
-    const main = el('div', 'preset-item-main')
-    main.appendChild(el('div', 'preset-item-name', sub.title))
-    const summary = [
-      sub.running ? '进行中' : '已完成',
-      formatRelativeTime(sub.updatedAt, Date.now()),
-      sub.totalTokens !== undefined ? `${formatTokens(sub.totalTokens)} tok` : '',
-    ]
-      .filter(Boolean)
-      .join(' · ')
-    main.appendChild(el('div', 'preset-item-desc', summary))
-    item.appendChild(main)
-    item.addEventListener('click', () => {
-      closePopover()
-      post({ type: 'sessionOpen', sessionId: sub.sessionId })
-    })
-    body.appendChild(item)
-  }
+  for (const sub of subs) appendSubagentRow(body, sub, 0)
   // 锚点在头部，向下展开。
   showPopover(anchor, body, 'below')
+}
+
+/** 递归渲染一个子代理节点及其全体后代（children），`depth` 控制缩进层级。 */
+function appendSubagentRow(container: HTMLElement, sub: SubagentNode, depth: number): void {
+  const item = el('div', 'menu-item preset-item')
+  // 每级 16px 缩进（对齐 dsh web 阶段/成员列表的缩进节奏），首层不缩。
+  if (depth > 0) item.style.paddingLeft = `${depth * 16}px`
+  const slot = el('span', 'job-dot-slot')
+  if (sub.running) slot.appendChild(spinSvg())
+  else slot.appendChild(el('span', 'job-dot settled-dot'))
+  item.appendChild(slot)
+  const main = el('div', 'preset-item-main')
+  main.appendChild(el('div', 'preset-item-name', sub.title))
+  const summary = [
+    sub.running ? '进行中' : '已完成',
+    formatRelativeTime(sub.updatedAt, Date.now()),
+    sub.totalTokens !== undefined ? `${formatTokens(sub.totalTokens)} tok` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  main.appendChild(el('div', 'preset-item-desc', summary))
+  item.appendChild(main)
+  item.addEventListener('click', () => {
+    closePopover()
+    post({ type: 'sessionOpen', sessionId: sub.sessionId })
+  })
+  container.appendChild(item)
+  // 递归挂后代：孙一辈及以下逐级缩进。
+  for (const child of sub.children ?? []) appendSubagentRow(container, child, depth + 1)
+}
+
+/** 该子代理的血缘树里是否有任一节点在跑（含孙一辈及以下）。 */
+function subagentLineageRunning(sub: SubagentNode): boolean {
+  return (sub.children ?? []).some((c) => c.running || subagentLineageRunning(c))
 }
 
 /**
@@ -1342,7 +1357,11 @@ function render(): void {
       // 面包屑斜杠：官方在会话标题与子代理段之间用「/」分隔。
       if (state.sessionTitle) header.appendChild(el('span', 'crumb-sep', '/'))
       const chip = buttonEl('header-chip', '')
-      if (state.subagents.some((sub) => sub.running)) chip.appendChild(spinSvg())
+      // 像素环：任意血缘后代（含孙一辈）在跑就点亮——父代理挂载等子代理时
+      // 自身 idle，但整组仍在活动。chip 文字计数仍只算直接子代理（顶层项数）。
+      if (state.subagents.some((sub) => sub.running || subagentLineageRunning(sub))) {
+        chip.appendChild(spinSvg())
+      }
       chip.appendChild(el('span', undefined, `${state.subagents.length} 个子代理`))
       chip.appendChild(iconSvg(PANEL_ICONS.chevronDown, 14))
       chip.title = '子代理'
