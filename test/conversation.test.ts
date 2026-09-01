@@ -875,3 +875,143 @@ test('non-todo_write tools never carry a planSummary', () => {
   const block = lastAssistant(f).blocks[0] as ChatToolBlock
   assert.equal(block.todos, undefined)
 })
+
+// ── produced files（对齐官方 dsh-client-ui-deliverables 的 turn 产物累积）──
+
+function turnEndEv(turn: number): SessionEventLike {
+  return ev('turn/end', { turn, reason: { kind: 'completed' } })
+}
+
+test('diff call views accumulate locations as produced files on the turn-end message', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(userEv('u1', '写两个文件'))
+  f.applyEvent(toolCallEv('c1', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'diff', locations: [{ path: '/repo/src/a.ts' }, { path: '/repo/src/b.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c1', 'ok'))
+  f.applyEvent(toolCallEv('c2', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'diff', locations: [{ path: '/repo/src/c.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c2', 'ok'))
+  f.applyEvent(turnEndEv(1))
+
+  const msg = lastAssistant(f)
+  assert.deepEqual(msg.producedFiles, ['/repo/src/a.ts', '/repo/src/b.ts', '/repo/src/c.ts'])
+})
+
+test('generic card with kind edit contributes locations; other kinds do not', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  // str_replace_editor 的 insert 呈现为 generic + kind edit。
+  f.applyEvent(toolCallEv('c1', 'str_replace_editor', '{}'), {
+    for: 'call',
+    view: { card: 'generic', kind: 'edit', locations: [{ path: '/repo/lib/x.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c1', 'ok'))
+  // read 看了文件不算产出，delete 没有可开文件，terminal 只是跑命令。
+  f.applyEvent(toolCallEv('c2', 'read', '{}'), {
+    for: 'call',
+    view: { card: 'generic', kind: 'read', locations: [{ path: '/repo/lib/x.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c2', 'ok'))
+  f.applyEvent(toolCallEv('c3', 'bash', '{}'), {
+    for: 'call',
+    view: { card: 'terminal', cwd: '/repo', output: 'ok' },
+  })
+  f.applyEvent(toolResultEv('c3', 'ok'))
+  f.applyEvent(turnEndEv(1))
+
+  assert.deepEqual(lastAssistant(f).producedFiles, ['/repo/lib/x.ts'])
+})
+
+test('failed tool results contribute nothing to produced files', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(toolCallEv('c1', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'diff', locations: [{ path: '/repo/src/a.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c1', 'boom', true))
+  f.applyEvent(turnEndEv(1))
+
+  assert.equal(lastAssistant(f).producedFiles, undefined)
+})
+
+test('produced paths dedupe first-seen across a turn, result without call view adds nothing', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(toolCallEv('c1', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'diff', locations: [{ path: '/repo/src/a.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c1', 'ok'))
+  // 同一文件再写一次：只保留首次出现。
+  f.applyEvent(toolCallEv('c2', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'diff', locations: [{ path: '/repo/src/a.ts' }, { path: '/repo/src/b.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c2', 'ok'))
+  // call 落在窗口外 / 无 view：产物为空。
+  f.applyEvent(toolResultEv('c99', 'ok'))
+  f.applyEvent(turnEndEv(1))
+
+  assert.deepEqual(lastAssistant(f).producedFiles, ['/repo/src/a.ts', '/repo/src/b.ts'])
+})
+
+test('produced files only attach to the turn-end message, and refold clears them', () => {
+  const f = new ConversationFolder()
+  f.applyHistory([
+    { event: ev('turn/start', { turn: 1 }) },
+    { event: toolCallEv('c1', 'edit', '{}'), view: { for: 'call', view: { card: 'diff', locations: [{ path: '/repo/a.ts' }] } } },
+    { event: toolResultEv('c1', 'ok') },
+    // turn 未结束：流式中间态没有 producedFiles。
+  ])
+  assert.equal(lastAssistant(f).producedFiles, undefined)
+  f.applyEvent(turnEndEv(1))
+  assert.deepEqual(lastAssistant(f).producedFiles, ['/repo/a.ts'])
+
+  // re-baseline 全量重折：累积器清空，同一事件流重放结果一致。
+  f.applyHistory([
+    { event: ev('turn/start', { turn: 1 }) },
+    { event: toolCallEv('c1', 'edit', '{}'), view: { for: 'call', view: { card: 'diff', locations: [{ path: '/repo/a.ts' }] } } },
+    { event: toolResultEv('c1', 'ok') },
+    { event: turnEndEv(1) },
+  ])
+  assert.deepEqual(lastAssistant(f).producedFiles, ['/repo/a.ts'])
+})
+
+test('turn split by an injected user/message still attaches produced files to the final message', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(userEv('u1', '任务'))
+  f.applyEvent(toolCallEv('c1', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'generic', kind: 'edit', locations: [{ path: '/repo/a.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c1', 'ok'))
+  // 注入上下文切断当前 assistant 消息。
+  f.applyEvent(ev('user/message', {
+    id: 'injected',
+    role: 'user',
+    content: [{ type: 'text', text: '子代理完成' }],
+    source: { kind: 'subagent-notify' },
+  }))
+  // 切断后再有内容：另起第二条 assistant 消息（同 turn 同 id）。
+  f.applyEvent(toolCallEv('c2', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'generic', kind: 'edit', locations: [{ path: '/repo/b.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c2', 'ok'))
+  f.applyEvent(turnEndEv(1))
+
+  const assistantMsgs = f.messages().filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.equal(assistantMsgs.length, 2)
+  // 被切断的前半截：complete 但不是 turnEnd，也不带产物。
+  assert.equal(assistantMsgs[0].producedFiles, undefined)
+  assert.equal(assistantMsgs[1].turnEnd, true)
+  // 产物只挂本 turn 最后一条（turnEnd）消息，跨消息不重复。
+  assert.deepEqual(assistantMsgs[1].producedFiles, ['/repo/a.ts', '/repo/b.ts'])
+})

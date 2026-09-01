@@ -127,6 +127,13 @@ export interface ChatAssistantMessage {
    * completed): the atSeq fork point for session.fork.
    */
   seq?: number
+  /**
+   * 本轮产出的文件路径（对齐官方 dsh web ProducedFiles：`turn/end` 时从本
+   * turn 的 tool/call view 聚合——diff 卡或 generic+edit 卡的 locations，
+   * 首次出现顺序、去重；只挂 turnEnd 消息）。webview 在 turn 尾部渲染成
+   * 产物 chips 行。无产物或缺省。
+   */
+  producedFiles?: string[]
   /** The user's stored rating for this message (messageFeedback/list), if any. */
   feedbackRating?: 'positive' | 'negative'
 }
@@ -509,6 +516,10 @@ export type FromWebviewMessage =
   | { type: 'feedback'; messageId: string; rating: 'positive' | 'negative' | null }
   /** Fork the session at a completed turn's last event seq (ChatAssistantMessage.seq). */
   | { type: 'fork'; atSeq: number }
+  /** 产物 chip 点击：在 VSCode 编辑器打开该文件（绝对路径，任意位置）。 */
+  | { type: 'producedOpenFile'; path: string }
+  /** 「在 VSCode 中打开」按钮：打开/定位产物所在文件夹（绝对目录路径）。 */
+  | { type: 'producedOpenFolder'; path: string }
   /** 加载更早的一页历史（窗口分页；ChatState.hasEarlierHistory 为 true 时才有意义）。 */
   | { type: 'loadEarlier' }
   /** Open the official dsh install page in the system browser. */
