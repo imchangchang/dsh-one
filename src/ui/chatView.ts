@@ -24,6 +24,7 @@ import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, St
 import { contextMenuResource } from '../pure/contextResource.ts'
 import { orderJobs } from '../pure/activityTree.ts'
 import { buildSubagentTree } from '../pure/sessionTree.ts'
+import { SubagentCatalogStore } from './subagentsStore.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
@@ -1090,6 +1091,9 @@ export class ChatViewProvider implements vscode.Disposable {
   private readonly storeSub: vscode.Disposable
   private readonly jobs: JobsStore
   private readonly jobsSub: vscode.Disposable
+  /** 子代理目录数据层（subagent.list）：菜单行显示名的来源（descriptor label）。 */
+  private readonly subagents: SubagentCatalogStore
+  private readonly subagentsSub: vscode.Disposable
   /**
    * 右键「发送到当前会话」暂存的附件：webview 尚未解析（用户还没打开过
    * Chat 面板）时先落这两个队列，视图 resolve 后再投给 composer。只活到
@@ -1115,12 +1119,21 @@ export class ChatViewProvider implements vscode.Disposable {
         // 中继服务端 running 位（session-status 增量随 store 变更到达）。
         this.controller.setServerRunning(this.store.runningFor(this.controller.sessionId))
         this.push(this.controller.getState())
+        // 子代理目录随基线变化重拉：新子代理 spawn 让子树签名变化，菜单行
+        // 显示名即时更新（不会只靠异步 title 兜底）。
+        this.subagents.ensure(this.controller.sessionId, store.rawList())
       }
     })
     this.jobs = new JobsStore(manager, logger)
     // 头部「N 个后台任务」chip 的数据源（mux 全局 session/jobs 帧）：
     // 基线变化时重推当前 state，composeHeader 重新组合下拉行。
     this.jobsSub = this.jobs.onDidChange(() => {
+      if (this.controller) this.push(this.controller.getState())
+    })
+    this.subagents = new SubagentCatalogStore(manager, logger)
+    // 子代理目录拉到后重推 state，composeHeader 用最新的 descriptor label
+    // 重组成下拉行（初次 attach 时 label 可能还没到，先回退 title/id）。
+    this.subagentsSub = this.subagents.onDidChange(() => {
       if (this.controller) this.push(this.controller.getState())
     })
   }
@@ -1286,6 +1299,9 @@ export class ChatViewProvider implements vscode.Disposable {
           this.syncPanelTitle()
         }
       })
+      // 附着切换即拉取该会话子代理子树的目录（label 描述符），菜单行显示名
+      // 会随 onDidChange 重推时更新；首次attach时可能还没到，先走 title/id 回退。
+      this.subagents.ensure(controller.sessionId, this.store.rawList())
     }
     this.lastSessionTitle = controller?.getState().sessionTitle
     this.push(controller?.getState() ?? this.emptyState())
@@ -1348,8 +1364,10 @@ export class ChatViewProvider implements vscode.Disposable {
     const raw = this.store.rawList()
     // 血缘树：直接子代理为顶层项，每项的 children 递归挂各自后代
     // （子代理再开子代理）。每层按 运行中优先 + 新近优先 在纯函数里排好；
-    // 状态点由 webview 按 running 字段画。
-    const subagents = buildSubagentTree(raw, state.sessionId)
+    // 状态点由 webview 按 running 字段画。行显示名用 subagent.list 目录的
+    // descriptor label（label ?? id），落到 labelFor 层面就是「目录有该子代理用
+    // label，没有回退 title/短 id」——对齐官方 dsh web 的菜单行名。
+    const subagents = buildSubagentTree(raw, state.sessionId, (s) => this.subagents.labelFor(s.sessionId))
     const jobs = orderJobs(this.jobs.jobs().get(state.sessionId) ?? [])
     const workspaceLabel = this.store.workspaceLabelFor(state.sessionId)
     const self = raw.find((s) => s.sessionId === state.sessionId)
@@ -1969,6 +1987,8 @@ export class ChatViewProvider implements vscode.Disposable {
     this.storeSub.dispose()
     this.jobsSub.dispose()
     this.jobs.dispose()
+    this.subagentsSub.dispose()
+    this.subagents.dispose()
     this.controllerSub?.dispose()
     this.controller?.dispose()
     this.controller = null
