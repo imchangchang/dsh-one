@@ -1,6 +1,6 @@
 /* ==== chat webview (src/ui/chatView.ts STYLE) ==== */
 
-  html, body { margin: 0; padding: 0; height: 100%; }
+  html, body { margin: 0; padding: 0; height: 100%; overscroll-behavior-y: none; }
   body {
     font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
     color: var(--vscode-foreground);
@@ -112,6 +112,13 @@
   .messages {
     flex: 1; overflow-y: auto; padding: 8px 12px;
     display: flex; flex-direction: column; gap: 10px;
+    /* 双层防线（见 docs/backlog/doing/scroll-bottom-momentum-jitter.md）：
+       1) 本容器（.messages）自身不产生弹性回弹——它是消息滚动容器；
+       2) html/body 上也设了 overscroll-behavior-y:none——盖住 webview 根文档的
+       页面级回弹（实测根层回弹 .messages 的 none 盖不住），根层被盖住后这条仍有
+       意义：防 .messages 自身（若它成为滚动容器）的 rubber band 与程序滚动打架。
+       非 macOS 无行为差异。 */
+    overscroll-behavior-y: none;
   }
   .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
   /* 切换会话时历史基线加载中的占位：撑满聊天列垂直居中。 */
