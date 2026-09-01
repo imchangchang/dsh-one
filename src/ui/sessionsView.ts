@@ -28,11 +28,6 @@ const SESSIONS_STYLE = `
     color: var(--vscode-foreground);
   }
   #app { display: flex; flex-direction: column; height: 100%; }
-  /* 宽屏：左 sessions 面板 + 右聊天列；窄屏（<720px）改上下布局，面板限高自滚动。 */
-  .chat-col {
-    flex: 1; min-width: 0; display: flex; flex-direction: column;
-    background: var(--vscode-editor-background, transparent);
-  }
   .sessions-panel {
     flex: 1; min-height: 0; display: flex; flex-direction: column;
     background: var(--vscode-sideBar-background, transparent);
@@ -154,14 +149,6 @@ const SESSIONS_STYLE = `
   }
   .sessions-empty .empty-hint { font-size: 12px; }
   .sessions-empty button { margin-top: 4px; }
-  @media (max-width: 719px) {
-    #app { flex-direction: column; }
-    .sessions-panel {
-      width: auto; max-height: 40%; border-right: 0;
-      border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    }
-    .chat-col { min-height: 0; }
-  }
   button {
     background: var(--vscode-button-background); color: var(--vscode-button-foreground);
     border: 0; border-radius: 4px; padding: 4px 12px; cursor: pointer;
