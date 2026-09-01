@@ -448,6 +448,22 @@
     --jt-keyword: #1c00cf; --jt-punct: #202124; --jt-icon: #5f6368;
     --jt-ellipsis: #5f6368; --jt-hover: rgb(60 64 67 / 4%);
   }
+  /* JsonTree 复制按钮：对齐 md-code-copy 的克制样式——右上角小「复制」按钮，
+     复制整树 pretty JSON（copyPrettyJson），成功短暂变「已复制」。 */
+  .json-tree-shell { margin: 2px 0 0 20px; }
+  .json-tree-bar {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 8px; margin-bottom: 2px;
+  }
+  .json-tree-copy {
+    background: none; border: none; cursor: pointer; padding: 2px 6px;
+    border-radius: 3px; font-size: 0.85em;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .json-tree-copy:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    color: var(--vscode-foreground);
+  }
   .json-tree-row { position: relative; min-height: 16px; }
   .json-tree-row:hover { background: var(--jt-hover); }
   .json-tree-key { color: var(--jt-property); font-weight: 400; }

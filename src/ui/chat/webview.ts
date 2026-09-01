@@ -37,6 +37,7 @@ import {
   JSON_TREE_ROOT_KEY,
   flattenJsonTree,
   jsonPathKey,
+  jsonTreeCopyText,
   tryParseJsonTree,
   type JsonContainer,
   type JsonPrimitiveKind,
@@ -2971,13 +2972,41 @@ function renderToolOutput(output: string, key: string): HTMLElement {
  * 箭头点击 toggle、逐级缩进、暗色 token 配色）。节点 open 状态记在 jsonTreeOpen
  * （key = `${outputKey}:${pathKey}`），缺省用「根展开、嵌套收起」的策略（root 缺省
  * open），流式重建不冲掉——其它 disclosure 状态同款持久化。
+ *
+ * 树上/右上角给一个不喧宾夺主的「复制」按钮（对齐官方 JsonTree 的 copyPrettyJson）：
+ * 复制整棵树的 2 空格 pretty JSON。复制用 navigator.clipboard，成功短暂显示
+ * 「已复制」，失败改 title（与 md-code 复制按钮同款反馈）。
  */
 function renderJsonTree(value: JsonContainer, outputKey: string): HTMLElement {
+  const shell = el('div', 'json-tree-shell')
+  const bar = el('div', 'json-tree-bar')
+  const copy = buttonEl('json-tree-copy', '复制')
+  copy.title = '复制 JSON'
+  copy.addEventListener('click', () => {
+    const text = jsonTreeCopyText(value)
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        copy.textContent = '已复制'
+        copy.title = '已复制'
+        setTimeout(() => {
+          copy.textContent = '复制'
+          copy.title = '复制 JSON'
+        }, 1000)
+      },
+      () => {
+        copy.title = '复制失败'
+      },
+    )
+  })
+  bar.appendChild(copy)
+  shell.appendChild(bar)
+
   const tree = el('div', 'json-tree')
   const isOpen = (pathKey: string) => jsonTreeOpen.get(`${outputKey}:${pathKey}`) ?? pathKey === JSON_TREE_ROOT_KEY
   const rows = flattenJsonTree(value, isOpen)
   for (const row of rows) tree.appendChild(renderJsonTreeRow(row, outputKey))
-  return tree
+  shell.appendChild(tree)
+  return shell
 }
 
 /** 点击某容器节点：翻转它的 open 状态并重建。 */

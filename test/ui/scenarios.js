@@ -452,9 +452,40 @@
         ],
       }),
       theme: 'dark',
-      title: '工具输出 JSON 树（默认态：根展开/嵌套收起）',
+      title: '工具输出 JSON 树（默认态：根展开/嵌套收起 + 复制按钮）',
       interact: `document.querySelector('.tool-disclosure summary')?.click()`,
-      expect: '工具卡（Ran a command bash / curl /health）点击摘要后展开，OUT 卡片内显示 JsonTree：等宽字体、深色 code 块背景；树按节点缩进；根 `{` 展开，其直接子 key `checks` 是折叠容器（右侧箭头 + `{…}` 预览），其余子 key 为原始值——`status: "ok"`（玫红 string）、`degraded: false`（蓝 keyword）、`retries: 0`（蓝 number）、`debug: null`（蓝 keyword）；key（property）为蓝、`:` 与括号标点为灰白；根 `}` 在独立行对齐；不出现平铺的一大段 JSON 文本。“IN”仍为纯文本 JSON。',
+      expect: '工具卡（Ran a command bash / curl /health）点击摘要后展开，OUT 卡片内显示 JsonTree：等宽字体、深色 code 块背景；树右上角一条小「复制」按钮（克制样式，复制整树 pretty JSON，无语言标签）；树按节点缩进；根 `{` 展开，其直接子 key `checks` 是折叠容器（右侧箭头 + `{…}` 预览），其余子 key 为原始值——`status: "ok"`（玫红 string）、`degraded: false`（蓝 keyword）、`retries: 0`（蓝 number）、`debug: null`（蓝 keyword）；key（property）为蓝、`:` 与括号标点为灰白；根 `}` 在独立行对齐；不出现平铺的一大段 JSON 文本。“IN”仍为纯文本 JSON。',
+    },
+
+    // 点树右上角「复制」按钮：复制整树的 2 空格 pretty JSON（copyPrettyJson）。
+    // harness 里剪贴板权限不稳定（需真实手势/secure 上下文），interact 先 monkeypatch
+    // navigator.clipboard.writeText 把内容存到 window.__copied，点击后 evaluate 断言。
+    'json-output-copy': {
+      state: base({
+        messages: [
+          u('查一下这几个服务的健康状态。'),
+          at('开始健康检查。', [
+            toolBlock({
+              name: 'bash', title: 'bash', detail: 'curl /health',
+              output: JSON.stringify({
+                status: 'ok',
+                checks: { gateway: { healthy: true } },
+                retries: 0,
+                debug: null,
+              }, null, 2),
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: '工具输出 JSON 树（点复制按钮）',
+      interact: `(() => {
+        window.__copied = null
+        try { navigator.clipboard.writeText = async (t) => { window.__copied = t } } catch (e) {}
+        document.querySelector('.tool-disclosure summary')?.click()
+        setTimeout(() => document.querySelector('.json-tree-copy')?.click(), 20)
+      })()`,
+      expect: '树上/右上角「复制」按钮可点击；点击后把整棵树的 2 空格 pretty JSON 写入剪贴板（interact 里 monkeypatch 的 __copied 应等于整树 pretty JSON，即 `{\n  "status": "ok",\n  "checks": {\n    "gateway": {\n      "healthy": true\n    }\n  },\n  "retries": 0,\n  "debug": null\n}`）。视觉上按钮仍在、与 json-output 默认态一致；按钮文案成功时应短暂变「已复制」（截图静态，不核对文案变化）。',
     },
 
     // 同上 JSON 树，但额外点开 `checks` 容器：验证箭头展开交互——嵌套节点展开
