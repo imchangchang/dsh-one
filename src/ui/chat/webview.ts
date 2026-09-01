@@ -1616,7 +1616,24 @@ function render(): void {
   if (queuedItems.length > 0) {
     if (editingQueueItem && !queuedItems.some((item) => item.id === editingQueueItem)) editingQueueItem = null
     const queue = el('div', 'queue')
-    for (const item of queuedItems) queue.appendChild(renderQueueItem(item))
+    // 多条排队折叠成计数 header（对齐 dsh web QueueDock：>1 条才出现折叠 header）：
+    // 编辑/插话/删除等操作入口随列表一起藏进展开态；单条保持一行内联。
+    if (queuedItems.length === 1) {
+      queue.appendChild(renderQueueItem(queuedItems[0]))
+    } else {
+      const det = detailsEl('queue', 'queue-dock', '')
+      // 编辑态（编辑器在列表里）必须展开，否则保存/取消入口被折叠藏掉。
+      if (editingQueueItem !== null) det.open = true
+      const summary = det.querySelector('summary') as HTMLElement
+      const chev = iconSvg(PANEL_ICONS.chevronUp, 14)
+      chev.classList.add('queue-chevron')
+      summary.appendChild(chev)
+      summary.appendChild(el('span', 'queue-dock-count', `${queuedItems.length} 条排队消息`))
+      const list = el('div', 'queue-dock-list')
+      for (const item of queuedItems) list.appendChild(renderQueueItem(item))
+      det.appendChild(list)
+      queue.appendChild(det)
+    }
     add(queue)
   } else {
     editingQueueItem = null
@@ -2588,10 +2605,23 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   }
   if (m.kind === 'command') {
     // Slash-command lifecycle flow node (dsh command/run + command/done).
+    // 多行输出可展开（对齐 dsh web GenericCommandCard：含换行才算有正文）：
+    // 折叠态显示命令名 + 输出首行，展开显示全文。
     const row = el('div', `msg command-row ${m.status}`)
-    row.appendChild(el('span', 'command-line', `/${m.name}${m.args ? ` ${m.args}` : ''}`))
-    if (m.status === 'running') row.appendChild(el('span', 'spinner'))
-    if (m.text) row.appendChild(el('span', 'command-text', m.text))
+    const text = m.text ?? ''
+    if (text.includes('\n')) {
+      const det = detailsEl(`${key}:cmd`, 'command-detail', '')
+      const summary = det.querySelector('summary') as HTMLElement
+      summary.appendChild(el('span', 'command-line', `/${m.name}${m.args ? ` ${m.args}` : ''}`))
+      if (m.status === 'running') summary.appendChild(el('span', 'spinner'))
+      summary.appendChild(el('span', 'command-text', text.split('\n')[0]))
+      det.appendChild(el('pre', 'command-body', text))
+      row.appendChild(det)
+    } else {
+      row.appendChild(el('span', 'command-line', `/${m.name}${m.args ? ` ${m.args}` : ''}`))
+      if (m.status === 'running') row.appendChild(el('span', 'spinner'))
+      if (text) row.appendChild(el('span', 'command-text', text))
+    }
     return row
   }
   const row = el('div', 'msg assistant')
@@ -2829,8 +2859,13 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
       return div
     }
     case 'reasoning': {
-      const det = detailsEl(`${key}:reason`, 'reasoning', '思考过程')
-      det.querySelector('summary')?.prepend(iconSvg(THINK_ICON, 14))
+      // 折叠态摘要带推理首行预览（对齐 dsh web ReasoningRow：Think · 首行），
+      // 首行包 span 用 CSS ellipsis 截断，不撑开行宽；流式时每次重建取当前首行。
+      const firstLine = block.text.split('\n')[0]?.trim() ?? ''
+      const det = detailsEl(`${key}:reason`, 'reasoning', '')
+      const summary = det.querySelector('summary') as HTMLElement
+      summary.appendChild(iconSvg(THINK_ICON, 14))
+      summary.appendChild(el('span', 'reasoning-summary', firstLine ? `思考过程 · ${firstLine}` : '思考过程'))
       det.appendChild(el('div', 'reasoning-body', block.text))
       return det
     }
@@ -2886,7 +2921,7 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
         el('div', 'tool-detail', isCommandTool(block.name) ? `$ ${block.detail}` : block.detail),
       )
     }
-    if (block.diff) row.appendChild(renderDiff(block.diff))
+    if (block.diff) row.appendChild(renderDiff(block.diff, `${key}:diff`))
     return row
   }
 
@@ -2905,14 +2940,15 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
       el('div', 'tool-detail', isCommandTool(block.name) ? `$ ${block.detail}` : block.detail),
     )
   }
+  // IN/OUT 收进展开区（对齐 dsh web DisclosureRow）；diff 卡保持折叠态直接可见，
+  // 用带行折叠的 renderDiff（前 8 行 + 展开其余，对齐 dsh web DiffBlock）。
   det.appendChild(summary)
   const body = el('div', 'tool-disclosure-body')
   if (hasArgs) body.appendChild(toolInOut('IN', prettyJson(block.args as string)))
   if (hasOutput) body.appendChild(toolInOut('OUT', block.output as string))
   det.appendChild(body)
   row.appendChild(det)
-  // diff 卡保持折叠态直接可见（详情区只补 IN/OUT），不藏进展开区。
-  if (block.diff) row.appendChild(renderDiff(block.diff))
+  if (block.diff) row.appendChild(renderDiff(block.diff, `${key}:diff`))
   return row
 }
 
@@ -2949,10 +2985,32 @@ function renderToolOutput(output: string, key: string): HTMLElement {
   return box
 }
 
-function renderDiff(diff: { oldText: string; newText: string }): HTMLElement {
+/** diff 块行折叠上限（对齐 dsh web DiffBlock 的 maxLines: 8）。 */
+const DIFF_PREVIEW_LINES = 8
+
+/**
+ * diff 块：默认只渲染前 DIFF_PREVIEW_LINES 行（del/add 各算各行），其余行
+ * 折叠成「展开其余 N 行差异」toggle（对齐 dsh web DiffBlock）。展开状态记在
+ * detailsOpen（key 按消息/块位置），流式重建不冲掉。
+ */
+function renderDiff(diff: { oldText: string; newText: string }, key: string): HTMLElement {
   const box = el('div', 'diff')
-  for (const line of diff.oldText.split('\n')) box.appendChild(el('div', 'diff-line del', line))
-  for (const line of diff.newText.split('\n')) box.appendChild(el('div', 'diff-line add', line))
+  const lines = [
+    ...diff.oldText.split('\n').map((line) => ({ cls: 'del', text: line })),
+    ...diff.newText.split('\n').map((line) => ({ cls: 'add', text: line })),
+  ]
+  const open = detailsOpen.get(key) ?? false
+  const shown = open ? lines : lines.slice(0, DIFF_PREVIEW_LINES)
+  for (const { cls, text } of shown) box.appendChild(el('div', `diff-line ${cls}`, text))
+  if (lines.length > DIFF_PREVIEW_LINES) {
+    const hidden = lines.length - DIFF_PREVIEW_LINES
+    const toggle = el('div', 'diff-toggle', open ? '收起差异' : `… 展开其余 ${hidden} 行差异`)
+    toggle.addEventListener('click', () => {
+      detailsOpen.set(key, !open)
+      render()
+    })
+    box.appendChild(toggle)
+  }
   return box
 }
 
