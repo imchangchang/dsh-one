@@ -1026,6 +1026,67 @@
       interact: `document.querySelector('.produced-more')?.click()`,
       expect: '点击「+ N 个文件」展开后：14 个长文件名 chip **多行换行铺开**（行尾不截断、不裁掉 chip），每行 label「产物」左侧只出现一次且与首行对齐；每个 chip 内超宽文件名以省略号截断、悬停 title 为完整路径；「收起」在最后一个 chip 后。',
     },
+    'turn-status-notices': {
+      state: base({
+        messages: [
+          u('帮我重构这个模块。'),
+          // 超 token 提示：assistant 消息尾部黄色 warning 行。
+          {
+            kind: 'assistant', id: rid('a'), complete: true, turnEnd: true, maxTokens: true,
+            blocks: [{ type: 'text', text: '这个模块的改动涉及以下文件…（回答在此被截断）' }],
+          },
+          // 重试行：scheduled 等待态（倒计时）+ started 终态各一条。
+          {
+            kind: 'assistant', id: rid('a'), complete: true, turnEnd: true,
+            blocks: [
+              { type: 'text', text: '先执行测试确认基线。' },
+              {
+                type: 'retry', retry: 1, mode: 'normal', maxRetries: 3, delayMs: 12000,
+                failure: { message: 'rate limited (429), retry after 12s' }, retryState: 'scheduled', time: Date.now(),
+              },
+            ],
+          },
+          {
+            kind: 'assistant', id: rid('a'), complete: true, turnEnd: true,
+            blocks: [
+              { type: 'text', text: '模型请求失败后自动恢复。' },
+              {
+                type: 'retry', retry: 2, mode: 'normal', maxRetries: 3, delayMs: 5000,
+                failure: { message: 'upstream timeout' }, retryState: 'started', time: Date.now() - 60000,
+              },
+            ],
+          },
+        ],
+      }),
+      title: '流内状态提示行：超 token / 重试行',
+      expect: '消息流里依次出现三条状态行：① maxTokens 助手消息尾部有一行黄色提示（warning 圆点 + 加粗「已达到输出 token 上限」+ 灰色 hint「回答被截断，已有输出保留在对话中…」）；② scheduled 重试行是带扫光动画的灰色小字行「正在重试模型请求（1/3） · Ns」（N 在 1–12 之间，倒计时）且可展开（details chevron），展开显示「重试延迟：12000ms / 失败原因：rate limited…」；③ started 重试行静态显示「已重试模型请求（2/3） · 5s」。三条行都只占一行、不破坏消息气泡布局；操作栏（复制/反馈/分叉）只在 turnEnd 消息上出现。',
+    },
+
+    'compaction-cards': {
+      state: base({
+        messages: [
+          u('这个对话已经很长了，压缩一下。'),
+          // 自动压缩独立卡：计数 + 摘要，默认折叠可展开。
+          {
+            kind: 'compaction', id: 'c-auto-1',
+            summary: '前文要点：用户要求重构 chat 模块，已完成调研、拆分方案与两轮实现，当前在验证阶段。',
+            items: 42, tokens: 12340,
+          },
+          // 手动 /compact：checkpoint 合并进命令卡（带计数摘要）。
+          {
+            kind: 'command', id: 'cmd-1', name: 'compact', status: 'success',
+            text: 'Compacted 42 history items (~12340 tokens).',
+            compaction: { summary: '前文要点：压缩前的对话围绕工作流编排展开，已确认方案并进入实现。', items: 42, tokens: 12340 },
+          },
+          u('继续。'),
+          // 窗口外丢 summary 的退化态：不可展开的纯展示行。
+          { kind: 'compaction', id: 'c-auto-2', summary: null, items: null, tokens: null },
+        ],
+      }),
+      title: '压缩摘要卡（独立卡 / 命令卡合并 / 不可展开）',
+      expect: '消息流里出现三张压缩行：① 独立压缩卡（标题「上下文已压缩」+ 分隔点 + 摘要「已压缩 42 条历史记录（约 12340 tokens）」，行首 chevron 向右、整行可点展开摘要全文 markdown）；② 手动 /compact 卡同样形态但标题是「/compact」；③ 无摘要的退化卡是纯展示行（无 chevron、无点击态，摘要文字「压缩摘要不可用」）。三行都不渲染成用户气泡、不出现 checkpoint 原文。',
+    },
+
   }
 
   catalog.conversation.sessions = window.sessionsTree('sess-1')
