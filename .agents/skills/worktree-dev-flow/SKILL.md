@@ -29,10 +29,18 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 **主线 agent**（main 上）：
 
 1. `scripts/dev-merge.sh <slug>`——校验 → 上锁 → rebase 到最新 main → 复测 → --no-ff 合入 → 清理。
-2. 合入测试通过 + 人工确认 → backlog 条目 `done → closed`；测试有问题 → `done → open`（对应 agent 重新认领再走一遍）。
+2. 合入测试通过 + 人工确认 → backlog 条目 `done → closed`；测试有问题 → `done → open`（对应 agent 重新认领再走一遍），代码层面怎么处理见下面「合入后测试发现问题」。
 3. `scripts/dev-merge.sh` 不带参数：列出所有待合并任务（即 `docs/backlog/done/` 里的条目）；`scripts/dev-unlock.sh`：清理残留的 .dev-lock（正常自动释放，只在合并进程被杀后用）。
 
 rebase 有冲突时：进 worktree 解决 → 重跑 `dev-finish.sh`（backlog 记录同步更新）→ 回主线重跑 `dev-merge.sh <slug>`。主线始终不被冲突污染。
+
+### 合入后测试发现问题
+
+判断标准：主线构建/自测挂、核心功能不可用 → **阻塞**；局部缺陷、有临时绕过 → **非阻塞**。
+
+- **非阻塞（fix-forward）**：已合入的代码不动。backlog 条目 `done → open`，条目里写清三样：已合入的 merge commit hash、发现的问题、剩余要做的。后续修复从最新 main 新开 worktree 走完整流程；原 `agent/<slug>` 分支的历史已在 main，不要再合第二次。
+- **阻塞（revert）**：先 `git revert -m 1 <merge-commit>` 恢复主线可用（`--no-ff` 合入，revert 一个 commit 即可），再 `done → open` 并按上面记录。要立刻处理——主线挂着会挡其他人的 dev-merge 复测。
+  - 重做时的坑：revert 后旧分支的提交在 main 里处于「已合并又被撤销」状态，直接再合旧分支 git 会认为已合过、改动会丢。正确做法：revert 那个 revert commit，或从旧分支 cherry-pick 到新分支。
 
 ## 在新工程搭建
 
