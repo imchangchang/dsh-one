@@ -1035,7 +1035,7 @@ function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
  * host still pushes the SessionsStore snapshot to the panel webview because
  * the composer's @-mention autocomplete reads it. Panel is lazy: it is only
  * created on demand (click a session / new session / open command / attach
- * file), defaulting to ViewColumn.Beside.
+ * file), defaulting to ViewColumn.Active.
  * 头部信息区的 chips（后台任务 / 子代理）数据来自 JobsStore（mux 全局
  * session/jobs 帧，含已结束的 job）与 store 的 session.list 基线，经
  * composeHeader 合成 ChatState.backgroundJobs / runningSubagents 随 state
@@ -1124,17 +1124,18 @@ export class ChatViewProvider implements vscode.Disposable {
   }
 
   /**
-   * 打开（或揭示）聊天 editor 面板。面板不存在则按默认 ViewColumn.Beside
-   * 创建并接线消息/销毁；随后推当前 ChatState + sessions 快照、投递暂存
-   * 附件。若当前未附着但存在懒加载目标，先把目标落上。非运行中的服务会
-   * 被 setSession 忽略（attach(null)），面板仍打开显示空态。
+   * 打开（或揭示）聊天 editor 面板。面板不存在则按默认 ViewColumn.Active
+   * （在当前活动编辑器列打开，占满该列宽度）创建并接线消息/销毁；随后推
+   * 当前 ChatState + sessions 快照、投递暂存附件。若当前未附着但存在懒加
+   * 载目标，先把目标落上。非运行中的服务会被 setSession 忽略（attach(null)），
+   * 面板仍打开显示空态。
    */
   openPanel(): void {
     if (!this.panel) {
       const panel = vscode.window.createWebviewPanel(
         'dshOne.chatPanel',
         'DSH One',
-        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
+        { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
         {
           enableScripts: true,
           localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')],
