@@ -481,6 +481,8 @@ export type ToWebviewMessage =
   | { type: 'fileRefList'; requestId: number; items: FileRefCandidate[] }
 
 export type FromWebviewMessage =
+  /** Webview 脚本加载完成（含 tab 切走后 VSCode 重载的场合）；宿主据此重推当前状态。 */
+  | { type: 'ready' }
   | { type: 'send'; text: string; images?: OutgoingImage[]; steer?: boolean }
   | { type: 'stop' }
   | { type: 'approval'; rpcId: string; outcome: 'allowed-once' | 'rejected' }

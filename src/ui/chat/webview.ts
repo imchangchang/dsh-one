@@ -90,6 +90,11 @@ declare function acquireVsCodeApi(): VsCodeApi
 const vscode = acquireVsCodeApi()
 const app = document.getElementById('app') as HTMLElement
 
+// 脚本加载完成即向宿主报到：面板首次打开、以及 tab 切走再切回导致 webview
+// 被 VSCode 重载后，宿主都靠这条消息重推当前 ChatState——否则重载后的页面
+// 收不到任何 state（宿主只在事件驱动时推送），只剩空白。
+post({ type: 'ready' })
+
 marked.setOptions({ gfm: true, breaks: true })
 
 let state: ChatState | null = null
