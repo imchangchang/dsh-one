@@ -6,7 +6,7 @@
  * 不能用 node: 内置模块——basename 语义用下面的 basenameOf 手写。
  */
 
-import type { PendingInteraction } from './chatContract.ts'
+import type { PendingInteraction, SubagentNode } from './chatContract.ts'
 
 /** 末段路径名（同时认 '/' 和 '\\'，先剥尾部分隔符）；空路径/根路径返回 ''。 */
 function basenameOf(p: string): string {
@@ -233,4 +233,42 @@ export function buildSessionTree(
 
   // Under an active query, a workspace with no matching session is noise.
   return query === '' ? nodes : nodes.filter((w) => w.sessions.length > 0)
+}
+
+/**
+ * 组装头部「N 个子代理」chip 下拉的血缘树：`rootId` 的直接子代理为顶层项，
+ * 每项的 `children` 递归挂它们各自的后代（子代理再开子代理）。每一层按
+ * 运行中优先 + 新近优先 排序。带回环保护：血缘链断/环时靠 `seen` 截断，
+ * 避免无限递归。`children` 为空时缺省。
+ */
+export function buildSubagentTree(
+  sessions: readonly SessionInput[],
+  rootId: string,
+): SubagentNode[] {
+  const childrenOf = new Map<string, SessionInput[]>()
+  for (const s of sessions) {
+    if (!s.parentSessionId) continue
+    const kids = childrenOf.get(s.parentSessionId) ?? []
+    kids.push(s)
+    childrenOf.set(s.parentSessionId, kids)
+  }
+
+  const sortLayer = (list: SessionInput[]): SessionInput[] =>
+    [...list].sort((a, b) => Number(b.running) - Number(a.running) || b.updatedAt - a.updatedAt)
+
+  const toNode = (s: SessionInput, seen: ReadonlySet<string>): SubagentNode => {
+    const nextSeen = new Set(seen).add(s.sessionId)
+    const kids = (childrenOf.get(s.sessionId) ?? []).filter((k) => !nextSeen.has(k.sessionId))
+    const children = kids.length > 0 ? sortLayer(kids).map((k) => toNode(k, nextSeen)) : undefined
+    return {
+      sessionId: s.sessionId,
+      title: s.title ?? `会话 ${s.sessionId.slice(0, 8)}`,
+      running: s.running,
+      ...(s.totalTokens !== undefined ? { totalTokens: s.totalTokens } : {}),
+      updatedAt: s.updatedAt,
+      ...(children !== undefined ? { children } : {}),
+    }
+  }
+
+  return sortLayer(childrenOf.get(rootId) ?? []).map((s) => toNode(s, new Set([rootId])))
 }

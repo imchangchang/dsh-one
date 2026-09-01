@@ -202,6 +202,23 @@ export interface StagedFile {
   path: string
 }
 
+/**
+ * 头部「N 个子代理」chip 下拉里的一个子代理节点。递归的 `children` 承载
+ * 血缘嵌套（子代理再开子代理）：顶层是当前会话的直接子代理，children 里
+ * 再挂它们各自的后代。webview 按层级缩进渲染。
+ */
+export interface SubagentNode {
+  sessionId: string
+  title: string
+  /** 运行中画像素环，已完成画灰点（对齐官方 activity 状态区分）。 */
+  running: boolean
+  totalTokens?: number
+  /** Epoch milliseconds（session.list 的 updatedAt）。 */
+  updatedAt: number
+  /** 该子代理自己的子代理（血缘后代），递归；无则缺省。 */
+  children?: SubagentNode[]
+}
+
 /** Whole-chat snapshot pushed host → webview (throttled; replaces state). */
 export interface ChatState {
   sessionId: string | null
@@ -277,18 +294,12 @@ export interface ChatState {
   /**
    * 头部「N 个子代理」chip 的下拉行：本会话的全部 continuable 子代理
    * （session.list 基线里 parentSessionId 指向本会话的会话，含已完成的），
-   * 由 ChatViewProvider 从 SessionsStore 组合并按 运行中优先 + 新近优先
-   * 排好；一个子代理都没有时缺省（chip 不渲染）。
+   * 由 ChatViewProvider 从 SessionsStore 递归组装成血缘树——直接子代理的
+   * children 里再挂它们各自的后代（子代理再开子代理），每一层都按
+   * 运行中优先 + 新近优先排好；一个子代理都没有时缺省（chip 不渲染）。
+   * chip 上的计数只算直接子代理（顶层项数），下拉里各层缩进展示。
    */
-  subagents?: Array<{
-    sessionId: string
-    title: string
-    /** 运行中画像素环，已完成画灰点（对齐官方 activity 状态区分）。 */
-    running: boolean
-    totalTokens?: number
-    /** Epoch milliseconds（session.list 的 updatedAt）。 */
-    updatedAt: number
-  }>
+  subagents?: SubagentNode[]
   /**
    * 头部「N 个后台任务运行中」chip 的下拉行：本会话的全部后台 job（含
    * 已结束的），由 ChatViewProvider 从 JobsStore 的 mux 基线组合并按官方

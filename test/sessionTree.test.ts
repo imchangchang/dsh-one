@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSessionTree, formatRelativeTime, UNGROUPED_WORKSPACE_ID, type SessionInput, type WorkspaceInput } from '../src/pure/sessionTree.ts'
+import { buildSessionTree, buildSubagentTree, formatRelativeTime, UNGROUPED_WORKSPACE_ID, type SessionInput, type WorkspaceInput } from '../src/pure/sessionTree.ts'
 
 const NOW = 1_700_000_000_000 // fixed epoch ms for deterministic tests
 
@@ -18,12 +18,13 @@ const ws = (
 
 const s = (
   sessionId: string,
-  opts: { updatedAt?: number; running?: boolean; blank?: boolean; parentSessionId?: string } = {},
+  opts: { updatedAt?: number; running?: boolean; blank?: boolean; parentSessionId?: string; title?: string | null } = {},
 ): SessionInput => ({
   sessionId,
   updatedAt: opts.updatedAt ?? NOW,
   running: opts.running ?? false,
   blank: opts.blank ?? false,
+  title: opts.title,
   ...(opts.parentSessionId ? { parentSessionId: opts.parentSessionId } : {}),
 })
 
@@ -342,4 +343,69 @@ test('formatRelativeTime covers every tier', () => {
   assert.equal(formatRelativeTime(NOW - 30 * 86_400_000, NOW), '30 天前')
   // Clock skew (updatedAt in the future) clamps to "刚刚".
   assert.equal(formatRelativeTime(NOW + 60_000, NOW), '刚刚')
+})
+
+test('buildSubagentTree nests lineage children under their parent, top-level is direct children', () => {
+  const tree = buildSubagentTree(
+    [
+      s('root', { title: 'Root' }),
+      s('c1', { parentSessionId: 'root', running: true, title: 'Child 1' }),
+      s('c2', { parentSessionId: 'root', title: 'Child 2' }),
+      s('gc1', { parentSessionId: 'c1', title: 'Grandchild 1' }),
+      s('gc2', { parentSessionId: 'c1', running: true, title: 'Grandchild 2' }),
+    ],
+    'root',
+  )
+  // 顶层仍是 root 的直接子代理（c1、c2），孙一辈挂进 c1.children，不进顶层。
+  assert.deepEqual(tree.map((n) => n.sessionId), ['c1', 'c2'])
+  // 运行中优先排序：c1 running 在前，c2 在后（都已按 updatedAt 相同）。
+  assert.equal(tree[0].sessionId, 'c1')
+  // c1 的 children 是孙一辈（gc1、gc2）。
+  assert.deepEqual(tree[0].children?.map((n) => n.sessionId), ['gc2', 'gc1'])
+  // gc2 running 排前，gc1 在后；gc2 标 running。
+  assert.equal(tree[0].children?.[0].sessionId, 'gc2')
+  assert.equal(tree[0].children?.[0].running, true)
+  // c2 无后代，children 缺省。
+  assert.equal(tree[1].children, undefined)
+})
+
+test('buildSubagentTree orders each layer running-first then newest-first', () => {
+  const tree = buildSubagentTree(
+    [
+      s('root', { title: 'Root' }),
+      s('idle-old', { parentSessionId: 'root', title: 'Idle Old', updatedAt: NOW - 10_000 }),
+      s('run-new', { parentSessionId: 'root', running: true, title: 'Run New', updatedAt: NOW }),
+      s('idle-new', { parentSessionId: 'root', title: 'Idle New', updatedAt: NOW }),
+    ],
+    'root',
+  )
+  // 运行中优先：run-new 最前；剩余 idle 按 updatedAt 新近优先：idle-new 在 idle-old 前。
+  assert.deepEqual(tree.map((n) => n.sessionId), ['run-new', 'idle-new', 'idle-old'])
+})
+
+test('buildSubagentTree breaks lineage cycles via the seen set', () => {
+  // 人为构造环：c1 的 parent 是 root、c2 的 parent 是 c1、root 又成为 c2 的子代理
+  // （sessionId 回指 root），构成 root→c1→c2→root 环。seen 集应截断，
+  // 不无限递归、不把已在 seen 的祖先塞回后代 children。
+  const tree = buildSubagentTree(
+    [
+      s('root', { title: 'Root' }),
+      s('c1', { parentSessionId: 'root', title: 'C1' }),
+      s('c2', { parentSessionId: 'c1', title: 'C2' }),
+      s('root', { parentSessionId: 'c2', title: 'Root back' }),
+    ],
+    'root',
+  )
+  assert.deepEqual(tree.map((n) => n.sessionId), ['c1'])
+  assert.deepEqual(tree[0].children?.map((n) => n.sessionId), ['c2'])
+  // c2 的子代理是 root（已在 seen），被过滤掉，不生成回指。
+  assert.equal(tree[0].children?.[0].children, undefined)
+})
+
+test('buildSubagentTree falls back to a short id title when title is null', () => {
+  const tree = buildSubagentTree(
+    [s('root', { title: 'Root' }), s('abcdef12', { parentSessionId: 'root', title: null })],
+    'root',
+  )
+  assert.equal(tree[0].title, '会话 abcdef12')
 })
