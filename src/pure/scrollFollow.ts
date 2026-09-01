@@ -19,6 +19,32 @@ export function isNearBottom(scrollHeight: number, scrollTop: number, clientHeig
   return distanceFromBottom(scrollHeight, scrollTop, clientHeight) < NEAR_BOTTOM_PX
 }
 
+/**
+ * 一个会话的滚动存档（对齐官方 dsh web 的 chatScrollPositions 语义）：
+ * 贴底只记 atBottom，翻历史记当时的 scrollTop。
+ */
+export interface ScrollArchive {
+  scrollTop: number
+  atBottom: boolean
+}
+
+/** 从容器实时位置生成存档。 */
+export function archiveScrollPosition(scrollHeight: number, scrollTop: number, clientHeight: number): ScrollArchive {
+  return { scrollTop, atBottom: isNearBottom(scrollHeight, scrollTop, clientHeight) }
+}
+
+/**
+ * 换会话时的恢复目标：无存档默认贴底；贴底存档恢复跟随；翻历史存档
+ * 恢复当时位置（scrollTop 为 0 也是合法目标，故用 null 表示"贴底"）。
+ */
+export function restoreScrollTarget(saved: ScrollArchive | undefined): {
+  stickToBottom: boolean
+  scrollTop: number | null
+} {
+  if (!saved || saved.atBottom) return { stickToBottom: true, scrollTop: null }
+  return { stickToBottom: false, scrollTop: saved.scrollTop }
+}
+
 /** 会滚动容器的按键（焦点落在消息列表内时）。Space 同时可能是按钮激活，但无害：不滚动就不产生 scroll 事件。 */
 export function isScrollKey(key: string): boolean {
   return (
