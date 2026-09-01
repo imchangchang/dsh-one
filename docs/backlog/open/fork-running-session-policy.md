@@ -40,3 +40,12 @@ fork 一个会话时存在限制/不一致：
 
 - 2026-09-01 记录 → open（想法：未确认，已委派探索核实根因）
 - 2026-09-01 探索完成：根因确认（判定=有无已完成轮次，非 running），方案方向列出 → 待讨论
+
+## 追问核实：「有子代理在跑」时 fork 父会话的行为（2026-09-01）
+
+- **fork 不被拒绝**（父 turn 已收尾，有切点），副本是**干净的历史快照**，与正在跑的子代理**零关联**：
+  - 后台/continuable 子代理：工具调用在父流里已成对落盘（tool/call + tool/result 占位，如 `{kind:'continuable',subagentId}`），fork 完整复制 → 副本里显示为**已完成的 subagent 调用卡**（占位结果，不是最终答案），不是"运行中/等待"。子代理血缘（parentSessionId）指向**原父会话**，结果回来只回原父，副本感知不到、已回传链路（authorizeLineage）校验 parentSession 不符即 UNAUTHORIZED。
+  - 前台阻塞子代理：父 turn 未结束 → fork 被拒或 boundary 回退到上一完成轮次、该调用**不进副本**。所以「副本里永久运行中的调用」不会出现。
+  - 副本不继承「等待子代理」挂起态（activation/ownedChildren 是运行时状态非事件流状态），副本空闲、可正常对话。
+- **信息不对称（待讨论）**：副本聊天流里可见那条 subagent 调用卡（历史记录里有），但「N 个子代理」chip/面包屑/会话树**都不认它**（血缘挂在原父下）；点击调用卡不会跳到仍在跑的子代理。官方 dsh web 行为一致（同一套 fork，无特殊处理）。
+- 待实测确认：dsh-one 部署的子代理默认模式（后台 vs 前台）未实跑证实（代码推演默认 backgroundMode one-shot / run_in_background ?? continuable）；副本里调用卡的实际 UI 渲染未跑 UI 实测。
