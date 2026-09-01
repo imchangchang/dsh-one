@@ -220,6 +220,8 @@ let earlierAnchor: { firstId: string | undefined; count: number; seenLoading: bo
 let lastComposerSig: string | null = null
 /** Signature of the header-relevant state at the last render; see render(). */
 let lastHeaderSig: string | null = null
+/** Signature of the pending-interaction state at the last render; see render(). */
+let lastPendingSig: string | null = null
 /** Images staged in the composer, sent with the next `send`. */
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
@@ -1635,6 +1637,22 @@ function render(): void {
     oldQueueEditor && document.activeElement === oldQueueEditor
       ? { start: oldQueueEditor.selectionStart, end: oldQueueEditor.selectionEnd }
       : null
+  // Pending 卡（approval/question）保活：与 composer/header 同款策略。流式
+  // 快照每帧重建 pending 区，正在输入回答的输入框被销毁重造（draft 文本靠
+  // answerDrafts 恢复，但焦点/光标/进行中的 IME 组合全丢——用户明明在打
+  // 字却每 100ms 被打断一次）。焦点在卡内且 pending 内容未变时保留原元素。
+  const oldPending = chatCol.querySelector<HTMLElement>(':scope > .pending')
+  const pendingFocus = oldPending !== null && oldPending.contains(document.activeElement)
+  // 签名带 sessionId：换会话时旧会话的 pending 卡必须移除，不能因内容
+  // 恰好相同（rpcId 全局唯一，理论不会，但防御起见）被保活成跨会话残留。
+  const pendingSig =
+    state && state.pending.length > 0 ? JSON.stringify([state.sessionId, state.pending]) : null
+  const keepPending =
+    oldPending !== null &&
+    pendingFocus &&
+    pendingSig !== null &&
+    pendingSig === lastPendingSig &&
+    state?.loading !== true
   // A recalled queue item claimed by the agent (or removed) drops the recall;
   // the text stays in the composer as a plain draft.
   const recallQueueId = recall?.kind === 'queue' ? recall.itemId : null
@@ -1725,6 +1743,7 @@ function render(): void {
     if (keepMessages && child === oldMessages) continue
     if (keepHeader && child === oldHeader) continue
     if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
+    if (keepPending && child === oldPending) continue
     child.remove()
   }
   // Menus anchored to surviving elements (kept composer, sessions header)
@@ -1740,6 +1759,7 @@ function render(): void {
   if (!state || !state.sessionId) {
     lastComposerSig = null
     lastHeaderSig = null
+    lastPendingSig = null
     turnStatusStart = null
     scrollSession = null
     chatCol.appendChild(renderEmpty(state))
@@ -1774,6 +1794,7 @@ function render(): void {
     }
     lastComposerSig = composerSig
     lastHeaderSig = headerSig
+    lastPendingSig = pendingSig
     return
   }
   // Regions above the composer; insert before the preserved composer when kept.
@@ -1957,7 +1978,7 @@ function render(): void {
   messages.appendChild(jump)
   if (!keepMessages) add(messages)
 
-  if (state.pending.length > 0) {
+  if (state.pending.length > 0 && !keepPending) {
     const pending = el('div', 'pending')
     for (const p of state.pending) {
       pending.appendChild(p.kind === 'approval' ? renderApproval(p) : renderQuestion(p))
@@ -2010,6 +2031,7 @@ function render(): void {
   }
   lastComposerSig = composerSig
   lastHeaderSig = headerSig
+  lastPendingSig = pendingSig
   // 「加载更早」的锚定配对：先记下 loadingEarlier 曾为 true（请求确实被
   // 接受），它翻回 false 的这一帧若消息从顶部插入（首条变了或条数多了），
   // 按新增高度补偿 scrollTop；无论是否插入都解除锚点（空页/失败同样落地）。
@@ -3050,7 +3072,12 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
             // 点击只选中，提交一律走底部的「确认」按钮：直接提交容易误触。
             draft.selected = new Set([opt.label])
             draft.custom = ''
-            render()
+            // 保活态下 render() 不会重建 pending 卡，选中高亮与自定义输入
+            // 框必须就地更新；无保活时下次快照重建也会按 draft 恢复同态。
+            group.querySelectorAll('.option-btn').forEach((b) => b.classList.toggle('selected', b === btn))
+            const customInput = wrap.querySelector<HTMLInputElement>('.question-custom input')
+            if (customInput) customInput.value = ''
+            updateOkState()
           })
           group.appendChild(btn)
         }
