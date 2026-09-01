@@ -94,6 +94,8 @@ interface ToolResultEventData {
     }>
   }
   error?: { name: string; code: string }
+  /** tool 私有的 presentation 载荷（dsh-session 契约可选字段），原样透传。 */
+  meta?: unknown
 }
 
 /** Join the text blocks of a message content array; other block kinds are skipped. */
@@ -539,6 +541,8 @@ export class ConversationFolder {
     const text = textOfBlocks(result?.content)
     if (text) block.output = text
     if (view?.for === 'result') this.applyResultView(block, view.view)
+    // meta 原样透传（cordis_define/run 卡的 pluginId/packageId/pluginRunId 来源）。
+    if (data.meta !== undefined) block.meta = data.meta
     // A result paired to an earlier call skipped ensureAssistant; still bump seq.
     if (this.current) this.current.seq = seq
     return true

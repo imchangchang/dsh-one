@@ -380,6 +380,45 @@ const STYLE = `
     border-radius: 50%; background: currentColor;
   }
   .tool-state-dot[data-state="error"] { color: var(--vscode-testing-iconFailed, #f14c4c); }
+  /* skill / cordis 专用工具卡（对齐 dsh web SkillRow / CordisDefineRow 等）：
+     行首专用图标 + 动作标题 + 分隔点 + 摘要（错误红字），与通用工具行同构。 */
+  .tool-leading { flex: none; display: inline-flex; align-items: center; align-self: center; }
+  .tool-sep {
+    flex: none; align-self: center; width: 2px; height: 2px; border-radius: 1px;
+    background: var(--vscode-descriptionForeground, #888);
+  }
+  .tool-title-error { opacity: 1; color: var(--vscode-testing-iconFailed, #f14c4c); }
+  .tool-purpose {
+    flex: none; opacity: 0.6; font-size: 0.92em; color: var(--vscode-descriptionForeground, #888);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%;
+  }
+  /* skill 卡展开的指令全文卡（对齐 web SkillRow instructionsCard）：
+     边框 + 「说明」头 + max-height 260 内滚动。 */
+  .skill-instructions-card {
+    margin: 4px 0 0 20px; border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    border-radius: 8px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .skill-instructions-header {
+    padding: 2px 8px; font-size: 0.8em; font-weight: 600; opacity: 0.6;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .skill-instructions {
+    margin: 0; padding: 6px 8px; max-height: 260px; overflow: auto;
+    white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.88em;
+  }
+  /* cordis_define 卡展开的源码段（对齐 web CordisDefineRow sourceCard）：
+     Host/Client 各一段，max-height 260 内滚动。 */
+  .cordis-source { margin: 4px 0 0 20px; display: flex; flex-direction: column; }
+  .cordis-source-label {
+    font-size: 0.8em; font-weight: 600; opacity: 0.6; padding: 2px 0;
+  }
+  .cordis-source-code {
+    margin: 0; padding: 6px 8px; max-height: 260px; overflow: auto;
+    white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.88em;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3)); border-radius: 8px;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+  }
   /* 工具卡展开（对齐 dsh web DisclosureRow）：整行（summary）可点，折叠态保留
      摘要行，展开出 IN/OUT 卡片，内容 150px 内滚动。chevron 朝下表示可展开，
      展开后旋转朝上；展开态持久化在 detailsOpen（key 按消息/块位置）。 */

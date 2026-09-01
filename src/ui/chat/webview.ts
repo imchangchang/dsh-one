@@ -7,7 +7,7 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { CONTEXT_BROWSE_ICON, FISH_LOGO, MESSAGE_ACTION_ICONS, PANEL_ICONS, THINK_ICON, type IconDef } from './icons.ts'
+import { CONTEXT_BROWSE_ICON, CODE_ICON, FISH_LOGO, MESSAGE_ACTION_ICONS, PANEL_ICONS, SKILL_ICON, STOP_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
@@ -35,6 +35,7 @@ import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTr
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../pure/toolLine.ts'
+import { cordisActionCardModel, cordisDefineCardModel, cordisRunCardModel, skillCardModel } from '../../pure/toolCards.ts'
 import {
   JSON_TREE_ROOT_KEY,
   flattenJsonTree,
@@ -2886,6 +2887,159 @@ function subagentSnapshotNote(block: ChatToolBlock): HTMLElement | null {
 }
 
 /**
+ * 专用工具卡的行首状态位（对齐 dsh web 各专用卡 leadingFor）：running →
+ * spinner（dsh-one 惯例），error → StateDot 红点，其余 → 专用图标。
+ */
+function toolLeading(icon: IconDef, status: ChatToolBlock['status']): HTMLElement {
+  if (status === 'running') return el('span', 'spinner')
+  if (status === 'error') {
+    const dot = el('span', 'tool-state-dot')
+    dot.setAttribute('data-state', 'error')
+    return dot
+  }
+  const ic = el('span', 'tool-leading')
+  ic.appendChild(iconSvg(icon, 14))
+  return ic
+}
+
+/** 专用卡行内的分隔点 + 摘要（errorSummary 红字，其余普通灰字）。 */
+function toolCardSummary(errorSummary: string | null, fallback: string): HTMLElement {
+  const summary = el('span', errorSummary ? 'tool-title tool-title-error' : 'tool-title', errorSummary ?? fallback)
+  return summary
+}
+
+/**
+ * skill 工具专用卡（对齐 dsh web SkillRow）：行首 Skill 图标（running 时
+ * spinner、error 时红点）+ 「Skill」+ 分隔点 + skill 名（error 时输出首行）；
+ * 有指令全文（result 输出）才可展开，展开出「说明」指令卡（max-height 260
+ * 内滚动）。dsh web 的 Inspect 按钮依赖轨迹面板，dsh-one 没有，省略。
+ */
+function renderSkillRow(block: ChatToolBlock, key: string): HTMLElement {
+  const card = skillCardModel(block)
+  const row = el('div', `tool tool-skill tool-${block.status}`)
+  const line = el('div', 'tool-line')
+  line.appendChild(toolLeading(SKILL_ICON, block.status))
+  line.appendChild(el('span', 'tool-action', 'Skill'))
+  line.appendChild(el('span', 'tool-sep'))
+  line.appendChild(toolCardSummary(card.errorSummary, card.name))
+  if (!card.output) {
+    // 无指令全文：静态行（running 或 result 无文本）。
+    row.appendChild(line)
+    return row
+  }
+  const det = el('details', 'tool-disclosure') as HTMLDetailsElement
+  det.open = detailsOpen.get(`${key}:tool`) ?? false
+  det.addEventListener('toggle', () => detailsOpen.set(`${key}:tool`, det.open))
+  const summary = el('summary')
+  const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
+  chev.classList.add('tool-chevron')
+  line.appendChild(chev)
+  summary.appendChild(line)
+  det.appendChild(summary)
+  const instructions = el('div', 'skill-instructions-card')
+  instructions.appendChild(el('div', 'skill-instructions-header', '说明'))
+  instructions.appendChild(el('pre', 'skill-instructions', card.output))
+  det.appendChild(instructions)
+  row.appendChild(det)
+  return row
+}
+
+/**
+ * cordis_define 专用卡（对齐 dsh web CordisDefineRow）：行首 Code 图标 +
+ * 「注册 Cordis 插件」+ 分隔点 + 插件名 + 用途（灰字，缺省「(未填写用途)」）；
+ * 有 Host/Client 源码或输出才可展开，展开出两段源码（Host/Client，各
+ * max-height 260 内滚动）+ 结果段。dsh web 的插件运行状态 readout 依赖
+ * cordis inventory 数据链路，dsh-one 没有，省略（静态版）。
+ */
+function renderCordisDefineRow(block: ChatToolBlock, key: string): HTMLElement {
+  const card = cordisDefineCardModel(block)
+  const row = el('div', `tool tool-cordis tool-cordis-define tool-${block.status}`)
+  const line = el('div', 'tool-line')
+  line.appendChild(toolLeading(CODE_ICON, block.status))
+  line.appendChild(el('span', 'tool-action', '注册 Cordis 插件'))
+  line.appendChild(el('span', 'tool-sep'))
+  line.appendChild(toolCardSummary(card.errorSummary, card.name))
+  // error 时只显示错误摘要，purpose 让位（web 同款：purpose 仅在无错误时展示）。
+  if (card.errorSummary === null) {
+    line.appendChild(el('span', 'tool-purpose', card.purpose ?? '（未填写用途）'))
+  }
+  const expandable = card.hostCode !== null || card.clientCode !== null || card.output !== null
+  if (!expandable) {
+    row.appendChild(line)
+    return row
+  }
+  const det = el('details', 'tool-disclosure') as HTMLDetailsElement
+  det.open = detailsOpen.get(`${key}:tool`) ?? false
+  det.addEventListener('toggle', () => detailsOpen.set(`${key}:tool`, det.open))
+  const summary = el('summary')
+  const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
+  chev.classList.add('tool-chevron')
+  line.appendChild(chev)
+  summary.appendChild(line)
+  det.appendChild(summary)
+  const body = el('div', 'tool-disclosure-body')
+  for (const [label, code] of [
+    ['Host', card.hostCode],
+    ['Client', card.clientCode],
+  ] as const) {
+    if (code === null) continue
+    const section = el('div', 'cordis-source')
+    section.appendChild(el('div', 'cordis-source-label', label))
+    section.appendChild(el('pre', 'cordis-source-code', code))
+    body.appendChild(section)
+  }
+  if (card.output !== null) {
+    const section = el('div', 'cordis-source')
+    section.appendChild(el('div', 'cordis-source-label', '结果'))
+    section.appendChild(el('pre', 'cordis-source-code', card.output))
+    body.appendChild(section)
+  }
+  det.appendChild(body)
+  row.appendChild(det)
+  return row
+}
+
+/**
+ * cordis_run 专用卡（对齐 web CordisRunRow 的静态版）：行首 Code 图标 +
+ * 「运行/更新 Cordis 插件」（args.mode） + 分隔点 + pluginId · packageId
+ * （error 时输出首行）；输出直接平铺在行下（web 同款，非 disclosure）。
+ * dsh web 的 inventory 运行状态、awaiting-approval/superseded 提示与
+ * 插件自注册业务视图都依赖 cordis 面板数据链路，dsh-one 没有，省略。
+ */
+function renderCordisRunRow(block: ChatToolBlock, key: string): HTMLElement {
+  const card = cordisRunCardModel(block)
+  const row = el('div', `tool tool-cordis tool-cordis-run tool-${block.status}`)
+  const line = el('div', 'tool-line')
+  line.appendChild(toolLeading(CODE_ICON, block.status))
+  line.appendChild(el('span', 'tool-action', card.mode === 'update' ? '更新 Cordis 插件' : '运行 Cordis 插件'))
+  line.appendChild(el('span', 'tool-sep'))
+  const identity = card.pluginId ? `${card.pluginId}${card.packageId ? ` · ${card.packageId}` : ''}` : block.callId
+  line.appendChild(toolCardSummary(card.errorSummary, identity))
+  row.appendChild(line)
+  if (card.output !== null) row.appendChild(renderToolOutput(card.output, `${key}:out`))
+  return row
+}
+
+/**
+ * cordis_stop / cordis_undefine 专用卡（对齐 web CordisActionRow）：行首
+ * Stop/Trash 图标 + 「停止/移除 Cordis 插件」 + 分隔点 + pluginId（error 时
+ * 输出首行）；输出直接平铺。与 cordis_run 一样无 inventory 依赖，静态版。
+ */
+function renderCordisActionRow(block: ChatToolBlock, key: string): HTMLElement {
+  const card = cordisActionCardModel(block)
+  const remove = block.name === 'cordis_undefine'
+  const row = el('div', `tool tool-cordis tool-cordis-action tool-${block.status}`)
+  const line = el('div', 'tool-line')
+  line.appendChild(toolLeading(remove ? TRASH_ICON : STOP_ICON, block.status))
+  line.appendChild(el('span', 'tool-action', remove ? '移除 Cordis 插件' : '停止 Cordis 插件'))
+  line.appendChild(el('span', 'tool-sep'))
+  line.appendChild(toolCardSummary(card.errorSummary, card.pluginId ?? block.callId))
+  row.appendChild(line)
+  if (card.output !== null) row.appendChild(renderToolOutput(card.output, `${key}:out`))
+  return row
+}
+
+/**
  * 工具调用行（kimi-cli / dsh web 行式排版）：状态图标 + 英文动作短语 +
  * host 计算的标题（如文件路径），命令类工具另起一行等宽预览（$ 前缀、
  * 截断省略）。不再是带边框的卡片容器。
@@ -2894,8 +3048,23 @@ function subagentSnapshotNote(block: ChatToolBlock): HTMLElement | null {
  * 其他工具带输入参数（args）或输出（output）时整行可点展开（对齐 dsh web
  * DisclosureRow）：折叠态保留摘要，展开出 IN（参数 JSON）+ OUT（结果）卡片，
  * 各 150px 内滚动。
+ * skill / cordis_* 走专用卡分流（按工具名，对齐 dsh web tool.call.toolview
+ * 插槽的 entryKey 分发）。
  */
 function renderTool(block: ChatToolBlock, key: string): HTMLElement {
+  switch (block.name) {
+    case 'skill':
+      return renderSkillRow(block, key)
+    case 'cordis_define':
+      return renderCordisDefineRow(block, key)
+    case 'cordis_run':
+      return renderCordisRunRow(block, key)
+    case 'cordis_stop':
+    case 'cordis_undefine':
+      return renderCordisActionRow(block, key)
+    default:
+      break
+  }
   const row = el('div', `tool tool-${block.status}`)
   const line = el('div', 'tool-line')
   const snapshotNote = subagentSnapshotNote(block)
