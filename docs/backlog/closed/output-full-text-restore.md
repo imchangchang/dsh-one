@@ -22,3 +22,4 @@ dsh-one 折叠工具输出时硬截断在 4000 字符，全文在折叠模型里
 - `src/ui/chat/webview.ts`（输出展示截断 truncateLines）
 - 2026-09-01 认领（worktree: agent/output-full-text-restore）→ doing
 - 2026-09-01 开发完成 → done
+- 2026-09-01 主线合入测试通过、人工确认 → closed
