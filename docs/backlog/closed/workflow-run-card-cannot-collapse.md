@@ -42,3 +42,5 @@
 
 - 2026-09-01 认领（worktree: agent/workflow-run-card-cannot-collapse）→ doing
 - 2026-09-01 根因确认：click 未触发重渲染（运行中 & 终态卡均受影响；官方用 React setState 点击即重渲染）；修复 = click 后同步 render()。开发完成 → done
+
+- 2026-09-01 主线合入测试通过（merge f05cec5），人工验收通过 → closed
