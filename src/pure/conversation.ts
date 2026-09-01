@@ -12,9 +12,11 @@ import type {
   ChatAssistantMessage,
   ChatBlock,
   ChatCommandMessage,
+  ChatCompactionMessage,
   ChatFile,
   ChatImage,
   ChatMessage,
+  ChatRetryBlock,
   ChatToolBlock,
 } from './chatContract.ts'
 
@@ -34,6 +36,13 @@ export interface SessionEventLike {
   seq: number
   time?: number
   data?: unknown
+  /**
+   * Surface placement of surface events (user/message, assistant/message,
+   * tool/result): 'append' 或 {op:'replace',…}。checkpoint user/message 靠
+   * 它识别（替换型 + source.plugin='compact' 才是压缩检查点，不能当普通用户
+   * 消息折叠）。非 surface 事件不带此字段。
+   */
+  surfaceOp?: unknown
 }
 
 /**
@@ -211,6 +220,56 @@ function splitAttachments(text: string): { text: string; files: ChatFile[] } {
 }
 
 /**
+ * 压缩 checkpoint 识别（对齐官方 client 的 isCompactionCheckpoint）：替换型
+ * surface user/message（surfaceOp ≠ 'append'）+ source 带后端无关标记
+ * {kind:'plugin', plugin:'compact', compactionId}。返回配对身份；非 checkpoint
+ * 返回 undefined（继续按普通用户消息折叠）。
+ */
+function compactCheckpoint(event: SessionEventLike): { compactionId: string; sourceCommandId?: string } | undefined {
+  if (event.type !== 'user/message' || event.surfaceOp === undefined || event.surfaceOp === 'append') return undefined
+  const source = (event.data as { source?: unknown } | undefined)?.source as
+    | { kind?: unknown; plugin?: unknown; compactionId?: unknown; sourceCommandId?: unknown }
+    | undefined
+  if (source?.kind !== 'plugin' || source.plugin !== 'compact') return undefined
+  if (typeof source.compactionId !== 'string' || !source.compactionId) return undefined
+  return {
+    compactionId: source.compactionId,
+    ...(typeof source.sourceCommandId === 'string' && source.sourceCommandId
+      ? { sourceCommandId: source.sourceCommandId }
+      : {}),
+  }
+}
+
+/**
+ * compaction/summary 事件 → 摘要与计数（对齐官方 compactSummary 的防御读取）：
+ * summary = 全部 text 块的拼接（空串 → null），items = shadowedSeqs 长度，
+ * tokens = shadowedTokenCount；字段缺失/畸形时对应 null。
+ */
+function compactionSummaryOf(data: Record<string, unknown>): {
+  summary: string | null
+  items: number | null
+  tokens: number | null
+} {
+  let summary: string | null = null
+  if (Array.isArray(data.summary)) {
+    const text = data.summary
+      .filter(
+        (b): b is { type: string; text: unknown } =>
+          typeof b === 'object' && b !== null && (b as { type?: unknown }).type === 'text',
+      )
+      .map((b) => (typeof b.text === 'string' ? b.text : ''))
+      .join('')
+    summary = text.trim() === '' ? null : text
+  }
+  const seqs = data.shadowedSeqs
+  const items =
+    Array.isArray(seqs) && seqs.every((s) => Number.isSafeInteger(s) && (s as number) >= 0) ? seqs.length : null
+  const rawTokens = data.shadowedTokenCount
+  const tokens = Number.isSafeInteger(rawTokens) && (rawTokens as number) >= 0 ? (rawTokens as number) : null
+  return { summary, items, tokens }
+}
+
+/**
  * Stateful folder over one session's event log. Feed it a history window with
  * applyHistory (full reset — the reconnect baseline), then live events with
  * applyEvent. One turn folds into one assistant message whose blocks follow
@@ -235,6 +294,17 @@ export class ConversationFolder {
   private produced = new Map<number, Array<{ seq: number; path: string }>>()
   /** 每个 turn 已累积过的 path（首次出现去重）。 */
   private producedSeen = new Map<number, Set<string>>()
+  /**
+   * compactionId → compaction/summary 事件提取的摘要与计数（log-only 事件，
+   * 不直接进消息流；由随后紧邻的 checkpoint user/message 消费。官方契约保证
+   * 两者同页——prependHistory 的 scratch folder 也能配对）。
+   */
+  private compactions = new Map<string, { summary: string | null; items: number | null; tokens: number | null }>()
+  /**
+   * retryId → 重试行 + 所属 turn。同链多次尝试（llm/retry 递增 retry）原地
+   * 更新；llm/retry-started 翻 started，turn/end 时仍未 started 的翻 cancelled。
+   */
+  private retries = new Map<string, { block: ChatRetryBlock; turn: number }>()
 
   /** Reset and fold a full history window (initial load / re-baseline). */
   applyHistory(entries: readonly HistoryEntryLike[]): void {
@@ -248,6 +318,8 @@ export class ConversationFolder {
     this.callViews.clear()
     this.produced.clear()
     this.producedSeen.clear()
+    this.compactions.clear()
+    this.retries.clear()
     for (const entry of entries) this.applyEvent(entry.event, entry.view)
   }
 
@@ -294,12 +366,22 @@ export class ConversationFolder {
               })()
             : undefined
         const interrupted = kind === 'aborted' || kind === 'interrupted'
+        // At least one step reached its output-token ceiling (dsh turn/end
+        // reason kind 'max-tokens'): rendered as the official TurnMaxTokensItem.
+        const maxTokens = kind === 'max-tokens'
+        // 所属 turn 关闭时，仍未 llm/retry-started 的重试等待被取消（对齐官方
+        // isClosed 语义：scheduled attempt cancelled once the boundary closes）。
+        const turn = Number(data.turn)
+        if (Number.isFinite(turn)) {
+          for (const entry of this.retries.values()) {
+            if (entry.turn === turn && entry.block.retryState === 'scheduled') entry.block.retryState = 'cancelled'
+          }
+        }
         let msg = this.current
         if (!msg) {
           // current 可能已被 turn 中途注入的 user/message 切断为 null：按
           // ensureAssistant 的 id 规则从尾部找回本 turn 最后一条 assistant
           // 消息（turn/end 落在历史窗口外时找不到，不标记 turnEnd）。
-          const turn = Number(data.turn)
           if (Number.isFinite(turn)) {
             const id = `assistant-t${turn}`
             for (let i = this.msgs.length - 1; i >= 0; i--) {
@@ -311,10 +393,10 @@ export class ConversationFolder {
             }
           }
         }
-        if (!msg && (turnError || interrupted)) {
-          // The turn failed / was cancelled before any assistant content:
-          // still surface an (empty) assistant message so the error row /
-          // 已中断 marker has somewhere to live.
+        if (!msg && (turnError || interrupted || maxTokens)) {
+          // The turn failed / was cancelled / hit the token cap before any
+          // assistant content: still surface an (empty) assistant message so
+          // the error row / 已中断 marker / maxTokens notice has a home.
           msg = {
             kind: 'assistant',
             id: `assistant-s${event.seq}`,
@@ -331,6 +413,7 @@ export class ConversationFolder {
           msg.turnEnd = true
           if (interrupted) msg.interrupted = true
           if (turnError) msg.turnError = turnError
+          if (maxTokens) msg.maxTokens = true
           // 产物（对齐官方 ProducedFiles）：本 turn 累积的路径，首次出现顺序，
           // 只挂 turnEnd 消息；seq 晚于 turn/end 的迟交 tool/result 不参与。
           const entries = this.produced.get(Number(data.turn))
@@ -344,6 +427,34 @@ export class ConversationFolder {
         return true
       }
       case 'user/message': {
+        // 压缩 checkpoint（替换型 user/message + source.plugin='compact'）：
+        // 不渲染成用户气泡，折叠成压缩标记卡（对齐官方 CompactionItem）。
+        // 手动 /compact（sourceCommandId 命中窗口内命令卡）合并进命令卡，
+        // 命令卡在窗口外或自动压缩时独立成一条消息。
+        const checkpoint = compactCheckpoint(event)
+        if (checkpoint) {
+          const info = this.compactions.get(checkpoint.compactionId)
+          const compaction: { summary: string | null; items: number | null; tokens: number | null } = {
+            summary: info?.summary ?? null,
+            items: info?.items ?? null,
+            tokens: info?.tokens ?? null,
+          }
+          if (checkpoint.sourceCommandId) {
+            const cmd = this.msgs.find(
+              (m): m is ChatCommandMessage => m.kind === 'command' && m.id === checkpoint.sourceCommandId,
+            )
+            if (cmd) cmd.compaction = compaction
+            else this.msgs.push({ kind: 'compaction', id: checkpoint.compactionId, ...compaction })
+          } else {
+            this.msgs.push({ kind: 'compaction', id: checkpoint.compactionId, ...compaction })
+          }
+          // 与普通 user/message 一样切断当前 assistant 消息：checkpoint 之后
+          // 的内容另起一条（官方按 seq 位置渲染成独立节点）。
+          if (this.current) this.current.complete = true
+          this.current = null
+          this.stepKey = null
+          return true
+        }
         const rawText = textOfBlocks(data.content as Array<{ type: string; text?: unknown }> | undefined)
         const { text, files } = splitAttachments(rawText)
         const images = imagesOfBlocks(data.content)
@@ -412,6 +523,62 @@ export class ConversationFolder {
         if (!msg) return false
         msg.status = data.kind === 'error' ? 'error' : 'success'
         if (typeof data.text === 'string' && data.text.trim()) msg.text = data.text
+        return true
+      }
+      case 'llm/retry': {
+        // Durable record of one provider-routed retry scheduled after a failed
+        // request attempt. 折叠成承载 turn 的消息里的重试行（对齐官方
+        // ModelRetryItem）；同 retryId 的后续尝试原地更新（保持首次位置）。
+        const r = (data as { retryId?: unknown }).retryId
+        if (typeof r !== 'string' || !r) return false
+        const failure = (data as { failure?: unknown }).failure as { message?: unknown } | undefined
+        if (typeof failure?.message !== 'string' || !failure.message) return false
+        const entry = this.retries.get(r)
+        if (entry) {
+          const b = entry.block
+          b.retry = Number(data.retry) || b.retry
+          b.delayMs = Number(data.delayMs) || b.delayMs
+          b.failure = { message: failure.message }
+          if (b.retryState !== 'scheduled') b.retryState = 'scheduled'
+          return true
+        }
+        // 只在新建链时确保承载消息；后续尝试原地更新，不再动消息结构。
+        const msg = this.ensureAssistant(Number(data.turn), event.seq)
+        const block: ChatRetryBlock = {
+          type: 'retry',
+          retry: Number(data.retry) || 1,
+          mode: (data as { mode?: unknown }).mode === 'always' ? 'always' : 'normal',
+          delayMs: Number(data.delayMs) || 0,
+          failure: { message: failure.message },
+          retryState: 'scheduled',
+          ...(typeof event.time === 'number' ? { time: event.time } : {}),
+        }
+        if ((data as { mode?: unknown }).mode !== 'always') {
+          const max = Number((data as { maxRetries?: unknown }).maxRetries)
+          if (Number.isSafeInteger(max) && max >= 0) block.maxRetries = max
+        }
+        msg.blocks.push(block)
+        this.retries.set(r, { block, turn: Number(data.turn) })
+        return true
+      }
+      case 'llm/retry-started': {
+        // Durable transition: the retry wait succeeded, the next attempt starts.
+        const r = (data as { retryId?: unknown }).retryId
+        if (typeof r !== 'string' || !r) return false
+        const entry = this.retries.get(r)
+        if (!entry) return false
+        if (entry.block.retryState !== 'started') {
+          entry.block.retryState = 'started'
+          return true
+        }
+        return false
+      }
+      case 'compaction/summary': {
+        // Log-only metering event: the summary content + shadow price of one
+        // compaction. 不直接进消息流，交给随后紧邻的 checkpoint user/message。
+        const compactionId = typeof data.compactionId === 'string' && data.compactionId ? data.compactionId : undefined
+        if (!compactionId) return false
+        this.compactions.set(compactionId, compactionSummaryOf(data))
         return true
       }
       default:

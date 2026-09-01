@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ConversationFolder, applyFeedbackRatings } from '../src/pure/conversation.ts'
 import type { HistoryEntryLike, SessionEventLike, StreamChunkData, ToolEventViewLike } from '../src/pure/conversation.ts'
-import type { ChatAssistantMessage, ChatToolBlock } from '../src/pure/chatContract.ts'
+import type { ChatAssistantMessage, ChatRetryBlock, ChatToolBlock } from '../src/pure/chatContract.ts'
 
 let seq = 0
 
@@ -764,7 +764,9 @@ test('prependHistory folds an older page in front of the current window', () => 
 
   const msgs = f.messages()
   assert.deepEqual(
-    msgs.map((m) => (m.kind === 'user' ? m.text : m.kind === 'assistant' ? (m.blocks[0] as { text: string }).text : m.name)),
+    msgs.map((m) =>
+      m.kind === 'user' ? m.text : m.kind === 'assistant' ? (m.blocks[0] as { text: string }).text : m.kind === 'command' ? m.name : '',
+    ),
     ['第一问', '第一答', '第二问', '第二答'],
   )
   assert.equal(f.hasOpenTurn(), false)
@@ -1014,4 +1016,248 @@ test('turn split by an injected user/message still attaches produced files to th
   assert.equal(assistantMsgs[1].turnEnd, true)
   // 产物只挂本 turn 最后一条（turnEnd）消息，跨消息不重复。
   assert.deepEqual(assistantMsgs[1].producedFiles, ['/repo/a.ts', '/repo/b.ts'])
+/* ---------------- 重试行（llm/retry） ---------------- */
+
+function retryEv(retryId: string, overrides: Record<string, unknown> = {}): SessionEventLike {
+  return ev('llm/retry', {
+    retryId,
+    turn: 1,
+    step: 1,
+    provider: 'deepseek',
+    mode: 'normal',
+    policyKey: 'default',
+    retry: 1,
+    maxRetries: 3,
+    delayMs: 5000,
+    failure: { message: 'rate limited', code: 'RATE_LIMIT' },
+    ...overrides,
+  })
+}
+
+function retryStartedEv(retryId: string, retry = 1): SessionEventLike {
+  return ev('llm/retry-started', { retryId, turn: 1, step: 1, retry })
+}
+
+test('llm/retry folds a scheduled retry block into the turn message', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+
+  const block = lastAssistant(f).blocks[0] as ChatRetryBlock
+  assert.equal(block.type, 'retry')
+  assert.deepEqual(
+    { retry: block.retry, mode: block.mode, maxRetries: block.maxRetries, delayMs: block.delayMs, retryState: block.retryState },
+    { retry: 1, mode: 'normal', maxRetries: 3, delayMs: 5000, retryState: 'scheduled' },
+  )
+  assert.deepEqual(block.failure, { message: 'rate limited' })
+  assert.equal(typeof block.time, 'number')
+})
+
+test('llm/retry-started marks the retry block started', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(retryStartedEv('r1'))
+
+  const block = lastAssistant(f).blocks[0] as ChatRetryBlock
+  assert.equal(block.retryState, 'started')
+})
+
+test('a still-scheduled retry is cancelled when the turn ends', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }))
+
+  const block = lastAssistant(f).blocks[0] as ChatRetryBlock
+  assert.equal(block.retryState, 'cancelled')
+})
+
+test('a started retry keeps its started state when the turn ends', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(retryStartedEv('r1'))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+
+  const block = lastAssistant(f).blocks[0] as ChatRetryBlock
+  assert.equal(block.retryState, 'started')
+})
+
+test('subsequent llm/retry events update the same block in place', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(retryEv('r1', { retry: 2, delayMs: 8000, failure: { message: 'still down', code: 'BUSY' } }))
+
+  const msgs = f.messages()
+  const blocks = msgs.filter((m) => m.kind === 'assistant').flatMap((m) => (m as ChatAssistantMessage).blocks)
+  assert.equal(blocks.length, 1)
+  const block = blocks[0] as ChatRetryBlock
+  assert.deepEqual(
+    { retry: block.retry, delayMs: block.delayMs, retryState: block.retryState },
+    { retry: 2, delayMs: 8000, retryState: 'scheduled' },
+  )
+  assert.deepEqual(block.failure, { message: 'still down' })
+})
+
+test('llm/retry in always mode carries no maxRetries (∞ display)', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1', { mode: 'always', retry: 1, delayMs: 2000 }))
+
+  const block = lastAssistant(f).blocks[0] as ChatRetryBlock
+  assert.equal(block.mode, 'always')
+  assert.equal(block.maxRetries, undefined)
+})
+
+test('llm/retry without a failure message is ignored', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1', { failure: { message: '', code: 'X' } }))
+
+  // 没有可展示的失败原因就不建消息、不建块（与 turnError 同样保守）。
+  assert.equal(f.messages().length, 0)
+})
+
+/* ---------------- 超 token 提示（turn/end max-tokens） ---------------- */
+
+test('turn/end with a max-tokens reason marks maxTokens, not interrupted', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: 'cut off' }))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }))
+
+  const msg = lastAssistant(f)
+  assert.equal(msg.maxTokens, true)
+  assert.equal(msg.interrupted, undefined)
+  assert.equal(msg.turnError, undefined)
+  assert.equal(msg.complete, true)
+})
+
+test('turn/end max-tokens with no content yields an empty assistant message marked maxTokens', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(userEv('u1', 'hi'))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }))
+
+  const msg = lastAssistant(f)
+  assert.deepEqual(msg.blocks, [])
+  assert.equal(msg.complete, true)
+  assert.equal(msg.maxTokens, true)
+  assert.equal(f.hasOpenTurn(), false)
+})
+
+/* ---------------- 压缩卡（compaction/summary + checkpoint user/message） ---------------- */
+
+function compactSummaryEv(compactionId: string, overrides: Record<string, unknown> = {}): SessionEventLike {
+  return ev('compaction/summary', {
+    compactionId,
+    summary: [{ type: 'text', text: '前文要点一\n前文要点二' }],
+    shadowedSeqs: [1, 2, 3],
+    shadowedTokenCount: 1234,
+    ...overrides,
+  })
+}
+
+/** 替换型 checkpoint user/message（surfaceOp replace + source.plugin='compact'）。 */
+function checkpointEv(compactionId: string, sourceCommandId?: string): SessionEventLike {
+  const e = ev('user/message', {
+    id: `checkpoint-${compactionId}`,
+    role: 'user',
+    content: [{ type: 'text', text: 'This is an automatically generated checkpoint…' }],
+    source: {
+      kind: 'plugin',
+      plugin: 'compact',
+      compactionId,
+      ...(sourceCommandId ? { sourceCommandId } : {}),
+    },
+  })
+  e.surfaceOp = { op: 'replace', start: 1, end: 2 }
+  return e
+}
+
+test('compaction checkpoint without sourceCommandId folds into a standalone compaction card', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(compactSummaryEv('c-1'))
+  f.applyEvent(checkpointEv('c-1'))
+
+  const msg = f.messages().at(-1)
+  assert.equal(msg?.kind, 'compaction')
+  if (msg?.kind !== 'compaction') return
+  assert.equal(msg.id, 'c-1')
+  assert.equal(msg.summary, '前文要点一\n前文要点二')
+  assert.equal(msg.items, 3)
+  assert.equal(msg.tokens, 1234)
+})
+
+test('compaction checkpoint with no summary event is not expandable', () => {
+  const f = new ConversationFolder()
+  // compaction/summary 落在窗口外：checkpoint 单独到达，摘要与计数都不可知。
+  f.applyEvent(checkpointEv('c-2'))
+
+  const msg = f.messages().at(-1)
+  assert.equal(msg?.kind, 'compaction')
+  if (msg?.kind !== 'compaction') return
+  assert.equal(msg.summary, null)
+  assert.equal(msg.items, null)
+  assert.equal(msg.tokens, null)
+})
+
+test('compaction summary with malformed fields degrades to nulls', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(compactSummaryEv('c-3', { summary: 'not-an-array', shadowedSeqs: 'x', shadowedTokenCount: -1 }))
+  f.applyEvent(checkpointEv('c-3'))
+
+  const msg = f.messages().at(-1)
+  assert.equal(msg?.kind, 'compaction')
+  if (msg?.kind !== 'compaction') return
+  assert.equal(msg.summary, null)
+  assert.equal(msg.items, null)
+  assert.equal(msg.tokens, null)
+})
+
+test('manual compaction checkpoint attaches to the in-window compact command card', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('command/run', { commandId: 'cmd-1', name: 'compact' }))
+  f.applyEvent(compactSummaryEv('c-4'))
+  f.applyEvent(checkpointEv('c-4', 'cmd-1'))
+
+  const msgs = f.messages()
+  assert.equal(msgs.length, 1)
+  const cmd = msgs[0]
+  assert.equal(cmd.kind, 'command')
+  if (cmd.kind !== 'command') return
+  assert.equal(cmd.name, 'compact')
+  assert.deepEqual(cmd.compaction, { summary: '前文要点一\n前文要点二', items: 3, tokens: 1234 })
+})
+
+test('manual compaction checkpoint with no in-window command card folds standalone', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(compactSummaryEv('c-5'))
+  f.applyEvent(checkpointEv('c-5', 'cmd-lost'))
+
+  const msg = f.messages().at(-1)
+  assert.equal(msg?.kind, 'compaction')
+  if (msg?.kind !== 'compaction') return
+  assert.equal(msg.summary, '前文要点一\n前文要点二')
+})
+
+test('a plain user message is never treated as a compaction checkpoint', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(userEv('u1', '普通消息'))
+  // append 型 user/message 即便带 plugin source 也不算 checkpoint。
+  const e = ev('user/message', {
+    id: 'u2',
+    role: 'user',
+    content: [{ type: 'text', text: 'plugin 注入但 append' }],
+    source: { kind: 'plugin', plugin: 'compact', compactionId: 'c-6' },
+  })
+  e.surfaceOp = 'append'
+  f.applyEvent(e)
+
+  const msgs = f.messages()
+  assert.equal(msgs.length, 2)
+  assert.equal(msgs[1].kind, 'user')
 })
