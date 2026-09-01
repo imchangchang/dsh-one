@@ -57,3 +57,4 @@ macOS 触控板：会话已经在底部（贴底跟随中），再向下惯性�
 - 2026-09-01 网上调研，方案候选按规范做法重写（防线层 CSS + 行为层意图门控 + microtask 重锚定）
 - 2026-09-01 用户确认：仅流式输出期间抖动；输出完成后不抖（坐实「写帧窗口 = 渲染推送窗口」）
 - 2026-09-01 认领（worktree: agent/scroll-bottom-momentum-jitter）→ doing
+- 2026-09-01 完成开发（worktree: agent/scroll-bottom-momentum-jitter）：防线层 `.messages { overscroll-behavior-y: none }`（判定弹性作用在 `.messages`——页面唯一滚动容器，`html/body/#app` 均 `height:100%` 且不设 `overflow`，不参与滚动链）+ 行为层意图门控（render 滚底与 `repinIfFollowing` 在 `userScrollIntentActive` 时跳过，不抢原生惯性动画）+ render 滚底改 microtask 重锚定写 settle 值（`shouldPinNow` 纯函数）；自测 typecheck / test(209) / build 全绿，baseline 15 场景 + 流式推送×意图窗口动态检查通过；惯性碰撞机制本身需真实触控板人工确认 → done
