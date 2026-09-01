@@ -36,6 +36,12 @@ dsh web 输入框上方有一个可折叠的「任务」条（`任务 3 进行�
 - `src/ui/chatView.ts`
 - `src/ui/chat/webview.ts`
 
+## 实现核实（2026-09-01）
+
+- 需求引用的 `docs/dsh-one-todos-data-source.md` 在仓库里**不存在**（git 历史也没有）。数据链路已从代码核实：`session.history` 的 `projections.values` 是 `Record<string, unknown>`（todos 键直通，opaque），`session/projection` 帧 `{key, value, seq}` 已按 higher-seq-wins 消费——与需求描述的机制一致，照常实现。
+- `src/ui/chatView.ts` **无需改动**：`ChatSessionController.getState()` 直接产出完整 ChatState（todos 字段在列），`ChatViewProvider.composeHeader` 用 `...state` 透传，todos 自动到达 webview。
+
 ## 变更记录
 
 - 2026-09-01 认领（worktree: agent/todo-cards）→ doing
+- 2026-09-01 开发完成，自测通过 → done

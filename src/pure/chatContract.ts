@@ -32,6 +32,12 @@ export interface ChatToolBlock {
   diff?: { oldText: string; newText: string }
   /** Result text, truncated by the folder. Absent while running. */
   output?: string
+  /**
+   * todo_write 调用的 planSummary，由该次调用 args 的 JSON 快照算出（对齐官方
+   * dsh-client-ui-tool 的 TodoRow；与 ChatState.todos 投影是同一数据域的两个
+   * 独立渲染，各算各的、不共享派生）。args 解析失败时缺省，退回落通用工具行。
+   */
+  todos?: { done: number; total: number; activeContent: string | null; activeExtra: number }
 }
 
 export type ChatBlock = ChatTextBlock | ChatReasoningBlock | ChatToolBlock
@@ -219,6 +225,12 @@ export interface SubagentNode {
   children?: SubagentNode[]
 }
 
+/** One item of the `todos` projection (dsh TodoItem): whole-list snapshot, no id. */
+export interface ChatTodoItem {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+}
+
 /** Whole-chat snapshot pushed host → webview (throttled; replaces state). */
 export interface ChatState {
   sessionId: string | null
@@ -322,6 +334,12 @@ export interface ChatState {
   queue?: QueuedItem[]
   /** Live background jobs (session/jobs frames); settled jobs drop out of the snapshot. */
   jobs?: JobItem[]
+  /**
+   * 任务清单（`todos` 投影，last-wins 整表、turn/start 清空）：缺省/null =
+   * 无清单（首写前 / turn/start 后），[] = 空清单（webview 两种都不渲染）。
+   * 非空时 webview 在输入区上方渲染可折叠卡（对齐官方 TodoPanel/TodoDock）。
+   */
+  todos?: ChatTodoItem[]
   /**
    * Context-occupancy meter data (dsh `contextPressure` + `contextBreakdown`
    * projections). Absent until the provider reports both a pressure sample

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
-import type { ChatState, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem } from '../pure/chatContract.ts'
+import type { ChatState, ChatTodoItem, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem } from '../pure/chatContract.ts'
 import { ConversationFolder, applyFeedbackRatings } from '../pure/conversation.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
@@ -266,6 +266,9 @@ export class ChatSessionController implements vscode.Disposable {
   private pressureSeq = -1
   private contextBreakdown: ContextBreakdownLike | undefined
   private breakdownSeq = -1
+  /** Task list from the `todos` projection (last-wins 整表、turn/start 置 null). */
+  private todos: ChatTodoItem[] | undefined
+  private todosSeq = -1
   /** Image intake limits from the `imageLimits` projection; undefined = no pre-check. */
   imageLimits: ImageLimits | undefined
   /** Footer model pill, filled by refreshModels(). */
@@ -323,6 +326,7 @@ export class ChatSessionController implements vscode.Disposable {
       modelLabel: this.modelLabel,
       permissions: this.permissions,
       statsLine: this.statsLine,
+      todos: this.todos,
       contextUsage: contextUsageOf(this.contextPressure, this.contextBreakdown, this.statsTurns),
       // 只透给空会话：turn 一开跑 host 就锁定 preset（agent-preset-locked）。
       ...(!this.turnStarted && this.agentPresetOptions.length > 0 && this.agentPresetCurrent
@@ -537,8 +541,10 @@ export class ChatSessionController implements vscode.Disposable {
       this.statsSeq = projections.asOfSeq
       this.pressureSeq = projections.asOfSeq
       this.breakdownSeq = projections.asOfSeq
+      this.todosSeq = projections.asOfSeq
       this.applyPermissionsValue(projections.values.permissions)
       this.applyStatsValue(projections.values.sessionStats)
+      this.applyTodosValue(projections.values.todos)
       const limits = asImageLimits(projections.values.imageLimits)
       if (limits) this.imageLimits = limits
       const pressure = asContextPressure(projections.values.contextPressure)
@@ -712,6 +718,26 @@ export class ChatSessionController implements vscode.Disposable {
     this.statsTurns = stats.turns
   }
 
+  /**
+   * Fold one `todos` projection value. null（turn/start 清空）和畸形值都归为
+   * 无清单（undefined）；数组整表透传（可能为空数组——webview 不渲染）。
+   */
+  private applyTodosValue(value: unknown): void {
+    if (value === null || value === undefined || !Array.isArray(value)) {
+      this.todos = undefined
+      return
+    }
+    this.todos = value.filter(
+      (t): t is ChatTodoItem =>
+        typeof t === 'object' &&
+        t !== null &&
+        typeof (t as { content?: unknown }).content === 'string' &&
+        ((t as { status?: unknown }).status === 'pending' ||
+          (t as { status?: unknown }).status === 'in_progress' ||
+          (t as { status?: unknown }).status === 'completed'),
+    )
+  }
+
   private onFrame(frame: MuxFrame): void {
     if (this.disposed) return
     const payload = (frame.payload ?? {}) as Record<string, unknown>
@@ -795,6 +821,13 @@ export class ChatSessionController implements vscode.Disposable {
             if (!breakdown) return
             this.breakdownSeq = seq
             this.contextBreakdown = breakdown
+            this.push(true)
+            return
+          }
+          case 'todos': {
+            if (seq <= this.todosSeq) return
+            this.todosSeq = seq
+            this.applyTodosValue(payload.value)
             this.push(true)
             return
           }

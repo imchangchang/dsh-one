@@ -15,6 +15,7 @@ import type {
   ChatImage,
   ChatMessage,
   ChatState,
+  ChatTodoItem,
   ChatToolBlock,
   FromWebviewMessage,
   ModelCatalog,
@@ -1243,8 +1244,9 @@ function render(): void {
   // the signature — it tracks the stream and is patched in place instead.
   const oldComposer = chatCol.querySelector<HTMLElement>('.input-area')
   const oldHero = chatCol.querySelector<HTMLElement>(':scope > .hero')
-  // 空会话（无消息、无待办/队列/公告）按官方 dsh web 空态居中排版（hero 标题 +
-  // workspace/preset chip 行 + 大圆角 composer 卡片）；开跑后回常规流式布局。
+  // 空会话（无消息、无待办/队列/公告/任务清单）按官方 dsh web 空态居中排版
+  // （hero 标题 + workspace/preset chip 行 + 大圆角 composer 卡片）；开跑后
+  // 回常规流式布局。有任务清单说明会话已在干活，不走 hero。
   const blankHero =
     state !== null &&
     state.sessionId !== null &&
@@ -1254,6 +1256,7 @@ function render(): void {
     state.pending.length === 0 &&
     (state.queue?.length ?? 0) === 0 &&
     (state.jobs?.length ?? 0) === 0 &&
+    (state.todos?.length ?? 0) === 0 &&
     commandNotices.length === 0
   const composerSig = JSON.stringify([
     state?.sessionId ?? null,
@@ -1508,6 +1511,12 @@ function render(): void {
       pending.appendChild(p.kind === 'approval' ? renderApproval(p) : renderQuestion(p))
     }
     add(pending)
+  }
+
+  // 任务清单卡（对齐官方 input.dock id=todo order 0，排在排队消息之前）：
+  // 缺省/null（首写前 / turn/start 后）与 [] 空数组都不渲染。
+  if (state.todos && state.todos.length > 0) {
+    add(renderTodoPanel(state.todos))
   }
 
   if (queuedItems.length > 0) {
@@ -2317,6 +2326,92 @@ function detailsEl(key: string, className: string, summaryText: string): HTMLDet
   return det
 }
 
+/* ---------------- 任务清单卡（输入区上方，对齐官方 TodoPanel/TodoDock） ---------------- */
+
+/**
+ * 头部进度摘要（照搬 web 端 progressLabel）：按状态各计一条，计数为 0 的段
+ * 省略，非零段以「 · 」连接 →「3 进行中 · 1 待处理」。列表非空时至少一段。
+ */
+function todoProgressLabel(todos: ChatTodoItem[]): string {
+  const done = todos.filter((t) => t.status === 'completed').length
+  const active = todos.filter((t) => t.status === 'in_progress').length
+  const pending = todos.length - done - active
+  return [
+    done > 0 ? `${done} 已完成` : '',
+    active > 0 ? `${active} 进行中` : '',
+    pending > 0 ? `${pending} 待处理` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/**
+ * 任务清单可折叠卡：默认折叠，头部「任务 + 进度摘要 + chevron」，展开列出
+ * todo 项。chevron 方向照搬 figma 字面（折叠=向上、展开=向下，用 CSS rotate
+ * 翻转，别"修正"）；展开态持久化在 detailsOpen（key 'todos'，换会话时清空）。
+ */
+function renderTodoPanel(todos: ChatTodoItem[]): HTMLElement {
+  const det = el('details', 'todo-panel') as HTMLDetailsElement
+  det.open = detailsOpen.get('todos') ?? false
+  det.addEventListener('toggle', () => detailsOpen.set('todos', det.open))
+  const summary = el('summary')
+  summary.appendChild(el('span', 'todo-panel-title', '任务'))
+  const progress = todoProgressLabel(todos)
+  summary.appendChild(el('span', 'todo-panel-progress', progress))
+  const chev = iconSvg(PANEL_ICONS.chevronUp, 14)
+  chev.classList.add('todo-chevron')
+  summary.appendChild(chev)
+  det.appendChild(summary)
+  const list = el('ul', 'todo-list')
+  for (const item of todos) list.appendChild(renderTodoItem(item))
+  det.appendChild(list)
+  return det
+}
+
+function renderTodoItem(item: ChatTodoItem): HTMLElement {
+  const li = el('li', 'todo-item')
+  li.setAttribute('data-status', item.status)
+  li.appendChild(todoStatusGlyph(item.status))
+  li.appendChild(el('span', 'todo-content', item.content))
+  return li
+}
+
+/** 14×14 状态字形（对齐 web StatusGlyph）：completed 对勾环 / in_progress
+ *  转圈弧环 / pending 虚线未开始环。颜色由 CSS 类取（.todo-glyph-*）。 */
+function todoStatusGlyph(status: ChatTodoItem['status']): SVGSVGElement {
+  const NS = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(NS, 'svg')
+  svg.setAttribute('width', '14')
+  svg.setAttribute('height', '14')
+  svg.setAttribute('viewBox', '0 0 14 14')
+  svg.setAttribute('fill', 'none')
+  const ring = document.createElementNS(NS, 'circle')
+  ring.setAttribute('cx', '7')
+  ring.setAttribute('cy', '7')
+  ring.setAttribute('r', '5.2')
+  ring.setAttribute('stroke', 'currentColor')
+  svg.appendChild(ring)
+  if (status === 'completed') {
+    svg.classList.add('todo-glyph-completed')
+    const check = document.createElementNS(NS, 'path')
+    check.setAttribute('d', 'M4.2 7.3l1.9 1.9 3.7-4')
+    check.setAttribute('stroke', 'currentColor')
+    check.setAttribute('stroke-width', '1.5')
+    check.setAttribute('stroke-linecap', 'round')
+    check.setAttribute('stroke-linejoin', 'round')
+    svg.appendChild(check)
+  } else if (status === 'in_progress') {
+    // 一段可见弧 + CSS 旋转（对齐 web 的 todo-progress-spin）。
+    svg.classList.add('todo-glyph-progress', 'todo-progress-spin')
+    ring.setAttribute('stroke-dasharray', '9 24')
+    ring.setAttribute('stroke-linecap', 'round')
+  } else {
+    svg.classList.add('todo-glyph-pending')
+    ring.setAttribute('stroke-dasharray', '2.4 2.4')
+  }
+  return svg
+}
+
 /**
  * Turn-status row, mirroring the official web client's TurnStatus: while a
  * turn is open, a shimmering "Deep diving..." sits at the tail of the message
@@ -2518,6 +2613,8 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
  * 工具调用行（kimi-cli / dsh web 行式排版）：状态图标 + 英文动作短语 +
  * host 计算的标题（如文件路径），命令类工具另起一行等宽预览（$ 前缀、
  * 截断省略）。不再是带边框的卡片容器。
+ * todo_write 调用带 planSummary 时换成任务卡（对齐 web TodoRow）：动作短语
+ * 用「更新任务清单」，摘要 =「0/4 已完成 · 首个进行中项」，+N 挂尾部。
  */
 function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   const row = el('div', `tool tool-${block.status}`)
@@ -2530,6 +2627,18 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
     const dot = el('span', 'tool-state-dot')
     dot.setAttribute('data-state', 'error')
     line.appendChild(dot)
+  }
+  if (block.todos) {
+    // 数字来自该次调用 args 快照，不是当前投影；被拒绝/失败同样照实展示
+    // （web 注释：被取消的调用没写 todo/write，不能读成一次成功的清单更新）。
+    const s = block.todos
+    const head = `${s.done}/${s.total} 已完成`
+    line.appendChild(el('span', 'tool-action', '更新任务清单'))
+    line.appendChild(el('span', 'tool-title', s.activeContent ? `${head} · ${s.activeContent}` : head))
+    if (s.activeExtra > 0) line.appendChild(el('span', 'tool-todo-extra', `+${s.activeExtra}`))
+    row.appendChild(line)
+    if (block.output) row.appendChild(renderToolOutput(block.output, `${key}:out`))
+    return row
   }
   line.appendChild(el('span', 'tool-action', toolAction(block.name)))
   if (block.title) line.appendChild(el('span', 'tool-title', block.title))

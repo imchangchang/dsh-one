@@ -797,3 +797,69 @@ test('tail window without turn/start still reports the unclosed turn as running'
   f.applyEvent(ev('turn/end', { turn: 9, reason: { kind: 'completed' } }))
   assert.equal(f.hasOpenTurn(), false)
 })
+
+test('todo_write call folds a planSummary from its args snapshot', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(
+    toolCallEv('c1', 'todo_write', JSON.stringify({ todos: [
+      { content: 'a', status: 'completed' },
+      { content: '启动后台 bash job（60s 模拟流水线）', status: 'in_progress' },
+      { content: 'b', status: 'in_progress' },
+      { content: 'c', status: 'pending' },
+    ] })),
+  )
+
+  const block = lastAssistant(f).blocks[0] as ChatToolBlock
+  assert.deepEqual(block.todos, {
+    done: 1,
+    total: 4,
+    activeContent: '启动后台 bash job（60s 模拟流水线）',
+    activeExtra: 1,
+  })
+})
+
+test('todo_write with all completed yields no active content and no extra', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(toolCallEv('c1', 'todo_write', JSON.stringify({ todos: [
+    { content: 'x', status: 'completed' },
+    { content: 'y', status: 'completed' },
+  ] })))
+
+  const block = lastAssistant(f).blocks[0] as ChatToolBlock
+  assert.deepEqual(block.todos, { done: 2, total: 2, activeContent: null, activeExtra: 0 })
+})
+
+test('todo_write with empty first in_progress content reports activeContent null', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(toolCallEv('c1', 'todo_write', JSON.stringify({ todos: [
+    { content: '', status: 'in_progress' },
+    { content: 'named', status: 'in_progress' },
+  ] })))
+
+  const block = lastAssistant(f).blocks[0] as ChatToolBlock
+  assert.deepEqual(block.todos, { done: 0, total: 2, activeContent: null, activeExtra: 1 })
+})
+
+test('todo_write with malformed args falls back to the generic tool row', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  // 坏 JSON / 缺 todos 数组 / 空 todos：都不该挂 planSummary。
+  f.applyEvent(toolCallEv('c1', 'todo_write', '{not json'))
+  f.applyEvent(toolCallEv('c2', 'todo_write', JSON.stringify({ foo: 1 })))
+  f.applyEvent(toolCallEv('c3', 'todo_write', JSON.stringify({ todos: [] })))
+
+  const blocks = lastAssistant(f).blocks as ChatToolBlock[]
+  for (const block of blocks) assert.equal(block.todos, undefined)
+})
+
+test('non-todo_write tools never carry a planSummary', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(toolCallEv('c1', 'bash', JSON.stringify({ command: 'echo hi', todos: [{ content: 'x', status: 'pending' }] })))
+
+  const block = lastAssistant(f).blocks[0] as ChatToolBlock
+  assert.equal(block.todos, undefined)
+})
