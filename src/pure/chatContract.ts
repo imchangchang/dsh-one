@@ -46,6 +46,12 @@ export interface ChatToolBlock {
    * 独立渲染，各算各的、不共享派生）。args 解析失败时缺省，退回落通用工具行。
    */
   todos?: { done: number; total: number; activeContent: string | null; activeExtra: number }
+  /**
+   * tool/result 事件的 `meta` 原样透传（dsh-session 契约里 tool 私有的可选
+   * presentation 载荷；cordis_define/run 用它带 pluginId/packageId/pluginRunId）。
+   * 缺省 = 事件没带 meta（skill 等工具不产生）。
+   */
+  meta?: unknown
 }
 
 export type ChatBlock = ChatTextBlock | ChatReasoningBlock | ChatToolBlock

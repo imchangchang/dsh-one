@@ -815,6 +815,146 @@
       interact: `document.querySelector('.diff-toggle')?.click()`,
       expect: '点击「… 展开其余 5 行差异」后显示全部 13 行对：修改行左右同排（左红右绿，如 `const TIMEOUT_MS` 行对、`export async function fetchClient` 行对）；`  const res = await fetch(url, { signal: AbortSignal.timeout(timeout) })` 那行是纯新增（右栏绿、左栏灰空位）；`const backoff = 500` 是纯删除（左栏红、右栏灰空位）；`const retries = 2` 与 `const retries = Number(process.env.HTTP_RETRIES ?? 2)` 同排红/绿、末尾 `const maxRetries = 5` 两栏相同不着色；左右栏逐行水平对齐；toggle 文案变成「收起差异」。',
     },
+    // ---- skill / cordis 专用工具卡（specialized-tool-cards）----
+
+    // skill 卡完成态：行首 skill 图标 + 「Skill」+ 分隔点 + skill 名，可展开出
+    // 「说明」指令全文卡（result 输出即指令全文）。
+    'tool-skill': {
+      state: base({
+        messages: [
+          u('帮我加载 worktree-dev-flow 技能。'),
+          at('已加载，指令如下。', [
+            toolBlock({
+              name: 'skill',
+              title: 'Load skill worktree-dev-flow',
+              detail: undefined,
+              args: JSON.stringify({ name: 'worktree-dev-flow', cwd: '/Users/cgeng/Workspaces/dsh-one' }),
+              output: '# Worktree 并行开发流程\n\n## 核心规则\n\n- 主线（main）不开发任何东西，只负责测试、集成和合入。\n- 每个任务一个 worktree：`.worktrees/<slug>`，分支 `agent/<slug>`，独立装依赖。\n- worktree 里高频小提交，commit message 写清每步做了什么。',
+            }),
+          ]),
+        ],
+      }),
+      title: 'skill 专用卡（完成态，可展开指令）',
+      interact: `document.querySelector('.tool-skill details summary')?.click()`,
+      expect: '助手消息里一条 skill 专用工具卡：行首 skill 文档图标（非通用工具图标）、动作短语「Skill」、分隔点、摘要为 skill 名「worktree-dev-flow」（普通灰字，非错误红）；点击展开后出现「说明」指令卡：带边框圆角块，头一行小字「说明」，下面 pre 展示指令全文（max-height 260 内滚动）；不再出现通用工具卡的「Ran a command」动作短语。',
+    },
+
+    // skill 卡运行态：无输出 → 不可展开，行首 spinner。
+    'tool-skill-running': {
+      state: base({
+        messages: [
+          u('加载 skill 中。'),
+          at('', [
+            toolBlock({
+              name: 'skill',
+              status: 'running',
+              title: 'Load skill worktree-dev-flow',
+              detail: undefined,
+              args: JSON.stringify({ name: 'worktree-dev-flow' }),
+              output: undefined,
+            }),
+          ]),
+        ],
+      }),
+      title: 'skill 专用卡（运行态，不可展开）',
+      expect: 'skill 卡运行态：行首是 spinner（旋转加载圈，非 skill 图标），动作短语「Skill」+ 分隔点 + skill 名「worktree-dev-flow」；**没有** chevron、**没有**「说明」指令卡（running 无输出不可展开）。',
+    },
+
+    // skill 卡失败态：行首红点，摘要为输出首行红字。
+    'tool-skill-error': {
+      state: base({
+        messages: [
+          u('加载一个不存在的 skill。'),
+          at('加载失败了。', [
+            toolBlock({
+              name: 'skill',
+              status: 'error',
+              title: 'Load skill nope',
+              detail: undefined,
+              args: JSON.stringify({ name: 'nope' }),
+              output: 'skill "nope" is unknown or no longer available\n更多堆栈',
+            }),
+          ]),
+        ],
+      }),
+      title: 'skill 专用卡（失败态，红字摘要）',
+      expect: 'skill 卡失败态：行首红色 StateDot（error 圆点，非 skill 图标），动作短语「Skill」+ 分隔点 + 摘要为输出首行「skill "nope" is unknown or no longer available」（红色错误字色）；可展开（有输出），展开后「说明」卡里 pre 展示全文。',
+    },
+
+    // cordis_define 卡：行首代码图标 + 「注册 Cordis 插件」+ 插件名 + 用途（灰字），
+    // 可展开出 Host/Client 源码两段 + 结果段。
+    'tool-cordis-define': {
+      state: base({
+        messages: [
+          u('帮我注册一个测试插件。'),
+          at('已注册。', [
+            toolBlock({
+              name: 'cordis_define',
+              title: 'cordis_define',
+              detail: undefined,
+              args: JSON.stringify({
+                name: 'demo-plugin',
+                purpose: '演示用 Cordis 插件',
+                code: { host: 'module.exports = { name: "demo" }', client: 'export default {}' },
+              }),
+              meta: { pluginId: 'demo', packageId: 'pkg-1' },
+              output: 'defined ok: pluginId=demo packageId=pkg-1',
+            }),
+          ]),
+        ],
+      }),
+      title: 'cordis_define 专用卡（源码展开）',
+      interact: `document.querySelector('.tool-cordis-define details summary')?.click()`,
+      expect: '助手消息里一条 cordis_define 专用卡：行首代码图标（尖括号 `</>`，非通用工具图标）、动作短语「注册 Cordis 插件」、分隔点、摘要为插件名「demo-plugin」（普通灰字）、尾部用途「演示用 Cordis 插件」（更淡的灰字，与插件名区分）；点击展开后出现两段源码：label「Host」+ host 代码、label「Client」+ client 代码（等宽 pre，max-height 260 内滚动），再一段「结果」+ 输出文本。',
+    },
+
+    // cordis_run 卡：无展开，输出直接平铺在行下。
+    'tool-cordis-run': {
+      state: base({
+        messages: [
+          u('运行一下 demo 插件。'),
+          at('已运行。', [
+            toolBlock({
+              name: 'cordis_run',
+              title: 'cordis_run',
+              detail: undefined,
+              args: JSON.stringify({ pluginId: 'demo', packageId: 'pkg-1', mode: 'run' }),
+              meta: { pluginId: 'demo', packageId: 'pkg-1', pluginRunId: 'run-42' },
+              output: 'activated ok',
+            }),
+          ]),
+        ],
+      }),
+      title: 'cordis_run 专用卡（输出平铺）',
+      expect: '助手消息里一条 cordis_run 专用卡：行首代码图标、动作短语「运行 Cordis 插件」、分隔点、摘要为「demo · pkg-1」（pluginId · packageId 点连接）；**没有** chevron/展开（run 卡不是 disclosure），行下直接平铺输出文本「activated ok」。',
+    },
+
+    // cordis_stop / cordis_undefine 卡：stop 方块 / 垃圾桶图标。
+    'tool-cordis-actions': {
+      state: base({
+        messages: [
+          u('停止并移除 demo 插件。'),
+          at('已处理。', [
+            toolBlock({
+              name: 'cordis_stop',
+              title: 'cordis_stop',
+              detail: undefined,
+              args: JSON.stringify({ pluginId: 'demo' }),
+              output: 'stopped',
+            }),
+            toolBlock({
+              name: 'cordis_undefine',
+              title: 'cordis_undefine',
+              detail: undefined,
+              args: JSON.stringify({ pluginId: 'demo' }),
+              output: 'removed',
+            }),
+          ]),
+        ],
+      }),
+      title: 'cordis_stop / cordis_undefine 专用卡',
+      expect: '助手消息里两条 cordis 动作卡：第一条行首 stop 方块图标、动作短语「停止 Cordis 插件」、分隔点、摘要「demo」，行下平铺输出「stopped」；第二条行首垃圾桶图标、动作短语「移除 Cordis 插件」、分隔点、摘要「demo」，行下平铺输出「removed」；两条都无 chevron（非 disclosure）。',
+    },
   }
 
   catalog.conversation.sessions = window.sessionsTree('sess-1')
@@ -828,6 +968,8 @@
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
     'sessions-search', 'sessions-collapsed',
     'session-mention', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
+    'tool-skill', 'tool-skill-running', 'tool-skill-error',
+    'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()
