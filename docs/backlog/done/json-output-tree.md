@@ -52,3 +52,10 @@ JSON 输出（工具输出等）用 JsonTree 逐节点展开：检测输出为 J
   todos 输出套 .tool-output），修双重缩进。展开态共用 jsonTreeOpen（key 区分消息/工具）。
   scenarios 加 json-message-bare / json-message-fenced。自测 typecheck/test/build 全绿
   （243 测试）。
+- 2026-09-01 补充（用户拍板：加阈值，>300 行超大 JSON 回退 code block 折叠）：纯逻辑加
+  JSON_TREE_MAX_LINES=300 + jsonTreeThresholdExceeded（2 空格 pretty 序列化行数、口径与
+  copyPrettyJson 一致），等于/低于维持树、超过回退。renderBlock 文本分支整段正文超阈值
+  经 renderJsonCodeBlock 合成 ```json 代码块走折叠+复制；enhanceCodeBlocks 超阈值不替换成树
+  落回 codeBlockPreview；工具输出 renderJsonOrText/renderToolOutput 同样接阈值。+2 单测。
+  scenarios 加 json-message-over（305 行→code block）/ json-message-under（297 行→仍树）。
+  自测 typecheck/test/build 全绿（245 测试）。
