@@ -565,6 +565,50 @@ const STYLE = `
     border-radius: 4px; font-family: inherit; font-size: 0.9em;
   }
   .queue + .input-area { border-top: 0; }
+  /* 任务清单卡（对齐官方 TodoPanel/TodoDock，输入区上方 dock 栈）：头部
+     「任务 N 进行中 · M 待处理」+ chevron，展开列出 todo 项（列表限高滚动）。
+     chevron 是 figma 字面方向：折叠=向上、展开=向下，用 rotate 翻转。 */
+  .todo-panel {
+    flex: none; padding: 5px 12px 6px;
+    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .todo-panel + .input-area, .todo-panel + .queue { border-top: 0; }
+  .todo-panel summary {
+    display: flex; align-items: baseline; gap: 6px;
+    cursor: pointer; list-style: none; user-select: none;
+  }
+  .todo-panel summary::-webkit-details-marker { display: none; }
+  .todo-panel-title { flex: none; font-size: 12px; font-weight: 600; }
+  .todo-panel-progress {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 12px; opacity: 0.75;
+  }
+  .todo-panel summary .todo-chevron {
+    flex: none; color: var(--vscode-descriptionForeground, #888);
+    transition: transform .15s ease;
+  }
+  .todo-panel[open] summary .todo-chevron { transform: rotate(180deg); }
+  .todo-list {
+    list-style: none; margin: 6px 0 0; padding: 0;
+    max-height: 180px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .todo-item { display: flex; align-items: baseline; gap: 7px; font-size: 12px; }
+  .todo-item .todo-glyph { flex: none; align-self: center; display: inline-flex; }
+  .todo-item .todo-content {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .todo-glyph-completed { color: var(--vscode-testing-iconPassed, #73c991); }
+  .todo-glyph-progress { color: var(--vscode-charts-blue, #5686fe); }
+  .todo-glyph-pending { color: var(--vscode-descriptionForeground, #888); }
+  .todo-progress-spin {
+    transform-origin: 50% 50%;
+    animation: todo-progress-spin 1s linear infinite;
+  }
+  @keyframes todo-progress-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .todo-progress-spin { animation: none; } }
+  /* 消息内 todo_write 任务卡尾部「+N」其余进行中数（对齐 web TodoRow suffix）。 */
+  .tool-todo-extra { flex: none; opacity: 0.7; font-size: 0.9em; font-variant-numeric: tabular-nums; }
   .input-row { display: flex; gap: 8px; align-items: center; }
   .input-footer { display: flex; gap: 6px; align-items: center; }
   .stats-row { display: flex; align-items: center; gap: 10px; }

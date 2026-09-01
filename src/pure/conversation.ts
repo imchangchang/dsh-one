@@ -142,7 +142,9 @@ function planSummaryOf(argumentsRaw: string | undefined): ChatToolBlock['todos']
     total: items.length,
     activeContent:
       typeof firstActive?.content === 'string' && firstActive.content.length > 0 ? firstActive.content : null,
-    activeExtra: active.length - 1,
+    // 首个 in_progress 之外还有几个进行中；没有进行中项时为 0（web 侧同样
+    // 只在 >0 时显示 +N，负值只是公式残渣）。
+    activeExtra: Math.max(0, active.length - 1),
   }
 }
 
