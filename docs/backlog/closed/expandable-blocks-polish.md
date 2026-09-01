@@ -21,3 +21,4 @@ dsh web 里多处可展开/折叠，dsh-one 这些目前不可展开。这批都
 - `src/pure/conversation.ts` / `src/pure/chatContract.ts`（如需块字段）
 - 2026-09-01 认领（worktree: agent/expandable-blocks-polish）→ doing
 - 2026-09-01 开发完成 → done
+- 2026-09-01 主线合入测试通过、人工确认 → closed
