@@ -53,3 +53,4 @@ contextBar 的容量分母 `contextWindow` 来自 `contextPressure` 投影；该
 
 - 2026-09-01 认领（worktree: agent/context-window-switch-lag）→ doing
 - 2026-09-01 定案：候选 2 + 客户端学习式映射（`request/context` 观察 → `provider/model→contextWindow` map → `applyModelSwitch` 覆写 `contextPressure.contextWindow`）；核实 selectModel 响应与模型目录均不带 context，客户端无 RPC 可查窗口；候选 1（动服务端事件）弃。
+- 2026-09-01 开发完成（dev-finish 自测通过，done 标记 cc9838a）→ done。实现：`pressureWithContextWindow` 纯函数 + `MODEL_CONTEXT_WINDOW` 学习映射 + `applyModelSwitch`（chatSession.ts）+ chatView.ts 在 selectModel 成功后调用；contextMeter.test.ts 补重算/超限用例，scenarios.js 加 `context-switch-smaller-window` / `context-switch-overflow` 两场景。未跑 dev-ui-test（需人工窗验）。
