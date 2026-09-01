@@ -20,3 +20,4 @@ dsh web 里多处可展开/折叠，dsh-one 这些目前不可展开。这批都
 - `src/ui/chat/webview.ts`（diff / command 卡 / 推理块 / queue 渲染）
 - `src/pure/conversation.ts` / `src/pure/chatContract.ts`（如需块字段）
 - 2026-09-01 认领（worktree: agent/expandable-blocks-polish）→ doing
+- 2026-09-01 开发完成 → done
