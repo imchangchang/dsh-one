@@ -30,6 +30,12 @@ dsh web 聊天流里一次 `todo_write` 工具调用会渲染成任务卡（`更
 - `src/pure/chatContract.ts`
 - `src/ui/chat/webview.ts`
 
+## 实现核实（2026-09-01）
+
+- 需求引用的 `docs/dsh-one-todos-data-source.md` 在仓库里**不存在**（git 历史也没有）。`tool/call` 的 `data.arguments` 已在 `ToolCallEventData` 里就是模型原始 JSON 字符串（此前一直未消费，与"丢掉了 args"的现状描述一致），解析链路照常实现。
+- `activeExtra`（首个 in_progress 之外还有几个进行中）在**没有进行中项时钳为 0**：web 端公式 `active.length - 1` 会算出 -1，但只在 >0 时显示 +N，-1 只是公式残渣，不落契约。
+
 ## 变更记录
 
 - 2026-09-01 认领（worktree: agent/todo-cards）→ doing
+- 2026-09-01 开发完成，自测通过 → done
