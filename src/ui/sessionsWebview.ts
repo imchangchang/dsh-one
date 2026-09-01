@@ -404,17 +404,22 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   group.dataset.workspaceId = w.workspaceId
   const ungrouped = w.workspaceId === UNGROUPED_WORKSPACE_ID
   const empty = w.sessions.length === 0
-  const collapsed = empty || (sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false)
+  // 未分组是虚拟组：恒展开，忽略 collapsed 持久化状态，避免「标题 + 空白」。
+  const collapsed = ungrouped ? false : empty || (sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false)
   const head = el('div', collapsed ? 'workspace-row' : 'workspace-row expanded')
   if (empty) head.classList.add('empty')
+  if (ungrouped) head.classList.add('ungrouped')
   head.classList.toggle('has-active', w.sessions.some((s) => s.sessionId === currentSessionId))
   head.title = ungrouped ? '不属于任何工作区的会话' : w.path
   const folderIcon = el('span', 'ws-folder')
   folderIcon.appendChild(iconSvg(collapsed ? PANEL_ICONS.folder : PANEL_ICONS.folderOpen))
   head.appendChild(folderIcon)
-  const arrow = el('span', 'ws-arrow')
-  arrow.appendChild(iconSvg(PANEL_ICONS.triangle))
-  head.appendChild(arrow)
+  // 未分组恒展开、无折叠交互：不渲染折叠箭头（无需 hover 切换成三角）。
+  if (!ungrouped) {
+    const arrow = el('span', 'ws-arrow')
+    arrow.appendChild(iconSvg(PANEL_ICONS.triangle))
+    head.appendChild(arrow)
+  }
   head.appendChild(el('span', 'workspace-label', w.label))
   if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', 'vscode'))
   if (!ungrouped) {
@@ -441,12 +446,14 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
     )
     head.appendChild(headActions)
   }
-  if (!empty) {
+  // 空组无可展开内容、未分组恒展开：都不注册折叠 click。
+  if (!empty && !ungrouped) {
     head.addEventListener('click', () =>
       post({ type: 'workspaceCollapse', workspaceId: w.workspaceId, collapsed: !collapsed }),
     )
   }
   group.appendChild(head)
+  // 未分组恒展开（collapsed 恒 false），总会渲染会话行。
   if (!collapsed) for (const s of w.sessions) group.appendChild(renderSessionRow(s))
   return group
 }

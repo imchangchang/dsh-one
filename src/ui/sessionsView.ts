@@ -73,6 +73,9 @@ const SESSIONS_STYLE = `
   /* 空组无可展开内容：hover 不切换成三角，保持闭合文件夹图标。 */
   .workspace-row.empty:hover .ws-arrow { display: none; }
   .workspace-row.empty:hover .ws-folder { display: inline-flex; }
+  /* 未分组虚拟组恒展开：无折叠箭头，hover 也保持文件夹图标（不切换到三角）。 */
+  .workspace-row.ungrouped:hover .ws-arrow { display: none; }
+  .workspace-row.ungrouped:hover .ws-folder { display: inline-flex; }
   /* 附着会话所在 workspace 的文件夹图标染 deepseek 蓝（dsh web 同款标识）。 */
   .workspace-row.has-active .ws-folder { color: var(--vscode-charts-blue, #5686fe); }
   .ws-arrow svg { transition: transform .15s ease; }

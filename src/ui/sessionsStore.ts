@@ -137,6 +137,8 @@ export class SessionsStore implements vscode.Disposable {
     }
     this.pinned = new Set(state?.get<string[]>(PINNED_STATE_KEY) ?? [])
     this.collapsed = new Set(state?.get<string[]>(COLLAPSED_STATE_KEY) ?? [])
+    // 清掉历史版本可能残留的「未分组」折叠键（虚拟组恒展开，不应进集合）。
+    this.collapsed.delete(UNGROUPED_WORKSPACE_ID)
     this.unread = new Set(state?.get<string[]>(UNREAD_STATE_KEY) ?? [])
     this.stateSub = manager.onDidChangeState((status) => this.onStateChange(status))
     this.onStateChange(manager.getStatus())
@@ -249,6 +251,8 @@ export class SessionsStore implements vscode.Disposable {
 
   /** Collapse/expand a workspace group; persists across reloads. */
   setCollapsed(workspaceId: string, collapse: boolean): void {
+    // 「未分组」虚拟组恒展开、不可折叠：不写进 persisted collapsed 集合。
+    if (workspaceId === UNGROUPED_WORKSPACE_ID) return
     const changed = collapse ? !this.collapsed.has(workspaceId) : this.collapsed.delete(workspaceId)
     if (collapse) this.collapsed.add(workspaceId)
     if (!changed) return
@@ -262,7 +266,8 @@ export class SessionsStore implements vscode.Disposable {
    * 搜索过滤时只折叠当前可见的组（workspaces 即过滤后的模型）。
    */
   collapseAll(): void {
-    const ids = this.workspaces.map((w) => w.workspaceId)
+    // 「未分组」虚拟组恒展开，不参与折叠（也不进 persisted collapsed 集合）。
+    const ids = this.workspaces.map((w) => w.workspaceId).filter((id) => id !== UNGROUPED_WORKSPACE_ID)
     if (ids.every((id) => this.collapsed.has(id))) return
     for (const id of ids) this.collapsed.add(id)
     void this.state?.update(COLLAPSED_STATE_KEY, [...this.collapsed])
@@ -271,7 +276,8 @@ export class SessionsStore implements vscode.Disposable {
 
   /** collapseAll 的反向操作：只展开当前可见的组，被搜索过滤掉的组保持原状。 */
   expandAll(): void {
-    const ids = this.workspaces.map((w) => w.workspaceId)
+    // 「未分组」虚拟组恒展开，不参与折叠/展开。
+    const ids = this.workspaces.map((w) => w.workspaceId).filter((id) => id !== UNGROUPED_WORKSPACE_ID)
     if (ids.every((id) => !this.collapsed.has(id))) return
     for (const id of ids) this.collapsed.delete(id)
     void this.state?.update(COLLAPSED_STATE_KEY, [...this.collapsed])
