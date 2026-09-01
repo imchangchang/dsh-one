@@ -16,9 +16,12 @@ delete env.NODE_OPTIONS
 
 // CI 实测：Windows-latest 上 spawn(detached + shell + stdio 传文件 fd) 的输出不落盘
 //（dsh 正常启动、pid 正常打印，但日志文件 0 字节），改为 pipe 收集再写盘。
+// 第二轮 pipe 收集同样 0 字节——定位到 detached 与 Node shell:true 自动包装
+//（cmd.exe /d /s /c "dsh ..."）组合的输出链问题，Windows 分支改为显式
+// cmd.exe /d /s /c + shell:false（命令串自行拼装、引号可控）。
 // POSIX 分支保持原逻辑（已实测有效）。
 // DSH_FORCE_PIPE=1 可在任意平台强制走 pipe 分支，便于本地/CI 实测 pipe 路径
-//（真实 win32 分支无法在 mac 上现跑）。
+//（真实 win32 分支无法在 mac 上现跑；mac 上 force-pipe 仍走原生 shell 包装）。
 const usePipe = process.platform === 'win32' || process.env.DSH_FORCE_PIPE === '1'
 
 // 确保 stdout 的 pid 真正 flush 后再退出：process.exit 不会等待异步 stdout 写，
@@ -50,13 +53,31 @@ if (!usePipe) {
 } else {
   // Windows / force-pipe：stdout+stderr 用 pipe 收集。detached+unref 保留，
   // dsh 脱离父进程树，启动器驻留与否不影响 dsh 安全。
-  const child = spawn(dshCommand, args, {
-    detached: true,
-    shell: true,
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env,
-  })
+  // Windows 上 dsh 是 .cmd shim，必须经 cmd.exe 执行。不用 Node 的
+  // shell:true 自动包装（实测 detached+shell 组合输出 0 字节），改为显式
+  // cmd.exe /d /s /c + shell:false：命令串自行拼装，带空格 token 才加引号。
+  // force-pipe（mac 调试）保持原生 shell 包装，行为与之前一致。
+  const isWin = process.platform === 'win32'
+  const quote = (s: string): string => (/\s/.test(s) ? `"${s}"` : s)
+  const child = isWin
+    ? spawn(
+        'cmd.exe',
+        ['/d', '/s', '/c', [dshCommand, ...args].map(quote).join(' ')],
+        {
+          detached: true,
+          shell: false,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env,
+        },
+      )
+    : spawn(dshCommand, args, {
+        detached: true,
+        shell: true,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env,
+      })
   child.unref()
 
   let buf = ''
