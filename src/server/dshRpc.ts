@@ -225,9 +225,13 @@ export async function deleteWorkspace(baseUrl: string, workspaceId: string): Pro
 /**
  * Make sure the workspace has a session for the UI to land on. Reuses a blank
  * session when one exists (same rule as the official client), otherwise
- * creates a fresh one.
+ * creates a fresh one. The minimal `workspaceId + sessionIds` shape lets
+ * callers hand over the store's workspace baseline rows directly.
  */
-export async function ensureSession(baseUrl: string, workspace: WorkspaceView): Promise<string> {
+export async function ensureSession(
+  baseUrl: string,
+  workspace: Pick<WorkspaceView, 'workspaceId' | 'sessionIds'>,
+): Promise<string> {
   const items = await listSessions(baseUrl)
   const blank = items.find((s) => s.blank && workspace.sessionIds.includes(s.sessionId))
   const payload = blank ? { sessionId: blank.sessionId } : { workspaceId: workspace.workspaceId }

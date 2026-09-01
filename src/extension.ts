@@ -222,9 +222,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.env.openExternal(vscode.Uri.parse(DSH_INSTALL_URL))
     }),
     // Title-area "+": register a picked folder as a new dsh workspace.
+    // Returns the registered workspace (or undefined when cancelled/failed) so
+    // the chat hero picker's「添加已有文件夹…」can switch to it afterwards;
+    // the sidebar entry ignores the return value.
     vscode.commands.registerCommand('dshOne.workspace.add', async () => {
       const url = sessions.runningUrl
-      if (!url) return
+      if (!url) return undefined
       const picked = await vscode.window.showOpenDialog({
         canSelectFiles: false,
         canSelectFolders: true,
@@ -233,26 +236,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         title: '新建 workspace：选择文件夹',
       })
       const path = picked?.[0]?.fsPath
-      if (!path) return
+      if (!path) return undefined
       try {
-        await ensureWorkspace(url, path)
+        const workspace = await ensureWorkspace(url, path)
+        await sessions.refresh()
+        return workspace
       } catch (err) {
         vscode.window.showErrorMessage(`新建 workspace 失败：${errorText(err)}`)
-        return
+        return undefined
       }
-      await sessions.refresh()
     }),
     // Create a brand-new workspace: make a folder under the dsh global
     // directory (~/.dsh/workspaces/<name>) and register it in one step.
+    // Same return contract as dshOne.workspace.add (used by the hero picker).
     vscode.commands.registerCommand('dshOne.workspace.create', async () => {
       const url = sessions.runningUrl
-      if (!url) return
+      if (!url) return undefined
       const dshHome = path.join(os.homedir(), '.dsh')
       try {
         await fs.access(dshHome)
       } catch {
         vscode.window.showErrorMessage('未找到 dsh 全局目录 ~/.dsh，请先安装并运行一次 dsh 再创建工作区。')
-        return
+        return undefined
       }
       const workspacesDir = path.join(dshHome, 'workspaces')
       const name = await vscode.window.showInputBox({
@@ -271,16 +276,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
         },
       })
-      if (!name) return
+      if (!name) return undefined
       const dir = path.join(workspacesDir, name.trim())
       try {
-        await fs.mkdir(dir, { recursive: true })
-        await ensureWorkspace(url, dir)
+        const workspace = await ensureWorkspace(url, dir)
+        await sessions.refresh()
+        return workspace
       } catch (err) {
         vscode.window.showErrorMessage(`创建工作区失败：${errorText(err)}`)
-        return
+        return undefined
       }
-      await sessions.refresh()
     }),
   )
 }

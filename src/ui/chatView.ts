@@ -9,6 +9,7 @@ import { ChatSessionController } from '../server/chatSession.ts'
 import {
   createSession,
   deleteWorkspace,
+  ensureSession,
   executeCommand,
   exportSessionLog,
   listFileReferences,
@@ -18,7 +19,7 @@ import {
   sessionLogZipFilename,
   sessionModels,
 } from '../server/dshRpc.ts'
-import type { SessionModelSelection } from '../server/dshRpc.ts'
+import type { SessionModelSelection, WorkspaceView } from '../server/dshRpc.ts'
 import type { FileRefCandidate } from '../pure/fileReference.ts'
 import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, StagedFile, ToWebviewMessage } from '../pure/chatContract.ts'
 import { contextMenuResource } from '../pure/contextResource.ts'
@@ -1033,6 +1034,15 @@ const STYLE = `
   }
   .preset-item .check { align-self: center; }
   .preset-item .job-dot-slot { align-self: center; }
+  /* 空会话 hero 的 workspace 选择器：行标题省略号截断（悬停 tooltip 给完整
+     路径），footer 与主列表之间用分隔线（对齐官方 Menu footer）。 */
+  .workspace-item .workspace-item-label {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .workspace-picker-footer {
+    margin-top: 4px; padding-top: 4px;
+    border-top: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
+  }
   /* 子代理下拉的层级树（对齐 dsh web SubagentHeader 成员树）：每层嵌套容器
      左缩 16px + 4px 轨距，竖轨与横向支线用 VS Code 树缩进参考线色；末行
      竖轨半高收尾成 └。多层的祖辈竖轨随容器自然贯通。 */
@@ -1616,6 +1626,9 @@ export class ChatViewProvider implements vscode.Disposable {
    */
   private composeHeader(state: ChatState): ChatState {
     if (!state.sessionId) return state
+    // 局部 const 快照：回调闭包里 TS 不对函数参数做属性收窄，后续闭包读取
+    // 都走它（sid 在 composeHeader 内只读）。
+    const sid = state.sessionId
     const raw = this.store.rawList()
     // 血缘树：直接子代理为顶层项，每项的 children 递归挂各自后代
     // （子代理再开子代理）。每层按 运行中优先 + 新近优先 在纯函数里排好；
@@ -1625,6 +1638,14 @@ export class ChatViewProvider implements vscode.Disposable {
     const subagents = buildSubagentTree(raw, state.sessionId, (s) => this.subagents.labelFor(s.sessionId))
     const jobs = orderJobs(this.jobs.jobs().get(state.sessionId) ?? [])
     const workspaceLabel = this.store.workspaceLabelFor(state.sessionId)
+    // workspace 选择器数据（空会话 hero chip 的弹层）：全部 workspace 的轻量
+    // 投影 + 当前会话所属 workspace 的 id（选中对勾）。基线随 store 刷新重推。
+    const workspaces = this.store.workspaceBaseline.map((w) => ({
+      workspaceId: w.workspaceId,
+      path: w.path,
+      title: w.title,
+    }))
+    const workspaceId = this.store.workspaceBaseline.find((w) => w.sessionIds.includes(sid))?.workspaceId
     const self = raw.find((s) => s.sessionId === state.sessionId)
     // 面包屑父段：只有附着的是真子代理（origin === 'subagent'）才合成
     // 「父会话标题 /」，webview 点击回到父会话（官方 dsh web 的进入逻辑）。
@@ -1646,6 +1667,8 @@ export class ChatViewProvider implements vscode.Disposable {
       ...(subagents.length > 0 ? { subagents } : {}),
       ...(jobs.length > 0 ? { backgroundJobs: jobs } : {}),
       ...(workspaceLabel ? { workspaceLabel } : {}),
+      ...(workspaceId ? { workspaceId } : {}),
+      ...(workspaces.length > 0 ? { workspaces } : {}),
       ...(parentSession ? { parentSession } : {}),
       ...(presetLabel ? { presetLabel } : {}),
       ...(presetDescription ? { presetDescription } : {}),
@@ -1709,6 +1732,20 @@ export class ChatViewProvider implements vscode.Disposable {
     // 当前 controller，故放在 controller 判定之前。
     if (m?.type === 'sessionOpen' && typeof m.sessionId === 'string') {
       this.openSession(m.sessionId)
+      return
+    }
+    // 空会话 hero 的 workspace 选择器：切 workspace / 添加并切换。同样不依赖
+    // controller（blank 会话可能还没建 controller 之外的任何状态）。
+    if (m?.type === 'workspacePick' && typeof m.workspaceId === 'string') {
+      void this.pickWorkspace(m.workspaceId)
+      return
+    }
+    if (m?.type === 'workspacePickAdd') {
+      void this.addWorkspaceAndOpen()
+      return
+    }
+    if (m?.type === 'workspacePickCreate') {
+      void this.createWorkspaceAndOpen()
       return
     }
     // 拆分后会话列表为原生 tree，webview（editor 面板）不再发送 sessions 面板
@@ -1916,6 +1953,48 @@ export class ChatViewProvider implements vscode.Disposable {
       if (!confirm) return
     }
     await this.runCommand(controller, `/permission ${value}`)
+  }
+
+  /**
+   * 空会话 hero 的 workspace 选择器：切到 `workspaceId` 所属 workspace。
+   * 对齐官方 connectWorkspace 语义——在该 workspace 下复用已有 blank 会话
+   * （dshRpc.ensureSession 同官方规则），没有则新建一个，然后打开并附着；
+   * 当前 blank 会话留在原 workspace（官方 picker 也是纯切换选择）。
+   */
+  private async pickWorkspace(workspaceId: string): Promise<void> {
+    const workspace = this.store.workspaceBaseline.find((w) => w.workspaceId === workspaceId)
+    if (!workspace) return
+    await this.openWorkspaceSession(workspace)
+  }
+
+  /** hero picker「添加已有文件夹…」：复用 dshOne.workspace.add 命令（VSCode
+   *  原生目录对话框 → workspace.create），注册成功后切到新 workspace。命令
+   *  返回注册结果；取消/失败返回 undefined，不做切换（错误提示由命令负责）。 */
+  private async addWorkspaceAndOpen(): Promise<void> {
+    const workspace = await vscode.commands.executeCommand<WorkspaceView | undefined>('dshOne.workspace.add')
+    if (workspace) await this.openWorkspaceSession(workspace)
+  }
+
+  /** hero picker「创建工作区…」：复用 dshOne.workspace.create 命令（在
+   *  ~/.dsh/workspaces/ 下建目录并注册），成功后切到新 workspace。 */
+  private async createWorkspaceAndOpen(): Promise<void> {
+    const workspace = await vscode.commands.executeCommand<WorkspaceView | undefined>('dshOne.workspace.create')
+    if (workspace) await this.openWorkspaceSession(workspace)
+  }
+
+  /** 在目标 workspace 下复用/新建 blank 会话并打开（见 pickWorkspace）。 */
+  private async openWorkspaceSession(
+    workspace: Pick<WorkspaceView, 'workspaceId' | 'sessionIds'>,
+  ): Promise<void> {
+    const url = this.store.runningUrl
+    if (!url) return
+    try {
+      const sessionId = await ensureSession(url, workspace)
+      this.openSession(sessionId)
+    } catch (error) {
+      this.logger.warn(`workspace: switch to ${workspace.workspaceId} failed: ${errorText(error)}`)
+      vscode.window.showWarningMessage(`切换 workspace 失败：${errorText(error)}`)
+    }
   }
 
   /**

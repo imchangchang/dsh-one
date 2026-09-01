@@ -1545,6 +1545,59 @@ function openAgentPresetMenu(anchor: HTMLElement, placement: 'above' | 'below' =
   showPopover(anchor, body, placement)
 }
 
+/**
+ * 空会话 hero 的 workspace 选择器（对齐官方 WorkspacePicker 的 Menu 形态）：
+ * 行 = 文件夹图标 + 标题（悬停 tooltip 显示完整路径）+ 当前项尾部对勾；footer
+ * 分隔线下是「添加已有文件夹…」「创建工作区…」两个添加入口（与侧栏一致，都走
+ * VSCode 原生对话框，见 chatView.ts 的处理）。列表为空时只显示添加入口——
+ * 官方此时直接进目录流程，我们把「弹下拉」换成「只弹添加入口」，不自动弹系统
+ * 对话框（模态框不应无提示出现）。选中行由宿主切换 blank 会话，不在此处关闭
+ * 弹层前做任何网络调用。
+ */
+function openWorkspacePicker(anchor: HTMLElement): void {
+  if (!state) return
+  const body = el('div')
+  const currentId = state.workspaceId
+  for (const ws of state.workspaces ?? []) {
+    const checked = ws.workspaceId === currentId
+    const item = el('div', checked ? 'menu-item checked workspace-item' : 'menu-item workspace-item')
+    const ic = el('span', 'menu-item-icon')
+    ic.appendChild(iconSvg(PANEL_ICONS.folder, 14))
+    item.appendChild(ic)
+    item.appendChild(el('span', 'workspace-item-label', ws.title))
+    if (checked) item.appendChild(el('span', 'check', '✓'))
+    item.title = ws.path
+    item.addEventListener('click', () => {
+      closePopover()
+      if (!checked) post({ type: 'workspacePick', workspaceId: ws.workspaceId })
+    })
+    body.appendChild(item)
+  }
+  // footer 添加入口无条件显示：有 workspace 时列表下方的分隔区（对齐官方
+  // Menu footer），列表为空时是唯一内容。
+  const footer = el('div', 'workspace-picker-footer')
+  footer.appendChild(
+    menuItem('添加已有文件夹…', {
+      icon: iconSvg(PANEL_ICONS.folderOpen, 14),
+      onClick: () => {
+        closePopover()
+        post({ type: 'workspacePickAdd' })
+      },
+    }),
+  )
+  footer.appendChild(
+    menuItem('创建工作区…', {
+      icon: iconSvg(PANEL_ICONS.plus, 14),
+      onClick: () => {
+        closePopover()
+        post({ type: 'workspacePickCreate' })
+      },
+    }),
+  )
+  body.appendChild(footer)
+  showPopover(anchor, body, 'below')
+}
+
 function openCommandMenu(anchor: HTMLElement): void {  const body = el('div')
   for (const c of SLASH_COMMANDS) {
     body.appendChild(
@@ -2167,8 +2220,9 @@ function render(): void {
 
 /**
  * 空会话 hero（官方 dsh web 空态 HeroShell）：整列水平居中——品牌鱼标，
- * 标题「探索未至之境」+「预览版」徽章，其下 workspace 名（只读）与 preset
- * 选择 chip 行，再下是包成大圆角卡片的 composer（样式见 chatView.ts 的 .hero）。
+ * 标题「探索未至之境」+「预览版」徽章，其下 workspace 选择 chip（点击弹
+ * WorkspacePicker）与 preset 选择 chip 行，再下是包成大圆角卡片的 composer
+ * （样式见 chatView.ts 的 .hero）。
  */
 function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
   const hero = el('div', 'hero')
@@ -2182,11 +2236,18 @@ function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
   stack.appendChild(headline)
   const chips = el('div', 'hero-chips')
   if (state.workspaceLabel) {
-    // 官方此 chip 是 workspace 选择器；我们没有更换 blank 会话所属 workspace
-    // 的链路，只做只读展示（文件夹图标 + 名称，无 chevron）。
-    const ws = el('span', 'hero-chip')
+    // 官方此 chip 是 workspace 选择器（WorkspacePicker）：点击弹下拉——全部
+    // workspace 列表（当前项对勾）+ 「添加已有文件夹…」「创建工作区…」两个
+    // 添加入口；选择/添加后由宿主在目标 workspace 复用/新建 blank 会话并切换。
+    const ws = buttonEl('hero-chip', '')
     ws.appendChild(iconSvg(PANEL_ICONS.folder, 16))
     ws.appendChild(el('span', 'label', state.workspaceLabel))
+    const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
+    chev.classList.add('chevron')
+    ws.appendChild(chev)
+    ws.title = '选择工作区'
+    ws.setAttribute('aria-haspopup', 'menu')
+    ws.addEventListener('click', () => openWorkspacePicker(ws))
     chips.appendChild(ws)
   }
   if (state.agentPreset) {

@@ -168,9 +168,35 @@
 
     empty: {
       // blankHero 要求 sessionId !== null（空白会话已附着）且无消息/待办/队列/jobs。
-      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', workspaceId: 'ws-main', workspaces: [
+        { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', title: 'dsh-one' },
+        { workspaceId: 'ws-research', path: '/Users/cgeng/Workspaces/dsh-web', title: 'dsh-web research' },
+        { workspaceId: 'ws-another', path: '/tmp/another-project', title: 'another-project' },
+      ], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
       title: '空会话 hero',
-      expect: '空会话 hero（无历史）：品牌鱼标 + 标题「探索未至之境预览版」+ workspace chip（dsh-one）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）。',
+      expect: '空会话 hero（无历史）：品牌鱼标 + 标题「探索未至之境预览版」+ workspace 选择 chip（dsh-one，文件夹图标 + 名称 + chevron，可点击）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）。',
+    },
+
+    'workspace-picker-open': {
+      // hero workspace chip 点击后弹 WorkspacePicker（对齐官方 Menu）：workspace
+      // 列表 + 当前项对勾 + footer 两个添加入口。
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', workspaceId: 'ws-main', workspaces: [
+        { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', title: 'dsh-one' },
+        { workspaceId: 'ws-research', path: '/Users/cgeng/Workspaces/dsh-web', title: 'dsh-web research' },
+        { workspaceId: 'ws-another', path: '/tmp/another-project', title: 'another-project' },
+      ], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
+      title: '空会话 hero：workspace 选择器打开',
+      interact: `document.querySelector('.hero-chips .hero-chip').click()`,
+      expect: '点击 hero 的 workspace chip（dsh-one）后，chip 下方弹出选择器：3 行 workspace（文件夹图标 + 标题，dsh-one 行尾部 ✓ 对勾标记当前项）；分隔线下 footer 两个添加入口「添加已有文件夹…」「创建工作区…」；preset chip 与 composer 保持原样。',
+    },
+
+    'workspace-picker-empty': {
+      // workspace 基线为空（如尚未建立任何 workspace）：picker 只显示添加入口，
+      // 不弹空列表。官方此时直接进目录流程，dsh-one 退化为只弹添加入口。
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: '未分组', workspaces: [], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
+      title: '空会话 hero：无 workspace（picker 只剩添加入口）',
+      interact: `document.querySelector('.hero-chips .hero-chip').click()`,
+      expect: '点击 hero 的 workspace chip（未分组）后弹出选择器：无 workspace 行，只有「添加已有文件夹…」「创建工作区…」两个添加入口（无分隔线）；chip 仍显示「未分组」标签。',
     },
 
     'dsh-not-found': {
