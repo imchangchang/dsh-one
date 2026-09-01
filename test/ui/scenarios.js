@@ -139,6 +139,28 @@
       expect: '用户气泡（右侧）内：一个 @会话引用 chip（🔗 图标 + 链接色「DSH-ONE子代理嵌套支持情况」字重 500），chip 之后紧跟着正文「根据这个对话，分析一下嵌套子代理的依赖关系。」，两者在同一行；chip 内文字与同行正文文字基线对齐（不再相对抬高 2px）。chip 是行内 flex 无边框背景，链接色，hover 下划线（截图为静态不核对 hover）。',
     },
 
+    'mention-chips': {
+      // 用户气泡引用 chip 全 kind（对齐 web projectUserText）：会话（references 驱动，
+      // 可点击）+ 文件/文件夹（形态推断，纯展示）+ /命令（skill，无图标）+ 引用摘要行。
+      state: base({
+        messages: [
+          {
+            kind: 'user',
+            id: rid('u'),
+            text: '参考 @旧会话 的实现，看下 @src/ui/chat/webview.ts 和 @src/pure/ 目录，用 /help 看看思路',
+            references: [{ sessionId: 'sess-3', label: '旧会话' }],
+          },
+          {
+            kind: 'user',
+            id: rid('u'),
+            text: '带空格路径 @"src/ui/chatView.ts" 也看下',
+          },
+        ],
+      }),
+      title: '用户气泡引用 chip 全 kind',
+      expect: '第一条用户气泡（右侧）：四个引用 chip 与正文同排依序——会话 chip（聊天气泡图标 + 链接色「旧会话」，可点击）；文件 chip（文档线条图标 + 「webview.ts」）；文件夹 chip（闭合文件夹图标 + 「pure」）；命令 chip（无图标 + 「/help」）。文件/文件夹 chip 悬停 title 为完整 @token（静态截图不核对）。气泡下方一行小号摘要「引用会话 · 旧会话」（对齐 web referenceSummary）。第二条气泡：带引号路径「chatView.ts」文件 chip（带文档图标），引号并入 chip 不残留。所有 chip 行内 flex、链接色、字重 500、与正文基线对齐。',
+    },
+
     'subagent-card-snapshot': {
       // fork 快照副本：会话自己的聊天流里有一条 subagent 调用卡（历史复制来的
       // 占位结果），但血缘树（state.subagents）不含该子代理 → 应加「快照副本」标注。
@@ -1156,7 +1178,7 @@
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
     'sessions-search', 'sessions-collapsed',
-    'session-mention', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
+    'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',
     'produced-files', 'produced-files-expanded', 'produced-files-wrap',
