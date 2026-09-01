@@ -59,3 +59,16 @@ cd /Users/cgeng/Workspaces/dsh-one/.worktrees/workspace-picker-blank-session && 
 7. 回归：空会话 preset chip、composer、消息流、侧栏会话树不受影响；切换 workspace 失败（如服务异常）只弹 warning 不崩溃。
 
 截图（视觉回归，浏览器渲染）：`/tmp/dsh-ui-shots/empty.png`、`workspace-picker-open.png`、`workspace-picker-empty.png`（ai-visual-validation 出图）。
+
+### 修复（2026-09-01，人工 dev-ui-test 发现）
+
+现象：真实 VSCode 里切 workspace 报 `session.create failed: session-conflict session "X" already exists with cwd "<目标之外>", requested "…"`（三连 toast 均为此错）。
+
+根因：`dshRpc.ensureSession` 的复用分支两个问题——① 复用判定只查 `blank && sessionIds.includes`，漏了官方 `connectWorkspace` 的 `summary.cwd === workspace.path`（cwd 匹配）校验；② 复用时发 `session.create { sessionId }`，而 host 对带 sessionId 的 payload 是 **resume 语义**（cwd = `workspaceId ?? cwd ?? defaults.cwd`），当空白会话所属 workspace 的 path ≠ host 默认 cwd（VSCode 打开目录）时就抛 `session-conflict`——官方复用是纯客户端选择、不发 RPC。
+
+修复（`src/server/dshRpc.ts` `ensureSession` + `src/ui/chatView.ts` 签名带 path）：
+
+- 复用判定补齐 `s.cwd === workspace.path`（与官方一致）；
+- 命中复用后直接返回 sessionId，**不再调 session.create**——只有找不到可复用 blank 时才 `session.create { workspaceId }`（host 端 cwd 即 workspace.path，无冲突路径）。
+
+人工验收补充检查点：把 VSCode 打开的目录切到与目标 workspace 不同的路径（如打开 dsh-mobile 目录、切到 aibrain-app 工作区），切过去必须成功且不发 RPC 报错；重复点同一 workspace 行（当前项）不动作。

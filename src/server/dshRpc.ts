@@ -225,17 +225,29 @@ export async function deleteWorkspace(baseUrl: string, workspaceId: string): Pro
 /**
  * Make sure the workspace has a session for the UI to land on. Reuses a blank
  * session when one exists (same rule as the official client), otherwise
- * creates a fresh one. The minimal `workspaceId + sessionIds` shape lets
- * callers hand over the store's workspace baseline rows directly.
+ * creates a fresh one. The `workspaceId + sessionIds + path` shape lets callers
+ * hand over the store's workspace baseline rows directly.
+ *
+ * Reuse rule mirrors the official `WorkspaceRuntime.connectWorkspace`: a blank
+ * session qualifies only when its own cwd equals the workspace path, and the
+ * reuse is a plain client-side pick — no session.create RPC. (session.create
+ * with a `sessionId` payload is host-side *resume* semantics: it validates the
+ * session against a resolved cwd of `workspaceId ?? cwd ?? defaults.cwd`, so
+ * reusing a blank session whose cwd differs from the host default would fail
+ * with `session-conflict` — the official client never takes that path.)
  */
 export async function ensureSession(
   baseUrl: string,
-  workspace: Pick<WorkspaceView, 'workspaceId' | 'sessionIds'>,
+  workspace: Pick<WorkspaceView, 'workspaceId' | 'sessionIds' | 'path'>,
 ): Promise<string> {
   const items = await listSessions(baseUrl)
-  const blank = items.find((s) => s.blank && workspace.sessionIds.includes(s.sessionId))
-  const payload = blank ? { sessionId: blank.sessionId } : { workspaceId: workspace.workspaceId }
-  const value = await callRpc<{ sessionId: string }>(baseUrl, 'session.create', payload)
+  const blank = items.find(
+    (s) => s.blank && s.cwd === workspace.path && workspace.sessionIds.includes(s.sessionId),
+  )
+  if (blank) return blank.sessionId
+  const value = await callRpc<{ sessionId: string }>(baseUrl, 'session.create', {
+    workspaceId: workspace.workspaceId,
+  })
   return value.sessionId
 }
 

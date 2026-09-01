@@ -1984,7 +1984,7 @@ export class ChatViewProvider implements vscode.Disposable {
 
   /** 在目标 workspace 下复用/新建 blank 会话并打开（见 pickWorkspace）。 */
   private async openWorkspaceSession(
-    workspace: Pick<WorkspaceView, 'workspaceId' | 'sessionIds'>,
+    workspace: Pick<WorkspaceView, 'workspaceId' | 'sessionIds' | 'path'>,
   ): Promise<void> {
     const url = this.store.runningUrl
     if (!url) return
