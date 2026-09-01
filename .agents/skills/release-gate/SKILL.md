@@ -1,0 +1,70 @@
+---
+name: release-gate
+description: 发布 dsh-one 到 VS Code Marketplace 的完整操作与验收流程：发布执行与独立验收分两个子代理——发布子代理跑 scripts/release-gate.sh 两段式（version + CHANGELOG 收口 + tag 强绑定、干净打包、验 vsix），验收子代理不信发布报告、独立重跑自动化校验并生成人工 GUI 验收清单。当要发版、走发布流程、验收 vsix 产物时使用。
+---
+
+# 发布流程（release-gate）
+
+把发布串成一条可执行、可验收的流程：**发布执行**和**独立验收**分两个子代理完成，人工只做 GUI 沙盒装机和最终 publish。
+
+## 核心规则
+
+- **两个角色，两个子代理**：发布执行代理、独立验收代理。串行派发——先发布完成，再派验收（验收对象是发布产物）。
+- **验收代理不信任发布代理**：不采信发布报告，自动化校验全部自己重跑（dry-run 一致性 / unzip 验 vsix / git 验 tag）。
+- **版本号由调用方给定**（人或主 agent 决定 patch/minor/major），发布代理不擅自决定；`scripts/release-gate.sh --apply` 交互输入版本，子代理用 `echo "<版本>" | bash scripts/release-gate.sh --apply` 管道喂入。
+- **release-gate.sh 不跑 vsce publish**：发布动作永远由人执行，且用验收通过的那份 vsix，不重打包。
+- **GUI 沙盒装机 headless 子代理做不了**（起不了 VSCode 窗口）：验收代理只做自动化核验 + 把 GUI 项整理成待人工清单，人工部分由调用方转交用户。
+- 发布在**干净工作树**上进行（通常是合入后的 main；发布提交 = bump + tag，不属于功能开发）。
+
+## 前置条件
+
+- `scripts/release-gate.sh`、`docs/release-checklist.md` 已存在，`.vscodeignore` 已含 `scripts/**`、`.agents/**`、`AGENTS.md` 排除（release-gate 条目产物，随 release-gate 分支合入 main）。**配置未同步时门禁会在验 vsix 拦下脏产物**——先合入 release-gate 或手动同步，不要绕过门禁。
+- 仓库工作树干净、当前分支是 main、`CHANGELOG.md` 有 `[Unreleased]` 段、无 `v<新版本>` 的 tag。
+- 不确定时先跑 `bash scripts/release-gate.sh`（dry-run，只读）看状态。
+
+## 流程
+
+### 1. 派发布执行子代理
+
+串行第一步。prompt 模板（`<仓库路径>`、`<新版本号>` 由调用方填）：
+
+```
+你是发布执行代理。目标：在 <仓库路径>（main，工作树干净）把当前版本发布为 <新版本号>。严格按脚本输出行事，任何一步报错就停下报告，不要绕过校验。
+- 用 bash 执行：echo "<新版本号>" | bash scripts/release-gate.sh --apply
+- 第一遍：脚本会 bump package.json version → <新版本号>、把 CHANGELOG [Unreleased] 收口成 [<新版本号>]，然后停下。git diff 确认只改了这两个文件，然后提交（只提交这两个文件）：
+  git add package.json CHANGELOG.md && git commit -m "release: v<新版本号>"
+- 第二遍：重跑同一命令。脚本会做干净 checkout → npm ci → typecheck/test/build/vsce package → 验 vsix 内容与版本 → 打 tag v<新版本号>。
+- 门禁报错是预期行为：停下报告，等调用方决定（通常是 .vscodeignore 等配置未同步；修复后重跑第二遍即可，bump commit 保留，不用重跑第一遍）。
+- 完成标准：报告 vsix 路径（仓库根 dsh-one-<新版本号>.vsix）、tag v<新版本号> 指向的 commit、打包 commit hash。
+- 禁止：擅自改版本号、跑 vsce publish、改 release-gate.sh 或绕过其校验。
+```
+
+### 2. 派独立验收子代理
+
+发布代理报告完成后。prompt 模板：
+
+```
+你是独立验收代理。目标：验收 <仓库路径> 上刚发布的 v<新版本号>。不要信任发布代理的报告，全部自己重验，每项给出命令输出作为证据：
+- 一致性：bash scripts/release-gate.sh（dry-run，只读）——检查输出中 package.json version == CHANGELOG [<新版本号>] == tag v<新版本号>，且 vsix 内容/版本校验通过、tag 指向 HEAD == 打包 commit。
+- vsix 内容：unzip -l dsh-one-<新版本号>.vsix——必须含 dist/、assets/、package.json、readme、LICENSE；不得含 src/ test/ docs/ scripts/ .agents/ AGENTS.md .map .ts node_modules/。
+- vsix 版本：unzip -p dsh-one-<新版本号>.vsix '*/package.json' 里的 version == <新版本号>。
+- tag：git rev-parse v<新版本号>^{commit} == git rev-parse HEAD。
+- 对照 docs/release-checklist.md：自动化可验项全部核验勾掉；GUI 项（沙盒装机）整理成「待人工验收清单」逐条列出，附沙盒安装命令（code --user-data-dir /tmp/dsh-relcheck/ --install-extension "dsh-one-<新版本号>.vsix"）。
+- 输出验收报告：通过 / 不通过 + 每项证据。
+```
+
+### 3. 人工部分（调用方转交用户）
+
+- 把验收代理生成的「待人工验收清单」+ 沙盒安装命令转交用户，按 `docs/release-checklist.md` 在真实终端完成沙盒装机验收（未装 dsh 降级 / 定位启动 / webview / 收养实例 / 进程回收 / 命令抽查）和 README 与版本确认。
+- 全部通过后由人执行 `npx vsce login <publisher>` + `npx vsce publish`，上传的是验收通过的那份 vsix。
+
+## 交接物
+
+vsix 路径 / 版本号 / tag commit / 验收报告 / 待人工验收清单。
+
+## 注意
+
+- 两个子代理串行派发，不要并行——验收依赖发布产物。
+- 验收代理重跑 dry-run 不写任何文件，安全。
+- 发布/验收都作用于真实仓库（通常是 main），不是 worktree；子代理是 headless 的，GUI 步骤一律交给用户。
+- 验收不通过：把验收报告退回发布代理重做（或按报告修正），不要直接 publish。
