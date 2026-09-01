@@ -38,11 +38,43 @@ jobs:
           PID="$(node dist/spawnDsh.js dsh "$LOG" --version)"
           test -n "$PID" || { echo "launcher returned no pid"; exit 1; }
           echo "spawned dsh pid=$PID"
-          sleep 3
-          if grep -Eq 'v?[0-9]+\.[0-9]+\.[0-9]+|version' "$LOG"; then
+          # 轮询等待版本输出：dsh 冷启动（尤其 Windows .cmd→node→CLI）可能 >3s，
+          # 固定 sleep 3 不够。最多等 ~20s，每 2s 检查一次，命中即 break；
+          # mac/ubuntu 首次检查即命中，不受影响（甚至比原来固定 sleep 3 更快）。
+          ok=0
+          for i in $(seq 1 11); do
+            if [ -f "$LOG" ] && grep -Eq 'v?[0-9]+\.[0-9]+\.[0-9]+|version' "$LOG"; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ok" = "1" ]; then
             echo "dsh smoke OK"
           else
-            echo "dsh produced no version output; log:"
-            cat "$LOG"
+            # 失败诊断：区分「PATH 里没有 dsh」vs「冷启动慢」vs「spawn 输出没落到日志」。
+            # npm bin 在 npm 9+ 已移除，用 npm prefix -g 定位全局 bin 目录。
+            echo "dsh produced no version output within ~20s; log:"
+            cat "$LOG" 2>&1
+            echo "--- diagnostics ---"
+            echo "node -v: $(node -v)"
+            echo "which dsh: $(command -v dsh 2>&1 || echo '(not on PATH)')"
+            echo "npm prefix -g: $(npm prefix -g 2>&1)"
+            NPREFIX="$(npm prefix -g 2>/dev/null)"
+            echo "npm global bin listing:"
+            ls "$NPREFIX/bin" 2>/dev/null || ls "$NPREFIX" 2>/dev/null || echo "(cannot list npm global bin dir)"
+            echo "log size (bytes): $(wc -c < "$LOG" 2>/dev/null || echo 0)"
+            echo "PATH: $PATH"
+            # 对照：非 spawn 路径直接跑一次 dsh --version，帮忙区分 PATH/冷启动 与 spawn 管道问题。
+            echo "--- control: dsh --version directly (non-spawn) ---"
+            if command -v dsh >/dev/null 2>&1; then
+              if command -v timeout >/dev/null 2>&1; then
+                timeout 15 dsh --version 2>&1 || echo "(control dsh --version exited non-zero: $?)"
+              else
+                dsh --version 2>&1 || echo "(control dsh --version exited non-zero: $?)"
+              fi
+            else
+              echo "dsh not on PATH; cannot run control"
+            fi
             exit 1
           fi
