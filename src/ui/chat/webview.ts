@@ -1630,6 +1630,7 @@ function render(): void {
     detailsSession = detailsSid
     workflowDisclosure.clear()
     jsonTreeOpen.clear()
+    innerScrollPositions.clear()
   }
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
   const hadFocus = oldInput !== null && document.activeElement === oldInput
@@ -1645,6 +1646,10 @@ function render(): void {
   // re-evaluation only runs while a wheel/touch/keyboard/drag gesture is in
   // flight (see userScrollIntentActive).
   const oldMessages = document.getElementById('messages')
+  // 内部滚动容器（IN/OUT、指令卡、JSON 树、todo 清单）要在重建前存档位置：
+  // 流式每帧 textContent='' 会销毁它们，不恢复的话展开着的卡内滚动直接回到顶部。
+  // 根节点用 chatCol（todo 卡在输入区上方，不在 messages 容器里）。
+  saveInnerScroll(chatCol)
   const prevScrollTop = oldMessages?.scrollTop ?? null
   const prevScrollHeight = oldMessages?.scrollHeight ?? null
   if (
@@ -2099,6 +2104,9 @@ function render(): void {
   else if (!switchingSession && prevScrollTop !== null && prepended && prevScrollHeight !== null) {
     messages.scrollTop = prevScrollTop + (messages.scrollHeight - prevScrollHeight)
   } else if (!switchingSession && prevScrollTop !== null) messages.scrollTop = prevScrollTop
+  // 内部滚动容器（展开的 IN/OUT、指令卡、JSON 树、todo 清单）在新 DOM 上恢复位置。
+  // 换会话时不恢复：存档已随 detailsOpen 一起清空，旧会话位置对新内容无意义。
+  if (!switchingSession) restoreInnerScroll(chatCol)
   if (landed !== null) earlierAnchor = null
   // Read back the clamped value: this is the position the next render compares
   // against to tell user scrolls apart from content growth. 若恢复的 scrollTop
@@ -2399,6 +2407,44 @@ function openLightbox(dataUrl: string): void {
  * Cleared on session switch (keys are positional, only valid per session).
  */
 const detailsOpen = new Map<string, boolean>()
+
+/**
+ * 消息流里内部滚动容器（工具卡 IN/OUT、skill 指令卡、JSON 树等）的滚动位置
+ * 存档（key 按渲染 key，同 detailsOpen 机制）：流式输出每帧全量重建消息 DOM，
+ * 这些容器是新建元素、scrollTop 归零——用户正在滚动读内容会被顶回起点。
+ * 重建前扫描 [data-scroll-key] 存下，重建后按 key 恢复。
+ */
+const innerScrollPositions = new Map<string, number>()
+
+/** 给内部滚动容器打上重建后恢复滚动位置的锚（key 必须跨帧稳定）。 */
+function markScrollable(el: HTMLElement, key: string): HTMLElement {
+  el.dataset.scrollKey = key
+  return el
+}
+
+/** 保存消息流里所有内部滚动容器的滚动位置（重建前调用）。 */
+function saveInnerScroll(root: HTMLElement | null): void {
+  if (!root) return
+  const nodes = root.querySelectorAll<HTMLElement>('[data-scroll-key]')
+  for (let i = 0; i < nodes.length; i++) {
+    const el = nodes[i]
+    const key = el.dataset.scrollKey
+    if (key) innerScrollPositions.set(key, el.scrollTop)
+  }
+}
+
+/** 恢复消息流里所有内部滚动容器的滚动位置（重建后调用）。 */
+function restoreInnerScroll(root: HTMLElement | null): void {
+  if (!root) return
+  const nodes = root.querySelectorAll<HTMLElement>('[data-scroll-key]')
+  for (let i = 0; i < nodes.length; i++) {
+    const el = nodes[i]
+    const key = el.dataset.scrollKey
+    if (!key) continue
+    const top = innerScrollPositions.get(key)
+    if (top !== undefined && top > 0) el.scrollTop = top
+  }
+}
 let detailsSession: string | null = null
 
 /**
@@ -2461,7 +2507,7 @@ function renderTodoPanel(todos: ChatTodoItem[]): HTMLElement {
   chev.classList.add('todo-chevron')
   summary.appendChild(chev)
   det.appendChild(summary)
-  const list = el('ul', 'todo-list')
+  const list = markScrollable(el('ul', 'todo-list'), 'todos')
   for (const item of todos) list.appendChild(renderTodoItem(item))
   det.appendChild(list)
   return det
@@ -2561,7 +2607,7 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
       summary.appendChild(m.context === 'session-reference' ? iconSvg(SESSION_REF_ICON, 14) : iconSvg(CONTEXT_BROWSE_ICON, 14))
       summary.appendChild(el('span', undefined, ` ${contextLabel(m.context)}（已随消息注入）`))
       det.appendChild(summary)
-      det.appendChild(el('div', 'context-body', m.text))
+      det.appendChild(markScrollable(el('div', 'context-body', m.text), `${key}:ctx`))
       return det
     }
     const row = el('div', 'msg user')
@@ -2938,7 +2984,7 @@ function renderSkillRow(block: ChatToolBlock, key: string): HTMLElement {
   det.appendChild(summary)
   const instructions = el('div', 'skill-instructions-card')
   instructions.appendChild(el('div', 'skill-instructions-header', '说明'))
-  instructions.appendChild(el('pre', 'skill-instructions', card.output))
+  instructions.appendChild(markScrollable(el('pre', 'skill-instructions', card.output), `${key}:instructions`))
   det.appendChild(instructions)
   row.appendChild(det)
   return row
@@ -2985,13 +3031,13 @@ function renderCordisDefineRow(block: ChatToolBlock, key: string): HTMLElement {
     if (code === null) continue
     const section = el('div', 'cordis-source')
     section.appendChild(el('div', 'cordis-source-label', label))
-    section.appendChild(el('pre', 'cordis-source-code', code))
+    section.appendChild(markScrollable(el('pre', 'cordis-source-code', code), `${key}:cordis:${label.toLowerCase()}`))
     body.appendChild(section)
   }
   if (card.output !== null) {
     const section = el('div', 'cordis-source')
     section.appendChild(el('div', 'cordis-source-label', '结果'))
-    section.appendChild(el('pre', 'cordis-source-code', card.output))
+    section.appendChild(markScrollable(el('pre', 'cordis-source-code', card.output), `${key}:cordis:output`))
     body.appendChild(section)
   }
   det.appendChild(body)
@@ -3147,7 +3193,10 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
 function toolInOut(label: string, text: string, key: string, asJson: boolean): HTMLElement {
   const box = el('div', 'tool-inout')
   box.appendChild(el('div', 'tool-inout-label', label))
-  box.appendChild(asJson ? renderJsonOrText(text, key) : el('pre', '', text))
+  const body = asJson ? renderJsonOrText(text, key) : el('pre', '', text)
+  // 非 JSON 路径才是单个滚动 <pre>；JSON 路径的树由 renderJsonTree 自己打标。
+  if (!body.classList.contains('json-tree-shell')) markScrollable(body as HTMLElement, key)
+  box.appendChild(body)
   return box
 }
 
@@ -3198,7 +3247,7 @@ function renderToolOutput(output: string, key: string): HTMLElement {
   const box = el('div', 'tool-output')
   const { preview, totalLines, truncated } = truncateLines(output)
   const open = detailsOpen.get(key) ?? false
-  box.appendChild(el('pre', '', open ? output : preview))
+  box.appendChild(markScrollable(el('pre', '', open ? output : preview), key))
   if (truncated) {
     const toggle = el('div', 'tool-output-toggle', open ? '收起输出' : `… 共 ${totalLines} 行，点击展开`)
     toggle.addEventListener('click', () => {
@@ -3245,6 +3294,7 @@ function renderJsonTree(value: JsonContainer, outputKey: string): HTMLElement {
   shell.appendChild(bar)
 
   const tree = el('div', 'json-tree')
+  markScrollable(tree, `${outputKey}:tree`)
   const isOpen = (pathKey: string) => jsonTreeOpen.get(`${outputKey}:${pathKey}`) ?? pathKey === JSON_TREE_ROOT_KEY
   const rows = flattenJsonTree(value, isOpen)
   for (const row of rows) tree.appendChild(renderJsonTreeRow(row, outputKey, value))
