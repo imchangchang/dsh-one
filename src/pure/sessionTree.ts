@@ -38,6 +38,12 @@ export interface SessionInput {
   origin?: string
   /** Sum of the tokenUsage projection's buckets, when the host reports one. */
   totalTokens?: number
+  /**
+   * Closed-turn count from the `sessionStats` projection (session.list), when
+   * the host reports a completed turn. Absent means no completed turn yet.
+   * Feeds the fork menu's disabled state.
+   */
+  sessionStatsTurns?: number
   /** Title projection resolved at fetch time (null when untitled). */
   title?: string | null
   /**
@@ -56,6 +62,12 @@ export interface SessionNodeModel {
   running: boolean
   /** Client-side pin (dsh has no pin API); pinned sessions sort first. */
   pinned: boolean
+  /**
+   * Whether the session has at least one completed turn (sessionStats
+   * projection). The list fork action gates on this: a session with no
+   * completed turn has no `turn/end` boundary, so the server rejects a fork.
+   */
+  hasCompletedTurn: boolean
   /** Client-side unread marker (dsh has no unread API); display-only, no sort effect. */
   unread: boolean
   /**
@@ -204,6 +216,7 @@ export function buildSessionTree(
           description: formatRelativeTime(session.updatedAt, now),
           running: session.running,
           pinned: view.pinned?.has(session.sessionId) === true,
+          hasCompletedTurn: (session.sessionStatsTurns ?? 0) > 0,
           unread: view.unread?.has(session.sessionId) === true,
           descendantRunning: hasRunningDescendant(session.sessionId),
           ...(pendingInteraction !== undefined ? { pendingInteraction } : {}),

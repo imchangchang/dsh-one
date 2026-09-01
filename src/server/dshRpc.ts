@@ -72,6 +72,27 @@ export function sessionTitle(s: SessionSummary): string | null {
 }
 
 /**
+ * Closed-turn count from the `sessionStats` projection of one session.list row
+ * (the host's `sessionProjections` registry; dsh-session-stats folds a
+ * completed turn into `turns` at its first `step/end`). 0 when the projection
+ * is absent or reports none — a session that has never completed a turn.
+ *
+ * The list sidebar only shows non-blank sessions, so `blank` cannot distinguish
+ * "has a completed turn"; this count closes that gap. The fork menu disables
+ * when it is 0 (no `turn/end` boundary, so the server rejects the fork). It is
+ * a step-completion proxy rather than a literal `turn/end` flag (the wire view
+ * excludes the live `openStep`/`lastTurn`), so an in-flight first turn that has
+ * produced a step can still read >0; the fork command's existing error toast
+ * covers that residual window.
+ */
+export function sessionCompletedTurns(s: SessionSummary): number {
+  const stats = s.projections?.values.sessionStats
+  if (typeof stats !== 'object' || stats === null) return 0
+  const turns = (stats as Record<string, unknown>).turns
+  return typeof turns === 'number' && Number.isFinite(turns) && turns > 0 ? Math.floor(turns) : 0
+}
+
+/**
  * Total token usage from the `tokenUsage` projection (sum of its four
  * buckets); undefined when the host has not reported one. Loose on purpose:
  * any numeric bucket counts, so new bucket names are picked up for free.
