@@ -28,6 +28,7 @@ dsh-one 无任何产物展示：对话流里产出文件没有聚合视，只能
 - 2026-09-01 开发完成，自测通过 → done（worktree: agent/deliverables-produced-files）
 - 2026-09-01 用户 dev-ui-test 验收反馈：去掉「在 VSCode 中打开」按钮（产物 chip 打开文件已够用）→ 仍 done
 - 2026-09-01 用户反馈「折叠后不能展开」→ 补「+N 个文件」展开/收起交互 + 视觉场景 → 仍 done
+- 2026-09-01 用户反馈「文件过多时一行被截断」→ chips 行改可换行铺开 + `produced-files-wrap` 场景 → 仍 done
 
 ## 开发完成说明（2026-09-01）
 
@@ -37,9 +38,9 @@ dsh-one 无任何产物展示：对话流里产出文件没有聚合视，只能
 - `chatContract.ts`：`ChatAssistantMessage.producedFiles?: string[]`（只挂 turnEnd 消息）；`FromWebviewMessage` 加 `producedOpenFile`（chip 点击打开文件）。
 - `conversation.ts`：per-turn 产物累积器（call view 快照 + 产物去重保序 + turn/end 挂载，对齐官方 deliverablesDefinition）。
 - 新增 `src/pure/producedFiles.ts`：chip basename（兼容 / 与 \）。
-- `webview.ts`：turnEnd 消息在操作栏前渲染产物行——label「产物」+ 最多 6 个 chip（点击在 VSCode 编辑器打开）+ 超出的折叠成「+N 个文件」（**用户反馈后补的交互**：点击展开全部 chip、展开后变「收起」，展开态按消息位置键持久化、换会话清空；官方 web 是静态计数，此为 dsh-one 增强）。
+- `webview.ts`：turnEnd 消息在操作栏前渲染产物行——label「产物」+ 最多 6 个 chip（点击在 VSCode 编辑器打开）+ 超出的折叠成「+N 个文件」（**用户反馈后补的交互**：点击展开全部 chip、展开后变「收起」，展开态按消息位置键持久化、换会话清空；官方 web 是静态计数，此为 dsh-one 增强）。chips 行**可换行铺开**（用户反馈：单行 nowrap 会把展开后的长文件名截断——`.produced-lane` 改 `flex-wrap: wrap`，chip 内超过 320px 的名字仍省略号截断、悬停显示完整路径）。
 - `chatView.ts`：产物行 CSS + `producedOpenFile` 宿主处理（`showTextDocument` 打开任意绝对路径）。
-- 测试与场景：`conversation.test.ts` 6 个折叠用例（diff/edit 提取、read/delete/terminal 排除、失败结果排除、去重保序、turn 切断、re-baseline 清空）+ `producedFiles.test.ts` basename 用例 + `test/ui/scenarios.js` 新增 `produced-files`（折叠态）与 `produced-files-expanded`（点击展开）两个视觉场景（已并入 BASELINE_SCENARIOS）。
+- 测试与场景：`conversation.test.ts` 6 个折叠用例（diff/edit 提取、read/delete/terminal 排除、失败结果排除、去重保序、turn 切断、re-baseline 清空）+ `producedFiles.test.ts` basename 用例 + `test/ui/scenarios.js` 新增 `produced-files`（折叠态）、`produced-files-expanded`（点击展开）、`produced-files-wrap`（长文件名多文件换行）三个视觉场景（均已并入 BASELINE_SCENARIOS）。
 - 变更（用户 dev-ui-test 验收反馈）：官方 web 的「在文件夹中显示」按钮（曾实现为「在 VSCode 中打开」：工作区内 `revealInExplorer` / 未打开 `openFolder`）**已按用户确认去掉**——VSCode 里打开产物文件夹意义不大，chip 点击打开文件已够用；相应移除 `producedOpenFolder` 消息、宿主处理与公共文件夹计算。
 
 **人工验收方法**（合入前 dev-ui-test 窗口验证，命令见下）：
@@ -53,6 +54,6 @@ cd /Users/cgeng/Workspaces/dsh-one/.worktrees/deliverables-produced-files && bas
 3. 向 agent 发一条会写文件的指令（如「在当前目录写一个 hello.ts」），等 turn 结束后：
    - 该轮 assistant 消息尾部出现「产物」行，含文件 chip（basename 显示，悬停 title 为完整路径）
    - 点 chip → 该文件在 VSCode 编辑器打开
-4. 多文件产出（>6 个）时行尾出现「+N 个文件」；点它 → 展开显示全部 chip，文案变「收起」；点「收起」恢复折叠
+4. 多文件产出（>6 个）时行尾出现「+N 个文件」；点它 → 展开显示全部 chip，文案变「收起」；点「收起」恢复折叠；文件很多/名字很长时 chips **多行换行铺开**（不被单行截断）
 5. 无文件产出的轮次（纯问答）不出现产物行
-6. 无头核对可跑 `scripts/ui-visual.sh`：`produced-files`（折叠态）与 `produced-files-expanded`（点击展开）两个场景截图对照 expect 描述（已并入 BASELINE_SCENARIOS）
+6. 无头核对可跑 `scripts/ui-visual.sh`：`produced-files`（折叠态）、`produced-files-expanded`（点击展开）、`produced-files-wrap`（长文件名多文件换行）三个场景截图对照 expect 描述（均已并入 BASELINE_SCENARIOS）

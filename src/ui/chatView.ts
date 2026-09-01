@@ -708,13 +708,15 @@ const STYLE = `
   .msg-actions .icon-action.active { color: var(--vscode-foreground, #ccc); }
   .msg-actions .icon-action svg { display: block; }
   .produced-files {
-    display: flex; align-items: center; gap: 8px; margin-top: 10px;
+    display: flex; align-items: flex-start; gap: 6px 8px; margin-top: 10px;
     font-size: 13px; line-height: 22px; min-width: 0;
   }
-  .produced-label { flex: none; color: var(--vscode-descriptionForeground, #888); }
+  .produced-label { flex: none; color: var(--vscode-descriptionForeground, #888); padding-top: 1px; }
+  /* 产物多时换行铺开（用户反馈：单行 nowrap + overflow hidden 会把展开后的
+     chips 截断）；label 与第一行对齐，chips 占用剩余宽度内换行。 */
   .produced-lane {
-    display: flex; align-items: center; gap: 8px;
-    min-width: 0; overflow: hidden; flex-wrap: nowrap;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;
+    flex: 1; min-width: 0;
   }
   .produced-file {
     flex: none; max-width: 320px; margin: 0; padding: 0 8px;

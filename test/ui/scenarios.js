@@ -954,6 +954,8 @@
       }),
       title: 'cordis_stop / cordis_undefine 专用卡',
       expect: '助手消息里两条 cordis 动作卡：第一条行首 stop 方块图标、动作短语「停止 Cordis 插件」、分隔点、摘要「demo」，行下平铺输出「stopped」；第二条行首垃圾桶图标、动作短语「移除 Cordis 插件」、分隔点、摘要「demo」，行下平铺输出「removed」；两条都无 chevron（非 disclosure）。',
+    },
+
     // 产物行（ProducedFiles 对齐）：>6 个文件折叠成「+N 个文件」，折叠态默认。
     'produced-files': {
       state: base({
@@ -992,6 +994,38 @@
       interact: `document.querySelector('.produced-more')?.click()`,
       expect: '点击「+ 2 个文件」后**立即**展开：8 个文件 chip 全部可见（a.ts…h.ts），计数文案变为「收起」；再点「收起」恢复 6 chip +「+ 2 个文件」。',
     },
+
+    // 文件多且名字长（用户反馈：单行 nowrap 截断）→ 展开后换行铺开。
+    'produced-files-wrap': {
+      state: base({
+        messages: [
+          u('把重构涉及的源文件都改一遍。'),
+          {
+            kind: 'assistant', id: 'a-pf-3', complete: true, turnEnd: true,
+            blocks: [{ type: 'text', text: '已改 14 个文件。' }],
+            producedFiles: [
+              '/repo/src/packages/conversation/folder/folding-state.ts',
+              '/repo/src/packages/conversation/folder/produced-products.ts',
+              '/repo/src/packages/conversation/turn-tail/rendering-hooks.ts',
+              '/repo/src/packages/conversation/turn-tail/produced-files-row.ts',
+              '/repo/src/packages/chat/webview/render-message.ts',
+              '/repo/src/packages/chat/webview/render-block.ts',
+              '/repo/src/packages/chat/webview/render-tools.ts',
+              '/repo/src/packages/chat/webview/render-actions.ts',
+              '/repo/src/packages/chat/webview/scroll-follow.ts',
+              '/repo/src/packages/chat/webview/queue-editor.ts',
+              '/repo/src/packages/chat/chatViewProvider.ts',
+              '/repo/src/packages/chat/chatSessionController.ts',
+              '/repo/src/packages/pure/chatContract.ts',
+              '/repo/src/packages/pure/producedFiles.ts',
+            ],
+          },
+        ],
+      }),
+      title: '产物行（长文件名多文件换行）',
+      interact: `document.querySelector('.produced-more')?.click()`,
+      expect: '点击「+ N 个文件」展开后：14 个长文件名 chip **多行换行铺开**（行尾不截断、不裁掉 chip），每行 label「产物」左侧只出现一次且与首行对齐；每个 chip 内超宽文件名以省略号截断、悬停 title 为完整路径；「收起」在最后一个 chip 后。',
+    },
   }
 
   catalog.conversation.sessions = window.sessionsTree('sess-1')
@@ -1007,7 +1041,7 @@
     'session-mention', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',
-    'produced-files', 'produced-files-expanded',
+    'produced-files', 'produced-files-expanded', 'produced-files-wrap',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()
