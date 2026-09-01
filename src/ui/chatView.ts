@@ -351,6 +351,33 @@ const STYLE = `
   .md code {
     font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em;
   }
+  /* 代码块折叠 + 复制（对齐 dsh web）：头部语言 + 复制按钮，超行数折叠成
+     头部/尾部两段，中间「… 其余 N 行」切换。 */
+  .md-code { margin: 6px 0; }
+  .md-code-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; margin-bottom: 4px;
+  }
+  .md-code-lang {
+    opacity: 0.6; font-size: 0.85em;
+    font-family: var(--vscode-editor-font-family, monospace);
+  }
+  .md-code-copy {
+    background: none; border: none; cursor: pointer; padding: 2px 6px;
+    border-radius: 3px; font-size: 0.85em;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .md-code-copy:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    color: var(--vscode-foreground);
+  }
+  .md-code-toggle {
+    display: block; background: none; border: none; cursor: pointer;
+    opacity: 0.6; margin: 2px 0; padding: 0; font-size: 0.85em;
+    font-family: inherit; color: inherit;
+  }
+  .md-code-toggle:hover { opacity: 1; }
+  .md-code pre { margin: 0; }
   .reasoning {
     border-left: 2px solid var(--vscode-panel-border, rgba(127,127,127,.4));
     padding-left: 8px; color: var(--vscode-descriptionForeground, #888); font-size: 0.9em;

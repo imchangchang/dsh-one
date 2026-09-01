@@ -33,6 +33,7 @@ import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTr
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../pure/toolLine.ts'
+import { codeBlockPreview } from '../../pure/codeBlock.ts'
 import {
   formatJobDuration,
   isLiveJob,
@@ -275,6 +276,83 @@ function decorateSessionMentions(container: HTMLElement): void {
     const sessionId = decodeSessionReferenceUri(a.getAttribute('href') ?? '')
     if (!sessionId) return // 坏 URI 保持原样
     a.replaceWith(sessionMentionChip(a.textContent ?? sessionId, sessionId))
+  })
+}
+
+/** 一个代码块主体（<pre><code>，文本走 textContent 防注入）。 */
+function mdCodeBody(text: string): HTMLPreElement {
+  const pre = el('pre') as HTMLPreElement
+  const code = el('code')
+  code.textContent = text
+  pre.appendChild(code)
+  return pre
+}
+
+/**
+ * md 渲染后给每个代码块加复制按钮 + 行数折叠（对齐 dsh web，阈值见
+ * src/pure/codeBlock.ts 的 CODE_BLOCK_MAX_LINES）：超过阈值行时折叠成
+ * 「头部 + … 其余 N 行 + 尾部」，点击展开全部、再点收起；展开态记在
+ * detailsOpen（key 按消息/块位置，流式重建不冲掉，同 detailsEl 的持久化
+ * 机制）。复制用 navigator.clipboard，成功短暂显示「已复制」，失败改 title
+ * 提示。
+ */
+function enhanceCodeBlocks(container: HTMLElement, prefix: string): void {
+  container.querySelectorAll<HTMLPreElement>('pre > code').forEach((code, i) => {
+    const pre = code.parentElement as HTMLPreElement
+    const text = code.textContent ?? ''
+    const { head, tail, hidden } = codeBlockPreview(text)
+    const key = `${prefix}:code:${i}`
+    const open = detailsOpen.get(key) ?? false
+    const lang = Array.from(code.classList)
+      .find((c) => c.startsWith('language-'))
+      ?.slice('language-'.length)
+
+    // 头部条：语言标签（有才显示）+ 复制按钮（始终复制全文，不限折叠态）。
+    const bar = el('div', 'md-code-bar')
+    if (lang) bar.appendChild(el('span', 'md-code-lang', lang))
+    const copy = buttonEl('md-code-copy', '复制')
+    copy.title = '复制代码'
+    copy.addEventListener('click', () => {
+      if (!text) return
+      void navigator.clipboard.writeText(text).then(
+        () => {
+          copy.textContent = '已复制'
+          copy.title = '已复制'
+          setTimeout(() => {
+            copy.textContent = '复制'
+            copy.title = '复制代码'
+          }, 1000)
+        },
+        () => {
+          copy.title = '复制失败'
+        },
+      )
+    })
+    bar.appendChild(copy)
+
+    // 折叠/展开按钮：折叠态给「… 其余 N 行」，展开态给「收起」。
+    const toggle = (collapsed: boolean, label: string): HTMLButtonElement => {
+      const b = buttonEl('md-code-toggle', label)
+      b.setAttribute('aria-expanded', String(!collapsed))
+      b.setAttribute('aria-label', collapsed ? `展开其余 ${hidden} 行` : '收起内容')
+      b.addEventListener('click', () => {
+        detailsOpen.set(key, !collapsed)
+        render()
+      })
+      return b
+    }
+
+    const wrap = el('div', 'md-code')
+    wrap.appendChild(bar)
+    if (hidden === 0 || open) {
+      wrap.appendChild(mdCodeBody(text))
+      if (hidden > 0) wrap.appendChild(toggle(false, '收起'))
+    } else {
+      wrap.appendChild(mdCodeBody(head.join('\n')))
+      wrap.appendChild(toggle(true, `… 其余 ${hidden} 行`))
+      wrap.appendChild(mdCodeBody(tail.join('\n')))
+    }
+    pre.replaceWith(wrap)
   })
 }
 
@@ -2747,6 +2825,7 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
       const div = el('div', 'md')
       div.innerHTML = md(block.text)
       decorateSessionMentions(div)
+      enhanceCodeBlocks(div, key)
       return div
     }
     case 'reasoning': {
@@ -2957,6 +3036,7 @@ function renderQuestion(p: PendingQuestion): HTMLElement {
       const det = detailsEl(`q:${p.rpcId}:${i}`, 'question-detail', '查看详情')
       const body = el('div', 'md')
       body.innerHTML = md(q.detail)
+      enhanceCodeBlocks(body, `q:${p.rpcId}:${i}`)
       det.appendChild(body)
       wrap.appendChild(det)
     }
