@@ -15,9 +15,9 @@ const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 delete env.NODE_OPTIONS
 
-// 解析 npm 全局 shim（dsh.cmd）背后的 dsh.js：npm 的 cmd shim 模板固定为
-// `node <shim目录>\node_modules\@deepseek-ai\dsh\bin\dsh.js`。找不到返回 null
-//（自定义 dshPath 等场景走 cmd /c 回退路径）。
+// 解析 npm 全局 shim（dsh.cmd）背后的 dsh 入口：npm cmd shim 模板固定为
+// `node <shim目录>\node_modules\@deepseek-ai\dsh\lib\bin.js`（CI 实测确认）。
+// 找不到返回 null（自定义 dshPath 等场景走 cmd /c 回退路径）。
 function resolveDshJs(command: string): string | null {
   let shimPath = command
   if (!path.isAbsolute(shimPath)) {
@@ -33,8 +33,13 @@ function resolveDshJs(command: string): string | null {
     shimPath = found ?? ''
   }
   if (shimPath === '' || !shimPath.toLowerCase().endsWith('.cmd')) return null
-  const js = path.join(path.dirname(shimPath), 'node_modules', '@deepseek-ai', 'dsh', 'bin', 'dsh.js')
-  return fs.existsSync(js) ? js : null
+  const pkgRoot = path.join(path.dirname(shimPath), 'node_modules', '@deepseek-ai', 'dsh')
+  const candidates = [
+    path.join(pkgRoot, 'lib', 'bin.js'),
+    path.join(pkgRoot, 'bin', 'dsh.js'),
+    path.join(pkgRoot, 'bin', 'index.js'),
+  ]
+  return candidates.find((p) => fs.existsSync(p)) ?? null
 }
 
 // 确保 stdout 的 pid 真正 flush 后再退出：process.exit 不会等待异步 stdout 写，

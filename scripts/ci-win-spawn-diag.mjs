@@ -70,12 +70,11 @@ const main = async () => {
     }
     walk(pkgRoot, 0)
   }
-  // 3) P4 候选：node 直跑 bin/dsh.js（若存在）+ detached + fd 直传
+  // 3) P4 候选：node 直跑 dsh 入口（lib/bin.js 为 npm shim 实际入口）+ detached + fd 直传
   const candidates = [
+    path.join(pkgRoot, 'lib', 'bin.js'),
     path.join(pkgRoot, 'bin', 'dsh.js'),
-    path.join(pkgRoot, 'bin', 'dsh.mjs'),
     path.join(pkgRoot, 'bin', 'index.js'),
-    path.join(pkgRoot, 'lib', 'dsh.js'),
   ]
   const js = candidates.find((p) => fs.existsSync(p)) ?? null
   console.log(`  resolved dsh entry=${js ?? '(none)'}`)
