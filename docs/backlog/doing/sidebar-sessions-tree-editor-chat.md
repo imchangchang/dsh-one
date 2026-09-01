@@ -70,3 +70,4 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - 2026-09-01 开发完成（doing → done）：未分组参与统一折叠（折叠全部图标正常切换）+ 刷新转圈反馈 + 悬停自实现 tooltip。
 - 2026-09-01 验收打回（done → doing）：workspace 行尾「从列表移除」用 X 图标，改为垃圾桶描边图标（strokeSvg 线条风格，与其他行操作图标同尺寸同风格；不动 chat 侧 remove）。
 - 2026-09-01 开发完成（doing → done）：「从列表移除」换为 strokeSvg 垃圾桶描边图标（16px，与其他行操作图标同尺寸同线条风格）。
+- 2026-09-01 验收打回（done → doing）：chat 面板默认右侧一列（ViewColumn.Beside），用户要求默认占满编辑区；改 openPanel() 默认 ViewColumn.Active。
