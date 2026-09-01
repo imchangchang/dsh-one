@@ -25,7 +25,6 @@ import { contextMenuResource } from '../pure/contextResource.ts'
 import { orderJobs } from '../pure/activityTree.ts'
 import { buildSubagentTree } from '../pure/sessionTree.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
-import { formatSessionMention } from '../pure/sessionMention.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
 
@@ -1143,11 +1142,14 @@ function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
 }
 
 /**
- * Native chat view (`dshOne.chat`): owns the current ChatSessionController,
- * pushes its (throttled) ChatState snapshots to the webview verbatim and
- * routes user actions back. Also owns the sessions panel: SessionsStore 的
- * 快照随 store 变更/服务状态变化/视图 resolve 推给 webview，面板动作经
- * onMessage 顶部的免 controller 分支路由（会话操作复用 extension.ts 的命令）。
+ * Chat editor panel（`dshOne.chatPanel`）：owns the current
+ * ChatSessionController, pushes its (throttled) ChatState snapshots to the
+ * WebviewPanel verbatim and routes user actions back. The sessions list no
+ * longer lives here — it moved to a native tree (SessionsTreeProvider); this
+ * host still pushes the SessionsStore snapshot to the panel webview because
+ * the composer's @-mention autocomplete reads it. Panel is lazy: it is only
+ * created on demand (click a session / new session / open command / attach
+ * file), defaulting to ViewColumn.Beside.
  * 头部信息区的 chips（后台任务 / 子代理）数据来自 JobsStore（mux 全局
  * session/jobs 帧，含已结束的 job）与 store 的 session.list 基线，经
  * composeHeader 合成 ChatState.backgroundJobs / runningSubagents 随 state
@@ -1155,12 +1157,18 @@ function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
  * With no session — or a non-running server — the webview gets EMPTY_STATE
  * and shows its placeholder copy.
  */
-export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
-  private view: vscode.WebviewView | null = null
+export class ChatViewProvider implements vscode.Disposable {
+  private panel: vscode.WebviewPanel | null = null
   private controller: ChatSessionController | null = null
   private controllerSub: vscode.Disposable | null = null
   /** Last title projection seen from the attached session (auto-rename watch). */
   private lastSessionTitle: string | undefined
+  /** 懒加载自动附着的目标会话（panel 未开时记着，open() 再落）。 */
+  private pendingSessionId: string | null = null
+  /** 高亮会话变化时通知侧栏 tree 刷新（拆分解耦：tree 读 activeSessionId）。 */
+  private readonly activeEmitter = new vscode.EventEmitter<string | null>()
+  /** Fired when activeSessionId changes (attach/lazy-pending). */
+  readonly onActiveSessionChanged = this.activeEmitter.event
   private readonly managerSub: vscode.Disposable
   private readonly storeSub: vscode.Disposable
   private readonly jobs: JobsStore
@@ -1205,23 +1213,68 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     return this.controller?.sessionId ?? null
   }
 
-  resolveWebviewView(view: vscode.WebviewView): void {
-    this.view = view
-    view.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')],
+  /**
+   * Session highlighted by the sidebar tree: the attached session when the
+   * panel is open, else the lazily-pending auto-attach target. The tree reads
+   * this for the active-row highlight (拆分后「仅侧栏高亮」).
+   */
+  get activeSessionId(): string | null {
+    return this.controller?.sessionId ?? this.pendingSessionId
+  }
+
+  /**
+   * 懒加载自动附着：store 变化发现「无当前会话但出现了最新会话」时记下
+   * target（仅侧栏高亮，不碰 controller），等 panel 下次 open() 再落。
+   */
+  setLazyPending(sessionId: string | null): void {
+    if (this.pendingSessionId === sessionId) return
+    this.pendingSessionId = sessionId
+    this.activeEmitter.fire(this.activeSessionId)
+  }
+
+  /**
+   * 打开（或揭示）聊天 editor 面板。面板不存在则按默认 ViewColumn.Beside
+   * 创建并接线消息/销毁；随后推当前 ChatState + sessions 快照、投递暂存
+   * 附件。若当前未附着但存在懒加载目标，先把目标落上。非运行中的服务会
+   * 被 setSession 忽略（attach(null)），面板仍打开显示空态。
+   */
+  openPanel(): void {
+    if (!this.panel) {
+      const panel = vscode.window.createWebviewPanel(
+        'dshOne.chatPanel',
+        'DSH One',
+        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
+        {
+          enableScripts: true,
+          localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')],
+        },
+      )
+      panel.webview.html = chatHtml(panel.webview, this.extensionUri)
+      const msg = panel.webview.onDidReceiveMessage((m: FromWebviewMessage) => void this.onMessage(m))
+      panel.onDidDispose(() => {
+        msg.dispose()
+        if (this.panel === panel) this.panel = null
+      })
+      this.panel = panel
     }
-    view.webview.html = chatHtml(view.webview, this.extensionUri)
-    const msg = view.webview.onDidReceiveMessage((m: FromWebviewMessage) => void this.onMessage(m))
-    view.onDidDispose(() => {
-      msg.dispose()
-      if (this.view === view) this.view = null
-    })
-    // A late-resolved view still needs the state attached before it appeared.
+    // 懒加载目标在此落地（此时才建 controller）。
+    if (!this.controller && this.pendingSessionId) {
+      const target = this.pendingSessionId
+      this.pendingSessionId = null
+      this.setSession(target)
+    }
     this.push(this.controller?.getState() ?? this.emptyState())
     this.pushSessions()
     // 右键暂存的附件可能一直等在这里（面板此前没打开过）。
     this.flushStaged()
+    this.panel.reveal()
+  }
+
+  /** 附着一个会话并打开 editor 面板（侧栏点会话 / 新建 / 分叉）。
+   *  显式的用户动作总是强制拉出面板，不参与懒加载。 */
+  openSession(sessionId: string): void {
+    this.setSession(sessionId)
+    this.openPanel()
   }
 
   /**
@@ -1262,12 +1315,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     this.controller = controller
     // 附着中的会话不打「已完成」标记，附着即清除（store 侧内存集合）。
     this.store.setAttachedSession(controller?.sessionId ?? null)
+    // 附着切换 → 侧栏 tree 高亮同步。
+    this.activeEmitter.fire(this.activeSessionId)
     if (controller) {
       // 附着即取一次服务端 running 位（基线未覆盖时为 undefined，controller
       // 内部回退 mux 折叠值）；之后随 store 变更中继。
       controller.setServerRunning(this.store.runningFor(controller.sessionId))
       this.controllerSub = controller.onDidChange((state) => {
         this.push(state)
+        // 兜底：面板被用户关闭但有 pending 交互（审批/问题/计划评审）时
+        // 自动再拉出，避免交互被静默吞掉（拆分后所有此类交互都在编辑区）。
+        if (state.pending.length > 0 && !this.panel) this.openPanel()
         // dsh 自动命名经会话内的 title 投影到达，host 事件流没有对应事件，
         // sessions 面板不会自己刷新——标题变化时主动重拉一次基线。
         if (state.sessionTitle !== this.lastSessionTitle) {
@@ -1297,7 +1355,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
   private push(state: ChatState): void {
     const message: ToWebviewMessage = { type: 'state', state: this.composeHeader(state) }
-    void this.view?.webview.postMessage(message)
+    void this.panel?.webview.postMessage(message)
   }
 
   /**
@@ -1359,7 +1417,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       dshNotFound: status.state === 'error' && status.reason === 'dshNotFound',
     }
     const message: ToWebviewMessage = { type: 'sessions', snapshot }
-    void this.view?.webview.postMessage(message)
+    void this.panel?.webview.postMessage(message)
   }
 
   private async onMessage(m: FromWebviewMessage): Promise<void> {
@@ -1368,78 +1426,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       void vscode.commands.executeCommand('dshOne.openInstallPage')
       return
     }
-    // Sessions 面板的动作同样不需要附着会话：会话操作复用 extension.ts 里
-    // 改造后的命令（收普通参数），排序/搜索/刷新直接落在 store 上。
-    switch (m?.type) {
-      case 'sessionOpen':
-        this.setSession(m.sessionId)
-        return
-      case 'sessionNew':
-        void vscode.commands.executeCommand('dshOne.session.new', m.workspaceId)
-        return
-      case 'sessionRename':
-        void vscode.commands.executeCommand('dshOne.session.rename', m.sessionId, m.title)
-        return
-      case 'sessionArchive':
-        void vscode.commands.executeCommand('dshOne.session.archive', m.sessionId, m.title)
-        return
-      case 'workspaceAdd':
-        void vscode.commands.executeCommand('dshOne.workspace.add')
-        return
-      case 'workspaceCreate':
-        void vscode.commands.executeCommand('dshOne.workspace.create')
-        return
-      case 'workspaceOpenFolder':
-        void vscode.commands.executeCommand('dshOne.workspace.openFolder', m.path)
-        return
-      case 'workspaceOpenTerminal':
-        void vscode.commands.executeCommand('dshOne.workspace.openTerminal', m.path)
-        return
-      case 'sessionsRefresh':
-        void this.store.refresh()
-        return
-      case 'sessionsSearch':
-        this.store.setQuery(typeof m.query === 'string' && m.query.trim() !== '' ? m.query : null)
-        return
-      case 'sessionsSort':
-        this.store.setSortOrder(m.order)
-        return
-      case 'sessionPin':
-        this.store.setPinned(m.sessionId, m.pin)
-        return
-      case 'sessionUnread':
-        this.store.setUnread(m.sessionId, m.unread)
-        return
-      case 'workspaceCollapse':
-        this.store.setCollapsed(m.workspaceId, m.collapsed)
-        return
-      case 'workspacesCollapseAll':
-        this.store.collapseAll()
-        return
-      case 'workspacesExpandAll':
-        this.store.expandAll()
-        return
-      case 'workspaceRemove':
-        void this.removeWorkspace(m.workspaceId, m.label)
-        return
-      case 'sessionFork':
-        void vscode.commands.executeCommand('dshOne.session.fork', m.sessionId)
-        return
-      case 'sessionCopyReference': {
-        // host 的 session-reference 插件解析 mention 并注入被引用会话的只读快照。
-        const mention = formatSessionMention(m.title, m.sessionId)
-        await vscode.env.clipboard.writeText(mention)
-        void vscode.window.showInformationMessage('已复制会话引用，粘贴到输入框即可 @ 这个会话')
-        return
-      }
-      case 'sessionCopyId':
-        await vscode.env.clipboard.writeText(m.sessionId)
-        void vscode.window.showInformationMessage('已复制会话 ID')
-        return
-      case 'serverStart':
-        void this.manager.ensureStarted()
-        return
-    }
+    // 拆分后会话列表为原生 tree，webview（editor 面板）不再发送 sessions 面板
+    // 消息；其余全部落在 controller 上。
     const controller = this.controller
     if (!controller || !m || typeof m.type !== 'string') return
     try {
@@ -1461,7 +1449,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           const restored = await controller.stop()
           if (restored.length > 0) {
             const message: ToWebviewMessage = { type: 'restoreDraft', text: restored.join('\n') }
-            void this.view?.webview.postMessage(message)
+            void this.panel?.webview.postMessage(message)
           }
           return
         }
@@ -1512,7 +1500,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.logger.warn(`chat: fileRefList(${JSON.stringify(m.query)}) failed — ${err instanceof Error ? err.message : err}`)
           }
           const message: ToWebviewMessage = { type: 'fileRefList', requestId: m.requestId, items }
-          void this.view?.webview.postMessage(message)
+          void this.panel?.webview.postMessage(message)
           return
         }
         case 'queueEdit':
@@ -1565,7 +1553,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           })),
         },
       }
-      void this.view?.webview.postMessage(message)
+      void this.panel?.webview.postMessage(message)
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       vscode.window.showErrorMessage(`获取模型列表失败：${detail}`)
@@ -1578,7 +1566,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     try {
       const { mediaType, data } = await sessionAttachment(controller.url, controller.sessionId, attachmentId)
       const message: ToWebviewMessage = { type: 'attachmentData', attachmentId, mediaType, data }
-      void this.view?.webview.postMessage(message)
+      void this.panel?.webview.postMessage(message)
     } catch (err) {
       // Thumbnail stays a placeholder; not worth an error popup.
       const detail = err instanceof Error ? err.message : String(err)
@@ -1657,7 +1645,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     const outcome = await executeCommand(controller.url, controller.sessionId, line, images)
     if (!outcome.matched) {
       const message: ToWebviewMessage = { type: 'commandResult', text: `未知或格式错误的命令：${line}` }
-      void this.view?.webview.postMessage(message)
+      void this.panel?.webview.postMessage(message)
       return
     }
     // `/export` only marks the request host-side ("Session log download
@@ -1757,7 +1745,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         type: 'filesPicked',
         files: paths.map((p) => ({ name: path.basename(p), path: p })),
       }
-      void this.view?.webview.postMessage(message)
+      void this.panel?.webview.postMessage(message)
     }
   }
 
@@ -1792,7 +1780,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     this.stageImages(controller, images)
     if (staged.length > 0) {
       const message: ToWebviewMessage = { type: 'filesPicked', files: staged }
-      void this.view?.webview.postMessage(message)
+      void this.panel?.webview.postMessage(message)
     }
   }
 
@@ -1854,17 +1842,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
     if (accepted.length > 0) {
       const message: ToWebviewMessage = { type: 'imagesPicked', images: accepted }
-      void this.view?.webview.postMessage(message)
+      void this.panel?.webview.postMessage(message)
     }
   }
 
   /**
    * 把暂存的附件投给 webview 的 composer（等同点「添加附件」）。视图还没
-   * 解析或没有附着会话时留在队列，等 resolveWebviewView / attach 重投；
-   * 有视图却没有会话可挂时清空队列（附件无处可去）。
+   * 解析或没有附着会话时留在队列，等 openPanel / attach 重投；
+   * 有面板却没有会话可挂时清空队列（附件无处可去）。
    */
   private flushStaged(): void {
-    if (!this.view) return
+    if (!this.panel) return
     if (!this.controller) {
       this.pendingStagedFiles = []
       this.pendingStagedImages = []
@@ -1872,12 +1860,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
     if (this.pendingStagedImages.length > 0) {
       const message: ToWebviewMessage = { type: 'imagesPicked', images: this.pendingStagedImages }
-      void this.view.webview.postMessage(message)
+      void this.panel.webview.postMessage(message)
       this.pendingStagedImages = []
     }
     if (this.pendingStagedFiles.length > 0) {
       const message: ToWebviewMessage = { type: 'filesPicked', files: this.pendingStagedFiles }
-      void this.view.webview.postMessage(message)
+      void this.panel.webview.postMessage(message)
       this.pendingStagedFiles = []
     }
   }
@@ -1934,8 +1922,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     } else {
       this.pendingStagedFiles.push({ name, path: fsPath })
     }
+    // 右键「发送到当前会话」：无打开的面板也要顶上去（先开 editor 面板再投附件）。
+    this.openPanel()
     this.flushStaged()
-    void vscode.commands.executeCommand('dshOne.chat.focus')
   }
 
   /**
@@ -1968,5 +1957,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     this.controllerSub?.dispose()
     this.controller?.dispose()
     this.controller = null
+    this.activeEmitter.dispose()
   }
 }

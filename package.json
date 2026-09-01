@@ -117,6 +117,54 @@
         "title": "DSH One: 发送到当前会话"
       },
       {
+        "command": "dshOne.session.pin",
+        "title": "置顶 / 取消置顶会话",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.session.unread",
+        "title": "标为未读 / 已读",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.session.copyReference",
+        "title": "复制会话引用",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.session.copyId",
+        "title": "复制会话 ID",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.workspace.remove",
+        "title": "从列表移除工作区",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.sessions.search",
+        "title": "搜索会话",
+        "category": "DSH One",
+        "icon": "$(search)"
+      },
+      {
+        "command": "dshOne.sessions.sort",
+        "title": "排序方式",
+        "category": "DSH One",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "dshOne.sessions.collapseAll",
+        "title": "折叠所有工作区",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.sessions.expandAll",
+        "title": "展开所有工作区",
+        "category": "DSH One",
+        "icon": "$(expand-all)"
+      },
+      {
         "command": "dshOne.workspace.openFolder",
         "title": "在 VSCode 中打开文件夹",
         "category": "DSH One"
@@ -136,6 +184,105 @@
           "when": "resourceScheme == file && !explorerResourceIsFolder",
           "group": "2_dshOne@1"
         }
+      ],
+      "view/title": [
+        {
+          "command": "dshOne.sessions.search",
+          "when": "view == dshOne.chat",
+          "group": "navigation"
+        },
+        {
+          "command": "dshOne.sessions.sort",
+          "when": "view == dshOne.chat",
+          "group": "navigation"
+        },
+        {
+          "command": "dshOne.sessions.refresh",
+          "when": "view == dshOne.chat",
+          "group": "navigation"
+        },
+        {
+          "command": "dshOne.session.new",
+          "when": "view == dshOne.chat",
+          "group": "navigation"
+        },
+        {
+          "command": "dshOne.workspace.add",
+          "when": "view == dshOne.chat",
+          "group": "navigation"
+        },
+        {
+          "command": "dshOne.workspace.create",
+          "when": "view == dshOne.chat",
+          "group": "2_navigation"
+        },
+        {
+          "command": "dshOne.sessions.expandAll",
+          "when": "view == dshOne.chat",
+          "group": "2_navigation"
+        },
+        {
+          "command": "dshOne.open",
+          "when": "view == dshOne.chat",
+          "group": "2_navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "dshOne.session.new",
+          "when": "view == dshOne.chat && viewItem == workspace",
+          "group": "1_workspace@1"
+        },
+        {
+          "command": "dshOne.workspace.openTerminal",
+          "when": "view == dshOne.chat && viewItem == workspace",
+          "group": "1_workspace@2"
+        },
+        {
+          "command": "dshOne.workspace.openFolder",
+          "when": "view == dshOne.chat && viewItem == workspace",
+          "group": "1_workspace@3"
+        },
+        {
+          "command": "dshOne.workspace.remove",
+          "when": "view == dshOne.chat && viewItem == workspace",
+          "group": "2_workspace@1"
+        },
+        {
+          "command": "dshOne.session.rename",
+          "when": "view == dshOne.chat && viewItem == session",
+          "group": "1_session@1"
+        },
+        {
+          "command": "dshOne.session.pin",
+          "when": "view == dshOne.chat && viewItem == session",
+          "group": "1_session@2"
+        },
+        {
+          "command": "dshOne.session.unread",
+          "when": "view == dshOne.chat && viewItem == session",
+          "group": "1_session@3"
+        },
+        {
+          "command": "dshOne.session.fork",
+          "when": "view == dshOne.chat && viewItem == session",
+          "group": "2_session@1"
+        },
+        {
+          "command": "dshOne.session.copyReference",
+          "when": "view == dshOne.chat && viewItem == session",
+          "group": "2_session@2"
+        },
+        {
+          "command": "dshOne.session.copyId",
+          "when": "view == dshOne.chat && viewItem == session",
+          "group": "2_session@3"
+        },
+        {
+          "command": "dshOne.session.archive",
+          "when": "view == dshOne.chat && viewItem == session",
+          "group": "3_session@1"
+        }
       ]
     },
     "viewsContainers": {
@@ -151,8 +298,8 @@
       "dsh-one": [
         {
           "id": "dshOne.chat",
-          "name": "Chat",
-          "type": "webview"
+          "name": "Sessions",
+          "type": "tree"
         }
       ]
     },
