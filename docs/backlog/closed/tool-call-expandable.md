@@ -24,3 +24,4 @@ dsh web 的工具调用卡可以展开，显示 IN（输入参数 JSON）和 OUT
 - `src/pure/chatContract.ts`（ChatToolBlock 可能需带 args/result）
 - 2026-09-01 认领（worktree: agent/tool-call-expandable）→ doing
 - 2026-09-01 开发完成 → done
+- 2026-09-01 主线合入测试通过、人工确认 → closed
