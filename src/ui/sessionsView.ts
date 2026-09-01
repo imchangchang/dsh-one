@@ -345,6 +345,9 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       case 'sessionNew':
         void vscode.commands.executeCommand('dshOne.session.new', m.workspaceId)
         return
+      case 'sessionNewUngrouped':
+        void vscode.commands.executeCommand('dshOne.session.newUngrouped')
+        return
       case 'sessionRename':
         void vscode.commands.executeCommand('dshOne.session.rename', m.sessionId, m.title)
         return
