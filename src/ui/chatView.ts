@@ -393,9 +393,14 @@ const STYLE = `
   }
   .reasoning summary {
     cursor: pointer; opacity: 0.75; font-size: 0.9em;
-    display: inline-flex; align-items: center; gap: 5px;
+    display: flex; align-items: center; gap: 5px;
+    max-width: 100%;
   }
   .reasoning summary svg { flex: none; }
+  /* 折叠态首行预览：ellipsis 截断不撑宽，hover 出完整文本（对齐 web ReasoningRow）。 */
+  .reasoning summary .reasoning-summary {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .reasoning-body { white-space: pre-wrap; font-size: 0.9em; opacity: 0.8; margin-top: 4px; }
   /* 工具调用：行式排版（kimi-cli / dsh web 观感），不再用卡片边框容器。 */
   .tool { padding: 1px 0; font-size: 0.92em; }
@@ -570,6 +575,11 @@ const STYLE = `
   .diff-line.del::before { content: '- '; }
   .diff-line.add { background: var(--vscode-diffEditor-insertedTextBackground, rgba(80,255,80,.14)); }
   .diff-line.add::before { content: '+ '; }
+  /* diff 行折叠 toggle（对齐 dsh web DiffBlock「展开其余 N 行差异」）。 */
+  .diff-toggle {
+    cursor: pointer; opacity: 0.6; margin-top: 2px; font-size: 0.85em; padding-left: 6px;
+  }
+  .diff-toggle:hover { opacity: 1; }
   .streaming { opacity: 0.6; }
   .interrupted { color: var(--vscode-errorForeground, #f14c4c); font-size: 0.85em; }
   .turn-status {
@@ -707,6 +717,22 @@ const STYLE = `
     border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
     border-radius: 4px; font-family: inherit; font-size: 0.9em;
   }
+  /* 排队消息 >1 条时折叠成计数 header（对齐 dsh web QueueDock）：chevron +
+     计数，展开才列出各条（操作入口随列表藏进展开态）。 */
+  .queue-dock summary {
+    display: flex; align-items: baseline; gap: 6px;
+    cursor: pointer; list-style: none; user-select: none;
+  }
+  .queue-dock summary::-webkit-details-marker { display: none; }
+  .queue-dock-count {
+    flex: 1; min-width: 0; font-size: 12px; font-weight: 600; opacity: 0.8;
+  }
+  .queue-dock summary .queue-chevron {
+    flex: none; color: var(--vscode-descriptionForeground, #888);
+    transition: transform .15s ease;
+  }
+  .queue-dock[open] summary .queue-chevron { transform: rotate(180deg); }
+  .queue-dock-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
   .queue + .input-area { border-top: 0; }
   /* 任务清单卡（对齐官方 TodoPanel/TodoDock，输入区上方 dock 栈）：头部
      「任务 N 进行中 · M 待处理」+ chevron，展开列出 todo 项（列表限高滚动）。
@@ -820,6 +846,25 @@ const STYLE = `
   .command-row .command-text { opacity: .75; white-space: pre-wrap; word-break: break-word; }
   .command-row.error .command-text { color: var(--vscode-errorForeground, #f66); opacity: 1; }
   .command-row .spinner { align-self: center; }
+  /* 多行 command 输出可展开（对齐 dsh web GenericCommandCard）：折叠态 summary
+     一行显示命令名 + 输出首行，展开显示全文。 */
+  .command-detail { min-width: 0; flex: 1 1 auto; }
+  .command-detail summary {
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    cursor: pointer; list-style: none; user-select: none;
+  }
+  .command-detail summary::-webkit-details-marker { display: none; }
+  .command-detail summary .command-line { flex: none; }
+  .command-detail summary .command-text {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .command-detail .command-body {
+    white-space: pre-wrap; word-break: break-word; opacity: .75;
+    margin-top: 2px; padding: 6px 8px; border-radius: 4px;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+    font-family: var(--vscode-editor-font-family, monospace); font-size: 12px;
+  }
+  .command-row.error .command-body { color: var(--vscode-errorForeground, #f66); opacity: 1; }
   .context-bar { flex: none; width: 72px; padding: 4px 2px; border: 0; background: none; cursor: pointer; }
   .context-bar-track {
     display: block; height: 6px; border-radius: 3px; overflow: hidden;
