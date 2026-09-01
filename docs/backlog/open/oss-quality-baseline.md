@@ -26,3 +26,4 @@
 
 覆盖率门禁、commitlint、PR/issue 模板——单人维护阶段是负担。
 - 2026-09-01 评审确认：做（用户标注）
+- 2026-09-01 用户确认：description/topics 元数据与 `dsh-plugin` topic 暂不实施，仅记录在案（条目保持 open）。
