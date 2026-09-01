@@ -304,6 +304,68 @@
       title: '侧栏面板（仅高亮未附着：点击打开）',
       expect: '会话行高亮（active）但 attachedSessionId 为 null（reload 后面板未开、懒加载待附着的典型态）；点击行后**不出现** rename-input——行保持标题文本；行为是 post sessionOpen 而非重命名。',
     },
+
+    // ================= workflow 运行卡（run→phase→member 三层折叠行） =================
+
+    // 运行中卡：默认展开（facts.mode=running），interact 点 run header 折叠。
+    // 回归点：点击 header 要**立即**折叠（不等下一个 snapshot），见
+    // workflow-run-card-cannot-collapse 条目（click 触达 render()）。
+    'workflow-running': {
+      state: base({
+        messages: [u('检查一下微服务集群的健康状态。'), at('开始对微服务集群做健康检查。')],
+        workflowRuns: [
+          {
+            runId: 'run-1',
+            name: 'demo-microservices-check-2',
+            status: 'running',
+            anchorSeq: 1,
+            phases: [
+              {
+                key: 'value:4:检查服务',
+                phase: '检查服务',
+                members: [
+                  { seq: 0, label: '订单服务 健康检查', childId: 'c-0', status: 'running' },
+                  { seq: 1, label: '结算服务 依赖探测', childId: 'c-1', status: 'completed' },
+                  { seq: 2, label: '网关服务 存活探测', childId: 'c-2', status: 'running' },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+      title: 'workflow 运行卡（点 run header 折叠）',
+      interact: `document.querySelector('.workflow-run-header')?.click()`,
+      expect: '点击 run 折叠行 header 后**立即**收起：chevron 转成 collapsed（-90°），header 尾部出现「3 个成员 · 运行中」分隔点摘要，phase 列表（检查服务 + 3 个成员行）不再渲染；run 卡片保留标题行。',
+    },
+
+    // 终止/异常卡（run 已 end 但含失败成员 → abnormal → 默认展开）：同样应能折叠。
+    // 待确认项：终态卡是否也受影响（此处验证终态卡点击后也应立即折叠）。
+    'workflow-finished': {
+      state: base({
+        messages: [u('部署脚本跑完了吗？'), at('部署脚本已收尾。')],
+        workflowRuns: [
+          {
+            runId: 'run-2',
+            name: 'deploy-blue-green',
+            status: 'failed',
+            anchorSeq: 1,
+            phases: [
+              {
+                key: 'value:4:部署',
+                phase: '部署',
+                members: [
+                  { seq: 0, label: '构建镜像', childId: 'd-0', status: 'completed' },
+                  { seq: 1, label: '滚动更新', childId: 'd-1', status: 'failed' },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+      title: 'workflow 终态卡（点 run header 折叠）',
+      interact: `document.querySelector('.workflow-run-header')?.click()`,
+      expect: '终态（failed，含失败成员 → abnormal 默认展开）run 卡点击 header 后**立即**收起：chevron collapsed、尾部「2 个成员 · 失败」，members 列表不再渲染；run 卡片保留标题行。',
+    },
   }
 
   catalog.conversation.sessions = window.sessionsTree('sess-1')
@@ -316,7 +378,7 @@
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
     'sessions-search', 'sessions-collapsed',
-    'session-mention',
+    'session-mention', 'workflow-running', 'workflow-finished',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()

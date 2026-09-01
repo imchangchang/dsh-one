@@ -18,9 +18,27 @@
 - 是否也影响已完成的卡（terminal 状态）——若终态也不能折叠，则是渲染/click 接线问题；若只有运行中卡如是，则无重渲染路径更明显。
 - 官方 dsh web 的 DisclosureRow 点击后是否立即重渲染（对照是否应显式触发一次重画）。
 
+## 根因确认（2026-09-01 开发）
+
+**根因**：`renderWorkflowRunHeader`(:2417) / `renderWorkflowPhase`(:2447) 的 click 处理器只
+`workflowDisclosure.set(...)` 更新披露 Map，**没有调用 `render()`**。DOM 要等下一个
+`state` snapshot（新事件 emit）才按新状态重画。
+
+- **待确认项 1（终态卡）**：**受影响**。两个 click 处理器与 run 状态无关，运行中卡和
+  终态（failed/abnormal，默认展开）卡点击后都不折叠；终态卡更糟——run 已 end 不再有
+  新 snapshot，点了永远收不起来。
+- **待确认项 2（官方 DisclosureRow）**：官方 `WorkflowRunPanel` 用 React state
+  `setDisclosures`（`toggleRun`/`togglePhase`），点击即重渲染。dsh-one 是 vanilla DOM
+  渲染器，应在 click 后显式同步触发一次 `render()`。
+- `advanceWorkflowDisclosure` 状态机**非元凶**：facts 不变时返回 prev，保留用户手动
+  toggle（test/workflowRun.test.ts「运行中保持用户选择」覆盖），已保持不动。
+
+**修复**：run/phase 两个 click 处理器在更新披露状态后调用 `render()`（webview.ts）。
+
 ## 涉及代码位置
 
 - `src/ui/chat/webview.ts`（renderWorkflowRun / Header / Phase 的 click 接线、是否缺显式重渲染）
 - `src/pure/workflowRun.ts`（advanceWorkflowDisclosure 状态机，若需调整）
 
 - 2026-09-01 认领（worktree: agent/workflow-run-card-cannot-collapse）→ doing
+- 2026-09-01 根因确认：click 未触发重渲染（运行中 & 终态卡均受影响；官方用 React setState 点击即重渲染）；修复 = click 后同步 render()。开发完成 → done
