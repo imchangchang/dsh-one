@@ -34,3 +34,5 @@ dsh web / dsh-one 的会话树里，子代理可通过 `parentSessionId` 形成�
 - `test/`（chatContract / 相关纯逻辑测试，补嵌套用例）
 
 - 2026-09-01 认领（worktree: agent/subagent-header-tree）→ doing
+
+- 2026-09-01 开发完成，自测通过（typecheck+test+build）→ done
