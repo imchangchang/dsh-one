@@ -1026,6 +1026,13 @@ const STYLE = `
   .menu-item .check { margin-left: auto; flex: none; }
   .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
+  /* 带描述两行的菜单项（模型菜单等）：名称 + 描述小字，行高自适应。 */
+  .menu-item.has-desc { align-items: flex-start; white-space: normal; }
+  .menu-item.has-desc .check { align-self: center; }
+  .menu-item-main { flex: 1; min-width: 0; }
+  .menu-item-desc {
+    margin-top: 1px; font-size: 11px; line-height: 1.4; opacity: 0.6; white-space: normal;
+  }
   /* agent preset 下拉项：名称 + 描述两行（描述较长，单行 menu-right 放不下）。 */
   .preset-item { align-items: flex-start; white-space: normal; }
   .preset-item .preset-item-main { flex: 1; min-width: 0; }
@@ -1927,8 +1934,11 @@ export class ChatViewProvider implements vscode.Disposable {
       }
       void this.panel?.webview.postMessage(message)
     } catch (err) {
+      // 错误收敛到 webview 菜单里的 error/Retry 行（对齐 dsh web），不弹全局 toast。
       const detail = err instanceof Error ? err.message : String(err)
-      vscode.window.showErrorMessage(`获取模型列表失败：${detail}`)
+      this.logger.warn(`chat: session.models failed — ${detail}`)
+      const message: ToWebviewMessage = { type: 'modelCatalogError' }
+      void this.panel?.webview.postMessage(message)
     }
   }
 
