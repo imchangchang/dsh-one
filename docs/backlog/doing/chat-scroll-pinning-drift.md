@@ -36,3 +36,5 @@
 - `src/ui/chat/webview.ts`：`stickToBottom`/`pinnedScrollTop`/`scrollIntentUntil` 维护（92-144）、render 滚动重估与存档（1356-1384、1618-1657、1691-1700、1764-1775）
 - `src/pure/scrollFollow.ts`：`NEAR_BOTTOM_PX`、`isNearBottom`、`ScrollArchive`、`restoreScrollTarget`
 - 复现工具：`test/ui/interactive.html`（mock host，可直接 `window.postMessage` 推 state）
+
+- 2026-09-01 认领（worktree: agent/chat-scroll-pinning-drift）→ doing
