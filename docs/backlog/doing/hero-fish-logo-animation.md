@@ -18,3 +18,5 @@
 
 - `src/ui/chat/webview.ts`（空态 hero 渲染）
 - 图标来源：`dsh-client-ui-primitives`（打进 `@deepseek-ai/dsh-web-frontend` dist bundle）
+
+- 2026-09-05 认领（worktree: agent/hero-fish-logo-animation）→ doing

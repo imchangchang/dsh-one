@@ -50,3 +50,5 @@ dsh web / dsh-one 的会话树里，子代理可通过 `parentSessionId` 形成�
 2. **嵌套显示成了平铺（嵌套没生效）**。用户确认那两个「会话 xxx」子代理**本应有父子嵌套**但显示成平铺。需排查：是数据侧 `buildSubagentTree` 没收到 `parentSessionId` 指向子代理的行（即 `session.list` 基线里孙一辈的 `parentSessionId` 字段是否真存在/正确），还是组装/渲染链路问题。先核实 dsh host 在"子代理再开子代理"时是否真的给孙一辈上报了 `parentSessionId = 子代理会话`（排查点：`src/ui/sessionsStore.ts` 的 `toSessionInput` 与 host 帧 `parentSessionId` 字段，`src/server/dshRpc.ts` 的 `SessionSummary`）。
 
 3. **可读性差**。两小点：(a) 缩进用了**绝对值** `paddingLeft = depth*16px`，而 `.menu-item` 基础左内边距已 10px，子级实际只比父级多 6px，层级几乎看不出——需改成相对增量或加大每级缩进，并加层级连接线/引导线（用户点名要，参考 dsh web 阶段/成员树的竖线）；(b) 子代理标题初始是「会话 xxxxxx」代号，后续会自动更新为真实标题，但 dsh-one 前端刷新慢、不及时同步（用户补充），需查会话标题更新（host 帧 → SessionsStore 基线 → composeHeader 重推）的时延链路。
+
+- 2026-09-05 认领（worktree: agent/subagent-header-tree，基于 main 现状继续修实测问题）→ doing
