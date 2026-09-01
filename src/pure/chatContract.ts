@@ -7,6 +7,7 @@
 import type { SessionSortOrder, WorkspaceNodeModel } from './sessionTree.ts'
 import type { ActivityJob } from './activityTree.ts'
 import type { FileRefCandidate } from './fileReference.ts'
+import type { WorkflowRunView } from './workflowRun.ts'
 
 /** One renderable block inside an assistant message. */
 export interface ChatTextBlock {
@@ -340,6 +341,12 @@ export interface ChatState {
    * 非空时 webview 在输入区上方渲染可折叠卡（对齐官方 TodoPanel/TodoDock）。
    */
   todos?: ChatTodoItem[]
+  /**
+   * 会话日志里的 workflow 运行卡片（tool-workflow/* 事件按 runId 折叠，见
+   * src/pure/workflowRun.ts）：webview 按 anchorSeq 插进消息流渲染成
+   * run→phase→member 三层可展开卡片（对齐官方 WorkflowRunPanel）。无则缺省。
+   */
+  workflowRuns?: WorkflowRunView[]
   /**
    * Context-occupancy meter data (dsh `contextPressure` + `contextBreakdown`
    * projections). Absent until the provider reports both a pressure sample

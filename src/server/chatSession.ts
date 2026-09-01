@@ -3,6 +3,7 @@ import type { Logger } from '../log.ts'
 import type { ChatState, ChatTodoItem, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem } from '../pure/chatContract.ts'
 import { ConversationFolder, applyFeedbackRatings } from '../pure/conversation.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
+import { WorkflowRunFolder } from '../pure/workflowRun.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
 import type { SessionStatsLike } from '../pure/sessionStats.ts'
 import { subscribeMuxEvents } from './muxEvents.ts'
@@ -232,6 +233,8 @@ export class ChatSessionController implements vscode.Disposable {
   readonly onDidChange = this.emitter.event
 
   private readonly folder = new ConversationFolder()
+  /** tool-workflow/* 事件折叠（run→phase→member 卡片，见 src/pure/workflowRun.ts）。 */
+  private readonly workflowRuns = new WorkflowRunFolder()
   private pending: PendingRequest[] = []
   /** Latest session/queue snapshot, user-visible placements only. */
   private queue: QueuedItem[] = []
@@ -311,6 +314,7 @@ export class ChatSessionController implements vscode.Disposable {
   }
 
   getState(): ChatState {
+    const workflowRuns = this.workflowRuns.view()
     return {
       sessionId: this.sessionId,
       sessionTitle: this.sessionTitle,
@@ -318,6 +322,7 @@ export class ChatSessionController implements vscode.Disposable {
       pending: [...this.pending],
       queue: [...this.queue],
       jobs: [...this.jobs],
+      ...(workflowRuns.length > 0 ? { workflowRuns } : {}),
       running: this.serverRunning ?? this.folder.hasOpenTurn(),
       canSend: this.ready && !this.disposed,
       loading: !this.ready,
@@ -446,6 +451,8 @@ export class ChatSessionController implements vscode.Disposable {
         return
       }
       this.folder.prependHistory(page.events)
+      // 更早一页补入缺失的 run-start 时，WorkflowRunFolder 按完整事件列表整段重建该 run。
+      this.workflowRuns.prependHistory(page.events)
       for (const entry of page.events) this.foldPresetMarkers(entry.event)
       this.historyCursor = extendWindowCursor(this.historyCursor, page)
       // 新拼进来的消息可能带着已存的评分（messageFeedback 基线早已拉过）。
@@ -524,6 +531,7 @@ export class ChatSessionController implements vscode.Disposable {
     const events: HistoryEntryLike[] = page.events
     this.historyCursor = windowCursorOf(page)
     this.folder.applyHistory(events)
+    this.workflowRuns.applyHistory(events)
     // Preset picker 的两个判定都来自会话日志：任何 turn/start = 已启动
     // （preset 锁定），最后一条 agent-preset/selected = 当前 preset。
     for (const entry of events) this.foldPresetMarkers(entry.event)
@@ -630,6 +638,7 @@ export class ChatSessionController implements vscode.Disposable {
     this.pendingLiveEvents = []
     for (const { event, view } of buffered) {
       this.foldPresetMarkers(event)
+      this.workflowRuns.applyEvent(event)
       this.folder.applyEvent(event, view)
     }
     this.push(true)
@@ -770,11 +779,13 @@ export class ChatSessionController implements vscode.Disposable {
           return
         }
         // turn/start 与 agent-preset/selected 不进对话流，但影响 preset chip
-        // 的可见性与当前值——状态变了就补一次 push。
+        // 的可见性与当前值——状态变了就补一次 push。tool-workflow/* 折叠成
+        // workflow 运行卡片（workflowChanged），同样触发补推。
         const presetAffecting = event.type === 'turn/start' || event.type === 'agent-preset/selected'
         this.foldPresetMarkers(event)
+        const workflowChanged = this.workflowRuns.applyEvent(event)
         // Chunk deltas stream-throttle; every other event is structural.
-        if (this.folder.applyEvent(event, view) || presetAffecting) this.push(event.type !== 'assistant/chunk')
+        if (this.folder.applyEvent(event, view) || presetAffecting || workflowChanged) this.push(event.type !== 'assistant/chunk')
         return
       }
       case 'session/projection': {
