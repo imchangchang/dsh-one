@@ -426,6 +426,212 @@
 
     // 运行中卡：默认展开（facts.mode=running），interact 点 run header 折叠。
     // 回归点：点击 header 要**立即**折叠（不等下一个 snapshot），见
+    // ---- JSON 输出树（tool 输出为 JSON 对象/数组时渲染 JsonTree） ----
+    // 一条返回嵌套 JSON 的工具调用：工具卡展开后 OUT 走 JsonTree（根展开、
+    // 嵌套容器收起显示 {…}、原始值按类型着色、箭头可点）。
+    'json-output': {
+      state: base({
+        messages: [
+          u('查一下这几个服务的健康状态。'),
+          at('开始健康检查。', [
+            toolBlock({
+              name: 'bash', title: 'bash', detail: 'curl /health',
+              output: JSON.stringify({
+                status: 'ok',
+                checks: {
+                  gateway: { healthy: true, latency_ms: 12 },
+                  auth: { healthy: true, latency_ms: 31 },
+                  billing: { healthy: false, latency_ms: 88, error: 'timeout' },
+                },
+                degraded: false,
+                retries: 0,
+                debug: null,
+              }, null, 2),
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: '工具输出 JSON 树（默认态：根展开/嵌套收起 + 复制按钮）',
+      interact: `document.querySelector('.tool-disclosure summary')?.click()`,
+      expect: '工具卡（Ran a command bash / curl /health）点击摘要后展开，OUT 卡片内显示 JsonTree：等宽字体、深色 code 块背景；树右上角一条小「复制」按钮（克制样式，复制整树 pretty JSON，无语言标签）；树按节点缩进；根 `{` 展开，其直接子 key `checks` 是折叠容器（右侧箭头 + `{…}` 预览），其余子 key 为原始值——`status: "ok"`（玫红 string）、`degraded: false`（蓝 keyword）、`retries: 0`（蓝 number）、`debug: null`（蓝 keyword）；key（property）为蓝、`:` 与括号标点为灰白；根 `}` 在独立行对齐；不出现平铺的一大段 JSON 文本。“IN”仍为纯文本 JSON。',
+    },
+
+    // 点树右上角「复制」按钮：复制整树的 2 空格 pretty JSON（copyPrettyJson）。
+    // harness 里剪贴板权限不稳定（需真实手势/secure 上下文），interact 先 monkeypatch
+    // navigator.clipboard.writeText 把内容存到 window.__copied，点击后 evaluate 断言。
+    'json-output-copy': {
+      state: base({
+        messages: [
+          u('查一下这几个服务的健康状态。'),
+          at('开始健康检查。', [
+            toolBlock({
+              name: 'bash', title: 'bash', detail: 'curl /health',
+              output: JSON.stringify({
+                status: 'ok',
+                checks: { gateway: { healthy: true } },
+                retries: 0,
+                debug: null,
+              }, null, 2),
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: '工具输出 JSON 树（点复制按钮）',
+      interact: `(() => {
+        window.__copied = null
+        try { navigator.clipboard.writeText = async (t) => { window.__copied = t } } catch (e) {}
+        document.querySelector('.tool-disclosure summary')?.click()
+        setTimeout(() => document.querySelector('.json-tree-copy')?.click(), 20)
+      })()`,
+      expect: '树上/右上角「复制」按钮可点击；点击后把整棵树的 2 空格 pretty JSON 写入剪贴板（interact 里 monkeypatch 的 __copied 应等于整树 pretty JSON，即 `{\n  "status": "ok",\n  "checks": {\n    "gateway": {\n      "healthy": true\n    }\n  },\n  "retries": 0,\n  "debug": null\n}`）。视觉上按钮仍在、与 json-output 默认态一致；按钮文案成功时应短暂变「已复制」（截图静态，不核对文案变化）。',
+    },
+
+    // 节点级复制：每行（非根、含容器/原始值行）行尾 hover 出现小复制图标，点击复制该
+    // 节点的 pretty JSON。interact 把两次点击的复制内容 append 到 __copiedList 再断言
+    // 首个（checks 容器）与第二个（status 原始值）分别等于各自节点的 pretty JSON。
+    'json-output-node-copy': {
+      state: base({
+        messages: [
+          u('查一下这几个服务的健康状态。'),
+          at('开始健康检查。', [
+            toolBlock({
+              name: 'bash', title: 'bash', detail: 'curl /health',
+              output: JSON.stringify({
+                status: 'ok',
+                checks: { gateway: { healthy: true } },
+                retries: 0,
+                debug: null,
+              }, null, 2),
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: '工具输出 JSON 树（节点级复制）',
+      interact: `(() => {
+        window.__copiedList = []
+        try { navigator.clipboard.writeText = async (t) => { window.__copiedList.push(t) } } catch (e) {}
+        document.querySelector('.tool-disclosure summary')?.click()
+        setTimeout(() => {
+          document.querySelector('.json-tree-row[data-path="$.checks"] .json-tree-copy-icon')?.click()
+          document.querySelector('.json-tree-row[data-path="$.status"] .json-tree-copy-icon')?.click()
+        }, 20)
+      })()`,
+      expect: '每行（checks 容器行、status 原始值行等）行尾在 hover 时出现小复制图标（默认隐藏，深度低）；点击 checks 行的图标复制到的是 checks 容器自己的 pretty JSON（`{\n  "gateway": {\n    "healthy": true\n  }\n}`），点击 status 行图标复制到的是 `"ok"`（原始值）——interact 里 __copiedList 依次应为这两个值。整树右上角「复制」按钮仍保留。行级图标成功时短暂换勾（截图静态见图标本身，不核对成功态）。',
+    },
+
+    // 同上 JSON 树，但额外点开 `checks` 容器：验证箭头展开交互——嵌套节点展开
+    // 出子 key（gateway/auth/billing），箭头从右指转向下指。
+    'json-output-expand': {
+      state: base({
+        messages: [
+          u('查一下这几个服务的健康状态。'),
+          at('开始健康检查。', [
+            toolBlock({
+              name: 'bash', title: 'bash', detail: 'curl /health',
+              output: JSON.stringify({
+                status: 'ok',
+                checks: {
+                  gateway: { healthy: true, latency_ms: 12 },
+                  auth: { healthy: true, latency_ms: 31 },
+                  billing: { healthy: false, latency_ms: 88, error: 'timeout' },
+                },
+                degraded: false,
+                retries: 0,
+                debug: null,
+              }, null, 2),
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: '工具输出 JSON 树（点箭头展开 checks）',
+      // 先点摘要展开工具卡，等 `<details>` 的 toggle 事件（异步）把展开态写入
+      // detailsOpen 后再点 checks 箭头（箭头点击触发重建，读的就是已持久化的态，
+      // 不会把刚展开的卡片又收回）。同步连点会在 toggle 派发前重建、卡片被重置。
+      interact: `(() => {
+        document.querySelector('.tool-disclosure summary')?.click()
+        setTimeout(() => {
+          const arrow = document.querySelector('.json-tree-row[data-path="$.checks"] .json-tree-arrow')
+          arrow?.click()
+        }, 20)
+      })()`,
+      expect: '点击 `checks` 容器的箭头后它展开：箭头从右指转向下指，`checks` 下缩进出现子 key `gateway` / `auth` / `billing`（每个再是折叠容器 `{…}`）；`checks` 行从 `checks: {…}` 变为 `checks: {` 并在其下出现闭合 `}` 行；其余原始值行（status/degraded/retries/debug）与根结构保持（各自缩进层级正确，vscode-dark 主题）。初始渲染时 `checks` 收起、`gateway` 等子 key 不与它并列——这在默认态截图核对。',
+    },
+
+    // ---- 消息正文里的 JSON 也接入 JsonTree ----
+    // 助手正文恰为整段 JSON 对象字面量（无 ```json 围栏）：当前应渲染成树（而非走
+    // markdown 的 <p> 纯文本）。
+    'json-message-bare': {
+      state: base({
+        messages: [
+          u('把服务健康状况整理成 JSON 给我。'),
+          at(JSON.stringify({
+            status: 'ok',
+            checks: {
+              gateway: { healthy: true, latency_ms: 12 },
+              auth: { healthy: true, latency_ms: 31 },
+            },
+            degraded: false,
+            retries: 0,
+          }, null, 2)),
+        ],
+      }),
+      theme: 'dark',
+      title: '消息正文 JSON（裸对象字面量 → 树）',
+      expect: '助手消息直接把整段 JSON 渲染成 JsonTree（无 markdown 语法残留、无 `<p>` 纯文本、无 code block 折叠「其余 N 行」）：根 `{` 展开、`checks` 容器折叠 `{…}`、`status`/`degraded`/`retries` 原始值按类型着色（string 玫红/true·false 蓝 keyword/0 蓝 number）；树右上角整树「复制」按钮；每行行尾 hover 出现节点复制图标。',
+    },
+
+    // 助手正文里有一个 ```json 围栏代码块：该块应渲染成树，围栏外的普通文本保持
+    // markdown。
+    'json-message-fenced': {
+      state: base({
+        messages: [
+          u('给我一个健康检查结果。'),
+          at('检查结果如下：\n\n```json\n{\n  "status": "ok",\n  "checks": {\n    "gateway": { "healthy": true }\n  },\n  "retries": 0\n}\n```\n\n需要的话我可以再跑一次。'),
+        ],
+      }),
+      theme: 'dark',
+      title: '消息正文 JSON（```json 围栏块 → 树）',
+      expect: '助手消息里有围栏外的普通文本（「检查结果如下：」与「需要的话我可以再跑一次。」，走 markdown），中间插入的 ```json 代码块渲染成 JsonTree：根 `{` 展开、`checks` 折叠 `{…}`、`status`/`retries` 原始值着色；树右上角整树「复制」按钮；不再显示 code block 的「… 共 N 行，点击展开」折叠（树用节点展开/收起控制空间）。',
+    },
+
+    // ---- 超大 JSON：超过行数阈值（>300 行 pretty）回退 code block 折叠 ----
+    // 生成 rows: [{n,v}...]：M 个对象 → 4*M+5 行，M=75 → 305 行，超过阈值 → 应回退成
+    // code block（含头部条「json」语言标签 + 复制按钮 + 「… 其余 N 行」折叠）。
+    'json-message-over': {
+      state: base({
+        messages: [
+          u('给我一份大的健康检查数据。'),
+          at('批量结果：\n\n```json\n' + JSON.stringify({
+            total: 75,
+            rows: Array.from({ length: 75 }, (_, i) => ({ n: i, v: `row-${i}` })),
+          }, null, 2) + '\n```\n\n以上。'),
+        ],
+      }),
+      theme: 'dark',
+      title: '消息正文 JSON（超阈值 → code block 折叠）',
+      expect: '助手消息里的 ```json 代码块**不渲染成树**，而是回退到 code block：头部条有语言标签「json」+「复制」按钮（code block 复制），正文折叠成「头部行 + … 其余 N 行 + 尾部行」，点「展开其余 N 行」可展开全部（对齐 codeBlockPreview 的 16 行阈值）；树形态（右箭头缩进/节点展开/整树复制按钮）**不出现**。围栏外的普通文本（「批量结果：」「以上。」）走 markdown。',
+    },
+
+    // 略低于阈值：M=73 → 4*73+5=297 行，<=300 → 仍渲染成树。
+    'json-message-under': {
+      state: base({
+        messages: [
+          u('给我一份小的健康检查数据。'),
+          at('结果：\n\n```json\n' + JSON.stringify({
+            total: 73,
+            rows: Array.from({ length: 73 }, (_, i) => ({ n: i, v: `row-${i}` })),
+          }, null, 2) + '\n```'),
+        ],
+      }),
+      theme: 'dark',
+      title: '消息正文 JSON（低于阈值 → 仍树）',
+      expect: '助手消息里的 ```json 代码块（297 行 pretty，低于阈值）仍渲染成 JsonTree：根 `{` 展开、`rows` 折叠 `[…]`、`total` 原始值着色、树右上角整树「复制」按钮；不出现 code block 的「… 共 N 行」折叠。',
+    },
+
     // workflow-run-card-cannot-collapse 条目（click 触达 render()）。
     'workflow-running': {
       state: base({

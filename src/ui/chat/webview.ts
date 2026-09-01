@@ -33,6 +33,19 @@ import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTr
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../pure/toolLine.ts'
+import {
+  JSON_TREE_ROOT_KEY,
+  flattenJsonTree,
+  jsonPathKey,
+  jsonTreeCopyText,
+  jsonTreeThresholdExceeded,
+  jsonValueAtPath,
+  tryParseJsonTree,
+  type JsonContainer,
+  type JsonPath,
+  type JsonPrimitiveKind,
+  type JsonTreeRow,
+} from '../../pure/jsonTree.ts'
 import { subagentInTree, subagentIdFromOutput } from '../../pure/subagentCard.ts'
 import { codeBlockPreview } from '../../pure/codeBlock.ts'
 import {
@@ -560,8 +573,18 @@ function enhanceCodeBlocks(container: HTMLElement, prefix: string): void {
   container.querySelectorAll<HTMLPreElement>('pre > code').forEach((code, i) => {
     const pre = code.parentElement as HTMLPreElement
     const text = code.textContent ?? ''
-    const { head, tail, hidden } = codeBlockPreview(text)
     const key = `${prefix}:code:${i}`
+    // 代码块内容恰为整段 JSON → 渲染 JsonTree（复用工具输出的树容器：自带右上角
+    // 整树复制按钮、展开态持久化在 jsonTreeOpen）。此时不再套 md-code-bar / 「其余 N
+    // 行」折叠——树本身用节点展开/收起控制空间，避免同一段 JSON 两个复制按钮。
+    const treeValue = tryParseJsonTree(text)
+    // JSON 块：不超过行数阈值渲染成树；超过阈值回退到原 code block（本函数下面的
+    // 折叠 + code block 复制按钮兜底，避免超大 JSON 树渲染巨量 DOM 行）。
+    if (treeValue && !jsonTreeThresholdExceeded(treeValue)) {
+      pre.replaceWith(renderJsonTree(treeValue, key))
+      return
+    }
+    const { head, tail, hidden } = codeBlockPreview(text)
     const open = detailsOpen.get(key) ?? false
     const lang = Array.from(code.classList)
       .find((c) => c.startsWith('language-'))
@@ -1590,6 +1613,7 @@ function render(): void {
     detailsOpen.clear()
     detailsSession = detailsSid
     workflowDisclosure.clear()
+    jsonTreeOpen.clear()
   }
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
   const hadFocus = oldInput !== null && document.activeElement === oldInput
@@ -2349,6 +2373,14 @@ const detailsOpen = new Map<string, boolean>()
 let detailsSession: string | null = null
 
 /**
+ * JSON tree node expand state. Key = `${outputKey}:${jsonPathKey}` (the output
+ * key disambiguates colliding path spaces across tool blocks). Absent = the
+ * default (root open, nested closed); present = the user's toggle. Cleared with
+ * the other per-session disclosure state on session switch.
+ */
+const jsonTreeOpen = new Map<string, boolean>()
+
+/**
  * workflow 运行卡片的展开/折叠状态，按 runId（run 级）/ `${runId}:${phase.key}`
  * （phase 级）持久化——runId 跨分页稳定，loadEarlier 补页不会错位；与 detailsOpen
  * 一样在换会话时清空。
@@ -2778,6 +2810,15 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
 function renderBlock(block: ChatBlock, key: string): HTMLElement {
   switch (block.type) {
     case 'text': {
+      // 整段正文恰为 JSON 对象/数组字面量 → 直接渲染 JsonTree（不再走 markdown / code
+      // block 折叠）。超过行数阈值（jsonTreeThresholdExceeded，2 空格 pretty 行数）则回退
+      // code block 渲染（含「其余 N 行」折叠 + 复制按钮），避免超大 JSON 渲染大量 DOM 行。
+      // 混合正文仍走 markdown（其中 ```json 围栏块经 enhanceCodeBlocks 逐块接入树）。
+      // 检测保守（tryParseJsonTree：只认整段合法对象/数组，裸标量/prose 不误判）。
+      const treeValue = tryParseJsonTree(block.text)
+      if (treeValue) {
+        return jsonTreeThresholdExceeded(treeValue) ? renderJsonCodeBlock(block.text, key) : renderJsonTree(treeValue, key)
+      }
       const div = el('div', 'md')
       div.innerHTML = md(block.text)
       decorateSessionMentions(div)
@@ -2889,8 +2930,10 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   // 用带行折叠的 renderDiff（前 8 行 + 展开其余，对齐 dsh web DiffBlock）。
   det.appendChild(summary)
   const body = el('div', 'tool-disclosure-body')
-  if (hasArgs) body.appendChild(toolInOut('IN', prettyJson(block.args as string)))
-  if (hasOutput) body.appendChild(toolInOut('OUT', block.output as string))
+  // IN（输入参数）保持现有 prettyJson 纯文本展示；OUT（结果文本）检测为 JSON 时
+  // 渲染 JsonTree（对齐 dsh web）。
+  if (hasArgs) body.appendChild(toolInOut('IN', prettyJson(block.args as string), `${key}:in`, false))
+  if (hasOutput) body.appendChild(toolInOut('OUT', block.output as string, `${key}:out`, true))
   det.appendChild(body)
   row.appendChild(det)
   if (block.diff) row.appendChild(renderDiff(block.diff, `${key}:diff`))
@@ -2899,23 +2942,62 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
 }
 
 /**
- * 工具卡展开区的一张 IN/OUT 卡片：小标签 + 150px 内滚动的等宽内容
- * （对齐 dsh web DisclosureRow 的展开形态）。
+ * 工具卡展开区的一张 IN/OUT 卡片：小标签 + 内容。`asJson` 为 true 时（OUT）内容
+ * 是 JSON 对象/数组字面量则渲染 JsonTree（对齐 dsh web），否则回退 150px 内滚动的
+ * 等宽 <pre>；`asJson` 为 false 时（IN）恒用 prettyJson 的 <pre>。与 dsh web
+ * DisclosureRow 的展开形态一致。
  */
-function toolInOut(label: string, text: string): HTMLElement {
+function toolInOut(label: string, text: string, key: string, asJson: boolean): HTMLElement {
   const box = el('div', 'tool-inout')
   box.appendChild(el('div', 'tool-inout-label', label))
-  box.appendChild(el('pre', '', text))
+  box.appendChild(asJson ? renderJsonOrText(text, key) : el('pre', '', text))
   return box
 }
 
 /**
- * 工具输出：默认只渲染前 OUTPUT_PREVIEW_LINES 行 + 「… 共 N 行，点击展开」
- * 提示（kimi-cli 的 "… (N more lines)" 对应物），点击展开全部、再次点击收起。
- * 展开状态记在 detailsOpen（key 按消息/块位置），流式重建不冲掉——同
- * detailsEl 的持久化机制。
+ * 一段工具文本的渲染入口：JSON 对象/数组字面量且不超过行数阈值 → JsonTree；否则纯文本
+ * <pre>。检测保守（见 jsonTree.ts）——只有整段文本恰为合法 JSON 字面量才建树，误判
+ * 会破坏普通文本展示。
+ */
+function renderJsonOrText(text: string, key: string): HTMLElement {
+  const value = tryParseJsonTree(text)
+  if (value && !jsonTreeThresholdExceeded(value)) return renderJsonTree(value, key)
+  return el('pre', '', text)
+}
+
+/**
+ * 整段正文恰为 JSON 但超过行数阈值时的兜底：把它包成一个 ```json 代码块（synthesize
+ * <pre><code class="language-json">）再走 enhanceCodeBlocks，得到与普通代码块一致的
+ * 头部条（语言标签 + code block 复制按钮）与「… 其余 N 行」折叠——超大 JSON 不再
+ * 渲染成树的巨量 DOM 行。
+ */
+function renderJsonCodeBlock(text: string, key: string): HTMLElement {
+  const holder = el('div', 'md')
+  const pre = el('pre')
+  const code = el('code')
+  code.classList.add('language-json')
+  code.textContent = text
+  pre.appendChild(code)
+  holder.appendChild(pre)
+  enhanceCodeBlocks(holder, key)
+  return holder.firstChild as HTMLElement
+}
+
+/**
+ * 工具输出：JSON 先走 JsonTree；否则默认只渲染前 OUTPUT_PREVIEW_LINES 行 +
+ * 「… 共 N 行，点击展开」提示（kimi-cli 的 "… (N more lines)" 对应物），点击展开
+ * 全部、再次点击收起。展开状态记在 detailsOpen（key 按消息/块位置），流式重建
+ * 不冲掉——同 detailsEl 的持久化机制。
  */
 function renderToolOutput(output: string, key: string): HTMLElement {
+  const value = tryParseJsonTree(output)
+  if (value && !jsonTreeThresholdExceeded(value)) {
+    // JSON → 树；套一层 tool-output 保持与非 JSON 输出一致的 20px 左缩进（树容器
+    // 自身无左缩进，缩进由上下文提供）。超阈值回退非 JSON 折叠路径（兜底）。
+    const box = el('div', 'tool-output')
+    box.appendChild(renderJsonTree(value, key))
+    return box
+  }
   const box = el('div', 'tool-output')
   const { preview, totalLines, truncated } = truncateLines(output)
   const open = detailsOpen.get(key) ?? false
@@ -2929,6 +3011,164 @@ function renderToolOutput(output: string, key: string): HTMLElement {
     box.appendChild(toggle)
   }
   return box
+}
+
+/**
+ * 一段 JSON 输出渲染成 JsonTree（对齐 dsh web JsonTree：对象/数组逐节点展开、
+ * 箭头点击 toggle、逐级缩进、暗色 token 配色）。节点 open 状态记在 jsonTreeOpen
+ * （key = `${outputKey}:${pathKey}`），缺省用「根展开、嵌套收起」的策略（root 缺省
+ * open），流式重建不冲掉——其它 disclosure 状态同款持久化。
+ *
+ * 树上/右上角给一个不喧宾夺主的「复制」按钮（对齐官方 JsonTree 的 copyPrettyJson）：
+ * 复制整棵树的 2 空格 pretty JSON。复制用 navigator.clipboard，成功短暂显示
+ * 「已复制」，失败改 title（与 md-code 复制按钮同款反馈）。
+ */
+function renderJsonTree(value: JsonContainer, outputKey: string): HTMLElement {
+  const shell = el('div', 'json-tree-shell')
+  const bar = el('div', 'json-tree-bar')
+  const copy = buttonEl('json-tree-copy', '复制')
+  copy.title = '复制 JSON'
+  copy.addEventListener('click', () => {
+    const text = jsonTreeCopyText(value)
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        copy.textContent = '已复制'
+        copy.title = '已复制'
+        setTimeout(() => {
+          copy.textContent = '复制'
+          copy.title = '复制 JSON'
+        }, 1000)
+      },
+      () => {
+        copy.title = '复制失败'
+      },
+    )
+  })
+  bar.appendChild(copy)
+  shell.appendChild(bar)
+
+  const tree = el('div', 'json-tree')
+  const isOpen = (pathKey: string) => jsonTreeOpen.get(`${outputKey}:${pathKey}`) ?? pathKey === JSON_TREE_ROOT_KEY
+  const rows = flattenJsonTree(value, isOpen)
+  for (const row of rows) tree.appendChild(renderJsonTreeRow(row, outputKey, value))
+  shell.appendChild(tree)
+  return shell
+}
+
+/** 点击某容器节点：翻转它的 open 状态并重建。 */
+function toggleJsonTree(outputKey: string, rowPathKey: string, currentOpen: boolean): void {
+  jsonTreeOpen.set(`${outputKey}:${rowPathKey}`, !currentOpen)
+  render()
+}
+
+/** 渲染一行 JSON 树节点（container/primitive/close），缩进按 depth。 */
+function renderJsonTreeRow(row: JsonTreeRow, outputKey: string, rootValue: JsonContainer): HTMLElement {
+  const line = el('div', 'json-tree-row')
+  line.style.paddingLeft = `${row.depth * 14}px`
+  if (row.type === 'close') {
+    line.appendChild(jsonPunct(row.kind === 'array' ? ']' : '}'))
+    return line
+  }
+  // data-path 供场景脚本 / 测试定位具体节点。
+  line.setAttribute('data-path', jsonPathKey(row.path))
+  // 非空容器：最左画箭头，点击 toggle；根不显示 key。
+  const expandable = row.type === 'container' && row.entryCount > 0
+  if (row.type === 'container' && expandable) {
+    const arrow = el('span', `json-tree-arrow ${row.open ? 'open' : ''}`)
+    arrow.setAttribute('role', 'button')
+    arrow.setAttribute('aria-expanded', row.open ? 'true' : 'false')
+    arrow.setAttribute('aria-label', row.open ? 'collapse' : 'expand')
+    const pathKey = jsonPathKey(row.path)
+    arrow.addEventListener('click', (e) => {
+      e.stopPropagation()
+      toggleJsonTree(outputKey, pathKey, row.open)
+    })
+    line.appendChild(arrow)
+  }
+  // key 标签（对象 key / 数组下标，根不显示；容器 key 可点击展开/收起）。
+  if (row.key !== null && row.key.length > 0) {
+    const keySpan = el('span', 'json-tree-key', row.key)
+    if (row.type === 'container' && expandable) {
+      keySpan.classList.add('json-tree-label-clickable')
+      keySpan.addEventListener('click', () => toggleJsonTree(outputKey, jsonPathKey(row.path), row.open))
+    }
+    line.appendChild(keySpan)
+    line.appendChild(jsonPunct(':'))
+    line.appendChild(el('span', 'json-tree-gap'))
+  }
+  if (row.type === 'primitive') {
+    line.appendChild(jsonPrimitiveSpan(row.primitive))
+    // 节点级复制：非根行尾部放 hover 出现的复制图标（复制该标量）。
+    if (row.key !== null) line.appendChild(renderJsonNodeCopy(rootValue, row.path))
+    return line
+  }
+  // container：展开显示开括号（子行 + 关闭行随后）；收起显示 `{…}` 预览；
+  // 空容器显示 `{}`（无箭头、不可点）。
+  const open = row.kind === 'array' ? '[' : '{'
+  const close = row.kind === 'array' ? ']' : '}'
+  if (expandable && row.open) {
+    line.appendChild(jsonPunct(open))
+  } else if (row.entryCount > 0) {
+    line.appendChild(jsonPunct(open))
+    line.appendChild(el('span', 'json-tree-ellipsis', '…'))
+    line.appendChild(jsonPunct(close))
+  } else {
+    line.appendChild(jsonPunct(open))
+    line.appendChild(jsonPunct(close))
+  }
+  // 节点级复制：容器行尾部放 hover 出现的复制图标（复制整个容器的值；根行
+  // key===null 不放——整树复制已由右上角按钮承担，避免同一值两个复制入口）。
+  if (row.key !== null) line.appendChild(renderJsonNodeCopy(rootValue, row.path))
+  return line
+}
+
+/**
+ * 一行树节点的尾部复制图标（hover 出现，克制样式与容器级按钮一致）：点击复制
+ * 该节点（路径解析出的子值）的 pretty JSON。反馈与容器按钮同款——成功把图标短暂
+ * 换成勾、title「已复制」1s 后还原，失败改 title；行级空间小，用图标变化而非文案。
+ */
+function renderJsonNodeCopy(rootValue: JsonContainer, path: JsonPath): HTMLElement {
+  const btn = el('button', 'json-tree-copy-icon') as HTMLButtonElement
+  btn.type = 'button'
+  btn.title = '复制'
+  const copyIcon = iconSvg(MESSAGE_ACTION_ICONS.copy, 12)
+  const checkIcon = iconSvg(MESSAGE_ACTION_ICONS.check, 12)
+  btn.appendChild(copyIcon)
+  // 路径解析在 click 时做（流式重建后行可能已失效）；解析不到就不复制。
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const subValue = jsonValueAtPath(rootValue, path)
+    if (subValue === undefined) return
+    const text = jsonTreeCopyText(subValue)
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        btn.replaceChild(checkIcon, copyIcon)
+        btn.title = '已复制'
+        setTimeout(() => {
+          btn.replaceChild(copyIcon, checkIcon)
+          btn.title = '复制'
+        }, 1000)
+      },
+      () => {
+        btn.title = '复制失败'
+      },
+    )
+  })
+  return btn
+}
+
+function jsonPunct(text: string): HTMLElement {
+  return el('span', 'json-tree-punct', text)
+}
+
+function jsonPrimitiveSpan(p: JsonPrimitiveKind): HTMLElement {
+  const cls =
+    p.type === 'string'
+      ? 'json-tree-string'
+      : p.type === 'number'
+        ? 'json-tree-number'
+        : 'json-tree-keyword'
+  return el('span', cls, p.display)
 }
 
 /** diff 块行折叠上限（对齐 dsh web DiffBlock 的 maxLines: 8）。 */

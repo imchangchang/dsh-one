@@ -514,6 +514,81 @@ const STYLE = `
     cursor: pointer; opacity: 0.6; margin-top: 2px; font-size: 0.85em;
   }
   .tool-output-toggle:hover { opacity: 1; }
+  /* JSON 输出树（对齐 dsh web JsonTree）：对象/数组逐节点展开、箭头 toggle、逐级缩进、
+     token 配色照抄官方——key/property 蓝、string 玫红、number/keyword 蓝、标点灰白、
+     箭头灰。默认走官方暗色变量；VS Code 亮色主题用 body.vscode-light 反显为官方 light
+     palette。 */
+  .json-tree {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 12px; line-height: 16px;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+    padding: 6px 8px 8px; border-radius: 4px;
+    overflow: auto; white-space: pre;
+    --jt-property: #5db0d7; --jt-string: #f28b82; --jt-number: #99c8ff;
+    --jt-keyword: #99c8ff; --jt-punct: #e8eaed; --jt-icon: #9aa0a6;
+    --jt-ellipsis: #9aa0a6; --jt-hover: rgb(232 234 237 / 5%);
+  }
+  body.vscode-light .json-tree {
+    --jt-property: #881391; --jt-string: #c41a16; --jt-number: #1c00cf;
+    --jt-keyword: #1c00cf; --jt-punct: #202124; --jt-icon: #5f6368;
+    --jt-ellipsis: #5f6368; --jt-hover: rgb(60 64 67 / 4%);
+  }
+  /* JsonTree 复制按钮：对齐 md-code-copy 的克制样式——右上角小「复制」按钮，
+     复制整树 pretty JSON（copyPrettyJson），成功短暂变「已复制」。左缩进由上下文
+     提供（消息正文=0 与 markdown code block 对齐；工具内=工具展开体的 20px）。 */
+  .json-tree-shell { margin: 2px 0; }
+  .json-tree-bar {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 8px; margin-bottom: 2px;
+  }
+  .json-tree-copy {
+    background: none; border: none; cursor: pointer; padding: 2px 6px;
+    border-radius: 3px; font-size: 0.85em;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .json-tree-copy:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    color: var(--vscode-foreground);
+  }
+  /* 节点级复制图标：行尾小图标，默认隐藏，hover 该行时出现（与容器级按钮同款克制
+     灰色），点击复制该行节点的 pretty JSON；成功图标短暂换勾。 */
+  .json-tree-row { position: relative; min-height: 16px; }
+  .json-tree-row:hover { background: var(--jt-hover); }
+  .json-tree-copy-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; margin-left: 4px; padding: 0;
+    background: none; border: none; border-radius: 3px; cursor: pointer;
+    color: var(--vscode-descriptionForeground, #888);
+    opacity: 0; vertical-align: middle;
+  }
+  .json-tree-row:hover .json-tree-copy-icon { opacity: 1; }
+  .json-tree-copy-icon:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    color: var(--vscode-foreground); opacity: 1;
+  }
+  .json-tree-key { color: var(--jt-property); font-weight: 400; }
+  .json-tree-label-clickable { cursor: pointer; }
+  .json-tree-label-clickable:hover { text-decoration: underline; }
+  .json-tree-punct { color: var(--jt-punct); }
+  .json-tree-gap { display: inline-block; width: 3px; }
+  .json-tree-string { color: var(--jt-string); }
+  .json-tree-number { color: var(--jt-number); }
+  .json-tree-keyword { color: var(--jt-keyword); }
+  .json-tree-ellipsis { color: var(--jt-ellipsis); }
+  .json-tree-arrow {
+    display: inline-block; width: 8px; height: 16px; margin: 0;
+    color: var(--jt-icon); cursor: pointer; user-select: none;
+    vertical-align: middle;
+  }
+  .json-tree-arrow::before {
+    content: ""; display: inline-block;
+    width: 0; height: 0;
+    border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+    border-left: 6px solid currentColor;
+    transform: scale(.75); transform-origin: 33.333% center;
+  }
+  .json-tree-arrow.open::before { transform: rotate(90deg) scale(.75); }
+  .json-tree-arrow:hover { color: var(--vscode-foreground); }
   .diff {
     margin-top: 4px; border-radius: 4px; overflow: hidden;
     font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em;
