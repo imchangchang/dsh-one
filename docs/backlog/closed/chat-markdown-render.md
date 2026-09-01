@@ -30,3 +30,4 @@
 - 2026-09-01 认领（worktree: agent/chat-markdown-render）→ doing
 - 2026-09-01 开发完成（自测通过）→ done
 - 2026-09-01 rebase 到最新 main 后自测（typecheck + 200 test + build）通过；ai-visual-validation 截图核对 markdown 表格等 GFM 样式符合期望，且 conversation 基线无回归 → 待主线 merge
+- 2026-09-01 主线合入（dev-merge，--no-ff）+ 复测通过（typecheck/200 test/build）+ 人工确认 → closed
