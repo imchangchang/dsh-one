@@ -1181,6 +1181,10 @@ export class ChatViewProvider implements vscode.Disposable {
         {
           enableScripts: true,
           localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')],
+          // 保留隐藏时的 webview 上下文：tab 切走再切回不重载页面，聊天内容、
+          // 草稿、滚动位置原样保留（与 dshOne.tab 的 openInTab 对齐）。即使
+          // 极端情况下仍被重载，webview 的 ready 报到也会让宿主重推状态。
+          retainContextWhenHidden: true,
         },
       )
       // tab 图标用 dsh 官方品牌图标（assets/dsh-favicon.svg，拷自已安装的
@@ -1390,6 +1394,14 @@ export class ChatViewProvider implements vscode.Disposable {
   }
 
   private async onMessage(m: FromWebviewMessage): Promise<void> {
+    // Webview 重载后（tab 切走再切回时 VSCode 重新加载面板内容）报到：立即重推
+    // 当前 ChatState 与 sessions 快照，恢复界面。不能依赖事件驱动推送——重载
+    // 后若无新事件，webview 会一直收不到状态。
+    if (m?.type === 'ready') {
+      this.push(this.controller?.getState() ?? this.emptyState())
+      this.pushSessions()
+      return
+    }
     // Install guide works with no session (and no server) attached.
     if (m?.type === 'openInstallPage') {
       void vscode.commands.executeCommand('dshOne.openInstallPage')
