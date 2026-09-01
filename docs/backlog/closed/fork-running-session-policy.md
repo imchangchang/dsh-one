@@ -66,3 +66,5 @@ fork 一个会话时存在限制/不一致：
   subagent 调用卡在子代理不在本会话血缘树时加「快照副本：原子代理已不在本会话」标注。
   自测 typecheck/test（214）/build 全绿 + ui-visual 场景验证（fork-disable /
   subagent 快照与血缘内两态均截图 + DOM 断言）→ `docs/backlog/done/`。
+
+- 2026-09-01 主线合入测试通过（merge 41ce590），人工验收通过 → closed
