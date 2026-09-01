@@ -304,8 +304,9 @@ export interface ChatState {
   /**
    * 头部面包屑的父会话段（对齐官方 dsh web 的子代理进入逻辑：附着的是
    * 子代理会话时，标题区显示「父会话标题 / 子会话标题」，点父会话标题
-   * 回到父会话内容）：附着会话在 session.list 基线里带 parentSessionId
-   * 时由 ChatViewProvider 合成；普通会话缺省。
+   * 回到父会话内容）：附着会话在 session.list 基线里 origin === 'subagent'
+   * 时由 ChatViewProvider 合成；普通 fork 会话虽有 parentSessionId 但不写
+   * origin，不显示父标题。普通会话缺省。
    */
   parentSession?: {
     sessionId: string
@@ -313,8 +314,9 @@ export interface ChatState {
   }
   /**
    * 头部「N 个子代理」chip 的下拉行：本会话的全部 continuable 子代理
-   * （session.list 基线里 parentSessionId 指向本会话的会话，含已完成的），
-   * 由 ChatViewProvider 从 SessionsStore 递归组装成血缘树——直接子代理的
+   * （session.list 基线里 origin === 'subagent' 且 parentSessionId 指向本
+   * 会话的会话，含已完成的），由 ChatViewProvider 从 SessionsStore 递归
+   * 组装成血缘树——直接子代理的
    * children 里再挂它们各自的后代（子代理再开子代理），每一层都按
    * 运行中优先 + 新近优先排好；一个子代理都没有时缺省（chip 不渲染）。
    * chip 上的计数只算直接子代理（顶层项数），下拉里各层缩进展示。

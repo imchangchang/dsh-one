@@ -1288,9 +1288,9 @@ export class ChatViewProvider implements vscode.Disposable {
   }
 
   /**
-   * 头部信息区：附着会话正在运行的 continuable 子代理（SessionsStore 的
-   * session.list 基线里 parentSessionId 指向它且 running 的行）、全部后台
-   * job（JobsStore 的 mux 基线，含已结束，按官方 JobListAction 行序）、
+   * 头部信息区：附着会话的 continuable 子代理（SessionsStore 的 session.list
+   * 基线里 origin === 'subagent' 且 parentSessionId 指向它的行，含已完成的）、
+   * 全部后台 job（JobsStore 的 mux 基线，含已结束，按官方 JobListAction 行序）、
    * 空会话 hero 区的 workspace 名（workspace.list 基线，blank 会话也在所属
    * workspace 的 sessionIds 里），以及头部只读 preset 标签——渠道对齐官方
    * AgentPresetLabel：session.list 基线的 agentPreset id（官方
@@ -1298,9 +1298,10 @@ export class ChatViewProvider implements vscode.Disposable {
    * roster 映射成显示名，roster 的 description 作为悬停 tooltip
    * （presetDescription，对齐官方 AgentPresetLabel 的悬停描述）。空会话由
    * hero 的选择 chip 呈现当前 preset（
-   * state.agentPreset 在），标签不重复。附着的是子代理会话时另合成面包屑
-   * 父段 parentSession（「父标题 / 子标题」，点击回父会话，对齐官方
-   * dsh web 的子代理进入逻辑）。字段为空时都缺省，webview 不渲染。
+   * state.agentPreset 在），标签不重复。附着的是真子代理会话（origin ===
+   * 'subagent'）时另合成面包屑父段 parentSession（「父标题 / 子标题」，点击
+   * 回父会话，对齐官方 dsh web 的子代理进入逻辑）。字段为空时都缺省，
+   * webview 不渲染。
    */
   private composeHeader(state: ChatState): ChatState {
     if (!state.sessionId) return state
@@ -1312,9 +1313,10 @@ export class ChatViewProvider implements vscode.Disposable {
     const jobs = orderJobs(this.jobs.jobs().get(state.sessionId) ?? [])
     const workspaceLabel = this.store.workspaceLabelFor(state.sessionId)
     const self = raw.find((s) => s.sessionId === state.sessionId)
-    // 面包屑父段：附着的是子代理会话（基线里带 parentSessionId）时合成
+    // 面包屑父段：只有附着的是真子代理（origin === 'subagent'）才合成
     // 「父会话标题 /」，webview 点击回到父会话（官方 dsh web 的进入逻辑）。
-    const parentId = self?.parentSessionId
+    // 普通 fork 会话虽有 parentSessionId 但不写 origin，不显示父标题。
+    const parentId = self?.origin === 'subagent' ? self?.parentSessionId : undefined
     const parent = parentId ? raw.find((s) => s.sessionId === parentId) : undefined
     const parentSession = parentId
       ? { sessionId: parentId, title: parent?.title ?? `会话 ${parentId.slice(0, 8)}` }

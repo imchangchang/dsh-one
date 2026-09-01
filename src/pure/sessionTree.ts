@@ -28,9 +28,13 @@ export interface SessionInput {
   updatedAt: number
   running: boolean
   blank: boolean
-  /** Parent session for continuable subagent sessions (session.list). */
+  /** Parent session for lineage/fork sessions (session.list). */
   parentSessionId?: string
-  /** Host-assigned origin marker (e.g. 'subagent'); informational only. */
+  /**
+   * Host-assigned origin marker：'subagent' 表示真子代理（spawn 时写入）。
+   * 普通 fork 会话只写 parentSessionId、无此标记——血缘/子代理判定用
+   * origin === 'subagent' 区分两者。
+   */
   origin?: string
   /** Sum of the tokenUsage projection's buckets, when the host reports one. */
   totalTokens?: number
@@ -134,8 +138,9 @@ export function formatRelativeTime(updatedAt: number, now: number): string {
  * drops workspaces left without a match. Sessions not referenced by any
  * workspace's sessionIds form a synthetic「未分组」group (UNGROUPED_WORKSPACE_ID,
  * empty path) appended last — same as dsh web's ungrouped section. Lineage
- * children (parentSessionId set) never appear as rows; they only feed the
- * parent's descendantRunning busy flag.
+ * subagents (origin === 'subagent') never appear as rows; they only feed
+ * the parent's descendantRunning busy flag. Plain forks (parentSessionId
+ * set, no origin) are normal sessions and do appear as rows.
  */
 export function buildSessionTree(
   workspaces: WorkspaceInput[],
@@ -150,12 +155,13 @@ export function buildSessionTree(
   const query = view.query?.trim().toLowerCase() ?? ''
   const sort = view.sort ?? 'updatedDesc'
 
-  // 血缘：parentSessionId 把子代理挂在父会话下。子代理行不进任何组
-  // （workspace 不引用它们，也未分组组也不收——见下方 orphans 过滤），
-  // 只在这里贡献「有运行中后代」的忙碌判定。
+  // 血缘：只有真子代理（origin === 'subagent'）挂在父会话下。子代理行不进
+  // 任何组（workspace 不引用它们，也未分组组也不收——见下方 orphans 过滤），
+  // 只在这里贡献「有运行中后代」的忙碌判定。普通 fork 会话虽有 parentSessionId
+  // 但没有 origin，按普通会话处理（出现在列表，不把 running 传给父会话）。
   const childrenOf = new Map<string, SessionInput[]>()
   for (const s of sessions) {
-    if (!s.parentSessionId) continue
+    if (s.origin !== 'subagent' || !s.parentSessionId) continue
     const kids = childrenOf.get(s.parentSessionId) ?? []
     kids.push(s)
     childrenOf.set(s.parentSessionId, kids)
@@ -228,12 +234,15 @@ export function buildSessionTree(
   })
 
   // 未被任何 workspace 引用的会话：合成「未分组」虚拟组排在最后。
-  // 血缘子行（有 parentSessionId 的子代理）不算未分组——它们属于父会话，
-  // 只参与忙碌聚合，不在面板单列。
+  // 真子代理（origin === 'subagent'）不算未分组——它们属于父会话，只参与
+  // 忙碌聚合，不在面板单列；普通 fork 会话是独立会话，无归属时进未分组。
   const referenced = new Set(workspaces.flatMap((w) => w.sessionIds))
   const orphans = sessions.filter(
     (s) =>
-      !referenced.has(s.sessionId) && !s.parentSessionId && !s.blank && !archivedSessionIds.has(s.sessionId),
+      !referenced.has(s.sessionId) &&
+      s.origin !== 'subagent' &&
+      !s.blank &&
+      !archivedSessionIds.has(s.sessionId),
   )
   const orphanNodes = toSessionNodes(orphans)
   if (orphanNodes.length > 0) {
@@ -254,7 +263,8 @@ export function buildSessionTree(
  * 组装头部「N 个子代理」chip 下拉的血缘树：`rootId` 的直接子代理为顶层项，
  * 每项的 `children` 递归挂它们各自的后代（子代理再开子代理）。每一层按
  * 运行中优先 + 新近优先 排序。带回环保护：血缘链断/环时靠 `seen` 截断，
- * 避免无限递归。`children` 为空时缺省。
+ * 避免无限递归。只有 origin === 'subagent' 的会话算子代理，普通 fork
+ * 不入树（chip 计数与下拉行都不含它）。`children` 为空时缺省。
  */
 export function buildSubagentTree(
   sessions: readonly SessionInput[],
@@ -262,7 +272,8 @@ export function buildSubagentTree(
 ): SubagentNode[] {
   const childrenOf = new Map<string, SessionInput[]>()
   for (const s of sessions) {
-    if (!s.parentSessionId) continue
+    // 只有真子代理（origin === 'subagent'）进血缘树；普通 fork 不计入。
+    if (s.origin !== 'subagent' || !s.parentSessionId) continue
     const kids = childrenOf.get(s.parentSessionId) ?? []
     kids.push(s)
     childrenOf.set(s.parentSessionId, kids)
