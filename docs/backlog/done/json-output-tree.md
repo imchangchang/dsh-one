@@ -38,3 +38,9 @@ JSON 输出（工具输出等）用 JsonTree 逐节点展开：检测输出为 J
   失败改 title，反馈对齐既有 code-block-copy（md-code-copy）；样式沿用 json-tree 配色 +
   md-code-copy 的克制按钮。scenarios 加 json-output-copy 场景（monkeypatch clipboard 断言
   复制内容 + 按钮反馈）。自测 typecheck/test/build 全绿（240 测试）。
+- 2026-09-01 补充（用户拍板：节点级复制本期做，容器按钮保持右上角）：每个非根值行行尾
+  hover 出现小复制图标（克制灰、默认隐藏），点击复制该节点 pretty JSON（jsonValueAtPath
+  按行 path 取子值 + jsonTreeCopyText 泛化到任意子值，+3 单测）；反馈用图标短暂换勾 +
+  title（照消息操作栏 copy 先例），容器按钮不变。scenarios 加 json-output-node-copy 场景
+  （点 checks 容器行 + status 原始值行图标，断言各自 pretty JSON）。自测 typecheck/test/
+  build 全绿（243 测试）。
