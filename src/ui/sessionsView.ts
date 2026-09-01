@@ -400,10 +400,6 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
         void vscode.window.showInformationMessage('已复制会话引用，粘贴到输入框即可 @ 这个会话')
         return
       }
-      case 'sessionCopyId':
-        await vscode.env.clipboard.writeText(m.sessionId)
-        void vscode.window.showInformationMessage('已复制会话 ID')
-        return
       case 'serverStart':
         void this.manager.ensureStarted()
         return

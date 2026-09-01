@@ -869,17 +869,10 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem('复制会话 ID', {
-      icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
-      onClick: () => {
-        closePopover()
-        post({ type: 'sessionCopyId', sessionId: s.sessionId })
-      },
-    }),
-  )
-  body.appendChild(
     menuItem('归档会话', {
       icon: iconSvg(PANEL_ICONS.archive),
+      // 运行中/未读/待处理的会话归档后状态难追踪，置灰禁用。
+      disabled: s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined,
       onClick: () => {
         closePopover()
         post({ type: 'sessionArchive', sessionId: s.sessionId, title: s.label })
