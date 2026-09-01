@@ -1165,6 +1165,11 @@ export class ChatViewProvider implements vscode.Disposable {
       panel.onDidDispose(() => {
         msg.dispose()
         if (this.panel === panel) this.panel = null
+        // 侧栏手里的最后一份 SessionsSnapshot 可能还带着关闭前的 attachedSessionId
+        // ——再点该会话会被误判成「已附着」进行内重命名。关闭后重推一次快照让
+        // attachedSessionId 归零（controller 保留：pending 交互兜底再拉出、重开
+        // 即复用都依赖它；activeSessionId 不变，侧栏高亮保持）。
+        this.activeEmitter.fire(this.activeSessionId)
       })
       this.panel = panel
     }
@@ -1175,6 +1180,10 @@ export class ChatViewProvider implements vscode.Disposable {
       this.setSession(target)
     }
     this.push(this.controller?.getState() ?? this.emptyState())
+    // 面板新建/重建后 tab 标题对齐当前状态：首次 open 时 controller 在
+    // openPanel 之前已附着，attach() 里那次 syncPanelTitle 面板还不存在
+    // （空跑）；tab 关闭后重开同会话时更没有 attach 调用——两处都得靠这里。
+    this.syncPanelTitle()
     this.pushSessions()
     // 右键暂存的附件可能一直等在这里（面板此前没打开过）。
     this.flushStaged()
@@ -1357,6 +1366,18 @@ export class ChatViewProvider implements vscode.Disposable {
     // Install guide works with no session (and no server) attached.
     if (m?.type === 'openInstallPage') {
       void vscode.commands.executeCommand('dshOne.openInstallPage')
+      return
+    }
+    // 对话里的外链（webview 已阻止自身导航，见 chat/webview.ts 的锚点拦截）：
+    // 用系统默认浏览器打开，与插件其余链接（安装页/状态栏打开 dsh 页）一致。
+    if (m?.type === 'openExternal' && typeof m.url === 'string') {
+      if (/^(https?|mailto):/i.test(m.url)) {
+        try {
+          await vscode.env.openExternal(vscode.Uri.parse(m.url))
+        } catch (err) {
+          this.logger.warn(`chat: openExternal(${m.url}) failed — ${err instanceof Error ? err.message : err}`)
+        }
+      }
       return
     }
     // 子代理下拉名称 / 会话 @ 引用 chip 点击：打开（或揭示）editor 面板并附着

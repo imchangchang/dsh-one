@@ -27,8 +27,9 @@
 <body>
 <div id="app"></div>
 
-<!-- mock 宿主 API：webview 只用到 postMessage，这里吞掉发回宿主的动作 -->
-<script>window.acquireVsCodeApi = function () { return { postMessage: function () {} } }</script>
+<!-- mock 宿主 API：webview 只用到 postMessage，这里吞掉发回宿主的动作（记录到
+     window.__posted 供场景/调试检查） -->
+<script>window.acquireVsCodeApi = function () { return { postMessage: function (m) { (window.__posted = window.__posted || []).push(m) } } }</script>
 
 <script src="/test/ui/scenarios.js"></script>
 

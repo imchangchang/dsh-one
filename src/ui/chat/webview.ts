@@ -208,6 +208,28 @@ function post(message: FromWebviewMessage): void {
   vscode.postMessage(message)
 }
 
+/**
+ * 外部链接拦截（捕获阶段）：裸 `<a href="http…">` 的默认行为会让 webview
+ * 自身导航到目标页，面板内容被顶掉——表现为「点对话里的链接，原来的 tab 就
+ * 没了」。这里统一拦下所有锚点点击：阻止导航与冒泡，http/https/mailto 转交
+ * 宿主用系统默认浏览器打开，webview 保持在 chat 界面。捕获阶段先于一切
+ * 冒泡处理，mention chip（button）等内部动作不受影响；dsh-session: 锚点只
+ * 剩坏 URI 的残留（好的已被 decorateSessionMentions 换成 chip），只拦不跳。
+ */
+document.addEventListener(
+  'click',
+  (e) => {
+    const target = e.target as HTMLElement | null
+    const a = target?.closest?.('a[href]') as HTMLAnchorElement | null
+    if (!a) return
+    e.preventDefault()
+    e.stopPropagation()
+    const href = a.getAttribute('href') ?? ''
+    if (/^(https?|mailto):/i.test(href)) post({ type: 'openExternal', url: href })
+  },
+  true,
+)
+
 /** 请求加载更早的一页历史（按钮点击与上翻到顶共用）；挂起期间防重入。 */
 function maybeLoadEarlier(): void {
   if (!state?.hasEarlierHistory || state.loadingEarlier === true || earlierAnchor !== null) return
