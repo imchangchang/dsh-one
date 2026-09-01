@@ -1,0 +1,1 @@
+- 2026-09-01 第二轮：轮询+诊断后仍失败且根因已定位——**spawnDsh.js 的 Windows 输出路径 bug**：诊断显示 dsh 在 PATH（/c/npm/prefix/dsh）、对照 `dsh --version` 0.3s 输出 0.1.1-rc.2、spawn 出 pid、**日志 0 字节**。即 Windows 上 `spawn(detached+shell+stdio 传文件 fd)` 输出不落盘。方案：spawnDsh.ts Windows 分支改 pipe 收集 + 驻留最多 2s 写盘，POSIX 不动。→ 继续 fix-forward
