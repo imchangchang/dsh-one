@@ -63,15 +63,21 @@
   //   expect — 该状态应该呈现的逻辑与排版（agent 读截图后逐条对照核对，非像素 diff）
   const catalog = {
     conversation: {
-      state: base(),
+      state: base({
+        messages: [
+          u('你帮我看看这个插件的架构，总结一下核心思路。'),
+          at('这个插件是 **dsh 与 VSCode 的桥接**：定位本机 dsh，从 VSCode 启动或复用 dsh web 服务，并把 dsh 界面以 webview 形式内嵌到侧边栏。', [toolBlock()]),
+        ],
+      }),
       title: '正常对话',
-      expect: '会话面板列出会话；主区显示用户消息（右侧）+ 助手回复，含 markdown 加粗、一条折叠工具卡、「复制/反馈/分叉」操作栏；底部 composer + 模型 pill + 会话统计。',
+      expect: '会话面板列出会话；主区显示用户消息（右侧）+ 助手回复，含 markdown 加粗、一条折叠工具卡（Ran a command bash / npm test）、「复制/反馈/分叉」操作栏；底部 composer + 模型 pill + 会话统计。',
     },
 
     empty: {
-      state: base({ sessionId: null, sessionTitle: undefined, messages: [], canSend: false, presetLabel: undefined, workspaceLabel: 'dsh-one', agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' } }),
+      // blankHero 要求 sessionId !== null（空白会话已附着）且无消息/待办/队列/jobs。
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
       title: '空会话 hero',
-      expect: '无历史消息；主区显示空会话 hero：preset 选择 chip（标准模式/深度思考）+ workspace chip（dsh-one）；composer 禁用或提示选 preset。',
+      expect: '空会话 hero（无历史）：品牌鱼标 + 标题「探索未至之境预览版」+ workspace chip（dsh-one）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）。',
     },
 
     'dsh-not-found': {
@@ -95,7 +101,7 @@
     'plan-review': {
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-3', sessionId: 'sess-1', questions: [{ question: '批准这个方案吗？', detail: '### 方案\n把 sessionStore 改成 immutable，并拆分 reducer。', options: [{ label: '批准' }, { label: '拒绝' }], intent: { kind: 'plan-review', approve: '批准' } }] }] }),
       title: '计划评审',
-      expect: '底部 pending 卡「批准这个方案吗？」+「▶ 查看详情」可展开 detail；两个选项，**批准**为主按钮（高亮）；另有自定义回答输入框。',
+      expect: '底部 pending 卡「批准这个方案吗？」+「▶ 查看详情」可展开 detail；两个 bullet 选项（批准/拒绝，无主次之分——CSS 只有 hover/选中做 outline）+「其他（自定义回答，Enter 提交）」输入框。',
     },
 
     todos: {
@@ -124,10 +130,12 @@
     },
 
     sessions: {
-      state: base(),
-      sessions: (() => { const s = window.sessionsTree('sess-2'); s.query = '重构'; s.sortOrder = 'title'; return s })(),
-      title: '侧边栏（搜索+排序+未读）',
-      expect: '侧边栏按标题排序、带搜索词「重构」过滤；未读会话「重构 sessionStore」带未读标记；附着的是 sess-2。',
+      // 附着 sess-2（state.sessionId 决定高亮/文件夹染蓝）+ sess-1 未读（SessionNodeModel.unread）。
+      // 注：搜索过滤是宿主端 buildSessionTree 预过滤后才喂给 webview 的，静态 snapshot 需自己预过滤才可见；此处聚焦可观测的附着+未读。
+      state: base({ sessionId: 'sess-2', sessionTitle: '重构 sessionStore', presetLabel: '深度思考', messages: [u('把 store 改成 immutable 吧。'), at('可以。把派生状态集中到 reducer，避免多处直接改 store。', [toolBlock({ detail: 'src/pure/sessionTree.ts' })])] }),
+      sessions: (() => { const s = window.sessionsTree('sess-2'); s.workspaces[0].sessions[0].unread = true; s.workspaces[0].sessions[1].unread = false; return s })(),
+      title: '侧边栏（附着 + 未读）',
+      expect: '附着 sess-2：dsh-one 文件夹染蓝 + 「重构 sessionStore」行高亮；「DSH One 示例会话」带未读圆点（session-title unread）；dsh-web research 分组正常列出。',
     },
   }
 
