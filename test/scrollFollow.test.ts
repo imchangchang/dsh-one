@@ -8,6 +8,7 @@ import {
   isScrollKey,
   reconcileScrollPinning,
   restoreScrollTarget,
+  shouldPinNow,
 } from '../src/pure/scrollFollow.ts'
 
 test('distanceFromBottom 基本计算', () => {
@@ -85,4 +86,24 @@ test('isScrollKey 识别会滚动容器的按键', () => {
   for (const key of ['Enter', 'Escape', 'a', 'Tab', 'ArrowLeft', 'ArrowRight']) {
     assert.equal(isScrollKey(key), false, key)
   }
+})
+
+test('shouldPinNow 跟随态 + 无意图 + 未贴底才写 scrollTop', () => {
+  // 三条件同时满足：贴底跟随重滚底
+  assert.equal(shouldPinNow(true, false, false), true)
+})
+
+test('shouldPinNow 意图活跃不写（不抢惯性动画，修贴底惯性抖动）', () => {
+  // 跟随态但手势/动量未结束（wheel 仍持续到达）→ 不写
+  assert.equal(shouldPinNow(true, true, false), false)
+})
+
+test('shouldPinNow 已贴底幂等跳过', () => {
+  // 跟随态、无意图、但实际已贴底（内容不足一屏 / 已 pin 到位）→ 不写
+  assert.equal(shouldPinNow(true, false, true), false)
+})
+
+test('shouldPinNow 非跟随态（用户已滚离读历史）决不写', () => {
+  assert.equal(shouldPinNow(false, false, false), false)
+  assert.equal(shouldPinNow(false, true, true), false)
 })

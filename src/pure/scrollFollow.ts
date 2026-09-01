@@ -27,6 +27,20 @@ export function isAtBottom(scrollHeight: number, scrollTop: number, clientHeight
 }
 
 /**
+ * 渲染后重滚底的决策：是否该把视口写回底部（程序 pin）。
+ * 三条件同时满足才写：
+ * - stickToBottom：跟随态（用户未主动滚离，视口应留在尾部）。
+ * - !intentActive：无用户手势/动量（wheel/touch 事件仍持续到达 = 意图仍在）。
+ *   此时写 scrollTop 会打断浏览器原生惯性动画（WebKit bug 255193 承认设
+ *   scrollTop 终止惯性），正是「贴底惯性下滑反复回弹抖动」的碰撞源，跳过。
+ * - !atBottom：实际已贴底（距底 ≤ AT_BOTTOM_PX）则无需再写（幂等），避免
+ *   内容不足一屏/已贴底时的无谓写。
+ */
+export function shouldPinNow(stickToBottom: boolean, intentActive: boolean, atBottom: boolean): boolean {
+  return stickToBottom && !intentActive && !atBottom
+}
+
+/**
  * 一个会话的滚动存档（对齐官方 dsh web 的 chatScrollPositions 语义）：
  * 贴底只记 atBottom，翻历史记当时的 scrollTop。
  */
