@@ -251,8 +251,6 @@ export class SessionsStore implements vscode.Disposable {
 
   /** Collapse/expand a workspace group; persists across reloads. */
   setCollapsed(workspaceId: string, collapse: boolean): void {
-    // 「未分组」虚拟组恒展开、不可折叠：不写进 persisted collapsed 集合。
-    if (workspaceId === UNGROUPED_WORKSPACE_ID) return
     const changed = collapse ? !this.collapsed.has(workspaceId) : this.collapsed.delete(workspaceId)
     if (collapse) this.collapsed.add(workspaceId)
     if (!changed) return
@@ -264,10 +262,10 @@ export class SessionsStore implements vscode.Disposable {
    * Collapse every workspace group of the current model at once —
    * one persistence write + one notification, not N × setCollapsed.
    * 搜索过滤时只折叠当前可见的组（workspaces 即过滤后的模型）。
+   * 「未分组」虚拟组参与统一折叠（与普通组一致）。
    */
   collapseAll(): void {
-    // 「未分组」虚拟组恒展开，不参与折叠（也不进 persisted collapsed 集合）。
-    const ids = this.workspaces.map((w) => w.workspaceId).filter((id) => id !== UNGROUPED_WORKSPACE_ID)
+    const ids = this.workspaces.map((w) => w.workspaceId)
     if (ids.every((id) => this.collapsed.has(id))) return
     for (const id of ids) this.collapsed.add(id)
     void this.state?.update(COLLAPSED_STATE_KEY, [...this.collapsed])
@@ -276,8 +274,7 @@ export class SessionsStore implements vscode.Disposable {
 
   /** collapseAll 的反向操作：只展开当前可见的组，被搜索过滤掉的组保持原状。 */
   expandAll(): void {
-    // 「未分组」虚拟组恒展开，不参与折叠/展开。
-    const ids = this.workspaces.map((w) => w.workspaceId).filter((id) => id !== UNGROUPED_WORKSPACE_ID)
+    const ids = this.workspaces.map((w) => w.workspaceId)
     if (ids.every((id) => !this.collapsed.has(id))) return
     for (const id of ids) this.collapsed.delete(id)
     void this.state?.update(COLLAPSED_STATE_KEY, [...this.collapsed])

@@ -90,6 +90,8 @@ let sessionsSearchDraft = ''
 let searchDebounce: ReturnType<typeof setTimeout> | null = null
 /** 当前附着/高亮会话 id（快照的 activeSessionId），驱动 active/has-active。 */
 let currentSessionId: string | null = null
+/** 刷新按钮正在转圈（跨面板重建保留，避免 render 重建把动画切掉）。 */
+let refreshing = false
 
 const sessionsPanel = el('aside', 'sessions-panel')
 app.appendChild(sessionsPanel)
@@ -173,6 +175,52 @@ function showPopoverAt(x: number, y: number, body: HTMLElement): void {
   document.addEventListener('keydown', onPopoverKey, true)
 }
 
+/* ---- 悬停 tooltip（VS Code webview 原生 title 不显示，自实现） ---- */
+let tipEl: HTMLElement | null = null
+function ensureTipEl(): HTMLElement {
+  if (!tipEl) {
+    tipEl = el('div', 'dsh-tooltip')
+    document.body.appendChild(tipEl)
+  }
+  return tipEl
+}
+function hideTip(): void {
+  if (tipEl) tipEl.style.display = 'none'
+}
+// 事件委托：任何带 [data-tip] 的元素（含重建后的按钮）悬停即显示文本气泡。
+// 用 fixed 定位挂在 body 上，不随 .sessions-list 滚动裁剪，水平钳制不外溢。
+document.addEventListener('pointerover', (e) => {
+  const target = (e.target as HTMLElement | null)?.closest?.('[data-tip]') as HTMLElement | null
+  if (!target) {
+    hideTip()
+    return
+  }
+  const tip = target.getAttribute('data-tip')
+  if (!tip) {
+    hideTip()
+    return
+  }
+  const t = ensureTipEl()
+  t.textContent = tip
+  const rect = target.getBoundingClientRect()
+  t.style.display = 'block'
+  const w = t.offsetWidth
+  const left = Math.max(4, Math.min(rect.left + rect.width / 2 - w / 2, window.innerWidth - w - 4))
+  t.style.left = `${left}px`
+  const h = t.offsetHeight
+  let top = rect.top - h - 6
+  if (top < 4) top = rect.bottom + 6
+  t.style.top = `${top}px`
+})
+document.addEventListener('pointerout', (e) => {
+  const target = (e.target as HTMLElement | null)?.closest?.('[data-tip]') as HTMLElement | null
+  if (target) {
+    const related = e.relatedTarget as Node | null
+    if (related && target.contains(related)) return
+  }
+  hideTip()
+})
+
 function menuItem(
   label: string,
   opts: { right?: string; checked?: boolean; glyph?: string; icon?: SVGSVGElement; onClick: () => void },
@@ -252,7 +300,8 @@ function panelTool(icon: SVGSVGElement, title: string): HTMLButtonElement {
   const b = document.createElement('button')
   b.type = 'button'
   b.className = 'sessions-tool'
-  b.title = title
+  // 悬停提示走自实现 tooltip（webview 原生 title 不显示）；data-tip 供委托读取。
+  b.setAttribute('data-tip', title)
   b.setAttribute('aria-label', title)
   b.appendChild(icon)
   return b
@@ -318,7 +367,25 @@ function renderSessions(): void {
   sortBtn.addEventListener('click', () => openSortMenu(sortBtn))
   header.appendChild(sortBtn)
   const refreshBtn = panelTool(iconSvg(PANEL_ICONS.refresh, 12), '刷新会话列表')
-  refreshBtn.addEventListener('click', () => post({ type: 'sessionsRefresh' }))
+  // 刷新视觉反馈：点击立即转圈 + 禁用，直至 ~450ms 后复位（跨重建用 refreshing 标志）。
+  if (refreshing) {
+    refreshBtn.classList.add('refreshing')
+    refreshBtn.disabled = true
+  }
+  refreshBtn.addEventListener('click', () => {
+    refreshing = true
+    refreshBtn.classList.add('refreshing')
+    refreshBtn.disabled = true
+    post({ type: 'sessionsRefresh' })
+    window.setTimeout(() => {
+      refreshing = false
+      const btn = sessionsPanel.querySelector<HTMLButtonElement>('.sessions-tool.refreshing')
+      if (btn) {
+        btn.classList.remove('refreshing')
+        btn.disabled = false
+      }
+    }, 450)
+  })
   header.appendChild(refreshBtn)
   const expandable = snap?.workspaces.filter((w) => w.sessions.length > 0) ?? []
   const allCollapsed = expandable.length > 0 && expandable.every((w) => snap?.collapsed.includes(w.workspaceId) ?? false)
@@ -404,22 +471,18 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   group.dataset.workspaceId = w.workspaceId
   const ungrouped = w.workspaceId === UNGROUPED_WORKSPACE_ID
   const empty = w.sessions.length === 0
-  // 未分组是虚拟组：恒展开，忽略 collapsed 持久化状态，避免「标题 + 空白」。
-  const collapsed = ungrouped ? false : empty || (sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false)
+  // 未分组参与统一折叠（与普通 workspace 组一致），服从 collapsed 持久化。
+  const collapsed = empty || (sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false)
   const head = el('div', collapsed ? 'workspace-row' : 'workspace-row expanded')
   if (empty) head.classList.add('empty')
-  if (ungrouped) head.classList.add('ungrouped')
   head.classList.toggle('has-active', w.sessions.some((s) => s.sessionId === currentSessionId))
   head.title = ungrouped ? '不属于任何工作区的会话' : w.path
   const folderIcon = el('span', 'ws-folder')
   folderIcon.appendChild(iconSvg(collapsed ? PANEL_ICONS.folder : PANEL_ICONS.folderOpen))
   head.appendChild(folderIcon)
-  // 未分组恒展开、无折叠交互：不渲染折叠箭头（无需 hover 切换成三角）。
-  if (!ungrouped) {
-    const arrow = el('span', 'ws-arrow')
-    arrow.appendChild(iconSvg(PANEL_ICONS.triangle))
-    head.appendChild(arrow)
-  }
+  const arrow = el('span', 'ws-arrow')
+  arrow.appendChild(iconSvg(PANEL_ICONS.triangle))
+  head.appendChild(arrow)
   head.appendChild(el('span', 'workspace-label', w.label))
   if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', 'vscode'))
   if (!ungrouped) {
@@ -446,8 +509,8 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
     )
     head.appendChild(headActions)
   }
-  // 空组无可展开内容、未分组恒展开：都不注册折叠 click。
-  if (!empty && !ungrouped) {
+  // 空组无可展开内容不响应点击；其余（含未分组）点击折叠/展开。
+  if (!empty) {
     head.addEventListener('click', () =>
       post({ type: 'workspaceCollapse', workspaceId: w.workspaceId, collapsed: !collapsed }),
     )

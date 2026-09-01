@@ -49,6 +49,10 @@ const SESSIONS_STYLE = `
   }
   .sessions-tool:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
   .sessions-tool svg { display: block; }
+  /* 刷新中：图标短暂旋转 + 按钮变灰，给出操作反馈。 */
+  .sessions-tool.refreshing svg { animation: dsh-tool-spin 0.6s linear infinite; }
+  @keyframes dsh-tool-spin { to { transform: rotate(360deg); } }
+  .sessions-tool:disabled { opacity: 0.5; cursor: default; }
   .sessions-list { flex: 1; overflow-y: auto; padding: 2px 0; }
   .workspace-row {
     display: flex; align-items: center; gap: 6px; padding: 0 10px;
@@ -68,9 +72,6 @@ const SESSIONS_STYLE = `
   /* 空组无可展开内容：hover 不切换成三角，保持闭合文件夹图标。 */
   .workspace-row.empty:hover .ws-arrow { display: none; }
   .workspace-row.empty:hover .ws-folder { display: inline-flex; }
-  /* 未分组虚拟组恒展开：无折叠箭头，hover 也保持文件夹图标（不切换到三角）。 */
-  .workspace-row.ungrouped:hover .ws-arrow { display: none; }
-  .workspace-row.ungrouped:hover .ws-folder { display: inline-flex; }
   /* 附着会话所在 workspace 的文件夹图标染 deepseek 蓝（dsh web 同款标识）。 */
   .workspace-row.has-active .ws-folder { color: var(--vscode-charts-blue, #5686fe); }
   .ws-arrow svg { transition: transform .15s ease; }
@@ -184,6 +185,16 @@ const SESSIONS_STYLE = `
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
   .menu-hint { padding: 8px; opacity: .7; }
+  /* 自实现悬停提示：fixed 定位挂在 body 上，不随 .sessions-list 滚动裁剪。 */
+  .dsh-tooltip {
+    position: fixed; z-index: 40; pointer-events: none;
+    padding: 3px 8px; border-radius: 6px; font-size: 11px; line-height: 16px;
+    white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+    background: var(--vscode-menu-background, var(--vscode-dropdown-background));
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
+    box-shadow: 0 2px 8px rgba(0,0,0,.2);
+  }
 `
 
 function sessionsHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
