@@ -22,3 +22,5 @@ dsh-one 的会话创建以 workspace 为起点：先选工作区，再在某个�
 - `src/ui/chatView.ts` / `src/pure/chatContract.ts`（会话创建/附着链路）
 - `src/pure/sessionTree.ts`（未分组逻辑）
 - 2026-09-01 评审确认：做（用户标注）
+
+- 2026-09-01 认领 → doing（并行开发 session）

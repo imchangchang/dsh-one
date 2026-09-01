@@ -26,3 +26,5 @@
 ## 备注
 
 - 只覆盖 manifest 层；运行时/宿主文案走 `i18n-runtime`，webview 走 `i18n-webview`。
+
+- 2026-09-01 认领 → doing（并行开发 session）

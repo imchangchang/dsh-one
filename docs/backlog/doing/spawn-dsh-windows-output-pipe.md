@@ -30,3 +30,5 @@ Windows 上 `spawn(dshCommand, args, {detached: true, shell: true, windowsHide: 
 ## 变更记录
 
 - 2026-09-01 记录 → open
+
+- 2026-09-01 认领 → doing（并行开发 session）

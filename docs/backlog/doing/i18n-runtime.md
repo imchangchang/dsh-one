@@ -25,3 +25,5 @@
 ## 备注
 
 - webview 里无法直接调 `vscode.l10n`（独立浏览器上下文），那条走 `i18n-webview`。
+
+- 2026-09-01 认领 → doing（并行开发 session）

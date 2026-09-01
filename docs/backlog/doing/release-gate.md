@@ -30,3 +30,5 @@
 - `docs/release-checklist.md`（新增）
 - 复用 `docs/development.md` 的发版流程与人工点验清单（并入/替换）
 - `package.json`、`CHANGELOG.md`（发布时更新）
+
+- 2026-09-01 认领 → doing（并行开发 session）

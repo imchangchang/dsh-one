@@ -24,3 +24,5 @@
 - `CHANGELOG.md`（[Unreleased] 收口）
 - `scripts/release-gate.sh`（如做，见 `release-gate.md`）
 - `docs/development.md`（发版流程）
+
+- 2026-09-01 认领 → doing（并行开发 session）

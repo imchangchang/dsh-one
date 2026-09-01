@@ -18,3 +18,5 @@
 ## 涉及代码位置
 
 - `docs/development.md`（发版流程第一节）
+
+- 2026-09-01 认领 → doing（并行开发 session）

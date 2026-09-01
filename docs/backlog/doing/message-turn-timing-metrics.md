@@ -17,3 +17,5 @@ dsh-one `renderAssistantActions`（webview.ts:2490）只有 copy/👍/👎/分�
 
 - 2026-09-01 记录 → open
 - 2026-09-01 评审确认：做（用户标注）
+
+- 2026-09-01 认领 → doing（并行开发 session）
