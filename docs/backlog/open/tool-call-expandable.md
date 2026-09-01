@@ -13,7 +13,9 @@ dsh web 的工具调用卡可以展开，显示 IN（输入参数 JSON）和 OUT
 
 ## 方案
 
-工具卡加展开能力（chevron / 点击展开），展开显示 IN（输入 args JSON）+ OUT（输出 result）。数据：conversation.ts 折叠 tool/call 时若已带 args/result 则直接用，否则需补充进 ChatToolBlock。对齐 dsh web 的展开形态。
+工具卡加展开能力（chevron / 点击展开），展开显示 IN（输入 args JSON）+ OUT（输出 result），对齐 dsh web 的展开形态（DisclosureRow：整行可点、折叠态保留摘要、展开出 IN/OUT 卡片、150px 内滚动、尾部 Inspect 按钮）。
+
+**数据已确认可用**：`conversation.ts` `applyToolCall` 折叠 `tool/call` 时 `data.arguments` 就在手里（现已用于 todo_write 的 planSummary），只需把它存进 `ChatToolBlock`（chatContract.ts 加字段）；输出 result 已有。无需 host 侧改动。
 
 ## 涉及代码位置
 
