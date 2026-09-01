@@ -90,8 +90,6 @@ let sessionsSearchDraft = ''
 let searchDebounce: ReturnType<typeof setTimeout> | null = null
 /** 当前附着/高亮会话 id（快照的 activeSessionId），驱动 active/has-active。 */
 let currentSessionId: string | null = null
-/** 刷新按钮正在转圈（跨面板重建保留，避免 render 重建把动画切掉）。 */
-let refreshing = false
 
 const sessionsPanel = el('aside', 'sessions-panel')
 app.appendChild(sessionsPanel)
@@ -346,19 +344,18 @@ function openSortMenu(anchor: HTMLElement): void {
 }
 
 /* ---- 面板渲染 ---- */
-function renderSessions(): void {
-  const snap = sessionsSnapshot
-  const oldSearch = sessionsPanel.querySelector<HTMLInputElement>('.sessions-search')
-  const searchFocused = oldSearch !== null && document.activeElement === oldSearch
-  const searchSel = searchFocused && oldSearch ? { start: oldSearch.selectionStart, end: oldSearch.selectionEnd } : null
-  sessionsPanel.textContent = ''
-  if (popover) {
-    if (popoverAnchor === null) {
-      // 坐标定位：不关闭、不 reposition。
-    } else if (popoverAnchor.isConnected) positionPopover()
-    else closePopover()
-  }
+let sessionsHeaderEl: HTMLElement | null = null
+let collapseAllBtn: HTMLButtonElement | null = null
 
+/** 「折叠所有」按钮当前应显示的状态（搜索态恒为 false，即「折叠所有工作区」）。 */
+function computeAllCollapsed(snap: SessionsSnapshot | null): boolean {
+  if (!snap || (snap.query != null && snap.query !== '')) return false
+  const expandable = snap.workspaces.filter((w) => w.sessions.length > 0)
+  return expandable.length > 0 && expandable.every((w) => snap.collapsed.includes(w.workspaceId))
+}
+
+/** header（含搜索框）只建一次：搜索框 DOM 永不销毁，IME 输入不受快照重建打断。 */
+function buildSessionsHeader(): HTMLElement {
   const header = el('div', 'sessions-header')
   const search = document.createElement('input')
   search.className = 'sessions-search'
@@ -379,39 +376,21 @@ function renderSessions(): void {
   sortBtn.addEventListener('click', () => openSortMenu(sortBtn))
   header.appendChild(sortBtn)
   const refreshBtn = panelTool(iconSvg(PANEL_ICONS.refresh, 12), '刷新会话列表')
-  // 刷新视觉反馈：点击立即转圈 + 禁用，直至 ~450ms 后复位（跨重建用 refreshing 标志）。
-  if (refreshing) {
-    refreshBtn.classList.add('refreshing')
-    refreshBtn.disabled = true
-  }
+  // 刷新视觉反馈：点击立即转圈 + 禁用，直至 ~450ms 后复位（header 持久，同一 DOM 节点）。
   refreshBtn.addEventListener('click', () => {
-    refreshing = true
     refreshBtn.classList.add('refreshing')
     refreshBtn.disabled = true
     post({ type: 'sessionsRefresh' })
     window.setTimeout(() => {
-      refreshing = false
-      const btn = sessionsPanel.querySelector<HTMLButtonElement>('.sessions-tool.refreshing')
-      if (btn) {
-        btn.classList.remove('refreshing')
-        btn.disabled = false
-      }
+      refreshBtn.classList.remove('refreshing')
+      refreshBtn.disabled = false
     }, 450)
   })
   header.appendChild(refreshBtn)
-  // 搜索态：命中组强制展开（忽略折叠状态），因此「折叠所有」按钮按展示态
-  // 恒为「折叠所有工作区」；清空搜索后回到原折叠判断。
-  const inSearch = snap?.query != null && snap.query !== ''
-  const expandable = snap?.workspaces.filter((w) => w.sessions.length > 0) ?? []
-  const allCollapsed =
-    !inSearch && expandable.length > 0 && expandable.every((w) => snap?.collapsed.includes(w.workspaceId) ?? false)
-  const collapseAllBtn = panelTool(
-    iconSvg(allCollapsed ? PANEL_ICONS.boxedPlus : PANEL_ICONS.boxedMinus),
-    allCollapsed ? '展开所有工作区' : '折叠所有工作区',
-  )
-  collapseAllBtn.addEventListener('click', () =>
-    post({ type: allCollapsed ? 'workspacesExpandAll' : 'workspacesCollapseAll' }),
-  )
+  collapseAllBtn = panelTool(iconSvg(PANEL_ICONS.boxedMinus, 16), '折叠所有工作区')
+  collapseAllBtn.addEventListener('click', () => {
+    post({ type: computeAllCollapsed(sessionsSnapshot) ? 'workspacesExpandAll' : 'workspacesCollapseAll' })
+  })
   header.appendChild(collapseAllBtn)
   const addBtn = panelTool(iconSvg(PANEL_ICONS.plus, 14), '添加工作区')
   addBtn.addEventListener('click', () => {
@@ -437,8 +416,37 @@ function renderSessions(): void {
     showPopover(addBtn, body, 'below')
   })
   header.appendChild(addBtn)
-  sessionsPanel.appendChild(header)
+  return header
+}
 
+/** 折叠全部按钮图标/title 随当前态更新（header 不重建时唯一需要动态更新的部分）。 */
+function updateCollapseAllIcon(): void {
+  if (!collapseAllBtn) return
+  const allCollapsed = computeAllCollapsed(sessionsSnapshot)
+  const tip = allCollapsed ? '展开所有工作区' : '折叠所有工作区'
+  collapseAllBtn.replaceChildren(iconSvg(allCollapsed ? PANEL_ICONS.boxedPlus : PANEL_ICONS.boxedMinus, 16))
+  collapseAllBtn.setAttribute('data-tip', tip)
+  collapseAllBtn.setAttribute('aria-label', tip)
+}
+
+function renderSessions(): void {
+  const snap = sessionsSnapshot
+  // 坐标定位的右键菜单锚在会话行上，列表重建会销毁锚 → 关闭；其余锚（如
+  // header 排序/添加按钮）已持久，保持原样（header 不重建）。
+  if (popover) {
+    if (popoverAnchor === null) {
+      // 坐标定位：不关闭、不 reposition。
+    } else if (popoverAnchor.isConnected) positionPopover()
+    else closePopover()
+  }
+  // header 只建一次（含搜索框），之后只更新折叠全部按钮；列表每次重建。
+  if (!sessionsHeaderEl) {
+    sessionsHeaderEl = buildSessionsHeader()
+    sessionsPanel.appendChild(sessionsHeaderEl)
+  }
+  updateCollapseAllIcon()
+  const oldList = sessionsPanel.querySelector<HTMLElement>('.sessions-list')
+  oldList?.remove()
   const list = el('div', 'sessions-list')
   if (!snap) {
     list.appendChild(el('div', 'sessions-empty', '加载中…'))
@@ -456,11 +464,6 @@ function renderSessions(): void {
     }
   }
   sessionsPanel.appendChild(list)
-
-  if (searchFocused) {
-    search.focus()
-    if (searchSel) search.setSelectionRange(searchSel.start, searchSel.end)
-  }
 }
 
 /** 服务未运行时的面板空态：安装引导（dshNotFound）或启动按钮。 */
