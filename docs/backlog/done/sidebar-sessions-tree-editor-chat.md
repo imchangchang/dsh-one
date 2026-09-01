@@ -90,3 +90,5 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - 2026-09-01 开发完成（doing → done）：workspace 组名右侧加状态计数角标（待交互黄点/运行中像素环/未读绿点，固定顺序、各自独立、有则显示，折叠/未分组均适用）。
 - 2026-09-01 验收打回（done → doing）：角标计数改为互斥（每会话按待交互>运行中>未读优先级只计一个，避免重复）；角标紧跟标题、不右对齐。
 - 2026-09-01 开发完成（doing → done）：角标计数互斥（待交互>运行中>未读，只入一桶）；角标用 .workspace-label-group 紧跟标题（组 flex:1、badge 右对齐），省略号行为不变。
+- 2026-09-01 验收打回（done → doing）：点击 chat 头部「N 个子代理」名称与 @ 会话引用 chip 无法进入子代理会话——拆分时 chatView.onMessage 的 sessionOpen 处理丢失，补回；顺带核对其他被丢的 case。
+- 2026-09-01 开发完成（doing → done）：chatView.onMessage 补回 sessionOpen → openSession；对照 FromWebviewMessage 全部成员，仅 sessionOpen 被丢（其余均已处理）。
