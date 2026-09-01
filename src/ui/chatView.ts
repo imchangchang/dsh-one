@@ -723,7 +723,13 @@ const STYLE = `
     text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
   }
   .produced-file:hover { color: var(--vscode-foreground, #ccc); text-decoration: underline; }
-  .produced-more { flex: none; white-space: nowrap; color: var(--vscode-descriptionForeground, #888); }
+  /* 「+N 个文件」是 toggle 按钮（展开/收起），压掉全局 button 的实底背景 */
+  .produced-more {
+    flex: none; margin: 0; padding: 0 4px; white-space: nowrap;
+    border: none; border-radius: 4px; background: transparent;
+    color: var(--vscode-descriptionForeground, #888); font: inherit; cursor: pointer;
+  }
+  .produced-more:hover { color: var(--vscode-descriptionForeground, #bbb); text-decoration: underline; }
   /* Pending 接管面板（approval/question/plan-review 挂 composer 区，对齐 dsh
      web QuestionFlow / PlanReviewPanel）：容器占输入区位置，一个 pending 一块。 */
   .pending-panel {
