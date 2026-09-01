@@ -35,3 +35,4 @@ pending 问题卡无任何 keep/恢复逻辑，焦点随元素替换丢失。
 - 2026-09-02 核实并定位根因（浏览器实测复现），未改代码。
 - 2026-09-02 认领（worktree：question-card-input-focus），开始修复。
 - 2026-09-02 开发完成（worktree 7f94bf5）：pending 区接入保活策略，流式快照不重建焦点内的问题卡；单选点击改就地更新高亮。typecheck + 226 tests 全绿，harness + WebBridge 实测焦点保持。→ done
+- 2026-09-02 主线合入（merge 50011e7）：typecheck + 231 tests 全绿，harness 抽查焦点保活通过（sameEl/focus/draft 均正常）。→ closed
