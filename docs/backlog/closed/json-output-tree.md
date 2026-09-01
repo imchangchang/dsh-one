@@ -59,3 +59,5 @@ JSON 输出（工具输出等）用 JsonTree 逐节点展开：检测输出为 J
   落回 codeBlockPreview；工具输出 renderJsonOrText/renderToolOutput 同样接阈值。+2 单测。
   scenarios 加 json-message-over（305 行→code block）/ json-message-under（297 行→仍树）。
   自测 typecheck/test/build 全绿（245 测试）。
+
+- 2026-09-01 主线合入测试通过（merge 258adf5），人工验收通过（树/阈值/复制/围栏/回归）→ closed
