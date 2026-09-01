@@ -12,6 +12,17 @@ dsh-one 默认把面板放在主侧边栏（activitybar），用户痛点：面�
 - `viewsContainers` 官方只支持 `activitybar` / `panel`，**不支持 secondary sidebar**；也**没有公开命令/API**让扩展把自己的 view 运行时搬去 secondary sidebar（源码 `moveViewContainerToLocation` 是内部服务）。所以「默认放右侧 secondary sidebar」不可由扩展实现，只能用户手动拖——治不了窄/无全屏。
 - dsh-one 另有一个 `dshOne.openInTab`（`src/ui/webview.ts` 的 `createWebviewPanel`），是**编辑区标签页**的 dsh web iframe（另一块表面，非原生 chat）。
 
+## 调研：候选表面与参考方案（据此确定选方案 B）
+
+平台约束使「默认放右侧 secondary sidebar」不可行，候选表面对比：
+
+- **A. Secondary Sidebar（手动拖）**：右侧停靠；侧栏宽（可拉，挤编辑区）；无全屏；不能默认（仅用户拖一次、按 profile 记住）。→ 只解决靠右，**治不了窄/无全屏**。
+- **B. Editor WebviewPanel** ← 采用：编辑区（可拖成右侧一列）；真宽可调；可近全屏（`Ctrl+B` 隐侧栏 + `Ctrl+J` 隐面板，或 Zen 模式）；默认可控（`ViewColumn.Beside`）。→ 三点全治。
+- **C. 底部 Panel（挪右侧）**：`viewsContainers.panel` + 全局设置 `workbench.panel.defaultLocation: right`；面板全宽、可最大化；容器可默认注册到 panel，但「右侧」是全局设置。→ 宽+全屏，但不像「右侧聊天栏」观感。
+- **D. 现状 activitybar**：左侧；窄；无全屏；默认是。→ 就是不满的那套。
+
+**参考方案**：Cline / Roo Code / Continue / Windsurf 等 AI 插件通用做法 = 主力界面放编辑区（可拖去右列、可全屏），侧栏只留精简入口供切换。dsh-one 现在的分工是反的（主力 native chat 在侧栏，编辑区只有 dsh web iframe）。
+
 ## 方案（用户已确认）
 
 把合并的 webview 拆成两块，走「侧栏导航 + 编辑区内容」结构：
