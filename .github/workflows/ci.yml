@@ -82,40 +82,14 @@ jobs:
             fi
             exit 1
           fi
-      # 临时诊断（spawn-dsh-windows-output-pipe 第一轮）：一次对比多个 spawn 组合，
-      # 定位 detached + 包装方式对输出链的影响；数据拿到后本步骤删除。
+      # 临时诊断（spawn-dsh-windows-output-pipe 第二轮）：验证 detached 下
+      # cmd 内部重定向能否落盘、detached 是否断一切 stdio 输出；数据拿到后
+      # 本步骤与 scripts/ci-win-spawn-diag.mjs 一起删除。
       # 放在冒烟之前：冒烟失败（exit 1）不会挡住诊断数据。
-      - name: 'Spawn combo diagnostics (temporary)'
+      - name: 'Spawn combo diagnostics round 2 (temporary)'
         if: runner.os == 'Windows'
         shell: bash
-        run: |
-          node -e '
-          const { spawn } = require("node:child_process");
-          const run = (label, cmd, args, opts) => new Promise((resolve) => {
-            const t0 = Date.now();
-            const c = spawn(cmd, args, { detached: true, windowsHide: true, stdio: ["ignore","pipe","pipe"], ...opts });
-            let out = "", err = "", settled = false;
-            const done = (tag) => {
-              if (settled) return; settled = true;
-              console.log(`[${label}] ${tag} code=${c.exitCode ?? "?"} elapsed=${Date.now()-t0}ms out="${out.trim()}" err="${err.trim()}"`);
-              try { c.kill(); } catch {}
-              resolve();
-            };
-            c.stdout.on("data", (d) => (out += d));
-            c.stderr.on("data", (d) => (err += d));
-            c.on("error", (e) => done("error=" + e.message));
-            c.on("exit", (code) => done("exit"));
-            setTimeout(() => done("timeout"), 8000);
-          });
-          (async () => {
-            await run("A_shell_true_detached", "dsh", ["--version"], { shell: true });
-            await run("B_cmd_explicit_noquote", "cmd.exe", ["/d","/s","/c","dsh --version"], {});
-            await run("C_cmd_explicit_quoted", "cmd.exe", ["/d","/s","/c","\"dsh --version\""], {});
-            await run("D_powershell_command", "powershell.exe", ["-NoProfile","-ExecutionPolicy","Bypass","-Command","dsh --version"], {});
-            await run("E_no_detach_shell", "dsh", ["--version"], { shell: true, detached: false });
-            console.log("DIAG_DONE");
-          })();
-          '
+        run: node scripts/ci-win-spawn-diag.mjs
       - name: 'Spawn dsh smoke (windows: via spawnDsh.js)'
         if: runner.os == 'Windows'
         shell: pwsh
