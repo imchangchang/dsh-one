@@ -18,7 +18,7 @@ const ws = (
 
 const s = (
   sessionId: string,
-  opts: { updatedAt?: number; running?: boolean; blank?: boolean; parentSessionId?: string; title?: string | null } = {},
+  opts: { updatedAt?: number; running?: boolean; blank?: boolean; parentSessionId?: string; origin?: string; title?: string | null } = {},
 ): SessionInput => ({
   sessionId,
   updatedAt: opts.updatedAt ?? NOW,
@@ -26,6 +26,7 @@ const s = (
   blank: opts.blank ?? false,
   title: opts.title,
   ...(opts.parentSessionId ? { parentSessionId: opts.parentSessionId } : {}),
+  ...(opts.origin ? { origin: opts.origin } : {}),
 })
 
 const noTitles = () => null
@@ -331,13 +332,13 @@ test('pendingInteractions flag matching nodes only, absent without the option', 
 test('lineage children never appear as rows; a running one flags the parent descendantRunning', () => {
   const tree = buildSessionTree(
     [ws('w1', ['parent'])],
-    [s('parent'), s('child', { running: true, parentSessionId: 'parent' })],
+    [s('parent'), s('child', { running: true, parentSessionId: 'parent', origin: 'subagent' })],
     new Set(),
     noTitles,
     undefined,
     NOW,
   )
-  // 子代理行不进 workspace 组，也不进「未分组」组。
+  // 真子代理行不进 workspace 组，也不进「未分组」组。
   assert.equal(tree.length, 1)
   assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['parent'])
   assert.equal(tree[0].sessions[0].running, false)
@@ -350,9 +351,9 @@ test('descendantRunning is transitive and clears when all descendants are idle',
     [
       s('p1'),
       s('p2'),
-      s('child', { parentSessionId: 'p1' }),
-      s('grandchild', { running: true, parentSessionId: 'child' }),
-      s('idle-child', { parentSessionId: 'p2' }),
+      s('child', { parentSessionId: 'p1', origin: 'subagent' }),
+      s('grandchild', { running: true, parentSessionId: 'child', origin: 'subagent' }),
+      s('idle-child', { parentSessionId: 'p2', origin: 'subagent' }),
     ],
     new Set(),
     noTitles,
@@ -362,6 +363,54 @@ test('descendantRunning is transitive and clears when all descendants are idle',
   // 孙子 running 也会沿血缘传导到 p1；p2 的子代理空闲则不标。
   assert.equal(tree[0].sessions.find((n) => n.sessionId === 'p1')?.descendantRunning, true)
   assert.equal(tree[0].sessions.find((n) => n.sessionId === 'p2')?.descendantRunning, false)
+})
+
+test('a plain fork (parentSessionId, no origin) appears as a row and does not busy-flag its parent', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['parent', 'fork'])],
+    [s('parent'), s('fork', { running: true, parentSessionId: 'parent' })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+  )
+  // fork 是普通会话行，出现在 workspace 组；父会话不被它标 descendantRunning。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['parent', 'fork'])
+  assert.equal(tree[0].sessions.find((n) => n.sessionId === 'parent')?.descendantRunning, false)
+  assert.equal(tree[0].sessions.find((n) => n.sessionId === 'fork')?.running, true)
+})
+
+test('a plain fork not referenced by any workspace lands in「未分组」', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['parent'])],
+    [s('parent'), s('fork', { parentSessionId: 'parent', updatedAt: NOW - 1000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+  )
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', UNGROUPED_WORKSPACE_ID])
+  assert.deepEqual(tree[1].sessions.map((n) => n.sessionId), ['fork'])
+})
+
+test('buildSubagentTree excludes a plain fork and only counts real subagents', () => {
+  const tree = buildSubagentTree(
+    [
+      s('root', { title: 'Root' }),
+      s('fork', { parentSessionId: 'root', title: 'Fork 会话', updatedAt: NOW - 1000 }),
+      s('sub', { parentSessionId: 'root', title: '子代理', origin: 'subagent' }),
+    ],
+    'root',
+  )
+  // 只有真子代理入树；普通 fork 不计入顶层项（chip 计数与下拉行）。
+  assert.deepEqual(tree.map((n) => n.sessionId), ['sub'])
+
+  // 全部为 fork（无真子代理）时返回空，chip 不渲染。
+  const onlyFork = buildSubagentTree(
+    [s('root', { title: 'Root' }), s('fork', { parentSessionId: 'root', title: 'Fork' })],
+    'root',
+  )
+  assert.deepEqual(onlyFork, [])
 })
 
 test('formatRelativeTime covers every tier', () => {
@@ -381,10 +430,10 @@ test('buildSubagentTree nests lineage children under their parent, top-level is 
   const tree = buildSubagentTree(
     [
       s('root', { title: 'Root' }),
-      s('c1', { parentSessionId: 'root', running: true, title: 'Child 1' }),
-      s('c2', { parentSessionId: 'root', title: 'Child 2' }),
-      s('gc1', { parentSessionId: 'c1', title: 'Grandchild 1' }),
-      s('gc2', { parentSessionId: 'c1', running: true, title: 'Grandchild 2' }),
+      s('c1', { parentSessionId: 'root', running: true, title: 'Child 1', origin: 'subagent' }),
+      s('c2', { parentSessionId: 'root', title: 'Child 2', origin: 'subagent' }),
+      s('gc1', { parentSessionId: 'c1', title: 'Grandchild 1', origin: 'subagent' }),
+      s('gc2', { parentSessionId: 'c1', running: true, title: 'Grandchild 2', origin: 'subagent' }),
     ],
     'root',
   )
@@ -405,9 +454,9 @@ test('buildSubagentTree orders each layer running-first then newest-first', () =
   const tree = buildSubagentTree(
     [
       s('root', { title: 'Root' }),
-      s('idle-old', { parentSessionId: 'root', title: 'Idle Old', updatedAt: NOW - 10_000 }),
-      s('run-new', { parentSessionId: 'root', running: true, title: 'Run New', updatedAt: NOW }),
-      s('idle-new', { parentSessionId: 'root', title: 'Idle New', updatedAt: NOW }),
+      s('idle-old', { parentSessionId: 'root', title: 'Idle Old', updatedAt: NOW - 10_000, origin: 'subagent' }),
+      s('run-new', { parentSessionId: 'root', running: true, title: 'Run New', updatedAt: NOW, origin: 'subagent' }),
+      s('idle-new', { parentSessionId: 'root', title: 'Idle New', updatedAt: NOW, origin: 'subagent' }),
     ],
     'root',
   )
@@ -422,9 +471,9 @@ test('buildSubagentTree breaks lineage cycles via the seen set', () => {
   const tree = buildSubagentTree(
     [
       s('root', { title: 'Root' }),
-      s('c1', { parentSessionId: 'root', title: 'C1' }),
-      s('c2', { parentSessionId: 'c1', title: 'C2' }),
-      s('root', { parentSessionId: 'c2', title: 'Root back' }),
+      s('c1', { parentSessionId: 'root', title: 'C1', origin: 'subagent' }),
+      s('c2', { parentSessionId: 'c1', title: 'C2', origin: 'subagent' }),
+      s('root', { parentSessionId: 'c2', title: 'Root back', origin: 'subagent' }),
     ],
     'root',
   )
@@ -436,7 +485,7 @@ test('buildSubagentTree breaks lineage cycles via the seen set', () => {
 
 test('buildSubagentTree falls back to a short id title when title is null', () => {
   const tree = buildSubagentTree(
-    [s('root', { title: 'Root' }), s('abcdef12', { parentSessionId: 'root', title: null })],
+    [s('root', { title: 'Root' }), s('abcdef12', { parentSessionId: 'root', title: null, origin: 'subagent' })],
     'root',
   )
   assert.equal(tree[0].title, '会话 abcdef12')
