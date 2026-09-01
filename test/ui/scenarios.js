@@ -229,6 +229,35 @@
       expect: 'footer 模型 pill 可点开下拉：DeepSeek 组 → DeepSeek-V4-Flash → High/Low 档位，当前为 high。',
     },
 
+    // 切换模型后 contextBar 立即反映新模型窗口（回归点：不等下一条消息）。
+    // 从 1M 切到 256K 后、未发消息前，窗口应立刻是 256K 而不是旧 1M。
+    'context-switch-smaller-window': {
+      state: base({
+        contextUsage: { percent: 96, usedTokens: 245_000, contextWindow: 256_000, turns: 3 },
+      }),
+      title: 'contextBar：切到更小窗口模型后立即重算',
+      expect: '右下角 contextBar 立即显示新窗口：点击可见「上下文已用 96%（~245K / 256K）」，条形按剩余轮数分级变色（245K 已很接近 256K，应为危险/警示色而非绿色）；bar 不显示旧 1M 窗口。',
+    },
+
+    'context-switch-overflow': {
+      state: base({
+        contextUsage: { percent: 100, usedTokens: 260_000, contextWindow: 256_000, turns: undefined },
+      }),
+      interact: `document.querySelector('.context-bar')?.click()`,
+      title: 'contextBar：切换后已用量超新窗口（overflow）',
+      expect: '点击 contextBar 弹出面板：头部「上下文已用 100%（~260K / 256K）」；面板内出现一行红色提示「上下文已超出当前模型窗口：建议先切回之前的模型执行 /compact 压缩，再切换模型。」；bar 为红色（level-overflow），title 含「已超出当前模型窗口」。',
+    },
+
+    'context-switch-window-unknown': {
+      state: base({
+        // 切到「本进程从未观察过窗口」的模型（映射无记录）：明确占位，不沿用旧窗口。
+        contextUsage: { windowUnknown: true, usedTokens: 245_000 },
+      }),
+      interact: `document.querySelector('.context-bar')?.click()`,
+      title: 'contextBar：切换后窗口未知（占位）',
+      expect: '右下角 contextBar 显示灰字占位「窗口未知」（而非旧 1M 窗口的占用比例）；悬停 title 为说明（该模型尚未产生上下文数据、发送下一条消息后显示）；点击占位弹出面板：头部「窗口用量未知」+「已用 ~245K」+ 说明行（中性灰，非红色错误）。',
+    },
+
     // ================= 侧栏 sessions 面板（拆分后独立 webview） =================
 
     sessions: {

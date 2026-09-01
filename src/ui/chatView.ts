@@ -831,9 +831,12 @@ const STYLE = `
     font-family: var(--vscode-editor-font-family, monospace); font-size: 12px;
   }
   .command-row.error .command-body { color: var(--vscode-errorForeground, #f66); opacity: 1; }
-  .context-bar { flex: none; width: 72px; padding: 4px 2px; border: 0; background: none; cursor: pointer; }
+  .context-bar {
+    flex: none; width: 72px; height: 14px; padding: 0 2px; border: 0; background: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
   .context-bar-track {
-    display: block; height: 6px; border-radius: 3px; overflow: hidden;
+    display: block; width: 100%; height: 6px; border-radius: 3px; overflow: hidden;
     border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.55));
     background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
     box-sizing: border-box;
@@ -841,6 +844,11 @@ const STYLE = `
   .context-bar-fill {
     display: block; height: 100%; min-width: 2px; border-radius: 2px;
     background: var(--vscode-progressBar-background, var(--vscode-button-background));
+    transition: width .18s ease, background-color .18s ease;
+  }
+  /* 切换模型后窗口未知：灰字占位（明确是非误报的未知状态），高度与正常 bar 一致防跳变。 */
+  .context-bar.level-unknown {
+    font-size: 10px; line-height: 14px; color: var(--vscode-descriptionForeground, #888); white-space: nowrap;
   }
   /* 余量分级变色（src/pure/contextMeter.ts）：充足显式绿，<10 轮黄，<5 轮/超窗口红。 */
   .context-bar.level-ok .context-bar-fill { background: var(--vscode-testing-iconPassed, #73c991); }
@@ -852,6 +860,11 @@ const STYLE = `
   .context-panel .cp-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .context-panel .cp-percent { font-weight: 600; }
   .context-panel .cp-figures { font-variant-numeric: tabular-nums; opacity: .95; flex: none; }
+  /* 「窗口未知」面板说明行：中性灰（非错误红），与占位一致。 */
+  .context-panel .cp-unknown {
+    margin-top: 8px; font-size: 12px; line-height: 1.5;
+    color: var(--vscode-descriptionForeground, #888);
+  }
   .context-panel .cp-bar {
     display: flex; gap: 1px; height: 6px; margin: 10px 0 8px; border-radius: 3px;
     border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.55));
@@ -1567,6 +1580,9 @@ export class ChatViewProvider implements vscode.Disposable {
   ): Promise<void> {
     try {
       await selectModel(controller.url, controller.sessionId, selection)
+      // 切模型后立即重算 contextBar 的窗口：用新模型窗口覆写 contextPressure，
+      // 不等下一条消息（否则会停留在旧模型窗口直到发消息）。
+      controller.applyModelSwitch(selection)
       await controller.refreshModels()
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)

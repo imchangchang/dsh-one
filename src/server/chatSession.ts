@@ -6,6 +6,7 @@ import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../p
 import { WorkflowRunFolder } from '../pure/workflowRun.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
 import type { SessionStatsLike } from '../pure/sessionStats.ts'
+import { contextUsageUnknown, pressureWithContextWindow } from '../pure/contextMeter.ts'
 import { subscribeMuxEvents } from './muxEvents.ts'
 import type { MuxFrame } from './muxEvents.ts'
 import {
@@ -22,7 +23,7 @@ import {
   sessionModels,
   updateQueue,
 } from './dshRpc.ts'
-import type { ImageLimits, SessionModels } from './dshRpc.ts'
+import type { ImageLimits, SessionModelSelection, SessionModels } from './dshRpc.ts'
 import { agentPresetDescription, agentPresetLabel, defaultAgentPresetId, resolveAgentPresets } from '../pure/agentPreset.ts'
 import type { AgentPresetOption } from '../pure/agentPreset.ts'
 import { extendWindowCursor, pageMeetsWindow, windowCursorOf } from '../pure/historyWindow.ts'
@@ -189,6 +190,42 @@ function asContextPressure(value: unknown): ContextPressureLike | null {
   return value as ContextPressureLike
 }
 
+/**
+ * 进程级 `provider/model → contextWindow` 学习映射。窗口的唯一可靠来源是
+ * 会话历史/实时流里的 `request/context` 事件（data = { provider, model,
+ * contextWindow }）；host 的 `session.models` 目录与 `selectModel` 响应都不带
+ * context，客户端无 RPC 可查。selectModel 成功后用它把
+ * `contextPressure.contextWindow` 覆写为新模型窗口，contextBar 立即可见。
+ */
+const MODEL_CONTEXT_WINDOW = new Map<string, number>()
+function modelContextWindowKey(provider: string, model: string): string {
+  return `${provider}/${model}`
+}
+interface LearnedModelContext {
+  key: string
+  contextWindow: number
+}
+/** 从一条 session 事件里学习窗口；非 request/context 或字段缺失时返回 undefined。 */
+function learnModelContextWindow(event: SessionEventLike): LearnedModelContext | undefined {
+  if (event.type !== 'request/context') return undefined
+  const data = (event.data ?? {}) as Record<string, unknown>
+  const provider = data.provider
+  const model = data.model
+  const contextWindow = data.contextWindow
+  if (
+    typeof provider !== 'string' ||
+    typeof model !== 'string' ||
+    typeof contextWindow !== 'number' ||
+    !Number.isFinite(contextWindow) ||
+    contextWindow <= 0
+  ) {
+    return undefined
+  }
+  const key = modelContextWindowKey(provider, model)
+  MODEL_CONTEXT_WINDOW.set(key, contextWindow)
+  return { key, contextWindow }
+}
+
 /** Narrow an unknown projection value to ContextBreakdownLike; null when malformed. */
 function asContextBreakdown(value: unknown): ContextBreakdownLike | null {
   if (!value || typeof value !== 'object') return null
@@ -210,8 +247,11 @@ function contextUsageOf(
   pressure: ContextPressureLike | undefined,
   breakdown: ContextBreakdownLike | undefined,
   turns: number | undefined,
+  windowUnknown: boolean,
 ): ChatState['contextUsage'] {
   const used = pressure?.projectedTokens ?? pressure?.pressureTokens
+  // 切到从未观察过窗口的模型：无诚实比例可给，显示「窗口未知」占位。
+  if (windowUnknown) return used === undefined ? { windowUnknown: true } : { windowUnknown: true, usedTokens: used }
   if (used === undefined || pressure?.contextWindow === undefined) return undefined
   return {
     percent: Math.min(100, Math.round((used / pressure.contextWindow) * 100)),
@@ -269,6 +309,13 @@ export class ChatSessionController implements vscode.Disposable {
   private pressureSeq = -1
   private contextBreakdown: ContextBreakdownLike | undefined
   private breakdownSeq = -1
+  /**
+   * 当前所选模型（provider/model），applyModelSwitch 设置。用于判断观察到的
+   * request/context 是否属于当前模型、是否该从「窗口未知」占位恢复。
+   */
+  private selectedModelKey: string | undefined
+  /** 当前模型的窗口是否未观察到（切到映射无记录的模型时的占位态）。 */
+  private windowUnknown = false
   /** Task list from the `todos` projection (last-wins 整表、turn/start 置 null). */
   private todos: ChatTodoItem[] | undefined
   private todosSeq = -1
@@ -332,7 +379,7 @@ export class ChatSessionController implements vscode.Disposable {
       permissions: this.permissions,
       statsLine: this.statsLine,
       todos: this.todos,
-      contextUsage: contextUsageOf(this.contextPressure, this.contextBreakdown, this.statsTurns),
+      contextUsage: contextUsageOf(this.contextPressure, this.contextBreakdown, this.statsTurns, this.windowUnknown),
       // 只透给空会话：turn 一开跑 host 就锁定 preset（agent-preset-locked）。
       ...(!this.turnStarted && this.agentPresetOptions.length > 0 && this.agentPresetCurrent
         ? { agentPreset: { options: this.agentPresetOptions, current: this.agentPresetCurrent } }
@@ -363,6 +410,44 @@ export class ChatSessionController implements vscode.Disposable {
     const models = await sessionModels(this.url, this.sessionId)
     if (this.disposed) return
     this.modelLabel = modelLabelOf(models)
+    this.push(true)
+  }
+
+  /**
+   * 切换模型成功后调用：立即用新模型窗口覆写 `contextPressure.contextWindow`，
+   * 让 contextBar 立刻重算（不再滞留在旧模型窗口直到下一条消息）。窗口取自
+   * 进程级 `request/context` 学习映射；映射里没有（目标模型从未被观察过）时
+   * 进入「窗口未知」占位（contextBar 明示未知，不再用旧窗口误导）。超限显示走
+   * 现有 `meterLevel` 的 overflow 分支，无需另造 UI。
+   */
+  applyModelSwitch(selection: SessionModelSelection): void {
+    if (this.disposed) return
+    const key = modelContextWindowKey(selection.provider, selection.model)
+    this.selectedModelKey = key
+    const contextWindow = MODEL_CONTEXT_WINDOW.get(key)
+    if (contextWindow === undefined) {
+      // 映射无记录：明确标为未知占位，不沿用旧窗口。
+      this.windowUnknown = true
+      this.push(true)
+      return
+    }
+    this.windowUnknown = false
+    if (!this.contextPressure || this.contextPressure.contextWindow === contextWindow) return
+    this.contextPressure = pressureWithContextWindow(this.contextPressure, contextWindow)
+    this.push(true)
+  }
+
+  /**
+   * 观察一条 session 事件：若是 `request/context` 就记入进程级窗口映射；当前
+   * 正处在「窗口未知」占位且这条正是当前所选模型的窗口时，立即恢复为正常显示
+   * （用新窗口覆写 `contextPressure`，避免在占位与实际比例之间短暂闪旧值）。
+   */
+  private observeRequestContext(event: SessionEventLike): void {
+    const learned = learnModelContextWindow(event)
+    if (learned === undefined) return
+    if (!this.windowUnknown || this.selectedModelKey === undefined || learned.key !== this.selectedModelKey) return
+    this.windowUnknown = false
+    if (this.contextPressure) this.contextPressure = pressureWithContextWindow(this.contextPressure, learned.contextWindow)
     this.push(true)
   }
 
@@ -535,6 +620,8 @@ export class ChatSessionController implements vscode.Disposable {
     // Preset picker 的两个判定都来自会话日志：任何 turn/start = 已启动
     // （preset 锁定），最后一条 agent-preset/selected = 当前 preset。
     for (const entry of events) this.foldPresetMarkers(entry.event)
+    // 学习模型→窗口映射：历史里的 request/context 事件是客户端唯一可靠窗口来源。
+    for (const entry of events) this.observeRequestContext(entry.event)
     // 窗口可能把全部 turn/start 切到界外（turn 跨页）：窗口里已有对话内容
     // （user/assistant 消息）同样说明会话早已开跑，preset 已锁定。
     if (this.folder.messages().some((m) => m.kind === 'user' || m.kind === 'assistant')) this.turnStarted = true
@@ -638,6 +725,7 @@ export class ChatSessionController implements vscode.Disposable {
     this.pendingLiveEvents = []
     for (const { event, view } of buffered) {
       this.foldPresetMarkers(event)
+      this.observeRequestContext(event)
       this.workflowRuns.applyEvent(event)
       this.folder.applyEvent(event, view)
     }
@@ -783,6 +871,7 @@ export class ChatSessionController implements vscode.Disposable {
         // workflow 运行卡片（workflowChanged），同样触发补推。
         const presetAffecting = event.type === 'turn/start' || event.type === 'agent-preset/selected'
         this.foldPresetMarkers(event)
+        this.observeRequestContext(event)
         const workflowChanged = this.workflowRuns.applyEvent(event)
         // Chunk deltas stream-throttle; every other event is structural.
         if (this.folder.applyEvent(event, view) || presetAffecting || workflowChanged) this.push(event.type !== 'assistant/chunk')
