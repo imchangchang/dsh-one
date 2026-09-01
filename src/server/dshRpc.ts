@@ -124,6 +124,38 @@ export async function listSessions(baseUrl: string): Promise<SessionSummary[]> {
   return value.items
 }
 
+/**
+ * Loose mirror of one `subagent.list` durable direct-child catalog row
+ * (apiproxy subagents.d.ts SubagentListEntry). `label` is required for
+ * continuable children, optional for one-shot; diagnostic rows carry no label.
+ */
+export interface SubagentListEntry {
+  kind: 'child' | 'diagnostic'
+  /** SessionId of the child subagent（diagnostic 行也带，便于 UI 定位）。 */
+  id: string
+  activity?: 'running' | 'inactive'
+  hasChildren?: boolean
+  mode?: 'one-shot' | 'continuable'
+  label?: string
+  reason?: 'corrupt' | 'unsupported' | 'unavailable'
+}
+
+/** Loose mirror of SubagentCatalog (apiproxy subagents.d.ts). */
+export interface SubagentCatalog {
+  entries: SubagentListEntry[]
+  parentAvailable: boolean
+}
+
+/**
+ * List the direct-subagent catalog of one parent session (`subagent.list`).
+ * The host keeps this catalog durable — it is the source of the menu row label
+ * (`entry.label ?? entry.id`), unlike the async session title. `parentSessionId`
+ * is the parent; nested levels are fetched per parent by the caller.
+ */
+export async function listSubagents(baseUrl: string, parentSessionId: string): Promise<SubagentCatalog> {
+  return callRpc<SubagentCatalog>(baseUrl, 'subagent.list', { parentSessionId })
+}
+
 /** Create a fresh (blank) session under `workspaceId`; returns its id. */
 export async function createSession(baseUrl: string, workspaceId: string): Promise<string> {
   const value = await callRpc<{ sessionId: string }>(baseUrl, 'session.create', { workspaceId })
