@@ -57,43 +57,89 @@
     ...over,
   })
 
+  // 每个场景 = { state, title, expect }：
+  //   state  — ChatState/SessionsSnapshot（渲染输入，见 harness.html）
+  //   title  — 显示名（给 agent / 人看）
+  //   expect — 该状态应该呈现的逻辑与排版（agent 读截图后逐条对照核对，非像素 diff）
   const catalog = {
-    // 正常对话
-    conversation: { state: base() },
+    conversation: {
+      state: base(),
+      title: '正常对话',
+      expect: '会话面板列出会话；主区显示用户消息（右侧）+ 助手回复，含 markdown 加粗、一条折叠工具卡、「复制/反馈/分叉」操作栏；底部 composer + 模型 pill + 会话统计。',
+    },
 
-    // 空会话 hero：选 preset + workspace chip（sessionId 为 null）
-    empty: { state: base({ sessionId: null, sessionTitle: undefined, messages: [], canSend: false, presetLabel: undefined, workspaceLabel: 'dsh-one', agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' } }) },
+    empty: {
+      state: base({ sessionId: null, sessionTitle: undefined, messages: [], canSend: false, presetLabel: undefined, workspaceLabel: 'dsh-one', agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' } }),
+      title: '空会话 hero',
+      expect: '无历史消息；主区显示空会话 hero：preset 选择 chip（标准模式/深度思考）+ workspace chip（dsh-one）；composer 禁用或提示选 preset。',
+    },
 
-    // 服务起不来（找不到 dsh）→ 安装引导
-    'dsh-not-found': { state: base({ sessionId: null, sessionTitle: undefined, messages: [], canSend: false, presetLabel: undefined, serverError: 'dshNotFound', statsLine: undefined }) },
+    'dsh-not-found': {
+      state: base({ sessionId: null, sessionTitle: undefined, messages: [], canSend: false, presetLabel: undefined, serverError: 'dshNotFound', statsLine: undefined }),
+      title: '找不到 dsh（安装引导）',
+      expect: '主区居中显示「未检测到 dsh 安装」+ 说明文案 + 「查看安装指南」链接；无 composer；侧边栏会话列表正常。',
+    },
 
-    // 权限批准（approval）
-    approval: { state: base({ pending: [{ kind: 'approval', rpcId: 'rpc-1', sessionId: 'sess-1', approvalId: 'appr-1', toolName: 'bash', reason: '允许执行 npm test 吗？' }] }) },
+    approval: {
+      state: base({ pending: [{ kind: 'approval', rpcId: 'rpc-1', sessionId: 'sess-1', approvalId: 'appr-1', toolName: 'bash', reason: '允许执行 npm test 吗？' }] }),
+      title: '权限批准',
+      expect: '底部 pending 卡「权限请求：bash / 允许执行 npm test 吗？」+ 「允许一次/拒绝」两个按钮；历史消息保留。',
+    },
 
-    // 工具提问（question）
-    question: { state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }) },
+    question: {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
+      title: '工具提问',
+      expect: '底部 pending 卡显示问题「用哪种排序？」+ header + 单项选择（最新优先/最旧优先）+ 「其他（自定义回答，Enter 提交）」输入框。',
+    },
 
-    // 计划评审（plan-review）：单问 + detail + 选项≤2 + 其中一个命中 intent.approve
-    'plan-review': { state: base({ pending: [{ kind: 'question', rpcId: 'rpc-3', sessionId: 'sess-1', questions: [{ question: '批准这个方案吗？', detail: '### 方案\n把 sessionStore 改成 immutable，并拆分 reducer。', options: [{ label: '批准' }, { label: '拒绝' }], intent: { kind: 'plan-review', approve: '批准' } }] }] }) },
+    'plan-review': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-3', sessionId: 'sess-1', questions: [{ question: '批准这个方案吗？', detail: '### 方案\n把 sessionStore 改成 immutable，并拆分 reducer。', options: [{ label: '批准' }, { label: '拒绝' }], intent: { kind: 'plan-review', approve: '批准' } }] }] }),
+      title: '计划评审',
+      expect: '底部 pending 卡「批准这个方案吗？」+「▶ 查看详情」可展开 detail；两个选项，**批准**为主按钮（高亮）；另有自定义回答输入框。',
+    },
 
-    // todo 清单卡
-    todos: { state: base({ todos: [{ content: '梳理架构', status: 'completed' }, { content: '写测试', status: 'in_progress' }, { content: '发版', status: 'pending' }] }) },
+    todos: {
+      state: base({ todos: [{ content: '梳理架构', status: 'completed' }, { content: '写测试', status: 'in_progress' }, { content: '发版', status: 'pending' }] }),
+      title: 'todo 清单卡',
+      expect: 'composer 上方一条可折叠的「任务 N 已完成 · M 进行中 · K 待处理」摘要卡；内容含三个 todo 项及其状态。',
+    },
 
-    // 子代理下拉
-    subagents: { state: base({ subagents: [{ sessionId: 'sub-1', title: '子代理 A', running: true, updatedAt: Date.now(), children: [{ sessionId: 'sub-1-1', title: '孙代理', running: false, updatedAt: Date.now() }] }] }) },
+    subagents: {
+      state: base({ subagents: [{ sessionId: 'sub-1', title: '子代理 A', running: true, updatedAt: Date.now(), children: [{ sessionId: 'sub-1-1', title: '孙代理', running: false, updatedAt: Date.now() }] }] }),
+      title: '子代理下拉',
+      expect: '头部「N 个子代理」chip，点开下拉显示血缘树：子代理 A（运行态像素环）→ 孙代理（已完成灰点），层级缩进。',
+    },
 
-    // 有更早的历史 → 「加载更早」
-    history: { state: base({ hasEarlierHistory: true, loadingEarlier: false }) },
+    history: {
+      state: base({ hasEarlierHistory: true, loadingEarlier: false }),
+      title: '有更早历史',
+      expect: '消息列表顶部显示「加载更早」入口（有更多历史时）；点它触发 loadEarlier。',
+    },
 
-    // 模型选择器（点 footer 模型 pill 弹出）
-    'model-picker': { state: base(), modelCatalog: { current: { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'high' }, groups: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', efforts: [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }], defaultEffort: 'high' }] }] } },
+    'model-picker': {
+      state: base(),
+      modelCatalog: { current: { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'high' }, groups: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', efforts: [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }], defaultEffort: 'high' }] }] },
+      title: '模型选择器',
+      expect: 'footer 模型 pill 可点开下拉：DeepSeek 组 → DeepSeek-V4-Flash → High/Low 档位，当前为 high。',
+    },
 
-    // 侧边栏：附着另一个会话 + 搜索词
-    sessions: { state: base(), sessions: (() => { const s = window.sessionsTree('sess-2'); s.query = '重构'; s.sortOrder = 'title'; return s })() },
+    sessions: {
+      state: base(),
+      sessions: (() => { const s = window.sessionsTree('sess-2'); s.query = '重构'; s.sortOrder = 'title'; return s })(),
+      title: '侧边栏（搜索+排序+未读）',
+      expect: '侧边栏按标题排序、带搜索词「重构」过滤；未读会话「重构 sessionStore」带未读标记；附着的是 sess-2。',
+    },
   }
 
   catalog.conversation.sessions = window.sessionsTree('sess-1')
 
+  // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
+  // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"
+  // 的存量状态，就把它的名字加进 BASELINE_SCENARIOS —— 随合入并入主线基线。
   window.SCENARIOS = catalog
+  window.BASELINE_SCENARIOS = [
+    'conversation', 'empty', 'dsh-not-found', 'approval', 'question',
+    'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
+  ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()

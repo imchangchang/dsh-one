@@ -1,6 +1,6 @@
 ---
 name: ai-visual-validation
-description: 用浏览器独立渲染 DSH One 的 chat webview + mock 后台 + 截图，让 agent 能对插件 UI 做视觉验证/回归，减少人工 dev-ui-test 次数。当要「看这个 UI 状态渲染对不对」「改完 UI 后肉眼比对」「给某个 UI 状态出一张确定性截图」时用。注意它只验证 webview 内容的渲染与交互，不验证宿主逻辑（激活/命令注册/真实 dsh），后者走 @vscode/test-electron 或真实 dev-ui-test。
+description: 用浏览器独立渲染 DSH One 的 chat webview + mock 后台 + 截图，每个场景带一份「期望描述」，agent 读截图后逐条对照核对逻辑与排版（语义判断，不是图和图像素 diff），让 agent 能对插件 UI 做视觉验证/回归，减少人工 dev-ui-test 次数。当要「看这个 UI 状态渲染对不对」「改完 UI 后对照期望描述核对」「给某个 UI 状态出一张确定性截图」时用。注意它只验证 webview 内容的渲染与交互，不验证宿主逻辑（激活/命令注册/真实 dsh），后者走 @vscode/test-electron 或真实 dev-ui-test。
 ---
 
 # AI 视觉验证（DSH One chat webview）
@@ -11,9 +11,20 @@ description: 用浏览器独立渲染 DSH One 的 chat webview + mock 后台 + �
 
 - 改了 `src/ui/chat/`、`src/pure/` 里影响渲染的代码后，确认 UI 状态对不对。
 - 想看某个边角/错误态（dsh 缺失、pending approval/question/plan-review、todos、subagents、历史窗口、模型选择器…）长什么样。
-- 视觉回归：改动 UI 后逐场景截图和基线 diff。
+- 视觉回归：改动 UI 后逐场景截图，对照**期望描述**核对逻辑与排版是否还对。
 
 **边界**：只验证 webview 内容的渲染与交互。它**看不见** VS Code 窗口 chrome（活动栏图标、命令面板、侧边栏宿主、右键菜单），也测不了宿主逻辑（激活/命令注册/服务起复用/真实 dsh 对话）。宿主逻辑用 `@vscode/test-electron` 或真实 `dev-ui-test`。
+
+## 两层场景模型（谁写、跑在哪、管什么）
+
+| 层 | 谁写 | 跑在哪 | 干什么 |
+|---|---|---|---|
+| **功能验收场景** | **worktree 开发 session**（最懂这个模块） | worktree 里，合入前 | 证明"我这个功能改的 UI 状态是对的" |
+| **基线冒烟集** | 主线随仓库预设的稳定集合（`window.BASELINE_SCENARIOS`） | **主线合入后** | 证明"合入产物没把既有 UI 状态弄坏" |
+
+- **功能场景防"没实现对"，基线场景防"弄坏了以前的东西"。** 作者自写验收容易自欺（只挑能过的写法），基线是人定的、作者改不动，所以能兜住"作者全绿但把通用 UI 弄挂"。
+- **升级为基线**：功能场景里"以后必须一直对"的真实状态，把名字加进 `window.BASELINE_SCENARIOS`，随合入并入主线。**一次性调试 fixture** 放 worktree 的 `.dev-host/`，别提交。
+- 所以长期看：功能场景是增量，基线是存量；随功能落地，基线越来越全。
 
 ## 前置（一次）
 
@@ -27,10 +38,24 @@ node scripts/gen-ui-harness.mjs    # 从 src/ui/chatView.ts 抽 STYLE → test/u
 ## 一键出全套（推荐）
 
 ```bash
-scripts/ui-visual.sh [port]        # 默认 8899
+scripts/ui-visual.sh                 # 默认 mode=all：跑 SCENARIOS 全部场景（worktree 功能验收）
+scripts/ui-visual.sh --mode baseline # 只跑 BASELINE_SCENARIOS（主线合入后冒烟/回归）
 ```
 
-它会：起 http server 服务仓库根目录 → 遍历 `test/ui/scenarios.js` 里每个场景 → WebBridge 打开 `test/ui/harness.html?scenario=<name>` → 截图到 `/tmp/dsh-ui-shots/<name>.png`。跑完打印清单，agent 用 `read_image` 逐张看。
+会：起 http server 服务仓库根目录 → 遍历目标场景 → WebBridge 打开 `test/ui/harness.html?scenario=<name>` → 截图到 `/tmp/dsh-ui-shots/<name>.png`。**脚本会把每个场景的《期望清单》打印出来**（`expect` 字段），agent 逐张 `read_image` 后按下面方法核对。
+
+- **worktree 功能验收**：`scripts/ui-visual.sh`（模式 all，含自己新加的场景）→ 逐张截图对照期望。
+- **主线冒烟**：`scripts/ui-visual.sh --mode baseline` → 只跑基线稳定场景，逐张对照期望确认没把既有 UI 弄坏。
+
+## 视觉验证方法（语义核对，非像素 diff）
+
+每个场景在 `test/ui/scenarios.js` 里带一段 `expect`（该状态应该呈现什么**逻辑与排版**）。agent 的核对是**读截图 → 对照期望逐条判断**：
+
+1. 截图是否出现了期望描述里的关键元素（如 dsh-not-found 的「查看安装指南」、approval 的「允许一次/拒绝」按钮、plan-review 里「批准」高亮）。
+2. 排版/层级是否符合（消息在右、助手在左、工具卡折叠、侧边栏分组缩进）。
+3. 不该出现的东西是否没有（如 dsh-not-found 不应有 composer、错误态不应有报错堆栈）。
+
+不依赖像素 diff（图与图对照在不同机器/渲染下脆弱）。如果截图和期望对不上 → 说明逻辑或排版有 bug，报 `expect` 不符并说明差在哪。
 
 ## 手动看单个场景
 
@@ -64,10 +89,16 @@ http://127.0.0.1:8899/test/ui/harness.html?scenario=dsh-not-found
 在 `test/ui/scenarios.js` 的 `window.SCENARIOS` 里加一个键即可，字段用 `src/pure/chatContract.ts` 的类型：
 
 ```js
-'myState': { state: { sessionId:'sess-1', messages:[...], pending:[], running:false, canSend:true, ... } },
+'myState': {
+  state: { sessionId:'sess-1', messages:[...], pending:[], running:false, canSend:true, ... },
+  title: '新功能状态',
+  expect: '这个状态应该呈现什么逻辑与排版（agent 读截图后逐条对照，写清关键元素/层级/不该出现的东西）',
+},
 ```
 
-`state` 是 `ChatState`；可选 `sessions`（`SessionsSnapshot`，缺省用 `window.sessionsTree(state.sessionId)`）和 `modelCatalog`。改 `src/pure/chatContract.ts` 的契约时，`scenarios.js` 要同步对齐（字段冻结文件，两边一起改）。
+`state` 是 `ChatState`；可选 `sessions`（`SessionsSnapshot`，缺省用 `window.sessionsTree(state.sessionId)`）和 `modelCatalog`。**`title`/`expect` 是必写的**——`expect` 就是这份场景的"验收描述"。`ui-visual.sh` 会把它打印成清单。改 `src/pure/chatContract.ts` 的契约时，`scenarios.js` 要同步对齐（字段冻结文件，两边一起改）。
+
+**加完场景后**：worktree 验收用 `ui-visual.sh`（all）跑它；如果它是"以后必须一直对"的真实 UI 状态，把名字加进 `window.BASELINE_SCENARIOS`（随合入并入主线基线）。一次性调试 fixture 放 `.dev-host/`，别提交、别进基线。
 
 ## 可交互模式（测发消息/流式/切换会话）
 
