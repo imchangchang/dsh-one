@@ -7,7 +7,7 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { CONTEXT_BROWSE_ICON, MESSAGE_ACTION_ICONS, PANEL_ICONS, THINK_ICON, type IconDef } from './icons.ts'
+import { CONTEXT_BROWSE_ICON, FISH_LOGO, MESSAGE_ACTION_ICONS, PANEL_ICONS, THINK_ICON, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
@@ -243,6 +243,25 @@ function iconSvg(icon: IconDef, size = 16): SVGSVGElement {
     }
     svg.appendChild(path)
   }
+  return svg
+}
+
+/**
+ * 品牌鱼标 svg：官方 FishLogo 组件（dsh-client-ui-primitives）的镜像——
+ * 宽度 size、高度按 17.04/23.16 等比，className 调用方给。
+ */
+function fishLogoSvg(size: number, className: string): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('width', String(size))
+  svg.setAttribute('height', String((size * 17.04) / 23.16))
+  svg.setAttribute('viewBox', FISH_LOGO.viewBox ?? '0 0 23.16 17.04')
+  svg.setAttribute('fill', 'none')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.classList.add(className)
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', FISH_LOGO.paths[0] as string)
+  path.setAttribute('fill', 'currentColor')
+  svg.appendChild(path)
   return svg
 }
 
@@ -1733,13 +1752,16 @@ function render(): void {
 }
 
 /**
- * 空会话 hero（官方 dsh web 空态 HeroShell）：整列水平居中——标题
- * 「探索未至之境」+「预览版」徽章，其下 workspace 名（只读）与 preset 选择
- * chip 行，再下是包成大圆角卡片的 composer（样式见 chatView.ts 的 .hero）。
+ * 空会话 hero（官方 dsh web 空态 HeroShell）：整列水平居中——品牌鱼标，
+ * 标题「探索未至之境」+「预览版」徽章，其下 workspace 名（只读）与 preset
+ * 选择 chip 行，再下是包成大圆角卡片的 composer（样式见 chatView.ts 的 .hero）。
  */
 function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
   const hero = el('div', 'hero')
   const stack = el('div', 'hero-stack')
+  // 品牌鱼标（官方 FishLogo SVG path，见 icons.ts 的 FISH_LOGO）+ 轻量
+  // 游动动画（纯 CSS transform，样式见 chatView.ts 的 .hero-fish）。
+  stack.appendChild(fishLogoSvg(56, 'hero-fish'))
   const headline = el('div', 'hero-headline')
   headline.appendChild(el('span', 'hero-headline-text', '探索未至之境'))
   headline.appendChild(el('span', 'hero-badge', '预览版'))
