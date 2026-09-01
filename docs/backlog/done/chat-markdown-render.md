@@ -28,3 +28,4 @@
 - 改动主落在 `src/ui/chatView.ts` `STYLE` 的 `.md` 段，追加一套 GFM 子元素样式，颜色用 `--vscode-*` 变量保持一致。
 - 这是 UI 类改动，合入前须人工在 dev-ui-test 窗口做视觉验收（headless 代理起不了 GUI）。
 - 2026-09-01 认领（worktree: agent/chat-markdown-render）→ doing
+- 2026-09-01 开发完成（自测通过）→ done
