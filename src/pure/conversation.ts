@@ -18,6 +18,7 @@ import type {
   ChatMessage,
   ChatRetryBlock,
   ChatToolBlock,
+  ChatTurnTiming,
 } from './chatContract.ts'
 
 /** Subset of dsh-llm's StreamChunk the folder folds. */
@@ -83,6 +84,8 @@ interface AssistantMessageEventData {
   step: number
   message?: { id?: string; content?: Array<{ type: string; text?: unknown }> }
   interrupted?: true
+  /** Token accounting from the model adapter; outputTokens feeds the tps figure. */
+  usage?: unknown
 }
 
 interface ToolCallEventData {
@@ -270,6 +273,25 @@ function compactionSummaryOf(data: Record<string, unknown>): {
 }
 
 /**
+ * Whether a stream chunk carries visible model output — the first-token
+ * boundary the turn timing shares with the official `sessionStats` projection
+ * (dsh-llm isTokenDelta). Empty deltas (heartbeats, empty tool-call frames)
+ * do not count as a first token.
+ */
+function isTokenDeltaLike(chunk: StreamChunkData): boolean {
+  if (chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') return chunk.text.length > 0
+  if (chunk.type === 'tool-call-delta') return chunk.argumentsDelta.length > 0
+  return false
+}
+
+/** Non-negative finite outputTokens from an assistant/message usage payload; null when absent/malformed. */
+function outputTokensOf(usage: unknown): number | null {
+  if (!usage || typeof usage !== 'object') return null
+  const value = (usage as { outputTokens?: unknown }).outputTokens
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+}
+
+/**
  * Stateful folder over one session's event log. Feed it a history window with
  * applyHistory (full reset — the reconnect baseline), then live events with
  * applyEvent. One turn folds into one assistant message whose blocks follow
@@ -305,6 +327,14 @@ export class ConversationFolder {
    * 更新；llm/retry-started 翻 started，turn/end 时仍未 started 的翻 cancelled。
    */
   private retries = new Map<string, { block: ChatRetryBlock; turn: number }>()
+  /** Turn → turn/start event time (epoch ms); only window-covered turns present. */
+  private turnStart = new Map<number, number>()
+  /** `${turn}:${step}` → step/start event time. */
+  private stepStart = new Map<string, number>()
+  /** `${turn}:${step}` → time of the first non-empty token delta (isTokenDeltaLike). */
+  private firstToken = new Map<string, number>()
+  /** `${turn}:${step}` → assistant/message event time + its usage outputTokens. */
+  private stepCompleted = new Map<string, { time: number; outputTokens: number | null }>()
 
   /** Reset and fold a full history window (initial load / re-baseline). */
   applyHistory(entries: readonly HistoryEntryLike[]): void {
@@ -320,6 +350,10 @@ export class ConversationFolder {
     this.producedSeen.clear()
     this.compactions.clear()
     this.retries.clear()
+    this.turnStart.clear()
+    this.stepStart.clear()
+    this.firstToken.clear()
+    this.stepCompleted.clear()
     for (const entry of entries) this.applyEvent(entry.event, entry.view)
   }
 
@@ -345,6 +379,10 @@ export class ConversationFolder {
         this.current = null
         this.stepKey = null
         this.stepStreamed = false
+        // Timing baseline: runMs needs the turn start inside the window.
+        if (typeof event.time === 'number' && typeof data.turn === 'number') {
+          this.turnStart.set(data.turn, event.time)
+        }
         return true
       }
       case 'turn/end': {
@@ -420,6 +458,11 @@ export class ConversationFolder {
           if (entries) {
             const paths = entries.filter((p) => p.seq <= event.seq).map((p) => p.path)
             if (paths.length > 0) msg.producedFiles = paths
+          }
+          // Turn-level timing rides the final message's action row (web parity).
+          if (typeof event.time === 'number' && Number.isFinite(Number(data.turn))) {
+            const timing = this.turnTimingOf(Number(data.turn), event.time)
+            if (timing) msg.timing = timing
           }
         }
         this.current = null
@@ -501,10 +544,17 @@ export class ConversationFolder {
         this.stepKey = null
         return true
       }
+      case 'step/start': {
+        // TTFT baseline: stepStartTime of each step (window-scoped).
+        if (typeof event.time === 'number' && typeof data.turn === 'number' && typeof data.step === 'number') {
+          this.stepStart.set(`${data.turn}:${data.step}`, event.time)
+        }
+        return false
+      }
       case 'assistant/chunk':
-        return this.applyChunk(event.data as ChunkEventData, event.seq)
+        return this.applyChunk(event.data as ChunkEventData, event.seq, event.time)
       case 'assistant/message':
-        return this.applyAssistantMessage(event.data as AssistantMessageEventData, event.seq)
+        return this.applyAssistantMessage(event.data as AssistantMessageEventData, event.seq, event.time)
       case 'tool/call':
         return this.applyToolCall(event.data as ToolCallEventData, view, event.seq)
       case 'tool/result':
@@ -596,6 +646,55 @@ export class ConversationFolder {
     return this.openTurns.size > 0
   }
 
+  /**
+   * Aggregate the recorded step timings of one closed turn (web parity:
+   * dsh-client-ui-conversation deriveTurnMetrics). TTFT is the turn's
+   * lowest-step request-dispatch-to-first-token reading; throughput divides
+   * summed output tokens by summed decode wall time, counting only steps that
+   * carry both. The clock anchor is the last assistant/message's event time,
+   * falling back to the turn/end time when no step completed in-window.
+   * Every figure degrades gracefully to absent when its events fell outside
+   * the loaded window.
+   */
+  private turnTimingOf(turn: number, endTime: number): ChatTurnTiming | undefined {
+    const prefix = `${turn}:`
+    let firstStep: number | null = null
+    let firstStepTtftMs: number | null = null
+    let decodeMs = 0
+    let outputTokens = 0
+    let sampled = false
+    let lastMessageTime: number | undefined
+    let lastMessageStep = -1
+    for (const [key, firstTokenTime] of this.firstToken) {
+      if (!key.startsWith(prefix)) continue
+      const step = Number(key.slice(prefix.length))
+      const stepStart = this.stepStart.get(key)
+      const ttftMs = stepStart === undefined ? null : Math.max(0, firstTokenTime - stepStart)
+      if (firstStep === null || step < firstStep) {
+        firstStep = step
+        firstStepTtftMs = ttftMs
+      }
+      const completed = this.stepCompleted.get(key)
+      if (!completed) continue
+      const decode = Math.max(0, completed.time - firstTokenTime)
+      if (completed.outputTokens !== null) {
+        decodeMs += decode
+        outputTokens += completed.outputTokens
+        sampled = true
+      }
+      if (step > lastMessageStep) {
+        lastMessageStep = step
+        lastMessageTime = completed.time
+      }
+    }
+    const startTime = this.turnStart.get(turn)
+    const timing: ChatTurnTiming = { time: lastMessageTime ?? endTime }
+    if (startTime !== undefined) timing.runMs = Math.max(0, endTime - startTime)
+    if (firstStepTtftMs !== null) timing.ttftMs = firstStepTtftMs
+    if (sampled && decodeMs > 0) timing.tokensPerSecond = outputTokens / (decodeMs / 1000)
+    return timing
+  }
+
   private ensureAssistant(turn: number, seq: number): ChatAssistantMessage {
     // 窗口分页下 turn/start 可能落在窗口外（长 turn 的工具事件就能把页填满）；
     // 窗口是日志的连续后缀，内容事件的 turn 没有配对的 turn/end 就是还在跑。
@@ -616,7 +715,7 @@ export class ConversationFolder {
     return msg
   }
 
-  private applyChunk(data: ChunkEventData, seq: number): boolean {
+  private applyChunk(data: ChunkEventData, seq: number, time?: number): boolean {
     const chunk = data?.chunk
     if (!chunk || typeof chunk.type !== 'string') return false
     const msg = this.ensureAssistant(Number(data.turn), seq)
@@ -625,6 +724,10 @@ export class ConversationFolder {
       this.stepKey = key
       this.stepStreamed = false
       this.blockPos.clear()
+    }
+    // First-token boundary of the step: first non-empty delta's event time.
+    if (time !== undefined && !this.firstToken.has(key) && isTokenDeltaLike(chunk)) {
+      this.firstToken.set(key, time)
     }
     switch (chunk.type) {
       case 'block-start': {
@@ -675,7 +778,7 @@ export class ConversationFolder {
     }
   }
 
-  private applyAssistantMessage(data: AssistantMessageEventData, seq: number): boolean {
+  private applyAssistantMessage(data: AssistantMessageEventData, seq: number, time?: number): boolean {
     const msg = this.ensureAssistant(Number(data?.turn), seq)
     // The host-persisted id powers messageFeedback; on a multi-step turn the
     // last step's message is the one the web client's fork rule refers to.
@@ -685,6 +788,10 @@ export class ConversationFolder {
     if (key !== this.stepKey) {
       this.stepKey = key
       this.stepStreamed = false
+    }
+    // Step completion timing: decode end + output tokens for the tps figure.
+    if (time !== undefined && typeof data?.turn === 'number' && typeof data?.step === 'number') {
+      this.stepCompleted.set(key, { time, outputTokens: outputTokensOf(data?.usage) })
     }
     if (!this.stepStreamed) {
       // No chunk stream seen for this step (e.g. a compacted log): fold content.

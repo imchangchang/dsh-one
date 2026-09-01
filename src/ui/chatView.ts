@@ -802,6 +802,12 @@ const STYLE = `
     color: var(--vscode-descriptionForeground, #888); font: inherit; cursor: pointer;
   }
   .produced-more:hover { color: var(--vscode-descriptionForeground, #bbb); text-decoration: underline; }
+  .msg-timing {
+    flex: none; white-space: nowrap; padding-left: 12px;
+    font-size: 12px; line-height: 24px; font-variant-numeric: tabular-nums;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .msg-timing .msg-timing-dot { margin: 0 10px; }
   /* Pending 接管面板（approval/question/plan-review 挂 composer 区，对齐 dsh
      web QuestionFlow / PlanReviewPanel）：容器占输入区位置，一个 pending 一块。 */
   .pending-panel {
