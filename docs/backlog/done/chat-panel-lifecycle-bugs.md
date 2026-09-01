@@ -30,3 +30,4 @@
 
 - 2026-09-05 认领（worktree: agent/chat-panel-lifecycle-bugs）→ doing
   - 补充核实：根因 1 确认——chatView.panel.onDidDispose 不触发任何事件，侧栏快照停留在关闭前（attachedSessionId 未归零）；根因 2 确认——chat webview 无锚点拦截，点击导航 webview 自身。方案按上面两条执行。
+- 2026-09-05 开发完成，自测通过（typecheck/208 tests/build + harness 场景「markdown-link-click」验证链接点击不导航、openExternal 已发出）→ done
