@@ -56,3 +56,5 @@ contextBar 的容量分母 `contextWindow` 来自 `contextPressure` 投影；该
 - 2026-09-01 定案：候选 2 + 客户端学习式映射（`request/context` 观察 → `provider/model→contextWindow` map → `applyModelSwitch` 覆写 `contextPressure.contextWindow`）；核实 selectModel 响应与模型目录均不带 context，客户端无 RPC 可查窗口；候选 1（动服务端事件）弃。
 - 2026-09-01 开发完成（dev-finish 自测通过，done 标记 cc9838a）→ done。实现：`pressureWithContextWindow` 纯函数 + `MODEL_CONTEXT_WINDOW` 学习映射 + `applyModelSwitch`（chatSession.ts）+ chatView.ts 在 selectModel 成功后调用；contextMeter.test.ts 补重算/超限用例，scenarios.js 加 `context-switch-smaller-window` / `context-switch-overflow` 两场景。未跑 dev-ui-test（需人工窗验）。
 - 2026-09-01 按用户拍板补「窗口未知」占位（A3 升级版）：`contextUsage` 加 `windowUnknown` 变体，`contextUsageUnknown` 纯函数 + `observeRequestContext` 恢复逻辑（chatSession.ts），webview.ts 渲染灰字占位 + 悬停/点开说明，`.context-bar` 固定高度防跳变；scenarios.js 加 `context-switch-window-unknown` 场景，contextMeter.test.ts 补 `contextUsageUnknown` 用例，206→226 全绿。
+
+- 2026-09-01 主线合入测试通过（merge 039be54），人工验收通过（含窗口未知+悬停说明变体确认）→ closed
