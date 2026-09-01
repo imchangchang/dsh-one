@@ -196,10 +196,31 @@ export function isExpandable(row: Extract<JsonTreeRow, { type: 'container' }>): 
 }
 
 /**
- * Whole-tree copy text for the copy button: 2-space pretty JSON of the parsed
- * value (对齐官方 JsonTree 的 copyPrettyJson —— 从解析值重新序列化，不再带代码
- * 围栏、统一缩进），供 webview 的「复制」按钮写入剪贴板。
+ * Copy text for a JSON value (2-space pretty JSON, 对齐官方 JsonTree 的
+ * copyPrettyJson —— 从解析值重新序列化，不再带代码围栏、统一缩进）。对整棵树
+ * （根容器）与任意子节点（容器或原始值）都适用：container 给 pretty 对象/数组，
+ * 原始值给对应标量（string 带引号、number/bool/null 字面量）。
  */
-export function jsonTreeCopyText(value: JsonContainer): string {
+export function jsonTreeCopyText(value: JsonValue): string {
   return JSON.stringify(value, null, 2)
+}
+
+/**
+ * Walk `path` from the root to the sub-value at that position. Path segments are
+ * object keys (string) / array indices (number), as produced by
+ * {@link flattenJsonTree}. Returns undefined when the path does not resolve
+ * (e.g. a stale row after the value changed during streaming). Used by the
+ * node-level copy: resolve a row's path → its own pretty JSON to copy.
+ */
+export function jsonValueAtPath(value: JsonValue, path: JsonPath): JsonValue | undefined {
+  let current: JsonValue | undefined = value
+  for (const seg of path) {
+    if (current === null || typeof current !== 'object') return undefined
+    const obj = current as { [key: string]: JsonValue } | JsonValue[]
+    current = Array.isArray(obj)
+      ? (obj[seg as number] as JsonValue | undefined)
+      : (obj[seg as string] as JsonValue | undefined)
+    if (current === undefined) return undefined
+  }
+  return current
 }

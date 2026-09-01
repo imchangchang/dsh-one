@@ -8,6 +8,7 @@ import {
   isOpenFromSet,
   jsonPathKey,
   jsonTreeCopyText,
+  jsonValueAtPath,
   tryParseJsonTree,
   type JsonTreeRow,
 } from '../src/pure/jsonTree.ts'
@@ -197,4 +198,36 @@ test('jsonTreeCopyText normalizes a fenced parse back to clean pretty JSON', () 
   const value = tryParseJsonTree('```json\n{"a":1}\n```')
   assert.ok(value)
   assert.equal(jsonTreeCopyText(value!), '{\n  "a": 1\n}')
+})
+
+/* ---------------- 节点级复制：子值 pretty JSON + 路径解析 ---------------- */
+
+test('jsonTreeCopyText works on primitive sub-values', () => {
+  assert.equal(jsonTreeCopyText('hi'), '"hi"')
+  assert.equal(jsonTreeCopyText(5), '5')
+  assert.equal(jsonTreeCopyText(true), 'true')
+  assert.equal(jsonTreeCopyText(null), 'null')
+  assert.equal(jsonTreeCopyText([1, 2]), '[\n  1,\n  2\n]')
+})
+
+test('jsonValueAtPath resolves nested object/array paths', () => {
+  const root = { a: { b: 1 }, c: [2, 3], d: null }
+  assert.equal(jsonValueAtPath(root, []), root)
+  assert.equal(jsonValueAtPath(root, ['a', 'b']), 1)
+  assert.equal(jsonValueAtPath(root, ['c', 1]), 3)
+  assert.equal(jsonValueAtPath(root, ['d']), null)
+  assert.equal(jsonValueAtPath(root, ['missing']), undefined)
+  assert.equal(jsonValueAtPath(root, ['a', 'missing']), undefined)
+  assert.equal(jsonValueAtPath(root, ['c', 5]), undefined)
+  assert.equal(jsonValueAtPath('scalar', ['x']), undefined)
+})
+
+test('flattened rows resolve to their sub-values via jsonValueAtPath', () => {
+  const root = { checks: { gateway: { healthy: true } }, status: 'ok' } as const
+  const rows = flattenJsonTree(root, isOpenFromSet(new Set(['$', '$.checks'])))
+  const checksRow = rows.find((r) => 'key' in r && r.key === 'checks')
+  const statusRow = rows.find((r) => 'key' in r && r.key === 'status')
+  assert.ok(checksRow && 'path' in checksRow && statusRow && 'path' in statusRow)
+  assert.deepEqual(jsonValueAtPath(root, checksRow.path), { gateway: { healthy: true } })
+  assert.equal(jsonValueAtPath(root, statusRow.path), 'ok')
 })
