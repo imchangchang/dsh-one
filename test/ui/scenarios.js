@@ -73,6 +73,17 @@
       expect: '会话面板列出会话；主区显示用户消息（右侧）+ 助手回复，含 markdown 加粗、一条折叠工具卡（Ran a command bash / npm test）、「复制/反馈/分叉」操作栏；底部 composer + 模型 pill + 会话统计。',
     },
 
+    markdown: {
+      state: base({
+        messages: [
+          u('把各环节分工整理成文档，表格排好看点。'),
+          at('## 各环节分工总览\n\n| 环节 | 谁负责 | 能否自动化 |\n| --- | --- | --- |\n| 认领/写方案 | 人 + agent | 半自动 |\n| 开发 | agent | 自动 |\n| 自测（单测+编译） | agent | 自动 |\n| 人工 gate（隔离 VSCode 验收） | 人 | 不能 |\n| 合入+回归 | 主线 agent | 自动 + 人工抽查 |\n\n> 这是目前的协作分工，发布走 vsce publish。\n\n- 变更记录随状态流转更新\n- 不维护手工索引表\n\n[链接](https://example.com) 与行内 `code`。\n\n---\n\n- [x] 已完成项\n- [ ] 待办项'),
+        ],
+      }),
+      title: 'markdown 富格式',
+      expect: '助手消息：`<h2>` 分级标题「各环节分工总览」；三列表格（环节/谁负责/能否自动化）带网格线 + 表头底色、列宽随内容收窄左对齐、不溢出；引用块左栏线；圆点列表；主题色链接；hr 分隔线；任务清单保留 checkbox 且去圆点。',
+    },
+
     empty: {
       // blankHero 要求 sessionId !== null（空白会话已附着）且无消息/待办/队列/jobs。
       state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
@@ -146,7 +157,7 @@
   // 的存量状态，就把它的名字加进 BASELINE_SCENARIOS —— 随合入并入主线基线。
   window.SCENARIOS = catalog
   window.BASELINE_SCENARIOS = [
-    'conversation', 'empty', 'dsh-not-found', 'approval', 'question',
+    'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
