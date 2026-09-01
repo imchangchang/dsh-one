@@ -272,25 +272,81 @@ export function buildSessionTree(
   return query === '' ? nodes : nodes.filter((w) => w.sessions.length > 0)
 }
 
+/** parentSessionId → 该会话下所有 origin === 'subagent' 的子代理（血缘树共用）。 */
+function subagentChildrenOf(sessions: readonly SessionInput[]): Map<string, SessionInput[]> {
+  const childrenOf = new Map<string, SessionInput[]>()
+  for (const s of sessions) {
+    // 只有真子代理（origin === 'subagent'）进血缘树/目录；普通 fork 不计入。
+    if (s.origin !== 'subagent' || !s.parentSessionId) continue
+    const kids = childrenOf.get(s.parentSessionId) ?? []
+    kids.push(s)
+    childrenOf.set(s.parentSessionId, kids)
+  }
+  return childrenOf
+}
+
+/**
+ * 需要拉取 subagent.list 目录的「父会话」集合，使 `rootId` 的子代理子树能
+ * 完整取到每个节点的 descriptor label：每个至少有真子代理子节点、且在
+ * rootId 子树内的节点（含 rootId 自身，当它有子代理子节点时）。叶子子代理
+ * 不是任何子代理的父，不需要自己的目录——它的 label 在它父会话的目录里。
+ * 这是 eager 一次性拉深层的简化（对齐官方按展开懒加载，见实现说明）。
+ */
+export function subagentCatalogRoots(sessions: readonly SessionInput[], rootId: string): Set<string> {
+  const childrenOf = subagentChildrenOf(sessions)
+  const roots = new Set<string>()
+  const queue = [rootId]
+  while (queue.length > 0) {
+    const parent = queue.shift()!
+    const kids = childrenOf.get(parent) ?? []
+    if (kids.length === 0) continue
+    roots.add(parent)
+    for (const kid of kids) {
+      if (childrenOf.has(kid.sessionId)) queue.push(kid.sessionId)
+    }
+  }
+  return roots
+}
+
+/**
+ * rootId 子代理子树的确定性签名：入树的每个「父会话」一行 `父id:排好序的子id列表`。
+ * session.list 基线变化（新子代理 spawn / 子树重排）会使签名变化，用来判定
+ * 已缓存的 subagent.list 目录是否失效——签名不变就说明子树没变，目录里的
+ * label 仍然有效。这避免了 60s 相对时间 tick 对目录反复重拉。带回环保护。
+ */
+export function subagentTreeSignature(sessions: readonly SessionInput[], rootId: string): string {
+  const childrenOf = subagentChildrenOf(sessions)
+  const parts: string[] = []
+  const visit = (parent: string, seen: ReadonlySet<string>): void => {
+    if (seen.has(parent)) return
+    const nextSeen = new Set(seen).add(parent)
+    const kids = childrenOf.get(parent) ?? []
+    if (kids.length === 0) return
+    parts.push(`${parent}:${kids.map((k) => k.sessionId).sort().join(',')}`)
+    for (const kid of kids) visit(kid.sessionId, nextSeen)
+  }
+  visit(rootId, new Set())
+  return parts.join('|')
+}
+
 /**
  * 组装头部「N 个子代理」chip 下拉的血缘树：`rootId` 的直接子代理为顶层项，
  * 每项的 `children` 递归挂它们各自的后代（子代理再开子代理）。每一层按
  * 运行中优先 + 新近优先 排序。带回环保护：血缘链断/环时靠 `seen` 截断，
  * 避免无限递归。只有 origin === 'subagent' 的会话算子代理，普通 fork
  * 不入树（chip 计数与下拉行都不含它）。`children` 为空时缺省。
+ *
+ * 行显示名 = `labelOf(s)`（descriptor label，来自 subagent.list 目录，label
+ * 缺失时退回 entry.id）→ 会话 title（异步自动命名/用户重命名）→ 「会话 xxxxxxxx」。
+ * `labelOf` 缺省或返回 null（目录没拉到 / 该会话不在目录里）时回退既有的
+ * title/id 逻辑，不降级。
  */
 export function buildSubagentTree(
   sessions: readonly SessionInput[],
   rootId: string,
+  labelOf?: (s: SessionInput) => string | null,
 ): SubagentNode[] {
-  const childrenOf = new Map<string, SessionInput[]>()
-  for (const s of sessions) {
-    // 只有真子代理（origin === 'subagent'）进血缘树；普通 fork 不计入。
-    if (s.origin !== 'subagent' || !s.parentSessionId) continue
-    const kids = childrenOf.get(s.parentSessionId) ?? []
-    kids.push(s)
-    childrenOf.set(s.parentSessionId, kids)
-  }
+  const childrenOf = subagentChildrenOf(sessions)
 
   const sortLayer = (list: SessionInput[]): SessionInput[] =>
     [...list].sort((a, b) => Number(b.running) - Number(a.running) || b.updatedAt - a.updatedAt)
@@ -301,7 +357,7 @@ export function buildSubagentTree(
     const children = kids.length > 0 ? sortLayer(kids).map((k) => toNode(k, nextSeen)) : undefined
     return {
       sessionId: s.sessionId,
-      title: s.title ?? `会话 ${s.sessionId.slice(0, 8)}`,
+      title: (labelOf?.(s) ?? s.title) ?? `会话 ${s.sessionId.slice(0, 8)}`,
       running: s.running,
       ...(s.totalTokens !== undefined ? { totalTokens: s.totalTokens } : {}),
       updatedAt: s.updatedAt,

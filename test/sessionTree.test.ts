@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSessionTree, buildSubagentTree, formatRelativeTime, UNGROUPED_WORKSPACE_ID, type SessionInput, type WorkspaceInput } from '../src/pure/sessionTree.ts'
+import { buildSessionTree, buildSubagentTree, formatRelativeTime, subagentCatalogRoots, subagentTreeSignature, UNGROUPED_WORKSPACE_ID, type SessionInput, type WorkspaceInput } from '../src/pure/sessionTree.ts'
 
 const NOW = 1_700_000_000_000 // fixed epoch ms for deterministic tests
 
@@ -508,4 +508,90 @@ test('buildSubagentTree falls back to a short id title when title is null', () =
     'root',
   )
   assert.equal(tree[0].title, '会话 abcdef12')
+})
+
+test('buildSubagentTree: labelOf wins, then falls back to title, then short id', () => {
+  // label 优先：目录里有该子代理且带 descriptor label → 用 label（不再是异步 title）。
+  const withLabel = buildSubagentTree(
+    [s('root'), s('sub1', { parentSessionId: 'root', title: '自动标题', origin: 'subagent' })],
+    'root',
+    () => '开发 sidebar 树改造',
+  )
+  assert.equal(withLabel[0].title, '开发 sidebar 树改造')
+
+  // label 缺失（目录里没有该子代理 / 没拉到）→ 回退既有 title 逻辑。
+  const noEntryHasTitle = buildSubagentTree(
+    [s('root'), s('sub2', { parentSessionId: 'root', title: '异步标题', origin: 'subagent' })],
+    'root',
+    () => null,
+  )
+  assert.equal(noEntryHasTitle[0].title, '异步标题')
+
+  // 均缺失（无目录 label、也无 title）→ 回退「会话 xxxxxxxx」。
+  const noEntryNoTitle = buildSubagentTree(
+    [s('root'), s('sub3aaaa', { parentSessionId: 'root', title: null, origin: 'subagent' })],
+    'root',
+    () => null,
+  )
+  assert.equal(noEntryNoTitle[0].title, '会话 sub3aaaa')
+
+  // labelOf 缺省（完全不接目录）也不降级。
+  const noResolver = buildSubagentTree(
+    [s('root'), s('sub4bbbb', { parentSessionId: 'root', title: null, origin: 'subagent' })],
+    'root',
+  )
+  assert.equal(noResolver[0].title, '会话 sub4bbbb')
+})
+
+test('buildSubagentTree labelOf resolves per-node within a nested lineage', () => {
+  const sessions = [
+    s('root'),
+    s('c1', { parentSessionId: 'root', origin: 'subagent' }),
+    s('gc1', { parentSessionId: 'c1', origin: 'subagent' }),
+  ]
+  const labels = new Map([
+    ['c1', '顶层子代理'],
+    ['gc1', '孙代理'],
+  ])
+  const tree = buildSubagentTree(sessions, 'root', (x) => labels.get(x.sessionId) ?? null)
+  assert.equal(tree[0].title, '顶层子代理')
+  assert.equal(tree[0].children?.[0].title, '孙代理')
+})
+
+test('subagentCatalogRoots yields every parent that has a subagent child, rooted at rootId', () => {
+  const line = (parent: string, child: string) => s(child, { parentSessionId: parent, origin: 'subagent' })
+  const sessions = [
+    s('root'),
+    line('root', 'c1'),
+    line('root', 'c2'),
+    line('c1', 'gc1'),
+    // c2 是叶子，不需要自己的目录；gc1 是叶子，也不需要。
+    s('c2', { parentSessionId: 'root', origin: 'subagent' }),
+  ]
+  // root 与 c1 有子代理子节点 → 需要拉目录；c2/gc1 是叶子 → 不需。
+  const roots = subagentCatalogRoots(sessions, 'root')
+  assert.deepEqual([...roots].sort(), ['c1', 'root'])
+
+  // root 没有子代理子节点时，一个目录都不用拉（不会空拉）。
+  const empty = subagentCatalogRoots([s('root')], 'root')
+  assert.equal(empty.size, 0)
+})
+
+test('subagentTreeSignature changes on membership change, stable otherwise', () => {
+  const line = (parent: string, child: string) => s(child, { parentSessionId: parent, origin: 'subagent' })
+  const a = [s('root'), line('root', 'c1')]
+  const b = [s('root'), line('root', 'c1'), line('root', 'c2')]
+  assert.notEqual(subagentTreeSignature(a, 'root'), subagentTreeSignature(b, 'root'))
+
+  // 同构（相同的父子序列）签名稳定；换 root 会变。
+  const a2 = [s('root'), line('root', 'c1')]
+  assert.equal(subagentTreeSignature(a, 'root'), subagentTreeSignature(a2, 'root'))
+  assert.notEqual(subagentTreeSignature(a, 'root'), subagentTreeSignature(a, 'other-root'))
+})
+
+test('subagentTreeSignature: a leaf becoming a parent changes the signature', () => {
+  const line = (parent: string, child: string) => s(child, { parentSessionId: parent, origin: 'subagent' })
+  const leaf = [s('root'), line('root', 'c1')]
+  const parent = [s('root'), line('root', 'c1'), line('c1', 'gc1')]
+  assert.notEqual(subagentTreeSignature(leaf, 'root'), subagentTreeSignature(parent, 'root'))
 })
