@@ -191,6 +191,9 @@
         return s
       })(),
       title: '侧栏面板（搜索：标题/内容命中 + 高亮）',
+      // 输入框词由用户输入流驱动（sessionsSearchDraft 模块态），快照不回填；
+      // 补一个输入模拟让前端态完整（draft + has-text → 清除 ✕ 可见）。
+      interact: `(() => { const i = document.querySelector('.sessions-search'); i.value = '重构'; i.dispatchEvent(new Event('input', { bubbles: true })) })()`,
       expect: '搜索框内有关键词「重构」、右侧出现清除 ✕（search-clear）；「ws-main」组头展开（忽略 collapsed）：sess-2 行标题里「重构」加粗+变色（mark.dsh-mark）；sess-4 行下方 .session-snippet 浅色小字块，命中词「重构」同样 mark 高亮；底部「还有更多匹配会话，可尝试更精确的关键词」提示行。',
     },
 
@@ -202,6 +205,7 @@
         s.contentSearchError = true
         return s
       })(),
+      interact: `(() => { const i = document.querySelector('.sessions-search'); i.value = 'session'; i.dispatchEvent(new Event('input', { bubbles: true })) })()`,
       title: '侧栏面板（全文搜索降级提示）',
       expect: '搜索框有关键词「session」+ 清除 ✕；列表底部一条「全文搜索不可用，仅按标题匹配（dsh 搜索索引未启用）」提示行（sessions-search-degraded）；该行悬停有 data-tip 详情（截图为静态，核对行本体与样式）。',
     },
