@@ -1019,6 +1019,21 @@ const STYLE = `
     display: flex; align-items: center; justify-content: center; gap: 10px;
     color: var(--vscode-foreground);
   }
+  /* 品牌鱼标（官方 FishLogo SVG）：居中、主题蓝色，左右缓游的轻量动画——
+     只动 transform（合成层，不触发布局），空态加载零额外成本；
+     prefers-reduced-motion 下静止。 */
+  .hero-fish {
+    align-self: center;
+    color: var(--vscode-textLink-foreground, #4da3ff);
+    animation: hero-fish-swim 4.8s ease-in-out infinite;
+  }
+  @keyframes hero-fish-swim {
+    0%, 100% { transform: translateX(-8px) rotate(-3deg); }
+    50% { transform: translateX(8px) rotate(3deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero-fish { animation: none; }
+  }
   .hero-headline-text { font-size: 26px; font-weight: 500; line-height: 32px; }
   .hero-badge {
     align-self: flex-start; margin-top: 4px; white-space: nowrap;
