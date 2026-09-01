@@ -426,6 +426,76 @@
 
     // 运行中卡：默认展开（facts.mode=running），interact 点 run header 折叠。
     // 回归点：点击 header 要**立即**折叠（不等下一个 snapshot），见
+    // ---- JSON 输出树（tool 输出为 JSON 对象/数组时渲染 JsonTree） ----
+    // 一条返回嵌套 JSON 的工具调用：工具卡展开后 OUT 走 JsonTree（根展开、
+    // 嵌套容器收起显示 {…}、原始值按类型着色、箭头可点）。
+    'json-output': {
+      state: base({
+        messages: [
+          u('查一下这几个服务的健康状态。'),
+          at('开始健康检查。', [
+            toolBlock({
+              name: 'bash', title: 'bash', detail: 'curl /health',
+              output: JSON.stringify({
+                status: 'ok',
+                checks: {
+                  gateway: { healthy: true, latency_ms: 12 },
+                  auth: { healthy: true, latency_ms: 31 },
+                  billing: { healthy: false, latency_ms: 88, error: 'timeout' },
+                },
+                degraded: false,
+                retries: 0,
+                debug: null,
+              }, null, 2),
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: '工具输出 JSON 树（默认态：根展开/嵌套收起）',
+      interact: `document.querySelector('.tool-disclosure summary')?.click()`,
+      expect: '工具卡（Ran a command bash / curl /health）点击摘要后展开，OUT 卡片内显示 JsonTree：等宽字体、深色 code 块背景；树按节点缩进；根 `{` 展开，其直接子 key `checks` 是折叠容器（右侧箭头 + `{…}` 预览），其余子 key 为原始值——`status: "ok"`（玫红 string）、`degraded: false`（蓝 keyword）、`retries: 0`（蓝 number）、`debug: null`（蓝 keyword）；key（property）为蓝、`:` 与括号标点为灰白；根 `}` 在独立行对齐；不出现平铺的一大段 JSON 文本。“IN”仍为纯文本 JSON。',
+    },
+
+    // 同上 JSON 树，但额外点开 `checks` 容器：验证箭头展开交互——嵌套节点展开
+    // 出子 key（gateway/auth/billing），箭头从右指转向下指。
+    'json-output-expand': {
+      state: base({
+        messages: [
+          u('查一下这几个服务的健康状态。'),
+          at('开始健康检查。', [
+            toolBlock({
+              name: 'bash', title: 'bash', detail: 'curl /health',
+              output: JSON.stringify({
+                status: 'ok',
+                checks: {
+                  gateway: { healthy: true, latency_ms: 12 },
+                  auth: { healthy: true, latency_ms: 31 },
+                  billing: { healthy: false, latency_ms: 88, error: 'timeout' },
+                },
+                degraded: false,
+                retries: 0,
+                debug: null,
+              }, null, 2),
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: '工具输出 JSON 树（点箭头展开 checks）',
+      // 先点摘要展开工具卡，等 `<details>` 的 toggle 事件（异步）把展开态写入
+      // detailsOpen 后再点 checks 箭头（箭头点击触发重建，读的就是已持久化的态，
+      // 不会把刚展开的卡片又收回）。同步连点会在 toggle 派发前重建、卡片被重置。
+      interact: `(() => {
+        document.querySelector('.tool-disclosure summary')?.click()
+        setTimeout(() => {
+          const arrow = document.querySelector('.json-tree-row[data-path="$.checks"] .json-tree-arrow')
+          arrow?.click()
+        }, 20)
+      })()`,
+      expect: '点击 `checks` 容器的箭头后它展开：箭头从右指转向下指，`checks` 下缩进出现子 key `gateway` / `auth` / `billing`（每个再是折叠容器 `{…}`）；`checks` 行从 `checks: {…}` 变为 `checks: {` 并在其下出现闭合 `}` 行；其余原始值行（status/degraded/retries/debug）与根结构保持（各自缩进层级正确，vscode-dark 主题）。初始渲染时 `checks` 收起、`gateway` 等子 key 不与它并列——这在默认态截图核对。',
+    },
+
     // workflow-run-card-cannot-collapse 条目（click 触达 render()）。
     'workflow-running': {
       state: base({

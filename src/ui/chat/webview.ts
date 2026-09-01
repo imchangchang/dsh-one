@@ -33,6 +33,15 @@ import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTr
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../pure/toolLine.ts'
+import {
+  JSON_TREE_ROOT_KEY,
+  flattenJsonTree,
+  jsonPathKey,
+  tryParseJsonTree,
+  type JsonContainer,
+  type JsonPrimitiveKind,
+  type JsonTreeRow,
+} from '../../pure/jsonTree.ts'
 import { subagentInTree, subagentIdFromOutput } from '../../pure/subagentCard.ts'
 import { codeBlockPreview } from '../../pure/codeBlock.ts'
 import {
@@ -1590,6 +1599,7 @@ function render(): void {
     detailsOpen.clear()
     detailsSession = detailsSid
     workflowDisclosure.clear()
+    jsonTreeOpen.clear()
   }
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
   const hadFocus = oldInput !== null && document.activeElement === oldInput
@@ -2349,6 +2359,14 @@ const detailsOpen = new Map<string, boolean>()
 let detailsSession: string | null = null
 
 /**
+ * JSON tree node expand state. Key = `${outputKey}:${jsonPathKey}` (the output
+ * key disambiguates colliding path spaces across tool blocks). Absent = the
+ * default (root open, nested closed); present = the user's toggle. Cleared with
+ * the other per-session disclosure state on session switch.
+ */
+const jsonTreeOpen = new Map<string, boolean>()
+
+/**
  * workflow 运行卡片的展开/折叠状态，按 runId（run 级）/ `${runId}:${phase.key}`
  * （phase 级）持久化——runId 跨分页稳定，loadEarlier 补页不会错位；与 detailsOpen
  * 一样在换会话时清空。
@@ -2889,8 +2907,10 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   // 用带行折叠的 renderDiff（前 8 行 + 展开其余，对齐 dsh web DiffBlock）。
   det.appendChild(summary)
   const body = el('div', 'tool-disclosure-body')
-  if (hasArgs) body.appendChild(toolInOut('IN', prettyJson(block.args as string)))
-  if (hasOutput) body.appendChild(toolInOut('OUT', block.output as string))
+  // IN（输入参数）保持现有 prettyJson 纯文本展示；OUT（结果文本）检测为 JSON 时
+  // 渲染 JsonTree（对齐 dsh web）。
+  if (hasArgs) body.appendChild(toolInOut('IN', prettyJson(block.args as string), `${key}:in`, false))
+  if (hasOutput) body.appendChild(toolInOut('OUT', block.output as string, `${key}:out`, true))
   det.appendChild(body)
   row.appendChild(det)
   if (block.diff) row.appendChild(renderDiff(block.diff, `${key}:diff`))
@@ -2899,23 +2919,38 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
 }
 
 /**
- * 工具卡展开区的一张 IN/OUT 卡片：小标签 + 150px 内滚动的等宽内容
- * （对齐 dsh web DisclosureRow 的展开形态）。
+ * 工具卡展开区的一张 IN/OUT 卡片：小标签 + 内容。`asJson` 为 true 时（OUT）内容
+ * 是 JSON 对象/数组字面量则渲染 JsonTree（对齐 dsh web），否则回退 150px 内滚动的
+ * 等宽 <pre>；`asJson` 为 false 时（IN）恒用 prettyJson 的 <pre>。与 dsh web
+ * DisclosureRow 的展开形态一致。
  */
-function toolInOut(label: string, text: string): HTMLElement {
+function toolInOut(label: string, text: string, key: string, asJson: boolean): HTMLElement {
   const box = el('div', 'tool-inout')
   box.appendChild(el('div', 'tool-inout-label', label))
-  box.appendChild(el('pre', '', text))
+  box.appendChild(asJson ? renderJsonOrText(text, key) : el('pre', '', text))
   return box
 }
 
 /**
- * 工具输出：默认只渲染前 OUTPUT_PREVIEW_LINES 行 + 「… 共 N 行，点击展开」
- * 提示（kimi-cli 的 "… (N more lines)" 对应物），点击展开全部、再次点击收起。
- * 展开状态记在 detailsOpen（key 按消息/块位置），流式重建不冲掉——同
- * detailsEl 的持久化机制。
+ * 一段工具文本的渲染入口：JSON 对象/数组字面量 → JsonTree；否则纯文本 <pre>。
+ * 检测保守（见 jsonTree.ts）——只有整段文本恰为合法 JSON 字面量才建树，误判
+ * 会破坏普通文本展示。
+ */
+function renderJsonOrText(text: string, key: string): HTMLElement {
+  const value = tryParseJsonTree(text)
+  if (value) return renderJsonTree(value, key)
+  return el('pre', '', text)
+}
+
+/**
+ * 工具输出：JSON 先走 JsonTree；否则默认只渲染前 OUTPUT_PREVIEW_LINES 行 +
+ * 「… 共 N 行，点击展开」提示（kimi-cli 的 "… (N more lines)" 对应物），点击展开
+ * 全部、再次点击收起。展开状态记在 detailsOpen（key 按消息/块位置），流式重建
+ * 不冲掉——同 detailsEl 的持久化机制。
  */
 function renderToolOutput(output: string, key: string): HTMLElement {
+  const value = tryParseJsonTree(output)
+  if (value) return renderJsonTree(value, key)
   const box = el('div', 'tool-output')
   const { preview, totalLines, truncated } = truncateLines(output)
   const open = detailsOpen.get(key) ?? false
@@ -2929,6 +2964,96 @@ function renderToolOutput(output: string, key: string): HTMLElement {
     box.appendChild(toggle)
   }
   return box
+}
+
+/**
+ * 一段 JSON 输出渲染成 JsonTree（对齐 dsh web JsonTree：对象/数组逐节点展开、
+ * 箭头点击 toggle、逐级缩进、暗色 token 配色）。节点 open 状态记在 jsonTreeOpen
+ * （key = `${outputKey}:${pathKey}`），缺省用「根展开、嵌套收起」的策略（root 缺省
+ * open），流式重建不冲掉——其它 disclosure 状态同款持久化。
+ */
+function renderJsonTree(value: JsonContainer, outputKey: string): HTMLElement {
+  const tree = el('div', 'json-tree')
+  const isOpen = (pathKey: string) => jsonTreeOpen.get(`${outputKey}:${pathKey}`) ?? pathKey === JSON_TREE_ROOT_KEY
+  const rows = flattenJsonTree(value, isOpen)
+  for (const row of rows) tree.appendChild(renderJsonTreeRow(row, outputKey))
+  return tree
+}
+
+/** 点击某容器节点：翻转它的 open 状态并重建。 */
+function toggleJsonTree(outputKey: string, rowPathKey: string, currentOpen: boolean): void {
+  jsonTreeOpen.set(`${outputKey}:${rowPathKey}`, !currentOpen)
+  render()
+}
+
+/** 渲染一行 JSON 树节点（container/primitive/close），缩进按 depth。 */
+function renderJsonTreeRow(row: JsonTreeRow, outputKey: string): HTMLElement {
+  const line = el('div', 'json-tree-row')
+  line.style.paddingLeft = `${row.depth * 14}px`
+  if (row.type === 'close') {
+    line.appendChild(jsonPunct(row.kind === 'array' ? ']' : '}'))
+    return line
+  }
+  // data-path 供场景脚本 / 测试定位具体节点。
+  line.setAttribute('data-path', jsonPathKey(row.path))
+  // 非空容器：最左画箭头，点击 toggle；根不显示 key。
+  const expandable = row.type === 'container' && row.entryCount > 0
+  if (row.type === 'container' && expandable) {
+    const arrow = el('span', `json-tree-arrow ${row.open ? 'open' : ''}`)
+    arrow.setAttribute('role', 'button')
+    arrow.setAttribute('aria-expanded', row.open ? 'true' : 'false')
+    arrow.setAttribute('aria-label', row.open ? 'collapse' : 'expand')
+    const pathKey = jsonPathKey(row.path)
+    arrow.addEventListener('click', (e) => {
+      e.stopPropagation()
+      toggleJsonTree(outputKey, pathKey, row.open)
+    })
+    line.appendChild(arrow)
+  }
+  // key 标签（对象 key / 数组下标，根不显示；容器 key 可点击展开/收起）。
+  if (row.key !== null && row.key.length > 0) {
+    const keySpan = el('span', 'json-tree-key', row.key)
+    if (row.type === 'container' && expandable) {
+      keySpan.classList.add('json-tree-label-clickable')
+      keySpan.addEventListener('click', () => toggleJsonTree(outputKey, jsonPathKey(row.path), row.open))
+    }
+    line.appendChild(keySpan)
+    line.appendChild(jsonPunct(':'))
+    line.appendChild(el('span', 'json-tree-gap'))
+  }
+  if (row.type === 'primitive') {
+    line.appendChild(jsonPrimitiveSpan(row.primitive))
+    return line
+  }
+  // container：展开显示开括号（子行 + 关闭行随后）；收起显示 `{…}` 预览；
+  // 空容器显示 `{}`（无箭头、不可点）。
+  const open = row.kind === 'array' ? '[' : '{'
+  const close = row.kind === 'array' ? ']' : '}'
+  if (expandable && row.open) {
+    line.appendChild(jsonPunct(open))
+  } else if (row.entryCount > 0) {
+    line.appendChild(jsonPunct(open))
+    line.appendChild(el('span', 'json-tree-ellipsis', '…'))
+    line.appendChild(jsonPunct(close))
+  } else {
+    line.appendChild(jsonPunct(open))
+    line.appendChild(jsonPunct(close))
+  }
+  return line
+}
+
+function jsonPunct(text: string): HTMLElement {
+  return el('span', 'json-tree-punct', text)
+}
+
+function jsonPrimitiveSpan(p: JsonPrimitiveKind): HTMLElement {
+  const cls =
+    p.type === 'string'
+      ? 'json-tree-string'
+      : p.type === 'number'
+        ? 'json-tree-number'
+        : 'json-tree-keyword'
+  return el('span', cls, p.display)
 }
 
 /** diff 块行折叠上限（对齐 dsh web DiffBlock 的 maxLines: 8）。 */
