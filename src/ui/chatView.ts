@@ -1134,34 +1134,65 @@ function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
 </html>`
 }
 
+/** 一个会话 tab 的全部状态：panel（可被用户关闭）+ controller（服务重启前
+ * 常驻）+ 各自的订阅。关闭 tab 只置空 panel 与面板侧订阅；controller 与
+ * controllerSub 保留（pending 兜底再拉出、重开复用）。 */
+interface ChatTab {
+  /** 附着会话 id；null = 空态 tab（服务未就绪/无会话可挂）。 */
+  sessionId: string | null
+  /** 编辑器 tab（用户关闭后为 null）。 */
+  panel: vscode.WebviewPanel | null
+  /** 会话控制器（服务 down/重启后为 null，恢复时重建）。 */
+  controller: ChatSessionController | null
+  /** controller 状态订阅；tab 关闭后保留（pending 兜底需要继续听）。 */
+  controllerSub: vscode.Disposable | null
+  /** panel 消息订阅（panel 侧，随 panel 关闭清理）。 */
+  msgSub: vscode.Disposable | null
+  /** panel 活动状态订阅（随 panel 关闭清理）。 */
+  viewStateSub: vscode.Disposable | null
+  /** Last title projection seen from the attached session (auto-rename watch). */
+  lastSessionTitle: string | undefined
+  /**
+   * 右键「发送到当前会话」暂存的附件：webview 尚未解析（用户还没打开过
+   * 这个会话的 tab）时先落这两个队列，tab 打开后再投给 composer。只活到
+   * 下一次 flush——成功后清空，不跨会话堆积（per-tab）。
+   */
+  pendingStagedFiles: StagedFile[]
+  pendingStagedImages: OutgoingImage[]
+}
+
 /**
- * Chat editor panel（`dshOne.chatPanel`）：owns the current
- * ChatSessionController, pushes its (throttled) ChatState snapshots to the
- * WebviewPanel verbatim and routes user actions back. The sessions list no
- * longer lives here — it moved to a native tree (SessionsTreeProvider); this
- * host still pushes the SessionsStore snapshot to the panel webview because
- * the composer's @-mention autocomplete reads it. Panel is lazy: it is only
- * created on demand (click a session / new session / open command / attach
- * file), defaulting to ViewColumn.Active.
+ * Chat editor tabs（`dshOne.chatPanel`）：**一个会话一个 tab**——每个打开的
+ * 会话持有自己的 ChatSessionController 与 WebviewPanel，ChatState 快照按
+ * session 分桶推送、用户动作按 tab 路由，互不串台。会话列表不在编辑器里
+ * （已拆到侧栏原生 tree）；宿主仍向每个 panel 的 webview 推 SessionsStore
+ * 快照，因为 composer 的 @-mention 补全读它。tab 懒创建（点会话 / 新建 /
+ * open 命令 / 发送文件），默认 ViewColumn.Active（当前活动编辑器列，用户
+ * 决策：不自动分栏）。用户关闭 tab 时 controller 保留——pending 交互兜底
+ * 再拉出与重开即复用都依赖它；服务重启时统一释放，只恢复活动的会话 tab。
  * 头部信息区的 chips（后台任务 / 子代理）数据来自 JobsStore（mux 全局
  * session/jobs 帧，含已结束的 job）与 store 的 session.list 基线，经
  * composeHeader 合成 ChatState.backgroundJobs / runningSubagents 随 state
- * 推送（JobsStore/store 变更与附着切换时重推）。
+ * 推送（JobsStore/store 变更与 tab 附着切换时重推）。
  * With no session — or a non-running server — the webview gets EMPTY_STATE
  * and shows its placeholder copy.
  */
 export class ChatViewProvider implements vscode.Disposable {
-  private panel: vscode.WebviewPanel | null = null
-  private controller: ChatSessionController | null = null
-  private controllerSub: vscode.Disposable | null = null
-  /** Last title projection seen from the attached session (auto-rename watch). */
-  private lastSessionTitle: string | undefined
-  /** 懒加载自动附着的目标会话（panel 未开时记着，open() 再落）。 */
-  private pendingSessionId: string | null = null
-  /** 高亮会话变化时通知侧栏 tree 刷新（拆分解耦：tree 读 activeSessionId）。 */
+  /** 一个会话一个 tab：panel + controller + 各自的订阅。panel 可被用户关闭
+   * （置 null，controller 保留——pending 兜底再拉出、重开复用）。 */
+  private readonly tabs = new Map<string, ChatTab>()
+  /** 空态 tab 的 map key（sessionId 为 null 的占位 tab，无 controller）。 */
+  private static readonly EMPTY_TAB_KEY = '\u0000empty'
+  /** 高亮会话变化时通知侧栏刷新（拆分解耦：侧栏读 activeSessionId）。 */
   private readonly activeEmitter = new vscode.EventEmitter<string | null>()
-  /** Fired when activeSessionId changes (attach/lazy-pending). */
+  /** Fired when activeSessionId changes (活动 tab 切换/关闭). */
   readonly onActiveSessionChanged = this.activeEmitter.event
+  /** 最近一次活动 tab 的会话（服务重启后只恢复它）。 */
+  private lastActiveSessionId: string | null = null
+  /** 服务重启后待恢复的会话（等 store 基线刷新确认还在，再 openSession）。 */
+  private pendingRestoreSessionId: string | null = null
+  /** 当前服务的 url（null = 未运行）；url 变化 = 新服务进程（重启）。 */
+  private lastUrl: string | null = null
   private readonly managerSub: vscode.Disposable
   private readonly storeSub: vscode.Disposable
   private readonly jobs: JobsStore
@@ -1169,13 +1200,6 @@ export class ChatViewProvider implements vscode.Disposable {
   /** 子代理目录数据层（subagent.list）：菜单行显示名的来源（descriptor label）。 */
   private readonly subagents: SubagentCatalogStore
   private readonly subagentsSub: vscode.Disposable
-  /**
-   * 右键「发送到当前会话」暂存的附件：webview 尚未解析（用户还没打开过
-   * Chat 面板）时先落这两个队列，视图 resolve 后再投给 composer。只活到
-   * 下一次 flush——成功后清空，不跨会话堆积。
-   */
-  private pendingStagedFiles: StagedFile[] = []
-  private pendingStagedImages: OutgoingImage[] = []
 
   constructor(
     private readonly manager: ServerManager,
@@ -1188,155 +1212,166 @@ export class ChatViewProvider implements vscode.Disposable {
     this.managerSub = manager.onDidChangeState((s) => this.onServerState(s))
     this.storeSub = store.onDidChange(() => {
       this.pushSessions()
+      // 服务重启后待恢复的活动会话：等基线刷新确认还在，再重新打开它的 tab。
+      if (this.pendingRestoreSessionId && this.store.hasSession(this.pendingRestoreSessionId)) {
+        const target = this.pendingRestoreSessionId
+        this.pendingRestoreSessionId = null
+        this.openSession(target)
+      }
       // 聊天头部的「N 个子代理」chip 来自 session.list 基线（子代理开跑/收尾
-      // 触发 host 事件 → store 刷新），附着会话时重推一次 state。
-      if (this.controller) {
+      // 触发 host 事件 → store 刷新），每个附着 tab 重推一次 state。
+      for (const tab of this.tabs.values()) {
+        const controller = tab.controller
+        if (!controller) continue
         // 中继服务端 running 位（session-status 增量随 store 变更到达）。
-        this.controller.setServerRunning(this.store.runningFor(this.controller.sessionId))
-        this.push(this.controller.getState())
+        controller.setServerRunning(this.store.runningFor(controller.sessionId))
+        this.push(tab, controller.getState())
         // 子代理目录随基线变化重拉：新子代理 spawn 让子树签名变化，菜单行
         // 显示名即时更新（不会只靠异步 title 兜底）。
-        this.subagents.ensure(this.controller.sessionId, store.rawList())
+        this.subagents.ensure(controller.sessionId, store.rawList())
       }
     })
     this.jobs = new JobsStore(manager, logger)
     // 头部「N 个后台任务」chip 的数据源（mux 全局 session/jobs 帧）：
-    // 基线变化时重推当前 state，composeHeader 重新组合下拉行。
+    // 基线变化时重推所有附着 tab 的 state，composeHeader 重新组合下拉行。
     this.jobsSub = this.jobs.onDidChange(() => {
-      if (this.controller) this.push(this.controller.getState())
+      for (const tab of this.tabs.values()) {
+        if (tab.controller) this.push(tab, tab.controller.getState())
+      }
     })
     this.subagents = new SubagentCatalogStore(manager, logger)
     // 子代理目录拉到后重推 state，composeHeader 用最新的 descriptor label
     // 重组成下拉行（初次 attach 时 label 可能还没到，先回退 title/id）。
     this.subagentsSub = this.subagents.onDidChange(() => {
-      if (this.controller) this.push(this.controller.getState())
+      for (const tab of this.tabs.values()) {
+        if (tab.controller) this.push(tab, tab.controller.getState())
+      }
     })
   }
 
-  /** Session currently shown, null when the view is in its empty state. */
+  /** 当前活动 tab 附着的会话（无活动 chat tab 或服务未运行 → null）。 */
   get currentSessionId(): string | null {
-    return this.controller?.sessionId ?? null
+    const tab = this.activeTab()
+    return tab?.controller ? tab.sessionId : null
   }
 
-  /** Whether the editor panel is currently open. */
+  /** 是否还有打开的 chat tab。 */
   get isOpen(): boolean {
-    return this.panel !== null
+    return this.tabs.size > 0
   }
 
   /**
-   * Session highlighted by the sidebar tree: the attached session when the
-   * panel is open, else the lazily-pending auto-attach target. The tree reads
-   * this for the active-row highlight (拆分后「仅侧栏高亮」).
+   * 侧栏高亮的会话：当前活动 chat tab 的会话（多 tab 时高亮跟随活动编辑器；
+   * 无活动 chat tab → null，用户决策：所有 tab 关闭后不高亮任何会话；服务
+   * down 时 controller 释放，同样回落 null——与单面板时代行为一致）。
    */
   get activeSessionId(): string | null {
-    return this.controller?.sessionId ?? this.pendingSessionId
+    const tab = this.activeTab()
+    return tab?.controller ? tab.sessionId : null
   }
 
   /**
-   * Session the editor panel is actually attached to right now. Panel closed
-   * (or open without an attached controller) yields null — unlike
-   * activeSessionId this never falls back to the lazy-pending target, so the
-   * sidebar can tell「已打开且附着」（单击 = 行内重命名）from「仅高亮待附着」
-   * （单击 = 打开会话）.
+   * 当前活动 chat tab 真实附着的会话（tab 开着且附着才非 null）。侧栏
+   * 「已打开会话单击 = 行内重命名」的判定用它：活动 tab 的会话点侧栏
+   * 行是改名，其他会话（含已开非活动的）都是打开/聚焦。
    */
   get attachedSessionId(): string | null {
-    return this.panel !== null ? (this.controller?.sessionId ?? null) : null
+    const tab = this.activeTab()
+    return tab?.panel && tab.controller ? tab.sessionId : null
+  }
+
+  /** 所有已附着（有 controller）的会话 id——extension 的归档/清理遍历用。 */
+  openSessionIds(): string[] {
+    const ids: string[] = []
+    for (const tab of this.tabs.values()) {
+      if (tab.controller && tab.sessionId) ids.push(tab.sessionId)
+    }
+    return ids
   }
 
   /**
-   * 懒加载自动附着：store 变化发现「无当前会话但出现了最新会话」时记下
-   * target（仅侧栏高亮，不碰 controller），等 panel 下次 open() 再落。
+   * 打开（或聚焦）一个会话的 tab：已有 tab → reveal（服务重启清空 controller
+   * 后重新附着）；没有 → 在当前活动编辑器列新建 tab（一个会话一个 tab）。
+   * 非运行中的服务会被忽略（侧栏点击无效；服务恢复后自动重开活动会话）。
    */
-  setLazyPending(sessionId: string | null): void {
-    if (this.pendingSessionId === sessionId) return
-    this.pendingSessionId = sessionId
-    this.activeEmitter.fire(this.activeSessionId)
-  }
-
-  /**
-   * 打开（或揭示）聊天 editor 面板。面板不存在则按默认 ViewColumn.Active
-   * （在当前活动编辑器列打开，占满该列宽度）创建并接线消息/销毁；随后推
-   * 当前 ChatState + sessions 快照、投递暂存附件。若当前未附着但存在懒加
-   * 载目标，先把目标落上。非运行中的服务会被 setSession 忽略（attach(null)），
-   * 面板仍打开显示空态。
-   */
-  openPanel(): void {
-    if (!this.panel) {
-      const panel = vscode.window.createWebviewPanel(
-        'dshOne.chatPanel',
-        'DSH One',
-        { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
-        {
-          enableScripts: true,
-          localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')],
-          // 保留隐藏时的 webview 上下文：tab 切走再切回不重载页面，聊天内容、
-          // 草稿、滚动位置原样保留（与 dshOne.tab 的 openInTab 对齐）。即使
-          // 极端情况下仍被重载，webview 的 ready 报到也会让宿主重推状态。
-          retainContextWhenHidden: true,
-        },
-      )
-      // tab 图标用 dsh 官方品牌图标（assets/dsh-favicon.svg，拷自已安装的
-      // @deepseek-ai/dsh-web-frontend/dist/favicon.svg；iconPath 是宿主层行为，
-      // 无需把 assets 加进 localResourceRoots）。
-      panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'assets', 'dsh-favicon.svg')
-      panel.webview.html = chatHtml(panel.webview, this.extensionUri)
-      const msg = panel.webview.onDidReceiveMessage((m: FromWebviewMessage) => void this.onMessage(m))
-      panel.onDidDispose(() => {
-        msg.dispose()
-        if (this.panel === panel) this.panel = null
-        // 侧栏手里的最后一份 SessionsSnapshot 可能还带着关闭前的 attachedSessionId
-        // ——再点该会话会被误判成「已附着」进行内重命名。关闭后重推一次快照让
-        // attachedSessionId 归零（controller 保留：pending 交互兜底再拉出、重开
-        // 即复用都依赖它；activeSessionId 不变，侧栏高亮保持）。
-        this.activeEmitter.fire(this.activeSessionId)
-      })
-      this.panel = panel
-    }
-    // 懒加载目标在此落地（此时才建 controller）。
-    if (!this.controller && this.pendingSessionId) {
-      const target = this.pendingSessionId
-      this.pendingSessionId = null
-      this.setSession(target)
-    }
-    this.push(this.controller?.getState() ?? this.emptyState())
-    // 面板新建/重建后 tab 标题对齐当前状态：首次 open 时 controller 在
-    // openPanel 之前已附着，attach() 里那次 syncPanelTitle 面板还不存在
-    // （空跑）；tab 关闭后重开同会话时更没有 attach 调用——两处都得靠这里。
-    this.syncPanelTitle()
-    this.pushSessions()
-    // 右键暂存的附件可能一直等在这里（面板此前没打开过）。
-    this.flushStaged()
-    this.panel.reveal()
-  }
-
-  /** 附着一个会话并打开 editor 面板（侧栏点会话 / 新建 / 分叉）。
-   *  显式的用户动作总是强制拉出面板，不参与懒加载。 */
   openSession(sessionId: string): void {
-    this.setSession(sessionId)
-    this.openPanel()
-  }
-
-  /**
-   * Attach a session: the old controller is disposed, a new one is created
-   * and its current state is pushed immediately. `null` returns to the
-   * empty state.
-   */
-  setSession(sessionId: string | null): void {
-    if (sessionId !== null && sessionId === this.currentSessionId) return
-    if (!sessionId) {
-      this.attach(null)
+    if (!sessionId) return
+    const existing = this.tabs.get(sessionId)
+    if (existing) {
+      if (!existing.controller) this.attachController(existing, sessionId)
+      if (!existing.panel) {
+        // 用户关过这个 tab：重建 panel（复用保留的 controller）。
+        this.ensurePanel(existing)
+      } else {
+        this.revealTab(existing)
+      }
+      // 打开（聚焦）即视为已读。
+      this.store.setUnread(sessionId, false)
       return
     }
     const status = this.manager.getStatus()
     const url = status.state === 'running' && status.url ? status.url : null
     if (!url) {
-      this.logger.warn(`chat: setSession(${sessionId}) ignored — server not running`)
-      this.attach(null)
+      // 与单面板时代一致：服务没起来点会话也有反馈——打开（或聚焦）空态
+      // tab 显示安装引导/hero，等服务恢复（自动重开活动会话）。
+      this.logger.warn(`chat: openSession(${sessionId}) ignored — server not running`)
+      const empty = this.tabs.get(ChatViewProvider.EMPTY_TAB_KEY)
+      if (empty) {
+        this.revealTab(empty)
+      } else {
+        const tab = this.createTab(null)
+        this.revealTab(tab)
+      }
       return
     }
     // 打开（附着）即视为已读。
     this.store.setUnread(sessionId, false)
-    this.attach(new ChatSessionController(url, sessionId, this.logger))
+    const tab = this.createTab(sessionId)
+    this.attachController(tab, sessionId)
+    this.revealTab(tab)
+  }
+
+  /**
+   * 打开（或揭示）聊天 editor tab。已有 tab 时聚焦活动的那个（无活动则
+   * 第一个）；一个都没有时打开当前 workspace 最新会话的 tab（贴合现状的
+   * 「打开面板即见最新会话」），无会话则开空态 tab（安装引导/hero）。
+   */
+  openPanel(): void {
+    const active = this.activeTab()
+    if (active) {
+      this.revealTab(active)
+      return
+    }
+    // 焦点不在 chat tab：优先回退最近活动过的会话 tab，其次第一个。tab 被
+    // 用户关过（panel null、controller 保留）的，重建 panel。
+    const last = this.lastActiveSessionId ? (this.tabs.get(this.lastActiveSessionId) ?? null) : null
+    const fallback = last ?? (this.tabs.values().next().value as ChatTab | undefined)
+    if (fallback) {
+      if (!fallback.panel) this.ensurePanel(fallback)
+      else this.revealTab(fallback)
+      return
+    }
+    const latest = this.store.latestCurrentSessionId()
+    const status = this.manager.getStatus()
+    const url = status.state === 'running' && status.url ? status.url : null
+    if (latest && url) {
+      this.openSession(latest)
+      return
+    }
+    const tab = this.createTab(null)
+    this.revealTab(tab)
+  }
+
+  /**
+   * 关闭一个会话的 tab（归档/删除后清理）：panel 销毁 + controller 释放 +
+   * 订阅全部解除。活动 tab 被关时侧栏高亮自动重算。
+   */
+  closeSession(sessionId: string): void {
+    const tab = this.tabs.get(sessionId)
+    if (!tab) return
+    this.disposeTab(tab)
+    this.recomputeActive()
+    this.pushSessions()
   }
 
   /** EMPTY_STATE plus the startup-failure marker when the server is in error. */
@@ -1347,62 +1382,207 @@ export class ChatViewProvider implements vscode.Disposable {
       : EMPTY_STATE
   }
 
-  private attach(controller: ChatSessionController | null): void {
-    this.controllerSub?.dispose()
-    this.controllerSub = null
-    this.controller?.dispose()
-    this.controller = controller
-    // 附着中的会话不打「已完成」标记，附着即清除（store 侧内存集合）。
-    this.store.setAttachedSession(controller?.sessionId ?? null)
-    // 附着切换 → 侧栏 tree 高亮同步。
-    this.activeEmitter.fire(this.activeSessionId)
-    if (controller) {
-      // 附着即取一次服务端 running 位（基线未覆盖时为 undefined，controller
-      // 内部回退 mux 折叠值）；之后随 store 变更中继。
-      controller.setServerRunning(this.store.runningFor(controller.sessionId))
-      this.controllerSub = controller.onDidChange((state) => {
-        this.push(state)
-        // 兜底：面板被用户关闭但有 pending 交互（审批/问题/计划评审）时
-        // 自动再拉出，避免交互被静默吞掉（拆分后所有此类交互都在编辑区）。
-        if (state.pending.length > 0 && !this.panel) this.openPanel()
-        // dsh 自动命名经会话内的 title 投影到达，host 事件流没有对应事件，
-        // sessions 面板不会自己刷新——标题变化时主动重拉一次基线，并同步
-        // 编辑器 tab 标题（标题投影即 tab 标题源，含用户重命名）。
-        if (state.sessionTitle !== this.lastSessionTitle) {
-          this.lastSessionTitle = state.sessionTitle
-          void this.store.refresh()
-          this.syncPanelTitle()
-        }
-      })
-      // 附着切换即拉取该会话子代理子树的目录（label 描述符），菜单行显示名
-      // 会随 onDidChange 重推时更新；首次attach时可能还没到，先走 title/id 回退。
-      this.subagents.ensure(controller.sessionId, this.store.rawList())
+  /** 当前活动的 chat tab（panel.active），无则 null。 */
+  private activeTab(): ChatTab | null {
+    for (const tab of this.tabs.values()) {
+      if (tab.panel?.active) return tab
     }
-    this.lastSessionTitle = controller?.getState().sessionTitle
-    this.push(controller?.getState() ?? this.emptyState())
+    return null
+  }
+
+  /** 活动 tab 变化后重算高亮并通知侧栏（tab 聚焦/关闭/重建时调用）。 */
+  private recomputeActive(): void {
+    const active = this.activeTab()
+    // lastActiveSessionId 只认「活动过」（含服务 down 时 controller 已释放
+    // 但 tab 还开着的情况）——重启恢复、发送文件回退都靠它。
+    if (active?.sessionId) this.lastActiveSessionId = active.sessionId
+    // 高亮值要求 controller 在（服务 down 时回落 null）。
+    this.activeEmitter.fire(active?.controller ? active.sessionId : null)
+    this.pushSessions()
+  }
+
+  /** 新建一个 tab（panel 骨架 + 消息/视图状态订阅）；随后通常 attachController。 */
+  private createTab(sessionId: string | null): ChatTab {
+    const panel = vscode.window.createWebviewPanel(
+      'dshOne.chatPanel',
+      'DSH One',
+      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+      {
+        enableScripts: true,
+        localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')],
+        // 保留隐藏时的 webview 上下文：tab 切走再切回不重载页面，聊天内容、
+        // 草稿、滚动位置原样保留（与 dshOne.tab 的 openInTab 对齐）。即使
+        // 极端情况下仍被重载，webview 的 ready 报到也会让宿主重推状态。
+        retainContextWhenHidden: true,
+      },
+    )
+    // tab 图标用 dsh 官方品牌图标（assets/dsh-favicon.svg，拷自已安装的
+    // @deepseek-ai/dsh-web-frontend/dist/favicon.svg；iconPath 是宿主层行为，
+    // 无需把 assets 加进 localResourceRoots）。
+    panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'assets', 'dsh-favicon.svg')
+    panel.webview.html = chatHtml(panel.webview, this.extensionUri)
+    const tab: ChatTab = {
+      sessionId,
+      panel,
+      controller: null,
+      controllerSub: null,
+      msgSub: null,
+      viewStateSub: null,
+      lastSessionTitle: undefined,
+      pendingStagedFiles: [],
+      pendingStagedImages: [],
+    }
+    // 消息按 tab 路由：闭包捕获本 tab，动作落在它的 controller 上，回复
+    // 都 post 回本 tab 的 webview（互不串台）。
+    tab.msgSub = panel.webview.onDidReceiveMessage((m: FromWebviewMessage) => void this.onMessage(tab, m))
+    // 活动 tab 检测：聚焦/失焦都重算高亮（侧栏跟随活动编辑器）。
+    tab.viewStateSub = panel.onDidChangeViewState(() => this.recomputeActive())
+    panel.onDidDispose(() => {
+      // 用户关闭 tab：panel 侧订阅随 panel 自动清理，引用置空；controller
+      // 保留——pending 交互兜底再拉出、重开即复用都依赖它（与单面板时代
+      // 一致）。activeSessionId 由 recomputeActive 重算，侧栏高亮跟随。
+      if (this.tabs.get(tab.sessionId ?? ChatViewProvider.EMPTY_TAB_KEY) === tab) {
+        tab.panel = null
+        tab.msgSub = null
+        tab.viewStateSub = null
+      }
+      this.recomputeActive()
+    })
+    this.tabs.set(sessionId ?? ChatViewProvider.EMPTY_TAB_KEY, tab)
+    this.push(tab, this.emptyState())
+    this.syncPanelTitle(tab)
+    this.pushSessions()
+    return tab
+  }
+
+  /** 给已有 tab 附着（或重建）controller（首次打开、服务重启恢复共用）。 */
+  private attachController(tab: ChatTab, sessionId: string): void {
+    const status = this.manager.getStatus()
+    const url = status.state === 'running' && status.url ? status.url : null
+    if (!url) return
+    if (tab.controller) {
+      // 已附着：可能还差 push 初始状态（tab 骨架刚建时 controller 为 null，
+      // 不会走到这里；走到说明重复调用，幂等处理）。
+      return
+    }
+    const controller = new ChatSessionController(url, sessionId, this.logger)
+    tab.sessionId = sessionId
+    tab.controller = controller
+    // 附着即取一次服务端 running 位（基线未覆盖时为 undefined，controller
+    // 内部回退 mux 折叠值）；之后随 store 变更中继。
+    controller.setServerRunning(this.store.runningFor(sessionId))
+    tab.controllerSub = controller.onDidChange((state) => {
+      this.push(tab, state)
+      // 兜底：tab 被用户关闭但有 pending 交互（审批/问题/计划评审）时自动
+      // 再拉出该会话的 tab，避免交互被静默吞掉（per-session）。
+      if (state.pending.length > 0 && !tab.panel) this.ensurePanel(tab)
+      // dsh 自动命名经会话内的 title 投影到达，host 事件流没有对应事件，
+      // sessions 面板不会自己刷新——标题变化时主动重拉一次基线，并同步
+      // 编辑器 tab 标题（标题投影即 tab 标题源，含用户重命名）。
+      if (state.sessionTitle !== tab.lastSessionTitle) {
+        tab.lastSessionTitle = state.sessionTitle
+        void this.store.refresh()
+        this.syncPanelTitle(tab)
+      }
+    })
+    // 附着即拉取该会话子代理子树的目录（label 描述符），菜单行显示名会随
+    // onDidChange 重推时更新；首次 attach 时可能还没到，先走 title/id 回退。
+    this.subagents.ensure(sessionId, this.store.rawList())
+    tab.lastSessionTitle = controller.getState().sessionTitle
+    this.push(tab, controller.getState())
     // tab 标题随附着会话同步（含空态回落「DSH One」；标题投影的后续更新由
     // controller.onDidChange 里的 syncPanelTitle 跟进）。
-    this.syncPanelTitle()
-    // 附着会话切换后重投一次暂存附件（state 先到，webview 的 stagedForSession
-    // 已更新，filesPicked 不会被当旧会话的附件丢弃）。
-    this.flushStaged()
+    this.syncPanelTitle(tab)
+  }
+
+  /** 用户关闭 tab 后 pending 交互到来：重建该 tab 的 panel（复用 controller）。 */
+  private ensurePanel(tab: ChatTab): void {
+    if (tab.panel) return
+    const panel = vscode.window.createWebviewPanel(
+      'dshOne.chatPanel',
+      tab.sessionId ? `会话 ${tab.sessionId.slice(0, 8)}` : 'DSH One',
+      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+      {
+        enableScripts: true,
+        localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')],
+        retainContextWhenHidden: true,
+      },
+    )
+    panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'assets', 'dsh-favicon.svg')
+    panel.webview.html = chatHtml(panel.webview, this.extensionUri)
+    tab.panel = panel
+    tab.msgSub = panel.webview.onDidReceiveMessage((m: FromWebviewMessage) => void this.onMessage(tab, m))
+    tab.viewStateSub = panel.onDidChangeViewState(() => this.recomputeActive())
+    panel.onDidDispose(() => {
+      if (this.tabs.get(tab.sessionId ?? ChatViewProvider.EMPTY_TAB_KEY) === tab) {
+        tab.panel = null
+        tab.msgSub = null
+        tab.viewStateSub = null
+      }
+      this.recomputeActive()
+    })
+    this.push(tab, tab.controller?.getState() ?? this.emptyState())
+    this.syncPanelTitle(tab)
+    this.pushSessions()
+    this.revealTab(tab)
+  }
+
+  /** 聚焦一个 tab 并同步活动高亮。 */
+  private revealTab(tab: ChatTab): void {
+    tab.panel?.reveal()
+    // reveal 会触发 onDidChangeViewState；未触发时（已活动/无焦点变化）兜底。
+    this.recomputeActive()
+  }
+
+  /** 释放一个 tab 的全部资源（panel + controller + 订阅），从 map 移除。 */
+  private disposeTab(tab: ChatTab): void {
+    tab.controllerSub?.dispose()
+    tab.controllerSub = null
+    tab.controller?.dispose()
+    tab.controller = null
+    const panel = tab.panel
+    tab.panel = null
+    tab.msgSub = null
+    tab.viewStateSub = null
+    const key = tab.sessionId ?? ChatViewProvider.EMPTY_TAB_KEY
+    if (this.tabs.get(key) === tab) this.tabs.delete(key)
+    panel?.dispose()
+  }
+
+  /** 服务 down / 重启：释放所有 controller（panel 保留显示空态，等待恢复）。 */
+  private detachAllControllers(): void {
+    for (const tab of this.tabs.values()) {
+      tab.controllerSub?.dispose()
+      tab.controllerSub = null
+      tab.controller?.dispose()
+      tab.controller = null
+      this.push(tab, this.emptyState())
+      this.syncPanelTitle(tab)
+    }
+    this.recomputeActive()
   }
 
   private onServerState(status: ServerStatus): void {
-    // Server down → empty state; restarted under a new URL → the old
-    // controller talks to a dead server, drop it too.
     if (status.state !== 'running' || !status.url) {
-      this.attach(null)
-    } else if (this.controller && this.controller.url !== status.url) {
-      this.attach(null)
+      // Server down → 全部空态；旧 controller 全释放。
+      this.detachAllControllers()
+      this.lastUrl = null
+    } else if (this.lastUrl !== status.url) {
+      // 新服务（首次启动或重启，url 变化）：旧 controller 全释放，重启场景
+      // 记住最近活动的会话，等 store 基线刷新确认后只恢复它（任务范围：
+      // 「可先只恢复活动的」）。
+      this.lastUrl = status.url
+      const prevActive = this.lastActiveSessionId
+      this.detachAllControllers()
+      if (prevActive) this.pendingRestoreSessionId = prevActive
     }
     // 面板空态依赖 serverState/dshNotFound，状态变化时同步推一次。
     this.pushSessions()
   }
 
-  private push(state: ChatState): void {
-    const message: ToWebviewMessage = { type: 'state', state: this.composeHeader(state) }
-    void this.panel?.webview.postMessage(message)
+  private push(tab: ChatTab, state: ChatState): void {
+    const message: ToWebviewMessage = { type: 'state', state: this.composeHeader(state, tab) }
+    void tab.panel?.webview.postMessage(message)
   }
 
   /**
@@ -1410,10 +1590,10 @@ export class ChatViewProvider implements vscode.Disposable {
    * controller 的 title 投影到达）。会话未命名时以「会话 <ID 前 8 位>」兜底，
    * 无会话空态回落「DSH One」。面板已销毁（panel 为 null）时跳过，不写悬空引用。
    */
-  private syncPanelTitle(): void {
-    if (!this.panel) return
-    const state = this.controller?.getState()
-    this.panel.title = !state?.sessionId
+  private syncPanelTitle(tab: ChatTab): void {
+    if (!tab.panel) return
+    const state = tab.controller?.getState()
+    tab.panel.title = !state?.sessionId
       ? 'DSH One'
       : state.sessionTitle ?? `会话 ${state.sessionId.slice(0, 8)}`
   }
@@ -1434,7 +1614,7 @@ export class ChatViewProvider implements vscode.Disposable {
    * 回父会话，对齐官方 dsh web 的子代理进入逻辑）。字段为空时都缺省，
    * webview 不渲染。
    */
-  private composeHeader(state: ChatState): ChatState {
+  private composeHeader(state: ChatState, tab: ChatTab): ChatState {
     if (!state.sessionId) return state
     const raw = this.store.rawList()
     // 血缘树：直接子代理为顶层项，每项的 children 递归挂各自后代
@@ -1456,10 +1636,10 @@ export class ChatViewProvider implements vscode.Disposable {
       : undefined
     const presetId = self?.agentPreset
     const presetLabel =
-      !state.agentPreset && presetId !== undefined ? this.controller?.agentPresetLabelFor(presetId) : undefined
+      !state.agentPreset && presetId !== undefined ? tab.controller?.agentPresetLabelFor(presetId) : undefined
     const presetDescription =
       !state.agentPreset && presetId !== undefined
-        ? this.controller?.agentPresetDescriptionFor(presetId)
+        ? tab.controller?.agentPresetDescriptionFor(presetId)
         : undefined
     return {
       ...state,
@@ -1472,7 +1652,7 @@ export class ChatViewProvider implements vscode.Disposable {
     }
   }
 
-  /** Store 快照 + 服务状态，合成面板用的 SessionsSnapshot。 */
+  /** Store 快照 + 服务状态，合成面板用的 SessionsSnapshot（推给所有打开的 tab）。 */
   private pushSessions(): void {
     const status = this.manager.getStatus()
     const snapshot: SessionsSnapshot = {
@@ -1483,15 +1663,17 @@ export class ChatViewProvider implements vscode.Disposable {
       attachedSessionId: this.attachedSessionId,
     }
     const message: ToWebviewMessage = { type: 'sessions', snapshot }
-    void this.panel?.webview.postMessage(message)
+    for (const tab of this.tabs.values()) {
+      void tab.panel?.webview.postMessage(message)
+    }
   }
 
-  private async onMessage(m: FromWebviewMessage): Promise<void> {
+  private async onMessage(tab: ChatTab, m: FromWebviewMessage): Promise<void> {
     // Webview 重载后（tab 切走再切回时 VSCode 重新加载面板内容）报到：立即重推
     // 当前 ChatState 与 sessions 快照，恢复界面。不能依赖事件驱动推送——重载
     // 后若无新事件，webview 会一直收不到状态。
     if (m?.type === 'ready') {
-      this.push(this.controller?.getState() ?? this.emptyState())
+      this.push(tab, tab.controller?.getState() ?? this.emptyState())
       this.pushSessions()
       return
     }
@@ -1524,16 +1706,15 @@ export class ChatViewProvider implements vscode.Disposable {
       }
       return
     }
-    // 子代理下拉名称 / 会话 @ 引用 chip 点击：打开（或揭示）editor 面板并附着
-    // 该会话。拆分时此分支被丢（原合并 webview 里切换到会话），补回——不依赖
-    // 当前 controller，故放在 controller 判定之前。
+    // 子代理下拉名称 / 会话 @ 引用 chip 点击：打开（或揭示）该会话的 tab。
+    // 不依赖当前 tab 的 controller，故放在 controller 判定之前。
     if (m?.type === 'sessionOpen' && typeof m.sessionId === 'string') {
       this.openSession(m.sessionId)
       return
     }
     // 拆分后会话列表为原生 tree，webview（editor 面板）不再发送 sessions 面板
-    // 消息；其余全部落在 controller 上。
-    const controller = this.controller
+    // 消息；其余全部落在本 tab 的 controller 上。
+    const controller = tab.controller
     if (!controller || !m || typeof m.type !== 'string') return
     try {
       switch (m.type) {
@@ -1544,7 +1725,7 @@ export class ChatViewProvider implements vscode.Disposable {
           // Slash commands route to runCommand; pasted absolute paths like
           // /Users/… are prompts for the model, not commands.
           if (looksLikeSlashCommand(text)) {
-            await this.runCommand(controller, text, images)
+            await this.runCommand(tab, controller, text, images)
             return
           }
           await controller.send(text, images, m.steer === true)
@@ -1554,7 +1735,7 @@ export class ChatViewProvider implements vscode.Disposable {
           const restored = await controller.stop()
           if (restored.length > 0) {
             const message: ToWebviewMessage = { type: 'restoreDraft', text: restored.join('\n') }
-            void this.panel?.webview.postMessage(message)
+            void tab.panel?.webview.postMessage(message)
           }
           return
         }
@@ -1565,23 +1746,23 @@ export class ChatViewProvider implements vscode.Disposable {
           await controller.answerQuestion(m.rpcId, m.answers)
           return
         case 'pickFiles':
-          await this.pickFiles(controller)
+          await this.pickFiles(tab, controller)
           return
         case 'filesPasted':
-          await this.stagePastedFiles(controller, Array.isArray(m.files) ? m.files : [])
+          await this.stagePastedFiles(tab, controller, Array.isArray(m.files) ? m.files : [])
           return
         case 'requestModels':
-          await this.sendModelCatalog(controller)
+          await this.sendModelCatalog(tab, controller)
           return
         case 'setModel':
-          await this.applyModelSelection(controller, {
+          await this.applyModelSelection(tab, controller, {
             provider: m.provider,
             model: m.model,
             reasoningEffort: m.reasoningEffort,
           })
           return
         case 'setPermission':
-          await this.setPermission(controller, m.value)
+          await this.setPermission(tab, controller, m.value)
           return
         case 'setAgentPreset': {
           // 失败（尤其 agent-preset-locked：会话已开跑）只记日志，不打扰用户。
@@ -1605,7 +1786,7 @@ export class ChatViewProvider implements vscode.Disposable {
             this.logger.warn(`chat: fileRefList(${JSON.stringify(m.query)}) failed — ${err instanceof Error ? err.message : err}`)
           }
           const message: ToWebviewMessage = { type: 'fileRefList', requestId: m.requestId, items }
-          void this.panel?.webview.postMessage(message)
+          void tab.panel?.webview.postMessage(message)
           return
         }
         case 'queueEdit':
@@ -1618,7 +1799,7 @@ export class ChatViewProvider implements vscode.Disposable {
           await controller.removeQueued(m.itemId)
           return
         case 'requestAttachment':
-          await this.sendAttachment(controller, m.attachmentId)
+          await this.sendAttachment(tab, controller, m.attachmentId)
           return
         case 'feedback':
           await controller.rateMessage(m.messageId, m.rating)
@@ -1637,8 +1818,8 @@ export class ChatViewProvider implements vscode.Disposable {
     }
   }
 
-  /** Fetch the session's model catalog and push it to the webview's model menu. */
-  private async sendModelCatalog(controller: ChatSessionController): Promise<void> {
+  /** Fetch the session's model catalog and push it to the tab's model menu. */
+  private async sendModelCatalog(tab: ChatTab, controller: ChatSessionController): Promise<void> {
     try {
       const models = await sessionModels(controller.url, controller.sessionId)
       const message: ToWebviewMessage = {
@@ -1658,20 +1839,20 @@ export class ChatViewProvider implements vscode.Disposable {
           })),
         },
       }
-      void this.panel?.webview.postMessage(message)
+      void tab.panel?.webview.postMessage(message)
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       vscode.window.showErrorMessage(`获取模型列表失败：${detail}`)
     }
   }
 
-  /** Fetch one attachment's bytes and push them to the webview for inline rendering. */
-  private async sendAttachment(controller: ChatSessionController, attachmentId: string): Promise<void> {
+  /** Fetch one attachment's bytes and push them to the tab for inline rendering. */
+  private async sendAttachment(tab: ChatTab, controller: ChatSessionController, attachmentId: string): Promise<void> {
     if (typeof attachmentId !== 'string' || !attachmentId) return
     try {
       const { mediaType, data } = await sessionAttachment(controller.url, controller.sessionId, attachmentId)
       const message: ToWebviewMessage = { type: 'attachmentData', attachmentId, mediaType, data }
-      void this.panel?.webview.postMessage(message)
+      void tab.panel?.webview.postMessage(message)
     } catch (err) {
       // Thumbnail stays a placeholder; not worth an error popup.
       const detail = err instanceof Error ? err.message : String(err)
@@ -1680,6 +1861,7 @@ export class ChatViewProvider implements vscode.Disposable {
   }
 
   private async applyModelSelection(
+    tab: ChatTab,
     controller: ChatSessionController,
     selection: SessionModelSelection,
   ): Promise<void> {
@@ -1702,7 +1884,7 @@ export class ChatViewProvider implements vscode.Disposable {
    * confirmation first. The resulting permission/preset event refreshes the
    * footer pill through the permissions projection push.
    */
-  private async setPermission(controller: ChatSessionController, value: string): Promise<void> {
+  private async setPermission(tab: ChatTab, controller: ChatSessionController, value: string): Promise<void> {
     if (value === 'danger-full-access') {
       const confirm = await vscode.window.showWarningMessage(
         '确认启用 Full access？启用后 agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。',
@@ -1711,7 +1893,7 @@ export class ChatViewProvider implements vscode.Disposable {
       )
       if (!confirm) return
     }
-    await this.runCommand(controller, `/permission ${value}`)
+    await this.runCommand(tab, controller, `/permission ${value}`)
   }
 
   /**
@@ -1746,6 +1928,7 @@ export class ChatViewProvider implements vscode.Disposable {
    * host-side — gets a composer notice here.
    */
   private async runCommand(
+    tab: ChatTab,
     controller: ChatSessionController,
     line: string,
     images?: OutgoingImage[],
@@ -1753,7 +1936,7 @@ export class ChatViewProvider implements vscode.Disposable {
     const outcome = await executeCommand(controller.url, controller.sessionId, line, images)
     if (!outcome.matched) {
       const message: ToWebviewMessage = { type: 'commandResult', text: `未知或格式错误的命令：${line}` }
-      void this.panel?.webview.postMessage(message)
+      void tab.panel?.webview.postMessage(message)
       return
     }
     // `/export` only marks the request host-side ("Session log download
@@ -1786,16 +1969,17 @@ export class ChatViewProvider implements vscode.Disposable {
     }
   }
 
-  /** Fork the session at a completed turn, then switch the view to the child session. */
+  /** Fork the session at a completed turn, then open the child session in a new tab. */
   private async forkAt(controller: ChatSessionController, atSeq: number): Promise<void> {
     try {
       const childId = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: '正在创建分支会话…' },
         () => controller.fork(atSeq),
       )
-      // The tree learns about the child via this hook; the chat switches over.
+      // The tree learns about the child via this hook; the chat opens a new
+      // tab for it (用户决策：fork 后新开 tab，原会话 tab 保留便于对照).
       this.onSessionsChanged?.()
-      this.setSession(childId)
+      this.openSession(childId)
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       vscode.window.showErrorMessage(`创建分支会话失败：${detail}`)
@@ -1820,7 +2004,7 @@ export class ChatViewProvider implements vscode.Disposable {
    * validator; any other file already lives on disk, so it is staged as a
    * path chip (no temp copy needed).
    */
-  private async pickFiles(controller: ChatSessionController): Promise<void> {
+  private async pickFiles(tab: ChatTab, controller: ChatSessionController): Promise<void> {
     const uris = await vscode.window.showOpenDialog({
       canSelectMany: true,
       openLabel: '添加附件',
@@ -1847,13 +2031,13 @@ export class ChatViewProvider implements vscode.Disposable {
       }
       images.push({ mediaType, data: Buffer.from(data).toString('base64'), name })
     }
-    this.stageImages(controller, images, skipped)
+    this.stageImages(tab, controller, images, skipped)
     if (paths.length > 0) {
       const message: ToWebviewMessage = {
         type: 'filesPicked',
         files: paths.map((p) => ({ name: path.basename(p), path: p })),
       }
-      void this.panel?.webview.postMessage(message)
+      void tab.panel?.webview.postMessage(message)
     }
   }
 
@@ -1863,7 +2047,7 @@ export class ChatViewProvider implements vscode.Disposable {
    * limit validation as the picker; anything else is written to a temp file
    * and staged as a path chip for the agent to read.
    */
-  private async stagePastedFiles(controller: ChatSessionController, files: OutgoingImage[]): Promise<void> {
+  private async stagePastedFiles(tab: ChatTab, controller: ChatSessionController, files: OutgoingImage[]): Promise<void> {
     if (files.length === 0) return
     const images: OutgoingImage[] = []
     const staged: Array<{ name: string; path: string }> = []
@@ -1885,10 +2069,10 @@ export class ChatViewProvider implements vscode.Disposable {
     if (skipped.length > 0) {
       vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
     }
-    this.stageImages(controller, images)
+    this.stageImages(tab, controller, images)
     if (staged.length > 0) {
       const message: ToWebviewMessage = { type: 'filesPicked', files: staged }
-      void this.panel?.webview.postMessage(message)
+      void tab.panel?.webview.postMessage(message)
     }
   }
 
@@ -1941,8 +2125,8 @@ export class ChatViewProvider implements vscode.Disposable {
     return accepted
   }
 
-  /** Validate then post accepted images back to the webview (picker/paste path). */
-  private stageImages(controller: ChatSessionController, images: OutgoingImage[], skipped: string[] = []): void {
+  /** Validate then post accepted images back to the tab's webview (picker/paste path). */
+  private stageImages(tab: ChatTab, controller: ChatSessionController, images: OutgoingImage[], skipped: string[] = []): void {
     if (images.length === 0 && skipped.length === 0) return
     const accepted = this.validateImages(controller, images, skipped)
     if (skipped.length > 0) {
@@ -1950,38 +2134,38 @@ export class ChatViewProvider implements vscode.Disposable {
     }
     if (accepted.length > 0) {
       const message: ToWebviewMessage = { type: 'imagesPicked', images: accepted }
-      void this.panel?.webview.postMessage(message)
+      void tab.panel?.webview.postMessage(message)
     }
   }
 
   /**
-   * 把暂存的附件投给 webview 的 composer（等同点「添加附件」）。视图还没
-   * 解析或没有附着会话时留在队列，等 openPanel / attach 重投；
+   * 把暂存的附件投给 tab 的 webview composer（等同点「添加附件」）。视图还没
+   * 解析或没有附着会话时留在队列，等 tab 打开 / 重新附着时重投；
    * 有面板却没有会话可挂时清空队列（附件无处可去）。
    */
-  private flushStaged(): void {
-    if (!this.panel) return
-    if (!this.controller) {
-      this.pendingStagedFiles = []
-      this.pendingStagedImages = []
+  private flushStaged(tab: ChatTab): void {
+    if (!tab.panel) return
+    if (!tab.controller) {
+      tab.pendingStagedFiles = []
+      tab.pendingStagedImages = []
       return
     }
-    if (this.pendingStagedImages.length > 0) {
-      const message: ToWebviewMessage = { type: 'imagesPicked', images: this.pendingStagedImages }
-      void this.panel.webview.postMessage(message)
-      this.pendingStagedImages = []
+    if (tab.pendingStagedImages.length > 0) {
+      const message: ToWebviewMessage = { type: 'imagesPicked', images: tab.pendingStagedImages }
+      void tab.panel.webview.postMessage(message)
+      tab.pendingStagedImages = []
     }
-    if (this.pendingStagedFiles.length > 0) {
-      const message: ToWebviewMessage = { type: 'filesPicked', files: this.pendingStagedFiles }
-      void this.panel.webview.postMessage(message)
-      this.pendingStagedFiles = []
+    if (tab.pendingStagedFiles.length > 0) {
+      const message: ToWebviewMessage = { type: 'filesPicked', files: tab.pendingStagedFiles }
+      void tab.panel.webview.postMessage(message)
+      tab.pendingStagedFiles = []
     }
   }
 
   /**
-   * 右键「发送到当前会话」：把当前文件作为附件暂存到当前活跃会话的
-   * composer，与点「添加附件」等价。无附着会话时自动附着当前 workspace
-   * 最新的会话，一个都没有则新建；图片走图片附件（缩略图 + 限额校验），
+   * 右键「发送到当前会话」：把当前文件作为附件暂存到**当前活动 chat tab**
+   * 的 composer，与点「添加附件」等价。无活动 tab 时自动打开当前 workspace
+   * 最新的会话 tab，一个都没有则新建；图片走图片附件（缩略图 + 限额校验），
    * 其他文件以路径 chip 暂存，发送时拼进 prompt 让 agent 自己读。
    */
   async attachFileToSession(arg: unknown): Promise<void> {
@@ -2002,14 +2186,21 @@ export class ChatViewProvider implements vscode.Disposable {
       vscode.window.showErrorMessage('DSH 服务未就绪，无法发送文件。')
       return
     }
-    // 无附着会话：自动附着当前 workspace 最新的会话；没有则新建一个。
-    if (!this.currentSessionId) {
-      const sessionId = this.store.latestCurrentSessionId() ?? (await this.ensureNewSession())
-      if (!sessionId) return
-      this.setSession(sessionId)
+    // 目标 = 当前活动 chat tab；焦点不在 chat tab（如正在看文件）时回退到
+    // 最近活动过的会话 tab；都没有 → 最新会话 tab，没有则新建一个。
+    let targetId = this.activeTab()?.sessionId ?? null
+    if (!targetId && this.lastActiveSessionId && this.tabs.has(this.lastActiveSessionId)) {
+      targetId = this.lastActiveSessionId
     }
-    const controller = this.controller
-    if (!controller) return
+    if (!targetId) {
+      targetId = this.store.latestCurrentSessionId() ?? (await this.ensureNewSession())
+      if (!targetId) return
+    }
+    // 已开 → 聚焦；用户关过 → 重建 tab；没开过 → 新建。总让 tab 出现。
+    this.openSession(targetId)
+    const tab = this.tabs.get(targetId)
+    const controller = tab?.controller
+    if (!tab || !controller) return
     const name = path.basename(fsPath)
     const mediaType = IMAGE_MEDIA_TYPES[path.extname(fsPath).toLowerCase()]
     if (mediaType) {
@@ -2026,13 +2217,13 @@ export class ChatViewProvider implements vscode.Disposable {
         vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
         return
       }
-      this.pendingStagedImages.push(...accepted)
+      tab.pendingStagedImages.push(...accepted)
     } else {
-      this.pendingStagedFiles.push({ name, path: fsPath })
+      tab.pendingStagedFiles.push({ name, path: fsPath })
     }
-    // 右键「发送到当前会话」：无打开的面板也要顶上去（先开 editor 面板再投附件）。
-    this.openPanel()
-    this.flushStaged()
+    // 右键「发送到当前会话」：tab 已开则聚焦（reveal），未开刚建。
+    this.revealTab(tab)
+    this.flushStaged(tab)
   }
 
   /**
@@ -2064,9 +2255,12 @@ export class ChatViewProvider implements vscode.Disposable {
     this.jobs.dispose()
     this.subagentsSub.dispose()
     this.subagents.dispose()
-    this.controllerSub?.dispose()
-    this.controller?.dispose()
-    this.controller = null
+    for (const tab of [...this.tabs.values()]) {
+      tab.controllerSub?.dispose()
+      tab.controller?.dispose()
+      tab.panel?.dispose()
+    }
+    this.tabs.clear()
     this.activeEmitter.dispose()
   }
 }

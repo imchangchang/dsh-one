@@ -294,9 +294,9 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
     private readonly logger: Logger,
     private readonly extensionUri: vscode.Uri,
     private readonly store: SessionsStore,
-    /** 高亮会话 id（附着的、或懒加载待附着目标），来自 editor 面板。 */
+    /** 高亮会话 id（当前活动 chat tab 的会话，无活动 tab 为 null），来自 editor tabs。 */
     private readonly getActiveSessionId: () => string | null,
-    /** editor 面板真实附着的会话 id（面板未开为 null），行内重命名判定用。 */
+    /** 当前活动 chat tab 真实附着的会话 id（活动 tab 未开为 null），行内重命名判定用。 */
     private readonly getAttachedSessionId: () => string | null,
     activeChanged: vscode.Event<string | null>,
   ) {
