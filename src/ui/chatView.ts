@@ -1567,6 +1567,9 @@ export class ChatViewProvider implements vscode.Disposable {
   ): Promise<void> {
     try {
       await selectModel(controller.url, controller.sessionId, selection)
+      // 切模型后立即重算 contextBar 的窗口：用新模型窗口覆写 contextPressure，
+      // 不等下一条消息（否则会停留在旧模型窗口直到发消息）。
+      controller.applyModelSwitch(selection)
       await controller.refreshModels()
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)

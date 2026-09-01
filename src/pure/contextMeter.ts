@@ -24,6 +24,23 @@ export interface MeterEstimate {
 export const WARN_TURNS = 10
 export const DANGER_TURNS = 5
 
+/** Loose mirror of the `contextPressure` projection value (dsh-token-meter). */
+export interface ContextPressureLike {
+  pressureTokens?: number
+  projectedTokens?: number
+  contextWindow?: number
+}
+
+/**
+ * 切换模型后立即用新模型窗口重算压力值：只覆写 `contextWindow`，保留
+ * 分子（pressureTokens/projectedTokens，与模型无关）。contextBar 的
+ * percent/分级（`meterLevel`）随后按新窗口算出——若已用量超新窗口，
+ * `meterLevel` 直接进 `overflow`，panel 的红色提示自动生效。
+ */
+export function pressureWithContextWindow(pressure: ContextPressureLike, contextWindow: number): ContextPressureLike {
+  return { ...pressure, contextWindow }
+}
+
 export function meterLevel(used: number, window: number, turns: number | undefined): MeterEstimate {
   // 切到更小窗口的模型会让已用量超限：直接 overflow，不论轮数。
   if (window > 0 && used > window) return { level: 'overflow', perTurn: null, turnsLeft: null }

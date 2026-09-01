@@ -6,6 +6,7 @@ import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../p
 import { WorkflowRunFolder } from '../pure/workflowRun.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
 import type { SessionStatsLike } from '../pure/sessionStats.ts'
+import { pressureWithContextWindow } from '../pure/contextMeter.ts'
 import { subscribeMuxEvents } from './muxEvents.ts'
 import type { MuxFrame } from './muxEvents.ts'
 import {
@@ -22,7 +23,7 @@ import {
   sessionModels,
   updateQueue,
 } from './dshRpc.ts'
-import type { ImageLimits, SessionModels } from './dshRpc.ts'
+import type { ImageLimits, SessionModelSelection, SessionModels } from './dshRpc.ts'
 import { agentPresetDescription, agentPresetLabel, defaultAgentPresetId, resolveAgentPresets } from '../pure/agentPreset.ts'
 import type { AgentPresetOption } from '../pure/agentPreset.ts'
 import { extendWindowCursor, pageMeetsWindow, windowCursorOf } from '../pure/historyWindow.ts'
@@ -187,6 +188,34 @@ function asContextPressure(value: unknown): ContextPressureLike | null {
     if (v[k] !== undefined && typeof v[k] !== 'number') return null
   }
   return value as ContextPressureLike
+}
+
+/**
+ * 进程级 `provider/model → contextWindow` 学习映射。窗口的唯一可靠来源是
+ * 会话历史/实时流里的 `request/context` 事件（data = { provider, model,
+ * contextWindow }）；host 的 `session.models` 目录与 `selectModel` 响应都不带
+ * context，客户端无 RPC 可查。selectModel 成功后用它把
+ * `contextPressure.contextWindow` 覆写为新模型窗口，contextBar 立即可见。
+ */
+const MODEL_CONTEXT_WINDOW = new Map<string, number>()
+function modelContextWindowKey(provider: string, model: string): string {
+  return `${provider}/${model}`
+}
+function rememberModelContextWindow(event: SessionEventLike): void {
+  if (event.type !== 'request/context') return
+  const data = (event.data ?? {}) as Record<string, unknown>
+  const provider = data.provider
+  const model = data.model
+  const contextWindow = data.contextWindow
+  if (
+    typeof provider === 'string' &&
+    typeof model === 'string' &&
+    typeof contextWindow === 'number' &&
+    Number.isFinite(contextWindow) &&
+    contextWindow > 0
+  ) {
+    MODEL_CONTEXT_WINDOW.set(modelContextWindowKey(provider, model), contextWindow)
+  }
 }
 
 /** Narrow an unknown projection value to ContextBreakdownLike; null when malformed. */
@@ -367,6 +396,22 @@ export class ChatSessionController implements vscode.Disposable {
   }
 
   /**
+   * 切换模型成功后调用：立即用新模型窗口覆写 `contextPressure.contextWindow`，
+   * 让 contextBar 立刻重算（不再滞留在旧模型窗口直到下一条消息）。窗口取自
+   * 进程级 `request/context` 学习映射；映射里没有（目标模型从未被观察过）时
+   * 不覆写，保持旧窗口，待下一条消息的 `request/context` 补齐。超限显示走
+   * 现有 `meterLevel` 的 overflow 分支，无需另造 UI。
+   */
+  applyModelSwitch(selection: SessionModelSelection): void {
+    if (this.disposed) return
+    const contextWindow = MODEL_CONTEXT_WINDOW.get(modelContextWindowKey(selection.provider, selection.model))
+    if (contextWindow === undefined) return
+    if (!this.contextPressure || this.contextPressure.contextWindow === contextWindow) return
+    this.contextPressure = pressureWithContextWindow(this.contextPressure, contextWindow)
+    this.push(true)
+  }
+
+  /**
    * Stop the active turn and drain the queue. dsh's cancel deliberately
    * preserves pending inbox work (it resumes FIFO once cancellation
    * settles), so "stop" here also removes every queued prompt and returns
@@ -535,6 +580,8 @@ export class ChatSessionController implements vscode.Disposable {
     // Preset picker 的两个判定都来自会话日志：任何 turn/start = 已启动
     // （preset 锁定），最后一条 agent-preset/selected = 当前 preset。
     for (const entry of events) this.foldPresetMarkers(entry.event)
+    // 学习模型→窗口映射：历史里的 request/context 事件是客户端唯一可靠窗口来源。
+    for (const entry of events) rememberModelContextWindow(entry.event)
     // 窗口可能把全部 turn/start 切到界外（turn 跨页）：窗口里已有对话内容
     // （user/assistant 消息）同样说明会话早已开跑，preset 已锁定。
     if (this.folder.messages().some((m) => m.kind === 'user' || m.kind === 'assistant')) this.turnStarted = true
@@ -638,6 +685,7 @@ export class ChatSessionController implements vscode.Disposable {
     this.pendingLiveEvents = []
     for (const { event, view } of buffered) {
       this.foldPresetMarkers(event)
+      rememberModelContextWindow(event)
       this.workflowRuns.applyEvent(event)
       this.folder.applyEvent(event, view)
     }
@@ -783,6 +831,7 @@ export class ChatSessionController implements vscode.Disposable {
         // workflow 运行卡片（workflowChanged），同样触发补推。
         const presetAffecting = event.type === 'turn/start' || event.type === 'agent-preset/selected'
         this.foldPresetMarkers(event)
+        rememberModelContextWindow(event)
         const workflowChanged = this.workflowRuns.applyEvent(event)
         // Chunk deltas stream-throttle; every other event is structural.
         if (this.folder.applyEvent(event, view) || presetAffecting || workflowChanged) this.push(event.type !== 'assistant/chunk')
