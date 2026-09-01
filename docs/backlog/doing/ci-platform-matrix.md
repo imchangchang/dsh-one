@@ -28,3 +28,5 @@ dsh-one 的平台差异是真实存在的，但集中在 `src/server/` 的进程
 
 - `.github/workflows/ci.yml`
 - `src/server/locateDsh.ts`、`src/server/spawnDsh.ts`、`src/server/manager.ts`
+
+- 2026-09-01 认领（worktree: agent/ci-platform-matrix）→ doing

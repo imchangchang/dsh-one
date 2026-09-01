@@ -25,3 +25,5 @@ chat 在 editor WebviewPanel（拆分后）里打开后，tab 标题固定显示
 ## 规模
 
 小改动，单独一轮或随多 tab 条目一起做（见 multi-tab-chat-sessions）。
+
+- 2026-09-01 认领（worktree: agent/chat-tab-title-and-icon）→ doing

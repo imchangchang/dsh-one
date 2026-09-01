@@ -22,3 +22,5 @@
 
 - `src/ui/chat/webview.ts`（renderWorkflowRun / Header / Phase 的 click 接线、是否缺显式重渲染）
 - `src/pure/workflowRun.ts`（advanceWorkflowDisclosure 状态机，若需调整）
+
+- 2026-09-01 认领（worktree: agent/workflow-run-card-cannot-collapse）→ doing

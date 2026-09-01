@@ -28,3 +28,5 @@ dsh-one webview 里，@会话引用 chip（蓝色链接）和同一行后面的�
 
 - `src/ui/chatView.ts`（STYLE 中 `.session-mention` 规则）
 - `src/ui/chat/webview.ts`（`sessionMentionChip()`，图标在前文字在后的结构）
+
+- 2026-09-01 认领（worktree: agent/session-mention-baseline-offset）→ doing

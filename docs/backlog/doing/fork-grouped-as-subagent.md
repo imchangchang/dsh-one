@@ -45,3 +45,5 @@
 ## 变更记录
 
 - 2026-09-01 记录问题，核实根因 → open
+
+- 2026-09-01 认领（worktree: agent/fork-grouped-as-subagent）→ doing
