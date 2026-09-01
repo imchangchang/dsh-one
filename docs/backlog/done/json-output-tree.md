@@ -26,3 +26,9 @@ JSON 输出（工具输出等）用 JsonTree 逐节点展开：检测输出为 J
 - 2026-09-01 评审确认：做（用户标注）
 
 - 2026-09-01 认领（worktree: agent/json-output-tree）→ doing
+- 2026-09-01 完成开发（→ done）：工具输出（block.output）检测为 JSON 对象/数组时
+  渲染 JsonTree（对齐 dsh web 形态：箭头 toggle、逐级缩进、token 配色、根展开/嵌套收起
+  默认策略）；新增 src/pure/jsonTree.ts（保守检测 + 平铺行模型 + 默认展开）+ 15 单测；
+  webview 渲染 + chatView STYLE + gen-ui-harness 抽出；scenarios 加 json-output /
+  json-output-expand 两个 dark 视觉场景（后者模拟点箭头展开）。非 JSON 输出保持纯文本，
+  现有 conversation/tool 场景无回归。自测 typecheck/test/build 全绿。
