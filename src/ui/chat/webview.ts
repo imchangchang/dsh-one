@@ -55,6 +55,20 @@ import {
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { activeAtToken, formatFileMention, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
+import {
+  WORKFLOW_STATUS_TEXT,
+  advanceWorkflowDisclosure,
+  toggleWorkflowDisclosure,
+  workflowDotState,
+  workflowPhaseFacts,
+  workflowPhaseStatusSummary,
+  workflowRunFacts,
+  type WorkflowDisclosureState,
+  type WorkflowRunMemberView,
+  type WorkflowRunPhaseView,
+  type WorkflowRunStatus,
+  type WorkflowRunView,
+} from '../../pure/workflowRun.ts'
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
@@ -1194,10 +1208,12 @@ function render(): void {
   // the turn is still open. Never leave an interval pointing at detached DOM.
   clearTurnStatusTimer()
   // <details> 展开状态按会话隔离：换会话时清空（key 是位置序号，跨会话无意义）。
+  // workflow 卡片状态同样按会话隔离（runId 全局唯一但换会话仍清空，防泄漏）。
   const detailsSid = state?.sessionId ?? null
   if (detailsSid !== detailsSession) {
     detailsOpen.clear()
     detailsSession = detailsSid
+    workflowDisclosure.clear()
   }
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
   const hadFocus = oldInput !== null && document.activeElement === oldInput
@@ -1477,7 +1493,7 @@ function render(): void {
     olderWrap.appendChild(btn)
     messages.appendChild(olderWrap)
   }
-  state.messages.forEach((m, mi) => messages.appendChild(renderMessage(m, `m${mi}`)))
+  appendMessageFlow(messages, state)
   for (const notice of commandNotices) messages.appendChild(el('div', 'command-notice', notice))
   if (state.messages.length === 0 && steeringItems.length === 0) {
     messages.appendChild(el('div', 'muted-hint', '会话还没有消息，在下方输入开始。'))
@@ -2317,6 +2333,13 @@ function openLightbox(dataUrl: string): void {
 const detailsOpen = new Map<string, boolean>()
 let detailsSession: string | null = null
 
+/**
+ * workflow 运行卡片的展开/折叠状态，按 runId（run 级）/ `${runId}:${phase.key}`
+ * （phase 级）持久化——runId 跨分页稳定，loadEarlier 补页不会错位；与 detailsOpen
+ * 一样在换会话时清空。
+ */
+const workflowDisclosure = new Map<string, WorkflowDisclosureState>()
+
 /** <details> whose open state persists across re-renders under `key`. */
 function detailsEl(key: string, className: string, summaryText: string): HTMLDetailsElement {
   const det = el('details', className) as HTMLDetailsElement
@@ -2507,6 +2530,154 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
     row.appendChild(renderAssistantActions(m))
   }
   return row
+}
+
+/**
+ * 消息流渲染：workflow 运行卡片按 anchorSeq 插进聊天流（对齐官方把 durable
+ * workflow-run 节点放在 chat 流里的位置语义）。run 的全部事件都落在承载它的
+ * tool 卡所在 turn 内，assistant 消息的 seq 会随 turn 内事件涨到 ≥ anchorSeq，
+ * 所以「第一条 seq ≥ anchorSeq 的消息之后」就是该 run 的插位；没有配对消息
+ * （窗口起点切在 run 之后）时统一排在流尾。runs 已按 anchorSeq 升序。
+ */
+function appendMessageFlow(messages: HTMLElement, state: ChatState): void {
+  const runs = state.workflowRuns ?? []
+  let ri = 0
+  const emitThrough = (seq: number | undefined): void => {
+    if (seq === undefined) return
+    while (ri < runs.length && runs[ri].anchorSeq <= seq) {
+      messages.appendChild(renderWorkflowRun(runs[ri]))
+      ri += 1
+    }
+  }
+  state.messages.forEach((m, mi) => {
+    messages.appendChild(renderMessage(m, `m${mi}`))
+    emitThrough(m.kind === 'assistant' ? m.seq : undefined)
+  })
+  emitThrough(Number.POSITIVE_INFINITY)
+}
+
+/**
+ * workflow 运行卡片（对齐 dsh web WorkflowRunPanel）：run 级折叠行 + 展开后
+ * phase 列表，phase 再套一层折叠行展开出成员。展开/折叠由 facts 状态机驱动
+ * （见 src/pure/workflowRun.ts 的 advanceWorkflowDisclosure），用户手动 toggle
+ * 只在 facts 不变或运行中更新时保留。
+ */
+function renderWorkflowRun(run: WorkflowRunView): HTMLElement {
+  const root = el('div', 'workflow-run')
+  root.setAttribute('data-workflow-run', run.runId)
+  root.setAttribute('data-run-status', run.status)
+  const disp = advanceWorkflowDisclosure(workflowDisclosure.get(run.runId), workflowRunFacts(run))
+  workflowDisclosure.set(run.runId, disp)
+  root.appendChild(renderWorkflowRunHeader(run, disp))
+  if (!disp.open) return root
+  if (run.phases.length === 0) {
+    root.appendChild(el('div', 'workflow-empty', '没有启动成员'))
+    return root
+  }
+  const list = el('div', 'workflow-phase-list')
+  for (const phase of run.phases) list.appendChild(renderWorkflowPhase(run, phase))
+  root.appendChild(list)
+  return root
+}
+
+function workflowChevron(open: boolean): SVGSVGElement {
+  const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
+  chev.classList.add('workflow-chevron', open ? 'open' : 'collapsed')
+  return chev
+}
+
+/** Run 级折叠行：chevron + 名称；折叠态尾部 = 分隔点 · N 个成员 · 状态点+状态词。 */
+function renderWorkflowRunHeader(run: WorkflowRunView, disp: WorkflowDisclosureState): HTMLElement {
+  const row = el('button', 'workflow-run-header') as HTMLButtonElement
+  row.type = 'button'
+  row.setAttribute('aria-expanded', String(disp.open))
+  row.title = run.name
+  row.addEventListener('click', () => {
+    workflowDisclosure.set(run.runId, toggleWorkflowDisclosure(workflowDisclosure.get(run.runId) ?? disp))
+  })
+  row.appendChild(workflowChevron(disp.open))
+  row.appendChild(el('span', 'workflow-run-title', run.name))
+  if (!disp.open) {
+    row.appendChild(el('span', 'workflow-sep'))
+    row.appendChild(el('span', 'workflow-run-count', `${disp.activityCount} 个成员`))
+    row.appendChild(renderWorkflowStatusTail(run.status))
+  }
+  return row
+}
+
+/** 状态点 + 状态词（dsh web statusTail）。 */
+function renderWorkflowStatusTail(status: WorkflowRunStatus): HTMLElement {
+  const tail = el('span', 'workflow-status-tail')
+  tail.appendChild(workflowStateDot(status))
+  tail.appendChild(el('span', undefined, WORKFLOW_STATUS_TEXT[status]))
+  return tail
+}
+
+/** Phase 级折叠行：chevron + 阶段名；折叠态尾部 = N 个成员 + 聚合状态（运行中 2 · 已完成 1）。 */
+function renderWorkflowPhase(run: WorkflowRunView, phase: WorkflowRunPhaseView): HTMLElement {
+  const key = `${run.runId}:${phase.key}`
+  const section = el('div', 'workflow-phase')
+  const disp = advanceWorkflowDisclosure(workflowDisclosure.get(key), workflowPhaseFacts(phase))
+  workflowDisclosure.set(key, disp)
+  const header = el('button', 'workflow-phase-header') as HTMLButtonElement
+  header.type = 'button'
+  header.setAttribute('aria-expanded', String(disp.open))
+  header.addEventListener('click', () => {
+    workflowDisclosure.set(key, toggleWorkflowDisclosure(workflowDisclosure.get(key) ?? disp))
+  })
+  header.appendChild(workflowChevron(disp.open))
+  header.appendChild(el('span', 'workflow-phase-title', phase.phase ?? ''))
+  if (!disp.open) {
+    header.appendChild(el('span', 'workflow-sep'))
+    header.appendChild(el('span', 'workflow-phase-count', `${phase.members.length} 个成员`))
+    header.appendChild(el('span', 'workflow-phase-status', workflowPhaseStatusSummary(phase.members)))
+  }
+  section.appendChild(header)
+  if (disp.open) {
+    const list = el('div', 'workflow-members')
+    for (const m of phase.members) list.appendChild(renderWorkflowMember(m))
+    section.appendChild(list)
+  }
+  return section
+}
+
+/** 成员行：状态点槽 + 成员名 + 状态文字（dsh web MemberRow，纯展示）。 */
+function renderWorkflowMember(m: WorkflowRunMemberView): HTMLElement {
+  const row = el('div', 'workflow-member')
+  const slot = el('span', 'workflow-dot-slot')
+  slot.appendChild(workflowStateDot(m.status))
+  row.appendChild(slot)
+  row.appendChild(el('span', 'workflow-member-label', m.label || '空成员名'))
+  row.appendChild(el('span', 'workflow-member-status', WORKFLOW_STATUS_TEXT[m.status]))
+  return row
+}
+
+/** 状态徽标点（官方 StateDot）：running 是 4×4 扫描动画矩阵，终态是发光圆点。 */
+function workflowStateDot(status: WorkflowRunStatus): Node {
+  if (workflowDotState(status) === 'ongoing') return workflowMatrixDot()
+  const dot = el('span', 'workflow-dot')
+  dot.setAttribute('data-state', workflowDotState(status))
+  return dot
+}
+
+function workflowMatrixDot(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 10 10')
+  svg.classList.add('workflow-matrix')
+  let i = 0
+  for (let y = 0; y < 4; y++) {
+    for (let x = 0; x < 4; x++) {
+      const cell = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      cell.setAttribute('x', String(x * 2.5))
+      cell.setAttribute('y', String(y * 2.5))
+      cell.setAttribute('width', '1.5')
+      cell.setAttribute('height', '1.5')
+      cell.style.animationDelay = `${(i * 62.5).toFixed(1)}ms`
+      i += 1
+      svg.appendChild(cell)
+    }
+  }
+  return svg
 }
 
 /** Turn failure row, mirroring the official web client's TurnErrorItem. */
