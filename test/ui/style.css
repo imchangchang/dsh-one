@@ -948,6 +948,15 @@
   }
   .preset-item .check { align-self: center; }
   .preset-item .job-dot-slot { align-self: center; }
+  /* 空会话 hero 的 workspace 选择器：行标题省略号截断（悬停 tooltip 给完整
+     路径），footer 与主列表之间用分隔线（对齐官方 Menu footer）。 */
+  .workspace-item .workspace-item-label {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .workspace-picker-footer {
+    margin-top: 4px; padding-top: 4px;
+    border-top: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
+  }
   /* 子代理下拉的层级树（对齐 dsh web SubagentHeader 成员树）：每层嵌套容器
      左缩 16px + 4px 轨距，竖轨与横向支线用 VS Code 树缩进参考线色；末行
      竖轨半高收尾成 └。多层的祖辈竖轨随容器自然贯通。 */
