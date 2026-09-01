@@ -122,9 +122,26 @@ let scrollSession: string | null = null
  */
 let scrollIntentUntil = 0
 let scrollPointerDown = false
+/** settle 恢复 pin 的一次性定时器：意图窗口过期后重查一次贴底（见 noteUserScrollIntent）。 */
+let scrollSettleTimer: ReturnType<typeof setTimeout> | null = null
 
 function noteUserScrollIntent(): void {
   scrollIntentUntil = Date.now() + USER_SCROLL_INTENT_MS
+  // 意图窗口过后（动量/手势 settle）重查一次贴底：流式输出刚好在动量末尾停止、
+  // 无后续 render / 无后续 scroll 事件补 pin 时，视口会悬在离底几~几十像素处。
+  // 定时器在意图过期后再跑（无用户意图），仅当「仍跟随 + 已脱底」才补一次回底，
+  // 不干扰惯性、不碰读历史的位置。
+  if (scrollSettleTimer !== null) clearTimeout(scrollSettleTimer)
+  scrollSettleTimer = setTimeout(() => {
+    scrollSettleTimer = null
+    const messages = document.getElementById('messages')
+    if (!messages) return
+    if (!shouldPinNow(stickToBottom, userScrollIntentActive(), isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight))) return
+    messages.scrollTop = messages.scrollHeight
+    pinnedScrollTop = messages.scrollTop
+    const jump = messages.querySelector<HTMLElement>('.jump-latest')
+    if (jump) jump.style.display = 'none'
+  }, USER_SCROLL_INTENT_MS + 30)
 }
 
 function userScrollIntentActive(): boolean {
@@ -1778,6 +1795,15 @@ function render(): void {
       )
       const jump = messages.querySelector<HTMLElement>('.jump-latest')
       if (jump) jump.style.display = stickToBottom ? 'none' : ''
+      // settle 恢复 pin：意图不活跃且仍跟随且已脱底时，直接回底补一次 pin（写后更新
+      // 程序滚动锁，防下一帧把自己误判为用户滚离）。兜「动量末尾内容增长把视口拖离
+      // 尾部、流式又刚好在此结束、无后续 render 补 pin」的恢复空洞。条件安全：意图
+      // 活跃不干扰惯性；非跟随态（读历史）不碰历史位置。
+      if (shouldPinNow(stickToBottom, userScrollIntentActive(), isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight))) {
+        messages.scrollTop = messages.scrollHeight
+        pinnedScrollTop = messages.scrollTop
+        if (jump) jump.style.display = 'none'
+      }
       // 上翻到顶部附近时按需加载更早一页（按钮之外的第二触发路径）。
       if (messages.scrollTop < 80) maybeLoadEarlier()
     })
