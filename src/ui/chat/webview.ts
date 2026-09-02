@@ -748,14 +748,17 @@ function commitHashEl(sha: string): HTMLElement {
 
 /**
  * md 块渲染后扫描正文文本节点里的 commit hash 并替换为可点击 span。跳过代码块
- * （pre > code）、内联 code 与链接文本——hash 作为代码/链接内容时不联动（仅正文）。
+ * （pre）与链接文本——hash 作为代码块/链接内容时不联动；行内 code（反引号包裹）
+ * 里的 hash 也联动（用户反馈：markdown 表格/行内码里的 commit hash 期望可点）。
  */
 function decorateCommitHashes(container: HTMLElement): void {
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const parent = node.parentElement
       if (!parent) return NodeFilter.FILTER_REJECT
-      if (parent.closest('code, pre, a')) return NodeFilter.FILTER_REJECT
+      // 只跳过 pre（围栏/工具输出）与 a（链接文本）；行内 <code> 允许联动，
+      // hash 替换为 span 后 textContent 保持原样，不影响行内码外观。
+      if (parent.closest('pre, a')) return NodeFilter.FILTER_REJECT
       return NodeFilter.FILTER_ACCEPT
     },
   })
