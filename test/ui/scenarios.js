@@ -1183,6 +1183,23 @@
       title: '压缩摘要卡（独立卡 / 命令卡合并 / 不可展开）',
       expect: '消息流里出现三张压缩行：① 独立压缩卡（标题「上下文已压缩」+ 分隔点 + 摘要「已压缩 42 条历史记录（约 12340 tokens）」，行首 chevron 向右、整行可点展开摘要全文 markdown）；② 手动 /compact 卡同样形态但标题是「/compact」；③ 无摘要的退化卡是纯展示行（无 chevron、无点击态，摘要文字「压缩摘要不可用」）。三行都不渲染成用户气泡、不出现 checkpoint 原文。',
     },
+    'attachment-uniform': {
+      state: base({
+        messages: [
+          {
+            kind: 'user', id: rid('u'), text: '看看这两个附件。',
+            images: [{ attachmentId: 'img-1', mediaType: 'image/png', name: 'chart.png' }],
+            files: [{ name: 'README.md', path: '/Users/cgeng/Workspaces/dsh-one/README.md' }],
+          },
+          at('好的，图片和文件都看到了。'),
+        ],
+      }),
+      title: '附件框尺寸统一（输入区 + 已发送消息）',
+      expect: '已发送的用户消息气泡上方一行两个同尺寸方块：左边图片缩略图（红色实心图），右边文件框（文档图标在上、README.md 在下）；两框同宽同高、圆角一致、垂直对齐。输入区上方同样一行两个同尺寸方块：图片缩略图 + 文件框（README.md），与消息区的两框尺寸一致。文件框内文字不溢出框外（过长 ellipsis）。不应再出现横向长条 pill 形状的文件 chip。',
+      interact: `postMessage({ type:'attachmentData', attachmentId:'img-1', mediaType:'image/png', data:'${PNG_RED}' }, '*');
+postMessage({ type:'imagesPicked', images:[{ mediaType:'image/png', data:'${PNG_RED}', name:'photo.png' }] }, '*');
+postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/Workspaces/dsh-one/README.md' }] }, '*');`,
+    },
 
   }
 
@@ -1217,23 +1234,6 @@
     }),
     title: '消息级计时（操作栏行尾）',
     expect: '两条助手消息的操作栏（复制/👍/👎/分支图标）行尾出现计时文本：第一条「HH:MM · 用时 2分42秒 · 首 token 1.2秒 · 95 tok/s」，第二条「HH:MM · 用时 42秒 · 首 token 0.4秒」（第二条无 tok/s——usage 缺失不显示）；计时为次级灰色小字、nowrap 单行、与图标垂直居中、用 · 分隔；用户消息与未完成消息没有计时；分叉按钮仍在（seq 存在且未中断）。',
-  }
-  catalog['attachment-uniform'] = {
-    state: base({
-      messages: [
-        {
-          kind: 'user', id: rid('u'), text: '看看这两个附件。',
-          images: [{ attachmentId: 'img-1', mediaType: 'image/png', name: 'chart.png' }],
-          files: [{ name: 'README.md', path: '/Users/cgeng/Workspaces/dsh-one/README.md' }],
-        },
-        at('好的，图片和文件都看到了。'),
-      ],
-    }),
-    title: '附件框尺寸统一（输入区 + 已发送消息）',
-    expect: '已发送的用户消息气泡上方一行两个同尺寸方块：左边图片缩略图（红色实心图），右边文件框（文档图标在上、README.md 在下）；两框同宽同高、圆角一致、垂直对齐。输入区上方同样一行两个同尺寸方块：图片缩略图 + 文件框（README.md），与消息区的两框尺寸一致。文件框内文字不溢出框外（过长 ellipsis）。不应再出现横向长条 pill 形状的文件 chip。',
-    interact: `postMessage({ type:'attachmentData', attachmentId:'img-1', mediaType:'image/png', data:'${PNG_RED}' }, '*');
-postMessage({ type:'imagesPicked', images:[{ mediaType:'image/png', data:'${PNG_RED}', name:'photo.png' }] }, '*');
-postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/Workspaces/dsh-one/README.md' }] }, '*');`,
   }
 
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。

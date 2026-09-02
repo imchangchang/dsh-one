@@ -1155,7 +1155,7 @@
   .file-chip {
     position: relative;
     display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 2px; padding: 2px;
+    gap: 2px;
     width: 48px; height: 48px; flex: none;
     border-radius: 10px; overflow: hidden;
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
