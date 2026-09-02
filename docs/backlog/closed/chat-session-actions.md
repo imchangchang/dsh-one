@@ -37,3 +37,5 @@ chat 窗口（editor WebviewPanel，viewType `dshOne.chatPanel`）一个会话�
 - 2026-09-02 认领（本会话）→ doing
 
 - 2026-09-02 开发完成，自测通过（typecheck/test/build，336 tests）→ done
+
+- 2026-09-02 主线合入（merge 7a5214c）测试通过，人工确认 → closed
