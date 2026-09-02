@@ -738,6 +738,11 @@ export type ToWebviewMessage =
   | { type: 'commitInfo'; results: CommitInfoResult[] }
   /** @ 补全的文件/文件夹候选响应；requestId 回声，过期的响应由 webview 丢弃。 */
   | { type: 'fileRefList'; requestId: number; items: FileRefCandidate[] }
+  /**
+   * 批量归档执行结果回传（webview 先发 sessionArchiveMany）：failed 是归档
+   * 失败的会话 id（成功即从列表消失）。webview 据此保留失败项勾选或退出多选模式。
+   */
+  | { type: 'archiveManyDone'; failed: string[] }
 
 export type FromWebviewMessage =
   /** Webview 脚本加载完成（含 tab 切走后 VSCode 重载的场合）；宿主据此重推当前状态。 */
@@ -809,6 +814,11 @@ export type FromWebviewMessage =
   | { type: 'sessionRenameDirect'; sessionId: string; title: string }
   /** Sessions 面板：归档会话；title 供宿主确认框展示。 */
   | { type: 'sessionArchive'; sessionId: string; title: string }
+  /**
+   * Sessions 面板：批量归档（多选模式确认后）。确认框在 webview 内展示，
+   * 宿主不再弹确认，直接循环归档；结果经 archiveManyDone 回传。
+   */
+  | { type: 'sessionArchiveMany'; sessionIds: string[] }
   /** Sessions 面板：选文件夹注册新 workspace。 */
   | { type: 'workspaceAdd' }
   /** Sessions 面板：在 dsh 全局目录（~/.dsh/workspaces/）下新建目录并注册为 workspace。 */

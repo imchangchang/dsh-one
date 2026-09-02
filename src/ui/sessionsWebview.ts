@@ -122,6 +122,12 @@ let editSelEnd = 0
 /** 列表重建进行中：blur 不应把编辑当取消（重建销毁输入框触发的 blur 要忽略）。 */
 let rebuildInProgress = false
 
+/* ---- 多选归档模式（临时 UI 状态：不进 store、不持久化，退出即清空） ---- */
+let selectionMode = false
+const selectedSessionIds = new Set<string>()
+/** 批量归档确认弹窗（挂 body，不随列表重建销毁）；busy = 归档请求已发出。 */
+let selectionModal: { overlay: HTMLElement; busy: boolean } | null = null
+
 const sessionsPanel = el('aside', 'sessions-panel')
 app.appendChild(sessionsPanel)
 
@@ -182,9 +188,9 @@ function closePopover(): void {
 
 // 右键按下（button===2）且落在会话行内即进入冻结窗口——contextmenu 随后打开
 // 菜单，期间列表不因快照重建而销毁该行，菜单锚/视觉锚保持稳定。解冻由
-// closePopover 统一处理。左键 ⋯ 按钮走其 onClick 里置冻结。
+// closePopover 统一处理。左键 ⋯ 按钮走其 onClick 里置冻结。多选模式右键无菜单。
 document.addEventListener('pointerdown', (e) => {
-  if (e.button === 2 && (e.target as HTMLElement | null)?.closest?.('.session-row')) {
+  if (e.button === 2 && !selectionMode && (e.target as HTMLElement | null)?.closest?.('.session-row')) {
     menuFreezeActive = true
   }
 })
@@ -240,6 +246,26 @@ function ensureTipEl(): HTMLElement {
 }
 function hideTip(): void {
   if (tipEl) tipEl.style.display = 'none'
+}
+/** 瞬态提示（飘一下自动消失）：复用悬停气泡元素定位在锚点上方，2.2s 后隐藏。 */
+let flashTipTimer: ReturnType<typeof setTimeout> | null = null
+function flashTip(text: string, anchor: HTMLElement): void {
+  if (flashTipTimer !== null) clearTimeout(flashTipTimer)
+  const t = ensureTipEl()
+  t.textContent = text
+  const rect = anchor.getBoundingClientRect()
+  t.style.display = 'block'
+  const w = t.offsetWidth
+  const left = Math.max(4, Math.min(rect.left + rect.width / 2 - w / 2, window.innerWidth - w - 4))
+  t.style.left = `${left}px`
+  const h = t.offsetHeight
+  let top = rect.top - h - 6
+  if (top < 4) top = rect.bottom + 6
+  t.style.top = `${top}px`
+  flashTipTimer = setTimeout(() => {
+    flashTipTimer = null
+    hideTip()
+  }, 2200)
 }
 // 事件委托：任何带 [data-tip] 的元素（含重建后的按钮）悬停即显示文本气泡。
 // 用 fixed 定位挂在 body 上，不随 .sessions-list 滚动裁剪，水平钳制不外溢。
@@ -552,6 +578,8 @@ function renderSessions(): void {
   rebuildInProgress = true
   const oldList = sessionsPanel.querySelector<HTMLElement>('.sessions-list')
   oldList?.remove()
+  const oldBar = sessionsPanel.querySelector<HTMLElement>('.selection-bar')
+  oldBar?.remove()
   const list = el('div', 'sessions-list')
   if (!snap) {
     list.appendChild(el('div', 'sessions-empty', t('Loading…')))
@@ -602,6 +630,8 @@ function renderSessions(): void {
     list.appendChild(degraded)
   }
   sessionsPanel.appendChild(list)
+  // 多选模式：操作条插在搜索框（header）与列表之间。
+  if (selectionMode) sessionsPanel.insertBefore(buildSelectionBar(), list)
   rebuildInProgress = false
   // 行内改名跨重建保留：重建后恢复编辑输入框的焦点与选区。
   if (editingSessionId) {
@@ -675,6 +705,17 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   if (empty) head.classList.add('empty')
   head.classList.toggle('has-active', w.sessions.some((s) => s.sessionId === currentSessionId))
   head.title = ungrouped ? t('Sessions not in any workspace') : w.path
+  // 多选模式：组头三态复选框（全选 = 组内所有会话都选中；有置灰项则只能
+  // 部分态）。搜索态下组只含匹配会话，勾选作用范围在悬停提示里如实标注。
+  if (selectionMode) {
+    head.appendChild(
+      makeSelectionCheckbox({
+        state: groupSelectionState(w),
+        tip: groupSelectTip(w, inSearch),
+        onToggle: () => toggleGroupSelection(w),
+      }),
+    )
+  }
   const folderIcon = el('span', 'ws-folder')
   folderIcon.appendChild(iconSvg(collapsed ? PANEL_ICONS.folder : PANEL_ICONS.folderOpen))
   head.appendChild(folderIcon)
@@ -755,6 +796,20 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   else if (s.unread) slot.appendChild(el('span', 'session-dot completed'))
   else if (pinned) slot.appendChild(makePinIcon())
   row.appendChild(slot)
+  // 多选模式：复选框紧跟标题（状态槽右侧）——组头勾选框在最左，行勾选框
+  // 缩进一层，形成清晰的树形层次。
+  if (selectionMode) {
+    row.classList.add('selection-mode')
+    const selectable = sessionSelectable(s)
+    row.appendChild(
+      makeSelectionCheckbox({
+        state: selectedSessionIds.has(s.sessionId) ? 'all' : 'none',
+        disabled: !selectable,
+        disabledTip: selectable ? null : sessionSelectTip(s),
+        onToggle: () => toggleSessionSelected(s),
+      }),
+    )
+  }
   const main = el('span', 'session-main')
   if (pinned && slotTaken) {
     const pin = el('span', 'session-pin')
@@ -769,23 +824,32 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   }
   main.appendChild(el('span', 'session-time', s.description))
   row.appendChild(main)
-  const actions = el('span', 'row-actions')
-  const more = rowAction(iconSvg(PANEL_ICONS.ellipsis), t('More actions'), () => {
-    menuFreezeActive = true
-    showPopover(more, buildSessionMenuBody(s), 'below')
-    markMenuRow(row)
-  })
-  actions.appendChild(more)
-  row.appendChild(actions)
+  // 多选模式：行内 hover 按钮隐藏（点行 = 勾选，避免误触）。
+  if (!selectionMode) {
+    const actions = el('span', 'row-actions')
+    const more = rowAction(iconSvg(PANEL_ICONS.ellipsis), t('More actions'), () => {
+      menuFreezeActive = true
+      showPopover(more, buildSessionMenuBody(s), 'below')
+      markMenuRow(row)
+    })
+    actions.appendChild(more)
+    row.appendChild(actions)
+  }
   // 情境化点击：editor 面板真实附着（attachedSessionId，非仅高亮的待附着
   // 目标）的会话 → 行内重命名；其他 → 打开会话。编辑中忽略行点击。
+  // 多选模式：点行 = 勾选/取消勾选（复选框单独接管了点击，不冒泡到行）。
   row.addEventListener('click', () => {
+    if (selectionMode) {
+      toggleSessionSelected(s)
+      return
+    }
     if (s.sessionId === editingSessionId) return
     if (sessionsSnapshot?.attachedSessionId === s.sessionId) startRowRename(s.sessionId, s.label)
     else post({ type: 'sessionOpen', sessionId: s.sessionId })
   })
   row.addEventListener('contextmenu', (e) => {
     e.preventDefault()
+    if (selectionMode) return
     menuFreezeActive = true
     showPopoverAt(e.clientX, e.clientY, buildSessionMenuBody(s))
     markMenuRow(row)
@@ -865,7 +929,12 @@ function editFocusedCleanup(): void {
 function renderContentSnippet(sessionId: string, snippet: string): HTMLElement {
   const block = el('div', 'session-snippet')
   block.appendChild(highlightText(snippet))
-  block.addEventListener('click', () => post({ type: 'sessionOpen', sessionId }))
+  block.addEventListener('click', () => {
+    // 多选模式：片段与父行一致，点击 = 勾选该会话。
+    const s = findSessionModel(sessionId)
+    if (selectionMode && s) toggleSessionSelected(s)
+    else post({ type: 'sessionOpen', sessionId })
+  })
   return block
 }
 
@@ -894,12 +963,291 @@ function highlightText(text: string): HTMLElement {
   return span
 }
 
+/* ---- 多选归档模式 ---- */
+
+/** 与单项归档一致：运行中/未读/待处理的会话不可勾选（归档后状态难追踪）。 */
+function sessionSelectable(s: SessionNodeModel): boolean {
+  return !(s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined)
+}
+
+/** 不可勾选原因的悬停提示；可勾选返回 null。文案与单项归档禁用提示一致。 */
+function sessionSelectTip(s: SessionNodeModel): string | null {
+  if (s.pendingInteraction !== undefined) return t('Sessions with pending items cannot be archived')
+  if (s.running || s.descendantRunning) return t('Running sessions cannot be archived')
+  if (s.unread) return t('Unread sessions cannot be archived')
+  return null
+}
+
+function findSessionModel(sessionId: string): SessionNodeModel | null {
+  for (const ws of sessionsSnapshot?.workspaces ?? []) {
+    const s = ws.sessions.find((x) => x.sessionId === sessionId)
+    if (s) return s
+  }
+  return null
+}
+
+/** 勾选态三值：none（未选）/ some（部分，indeterminate）/ all（全选）。 */
+type SelectState = 'none' | 'some' | 'all'
+
+function setCheckboxState(input: HTMLInputElement, state: SelectState): void {
+  input.checked = state === 'all'
+  // indeterminate setter 后原生 click 不会再自动改 checked，我们用 click
+  // preventDefault 全程接管；先清 indeterminate 再设，避免残留态串位。
+  input.indeterminate = false
+  input.indeterminate = state === 'some'
+}
+
+/**
+ * 自绘复选框（行首/组头共用）：click 里 preventDefault 接管控勾，避免原生
+ * 切换与 indeterminate 态冲突；stopPropagation 防止行/组头 click 连动。
+ */
+function makeSelectionCheckbox(opts: {
+  state: SelectState
+  onToggle: () => void
+  disabled?: boolean
+  disabledTip?: string | null
+  tip?: string | null
+}): HTMLElement {
+  const wrap = el('span', 'select-checkbox')
+  const input = document.createElement('input')
+  input.type = 'checkbox'
+  input.tabIndex = -1 // 键盘走列表导航，checkbox 不单独抢焦点
+  setCheckboxState(input, opts.state)
+  if (opts.disabled) input.disabled = true
+  const tip = opts.disabled ? opts.disabledTip : opts.tip
+  if (tip) wrap.setAttribute('data-tip', tip)
+  input.addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!input.disabled) opts.onToggle()
+  })
+  wrap.appendChild(input)
+  return wrap
+}
+
+function toggleSessionSelected(s: SessionNodeModel): void {
+  if (!sessionSelectable(s)) return
+  if (selectedSessionIds.has(s.sessionId)) selectedSessionIds.delete(s.sessionId)
+  else selectedSessionIds.add(s.sessionId)
+  renderSessions()
+}
+
+function toggleGroupSelection(w: WorkspaceNodeModel): void {
+  const selectable = w.sessions.filter(sessionSelectable)
+  const allSelected = selectable.length > 0 && selectable.every((s) => selectedSessionIds.has(s.sessionId))
+  for (const s of selectable) {
+    if (allSelected) selectedSessionIds.delete(s.sessionId)
+    else selectedSessionIds.add(s.sessionId)
+  }
+  // 选中方向（不是取消）且组内有不可归档会话：飘提示，说明没法真正全选。
+  if (!allSelected && selectable.length < w.sessions.length) {
+    const cb = document.querySelector<HTMLElement>(
+      `.workspace-group[data-workspace-id="${CSS.escape?.(w.workspaceId) ?? w.workspaceId}"] .select-checkbox`,
+    )
+    if (cb) flashTip(t('Some sessions cannot be archived; this group cannot be fully selected'), cb)
+  }
+  renderSessions()
+}
+
+/**
+ * 组头三态语义 = 「组内全部选中」：只有组内所有会话都可选且全部被选中才是
+ * 全选；组里有置灰（运行中/未读/待处理）会话时只能 none/some——避免用户
+ * 误以为整组都会归档。
+ */
+function groupSelectionState(w: WorkspaceNodeModel): SelectState {
+  const selectable = w.sessions.filter(sessionSelectable)
+  if (selectable.length === 0) return 'none'
+  let sel = 0
+  for (const s of selectable) {
+    if (selectedSessionIds.has(s.sessionId)) sel += 1
+  }
+  if (sel === 0) return 'none'
+  if (sel === selectable.length && selectable.length === w.sessions.length) return 'all'
+  return 'some'
+}
+
+/** 组头复选框悬停提示：组内有不可归档会话时说明数量；搜索态补充作用范围。 */
+function groupSelectTip(w: WorkspaceNodeModel, inSearch: boolean): string | null {
+  const parts: string[] = []
+  const disabledCount = w.sessions.length - w.sessions.filter(sessionSelectable).length
+  if (disabledCount > 0) parts.push(t('{0} session(s) in this group cannot be archived', disabledCount))
+  if (inSearch) parts.push(t('Selection applies to current search results'))
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+/** 进入多选模式：清掉行内改名（编辑框与勾选语义冲突），清空上轮勾选。 */
+function enterSelectionMode(): void {
+  selectionMode = true
+  if (editingSessionId) cancelRowRename()
+  selectedSessionIds.clear()
+  closePopover()
+}
+
+/** 退出多选模式并清空勾选（顶部条「取消」/归档完成）。 */
+function exitSelectionMode(): void {
+  selectionMode = false
+  selectedSessionIds.clear()
+  closeSelectionModal()
+  renderSessions()
+}
+
+/** 顶部操作条：搜索框下、第一个工作区上，含「归档选中的 N 个」与「取消」。 */
+function buildSelectionBar(): HTMLElement {
+  const bar = el('div', 'selection-bar')
+  const archiveBtn = buttonEl(undefined, t('Archive {0} selected', selectedSessionIds.size))
+  archiveBtn.disabled = selectedSessionIds.size === 0
+  archiveBtn.addEventListener('click', () => openSelectionModal())
+  bar.appendChild(archiveBtn)
+  const cancelBtn = buttonEl('secondary', t('Cancel'))
+  cancelBtn.addEventListener('click', () => exitSelectionMode())
+  bar.appendChild(cancelBtn)
+  return bar
+}
+
+/** 确认弹窗：按工作区树形分组展示选中会话；过多默认折叠明细，展开不超屏。 */
+function openSelectionModal(): void {
+  const snap = sessionsSnapshot
+  if (!snap || selectedSessionIds.size === 0) return
+  const groups: Array<{ ws: WorkspaceNodeModel; sessions: SessionNodeModel[] }> = []
+  const seen = new Set<string>()
+  for (const ws of snap.workspaces) {
+    const sels = ws.sessions.filter((s) => selectedSessionIds.has(s.sessionId))
+    if (sels.length > 0) {
+      groups.push({ ws, sessions: sels })
+      for (const s of sels) seen.add(s.sessionId)
+    }
+  }
+  // 勾选项可能因搜索过滤/别处归档而不在当前树里（组被整组过滤、行不渲染，
+  // 但勾选保留）：兜底组列出，不静默丢弃也不归档不存在的 id。
+  const leftover = [...selectedSessionIds].filter((id) => !seen.has(id))
+  if (leftover.length > 0) {
+    const ws: WorkspaceNodeModel = {
+      workspaceId: '',
+      path: '',
+      label: t('Other sessions'),
+      isCurrent: false,
+      sessions: leftover.map((id) => {
+        const m = findSessionModel(id)
+        return (
+          m ?? {
+            sessionId: id,
+            label: id.slice(0, 8),
+            description: '',
+            running: false,
+            pinned: false,
+            hasCompletedTurn: false,
+            unread: false,
+            descendantRunning: false,
+          }
+        )
+      }),
+    }
+    groups.push({ ws, sessions: ws.sessions })
+  }
+  const total = groups.reduce((n, g) => n + g.sessions.length, 0)
+  if (total === 0) return
+  const overlay = el('div', 'selection-modal-overlay')
+  const modal = el('div', 'selection-modal')
+  const title =
+    total === 1
+      ? t('Archive {0} session?', total)
+      : t('Archive {0} sessions?', total)
+  modal.appendChild(el('div', 'selection-modal-title', title))
+  modal.appendChild(el('div', 'selection-modal-desc', t('Archived sessions will be hidden from the list.')))
+  const tree = el('div', 'selection-modal-tree')
+  // 过长（多组或大量会话）默认折叠明细，组头恒可见；展开后靠滚动不超屏。
+  const defaultCollapsed = groups.length > 1 || total > 10
+  for (const g of groups) tree.appendChild(renderModalGroup(g, defaultCollapsed))
+  modal.appendChild(tree)
+  const actions = el('div', 'selection-modal-actions')
+  const cancelBtn = buttonEl('secondary', t('Cancel'))
+  cancelBtn.addEventListener('click', () => closeSelectionModal())
+  actions.appendChild(cancelBtn)
+  const archiveBtn = buttonEl(undefined, t('Archive'))
+  archiveBtn.addEventListener('click', () => confirmArchive())
+  actions.appendChild(archiveBtn)
+  modal.appendChild(actions)
+  overlay.appendChild(modal)
+  document.body.appendChild(overlay)
+  selectionModal = { overlay, busy: false }
+  document.addEventListener('keydown', onSelectionModalKey, true)
+}
+
+function renderModalGroup(g: { ws: WorkspaceNodeModel; sessions: SessionNodeModel[] }, collapsed: boolean): HTMLElement {
+  const box = el('div', collapsed ? 'modal-group collapsed' : 'modal-group')
+  const head = el('div', 'modal-group-head')
+  const arrow = el('span', 'modal-group-arrow')
+  arrow.appendChild(iconSvg(PANEL_ICONS.triangle, 10))
+  head.appendChild(arrow)
+  head.appendChild(el('span', 'modal-group-label', g.ws.label))
+  head.appendChild(el('span', 'modal-group-count', String(g.sessions.length)))
+  head.addEventListener('click', () => box.classList.toggle('collapsed'))
+  box.appendChild(head)
+  const list = el('div', 'modal-group-list')
+  for (const s of g.sessions) {
+    const item = el('div', 'modal-session')
+    item.appendChild(el('span', 'modal-session-name', s.label))
+    item.appendChild(el('span', 'modal-session-time', s.description))
+    list.appendChild(item)
+  }
+  box.appendChild(list)
+  return box
+}
+
+function onSelectionModalKey(e: KeyboardEvent): void {
+  // 归档请求已发出（busy）时 Esc 不关闭：避免用户以为取消了，实际仍在执行。
+  if (e.key === 'Escape' && selectionModal && !selectionModal.busy) {
+    e.preventDefault()
+    closeSelectionModal()
+  }
+}
+
+function closeSelectionModal(): void {
+  if (!selectionModal) return
+  selectionModal.overlay.remove()
+  selectionModal = null
+  document.removeEventListener('keydown', onSelectionModalKey, true)
+}
+
+/** 确认归档：请求已发出 → busy（按钮禁用 + 标题“正在归档”），等 archiveManyDone。 */
+function confirmArchive(): void {
+  if (!selectionModal || selectionModal.busy) return
+  const ids = [...selectedSessionIds]
+  if (ids.length === 0) return
+  selectionModal.busy = true
+  selectionModal.overlay.querySelectorAll('button').forEach((b) => ((b as HTMLButtonElement).disabled = true))
+  const title = selectionModal.overlay.querySelector<HTMLElement>('.selection-modal-title')
+  if (title) title.textContent = t('Archiving…')
+  post({ type: 'sessionArchiveMany', sessionIds: ids })
+}
+
+/** 批量归档结果回执：成功项清出勾选并退出模式；失败项保留可重试。 */
+function onArchiveManyDone(failed: string[]): void {
+  closeSelectionModal()
+  if (failed.length > 0) {
+    const failedSet = new Set(failed)
+    for (const id of [...selectedSessionIds]) {
+      if (!failedSet.has(id)) selectedSessionIds.delete(id)
+    }
+    renderSessions()
+    return
+  }
+  exitSelectionMode()
+}
+
 /** 会话菜单内容（⋯ 按钮与右键菜单共用）。 */
 function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
   const body = el('div')
   // 菜单首行显示会话标题（操作对象显式化）：即使用户瞄错行也能立刻发现，点击前可收回。
   body.appendChild(el('div', 'session-menu-title', t('Session: {0}', s.label)))
+  // 进入多选归档模式（开启后本菜单即关闭；行/组头出现复选框）。
+  body.appendChild(
+    menuItem(t('Select multiple'), {
+      icon: iconSvg(MESSAGE_ACTION_ICONS.check),
+      onClick: () => enterSelectionMode(),
+    }),
+  )
   // 默认点击会话行 = 在当前活动 chat tab 打开；这里显式提供「新开 tab」。
   body.appendChild(
     menuItem(t('Open in a new tab'), {
@@ -991,6 +1339,8 @@ window.addEventListener('message', (event) => {
     sessionsSnapshot = msg.snapshot
     currentSessionId = msg.snapshot.activeSessionId ?? null
     renderSessions()
+  } else if (msg?.type === 'archiveManyDone' && Array.isArray(msg.failed)) {
+    onArchiveManyDone(msg.failed)
   }
 })
 
