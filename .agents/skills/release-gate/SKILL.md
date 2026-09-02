@@ -35,7 +35,7 @@ description: 发布 dsh-one 到 VS Code Marketplace 的完整操作与验收流�
 - 用 bash 执行：echo "<新版本号>" | bash scripts/release-gate.sh --apply
 - 第一遍：脚本会 bump package.json version → <新版本号>，然后停下。正式版同时把 CHANGELOG [Unreleased] 收口成 [<新版本号>]；预发布（<新版本号> 含 -rc.）不消费 CHANGELOG。git diff 确认改动范围（正式版 = package.json + CHANGELOG.md；rc = 只 package.json），然后提交：
   git add package.json CHANGELOG.md && git commit -m "release: v<新版本号>"
-- 第二遍：重跑同一命令。脚本会校验工作树干净并打 annotated tag v<新版本号>（== HEAD）。
+- 第二遍：scripts/release-gate.sh --tag 打 annotated tag v<新版本号>（== HEAD）。
 - 然后 push 触发构建：
   git push origin main && git push origin v<新版本号>
 - 等 .github/workflows/release.yml 跑完（gh run watch 或 gh run list），确认 GitHub Release v<新版本号> 出现 dsh-one-<新版本号>.vsix：

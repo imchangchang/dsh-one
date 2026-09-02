@@ -55,7 +55,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 1. `scripts/release-gate.sh`：看计划与当前状态校验（version / CHANGELOG / tag / 工作树）。
 2. `scripts/release-gate.sh --apply`：交互输入新版本 → bump `package.json` 的 `version` → 停下。**正式版**同时把 `CHANGELOG.md` 的 `[Unreleased]` 收口成 `[x.y.z]`；**预发布（`x.y.z-rc.N`）不消费 CHANGELOG**（rc 只 bump 版本，测试通过后发同核心正式版才收口）。
 3. review 后提交（建议只提交这些文件）：`git commit -m "release: v<x.y.z>"`。
-4. 重跑 `scripts/release-gate.sh --apply`：校验工作树干净 → 打 `git tag v<x.y.z>`（== 收口 commit）。
+4. `scripts/release-gate.sh --tag`：校验工作树干净 → 打 `git tag v<x.y.z>`（== 收口 commit）。
 5. push tag 触发构建：`git push origin main && git push origin v<x.y.z>`。`.github/workflows/release.yml` 会跑 typecheck/test/package、用 `scripts/verify-vsix.sh` 验产物，把 `dsh-one-<版本>.vsix` 挂到 GitHub Release（**rc 版本标 prerelease**）。
 6. 按 `docs/release-checklist.md` 人工验收（沙盒装机 + README 确认）。**验收对象 = GitHub Release 的 vsix（从 Releases 页下载），本地不再打包。**
 7. 正式版登录与发布（PAT 来自 Azure DevOps，scope 要勾 Marketplace > Manage；release-gate 不跑 publish，这一步由人执行；**rc 不发布市场**）：
