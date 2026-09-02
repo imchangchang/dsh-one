@@ -6,6 +6,7 @@ import {
   archiveScrollPosition,
   distanceFromBottom,
   isAtBottom,
+  isProgramScrollEcho,
   isScrollKey,
   reconcileScrollPinning,
   restoreScrollTarget,
@@ -131,4 +132,33 @@ test('shouldSettlePinNow 滚动活动优先于其它条件（无论意图/贴底
 
 test('shouldSettlePinNow 非跟随态（读历史）即使滚动停也不写', () => {
   assert.equal(shouldSettlePinNow(false, false, false, false), false)
+})
+
+test('isProgramScrollEcho 窗口内 + 无意图 + 位置一致判为程序回声', () => {
+  assert.equal(isProgramScrollEcho(500, 450, 800, 800, false, 120), true)
+  // ±1 抵消浏览器对 scrollTop 的取整
+  assert.equal(isProgramScrollEcho(500, 450, 800, 799, false, 120), true)
+  assert.equal(isProgramScrollEcho(500, 450, 800, 801, false, 120), true)
+})
+
+test('isProgramScrollEcho 距上次程序写恰达窗口边界仍算回声（≤）', () => {
+  assert.equal(isProgramScrollEcho(220, 100, 800, 800, false, 120), true)
+})
+
+test('isProgramScrollEcho 用户滚动意图活跃不判回声（保用户滚动正常记账）', () => {
+  assert.equal(isProgramScrollEcho(500, 450, 800, 800, true, 120), false)
+})
+
+test('isProgramScrollEcho 超过窗口不判回声', () => {
+  assert.equal(isProgramScrollEcho(600, 450, 800, 800, false, 120), false)
+})
+
+test('isProgramScrollEcho 位置与程序写目标不一致不判回声（内容增长 clamp / 用户滚开）', () => {
+  assert.equal(isProgramScrollEcho(500, 450, 800, 500, false, 120), false)
+})
+
+test('isProgramScrollEcho 从未程序写过（programPinAt=0）或无可比目标不判回声', () => {
+  assert.equal(isProgramScrollEcho(500, 0, 800, 800, false, 120), false)
+  assert.equal(isProgramScrollEcho(500, 450, null, 800, false, 120), false)
+  assert.equal(isProgramScrollEcho(500, 450, 800, 800, false, 120), true)
 })
