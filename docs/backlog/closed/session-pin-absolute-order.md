@@ -47,3 +47,5 @@
 - 2026-09-02 认领（worktree: agent/session-pin-absolute-order）→ doing
 
 - 2026-09-02 实现完成：置顶组内按置顶数组顺序固定（绝对优先），setPinned 改 unshift/splice；typecheck/test/build 全绿（test 320 通过），dev-finish 打 done 标记 → done
+
+- 2026-09-02 主线合入测试通过（merge 52fd860），用户人工验收通过 → closed
