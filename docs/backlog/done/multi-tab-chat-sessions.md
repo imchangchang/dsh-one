@@ -47,6 +47,26 @@ ch态前 chat 在 edttor WebviewPanel（单例），切换回会话 = 同一面�
 - fork 后**新开一个 tab**（原会话 tab 保留，便于对照）。
 - 新 tab 打开位置：**当前列 Active**（不自动分栏）。
 - 所有 chat tab 关闭后侧栏**不高亮任何会话**。
+- **点击会话默认在当前 tab 打开**（替换当前活动 chat tab 的会话），侧栏右键
+  菜单新增「在新 tab 中打开」显式新开 tab（2026-09 追加，用户要求）。
+- **焦点不在 chat tab 时**（如正在看文件）：替换最近活动过的 chat tab（不新增
+  tab）；从未打开过 chat tab 才新建（2026-09 追加，用户决策）。
+
+### 交互调整（2026-09 追加，用户要求）
+
+- `openSession` 改为默认**在当前活动 chat tab 打开**（替换该 tab 的会话：
+  旧 controller 释放、暂存附件清空、panel/消息订阅复用）；已有该会话的 tab
+  则聚焦它（一个会话一个 tab，不复制）。
+- 无活动 chat tab 时替换**最近活动过的 tab**；都没有才新建 tab（原「总是新建」
+  路径保留为 `openSessionInNewTab`）。
+- 侧栏 ⋯/右键菜单新增**「在新 tab 中打开」**（`sessionOpenInNewTab` 消息 →
+  `dshOne.session.openInNewTab` 命令 → `openSessionInNewTab`，boxedPlus 图标）。
+- 新建会话（`dshOne.session.new`）同样走 `openSession`（当前 tab 打开，用户
+  决策）；fork 保持 `openSessionInNewTab`（新开 tab，此前决策）。
+- 涉及文件：`src/ui/chatView.ts`（openSession 重写 + 新增 openSessionInNewTab/
+  replaceTabSession）、`src/ui/sessionsWebview.ts`（菜单项）、`src/ui/sessionsView.ts`
+  （消息转发）、`src/pure/chatContract.ts`（sessionOpenInNewTab 消息）、
+  `src/extension.ts`（openInNewTab 命令、fork 改新 tab）。
 
 ### 涉及文件
 
@@ -84,3 +104,5 @@ cd /Users/cgeng/Workspaces/dsh-one/.worktrees/multi-tab-chat-sessions && bash /U
 - 2026-09-01 认领 → doing（并行开发 session）
 
 - 2026-09 开发完成，自测通过（typecheck + test 253 全绿 + build）→ done
+
+- 2026-09 交互调整：点击会话默认当前 tab 打开 + 右键「在新 tab 中打开」（仍 done，待人工验收后合入）

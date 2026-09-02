@@ -1166,10 +1166,12 @@ interface ChatTab {
  * 会话持有自己的 ChatSessionController 与 WebviewPanel，ChatState 快照按
  * session 分桶推送、用户动作按 tab 路由，互不串台。会话列表不在编辑器里
  * （已拆到侧栏原生 tree）；宿主仍向每个 panel 的 webview 推 SessionsStore
- * 快照，因为 composer 的 @-mention 补全读它。tab 懒创建（点会话 / 新建 /
- * open 命令 / 发送文件），默认 ViewColumn.Active（当前活动编辑器列，用户
- * 决策：不自动分栏）。用户关闭 tab 时 controller 保留——pending 交互兜底
- * 再拉出与重开即复用都依赖它；服务重启时统一释放，只恢复活动的会话 tab。
+ * 快照，因为 composer 的 @-mention 补全读它。tab 懒创建，默认
+ * ViewColumn.Active（当前活动编辑器列，用户决策：不自动分栏）。**点击会话
+ * 默认在当前活动 chat tab 打开**（替换该 tab 的会话，用户决策）；侧栏菜单
+ * 「在新 tab 中打开」显式新开 tab。用户关闭 tab 时 controller 保留——pending
+ * 交互兜底再拉出与重开即复用都依赖它；服务重启时统一释放，只恢复活动的
+ * 会话 tab。
  * 头部信息区的 chips（后台任务 / 子代理）数据来自 JobsStore（mux 全局
  * session/jobs 帧，含已结束的 job）与 store 的 session.list 基线，经
  * composeHeader 合成 ChatState.backgroundJobs / runningSubagents 随 state
@@ -1301,9 +1303,10 @@ export class ChatViewProvider implements vscode.Disposable {
   /**
    * 打开一个会话（侧栏点击 / 聊天内跳转 / 新建会话）：**默认在当前活动
    * chat tab 打开**（替换该 tab 的会话，用户决策）——已有该会话的 tab 则
-   * 聚焦它（一个会话一个 tab，不复制）；没有活动 chat tab（焦点在文件或
-   * 没有 chat tab）时新建 tab。非运行中的服务：已有 tab 显示空态，没有则
-   * 开空态 tab（服务恢复后自动重开活动会话）。
+   * 聚焦它（一个会话一个 tab，不复制）；焦点不在 chat tab（如在看文件）时
+   * 替换**最近活动过**的 chat tab（用户决策：不新增 tab）；从未打开过 chat
+   * tab 才新建。非运行中的服务：已有 tab 显示空态，没有则开空态 tab（服务
+   * 恢复后自动重开活动会话）。
    */
   openSession(sessionId: string): void {
     if (!sessionId) return
@@ -1322,13 +1325,18 @@ export class ChatViewProvider implements vscode.Disposable {
       this.store.setUnread(sessionId, false)
       return
     }
+    // 替换目标：优先当前活动 tab；焦点不在 chat tab 时用最近活动过的 tab
+    // （用户决策：无活动 tab 也替换最近活动 tab，不新增）；都没有才新建。
+    // 最近活动 tab 若已被用户关闭（panel null）不参与替换——那是幽灵 entry，
+    // 替换它等于凭空重建，直接走新建。
     const active = this.activeTab()
-    if (active) {
-      // 有活动 chat tab：默认在当前 tab 打开（替换该 tab 的会话）。
-      this.replaceTabSession(active, sessionId)
+    const last = this.lastActiveSessionId ? (this.tabs.get(this.lastActiveSessionId) ?? null) : null
+    const target = active ?? (last?.panel ? last : null)
+    if (target) {
+      this.replaceTabSession(target, sessionId)
       return
     }
-    // 没有活动 chat tab → 新建 tab（原「总是新建」路径）。
+    // 从未打开过 chat tab → 新建 tab（原「总是新建」路径）。
     this.openSessionInNewTab(sessionId)
   }
 
