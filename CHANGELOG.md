@@ -2,8 +2,6 @@
 
 ## [Unreleased]
 
-## [0.1.1]
-
 ### Fixed
 
 - 插话（⌘/Ctrl+Enter，等待落地的 steering 消息）气泡只渲染纯文本：附件显示成「[图片 ×1] [文件 ×1]」计数前缀、会话引用显示原始 `@[标题](dsh-session:…)` markdown。现在与正式用户消息共用同一套渲染——host 从 queue 帧内容提取图片（attachmentId）与文件（`<attachment>` 行）随快照下发，webview 剥附件行、把 canonical mention 展开成可读 `@label`，气泡渲染图片缩略图、文件 chip、会话引用 chip 与「引用会话 · …」摘要行；行结构不变（气泡左侧处理中圆圈）。
