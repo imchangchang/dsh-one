@@ -45,3 +45,5 @@
 - 2026-09-02 用户确认置顶语义（绝对优先）+ 选定规则（新置顶放最前）→ open
 
 - 2026-09-02 认领（worktree: agent/session-pin-absolute-order）→ doing
+
+- 2026-09-02 实现完成：置顶组内按置顶数组顺序固定（绝对优先），setPinned 改 unshift/splice；typecheck/test/build 全绿（test 320 通过），dev-finish 打 done 标记 → done
