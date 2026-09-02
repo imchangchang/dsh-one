@@ -10,7 +10,7 @@
 
 按窗口分三类，机理不同、防御不同：
 
-- **W1（右键之前重排，用户本次补充的场景）**：列表重排发生在用户右键动作之前（悬浮期间）。`renderSessions` 收到快照**同步**全量重建（`oldList.remove()` + 新建，同一任务内完成、下次 paint 生效），**DOM 与屏幕始终一致，不存在"视觉旧、DOM 新"的错位帧**；错位来自**用户的瞄准时机**：用户凭旧视觉位置（A 行所在）右键，重排后鼠标下已是 B 行，`contextmenu` 命中的就是 B → 打开 B 的菜单。用户感知"我右键的 A，结果出了 B 的菜单"。
+- **W1（右键之前重排，用户本次补充的场景）**：列表重排发生在用户右键动作之前（悬浮期间）。`renderSessions` 收到快照**同步**全量重建（`oldList.remove()` + 新建，同一任务内完成、下次 paint 生效），**DOM 与屏幕始终一致，不存在"视觉旧、DOM 新"的错位帧**——重排后屏幕显示的就是新顺序（用户眼睛看得到）。错位来自**记忆锚定**：用户的目标锚在**记忆中的行位置**（"第一行是 B"），重排后该位置已是 A 行，`contextmenu` 命中的就是 A → 打开 A 的菜单。用户感知"我右键的 B，结果出了 A 的菜单"（与下方真实案例同一方向；用户案例正是：A send 后跳到最前，占据记忆中"B 的位置"）。"看得见 ≠ 感知到顺序变了"是 W1 的根子——案例里用户已"看到 A 跳到前面"仍误操作，同源。
 - **W2（菜单打开之后重排）**：见下文"两种锚断链"。
 - **W3（右键事件序列进行中）**：mousedown（右键按钮）与 contextmenu 之间若跨任务，重排快照可插入 → contextmenu 命中重排后的行。Chrome 中二者通常同任务派发（未见跨任务证据），未实测；冻结窗口从 pointerdown 起可无成本覆盖。
 
@@ -43,11 +43,11 @@
   - `WebviewView.onDidChangeVisibility`（`sessionsView.ts` 的 `SessionsViewProvider`）：`view.visible` 为 true 时 `void this.store.refresh()`——文档确认该事件覆盖"用户切换到侧栏/面板里另一个 view group"与折叠/展开；
   - `resolveWebviewView` 时也刷新（文档："called when a view first becomes visible... or when the user hides and then shows a view again"——webview 销毁重建场景；现 resolve 只 pushSessions 用缓存快照，加一行 `void this.store.refresh()`，新快照由现有 store.onDidChange → pushSessions 订阅链推送）。
   - （顺带，可选）editor chat 面板 `WebviewPanel.onDidChangeViewState`（`event.visible`）→ 同样刷新——与侧栏语义一致；用户当前场景是侧栏，先做侧栏，面板顺带做成本一致。
-- **会话状态变化**（用户补充，2026-09-02）：状态标记（黄点/绿点/像素环）本身走增量帧即刻更新，**不需要刷新**；但**排序键 `updatedAt` 增量帧不更新**，而服务端在这些时刻（turn 结束=完成、pending 出现/解决）updatedAt 基本必然也变——缓存不追平，排序滞后，与 send 场景同一个洞。挂点（都是低频：完成=每轮一次，pending=每次用户交互）：
+- **会话状态变化**（用户补充，2026-09-02）：状态标记（黄点/绿点/像素环）本身走增量帧即刻更新，**不需要刷新**；但**排序键 `updatedAt` 增量帧不更新**，而服务端在这些时刻很可能也更新了（turn 结束=完成较确定；pending 出现/解决属推测，待真机观察）——缓存不追平，排序滞后，与 send 场景同一个洞。挂点（都是低频：完成=每轮一次，pending=每次用户交互）：
   - **running 翻转**：`sessionsStore.ts` `applyFrame` 的 `host/session-status` 分支（`noteRunningFlip` 处，running 实际变化时）→ `void this.refresh()`；
   - **pending 变化**：`onMuxFrame` 的 `approval/question requested/resolved`（`trackPending`/`resolvePending` 返回 changed=true 时）→ `void this.refresh()`；
   - **循环规避（实现必读）**：`noteRunningFlip` 在 `refresh()` 内部也被调用（基线全量对比，601 行）——**只有增量路径（488 行，running 值实际翻转）触发 refresh**；refresh 内重放缓冲帧时 prev 已是最新值、不再翻转，天然不会递归。
-- **统一入口与防抖**：`refresh()` 有 `refreshInFlight` 缓冲（并发/在途帧安全），但连续触发（聚焦+可见同时到达）会串行全量 RPC——建议包一个 500ms 级合并/去抖的 `refreshSessionsSoon()`（低频事件，去抖成本为零）；实现细节，认领后定。
+- **统一入口与防抖（必须有，非可选）**：`refresh()` 有 `refreshInFlight` 缓冲（并发/在途帧安全），但**同一动作会连发多个触发点**——例如 send 后：send 触发 + `host/session-status` running 翻转触发，没有去抖必然一次操作两组全量 RPC；聚焦+侧栏可见也常同时到达。**必须包一个 500ms 级合并/去抖的 `refreshSessionsSoon()`**（低频事件，去抖成本为零；去抖后一回合最多一次全量 RPC）。
 - 效果：A send 后立即变最新、列表立刻重排——**重排时机从"偶然落在用户右键前一瞬"挪到"事件发生时（用户注意力还在聊天/刚回到列表）"**。注意 refresh 异步落地前（localhost RPC 通常 <50ms，用户操作右键通常在其后）列表仍是旧顺序——**缩小危险窗口但未归零**（案例里用户已"看到 A 跳到前面"仍误操作，说明看得见≠会重新定位）——故与 ②③ 组合。
 
 细节：
@@ -59,7 +59,8 @@
 - 落地要点：pointerdown（button 2 / ⋯ 点击）时记录锚（`menuOpenAnchorId` + 打开方式）；`renderSessions` 开头判断"冻结窗口内且快照中锚会话仍存在"→ 只更新 header/计数等不涉及行的部分，跳过列表重建；`closePopover` 里补一次 `renderSessions()`。
 - 备选（不推荐）：菜单随新行重锚定（按 sessionId 定位新 DOM——行已重建，需要额外映射，复杂且菜单仍可能因行消失而无处可锚）；或菜单关闭时提示（UX 兜底，不解决错位）。
 
-**③ 菜单顶部显示会话标题**（操作对象显式化）：打开菜单时在菜单体中放一行"会话：<标题>"（或置灰标题行），即使用户瞄错也能立刻发现，点击前可收回。**低成本、通用，建议与①②一起做**——它是防"看见了但手快了"的最后一道确认。
+**③ 菜单顶部显示会话标题**（操作对象显式化）：打开菜单时在菜单体中放一行"会话：<标题>"（或置灰标题行），即使用户瞄错也能立刻发现，点击前可收回。**低成本、通用，建议与①②一起做**。
+- **强度诚实评估（重要）**：破坏性动作（归档）**已有** modal 二次确认（`dshOne.session.archive`：`确认归档会话「标题」？`，modal 显示的是被归档对象的标题）——用户案例里**仍然误操作了**，说明现有 modal 没拦住（用户预期是 B 但 modal 显示 A 的标题时没注意到/手快）。③（菜单标题）与 modal 同强度——**是弱防线（依赖用户留意），别高估**；主防线是 ①（排序及时正确，用户产生正确预期）、兜底 ②（防操作过程中再变）。若实测 ③ 仍拦不住误操作，考虑在**确认动作**上加强（如 modal 强化/操作可撤销——归档有恢复路径但入口隐蔽，另议）。
 
 （可选④）**重排可感知提示**：顺序变化帧（对比排序键而非每个快照）给移动的行加短暂高亮/位移动画，避免流式期间列表持续闪。优先级最低。
 
@@ -96,4 +97,5 @@
 - 2026-09-02 用户补充状态变化触发：待交互（approval/question 请求/解决）与完成（running 翻转）时刻也刷新——状态标记走增量帧即时显示（无需刷），但排序键 updatedAt 增量帧不更新（服务端同一时刻更新了）；挂点：applyFrame 的 session-status 实际翻转处 + onMuxFrame 的 track/resolvePending changed=true 处；固化循环规避要点（仅增量路径触发，refresh 内重放不递归）
 - 2026-09-02 用户提问与置顶冲突：核实无数据冲突（pinned 为本地持久化状态，refresh 不碰；置顶恒在非置顶前），置顶组内仍按最新优先（既有语义+官方同款，非 refresh 引入）；产品语义待确认（组内最新优先 vs 绝对固定——后者为新需求，可单独立项）
 - 2026-09-02 用户定案置顶语义：绝对优先（组内固定，新置顶放最前）——详见独立条目 session-pin-absolute-order；本条目置顶组内的错位关注随之消解
+- 2026-09-02 review 修正：①W1 示例方向反了（应为"瞄 B 的位置命中 A"）并改述机理——错位来自"记忆锚定"（屏幕显示新顺序、用户看得见但没感知），非视觉-逻辑错位帧；②"基本必然"改"很可能"（pending 时刻服务端 updatedAt 更新属推测）；③统一去抖从"建议"升为"必须有"（send + running flip 等连发，无去抖一回合多组全量 RPC）；④补③的强度诚实评估（归档已有 modal 确认仍被跳过——③同强度为弱防线，主防线是①）
 
