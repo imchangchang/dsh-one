@@ -177,7 +177,8 @@ function planSummaryOf(argumentsRaw: string | undefined): ChatToolBlock['todos']
  * references. dsh stores image bytes in its attachment store, so the content
  * part carries `{ attachment: { attachmentId, mediaType, ... } }` instead of
  * inline data; the UI fetches bytes lazily via session.attachment.
- */function imagesOfBlocks(content: unknown): ChatImage[] {
+ */
+export function imagesOfBlocks(content: unknown): ChatImage[] {
   if (!Array.isArray(content)) return []
   const images: ChatImage[] = []
   for (const block of content) {

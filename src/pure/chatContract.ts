@@ -547,6 +547,17 @@ export interface QueuedItem {
   text: string
   /** Full original text (attachment lines included) for the inline editor. */
   editText: string
+  /**
+   * Images attached to this pending prompt, in content order. The steering
+   * bubble renders them like a real user message (thumbnails fetched lazily);
+   * the queued preview just counts them.
+   */
+  images?: ChatImage[]
+  /**
+   * Non-image files attached to this pending prompt (parsed back out of the
+   * `<attachment>` lines), shown as chips in the steering bubble.
+   */
+  files?: ChatFile[]
 }
 
 /** One selectable reasoning-effort tier of a catalog model. */

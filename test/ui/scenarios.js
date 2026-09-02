@@ -372,10 +372,19 @@
     'steering-pending': {
       state: base({
         running: true,
-        queue: [{ id: 'q-1', placement: 'steering', text: '等等，先停下，看看 main 分支状态。' }],
+        queue: [
+          {
+            id: 'q-1', placement: 'steering',
+            text: '[图片 ×1] [文件 ×1] 等等，先停下，看看 main 分支状态。',
+            editText: '等等，先停下，看看 @[旧会话](dsh-session:InNlc3MtMyI) 的状态。\n<attachment>/Users/cgeng/Workspaces/dsh-one/README.md</attachment>',
+            images: [{ attachmentId: 'steer-img-1', mediaType: 'image/png', name: 'chart.png' }],
+            files: [{ name: 'README.md', path: '/Users/cgeng/Workspaces/dsh-one/README.md' }],
+          },
+        ],
       }),
       title: '等待插话消息（正常气泡 + 处理中圆圈）',
-      expect: '对话流末尾（turn-status「Deep diving...」行之后）显示一条与正常用户消息一致的气泡（不透明、无「等待插话」徽章），气泡左侧同一行紧贴一个旋转的处理中圆圈（spinner，蓝色圆环），整体右对齐；同一行只有一个圆圈；输入框上方没有这条消息的排队条目。',
+      expect: '对话流末尾（turn-status「Deep diving...」行之后）显示一条与正常用户消息一致的气泡组（不透明、无「等待插话」徽章），气泡左侧同一行紧贴一个旋转的处理中圆圈（spinner，蓝色圆环），整体右对齐；同一行只有一个圆圈；气泡上方一行两个同尺寸附件方块：左侧图片缩略图（红色）、右侧文件框（README.md）；气泡内「@旧会话」是链接色会话 chip（按钮形态，可点击打开会话），气泡下方有引用摘要行「引用会话 · 旧会话」；输入框上方没有这条消息的排队条目。',
+      interact: `postMessage({ type:'attachmentData', attachmentId:'steer-img-1', mediaType:'image/png', data:'${PNG_RED}' }, '*');`,
     },
 
     subagents: {
