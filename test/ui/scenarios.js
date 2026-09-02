@@ -169,6 +169,34 @@
       expect: '"deadbeef1234" 渲染成 commit-hash chip；回传 found:false 后为未命中态（.commit-hash-unknown，微透明灰显，仍可点——点击由宿主提示「未找到该提交」）。截图核对：chip 灰显/微透明、等宽；不是高亮链接色（对比 commit-hash-found 场景）。',
     },
 
+    'commit-hash-card-bottom-flip': {
+      // 提交卡贴视口底部：长消息（含代码块）把滚动区钉底，最后一段的 commit hash 停在
+      // 消息流末尾（composer 上方、视口下半部）。旧实现 positionPopover 只钳水平：below
+      // 展开的卡会超出视口底边、被 iframe 边界裁掉（用户反馈「被 VS Code 界面挡住」）。
+      // 修复后应翻到 chip 上方展开、整卡完整可见。浏览器窗口即 webview 视口（popover
+      // position: fixed 相对它），几何与 VS Code 面板一致。
+      theme: 'dark',
+      state: base({
+        messages: [at('第一段：这个场景验收 commit 悬浮卡的视口钳制。\n\n第二段：长消息把滚动区钉底，最后一段的提交 hash 停在消息流底部。\n\n第三段：卡片从 chip 下方展开时会超出视口底边，被 iframe 边界裁掉，统计和命令行不可见。\n\n第四段：修复后 positionPopover 垂直方向同样钳制视口——below 放不下时翻到 chip 上方。\n\n第五段：再多写几段，确保内容高度确定超过滚动区，贴底跟随把尾部钉住。\n\n第六段：这一段继续填高度，代码块之后是最后一段。\n\n```\nconst a = 1\nconst b = 2\nconst c = 3\nconst d = 4\nconst e = 5\nconst f = 6\nconst g = 7\nconst h = 8\nconst i = 9\nconst j = 10\nconst k = 11\nconst l = 12\nconst m = 13\nconst n = 14\nconst o = 15\nconst p = 16\nconst q = 17\nconst r = 18\nconst s = 19\nconst t = 20\nconst u = 21\nconst v = 22\nconst w = 23\nconst x = 24\nconst y = 25\nconst z = 26\n```\n\n第七段：代码块后面的段落继续填充高度，让消息流超过滚动区高度、钉底生效。\n\n第八段：这一段之后是最后一段，提交 hash 将位于消息流最底部、composer 上方。\n\n第九段：本卡内容本身也拉长（body 多行），below 溢出判定更稳。\n\n第十段：再往下补几段，把 chip 压到视口下半部——below 展开必然溢出。\n\n第十一段：继续补高度，保证滚动区确实溢出、贴底跟随把尾部钉住。\n\n第十二段：最后一段之前的高度已足够，这段之后是收官段。\n\n最后一个自然段：本行靠底，提交 hash 是 `351a766`。')],
+      }),
+      interact: `(() => {
+        window.postMessage({ type: 'commitInfo', results: [{
+          sha: '351a766', found: true, commitHash: '351a7664d4f6e86bb0ef58c94d84d0ee1fb9aa53',
+          message: 'fix(commit-hash): 悬浮卡贴面板底部翻到 chip 上方',
+          fullMessage: 'fix(commit-hash): 悬浮卡贴面板底部翻到 chip 上方\\n\\n- 用户反馈：卡片被 VS Code 界面挡住\\n- 根因：positionPopover 只钳水平，below 展开溢出视口\\n- 修复：垂直方向钳制 + 放不下时翻侧\\n- 两侧都不够时钳到视口边缘\\n- body 多写几行把卡拉高，保证 below 溢出判定触发\\n- 卡片一旦翻转要在 chip 上方完整可见\\n- 再补一行，卡高更稳',
+          authorName: 'cgeng', authorEmail: 'cgeng@c3ng.com', commitDate: '2026-09-02',
+          files: 2, insertions: 14, deletions: 2,
+          githubUrl: 'https://github.com/imchangchang/dsh-one/commit/351a7664d4f6e86bb0ef58c94d84d0ee1fb9aa53',
+        }] }, '*')
+        setTimeout(() => {
+          const chip = document.querySelector('.commit-hash.commit-hash-found')
+          chip?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+        }, 400)
+      })()`,
+      title: 'commit 悬浮卡贴面板底部：below 溢出视口时翻到 chip 上方',
+      expect: '长消息滚动区钉底：最后一段的「351a766」commit-hash chip 位于消息流底部（composer 上方、视口下半部），found 点亮态。悬浮卡（.commit-card popover）出现在 chip **上方**（below 放不下 → 翻转，卡片下边缘与 chip 行上边缘间隔 ~6px），整卡完整可见——作者行（account + cgeng + 相对时间）、subject 加粗行 + 4 行 body 灰字、分隔线、变更统计（「2 files changed, 14 insertions(+) 绿色, 2 deletions(-) 红色」）、分隔线 + 命令行（git-commit 图标 + 短 hash 351a766 + copy + Open on GitHub）——卡片下边缘不贴视口底边、没有被裁半截，也没有滚动条截断内容；卡片深色浮层、圆角、描边、阴影，宽 ≤420px。',
+    },
+
     'session-mention': {
       // 用户气泡走纯文本渲染，mention 按 `@[label](dsh-session:...)` 切成 chip + 正文。
       state: base({
