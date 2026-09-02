@@ -35,3 +35,4 @@
 - 2026-09-0X 用户反馈并确认「直接做」→ 认领（worktree: agent/tab-restore-on-window-reload）→ doing
 - 2026-09-0X 开发完成（worktree agent/tab-restore-on-window-reload，rebase 到含 session-open-protect-dirty-tab 的最新 main）：注册 WebviewPanelSerializer（chatPanel 按 tabId 映射重建、dshOne.tab 重新 bind）；workspaceState 增量维护 tabId → sessionId 映射（整表重建会覆盖未恢复面板）；webview 内容经 acquireVsCodeApi().setState 提供恢复凭据；服务未 running 时走现有 lastActive/pendingRestore 链补附着。自测 typecheck + 330 tests + build 全绿。→ done
 - 人工 dev-ui-test 验收通过（用户，隔离 VSCode 窗口：两 chat tab + dsh web tab reload 后全部原位恢复；全关后 reload 不恢复）
+- 人工 dev-ui-test 验收通过（用户）→ 主线合入（merge 9e1074c），复测 typecheck/334 tests/build 全绿 → closed

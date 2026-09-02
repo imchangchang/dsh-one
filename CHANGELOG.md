@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- 窗口 reload / VSCode 重启后已打开的 tab 全部丢失（会话 chat tab 与 `DSH One: 在编辑器标签页中打开` 的 dsh web tab）：注册了 WebviewPanelSerializer（`dshOne.chatPanel` + `dshOne.tab`）。会话 tab 以创建后不变的 tabId 为恢复凭据——webview 内容经 `acquireVsCodeApi().setState` 保存，真实会话经 workspaceState 的 tabId → sessionId 映射查询（tab 打开/关闭/会话替换时增量维护），reload 后按 VSCode 还原的面板（位置/active 不变）重建：服务运行中直接附着 controller，未运行先显示空态、服务恢复后走既有 lastActive/pendingRestore 链补附着；dsh web 面板重新绑定服务状态并刷新内容。用户手动关闭的 tab 不恢复，会话数据本身不受影响（dsh 服务与 VSCode 生命周期解绑，此前已如此）。
+
 - 切换会话时先闪一帧空会话 hero（「服务未就绪，暂时无法发送」的居中排版）再跳成消息流：根因是 session.history 基线翻页期间 getState 已带 sessionId 但消息为空、canSend 为 false，命中了空会话 hero 分支。ChatState 新增 `loading`（历史基线未就绪时为 true），加载期间只显示「加载会话…」居中占位，hero 与消息流都等基线落地再渲染。
 
 - 旧会话的聊天头部不显示 preset 标签：原实现靠扫会话日志里的 agent-preset/selected 事件，创建时指定 preset 的会话没有这条事件、旧会话也可能翻不到。改为对齐官方 AgentPresetLabel 的渠道——`composeHeader()` 从 session.list 基线取附着会话的 agentPreset id（官方 sessionSummarySchema 字段，host 创建时即定、实测 77 个会话全部有值），经 roster（agentPreset.list）映射成显示名：user preset 显示 roster 的 name 而非裸 id，roster 未就绪或未知 id 回退已知 system id 中文名/原样 id；roster 拉取不再局限于空会话，store 刷新时标签随之更新。后台任务 chip 的 mux 渠道经核对即官方 web 客户端同款（dsh-client-connection 的 openMux → /api/events.mux 的 session/jobs 帧），未改动。
