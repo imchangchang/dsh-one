@@ -156,19 +156,24 @@ const STYLE = `
   /* 等待插话的气泡（官方 data-pending-steering）：降不透明度表未落地。 */
   .msg.user.steering-pending .bubble { opacity: 0.7; }
   .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
-  /* @会话引用（mention）：图标 + 标题，对齐 dsh web refChip——链接色、字重 500、行内 flex。 */
-  .session-mention {
+  /* 引用 chip（@会话/@文件/@文件夹//命令，对齐 dsh web refChip）：链接色、字重 500、行内 flex。
+     .session-mention 是会话 chip（button，可点击打开会话）；.ref-chip 是文件/文件夹/命令
+     chip（span，纯展示）。 */
+  .session-mention, .ref-chip {
     display: inline-flex; align-items: center; gap: 3px; margin: 0 2px;
     padding: 0; border: none; background: none; vertical-align: baseline;
     color: var(--vscode-textLink-foreground);
-    font: inherit; font-weight: 500; cursor: pointer; white-space: nowrap;
+    font: inherit; font-weight: 500; white-space: nowrap;
   }
+  .session-mention { cursor: pointer; }
   /* 给 chip 补一个带文本基线的首个 flex 项：inline-flex 容器基线原先退化为盒底边
      （第一个子项是 SVG 图标、无文本基线），导致 chip 文字相对同行正文抬高。
      content 是零宽空格（有文本基线）；margin-left 抵消 gap:3px 多出的间距。 */
-  .session-mention::before { content: '​'; margin-left: -3px; }
-  .session-mention svg { flex: none; }
+  .session-mention::before, .ref-chip::before { content: '​'; margin-left: -3px; }
+  .session-mention svg, .ref-chip svg { flex: none; }
   .session-mention:hover { text-decoration: underline; }
+  /* 用户气泡下方的会话引用摘要行（对齐 dsh web referenceSummary）：小号、降级文字色。 */
+  .ref-summary { font-size: 12px; opacity: 0.75; }
   /* 跨会话召回上下文行：图标与文字基线对齐。 */
   .msg.context summary svg { vertical-align: -2px; margin-right: 3px; }
   .md { line-height: 1.5; word-break: break-word; }
@@ -313,6 +318,45 @@ const STYLE = `
     border-radius: 50%; background: currentColor;
   }
   .tool-state-dot[data-state="error"] { color: var(--vscode-testing-iconFailed, #f14c4c); }
+  /* skill / cordis 专用工具卡（对齐 dsh web SkillRow / CordisDefineRow 等）：
+     行首专用图标 + 动作标题 + 分隔点 + 摘要（错误红字），与通用工具行同构。 */
+  .tool-leading { flex: none; display: inline-flex; align-items: center; align-self: center; }
+  .tool-sep {
+    flex: none; align-self: center; width: 2px; height: 2px; border-radius: 1px;
+    background: var(--vscode-descriptionForeground, #888);
+  }
+  .tool-title-error { opacity: 1; color: var(--vscode-testing-iconFailed, #f14c4c); }
+  .tool-purpose {
+    flex: none; opacity: 0.6; font-size: 0.92em; color: var(--vscode-descriptionForeground, #888);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%;
+  }
+  /* skill 卡展开的指令全文卡（对齐 web SkillRow instructionsCard）：
+     边框 + 「说明」头 + max-height 260 内滚动。 */
+  .skill-instructions-card {
+    margin: 4px 0 0 20px; border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    border-radius: 8px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .skill-instructions-header {
+    padding: 2px 8px; font-size: 0.8em; font-weight: 600; opacity: 0.6;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .skill-instructions {
+    margin: 0; padding: 6px 8px; max-height: 260px; overflow: auto;
+    white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.88em;
+  }
+  /* cordis_define 卡展开的源码段（对齐 web CordisDefineRow sourceCard）：
+     Host/Client 各一段，max-height 260 内滚动。 */
+  .cordis-source { margin: 4px 0 0 20px; display: flex; flex-direction: column; }
+  .cordis-source-label {
+    font-size: 0.8em; font-weight: 600; opacity: 0.6; padding: 2px 0;
+  }
+  .cordis-source-code {
+    margin: 0; padding: 6px 8px; max-height: 260px; overflow: auto;
+    white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.88em;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3)); border-radius: 8px;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+  }
   /* 工具卡展开（对齐 dsh web DisclosureRow）：整行（summary）可点，折叠态保留
      摘要行，展开出 IN/OUT 卡片，内容 150px 内滚动。chevron 朝下表示可展开，
      展开后旋转朝上；展开态持久化在 detailsOpen（key 按消息/块位置）。 */
@@ -525,12 +569,16 @@ const STYLE = `
   .diff {
     margin-top: 4px; border-radius: 4px; overflow: hidden;
     font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
-  .diff-line { white-space: pre-wrap; padding: 0 6px; }
-  .diff-line.del { background: var(--vscode-diffEditor-removedTextBackground, rgba(255,80,80,.18)); }
-  .diff-line.del::before { content: '- '; }
-  .diff-line.add { background: var(--vscode-diffEditor-insertedTextBackground, rgba(80,255,80,.14)); }
-  .diff-line.add::before { content: '+ '; }
+  /* 左右分栏：每行一个两列 grid，左 old 右 new，行对逐行对齐。 */
+  .diff-row { display: grid; grid-template-columns: 1fr 1fr; }
+  .diff-cell { white-space: pre-wrap; padding: 0 6px; min-height: 1.1em; overflow-wrap: anywhere; }
+  .diff-cell.old { border-right: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3)); }
+  .diff-cell.del { background: var(--vscode-diffEditor-removedTextBackground, rgba(255,80,80,.18)); }
+  .diff-cell.add { background: var(--vscode-diffEditor-insertedTextBackground, rgba(80,255,80,.14)); }
+  /* 纯增/删行的空侧：淡灰占位，提示该行无对应内容。 */
+  .diff-cell.empty { background: rgba(127,127,127,.08); }
   /* diff 行折叠 toggle（对齐 dsh web DiffBlock「展开其余 N 行差异」）。 */
   .diff-toggle {
     cursor: pointer; opacity: 0.6; margin-top: 2px; font-size: 0.85em; padding-left: 6px;
@@ -572,6 +620,12 @@ const STYLE = `
     margin-top: 4px; font-size: 0.85em;
     color: var(--vscode-errorForeground, #f14c4c);
   }
+  /* 超 token 提示行（对齐官方 TurnMaxTokensItem）：与 turnError 同构，warning 配色。 */
+  .turn-error.max-tokens { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .turn-error.max-tokens .turn-error-dot {
+    background: var(--vscode-editorWarning-foreground, #cca700);
+  }
+  .turn-error.max-tokens .turn-error-title { color: var(--vscode-editorWarning-foreground, #cca700); }
   .turn-error-dot {
     width: 7px; height: 7px; border-radius: 50%; flex: none; align-self: center;
     background: var(--vscode-errorForeground, #f14c4c);
@@ -583,6 +637,69 @@ const STYLE = `
     font-size: 0.85em; padding: 0 4px; border-radius: 3px;
     background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
   }
+  /* 压缩摘要卡（对齐官方 CompactionItem）：折叠行 = chevron + 标题 + 分隔点 + 摘要。 */
+  .compaction { width: 100%; min-width: 0; margin: 2px 0; font-size: 13px; line-height: 24px; }
+  .compaction summary {
+    display: flex; align-items: center; gap: 6px; min-width: 0; cursor: pointer;
+    list-style: none; border-radius: 6px; padding: 2px 8px; user-select: none;
+  }
+  .compaction summary::-webkit-details-marker { display: none; }
+  .compaction summary:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.08)); }
+  .compaction-chevron { flex: none; transition: transform .15s ease; }
+  .compaction-chevron.collapsed { transform: rotate(-90deg); }
+  .compaction-title { flex: none; color: var(--vscode-descriptionForeground, #888); }
+  .compaction-sep {
+    flex: none; width: 2px; height: 2px; border-radius: 50%;
+    background: var(--vscode-descriptionForeground, #888); opacity: .6;
+  }
+  .compaction-summary {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .compaction-body { padding: 2px 8px 4px 26px; font-size: 13px; }
+  /* 无摘要（不可展开）的纯展示行。 */
+  .compaction-row {
+    display: flex; align-items: center; gap: 6px; min-width: 0;
+    margin: 2px 0; padding: 2px 8px; font-size: 13px; line-height: 24px;
+  }
+  /* 模型重试行（对齐官方 ModelRetryItem）：折叠行 = 状态文本，展开 = 延迟 + 失败原因。 */
+  .retry-row { color: var(--vscode-descriptionForeground, #888); font-size: 12px; line-height: 20px; }
+  .retry-row summary {
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
+    width: fit-content; border-radius: 3px; padding: 2px 0; list-style: none;
+  }
+  .retry-row summary::-webkit-details-marker { display: none; }
+  .retry-row summary:hover { color: var(--vscode-foreground, #ccc); }
+  .retry-row summary::after {
+    content: ''; opacity: .8; border-bottom: 1.5px solid; border-right: 1.5px solid;
+    width: 6px; height: 6px; transition: transform .12s; transform: rotate(-45deg);
+  }
+  .retry-row[open] summary::after { transform: rotate(45deg); }
+  /* 等待期扫光（对齐官方 data-active shimmer），reduced-motion 下退化为静态。 */
+  .retry-row[data-active] .retry-text {
+    background: linear-gradient(
+      90deg,
+      var(--vscode-descriptionForeground, #888) 0%,
+      var(--vscode-descriptionForeground, #888) 40%,
+      var(--vscode-foreground, #ccc) 50%,
+      var(--vscode-descriptionForeground, #888) 60%,
+      var(--vscode-descriptionForeground, #888) 100%
+    );
+    background-size: 200% 100%; -webkit-background-clip: text; background-clip: text;
+    color: transparent; animation: retry-shimmer 1.6s ease-in-out infinite;
+  }
+  @keyframes retry-shimmer {
+    from { background-position: 100% 0; }
+    to { background-position: 0 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .retry-row[data-active] .retry-text { color: inherit; background: none; animation: none; }
+  }
+  .retry-details {
+    display: grid; gap: 2px; margin-top: 3px; padding-left: 14px;
+    font-size: 12px; line-height: 18px; overflow-wrap: anywhere;
+  }
+  .retry-detail-label { color: var(--vscode-descriptionForeground, #888); }
   .msg-actions { display: flex; align-items: center; gap: 10px; height: 28px; margin-top: 2px; }
   .msg-actions .icon-action {
     width: 28px; height: 28px; padding: 6px; display: inline-flex;
@@ -597,15 +714,90 @@ const STYLE = `
   .msg-actions .icon-action:disabled { cursor: default; opacity: 0.4; }
   .msg-actions .icon-action.active { color: var(--vscode-foreground, #ccc); }
   .msg-actions .icon-action svg { display: block; }
-  .pending {
+  .produced-files {
+    display: flex; align-items: flex-start; gap: 6px 8px; margin-top: 10px;
+    font-size: 13px; line-height: 22px; min-width: 0;
+  }
+  .produced-label { flex: none; color: var(--vscode-descriptionForeground, #888); padding-top: 1px; }
+  /* 产物多时换行铺开（用户反馈：单行 nowrap + overflow hidden 会把展开后的
+     chips 截断）；label 与第一行对齐，chips 占用剩余宽度内换行。 */
+  .produced-lane {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;
+    flex: 1; min-width: 0;
+  }
+  .produced-file {
+    flex: none; max-width: 320px; margin: 0; padding: 0 8px;
+    border: none; border-radius: 6px; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.17));
+    color: var(--vscode-descriptionForeground, #aaa); font: inherit; cursor: pointer;
+    text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
+  }
+  .produced-file:hover { color: var(--vscode-foreground, #ccc); text-decoration: underline; }
+  /* 「+N 个文件」是 toggle 按钮（展开/收起），压掉全局 button 的实底背景 */
+  .produced-more {
+    flex: none; margin: 0; padding: 0 4px; white-space: nowrap;
+    border: none; border-radius: 4px; background: transparent;
+    color: var(--vscode-descriptionForeground, #888); font: inherit; cursor: pointer;
+  }
+  .produced-more:hover { color: var(--vscode-descriptionForeground, #bbb); text-decoration: underline; }
+  .msg-timing {
+    flex: none; white-space: nowrap; padding-left: 12px;
+    font-size: 12px; line-height: 24px; font-variant-numeric: tabular-nums;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .msg-timing .msg-timing-dot { margin: 0 10px; }
+  /* Pending 接管面板（approval/question/plan-review 挂 composer 区，对齐 dsh
+     web QuestionFlow / PlanReviewPanel）：容器占输入区位置，一个 pending 一块。 */
+  .pending-panel {
     flex: none; padding: 6px 12px; display: flex; flex-direction: column; gap: 8px;
     border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
-  .pending-card {
+  .pending-block {
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
-    border-radius: 6px; padding: 8px 10px;
+    border-radius: 6px;
     background: var(--vscode-editorWidget-background, transparent);
   }
+  .panel-header {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  }
+  .panel-title {
+    flex: 1; min-width: 0; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .panel-pager { display: flex; align-items: center; gap: 6px; flex: none; }
+  .panel-pager .pager-btn { padding: 0 9px; }
+  .pager-count { font-size: 12px; opacity: 0.8; min-width: 2.4em; text-align: center; }
+  button.panel-toggle {
+    flex: none; background: transparent; color: var(--vscode-descriptionForeground, #888);
+    padding: 2px 6px; display: inline-flex; align-items: center;
+  }
+  button.panel-toggle:hover:not(:disabled) {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.18));
+  }
+  .panel-toggle svg { transition: transform .15s ease; }
+  .panel-toggle.minimized svg { transform: rotate(180deg); }
+  .panel-body { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 10px; }
+  /* 最小化态的回答输入行（去聊天里说）：一行输入框 + 提交按钮。 */
+  .panel-answer { display: flex; gap: 8px; align-items: center; padding: 0 10px 10px; }
+  .panel-answer input {
+    flex: 1; min-width: 0; box-sizing: border-box; padding: 4px 8px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
+  }
+  /* PlanReviewPanel warn strip：计划待审警示条。 */
+  .plan-warn {
+    display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 4px;
+    background: var(--vscode-editorWarning-background, rgba(234, 179, 8, .16));
+    border: 1px solid var(--vscode-editorWarning-foreground, rgba(234, 179, 8, .8));
+    color: var(--vscode-editorWarning-foreground, #e2b93b);
+    font-weight: 600; font-size: 12px;
+  }
+  .plan-warn-icon { flex: none; font-size: 13px; line-height: 1; }
+  /* 计划 Markdown 全文：限高滚动（复刻 question-detail .md 的观感）。 */
+  .plan-md {
+    max-height: 320px; overflow-y: auto; padding: 8px 10px;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.25)); border-radius: 6px;
+  }
+  .plan-actions { flex-wrap: wrap; }
   .pending-title { font-weight: 600; }
   .pending-reason { opacity: 0.8; font-size: 0.9em; margin-top: 2px; white-space: pre-wrap; }
   .pending-actions { display: flex; gap: 8px; margin-top: 8px; }
@@ -646,7 +838,6 @@ const STYLE = `
     flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px;
     border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
-  .pending + .input-area { border-top: 0; }
   .queue {
     flex: none; padding: 6px 12px; display: flex; flex-direction: column; gap: 4px;
     border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
@@ -734,6 +925,46 @@ const STYLE = `
   @media (prefers-reduced-motion: reduce) { .todo-progress-spin { animation: none; } }
   /* 消息内 todo_write 任务卡尾部「+N」其余进行中数（对齐 web TodoRow suffix）。 */
   .tool-todo-extra { flex: none; opacity: 0.7; font-size: 0.9em; font-variant-numeric: tabular-nums; }
+  /* 目标条幅（对齐官方 GoalBar / input.dock id=goal order 10：todo 与 queue
+     之间的 36px 横条）：goal 图标 + phase 标签 + 截断 objective + 图标操作
+     （active 暂停 / paused 恢复，恒有编辑与清除；编辑态条内内联 input）。 */
+  .goal-bar-dock {
+    flex: none; border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .todo-panel + .goal-bar-dock { border-top: 0; }
+  .goal-bar-dock + .queue { border-top: 0; }
+  .goal-bar {
+    display: flex; align-items: center; gap: 10px;
+    box-sizing: border-box; height: 36px; padding: 4px 6px 4px 12px;
+  }
+  .goal-bar-glyph { flex: none; display: inline-flex; color: var(--vscode-descriptionForeground, #888); }
+  .goal-bar-label { flex: none; font-size: 13px; font-weight: 500; }
+  .goal-bar-objective {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 13px; opacity: 0.75;
+  }
+  .goal-bar-actions { flex: none; display: flex; align-items: center; gap: 2px; }
+  .goal-bar-btn {
+    width: 28px; height: 28px; padding: 0; display: inline-flex;
+    align-items: center; justify-content: center;
+    color: var(--vscode-descriptionForeground, #888);
+    background: transparent; border: none; border-radius: 50%; cursor: pointer;
+  }
+  .goal-bar-btn:hover:not(:disabled) {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.17));
+    color: var(--vscode-foreground, #ccc);
+  }
+  .goal-bar-btn:disabled { cursor: default; opacity: 0.4; }
+  .goal-bar-input {
+    flex: 1; min-width: 0; box-sizing: border-box; height: 26px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, transparent);
+    border-radius: 6px; padding: 0 8px; font-size: 13px;
+  }
+  .goal-bar-input:focus {
+    outline: 1px solid var(--vscode-focusBorder, #007fd4); outline-offset: -1px;
+  }
   .input-row { display: flex; gap: 8px; align-items: center; }
   .input-footer { display: flex; gap: 6px; align-items: center; }
   .stats-row { display: flex; align-items: center; gap: 10px; }
@@ -754,6 +985,19 @@ const STYLE = `
   /* pill 内嵌图标 + 文字标签（如 Agent 模式）：图标不缩、标签自身省略号。 */
   .pill svg { flex: none; }
   .pill .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Plan-mode chip（对齐官方 dsh web PlanChip 的 warn 黄）：warn 前景色文字 +
+     同色低透明背景，与普通 pill 的次级按钮灰区分开。 */
+  .pill.plan-chip {
+    background: rgba(204, 167, 0, .15);
+    color: var(--vscode-editorWarning-foreground, #cca700);
+    padding: 2px 8px;
+  }
+  .pill.plan-chip:hover:not(:disabled) {
+    background: rgba(204, 167, 0, .28);
+    color: var(--vscode-editorWarning-foreground, #cca700);
+  }
+  .pill.plan-chip:disabled { opacity: .6; cursor: default; }
+  .pill.plan-chip .plan-chip-close { display: inline-flex; align-items: center; flex: none; }
   .popover {
     position: fixed; z-index: 20; min-width: 180px; max-width: 340px; max-height: 50vh; overflow-y: auto;
     background: var(--vscode-menu-background, var(--vscode-dropdown-background));
@@ -778,6 +1022,13 @@ const STYLE = `
   .menu-item .check { margin-left: auto; flex: none; }
   .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
+  /* 带描述两行的菜单项（模型菜单等）：名称 + 描述小字，行高自适应。 */
+  .menu-item.has-desc { align-items: flex-start; white-space: normal; }
+  .menu-item.has-desc .check { align-self: center; }
+  .menu-item-main { flex: 1; min-width: 0; }
+  .menu-item-desc {
+    margin-top: 1px; font-size: 11px; line-height: 1.4; opacity: 0.6; white-space: normal;
+  }
   /* agent preset 下拉项：名称 + 描述两行（描述较长，单行 menu-right 放不下）。 */
   .preset-item { align-items: flex-start; white-space: normal; }
   .preset-item .preset-item-main { flex: 1; min-width: 0; }
@@ -786,6 +1037,15 @@ const STYLE = `
   }
   .preset-item .check { align-self: center; }
   .preset-item .job-dot-slot { align-self: center; }
+  /* 空会话 hero 的 workspace 选择器：行标题省略号截断（悬停 tooltip 给完整
+     路径），footer 与主列表之间用分隔线（对齐官方 Menu footer）。 */
+  .workspace-item .workspace-item-label {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .workspace-picker-footer {
+    margin-top: 4px; padding-top: 4px;
+    border-top: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
+  }
   /* 子代理下拉的层级树（对齐 dsh web SubagentHeader 成员树）：每层嵌套容器
      左缩 16px + 4px 轨距，竖轨与横向支线用 VS Code 树缩进参考线色；末行
      竖轨半高收尾成 └。多层的祖辈竖轨随容器自然贯通。 */
@@ -906,8 +1166,22 @@ const STYLE = `
   }
   .image-chip .chip-remove:hover { opacity: 1; }
   /* 文件 chip 的类型小图标（strokeSvg 固定 14px，缩到容器尺寸）。 */
-  .file-chip-icon { display: inline-flex; width: 12px; height: 12px; flex: none; }
-  .file-chip-icon svg { width: 12px; height: 12px; display: block; }
+  .file-chip-icon { display: inline-flex; width: 16px; height: 16px; flex: none; }
+  .file-chip-icon svg { width: 16px; height: 16px; display: block; }
+  /* 文件 chip 方框：与 .attach-thumb 同尺寸同圆角（48px，含 1px 边框），
+     列排文档图标 + 文件名，点击在 VS Code 打开；输入区版本右上角 × 复用
+     .thumb-remove 交互。 */
+  .file-chip {
+    position: relative;
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px;
+    width: 48px; height: 48px; flex: none;
+    border-radius: 10px; overflow: hidden; cursor: pointer;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
+    background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
+    font-size: 11px; line-height: 1.2;
+  }
+  .file-chip .chip-name { max-width: 42px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 待发送图片缩略图（对齐官方 AttachmentRail：方图 cover，hover 右上角出移除钮）。 */
   .attach-thumb {
     position: relative; width: 48px; height: 48px; flex: none;
@@ -916,7 +1190,7 @@ const STYLE = `
     background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
   }
   .attach-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .attach-thumb .thumb-remove {
+  .attach-thumb .thumb-remove, .file-chip .thumb-remove {
     position: absolute; top: 3px; right: 3px; z-index: 1;
     width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
     display: grid; place-items: center;
@@ -925,9 +1199,10 @@ const STYLE = `
     cursor: pointer; font-size: 12px; line-height: 1;
     opacity: 0; transition: opacity .2s ease-in-out;
   }
-  .attach-thumb:hover .thumb-remove, .attach-thumb .thumb-remove:focus-visible { opacity: 1; }
-  @media (pointer: coarse) { .attach-thumb .thumb-remove { opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .attach-thumb .thumb-remove { transition: none; } }
+  .attach-thumb:hover .thumb-remove, .attach-thumb .thumb-remove:focus-visible,
+  .file-chip:hover .thumb-remove, .file-chip .thumb-remove:focus-visible { opacity: 1; }
+  @media (pointer: coarse) { .attach-thumb .thumb-remove, .file-chip .thumb-remove { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .attach-thumb .thumb-remove, .file-chip .thumb-remove { transition: none; } }
   #input {
     flex: 1; resize: none; box-sizing: border-box; padding: 6px 8px;
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);

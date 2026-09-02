@@ -91,13 +91,18 @@ const chatHandlers: ChatTabMessageHandler[] = [
       const text = typeof m.text === 'string' ? m.text.trim() : ''
       const images = Array.isArray(m.images) ? m.images : []
       if (!text && images.length === 0) return
+      // 懒切换落地：把消息发到 pending 目标 workspace 的会话（resolve 会换
+      // controller，后续逻辑一律用重取的 target，不用入参 controller）。
+      if (!(await host.actions.resolvePendingWorkspace(host))) return
+      const target = host.controller
+      if (!target) return
       // Slash commands route to runCommand; pasted absolute paths like
       // /Users/… are prompts for the model, not commands.
       if (looksLikeSlashCommand(text)) {
         await runCommand(host, text, images)
         return
       }
-      await controller.send(text, images, m.steer === true)
+      await target.send(text, images, m.steer === true)
     },
   },
   {
@@ -167,9 +172,13 @@ const chatHandlers: ChatTabMessageHandler[] = [
     types: ['setAgentPreset'],
     async handle(host, m) {
       if (m.type !== 'setAgentPreset') return
+      // 懒切换落地（preset 必须选在目标会话上，且发送前生效）。
+      if (!(await host.actions.resolvePendingWorkspace(host))) return
+      const target = host.controller
+      if (!target) return
       // 失败（尤其 agent-preset-locked：会话已开跑）只记日志，不打扰用户。
       try {
-        await host.controller?.setAgentPreset(m.id)
+        await target.setAgentPreset(m.id)
       } catch (err) {
         host.actions.logger.warn(`chat: setAgentPreset(${m.id}) failed — ${errorText(err)}`)
       }
@@ -250,8 +259,106 @@ const chatHandlers: ChatTabMessageHandler[] = [
   },
 ]
 
+/** 空会话 hero 的 workspace 选择器域（main 功能移植，按 tab 路由）。 */
+const workspaceHandlers: ChatTabMessageHandler[] = [
+  {
+    types: ['workspacePick'],
+    async handle(host, m) {
+      if (m.type !== 'workspacePick') return
+      // 懒切换到目标 workspace（只记录、更新 chip 显示，零 RPC——真正切换
+      // 推迟到 send/setAgentPreset 的 resolvePendingWorkspace）。目标等于当前
+      // 会话所属 workspace 时解释为取消。
+      host.actions.setPendingWorkspace(host, m.workspaceId)
+    },
+  },
+  {
+    types: ['workspacePickAdd'],
+    async handle(host, _m) {
+      await host.actions.addWorkspaceAndOpen(host)
+    },
+  },
+  {
+    types: ['workspacePickCreate'],
+    async handle(host, _m) {
+      await host.actions.createWorkspaceAndOpen(host)
+    },
+  },
+]
+
+/** goal 条幅域：对齐官方 GoalBar 的操作（控制器即会话，goal/* RPC）。 */
+const goalHandlers: ChatTabMessageHandler[] = [
+  {
+    types: ['goalPause'],
+    async handle(host, _m) {
+      await host.controller?.goalPause()
+    },
+  },
+  {
+    types: ['goalResume'],
+    async handle(host, _m) {
+      await host.controller?.goalResume()
+    },
+  },
+  {
+    types: ['goalEdit'],
+    async handle(host, m) {
+      if (m.type !== 'goalEdit') return
+      await host.controller?.goalEdit(m.objective)
+    },
+  },
+  {
+    types: ['goalClear'],
+    async handle(host, _m) {
+      await host.controller?.goalClear()
+    },
+  },
+]
+
+/** 产物/附件文件域：文件 chip 点击在 VS Code 编辑器打开（任意绝对路径）。 */
+const fileHandlers: ChatTabMessageHandler[] = [
+  {
+    types: ['producedOpenFile'],
+    async handle(_host, m) {
+      if (m.type !== 'producedOpenFile' || typeof m.path !== 'string' || !m.path) return
+      await openFileInEditor(m.path, '产物文件')
+    },
+  },
+  {
+    types: ['openAttachmentFile'],
+    async handle(_host, m) {
+      if (m.type !== 'openAttachmentFile' || typeof m.path !== 'string' || !m.path) return
+      await openFileInEditor(m.path, '附件文件')
+    },
+  },
+]
+
 /** 全部 handler：ChatTabHost 按消息 type 分发。 */
-export const chatMessageHandlers: ChatTabMessageHandler[] = [...globalHandlers, ...chatHandlers]
+export const chatMessageHandlers: ChatTabMessageHandler[] = [
+  ...globalHandlers,
+  ...chatHandlers,
+  ...workspaceHandlers,
+  ...goalHandlers,
+  ...fileHandlers,
+]
+
+/** Open an absolute path in the VS Code editor; failure toast names the chip kind. */
+async function openFileInEditor(path: string, label: string): Promise<void> {
+  try {
+    await vscode.window.showTextDocument(vscode.Uri.file(path))
+  } catch (err) {
+    // 产物/附件路径都是某个时刻的路径快照：文件可能后来被移动/删除（如
+    // backlog git mv），报错时先区分「已不存在」并说明原因，避免只有干巴巴
+    // 的「无法打开」而不知道发生了什么。
+    const detail = errorText(err)
+    const missing = await fs.access(path).then(
+      () => false,
+      () => true,
+    )
+    vscode.window.showErrorMessage(
+      missing ? `${label}已不存在（可能已被移动或删除）：${path}` : `打开${label}失败：${detail}`,
+    )
+  }
+}
 
 // ---- 会话动作的辅助实现（原 ChatViewProvider 的私有方法，按 tab 参数化） ----
 
