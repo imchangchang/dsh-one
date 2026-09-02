@@ -49,3 +49,5 @@
 4. 点清除按钮 → 条幅消失；再次 `/goal ...` 可重新创建。
 5. `/goal complete` 之类使目标完成后条幅消失（不渲染 complete）。
 6. 视觉回归：`scripts/ui-visual.sh`（AI 已跑过 22 项 DOM 断言全过；人工可抽查截图）。
+
+- 2026-09-02 同步主线最新代码（rebase 到最新 main，+98 提交：plan-mode-chip/mention-chips/message-turn-timing 等）；冲突 3 处（chatSession.ts 基线+帧投影处理、webview.ts import+保活区、scenarios.js 基线清单）均已解决；重测 typecheck + 253 测试 + build + 22 项 goal DOM 断言 + 5 场景基线抽查全绿；条目随合入到主线。
