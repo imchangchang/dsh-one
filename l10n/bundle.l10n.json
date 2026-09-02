@@ -322,5 +322,18 @@
   "Stopping": "Stopping",
   "Cancelled": "Cancelled",
   "Failed": "Failed",
-  "{0}h {1}m": "{0}h {1}m"
+  "{0}h {1}m": "{0}h {1}m",
+  "avg first token {0}": "avg first token {0}",
+  "tool calls {0}": "tool calls {0}",
+  "{0} turns · {1} steps": "{0} turns · {1} steps",
+  "Ungrouped": "Ungrouped",
+  "[file ×{0}]": "[file ×{0}]",
+  "[image ×{0}]": "[image ×{0}]",
+  "Click the button below to start the service.": "Click the button below to start the service.",
+  "DSH service error": "DSH service error",
+  "DSH service is not running": "DSH service is not running",
+  "First use downloads the Node.js runtime and dsh; please wait.": "First use downloads the Node.js runtime and dsh; please wait.",
+  "Start": "Start",
+  "Starting the DSH service…": "Starting the DSH service…",
+  "Unknown or malformed command: {0}": "Unknown or malformed command: {0}"
 }

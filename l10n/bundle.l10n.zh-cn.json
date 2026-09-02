@@ -322,5 +322,18 @@
   "Stopping": "停止中",
   "Cancelled": "已取消",
   "Failed": "失败",
-  "{0}h {1}m": "{0}小时 {1}分"
+  "{0}h {1}m": "{0}小时 {1}分",
+  "avg first token {0}": "平均首 token {0}",
+  "tool calls {0}": "工具调用 {0} 次",
+  "{0} turns · {1} steps": "{0} 轮 · {1} 步",
+  "Ungrouped": "未分组",
+  "[file ×{0}]": "[文件 ×{0}]",
+  "[image ×{0}]": "[图片 ×{0}]",
+  "Click the button below to start the service.": "点击下方按钮启动服务。",
+  "DSH service error": "dsh 服务出错",
+  "DSH service is not running": "dsh 服务未运行",
+  "First use downloads the Node.js runtime and dsh; please wait.": "首次使用需下载 Node.js 运行时和 dsh，请稍候。",
+  "Start": "启动",
+  "Starting the DSH service…": "正在启动 dsh 服务…",
+  "Unknown or malformed command: {0}": "未知或格式错误的命令:{0}"
 }
