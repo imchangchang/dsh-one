@@ -53,14 +53,15 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 发布门禁：`scripts/release-gate.sh`（默认 dry-run 只输出计划与只读校验，`--apply` 才执行）。两段式：
 
 1. `scripts/release-gate.sh`：看计划与当前状态校验（version / CHANGELOG / tag / 工作树）。
-2. `scripts/release-gate.sh --apply`：交互输入新版本 → bump `package.json` 的 `version` + 把 `CHANGELOG.md` 的 `[Unreleased]` 收口成 `[x.y.z]` → 停下。
+2. `scripts/release-gate.sh --apply`：交互输入新版本（建议 patch+1）→ bump `package.json` 的 `version` + 把 `CHANGELOG.md` 的 `[Unreleased]` 收口成 `[x.y.z]` → 停下。
 3. review 后提交（建议只提交这两个文件）：`git commit -m "release: v<x.y.z>"`。
-4. 重跑 `scripts/release-gate.sh --apply`：干净 checkout（临时 worktree @ HEAD）→ `npm ci` → typecheck/test/build/vsce package → 验 vsix 内容与版本 → 打 `git tag v<x.y.z>`（== 打包 commit）。产出的 vsix 复制到仓库根目录。
-5. 按 `docs/release-checklist.md` 人工验收（沙盒装机 + README 确认）。**发布用的就是这份 vsix，不重新打包。**
-6. 登录与发布（PAT 来自 Azure DevOps，scope 要勾 Marketplace > Manage；release-gate 不跑 publish，这一步由人执行）：
+4. 重跑 `scripts/release-gate.sh --apply`：校验工作树干净 → 打 `git tag v<x.y.z>`（== 收口 commit）。
+5. push tag 触发构建：`git push origin main && git push origin v<x.y.z>`。`.github/workflows/release.yml` 会跑 typecheck/test/package、用 `scripts/verify-vsix.sh` 验产物，并把 `dsh-one-<版本>.vsix` 挂到 GitHub Release。
+6. 按 `docs/release-checklist.md` 人工验收（沙盒装机 + README 确认）。**验收对象 = GitHub Release 的 vsix（从 Releases 页下载），本地不再打包。**
+7. 登录与发布（PAT 来自 Azure DevOps，scope 要勾 Marketplace > Manage；release-gate 不跑 publish，这一步由人执行）：
    ```bash
-   npx vsce login <publisher>
-   npx vsce publish
+   npx vsce login cgeng
+   npx vsce publish dsh-one-<x.y.z>.vsix   # 带路径、用 Release 下载的那份，不重新打包
    ```
 
-注意：`package.json` 的 `"publisher"` 应是你发布的 marketplace 账号（现为 `cgeng`），发布前确认即可，无需修改。
+注意：`package.json` 的 `"publisher"` 应是你发布的 marketplace 账号（现为 `cgeng`），发布前确认即可，无需修改。版本策略：每次发布 patch +1（首发 1.0.0），市场不可同版本重发。

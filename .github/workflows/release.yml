@@ -1,0 +1,53 @@
+name: Release
+
+# 发布构建：tag v<版本> push 触发。产物 = GitHub Release 上的 dsh-one-<版本>.vsix，
+# 上市场的 vsix 一律来自这里（本地不再打包，见 scripts/release-gate.sh 与 release-gate skill）。
+# 三平台验证不需要在此重复：收口 commit 已随 main push 跑过 ci.yml 的三平台矩阵，
+# 本 workflow 在同一 commit（tag 指向）上做打包 + 验 vsix + 挂 Release。
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: 校验 tag 与 package.json 版本一致
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          test "$VER" = "$PKG" || { echo "::error::tag ${GITHUB_REF_NAME} 与 package.json version ${PKG} 不一致"; exit 1; }
+          echo "tag=${GITHUB_REF_NAME} package.json.version=${PKG} → 一致"
+      - run: npm run package
+      - name: 校验 vsix 内容与版本
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          bash scripts/verify-vsix.sh "dsh-one-${VER}.vsix" "$VER"
+      - name: 创建 GitHub Release 并上传 vsix
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          VSIX="dsh-one-${VER}.vsix"
+          # 幂等检查：Release 已存在说明同版本重复触发/占用。版本唯一（市场不可同版本重发），
+          # 不覆盖——删掉该 Release 可重跑，或 bump 版本重走发布流程。
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::error::Release ${GITHUB_REF_NAME} 已存在。删除该 Release 后可重跑，或 bump 版本重走发布流程。"
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" "$VSIX" \
+            --title "DSH One v${VER}" \
+            --generate-notes
