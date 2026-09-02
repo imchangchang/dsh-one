@@ -124,8 +124,9 @@ export class SessionsStore implements vscode.Disposable {
    * projections.asOfSeq 播种，之后由 mux 的 session/projection 帧推进。
    */
   private titleSeqs = new Map<string, number>()
-  /** 当前附着的会话（由 ChatViewProvider 告知）：完成标记排除它，附着即清除。 */
-  private attachedId: string | null = null
+  /** 当前已打开的会话（由 ChatViewProvider 告知，多 tab 一个集合）：完成标记
+   * 排除它们，打开即清除。 */
+  private attachedIds = new Set<string>()
   private url: string | null = null
   private hostEvents: vscode.Disposable | null = null
   private mux: vscode.Disposable | null = null
@@ -278,12 +279,17 @@ export class SessionsStore implements vscode.Disposable {
   }
 
   /**
-   * Chat view 附着/脱离会话时同步：附着中的会话不打完成标记（官方语义：
-   * 当前选中的会话不标），且附着即清除其已有标记。
+   * Chat view 打开/关闭 tab 时同步已打开会话集合：已打开的会话不打完成标记
+   * （官方语义：当前选中的会话不标），且打开即清除其已有标记。
    */
-  setAttachedSession(sessionId: string | null): void {
-    this.attachedId = sessionId
-    if (sessionId && this.completed.delete(sessionId)) {
+  setAttachedSessions(sessionIds: Iterable<string>): void {
+    const next = new Set(sessionIds)
+    this.attachedIds = next
+    let changed = false
+    for (const id of next) {
+      if (this.completed.delete(id)) changed = true
+    }
+    if (changed) {
       this.rebuildModel()
       this.onDidChangeEmitter.fire()
     }
@@ -519,7 +525,7 @@ export class SessionsStore implements vscode.Disposable {
    */
   private noteRunningFlip(sessionId: string, prev: boolean | undefined, running: boolean): void {
     if (running) this.completed.delete(sessionId)
-    else if (prev === true && sessionId !== this.attachedId) this.completed.add(sessionId)
+    else if (prev === true && !this.attachedIds.has(sessionId)) this.completed.add(sessionId)
   }
 
   /**

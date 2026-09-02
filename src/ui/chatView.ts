@@ -1,1443 +1,65 @@
+/**
+ * Chat 编辑器的 tab 集合管理（`ChatViewProvider`）：**一个会话一个 tab**。
+ * 每个 tab 的 per-tab 职责（panel 生命周期、controller 订阅、标题同步、
+ * pending 兜底、消息处理、暂存附件）都内聚在 ChatTabHost（chatTab.ts），
+ * 本类只做集合级的事：
+ * - tabs 的打开/聚焦/替换/关闭（默认在当前活动 tab 打开；「在新 tab 中
+ *   打开」显式新开；焦点不在 chat tab 时替换最近活动 tab——用户决策）
+ * - 活动 tab 检测（panel.onDidChangeViewState → 侧栏高亮跟随）
+ * - 服务生命周期：down/重启时释放全部 controller，重启后只恢复最近活动
+ *   的会话 tab；归档/删除会话时关闭对应 tab
+ * - 头部信息合成（composeHeader：子代理树/jobs/workspace/preset/面包屑）
+ *   与 SessionsSnapshot 广播（@ 补全数据源）
+ *
+ * 设计动机（multi-tab 重构第二层）：本类原本是单类上帝——tab 管理、消息
+ * 路由（25+ case）、状态合成、附件、命令全在一起，任何新功能都往同一批
+ * 方法（onMessage/composeHeader/attach）里加，两个并行开发任务必然撞车。
+ * 拆出 ChatTabHost 与按域消息 handler（chatMessages.ts）后：per-tab 的
+ * 新功能落在 tab 类或其 handler 文件里，集合逻辑只改本类。
+ */
 import * as vscode from 'vscode'
-import * as crypto from 'node:crypto'
-import * as fs from 'node:fs/promises'
-import * as os from 'node:os'
-import * as path from 'node:path'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
-import { ChatSessionController } from '../server/chatSession.ts'
-import {
-  createSession,
-  deleteWorkspace,
-  ensureSession,
-  executeCommand,
-  exportSessionLog,
-  listFileReferences,
-  renameSession,
-  selectModel,
-  sessionAttachment,
-  sessionLogZipFilename,
-  sessionModels,
-} from '../server/dshRpc.ts'
-import type { SessionModelSelection, WorkspaceView } from '../server/dshRpc.ts'
-import type { FileRefCandidate } from '../pure/fileReference.ts'
-import type { ChatState, FromWebviewMessage, OutgoingImage, SessionsSnapshot, StagedFile, ToWebviewMessage } from '../pure/chatContract.ts'
+import { createSession, ensureSession } from '../server/dshRpc.ts'
+import type { WorkspaceView } from '../server/dshRpc.ts'
+import type { ChatState, OutgoingImage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import { contextMenuResource } from '../pure/contextResource.ts'
 import { orderJobs } from '../pure/activityTree.ts'
 import { buildSubagentTree } from '../pure/sessionTree.ts'
 import { SubagentCatalogStore } from './subagentsStore.ts'
-import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
+import { ChatTabHost, EMPTY_STATE, type ChatTabHostActions } from './chatTab.ts'
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** Media type by file extension (dsh ImageMediaType: png/jpeg/webp/gif). */
-const IMAGE_MEDIA_TYPES: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-}
-
-/** Pushed when no session is attached; the webview renders the empty state. */
-const EMPTY_STATE: ChatState = {
-  sessionId: null,
-  messages: [],
-  pending: [],
-  running: false,
-  canSend: false,
-}
-
-function nonce(): string {
-  return crypto.randomBytes(16).toString('base64')
-}
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-/** Human byte size for limit warnings, e.g. "10 MB". */
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${bytes} B`
-}
-
 /**
- * Magic-byte sniffing for the four raster formats dsh accepts. Clipboard
- * file-promises often carry no declared MIME type, so the bytes are the only
- * reliable source (dsh itself verifies stored bytes the same way).
- */
-function sniffImageMediaType(bytes: Buffer): string | undefined {
-  if (bytes.length >= 8 && bytes.readUInt32BE(0) === 0x89504e47) return 'image/png'
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
-  if (bytes.length >= 6 && bytes.toString('ascii', 0, 4) === 'GIF8') return 'image/gif'
-  if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') {
-    return 'image/webp'
-  }
-  return undefined
-}
-
-const STYLE = `
-  html, body { margin: 0; padding: 0; height: 100%; overscroll-behavior-y: none; }
-  body {
-    font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
-    color: var(--vscode-foreground);
-  }
-  #app { display: flex; flex-direction: row; height: 100%; }
-  /* 宽屏：左 sessions 面板 + 右聊天列；窄屏（<720px）改上下布局，面板限高自滚动。 */
-  .chat-col {
-    flex: 1; min-width: 0; display: flex; flex-direction: column;
-    background: var(--vscode-editor-background, transparent);
-  }
-  /* 运行中：官方 dsh web StateDot(ongoing) 的 8 格像素环追逐动画，deepseek 蓝。 */
-  .session-spin { display: block; color: var(--vscode-charts-blue, #5686fe); }
-  .session-spin rect { fill: currentColor; opacity: 0.15; animation: session-spin-chase 1s infinite; }
-  @keyframes session-spin-chase {
-    0%, 12.4% { opacity: 1; }
-    12.5%, 24.9% { opacity: 0.6; }
-    25%, 37.4% { opacity: 0.35; }
-    37.5%, to { opacity: 0.15; }
-  }
-  /* 头部「N 个后台任务运行中」chip 的下拉（对齐官方 JobListAction 菜单）：
-     状态点 + kind 徽标 + 命令摘要 + 状态文案 + 耗时；已结束行淡化。 */
-  .jobs-menu { display: flex; flex-direction: column; gap: 1px; min-width: 260px; max-width: 360px; }
-  .jobs-menu-row {
-    display: flex; align-items: center; gap: 8px; padding: 5px 8px;
-    border-radius: 6px; font-size: 12px;
-  }
-  .jobs-menu-row.settled { opacity: 0.65; }
-  .job-dot-slot {
-    width: 10px; height: 10px; flex: none;
-    display: inline-flex; align-items: center; justify-content: center;
-  }
-  .job-dot { width: 6px; height: 6px; border-radius: 50%; }
-  .job-dot.done { background: var(--vscode-testing-iconPassed, #73c991); }
-  .job-dot.warning { background: var(--vscode-editorWarning-foreground, #cca700); }
-  .job-dot.error { background: var(--vscode-errorForeground, #f14c4c); }
-  /* 子代理下拉的「已完成」状态点（对齐官方 ready 蓝块；运行中行用像素环）。 */
-  .job-dot.settled-dot { background: var(--vscode-charts-blue, #5686fe); }
-  .job-kind {
-    flex: none; font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: 4px;
-    background: var(--vscode-badge-background, rgba(127,127,127,.25));
-    color: var(--vscode-badge-foreground, var(--vscode-foreground));
-  }
-  .job-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .job-status {
-    flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: 11px; opacity: 0.75;
-  }
-  .job-duration { flex: none; font-size: 11px; opacity: 0.55; font-variant-numeric: tabular-nums; }
-  @media (max-width: 719px) {
-    #app { flex-direction: column; }
-    .chat-col { min-height: 0; }
-  }
-  .chat-header {
-    display: flex; align-items: center; gap: 10px;
-    padding: 12px 12px 8px; flex: none;
-    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .chat-header .chat-title {
-    /* 不拉伸（flex:1 会把紧跟其后的 chips 顶到行尾）：收缩自适应，
-       超长才 ellipsis；chips 依次跟在文字后面。单击标题进改名。 */
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0;
-    font-size: 14px; font-weight: 500; line-height: 20px; padding: 2px 4px;
-    cursor: pointer; border-radius: 4px;
-  }
-  .chat-header .chat-title:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
-  /* 面包屑里的当前子代理标题：小号字（官方 .crumbSubagent 12px/18px，
-     与「N 个子代理」chip 同字号），不和父会话标题同级。 */
-  .chat-header .chat-title.crumb-subagent { font-size: 12px; line-height: 18px; }
-  /* 面包屑（对齐官方 dsh web 的子代理进入逻辑）：父会话标题是可点链接，
-     灰字常规字重（官方祖先 crumb 400，只有当前段 500），hover 提亮；
-     斜杠分隔符不响应点击。 */
-  .chat-header .crumb-parent {
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0;
-    font-size: 14px; font-weight: 400; line-height: 20px; padding: 2px 4px;
-    background: transparent; border: 0; cursor: pointer;
-    color: var(--vscode-descriptionForeground);
-  }
-  .chat-header .crumb-parent:hover { color: var(--vscode-foreground); }
-  .chat-header .crumb-sep {
-    flex: none; font-size: 14px; line-height: 20px; user-select: none;
-    color: var(--vscode-descriptionForeground); opacity: 0.6;
-  }
-  /* 头部可点 chip（子代理 / 后台任务下拉）：透明底小字，hover 只提亮文字
-     —— 对齐官方 SubagentHeader 的 trigger（ZKlsPq_trigger）。 */
-  .header-chip {
-    flex: none; display: inline-flex; align-items: center; gap: 4px;
-    font-size: 12px; font-weight: 400; line-height: 18px; padding: 3px 4px;
-    border: 0; border-radius: 6px; cursor: pointer;
-    background: transparent;
-    color: var(--vscode-descriptionForeground);
-  }
-  .header-chip:hover { color: var(--vscode-foreground); }
-  /* 只读 preset 标签：浅底胶囊 + 14px 图标，对齐官方 AgentPresetLabel（SVAs4q_label）。 */
-  .preset-chip {
-    flex: none; display: inline-flex; align-items: center; gap: 4px;
-    max-width: 160px; height: 22px; padding: 0 6px 0 4px;
-    font-size: 12px; border-radius: 6px; overflow: hidden;
-    background: var(--vscode-editor-inactiveSelectionBackground, rgba(127,127,127,.16));
-    color: var(--vscode-foreground);
-  }
-  .preset-chip svg { flex: none; opacity: 0.7; }
-  .preset-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chat-header .rename-input {
-    flex: 1; min-width: 0; font: inherit; font-weight: 500;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
-    border-radius: 4px; padding: 1px 6px; outline: none;
-  }
-  .messages {
-    flex: 1; overflow-y: auto; padding: 8px 12px;
-    display: flex; flex-direction: column; gap: 10px;
-    /* 双层防线（见 docs/backlog/doing/scroll-bottom-momentum-jitter.md）：
-       1) 本容器（.messages）自身不产生弹性回弹——它是消息滚动容器；
-       2) html/body 上也设了 overscroll-behavior-y:none——盖住 webview 根文档的
-       页面级回弹（实测根层回弹 .messages 的 none 盖不住），根层被盖住后这条仍有
-       意义：防 .messages 自身（若它成为滚动容器）的 rubber band 与程序滚动打架。
-       非 macOS 无行为差异。 */
-    overscroll-behavior-y: none;
-  }
-  .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
-  /* 切换会话时历史基线加载中的占位：撑满聊天列垂直居中。 */
-  .loading-hint { flex: 1; display: flex; align-items: center; justify-content: center; }
-  .command-notice {
-    font-size: 0.9em; opacity: 0.8; white-space: pre-wrap; word-break: break-word;
-    border-left: 2px solid var(--vscode-panel-border, rgba(127,127,127,.4));
-    padding: 4px 10px;
-  }
-  .msg.user { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-  .msg.user .bubble {
-    max-width: 85%; padding: 6px 10px; border-radius: 8px;
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border, transparent);
-    white-space: pre-wrap; word-break: break-word;
-  }
-  /* 等待插话的气泡（官方 data-pending-steering）：降不透明度表未落地。 */
-  .msg.user.steering-pending .bubble { opacity: 0.7; }
-  .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
-  /* 引用 chip（@会话/@文件/@文件夹//命令，对齐 dsh web refChip）：链接色、字重 500、行内 flex。
-     .session-mention 是会话 chip（button，可点击打开会话）；.ref-chip 是文件/文件夹/命令
-     chip（span，纯展示）。 */
-  .session-mention, .ref-chip {
-    display: inline-flex; align-items: center; gap: 3px; margin: 0 2px;
-    padding: 0; border: none; background: none; vertical-align: baseline;
-    color: var(--vscode-textLink-foreground);
-    font: inherit; font-weight: 500; white-space: nowrap;
-  }
-  .session-mention { cursor: pointer; }
-  /* 给 chip 补一个带文本基线的首个 flex 项：inline-flex 容器基线原先退化为盒底边
-     （第一个子项是 SVG 图标、无文本基线），导致 chip 文字相对同行正文抬高。
-     content 是零宽空格（有文本基线）；margin-left 抵消 gap:3px 多出的间距。 */
-  .session-mention::before, .ref-chip::before { content: '​'; margin-left: -3px; }
-  .session-mention svg, .ref-chip svg { flex: none; }
-  .session-mention:hover { text-decoration: underline; }
-  /* 用户气泡下方的会话引用摘要行（对齐 dsh web referenceSummary）：小号、降级文字色。 */
-  .ref-summary { font-size: 12px; opacity: 0.75; }
-  /* 跨会话召回上下文行：图标与文字基线对齐。 */
-  .msg.context summary svg { vertical-align: -2px; margin-right: 3px; }
-  .md { line-height: 1.5; word-break: break-word; }
-  .md > :first-child { margin-top: 0; }
-  .md > :last-child { margin-bottom: 0; }
-  .md pre {
-    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
-    padding: 8px; border-radius: 4px; overflow-x: auto;
-  }
-  .md code {
-    font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em;
-  }
-  .md p { margin: 0 0 8px; }
-  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
-    margin: 12px 0 6px; font-weight: 600; line-height: 1.25; color: var(--vscode-foreground);
-  }
-  .md h1 { font-size: 1.4em; }
-  .md h2 { font-size: 1.25em; }
-  .md h3 { font-size: 1.15em; }
-  .md h4 { font-size: 1.05em; }
-  .md h5, .md h6 { font-size: 1em; }
-  .md ul, .md ol { margin: 0 0 8px; padding-left: 22px; }
-  .md li { margin: 2px 0; }
-  .md li > ul, .md li > ol { margin-bottom: 0; }
-  .md blockquote {
-    margin: 0 0 8px; padding: 2px 12px; color: var(--vscode-descriptionForeground, #888);
-    border-left: 3px solid var(--vscode-panel-border, rgba(127,127,127,.4));
-  }
-  .md blockquote > :first-child { margin-top: 0; }
-  .md blockquote > :last-child { margin-bottom: 0; }
-  .md a { color: var(--vscode-textLink-foreground); text-decoration: none; }
-  .md a:hover { text-decoration: underline; }
-  .md img { max-width: 100%; height: auto; }
-  .md hr {
-    margin: 12px 0; border: 0; border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.4));
-  }
-  /* 表格：紧凑边框 + 表头底色，超宽横向滚动；对齐 dsh web 观感。 */
-  .md table {
-    display: block; width: max-content; max-width: 100%; overflow-x: auto;
-    border-collapse: collapse; margin: 0 0 8px; font-size: 0.92em;
-  }
-  .md table th, .md table td {
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
-    padding: 4px 10px; text-align: left; vertical-align: top; border-collapse: collapse;
-  }
-  .md table th {
-    background: var(--vscode-editorWidget-background, rgba(127,127,127,.1));
-    font-weight: 600;
-  }
-  .md table thead th {
-    border-bottom: 2px solid var(--vscode-panel-border, rgba(127,127,127,.5));
-  }
-  /* GFM 任务清单：checkbox + 去掉默认圆点。 */
-  .md .task-list-item { list-style: none; margin-left: -18px; }
-  .md input[type='checkbox'] { margin: 0 4px 0 0; vertical-align: middle; }
-  .md strong { font-weight: 600; }
-  /* 代码块折叠 + 复制（对齐 dsh web）：头部语言 + 复制按钮，超行数折叠成
-     头部/尾部两段，中间「… 其余 N 行」切换。 */
-  .md-code { margin: 6px 0; }
-  .md-code-bar {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 8px; margin-bottom: 4px;
-  }
-  .md-code-lang {
-    opacity: 0.6; font-size: 0.85em;
-    font-family: var(--vscode-editor-font-family, monospace);
-  }
-  .md-code-copy {
-    background: none; border: none; cursor: pointer; padding: 2px 6px;
-    border-radius: 3px; font-size: 0.85em;
-    color: var(--vscode-descriptionForeground, #888);
-  }
-  .md-code-copy:hover {
-    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
-    color: var(--vscode-foreground);
-  }
-  .md-code-toggle {
-    display: block; background: none; border: none; cursor: pointer;
-    opacity: 0.6; margin: 2px 0; padding: 0; font-size: 0.85em;
-    font-family: inherit; color: inherit;
-  }
-  .md-code-toggle:hover { opacity: 1; }
-  .md-code pre { margin: 0; }
-  .reasoning {
-    border-left: 2px solid var(--vscode-panel-border, rgba(127,127,127,.4));
-    padding-left: 8px; color: var(--vscode-descriptionForeground, #888); font-size: 0.9em;
-  }
-  .msg.context {
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.25));
-    border-radius: 6px; padding: 4px 10px; opacity: 0.8; font-size: 0.9em;
-  }
-  .msg.context summary { cursor: pointer; }
-  .context-body {
-    white-space: pre-wrap; word-break: break-word; margin-top: 6px;
-    max-height: 300px; overflow-y: auto; opacity: 0.85;
-  }
-  .reasoning summary {
-    cursor: pointer; opacity: 0.75; font-size: 0.9em;
-    display: flex; align-items: center; gap: 5px;
-    max-width: 100%;
-  }
-  .reasoning summary svg { flex: none; }
-  /* 折叠态首行预览：ellipsis 截断不撑宽，hover 出完整文本（对齐 web ReasoningRow）。 */
-  .reasoning summary .reasoning-summary {
-    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .reasoning-body { white-space: pre-wrap; font-size: 0.9em; opacity: 0.8; margin-top: 4px; }
-  /* 工具调用：行式排版（kimi-cli / dsh web 观感），不再用卡片边框容器。 */
-  .tool { padding: 1px 0; font-size: 0.92em; }
-  .tool-line { display: flex; align-items: baseline; gap: 6px; overflow: hidden; }
-  .tool-line .spinner { align-self: center; width: 10px; height: 10px; border-width: 1.5px; }
-  .tool-action { flex: none; }
-  .tool-title {
-    opacity: 0.65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em;
-  }
-  /* 命令/参数预览一行：等宽、截断省略，比动作行略缩进。 */
-  .tool-detail {
-    opacity: 0.7; margin: 1px 0 0 20px; font-size: 0.88em;
-    font-family: var(--vscode-editor-font-family, monospace);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  /* 快照副本标注：fork 复制来的 subagent 调用卡（该子代理已不在本会话血缘
-     树，点进去不会跳到仍运行的原子代理）。单行小字、警示色，比普通 detail
-     略醒目但不撑开卡片。 */
-  .tool-snapshot-note {
-    margin: 2px 0 0 20px; font-size: 0.85em; font-weight: 500;
-    color: var(--vscode-editorWarning-foreground, #cca700);
-  }
-  /* 工具失败 StateDot：dsh web 的彩色圆点（外层 10% 光晕 + 内层实心点），
-     颜色按 data-state 取；done 态不渲染状态点。 */
-  .tool-state-dot {
-    position: relative; display: inline-block; flex: none;
-    width: 8px; height: 8px; align-self: center;
-  }
-  .tool-state-dot::before {
-    content: ""; position: absolute; inset: 0; border-radius: 50%;
-    background: currentColor; opacity: 0.1;
-  }
-  .tool-state-dot::after {
-    content: ""; position: absolute; top: 20%; right: 20%; bottom: 20%; left: 20%;
-    border-radius: 50%; background: currentColor;
-  }
-  .tool-state-dot[data-state="error"] { color: var(--vscode-testing-iconFailed, #f14c4c); }
-  /* skill / cordis 专用工具卡（对齐 dsh web SkillRow / CordisDefineRow 等）：
-     行首专用图标 + 动作标题 + 分隔点 + 摘要（错误红字），与通用工具行同构。 */
-  .tool-leading { flex: none; display: inline-flex; align-items: center; align-self: center; }
-  .tool-sep {
-    flex: none; align-self: center; width: 2px; height: 2px; border-radius: 1px;
-    background: var(--vscode-descriptionForeground, #888);
-  }
-  .tool-title-error { opacity: 1; color: var(--vscode-testing-iconFailed, #f14c4c); }
-  .tool-purpose {
-    flex: none; opacity: 0.6; font-size: 0.92em; color: var(--vscode-descriptionForeground, #888);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%;
-  }
-  /* skill 卡展开的指令全文卡（对齐 web SkillRow instructionsCard）：
-     边框 + 「说明」头 + max-height 260 内滚动。 */
-  .skill-instructions-card {
-    margin: 4px 0 0 20px; border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    border-radius: 8px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
-    overflow: hidden; display: flex; flex-direction: column;
-  }
-  .skill-instructions-header {
-    padding: 2px 8px; font-size: 0.8em; font-weight: 600; opacity: 0.6;
-    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .skill-instructions {
-    margin: 0; padding: 6px 8px; max-height: 260px; overflow: auto;
-    white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.88em;
-  }
-  /* cordis_define 卡展开的源码段（对齐 web CordisDefineRow sourceCard）：
-     Host/Client 各一段，max-height 260 内滚动。 */
-  .cordis-source { margin: 4px 0 0 20px; display: flex; flex-direction: column; }
-  .cordis-source-label {
-    font-size: 0.8em; font-weight: 600; opacity: 0.6; padding: 2px 0;
-  }
-  .cordis-source-code {
-    margin: 0; padding: 6px 8px; max-height: 260px; overflow: auto;
-    white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.88em;
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3)); border-radius: 8px;
-    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
-  }
-  /* 工具卡展开（对齐 dsh web DisclosureRow）：整行（summary）可点，折叠态保留
-     摘要行，展开出 IN/OUT 卡片，内容 150px 内滚动。chevron 朝下表示可展开，
-     展开后旋转朝上；展开态持久化在 detailsOpen（key 按消息/块位置）。 */
-  .tool-disclosure summary {
-    cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px;
-    list-style: none;
-  }
-  .tool-disclosure summary::-webkit-details-marker { display: none; }
-  .tool-disclosure summary .tool-line { flex: 1; min-width: 0; }
-  .tool-disclosure summary .tool-detail { flex-basis: 100%; margin: 0 0 0 20px; }
-  .tool-disclosure .tool-chevron {
-    flex: none; align-self: center; color: var(--vscode-descriptionForeground, #888);
-    transition: transform .15s ease;
-  }
-  .tool-disclosure[open] .tool-chevron { transform: rotate(180deg); }
-  .tool-disclosure-body { margin: 2px 0 0 20px; }
-  .tool-inout { margin-top: 4px; }
-  .tool-inout-label { font-size: 0.8em; font-weight: 600; opacity: 0.6; }
-  .tool-inout pre {
-    max-height: 150px; overflow: auto; white-space: pre-wrap; margin: 0;
-    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
-    padding: 6px 8px; border-radius: 4px; font-size: 0.88em;
-  }
-  /* workflow 运行卡片（对齐 dsh web WorkflowRunPanel：run→phase→member 三层折叠）。
-     行几何照搬官方：runHeader 32px 浅灰底圆角条、phase 32px 无底、member 24px，
-     逐级缩进 16px；徽标 = StateDot（running 矩阵动画 / 终态发光圆点）。 */
-  .workflow-run { width: 100%; min-width: 0; margin: 2px 0; }
-  .workflow-run-header,
-  .workflow-phase-header {
-    display: flex; align-items: center; gap: 6px; width: 100%; box-sizing: border-box;
-    height: 32px; padding: 0 8px; border: 0; border-radius: 8px; cursor: pointer;
-    background: none; color: inherit; font: inherit; text-align: left;
-  }
-  .workflow-run-header {
-    background: var(--vscode-toolbar-background, rgba(127,127,127,.1));
-  }
-  .workflow-run-header:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.2)); }
-  .workflow-phase-header { border-radius: 6px; }
-  .workflow-phase-header:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.08)); }
-  .workflow-chevron { flex: none; transition: transform .15s ease; }
-  .workflow-chevron.collapsed { transform: rotate(-90deg); }
-  .workflow-run-title {
-    max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: 14px; font-weight: 510; color: var(--vscode-foreground);
-  }
-  .workflow-sep {
-    flex: none; width: 2px; height: 2px; border-radius: 50%;
-    background: var(--vscode-descriptionForeground, #888); opacity: .6;
-  }
-  .workflow-run-count {
-    flex: 1; min-width: 0; font-size: 12px; color: var(--vscode-descriptionForeground, #888);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .workflow-status-tail {
-    flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px;
-    font-size: 11px; font-weight: 510; color: var(--vscode-foreground);
-  }
-  .workflow-phase-list {
-    display: flex; flex-direction: column; gap: 4px;
-    padding: 4px 0 0 16px;
-  }
-  .workflow-phase-title {
-    max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: 14px; color: var(--vscode-foreground);
-  }
-  .workflow-phase-count {
-    flex: 1; min-width: 0; font-size: 13px; color: var(--vscode-descriptionForeground, #888);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .workflow-phase-status {
-    flex: none; width: 132px; text-align: right; font-size: 13px; color: var(--vscode-foreground);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .workflow-members {
-    display: flex; flex-direction: column; gap: 2px; padding-left: 16px;
-  }
-  .workflow-member {
-    display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box;
-    min-height: 24px; padding: 0 4px; border-radius: 4px;
-  }
-  .workflow-dot-slot {
-    flex: none; display: inline-flex; align-items: center; justify-content: center;
-    width: 16px; height: 24px;
-  }
-  .workflow-member-label {
-    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: 13px; color: var(--vscode-foreground);
-  }
-  .workflow-member-status {
-    flex: none; width: 64px; text-align: right; font-size: 13px; color: var(--vscode-foreground);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .workflow-empty { padding: 2px 4px 4px; font-size: 13px; color: var(--vscode-descriptionForeground, #888); }
-  /* StateDot 发光圆点（dsh web 同款：10% 外圈晕影 + 60% 实心内点，data-state 变色）。 */
-  .workflow-dot {
-    position: relative; display: inline-block; flex: none;
-    width: 10px; height: 10px;
-  }
-  .workflow-dot::before {
-    content: ""; position: absolute; inset: 0; border-radius: 50%;
-    background: currentColor; opacity: 0.1;
-  }
-  .workflow-dot::after {
-    content: ""; position: absolute; top: 20%; right: 20%; bottom: 20%; left: 20%;
-    border-radius: 50%; background: currentColor;
-  }
-  .workflow-dot[data-state="done"] { color: var(--vscode-testing-iconPassed, #73c991); }
-  .workflow-dot[data-state="warning"] { color: var(--vscode-editorWarning-foreground, #cca700); }
-  .workflow-dot[data-state="error"] { color: var(--vscode-errorForeground, #f14c4c); }
-  /* running 态：4×4 矩阵扫描动画（官方 StateDot ongoing）。 */
-  .workflow-matrix { flex: none; display: block; width: 10px; height: 10px; color: var(--vscode-charts-blue, #5686fe); }
-  .workflow-matrix rect { fill: currentColor; opacity: 0.15; animation: workflow-chase 1s linear infinite; }
-  @keyframes workflow-chase {
-    0%, 100% { opacity: 0.15; }
-    50% { opacity: 1; }
-  }
-  .spinner {
-    width: 12px; height: 12px; border-radius: 50%; flex: none;
-    border: 2px solid var(--vscode-editorWidget-border, #555);
-    border-top-color: var(--vscode-progressBar-background, #0a84ff);
-    animation: spin 0.9s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  /* 工具输出：默认只渲染前几行，「共 N 行」提示行点击展开/收起（webview 侧截断）。 */
-  .tool-output { margin: 2px 0 0 20px; }
-  .tool-output pre {
-    max-height: 320px; overflow: auto; white-space: pre-wrap; margin: 0;
-    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
-    padding: 6px 8px; border-radius: 4px; font-size: 0.88em;
-  }
-  .tool-output-toggle {
-    cursor: pointer; opacity: 0.6; margin-top: 2px; font-size: 0.85em;
-  }
-  .tool-output-toggle:hover { opacity: 1; }
-  /* JSON 输出树（对齐 dsh web JsonTree）：对象/数组逐节点展开、箭头 toggle、逐级缩进、
-     token 配色照抄官方——key/property 蓝、string 玫红、number/keyword 蓝、标点灰白、
-     箭头灰。默认走官方暗色变量；VS Code 亮色主题用 body.vscode-light 反显为官方 light
-     palette。 */
-  .json-tree {
-    font-family: var(--vscode-editor-font-family, monospace);
-    font-size: 12px; line-height: 16px;
-    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
-    padding: 6px 8px 8px; border-radius: 4px;
-    overflow: auto; white-space: pre;
-    --jt-property: #5db0d7; --jt-string: #f28b82; --jt-number: #99c8ff;
-    --jt-keyword: #99c8ff; --jt-punct: #e8eaed; --jt-icon: #9aa0a6;
-    --jt-ellipsis: #9aa0a6; --jt-hover: rgb(232 234 237 / 5%);
-  }
-  body.vscode-light .json-tree {
-    --jt-property: #881391; --jt-string: #c41a16; --jt-number: #1c00cf;
-    --jt-keyword: #1c00cf; --jt-punct: #202124; --jt-icon: #5f6368;
-    --jt-ellipsis: #5f6368; --jt-hover: rgb(60 64 67 / 4%);
-  }
-  /* JsonTree 复制按钮：对齐 md-code-copy 的克制样式——右上角小「复制」按钮，
-     复制整树 pretty JSON（copyPrettyJson），成功短暂变「已复制」。左缩进由上下文
-     提供（消息正文=0 与 markdown code block 对齐；工具内=工具展开体的 20px）。 */
-  .json-tree-shell { margin: 2px 0; }
-  .json-tree-bar {
-    display: flex; align-items: center; justify-content: flex-end;
-    gap: 8px; margin-bottom: 2px;
-  }
-  .json-tree-copy {
-    background: none; border: none; cursor: pointer; padding: 2px 6px;
-    border-radius: 3px; font-size: 0.85em;
-    color: var(--vscode-descriptionForeground, #888);
-  }
-  .json-tree-copy:hover {
-    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
-    color: var(--vscode-foreground);
-  }
-  /* 节点级复制图标：行尾小图标，默认隐藏，hover 该行时出现（与容器级按钮同款克制
-     灰色），点击复制该行节点的 pretty JSON；成功图标短暂换勾。 */
-  .json-tree-row { position: relative; min-height: 16px; }
-  .json-tree-row:hover { background: var(--jt-hover); }
-  .json-tree-copy-icon {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 16px; height: 16px; margin-left: 4px; padding: 0;
-    background: none; border: none; border-radius: 3px; cursor: pointer;
-    color: var(--vscode-descriptionForeground, #888);
-    opacity: 0; vertical-align: middle;
-  }
-  .json-tree-row:hover .json-tree-copy-icon { opacity: 1; }
-  .json-tree-copy-icon:hover {
-    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
-    color: var(--vscode-foreground); opacity: 1;
-  }
-  .json-tree-key { color: var(--jt-property); font-weight: 400; }
-  .json-tree-label-clickable { cursor: pointer; }
-  .json-tree-label-clickable:hover { text-decoration: underline; }
-  .json-tree-punct { color: var(--jt-punct); }
-  .json-tree-gap { display: inline-block; width: 3px; }
-  .json-tree-string { color: var(--jt-string); }
-  .json-tree-number { color: var(--jt-number); }
-  .json-tree-keyword { color: var(--jt-keyword); }
-  .json-tree-ellipsis { color: var(--jt-ellipsis); }
-  .json-tree-arrow {
-    display: inline-block; width: 8px; height: 16px; margin: 0;
-    color: var(--jt-icon); cursor: pointer; user-select: none;
-    vertical-align: middle;
-  }
-  .json-tree-arrow::before {
-    content: ""; display: inline-block;
-    width: 0; height: 0;
-    border-top: 4px solid transparent; border-bottom: 4px solid transparent;
-    border-left: 6px solid currentColor;
-    transform: scale(.75); transform-origin: 33.333% center;
-  }
-  .json-tree-arrow.open::before { transform: rotate(90deg) scale(.75); }
-  .json-tree-arrow:hover { color: var(--vscode-foreground); }
-  .diff {
-    margin-top: 4px; border-radius: 4px; overflow: hidden;
-    font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em;
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  /* 左右分栏：每行一个两列 grid，左 old 右 new，行对逐行对齐。 */
-  .diff-row { display: grid; grid-template-columns: 1fr 1fr; }
-  .diff-cell { white-space: pre-wrap; padding: 0 6px; min-height: 1.1em; overflow-wrap: anywhere; }
-  .diff-cell.old { border-right: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3)); }
-  .diff-cell.del { background: var(--vscode-diffEditor-removedTextBackground, rgba(255,80,80,.18)); }
-  .diff-cell.add { background: var(--vscode-diffEditor-insertedTextBackground, rgba(80,255,80,.14)); }
-  /* 纯增/删行的空侧：淡灰占位，提示该行无对应内容。 */
-  .diff-cell.empty { background: rgba(127,127,127,.08); }
-  /* diff 行折叠 toggle（对齐 dsh web DiffBlock「展开其余 N 行差异」）。 */
-  .diff-toggle {
-    cursor: pointer; opacity: 0.6; margin-top: 2px; font-size: 0.85em; padding-left: 6px;
-  }
-  .diff-toggle:hover { opacity: 1; }
-  .streaming { opacity: 0.6; }
-  .interrupted { color: var(--vscode-errorForeground, #f14c4c); font-size: 0.85em; }
-  .turn-status {
-    display: flex; align-items: baseline; gap: 8px;
-    font-size: 0.85em;
-  }
-  .turn-status-text {
-    /* 蓝色系扫光（对齐官方 Deep diving 的 deepseek 蓝渐变），深/浅主题通用。 */
-    background: linear-gradient(
-      90deg,
-      #4d6bfe 0%,
-      #b3c5ff 50%,
-      #4d6bfe 100%
-    );
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: turn-status-shimmer 1.8s linear infinite;
-  }
-  @keyframes turn-status-shimmer {
-    from { background-position: 200% 0; }
-    to { background-position: -200% 0; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .turn-status-text { animation: none; }
-  }
-  .turn-status-clock {
-    color: var(--vscode-descriptionForeground, #888);
-    font-variant-numeric: tabular-nums;
-  }
-  .turn-error {
-    display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
-    margin-top: 4px; font-size: 0.85em;
-    color: var(--vscode-errorForeground, #f14c4c);
-  }
-  /* 超 token 提示行（对齐官方 TurnMaxTokensItem）：与 turnError 同构，warning 配色。 */
-  .turn-error.max-tokens { color: var(--vscode-editorWarning-foreground, #cca700); }
-  .turn-error.max-tokens .turn-error-dot {
-    background: var(--vscode-editorWarning-foreground, #cca700);
-  }
-  .turn-error.max-tokens .turn-error-title { color: var(--vscode-editorWarning-foreground, #cca700); }
-  .turn-error-dot {
-    width: 7px; height: 7px; border-radius: 50%; flex: none; align-self: center;
-    background: var(--vscode-errorForeground, #f14c4c);
-  }
-  .turn-error-title { font-weight: 600; }
-  .turn-error-message { opacity: 0.9; white-space: pre-wrap; }
-  .turn-error-code {
-    font-family: var(--vscode-editor-font-family, monospace);
-    font-size: 0.85em; padding: 0 4px; border-radius: 3px;
-    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
-  }
-  /* 压缩摘要卡（对齐官方 CompactionItem）：折叠行 = chevron + 标题 + 分隔点 + 摘要。 */
-  .compaction { width: 100%; min-width: 0; margin: 2px 0; font-size: 13px; line-height: 24px; }
-  .compaction summary {
-    display: flex; align-items: center; gap: 6px; min-width: 0; cursor: pointer;
-    list-style: none; border-radius: 6px; padding: 2px 8px; user-select: none;
-  }
-  .compaction summary::-webkit-details-marker { display: none; }
-  .compaction summary:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.08)); }
-  .compaction-chevron { flex: none; transition: transform .15s ease; }
-  .compaction-chevron.collapsed { transform: rotate(-90deg); }
-  .compaction-title { flex: none; color: var(--vscode-descriptionForeground, #888); }
-  .compaction-sep {
-    flex: none; width: 2px; height: 2px; border-radius: 50%;
-    background: var(--vscode-descriptionForeground, #888); opacity: .6;
-  }
-  .compaction-summary {
-    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    color: var(--vscode-descriptionForeground, #888);
-  }
-  .compaction-body { padding: 2px 8px 4px 26px; font-size: 13px; }
-  /* 无摘要（不可展开）的纯展示行。 */
-  .compaction-row {
-    display: flex; align-items: center; gap: 6px; min-width: 0;
-    margin: 2px 0; padding: 2px 8px; font-size: 13px; line-height: 24px;
-  }
-  /* 模型重试行（对齐官方 ModelRetryItem）：折叠行 = 状态文本，展开 = 延迟 + 失败原因。 */
-  .retry-row { color: var(--vscode-descriptionForeground, #888); font-size: 12px; line-height: 20px; }
-  .retry-row summary {
-    display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
-    width: fit-content; border-radius: 3px; padding: 2px 0; list-style: none;
-  }
-  .retry-row summary::-webkit-details-marker { display: none; }
-  .retry-row summary:hover { color: var(--vscode-foreground, #ccc); }
-  .retry-row summary::after {
-    content: ''; opacity: .8; border-bottom: 1.5px solid; border-right: 1.5px solid;
-    width: 6px; height: 6px; transition: transform .12s; transform: rotate(-45deg);
-  }
-  .retry-row[open] summary::after { transform: rotate(45deg); }
-  /* 等待期扫光（对齐官方 data-active shimmer），reduced-motion 下退化为静态。 */
-  .retry-row[data-active] .retry-text {
-    background: linear-gradient(
-      90deg,
-      var(--vscode-descriptionForeground, #888) 0%,
-      var(--vscode-descriptionForeground, #888) 40%,
-      var(--vscode-foreground, #ccc) 50%,
-      var(--vscode-descriptionForeground, #888) 60%,
-      var(--vscode-descriptionForeground, #888) 100%
-    );
-    background-size: 200% 100%; -webkit-background-clip: text; background-clip: text;
-    color: transparent; animation: retry-shimmer 1.6s ease-in-out infinite;
-  }
-  @keyframes retry-shimmer {
-    from { background-position: 100% 0; }
-    to { background-position: 0 0; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .retry-row[data-active] .retry-text { color: inherit; background: none; animation: none; }
-  }
-  .retry-details {
-    display: grid; gap: 2px; margin-top: 3px; padding-left: 14px;
-    font-size: 12px; line-height: 18px; overflow-wrap: anywhere;
-  }
-  .retry-detail-label { color: var(--vscode-descriptionForeground, #888); }
-  .msg-actions { display: flex; align-items: center; gap: 10px; height: 28px; margin-top: 2px; }
-  .msg-actions .icon-action {
-    width: 28px; height: 28px; padding: 6px; display: inline-flex;
-    align-items: center; justify-content: center;
-    color: var(--vscode-descriptionForeground, #888);
-    background: transparent; border: none; border-radius: 50%; cursor: pointer;
-  }
-  .msg-actions .icon-action:hover:not(:disabled) {
-    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.17));
-    color: var(--vscode-foreground, #ccc);
-  }
-  .msg-actions .icon-action:disabled { cursor: default; opacity: 0.4; }
-  .msg-actions .icon-action.active { color: var(--vscode-foreground, #ccc); }
-  .msg-actions .icon-action svg { display: block; }
-  .produced-files {
-    display: flex; align-items: flex-start; gap: 6px 8px; margin-top: 10px;
-    font-size: 13px; line-height: 22px; min-width: 0;
-  }
-  .produced-label { flex: none; color: var(--vscode-descriptionForeground, #888); padding-top: 1px; }
-  /* 产物多时换行铺开（用户反馈：单行 nowrap + overflow hidden 会把展开后的
-     chips 截断）；label 与第一行对齐，chips 占用剩余宽度内换行。 */
-  .produced-lane {
-    display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;
-    flex: 1; min-width: 0;
-  }
-  .produced-file {
-    flex: none; max-width: 320px; margin: 0; padding: 0 8px;
-    border: none; border-radius: 6px; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.17));
-    color: var(--vscode-descriptionForeground, #aaa); font: inherit; cursor: pointer;
-    text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
-  }
-  .produced-file:hover { color: var(--vscode-foreground, #ccc); text-decoration: underline; }
-  /* 「+N 个文件」是 toggle 按钮（展开/收起），压掉全局 button 的实底背景 */
-  .produced-more {
-    flex: none; margin: 0; padding: 0 4px; white-space: nowrap;
-    border: none; border-radius: 4px; background: transparent;
-    color: var(--vscode-descriptionForeground, #888); font: inherit; cursor: pointer;
-  }
-  .produced-more:hover { color: var(--vscode-descriptionForeground, #bbb); text-decoration: underline; }
-  .msg-timing {
-    flex: none; white-space: nowrap; padding-left: 12px;
-    font-size: 12px; line-height: 24px; font-variant-numeric: tabular-nums;
-    color: var(--vscode-descriptionForeground, #888);
-  }
-  .msg-timing .msg-timing-dot { margin: 0 10px; }
-  /* Pending 接管面板（approval/question/plan-review 挂 composer 区，对齐 dsh
-     web QuestionFlow / PlanReviewPanel）：容器占输入区位置，一个 pending 一块。 */
-  .pending-panel {
-    flex: none; padding: 6px 12px; display: flex; flex-direction: column; gap: 8px;
-    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .pending-block {
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
-    border-radius: 6px;
-    background: var(--vscode-editorWidget-background, transparent);
-  }
-  .panel-header {
-    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-  }
-  .panel-title {
-    flex: 1; min-width: 0; font-weight: 600;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .panel-pager { display: flex; align-items: center; gap: 6px; flex: none; }
-  .panel-pager .pager-btn { padding: 0 9px; }
-  .pager-count { font-size: 12px; opacity: 0.8; min-width: 2.4em; text-align: center; }
-  button.panel-toggle {
-    flex: none; background: transparent; color: var(--vscode-descriptionForeground, #888);
-    padding: 2px 6px; display: inline-flex; align-items: center;
-  }
-  button.panel-toggle:hover:not(:disabled) {
-    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.18));
-  }
-  .panel-toggle svg { transition: transform .15s ease; }
-  .panel-toggle.minimized svg { transform: rotate(180deg); }
-  .panel-body { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 10px; }
-  /* 最小化态的回答输入行（去聊天里说）：一行输入框 + 提交按钮。 */
-  .panel-answer { display: flex; gap: 8px; align-items: center; padding: 0 10px 10px; }
-  .panel-answer input {
-    flex: 1; min-width: 0; box-sizing: border-box; padding: 4px 8px;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
-  }
-  /* PlanReviewPanel warn strip：计划待审警示条。 */
-  .plan-warn {
-    display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 4px;
-    background: var(--vscode-editorWarning-background, rgba(234, 179, 8, .16));
-    border: 1px solid var(--vscode-editorWarning-foreground, rgba(234, 179, 8, .8));
-    color: var(--vscode-editorWarning-foreground, #e2b93b);
-    font-weight: 600; font-size: 12px;
-  }
-  .plan-warn-icon { flex: none; font-size: 13px; line-height: 1; }
-  /* 计划 Markdown 全文：限高滚动（复刻 question-detail .md 的观感）。 */
-  .plan-md {
-    max-height: 320px; overflow-y: auto; padding: 8px 10px;
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.25)); border-radius: 6px;
-  }
-  .plan-actions { flex-wrap: wrap; }
-  .pending-title { font-weight: 600; }
-  .pending-reason { opacity: 0.8; font-size: 0.9em; margin-top: 2px; white-space: pre-wrap; }
-  .pending-actions { display: flex; gap: 8px; margin-top: 8px; }
-  .question + .question { margin-top: 10px; }
-  .question-header { font-size: 0.8em; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.04em; }
-  .question-text { white-space: pre-wrap; }
-  .question-options { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 6px; }
-  .option-btn { text-align: left; display: flex; align-items: baseline; }
-  .option-btn::before { content: '•'; flex: none; margin-right: 8px; opacity: 0.5; }
-  .option-btn:hover:not(:disabled)::before,
-  .option-btn.selected::before { opacity: 1; }
-  .option-btn:hover:not(:disabled) { filter: brightness(1.2); outline: 1px solid var(--vscode-focusBorder); }
-  .option-btn.selected { outline: 1px solid var(--vscode-focusBorder); }
-  .question-detail { margin-top: 6px; }
-  .question-detail summary { cursor: pointer; opacity: 0.75; font-size: 0.9em; }
-  .question-detail .md {
-    margin-top: 6px; max-height: 320px; overflow-y: auto; padding: 8px 10px;
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.25)); border-radius: 6px;
-  }
-  .question label.checkbox {
-    display: flex; gap: 6px; align-items: baseline; margin-top: 4px; cursor: pointer;
-  }
-  .question input[type='text'] {
-    width: 100%; box-sizing: border-box; margin-top: 6px; padding: 4px 8px;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
-  }
-  button {
-    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-    border: 0; border-radius: 4px; padding: 4px 12px; cursor: pointer;
-  }
-  button.secondary {
-    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.3));
-    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-  }
-  button:disabled { opacity: 0.5; cursor: default; }
-  .input-area {
-    flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px;
-    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .queue {
-    flex: none; padding: 6px 12px; display: flex; flex-direction: column; gap: 4px;
-    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .queue-item { display: flex; align-items: baseline; gap: 8px; font-size: 0.9em; }
-  .queue-tag {
-    flex: none; font-size: 11px; padding: 0 6px; border-radius: 8px;
-    background: var(--vscode-badge-background, rgba(127,127,127,.25));
-    color: var(--vscode-badge-foreground, var(--vscode-foreground));
-  }
-  .queue-text {
-    opacity: 0.8; overflow: hidden; text-overflow: ellipsis;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  }
-  .queue-actions { display: flex; gap: 4px; flex: none; margin-left: auto; }
-  .queue-actions button.link {
-    background: transparent; color: var(--vscode-textLink-foreground, #4da3ff);
-    padding: 0 4px; font-size: 11px; border-radius: 4px;
-  }
-  .queue-actions button.link:hover { text-decoration: underline; }
-  .queue-editor {
-    flex: 1; min-width: 0; resize: none; box-sizing: border-box; padding: 4px 8px;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
-    border-radius: 4px; font-family: inherit; font-size: 0.9em;
-  }
-  /* 排队消息 >1 条时折叠成计数 header（对齐 dsh web QueueDock）：chevron +
-     计数，展开才列出各条（操作入口随列表藏进展开态）。 */
-  .queue-dock summary {
-    display: flex; align-items: baseline; gap: 6px;
-    cursor: pointer; list-style: none; user-select: none;
-  }
-  .queue-dock summary::-webkit-details-marker { display: none; }
-  .queue-dock-count {
-    flex: 1; min-width: 0; font-size: 12px; font-weight: 600; opacity: 0.8;
-  }
-  .queue-dock summary .queue-chevron {
-    flex: none; color: var(--vscode-descriptionForeground, #888);
-    transition: transform .15s ease;
-  }
-  .queue-dock[open] summary .queue-chevron { transform: rotate(180deg); }
-  .queue-dock-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
-  .queue + .input-area { border-top: 0; }
-  /* 任务清单卡（对齐官方 TodoPanel/TodoDock，输入区上方 dock 栈）：头部
-     「任务 N 进行中 · M 待处理」+ chevron，展开列出 todo 项（列表限高滚动）。
-     chevron 是 figma 字面方向：折叠=向上、展开=向下，用 rotate 翻转。 */
-  .todo-panel {
-    flex: none; padding: 5px 12px 6px;
-    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .todo-panel + .input-area, .todo-panel + .queue { border-top: 0; }
-  .todo-panel summary {
-    display: flex; align-items: baseline; gap: 6px;
-    cursor: pointer; list-style: none; user-select: none;
-  }
-  .todo-panel summary::-webkit-details-marker { display: none; }
-  .todo-panel-title { flex: none; font-size: 12px; font-weight: 600; }
-  .todo-panel-progress {
-    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: 12px; opacity: 0.75;
-  }
-  .todo-panel summary .todo-chevron {
-    flex: none; color: var(--vscode-descriptionForeground, #888);
-    transition: transform .15s ease;
-  }
-  .todo-panel[open] summary .todo-chevron { transform: rotate(180deg); }
-  .todo-list {
-    list-style: none; margin: 6px 0 0; padding: 0;
-    max-height: 180px; overflow-y: auto;
-    display: flex; flex-direction: column; gap: 2px;
-  }
-  .todo-item { display: flex; align-items: baseline; gap: 7px; font-size: 12px; }
-  .todo-item .todo-glyph { flex: none; align-self: center; display: inline-flex; }
-  .todo-item .todo-content {
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .todo-glyph-completed { color: var(--vscode-testing-iconPassed, #73c991); }
-  .todo-glyph-progress { color: var(--vscode-charts-blue, #5686fe); }
-  .todo-glyph-pending { color: var(--vscode-descriptionForeground, #888); }
-  .todo-progress-spin {
-    transform-origin: 50% 50%;
-    animation: todo-progress-spin 1s linear infinite;
-  }
-  @keyframes todo-progress-spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .todo-progress-spin { animation: none; } }
-  /* 消息内 todo_write 任务卡尾部「+N」其余进行中数（对齐 web TodoRow suffix）。 */
-  .tool-todo-extra { flex: none; opacity: 0.7; font-size: 0.9em; font-variant-numeric: tabular-nums; }
-  /* 目标条幅（对齐官方 GoalBar / input.dock id=goal order 10：todo 与 queue
-     之间的 36px 横条）：goal 图标 + phase 标签 + 截断 objective + 图标操作
-     （active 暂停 / paused 恢复，恒有编辑与清除；编辑态条内内联 input）。 */
-  .goal-bar-dock {
-    flex: none; border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .todo-panel + .goal-bar-dock { border-top: 0; }
-  .goal-bar-dock + .queue { border-top: 0; }
-  .goal-bar {
-    display: flex; align-items: center; gap: 10px;
-    box-sizing: border-box; height: 36px; padding: 4px 6px 4px 12px;
-  }
-  .goal-bar-glyph { flex: none; display: inline-flex; color: var(--vscode-descriptionForeground, #888); }
-  .goal-bar-label { flex: none; font-size: 13px; font-weight: 500; }
-  .goal-bar-objective {
-    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: 13px; opacity: 0.75;
-  }
-  .goal-bar-actions { flex: none; display: flex; align-items: center; gap: 2px; }
-  .goal-bar-btn {
-    width: 28px; height: 28px; padding: 0; display: inline-flex;
-    align-items: center; justify-content: center;
-    color: var(--vscode-descriptionForeground, #888);
-    background: transparent; border: none; border-radius: 50%; cursor: pointer;
-  }
-  .goal-bar-btn:hover:not(:disabled) {
-    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.17));
-    color: var(--vscode-foreground, #ccc);
-  }
-  .goal-bar-btn:disabled { cursor: default; opacity: 0.4; }
-  .goal-bar-input {
-    flex: 1; min-width: 0; box-sizing: border-box; height: 26px;
-    background: var(--vscode-input-background);
-    color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, transparent);
-    border-radius: 6px; padding: 0 8px; font-size: 13px;
-  }
-  .goal-bar-input:focus {
-    outline: 1px solid var(--vscode-focusBorder, #007fd4); outline-offset: -1px;
-  }
-  .input-row { display: flex; gap: 8px; align-items: center; }
-  .input-footer { display: flex; gap: 6px; align-items: center; }
-  .stats-row { display: flex; align-items: center; gap: 10px; }
-  .stats-row .input-stats { flex: 1; min-width: 0; }
-  .input-stats {
-    font-size: 11px; opacity: 0.65; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap;
-  }
-  .pill {
-    display: inline-flex; align-items: center; gap: 5px;
-    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
-    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-    border: 0; border-radius: 12px; padding: 2px 10px; font-size: 12px; line-height: 18px;
-    cursor: pointer; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .pill:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground, rgba(127,127,127,.3)); }
-  .pill .glyph { display: inline-flex; flex: none; }
-  /* pill 内嵌图标 + 文字标签（如 Agent 模式）：图标不缩、标签自身省略号。 */
-  .pill svg { flex: none; }
-  .pill .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* Plan-mode chip（对齐官方 dsh web PlanChip 的 warn 黄）：warn 前景色文字 +
-     同色低透明背景，与普通 pill 的次级按钮灰区分开。 */
-  .pill.plan-chip {
-    background: rgba(204, 167, 0, .15);
-    color: var(--vscode-editorWarning-foreground, #cca700);
-    padding: 2px 8px;
-  }
-  .pill.plan-chip:hover:not(:disabled) {
-    background: rgba(204, 167, 0, .28);
-    color: var(--vscode-editorWarning-foreground, #cca700);
-  }
-  .pill.plan-chip:disabled { opacity: .6; cursor: default; }
-  .pill.plan-chip .plan-chip-close { display: inline-flex; align-items: center; flex: none; }
-  .popover {
-    position: fixed; z-index: 20; min-width: 180px; max-width: 340px; max-height: 50vh; overflow-y: auto;
-    background: var(--vscode-menu-background, var(--vscode-dropdown-background));
-    color: var(--vscode-menu-foreground, var(--vscode-dropdown-foreground));
-    border: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
-    border-radius: 12px; padding: 4px;
-    box-shadow: 0 0 1px 0 rgba(0,0,0,.2), 0 12px 32px 0 rgba(0,0,0,.14);
-  }
-  /* 菜单项几何对齐 dsh web：30px 行高、8px 圆角、左图标位 14px tertiary 色。 */
-  .menu-item {
-    display: flex; align-items: center; gap: 8px; min-height: 30px; box-sizing: border-box;
-    padding: 4px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-size: 12px;
-  }
-  .menu-item:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
-  .menu-item .menu-item-icon {
-    flex: none; width: 14px; height: 14px; display: inline-flex;
-    align-items: center; justify-content: center;
-    color: var(--vscode-descriptionForeground, #888);
-  }
-  .menu-item .menu-item-icon svg { width: 14px; height: 14px; display: block; }
-  /* 选中态的 check 放菜单项尾部（dsh web 模式），仅 checked 时渲染。 */
-  .menu-item .check { margin-left: auto; flex: none; }
-  .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
-  .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
-  /* 带描述两行的菜单项（模型菜单等）：名称 + 描述小字，行高自适应。 */
-  .menu-item.has-desc { align-items: flex-start; white-space: normal; }
-  .menu-item.has-desc .check { align-self: center; }
-  .menu-item-main { flex: 1; min-width: 0; }
-  .menu-item-desc {
-    margin-top: 1px; font-size: 11px; line-height: 1.4; opacity: 0.6; white-space: normal;
-  }
-  /* agent preset 下拉项：名称 + 描述两行（描述较长，单行 menu-right 放不下）。 */
-  .preset-item { align-items: flex-start; white-space: normal; }
-  .preset-item .preset-item-main { flex: 1; min-width: 0; }
-  .preset-item .preset-item-desc {
-    margin-top: 1px; font-size: 11px; line-height: 1.4; opacity: 0.6; white-space: normal;
-  }
-  .preset-item .check { align-self: center; }
-  .preset-item .job-dot-slot { align-self: center; }
-  /* 空会话 hero 的 workspace 选择器：行标题省略号截断（悬停 tooltip 给完整
-     路径），footer 与主列表之间用分隔线（对齐官方 Menu footer）。 */
-  .workspace-item .workspace-item-label {
-    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .workspace-picker-footer {
-    margin-top: 4px; padding-top: 4px;
-    border-top: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
-  }
-  /* 子代理下拉的层级树（对齐 dsh web SubagentHeader 成员树）：每层嵌套容器
-     左缩 16px + 4px 轨距，竖轨与横向支线用 VS Code 树缩进参考线色；末行
-     竖轨半高收尾成 └。多层的祖辈竖轨随容器自然贯通。 */
-  .subagent-node { position: relative; min-width: 0; }
-  .subagent-node > .menu-item { position: relative; }
-  .subagent-children { position: relative; margin-left: 16px; padding-left: 4px; }
-  .subagent-children::before {
-    content: ""; position: absolute; left: 0; top: -19px; height: 19px;
-    border-left: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(127,127,127,.35));
-  }
-  .subagent-children > .subagent-node::before {
-    content: ""; position: absolute; top: 0; bottom: 0; left: -4px;
-    border-left: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(127,127,127,.35));
-  }
-  .subagent-children > .subagent-node:last-child::before { height: 19px; bottom: auto; }
-  .subagent-children > .subagent-node > .menu-item::before {
-    content: ""; position: absolute; top: 19px; left: -4px; width: 12px;
-    border-top: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(127,127,127,.35));
-  }
-  .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
-  /* 弹窗内非首个分组上方加分割线（@ 补全的「文件」「会话」分组）。 */
-  .slash-popup .menu-group:not(:first-child) {
-    border-top: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
-    margin-top: 4px; padding-top: 7px;
-  }
-  .menu-hint { padding: 8px; opacity: .7; }
-  .slash-popup { max-height: 40vh; }
-  .slash-popup .menu-item.selected { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
-  .slash-popup .menu-item.hint-row { cursor: default; opacity: .75; }
-  .slash-popup .menu-item.hint-row:hover { background: none; color: inherit; }
-  .command-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 2px 10px; font-size: 12px; opacity: .85; }
-  .command-row .command-line { font-family: var(--vscode-editor-font-family, monospace); }
-  .command-row .command-text { opacity: .75; white-space: pre-wrap; word-break: break-word; }
-  .command-row.error .command-text { color: var(--vscode-errorForeground, #f66); opacity: 1; }
-  .command-row .spinner { align-self: center; }
-  /* 多行 command 输出可展开（对齐 dsh web GenericCommandCard）：折叠态 summary
-     一行显示命令名 + 输出首行，展开显示全文。 */
-  .command-detail { min-width: 0; flex: 1 1 auto; }
-  .command-detail summary {
-    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
-    cursor: pointer; list-style: none; user-select: none;
-  }
-  .command-detail summary::-webkit-details-marker { display: none; }
-  .command-detail summary .command-line { flex: none; }
-  .command-detail summary .command-text {
-    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .command-detail .command-body {
-    white-space: pre-wrap; word-break: break-word; opacity: .75;
-    margin-top: 2px; padding: 6px 8px; border-radius: 4px;
-    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
-    font-family: var(--vscode-editor-font-family, monospace); font-size: 12px;
-  }
-  .command-row.error .command-body { color: var(--vscode-errorForeground, #f66); opacity: 1; }
-  .context-bar {
-    flex: none; width: 72px; height: 14px; padding: 0 2px; border: 0; background: none; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .context-bar-track {
-    display: block; width: 100%; height: 6px; border-radius: 3px; overflow: hidden;
-    border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.55));
-    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
-    box-sizing: border-box;
-  }
-  .context-bar-fill {
-    display: block; height: 100%; min-width: 2px; border-radius: 2px;
-    background: var(--vscode-progressBar-background, var(--vscode-button-background));
-    transition: width .18s ease, background-color .18s ease;
-  }
-  /* 切换模型后窗口未知：灰字占位（明确是非误报的未知状态），高度与正常 bar 一致防跳变。 */
-  .context-bar.level-unknown {
-    font-size: 10px; line-height: 14px; color: var(--vscode-descriptionForeground, #888); white-space: nowrap;
-  }
-  /* 余量分级变色（src/pure/contextMeter.ts）：充足显式绿，<10 轮黄，<5 轮/超窗口红。 */
-  .context-bar.level-ok .context-bar-fill { background: var(--vscode-testing-iconPassed, #73c991); }
-  .context-bar.level-warn .context-bar-fill { background: var(--vscode-editorWarning-foreground, #cca700); }
-  .context-bar.level-danger .context-bar-fill,
-  .context-bar.level-overflow .context-bar-fill { background: var(--vscode-errorForeground, #f14c4c); }
-  .context-bar.level-overflow .context-bar-track { border-color: var(--vscode-errorForeground, #f14c4c); }
-  .context-panel { width: 240px; font-size: 12px; line-height: 20px; }
-  .context-panel .cp-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .context-panel .cp-percent { font-weight: 600; }
-  .context-panel .cp-figures { font-variant-numeric: tabular-nums; opacity: .95; flex: none; }
-  /* 「窗口未知」面板说明行：中性灰（非错误红），与占位一致。 */
-  .context-panel .cp-unknown {
-    margin-top: 8px; font-size: 12px; line-height: 1.5;
-    color: var(--vscode-descriptionForeground, #888);
-  }
-  .context-panel .cp-bar {
-    display: flex; gap: 1px; height: 6px; margin: 10px 0 8px; border-radius: 3px;
-    border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.55));
-    overflow: hidden; background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
-    box-sizing: border-box;
-  }
-  .context-panel .cp-seg { height: 100%; min-width: 2px; border-radius: 1px; }
-  .context-panel .cp-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
-  .context-panel .cp-swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
-  .context-panel .cp-value { margin-left: auto; font-variant-numeric: tabular-nums; opacity: .95; flex: none; }
-  /* 实时预估行（≈N/轮，约还可持续 M 轮）。 */
-  .context-panel .cp-estimate { margin-top: 10px; font-size: 11px; opacity: 0.7; }
-  /* 超出当前模型窗口的红色提示行。 */
-  .context-panel .cp-overflow {
-    margin-top: 8px; font-size: 12px; line-height: 1.5;
-    color: var(--vscode-errorForeground, #f14c4c);
-  }
-  .image-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .image-chip {
-    display: inline-flex; align-items: center; gap: 6px;
-    background: var(--vscode-badge-background, rgba(127,127,127,.25));
-    color: var(--vscode-badge-foreground, var(--vscode-foreground));
-    border-radius: 10px; padding: 2px 4px 2px 8px; font-size: 12px;
-    max-width: 200px;
-  }
-  .image-chip .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .image-chip .chip-remove {
-    background: transparent; color: inherit; border: 0; padding: 0 4px;
-    cursor: pointer; font-size: 12px; line-height: 1; opacity: 0.8;
-  }
-  .image-chip .chip-remove:hover { opacity: 1; }
-  /* 文件 chip 的类型小图标（strokeSvg 固定 14px，缩到容器尺寸）。 */
-  .file-chip-icon { display: inline-flex; width: 16px; height: 16px; flex: none; }
-  .file-chip-icon svg { width: 16px; height: 16px; display: block; }
-  /* 文件 chip 方框：与 .attach-thumb 同尺寸同圆角（48px，含 1px 边框），
-     列排文档图标 + 文件名，点击在 VS Code 打开；输入区版本右上角 × 复用
-     .thumb-remove 交互。 */
-  .file-chip {
-    position: relative;
-    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 2px;
-    width: 48px; height: 48px; flex: none;
-    border-radius: 10px; overflow: hidden; cursor: pointer;
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
-    background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
-    font-size: 11px; line-height: 1.2;
-  }
-  .file-chip .chip-name { max-width: 42px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* 待发送图片缩略图（对齐官方 AttachmentRail：方图 cover，hover 右上角出移除钮）。 */
-  .attach-thumb {
-    position: relative; width: 48px; height: 48px; flex: none;
-    border-radius: 10px; overflow: hidden; cursor: zoom-in;
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
-    background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
-  }
-  .attach-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .attach-thumb .thumb-remove, .file-chip .thumb-remove {
-    position: absolute; top: 3px; right: 3px; z-index: 1;
-    width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
-    display: grid; place-items: center;
-    background: var(--vscode-button-background, #0e639c);
-    color: var(--vscode-button-foreground, #fff);
-    cursor: pointer; font-size: 12px; line-height: 1;
-    opacity: 0; transition: opacity .2s ease-in-out;
-  }
-  .attach-thumb:hover .thumb-remove, .attach-thumb .thumb-remove:focus-visible,
-  .file-chip:hover .thumb-remove, .file-chip .thumb-remove:focus-visible { opacity: 1; }
-  @media (pointer: coarse) { .attach-thumb .thumb-remove, .file-chip .thumb-remove { opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .attach-thumb .thumb-remove, .file-chip .thumb-remove { transition: none; } }
-  #input {
-    flex: 1; resize: none; box-sizing: border-box; padding: 6px 8px;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, transparent); border-radius: 6px;
-    font-family: inherit; font-size: inherit; max-height: 160px;
-  }
-  #input:focus { outline: 1px solid var(--vscode-focusBorder); }
-  .send-button { flex: none; }
-  .msg-images { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-  /* 消息图片缩略图复用 .attach-thumb 方图；加载中的占位方块居中省略号。 */
-  .msg-thumb-loading {
-    display: inline-grid; place-items: center; cursor: wait;
-    color: var(--vscode-descriptionForeground, rgba(127,127,127,.8));
-  }
-  .msg-image-chip { cursor: zoom-in; padding-right: 8px; }
-  .msg-image-chip:hover { filter: brightness(1.15); }
-  .jump-latest {
-    position: sticky; bottom: 4px; align-self: flex-end; flex: none;
-    margin-bottom: -30px; z-index: 5;
-    border-radius: 14px; padding: 4px 12px; font-size: 12px;
-    background: var(--vscode-editorWidget-background, var(--vscode-button-secondaryBackground, rgba(127,127,127,.3)));
-    color: var(--vscode-foreground);
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
-    box-shadow: 0 2px 8px rgba(0,0,0,.25);
-  }
-  .jump-latest:hover { filter: brightness(1.1); }
-  /* 消息流顶部的「加载更早」入口（对齐官方 dsh web ChatView 的分页按钮）。 */
-  .older { display: flex; justify-content: center; }
-  .older button {
-    background: transparent; color: var(--vscode-descriptionForeground, #888);
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    border-radius: 12px; padding: 3px 12px; font-size: 12px;
-  }
-  .older button:hover:not(:disabled) { color: var(--vscode-foreground); }
-  .lightbox {
-    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 30; cursor: zoom-out;
-  }
-  .lightbox img { max-width: 95%; max-height: 95%; }
-  .empty {
-    flex: 1; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 8px; padding: 24px; text-align: center;
-  }
-  .empty-title { font-weight: 600; }
-  .empty-hint { opacity: 0.7; font-size: 0.9em; }
-  .empty button { margin-top: 8px; padding: 4px 14px; }
-  /* 空会话 hero（官方 dsh web 空态 HeroShell，pXSMma_*）：整列水平居中。 */
-  .hero {
-    flex: 1; min-height: 0; overflow-y: auto;
-    display: flex; flex-direction: column; justify-content: center; padding: 24px;
-  }
-  .hero-stack {
-    width: 100%; max-width: 780px; margin: 0 auto;
-    display: flex; flex-direction: column; gap: 12px;
-  }
-  .hero-headline {
-    display: flex; align-items: center; justify-content: center; gap: 10px;
-    color: var(--vscode-foreground);
-  }
-  /* 品牌鱼标（官方 FishLogo SVG）：居中、主题蓝色，左右缓游的轻量动画——
-     只动 transform（合成层，不触发布局），空态加载零额外成本；
-     prefers-reduced-motion 下静止。 */
-  .hero-fish {
-    align-self: center;
-    color: var(--vscode-textLink-foreground, #4da3ff);
-    animation: hero-fish-swim 4.8s ease-in-out infinite;
-  }
-  @keyframes hero-fish-swim {
-    0%, 100% { transform: translateX(-8px) rotate(-3deg); }
-    50% { transform: translateX(8px) rotate(3deg); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .hero-fish { animation: none; }
-  }
-  .hero-headline-text { font-size: 26px; font-weight: 500; line-height: 32px; }
-  .hero-badge {
-    align-self: flex-start; margin-top: 4px; white-space: nowrap;
-    font-size: 12px; font-weight: 500; line-height: 18px; padding: 1px 7px 0;
-    border-radius: 24px;
-    color: var(--vscode-textLink-foreground, #4da3ff);
-    border: 1px solid var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
-    background: var(--vscode-editor-inactiveSelectionBackground, rgba(90,140,255,.12));
-  }
-  .hero-chips { display: flex; align-items: center; gap: 4px; padding-left: 8px; }
-  .hero-chip {
-    display: inline-flex; align-items: center; gap: 4px; min-height: 28px;
-    max-width: 360px; padding: 0 8px; border: 0; border-radius: 16px;
-    background: transparent; color: var(--vscode-foreground);
-    font-size: 13px; font-weight: 500; line-height: 20px;
-  }
-  .hero-chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hero-chip svg { flex: none; }
-  .hero-chip svg.chevron { color: var(--vscode-descriptionForeground); }
-  button.hero-chip { cursor: pointer; }
-  button.hero-chip:hover:not(:disabled) {
-    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.18));
-  }
-  /* hero 里的 composer 大圆角卡片（官方 uV2eYG_card：22px 圆角 + 浮层底 +
-     柔和双层阴影；深色主题下 editorWidget 底即浮层提亮，阴影近似不可见）。 */
-  .hero .input-area {
-    gap: 8px; padding: 10px 12px 8px;
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    border-radius: 22px;
-    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
-    box-shadow: 0 4px 12px rgba(0,0,0,.02), 0 2px 8px rgba(0,0,0,.04);
-  }
-  .hero #input {
-    background: transparent; border-color: transparent;
-    font-size: 16px; line-height: 24px;
-  }
-  .hero #input:focus { outline: none; }
-`
-
-function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
-  const n = nonce()
-  const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'chatWebview.js'))
-  // Same CSP discipline as ui/webview.ts: nonce-gated scripts, no remote resources.
-  const csp = [
-    "default-src 'none'",
-    "style-src 'unsafe-inline'",
-    `script-src 'nonce-${n}'`,
-    // Message attachments render as data: URLs fetched via session.attachment.
-    "img-src data:",
-  ].join('; ')
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${csp}">
-<style>${STYLE}</style>
-</head>
-<body>
-<div id="app"></div>
-<script nonce="${n}" src="${escapeHtml(scriptUri.toString())}"></script>
-</body>
-</html>`
-}
-
-/**
- * Chat editor panel（`dshOne.chatPanel`）：owns the current
- * ChatSessionController, pushes its (throttled) ChatState snapshots to the
- * WebviewPanel verbatim and routes user actions back. The sessions list no
- * longer lives here — it moved to a native tree (SessionsTreeProvider); this
- * host still pushes the SessionsStore snapshot to the panel webview because
- * the composer's @-mention autocomplete reads it. Panel is lazy: it is only
- * created on demand (click a session / new session / open command / attach
- * file), defaulting to ViewColumn.Active.
- * 头部信息区的 chips（后台任务 / 子代理）数据来自 JobsStore（mux 全局
- * session/jobs 帧，含已结束的 job）与 store 的 session.list 基线，经
- * composeHeader 合成 ChatState.backgroundJobs / runningSubagents 随 state
- * 推送（JobsStore/store 变更与附着切换时重推）。
+ * Chat editor tabs（`dshOne.chatPanel`）：见文件头注释。会话列表不在编辑器
+ * 里（已拆到侧栏原生 tree）；宿主仍向每个 panel 的 webview 推 SessionsStore
+ * 快照，因为 composer 的 @-mention 补全读它。tab 懒创建，默认
+ * ViewColumn.Active（当前活动编辑器列，用户决策：不自动分栏）。用户关闭
+ * tab 时 controller 保留——pending 交互兜底再拉出与重开即复用都依赖它；
+ * 服务重启时统一释放，只恢复活动的会话 tab。
  * With no session — or a non-running server — the webview gets EMPTY_STATE
  * and shows its placeholder copy.
  */
 export class ChatViewProvider implements vscode.Disposable {
-  private panel: vscode.WebviewPanel | null = null
-  private controller: ChatSessionController | null = null
-  private controllerSub: vscode.Disposable | null = null
-  /** Last title projection seen from the attached session (auto-rename watch). */
-  private lastSessionTitle: string | undefined
-  /** 懒加载自动附着的目标会话（panel 未开时记着，open() 再落）。 */
-  private pendingSessionId: string | null = null
-  /** 高亮会话变化时通知侧栏 tree 刷新（拆分解耦：tree 读 activeSessionId）。 */
+  /** 一个会话一个 tab（key = sessionId；空态 tab 用 EMPTY_TAB_KEY）。 */
+  private readonly tabs = new Map<string, ChatTabHost>()
+  /** 空态 tab 的 map key（sessionId 为 null 的占位 tab，无 controller）。 */
+  private static readonly EMPTY_TAB_KEY = '\u0000empty'
+  /** 高亮会话变化时通知侧栏刷新（拆分解耦：侧栏读 activeSessionId）。 */
   private readonly activeEmitter = new vscode.EventEmitter<string | null>()
-  /** Fired when activeSessionId changes (attach/lazy-pending). */
+  /** Fired when activeSessionId changes (活动 tab 切换/关闭). */
   readonly onActiveSessionChanged = this.activeEmitter.event
+  /** 最近一次活动 tab 的会话（服务重启后只恢复它）。 */
+  private lastActiveSessionId: string | null = null
+  /** 服务重启后待恢复的会话（等 store 基线刷新确认还在，再 openSession）。 */
+  private pendingRestoreSessionId: string | null = null
+  /** 当前服务的 url（null = 未运行）；url 变化 = 新服务进程（重启）。 */
+  private lastUrl: string | null = null
   private readonly managerSub: vscode.Disposable
   private readonly storeSub: vscode.Disposable
   private readonly jobs: JobsStore
@@ -1445,20 +67,8 @@ export class ChatViewProvider implements vscode.Disposable {
   /** 子代理目录数据层（subagent.list）：菜单行显示名的来源（descriptor label）。 */
   private readonly subagents: SubagentCatalogStore
   private readonly subagentsSub: vscode.Disposable
-  /**
-   * 右键「发送到当前会话」暂存的附件：webview 尚未解析（用户还没打开过
-   * Chat 面板）时先落这两个队列，视图 resolve 后再投给 composer。只活到
-   * 下一次 flush——成功后清空，不跨会话堆积。
-   */
-  private pendingStagedFiles: StagedFile[] = []
-  private pendingStagedImages: OutgoingImage[] = []
-  /**
-   * 空会话 hero 的懒切换目标 workspace id（null = 无待切换）。点 workspace
-   * chip 只记录这里并更新显示（零 RPC），发送/选 preset 时经
-   * {@link resolvePendingWorkspace} 落地（ensureSession + openSession），
-   * 让「点击切换」瞬时完成、把等待移进发送动作本身。会话切换/附着时清除。
-   */
-  private pendingWorkspaceId: string | null = null
+  /** 注入给每个 ChatTabHost 的集合级能力（见 ChatTabHostActions）。 */
+  private readonly hostActions: ChatTabHostActions
 
   constructor(
     private readonly manager: ServerManager,
@@ -1468,239 +78,320 @@ export class ChatViewProvider implements vscode.Disposable {
     /** Fired after a chat-initiated session mutation (e.g. rename) so the store can rebuild. */
     private readonly onSessionsChanged?: () => void,
   ) {
+    this.hostActions = {
+      manager,
+      logger,
+      extensionUri,
+      store,
+      jobs: (this.jobs = new JobsStore(manager, logger)),
+      subagents: (this.subagents = new SubagentCatalogStore(manager, logger)),
+      openSession: (sessionId) => this.openSession(sessionId),
+      openSessionInNewTab: (sessionId) => this.openSessionInNewTab(sessionId),
+      onSessionsChanged: () => this.onSessionsChanged?.(),
+      onViewStateChanged: () => this.recomputeActive(),
+      pushSessions: () => this.pushSessions(),
+      syncAttachedSessions: () => this.syncAttachedSessions(),
+      push: (host, state) => this.push(host, state),
+      setPendingWorkspace: (host, workspaceId) => this.setPendingWorkspace(host, workspaceId),
+      resolvePendingWorkspace: (host) => this.resolvePendingWorkspace(host),
+      addWorkspaceAndOpen: (host) => this.addWorkspaceAndOpen(host),
+      createWorkspaceAndOpen: (host) => this.createWorkspaceAndOpen(host),
+    }
     this.managerSub = manager.onDidChangeState((s) => this.onServerState(s))
     this.storeSub = store.onDidChange(() => {
       this.pushSessions()
+      // 服务重启后待恢复的活动会话：等基线刷新确认还在，再重新打开它的 tab。
+      if (this.pendingRestoreSessionId && this.store.hasSession(this.pendingRestoreSessionId)) {
+        const target = this.pendingRestoreSessionId
+        this.pendingRestoreSessionId = null
+        this.openSession(target)
+      }
       // 聊天头部的「N 个子代理」chip 来自 session.list 基线（子代理开跑/收尾
-      // 触发 host 事件 → store 刷新），附着会话时重推一次 state。
-      if (this.controller) {
+      // 触发 host 事件 → store 刷新），每个附着 tab 重推一次 state。
+      for (const tab of this.tabs.values()) {
+        const controller = tab.controller
+        if (!controller) continue
         // 中继服务端 running 位（session-status 增量随 store 变更到达）。
-        this.controller.setServerRunning(this.store.runningFor(this.controller.sessionId))
-        this.push(this.controller.getState())
+        controller.setServerRunning(this.store.runningFor(controller.sessionId))
+        this.push(tab, controller.getState())
         // 子代理目录随基线变化重拉：新子代理 spawn 让子树签名变化，菜单行
         // 显示名即时更新（不会只靠异步 title 兜底）。
-        this.subagents.ensure(this.controller.sessionId, store.rawList())
+        this.subagents.ensure(controller.sessionId, store.rawList())
       }
     })
-    this.jobs = new JobsStore(manager, logger)
     // 头部「N 个后台任务」chip 的数据源（mux 全局 session/jobs 帧）：
-    // 基线变化时重推当前 state，composeHeader 重新组合下拉行。
+    // 基线变化时重推所有附着 tab 的 state，composeHeader 重新组合下拉行。
     this.jobsSub = this.jobs.onDidChange(() => {
-      if (this.controller) this.push(this.controller.getState())
+      for (const tab of this.tabs.values()) {
+        if (tab.controller) this.push(tab, tab.controller.getState())
+      }
     })
-    this.subagents = new SubagentCatalogStore(manager, logger)
     // 子代理目录拉到后重推 state，composeHeader 用最新的 descriptor label
-    // 重组成下拉行（初次 attach 时 label 可能还没到，先回退 title/id）。
+    // 重组成下拉行（初次 attach 时 label 可能还没到，先走 title/id 回退）。
     this.subagentsSub = this.subagents.onDidChange(() => {
-      if (this.controller) this.push(this.controller.getState())
+      for (const tab of this.tabs.values()) {
+        if (tab.controller) this.push(tab, tab.controller.getState())
+      }
     })
   }
 
-  /** Session currently shown, null when the view is in its empty state. */
+  /** 当前活动 tab 附着的会话（无活动 chat tab 或服务未运行 → null）。 */
   get currentSessionId(): string | null {
-    return this.controller?.sessionId ?? null
+    const tab = this.activeTab()
+    return tab?.controller ? tab.sessionId : null
   }
 
-  /** Whether the editor panel is currently open. */
+  /** 是否还有打开的 chat tab。 */
   get isOpen(): boolean {
-    return this.panel !== null
+    return this.tabs.size > 0
   }
 
   /**
-   * Session highlighted by the sidebar tree: the attached session when the
-   * panel is open, else the lazily-pending auto-attach target. The tree reads
-   * this for the active-row highlight (拆分后「仅侧栏高亮」).
+   * 侧栏高亮的会话：当前活动 chat tab 的会话（多 tab 时高亮跟随活动编辑器；
+   * 无活动 chat tab → null，用户决策：所有 tab 关闭后不高亮任何会话；服务
+   * down 时 controller 释放，同样回落 null——与单面板时代行为一致）。
    */
   get activeSessionId(): string | null {
-    return this.controller?.sessionId ?? this.pendingSessionId
+    const tab = this.activeTab()
+    return tab?.controller ? tab.sessionId : null
   }
 
   /**
-   * Session the editor panel is actually attached to right now. Panel closed
-   * (or open without an attached controller) yields null — unlike
-   * activeSessionId this never falls back to the lazy-pending target, so the
-   * sidebar can tell「已打开且附着」（单击 = 行内重命名）from「仅高亮待附着」
-   * （单击 = 打开会话）.
+   * 当前活动 chat tab 真实附着的会话（tab 开着且附着才非 null）。侧栏
+   * 「已打开会话单击 = 行内重命名」的判定用它：活动 tab 的会话点侧栏
+   * 行是改名，其他会话（含已开非活动的）都是打开/聚焦。
    */
   get attachedSessionId(): string | null {
-    return this.panel !== null ? (this.controller?.sessionId ?? null) : null
+    const tab = this.activeTab()
+    return tab?.panel && tab.controller ? tab.sessionId : null
+  }
+
+  /** 所有已附着（有 controller）的会话 id——extension 的归档/清理遍历用。 */
+  openSessionIds(): string[] {
+    const ids: string[] = []
+    for (const tab of this.tabs.values()) {
+      if (tab.controller && tab.sessionId) ids.push(tab.sessionId)
+    }
+    return ids
+  }
+
+  /** 把当前打开的会话集合同步给 store（完成标记排除打开中的会话）。 */
+  private syncAttachedSessions(): void {
+    const ids: string[] = []
+    for (const tab of this.tabs.values()) {
+      if (tab.panel && tab.sessionId) ids.push(tab.sessionId)
+    }
+    this.store.setAttachedSessions(ids)
   }
 
   /**
-   * 懒加载自动附着：store 变化发现「无当前会话但出现了最新会话」时记下
-   * target（仅侧栏高亮，不碰 controller），等 panel 下次 open() 再落。
+   * 打开一个会话（侧栏点击 / 聊天内跳转 / 新建会话）：**默认在当前活动
+   * chat tab 打开**（替换该 tab 的会话，用户决策）——已有该会话的 tab 则
+   * 聚焦它（一个会话一个 tab，不复制）；焦点不在 chat tab（如在看文件）时
+   * 替换**最近活动过**的 chat tab（用户决策：不新增 tab）；从未打开过 chat
+   * tab 才新建。非运行中的服务：已有 tab 显示空态，没有则开空态 tab（服务
+   * 恢复后自动重开活动会话）。
    */
-  setLazyPending(sessionId: string | null): void {
-    if (this.pendingSessionId === sessionId) return
-    this.pendingSessionId = sessionId
-    this.activeEmitter.fire(this.activeSessionId)
-  }
-
-  /**
-   * 打开（或揭示）聊天 editor 面板。面板不存在则按默认 ViewColumn.Active
-   * （在当前活动编辑器列打开，占满该列宽度）创建并接线消息/销毁；随后推
-   * 当前 ChatState + sessions 快照、投递暂存附件。若当前未附着但存在懒加
-   * 载目标，先把目标落上。非运行中的服务会被 setSession 忽略（attach(null)），
-   * 面板仍打开显示空态。
-   */
-  openPanel(): void {
-    if (!this.panel) {
-      const panel = vscode.window.createWebviewPanel(
-        'dshOne.chatPanel',
-        'DSH One',
-        { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
-        {
-          enableScripts: true,
-          localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')],
-          // 保留隐藏时的 webview 上下文：tab 切走再切回不重载页面，聊天内容、
-          // 草稿、滚动位置原样保留（与 dshOne.tab 的 openInTab 对齐）。即使
-          // 极端情况下仍被重载，webview 的 ready 报到也会让宿主重推状态。
-          retainContextWhenHidden: true,
-        },
-      )
-      // tab 图标用 dsh 官方品牌图标（assets/dsh-favicon.svg，拷自已安装的
-      // @deepseek-ai/dsh-web-frontend/dist/favicon.svg；iconPath 是宿主层行为，
-      // 无需把 assets 加进 localResourceRoots）。
-      panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'assets', 'dsh-favicon.svg')
-      panel.webview.html = chatHtml(panel.webview, this.extensionUri)
-      const msg = panel.webview.onDidReceiveMessage((m: FromWebviewMessage) => void this.onMessage(m))
-      panel.onDidDispose(() => {
-        msg.dispose()
-        if (this.panel === panel) this.panel = null
-        // 侧栏手里的最后一份 SessionsSnapshot 可能还带着关闭前的 attachedSessionId
-        // ——再点该会话会被误判成「已附着」进行内重命名。关闭后重推一次快照让
-        // attachedSessionId 归零（controller 保留：pending 交互兜底再拉出、重开
-        // 即复用都依赖它；activeSessionId 不变，侧栏高亮保持）。
-        this.activeEmitter.fire(this.activeSessionId)
-      })
-      this.panel = panel
-    }
-    // 懒加载目标在此落地（此时才建 controller）。
-    if (!this.controller && this.pendingSessionId) {
-      const target = this.pendingSessionId
-      this.pendingSessionId = null
-      this.setSession(target)
-    }
-    this.push(this.controller?.getState() ?? this.emptyState())
-    // 面板新建/重建后 tab 标题对齐当前状态：首次 open 时 controller 在
-    // openPanel 之前已附着，attach() 里那次 syncPanelTitle 面板还不存在
-    // （空跑）；tab 关闭后重开同会话时更没有 attach 调用——两处都得靠这里。
-    this.syncPanelTitle()
-    this.pushSessions()
-    // 右键暂存的附件可能一直等在这里（面板此前没打开过）。
-    this.flushStaged()
-    this.panel.reveal()
-  }
-
-  /** 附着一个会话并打开 editor 面板（侧栏点会话 / 新建 / 分叉）。
-   *  显式的用户动作总是强制拉出面板，不参与懒加载。 */
   openSession(sessionId: string): void {
-    this.setSession(sessionId)
-    this.openPanel()
+    if (!sessionId) return
+    // 显式打开（侧栏/命令/恢复）都会带出会话，挂起的重启恢复目标作废。
+    this.pendingRestoreSessionId = null
+    const existing = this.tabs.get(sessionId)
+    if (existing) {
+      if (!existing.controller) existing.attachController(sessionId)
+      if (!existing.panel) {
+        // 用户关过这个 tab：重建 panel（复用保留的 controller）。
+        existing.ensurePanel()
+      } else {
+        existing.reveal()
+      }
+      // 打开（聚焦）即视为已读。
+      this.store.setUnread(sessionId, false)
+      return
+    }
+    // 替换目标：优先当前活动 tab；焦点不在 chat tab 时用最近活动过的 tab
+    // （用户决策：无活动 tab 也替换最近活动 tab，不新增）；都没有才新建。
+    // 最近活动 tab 若已被用户关闭（panel null）不参与替换——那是幽灵 entry，
+    // 替换它等于凭空重建，直接走新建。
+    const active = this.activeTab()
+    const last = this.lastActiveSessionId ? (this.tabs.get(this.lastActiveSessionId) ?? null) : null
+    const target = active ?? (last?.panel ? last : null)
+    if (target) {
+      this.replaceTabSession(target, sessionId)
+      return
+    }
+    // 从未打开过 chat tab → 新建 tab（原「总是新建」路径）。
+    this.openSessionInNewTab(sessionId)
   }
 
   /**
-   * Attach a session: the old controller is disposed, a new one is created
-   * and its current state is pushed immediately. `null` returns to the
-   * empty state.
+   * 显式「在新 tab 中打开」（侧栏菜单/命令）：总是新建一个 tab；该会话
+   * 已有 tab 则聚焦它（不复制）。非运行中的服务开空态 tab。
    */
-  setSession(sessionId: string | null): void {
-    if (sessionId !== null && sessionId === this.currentSessionId) return
-    if (!sessionId) {
-      this.attach(null)
+  openSessionInNewTab(sessionId: string): void {
+    if (!sessionId) return
+    this.pendingRestoreSessionId = null
+    const existing = this.tabs.get(sessionId)
+    if (existing) {
+      if (!existing.controller) existing.attachController(sessionId)
+      if (!existing.panel) {
+        existing.ensurePanel()
+      } else {
+        existing.reveal()
+      }
+      this.store.setUnread(sessionId, false)
       return
     }
     const status = this.manager.getStatus()
     const url = status.state === 'running' && status.url ? status.url : null
     if (!url) {
-      this.logger.warn(`chat: setSession(${sessionId}) ignored — server not running`)
-      this.attach(null)
+      // 与单面板时代一致：服务没起来点会话也有反馈——打开（或聚焦）空态
+      // tab 显示安装引导/hero，等服务恢复（自动重开活动会话）。
+      this.logger.warn(`chat: openSessionInNewTab(${sessionId}) ignored — server not running`)
+      const empty = this.tabs.get(ChatViewProvider.EMPTY_TAB_KEY)
+      if (empty) {
+        empty.reveal()
+      } else {
+        const tab = this.createTab(null)
+        tab.reveal()
+      }
       return
     }
     // 打开（附着）即视为已读。
     this.store.setUnread(sessionId, false)
-    this.attach(new ChatSessionController(url, sessionId, this.logger))
+    const tab = this.createTab(sessionId)
+    tab.attachController(sessionId)
+    tab.reveal()
   }
 
-  /** EMPTY_STATE plus the startup-failure marker when the server is in error. */
-  private emptyState(): ChatState {
-    const status = this.manager.getStatus()
-    return status.state === 'error' && status.reason === 'dshNotFound'
-      ? { ...EMPTY_STATE, serverError: 'dshNotFound' }
-      : EMPTY_STATE
+  /**
+   * 把当前活动 tab 的内容换成目标会话（「在当前 tab 打开」）：旧会话的
+   * controller 与订阅释放（等同单面板时代切换会话），暂存附件清空（不投给
+   * 别的会话），tab 的 panel/消息订阅复用。
+   */
+  private replaceTabSession(tab: ChatTabHost, sessionId: string): void {
+    const oldKey = tab.sessionId ?? ChatViewProvider.EMPTY_TAB_KEY
+    if (this.tabs.get(oldKey) === tab) this.tabs.delete(oldKey)
+    tab.replaceWith(sessionId)
+    this.tabs.set(sessionId, tab)
+    this.store.setUnread(sessionId, false)
+    tab.reveal()
+    this.syncAttachedSessions()
   }
 
-  private attach(controller: ChatSessionController | null): void {
-    // 会话切换/附着即取消懒切换（pending 目标只对旧会话的 hero 有意义）。
-    this.pendingWorkspaceId = null
-    this.controllerSub?.dispose()
-    this.controllerSub = null
-    this.controller?.dispose()
-    this.controller = controller
-    // 附着中的会话不打「已完成」标记，附着即清除（store 侧内存集合）。
-    this.store.setAttachedSession(controller?.sessionId ?? null)
-    // 附着切换 → 侧栏 tree 高亮同步。
-    this.activeEmitter.fire(this.activeSessionId)
-    if (controller) {
-      // 附着即取一次服务端 running 位（基线未覆盖时为 undefined，controller
-      // 内部回退 mux 折叠值）；之后随 store 变更中继。
-      controller.setServerRunning(this.store.runningFor(controller.sessionId))
-      this.controllerSub = controller.onDidChange((state) => {
-        this.push(state)
-        // 兜底：面板被用户关闭但有 pending 交互（审批/问题/计划评审）时
-        // 自动再拉出，避免交互被静默吞掉（拆分后所有此类交互都在编辑区）。
-        if (state.pending.length > 0 && !this.panel) this.openPanel()
-        // dsh 自动命名经会话内的 title 投影到达，host 事件流没有对应事件，
-        // sessions 面板不会自己刷新——标题变化时主动重拉一次基线，并同步
-        // 编辑器 tab 标题（标题投影即 tab 标题源，含用户重命名）。
-        if (state.sessionTitle !== this.lastSessionTitle) {
-          this.lastSessionTitle = state.sessionTitle
-          void this.store.refresh()
-          this.syncPanelTitle()
-        }
-      })
-      // 附着切换即拉取该会话子代理子树的目录（label 描述符），菜单行显示名
-      // 会随 onDidChange 重推时更新；首次attach时可能还没到，先走 title/id 回退。
-      this.subagents.ensure(controller.sessionId, this.store.rawList())
+  /**
+   * 打开（或揭示）聊天 editor tab。已有 tab 时聚焦活动的那个（无活动则
+   * 第一个）；一个都没有时打开当前 workspace 最新会话的 tab（贴合现状的
+   * 「打开面板即见最新会话」），无会话则开空态 tab（安装引导/hero）。
+   */
+  openPanel(): void {
+    const active = this.activeTab()
+    if (active) {
+      active.reveal()
+      return
     }
-    this.lastSessionTitle = controller?.getState().sessionTitle
-    this.push(controller?.getState() ?? this.emptyState())
-    // tab 标题随附着会话同步（含空态回落「DSH One」；标题投影的后续更新由
-    // controller.onDidChange 里的 syncPanelTitle 跟进）。
-    this.syncPanelTitle()
-    // 附着会话切换后重投一次暂存附件（state 先到，webview 的 stagedForSession
-    // 已更新，filesPicked 不会被当旧会话的附件丢弃）。
-    this.flushStaged()
+    // 焦点不在 chat tab：优先回退最近活动过的会话 tab，其次第一个。tab 被
+    // 用户关过（panel null、controller 保留）的，重建 panel。
+    const last = this.lastActiveSessionId ? (this.tabs.get(this.lastActiveSessionId) ?? null) : null
+    const fallback = last ?? (this.tabs.values().next().value as ChatTabHost | undefined)
+    if (fallback) {
+      if (!fallback.panel) fallback.ensurePanel()
+      else fallback.reveal()
+      return
+    }
+    const latest = this.store.latestCurrentSessionId()
+    const status = this.manager.getStatus()
+    const url = status.state === 'running' && status.url ? status.url : null
+    if (latest && url) {
+      this.openSession(latest)
+      return
+    }
+    const tab = this.createTab(null)
+    tab.reveal()
+  }
+
+  /**
+   * 关闭一个会话的 tab（归档/删除后清理）：panel 销毁 + controller 释放 +
+   * 订阅全部解除。活动 tab 被关时侧栏高亮自动重算。
+   */
+  closeSession(sessionId: string): void {
+    const tab = this.tabs.get(sessionId)
+    if (!tab) return
+    this.disposeTab(tab)
+    this.recomputeActive()
+    this.pushSessions()
+  }
+
+  /** 当前活动的 chat tab（panel.active），无则 null。 */
+  private activeTab(): ChatTabHost | null {
+    for (const tab of this.tabs.values()) {
+      if (tab.panel?.active) return tab
+    }
+    return null
+  }
+
+  /** 活动 tab 变化后重算高亮并通知侧栏（tab 聚焦/关闭/重建时调用）。 */
+  private recomputeActive(): void {
+    const active = this.activeTab()
+    // lastActiveSessionId 只认「活动过」（含服务 down 时 controller 已释放
+    // 但 tab 还开着的情况）——重启恢复、发送文件回退都靠它。
+    if (active?.sessionId) this.lastActiveSessionId = active.sessionId
+    // 高亮值要求 controller 在（服务 down 时回落 null）。
+    this.activeEmitter.fire(active?.controller ? active.sessionId : null)
+    this.pushSessions()
+  }
+
+  /** 新建一个 tab（panel 骨架 + 消息/视图状态订阅）；随后通常 attachController。 */
+  private createTab(sessionId: string | null): ChatTabHost {
+    const tab = new ChatTabHost(this.hostActions, sessionId)
+    this.tabs.set(sessionId ?? ChatViewProvider.EMPTY_TAB_KEY, tab)
+    tab.push(EMPTY_STATE)
+    tab.syncPanelTitle()
+    this.syncAttachedSessions()
+    this.pushSessions()
+    return tab
+  }
+
+  /** 释放一个 tab 的全部资源（panel + controller + 订阅），从 map 移除。 */
+  private disposeTab(tab: ChatTabHost): void {
+    const key = tab.sessionId ?? ChatViewProvider.EMPTY_TAB_KEY
+    if (this.tabs.get(key) === tab) this.tabs.delete(key)
+    tab.dispose()
+    this.syncAttachedSessions()
+  }
+
+  /** 服务 down / 重启：释放所有 controller（panel 保留显示空态，等待恢复）。 */
+  private detachAllControllers(): void {
+    for (const tab of this.tabs.values()) {
+      tab.detachController()
+      tab.push(EMPTY_STATE)
+      tab.syncPanelTitle()
+    }
+    this.recomputeActive()
   }
 
   private onServerState(status: ServerStatus): void {
-    // Server down → empty state; restarted under a new URL → the old
-    // controller talks to a dead server, drop it too.
     if (status.state !== 'running' || !status.url) {
-      this.attach(null)
-    } else if (this.controller && this.controller.url !== status.url) {
-      this.attach(null)
+      // Server down → 全部空态；旧 controller 全释放。
+      this.detachAllControllers()
+      this.lastUrl = null
+    } else if (this.lastUrl !== status.url) {
+      // 新服务（首次启动或重启，url 变化）：旧 controller 全释放，重启场景
+      // 记住最近活动的会话，等 store 基线刷新确认后只恢复它（任务范围：
+      // 「可先只恢复活动的」）。
+      this.lastUrl = status.url
+      const prevActive = this.lastActiveSessionId
+      this.detachAllControllers()
+      if (prevActive) this.pendingRestoreSessionId = prevActive
     }
     // 面板空态依赖 serverState/dshNotFound，状态变化时同步推一次。
     this.pushSessions()
   }
 
-  private push(state: ChatState): void {
-    const message: ToWebviewMessage = { type: 'state', state: this.composeHeader(state) }
-    void this.panel?.webview.postMessage(message)
-  }
-
-  /**
-   * 把编辑器 tab 标题同步到附着会话的标题（含 dsh 自动命名/用户重命名，均经
-   * controller 的 title 投影到达）。会话未命名时以「会话 <ID 前 8 位>」兜底，
-   * 无会话空态回落「DSH One」。面板已销毁（panel 为 null）时跳过，不写悬空引用。
-   */
-  private syncPanelTitle(): void {
-    if (!this.panel) return
-    const state = this.controller?.getState()
-    this.panel.title = !state?.sessionId
-      ? 'DSH One'
-      : state.sessionTitle ?? `会话 ${state.sessionId.slice(0, 8)}`
+  /** 推送 ChatState 到指定 tab（ChatTabHost 委托进来；composeHeader 合成头部）。 */
+  private push(tab: ChatTabHost, state: ChatState): void {
+    const message: ToWebviewMessage = { type: 'state', state: this.composeHeader(state, tab) }
+    tab.postMessage(message)
   }
 
   /**
@@ -1719,7 +410,7 @@ export class ChatViewProvider implements vscode.Disposable {
    * 回父会话，对齐官方 dsh web 的子代理进入逻辑）。字段为空时都缺省，
    * webview 不渲染。
    */
-  private composeHeader(state: ChatState): ChatState {
+  private composeHeader(state: ChatState, tab: ChatTabHost): ChatState {
     if (!state.sessionId) return state
     // 局部 const 快照：回调闭包里 TS 不对函数参数做属性收窄，后续闭包读取
     // 都走它（sid 在 composeHeader 内只读）。
@@ -1734,8 +425,8 @@ export class ChatViewProvider implements vscode.Disposable {
     const jobs = orderJobs(this.jobs.jobs().get(state.sessionId) ?? [])
     // 懒切换的目标 workspace 覆盖：chip 与选择器对勾显示 pending 目标（未发送
     // 前真实的会话所属 workspace 不变，随 send/resolve 落地后由 attach 清标记）。
-    const pendingWs = this.pendingWorkspaceId
-      ? this.store.workspaceBaseline.find((w) => w.workspaceId === this.pendingWorkspaceId)
+    const pendingWs = tab.pendingWorkspaceId
+      ? this.store.workspaceBaseline.find((w) => w.workspaceId === tab.pendingWorkspaceId)
       : undefined
     const workspaceLabel = pendingWs?.title ?? this.store.workspaceLabelFor(state.sessionId)
     // workspace 选择器数据（空会话 hero chip 的弹层）：全部 workspace 的轻量
@@ -1759,10 +450,10 @@ export class ChatViewProvider implements vscode.Disposable {
       : undefined
     const presetId = self?.agentPreset
     const presetLabel =
-      !state.agentPreset && presetId !== undefined ? this.controller?.agentPresetLabelFor(presetId) : undefined
+      !state.agentPreset && presetId !== undefined ? tab.controller?.agentPresetLabelFor(presetId) : undefined
     const presetDescription =
       !state.agentPreset && presetId !== undefined
-        ? this.controller?.agentPresetDescriptionFor(presetId)
+        ? tab.controller?.agentPresetDescriptionFor(presetId)
         : undefined
     return {
       ...state,
@@ -1777,7 +468,7 @@ export class ChatViewProvider implements vscode.Disposable {
     }
   }
 
-  /** Store 快照 + 服务状态，合成面板用的 SessionsSnapshot。 */
+  /** Store 快照 + 服务状态，合成面板用的 SessionsSnapshot（推给所有打开的 tab）。 */
   private pushSessions(): void {
     const status = this.manager.getStatus()
     const snapshot: SessionsSnapshot = {
@@ -1788,652 +479,15 @@ export class ChatViewProvider implements vscode.Disposable {
       attachedSessionId: this.attachedSessionId,
     }
     const message: ToWebviewMessage = { type: 'sessions', snapshot }
-    void this.panel?.webview.postMessage(message)
-  }
-
-  private async onMessage(m: FromWebviewMessage): Promise<void> {
-    // Webview 重载后（tab 切走再切回时 VSCode 重新加载面板内容）报到：立即重推
-    // 当前 ChatState 与 sessions 快照，恢复界面。不能依赖事件驱动推送——重载
-    // 后若无新事件，webview 会一直收不到状态。
-    if (m?.type === 'ready') {
-      this.push(this.controller?.getState() ?? this.emptyState())
-      this.pushSessions()
-      return
-    }
-    // Install guide works with no session (and no server) attached.
-    if (m?.type === 'openInstallPage') {
-      void vscode.commands.executeCommand('dshOne.openInstallPage')
-      return
-    }
-    // 对话里的外链（webview 已阻止自身导航，见 chat/webview.ts 的锚点拦截）：
-    // 用系统默认浏览器打开，与插件其余链接（安装页/状态栏打开 dsh 页）一致。
-    if (m?.type === 'openExternal' && typeof m.url === 'string') {
-      if (/^(https?|mailto):/i.test(m.url)) {
-        try {
-          await vscode.env.openExternal(vscode.Uri.parse(m.url))
-        } catch (err) {
-          this.logger.warn(`chat: openExternal(${m.url}) failed — ${err instanceof Error ? err.message : err}`)
-        }
-      }
-      return
-    }
-    // 外链右键菜单「内置浏览器打开」：VS Code 自带 Simple Browser（简单浏览器
-    // 扩展）；不可用（被禁用/未安装）时兜底系统浏览器，不静默失败。
-    if (m?.type === 'openInBuiltinBrowser' && typeof m.url === 'string') {
-      if (!/^(https?|mailto):/i.test(m.url)) return
-      try {
-        await vscode.commands.executeCommand('simpleBrowser.show', m.url)
-      } catch (err) {
-        this.logger.warn(`chat: simpleBrowser.show(${m.url}) failed — ${err instanceof Error ? err.message : err}`)
-        void vscode.env.openExternal(vscode.Uri.parse(m.url))
-      }
-      return
-    }
-    // 子代理下拉名称 / 会话 @ 引用 chip 点击：打开（或揭示）editor 面板并附着
-    // 该会话。拆分时此分支被丢（原合并 webview 里切换到会话），补回——不依赖
-    // 当前 controller，故放在 controller 判定之前。
-    if (m?.type === 'sessionOpen' && typeof m.sessionId === 'string') {
-      this.openSession(m.sessionId)
-      return
-    }
-    // 空会话 hero 的 workspace 选择器：懒切换到目标 workspace（只记录 pending、
-    // 更新 chip 显示，零 RPC——真正切换推迟到 send/setAgentPreset 的
-    // resolvePendingWorkspace）。目标等于当前会话所属 workspace 时解释为取消。
-    if (m?.type === 'workspacePick' && typeof m.workspaceId === 'string') {
-      this.setPendingWorkspace(m.workspaceId)
-      return
-    }
-    if (m?.type === 'workspacePickAdd') {
-      void this.addWorkspaceAndOpen()
-      return
-    }
-    if (m?.type === 'workspacePickCreate') {
-      void this.createWorkspaceAndOpen()
-      return
-    }
-    // 拆分后会话列表为原生 tree，webview（editor 面板）不再发送 sessions 面板
-    // 消息；其余全部落在 controller 上。
-    const controller = this.controller
-    if (!controller || !m || typeof m.type !== 'string') return
-    try {
-      switch (m.type) {
-        case 'send': {
-          const text = typeof m.text === 'string' ? m.text.trim() : ''
-          const images = Array.isArray(m.images) ? m.images : []
-          if (!text && images.length === 0) return
-          // 懒切换落地：把消息发到 pending 目标 workspace 的会话（resolve 会
-          // 换 controller，后面的逻辑一律用重取的 target，不用入参 controller）。
-          if (!(await this.resolvePendingWorkspace())) return
-          const target = this.controller
-          if (!target) return
-          // Slash commands route to runCommand; pasted absolute paths like
-          // /Users/… are prompts for the model, not commands.
-          if (looksLikeSlashCommand(text)) {
-            await this.runCommand(target, text, images)
-            return
-          }
-          await target.send(text, images, m.steer === true)
-          // 发送落地后追平基线（updatedAt 变化 → 列表排序及时反映真实状态）：
-          // 走统一去抖入口，与随后的 running 翻转等触发点合并成一次重拉。
-          void this.store.refreshSoon()
-          return
-        }
-        case 'stop': {
-          const restored = await controller.stop()
-          if (restored.length > 0) {
-            const message: ToWebviewMessage = { type: 'restoreDraft', text: restored.join('\n') }
-            void this.panel?.webview.postMessage(message)
-          }
-          return
-        }
-        case 'approval':
-          await controller.respondApproval(m.rpcId, m.outcome)
-          return
-        case 'answer':
-          await controller.answerQuestion(m.rpcId, m.answers)
-          return
-        case 'pickFiles':
-          await this.pickFiles(controller)
-          return
-        case 'filesPasted':
-          await this.stagePastedFiles(controller, Array.isArray(m.files) ? m.files : [])
-          return
-        case 'requestModels':
-          await this.sendModelCatalog(controller)
-          return
-        case 'setModel':
-          await this.applyModelSelection(controller, {
-            provider: m.provider,
-            model: m.model,
-            reasoningEffort: m.reasoningEffort,
-          })
-          return
-        case 'setPermission':
-          await this.setPermission(controller, m.value)
-          return
-        case 'setAgentPreset': {
-          // 懒切换落地（preset 必须选在目标会话上，且发送前生效）。
-          if (!(await this.resolvePendingWorkspace())) return
-          const target = this.controller
-          if (!target) return
-          // 失败（尤其 agent-preset-locked：会话已开跑）只记日志，不打扰用户。
-          try {
-            await target.setAgentPreset(m.id)
-          } catch (err) {
-            this.logger.warn(`chat: setAgentPreset(${m.id}) failed — ${err instanceof Error ? err.message : err}`)
-          }
-          return
-        }
-        case 'renameSession':
-          await this.renameCurrentSession(controller, m.title)
-          return
-        case 'fileRefList': {
-          // @ 补全候选：失败静默降级为空列表（对齐 web——这个领域失败只是
-          // 少出候选，不弹错误打断输入）。
-          let items: FileRefCandidate[] = []
-          try {
-            items = await listFileReferences(controller.url, controller.sessionId, m.query)
-          } catch (err) {
-            this.logger.warn(`chat: fileRefList(${JSON.stringify(m.query)}) failed — ${err instanceof Error ? err.message : err}`)
-          }
-          const message: ToWebviewMessage = { type: 'fileRefList', requestId: m.requestId, items }
-          void this.panel?.webview.postMessage(message)
-          return
-        }
-        case 'queueEdit':
-          await controller.editQueued(m.itemId, m.text)
-          return
-        case 'queueSteer':
-          await controller.steerQueued(m.itemId)
-          return
-        case 'queueRemove':
-          await controller.removeQueued(m.itemId)
-          return
-        case 'goalPause':
-          await controller.goalPause()
-          return
-        case 'goalResume':
-          await controller.goalResume()
-          return
-        case 'goalEdit':
-          await controller.goalEdit(m.objective)
-          return
-        case 'goalClear':
-          await controller.goalClear()
-          return
-        case 'requestAttachment':
-          await this.sendAttachment(controller, m.attachmentId)
-          return
-        case 'feedback':
-          await controller.rateMessage(m.messageId, m.rating)
-          return
-        case 'fork':
-          await this.forkAt(controller, m.atSeq)
-          return
-        case 'producedOpenFile': {
-          // 产物 chip 点击：在 VSCode 编辑器打开该文件（任意绝对路径）。
-          if (typeof m.path === 'string' && m.path) await this.openFileInEditor(m.path, '产物文件')
-          return
-        }
-        case 'openAttachmentFile': {
-          // 附件文件 chip 点击：同样在 VSCode 编辑器打开（任意绝对路径，含工作区
-          // 外的外部文件——showTextDocument 对标准文件 URI 不受 workspace 归属限制）。
-          if (typeof m.path === 'string' && m.path) await this.openFileInEditor(m.path, '附件文件')
-          return
-        }
-        case 'loadEarlier':
-          await controller.loadEarlier()
-          return
-      }
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err)
-      this.logger.warn(`chat: ${m.type} failed — ${detail}`)
-      vscode.window.showErrorMessage(`聊天操作失败：${detail}`)
-    }
-  }
-
-  /** Open an absolute path in the VS Code editor; failure toast names the chip kind. */
-  private async openFileInEditor(path: string, label: string): Promise<void> {
-    try {
-      await vscode.window.showTextDocument(vscode.Uri.file(path))
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err)
-      this.logger.warn(`chat: openFileInEditor(${path}) failed — ${detail}`)
-      // 产物/附件路径都是某个时刻的路径快照：文件可能后来被移动/删除（如
-      // backlog git mv），报错时先区分「已不存在」并说明原因，避免只有干巴巴
-      // 的「无法打开」而不知道发生了什么。
-      const missing = await fs.access(path).then(
-        () => false,
-        () => true,
-      )
-      vscode.window.showErrorMessage(
-        missing ? `${label}已不存在（可能已被移动或删除）：${path}` : `打开${label}失败：${detail}`,
-      )
-    }
-  }
-
-  /** Fetch the session's model catalog and push it to the webview's model menu. */
-  private async sendModelCatalog(controller: ChatSessionController): Promise<void> {
-    try {
-      const models = await sessionModels(controller.url, controller.sessionId)
-      const message: ToWebviewMessage = {
-        type: 'modelCatalog',
-        catalog: {
-          current: models.current,
-          groups: models.groups.map((g) => ({
-            id: g.id,
-            name: g.name,
-            models: g.models.map((m) => ({
-              id: m.id,
-              name: m.name,
-              description: m.description,
-              efforts: m.reasoning?.efforts ?? [],
-              defaultEffort: m.reasoning?.defaultEffort,
-            })),
-          })),
-        },
-      }
-      void this.panel?.webview.postMessage(message)
-    } catch (err) {
-      // 错误收敛到 webview 菜单里的 error/Retry 行（对齐 dsh web），不弹全局 toast。
-      const detail = err instanceof Error ? err.message : String(err)
-      this.logger.warn(`chat: session.models failed — ${detail}`)
-      const message: ToWebviewMessage = { type: 'modelCatalogError' }
-      void this.panel?.webview.postMessage(message)
-    }
-  }
-
-  /** Fetch one attachment's bytes and push them to the webview for inline rendering. */
-  private async sendAttachment(controller: ChatSessionController, attachmentId: string): Promise<void> {
-    if (typeof attachmentId !== 'string' || !attachmentId) return
-    try {
-      const { mediaType, data } = await sessionAttachment(controller.url, controller.sessionId, attachmentId)
-      const message: ToWebviewMessage = { type: 'attachmentData', attachmentId, mediaType, data }
-      void this.panel?.webview.postMessage(message)
-    } catch (err) {
-      // Thumbnail stays a placeholder; not worth an error popup.
-      const detail = err instanceof Error ? err.message : String(err)
-      this.logger.warn(`chat: attachment ${attachmentId} fetch failed — ${detail}`)
-    }
-  }
-
-  private async applyModelSelection(
-    controller: ChatSessionController,
-    selection: SessionModelSelection,
-  ): Promise<void> {
-    try {
-      await selectModel(controller.url, controller.sessionId, selection)
-      // 切模型后立即重算 contextBar 的窗口：用新模型窗口覆写 contextPressure，
-      // 不等下一条消息（否则会停留在旧模型窗口直到发消息）。
-      controller.applyModelSwitch(selection)
-      await controller.refreshModels()
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err)
-      vscode.window.showErrorMessage(`切换模型失败：${detail}`)
+    for (const tab of this.tabs.values()) {
+      tab.postMessage(message)
     }
   }
 
   /**
-   * Permission preset switch; rides the /permission slash command through the
-   * dedicated command channel (session.prompt would not dispatch it). Mirrors
-   * the web client: `danger-full-access` requires an explicit risk
-   * confirmation first. The resulting permission/preset event refreshes the
-   * footer pill through the permissions projection push.
-   */
-  private async setPermission(controller: ChatSessionController, value: string): Promise<void> {
-    if (value === 'danger-full-access') {
-      const confirm = await vscode.window.showWarningMessage(
-        '确认启用 Full access？启用后 agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。',
-        { modal: true },
-        '启用 Full access',
-      )
-      if (!confirm) return
-    }
-    await this.runCommand(controller, `/permission ${value}`)
-  }
-
-  /**
-   * 空会话 hero 懒切换：只记录目标 workspace 并重推 state（chip/对勾显示
-   * pending 目标），**不发任何 RPC、不换 controller**——真正切换推迟到
-   * 下一次 send / setAgentPreset 的 {@link resolvePendingWorkspace}，让点
-   * 击切换瞬时完成、把等待移进发送动作本身。目标等于当前会话所属 workspace
-   * 时解释为取消（点当前显示项是取消手势）；基线里找不到目标（刚被删除）也
-   * 取消。
-   */
-  private setPendingWorkspace(workspaceId: string): void {
-    const cur = this.currentSessionId
-    const current = cur
-      ? this.store.workspaceBaseline.find((w) => w.sessionIds.includes(cur))?.workspaceId
-      : undefined
-    this.pendingWorkspaceId =
-      workspaceId === current || !this.store.workspaceBaseline.some((w) => w.workspaceId === workspaceId)
-        ? null
-        : workspaceId
-    if (this.controller) this.push(this.controller.getState())
-  }
-
-  /**
-   * 发送/选 preset 前落地懒切换：在 pending 目标 workspace 下复用/新建 blank
-   * 会话（dshRpc.ensureSession，官方 connectWorkspace 语义）并打开附着。
-   * 成功返回 true；失败清理标记并返回 false（错误提示在 openWorkspaceSession）。
-   */
-  private async resolvePendingWorkspace(): Promise<boolean> {
-    const workspaceId = this.pendingWorkspaceId
-    if (!workspaceId) return true
-    this.pendingWorkspaceId = null
-    const workspace = this.store.workspaceBaseline.find((w) => w.workspaceId === workspaceId)
-    if (!workspace) return false
-    const ok = await this.openWorkspaceSession(workspace)
-    if (!ok && this.controller) this.push(this.controller.getState())
-    return ok
-  }
-
-  /** hero picker「添加已有文件夹…」：复用 dshOne.workspace.add 命令（VSCode
-   *  原生目录对话框 → workspace.create），注册成功后设为懒切换目标（用户
-   *  发送时才真正切过去；命令返回注册结果，取消/失败返回 undefined——
-   *  错误提示由命令负责）。 */
-  private async addWorkspaceAndOpen(): Promise<void> {
-    const workspace = await vscode.commands.executeCommand<WorkspaceView | undefined>('dshOne.workspace.add')
-    if (!workspace) return
-    // 等基线刷新包含新 workspace 再设 pending（setPendingWorkspace 校验基线）。
-    await this.store.refresh()
-    this.setPendingWorkspace(workspace.workspaceId)
-  }
-
-  /** hero picker「创建工作区…」：复用 dshOne.workspace.create 命令（在
-   *  ~/.dsh/workspaces/ 下建目录并注册），成功后设为懒切换目标。 */
-  private async createWorkspaceAndOpen(): Promise<void> {
-    const workspace = await vscode.commands.executeCommand<WorkspaceView | undefined>('dshOne.workspace.create')
-    if (!workspace) return
-    await this.store.refresh()
-    this.setPendingWorkspace(workspace.workspaceId)
-  }
-
-  /** 在目标 workspace 下复用/新建 blank 会话并打开；成功返回 true。 */
-  private async openWorkspaceSession(
-    workspace: Pick<WorkspaceView, 'workspaceId' | 'sessionIds' | 'path'>,
-  ): Promise<boolean> {
-    const url = this.store.runningUrl
-    if (!url) return false
-    try {
-      const sessionId = await ensureSession(url, workspace)
-      this.openSession(sessionId)
-      return true
-    } catch (error) {
-      this.logger.warn(`workspace: switch to ${workspace.workspaceId} failed: ${errorText(error)}`)
-      vscode.window.showWarningMessage(`切换 workspace 失败：${errorText(error)}`)
-      return false
-    }
-  }
-
-  /**
-   * 软移除 workspace（dsh web 同款语义）：modal 确认后调 host 的
-   * workspace.delete——只删注册表记录，磁盘文件夹与会话日志保留，
-   * 组内会话归入「未分组」。当前 VSCode 窗口打开的 workspace 也允许移除。
-   */
-  private async removeWorkspace(workspaceId: string, label: string): Promise<void> {
-    const url = this.store.runningUrl
-    if (!url) return
-    const confirm = await vscode.window.showWarningMessage(
-      `将把“${label}”从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在“未分组”下。`,
-      { modal: true },
-      '从列表移除',
-    )
-    if (!confirm) return
-    try {
-      await deleteWorkspace(url, workspaceId)
-    } catch (error) {
-      this.logger.warn(`workspace: remove ${workspaceId} failed: ${errorText(error)}`)
-      vscode.window.showWarningMessage(`移除工作区失败：${errorText(error)}`)
-      return
-    }
-    await this.store.refresh()
-  }
-
-  /**
-   * Execute one slash-command line. Matched commands need no local echo: the
-   * host logs command/run before the handler and command/done after it, and
-   * those events render as flow nodes in the message stream (same as the
-   * official web client). Only an unmatched line — which logs nothing
-   * host-side — gets a composer notice here.
-   */
-  private async runCommand(
-    controller: ChatSessionController,
-    line: string,
-    images?: OutgoingImage[],
-  ): Promise<void> {
-    const outcome = await executeCommand(controller.url, controller.sessionId, line, images)
-    if (!outcome.matched) {
-      const message: ToWebviewMessage = { type: 'commandResult', text: `未知或格式错误的命令：${line}` }
-      void this.panel?.webview.postMessage(message)
-      return
-    }
-    // `/export` only marks the request host-side ("Session log download
-    // requested."); the bytes come from /api/session.export, which the
-    // browser client hands to its download manager. Here we save via dialog.
-    const name = line.trim().slice(1).split(/\s/, 1)[0]
-    if (name === 'export' && outcome.kind === 'success') {
-      await this.saveSessionLog(controller)
-    }
-  }
-
-  /** Fetch the session-log ZIP and let the user pick where to save it. */
-  private async saveSessionLog(controller: ChatSessionController): Promise<void> {
-    try {
-      const zip = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: '正在导出会话日志…' },
-        () => exportSessionLog(controller.url, controller.sessionId),
-      )
-      const target = await vscode.window.showSaveDialog({
-        defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Downloads', sessionLogZipFilename(controller.sessionId))),
-        filters: { ZIP: ['zip'] },
-        saveLabel: '保存会话日志',
-      })
-      if (!target) return
-      await fs.writeFile(target.fsPath, zip)
-      void vscode.window.showInformationMessage(`会话日志已保存到 ${target.fsPath}`)
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err)
-      vscode.window.showErrorMessage(`导出会话日志失败：${detail}`)
-    }
-  }
-
-  /** Fork the session at a completed turn, then switch the view to the child session. */
-  private async forkAt(controller: ChatSessionController, atSeq: number): Promise<void> {
-    try {
-      const childId = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: '正在创建分支会话…' },
-        () => controller.fork(atSeq),
-      )
-      // The tree learns about the child via this hook; the chat switches over.
-      this.onSessionsChanged?.()
-      this.setSession(childId)
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err)
-      vscode.window.showErrorMessage(`创建分支会话失败：${detail}`)
-    }
-  }
-
-  /** Rename the attached session; the title projection push refreshes the header. */
-  private async renameCurrentSession(controller: ChatSessionController, title: string): Promise<void> {
-    const trimmed = title.trim()
-    if (!trimmed) return
-    try {
-      await renameSession(controller.url, controller.sessionId, trimmed)
-      this.onSessionsChanged?.()
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err)
-      vscode.window.showErrorMessage(`重命名会话失败：${detail}`)
-    }
-  }
-
-  /**
-   * Attachment picker: images are read into base64 and staged via the shared
-   * validator; any other file already lives on disk, so it is staged as a
-   * path chip (no temp copy needed).
-   */
-  private async pickFiles(controller: ChatSessionController): Promise<void> {
-    const uris = await vscode.window.showOpenDialog({
-      canSelectMany: true,
-      openLabel: '添加附件',
-      // No filters: any file type is a valid attachment (images are inlined,
-      // everything else goes into the prompt as a path).
-    })
-    if (!uris || uris.length === 0) return
-    const skipped: string[] = []
-    const images: OutgoingImage[] = []
-    const paths: string[] = []
-    for (const uri of uris) {
-      const mediaType = IMAGE_MEDIA_TYPES[path.extname(uri.fsPath).toLowerCase()]
-      if (!mediaType) {
-        paths.push(uri.fsPath)
-        continue
-      }
-      const name = path.basename(uri.fsPath)
-      let data: Uint8Array
-      try {
-        data = await fs.readFile(uri.fsPath)
-      } catch (err) {
-        skipped.push(`${name}（读取失败：${err instanceof Error ? err.message : String(err)}）`)
-        continue
-      }
-      images.push({ mediaType, data: Buffer.from(data).toString('base64'), name })
-    }
-    this.stageImages(controller, images, skipped)
-    if (paths.length > 0) {
-      const message: ToWebviewMessage = {
-        type: 'filesPicked',
-        files: paths.map((p) => ({ name: path.basename(p), path: p })),
-      }
-      void this.panel?.webview.postMessage(message)
-    }
-  }
-
-  /**
-   * Paste intake: every clipboard file becomes an attachment. Images (sniffed
-   * from bytes, or a declared image/* type) go through the same staging and
-   * limit validation as the picker; anything else is written to a temp file
-   * and staged as a path chip for the agent to read.
-   */
-  private async stagePastedFiles(controller: ChatSessionController, files: OutgoingImage[]): Promise<void> {
-    if (files.length === 0) return
-    const images: OutgoingImage[] = []
-    const staged: Array<{ name: string; path: string }> = []
-    const skipped: string[] = []
-    for (const file of files) {
-      const name = file.name ?? '附件'
-      const bytes = Buffer.from(file.data, 'base64')
-      const mediaType = sniffImageMediaType(bytes) ?? file.mediaType.trim().toLowerCase()
-      if (mediaType.startsWith('image/')) {
-        images.push({ ...file, mediaType })
-        continue
-      }
-      try {
-        staged.push({ name, path: await this.saveTempAttachment(name, bytes) })
-      } catch (err) {
-        skipped.push(`${name}（写入临时文件失败：${err instanceof Error ? err.message : String(err)}）`)
-      }
-    }
-    if (skipped.length > 0) {
-      vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
-    }
-    this.stageImages(controller, images)
-    if (staged.length > 0) {
-      const message: ToWebviewMessage = { type: 'filesPicked', files: staged }
-      void this.panel?.webview.postMessage(message)
-    }
-  }
-
-  /** Persist a non-image paste under the OS temp dir; returns the file path. */
-  private async saveTempAttachment(name: string, bytes: Buffer): Promise<string> {
-    const dir = path.join(os.tmpdir(), 'dsh-one-attachments')
-    await fs.mkdir(dir, { recursive: true })
-    const safe = name.replace(/[^\w.-]+/g, '_') || 'attachment'
-    const file = path.join(dir, `${Date.now()}-${safe}`)
-    await fs.writeFile(file, bytes)
-    this.logger.info(`chat: pasted file saved to ${file}`)
-    return file
-  }
-
-  /**
-   * Validate staged images (from the picker, a webview paste, or the context
-   * menu) against the session's image limits; returns the accepted ones.
-   * Skipped files are appended to `skipped` with human-readable reasons.
-   */
-  private validateImages(controller: ChatSessionController, images: OutgoingImage[], skipped: string[]): OutgoingImage[] {
-    const limits = controller.imageLimits
-    const accepted: OutgoingImage[] = []
-    let acceptedBytes = 0
-    for (const image of images) {
-      const name = image.name ?? '图片'
-      const byteLength = Buffer.from(image.data, 'base64').byteLength
-      const mediaType = image.mediaType.trim().toLowerCase()
-      if (limits && !limits.mediaTypes.some((t) => t.trim().toLowerCase() === mediaType)) {
-        skipped.push(`${name}（不支持的格式：${image.mediaType || '未知'}；支持 ${limits.mediaTypes.join('、')}）`)
-        this.logger.warn(`chat: image rejected — mediaType=${JSON.stringify(image.mediaType)}, allowed=${JSON.stringify(limits.mediaTypes)}`)
-        continue
-      }
-      if (limits) {
-        if (accepted.length >= limits.maxImagesPerMessage) {
-          skipped.push(`${name}（每条消息最多 ${limits.maxImagesPerMessage} 张图片）`)
-          continue
-        }
-        if (byteLength > limits.maxImageBytes) {
-          skipped.push(`${name}（超过单张 ${formatBytes(limits.maxImageBytes)} 限制）`)
-          continue
-        }
-        if (acceptedBytes + byteLength > limits.maxMessageImageBytes) {
-          skipped.push(`${name}（超过单条消息图片总大小 ${formatBytes(limits.maxMessageImageBytes)} 限制）`)
-          continue
-        }
-      }
-      accepted.push(image)
-      acceptedBytes += byteLength
-    }
-    return accepted
-  }
-
-  /** Validate then post accepted images back to the webview (picker/paste path). */
-  private stageImages(controller: ChatSessionController, images: OutgoingImage[], skipped: string[] = []): void {
-    if (images.length === 0 && skipped.length === 0) return
-    const accepted = this.validateImages(controller, images, skipped)
-    if (skipped.length > 0) {
-      vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
-    }
-    if (accepted.length > 0) {
-      const message: ToWebviewMessage = { type: 'imagesPicked', images: accepted }
-      void this.panel?.webview.postMessage(message)
-    }
-  }
-
-  /**
-   * 把暂存的附件投给 webview 的 composer（等同点「添加附件」）。视图还没
-   * 解析或没有附着会话时留在队列，等 openPanel / attach 重投；
-   * 有面板却没有会话可挂时清空队列（附件无处可去）。
-   */
-  private flushStaged(): void {
-    if (!this.panel) return
-    if (!this.controller) {
-      this.pendingStagedFiles = []
-      this.pendingStagedImages = []
-      return
-    }
-    if (this.pendingStagedImages.length > 0) {
-      const message: ToWebviewMessage = { type: 'imagesPicked', images: this.pendingStagedImages }
-      void this.panel.webview.postMessage(message)
-      this.pendingStagedImages = []
-    }
-    if (this.pendingStagedFiles.length > 0) {
-      const message: ToWebviewMessage = { type: 'filesPicked', files: this.pendingStagedFiles }
-      void this.panel.webview.postMessage(message)
-      this.pendingStagedFiles = []
-    }
-  }
-
-  /**
-   * 右键「发送到当前会话」：把当前文件作为附件暂存到当前活跃会话的
-   * composer，与点「添加附件」等价。无附着会话时自动附着当前 workspace
-   * 最新的会话，一个都没有则新建；图片走图片附件（缩略图 + 限额校验），
+   * 右键「发送到当前会话」：把当前文件作为附件暂存到**当前活动 chat tab**
+   * 的 composer，与点「添加附件」等价。无活动 tab 时自动打开当前 workspace
+   * 最新的会话 tab，一个都没有则新建；图片走图片附件（缩略图 + 限额校验），
    * 其他文件以路径 chip 暂存，发送时拼进 prompt 让 agent 自己读。
    */
   async attachFileToSession(arg: unknown): Promise<void> {
@@ -2454,37 +508,98 @@ export class ChatViewProvider implements vscode.Disposable {
       vscode.window.showErrorMessage('DSH 服务未就绪，无法发送文件。')
       return
     }
-    // 无附着会话：自动附着当前 workspace 最新的会话；没有则新建一个。
-    if (!this.currentSessionId) {
-      const sessionId = this.store.latestCurrentSessionId() ?? (await this.ensureNewSession())
-      if (!sessionId) return
-      this.setSession(sessionId)
+    // 目标 = 当前活动 chat tab；焦点不在 chat tab（如正在看文件）时回退到
+    // 最近活动过的会话 tab；都没有 → 最新会话 tab，没有则新建一个。
+    let targetId = this.activeTab()?.sessionId ?? null
+    if (!targetId && this.lastActiveSessionId && this.tabs.has(this.lastActiveSessionId)) {
+      targetId = this.lastActiveSessionId
     }
-    const controller = this.controller
-    if (!controller) return
-    const name = path.basename(fsPath)
-    const mediaType = IMAGE_MEDIA_TYPES[path.extname(fsPath).toLowerCase()]
-    if (mediaType) {
-      let data: Uint8Array
-      try {
-        data = await fs.readFile(fsPath)
-      } catch (err) {
-        vscode.window.showErrorMessage(`读取文件失败：${errorText(err)}`)
-        return
-      }
-      const skipped: string[] = []
-      const accepted = this.validateImages(controller, [{ mediaType, data: Buffer.from(data).toString('base64'), name }], skipped)
-      if (skipped.length > 0) {
-        vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
-        return
-      }
-      this.pendingStagedImages.push(...accepted)
-    } else {
-      this.pendingStagedFiles.push({ name, path: fsPath })
+    if (!targetId) {
+      targetId = this.store.latestCurrentSessionId() ?? (await this.ensureNewSession())
+      if (!targetId) return
     }
-    // 右键「发送到当前会话」：无打开的面板也要顶上去（先开 editor 面板再投附件）。
-    this.openPanel()
-    this.flushStaged()
+    // 已开 → 聚焦；用户关过 → 重建 tab；没开过 → 新建。总让 tab 出现。
+    this.openSession(targetId)
+    const tab = this.tabs.get(targetId)
+    if (!tab || !tab.controller) return
+    await tab.stageContextFile(fsPath)
+    tab.reveal()
+    tab.flushStaged()
+  }
+
+  /**
+   * 空会话 hero 懒切换：只记录目标 workspace 并重推 state（chip/对勾显示
+   * pending 目标），**不发任何 RPC、不换 controller**——真正切换推迟到
+   * 下一次 send / setAgentPreset 的 {@link resolvePendingWorkspace}，让点
+   * 击切换瞬时完成、把等待移进发送动作本身。目标等于当前会话所属 workspace
+   * 时解释为取消（点当前显示项是取消手势）；基线里找不到目标（刚被删除）也
+   * 取消。per-tab：状态挂在 ChatTabHost.pendingWorkspaceId 上（多 tab 各自
+   * 独立，不串台）。
+   */
+  setPendingWorkspace(host: ChatTabHost, workspaceId: string): void {
+    const cur = host.controller?.sessionId
+    const current = cur
+      ? this.store.workspaceBaseline.find((w) => w.sessionIds.includes(cur))?.workspaceId
+      : undefined
+    host.pendingWorkspaceId =
+      workspaceId === current || !this.store.workspaceBaseline.some((w) => w.workspaceId === workspaceId)
+        ? null
+        : workspaceId
+    if (host.controller) this.push(host, host.controller.getState())
+  }
+
+  /**
+   * 发送/选 preset 前落地懒切换：在 pending 目标 workspace 下复用/新建 blank
+   * 会话（dshRpc.ensureSession，官方 connectWorkspace 语义）并打开附着。
+   * 成功返回 true；失败清理标记并返回 false（错误提示在 openWorkspaceSession）。
+   */
+  async resolvePendingWorkspace(host: ChatTabHost): Promise<boolean> {
+    const workspaceId = host.pendingWorkspaceId
+    if (!workspaceId) return true
+    host.pendingWorkspaceId = null
+    const workspace = this.store.workspaceBaseline.find((w) => w.workspaceId === workspaceId)
+    if (!workspace) return false
+    const ok = await this.openWorkspaceSession(workspace)
+    if (!ok && host.controller) this.push(host, host.controller.getState())
+    return ok
+  }
+
+  /** hero picker「添加已有文件夹…」：复用 dshOne.workspace.add 命令（VSCode
+   *  原生目录对话框 → workspace.create），注册成功后设为懒切换目标（用户
+   *  发送时才真正切过去；命令返回注册结果，取消/失败返回 undefined——
+   *  错误提示由命令负责）。 */
+  async addWorkspaceAndOpen(host: ChatTabHost): Promise<void> {
+    const workspace = await vscode.commands.executeCommand<WorkspaceView | undefined>('dshOne.workspace.add')
+    if (!workspace) return
+    // 等基线刷新包含新 workspace 再设 pending（setPendingWorkspace 校验基线）。
+    await this.store.refresh()
+    this.setPendingWorkspace(host, workspace.workspaceId)
+  }
+
+  /** hero picker「创建工作区…」：复用 dshOne.workspace.create 命令（在
+   *  ~/.dsh/workspaces/ 下建目录并注册），成功后设为懒切换目标。 */
+  async createWorkspaceAndOpen(host: ChatTabHost): Promise<void> {
+    const workspace = await vscode.commands.executeCommand<WorkspaceView | undefined>('dshOne.workspace.create')
+    if (!workspace) return
+    await this.store.refresh()
+    this.setPendingWorkspace(host, workspace.workspaceId)
+  }
+
+  /** 在目标 workspace 下复用/新建 blank 会话并打开；成功返回 true。 */
+  private async openWorkspaceSession(
+    workspace: Pick<WorkspaceView, 'workspaceId' | 'sessionIds' | 'path'>,
+  ): Promise<boolean> {
+    const url = this.store.runningUrl
+    if (!url) return false
+    try {
+      const sessionId = await ensureSession(url, workspace)
+      this.openSession(sessionId)
+      return true
+    } catch (error) {
+      this.logger.warn(`workspace: switch to ${workspace.workspaceId} failed: ${errorText(error)}`)
+      vscode.window.showWarningMessage(`切换 workspace 失败：${errorText(error)}`)
+      return false
+    }
   }
 
   /**
@@ -2516,9 +631,10 @@ export class ChatViewProvider implements vscode.Disposable {
     this.jobs.dispose()
     this.subagentsSub.dispose()
     this.subagents.dispose()
-    this.controllerSub?.dispose()
-    this.controller?.dispose()
-    this.controller = null
+    for (const tab of [...this.tabs.values()]) {
+      tab.dispose()
+    }
+    this.tabs.clear()
     this.activeEmitter.dispose()
   }
 }

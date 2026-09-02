@@ -301,9 +301,9 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
     private readonly logger: Logger,
     private readonly extensionUri: vscode.Uri,
     private readonly store: SessionsStore,
-    /** 高亮会话 id（附着的、或懒加载待附着目标），来自 editor 面板。 */
+    /** 高亮会话 id（当前活动 chat tab 的会话，无活动 tab 为 null），来自 editor tabs。 */
     private readonly getActiveSessionId: () => string | null,
-    /** editor 面板真实附着的会话 id（面板未开为 null），行内重命名判定用。 */
+    /** 当前活动 chat tab 真实附着的会话 id（活动 tab 未开为 null），行内重命名判定用。 */
     private readonly getAttachedSessionId: () => string | null,
     activeChanged: vscode.Event<string | null>,
   ) {
@@ -352,9 +352,14 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
   private async onMessage(m: FromWebviewMessage): Promise<void> {
     if (!m || typeof m.type !== 'string') return
     switch (m.type) {
-      // 打开/更新 editor 面板并附着（复用 extension 命令，其内部 openSession）。
+      // 打开/更新 editor 面板并附着（复用 extension 命令，其内部 openSession：
+      // 默认在当前活动 chat tab 打开）。
       case 'sessionOpen':
         void vscode.commands.executeCommand('dshOne.session.open', m.sessionId)
+        return
+      // 右键菜单「在新 tab 中打开」：显式新开一个会话 tab。
+      case 'sessionOpenInNewTab':
+        void vscode.commands.executeCommand('dshOne.session.openInNewTab', m.sessionId)
         return
       case 'sessionNew':
         void vscode.commands.executeCommand('dshOne.session.new', m.workspaceId)

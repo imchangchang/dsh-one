@@ -1,0 +1,1068 @@
+/**
+ * Chat editor panel 的 HTML 与样式（`dshOne.chatPanel` webview 壳）。从
+ * chatView.ts 拆出：面板 HTML 与宿主逻辑分离，ChatTabHost 创建 panel 时
+ * 引用这里的 chatHtml。样式常量体量最大（对齐 dsh web 的全部 CSS），
+ * 独立成文件让 chatView/chatTab 的宿主逻辑文件保持可读。
+ */
+import * as vscode from 'vscode'
+import * as crypto from 'node:crypto'
+
+export function nonce(): string {
+  return crypto.randomBytes(16).toString('base64')
+}
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+const STYLE = `
+  html, body { margin: 0; padding: 0; height: 100%; overscroll-behavior-y: none; }
+  body {
+    font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+  }
+  #app { display: flex; flex-direction: row; height: 100%; }
+  /* 宽屏：左 sessions 面板 + 右聊天列；窄屏（<720px）改上下布局，面板限高自滚动。 */
+  .chat-col {
+    flex: 1; min-width: 0; display: flex; flex-direction: column;
+    background: var(--vscode-editor-background, transparent);
+  }
+  /* 运行中：官方 dsh web StateDot(ongoing) 的 8 格像素环追逐动画，deepseek 蓝。 */
+  .session-spin { display: block; color: var(--vscode-charts-blue, #5686fe); }
+  .session-spin rect { fill: currentColor; opacity: 0.15; animation: session-spin-chase 1s infinite; }
+  @keyframes session-spin-chase {
+    0%, 12.4% { opacity: 1; }
+    12.5%, 24.9% { opacity: 0.6; }
+    25%, 37.4% { opacity: 0.35; }
+    37.5%, to { opacity: 0.15; }
+  }
+  /* 头部「N 个后台任务运行中」chip 的下拉（对齐官方 JobListAction 菜单）：
+     状态点 + kind 徽标 + 命令摘要 + 状态文案 + 耗时；已结束行淡化。 */
+  .jobs-menu { display: flex; flex-direction: column; gap: 1px; min-width: 260px; max-width: 360px; }
+  .jobs-menu-row {
+    display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+    border-radius: 6px; font-size: 12px;
+  }
+  .jobs-menu-row.settled { opacity: 0.65; }
+  .job-dot-slot {
+    width: 10px; height: 10px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .job-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .job-dot.done { background: var(--vscode-testing-iconPassed, #73c991); }
+  .job-dot.warning { background: var(--vscode-editorWarning-foreground, #cca700); }
+  .job-dot.error { background: var(--vscode-errorForeground, #f14c4c); }
+  /* 子代理下拉的「已完成」状态点（对齐官方 ready 蓝块；运行中行用像素环）。 */
+  .job-dot.settled-dot { background: var(--vscode-charts-blue, #5686fe); }
+  .job-kind {
+    flex: none; font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: 4px;
+    background: var(--vscode-badge-background, rgba(127,127,127,.25));
+    color: var(--vscode-badge-foreground, var(--vscode-foreground));
+  }
+  .job-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job-status {
+    flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 11px; opacity: 0.75;
+  }
+  .job-duration { flex: none; font-size: 11px; opacity: 0.55; font-variant-numeric: tabular-nums; }
+  @media (max-width: 719px) {
+    #app { flex-direction: column; }
+    .chat-col { min-height: 0; }
+  }
+  .chat-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 12px 8px; flex: none;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .chat-header .chat-title {
+    /* 不拉伸（flex:1 会把紧跟其后的 chips 顶到行尾）：收缩自适应，
+       超长才 ellipsis；chips 依次跟在文字后面。单击标题进改名。 */
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0;
+    font-size: 14px; font-weight: 500; line-height: 20px; padding: 2px 4px;
+    cursor: pointer; border-radius: 4px;
+  }
+  .chat-header .chat-title:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  /* 面包屑里的当前子代理标题：小号字（官方 .crumbSubagent 12px/18px，
+     与「N 个子代理」chip 同字号），不和父会话标题同级。 */
+  .chat-header .chat-title.crumb-subagent { font-size: 12px; line-height: 18px; }
+  /* 面包屑（对齐官方 dsh web 的子代理进入逻辑）：父会话标题是可点链接，
+     灰字常规字重（官方祖先 crumb 400，只有当前段 500），hover 提亮；
+     斜杠分隔符不响应点击。 */
+  .chat-header .crumb-parent {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0;
+    font-size: 14px; font-weight: 400; line-height: 20px; padding: 2px 4px;
+    background: transparent; border: 0; cursor: pointer;
+    color: var(--vscode-descriptionForeground);
+  }
+  .chat-header .crumb-parent:hover { color: var(--vscode-foreground); }
+  .chat-header .crumb-sep {
+    flex: none; font-size: 14px; line-height: 20px; user-select: none;
+    color: var(--vscode-descriptionForeground); opacity: 0.6;
+  }
+  /* 头部可点 chip（子代理 / 后台任务下拉）：透明底小字，hover 只提亮文字
+     —— 对齐官方 SubagentHeader 的 trigger（ZKlsPq_trigger）。 */
+  .header-chip {
+    flex: none; display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; font-weight: 400; line-height: 18px; padding: 3px 4px;
+    border: 0; border-radius: 6px; cursor: pointer;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+  }
+  .header-chip:hover { color: var(--vscode-foreground); }
+  /* 只读 preset 标签：浅底胶囊 + 14px 图标，对齐官方 AgentPresetLabel（SVAs4q_label）。 */
+  .preset-chip {
+    flex: none; display: inline-flex; align-items: center; gap: 4px;
+    max-width: 160px; height: 22px; padding: 0 6px 0 4px;
+    font-size: 12px; border-radius: 6px; overflow: hidden;
+    background: var(--vscode-editor-inactiveSelectionBackground, rgba(127,127,127,.16));
+    color: var(--vscode-foreground);
+  }
+  .preset-chip svg { flex: none; opacity: 0.7; }
+  .preset-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-header .rename-input {
+    flex: 1; min-width: 0; font: inherit; font-weight: 500;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
+    border-radius: 4px; padding: 1px 6px; outline: none;
+  }
+  .messages {
+    flex: 1; overflow-y: auto; padding: 8px 12px;
+    display: flex; flex-direction: column; gap: 10px;
+    /* 双层防线（见 docs/backlog/doing/scroll-bottom-momentum-jitter.md）：
+       1) 本容器（.messages）自身不产生弹性回弹——它是消息滚动容器；
+       2) html/body 上也设了 overscroll-behavior-y:none——盖住 webview 根文档的
+       页面级回弹（实测根层回弹 .messages 的 none 盖不住），根层被盖住后这条仍有
+       意义：防 .messages 自身（若它成为滚动容器）的 rubber band 与程序滚动打架。
+       非 macOS 无行为差异。 */
+    overscroll-behavior-y: none;
+  }
+  .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
+  /* 切换会话时历史基线加载中的占位：撑满聊天列垂直居中。 */
+  .loading-hint { flex: 1; display: flex; align-items: center; justify-content: center; }
+  .command-notice {
+    font-size: 0.9em; opacity: 0.8; white-space: pre-wrap; word-break: break-word;
+    border-left: 2px solid var(--vscode-panel-border, rgba(127,127,127,.4));
+    padding: 4px 10px;
+  }
+  .msg.user { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .msg.user .bubble {
+    max-width: 85%; padding: 6px 10px; border-radius: 8px;
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, transparent);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  /* 等待插话的气泡（官方 data-pending-steering）：降不透明度表未落地。 */
+  .msg.user.steering-pending .bubble { opacity: 0.7; }
+  .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
+  /* @会话引用（mention）：图标 + 标题，对齐 dsh web refChip——链接色、字重 500、行内 flex。 */
+  .session-mention {
+    display: inline-flex; align-items: center; gap: 3px; margin: 0 2px;
+    padding: 0; border: none; background: none; vertical-align: baseline;
+    color: var(--vscode-textLink-foreground);
+    font: inherit; font-weight: 500; cursor: pointer; white-space: nowrap;
+  }
+  /* 给 chip 补一个带文本基线的首个 flex 项：inline-flex 容器基线原先退化为盒底边
+     （第一个子项是 SVG 图标、无文本基线），导致 chip 文字相对同行正文抬高。
+     content 是零宽空格（有文本基线）；margin-left 抵消 gap:3px 多出的间距。 */
+  .session-mention::before { content: '​'; margin-left: -3px; }
+  .session-mention svg { flex: none; }
+  .session-mention:hover { text-decoration: underline; }
+  /* 跨会话召回上下文行：图标与文字基线对齐。 */
+  .msg.context summary svg { vertical-align: -2px; margin-right: 3px; }
+  .md { line-height: 1.5; word-break: break-word; }
+  .md > :first-child { margin-top: 0; }
+  .md > :last-child { margin-bottom: 0; }
+  .md pre {
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+    padding: 8px; border-radius: 4px; overflow-x: auto;
+  }
+  .md code {
+    font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em;
+  }
+  .md p { margin: 0 0 8px; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+    margin: 12px 0 6px; font-weight: 600; line-height: 1.25; color: var(--vscode-foreground);
+  }
+  .md h1 { font-size: 1.4em; }
+  .md h2 { font-size: 1.25em; }
+  .md h3 { font-size: 1.15em; }
+  .md h4 { font-size: 1.05em; }
+  .md h5, .md h6 { font-size: 1em; }
+  .md ul, .md ol { margin: 0 0 8px; padding-left: 22px; }
+  .md li { margin: 2px 0; }
+  .md li > ul, .md li > ol { margin-bottom: 0; }
+  .md blockquote {
+    margin: 0 0 8px; padding: 2px 12px; color: var(--vscode-descriptionForeground, #888);
+    border-left: 3px solid var(--vscode-panel-border, rgba(127,127,127,.4));
+  }
+  .md blockquote > :first-child { margin-top: 0; }
+  .md blockquote > :last-child { margin-bottom: 0; }
+  .md a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+  .md a:hover { text-decoration: underline; }
+  .md img { max-width: 100%; height: auto; }
+  .md hr {
+    margin: 12px 0; border: 0; border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.4));
+  }
+  /* 表格：紧凑边框 + 表头底色，超宽横向滚动；对齐 dsh web 观感。 */
+  .md table {
+    display: block; width: max-content; max-width: 100%; overflow-x: auto;
+    border-collapse: collapse; margin: 0 0 8px; font-size: 0.92em;
+  }
+  .md table th, .md table td {
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
+    padding: 4px 10px; text-align: left; vertical-align: top; border-collapse: collapse;
+  }
+  .md table th {
+    background: var(--vscode-editorWidget-background, rgba(127,127,127,.1));
+    font-weight: 600;
+  }
+  .md table thead th {
+    border-bottom: 2px solid var(--vscode-panel-border, rgba(127,127,127,.5));
+  }
+  /* GFM 任务清单：checkbox + 去掉默认圆点。 */
+  .md .task-list-item { list-style: none; margin-left: -18px; }
+  .md input[type='checkbox'] { margin: 0 4px 0 0; vertical-align: middle; }
+  .md strong { font-weight: 600; }
+  /* 代码块折叠 + 复制（对齐 dsh web）：头部语言 + 复制按钮，超行数折叠成
+     头部/尾部两段，中间「… 其余 N 行」切换。 */
+  .md-code { margin: 6px 0; }
+  .md-code-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; margin-bottom: 4px;
+  }
+  .md-code-lang {
+    opacity: 0.6; font-size: 0.85em;
+    font-family: var(--vscode-editor-font-family, monospace);
+  }
+  .md-code-copy {
+    background: none; border: none; cursor: pointer; padding: 2px 6px;
+    border-radius: 3px; font-size: 0.85em;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .md-code-copy:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    color: var(--vscode-foreground);
+  }
+  .md-code-toggle {
+    display: block; background: none; border: none; cursor: pointer;
+    opacity: 0.6; margin: 2px 0; padding: 0; font-size: 0.85em;
+    font-family: inherit; color: inherit;
+  }
+  .md-code-toggle:hover { opacity: 1; }
+  .md-code pre { margin: 0; }
+  .reasoning {
+    border-left: 2px solid var(--vscode-panel-border, rgba(127,127,127,.4));
+    padding-left: 8px; color: var(--vscode-descriptionForeground, #888); font-size: 0.9em;
+  }
+  .msg.context {
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.25));
+    border-radius: 6px; padding: 4px 10px; opacity: 0.8; font-size: 0.9em;
+  }
+  .msg.context summary { cursor: pointer; }
+  .context-body {
+    white-space: pre-wrap; word-break: break-word; margin-top: 6px;
+    max-height: 300px; overflow-y: auto; opacity: 0.85;
+  }
+  .reasoning summary {
+    cursor: pointer; opacity: 0.75; font-size: 0.9em;
+    display: flex; align-items: center; gap: 5px;
+    max-width: 100%;
+  }
+  .reasoning summary svg { flex: none; }
+  /* 折叠态首行预览：ellipsis 截断不撑宽，hover 出完整文本（对齐 web ReasoningRow）。 */
+  .reasoning summary .reasoning-summary {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .reasoning-body { white-space: pre-wrap; font-size: 0.9em; opacity: 0.8; margin-top: 4px; }
+  /* 工具调用：行式排版（kimi-cli / dsh web 观感），不再用卡片边框容器。 */
+  .tool { padding: 1px 0; font-size: 0.92em; }
+  .tool-line { display: flex; align-items: baseline; gap: 6px; overflow: hidden; }
+  .tool-line .spinner { align-self: center; width: 10px; height: 10px; border-width: 1.5px; }
+  .tool-action { flex: none; }
+  .tool-title {
+    opacity: 0.65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em;
+  }
+  /* 命令/参数预览一行：等宽、截断省略，比动作行略缩进。 */
+  .tool-detail {
+    opacity: 0.7; margin: 1px 0 0 20px; font-size: 0.88em;
+    font-family: var(--vscode-editor-font-family, monospace);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* 快照副本标注：fork 复制来的 subagent 调用卡（该子代理已不在本会话血缘
+     树，点进去不会跳到仍运行的原子代理）。单行小字、警示色，比普通 detail
+     略醒目但不撑开卡片。 */
+  .tool-snapshot-note {
+    margin: 2px 0 0 20px; font-size: 0.85em; font-weight: 500;
+    color: var(--vscode-editorWarning-foreground, #cca700);
+  }
+  /* 工具失败 StateDot：dsh web 的彩色圆点（外层 10% 光晕 + 内层实心点），
+     颜色按 data-state 取；done 态不渲染状态点。 */
+  .tool-state-dot {
+    position: relative; display: inline-block; flex: none;
+    width: 8px; height: 8px; align-self: center;
+  }
+  .tool-state-dot::before {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    background: currentColor; opacity: 0.1;
+  }
+  .tool-state-dot::after {
+    content: ""; position: absolute; top: 20%; right: 20%; bottom: 20%; left: 20%;
+    border-radius: 50%; background: currentColor;
+  }
+  .tool-state-dot[data-state="error"] { color: var(--vscode-testing-iconFailed, #f14c4c); }
+  /* 工具卡展开（对齐 dsh web DisclosureRow）：整行（summary）可点，折叠态保留
+     摘要行，展开出 IN/OUT 卡片，内容 150px 内滚动。chevron 朝下表示可展开，
+     展开后旋转朝上；展开态持久化在 detailsOpen（key 按消息/块位置）。 */
+  .tool-disclosure summary {
+    cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px;
+    list-style: none;
+  }
+  .tool-disclosure summary::-webkit-details-marker { display: none; }
+  .tool-disclosure summary .tool-line { flex: 1; min-width: 0; }
+  .tool-disclosure summary .tool-detail { flex-basis: 100%; margin: 0 0 0 20px; }
+  .tool-disclosure .tool-chevron {
+    flex: none; align-self: center; color: var(--vscode-descriptionForeground, #888);
+    transition: transform .15s ease;
+  }
+  .tool-disclosure[open] .tool-chevron { transform: rotate(180deg); }
+  .tool-disclosure-body { margin: 2px 0 0 20px; }
+  .tool-inout { margin-top: 4px; }
+  .tool-inout-label { font-size: 0.8em; font-weight: 600; opacity: 0.6; }
+  .tool-inout pre {
+    max-height: 150px; overflow: auto; white-space: pre-wrap; margin: 0;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+    padding: 6px 8px; border-radius: 4px; font-size: 0.88em;
+  }
+  /* workflow 运行卡片（对齐 dsh web WorkflowRunPanel：run→phase→member 三层折叠）。
+     行几何照搬官方：runHeader 32px 浅灰底圆角条、phase 32px 无底、member 24px，
+     逐级缩进 16px；徽标 = StateDot（running 矩阵动画 / 终态发光圆点）。 */
+  .workflow-run { width: 100%; min-width: 0; margin: 2px 0; }
+  .workflow-run-header,
+  .workflow-phase-header {
+    display: flex; align-items: center; gap: 6px; width: 100%; box-sizing: border-box;
+    height: 32px; padding: 0 8px; border: 0; border-radius: 8px; cursor: pointer;
+    background: none; color: inherit; font: inherit; text-align: left;
+  }
+  .workflow-run-header {
+    background: var(--vscode-toolbar-background, rgba(127,127,127,.1));
+  }
+  .workflow-run-header:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.2)); }
+  .workflow-phase-header { border-radius: 6px; }
+  .workflow-phase-header:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.08)); }
+  .workflow-chevron { flex: none; transition: transform .15s ease; }
+  .workflow-chevron.collapsed { transform: rotate(-90deg); }
+  .workflow-run-title {
+    max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 14px; font-weight: 510; color: var(--vscode-foreground);
+  }
+  .workflow-sep {
+    flex: none; width: 2px; height: 2px; border-radius: 50%;
+    background: var(--vscode-descriptionForeground, #888); opacity: .6;
+  }
+  .workflow-run-count {
+    flex: 1; min-width: 0; font-size: 12px; color: var(--vscode-descriptionForeground, #888);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .workflow-status-tail {
+    flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px;
+    font-size: 11px; font-weight: 510; color: var(--vscode-foreground);
+  }
+  .workflow-phase-list {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 4px 0 0 16px;
+  }
+  .workflow-phase-title {
+    max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 14px; color: var(--vscode-foreground);
+  }
+  .workflow-phase-count {
+    flex: 1; min-width: 0; font-size: 13px; color: var(--vscode-descriptionForeground, #888);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .workflow-phase-status {
+    flex: none; width: 132px; text-align: right; font-size: 13px; color: var(--vscode-foreground);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .workflow-members {
+    display: flex; flex-direction: column; gap: 2px; padding-left: 16px;
+  }
+  .workflow-member {
+    display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box;
+    min-height: 24px; padding: 0 4px; border-radius: 4px;
+  }
+  .workflow-dot-slot {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 24px;
+  }
+  .workflow-member-label {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 13px; color: var(--vscode-foreground);
+  }
+  .workflow-member-status {
+    flex: none; width: 64px; text-align: right; font-size: 13px; color: var(--vscode-foreground);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .workflow-empty { padding: 2px 4px 4px; font-size: 13px; color: var(--vscode-descriptionForeground, #888); }
+  /* StateDot 发光圆点（dsh web 同款：10% 外圈晕影 + 60% 实心内点，data-state 变色）。 */
+  .workflow-dot {
+    position: relative; display: inline-block; flex: none;
+    width: 10px; height: 10px;
+  }
+  .workflow-dot::before {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    background: currentColor; opacity: 0.1;
+  }
+  .workflow-dot::after {
+    content: ""; position: absolute; top: 20%; right: 20%; bottom: 20%; left: 20%;
+    border-radius: 50%; background: currentColor;
+  }
+  .workflow-dot[data-state="done"] { color: var(--vscode-testing-iconPassed, #73c991); }
+  .workflow-dot[data-state="warning"] { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .workflow-dot[data-state="error"] { color: var(--vscode-errorForeground, #f14c4c); }
+  /* running 态：4×4 矩阵扫描动画（官方 StateDot ongoing）。 */
+  .workflow-matrix { flex: none; display: block; width: 10px; height: 10px; color: var(--vscode-charts-blue, #5686fe); }
+  .workflow-matrix rect { fill: currentColor; opacity: 0.15; animation: workflow-chase 1s linear infinite; }
+  @keyframes workflow-chase {
+    0%, 100% { opacity: 0.15; }
+    50% { opacity: 1; }
+  }
+  .spinner {
+    width: 12px; height: 12px; border-radius: 50%; flex: none;
+    border: 2px solid var(--vscode-editorWidget-border, #555);
+    border-top-color: var(--vscode-progressBar-background, #0a84ff);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* 工具输出：默认只渲染前几行，「共 N 行」提示行点击展开/收起（webview 侧截断）。 */
+  .tool-output { margin: 2px 0 0 20px; }
+  .tool-output pre {
+    max-height: 320px; overflow: auto; white-space: pre-wrap; margin: 0;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+    padding: 6px 8px; border-radius: 4px; font-size: 0.88em;
+  }
+  .tool-output-toggle {
+    cursor: pointer; opacity: 0.6; margin-top: 2px; font-size: 0.85em;
+  }
+  .tool-output-toggle:hover { opacity: 1; }
+  /* JSON 输出树（对齐 dsh web JsonTree）：对象/数组逐节点展开、箭头 toggle、逐级缩进、
+     token 配色照抄官方——key/property 蓝、string 玫红、number/keyword 蓝、标点灰白、
+     箭头灰。默认走官方暗色变量；VS Code 亮色主题用 body.vscode-light 反显为官方 light
+     palette。 */
+  .json-tree {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 12px; line-height: 16px;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+    padding: 6px 8px 8px; border-radius: 4px;
+    overflow: auto; white-space: pre;
+    --jt-property: #5db0d7; --jt-string: #f28b82; --jt-number: #99c8ff;
+    --jt-keyword: #99c8ff; --jt-punct: #e8eaed; --jt-icon: #9aa0a6;
+    --jt-ellipsis: #9aa0a6; --jt-hover: rgb(232 234 237 / 5%);
+  }
+  body.vscode-light .json-tree {
+    --jt-property: #881391; --jt-string: #c41a16; --jt-number: #1c00cf;
+    --jt-keyword: #1c00cf; --jt-punct: #202124; --jt-icon: #5f6368;
+    --jt-ellipsis: #5f6368; --jt-hover: rgb(60 64 67 / 4%);
+  }
+  /* JsonTree 复制按钮：对齐 md-code-copy 的克制样式——右上角小「复制」按钮，
+     复制整树 pretty JSON（copyPrettyJson），成功短暂变「已复制」。左缩进由上下文
+     提供（消息正文=0 与 markdown code block 对齐；工具内=工具展开体的 20px）。 */
+  .json-tree-shell { margin: 2px 0; }
+  .json-tree-bar {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 8px; margin-bottom: 2px;
+  }
+  .json-tree-copy {
+    background: none; border: none; cursor: pointer; padding: 2px 6px;
+    border-radius: 3px; font-size: 0.85em;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .json-tree-copy:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    color: var(--vscode-foreground);
+  }
+  /* 节点级复制图标：行尾小图标，默认隐藏，hover 该行时出现（与容器级按钮同款克制
+     灰色），点击复制该行节点的 pretty JSON；成功图标短暂换勾。 */
+  .json-tree-row { position: relative; min-height: 16px; }
+  .json-tree-row:hover { background: var(--jt-hover); }
+  .json-tree-copy-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; margin-left: 4px; padding: 0;
+    background: none; border: none; border-radius: 3px; cursor: pointer;
+    color: var(--vscode-descriptionForeground, #888);
+    opacity: 0; vertical-align: middle;
+  }
+  .json-tree-row:hover .json-tree-copy-icon { opacity: 1; }
+  .json-tree-copy-icon:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    color: var(--vscode-foreground); opacity: 1;
+  }
+  .json-tree-key { color: var(--jt-property); font-weight: 400; }
+  .json-tree-label-clickable { cursor: pointer; }
+  .json-tree-label-clickable:hover { text-decoration: underline; }
+  .json-tree-punct { color: var(--jt-punct); }
+  .json-tree-gap { display: inline-block; width: 3px; }
+  .json-tree-string { color: var(--jt-string); }
+  .json-tree-number { color: var(--jt-number); }
+  .json-tree-keyword { color: var(--jt-keyword); }
+  .json-tree-ellipsis { color: var(--jt-ellipsis); }
+  .json-tree-arrow {
+    display: inline-block; width: 8px; height: 16px; margin: 0;
+    color: var(--jt-icon); cursor: pointer; user-select: none;
+    vertical-align: middle;
+  }
+  .json-tree-arrow::before {
+    content: ""; display: inline-block;
+    width: 0; height: 0;
+    border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+    border-left: 6px solid currentColor;
+    transform: scale(.75); transform-origin: 33.333% center;
+  }
+  .json-tree-arrow.open::before { transform: rotate(90deg) scale(.75); }
+  .json-tree-arrow:hover { color: var(--vscode-foreground); }
+  .diff {
+    margin-top: 4px; border-radius: 4px; overflow: hidden;
+    font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em;
+  }
+  .diff-line { white-space: pre-wrap; padding: 0 6px; }
+  .diff-line.del { background: var(--vscode-diffEditor-removedTextBackground, rgba(255,80,80,.18)); }
+  .diff-line.del::before { content: '- '; }
+  .diff-line.add { background: var(--vscode-diffEditor-insertedTextBackground, rgba(80,255,80,.14)); }
+  .diff-line.add::before { content: '+ '; }
+  /* diff 行折叠 toggle（对齐 dsh web DiffBlock「展开其余 N 行差异」）。 */
+  .diff-toggle {
+    cursor: pointer; opacity: 0.6; margin-top: 2px; font-size: 0.85em; padding-left: 6px;
+  }
+  .diff-toggle:hover { opacity: 1; }
+  .streaming { opacity: 0.6; }
+  .interrupted { color: var(--vscode-errorForeground, #f14c4c); font-size: 0.85em; }
+  .turn-status {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 0.85em;
+  }
+  .turn-status-text {
+    /* 蓝色系扫光（对齐官方 Deep diving 的 deepseek 蓝渐变），深/浅主题通用。 */
+    background: linear-gradient(
+      90deg,
+      #4d6bfe 0%,
+      #b3c5ff 50%,
+      #4d6bfe 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: turn-status-shimmer 1.8s linear infinite;
+  }
+  @keyframes turn-status-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .turn-status-text { animation: none; }
+  }
+  .turn-status-clock {
+    color: var(--vscode-descriptionForeground, #888);
+    font-variant-numeric: tabular-nums;
+  }
+  .turn-error {
+    display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+    margin-top: 4px; font-size: 0.85em;
+    color: var(--vscode-errorForeground, #f14c4c);
+  }
+  .turn-error-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex: none; align-self: center;
+    background: var(--vscode-errorForeground, #f14c4c);
+  }
+  .turn-error-title { font-weight: 600; }
+  .turn-error-message { opacity: 0.9; white-space: pre-wrap; }
+  .turn-error-code {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.85em; padding: 0 4px; border-radius: 3px;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+  }
+  .msg-actions { display: flex; align-items: center; gap: 10px; height: 28px; margin-top: 2px; }
+  .msg-actions .icon-action {
+    width: 28px; height: 28px; padding: 6px; display: inline-flex;
+    align-items: center; justify-content: center;
+    color: var(--vscode-descriptionForeground, #888);
+    background: transparent; border: none; border-radius: 50%; cursor: pointer;
+  }
+  .msg-actions .icon-action:hover:not(:disabled) {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.17));
+    color: var(--vscode-foreground, #ccc);
+  }
+  .msg-actions .icon-action:disabled { cursor: default; opacity: 0.4; }
+  .msg-actions .icon-action.active { color: var(--vscode-foreground, #ccc); }
+  .msg-actions .icon-action svg { display: block; }
+  .pending {
+    flex: none; padding: 6px 12px; display: flex; flex-direction: column; gap: 8px;
+    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .pending-card {
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
+    border-radius: 6px; padding: 8px 10px;
+    background: var(--vscode-editorWidget-background, transparent);
+  }
+  .pending-title { font-weight: 600; }
+  .pending-reason { opacity: 0.8; font-size: 0.9em; margin-top: 2px; white-space: pre-wrap; }
+  .pending-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .question + .question { margin-top: 10px; }
+  .question-header { font-size: 0.8em; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.04em; }
+  .question-text { white-space: pre-wrap; }
+  .question-options { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 6px; }
+  .option-btn { text-align: left; display: flex; align-items: baseline; }
+  .option-btn::before { content: '•'; flex: none; margin-right: 8px; opacity: 0.5; }
+  .option-btn:hover:not(:disabled)::before,
+  .option-btn.selected::before { opacity: 1; }
+  .option-btn:hover:not(:disabled) { filter: brightness(1.2); outline: 1px solid var(--vscode-focusBorder); }
+  .option-btn.selected { outline: 1px solid var(--vscode-focusBorder); }
+  .question-detail { margin-top: 6px; }
+  .question-detail summary { cursor: pointer; opacity: 0.75; font-size: 0.9em; }
+  .question-detail .md {
+    margin-top: 6px; max-height: 320px; overflow-y: auto; padding: 8px 10px;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.25)); border-radius: 6px;
+  }
+  .question label.checkbox {
+    display: flex; gap: 6px; align-items: baseline; margin-top: 4px; cursor: pointer;
+  }
+  .question input[type='text'] {
+    width: 100%; box-sizing: border-box; margin-top: 6px; padding: 4px 8px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
+  }
+  button {
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+    border: 0; border-radius: 4px; padding: 4px 12px; cursor: pointer;
+  }
+  button.secondary {
+    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.3));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .input-area {
+    flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px;
+    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .pending + .input-area { border-top: 0; }
+  .queue {
+    flex: none; padding: 6px 12px; display: flex; flex-direction: column; gap: 4px;
+    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .queue-item { display: flex; align-items: baseline; gap: 8px; font-size: 0.9em; }
+  .queue-tag {
+    flex: none; font-size: 11px; padding: 0 6px; border-radius: 8px;
+    background: var(--vscode-badge-background, rgba(127,127,127,.25));
+    color: var(--vscode-badge-foreground, var(--vscode-foreground));
+  }
+  .queue-text {
+    opacity: 0.8; overflow: hidden; text-overflow: ellipsis;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .queue-actions { display: flex; gap: 4px; flex: none; margin-left: auto; }
+  .queue-actions button.link {
+    background: transparent; color: var(--vscode-textLink-foreground, #4da3ff);
+    padding: 0 4px; font-size: 11px; border-radius: 4px;
+  }
+  .queue-actions button.link:hover { text-decoration: underline; }
+  .queue-editor {
+    flex: 1; min-width: 0; resize: none; box-sizing: border-box; padding: 4px 8px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
+    border-radius: 4px; font-family: inherit; font-size: 0.9em;
+  }
+  /* 排队消息 >1 条时折叠成计数 header（对齐 dsh web QueueDock）：chevron +
+     计数，展开才列出各条（操作入口随列表藏进展开态）。 */
+  .queue-dock summary {
+    display: flex; align-items: baseline; gap: 6px;
+    cursor: pointer; list-style: none; user-select: none;
+  }
+  .queue-dock summary::-webkit-details-marker { display: none; }
+  .queue-dock-count {
+    flex: 1; min-width: 0; font-size: 12px; font-weight: 600; opacity: 0.8;
+  }
+  .queue-dock summary .queue-chevron {
+    flex: none; color: var(--vscode-descriptionForeground, #888);
+    transition: transform .15s ease;
+  }
+  .queue-dock[open] summary .queue-chevron { transform: rotate(180deg); }
+  .queue-dock-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+  .queue + .input-area { border-top: 0; }
+  /* 任务清单卡（对齐官方 TodoPanel/TodoDock，输入区上方 dock 栈）：头部
+     「任务 N 进行中 · M 待处理」+ chevron，展开列出 todo 项（列表限高滚动）。
+     chevron 是 figma 字面方向：折叠=向上、展开=向下，用 rotate 翻转。 */
+  .todo-panel {
+    flex: none; padding: 5px 12px 6px;
+    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .todo-panel + .input-area, .todo-panel + .queue { border-top: 0; }
+  .todo-panel summary {
+    display: flex; align-items: baseline; gap: 6px;
+    cursor: pointer; list-style: none; user-select: none;
+  }
+  .todo-panel summary::-webkit-details-marker { display: none; }
+  .todo-panel-title { flex: none; font-size: 12px; font-weight: 600; }
+  .todo-panel-progress {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 12px; opacity: 0.75;
+  }
+  .todo-panel summary .todo-chevron {
+    flex: none; color: var(--vscode-descriptionForeground, #888);
+    transition: transform .15s ease;
+  }
+  .todo-panel[open] summary .todo-chevron { transform: rotate(180deg); }
+  .todo-list {
+    list-style: none; margin: 6px 0 0; padding: 0;
+    max-height: 180px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .todo-item { display: flex; align-items: baseline; gap: 7px; font-size: 12px; }
+  .todo-item .todo-glyph { flex: none; align-self: center; display: inline-flex; }
+  .todo-item .todo-content {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .todo-glyph-completed { color: var(--vscode-testing-iconPassed, #73c991); }
+  .todo-glyph-progress { color: var(--vscode-charts-blue, #5686fe); }
+  .todo-glyph-pending { color: var(--vscode-descriptionForeground, #888); }
+  .todo-progress-spin {
+    transform-origin: 50% 50%;
+    animation: todo-progress-spin 1s linear infinite;
+  }
+  @keyframes todo-progress-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .todo-progress-spin { animation: none; } }
+  /* 消息内 todo_write 任务卡尾部「+N」其余进行中数（对齐 web TodoRow suffix）。 */
+  .tool-todo-extra { flex: none; opacity: 0.7; font-size: 0.9em; font-variant-numeric: tabular-nums; }
+  .input-row { display: flex; gap: 8px; align-items: center; }
+  .input-footer { display: flex; gap: 6px; align-items: center; }
+  .stats-row { display: flex; align-items: center; gap: 10px; }
+  .stats-row .input-stats { flex: 1; min-width: 0; }
+  .input-stats {
+    font-size: 11px; opacity: 0.65; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    border: 0; border-radius: 12px; padding: 2px 10px; font-size: 12px; line-height: 18px;
+    cursor: pointer; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pill:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground, rgba(127,127,127,.3)); }
+  .pill .glyph { display: inline-flex; flex: none; }
+  /* pill 内嵌图标 + 文字标签（如 Agent 模式）：图标不缩、标签自身省略号。 */
+  .pill svg { flex: none; }
+  .pill .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .popover {
+    position: fixed; z-index: 20; min-width: 180px; max-width: 340px; max-height: 50vh; overflow-y: auto;
+    background: var(--vscode-menu-background, var(--vscode-dropdown-background));
+    color: var(--vscode-menu-foreground, var(--vscode-dropdown-foreground));
+    border: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
+    border-radius: 12px; padding: 4px;
+    box-shadow: 0 0 1px 0 rgba(0,0,0,.2), 0 12px 32px 0 rgba(0,0,0,.14);
+  }
+  /* 菜单项几何对齐 dsh web：30px 行高、8px 圆角、左图标位 14px tertiary 色。 */
+  .menu-item {
+    display: flex; align-items: center; gap: 8px; min-height: 30px; box-sizing: border-box;
+    padding: 4px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-size: 12px;
+  }
+  .menu-item:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+  .menu-item .menu-item-icon {
+    flex: none; width: 14px; height: 14px; display: inline-flex;
+    align-items: center; justify-content: center;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .menu-item .menu-item-icon svg { width: 14px; height: 14px; display: block; }
+  /* 选中态的 check 放菜单项尾部（dsh web 模式），仅 checked 时渲染。 */
+  .menu-item .check { margin-left: auto; flex: none; }
+  .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
+  .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
+  /* agent preset 下拉项：名称 + 描述两行（描述较长，单行 menu-right 放不下）。 */
+  .preset-item { align-items: flex-start; white-space: normal; }
+  .preset-item .preset-item-main { flex: 1; min-width: 0; }
+  .preset-item .preset-item-desc {
+    margin-top: 1px; font-size: 11px; line-height: 1.4; opacity: 0.6; white-space: normal;
+  }
+  .preset-item .check { align-self: center; }
+  .preset-item .job-dot-slot { align-self: center; }
+  /* 子代理下拉的层级树（对齐 dsh web SubagentHeader 成员树）：每层嵌套容器
+     左缩 16px + 4px 轨距，竖轨与横向支线用 VS Code 树缩进参考线色；末行
+     竖轨半高收尾成 └。多层的祖辈竖轨随容器自然贯通。 */
+  .subagent-node { position: relative; min-width: 0; }
+  .subagent-node > .menu-item { position: relative; }
+  .subagent-children { position: relative; margin-left: 16px; padding-left: 4px; }
+  .subagent-children::before {
+    content: ""; position: absolute; left: 0; top: -19px; height: 19px;
+    border-left: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(127,127,127,.35));
+  }
+  .subagent-children > .subagent-node::before {
+    content: ""; position: absolute; top: 0; bottom: 0; left: -4px;
+    border-left: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(127,127,127,.35));
+  }
+  .subagent-children > .subagent-node:last-child::before { height: 19px; bottom: auto; }
+  .subagent-children > .subagent-node > .menu-item::before {
+    content: ""; position: absolute; top: 19px; left: -4px; width: 12px;
+    border-top: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(127,127,127,.35));
+  }
+  .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
+  /* 弹窗内非首个分组上方加分割线（@ 补全的「文件」「会话」分组）。 */
+  .slash-popup .menu-group:not(:first-child) {
+    border-top: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
+    margin-top: 4px; padding-top: 7px;
+  }
+  .menu-hint { padding: 8px; opacity: .7; }
+  .slash-popup { max-height: 40vh; }
+  .slash-popup .menu-item.selected { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+  .slash-popup .menu-item.hint-row { cursor: default; opacity: .75; }
+  .slash-popup .menu-item.hint-row:hover { background: none; color: inherit; }
+  .command-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 2px 10px; font-size: 12px; opacity: .85; }
+  .command-row .command-line { font-family: var(--vscode-editor-font-family, monospace); }
+  .command-row .command-text { opacity: .75; white-space: pre-wrap; word-break: break-word; }
+  .command-row.error .command-text { color: var(--vscode-errorForeground, #f66); opacity: 1; }
+  .command-row .spinner { align-self: center; }
+  /* 多行 command 输出可展开（对齐 dsh web GenericCommandCard）：折叠态 summary
+     一行显示命令名 + 输出首行，展开显示全文。 */
+  .command-detail { min-width: 0; flex: 1 1 auto; }
+  .command-detail summary {
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    cursor: pointer; list-style: none; user-select: none;
+  }
+  .command-detail summary::-webkit-details-marker { display: none; }
+  .command-detail summary .command-line { flex: none; }
+  .command-detail summary .command-text {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .command-detail .command-body {
+    white-space: pre-wrap; word-break: break-word; opacity: .75;
+    margin-top: 2px; padding: 6px 8px; border-radius: 4px;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+    font-family: var(--vscode-editor-font-family, monospace); font-size: 12px;
+  }
+  .command-row.error .command-body { color: var(--vscode-errorForeground, #f66); opacity: 1; }
+  .context-bar {
+    flex: none; width: 72px; height: 14px; padding: 0 2px; border: 0; background: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .context-bar-track {
+    display: block; width: 100%; height: 6px; border-radius: 3px; overflow: hidden;
+    border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.55));
+    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
+    box-sizing: border-box;
+  }
+  .context-bar-fill {
+    display: block; height: 100%; min-width: 2px; border-radius: 2px;
+    background: var(--vscode-progressBar-background, var(--vscode-button-background));
+    transition: width .18s ease, background-color .18s ease;
+  }
+  /* 切换模型后窗口未知：灰字占位（明确是非误报的未知状态），高度与正常 bar 一致防跳变。 */
+  .context-bar.level-unknown {
+    font-size: 10px; line-height: 14px; color: var(--vscode-descriptionForeground, #888); white-space: nowrap;
+  }
+  /* 余量分级变色（src/pure/contextMeter.ts）：充足显式绿，<10 轮黄，<5 轮/超窗口红。 */
+  .context-bar.level-ok .context-bar-fill { background: var(--vscode-testing-iconPassed, #73c991); }
+  .context-bar.level-warn .context-bar-fill { background: var(--vscode-editorWarning-foreground, #cca700); }
+  .context-bar.level-danger .context-bar-fill,
+  .context-bar.level-overflow .context-bar-fill { background: var(--vscode-errorForeground, #f14c4c); }
+  .context-bar.level-overflow .context-bar-track { border-color: var(--vscode-errorForeground, #f14c4c); }
+  .context-panel { width: 240px; font-size: 12px; line-height: 20px; }
+  .context-panel .cp-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .context-panel .cp-percent { font-weight: 600; }
+  .context-panel .cp-figures { font-variant-numeric: tabular-nums; opacity: .95; flex: none; }
+  /* 「窗口未知」面板说明行：中性灰（非错误红），与占位一致。 */
+  .context-panel .cp-unknown {
+    margin-top: 8px; font-size: 12px; line-height: 1.5;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .context-panel .cp-bar {
+    display: flex; gap: 1px; height: 6px; margin: 10px 0 8px; border-radius: 3px;
+    border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.55));
+    overflow: hidden; background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.2));
+    box-sizing: border-box;
+  }
+  .context-panel .cp-seg { height: 100%; min-width: 2px; border-radius: 1px; }
+  .context-panel .cp-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .context-panel .cp-swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .context-panel .cp-value { margin-left: auto; font-variant-numeric: tabular-nums; opacity: .95; flex: none; }
+  /* 实时预估行（≈N/轮，约还可持续 M 轮）。 */
+  .context-panel .cp-estimate { margin-top: 10px; font-size: 11px; opacity: 0.7; }
+  /* 超出当前模型窗口的红色提示行。 */
+  .context-panel .cp-overflow {
+    margin-top: 8px; font-size: 12px; line-height: 1.5;
+    color: var(--vscode-errorForeground, #f14c4c);
+  }
+  .image-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .image-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--vscode-badge-background, rgba(127,127,127,.25));
+    color: var(--vscode-badge-foreground, var(--vscode-foreground));
+    border-radius: 10px; padding: 2px 4px 2px 8px; font-size: 12px;
+    max-width: 200px;
+  }
+  .image-chip .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .image-chip .chip-remove {
+    background: transparent; color: inherit; border: 0; padding: 0 4px;
+    cursor: pointer; font-size: 12px; line-height: 1; opacity: 0.8;
+  }
+  .image-chip .chip-remove:hover { opacity: 1; }
+  /* 文件 chip 的类型小图标（strokeSvg 固定 14px，缩到容器尺寸）。 */
+  .file-chip-icon { display: inline-flex; width: 12px; height: 12px; flex: none; }
+  .file-chip-icon svg { width: 12px; height: 12px; display: block; }
+  /* 待发送图片缩略图（对齐官方 AttachmentRail：方图 cover，hover 右上角出移除钮）。 */
+  .attach-thumb {
+    position: relative; width: 48px; height: 48px; flex: none;
+    border-radius: 10px; overflow: hidden; cursor: zoom-in;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
+    background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
+  }
+  .attach-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .attach-thumb .thumb-remove {
+    position: absolute; top: 3px; right: 3px; z-index: 1;
+    width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #fff);
+    cursor: pointer; font-size: 12px; line-height: 1;
+    opacity: 0; transition: opacity .2s ease-in-out;
+  }
+  .attach-thumb:hover .thumb-remove, .attach-thumb .thumb-remove:focus-visible { opacity: 1; }
+  @media (pointer: coarse) { .attach-thumb .thumb-remove { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .attach-thumb .thumb-remove { transition: none; } }
+  #input {
+    flex: 1; resize: none; box-sizing: border-box; padding: 6px 8px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, transparent); border-radius: 6px;
+    font-family: inherit; font-size: inherit; max-height: 160px;
+  }
+  #input:focus { outline: 1px solid var(--vscode-focusBorder); }
+  .send-button { flex: none; }
+  .msg-images { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  /* 消息图片缩略图复用 .attach-thumb 方图；加载中的占位方块居中省略号。 */
+  .msg-thumb-loading {
+    display: inline-grid; place-items: center; cursor: wait;
+    color: var(--vscode-descriptionForeground, rgba(127,127,127,.8));
+  }
+  .msg-image-chip { cursor: zoom-in; padding-right: 8px; }
+  .msg-image-chip:hover { filter: brightness(1.15); }
+  .jump-latest {
+    position: sticky; bottom: 4px; align-self: flex-end; flex: none;
+    margin-bottom: -30px; z-index: 5;
+    border-radius: 14px; padding: 4px 12px; font-size: 12px;
+    background: var(--vscode-editorWidget-background, var(--vscode-button-secondaryBackground, rgba(127,127,127,.3)));
+    color: var(--vscode-foreground);
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  }
+  .jump-latest:hover { filter: brightness(1.1); }
+  /* 消息流顶部的「加载更早」入口（对齐官方 dsh web ChatView 的分页按钮）。 */
+  .older { display: flex; justify-content: center; }
+  .older button {
+    background: transparent; color: var(--vscode-descriptionForeground, #888);
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    border-radius: 12px; padding: 3px 12px; font-size: 12px;
+  }
+  .older button:hover:not(:disabled) { color: var(--vscode-foreground); }
+  .lightbox {
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 30; cursor: zoom-out;
+  }
+  .lightbox img { max-width: 95%; max-height: 95%; }
+  .empty {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 8px; padding: 24px; text-align: center;
+  }
+  .empty-title { font-weight: 600; }
+  .empty-hint { opacity: 0.7; font-size: 0.9em; }
+  .empty button { margin-top: 8px; padding: 4px 14px; }
+  /* 空会话 hero（官方 dsh web 空态 HeroShell，pXSMma_*）：整列水平居中。 */
+  .hero {
+    flex: 1; min-height: 0; overflow-y: auto;
+    display: flex; flex-direction: column; justify-content: center; padding: 24px;
+  }
+  .hero-stack {
+    width: 100%; max-width: 780px; margin: 0 auto;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .hero-headline {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    color: var(--vscode-foreground);
+  }
+  /* 品牌鱼标（官方 FishLogo SVG）：居中、主题蓝色，左右缓游的轻量动画——
+     只动 transform（合成层，不触发布局），空态加载零额外成本；
+     prefers-reduced-motion 下静止。 */
+  .hero-fish {
+    align-self: center;
+    color: var(--vscode-textLink-foreground, #4da3ff);
+    animation: hero-fish-swim 4.8s ease-in-out infinite;
+  }
+  @keyframes hero-fish-swim {
+    0%, 100% { transform: translateX(-8px) rotate(-3deg); }
+    50% { transform: translateX(8px) rotate(3deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero-fish { animation: none; }
+  }
+  .hero-headline-text { font-size: 26px; font-weight: 500; line-height: 32px; }
+  .hero-badge {
+    align-self: flex-start; margin-top: 4px; white-space: nowrap;
+    font-size: 12px; font-weight: 500; line-height: 18px; padding: 1px 7px 0;
+    border-radius: 24px;
+    color: var(--vscode-textLink-foreground, #4da3ff);
+    border: 1px solid var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    background: var(--vscode-editor-inactiveSelectionBackground, rgba(90,140,255,.12));
+  }
+  .hero-chips { display: flex; align-items: center; gap: 4px; padding-left: 8px; }
+  .hero-chip {
+    display: inline-flex; align-items: center; gap: 4px; min-height: 28px;
+    max-width: 360px; padding: 0 8px; border: 0; border-radius: 16px;
+    background: transparent; color: var(--vscode-foreground);
+    font-size: 13px; font-weight: 500; line-height: 20px;
+  }
+  .hero-chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hero-chip svg { flex: none; }
+  .hero-chip svg.chevron { color: var(--vscode-descriptionForeground); }
+  button.hero-chip { cursor: pointer; }
+  button.hero-chip:hover:not(:disabled) {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.18));
+  }
+  /* hero 里的 composer 大圆角卡片（官方 uV2eYG_card：22px 圆角 + 浮层底 +
+     柔和双层阴影；深色主题下 editorWidget 底即浮层提亮，阴影近似不可见）。 */
+  .hero .input-area {
+    gap: 8px; padding: 10px 12px 8px;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    border-radius: 22px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    box-shadow: 0 4px 12px rgba(0,0,0,.02), 0 2px 8px rgba(0,0,0,.04);
+  }
+  .hero #input {
+    background: transparent; border-color: transparent;
+    font-size: 16px; line-height: 24px;
+  }
+  .hero #input:focus { outline: none; }
+`
+
+export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+  const n = nonce()
+  const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'chatWebview.js'))
+  // Same CSP discipline as ui/webview.ts: nonce-gated scripts, no remote resources.
+  const csp = [
+    "default-src 'none'",
+    "style-src 'unsafe-inline'",
+    `script-src 'nonce-${n}'`,
+    // Message attachments render as data: URLs fetched via session.attachment.
+    "img-src data:",
+  ].join('; ')
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+<style>${STYLE}</style>
+</head>
+<body>
+<div id="app"></div>
+<script nonce="${n}" src="${escapeHtml(scriptUri.toString())}"></script>
+</body>
+</html>`
+}

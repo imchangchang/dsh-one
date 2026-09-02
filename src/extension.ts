@@ -47,30 +47,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     chatView.onActiveSessionChanged,
   )
 
-  // Chat/session reconciliation after every store rebuild: drop the attached
-  // session when it vanished host-side (archived/deleted elsewhere), and
-  // lazily remember the current workspace's newest session once per server
-  // run (拆分后改懒加载：只侧栏高亮，等 panel 打开再落）。
-  let autoAttachedUrl: string | null = null
+  // Chat/session reconciliation after every store rebuild: close the tab of
+  // any opened session that vanished host-side (archived/deleted elsewhere).
+  // 服务重启后的活动会话恢复在 chatView 内部做（store 基线刷新确认后自动
+  // 重新打开最近活动的会话 tab，只恢复活动的）。
   const reconcileChat = sessions.onDidChange(() => {
     const url = sessions.runningUrl
-    if (!url) {
-      autoAttachedUrl = null
-      return
-    }
-    const current = chatView.currentSessionId
-    if (current && !sessions.hasSession(current)) {
-      chatView.setSession(null)
-      return
-    }
-    if (!current && autoAttachedUrl !== url) {
-      const latest = sessions.latestCurrentSessionId()
-      if (latest) {
-        autoAttachedUrl = url
-        chatView.setLazyPending(latest)
-        // 面板已开着（如服务重启后 controller 被清空）：立刻落地懒加载目标。
-        if (chatView.isOpen) chatView.openPanel()
-      }
+    if (!url) return
+    for (const sessionId of chatView.openSessionIds()) {
+      if (!sessions.hasSession(sessionId)) chatView.closeSession(sessionId)
     }
   })
 
@@ -114,10 +99,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.sessions.refresh', async () => {
       await sessions.refresh()
     }),
-    // Click a session in the sidebar panel: open (or reveal) the editor panel
-    // & attach (reused by the sessions webview via the command).
+    // Click a session in the sidebar panel: open in the current chat tab by
+    // default (reused by the sessions webview via the command).
     vscode.commands.registerCommand('dshOne.session.open', (sessionId?: string) => {
       if (typeof sessionId === 'string') chatView.openSession(sessionId)
+    }),
+    // 侧栏菜单「在新 tab 中打开」：显式新开一个会话 tab。
+    vscode.commands.registerCommand('dshOne.session.openInNewTab', (sessionId?: string) => {
+      if (typeof sessionId === 'string') chatView.openSessionInNewTab(sessionId)
     }),
     vscode.commands.registerCommand('dshOne.session.new', async (workspaceId?: string) => {
       const url = sessions.runningUrl
@@ -190,8 +179,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return
       }
       await sessions.refresh()
-      // Archiving the attached chat session drops the chat back to empty.
-      if (chatView.currentSessionId === sessionId) chatView.setSession(null)
+      // Archiving an opened chat session closes its tab (per-session).
+      chatView.closeSession(sessionId)
     }),
     vscode.commands.registerCommand('dshOne.session.fork', async (sessionId?: string) => {
       const url = sessions.runningUrl
@@ -204,7 +193,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return
       }
       await sessions.refresh()
-      chatView.openSession(newSessionId)
+      // fork 后的子会话在新 tab 打开（用户决策：fork 后新开 tab，原 tab 保留）。
+      chatView.openSessionInNewTab(newSessionId)
     }),
     // Editor/explorer 右键「发送到当前会话」：把当前文件作为附件暂存到当前
     // 活跃会话的 composer（等同点「添加附件」）。

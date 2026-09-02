@@ -869,6 +869,16 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   const body = el('div')
   // 菜单首行显示会话标题（操作对象显式化）：即使用户瞄错行也能立刻发现，点击前可收回。
   body.appendChild(el('div', 'session-menu-title', `会话：${s.label}`))
+  // 默认点击会话行 = 在当前活动 chat tab 打开；这里显式提供「新开 tab」。
+  body.appendChild(
+    menuItem('在新 tab 中打开', {
+      icon: iconSvg(PANEL_ICONS.boxedPlus),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionOpenInNewTab', sessionId: s.sessionId })
+      },
+    }),
+  )
   body.appendChild(
     menuItem('重命名', {
       icon: iconSvg(PANEL_ICONS.edit),

@@ -589,16 +589,18 @@ export interface SessionsSnapshot {
   /** 手动标记未读的会话 id（dsh 无未读 API，纯客户端状态）。 */
   unread: string[]
   /**
-   * 高亮的会话 id（editor ChatViewProvider 的 activeSessionId）：面板开着且
-   * 附着时为当前附着会话，否则是懒加载待附着目标。侧栏据此画 active 行高亮
-   * 与所属 workspace 的蓝色文件夹。拆分后 chat 在 editor 面板，会话高亮归
-   * 侧栏渲染，故由宿主下发。
+   * 高亮的会话 id（editor ChatViewProvider 的 activeSessionId）：当前活动
+   * chat tab 附着的会话（多 tab 时侧栏高亮跟随活动编辑器）。所有 chat tab
+   * 都关闭时 null（不高亮任何会话）。侧栏据此画 active 行高亮与所属
+   * workspace 的蓝色文件夹。拆分后 chat 在 editor 面板，会话高亮归侧栏
+   * 渲染，故由宿主下发。
    */
   activeSessionId: string | null
   /**
-   * editor 面板当前真实附着的会话 id（面板未开或未附着为 null）。与
-   * activeSessionId 不同，从不回退到懒加载 pending 目标——侧栏「已打开会话
-   * 单击 = 行内重命名」的判定用它，避免 reload 等人面板没开但高亮时误入重命名。
+   * 当前活动 chat tab 真实附着的会话 id（活动 tab 未开或未附着为 null）。
+   * 与 activeSessionId 不同（且多 tab 下每个会话各自判定）：侧栏「已打开
+   * 会话单击 = 行内重命名」的判定用它——只有活动 tab 的会话行单击进改名，
+   * 其他会话（含已开非活动的）单击都是打开/聚焦其 tab。
    */
   attachedSessionId: string | null
   /** 内容全文搜索（session.search）是否被 20 条上限截断；面板据此显示轻提示。 */
@@ -664,8 +666,10 @@ export type FromWebviewMessage =
   | { type: 'openExternal'; url: string }
   /** 外链右键菜单选了「VS Code 内置浏览器打开」（Simple Browser）。 */
   | { type: 'openInBuiltinBrowser'; url: string }
-  /** Sessions 面板：附着一个会话（点击会话行）。 */
+  /** Sessions 面板：附着一个会话（点击会话行，默认在当前活动 chat tab 打开）。 */
   | { type: 'sessionOpen'; sessionId: string }
+  /** Sessions 面板：在新 tab 中打开一个会话（右键菜单，显式新开 tab）。 */
+  | { type: 'sessionOpenInNewTab'; sessionId: string }
   /** Sessions 面板：在指定 workspace 新建会话（缺省由宿主选默认 workspace）。 */
   | { type: 'sessionNew'; workspaceId?: string }
   /** Sessions 面板：新建不挂 workspace 的「未分组」会话（cwd 走宿主临时目录）。 */
