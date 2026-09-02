@@ -106,3 +106,35 @@ cd /Users/cgeng/Workspaces/dsh-one/.worktrees/multi-tab-chat-sessions && bash /U
 - 2026-09 开发完成，自测通过（typecheck + test 253 全绿 + build）→ done
 
 - 2026-09 交互调整：点击会话默认当前 tab 打开 + 右键「在新 tab 中打开」（仍 done，待人工验收后合入）
+
+### 主线同步与架构决策（2026-09，merge main 后追加）
+
+**主线同步**：本地 main 推进 12 提交（合入 session-pin-absolute-order /
+chat-scroll-stream-jitter-self-lock / session-menu-reorder-freeze），merge 解决冲突：
+
+- `chatView.ts`：冲突取多 tab 结构，把 main 的**空会话 hero workspace 懒切换**
+  （点 chip 切 workspace、发送/选 preset 时落地）移植为 **per-tab**——
+  `pendingWorkspaceId` 挂在 `ChatTabHost` 上，动作经 `ChatTabHostActions`
+  路由到 provider，行为从单面板 `this.controller` 语义改为 tab 语义，
+  多 tab 并行不串台（`setPendingWorkspace`/`resolvePendingWorkspace`/
+  `openWorkspaceSession`/`addWorkspaceAndOpen`/`createWorkspaceAndOpen`）。
+- `chatMessages.ts`：新增 workspace（workspacePick/Add/Create）、goal
+  （goalPause/Resume/Edit/Clear）、文件（producedOpenFile/openAttachmentFile）
+  三个 handler 域；send/setAgentPreset 前置 `resolvePendingWorkspace`。
+- `chat/webview.ts`：取 main 完整版（goal 条幅、workspace picker、pending
+  面板分页、composer 草稿按会话、skill/cordis 卡、diff 双栏等全部在）。
+- `chatViewHtml.ts`：STYLE 替换为 main 完整版。
+- `sessionsWebview.ts`：保留双方（菜单首行会话标题 + 在新 tab 中打开）。
+- extension/sessionsStore/sessionsView/scrollFollow/sessionTree：auto-merge。
+
+**架构决策（用户确认）**：前端 `webview.ts` **不做按域拆分**。理由：
+冲突根源（宿主 God 类）已由 ChatTabHost + chatMessages 按域 handler 解决，
+本轮 merge 验证了其收益（main 12 提交基本 auto-merge）；webview.ts 是渲染
+层，main 增量（goal 条幅等）都是「新渲染块 + 新状态」的局部加法，单文件
+内聚完整且官方同粒度；按横切域拆分会让每次 main 增量都要做「归哪个域」
+的决策、制造跨模块状态依赖（需 rerender 注入等硬绕机制），增加而非减少
+并行摩擦。此前的 webview 拆分提交（旧基线）随本轮 merge 回退，属正确
+取舍；若未来想提升 webview.ts 可读性，应从干净基线按**功能模块**（而非
+横切域）另起任务。
+
+自测：typecheck + 326 测试全绿 + build（merge 后）
