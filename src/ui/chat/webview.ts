@@ -3215,7 +3215,62 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
     })
     actions.appendChild(fork)
   }
+
+  // Turn-level timing rides the action row's tail (web parity: TurnTailNodeView
+  // renders 时钟 + 用时/首 token/吞吐 after the icons with clock="end").
+  if (m.timing) actions.appendChild(renderTurnTiming(m.timing))
   return actions
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+/**
+ * 操作栏行尾的 turn 级计时（对齐官方 formatMessageClock + zh 文案）：
+ * 同日 HH:MM，更早显示日期前缀；指标只有存在时才显示，用 · 分隔。
+ */
+function renderTurnTiming(t: NonNullable<ChatAssistantMessage['timing']>): HTMLElement {
+  const wrap = el('span', 'msg-timing')
+  const d = new Date(t.time)
+  const now = new Date()
+  const clock = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
+    wrap.appendChild(document.createTextNode(clock))
+  } else if (d.getFullYear() === now.getFullYear()) {
+    wrap.appendChild(document.createTextNode(`${d.getMonth() + 1}月${d.getDate()}日 ${clock}`))
+  } else {
+    wrap.appendChild(document.createTextNode(`${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${clock}`))
+  }
+  const parts: string[] = []
+  if (t.runMs !== undefined) parts.push(`用时 ${formatRunDuration(t.runMs)}`)
+  if (t.ttftMs !== undefined) parts.push(`首 token ${formatLatencySeconds(t.ttftMs)}秒`)
+  if (t.tokensPerSecond !== undefined) parts.push(`${formatTokensPerSecond(t.tokensPerSecond)} tok/s`)
+  for (const part of parts) {
+    wrap.appendChild(el('span', 'msg-timing-dot', '·'))
+    wrap.appendChild(document.createTextNode(part))
+  }
+  return wrap
+}
+
+/** 官方 formatRunDuration：分钟级「2分42秒」，秒级「12秒」。 */
+function formatRunDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(total / 60)
+  const seconds = total % 60
+  return minutes > 0 ? `${minutes}分${pad2(seconds)}秒` : `${seconds}秒`
+}
+
+/** 官方 formatLatencySeconds：10 秒内一位小数，其余取整（不带单位）。 */
+function formatLatencySeconds(ms: number): string {
+  const s = Math.max(0, ms) / 1000
+  return s < 10 ? String(Math.round(s * 10) / 10) : String(Math.round(s))
+}
+
+/** 官方 formatTokensPerSecond：≥10 取整，其余一位小数。 */
+function formatTokensPerSecond(tps: number): string {
+  const clamped = Math.max(0, tps)
+  return clamped >= 10 ? String(Math.round(clamped)) : String(Math.round(clamped * 10) / 10)
 }
 
 function renderBlock(block: ChatBlock, key: string): HTMLElement {

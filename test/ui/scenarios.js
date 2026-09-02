@@ -1117,6 +1117,37 @@
 
   catalog.conversation.sessions = window.sessionsTree('sess-1')
 
+  // 消息级计时（turn 尾部操作栏行尾，对齐官方 TurnTailNodeView）。
+  catalog['message-timing'] = {
+    state: base({
+      messages: [
+        u('这个任务花了多久？'),
+        {
+          kind: 'assistant',
+          id: rid('a'),
+          complete: true,
+          turnEnd: true,
+          seq: 42,
+          blocks: [{ type: 'text', text: '整体两分多钟完成，主要耗时在工具调用。' }],
+          // 全指标：用时 2m42s、ttft 1.2s、95 tok/s
+          timing: { time: Date.now() - 5 * 60_000, runMs: 162_000, ttftMs: 1200, tokensPerSecond: 95 },
+        },
+        {
+          kind: 'assistant',
+          id: rid('a'),
+          complete: true,
+          turnEnd: true,
+          seq: 84,
+          blocks: [{ type: 'text', text: '补充说明：过程中有两次重试。' }],
+          // 缺省形态：runMs/ttft 有，tps 无（usage 缺失时）；一位小数 tps 在第一条验证
+          timing: { time: Date.now() - 60_000, runMs: 42_000, ttftMs: 350 },
+        },
+      ],
+    }),
+    title: '消息级计时（操作栏行尾）',
+    expect: '两条助手消息的操作栏（复制/👍/👎/分支图标）行尾出现计时文本：第一条「HH:MM · 用时 2分42秒 · 首 token 1.2秒 · 95 tok/s」，第二条「HH:MM · 用时 42秒 · 首 token 0.4秒」（第二条无 tok/s——usage 缺失不显示）；计时为次级灰色小字、nowrap 单行、与图标垂直居中、用 · 分隔；用户消息与未完成消息没有计时；分叉按钮仍在（seq 存在且未中断）。',
+  }
+
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"
   // 的存量状态，就把它的名字加进 BASELINE_SCENARIOS —— 随合入并入主线基线。

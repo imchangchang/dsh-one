@@ -1263,3 +1263,116 @@ test('a plain user message is never treated as a compaction checkpoint', () => {
   assert.equal(msgs.length, 2)
   assert.equal(msgs[1].kind, 'user')
 })
+
+/** Build a SessionEvent-shaped fixture with an explicit time (epoch ms). */
+function evAt(type: string, data: unknown, time: number): SessionEventLike {
+  seq += 1
+  return { type, seq, time, data }
+}
+
+function chunkEvAt(time: number, turn: number, step: number, chunk: StreamChunkData): SessionEventLike {
+  return evAt('assistant/chunk', { turn, step, chunk }, time)
+}
+
+function assistantMessageAt(time: number, turn: number, step: number, usage?: unknown): SessionEventLike {
+  return evAt(
+    'assistant/message',
+    { turn, step, message: { id: `a${turn}-${step}`, content: [{ type: 'text', text: 'ok' }] }, ...(usage ? { usage } : {}) },
+    time,
+  )
+}
+
+test('turn/end folds turn-level timing from step/start, first delta and usage', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(evAt('turn/start', { turn: 1 }, 10_000))
+  f.applyEvent(evAt('step/start', { turn: 1, step: 1 }, 10_500))
+  f.applyEvent(chunkEvAt(10_900, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  // 空 delta 不算首 token；非空 delta 才定 first-token 边界。
+  f.applyEvent(chunkEvAt(11_000, 1, 1, { type: 'text-delta', index: 0, text: '' }))
+  f.applyEvent(chunkEvAt(11_100, 1, 1, { type: 'text-delta', index: 0, text: 'hello' }))
+  f.applyEvent(chunkEvAt(11_900, 1, 1, { type: 'block-end', index: 0, block: { type: 'text', text: 'hello' } }))
+  f.applyEvent(assistantMessageAt(12_500, 1, 1, { outputTokens: 2000 }))
+  f.applyEvent(evAt('turn/end', { turn: 1, reason: { kind: 'completed' } }, 15_000))
+
+  const msg = lastAssistant(f)
+  assert.equal(msg.turnEnd, true)
+  assert.deepEqual(msg.timing, {
+    time: 12_500,
+    runMs: 5000,
+    ttftMs: 600, // first delta (11_100) − step/start (10_500)
+    tokensPerSecond: 2000 / ((12_500 - 11_100) / 1000), // 2000 tokens / 1.4s
+  })
+})
+
+test('multi-step turn aggregates decode across steps and takes the lowest-step ttft', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(evAt('turn/start', { turn: 1 }, 20_000))
+  f.applyEvent(evAt('step/start', { turn: 1, step: 0 }, 20_100))
+  f.applyEvent(chunkEvAt(20_200, 1, 0, { type: 'text-delta', index: 0, text: 'a' }))
+  f.applyEvent(assistantMessageAt(20_500, 1, 0, { outputTokens: 400 }))
+  f.applyEvent(evAt('step/start', { turn: 1, step: 1 }, 20_800))
+  f.applyEvent(chunkEvAt(20_900, 1, 1, { type: 'text-delta', index: 0, text: 'b' }))
+  f.applyEvent(assistantMessageAt(21_200, 1, 1, { outputTokens: 600 }))
+  f.applyEvent(evAt('turn/end', { turn: 1, reason: { kind: 'completed' } }, 21_500))
+
+  const msg = lastAssistant(f)
+  assert.deepEqual(msg.timing, {
+    time: 21_200, // 最后一条 assistant/message
+    runMs: 1500,
+    ttftMs: 100, // 取第一步：20_200 − 20_100（step 1 也是 100，但以最低 step 为准）
+    tokensPerSecond: 1000 / ((300 + 300) / 1000), // 400+600 tokens / (300ms+300ms)
+  })
+})
+
+test('turn timing degrades to absent when events fell outside the window', () => {
+  // turn/start 与 step/start 都在窗口外：runMs/ttftMs 缺省，tps 仍可算。
+  const f = new ConversationFolder()
+  f.applyEvent(chunkEvAt(29_500, 9, 1, { type: 'text-delta', index: 0, text: 'x' }))
+  f.applyEvent(assistantMessageAt(30_000, 9, 1, { outputTokens: 100 }))
+  f.applyEvent(evAt('turn/end', { turn: 9, reason: { kind: 'completed' } }, 30_500))
+
+  const msg = lastAssistant(f)
+  assert.deepEqual(msg.timing, { time: 30_000, tokensPerSecond: 100 / ((30_000 - 29_500) / 1000) })
+
+  // usage 缺失：decode 有、outputTokens 无，不采样 → tps 缺省。
+  const g = new ConversationFolder()
+  g.applyEvent(evAt('turn/start', { turn: 2 }, 40_000))
+  g.applyEvent(evAt('step/start', { turn: 2, step: 1 }, 40_100))
+  g.applyEvent(chunkEvAt(40_200, 2, 1, { type: 'text-delta', index: 0, text: 'y' }))
+  g.applyEvent(assistantMessageAt(40_900, 2, 1))
+  g.applyEvent(evAt('turn/end', { turn: 2, reason: { kind: 'completed' } }, 41_000))
+
+  const msg2 = lastAssistant(g)
+  assert.deepEqual(msg2.timing, { time: 40_900, runMs: 1000, ttftMs: 100 })
+})
+
+test('interrupted turn without assistant/message keeps the clock and runMs', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(evAt('turn/start', { turn: 1 }, 50_000))
+  f.applyEvent(evAt('step/start', { turn: 1, step: 1 }, 50_100))
+  f.applyEvent(chunkEvAt(50_200, 1, 1, { type: 'text-delta', index: 0, text: 'partial' }))
+  f.applyEvent(evAt('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }, 50_400))
+
+  const msg = lastAssistant(f)
+  assert.equal(msg.interrupted, true)
+  // 无 assistant/message：time 回退 turn/end；无 usage → 无 tps。
+  assert.deepEqual(msg.timing, { time: 50_400, runMs: 400, ttftMs: 100 })
+})
+
+test('turn timing does not leak across a history re-baseline', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(evAt('turn/start', { turn: 1 }, 60_000))
+  f.applyEvent(evAt('step/start', { turn: 1, step: 1 }, 60_100))
+  f.applyEvent(chunkEvAt(60_200, 1, 1, { type: 'text-delta', index: 0, text: 'old' }))
+  f.applyEvent(assistantMessageAt(60_500, 1, 1, { outputTokens: 50 }))
+  f.applyEvent(evAt('turn/end', { turn: 1, reason: { kind: 'completed' } }, 60_900))
+  assert.equal(lastAssistant(f).timing?.runMs, 900)
+
+  // 重连 re-baseline：旧 turn 的计时不得残留到新窗口。
+  f.applyHistory([
+    { event: evAt('turn/start', { turn: 2 }, 70_000) },
+    { event: chunkEvAt(70_100, 2, 1, { type: 'text-delta', index: 0, text: 'new' }) },
+  ])
+  assert.equal(lastAssistant(f).timing, undefined)
+  assert.equal(f.hasOpenTurn(), true)
+})

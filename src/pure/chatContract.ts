@@ -168,6 +168,27 @@ export interface ChatAssistantMessage {
   producedFiles?: string[]
   /** The user's stored rating for this message (messageFeedback/list), if any. */
   feedbackRating?: 'positive' | 'negative'
+  /**
+   * Turn-level timing folded at turn/end (web parity: TurnTailNodeView's
+   * 时钟 + 用时/首 token/吞吐). Only the turn's final message carries it;
+   * the webview renders the present parts after the action icons.
+   * Values are absent when the needed events fell outside the loaded window
+   * (turn/start, step/start, first token delta, or assistant/message usage),
+   * matching the official client's window-scoped derivation.
+   */
+  timing?: ChatTurnTiming
+}
+
+/** Turn-level timing metrics derived by the folder at turn/end (see ChatAssistantMessage.timing). */
+export interface ChatTurnTiming {
+  /** 本 turn 最后一条 assistant 消息的完成时间（epoch ms；无 assistant/message 时回退 turn/end 时间）。 */
+  time: number
+  /** Turn 总耗时 ms（turn/end − turn/start；turn/start 在窗口外时缺省）。 */
+  runMs?: number
+  /** 首 token 延迟 ms（turn 内第一步：首个非空 delta − step/start）。 */
+  ttftMs?: number
+  /** 解码吞吐 tok/s（各 step outputTokens 之和 ÷ 解码耗时之和）。 */
+  tokensPerSecond?: number
 }
 
 /**
