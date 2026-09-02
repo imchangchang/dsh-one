@@ -334,6 +334,16 @@
       expect: '点击编辑后：条幅变成单行输入框（预填当前 objective，自动聚焦）+ 右侧两个图标按钮（保存目标：对勾；取消编辑：叉号）；预填非空所以保存按钮初始可用；条内无报错。',
     },
 
+    // ---- 等待插话（steering 待落地）----
+    'steering-pending': {
+      state: base({
+        running: true,
+        queue: [{ id: 'q-1', placement: 'steering', text: '等等，先停下，看看 main 分支状态。' }],
+      }),
+      title: '等待插话消息（正常气泡 + 处理中圆圈）',
+      expect: '对话流末尾（turn-status「Deep diving...」行之后）显示一条与正常用户消息一致的气泡（不透明、无「等待插话」徽章），气泡左侧同一行紧贴一个旋转的处理中圆圈（spinner，蓝色圆环），整体右对齐；同一行只有一个圆圈；输入框上方没有这条消息的排队条目。',
+    },
+
     subagents: {
       state: base({ subagents: [{ sessionId: 'sub-1', title: '子代理 A', running: true, updatedAt: Date.now(), children: [{ sessionId: 'sub-1-1', title: '孙代理', running: false, updatedAt: Date.now() }] }] }),
       title: '子代理下拉',
@@ -1259,6 +1269,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',
     'produced-files', 'produced-files-expanded', 'produced-files-wrap',
     'goal-active',
+    'steering-pending',
     'attachment-uniform',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
