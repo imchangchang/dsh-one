@@ -557,6 +557,11 @@ function renderSessions(): void {
     list.appendChild(el('div', 'sessions-empty', t('Loading…')))
   } else if (snap.serverState !== 'running') {
     list.appendChild(renderServerEmpty(snap))
+  } else if (!snap.baselineReady) {
+    // 服务已 running 但基线还没拉到（或代际切换后未重拉成功）：空基线会被
+    // 恒渲染的「未分组」组误导成「没有 workspace」，未分组组头先于工作区组
+    // 出现。等基线就绪再渲染列表，这里保持 Loading。
+    list.appendChild(el('div', 'sessions-empty', t('Loading…')))
   } else if (snap.workspaces.every((w) => w.workspaceId === UNGROUPED_WORKSPACE_ID)) {
     // 没有真实 workspace：保留「添加工作区」引导，同时仍渲染「未分组」组
     // （空组头 + 新建按钮，「新建未分组对话」入口恒可达）。搜索态下未分组

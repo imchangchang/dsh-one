@@ -70,6 +70,8 @@ export interface SessionsStoreSnapshot {
   contentSearchHasMore: boolean
   /** 最近一次内容搜索是否失败（后端索引未启用等）；展示「仅按标题匹配」轻提示。 */
   contentSearchError: boolean
+  /** 基线是否已成功加载；false 时面板应显示 Loading，未分组组头/空导向不渲染。 */
+  baselineReady: boolean
 }
 
 /**
@@ -103,6 +105,13 @@ export class SessionsStore implements vscode.Disposable {
   private contentSearchHasMore = false
   /** 最近一次内容搜索是否失败（后端索引未启用等）；true 时展示降级提示。 */
   private contentSearchError = false
+  /**
+   * 基线（workspace.list + session.list）是否成功加载过。首次连接/服务重启
+   * 后为 false——期间增量帧（mux 重放/主机事件）会用空基线重建模型，恒渲染
+   * 的「未分组」虚拟组会先于真实工作区组出现在面板上；webview 据此在基线未
+   * 就绪时显示 Loading，而不是把空基线当成「没有 workspace」。
+   */
+  private baselineReady = false
   /** 内容搜索代际：每次 setQuery 递增，回调只认最新代际（丢弃过期响应）。 */
   private searchGeneration = 0
   /**
@@ -248,6 +257,7 @@ export class SessionsStore implements vscode.Disposable {
       unread: [...this.unread],
       contentSearchHasMore: this.contentSearchHasMore,
       contentSearchError: this.contentSearchError,
+      baselineReady: this.baselineReady,
     }
   }
 
@@ -395,6 +405,8 @@ export class SessionsStore implements vscode.Disposable {
     this.url = url
     // 订阅代际切换：旧代的重连状态作废，等新连接自行复位。
     this.reconnectAttempts = 0
+    // 代际切换后旧基线不可信（服务可能已重启），等 refresh() 成功再就绪。
+    this.baselineReady = false
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
@@ -654,6 +666,7 @@ export class SessionsStore implements vscode.Disposable {
       for (const s of this.rawSessions) this.noteRunningFlip(s.sessionId, prevRunning.get(s.sessionId), s.running)
       // 基线重拉成功：host 流已恢复（初始连接/手动刷新时本就是 0，无副作用）。
       this.reconnectAttempts = 0
+      this.baselineReady = true
       this.rebuildModel()
     } catch (err) {
       this.logger.warn(`sessions store: refresh failed — ${err instanceof Error ? err.message : err}`)
