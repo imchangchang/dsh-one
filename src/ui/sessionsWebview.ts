@@ -108,6 +108,13 @@ let popoverAnchor: HTMLElement | null = null
 let popoverPlacement: 'above' | 'below' = 'above'
 /** 菜单打开期间保持 hover 背景的来源行（会话行 ⋯ 菜单/右键菜单）。 */
 let menuOpenRow: HTMLElement | null = null
+/**
+ * 会话行菜单（右键/⋯）打开期间的列表重建冻结：true 时 renderSessions 跳过
+ * 列表重建（保留现有 DOM，行/菜单锚不销毁），新快照仍存进 sessionsSnapshot，
+ * 等 closePopover 解冻后用最新快照一次性渲染。只针对会话行菜单；排序/添加
+ * 菜单锚在 header（header 不重建），不受影响。
+ */
+let menuFreezeActive = false
 
 function markMenuRow(row: HTMLElement | null): void {
   menuOpenRow?.classList.remove('menu-open')
@@ -132,7 +139,9 @@ function onPopoverKey(e: KeyboardEvent): void {
   }
 }
 
-function closePopover(): void {
+/** 只清弹层 DOM、锚与事件监听的内部清理（showPopover/showPopoverAt 换菜单时
+ *  用——不清冻结、不补渲染，因为新菜单还要继续开着）。 */
+function disposePopover(): void {
   popover?.remove()
   popover = null
   popoverAnchor = null
@@ -140,6 +149,22 @@ function closePopover(): void {
   document.removeEventListener('mousedown', onPopoverOutside, true)
   document.removeEventListener('keydown', onPopoverKey, true)
 }
+
+/** 菜单真正关闭（Esc / 点击外部 / 菜单项点击）：解除冻结 + 用最新快照补一次渲染。 */
+function closePopover(): void {
+  menuFreezeActive = false
+  disposePopover()
+  renderSessions()
+}
+
+// 右键按下（button===2）且落在会话行内即进入冻结窗口——contextmenu 随后打开
+// 菜单，期间列表不因快照重建而销毁该行，菜单锚/视觉锚保持稳定。解冻由
+// closePopover 统一处理。左键 ⋯ 按钮走其 onClick 里置冻结。
+document.addEventListener('pointerdown', (e) => {
+  if (e.button === 2 && (e.target as HTMLElement | null)?.closest?.('.session-row')) {
+    menuFreezeActive = true
+  }
+})
 
 function positionPopover(): void {
   if (!popover || !popoverAnchor) return
@@ -154,7 +179,7 @@ function positionPopover(): void {
 }
 
 function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' | 'below' = 'above'): void {
-  closePopover()
+  disposePopover()
   const p = el('div', 'popover')
   p.appendChild(body)
   document.body.appendChild(p)
@@ -167,7 +192,7 @@ function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' 
 }
 
 function showPopoverAt(x: number, y: number, body: HTMLElement): void {
-  closePopover()
+  disposePopover()
   const p = el('div', 'popover')
   p.appendChild(body)
   document.body.appendChild(p)
@@ -492,6 +517,11 @@ function renderSessions(): void {
     sessionsPanel.appendChild(sessionsHeaderEl)
   }
   updateCollapseAllIcon()
+  // 会话行菜单（右键/⋯）打开期间的冻结：跳过列表重建，保留现有 DOM（行/菜单
+  // 锚不销毁），新快照仍存进 sessionsSnapshot 等解冻后渲染。header 逻辑照旧
+  // （header 本就不重建）。上面的 popover 锚处理段此时走 positionPopover（旧行
+  // 还在、锚 isConnected 为 true），不会误关菜单。
+  if (menuFreezeActive) return
   // 列表重建期间，销毁在编输入框触发的 blur 不应把编辑当取消（rebuildGuard）。
   rebuildInProgress = true
   const oldList = sessionsPanel.querySelector<HTMLElement>('.sessions-list')
@@ -710,6 +740,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   row.appendChild(main)
   const actions = el('span', 'row-actions')
   const more = rowAction(iconSvg(PANEL_ICONS.ellipsis), '更多操作', () => {
+    menuFreezeActive = true
     showPopover(more, buildSessionMenuBody(s), 'below')
     markMenuRow(row)
   })
@@ -724,6 +755,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   })
   row.addEventListener('contextmenu', (e) => {
     e.preventDefault()
+    menuFreezeActive = true
     showPopoverAt(e.clientX, e.clientY, buildSessionMenuBody(s))
     markMenuRow(row)
   })
@@ -835,6 +867,8 @@ function highlightText(text: string): HTMLElement {
 function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
   const body = el('div')
+  // 菜单首行显示会话标题（操作对象显式化）：即使用户瞄错行也能立刻发现，点击前可收回。
+  body.appendChild(el('div', 'session-menu-title', `会话：${s.label}`))
   body.appendChild(
     menuItem('重命名', {
       icon: iconSvg(PANEL_ICONS.edit),
