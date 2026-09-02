@@ -1333,7 +1333,13 @@ const STYLE = `
   .hero #input:focus { outline: none; }
 `
 
-export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri, tabId: string): string {
+export function chatHtml(
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+  tabId: string,
+  /** JSON.stringify 过的当前 locale 译文 map（key=英文默认串）；null = 不注入（英文 key 即文案）。 */
+  l10nJson: string | null,
+): string {
   const n = nonce()
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'chatWebview.js'))
   // Same CSP discipline as ui/webview.ts: nonce-gated scripts, no remote resources.
@@ -1353,6 +1359,11 @@ export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri, tabI
 </head>
 <body>
 <div id="app" data-tab-id="${escapeHtml(tabId)}"></div>
+${
+  l10nJson === null
+    ? ''
+    : `<script nonce="${n}">window.__DSH_L10N__=${l10nJson.replace(/</g, '\\u003c')};</script>`
+}
 <script nonce="${n}" src="${escapeHtml(scriptUri.toString())}"></script>
 </body>
 </html>`

@@ -115,6 +115,29 @@ declare function acquireVsCodeApi(): VsCodeApi
 const vscode = acquireVsCodeApi()
 const app = document.getElementById('app') as HTMLElement
 
+// i18n：宿主把当前 locale 的译文 map 经 HTML 注入为 window.__DSH_L10N__
+// （key = 英文默认串，对齐 vscode.l10n 的「默认串即 key」约定）。英文 locale
+// 不注入，webview 直接用 key 本身；缺 key 时同样回退 key 本身。
+const L10N: Readonly<Record<string, string>> = (globalThis as { __DSH_L10N__?: Record<string, string> }).__DSH_L10N__ ?? {}
+
+/** 取当前 locale 的文案；支持 vscode.l10n 同款 {0}/{name} 占位。 */
+function t(template: string, ...args: Array<string | number | Record<string, unknown>>): string {
+  const text = L10N[template] ?? template
+  if (args.length === 0) return text
+  return text.replace(
+    /\{(\d+)\}|\{(\w+)\}/g,
+    (m: string, num: string | undefined, name: string | undefined): string => {
+      if (num !== undefined) {
+        const v = args[Number(num)]
+        return typeof v === 'string' || typeof v === 'number' ? String(v) : m
+      }
+      const argsObj = args.find((a): a is Record<string, unknown> => typeof a === 'object' && a !== null)
+      if (name !== undefined && argsObj && typeof argsObj[name] === 'string') return argsObj[name] as string
+      return m
+    },
+  )
+}
+
 // 窗口 reload 恢复凭据：把宿主注入的 tabId 存为面板 state（reload 后
 // serializer 按它查 host 的映射重建 tab）。tabId 创建后不变，只管保存不读回。
 const tabId = app.getAttribute('data-tab-id')
