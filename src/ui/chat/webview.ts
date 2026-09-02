@@ -1237,10 +1237,20 @@ function setBarContent(bar: HTMLElement, mode: 'unknown' | 'known'): void {
   }
 }
 
+/**
+ * 「窗口未知」占位有没有内容可显示。占位必须带最后一次采样的已用量（有采样才
+ * 值得标示未知）——数据层（contextUsageUnknown）已保证不产生缺已用量的占位；
+ * 渲染层防御畸形/历史状态：无采样的未知态按无数据显示，绝不把空占位画出来。
+ */
+function contextBarHasValue(usage: NonNullable<ChatState['contextUsage']>): boolean {
+  return !(usage.windowUnknown && typeof usage.usedTokens !== 'number')
+}
+
 /** Patch the bar in place (both initial render and kept-composer updates). */
 function patchContextBar(bar: HTMLElement, usage: ChatState['contextUsage']): void {
-  bar.style.display = usage ? '' : 'none'
-  if (!usage) return
+  const show = !!usage && contextBarHasValue(usage)
+  bar.style.display = show ? '' : 'none'
+  if (!show) return
   if (usage.windowUnknown) {
     // 切到从未观察过窗口的模型：明示「窗口未知」占位，不沿用旧窗口误导；悬停解释原因。
     setBarContent(bar, 'unknown')
@@ -1274,7 +1284,7 @@ function statsRow(statsLine: string | undefined, usage: ChatState['contextUsage'
 /** In-place stats-row update for the kept-composer path (no rebuild). */
 function patchStatsRow(composer: HTMLElement, statsLine: string | undefined, usage: ChatState['contextUsage']): void {
   let row = composer.querySelector<HTMLElement>('.stats-row')
-  if (!statsLine && !usage) {
+  if (!statsLine && !(usage && contextBarHasValue(usage))) {
     row?.remove()
     return
   }
@@ -1297,7 +1307,7 @@ function openContextPanel(anchor: HTMLElement): void {
     const body = el('div', 'context-panel')
     const header = el('div', 'cp-header')
     header.appendChild(el('span', 'cp-percent', '窗口用量未知'))
-    if (usage.usedTokens !== undefined) header.appendChild(el('span', 'cp-figures', `已用 ~${formatTokens(usage.usedTokens)}`))
+    header.appendChild(el('span', 'cp-figures', `已用 ~${formatTokens(usage.usedTokens)}`))
     body.appendChild(header)
     body.appendChild(
       el('div', 'cp-unknown', '该模型尚未在当前会话中产生上下文数据，无法给出窗口占用比例；发送下一条消息后将显示窗口用量。'),
@@ -4828,7 +4838,8 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   footer.appendChild(model)
   wrap.appendChild(footer)
 
-  if (state?.statsLine || state?.contextUsage) wrap.appendChild(statsRow(state?.statsLine, state?.contextUsage))
+  if (state?.statsLine || (state?.contextUsage && contextBarHasValue(state.contextUsage)))
+    wrap.appendChild(statsRow(state?.statsLine, state?.contextUsage))
   return wrap
 }
 
