@@ -3,3 +3,4 @@ dist/
 *.vsix
 .dev-host/
 .worktrees/
+.gh-cache/
