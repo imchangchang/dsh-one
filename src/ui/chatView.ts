@@ -1237,13 +1237,14 @@ const STYLE = `
   .file-chip-icon { display: inline-flex; width: 16px; height: 16px; flex: none; }
   .file-chip-icon svg { width: 16px; height: 16px; display: block; }
   /* 文件 chip 方框：与 .attach-thumb 同尺寸同圆角（48px，含 1px 边框），
-     列排文档图标 + 文件名，输入区版本右上角 × 复用 .thumb-remove 交互。 */
+     列排文档图标 + 文件名，点击在 VS Code 打开；输入区版本右上角 × 复用
+     .thumb-remove 交互。 */
   .file-chip {
     position: relative;
     display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 2px;
     width: 48px; height: 48px; flex: none;
-    border-radius: 10px; overflow: hidden;
+    border-radius: 10px; overflow: hidden; cursor: pointer;
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
     background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
     font-size: 11px; line-height: 1.2;
@@ -1968,26 +1969,13 @@ export class ChatViewProvider implements vscode.Disposable {
           return
         case 'producedOpenFile': {
           // 产物 chip 点击：在 VSCode 编辑器打开该文件（任意绝对路径）。
-          const path = typeof m.path === 'string' ? m.path : ''
-          if (!path) return
-          try {
-            await vscode.window.showTextDocument(vscode.Uri.file(path))
-          } catch (err) {
-            const detail = err instanceof Error ? err.message : String(err)
-            this.logger.warn(`chat: producedOpenFile(${path}) failed — ${detail}`)
-            // 产物路径是 turn 结束时的快照：文件可能后来被移动/删除（如 backlog
-            // git mv），报错时先区分「已不存在」并说明原因，避免只有干巴巴的
-            // 「无法打开」而不知道发生了什么。
-            const missing = await fs.access(path).then(
-              () => false,
-              () => true,
-            )
-            vscode.window.showErrorMessage(
-              missing
-                ? `产物文件已不存在（可能已被移动或删除）：${path}`
-                : `打开产物文件失败：${detail}`,
-            )
-          }
+          if (typeof m.path === 'string' && m.path) await this.openFileInEditor(m.path, '产物文件')
+          return
+        }
+        case 'openAttachmentFile': {
+          // 附件文件 chip 点击：同样在 VSCode 编辑器打开（任意绝对路径，含工作区
+          // 外的外部文件——showTextDocument 对标准文件 URI 不受 workspace 归属限制）。
+          if (typeof m.path === 'string' && m.path) await this.openFileInEditor(m.path, '附件文件')
           return
         }
         case 'loadEarlier':
@@ -1998,6 +1986,26 @@ export class ChatViewProvider implements vscode.Disposable {
       const detail = err instanceof Error ? err.message : String(err)
       this.logger.warn(`chat: ${m.type} failed — ${detail}`)
       vscode.window.showErrorMessage(`聊天操作失败：${detail}`)
+    }
+  }
+
+  /** Open an absolute path in the VS Code editor; failure toast names the chip kind. */
+  private async openFileInEditor(path: string, label: string): Promise<void> {
+    try {
+      await vscode.window.showTextDocument(vscode.Uri.file(path))
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      this.logger.warn(`chat: openFileInEditor(${path}) failed — ${detail}`)
+      // 产物/附件路径都是某个时刻的路径快照：文件可能后来被移动/删除（如
+      // backlog git mv），报错时先区分「已不存在」并说明原因，避免只有干巴巴
+      // 的「无法打开」而不知道发生了什么。
+      const missing = await fs.access(path).then(
+        () => false,
+        () => true,
+      )
+      vscode.window.showErrorMessage(
+        missing ? `${label}已不存在（可能已被移动或删除）：${path}` : `打开${label}失败：${detail}`,
+      )
     }
   }
 

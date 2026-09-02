@@ -1151,13 +1151,14 @@
   .file-chip-icon { display: inline-flex; width: 16px; height: 16px; flex: none; }
   .file-chip-icon svg { width: 16px; height: 16px; display: block; }
   /* 文件 chip 方框：与 .attach-thumb 同尺寸同圆角（48px，含 1px 边框），
-     列排文档图标 + 文件名，输入区版本右上角 × 复用 .thumb-remove 交互。 */
+     列排文档图标 + 文件名，点击在 VS Code 打开；输入区版本右上角 × 复用
+     .thumb-remove 交互。 */
   .file-chip {
     position: relative;
     display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 2px;
     width: 48px; height: 48px; flex: none;
-    border-radius: 10px; overflow: hidden;
+    border-radius: 10px; overflow: hidden; cursor: pointer;
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
     background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
     font-size: 11px; line-height: 1.2;
