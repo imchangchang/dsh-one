@@ -148,7 +148,7 @@ tag() {
   say "完成: tag v${VERSION} 指向 HEAD（$(git rev-parse --short HEAD)）"
   say "下一步:"
   say "  1. git push origin main v${VERSION}（触发 .github/workflows/release.yml）"
-  say "  2. 等 Actions 跑完，GitHub Release 出现 dsh-one-${VERSION}.vsix${is_rc "$VERSION" && echo '（标 prerelease，内测用）' || echo ''}"
+  say "  2. 等 Actions 跑完，GitHub Release 出现 dsh-one-${VERSION}.vsix$(is_rc "$VERSION" && echo '（标 prerelease，内测用）' || echo '')"
   say "  3. 按 docs/release-checklist.md 验收 GitHub Release 产物（不本地打包）"
   if is_rc "$VERSION"; then
     say "  4. rc 到此为止：内测通过后 bump 同核心正式版（CHANGELOG 收口）再发"
