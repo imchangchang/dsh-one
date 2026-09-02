@@ -1569,7 +1569,9 @@ function openWorkspacePicker(anchor: HTMLElement): void {
     item.title = ws.path
     item.addEventListener('click', () => {
       closePopover()
-      if (!checked) post({ type: 'workspacePick', workspaceId: ws.workspaceId })
+      // 当前显示项也 post（含 pending 目标）：宿主若发现目标等于当前会话所属
+      // workspace 即取消懒切换（点当前显示项 = 取消手势）。
+      post({ type: 'workspacePick', workspaceId: ws.workspaceId })
     })
     body.appendChild(item)
   }
@@ -1803,7 +1805,9 @@ function render(): void {
     state?.permissions ?? null,
     state?.modelLabel ?? null,
     state?.agentPreset ?? null,
-    state?.workspaceLabel ?? null,
+    // workspaceLabel 刻意不进签名：懒切换的 pending 帧只改 chip 文字，composer
+    // 内容不变——进签名会整页重建 hero，焦点/IME 全断（见 hero 保活分支的
+    // 就地 patch）。
     recall ? (recall.kind === 'queue' ? `queue:${recall.itemId}` : recall.kind) : null,
     pendingImages.map((i) => i.name ?? ''),
     pendingFiles.map((f) => f.path),
@@ -1905,6 +1909,15 @@ function render(): void {
       // 整个 hero（含 composer）保持不动：焦点、光标、进行中的 IME 组合都
       // 不中断；只有跟踪数据流的 stats 行就地修补。
       patchStatsRow(oldComposer, state.statsLine, state.contextUsage)
+      // 懒切换的 pending 帧：workspaceLabel 变了但 composer 没变（不在
+      // composerSig 里），hero 保持不动，只就地更新 workspace chip 文字——
+      // 否则每次点 chip 切换都会重建整页。workspace chip 恒为 chips 行第一个。
+      const wsLabel = oldHero
+        .querySelector<HTMLElement>('.hero-chips .hero-chip')
+        ?.querySelector<HTMLElement>('.label')
+      if (wsLabel && wsLabel.innerText !== state.workspaceLabel) {
+        wsLabel.innerText = state.workspaceLabel ?? ''
+      }
       if (slashPopupEl && oldInput) positionSlashPopup(oldInput)
     } else {
       chatCol.appendChild(renderHero(state, draft))

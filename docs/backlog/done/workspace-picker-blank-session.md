@@ -82,3 +82,16 @@ cd /Users/cgeng/Workspaces/dsh-one/.worktrees/workspace-picker-blank-session && 
 修复（`src/ui/chat/webview.ts`）：loading 帧不再清空现有 DOM——旧视图（hero/messages/composer）完整保留到新状态落地一次性切换；只有面板首开/重载后确实没有任何内容时才显示「加载会话…」占位。对侧栏切会话/分叉等所有会话切换同样生效（不再闪空态）。
 
 人工验收补充：切换 workspace 时页面不应先闪成「加载会话…」空态，旧画面保持到新会话画面替换；面板首次打开（无旧内容）仍显示「加载会话…」。
+
+### 懒切换（2026-09-02，人工反馈）
+
+现象：切换仍有小卡顿（点击即触发 ensureSession RPC + controller 重建 + 历史加载），用户要求「切换时不动，发送时再切」（懒切换）。
+
+实现（`src/ui/chatView.ts` + `src/ui/chat/webview.ts`）：
+
+- **点击 chip 只记 pending**：`pendingWorkspaceId` 记录目标 + 重推 state（composeHeader 用 pending 覆盖 workspaceLabel/workspaceId，chip 与对勾显示目标），**零 RPC、不换 controller**——点击瞬时完成。点当前显示项 = 取消（目标等于当前所属 workspace 时清标记）。
+- **发送/选 preset 时落地**：`send`、`setAgentPreset` 分支先 `resolvePendingWorkspace()`（ensureSession + openSession 切换）再执行——等待移进发送动作本身；失败提示并中止该次操作，pending 清除、chip 回退。
+- **附加**：添加/创建工作区命令成功后 refresh 基线再设 pending；attach（换会话）、服务停止时清 pending。
+- **webview 零重建**：`composerSig` 移除 workspaceLabel（pending 帧只改 chip 文字，不进 composer 签名）；hero 保活分支就地 patch workspace chip 文字（草稿、焦点、IME 不中断）；picker 行点击不再拦截当前项（统一 post，宿主判断取消）。
+
+人工验收补充：点 workspace 行即刻无等待地变成目标名（页面零重建、输入框草稿/焦点不动）；点其他 workspace 再点回当前（或点当前显示项）= 取消恢复原 chip；输入文字点发送后才发生切换并在新会话发出消息；选 preset 后发送，preset 生效于目标会话。
