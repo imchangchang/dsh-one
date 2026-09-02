@@ -6,7 +6,7 @@
 
 **主线（main）不开发任何东西**，只负责测试、集成和合入。所有开发都在 worktree 里做。
 
-完整流程见 skill **`worktree-dev-flow`**（正本在 `.agents/skills/worktree-dev-flow/`，随仓库走，DSH 等项目级 skill 机制自动加载；`scripts/` 下四个脚本已按本仓库适配）。不支持 skill 的环境：直接读那个目录里的 `SKILL.md`，或跑 `scripts/dev-start.sh --help` 起步。
+完整流程见 skill **`worktree-dev-flow`**（正本在 `.agents/skills/worktree-dev-flow/`，随仓库走，DSH 等项目级 skill 机制自动加载；`scripts/` 下五个脚本已按本仓库适配，含 `main-lock.sh` 主线写锁——任何会写 main 的操作必须先拿锁，`dev-merge.sh` 已内置）。不支持 skill 的环境：直接读那个目录里的 `SKILL.md`，或跑 `scripts/dev-start.sh --help` 起步。
 
 **worktree 开发 session 只开发、不合入**：dev-finish 自测通过打 done 标记后即止，合入由主线 agent 跑 `dev-merge.sh`。
 

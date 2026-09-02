@@ -10,7 +10,7 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 - **主线（main）不开发任何东西**，只负责测试、集成、合入。所有开发都在 worktree 里。
 - 每个任务一个 worktree：`.worktrees/<slug>`，分支 `agent/<slug>`，独立装依赖，不跨目录复用。
 - worktree 里高频小提交，commit message 写清每步做了什么——合并后靠分支历史还原开发过程。
-- 完成 = 自测通过 + 打 `done/<slug>` 标记；合入只能由主线做，且**串行合入**：一次只跑一个 dev-merge，等它完全结束（含末尾重建 dist）再合下一个任务。**合入前须人工在 dev-ui-test 窗口验收通过**（见流程 4）。
+- 完成 = 自测通过 + 打 `done/<slug>` 标记；合入只能由主线做，且**串行合入**：一次只跑一个 dev-merge，等它完全结束（含末尾重建 dist）再合下一个任务。串行靠 `main-lock.sh` 的主线写锁**强制**（不是自觉）：任何会写 main 分支历史或主工作区内容的操作都要先 `acquire_main_lock`，拿不到锁直接退出；`dev-start`/`dev-finish`/`dev-ui-test` 只写 worktree 自己的分支/tag/dist，不需要锁。**合入前须人工在 dev-ui-test 窗口验收通过**（见流程 4）。
 - **worktree 开发 session 不主动合入主线**：职责止于 dev-finish（自测通过 + done 标记），dev-merge 只由主线 agent 跑，开发 session 不得自行合入。
 - 不要并行起抢同一资源的东西（同端口 dev server、同一个应用实例）；worktree 只隔离代码。例外：`dev-ui-test.sh` 起的隔离 VSCode 实例——user-data-dir 每个 worktree 一份，可并行。
 - 任务划分尽量不动同一批文件；做完尽快合，拖越久 rebase 冲突越多。
@@ -75,6 +75,7 @@ rebase 有冲突时：进 worktree 解决 → 重跑 `dev-finish.sh`（backlog �
 ## 注意
 
 - `dev-merge.sh` 的校验会拒绝：缺 done 标记、done 标记不在分支最新提交上（rebase/新提交后没重跑 dev-finish）、主线有未提交改动。遇到拒绝按提示处理，不要绕过校验手动 merge。
+- **主线写锁**：`main-lock.sh` 用原子 `mkdir` 实现，锁在 `<git-common-dir>/main-write.lock`（`.git/` 下，不会污染 `git status` 校验）。`dev-merge.sh` 从校验到合入全程持锁、EXIT trap 释放；拿不到锁说明已有进程在写 main，直接退出等它结束。自己写会碰 main 的脚本时 source 它，别绕过——`dev-merge.sh` 的串行保证全靠这把锁。
 - `dev-ui-test.sh` 的窗口闪退/起不来：先查 `--user-data-dir` 路径长度——VSCode 的 IPC socket（`<user-data-dir>/1.x-main.sock`）超 103 字符会 `listen EINVAL`、主进程启动即退（表现是 Dock 图标出现又消失）。脚本已把隔离目录放在短路径 `/tmp/dsh-uidev/<slug>/`；长 slug 更容易踩这个，别把 user-data-dir 放回 worktree 里的长路径。
 - **worktree 里的 `scripts/` 是建分支那个时间点的快照**：skill 后来新增或改过的脚本（如 `dev-ui-test.sh`）不会自动出现在既有 worktree 里，worktree 自带的 `dev-merge.sh` 也可能是旧版。跑新版脚本时**用主线的路径、cwd 留在 worktree 内**：`bash <main>/scripts/dev-ui-test.sh`（脚本靠 `git rev-parse --show-toplevel` 定位当前 worktree，脚本路径可以和 cwd 分离）。别在 worktree 里直接 `scripts/dev-ui-test.sh` 而期望它是新版。
 - 测试产物别污染主线：手动测试/复现命令生成的临时文件（测试数据、diff 样例、临时脚本等）写到 `$TMPDIR` 或 `/tmp`、worktree 的 `.dev-host/`，不要落在 main 仓库根目录——主线出现 untracked 文件会挡 `dev-merge.sh` 校验，也污染仓库。
