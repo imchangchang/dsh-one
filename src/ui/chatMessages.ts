@@ -121,7 +121,8 @@ async function queryCommitInfo(host: ChatTabHost, shas: string[]): Promise<Commi
   return results
 }
 
-/** 点击 commit hash：激活仓库优先查库，命中打开 git 提交视图；全未命中返回 false。 */
+/** 点击 commit hash：激活仓库优先查库，命中打开该仓库的 SCM 视图（commit graph /
+ *  提交历史嵌在 Source Control 仓库节点下）；全未命中返回 false。 */
 async function openCommit(host: ChatTabHost, sha: string): Promise<boolean> {
   const api = await getGitApi()
   const repos = api?.repositories ?? []
@@ -132,7 +133,10 @@ async function openCommit(host: ChatTabHost, sha: string): Promise<boolean> {
     try {
       const commit = await repo.getCommit(sha)
       if (!commit) continue
-      await vscode.commands.executeCommand('git.viewCommit', repo, commit.hash)
+      // git.openRepository 聚焦 Source Control 面板中该仓库的视图，commit
+      // graph（提交历史）随仓库节点展示；比 git.viewCommit（直接开 diff）更
+      // 符合「跳转到 git 插件看提交历史」的预期（用户 2026-09-02 反馈）。
+      await vscode.commands.executeCommand('git.openRepository', repo)
       return true
     } catch {
       // 该仓库无此 commit，试下一个
