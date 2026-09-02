@@ -316,5 +316,11 @@
   "Waiting for approval": "Waiting for approval",
   "Referenced sessions: {0}": "Referenced sessions: {0}",
   "Running for {0}": "Running for {0}",
-  "Took {0}": "Took {0}"
+  "Took {0}": "Took {0}",
+  "{0} background jobs": "{0} background jobs",
+  "{0} background jobs running": "{0} background jobs running",
+  "Stopping": "Stopping",
+  "Cancelled": "Cancelled",
+  "Failed": "Failed",
+  "{0}h {1}m": "{0}h {1}m"
 }

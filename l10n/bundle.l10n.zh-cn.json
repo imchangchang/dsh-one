@@ -316,5 +316,11 @@
   "Waiting for approval": "等待批准",
   "Referenced sessions: {0}": "引用会话：{0}",
   "Running for {0}": "已运行 {0}",
-  "Took {0}": "用时 {0}"
+  "Took {0}": "用时 {0}",
+  "{0} background jobs": "{0} 个后台任务",
+  "{0} background jobs running": "{0} 个后台任务运行中",
+  "Stopping": "停止中",
+  "Cancelled": "已取消",
+  "Failed": "失败",
+  "{0}h {1}m": "{0}小时 {1}分"
 }
