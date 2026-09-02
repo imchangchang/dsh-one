@@ -1851,6 +1851,7 @@ function render(): void {
     // workspaceLabel 刻意不进签名：懒切换的 pending 帧只改 chip 文字，composer
     // 内容不变——进签名会整页重建 hero，焦点/IME 全断（见 hero 保活分支的
     // 就地 patch）。
+    state?.plan ?? null,
     recall ? (recall.kind === 'queue' ? `queue:${recall.itemId}` : recall.kind) : null,
     pendingImages.map((i) => i.name ?? ''),
     pendingFiles.map((f) => f.path),
@@ -4520,6 +4521,26 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     perm.disabled = !canSend
     perm.addEventListener('click', () => openPermissionMenu(perm))
     footer.appendChild(perm)
+  }
+  // Plan-mode chip（对齐官方 dsh web PlanChip）：仅当有效目标态是 plan 模式时
+  // 显示（pending 以目标态为准——退出中立即隐藏、进入中立即显示），点击执行
+  // /plan off。投影缺失（老版本 dsh 无 dsh-plan-mode）时缺省，不渲染。
+  const plan = state?.plan
+  if (plan && (plan.pending ? !plan.active : plan.active)) {
+    const chip = buttonEl('pill plan-chip', '')
+    chip.setAttribute('aria-label', 'plan mode 已开启，按下关闭')
+    chip.title = 'plan mode 已开启 — 点击关闭（/plan off）'
+    chip.disabled = !canSend
+    chip.appendChild(el('span', undefined, 'Plan'))
+    const close = el('span', 'plan-chip-close')
+    close.setAttribute('aria-hidden', 'true')
+    close.appendChild(iconSvg(PANEL_ICONS.planClose, 12))
+    chip.appendChild(close)
+    chip.addEventListener('click', () => {
+      if (!state?.canSend) return
+      post({ type: 'send', text: '/plan off' })
+    })
+    footer.appendChild(chip)
   }
   if (state?.agentPreset && !hero) {
     // Agent preset chip：只在空会话出现（state.agentPreset 由宿主按此条件透传）。

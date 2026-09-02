@@ -186,6 +186,14 @@ const remove: IconDef = {
   ],
 }
 
+/** 官方 IconCloseFill14：PlanChip 的关闭图标（dsh-client-ui-plan PlanModeControl）。 */
+const planClose: IconDef = {
+  viewBox: '0 0 14 14',
+  paths: [
+    'M10.6074 4.40278L8.00975 6.99973L10.6074 9.59739L9.59736 10.6074L6.9997 8.00978L4.40274 10.6074L3.3927 9.59739L5.98966 6.99973L3.3927 4.40278L4.40274 3.39273L6.9997 5.98969L9.59736 3.39273L10.6074 4.40278Z',
+  ],
+}
+
 export const PANEL_ICONS = {
   edit,
   archive,
@@ -202,6 +210,7 @@ export const PANEL_ICONS = {
   boxedMinus,
   boxedPlus,
   remove,
+  planClose,
 } as const
 
 /** 推理块 Think 图标（dsh web IconThinkOutline14）。 */
