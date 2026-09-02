@@ -353,11 +353,24 @@ export interface ChatState {
     current: string
   }
   /**
-   * 空会话 hero 区的 workspace 名 chip（官方空态的 workspace 触发器，我们只读
-   * 展示）：附着会话所属 workspace 的 title，由 ChatViewProvider 从
+   * 空会话 hero 区的 workspace 名 chip（官方空态的 workspace 触发器，现在可
+   * 点击弹选择器）：附着会话所属 workspace 的 title，由 ChatViewProvider 从
    * SessionsStore 的 workspace.list 基线（含 blank 会话）合成。
    */
   workspaceLabel?: string
+  /**
+   * 附着会话所属 workspace 的 id（选择器里当前项的选中对勾）。与
+   * workspaceLabel 同源；会话不在任何 workspace 的 sessionIds 里时缺省
+   * （label 的「未分组」兜底不产生 id）。
+   */
+  workspaceId?: string
+  /**
+   * 空会话 hero 的 workspace 选择器列表（官方 WorkspacePicker 的数据源）：
+   * workspace.list 基线的轻量投影（id + path + title，path 供悬停 tooltip），
+   * 由 ChatViewProvider 合成，随 store 基线刷新。列表为空时选择器只显示
+   * 添加入口。
+   */
+  workspaces?: Array<{ workspaceId: string; path: string; title: string }>
   /**
    * 头部 preset 只读标签（如「标准模式」）：渠道对齐官方 AgentPresetLabel——
    * ChatViewProvider 从 session.list 基线取附着会话的 agentPreset id（创建时
@@ -622,6 +635,15 @@ export type FromWebviewMessage =
   | { type: 'workspaceRemove'; workspaceId: string; label: string }
   /** Sessions 面板：从会话尾部创建分支会话并附着。 */
   | { type: 'sessionFork'; sessionId: string }
+  /** 空会话 hero 的 workspace 选择器：切到指定 workspace（宿主在该 workspace
+   *  复用/新建 blank 会话并切换过去，对齐官方 connectWorkspace）。 */
+  | { type: 'workspacePick'; workspaceId: string }
+  /** 空会话 hero 的 workspace 选择器：「添加已有文件夹…」——VSCode 原生目录
+   *  对话框注册新 workspace 后切过去（复用 dshOne.workspace.add 命令）。 */
+  | { type: 'workspacePickAdd' }
+  /** 空会话 hero 的 workspace 选择器：「创建工作区…」——在 dsh 全局目录下
+   *  新建并注册后切过去（复用 dshOne.workspace.create 命令）。 */
+  | { type: 'workspacePickCreate' }
   /** Sessions 面板：复制会话的 canonical 引用 mention（@[标题](dsh-session:...)）到剪贴板。 */
   | { type: 'sessionCopyReference'; sessionId: string; title: string }
   /** Sessions 面板空态：启动 dsh 服务。 */

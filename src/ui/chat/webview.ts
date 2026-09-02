@@ -1545,6 +1545,61 @@ function openAgentPresetMenu(anchor: HTMLElement, placement: 'above' | 'below' =
   showPopover(anchor, body, placement)
 }
 
+/**
+ * 空会话 hero 的 workspace 选择器（对齐官方 WorkspacePicker 的 Menu 形态）：
+ * 行 = 文件夹图标 + 标题（悬停 tooltip 显示完整路径）+ 当前项尾部对勾；footer
+ * 分隔线下是「添加已有文件夹…」「创建工作区…」两个添加入口（与侧栏一致，都走
+ * VSCode 原生对话框，见 chatView.ts 的处理）。列表为空时只显示添加入口——
+ * 官方此时直接进目录流程，我们把「弹下拉」换成「只弹添加入口」，不自动弹系统
+ * 对话框（模态框不应无提示出现）。选中行由宿主切换 blank 会话，不在此处关闭
+ * 弹层前做任何网络调用。
+ */
+function openWorkspacePicker(anchor: HTMLElement): void {
+  if (!state) return
+  const body = el('div')
+  const currentId = state.workspaceId
+  for (const ws of state.workspaces ?? []) {
+    const checked = ws.workspaceId === currentId
+    const item = el('div', checked ? 'menu-item checked workspace-item' : 'menu-item workspace-item')
+    const ic = el('span', 'menu-item-icon')
+    ic.appendChild(iconSvg(PANEL_ICONS.folder, 14))
+    item.appendChild(ic)
+    item.appendChild(el('span', 'workspace-item-label', ws.title))
+    if (checked) item.appendChild(el('span', 'check', '✓'))
+    item.title = ws.path
+    item.addEventListener('click', () => {
+      closePopover()
+      // 当前显示项也 post（含 pending 目标）：宿主若发现目标等于当前会话所属
+      // workspace 即取消懒切换（点当前显示项 = 取消手势）。
+      post({ type: 'workspacePick', workspaceId: ws.workspaceId })
+    })
+    body.appendChild(item)
+  }
+  // footer 添加入口无条件显示：有 workspace 时列表下方的分隔区（对齐官方
+  // Menu footer），列表为空时是唯一内容。
+  const footer = el('div', 'workspace-picker-footer')
+  footer.appendChild(
+    menuItem('添加已有文件夹…', {
+      icon: iconSvg(PANEL_ICONS.folderOpen, 14),
+      onClick: () => {
+        closePopover()
+        post({ type: 'workspacePickAdd' })
+      },
+    }),
+  )
+  footer.appendChild(
+    menuItem('创建工作区…', {
+      icon: iconSvg(PANEL_ICONS.plus, 14),
+      onClick: () => {
+        closePopover()
+        post({ type: 'workspacePickCreate' })
+      },
+    }),
+  )
+  body.appendChild(footer)
+  showPopover(anchor, body, 'below')
+}
+
 function openCommandMenu(anchor: HTMLElement): void {  const body = el('div')
   for (const c of SLASH_COMMANDS) {
     body.appendChild(
@@ -1750,7 +1805,9 @@ function render(): void {
     state?.permissions ?? null,
     state?.modelLabel ?? null,
     state?.agentPreset ?? null,
-    state?.workspaceLabel ?? null,
+    // workspaceLabel 刻意不进签名：懒切换的 pending 帧只改 chip 文字，composer
+    // 内容不变——进签名会整页重建 hero，焦点/IME 全断（见 hero 保活分支的
+    // 就地 patch）。
     recall ? (recall.kind === 'queue' ? `queue:${recall.itemId}` : recall.kind) : null,
     pendingImages.map((i) => i.name ?? ''),
     pendingFiles.map((f) => f.path),
@@ -1774,6 +1831,18 @@ function render(): void {
     // 输入区整个换成面板，原输入框被移除（draft 内容仍保留，pending 结束后
     // 恢复普通 composer 时按 draft 还原）。
     (state?.pending.length ?? 0) === 0
+  // 空会话 hero 保活不要求焦点/菜单：hero 内容只由 composer 签名描述，签名
+  // 没变（懒切换 pending 帧只改 workspace chip 文字等）时 DOM 不动——重建会
+  // 让鱼标 CSS 动画重播（视觉上图标「重置」）且打断输入状态。keepComposer 的
+  // 焦点条件保留给消息流布局（那里重建是常态）。仅当前帧是 hero 布局时生效
+  // （pending 接管等其他布局切换一律走重建）。清理循环与 blankHero 分支共用。
+  const keepBlankHero =
+    blankHero &&
+    oldHero !== null &&
+    oldComposer !== null &&
+    stashedDraft === undefined &&
+    composerSig === lastComposerSig &&
+    oldHero.contains(oldComposer)
   // A rebuilt composer gets fresh listeners; the popup re-opens below when the
   // draft still starts with '/'. With a kept composer it only re-anchors.
   if (!keepComposer) hideSlashPopup()
@@ -1804,12 +1873,19 @@ function render(): void {
     !blankHero &&
     headerSig === lastHeaderSig &&
     oldHeader.querySelector('.rename-input') === null
-  for (const child of Array.from(chatCol.children)) {
-    if (keepMessages && child === oldMessages) continue
-    if (keepHeader && child === oldHeader) continue
-    if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
-    if (keepPending && child === oldPending) continue
-    child.remove()
+  // loading 帧（换会话的历史基线加载中）不动现有 DOM：整页保留到新状态落地
+  // 再一次性切换——否则 hero 布局切换（blank→blank 切 workspace 尤甚）会先被
+  // 清成「加载会话…」空占位再重建，观感像整页刷新。keep* 布尔照常计算（无
+  // 副作用），落地帧仍按签名决定重建。
+  if (state?.loading !== true) {
+    for (const child of Array.from(chatCol.children)) {
+      if (keepMessages && child === oldMessages) continue
+      if (keepHeader && child === oldHeader) continue
+      if (keepBlankHero && (child === oldComposer || child === oldHero)) continue
+      if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
+      if (keepPending && child === oldPending) continue
+      child.remove()
+    }
   }
   // Menus anchored to surviving elements (kept composer, sessions header)
   // stay open across snapshot renders — re-anchor in case the layout shifted
@@ -1830,20 +1906,31 @@ function render(): void {
     chatCol.appendChild(renderEmpty(state))
     return
   }
-  // 历史基线加载中：只显示加载占位，hero 和消息流都等基线落地再渲染——
-  // 否则切换会话时会先闪一帧空会话 hero（服务未就绪）再跳成消息流。
+  // 历史基线加载中：旧视图已被上面跳过清理而保留，这里只在确实没有任何
+  // 内容（面板首开/重载后在等基线）时才给一行加载提示。
   if (state.loading === true) {
     turnStatusStart = null
-    chatCol.appendChild(el('div', 'muted-hint loading-hint', '加载会话…'))
+    if (chatCol.childNodes.length === 0) {
+      chatCol.appendChild(el('div', 'muted-hint loading-hint', '加载会话…'))
+    }
     return
   }
   if (blankHero) {
     turnStatusStart = null
     scrollSession = null
-    if (keepComposer && oldHero && oldComposer) {
+    if (keepBlankHero) {
       // 整个 hero（含 composer）保持不动：焦点、光标、进行中的 IME 组合都
       // 不中断；只有跟踪数据流的 stats 行就地修补。
       patchStatsRow(oldComposer, state.statsLine, state.contextUsage)
+      // 懒切换的 pending 帧：workspaceLabel 变了但 composer 没变（不在
+      // composerSig 里），hero 保持不动，只就地更新 workspace chip 文字——
+      // 否则每次点 chip 切换都会重建整页。workspace chip 恒为 chips 行第一个。
+      const wsLabel = oldHero
+        .querySelector<HTMLElement>('.hero-chips .hero-chip')
+        ?.querySelector<HTMLElement>('.label')
+      if (wsLabel && wsLabel.innerText !== state.workspaceLabel) {
+        wsLabel.innerText = state.workspaceLabel ?? ''
+      }
       if (slashPopupEl && oldInput) positionSlashPopup(oldInput)
     } else {
       chatCol.appendChild(renderHero(state, draft))
@@ -2167,8 +2254,9 @@ function render(): void {
 
 /**
  * 空会话 hero（官方 dsh web 空态 HeroShell）：整列水平居中——品牌鱼标，
- * 标题「探索未至之境」+「预览版」徽章，其下 workspace 名（只读）与 preset
- * 选择 chip 行，再下是包成大圆角卡片的 composer（样式见 chatView.ts 的 .hero）。
+ * 标题「探索未至之境」+「预览版」徽章，其下 workspace 选择 chip（点击弹
+ * WorkspacePicker）与 preset 选择 chip 行，再下是包成大圆角卡片的 composer
+ * （样式见 chatView.ts 的 .hero）。
  */
 function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
   const hero = el('div', 'hero')
@@ -2182,11 +2270,18 @@ function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
   stack.appendChild(headline)
   const chips = el('div', 'hero-chips')
   if (state.workspaceLabel) {
-    // 官方此 chip 是 workspace 选择器；我们没有更换 blank 会话所属 workspace
-    // 的链路，只做只读展示（文件夹图标 + 名称，无 chevron）。
-    const ws = el('span', 'hero-chip')
+    // 官方此 chip 是 workspace 选择器（WorkspacePicker）：点击弹下拉——全部
+    // workspace 列表（当前项对勾）+ 「添加已有文件夹…」「创建工作区…」两个
+    // 添加入口；选择/添加后由宿主在目标 workspace 复用/新建 blank 会话并切换。
+    const ws = buttonEl('hero-chip', '')
     ws.appendChild(iconSvg(PANEL_ICONS.folder, 16))
     ws.appendChild(el('span', 'label', state.workspaceLabel))
+    const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
+    chev.classList.add('chevron')
+    ws.appendChild(chev)
+    ws.title = '选择工作区'
+    ws.setAttribute('aria-haspopup', 'menu')
+    ws.addEventListener('click', () => openWorkspacePicker(ws))
     chips.appendChild(ws)
   }
   if (state.agentPreset) {

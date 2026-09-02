@@ -215,6 +215,15 @@ export class SessionsStore implements vscode.Disposable {
     return owned ?? (this.knownSessionIds.has(sessionId) ? '未分组' : undefined)
   }
 
+  /**
+   * workspace.list 基线（按注册表顺序，含 sessionIds 记账）：空会话 hero 的
+   * workspace 选择器用它列全部 workspace 并定位当前项。只读引用，消费方不得
+   * 修改；基线刷新时引用指向新数组（不原地改）。
+   */
+  get workspaceBaseline(): readonly WorkspaceInput[] {
+    return this.rawWorkspaces
+  }
+
   get currentSortOrder(): SessionSortOrder {
     return this.sortOrder
   }
