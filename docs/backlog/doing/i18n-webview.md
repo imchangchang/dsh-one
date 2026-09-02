@@ -1,0 +1,37 @@
+# i18n：webview 层（把 locale 送进 webview）
+
+记录于 2026-09-01。来自发布流程讨论：webview 是独立浏览器上下文，调不了 `vscode.l10n`，是最麻烦的一层，建议后置。
+
+## 背景与现象
+
+- chat / 会话界面里的扩展自写文案（空态 hero「探索未至之境」、placeholder「描述你想要构建的内容」、「加载会话…」、「服务未就绪，暂时无法发送」等）在 `src/ui/chat/webview.ts` 和 `src/ui/chatView.ts` 里硬编码中文。
+- webview 是独立 browser context，**调不了 `vscode.l10n`**，不能直接用宿主层的 l10n。
+
+## 现状（2026-09-02 补充核实）
+
+- webview.ts 内联 **201 处中文字面量**（按钮/菜单/aria-label/空态/错误提示/queue note 等），另 chatView.ts 有 124 行含中文（与 webview 共用的工作区树/会话菜单文案）；pure/workflowRun.ts（28）、pure/sessionTree.ts（52）是宿主和 webview 共用的纯函数文案，还没 i18n。
+- 无任何注入本地化字符串的通道。
+- 宿主侧 `vscode.env.language` 可取当前语言；`l10n/bundle.l10n.json`（英文基线 key=value）+ `l10n/bundle.l10n.zh-cn.json`（79 key）已落地（i18n-runtime）。
+- 注入点已核实：webview 首帧 `post({type:'ready'})` 报到（webview.ts:127），宿主侧 `ChatTabHost` 有现成 postMessage 通道（chatView.ts:467），`ToWebviewMessage` 加一条消息类型即可。
+- 存量文案直接改造成 key 形式工作量很大（201 处），建议**分文件分批推进**：本条目先做「注入通道 + t() 基础设施 + webview.ts 存量文案全量替换」，pure/ 两个文件及 chatView.ts 剩余文案作为后续条目。
+
+## 方案
+
+- 扩展宿主把当前 `locale` + 相关译文（或 `l10n.bundle`）经消息协议塞进 webview，webview 端读一个注入的 `l10n` map 来取文案。
+- webview.ts 加模块级 `t(key)`（仿 `vscode.l10n.t` 的 key=英文默认串 → 查注入 map，缺 key 返回 key 本身），存量 201 处中文字面量替换：英文默认串进 `l10n/bundle.l10n.json`（基线），中文译文进 `l10n/bundle.l10n.zh-cn.json`。
+- **边界**：只 i18n 扩展自写的文案；真正由 **dsh 服务下发**的消息文本、字段名不是 i18n 对象，别动。
+- locale 变化（用户切换显示语言后窗口 reload）时 webview 重载会重新走 ready 握手，宿主按当前 `vscode.env.language` 重发一次 bundle 即可，无需持久化。
+
+## 涉及代码位置
+
+- `src/ui/chat/webview.ts`（文案取用）
+- `src/ui/chatView.ts`（host 侧，把 locale/bundle 经消息交给 webview）
+
+## 备注
+
+- 依赖 `i18n-manifest` / `i18n-runtime` 先落地（建立 locale 与译文来源），这条后置。
+
+## 变更记录
+
+- 2026-09-01 记录 → open
+- 2026-09-02 补充核实（201 处中文字面量、bundle 现状、注入点），范围调整为「通道 + 基础设施 + webview.ts 存量替换」→ 认领 → doing
