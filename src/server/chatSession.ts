@@ -254,8 +254,9 @@ function contextUsageOf(
   windowUnknown: boolean,
 ): ChatState['contextUsage'] {
   const used = pressure?.projectedTokens ?? pressure?.pressureTokens
-  // 切到从未观察过窗口的模型：无诚实比例可给，显示「窗口未知」占位。
-  if (windowUnknown) return used === undefined ? { windowUnknown: true } : { windowUnknown: true, usedTokens: used }
+  // 切到从未观察过窗口的模型：有采样（旧模型已用量）时进「窗口未知」占位，不沿用
+  // 旧窗口误导；没有任何采样（空白对话）时连占位都没有——无数据可标，bar 隐藏。
+  if (windowUnknown) return contextUsageUnknown(used)
   if (used === undefined || pressure?.contextWindow === undefined) return undefined
   return {
     percent: Math.min(100, Math.round((used / pressure.contextWindow) * 100)),
@@ -436,7 +437,8 @@ export class ChatSessionController implements vscode.Disposable {
    * 切换模型成功后调用：立即用新模型窗口覆写 `contextPressure.contextWindow`，
    * 让 contextBar 立刻重算（不再滞留在旧模型窗口直到下一条消息）。窗口取自
    * 进程级 `request/context` 学习映射；映射里没有（目标模型从未被观察过）时
-   * 进入「窗口未知」占位（contextBar 明示未知，不再用旧窗口误导）。超限显示走
+   * 进入「窗口未知」占位（contextBar 明示未知，不再用旧窗口误导）；此时若
+   * 连压力采样都没有（空白对话）则不上占位，contextBar 保持隐藏。超限显示走
    * 现有 `meterLevel` 的 overflow 分支，无需另造 UI。
    */
   applyModelSwitch(selection: SessionModelSelection): void {

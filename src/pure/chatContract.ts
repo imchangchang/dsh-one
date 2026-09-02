@@ -506,13 +506,15 @@ export interface ChatState {
 /**
  * Context-occupancy meter value. Either a real ratio (the ring shows the
  * fraction), or a 「窗口未知」placeholder: the user switched to a model whose
- * context window we have never observed, so no honest ratio exists yet (the
- * payload can still carry the used-token count from the last sample). The
- * placeholder recovers to the real ratio once the next request/context for
- * that model arrives.
+ * context window we have never observed, so no honest ratio exists yet. The
+ * placeholder always carries the used-token count from the last sample — the
+ * sample is what makes the unknown state worth showing at all; it recovers to
+ * the real ratio once the next request/context for that model arrives. When
+ * there is no sample at all (e.g. a blank conversation) the field stays
+ * absent: nothing to mark, the bar stays hidden.
  */
 export type ContextUsage =
-  | { windowUnknown: true; usedTokens?: number }
+  | { windowUnknown: true; usedTokens: number }
   | {
       windowUnknown?: false
       percent: number

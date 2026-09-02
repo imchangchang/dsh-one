@@ -31,20 +31,24 @@ export interface ContextPressureLike {
   contextWindow?: number
 }
 
-/** 「窗口未知」占位值：切到从未观察过窗口的模型时，无诚实比例可给。 */
+/** 「窗口未知」占位值：切到从未观察过窗口的模型时，无诚实比例可给。
+ *  占位必须带最后一次采样的已用量（usedTokens）——有采样才值得标示未知；
+ *  从未有过采样（`used === undefined`，如空白对话）时**不构成占位**，
+ *  由 `contextUsageUnknown` 返回 undefined，调用方不显示任何指示。 */
 export interface ContextUsageUnknown {
   windowUnknown: true
-  usedTokens?: number
+  usedTokens: number
 }
 
 /**
- * 构成「窗口未知」占位：保留最后一次压力采样的已用量（若有），窗口与
- * 比例置为「未知」。用于切到映射无记录的模型时，明确标示非误报的未知状态。
- * 拿到窗口（下一条消息的 request/context）后由 `pressureWithContextWindow`
- * 恢复成正常比例。
+ * 构成「窗口未知」占位：保留最后一次压力采样的已用量，窗口与比例置为
+ * 「未知」。用于切到映射无记录的模型时，明确标示非误报的未知状态。
+ * 没有任何采样（空白对话，从未观察过该会话的已用量）时返回 undefined——
+ * 无数据可标，不显示占位。拿到窗口（下一条消息的 request/context）后由
+ * `pressureWithContextWindow` 恢复成正常比例。
  */
-export function contextUsageUnknown(used: number | undefined): ContextUsageUnknown {
-  return used === undefined ? { windowUnknown: true } : { windowUnknown: true, usedTokens: used }
+export function contextUsageUnknown(used: number | undefined): ContextUsageUnknown | undefined {
+  return used === undefined ? undefined : { windowUnknown: true, usedTokens: used }
 }
 
 /**
