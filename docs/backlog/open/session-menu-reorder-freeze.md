@@ -23,6 +23,15 @@
 - 触发条件：**任何快照都会全量重建列表**（`renderSessions`：`oldList.remove()` + 新建）。快照来源包括流式推送（真实 100ms/帧）、mux pending 帧、60s 相对时间 tick、手动刷新/重连基线重拉——菜单打开期间行 DOM 几乎必然被销毁。
 - **默认排序（updatedDesc）下"排序真正变化"的触发源**：`host/session-status` 帧与 mux `session/projection` 帧都**不改** `updatedAt`（`hostFrames.ts` 注释明确"status mutation 不碰排序键"），流式推送本身不重排。**send 分支也不刷新**（`chatView.ts` 1805-1826 `case 'send'`：`target.send(...)` 后直接 return）。**A send 后跳到最前的真实路径**：① `attach()` 的 `controller.onDidChange` 里 `state.sessionTitle !== lastSessionTitle` 时 `store.refresh()`（自动命名/标题投影变化触发，A 无标题时 send 后 turn 开始即触发）；② 手动刷新；③ host 流重连。**即"刷新发生"与"用户右键"的先后是偶然的**——案例里刷新恰好落在了用户右键之前，重排把 A 顶到 B 的位置，用户凭旧位置右键 B → 命中 A。**官方 host 事件集是否带 updatedAt 的增量帧未查实**（本地无官方 events.d.ts），按现有注释判断没有；增量路径若有，比整表 refresh 更优，但当前无依据，以 send 时 refresh 为主。
 
+- **refresh()（RPC 拉基线：workspace.list + session.list）触发点全集**（2026-09-02 调研，无轮询机制）：
+  1. 服务状态变为 running（初始化连接）— `sessionsStore.ts:418`
+  2. host 流重连成功后 — `sessionsStore.ts:466`
+  3. **标题变化**（attach 的 `controller.onDidChange`：`sessionTitle` 变化时）— `chatView.ts:1603`（现状 A 跳前面的路径）
+  4. 手动刷新：侧栏刷新按钮（`sessionsView.ts:380`）/ 命令 `dshOne.sessions.refresh`（`extension.ts:111`）
+  5. 显式动作后：新建/未分组新建/改名/归档/分叉（extension.ts 各命令）、行内重命名（`sessionsView.ts:431`）、移除 workspace（`sessionsView.ts:455`）、workspace 添加/创建（`chatView.ts:2062/2071`）、chat 侧 fork/rename（`onSessionsChanged` 回调，`extension.ts:36` → `chatView.ts:2172/2186`）
+  6. **send 后不刷新**（本条目方案①的落点）
+  - 近似但不刷数据的机制：**60s 本地 tick**（`sessionsStore.ts:413`，`RELATIVE_TIME_TICK_MS`）仅 `rebuildModel()` 刷新"N 分钟前"文案，**不发 RPC、不改排序键**；30s 健康检查（`manager.ts:299`）是服务存活探测，与列表无关。**没有 2 分钟定时刷新**。
+
 ## 用户方案（推荐）
 
 **send 等明确动作后刷新基线（列表排序及时追平真实状态）**（用户提案）+ **按住右键/菜单打开期间冻结列表变更位置**。
@@ -57,4 +66,5 @@
 - 2026-09-02 记录问题，核实 webview 侧两处锚断链路径与快照触发链；用户方案（菜单期间冻结重排）记为推荐方向 → open
 - 2026-09-02 用户补充：默认排序（updatedDesc）+「鼠标悬浮、右键之前排序变了」场景——核实 W1 机理（同步重建、命中行=重排后行、瞄准时机错位），冻结窗口改为 pointerdown 起（覆盖 W2/W3），补 W1 防御（菜单标题显式化 + 重排可感知提示）
 - 2026-09-02 用户给出真实复现案例（A send 后变最新跳前 → 右键"B 的位置"命中 A 误归档）并提案「每次发送就刷新」：核实 send 分支无 refresh、A 跳前面的现状路径为标题变化触发的 refresh；方案定为①send 时 refresh（用户提案）+②pointerdown 起冻结+③菜单首行显示会话名，附加待确认真机基准行为
+- 2026-09-02 调研 refresh 触发点全集：无轮询（无 2min 定时刷新）；近似机制 60s 本地 tick 仅刷相对时间文案（不发 RPC）；确认方案①为新增显式触发点（send 后追平 updatedAt），非替代轮询
 
