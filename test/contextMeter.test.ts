@@ -69,9 +69,9 @@ test('切到更小窗口后立即用新窗口重算：未超限 → warn/danger�
   assert.deepEqual(o, { level: 'overflow', perTurn: null, turnsLeft: null })
 })
 
-test('contextUsageUnknown：窗口未知占位，保留已用量（映射无记录时不沿用旧窗口）', () => {
+test('contextUsageUnknown：占位必须有已用量采样，无采样 = 无占位', () => {
   // 有已用量采样：占位带上 usedTokens（panel 仍能显示「已用 ~245K」）。
   assert.deepEqual(contextUsageUnknown(245_000), { windowUnknown: true, usedTokens: 245_000 })
-  // 无采样（从未有过压力）：纯占位。
-  assert.deepEqual(contextUsageUnknown(undefined), { windowUnknown: true })
+  // 无采样（空白对话，从未有过压力）：不构成占位——无数据可标，调用方不显示。
+  assert.equal(contextUsageUnknown(undefined), undefined)
 })

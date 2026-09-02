@@ -198,7 +198,7 @@
         { workspaceId: 'ws-another', path: '/tmp/another-project', title: 'another-project' },
       ], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
       title: '空会话 hero',
-      expect: '空会话 hero（无历史）：品牌鱼标 + 标题「探索未至之境预览版」+ workspace 选择 chip（dsh-one，文件夹图标 + 名称 + chevron，可点击）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）。',
+      expect: '空会话 hero（无历史）：品牌鱼标 + 标题「探索未至之境预览版」+ workspace 选择 chip（dsh-one，文件夹图标 + 名称 + chevron，可点击）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）；composer 右下角**无** contextBar——无「窗口未知」灰字占位、无进度条、无悬停说明（空白对话无任何上下文数据，切换模型后也不显示任何上下文指示）。',
     },
 
     'workspace-picker-open': {
@@ -380,6 +380,16 @@
       interact: `document.querySelector('.context-bar')?.click()`,
       title: 'contextBar：切换后窗口未知（占位）',
       expect: '右下角 contextBar 显示灰字占位「窗口未知」（而非旧 1M 窗口的占用比例）；悬停 title 为说明（该模型尚未产生上下文数据、发送下一条消息后显示）；点击占位弹出面板：头部「窗口用量未知」+「已用 ~245K」+ 说明行（中性灰，非红色错误）。',
+    },
+
+    'context-switch-window-unknown-blank': {
+      state: base({
+        // 空白对话切到未观察窗口模型的旧实现载荷：裸占位（无已用量采样）。
+        // 数据层已不产生该状态；webview 防御性当无数据显示，绝不画空占位。
+        contextUsage: { windowUnknown: true },
+      }),
+      title: 'contextBar：空白对话切模型（无采样）不显示占位',
+      expect: 'composer 右下角**无** contextBar：没有「窗口未知」灰字占位、没有进度条、没有可点击区域，更没有悬停/点开面板；页面与未发生过模型切换的对话一致——空白对话没有任何上下文数据可标。',
     },
 
     // ================= 侧栏 sessions 面板（拆分后独立 webview） =================
