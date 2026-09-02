@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
-import type { ChatState, ChatTodoItem, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem } from '../pure/chatContract.ts'
+import type { ChatState, ChatGoal, ChatTodoItem, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem } from '../pure/chatContract.ts'
 import { ConversationFolder, applyFeedbackRatings } from '../pure/conversation.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { WorkflowRunFolder } from '../pure/workflowRun.ts'
@@ -11,19 +11,23 @@ import { subscribeMuxEvents } from './muxEvents.ts'
 import type { MuxFrame } from './muxEvents.ts'
 import {
   cancelSession,
+  clearGoal,
   deleteMessageFeedback,
+  editGoal,
   forkSession,
   listAgentPresets,
   listMessageFeedback,
+  pauseGoal,
   promptSession,
   putMessageFeedback,
   respond,
+  resumeGoal,
   selectAgentPreset,
   sessionHistory,
   sessionModels,
   updateQueue,
 } from './dshRpc.ts'
-import type { ImageLimits, SessionModelSelection, SessionModels } from './dshRpc.ts'
+import type { GoalRef, ImageLimits, SessionModelSelection, SessionModels } from './dshRpc.ts'
 import { agentPresetDescription, agentPresetLabel, defaultAgentPresetId, resolveAgentPresets } from '../pure/agentPreset.ts'
 import type { AgentPresetOption } from '../pure/agentPreset.ts'
 import { extendWindowCursor, pageMeetsWindow, windowCursorOf } from '../pure/historyWindow.ts'
@@ -319,6 +323,9 @@ export class ChatSessionController implements vscode.Disposable {
   /** Task list from the `todos` projection (last-wins 整表、turn/start 置 null). */
   private todos: ChatTodoItem[] | undefined
   private todosSeq = -1
+  /** Current goal from the `goal` projection（goal/change last-wins；null = 明确无目标）。 */
+  private goal: ChatGoal | null | undefined
+  private goalSeq = -1
   /** Image intake limits from the `imageLimits` projection; undefined = no pre-check. */
   imageLimits: ImageLimits | undefined
   /** Plan-mode state from the `plan` projection (higher seq wins); undefined = host has no plan projection. */
@@ -389,6 +396,7 @@ export class ChatSessionController implements vscode.Disposable {
       plan: this.plan,
       statsLine: this.statsLine,
       todos: this.todos,
+      goal: this.goal,
       contextUsage: contextUsageOf(this.contextPressure, this.contextBreakdown, this.statsTurns, this.windowUnknown),
       // 只透给空会话：turn 一开跑 host 就锁定 preset（agent-preset-locked）。
       ...(!this.turnStarted && this.agentPresetOptions.length > 0 && this.agentPresetCurrent
@@ -496,6 +504,41 @@ export class ChatSessionController implements vscode.Disposable {
   /** Drop one queued prompt. */
   async removeQueued(itemId: string): Promise<void> {
     await updateQueue(this.url, this.sessionId, itemId, { kind: 'remove' })
+  }
+
+  /** Current goal's CAS ref; undefined when the projection has no goal. */
+  private currentGoalRef(): GoalRef | undefined {
+    const goal = this.goal
+    if (goal === undefined || goal === null) return undefined
+    return { id: goal.id, revision: goal.revision }
+  }
+
+  /** Pause the current goal（goals/pause；CAS 由投影快照的 ref 携带）。 */
+  async goalPause(): Promise<void> {
+    const ref = this.currentGoalRef()
+    if (ref === undefined) return
+    await pauseGoal(this.url, this.sessionId, ref)
+  }
+
+  /** Resume the current goal（goals/resume）。 */
+  async goalResume(): Promise<void> {
+    const ref = this.currentGoalRef()
+    if (ref === undefined) return
+    await resumeGoal(this.url, this.sessionId, ref)
+  }
+
+  /** Edit the current goal's objective（goals/edit；空串由宿主侧拒绝）。 */
+  async goalEdit(objective: string): Promise<void> {
+    const ref = this.currentGoalRef()
+    if (ref === undefined) return
+    await editGoal(this.url, this.sessionId, ref, objective)
+  }
+
+  /** Clear the current goal（goals/clear；投影随后变 null，条幅消失）。 */
+  async goalClear(): Promise<void> {
+    const ref = this.currentGoalRef()
+    if (ref === undefined) return
+    await clearGoal(this.url, this.sessionId, ref)
   }
 
   /** Replace a queued prompt's text, preserving its non-text content (images). */
@@ -649,10 +692,12 @@ export class ChatSessionController implements vscode.Disposable {
       this.breakdownSeq = projections.asOfSeq
       this.todosSeq = projections.asOfSeq
       this.planSeq = projections.asOfSeq
+      this.goalSeq = projections.asOfSeq
       this.applyPermissionsValue(projections.values.permissions)
       this.applyStatsValue(projections.values.sessionStats)
       this.applyTodosValue(projections.values.todos)
       this.applyPlanValue(projections.values.plan)
+      this.applyGoalValue(projections.values.goal)
       const limits = asImageLimits(projections.values.imageLimits)
       if (limits) this.imageLimits = limits
       const pressure = asContextPressure(projections.values.contextPressure)
@@ -860,6 +905,56 @@ export class ChatSessionController implements vscode.Disposable {
     this.plan = { active: v.active, pending: v.pending }
   }
 
+  /**
+   * Fold one `goal` projection value. null（create 前 / clear 后）存 null；
+   * 畸形值归为 undefined（未收到投影），两者 webview 都不渲染。合法值是
+   * { goal: {...}, roundsStarted, createdAt, updatedAt }，只取内层 goal。
+   */
+  private applyGoalValue(value: unknown): void {
+    if (value === null) {
+      this.goal = null
+      return
+    }
+    if (typeof value !== 'object' || value === null) {
+      this.goal = undefined
+      return
+    }
+    const inner = (value as { goal?: unknown }).goal
+    if (typeof inner !== 'object' || inner === null) {
+      this.goal = undefined
+      return
+    }
+    const g = inner as Record<string, unknown>
+    if (
+      typeof g.id !== 'string' ||
+      typeof g.revision !== 'number' ||
+      typeof g.objective !== 'string' ||
+      (g.phase !== 'active' && g.phase !== 'paused' && g.phase !== 'blocked' && g.phase !== 'complete') ||
+      typeof g.maxGoalRounds !== 'number'
+    ) {
+      this.goal = undefined
+      return
+    }
+    const blocked = g.blockedReason
+    this.goal = {
+      id: g.id,
+      revision: g.revision,
+      objective: g.objective,
+      phase: g.phase,
+      maxGoalRounds: g.maxGoalRounds,
+      ...(typeof blocked === 'object' &&
+      blocked !== null &&
+      typeof (blocked as Record<string, unknown>).message === 'string'
+        ? {
+            blockedReason: {
+              code: String((blocked as Record<string, unknown>).code ?? ''),
+              message: (blocked as Record<string, unknown>).message as string,
+            },
+          }
+        : {}),
+    }
+  }
+
   private onFrame(frame: MuxFrame): void {
     if (this.disposed) return
     const payload = (frame.payload ?? {}) as Record<string, unknown>
@@ -960,6 +1055,13 @@ export class ChatSessionController implements vscode.Disposable {
             if (seq <= this.planSeq) return
             this.planSeq = seq
             this.applyPlanValue(payload.value)
+            this.push(true)
+            return
+          }
+          case 'goal': {
+            if (seq <= this.goalSeq) return
+            this.goalSeq = seq
+            this.applyGoalValue(payload.value)
             this.push(true)
             return
           }

@@ -993,6 +993,46 @@ const STYLE = `
   @media (prefers-reduced-motion: reduce) { .todo-progress-spin { animation: none; } }
   /* 消息内 todo_write 任务卡尾部「+N」其余进行中数（对齐 web TodoRow suffix）。 */
   .tool-todo-extra { flex: none; opacity: 0.7; font-size: 0.9em; font-variant-numeric: tabular-nums; }
+  /* 目标条幅（对齐官方 GoalBar / input.dock id=goal order 10：todo 与 queue
+     之间的 36px 横条）：goal 图标 + phase 标签 + 截断 objective + 图标操作
+     （active 暂停 / paused 恢复，恒有编辑与清除；编辑态条内内联 input）。 */
+  .goal-bar-dock {
+    flex: none; border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .todo-panel + .goal-bar-dock { border-top: 0; }
+  .goal-bar-dock + .queue { border-top: 0; }
+  .goal-bar {
+    display: flex; align-items: center; gap: 10px;
+    box-sizing: border-box; height: 36px; padding: 4px 6px 4px 12px;
+  }
+  .goal-bar-glyph { flex: none; display: inline-flex; color: var(--vscode-descriptionForeground, #888); }
+  .goal-bar-label { flex: none; font-size: 13px; font-weight: 500; }
+  .goal-bar-objective {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 13px; opacity: 0.75;
+  }
+  .goal-bar-actions { flex: none; display: flex; align-items: center; gap: 2px; }
+  .goal-bar-btn {
+    width: 28px; height: 28px; padding: 0; display: inline-flex;
+    align-items: center; justify-content: center;
+    color: var(--vscode-descriptionForeground, #888);
+    background: transparent; border: none; border-radius: 50%; cursor: pointer;
+  }
+  .goal-bar-btn:hover:not(:disabled) {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.17));
+    color: var(--vscode-foreground, #ccc);
+  }
+  .goal-bar-btn:disabled { cursor: default; opacity: 0.4; }
+  .goal-bar-input {
+    flex: 1; min-width: 0; box-sizing: border-box; height: 26px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, transparent);
+    border-radius: 6px; padding: 0 8px; font-size: 13px;
+  }
+  .goal-bar-input:focus {
+    outline: 1px solid var(--vscode-focusBorder, #007fd4); outline-offset: -1px;
+  }
   .input-row { display: flex; gap: 8px; align-items: center; }
   .input-footer { display: flex; gap: 6px; align-items: center; }
   .stats-row { display: flex; align-items: center; gap: 10px; }
@@ -1890,6 +1930,18 @@ export class ChatViewProvider implements vscode.Disposable {
           return
         case 'queueRemove':
           await controller.removeQueued(m.itemId)
+          return
+        case 'goalPause':
+          await controller.goalPause()
+          return
+        case 'goalResume':
+          await controller.goalResume()
+          return
+        case 'goalEdit':
+          await controller.goalEdit(m.objective)
+          return
+        case 'goalClear':
+          await controller.goalClear()
           return
         case 'requestAttachment':
           await this.sendAttachment(controller, m.attachmentId)

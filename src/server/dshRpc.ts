@@ -353,6 +353,51 @@ export async function executeCommand(
   return { matched: true, kind: value.result.kind, text: value.result.text }
 }
 
+/** Loose mirror of dsh-goal's GoalRef: the CAS token every goals/* mutation echoes. */
+export interface GoalRef {
+  id: string
+  revision: number
+}
+
+/** Loose mirror of dsh-goal's GoalState (mutation result; the `goal` projection value's inner object). */
+export interface GoalStateLike {
+  id: string
+  revision: number
+  objective: string
+  phase: 'active' | 'paused' | 'blocked' | 'complete'
+  blockedReason?: { code: string; message: string }
+  maxGoalRounds: number
+}
+
+/**
+ * Goal mutations over the generic /api RPC channel (dsh-goal service, same
+ * envelope as commands/execute: `agentId` + CAS `ref` in `args`). The host
+ * pushes the next `goal` projection after each committed change; the returned
+ * state is only used to surface immediate errors.
+ */
+export async function pauseGoal(baseUrl: string, sessionId: string, ref: GoalRef): Promise<GoalStateLike> {
+  return callRpc<GoalStateLike>(baseUrl, 'goals/pause', { args: { agentId: sessionId, ref } })
+}
+
+export async function resumeGoal(baseUrl: string, sessionId: string, ref: GoalRef): Promise<GoalStateLike> {
+  return callRpc<GoalStateLike>(baseUrl, 'goals/resume', { args: { agentId: sessionId, ref } })
+}
+
+export async function editGoal(
+  baseUrl: string,
+  sessionId: string,
+  ref: GoalRef,
+  objective: string,
+): Promise<GoalStateLike> {
+  return callRpc<GoalStateLike>(baseUrl, 'goals/edit', {
+    args: { agentId: sessionId, ref, request: { objective } },
+  })
+}
+
+export async function clearGoal(baseUrl: string, sessionId: string, ref: GoalRef): Promise<GoalRef> {
+  return callRpc<GoalRef>(baseUrl, 'goals/clear', { args: { agentId: sessionId, ref } })
+}
+
 /** Loose mirror of ModelSelection (apiproxy sessions.d.ts). */
 export interface SessionModelSelection {
   provider: string

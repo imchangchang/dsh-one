@@ -329,6 +329,22 @@ export interface ChatTodoItem {
   status: 'pending' | 'in_progress' | 'completed'
 }
 
+/**
+ * The current goal (`goal` projection value's inner `goal` object; the outer
+ * roundsStarted/createdAt/updatedAt are not rendered). Loose mirror of
+ * dsh-goal's goalProjectionSchema. `blockedReason` carries the blocker's
+ * code/message while phase is 'blocked'.
+ */
+export interface ChatGoal {
+  id: string
+  /** CAS revision; every mutation must echo the ref it saw. */
+  revision: number
+  objective: string
+  phase: 'active' | 'paused' | 'blocked' | 'complete'
+  blockedReason?: { code: string; message: string }
+  maxGoalRounds: number
+}
+
 /** Whole-chat snapshot pushed host → webview (throttled; replaces state). */
 export interface ChatState {
   sessionId: string | null
@@ -459,6 +475,13 @@ export interface ChatState {
    * 非空时 webview 在输入区上方渲染可折叠卡（对齐官方 TodoPanel/TodoDock）。
    */
   todos?: ChatTodoItem[]
+  /**
+   * 当前目标（`goal` 投影，`goal/change` 事件 last-wins 折叠；未收到投影时
+   * 缺省）。缺省与 null 都渲染为空（webview 不显示条幅）；非 null 且非
+   * complete 时 webview 在 todo 与 queue 之间渲染目标条幅（对齐官方
+   * GoalBar / input.dock order 10，含暂停/恢复/编辑/清除操作）。
+   */
+  goal?: ChatGoal | null
   /**
    * 会话日志里的 workflow 运行卡片（tool-workflow/* 事件按 runId 折叠，见
    * src/pure/workflowRun.ts）：webview 按 anchorSeq 插进消息流渲染成
@@ -619,6 +642,11 @@ export type FromWebviewMessage =
   | { type: 'queueEdit'; itemId: string; text: string }
   | { type: 'queueSteer'; itemId: string }
   | { type: 'queueRemove'; itemId: string }
+  /** Goal bar actions（对齐官方 dsh-client-ui-goal 的 GoalBar 操作；宿主持 ref 调 goals/* RPC）。 */
+  | { type: 'goalPause' }
+  | { type: 'goalResume' }
+  | { type: 'goalEdit'; objective: string }
+  | { type: 'goalClear' }
   | { type: 'requestAttachment'; attachmentId: string }
   /** Set/clear the user's rating on one assistant message (null clears). */
   | { type: 'feedback'; messageId: string; rating: 'positive' | 'negative' | null }

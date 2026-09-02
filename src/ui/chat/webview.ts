@@ -7,11 +7,12 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { CONTEXT_BROWSE_ICON, CODE_ICON, FISH_LOGO, MESSAGE_ACTION_ICONS, PANEL_ICONS, SKILL_ICON, STOP_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
+import { CONTEXT_BROWSE_ICON, CODE_ICON, FISH_LOGO, GOAL_ICONS, MESSAGE_ACTION_ICONS, PANEL_ICONS, SKILL_ICON, STOP_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
   ChatFile,
+  ChatGoal,
   ChatImage,
   ChatMessage,
   ChatRetryBlock,
@@ -1804,6 +1805,12 @@ function render(): void {
     oldQueueEditor && document.activeElement === oldQueueEditor
       ? { start: oldQueueEditor.selectionStart, end: oldQueueEditor.selectionEnd }
       : null
+  // Goal bar 编辑 input 同款保活（快照每帧重建，draft 靠 goalDraft 恢复）。
+  const oldGoalInput = document.querySelector<HTMLInputElement>('.goal-bar-input')
+  const goalFocus =
+    oldGoalInput && document.activeElement === oldGoalInput
+      ? { start: oldGoalInput.selectionStart, end: oldGoalInput.selectionEnd }
+      : null
   // Pending 面板（approval/question/plan-review 接管 composer 区）保活：与
   // composer/header 同款策略。流式快照每帧重建面板，正在输入回答的输入框
   // 被销毁重造（draft 文本靠 answerDrafts 恢复，但焦点/光标/进行中的 IME
@@ -2201,6 +2208,13 @@ function render(): void {
     add(renderTodoPanel(state.todos))
   }
 
+  // 目标条幅（对齐官方 input.dock id=goal order 10：todo 之后、queue 之前）：
+  // 缺省/null（无投影 / create 前 / clear 后）与 complete 目标都不渲染。
+  if (state.goal) {
+    const goalBar = renderGoalBar(state.goal)
+    if (goalBar) add(goalBar)
+  }
+
   if (queuedItems.length > 0) {
     if (editingQueueItem && !queuedItems.some((item) => item.id === editingQueueItem)) editingQueueItem = null
     const queue = el('div', 'queue')
@@ -2299,6 +2313,15 @@ function render(): void {
   if (queueEditor && queueFocus) {
     queueEditor.focus()
     queueEditor.setSelectionRange(queueFocus.start, queueFocus.end)
+  }
+  const goalInput = document.querySelector<HTMLInputElement>('.goal-bar-input')
+  if (goalInput && (goalFocus !== null || goalAutoFocus)) {
+    goalInput.focus()
+    goalInput.setSelectionRange(
+      goalFocus !== null ? goalFocus.start : goalInput.value.length,
+      goalFocus !== null ? goalFocus.end : goalInput.value.length,
+    )
+    goalAutoFocus = false
   }
   if (!keepComposer) {
     const input = document.getElementById('input') as HTMLTextAreaElement
@@ -2657,6 +2680,129 @@ function todoProgressLabel(todos: ChatTodoItem[]): string {
   ]
     .filter(Boolean)
     .join(' · ')
+}
+
+/**
+ * 目标条幅编辑态（对齐官方 dsh-client-ui-goal GoalBar）：快照每帧重建 DOM，
+ * draft 用模块级状态跨帧保留，焦点选区由 render() 恢复（见 goalFocus）。
+ * goalEditingId 记着进入编辑态时的 goal id——换目标/换会话时自动退出编辑。
+ */
+let goalEditingId: string | null = null
+let goalDraft = ''
+/** 刚进入编辑态（点编辑按钮后的一次 render）：自动聚焦 input（对齐 web autoFocus）。 */
+let goalAutoFocus = false
+
+/** 目标条幅的图标按钮（28px 圆形、14px 图标，对齐 web GoalBar 的 iconBtn）。 */
+function goalIconButton(icon: IconDef, title: string): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.className = 'goal-bar-btn'
+  b.title = title
+  b.setAttribute('aria-label', title)
+  b.appendChild(iconSvg(icon, 14))
+  return b
+}
+
+/** phase 标签文案（官方 zh 字典原样）。 */
+const GOAL_PHASE_LABELS: Record<ChatGoal['phase'], string> = {
+  active: '进行中的目标',
+  paused: '已暂停的目标',
+  blocked: '受阻的目标',
+  complete: '',
+}
+
+/**
+ * Goal 条幅（对齐官方 GoalBar：输入区上方、todo 之后 queue 之前的一条横带）：
+ * 图标 + phase 标签 + 截断的 objective + 操作按钮。active 显示暂停、paused
+ * 显示恢复、恒有编辑（条内内联 input，Enter 保存 / Escape 取消）与清除；
+ * complete 返回 null 不渲染。blocked 时整条 title 显示受阻原因。
+ */
+function renderGoalBar(goal: ChatGoal): HTMLElement | null {
+  if (goal.phase === 'complete') return null
+  // 换目标（含 clear 后重开、切会话）时退出残留编辑态。
+  if (goalEditingId !== null && goalEditingId !== goal.id) {
+    goalEditingId = null
+    goalDraft = ''
+  }
+  const dock = el('div', 'goal-bar-dock')
+  const bar = el('div', 'goal-bar')
+  bar.setAttribute('data-goal-bar', '')
+  if (goal.phase === 'blocked') bar.title = goal.blockedReason?.message ?? ''
+
+  if (goalEditingId === goal.id) {
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.className = 'goal-bar-input'
+    input.value = goalDraft
+    input.setAttribute('aria-label', '目标内容')
+    input.addEventListener('input', () => {
+      goalDraft = input.value
+      save.disabled = goalDraft.trim() === ''
+    })
+    input.addEventListener('keydown', (e) => {
+      // isComposing: IME 候选窗打开时不保存（与 queue 编辑器同款）。
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault()
+        save.click()
+      } else if (e.key === 'Escape') {
+        goalEditingId = null
+        goalDraft = ''
+        render()
+      }
+    })
+    bar.appendChild(input)
+    const actions = el('div', 'goal-bar-actions')
+    const save = goalIconButton(MESSAGE_ACTION_ICONS.check, '保存目标')
+    save.disabled = goalDraft.trim() === ''
+    save.addEventListener('click', () => {
+      const text = goalDraft.trim()
+      if (text === '') return
+      goalEditingId = null
+      goalDraft = ''
+      post({ type: 'goalEdit', objective: text })
+    })
+    const cancel = goalIconButton(GOAL_ICONS.close, '取消编辑')
+    cancel.addEventListener('click', () => {
+      goalEditingId = null
+      goalDraft = ''
+      render()
+    })
+    actions.appendChild(save)
+    actions.appendChild(cancel)
+    bar.appendChild(actions)
+    dock.appendChild(bar)
+    return dock
+  }
+
+  const glyph = el('span', 'goal-bar-glyph')
+  glyph.appendChild(iconSvg(GOAL_ICONS.goal, 14))
+  bar.appendChild(glyph)
+  bar.appendChild(el('span', 'goal-bar-label', GOAL_PHASE_LABELS[goal.phase]))
+  bar.appendChild(el('span', 'goal-bar-objective', goal.objective))
+  const actions = el('div', 'goal-bar-actions')
+  if (goal.phase === 'active') {
+    const pause = goalIconButton(GOAL_ICONS.pause, '暂停目标')
+    pause.addEventListener('click', () => post({ type: 'goalPause' }))
+    actions.appendChild(pause)
+  } else if (goal.phase === 'paused') {
+    const resume = goalIconButton(GOAL_ICONS.play, '恢复目标')
+    resume.addEventListener('click', () => post({ type: 'goalResume' }))
+    actions.appendChild(resume)
+  }
+  const edit = goalIconButton(PANEL_ICONS.edit, '编辑目标')
+  edit.addEventListener('click', () => {
+    goalDraft = goal.objective
+    goalEditingId = goal.id
+    goalAutoFocus = true
+    render()
+  })
+  const clear = goalIconButton(GOAL_ICONS.trash, '清除目标')
+  clear.addEventListener('click', () => post({ type: 'goalClear' }))
+  actions.appendChild(edit)
+  actions.appendChild(clear)
+  bar.appendChild(actions)
+  dock.appendChild(bar)
+  return dock
 }
 
 /**

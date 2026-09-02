@@ -285,6 +285,53 @@
       expect: 'composer 上方一条可折叠的「任务 N 已完成 · M 进行中 · K 待处理」摘要卡；内容含三个 todo 项及其状态。',
     },
 
+    // ---- plan 状态 chip（对齐官方 dsh web PlanChip；plan-mode-chip 合入时漏的场景）----
+    'plan-chip': {
+      state: base({ plan: { active: true, pending: false } }),
+      title: 'Plan 状态 chip（plan 模式开启）',
+      expect: 'composer 输入区 footer（权限 pill 与模型 pill 之间）出现黄色 warn 风格「Plan」chip（含关闭图标），点击会发送 /plan off；plan 投影缺失或 active=false 时 chip 不出现。',
+    },
+
+    // ---- goal 条幅（对齐官方 GoalBar / input.dock id=goal order 10）----
+    'goal-active': {
+      state: base({ goal: { id: 'g-1', revision: 3, objective: '给 dsh-one 补 goal 模式条幅，对齐 dsh web 的进行中目标条幅（暂停/编辑/删除）', phase: 'active', maxGoalRounds: 16 } }),
+      title: '目标条幅（进行中）',
+      expect: 'composer 上方、todo/queue 缺席时单独一条 36px 高横条：左起 goal 图标 + 「进行中的目标」标签 + 截断的 objective（超长省略号）+ 右侧三个图标按钮（悬停提示：暂停目标/编辑目标/清除目标）；无「恢复」按钮；条幅与 composer 之间只有一条分隔线。',
+    },
+    'goal-paused': {
+      state: base({ goal: { id: 'g-1', revision: 4, objective: '给 dsh-one 补 goal 模式条幅', phase: 'paused', maxGoalRounds: 16 } }),
+      title: '目标条幅（已暂停）',
+      expect: '条幅标签变为「已暂停的目标」；右侧操作按钮变为：恢复目标（播放图标）+ 编辑目标 + 清除目标，没有「暂停」按钮。',
+    },
+    'goal-blocked': {
+      state: base({ goal: { id: 'g-1', revision: 5, objective: '给 dsh-one 补 goal 模式条幅', phase: 'blocked', maxGoalRounds: 16, blockedReason: { code: 'goal-round-limit', message: '连续多轮无进展，目标受阻' } } }),
+      title: '目标条幅（受阻）',
+      expect: '条幅标签变为「受阻的目标」；整条悬停 title 显示受阻原因（blockedReason.message）；右侧操作按钮为 编辑目标 + 清除目标（无暂停/恢复）。',
+    },
+    'goal-complete': {
+      state: base({ goal: { id: 'g-1', revision: 6, objective: '给 dsh-one 补 goal 模式条幅', phase: 'complete', maxGoalRounds: 16 } }),
+      title: '目标条幅（已完成不渲染）',
+      expect: 'composer 上方没有任何目标条幅（complete 目标不渲染）；页面与无 goal 状态完全一致，没有残留图标或占位。',
+    },
+    'goal-stack': {
+      state: base({
+        todos: [{ content: '梳理架构', status: 'completed' }, { content: '写测试', status: 'in_progress' }],
+        goal: { id: 'g-1', revision: 3, objective: '给 dsh-one 补 goal 模式条幅', phase: 'active', maxGoalRounds: 16 },
+        queue: [
+          { id: 'q-1', placement: 'queued', text: '帮我看看 dev-finish 脚本', editText: '帮我看看 dev-finish 脚本' },
+          { id: 'q-2', placement: 'queued', text: '把 backlog 条目挪到 done', editText: '把 backlog 条目挪到 done' },
+        ],
+      }),
+      title: '目标条幅与 todo/queue 叠放',
+      expect: 'composer 上方垂直叠放三条：最上 todo 清单卡（可折叠「任务…」）、中间目标条幅（进行中的目标）、最下排队 dock（「2 条排队消息」折叠 header）；三者各一条分隔线、无重叠；顺序为 todo → goal → queue → composer。',
+    },
+    'goal-editing': {
+      state: base({ goal: { id: 'g-1', revision: 3, objective: '给 dsh-one 补 goal 模式条幅', phase: 'active', maxGoalRounds: 16 } }),
+      interact: `document.querySelector('.goal-bar-btn[aria-label="编辑目标"]')?.click()`,
+      title: '目标条幅（编辑态）',
+      expect: '点击编辑后：条幅变成单行输入框（预填当前 objective，自动聚焦）+ 右侧两个图标按钮（保存目标：对勾；取消编辑：叉号）；预填非空所以保存按钮初始可用；条内无报错。',
+    },
+
     subagents: {
       state: base({ subagents: [{ sessionId: 'sub-1', title: '子代理 A', running: true, updatedAt: Date.now(), children: [{ sessionId: 'sub-1-1', title: '孙代理', running: false, updatedAt: Date.now() }] }] }),
       title: '子代理下拉',
@@ -1182,6 +1229,7 @@
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',
     'produced-files', 'produced-files-expanded', 'produced-files-wrap',
+    'goal-active',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()
