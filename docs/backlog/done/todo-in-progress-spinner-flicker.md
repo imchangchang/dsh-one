@@ -25,3 +25,5 @@
 - `src/server/chatSession.ts`（快照节流，只作原因说明，不改）
 
 - 2026-09-02 认领（worktree: agent/todo-in-progress-spinner-flicker）→ doing
+
+- 2026-09-02 开发完成，自测通过 → done
