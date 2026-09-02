@@ -119,13 +119,17 @@ async function githubCommitUrl(repo: GitRepository, sha: string): Promise<string
   }
 }
 
-/** 提交日期格式化为 YYYY-MM-DD（title 单行紧凑，不随 locale 变长）。 */
+/** 提交日期格式化为 ISO 完整时间戳（YYYY-MM-DDTHH:mm），悬浮卡的相对时间计算与
+ *  命令行短 hash 展示都用它。只留日期会导致 webview new Date() 解析丢时区偏移，
+ *  显示「N hours ago」比真实时间差几个小时（同日提交会偏到半天）。 */
 function formatCommitDate(date: Date): string {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+  const h = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${d}T${h}:${min}`
 }
 
 /** 逐个仓库查 sha（激活仓库优先），命中即取该仓库的提交信息；全未命中 mark found:false。 */

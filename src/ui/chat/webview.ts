@@ -733,7 +733,7 @@ function commitInfoCard(info: CommitInfoResult): HTMLElement[] {
   if (info.commitDate) {
     const time = el('span', 'commit-card-time')
     time.appendChild(iconSvg(HISTORY_ICON, 16))
-    time.appendChild(document.createTextNode(` ${relativeCommitTime(info)} (${info.commitDate})`))
+    time.appendChild(document.createTextNode(` ${relativeCommitTime(info)} (${info.commitDate?.replace('T', ' ') ?? ''})`))
     authorRow.appendChild(time)
   }
   if (authorRow.childElementCount > 0) parts.push(authorRow)
@@ -864,7 +864,7 @@ function onCommitHashHover(span: HTMLElement, show: boolean): void {
     clearTimeout(commitCardHoverTimer)
     commitCardHoverTimer = null
   }
-  if (popover) return // 已开着（另一个 chip 的卡）
+  if (popover && popoverAnchor === span) return // 同一 chip 已有卡片，不重建
   const sha = span.dataset.sha ?? ''
   const info = commitInfoCache.get(sha)
   if (!info) return // 未确认：不弹卡，走原生 title「正在查询」
