@@ -48,3 +48,4 @@ chat 消息正文里出现「提交 8272a6c」这样的短 commit hash（assista
 - 2026-09-02 Sprint 2 前定稿 5 个待确认点（识别范围用户拍板仅正文，其余按推荐）
 
 - 2026-09-02 认领（Sprint 2 节点，worktree: agent/commit-hash-interactive）→ doing
+- 2026-09-02 开发完成（feat(commit-hash) 三提交：正文 hash 识别为可点击 chip / 点击打开 git 提交视图 / 悬浮提交信息，自测 typecheck+test+build 通过，i18n 门禁通过）→ done

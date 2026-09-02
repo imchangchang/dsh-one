@@ -198,6 +198,19 @@ const STYLE = `
   .session-mention::before, .ref-chip::before { content: '​'; margin-left: -3px; }
   .session-mention svg, .ref-chip svg { flex: none; }
   .session-mention:hover, .ref-chip-link:hover { text-decoration: underline; }
+  /* 消息正文 commit hash（点击打开 git 提交视图 / 悬浮显示提交信息）：等宽字体区分 hex。
+     .commit-hash-found 为查库确认存在的高亮可点态；默认为未确认灰显，点击仍由宿主兜底
+     「未找到该提交」（先查后亮，决策 2/5）。 */
+  .commit-hash {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.95em; white-space: nowrap; cursor: pointer;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .commit-hash:hover { text-decoration: underline; }
+  .commit-hash-found {
+    color: var(--vscode-textLink-foreground); font-weight: 500;
+  }
+  .commit-hash-unknown { opacity: 0.7; }
   /* 用户气泡下方的会话引用摘要行（对齐 dsh web referenceSummary）：小号、降级文字色。 */
   .ref-summary { font-size: 12px; opacity: 0.75; }
   /* 跨会话召回上下文行：图标与文字基线对齐。 */

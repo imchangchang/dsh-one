@@ -20,7 +20,7 @@ import {
 } from '../server/dshRpc.ts'
 import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { FileRefCandidate } from '../pure/fileReference.ts'
-import type { ChatState, FromWebviewMessage, OutgoingImage, ToWebviewMessage } from '../pure/chatContract.ts'
+import type { ChatState, CommitInfoResult, FromWebviewMessage, OutgoingImage, ToWebviewMessage } from '../pure/chatContract.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
 import { splitAttachmentLines } from '../pure/composerAttachment.ts'
 import type { ChatSessionController } from '../server/chatSession.ts'
@@ -34,6 +34,115 @@ export interface ChatTabMessageHandler {
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+// ---- commit hash 联动（点击打开 git 提交视图 / 悬浮显示提交信息） ----
+
+/** vscode.git 扩展 API 的最小形状（只取用到的字段，避免强依赖内置插件类型）。 */
+interface GitCommit {
+  hash: string
+  message: string
+  authorName: string
+  commitDate: Date
+}
+interface GitRepository {
+  rootUri: vscode.Uri
+  getCommit(ref: string): Promise<GitCommit>
+}
+interface GitApi {
+  repositories: GitRepository[]
+  getRepository(uri: vscode.Uri): GitRepository | undefined
+}
+
+/** 取 vscode.git 扩展的 Git API v1；不可用（未装/未激活/无 git 仓库）返回 null。 */
+async function getGitApi(): Promise<GitApi | null> {
+  const ext = vscode.extensions.getExtension<{ getAPI?: (version: number) => GitApi }>('vscode.git')
+  if (!ext) return null
+  try {
+    const exports = ext.isActive ? ext.exports : await ext.activate()
+    return exports?.getAPI?.(1) ?? null
+  } catch {
+    return null
+  }
+}
+
+/** 多仓库时「激活仓库优先」：取附着会话 cwd 所在仓库，退化到活动编辑器所在仓库。 */
+function preferredRepository(api: GitApi, host: ChatTabHost): GitRepository | undefined {
+  const self = host.sessionId ? host.actions.store.rawList().find((s) => s.sessionId === host.sessionId) : undefined
+  if (self?.cwd) {
+    const repo = api.getRepository(vscode.Uri.file(self.cwd))
+    if (repo) return repo
+  }
+  const active = vscode.window.activeTextEditor?.document.uri
+  return active ? api.getRepository(active) : undefined
+}
+
+/** 把 git Commit 压缩成 webview 用的单行信息（subject + 作者 + 日期，决策 4）。 */
+function commitInfoFrom(sha: string, commit: GitCommit): CommitInfoResult {
+  return {
+    sha,
+    found: true,
+    message: (commit.message ?? '').split('\n')[0]?.trim() ?? '',
+    authorName: commit.authorName ?? '',
+    commitDate: formatCommitDate(commit.commitDate),
+  }
+}
+
+/** 提交日期格式化为 YYYY-MM-DD（title 单行紧凑，不随 locale 变长）。 */
+function formatCommitDate(date: Date): string {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/** 逐个仓库查 sha（激活仓库优先），命中即取该仓库的提交信息；全未命中 mark found:false。 */
+async function queryCommitInfo(host: ChatTabHost, shas: string[]): Promise<CommitInfoResult[]> {
+  const api = await getGitApi()
+  const repos = api?.repositories ?? []
+  if (repos.length === 0) return shas.map((sha) => ({ sha, found: false }))
+  const preferred = api ? preferredRepository(api, host) : undefined
+  const ordered = preferred ? [preferred, ...repos.filter((r) => r !== preferred)] : repos
+  const results: CommitInfoResult[] = []
+  for (const sha of shas) {
+    let hit: CommitInfoResult | null = null
+    for (const repo of ordered) {
+      try {
+        const commit = await repo.getCommit(sha)
+        hit = commit ? commitInfoFrom(sha, commit) : null
+      } catch {
+        // 该仓库无此 commit（getCommit 对不存在的 ref 抛错），试下一个
+      }
+      if (hit) break
+    }
+    results.push(hit ?? { sha, found: false })
+  }
+  return results
+}
+
+/** 点击 commit hash：激活仓库优先查库，命中打开该仓库的 SCM 视图（commit graph /
+ *  提交历史嵌在 Source Control 仓库节点下）；全未命中返回 false。 */
+async function openCommit(host: ChatTabHost, sha: string): Promise<boolean> {
+  const api = await getGitApi()
+  const repos = api?.repositories ?? []
+  if (repos.length === 0) return false
+  const preferred = api ? preferredRepository(api, host) : undefined
+  const ordered = preferred ? [preferred, ...repos.filter((r) => r !== preferred)] : repos
+  for (const repo of ordered) {
+    try {
+      const commit = await repo.getCommit(sha)
+      if (!commit) continue
+      // git.openRepository 聚焦 Source Control 面板中该仓库的视图，commit
+      // graph（提交历史）随仓库节点展示；比 git.viewCommit（直接开 diff）更
+      // 符合「跳转到 git 插件看提交历史」的预期（用户 2026-09-02 反馈）。
+      await vscode.commands.executeCommand('git.openRepository', repo)
+      return true
+    } catch {
+      // 该仓库无此 commit，试下一个
+    }
+  }
+  return false
 }
 
 /**
@@ -77,6 +186,28 @@ const globalHandlers: ChatTabMessageHandler[] = [
       if (m.type !== 'sessionOpen' || typeof m.sessionId !== 'string') return
       // 子代理下拉名称 / 会话 @ 引用 chip 点击：打开（或聚焦）该会话的 tab。
       host.actions.openSession(m.sessionId)
+    },
+  },
+]
+
+/** commit hash 联动域：正文 hash 点击打开 git 提交视图，悬浮信息查询（宿主查库，先查后亮）。 */
+const commitHandlers: ChatTabMessageHandler[] = [
+  {
+    types: ['commitInfo'],
+    async handle(host, m) {
+      if (m.type !== 'commitInfo' || !Array.isArray(m.shas)) return
+      const shas = m.shas.filter((s): s is string => typeof s === 'string' && /^[0-9a-fA-F]{7,40}$/.test(s))
+      if (shas.length === 0) return
+      const results = await queryCommitInfo(host, shas)
+      host.postMessage({ type: 'commitInfo', results })
+    },
+  },
+  {
+    types: ['commitOpen'],
+    async handle(host, m) {
+      if (m.type !== 'commitOpen' || typeof m.sha !== 'string' || !/^[0-9a-fA-F]{7,40}$/.test(m.sha)) return
+      const opened = await openCommit(host, m.sha)
+      if (!opened) vscode.window.showInformationMessage(vscode.l10n.t('Commit not found'))
     },
   },
 ]
@@ -446,6 +577,7 @@ const fileHandlers: ChatTabMessageHandler[] = [
 /** 全部 handler：ChatTabHost 按消息 type 分发。 */
 export const chatMessageHandlers: ChatTabMessageHandler[] = [
   ...globalHandlers,
+  ...commitHandlers,
   ...sessionHandlers,
   ...chatHandlers,
   ...workspaceHandlers,
