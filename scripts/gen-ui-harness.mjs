@@ -2,13 +2,13 @@
 // webview 的样式由宿主注入（chatHtml/sessionsHtml 里的 <style>${STYLE|SESSIONS_STYLE}</style>），
 // webview bundle 本身不含 CSS。独立渲染 harness 需要一份静态 CSS，所以从源代码抽取，
 // 保证和源码同步：
-//   - src/ui/chatView.ts    的 STYLE          → chat webview 样式
+//   - src/ui/chatViewHtml.ts 的 STYLE          → chat webview 样式（宿主拆分后由 chatView.ts 移出）
 //   - src/ui/sessionsView.ts 的 SESSIONS_STYLE → 侧栏 sessions 面板样式（拆分后新增）
 // 用法：node scripts/gen-ui-harness.mjs   （在仓库根目录跑）
 import fs from 'node:fs'
 
 const SOURCES = [
-  { src: 'src/ui/chatView.ts', constName: 'STYLE', header: '/* ==== chat webview (src/ui/chatView.ts STYLE) ==== */\n' },
+  { src: 'src/ui/chatViewHtml.ts', constName: 'STYLE', header: '/* ==== chat webview (src/ui/chatViewHtml.ts STYLE) ==== */\n' },
   { src: 'src/ui/sessionsView.ts', constName: 'SESSIONS_STYLE', header: '/* ==== sessions 面板 (src/ui/sessionsView.ts SESSIONS_STYLE) ==== */\n' },
 ]
 const OUT = 'test/ui/style.css'
