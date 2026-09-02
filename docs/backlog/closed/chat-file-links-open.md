@@ -42,3 +42,5 @@
 - 2026-09-02：开发完成（doing → done），自测通过（typecheck/test/build），待人工 dev-ui-test 验收后合入。
 
 - 2026-09-02：dev-ui-test 反馈 .xlsx 链接报「binary」打不开，已补：文件存在但编辑器打不开时退化到系统默认应用打开（openFileInEditor 三处共用，链接/产物/附件行为统一）。
+
+- 2026-09-02：主线合入（merge commit cc37d52），dev-merge 复测（typecheck/test/build）通过，dev-ui-test 人工验收通过 → closed。
