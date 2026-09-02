@@ -285,6 +285,13 @@
       expect: 'composer 上方一条可折叠的「任务 N 已完成 · M 进行中 · K 待处理」摘要卡；内容含三个 todo 项及其状态。',
     },
 
+    // ---- plan 状态 chip（对齐官方 dsh web PlanChip；plan-mode-chip 合入时漏的场景）----
+    'plan-chip': {
+      state: base({ plan: { active: true, pending: false } }),
+      title: 'Plan 状态 chip（plan 模式开启）',
+      expect: 'composer 输入区 footer（权限 pill 与模型 pill 之间）出现黄色 warn 风格「Plan」chip（含关闭图标），点击会发送 /plan off；plan 投影缺失或 active=false 时 chip 不出现。',
+    },
+
     // ---- goal 条幅（对齐官方 GoalBar / input.dock id=goal order 10）----
     'goal-active': {
       state: base({ goal: { id: 'g-1', revision: 3, objective: '给 dsh-one 补 goal 模式条幅，对齐 dsh web 的进行中目标条幅（暂停/编辑/删除）', phase: 'active', maxGoalRounds: 16 } }),
