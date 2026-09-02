@@ -131,6 +131,38 @@
       expect: '右键点击 https 链接后弹出自绘菜单（popover，定位于鼠标附近）：两项「在系统浏览器中打开」「在 VS Code 内置浏览器中打开」（均带浏览图标）；页面不导航，chat 界面（消息/composer）原样保留。',
     },
 
+    'commit-hash-found': {
+      // 消息正文含 commit hash，interact 模拟宿主回传 commitInfo（found，带完整信息）。
+      // 用暗色主题：harness 亮色未定义 --vscode-textLink-foreground（VS Code 才注入），
+      // 链接色/高亮在亮色下会回退黑，暗色下能正确显示。
+      theme: 'dark',
+      state: base({
+        messages: [at('本轮合入完成。最近提交：`351a766`，详见提交说明。')],
+      }),
+      interact: `(() => {
+        window.postMessage({ type: 'commitInfo', results: [{
+          sha: '351a766', found: true, commitHash: '351a7664d4f6e86bb0ef58c94d84d0ee1fb9aa53',
+          message: 'backlog: commit-hash-interactive 开发完成（doing → done）',
+          fullMessage: 'backlog: commit-hash-interactive 开发完成（doing → done）\\n\\n- 追加人工验收提示\\n- 检查点详见条目',
+          authorName: 'cgeng', commitDate: '2026-09-02',
+        }] }, '*')
+      })()`,
+      title: 'commit hash 先查后亮：found 点亮（完整信息卡）',
+      expect: '助手消息文本里 "351a766" 渲染成 commit-hash chip：先查后亮——interact 回传 found 后 chip 为已点亮态（.commit-hash-found，链接色，可点击）；悬浮 title 为多行卡片（完整 message 含换行 body → 作者 · 日期 → 完整 40 位 hash）。截图核对：chip 高亮、等宽、可点光标；t(该 hash 在正文/行内 code 内均可点亮)。未确认前（截图静态时若 interact 未跑则灰显）——interact 已回传，应为点亮态。行内 code 里的 hash 也要是对应的 chip 形式。',
+    },
+
+    'commit-hash-not-found': {
+      theme: 'dark',
+      state: base({
+        messages: [at('仓库没有这个提交：`deadbeef1234`。')],
+      }),
+      interact: `(() => {
+        window.postMessage({ type: 'commitInfo', results: [{ sha: 'deadbeef1234', found: false }] }, '*')
+      })()`,
+      title: 'commit hash 先查后亮：仓库外 hash 灰显',
+      expect: '"deadbeef1234" 渲染成 commit-hash chip；回传 found:false 后为未命中态（.commit-hash-unknown，微透明灰显，仍可点——点击由宿主提示「未找到该提交」）。截图核对：chip 灰显/微透明、等宽；不是高亮链接色（对比 commit-hash-found 场景）。',
+    },
+
     'session-mention': {
       // 用户气泡走纯文本渲染，mention 按 `@[label](dsh-session:...)` 切成 chip + 正文。
       state: base({
