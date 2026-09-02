@@ -30,3 +30,5 @@ diff 卡当前是**固定左右分栏**：`.diff-row` 为两列 `1fr 1fr` grid�
 - 2026-09-02 提出（用户建议 + 方案确认）→ open
 
 - 2026-09-02 认领（Sprint 1 节点，worktree: agent/diff-responsive-layout）→ doing
+
+- 2026-09-02 开发完成（worktree: agent/diff-responsive-layout，commit 79bd1bb）：`.diff` 设 `container-type: inline-size`，窄容器（≤480px）纯 CSS 切单栏——相同行只显一遍、修改行 old 红上/new 绿下、纯增/删灰空占位隐藏、行对加间距；宽容器保持左右分栏。typecheck / test（336 pass）/ build 全过，`done/diff-responsive-layout` 标记已打 → done
