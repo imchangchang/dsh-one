@@ -294,8 +294,33 @@ const STYLE = `
   .msg.context summary { cursor: pointer; }
   .context-body {
     white-space: pre-wrap; word-break: break-word; margin-top: 6px;
-    max-height: 300px; overflow-y: auto; opacity: 0.85;
+    max-height: 141px; overflow-y: auto; opacity: 0.85;
   }
+  .context-summary { margin-left: 6px; opacity: 0.8; }
+  .context-note { font-size: 0.85em; opacity: 0.65; margin-bottom: 4px; }
+  .context-model-body { margin: 6px 0 0; font-size: 0.9em; opacity: 0.9; white-space: pre-wrap; word-break: break-word; }
+  /* instructions form：文件变更列表 [action] path */
+  .ctx-changes { display: flex; flex-direction: column; gap: 2px; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em; }
+  .ctx-change { display: flex; gap: 8px; align-items: baseline; font-family: var(--vscode-editor-font-family, monospace); }
+  .ctx-change-action { flex: none; opacity: 0.6; }
+  .ctx-change-path { min-width: 0; overflow-wrap: anywhere; }
+  /* catalog form：能力目录 entries */
+  .ctx-entries { display: flex; flex-direction: column; gap: 3px; font-size: 0.88em; }
+  .ctx-entry { display: flex; gap: 8px; align-items: baseline; }
+  .ctx-entry-name { font-weight: 600; opacity: 0.85; flex: none; }
+  .ctx-entry-desc { opacity: 0.7; overflow-wrap: anywhere; }
+  /* snapshot form：分段 dl（name + boundedText） */
+  .ctx-sections { display: flex; flex-direction: column; gap: 6px; font-size: 0.88em; }
+  .ctx-section-name { font-weight: 600; opacity: 0.85; }
+  .ctx-section-text { opacity: 0.75; white-space: pre-wrap; word-break: break-word; }
+  /* relay form：来自会话行 */
+  .ctx-relay { font-size: 0.88em; }
+  .ctx-relay-from { opacity: 0.75; }
+  /* recall form：每个召回会话的完整性摘要 */
+  .ctx-recall { display: flex; flex-direction: column; gap: 3px; font-size: 0.88em; }
+  .ctx-recall-row { display: flex; gap: 8px; align-items: baseline; }
+  .ctx-recall-label { opacity: 0.85; overflow-wrap: anywhere; }
+  .ctx-recall-truncated { flex: none; opacity: 0.6; font-size: 0.85em; }
   .reasoning summary {
     cursor: pointer; opacity: 0.75; font-size: 0.9em;
     display: flex; align-items: center; gap: 5px;
