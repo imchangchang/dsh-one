@@ -75,5 +75,7 @@
   "attachment file": "附件文件",
   "{0} no longer exists (it may have been moved or deleted): {1}": "{0}已不存在（可能已被移动或删除）：{1}",
   "Failed to open {0}: {1}": "打开{0}失败：{1}",
-  "Session reference copied. Paste it into the input box to mention this session": "已复制会话引用，粘贴到输入框即可 @ 这个会话"
+  "Session reference copied. Paste it into the input box to mention this session": "已复制会话引用，粘贴到输入框即可 @ 这个会话",
+  "linked file": "链接文件",
+  "Failed to resolve the path in the link: {0}": "无法解析链接中的路径：{0}"
 }

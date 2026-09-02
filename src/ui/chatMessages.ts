@@ -345,6 +345,36 @@ const fileHandlers: ChatTabMessageHandler[] = [
       await openFileInEditor(m.path, vscode.l10n.t('attachment file'))
     },
   },
+  {
+    types: ['openPath'],
+    async handle(host, m) {
+      if (m.type !== 'openPath' || typeof m.path !== 'string' || !m.path) return
+      const label = vscode.l10n.t('linked file')
+      const target = await resolveLinkPath(host, m.path)
+      if (!target) {
+        vscode.window.showErrorMessage(
+          vscode.l10n.t('Failed to resolve the path in the link: {0}', m.path),
+        )
+        return
+      }
+      const stat = await fs.stat(target).catch(() => null)
+      if (!stat) {
+        await openFileInEditor(target, label)
+        return
+      }
+      // 链接指向目录：编辑器不进目录（showTextDocument 会失败），改用系统
+      // 资源管理器定位；命令不可用时退回错误提示。
+      if (stat.isDirectory()) {
+        try {
+          await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(target))
+        } catch (err) {
+          vscode.window.showErrorMessage(vscode.l10n.t('Failed to open {0}: {1}', label, errorText(err)))
+        }
+        return
+      }
+      await openFileInEditor(target, label)
+    },
+  },
 ]
 
 /** 全部 handler：ChatTabHost 按消息 type 分发。 */
@@ -375,6 +405,46 @@ async function openFileInEditor(path: string, label: string): Promise<void> {
         : vscode.l10n.t('Failed to open {0}: {1}', label, detail),
     )
   }
+}
+
+/**
+ * 把对话链接里的 href 归一化成绝对路径：file: URI / 绝对路径 / ~ 原样处理；
+ * 相对路径先按附着会话 cwd 解析（链接通常相对模型干活时的目录），再兜底当前
+ * 工作区根目录；多个候选里取第一个真实存在的。全都不存在时返回第一个候选
+ * （让 openFileInEditor 的「已不存在」报错带上正确路径）；无法解析（相对路径
+ * 且没有基准）返回 null。
+ */
+async function resolveLinkPath(host: ChatTabHost, raw: string): Promise<string | null> {
+  let href = raw
+  try {
+    href = decodeURIComponent(raw)
+  } catch {
+    // 保留原样：非法 % 序列（例如文件名本身带 %）不是编码错误，就是字面量
+  }
+  if (/^file:/i.test(href)) {
+    try {
+      return vscode.Uri.parse(href).fsPath
+    } catch (err) {
+      host.actions.logger.warn(`chat: openPath file: URI 解析失败 — ${errorText(err)}`)
+      return null
+    }
+  }
+  if (href === '~' || href.startsWith('~/') || href.startsWith('~\\')) {
+    return path.join(os.homedir(), href.slice(1).replace(/^[\\/]/, ''))
+  }
+  if (path.isAbsolute(href) || /^[a-z]:[\\/]/i.test(href)) return href
+  const bases: string[] = []
+  const self = host.sessionId
+    ? host.actions.store.rawList().find((s) => s.sessionId === host.sessionId)
+    : undefined
+  if (self?.cwd) bases.push(self.cwd)
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+  if (root) bases.push(root)
+  for (const base of bases) {
+    const candidate = path.resolve(base, href)
+    if (await fs.access(candidate).then(() => true, () => false)) return candidate
+  }
+  return bases.length > 0 ? path.resolve(bases[0], href) : null
 }
 
 // ---- 会话动作的辅助实现（原 ChatViewProvider 的私有方法，按 tab 参数化） ----

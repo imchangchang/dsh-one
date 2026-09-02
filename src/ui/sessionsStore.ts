@@ -32,6 +32,7 @@ function toSessionInput(s: SessionSummary): SessionInput {
     ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
     ...(s.origin ? { origin: s.origin } : {}),
     ...(s.agentPreset !== undefined ? { agentPreset: s.agentPreset } : {}),
+    ...(s.cwd ? { cwd: s.cwd } : {}),
     ...(totalTokens !== undefined ? { totalTokens } : {}),
     ...(completedTurns > 0 ? { sessionStatsTurns: completedTurns } : {}),
   }

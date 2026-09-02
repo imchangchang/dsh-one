@@ -669,6 +669,12 @@ export type FromWebviewMessage =
   | { type: 'producedOpenFile'; path: string }
   /** 附件文件 chip 点击：在 VSCode 编辑器打开该文件（绝对路径，含工作区外的外部文件）。 */
   | { type: 'openAttachmentFile'; path: string }
+  /**
+   * 对话正文/引用 chip 里的文件链接被点击：在 VSCode 编辑器打开。path 是
+   * markdown href（绝对/相对/~/file:），宿主按附着会话 cwd 解析相对路径——
+   * 链接目标可能在工作区外，showTextDocument 按外部文件打开，不切换工作区。
+   */
+  | { type: 'openPath'; path: string }
   /** 加载更早的一页历史（窗口分页；ChatState.hasEarlierHistory 为 true 时才有意义）。 */
   | { type: 'loadEarlier' }
   /** Open the official dsh install page in the system browser. */
