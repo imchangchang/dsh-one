@@ -261,6 +261,8 @@ let lastComposerSig: string | null = null
 let lastHeaderSig: string | null = null
 /** Signature of the pending-interaction state at the last render; see render(). */
 let lastPendingSig: string | null = null
+/** Signature of the todo list at the last render; see render(). */
+let lastTodosSig: string | null = null
 /** Images staged in the composer, sent with the next `send`. */
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
@@ -2069,6 +2071,21 @@ function render(): void {
     !blankHero &&
     headerSig === lastHeaderSig &&
     oldHeader.querySelector('.rename-input') === null
+  // 任务清单 todo 卡保活（与 composer/pending 同款 keep）：todos 内容没变时保留
+  // 原元素。流式快照每帧重建 chatCol，in_progress 行首的转圈弧环是新建 SVG——
+  // CSS 动画随节点替换从 0° 重启，~100ms 一帧的快照下转圈永远走不完，看起来像
+  // 疯狂刷新。保活后动画连续；todos 真变了才重建，重启动画本就是期望行为。
+  const oldTodoPanel = chatCol.querySelector<HTMLElement>(':scope > .todo-panel')
+  const todosSig = state?.todos ? JSON.stringify(state.todos) : null
+  const keepTodoPanel =
+    oldTodoPanel !== null &&
+    state !== null &&
+    state.sessionId !== null &&
+    state.loading !== true &&
+    !switchingSession &&
+    !blankHero &&
+    todosSig !== null &&
+    todosSig === lastTodosSig
   // loading 帧（换会话的历史基线加载中）不动现有 DOM：整页保留到新状态落地
   // 再一次性切换——否则 hero 布局切换（blank→blank 切 workspace 尤甚）会先被
   // 清成「加载会话…」空占位再重建，观感像整页刷新。keep* 布尔照常计算（无
@@ -2080,6 +2097,7 @@ function render(): void {
       if (keepBlankHero && (child === oldComposer || child === oldHero)) continue
       if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
       if (keepPending && child === oldPending) continue
+      if (keepTodoPanel && child === oldTodoPanel) continue
       child.remove()
     }
   }
@@ -2097,6 +2115,7 @@ function render(): void {
     lastComposerSig = null
     lastHeaderSig = null
     lastPendingSig = null
+    lastTodosSig = null
     turnStatusStart = null
     scrollSession = null
     chatCol.appendChild(renderEmpty(state))
@@ -2145,6 +2164,7 @@ function render(): void {
     lastComposerSig = composerSig
     lastHeaderSig = headerSig
     lastPendingSig = pendingSig
+    lastTodosSig = todosSig
     return
   }
   // Regions above the composer; insert before the preserved composer when kept.
@@ -2353,7 +2373,8 @@ function render(): void {
   // 任务清单卡（对齐官方 input.dock id=todo order 0，排在排队消息之前）：
   // 缺省/null（首写前 / turn/start 后）与 [] 空数组都不渲染。
   if (state.todos && state.todos.length > 0) {
-    add(renderTodoPanel(state.todos))
+    if (keepTodoPanel && oldTodoPanel !== null) add(oldTodoPanel)
+    else add(renderTodoPanel(state.todos))
   }
 
   // 目标条幅（对齐官方 input.dock id=goal order 10：todo 之后、queue 之前）：
@@ -2410,6 +2431,7 @@ function render(): void {
   lastComposerSig = composerSig
   lastHeaderSig = headerSig
   lastPendingSig = pendingSig
+  lastTodosSig = todosSig
   // 「加载更早」的锚定配对：先记下 loadingEarlier 曾为 true（请求确实被
   // 接受），它翻回 false 的这一帧若消息从顶部插入（首条变了或条数多了），
   // 按新增高度补偿 scrollTop；无论是否插入都解除锚点（空页/失败同样落地）。
