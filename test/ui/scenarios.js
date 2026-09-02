@@ -679,18 +679,19 @@
         s.unread = ['sess-3']
         return s
       })(),
-      // 打开 ⋯ 菜单 → 点「选择多个」进模式 → 点 sess-1 行 + ws-research 组头复选框。
-      // 全同步链（每次点击后 DOM 同步重建，后续查询都重新取），避免测试脚本
-      // 在 setTimeout 链完成前截图。
+      // 打开 ⋯ 菜单 → 点「选择多个」进模式 → 点 ws-main 组头（组内有置灰的
+      // sess-2/sess-3）→ 该组无法真正全选：飘提示 + 组头保持半选 →
+      // 再点 ws-research 组头（全选态）。全同步链（每次点击后 DOM 同步重建，
+      // 后续查询都重新取），避免测试脚本在 setTimeout 链完成前截图。
       interact: `(() => {
         document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()
         const items = [...document.querySelectorAll('.menu-item')]
         items.find((i) => i.textContent.includes('Select multiple'))?.click()
-        document.querySelector('.session-row[data-session-id="sess-1"]')?.click()
+        document.querySelector('.workspace-group[data-workspace-id="ws-main"] .select-checkbox input')?.click()
         document.querySelector('.workspace-group[data-workspace-id="ws-research"] .select-checkbox input')?.click()
       })()`,
       title: '侧栏面板（多选归档模式）',
-      expect: '多选模式态：顶部搜索框下出现操作条（.selection-bar），左 primary 按钮「Archive 2 selected」+ 右「Cancel」secondary；三个组头行首都有复选框；ws-main 组头半选（横线）：组内 sess-1 已勾、sess-7 未勾、sess-2（运行中）/sess-3（未读）复选框灰置；dsh-web research 组头（折叠态）复选框为全选勾（sess-5 被组头全选选中）；未分组组头未勾、其下 sess-6 未勾；会话行行尾 ⋯ 按钮已消失；勾选行标题/时间正常显示。',
+      expect: '多选模式态：顶部搜索框下出现操作条（.selection-bar），左 primary 按钮「Archive 3 selected」+ 右「Cancel」secondary；三个组头行首都有复选框；ws-main 组头是部分选中（横线半选）——组内可归档的 sess-1/sess-7 都已勾，但有置灰的 sess-2（运行中）/sess-3（未读），所以组头不能是全选；组头复选框附近有瞬态提示气泡「该组有会话无法归档，不能全部选中」（截图时仍在显示）；dsh-web research 组头（折叠态）复选框为全选勾；未分组组头未勾、其下 sess-6 未勾；会话行行尾 ⋯ 按钮已消失；sess-2/sess-3 复选框灰置。',
     },
 
     'sessions-selection-modal': {

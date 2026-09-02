@@ -346,5 +346,7 @@
   "Archiving…": "Archiving…",
   "Selection applies to current search results": "Selection applies to current search results",
   "Failed to archive {0} session(s): {1}": "Failed to archive {0} session(s): {1}",
-  "Other sessions": "Other sessions"
+  "Other sessions": "Other sessions",
+  "Some sessions cannot be archived; this group cannot be fully selected": "Some sessions cannot be archived; this group cannot be fully selected",
+  "{0} session(s) in this group cannot be archived": "{0} session(s) in this group cannot be archived"
 }

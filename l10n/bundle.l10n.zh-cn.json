@@ -346,5 +346,7 @@
   "Archiving…": "正在归档…",
   "Selection applies to current search results": "勾选仅作用于当前筛选结果",
   "Failed to archive {0} session(s): {1}": "归档 {0} 个会话失败：{1}",
-  "Other sessions": "其他会话"
+  "Other sessions": "其他会话",
+  "Some sessions cannot be archived; this group cannot be fully selected": "该组有会话无法归档，不能全部选中",
+  "{0} session(s) in this group cannot be archived": "该组有 {0} 个会话不能归档"
 }

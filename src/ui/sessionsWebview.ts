@@ -247,6 +247,26 @@ function ensureTipEl(): HTMLElement {
 function hideTip(): void {
   if (tipEl) tipEl.style.display = 'none'
 }
+/** 瞬态提示（飘一下自动消失）：复用悬停气泡元素定位在锚点上方，2.2s 后隐藏。 */
+let flashTipTimer: ReturnType<typeof setTimeout> | null = null
+function flashTip(text: string, anchor: HTMLElement): void {
+  if (flashTipTimer !== null) clearTimeout(flashTipTimer)
+  const t = ensureTipEl()
+  t.textContent = text
+  const rect = anchor.getBoundingClientRect()
+  t.style.display = 'block'
+  const w = t.offsetWidth
+  const left = Math.max(4, Math.min(rect.left + rect.width / 2 - w / 2, window.innerWidth - w - 4))
+  t.style.left = `${left}px`
+  const h = t.offsetHeight
+  let top = rect.top - h - 6
+  if (top < 4) top = rect.bottom + 6
+  t.style.top = `${top}px`
+  flashTipTimer = setTimeout(() => {
+    flashTipTimer = null
+    hideTip()
+  }, 2200)
+}
 // 事件委托：任何带 [data-tip] 的元素（含重建后的按钮）悬停即显示文本气泡。
 // 用 fixed 定位挂在 body 上，不随 .sessions-list 滚动裁剪，水平钳制不外溢。
 document.addEventListener('pointerover', (e) => {
@@ -685,13 +705,13 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   if (empty) head.classList.add('empty')
   head.classList.toggle('has-active', w.sessions.some((s) => s.sessionId === currentSessionId))
   head.title = ungrouped ? t('Sessions not in any workspace') : w.path
-  // 多选模式：组头三态复选框（全选 = 组内所有可勾选会话，工作区本身不参与）。
-  // 搜索态下组只含匹配会话，勾选作用范围如实标注。
+  // 多选模式：组头三态复选框（全选 = 组内所有会话都选中；有置灰项则只能
+  // 部分态）。搜索态下组只含匹配会话，勾选作用范围在悬停提示里如实标注。
   if (selectionMode) {
     head.appendChild(
       makeSelectionCheckbox({
         state: groupSelectionState(w),
-        tip: inSearch ? t('Selection applies to current search results') : null,
+        tip: groupSelectTip(w, inSearch),
         onToggle: () => toggleGroupSelection(w),
       }),
     )
@@ -1018,10 +1038,21 @@ function toggleGroupSelection(w: WorkspaceNodeModel): void {
     if (allSelected) selectedSessionIds.delete(s.sessionId)
     else selectedSessionIds.add(s.sessionId)
   }
+  // 选中方向（不是取消）且组内有不可归档会话：飘提示，说明没法真正全选。
+  if (!allSelected && selectable.length < w.sessions.length) {
+    const cb = document.querySelector<HTMLElement>(
+      `.workspace-group[data-workspace-id="${CSS.escape?.(w.workspaceId) ?? w.workspaceId}"] .select-checkbox`,
+    )
+    if (cb) flashTip(t('Some sessions cannot be archived; this group cannot be fully selected'), cb)
+  }
   renderSessions()
 }
 
-/** 组头三态：只按「可勾选」的会话计数（置灰项不参与，与单项禁用一致）。 */
+/**
+ * 组头三态语义 = 「组内全部选中」：只有组内所有会话都可选且全部被选中才是
+ * 全选；组里有置灰（运行中/未读/待处理）会话时只能 none/some——避免用户
+ * 误以为整组都会归档。
+ */
 function groupSelectionState(w: WorkspaceNodeModel): SelectState {
   const selectable = w.sessions.filter(sessionSelectable)
   if (selectable.length === 0) return 'none'
@@ -1030,8 +1061,17 @@ function groupSelectionState(w: WorkspaceNodeModel): SelectState {
     if (selectedSessionIds.has(s.sessionId)) sel += 1
   }
   if (sel === 0) return 'none'
-  if (sel === selectable.length) return 'all'
+  if (sel === selectable.length && selectable.length === w.sessions.length) return 'all'
   return 'some'
+}
+
+/** 组头复选框悬停提示：组内有不可归档会话时说明数量；搜索态补充作用范围。 */
+function groupSelectTip(w: WorkspaceNodeModel, inSearch: boolean): string | null {
+  const parts: string[] = []
+  const disabledCount = w.sessions.length - w.sessions.filter(sessionSelectable).length
+  if (disabledCount > 0) parts.push(t('{0} session(s) in this group cannot be archived', disabledCount))
+  if (inSearch) parts.push(t('Selection applies to current search results'))
+  return parts.length > 0 ? parts.join(' · ') : null
 }
 
 /** 进入多选模式：清掉行内改名（编辑框与勾选语义冲突），清空上轮勾选。 */
