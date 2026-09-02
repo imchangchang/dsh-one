@@ -40,6 +40,14 @@ WT=$(git worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '
   /^worktree /{p=$2} /^branch /{if ($2==b) print p}')
 [ -n "$WT" ] || { echo "找不到 $BRANCH 对应的 worktree。" >&2; exit 1; }
 
+# i18n 合入门禁：待合入分支相对 main 的新增行若漏同步 i18n（宿主/ webview / manifest /
+# README / 硬编码中文），在这里拦下，避免合入后在主线再开修复 worktree。
+echo "== i18n 合入门禁自检 =="
+if ! bash "$SCRIPT_DIR/check-i18n.sh" "$BRANCH"; then
+  echo "i18n 检查未通过，拒绝合入。" >&2
+  exit 1
+fi
+
 echo "== rebase $BRANCH 到最新 main =="
 # --rebase-merges：保留分支内的 merge 提交结构。普通 rebase 会把 merge 提交
 # 展开重放——若任务分支已预 merge 过 main（如开发期间手动同步），展开会让
