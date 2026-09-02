@@ -45,3 +45,4 @@ dsh-one `renderAssistantActions`（webview.ts:2490）只有 copy/👍/👎/分�
 
 - 2026-09-01 认领 → doing（并行开发 session）
 - 2026-09-01 开发完成，自测通过 → done
+- 2026-09-01 人工 dev-ui-test 验收通过，主线合入测试通过 → closed
