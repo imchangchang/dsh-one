@@ -65,7 +65,7 @@ import {
   orderJobs,
   type ActivityJob,
 } from '../../pure/activityTree.ts'
-import { attachmentDataUrl, isImageMediaType } from '../../pure/composerAttachment.ts'
+import { attachmentDataUrl, isImageMediaType, splitAttachmentLines } from '../../pure/composerAttachment.ts'
 import {
   SETTLE_IDLE_MS,
   USER_SCROLL_INTENT_MS,
@@ -85,6 +85,7 @@ import {
   expandMentionBindings,
   formatSessionMention,
   mentionDisplayToken,
+  parseSessionMentions,
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { splitUserBubble, type UserBubbleSegment } from '../../pure/userBubble.ts'
@@ -2822,8 +2823,9 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
 }
 
 /**
- * 等待插话的 steering 消息：和正常用户消息一样的气泡，只在气泡左侧加一个
- * 处理中圆圈表示插话还没落地（插话落地后由正式用户消息原位替换，圆圈随之消失）。
+ * 等待插话的 steering 消息：和正常用户消息一样的气泡（附件、引用 chip、
+ * 引用摘要行同款），只在气泡左侧加一个处理中圆圈表示插话还没落地（插话
+ * 落地后由正式用户消息原位替换，圆圈随之消失）。
  * 流式输出期间 render() 每快照全量重建消息区，新建节点会让 spinner 的 CSS
  * 动画从 0° 重新启动——转圈每帧被打回起点，看起来就是疯狂刷新。给新建元素补
  * 一个负 animation-delay（= 当前时刻在 0.9s 周期里的相位），新节点从旧节点的
@@ -2834,7 +2836,24 @@ function renderSteeringItem(item: QueuedItem): HTMLElement {
   const spin = el('span', 'spinner')
   spin.style.animationDelay = `${-(performance.now() % 900)}ms`
   row.appendChild(spin)
-  row.appendChild(el('div', 'bubble', item.text || '（空消息）'))
+  // row 是横向 flex（[spinner][内容]），内容包一层纵向容器复用 .msg.user 的
+  // 堆叠布局：附件区在上、气泡居中、引用摘要行在下（与正式用户消息一致）。
+  const body = el('div', 'msg user')
+  // 附件与正式用户消息同款：图片缩略图（字节懒取）+ 文件名称 chip。
+  const attachments = renderUserAttachments(item.images, item.files)
+  if (attachments) body.appendChild(attachments)
+  // 文本与正式用户消息同款：剥离 <attachment> 文件行，canonical mention
+  // （@[标题](dsh-session:…)）展开成可读 @label + references——与 host 解析
+  // 后落盘的形态一致，气泡据此拼可点击的会话 chip 与引用摘要行。
+  const { text: readable, references } = parseSessionMentions(splitAttachmentLines(item.editText).text)
+  if (readable.length > 0) {
+    const [bubble, summary] = renderUserBubbleParts(readable, references)
+    body.appendChild(bubble)
+    if (summary) body.appendChild(summary)
+  } else if (!attachments) {
+    body.appendChild(el('div', 'bubble', '（空消息）'))
+  }
+  row.appendChild(body)
   return row
 }
 
@@ -3249,6 +3268,45 @@ function renderTurnStatus(): HTMLElement {
   return row
 }
 
+/**
+ * 用户消息附件区（在文字气泡上方，对齐 dsh web）：图片显示方形缩略图，
+ * 文件仍是名称 chip。无附件时返回 null。正式用户消息与等待插话气泡共用。
+ */
+function renderUserAttachments(
+  images: readonly ChatImage[] | undefined,
+  files: readonly ChatFile[] | undefined,
+): HTMLElement | null {
+  const attachments = el('div', 'msg-images')
+  if (images) for (const image of images) attachments.appendChild(messageImageThumb(image))
+  if (files) for (const file of files) attachments.appendChild(fileChip(file))
+  return attachments.childElementCount > 0 ? attachments : null
+}
+
+/**
+ * 用户气泡（纯文本不走 markdown，引用按段拼成 chip，对齐 dsh web 的
+ * projectUserText）：会话 chip 可点击（host 解析过的引用落盘为可读
+ * @label 文本，URI 由 fold 回挂在 m.references 里优先切；未解析的
+ * 原始 mention 如引用失败残留走 URI 匹配），@file/@folder 与 /command
+ * 按文本形态推断成纯展示 chip（官方同款，无 host 结构化数据）。
+ * 返回 [气泡, 引用摘要行?]；摘要行只含会话（对齐 dsh web referenceSummary
+ * 「引用会话 · A、B」）。正式用户消息与等待插话气泡共用。
+ */
+function renderUserBubbleParts(
+  text: string,
+  references?: readonly { sessionId: string; label: string }[],
+): [HTMLElement, HTMLElement | null] {
+  const bubble = el('div', 'bubble')
+  for (const seg of splitUserBubble(text, references)) {
+    if (seg.kind === 'text') bubble.appendChild(document.createTextNode(seg.text))
+    else if (seg.kind === 'session') bubble.appendChild(sessionMentionChip(seg.label, seg.sessionId))
+    else bubble.appendChild(referenceChip(seg))
+  }
+  const summary = references?.length
+    ? el('div', 'ref-summary', `引用会话 · ${references.map((r) => r.label).join('、')}`)
+    : null
+  return [bubble, summary]
+}
+
 function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (m.kind === 'user') {
     // Host-injected context renders collapsed; only real human input bubbles.
@@ -3266,27 +3324,12 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
     }
     const row = el('div', 'msg user')
     // 附件在文字气泡上方（对齐 dsh web）：图片显示方形缩略图，文件仍是名称 chip。
-    const attachments = el('div', 'msg-images')
-    if (m.images) for (const image of m.images) attachments.appendChild(messageImageThumb(image))
-    if (m.files) for (const file of m.files) attachments.appendChild(fileChip(file))
-    if (attachments.childElementCount > 0) row.appendChild(attachments)
+    const attachments = renderUserAttachments(m.images, m.files)
+    if (attachments) row.appendChild(attachments)
     if (m.text) {
-      // 气泡是纯文本（不走 markdown），引用按段拼成 chip（对齐 dsh web 的
-      // projectUserText）：会话 chip 可点击（host 解析过的引用落盘为可读
-      // @label 文本，URI 由 fold 回挂在 m.references 里优先切；未解析的
-      // 原始 mention 如引用失败残留走 URI 匹配），@file/@folder 与 /command
-      // 按文本形态推断成纯展示 chip（官方同款，无 host 结构化数据）。
-      const bubble = el('div', 'bubble')
-      for (const seg of splitUserBubble(m.text, m.references)) {
-        if (seg.kind === 'text') bubble.appendChild(document.createTextNode(seg.text))
-        else if (seg.kind === 'session') bubble.appendChild(sessionMentionChip(seg.label, seg.sessionId))
-        else bubble.appendChild(referenceChip(seg))
-      }
+      const [bubble, summary] = renderUserBubbleParts(m.text, m.references)
       row.appendChild(bubble)
-      // 引用摘要行（对齐 dsh web referenceSummary「引用会话 · A、B」）：只含会话。
-      if (m.references?.length) {
-        row.appendChild(el('div', 'ref-summary', `引用会话 · ${m.references.map((r) => r.label).join('、')}`))
-      }
+      if (summary) row.appendChild(summary)
     }
     return row
   }

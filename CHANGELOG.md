@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- 插话（⌘/Ctrl+Enter，等待落地的 steering 消息）气泡只渲染纯文本：附件显示成「[图片 ×1] [文件 ×1]」计数前缀、会话引用显示原始 `@[标题](dsh-session:…)` markdown。现在与正式用户消息共用同一套渲染——host 从 queue 帧内容提取图片（attachmentId）与文件（`<attachment>` 行）随快照下发，webview 剥附件行、把 canonical mention 展开成可读 `@label`，气泡渲染图片缩略图、文件 chip、会话引用 chip 与「引用会话 · …」摘要行；行结构不变（气泡左侧处理中圆圈）。
+
 - 窗口 reload / VSCode 重启后已打开的 tab 全部丢失（会话 chat tab 与 `DSH One: 在编辑器标签页中打开` 的 dsh web tab）：注册了 WebviewPanelSerializer（`dshOne.chatPanel` + `dshOne.tab`）。会话 tab 以创建后不变的 tabId 为恢复凭据——webview 内容经 `acquireVsCodeApi().setState` 保存，真实会话经 workspaceState 的 tabId → sessionId 映射查询（tab 打开/关闭/会话替换时增量维护），reload 后按 VSCode 还原的面板（位置/active 不变）重建：服务运行中直接附着 controller，未运行先显示空态、服务恢复后走既有 lastActive/pendingRestore 链补附着；dsh web 面板重新绑定服务状态并刷新内容。用户手动关闭的 tab 不恢复，会话数据本身不受影响（dsh 服务与 VSCode 生命周期解绑，此前已如此）。
 
 - 切换会话时先闪一帧空会话 hero（「服务未就绪，暂时无法发送」的居中排版）再跳成消息流：根因是 session.history 基线翻页期间 getState 已带 sessionId 但消息为空、canSend 为 false，命中了空会话 hero 分支。ChatState 新增 `loading`（历史基线未就绪时为 true），加载期间只显示「加载会话…」居中占位，hero 与消息流都等基线落地再渲染。

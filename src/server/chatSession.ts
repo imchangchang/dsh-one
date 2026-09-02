@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
-import type { ChatState, ChatGoal, ChatTodoItem, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem, StagedFile } from '../pure/chatContract.ts'
-import { ConversationFolder, applyFeedbackRatings } from '../pure/conversation.ts'
+import type { ChatState, ChatGoal, ChatTodoItem, ChatFile, ChatImage, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem, StagedFile } from '../pure/chatContract.ts'
+import { ConversationFolder, applyFeedbackRatings, imagesOfBlocks } from '../pure/conversation.ts'
 import { splitAttachmentLines } from '../pure/composerAttachment.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { WorkflowRunFolder } from '../pure/workflowRun.ts'
@@ -118,12 +118,15 @@ function modelLabelOf(models: SessionModels): string {
   return label
 }
 
-/** Flatten a queued message: preview strips attachment lines, editText keeps them. */
-function queueItemOf(item: QueuedInboxItemLike): { text: string; editText: string } {
+/**
+ * Flatten a queued message: preview strips attachment lines, editText keeps
+ * them, plus the structured images/files the steering bubble renders like a
+ * real user message (thumbnails + chips instead of the `[图片 ×N]` counts).
+ */
+function queueItemOf(item: QueuedInboxItemLike): { text: string; editText: string; images: ChatImage[]; files: ChatFile[] } {
   const content = item.message?.content
-  if (!Array.isArray(content)) return { text: '', editText: '' }
-  const images = content.filter((b) => b && b.type === 'image').length
-  let files = 0
+  if (!Array.isArray(content)) return { text: '', editText: '', images: [], files: [] }
+  const images = imagesOfBlocks(content)
   const previewLines: string[] = []
   const editLines: string[] = []
   for (const b of content) {
@@ -131,13 +134,14 @@ function queueItemOf(item: QueuedInboxItemLike): { text: string; editText: strin
     for (const line of b.text.split('\n')) {
       editLines.push(line)
       // Attachment lines the composer appended ride this text block too.
-      if (/^<attachment>.+<\/attachment>$/.test(line.trim())) files += 1
-      else previewLines.push(line)
+      if (/^<attachment>.+<\/attachment>$/.test(line.trim())) continue
+      previewLines.push(line)
     }
   }
-  const text = previewLines.join('\n').trim()
-  const notes = [images > 0 ? `[图片 ×${images}]` : '', files > 0 ? `[文件 ×${files}]` : ''].filter(Boolean)
-  return { text: [...notes, text].filter(Boolean).join(' '), editText: editLines.join('\n').trim() }
+  const editText = editLines.join('\n').trim()
+  const { files } = splitAttachmentLines(editText)
+  const notes = [images.length > 0 ? `[图片 ×${images.length}]` : '', files.length > 0 ? `[文件 ×${files.length}]` : ''].filter(Boolean)
+  return { text: [...notes, previewLines.join('\n').trim()].filter(Boolean).join(' '), editText, images, files }
 }
 
 /** Narrow an unknown projection value to SessionStatsLike; null when malformed. */
