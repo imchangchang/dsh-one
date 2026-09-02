@@ -47,3 +47,4 @@ dsh-one 只在 SLASH_COMMANDS 里注册了 `/plan` 命令（webview.ts:191），
 - 2026-09-01 认领 → doing（并行开发 session）
 - 2026-09-01 开发完成，自测通过（typecheck + test 253 + build），UI 人工验收方法见上 → done
 - 2026-09-01 修复：/plan off 后 chip 未立即消失（composerSig 不含 plan，composer 保活不重建），已修复并重跑自测；人工 dev-ui-test 验收通过（测试 ok）→ done
+- 2026-09-01 主线合入测试通过（dev-merge rebase 解决 webview.ts composerSig 冲突后合入，merge 4e1c773），人工验收通过 → closed
