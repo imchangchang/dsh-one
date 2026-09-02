@@ -131,6 +131,44 @@
       expect: '右键点击 https 链接后弹出自绘菜单（popover，定位于鼠标附近）：两项「在系统浏览器中打开」「在 VS Code 内置浏览器中打开」（均带浏览图标）；页面不导航，chat 界面（消息/composer）原样保留。',
     },
 
+    'commit-hash-found': {
+      // 消息正文含 commit hash，interact 模拟宿主回传 commitInfo（found，带完整信息），
+      // 再 dispatch mouseenter 弹出悬浮卡。用暗色主题：harness 亮色未定义
+      // --vscode-textLink-foreground（VS Code 才注入），链接色/高亮在亮色下会回退黑。
+      theme: 'dark',
+      state: base({
+        messages: [at('本轮合入完成。最近提交：`351a766`，详见提交说明。')],
+      }),
+      interact: `(() => {
+        window.postMessage({ type: 'commitInfo', results: [{
+          sha: '351a766', found: true, commitHash: '351a7664d4f6e86bb0ef58c94d84d0ee1fb9aa53',
+          message: 'backlog: commit-hash-interactive 开发完成（doing → done）',
+          fullMessage: 'backlog: commit-hash-interactive 开发完成（doing → done）\\n\\n- 追加人工验收提示\\n- 检查点详见条目',
+          authorName: 'cgeng', authorEmail: 'cgeng@c3ng.com', commitDate: '2026-09-02',
+          files: 1, insertions: 40, deletions: 2,
+          githubUrl: 'https://github.com/imchangchang/dsh-one/commit/351a7664d4f6e86bb0ef58c94d84d0ee1fb9aa53',
+        }] }, '*')
+        setTimeout(() => {
+          const chip = document.querySelector('.commit-hash.commit-hash-found')
+          chip?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+        }, 400)
+      })()`,
+      title: 'commit hash 先查后亮：found 点亮 + 悬浮详情卡（仿 VS Code）',
+      expect: '助手消息文本里 "351a766" 渲染成 commit-hash chip：先查后亮——interact 回传 found 后 chip 为已点亮态（.commit-hash-found，链接色，可点击），且行内 code 里也不例外。400ms 后鼠标 enter 触发悬浮卡（.commit-card popover，定位 chip 下方）：内容自上而下——① 作者行：account 图标 + cgeng（链接色，mailto：cgeng@c3ng.com）+ history 图标 + 相对时间 (2026-09-02)；② message 全文：subject 行加粗「backlog: commit-hash-interactive 开发完成（doing → done）」+ 两行 body 灰字；③ 分隔线；④ 变更统计：「1 files changed, 40 insertions(+) 绿色, 2 deletions(-) 红色」；⑤ 分隔线 + 命令行：git-commit 图标 + 短 hash「351a766」（点开 commit）+ copy 图标 + Open on GitHub。卡片深色浮层、圆角、描边、阴影，宽 ≤420px。',
+    },
+
+    'commit-hash-not-found': {
+      theme: 'dark',
+      state: base({
+        messages: [at('仓库没有这个提交：`deadbeef1234`。')],
+      }),
+      interact: `(() => {
+        window.postMessage({ type: 'commitInfo', results: [{ sha: 'deadbeef1234', found: false }] }, '*')
+      })()`,
+      title: 'commit hash 先查后亮：仓库外 hash 灰显',
+      expect: '"deadbeef1234" 渲染成 commit-hash chip；回传 found:false 后为未命中态（.commit-hash-unknown，微透明灰显，仍可点——点击由宿主提示「未找到该提交」）。截图核对：chip 灰显/微透明、等宽；不是高亮链接色（对比 commit-hash-found 场景）。',
+    },
+
     'session-mention': {
       // 用户气泡走纯文本渲染，mention 按 `@[label](dsh-session:...)` 切成 chip + 正文。
       state: base({

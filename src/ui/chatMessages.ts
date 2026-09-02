@@ -43,11 +43,19 @@ interface GitCommit {
   hash: string
   message: string
   authorName: string
+  authorEmail?: string
   commitDate: Date
+  /** 变更统计（files/insertions/deletions）；内置 git 不保证填充，缺失时省略。 */
+  shortStat?: { files?: number; insertions?: number; deletions?: number }
+}
+interface GitRemote {
+  name: string
+  fetchUrl?: string
 }
 interface GitRepository {
   rootUri: vscode.Uri
   getCommit(ref: string): Promise<GitCommit>
+  getRemotes(): Promise<GitRemote[]>
 }
 interface GitApi {
   repositories: GitRepository[]
@@ -77,24 +85,51 @@ function preferredRepository(api: GitApi, host: ChatTabHost): GitRepository | un
   return active ? api.getRepository(active) : undefined
 }
 
-/** 把 git Commit 压缩成 webview 用的单行信息（subject + 作者 + 日期，决策 4）。 */
+/** 把 git Commit 投影成 webview 用的信息（subject 首行 + 完整 message + 作者 + 日期
+ *  + 变更统计）。shortStat 为 git API 可选字段，缺失时省略（悬浮卡不显示统计行）；
+ *  githubUrl 由 queryCommitInfo 命中后单独 await 补齐（remote 查询是异步的）。 */
 function commitInfoFrom(sha: string, commit: GitCommit): CommitInfoResult {
+  const fullMessage = (commit.message ?? '').trim()
   return {
     sha,
+    commitHash: commit.hash ?? sha,
     found: true,
-    message: (commit.message ?? '').split('\n')[0]?.trim() ?? '',
+    message: fullMessage.split('\n')[0]?.trim() ?? '',
+    fullMessage,
     authorName: commit.authorName ?? '',
+    authorEmail: commit.authorEmail,
     commitDate: formatCommitDate(commit.commitDate),
+    files: commit.shortStat?.files,
+    insertions: commit.shortStat?.insertions,
+    deletions: commit.shortStat?.deletions,
   }
 }
 
-/** 提交日期格式化为 YYYY-MM-DD（title 单行紧凑，不随 locale 变长）。 */
+/** 从仓库 remote fetchUrl 推导 GitHub commit 链接；非 GitHub 仓库返回 undefined。
+ *  支持 https://github.com/owner/repo.git 与 git@github.com:owner/repo.git 两种形状。 */
+async function githubCommitUrl(repo: GitRepository, sha: string): Promise<string | undefined> {
+  try {
+    const remotes = await repo.getRemotes()
+    const url = remotes.find((r) => (r.fetchUrl ?? '').length > 0)?.fetchUrl ?? ''
+    const m = url.match(/(?:https?:\/\/|git@)github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/)
+    if (!m) return undefined
+    return `https://github.com/${m[1]}/${m[2]}/commit/${sha}`
+  } catch {
+    return undefined
+  }
+}
+
+/** 提交日期格式化为 ISO 完整时间戳（YYYY-MM-DDTHH:mm），悬浮卡的相对时间计算与
+ *  命令行短 hash 展示都用它。只留日期会导致 webview new Date() 解析丢时区偏移，
+ *  显示「N hours ago」比真实时间差几个小时（同日提交会偏到半天）。 */
 function formatCommitDate(date: Date): string {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+  const h = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${d}T${h}:${min}`
 }
 
 /** 逐个仓库查 sha（激活仓库优先），命中即取该仓库的提交信息；全未命中 mark found:false。 */
@@ -107,22 +142,26 @@ async function queryCommitInfo(host: ChatTabHost, shas: string[]): Promise<Commi
   const results: CommitInfoResult[] = []
   for (const sha of shas) {
     let hit: CommitInfoResult | null = null
+    let hitRepo: GitRepository | null = null
     for (const repo of ordered) {
       try {
         const commit = await repo.getCommit(sha)
         hit = commit ? commitInfoFrom(sha, commit) : null
+        hitRepo = commit ? repo : null
       } catch {
         // 该仓库无此 commit（getCommit 对不存在的 ref 抛错），试下一个
       }
       if (hit) break
     }
+    if (hit && hitRepo) hit.githubUrl = await githubCommitUrl(hitRepo, hit.commitHash ?? sha)
     results.push(hit ?? { sha, found: false })
   }
   return results
 }
 
-/** 点击 commit hash：激活仓库优先查库，命中打开该仓库的 SCM 视图（commit graph /
- *  提交历史嵌在 Source Control 仓库节点下）；全未命中返回 false。 */
+/** 点击 commit hash：激活仓库优先查库，命中打开该提交的 diff 视图（git.viewCommit）；
+ *  全未命中返回 false。曾尝试 git.openRepository 跳转 SCM history 视图，但内置 git
+ *  无公开的「定位到某 commit」接口（graph reveal 是 SCM 内部命令），用户拍板回退 diff。 */
 async function openCommit(host: ChatTabHost, sha: string): Promise<boolean> {
   const api = await getGitApi()
   const repos = api?.repositories ?? []
@@ -133,10 +172,7 @@ async function openCommit(host: ChatTabHost, sha: string): Promise<boolean> {
     try {
       const commit = await repo.getCommit(sha)
       if (!commit) continue
-      // git.openRepository 聚焦 Source Control 面板中该仓库的视图，commit
-      // graph（提交历史）随仓库节点展示；比 git.viewCommit（直接开 diff）更
-      // 符合「跳转到 git 插件看提交历史」的预期（用户 2026-09-02 反馈）。
-      await vscode.commands.executeCommand('git.openRepository', repo)
+      await vscode.commands.executeCommand('git.viewCommit', repo, commit.hash)
       return true
     } catch {
       // 该仓库无此 commit，试下一个

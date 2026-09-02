@@ -274,5 +274,15 @@
   "↓ Back to latest": "↓ Back to latest",
   "Duration {0}": "Duration {0}",
   ", ": ", ",
-  "Unread": "Unread"
+  "Unread": "Unread",
+  "{0} files changed": "{0} files changed",
+  "{0} insertions(+)": "{0} insertions(+)",
+  "{0} deletions(-)": "{0} deletions(-)",
+  "just now": "just now",
+  "{0} minutes ago": "{0} minutes ago",
+  "{0} hours ago": "{0} hours ago",
+  "{0} days ago": "{0} days ago",
+  "Open Commit": "Open Commit",
+  "Open on GitHub": "Open on GitHub",
+  "Copy commit hash": "Copy commit hash"
 }
