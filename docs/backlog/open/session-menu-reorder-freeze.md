@@ -36,11 +36,19 @@
 
 **send 等明确动作后刷新基线（列表排序及时追平真实状态）**（用户提案）+ **按住右键/菜单打开期间冻结列表变更位置**。
 
-**① 刷新基线触发点：send 后 + VS Code 窗口聚焦时**（用户提案，2026-09-02 定稿）
+**① 刷新基线触发点：发送后 + 窗口聚焦 + 侧栏从不可见到可见**（用户定案：一切让 dsh-one 侧栏从不可见（VS Code 焦点丢失、侧栏被覆盖）到可见的事件都刷新）
 - **send 后**：`chatView.ts` `case 'send'` 里 `await target.send(...)` 落地后 `void this.store.refresh()`；低频手动动作，两次 RPC 成本可接受。
-- **VS Code 窗口聚焦时**：`vscode.window.onDidChangeWindowState`（`WindowState.focused` 为 true 时）→ `void sessions.refresh()`——用户 OS 层面切走再切回（"vscode 没选中、重新选中"）时追平期间的所有变化；注册在 `extension.ts`（`context.subscriptions`）。失焦不刷（无收益）。
-- 效果：A send 后立即变最新、列表立刻重排——**重排时机从"偶然落在用户右键前一瞬"挪到"send 时（用户注意力还在聊天与输出上）"**；切回 VS Code 时列表一次性追平。refresh 异步落地前的窗口里列表还是旧顺序（B 第一），右键 B 命中 B（安全）。**缩小危险窗口，但异步落地后用户凭旧位置右键仍可能命中 A**（案例里用户已"看到 A 跳到前面"仍误操作，说明看得见≠会重新定位）——故与 ②③ 组合。
-- 可选扩展（未定，见待确认）：点击打开/附着会话时刷新；turn 结束（running true→false）时刷新——先做 send+focus，实测后按需补。
+- **OS 窗口聚焦**：`vscode.window.onDidChangeWindowState`（`WindowState.focused` 为 true 时）→ `void sessions.refresh()`（注册在 `extension.ts`，`context.subscriptions`；失焦不刷）。
+- **侧栏 view 从不可见到可见**（用户补充场景：打开文件管理器覆盖 dsh-one 侧栏、切回时）：
+  - `WebviewView.onDidChangeVisibility`（`sessionsView.ts` 的 `SessionsViewProvider`）：`view.visible` 为 true 时 `void this.store.refresh()`——文档确认该事件覆盖"用户切换到侧栏/面板里另一个 view group"与折叠/展开；
+  - `resolveWebviewView` 时也刷新（文档："called when a view first becomes visible... or when the user hides and then shows a view again"——webview 销毁重建场景；现 resolve 只 pushSessions 用缓存快照，加一行 `void this.store.refresh()`，新快照由现有 store.onDidChange → pushSessions 订阅链推送）。
+  - （顺带，可选）editor chat 面板 `WebviewPanel.onDidChangeViewState`（`event.visible`）→ 同样刷新——与侧栏语义一致；用户当前场景是侧栏，先做侧栏，面板顺带做成本一致。
+- **统一入口与防抖**：`refresh()` 有 `refreshInFlight` 缓冲（并发/在途帧安全），但连续触发（聚焦+可见同时到达）会串行全量 RPC——建议包一个 500ms 级合并/去抖的 `refreshSessionsSoon()`（低频事件，去抖成本为零）；实现细节，认领后定。
+- 效果：A send 后立即变最新、列表立刻重排——**重排时机从"偶然落在用户右键前一瞬"挪到"send 时（用户注意力还在聊天与输出上）"与"侧栏/窗口变成可见时（用户刚回到列表，正要操作）"**。注意 refresh 异步落地前（localhost RPC 通常 <50ms，用户操作右键通常在其后）列表仍是旧顺序——**缩小危险窗口但未归零**（案例里用户已"看到 A 跳到前面"仍误操作，说明看得见≠会重新定位）——故与 ②③ 组合。
+
+细节：
+- `WebviewView.visible`（只读）+ `onDidChangeVisibility: Event<void>`（折叠/展开、切换 view group 触发；context menu 隐藏改为 dispose→resolve）；API 文档确认见 `@types/vscode` 10267-10283。
+- 可选扩展（未定，见待确认）：点击打开/附着会话时刷新；turn 结束（running true→false）时刷新——先做上面三条，实测后按需补。
 
 **② 按住右键 / 菜单打开期间冻结列表变更位置**：冻结窗口从 **pointerdown（右键按钮按下）开始 → 菜单关闭（closePopover）结束**（覆盖 W2 + W3；W1 在窗口之前，冻结救不了，靠 ①③ 减损）。窗口内 `renderSessions` 跳过列表重建（保留现有 DOM，或把快照挂起）；菜单释放时用最新快照一次性重建。窗口内到达的快照不丢（webview 保留最新 `sessionsSnapshot` 引用即可）。
 
@@ -60,7 +68,7 @@
 
 ## 待确认
 
-- 焦点刷新粒度：`onDidChangeWindowState` 只覆盖 OS 窗口级聚焦/失焦；VS Code 窗口**内部**从其他面板切回 sessions/chat 是否也要刷（要的话需要 webview/focus 级事件，实测用户在"切回 VS Code 但焦点落在别的面板"时列表是否仍在需求里）。
+- 刷新触发集是否覆盖用户期望的全部"不可见→可见"路径：OS 窗口聚焦（onDidChangeWindowState）、侧栏 view 可见性（onDidChangeVisibility）、webview 重建（resolveWebviewView）三条已定；VS Code 窗口内部点击其他编辑器/面板算不算"回来"（不算——侧栏 view 未变化时不刷，用户语义是侧栏被覆盖/窗口失焦，已覆盖）。
 - 方案①落地前的基准行为：当前 A send 后跳到最前的实际时机（自动命名标题投影触发的 refresh？手动刷新？重连？）——建议修复时在案例场景（A 无标题 + send + 随后右键 B）真机验证用户方案是否覆盖。
 - 官方 host 事件集是否有带 updatedAt 的增量帧（有则增量更新替代整表 refresh，更优；本地无官方 events.d.ts，待查 dsh 官方仓库）。
 - 冻结窗口是否需要在 pointerdown 前再前移（比如悬停超过 N ms 也冻结）——权衡：悬停冻结会阻塞流式期间列表状态更新（pending/运行中标记不刷新），**默认不做**，除非真机确认用户错位更接近"悬停"而非"右键前一刻"。
@@ -73,4 +81,5 @@
 - 2026-09-02 用户给出真实复现案例（A send 后变最新跳前 → 右键"B 的位置"命中 A 误归档）并提案「每次发送就刷新」：核实 send 分支无 refresh、A 跳前面的现状路径为标题变化触发的 refresh；方案定为①send 时 refresh（用户提案）+②pointerdown 起冻结+③菜单首行显示会话名，附加待确认真机基准行为
 - 2026-09-02 调研 refresh 触发点全集：无轮询（无 2min 定时刷新）；近似机制 60s 本地 tick 仅刷相对时间文案（不发 RPC）；确认方案①为新增显式触发点（send 后追平 updatedAt），非替代轮询
 - 2026-09-02 用户定案刷新触发点：send 后 + VS Code 窗口聚焦时（onDidChangeWindowState focused=true）；可选扩展（打开/附着会话、turn 结束）列为待定；待确认焦点粒度（窗口级 vs 面板级）
+- 2026-09-02 用户扩展触发语义：一切让 dsh-one 侧栏从不可见（焦点丢失、被文件管理器等覆盖）到可见的事件都刷新——补 onDidChangeVisibility（view.visible）+ resolveWebviewView（webview 重建）两个事件源，editor 面板 onDidChangeViewState 列为顺带候选；建议统一入口加 500ms 级去抖
 
