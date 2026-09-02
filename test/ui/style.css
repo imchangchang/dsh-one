@@ -922,6 +922,19 @@
   /* pill 内嵌图标 + 文字标签（如 Agent 模式）：图标不缩、标签自身省略号。 */
   .pill svg { flex: none; }
   .pill .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Plan-mode chip（对齐官方 dsh web PlanChip 的 warn 黄）：warn 前景色文字 +
+     同色低透明背景，与普通 pill 的次级按钮灰区分开。 */
+  .pill.plan-chip {
+    background: rgba(204, 167, 0, .15);
+    color: var(--vscode-editorWarning-foreground, #cca700);
+    padding: 2px 8px;
+  }
+  .pill.plan-chip:hover:not(:disabled) {
+    background: rgba(204, 167, 0, .28);
+    color: var(--vscode-editorWarning-foreground, #cca700);
+  }
+  .pill.plan-chip:disabled { opacity: .6; cursor: default; }
+  .pill.plan-chip .plan-chip-close { display: inline-flex; align-items: center; flex: none; }
   .popover {
     position: fixed; z-index: 20; min-width: 180px; max-width: 340px; max-height: 50vh; overflow-y: auto;
     background: var(--vscode-menu-background, var(--vscode-dropdown-background));
