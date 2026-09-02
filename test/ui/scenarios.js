@@ -198,7 +198,7 @@
         { workspaceId: 'ws-another', path: '/tmp/another-project', title: 'another-project' },
       ], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
       title: '空会话 hero',
-      expect: '空会话 hero（无历史）：品牌组合（官方蓝色鱼标 + × 分隔符 + DSH One 像素鲸鱼 logo，像素鲸为品牌蓝），**无**「探索未至之境」标题与「预览版」徽章；其下 workspace 选择 chip（dsh-one，文件夹图标 + 名称 + chevron，可点击）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）；composer 右下角发送按钮为**圆形图标按钮**（品牌蓝底、白色上箭头图标、无文字）；composer 右下角**无** contextBar——无「窗口未知」灰字占位、无进度条、无悬停说明（空白对话无任何上下文数据，切换模型后也不显示任何上下文指示）。',
+      expect: '空会话 hero（无历史）：品牌区为**单个 DSH One 像素鲸鱼 logo**（品牌蓝 #2563EB，约 64px，游动动画），**无**官方 dsh 鲸鱼标、× 分隔符、「探索未至之境」标题与「预览版」徽章；其下 workspace 选择 chip（dsh-one，文件夹图标 + 名称 + chevron，可点击）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）；composer 右下角发送按钮为**圆形图标按钮**（品牌蓝底、白色上箭头图标、无文字）；composer 右下角**无** contextBar——无「窗口未知」灰字占位、无进度条、无悬停说明（空白对话无任何上下文数据，切换模型后也不显示任何上下文指示）。',
     },
 
     'composer-running': {

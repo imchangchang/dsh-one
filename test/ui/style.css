@@ -1260,24 +1260,17 @@
     width: 100%; max-width: 780px; margin: 0 auto;
     display: flex; flex-direction: column; gap: 12px;
   }
-  /* 品牌组合（官方鱼标 × DSH One 像素鲸鱼 logo）：居中，左右缓游的轻量动画——
+  /* DSH One 品牌 logo（像素鲸鱼）：居中，左右缓游的轻量动画——
      只动 transform（合成层，不触发布局），空态加载零额外成本；
      prefers-reduced-motion 下静止。 */
   .hero-fish {
     align-self: center;
-    color: var(--vscode-textLink-foreground, #4da3ff);
+    color: #2563eb;
     animation: hero-fish-swim 4.8s ease-in-out infinite;
   }
   .hero-brand {
     display: flex; align-items: center; justify-content: center; gap: 12px;
   }
-  .hero-brand-x {
-    color: var(--vscode-descriptionForeground, #888);
-    font-size: 16px; line-height: 1; user-select: none;
-  }
-  /* DSH One 像素鲸鱼 logo 用品牌蓝（assets/icon.svg 同款 #2563EB），
-     与官方鱼标的主题蓝区分开。 */
-  .hero-brand > svg:last-child { color: #2563eb; }
   @keyframes hero-fish-swim {
     0%, 100% { transform: translateX(-8px) rotate(-3deg); }
     50% { transform: translateX(8px) rotate(3deg); }

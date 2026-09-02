@@ -7,7 +7,7 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { CONTEXT_BROWSE_ICON, CODE_ICON, DSH_ONE_MARK, FISH_LOGO, GOAL_ICONS, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, SKILL_ICON, STOP_ICON, STOP_PRIMARY_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
+import { CONTEXT_BROWSE_ICON, CODE_ICON, DSH_ONE_MARK, GOAL_ICONS, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, SKILL_ICON, STOP_ICON, STOP_PRIMARY_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
@@ -598,25 +598,6 @@ function spinSvg(): SVGSVGElement {
     rect.style.animationDelay = `${phase + (i - SPIN_CELLS.length) * 125}ms`
     svg.appendChild(rect)
   })
-  return svg
-}
-
-/**
- * 品牌鱼标 svg：官方 FishLogo 组件（dsh-client-ui-primitives）的镜像——
- * 宽度 size、高度按 17.04/23.16 等比，className 调用方给。
- */
-function fishLogoSvg(size: number, className: string): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', String(size))
-  svg.setAttribute('height', String((size * 17.04) / 23.16))
-  svg.setAttribute('viewBox', FISH_LOGO.viewBox ?? '0 0 23.16 17.04')
-  svg.setAttribute('fill', 'none')
-  svg.setAttribute('aria-hidden', 'true')
-  svg.classList.add(className)
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-  path.setAttribute('d', FISH_LOGO.paths[0] as string)
-  path.setAttribute('fill', 'currentColor')
-  svg.appendChild(path)
   return svg
 }
 
@@ -2545,20 +2526,18 @@ function render(): void {
 
 /**
  * 空会话 hero（官方 dsh web 空态 HeroShell 的本地变体）：整列水平居中——
- * 品牌组合（官方鱼标 × DSH One 像素鲸鱼 logo，一体化浮动），其下 workspace
- * 选择 chip（点击弹 WorkspacePicker）与 preset 选择 chip 行，再下是包成
+ * DSH One 像素鲸鱼 logo（品牌蓝，游动动画），其下 workspace 选择 chip
+ * （点击弹 WorkspacePicker）与 preset 选择 chip 行，再下是包成
  * 大圆角卡片的 composer（样式见 chatView.ts 的 .hero）。不渲染官方
  * hero 的「探索未至之境」标题与「预览版」徽章（用户要求去掉）。
  */
 function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
   const hero = el('div', 'hero')
   const stack = el('div', 'hero-stack')
-  // 品牌组合：官方 FishLogo + × 分隔符 + DSH One 像素鲸鱼 logo，整体用
-  // .hero-brand 轻量游动动画（纯 CSS transform，样式见 chatView.ts）。
+  // 品牌：DSH One 像素鲸鱼 logo + 轻量游动动画（纯 CSS transform，样式见
+  // chatView.ts 的 .hero-fish）。
   const brand = el('div', 'hero-brand hero-fish')
-  brand.appendChild(fishLogoSvg(56, 'hero-brand-fish'))
-  brand.appendChild(el('span', 'hero-brand-x', '×'))
-  brand.appendChild(iconSvg(DSH_ONE_MARK, 40))
+  brand.appendChild(iconSvg(DSH_ONE_MARK, 64))
   stack.appendChild(brand)
   const chips = el('div', 'hero-chips')
   if (state.workspaceLabel) {
