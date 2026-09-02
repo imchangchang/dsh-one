@@ -149,3 +149,5 @@ chat-scroll-stream-jitter-self-lock / session-menu-reorder-freeze），merge 解
 横切域）另起任务。
 
 自测：typecheck + 326 测试全绿 + build（merge 后）
+
+- 2026-09 主线合入测试通过（merge bcbc71e），人工 dev-ui-test 验收通过 → closed
