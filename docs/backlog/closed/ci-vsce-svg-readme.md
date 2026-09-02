@@ -31,3 +31,5 @@
 - 2026-09-02 认领 → doing
 
 - 2026-09-02 开发完成，自测通过（typecheck + 336 tests + build + package 本地验证通过）→ done
+
+- 2026-09-02 主线合入测试通过（CI 三平台全绿），人工确认 → closed
