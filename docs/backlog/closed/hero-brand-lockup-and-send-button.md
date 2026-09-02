@@ -28,3 +28,4 @@
 - 2026-09-02 记录 → open（想法：未确认，x 分隔符语义已向用户确认）
 - 2026-09-02 用户补充：发送按钮改动覆盖非空白对话（普通消息流态），与官方交互一致（运行中主按钮变停止、取消独立停止按钮）；官方 InputBar 主按钮细节已核实
 - 2026-09-02 认领（worktree: agent/hero-brand-lockup-and-send-button）→ doing
+- 2026-09-02 主线 dev-merge.sh 合入（rebase 到最新 main，typecheck/334 测试通过，dist 重建）；基线冒烟 31 场景截图正常 → closed
