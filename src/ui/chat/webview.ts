@@ -260,11 +260,15 @@ let pendingFiles: StagedFile[] = []
 /** Session the staged images belong to; a switch drops them. */
 let stagedForSession: string | null = null
 /** Per-session composer text drafts: sessionId → 未发送文本。切走时存旧、切回时取新，
- *  不再让旧会话的草稿「跟着搬到」下一个会话的输入框。 */
+ *  不再让旧会话的草稿「跟着搬到」下一个会话的输入框。空态（未附着会话）用
+ *  EMPTY_SESSION_KEY 占位——有草稿的空态 tab 不会被宿主替换（dirty 保护），
+ *  存档留给将来可能的恢复入口，也避免切走时清掉 stashedDraft。 */
 const composerDrafts = new Map<string, string>()
 /** Per-session staged attachments: sessionId → { images, files }。与文本同款：按会话
  *  各存一份，切走时存档、切回时恢复（原来切换即清空）。 */
 const stagedPerSession = new Map<string, { images: OutgoingImage[]; files: StagedFile[] }>()
+/** 空态 tab（sessionId 为 null）在草稿归档里的占位 key；与 chatView 的 EMPTY_TAB_KEY 同值。 */
+const EMPTY_SESSION_KEY = '\u0000empty'
 /** 会话切换后待落入 composer 的草稿来源会话：message handler 存档/恢复后置为新会话
  *  id，render 消费帧用它从 composerDrafts 取草稿。用标志而非「sessionId ≠ scrollSession」
  *  判断切换帧——hero 布局每帧把 scrollSession 置 null，同会话的 hero 帧会被误判成
@@ -324,6 +328,25 @@ const PERMISSION_GLYPHS: Record<string, string> = {
 
 function post(message: FromWebviewMessage): void {
   vscode.postMessage(message)
+}
+
+/** 最近一次上报的 composer 脏位（比较用：值不变不发消息，避免流式渲染刷屏）。 */
+let lastReportedDirty: boolean | null = null
+
+/**
+ * 把本 tab composer 的脏位（有未发送文本/附件）同步给宿主。宿主用它在点击
+ * 其他会话时决定「复用本 tab 还是新开 tab」：脏位为 true 时绝不覆盖本 tab。
+ * 文本从还挂在 DOM 里的输入框读；pending 面板接管（无输入框）时读停驻的
+ * stashedDraft。`force` 用于会话切换帧——宿主在替换 tab 时会把脏位归零，
+ * 这里必须无条件重报一次真实状态，否则同值变化会被比较短路漏报。
+ */
+function reportComposerDirty(force = false): void {
+  const input = document.getElementById('input') as HTMLTextAreaElement | null
+  const text = input ? input.value : (stashedDraft ?? '')
+  const dirty = text.trim().length > 0 || pendingImages.length > 0 || pendingFiles.length > 0
+  if (!force && dirty === lastReportedDirty) return
+  lastReportedDirty = dirty
+  post({ type: 'composerDirty', dirty })
 }
 
 /**
@@ -715,20 +738,21 @@ window.addEventListener('message', (event) => {
   const msg = event.data as ToWebviewMessage
   if (msg?.type === 'state' && msg.state) {
     state = msg.state
-    if (state.sessionId !== stagedForSession) {
+    const switched = state.sessionId !== stagedForSession
+    if (switched) {
       // 换会话：先存档旧会话的 composer 草稿（文本 + 附件），再恢复新会话的
       // ——文本不再跟着搬到下一个会话，附件不再切换即丢。
       // 文本从还挂在 DOM 里的旧输入框读；面板被 pending 接管（无输入框、
-      // restoreDraft 暂存进 stashedDraft）时把暂存一并归档。
+      // restoreDraft 暂存进 stashedDraft）时把暂存一并归档。空态（无附着
+      // 会话）同样存档，占位 key 为 EMPTY_SESSION_KEY。
       const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
-      if (stagedForSession !== null) {
-        composerDrafts.set(stagedForSession, oldInput ? oldInput.value : stashedDraft ?? '')
-        stagedPerSession.set(stagedForSession, { images: pendingImages, files: pendingFiles })
-      }
+      const oldKey = stagedForSession ?? EMPTY_SESSION_KEY
+      composerDrafts.set(oldKey, oldInput ? oldInput.value : stashedDraft ?? '')
+      stagedPerSession.set(oldKey, { images: pendingImages, files: pendingFiles })
       stashedDraft = undefined
       // 数组浅拷贝：归档持有原数组，恢复出的 pending* 之后会被用户在 composer
       // 里 splice 编辑，不能直接引用归档数组（否则删附件会污染归档）。
-      const restored = state.sessionId !== null ? stagedPerSession.get(state.sessionId) : undefined
+      const restored = stagedPerSession.get(state.sessionId ?? EMPTY_SESSION_KEY)
       pendingImages = [...(restored?.images ?? [])]
       pendingFiles = [...(restored?.files ?? [])]
       modelCatalog = null
@@ -740,6 +764,8 @@ window.addEventListener('message', (event) => {
       draftRestoreFor = state.sessionId
     }
     render()
+    // 切换帧强制重报脏位（host 替换 tab 时会把脏位归零，同值比较会漏报）。
+    if (switched) reportComposerDirty(true)
   } else if (msg?.type === 'sessions' && msg.snapshot) {
     // 拆分后侧栏为原生 tree；这里只更新 @ 提及补全的会话数据源。
     sessionsSnapshot = msg.snapshot
@@ -2433,6 +2459,8 @@ function render(): void {
   } else if (slashPopupEl && oldInput) {
     positionSlashPopup(oldInput)
   }
+  // 脏位跟随渲染结果上报：切换会话恢复草稿、发送清空、附件增删都经这里。
+  reportComposerDirty()
 }
 
 /**
@@ -4723,6 +4751,8 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     autoGrow(input)
     updateButton()
     updateSlashPopup(input)
+    // 纯输入不触发 render，脏位上报单独跟一次（宿主的 dirty 保护决策读它）。
+    reportComposerDirty()
   })
   input.addEventListener('blur', () => hideSlashPopup())
   input.addEventListener('paste', (e) => {

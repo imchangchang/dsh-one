@@ -635,6 +635,11 @@ export type ToWebviewMessage =
 export type FromWebviewMessage =
   /** Webview 脚本加载完成（含 tab 切走后 VSCode 重载的场合）；宿主据此重推当前状态。 */
   | { type: 'ready' }
+  /**
+   * 本 tab composer 是否有未发送内容（文本/附件）。宿主据此保护「正在编辑
+   * 的 tab」：点击其他会话时若有未发送内容则新开 tab，不覆盖当前 tab。
+   */
+  | { type: 'composerDirty'; dirty: boolean }
   | { type: 'send'; text: string; images?: OutgoingImage[]; steer?: boolean }
   | { type: 'stop' }
   | { type: 'approval'; rpcId: string; outcome: 'allowed-once' | 'rejected' }
