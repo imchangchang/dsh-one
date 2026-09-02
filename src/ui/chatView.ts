@@ -682,6 +682,12 @@ const STYLE = `
     margin-top: 4px; font-size: 0.85em;
     color: var(--vscode-errorForeground, #f14c4c);
   }
+  /* 超 token 提示行（对齐官方 TurnMaxTokensItem）：与 turnError 同构，warning 配色。 */
+  .turn-error.max-tokens { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .turn-error.max-tokens .turn-error-dot {
+    background: var(--vscode-editorWarning-foreground, #cca700);
+  }
+  .turn-error.max-tokens .turn-error-title { color: var(--vscode-editorWarning-foreground, #cca700); }
   .turn-error-dot {
     width: 7px; height: 7px; border-radius: 50%; flex: none; align-self: center;
     background: var(--vscode-errorForeground, #f14c4c);
@@ -693,6 +699,69 @@ const STYLE = `
     font-size: 0.85em; padding: 0 4px; border-radius: 3px;
     background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
   }
+  /* 压缩摘要卡（对齐官方 CompactionItem）：折叠行 = chevron + 标题 + 分隔点 + 摘要。 */
+  .compaction { width: 100%; min-width: 0; margin: 2px 0; font-size: 13px; line-height: 24px; }
+  .compaction summary {
+    display: flex; align-items: center; gap: 6px; min-width: 0; cursor: pointer;
+    list-style: none; border-radius: 6px; padding: 2px 8px; user-select: none;
+  }
+  .compaction summary::-webkit-details-marker { display: none; }
+  .compaction summary:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.08)); }
+  .compaction-chevron { flex: none; transition: transform .15s ease; }
+  .compaction-chevron.collapsed { transform: rotate(-90deg); }
+  .compaction-title { flex: none; color: var(--vscode-descriptionForeground, #888); }
+  .compaction-sep {
+    flex: none; width: 2px; height: 2px; border-radius: 50%;
+    background: var(--vscode-descriptionForeground, #888); opacity: .6;
+  }
+  .compaction-summary {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .compaction-body { padding: 2px 8px 4px 26px; font-size: 13px; }
+  /* 无摘要（不可展开）的纯展示行。 */
+  .compaction-row {
+    display: flex; align-items: center; gap: 6px; min-width: 0;
+    margin: 2px 0; padding: 2px 8px; font-size: 13px; line-height: 24px;
+  }
+  /* 模型重试行（对齐官方 ModelRetryItem）：折叠行 = 状态文本，展开 = 延迟 + 失败原因。 */
+  .retry-row { color: var(--vscode-descriptionForeground, #888); font-size: 12px; line-height: 20px; }
+  .retry-row summary {
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
+    width: fit-content; border-radius: 3px; padding: 2px 0; list-style: none;
+  }
+  .retry-row summary::-webkit-details-marker { display: none; }
+  .retry-row summary:hover { color: var(--vscode-foreground, #ccc); }
+  .retry-row summary::after {
+    content: ''; opacity: .8; border-bottom: 1.5px solid; border-right: 1.5px solid;
+    width: 6px; height: 6px; transition: transform .12s; transform: rotate(-45deg);
+  }
+  .retry-row[open] summary::after { transform: rotate(45deg); }
+  /* 等待期扫光（对齐官方 data-active shimmer），reduced-motion 下退化为静态。 */
+  .retry-row[data-active] .retry-text {
+    background: linear-gradient(
+      90deg,
+      var(--vscode-descriptionForeground, #888) 0%,
+      var(--vscode-descriptionForeground, #888) 40%,
+      var(--vscode-foreground, #ccc) 50%,
+      var(--vscode-descriptionForeground, #888) 60%,
+      var(--vscode-descriptionForeground, #888) 100%
+    );
+    background-size: 200% 100%; -webkit-background-clip: text; background-clip: text;
+    color: transparent; animation: retry-shimmer 1.6s ease-in-out infinite;
+  }
+  @keyframes retry-shimmer {
+    from { background-position: 100% 0; }
+    to { background-position: 0 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .retry-row[data-active] .retry-text { color: inherit; background: none; animation: none; }
+  }
+  .retry-details {
+    display: grid; gap: 2px; margin-top: 3px; padding-left: 14px;
+    font-size: 12px; line-height: 18px; overflow-wrap: anywhere;
+  }
+  .retry-detail-label { color: var(--vscode-descriptionForeground, #888); }
   .msg-actions { display: flex; align-items: center; gap: 10px; height: 28px; margin-top: 2px; }
   .msg-actions .icon-action {
     width: 28px; height: 28px; padding: 6px; display: inline-flex;

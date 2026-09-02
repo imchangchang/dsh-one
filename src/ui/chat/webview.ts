@@ -14,6 +14,7 @@ import type {
   ChatFile,
   ChatImage,
   ChatMessage,
+  ChatRetryBlock,
   ChatState,
   ChatTodoItem,
   ChatToolBlock,
@@ -1623,6 +1624,8 @@ function render(): void {
   // below discards that row, so drop the timer first and re-arm it later if
   // the turn is still open. Never leave an interval pointing at detached DOM.
   clearTurnStatusTimer()
+  // 重试行倒计时计时器同样按行持有：重建会把行丢掉，先统一清掉。
+  clearRetryTimers()
   // <details> 展开状态按会话隔离：换会话时清空（key 是位置序号，跨会话无意义）。
   // workflow 卡片状态同样按会话隔离（runId 全局唯一但换会话仍清空，防泄漏）。
   const detailsSid = state?.sessionId ?? null
@@ -2639,6 +2642,18 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
     return row
   }
   if (m.kind === 'command') {
+    // 手动 /compact 完成后，命令卡渲染成压缩摘要卡（对齐官方
+    // CompactionCommandCard → CompactionItem）：checkpoint 的
+    // sourceCommandId 命中本卡时挂上 compaction 数据。
+    if (m.compaction) {
+      return renderCompactionCard(key, {
+        title: `/${m.name}${m.args ? ` ${m.args}` : ''}`,
+        summary: m.compaction.summary,
+        items: m.compaction.items,
+        tokens: m.compaction.tokens,
+        fallback: m.text,
+      })
+    }
     // Slash-command lifecycle flow node (dsh command/run + command/done).
     // 多行输出可展开（对齐 dsh web GenericCommandCard：含换行才算有正文）：
     // 折叠态显示命令名 + 输出首行，展开显示全文。
@@ -2659,11 +2674,21 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
     }
     return row
   }
+  if (m.kind === 'compaction') {
+    // 自动压缩的独立标记卡（对齐官方 CompactionItem）：默认折叠，有摘要才可展开。
+    return renderCompactionCard(key, {
+      title: '上下文已压缩',
+      summary: m.summary,
+      items: m.items,
+      tokens: m.tokens,
+    })
+  }
   const row = el('div', 'msg assistant')
   m.blocks.forEach((block, bi) => row.appendChild(renderBlock(block, `${key}:b${bi}`)))
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
   if (m.interrupted) row.appendChild(el('div', 'interrupted', '已中断'))
   if (m.turnError) row.appendChild(renderTurnError(m.turnError))
+  if (m.maxTokens) row.appendChild(renderMaxTokensNotice())
   // 产物行（对齐 dsh web ProducedFiles 的 turn-tail 槽位）：在操作栏之前。
   if (m.producedFiles && m.producedFiles.length > 0) {
     row.appendChild(renderProducedFiles(m.producedFiles, `${key}:produced`))
@@ -2671,9 +2696,9 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   // Copy/feedback/fork attach only to the turn's final message (turnEnd): a
   // turn split by mid-turn injected user/messages folds into several complete
   // messages, and the bar must not repeat on each. Also meaningless on an
-  // empty marker-only message (turn failed or was interrupted before any
-  // content).
-  if (m.turnEnd && !(m.blocks.length === 0 && (m.turnError || m.interrupted))) {
+  // empty marker-only message (turn failed / was interrupted / hit the token
+  // cap before any content).
+  if (m.turnEnd && !(m.blocks.length === 0 && (m.turnError || m.interrupted || m.maxTokens))) {
     row.appendChild(renderAssistantActions(m))
   }
   return row
@@ -2823,6 +2848,125 @@ function renderTurnError(err: { message: string; code?: string }): HTMLElement {
   return row
 }
 
+/**
+ * Max-tokens notice row, mirroring the official web client's TurnMaxTokensItem:
+ * warning StateDot + 「已达到输出 token 上限」+ hint；与 TurnErrorItem 同构
+ * （官方同用 turnErrorRow 布局），仅配色换 warning。
+ */
+function renderMaxTokensNotice(): HTMLElement {
+  const row = el('div', 'turn-error max-tokens')
+  row.appendChild(el('span', 'turn-error-dot'))
+  row.appendChild(el('span', 'turn-error-title', '已达到输出 token 上限'))
+  row.appendChild(
+    el('span', 'turn-error-message', '回答被截断，已有输出保留在对话中。发送“继续”可让模型接着输出。'),
+  )
+  return row
+}
+
+/**
+ * 压缩摘要卡（对齐官方 CompactionItem）：默认折叠；折叠态一行 = 标题 + 分隔点
+ * + 摘要（计数齐时「已压缩 N 条历史记录（约 M tokens）」，否则 fallback 或
+ * 「点击查看压缩摘要」）；summary 为 null 时不可展开（无摘要按钮，纯展示行）。
+ * 展开态 body 渲染摘要全文（markdown）。展开状态按 key 持久化在 detailsOpen。
+ */
+function renderCompactionCard(
+  key: string,
+  opts: { title: string; summary: string | null; items: number | null; tokens: number | null; fallback?: string },
+): HTMLElement {
+  const expandable = opts.summary !== null
+  const summaryText =
+    opts.items !== null && opts.tokens !== null
+      ? `已压缩 ${opts.items} 条历史记录（约 ${opts.tokens} tokens）`
+      : opts.fallback ?? (expandable ? '点击查看压缩摘要' : '压缩摘要不可用')
+  if (!expandable) {
+    // 无摘要（compaction/summary 落在窗口外）：纯展示行，disabled。
+    const row = el('div', 'compaction-row')
+    row.appendChild(el('span', 'compaction-title', opts.title))
+    row.appendChild(el('span', 'compaction-sep'))
+    row.appendChild(el('span', 'compaction-summary', summaryText))
+    return row
+  }
+  const det = detailsEl(`${key}:compact`, 'compaction', '')
+  const summary = det.querySelector('summary') as HTMLElement
+  const chevron = iconSvg(PANEL_ICONS.chevronDown, 14)
+  chevron.classList.add('compaction-chevron', det.open ? 'open' : 'collapsed')
+  summary.appendChild(chevron)
+  summary.appendChild(el('span', 'compaction-title', opts.title))
+  summary.appendChild(el('span', 'compaction-sep'))
+  summary.appendChild(el('span', 'compaction-summary', summaryText))
+  det.addEventListener('toggle', () => {
+    chevron.classList.toggle('open', det.open)
+    chevron.classList.toggle('collapsed', !det.open)
+  })
+  const body = el('div', 'md compaction-body')
+  body.innerHTML = md(opts.summary as string)
+  enhanceCodeBlocks(body, `${key}:compact`)
+  det.appendChild(body)
+  return det
+}
+
+/**
+ * 模型重试行（对齐官方 ModelRetryItem）：折叠行 = 状态文本（含倒计时），展开
+ * 显示重试延迟 + 失败原因。scheduled 等待期行上每秒刷新剩余秒数（只改自己
+ * 的文本节点，不触发列表重渲染；render 重建时会先清掉所有重试行计时器）。
+ */
+const RETRY_LABELS: Record<ChatRetryBlock['retryState'], string> = {
+  scheduled: '正在重试模型请求',
+  started: '已重试模型请求',
+  cancelled: '模型请求重试已取消',
+}
+
+let retryTimers = new Set<ReturnType<typeof setInterval>>()
+
+function clearRetryTimers(): void {
+  for (const t of retryTimers) clearInterval(t)
+  retryTimers = new Set()
+}
+
+function retrySeconds(ms: number): number {
+  return Math.max(1, Math.ceil(ms / 1000))
+}
+
+function renderRetryRow(block: ChatRetryBlock, key: string): HTMLElement {
+  const det = detailsEl(`${key}:retry`, 'retry-row', '')
+  if (block.retryState === 'scheduled') det.setAttribute('data-active', '')
+  const maximum = block.mode === 'normal' ? String(block.maxRetries ?? '?') : '∞'
+  const status = el('span', 'retry-text')
+  const scheduledSeconds = retrySeconds(block.delayMs)
+  const setStatus = (): void => {
+    const seconds =
+      block.retryState === 'scheduled'
+        ? retrySeconds((block.time ?? Date.now()) + block.delayMs - Date.now())
+        : scheduledSeconds
+    status.textContent = `${RETRY_LABELS[block.retryState]}（${block.retry}/${maximum}） · ${seconds}s`
+  }
+  setStatus()
+  if (block.retryState === 'scheduled') {
+    // 倒计时：每秒刷新自己的文本节点；到 0 后停表（剩余显示 1s，等下一个
+    // 快照把状态推进到 started）。
+    const timer = setInterval(() => {
+      setStatus()
+      if ((block.time ?? Date.now()) + block.delayMs - Date.now() <= 0) {
+        clearInterval(timer)
+        retryTimers.delete(timer)
+      }
+    }, 1000)
+    retryTimers.add(timer)
+  }
+  det.querySelector('summary')?.appendChild(status)
+  const details = el('div', 'retry-details')
+  const delay = el('div')
+  delay.appendChild(el('span', 'retry-detail-label', '重试延迟：'))
+  delay.appendChild(document.createTextNode(`${Math.round(block.delayMs)}ms`))
+  details.appendChild(delay)
+  const failure = el('div')
+  failure.appendChild(el('span', 'retry-detail-label', '失败原因：'))
+  failure.appendChild(document.createTextNode(block.failure.message))
+  details.appendChild(failure)
+  det.appendChild(details)
+  return det
+}
+
 /** Plain-text content of one assistant message (text + reasoning blocks). */
 function assistantText(m: ChatAssistantMessage): string {
   return m.blocks
@@ -2967,6 +3111,9 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
     }
     case 'tool':
       return renderTool(block, key)
+    case 'retry':
+      // 模型重试行（对齐官方 ModelRetryItem）：倒计时 + 失败原因 + 最大次数。
+      return renderRetryRow(block, key)
   }
 }
 

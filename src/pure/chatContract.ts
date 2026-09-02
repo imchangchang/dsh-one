@@ -54,7 +54,34 @@ export interface ChatToolBlock {
   meta?: unknown
 }
 
-export type ChatBlock = ChatTextBlock | ChatReasoningBlock | ChatToolBlock
+/**
+ * 模型请求重试行（dsh `llm/retry` + `llm/retry-started` 折叠）：一次延迟重试
+ * 等待期的状态行，倒计时 + 失败原因 + 最大次数（对齐官方 ModelRetryItem）。
+ * 同一 retryId 的多次尝试原地更新（retry 计数递增、回到 scheduled）；所属
+ * turn/end 到达时仍未 started 的尝试标记 cancelled（对齐官方 isClosed 语义）。
+ */
+export interface ChatRetryBlock {
+  type: 'retry'
+  /** 第几次重试（从 1 起）。 */
+  retry: number
+  /** mode='always' 时无限重试（UI 显示 ∞），无上限字段。 */
+  mode: 'normal' | 'always'
+  /** mode='normal' 的重试上限。 */
+  maxRetries?: number
+  /** 本次尝试的等待时长（毫秒）。 */
+  delayMs: number
+  /** 触发重试的失败原因（provider 原始 message）。 */
+  failure: { message: string }
+  /**
+   * 生命周期：scheduled（等待中，倒计时）→ started（llm/retry-started，
+   * 已开始重试）／cancelled（所属 turn 先关闭）。历史里已收尾的尝试保持终态。
+   */
+  retryState: 'scheduled' | 'started' | 'cancelled'
+  /** 该 llm/retry 事件的 epoch ms 时间戳；等待截止 = time + delayMs。 */
+  time?: number
+}
+
+export type ChatBlock = ChatTextBlock | ChatReasoningBlock | ChatToolBlock | ChatRetryBlock
 
 /** One image attached to a user message — a durable dsh attachment reference (bytes fetched lazily). */
 export interface ChatImage {
@@ -115,6 +142,11 @@ export interface ChatAssistantMessage {
    */
   turnError?: { message: string; code?: string }
   /**
+   * turn/end reason {kind:'max-tokens'}：至少一步触达输出 token 上限。渲染
+   * 黄色提示行（对齐官方 TurnMaxTokensItem）；与 turnError 互斥。
+   */
+  maxTokens?: boolean
+  /**
    * Host-persisted message id (assistant/message's data.message.id), required
    * by the messageFeedback RPCs. Absent while streaming or when the host never
    * persisted one — the webview disables the feedback buttons then. On a
@@ -151,9 +183,33 @@ export interface ChatCommandMessage {
   status: 'running' | 'success' | 'error'
   /** Handler receipt text from command/done, when the handler produced one. */
   text?: string
+  /**
+   * 手动 /compact 的压缩摘要（对齐官方 CompactionCommandCard）：checkpoint
+   * user/message 的 source.sourceCommandId 命中本命令卡时挂上来，命令卡就此
+   * 渲染成折叠摘要卡。summary/items/tokens 来自配对的 compaction/summary
+   * 事件；该事件落在窗口外时 summary 为 null（卡不可展开）、计数为 null。
+   */
+  compaction?: { summary: string | null; items: number | null; tokens: number | null }
 }
 
-export type ChatMessage = ChatUserMessage | ChatAssistantMessage | ChatCommandMessage
+/**
+ * 自动压缩的独立标记卡（对齐官方 CompactionItem）：checkpoint user/message
+ * 无 sourceCommandId（自动触发）或对应命令卡在窗口外时折叠成这条消息。折叠
+ * 态标题「上下文已压缩」+ 计数摘要；有 summary 才可展开看摘要全文。
+ */
+export interface ChatCompactionMessage {
+  kind: 'compaction'
+  /** The checkpoint's compactionId (stable per compaction transaction). */
+  id: string
+  /** 摘要正文（compaction/summary 的 text 块拼接）；null = 不可展开。 */
+  summary: string | null
+  /** 被替换的 surface 节点数；summary 事件缺失或畸形时为 null。 */
+  items: number | null
+  /** 被替换内容的估计 token 数；同上。 */
+  tokens: number | null
+}
+
+export type ChatMessage = ChatUserMessage | ChatAssistantMessage | ChatCommandMessage | ChatCompactionMessage
 
 /** A host approval request awaiting the user's decision. */
 export interface PendingApproval {
