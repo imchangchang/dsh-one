@@ -25,3 +25,5 @@
 - 2026-09-02 用户确认修复（要求合理改动）。
 
 - 2026-09-02 认领（worktree: agent/model-window-cache-persist）→ doing
+
+- 2026-09-02 开发完成（dev-finish 自测通过：typecheck + 330 tests + build，done 标记 f7974c4）→ done。实现：src/pure/modelWindowCache.ts 持久化格式（Record<provider/model, contextWindow>，解析过滤畸形条目）+ chatSession.ts learn 时整表落盘（值未变不重写）+ extension.ts activate 里从 globalState 载入并注册写入器（key: chat.modelWindowCache，必须在 controller 附着前）；新增 modelWindowCache.test.ts 往返/畸形输入用例。无 UI 改动；人工验收点：重启扩展后切回此前用过的模型应立即恢复比例（先发一条消息让它被观察并落盘）。
