@@ -73,6 +73,9 @@ function jsonKeys(text) {
 
 // ---------- 解析 unified diff，按文件分组出「新增行」（含行号） ----------
 // added[file] = [{ no: 新增行号(1-based), text: 行内容 }]
+// 判定 / 是否开启正则：前一个有效字符是这些（或行首）可视为正则开始。
+// 必须在 stripFileComments 首次被调用（下方「填充 stripped」循环）前初始化。
+const REGEX_PREV = new Set(['(', '[', '{', '=', ':', ',', ';', '!', '?', '&', '|', '+', '-', '*', '%', '^', '~', '<', '>'])
 function parseDiff(diff) {
   const added = {}   // file -> [{ no, text }]
   let cur = null
@@ -129,12 +132,22 @@ function isFixturePath(path) { return FIXTURE_RE.test(path) }
 // 按文件跑注释状态机，生成与原文逐字符等长、逐行对齐的「剥离注释」文本：
 // 注释字符替换为空格（保留换行），字符串/模板串原样保留——字符串里的中文是
 // 硬编码，检查 5 仍应命中；只有注释里的中文要放过。逐行正则处理不了跨行
-// /* ... */（中间行没有 /* 标记），所以必须整文件状态机。状态：code / 行注释 /
-// 块注释 / 单引串 / 双引串 / 模板串。正则字面量里的 // 与 /* 有转义(如 /a\/\//)，
-// 未转义紧邻的 // 或 /* 在合法 JS 源码里只可能是注释，状态机误判率可忽略。
+// /* ... */（中间行没有 /* 标记），所以必须整文件状态机。模板串内识别
+// ${...} 插值：插值区回到 code（插值里是真实代码，注释/字符串照常解析），
+// 遇 } 回模板文本。用 tplDepth 计数处理嵌套模板串。状态：code / 行注释 /
+// 块注释 / 单引串 / 双引串 / 模板串 / 正则字面量。
+//
+// 正则字面量与除法同以 / 开头：按「前一个有效非空白字符」判断——是操作符
+// （( [ { = : , ; ! ? & | + - * % ^ ~ < > 或行首）则视为正则开始，否则为
+// 除法。正则内部用 regex 状态防解析（处理 \ 转义与 [ ] 字符类），避免
+// 例：.replace(/"/g, ...) 中 /"/ 里的 " 被误当字符串起点。启发式并非
+// 完全精确（如 a / b 后跟 ) 的极端情况），但对注释剥离的用途足够。
 function stripFileComments(text) {
   let out = ''
   let state = 'code'
+  let tplDepth = 0 // code 内未闭合的 ${ 插值层数
+  let prevSig = '' // 上一个有效非空白字符（code 区）
+  let inCharClass = false // 正则字符类 [ ]
   let i = 0
   while (i < text.length) {
     const ch = text[i]
@@ -142,9 +155,12 @@ function stripFileComments(text) {
     if (state === 'code') {
       if (ch === '/' && nx === '/') { out += '  '; state = 'line'; i += 2; continue }
       if (ch === '/' && nx === '*') { out += '  '; state = 'block'; i += 2; continue }
-      if (ch === "'") { out += ch; state = 's1'; i++; continue }
-      if (ch === '"') { out += ch; state = 's2'; i++; continue }
+      if (ch === '/' && REGEX_PREV.has(prevSig)) { out += '/'; state = 'regex'; inCharClass = false; i++; continue }
+      if (ch === "'") { out += ch; prevSig = ch; state = 's1'; i++; continue }
+      if (ch === '"') { out += ch; prevSig = ch; state = 's2'; i++; continue }
       if (ch === '`') { out += ch; state = 'tpl'; i++; continue }
+      if (ch === '}' && tplDepth > 0) { tplDepth--; out += ch; state = 'tpl'; i++; continue }
+      if (!/\s/.test(ch)) prevSig = ch
       out += ch; i++; continue
     }
     if (state === 'line') {
@@ -157,10 +173,39 @@ function stripFileComments(text) {
       else { out += ch === '\n' ? '\n' : ' '; i++ }
       continue
     }
-    // 字符串/模板串：保留内容（含换行），只处理转义与结束符
+    if (state === 'regex') {
+      out += ch
+      if (ch === '\\') { out += nx ?? ''; i += 2; continue }
+      if (ch === '[') inCharClass = true
+      else if (ch === ']') inCharClass = false
+      else if (ch === '/' && !inCharClass) { state = 'code'; prevSig = '/'; i++; continue }
+      i++; continue
+    }
+    if (state === 'tpl') {
+      // 插值入口 ${：进入 code，层数 +1
+      if (ch === '$' && nx === '{') { out += '${'; tplDepth++; state = 'code'; i += 2; continue }
+      if (ch === '`') { out += ch; state = 'code'; i++; continue }
+      if (ch === '\\') { out += nx ?? ''; i += 2; continue }
+      // 模板串多为 CSS/HTML 文本：/* ... */（CSS 块注释）、<!-- ... -->（HTML 注释）
+      // 也剥掉，模板文本里的真实文案（中文）不受影响。
+      if (ch === '/' && nx === '*') { out += '  '; state = 'tplBlock'; i += 2; continue }
+      if (ch === '<' && nx === '!' && text[i + 2] === '-' && text[i + 3] === '-') { out += '    '; state = 'tplHtml'; i += 4; continue }
+      out += ch; i++; continue
+    }
+    if (state === 'tplBlock') {
+      if (ch === '*' && nx === '/') { out += '  '; state = 'tpl'; i += 2 }
+      else { out += ch === '\n' ? '\n' : ' '; i++ }
+      continue
+    }
+    if (state === 'tplHtml') {
+      if (ch === '-' && nx === '-' && text[i + 2] === '>') { out += '   '; state = 'tpl'; i += 3 }
+      else { out += ch === '\n' ? '\n' : ' '; i++ }
+      continue
+    }
+    // 字符串：保留内容（含换行），只处理转义与结束符
     out += ch
     if (ch === '\\') { out += nx ?? ''; i += 2; continue }
-    if ((state === 's1' && ch === "'") || (state === 's2' && ch === '"') || (state === 'tpl' && ch === '`')) state = 'code'
+    if ((state === 's1' && ch === "'") || (state === 's2' && ch === '"')) state = 'code'
     i++
   }
   return out
