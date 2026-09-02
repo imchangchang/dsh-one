@@ -25,3 +25,5 @@
 - 2026-09-02 用户报告并拍板修复（要求合理改动而非最小补丁）。
 
 - 2026-09-02 认领（worktree: agent/context-bar-blank-window-unknown）→ doing
+
+- 2026-09-02 开发完成（dev-finish 自测通过：typecheck + 328 tests + build，done 标记 7f53aed）→ done。实现：占位收窄为「必须带已用量采样」（contextUsageUnknown 无采样返回 undefined + ContextUsage 契约去裸占位变体），contextUsageOf 同步（空白对话 contextUsage 缺省、bar 隐藏），webview 三处渲染统一 contextBarHasValue 防御（绝不画空占位）；单测改「无采样 = 无占位」，empty 场景 expect 补「无 contextBar」，新增 context-switch-window-unknown-blank 场景；ui-visual 全 69 场景截图核验 empty / blank（无 bar）/ unknown（有采样仍占位）/ overflow 均符合期望。待人工 dev-ui-test 窗口验收后主线合入。
