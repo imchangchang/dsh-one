@@ -41,4 +41,5 @@ dsh-one（webview.ts:2298-2306）：只有会话 mention 渲染成 chip（`split
 
 - 2026-09-01 认领 → doing（并行开发 session）
 - 2026-09-05 开发完成，自测通过（typecheck + 267 测试 + build 全绿），视觉场景 DOM 核对通过 → done（worktree: agent/mention-chips-files-folders）
+- 2026-09-05 主线合入（dev-merge，rebase 解决 scenarios.js 基线列表冲突），合入后复测通过（317 测试全绿）+ mention-chips 视觉场景抽查通过，人工窗口验收通过 → closed
 
