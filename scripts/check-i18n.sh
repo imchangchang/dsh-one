@@ -71,10 +71,12 @@ function jsonKeys(text) {
   return o ? new Set(Object.keys(o)) : new Set()
 }
 
-// ---------- 解析 unified diff，按文件分组出「新增行」 ----------
+// ---------- 解析 unified diff，按文件分组出「新增行」（含行号） ----------
+// added[file] = [{ no: 新增行号(1-based), text: 行内容 }]
 function parseDiff(diff) {
-  const added = {}   // file -> [新增行内容]
+  const added = {}   // file -> [{ no, text }]
   let cur = null
+  let newNo = 0
   for (const line of diff.split('\n')) {
     if (line.startsWith('+++ ')) {          // 文件头：+++ b/<path>
       cur = line.slice(6).trim()
@@ -82,12 +84,24 @@ function parseDiff(diff) {
       continue
     }
     if (!cur) continue
-    if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) continue
-    if (line.startsWith('+')) added[cur].push(line.slice(1))
+    if (line.startsWith('+++') || line.startsWith('---')) continue
+    const mh = /^@@ -[^ ]+ \+(\d+)(?:,\d+)? @@/.exec(line)
+    if (mh) { newNo = Number(mh[1]); continue }
+    if (line.startsWith('+')) { added[cur].push({ no: newNo, text: line.slice(1) }); newNo++ }
   }
   return added
 }
 const added = parseDiff(DIFF)
+
+// 为 src/** 的每个新增行填充「剥离注释后」的文本（检查 1/2/5 用）：
+// 按文件整体剥离一次，行号对齐原文（注释字符替换为空格、换行保留）。
+for (const [file, lines] of Object.entries(added)) {
+  if (!file.startsWith('src/')) continue
+  const strippedLines = stripFileComments(show(file)).split('\n')
+  for (const entry of lines) {
+    entry.stripped = strippedLines[entry.no - 1] ?? entry.text
+  }
+}
 
 // ---------- 判断是否为 webview 文件（定义本地 t() 的浏览器侧代码） ----------
 function isWebviewFile(path) {
@@ -112,9 +126,44 @@ function pctKeys(line) { // %KEY%
 const FIXTURE_RE = /\/(__tests__|tests?|fixtures?|mocks?)(\/|$)|\.(test|spec)\.[cm]?[jt]sx?$/i
 function isFixturePath(path) { return FIXTURE_RE.test(path) }
 
-// 剥离 JS/TS 注释后再判中文：去掉 /* ... */ 块注释与本行 // 注释。
-function stripComments(line) {
-  return line.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*$/, '')
+// 按文件跑注释状态机，生成与原文逐字符等长、逐行对齐的「剥离注释」文本：
+// 注释字符替换为空格（保留换行），字符串/模板串原样保留——字符串里的中文是
+// 硬编码，检查 5 仍应命中；只有注释里的中文要放过。逐行正则处理不了跨行
+// /* ... */（中间行没有 /* 标记），所以必须整文件状态机。状态：code / 行注释 /
+// 块注释 / 单引串 / 双引串 / 模板串。正则字面量里的 // 与 /* 有转义(如 /a\/\//)，
+// 未转义紧邻的 // 或 /* 在合法 JS 源码里只可能是注释，状态机误判率可忽略。
+function stripFileComments(text) {
+  let out = ''
+  let state = 'code'
+  let i = 0
+  while (i < text.length) {
+    const ch = text[i]
+    const nx = text[i + 1] ?? ''
+    if (state === 'code') {
+      if (ch === '/' && nx === '/') { out += '  '; state = 'line'; i += 2; continue }
+      if (ch === '/' && nx === '*') { out += '  '; state = 'block'; i += 2; continue }
+      if (ch === "'") { out += ch; state = 's1'; i++; continue }
+      if (ch === '"') { out += ch; state = 's2'; i++; continue }
+      if (ch === '`') { out += ch; state = 'tpl'; i++; continue }
+      out += ch; i++; continue
+    }
+    if (state === 'line') {
+      out += ch === '\n' ? '\n' : ' '
+      if (ch === '\n') state = 'code'
+      i++; continue
+    }
+    if (state === 'block') {
+      if (ch === '*' && nx === '/') { out += '  '; state = 'code'; i += 2 }
+      else { out += ch === '\n' ? '\n' : ' '; i++ }
+      continue
+    }
+    // 字符串/模板串：保留内容（含换行），只处理转义与结束符
+    out += ch
+    if (ch === '\\') { out += nx ?? ''; i += 2; continue }
+    if ((state === 's1' && ch === "'") || (state === 's2' && ch === '"') || (state === 'tpl' && ch === '`')) state = 'code'
+    i++
+  }
+  return out
 }
 function hasCJK(s) { return /[\u4e00-\u9fff]/.test(s) }
 
@@ -131,8 +180,8 @@ const push = (msg) => problems.push(msg)
 // ========== 1. 宿主层：vscode.l10n.t 的 key 必须在英文基线 ==========
 for (const [file, lines] of Object.entries(added)) {
   if (!file.startsWith('src/')) continue
-  for (const line of lines) {
-    for (const key of hostKeys(line)) {
+  for (const { no, text, stripped } of lines) {
+    for (const key of hostKeys(stripped ?? text)) {
       if (!enBundle.has(key)) {
         push(`[host] ${file}: vscode.l10n.t("${key}") 的 key 不在 l10n/bundle.l10n.json`)
       }
@@ -143,8 +192,8 @@ for (const [file, lines] of Object.entries(added)) {
 // ========== 2. webview 层：裸 t() 的 key 必须在中文译文表 ==========
 for (const [file, lines] of Object.entries(added)) {
   if (!isWebviewFile(file)) continue
-  for (const line of lines) {
-    for (const key of webviewKeys(line)) {
+  for (const { no, text, stripped } of lines) {
+    for (const key of webviewKeys(stripped ?? text)) {
       if (!zhBundle.has(key)) {
         push(`[webview] ${file}: t("${key}") 的 key 不在 l10n/bundle.l10n.zh-cn.json`)
       }
@@ -212,9 +261,10 @@ for (const k of titleKeys) {
 // ========== 5. 兜底：src/** 新增行里的硬编码中文（疑似漏翻） ==========
 for (const [file, lines] of Object.entries(added)) {
   if (!file.startsWith('src/') || isFixturePath(file)) continue
-  for (const line of lines) {
-    if (hasCJK(stripComments(line))) {
-      push(`[src-chinese] ${file}: 疑似硬编码中文字符串字面量（漏翻）: ${line.trim()}`)
+  for (const { no, text, stripped } of lines) {
+    const probe = stripped ?? text
+    if (hasCJK(probe)) {
+      push(`[src-chinese] ${file}: 疑似硬编码中文字符串字面量（漏翻）: ${text.trim()}`)
     }
   }
 }
