@@ -24,3 +24,4 @@
 - 2026-09-02 记录 → open（用户口头需求；徽章即「小 clip」已确认；圆圈取气泡左侧同行形式，用户未另选）
 
 - 2026-09-02 认领（worktree: agent/pending-steering-circle）→ doing
+- 2026-09-02 开发完成（worktree 自测：typecheck/330 单测/构建/视觉场景 steering-pending 对照通过；done 标记 b6a0022）→ done
