@@ -2592,12 +2592,17 @@ function imageChip(image: ChatImage): HTMLElement {
   return chip
 }
 
-/** Compact chip for one attached file; the path is the payload, no preview. */
+/** Compact chip for one attached file; click opens the path in the VS Code editor. */
 function fileChip(file: ChatFile): HTMLElement {
-  const chip = el('span', 'image-chip')
+  const chip = el('span', 'file-chip')
+  const icon = el('span', 'file-chip-icon')
+  icon.appendChild(strokeSvg(FILE_ICON))
+  chip.appendChild(icon)
   const name = el('span', 'chip-name', file.name)
   name.title = file.path
   chip.appendChild(name)
+  chip.title = `在 VS Code 中打开 ${file.path}`
+  chip.addEventListener('click', () => post({ type: 'openAttachmentFile', path: file.path }))
   return chip
 }
 
@@ -4466,18 +4471,21 @@ function pendingImageFallback(img: OutgoingImage, index: number): HTMLElement {
   return chip
 }
 
-/** 待发送文件：文件名 chip + 文档小图标；path 是 payload，无预览。 */
+/** 待发送文件：与图片缩略图同尺寸方框（文档小图标 + 文件名，hover 右上角 ×）；点击在 VS Code 打开。 */
 function pendingFileChip(file: StagedFile, index: number): HTMLElement {
-  const chip = el('span', 'image-chip')
+  const chip = el('span', 'file-chip')
   const icon = el('span', 'file-chip-icon')
   icon.appendChild(strokeSvg(FILE_ICON))
   chip.appendChild(icon)
   const name = el('span', 'chip-name', file.name)
   name.title = file.path
   chip.appendChild(name)
-  const remove = buttonEl('chip-remove', '×')
+  chip.title = `在 VS Code 中打开 ${file.path}`
+  chip.addEventListener('click', () => post({ type: 'openAttachmentFile', path: file.path }))
+  const remove = buttonEl('thumb-remove', '×')
   remove.title = '移除文件'
-  remove.addEventListener('click', () => {
+  remove.addEventListener('click', (e) => {
+    e.stopPropagation()
     pendingFiles.splice(index, 1)
     render()
   })
