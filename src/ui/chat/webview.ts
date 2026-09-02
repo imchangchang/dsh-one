@@ -18,12 +18,10 @@ import type {
   ChatTodoItem,
   ChatToolBlock,
   FromWebviewMessage,
-  ModelCatalog,
   OutgoingImage,
   PendingApproval,
   PendingQuestion,
   QueuedItem,
-  SessionsSnapshot,
   StagedFile,
   SubagentNode,
   ToWebviewMessage,
@@ -94,13 +92,66 @@ import {
   type WorkflowRunStatus,
   type WorkflowRunView,
 } from '../../pure/workflowRun.ts'
+import { el, buttonEl, iconButton, iconSvg, strokeSvg, mdCodeBody, presetIconSvg, spinSvg, fishLogoSvg, md, post, FILE_ICON } from './webviewKit.ts'
+import { closePopover, getPopover, getPopoverAnchor, menuItem, positionPopover, showPopover, showPopoverAt } from './webviewPopover.ts'
+import { applyFileRefResponse, handleSlashKey, hideSlashPopup, isSlashPopupOpen, mentionBindings, moveSlashSelection, pasteSessionMentions, reanchorSlashPopup, updateSlashPopup } from './webviewSlash.ts'
+import {
+  openAgentPresetMenu,
+  openCommandMenu,
+  openJobsMenu,
+  openModelMenu,
+  openPermissionMenu,
+  openSubagentMenu,
+  PERMISSION_GLYPHS,
+  patchContextBar,
+  patchStatsRow,
+  renderModelMenuRoot,
+  statsRow,
+  subagentLineageRunning,
+} from './webviewMenus.ts'
+import {
+  attachmentCache,
+  attachmentRequested,
+  answerDrafts,
+  commandNotices,
+  detailsOpen,
+  detailsSession,
+  editingQueueItem,
+  jsonTreeOpen,
+  modelCatalog,
+  modelMenuBody,
+  pendingFiles,
+  pendingImages,
+  pendingPreview,
+  queueEditDrafts,
+  recall,
+  recallDraft,
+  sessionsSnapshot,
+  setCommandNotices,
+  setDetailsSession,
+  setEditingQueueItem,
+  setModelCatalog,
+  setModelMenuBody,
+  setPendingFiles,
+  setPendingImages,
+  setPendingPreview,
+  setRecall,
+  setRecallDraft,
+  setSessionsSnapshot,
+  setStagedForSession,
+  setState,
+  setStashedDraft,
+  setTurnStatusStart,
+  setTurnStatusTimer,
+  stagedForSession,
+  state,
+  stashedDraft,
+  turnStatusStart,
+  turnStatusTimer,
+  workflowDisclosure,
+  type QuestionDraft,
+} from './webviewState.ts'
 
-interface VsCodeApi {
-  postMessage(message: FromWebviewMessage): void
-}
-declare function acquireVsCodeApi(): VsCodeApi
-
-const vscode = acquireVsCodeApi()
 const app = document.getElementById('app') as HTMLElement
 
 // 脚本加载完成即向宿主报到：面板首次打开、以及 tab 切走再切回导致 webview
@@ -110,7 +161,6 @@ post({ type: 'ready' })
 
 marked.setOptions({ gfm: true, breaks: true })
 
-let state: ChatState | null = null
 /** Auto-scroll only when the user is already near the bottom. */
 let stickToBottom = true
 /**
@@ -235,52 +285,6 @@ let lastComposerSig: string | null = null
 let lastHeaderSig: string | null = null
 /** Signature of the pending-interaction state at the last render; see render(). */
 let lastPendingSig: string | null = null
-/** Images staged in the composer, sent with the next `send`. */
-let pendingImages: OutgoingImage[] = []
-/** Non-image files staged as chips; their paths join the prompt text on send. */
-let pendingFiles: StagedFile[] = []
-/** Session the staged images belong to; a switch drops them. */
-let stagedForSession: string | null = null
-/** Latest model catalog reply; dropped on session switch, refetched on menu open. */
-let modelCatalog: ModelCatalog | null = null
-/** Attachment id → data URL, filled by attachmentData replies; lives for the webview's lifetime. */
-const attachmentCache = new Map<string, string>()
-/** Attachment ids already requested, so re-renders don't repost while a fetch is in flight. */
-const attachmentRequested = new Set<string>()
-/** Half-answered pending questions: rpcId → question index → draft. */
-const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
-
-/**
- * Static mirror of dsh's built-in slash commands (the host's commands/list RPC
- * serves the same six; `model` below is our own submenu entry — the host has
- * no /model command). Commands execute via commands/execute, not session.prompt.
- * `hint` mirrors the host's input hint and drives the composer's arg hints.
- */
-const SLASH_COMMANDS: Array<{ name: string; description: string; hint?: string }> = [
-  { name: 'compact', description: '压缩较早的会话历史' },
-  { name: 'export', description: '导出本会话日志（ZIP）' },
-  { name: 'feedback', description: '记录本会话反馈', hint: '<text>' },
-  { name: 'goal', description: '设置或查看长任务目标', hint: '[<objective>|clear|edit <objective>|pause|resume]' },
-  { name: 'permission', description: '切换权限预设', hint: '<preset>' },
-  { name: 'plan', description: '进入或退出计划模式', hint: '[off|message]' },
-  { name: 'model', description: '选择本会话使用的模型' },
-]
-/** Commands the composer's slash completion offers; `/model` is client-side (the send path intercepts it and opens the model menu, like the official web client). */
-const COMPLETABLE_COMMANDS = SLASH_COMMANDS
-
-/** Shield glyphs copied verbatim from dsh-client-ui-conversation's PermissionSelect. */
-const SHIELD_OUTLINE =
-  'M8.20554 0.899994L14.7901 3.36857V7.01026C14.7901 12 11.0466 14.2103 8.20554 15.3C5.36446 14.2103 1.62012 12 1.62012 7.01026V3.36857L8.20554 0.899994Z'
-const PERMISSION_GLYPHS: Record<string, string> = {
-  'read-only': `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="${SHIELD_OUTLINE}" stroke="currentColor" stroke-width="1.31831" stroke-linejoin="round"/><path d="M12.1654 5.7552L8.9447 9.41475C8.73044 9.65816 8.53628 9.8804 8.35774 10.0423C8.1713 10.2114 7.94235 10.3717 7.64016 10.4254C7.48207 10.4535 7.32 10.4552 7.16151 10.4294C6.85843 10.3801 6.62728 10.2223 6.43836 10.0559C6.25752 9.89653 6.06037 9.67732 5.84264 9.43705L4.72925 8.20897L5.63557 7.38707L6.74897 8.61594C6.98603 8.87755 7.12974 9.03533 7.24673 9.13839C7.31033 9.19443 7.34485 9.21476 7.35823 9.22122C7.38068 9.22484 7.40352 9.22515 7.42593 9.22122C7.40522 9.22502 7.42893 9.23294 7.53583 9.136C7.65132 9.03126 7.79316 8.87139 8.02643 8.60638L11.2479 4.94763L12.1654 5.7552Z" fill="currentColor"/></svg>`,
-  'workspace-write': `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8.08887 0.251709C8.20479 0.23085 8.32486 0.241168 8.43652 0.282959L15.0215 2.75171C15.2787 2.84819 15.4492 3.09414 15.4492 3.3689V7.0105C15.4492 7.10986 15.4441 7.2081 15.4414 7.30542C15.0285 7.07175 14.5905 6.87695 14.1309 6.73022V3.82495L8.20508 1.60327L2.2793 3.82495V7.0105C2.27936 9.7171 3.4745 11.5379 5.02734 12.7947C5.01025 12.9942 5 13.1962 5 13.4001C5.00001 13.7617 5.02722 14.1169 5.08008 14.4636C2.91555 13.0393 0.961014 10.752 0.960938 7.0105V3.3689C0.960938 3.09417 1.13146 2.84821 1.38867 2.75171L7.97461 0.282959L8.08887 0.251709Z" fill="currentColor"/><path d="M11.3525 5.64688V6.85688H5V5.64688H11.3525Z" fill="currentColor"/><path d="M9.5824 8.29376V9.50376H5V8.29376H9.5824Z" fill="currentColor"/><path d="M14.6647 15.6852H10.0338C10.3878 15.3751 10.7567 15.0517 11.0772 14.7706C11.2531 14.6164 11.4144 14.4746 11.5511 14.3547H14.6647V15.6852Z" fill="currentColor"/><path d="M8.14852 14.1308L7.33925 15.4976C7.22458 15.6912 7.42245 15.9194 7.63037 15.8333L9.09785 15.2254L15.0399 10.0719L14.0905 8.97733L8.14852 14.1308Z" fill="currentColor"/></svg>`,
-  'danger-full-access': `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="${SHIELD_OUTLINE}" stroke="currentColor" stroke-width="1.31831" stroke-linejoin="round"/><path d="M9.10094 4.5V8.75939H7.59888V4.5H9.10094Z" fill="currentColor"/><path d="M9.10094 9.8114V11.5H7.59888V9.8114H9.10094Z" fill="currentColor"/></svg>`,
-}
-
-function post(message: FromWebviewMessage): void {
-  vscode.postMessage(message)
-}
-
 /**
  * 外部链接拦截（捕获阶段）：裸 `<a href="http…">` 的默认行为会让 webview
  * 自身导航到目标页，面板内容被顶掉——表现为「点对话里的链接，原来的 tab 就
@@ -349,181 +353,6 @@ function maybeLoadEarlier(): void {
   post({ type: 'loadEarlier' })
 }
 
-function el(tag: string, className?: string, text?: string): HTMLElement {
-  const e = document.createElement(tag)
-  if (className) e.className = className
-  if (text !== undefined) e.textContent = text
-  return e
-}
-
-function buttonEl(className: string | undefined, text: string): HTMLButtonElement {
-  const b = document.createElement('button')
-  if (className) b.className = className
-  b.textContent = text
-  return b
-}
-
-/** Icon-only ghost button matching the dsh web UI's message action style. */
-function iconButton(icon: IconDef, title: string): HTMLButtonElement {
-  const b = document.createElement('button')
-  b.type = 'button'
-  b.className = 'icon-action'
-  b.title = title
-  b.setAttribute('aria-label', title)
-  b.appendChild(iconSvg(icon))
-  return b
-}
-
-function iconSvg(icon: IconDef, size = 16): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', String(size))
-  svg.setAttribute('height', String(size))
-  svg.setAttribute('viewBox', icon.viewBox ?? '0 0 16 16')
-  svg.setAttribute('fill', 'none')
-  for (const p of icon.paths) {
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    if (typeof p === 'string') {
-      path.setAttribute('d', p)
-    } else {
-      path.setAttribute('d', p.d)
-      if (p.transform) path.setAttribute('transform', p.transform)
-      if (p.opacity) path.setAttribute('opacity', p.opacity)
-    }
-    path.setAttribute('fill', 'currentColor')
-    if (icon.fillRule) {
-      path.setAttribute('fill-rule', icon.fillRule)
-      path.setAttribute('clip-rule', icon.fillRule)
-    }
-    svg.appendChild(path)
-  }
-  return svg
-}
-
-/** 描边小图标：dsh web 无对应物的本地扩展图标保留描边风格。 */
-function strokeSvg(paths: string[], size = 14): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', String(size))
-  svg.setAttribute('height', String(size))
-  svg.setAttribute('viewBox', '0 0 16 16')
-  svg.setAttribute('fill', 'none')
-  for (const d of paths) {
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    path.setAttribute('d', d)
-    path.setAttribute('stroke', 'currentColor')
-    path.setAttribute('stroke-width', '1.3')
-    path.setAttribute('stroke-linecap', 'round')
-    path.setAttribute('stroke-linejoin', 'round')
-    svg.appendChild(path)
-  }
-  return svg
-}
-
-/** 文档描边图标（待发送文件 chip 的类型小图标，本地扩展）。 */
-const FILE_ICON = ['M4.2 2h4.6L12 5.2V14H4.2z', 'M8.8 2v3.2H12']
-
-/**
- * 运行中像素环：复刻官方 dsh web StateDot(ongoing)——10×10 画布上 8 个
- * 2×2 方块沿环排布，各自带负的 animationDelay 错相，配合 .session-spin 的
- * chase keyframes（chatView.ts）形成转圈追逐效果。
- */
-const SPIN_CELLS: ReadonlyArray<readonly [number, number]> = [
-  [0, 0],
-  [4, 0],
-  [8, 0],
-  [8, 4],
-  [8, 8],
-  [4, 8],
-  [0, 8],
-  [0, 4],
-]
-
-/**
- * 官方 IconAgentPresetOutline16（dsh-client-ui-primitives）的逐元素复刻：
- * 圆环路径用 mask 在三个节点处镂空。IconDef 不支持 mask，故单独构建。
- */
-function presetIconSvg(): SVGSVGElement {
-  const NS = 'http://www.w3.org/2000/svg'
-  const svg = document.createElementNS(NS, 'svg')
-  svg.setAttribute('width', '14')
-  svg.setAttribute('height', '14')
-  svg.setAttribute('viewBox', '0 0 16 16')
-  svg.setAttribute('fill', 'none')
-  const mask = document.createElementNS(NS, 'mask')
-  mask.setAttribute('id', 'preset-icon-mask')
-  const bg = document.createElementNS(NS, 'rect')
-  bg.setAttribute('width', '16')
-  bg.setAttribute('height', '16')
-  bg.setAttribute('fill', 'white')
-  mask.appendChild(bg)
-  for (const [cx, cy] of [
-    ['7.9995', '3.28319'],
-    ['3.51122', '11.3855'],
-    ['12.4878', '11.3855'],
-  ]) {
-    const c = document.createElementNS(NS, 'circle')
-    c.setAttribute('cx', cx)
-    c.setAttribute('cy', cy)
-    c.setAttribute('r', '1.712')
-    c.setAttribute('fill', 'black')
-    mask.appendChild(c)
-  }
-  svg.appendChild(mask)
-  const ring = document.createElementNS(NS, 'path')
-  ring.setAttribute('mask', 'url(#preset-icon-mask)')
-  ring.setAttribute(
-    'd',
-    'M12.2881 11.0425C12.6002 11.3723 13.0413 11.5786 13.5312 11.5786L13.5342 11.5776C13.1476 12.3233 12.6119 12.9785 11.9639 13.5005C10.9327 14.3309 9.6199 14.8286 8.19336 14.8286C7.29864 14.8285 6.45056 14.6313 5.6875 14.2808C6.08309 14.0281 6.36707 13.6189 6.45215 13.1392C6.99022 13.3561 7.57767 13.476 8.19336 13.4761C9.30019 13.4761 10.3157 13.0915 11.1152 12.4478C11.5935 12.0626 11.9924 11.5848 12.2881 11.0425ZM4.14746 4.36475C4.25569 4.83228 4.55488 5.2247 4.95898 5.4585C4.07956 6.30639 3.53144 7.49605 3.53125 8.81396C3.53125 9.69534 3.77613 10.5202 4.20117 11.2231C3.74959 11.3817 3.38395 11.7232 3.19531 12.1597C2.5541 11.2032 2.17969 10.052 2.17969 8.81396C2.17989 7.05087 2.93868 5.4646 4.14746 4.36475ZM8.19336 2.80029C8.85717 2.80029 9.49784 2.90834 10.0967 3.10791C12.3237 3.85044 13.9725 5.86061 14.1846 8.28369C13.9832 8.20048 13.7627 8.15382 13.5312 8.15381C13.2802 8.15381 13.042 8.20907 12.8271 8.30615C12.6281 6.47264 11.3666 4.95616 9.66895 4.39014C9.2063 4.236 8.70989 4.15186 8.19336 4.15186C7.96112 4.15189 7.7329 4.16981 7.50977 4.20264C7.51947 4.12886 7.52637 4.05348 7.52637 3.97705C7.52628 3.56604 7.3811 3.18914 7.13965 2.89404C7.48183 2.83352 7.83381 2.80033 8.19336 2.80029Z',
-  )
-  ring.setAttribute('fill', 'currentColor')
-  svg.appendChild(ring)
-  return svg
-}
-
-function spinSvg(): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', '10')
-  svg.setAttribute('height', '10')
-  svg.setAttribute('viewBox', '0 0 10 10')
-  svg.setAttribute('shape-rendering', 'crispEdges')
-  svg.classList.add('session-spin')
-  SPIN_CELLS.forEach(([x, y], i) => {
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-    rect.setAttribute('x', String(x))
-    rect.setAttribute('y', String(y))
-    rect.setAttribute('width', '2')
-    rect.setAttribute('height', '2')
-    rect.style.animationDelay = `${(i - SPIN_CELLS.length) * 125}ms`
-    svg.appendChild(rect)
-  })
-  return svg
-}
-
-/**
- * 品牌鱼标 svg：官方 FishLogo 组件（dsh-client-ui-primitives）的镜像——
- * 宽度 size、高度按 17.04/23.16 等比，className 调用方给。
- */
-function fishLogoSvg(size: number, className: string): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', String(size))
-  svg.setAttribute('height', String((size * 17.04) / 23.16))
-  svg.setAttribute('viewBox', FISH_LOGO.viewBox ?? '0 0 23.16 17.04')
-  svg.setAttribute('fill', 'none')
-  svg.setAttribute('aria-hidden', 'true')
-  svg.classList.add(className)
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-  path.setAttribute('d', FISH_LOGO.paths[0] as string)
-  path.setAttribute('fill', 'currentColor')
-  svg.appendChild(path)
-  return svg
-}
-
-function md(text: string): string {
-  // 默认 URI 白名单之外放行 dsh-session:，mention 链接才能活到 decorate 那步。
-  return DOMPurify.sanitize(marked.parse(text, { async: false }), {
-    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|dsh-session):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
-  })
-}
-
 /** 会话引用图标：dsh web ReferenceIcon 的 session 分支（16x16 聊天气泡 + 两行）。 */
 const SESSION_REF_ICON: IconDef = {
   paths: [
@@ -550,15 +379,6 @@ function decorateSessionMentions(container: HTMLElement): void {
     if (!sessionId) return // 坏 URI 保持原样
     a.replaceWith(sessionMentionChip(a.textContent ?? sessionId, sessionId))
   })
-}
-
-/** 一个代码块主体（<pre><code>，文本走 textContent 防注入）。 */
-function mdCodeBody(text: string): HTMLPreElement {
-  const pre = el('pre') as HTMLPreElement
-  const code = el('code')
-  code.textContent = text
-  pre.appendChild(code)
-  return pre
 }
 
 /**
@@ -644,44 +464,45 @@ function enhanceCodeBlocks(container: HTMLElement, prefix: string): void {
 const chatCol = el('div', 'chat-col')
 app.appendChild(chatCol)
 
-/** 最新 sessions 快照；null = 尚未收到。仅作 @ 提及补全的数据源。 */
-let sessionsSnapshot: SessionsSnapshot | null = null
-
+// 宿主消息入口：state/sessions 快照、附件/模型目录等回复。state 由
+// webviewState.setState 写入（live binding，各域模块实时读取）。
 window.addEventListener('message', (event) => {
   const msg = event.data as ToWebviewMessage
   if (msg?.type === 'state' && msg.state) {
-    state = msg.state
-    if (state.sessionId !== stagedForSession) {
-      pendingImages = []
-      pendingFiles = []
-      modelCatalog = null
-      commandNotices = []
-      recall = null
-      recallDraft = ''
+    setState(msg.state)
+    const next = state
+    if (next && next.sessionId !== stagedForSession) {
+      setPendingImages([])
+      setPendingFiles([])
+      setModelCatalog(null)
+      setCommandNotices([])
+      setRecall(null)
+      setRecallDraft('')
       earlierAnchor = null
-      stagedForSession = state.sessionId
+      setStagedForSession(next.sessionId)
     }
     render()
   } else if (msg?.type === 'sessions' && msg.snapshot) {
     // 拆分后侧栏为原生 tree；这里只更新 @ 提及补全的会话数据源。
-    sessionsSnapshot = msg.snapshot
+    setSessionsSnapshot(msg.snapshot)
   } else if (msg?.type === 'commandResult' && typeof msg.text === 'string' && msg.text.trim()) {
-    commandNotices = [...commandNotices, msg.text]
+    setCommandNotices([...commandNotices, msg.text])
     render()
   } else if (msg?.type === 'imagesPicked' && Array.isArray(msg.images)) {
-    pendingImages = [...pendingImages, ...msg.images]
+    setPendingImages([...pendingImages, ...msg.images])
     render()
   } else if (msg?.type === 'filesPicked' && Array.isArray(msg.files)) {
-    pendingFiles = [...pendingFiles, ...msg.files]
+    setPendingFiles([...pendingFiles, ...msg.files])
     render()
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
-    modelCatalog = msg.catalog
-    if (modelMenuBody) renderModelMenuRoot(modelMenuBody, msg.catalog)
+    setModelCatalog(msg.catalog)
+    const body = modelMenuBody
+    if (body) renderModelMenuRoot(body, msg.catalog)
   } else if (msg?.type === 'attachmentData' && typeof msg.attachmentId === 'string') {
     const dataUrl = `data:${msg.mediaType};base64,${msg.data}`
     attachmentCache.set(msg.attachmentId, dataUrl)
     if (pendingPreview === msg.attachmentId) {
-      pendingPreview = null
+      setPendingPreview(null)
       openLightbox(dataUrl)
     }
     // 消息缩略图可能正挂着这张图的占位方块，重渲染换成真图。
@@ -690,19 +511,18 @@ window.addEventListener('message', (event) => {
     // Texts of queue items drained by stop: back into the composer as drafts.
     const input = document.getElementById('input') as HTMLTextAreaElement | null
     if (input) {
-      input.value = input.value.trim() ? `${input.value.trimEnd()}\n${msg.text}` : msg.text
+      input.value = input.value.trim() ? `${input.value.trimEnd()}
+${msg.text}` : msg.text
       input.dispatchEvent(new Event('input'))
       input.focus()
     } else {
-      stashedDraft = stashedDraft ? `${stashedDraft}\n${msg.text}` : msg.text
+      setStashedDraft(stashedDraft ? `${stashedDraft}
+${msg.text}` : msg.text)
     }
   } else if (msg?.type === 'fileRefList') {
     // 乱序/过期响应丢弃；token 没变才存结果并重算弹窗（token 已消失时
     // updateSlashPopup 自己算不出行，弹窗保持关闭）。
-    if (msg.requestId !== fileRefSeq) return
-    fileRefResult = { key: fileRefRequestKey, items: Array.isArray(msg.items) ? msg.items : [] }
-    const input = document.getElementById('input') as HTMLTextAreaElement | null
-    if (input) updateSlashPopup(input)
+    if (Array.isArray(msg.items)) applyFileRefResponse(msg.requestId, msg.items)
   }
 })
 
@@ -733,843 +553,6 @@ document.addEventListener('keydown', (e) => {
     post({ type: 'stop' })
   }
 })
-
-/** Open composer popover; attached to document.body so it survives render(). */
-let popover: HTMLElement | null = null
-/** Anchor the open popover tracks; renders re-anchor or close on disconnect. */
-let popoverAnchor: HTMLElement | null = null
-let popoverPlacement: 'above' | 'below' = 'above'
-/** Body of the open model menu awaiting the catalog reply. */
-let modelMenuBody: HTMLElement | null = null
-/** 菜单打开期间保持 hover 背景的来源行（会话行的 ⋯ 菜单/右键菜单）。 */
-let menuOpenRow: HTMLElement | null = null
-/** 后台任务下拉的耗时 tick（打开且有运行中行时挂上，关闭弹层时清理）。 */
-let jobsTick: ReturnType<typeof setInterval> | null = null
-
-function markMenuRow(row: HTMLElement | null): void {
-  menuOpenRow?.classList.remove('menu-open')
-  menuOpenRow = row
-  menuOpenRow?.classList.add('menu-open')
-}
-
-function onPopoverOutside(e: MouseEvent): void {
-  // 锚点（触发按钮）不算外部：官方 useDismissOnOutsidePointer 同样排除
-  // trigger 子树——点已打开菜单的 trigger 应走自身的 toggle 逻辑，而不是
-  // 先被 mousedown 关掉再被 click 重新打开。
-  if (
-    popover &&
-    !popover.contains(e.target as Node) &&
-    !(popoverAnchor !== null && popoverAnchor.contains(e.target as Node))
-  ) {
-    closePopover()
-  }
-}
-
-function onPopoverKey(e: KeyboardEvent): void {
-  if (e.key === 'Escape') {
-    // 消费掉这次 Esc：弹层优先于全局「Esc 打断 turn」（后者按 defaultPrevented 让路）。
-    e.preventDefault()
-    closePopover()
-  }
-}
-
-function closePopover(): void {
-  popover?.remove()
-  popover = null
-  popoverAnchor = null
-  modelMenuBody = null
-  markMenuRow(null)
-  if (jobsTick !== null) {
-    clearInterval(jobsTick)
-    jobsTick = null
-  }
-  document.removeEventListener('mousedown', onPopoverOutside, true)
-  document.removeEventListener('keydown', onPopoverKey, true)
-}
-
-/** (Re)position the open popover from its anchor's live rect. */
-function positionPopover(): void {
-  if (!popover || !popoverAnchor) return
-  const rect = popoverAnchor.getBoundingClientRect()
-  // Keep the popover inside the viewport: anchors near the right edge (e.g.
-  // the context bar at the end of the stats row) would otherwise clip the
-  // panel's right-hand figures off-screen.
-  const left = Math.min(rect.left, window.innerWidth - popover.offsetWidth - 4)
-  popover.style.left = `${Math.max(4, left)}px`
-  // 锚点在面板顶部（sessions 头部的排序按钮）时向下展开，否则保持向上。
-  if (popoverPlacement === 'below') {
-    popover.style.top = `${rect.bottom + 6}px`
-  } else {
-    popover.style.bottom = `${window.innerHeight - rect.top + 6}px`
-  }
-}
-
-function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' | 'below' = 'above'): void {
-  closePopover()
-  const p = el('div', 'popover')
-  p.appendChild(body)
-  document.body.appendChild(p)
-  popover = p
-  popoverAnchor = anchor
-  popoverPlacement = placement
-  positionPopover()
-  document.addEventListener('mousedown', onPopoverOutside, true)
-  document.addEventListener('keydown', onPopoverKey, true)
-}
-
-/**
- * 坐标定位的弹层（右键菜单）：固定在鼠标位置并钳制在视口内。
- * popoverAnchor 置为 null —— render() 的存活检查
- * 对无锚点弹层保持不动（不关闭、不 reposition）。
- */
-function showPopoverAt(x: number, y: number, body: HTMLElement): void {
-  closePopover()
-  const p = el('div', 'popover')
-  p.appendChild(body)
-  document.body.appendChild(p) // 先挂到 DOM 才能量尺寸
-  popover = p
-  popoverAnchor = null
-  const left = Math.min(x, window.innerWidth - p.offsetWidth - 4)
-  const top = Math.min(y, window.innerHeight - p.offsetHeight - 4)
-  p.style.left = `${Math.max(4, left)}px`
-  p.style.top = `${Math.max(4, top)}px`
-  document.addEventListener('mousedown', onPopoverOutside, true)
-  document.addEventListener('keydown', onPopoverKey, true)
-}
-
-/**
- * Slash-command completion popup (kimi-code / Claude Code style): while the
- * composer value starts with '/', lists matching commands above the input,
- * then argument completions (/permission presets) or the host's arg hint.
- * Distinct from the shared menu popover: it survives renders that keep the
- * composer and is refreshed by the input event instead of clicks.
- */
-interface SlashRow {
-  label: string
-  right?: string
-  /** Complete the line; absent on pure hint rows. */
-  apply?: (input: HTMLTextAreaElement) => void
-  /** 分组小标题行（不可选、无 hover），行间带分割线，如 @ 补全的「文件」「会话」。 */
-  header?: true
-}
-
-let slashPopupEl: HTMLElement | null = null
-let slashRows: SlashRow[] = []
-let slashIndex = 0
-
-/**
- * @ 文件候选的请求/响应状态：requestId 递增防乱序，key 是触发时的完整
- * token（`@sub/que`），响应只在 token 没变时上屏。host 端失败回空列表。
- */
-let fileRefSeq = 0
-let fileRefRequestKey = ''
-let fileRefResult: { key: string; items: FileRefCandidate[] } | null = null
-
-/**
- * 显示 token（`@标题`）→ canonical mention 的映射，发送时由
- * expandMentionBindings 展开（src/pure/sessionMention.ts）。@ 补全和
- * mention 粘贴都会登记。常驻不清理：token 指向的是固定会话，之后的
- * 消息里再写同一 token 也应展开成同一引用。
- */
-const mentionBindings = new Map<string, string>()
-
-function hideSlashPopup(): void {
-  slashPopupEl?.remove()
-  slashPopupEl = null
-  slashRows = []
-  slashIndex = 0
-  // 下次再触发 @ 时重新取文件候选，避免上屏陈旧目录。
-  fileRefResult = null
-}
-
-function positionSlashPopup(input: HTMLTextAreaElement): void {
-  if (!slashPopupEl) return
-  const rect = input.getBoundingClientRect()
-  slashPopupEl.style.left = `${Math.max(4, rect.left)}px`
-  slashPopupEl.style.width = `${rect.width}px`
-  slashPopupEl.style.bottom = `${window.innerHeight - rect.top + 6}px`
-}
-
-/** Recompute the rows from the current value; hide when nothing applies. */
-function updateSlashPopup(input: HTMLTextAreaElement): void {
-  // 斜杠命令整行匹配优先；不匹配时退到光标处的 @ 补全（文件 + 会话）。
-  slashRows = computeSlashRows(input)
-  if (slashRows.length === 0) slashRows = computeRefRows(input)
-  if (slashRows.length === 0) {
-    hideSlashPopup()
-    return
-  }
-  slashIndex = slashRows.findIndex((r) => r.apply !== undefined)
-  if (!slashPopupEl) {
-    slashPopupEl = el('div', 'popover slash-popup')
-    document.body.appendChild(slashPopupEl)
-  }
-  slashPopupEl.textContent = ''
-  slashRows.forEach((row, i) => {
-    if (row.header) {
-      // 每行恰好一个子元素，moveSlashSelection 按子下标对齐 slashRows。
-      slashPopupEl?.appendChild(el('div', 'menu-group', row.label))
-      return
-    }
-    const item = el('div', i === slashIndex ? 'menu-item selected' : 'menu-item')
-    item.appendChild(el('span', undefined, row.label))
-    if (row.right) item.appendChild(el('span', 'menu-right', row.right))
-    if (row.apply) {
-      // mousedown + preventDefault: completing must not blur the textarea.
-      item.addEventListener('mousedown', (e) => {
-        e.preventDefault()
-        row.apply?.(input)
-      })
-    } else {
-      item.classList.add('hint-row')
-    }
-    slashPopupEl?.appendChild(item)
-  })
-  positionSlashPopup(input)
-}
-
-function moveSlashSelection(dir: number): void {
-  if (!slashPopupEl || slashRows.length === 0) return
-  const selectable = slashRows.map((r, i) => (r.apply ? i : -1)).filter((i) => i >= 0)
-  if (selectable.length === 0) return
-  const at = selectable.indexOf(slashIndex)
-  slashIndex = selectable[(at + dir + selectable.length) % selectable.length]
-  // header 行也是子元素，按子下标（而非 .menu-item 过滤后的下标）对齐 slashRows。
-  const children = Array.from(slashPopupEl.querySelectorAll(':scope > *'))
-  children.forEach((item, i) => {
-    item.classList.toggle('selected', i === slashIndex)
-  })
-  // 键盘翻动时让选中项滚进可视区（弹窗 overflow-y 是独立的滚动容器）。
-  children[slashIndex]?.scrollIntoView({ block: 'nearest' })
-}
-
-/** Rows for the current composer value: command names, preset args, or one hint row. */
-function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
-  const value = input.value
-  if (!looksLikeSlashCommand(value) || value.includes('\n')) return []
-  /** Filling the value and dispatching `input` re-enters updateSlashPopup. */
-  const complete = (text: string) => () => {
-    input.value = text
-    input.focus()
-    input.setSelectionRange(text.length, text.length)
-    input.dispatchEvent(new Event('input'))
-  }
-  const sp = value.indexOf(' ')
-  if (sp === -1) {
-    const filter = value.slice(1).toLowerCase()
-    if (filter.includes(' ')) return []
-    return COMPLETABLE_COMMANDS.filter((c) => c.name.startsWith(filter)).map((c) => ({
-      label: `/${c.name}`,
-      right: c.description,
-      apply: complete(`/${c.name} `),
-    }))
-  }
-  const name = value.slice(1, sp)
-  const argPrefix = value.slice(sp + 1)
-  if (name === 'permission') {
-    const options = state?.permissions?.options ?? []
-    return options
-      .filter((o) => o.value !== argPrefix && (o.value.startsWith(argPrefix) || o.label.toLowerCase().includes(argPrefix.toLowerCase())))
-      .map((o) => ({ label: o.label, right: o.value, apply: complete(`/permission ${o.value}`) }))
-  }
-  const cmd = COMPLETABLE_COMMANDS.find((c) => c.name === name)
-  if (cmd?.hint) return [{ label: `参数：${cmd.hint}` }]
-  return []
-}
-
-/**
- * @ 补全（对齐 dsh web）：光标前的 `@query`（或未闭合 `@"query`）触发，
- * 文件/文件夹候选在前（host fileReferences/list，异步返回），当前会话
- * 所属工作区的会话候选在后，两组各有小标题 + 分割线；引号 token 只出
- * 文件。引用其它会话主要靠会话面板的"复制引用"，这里只补本工作区的会话。
- */
-function computeRefRows(input: HTMLTextAreaElement): SlashRow[] {
-  if (input.selectionStart !== input.selectionEnd) return []
-  const at = activeAtToken(input.value.slice(0, input.selectionStart))
-  if (!at) return []
-  // token 变了才发新请求；响应到达后由消息处理分支重算本函数上屏。
-  if (fileRefResult?.key !== at.prefix) {
-    fileRefSeq += 1
-    fileRefRequestKey = at.prefix
-    fileRefResult = null
-    post({ type: 'fileRefList', requestId: fileRefSeq, query: at.query })
-  }
-  const files = fileRows(input, at)
-  const sessions = at.quoted ? [] : sessionRows(input, at)
-  return [
-    ...(files.length > 0 ? [{ label: '文件', header: true } as SlashRow, ...files] : []),
-    ...(sessions.length > 0 ? [{ label: '会话', header: true } as SlashRow, ...sessions] : []),
-  ]
-}
-
-/** 文件/文件夹候选行；响应未到达或已过期时为空（会话行先顶着）。 */
-function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] {
-  if (fileRefResult === null || fileRefResult.key !== at.prefix) return []
-  const cursor = input.selectionStart
-  const tokenStart = cursor - at.prefix.length
-  return fileRefResult.items.flatMap((c) => {
-    const mention = formatFileMention(c, at.quoted)
-    if (mention === undefined) return [] // 编辑器语法无法安全表示的路径不出候选
-    const directory = c.kind === 'directory'
-    const name = c.path.slice(c.path.lastIndexOf('/') + 1)
-    return [{
-      label: `@${name}${directory ? '/' : ''}`,
-      right: c.path,
-      apply: () => {
-        // 目录不补空格：token 保持活跃（@dir/ 或 @"dir/），弹窗继续出下一层。
-        const tail = directory ? '' : ' '
-        input.value = `${input.value.slice(0, tokenStart)}${mention}${tail}${input.value.slice(cursor)}`
-        input.focus()
-        const caret = tokenStart + mention.length + tail.length
-        input.setSelectionRange(caret, caret)
-        input.dispatchEvent(new Event('input'))
-      },
-    }]
-  })
-}
-
-/**
- * 当前会话所属工作区的会话候选行（不含当前会话——引用自己没有意义）。
- * 注意不是 isCurrent 组：isCurrent 跟的是 VS Code 打开的文件夹，当前会话
- * 可能属于别的工作区。空会话不在任何组的可见列表里，退回 workspaceLabel
- * 匹配。选中后输入框只留 `@标题` 显示 token，canonical mention 记在
- * mentionBindings 里，发送时才展开（textarea 做不到官方 contenteditable
- * 的原子引用，这是拍板的 b) 路线）。
- */
-function sessionRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] {
-  const snap = sessionsSnapshot
-  if (!snap) return []
-  const query = at.query.toLowerCase()
-  const tokenStart = input.selectionStart - at.prefix.length
-  const cursor = input.selectionStart
-  const own =
-    snap.workspaces.find((w) => w.sessions.some((s) => s.sessionId === state?.sessionId)) ??
-    snap.workspaces.find((w) => state?.workspaceLabel !== undefined && w.label === state.workspaceLabel)
-  if (!own) return []
-  return own.sessions
-    .filter((s) => s.sessionId !== state?.sessionId)
-    .filter((s) => s.label.toLowerCase().includes(query) || s.sessionId.toLowerCase().includes(query))
-    .slice(0, 10)
-    .map((s) => ({
-      label: `@${s.label}`,
-      right: own.label,
-      apply: () => {
-        const token = mentionDisplayToken(s.label, s.sessionId, mentionBindings)
-        mentionBindings.set(token, formatSessionMention(s.label, s.sessionId))
-        input.value = `${input.value.slice(0, tokenStart)}${token} ${input.value.slice(cursor)}`
-        input.focus()
-        const caret = tokenStart + token.length + 1
-        input.setSelectionRange(caret, caret)
-        input.dispatchEvent(new Event('input'))
-      },
-    }))
-}
-
-/**
- * 粘贴板文本含 canonical 会话 mention（"复制引用"的产物 `@[标题](dsh-session:...)`）
- * 时接管粘贴：mention 换成 @ 补全同款的显示 token 并登记 mentionBindings
- * （发送时才展开）；光标前正在输入的 @query 触发词一并吃掉，先打 @ 再粘贴
- * 不会变成 `@@标题`。末尾是 mention 时补一个空格，与接着输入的文字隔开。
- * 返回是否已处理；普通文本粘贴返回 false，走默认行为。
- */
-function pasteSessionMentions(input: HTMLTextAreaElement, e: ClipboardEvent): boolean {
-  const pasted = e.clipboardData?.getData('text/plain')
-  if (!pasted || !pasted.includes(SESSION_REFERENCE_SCHEME)) return false
-  const segments = splitSessionMentions(pasted)
-  if (!segments.some((seg) => typeof seg !== 'string')) return false
-  e.preventDefault()
-  const inserted = segments
-    .map((seg) => {
-      if (typeof seg === 'string') return seg
-      const token = mentionDisplayToken(seg.label, seg.sessionId, mentionBindings)
-      mentionBindings.set(token, formatSessionMention(seg.label, seg.sessionId))
-      return token
-    })
-    .join('')
-  let before = input.value.slice(0, input.selectionStart)
-  if (inserted.startsWith('@')) {
-    const trigger = /(^|\s)@[^\s@]{0,30}$/.exec(before)
-    if (trigger) before = before.slice(0, before.length - trigger[0].length) + trigger[1]
-  }
-  const after = input.value.slice(input.selectionEnd)
-  const endsWithMention = typeof segments[segments.length - 1] !== 'string'
-  const pad = endsWithMention && !/^\s/.test(after) ? ' ' : ''
-  input.value = before + inserted + pad + after
-  const caret = before.length + inserted.length + pad.length
-  input.setSelectionRange(caret, caret)
-  input.dispatchEvent(new Event('input'))
-  return true
-}
-
-/** Compact token count: 517 / 12.2K / 517K / 1.2M (dsh-web's formatTokens). */
-function formatTokens(n: number): string {
-  const scaled = (v: number): string => (v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10))
-  if (n < 1e3) return String(n)
-  if (n < 1e6) return `${scaled(n / 1e3)}K`
-  return `${scaled(n / 1e6)}M`
-}
-
-/** Breakdown legend, in bar-segment order (dsh-web ContextMeter rows). */
-const CONTEXT_ROWS: Array<{ key: 'systemTokens' | 'toolsTokens' | 'messageTokens'; label: string; color: string }> = [
-  { key: 'systemTokens', label: '系统提示词', color: '#8b9bb4' },
-  { key: 'toolsTokens', label: '工具', color: '#a78bfa' },
-  { key: 'messageTokens', label: '对话消息', color: '#5a9cf8' },
-]
-
-/** 「窗口未知」占位的悬停说明：说明原因 + 何时恢复。 */
-const WINDOW_UNKNOWN_TOOLTIP = '当前窗口用量未知：该模型尚未在当前会话中产生上下文数据，发送下一条消息后将显示窗口占用。'
-
-/** Occupancy bar at the stats row's right end; hidden until the first sample. */
-function contextBar(): HTMLElement {
-  const bar = buttonEl('context-bar', '')
-  const track = el('span', 'context-bar-track')
-  track.appendChild(el('span', 'context-bar-fill'))
-  bar.appendChild(track)
-  bar.addEventListener('click', () => openContextPanel(bar))
-  return bar
-}
-
-/** 按模式确保 bar 内容结构：unknown → 灰字占位；known → track+fill（重建仅在切换时）。 */
-function setBarContent(bar: HTMLElement, mode: 'unknown' | 'known'): void {
-  const isUnknown = !bar.querySelector('.context-bar-fill')
-  if (isUnknown === (mode === 'unknown')) return
-  if (mode === 'unknown') {
-    bar.textContent = '窗口未知'
-  } else {
-    bar.textContent = ''
-    const track = el('span', 'context-bar-track')
-    track.appendChild(el('span', 'context-bar-fill'))
-    bar.appendChild(track)
-  }
-}
-
-/** Patch the bar in place (both initial render and kept-composer updates). */
-function patchContextBar(bar: HTMLElement, usage: ChatState['contextUsage']): void {
-  bar.style.display = usage ? '' : 'none'
-  if (!usage) return
-  if (usage.windowUnknown) {
-    // 切到从未观察过窗口的模型：明示「窗口未知」占位，不沿用旧窗口误导；悬停解释原因。
-    setBarContent(bar, 'unknown')
-    bar.classList.remove('level-ok', 'level-warn', 'level-danger', 'level-overflow')
-    bar.classList.add('level-unknown')
-    bar.title = WINDOW_UNKNOWN_TOOLTIP
-    return
-  }
-  setBarContent(bar, 'known')
-  // 按剩余轮数分级变色（src/pure/contextMeter.ts）：充足绿 / <10 轮黄 / <5 轮红 / 超窗口红。
-  const meter = meterLevel(usage.usedTokens, usage.contextWindow, usage.turns)
-  bar.classList.remove('level-ok', 'level-warn', 'level-danger', 'level-overflow')
-  bar.classList.add(`level-${meter.level}`)
-  bar.title = `上下文已用 ${usage.percent}%（~${formatTokens(usage.usedTokens)} / ${formatTokens(usage.contextWindow)}）${
-    meter.level === 'overflow' ? '；已超出当前模型窗口' : ''
-  }`
-  const fill = bar.querySelector<HTMLElement>('.context-bar-fill')
-  if (fill) fill.style.width = `${usage.percent}%`
-}
-
-/** Stats row at the composer's foot: stats line left, occupancy bar right. */
-function statsRow(statsLine: string | undefined, usage: ChatState['contextUsage']): HTMLElement {
-  const row = el('div', 'stats-row')
-  row.appendChild(el('div', 'input-stats', statsLine ?? ''))
-  const bar = contextBar()
-  patchContextBar(bar, usage)
-  row.appendChild(bar)
-  return row
-}
-
-/** In-place stats-row update for the kept-composer path (no rebuild). */
-function patchStatsRow(composer: HTMLElement, statsLine: string | undefined, usage: ChatState['contextUsage']): void {
-  let row = composer.querySelector<HTMLElement>('.stats-row')
-  if (!statsLine && !usage) {
-    row?.remove()
-    return
-  }
-  if (!row) {
-    row = statsRow(undefined, undefined)
-    composer.appendChild(row)
-  }
-  const stats = row.querySelector<HTMLElement>('.input-stats')
-  if (stats) stats.textContent = statsLine ?? ''
-  const bar = row.querySelector<HTMLElement>('.context-bar')
-  if (bar) patchContextBar(bar, usage)
-}
-
-/** Click-open panel next to the ring: occupancy figure plus the breakdown bars. */
-function openContextPanel(anchor: HTMLElement): void {
-  const usage = state?.contextUsage
-  if (!usage) return
-  if (usage.windowUnknown) {
-    // 「窗口未知」占位：无比例可给，面板只说明原因与恢复时机（与 bar 的悬停一致）。
-    const body = el('div', 'context-panel')
-    const header = el('div', 'cp-header')
-    header.appendChild(el('span', 'cp-percent', '窗口用量未知'))
-    if (usage.usedTokens !== undefined) header.appendChild(el('span', 'cp-figures', `已用 ~${formatTokens(usage.usedTokens)}`))
-    body.appendChild(header)
-    body.appendChild(
-      el('div', 'cp-unknown', '该模型尚未在当前会话中产生上下文数据，无法给出窗口占用比例；发送下一条消息后将显示窗口用量。'),
-    )
-    showPopover(anchor, body)
-    return
-  }
-  const body = el('div', 'context-panel')
-  const header = el('div', 'cp-header')
-  header.appendChild(el('span', 'cp-percent', `上下文已用 ${usage.percent}%`))
-  header.appendChild(
-    el('span', 'cp-figures', `~${formatTokens(usage.usedTokens)} / ${formatTokens(usage.contextWindow)}`),
-  )
-  body.appendChild(header)
-  const meter = meterLevel(usage.usedTokens, usage.contextWindow, usage.turns)
-  if (meter.level === 'overflow') {
-    body.appendChild(
-      el('div', 'cp-overflow', '上下文已超出当前模型窗口：建议先切回之前的模型执行 /compact 压缩，再切换模型。'),
-    )
-  }
-  const breakdown = usage.breakdown
-  if (breakdown) {
-    const bar = el('div', 'cp-bar')
-    const rows = el('div', 'cp-rows')
-    for (const rowDef of CONTEXT_ROWS) {
-      const value = breakdown[rowDef.key]
-      const segment = el('span', 'cp-seg')
-      segment.style.background = rowDef.color
-      segment.style.width = `${Math.min(100, (value / usage.contextWindow) * 100)}%`
-      bar.appendChild(segment)
-      const row = el('div', 'cp-row')
-      const swatch = el('span', 'cp-swatch')
-      swatch.style.background = rowDef.color
-      row.appendChild(swatch)
-      row.appendChild(el('span', undefined, rowDef.label))
-      row.appendChild(el('span', 'cp-value', `~${formatTokens(value)}`))
-      rows.appendChild(row)
-    }
-    body.appendChild(bar)
-    body.appendChild(rows)
-  }
-  // 实时预估：平均每轮增长 usedTokens/turns，换算剩余轮数（口径见 contextMeter.ts）。
-  if (meter.perTurn !== null && meter.turnsLeft !== null) {
-    body.appendChild(
-      el('div', 'cp-estimate', `预估 ≈${formatTokens(meter.perTurn)}/轮，约还可持续 ${meter.turnsLeft} 轮`),
-    )
-  }
-  showPopover(anchor, body)
-}
-
-function menuItem(
-  label: string,
-  opts: { right?: string; checked?: boolean; glyph?: string; icon?: SVGSVGElement; onClick: () => void },
-): HTMLElement {
-  const item = el('div', opts.checked ? 'menu-item checked' : 'menu-item')
-  if (opts.glyph) {
-    const g = el('span', 'glyph')
-    g.innerHTML = opts.glyph // build-time constant strings, not user input
-    item.appendChild(g)
-  }
-  // 左侧图标位（dsh web 菜单模式）：调用方预先渲染好 SVG。
-  if (opts.icon) {
-    const ic = el('span', 'menu-item-icon')
-    ic.appendChild(opts.icon)
-    item.appendChild(ic)
-  }
-  item.appendChild(el('span', undefined, label))
-  if (opts.right) item.appendChild(el('span', 'menu-right', opts.right))
-  // 选中态 check 放尾部（dsh web 模式），未选中不渲染。
-  if (opts.checked) item.appendChild(el('span', 'check', '✓'))
-  item.addEventListener('click', opts.onClick)
-  return item
-}
-
-function openPermissionMenu(anchor: HTMLElement): void {
-  const perms = state?.permissions
-  if (!perms) return
-  const body = el('div')
-  for (const o of perms.options) {
-    body.appendChild(
-      menuItem(o.label, {
-        glyph: PERMISSION_GLYPHS[o.value],
-        checked: o.value === perms.current,
-        onClick: () => {
-          closePopover()
-          if (o.value !== perms.current) post({ type: 'setPermission', value: o.value })
-        },
-      }),
-    )
-  }
-  showPopover(anchor, body)
-}
-
-function openModelMenu(anchor: HTMLElement): void {
-  const body = el('div')
-  showPopover(anchor, body)
-  modelMenuBody = body
-  if (modelCatalog) {
-    renderModelMenuRoot(body, modelCatalog)
-  } else {
-    body.appendChild(el('div', 'menu-hint', '加载中…'))
-  }
-  // Always refetch so the menu reflects the server's current selection.
-  post({ type: 'requestModels' })
-}
-
-function renderModelMenuRoot(body: HTMLElement, catalog: ModelCatalog): void {
-  body.textContent = ''
-  const model = catalog.groups
-    .find((g) => g.id === catalog.current.provider)
-    ?.models.find((m) => m.id === catalog.current.model)
-  body.appendChild(
-    menuItem('模型', {
-      right: `${model?.name ?? catalog.current.model} ›`,
-      onClick: () => renderModelMenuModels(body, catalog),
-    }),
-  )
-  const efforts = model?.efforts ?? []
-  if (efforts.length > 0) {
-    const effortId = catalog.current.reasoningEffort ?? model?.defaultEffort
-    const effort = efforts.find((e) => e.id === effortId)
-    body.appendChild(
-      menuItem('推理等级', {
-        right: `${effort?.name ?? effortId ?? '默认'} ›`,
-        onClick: () => renderModelMenuEfforts(body, catalog),
-      }),
-    )
-  }
-}
-
-function renderModelMenuModels(body: HTMLElement, catalog: ModelCatalog): void {
-  body.textContent = ''
-  body.appendChild(menuItem('‹ 返回', { onClick: () => renderModelMenuRoot(body, catalog) }))
-  for (const g of catalog.groups) {
-    body.appendChild(el('div', 'menu-group', g.name))
-    for (const m of g.models) {
-      const isCurrent = catalog.current.provider === g.id && catalog.current.model === m.id
-      body.appendChild(
-        menuItem(m.name, {
-          checked: isCurrent,
-          onClick: () => {
-            closePopover()
-            if (isCurrent) return
-            // Keep the current effort only when the new model supports it.
-            const keep = m.efforts.some((e) => e.id === catalog.current.reasoningEffort)
-            post({
-              type: 'setModel',
-              provider: g.id,
-              model: m.id,
-              reasoningEffort: keep ? catalog.current.reasoningEffort : undefined,
-            })
-          },
-        }),
-      )
-    }
-  }
-}
-
-function renderModelMenuEfforts(body: HTMLElement, catalog: ModelCatalog): void {
-  body.textContent = ''
-  body.appendChild(menuItem('‹ 返回', { onClick: () => renderModelMenuRoot(body, catalog) }))
-  const model = catalog.groups
-    .find((g) => g.id === catalog.current.provider)
-    ?.models.find((m) => m.id === catalog.current.model)
-  const effortId = catalog.current.reasoningEffort ?? model?.defaultEffort
-  for (const e of model?.efforts ?? []) {
-    body.appendChild(
-      menuItem(e.name, {
-        right: e.description,
-        checked: e.id === effortId,
-        onClick: () => {
-          closePopover()
-          if (e.id !== catalog.current.reasoningEffort) {
-            post({
-              type: 'setModel',
-              provider: catalog.current.provider,
-              model: catalog.current.model,
-              reasoningEffort: e.id,
-            })
-          }
-        },
-      }),
-    )
-  }
-}
-
-/** 头部「N 个子代理」chip 的下拉：树形缩进列表。每行状态点（运行中像素环/
- * 已完成灰点）+ 标题 + 第二行摘要（相对时间 · token 用量）；子代理自己的
- * 子代理（children）按层级缩进展示，行点击附着对应子会话。 */
-function openSubagentMenu(anchor: HTMLElement): void {
-  const subs = state?.subagents
-  if (!subs || subs.length === 0) return
-  const body = el('div')
-  for (const sub of subs) appendSubagentRow(body, sub)
-  // 锚点在头部，向下展开。
-  showPopover(anchor, body, 'below')
-}
-
-/** 递归渲染一个子代理节点及其全体后代（children）：每个节点包一层
- * .subagent-node，后代装进 .subagent-children 嵌套容器——缩进与层级引导线
- * （竖轨 + 横向支线，对齐 dsh web SubagentHeader 成员树）都由容器承担，
- * 行本身不再按 depth 算绝对 padding。 */
-function appendSubagentRow(container: HTMLElement, sub: SubagentNode): void {
-  const node = el('div', 'subagent-node')
-  const item = el('div', 'menu-item preset-item')
-  const slot = el('span', 'job-dot-slot')
-  if (sub.running) slot.appendChild(spinSvg())
-  else slot.appendChild(el('span', 'job-dot settled-dot'))
-  item.appendChild(slot)
-  const main = el('div', 'preset-item-main')
-  main.appendChild(el('div', 'preset-item-name', sub.title))
-  const summary = [
-    sub.running ? '进行中' : '已完成',
-    formatRelativeTime(sub.updatedAt, Date.now()),
-    sub.totalTokens !== undefined ? `${formatTokens(sub.totalTokens)} tok` : '',
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  main.appendChild(el('div', 'preset-item-desc', summary))
-  item.appendChild(main)
-  item.addEventListener('click', () => {
-    closePopover()
-    post({ type: 'sessionOpen', sessionId: sub.sessionId })
-  })
-  node.appendChild(item)
-  container.appendChild(node)
-  // 后代挂进嵌套容器：每层 16px 相对缩进 + 引导线，层级一眼可辨。
-  const kids = sub.children ?? []
-  if (kids.length > 0) {
-    const childWrap = el('div', 'subagent-children')
-    for (const child of kids) appendSubagentRow(childWrap, child)
-    node.appendChild(childWrap)
-  }
-}
-
-/** 该子代理的血缘树里是否有任一节点在跑（含孙一辈及以下）。 */
-function subagentLineageRunning(sub: SubagentNode): boolean {
-  return (sub.children ?? []).some((c) => c.running || subagentLineageRunning(c))
-}
-
-/**
- * 头部「N 个后台任务运行中」chip 的下拉（对齐官方 JobListAction 菜单）：
- * 每行 状态点（运行中像素环/完成绿/取消琥珀/失败红）+ kind 徽标 + 命令摘要
- * + 状态文案（detail 优先，如 "exit code: 0"）+ 耗时；已结束行淡化。
- */
-function openJobsMenu(anchor: HTMLElement): void {
-  // 点 trigger 切换开合（对齐官方 JobListAction 的 onClick toggle）：
-  // 弹层已挂在这个 chip 上时再点一下是关闭，而不是重建重开。
-  if (popover !== null && popoverAnchor === anchor) {
-    closePopover()
-    return
-  }
-  const jobs = state?.backgroundJobs
-  if (!jobs || jobs.length === 0) return
-  const now = Date.now()
-  const body = el('div', 'jobs-menu')
-  // 官方 ordered()：live 前按 startedAt 升序，settled 按 finishedAt 降序
-  // （activityTree.orderJobs 已按官方语义实现并有单测）。
-  for (const job of orderJobs(jobs)) body.appendChild(renderJobsMenuRow(job, now))
-  showPopover(anchor, body, 'below')
-  // 有运行中的行时挂 1s tick，只改写耗时文本节点（closePopover 统一清理）。
-  if (jobs.some(isLiveJob)) {
-    jobsTick = setInterval(() => {
-      popover?.querySelectorAll<HTMLElement>('[data-job-live-start]').forEach((t) => {
-        t.textContent = formatJobDuration(Date.now() - Number(t.dataset.jobLiveStart))
-      })
-    }, 1000)
-  }
-}
-
-/** 下拉里的一行 job；now 由调用方取一次，保证同一帧渲染的行耗时一致。 */
-function renderJobsMenuRow(job: ActivityJob, now: number): HTMLElement {
-  const live = isLiveJob(job)
-  const row = el('div', live ? 'jobs-menu-row' : 'jobs-menu-row settled')
-  const slot = el('span', 'job-dot-slot')
-  const dot = jobDotState(job.status)
-  if (dot === 'ongoing') slot.appendChild(spinSvg())
-  else slot.appendChild(el('span', `job-dot ${dot}`))
-  row.appendChild(slot)
-  row.appendChild(el('span', 'job-kind', job.kind))
-  const label = el('span', 'job-label', job.label)
-  label.title = job.label
-  row.appendChild(label)
-  const statusText = job.detail ?? jobStatusLabel(job.status)
-  const status = el('span', 'job-status', statusText)
-  status.title = statusText
-  row.appendChild(status)
-  const duration = el('span', 'job-duration')
-  if (live) {
-    duration.dataset.jobLiveStart = String(job.startedAt)
-    duration.textContent = formatJobDuration(now - job.startedAt)
-    duration.title = `已运行 ${duration.textContent}`
-  } else {
-    duration.textContent = formatJobDuration((job.finishedAt ?? job.startedAt) - job.startedAt)
-    duration.title = `耗时 ${duration.textContent}`
-  }
-  row.appendChild(duration)
-  return row
-}
-
-/** Agent preset 下拉：一行一个选项（名称 + 描述），当前选中打勾；风格沿用权限/模型选择器。 */
-function openAgentPresetMenu(anchor: HTMLElement, placement: 'above' | 'below' = 'above'): void {
-  const ap = state?.agentPreset
-  if (!ap) return
-  const body = el('div')
-  for (const opt of ap.options) {
-    const checked = opt.id === ap.current
-    const item = el('div', checked ? 'menu-item checked preset-item' : 'menu-item preset-item')
-    const main = el('div', 'preset-item-main')
-    main.appendChild(el('div', 'preset-item-name', opt.label))
-    if (opt.description) main.appendChild(el('div', 'preset-item-desc', opt.description))
-    item.appendChild(main)
-    // 选中态 check 放尾部（dsh web 模式），仅 checked 时渲染。
-    if (checked) item.appendChild(el('span', 'check', '✓'))
-    item.addEventListener('click', () => {
-      closePopover()
-      if (!checked) post({ type: 'setAgentPreset', id: opt.id })
-    })
-    body.appendChild(item)
-  }
-  showPopover(anchor, body, placement)
-}
-
-function openCommandMenu(anchor: HTMLElement): void {  const body = el('div')
-  for (const c of SLASH_COMMANDS) {
-    body.appendChild(
-      menuItem(`/${c.name}`, {
-        right: c.description,
-        onClick: () => {
-          if (c.name === 'model') {
-            openModelMenu(anchor)
-            return
-          }
-          if (c.name === 'permission') {
-            openPermissionMenu(anchor)
-            return
-          }
-          closePopover()
-          if (c.hint) {
-            // Takes arguments: seed the composer token (the completion popup
-            // then shows the arg hint) instead of firing a bare line.
-            insertSlashCommand(c.name)
-          } else {
-            // No-argument commands execute right away, like the web client's
-            // menu picks. The send path routes leading-slash lines to the
-            // command channel.
-            post({ type: 'send', text: `/${c.name}` })
-          }
-        },
-      }),
-    )
-  }
-  showPopover(anchor, body)
-}
-
-function insertSlashCommand(name: string): void {
-  const input = document.getElementById('input') as HTMLTextAreaElement | null
-  if (!input || input.disabled) return
-  // Slash commands must lead the prompt; prepend ahead of any draft (its args).
-  input.value = `/${name} ` + input.value
-  input.focus()
-  input.setSelectionRange(input.value.length, input.value.length)
-  // The input event refreshes the send button, auto-grow, and the arg hint popup.
-  input.dispatchEvent(new Event('input'))
-}
-
 /** Inline rename: swap the header title for an input; Enter commits, Esc/blur cancels. */
 function startInlineRename(header: HTMLElement): void {
   const titleEl = header.querySelector('.chat-title')
@@ -1611,7 +594,7 @@ function render(): void {
   const detailsSid = state?.sessionId ?? null
   if (detailsSid !== detailsSession) {
     detailsOpen.clear()
-    detailsSession = detailsSid
+    setDetailsSession(detailsSid)
     workflowDisclosure.clear()
     jsonTreeOpen.clear()
   }
@@ -1681,8 +664,8 @@ function render(): void {
   // the text stays in the composer as a plain draft.
   const recallQueueId = recall?.kind === 'queue' ? recall.itemId : null
   if (recallQueueId && state && !(state.queue ?? []).some((q) => q.id === recallQueueId)) {
-    recall = null
-    recallDraft = ''
+    setRecall(null)
+    setRecallDraft('')
   }
   // Composer preservation: detaching the textarea (even re-appending it one
   // line later) aborts an in-flight IME composition and drops the caret, so
@@ -1722,9 +705,9 @@ function render(): void {
   // hero chip row (blank-session preset picker) also pins the layout: rebuilding
   // would destroy the anchor and kill the menu mid-stream.
   const popoverInComposer =
-    popover !== null &&
-    popoverAnchor !== null &&
-    ((oldComposer?.contains(popoverAnchor) ?? false) || (oldHero?.contains(popoverAnchor) ?? false))
+    getPopover() !== null &&
+    getPopoverAnchor() !== null &&
+    ((oldComposer?.contains(getPopoverAnchor() ?? undefined as never) ?? false) || (oldHero?.contains(getPopoverAnchor() ?? undefined as never) ?? false))
   // 两种布局下 composer 的挂载位置不同（hero 内 / chatCol 直接子级），保留
   // 策略只在布局不变时生效，避免把已随旧布局拆除的 composer 当成存活锚点。
   const keepComposer =
@@ -1774,17 +757,17 @@ function render(): void {
   // stay open across snapshot renders — re-anchor in case the layout shifted
   // under them; only close when the rebuild above actually removed the anchor.
   // popoverAnchor === null：坐标定位菜单（会话右键），没有锚点，保持原样。
-  if (popover) {
-    if (popoverAnchor === null) {
+  if (getPopover()) {
+    if (getPopoverAnchor() === null) {
       // 坐标定位：不关闭、不 reposition。
-    } else if (popoverAnchor.isConnected) positionPopover()
+    } else if (getPopoverAnchor()?.isConnected) positionPopover()
     else closePopover()
   }
   if (!state || !state.sessionId) {
     lastComposerSig = null
     lastHeaderSig = null
     lastPendingSig = null
-    turnStatusStart = null
+    setTurnStatusStart(null)
     scrollSession = null
     chatCol.appendChild(renderEmpty(state))
     return
@@ -1792,18 +775,18 @@ function render(): void {
   // 历史基线加载中：只显示加载占位，hero 和消息流都等基线落地再渲染——
   // 否则切换会话时会先闪一帧空会话 hero（服务未就绪）再跳成消息流。
   if (state.loading === true) {
-    turnStatusStart = null
+    setTurnStatusStart(null)
     chatCol.appendChild(el('div', 'muted-hint loading-hint', '加载会话…'))
     return
   }
   if (blankHero) {
-    turnStatusStart = null
+    setTurnStatusStart(null)
     scrollSession = null
     if (keepComposer && oldHero && oldComposer) {
       // 整个 hero（含 composer）保持不动：焦点、光标、进行中的 IME 组合都
       // 不中断；只有跟踪数据流的 stats 行就地修补。
       patchStatsRow(oldComposer, state.statsLine, state.contextUsage)
-      if (slashPopupEl && oldInput) positionSlashPopup(oldInput)
+      if (isSlashPopupOpen() && oldInput) reanchorSlashPopup(oldInput)
     } else {
       chatCol.appendChild(renderHero(state, draft))
       const input = document.getElementById('input') as HTMLTextAreaElement
@@ -1984,7 +967,7 @@ function render(): void {
   if (state.running) {
     messages.appendChild(renderTurnStatus())
   } else {
-    turnStatusStart = null
+    setTurnStatusStart(null)
   }
   // Pending steering bubbles sit at the tail of the transcript, after the
   // turn status — the spot their durable user message lands once claimed
@@ -2017,7 +1000,7 @@ function render(): void {
   }
 
   if (queuedItems.length > 0) {
-    if (editingQueueItem && !queuedItems.some((item) => item.id === editingQueueItem)) editingQueueItem = null
+    if (editingQueueItem && !queuedItems.some((item) => item.id === editingQueueItem)) setEditingQueueItem(null)
     const queue = el('div', 'queue')
     // 多条排队折叠成计数 header（对齐 dsh web QueueDock：>1 条才出现折叠 header）：
     // 编辑/插话/删除等操作入口随列表一起藏进展开态；单条保持一行内联。
@@ -2039,7 +1022,7 @@ function render(): void {
     }
     add(queue)
   } else {
-    editingQueueItem = null
+    setEditingQueueItem(null)
   }
 
   // Live-jobs 内联横条已移除（对齐官方 dsh web：只留头部「N 个后台任务」chip）：
@@ -2118,8 +1101,8 @@ function render(): void {
     }
     // 同上：重建后恢复补全弹窗（含 @ 会话补全）
     updateSlashPopup(input)
-  } else if (slashPopupEl && oldInput) {
-    positionSlashPopup(oldInput)
+  } else if (isSlashPopupOpen() && oldInput) {
+    reanchorSlashPopup(oldInput)
   }
 }
 
@@ -2194,25 +1177,6 @@ function contextLabel(kind: string): string {
   return '上下文注入'
 }
 
-/** Attachment id whose bytes are being fetched to open a preview on arrival. */
-let pendingPreview: string | null = null
-/** Queue item currently being edited inline, null when none. */
-let editingQueueItem: string | null = null
-/**
- * Composer recall mode entered by ArrowUp: 'queue' loads the last queued
- * message into the composer and send saves it back; 'history' recalls the
- * last genuine user message and send re-sends it as a new prompt.
- */
-let recall: { kind: 'queue'; itemId: string } | { kind: 'history' } | null = null
-/** Draft stashed when a recall replaced it; restored by Escape. */
-let recallDraft = ''
-/** Unsaved queue-editor text by item id; survives the rebuild-per-snapshot rendering. */
-const queueEditDrafts = new Map<string, string>()
-/** Composer draft arriving while no input element exists yet (restoreDraft before first render). */
-let stashedDraft: string | undefined
-/** Slash-command receipt texts shown at the message tail; cleared on session switch. */
-let commandNotices: string[] = []
-
 /** One queued inbox row: tag + preview, plus steer/edit/remove actions. */
 function renderQueueItem(item: QueuedItem): HTMLElement {
   const row = el('div', 'queue-item')
@@ -2238,13 +1202,13 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
     const save = buttonEl('', '保存')
     save.addEventListener('click', () => {
       const text = queueEditDrafts.get(item.id) ?? editor.value
-      editingQueueItem = null
+      setEditingQueueItem(null)
       queueEditDrafts.delete(item.id)
       post({ type: 'queueEdit', itemId: item.id, text })
     })
     const cancel = buttonEl('secondary', '取消')
     cancel.addEventListener('click', () => {
-      editingQueueItem = null
+      setEditingQueueItem(null)
       queueEditDrafts.delete(item.id)
       render()
     })
@@ -2261,7 +1225,7 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
   steer.addEventListener('click', () => post({ type: 'queueSteer', itemId: item.id }))
   const edit = buttonEl('link', '编辑')
   edit.addEventListener('click', () => {
-    editingQueueItem = item.id
+    setEditingQueueItem(item.id)
     render()
   })
   const remove = buttonEl('link', '删除')
@@ -2324,7 +1288,7 @@ function imageChip(image: ChatImage): HTMLElement {
       openLightbox(dataUrl)
       return
     }
-    pendingPreview = image.attachmentId
+    setPendingPreview(image.attachmentId)
     if (!attachmentRequested.has(image.attachmentId)) {
       attachmentRequested.add(image.attachmentId)
       post({ type: 'requestAttachment', attachmentId: image.attachmentId })
@@ -2369,8 +1333,6 @@ function openLightbox(dataUrl: string): void {
  * streaming snapshot rebuilds don't collapse what the user opened.
  * Cleared on session switch (keys are positional, only valid per session).
  */
-const detailsOpen = new Map<string, boolean>()
-let detailsSession: string | null = null
 
 /**
  * JSON tree node expand state. Key = `${outputKey}:${jsonPathKey}` (the output
@@ -2378,14 +1340,12 @@ let detailsSession: string | null = null
  * default (root open, nested closed); present = the user's toggle. Cleared with
  * the other per-session disclosure state on session switch.
  */
-const jsonTreeOpen = new Map<string, boolean>()
 
 /**
  * workflow 运行卡片的展开/折叠状态，按 runId（run 级）/ `${runId}:${phase.key}`
  * （phase 级）持久化——runId 跨分页稳定，loadEarlier 补页不会错位；与 detailsOpen
  * 一样在换会话时清空。
  */
-const workflowDisclosure = new Map<string, WorkflowDisclosureState>()
 
 /** <details> whose open state persists across re-renders under `key`. */
 function detailsEl(key: string, className: string, summaryText: string): HTMLDetailsElement {
@@ -2491,20 +1451,18 @@ function todoStatusGlyph(status: ChatTodoItem['status']): SVGSVGElement {
  * survives snapshot re-renders for the whole open turn; it is reset when
  * running flips back to false.
  */
-let turnStatusStart: number | null = null
-let turnStatusTimer: ReturnType<typeof setInterval> | null = null
 
 /** Drop the clock interval; every render calls this before rebuilding. */
 function clearTurnStatusTimer(): void {
   if (turnStatusTimer !== null) {
     clearInterval(turnStatusTimer)
-    turnStatusTimer = null
+    setTurnStatusTimer(null)
   }
 }
 
 function renderTurnStatus(): HTMLElement {
-  if (turnStatusStart === null) turnStatusStart = Date.now()
-  const start = turnStatusStart
+  if (turnStatusStart === null) setTurnStatusStart(Date.now())
+  const start = turnStatusStart ?? Date.now()
   const row = el('div', 'turn-status')
   row.setAttribute('role', 'status')
   row.setAttribute('aria-live', 'polite')
@@ -2516,7 +1474,7 @@ function renderTurnStatus(): HTMLElement {
   }
   tick()
   row.appendChild(clock)
-  turnStatusTimer = setInterval(tick, 1000)
+  setTurnStatusTimer(setInterval(tick, 1000))
   return row
 }
 
@@ -3224,12 +2182,6 @@ function renderApproval(p: PendingApproval): HTMLElement {
   return card
 }
 
-/** Per-question answer draft: picked option labels plus free-text custom input. */
-interface QuestionDraft {
-  selected: Set<string>
-  custom: string
-}
-
 function questionDraft(rpcId: string): Map<number, QuestionDraft> {
   let d = answerDrafts.get(rpcId)
   if (!d) {
@@ -3455,7 +2407,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   input.disabled = !canSend
   if (stashedDraft) {
     input.value = draft?.trim() ? `${draft.trimEnd()}\n${stashedDraft}` : stashedDraft
-    stashedDraft = undefined
+    setStashedDraft(undefined)
   } else if (draft) {
     input.value = draft
   }
@@ -3491,19 +2443,19 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       // Queue edits carry text only (the host rejects non-text content), so
       // staged images stay staged and only the text goes to the queue item.
       const itemId = recall.itemId
-      recall = null
-      recallDraft = ''
-      pendingFiles = []
+      setRecall(null)
+      setRecallDraft('')
+      setPendingFiles([])
       post({ type: 'queueEdit', itemId, text: expanded })
       input.value = ''
       render()
       return
     }
-    recall = null
-    recallDraft = ''
+    setRecall(null)
+    setRecallDraft('')
     const images = pendingImages
-    pendingImages = []
-    pendingFiles = []
+    setPendingImages([])
+    setPendingFiles([])
     post({ type: 'send', text: expanded, ...(images.length > 0 ? { images } : {}), ...(steer ? { steer } : {}) })
     input.value = ''
     render()
@@ -3516,37 +2468,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   input.addEventListener('keydown', (e) => {
     // Slash completion owns these keys while open: arrows navigate, Tab/Enter
     // complete, Escape dismisses (an Escape with no popup falls through).
-    if (slashPopupEl && !e.isComposing) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        moveSlashSelection(1)
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        moveSlashSelection(-1)
-        return
-      }
-      if (e.key === 'Tab') {
-        e.preventDefault()
-        slashRows[slashIndex]?.apply?.(input)
-        return
-      }
-      if (e.key === 'Escape' && !e.defaultPrevented) {
-        e.preventDefault()
-        hideSlashPopup()
-        return
-      }
-      if (e.key === 'Enter' && !e.shiftKey) {
-        const apply = slashRows[slashIndex]?.apply
-        if (apply) {
-          e.preventDefault()
-          apply(input)
-          return
-        }
-        // Hint-only popup: Enter falls through and sends the line as-is.
-      }
-    }
+    if (handleSlashKey(e, input)) return
     // isComposing: don't send while an IME candidate window is open.
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault()
@@ -3557,9 +2479,9 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     if (e.key === 'Escape' && !e.defaultPrevented && recall) {
       // Cancel the recall: the recalled text goes away, the stashed draft returns.
       e.preventDefault()
-      recall = null
+      setRecall(null)
       input.value = recallDraft
-      recallDraft = ''
+      setRecallDraft('')
       render()
       return
     }
@@ -3575,12 +2497,12 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         : [...state.messages].reverse().find((m) => m.kind === 'user' && !m.context && m.text.trim())
       if (!lastQueued && !lastUser) return
       e.preventDefault()
-      recallDraft = input.value
+      setRecallDraft(input.value)
       if (lastQueued) {
-        recall = { kind: 'queue', itemId: lastQueued.id }
+        setRecall({ kind: 'queue', itemId: lastQueued.id })
         input.value = lastQueued.editText
       } else if (lastUser && lastUser.kind === 'user') {
-        recall = { kind: 'history' }
+        setRecall({ kind: 'history' })
         input.value = lastUser.text
       }
       render()
