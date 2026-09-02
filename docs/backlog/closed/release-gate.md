@@ -32,3 +32,5 @@
 - `package.json`、`CHANGELOG.md`（发布时更新）
 
 - 2026-09-01 认领 → doing（并行开发 session）
+- 2026-09-02 开发完成，自测通过 → done。产出：`scripts/release-gate.sh`（默认 dry-run 只读校验，`--apply` 两段式：① 交互输入版本 → bump package.json + CHANGELOG [Unreleased] 收口 → 停下等人 review/commit；② 重跑 → 干净 checkout npm ci → typecheck/test/build/vsce package → 验 vsix 内容与版本 == 锁定版本 → 打 annotated tag v<version> 并校验 == 打包 commit）；`.vscodeignore` 新增排除 scripts/.agents/AGENTS.md；`docs/release-checklist.md` 人工验收清单（沙盒装机 + README 确认）；`docs/development.md` 发版流程改走本脚本。人工验收方法：按 `docs/release-checklist.md` 沙盒装机步骤在隔离 VSCode 安装 release-gate 产出的 vsix 验收（未装 dsh 降级引导 / 定位启动 / webview 加载 / 收养已有实例 / 状态栏与命令 / 进程回收），并按「README 与版本确认」勾选。
+- 2026-09-02 主线合入测试通过（merge 935a579，复测 298 tests 全绿），人工确认 → closed

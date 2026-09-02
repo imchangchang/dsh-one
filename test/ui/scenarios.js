@@ -8,6 +8,8 @@
 (function () {
   const UNGROUPED = '__ungrouped__'
   const rid = (p) => p + Math.random().toString(36).slice(2, 7)
+  // 96×96 红色实心 PNG 的 base64：附件场景的图片内容，缩略图应显示红色方块。
+  const PNG_RED = 'iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QMQ0AMAzAsEEqfzSDMgZ7m8NSAEQ+d0afzvpBPECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQoM0eFsgCpKYbmmoAAAAASUVORK5CYII='
 
   // ---- 消息/区块构造器 ----
   const u = (text) => ({ kind: 'user', id: rid('u'), text })
@@ -139,6 +141,28 @@
       expect: '用户气泡（右侧）内：一个 @会话引用 chip（🔗 图标 + 链接色「DSH-ONE子代理嵌套支持情况」字重 500），chip 之后紧跟着正文「根据这个对话，分析一下嵌套子代理的依赖关系。」，两者在同一行；chip 内文字与同行正文文字基线对齐（不再相对抬高 2px）。chip 是行内 flex 无边框背景，链接色，hover 下划线（截图为静态不核对 hover）。',
     },
 
+    'mention-chips': {
+      // 用户气泡引用 chip 全 kind（对齐 web projectUserText）：会话（references 驱动，
+      // 可点击）+ 文件/文件夹（形态推断，纯展示）+ /命令（skill，无图标）+ 引用摘要行。
+      state: base({
+        messages: [
+          {
+            kind: 'user',
+            id: rid('u'),
+            text: '参考 @旧会话 的实现，看下 @src/ui/chat/webview.ts 和 @src/pure/ 目录，用 /help 看看思路',
+            references: [{ sessionId: 'sess-3', label: '旧会话' }],
+          },
+          {
+            kind: 'user',
+            id: rid('u'),
+            text: '带空格路径 @"src/ui/chatView.ts" 也看下',
+          },
+        ],
+      }),
+      title: '用户气泡引用 chip 全 kind',
+      expect: '第一条用户气泡（右侧）：四个引用 chip 与正文同排依序——会话 chip（聊天气泡图标 + 链接色「旧会话」，可点击）；文件 chip（文档线条图标 + 「webview.ts」）；文件夹 chip（闭合文件夹图标 + 「pure」）；命令 chip（无图标 + 「/help」）。文件/文件夹 chip 悬停 title 为完整 @token（静态截图不核对）。气泡下方一行小号摘要「引用会话 · 旧会话」（对齐 web referenceSummary）。第二条气泡：带引号路径「chatView.ts」文件 chip（带文档图标），引号并入 chip 不残留。所有 chip 行内 flex、链接色、字重 500、与正文基线对齐。',
+    },
+
     'subagent-card-snapshot': {
       // fork 快照副本：会话自己的聊天流里有一条 subagent 调用卡（历史复制来的
       // 占位结果），但血缘树（state.subagents）不含该子代理 → 应加「快照副本」标注。
@@ -168,9 +192,35 @@
 
     empty: {
       // blankHero 要求 sessionId !== null（空白会话已附着）且无消息/待办/队列/jobs。
-      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', workspaceId: 'ws-main', workspaces: [
+        { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', title: 'dsh-one' },
+        { workspaceId: 'ws-research', path: '/Users/cgeng/Workspaces/dsh-web', title: 'dsh-web research' },
+        { workspaceId: 'ws-another', path: '/tmp/another-project', title: 'another-project' },
+      ], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
       title: '空会话 hero',
-      expect: '空会话 hero（无历史）：品牌鱼标 + 标题「探索未至之境预览版」+ workspace chip（dsh-one）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）。',
+      expect: '空会话 hero（无历史）：品牌鱼标 + 标题「探索未至之境预览版」+ workspace 选择 chip（dsh-one，文件夹图标 + 名称 + chevron，可点击）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）。',
+    },
+
+    'workspace-picker-open': {
+      // hero workspace chip 点击后弹 WorkspacePicker（对齐官方 Menu）：workspace
+      // 列表 + 当前项对勾 + footer 两个添加入口。
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', workspaceId: 'ws-main', workspaces: [
+        { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', title: 'dsh-one' },
+        { workspaceId: 'ws-research', path: '/Users/cgeng/Workspaces/dsh-web', title: 'dsh-web research' },
+        { workspaceId: 'ws-another', path: '/tmp/another-project', title: 'another-project' },
+      ], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
+      title: '空会话 hero：workspace 选择器打开',
+      interact: `document.querySelector('.hero-chips .hero-chip').click()`,
+      expect: '点击 hero 的 workspace chip（dsh-one）后，chip 下方弹出选择器：3 行 workspace（文件夹图标 + 标题，dsh-one 行尾部 ✓ 对勾标记当前项）；分隔线下 footer 两个添加入口「添加已有文件夹…」「创建工作区…」；preset chip 与 composer 保持原样。',
+    },
+
+    'workspace-picker-empty': {
+      // workspace 基线为空（如尚未建立任何 workspace）：picker 只显示添加入口，
+      // 不弹空列表。官方此时直接进目录流程，dsh-one 退化为只弹添加入口。
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: '未分组', workspaces: [], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
+      title: '空会话 hero：无 workspace（picker 只剩添加入口）',
+      interact: `document.querySelector('.hero-chips .hero-chip').click()`,
+      expect: '点击 hero 的 workspace chip（未分组）后弹出选择器：无 workspace 行，只有「添加已有文件夹…」「创建工作区…」两个添加入口（无分隔线）；chip 仍显示「未分组」标签。',
     },
 
     'dsh-not-found': {
@@ -181,33 +231,107 @@
 
     approval: {
       state: base({ pending: [{ kind: 'approval', rpcId: 'rpc-1', sessionId: 'sess-1', approvalId: 'appr-1', toolName: 'bash', reason: '允许执行 npm test 吗？' }] }),
-      title: '权限批准',
-      expect: '底部 pending 卡「权限请求：bash / 允许执行 npm test 吗？」+ 「允许一次/拒绝」两个按钮；历史消息保留。',
+      title: '权限批准（composer 接管面板）',
+      expect: '输入区位置（composer 处）渲染接管面板，**不在消息流尾部**：面板 header「权限请求」+ 右上最小化按钮（chevron）；面板正文：工具名「bash」+ 原因「允许执行 npm test 吗？」+ 「允许一次/拒绝」两个按钮；消息流尾部**没有**旧的 pending 卡；普通 composer 输入框**不显示**（输入区被面板替换）。',
     },
 
     question: {
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
-      title: '工具提问',
-      expect: '底部 pending 卡显示问题「用哪种排序？」+ header + 单项选择（最新优先/最旧优先）+ 「其他（自定义回答）」输入框 + 底部「确认」按钮（初始禁用——半透明不可点）。',
+      title: '工具提问（composer 接管面板）',
+      expect: '输入区位置渲染接管面板：header「等待你的回答」+ 最小化按钮（单题**无**分页器）；正文：问题「用哪种排序？」+ header「排序方向」+ 单项选择（最新优先/最旧优先）+ 「其他（自定义回答）」输入框 + 「提交」按钮（初始禁用——半透明不可点）；消息流尾部无 pending 卡，无普通 composer。',
     },
 
     'question-selected': {
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
-      title: '工具提问（已选一项，未确认）',
+      title: '工具提问（已选一项，未提交）',
       interact: `document.querySelectorAll('.question-options .option-btn')[0]?.click()`,
-      expect: '点击「最新优先」后：该选项高亮（selected outline，· 实心），**pending 卡仍在**（没有提交——答案没有发走、对话没有继续）；「确认」按钮变为可用（不透明）。',
+      expect: '点击「最新优先」后：该选项高亮（selected outline，· 实心），**接管面板仍在**（没有提交——答案没有发走、对话没有继续）；「提交」按钮变为可用（不透明）。',
+    },
+
+    'question-multi': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-4', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }, { question: '要不要包含测试目录？', options: [{ label: '包含' }, { label: '不包含' }] }] }] }),
+      title: '多题问答（分页器 1/2）',
+      expect: '接管面板 header「等待你的回答」+ 分页器（‹ 1/2 ›，上一题 ‹ 禁用、下一题 › 可用）+ 最小化按钮；正文只有**第一题**（排序方向题），第二题不出现；「跳过本题」+「提交」两个按钮；提交禁用（未选任何答案——半透明不可点），跳过可点。',
+    },
+
+    'question-page2': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-4', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }, { question: '要不要包含测试目录？', options: [{ label: '包含' }, { label: '不包含' }] }] }] }),
+      title: '多题问答（翻到第 2 题）',
+      interact: `document.querySelector('.panel-pager .pager-btn:last-child')?.click()`,
+      expect: '分页器显示 ‹ 2/2 ›（上一题 ‹ 可用、下一题 › 禁用）；正文只显示**第二题**「要不要包含测试目录？」；「跳过本题」不显示（最后一题没有下一题可跳）；「提交」按钮存在。',
+    },
+
+    'question-minimized': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
+      title: '问答面板最小化（去聊天里说）',
+      interact: `document.querySelector('.panel-toggle')?.click()`,
+      expect: '面板只剩 header 一行（「等待你的回答」+ 展开按钮，chevron 朝上/翻转）+ 回答输入行：输入框（placeholder「在聊天里说…（Enter 提交为回答）」）+「提交」按钮；正文（题目/选项）隐藏；无普通 composer。',
+    },
+
+    'plan-review-chat': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-3', sessionId: 'sess-1', questions: [{ question: '批准这个方案吗？', detail: '### 方案\n把 sessionStore 改成 immutable，并拆分 reducer。', options: [{ label: '批准' }, { label: '拒绝' }], intent: { kind: 'plan-review', approve: '批准' } }] }] }),
+      title: '计划评审（去聊天里说后）',
+      interact: `[...document.querySelectorAll('.plan-actions button')].find((b) => b.textContent.includes('去聊天里说'))?.click()`,
+      expect: '点击「去聊天里说」后：面板最小化（只剩 header「计划待审」+ 展开按钮）+ 回答输入行（「在聊天里说…」输入框 + 提交按钮）；warn strip/计划 Markdown/三分按钮全部隐藏。',
     },
 
     'plan-review': {
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-3', sessionId: 'sess-1', questions: [{ question: '批准这个方案吗？', detail: '### 方案\n把 sessionStore 改成 immutable，并拆分 reducer。', options: [{ label: '批准' }, { label: '拒绝' }], intent: { kind: 'plan-review', approve: '批准' } }] }] }),
-      title: '计划评审',
-      expect: '底部 pending 卡「批准这个方案吗？」+「▶ 查看详情」可展开 detail；两个 bullet 选项（批准/拒绝，无主次之分——CSS 只有 hover/选中做 outline）+「其他（自定义回答）」输入框 + 底部「确认」按钮（初始禁用）。',
+      title: '计划评审（PlanReviewPanel 三分结构）',
+      expect: '接管面板 header「计划待审」+ 最小化按钮；正文：**warn strip 警示条**（⚠ 图标 + 「计划待审」，黄色底/边框）+ 计划 Markdown 全文直接展开（### 方案 + 正文，限高滚动，**无**「查看详情」折叠） + 三分按钮行：「批准」（主按钮 option-btn 样式，bullet ·）+「拒绝」（次要按钮）+「去聊天里说」（次要按钮）；**不再有**「其他（自定义回答）」输入框与「确认」按钮（三分结构替代）；消息流尾部无 pending 卡。',
     },
 
     todos: {
       state: base({ todos: [{ content: '梳理架构', status: 'completed' }, { content: '写测试', status: 'in_progress' }, { content: '发版', status: 'pending' }] }),
       title: 'todo 清单卡',
       expect: 'composer 上方一条可折叠的「任务 N 已完成 · M 进行中 · K 待处理」摘要卡；内容含三个 todo 项及其状态。',
+    },
+
+    // ---- plan 状态 chip（对齐官方 dsh web PlanChip；plan-mode-chip 合入时漏的场景）----
+    'plan-chip': {
+      state: base({ plan: { active: true, pending: false } }),
+      title: 'Plan 状态 chip（plan 模式开启）',
+      expect: 'composer 输入区 footer（权限 pill 与模型 pill 之间）出现黄色 warn 风格「Plan」chip（含关闭图标），点击会发送 /plan off；plan 投影缺失或 active=false 时 chip 不出现。',
+    },
+
+    // ---- goal 条幅（对齐官方 GoalBar / input.dock id=goal order 10）----
+    'goal-active': {
+      state: base({ goal: { id: 'g-1', revision: 3, objective: '给 dsh-one 补 goal 模式条幅，对齐 dsh web 的进行中目标条幅（暂停/编辑/删除）', phase: 'active', maxGoalRounds: 16 } }),
+      title: '目标条幅（进行中）',
+      expect: 'composer 上方、todo/queue 缺席时单独一条 36px 高横条：左起 goal 图标 + 「进行中的目标」标签 + 截断的 objective（超长省略号）+ 右侧三个图标按钮（悬停提示：暂停目标/编辑目标/清除目标）；无「恢复」按钮；条幅与 composer 之间只有一条分隔线。',
+    },
+    'goal-paused': {
+      state: base({ goal: { id: 'g-1', revision: 4, objective: '给 dsh-one 补 goal 模式条幅', phase: 'paused', maxGoalRounds: 16 } }),
+      title: '目标条幅（已暂停）',
+      expect: '条幅标签变为「已暂停的目标」；右侧操作按钮变为：恢复目标（播放图标）+ 编辑目标 + 清除目标，没有「暂停」按钮。',
+    },
+    'goal-blocked': {
+      state: base({ goal: { id: 'g-1', revision: 5, objective: '给 dsh-one 补 goal 模式条幅', phase: 'blocked', maxGoalRounds: 16, blockedReason: { code: 'goal-round-limit', message: '连续多轮无进展，目标受阻' } } }),
+      title: '目标条幅（受阻）',
+      expect: '条幅标签变为「受阻的目标」；整条悬停 title 显示受阻原因（blockedReason.message）；右侧操作按钮为 编辑目标 + 清除目标（无暂停/恢复）。',
+    },
+    'goal-complete': {
+      state: base({ goal: { id: 'g-1', revision: 6, objective: '给 dsh-one 补 goal 模式条幅', phase: 'complete', maxGoalRounds: 16 } }),
+      title: '目标条幅（已完成不渲染）',
+      expect: 'composer 上方没有任何目标条幅（complete 目标不渲染）；页面与无 goal 状态完全一致，没有残留图标或占位。',
+    },
+    'goal-stack': {
+      state: base({
+        todos: [{ content: '梳理架构', status: 'completed' }, { content: '写测试', status: 'in_progress' }],
+        goal: { id: 'g-1', revision: 3, objective: '给 dsh-one 补 goal 模式条幅', phase: 'active', maxGoalRounds: 16 },
+        queue: [
+          { id: 'q-1', placement: 'queued', text: '帮我看看 dev-finish 脚本', editText: '帮我看看 dev-finish 脚本' },
+          { id: 'q-2', placement: 'queued', text: '把 backlog 条目挪到 done', editText: '把 backlog 条目挪到 done' },
+        ],
+      }),
+      title: '目标条幅与 todo/queue 叠放',
+      expect: 'composer 上方垂直叠放三条：最上 todo 清单卡（可折叠「任务…」）、中间目标条幅（进行中的目标）、最下排队 dock（「2 条排队消息」折叠 header）；三者各一条分隔线、无重叠；顺序为 todo → goal → queue → composer。',
+    },
+    'goal-editing': {
+      state: base({ goal: { id: 'g-1', revision: 3, objective: '给 dsh-one 补 goal 模式条幅', phase: 'active', maxGoalRounds: 16 } }),
+      interact: `document.querySelector('.goal-bar-btn[aria-label="编辑目标"]')?.click()`,
+      title: '目标条幅（编辑态）',
+      expect: '点击编辑后：条幅变成单行输入框（预填当前 objective，自动聚焦）+ 右侧两个图标按钮（保存目标：对勾；取消编辑：叉号）；预填非空所以保存按钮初始可用；条内无报错。',
     },
 
     subagents: {
@@ -689,9 +813,428 @@
       interact: `document.querySelector('.workflow-run-header')?.click()`,
       expect: '终态（failed，含失败成员 → abnormal 默认展开）run 卡点击 header 后**立即**收起：chevron collapsed、尾部「2 个成员 · 失败」，members 列表不再渲染；run 卡片保留标题行。',
     },
+
+    // ---- 工具 diff 卡（左右分栏：左 old 右 new，LCS 行对齐 + 前 8 行对折叠） ----
+    // 示例 diff 含全部四种行对：modify（修改，左右同排红/绿）、equal（相同行不着色）、
+    // add（纯新增，右栏绿 + 左栏灰空位）、del（纯删除，左栏红 + 右栏灰空位）。
+    // 13 行对 > 8：默认折叠到前 8 行对 + 「展开其余 5 行差异」。
+    'diff-side-by-side': {
+      state: base({
+        messages: [
+          u('把接口超时改成可配置的。'),
+          at('改好了，改动如下：', [
+            toolBlock({
+              name: 'edit', title: 'Edited src/client.ts', detail: 'src/client.ts',
+              diff: {
+                oldText: [
+                  'const TIMEOUT_MS = 30000',
+                  '',
+                  'export async function fetchClient(url: string) {',
+                  '  const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })',
+                  '  if (!res.ok) throw new Error(`HTTP ${res.status}`)',
+                  '  return res.json()',
+                  '}',
+                  '',
+                  '// 旧配置直接硬编码',
+                  'const retries = 2',
+                  'const backoff = 500',
+                  'const maxRetries = 5',
+                ].join('\n'),
+                newText: [
+                  'const DEFAULT_TIMEOUT_MS = 30000',
+                  '',
+                  'export async function fetchClient(url: string, opts: { timeoutMs?: number } = {}) {',
+                  '  const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS',
+                  '  const res = await fetch(url, { signal: AbortSignal.timeout(timeout) })',
+                  '  if (!res.ok) throw new Error(`HTTP ${res.status}`)',
+                  '  return res.json()',
+                  '}',
+                  '',
+                  '// 新配置从环境变量读取',
+                  'const retries = Number(process.env.HTTP_RETRIES ?? 2)',
+                  'const maxRetries = 5',
+                ].join('\n'),
+              },
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: 'diff 卡左右分栏（折叠态）',
+      expect: '工具卡动作行（edit / Edited src/client.ts / src/client.ts）下方是左右分栏 diff：外框一圈细边框，两列等宽网格，左栏老文本、右栏新文本；第 1 行对是修改行（左红底右绿底、文字在同一水平线），第 2 行对是相同空行（两栏都不着色）；分栏间有竖向分隔线；只显示前 8 行对，末尾「… 展开其余 5 行差异」提示；diff 卡与工具卡动作行之间有小间距。',
+    },
+
+    // 展开态：点击「展开其余」后显示全部 13 行对：修改行左右同排红/绿、纯新增行右绿
+    // 左灰、纯删除行左红右灰、相同行不着色；行对齐逐行成立。
+    'diff-side-by-side-open': {
+      state: base({
+        messages: [
+          u('把接口超时改成可配置的。'),
+          at('改好了，改动如下：', [
+            toolBlock({
+              name: 'edit', title: 'Edited src/client.ts', detail: 'src/client.ts',
+              diff: {
+                oldText: [
+                  'const TIMEOUT_MS = 30000',
+                  '',
+                  'export async function fetchClient(url: string) {',
+                  '  const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })',
+                  '  if (!res.ok) throw new Error(`HTTP ${res.status}`)',
+                  '  return res.json()',
+                  '}',
+                  '',
+                  '// 旧配置直接硬编码',
+                  'const retries = 2',
+                  'const backoff = 500',
+                  'const maxRetries = 5',
+                ].join('\n'),
+                newText: [
+                  'const DEFAULT_TIMEOUT_MS = 30000',
+                  '',
+                  'export async function fetchClient(url: string, opts: { timeoutMs?: number } = {}) {',
+                  '  const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS',
+                  '  const res = await fetch(url, { signal: AbortSignal.timeout(timeout) })',
+                  '  if (!res.ok) throw new Error(`HTTP ${res.status}`)',
+                  '  return res.json()',
+                  '}',
+                  '',
+                  '// 新配置从环境变量读取',
+                  'const retries = Number(process.env.HTTP_RETRIES ?? 2)',
+                  'const maxRetries = 5',
+                ].join('\n'),
+              },
+            }),
+          ]),
+        ],
+      }),
+      theme: 'dark',
+      title: 'diff 卡左右分栏（展开态，点击「展开其余」）',
+      interact: `document.querySelector('.diff-toggle')?.click()`,
+      expect: '点击「… 展开其余 5 行差异」后显示全部 13 行对：修改行左右同排（左红右绿，如 `const TIMEOUT_MS` 行对、`export async function fetchClient` 行对）；`  const res = await fetch(url, { signal: AbortSignal.timeout(timeout) })` 那行是纯新增（右栏绿、左栏灰空位）；`const backoff = 500` 是纯删除（左栏红、右栏灰空位）；`const retries = 2` 与 `const retries = Number(process.env.HTTP_RETRIES ?? 2)` 同排红/绿、末尾 `const maxRetries = 5` 两栏相同不着色；左右栏逐行水平对齐；toggle 文案变成「收起差异」。',
+    },
+    // ---- skill / cordis 专用工具卡（specialized-tool-cards）----
+
+    // skill 卡完成态：行首 skill 图标 + 「Skill」+ 分隔点 + skill 名，可展开出
+    // 「说明」指令全文卡（result 输出即指令全文）。
+    'tool-skill': {
+      state: base({
+        messages: [
+          u('帮我加载 worktree-dev-flow 技能。'),
+          at('已加载，指令如下。', [
+            toolBlock({
+              name: 'skill',
+              title: 'Load skill worktree-dev-flow',
+              detail: undefined,
+              args: JSON.stringify({ name: 'worktree-dev-flow', cwd: '/Users/cgeng/Workspaces/dsh-one' }),
+              output: '# Worktree 并行开发流程\n\n## 核心规则\n\n- 主线（main）不开发任何东西，只负责测试、集成和合入。\n- 每个任务一个 worktree：`.worktrees/<slug>`，分支 `agent/<slug>`，独立装依赖。\n- worktree 里高频小提交，commit message 写清每步做了什么。',
+            }),
+          ]),
+        ],
+      }),
+      title: 'skill 专用卡（完成态，可展开指令）',
+      interact: `document.querySelector('.tool-skill details summary')?.click()`,
+      expect: '助手消息里一条 skill 专用工具卡：行首 skill 文档图标（非通用工具图标）、动作短语「Skill」、分隔点、摘要为 skill 名「worktree-dev-flow」（普通灰字，非错误红）；点击展开后出现「说明」指令卡：带边框圆角块，头一行小字「说明」，下面 pre 展示指令全文（max-height 260 内滚动）；不再出现通用工具卡的「Ran a command」动作短语。',
+    },
+
+    // skill 卡运行态：无输出 → 不可展开，行首 spinner。
+    'tool-skill-running': {
+      state: base({
+        messages: [
+          u('加载 skill 中。'),
+          at('', [
+            toolBlock({
+              name: 'skill',
+              status: 'running',
+              title: 'Load skill worktree-dev-flow',
+              detail: undefined,
+              args: JSON.stringify({ name: 'worktree-dev-flow' }),
+              output: undefined,
+            }),
+          ]),
+        ],
+      }),
+      title: 'skill 专用卡（运行态，不可展开）',
+      expect: 'skill 卡运行态：行首是 spinner（旋转加载圈，非 skill 图标），动作短语「Skill」+ 分隔点 + skill 名「worktree-dev-flow」；**没有** chevron、**没有**「说明」指令卡（running 无输出不可展开）。',
+    },
+
+    // skill 卡失败态：行首红点，摘要为输出首行红字。
+    'tool-skill-error': {
+      state: base({
+        messages: [
+          u('加载一个不存在的 skill。'),
+          at('加载失败了。', [
+            toolBlock({
+              name: 'skill',
+              status: 'error',
+              title: 'Load skill nope',
+              detail: undefined,
+              args: JSON.stringify({ name: 'nope' }),
+              output: 'skill "nope" is unknown or no longer available\n更多堆栈',
+            }),
+          ]),
+        ],
+      }),
+      title: 'skill 专用卡（失败态，红字摘要）',
+      expect: 'skill 卡失败态：行首红色 StateDot（error 圆点，非 skill 图标），动作短语「Skill」+ 分隔点 + 摘要为输出首行「skill "nope" is unknown or no longer available」（红色错误字色）；可展开（有输出），展开后「说明」卡里 pre 展示全文。',
+    },
+
+    // cordis_define 卡：行首代码图标 + 「注册 Cordis 插件」+ 插件名 + 用途（灰字），
+    // 可展开出 Host/Client 源码两段 + 结果段。
+    'tool-cordis-define': {
+      state: base({
+        messages: [
+          u('帮我注册一个测试插件。'),
+          at('已注册。', [
+            toolBlock({
+              name: 'cordis_define',
+              title: 'cordis_define',
+              detail: undefined,
+              args: JSON.stringify({
+                name: 'demo-plugin',
+                purpose: '演示用 Cordis 插件',
+                code: { host: 'module.exports = { name: "demo" }', client: 'export default {}' },
+              }),
+              meta: { pluginId: 'demo', packageId: 'pkg-1' },
+              output: 'defined ok: pluginId=demo packageId=pkg-1',
+            }),
+          ]),
+        ],
+      }),
+      title: 'cordis_define 专用卡（源码展开）',
+      interact: `document.querySelector('.tool-cordis-define details summary')?.click()`,
+      expect: '助手消息里一条 cordis_define 专用卡：行首代码图标（尖括号 `</>`，非通用工具图标）、动作短语「注册 Cordis 插件」、分隔点、摘要为插件名「demo-plugin」（普通灰字）、尾部用途「演示用 Cordis 插件」（更淡的灰字，与插件名区分）；点击展开后出现两段源码：label「Host」+ host 代码、label「Client」+ client 代码（等宽 pre，max-height 260 内滚动），再一段「结果」+ 输出文本。',
+    },
+
+    // cordis_run 卡：无展开，输出直接平铺在行下。
+    'tool-cordis-run': {
+      state: base({
+        messages: [
+          u('运行一下 demo 插件。'),
+          at('已运行。', [
+            toolBlock({
+              name: 'cordis_run',
+              title: 'cordis_run',
+              detail: undefined,
+              args: JSON.stringify({ pluginId: 'demo', packageId: 'pkg-1', mode: 'run' }),
+              meta: { pluginId: 'demo', packageId: 'pkg-1', pluginRunId: 'run-42' },
+              output: 'activated ok',
+            }),
+          ]),
+        ],
+      }),
+      title: 'cordis_run 专用卡（输出平铺）',
+      expect: '助手消息里一条 cordis_run 专用卡：行首代码图标、动作短语「运行 Cordis 插件」、分隔点、摘要为「demo · pkg-1」（pluginId · packageId 点连接）；**没有** chevron/展开（run 卡不是 disclosure），行下直接平铺输出文本「activated ok」。',
+    },
+
+    // cordis_stop / cordis_undefine 卡：stop 方块 / 垃圾桶图标。
+    'tool-cordis-actions': {
+      state: base({
+        messages: [
+          u('停止并移除 demo 插件。'),
+          at('已处理。', [
+            toolBlock({
+              name: 'cordis_stop',
+              title: 'cordis_stop',
+              detail: undefined,
+              args: JSON.stringify({ pluginId: 'demo' }),
+              output: 'stopped',
+            }),
+            toolBlock({
+              name: 'cordis_undefine',
+              title: 'cordis_undefine',
+              detail: undefined,
+              args: JSON.stringify({ pluginId: 'demo' }),
+              output: 'removed',
+            }),
+          ]),
+        ],
+      }),
+      title: 'cordis_stop / cordis_undefine 专用卡',
+      expect: '助手消息里两条 cordis 动作卡：第一条行首 stop 方块图标、动作短语「停止 Cordis 插件」、分隔点、摘要「demo」，行下平铺输出「stopped」；第二条行首垃圾桶图标、动作短语「移除 Cordis 插件」、分隔点、摘要「demo」，行下平铺输出「removed」；两条都无 chevron（非 disclosure）。',
+    },
+
+    // 产物行（ProducedFiles 对齐）：>6 个文件折叠成「+N 个文件」，折叠态默认。
+    'produced-files': {
+      state: base({
+        messages: [
+          u('生成一批示例文件。'),
+          {
+            kind: 'assistant', id: 'a-pf-1', complete: true, turnEnd: true,
+            blocks: [{ type: 'text', text: '已生成 8 个示例文件。' }],
+            producedFiles: [
+              '/repo/src/a.ts', '/repo/src/b.ts', '/repo/src/c.ts', '/repo/src/d.ts',
+              '/repo/src/e.ts', '/repo/src/f.ts', '/repo/src/g.ts', '/repo/src/h.ts',
+            ],
+          },
+        ],
+      }),
+      title: '产物行（>6 个折叠）',
+      expect: 'assistant 消息尾部（操作栏之前）出现「产物」行：label「产物」+ 恰好 6 个文件 chip（a.ts…f.ts，basename、悬停 title 为完整路径）+「+ 2 个文件」计数；无「在 VSCode 中打开」按钮；操作栏（复制/反馈/分叉）在产物行下方。',
+    },
+
+    // 点击「+N 个文件」→ 展开全部 chip（click 触发 render() 立即重画）。
+    'produced-files-expanded': {
+      state: base({
+        messages: [
+          u('生成一批示例文件。'),
+          {
+            kind: 'assistant', id: 'a-pf-2', complete: true, turnEnd: true,
+            blocks: [{ type: 'text', text: '已生成 8 个示例文件。' }],
+            producedFiles: [
+              '/repo/src/a.ts', '/repo/src/b.ts', '/repo/src/c.ts', '/repo/src/d.ts',
+              '/repo/src/e.ts', '/repo/src/f.ts', '/repo/src/g.ts', '/repo/src/h.ts',
+            ],
+          },
+        ],
+      }),
+      title: '产物行（点「+N 个文件」展开全部）',
+      interact: `document.querySelector('.produced-more')?.click()`,
+      expect: '点击「+ 2 个文件」后**立即**展开：8 个文件 chip 全部可见（a.ts…h.ts），计数文案变为「收起」；再点「收起」恢复 6 chip +「+ 2 个文件」。',
+    },
+
+    // 文件多且名字长（用户反馈：单行 nowrap 截断）→ 展开后换行铺开。
+    'produced-files-wrap': {
+      state: base({
+        messages: [
+          u('把重构涉及的源文件都改一遍。'),
+          {
+            kind: 'assistant', id: 'a-pf-3', complete: true, turnEnd: true,
+            blocks: [{ type: 'text', text: '已改 14 个文件。' }],
+            producedFiles: [
+              '/repo/src/packages/conversation/folder/folding-state.ts',
+              '/repo/src/packages/conversation/folder/produced-products.ts',
+              '/repo/src/packages/conversation/turn-tail/rendering-hooks.ts',
+              '/repo/src/packages/conversation/turn-tail/produced-files-row.ts',
+              '/repo/src/packages/chat/webview/render-message.ts',
+              '/repo/src/packages/chat/webview/render-block.ts',
+              '/repo/src/packages/chat/webview/render-tools.ts',
+              '/repo/src/packages/chat/webview/render-actions.ts',
+              '/repo/src/packages/chat/webview/scroll-follow.ts',
+              '/repo/src/packages/chat/webview/queue-editor.ts',
+              '/repo/src/packages/chat/chatViewProvider.ts',
+              '/repo/src/packages/chat/chatSessionController.ts',
+              '/repo/src/packages/pure/chatContract.ts',
+              '/repo/src/packages/pure/producedFiles.ts',
+            ],
+          },
+        ],
+      }),
+      title: '产物行（长文件名多文件换行）',
+      interact: `document.querySelector('.produced-more')?.click()`,
+      expect: '点击「+ N 个文件」展开后：14 个长文件名 chip **多行换行铺开**（行尾不截断、不裁掉 chip），每行 label「产物」左侧只出现一次且与首行对齐；每个 chip 内超宽文件名以省略号截断、悬停 title 为完整路径；「收起」在最后一个 chip 后。',
+    },
+    'turn-status-notices': {
+      state: base({
+        messages: [
+          u('帮我重构这个模块。'),
+          // 超 token 提示：assistant 消息尾部黄色 warning 行。
+          {
+            kind: 'assistant', id: rid('a'), complete: true, turnEnd: true, maxTokens: true,
+            blocks: [{ type: 'text', text: '这个模块的改动涉及以下文件…（回答在此被截断）' }],
+          },
+          // 重试行：scheduled 等待态（倒计时）+ started 终态各一条。
+          {
+            kind: 'assistant', id: rid('a'), complete: true, turnEnd: true,
+            blocks: [
+              { type: 'text', text: '先执行测试确认基线。' },
+              {
+                type: 'retry', retry: 1, mode: 'normal', maxRetries: 3, delayMs: 12000,
+                failure: { message: 'rate limited (429), retry after 12s' }, retryState: 'scheduled', time: Date.now(),
+              },
+            ],
+          },
+          {
+            kind: 'assistant', id: rid('a'), complete: true, turnEnd: true,
+            blocks: [
+              { type: 'text', text: '模型请求失败后自动恢复。' },
+              {
+                type: 'retry', retry: 2, mode: 'normal', maxRetries: 3, delayMs: 5000,
+                failure: { message: 'upstream timeout' }, retryState: 'started', time: Date.now() - 60000,
+              },
+            ],
+          },
+        ],
+      }),
+      title: '流内状态提示行：超 token / 重试行',
+      expect: '消息流里依次出现三条状态行：① maxTokens 助手消息尾部有一行黄色提示（warning 圆点 + 加粗「已达到输出 token 上限」+ 灰色 hint「回答被截断，已有输出保留在对话中…」）；② scheduled 重试行是带扫光动画的灰色小字行「正在重试模型请求（1/3） · Ns」（N 在 1–12 之间，倒计时）且可展开（details chevron），展开显示「重试延迟：12000ms / 失败原因：rate limited…」；③ started 重试行静态显示「已重试模型请求（2/3） · 5s」。三条行都只占一行、不破坏消息气泡布局；操作栏（复制/反馈/分叉）只在 turnEnd 消息上出现。',
+    },
+
+    'compaction-cards': {
+      state: base({
+        messages: [
+          u('这个对话已经很长了，压缩一下。'),
+          // 自动压缩独立卡：计数 + 摘要，默认折叠可展开。
+          {
+            kind: 'compaction', id: 'c-auto-1',
+            summary: '前文要点：用户要求重构 chat 模块，已完成调研、拆分方案与两轮实现，当前在验证阶段。',
+            items: 42, tokens: 12340,
+          },
+          // 手动 /compact：checkpoint 合并进命令卡（带计数摘要）。
+          {
+            kind: 'command', id: 'cmd-1', name: 'compact', status: 'success',
+            text: 'Compacted 42 history items (~12340 tokens).',
+            compaction: { summary: '前文要点：压缩前的对话围绕工作流编排展开，已确认方案并进入实现。', items: 42, tokens: 12340 },
+          },
+          u('继续。'),
+          // 窗口外丢 summary 的退化态：不可展开的纯展示行。
+          { kind: 'compaction', id: 'c-auto-2', summary: null, items: null, tokens: null },
+        ],
+      }),
+      title: '压缩摘要卡（独立卡 / 命令卡合并 / 不可展开）',
+      expect: '消息流里出现三张压缩行：① 独立压缩卡（标题「上下文已压缩」+ 分隔点 + 摘要「已压缩 42 条历史记录（约 12340 tokens）」，行首 chevron 向右、整行可点展开摘要全文 markdown）；② 手动 /compact 卡同样形态但标题是「/compact」；③ 无摘要的退化卡是纯展示行（无 chevron、无点击态，摘要文字「压缩摘要不可用」）。三行都不渲染成用户气泡、不出现 checkpoint 原文。',
+    },
+    'attachment-uniform': {
+      state: base({
+        messages: [
+          {
+            kind: 'user', id: rid('u'), text: '看看这两个附件。',
+            images: [{ attachmentId: 'img-1', mediaType: 'image/png', name: 'chart.png' }],
+            files: [{ name: 'README.md', path: '/Users/cgeng/Workspaces/dsh-one/README.md' }],
+          },
+          at('好的，图片和文件都看到了。'),
+        ],
+      }),
+      title: '附件框尺寸统一（输入区 + 已发送消息）',
+      expect: '已发送的用户消息气泡上方一行两个同尺寸方块：左边图片缩略图（红色实心图），右边文件框（文档图标在上、README.md 在下）；两框同宽同高、圆角一致、垂直对齐。输入区上方同样一行两个同尺寸方块：图片缩略图 + 文件框（README.md），与消息区的两框尺寸一致。文件框内文字不溢出框外（过长 ellipsis）。不应再出现横向长条 pill 形状的文件 chip。',
+      interact: `postMessage({ type:'attachmentData', attachmentId:'img-1', mediaType:'image/png', data:'${PNG_RED}' }, '*');
+postMessage({ type:'imagesPicked', images:[{ mediaType:'image/png', data:'${PNG_RED}', name:'photo.png' }] }, '*');
+postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/Workspaces/dsh-one/README.md' }] }, '*');`,
+    },
+
   }
 
   catalog.conversation.sessions = window.sessionsTree('sess-1')
+
+  // 消息级计时（turn 尾部操作栏行尾，对齐官方 TurnTailNodeView）。
+  catalog['message-timing'] = {
+    state: base({
+      messages: [
+        u('这个任务花了多久？'),
+        {
+          kind: 'assistant',
+          id: rid('a'),
+          complete: true,
+          turnEnd: true,
+          seq: 42,
+          blocks: [{ type: 'text', text: '整体两分多钟完成，主要耗时在工具调用。' }],
+          // 全指标：用时 2m42s、ttft 1.2s、95 tok/s
+          timing: { time: Date.now() - 5 * 60_000, runMs: 162_000, ttftMs: 1200, tokensPerSecond: 95 },
+        },
+        {
+          kind: 'assistant',
+          id: rid('a'),
+          complete: true,
+          turnEnd: true,
+          seq: 84,
+          blocks: [{ type: 'text', text: '补充说明：过程中有两次重试。' }],
+          // 缺省形态：runMs/ttft 有，tps 无（usage 缺失时）；一位小数 tps 在第一条验证
+          timing: { time: Date.now() - 60_000, runMs: 42_000, ttftMs: 350 },
+        },
+      ],
+    }),
+    title: '消息级计时（操作栏行尾）',
+    expect: '两条助手消息的操作栏（复制/👍/👎/分支图标）行尾出现计时文本：第一条「HH:MM · 用时 2分42秒 · 首 token 1.2秒 · 95 tok/s」，第二条「HH:MM · 用时 42秒 · 首 token 0.4秒」（第二条无 tok/s——usage 缺失不显示）；计时为次级灰色小字、nowrap 单行、与图标垂直居中、用 · 分隔；用户消息与未完成消息没有计时；分叉按钮仍在（seq 存在且未中断）。',
+  }
 
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"
@@ -701,7 +1244,12 @@
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
     'sessions-search', 'sessions-collapsed',
-    'session-mention', 'workflow-running', 'workflow-finished',
+    'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
+    'tool-skill', 'tool-skill-running', 'tool-skill-error',
+    'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',
+    'produced-files', 'produced-files-expanded', 'produced-files-wrap',
+    'goal-active',
+    'attachment-uniform',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()

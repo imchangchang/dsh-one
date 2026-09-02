@@ -25,6 +25,31 @@ export const USER_SCROLL_INTENT_MS = 200
  */
 export const SETTLE_IDLE_MS = 120
 
+/**
+ * 程序 pin 的 scroll 事件回声判定。程序写 `messages.scrollTop` 后，浏览器会派发
+ * 一次异步 scroll 事件；若无此判定，该事件会被当作「滚动还在动」记入滚动活动锁，
+ * 锁掉后续 SETTLE_IDLE_MS 内的下次补 pin（视口脱底 → 120ms 后 settle 吸回，周期
+ * 脉冲）。此函数把这类「自己写出来的回声」从锁里剔除：距上次程序写 ≤ windowMs、
+ * 当前无用户滚动意图、且实际位置与程序写后的目标位置一致（±1 抵消浏览器取整）即
+ * 判为回声。用户在滚动时意图窗口（wheel/touch/键盘意图）内为真，绝不会被误判。
+ */
+export function isProgramScrollEcho(
+  now: number,
+  programPinAt: number,
+  pinnedScrollTop: number | null,
+  scrollTop: number,
+  intentActive: boolean,
+  windowMs: number,
+): boolean {
+  return (
+    programPinAt > 0 &&
+    now - programPinAt <= windowMs &&
+    !intentActive &&
+    pinnedScrollTop !== null &&
+    Math.abs(scrollTop - pinnedScrollTop) <= 1
+  )
+}
+
 /** 距底距离；内容不足一屏（scrollHeight <= clientHeight）时为 0。 */
 export function distanceFromBottom(scrollHeight: number, scrollTop: number, clientHeight: number): number {
   return Math.max(0, scrollHeight - scrollTop - clientHeight)

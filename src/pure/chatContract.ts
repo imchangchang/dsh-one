@@ -46,9 +46,42 @@ export interface ChatToolBlock {
    * 独立渲染，各算各的、不共享派生）。args 解析失败时缺省，退回落通用工具行。
    */
   todos?: { done: number; total: number; activeContent: string | null; activeExtra: number }
+  /**
+   * tool/result 事件的 `meta` 原样透传（dsh-session 契约里 tool 私有的可选
+   * presentation 载荷；cordis_define/run 用它带 pluginId/packageId/pluginRunId）。
+   * 缺省 = 事件没带 meta（skill 等工具不产生）。
+   */
+  meta?: unknown
 }
 
-export type ChatBlock = ChatTextBlock | ChatReasoningBlock | ChatToolBlock
+/**
+ * 模型请求重试行（dsh `llm/retry` + `llm/retry-started` 折叠）：一次延迟重试
+ * 等待期的状态行，倒计时 + 失败原因 + 最大次数（对齐官方 ModelRetryItem）。
+ * 同一 retryId 的多次尝试原地更新（retry 计数递增、回到 scheduled）；所属
+ * turn/end 到达时仍未 started 的尝试标记 cancelled（对齐官方 isClosed 语义）。
+ */
+export interface ChatRetryBlock {
+  type: 'retry'
+  /** 第几次重试（从 1 起）。 */
+  retry: number
+  /** mode='always' 时无限重试（UI 显示 ∞），无上限字段。 */
+  mode: 'normal' | 'always'
+  /** mode='normal' 的重试上限。 */
+  maxRetries?: number
+  /** 本次尝试的等待时长（毫秒）。 */
+  delayMs: number
+  /** 触发重试的失败原因（provider 原始 message）。 */
+  failure: { message: string }
+  /**
+   * 生命周期：scheduled（等待中，倒计时）→ started（llm/retry-started，
+   * 已开始重试）／cancelled（所属 turn 先关闭）。历史里已收尾的尝试保持终态。
+   */
+  retryState: 'scheduled' | 'started' | 'cancelled'
+  /** 该 llm/retry 事件的 epoch ms 时间戳；等待截止 = time + delayMs。 */
+  time?: number
+}
+
+export type ChatBlock = ChatTextBlock | ChatReasoningBlock | ChatToolBlock | ChatRetryBlock
 
 /** One image attached to a user message — a durable dsh attachment reference (bytes fetched lazily). */
 export interface ChatImage {
@@ -109,6 +142,11 @@ export interface ChatAssistantMessage {
    */
   turnError?: { message: string; code?: string }
   /**
+   * turn/end reason {kind:'max-tokens'}：至少一步触达输出 token 上限。渲染
+   * 黄色提示行（对齐官方 TurnMaxTokensItem）；与 turnError 互斥。
+   */
+  maxTokens?: boolean
+  /**
    * Host-persisted message id (assistant/message's data.message.id), required
    * by the messageFeedback RPCs. Absent while streaming or when the host never
    * persisted one — the webview disables the feedback buttons then. On a
@@ -121,8 +159,36 @@ export interface ChatAssistantMessage {
    * completed): the atSeq fork point for session.fork.
    */
   seq?: number
+  /**
+   * 本轮产出的文件路径（对齐官方 dsh web ProducedFiles：`turn/end` 时从本
+   * turn 的 tool/call view 聚合——diff 卡或 generic+edit 卡的 locations，
+   * 首次出现顺序、去重；只挂 turnEnd 消息）。webview 在 turn 尾部渲染成
+   * 产物 chips 行。无产物或缺省。
+   */
+  producedFiles?: string[]
   /** The user's stored rating for this message (messageFeedback/list), if any. */
   feedbackRating?: 'positive' | 'negative'
+  /**
+   * Turn-level timing folded at turn/end (web parity: TurnTailNodeView's
+   * 时钟 + 用时/首 token/吞吐). Only the turn's final message carries it;
+   * the webview renders the present parts after the action icons.
+   * Values are absent when the needed events fell outside the loaded window
+   * (turn/start, step/start, first token delta, or assistant/message usage),
+   * matching the official client's window-scoped derivation.
+   */
+  timing?: ChatTurnTiming
+}
+
+/** Turn-level timing metrics derived by the folder at turn/end (see ChatAssistantMessage.timing). */
+export interface ChatTurnTiming {
+  /** 本 turn 最后一条 assistant 消息的完成时间（epoch ms；无 assistant/message 时回退 turn/end 时间）。 */
+  time: number
+  /** Turn 总耗时 ms（turn/end − turn/start；turn/start 在窗口外时缺省）。 */
+  runMs?: number
+  /** 首 token 延迟 ms（turn 内第一步：首个非空 delta − step/start）。 */
+  ttftMs?: number
+  /** 解码吞吐 tok/s（各 step outputTokens 之和 ÷ 解码耗时之和）。 */
+  tokensPerSecond?: number
 }
 
 /**
@@ -138,9 +204,33 @@ export interface ChatCommandMessage {
   status: 'running' | 'success' | 'error'
   /** Handler receipt text from command/done, when the handler produced one. */
   text?: string
+  /**
+   * 手动 /compact 的压缩摘要（对齐官方 CompactionCommandCard）：checkpoint
+   * user/message 的 source.sourceCommandId 命中本命令卡时挂上来，命令卡就此
+   * 渲染成折叠摘要卡。summary/items/tokens 来自配对的 compaction/summary
+   * 事件；该事件落在窗口外时 summary 为 null（卡不可展开）、计数为 null。
+   */
+  compaction?: { summary: string | null; items: number | null; tokens: number | null }
 }
 
-export type ChatMessage = ChatUserMessage | ChatAssistantMessage | ChatCommandMessage
+/**
+ * 自动压缩的独立标记卡（对齐官方 CompactionItem）：checkpoint user/message
+ * 无 sourceCommandId（自动触发）或对应命令卡在窗口外时折叠成这条消息。折叠
+ * 态标题「上下文已压缩」+ 计数摘要；有 summary 才可展开看摘要全文。
+ */
+export interface ChatCompactionMessage {
+  kind: 'compaction'
+  /** The checkpoint's compactionId (stable per compaction transaction). */
+  id: string
+  /** 摘要正文（compaction/summary 的 text 块拼接）；null = 不可展开。 */
+  summary: string | null
+  /** 被替换的 surface 节点数；summary 事件缺失或畸形时为 null。 */
+  items: number | null
+  /** 被替换内容的估计 token 数；同上。 */
+  tokens: number | null
+}
+
+export type ChatMessage = ChatUserMessage | ChatAssistantMessage | ChatCommandMessage | ChatCompactionMessage
 
 /** A host approval request awaiting the user's decision. */
 export interface PendingApproval {
@@ -239,6 +329,22 @@ export interface ChatTodoItem {
   status: 'pending' | 'in_progress' | 'completed'
 }
 
+/**
+ * The current goal (`goal` projection value's inner `goal` object; the outer
+ * roundsStarted/createdAt/updatedAt are not rendered). Loose mirror of
+ * dsh-goal's goalProjectionSchema. `blockedReason` carries the blocker's
+ * code/message while phase is 'blocked'.
+ */
+export interface ChatGoal {
+  id: string
+  /** CAS revision; every mutation must echo the ref it saw. */
+  revision: number
+  objective: string
+  phase: 'active' | 'paused' | 'blocked' | 'complete'
+  blockedReason?: { code: string; message: string }
+  maxGoalRounds: number
+}
+
 /** Whole-chat snapshot pushed host → webview (throttled; replaces state). */
 export interface ChatState {
   sessionId: string | null
@@ -267,6 +373,12 @@ export interface ChatState {
   /** Server + session ready for input. */
   canSend: boolean
   /**
+   * 当前模型是否可用（host 从 session.models 的 routable 存；未知/未拉取到
+   * 视为可用，只有明确 routable=false 才为 false）：false 时输入区显示
+   * 「当前模型不可用，请先选择模型」式阻塞文案，模型 pill 保持可点以便重选。
+   */
+  modelAvailable?: boolean
+  /**
    * Set only in the no-session empty state when the server failed to start;
    * the webview replaces its placeholder with the matching guidance.
    */
@@ -284,11 +396,24 @@ export interface ChatState {
     current: string
   }
   /**
-   * 空会话 hero 区的 workspace 名 chip（官方空态的 workspace 触发器，我们只读
-   * 展示）：附着会话所属 workspace 的 title，由 ChatViewProvider 从
+   * 空会话 hero 区的 workspace 名 chip（官方空态的 workspace 触发器，现在可
+   * 点击弹选择器）：附着会话所属 workspace 的 title，由 ChatViewProvider 从
    * SessionsStore 的 workspace.list 基线（含 blank 会话）合成。
    */
   workspaceLabel?: string
+  /**
+   * 附着会话所属 workspace 的 id（选择器里当前项的选中对勾）。与
+   * workspaceLabel 同源；会话不在任何 workspace 的 sessionIds 里时缺省
+   * （label 的「未分组」兜底不产生 id）。
+   */
+  workspaceId?: string
+  /**
+   * 空会话 hero 的 workspace 选择器列表（官方 WorkspacePicker 的数据源）：
+   * workspace.list 基线的轻量投影（id + path + title，path 供悬停 tooltip），
+   * 由 ChatViewProvider 合成，随 store 基线刷新。列表为空时选择器只显示
+   * 添加入口。
+   */
+  workspaces?: Array<{ workspaceId: string; path: string; title: string }>
   /**
    * 头部 preset 只读标签（如「标准模式」）：渠道对齐官方 AgentPresetLabel——
    * ChatViewProvider 从 session.list 基线取附着会话的 agentPreset id（创建时
@@ -351,6 +476,13 @@ export interface ChatState {
    */
   todos?: ChatTodoItem[]
   /**
+   * 当前目标（`goal` 投影，`goal/change` 事件 last-wins 折叠；未收到投影时
+   * 缺省）。缺省与 null 都渲染为空（webview 不显示条幅）；非 null 且非
+   * complete 时 webview 在 todo 与 queue 之间渲染目标条幅（对齐官方
+   * GoalBar / input.dock order 10，含暂停/恢复/编辑/清除操作）。
+   */
+  goal?: ChatGoal | null
+  /**
    * 会话日志里的 workflow 运行卡片（tool-workflow/* 事件按 runId 折叠，见
    * src/pure/workflowRun.ts）：webview 按 anchorSeq 插进消息流渲染成
    * run→phase→member 三层可展开卡片（对齐官方 WorkflowRunPanel）。无则缺省。
@@ -362,6 +494,13 @@ export interface ChatState {
    * and the route's context window — the ring hides until then (web parity).
    */
   contextUsage?: ContextUsage
+  /**
+   * Plan-mode state from the host-computed `plan` projection (dsh-plan-mode):
+   * `active` is the committed flip, `pending` means a /plan command is in
+   * flight toward the opposite state. Absent when the host has no plan
+   * projection — the webview renders no chip then (web PlanChip parity).
+   */
+  plan?: { active: boolean; pending: boolean }
 }
 
 /**
@@ -476,6 +615,11 @@ export type ToWebviewMessage =
   | { type: 'imagesPicked'; images: OutgoingImage[] }
   | { type: 'filesPicked'; files: StagedFile[] }
   | { type: 'modelCatalog'; catalog: ModelCatalog }
+  /**
+   * 模型目录拉取失败（session.models RPC 出错）：webview 的模型菜单据此显示
+   * error/Retry 行（有旧目录时保留旧数据，不打断）。
+   */
+  | { type: 'modelCatalogError' }
   | { type: 'attachmentData'; attachmentId: string; mediaType: string; data: string }
   | { type: 'restoreDraft'; text: string }
   | { type: 'commandResult'; text: string }
@@ -500,11 +644,20 @@ export type FromWebviewMessage =
   | { type: 'queueEdit'; itemId: string; text: string }
   | { type: 'queueSteer'; itemId: string }
   | { type: 'queueRemove'; itemId: string }
+  /** Goal bar actions（对齐官方 dsh-client-ui-goal 的 GoalBar 操作；宿主持 ref 调 goals/* RPC）。 */
+  | { type: 'goalPause' }
+  | { type: 'goalResume' }
+  | { type: 'goalEdit'; objective: string }
+  | { type: 'goalClear' }
   | { type: 'requestAttachment'; attachmentId: string }
   /** Set/clear the user's rating on one assistant message (null clears). */
   | { type: 'feedback'; messageId: string; rating: 'positive' | 'negative' | null }
   /** Fork the session at a completed turn's last event seq (ChatAssistantMessage.seq). */
   | { type: 'fork'; atSeq: number }
+  /** 产物 chip 点击：在 VSCode 编辑器打开该文件（绝对路径，任意位置）。 */
+  | { type: 'producedOpenFile'; path: string }
+  /** 附件文件 chip 点击：在 VSCode 编辑器打开该文件（绝对路径，含工作区外的外部文件）。 */
+  | { type: 'openAttachmentFile'; path: string }
   /** 加载更早的一页历史（窗口分页；ChatState.hasEarlierHistory 为 true 时才有意义）。 */
   | { type: 'loadEarlier' }
   /** Open the official dsh install page in the system browser. */
@@ -519,6 +672,8 @@ export type FromWebviewMessage =
   | { type: 'sessionOpenInNewTab'; sessionId: string }
   /** Sessions 面板：在指定 workspace 新建会话（缺省由宿主选默认 workspace）。 */
   | { type: 'sessionNew'; workspaceId?: string }
+  /** Sessions 面板：新建不挂 workspace 的「未分组」会话（cwd 走宿主临时目录）。 */
+  | { type: 'sessionNewUngrouped' }
   /** Sessions 面板：重命名会话；title 为当前标题，供宿主输入框预填。 */
   | { type: 'sessionRename'; sessionId: string; title: string }
   /** 行内重命名直接提交（不走 showInputBox 弹窗）：sessionId + 新标题，宿主直接 RPC。 */
@@ -553,6 +708,15 @@ export type FromWebviewMessage =
   | { type: 'workspaceRemove'; workspaceId: string; label: string }
   /** Sessions 面板：从会话尾部创建分支会话并附着。 */
   | { type: 'sessionFork'; sessionId: string }
+  /** 空会话 hero 的 workspace 选择器：切到指定 workspace（宿主在该 workspace
+   *  复用/新建 blank 会话并切换过去，对齐官方 connectWorkspace）。 */
+  | { type: 'workspacePick'; workspaceId: string }
+  /** 空会话 hero 的 workspace 选择器：「添加已有文件夹…」——VSCode 原生目录
+   *  对话框注册新 workspace 后切过去（复用 dshOne.workspace.add 命令）。 */
+  | { type: 'workspacePickAdd' }
+  /** 空会话 hero 的 workspace 选择器：「创建工作区…」——在 dsh 全局目录下
+   *  新建并注册后切过去（复用 dshOne.workspace.create 命令）。 */
+  | { type: 'workspacePickCreate' }
   /** Sessions 面板：复制会话的 canonical 引用 mention（@[标题](dsh-session:...)）到剪贴板。 */
   | { type: 'sessionCopyReference'; sessionId: string; title: string }
   /** Sessions 面板空态：启动 dsh 服务。 */

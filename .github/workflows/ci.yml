@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # 所有分支 push 都跑：agent/* 开发分支需要靠 CI 实测平台行为
+  #（见 spawn-dsh-windows-output-pipe：Windows 行为必须实机验证）。
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
 
 jobs:
@@ -25,11 +27,10 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run package
-      # spawnDsh 冒烟：先全局装 dsh（所有平台都装，是前提），再按平台分支验证「dsh 可用」。
-      # - mac/ubuntu：仍用 detached 启动器 spawn dsh --version，验证 POSIX detached spawn。
-      # - windows：PowerShell 直跑 dsh --version，验证「Windows 上 dsh 可用」；
-      #   spawnDsh 的 Windows 输出管道 bug 已单独立条（docs/backlog/open/spawn-dsh-windows-output-pipe.md），
-      #   该 bug 只影响启动日志落盘，不影响「Windows 上 dsh 可用」的验证。
+      # spawnDsh 冒烟：先全局装 dsh（所有平台都装，是前提），再按平台分支验证。
+      # - mac/ubuntu：detached 启动器 spawn dsh --version，验证 POSIX detached spawn。
+      # - windows：经 spawnDsh.js 跑 dsh --version 并验证日志非空（spawn-dsh-windows-output-pipe），
+      #   同时保留 PowerShell 直跑作对照（验证「Windows 上 dsh 可用」）。
       - name: Install dsh (spawn smoke)
         run: npm i -g @deepseek-ai/dsh@next
       - name: 'Spawn dsh smoke (posix: detached spawn)'
@@ -81,9 +82,39 @@ jobs:
             fi
             exit 1
           fi
-      - name: 'Spawn dsh smoke (windows: direct dsh --version)'
+      - name: 'Spawn dsh smoke (windows: via spawnDsh.js)'
         if: runner.os == 'Windows'
         shell: pwsh
+        # spawn-dsh-windows-output-pipe 的验收：经 dist/spawnDsh.js 跑 dsh --version，
+        # 轮询日志文件出版本号（detached + cmd 包装的输出链恢复，日志非空才算过）。
         run: |
-          dsh --version
-          if ($LASTEXITCODE -ne 0) { Write-Error "dsh --version failed: $LASTEXITCODE"; exit 1 }
+          $log = Join-Path $env:RUNNER_TEMP 'dsh-smoke.log'
+          Remove-Item -Force $log -ErrorAction SilentlyContinue
+          $pidOut = node dist/spawnDsh.js dsh $log --version
+          if (-not $pidOut) { Write-Error "launcher returned no pid"; exit 1 }
+          Write-Host "spawned dsh pid=$pidOut"
+          # 轮询等待版本输出：dsh 冷启动可能 >3s，最多等 ~20s，每 2s 检查一次。
+          $ok = $false
+          for ($i = 0; $i -lt 11; $i++) {
+            if ((Test-Path $log) -and ((Get-Content $log -Raw -ErrorAction SilentlyContinue) -match 'v?\d+\.\d+\.\d+')) {
+              $ok = $true
+              break
+            }
+            Start-Sleep -Seconds 2
+          }
+          if ($ok) {
+            Write-Host "dsh smoke OK"
+          } else {
+            Write-Host "dsh produced no version output within ~20s; log:"
+            if (Test-Path $log) { Get-Content $log } else { Write-Host "(no log file)" }
+            Write-Host "--- diagnostics ---"
+            Write-Host "node -v: $(node -v)"
+            Get-Command dsh -ErrorAction SilentlyContinue | Select-Object Name, Source | Format-List
+            Write-Host "npm prefix -g: $(npm prefix -g 2>&1)"
+            Write-Host "log size (bytes): $((Get-Item $log -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Length))"
+            # 对照：非 spawn 路径直接跑一次 dsh --version，区分 PATH/冷启动 与 spawn 输出链问题。
+            Write-Host "--- control: dsh --version directly (non-spawn) ---"
+            dsh --version
+            if ($LASTEXITCODE -ne 0) { Write-Error "control dsh --version failed: $LASTEXITCODE" }
+            exit 1
+          }

@@ -13,8 +13,6 @@
 <!-- mock 宿主 API：把所有发回宿主的动作转发给 mockHost.onMessage -->
 <script>window.acquireVsCodeApi = function () { return { postMessage: function (msg) { mockHost.onMessage(msg) } } }</script>
 
-<script src="/dist/chatWebview.js"></script>
-
 <script>
   // ============================ 可交互 mock 后台 ============================
   // 维护一份 mock 的 SessionsSnapshot + 每会话独立 ChatState，接住 webview 发上来的动作
@@ -94,6 +92,8 @@
     }
 
     const handlers = {
+      // webview 脚本加载完成的报到：此时初次 push 可能已错过，重推当前快照。
+      ready() { pushSession(); pushState() },
       send(m) { if (typeof m.text === 'string' && m.text.trim()) startStream(cur(), m.text) },
       stop() { if (streamTimer) { clearInterval(streamTimer); streamTimer = null; cur()._running = false; const last = cur().messages.at(-1); if (last?.kind === 'assistant') last.complete = true; pushState() } },
       requestModels() { post({ type: 'modelCatalog', catalog: modelCatalog }) },
@@ -122,5 +122,9 @@
     return { onMessage }
   })()
 </script>
+
+<!-- chatWebview 必须在 mockHost 就绪后加载：脚本顶部会立即 post({type:'ready'})，
+     过早加载会撞上 mockHost 的 const TDZ（ReferenceError，页面空白）。 -->
+<script src="/dist/chatWebview.js"></script>
 </body>
 </html>

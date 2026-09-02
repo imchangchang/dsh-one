@@ -26,3 +26,5 @@
 - `docs/development.md`（发版流程）
 
 - 2026-09-01 认领 → doing（并行开发 session）
+- 2026-09-02 开发完成，自测通过 → done。随 release-gate 一起实现：`scripts/release-gate.sh --apply` 两段式把「bump version + 收口 CHANGELOG + 打 tag」绑成原子流程（第一遍改文件停下人工 review/commit，第二遍干净打包后打 tag），并校验 vsix 内版本 == package.json version == CHANGELOG [x.y.z] == tag v<x.y.z> 指向打包 commit；`docs/development.md` 发版流程已引用。人工验收方法：在干净仓库跑 `scripts/release-gate.sh --apply` 完整走一遍，确认三件套一致性校验输出通过（dry-run 也可对已产出 vsix 复验）。
+- 2026-09-02 主线合入测试通过（merge 935a579，复测 298 tests 全绿），人工确认 → closed

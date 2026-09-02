@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ConversationFolder, applyFeedbackRatings } from '../src/pure/conversation.ts'
 import type { HistoryEntryLike, SessionEventLike, StreamChunkData, ToolEventViewLike } from '../src/pure/conversation.ts'
-import type { ChatAssistantMessage, ChatToolBlock } from '../src/pure/chatContract.ts'
+import type { ChatAssistantMessage, ChatRetryBlock, ChatToolBlock } from '../src/pure/chatContract.ts'
 
 let seq = 0
 
@@ -764,7 +764,9 @@ test('prependHistory folds an older page in front of the current window', () => 
 
   const msgs = f.messages()
   assert.deepEqual(
-    msgs.map((m) => (m.kind === 'user' ? m.text : m.kind === 'assistant' ? (m.blocks[0] as { text: string }).text : m.name)),
+    msgs.map((m) =>
+      m.kind === 'user' ? m.text : m.kind === 'assistant' ? (m.blocks[0] as { text: string }).text : m.kind === 'command' ? m.name : '',
+    ),
     ['第一问', '第一答', '第二问', '第二答'],
   )
   assert.equal(f.hasOpenTurn(), false)
@@ -874,4 +876,503 @@ test('non-todo_write tools never carry a planSummary', () => {
 
   const block = lastAssistant(f).blocks[0] as ChatToolBlock
   assert.equal(block.todos, undefined)
+})
+
+// ── produced files（对齐官方 dsh-client-ui-deliverables 的 turn 产物累积）──
+
+function turnEndEv(turn: number): SessionEventLike {
+  return ev('turn/end', { turn, reason: { kind: 'completed' } })
+}
+
+test('diff call views accumulate locations as produced files on the turn-end message', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(userEv('u1', '写两个文件'))
+  f.applyEvent(toolCallEv('c1', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'diff', locations: [{ path: '/repo/src/a.ts' }, { path: '/repo/src/b.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c1', 'ok'))
+  f.applyEvent(toolCallEv('c2', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'diff', locations: [{ path: '/repo/src/c.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c2', 'ok'))
+  f.applyEvent(turnEndEv(1))
+
+  const msg = lastAssistant(f)
+  assert.deepEqual(msg.producedFiles, ['/repo/src/a.ts', '/repo/src/b.ts', '/repo/src/c.ts'])
+})
+
+test('generic card with kind edit contributes locations; other kinds do not', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  // str_replace_editor 的 insert 呈现为 generic + kind edit。
+  f.applyEvent(toolCallEv('c1', 'str_replace_editor', '{}'), {
+    for: 'call',
+    view: { card: 'generic', kind: 'edit', locations: [{ path: '/repo/lib/x.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c1', 'ok'))
+  // read 看了文件不算产出，delete 没有可开文件，terminal 只是跑命令。
+  f.applyEvent(toolCallEv('c2', 'read', '{}'), {
+    for: 'call',
+    view: { card: 'generic', kind: 'read', locations: [{ path: '/repo/lib/x.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c2', 'ok'))
+  f.applyEvent(toolCallEv('c3', 'bash', '{}'), {
+    for: 'call',
+    view: { card: 'terminal', cwd: '/repo', output: 'ok' },
+  })
+  f.applyEvent(toolResultEv('c3', 'ok'))
+  f.applyEvent(turnEndEv(1))
+
+  assert.deepEqual(lastAssistant(f).producedFiles, ['/repo/lib/x.ts'])
+})
+
+test('failed tool results contribute nothing to produced files', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(toolCallEv('c1', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'diff', locations: [{ path: '/repo/src/a.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c1', 'boom', true))
+  f.applyEvent(turnEndEv(1))
+
+  assert.equal(lastAssistant(f).producedFiles, undefined)
+})
+
+test('produced paths dedupe first-seen across a turn, result without call view adds nothing', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(toolCallEv('c1', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'diff', locations: [{ path: '/repo/src/a.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c1', 'ok'))
+  // 同一文件再写一次：只保留首次出现。
+  f.applyEvent(toolCallEv('c2', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'diff', locations: [{ path: '/repo/src/a.ts' }, { path: '/repo/src/b.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c2', 'ok'))
+  // call 落在窗口外 / 无 view：产物为空。
+  f.applyEvent(toolResultEv('c99', 'ok'))
+  f.applyEvent(turnEndEv(1))
+
+  assert.deepEqual(lastAssistant(f).producedFiles, ['/repo/src/a.ts', '/repo/src/b.ts'])
+})
+
+test('produced files only attach to the turn-end message, and refold clears them', () => {
+  const f = new ConversationFolder()
+  f.applyHistory([
+    { event: ev('turn/start', { turn: 1 }) },
+    { event: toolCallEv('c1', 'edit', '{}'), view: { for: 'call', view: { card: 'diff', locations: [{ path: '/repo/a.ts' }] } } },
+    { event: toolResultEv('c1', 'ok') },
+    // turn 未结束：流式中间态没有 producedFiles。
+  ])
+  assert.equal(lastAssistant(f).producedFiles, undefined)
+  f.applyEvent(turnEndEv(1))
+  assert.deepEqual(lastAssistant(f).producedFiles, ['/repo/a.ts'])
+
+  // re-baseline 全量重折：累积器清空，同一事件流重放结果一致。
+  f.applyHistory([
+    { event: ev('turn/start', { turn: 1 }) },
+    { event: toolCallEv('c1', 'edit', '{}'), view: { for: 'call', view: { card: 'diff', locations: [{ path: '/repo/a.ts' }] } } },
+    { event: toolResultEv('c1', 'ok') },
+    { event: turnEndEv(1) },
+  ])
+  assert.deepEqual(lastAssistant(f).producedFiles, ['/repo/a.ts'])
+})
+
+test('turn split by an injected user/message still attaches produced files to the final message', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(userEv('u1', '任务'))
+  f.applyEvent(toolCallEv('c1', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'generic', kind: 'edit', locations: [{ path: '/repo/a.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c1', 'ok'))
+  // 注入上下文切断当前 assistant 消息。
+  f.applyEvent(ev('user/message', {
+    id: 'injected',
+    role: 'user',
+    content: [{ type: 'text', text: '子代理完成' }],
+    source: { kind: 'subagent-notify' },
+  }))
+  // 切断后再有内容：另起第二条 assistant 消息（同 turn 同 id）。
+  f.applyEvent(toolCallEv('c2', 'edit', '{}'), {
+    for: 'call',
+    view: { card: 'generic', kind: 'edit', locations: [{ path: '/repo/b.ts' }] },
+  })
+  f.applyEvent(toolResultEv('c2', 'ok'))
+  f.applyEvent(turnEndEv(1))
+
+  const assistantMsgs = f.messages().filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.equal(assistantMsgs.length, 2)
+  // 被切断的前半截：complete 但不是 turnEnd，也不带产物。
+  assert.equal(assistantMsgs[0].producedFiles, undefined)
+  assert.equal(assistantMsgs[1].turnEnd, true)
+  // 产物只挂本 turn 最后一条（turnEnd）消息，跨消息不重复。
+  assert.deepEqual(assistantMsgs[1].producedFiles, ['/repo/a.ts', '/repo/b.ts'])
+})
+
+/* ---------------- 重试行（llm/retry） ---------------- */
+
+function retryEv(retryId: string, overrides: Record<string, unknown> = {}): SessionEventLike {
+  return ev('llm/retry', {
+    retryId,
+    turn: 1,
+    step: 1,
+    provider: 'deepseek',
+    mode: 'normal',
+    policyKey: 'default',
+    retry: 1,
+    maxRetries: 3,
+    delayMs: 5000,
+    failure: { message: 'rate limited', code: 'RATE_LIMIT' },
+    ...overrides,
+  })
+}
+
+function retryStartedEv(retryId: string, retry = 1): SessionEventLike {
+  return ev('llm/retry-started', { retryId, turn: 1, step: 1, retry })
+}
+
+test('llm/retry folds a scheduled retry block into the turn message', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+
+  const block = lastAssistant(f).blocks[0] as ChatRetryBlock
+  assert.equal(block.type, 'retry')
+  assert.deepEqual(
+    { retry: block.retry, mode: block.mode, maxRetries: block.maxRetries, delayMs: block.delayMs, retryState: block.retryState },
+    { retry: 1, mode: 'normal', maxRetries: 3, delayMs: 5000, retryState: 'scheduled' },
+  )
+  assert.deepEqual(block.failure, { message: 'rate limited' })
+  assert.equal(typeof block.time, 'number')
+})
+
+test('llm/retry-started marks the retry block started', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(retryStartedEv('r1'))
+
+  const block = lastAssistant(f).blocks[0] as ChatRetryBlock
+  assert.equal(block.retryState, 'started')
+})
+
+test('a still-scheduled retry is cancelled when the turn ends', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }))
+
+  const block = lastAssistant(f).blocks[0] as ChatRetryBlock
+  assert.equal(block.retryState, 'cancelled')
+})
+
+test('a started retry keeps its started state when the turn ends', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(retryStartedEv('r1'))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+
+  const block = lastAssistant(f).blocks[0] as ChatRetryBlock
+  assert.equal(block.retryState, 'started')
+})
+
+test('subsequent llm/retry events update the same block in place', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(retryEv('r1', { retry: 2, delayMs: 8000, failure: { message: 'still down', code: 'BUSY' } }))
+
+  const msgs = f.messages()
+  const blocks = msgs.filter((m) => m.kind === 'assistant').flatMap((m) => (m as ChatAssistantMessage).blocks)
+  assert.equal(blocks.length, 1)
+  const block = blocks[0] as ChatRetryBlock
+  assert.deepEqual(
+    { retry: block.retry, delayMs: block.delayMs, retryState: block.retryState },
+    { retry: 2, delayMs: 8000, retryState: 'scheduled' },
+  )
+  assert.deepEqual(block.failure, { message: 'still down' })
+})
+
+test('llm/retry in always mode carries no maxRetries (∞ display)', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1', { mode: 'always', retry: 1, delayMs: 2000 }))
+
+  const block = lastAssistant(f).blocks[0] as ChatRetryBlock
+  assert.equal(block.mode, 'always')
+  assert.equal(block.maxRetries, undefined)
+})
+
+test('llm/retry without a failure message is ignored', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1', { failure: { message: '', code: 'X' } }))
+
+  // 没有可展示的失败原因就不建消息、不建块（与 turnError 同样保守）。
+  assert.equal(f.messages().length, 0)
+})
+
+/* ---------------- 超 token 提示（turn/end max-tokens） ---------------- */
+
+test('turn/end with a max-tokens reason marks maxTokens, not interrupted', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: 'cut off' }))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }))
+
+  const msg = lastAssistant(f)
+  assert.equal(msg.maxTokens, true)
+  assert.equal(msg.interrupted, undefined)
+  assert.equal(msg.turnError, undefined)
+  assert.equal(msg.complete, true)
+})
+
+test('turn/end max-tokens with no content yields an empty assistant message marked maxTokens', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(userEv('u1', 'hi'))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }))
+
+  const msg = lastAssistant(f)
+  assert.deepEqual(msg.blocks, [])
+  assert.equal(msg.complete, true)
+  assert.equal(msg.maxTokens, true)
+  assert.equal(f.hasOpenTurn(), false)
+})
+
+/* ---------------- 压缩卡（compaction/summary + checkpoint user/message） ---------------- */
+
+function compactSummaryEv(compactionId: string, overrides: Record<string, unknown> = {}): SessionEventLike {
+  return ev('compaction/summary', {
+    compactionId,
+    summary: [{ type: 'text', text: '前文要点一\n前文要点二' }],
+    shadowedSeqs: [1, 2, 3],
+    shadowedTokenCount: 1234,
+    ...overrides,
+  })
+}
+
+/** 替换型 checkpoint user/message（surfaceOp replace + source.plugin='compact'）。 */
+function checkpointEv(compactionId: string, sourceCommandId?: string): SessionEventLike {
+  const e = ev('user/message', {
+    id: `checkpoint-${compactionId}`,
+    role: 'user',
+    content: [{ type: 'text', text: 'This is an automatically generated checkpoint…' }],
+    source: {
+      kind: 'plugin',
+      plugin: 'compact',
+      compactionId,
+      ...(sourceCommandId ? { sourceCommandId } : {}),
+    },
+  })
+  e.surfaceOp = { op: 'replace', start: 1, end: 2 }
+  return e
+}
+
+test('compaction checkpoint without sourceCommandId folds into a standalone compaction card', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(compactSummaryEv('c-1'))
+  f.applyEvent(checkpointEv('c-1'))
+
+  const msg = f.messages().at(-1)
+  assert.equal(msg?.kind, 'compaction')
+  if (msg?.kind !== 'compaction') return
+  assert.equal(msg.id, 'c-1')
+  assert.equal(msg.summary, '前文要点一\n前文要点二')
+  assert.equal(msg.items, 3)
+  assert.equal(msg.tokens, 1234)
+})
+
+test('compaction checkpoint with no summary event is not expandable', () => {
+  const f = new ConversationFolder()
+  // compaction/summary 落在窗口外：checkpoint 单独到达，摘要与计数都不可知。
+  f.applyEvent(checkpointEv('c-2'))
+
+  const msg = f.messages().at(-1)
+  assert.equal(msg?.kind, 'compaction')
+  if (msg?.kind !== 'compaction') return
+  assert.equal(msg.summary, null)
+  assert.equal(msg.items, null)
+  assert.equal(msg.tokens, null)
+})
+
+test('compaction summary with malformed fields degrades to nulls', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(compactSummaryEv('c-3', { summary: 'not-an-array', shadowedSeqs: 'x', shadowedTokenCount: -1 }))
+  f.applyEvent(checkpointEv('c-3'))
+
+  const msg = f.messages().at(-1)
+  assert.equal(msg?.kind, 'compaction')
+  if (msg?.kind !== 'compaction') return
+  assert.equal(msg.summary, null)
+  assert.equal(msg.items, null)
+  assert.equal(msg.tokens, null)
+})
+
+test('manual compaction checkpoint attaches to the in-window compact command card', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('command/run', { commandId: 'cmd-1', name: 'compact' }))
+  f.applyEvent(compactSummaryEv('c-4'))
+  f.applyEvent(checkpointEv('c-4', 'cmd-1'))
+
+  const msgs = f.messages()
+  assert.equal(msgs.length, 1)
+  const cmd = msgs[0]
+  assert.equal(cmd.kind, 'command')
+  if (cmd.kind !== 'command') return
+  assert.equal(cmd.name, 'compact')
+  assert.deepEqual(cmd.compaction, { summary: '前文要点一\n前文要点二', items: 3, tokens: 1234 })
+})
+
+test('manual compaction checkpoint with no in-window command card folds standalone', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(compactSummaryEv('c-5'))
+  f.applyEvent(checkpointEv('c-5', 'cmd-lost'))
+
+  const msg = f.messages().at(-1)
+  assert.equal(msg?.kind, 'compaction')
+  if (msg?.kind !== 'compaction') return
+  assert.equal(msg.summary, '前文要点一\n前文要点二')
+})
+
+test('a plain user message is never treated as a compaction checkpoint', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(userEv('u1', '普通消息'))
+  // append 型 user/message 即便带 plugin source 也不算 checkpoint。
+  const e = ev('user/message', {
+    id: 'u2',
+    role: 'user',
+    content: [{ type: 'text', text: 'plugin 注入但 append' }],
+    source: { kind: 'plugin', plugin: 'compact', compactionId: 'c-6' },
+  })
+  e.surfaceOp = 'append'
+  f.applyEvent(e)
+
+  const msgs = f.messages()
+  assert.equal(msgs.length, 2)
+  assert.equal(msgs[1].kind, 'user')
+})
+
+/** Build a SessionEvent-shaped fixture with an explicit time (epoch ms). */
+function evAt(type: string, data: unknown, time: number): SessionEventLike {
+  seq += 1
+  return { type, seq, time, data }
+}
+
+function chunkEvAt(time: number, turn: number, step: number, chunk: StreamChunkData): SessionEventLike {
+  return evAt('assistant/chunk', { turn, step, chunk }, time)
+}
+
+function assistantMessageAt(time: number, turn: number, step: number, usage?: unknown): SessionEventLike {
+  return evAt(
+    'assistant/message',
+    { turn, step, message: { id: `a${turn}-${step}`, content: [{ type: 'text', text: 'ok' }] }, ...(usage ? { usage } : {}) },
+    time,
+  )
+}
+
+test('turn/end folds turn-level timing from step/start, first delta and usage', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(evAt('turn/start', { turn: 1 }, 10_000))
+  f.applyEvent(evAt('step/start', { turn: 1, step: 1 }, 10_500))
+  f.applyEvent(chunkEvAt(10_900, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  // 空 delta 不算首 token；非空 delta 才定 first-token 边界。
+  f.applyEvent(chunkEvAt(11_000, 1, 1, { type: 'text-delta', index: 0, text: '' }))
+  f.applyEvent(chunkEvAt(11_100, 1, 1, { type: 'text-delta', index: 0, text: 'hello' }))
+  f.applyEvent(chunkEvAt(11_900, 1, 1, { type: 'block-end', index: 0, block: { type: 'text', text: 'hello' } }))
+  f.applyEvent(assistantMessageAt(12_500, 1, 1, { outputTokens: 2000 }))
+  f.applyEvent(evAt('turn/end', { turn: 1, reason: { kind: 'completed' } }, 15_000))
+
+  const msg = lastAssistant(f)
+  assert.equal(msg.turnEnd, true)
+  assert.deepEqual(msg.timing, {
+    time: 12_500,
+    runMs: 5000,
+    ttftMs: 600, // first delta (11_100) − step/start (10_500)
+    tokensPerSecond: 2000 / ((12_500 - 11_100) / 1000), // 2000 tokens / 1.4s
+  })
+})
+
+test('multi-step turn aggregates decode across steps and takes the lowest-step ttft', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(evAt('turn/start', { turn: 1 }, 20_000))
+  f.applyEvent(evAt('step/start', { turn: 1, step: 0 }, 20_100))
+  f.applyEvent(chunkEvAt(20_200, 1, 0, { type: 'text-delta', index: 0, text: 'a' }))
+  f.applyEvent(assistantMessageAt(20_500, 1, 0, { outputTokens: 400 }))
+  f.applyEvent(evAt('step/start', { turn: 1, step: 1 }, 20_800))
+  f.applyEvent(chunkEvAt(20_900, 1, 1, { type: 'text-delta', index: 0, text: 'b' }))
+  f.applyEvent(assistantMessageAt(21_200, 1, 1, { outputTokens: 600 }))
+  f.applyEvent(evAt('turn/end', { turn: 1, reason: { kind: 'completed' } }, 21_500))
+
+  const msg = lastAssistant(f)
+  assert.deepEqual(msg.timing, {
+    time: 21_200, // 最后一条 assistant/message
+    runMs: 1500,
+    ttftMs: 100, // 取第一步：20_200 − 20_100（step 1 也是 100，但以最低 step 为准）
+    tokensPerSecond: 1000 / ((300 + 300) / 1000), // 400+600 tokens / (300ms+300ms)
+  })
+})
+
+test('turn timing degrades to absent when events fell outside the window', () => {
+  // turn/start 与 step/start 都在窗口外：runMs/ttftMs 缺省，tps 仍可算。
+  const f = new ConversationFolder()
+  f.applyEvent(chunkEvAt(29_500, 9, 1, { type: 'text-delta', index: 0, text: 'x' }))
+  f.applyEvent(assistantMessageAt(30_000, 9, 1, { outputTokens: 100 }))
+  f.applyEvent(evAt('turn/end', { turn: 9, reason: { kind: 'completed' } }, 30_500))
+
+  const msg = lastAssistant(f)
+  assert.deepEqual(msg.timing, { time: 30_000, tokensPerSecond: 100 / ((30_000 - 29_500) / 1000) })
+
+  // usage 缺失：decode 有、outputTokens 无，不采样 → tps 缺省。
+  const g = new ConversationFolder()
+  g.applyEvent(evAt('turn/start', { turn: 2 }, 40_000))
+  g.applyEvent(evAt('step/start', { turn: 2, step: 1 }, 40_100))
+  g.applyEvent(chunkEvAt(40_200, 2, 1, { type: 'text-delta', index: 0, text: 'y' }))
+  g.applyEvent(assistantMessageAt(40_900, 2, 1))
+  g.applyEvent(evAt('turn/end', { turn: 2, reason: { kind: 'completed' } }, 41_000))
+
+  const msg2 = lastAssistant(g)
+  assert.deepEqual(msg2.timing, { time: 40_900, runMs: 1000, ttftMs: 100 })
+})
+
+test('interrupted turn without assistant/message keeps the clock and runMs', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(evAt('turn/start', { turn: 1 }, 50_000))
+  f.applyEvent(evAt('step/start', { turn: 1, step: 1 }, 50_100))
+  f.applyEvent(chunkEvAt(50_200, 1, 1, { type: 'text-delta', index: 0, text: 'partial' }))
+  f.applyEvent(evAt('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }, 50_400))
+
+  const msg = lastAssistant(f)
+  assert.equal(msg.interrupted, true)
+  // 无 assistant/message：time 回退 turn/end；无 usage → 无 tps。
+  assert.deepEqual(msg.timing, { time: 50_400, runMs: 400, ttftMs: 100 })
+})
+
+test('turn timing does not leak across a history re-baseline', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(evAt('turn/start', { turn: 1 }, 60_000))
+  f.applyEvent(evAt('step/start', { turn: 1, step: 1 }, 60_100))
+  f.applyEvent(chunkEvAt(60_200, 1, 1, { type: 'text-delta', index: 0, text: 'old' }))
+  f.applyEvent(assistantMessageAt(60_500, 1, 1, { outputTokens: 50 }))
+  f.applyEvent(evAt('turn/end', { turn: 1, reason: { kind: 'completed' } }, 60_900))
+  assert.equal(lastAssistant(f).timing?.runMs, 900)
+
+  // 重连 re-baseline：旧 turn 的计时不得残留到新窗口。
+  f.applyHistory([
+    { event: evAt('turn/start', { turn: 2 }, 70_000) },
+    { event: chunkEvAt(70_100, 2, 1, { type: 'text-delta', index: 0, text: 'new' }) },
+  ])
+  assert.equal(lastAssistant(f).timing, undefined)
+  assert.equal(f.hasOpenTurn(), true)
 })

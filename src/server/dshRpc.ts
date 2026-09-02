@@ -156,9 +156,22 @@ export async function listSubagents(baseUrl: string, parentSessionId: string): P
   return callRpc<SubagentCatalog>(baseUrl, 'subagent.list', { parentSessionId })
 }
 
-/** Create a fresh (blank) session under `workspaceId`; returns its id. */
-export async function createSession(baseUrl: string, workspaceId: string): Promise<string> {
-  const value = await callRpc<{ sessionId: string }>(baseUrl, 'session.create', { workspaceId })
+/**
+ * Create a fresh (blank) session; returns its id. `workspaceId` attaches the
+ * session to a registered workspace; `cwd`（与 workspaceId 二选一，host 拒绝
+ * 同时给出）把会话放到给定目录而不注册 workspace——无归属会话在列表里归入
+ * 「未分组」。两者都不给时 host 回退默认 cwd（dsh 服务进程的启动目录）。
+ * `sessionId` 由调用方预分配时 host 原样采用（如临时目录名与会话 id 对齐）。
+ */
+export async function createSession(
+  baseUrl: string,
+  opts: { workspaceId?: string; cwd?: string; sessionId?: string } = {},
+): Promise<string> {
+  const payload: Record<string, string> = {}
+  if (opts.workspaceId !== undefined) payload.workspaceId = opts.workspaceId
+  else if (opts.cwd !== undefined) payload.cwd = opts.cwd
+  if (opts.sessionId !== undefined) payload.sessionId = opts.sessionId
+  const value = await callRpc<{ sessionId: string }>(baseUrl, 'session.create', payload)
   return value.sessionId
 }
 
@@ -212,13 +225,29 @@ export async function deleteWorkspace(baseUrl: string, workspaceId: string): Pro
 /**
  * Make sure the workspace has a session for the UI to land on. Reuses a blank
  * session when one exists (same rule as the official client), otherwise
- * creates a fresh one.
+ * creates a fresh one. The `workspaceId + sessionIds + path` shape lets callers
+ * hand over the store's workspace baseline rows directly.
+ *
+ * Reuse rule mirrors the official `WorkspaceRuntime.connectWorkspace`: a blank
+ * session qualifies only when its own cwd equals the workspace path, and the
+ * reuse is a plain client-side pick — no session.create RPC. (session.create
+ * with a `sessionId` payload is host-side *resume* semantics: it validates the
+ * session against a resolved cwd of `workspaceId ?? cwd ?? defaults.cwd`, so
+ * reusing a blank session whose cwd differs from the host default would fail
+ * with `session-conflict` — the official client never takes that path.)
  */
-export async function ensureSession(baseUrl: string, workspace: WorkspaceView): Promise<string> {
+export async function ensureSession(
+  baseUrl: string,
+  workspace: Pick<WorkspaceView, 'workspaceId' | 'sessionIds' | 'path'>,
+): Promise<string> {
   const items = await listSessions(baseUrl)
-  const blank = items.find((s) => s.blank && workspace.sessionIds.includes(s.sessionId))
-  const payload = blank ? { sessionId: blank.sessionId } : { workspaceId: workspace.workspaceId }
-  const value = await callRpc<{ sessionId: string }>(baseUrl, 'session.create', payload)
+  const blank = items.find(
+    (s) => s.blank && s.cwd === workspace.path && workspace.sessionIds.includes(s.sessionId),
+  )
+  if (blank) return blank.sessionId
+  const value = await callRpc<{ sessionId: string }>(baseUrl, 'session.create', {
+    workspaceId: workspace.workspaceId,
+  })
   return value.sessionId
 }
 
@@ -322,6 +351,51 @@ export async function executeCommand(
   )
   if (value === undefined) return { matched: false }
   return { matched: true, kind: value.result.kind, text: value.result.text }
+}
+
+/** Loose mirror of dsh-goal's GoalRef: the CAS token every goals/* mutation echoes. */
+export interface GoalRef {
+  id: string
+  revision: number
+}
+
+/** Loose mirror of dsh-goal's GoalState (mutation result; the `goal` projection value's inner object). */
+export interface GoalStateLike {
+  id: string
+  revision: number
+  objective: string
+  phase: 'active' | 'paused' | 'blocked' | 'complete'
+  blockedReason?: { code: string; message: string }
+  maxGoalRounds: number
+}
+
+/**
+ * Goal mutations over the generic /api RPC channel (dsh-goal service, same
+ * envelope as commands/execute: `agentId` + CAS `ref` in `args`). The host
+ * pushes the next `goal` projection after each committed change; the returned
+ * state is only used to surface immediate errors.
+ */
+export async function pauseGoal(baseUrl: string, sessionId: string, ref: GoalRef): Promise<GoalStateLike> {
+  return callRpc<GoalStateLike>(baseUrl, 'goals/pause', { args: { agentId: sessionId, ref } })
+}
+
+export async function resumeGoal(baseUrl: string, sessionId: string, ref: GoalRef): Promise<GoalStateLike> {
+  return callRpc<GoalStateLike>(baseUrl, 'goals/resume', { args: { agentId: sessionId, ref } })
+}
+
+export async function editGoal(
+  baseUrl: string,
+  sessionId: string,
+  ref: GoalRef,
+  objective: string,
+): Promise<GoalStateLike> {
+  return callRpc<GoalStateLike>(baseUrl, 'goals/edit', {
+    args: { agentId: sessionId, ref, request: { objective } },
+  })
+}
+
+export async function clearGoal(baseUrl: string, sessionId: string, ref: GoalRef): Promise<GoalRef> {
+  return callRpc<GoalRef>(baseUrl, 'goals/clear', { args: { agentId: sessionId, ref } })
 }
 
 /** Loose mirror of ModelSelection (apiproxy sessions.d.ts). */

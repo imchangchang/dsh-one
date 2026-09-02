@@ -20,7 +20,8 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
-import { createSession } from '../server/dshRpc.ts'
+import { createSession, ensureSession } from '../server/dshRpc.ts'
+import type { WorkspaceView } from '../server/dshRpc.ts'
 import type { ChatState, OutgoingImage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import { contextMenuResource } from '../pure/contextResource.ts'
 import { orderJobs } from '../pure/activityTree.ts'
@@ -91,6 +92,10 @@ export class ChatViewProvider implements vscode.Disposable {
       pushSessions: () => this.pushSessions(),
       syncAttachedSessions: () => this.syncAttachedSessions(),
       push: (host, state) => this.push(host, state),
+      setPendingWorkspace: (host, workspaceId) => this.setPendingWorkspace(host, workspaceId),
+      resolvePendingWorkspace: (host) => this.resolvePendingWorkspace(host),
+      addWorkspaceAndOpen: (host) => this.addWorkspaceAndOpen(host),
+      createWorkspaceAndOpen: (host) => this.createWorkspaceAndOpen(host),
     }
     this.managerSub = manager.onDidChangeState((s) => this.onServerState(s))
     this.storeSub = store.onDidChange(() => {
@@ -407,6 +412,9 @@ export class ChatViewProvider implements vscode.Disposable {
    */
   private composeHeader(state: ChatState, tab: ChatTabHost): ChatState {
     if (!state.sessionId) return state
+    // 局部 const 快照：回调闭包里 TS 不对函数参数做属性收窄，后续闭包读取
+    // 都走它（sid 在 composeHeader 内只读）。
+    const sid = state.sessionId
     const raw = this.store.rawList()
     // 血缘树：直接子代理为顶层项，每项的 children 递归挂各自后代
     // （子代理再开子代理）。每层按 运行中优先 + 新近优先 在纯函数里排好；
@@ -415,7 +423,22 @@ export class ChatViewProvider implements vscode.Disposable {
     // label，没有回退 title/短 id」——对齐官方 dsh web 的菜单行名。
     const subagents = buildSubagentTree(raw, state.sessionId, (s) => this.subagents.labelFor(s.sessionId))
     const jobs = orderJobs(this.jobs.jobs().get(state.sessionId) ?? [])
-    const workspaceLabel = this.store.workspaceLabelFor(state.sessionId)
+    // 懒切换的目标 workspace 覆盖：chip 与选择器对勾显示 pending 目标（未发送
+    // 前真实的会话所属 workspace 不变，随 send/resolve 落地后由 attach 清标记）。
+    const pendingWs = tab.pendingWorkspaceId
+      ? this.store.workspaceBaseline.find((w) => w.workspaceId === tab.pendingWorkspaceId)
+      : undefined
+    const workspaceLabel = pendingWs?.title ?? this.store.workspaceLabelFor(state.sessionId)
+    // workspace 选择器数据（空会话 hero chip 的弹层）：全部 workspace 的轻量
+    // 投影 + 当前会话所属 workspace 的 id（选中对勾）。基线随 store 刷新重推。
+    const workspaces = this.store.workspaceBaseline.map((w) => ({
+      workspaceId: w.workspaceId,
+      path: w.path,
+      title: w.title,
+    }))
+    const workspaceId =
+      pendingWs?.workspaceId ??
+      this.store.workspaceBaseline.find((w) => w.sessionIds.includes(sid))?.workspaceId
     const self = raw.find((s) => s.sessionId === state.sessionId)
     // 面包屑父段：只有附着的是真子代理（origin === 'subagent'）才合成
     // 「父会话标题 /」，webview 点击回到父会话（官方 dsh web 的进入逻辑）。
@@ -437,6 +460,8 @@ export class ChatViewProvider implements vscode.Disposable {
       ...(subagents.length > 0 ? { subagents } : {}),
       ...(jobs.length > 0 ? { backgroundJobs: jobs } : {}),
       ...(workspaceLabel ? { workspaceLabel } : {}),
+      ...(workspaceId ? { workspaceId } : {}),
+      ...(workspaces.length > 0 ? { workspaces } : {}),
       ...(parentSession ? { parentSession } : {}),
       ...(presetLabel ? { presetLabel } : {}),
       ...(presetDescription ? { presetDescription } : {}),
@@ -503,6 +528,81 @@ export class ChatViewProvider implements vscode.Disposable {
   }
 
   /**
+   * 空会话 hero 懒切换：只记录目标 workspace 并重推 state（chip/对勾显示
+   * pending 目标），**不发任何 RPC、不换 controller**——真正切换推迟到
+   * 下一次 send / setAgentPreset 的 {@link resolvePendingWorkspace}，让点
+   * 击切换瞬时完成、把等待移进发送动作本身。目标等于当前会话所属 workspace
+   * 时解释为取消（点当前显示项是取消手势）；基线里找不到目标（刚被删除）也
+   * 取消。per-tab：状态挂在 ChatTabHost.pendingWorkspaceId 上（多 tab 各自
+   * 独立，不串台）。
+   */
+  setPendingWorkspace(host: ChatTabHost, workspaceId: string): void {
+    const cur = host.controller?.sessionId
+    const current = cur
+      ? this.store.workspaceBaseline.find((w) => w.sessionIds.includes(cur))?.workspaceId
+      : undefined
+    host.pendingWorkspaceId =
+      workspaceId === current || !this.store.workspaceBaseline.some((w) => w.workspaceId === workspaceId)
+        ? null
+        : workspaceId
+    if (host.controller) this.push(host, host.controller.getState())
+  }
+
+  /**
+   * 发送/选 preset 前落地懒切换：在 pending 目标 workspace 下复用/新建 blank
+   * 会话（dshRpc.ensureSession，官方 connectWorkspace 语义）并打开附着。
+   * 成功返回 true；失败清理标记并返回 false（错误提示在 openWorkspaceSession）。
+   */
+  async resolvePendingWorkspace(host: ChatTabHost): Promise<boolean> {
+    const workspaceId = host.pendingWorkspaceId
+    if (!workspaceId) return true
+    host.pendingWorkspaceId = null
+    const workspace = this.store.workspaceBaseline.find((w) => w.workspaceId === workspaceId)
+    if (!workspace) return false
+    const ok = await this.openWorkspaceSession(workspace)
+    if (!ok && host.controller) this.push(host, host.controller.getState())
+    return ok
+  }
+
+  /** hero picker「添加已有文件夹…」：复用 dshOne.workspace.add 命令（VSCode
+   *  原生目录对话框 → workspace.create），注册成功后设为懒切换目标（用户
+   *  发送时才真正切过去；命令返回注册结果，取消/失败返回 undefined——
+   *  错误提示由命令负责）。 */
+  async addWorkspaceAndOpen(host: ChatTabHost): Promise<void> {
+    const workspace = await vscode.commands.executeCommand<WorkspaceView | undefined>('dshOne.workspace.add')
+    if (!workspace) return
+    // 等基线刷新包含新 workspace 再设 pending（setPendingWorkspace 校验基线）。
+    await this.store.refresh()
+    this.setPendingWorkspace(host, workspace.workspaceId)
+  }
+
+  /** hero picker「创建工作区…」：复用 dshOne.workspace.create 命令（在
+   *  ~/.dsh/workspaces/ 下建目录并注册），成功后设为懒切换目标。 */
+  async createWorkspaceAndOpen(host: ChatTabHost): Promise<void> {
+    const workspace = await vscode.commands.executeCommand<WorkspaceView | undefined>('dshOne.workspace.create')
+    if (!workspace) return
+    await this.store.refresh()
+    this.setPendingWorkspace(host, workspace.workspaceId)
+  }
+
+  /** 在目标 workspace 下复用/新建 blank 会话并打开；成功返回 true。 */
+  private async openWorkspaceSession(
+    workspace: Pick<WorkspaceView, 'workspaceId' | 'sessionIds' | 'path'>,
+  ): Promise<boolean> {
+    const url = this.store.runningUrl
+    if (!url) return false
+    try {
+      const sessionId = await ensureSession(url, workspace)
+      this.openSession(sessionId)
+      return true
+    } catch (error) {
+      this.logger.warn(`workspace: switch to ${workspace.workspaceId} failed: ${errorText(error)}`)
+      vscode.window.showWarningMessage(`切换 workspace 失败：${errorText(error)}`)
+      return false
+    }
+  }
+
+  /**
    * 在默认 workspace 下新建会话（右键发送时没有可附着会话的兜底）。
    * 失败或没有可用 workspace 时返回 null 并已提示用户。
    */
@@ -515,7 +615,7 @@ export class ChatViewProvider implements vscode.Disposable {
       return null
     }
     try {
-      const sessionId = await createSession(url, targetWorkspaceId)
+      const sessionId = await createSession(url, { workspaceId: targetWorkspaceId })
       await this.store.refresh()
       return sessionId
     } catch (err) {

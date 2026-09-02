@@ -3,6 +3,8 @@
 # 流程：校验 -> 在 worktree 里 rebase 到最新 main -> rebase 后复测 -> --no-ff 合入 -> 清理。
 # 主线不开发，只负责测试、集成和合入；合入必须串行：一次只跑一个 dev-merge，
 # 等它完全结束（含末尾重建 dist）再合下一个任务。
+# 串行靠 main-lock.sh 的主线写锁强制（不是约定）：从校验到合入全程持锁，
+# 并发跑第二个 dev-merge 会拿不到锁直接退出，杜绝两个进程同时写 main。
 # 不带参数时列出所有待合并的 done 标记。
 set -euo pipefail
 
@@ -16,9 +18,17 @@ fi
 
 MAIN_ROOT=$(cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd)
 cd "$MAIN_ROOT"
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+source "$SCRIPT_DIR/main-lock.sh"
 BRANCH="agent/$SLUG"
 
 git show-ref --verify --quiet "refs/heads/$BRANCH" || { echo "分支 $BRANCH 不存在。" >&2; exit 1; }
+
+# 拿主线写锁：之后所有写 main 的操作（rebase 结果、--no-ff 合并、清理、重建 dist）
+# 都在锁内完成，EXIT trap 保证成功/失败/中断都释放。
+acquire_main_lock "dev-merge $SLUG" || exit 1
+trap release_main_lock EXIT
+
 git rev-parse --verify --quiet "refs/tags/done/$SLUG" >/dev/null || {
   echo "缺少 done/$SLUG 标记——先在对应 worktree 里跑 scripts/dev-finish.sh 完成自测。" >&2; exit 1; }
 [ "$(git rev-parse "$BRANCH")" = "$(git rev-parse "done/$SLUG^{commit}")" ] || {
@@ -31,11 +41,17 @@ WT=$(git worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '
 [ -n "$WT" ] || { echo "找不到 $BRANCH 对应的 worktree。" >&2; exit 1; }
 
 echo "== rebase $BRANCH 到最新 main =="
-if ! git -C "$WT" rebase main; then
+# --rebase-merges：保留分支内的 merge 提交结构。普通 rebase 会把 merge 提交
+# 展开重放——若任务分支已预 merge 过 main（如开发期间手动同步），展开会让
+# 同样的冲突逐提交重复出现；保留 merge 后主线没新增提交时等价空操作。
+# GIT_EDITOR=true：非交互场景跑 rebase/commit 会被 core.editor（常见配置 code --wait）
+# 拉起外部编辑器并阻塞等待，导致窗口莫名弹出、流程挂死。冲突解决后的
+# `git rebase --continue` 内部带 `-e`，必须显式抑制编辑器。
+if ! GIT_EDITOR=true git -C "$WT" rebase --rebase-merges main; then
   cat >&2 <<EOF
 rebase 有冲突。进入 $WT 解决：
   cd $WT
-  ...解决冲突后 git add，然后 git rebase --continue...
+  ...解决冲突后 git add，然后 GIT_EDITOR=true git rebase --continue...
   scripts/dev-finish.sh        # 重新自测 + 更新 done 标记
 再回到主线重跑：scripts/dev-merge.sh $SLUG
 EOF

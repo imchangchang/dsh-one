@@ -238,6 +238,13 @@ const SESSIONS_STYLE = `
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
   .menu-hint { padding: 8px; opacity: .7; }
+  /* 菜单首行的会话标题（操作对象显式化）：置灰小字、单行省略，与菜单项分隔。 */
+  .session-menu-title {
+    padding: 6px 10px 8px; font-size: .8em; opacity: .55;
+    max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    border-bottom: 1px solid var(--vscode-menu-border, rgba(127,127,127,.2));
+    margin-bottom: 2px;
+  }
   /* 自实现悬停提示：fixed 定位挂在 body 上，不随 .sessions-list 滚动裁剪。
      pre-wrap 让含换行的 data-tip（如降级详情）多行展示，长词可折行。 */
   .dsh-tooltip {
@@ -313,11 +320,18 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
     }
     view.webview.html = sessionsHtml(view.webview, this.extensionUri)
     const msg = view.webview.onDidReceiveMessage((m: FromWebviewMessage) => void this.onMessage(m))
+    // 侧栏从不可见回到可见（展开/折叠、切到别的 view group）：列表可能已过期。
+    const visibilitySub = view.onDidChangeVisibility(() => {
+      if (view.visible) void this.store.refreshSoon()
+    })
     view.onDidDispose(() => {
       msg.dispose()
+      visibilitySub.dispose()
       if (this.view === view) this.view = null
     })
     this.pushSessions()
+    // 视图首次变得可见、或被隐藏后重新显示（webview 重建）时刷新基线；pushSessions 保留。
+    void this.store.refreshSoon()
   }
 
   /** Store 快照 + 服务状态 + 当前高亮会话，合成面板用的 SessionsSnapshot。 */
@@ -349,6 +363,9 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
         return
       case 'sessionNew':
         void vscode.commands.executeCommand('dshOne.session.new', m.workspaceId)
+        return
+      case 'sessionNewUngrouped':
+        void vscode.commands.executeCommand('dshOne.session.newUngrouped')
         return
       case 'sessionRename':
         void vscode.commands.executeCommand('dshOne.session.rename', m.sessionId, m.title)

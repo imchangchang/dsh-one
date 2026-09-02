@@ -108,6 +108,13 @@ let popoverAnchor: HTMLElement | null = null
 let popoverPlacement: 'above' | 'below' = 'above'
 /** 菜单打开期间保持 hover 背景的来源行（会话行 ⋯ 菜单/右键菜单）。 */
 let menuOpenRow: HTMLElement | null = null
+/**
+ * 会话行菜单（右键/⋯）打开期间的列表重建冻结：true 时 renderSessions 跳过
+ * 列表重建（保留现有 DOM，行/菜单锚不销毁），新快照仍存进 sessionsSnapshot，
+ * 等 closePopover 解冻后用最新快照一次性渲染。只针对会话行菜单；排序/添加
+ * 菜单锚在 header（header 不重建），不受影响。
+ */
+let menuFreezeActive = false
 
 function markMenuRow(row: HTMLElement | null): void {
   menuOpenRow?.classList.remove('menu-open')
@@ -132,7 +139,9 @@ function onPopoverKey(e: KeyboardEvent): void {
   }
 }
 
-function closePopover(): void {
+/** 只清弹层 DOM、锚与事件监听的内部清理（showPopover/showPopoverAt 换菜单时
+ *  用——不清冻结、不补渲染，因为新菜单还要继续开着）。 */
+function disposePopover(): void {
   popover?.remove()
   popover = null
   popoverAnchor = null
@@ -140,6 +149,22 @@ function closePopover(): void {
   document.removeEventListener('mousedown', onPopoverOutside, true)
   document.removeEventListener('keydown', onPopoverKey, true)
 }
+
+/** 菜单真正关闭（Esc / 点击外部 / 菜单项点击）：解除冻结 + 用最新快照补一次渲染。 */
+function closePopover(): void {
+  menuFreezeActive = false
+  disposePopover()
+  renderSessions()
+}
+
+// 右键按下（button===2）且落在会话行内即进入冻结窗口——contextmenu 随后打开
+// 菜单，期间列表不因快照重建而销毁该行，菜单锚/视觉锚保持稳定。解冻由
+// closePopover 统一处理。左键 ⋯ 按钮走其 onClick 里置冻结。
+document.addEventListener('pointerdown', (e) => {
+  if (e.button === 2 && (e.target as HTMLElement | null)?.closest?.('.session-row')) {
+    menuFreezeActive = true
+  }
+})
 
 function positionPopover(): void {
   if (!popover || !popoverAnchor) return
@@ -154,7 +179,7 @@ function positionPopover(): void {
 }
 
 function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' | 'below' = 'above'): void {
-  closePopover()
+  disposePopover()
   const p = el('div', 'popover')
   p.appendChild(body)
   document.body.appendChild(p)
@@ -167,7 +192,7 @@ function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' 
 }
 
 function showPopoverAt(x: number, y: number, body: HTMLElement): void {
-  closePopover()
+  disposePopover()
   const p = el('div', 'popover')
   p.appendChild(body)
   document.body.appendChild(p)
@@ -492,6 +517,11 @@ function renderSessions(): void {
     sessionsPanel.appendChild(sessionsHeaderEl)
   }
   updateCollapseAllIcon()
+  // 会话行菜单（右键/⋯）打开期间的冻结：跳过列表重建，保留现有 DOM（行/菜单
+  // 锚不销毁），新快照仍存进 sessionsSnapshot 等解冻后渲染。header 逻辑照旧
+  // （header 本就不重建）。上面的 popover 锚处理段此时走 positionPopover（旧行
+  // 还在、锚 isConnected 为 true），不会误关菜单。
+  if (menuFreezeActive) return
   // 列表重建期间，销毁在编输入框触发的 blur 不应把编辑当取消（rebuildGuard）。
   rebuildInProgress = true
   const oldList = sessionsPanel.querySelector<HTMLElement>('.sessions-list')
@@ -501,11 +531,20 @@ function renderSessions(): void {
     list.appendChild(el('div', 'sessions-empty', '加载中…'))
   } else if (snap.serverState !== 'running') {
     list.appendChild(renderServerEmpty(snap))
-  } else if (snap.workspaces.length === 0) {
-    const hint = snap.query ? `没有匹配「${snap.query}」的会话。` : '暂无工作区。点击上方 + 添加已有文件夹或创建工作区。'
-    const box = el('div', 'sessions-empty')
-    box.appendChild(el('div', 'empty-hint', hint))
-    list.appendChild(box)
+  } else if (snap.workspaces.every((w) => w.workspaceId === UNGROUPED_WORKSPACE_ID)) {
+    // 没有真实 workspace：保留「添加工作区」引导，同时仍渲染「未分组」组
+    // （空组头 + 新建按钮，「新建未分组对话」入口恒可达）。搜索态下未分组
+    // 有命中时不显示提示（下方组即结果），无命中才显示「没有匹配」。
+    if (snap.query === null) {
+      const box = el('div', 'sessions-empty')
+      box.appendChild(el('div', 'empty-hint', '暂无工作区。点击上方 + 添加已有文件夹或创建工作区。'))
+      list.appendChild(box)
+    } else if (snap.workspaces.length === 0) {
+      const box = el('div', 'sessions-empty')
+      box.appendChild(el('div', 'empty-hint', `没有匹配「${snap.query}」的会话。`))
+      list.appendChild(box)
+    }
+    for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
   } else {
     for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
     if (snap.contentSearchHasMore) {
@@ -619,11 +658,14 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   appendWorkspaceCounts(labelGroup, w.sessions)
   head.appendChild(labelGroup)
   if (w.isCurrent) head.appendChild(el('span', 'workspace-badge', 'vscode'))
+  const headActions = el('span', 'row-actions')
+  // 未分组组也有「新建会话」：创建不挂 workspace 的会话（cwd 走宿主临时目录）。
+  headActions.appendChild(
+    rowAction(iconSvg(PANEL_ICONS.plus), ungrouped ? '新建未分组对话' : '新建会话', () =>
+      ungrouped ? post({ type: 'sessionNewUngrouped' }) : post({ type: 'sessionNew', workspaceId: w.workspaceId }),
+    ),
+  )
   if (!ungrouped) {
-    const headActions = el('span', 'row-actions')
-    headActions.appendChild(
-      rowAction(iconSvg(PANEL_ICONS.plus), '新建会话', () => post({ type: 'sessionNew', workspaceId: w.workspaceId })),
-    )
     headActions.appendChild(
       rowAction(iconSvg(PANEL_ICONS.terminal), '在终端中打开', () =>
         post({ type: 'workspaceOpenTerminal', path: w.path }),
@@ -641,8 +683,8 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
         post({ type: 'workspaceRemove', workspaceId: w.workspaceId, label: w.label }),
       ),
     )
-    head.appendChild(headActions)
   }
+  head.appendChild(headActions)
   // 空组无可展开内容不响应点击；其余（含未分组）点击折叠/展开。
   if (!empty) {
     head.addEventListener('click', () =>
@@ -698,6 +740,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   row.appendChild(main)
   const actions = el('span', 'row-actions')
   const more = rowAction(iconSvg(PANEL_ICONS.ellipsis), '更多操作', () => {
+    menuFreezeActive = true
     showPopover(more, buildSessionMenuBody(s), 'below')
     markMenuRow(row)
   })
@@ -712,6 +755,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   })
   row.addEventListener('contextmenu', (e) => {
     e.preventDefault()
+    menuFreezeActive = true
     showPopoverAt(e.clientX, e.clientY, buildSessionMenuBody(s))
     markMenuRow(row)
   })
@@ -823,6 +867,8 @@ function highlightText(text: string): HTMLElement {
 function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
   const body = el('div')
+  // 菜单首行显示会话标题（操作对象显式化）：即使用户瞄错行也能立刻发现，点击前可收回。
+  body.appendChild(el('div', 'session-menu-title', `会话：${s.label}`))
   // 默认点击会话行 = 在当前活动 chat tab 打开；这里显式提供「新开 tab」。
   body.appendChild(
     menuItem('在新 tab 中打开', {
