@@ -158,20 +158,20 @@ const STYLE = `
   .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
   /* 引用 chip（@会话/@文件/@文件夹//命令，对齐 dsh web refChip）：链接色、字重 500、行内 flex。
      .session-mention 是会话 chip（button，可点击打开会话）；.ref-chip 是文件/文件夹/命令
-     chip（span，纯展示）。 */
+     chip（span），其中文件/文件夹带 .ref-chip-link 可点击打开。 */
   .session-mention, .ref-chip {
     display: inline-flex; align-items: center; gap: 3px; margin: 0 2px;
     padding: 0; border: none; background: none; vertical-align: baseline;
     color: var(--vscode-textLink-foreground);
     font: inherit; font-weight: 500; white-space: nowrap;
   }
-  .session-mention { cursor: pointer; }
+  .session-mention, .ref-chip-link { cursor: pointer; }
   /* 给 chip 补一个带文本基线的首个 flex 项：inline-flex 容器基线原先退化为盒底边
      （第一个子项是 SVG 图标、无文本基线），导致 chip 文字相对同行正文抬高。
      content 是零宽空格（有文本基线）；margin-left 抵消 gap:3px 多出的间距。 */
   .session-mention::before, .ref-chip::before { content: '​'; margin-left: -3px; }
   .session-mention svg, .ref-chip svg { flex: none; }
-  .session-mention:hover { text-decoration: underline; }
+  .session-mention:hover, .ref-chip-link:hover { text-decoration: underline; }
   /* 用户气泡下方的会话引用摘要行（对齐 dsh web referenceSummary）：小号、降级文字色。 */
   .ref-summary { font-size: 12px; opacity: 0.75; }
   /* 跨会话召回上下文行：图标与文字基线对齐。 */
