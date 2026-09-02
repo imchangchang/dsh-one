@@ -1857,12 +1857,18 @@ function render(): void {
     !blankHero &&
     headerSig === lastHeaderSig &&
     oldHeader.querySelector('.rename-input') === null
-  for (const child of Array.from(chatCol.children)) {
-    if (keepMessages && child === oldMessages) continue
-    if (keepHeader && child === oldHeader) continue
-    if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
-    if (keepPending && child === oldPending) continue
-    child.remove()
+  // loading 帧（换会话的历史基线加载中）不动现有 DOM：整页保留到新状态落地
+  // 再一次性切换——否则 hero 布局切换（blank→blank 切 workspace 尤甚）会先被
+  // 清成「加载会话…」空占位再重建，观感像整页刷新。keep* 布尔照常计算（无
+  // 副作用），落地帧仍按签名决定重建。
+  if (state?.loading !== true) {
+    for (const child of Array.from(chatCol.children)) {
+      if (keepMessages && child === oldMessages) continue
+      if (keepHeader && child === oldHeader) continue
+      if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
+      if (keepPending && child === oldPending) continue
+      child.remove()
+    }
   }
   // Menus anchored to surviving elements (kept composer, sessions header)
   // stay open across snapshot renders — re-anchor in case the layout shifted
@@ -1883,11 +1889,13 @@ function render(): void {
     chatCol.appendChild(renderEmpty(state))
     return
   }
-  // 历史基线加载中：只显示加载占位，hero 和消息流都等基线落地再渲染——
-  // 否则切换会话时会先闪一帧空会话 hero（服务未就绪）再跳成消息流。
+  // 历史基线加载中：旧视图已被上面跳过清理而保留，这里只在确实没有任何
+  // 内容（面板首开/重载后在等基线）时才给一行加载提示。
   if (state.loading === true) {
     turnStatusStart = null
-    chatCol.appendChild(el('div', 'muted-hint loading-hint', '加载会话…'))
+    if (chatCol.childNodes.length === 0) {
+      chatCol.appendChild(el('div', 'muted-hint loading-hint', '加载会话…'))
+    }
     return
   }
   if (blankHero) {

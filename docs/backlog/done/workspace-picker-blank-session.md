@@ -72,3 +72,13 @@ cd /Users/cgeng/Workspaces/dsh-one/.worktrees/workspace-picker-blank-session && 
 - 命中复用后直接返回 sessionId，**不再调 session.create**——只有找不到可复用 blank 时才 `session.create { workspaceId }`（host 端 cwd 即 workspace.path，无冲突路径）。
 
 人工验收补充检查点：把 VSCode 打开的目录切到与目标 workspace 不同的路径（如打开 dsh-mobile 目录、切到 aibrain-app 工作区），切过去必须成功且不发 RPC 报错；重复点同一 workspace 行（当前项）不动作。
+
+### 体验优化（2026-09-02，人工反馈）
+
+现象：切换 workspace 功能可用，但每次切到其他 workspace 时整页「刷新」一下（先清空成「加载会话…」占位再重建）。
+
+根因：`ChatSessionController` 初始 `loading: true`（历史基线未落地），webview 的 loading 帧把当前 DOM 清空、只留一行「加载会话…」占位，基线落地后再整页重建——blank→blank 切 workspace 时最明显（两个 hero 长得像却被清空再画）。
+
+修复（`src/ui/chat/webview.ts`）：loading 帧不再清空现有 DOM——旧视图（hero/messages/composer）完整保留到新状态落地一次性切换；只有面板首开/重载后确实没有任何内容时才显示「加载会话…」占位。对侧栏切会话/分叉等所有会话切换同样生效（不再闪空态）。
+
+人工验收补充：切换 workspace 时页面不应先闪成「加载会话…」空态，旧画面保持到新会话画面替换；面板首次打开（无旧内容）仍显示「加载会话…」。
