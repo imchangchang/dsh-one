@@ -2702,13 +2702,13 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
 }
 
 /**
- * 等待插话的 steering 消息：渲染成对话流末尾的用户气泡（官方
- * PendingSteeringBubble 的视觉语言），插话落地后原位变成正式用户消息。
+ * 等待插话的 steering 消息：和正常用户消息一样的气泡，只在气泡左侧加一个
+ * 处理中圆圈表示插话还没落地（插话落地后由正式用户消息原位替换，圆圈随之消失）。
  */
 function renderSteeringItem(item: QueuedItem): HTMLElement {
   const row = el('div', 'msg user steering-pending')
+  row.appendChild(el('span', 'spinner'))
   row.appendChild(el('div', 'bubble', item.text || '（空消息）'))
-  row.appendChild(el('span', 'queue-tag', '等待插话'))
   return row
 }
 
