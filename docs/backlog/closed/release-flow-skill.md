@@ -20,3 +20,4 @@
 - 2026-09-02 记录 → open
 - 2026-09-02 认领 → doing（并行开发 session）
 - 2026-09-02 开发完成，自测通过 → done。产出：`.agents/skills/release-gate/SKILL.md`（发布执行 / 独立验收分两个子代理的流程指导，含两个子代理的 prompt 模板：发布代理跑 release-gate.sh 两段式，验收代理独立重跑 dry-run 一致性 / unzip 验 vsix / git 验 tag 并生成待人工清单；GUI 沙盒装机归人）。已用两个真实子代理完整演练发布 v0.3.0（发布代理两段式走通、验收代理 4/4 核验通过），演练真实抓出「.vscodeignore 未同步时门禁拦下脏产物」场景，已写入 skill 前置条件。人工验收方法：真实发版时按 skill 流程派两个子代理走一遍（或对照 SKILL.md 逐节核对 prompt 模板与流程），沙盒装机按 docs/release-checklist.md 人工验收。
+- 2026-09-02 主线合入测试通过（merge 86de914，复测 298 tests 全绿），人工确认 → closed
