@@ -1148,8 +1148,21 @@
   }
   .image-chip .chip-remove:hover { opacity: 1; }
   /* 文件 chip 的类型小图标（strokeSvg 固定 14px，缩到容器尺寸）。 */
-  .file-chip-icon { display: inline-flex; width: 12px; height: 12px; flex: none; }
-  .file-chip-icon svg { width: 12px; height: 12px; display: block; }
+  .file-chip-icon { display: inline-flex; width: 16px; height: 16px; flex: none; }
+  .file-chip-icon svg { width: 16px; height: 16px; display: block; }
+  /* 文件 chip 方框：与 .attach-thumb 同尺寸同圆角（48px，含 1px 边框），
+     列排文档图标 + 文件名，输入区版本右上角 × 复用 .thumb-remove 交互。 */
+  .file-chip {
+    position: relative;
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px; padding: 2px;
+    width: 48px; height: 48px; flex: none;
+    border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
+    background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
+    font-size: 11px; line-height: 1.2;
+  }
+  .file-chip .chip-name { max-width: 42px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 待发送图片缩略图（对齐官方 AttachmentRail：方图 cover，hover 右上角出移除钮）。 */
   .attach-thumb {
     position: relative; width: 48px; height: 48px; flex: none;
@@ -1158,7 +1171,7 @@
     background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
   }
   .attach-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .attach-thumb .thumb-remove {
+  .attach-thumb .thumb-remove, .file-chip .thumb-remove {
     position: absolute; top: 3px; right: 3px; z-index: 1;
     width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
     display: grid; place-items: center;
@@ -1167,9 +1180,10 @@
     cursor: pointer; font-size: 12px; line-height: 1;
     opacity: 0; transition: opacity .2s ease-in-out;
   }
-  .attach-thumb:hover .thumb-remove, .attach-thumb .thumb-remove:focus-visible { opacity: 1; }
-  @media (pointer: coarse) { .attach-thumb .thumb-remove { opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .attach-thumb .thumb-remove { transition: none; } }
+  .attach-thumb:hover .thumb-remove, .attach-thumb .thumb-remove:focus-visible,
+  .file-chip:hover .thumb-remove, .file-chip .thumb-remove:focus-visible { opacity: 1; }
+  @media (pointer: coarse) { .attach-thumb .thumb-remove, .file-chip .thumb-remove { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .attach-thumb .thumb-remove, .file-chip .thumb-remove { transition: none; } }
   #input {
     flex: 1; resize: none; box-sizing: border-box; padding: 6px 8px;
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
