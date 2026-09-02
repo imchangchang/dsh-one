@@ -261,6 +261,8 @@ let lastComposerSig: string | null = null
 let lastHeaderSig: string | null = null
 /** Signature of the pending-interaction state at the last render; see render(). */
 let lastPendingSig: string | null = null
+/** Signature of the todo list at the last render; see render(). */
+let lastTodosSig: string | null = null
 /** Images staged in the composer, sent with the next `send`. */
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
@@ -559,6 +561,24 @@ function presetIconSvg(): SVGSVGElement {
   return svg
 }
 
+/**
+ * 无限周期 CSS 动画的「相位续播」：render() 随快照全量重建消息区 DOM，新建元素
+ * 会让 animation 从 0 重新开始——流式期间快照 ~100ms 一帧，转圈/闪烁动画每帧被
+ * 打回起点，视觉上就是疯狂刷新。给新建元素补一个负 animation-delay（= 当前时刻
+ * 在周期里的相位），新元素从旧元素的相位继续，观感即连续（周期 animation 相位
+ * 对齐等价于节点保活，且能覆盖元素被重建的任意场景）。
+ */
+function syncAnimPhase(el: HTMLElement | SVGElement, periodMs: number): void {
+  el.style.animationDelay = `${-(performance.now() % periodMs)}ms`
+}
+
+/** 转圈 spinner（.spinner，0.9s/圈）：创建即对齐相位，见 syncAnimPhase。 */
+function spinnerEl(): HTMLSpanElement {
+  const s = el('span', 'spinner')
+  syncAnimPhase(s, 900)
+  return s
+}
+
 function spinSvg(): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('width', '10')
@@ -566,13 +586,16 @@ function spinSvg(): SVGSVGElement {
   svg.setAttribute('viewBox', '0 0 10 10')
   svg.setAttribute('shape-rendering', 'crispEdges')
   svg.classList.add('session-spin')
+  const phase = -(performance.now() % 1000)
   SPIN_CELLS.forEach(([x, y], i) => {
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
     rect.setAttribute('x', String(x))
     rect.setAttribute('y', String(y))
     rect.setAttribute('width', '2')
     rect.setAttribute('height', '2')
-    rect.style.animationDelay = `${(i - SPIN_CELLS.length) * 125}ms`
+    // 原有错相（-N..-1 步 × 125ms）保留，叠加全局相位：每格从自己该在的
+    // 相位续播（周期 1s），快照重建不再从头闪。
+    rect.style.animationDelay = `${phase + (i - SPIN_CELLS.length) * 125}ms`
     svg.appendChild(rect)
   })
   return svg
@@ -2069,6 +2092,21 @@ function render(): void {
     !blankHero &&
     headerSig === lastHeaderSig &&
     oldHeader.querySelector('.rename-input') === null
+  // 任务清单 todo 卡保活（与 composer/pending 同款 keep）：todos 内容没变时保留
+  // 原元素。流式快照每帧重建 chatCol，in_progress 行首的转圈弧环是新建 SVG——
+  // CSS 动画随节点替换从 0° 重启，~100ms 一帧的快照下转圈永远走不完，看起来像
+  // 疯狂刷新。保活后动画连续；todos 真变了才重建，重启动画本就是期望行为。
+  const oldTodoPanel = chatCol.querySelector<HTMLElement>(':scope > .todo-panel')
+  const todosSig = state?.todos ? JSON.stringify(state.todos) : null
+  const keepTodoPanel =
+    oldTodoPanel !== null &&
+    state !== null &&
+    state.sessionId !== null &&
+    state.loading !== true &&
+    !switchingSession &&
+    !blankHero &&
+    todosSig !== null &&
+    todosSig === lastTodosSig
   // loading 帧（换会话的历史基线加载中）不动现有 DOM：整页保留到新状态落地
   // 再一次性切换——否则 hero 布局切换（blank→blank 切 workspace 尤甚）会先被
   // 清成「加载会话…」空占位再重建，观感像整页刷新。keep* 布尔照常计算（无
@@ -2080,6 +2118,7 @@ function render(): void {
       if (keepBlankHero && (child === oldComposer || child === oldHero)) continue
       if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
       if (keepPending && child === oldPending) continue
+      if (keepTodoPanel && child === oldTodoPanel) continue
       child.remove()
     }
   }
@@ -2097,6 +2136,7 @@ function render(): void {
     lastComposerSig = null
     lastHeaderSig = null
     lastPendingSig = null
+    lastTodosSig = null
     turnStatusStart = null
     scrollSession = null
     chatCol.appendChild(renderEmpty(state))
@@ -2145,6 +2185,7 @@ function render(): void {
     lastComposerSig = composerSig
     lastHeaderSig = headerSig
     lastPendingSig = pendingSig
+    lastTodosSig = todosSig
     return
   }
   // Regions above the composer; insert before the preserved composer when kept.
@@ -2353,7 +2394,8 @@ function render(): void {
   // 任务清单卡（对齐官方 input.dock id=todo order 0，排在排队消息之前）：
   // 缺省/null（首写前 / turn/start 后）与 [] 空数组都不渲染。
   if (state.todos && state.todos.length > 0) {
-    add(renderTodoPanel(state.todos))
+    if (keepTodoPanel && oldTodoPanel !== null) add(oldTodoPanel)
+    else add(renderTodoPanel(state.todos))
   }
 
   // 目标条幅（对齐官方 input.dock id=goal order 10：todo 之后、queue 之前）：
@@ -2410,6 +2452,7 @@ function render(): void {
   lastComposerSig = composerSig
   lastHeaderSig = headerSig
   lastPendingSig = pendingSig
+  lastTodosSig = todosSig
   // 「加载更早」的锚定配对：先记下 loadingEarlier 曾为 true（请求确实被
   // 接受），它翻回 false 的这一帧若消息从顶部插入（首条变了或条数多了），
   // 按新增高度补偿 scrollTop；无论是否插入都解除锚点（空页/失败同样落地）。
@@ -3065,7 +3108,10 @@ function renderTurnStatus(): HTMLElement {
   const row = el('div', 'turn-status')
   row.setAttribute('role', 'status')
   row.setAttribute('aria-live', 'polite')
-  row.appendChild(el('span', 'turn-status-text', 'Deep diving...'))
+  const statusText = el('span', 'turn-status-text', 'Deep diving...')
+  // 1.8s shimmer 相位续播：流式每帧重建该行，不补进度会每帧从头闪。
+  syncAnimPhase(statusText, 1800)
+  row.appendChild(statusText)
   const clock = el('span', 'turn-status-clock')
   const tick = (): void => {
     const elapsed = Date.now() - start
@@ -3140,13 +3186,13 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
       const det = detailsEl(`${key}:cmd`, 'command-detail', '')
       const summary = det.querySelector('summary') as HTMLElement
       summary.appendChild(el('span', 'command-line', `/${m.name}${m.args ? ` ${m.args}` : ''}`))
-      if (m.status === 'running') summary.appendChild(el('span', 'spinner'))
+      if (m.status === 'running') summary.appendChild(spinnerEl())
       summary.appendChild(el('span', 'command-text', text.split('\n')[0]))
       det.appendChild(el('pre', 'command-body', text))
       row.appendChild(det)
     } else {
       row.appendChild(el('span', 'command-line', `/${m.name}${m.args ? ` ${m.args}` : ''}`))
-      if (m.status === 'running') row.appendChild(el('span', 'spinner'))
+      if (m.status === 'running') row.appendChild(spinnerEl())
       if (text) row.appendChild(el('span', 'command-text', text))
     }
     return row
@@ -3409,6 +3455,8 @@ function renderRetryRow(block: ChatRetryBlock, key: string): HTMLElement {
   if (block.retryState === 'scheduled') det.setAttribute('data-active', '')
   const maximum = block.mode === 'normal' ? String(block.maxRetries ?? '?') : '∞'
   const status = el('span', 'retry-text')
+  // 1.6s retry-shimmer 相位续播：快照重建该行时不再从头闪。
+  syncAnimPhase(status, 1600)
   const scheduledSeconds = retrySeconds(block.delayMs)
   const setStatus = (): void => {
     const seconds =
@@ -3670,7 +3718,7 @@ function subagentSnapshotNote(block: ChatToolBlock): HTMLElement | null {
  * spinner（dsh-one 惯例），error → StateDot 红点，其余 → 专用图标。
  */
 function toolLeading(icon: IconDef, status: ChatToolBlock['status']): HTMLElement {
-  if (status === 'running') return el('span', 'spinner')
+  if (status === 'running') return spinnerEl()
   if (status === 'error') {
     const dot = el('span', 'tool-state-dot')
     dot.setAttribute('data-state', 'error')
@@ -3848,7 +3896,7 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   const line = el('div', 'tool-line')
   const snapshotNote = subagentSnapshotNote(block)
   if (block.status === 'running') {
-    line.appendChild(el('span', 'spinner'))
+    line.appendChild(spinnerEl())
   } else if (block.status === 'error') {
     // 失败用 dsh web 的 StateDot（error 红点）；done 不挂状态标（dsh web 里
     // settled 工具行只显示工具自身图标，无额外状态覆盖）。

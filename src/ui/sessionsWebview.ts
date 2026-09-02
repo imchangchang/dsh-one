@@ -332,13 +332,16 @@ function spinSvg(): SVGSVGElement {
   svg.setAttribute('viewBox', '0 0 10 10')
   svg.setAttribute('shape-rendering', 'crispEdges')
   svg.classList.add('session-spin')
+  // 全局相位（周期 1s）：快照重建会新建像素环，不叠加相位动画每帧从头闪
+  // （与 chat webview 的 spinSvg 同款处理）。
+  const phase = -(performance.now() % 1000)
   SPIN_CELLS.forEach(([x, y], i) => {
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
     rect.setAttribute('x', String(x))
     rect.setAttribute('y', String(y))
     rect.setAttribute('width', '2')
     rect.setAttribute('height', '2')
-    rect.style.animationDelay = `${(i - SPIN_CELLS.length) * 125}ms`
+    rect.style.animationDelay = `${phase + (i - SPIN_CELLS.length) * 125}ms`
     svg.appendChild(rect)
   })
   return svg
