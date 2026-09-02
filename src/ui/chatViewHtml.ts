@@ -111,6 +111,8 @@ const STYLE = `
     color: var(--vscode-descriptionForeground);
   }
   .header-chip:hover { color: var(--vscode-foreground); }
+  /* 头部会话 ⋯ 按钮：靠右端（标题/chips 左侧排列，margin-left:auto 顶到行尾）。 */
+  .chat-header .header-chip.session-menu-btn { margin-left: auto; padding: 3px 6px; }
   /* 只读 preset 标签：浅底胶囊 + 14px 图标，对齐官方 AgentPresetLabel（SVAs4q_label）。 */
   .preset-chip {
     flex: none; display: inline-flex; align-items: center; gap: 4px;
@@ -1016,6 +1018,11 @@ const STYLE = `
     padding: 4px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-size: 12px;
   }
   .menu-item:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+  /* 禁用态菜单项：置灰、cursor 默认、hover 无高亮（onClick 未绑定，与侧栏一致）。 */
+  .menu-item.disabled,
+  .menu-item.disabled:hover {
+    opacity: .45; cursor: default; background: none; color: inherit;
+  }
   .menu-item .menu-item-icon {
     flex: none; width: 14px; height: 14px; display: inline-flex;
     align-items: center; justify-content: center;
