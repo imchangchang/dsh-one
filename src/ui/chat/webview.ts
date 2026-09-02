@@ -2702,13 +2702,19 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
 }
 
 /**
- * 等待插话的 steering 消息：渲染成对话流末尾的用户气泡（官方
- * PendingSteeringBubble 的视觉语言），插话落地后原位变成正式用户消息。
+ * 等待插话的 steering 消息：和正常用户消息一样的气泡，只在气泡左侧加一个
+ * 处理中圆圈表示插话还没落地（插话落地后由正式用户消息原位替换，圆圈随之消失）。
+ * 流式输出期间 render() 每快照全量重建消息区，新建节点会让 spinner 的 CSS
+ * 动画从 0° 重新启动——转圈每帧被打回起点，看起来就是疯狂刷新。给新建元素补
+ * 一个负 animation-delay（= 当前时刻在 0.9s 周期里的相位），新节点从旧节点的
+ * 相位继续转，观感连续（与 todo/命令卡 spinner 的 syncAnimPhase 同机制）。
  */
 function renderSteeringItem(item: QueuedItem): HTMLElement {
   const row = el('div', 'msg user steering-pending')
+  const spin = el('span', 'spinner')
+  spin.style.animationDelay = `${-(performance.now() % 900)}ms`
+  row.appendChild(spin)
   row.appendChild(el('div', 'bubble', item.text || '（空消息）'))
-  row.appendChild(el('span', 'queue-tag', '等待插话'))
   return row
 }
 
@@ -4809,12 +4815,20 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       render()
       return
     }
-    // ArrowUp on the first line with no selection recalls: the last queued
-    // message for editing when the inbox has one, else the last genuine user
-    // message for re-sending. A recall in progress keeps ArrowUp as caret move.
+    // ArrowUp on the first line with no selection recalls: 有等待插话的 steering
+    // 气泡时首选撤销它（↑ 第一个可回退编辑的就是它——宿主移除该项并把内容
+    // 含附件回填 composer）；否则召回排队消息（改回后 Enter 保存），再否则
+    // 召回最后一条真正的用户消息重新发送。进行中的 recall 保持箭头移光标。
     if (e.key === 'ArrowUp' && !e.isComposing && !recall && state?.canSend) {
       if (input.selectionStart !== input.selectionEnd) return
       if (input.value.slice(0, input.selectionStart).includes('\n')) return
+      const lastSteer = [...(state.queue ?? [])].reverse().find((q) => q.placement === 'steering')
+      if (lastSteer) {
+        // 撤销即最终动作（消息从 inbox 移除），不进 recall 状态、无 Esc 取消。
+        e.preventDefault()
+        post({ type: 'unsteer', itemId: lastSteer.id })
+        return
+      }
       const lastQueued = [...(state.queue ?? [])].reverse().find((q) => q.placement === 'queued')
       const lastUser = lastQueued
         ? null

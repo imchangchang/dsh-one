@@ -1,7 +1,8 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
-import type { ChatState, ChatGoal, ChatTodoItem, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem } from '../pure/chatContract.ts'
+import type { ChatState, ChatGoal, ChatTodoItem, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem, StagedFile } from '../pure/chatContract.ts'
 import { ConversationFolder, applyFeedbackRatings } from '../pure/conversation.ts'
+import { splitAttachmentLines } from '../pure/composerAttachment.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { WorkflowRunFolder } from '../pure/workflowRun.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
@@ -24,6 +25,7 @@ import {
   respond,
   resumeGoal,
   selectAgentPreset,
+  sessionAttachment,
   sessionHistory,
   sessionModels,
   updateQueue,
@@ -530,6 +532,32 @@ export class ChatSessionController implements vscode.Disposable {
   /** Drop one queued prompt. */
   async removeQueued(itemId: string): Promise<void> {
     await updateQueue(this.url, this.sessionId, itemId, { kind: 'remove' })
+  }
+
+  /**
+   * 撤销一条等待插话的 steering 消息（↑ 键首选动作）：从 inbox 移除，并返回
+   * 可供 composer 回填的内容——文本拆分附件行、文件还原成 chips、图片按
+   * attachmentId 重新拉字节（与发送失败还原同款语义）。项已不存在（插话刚
+   * 落地被 claim/移除）返回 null，没有可回填的内容。
+   */
+  async unsteer(itemId: string): Promise<{ text: string; images: OutgoingImage[]; files: StagedFile[] } | null> {
+    const item = this.queueRaw.get(itemId)
+    if (!item) return null
+    const { text, files } = splitAttachmentLines(queueItemOf(item).editText)
+    await this.removeQueued(itemId)
+    const images: OutgoingImage[] = []
+    for (const block of item.message?.content ?? []) {
+      const image = block as { type?: string; attachment?: { attachmentId?: string; name?: string } } | null | undefined
+      if (block?.type !== 'image' || !image?.attachment?.attachmentId) continue
+      try {
+        const { mediaType, data } = await sessionAttachment(this.url, this.sessionId, image.attachment.attachmentId)
+        images.push({ mediaType, data, name: image.attachment.name })
+      } catch (error) {
+        // 单个附件取不回不阻塞整体恢复：文本/文件照常回填，缺一张图可接受。
+        this.logger.warn(`chat: steering image ${image.attachment.attachmentId} refetch failed: ${errorText(error)}`)
+      }
+    }
+    return { text, images, files }
   }
 
   /** Current goal's CAS ref; undefined when the projection has no goal. */

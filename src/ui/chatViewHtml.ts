@@ -153,8 +153,12 @@ const STYLE = `
     border: 1px solid var(--vscode-input-border, transparent);
     white-space: pre-wrap; word-break: break-word;
   }
-  /* 等待插话的气泡（官方 data-pending-steering）：降不透明度表未落地。 */
-  .msg.user.steering-pending .bubble { opacity: 0.7; }
+  /* 等待插话的 steering 消息：与正常用户消息同样的气泡，左侧加处理中圆圈。
+     row 布局下水平右对齐靠 justify-content（.msg.user 的 align-items:flex-end
+     在 column 布局时管水平方向，改 row 后只管垂直）。 */
+  .msg.user.steering-pending {
+    flex-direction: row; align-items: center; justify-content: flex-end; gap: 6px;
+  }
   .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
   /* 引用 chip（@会话/@文件/@文件夹//命令，对齐 dsh web refChip）：链接色、字重 500、行内 flex。
      .session-mention 是会话 chip（button，可点击打开会话）；.ref-chip 是文件/文件夹/命令

@@ -244,6 +244,24 @@ const chatHandlers: ChatTabMessageHandler[] = [
     },
   },
   {
+    types: ['unsteer'],
+    async handle(host, m) {
+      if (m.type !== 'unsteer') return
+      const controller = host.controller
+      if (!controller) return
+      // 撤销等待插话：移除该 steering 项并把它（含附件）回填 composer。
+      // 项已不存在（刚落地）时 unsteer 返回 null，无可回填内容，静默即可。
+      const restored = await controller.unsteer(m.itemId)
+      if (!restored) return
+      host.postMessage({
+        type: 'restoreDraft',
+        text: restored.text,
+        ...(restored.images.length > 0 ? { images: restored.images } : {}),
+        ...(restored.files.length > 0 ? { files: restored.files } : {}),
+      })
+    },
+  },
+  {
     types: ['requestAttachment'],
     async handle(host, m) {
       if (m.type !== 'requestAttachment') return
