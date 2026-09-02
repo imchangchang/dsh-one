@@ -45,3 +45,5 @@
 
 - `scripts/dev-merge.sh`(校验阶段)
 - `scripts/check-i18n.sh`(新增)
+
+- 2026-09-02 认领（Sprint 1 节点，worktree: agent/i18n-merge-gate）→ doing

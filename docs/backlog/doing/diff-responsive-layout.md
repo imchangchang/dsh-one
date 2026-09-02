@@ -28,3 +28,5 @@ diff 卡当前是**固定左右分栏**：`.diff-row` 为两列 `1fr 1fr` grid�
 ## 变更记录
 
 - 2026-09-02 提出（用户建议 + 方案确认）→ open
+
+- 2026-09-02 认领（Sprint 1 节点，worktree: agent/diff-responsive-layout）→ doing

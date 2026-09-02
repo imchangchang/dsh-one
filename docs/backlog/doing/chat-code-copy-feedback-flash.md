@@ -22,3 +22,5 @@
 
 - `src/ui/chat/webview.ts`（`enhanceCodeBlocks` 复制按钮、`renderJsonTree` 复制按钮、`renderJsonNodeCopy` 节点复制图标）
 - `src/server/chatSession.ts`（快照节流，只作原因说明，不改）
+
+- 2026-09-02 认领（Sprint 1 节点，worktree: agent/chat-code-copy-feedback-flash）→ doing
