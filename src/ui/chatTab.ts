@@ -16,6 +16,7 @@ import * as vscode from 'vscode'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import type { Logger } from '../log.ts'
 import type { ServerManager } from '../server/manager.ts'
 import { ChatSessionController } from '../server/chatSession.ts'
@@ -39,6 +40,17 @@ const IMAGE_MEDIA_TYPES: Record<string, string> = {
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
   '.gif': 'image/gif',
+}
+
+/** Editor 面板的 viewType（窗口 reload 时 serializer 按它匹配恢复）。 */
+export const CHAT_PANEL_VIEW_TYPE = 'dshOne.chatPanel'
+/**
+ * 窗口 reload 的恢复凭据：webview 内容经 `vscode.setState()` 保存（VSCode
+ * 关停时把它交给 serializer）。tabId 是面板创建后不变的稳定标识——会话可在
+ * 同一 tab 内被替换，而映射里的 sessionId 随时更新，凭 tabId 查最新值。
+ */
+export interface ChatPanelRestoreState {
+  tabId: string
 }
 
 /**
@@ -72,6 +84,8 @@ export interface ChatTabHostActions {
   onSessionsChanged(): void
   /** 活动 tab 变化（聚焦/失焦/关闭/重建）→ provider 重算侧栏高亮。 */
   onViewStateChanged(): void
+  /** tab 的（panel, sessionId）组合变化（打开/关闭/替换会话）→ provider 更新恢复映射。 */
+  onTabsChanged(host: ChatTabHost): void
   /** 把 SessionsSnapshot 推给所有打开的 tab（@ 补全数据源，webview ready 时）。 */
   pushSessions(): void
   /** 同步「打开中的会话」集合给 store（完成标记排除打开中的会话）。 */
@@ -101,6 +115,11 @@ export interface ChatTabHostActions {
 export class ChatTabHost implements vscode.Disposable {
   /** 附着会话 id；null = 空态 tab（服务未就绪/无会话可挂）。 */
   sessionId: string | null
+  /**
+   * 稳定标识：跨窗口 reload 的恢复凭据（面板 state 里的 tabId）。面板每次
+   * 重建（createPanel/ensurePanel）沿用同一 tabId；会话替换也不变。
+   */
+  readonly tabId: string
   /** 编辑器 tab（用户关闭后为 null）。 */
   panel: vscode.WebviewPanel | null = null
   /**
@@ -140,9 +159,15 @@ export class ChatTabHost implements vscode.Disposable {
     /** 宿主注入的集合级能力（handler 与 tab 逻辑通过它访问 provider 服务）。 */
     readonly actions: ChatTabHostActions,
     sessionId: string | null,
+    /** 恢复场景：VSCode 还原的面板（位置/active 已还原），不再自行创建。 */
+    restoredPanel?: vscode.WebviewPanel,
+    /** 恢复场景：面板 state 里的 tabId（缺省 = 新建，随机生成）。 */
+    restoreTabId?: string,
   ) {
     this.sessionId = sessionId
-    this.createPanel('DSH One')
+    this.tabId = restoreTabId ?? randomUUID()
+    if (restoredPanel) this.adoptPanel(restoredPanel)
+    else this.createPanel('DSH One')
   }
 
   // ---- 面板生命周期 ----
@@ -151,7 +176,7 @@ export class ChatTabHost implements vscode.Disposable {
   private createPanel(title: string): void {
     const { extensionUri } = this.actions
     const panel = vscode.window.createWebviewPanel(
-      'dshOne.chatPanel',
+      CHAT_PANEL_VIEW_TYPE,
       title,
       { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       {
@@ -163,11 +188,17 @@ export class ChatTabHost implements vscode.Disposable {
         retainContextWhenHidden: true,
       },
     )
+    this.wirePanel(panel)
+  }
+
+  /** 接线一个已存在的 editor panel（创建与恢复共用）：html/图标/订阅/首推。 */
+  private wirePanel(panel: vscode.WebviewPanel): void {
+    const { extensionUri } = this.actions
     // tab 图标用 dsh 官方品牌图标（assets/dsh-favicon.svg，拷自已安装的
     // @deepseek-ai/dsh-web-frontend/dist/favicon.svg；iconPath 是宿主层行为，
     // 无需把 assets 加进 localResourceRoots）。
     panel.iconPath = vscode.Uri.joinPath(extensionUri, 'assets', 'dsh-favicon.svg')
-    panel.webview.html = chatHtml(panel.webview, extensionUri)
+    panel.webview.html = chatHtml(panel.webview, extensionUri, this.tabId)
     this.panel = panel
     // 消息按 tab 路由：闭包捕获本 host，动作落在自己的 controller 上，回复
     // 都 post 回本 tab 的 webview（互不串台）。
@@ -182,9 +213,17 @@ export class ChatTabHost implements vscode.Disposable {
       this.msgSub = null
       this.viewStateSub = null
       this.actions.onViewStateChanged()
+      // 关闭即从恢复映射删除（VSCode 只恢复打开状态的面板，不留幽灵 entry）。
+      this.actions.onTabsChanged(this)
     })
     this.push(this.controller?.getState() ?? this.emptyState())
     this.syncPanelTitle()
+    this.actions.onTabsChanged(this)
+  }
+
+  /** 采用 VSCode 恢复的面板（reload 后 serializer 调用，面板不可自行创建）。 */
+  private adoptPanel(panel: vscode.WebviewPanel): void {
+    this.wirePanel(panel)
   }
 
   /** 用户关闭 tab 后 pending 交互到来：重建 panel（复用保留的 controller）。 */
@@ -280,6 +319,8 @@ export class ChatTabHost implements vscode.Disposable {
       this.push(this.emptyState())
       this.syncPanelTitle()
     }
+    // 会话替换：映射里的 sessionId 更新（reload 后按 tabId 恢复新会话）。
+    this.actions.onTabsChanged(this)
   }
 
   // ---- 状态推送与标题 ----

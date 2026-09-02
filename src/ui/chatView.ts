@@ -18,6 +18,7 @@
  * 新功能落在 tab 类或其 handler 文件里，集合逻辑只改本类。
  */
 import * as vscode from 'vscode'
+import { randomUUID } from 'node:crypto'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { createSession, ensureSession } from '../server/dshRpc.ts'
@@ -29,7 +30,10 @@ import { buildSubagentTree } from '../pure/sessionTree.ts'
 import { SubagentCatalogStore } from './subagentsStore.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
-import { ChatTabHost, EMPTY_STATE, type ChatTabHostActions } from './chatTab.ts'
+import { ChatTabHost, EMPTY_STATE, type ChatPanelRestoreState, type ChatTabHostActions } from './chatTab.ts'
+
+/** workspaceState key：tabId → 当前附着会话（reload 后 serializer 按它重建 tab）。 */
+const OPEN_TABS_KEY = 'chat.openTabs'
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -69,15 +73,19 @@ export class ChatViewProvider implements vscode.Disposable {
   private readonly subagentsSub: vscode.Disposable
   /** 注入给每个 ChatTabHost 的集合级能力（见 ChatTabHostActions）。 */
   private readonly hostActions: ChatTabHostActions
+  /** tabId → 附着会话（窗口 reload 恢复映射，增量维护；见 syncTabMapping）。 */
+  private tabMappings: Record<string, string | null>
 
   constructor(
     private readonly manager: ServerManager,
     private readonly logger: Logger,
     private readonly extensionUri: vscode.Uri,
     private readonly store: SessionsStore,
+    private readonly workspaceState: vscode.Memento,
     /** Fired after a chat-initiated session mutation (e.g. rename) so the store can rebuild. */
     private readonly onSessionsChanged?: () => void,
   ) {
+    this.tabMappings = workspaceState.get<Record<string, string | null>>(OPEN_TABS_KEY, {})
     this.hostActions = {
       manager,
       logger,
@@ -89,6 +97,7 @@ export class ChatViewProvider implements vscode.Disposable {
       openSessionInNewTab: (sessionId) => this.openSessionInNewTab(sessionId),
       onSessionsChanged: () => this.onSessionsChanged?.(),
       onViewStateChanged: () => this.recomputeActive(),
+      onTabsChanged: (host) => this.syncTabMapping(host),
       pushSessions: () => this.pushSessions(),
       syncAttachedSessions: () => this.syncAttachedSessions(),
       push: (host, state) => this.push(host, state),
@@ -365,6 +374,51 @@ export class ChatViewProvider implements vscode.Disposable {
     if (this.tabs.get(key) === tab) this.tabs.delete(key)
     tab.dispose()
     this.syncAttachedSessions()
+  }
+
+  /**
+   * 恢复映射的增量维护（tab 打开/关闭/替换会话时由 ChatTabHost 通知）：
+   * 只写或删本 tab 的 entry——reload 后 serializer 逐个恢复面板，若整表重建
+   * 会把尚未恢复的面板 entry 覆盖掉。孤儿 entry（面板关闭但 reload 时
+   * VSCode 未再恢复）无引用面板，无害。
+   */
+  private syncTabMapping(host: ChatTabHost): void {
+    if (host.panel) {
+      this.tabMappings[host.tabId] = host.sessionId
+    } else {
+      delete this.tabMappings[host.tabId]
+    }
+    void this.workspaceState.update(OPEN_TABS_KEY, this.tabMappings)
+  }
+
+  /**
+   * WebviewPanelSerializer 的 deserializeWebviewPanel：窗口 reload 后 VSCode
+   * 把当时打开的 chat 面板（位置/active 已还原）交回这里重建。按面板 state 里
+   * 的 tabId 查持久化映射得会话；服务 running 直接附着 controller，未起则
+   * 显示空态、由 onServerState 的 running 事件经 lastActive/pendingRestore
+   * 链补附着（与「服务 down 时开 tab 再恢复」同一条路）。
+   */
+  restoreChatPanel(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
+    const raw = state as Partial<ChatPanelRestoreState> | undefined
+    const tabId = typeof raw?.tabId === 'string' && raw.tabId ? raw.tabId : randomUUID()
+    const sessionId = this.tabMappings[tabId] ?? null
+    const key = sessionId ?? ChatViewProvider.EMPTY_TAB_KEY
+    const existing = this.tabs.get(key)
+    if (existing) {
+      // 防御：一个会话一个 tab / 空态 tab 唯一，VSCode 不会重复恢复同一面板；
+      // 真到了（如映射损坏）丢弃多余面板，保留先恢复的。
+      panel.dispose()
+      return Promise.resolve()
+    }
+    const tab = new ChatTabHost(this.hostActions, sessionId, panel, tabId)
+    this.tabs.set(key, tab)
+    if (sessionId && this.manager.getStatus().state === 'running') {
+      tab.attachController(sessionId)
+    }
+    this.syncAttachedSessions()
+    this.pushSessions()
+    this.recomputeActive()
+    return Promise.resolve()
   }
 
   /** 服务 down / 重启：释放所有 controller（panel 保留显示空态，等待恢复）。 */
