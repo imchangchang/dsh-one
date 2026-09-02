@@ -20,6 +20,7 @@ import type {
   ChatState,
   ChatTodoItem,
   ChatToolBlock,
+  CommitInfoResult,
   FromWebviewMessage,
   ModelCatalog,
   OutgoingImage,
@@ -672,6 +673,122 @@ function decorateSessionMentions(container: HTMLElement): void {
   })
 }
 
+// ---- 消息正文 commit hash 联动（点击打开 git 提交视图 / 悬浮显示提交信息） ----
+
+/** 消息正文里的 commit hash：7–40 位 hex，两端不能相邻 hex（避免切开长 hex 串/英文词）。 */
+const COMMIT_SHA_RE = /(?<![0-9a-fA-F])([0-9a-fA-F]{7,40})(?![0-9a-fA-F])/g
+
+/**
+ * 查询结果缓存（sha → info）。流式每帧全量重建 DOM，不缓存会在每帧重复查询同一批
+ * hash；in-flight 去重靠 commitInfoInflight，避免并发重复请求（决策 2 先查后亮）。
+ */
+const commitInfoCache = new Map<string, CommitInfoResult>()
+/** 已发出请求、尚未回传的 sha（回传后从缓存落地并从这里移除）。 */
+const commitInfoInflight = new Set<string>()
+/** 本次 render 新发现的 sha，攒一批在 appendMessageFlow 后统一 post（批量查询）。 */
+const pendingCommitInfoShas = new Set<string>()
+
+/** 把一次 render 内收集到的 commit hash 批量上报（去重见 noteCommitInfoRequest）。 */
+function flushCommitInfoRequests(): void {
+  if (pendingCommitInfoShas.size === 0) return
+  const shas = [...pendingCommitInfoShas]
+  pendingCommitInfoShas.clear()
+  for (const sha of shas) commitInfoInflight.add(sha)
+  post({ type: 'commitInfo', shas })
+}
+
+/** 记录一个待查询的 sha（缓存命中或已 in-flight 则跳过，不重复请求）。 */
+function noteCommitInfoRequest(sha: string): void {
+  if (commitInfoCache.has(sha) || commitInfoInflight.has(sha)) return
+  pendingCommitInfoShas.add(sha)
+}
+
+/** 单行紧凑悬浮标题：subject · 作者 · 日期（决策 4）。 */
+function commitInfoTitle(info: CommitInfoResult): string {
+  return [info.message, info.authorName, info.commitDate].filter(Boolean).join(' · ')
+}
+
+/** 按缓存里该 sha 的状态点亮/灰显 chip，并填悬浮 title（先查后亮，决策 2）。 */
+function applyCommitHashState(span: HTMLElement): void {
+  const sha = span.dataset.sha ?? ''
+  const info = commitInfoCache.get(sha)
+  span.classList.remove('commit-hash-found', 'commit-hash-unknown')
+  if (!info) {
+    // 未确认：灰显（悬停提示正在查询），点击仍可触发——宿主兜底「未找到该提交」。
+    span.title = t('Checking commit info…')
+    return
+  }
+  if (info.found) {
+    span.classList.add('commit-hash-found')
+    span.title = commitInfoTitle(info)
+  } else {
+    span.classList.add('commit-hash-unknown')
+    span.title = t('Commit not found')
+  }
+}
+
+/** 认出的 commit hash 换成可点击 span（悬停 title 由缓存状态定，点击走 commitOpen）。 */
+function commitHashEl(sha: string): HTMLElement {
+  const span = el('span', 'commit-hash')
+  span.dataset.sha = sha
+  span.textContent = sha
+  span.setAttribute('role', 'button')
+  span.tabIndex = 0
+  span.addEventListener('click', () => post({ type: 'commitOpen', sha }))
+  span.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      post({ type: 'commitOpen', sha })
+    }
+  })
+  applyCommitHashState(span)
+  noteCommitInfoRequest(sha)
+  return span
+}
+
+/**
+ * md 块渲染后扫描正文文本节点里的 commit hash 并替换为可点击 span。跳过代码块
+ * （pre > code）、内联 code 与链接文本——hash 作为代码/链接内容时不联动（仅正文）。
+ */
+function decorateCommitHashes(container: HTMLElement): void {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement
+      if (!parent) return NodeFilter.FILTER_REJECT
+      if (parent.closest('code, pre, a')) return NodeFilter.FILTER_REJECT
+      return NodeFilter.FILTER_ACCEPT
+    },
+  })
+  const textNodes: Text[] = []
+  while (walker.nextNode()) textNodes.push(walker.currentNode as Text)
+  for (const node of textNodes) {
+    const value = node.nodeValue ?? ''
+    COMMIT_SHA_RE.lastIndex = 0
+    if (!COMMIT_SHA_RE.test(value)) continue
+    const frag = document.createDocumentFragment()
+    let last = 0
+    COMMIT_SHA_RE.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = COMMIT_SHA_RE.exec(value)) !== null) {
+      if (m.index > last) frag.appendChild(document.createTextNode(value.slice(last, m.index)))
+      frag.appendChild(commitHashEl(m[0]))
+      last = m.index + m[0].length
+    }
+    if (last < value.length) frag.appendChild(document.createTextNode(value.slice(last)))
+    node.parentNode?.replaceChild(frag, node)
+  }
+}
+
+/** commitInfo 回传后就地更新 DOM 里的 chip 样式与 title（不整页重渲——流式期间
+ *  render 本身就在频繁重建，避免再叠加一轮）。 */
+function refreshCommitHashSpans(shas: string[]): void {
+  const set = new Set(shas)
+  document.querySelectorAll<HTMLElement>('.commit-hash').forEach((span) => {
+    const sha = span.dataset.sha ?? ''
+    if (set.has(sha)) applyCommitHashState(span)
+  })
+}
+
 /** 一个代码块主体（<pre><code>，文本走 textContent 防注入）。 */
 function mdCodeBody(text: string): HTMLPreElement {
   const pre = el('pre') as HTMLPreElement
@@ -795,6 +912,11 @@ window.addEventListener('message', (event) => {
       recall = null
       recallDraft = ''
       earlierAnchor = null
+      // commit hash 查询缓存按会话隔离：同一短 hash 在不同仓库可能指向不同提交，
+      // 换会话后旧缓存里的 title 会误导，需重查（先查后亮保证点击行为仍准确）。
+      commitInfoCache.clear()
+      commitInfoInflight.clear()
+      pendingCommitInfoShas.clear()
       stagedForSession = state.sessionId
       draftRestoreFor = state.sessionId
     }
@@ -807,6 +929,16 @@ window.addEventListener('message', (event) => {
   } else if (msg?.type === 'commandResult' && typeof msg.text === 'string' && msg.text.trim()) {
     commandNotices = [...commandNotices, msg.text]
     render()
+  } else if (msg?.type === 'commitInfo' && Array.isArray(msg.results)) {
+    // commit hash 查询回传：落地缓存（清 in-flight），就地更新 chip 样式与悬浮 title。
+    const shas: string[] = []
+    for (const r of msg.results) {
+      if (!r || typeof r.sha !== 'string' || typeof r.found !== 'boolean') continue
+      commitInfoInflight.delete(r.sha)
+      commitInfoCache.set(r.sha, r)
+      shas.push(r.sha)
+    }
+    if (shas.length > 0) refreshCommitHashSpans(shas)
   } else if (msg?.type === 'imagesPicked' && Array.isArray(msg.images)) {
     pendingImages = [...pendingImages, ...msg.images]
     render()
@@ -2509,6 +2641,8 @@ function render(): void {
     messages.appendChild(olderWrap)
   }
   appendMessageFlow(messages, state)
+  // 正文 commit hash 的「先查后亮」：把本次 render 发现的新 hash 批量上报宿主查询。
+  flushCommitInfoRequests()
   for (const notice of commandNotices) messages.appendChild(el('div', 'command-notice', notice))
   if (state.messages.length === 0 && steeringItems.length === 0) {
     messages.appendChild(el('div', 'muted-hint', t('No messages yet — start typing below.')))
@@ -4004,6 +4138,7 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
       div.innerHTML = md(block.text)
       decorateSessionMentions(div)
       enhanceCodeBlocks(div, key)
+      decorateCommitHashes(div)
       return div
     }
     case 'reasoning': {
