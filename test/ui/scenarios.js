@@ -557,6 +557,20 @@
       expect: '整个列表区只有居中灰字「Loading…」（sessions-empty），**无**「添加工作区」引导、「未分组」组头/新建按钮、无任何会话行或 workspace 组；头部工具栏照常显示。',
     },
 
+    'sessions-no-workspaces': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        // 基线已就绪但确实没有任何真实 workspace：与「未就绪」对照——
+        // 「添加工作区」引导 + 「未分组」空组头（新建未分组对话入口）应照常显示。
+        s.baselineReady = true
+        s.workspaces = [{ workspaceId: UNGROUPED, path: '', label: '未分组', isCurrent: false, sessions: [] }]
+        return s
+      })(),
+      title: '侧栏面板（基线就绪：确实没有 workspace）',
+      expect: '列表上方「添加工作区」引导（No workspaces yet…），下方「未分组」组头（文件夹图标 + 组名「未分组」，行尾「+」新建按钮仅结构存在——截图为静态，不核对 hover），无任何会话行；头部工具栏照常显示。',
+    },
+
     'sessions-search': {
       view: 'sessions',
       sessions: (() => {
