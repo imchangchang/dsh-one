@@ -5,6 +5,7 @@
 // 成功时 stdout 打印一行 dsh pid。
 import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 const [dshCommand, logFile, ...args] = process.argv.slice(2)
 
@@ -14,12 +15,32 @@ const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 delete env.NODE_OPTIONS
 
-// CI 实测：Windows-latest 上 spawn(detached + shell + stdio 传文件 fd) 的输出不落盘
-//（dsh 正常启动、pid 正常打印，但日志文件 0 字节），改为 pipe 收集再写盘。
-// POSIX 分支保持原逻辑（已实测有效）。
-// DSH_FORCE_PIPE=1 可在任意平台强制走 pipe 分支，便于本地/CI 实测 pipe 路径
-//（真实 win32 分支无法在 mac 上现跑）。
-const usePipe = process.platform === 'win32' || process.env.DSH_FORCE_PIPE === '1'
+// 解析 npm 全局 shim（dsh.cmd）背后的 dsh 入口：npm cmd shim 模板固定为
+// `node <shim目录>\node_modules\@deepseek-ai\dsh\lib\bin.js`（CI 实测确认）。
+// 找不到返回 null（自定义 dshPath 等场景走 cmd /c 回退路径）。
+function resolveDshJs(command: string): string | null {
+  let shimPath = command
+  if (!path.isAbsolute(shimPath)) {
+    let found: string | null = null
+    for (const dir of (process.env.PATH ?? '').split(';')) {
+      if (dir === '') continue
+      const candidate = path.join(dir, 'dsh.cmd')
+      if (fs.existsSync(candidate)) {
+        found = candidate
+        break
+      }
+    }
+    shimPath = found ?? ''
+  }
+  if (shimPath === '' || !shimPath.toLowerCase().endsWith('.cmd')) return null
+  const pkgRoot = path.join(path.dirname(shimPath), 'node_modules', '@deepseek-ai', 'dsh')
+  const candidates = [
+    path.join(pkgRoot, 'lib', 'bin.js'),
+    path.join(pkgRoot, 'bin', 'dsh.js'),
+    path.join(pkgRoot, 'bin', 'index.js'),
+  ]
+  return candidates.find((p) => fs.existsSync(p)) ?? null
+}
 
 // 确保 stdout 的 pid 真正 flush 后再退出：process.exit 不会等待异步 stdout 写，
 // 末尾空写一个空 chunk 当屏障，等它回调时前面的 pid 已落到管道。
@@ -27,29 +48,57 @@ const flushExit = (code: number): void => {
   process.stdout.write('', () => process.exit(code))
 }
 
-if (!usePipe) {
-  // POSIX：detached + stdio 直接进日志文件 fd。
-  const logFd = fs.openSync(logFile, 'w')
-  const child = spawn(dshCommand, args, {
-    detached: true,
-    shell: process.platform === 'win32',
-    windowsHide: true,
-    stdio: ['ignore', logFd, logFd],
-    env,
-  })
-  child.unref()
-  child.once('spawn', () => {
-    fs.closeSync(logFd)
-    process.stdout.write(`${child.pid}\n`, () => process.exit(0))
-  })
-  child.once('error', (err) => {
-    fs.closeSync(logFd)
-    process.stderr.write(String(err))
-    process.exit(1)
-  })
-} else {
-  // Windows / force-pipe：stdout+stderr 用 pipe 收集。detached+unref 保留，
-  // dsh 脱离父进程树，启动器驻留与否不影响 dsh 安全。
+if (process.platform === 'win32') {
+  // Windows：dsh 默认是 npm 全局装的 .cmd shim（dsh.cmd）。CI 实测（node 22，
+  // windows-latest）detached（DETACHED_PROCESS）下 cmd.exe / PowerShell 这类
+  // 控制台外壳的输出链断裂：pipe 收集、文件 fd 直传均 0 字节，且与包装方式
+  // 无关（Node shell:true 自动包装 / 显式 cmd.exe /c / PowerShell 通道均无输出，
+  // 去掉 detached 立即正常）；node 直跑则输出正常（实测）。因此绕开 cmd 层：
+  // 优先解析 npm shim 背后的 dsh.js，用 node 直跑（detached + stdio 进日志 fd，
+  // 与 POSIX 同款）；解析失败（自定义 dshPath 等）回退 cmd.exe /c 内部重定向
+  //（> log 2>&1 由 cmd 自己写文件，不依赖 stdio 句柄传递）。
+  const dshJs = resolveDshJs(dshCommand)
+  if (dshJs !== null) {
+    const logFd = fs.openSync(logFile, 'w')
+    const child = spawn('node', [dshJs, ...args], {
+      detached: true,
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', logFd, logFd],
+      env,
+    })
+    child.unref()
+    child.once('spawn', () => {
+      fs.closeSync(logFd)
+      process.stdout.write(`${child.pid}\n`, () => process.exit(0))
+    })
+    child.once('error', (err) => {
+      fs.closeSync(logFd)
+      process.stderr.write(String(err))
+      process.exit(1)
+    })
+  } else {
+    const quote = (s: string): string => (/\s/.test(s) ? `"${s}"` : s)
+    const cmdLine = [quote(dshCommand), ...args.map(quote), '>', quote(logFile), '2>&1'].join(' ')
+    const child = spawn('cmd.exe', ['/d', '/s', '/c', cmdLine], {
+      detached: true,
+      shell: false,
+      windowsHide: true,
+      stdio: 'ignore',
+      env,
+    })
+    child.unref()
+    child.once('spawn', () => {
+      process.stdout.write(`${child.pid}\n`, () => process.exit(0))
+    })
+    child.once('error', (err) => {
+      process.stderr.write(String(err))
+      process.exit(1)
+    })
+  }
+} else if (process.env.DSH_FORCE_PIPE === '1') {
+  // 调试开关：任意平台强制走 pipe 收集路径（原生 shell 包装），
+  // 用于本地/CI 实测 pipe 路径；真实 win32 分支无法在 mac 上现跑。
   const child = spawn(dshCommand, args, {
     detached: true,
     shell: true,
@@ -98,4 +147,24 @@ if (!usePipe) {
     process.stdout.write(`${child.pid}\n`)
   })
   residencyTimer = setTimeout(finish, 2000)
+} else {
+  // POSIX：detached + stdio 直接进日志文件 fd。
+  const logFd = fs.openSync(logFile, 'w')
+  const child = spawn(dshCommand, args, {
+    detached: true,
+    shell: false,
+    windowsHide: true,
+    stdio: ['ignore', logFd, logFd],
+    env,
+  })
+  child.unref()
+  child.once('spawn', () => {
+    fs.closeSync(logFd)
+    process.stdout.write(`${child.pid}\n`, () => process.exit(0))
+  })
+  child.once('error', (err) => {
+    fs.closeSync(logFd)
+    process.stderr.write(String(err))
+    process.exit(1)
+  })
 }
