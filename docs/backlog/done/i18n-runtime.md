@@ -41,9 +41,9 @@
 - 显示语言跟随 VS Code UI 语言：en → 英文默认串；zh-cn → bundle 中文译文；其他 locale 无文件时回退英文默认串。
 - 不动的部分：webview 内显示的文案（含 pure/ 模块文案、queue notes、commandResult、`webview.ts` 错误页）留给 i18n-webview；dsh 服务下发的消息文本；spawnDsh.ts（独立 Node 进程，无 vscode 依赖）。
 
-人工验收方法（真实 VSCode dev-ui-test；**显示语言跟随 VS Code UI 语言**，中/英文各起一个独立实例）：
+人工验收方法（真实 VSCode dev-ui-test；**显示语言跟随 VS Code UI 语言**，中/英文各起一个独立实例；命令面板里的命令标题属 manifest 层，归 i18n-manifest，不在此验收）：
 
-1. 英文：`cd <repo-root>/.worktrees/i18n-runtime && code . --extensionDevelopmentPath=/Users/cgeng/Workspaces/dsh-one/.worktrees/i18n-runtime --user-data-dir=/tmp/dsh-uidev/i18n-runtime-en/user-data --extensions-dir=/tmp/dsh-uidev/i18n-runtime-en/extensions --locale=en`，确认状态栏「DSH: Running :3080」，tooltip 为英文（Open in Browser/Restart Service/Show Logs）；命令面板搜 "Rename Session"/"Create Workspace" 为英文标题；归档会话 modal 为 "Archive session ..." + "Archive" 按钮。
-2. 中文：把 VS Code 界面切到中文（`--locale=zh-cn` 起实例，或系统中文 + 已装中文语言包），同实例下状态栏「DSH: 运行中 :3080」、tooltip 中文（在浏览器中打开/重启服务/显示日志）、归档 modal「确认归档会话…」+「归档」按钮。
-3. 无 workspace 时执行「新建会话」：英文实例弹 "No workspace available. Open a folder in VSCode first."，中文实例弹中文对应文案。
+1. 英文：`cd <repo-root>/.worktrees/i18n-runtime && code . --extensionDevelopmentPath=/Users/cgeng/Workspaces/dsh-one/.worktrees/i18n-runtime --user-data-dir=/tmp/dsh-uidev/i18n-runtime-en/user-data --extensions-dir=/tmp/dsh-uidev/i18n-runtime-en/extensions --locale=en`，确认状态栏「DSH: Running :3080」，悬停 tooltip 为英文（Open in Browser/Restart Service/Show Logs）。
+2. 运行时对话框抽查（英文实例）：执行命令「DSH One: 重命名会话」→ 输入框标题为 "Rename Session"；侧栏会话右键 → Archive → modal 为 "Archive session ..." + "Archive" 按钮；无 workspace 时执行「新建会话」→ 通知 "No workspace available. Open a folder in VSCode first."。
+3. 中文：把 VS Code 界面切到中文（`--locale=zh-cn` 起实例，或系统中文 + 已装中文语言包），同实例下状态栏「DSH: 运行中 :3080」、tooltip 中文（在浏览器中打开/重启服务/显示日志）、归档 modal「确认归档会话…」+「归档」按钮。
 4. 端口占用场景（可选）：把设置 `dshOne.port` 改成被占用端口再激活，英文实例通知显示 "DSH One: port X is occupied by another program; using port Y this time (setting unchanged)"。
