@@ -46,3 +46,5 @@ chat 消息正文里出现「提交 8272a6c」这样的短 commit hash（assista
 
 - 2026-09-02 记录需求并核实：`git.viewCommit` 命令 + Git 扩展 exports API（`getAPI(1)` → `repository.getCommit(ref)`）可行；内置 Git 无 commit URI handler；dsh-one 复用 `sessionOpen` 通路。方案（识别/点击/悬浮/误伤控制）待确认 → open
 - 2026-09-02 Sprint 2 前定稿 5 个待确认点（识别范围用户拍板仅正文，其余按推荐）
+
+- 2026-09-02 认领（Sprint 2 节点，worktree: agent/commit-hash-interactive）→ doing
