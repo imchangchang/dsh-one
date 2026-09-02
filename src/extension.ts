@@ -82,6 +82,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     chatView,
     sessionsView,
     reconcileChat,
+    // 窗口失焦期间侧栏可能被覆盖，回到聚焦时列表可能过期——刷新一次（失焦不刷）。
+    vscode.window.onDidChangeWindowState((state) => {
+      if (state.focused) void sessions.refreshSoon()
+    }),
     vscode.window.registerWebviewViewProvider('dshOne.chat', sessionsView, {
       webviewOptions: { retainContextWhenHidden: true },
     }),

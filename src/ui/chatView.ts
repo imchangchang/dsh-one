@@ -1873,6 +1873,9 @@ export class ChatViewProvider implements vscode.Disposable {
             return
           }
           await target.send(text, images, m.steer === true)
+          // 发送落地后追平基线（updatedAt 变化 → 列表排序及时反映真实状态）：
+          // 走统一去抖入口，与随后的 running 翻转等触发点合并成一次重拉。
+          void this.store.refreshSoon()
           return
         }
         case 'stop': {
