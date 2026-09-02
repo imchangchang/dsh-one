@@ -151,3 +151,32 @@ chat-scroll-stream-jitter-self-lock / session-menu-reorder-freeze），merge 解
 自测：typecheck + 326 测试全绿 + build（merge 后）
 
 - 2026-09 主线合入测试通过（merge bcbc71e），人工 dev-ui-test 验收通过 → closed
+
+### 合入后回归修复（2026-09，main 直接补丁）
+
+人工验收后用户复测发现两个回归，根因同一处：**dev-merge 的
+`--rebase-merges` 重放时，两个文件被回退到宿主拆分前旧版**（其余冲突
+文件用 6bf1c00 最终答案树解决，这两个漏了）：
+
+1. **切换 workspace 无效**：`chatMessages.ts` 丢了 workspace
+   （workspacePick/Add/Create）、goal（goalPause/Resume/Edit/Clear）、
+   文件（producedOpenFile/openAttachmentFile）三个 handler 域，前端发
+   这些消息宿主无人响应；同时丢 send/setAgentPreset 的
+   `resolvePendingWorkspace` 落地与 `openFileInEditor` 辅助。
+2. **产物/文件渲染缺样式**：`chatViewHtml.ts` 丢 315 行 CSS
+   （.ref-chip / .produced-files / .compaction / .retry-row /
+   .tool-purpose / diff 双栏等），而 webview.ts 一直在渲染这些类，
+   产物行、引用 chip、diff 分栏等显示不对。
+
+修复（提交 6bf1c00 之后为 bc6ae6d）：两文件整体还原为 6bf1c00 树，
+与 webview.ts 4827 行自包含版匹配；typecheck + 326 测试 + build 全绿。
+另修 `gen-ui-harness.mjs`（3120caa）：STYLE 已在宿主拆分时移入
+`chatViewHtml.ts`，脚本仍从 `chatView.ts` 抽取导致 harness CSS
+无法重新生成，改指新位置并重新导出 `test/ui/style.css`。
+
+验证：`scripts/ui-visual.sh --mode baseline` 30 场景全过（含
+produced-files 系列、mention-chips、diff-side-by-side、attachment-uniform）。
+
+教训（供后续 dev-merge 参考）：`--rebase-merges` 重放后要
+`git diff <最终答案树> main -- src/` 全量对账，不能只依赖冲突解决
+记录——重放可能静默回退非冲突文件。
