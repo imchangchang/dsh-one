@@ -23,6 +23,7 @@ dsh-one 核对结果：
 
 - 2026-09-01 认领 → doing（并行开发 session）
 - 2026-09-01 开发完成，自测通过（typecheck + 253 test + build）→ done
+- 2026-09-02 主线合入（74e1eed，功能提交 rebase 后为 07258e6）并人工确认 → closed
 
 ## 开发完成（2026-09-01，commit a7a263a）
 
