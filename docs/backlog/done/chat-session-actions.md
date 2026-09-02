@@ -35,3 +35,5 @@ chat 窗口（editor WebviewPanel，viewType `dshOne.chatPanel`）一个会话�
 无
 
 - 2026-09-02 认领（本会话）→ doing
+
+- 2026-09-02 开发完成，自测通过（typecheck/test/build，336 tests）→ done
