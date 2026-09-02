@@ -1299,9 +1299,11 @@ export class ChatViewProvider implements vscode.Disposable {
   }
 
   /**
-   * 打开（或聚焦）一个会话的 tab：已有 tab → reveal（服务重启清空 controller
-   * 后重新附着）；没有 → 在当前活动编辑器列新建 tab（一个会话一个 tab）。
-   * 非运行中的服务会被忽略（侧栏点击无效；服务恢复后自动重开活动会话）。
+   * 打开一个会话（侧栏点击 / 聊天内跳转 / 新建会话）：**默认在当前活动
+   * chat tab 打开**（替换该 tab 的会话，用户决策）——已有该会话的 tab 则
+   * 聚焦它（一个会话一个 tab，不复制）；没有活动 chat tab（焦点在文件或
+   * 没有 chat tab）时新建 tab。非运行中的服务：已有 tab 显示空态，没有则
+   * 开空态 tab（服务恢复后自动重开活动会话）。
    */
   openSession(sessionId: string): void {
     if (!sessionId) return
@@ -1320,12 +1322,40 @@ export class ChatViewProvider implements vscode.Disposable {
       this.store.setUnread(sessionId, false)
       return
     }
+    const active = this.activeTab()
+    if (active) {
+      // 有活动 chat tab：默认在当前 tab 打开（替换该 tab 的会话）。
+      this.replaceTabSession(active, sessionId)
+      return
+    }
+    // 没有活动 chat tab → 新建 tab（原「总是新建」路径）。
+    this.openSessionInNewTab(sessionId)
+  }
+
+  /**
+   * 显式「在新 tab 中打开」（侧栏菜单/命令）：总是新建一个 tab；该会话
+   * 已有 tab 则聚焦它（不复制）。非运行中的服务开空态 tab。
+   */
+  openSessionInNewTab(sessionId: string): void {
+    if (!sessionId) return
+    this.pendingRestoreSessionId = null
+    const existing = this.tabs.get(sessionId)
+    if (existing) {
+      if (!existing.controller) this.attachController(existing, sessionId)
+      if (!existing.panel) {
+        this.ensurePanel(existing)
+      } else {
+        this.revealTab(existing)
+      }
+      this.store.setUnread(sessionId, false)
+      return
+    }
     const status = this.manager.getStatus()
     const url = status.state === 'running' && status.url ? status.url : null
     if (!url) {
       // 与单面板时代一致：服务没起来点会话也有反馈——打开（或聚焦）空态
       // tab 显示安装引导/hero，等服务恢复（自动重开活动会话）。
-      this.logger.warn(`chat: openSession(${sessionId}) ignored — server not running`)
+      this.logger.warn(`chat: openSessionInNewTab(${sessionId}) ignored — server not running`)
       const empty = this.tabs.get(ChatViewProvider.EMPTY_TAB_KEY)
       if (empty) {
         this.revealTab(empty)
@@ -1340,6 +1370,34 @@ export class ChatViewProvider implements vscode.Disposable {
     const tab = this.createTab(sessionId)
     this.attachController(tab, sessionId)
     this.revealTab(tab)
+  }
+
+  /**
+   * 把当前活动 tab 的内容换成目标会话（「在当前 tab 打开」）：旧会话的
+   * controller 与订阅释放（等同单面板时代切换会话），暂存附件清空（不投给
+   * 别的会话），tab 的 panel/消息订阅复用。
+   */
+  private replaceTabSession(tab: ChatTab, sessionId: string): void {
+    const oldKey = tab.sessionId ?? ChatViewProvider.EMPTY_TAB_KEY
+    tab.controllerSub?.dispose()
+    tab.controllerSub = null
+    tab.controller?.dispose()
+    tab.controller = null
+    tab.pendingStagedFiles = []
+    tab.pendingStagedImages = []
+    tab.lastSessionTitle = undefined
+    if (this.tabs.get(oldKey) === tab) this.tabs.delete(oldKey)
+    tab.sessionId = sessionId
+    this.tabs.set(sessionId, tab)
+    this.attachController(tab, sessionId)
+    if (!tab.controller) {
+      // 服务没起来附着失败：tab 显示空态（旧会话内容已释放，不能残留）。
+      this.push(tab, this.emptyState())
+      this.syncPanelTitle(tab)
+    }
+    this.store.setUnread(sessionId, false)
+    this.revealTab(tab)
+    this.syncAttachedSessions()
   }
 
   /**
@@ -1993,7 +2051,7 @@ export class ChatViewProvider implements vscode.Disposable {
       // The tree learns about the child via this hook; the chat opens a new
       // tab for it (用户决策：fork 后新开 tab，原会话 tab 保留便于对照).
       this.onSessionsChanged?.()
-      this.openSession(childId)
+      this.openSessionInNewTab(childId)
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       vscode.window.showErrorMessage(`创建分支会话失败：${detail}`)

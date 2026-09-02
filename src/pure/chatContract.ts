@@ -513,8 +513,10 @@ export type FromWebviewMessage =
   | { type: 'openExternal'; url: string }
   /** 外链右键菜单选了「VS Code 内置浏览器打开」（Simple Browser）。 */
   | { type: 'openInBuiltinBrowser'; url: string }
-  /** Sessions 面板：附着一个会话（点击会话行）。 */
+  /** Sessions 面板：附着一个会话（点击会话行，默认在当前活动 chat tab 打开）。 */
   | { type: 'sessionOpen'; sessionId: string }
+  /** Sessions 面板：在新 tab 中打开一个会话（右键菜单，显式新开 tab）。 */
+  | { type: 'sessionOpenInNewTab'; sessionId: string }
   /** Sessions 面板：在指定 workspace 新建会话（缺省由宿主选默认 workspace）。 */
   | { type: 'sessionNew'; workspaceId?: string }
   /** Sessions 面板：重命名会话；title 为当前标题，供宿主输入框预填。 */

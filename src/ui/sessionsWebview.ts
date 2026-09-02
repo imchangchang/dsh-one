@@ -823,6 +823,16 @@ function highlightText(text: string): HTMLElement {
 function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
   const body = el('div')
+  // 默认点击会话行 = 在当前活动 chat tab 打开；这里显式提供「新开 tab」。
+  body.appendChild(
+    menuItem('在新 tab 中打开', {
+      icon: iconSvg(PANEL_ICONS.boxedPlus),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionOpenInNewTab', sessionId: s.sessionId })
+      },
+    }),
+  )
   body.appendChild(
     menuItem('重命名', {
       icon: iconSvg(PANEL_ICONS.edit),

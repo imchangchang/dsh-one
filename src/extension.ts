@@ -94,10 +94,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.sessions.refresh', async () => {
       await sessions.refresh()
     }),
-    // Click a session in the sidebar panel: open (or reveal) the editor panel
-    // & attach (reused by the sessions webview via the command).
+    // Click a session in the sidebar panel: open in the current chat tab by
+    // default (reused by the sessions webview via the command).
     vscode.commands.registerCommand('dshOne.session.open', (sessionId?: string) => {
       if (typeof sessionId === 'string') chatView.openSession(sessionId)
+    }),
+    // 侧栏菜单「在新 tab 中打开」：显式新开一个会话 tab。
+    vscode.commands.registerCommand('dshOne.session.openInNewTab', (sessionId?: string) => {
+      if (typeof sessionId === 'string') chatView.openSessionInNewTab(sessionId)
     }),
     vscode.commands.registerCommand('dshOne.session.new', async (workspaceId?: string) => {
       const url = sessions.runningUrl
@@ -165,7 +169,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return
       }
       await sessions.refresh()
-      chatView.openSession(newSessionId)
+      // fork 后的子会话在新 tab 打开（用户决策：fork 后新开 tab，原 tab 保留）。
+      chatView.openSessionInNewTab(newSessionId)
     }),
     // Editor/explorer 右键「发送到当前会话」：把当前文件作为附件暂存到当前
     // 活跃会话的 composer（等同点「添加附件」）。

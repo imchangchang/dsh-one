@@ -338,9 +338,14 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
   private async onMessage(m: FromWebviewMessage): Promise<void> {
     if (!m || typeof m.type !== 'string') return
     switch (m.type) {
-      // 打开/更新 editor 面板并附着（复用 extension 命令，其内部 openSession）。
+      // 打开/更新 editor 面板并附着（复用 extension 命令，其内部 openSession：
+      // 默认在当前活动 chat tab 打开）。
       case 'sessionOpen':
         void vscode.commands.executeCommand('dshOne.session.open', m.sessionId)
+        return
+      // 右键菜单「在新 tab 中打开」：显式新开一个会话 tab。
+      case 'sessionOpenInNewTab':
+        void vscode.commands.executeCommand('dshOne.session.openInNewTab', m.sessionId)
         return
       case 'sessionNew':
         void vscode.commands.executeCommand('dshOne.session.new', m.workspaceId)
