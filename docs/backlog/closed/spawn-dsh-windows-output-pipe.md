@@ -54,3 +54,9 @@
        （版本/端口等），不再为空文件。
   - 备注：CI 冒烟已改为 Windows 也经 spawnDsh.js 验证日志非空（原为
     PowerShell 直跑，现保留为失败时的对照），该改动随本任务合入。
+
+- 2026-09-01 主线合入测试通过 → closed（merge commit 8e03ccd）
+  - 备注：**Windows 真机人工验证待后续执行**（条目上方「人工验收方法」两条：
+    无 VSCode 冒烟 `node dist/spawnDsh.js dsh <log> --version` 日志含版本号；
+    插件内「DSH One: 显示日志」非空）。CI 已实测日志非空，真机验证若发现问题，
+    本条重新打开（done → open）走修复流程。
