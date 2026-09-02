@@ -561,6 +561,24 @@ function presetIconSvg(): SVGSVGElement {
   return svg
 }
 
+/**
+ * 无限周期 CSS 动画的「相位续播」：render() 随快照全量重建消息区 DOM，新建元素
+ * 会让 animation 从 0 重新开始——流式期间快照 ~100ms 一帧，转圈/闪烁动画每帧被
+ * 打回起点，视觉上就是疯狂刷新。给新建元素补一个负 animation-delay（= 当前时刻
+ * 在周期里的相位），新元素从旧元素的相位继续，观感即连续（周期 animation 相位
+ * 对齐等价于节点保活，且能覆盖元素被重建的任意场景）。
+ */
+function syncAnimPhase(el: HTMLElement | SVGElement, periodMs: number): void {
+  el.style.animationDelay = `${-(performance.now() % periodMs)}ms`
+}
+
+/** 转圈 spinner（.spinner，0.9s/圈）：创建即对齐相位，见 syncAnimPhase。 */
+function spinnerEl(): HTMLSpanElement {
+  const s = el('span', 'spinner')
+  syncAnimPhase(s, 900)
+  return s
+}
+
 function spinSvg(): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('width', '10')
@@ -568,13 +586,16 @@ function spinSvg(): SVGSVGElement {
   svg.setAttribute('viewBox', '0 0 10 10')
   svg.setAttribute('shape-rendering', 'crispEdges')
   svg.classList.add('session-spin')
+  const phase = -(performance.now() % 1000)
   SPIN_CELLS.forEach(([x, y], i) => {
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
     rect.setAttribute('x', String(x))
     rect.setAttribute('y', String(y))
     rect.setAttribute('width', '2')
     rect.setAttribute('height', '2')
-    rect.style.animationDelay = `${(i - SPIN_CELLS.length) * 125}ms`
+    // 原有错相（-N..-1 步 × 125ms）保留，叠加全局相位：每格从自己该在的
+    // 相位续播（周期 1s），快照重建不再从头闪。
+    rect.style.animationDelay = `${phase + (i - SPIN_CELLS.length) * 125}ms`
     svg.appendChild(rect)
   })
   return svg
@@ -3087,7 +3108,10 @@ function renderTurnStatus(): HTMLElement {
   const row = el('div', 'turn-status')
   row.setAttribute('role', 'status')
   row.setAttribute('aria-live', 'polite')
-  row.appendChild(el('span', 'turn-status-text', 'Deep diving...'))
+  const statusText = el('span', 'turn-status-text', 'Deep diving...')
+  // 1.8s shimmer 相位续播：流式每帧重建该行，不补进度会每帧从头闪。
+  syncAnimPhase(statusText, 1800)
+  row.appendChild(statusText)
   const clock = el('span', 'turn-status-clock')
   const tick = (): void => {
     const elapsed = Date.now() - start
@@ -3162,13 +3186,13 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
       const det = detailsEl(`${key}:cmd`, 'command-detail', '')
       const summary = det.querySelector('summary') as HTMLElement
       summary.appendChild(el('span', 'command-line', `/${m.name}${m.args ? ` ${m.args}` : ''}`))
-      if (m.status === 'running') summary.appendChild(el('span', 'spinner'))
+      if (m.status === 'running') summary.appendChild(spinnerEl())
       summary.appendChild(el('span', 'command-text', text.split('\n')[0]))
       det.appendChild(el('pre', 'command-body', text))
       row.appendChild(det)
     } else {
       row.appendChild(el('span', 'command-line', `/${m.name}${m.args ? ` ${m.args}` : ''}`))
-      if (m.status === 'running') row.appendChild(el('span', 'spinner'))
+      if (m.status === 'running') row.appendChild(spinnerEl())
       if (text) row.appendChild(el('span', 'command-text', text))
     }
     return row
@@ -3431,6 +3455,8 @@ function renderRetryRow(block: ChatRetryBlock, key: string): HTMLElement {
   if (block.retryState === 'scheduled') det.setAttribute('data-active', '')
   const maximum = block.mode === 'normal' ? String(block.maxRetries ?? '?') : '∞'
   const status = el('span', 'retry-text')
+  // 1.6s retry-shimmer 相位续播：快照重建该行时不再从头闪。
+  syncAnimPhase(status, 1600)
   const scheduledSeconds = retrySeconds(block.delayMs)
   const setStatus = (): void => {
     const seconds =
@@ -3692,7 +3718,7 @@ function subagentSnapshotNote(block: ChatToolBlock): HTMLElement | null {
  * spinner（dsh-one 惯例），error → StateDot 红点，其余 → 专用图标。
  */
 function toolLeading(icon: IconDef, status: ChatToolBlock['status']): HTMLElement {
-  if (status === 'running') return el('span', 'spinner')
+  if (status === 'running') return spinnerEl()
   if (status === 'error') {
     const dot = el('span', 'tool-state-dot')
     dot.setAttribute('data-state', 'error')
@@ -3870,7 +3896,7 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   const line = el('div', 'tool-line')
   const snapshotNote = subagentSnapshotNote(block)
   if (block.status === 'running') {
-    line.appendChild(el('span', 'spinner'))
+    line.appendChild(spinnerEl())
   } else if (block.status === 'error') {
     // 失败用 dsh web 的 StateDot（error 红点）；done 不挂状态标（dsh web 里
     // settled 工具行只显示工具自身图标，无额外状态覆盖）。
