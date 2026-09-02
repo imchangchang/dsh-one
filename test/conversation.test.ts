@@ -467,14 +467,15 @@ test('host-injected context user messages are flagged, human input is not', () =
 
   const [human, instructions, snapshot] = f.messages()
   assert.deepEqual(human, { kind: 'user', id: 'u1', text: 'real question' })
+  // form='instructions' 声明了但该消息没带 changes，all-or-nothing 校验失败 → 只留 kind 退化 opaque。
   assert.deepEqual(instructions, {
     kind: 'user',
     id: 'ctx1',
     text: '<system-reminder>\nworkspace instructions…',
-    context: 'agent-instructions',
+    context: { kind: 'agent-instructions' },
   })
   assert.equal(snapshot.kind, 'user')
-  assert.equal((snapshot as { context?: string }).context, 'plugin')
+  assert.deepEqual((snapshot as { context?: unknown }).context, { kind: 'plugin' })
 })
 
 test('user message without source falls back to the system-reminder prefix', () => {
@@ -482,8 +483,8 @@ test('user message without source falls back to the system-reminder prefix', () 
   f.applyEvent(ev('user/message', { id: 'l1', role: 'user', content: [{ type: 'text', text: '<system-reminder>\nold style' }] }))
   f.applyEvent(ev('user/message', { id: 'l2', role: 'user', content: [{ type: 'text', text: 'plain' }] }))
 
-  const [legacy, plain] = f.messages() as Array<{ context?: string }>
-  assert.equal(legacy.context, 'legacy-instructions')
+  const [legacy, plain] = f.messages() as Array<{ context?: unknown }>
+  assert.deepEqual(legacy.context, { kind: 'legacy-instructions' })
   assert.equal(plain.context, undefined)
 })
 
@@ -514,7 +515,12 @@ test('session-reference context attaches its references to the triggering user m
     text: '@会话甲 这个看下',
     references: [{ sessionId: 'id-1', label: '会话甲' }],
   })
-  assert.equal((ctx as { context?: string }).context, 'session-reference')
+  // recall form 的 references 取有 label 的条目（畸形 sessionId 条目被丢弃）。
+  assert.deepEqual((ctx as { context?: unknown }).context, {
+    kind: 'session-reference',
+    form: 'recall',
+    references: [{ label: '会话甲' }],
+  })
   assert.equal((ctx as { references?: unknown }).references, undefined)
 })
 
@@ -540,6 +546,93 @@ test('session-reference context with no preceding plain user message attaches no
   const [instructions, ctx] = f.messages()
   assert.equal((instructions as { references?: unknown }).references, undefined)
   assert.equal((ctx as { references?: unknown }).references, undefined)
+})
+
+test('injected context parses the six declared form payloads and degrades opaque on malformed ones', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('user/message', {
+    id: 'i1', role: 'user', content: [{ type: 'text', text: '## Instructions\n…' }],
+    source: { kind: 'agent-instructions', form: 'instructions', baseline: 'root', changes: [
+      { path: 'AGENTS.md', action: 'set', digest: 'abc123' },
+      { path: 'notes/b.md', action: 'replace' },
+      { path: 'gone.md', action: 'remove' },
+    ] },
+  }))
+  f.applyEvent(ev('user/message', {
+    id: 'c1', role: 'user', content: [{ type: 'text', text: '## Catalog\n…' }],
+    source: { kind: 'plugin', form: 'catalog', update: true, entries: [
+      { name: 'review', description: 'code review assistant' },
+      { name: 'search', description: 'repo search' },
+    ] },
+  }))
+  f.applyEvent(ev('user/message', {
+    id: 's1', role: 'user', content: [{ type: 'text', text: '## Snapshot\n…' }],
+    source: { kind: 'plugin', form: 'snapshot', sections: [
+      { name: 'Task', text: 'in progress' },
+      { name: 'Files', text: 'a.ts\nb.ts' },
+    ] },
+  }))
+  f.applyEvent(ev('user/message', {
+    id: 'n1', role: 'user', content: [{ type: 'text', text: 'Some event happened' }],
+    source: { kind: 'plugin', form: 'notice', summary: 'Background task finished' },
+  }))
+  f.applyEvent(ev('user/message', {
+    id: 'r1', role: 'user', content: [{ type: 'text', text: 'Relayed message body' }],
+    source: { kind: 'plugin', form: 'relay', senderSessionId: 'sess-9' },
+  }))
+  f.applyEvent(ev('user/message', {
+    id: 'k1', role: 'user', content: [{ type: 'text', text: '## Recall\n…' }],
+    source: { kind: 'session-reference', form: 'recall', references: [
+      { label: '会话甲', retainedMessages: 3, omittedMessages: 2, truncated: true },
+      { label: '会话乙', retainedMessages: 5, omittedMessages: 0 },
+    ] },
+  }))
+  // 畸形 instructions：一条 action 非法 → all-or-nothing 退回 opaque。
+  f.applyEvent(ev('user/message', {
+    id: 'bad1', role: 'user', content: [{ type: 'text', text: '## Bad\n…' }],
+    source: { kind: 'agent-instructions', form: 'instructions', changes: [{ path: 'a.md', action: 'bogus' }] },
+  }))
+  // 未知 form → opaque。
+  f.applyEvent(ev('user/message', {
+    id: 'u1', role: 'user', content: [{ type: 'text', text: '## unknown\n…' }],
+    source: { kind: 'plugin', form: 'mystery' },
+  }))
+
+  const msgs = f.messages()
+  const ctx = (i: number): unknown => (msgs[i] as { context?: unknown }).context
+  assert.deepEqual(ctx(0), {
+    kind: 'agent-instructions', form: 'instructions', baseline: 'root',
+    changes: [
+      { path: 'AGENTS.md', action: 'set', digest: 'abc123' },
+      { path: 'notes/b.md', action: 'replace' },
+      { path: 'gone.md', action: 'remove' },
+    ],
+  })
+  assert.deepEqual(ctx(1), {
+    kind: 'plugin', form: 'catalog', update: true,
+    entries: [
+      { name: 'review', description: 'code review assistant' },
+      { name: 'search', description: 'repo search' },
+    ],
+  })
+  assert.deepEqual(ctx(2), {
+    kind: 'plugin', form: 'snapshot',
+    sections: [
+      { name: 'Task', text: 'in progress' },
+      { name: 'Files', text: 'a.ts\nb.ts' },
+    ],
+  })
+  assert.deepEqual(ctx(3), { kind: 'plugin', form: 'notice', summary: 'Background task finished' })
+  assert.deepEqual(ctx(4), { kind: 'plugin', form: 'relay', senderSessionId: 'sess-9' })
+  assert.deepEqual(ctx(5), {
+    kind: 'session-reference', form: 'recall',
+    references: [
+      { label: '会话甲', retainedMessages: 3, omittedMessages: 2, truncated: true },
+      { label: '会话乙', retainedMessages: 5, omittedMessages: 0 },
+    ],
+  })
+  assert.deepEqual(ctx(6), { kind: 'agent-instructions' })
+  assert.deepEqual(ctx(7), { kind: 'plugin' })
 })
 
 test('mid-turn injected user message finalizes the split assistant message', () => {
