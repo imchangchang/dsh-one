@@ -60,7 +60,7 @@ export interface SessionNodeModel {
   /** Relative time string, e.g. "3 小时前". */
   description: string
   running: boolean
-  /** Client-side pin (dsh has no pin API); pinned sessions sort first. */
+  /** Client-side pin (dsh has no pin API); pinned sessions carry absolute priority. */
   pinned: boolean
   /**
    * Whether the session has at least one completed turn (sessionStats
@@ -112,8 +112,13 @@ export interface SessionTreeViewOptions {
   sort?: SessionSortOrder
   /** Case-insensitive substring matched against the session label and id. */
   query?: string
-  /** Client-side pinned ids; pinned sessions sort before unpinned within a workspace. */
-  pinned?: ReadonlySet<string>
+  /**
+   * Client-side pinned ids, in pin-time order (absolute priority). Pinned
+   * sessions sort before any unpinned within a workspace; among pinned members
+   * this array's order is authoritative and does NOT track updatedAt/title —
+   * re-pinning (unshift, 取消后再置顶) moves a session to the group's front.
+   */
+  pinned?: readonly string[]
   /** Client-side unread ids; purely a display flag (bold title + dot). */
   unread?: ReadonlySet<string>
   /** Mux-tracked pending interaction per session; display-only yellow dot. */
@@ -144,8 +149,10 @@ export function formatRelativeTime(updatedAt: number, now: number): string {
  * client reuses for "new session") and archived ones are hidden. The
  * workspace matching `currentFolder` comes first (flagged isCurrent); the
  * rest follow their updatedAt descending. Sessions within a workspace put
- * `view.pinned` ids first, then follow `view.sort` (default updatedAt
- * descending). A non-empty `view.query`
+ * workspace put `view.pinned` ids first (absolute priority); pinned members
+ * hold the order of `view.pinned` (置顶顺序，不随 updatedAt/title 调整), the
+ * remaining unpinned ones follow `view.sort` (default updatedAt descending). A
+ * non-empty `view.query`
  * keeps only sessions whose label or id contains it (case-insensitive) and
  * drops workspaces left without a match. Sessions not referenced by any
  * workspace's sessionIds form a synthetic「未分组」group (UNGROUPED_WORKSPACE_ID,
@@ -189,9 +196,16 @@ export function buildSessionTree(
     )
   }
 
+  // 置顶顺序索引：sessionId → 在 view.pinned（数组）里的位置，越靠前置顶越前。
+  // 置顶组内按此固定，不再比较 sort 键（updatedAt/title 只作用于非置顶成员）。
+  const pinnedIndex = new Map<string, number>()
+  view.pinned?.forEach((id, i) => {
+    if (!pinnedIndex.has(id)) pinnedIndex.set(id, i)
+  })
+
   // 会话行流水线：label 解析（query 匹配和 title 排序都要用，先算一次）→
-  // 查询过滤（标题/ID 命中 或 内容命中）→ pinned 优先 + view.sort。
-  // workspace 组与「未分组」组共用。
+  // 查询过滤（标题/ID 命中 或 内容命中）→ 置顶绝对优先（组内按置顶顺序）+
+  // 非置顶成员按 view.sort。workspace 组与「未分组」组共用。
   const toSessionNodes = (list: SessionInput[]): SessionNodeModel[] =>
     list
       .map((s) => ({ session: s, label: titleOf(s) ?? `会话 ${s.sessionId.slice(0, 8)}` }))
@@ -203,9 +217,13 @@ export function buildSessionTree(
           view.contentHits?.has(session.sessionId) === true,
       )
       .sort((a, b) => {
-        const aPinned = view.pinned?.has(a.session.sessionId) === true
-        const bPinned = view.pinned?.has(b.session.sessionId) === true
+        const aPinned = pinnedIndex.has(a.session.sessionId)
+        const bPinned = pinnedIndex.has(b.session.sessionId)
         if (aPinned !== bPinned) return aPinned ? -1 : 1
+        // 置顶组内按置顶顺序固定；非置顶成员照常按 sort 键比较。
+        if (aPinned) {
+          return (pinnedIndex.get(a.session.sessionId) ?? 0) - (pinnedIndex.get(b.session.sessionId) ?? 0)
+        }
         if (sort === 'updatedAsc') return a.session.updatedAt - b.session.updatedAt
         if (sort === 'title') return a.label.localeCompare(b.label)
         return b.session.updatedAt - a.session.updatedAt
@@ -218,7 +236,7 @@ export function buildSessionTree(
           label,
           description: formatRelativeTime(session.updatedAt, now),
           running: session.running,
-          pinned: view.pinned?.has(session.sessionId) === true,
+          pinned: pinnedIndex.has(session.sessionId),
           hasCompletedTurn: (session.sessionStatsTurns ?? 0) > 0,
           unread: view.unread?.has(session.sessionId) === true,
           descendantRunning: hasRunningDescendant(session.sessionId),
