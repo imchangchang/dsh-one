@@ -1251,12 +1251,29 @@ function positionPopover(): void {
   // panel's right-hand figures off-screen.
   const left = Math.min(rect.left, window.innerWidth - popover.offsetWidth - 4)
   popover.style.left = `${Math.max(4, left)}px`
-  // 锚点在面板顶部（sessions 头部的排序按钮）时向下展开，否则保持向上。
-  if (popoverPlacement === 'below') {
-    popover.style.top = `${rect.bottom + 6}px`
+  // 垂直方向同样钳制在视口内（此前只钳水平）：锚点贴视口上/下缘时弹层会溢出
+  // webview 视口，被 iframe 边界裁掉——commit 悬浮卡固定 below 展开、锚点在面板
+  // 底部时卡片下半截不可见（用户反馈「被 VS Code 界面挡住」）；'above' 菜单在
+  // 面板顶部有对称缺陷。原侧放不下时优先翻到另一侧，两侧都不够再钳到视口边缘。
+  // 翻侧后记回 popoverPlacement，后续 reposition 沿用实际侧，避免来回抖动。
+  const GAP = 6
+  const MARGIN = 4
+  const vh = window.innerHeight
+  const h = popover.offsetHeight
+  const fitsBelow = rect.bottom + GAP + h <= vh - MARGIN
+  const fitsAbove = rect.top - GAP - h >= MARGIN
+  let below = popoverPlacement === 'below' ? fitsBelow : !fitsAbove
+  if (!fitsBelow && !fitsAbove) below = popoverPlacement === 'below' // 两侧都不够：保持请求侧，下面钳制
+  if (below) {
+    const top = Math.min(rect.bottom + GAP, vh - h - MARGIN)
+    popover.style.top = `${Math.max(MARGIN, top)}px`
+    popover.style.bottom = ''
   } else {
-    popover.style.bottom = `${window.innerHeight - rect.top + 6}px`
+    const bottom = Math.min(vh - rect.top + GAP, vh - h - MARGIN)
+    popover.style.bottom = `${Math.max(MARGIN, bottom)}px`
+    popover.style.top = ''
   }
+  popoverPlacement = below ? 'below' : 'above'
 }
 
 function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' | 'below' = 'above'): void {
