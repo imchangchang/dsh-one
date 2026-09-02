@@ -823,18 +823,8 @@ function relativeCommitTime(info: CommitInfoResult): string {
   return t('{0} days ago', Math.floor(diff / DAY_MS))
 }
 
-/** 悬浮 title 兜底文案（浏览器原生 tooltip 不显示卡片时的降级：单行摘要）。 */
-function commitInfoTitle(info: CommitInfoResult): string {
-  const lines: string[] = []
-  if (info.fullMessage) lines.push(info.fullMessage)
-  else if (info.message) lines.push(info.message)
-  const meta = [info.authorName, info.commitDate].filter(Boolean).join(' · ')
-  if (meta) lines.push(meta)
-  if (info.commitHash) lines.push(info.commitHash)
-  return lines.join('\n')
-}
-
-/** 按住缓存里该 sha 的状态点亮/灰显 chip，并设悬浮 title 兜底（先查后亮，决策 2）。 */
+/** 按缓存里该 sha 的状态点亮/灰显 chip：found 用自定义悬浮卡（无原生 title），
+ *  未确认/未命中保留原生 title 兜底（先查后亮，决策 2）。 */
 function applyCommitHashState(span: HTMLElement): void {
   const sha = span.dataset.sha ?? ''
   const info = commitInfoCache.get(sha)
@@ -846,7 +836,9 @@ function applyCommitHashState(span: HTMLElement): void {
   }
   if (info.found) {
     span.classList.add('commit-hash-found')
-    span.title = commitInfoTitle(info)
+    // 不设原生 title：found 有自定义悬浮卡（信息更全），原生 tooltip 会在指针
+    // 离开 chip 后延迟弹出，跟卡片叠着显示（用户反馈的「老悬浮窗」）。title 留空。
+    span.removeAttribute('title')
   } else {
     span.classList.add('commit-hash-unknown')
     span.title = t('Commit not found')
