@@ -82,9 +82,9 @@ import {
   expandMentionBindings,
   formatSessionMention,
   mentionDisplayToken,
-  splitReadableMentions,
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
+import { splitUserBubble, type UserBubbleSegment } from '../../pure/userBubble.ts'
 import { activeAtToken, formatFileMention, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
 import {
   WORKFLOW_STATUS_TEXT,
@@ -561,6 +561,25 @@ function sessionMentionChip(label: string, sessionId: string): HTMLElement {
   chip.appendChild(iconSvg(SESSION_REF_ICON, 14))
   chip.appendChild(el('span', undefined, label))
   chip.addEventListener('click', () => post({ type: 'sessionOpen', sessionId }))
+  return chip
+}
+
+/**
+ * 文件/文件夹/命令引用 chip（对齐 dsh web 的 refChip，纯展示不可点）：
+ * 文件 = IconBrowseOutline16、文件夹 = IconFolderClose16（官方 ReferenceIcon
+ * 同款），/command 无图标；悬停 title 显示完整引用 token。展示名（basename）
+ * 由 tokenizer 算好，这里只拼 DOM。
+ */
+function referenceChip(seg: Extract<UserBubbleSegment, { kind: 'file' | 'folder' | 'skill' }>): HTMLElement {
+  const chip = el('span', 'ref-chip')
+  if (seg.kind === 'file' || seg.kind === 'folder') {
+    chip.title = seg.path
+    chip.appendChild(iconSvg(seg.kind === 'file' ? CONTEXT_BROWSE_ICON : PANEL_ICONS.folder, 14))
+    chip.appendChild(el('span', undefined, seg.label))
+  } else {
+    chip.title = seg.label
+    chip.appendChild(el('span', undefined, seg.label))
+  }
   return chip
 }
 
@@ -2767,16 +2786,22 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
     if (m.files) for (const file of m.files) attachments.appendChild(fileChip(file))
     if (attachments.childElementCount > 0) row.appendChild(attachments)
     if (m.text) {
-      // 气泡是纯文本（不走 markdown），mention 按段拼成可点击链接。host
-      // 解析过的引用落盘为可读 @label 文本，URI 由 fold 回挂在 m.references
-      // 里，优先用它切；未解析的原始 mention（如引用失败残留）走 URI 匹配。
+      // 气泡是纯文本（不走 markdown），引用按段拼成 chip（对齐 dsh web 的
+      // projectUserText）：会话 chip 可点击（host 解析过的引用落盘为可读
+      // @label 文本，URI 由 fold 回挂在 m.references 里优先切；未解析的
+      // 原始 mention 如引用失败残留走 URI 匹配），@file/@folder 与 /command
+      // 按文本形态推断成纯展示 chip（官方同款，无 host 结构化数据）。
       const bubble = el('div', 'bubble')
-      const segments = m.references?.length ? splitReadableMentions(m.text, m.references) : splitSessionMentions(m.text)
-      for (const seg of segments) {
-        if (typeof seg === 'string') bubble.appendChild(document.createTextNode(seg))
-        else bubble.appendChild(sessionMentionChip(seg.label, seg.sessionId))
+      for (const seg of splitUserBubble(m.text, m.references)) {
+        if (seg.kind === 'text') bubble.appendChild(document.createTextNode(seg.text))
+        else if (seg.kind === 'session') bubble.appendChild(sessionMentionChip(seg.label, seg.sessionId))
+        else bubble.appendChild(referenceChip(seg))
       }
       row.appendChild(bubble)
+      // 引用摘要行（对齐 dsh web referenceSummary「引用会话 · A、B」）：只含会话。
+      if (m.references?.length) {
+        row.appendChild(el('div', 'ref-summary', `引用会话 · ${m.references.map((r) => r.label).join('、')}`))
+      }
     }
     return row
   }

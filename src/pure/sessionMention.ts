@@ -81,20 +81,39 @@ export function parseSessionMentions(text: string): { text: string; references: 
 }
 
 /**
+ * 文本里全部会话 mention 的 [start, end) 区间（按出现顺序），坏 URI 跳过。
+ * splitSessionMentions 与用户气泡 tokenizer（src/pure/userBubble.ts）共用。
+ */
+export interface SessionMentionRange {
+  start: number
+  end: number
+  sessionId: string
+  label: string
+}
+
+export function sessionMentionRanges(text: string): SessionMentionRange[] {
+  const ranges: SessionMentionRange[] = []
+  for (const match of text.matchAll(MENTION_PATTERN)) {
+    const uri = match[2] ?? match[3]
+    const sessionId = decodeSessionReferenceUri(uri)
+    if (sessionId === null) continue
+    const at = match.index
+    ranges.push({ start: at, end: at + match[0].length, sessionId, label: match[1] === undefined ? sessionId : unescapeLabel(match[1]) })
+  }
+  return ranges
+}
+
+/**
  * 把文本按 mention 切成段（文本段为 string，mention 段为 SessionMention），
  * 供纯文本渲染（用户气泡）交替拼 DOM。坏 URI 留在文本段里。
  */
 export function splitSessionMentions(text: string): Array<string | SessionMention> {
   const segments: Array<string | SessionMention> = []
   let last = 0
-  for (const match of text.matchAll(MENTION_PATTERN)) {
-    const uri = match[2] ?? match[3]
-    const sessionId = decodeSessionReferenceUri(uri)
-    if (sessionId === null) continue
-    const at = match.index
-    if (at > last) segments.push(text.slice(last, at))
-    segments.push({ sessionId, label: match[1] === undefined ? sessionId : unescapeLabel(match[1]) })
-    last = at + match[0].length
+  for (const range of sessionMentionRanges(text)) {
+    if (range.start > last) segments.push(text.slice(last, range.start))
+    segments.push({ sessionId: range.sessionId, label: range.label })
+    last = range.end
   }
   if (last < text.length) segments.push(text.slice(last))
   return segments
