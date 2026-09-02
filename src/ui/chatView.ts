@@ -217,6 +217,13 @@ export class ChatViewProvider implements vscode.Disposable {
     const last = this.lastActiveSessionId ? (this.tabs.get(this.lastActiveSessionId) ?? null) : null
     const target = active ?? (last?.panel ? last : null)
     if (target) {
+      // 目标 tab 有未发送内容（composer 草稿/附件）：不覆盖，改走新 tab
+      // （VS Code dirty-editor 惯例：编辑中的 tab 不被其他点击顶掉；草稿按
+      // 会话存档不丢，但用户正在编辑的上下文不应被替换）。
+      if (target.composerDirty) {
+        this.openSessionInNewTab(sessionId)
+        return
+      }
       this.replaceTabSession(target, sessionId)
       return
     }

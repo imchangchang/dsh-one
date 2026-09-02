@@ -103,6 +103,12 @@ export class ChatTabHost implements vscode.Disposable {
   sessionId: string | null
   /** 编辑器 tab（用户关闭后为 null）。 */
   panel: vscode.WebviewPanel | null = null
+  /**
+   * 本 tab composer 是否有未发送内容（webview 上报）。宿主在点击其他会话
+   * 决定「复用本 tab 还是新开 tab」时用它：有未发送内容时绝不覆盖，改走
+   * 新 tab（对应 VS Code 中 dirty editor 不被 preview 复用的惯例）。
+   */
+  composerDirty = false
   /** 会话控制器（服务 down/重启后为 null，恢复时重建）。 */
   controller: ChatSessionController | null = null
   /** Last title projection seen from the attached session (auto-rename watch). */
@@ -265,6 +271,8 @@ export class ChatTabHost implements vscode.Disposable {
     this.pendingStagedFiles = []
     this.pendingStagedImages = []
     this.lastSessionTitle = undefined
+    // 脏位先归零，等 webview 切换渲染后按新会话的真实草稿重新上报。
+    this.composerDirty = false
     this.sessionId = sessionId
     this.attachController(sessionId)
     if (!this.controller) {
@@ -310,6 +318,12 @@ export class ChatTabHost implements vscode.Disposable {
     if (m.type === 'ready') {
       this.push(this.controller?.getState() ?? this.emptyState())
       this.actions.pushSessions()
+      return
+    }
+    // composer 脏位上报：webview 侧在输入/附件/会话切换后同步真实状态；
+    // 这里只记账——openSession 的「dirty 则不覆盖」决策读的就是它。
+    if (m.type === 'composerDirty') {
+      this.composerDirty = m.dirty
       return
     }
     for (const handler of chatMessageHandlers) {
