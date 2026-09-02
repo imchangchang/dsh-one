@@ -625,7 +625,7 @@
       })(),
       interact: `(() => { const row = document.querySelector('.session-row[data-session-id="sess-3"]'); row?.classList.add('menu-open'); row?.querySelector('.row-action')?.click() })()`,
       title: '侧栏面板（会话 ⋯ 菜单）',
-      expect: '点击会话行尾 ⋯ 后弹出菜单，自上而下：重命名 / 置顶（带 ✓ 选中态）/ 标为未读 / 分叉会话 / 复制引用 / 归档会话；「复制会话 ID」不在菜单里；置顶会话的菜单项「置顶」带 checked；全部项可用（无 disabled 灰置）。',
+      expect: '点击会话行尾 ⋯ 后弹出菜单，自上而下：选择多个（Select multiple）/ 重命名 / 置顶（带 ✓ 选中态）/ 标为未读 / 分叉会话 / 复制引用 / 归档会话；「复制会话 ID」不在菜单里；置顶会话的菜单项「置顶」带 checked；全部项可用（无 disabled 灰置）。',
     },
 
     'sessions-menu-busy': {
@@ -647,7 +647,7 @@
         }, 150)
       })()`,
       title: '侧栏面板（运行中会话菜单：禁用 + 悬停提示）',
-      expect: '运行中会话（行首像素环）的 ⋯ 菜单：重命名/置顶/分叉/复制引用正常；「标为已读/未读」与「归档会话」灰置（.menu-item.disabled）；悬停「归档会话」项时其下方出现 tooltip 气泡「运行中的会话不能归档」；无「复制会话 ID」。',
+      expect: '运行中会话（行首像素环）的 ⋯ 菜单：选择多个/重命名/置顶/分叉/复制引用正常；「标为已读/未读」与「归档会话」灰置（.menu-item.disabled）；悬停「归档会话」项时其下方出现 tooltip 气泡「运行中的会话不能归档」；无「复制会话 ID」。',
     },
 
     'sessions-menu-unread': {
@@ -661,6 +661,86 @@
       interact: `(() => { const row = document.querySelector('.session-row[data-session-id="sess-2"]'); row?.classList.add('menu-open'); row?.querySelector('.row-action')?.click() })()`,
       title: '侧栏面板（未读会话菜单：归档禁用）',
       expect: '未读（非运行）会话的 ⋯ 菜单：「标为已读」可用（选中态 ✓）；「归档会话」灰置，悬停提示「未读的会话不能归档」（截图核对项本体与灰置样式）；其余项正常；无「复制会话 ID」。',
+    },
+
+    'sessions-selection-mode': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.workspaces[0].sessions = [
+          sess('sess-1', 'DSH One 示例会话', '3 小时前'),
+          sess('sess-7', '另一个待归档会话', '1 小时前'),
+          sess('sess-2', '运行中的会话', '5 小时前', { running: true }),
+          sess('sess-3', '未读的会话', '昨天', { unread: true }),
+        ]
+        s.workspaces[1].sessions = [sess('sess-5', 'dsh web 可展开 UI 调研', '9 小时前')]
+        s.workspaces[2].sessions = [sess('sess-6', '未分组里的孤儿会话', '2 小时前')]
+        s.collapsed = ['ws-research']
+        s.unread = ['sess-3']
+        return s
+      })(),
+      // 打开 ⋯ 菜单 → 点「选择多个」进模式 → 点 sess-1 行 + ws-research 组头复选框。
+      // 全同步链（每次点击后 DOM 同步重建，后续查询都重新取），避免测试脚本
+      // 在 setTimeout 链完成前截图。
+      interact: `(() => {
+        document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()
+        const items = [...document.querySelectorAll('.menu-item')]
+        items.find((i) => i.textContent.includes('Select multiple'))?.click()
+        document.querySelector('.session-row[data-session-id="sess-1"]')?.click()
+        document.querySelector('.workspace-group[data-workspace-id="ws-research"] .select-checkbox input')?.click()
+      })()`,
+      title: '侧栏面板（多选归档模式）',
+      expect: '多选模式态：顶部搜索框下出现操作条（.selection-bar），左 primary 按钮「Archive 2 selected」+ 右「Cancel」secondary；三个组头行首都有复选框；ws-main 组头半选（横线）：组内 sess-1 已勾、sess-7 未勾、sess-2（运行中）/sess-3（未读）复选框灰置；dsh-web research 组头（折叠态）复选框为全选勾（sess-5 被组头全选选中）；未分组组头未勾、其下 sess-6 未勾；会话行行尾 ⋯ 按钮已消失；勾选行标题/时间正常显示。',
+    },
+
+    'sessions-selection-modal': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.workspaces[0].sessions = [
+          sess('sess-1', 'DSH One 示例会话', '3 小时前'),
+          sess('sess-7', '另一个待归档会话', '1 小时前'),
+        ]
+        s.workspaces[1].sessions = [sess('sess-5', 'dsh web 可展开 UI 调研', '9 小时前')]
+        s.workspaces[2].sessions = [sess('sess-6', '未分组里的孤儿会话', '2 小时前')]
+        return s
+      })(),
+      interact: `(() => {
+        document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()
+        const items = [...document.querySelectorAll('.menu-item')]
+        items.find((i) => i.textContent.includes('Select multiple'))?.click()
+        document.querySelector('.session-row[data-session-id="sess-1"]')?.click()
+        document.querySelector('.session-row[data-session-id="sess-5"]')?.click()
+        document.querySelector('.selection-bar button')?.click()
+      })()`,
+      title: '侧栏面板（批量归档确认框：默认折叠）',
+      expect: '点「归档选中的 2 个」后页面内弹出 modal：深色半透明遮罩 + 居中白色卡片；标题「Archive 2 sessions?」、副标题「Archived sessions will be hidden from the list.」；树区两个组头各带数量（dsh-one · 1 / dsh-web research · 1）且明细默认折叠（.modal-group.collapsed，组头可展开）；底部右侧「Cancel」secondary +「Archive」primary 按钮。',
+    },
+
+    'sessions-selection-modal-open': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.workspaces[0].sessions = [
+          sess('sess-1', 'DSH One 示例会话', '3 小时前'),
+          sess('sess-7', '另一个待归档会话', '1 小时前'),
+        ]
+        s.workspaces[1].sessions = [sess('sess-5', 'dsh web 可展开 UI 调研', '9 小时前')]
+        s.workspaces[2].sessions = [sess('sess-6', '未分组里的孤儿会话', '2 小时前')]
+        return s
+      })(),
+      interact: `(() => {
+        document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()
+        const items = [...document.querySelectorAll('.menu-item')]
+        items.find((i) => i.textContent.includes('Select multiple'))?.click()
+        document.querySelector('.session-row[data-session-id="sess-1"]')?.click()
+        document.querySelector('.session-row[data-session-id="sess-5"]')?.click()
+        document.querySelector('.selection-bar button')?.click()
+        const heads = [...document.querySelectorAll('.modal-group-head')]
+        heads.forEach((h) => h.click())
+      })()`,
+      title: '侧栏面板（批量归档确认框：展开明细）',
+      expect: '确认框 modal 内两组都展开：dsh-one 组下会话行「DSH One 示例会话 · 3 小时前」、dsh-web research 组下「dsh web 可展开 UI 调研 · 9 小时前」（名称 + 右侧相对时间）；组头三角箭头旋转（展开态），组头数量角标保留；底部 Cancel/Archive 按钮照常；弹窗不超屏。',
     },
 
     'sessions-menu-fork-disabled': {
