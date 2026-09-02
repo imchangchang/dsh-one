@@ -25,3 +25,4 @@
 
 - 2026-09-02 认领（worktree: agent/pending-steering-circle）→ doing
 - 2026-09-02 开发完成（worktree 自测：typecheck/330 单测/构建/视觉场景 steering-pending 对照通过；done 标记 b6a0022）→ done
+- 2026-09-02 用户验收反馈 ① 气泡没右对齐（row 布局下缺 justify-content，实测见左）；② 转圈随消息刷新不断重置（render 每帧全重建，CSS 动画归零）；③ 新需求：↑ 键首选撤销等待插话，内容（含附件）回填 composer 重新编辑。均已实现：右对齐补 justify-content: flex-end；steering 行按 id 跨帧复用（元素移动不重置动画）；新增 unsteer 消息（host 移除 + restoreDraft 回填文本/图片/文件，图片按 attachmentId 拉字节）。
