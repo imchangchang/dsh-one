@@ -39,6 +39,7 @@
       attachedSessionId: null,
       contentSearchHasMore: false,
       contentSearchError: false,
+      baselineReady: true,
       workspaces: [
         {
           workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true,
@@ -540,6 +541,34 @@
       })(),
       title: '侧栏面板（综合列表）',
       expect: '头部工具栏（搜索框/排序/刷新/折叠全部/添加工作区）；dsh-one 组：vscode 标签、文件夹染蓝（组内有 active 行）、组名右侧角标（环 1 → 运行中 + 绿点 1 → 未读）、「sess-4 当前附加的会话」行高亮（active）；行首状态槽：sess-1 像素环、sess-2 未读绿点 + 标题加粗、sess-3 置顶图钉（槽位空时）；workspace 行尾 hover 动作仅结构存在（截图为静态，不核对 hover）；dsh-web research 组：sess-5 黄色待审批点（pendingInteraction）；未分组虚拟组显示「sess-6 未分组里的孤儿会话」。',
+    },
+
+    'sessions-baseline-loading': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        // 服务刚 running、基线未拉到：空工作区列表 + baselineReady=false，
+        // 面板应停留在 Loading，而不是按「没有 workspace」渲染未分组组头。
+        s.baselineReady = false
+        s.workspaces = []
+        return s
+      })(),
+      title: '侧栏面板（启动过渡态：基线未就绪）',
+      expect: '整个列表区只有居中灰字「Loading…」（sessions-empty），**无**「添加工作区」引导、「未分组」组头/新建按钮、无任何会话行或 workspace 组；头部工具栏照常显示。',
+    },
+
+    'sessions-no-workspaces': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        // 基线已就绪但确实没有任何真实 workspace：与「未就绪」对照——
+        // 「添加工作区」引导 + 「未分组」空组头（新建未分组对话入口）应照常显示。
+        s.baselineReady = true
+        s.workspaces = [{ workspaceId: UNGROUPED, path: '', label: '未分组', isCurrent: false, sessions: [] }]
+        return s
+      })(),
+      title: '侧栏面板（基线就绪：确实没有 workspace）',
+      expect: '列表上方「添加工作区」引导（No workspaces yet…），下方「未分组」组头（文件夹图标 + 组名「未分组」，行尾「+」新建按钮仅结构存在——截图为静态，不核对 hover），无任何会话行；头部工具栏照常显示。',
     },
 
     'sessions-search': {

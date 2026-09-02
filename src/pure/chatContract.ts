@@ -683,6 +683,13 @@ export interface SessionsSnapshot {
   contentSearchHasMore: boolean
   /** 最近一次内容搜索是否失败（后端索引未启用等）；true 时面板显示「仅按标题匹配」提示。 */
   contentSearchError: boolean
+  /**
+   * 基线（workspace.list + session.list）是否已成功加载。false = 服务刚
+   * running、基线还没拉到（或代际切换后未重拉成功）：面板显示 Loading，
+   * 不渲染「未分组」组头/「添加工作区」引导——空基线会被恒渲染的未分组组
+   * 误导成「没有 workspace」，导致未分组先于工作区组出现。
+   */
+  baselineReady: boolean
 }
 /**
  * 单个 commit hash 的查询结果：webview 据此点亮/灰显点击 chip 并填悬浮卡。
