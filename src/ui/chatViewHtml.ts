@@ -1317,7 +1317,7 @@ const STYLE = `
   .hero #input:focus { outline: none; }
 `
 
-export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri, tabId: string): string {
   const n = nonce()
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'chatWebview.js'))
   // Same CSP discipline as ui/webview.ts: nonce-gated scripts, no remote resources.
@@ -1336,7 +1336,7 @@ export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri): str
 <style>${STYLE}</style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app" data-tab-id="${escapeHtml(tabId)}"></div>
 <script nonce="${n}" src="${escapeHtml(scriptUri.toString())}"></script>
 </body>
 </html>`

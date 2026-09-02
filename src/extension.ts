@@ -7,8 +7,9 @@ import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
 import { loadModelWindowCache, setModelWindowCachePersist } from './server/chatSession.ts'
 import { archiveSession, createSession, ensureWorkspace, forkSession, renameSession } from './server/dshRpc.ts'
-import { openInTab } from './ui/webview.ts'
+import { DSH_TAB_VIEW_TYPE, openInTab, restoreDshWebTab } from './ui/webview.ts'
 import { ChatViewProvider } from './ui/chatView.ts'
+import { CHAT_PANEL_VIEW_TYPE } from './ui/chatTab.ts'
 import { SessionsStore } from './ui/sessionsStore.ts'
 import { SessionsViewProvider } from './ui/sessionsView.ts'
 import { StatusBar } from './ui/statusbar.ts'
@@ -44,7 +45,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const statusBar = new StatusBar(manager)
   const sessions = new SessionsStore(manager, logger, context.workspaceState)
-  const chatView = new ChatViewProvider(manager, logger, context.extensionUri, sessions, () => void sessions.refresh())
+  const chatView = new ChatViewProvider(manager, logger, context.extensionUri, sessions, context.workspaceState, () =>
+    void sessions.refresh(),
+  )
 
   // 侧栏 sessions 面板（webview view）：只渲染会话列表，高亮读 chatView 的
   // activeSessionId（附着的、或懒加载待附着目标），附着变化时重推快照。
@@ -84,6 +87,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.window.registerWebviewViewProvider('dshOne.chat', sessionsView, {
       webviewOptions: { retainContextWhenHidden: true },
+    }),
+    // 窗口 reload 恢复打开的 tab：chat 面板按面板 state 里的 tabId 查
+    // workspaceState 映射重建会话 tab；dsh web 面板重新 bind（内容随状态刷新）。
+    vscode.window.registerWebviewPanelSerializer(CHAT_PANEL_VIEW_TYPE, {
+      deserializeWebviewPanel: (panel, state) => chatView.restoreChatPanel(panel, state),
+    }),
+    vscode.window.registerWebviewPanelSerializer(DSH_TAB_VIEW_TYPE, {
+      deserializeWebviewPanel: (panel) => restoreDshWebTab(panel, manager),
     }),
     vscode.commands.registerCommand('dshOne.open', () => {
       void manager.ensureStarted()

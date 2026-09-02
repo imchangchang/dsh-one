@@ -106,11 +106,18 @@ import {
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
+  getState(): unknown
+  setState(state: unknown): void
 }
 declare function acquireVsCodeApi(): VsCodeApi
 
 const vscode = acquireVsCodeApi()
 const app = document.getElementById('app') as HTMLElement
+
+// 窗口 reload 恢复凭据：把宿主注入的 tabId 存为面板 state（reload 后
+// serializer 按它查 host 的映射重建 tab）。tabId 创建后不变，只管保存不读回。
+const tabId = app.getAttribute('data-tab-id')
+if (tabId) vscode.setState({ tabId })
 
 // 脚本加载完成即向宿主报到：面板首次打开、以及 tab 切走再切回导致 webview
 // 被 VSCode 重载后，宿主都靠这条消息重推当前 ChatState——否则重载后的页面
