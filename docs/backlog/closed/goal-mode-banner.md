@@ -51,5 +51,6 @@
 6. 视觉回归：`scripts/ui-visual.sh`（AI 已跑过 22 项 DOM 断言全过；人工可抽查截图）。
 
 - 2026-09-02 同步主线最新代码（rebase 到最新 main，+98 提交：plan-mode-chip/mention-chips/message-turn-timing 等）；冲突 3 处（chatSession.ts 基线+帧投影处理、webview.ts import+保活区、scenarios.js 基线清单）均已解决；重测 typecheck + 253 测试 + build + 22 项 goal DOM 断言 + 5 场景基线抽查全绿；条目随合入到主线。
+- 2026-09-02 主线合入（rebase 后复测 typecheck + 317 测试 + build 全绿，--no-ff merge e2ae78d），人工 GUI 验收通过 → closed
 
 - 2026-09-02 端到端验证（rebase 后独立验收）：typecheck + 317 测试 + build 全绿；6 个 goal 场景 DOM 断言全过（active 暂停/编辑/清除、paused 恢复/编辑/清除、blocked 受阻原因 title + 仅编辑/清除、complete 不渲染、叠放顺序 todo→goal→queue、编辑态预填+自动聚焦+保存可用）；`ui-visual.sh` 全量 66 场景回归，goal 6 张截图与自测轮逐像素一致（唯一重复对 goal-complete/model-picker 属预期：complete 不渲染与无 goal 页面相同）；真实 dsh 0.1.1-rc.2 RPC 契约探测：goals/pause|resume|edit|clear 方法均存在，CAS 假 ref 被安全拒绝（no current goal，无副作用）。验证期间发现 scenarios.js 多余右括号由 e5e3869 修复（与本验证重复修复，无残留）。
