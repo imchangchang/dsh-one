@@ -41,10 +41,13 @@ WT=$(git worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '
 [ -n "$WT" ] || { echo "找不到 $BRANCH 对应的 worktree。" >&2; exit 1; }
 
 echo "== rebase $BRANCH 到最新 main =="
+# --rebase-merges：保留分支内的 merge 提交结构。普通 rebase 会把 merge 提交
+# 展开重放——若任务分支已预 merge 过 main（如开发期间手动同步），展开会让
+# 同样的冲突逐提交重复出现；保留 merge 后主线没新增提交时等价空操作。
 # GIT_EDITOR=true：非交互场景跑 rebase/commit 会被 core.editor（常见配置 code --wait）
 # 拉起外部编辑器并阻塞等待，导致窗口莫名弹出、流程挂死。冲突解决后的
 # `git rebase --continue` 内部带 `-e`，必须显式抑制编辑器。
-if ! GIT_EDITOR=true git -C "$WT" rebase main; then
+if ! GIT_EDITOR=true git -C "$WT" rebase --rebase-merges main; then
   cat >&2 <<EOF
 rebase 有冲突。进入 $WT 解决：
   cd $WT
