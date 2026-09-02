@@ -154,6 +154,14 @@ export class ChatViewProvider implements vscode.Disposable {
     return tab?.controller ? tab.sessionId : null
   }
 
+  /**
+   * 当前活动 tab 的会话标题（编辑器 tab 右键命令解析不出被右键会话时的
+   * 复制引用 label 兜底；未命名会话由调用方回退「会话 xxxx」）。
+   */
+  get activeSessionTitle(): string | undefined {
+    return this.activeTab()?.controller?.getState().sessionTitle
+  }
+
   /** 是否还有打开的 chat tab。 */
   get isOpen(): boolean {
     return this.tabs.size > 0

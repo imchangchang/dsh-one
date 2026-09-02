@@ -81,6 +81,56 @@ const globalHandlers: ChatTabMessageHandler[] = [
   },
 ]
 
+/**
+ * 会话级动作域（chat 头部 ⋯ 菜单）：与侧栏 session 右键同款动作 —— 命令
+ * （rename/archive/fork/copyReference）或 store 本地操作（pin/unread）。
+ * 复用侧栏相同入口，不重复实现。
+ */
+const sessionHandlers: ChatTabMessageHandler[] = [
+  {
+    types: ['sessionRename'],
+    async handle(_host, m) {
+      if (m.type !== 'sessionRename' || typeof m.sessionId !== 'string') return
+      await vscode.commands.executeCommand('dshOne.session.rename', m.sessionId, m.title)
+    },
+  },
+  {
+    types: ['sessionArchive'],
+    async handle(_host, m) {
+      if (m.type !== 'sessionArchive' || typeof m.sessionId !== 'string') return
+      await vscode.commands.executeCommand('dshOne.session.archive', m.sessionId, m.title)
+    },
+  },
+  {
+    types: ['sessionFork'],
+    async handle(_host, m) {
+      if (m.type !== 'sessionFork' || typeof m.sessionId !== 'string') return
+      await vscode.commands.executeCommand('dshOne.session.fork', m.sessionId)
+    },
+  },
+  {
+    types: ['sessionCopyReference'],
+    async handle(_host, m) {
+      if (m.type !== 'sessionCopyReference' || typeof m.sessionId !== 'string') return
+      await vscode.commands.executeCommand('dshOne.session.copyReference', m.sessionId, m.title)
+    },
+  },
+  {
+    types: ['sessionPin'],
+    async handle(host, m) {
+      if (m.type !== 'sessionPin' || typeof m.sessionId !== 'string') return
+      host.actions.store.setPinned(m.sessionId, m.pin === true)
+    },
+  },
+  {
+    types: ['sessionUnread'],
+    async handle(host, m) {
+      if (m.type !== 'sessionUnread' || typeof m.sessionId !== 'string') return
+      host.actions.store.setUnread(m.sessionId, m.unread === true)
+    },
+  },
+]
+
 /** 会话动作域：都落在本 tab 的 controller 上。 */
 const chatHandlers: ChatTabMessageHandler[] = [
   {
@@ -396,6 +446,7 @@ const fileHandlers: ChatTabMessageHandler[] = [
 /** 全部 handler：ChatTabHost 按消息 type 分发。 */
 export const chatMessageHandlers: ChatTabMessageHandler[] = [
   ...globalHandlers,
+  ...sessionHandlers,
   ...chatHandlers,
   ...workspaceHandlers,
   ...goalHandlers,

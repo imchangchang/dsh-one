@@ -3,7 +3,6 @@ import * as crypto from 'node:crypto'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { deleteWorkspace, renameSession } from '../server/dshRpc.ts'
-import { formatSessionMention } from '../pure/sessionMention.ts'
 import type { FromWebviewMessage, SessionsSnapshot } from '../pure/chatContract.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 
@@ -419,12 +418,10 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       case 'workspacesExpandAll':
         this.store.expandAll()
         return
-      case 'sessionCopyReference': {
-        const mention = formatSessionMention(m.title, m.sessionId)
-        await vscode.env.clipboard.writeText(mention)
-        void vscode.window.showInformationMessage(vscode.l10n.t('Session reference copied. Paste it into the input box to mention this session'))
+      case 'sessionCopyReference':
+        // 复制引用走统一命令（chat 头部 ⋯ 菜单与编辑器 tab 右键共用）。
+        void vscode.commands.executeCommand('dshOne.session.copyReference', m.sessionId, m.title)
         return
-      }
       case 'serverStart':
         void this.manager.ensureStarted()
         return
