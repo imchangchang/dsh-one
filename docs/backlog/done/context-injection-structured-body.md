@@ -67,3 +67,5 @@ body 容器：`max-height: 141px`、代码字体、可滚动（截断）。
 - 2026-09-02 核实更新：对照上游类型/实现确认 6 种 form 协议与字段；确认 dsh-one 数据链路完整透传，纠掉「依赖 host 支持」；方案改为仓库内三步
 
 - 2026-09-02 认领（Sprint 2 节点，worktree: agent/context-injection-structured-body）→ doing
+
+- 2026-09-02 Sprint 2 开发完成，自测通过（typecheck/test/build，a366089）→ done
