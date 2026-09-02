@@ -1016,6 +1016,8 @@ test('turn split by an injected user/message still attaches produced files to th
   assert.equal(assistantMsgs[1].turnEnd, true)
   // 产物只挂本 turn 最后一条（turnEnd）消息，跨消息不重复。
   assert.deepEqual(assistantMsgs[1].producedFiles, ['/repo/a.ts', '/repo/b.ts'])
+})
+
 /* ---------------- 重试行（llm/retry） ---------------- */
 
 function retryEv(retryId: string, overrides: Record<string, unknown> = {}): SessionEventLike {
