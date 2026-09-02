@@ -46,3 +46,5 @@
 - 2026-09-02 确认未分组不特殊处理：组头复选框 + 顶部归档按钮即覆盖，去掉未分组右键专属入口
 
 - 2026-09-02 认领 → doing（worktree: agent/session-batch-archive）
+
+- 2026-09-02 开发完成，自测通过（typecheck/test/build + 视觉场景截图核对）→ done
