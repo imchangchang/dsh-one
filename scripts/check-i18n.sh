@@ -49,17 +49,20 @@ const fs = require('fs')
 const cp = require('child_process')
 
 const BRANCH = process.env.CHECK_I18N_BRANCH
+const BASE = process.env.CHECK_I18N_BASE
 const REF = `refs/heads/${BRANCH}`
 const DIFF = fs.readFileSync(process.env.CHECK_I18N_DIFF, 'utf8')
 
-// ---------- 读取分支树里的文件 blob ----------
-function show(path) {
+// ---------- 读取某一 ref（分支 / merge-base 提交）里的文件 blob ----------
+function showAt(ref, path) {
   try {
-    return cp.execFileSync('git', ['show', `${REF}:${path}`], { encoding: 'utf8' })
+    return cp.execFileSync('git', ['show', `${ref}:${path}`], { encoding: 'utf8' })
   } catch (e) {
-    return '' // 分支里没有该文件（如被删除）
+    return '' // 该 ref 里没有这个文件（如被删除）
   }
 }
+// 分支树里的文件 blob（参考文件一律读分支版本，看开发者在分支里改过的内容）
+function show(path) { return showAt(REF, path) }
 function jsonObj(text) {
   try { return JSON.parse(text) } catch (e) { return null }
 }
@@ -68,25 +71,23 @@ function jsonKeys(text) {
   return o ? new Set(Object.keys(o)) : new Set()
 }
 
-// ---------- 解析 unified diff，按文件分组出「新增行」和「删除行」 ----------
+// ---------- 解析 unified diff，按文件分组出「新增行」 ----------
 function parseDiff(diff) {
   const added = {}   // file -> [新增行内容]
-  const removed = {} // file -> [删除行内容]
   let cur = null
   for (const line of diff.split('\n')) {
     if (line.startsWith('+++ ')) {          // 文件头：+++ b/<path>
       cur = line.slice(6).trim()
-      if (!(cur in added)) { added[cur] = []; removed[cur] = [] }
+      if (!(cur in added)) added[cur] = []
       continue
     }
     if (!cur) continue
     if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) continue
     if (line.startsWith('+')) added[cur].push(line.slice(1))
-    else if (line.startsWith('-')) removed[cur].push(line.slice(1))
   }
-  return { added, removed }
+  return added
 }
-const { added, removed } = parseDiff(DIFF)
+const added = parseDiff(DIFF)
 
 // ---------- 判断是否为 webview 文件（定义本地 t() 的浏览器侧代码） ----------
 function isWebviewFile(path) {
@@ -167,14 +168,22 @@ for (const line of (added['package.json'] || [])) {
 const enReadme = show('README.md')
 const zhReadme = show('README.zh-CN.md')
 
-// 4a. nls 命令标题在 diff 中被删除 => README 里旧标题是否残留
-for (const file of ['package.nls.json', 'package.nls.zh-cn.json']) {
-  for (const line of (removed[file] || [])) {
-    const m = /"([^"]+)\.title"\s*:\s*"([^"]*)"/.exec(line)
-    if (!m) continue
-    const oldValue = m[2]
-    if (oldValue && (enReadme.includes(oldValue) || zhReadme.includes(oldValue))) {
-      push(`[docs] ${file} 删除了命令标题 "${oldValue}"，但 README 里仍在引用（需同步更新）`)
+// 4a. nls 命令标题在分支里被改/删 => README 里旧标题是否残留。
+//     按「新旧值语义对比」，不受 JSON 格式化/整文件重写产生的 diff 噪声影响。
+const baseEnNls = jsonObj(showAt(BASE, 'package.nls.json')) || {}
+const baseZhNls = jsonObj(showAt(BASE, 'package.nls.zh-cn.json')) || {}
+for (const [file, baseObj, newObj] of [
+  ['package.nls.json', baseEnNls, enNls],
+  ['package.nls.zh-cn.json', baseZhNls, zhNls],
+]) {
+  const keys = new Set([...Object.keys(baseObj), ...Object.keys(newObj)])
+  for (const k of keys) {
+    if (!k.endsWith('.title')) continue
+    const oldV = baseObj[k]
+    const newV = newObj[k]
+    if (oldV === newV) continue // 值没变（或都不存在），忽略
+    if (oldV && (enReadme.includes(oldV) || zhReadme.includes(oldV))) {
+      push(`[docs] ${file} 命令标题 "${k}" 由 "${oldV}" 改为/删除 "${newV ?? '(无)'}"，但 README 里仍在引用旧标题 "${oldV}"（需同步更新）`)
     }
   }
 }
