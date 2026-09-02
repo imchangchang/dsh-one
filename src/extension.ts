@@ -7,6 +7,8 @@ import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
 import { loadModelWindowCache, setModelWindowCachePersist } from './server/chatSession.ts'
 import { archiveSession, createSession, ensureWorkspace, forkSession, renameSession } from './server/dshRpc.ts'
+import { isChatPanelTabArg } from './pure/contextResource.ts'
+import { formatSessionMention } from './pure/sessionMention.ts'
 import { DSH_TAB_VIEW_TYPE, openInTab, restoreDshWebTab } from './ui/webview.ts'
 import { ChatViewProvider } from './ui/chatView.ts'
 import { CHAT_PANEL_VIEW_TYPE } from './ui/chatTab.ts'
@@ -22,6 +24,19 @@ const MODEL_WINDOW_CACHE_KEY = 'chat.modelWindowCache'
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+/**
+ * 会话动作命令的参数解析（侧栏菜单与编辑器 tab 右键共用）。侧栏直接传
+ * sessionId 字符串；编辑器 tab 右键（editor/title/context）传的是被右键 tab
+ * 的资源 URI，其中只有编辑器内部 id，API 层无法反查会话（见
+ * contextResource.isChatPanelTabArg）——只能回退到当前活动 chat tab（右键的
+ * 通常就是活动 tab；这是已知限制）。
+ */
+function resolveSessionArg(arg: unknown, chatView: ChatViewProvider): string | undefined {
+  if (typeof arg === 'string' && arg) return arg
+  if (isChatPanelTabArg(arg)) return chatView.currentSessionId ?? undefined
+  return undefined
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -167,9 +182,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await sessions.refresh()
       chatView.openSession(createdId)
     }),
-    vscode.commands.registerCommand('dshOne.session.rename', async (sessionId?: string, currentTitle?: string) => {
+    vscode.commands.registerCommand('dshOne.session.rename', async (arg?: unknown, currentTitle?: string) => {
       const url = sessions.runningUrl
-      if (!url || typeof sessionId !== 'string') return
+      const sessionId = resolveSessionArg(arg, chatView)
+      if (!url || !sessionId) return
       const title = await vscode.window.showInputBox({
         title: vscode.l10n.t('Rename Session'),
         prompt: vscode.l10n.t('Enter a new session title'),
@@ -184,10 +200,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       await sessions.refresh()
     }),
-    vscode.commands.registerCommand('dshOne.session.archive', async (sessionId?: string, currentTitle?: string) => {
+    vscode.commands.registerCommand('dshOne.session.archive', async (arg?: unknown, currentTitle?: string) => {
       const url = sessions.runningUrl
-      if (!url || typeof sessionId !== 'string') return
-      const label = typeof currentTitle === 'string' ? currentTitle : sessionId
+      const sessionId = resolveSessionArg(arg, chatView)
+      if (!url || !sessionId) return
+      const label = typeof currentTitle === 'string' && currentTitle ? currentTitle : sessionId
       const archive = vscode.l10n.t('Archive')
       const pick = await vscode.window.showWarningMessage(
         vscode.l10n.t('Archive session "{0}"? It will be hidden from the list after archiving.', label),
@@ -205,9 +222,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Archiving an opened chat session closes its tab (per-session).
       chatView.closeSession(sessionId)
     }),
-    vscode.commands.registerCommand('dshOne.session.fork', async (sessionId?: string) => {
+    vscode.commands.registerCommand('dshOne.session.fork', async (arg?: unknown) => {
       const url = sessions.runningUrl
-      if (!url || typeof sessionId !== 'string') return
+      const sessionId = resolveSessionArg(arg, chatView)
+      if (!url || !sessionId) return
       let newSessionId: string
       try {
         newSessionId = await forkSession(url, sessionId)
@@ -218,6 +236,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await sessions.refresh()
       // fork 后的子会话在新 tab 打开（用户决策：fork 后新开 tab，原 tab 保留）。
       chatView.openSessionInNewTab(newSessionId)
+    }),
+    // 复制会话引用 mention（侧栏菜单与 chat 头部 ⋯ 菜单、编辑器 tab 右键共用）。
+    vscode.commands.registerCommand('dshOne.session.copyReference', async (arg?: unknown, currentTitle?: string) => {
+      const sessionId = resolveSessionArg(arg, chatView)
+      if (!sessionId) return
+      const label =
+        typeof currentTitle === 'string' && currentTitle
+          ? currentTitle
+          : chatView.activeSessionTitle ?? vscode.l10n.t('Session {0}', sessionId.slice(0, 8))
+      await vscode.env.clipboard.writeText(formatSessionMention(label, sessionId))
+      void vscode.window.showInformationMessage(vscode.l10n.t('Session reference copied. Paste it into the input box to mention this session'))
     }),
     // Editor/explorer 右键「发送到当前会话」：把当前文件作为附件暂存到当前
     // 活跃会话的 composer（等同点「添加附件」）。

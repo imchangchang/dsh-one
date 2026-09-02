@@ -45,3 +45,20 @@ export function contextMenuResource(arg: unknown): ContextMenuResource | undefin
   }
   return undefined
 }
+
+/**
+ * chat 面板编辑器 tab 的资源 URI 前缀（VS Code 内部实现：webview panel 的 tab
+ * 资源 path 形如 `webview-panel/webview-<viewType>-<id>`，见 webviewEditorInput.ts；
+ * package.json 的 editor/title/context 菜单 when 用同款正则匹配它）。失效时菜单
+ * 不出现（优雅降级），这里仅作命令侧的防御校验。
+ */
+const CHAT_TAB_URI_PREFIX = 'webview-panel/webview-dshOne.chatPanel-'
+
+/** 命令参数是否指向 chat 面板 tab（editor/title/context 传的是被右键 tab 的资源 URI）。 */
+export function isChatPanelTabArg(arg: unknown): boolean {
+  if (!arg || typeof arg !== 'object') return false
+  const o = arg as Record<string, unknown>
+  if (o.scheme !== 'webview-panel') return false
+  const p = typeof o.path === 'string' ? o.path : typeof o.fsPath === 'string' ? o.fsPath : ''
+  return p.startsWith(CHAT_TAB_URI_PREFIX)
+}

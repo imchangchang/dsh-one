@@ -114,6 +114,11 @@
         "category": "DSH One"
       },
       {
+        "command": "dshOne.session.copyReference",
+        "title": "%dshOne.session.copyReference.title%",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.session.attachFile",
         "title": "%dshOne.session.attachFile.title%"
       },
@@ -135,6 +140,28 @@
         {
           "command": "dshOne.session.attachFile",
           "when": "resourceScheme == file && !explorerResourceIsFolder",
+          "group": "2_dshOne@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "dshOne.session.rename",
+          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
+          "group": "2_dshOne@1"
+        },
+        {
+          "command": "dshOne.session.fork",
+          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
+          "group": "2_dshOne@1"
+        },
+        {
+          "command": "dshOne.session.copyReference",
+          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
+          "group": "2_dshOne@1"
+        },
+        {
+          "command": "dshOne.session.archive",
+          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
           "group": "2_dshOne@1"
         }
       ]

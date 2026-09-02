@@ -1453,10 +1453,16 @@ function menuItem(
     checked?: boolean
     glyph?: string
     icon?: SVGSVGElement
+    /** 禁用态：加 .menu-item.disabled（置灰、不响应点击），onClick 不绑定（与侧栏菜单一致）。 */
+    disabled?: boolean
+    /** 禁用原因的悬停提示（原生 title tooltip）；仅 disabled 时设置。 */
+    disabledTip?: string
     onClick: () => void
   },
 ): HTMLElement {
   const item = el('div', opts.checked ? 'menu-item checked' : 'menu-item')
+  if (opts.disabled) item.classList.add('disabled')
+  if (opts.disabled && opts.disabledTip) item.title = opts.disabledTip
   if (opts.glyph) {
     const g = el('span', 'glyph')
     g.innerHTML = opts.glyph // build-time constant strings, not user input
@@ -1481,7 +1487,7 @@ function menuItem(
   if (opts.right) item.appendChild(el('span', 'menu-right', opts.right))
   // 选中态 check 放尾部（dsh web 模式），未选中不渲染。
   if (opts.checked) item.appendChild(el('span', 'check', '✓'))
-  item.addEventListener('click', opts.onClick)
+  if (!opts.disabled) item.addEventListener('click', opts.onClick)
   return item
 }
 
@@ -1882,6 +1888,106 @@ function startInlineRename(header: HTMLElement): void {
   input.addEventListener('blur', cancel)
 }
 
+// ---- 头部会话 ⋯ 菜单（与侧栏 session 右键同款动作） ----
+
+/** 置顶图钉/未读圆点描边图标（与侧栏同款 stroke 风格，见 sessionsWebview.ts）。 */
+const PIN_ICON = ['M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z', 'M8 9.5v4']
+const UNREAD_ICON = ['M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8z']
+
+/** 从 sessions 快照里找附着会话的行模型（菜单的 pinned/unread/hasCompletedTurn 数据源）。 */
+function sessionNodeFor(sessionId: string | null): SessionNodeModel | undefined {
+  if (!sessionId || !sessionsSnapshot) return undefined
+  for (const w of sessionsSnapshot.workspaces) {
+    const node = w.sessions.find((s) => s.sessionId === sessionId)
+    if (node) return node
+  }
+  return undefined
+}
+
+/**
+ * 头部 ⋯ 会话菜单：与侧栏会话右键同款动作，去掉「在新 tab 中打开」——当前
+ * tab 就是该会话。禁用逻辑同侧栏（运行中/待处理/未读/无已完成轮次）。无
+ * 头部（空会话 hero 布局）时该入口不出现，由侧栏兜底。
+ */
+function buildHeaderSessionMenu(header: HTMLElement): HTMLElement {
+  const body = el('div')
+  if (!state?.sessionId) return body
+  const sid = state.sessionId
+  const node = sessionNodeFor(sid)
+  const pinned = sessionsSnapshot?.pinned.includes(sid) ?? false
+  const unread = sessionsSnapshot?.unread.includes(sid) ?? false
+  const running = state.running
+  const pending = state.pending.length > 0
+  body.appendChild(
+    menuItem('重命名', {
+      icon: iconSvg(PANEL_ICONS.edit),
+      onClick: () => {
+        closePopover()
+        // 与标题单击改名同款行内交互（本地增强，不用宿主弹窗）。
+        startInlineRename(header)
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem(pinned ? '取消置顶' : '置顶', {
+      icon: strokeSvg(PIN_ICON),
+      checked: pinned,
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionPin', sessionId: sid, pin: !pinned })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem(unread ? '标为已读' : '标为未读', {
+      icon: strokeSvg(UNREAD_ICON),
+      checked: unread,
+      disabled: running,
+      disabledTip: '运行中的会话不支持手动标为已读/未读',
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionUnread', sessionId: sid, unread: !unread })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem('分叉会话', {
+      icon: iconSvg(MESSAGE_ACTION_ICONS.branch),
+      disabled: !(node?.hasCompletedTurn ?? false),
+      disabledTip: '会话没有已完成轮次，无法分叉',
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionFork', sessionId: sid })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem('复制引用', {
+      icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionCopyReference', sessionId: sid, title: state?.sessionTitle ?? '' })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem('归档会话', {
+      icon: iconSvg(PANEL_ICONS.archive),
+      disabled: running || unread || pending,
+      disabledTip: pending
+        ? '待处理的会话不能归档'
+        : running
+          ? '运行中的会话不能归档'
+          : '未读的会话不能归档',
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionArchive', sessionId: sid, title: state?.sessionTitle ?? '' })
+      },
+    }),
+  )
+  return body
+}
+
 function render(): void {
   // The turn-status clock interval is owned by the row it updates; the rebuild
   // below discards that row, so drop the timer first and re-arm it later if
@@ -2267,6 +2373,16 @@ function render(): void {
       if (state.presetDescription) chip.title = state.presetDescription
       header.appendChild(chip)
     }
+    // 会话操作 ⋯ 按钮（右端）：弹层与侧栏 session 右键同款（去掉「在新 tab
+    // 中打开」）。锚点随 header 保活（keepHeader），流式快照重建不杀弹层。
+    const sessionMenuBtn = buttonEl('header-chip session-menu-btn', '')
+    sessionMenuBtn.title = '会话操作'
+    sessionMenuBtn.setAttribute('aria-label', '会话操作')
+    sessionMenuBtn.appendChild(iconSvg(PANEL_ICONS.ellipsis, 16))
+    sessionMenuBtn.addEventListener('click', () => {
+      showPopover(sessionMenuBtn, buildHeaderSessionMenu(header), 'below')
+    })
+    header.appendChild(sessionMenuBtn)
     const headerAnchor = keepMessages ? oldMessages : anchor
     if (headerAnchor) chatCol.insertBefore(header, headerAnchor)
     else chatCol.appendChild(header)
