@@ -50,3 +50,4 @@ cd <repo-root>/.worktrees/turn-status-notice-rows && bash <repo-root>/scripts/de
 
 - 2026-09-01 认领 → doing（并行开发 session）
 - 2026-09-01 开发完成：typecheck + 268 测试 + build 全绿；视觉场景 DOM 断言通过 → done（worktree: agent/turn-status-notice-rows）
+- 2026-09-01 主线合入（a66cb75，rebase 解决与 deliverables-produced-files 的冲突后复测 298 测试全绿）；人工 dev-ui-test 窗口验收通过（超 token 提示 / 重试行倒计时 / compaction 卡三项均确认）→ closed
