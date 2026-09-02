@@ -82,6 +82,17 @@ export interface ChatTabHostActions {
    * 的 store/jobs/subagents 数据源）。
    */
   push(host: ChatTabHost, state: ChatState): void
+  /**
+   * 空会话 hero 的 workspace 懒切换（main 功能移植，per-tab）：
+   * 记录/取消 pending 目标（点 chip 时零 RPC），发送/选 preset 前落地。
+   */
+  setPendingWorkspace(host: ChatTabHost, workspaceId: string): void
+  /** 发送/选 preset 前落地懒切换；返回 false = 切换失败（已提示用户）。 */
+  resolvePendingWorkspace(host: ChatTabHost): Promise<boolean>
+  /** hero picker「添加已有文件夹…」：注册 workspace 后设为 pending 目标。 */
+  addWorkspaceAndOpen(host: ChatTabHost): Promise<void>
+  /** hero picker「创建工作区…」：注册 workspace 后设为 pending 目标。 */
+  createWorkspaceAndOpen(host: ChatTabHost): Promise<void>
 }
 
 /** 一个会话 tab 的全部状态：panel（可被用户关闭）+ controller（服务重启前
@@ -103,6 +114,14 @@ export class ChatTabHost implements vscode.Disposable {
    */
   pendingStagedFiles: StagedFile[] = []
   pendingStagedImages: OutgoingImage[] = []
+  /**
+   * 空会话 hero 的懒切换目标 workspace id（per-tab；null = 无待切换）。点
+   * workspace chip 只记录这里并更新显示（零 RPC），发送/选 preset 时经
+   * provider 的 resolvePendingWorkspace 落地（ensureSession + 打开目标会话
+   * tab），让「点击切换」瞬时完成、把等待移进发送动作本身。会话切换/附着时
+   * 清除（跟 tab 同生命周期）。
+   */
+  pendingWorkspaceId: string | null = null
   /** controller 状态订阅；tab 关闭后保留（pending 兜底需要继续听）。 */
   private controllerSub: vscode.Disposable | null = null
   /** panel 消息订阅（panel 侧，随 panel 关闭清理）。 */
