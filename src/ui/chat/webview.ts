@@ -1337,9 +1337,27 @@ function patchHeroPresetChip(
   hero: HTMLElement,
   agentPreset: ChatState['agentPreset'],
 ): void {
-  const chip = hero.querySelector<HTMLElement>('.hero-chips .hero-chip-preset')
-  if (!chip || !agentPreset) return
+  const chips = hero.querySelector<HTMLElement>('.hero-chips')
+  if (!chips || !agentPreset) return
   const current = agentPreset.options.find((o) => o.id === agentPreset.current)
+  let chip = chips.querySelector<HTMLButtonElement>('.hero-chip-preset')
+  if (!chip) {
+    // roster 就绪帧：之前渲染时 agentPreset 缺失（roster 未回）没建 chip，
+    // 签名不含 agentPreset 触发的是保活分支，这里补建（对齐 renderHero 的
+    // 渲染：图标 + label + chevron + 点击弹菜单）。
+    const fresh = buttonEl('hero-chip hero-chip-preset', '')
+    fresh.appendChild(presetIconSvg())
+    fresh.appendChild(el('span', 'label', current?.label ?? agentPreset.current))
+    const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
+    chev.classList.add('chevron')
+    fresh.appendChild(chev)
+    fresh.title = current?.description ?? 'Agent 模式'
+    fresh.disabled = !state?.canSend
+    fresh.addEventListener('click', () => openAgentPresetMenu(fresh, 'below'))
+    chips.appendChild(fresh)
+    chip = fresh
+    return
+  }
   const label = chip.querySelector<HTMLElement>('.label')
   if (label) {
     const text = current?.label ?? agentPreset.current

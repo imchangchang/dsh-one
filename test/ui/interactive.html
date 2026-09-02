@@ -47,6 +47,10 @@
     // 懒切换 pending（对齐真实宿主 ChatTabHost.pendingPresetId/pendingPermission）。
     let pending = {} // { workspace?, preset?, permission? }
     let turnStarted = false
+    // roster 就绪时序模拟（对齐真实宿主 refreshAgentPresets 异步拉取）：新建
+    // 会话后先未就绪（hero 无 preset chip），1s 后就绪推一帧（chip 由保活
+    // 分支补建）。
+    let rosterReady = true
 
     const wsMain = { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true, sessions: ['sess-1', 'sess-2'] }
     const wsUn = { workspaceId: UNGROUPED, path: '', label: '未分组', isCurrent: false, sessions: [] }
@@ -59,7 +63,7 @@
 
     function stateOf(s) {
       const perms = pending.permission ? { ...PERMS, current: pending.permission } : PERMS
-      const ap = !turnStarted && PRESETS
+      const ap = !turnStarted && rosterReady && PRESETS
         ? { ...PRESETS, current: pending.preset ?? PRESETS.current }
         : undefined
       return {
@@ -120,7 +124,7 @@
       requestModels() { post({ type: 'modelCatalog', catalog: modelCatalog }) },
       setModel(m) { modelCatalog.current = { provider: 'deepseek', model: m.model, reasoningEffort: m.reasoningEffort }; cur().modelLabel = m.model; pushState() },
       sessionOpen(m) { if (byId[m.sessionId]) { currentId = m.sessionId; pushSession(); pushState() } },
-      sessionNew() { const id = rid('sess'); const s = session(id, '新会话', '标准模式', []); byId[id] = s; wsMain.sessions.unshift(id); currentId = id; pushSession(); pushState() },
+      sessionNew() { const id = rid('sess'); const s = session(id, '新会话', '标准模式', []); byId[id] = s; wsMain.sessions.unshift(id); currentId = id; rosterReady = false; pushSession(); pushState(); setTimeout(() => { rosterReady = true; pushState() }, 1000) },
       sessionRename(m) { const s = byId[m.sessionId]; if (s) s.sessionTitle = m.title; pushSession() },
       sessionArchive(m) { delete byId[m.sessionId]; wsMain.sessions = wsMain.sessions.filter((x) => x !== m.sessionId); if (currentId === m.sessionId) currentId = store[0].sessionId; pushSession(); pushState() },
       // 懒切换（对齐真实宿主）：preset/权限点选只记 pending + 覆盖显示，不立即
