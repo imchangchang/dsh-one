@@ -41,6 +41,10 @@ function toSessionInput(s: SessionSummary): SessionInput {
 const RELATIVE_TIME_TICK_MS = 60_000
 /** Host-event reconnect backoff: 1s doubling up to this cap. */
 const RECONNECT_MAX_MS = 30_000
+/** 触发点去抖窗口：低频率事件（send 后 / 窗口聚焦 / 侧栏可见 / 会话状态翻转）
+ *  常在同一批连发（如 send 后触发 + running 翻转触发），500ms 内只落地一次
+ *  基线重拉，避免同一动作打多组全量 RPC。 */
+const REFRESH_DEBOUNCE_MS = 500
 
 /** workspaceState key for the persisted sort preference (UI-only state). */
 const SORT_STATE_KEY = 'sessions.sortOrder'
@@ -126,6 +130,8 @@ export class SessionsStore implements vscode.Disposable {
   private hostEvents: vscode.Disposable | null = null
   private mux: vscode.Disposable | null = null
   private tickTimer: ReturnType<typeof setInterval> | null = null
+  /** refreshSoon() 的去抖定时器：非空表示已排程一次基线重拉，期间再调不重复。 */
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null
   /**
    * refresh() 拉基线期间到达的 host 帧先缓冲、拉到后重放到新基线上——
    * 否则在途的旧快照会把已应用的增量盖掉（官方 listMutations 同款重放）。
@@ -494,7 +500,14 @@ export class SessionsStore implements vscode.Disposable {
     this.knownSessionIds = new Set(
       this.rawSessions.map((s) => s.sessionId).filter((id) => !this.rawArchived.has(id)),
     )
-    if (frame.type === 'host/session-status') this.noteRunningFlip(frame.sessionId, prevRunning, frame.running)
+    if (frame.type === 'host/session-status') {
+      this.noteRunningFlip(frame.sessionId, prevRunning, frame.running)
+      // 排序键 updatedAt 在 host/session-status 帧里不更新（见 hostFrames 注释），
+      // 但 running 实际翻转（开始/完成）时服务端往往更新了它——增量路径主动追平
+      // 一次基线。仅"实际翻转"触发（prev 有定义且值变化）；refresh() 内部的全量
+      // 对比也调 noteRunningFlip，那里不触发（prev 已是最新、不再翻转），防递归。
+      if (prevRunning !== undefined && prevRunning !== frame.running) this.refreshSoon()
+    }
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -522,6 +535,7 @@ export class SessionsStore implements vscode.Disposable {
     const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : null
     if (!sessionId) return
     let changed = false
+    let pendingChanged = false
     switch (frame.method) {
       case 'session/projection': {
         if (payload.key !== 'title' || typeof payload.seq !== 'number') return
@@ -538,11 +552,13 @@ export class SessionsStore implements vscode.Disposable {
       case 'approval/requested':
         if (payload.approvalId !== undefined) {
           changed = this.trackPending(sessionId, `a:${String(payload.approvalId)}`, 'approval')
+          pendingChanged = changed
         }
         break
       case 'approval/resolved':
         if (payload.approvalId !== undefined) {
           changed = this.resolvePending(sessionId, `a:${String(payload.approvalId)}`)
+          pendingChanged = changed
         }
         break
       case 'question/requested': {
@@ -551,11 +567,13 @@ export class SessionsStore implements vscode.Disposable {
           ? (payload.questions as PendingQuestion['questions'])
           : []
         changed = this.trackPending(sessionId, `q:${frame.rpcId}`, questionInteractionStatus(questions))
+        pendingChanged = changed
         break
       }
       case 'question/resolved':
         if (typeof payload.questionRpcId === 'string') {
           changed = this.resolvePending(sessionId, `q:${payload.questionRpcId}`)
+          pendingChanged = changed
         }
         break
       default:
@@ -564,6 +582,10 @@ export class SessionsStore implements vscode.Disposable {
     if (!changed) return
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
+    // 待交互状态翻转（approval/question 请求/解决）时刻服务端很可能也更新了
+    // updatedAt（排序键）——增量路径主动追平一次基线（去抖合并）。Session/
+    // projection 的标题帧不在此列（标题变化由 chatView 的 refresh 兜底）。
+    if (pendingChanged) this.refreshSoon()
   }
 
   /** Add or refresh one stable pending-interaction identity; true on change. */
@@ -584,6 +606,21 @@ export class SessionsStore implements vscode.Disposable {
     if (!interactions?.delete(key)) return false
     if (interactions.size === 0) this.pendingInteractions.delete(sessionId)
     return true
+  }
+
+  /**
+   * 统一去抖的基线重拉入口：低频率事件（发送后 / 窗口聚焦 / 侧栏可见 /
+   * 会话状态翻转）常在同一批连发，500ms 内合并成一次 refresh()。
+   * 直接调用 refresh() 的既有路径（手动刷新、命令动作后、标题变化等）不受影响。
+   * 只在增量路径使用（applyFrame 的 running 翻转 / onMuxFrame 的 pending 变化），
+   * refresh() 自身与它内部逻辑绝不调用——避免递归重拉。
+   */
+  refreshSoon(): void {
+    if (this.refreshTimer !== null) return
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null
+      void this.refresh()
+    }, REFRESH_DEBOUNCE_MS)
   }
 
   /** Re-fetch the baseline and rebuild the model. Failures only log. */
@@ -662,6 +699,7 @@ export class SessionsStore implements vscode.Disposable {
     this.mux?.dispose()
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     if (this.tickTimer) clearInterval(this.tickTimer)
+    if (this.refreshTimer) clearTimeout(this.refreshTimer)
     this.onDidChangeEmitter.dispose()
   }
 }
