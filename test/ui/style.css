@@ -1483,8 +1483,6 @@
     content: ''; position: absolute; left: 3px; top: 6px; width: 6px; height: 1.5px; background: #fff;
   }
   .select-checkbox input:disabled { opacity: .35; cursor: default; }
-  /* 多选模式：行首让位给复选框（原 12px 左内边距收窄）。 */
-  .session-row.selection-mode { padding-left: 4px; }
   /* 批量归档确认弹窗：面板内 modal（vscode.window 弹窗放不了树形富内容）。 */
   .selection-modal-overlay {
     position: fixed; inset: 0; z-index: 30;

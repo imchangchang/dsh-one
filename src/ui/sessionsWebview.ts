@@ -783,19 +783,6 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   const busy = s.running || s.descendantRunning
   const slot = el('span', 'session-status')
   const slotTaken = s.pendingInteraction !== undefined || busy || s.unread
-  if (selectionMode) {
-    // 多选模式：行首复选框；行内 hover 按钮全部收起来（见下方 actions）。
-    row.classList.add('selection-mode')
-    const selectable = sessionSelectable(s)
-    row.appendChild(
-      makeSelectionCheckbox({
-        state: selectedSessionIds.has(s.sessionId) ? 'all' : 'none',
-        disabled: !selectable,
-        disabledTip: selectable ? null : sessionSelectTip(s),
-        onToggle: () => toggleSessionSelected(s),
-      }),
-    )
-  }
   if (s.pendingInteraction !== undefined) {
     const dot = el('span', 'session-dot warning')
     dot.title =
@@ -809,6 +796,20 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   else if (s.unread) slot.appendChild(el('span', 'session-dot completed'))
   else if (pinned) slot.appendChild(makePinIcon())
   row.appendChild(slot)
+  // 多选模式：复选框紧跟标题（状态槽右侧）——组头勾选框在最左，行勾选框
+  // 缩进一层，形成清晰的树形层次。
+  if (selectionMode) {
+    row.classList.add('selection-mode')
+    const selectable = sessionSelectable(s)
+    row.appendChild(
+      makeSelectionCheckbox({
+        state: selectedSessionIds.has(s.sessionId) ? 'all' : 'none',
+        disabled: !selectable,
+        disabledTip: selectable ? null : sessionSelectTip(s),
+        onToggle: () => toggleSessionSelected(s),
+      }),
+    )
+  }
   const main = el('span', 'session-main')
   if (pinned && slotTaken) {
     const pin = el('span', 'session-pin')
