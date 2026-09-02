@@ -38,3 +38,4 @@
 - 2026-09-XX 需求确认 → open
 - 2026-09-XX 认领 → doing
 - 2026-09-02 开发完成（worktree agent/session-open-protect-dirty-tab，commit 795a64d/af678a5）：webview 上报 composer 脏位（文本/附件，切换帧强制重报），host openSession 目标 tab 脏位为 true 时改走新 tab；顺带修空态草稿切走不存档。自测 typecheck + 330 tests + build 全绿。→ done
+- 2026-09-02 人工 dev-ui-test 验收通过（用户）；主线合入（merge $(git log --format=%h -1 --grep="merge(agent)")），复测 typecheck/330 tests/build 全绿 → closed
