@@ -2376,7 +2376,23 @@ function render(): void {
   // Pending steering bubbles sit at the tail of the transcript, after the
   // turn status — the spot their durable user message lands once claimed
   // (official PendingSteeringBubble). Snapshot order = send order.
-  for (const item of steeringItems) messages.appendChild(renderSteeringItem(item))
+  // 节点按 id 跨帧复用（上方 messages.textContent = '' 只摘除不销毁，Map 引用
+  // 保住）：流式刷新每帧全重建时，新建节点会让 spinner 动画归零重转，圆圈一直
+  // "重新开始"；移动已有节点（元素移动不重置 CSS 动画）则保持平滑旋转。
+  for (const item of steeringItems) {
+    const cached = steeringNodeCache.get(item.id)
+    if (cached) {
+      messages.appendChild(cached)
+    } else {
+      const node = renderSteeringItem(item)
+      steeringNodeCache.set(item.id, node)
+      messages.appendChild(node)
+    }
+  }
+  for (const id of steeringNodeCache.keys()) {
+    // 插话落地/被移除：留在快照外的 id 清掉，下次相同 id 重现时重新创建。
+    if (!steeringItems.some((item) => item.id === id)) steeringNodeCache.delete(id)
+  }
   // "Back to latest" floater: sticky at the scroller's bottom while the user
   // reads history; hidden while pinned to the tail.
   const jump = buttonEl('jump-latest', '↓ 回到最新')
@@ -2711,6 +2727,9 @@ function renderSteeringItem(item: QueuedItem): HTMLElement {
   row.appendChild(el('div', 'bubble', item.text || '（空消息）'))
   return row
 }
+
+/** steering 行跨帧复用的节点缓存（id → 节点），见 render() 的复用逻辑。 */
+const steeringNodeCache = new Map<string, HTMLElement>()
 
 /**
  * 消息里的图片：和待发送图片同款的方形小缩略图（复用 attach-thumb，点击
@@ -4809,12 +4828,20 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       render()
       return
     }
-    // ArrowUp on the first line with no selection recalls: the last queued
-    // message for editing when the inbox has one, else the last genuine user
-    // message for re-sending. A recall in progress keeps ArrowUp as caret move.
+    // ArrowUp on the first line with no selection recalls: 有等待插话的 steering
+    // 气泡时首选撤销它（↑ 第一个可回退编辑的就是它——宿主移除该项并把内容
+    // 含附件回填 composer）；否则召回排队消息（改回后 Enter 保存），再否则
+    // 召回最后一条真正的用户消息重新发送。进行中的 recall 保持箭头移光标。
     if (e.key === 'ArrowUp' && !e.isComposing && !recall && state?.canSend) {
       if (input.selectionStart !== input.selectionEnd) return
       if (input.value.slice(0, input.selectionStart).includes('\n')) return
+      const lastSteer = [...(state.queue ?? [])].reverse().find((q) => q.placement === 'steering')
+      if (lastSteer) {
+        // 撤销即最终动作（消息从 inbox 移除），不进 recall 状态、无 Esc 取消。
+        e.preventDefault()
+        post({ type: 'unsteer', itemId: lastSteer.id })
+        return
+      }
       const lastQueued = [...(state.queue ?? [])].reverse().find((q) => q.placement === 'queued')
       const lastUser = lastQueued
         ? null

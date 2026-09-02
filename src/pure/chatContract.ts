@@ -655,6 +655,11 @@ export type FromWebviewMessage =
   | { type: 'queueEdit'; itemId: string; text: string }
   | { type: 'queueSteer'; itemId: string }
   | { type: 'queueRemove'; itemId: string }
+  /**
+   * 撤销一条等待插话的 steering 消息（↑ 键首选动作）：宿主从 inbox 移除该项，
+   * 并把它的文本/图片/文件经 restoreDraft 回填 composer 重新编辑。
+   */
+  | { type: 'unsteer'; itemId: string }
   /** Goal bar actions（对齐官方 dsh-client-ui-goal 的 GoalBar 操作；宿主持 ref 调 goals/* RPC）。 */
   | { type: 'goalPause' }
   | { type: 'goalResume' }
