@@ -894,7 +894,6 @@ export class ChatSessionController implements vscode.Disposable {
   }
 
   /**
-<<<<<<< HEAD
    * Fold one `plan` projection value (dsh-plan-mode's wire view
    * `{active, pending}`). Malformed values are dropped, keeping the last
    * good state.
@@ -904,7 +903,9 @@ export class ChatSessionController implements vscode.Disposable {
     const v = value as Record<string, unknown>
     if (typeof v.active !== 'boolean' || typeof v.pending !== 'boolean') return
     this.plan = { active: v.active, pending: v.pending }
-=======
+  }
+
+  /**
    * Fold one `goal` projection value. null（create 前 / clear 后）存 null；
    * 畸形值归为 undefined（未收到投影），两者 webview 都不渲染。合法值是
    * { goal: {...}, roundsStarted, createdAt, updatedAt }，只取内层 goal。
@@ -952,7 +953,6 @@ export class ChatSessionController implements vscode.Disposable {
           }
         : {}),
     }
->>>>>>> 7db4df9 (goal 条幅：chatSession 折叠 goal 投影（基线 + session/projection 帧）+ 4 个操作方法)
   }
 
   private onFrame(frame: MuxFrame): void {
