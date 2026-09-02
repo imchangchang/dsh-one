@@ -18,3 +18,4 @@ webview 侧 `sendCurrent()`（`src/ui/chat/webview.ts:4580-4625`）发送前就�
 
 ## 变更记录
 - 2026-09-13 记录 → open，用户明确要求修复，立即认领 → doing
+- 2026-09-13 开发完成，自测通过（typecheck + 328 test + build，done 标记 efb5fd3）→ done

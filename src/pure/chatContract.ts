@@ -621,7 +621,11 @@ export type ToWebviewMessage =
    */
   | { type: 'modelCatalogError' }
   | { type: 'attachmentData'; attachmentId: string; mediaType: string; data: string }
-  | { type: 'restoreDraft'; text: string }
+  /**
+   * 把内容还原回 composer：stop 时被抽干队列的排队消息文本，或发送失败
+   * 时原样还回的消息（图片/文件 chips 一并恢复，不让输入被吞）。
+   */
+  | { type: 'restoreDraft'; text: string; images?: OutgoingImage[]; files?: StagedFile[] }
   | { type: 'commandResult'; text: string }
   /** @ 补全的文件/文件夹候选响应；requestId 回声，过期的响应由 webview 丢弃。 */
   | { type: 'fileRefList'; requestId: number; items: FileRefCandidate[] }
