@@ -1831,6 +1831,18 @@ function render(): void {
     // 输入区整个换成面板，原输入框被移除（draft 内容仍保留，pending 结束后
     // 恢复普通 composer 时按 draft 还原）。
     (state?.pending.length ?? 0) === 0
+  // 空会话 hero 保活不要求焦点/菜单：hero 内容只由 composer 签名描述，签名
+  // 没变（懒切换 pending 帧只改 workspace chip 文字等）时 DOM 不动——重建会
+  // 让鱼标 CSS 动画重播（视觉上图标「重置」）且打断输入状态。keepComposer 的
+  // 焦点条件保留给消息流布局（那里重建是常态）。仅当前帧是 hero 布局时生效
+  // （pending 接管等其他布局切换一律走重建）。清理循环与 blankHero 分支共用。
+  const keepBlankHero =
+    blankHero &&
+    oldHero !== null &&
+    oldComposer !== null &&
+    stashedDraft === undefined &&
+    composerSig === lastComposerSig &&
+    oldHero.contains(oldComposer)
   // A rebuilt composer gets fresh listeners; the popup re-opens below when the
   // draft still starts with '/'. With a kept composer it only re-anchors.
   if (!keepComposer) hideSlashPopup()
@@ -1869,6 +1881,7 @@ function render(): void {
     for (const child of Array.from(chatCol.children)) {
       if (keepMessages && child === oldMessages) continue
       if (keepHeader && child === oldHeader) continue
+      if (keepBlankHero && (child === oldComposer || child === oldHero)) continue
       if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
       if (keepPending && child === oldPending) continue
       child.remove()
@@ -1905,7 +1918,7 @@ function render(): void {
   if (blankHero) {
     turnStatusStart = null
     scrollSession = null
-    if (keepComposer && oldHero && oldComposer) {
+    if (keepBlankHero) {
       // 整个 hero（含 composer）保持不动：焦点、光标、进行中的 IME 组合都
       // 不中断；只有跟踪数据流的 stats 行就地修补。
       patchStatsRow(oldComposer, state.statsLine, state.contextUsage)
