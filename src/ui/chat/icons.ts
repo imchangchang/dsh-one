@@ -332,6 +332,37 @@ export const STOP_ICON: IconDef = {
   ],
 }
 
+/**
+ * 主按钮发送图标（官方 InputBar 主按钮发送态）：16px 上箭头（官方主按钮
+ * 内联此 path 渲染，见 dsh-client-ui-conversation lib/client.js :4158）。
+ */
+export const SEND_ICON: IconDef = {
+  paths: [
+    'M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z',
+  ],
+}
+
+/**
+ * 主按钮停止图标（官方 InputBar 主按钮运行态）：16px 圆角方块（官方内联
+ * `<rect x=3 y=3 width=10 height=10 rx=3>`，此处转成 path）。
+ */
+export const STOP_PRIMARY_ICON: IconDef = {
+  paths: [
+    'M6 3H10C11.6569 3 13 4.34315 13 6V10C13 11.6569 11.6569 13 10 13H6C4.34315 13 3 11.6569 3 10V6C3 4.34315 4.34315 3 6 3Z',
+  ],
+}
+
+/**
+ * DSH One 像素鲸鱼 logo（assets/icon.svg 的像素图形转为 path，品牌蓝
+ * #2563EB）：32×32 viewBox。用于空态 hero 品牌组合。
+ */
+export const DSH_ONE_MARK: IconDef = {
+  viewBox: '0 0 32 32',
+  paths: [
+    'M8 3h1v1h-1zM13 3h1v1h-1zM6 4h2v1h-2zM11 4h1v1h-1zM14 4h1v1h-1zM6 5h1v1h-1zM11 5h1v1h-1zM14 5h1v1h-1zM7 6h1v1h-1zM10 6h1v1h-1zM13 6h1v1h-1zM8 7h1v1h-1zM10 7h1v1h-1zM12 7h1v1h-1zM8 9h5v1h-5zM22 9h1v1h-1zM29 9h1v1h-1zM6 10h9v1h-9zM22 10h3v1h-3zM28 10h2v1h-2zM4 11h13v1h-13zM22 11h4v1h-4zM27 11h3v1h-3zM4 12h14v1h-14zM22 12h8v1h-8zM4 13h15v1h-15zM23 13h6v1h-6zM3 14h17v1h-17zM24 14h4v1h-4zM3 15h18v1h-18zM25 15h2v1h-2zM3 16h18v1h-18zM24 16h3v1h-3zM2 17h2v1h-2zM12 17h6v1h-6zM20 17h7v1h-7zM2 18h2v1h-2zM12 18h7v1h-7zM21 18h5v1h-5zM3 19h1v1h-1zM13 19h7v1h-7zM22 19h4v1h-4zM3 20h2v1h-2zM14 20h12v1h-12zM3 21h2v1h-2zM15 21h10v1h-10zM4 22h2v1h-2zM16 22h9v1h-9zM4 23h2v1h-2zM17 23h7v1h-7zM4 24h3v1h-3zM12 24h2v1h-2zM18 24h5v1h-5zM6 25h5v1h-5zM12 25h5v1h-5zM20 25h1v1h-1zM7 26h13v1h-13zM9 27h8v1h-8zM14 28h3v1h-3zM15 29h2v1h-2z',
+  ],
+}
+
 /** cordis_undefine 卡图标（dsh web IconTrashOutline16）：垃圾桶。 */
 export const TRASH_ICON: IconDef = {
   paths: [

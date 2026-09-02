@@ -198,7 +198,15 @@
         { workspaceId: 'ws-another', path: '/tmp/another-project', title: 'another-project' },
       ], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, statsLine: undefined }),
       title: '空会话 hero',
-      expect: '空会话 hero（无历史）：品牌鱼标 + 标题「探索未至之境预览版」+ workspace 选择 chip（dsh-one，文件夹图标 + 名称 + chevron，可点击）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）；composer 右下角**无** contextBar——无「窗口未知」灰字占位、无进度条、无悬停说明（空白对话无任何上下文数据，切换模型后也不显示任何上下文指示）。',
+      expect: '空会话 hero（无历史）：品牌组合（官方蓝色鱼标 + × 分隔符 + DSH One 像素鲸鱼 logo，像素鲸为品牌蓝），**无**「探索未至之境」标题与「预览版」徽章；其下 workspace 选择 chip（dsh-one，文件夹图标 + 名称 + chevron，可点击）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）；composer 右下角发送按钮为**圆形图标按钮**（品牌蓝底、白色上箭头图标、无文字）；composer 右下角**无** contextBar——无「窗口未知」灰字占位、无进度条、无悬停说明（空白对话无任何上下文数据，切换模型后也不显示任何上下文指示）。',
+    },
+
+    'composer-running': {
+      // 运行中：官方 primaryStops 交互——主按钮从发送箭头切换为停止方块，
+      // 点击即 stop；没有独立的「停止」文字按钮。
+      state: base({ running: true, canSend: true, messages: [u('跑一下测试')] }),
+      title: 'composer 运行中：主按钮变停止',
+      expect: '有消息的普通对话（非 hero）：composer 输入行右侧主按钮为**圆形品牌蓝底 + 白色停止方块图标**（不是发送箭头、没有「停止」文字按钮、没有第二个按钮）；点击该按钮发出 stop（可后续在交互态验证）。输入框仍可输入排队消息。',
     },
 
     'workspace-picker-open': {

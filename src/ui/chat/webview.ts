@@ -7,7 +7,7 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { CONTEXT_BROWSE_ICON, CODE_ICON, FISH_LOGO, GOAL_ICONS, MESSAGE_ACTION_ICONS, PANEL_ICONS, SKILL_ICON, STOP_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
+import { CONTEXT_BROWSE_ICON, CODE_ICON, DSH_ONE_MARK, FISH_LOGO, GOAL_ICONS, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, SKILL_ICON, STOP_ICON, STOP_PRIMARY_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
@@ -2544,21 +2544,22 @@ function render(): void {
 }
 
 /**
- * 空会话 hero（官方 dsh web 空态 HeroShell）：整列水平居中——品牌鱼标，
- * 标题「探索未至之境」+「预览版」徽章，其下 workspace 选择 chip（点击弹
- * WorkspacePicker）与 preset 选择 chip 行，再下是包成大圆角卡片的 composer
- * （样式见 chatView.ts 的 .hero）。
+ * 空会话 hero（官方 dsh web 空态 HeroShell 的本地变体）：整列水平居中——
+ * 品牌组合（官方鱼标 × DSH One 像素鲸鱼 logo，一体化浮动），其下 workspace
+ * 选择 chip（点击弹 WorkspacePicker）与 preset 选择 chip 行，再下是包成
+ * 大圆角卡片的 composer（样式见 chatView.ts 的 .hero）。不渲染官方
+ * hero 的「探索未至之境」标题与「预览版」徽章（用户要求去掉）。
  */
 function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
   const hero = el('div', 'hero')
   const stack = el('div', 'hero-stack')
-  // 品牌鱼标（官方 FishLogo SVG path，见 icons.ts 的 FISH_LOGO）+ 轻量
-  // 游动动画（纯 CSS transform，样式见 chatView.ts 的 .hero-fish）。
-  stack.appendChild(fishLogoSvg(56, 'hero-fish'))
-  const headline = el('div', 'hero-headline')
-  headline.appendChild(el('span', 'hero-headline-text', '探索未至之境'))
-  headline.appendChild(el('span', 'hero-badge', '预览版'))
-  stack.appendChild(headline)
+  // 品牌组合：官方 FishLogo + × 分隔符 + DSH One 像素鲸鱼 logo，整体用
+  // .hero-brand 轻量游动动画（纯 CSS transform，样式见 chatView.ts）。
+  const brand = el('div', 'hero-brand hero-fish')
+  brand.appendChild(fishLogoSvg(56, 'hero-brand-fish'))
+  brand.appendChild(el('span', 'hero-brand-x', '×'))
+  brand.appendChild(iconSvg(DSH_ONE_MARK, 40))
+  stack.appendChild(brand)
   const chips = el('div', 'hero-chips')
   if (state.workspaceLabel) {
     // 官方此 chip 是 workspace 选择器（WorkspacePicker）：点击弹下拉——全部
@@ -4710,8 +4711,21 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     input.value = draft
   }
 
-  const button = buttonEl('send-button', recall?.kind === 'queue' ? '保存' : '发送')
+  // 主按钮（对齐官方 InputBar primary）：无文字图标按钮——非运行显示发送
+  // 箭头，运行中同一按钮切换为停止方块（primaryStops），点击即 stop；排队
+  // 发送走 Enter（官方同款交互，独立的「停止」文字按钮随之淘汰）。
+  const running = !!state?.running
+  const button = buttonEl('send-button', '')
+  const buttonLabel = running ? '停止' : recall?.kind === 'queue' ? '保存修改' : '发送'
+  button.title = buttonLabel
+  button.setAttribute('aria-label', buttonLabel)
+  button.appendChild(iconSvg(running ? STOP_PRIMARY_ICON : SEND_ICON, 16))
   const updateButton = (): void => {
+    if (running) {
+      // 运行中主按钮=停止，stop 无前置条件（官方 disabled: stop === void 0）。
+      button.disabled = false
+      return
+    }
     button.disabled =
       !canSend ||
       !modelAvailable ||
@@ -4763,8 +4777,14 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     // 后续流式输出继续贴底（host 快照回来后 render 会按跟随态钉住）。
     pinToLatest()
   }
-  button.addEventListener('click', () => sendCurrent())
-  button.title = state?.running ? 'Enter 排队发送，⌘/Ctrl+Enter 立即插话' : ''
+  button.addEventListener('click', () => {
+    // 官方交互：运行中主按钮点击 = stop；否则发送。
+    if (state?.running) {
+      post({ type: 'stop' })
+      return
+    }
+    sendCurrent()
+  })
   input.addEventListener('keydown', (e) => {
     // Slash completion owns these keys while open: arrows navigate, Tab/Enter
     // complete, Escape dismisses (an Escape with no popup falls through).
@@ -4890,13 +4910,6 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   })
   updateButton()
   row.appendChild(input)
-  // While a turn runs, stop gets its own button; send stays available and
-  // queues the prompt (dsh mode 'queue').
-  if (state?.running) {
-    const stop = buttonEl('secondary stop-button', '停止')
-    stop.addEventListener('click', () => post({ type: 'stop' }))
-    row.appendChild(stop)
-  }
   row.appendChild(button)
   wrap.appendChild(row)
 
