@@ -88,7 +88,8 @@ export class SessionsStore implements vscode.Disposable {
   private rawArchived: ReadonlySet<string> = new Set()
   private sortOrder: SessionSortOrder = 'updatedDesc'
   private query: string | null = null
-  private pinned = new Set<string>()
+  /** 置顶会话 id（保持置顶顺序：数组越靠前置顶越早/越优先；dsh 无置顶 API，纯本地 UI 状态）。 */
+  private pinned: string[] = []
   private collapsed = new Set<string>()
   private unread = new Set<string>()
   /** 内容搜索命中：sessionId → 最佳匹配片段（query 非空时由 session.search 填充）。 */
@@ -149,7 +150,7 @@ export class SessionsStore implements vscode.Disposable {
     if (savedSort === 'updatedDesc' || savedSort === 'updatedAsc' || savedSort === 'title') {
       this.sortOrder = savedSort
     }
-    this.pinned = new Set(state?.get<string[]>(PINNED_STATE_KEY) ?? [])
+    this.pinned = state?.get<string[]>(PINNED_STATE_KEY) ?? []
     this.collapsed = new Set(state?.get<string[]>(COLLAPSED_STATE_KEY) ?? [])
     // 清掉历史版本可能残留的「未分组」折叠键（虚拟组恒展开，不应进集合）。
     this.collapsed.delete(UNGROUPED_WORKSPACE_ID)
@@ -244,9 +245,17 @@ export class SessionsStore implements vscode.Disposable {
 
   /** Pin/unpin a session (client-side only); persists across reloads. */
   setPinned(sessionId: string, pin: boolean): void {
-    const changed = pin ? !this.pinned.has(sessionId) : this.pinned.delete(sessionId)
-    if (pin) this.pinned.add(sessionId)
-    if (!changed) return
+    const idx = this.pinned.indexOf(sessionId)
+    if (pin) {
+      // 置顶 = 绝对优先：新置顶放组内最前；已置顶的也移到最前（若其已是最前
+      // 则无变化）。取消后再置顶同样跳到最前。
+      if (idx === 0) return
+      if (idx !== -1) this.pinned.splice(idx, 1)
+      this.pinned.unshift(sessionId)
+    } else {
+      if (idx === -1) return
+      this.pinned.splice(idx, 1)
+    }
     void this.state?.update(PINNED_STATE_KEY, [...this.pinned])
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
