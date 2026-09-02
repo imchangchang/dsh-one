@@ -30,7 +30,7 @@
 - **Native chat panel** — markdown rendering, tool calls as compact rows (action phrases, output folded with expand), inline permission prompts and questions, plan-review cards, todo lists, subagent runs, one-click stop while running.
 - **Conversation features** — copy a message, rate it useful/not useful, fork a finished turn into a new session, jump to a subagent session.
 - **Composer** — image attachments (thumbnail preview), file attachments (path chips), permission mode picker, model picker, agent preset picker, and a context-usage bar that warns before you run out of room.
-- **Send files into the conversation** — right-click any file in the editor or explorer → `DSH One: 发送到当前会话`; images show as thumbnails, other files as path chips.
+- **Send files into the conversation** — right-click any file in the editor or explorer → `DSH One: Send to Current Session`; images show as thumbnails, other files as path chips.
 - **Status bar** — `DSH: running :port / starting / stopped / error`, click to focus the panel.
 
 ## Quick start
@@ -65,18 +65,18 @@ flowchart LR
 ## Using DSH One
 
 - **Sidebar (default)** — the DSH One icon opens the sidebar with the sessions list and the native chat panel. Pick a session to attach it, or start a new one; it opens right in the chat panel.
-- **dsh web in an editor tab** — `DSH One: 打开 dsh 页面` opens the full official dsh web UI (iframe) in an editor tab.
+- **dsh web in an editor tab** — `DSH One: Open dsh Page` opens the full official dsh web UI (iframe) in an editor tab.
 - **Common commands** (`Ctrl/Cmd+Shift+P`):
 
   | Command | Description |
   | --- | --- |
-  | `DSH One: 打开面板` | Focus the sidebar chat panel |
-  | `DSH One: 打开 dsh 页面` | Open dsh web in an editor tab |
-  | `DSH One: 重启服务` / `DSH One: 停止服务` | Restart / stop the dsh service |
-  | `DSH One: 显示日志` | Show the extension log |
-  | `DSH One: 查看 dsh 安装指南` | Open the official dsh install page |
+  | `DSH One: Open Panel` | Focus the sidebar chat panel |
+  | `DSH One: Open dsh Page` | Open dsh web in an editor tab |
+  | `DSH One: Restart Service` / `DSH One: Stop Service` | Restart / stop the dsh service |
+  | `DSH One: Show Logs` | Show the extension log |
+  | `DSH One: View dsh Installation Guide` | Open the official dsh install page |
 
-- **Send a file** — right-click a file in the editor or explorer → `DSH One: 发送到当前会话` to stage it as an attachment in the active conversation.
+- **Send a file** — right-click a file in the editor or explorer → `DSH One: Send to Current Session` to stage it as an attachment in the active conversation.
 - **Status bar** — shows the service state; click to focus the panel.
 
 ## Settings
