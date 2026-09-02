@@ -24,3 +24,4 @@
 - 2026-09-XX 认领（worktree: agent/attachment-file-chip-uniform-size）→ doing
 - 2026-09-XX 开发完成，自测通过（typecheck + 317 test + build，commit 30d92dc）→ done
 - 2026-09-XX AI 视觉验证（attachment-uniform 场景：输入区+消息区四框实测均 50×50，commit e32def0）；人工 dev-ui-test 窗口验收待做
+- 2026-09-XX 新增需求（用户）：附件点击在 VS Code 直接打开（含工作区外外部文件）→ doing
