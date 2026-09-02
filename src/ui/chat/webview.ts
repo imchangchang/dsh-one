@@ -11,6 +11,7 @@ import { AGENT_PRESET_ICON, CONTEXT_BROWSE_ICON, CODE_ICON, DSH_ONE_MARK, GOAL_I
 import type {
   ChatAssistantMessage,
   ChatBlock,
+  ChatContext,
   ChatFile,
   ChatGoal,
   ChatImage,
@@ -2769,6 +2770,112 @@ function contextLabel(kind: string): string {
   return t('Context injection')
 }
 
+/** Normalize a (possibly legacy string) context value into the structured shape. */
+function contextOf(value: ChatContext | string): ChatContext {
+  return typeof value === 'string' ? { kind: value } : value
+}
+
+/**
+ * 注入上下文折叠卡（对齐 dsh web ContextInjectionRow）：折叠头 = 图标 + label
+ * （recall/会话引用用 ReferenceIcon）+ notice 的 summary；展开 body 按 form
+ * 渲染结构（见 structuredContextBody），未知 form 退化为原始正文。body 在
+ * 141px 内滚动（截断）。
+ */
+function renderInjectedContext(ctx: ChatContext, text: string, key: string): HTMLElement {
+  const det = el('details', 'msg context') as HTMLDetailsElement
+  det.open = detailsOpen.get(`${key}:ctx`) ?? false
+  det.addEventListener('toggle', () => detailsOpen.set(`${key}:ctx`, det.open))
+  const isRecall = ctx.kind === 'session-reference' || ctx.form === 'recall'
+  const summary = el('summary')
+  summary.appendChild(isRecall ? iconSvg(SESSION_REF_ICON, 14) : iconSvg(CONTEXT_BROWSE_ICON, 14))
+  summary.appendChild(el('span', undefined, t('{0} (injected with the message)', contextLabel(ctx.kind))))
+  if (ctx.form === 'notice' && ctx.summary) summary.appendChild(el('span', 'context-summary', ctx.summary))
+  det.appendChild(summary)
+  det.appendChild(markScrollable(contextBodyOf(ctx, text), `${key}:ctx`))
+  return det
+}
+
+/** 141px 滚动容器：结构优先（form 渲染），无结构/未知 form 时退化为原始正文。 */
+function contextBodyOf(ctx: ChatContext, text: string): HTMLElement {
+  const body = el('div', 'context-body')
+  const structure = structuredContextBody(ctx)
+  if (structure) {
+    // 顶注（catalog 替换提示 / snapshot 取代说明），对齐 dsh web 的提示行。
+    if (ctx.form === 'catalog' && ctx.update) body.appendChild(el('div', 'context-note', t('Catalog replaced')))
+    if (ctx.form === 'snapshot') body.appendChild(el('div', 'context-note', t('This snapshot supersedes the previous version')))
+    body.appendChild(structure)
+    // 模型正文（注入文本）在结构下方保留（notice/relay 等无结构字段的正文）。
+    if (text) body.appendChild(el('pre', 'context-model-body', text))
+  } else {
+    body.textContent = text
+  }
+  return body
+}
+
+/** 按 form 渲染结构体；notice（summary 在折叠行）与未知 form 返回 null。 */
+function structuredContextBody(ctx: ChatContext): HTMLElement | null {
+  switch (ctx.form) {
+    case 'instructions': {
+      const wrap = el('div', 'ctx-changes')
+      for (const ch of ctx.changes ?? []) {
+        const row = el('div', 'ctx-change')
+        row.appendChild(el('span', 'ctx-change-action', contextActionLabel(ch.action)))
+        row.appendChild(el('span', 'ctx-change-path', ch.path))
+        wrap.appendChild(row)
+      }
+      return wrap
+    }
+    case 'catalog': {
+      const wrap = el('div', 'ctx-entries')
+      for (const entry of ctx.entries ?? []) {
+        const row = el('div', 'ctx-entry')
+        row.appendChild(el('span', 'ctx-entry-name', entry.name))
+        if (entry.description) row.appendChild(el('span', 'ctx-entry-desc', entry.description))
+        wrap.appendChild(row)
+      }
+      return wrap
+    }
+    case 'snapshot': {
+      const wrap = el('div', 'ctx-sections')
+      for (const section of ctx.sections ?? []) {
+        const sec = el('div', 'ctx-section')
+        sec.appendChild(el('div', 'ctx-section-name', section.name))
+        sec.appendChild(el('div', 'ctx-section-text', section.text))
+        wrap.appendChild(sec)
+      }
+      return wrap
+    }
+    case 'relay': {
+      const wrap = el('div', 'ctx-relay')
+      wrap.appendChild(el('div', 'ctx-relay-from', t('From session {0}', ctx.senderSessionId ?? '')))
+      return wrap
+    }
+    case 'recall': {
+      const wrap = el('div', 'ctx-recall')
+      for (const ref of ctx.references ?? []) {
+        const row = el('div', 'ctx-recall-row')
+        const parts = [ref.label]
+        if (ref.retainedMessages !== undefined || ref.omittedMessages !== undefined) {
+          parts.push(t('retain {0} / omit {1}', String(ref.retainedMessages ?? '?'), String(ref.omittedMessages ?? '?')))
+        }
+        row.appendChild(el('span', 'ctx-recall-label', parts.join(' · ')))
+        if (ref.truncated) row.appendChild(el('span', 'ctx-recall-truncated', t('truncated')))
+        wrap.appendChild(row)
+      }
+      return wrap
+    }
+    default:
+      // notice（summary 已在折叠行）与未知 form：正文只保留注入文本。
+      return null
+  }
+}
+
+function contextActionLabel(action: 'set' | 'replace' | 'remove'): string {
+  if (action === 'set') return t('Set')
+  if (action === 'replace') return t('Replace')
+  return t('Remove')
+}
+
 /** Attachment id whose bytes are being fetched to open a preview on arrival. */
 let pendingPreview: string | null = null
 /** Queue item currently being edited inline, null when none. */
@@ -3372,16 +3479,7 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (m.kind === 'user') {
     // Host-injected context renders collapsed; only real human input bubbles.
     if (m.context) {
-      // 会话引用上下文用 dsh web 的 ReferenceIcon session 分支，其余用 IconBrowseOutline16。
-      const det = el('details', 'msg context') as HTMLDetailsElement
-      det.open = detailsOpen.get(`${key}:ctx`) ?? false
-      det.addEventListener('toggle', () => detailsOpen.set(`${key}:ctx`, det.open))
-      const summary = el('summary')
-      summary.appendChild(m.context === 'session-reference' ? iconSvg(SESSION_REF_ICON, 14) : iconSvg(CONTEXT_BROWSE_ICON, 14))
-      summary.appendChild(el('span', undefined, t('{0} (injected with the message)', contextLabel(m.context))))
-      det.appendChild(summary)
-      det.appendChild(markScrollable(el('div', 'context-body', m.text), `${key}:ctx`))
-      return det
+      return renderInjectedContext(contextOf(m.context), m.text, key)
     }
     const row = el('div', 'msg user')
     // 附件在文字气泡上方（对齐 dsh web）：图片显示方形缩略图，文件仍是名称 chip。

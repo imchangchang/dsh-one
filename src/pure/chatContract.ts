@@ -98,6 +98,69 @@ export interface ChatFile {
   path: string
 }
 
+/** Declared information shape of injected context (source.form). */
+export type ContextForm = 'instructions' | 'catalog' | 'snapshot' | 'notice' | 'relay' | 'recall'
+
+/** instructions form: one workspace instruction-file change. */
+export interface ChatContextChange {
+  path: string
+  action: 'set' | 'replace' | 'remove'
+  digest?: string
+}
+
+/** catalog form: one plugin capability directory entry. */
+export interface ChatContextEntry {
+  name: string
+  description: string
+}
+
+/** snapshot form: one labelled section of the current state. */
+export interface ChatContextSection {
+  name: string
+  text: string
+}
+
+/** recall form: one referenced session's replay summary. */
+export interface ChatContextReference {
+  label: string
+  retainedMessages?: number
+  omittedMessages?: number
+  truncated?: boolean
+}
+
+/**
+ * Host-injected context masquerading as a user message (source.kind from the
+ * user/message event, e.g. 'agent-instructions' or a plugin snapshot). Absent
+ * for genuine human input; the UI collapses these by default.
+ *
+ * `kind` is the producer label (kept for the UI label and backward compat with
+ * the previous string form). `form` is set only when the source declares one
+ * AND its payload validates all-or-nothing; when the payload can't be read
+ * cleanly the form is dropped so the UI degrades to opaque text rather than
+ * rendering a half-complete list.
+ *
+ * A legacy `string` value (the old kind-only form) is still accepted for
+ * backward compatibility with previously persisted state.
+ */
+export interface ChatContext {
+  kind: string
+  form?: ContextForm
+  /** instructions */
+  changes?: ChatContextChange[]
+  baseline?: string
+  /** catalog */
+  entries?: ChatContextEntry[]
+  update?: boolean
+  /** snapshot */
+  sections?: ChatContextSection[]
+  /** notice */
+  summary?: string
+  /** relay */
+  senderSessionId?: string
+  /** recall */
+  references?: ChatContextReference[]
+}
+
 export interface ChatUserMessage {
   kind: 'user'
   id: string
@@ -111,7 +174,7 @@ export interface ChatUserMessage {
    * the user/message event, e.g. 'agent-instructions' or a plugin snapshot).
    * Absent for genuine human input. The UI collapses these by default.
    */
-  context?: string
+  context?: ChatContext | string
   /**
    * 本消息引用的会话（{sessionId, label}，按 mention 出现顺序）。host 解析
    * 引用后落盘的是可读 @label 文本，URI 信息只留在紧随其后的

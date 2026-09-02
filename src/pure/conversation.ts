@@ -13,12 +13,14 @@ import type {
   ChatBlock,
   ChatCommandMessage,
   ChatCompactionMessage,
+  ChatContext,
   ChatFile,
   ChatImage,
   ChatMessage,
   ChatRetryBlock,
   ChatToolBlock,
   ChatTurnTiming,
+  ContextForm,
 } from './chatContract.ts'
 
 /** Subset of dsh-llm's StreamChunk the folder folds. */
@@ -292,6 +294,155 @@ function outputTokensOf(usage: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
 
+/** Loose mirror of dsh-llm's ContextFormed source payload (kind + declared form). */
+interface LooseInjectSource {
+  kind?: unknown
+  form?: unknown
+  changes?: unknown
+  baseline?: unknown
+  entries?: unknown
+  update?: unknown
+  sections?: unknown
+  summary?: unknown
+  senderSessionId?: unknown
+  references?: unknown
+}
+
+const CONTEXT_FORMS: readonly ContextForm[] = ['instructions', 'catalog', 'snapshot', 'notice', 'relay', 'recall']
+
+function strOf(v: unknown): string | undefined {
+  return typeof v === 'string' && v.length > 0 ? v : undefined
+}
+
+/** All-or-nothing instruction change list; undefined when any entry can't be read cleanly. */
+function changesOf(v: unknown): ChatContext['changes'] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const changes: NonNullable<ChatContext['changes']> = []
+  for (const raw of v) {
+    if (!raw || typeof raw !== 'object') return undefined
+    const item = raw as { path?: unknown; action?: unknown; digest?: unknown }
+    const path = strOf(item.path)
+    const action = item.action
+    if (!path || (action !== 'set' && action !== 'replace' && action !== 'remove')) return undefined
+    changes.push({ path, action, ...(strOf(item.digest) ? { digest: item.digest as string } : {}) })
+  }
+  return changes
+}
+
+/** All-or-nothing catalog entry list; undefined when any entry can't be read cleanly. */
+function entriesOf(v: unknown): ChatContext['entries'] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const entries: NonNullable<ChatContext['entries']> = []
+  for (const raw of v) {
+    if (!raw || typeof raw !== 'object') return undefined
+    const item = raw as { name?: unknown; description?: unknown }
+    const name = strOf(item.name)
+    const description = strOf(item.description)
+    if (!name || !description) return undefined
+    entries.push({ name, description })
+  }
+  return entries
+}
+
+/** All-or-nothing snapshot section list; undefined when any section can't be read cleanly. */
+function sectionsOf(v: unknown): ChatContext['sections'] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const sections: NonNullable<ChatContext['sections']> = []
+  for (const raw of v) {
+    if (!raw || typeof raw !== 'object') return undefined
+    const item = raw as { name?: unknown; text?: unknown }
+    const name = strOf(item.name)
+    const text = strOf(item.text)
+    if (!name || !text) return undefined
+    sections.push({ name, text })
+  }
+  return sections
+}
+
+/** recall references: drop entries without a readable label (they may carry only
+ *  sessionId for the clickable-link attach — a separate concern). */
+function recallReferencesOf(v: unknown): ChatContext['references'] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const refs: NonNullable<ChatContext['references']> = []
+  for (const raw of v) {
+    if (!raw || typeof raw !== 'object') continue
+    const item = raw as {
+      label?: unknown
+      retainedMessages?: unknown
+      omittedMessages?: unknown
+      truncated?: unknown
+    }
+    const label = strOf(item.label)
+    if (!label) continue
+    refs.push({
+      label,
+      ...(typeof item.retainedMessages === 'number' ? { retainedMessages: item.retainedMessages } : {}),
+      ...(typeof item.omittedMessages === 'number' ? { omittedMessages: item.omittedMessages } : {}),
+      ...(typeof item.truncated === 'boolean' ? { truncated: item.truncated } : {}),
+    })
+  }
+  return refs
+}
+
+/**
+ * Parse host-injected context from a user/message source. Returns undefined for
+ * genuine human input (kind 'user') and for a source-less message without the
+ * legacy <system-reminder> prefix. `kind` is always kept (UI label + backward
+ * compat); `form` is set only when the declared form's payload validates
+ * all-or-nothing — otherwise the form is dropped and the body degrades to
+ * opaque text rather than a half-complete list.
+ */
+function injectedContextOf(source: LooseInjectSource | undefined, text: string): ChatContext | undefined {
+  const kind = strOf(source?.kind)
+  if (kind && kind !== 'user') {
+    const form = CONTEXT_FORMS.includes(source?.form as ContextForm) ? (source?.form as ContextForm) : undefined
+    const ctx: ChatContext = { kind }
+    if (form === 'instructions') {
+      const changes = changesOf(source?.changes)
+      if (changes) {
+        ctx.form = form
+        ctx.changes = changes
+        const baseline = strOf(source?.baseline)
+        if (baseline) ctx.baseline = baseline
+      }
+    } else if (form === 'catalog') {
+      const entries = entriesOf(source?.entries)
+      if (entries) {
+        ctx.form = form
+        ctx.entries = entries
+        if (typeof source?.update === 'boolean') ctx.update = source.update
+      }
+    } else if (form === 'snapshot') {
+      const sections = sectionsOf(source?.sections)
+      if (sections) {
+        ctx.form = form
+        ctx.sections = sections
+      }
+    } else if (form === 'notice') {
+      const summary = strOf(source?.summary)
+      if (summary) {
+        ctx.form = form
+        ctx.summary = summary
+      }
+    } else if (form === 'relay') {
+      const senderSessionId = strOf(source?.senderSessionId)
+      if (senderSessionId) {
+        ctx.form = form
+        ctx.senderSessionId = senderSessionId
+      }
+    } else if (form === 'recall') {
+      const refs = recallReferencesOf(source?.references)
+      if (refs && refs.length > 0) {
+        ctx.form = form
+        ctx.references = refs
+      }
+    }
+    return ctx
+  }
+  if (!kind && text.startsWith('<system-reminder>')) return { kind: 'legacy-instructions' }
+  return undefined
+}
+
 /**
  * Stateful folder over one session's event log. Feed it a history window with
  * applyHistory (full reset — the reconnect baseline), then live events with
@@ -506,12 +657,15 @@ export class ConversationFolder {
         // Host-injected context (AGENTS.md instructions, runtime snapshots)
         // arrives as user/message too, tagged by data.source.kind. Genuine
         // human input is kind 'user'. Fallback: the <system-reminder> prefix.
-        const sourceKind = (data.source as { kind?: string } | undefined)?.kind
+        const source = data.source as LooseInjectSource | undefined
+        const sourceKind = source?.kind
         // session-reference 注入上下文紧跟在触发它的直接用户消息之后，其
         // source.references 带着 {sessionId, label}——直接消息落盘的是可读
-        // @label 文本，回挂过去气泡才能把引用渲染成可点击链接。
+        // @label 文本，回挂过去气泡才能把引用渲染成可点击链接。recall form
+        // 的 references（{label, retainedMessages…}）不带 sessionId，会被自然
+        // 过滤掉，不会误挂。
         if (sourceKind === 'session-reference') {
-          const refs = (data.source as { references?: unknown } | undefined)?.references
+          const refs = source?.references
           const prev = this.msgs[this.msgs.length - 1]
           if (Array.isArray(refs) && prev?.kind === 'user' && prev.context === undefined) {
             prev.references = refs.flatMap((r) => {
@@ -522,12 +676,7 @@ export class ConversationFolder {
             })
           }
         }
-        const context =
-          sourceKind && sourceKind !== 'user'
-            ? sourceKind
-            : !sourceKind && text.startsWith('<system-reminder>')
-              ? 'legacy-instructions'
-              : undefined
+        const context = injectedContextOf(source, text)
         this.msgs.push({
           kind: 'user',
           id,

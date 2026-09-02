@@ -1299,6 +1299,40 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     expect: '两条助手消息的操作栏（复制/👍/👎/分支图标）行尾出现计时文本：第一条「HH:MM · 用时 2分42秒 · 首 token 1.2秒 · 95 tok/s」，第二条「HH:MM · 用时 42秒 · 首 token 0.4秒」（第二条无 tok/s——usage 缺失不显示）；计时为次级灰色小字、nowrap 单行、与图标垂直居中、用 · 分隔；用户消息与未完成消息没有计时；分叉按钮仍在（seq 存在且未中断）。',
   }
 
+  // 上下文注入：6 种 form 的结构化 body（worktree 验收用，改完 UI 后对照下方
+  // expect 核对；点击/展开由 interact 自动打开所有 context 折叠卡）。
+  catalog['context-injection-forms'] = {
+    state: base({
+      messages: [
+        u('你把这个仓库的上下文注入改成结构化 body。'),
+        { kind: 'user', id: rid('u'), text: '## Instructions\n工作区指令注入…', context: { kind: 'agent-instructions', form: 'instructions', baseline: 'root', changes: [
+          { path: 'AGENTS.md', action: 'set', digest: 'abc123' },
+          { path: 'notes/dev.md', action: 'replace' },
+          { path: 'stale.md', action: 'remove' },
+        ] } },
+        { kind: 'user', id: rid('u'), text: '## Catalog\n插件能力目录…', context: { kind: 'plugin', form: 'catalog', update: true, entries: [
+          { name: 'review', description: '代码评审助手' },
+          { name: 'search', description: '仓库语义搜索' },
+        ] } },
+        { kind: 'user', id: rid('u'), text: '## Snapshot\n当前状态快照…', context: { kind: 'plugin', form: 'snapshot', sections: [
+          { name: '任务', text: '上下文注入结构化 body 进行中' },
+          { name: '文件', text: 'src/pure/conversation.ts\nsrc/pure/chatContract.ts\nsrc/ui/chat/webview.ts' },
+        ] } },
+        { kind: 'user', id: rid('u'), text: '后台任务已完成。', context: { kind: 'plugin', form: 'notice', summary: '后台子代理完成通知' } },
+        { kind: 'user', id: rid('u'), text: '来自另一个 agent 的转发消息正文。', context: { kind: 'plugin', form: 'relay', senderSessionId: 'sess-9' } },
+        { kind: 'user', id: rid('u'), text: '## Referenced sessions\n跨会话召回…', context: { kind: 'session-reference', form: 'recall', references: [
+          { label: '会话甲', retainedMessages: 3, omittedMessages: 2, truncated: true },
+          { label: '会话乙', retainedMessages: 5, omittedMessages: 0 },
+        ] } },
+        { kind: 'user', id: rid('u'), text: '## Unknown\n未知形态…', context: { kind: 'plugin', form: 'mystery' } },
+        at('已按 6 种 form 渲染完成。'),
+      ],
+    }),
+    interact: `document.querySelectorAll('.msg.context').forEach((d) => { d.open = true })`,
+    title: '上下文注入：6 种 form 结构化 body',
+    expect: '逐条带「（已随消息注入）」折叠卡的上下文（可展开，展开后 body 在 141px 内滚动）：① 工作区指令（instructions）→ [set/replace/remove] 文件变更列表（等宽字体），下方保留注入正文；② Runtime context（catalog）→ 顶部「目录已替换」提示 + 能力目录 entries（名称粗体 + 描述），下方保留正文；③ Runtime context（snapshot）→ 顶部「本快照取代先前版本」说明 + 分段（name 标题 + 正文）；④ Runtime context（notice）→ 折叠行 summary 追加「后台子代理完成通知」，展开后仅正文；⑤ Runtime context（relay）→「来自会话 sess-9」一行 + 正文；⑥ 跨会话召回（recall，行首 ReferenceIcon 聊天气泡图标）→ 每个召回会话「label · 保留 X / 省略 Y」+「已截断」标记 + 正文；⑦ 未知 form（mystery）→ 退化为纯正文（无结构化列表）。所有折叠卡行首图标：recall 用聊天气泡，其余用浏览图标；折叠头正文不换行溢出。',
+  }
+
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"
   // 的存量状态，就把它的名字加进 BASELINE_SCENARIOS —— 随合入并入主线基线。
