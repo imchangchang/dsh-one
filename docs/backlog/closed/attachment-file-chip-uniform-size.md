@@ -26,3 +26,4 @@
 - 2026-09-XX AI 视觉验证（attachment-uniform 场景：输入区+消息区四框实测均 50×50，commit e32def0）；人工 dev-ui-test 窗口验收待做
 - 2026-09-XX 新增需求（用户）：附件点击在 VS Code 直接打开（含工作区外外部文件）→ doing
 - 2026-09-XX 点击打开附件完成（commit df2b28f，AI 验证：chip 点击发出 openAttachmentFile、× 移除不触发打开；typecheck + 317 test + build）→ done
+- 2026-09-XX 主线合入测试通过（merge 2a3a2b4，typecheck + 317 test + build），人工 dev-ui-test 窗口验收通过 → closed
