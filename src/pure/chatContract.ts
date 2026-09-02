@@ -684,6 +684,18 @@ export interface SessionsSnapshot {
   /** 最近一次内容搜索是否失败（后端索引未启用等）；true 时面板显示「仅按标题匹配」提示。 */
   contentSearchError: boolean
 }
+/**
+ * 单个 commit hash 的查询结果：webview 据此点亮/灰显点击 chip 并填悬浮 title。
+ * `found` 为 true 时带回 subject（message 首行 / 作者名 / 提交日期 YYYY-MM-DD），
+ * false 表示任何打开中的 git 仓库都查不到该 sha（仓库外 hash）。
+ */
+export interface CommitInfoResult {
+  sha: string
+  found: boolean
+  message?: string
+  authorName?: string
+  commitDate?: string
+}
 
 export type ToWebviewMessage =
   | { type: 'state'; state: ChatState }
@@ -703,6 +715,8 @@ export type ToWebviewMessage =
    */
   | { type: 'restoreDraft'; text: string; images?: OutgoingImage[]; files?: StagedFile[] }
   | { type: 'commandResult'; text: string }
+  /** commit hash 查询结果回传（见 webview commitInfo 请求）：按 sha 点亮/灰显 chip 并填悬浮 title。 */
+  | { type: 'commitInfo'; results: CommitInfoResult[] }
   /** @ 补全的文件/文件夹候选响应；requestId 回声，过期的响应由 webview 丢弃。 */
   | { type: 'fileRefList'; requestId: number; items: FileRefCandidate[] }
 
@@ -819,3 +833,7 @@ export type FromWebviewMessage =
   | { type: 'serverStart' }
   /** 输入框 @ 补全：请求当前会话 cwd 下的文件/文件夹候选（fileReferences/list）。 */
   | { type: 'fileRefList'; requestId: number; query: string }
+  /** 消息正文里的 commit hash 被点击：宿主逐个仓库查库，命中打开 git 提交视图，全未命中提示「未找到该提交」。 */
+  | { type: 'commitOpen'; sha: string }
+  /** 渲染发现新 commit hash：批量请求提交信息供悬浮 title（先查后亮，见 webview 缓存去重）。 */
+  | { type: 'commitInfo'; shas: string[] }
