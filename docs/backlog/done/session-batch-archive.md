@@ -48,3 +48,5 @@
 - 2026-09-02 认领 → doing（worktree: agent/session-batch-archive）
 
 - 2026-09-02 开发完成，自测通过（typecheck/test/build + 视觉场景截图核对）→ done
+
+- 2026-09-02 补充：组头全选语义收紧（有置灰项只能半选）+ 点组头不可全选时飘提示
