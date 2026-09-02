@@ -49,3 +49,5 @@
 ## 变更记录
 
 - 2026-09-02 记录问题；headless Chrome + mock host 实测确认根因（程序 pin 自我回声锁 → 脱底-吸回周期脉冲）；写修法方向 → open
+
+- 2026-09-02 认领（worktree: agent/chat-scroll-stream-jitter-self-lock）→ doing

@@ -43,3 +43,5 @@
 ## 变更记录
 
 - 2026-09-02 用户确认置顶语义（绝对优先）+ 选定规则（新置顶放最前）→ open
+
+- 2026-09-02 认领（worktree: agent/session-pin-absolute-order）→ doing
