@@ -70,6 +70,14 @@
 - `src/ui/sessionsStore.ts`：`onDidChange` 触发链（`applyFrame` / `onMuxFrame` / 60s tick / `refresh` → `rebuildModel()` + fire）
 - `src/ui/sessionsView.ts`：`pushSessions`（324-336，store 每次变更即推快照到 webview）
 
+## 与置顶（pinned）的关系（2026-09-02 用户提问后核实）
+
+- **数据无冲突**：pinned 是 store 本地持久化状态（`this.pinned` Set，`PINNED_STATE_KEY`，dsh 无置顶概念/无 API）；`refresh()` 只重拉服务端基线（`rawSessions`/`rawWorkspaces`），`rebuildModel()` 把 `pinned: this.pinned` 原样传入 `buildSessionTree`——**刷新完全不碰置顶集合**。
+- **置顶不受排序变化影响**：`buildSessionTree` 排序先比 `aPinned !== bPinned`（置顶恒在前），再按 sort 键——**置顶会话不会被非置顶会话（含最新）挤下去**，refresh 后置顶组仍在顶部。
+- **置顶组内仍然按最新优先**：同置顶组内继续走 `updatedDesc`（或用户选的其他 sort）——**这是既有语义**（注释"pinned sessions sort first"后接 view.sort，官方 dsh web 同款）。所以状态变化 + 刷新会让**置顶组内**顺序实时调整（置顶的常用会话因 send/完成变为组内最新）——**不是 refresh 引入，是既有语义的及时化**；错位机制在置顶组内理论上同样存在（组内小、2-3 个，风险低），②③ 方案同样覆盖。
+- **待确认（产品语义）**：置顶组内要"最新优先"（现状+官方同款）还是"绝对固定（按置顶顺序）"？**绝对固定是新需求**（组内按置顶时间/固定序排序），可单独立项，不在本条目范围。
+- **方案②（冻结）与置顶无冲突**：冻结只是挂起列表重建（渲染层），置顶数据不动；菜单关闭后重建，置顶行图标/状态从快照正常恢复。
+
 ## 待确认
 
 - 刷新触发集是否覆盖用户期望的全部"不可见→可见"路径：OS 窗口聚焦（onDidChangeWindowState）、侧栏 view 可见性（onDidChangeVisibility）、webview 重建（resolveWebviewView）三条已定；VS Code 窗口内部点击其他编辑器/面板算不算"回来"（不算——侧栏 view 未变化时不刷，用户语义是侧栏被覆盖/窗口失焦，已覆盖）。
@@ -87,4 +95,5 @@
 - 2026-09-02 用户定案刷新触发点：send 后 + VS Code 窗口聚焦时（onDidChangeWindowState focused=true）；可选扩展（打开/附着会话、turn 结束）列为待定；待确认焦点粒度（窗口级 vs 面板级）
 - 2026-09-02 用户扩展触发语义：一切让 dsh-one 侧栏从不可见（焦点丢失、被文件管理器等覆盖）到可见的事件都刷新——补 onDidChangeVisibility（view.visible）+ resolveWebviewView（webview 重建）两个事件源，editor 面板 onDidChangeViewState 列为顺带候选；建议统一入口加 500ms 级去抖
 - 2026-09-02 用户补充状态变化触发：待交互（approval/question 请求/解决）与完成（running 翻转）时刻也刷新——状态标记走增量帧即时显示（无需刷），但排序键 updatedAt 增量帧不更新（服务端同一时刻更新了）；挂点：applyFrame 的 session-status 实际翻转处 + onMuxFrame 的 track/resolvePending changed=true 处；固化循环规避要点（仅增量路径触发，refresh 内重放不递归）
+- 2026-09-02 用户提问与置顶冲突：核实无数据冲突（pinned 为本地持久化状态，refresh 不碰；置顶恒在非置顶前），置顶组内仍按最新优先（既有语义+官方同款，非 refresh 引入）；产品语义待确认（组内最新优先 vs 绝对固定——后者为新需求，可单独立项）
 
