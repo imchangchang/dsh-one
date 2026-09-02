@@ -23,3 +23,5 @@
 - `src/ui/chat/webview.ts`（`renderTodoPanel` / `renderTodoItem` / `todoStatusGlyph`，以及 `render()` 的 chatCol 重建处）
 - `src/ui/chatViewHtml.ts`（`.todo-progress-spin` / `@keyframes todo-progress-spin`，920-924）
 - `src/server/chatSession.ts`（快照节流，只作原因说明，不改）
+
+- 2026-09-02 认领（worktree: agent/todo-in-progress-spinner-flicker）→ doing
