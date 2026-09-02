@@ -32,3 +32,4 @@ webview 内存按 session 归档，切换时「存旧会话 → 恢复新会话�
 
 - 2026-09-0X 需求确认 → open
 - 2026-09-0X 认领 → doing
+- 2026-09-0X 开发完成（worktree agent/composer-draft-per-session，commit 5429d31/2f7d937）：webview 内存按 session 归档文本与附件，切换时存旧取新；`draftRestoreFor` 标志区分切换帧（hero 同会话帧不被误判覆盖）；顺带修复 interactive mock 加载顺序（chatWebview 撞 mockHost TDZ 页面空白）。自测 typecheck + 317 tests + build 全绿；WebBridge 交互验证通过（sess-1 草稿A ↔ sess-2 草稿B 互不污染、附件 chip 随会话恢复、hero 同会话刷新不覆盖输入）。→ done
