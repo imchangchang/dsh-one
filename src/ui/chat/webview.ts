@@ -770,7 +770,8 @@ window.addEventListener('message', (event) => {
     // 消息缩略图可能正挂着这张图的占位方块，重渲染换成真图。
     render()
   } else if (msg?.type === 'restoreDraft' && typeof msg.text === 'string') {
-    // Texts of queue items drained by stop: back into the composer as drafts.
+    // 还原回 composer：stop 抽干队列的草稿文本，或发送失败的消息（图片/文件
+    // chips 一并恢复，不让输入被吞）。
     const input = document.getElementById('input') as HTMLTextAreaElement | null
     if (input) {
       input.value = input.value.trim() ? `${input.value.trimEnd()}\n${msg.text}` : msg.text
@@ -779,6 +780,16 @@ window.addEventListener('message', (event) => {
     } else {
       stashedDraft = stashedDraft ? `${stashedDraft}\n${msg.text}` : msg.text
     }
+    let stagedRestore = false
+    if (Array.isArray(msg.images) && msg.images.length > 0) {
+      pendingImages = [...pendingImages, ...msg.images]
+      stagedRestore = true
+    }
+    if (Array.isArray(msg.files) && msg.files.length > 0) {
+      pendingFiles = [...pendingFiles, ...msg.files]
+      stagedRestore = true
+    }
+    if (stagedRestore && input) render()
   } else if (msg?.type === 'fileRefList') {
     // 乱序/过期响应丢弃；token 没变才存结果并重算弹窗（token 已消失时
     // updateSlashPopup 自己算不出行，弹窗保持关闭）。

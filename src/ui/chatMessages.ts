@@ -22,6 +22,7 @@ import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { FileRefCandidate } from '../pure/fileReference.ts'
 import type { ChatState, FromWebviewMessage, OutgoingImage, ToWebviewMessage } from '../pure/chatContract.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
+import { splitAttachmentLines } from '../pure/composerAttachment.ts'
 import type { ChatSessionController } from '../server/chatSession.ts'
 import type { ChatTabHost } from './chatTab.ts'
 
@@ -102,7 +103,21 @@ const chatHandlers: ChatTabMessageHandler[] = [
         await runCommand(host, text, images)
         return
       }
-      await target.send(text, images, m.steer === true)
+      try {
+        await target.send(text, images, m.steer === true)
+      } catch (err) {
+        // 发送失败（模型不支持图片、服务重启等）：把消息原样还回 composer，
+        // 不让输入被吞。文件行还原成 chips（与发送前状态一致），错误通知继续
+        // 走 chatTab 的「聊天操作失败」通用路径。
+        const { text: body, files } = splitAttachmentLines(text)
+        host.postMessage({
+          type: 'restoreDraft',
+          text: body,
+          ...(images.length > 0 ? { images } : {}),
+          ...(files.length > 0 ? { files } : {}),
+        })
+        throw err
+      }
     },
   },
   {
