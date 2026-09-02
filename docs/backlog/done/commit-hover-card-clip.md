@@ -53,3 +53,5 @@ if (popoverPlacement === 'below') {
 - 2026-09-02 用户反馈（补充问题）→ open
 
 - 2026-09-02 认领（worktree: agent/commit-hover-card-clip）→ doing
+
+- 2026-09-02 开发完成，自测 + 视觉验收通过 → done
