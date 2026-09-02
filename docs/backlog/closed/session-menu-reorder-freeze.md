@@ -101,3 +101,5 @@
 
 
 - 2026-09-02 认领（worktree: agent/session-menu-reorder-freeze）→ doing
+
+- 2026-09-02 开发完成（分支自测通过 + done 标记），主线合入（merge ok）测试通过，用户人工验收通过 → closed
