@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# i18n 合入门禁：检查「待合入分支相对 main 的新增行」是否需要同步 i18n。
+# i18n 合入门禁：检查待合入分支的 i18n 同步情况（新增行 + 存量完整性）。
 #
 # 用法: scripts/check-i18n.sh <branch>
 #   <branch> 缺省为当前分支。dev-merge.sh 在校验阶段调用，传当前待合入分支
 #   （agent/<slug>）；也可单独跑，exit 0 = 通过，非 0 = 拒绝合入（且有明确原因）。
 #
-# 只查「相对 merge-base 新增的行」(git diff base..branch 的 + 内容)，不扫整分支历史，
-# 避免对既有历史误报。参考文件（bundle / nls / README）一律从分支树读（git show），
-# 保证看到的是开发者在分支里改过的版本，而不是主线工作区。
+# 参考文件（bundle / nls / README）一律从分支树读（git show），保证看到的是
+# 开发者在分支里改过的版本，而不是主线工作区。
 #
 # 检查口径（与 docs/backlog/doing/i18n-merge-gate.md 定稿一致）：
 #   1. 宿主层   src/**:     新增 `vscode.l10n.t('KEY')`   => KEY 必须在 l10n/bundle.l10n.json（英文基线）
@@ -18,10 +17,13 @@
 #                          命令标题语言一致性（英文 README 不出现中文命令标题，反之亦然）；
 #                          若 nls 命令标题在 diff 中被改/删，检查 README 里旧标题是否残留。
 #   5. 兜底     src/**:     新增行出现中文字符串字面量（排除注释、测试夹具）=> 疑似漏翻
+#   6. 存量完整性(2026-09-02 补): 分支树 src/** 全部 t()/vscode.l10n.t() 的 key
+#                          必须 en+zh bundle 都有（拦历史漏翻——只查新增行会漏掉
+#                          i18n 时引入但没进 bundle 的存量 key）
 #
 # 依赖: bash + node（仓库本身是 node 项目，node 必然存在；不新增任何依赖）。
-#       用 git diff / git show 常规命令；key 抽取、JSON 成员判定、Unicode 判中文
-#       交给 node，避免 macOS(BSD grep 无 -P) 与 CI 之间的可移植性问题。
+#       用 git diff / git ls-tree / git show 常规命令；key 抽取、JSON 成员判定、
+#       Unicode 判中文交给 node，避免 macOS(BSD grep 无 -P) 与 CI 之间的可移植性问题。
 # 硬编码中文命中即 fail（不做降级）。
 set -euo pipefail
 
@@ -113,13 +115,15 @@ function isWebviewFile(path) {
 }
 
 // ---------- 从一行里抽 i18n key ----------
+// key 可能含异种引号（如 t('Archive session "{0}"? ...')），须先看开引号再按
+// 对应引号闭合取内容；[^'"]+ 会在异种引号处截断造成误报。
 function hostKeys(line) { // vscode.l10n.t('KEY') / vscode.l10n.t("KEY")
-  return [...line.matchAll(/vscode\.l10n\.t\(\s*['"]([^'"]+)['"]/g)].map((m) => m[1])
+  return [...line.matchAll(/vscode\.l10n\.t\(\s*(['"])(.*?)\1/g)].map((m) => m[2])
 }
 // 裸 t('KEY')——要求紧邻 t 的左侧不能是字母/数字/下划线/点，从而排除
 // vscode.l10n.t、createElement('button') 这类误命中。
 function webviewKeys(line) {
-  return [...line.matchAll(/(^|[^A-Za-z0-9_.])t\(\s*['"]([^'"]+)['"]/g)].map((m) => m[2])
+  return [...line.matchAll(/(^|[^A-Za-z0-9_.])t\(\s*(['"])(.*?)\2/g)].map((m) => m[3])
 }
 function pctKeys(line) { // %KEY%
   return [...line.matchAll(/%([^%]+)%/g)].map((m) => m[1])
@@ -310,6 +314,36 @@ for (const [file, lines] of Object.entries(added)) {
     const probe = stripped ?? text
     if (hasCJK(probe)) {
       push(`[src-chinese] ${file}: 疑似硬编码中文字符串字面量（漏翻）: ${text.trim()}`)
+    }
+  }
+}
+
+// ========== 6. 存量完整性：分支树所有 t()/vscode.l10n.t() 的 key 必须 en+zh 都有 ==========
+// 检查 1/2 只看「新增行」的 key，拦不住存量漏翻——历史上 i18n 提交引入
+// 了 key 却没进 bundle 的情况，后续任何分支（哪怕只改一行无关代码）都不报，
+// 界面一直显示英文。本检查全量扫分支树 src/** 的 t() 调用（剥离注释后），
+// 所有 key 必须在 l10n/bundle.l10n.json（英文基线）与 l10n/bundle.l10n.zh-cn.json
+// 同时存在，使历史漏翻在任意后续合入时暴露。
+const SRC_TREE = cp.execFileSync('git', ['ls-tree', '-r', '--name-only', REF, 'src/'], { encoding: 'utf8' })
+  .split('\n').filter((p) => p.endsWith('.ts') && !isFixturePath(p) && !p.endsWith('.d.ts'))
+for (const file of SRC_TREE) {
+  const source = stripFileComments(show(file))
+  const keys = new Set([
+    ...hostKeys(source),
+    ...webviewKeys(source),
+  ])
+  for (const key of keys) {
+    if (key.length < 2) continue // 单字符/空串是 DOM 选择器或误抓，跳过
+    if (hasCJK(key)) {
+      // 明文中文 key：本应走英文默认串，疑似硬编码漏翻（key 本身是中文）
+      if (!zhBundle.has(key)) push(`[src-chinese] ${file}: t() 的 key 直接是中文串（漏翻译）："${key.split('\n')[0]}"`)
+      continue
+    }
+    const missing = []
+    if (!enBundle.has(key)) missing.push('l10n/bundle.l10n.json(en)')
+    if (!zhBundle.has(key)) missing.push('l10n/bundle.l10n.zh-cn.json(zh)')
+    if (missing.length) {
+      push(`[missing-key] ${file}: t("${key}") 不在 ${missing.join('、')}`)
     }
   }
 }
