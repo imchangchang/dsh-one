@@ -1851,6 +1851,7 @@ function render(): void {
     // workspaceLabel 刻意不进签名：懒切换的 pending 帧只改 chip 文字，composer
     // 内容不变——进签名会整页重建 hero，焦点/IME 全断（见 hero 保活分支的
     // 就地 patch）。
+    state?.plan ?? null,
     recall ? (recall.kind === 'queue' ? `queue:${recall.itemId}` : recall.kind) : null,
     pendingImages.map((i) => i.name ?? ''),
     pendingFiles.map((f) => f.path),
