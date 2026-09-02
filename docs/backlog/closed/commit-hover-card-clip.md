@@ -55,3 +55,5 @@ if (popoverPlacement === 'below') {
 - 2026-09-02 认领（worktree: agent/commit-hover-card-clip）→ doing
 
 - 2026-09-02 开发完成，自测 + 视觉验收通过 → done
+
+- 2026-09-02 主线合入测试通过（merge 4f93cbe），人工窗口验收通过 → closed
