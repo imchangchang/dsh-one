@@ -1,81 +1,192 @@
 <p align="center">
-  <img src="assets/icon.png" alt="DSH One" width="96">
+  <img src="assets/hero.svg" alt="DSH One — dsh inside VSCode" width="100%">
 </p>
 
-# DSH One
+<h1 align="center">DSH One</h1>
 
-[![CI](https://github.com/imchangchang/dsh-one/actions/workflows/ci.yml/badge.svg)](https://github.com/imchangchang/dsh-one/actions/workflows/ci.yml)
+<p align="center">The <a href="https://www.npmjs.com/package/@deepseek-ai/dsh">DeepSeek Harness</a> (dsh) bridge for VSCode: dsh is installed by you, DSH One locates and starts it, embeds the dsh UI in your editor, and turns VSCode into dsh's launcher and display.</p>
 
-[DeepSeek Harness](https://www.npmjs.com/package/@deepseek-ai/dsh)（dsh）与 VSCode 之间的桥接插件：dsh 由你自己安装，DSH One 负责定位并启动它，把 dsh 界面嵌进 VSCode，并把当前文件夹预置为 dsh workspace。VSCode 就是 dsh 的启动器和显示器。
+<p align="center">
+  <a href="https://github.com/imchangchang/dsh-one/actions/workflows/ci.yml"><img src="https://github.com/imchangchang/dsh-one/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT license"></a>
+  <a href="#compatibility"><img src="https://img.shields.io/badge/platform-win%20%7C%20mac%20%7C%20linux-2563EB" alt="Windows / macOS / Linux"></a>
+  <a href="#compatibility"><img src="https://img.shields.io/badge/vscode-%5E1.96.0-2563EB" alt="VS Code ^1.96.0"></a>
+</p>
 
-> 非官方社区项目，与 DeepSeek 官方无关。"dsh" 名称归其原项目所有。
+<p align="center">
+  <a href="#for-users">For users</a> ·
+  <a href="#for-developers">For developers</a> ·
+  <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-## 前置条件
+> Unofficial community project, not affiliated with DeepSeek. "dsh" belongs to its original project.
 
-先自行安装 dsh（需要 Node ≥ 22）：
+---
+
+# For users
+
+## What it does
+
+- **dsh UI inside VSCode** — dsh web runs as a local service; DSH One embeds it in an editor tab (iframe) and provides a native sidebar: sessions list + chat panel.
+- **Start or reuse** — the extension probes the configured port and adopts an already-running dsh instance (connect only, never kill); otherwise it spawns its own `dsh web`. No downloads, no runtime management, no update checks — upgrade dsh yourself with `npm update -g`.
+- **Workspace sync** — your current folder is registered as the dsh workspace (idempotent), so dsh opens right where you are working.
+- **Native sessions list** — grouped by workspace (current folder on top), with search (title / session id), sorting (recent / oldest / title), pin, mark-as-unread, rename, archive, fork, and "open folder" actions. Hover a session row for the `⋯` menu; refresh follows the dsh host event stream automatically.
+- **Native chat panel** — markdown rendering, tool calls as compact rows (kimi-cli style action phrases, output folded with expand), inline permission prompts and questions, plan-review cards, todo lists, subagent runs, one-click stop while running.
+- **Conversation features** — copy a message, rate it useful/not useful, fork a finished turn into a new session, jump to a subagent session.
+- **Composer** — image attachments (thumbnail preview), file attachments (path chips), permission mode picker, model picker, agent preset picker, and a context-usage bar that warns before you run out of room.
+- **Send files into the conversation** — right-click any file in the editor or explorer → `DSH One: 发送到当前会话`; images show as thumbnails, other files as path chips.
+- **Status bar** — `DSH: running :port / starting / stopped / error`, click to focus the panel.
+
+## Quick start
+
+Prerequisite: install dsh yourself (needs Node ≥ 22):
 
 ```bash
 npm install -g @deepseek-ai/dsh@next
 ```
 
-扩展不再下载或管理 Node.js / dsh 运行时，也不做更新检查——升级 dsh 由你自己 `npm update -g`。
+Then install DSH One (from the VS Code Marketplace once published, or `npm run package` → install the `.vsix`) and click the DSH One activity-bar icon. On first use the extension locates dsh and starts the service automatically (it prompts you to install dsh if it is missing). The service listens on `127.0.0.1` only.
 
-## 它是怎么工作的
+## How it works
 
-1. **定位 dsh**：优先用配置 `dshOne.dshPath` 指定的可执行文件；否则在 PATH 上找 `dsh`。找不到就报错并引导安装。
-2. **启动服务**：先探测配置端口（默认 3080）——POST `/api/host.describe` 并校验回包 `rpcId` 一致，确认是 dsh 就直接**收养复用**该实例（只连接，永不 kill）；否则自己 spawn `dsh web --host 127.0.0.1 --port <端口>`。就绪需要双重确认：先解析 stdout 的 `dsh web: http://127.0.0.1:<端口>` 行，再做一次 `host.describe` 身份确认。
-3. **显示**：编辑器标签页 WebviewPanel，内容是一个指向 `http://127.0.0.1:<端口>/?dsh_embed=vscode` 的 iframe。注意：`dsh_embed=vscode` 是给官方预留的嵌入参数，截至 dsh 0.1.1-rc.2 官方 UI 并未消费它（隐藏侧栏的效果尚不存在）。
-4. **workspace 预置**：服务就绪后，扩展把当前 VSCode 文件夹注册为 dsh workspace（`workspace.create`，幂等）并确保其下有会话，dsh UI 启动时按"最近活跃 workspace"策略直接落在当前文件夹上。
-5. **Sessions 树视图**：侧边栏顶部有原生会话列表，按 workspace 分组（当前文件夹置顶），支持新建 / 重命名 / 归档会话、在其他 workspace 上"打开文件夹"；列表订阅 dsh 的 host 事件流自动刷新。
-6. **原生 Chat 面板**：侧边栏 Chat 视图是 VSCode 原生的聊天界面（自写 webview，非 iframe）：markdown 渲染、工具调用卡片（含内联 diff）、内联权限确认与提问、运行中一键停止。点击 Sessions 树中的会话即附着并聚焦；新建会话直接落入聊天面板。
-
-## 使用
-
-- 点击活动栏的 DSH One 图标打开侧边栏；首次使用会自动定位 dsh 并启动服务（未安装 dsh 时会提示安装）。
-- 侧边栏 Sessions 树视图：查看/新建/重命名/归档会话，点击会话在原生 Chat 面板中打开；dsh web 页面在编辑区标签页中打开（Sessions 标题栏的地球图标或命令 `DSH One: 打开 dsh 页面`）。
-- 命令面板（`Ctrl/Cmd+Shift+P`）：
-  - `DSH One: 打开面板`（聚焦侧边栏 Sessions）/ `DSH One: 打开 dsh 页面`（在编辑区标签页打开 dsh web）
-  - `DSH One: 重启服务` / `DSH One: 停止服务`
-  - `DSH One: 显示日志`
-- 在编辑器内或资源管理器里右键一个文件 → `DSH One: 发送到当前会话`：把该文件作为附件暂存到当前 Chat 面板活跃会话的输入框（等同点「添加附件」，图片显示缩略图、其他文件显示路径 chip），无活跃会话时自动附着/新建；然后照常发送。
-- 状态栏显示 `DSH: 运行中 :端口 / 启动中 / 已停止 / 错误`，点击聚焦面板。
-
-## 配置项
-
-| 配置 | 类型 | 默认 | 说明 |
-| --- | --- | --- | --- |
-| `dshOne.dshPath` | `string` | `""` | dsh 可执行文件路径；留空则在 PATH 上查找 `dsh` |
-| `dshOne.port` | `number` | `3080` | 服务端口；`0` 表示由 OS 分配（此时跳过收养探测） |
-
-## 进程安全
-
-- 插件**只会终止自己 spawn 的 dsh 进程**；收养的已有实例在任何路径下都不会被 kill。
-- 关闭 VSCode 时同步发送 SIGTERM（Windows 用 `taskkill /T /F`），3 秒后由独立的 reaper 进程强制终止（作为后备）。
-- 子进程环境会剔除 `NODE_OPTIONS` 和 `ELECTRON_RUN_AS_NODE`（扩展宿主注入的这两个变量会让普通 node 子进程异常）。
-- `--no-open` 仅在 dsh ≥ 0.1.0-rc.7 时追加（旧版不认识该参数会直接退出）。
-
-## 已知限制
-
-- **Remote（SSH/WSL/容器）未验证**：扩展声明 `extensionKind: ["workspace"]`，理论上跑在远端、webview 的 127.0.0.1 依赖 VSCode 自动端口转发，但未实际测试。
-- **多窗口**：每个 VSCode 窗口各自管理服务；端口被占用时靠收养机制共享已有实例，端口为 0 时各窗口各自起实例。另外 dsh UI 的会话恢复依赖 localStorage（按 origin 隔离），`port: 0` 每次换端口会导致恢复失效，建议固定端口。
-
-## 开发
-
-```bash
-npm install
-npm test          # node --test 纯逻辑单测（需要 Node ≥ 22.6）
-npm run typecheck
-npm run build     # esbuild 打包 dist/extension.js（宿主）+ dist/chatWebview.js（聊天前端）
-npm run package   # vsce 打出 .vsix
+```mermaid
+flowchart LR
+  VS["VSCode window"] -->|"activates"| EXT["DSH One extension"]
+  EXT -->|"1. locate dsh"| DSH["dsh executable<br/>(dshOne.dshPath or PATH)"]
+  DSH -->|"2. probe port (default 3080)"| PROBE{"dsh already<br/>listening?"}
+  PROBE -->|"yes — adopt, never kill"| SRV["dsh web service<br/>127.0.0.1:&lt;port&gt;"]
+  PROBE -->|"no — spawn"| SPAWN["dsh web --host 127.0.0.1 --port &lt;port&gt;"]
+  SPAWN -->|"verify: ready line + host.describe"| SRV
+  SRV -->|"3. display"| UI["editor tab iframe +<br/>native sessions / chat panel"]
+  SRV -->|"4. register current folder<br/>as dsh workspace"| WS["dsh workspace"]
 ```
 
-扩展宿主零运行时依赖：仅用 Node 内置模块 + vscode API。聊天 webview 前端使用 marked + dompurify，由 esbuild 内联打包进 `dist/chatWebview.js`，无运行时外部加载。
+1. **Locate** — the `dshOne.dshPath` setting wins; otherwise `dsh` is looked up on PATH. If not found, the extension errors out and guides you to install it.
+2. **Start or reuse** — the port (default 3080) is probed with `POST /api/host.describe` (with an `rpcId` echo check): a real dsh instance is **adopted and reused, never killed**; otherwise the extension spawns `dsh web --host 127.0.0.1 --port <port>`.
+3. **Display** — the full official dsh web UI is embedded in an editor tab via an iframe (`?dsh_embed=vscode`, a reserved embed parameter; not yet consumed by the official UI as of dsh 0.1.1-rc.2), while the sidebar offers native sessions and chat views fed by the dsh event streams.
+4. **Workspace preset** — your current folder is registered as the dsh workspace (idempotent), so dsh lands on it via the "most recently active workspace" policy.
 
-详细开发文档：
+## Screenshots
 
-- [docs/architecture.md](docs/architecture.md) — 模块结构、核心流程、设计决策及出处
-- [docs/development.md](docs/development.md) — 环境、构建/调试、发版流程
-- [docs/roadmap.md](docs/roadmap.md) — 原生前端路线图、已知不足与候选方向
+<!-- TODO: 截图占位 — 请在真实 VSCode 中打开 DSH One 面板，截图后放到 assets/screenshots/（如 chat-panel.png、sessions-sidebar.png），并以相对路径替换本段占位。 -->
+
+> Screenshots are pending — they will be captured from a real VSCode window by the maintainer and added under `assets/screenshots/`.
+
+## Using DSH One
+
+- **Sidebar (default)** — the DSH One icon opens the sidebar with the sessions list and the native chat panel. Pick a session to attach it, or start a new one; it opens right in the chat panel.
+- **dsh web in an editor tab** — `DSH One: 打开 dsh 页面` opens the full official dsh web UI (iframe) in an editor tab.
+- **Common commands** (`Ctrl/Cmd+Shift+P`):
+
+  | Command | Description |
+  | --- | --- |
+  | `DSH One: 打开面板` | Focus the sidebar chat panel |
+  | `DSH One: 打开 dsh 页面` | Open dsh web in an editor tab |
+  | `DSH One: 重启服务` / `DSH One: 停止服务` | Restart / stop the dsh service |
+  | `DSH One: 显示日志` | Show the extension log |
+  | `DSH One: 查看 dsh 安装指南` | Open the official dsh install page |
+
+- **Send a file** — right-click a file in the editor or explorer → `DSH One: 发送到当前会话` to stage it as an attachment in the active conversation.
+- **Status bar** — shows the service state; click to focus the panel.
+
+## Settings
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `dshOne.dshPath` | `string` | `""` | Path to the dsh executable; empty means look up `dsh` on PATH |
+| `dshOne.port` | `number` | `3080` | Service port; `0` lets the OS assign one (adoption probe is skipped) |
+| `dshOne.autoStart` | `boolean` | `true` | Start (or reuse) the dsh web service when the extension activates |
+
+## Security and permissions
+
+- **Process safety** — the extension only ever terminates dsh processes it spawned itself; adopted existing instances are never killed.
+- **Lifecycle** — dsh is decoupled from the VSCode window: closing or reloading a window does not kill dsh; it is stopped only via `DSH One: 停止服务` / `重启服务` (SIGTERM → SIGKILL on POSIX, `taskkill /T /F` on Windows). A health check (every 30s) detects unexpected exits without popping dialogs.
+- **Child environment** — `NODE_OPTIONS` and `ELECTRON_RUN_AS_NODE` (injected by the extension host) are stripped from the dsh child process.
+- **Local only** — the service listens on `127.0.0.1`; the webview CSP allows frames from `127.0.0.1` / `localhost` only.
+- **No runtime management** — the extension does not download or manage Node.js / dsh, performs no update checks, and reads/writes nothing under `~/.dsh` (that data belongs to dsh itself; the extension only keeps a log file and a pidfile in its own storage).
+
+## Compatibility
+
+- **VS Code**: `^1.96.0` (see `engines` in package.json).
+- **dsh**: installed by you via npm (`@deepseek-ai/dsh@next`, Node ≥ 22). `--no-open` requires dsh ≥ 0.1.0-rc.7 (older builds exit on the unknown flag). As of dsh 0.1.1-rc.2 the official UI does not consume `dsh_embed=vscode` (the hidden-sidebar effect does not exist yet).
+- **Platforms**: Windows / macOS / Linux (pure TypeScript, zero runtime dependencies — Node built-ins + the vscode API only).
+
+### Known limitations
+
+- **Remote (SSH/WSL/containers) not verified** — the extension declares `extensionKind: ["workspace"]`, so it should run on the remote side with webview `127.0.0.1` relying on VSCode's automatic port forwarding, but this is untested.
+- **Multiple windows** — each VSCode window manages its own service; a busy port is shared via adoption, and `port: 0` starts a separate instance per window. dsh UI session restore relies on localStorage (isolated per origin), so `port: 0` (new port every time) breaks restore — prefer a fixed port.
+
+## Uninstall
+
+Uninstall the extension from the VS Code extensions view. dsh itself is installed by you and is not touched; the extension stops only the dsh process it spawned (an adopted instance keeps running), and dsh data (workspaces, sessions) stays in place.
+
+---
+
+# For developers
+
+## Prerequisites
+
+- Node ≥ 22.6 (`npm test` runs `.ts` files directly via `node --test` type stripping)
+- VSCode ≥ 1.96 (`engines.vscode`)
+- A working dsh on your machine: `npm i -g @deepseek-ai/dsh@next` (the extension no longer downloads runtimes; debugging and manual checks need a real dsh)
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run build` | esbuild → `dist/extension.js` (host) + `dist/chatWebview.js` (chat frontend); warnings fail the build |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm test` | `node --test test/*.test.ts` — unit tests for `src/pure/` only |
+| `npm run package` | build + `vsce package` → `.vsix` |
+
+## Debugging
+
+Open the repo in VSCode, `npm run build`, press F5 — an Extension Development Host window launches with sourcemaps (breakpoints in `src/` work). The dev host activates `dshOne.autoStart` by default; logs are in the "DSH One" output channel. Note the dev host shares `~/.dsh` and the default port with your real VSCode — if 3080 is already taken, the dev host **adopts** the running instance instead of spawning one.
+
+## Architecture
+
+DSH One is a thin bridge: locate dsh → probe/adopt/spawn → embed. The extension host has **zero runtime dependencies** (Node built-ins + vscode API only); the chat webview bundles marked + dompurify via esbuild (nothing loaded at runtime).
+
+```
+src/
+├── extension.ts        # activate: register commands, views, auto-start
+├── server/             # locateDsh, ServerManager (lifecycle), spawnDsh (short-lived
+│                       #   launcher), dshRpc (host RPC), muxEvents/hostEvents (WS feeds)
+├── ui/                 # webview (iframe tab), chatView (native panel host),
+│                       #   sessionsStore/jobsStore (data layers), statusbar
+├── pure/               # pure logic, no vscode import (node --test unit-testable):
+│                       #   envelope, readyLine, semver, hostFrames, sessionTree, ...
+└── test/               # unit tests for src/pure/
+```
+
+Key flows:
+
+1. **Locate** — `dshOne.dshPath` wins, else `dsh` on PATH; verified with `dsh --version`.
+2. **Probe & adopt** — `POST /api/host.describe` with an `rpcId` echo check. A real dsh on the port → **adopt, never kill**; a foreign service → find a free port (temporary, not persisted); nothing → spawn.
+3. **Spawn** — via a short-lived launcher (`ELECTRON_RUN_AS_NODE`) so dsh detaches from the extension host's process tree and survives window reload; identity is written to a pidfile for re-owning on the next activation. `--no-open` is appended only for dsh ≥ 0.1.0-rc.7.
+4. **Readiness** — poll `host.describe` every 250ms (or parse the `dsh web: http://127.0.0.1:<port>` ready line when `port: 0`); health-checked every 30s afterwards.
+5. **Display** — editor tab shows the iframe `http://127.0.0.1:<port>/?dsh_embed=vscode`; the sidebar chat panel is a native webview fed by the dsh event streams (mux + host) and folded into `ChatState` by `src/pure/conversation.ts`.
+
+The full module map, state model and design decisions (with sources) live in [docs/architecture.md](docs/architecture.md).
+
+## Testing conventions
+
+- **Pure logic** — `src/pure/` must never import `vscode` (that keeps it runnable under `node --test`). When fixing a logic bug there: write a failing test first, fix the code (tests are untouchable during the fix), then turn it green — the bug is pinned into regression.
+- **UI** — layout/interaction bugs are not unit-testable: use the browser-rendered webview harness (`ai-visual-validation` skill, screenshot vs expected description) plus a manual check in the dev host.
+- **CI** — typecheck + test + build + package + spawn smoke on a 3-OS matrix (`.github/workflows/ci.yml`).
+
+## Releasing
+
+1. Set the real publisher id in `package.json` (the placeholder won't publish).
+2. Bump `version` and update `CHANGELOG.md`.
+3. `npm run typecheck && npm test && npm run package`, then `npx vsce login <publisher>` / `npx vsce publish`.
+4. Before publishing, walk the manual checklist in [docs/development.md](docs/development.md) (no-install-dsh path, adopt-not-kill, status bar states, per-OS spawn/kill).
+
+## Docs
+
+- [docs/architecture.md](docs/architecture.md) — module structure, core flows, design decisions with sources
+- [docs/development.md](docs/development.md) — environment, build/debug, release process, manual checklists
+- [docs/roadmap.md](docs/roadmap.md) — native frontend roadmap, known gaps, candidate directions
 
 ## License
 
