@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/hero.svg" alt="DSH One — 把 dsh 嵌进 VSCode" width="100%">
+  <img src="assets/hero.png" alt="DSH One — 把 dsh 嵌进 VSCode" width="100%">
 </p>
 
 <h1 align="center">DSH One</h1>
