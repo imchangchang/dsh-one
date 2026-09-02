@@ -75,5 +75,7 @@
   "attachment file": "attachment file",
   "{0} no longer exists (it may have been moved or deleted): {1}": "{0} no longer exists (it may have been moved or deleted): {1}",
   "Failed to open {0}: {1}": "Failed to open {0}: {1}",
-  "Session reference copied. Paste it into the input box to mention this session": "Session reference copied. Paste it into the input box to mention this session"
+  "Session reference copied. Paste it into the input box to mention this session": "Session reference copied. Paste it into the input box to mention this session",
+  "linked file": "linked file",
+  "Failed to resolve the path in the link: {0}": "Failed to resolve the path in the link: {0}"
 }

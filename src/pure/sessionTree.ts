@@ -52,6 +52,8 @@ export interface SessionInput {
    * rawList 消费方（聊天头部 preset 标签）用。
    */
   agentPreset?: string
+  /** Session cwd（session.list 基线），聊天链接相对路径的解析基准。 */
+  cwd?: string
 }
 
 export interface SessionNodeModel {

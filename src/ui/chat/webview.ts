@@ -35,6 +35,7 @@ import { questionInteractionStatus } from '../../pure/chatContract.ts'
 import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../../pure/sessionTree.ts'
 import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTree.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
+import { isFilePathHref } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../pure/toolLine.ts'
 import { cordisActionCardModel, cordisDefineCardModel, cordisRunCardModel, skillCardModel } from '../../pure/toolCards.ts'
@@ -367,6 +368,10 @@ document.addEventListener(
     e.stopPropagation()
     const href = a.getAttribute('href') ?? ''
     if (/^(https?|mailto):/i.test(href)) post({ type: 'openExternal', url: href })
+    // 文件链接（绝对/相对/~/file:，含工作区外文件）：转交宿主在编辑器打开。
+    // 外链之外能走到这里的非 http 锚点只剩文件路径与 dsh-session: 坏 URI 残留
+    // （后者 isFilePathHref 为 false，此处不响应，与之前一致）。
+    else if (isFilePathHref(href)) post({ type: 'openPath', path: href })
   },
   true,
 )
@@ -586,11 +591,24 @@ function fishLogoSvg(size: number, className: string): SVGSVGElement {
 }
 
 function md(text: string): string {
-  // 默认 URI 白名单之外放行 dsh-session:，mention 链接才能活到 decorate 那步。
+  // 默认 URI 白名单之外放行 dsh-session:，mention 链接才能活到 decorate 那步；
+  // 文件路径类 href 经下面的 uponSanitizeAttribute 钩子 forceKeep（见钩子注释）。
   return DOMPurify.sanitize(marked.parse(text, { async: false }), {
     ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|dsh-session):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
   })
 }
+
+/**
+ * 文件路径类 href 放行：DOMPurify 的 URI 白名单只认 scheme，绝对/相对路径
+ * （/Users/…、docs/foo.md、file:…）会被剥成纯文本，模型写出的文件链接就点不
+ * 了。钩子里只对「文件路径形状」的 href 设 forceKeepAttr，http(s)/mailto 等
+ * 外链与 javascript:/data: 等危险 scheme 不匹配路径形状，仍走默认拦截。
+ */
+DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+  if (data.attrName === 'href' && isFilePathHref(data.attrValue)) {
+    data.forceKeepAttr = true
+  }
+})
 
 /** 会话引用图标：dsh web ReferenceIcon 的 session 分支（16x16 聊天气泡 + 两行）。 */
 const SESSION_REF_ICON: IconDef = {
@@ -612,10 +630,10 @@ function sessionMentionChip(label: string, sessionId: string): HTMLElement {
 }
 
 /**
- * 文件/文件夹/命令引用 chip（对齐 dsh web 的 refChip，纯展示不可点）：
- * 文件 = IconBrowseOutline16、文件夹 = IconFolderClose16（官方 ReferenceIcon
- * 同款），/command 无图标；悬停 title 显示完整引用 token。展示名（basename）
- * 由 tokenizer 算好，这里只拼 DOM。
+ * 文件/文件夹/命令引用 chip（对齐 dsh web 的 refChip）：文件/文件夹可点击在
+ * 编辑器打开（path 是 @token 原文，点击时去 @ 与引号），命令无图标。
+ * 悬停 title 显示完整引用 token。展示名（basename）由 tokenizer 算好，这里只
+ * 拼 DOM。
  */
 function referenceChip(seg: Extract<UserBubbleSegment, { kind: 'file' | 'folder' | 'skill' }>): HTMLElement {
   const chip = el('span', 'ref-chip')
@@ -623,6 +641,18 @@ function referenceChip(seg: Extract<UserBubbleSegment, { kind: 'file' | 'folder'
     chip.title = seg.path
     chip.appendChild(iconSvg(seg.kind === 'file' ? CONTEXT_BROWSE_ICON : PANEL_ICONS.folder, 14))
     chip.appendChild(el('span', undefined, seg.label))
+    // @token 原文（@"/a b/x.md" / @docs/foo.md）：去 @ 与引号得到路径。
+    const target = seg.path.replace(/^@/, '').replace(/^"|"$/g, '')
+    chip.classList.add('ref-chip-link')
+    chip.setAttribute('role', 'button')
+    chip.tabIndex = 0
+    chip.addEventListener('click', () => post({ type: 'openPath', path: target }))
+    chip.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        post({ type: 'openPath', path: target })
+      }
+    })
   } else {
     chip.title = seg.label
     chip.appendChild(el('span', undefined, seg.label))
