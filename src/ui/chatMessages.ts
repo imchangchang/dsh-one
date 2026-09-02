@@ -390,20 +390,30 @@ export const chatMessageHandlers: ChatTabMessageHandler[] = [
 async function openFileInEditor(path: string, label: string): Promise<void> {
   try {
     await vscode.window.showTextDocument(vscode.Uri.file(path))
+    return
   } catch (err) {
     // 产物/附件路径都是某个时刻的路径快照：文件可能后来被移动/删除（如
     // backlog git mv），报错时先区分「已不存在」并说明原因，避免只有干巴巴
     // 的「无法打开」而不知道发生了什么。
-    const detail = errorText(err)
     const missing = await fs.access(path).then(
       () => false,
       () => true,
     )
-    vscode.window.showErrorMessage(
-      missing
-        ? vscode.l10n.t('{0} no longer exists (it may have been moved or deleted): {1}', label, path)
-        : vscode.l10n.t('Failed to open {0}: {1}', label, detail),
-    )
+    if (missing) {
+      vscode.window.showErrorMessage(
+        vscode.l10n.t('{0} no longer exists (it may have been moved or deleted): {1}', label, path),
+      )
+      return
+    }
+    // 文件在但编辑器打不开（二进制/无文本编辑器，如 .xlsx/.pdf）：退化到系统
+    // 默认应用打开（openExternal 对 file: URI 即「用系统默认程序打开」）。
+    try {
+      await vscode.env.openExternal(vscode.Uri.file(path))
+    } catch (fallbackErr) {
+      vscode.window.showErrorMessage(
+        vscode.l10n.t('Failed to open {0}: {1}', label, errorText(fallbackErr)),
+      )
+    }
   }
 }
 
