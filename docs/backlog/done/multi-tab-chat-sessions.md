@@ -97,6 +97,15 @@ cd /Users/cgeng/Workspaces/dsh-one/.worktrees/multi-tab-chat-sessions && bash /U
    h. 归档一个已打开 tab 的会话 → 该 tab 关闭
    i. 全部关闭 chat tab → 侧栏没有高亮行
    j. 执行 dshOne.restart（命令面板）→ 服务重启后只自动重开之前活动的会话 tab
+   k. 侧栏点会话 B（当前活动 tab 是 A）→ A 的 tab 内容变成 B，**不新增 tab**
+   l. 焦点切到文件编辑器后，再点侧栏会话 C → 最近活动过的 tab 内容变成 C
+   m. 会话行 ⋯/右键菜单 →「在新 tab 中打开」→ 新开一个 tab 显示该会话
+   n. 右上角「+」新建会话 → 当前活动 tab 变成新会话（不新开 tab）
+   o. 空会话 hero 点 workspace chip 切到另一 workspace → chip 显示目标 workspace；
+      发送消息 → 落到目标 workspace（懒切换落地）；再开一个空会话 tab 选另一
+      workspace 发送 → 两个 tab 各自 pending 目标互不串台
+   p. 两个会话 tab 并行，当前活动 tab 是 A，在控制台/app 里给 B 的会话发一条
+      提问/审批 → 自动切到或弹出 B 的 tab（pending 兜底 per-session，跟对 tab）
 ```
 
 - 2026-09-01 评审确认：做（用户标注）
