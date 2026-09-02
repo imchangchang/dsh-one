@@ -29,3 +29,4 @@
 - 2026-09-03 记录 → open（用户口头需求）
 
 - 2026-09-03 认领（worktree: agent/steering-bubble-rich-render）→ doing
+- 2026-09-03 开发完成（worktree 自测：typecheck/334 单测/构建通过；视觉场景 steering-pending 截图对照：附件缩略图+文件 chip+会话 chip+引用摘要行均与正式用户消息一致，mention-chips/attachment-uniform 无回归；done 标记待打）→ done
