@@ -686,13 +686,18 @@ export interface SessionsSnapshot {
 }
 /**
  * 单个 commit hash 的查询结果：webview 据此点亮/灰显点击 chip 并填悬浮 title。
- * `found` 为 true 时带回 subject（message 首行 / 作者名 / 提交日期 YYYY-MM-DD），
- * false 表示任何打开中的 git 仓库都查不到该 sha（仓库外 hash）。
+ * `found` 为 true 时带回 subject（message 首行 / 作者名 / 提交日期 YYYY-MM-DD）
+ * 与完整 message（悬浮卡多行展示用）；false 表示任何打开中的 git 仓库都查不到
+ * 该 sha（仓库外 hash）。
  */
 export interface CommitInfoResult {
   sha: string
   found: boolean
+  /** 完整 hash（40 位），点击视图/悬浮展示用；查询时若有完整 hash 才填。 */
+  commitHash?: string
   message?: string
+  /** 完整 commit message（含换行与 body），悬浮卡多行展示。 */
+  fullMessage?: string
   authorName?: string
   commitDate?: string
 }

@@ -77,12 +77,15 @@ function preferredRepository(api: GitApi, host: ChatTabHost): GitRepository | un
   return active ? api.getRepository(active) : undefined
 }
 
-/** 把 git Commit 压缩成 webview 用的单行信息（subject + 作者 + 日期，决策 4）。 */
+/** 把 git Commit 投影成 webview 用的信息（subject 首行 + 完整 message + 作者 + 日期）。 */
 function commitInfoFrom(sha: string, commit: GitCommit): CommitInfoResult {
+  const fullMessage = (commit.message ?? '').trim()
   return {
     sha,
+    commitHash: commit.hash ?? sha,
     found: true,
-    message: (commit.message ?? '').split('\n')[0]?.trim() ?? '',
+    message: fullMessage.split('\n')[0]?.trim() ?? '',
+    fullMessage,
     authorName: commit.authorName ?? '',
     commitDate: formatCommitDate(commit.commitDate),
   }
@@ -136,7 +139,9 @@ async function openCommit(host: ChatTabHost, sha: string): Promise<boolean> {
       // git.openRepository 聚焦 Source Control 面板中该仓库的视图，commit
       // graph（提交历史）随仓库节点展示；比 git.viewCommit（直接开 diff）更
       // 符合「跳转到 git 插件看提交历史」的预期（用户 2026-09-02 反馈）。
-      await vscode.commands.executeCommand('git.openRepository', repo)
+      // 注意命令参数是仓库根路径字符串（否传 Repository 对象会触发内置扩展
+      // 的 i.toLowerCase 报错），取 rootUri.fsPath。
+      await vscode.commands.executeCommand('git.openRepository', repo.rootUri.fsPath)
       return true
     } catch {
       // 该仓库无此 commit，试下一个

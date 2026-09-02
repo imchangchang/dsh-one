@@ -703,9 +703,16 @@ function noteCommitInfoRequest(sha: string): void {
   pendingCommitInfoShas.add(sha)
 }
 
-/** 单行紧凑悬浮标题：subject · 作者 · 日期（决策 4）。 */
+/** 悬浮标题（多行卡片，对齐 git 插件详情卡的形态）：
+ *  subject 首行 + 完整 commit message（含 body）+ 作者 + 日期 + 完整 hash。 */
 function commitInfoTitle(info: CommitInfoResult): string {
-  return [info.message, info.authorName, info.commitDate].filter(Boolean).join(' · ')
+  const lines: string[] = []
+  if (info.fullMessage) lines.push(info.fullMessage)
+  else if (info.message) lines.push(info.message)
+  const meta = [info.authorName, info.commitDate].filter(Boolean).join(' · ')
+  if (meta) lines.push(meta)
+  if (info.commitHash) lines.push(info.commitHash)
+  return lines.join('\n')
 }
 
 /** 按缓存里该 sha 的状态点亮/灰显 chip，并填悬浮 title（先查后亮，决策 2）。 */
