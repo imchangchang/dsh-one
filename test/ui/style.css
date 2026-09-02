@@ -173,6 +173,44 @@
     color: var(--vscode-textLink-foreground); font-weight: 500;
   }
   .commit-hash-unknown { opacity: 0.7; }
+  /* commit 悬浮详情卡（仿 VS Code 内置 Git 的 commit hover 卡）：
+     深色浮层、作者行（图标+名字+时间）、message 全文、分隔线、变更统计、
+     命令行（短 hash 点开 commit / 复制 / Open on GitHub）。 */
+  .commit-card {
+    max-width: 420px; padding: 10px 12px;
+    background: var(--vscode-editorWidget-background, #252526);
+    border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.4));
+    border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    color: var(--vscode-foreground, #cccccc);
+  }
+  .commit-card-author {
+    display: flex; align-items: center; gap: 5px; font-size: 13px;
+    color: var(--vscode-foreground, #cccccc);
+  }
+  .commit-card-meta { font-size: 12px; color: var(--vscode-descriptionForeground, #888); }
+  .commit-card-author svg { color: var(--vscode-descriptionForeground, #888); flex: none; }
+  .commit-card-author-link { color: var(--vscode-textLink-foreground); text-decoration: none; }
+  .commit-card-author-link:hover { text-decoration: underline; }
+  .commit-card-time { display: inline-flex; align-items: center; gap: 3px;
+    color: var(--vscode-descriptionForeground, #888); font-size: 12px; }
+  .commit-card-msg { margin-top: 6px; font-size: 13px; line-height: 1.45;
+    white-space: pre-wrap; word-break: break-word; }
+  .commit-card-subject { font-weight: 600; }
+  .commit-card-body { color: var(--vscode-descriptionForeground, #888); font-size: 12px; }
+  .commit-card-sep { margin: 8px 0; border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,.3)); }
+  .commit-card-stat { font-size: 12px; color: var(--vscode-foreground, #cccccc); }
+  .commit-card-stat-add { color: var(--vscode-scmGraph-historyItemHoverAdditionsForeground, #73c991); }
+  .commit-card-stat-del { color: var(--vscode-scmGraph-historyItemHoverDeletionsForeground, #f48771); }
+  .commit-card-commands { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .commit-card-cmd, .commit-card-copy {
+    display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px;
+    background: transparent; border: none; cursor: pointer;
+    color: var(--vscode-textLink-foreground, #4daafc); font-size: 12px; font-family: inherit;
+  }
+  .commit-card-cmd:hover, .commit-card-copy:hover { background: rgba(127,127,127,.15); border-radius: 4px; }
+  .commit-card-copy svg { color: var(--vscode-foreground, #cccccc); }
+  .commit-card-copy.commit-card-copied svg { color: var(--vscode-charts-green, #89d185); }
+  .commit-card-commands .commit-card-cmd .commit-card-cmd { padding: 0; } /* 防嵌套加成 */
   /* 用户气泡下方的会话引用摘要行（对齐 dsh web referenceSummary）：小号、降级文字色。 */
   .ref-summary { font-size: 12px; opacity: 0.75; }
   /* 跨会话召回上下文行：图标与文字基线对齐。 */

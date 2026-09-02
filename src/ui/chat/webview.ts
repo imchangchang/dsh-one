@@ -7,7 +7,7 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { AGENT_PRESET_ICON, CONTEXT_BROWSE_ICON, CODE_ICON, DSH_ONE_MARK, GOAL_ICONS, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, SKILL_ICON, STOP_ICON, STOP_PRIMARY_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
+import { ACCOUNT_ICON, AGENT_PRESET_ICON, CHECK_ICON, CONTEXT_BROWSE_ICON, COPY_ICON, CODE_ICON, DSH_ONE_MARK, GIT_COMMIT_ICON, GITHUB_ICON, GOAL_ICONS, HISTORY_ICON, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, SKILL_ICON, STOP_ICON, STOP_PRIMARY_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
@@ -703,8 +703,127 @@ function noteCommitInfoRequest(sha: string): void {
   pendingCommitInfoShas.add(sha)
 }
 
-/** 悬浮标题（多行卡片，对齐 git 插件详情卡的形态）：
- *  subject 首行 + 完整 commit message（含 body）+ 作者 + 日期 + 完整 hash。 */
+/** 悬浮卡主体：仿 VS Code 内置 Git 的 commit 详情卡（historyItem hover）。
+ *  按 vscode extensions/git/src/hover.ts 的 getHistoryItemHover 结构复刻为一节一节：
+ *   1) 作者行：作者名（mailto 链接，有 email 时）+ 相对/绝对时间
+ *   2) message 全文（首行 subject，body 保留换行）
+ *   3) 分隔线
+ *   4) 变更统计：N files changed, X insertions(+), Y deletions(-)（增减各自颜色）
+ *   5) 分隔线 + 命令行：短 hash（点击=commitOpen）+ 复制图标 + Open on GitHub
+ *  openExternal 走既有消息通道；缺失数据时对应节跳过。 */
+function commitInfoCard(info: CommitInfoResult): HTMLElement[] {
+  const parts: HTMLElement[] = []
+
+  // 1) 作者行：图标 + 作者名（mailto 链接）+ $(history) 相对时间 (绝对时间)
+  const authorRow = el('div', 'commit-card-author')
+  authorRow.appendChild(iconSvg(ACCOUNT_ICON, 16))
+  if (info.authorName) {
+    if (info.authorEmail) {
+      const a = el('a', 'commit-card-author-link', info.authorName) as HTMLAnchorElement
+      a.href = `mailto:${info.authorEmail}`
+      a.addEventListener('click', (e) => {
+        e.preventDefault()
+        post({ type: 'openExternal', url: a.href })
+      })
+      authorRow.appendChild(a)
+    } else {
+      authorRow.appendChild(el('span', 'commit-card-author-name', info.authorName))
+    }
+  }
+  if (info.commitDate) {
+    const time = el('span', 'commit-card-time')
+    time.appendChild(iconSvg(HISTORY_ICON, 16))
+    time.appendChild(document.createTextNode(` ${relativeCommitTime(info)} (${info.commitDate})`))
+    authorRow.appendChild(time)
+  }
+  if (authorRow.childElementCount > 0) parts.push(authorRow)
+
+  // 2) message 全文
+  if (info.fullMessage) {
+    const msg = el('div', 'commit-card-msg')
+    const lines = info.fullMessage.split('\n')
+    msg.appendChild(el('div', 'commit-card-subject', lines[0] ?? ''))
+    const body = lines.slice(1).join('\n').trim()
+    if (body) msg.appendChild(el('div', 'commit-card-body', body))
+    parts.push(msg)
+  } else if (info.message) {
+    parts.push(el('div', 'commit-card-msg', info.message))
+  }
+
+  // 3) 分隔线（有统计或命令行时要）
+  const hasFooter = info.files !== undefined || info.commitHash
+  if (hasFooter) parts.push(el('div', 'commit-card-sep'))
+
+  // 4) 变更统计
+  if (info.files !== undefined) {
+    const stat = el('div', 'commit-card-stat')
+    stat.appendChild(el('span', '', t('{0} files changed', info.files)))
+    if (info.insertions) {
+      stat.appendChild(document.createTextNode(', '))
+      stat.appendChild(el('span', 'commit-card-stat-add', t('{0} insertions(+)', info.insertions)))
+    }
+    if (info.deletions) {
+      stat.appendChild(document.createTextNode(', '))
+      stat.appendChild(el('span', 'commit-card-stat-del', t('{0} deletions(-)', info.deletions)))
+    }
+    parts.push(stat)
+  }
+
+  // 5) 命令行：短 hash（点开 commit）+ 复制 + Open on GitHub
+  if (info.commitHash) {
+    const cmdRow = el('div', 'commit-card-commands')
+    const openBtn = buttonEl('commit-card-cmd', '')
+    openBtn.title = t('Open Commit')
+    openBtn.appendChild(iconSvg(GIT_COMMIT_ICON, 16))
+    openBtn.appendChild(el('span', '', info.commitHash.slice(0, 7)))
+    openBtn.addEventListener('click', () => post({ type: 'commitOpen', sha: info.sha }))
+    cmdRow.appendChild(openBtn)
+    const copy = buttonEl('commit-card-copy', '')
+    copy.title = t('Copy commit hash')
+    copy.appendChild(iconSvg(COPY_ICON, 16))
+    const showCopied = () => {
+      copy.textContent = ''
+      copy.appendChild(iconSvg(CHECK_ICON, 16))
+      copy.classList.add('commit-card-copied')
+    }
+    const restore = () => {
+      copy.textContent = ''
+      copy.appendChild(iconSvg(COPY_ICON, 16))
+      copy.classList.remove('commit-card-copied')
+    }
+    copy.addEventListener('click', () => {
+      void navigator.clipboard.writeText(info.commitHash ?? '').then(() => showCopyFeedback(`commit:${info.sha}`, showCopied, restore))
+    })
+    cmdRow.appendChild(copy)
+    if (info.githubUrl) {
+      const gh = buttonEl('commit-card-cmd', '')
+      gh.title = t('Open on GitHub')
+      gh.appendChild(iconSvg(GITHUB_ICON, 16))
+      gh.appendChild(el('span', '', t('Open on GitHub')))
+      gh.addEventListener('click', () => post({ type: 'openExternal', url: info.githubUrl ?? '' }))
+      cmdRow.appendChild(gh)
+    }
+    parts.push(cmdRow)
+  }
+  return parts
+}
+
+/** 相对时间文案（「30 minutes ago」式，对齐 VS Code 卡的 fromNow），补在绝对日期前。 */
+function relativeCommitTime(info: CommitInfoResult): string {
+  if (!info.commitDate) return ''
+  const d = new Date(info.commitDate)
+  if (Number.isNaN(d.getTime())) return ''
+  const diff = Date.now() - d.getTime()
+  const MINUTE_MS = 60_000
+  const HOUR_MS = 60 * MINUTE_MS
+  const DAY_MS = 24 * HOUR_MS
+  if (diff < MINUTE_MS) return t('just now')
+  if (diff < HOUR_MS) return t('{0} minutes ago', Math.floor(diff / MINUTE_MS))
+  if (diff < DAY_MS) return t('{0} hours ago', Math.floor(diff / HOUR_MS))
+  return t('{0} days ago', Math.floor(diff / DAY_MS))
+}
+
+/** 悬浮 title 兜底文案（浏览器原生 tooltip 不显示卡片时的降级：单行摘要）。 */
 function commitInfoTitle(info: CommitInfoResult): string {
   const lines: string[] = []
   if (info.fullMessage) lines.push(info.fullMessage)
@@ -715,7 +834,7 @@ function commitInfoTitle(info: CommitInfoResult): string {
   return lines.join('\n')
 }
 
-/** 按缓存里该 sha 的状态点亮/灰显 chip，并填悬浮 title（先查后亮，决策 2）。 */
+/** 按住缓存里该 sha 的状态点亮/灰显 chip，并设悬浮 title 兜底（先查后亮，决策 2）。 */
 function applyCommitHashState(span: HTMLElement): void {
   const sha = span.dataset.sha ?? ''
   const info = commitInfoCache.get(sha)
@@ -734,6 +853,51 @@ function applyCommitHashState(span: HTMLElement): void {
   }
 }
 
+/** chip 悬浮时弹出 commit 详情卡（仿 VS Code git commit 详情卡）；未确认态显示
+ *  「正在查询」提示，未命中显示「未找到」提示。复用全局 popover 机制（定位/外点关闭）。
+ *  离开 chip 延迟 120ms 关闭（指针移向卡片留缓冲），进卡片即取消。 */
+let commitCardHoverTimer: ReturnType<typeof setTimeout> | null = null
+
+function onCommitHashHover(span: HTMLElement, show: boolean): void {
+  if (!show) {
+    if (!popover) return
+    if (commitCardHoverTimer !== null) return
+    commitCardHoverTimer = setTimeout(() => {
+      commitCardHoverTimer = null
+      closePopover()
+    }, 120)
+    return
+  }
+  if (commitCardHoverTimer !== null) {
+    clearTimeout(commitCardHoverTimer)
+    commitCardHoverTimer = null
+  }
+  if (popover) return // 已开着（另一个 chip 的卡）
+  const sha = span.dataset.sha ?? ''
+  const info = commitInfoCache.get(sha)
+  if (!info) return // 未确认：不弹卡，走原生 title「正在查询」
+  const body = el('div', 'commit-card')
+  if (info.found) {
+    for (const part of commitInfoCard(info)) body.appendChild(part)
+  } else {
+    body.appendChild(el('div', 'commit-card-meta', t('Commit not found')))
+  }
+  showPopover(span, body, 'below')
+  // 指针在卡片内时不关（mouseenter 卡片时取消 pending 关闭）
+  body.addEventListener('mouseenter', () => {
+    if (commitCardHoverTimer !== null) {
+      clearTimeout(commitCardHoverTimer)
+      commitCardHoverTimer = null
+    }
+  })
+  body.addEventListener('mouseleave', () => {
+    commitCardHoverTimer = setTimeout(() => {
+      commitCardHoverTimer = null
+      closePopover()
+    }, 120)
+  })
+}
+
 /** 认出的 commit hash 换成可点击 span（悬停 title 由缓存状态定，点击走 commitOpen）。 */
 function commitHashEl(sha: string): HTMLElement {
   const span = el('span', 'commit-hash')
@@ -748,6 +912,8 @@ function commitHashEl(sha: string): HTMLElement {
       post({ type: 'commitOpen', sha })
     }
   })
+  span.addEventListener('mouseenter', () => onCommitHashHover(span, true))
+  span.addEventListener('mouseleave', () => onCommitHashHover(span, false))
   applyCommitHashState(span)
   noteCommitInfoRequest(sha)
   return span

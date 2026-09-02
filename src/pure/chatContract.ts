@@ -685,10 +685,10 @@ export interface SessionsSnapshot {
   contentSearchError: boolean
 }
 /**
- * 单个 commit hash 的查询结果：webview 据此点亮/灰显点击 chip 并填悬浮 title。
+ * 单个 commit hash 的查询结果：webview 据此点亮/灰显点击 chip 并填悬浮卡。
  * `found` 为 true 时带回 subject（message 首行 / 作者名 / 提交日期 YYYY-MM-DD）
- * 与完整 message（悬浮卡多行展示用）；false 表示任何打开中的 git 仓库都查不到
- * 该 sha（仓库外 hash）。
+ * 与完整 message（悬浮卡多行展示用）、变更统计（对齐 VS Code commit 详情卡）；
+ * false 表示任何打开中的 git 仓库都查不到该 sha（仓库外 hash）。
  */
 export interface CommitInfoResult {
   sha: string
@@ -699,7 +699,14 @@ export interface CommitInfoResult {
   /** 完整 commit message（含换行与 body），悬浮卡多行展示。 */
   fullMessage?: string
   authorName?: string
+  authorEmail?: string
   commitDate?: string
+  /** 变更统计（files/insertions/deletions），git API 的 Commit.shortStat；缺失时省略。 */
+  files?: number
+  insertions?: number
+  deletions?: number
+  /** GitHub commit 链接（仓库 remote 是 GitHub 时生成），悬浮卡 Open on GitHub 用。 */
+  githubUrl?: string
 }
 
 export type ToWebviewMessage =

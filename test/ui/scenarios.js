@@ -132,9 +132,9 @@
     },
 
     'commit-hash-found': {
-      // 消息正文含 commit hash，interact 模拟宿主回传 commitInfo（found，带完整信息）。
-      // 用暗色主题：harness 亮色未定义 --vscode-textLink-foreground（VS Code 才注入），
-      // 链接色/高亮在亮色下会回退黑，暗色下能正确显示。
+      // 消息正文含 commit hash，interact 模拟宿主回传 commitInfo（found，带完整信息），
+      // 再 dispatch mouseenter 弹出悬浮卡。用暗色主题：harness 亮色未定义
+      // --vscode-textLink-foreground（VS Code 才注入），链接色/高亮在亮色下会回退黑。
       theme: 'dark',
       state: base({
         messages: [at('本轮合入完成。最近提交：`351a766`，详见提交说明。')],
@@ -144,11 +144,17 @@
           sha: '351a766', found: true, commitHash: '351a7664d4f6e86bb0ef58c94d84d0ee1fb9aa53',
           message: 'backlog: commit-hash-interactive 开发完成（doing → done）',
           fullMessage: 'backlog: commit-hash-interactive 开发完成（doing → done）\\n\\n- 追加人工验收提示\\n- 检查点详见条目',
-          authorName: 'cgeng', commitDate: '2026-09-02',
+          authorName: 'cgeng', authorEmail: 'cgeng@c3ng.com', commitDate: '2026-09-02',
+          files: 1, insertions: 40, deletions: 2,
+          githubUrl: 'https://github.com/imchangchang/dsh-one/commit/351a7664d4f6e86bb0ef58c94d84d0ee1fb9aa53',
         }] }, '*')
+        setTimeout(() => {
+          const chip = document.querySelector('.commit-hash.commit-hash-found')
+          chip?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+        }, 400)
       })()`,
-      title: 'commit hash 先查后亮：found 点亮（完整信息卡）',
-      expect: '助手消息文本里 "351a766" 渲染成 commit-hash chip：先查后亮——interact 回传 found 后 chip 为已点亮态（.commit-hash-found，链接色，可点击）；悬浮 title 为多行卡片（完整 message 含换行 body → 作者 · 日期 → 完整 40 位 hash）。截图核对：chip 高亮、等宽、可点光标；t(该 hash 在正文/行内 code 内均可点亮)。未确认前（截图静态时若 interact 未跑则灰显）——interact 已回传，应为点亮态。行内 code 里的 hash 也要是对应的 chip 形式。',
+      title: 'commit hash 先查后亮：found 点亮 + 悬浮详情卡（仿 VS Code）',
+      expect: '助手消息文本里 "351a766" 渲染成 commit-hash chip：先查后亮——interact 回传 found 后 chip 为已点亮态（.commit-hash-found，链接色，可点击），且行内 code 里也不例外。400ms 后鼠标 enter 触发悬浮卡（.commit-card popover，定位 chip 下方）：内容自上而下——① 作者行：account 图标 + cgeng（链接色，mailto：cgeng@c3ng.com）+ history 图标 + 相对时间 (2026-09-02)；② message 全文：subject 行加粗「backlog: commit-hash-interactive 开发完成（doing → done）」+ 两行 body 灰字；③ 分隔线；④ 变更统计：「1 files changed, 40 insertions(+) 绿色, 2 deletions(-) 红色」；⑤ 分隔线 + 命令行：git-commit 图标 + 短 hash「351a766」（点开 commit）+ copy 图标 + Open on GitHub。卡片深色浮层、圆角、描边、阴影，宽 ≤420px。',
     },
 
     'commit-hash-not-found': {
