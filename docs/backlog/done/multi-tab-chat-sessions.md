@@ -78,11 +78,13 @@ ch态前 chat 在 edttor WebviewPanel（单例），切换回会话 = 同一面�
 
 ### 人工验收方法（dev-ui-test）
 
-```
-【测试命令】（单条，复制即跑，已含进入 worktree）
-cd /Users/cgeng/Workspaces/dsh-one/.worktrees/multi-tab-chat-sessions && bash /Users/cgeng/Workspaces/dsh-one/scripts/dev-ui-test.sh
+**测试命令**（单条，复制即跑）：
 
-【应有现象】
+```bash
+cd /Users/cgeng/Workspaces/dsh-one/.worktrees/multi-tab-chat-sessions && bash /Users/cgeng/Workspaces/dsh-one/scripts/dev-ui-test.sh
+```
+
+**应有现象**：
 1. 弹出隔离 VSCode 窗口（标题 = 该 worktree 目录，user-data 在 /tmp/dsh-uidev/multi-tab-chat-sessions/）
 2. 左侧活动栏出现 DSH One 图标，点击能打开 chat 面板
 3. 扩展激活无报错（输出面板"DSH One"）
