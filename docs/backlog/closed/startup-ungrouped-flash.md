@@ -34,3 +34,4 @@
 - 2026-09-02 问题核实、定位根因，记入 open/（未开始修改）。
 - 2026-09-02 认领（open → doing），开始 worktree 开发修复。
 - 2026-09-02 开发完成（doing → done）：store 加 baselineReady 标志（refresh 成功置 true、代际切换重置 false），快照带出；webview 在 serverState=running 且基线未就绪时显示 Loading，不渲染未分组组头/添加引导。typecheck + 337 单测 + build 通过；新增 sessions-baseline-loading（未就绪 → Loading）与 sessions-no-workspaces（基线就绪但无 workspace → 引导 + 未分组组头，对照）两个视觉场景，已截图核对。
+- 2026-09-02 主线合入（done → closed）：merge commit ece02b7，人工隔离 VSCode 窗口验收通过（用户确认）。
