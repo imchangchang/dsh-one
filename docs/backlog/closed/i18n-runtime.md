@@ -47,3 +47,5 @@
 2. 运行时对话框抽查（英文实例）：执行命令「DSH One: 重命名会话」→ 输入框标题为 "Rename Session"；侧栏会话右键 → Archive → modal 为 "Archive session ..." + "Archive" 按钮；无 workspace 时执行「新建会话」→ 通知 "No workspace available. Open a folder in VSCode first."。
 3. 中文：把 VS Code 界面切到中文（`--locale=zh-cn` 起实例，或系统中文 + 已装中文语言包），同实例下状态栏「DSH: 运行中 :3080」、tooltip 中文（在浏览器中打开/重启服务/显示日志）、归档 modal「确认归档会话…」+「归档」按钮。
 4. 端口占用场景（可选）：把设置 `dshOne.port` 改成被占用端口再激活，英文实例通知显示 "DSH One: port X is occupied by another program; using port Y this time (setting unchanged)"。
+
+- 2026-09-01 主线合入测试通过，人工验收通过 → closed（merge 781ea95）
