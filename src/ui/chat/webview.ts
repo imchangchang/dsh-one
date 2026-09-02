@@ -248,6 +248,18 @@ let pendingImages: OutgoingImage[] = []
 let pendingFiles: StagedFile[] = []
 /** Session the staged images belong to; a switch drops them. */
 let stagedForSession: string | null = null
+/** Per-session composer text drafts: sessionId → 未发送文本。切走时存旧、切回时取新，
+ *  不再让旧会话的草稿「跟着搬到」下一个会话的输入框。 */
+const composerDrafts = new Map<string, string>()
+/** Per-session staged attachments: sessionId → { images, files }。与文本同款：按会话
+ *  各存一份，切走时存档、切回时恢复（原来切换即清空）。 */
+const stagedPerSession = new Map<string, { images: OutgoingImage[]; files: StagedFile[] }>()
+/** 会话切换后待落入 composer 的草稿来源会话：message handler 存档/恢复后置为新会话
+ *  id，render 消费帧用它从 composerDrafts 取草稿。用标志而非「sessionId ≠ scrollSession」
+ *  判断切换帧——hero 布局每帧把 scrollSession 置 null，同会话的 hero 帧会被误判成
+ *  切换帧而覆盖当前输入。消费后置回 null；pending 接管等不消费 draft 的帧保留标志，
+ *  pending 结束后恢复 composer 时仍能按新会话草稿还原。 */
+let draftRestoreFor: string | null = null
 /** Latest model catalog reply; dropped on session switch, refetched on menu open. */
 let modelCatalog: ModelCatalog | null = null
 /** 最近一次模型目录拉取是否失败（modelCatalogError）；打开菜单时重置。有旧目录
@@ -693,14 +705,28 @@ window.addEventListener('message', (event) => {
   if (msg?.type === 'state' && msg.state) {
     state = msg.state
     if (state.sessionId !== stagedForSession) {
-      pendingImages = []
-      pendingFiles = []
+      // 换会话：先存档旧会话的 composer 草稿（文本 + 附件），再恢复新会话的
+      // ——文本不再跟着搬到下一个会话，附件不再切换即丢。
+      // 文本从还挂在 DOM 里的旧输入框读；面板被 pending 接管（无输入框、
+      // restoreDraft 暂存进 stashedDraft）时把暂存一并归档。
+      const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
+      if (stagedForSession !== null) {
+        composerDrafts.set(stagedForSession, oldInput ? oldInput.value : stashedDraft ?? '')
+        stagedPerSession.set(stagedForSession, { images: pendingImages, files: pendingFiles })
+      }
+      stashedDraft = undefined
+      // 数组浅拷贝：归档持有原数组，恢复出的 pending* 之后会被用户在 composer
+      // 里 splice 编辑，不能直接引用归档数组（否则删附件会污染归档）。
+      const restored = state.sessionId !== null ? stagedPerSession.get(state.sessionId) : undefined
+      pendingImages = [...(restored?.images ?? [])]
+      pendingFiles = [...(restored?.files ?? [])]
       modelCatalog = null
       commandNotices = []
       recall = null
       recallDraft = ''
       earlierAnchor = null
       stagedForSession = state.sessionId
+      draftRestoreFor = state.sessionId
     }
     render()
   } else if (msg?.type === 'sessions' && msg.snapshot) {
@@ -1757,7 +1783,12 @@ function render(): void {
   }
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
   const hadFocus = oldInput !== null && document.activeElement === oldInput
-  const draft = oldInput?.value
+  // 换会话后的首个消费帧：草稿按会话从 composerDrafts 恢复（message handler
+  // 已把旧会话的文本归档）；其余帧仍从 DOM 读，流式重建时正在输入的内容不丢。
+  const draft =
+    draftRestoreFor === state?.sessionId && state.sessionId !== null
+      ? composerDrafts.get(state.sessionId)
+      : oldInput?.value
   const inputSel = hadFocus ? { start: oldInput.selectionStart, end: oldInput.selectionEnd } : null
   // The rebuild wipes scroll state; remember it so a user reading history
   // mid-stream is not thrown back to the top. Also re-evaluate pinning from
@@ -2004,6 +2035,8 @@ function render(): void {
       if (slashPopupEl && oldInput) positionSlashPopup(oldInput)
     } else {
       chatCol.appendChild(renderHero(state, draft))
+      // 本帧消费了恢复草稿，标志清零；loading 帧/pending 帧不走这里，标志保留。
+      draftRestoreFor = null
       const input = document.getElementById('input') as HTMLTextAreaElement
       autoGrow(input)
       if (hadFocus) {
@@ -2255,6 +2288,9 @@ function render(): void {
     patchStatsRow(oldComposer, state.statsLine, state.contextUsage)
   } else {
     chatCol.appendChild(renderInput(draft))
+    // 本帧消费了恢复草稿，标志清零（pending 接管帧走不到这里，标志保留到
+    // pending 结束恢复普通 composer 时）。
+    draftRestoreFor = null
   }
   lastComposerSig = composerSig
   lastHeaderSig = headerSig
