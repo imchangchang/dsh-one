@@ -262,5 +262,7 @@
   "… {0} more lines": "… {0} more lines",
   "‹ Back": "‹ Back",
   "↓ Back to latest": "↓ Back to latest",
-  "Duration {0}": "Duration {0}"
+  "Duration {0}": "Duration {0}",
+  ", ": ", ",
+  "Unread": "Unread"
 }

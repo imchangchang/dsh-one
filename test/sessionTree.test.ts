@@ -85,7 +85,7 @@ test('sessions not referenced by any workspace form a「未分组」group append
   )
   assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', UNGROUPED_WORKSPACE_ID])
   const ungrouped = tree[1]
-  assert.equal(ungrouped.label, '未分组')
+  assert.equal(ungrouped.label, 'Ungrouped')
   assert.equal(ungrouped.path, '')
   assert.equal(ungrouped.isCurrent, false)
   assert.deepEqual(ungrouped.sessions.map((n) => n.sessionId), ['stray1', 'stray2'])
@@ -141,7 +141,7 @@ test('label uses the title, falling back to a short id', () => {
     NOW,
   )
   assert.equal(tree[0].sessions[0].label, '修复登录页')
-  assert.equal(tree[0].sessions[1].label, '会话 plain123')
+  assert.equal(tree[0].sessions[1].label, 'Session plain123')
 })
 
 test('workspace label falls back to basename(path), then to path', () => {
@@ -171,7 +171,7 @@ test('description carries the relative time; running flag passes through', () =>
     undefined,
     NOW,
   )
-  assert.equal(tree[0].sessions[0].description, '2 小时前')
+  assert.equal(tree[0].sessions[0].description, '2 hours ago')
   assert.equal(tree[0].sessions[0].running, true)
 })
 
@@ -496,16 +496,16 @@ test('buildSubagentTree excludes a plain fork and only counts real subagents', (
 })
 
 test('formatRelativeTime covers every tier', () => {
-  assert.equal(formatRelativeTime(NOW - 500, NOW), '刚刚')
-  assert.equal(formatRelativeTime(NOW - 59_000, NOW), '刚刚')
-  assert.equal(formatRelativeTime(NOW - 60_000, NOW), '1 分钟前')
-  assert.equal(formatRelativeTime(NOW - 45 * 60_000, NOW), '45 分钟前')
-  assert.equal(formatRelativeTime(NOW - 3_600_000, NOW), '1 小时前')
-  assert.equal(formatRelativeTime(NOW - 23 * 3_600_000, NOW), '23 小时前')
-  assert.equal(formatRelativeTime(NOW - 86_400_000, NOW), '1 天前')
-  assert.equal(formatRelativeTime(NOW - 30 * 86_400_000, NOW), '30 天前')
+  assert.equal(formatRelativeTime(NOW - 500, NOW), 'just now')
+  assert.equal(formatRelativeTime(NOW - 59_000, NOW), 'just now')
+  assert.equal(formatRelativeTime(NOW - 60_000, NOW), '1 minutes ago')
+  assert.equal(formatRelativeTime(NOW - 45 * 60_000, NOW), '45 minutes ago')
+  assert.equal(formatRelativeTime(NOW - 3_600_000, NOW), '1 hours ago')
+  assert.equal(formatRelativeTime(NOW - 23 * 3_600_000, NOW), '23 hours ago')
+  assert.equal(formatRelativeTime(NOW - 86_400_000, NOW), '1 days ago')
+  assert.equal(formatRelativeTime(NOW - 30 * 86_400_000, NOW), '30 days ago')
   // Clock skew (updatedAt in the future) clamps to "刚刚".
-  assert.equal(formatRelativeTime(NOW + 60_000, NOW), '刚刚')
+  assert.equal(formatRelativeTime(NOW + 60_000, NOW), 'just now')
 })
 
 test('buildSubagentTree nests lineage children under their parent, top-level is direct children', () => {
@@ -570,7 +570,7 @@ test('buildSubagentTree falls back to a short id title when title is null', () =
     [s('root', { title: 'Root' }), s('abcdef12', { parentSessionId: 'root', title: null, origin: 'subagent' })],
     'root',
   )
-  assert.equal(tree[0].title, '会话 abcdef12')
+  assert.equal(tree[0].title, 'Session abcdef12')
 })
 
 test('buildSubagentTree: labelOf wins, then falls back to title, then short id', () => {
@@ -596,14 +596,14 @@ test('buildSubagentTree: labelOf wins, then falls back to title, then short id',
     'root',
     () => null,
   )
-  assert.equal(noEntryNoTitle[0].title, '会话 sub3aaaa')
+  assert.equal(noEntryNoTitle[0].title, 'Session sub3aaaa')
 
   // labelOf 缺省（完全不接目录）也不降级。
   const noResolver = buildSubagentTree(
     [s('root'), s('sub4bbbb', { parentSessionId: 'root', title: null, origin: 'subagent' })],
     'root',
   )
-  assert.equal(noResolver[0].title, '会话 sub4bbbb')
+  assert.equal(noResolver[0].title, 'Session sub4bbbb')
 })
 
 test('buildSubagentTree labelOf resolves per-node within a nested lineage', () => {

@@ -1,3 +1,4 @@
+import { loadWebviewL10n } from './chatViewHtml.ts'
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
 import type { Logger } from '../log.ts'
@@ -257,7 +258,7 @@ const SESSIONS_STYLE = `
   }
 `
 
-function sessionsHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+function sessionsHtml(webview: vscode.Webview, extensionUri: vscode.Uri, l10nJson: string | null): string {
   const n = nonce()
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'sessionsWebview.js'))
   // Same CSP discipline as the chat webview: nonce-gated scripts, no remote resources.
@@ -275,6 +276,11 @@ function sessionsHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string
 </head>
 <body>
 <div id="app"></div>
+${
+  l10nJson === null
+    ? ''
+    : `<script nonce="${n}">window.__DSH_L10N__=${l10nJson.replace(/</g, '\\u003c')};</script>`
+}
 <script nonce="${n}" src="${escapeHtml(scriptUri.toString())}"></script>
 </body>
 </html>`
@@ -317,7 +323,7 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')],
     }
-    view.webview.html = sessionsHtml(view.webview, this.extensionUri)
+    view.webview.html = sessionsHtml(view.webview, this.extensionUri, loadWebviewL10n(this.extensionUri))
     const msg = view.webview.onDidReceiveMessage((m: FromWebviewMessage) => void this.onMessage(m))
     // 侧栏从不可见回到可见（展开/折叠、切到别的 view group）：列表可能已过期。
     const visibilitySub = view.onDidChangeVisibility(() => {

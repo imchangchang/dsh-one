@@ -140,7 +140,7 @@ function queueItemOf(item: QueuedInboxItemLike): { text: string; editText: strin
   }
   const editText = editLines.join('\n').trim()
   const { files } = splitAttachmentLines(editText)
-  const notes = [images.length > 0 ? `[图片 ×${images.length}]` : '', files.length > 0 ? `[文件 ×${files.length}]` : ''].filter(Boolean)
+  const notes = [images.length > 0 ? vscode.l10n.t('[image ×{0}]', images.length) : '', files.length > 0 ? vscode.l10n.t('[file ×{0}]', files.length) : ''].filter(Boolean)
   return { text: [...notes, previewLines.join('\n').trim()].filter(Boolean).join(' '), editText, images, files }
 }
 
@@ -872,7 +872,7 @@ export class ChatSessionController implements vscode.Disposable {
   private async refreshAgentPresets(): Promise<void> {
     const { presets } = await listAgentPresets(this.url)
     if (this.disposed) return
-    const options = resolveAgentPresets(presets)
+    const options = resolveAgentPresets(presets, vscode.l10n.t)
     if (options.length === 0) return
     this.agentPresetOptions = options
     if (!this.turnStarted && !this.agentPresetCurrent) this.agentPresetCurrent = defaultAgentPresetId(presets)
@@ -885,7 +885,7 @@ export class ChatSessionController implements vscode.Disposable {
    * 或未知 id 回退 agentPresetLabel：已知 system id 中文名，否则原样 id）。
    */
   agentPresetLabelFor(id: string): string {
-    return this.agentPresetOptions.find((o) => o.id === id)?.label ?? agentPresetLabel(id)
+    return this.agentPresetOptions.find((o) => o.id === id)?.label ?? agentPresetLabel(id, vscode.l10n.t)
   }
 
   /**
@@ -895,7 +895,7 @@ export class ChatSessionController implements vscode.Disposable {
    * roster 未就绪前没有描述。
    */
   agentPresetDescriptionFor(id: string): string | undefined {
-    return this.agentPresetOptions.find((o) => o.id === id)?.description ?? agentPresetDescription(id)
+    return this.agentPresetOptions.find((o) => o.id === id)?.description ?? agentPresetDescription(id, vscode.l10n.t)
   }
 
   /**
@@ -927,7 +927,7 @@ export class ChatSessionController implements vscode.Disposable {
   private applyStatsValue(value: unknown): void {
     const stats = asStats(value)
     if (!stats) return
-    this.statsLine = formatStatsLine(stats)
+    this.statsLine = formatStatsLine(stats, vscode.l10n.t)
     this.statsTurns = stats.turns
   }
 

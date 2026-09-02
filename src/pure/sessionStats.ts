@@ -1,3 +1,5 @@
+import { enFallback } from './sessionTree.ts'
+
 /**
  * Host-side formatting of the `sessionStats` projection
  * (dsh-session-stats/lib/types/types.d.ts) into the one-line summary the chat
@@ -37,15 +39,18 @@ export function formatTokensPerSecond(tps: number): string {
  * 首 token 平均 0.8s · 33 tok/s". Undefined until the first closed step — an
  * all-zero fold (fresh session) renders nothing, same as the web client.
  */
-export function formatStatsLine(stats: SessionStatsLike): string | undefined {
+export function formatStatsLine(
+  stats: SessionStatsLike,
+  t: (s: string, ...a: Array<string | number>) => string = enFallback,
+): string | undefined {
   if (stats.steps <= 0) return undefined
-  const groups: string[] = [`${stats.turns} 轮 · ${stats.steps} 步`]
+  const groups: string[] = [t('{0} turns · {1} steps', stats.turns, stats.steps)]
   const durations: string[] = []
   if (stats.llmMs > 0) durations.push(`LLM ${formatDuration(stats.llmMs)}`)
-  if (stats.toolMs > 0) durations.push(`工具调用 ${formatDuration(stats.toolMs)}`)
+  if (stats.toolMs > 0) durations.push(t('tool calls {0}', formatDuration(stats.toolMs)))
   if (durations.length > 0) groups.push(durations.join(' · '))
   const speeds: string[] = []
-  if (stats.ttftSteps > 0) speeds.push(`首 token 平均 ${formatDuration(stats.ttftMs / stats.ttftSteps)}`)
+  if (stats.ttftSteps > 0) speeds.push(t('avg first token {0}', formatDuration(stats.ttftMs / stats.ttftSteps)))
   if (stats.decodeMs > 0) speeds.push(`${formatTokensPerSecond(stats.decodeTokens / (stats.decodeMs / 1000))} tok/s`)
   if (speeds.length > 0) groups.push(speeds.join(' · '))
   return groups.join(' ｜ ')

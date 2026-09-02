@@ -14,16 +14,16 @@ test('the four official system presets get localized labels and descriptions', (
   assert.deepEqual(
     options.map((o) => [o.id, o.label]),
     [
-      ['standard', '标准模式'],
-      ['code', 'PTC 模式'],
-      ['minimal', '极简模式'],
-      ['cordis', '创造模式'],
+      ['standard', 'Standard mode'],
+      ['code', 'PTC mode'],
+      ['minimal', 'Minimal mode'],
+      ['cordis', 'Cordis mode'],
     ],
   )
-  assert.equal(options[0].description?.includes('功能完整的编码 Agent'), true)
+  assert.equal(options[0].description?.includes('A full-featured coding agent'), true)
   assert.equal(options[1].description?.includes('Code Mode SDK'), true)
   assert.equal(options[2].description?.includes('str_replace_editor'), true)
-  assert.equal(options[3].description?.includes('自定义 Agent preset'), true)
+  assert.equal(options[3].description?.includes('authoring custom agent presets'), true)
 })
 
 test('unknown system ids fall back to the roster name/description', () => {
@@ -66,17 +66,17 @@ test('defaultAgentPresetId prefers the isDefault row, else the first usable one'
 })
 
 test('agentPresetLabel localizes known system ids, passes others through', () => {
-  assert.equal(agentPresetLabel('standard'), '标准模式')
-  assert.equal(agentPresetLabel('code'), 'PTC 模式')
-  assert.equal(agentPresetLabel('minimal'), '极简模式')
-  assert.equal(agentPresetLabel('cordis'), '创造模式')
+  assert.equal(agentPresetLabel('standard'), 'Standard mode')
+  assert.equal(agentPresetLabel('code'), 'PTC mode')
+  assert.equal(agentPresetLabel('minimal'), 'Minimal mode')
+  assert.equal(agentPresetLabel('cordis'), 'Cordis mode')
   assert.equal(agentPresetLabel('my-custom'), 'my-custom')
 })
 
 test('agentPresetDescription returns Chinese copy for known system ids, undefined otherwise', () => {
-  assert.equal(agentPresetDescription('standard')?.includes('功能完整的编码 Agent'), true)
+  assert.equal(agentPresetDescription('standard')?.includes('A full-featured coding agent'), true)
   assert.equal(agentPresetDescription('code')?.includes('Code Mode SDK'), true)
   assert.equal(agentPresetDescription('minimal')?.includes('str_replace_editor'), true)
-  assert.equal(agentPresetDescription('cordis')?.includes('自定义 Agent preset'), true)
+  assert.equal(agentPresetDescription('cordis')?.includes('authoring custom agent presets'), true)
   assert.equal(agentPresetDescription('my-custom'), undefined)
 })

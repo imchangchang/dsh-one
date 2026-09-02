@@ -615,7 +615,7 @@ async function runCommand(host: ChatTabHost, line: string, images?: OutgoingImag
   if (!controller) return
   const outcome = await executeCommand(controller.url, controller.sessionId, line, images)
   if (!outcome.matched) {
-    host.postMessage({ type: 'commandResult', text: `未知或格式错误的命令：${line}` })
+    host.postMessage({ type: 'commandResult', text: vscode.l10n.t('Unknown or malformed command: {0}', line) })
     return
   }
   // `/export` only marks the request host-side ("Session log download

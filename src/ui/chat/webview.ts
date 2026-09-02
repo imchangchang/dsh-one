@@ -1673,7 +1673,7 @@ function appendSubagentRow(container: HTMLElement, sub: SubagentNode): void {
   main.appendChild(el('div', 'preset-item-name', sub.title))
   const summary = [
     sub.running ? t('Running') : t('Done'),
-    formatRelativeTime(sub.updatedAt, Date.now()),
+    formatRelativeTime(sub.updatedAt, Date.now(), t),
     sub.totalTokens !== undefined ? `${formatTokens(sub.totalTokens)} tok` : '',
   ]
     .filter(Boolean)
@@ -1723,8 +1723,8 @@ function openJobsMenu(anchor: HTMLElement): void {
   // 有运行中的行时挂 1s tick，只改写耗时文本节点（closePopover 统一清理）。
   if (jobs.some(isLiveJob)) {
     jobsTick = setInterval(() => {
-      popover?.querySelectorAll<HTMLElement>('[data-job-live-start]').forEach((t) => {
-        t.textContent = formatJobDuration(Date.now() - Number(t.dataset.jobLiveStart))
+      popover?.querySelectorAll<HTMLElement>('[data-job-live-start]').forEach((live) => {
+        live.textContent = formatJobDuration(Date.now() - Number(live.dataset.jobLiveStart), t)
       })
     }, 1000)
   }
@@ -1743,18 +1743,18 @@ function renderJobsMenuRow(job: ActivityJob, now: number): HTMLElement {
   const label = el('span', 'job-label', job.label)
   label.title = job.label
   row.appendChild(label)
-  const statusText = job.detail ?? jobStatusLabel(job.status)
+  const statusText = job.detail ?? jobStatusLabel(job.status, t)
   const status = el('span', 'job-status', statusText)
   status.title = statusText
   row.appendChild(status)
   const duration = el('span', 'job-duration')
   if (live) {
     duration.dataset.jobLiveStart = String(job.startedAt)
-    duration.textContent = formatJobDuration(now - job.startedAt)
-    duration.title = `已运行 ${duration.textContent}`
+    duration.textContent = formatJobDuration(now - job.startedAt, t)
+    duration.title = t('Running for {0}', duration.textContent)
   } else {
-    duration.textContent = formatJobDuration((job.finishedAt ?? job.startedAt) - job.startedAt)
-    duration.title = `耗时 ${duration.textContent}`
+    duration.textContent = formatJobDuration((job.finishedAt ?? job.startedAt) - job.startedAt, t)
+    duration.title = t('Took {0}', duration.textContent)
   }
   row.appendChild(duration)
   return row
@@ -3325,7 +3325,7 @@ function renderUserBubbleParts(
     else bubble.appendChild(referenceChip(seg))
   }
   const summary = references?.length
-    ? el('div', 'ref-summary', `引用会话 · ${references.map((r) => r.label).join('、')}`)
+    ? el('div', 'ref-summary', t('Referenced sessions: {0}', references.map((r) => r.label).join(t(', '))))
     : null
   return [bubble, summary]
 }
@@ -3500,7 +3500,7 @@ function renderWorkflowRunHeader(run: WorkflowRunView, disp: WorkflowDisclosureS
 function renderWorkflowStatusTail(status: WorkflowRunStatus): HTMLElement {
   const tail = el('span', 'workflow-status-tail')
   tail.appendChild(workflowStateDot(status))
-  tail.appendChild(el('span', undefined, WORKFLOW_STATUS_TEXT[status]))
+  tail.appendChild(el('span', undefined, t(WORKFLOW_STATUS_TEXT[status])))
   return tail
 }
 
@@ -3523,7 +3523,7 @@ function renderWorkflowPhase(run: WorkflowRunView, phase: WorkflowRunPhaseView):
   if (!disp.open) {
     header.appendChild(el('span', 'workflow-sep'))
     header.appendChild(el('span', 'workflow-phase-count', t('{0} members', phase.members.length)))
-    header.appendChild(el('span', 'workflow-phase-status', workflowPhaseStatusSummary(phase.members)))
+    header.appendChild(el('span', 'workflow-phase-status', workflowPhaseStatusSummary(phase.members, t)))
   }
   section.appendChild(header)
   if (disp.open) {
@@ -3541,7 +3541,7 @@ function renderWorkflowMember(m: WorkflowRunMemberView): HTMLElement {
   slot.appendChild(workflowStateDot(m.status))
   row.appendChild(slot)
   row.appendChild(el('span', 'workflow-member-label', m.label || t('(unnamed member)')))
-  row.appendChild(el('span', 'workflow-member-status', WORKFLOW_STATUS_TEXT[m.status]))
+  row.appendChild(el('span', 'workflow-member-status', t(WORKFLOW_STATUS_TEXT[m.status])))
   return row
 }
 

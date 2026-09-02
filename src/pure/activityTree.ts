@@ -9,6 +9,8 @@
  */
 
 /** One background job (bash command, one-shot subagent, …) from session/jobs. */
+import { enFallback } from './sessionTree.ts'
+
 export interface ActivityJob {
   id: string
   kind: string
@@ -47,10 +49,13 @@ export function orderJobs(jobs: readonly ActivityJob[]): ActivityJob[] {
  * 运行中」（N = 运行中数），全部已结束 →「N 个后台任务」（N = 总数）；
  * 一个 job 都没有 → null（官方此时不渲染 chip）。
  */
-export function jobsChipLabel(jobs: readonly ActivityJob[]): string | null {
+export function jobsChipLabel(
+  jobs: readonly ActivityJob[],
+  t: (s: string, ...a: Array<string | number>) => string = enFallback,
+): string | null {
   if (jobs.length === 0) return null
   const live = jobs.filter(isLiveJob).length
-  return live > 0 ? `${live} 个后台任务运行中` : `${jobs.length} 个后台任务`
+  return live > 0 ? t('{0} background jobs running', live) : t('{0} background jobs', jobs.length)
 }
 
 /** 状态点语义（官方 dotState）：stopping/killed 同为警示色——都是"按请求结束"而非自然完成。 */
@@ -71,19 +76,19 @@ export function jobDotState(status: string): JobDotState {
   }
 }
 
-/** 状态中文文案（官方 statusLabel）；未知状态原样返回。 */
-export function jobStatusLabel(status: string): string {
+/** 状态文案（官方 statusLabel）；未知状态原样返回。 */
+export function jobStatusLabel(status: string, t: (s: string) => string = (s) => s): string {
   switch (status) {
     case 'running':
-      return '运行中'
+      return t('Running')
     case 'stopping':
-      return '正在停止'
+      return t('Stopping')
     case 'completed':
-      return '已完成'
+      return t('Done')
     case 'killed':
-      return '已取消'
+      return t('Cancelled')
     case 'failed':
-      return '已失败'
+      return t('Failed')
     default:
       return status
   }
@@ -93,12 +98,12 @@ export function jobStatusLabel(status: string): string {
  * 耗时格式化（官方 formatDuration 的中文展开）：最多两个相邻单位——
  * 23秒 / 4分58秒 / 1小时2分；超过一小时仍停留在小时（不引入天/月词汇）。
  */
-export function formatJobDuration(elapsedMs: number): string {
+export function formatJobDuration(elapsedMs: number, t: (s: string, ...a: Array<string | number>) => string = enFallback): string {
   const total = Math.max(0, Math.floor(elapsedMs / 1000))
   const seconds = total % 60
   const minutes = Math.floor(total / 60) % 60
   const hours = Math.floor(total / 3600)
-  if (hours > 0) return `${hours}小时${minutes}分`
-  if (minutes > 0) return `${minutes}分${seconds}秒`
-  return `${seconds}秒`
+  if (hours > 0) return t('{0}h {1}m', hours, minutes)
+  if (minutes > 0) return t('{0}m {1}s', minutes, seconds)
+  return t('{0}s', seconds)
 }

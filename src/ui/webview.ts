@@ -65,22 +65,22 @@ function statusPage(n: string, status: ServerStatus): string {
   if (status.state === 'error') {
     inner = `
       <div class="page">
-        <div><strong>DSH 服务出错了</strong></div>
+        <div><strong>${vscode.l10n.t('DSH service error')}</strong></div>
         <pre>${escapeHtml(status.error ?? 'unknown error')}</pre>
-        <button id="retry">重试</button>
+        <button id="retry">${vscode.l10n.t('Retry')}</button>
       </div>`
   } else {
-    const label = status.state === 'starting' ? 'DSH 服务启动中…' : 'DSH 服务未运行'
+    const label = status.state === 'starting' ? vscode.l10n.t('Starting the DSH service…') : vscode.l10n.t('DSH service is not running')
     const hint =
       status.state === 'starting'
-        ? '首次使用需要下载 Node.js 与 dsh 运行时，请耐心等待。'
-        : '点击下方按钮启动服务。'
+        ? vscode.l10n.t('First use downloads the Node.js runtime and dsh; please wait.')
+        : vscode.l10n.t('Click the button below to start the service.')
     inner = `
       <div class="page">
         ${status.state === 'starting' ? '<div class="spinner"></div>' : ''}
         <div><strong>${label}</strong></div>
         <div class="muted">${hint}</div>
-        <button id="retry">${status.state === 'starting' ? '重试' : '启动'}</button>
+        <button id="retry">${status.state === 'starting' ? vscode.l10n.t('Retry') : vscode.l10n.t('Start')}</button>
       </div>`
   }
   const script = `<script nonce="${n}">

@@ -21,6 +21,29 @@ declare function acquireVsCodeApi(): VsCodeApi
 const vscode = acquireVsCodeApi()
 const app = document.getElementById('app') as HTMLElement
 
+// i18n：宿主把当前 locale 的译文 map 经 HTML 注入为 window.__DSH_L10N__
+// （key = 英文默认串）。英文 locale 不注入，直接用 key 本身；缺 key 时同样
+// 回退 key 本身。与 chat webview 同款机制（见 chat/chatViewHtml.ts）。
+const L10N: Readonly<Record<string, string>> = (globalThis as { __DSH_L10N__?: Record<string, string> }).__DSH_L10N__ ?? {}
+
+/** 取当前 locale 的文案；支持 vscode.l10n 同款 {0}/{name} 占位。 */
+function t(template: string, ...args: Array<string | number | Record<string, unknown>>): string {
+  const text = L10N[template] ?? template
+  if (args.length === 0) return text
+  return text.replace(
+    /\{(\d+)\}|\{(\w+)\}/g,
+    (m: string, num: string | undefined, name: string | undefined): string => {
+      if (num !== undefined) {
+        const v = args[Number(num)]
+        return typeof v === 'string' || typeof v === 'number' ? String(v) : m
+      }
+      const argsObj = args.find((a): a is Record<string, unknown> => typeof a === 'object' && a !== null)
+      if (name !== undefined && argsObj && typeof argsObj[name] === 'string') return argsObj[name] as string
+      return m
+    },
+  )
+}
+
 function post(message: FromWebviewMessage): void {
   vscode.postMessage(message)
 }
@@ -349,9 +372,9 @@ function spinSvg(): SVGSVGElement {
 
 /** 排序菜单选项，与 store 持久化的 SessionSortOrder 一一对应。 */
 const SORT_OPTIONS: Array<{ order: SessionSortOrder; label: string }> = [
-  { order: 'updatedDesc', label: '最近更新优先' },
-  { order: 'updatedAsc', label: '最早更新优先' },
-  { order: 'title', label: '按标题排序' },
+  { order: 'updatedDesc', label: t('Most recent first') },
+  { order: 'updatedAsc', label: t('Oldest first') },
+  { order: 'title', label: t('Sort by title') },
 ]
 
 function panelTool(icon: SVGSVGElement, title: string): HTMLButtonElement {
@@ -410,7 +433,7 @@ function buildSessionsHeader(): HTMLElement {
   const searchWrap = el('div', 'search-wrap')
   const search = document.createElement('input')
   search.className = 'sessions-search'
-  search.placeholder = '搜索会话'
+  search.placeholder = t('Search sessions')
   // 后端 session.search 只接受 1–500 字符；输入上限对齐，避免截断歧义。
   search.maxLength = 500
   search.value = sessionsSearchDraft
@@ -418,8 +441,8 @@ function buildSessionsHeader(): HTMLElement {
   const clearBtn = document.createElement('button')
   clearBtn.type = 'button'
   clearBtn.className = 'search-clear'
-  clearBtn.setAttribute('aria-label', '清除搜索')
-  clearBtn.setAttribute('data-tip', '清除搜索')
+  clearBtn.setAttribute('aria-label', t('Clear search'))
+  clearBtn.setAttribute('data-tip', t('Clear search'))
   clearBtn.appendChild(strokeSvg(CLEAR_ICON, 12))
   const updateClear = (): void => {
     searchWrap.classList.toggle('has-text', sessionsSearchDraft.trim() !== '')
@@ -447,10 +470,10 @@ function buildSessionsHeader(): HTMLElement {
   searchWrap.appendChild(search)
   searchWrap.appendChild(clearBtn)
   header.appendChild(searchWrap)
-  const sortBtn = panelTool(strokeSvg(SORT_ICON, 16), '排序方式')
+  const sortBtn = panelTool(strokeSvg(SORT_ICON, 16), t('Sort by'))
   sortBtn.addEventListener('click', () => openSortMenu(sortBtn))
   header.appendChild(sortBtn)
-  const refreshBtn = panelTool(iconSvg(PANEL_ICONS.refresh, 12), '刷新会话列表')
+  const refreshBtn = panelTool(iconSvg(PANEL_ICONS.refresh, 12), t('Refresh session list'))
   // 刷新视觉反馈：点击立即转圈 + 禁用，直至 ~450ms 后复位（header 持久，同一 DOM 节点）。
   refreshBtn.addEventListener('click', () => {
     refreshBtn.classList.add('refreshing')
@@ -462,16 +485,16 @@ function buildSessionsHeader(): HTMLElement {
     }, 450)
   })
   header.appendChild(refreshBtn)
-  collapseAllBtn = panelTool(iconSvg(PANEL_ICONS.boxedMinus, 16), '折叠所有工作区')
+  collapseAllBtn = panelTool(iconSvg(PANEL_ICONS.boxedMinus, 16), t('Collapse all workspaces'))
   collapseAllBtn.addEventListener('click', () => {
     post({ type: computeAllCollapsed(sessionsSnapshot) ? 'workspacesExpandAll' : 'workspacesCollapseAll' })
   })
   header.appendChild(collapseAllBtn)
-  const addBtn = panelTool(iconSvg(PANEL_ICONS.plus, 14), '添加工作区')
+  const addBtn = panelTool(iconSvg(PANEL_ICONS.plus, 14), t('Add workspace'))
   addBtn.addEventListener('click', () => {
     const body = el('div')
     body.appendChild(
-      menuItem('添加已有文件夹…', {
+      menuItem(t('Add existing folder…'), {
         icon: iconSvg(PANEL_ICONS.folderOpen),
         onClick: () => {
           closePopover()
@@ -480,7 +503,7 @@ function buildSessionsHeader(): HTMLElement {
       }),
     )
     body.appendChild(
-      menuItem('创建工作区…', {
+      menuItem(t('Create workspace…'), {
         icon: iconSvg(PANEL_ICONS.plus),
         onClick: () => {
           closePopover()
@@ -498,7 +521,7 @@ function buildSessionsHeader(): HTMLElement {
 function updateCollapseAllIcon(): void {
   if (!collapseAllBtn) return
   const allCollapsed = computeAllCollapsed(sessionsSnapshot)
-  const tip = allCollapsed ? '展开所有工作区' : '折叠所有工作区'
+  const tip = allCollapsed ? t('Expand all workspaces') : t('Collapse all workspaces')
   collapseAllBtn.replaceChildren(iconSvg(allCollapsed ? PANEL_ICONS.boxedPlus : PANEL_ICONS.boxedMinus, 16))
   collapseAllBtn.setAttribute('data-tip', tip)
   collapseAllBtn.setAttribute('aria-label', tip)
@@ -531,7 +554,7 @@ function renderSessions(): void {
   oldList?.remove()
   const list = el('div', 'sessions-list')
   if (!snap) {
-    list.appendChild(el('div', 'sessions-empty', '加载中…'))
+    list.appendChild(el('div', 'sessions-empty', t('Loading…')))
   } else if (snap.serverState !== 'running') {
     list.appendChild(renderServerEmpty(snap))
   } else if (snap.workspaces.every((w) => w.workspaceId === UNGROUPED_WORKSPACE_ID)) {
@@ -540,18 +563,18 @@ function renderSessions(): void {
     // 有命中时不显示提示（下方组即结果），无命中才显示「没有匹配」。
     if (snap.query === null) {
       const box = el('div', 'sessions-empty')
-      box.appendChild(el('div', 'empty-hint', '暂无工作区。点击上方 + 添加已有文件夹或创建工作区。'))
+      box.appendChild(el('div', 'empty-hint', t('No workspaces yet. Add an existing folder or create one with the + button above.')))
       list.appendChild(box)
     } else if (snap.workspaces.length === 0) {
       const box = el('div', 'sessions-empty')
-      box.appendChild(el('div', 'empty-hint', `没有匹配「${snap.query}」的会话。`))
+      box.appendChild(el('div', 'empty-hint', t('No sessions match “{0}”.', snap.query)))
       list.appendChild(box)
     }
     for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
   } else {
     for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
     if (snap.contentSearchHasMore) {
-      list.appendChild(el('div', 'sessions-search-more', '还有更多匹配会话，可尝试更精确的关键词'))
+      list.appendChild(el('div', 'sessions-search-more', t('More matching sessions; try a more precise keyword')))
     }
   }
   // 内容搜索降级：后端索引未启用等导致全文搜索失败——给用户可见提示，不静默。
@@ -559,7 +582,7 @@ function renderSessions(): void {
     const degraded = el(
       'div',
       'sessions-search-more sessions-search-degraded',
-      '全文搜索不可用，仅按标题匹配（dsh 搜索索引未启用）',
+      t('Full-text search unavailable; matching titles only (dsh search index not enabled)'),
     )
     // 悬停显示更详细的原因与启用索引的方法（复用自实现 tooltip）。
     degraded.setAttribute(
@@ -589,19 +612,19 @@ function renderSessions(): void {
 function renderServerEmpty(snap: SessionsSnapshot): HTMLElement {
   const box = el('div', 'sessions-empty')
   if (snap.dshNotFound) {
-    box.appendChild(el('div', 'empty-title', '未检测到 dsh 安装'))
-    box.appendChild(el('div', 'empty-hint', '安装完成后回到这里即可自动启动。'))
-    const btn = buttonEl(undefined, '查看安装指南')
+    box.appendChild(el('div', 'empty-title', t('dsh not found')))
+    box.appendChild(el('div', 'empty-hint', t('Install it and come back here to start automatically.')))
+    const btn = buttonEl(undefined, t('View install guide'))
     btn.addEventListener('click', () => post({ type: 'openInstallPage' }))
     box.appendChild(btn)
     return box
   }
   if (snap.serverState === 'starting') {
-    box.appendChild(el('div', 'empty-hint', '正在启动 dsh 服务…'))
+    box.appendChild(el('div', 'empty-hint', t('Starting the dsh service…')))
     return box
   }
-  box.appendChild(el('div', 'empty-hint', 'dsh 服务未运行，暂无会话。'))
-  const btn = buttonEl(undefined, '启动 dsh 服务')
+  box.appendChild(el('div', 'empty-hint', t('The dsh service is not running; no sessions yet.')))
+  const btn = buttonEl(undefined, t('Start the dsh service'))
   btn.addEventListener('click', () => post({ type: 'serverStart' }))
   box.appendChild(btn)
   return box
@@ -620,9 +643,9 @@ function appendWorkspaceCounts(head: HTMLElement, sessions: SessionNodeModel[]):
   }
   if (pending === 0 && running === 0 && unread === 0) return
   const counts = el('span', 'ws-counts')
-  if (pending > 0) appendCountBadge(counts, el('span', 'session-dot warning'), pending, '待交互')
-  if (running > 0) appendCountBadge(counts, spinSvg(), running, '运行中')
-  if (unread > 0) appendCountBadge(counts, el('span', 'session-dot completed'), unread, '未读')
+  if (pending > 0) appendCountBadge(counts, el('span', 'session-dot warning'), pending, t('Pending interaction'))
+  if (running > 0) appendCountBadge(counts, spinSvg(), running, t('Running'))
+  if (unread > 0) appendCountBadge(counts, el('span', 'session-dot completed'), unread, t('Unread'))
   head.appendChild(counts)
 }
 
@@ -646,7 +669,7 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   const head = el('div', collapsed ? 'workspace-row' : 'workspace-row expanded')
   if (empty) head.classList.add('empty')
   head.classList.toggle('has-active', w.sessions.some((s) => s.sessionId === currentSessionId))
-  head.title = ungrouped ? '不属于任何工作区的会话' : w.path
+  head.title = ungrouped ? t('Sessions not in any workspace') : w.path
   const folderIcon = el('span', 'ws-folder')
   folderIcon.appendChild(iconSvg(collapsed ? PANEL_ICONS.folder : PANEL_ICONS.folderOpen))
   head.appendChild(folderIcon)
@@ -664,25 +687,25 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
   const headActions = el('span', 'row-actions')
   // 未分组组也有「新建会话」：创建不挂 workspace 的会话（cwd 走宿主临时目录）。
   headActions.appendChild(
-    rowAction(iconSvg(PANEL_ICONS.plus), ungrouped ? '新建未分组对话' : '新建会话', () =>
+    rowAction(iconSvg(PANEL_ICONS.plus), ungrouped ? t('New ungrouped session') : t('New session'), () =>
       ungrouped ? post({ type: 'sessionNewUngrouped' }) : post({ type: 'sessionNew', workspaceId: w.workspaceId }),
     ),
   )
   if (!ungrouped) {
     headActions.appendChild(
-      rowAction(iconSvg(PANEL_ICONS.terminal), '在终端中打开', () =>
+      rowAction(iconSvg(PANEL_ICONS.terminal), t('Open in terminal'), () =>
         post({ type: 'workspaceOpenTerminal', path: w.path }),
       ),
     )
     if (!w.isCurrent) {
       headActions.appendChild(
-        rowAction(iconSvg(PANEL_ICONS.folderOpen), '在 VSCode 中打开文件夹', () =>
+        rowAction(iconSvg(PANEL_ICONS.folderOpen), t('Open folder in VS Code'), () =>
           post({ type: 'workspaceOpenFolder', path: w.path }),
         ),
       )
     }
     headActions.appendChild(
-      rowAction(strokeSvg(TRASH_ICON, 16), '从列表移除', () =>
+      rowAction(strokeSvg(TRASH_ICON, 16), t('Remove from list'), () =>
         post({ type: 'workspaceRemove', workspaceId: w.workspaceId, label: w.label }),
       ),
     )
@@ -718,10 +741,10 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
     const dot = el('span', 'session-dot warning')
     dot.title =
       s.pendingInteraction === 'approval'
-        ? '等待审批'
+        ? t('Waiting for approval')
         : s.pendingInteraction === 'plan-review'
-          ? '计划待审'
-          : '等待回答'
+          ? t('Plan review')
+          : t('Waiting for answer')
     slot.appendChild(dot)
   } else if (busy) slot.appendChild(spinSvg())
   else if (s.unread) slot.appendChild(el('span', 'session-dot completed'))
@@ -742,7 +765,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   main.appendChild(el('span', 'session-time', s.description))
   row.appendChild(main)
   const actions = el('span', 'row-actions')
-  const more = rowAction(iconSvg(PANEL_ICONS.ellipsis), '更多操作', () => {
+  const more = rowAction(iconSvg(PANEL_ICONS.ellipsis), t('More actions'), () => {
     menuFreezeActive = true
     showPopover(more, buildSessionMenuBody(s), 'below')
     markMenuRow(row)
@@ -871,10 +894,10 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
   const body = el('div')
   // 菜单首行显示会话标题（操作对象显式化）：即使用户瞄错行也能立刻发现，点击前可收回。
-  body.appendChild(el('div', 'session-menu-title', `会话：${s.label}`))
+  body.appendChild(el('div', 'session-menu-title', t('Session: {0}', s.label)))
   // 默认点击会话行 = 在当前活动 chat tab 打开；这里显式提供「新开 tab」。
   body.appendChild(
-    menuItem('在新 tab 中打开', {
+    menuItem(t('Open in a new tab'), {
       icon: iconSvg(PANEL_ICONS.boxedPlus),
       onClick: () => {
         closePopover()
@@ -883,7 +906,7 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem('重命名', {
+    menuItem(t('Rename'), {
       icon: iconSvg(PANEL_ICONS.edit),
       onClick: () => {
         closePopover()
@@ -892,7 +915,7 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem(pinned ? '取消置顶' : '置顶', {
+    menuItem(pinned ? t('Unpin') : t('Pin'), {
       icon: strokeSvg(PIN_ICON),
       checked: pinned,
       onClick: () => {
@@ -902,12 +925,12 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem(s.unread ? '标为已读' : '标为未读', {
+    menuItem(s.unread ? t('Mark as read') : t('Mark as unread'), {
       icon: strokeSvg(UNREAD_ICON),
       checked: s.unread,
       // 运行中会话的手动未读语义混乱，置灰禁用（与行首 busy 判定一致）。
       disabled: s.running || s.descendantRunning,
-      disabledTip: '运行中的会话不支持手动标为已读/未读',
+      disabledTip: t('Running sessions cannot be marked read/unread manually'),
       onClick: () => {
         closePopover()
         post({ type: 'sessionUnread', sessionId: s.sessionId, unread: !s.unread })
@@ -915,13 +938,13 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem('分叉会话', {
+    menuItem(t('Fork session'), {
       icon: iconSvg(MESSAGE_ACTION_ICONS.branch),
       // 列表级 fork 不带 atSeq，服务端回退到最后一个 turn/end 切点；会话
       // 从未完成过任何轮次（无 turn/end）会返回 fork-unavailable。这里在无
       // 完成轮次的会话上禁用（对齐官方「轮次未结束不出现 fork」）。
       disabled: !s.hasCompletedTurn,
-      disabledTip: '会话没有已完成轮次，无法分叉',
+      disabledTip: t('The session has no completed turn; cannot fork'),
       onClick: () => {
         closePopover()
         post({ type: 'sessionFork', sessionId: s.sessionId })
@@ -929,7 +952,7 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem('复制引用', {
+    menuItem(t('Copy reference'), {
       icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
       onClick: () => {
         closePopover()
@@ -938,16 +961,16 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem('归档会话', {
+    menuItem(t('Archive session'), {
       icon: iconSvg(PANEL_ICONS.archive),
       // 运行中/未读/待处理的会话归档后状态难追踪，置灰禁用。
       disabled: s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined,
       disabledTip:
         s.pendingInteraction !== undefined
-          ? '待处理的会话不能归档'
+          ? t('Sessions with pending items cannot be archived')
           : s.running || s.descendantRunning
-            ? '运行中的会话不能归档'
-            : '未读的会话不能归档',
+            ? t('Running sessions cannot be archived')
+            : t('Unread sessions cannot be archived'),
       onClick: () => {
         closePopover()
         post({ type: 'sessionArchive', sessionId: s.sessionId, title: s.label })

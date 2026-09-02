@@ -262,5 +262,7 @@
   "… {0} more lines": "… 其余 {0} 行",
   "‹ Back": "‹ 返回",
   "↓ Back to latest": "↓ 回到最新",
-  "Duration {0}": "用时 {0}"
+  "Duration {0}": "用时 {0}",
+  ", ": "、",
+  "Unread": "未读"
 }
