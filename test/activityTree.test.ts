@@ -61,12 +61,12 @@ test('orderJobs: settled ties fall back to start order; missing finishedAt uses 
 
 test('jobsChipLabel: live count wins; all settled shows total; empty is null', () => {
   assert.equal(jobsChipLabel([]), null)
-  assert.equal(jobsChipLabel([job('a'), job('b', { status: 'completed' })]), '1 个后台任务运行中')
+  assert.equal(jobsChipLabel([job('a'), job('b', { status: 'completed' })]), '1 background jobs running')
   assert.equal(
     jobsChipLabel([job('a', { status: 'completed' }), job('b', { status: 'failed' })]),
-    '2 个后台任务',
+    '2 background jobs',
   )
-  assert.equal(jobsChipLabel([job('a', { status: 'stopping' })]), '1 个后台任务运行中')
+  assert.equal(jobsChipLabel([job('a', { status: 'stopping' })]), '1 background jobs running')
 })
 
 test('jobDotState maps wire statuses, unknown settles to done', () => {
@@ -79,20 +79,20 @@ test('jobDotState maps wire statuses, unknown settles to done', () => {
 })
 
 test('jobStatusLabel is the official Chinese vocabulary, unknown passes through', () => {
-  assert.equal(jobStatusLabel('running'), '运行中')
-  assert.equal(jobStatusLabel('stopping'), '正在停止')
-  assert.equal(jobStatusLabel('completed'), '已完成')
-  assert.equal(jobStatusLabel('killed'), '已取消')
-  assert.equal(jobStatusLabel('failed'), '已失败')
+  assert.equal(jobStatusLabel('running'), 'Running')
+  assert.equal(jobStatusLabel('stopping'), 'Stopping')
+  assert.equal(jobStatusLabel('completed'), 'Done')
+  assert.equal(jobStatusLabel('killed'), 'Cancelled')
+  assert.equal(jobStatusLabel('failed'), 'Failed')
   assert.equal(jobStatusLabel('mystery'), 'mystery')
 })
 
 test('formatJobDuration uses at most two adjacent units, hours is the widest', () => {
-  assert.equal(formatJobDuration(0), '0秒')
-  assert.equal(formatJobDuration(23_000), '23秒')
-  assert.equal(formatJobDuration(4 * 60_000 + 58_000), '4分58秒')
-  assert.equal(formatJobDuration(3600_000 + 2 * 60_000 + 30_000), '1小时2分')
+  assert.equal(formatJobDuration(0), '0s')
+  assert.equal(formatJobDuration(23_000), '23s')
+  assert.equal(formatJobDuration(4 * 60_000 + 58_000), '4m 58s')
+  assert.equal(formatJobDuration(3600_000 + 2 * 60_000 + 30_000), '1h 2m')
   // 超过一小时不引入天词汇；负数 clamp 到 0。
-  assert.equal(formatJobDuration(26 * 3600_000), '26小时0分')
-  assert.equal(formatJobDuration(-500), '0秒')
+  assert.equal(formatJobDuration(26 * 3600_000), '26h 0m')
+  assert.equal(formatJobDuration(-500), '0s')
 })

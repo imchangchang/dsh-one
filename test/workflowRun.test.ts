@@ -182,12 +182,12 @@ test('phaseStatusSummary 聚合文案', () => {
     childId: `s${i}`,
     status: s,
   })
-  assert.equal(workflowPhaseStatusSummary([m('running', 0), m('running', 1), m('completed', 2)]), '运行中 2 · 已完成 1')
-  assert.equal(workflowPhaseStatusSummary([m('completed', 0), m('completed', 1)]), '已完成 2')
-  assert.equal(workflowPhaseStatusSummary([m('running', 0)]), '运行中 1')
+  assert.equal(workflowPhaseStatusSummary([m('running', 0), m('running', 1), m('completed', 2)]), 'Running 2 · Done 1')
+  assert.equal(workflowPhaseStatusSummary([m('completed', 0), m('completed', 1)]), 'Done 2')
+  assert.equal(workflowPhaseStatusSummary([m('running', 0)]), 'Running 1')
   // interrupted + completed：completed 前置
-  assert.equal(workflowPhaseStatusSummary([m('interrupted', 0), m('completed', 1)]), '已完成 1 · 已中断 1')
-  assert.equal(workflowPhaseStatusSummary([m('failed', 0), m('completed', 1)]), '失败 1 · 已完成 1')
+  assert.equal(workflowPhaseStatusSummary([m('interrupted', 0), m('completed', 1)]), 'Done 1 · Interrupted 1')
+  assert.equal(workflowPhaseStatusSummary([m('failed', 0), m('completed', 1)]), 'Failed 1 · Done 1')
 })
 
 test('dotState 语义映射', () => {

@@ -494,7 +494,7 @@ export class ChatViewProvider implements vscode.Disposable {
     // 状态点由 webview 按 running 字段画。行显示名用 subagent.list 目录的
     // descriptor label（label ?? id），落到 labelFor 层面就是「目录有该子代理用
     // label，没有回退 title/短 id」——对齐官方 dsh web 的菜单行名。
-    const subagents = buildSubagentTree(raw, state.sessionId, (s) => this.subagents.labelFor(s.sessionId))
+    const subagents = buildSubagentTree(raw, state.sessionId, (s) => this.subagents.labelFor(s.sessionId), vscode.l10n.t)
     const jobs = orderJobs(this.jobs.jobs().get(state.sessionId) ?? [])
     // 懒切换的目标 workspace 覆盖：chip 与选择器对勾显示 pending 目标（未发送
     // 前真实的会话所属 workspace 不变，随 send/resolve 落地后由 attach 清标记）。
@@ -519,7 +519,7 @@ export class ChatViewProvider implements vscode.Disposable {
     const parentId = self?.origin === 'subagent' ? self?.parentSessionId : undefined
     const parent = parentId ? raw.find((s) => s.sessionId === parentId) : undefined
     const parentSession = parentId
-      ? { sessionId: parentId, title: parent?.title ?? `会话 ${parentId.slice(0, 8)}` }
+      ? { sessionId: parentId, title: parent?.title ?? vscode.l10n.t('Session {0}', parentId.slice(0, 8)) }
       : undefined
     const presetId = self?.agentPreset
     const presetLabel =

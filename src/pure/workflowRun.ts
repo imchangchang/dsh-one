@@ -19,6 +19,8 @@
  * engine.
  */
 import type { HistoryEntryLike, SessionEventLike } from './conversation.ts'
+import type { L10nFn } from './sessionTree.ts'
+import { enFallback } from './sessionTree.ts'
 
 /** Run / member status, five values like the official WorkflowRunStatus. */
 export type WorkflowRunStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
@@ -55,13 +57,13 @@ export interface WorkflowRunView {
   phases: WorkflowRunPhaseView[]
 }
 
-/** 状态 → 展示文案（zh，dsh-one 无 i18n，硬编码中文与官方字典一致）。 */
+/** 状态 → 展示文案（key=英文默认串；宿主/webview 各自过 l10n）。 */
 export const WORKFLOW_STATUS_TEXT: Record<WorkflowRunStatus, string> = {
-  running: '运行中',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-  interrupted: '已中断',
+  running: 'Running',
+  completed: 'Done',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+  interrupted: 'Interrupted',
 }
 
 /** 状态 → 徽标点语义（官方 dotState：completed 绿、failed 红、cancelled/interrupted 黄、running 动画矩阵）。 */
@@ -83,7 +85,10 @@ function isAbnormalStatus(status: WorkflowRunStatus): boolean {
  * 且也有 completed 时 completed 前置（「已完成 1 · 已中断 1」）。
  * 例：2 运行中 + 1 已完成 → 「运行中 2 · 已完成 1」；全部完成 → 「已完成 N」。
  */
-export function workflowPhaseStatusSummary(members: readonly WorkflowRunMemberView[]): string {
+export function workflowPhaseStatusSummary(
+  members: readonly WorkflowRunMemberView[],
+  t: L10nFn = enFallback,
+): string {
   const counts: Record<WorkflowRunStatus, number> = { running: 0, completed: 0, failed: 0, cancelled: 0, interrupted: 0 }
   for (const m of members) counts[m.status] += 1
   const active: WorkflowRunStatus[] = ['running', 'failed', 'cancelled', 'interrupted']
@@ -95,7 +100,7 @@ export function workflowPhaseStatusSummary(members: readonly WorkflowRunMemberVi
         : active
   return order
     .filter((s) => counts[s] > 0)
-    .map((s) => `${WORKFLOW_STATUS_TEXT[s]} ${counts[s]}`)
+    .map((s) => `${t(WORKFLOW_STATUS_TEXT[s])} ${counts[s]}`)
     .join(' · ')
 }
 

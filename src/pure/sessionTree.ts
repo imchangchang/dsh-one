@@ -137,13 +137,21 @@ const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
 
-/** "刚刚 / N 分钟前 / N 小时前 / N 天前" relative to `now` (epoch ms). */
-export function formatRelativeTime(updatedAt: number, now: number): string {
+/** Minimal l10n callback shared by pure label functions (host passes `vscode.l10n.t`, webview its injected `t`). */
+export type L10nFn = (template: string, ...args: Array<string | number>) => string
+
+/** Escape-hatch default: return the template (English keys are the default strings). */
+export function enFallback(template: string, ...args: Array<string | number>): string {
+  return template.replace(/\{(\d+)\}/g, (_m, i: string) => String(args[Number(i)] ?? ''))
+}
+
+/** "just now / N minutes ago / N hours ago / N days ago" relative to `now` (epoch ms). */
+export function formatRelativeTime(updatedAt: number, now: number, t: L10nFn = enFallback): string {
   const diff = Math.max(0, now - updatedAt)
-  if (diff < MINUTE_MS) return '刚刚'
-  if (diff < HOUR_MS) return `${Math.floor(diff / MINUTE_MS)} 分钟前`
-  if (diff < DAY_MS) return `${Math.floor(diff / HOUR_MS)} 小时前`
-  return `${Math.floor(diff / DAY_MS)} 天前`
+  if (diff < MINUTE_MS) return t('just now')
+  if (diff < HOUR_MS) return t('{0} minutes ago', Math.floor(diff / MINUTE_MS))
+  if (diff < DAY_MS) return t('{0} hours ago', Math.floor(diff / HOUR_MS))
+  return t('{0} days ago', Math.floor(diff / DAY_MS))
 }
 
 /**
@@ -174,6 +182,7 @@ export function buildSessionTree(
   currentFolder?: string,
   now: number = Date.now(),
   view: SessionTreeViewOptions = {},
+  t: L10nFn = enFallback,
 ): WorkspaceNodeModel[] {
   const byId = new Map(sessions.map((s) => [s.sessionId, s]))
   const query = view.query?.trim().toLowerCase() ?? ''
@@ -210,7 +219,7 @@ export function buildSessionTree(
   // 非置顶成员按 view.sort。workspace 组与「未分组」组共用。
   const toSessionNodes = (list: SessionInput[]): SessionNodeModel[] =>
     list
-      .map((s) => ({ session: s, label: titleOf(s) ?? `会话 ${s.sessionId.slice(0, 8)}` }))
+      .map((s) => ({ session: s, label: titleOf(s) ?? t('Session {0}', s.sessionId.slice(0, 8)) }))
       .filter(
         ({ session, label }) =>
           query === '' ||
@@ -236,7 +245,7 @@ export function buildSessionTree(
         return {
           sessionId: session.sessionId,
           label,
-          description: formatRelativeTime(session.updatedAt, now),
+          description: formatRelativeTime(session.updatedAt, now, t),
           running: session.running,
           pinned: pinnedIndex.has(session.sessionId),
           hasCompletedTurn: (session.sessionStatsTurns ?? 0) > 0,
@@ -285,7 +294,7 @@ export function buildSessionTree(
   nodes.push({
     workspaceId: UNGROUPED_WORKSPACE_ID,
     path: '',
-    label: '未分组',
+    label: t('Ungrouped'),
     isCurrent: false,
     sessions: toSessionNodes(orphans),
   })
@@ -367,6 +376,7 @@ export function buildSubagentTree(
   sessions: readonly SessionInput[],
   rootId: string,
   labelOf?: (s: SessionInput) => string | null,
+  t: L10nFn = enFallback,
 ): SubagentNode[] {
   const childrenOf = subagentChildrenOf(sessions)
 
@@ -379,7 +389,7 @@ export function buildSubagentTree(
     const children = kids.length > 0 ? sortLayer(kids).map((k) => toNode(k, nextSeen)) : undefined
     return {
       sessionId: s.sessionId,
-      title: (labelOf?.(s) ?? s.title) ?? `会话 ${s.sessionId.slice(0, 8)}`,
+      title: (labelOf?.(s) ?? s.title) ?? t('Session {0}', s.sessionId.slice(0, 8)),
       running: s.running,
       ...(s.totalTokens !== undefined ? { totalTokens: s.totalTokens } : {}),
       updatedAt: s.updatedAt,

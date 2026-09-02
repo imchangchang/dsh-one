@@ -221,7 +221,7 @@ export class SessionsStore implements vscode.Disposable {
    */
   workspaceLabelFor(sessionId: string): string | undefined {
     const owned = this.rawWorkspaces.find((w) => w.sessionIds.includes(sessionId))?.title
-    return owned ?? (this.knownSessionIds.has(sessionId) ? '未分组' : undefined)
+    return owned ?? (this.knownSessionIds.has(sessionId) ? vscode.l10n.t('Ungrouped') : undefined)
   }
 
   /**
@@ -696,6 +696,7 @@ export class SessionsStore implements vscode.Disposable {
         pendingInteractions: pendingDisplay,
         contentHits: this.contentHits,
       },
+      vscode.l10n.t,
     )
   }
 

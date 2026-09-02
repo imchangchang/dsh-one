@@ -115,6 +115,29 @@ declare function acquireVsCodeApi(): VsCodeApi
 const vscode = acquireVsCodeApi()
 const app = document.getElementById('app') as HTMLElement
 
+// i18n：宿主把当前 locale 的译文 map 经 HTML 注入为 window.__DSH_L10N__
+// （key = 英文默认串，对齐 vscode.l10n 的「默认串即 key」约定）。英文 locale
+// 不注入，webview 直接用 key 本身；缺 key 时同样回退 key 本身。
+const L10N: Readonly<Record<string, string>> = (globalThis as { __DSH_L10N__?: Record<string, string> }).__DSH_L10N__ ?? {}
+
+/** 取当前 locale 的文案；支持 vscode.l10n 同款 {0}/{name} 占位。 */
+function t(template: string, ...args: Array<string | number | Record<string, unknown>>): string {
+  const text = L10N[template] ?? template
+  if (args.length === 0) return text
+  return text.replace(
+    /\{(\d+)\}|\{(\w+)\}/g,
+    (m: string, num: string | undefined, name: string | undefined): string => {
+      if (num !== undefined) {
+        const v = args[Number(num)]
+        return typeof v === 'string' || typeof v === 'number' ? String(v) : m
+      }
+      const argsObj = args.find((a): a is Record<string, unknown> => typeof a === 'object' && a !== null)
+      if (name !== undefined && argsObj && typeof argsObj[name] === 'string') return argsObj[name] as string
+      return m
+    },
+  )
+}
+
 // 窗口 reload 恢复凭据：把宿主注入的 tabId 存为面板 state（reload 后
 // serializer 按它查 host 的映射重建 tab）。tabId 创建后不变，只管保存不读回。
 const tabId = app.getAttribute('data-tab-id')
@@ -317,13 +340,13 @@ function panelStateFor(rpcId: string): { page: number; minimized: boolean } {
  * `hint` mirrors the host's input hint and drives the composer's arg hints.
  */
 const SLASH_COMMANDS: Array<{ name: string; description: string; hint?: string }> = [
-  { name: 'compact', description: '压缩较早的会话历史' },
-  { name: 'export', description: '导出本会话日志（ZIP）' },
-  { name: 'feedback', description: '记录本会话反馈', hint: '<text>' },
-  { name: 'goal', description: '设置或查看长任务目标', hint: '[<objective>|clear|edit <objective>|pause|resume]' },
-  { name: 'permission', description: '切换权限预设', hint: '<preset>' },
-  { name: 'plan', description: '进入或退出计划模式', hint: '[off|message]' },
-  { name: 'model', description: '选择本会话使用的模型' },
+  { name: 'compact', description: t('Compact older session history') },
+  { name: 'export', description: t('Export this session log (ZIP)') },
+  { name: 'feedback', description: t('Record feedback for this session'), hint: '<text>' },
+  { name: 'goal', description: t('Set or view the long-task goal'), hint: '[<objective>|clear|edit <objective>|pause|resume]' },
+  { name: 'permission', description: t('Switch permission preset'), hint: '<preset>' },
+  { name: 'plan', description: t('Enter or leave plan mode'), hint: '[off|message]' },
+  { name: 'model', description: t('Select the model for this session') },
 ]
 /** Commands the composer's slash completion offers; `/model` is client-side (the send path intercepts it and opens the model menu, like the official web client). */
 const COMPLETABLE_COMMANDS = SLASH_COMMANDS
@@ -403,7 +426,7 @@ document.addEventListener(
     e.stopPropagation()
     const body = el('div')
     body.appendChild(
-      menuItem('在系统浏览器中打开', {
+      menuItem(t('Open in system browser'), {
         icon: iconSvg(CONTEXT_BROWSE_ICON),
         onClick: () => {
           closePopover()
@@ -412,7 +435,7 @@ document.addEventListener(
       }),
     )
     body.appendChild(
-      menuItem('在 VS Code 内置浏览器中打开', {
+      menuItem(t('Open in VS Code built-in browser'), {
         icon: iconSvg(CONTEXT_BROWSE_ICON),
         onClick: () => {
           closePopover()
@@ -601,7 +624,7 @@ function sessionMentionChip(label: string, sessionId: string): HTMLElement {
   const chip = document.createElement('button')
   chip.type = 'button'
   chip.className = 'session-mention'
-  chip.title = `引用会话 ${sessionId}，点击打开`
+  chip.title = t('Referenced session {0}, click to open', sessionId)
   chip.appendChild(iconSvg(SESSION_REF_ICON, 14))
   chip.appendChild(el('span', undefined, label))
   chip.addEventListener('click', () => post({ type: 'sessionOpen', sessionId }))
@@ -689,21 +712,21 @@ function enhanceCodeBlocks(container: HTMLElement, prefix: string): void {
     // 头部条：语言标签（有才显示）+ 复制按钮（始终复制全文，不限折叠态）。
     const bar = el('div', 'md-code-bar')
     if (lang) bar.appendChild(el('span', 'md-code-lang', lang))
-    const copy = buttonEl('md-code-copy', '复制')
-    copy.title = '复制代码'
+    const copy = buttonEl('md-code-copy', t('Copy'))
+    copy.title = t('Copy code')
     copy.addEventListener('click', () => {
       if (!text) return
       void navigator.clipboard.writeText(text).then(
         () => {
-          copy.textContent = '已复制'
-          copy.title = '已复制'
+          copy.textContent = t('Copied')
+          copy.title = t('Copied')
           setTimeout(() => {
-            copy.textContent = '复制'
-            copy.title = '复制代码'
+            copy.textContent = t('Copy')
+            copy.title = t('Copy code')
           }, 1000)
         },
         () => {
-          copy.title = '复制失败'
+          copy.title = t('Copy failed')
         },
       )
     })
@@ -713,7 +736,7 @@ function enhanceCodeBlocks(container: HTMLElement, prefix: string): void {
     const toggle = (collapsed: boolean, label: string): HTMLButtonElement => {
       const b = buttonEl('md-code-toggle', label)
       b.setAttribute('aria-expanded', String(!collapsed))
-      b.setAttribute('aria-label', collapsed ? `展开其余 ${hidden} 行` : '收起内容')
+      b.setAttribute('aria-label', collapsed ? t('Expand {0} more lines', hidden) : t('Collapse'))
       b.addEventListener('click', () => {
         detailsOpen.set(key, !collapsed)
         render()
@@ -725,10 +748,10 @@ function enhanceCodeBlocks(container: HTMLElement, prefix: string): void {
     wrap.appendChild(bar)
     if (hidden === 0 || open) {
       wrap.appendChild(mdCodeBody(text))
-      if (hidden > 0) wrap.appendChild(toggle(false, '收起'))
+      if (hidden > 0) wrap.appendChild(toggle(false, t('Collapse')))
     } else {
       wrap.appendChild(mdCodeBody(head.join('\n')))
-      wrap.appendChild(toggle(true, `… 其余 ${hidden} 行`))
+      wrap.appendChild(toggle(true, t('… {0} more lines', hidden)))
       wrap.appendChild(mdCodeBody(tail.join('\n')))
     }
     pre.replaceWith(wrap)
@@ -1102,7 +1125,7 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
       .map((o) => ({ label: o.label, right: o.value, apply: complete(`/permission ${o.value}`) }))
   }
   const cmd = COMPLETABLE_COMMANDS.find((c) => c.name === name)
-  if (cmd?.hint) return [{ label: `参数：${cmd.hint}` }]
+  if (cmd?.hint) return [{ label: t('Arguments: {0}', cmd.hint) }]
   return []
 }
 
@@ -1126,8 +1149,8 @@ function computeRefRows(input: HTMLTextAreaElement): SlashRow[] {
   const files = fileRows(input, at)
   const sessions = at.quoted ? [] : sessionRows(input, at)
   return [
-    ...(files.length > 0 ? [{ label: '文件', header: true } as SlashRow, ...files] : []),
-    ...(sessions.length > 0 ? [{ label: '会话', header: true } as SlashRow, ...sessions] : []),
+    ...(files.length > 0 ? [{ label: t('Files'), header: true } as SlashRow, ...files] : []),
+    ...(sessions.length > 0 ? [{ label: t('Sessions'), header: true } as SlashRow, ...sessions] : []),
   ]
 }
 
@@ -1240,13 +1263,13 @@ function formatTokens(n: number): string {
 
 /** Breakdown legend, in bar-segment order (dsh-web ContextMeter rows). */
 const CONTEXT_ROWS: Array<{ key: 'systemTokens' | 'toolsTokens' | 'messageTokens'; label: string; color: string }> = [
-  { key: 'systemTokens', label: '系统提示词', color: '#8b9bb4' },
-  { key: 'toolsTokens', label: '工具', color: '#a78bfa' },
-  { key: 'messageTokens', label: '对话消息', color: '#5a9cf8' },
+  { key: 'systemTokens', label: t('System prompt'), color: '#8b9bb4' },
+  { key: 'toolsTokens', label: t('Tools'), color: '#a78bfa' },
+  { key: 'messageTokens', label: t('Messages'), color: '#5a9cf8' },
 ]
 
 /** 「窗口未知」占位的悬停说明：说明原因 + 何时恢复。 */
-const WINDOW_UNKNOWN_TOOLTIP = '当前窗口用量未知：该模型尚未在当前会话中产生上下文数据，发送下一条消息后将显示窗口占用。'
+const WINDOW_UNKNOWN_TOOLTIP = t('Window usage unknown: this model has produced no context data in this session yet; occupancy will show after the next message.')
 
 /** Occupancy bar at the stats row's right end; hidden until the first sample. */
 function contextBar(): HTMLElement {
@@ -1263,7 +1286,7 @@ function setBarContent(bar: HTMLElement, mode: 'unknown' | 'known'): void {
   const isUnknown = !bar.querySelector('.context-bar-fill')
   if (isUnknown === (mode === 'unknown')) return
   if (mode === 'unknown') {
-    bar.textContent = '窗口未知'
+    bar.textContent = t('Unknown window')
   } else {
     bar.textContent = ''
     const track = el('span', 'context-bar-track')
@@ -1299,8 +1322,8 @@ function patchContextBar(bar: HTMLElement, usage: ChatState['contextUsage']): vo
   const meter = meterLevel(usage.usedTokens, usage.contextWindow, usage.turns)
   bar.classList.remove('level-ok', 'level-warn', 'level-danger', 'level-overflow')
   bar.classList.add(`level-${meter.level}`)
-  bar.title = `上下文已用 ${usage.percent}%（~${formatTokens(usage.usedTokens)} / ${formatTokens(usage.contextWindow)}）${
-    meter.level === 'overflow' ? '；已超出当前模型窗口' : ''
+  bar.title = `${t('Context {0}% used (~{1} / {2})', usage.percent, formatTokens(usage.usedTokens), formatTokens(usage.contextWindow))}${
+    meter.level === 'overflow' ? t('; exceeds the current model window') : ''
   }`
   const fill = bar.querySelector<HTMLElement>('.context-bar-fill')
   if (fill) fill.style.width = `${usage.percent}%`
@@ -1352,7 +1375,7 @@ function patchHeroPresetChip(
     const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
     chev.classList.add('chevron')
     fresh.appendChild(chev)
-    fresh.title = current?.description ?? 'Agent 模式'
+    fresh.title = current?.description ?? t('Agent mode')
     fresh.disabled = !state?.canSend
     fresh.addEventListener('click', () => openAgentPresetMenu(fresh, 'below'))
     chips.appendChild(fresh)
@@ -1364,7 +1387,7 @@ function patchHeroPresetChip(
     const text = current?.label ?? agentPreset.current
     if (label.innerText !== text) label.innerText = text
   }
-  chip.title = current?.description ?? 'Agent 模式'
+  chip.title = current?.description ?? t('Agent mode')
 }
 
 /** 懒切换选中帧的就地 patch：composer 权限 pill 的图标与文字随 pending 更新。 */
@@ -1373,7 +1396,7 @@ function patchPermissionPill(
   permissions: ChatState['permissions'],
 ): void {
   if (!permissions) return
-  const pill = composer.querySelector<HTMLElement>('.input-footer .pill[title="权限模式"]')
+  const pill = composer.querySelector<HTMLElement>('.input-footer .pill[data-role="perm"]')
   if (!pill) return
   const current = permissions.options.find((o) => o.value === permissions.current)
   if (!current) return
@@ -1394,26 +1417,26 @@ function openContextPanel(anchor: HTMLElement): void {
     // 「窗口未知」占位：无比例可给，面板只说明原因与恢复时机（与 bar 的悬停一致）。
     const body = el('div', 'context-panel')
     const header = el('div', 'cp-header')
-    header.appendChild(el('span', 'cp-percent', '窗口用量未知'))
-    header.appendChild(el('span', 'cp-figures', `已用 ~${formatTokens(usage.usedTokens)}`))
+    header.appendChild(el('span', 'cp-percent', t('Unknown window')))
+    header.appendChild(el('span', 'cp-figures', t('Used ~{0}', formatTokens(usage.usedTokens))))
     body.appendChild(header)
     body.appendChild(
-      el('div', 'cp-unknown', '该模型尚未在当前会话中产生上下文数据，无法给出窗口占用比例；发送下一条消息后将显示窗口用量。'),
+      el('div', 'cp-unknown', t('This model has produced no context data in this session yet, so no occupancy ratio is available; it will show after the next message.')),
     )
     showPopover(anchor, body)
     return
   }
   const body = el('div', 'context-panel')
   const header = el('div', 'cp-header')
-  header.appendChild(el('span', 'cp-percent', `上下文已用 ${usage.percent}%`))
+  header.appendChild(el('span', 'cp-percent', t('Context {0}% used', usage.percent)))
   header.appendChild(
-    el('span', 'cp-figures', `~${formatTokens(usage.usedTokens)} / ${formatTokens(usage.contextWindow)}`),
+    el('span', 'cp-figures', t('~{0} / {1}', formatTokens(usage.usedTokens), formatTokens(usage.contextWindow))),
   )
   body.appendChild(header)
   const meter = meterLevel(usage.usedTokens, usage.contextWindow, usage.turns)
   if (meter.level === 'overflow') {
     body.appendChild(
-      el('div', 'cp-overflow', '上下文已超出当前模型窗口：建议先切回之前的模型执行 /compact 压缩，再切换模型。'),
+      el('div', 'cp-overflow', t('Context exceeds the current model window: switch back to the previous model and run /compact, then switch again.')),
     )
   }
   const breakdown = usage.breakdown
@@ -1440,7 +1463,7 @@ function openContextPanel(anchor: HTMLElement): void {
   // 实时预估：平均每轮增长 usedTokens/turns，换算剩余轮数（口径见 contextMeter.ts）。
   if (meter.perTurn !== null && meter.turnsLeft !== null) {
     body.appendChild(
-      el('div', 'cp-estimate', `预估 ≈${formatTokens(meter.perTurn)}/轮，约还可持续 ${meter.turnsLeft} 轮`),
+      el('div', 'cp-estimate', t('Est. ≈{0}/turn, about {1} turns left', formatTokens(meter.perTurn), meter.turnsLeft)),
     )
   }
   showPopover(anchor, body)
@@ -1520,7 +1543,7 @@ function openModelMenu(anchor: HTMLElement): void {
   if (modelCatalog) {
     renderModelMenuRoot(body, modelCatalog)
   } else {
-    body.appendChild(el('div', 'menu-hint', '加载中…'))
+    body.appendChild(el('div', 'menu-hint', t('Loading…')))
   }
   // Always refetch so the menu reflects the server's current selection.
   post({ type: 'requestModels' })
@@ -1529,13 +1552,13 @@ function openModelMenu(anchor: HTMLElement): void {
 /** 模型目录拉取失败且无旧目录可用：error hint + Retry 行（点击重发请求）。 */
 function renderModelMenuError(body: HTMLElement): void {
   body.textContent = ''
-  body.appendChild(el('div', 'menu-hint', '模型列表加载失败'))
+  body.appendChild(el('div', 'menu-hint', t('Failed to load the model list')))
   body.appendChild(
-    menuItem('重试', {
+    menuItem(t('Retry'), {
       onClick: () => {
         modelCatalogFailed = false
         body.textContent = ''
-        body.appendChild(el('div', 'menu-hint', '加载中…'))
+        body.appendChild(el('div', 'menu-hint', t('Loading…')))
         post({ type: 'requestModels' })
       },
     }),
@@ -1548,7 +1571,7 @@ function renderModelMenuRoot(body: HTMLElement, catalog: ModelCatalog): void {
     .find((g) => g.id === catalog.current.provider)
     ?.models.find((m) => m.id === catalog.current.model)
   body.appendChild(
-    menuItem('模型', {
+    menuItem(t('Model'), {
       right: `${model?.name ?? catalog.current.model} ›`,
       onClick: () => renderModelMenuModels(body, catalog),
     }),
@@ -1558,8 +1581,8 @@ function renderModelMenuRoot(body: HTMLElement, catalog: ModelCatalog): void {
     const effortId = catalog.current.reasoningEffort ?? model?.defaultEffort
     const effort = efforts.find((e) => e.id === effortId)
     body.appendChild(
-      menuItem('推理等级', {
-        right: `${effort?.name ?? effortId ?? '默认'} ›`,
+      menuItem(t('Reasoning effort'), {
+        right: `${effort?.name ?? effortId ?? t('Default')} ›`,
         onClick: () => renderModelMenuEfforts(body, catalog),
       }),
     )
@@ -1568,7 +1591,7 @@ function renderModelMenuRoot(body: HTMLElement, catalog: ModelCatalog): void {
 
 function renderModelMenuModels(body: HTMLElement, catalog: ModelCatalog): void {
   body.textContent = ''
-  body.appendChild(menuItem('‹ 返回', { onClick: () => renderModelMenuRoot(body, catalog) }))
+  body.appendChild(menuItem(t('‹ Back'), { onClick: () => renderModelMenuRoot(body, catalog) }))
   for (const g of catalog.groups) {
     body.appendChild(el('div', 'menu-group', g.name))
     for (const m of g.models) {
@@ -1597,7 +1620,7 @@ function renderModelMenuModels(body: HTMLElement, catalog: ModelCatalog): void {
 
 function renderModelMenuEfforts(body: HTMLElement, catalog: ModelCatalog): void {
   body.textContent = ''
-  body.appendChild(menuItem('‹ 返回', { onClick: () => renderModelMenuRoot(body, catalog) }))
+  body.appendChild(menuItem(t('‹ Back'), { onClick: () => renderModelMenuRoot(body, catalog) }))
   const model = catalog.groups
     .find((g) => g.id === catalog.current.provider)
     ?.models.find((m) => m.id === catalog.current.model)
@@ -1649,8 +1672,8 @@ function appendSubagentRow(container: HTMLElement, sub: SubagentNode): void {
   const main = el('div', 'preset-item-main')
   main.appendChild(el('div', 'preset-item-name', sub.title))
   const summary = [
-    sub.running ? '进行中' : '已完成',
-    formatRelativeTime(sub.updatedAt, Date.now()),
+    sub.running ? t('Running') : t('Done'),
+    formatRelativeTime(sub.updatedAt, Date.now(), t),
     sub.totalTokens !== undefined ? `${formatTokens(sub.totalTokens)} tok` : '',
   ]
     .filter(Boolean)
@@ -1700,8 +1723,8 @@ function openJobsMenu(anchor: HTMLElement): void {
   // 有运行中的行时挂 1s tick，只改写耗时文本节点（closePopover 统一清理）。
   if (jobs.some(isLiveJob)) {
     jobsTick = setInterval(() => {
-      popover?.querySelectorAll<HTMLElement>('[data-job-live-start]').forEach((t) => {
-        t.textContent = formatJobDuration(Date.now() - Number(t.dataset.jobLiveStart))
+      popover?.querySelectorAll<HTMLElement>('[data-job-live-start]').forEach((live) => {
+        live.textContent = formatJobDuration(Date.now() - Number(live.dataset.jobLiveStart), t)
       })
     }, 1000)
   }
@@ -1720,18 +1743,18 @@ function renderJobsMenuRow(job: ActivityJob, now: number): HTMLElement {
   const label = el('span', 'job-label', job.label)
   label.title = job.label
   row.appendChild(label)
-  const statusText = job.detail ?? jobStatusLabel(job.status)
+  const statusText = job.detail ?? jobStatusLabel(job.status, t)
   const status = el('span', 'job-status', statusText)
   status.title = statusText
   row.appendChild(status)
   const duration = el('span', 'job-duration')
   if (live) {
     duration.dataset.jobLiveStart = String(job.startedAt)
-    duration.textContent = formatJobDuration(now - job.startedAt)
-    duration.title = `已运行 ${duration.textContent}`
+    duration.textContent = formatJobDuration(now - job.startedAt, t)
+    duration.title = t('Running for {0}', duration.textContent)
   } else {
-    duration.textContent = formatJobDuration((job.finishedAt ?? job.startedAt) - job.startedAt)
-    duration.title = `耗时 ${duration.textContent}`
+    duration.textContent = formatJobDuration((job.finishedAt ?? job.startedAt) - job.startedAt, t)
+    duration.title = t('Took {0}', duration.textContent)
   }
   row.appendChild(duration)
   return row
@@ -1794,7 +1817,7 @@ function openWorkspacePicker(anchor: HTMLElement): void {
   // Menu footer），列表为空时是唯一内容。
   const footer = el('div', 'workspace-picker-footer')
   footer.appendChild(
-    menuItem('添加已有文件夹…', {
+    menuItem(t('Add existing folder…'), {
       icon: iconSvg(PANEL_ICONS.folderOpen, 14),
       onClick: () => {
         closePopover()
@@ -1803,7 +1826,7 @@ function openWorkspacePicker(anchor: HTMLElement): void {
     }),
   )
   footer.appendChild(
-    menuItem('创建工作区…', {
+    menuItem(t('Create workspace…'), {
       icon: iconSvg(PANEL_ICONS.plus, 14),
       onClick: () => {
         closePopover()
@@ -1920,7 +1943,7 @@ function buildHeaderSessionMenu(header: HTMLElement): HTMLElement {
   const running = state.running
   const pending = state.pending.length > 0
   body.appendChild(
-    menuItem('重命名', {
+    menuItem(t('Rename'), {
       icon: iconSvg(PANEL_ICONS.edit),
       onClick: () => {
         closePopover()
@@ -1930,7 +1953,7 @@ function buildHeaderSessionMenu(header: HTMLElement): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem(pinned ? '取消置顶' : '置顶', {
+    menuItem(pinned ? t('Unpin') : t('Pin'), {
       icon: strokeSvg(PIN_ICON),
       checked: pinned,
       onClick: () => {
@@ -1940,11 +1963,11 @@ function buildHeaderSessionMenu(header: HTMLElement): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem(unread ? '标为已读' : '标为未读', {
+    menuItem(unread ? t('Mark as read') : t('Mark as unread'), {
       icon: strokeSvg(UNREAD_ICON),
       checked: unread,
       disabled: running,
-      disabledTip: '运行中的会话不支持手动标为已读/未读',
+      disabledTip: t('Running sessions cannot be marked read/unread manually'),
       onClick: () => {
         closePopover()
         post({ type: 'sessionUnread', sessionId: sid, unread: !unread })
@@ -1952,10 +1975,10 @@ function buildHeaderSessionMenu(header: HTMLElement): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem('分叉会话', {
+    menuItem(t('Fork session'), {
       icon: iconSvg(MESSAGE_ACTION_ICONS.branch),
       disabled: !(node?.hasCompletedTurn ?? false),
-      disabledTip: '会话没有已完成轮次，无法分叉',
+      disabledTip: t('The session has no completed turn; cannot fork'),
       onClick: () => {
         closePopover()
         post({ type: 'sessionFork', sessionId: sid })
@@ -1963,7 +1986,7 @@ function buildHeaderSessionMenu(header: HTMLElement): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem('复制引用', {
+    menuItem(t('Copy reference'), {
       icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
       onClick: () => {
         closePopover()
@@ -1972,14 +1995,14 @@ function buildHeaderSessionMenu(header: HTMLElement): HTMLElement {
     }),
   )
   body.appendChild(
-    menuItem('归档会话', {
+    menuItem(t('Archive session'), {
       icon: iconSvg(PANEL_ICONS.archive),
       disabled: running || unread || pending,
       disabledTip: pending
-        ? '待处理的会话不能归档'
+        ? t('Sessions with pending items cannot be archived')
         : running
-          ? '运行中的会话不能归档'
-          : '未读的会话不能归档',
+          ? t('Running sessions cannot be archived')
+          : t('Unread sessions cannot be archived'),
       onClick: () => {
         closePopover()
         post({ type: 'sessionArchive', sessionId: sid, title: state?.sessionTitle ?? '' })
@@ -2253,7 +2276,7 @@ function render(): void {
   if (state.loading === true) {
     turnStatusStart = null
     if (chatCol.childNodes.length === 0) {
-      chatCol.appendChild(el('div', 'muted-hint loading-hint', '加载会话…'))
+      chatCol.appendChild(el('div', 'muted-hint loading-hint', t('Loading session…')))
     }
     return
   }
@@ -2348,9 +2371,9 @@ function render(): void {
       if (state.subagents.some((sub) => sub.running || subagentLineageRunning(sub))) {
         chip.appendChild(spinSvg())
       }
-      chip.appendChild(el('span', undefined, `${state.subagents.length} 个子代理`))
+      chip.appendChild(el('span', undefined, t('{0} subagents', state.subagents.length)))
       chip.appendChild(iconSvg(PANEL_ICONS.chevronDown, 14))
-      chip.title = '子代理'
+      chip.title = t('Subagents')
       chip.addEventListener('click', () => openSubagentMenu(chip))
       header.appendChild(chip)
     }
@@ -2361,7 +2384,7 @@ function render(): void {
       if (state.backgroundJobs.some(isLiveJob)) chip.appendChild(spinSvg())
       chip.appendChild(el('span', undefined, jobsLabel))
       chip.appendChild(iconSvg(PANEL_ICONS.chevronDown, 14))
-      chip.title = '后台任务'
+      chip.title = t('Background jobs')
       chip.addEventListener('click', () => openJobsMenu(chip))
       header.appendChild(chip)
     }
@@ -2377,8 +2400,8 @@ function render(): void {
     // 会话操作 ⋯ 按钮（右端）：弹层与侧栏 session 右键同款（去掉「在新 tab
     // 中打开」）。锚点随 header 保活（keepHeader），流式快照重建不杀弹层。
     const sessionMenuBtn = buttonEl('header-chip session-menu-btn', '')
-    sessionMenuBtn.title = '会话操作'
-    sessionMenuBtn.setAttribute('aria-label', '会话操作')
+    sessionMenuBtn.title = t('Session actions')
+    sessionMenuBtn.setAttribute('aria-label', t('Session actions'))
     sessionMenuBtn.appendChild(iconSvg(PANEL_ICONS.ellipsis, 16))
     sessionMenuBtn.addEventListener('click', () => {
       showPopover(sessionMenuBtn, buildHeaderSessionMenu(header), 'below')
@@ -2475,7 +2498,7 @@ function render(): void {
   // 或一页正在加载时显示在消息流顶部。
   if (state.hasEarlierHistory || state.loadingEarlier === true) {
     const olderWrap = el('div', 'older')
-    const btn = buttonEl(undefined, state.loadingEarlier === true ? '加载中…' : '加载更早')
+    const btn = buttonEl(undefined, state.loadingEarlier === true ? t('Loading…') : t('Load earlier'))
     btn.disabled = state.loadingEarlier === true
     btn.addEventListener('click', maybeLoadEarlier)
     olderWrap.appendChild(btn)
@@ -2484,7 +2507,7 @@ function render(): void {
   appendMessageFlow(messages, state)
   for (const notice of commandNotices) messages.appendChild(el('div', 'command-notice', notice))
   if (state.messages.length === 0 && steeringItems.length === 0) {
-    messages.appendChild(el('div', 'muted-hint', '会话还没有消息，在下方输入开始。'))
+    messages.appendChild(el('div', 'muted-hint', t('No messages yet — start typing below.')))
   }
   // Turn-status row: last item of the conversation flow while a turn is open
   // (official-client parity), gone the moment the turn ends.
@@ -2499,7 +2522,7 @@ function render(): void {
   for (const item of steeringItems) messages.appendChild(renderSteeringItem(item))
   // "Back to latest" floater: sticky at the scroller's bottom while the user
   // reads history; hidden while pinned to the tail.
-  const jump = buttonEl('jump-latest', '↓ 回到最新')
+  const jump = buttonEl('jump-latest', t('↓ Back to latest'))
   jump.style.display = stickToBottom ? 'none' : ''
   jump.addEventListener('click', () => {
     stickToBottom = true
@@ -2540,7 +2563,7 @@ function render(): void {
       const chev = iconSvg(PANEL_ICONS.chevronUp, 14)
       chev.classList.add('queue-chevron')
       summary.appendChild(chev)
-      summary.appendChild(el('span', 'queue-dock-count', `${queuedItems.length} 条排队消息`))
+      summary.appendChild(el('span', 'queue-dock-count', t('{0} queued messages', queuedItems.length)))
       const list = el('div', 'queue-dock-list')
       for (const item of queuedItems) list.appendChild(renderQueueItem(item))
       det.appendChild(list)
@@ -2691,7 +2714,7 @@ function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
     const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
     chev.classList.add('chevron')
     ws.appendChild(chev)
-    ws.title = '选择工作区'
+    ws.title = t('Select workspace')
     ws.setAttribute('aria-haspopup', 'menu')
     ws.addEventListener('click', () => openWorkspacePicker(ws))
     chips.appendChild(ws)
@@ -2706,7 +2729,7 @@ function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
     const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
     chev.classList.add('chevron')
     preset.appendChild(chev)
-    preset.title = current?.description ?? 'Agent 模式'
+    preset.title = current?.description ?? t('Agent mode')
     preset.disabled = !state.canSend
     preset.addEventListener('click', () => openAgentPresetMenu(preset, 'below'))
     chips.appendChild(preset)
@@ -2720,27 +2743,27 @@ function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
 function renderEmpty(state: ChatState | null): HTMLElement {
   const wrap = el('div', 'empty')
   if (state?.serverError === 'dshNotFound') {
-    wrap.appendChild(el('div', 'empty-title', '未检测到 dsh 安装'))
+    wrap.appendChild(el('div', 'empty-title', t('dsh not found')))
     wrap.appendChild(
-      el('div', 'empty-hint', 'DSH One 需要本机安装 dsh 才能使用。安装完成后回到这里即可自动启动。'),
+      el('div', 'empty-hint', t('DSH One requires a local dsh installation. Install it and come back here to start automatically.')),
     )
-    const btn = buttonEl(undefined, '查看安装指南')
+    const btn = buttonEl(undefined, t('View install guide'))
     btn.addEventListener('click', () => post({ type: 'openInstallPage' }))
     wrap.appendChild(btn)
     return wrap
   }
-  wrap.appendChild(el('div', 'empty-title', 'dsh 聊天'))
+  wrap.appendChild(el('div', 'empty-title', t('dsh chat')))
   wrap.appendChild(
-    el('div', 'empty-hint', '在会话列表中点击一个会话开始聊天。若列表为空，请先启动 dsh 服务。'),
+    el('div', 'empty-hint', t('Click a session in the list to start chatting. If the list is empty, start the dsh service first.')),
   )
   return wrap
 }
 
 function contextLabel(kind: string): string {
-  if (kind === 'agent-instructions' || kind === 'legacy-instructions') return '工作区指令'
-  if (kind === 'plugin') return '运行时上下文'
-  if (kind === 'session-reference') return '跨会话召回'
-  return '上下文注入'
+  if (kind === 'agent-instructions' || kind === 'legacy-instructions') return t('Workspace instructions')
+  if (kind === 'plugin') return t('Runtime context')
+  if (kind === 'session-reference') return t('Cross-session recall')
+  return t('Context injection')
 }
 
 /** Attachment id whose bytes are being fetched to open a preview on arrival. */
@@ -2765,7 +2788,7 @@ let commandNotices: string[] = []
 /** One queued inbox row: tag + preview, plus steer/edit/remove actions. */
 function renderQueueItem(item: QueuedItem): HTMLElement {
   const row = el('div', 'queue-item')
-  row.appendChild(el('span', 'queue-tag', '排队中'))
+  row.appendChild(el('span', 'queue-tag', t('Queued')))
 
   if (editingQueueItem === item.id) {
     const editor = document.createElement('textarea')
@@ -2784,14 +2807,14 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
     })
     row.appendChild(editor)
     const actions = el('div', 'queue-actions')
-    const save = buttonEl('', '保存')
+    const save = buttonEl('', t('Save'))
     save.addEventListener('click', () => {
       const text = queueEditDrafts.get(item.id) ?? editor.value
       editingQueueItem = null
       queueEditDrafts.delete(item.id)
       post({ type: 'queueEdit', itemId: item.id, text })
     })
-    const cancel = buttonEl('secondary', '取消')
+    const cancel = buttonEl('secondary', t('Cancel'))
     cancel.addEventListener('click', () => {
       editingQueueItem = null
       queueEditDrafts.delete(item.id)
@@ -2803,17 +2826,17 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
     return row
   }
 
-  row.appendChild(el('span', 'queue-text', item.text || '（空消息）'))
+  row.appendChild(el('span', 'queue-text', item.text || t('(empty message)')))
   const actions = el('div', 'queue-actions')
-  const steer = buttonEl('link', '插话')
-  steer.title = '立即打断当前轮，用这条消息插话'
+  const steer = buttonEl('link', t('Steer'))
+  steer.title = t('Interrupt the current turn and steer with this message')
   steer.addEventListener('click', () => post({ type: 'queueSteer', itemId: item.id }))
-  const edit = buttonEl('link', '编辑')
+  const edit = buttonEl('link', t('Edit'))
   edit.addEventListener('click', () => {
     editingQueueItem = item.id
     render()
   })
-  const remove = buttonEl('link', '删除')
+  const remove = buttonEl('link', t('Delete'))
   remove.addEventListener('click', () => post({ type: 'queueRemove', itemId: item.id }))
   actions.appendChild(steer)
   actions.appendChild(edit)
@@ -2851,7 +2874,7 @@ function renderSteeringItem(item: QueuedItem): HTMLElement {
     body.appendChild(bubble)
     if (summary) body.appendChild(summary)
   } else if (!attachments) {
-    body.appendChild(el('div', 'bubble', '（空消息）'))
+    body.appendChild(el('div', 'bubble', t('(empty message)')))
   }
   row.appendChild(body)
   return row
@@ -2864,7 +2887,7 @@ function renderSteeringItem(item: QueuedItem): HTMLElement {
  * 真图；加载失败回退为文件名 chip（保留点击预览）。
  */
 function messageImageThumb(image: ChatImage): HTMLElement {
-  const name = image.name ?? '图片'
+  const name = image.name ?? t('Image')
   const dataUrl = attachmentCache.get(image.attachmentId)
   if (!dataUrl) {
     if (!attachmentRequested.has(image.attachmentId)) {
@@ -2872,11 +2895,11 @@ function messageImageThumb(image: ChatImage): HTMLElement {
       post({ type: 'requestAttachment', attachmentId: image.attachmentId })
     }
     const ph = el('span', 'attach-thumb msg-thumb-loading', '…')
-    ph.title = `${name}（加载中…）`
+    ph.title = t('{0} (loading…)', name)
     return ph
   }
   const item = el('span', 'attach-thumb')
-  item.title = `${name}（点击预览）`
+  item.title = t('{0} (click to preview)', name)
   const img = document.createElement('img')
   img.src = dataUrl
   img.alt = name
@@ -2889,8 +2912,8 @@ function messageImageThumb(image: ChatImage): HTMLElement {
 /** Compact chip for one attached image; click fetches bytes (once) and previews. */
 function imageChip(image: ChatImage): HTMLElement {
   const chip = el('span', 'image-chip msg-image-chip')
-  chip.appendChild(el('span', 'chip-name', image.name ?? '图片'))
-  chip.title = '点击预览'
+  chip.appendChild(el('span', 'chip-name', image.name ?? t('Image')))
+  chip.title = t('Click to preview')
   chip.addEventListener('click', () => {
     const dataUrl = attachmentCache.get(image.attachmentId)
     if (dataUrl) {
@@ -2915,7 +2938,7 @@ function fileChip(file: ChatFile): HTMLElement {
   const name = el('span', 'chip-name', file.name)
   name.title = file.path
   chip.appendChild(name)
-  chip.title = `在 VS Code 中打开 ${file.path}`
+  chip.title = t('Open {0} in VS Code', file.path)
   chip.addEventListener('click', () => post({ type: 'openAttachmentFile', path: file.path }))
   return chip
 }
@@ -3029,9 +3052,9 @@ function todoProgressLabel(todos: ChatTodoItem[]): string {
   const active = todos.filter((t) => t.status === 'in_progress').length
   const pending = todos.length - done - active
   return [
-    done > 0 ? `${done} 已完成` : '',
-    active > 0 ? `${active} 进行中` : '',
-    pending > 0 ? `${pending} 待处理` : '',
+    done > 0 ? t('{0} done', done) : '',
+    active > 0 ? t('{0} running', active) : '',
+    pending > 0 ? t('{0} pending', pending) : '',
   ]
     .filter(Boolean)
     .join(' · ')
@@ -3060,9 +3083,9 @@ function goalIconButton(icon: IconDef, title: string): HTMLButtonElement {
 
 /** phase 标签文案（官方 zh 字典原样）。 */
 const GOAL_PHASE_LABELS: Record<ChatGoal['phase'], string> = {
-  active: '进行中的目标',
-  paused: '已暂停的目标',
-  blocked: '受阻的目标',
+  active: t('Active goal'),
+  paused: t('Paused goal'),
+  blocked: t('Blocked goal'),
   complete: '',
 }
 
@@ -3089,7 +3112,7 @@ function renderGoalBar(goal: ChatGoal): HTMLElement | null {
     input.type = 'text'
     input.className = 'goal-bar-input'
     input.value = goalDraft
-    input.setAttribute('aria-label', '目标内容')
+    input.setAttribute('aria-label', t('Goal content'))
     input.addEventListener('input', () => {
       goalDraft = input.value
       save.disabled = goalDraft.trim() === ''
@@ -3107,7 +3130,7 @@ function renderGoalBar(goal: ChatGoal): HTMLElement | null {
     })
     bar.appendChild(input)
     const actions = el('div', 'goal-bar-actions')
-    const save = goalIconButton(MESSAGE_ACTION_ICONS.check, '保存目标')
+    const save = goalIconButton(MESSAGE_ACTION_ICONS.check, t('Save goal'))
     save.disabled = goalDraft.trim() === ''
     save.addEventListener('click', () => {
       const text = goalDraft.trim()
@@ -3116,7 +3139,7 @@ function renderGoalBar(goal: ChatGoal): HTMLElement | null {
       goalDraft = ''
       post({ type: 'goalEdit', objective: text })
     })
-    const cancel = goalIconButton(GOAL_ICONS.close, '取消编辑')
+    const cancel = goalIconButton(GOAL_ICONS.close, t('Cancel edit'))
     cancel.addEventListener('click', () => {
       goalEditingId = null
       goalDraft = ''
@@ -3136,22 +3159,22 @@ function renderGoalBar(goal: ChatGoal): HTMLElement | null {
   bar.appendChild(el('span', 'goal-bar-objective', goal.objective))
   const actions = el('div', 'goal-bar-actions')
   if (goal.phase === 'active') {
-    const pause = goalIconButton(GOAL_ICONS.pause, '暂停目标')
+    const pause = goalIconButton(GOAL_ICONS.pause, t('Pause goal'))
     pause.addEventListener('click', () => post({ type: 'goalPause' }))
     actions.appendChild(pause)
   } else if (goal.phase === 'paused') {
-    const resume = goalIconButton(GOAL_ICONS.play, '恢复目标')
+    const resume = goalIconButton(GOAL_ICONS.play, t('Resume goal'))
     resume.addEventListener('click', () => post({ type: 'goalResume' }))
     actions.appendChild(resume)
   }
-  const edit = goalIconButton(PANEL_ICONS.edit, '编辑目标')
+  const edit = goalIconButton(PANEL_ICONS.edit, t('Edit goal'))
   edit.addEventListener('click', () => {
     goalDraft = goal.objective
     goalEditingId = goal.id
     goalAutoFocus = true
     render()
   })
-  const clear = goalIconButton(GOAL_ICONS.trash, '清除目标')
+  const clear = goalIconButton(GOAL_ICONS.trash, t('Clear goal'))
   clear.addEventListener('click', () => post({ type: 'goalClear' }))
   actions.appendChild(edit)
   actions.appendChild(clear)
@@ -3170,7 +3193,7 @@ function renderTodoPanel(todos: ChatTodoItem[]): HTMLElement {
   det.open = detailsOpen.get('todos') ?? false
   det.addEventListener('toggle', () => detailsOpen.set('todos', det.open))
   const summary = el('summary')
-  summary.appendChild(el('span', 'todo-panel-title', '任务'))
+  summary.appendChild(el('span', 'todo-panel-title', t('Tasks')))
   const progress = todoProgressLabel(todos)
   summary.appendChild(el('span', 'todo-panel-progress', progress))
   const chev = iconSvg(PANEL_ICONS.chevronUp, 14)
@@ -3302,7 +3325,7 @@ function renderUserBubbleParts(
     else bubble.appendChild(referenceChip(seg))
   }
   const summary = references?.length
-    ? el('div', 'ref-summary', `引用会话 · ${references.map((r) => r.label).join('、')}`)
+    ? el('div', 'ref-summary', t('Referenced sessions: {0}', references.map((r) => r.label).join(t(', '))))
     : null
   return [bubble, summary]
 }
@@ -3317,7 +3340,7 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
       det.addEventListener('toggle', () => detailsOpen.set(`${key}:ctx`, det.open))
       const summary = el('summary')
       summary.appendChild(m.context === 'session-reference' ? iconSvg(SESSION_REF_ICON, 14) : iconSvg(CONTEXT_BROWSE_ICON, 14))
-      summary.appendChild(el('span', undefined, ` ${contextLabel(m.context)}（已随消息注入）`))
+      summary.appendChild(el('span', undefined, t('{0} (injected with the message)', contextLabel(m.context))))
       det.appendChild(summary)
       det.appendChild(markScrollable(el('div', 'context-body', m.text), `${key}:ctx`))
       return det
@@ -3369,7 +3392,7 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (m.kind === 'compaction') {
     // 自动压缩的独立标记卡（对齐官方 CompactionItem）：默认折叠，有摘要才可展开。
     return renderCompactionCard(key, {
-      title: '上下文已压缩',
+      title: t('Context compacted'),
       summary: m.summary,
       items: m.items,
       tokens: m.tokens,
@@ -3378,7 +3401,7 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   const row = el('div', 'msg assistant')
   m.blocks.forEach((block, bi) => row.appendChild(renderBlock(block, `${key}:b${bi}`)))
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
-  if (m.interrupted) row.appendChild(el('div', 'interrupted', '已中断'))
+  if (m.interrupted) row.appendChild(el('div', 'interrupted', t('Interrupted')))
   if (m.turnError) row.appendChild(renderTurnError(m.turnError))
   if (m.maxTokens) row.appendChild(renderMaxTokensNotice())
   // 产物行（对齐 dsh web ProducedFiles 的 turn-tail 槽位）：在操作栏之前。
@@ -3435,7 +3458,7 @@ function renderWorkflowRun(run: WorkflowRunView): HTMLElement {
   root.appendChild(renderWorkflowRunHeader(run, disp))
   if (!disp.open) return root
   if (run.phases.length === 0) {
-    root.appendChild(el('div', 'workflow-empty', '没有启动成员'))
+    root.appendChild(el('div', 'workflow-empty', t('No members started')))
     return root
   }
   const list = el('div', 'workflow-phase-list')
@@ -3467,7 +3490,7 @@ function renderWorkflowRunHeader(run: WorkflowRunView, disp: WorkflowDisclosureS
   row.appendChild(el('span', 'workflow-run-title', run.name))
   if (!disp.open) {
     row.appendChild(el('span', 'workflow-sep'))
-    row.appendChild(el('span', 'workflow-run-count', `${disp.activityCount} 个成员`))
+    row.appendChild(el('span', 'workflow-run-count', t('{0} members', disp.activityCount)))
     row.appendChild(renderWorkflowStatusTail(run.status))
   }
   return row
@@ -3477,7 +3500,7 @@ function renderWorkflowRunHeader(run: WorkflowRunView, disp: WorkflowDisclosureS
 function renderWorkflowStatusTail(status: WorkflowRunStatus): HTMLElement {
   const tail = el('span', 'workflow-status-tail')
   tail.appendChild(workflowStateDot(status))
-  tail.appendChild(el('span', undefined, WORKFLOW_STATUS_TEXT[status]))
+  tail.appendChild(el('span', undefined, t(WORKFLOW_STATUS_TEXT[status])))
   return tail
 }
 
@@ -3499,8 +3522,8 @@ function renderWorkflowPhase(run: WorkflowRunView, phase: WorkflowRunPhaseView):
   header.appendChild(el('span', 'workflow-phase-title', phase.phase ?? ''))
   if (!disp.open) {
     header.appendChild(el('span', 'workflow-sep'))
-    header.appendChild(el('span', 'workflow-phase-count', `${phase.members.length} 个成员`))
-    header.appendChild(el('span', 'workflow-phase-status', workflowPhaseStatusSummary(phase.members)))
+    header.appendChild(el('span', 'workflow-phase-count', t('{0} members', phase.members.length)))
+    header.appendChild(el('span', 'workflow-phase-status', workflowPhaseStatusSummary(phase.members, t)))
   }
   section.appendChild(header)
   if (disp.open) {
@@ -3517,8 +3540,8 @@ function renderWorkflowMember(m: WorkflowRunMemberView): HTMLElement {
   const slot = el('span', 'workflow-dot-slot')
   slot.appendChild(workflowStateDot(m.status))
   row.appendChild(slot)
-  row.appendChild(el('span', 'workflow-member-label', m.label || '空成员名'))
-  row.appendChild(el('span', 'workflow-member-status', WORKFLOW_STATUS_TEXT[m.status]))
+  row.appendChild(el('span', 'workflow-member-label', m.label || t('(unnamed member)')))
+  row.appendChild(el('span', 'workflow-member-status', t(WORKFLOW_STATUS_TEXT[m.status])))
   return row
 }
 
@@ -3534,7 +3557,7 @@ function workflowStateDot(status: WorkflowRunStatus): Node {
 function renderTurnError(err: { message: string; code?: string }): HTMLElement {
   const row = el('div', 'turn-error')
   row.appendChild(el('span', 'turn-error-dot'))
-  row.appendChild(el('span', 'turn-error-title', '本轮运行失败'))
+  row.appendChild(el('span', 'turn-error-title', t('This turn failed')))
   row.appendChild(el('span', 'turn-error-message', err.message))
   if (err.code) row.appendChild(el('span', 'turn-error-code', err.code))
   return row
@@ -3548,9 +3571,9 @@ function renderTurnError(err: { message: string; code?: string }): HTMLElement {
 function renderMaxTokensNotice(): HTMLElement {
   const row = el('div', 'turn-error max-tokens')
   row.appendChild(el('span', 'turn-error-dot'))
-  row.appendChild(el('span', 'turn-error-title', '已达到输出 token 上限'))
+  row.appendChild(el('span', 'turn-error-title', t('Output token limit reached')))
   row.appendChild(
-    el('span', 'turn-error-message', '回答被截断，已有输出保留在对话中。发送“继续”可让模型接着输出。'),
+    el('span', 'turn-error-message', t('The answer was truncated; existing output stays in the conversation. Send “continue” to let the model continue.')),
   )
   return row
 }
@@ -3568,8 +3591,8 @@ function renderCompactionCard(
   const expandable = opts.summary !== null
   const summaryText =
     opts.items !== null && opts.tokens !== null
-      ? `已压缩 ${opts.items} 条历史记录（约 ${opts.tokens} tokens）`
-      : opts.fallback ?? (expandable ? '点击查看压缩摘要' : '压缩摘要不可用')
+      ? t('Compacted {0} history messages (about {1} tokens)', opts.items, opts.tokens)
+      : opts.fallback ?? (expandable ? t('Click to view the compacted summary') : t('Compaction summary unavailable'))
   if (!expandable) {
     // 无摘要（compaction/summary 落在窗口外）：纯展示行，disabled。
     const row = el('div', 'compaction-row')
@@ -3603,9 +3626,9 @@ function renderCompactionCard(
  * 的文本节点，不触发列表重渲染；render 重建时会先清掉所有重试行计时器）。
  */
 const RETRY_LABELS: Record<ChatRetryBlock['retryState'], string> = {
-  scheduled: '正在重试模型请求',
-  started: '已重试模型请求',
-  cancelled: '模型请求重试已取消',
+  scheduled: t('Retrying model request'),
+  started: t('Model request retried'),
+  cancelled: t('Model request retry cancelled'),
 }
 
 let retryTimers = new Set<ReturnType<typeof setInterval>>()
@@ -3650,11 +3673,11 @@ function renderRetryRow(block: ChatRetryBlock, key: string): HTMLElement {
   det.querySelector('summary')?.appendChild(status)
   const details = el('div', 'retry-details')
   const delay = el('div')
-  delay.appendChild(el('span', 'retry-detail-label', '重试延迟：'))
+  delay.appendChild(el('span', 'retry-detail-label', t('Retry delay: ')))
   delay.appendChild(document.createTextNode(`${Math.round(block.delayMs)}ms`))
   details.appendChild(delay)
   const failure = el('div')
-  failure.appendChild(el('span', 'retry-detail-label', '失败原因：'))
+  failure.appendChild(el('span', 'retry-detail-label', t('Failure reason: ')))
   failure.appendChild(document.createTextNode(block.failure.message))
   details.appendChild(failure)
   det.appendChild(details)
@@ -3682,7 +3705,7 @@ const PRODUCED_SHOWN_LIMIT = 6
 function renderProducedFiles(paths: string[], key: string): HTMLElement {
   const expanded = producedOpen.has(key)
   const row = el('div', 'produced-files')
-  row.appendChild(el('span', 'produced-label', '产物'))
+  row.appendChild(el('span', 'produced-label', t('Outputs')))
   const lane = el('div', 'produced-lane')
   const shown = paths.slice(0, expanded ? paths.length : PRODUCED_SHOWN_LIMIT)
   for (const path of shown) {
@@ -3699,8 +3722,8 @@ function renderProducedFiles(paths: string[], key: string): HTMLElement {
     // snapshot 不再来，不补一次点击会像没反应）。
     const toggle = el('button', 'produced-more') as HTMLButtonElement
     toggle.type = 'button'
-    toggle.textContent = expanded ? '收起' : `+ ${paths.length - shown.length} 个文件`
-    toggle.title = expanded ? '收起全部产物 chips' : '展开全部产物文件'
+    toggle.textContent = expanded ? t('Collapse') : t('+ {0} files', paths.length - shown.length)
+    toggle.title = expanded ? t('Collapse all output chips') : t('Expand all output files')
     toggle.addEventListener('click', () => {
       if (expanded) producedOpen.delete(key)
       else producedOpen.add(key)
@@ -3715,7 +3738,7 @@ function renderProducedFiles(paths: string[], key: string): HTMLElement {
 /** Action row under a completed assistant message: copy / feedback / fork. */
 function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
   const actions = el('div', 'msg-actions')
-  const copy = iconButton(MESSAGE_ACTION_ICONS.copy, '复制')
+  const copy = iconButton(MESSAGE_ACTION_ICONS.copy, t('Copy'))
   const copyIcon = copy.firstChild as SVGSVGElement
   const checkIcon = iconSvg(MESSAGE_ACTION_ICONS.check)
   copy.addEventListener('click', () => {
@@ -3725,14 +3748,14 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
     void navigator.clipboard.writeText(text).then(
       () => {
         copy.replaceChild(checkIcon, copyIcon)
-        copy.title = '已复制'
+        copy.title = t('Copied')
         setTimeout(() => {
           copy.replaceChild(copyIcon, checkIcon)
-          copy.title = '复制'
+          copy.title = t('Copy')
         }, 1000)
       },
       () => {
-        copy.title = '复制失败'
+        copy.title = t('Copy failed')
       },
     )
   })
@@ -3740,8 +3763,8 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
 
   const messageId = m.messageId
   const ratings: Array<{ rating: 'positive' | 'negative'; icon: IconDef; hint: string }> = [
-    { rating: 'positive', icon: MESSAGE_ACTION_ICONS.like, hint: '有用' },
-    { rating: 'negative', icon: MESSAGE_ACTION_ICONS.dislike, hint: '没用' },
+    { rating: 'positive', icon: MESSAGE_ACTION_ICONS.like, hint: t('Helpful') },
+    { rating: 'negative', icon: MESSAGE_ACTION_ICONS.dislike, hint: t('Not helpful') },
   ]
   for (const { rating, icon, hint } of ratings) {
     const btn = iconButton(icon, hint)
@@ -3749,7 +3772,7 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
     if (!messageId) {
       // The host never persisted an id for this message: feedback RPCs need it.
       btn.disabled = true
-      btn.title = '这条消息暂不支持反馈'
+      btn.title = t('Feedback is not available for this message')
     } else {
       btn.addEventListener('click', () => {
         btn.disabled = true
@@ -3763,8 +3786,8 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
   // Fork rule (web parity): only from a completed, non-interrupted turn.
   if (m.seq !== undefined && !m.interrupted) {
     const atSeq = m.seq
-    const fork = iconButton(MESSAGE_ACTION_ICONS.branch, '分支')
-    fork.title = '从这条消息创建一个分支会话'
+    const fork = iconButton(MESSAGE_ACTION_ICONS.branch, t('Fork'))
+    fork.title = t('Create a branch session from this message')
     fork.addEventListener('click', () => {
       fork.disabled = true
       post({ type: 'fork', atSeq })
@@ -3786,22 +3809,22 @@ function pad2(n: number): string {
  * 操作栏行尾的 turn 级计时（对齐官方 formatMessageClock + zh 文案）：
  * 同日 HH:MM，更早显示日期前缀；指标只有存在时才显示，用 · 分隔。
  */
-function renderTurnTiming(t: NonNullable<ChatAssistantMessage['timing']>): HTMLElement {
+function renderTurnTiming(timing: NonNullable<ChatAssistantMessage['timing']>): HTMLElement {
   const wrap = el('span', 'msg-timing')
-  const d = new Date(t.time)
+  const d = new Date(timing.time)
   const now = new Date()
   const clock = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
   if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
     wrap.appendChild(document.createTextNode(clock))
   } else if (d.getFullYear() === now.getFullYear()) {
-    wrap.appendChild(document.createTextNode(`${d.getMonth() + 1}月${d.getDate()}日 ${clock}`))
+    wrap.appendChild(document.createTextNode(t('{0}/{1} {2}', d.getMonth() + 1, d.getDate(), clock)))
   } else {
-    wrap.appendChild(document.createTextNode(`${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${clock}`))
+    wrap.appendChild(document.createTextNode(t('{0}/{1}/{2} {3}', d.getFullYear(), d.getMonth() + 1, d.getDate(), clock)))
   }
   const parts: string[] = []
-  if (t.runMs !== undefined) parts.push(`用时 ${formatRunDuration(t.runMs)}`)
-  if (t.ttftMs !== undefined) parts.push(`首 token ${formatLatencySeconds(t.ttftMs)}秒`)
-  if (t.tokensPerSecond !== undefined) parts.push(`${formatTokensPerSecond(t.tokensPerSecond)} tok/s`)
+  if (timing.runMs !== undefined) parts.push(t("Duration {0}", formatRunDuration(timing.runMs)))
+  if (timing.ttftMs !== undefined) parts.push(t('First token {0}s', formatLatencySeconds(timing.ttftMs)))
+  if (timing.tokensPerSecond !== undefined) parts.push(`${formatTokensPerSecond(timing.tokensPerSecond)} tok/s`)
   for (const part of parts) {
     wrap.appendChild(el('span', 'msg-timing-dot', '·'))
     wrap.appendChild(document.createTextNode(part))
@@ -3814,7 +3837,7 @@ function formatRunDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000))
   const minutes = Math.floor(total / 60)
   const seconds = total % 60
-  return minutes > 0 ? `${minutes}分${pad2(seconds)}秒` : `${seconds}秒`
+  return minutes > 0 ? t('{0}m {1}s', minutes, pad2(seconds)) : t('{0}s', seconds)
 }
 
 /** 官方 formatLatencySeconds：10 秒内一位小数，其余取整（不带单位）。 */
@@ -3854,7 +3877,7 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
       const det = detailsEl(`${key}:reason`, 'reasoning', '')
       const summary = det.querySelector('summary') as HTMLElement
       summary.appendChild(iconSvg(THINK_ICON, 14))
-      summary.appendChild(el('span', 'reasoning-summary', firstLine ? `思考过程 · ${firstLine}` : '思考过程'))
+      summary.appendChild(el('span', 'reasoning-summary', firstLine ? t('Thoughts · {0}', firstLine) : t('Thoughts')))
       det.appendChild(el('div', 'reasoning-body', block.text))
       return det
     }
@@ -3879,7 +3902,7 @@ function subagentSnapshotNote(block: ChatToolBlock): HTMLElement | null {
   const id = subagentIdFromOutput(block.output)
   if (!id) return null
   if (subagentInTree(state?.subagents, id)) return null
-  return el('div', 'tool-snapshot-note', '快照副本：原子代理已不在本会话')
+  return el('div', 'tool-snapshot-note', t('Snapshot copy: the subagent is no longer in this session'))
 }
 
 /**
@@ -3933,7 +3956,7 @@ function renderSkillRow(block: ChatToolBlock, key: string): HTMLElement {
   summary.appendChild(line)
   det.appendChild(summary)
   const instructions = el('div', 'skill-instructions-card')
-  instructions.appendChild(el('div', 'skill-instructions-header', '说明'))
+  instructions.appendChild(el('div', 'skill-instructions-header', t('Instructions')))
   instructions.appendChild(markScrollable(el('pre', 'skill-instructions', card.output), `${key}:instructions`))
   det.appendChild(instructions)
   row.appendChild(det)
@@ -3952,12 +3975,12 @@ function renderCordisDefineRow(block: ChatToolBlock, key: string): HTMLElement {
   const row = el('div', `tool tool-cordis tool-cordis-define tool-${block.status}`)
   const line = el('div', 'tool-line')
   line.appendChild(toolLeading(CODE_ICON, block.status))
-  line.appendChild(el('span', 'tool-action', '注册 Cordis 插件'))
+  line.appendChild(el('span', 'tool-action', t('Register Cordis plugin')))
   line.appendChild(el('span', 'tool-sep'))
   line.appendChild(toolCardSummary(card.errorSummary, card.name))
   // error 时只显示错误摘要，purpose 让位（web 同款：purpose 仅在无错误时展示）。
   if (card.errorSummary === null) {
-    line.appendChild(el('span', 'tool-purpose', card.purpose ?? '（未填写用途）'))
+    line.appendChild(el('span', 'tool-purpose', card.purpose ?? t('(no purpose given)')))
   }
   const expandable = card.hostCode !== null || card.clientCode !== null || card.output !== null
   if (!expandable) {
@@ -3986,7 +4009,7 @@ function renderCordisDefineRow(block: ChatToolBlock, key: string): HTMLElement {
   }
   if (card.output !== null) {
     const section = el('div', 'cordis-source')
-    section.appendChild(el('div', 'cordis-source-label', '结果'))
+    section.appendChild(el('div', 'cordis-source-label', t('Result')))
     section.appendChild(markScrollable(el('pre', 'cordis-source-code', card.output), `${key}:cordis:output`))
     body.appendChild(section)
   }
@@ -4007,7 +4030,7 @@ function renderCordisRunRow(block: ChatToolBlock, key: string): HTMLElement {
   const row = el('div', `tool tool-cordis tool-cordis-run tool-${block.status}`)
   const line = el('div', 'tool-line')
   line.appendChild(toolLeading(CODE_ICON, block.status))
-  line.appendChild(el('span', 'tool-action', card.mode === 'update' ? '更新 Cordis 插件' : '运行 Cordis 插件'))
+  line.appendChild(el('span', 'tool-action', card.mode === 'update' ? t('Update Cordis plugin') : t('Run Cordis plugin')))
   line.appendChild(el('span', 'tool-sep'))
   const identity = card.pluginId ? `${card.pluginId}${card.packageId ? ` · ${card.packageId}` : ''}` : block.callId
   line.appendChild(toolCardSummary(card.errorSummary, identity))
@@ -4027,7 +4050,7 @@ function renderCordisActionRow(block: ChatToolBlock, key: string): HTMLElement {
   const row = el('div', `tool tool-cordis tool-cordis-action tool-${block.status}`)
   const line = el('div', 'tool-line')
   line.appendChild(toolLeading(remove ? TRASH_ICON : STOP_ICON, block.status))
-  line.appendChild(el('span', 'tool-action', remove ? '移除 Cordis 插件' : '停止 Cordis 插件'))
+  line.appendChild(el('span', 'tool-action', remove ? t('Remove Cordis plugin') : t('Stop Cordis plugin')))
   line.appendChild(el('span', 'tool-sep'))
   line.appendChild(toolCardSummary(card.errorSummary, card.pluginId ?? block.callId))
   row.appendChild(line)
@@ -4077,8 +4100,8 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
     // 数字来自该次调用 args 快照，不是当前投影；被拒绝/失败同样照实展示
     // （web 注释：被取消的调用没写 todo/write，不能读成一次成功的清单更新）。
     const s = block.todos
-    const head = `${s.done}/${s.total} 已完成`
-    line.appendChild(el('span', 'tool-action', '更新任务清单'))
+    const head = t('{0}/{1} done', s.done, s.total)
+    line.appendChild(el('span', 'tool-action', t('Update task list')))
     line.appendChild(el('span', 'tool-title', s.activeContent ? `${head} · ${s.activeContent}` : head))
     if (s.activeExtra > 0) line.appendChild(el('span', 'tool-todo-extra', `+${s.activeExtra}`))
     row.appendChild(line)
@@ -4199,7 +4222,7 @@ function renderToolOutput(output: string, key: string): HTMLElement {
   const open = detailsOpen.get(key) ?? false
   box.appendChild(markScrollable(el('pre', '', open ? output : preview), key))
   if (truncated) {
-    const toggle = el('div', 'tool-output-toggle', open ? '收起输出' : `… 共 ${totalLines} 行，点击展开`)
+    const toggle = el('div', 'tool-output-toggle', open ? t('Collapse output') : t('… {0} lines, click to expand', totalLines))
     toggle.addEventListener('click', () => {
       detailsOpen.set(key, !open)
       render()
@@ -4222,21 +4245,21 @@ function renderToolOutput(output: string, key: string): HTMLElement {
 function renderJsonTree(value: JsonContainer, outputKey: string): HTMLElement {
   const shell = el('div', 'json-tree-shell')
   const bar = el('div', 'json-tree-bar')
-  const copy = buttonEl('json-tree-copy', '复制')
-  copy.title = '复制 JSON'
+  const copy = buttonEl('json-tree-copy', t('Copy'))
+  copy.title = t('Copy JSON')
   copy.addEventListener('click', () => {
     const text = jsonTreeCopyText(value)
     void navigator.clipboard.writeText(text).then(
       () => {
-        copy.textContent = '已复制'
-        copy.title = '已复制'
+        copy.textContent = t('Copied')
+        copy.title = t('Copied')
         setTimeout(() => {
-          copy.textContent = '复制'
-          copy.title = '复制 JSON'
+          copy.textContent = t('Copy')
+          copy.title = t('Copy JSON')
         }, 1000)
       },
       () => {
-        copy.title = '复制失败'
+        copy.title = t('Copy failed')
       },
     )
   })
@@ -4327,7 +4350,7 @@ function renderJsonTreeRow(row: JsonTreeRow, outputKey: string, rootValue: JsonC
 function renderJsonNodeCopy(rootValue: JsonContainer, path: JsonPath): HTMLElement {
   const btn = el('button', 'json-tree-copy-icon') as HTMLButtonElement
   btn.type = 'button'
-  btn.title = '复制'
+  btn.title = t('Copy')
   const copyIcon = iconSvg(MESSAGE_ACTION_ICONS.copy, 12)
   const checkIcon = iconSvg(MESSAGE_ACTION_ICONS.check, 12)
   btn.appendChild(copyIcon)
@@ -4340,14 +4363,14 @@ function renderJsonNodeCopy(rootValue: JsonContainer, path: JsonPath): HTMLEleme
     void navigator.clipboard.writeText(text).then(
       () => {
         btn.replaceChild(checkIcon, copyIcon)
-        btn.title = '已复制'
+        btn.title = t('Copied')
         setTimeout(() => {
           btn.replaceChild(copyIcon, checkIcon)
-          btn.title = '复制'
+          btn.title = t('Copy')
         }, 1000)
       },
       () => {
-        btn.title = '复制失败'
+        btn.title = t('Copy failed')
       },
     )
   })
@@ -4396,7 +4419,7 @@ function renderDiff(diff: { oldText: string; newText: string }, key: string): HT
   box.appendChild(grid)
   if (pairs.length > DIFF_PREVIEW_LINES) {
     const hidden = pairs.length - DIFF_PREVIEW_LINES
-    const toggle = el('div', 'diff-toggle', open ? '收起差异' : `… 展开其余 ${hidden} 行差异`)
+    const toggle = el('div', 'diff-toggle', open ? t('Collapse diff') : t('… show {0} more diff lines', hidden))
     toggle.addEventListener('click', () => {
       detailsOpen.set(key, !open)
       render()
@@ -4428,14 +4451,14 @@ function renderPendingPanel(pending: PendingRequest[]): HTMLElement {
 
 function renderApprovalPanel(p: PendingApproval): HTMLElement {
   const panel = el('div', 'pending-block')
-  panel.appendChild(panelHeader(p.rpcId, '权限请求'))
+  panel.appendChild(panelHeader(p.rpcId, t('Permission request')))
   if (panelStateFor(p.rpcId).minimized) return panel
   const body = el('div', 'panel-body')
   body.appendChild(el('div', 'pending-title', p.toolName))
   if (p.reason) body.appendChild(el('div', 'pending-reason', p.reason))
   const actions = el('div', 'pending-actions')
-  const allow = buttonEl('', '允许一次')
-  const deny = buttonEl('secondary', '拒绝')
+  const allow = buttonEl('', t('Allow once'))
+  const deny = buttonEl('secondary', t('Reject'))
   // Disable both on click so a slow host can't be answered twice.
   allow.addEventListener('click', () => {
     allow.disabled = true
@@ -4464,7 +4487,7 @@ function panelHeader(rpcId: string, title: string, pager: HTMLElement | null = n
   header.appendChild(el('span', 'panel-title', title))
   if (pager) header.appendChild(pager)
   const toggle = buttonEl('panel-toggle', '')
-  toggle.title = st.minimized ? '展开' : '最小化'
+  toggle.title = st.minimized ? t('Expand') : t('Minimize')
   toggle.appendChild(iconSvg(PANEL_ICONS.chevronUp, 14))
   toggle.classList.toggle('minimized', st.minimized)
   toggle.addEventListener('click', () => {
@@ -4507,8 +4530,8 @@ function renderPanelAnswer(p: PendingQuestion, index: number): HTMLElement {
   const row = el('div', 'panel-answer')
   const input = document.createElement('input')
   input.type = 'text'
-  input.placeholder = '在聊天里说…（Enter 提交为回答）'
-  const send = buttonEl('', '提交')
+  input.placeholder = t('Say it in chat… (Enter submits as the answer)')
+  const send = buttonEl('', t('Submit'))
   const submit = (): void => {
     const text = input.value.trim()
     if (!text) return
@@ -4596,14 +4619,14 @@ function renderQuestionPanel(p: PendingQuestion): HTMLElement {
   const n = p.questions.length
   const page = Math.min(st.page, n - 1)
   const panel = el('div', 'pending-block')
-  panel.appendChild(panelHeader(p.rpcId, '等待你的回答', questionPager(p)))
+  panel.appendChild(panelHeader(p.rpcId, t('Waiting for your answer'), questionPager(p)))
   if (st.minimized) {
     panel.appendChild(renderPanelAnswer(p, page))
     return panel
   }
   const body = el('div', 'panel-body')
   const actions = el('div', 'pending-actions')
-  const ok = buttonEl('', '提交')
+  const ok = buttonEl('', t('Submit'))
   // 所有问题（含单选）都显式点「提交」才发送，避免点选即继续的误触。
   // 没有任何选择/输入时提交不可点：必须「选择了之后」才允许提交。
   const hasAnswer = () =>
@@ -4623,7 +4646,7 @@ function renderQuestionPanel(p: PendingQuestion): HTMLElement {
   if (n > 1 && page < n - 1) {
     // 跳过本题（对齐 dsh web QuestionFlow）：此题不答，清空草稿并翻到下一题；
     // 最后一题没有下一题可跳，直接提交即可。
-    const skip = buttonEl('secondary', '跳过本题')
+    const skip = buttonEl('secondary', t('Skip this question'))
     skip.addEventListener('click', () => {
       answerDrafts.get(p.rpcId)?.delete(page)
       st.page = page + 1
@@ -4650,7 +4673,7 @@ function renderQuestionItem(
   if (q.detail) {
     // 非 plan-review 的普通问题，detail 保持折叠（plan-review 的计划全文在
     // PlanReviewPanel 里直接展开，不走这里）。
-    const det = detailsEl(`q:${p.rpcId}:${index}`, 'question-detail', '查看详情')
+    const det = detailsEl(`q:${p.rpcId}:${index}`, 'question-detail', t('View details'))
     const body = el('div', 'md')
     body.innerHTML = md(q.detail)
     enhanceCodeBlocks(body, `q:${p.rpcId}:${index}`)
@@ -4700,7 +4723,7 @@ function renderQuestionItem(
   const customRow = el('div', 'question-custom')
   const input = document.createElement('input')
   input.type = 'text'
-  input.placeholder = q.options?.length ? '其他（自定义回答）' : '输入回答'
+  input.placeholder = q.options?.length ? t('Other (custom answer)') : t('Type your answer')
   input.value = draft.custom
   input.addEventListener('input', () => {
     draft.custom = input.value
@@ -4717,7 +4740,7 @@ function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
   const st = panelStateFor(p.rpcId)
   const q = p.questions[0]
   const panel = el('div', 'pending-block')
-  panel.appendChild(panelHeader(p.rpcId, '计划待审'))
+  panel.appendChild(panelHeader(p.rpcId, t('Plan review')))
   if (st.minimized) {
     panel.appendChild(renderPanelAnswer(p, 0))
     return panel
@@ -4726,7 +4749,7 @@ function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
   // Warn strip：计划待审（对齐 dsh web PlanReviewPanel 的警示条）。
   const warn = el('div', 'plan-warn')
   warn.appendChild(el('span', 'plan-warn-icon', '⚠'))
-  warn.appendChild(el('span', 'plan-warn-text', '计划待审'))
+  warn.appendChild(el('span', 'plan-warn-text', t('Plan review')))
   body.appendChild(warn)
   // 计划 Markdown：detail 直接展开全文（不复折叠），限高滚动。
   if (q.detail) {
@@ -4739,18 +4762,18 @@ function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
   const approve = q.intent?.approve
   const reject = q.options?.find((o) => o.label !== approve)?.label
   const actions = el('div', 'pending-actions plan-actions')
-  const ok = buttonEl('option-btn', approve ?? '确认执行')
+  const ok = buttonEl('option-btn', approve ?? t('Confirm and run'))
   ok.addEventListener('click', () => {
     ok.disabled = true
     submitPlanReview(p, approve ? [approve] : [])
   })
-  const no = buttonEl('secondary option-btn', reject ?? '拒绝')
+  const no = buttonEl('secondary option-btn', reject ?? t('Reject'))
   no.addEventListener('click', () => {
     no.disabled = true
     submitPlanReview(p, reject ? [reject] : [])
   })
-  const chat = buttonEl('secondary option-btn', '去聊天里说')
-  chat.title = '收起面板，直接在输入框里用自然语言回复'
+  const chat = buttonEl('secondary option-btn', t('Reply in chat'))
+  chat.title = t('Collapse the panel and reply in natural language in the input box')
   chat.addEventListener('click', () => {
     st.minimized = true
     render()
@@ -4772,17 +4795,17 @@ function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
  * 已允许 img-src data:，无需 objectURL）；加载失败回退为文件名 chip。
  */
 function pendingImageThumb(img: OutgoingImage, index: number): HTMLElement {
-  const name = img.name ?? '图片'
+  const name = img.name ?? t('Image')
   if (!isImageMediaType(img.mediaType)) return pendingImageFallback(img, index)
   const item = el('span', 'attach-thumb')
-  item.title = `${name}（点击预览）`
+  item.title = t('{0} (click to preview)', name)
   const dataUrl = attachmentDataUrl(img.mediaType, img.data)
   const image = document.createElement('img')
   image.src = dataUrl
   image.alt = name
   image.addEventListener('error', () => item.replaceWith(pendingImageFallback(img, index)))
   const remove = buttonEl('thumb-remove', '×')
-  remove.title = '移除图片'
+  remove.title = t('Remove image')
   remove.addEventListener('click', (e) => {
     e.stopPropagation()
     pendingImages.splice(index, 1)
@@ -4797,15 +4820,15 @@ function pendingImageThumb(img: OutgoingImage, index: number): HTMLElement {
 /** 缩略图不可用时的回退：原来的文件名 chip（保留点击预览与移除）。 */
 function pendingImageFallback(img: OutgoingImage, index: number): HTMLElement {
   const chip = el('span', 'image-chip')
-  const name = el('span', 'chip-name', img.name ?? '图片')
+  const name = el('span', 'chip-name', img.name ?? t('Image'))
   name.style.cursor = 'zoom-in'
-  name.title = '点击预览'
+  name.title = t('Click to preview')
   name.addEventListener('click', () => {
     openLightbox(attachmentDataUrl(img.mediaType, img.data))
   })
   chip.appendChild(name)
   const remove = buttonEl('chip-remove', '×')
-  remove.title = '移除图片'
+  remove.title = t('Remove image')
   remove.addEventListener('click', () => {
     pendingImages.splice(index, 1)
     render()
@@ -4823,10 +4846,10 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
   const name = el('span', 'chip-name', file.name)
   name.title = file.path
   chip.appendChild(name)
-  chip.title = `在 VS Code 中打开 ${file.path}`
+  chip.title = t('Open {0} in VS Code', file.path)
   chip.addEventListener('click', () => post({ type: 'openAttachmentFile', path: file.path }))
   const remove = buttonEl('thumb-remove', '×')
-  remove.title = '移除文件'
+  remove.title = t('Remove file')
   remove.addEventListener('click', (e) => {
     e.stopPropagation()
     pendingFiles.splice(index, 1)
@@ -4855,16 +4878,16 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   // 「当前模型不可用，请先选择模型」；与「服务未就绪」是两个独立维度。
   const modelAvailable = state?.modelAvailable !== false
   input.placeholder = !canSend
-    ? '服务未就绪，暂时无法发送'
+    ? t('Service is not ready; cannot send right now')
     : !modelAvailable
-      ? '当前模型不可用，请先选择模型'
+      ? t('Current model is unavailable; choose a model first')
       : recall?.kind === 'queue'
-        ? '正在修改排队消息，Enter 保存，Esc 取消'
+        ? t('Editing queued message; Enter saves, Esc cancels')
         : state?.running
-          ? '输入消息，Enter 排队发送，⌘Enter 立即插话，↑ 修改排队消息，Esc 打断'
+          ? t('Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts')
           : hero
-            ? '描述你想要构建的内容'
-            : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件，↑ 召回上一条'
+            ? t('Describe what you want to build')
+            : t('Type a message; Enter sends, Shift+Enter for newline, paste images/files, ↑ recalls the previous one')
   input.disabled = !canSend || !modelAvailable
   if (stashedDraft) {
     input.value = draft?.trim() ? `${draft.trimEnd()}\n${stashedDraft}` : stashedDraft
@@ -4878,7 +4901,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   // 发送走 Enter（官方同款交互，独立的「停止」文字按钮随之淘汰）。
   const running = !!state?.running
   const button = buttonEl('send-button', '')
-  const buttonLabel = running ? '停止' : recall?.kind === 'queue' ? '保存修改' : '发送'
+  const buttonLabel = running ? t('Stop') : recall?.kind === 'queue' ? t('Save changes') : t('Send')
   button.title = buttonLabel
   button.setAttribute('aria-label', buttonLabel)
   button.appendChild(iconSvg(running ? STOP_PRIMARY_ICON : SEND_ICON, 16))
@@ -4911,7 +4934,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     if (text === '/model' && !recall) {
       input.value = ''
       render()
-      const pill = document.querySelector<HTMLElement>('.input-footer .pill[title="模型"]')
+      const pill = document.querySelector<HTMLElement>('.input-footer .pill[data-role="model"]')
       if (pill) openModelMenu(pill)
       return
     }
@@ -5077,12 +5100,12 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
 
   const footer = el('div', 'input-footer')
   const addImage = buttonEl('pill', '+')
-  addImage.title = '添加附件（图片或文件）'
+  addImage.title = t('Add attachment (image or file)')
   addImage.disabled = !canSend
   addImage.addEventListener('click', () => post({ type: 'pickFiles' }))
   footer.appendChild(addImage)
   const commands = buttonEl('pill', '/')
-  commands.title = '命令'
+  commands.title = t('Commands')
   commands.disabled = !canSend
   commands.addEventListener('click', () => openCommandMenu(commands))
   footer.appendChild(commands)
@@ -5097,7 +5120,8 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       perm.appendChild(g)
     }
     perm.appendChild(el('span', undefined, current?.label ?? perms.current))
-    perm.title = '权限模式'
+    perm.dataset.role = 'perm'
+    perm.title = t('Permission mode')
     perm.disabled = !canSend
     perm.addEventListener('click', () => openPermissionMenu(perm))
     footer.appendChild(perm)
@@ -5108,8 +5132,8 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   const plan = state?.plan
   if (plan && (plan.pending ? !plan.active : plan.active)) {
     const chip = buttonEl('pill plan-chip', '')
-    chip.setAttribute('aria-label', 'plan mode 已开启，按下关闭')
-    chip.title = 'plan mode 已开启 — 点击关闭（/plan off）'
+    chip.setAttribute('aria-label', t('Plan mode is on; press to turn it off'))
+    chip.title = t('Plan mode is on — click to turn it off (/plan off)')
     chip.disabled = !canSend
     chip.appendChild(el('span', undefined, 'Plan'))
     const close = el('span', 'plan-chip-close')
@@ -5130,13 +5154,14 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     const preset = buttonEl('pill', '')
     preset.appendChild(presetIconSvg())
     preset.appendChild(el('span', 'label', current?.label ?? ap.current))
-    preset.title = current?.description ?? 'Agent 模式'
+    preset.title = current?.description ?? t('Agent mode')
     preset.disabled = !canSend
     preset.addEventListener('click', () => openAgentPresetMenu(preset))
     footer.appendChild(preset)
   }
-  const model = buttonEl('pill', state?.modelLabel ?? '选择模型')
-  model.title = '模型'
+  const model = buttonEl('pill', state?.modelLabel ?? t('Select model'))
+  model.dataset.role = 'model'
+  model.title = t('Model')
   model.disabled = !canSend
   model.addEventListener('click', () => openModelMenu(model))
   footer.appendChild(model)

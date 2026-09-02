@@ -30,7 +30,7 @@ import type {
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
 import type { SubagentCatalogStore } from './subagentsStore.ts'
-import { chatHtml } from './chatViewHtml.ts'
+import { chatHtml, loadWebviewL10n } from './chatViewHtml.ts'
 import { chatMessageHandlers } from './chatMessages.ts'
 
 /** Media type by file extension (dsh ImageMediaType: png/jpeg/webp/gif). */
@@ -220,7 +220,7 @@ export class ChatTabHost implements vscode.Disposable {
     // @deepseek-ai/dsh-web-frontend/dist/favicon.svg；iconPath 是宿主层行为，
     // 无需把 assets 加进 localResourceRoots）。
     panel.iconPath = vscode.Uri.joinPath(extensionUri, 'assets', 'dsh-favicon.svg')
-    panel.webview.html = chatHtml(panel.webview, extensionUri, this.tabId)
+    panel.webview.html = chatHtml(panel.webview, extensionUri, this.tabId, loadWebviewL10n(extensionUri))
     this.panel = panel
     // 消息按 tab 路由：闭包捕获本 host，动作落在自己的 controller 上，回复
     // 都 post 回本 tab 的 webview（互不串台）。

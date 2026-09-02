@@ -22,23 +22,26 @@ export interface AgentPresetOption {
   description?: string
 }
 
-/** 官方四个 system preset 的中文文案（对齐 dsh web 的本地化）。 */
+/** 官方四个 system preset 的文案 key（英文默认串；宿主过 vscode.l10n）。 */
 const SYSTEM_PRESET_LABELS: Record<string, { label: string; description: string }> = {
   standard: {
-    label: '标准模式',
-    description: '功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。',
+    label: 'Standard mode',
+    description:
+      'A full-featured coding agent: file editing, shell, file and web search, skills, plan, goals, subagents, and workflows.',
   },
   code: {
-    label: 'PTC 模式',
-    description: '具备标准模式的全部能力，并通过 Code Mode SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。',
+    label: 'PTC mode',
+    description:
+      'All standard capabilities, with tools exposed through the Code Mode SDK so the model composes multi-step operations in one TypeScript program.',
   },
   minimal: {
-    label: '极简模式',
-    description: '仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。',
+    label: 'Minimal mode',
+    description: 'A two-tool coding agent: persistent bash and str_replace_editor only.',
   },
   cordis: {
-    label: '创造模式',
-    description: '用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。',
+    label: 'Cordis mode',
+    description:
+      'For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.',
   },
 }
 
@@ -48,14 +51,21 @@ const SYSTEM_PRESET_LABELS: Record<string, { label: string; description: string 
  * label/description, everything else (user presets, unknown system ids) falls
  * back to the roster's own name/description, then to the bare id.
  */
-export function resolveAgentPresets(roster: readonly AgentPresetLike[]): AgentPresetOption[] {
+export function resolveAgentPresets(
+  roster: readonly AgentPresetLike[],
+  t: (s: string) => string = (s) => s,
+): AgentPresetOption[] {
   const options: AgentPresetOption[] = []
   for (const p of roster) {
     if (p.broken === true || typeof p.id !== 'string' || p.id === '') continue
     const known = p.trust === 'system' ? SYSTEM_PRESET_LABELS[p.id] : undefined
-    const label = known?.label ?? (typeof p.name === 'string' && p.name !== '' ? p.name : p.id)
+    const label = known ? t(known.label) : typeof p.name === 'string' && p.name !== '' ? p.name : p.id
     const description =
-      known?.description ?? (typeof p.description === 'string' && p.description !== '' ? p.description : undefined)
+      known?.description !== undefined
+        ? t(known.description)
+        : typeof p.description === 'string' && p.description !== ''
+          ? p.description
+          : undefined
     options.push({ id: p.id, label, ...(description ? { description } : {}) })
   }
   return options
@@ -74,8 +84,8 @@ export function defaultAgentPresetId(roster: readonly AgentPresetLike[]): string
  * roster 查找），本函数只在 roster 未就绪或 id 不在 roster 时兜底——session.list
  * 的 agentPreset 是裸 id，没有 trust，user preset 撞官方 id 的边角情况按官方名显示。
  */
-export function agentPresetLabel(id: string): string {
-  return SYSTEM_PRESET_LABELS[id]?.label ?? id
+export function agentPresetLabel(id: string, t: (s: string) => string = (s) => s): string {
+  return SYSTEM_PRESET_LABELS[id] ? t(SYSTEM_PRESET_LABELS[id].label) : id
 }
 
 /**
@@ -84,6 +94,9 @@ export function agentPresetLabel(id: string): string {
  * user preset 的描述只能查 roster（ChatSessionController.agentPresetDescriptionFor），
  * roster 未就绪时没有可兜底的文案。
  */
-export function agentPresetDescription(id: string): string | undefined {
-  return SYSTEM_PRESET_LABELS[id]?.description
+export function agentPresetDescription(
+  id: string,
+  t: (s: string) => string = (s) => s,
+): string | undefined {
+  return SYSTEM_PRESET_LABELS[id] ? t(SYSTEM_PRESET_LABELS[id].description) : undefined
 }

@@ -6,6 +6,7 @@
  */
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 
 export function nonce(): string {
   return crypto.randomBytes(16).toString('base64')
@@ -16,6 +17,25 @@ export function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+/**
+ * 当前 locale 的 webview 译文 map（JSON 串，注入 HTML）。key=英文默认串，
+ * 与宿主 l10n 的 bundle 同文件：非 en 语言读 l10n/bundle.l10n.<locale>.json
+ * （VS Code 对默认语言不加载 bundle，en 直接不注入，webview 用 key 本身）；
+ * 无对应文件/读失败时同样返回 null。locale 变化只能在窗口 reload 后生效：
+ * 面板重建时按当时 env.language 重新读，无需持久化。
+ */
+export function loadWebviewL10n(extensionUri: vscode.Uri): string | null {
+  const locale = vscode.env.language
+  if (!locale || locale === 'en') return null
+  const file = vscode.Uri.joinPath(extensionUri, 'l10n', `bundle.l10n.${locale}.json`)
+  try {
+    if (!existsSync(file.fsPath)) return null
+    return JSON.stringify(JSON.parse(readFileSync(file.fsPath, 'utf8')) as Record<string, string>)
+  } catch {
+    return null
+  }
 }
 const STYLE = `
   html, body { margin: 0; padding: 0; height: 100%; overscroll-behavior-y: none; }
@@ -1333,7 +1353,13 @@ const STYLE = `
   .hero #input:focus { outline: none; }
 `
 
-export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri, tabId: string): string {
+export function chatHtml(
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+  tabId: string,
+  /** JSON.stringify 过的当前 locale 译文 map（key=英文默认串）；null = 不注入（英文 key 即文案）。 */
+  l10nJson: string | null,
+): string {
   const n = nonce()
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'chatWebview.js'))
   // Same CSP discipline as ui/webview.ts: nonce-gated scripts, no remote resources.
@@ -1353,6 +1379,11 @@ export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri, tabI
 </head>
 <body>
 <div id="app" data-tab-id="${escapeHtml(tabId)}"></div>
+${
+  l10nJson === null
+    ? ''
+    : `<script nonce="${n}">window.__DSH_L10N__=${l10nJson.replace(/</g, '\\u003c')};</script>`
+}
 <script nonce="${n}" src="${escapeHtml(scriptUri.toString())}"></script>
 </body>
 </html>`

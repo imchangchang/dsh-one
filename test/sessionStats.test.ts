@@ -39,34 +39,34 @@ test('formatStatsLine renders the full line', () => {
     decodeMs: 30_000,
     decodeTokens: 990,
   })
-  assert.equal(line, '2 轮 · 16 步 ｜ LLM 48.3s · 工具调用 26.9s ｜ 首 token 平均 0.8s · 33 tok/s')
+  assert.equal(line, '2 turns · 16 steps ｜ LLM 48.3s · tool calls 26.9s ｜ avg first token 0.8s · 33 tok/s')
 })
 
 test('formatStatsLine omits segments whose denominator is zero', () => {
   // Only LLM time recorded: no tool segment, no speeds group at all.
   assert.equal(
     formatStatsLine({ ...zero, turns: 1, steps: 1, llmMs: 1500 }),
-    '1 轮 · 1 步 ｜ LLM 1.5s',
+    '1 turns · 1 steps ｜ LLM 1.5s',
   )
   // ttft without decode, and vice versa.
   assert.equal(
     formatStatsLine({ ...zero, turns: 1, steps: 2, ttftMs: 900, ttftSteps: 2 }),
-    '1 轮 · 2 步 ｜ 首 token 平均 0.5s',
+    '1 turns · 2 steps ｜ avg first token 0.5s',
   )
   assert.equal(
     formatStatsLine({ ...zero, turns: 1, steps: 1, decodeMs: 2000, decodeTokens: 9 }),
-    '1 轮 · 1 步 ｜ 4.5 tok/s',
+    '1 turns · 1 steps ｜ 4.5 tok/s',
   )
   // Durations group collapses when both wall times are zero.
   assert.equal(
     formatStatsLine({ ...zero, turns: 3, steps: 4, decodeMs: 1000, decodeTokens: 500 }),
-    '3 轮 · 4 步 ｜ 500 tok/s',
+    '3 turns · 4 steps ｜ 500 tok/s',
   )
 })
 
 test('formatStatsLine omits ttft when no step recorded a first token', () => {
   assert.equal(
     formatStatsLine({ ...zero, turns: 1, steps: 1, ttftMs: 5000 }),
-    '1 轮 · 1 步',
+    '1 turns · 1 steps',
   )
 })
