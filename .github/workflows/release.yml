@@ -2,6 +2,7 @@ name: Release
 
 # 发布构建：tag v<版本> push 触发。产物 = GitHub Release 上的 dsh-one-<版本>.vsix，
 # 上市场的 vsix 一律来自这里（本地不再打包，见 scripts/release-gate.sh 与 release-gate skill）。
+# 版本带 -rc.N（预发布）时 Release 标 prerelease（内测用，CHANGELOG 不动）；正式版 x.y.z 才上市场。
 # 三平台验证不需要在此重复：收口 commit 已随 main push 跑过 ci.yml 的三平台矩阵，
 # 本 workflow 在同一 commit（tag 指向）上做打包 + 验 vsix + 挂 Release。
 
@@ -42,6 +43,11 @@ jobs:
         run: |
           VER="${GITHUB_REF_NAME#v}"
           VSIX="dsh-one-${VER}.vsix"
+          # 预发布（-rc.N）标 prerelease：内测产物，不参与"最新版"排序，正式版才置顶。
+          PREARGS=()
+          if echo "$VER" | grep -qE -- '-rc\.[0-9]+$'; then
+            PREARGS+=(--prerelease)
+          fi
           # 幂等检查：Release 已存在说明同版本重复触发/占用。版本唯一（市场不可同版本重发），
           # 不覆盖——删掉该 Release 可重跑，或 bump 版本重走发布流程。
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
@@ -50,4 +56,4 @@ jobs:
           fi
           gh release create "$GITHUB_REF_NAME" "$VSIX" \
             --title "DSH One v${VER}" \
-            --generate-notes
+            --generate-notes "${PREARGS[@]}"

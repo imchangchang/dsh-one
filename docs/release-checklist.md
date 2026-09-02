@@ -4,6 +4,8 @@
 
 **验收对象 = GitHub Release 上的 `dsh-one-<版本>.vsix`，从 Releases 页下载，不本地打包**——本地打的包没有过门禁校验，版本/内容都可能对不上。
 
+预发布（版本带 `-rc.N`）与正式版同一套验收：rc 产物在 GitHub Release 标 **prerelease**（内测用，CHANGELOG [Unreleased] 未消费），**验收通过后发同核心正式版再收口**，此时正式版产物还需再验一遍再上市场——rc 验收通过 ≠ 正式版免验（版本号/内容都变了）。
+
 ```bash
 # 下载约定的 Release 产物（gh 已装可直接用；或在 GitHub Releases 页手动下载）
 gh release download v<版本> --repo imchangchang/dsh-one --pattern "dsh-one-<版本>.vsix" --dir /tmp/dsh-relcheck/
