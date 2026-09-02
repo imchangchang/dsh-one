@@ -7,7 +7,7 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { CONTEXT_BROWSE_ICON, CODE_ICON, FISH_LOGO, GOAL_ICONS, MESSAGE_ACTION_ICONS, PANEL_ICONS, SKILL_ICON, STOP_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
+import { AGENT_PRESET_ICON, CONTEXT_BROWSE_ICON, CODE_ICON, DSH_ONE_MARK, GOAL_ICONS, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, SKILL_ICON, STOP_ICON, STOP_PRIMARY_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
@@ -523,42 +523,9 @@ const SPIN_CELLS: ReadonlyArray<readonly [number, number]> = [
  * 官方 IconAgentPresetOutline16（dsh-client-ui-primitives）的逐元素复刻：
  * 圆环路径用 mask 在三个节点处镂空。IconDef 不支持 mask，故单独构建。
  */
+/** Agent preset 三环图标（官方 IconAgentPresetOutline16，14px）。 */
 function presetIconSvg(): SVGSVGElement {
-  const NS = 'http://www.w3.org/2000/svg'
-  const svg = document.createElementNS(NS, 'svg')
-  svg.setAttribute('width', '14')
-  svg.setAttribute('height', '14')
-  svg.setAttribute('viewBox', '0 0 16 16')
-  svg.setAttribute('fill', 'none')
-  const mask = document.createElementNS(NS, 'mask')
-  mask.setAttribute('id', 'preset-icon-mask')
-  const bg = document.createElementNS(NS, 'rect')
-  bg.setAttribute('width', '16')
-  bg.setAttribute('height', '16')
-  bg.setAttribute('fill', 'white')
-  mask.appendChild(bg)
-  for (const [cx, cy] of [
-    ['7.9995', '3.28319'],
-    ['3.51122', '11.3855'],
-    ['12.4878', '11.3855'],
-  ]) {
-    const c = document.createElementNS(NS, 'circle')
-    c.setAttribute('cx', cx)
-    c.setAttribute('cy', cy)
-    c.setAttribute('r', '1.712')
-    c.setAttribute('fill', 'black')
-    mask.appendChild(c)
-  }
-  svg.appendChild(mask)
-  const ring = document.createElementNS(NS, 'path')
-  ring.setAttribute('mask', 'url(#preset-icon-mask)')
-  ring.setAttribute(
-    'd',
-    'M12.2881 11.0425C12.6002 11.3723 13.0413 11.5786 13.5312 11.5786L13.5342 11.5776C13.1476 12.3233 12.6119 12.9785 11.9639 13.5005C10.9327 14.3309 9.6199 14.8286 8.19336 14.8286C7.29864 14.8285 6.45056 14.6313 5.6875 14.2808C6.08309 14.0281 6.36707 13.6189 6.45215 13.1392C6.99022 13.3561 7.57767 13.476 8.19336 13.4761C9.30019 13.4761 10.3157 13.0915 11.1152 12.4478C11.5935 12.0626 11.9924 11.5848 12.2881 11.0425ZM4.14746 4.36475C4.25569 4.83228 4.55488 5.2247 4.95898 5.4585C4.07956 6.30639 3.53144 7.49605 3.53125 8.81396C3.53125 9.69534 3.77613 10.5202 4.20117 11.2231C3.74959 11.3817 3.38395 11.7232 3.19531 12.1597C2.5541 11.2032 2.17969 10.052 2.17969 8.81396C2.17989 7.05087 2.93868 5.4646 4.14746 4.36475ZM8.19336 2.80029C8.85717 2.80029 9.49784 2.90834 10.0967 3.10791C12.3237 3.85044 13.9725 5.86061 14.1846 8.28369C13.9832 8.20048 13.7627 8.15382 13.5312 8.15381C13.2802 8.15381 13.042 8.20907 12.8271 8.30615C12.6281 6.47264 11.3666 4.95616 9.66895 4.39014C9.2063 4.236 8.70989 4.15186 8.19336 4.15186C7.96112 4.15189 7.7329 4.16981 7.50977 4.20264C7.51947 4.12886 7.52637 4.05348 7.52637 3.97705C7.52628 3.56604 7.3811 3.18914 7.13965 2.89404C7.48183 2.83352 7.83381 2.80033 8.19336 2.80029Z',
-  )
-  ring.setAttribute('fill', 'currentColor')
-  svg.appendChild(ring)
-  return svg
+  return iconSvg(AGENT_PRESET_ICON, 14)
 }
 
 /**
@@ -598,25 +565,6 @@ function spinSvg(): SVGSVGElement {
     rect.style.animationDelay = `${phase + (i - SPIN_CELLS.length) * 125}ms`
     svg.appendChild(rect)
   })
-  return svg
-}
-
-/**
- * 品牌鱼标 svg：官方 FishLogo 组件（dsh-client-ui-primitives）的镜像——
- * 宽度 size、高度按 17.04/23.16 等比，className 调用方给。
- */
-function fishLogoSvg(size: number, className: string): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', String(size))
-  svg.setAttribute('height', String((size * 17.04) / 23.16))
-  svg.setAttribute('viewBox', FISH_LOGO.viewBox ?? '0 0 23.16 17.04')
-  svg.setAttribute('fill', 'none')
-  svg.setAttribute('aria-hidden', 'true')
-  svg.classList.add(className)
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-  path.setAttribute('d', FISH_LOGO.paths[0] as string)
-  path.setAttribute('fill', 'currentColor')
-  svg.appendChild(path)
   return svg
 }
 
@@ -1384,6 +1332,59 @@ function patchStatsRow(composer: HTMLElement, statsLine: string | undefined, usa
   if (bar) patchContextBar(bar, usage)
 }
 
+/** 懒切换选中帧的就地 patch：hero preset chip 的文字随 pending 更新。 */
+function patchHeroPresetChip(
+  hero: HTMLElement,
+  agentPreset: ChatState['agentPreset'],
+): void {
+  const chips = hero.querySelector<HTMLElement>('.hero-chips')
+  if (!chips || !agentPreset) return
+  const current = agentPreset.options.find((o) => o.id === agentPreset.current)
+  let chip = chips.querySelector<HTMLButtonElement>('.hero-chip-preset')
+  if (!chip) {
+    // roster 就绪帧：之前渲染时 agentPreset 缺失（roster 未回）没建 chip，
+    // 签名不含 agentPreset 触发的是保活分支，这里补建（对齐 renderHero 的
+    // 渲染：图标 + label + chevron + 点击弹菜单）。
+    const fresh = buttonEl('hero-chip hero-chip-preset', '')
+    fresh.appendChild(presetIconSvg())
+    fresh.appendChild(el('span', 'label', current?.label ?? agentPreset.current))
+    const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
+    chev.classList.add('chevron')
+    fresh.appendChild(chev)
+    fresh.title = current?.description ?? 'Agent 模式'
+    fresh.disabled = !state?.canSend
+    fresh.addEventListener('click', () => openAgentPresetMenu(fresh, 'below'))
+    chips.appendChild(fresh)
+    chip = fresh
+    return
+  }
+  const label = chip.querySelector<HTMLElement>('.label')
+  if (label) {
+    const text = current?.label ?? agentPreset.current
+    if (label.innerText !== text) label.innerText = text
+  }
+  chip.title = current?.description ?? 'Agent 模式'
+}
+
+/** 懒切换选中帧的就地 patch：composer 权限 pill 的图标与文字随 pending 更新。 */
+function patchPermissionPill(
+  composer: HTMLElement,
+  permissions: ChatState['permissions'],
+): void {
+  if (!permissions) return
+  const pill = composer.querySelector<HTMLElement>('.input-footer .pill[title="权限模式"]')
+  if (!pill) return
+  const current = permissions.options.find((o) => o.value === permissions.current)
+  if (!current) return
+  const glyph = pill.querySelector<HTMLElement>('.glyph')
+  if (glyph) {
+    const g = PERMISSION_GLYPHS[current.value]
+    glyph.innerHTML = g ?? glyph.innerHTML // build-time constant, not user input
+  }
+  const label = pill.querySelector<HTMLElement>('span:not(.glyph)')
+  if (label && label.textContent !== current.label) label.textContent = current.label
+}
+
 /** Click-open panel next to the ring: occupancy figure plus the breakdown bars. */
 function openContextPanel(anchor: HTMLElement): void {
   const usage = state?.contextUsage
@@ -2020,12 +2021,10 @@ function render(): void {
     state?.sessionId ?? null,
     state?.canSend ?? false,
     state?.running ?? false,
-    state?.permissions ?? null,
     state?.modelLabel ?? null,
-    state?.agentPreset ?? null,
-    // workspaceLabel 刻意不进签名：懒切换的 pending 帧只改 chip 文字，composer
-    // 内容不变——进签名会整页重建 hero，焦点/IME 全断（见 hero 保活分支的
-    // 就地 patch）。
+    // agentPreset / permissions 刻意不进签名：懒切换的 pending 帧只改
+    // chip/pill 显示，composer 内容不变——进签名会整页重建 hero，焦点/IME
+    // 全断且鱼标动画重播（见 hero 保活分支与 keepComposer 的就地 patch）。
     state?.plan ?? null,
     recall ? (recall.kind === 'queue' ? `queue:${recall.itemId}` : recall.kind) : null,
     pendingImages.map((i) => i.name ?? ''),
@@ -2167,6 +2166,10 @@ function render(): void {
       if (wsLabel && wsLabel.innerText !== state.workspaceLabel) {
         wsLabel.innerText = state.workspaceLabel ?? ''
       }
+      // 同款就地 patch：preset chip（懒切换选中帧）与权限 pill（懒切换选中帧）
+      // 的文字；swap 不改签名，面板指针稳定（chip 是 popover 锚点）。
+      patchHeroPresetChip(oldHero, state.agentPreset)
+      patchPermissionPill(oldComposer, state.permissions)
       if (slashPopupEl && oldInput) positionSlashPopup(oldInput)
     } else {
       chatCol.appendChild(renderHero(state, draft))
@@ -2443,6 +2446,8 @@ function render(): void {
     // The composer element was never detached, so focus, caret, and any
     // in-flight IME composition survive; only patch the stats line in place.
     patchStatsRow(oldComposer, state.statsLine, state.contextUsage)
+    // 权限 pill 懒切换选中帧的就地 patch（permissions 不在 composerSig 里）。
+    patchPermissionPill(oldComposer, state.permissions)
   } else {
     chatCol.appendChild(renderInput(draft))
     // 本帧消费了恢复草稿，标志清零（pending 接管帧走不到这里，标志保留到
@@ -2544,21 +2549,20 @@ function render(): void {
 }
 
 /**
- * 空会话 hero（官方 dsh web 空态 HeroShell）：整列水平居中——品牌鱼标，
- * 标题「探索未至之境」+「预览版」徽章，其下 workspace 选择 chip（点击弹
- * WorkspacePicker）与 preset 选择 chip 行，再下是包成大圆角卡片的 composer
- * （样式见 chatView.ts 的 .hero）。
+ * 空会话 hero（官方 dsh web 空态 HeroShell 的本地变体）：整列水平居中——
+ * DSH One 像素鲸鱼 logo（品牌蓝，游动动画），其下 workspace 选择 chip
+ * （点击弹 WorkspacePicker）与 preset 选择 chip 行，再下是包成
+ * 大圆角卡片的 composer（样式见 chatView.ts 的 .hero）。不渲染官方
+ * hero 的「探索未至之境」标题与「预览版」徽章（用户要求去掉）。
  */
 function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
   const hero = el('div', 'hero')
   const stack = el('div', 'hero-stack')
-  // 品牌鱼标（官方 FishLogo SVG path，见 icons.ts 的 FISH_LOGO）+ 轻量
-  // 游动动画（纯 CSS transform，样式见 chatView.ts 的 .hero-fish）。
-  stack.appendChild(fishLogoSvg(56, 'hero-fish'))
-  const headline = el('div', 'hero-headline')
-  headline.appendChild(el('span', 'hero-headline-text', '探索未至之境'))
-  headline.appendChild(el('span', 'hero-badge', '预览版'))
-  stack.appendChild(headline)
+  // 品牌：DSH One 像素鲸鱼 logo + 轻量游动动画（纯 CSS transform，样式见
+  // chatView.ts 的 .hero-fish）。
+  const brand = el('div', 'hero-brand hero-fish')
+  brand.appendChild(iconSvg(DSH_ONE_MARK, 64))
+  stack.appendChild(brand)
   const chips = el('div', 'hero-chips')
   if (state.workspaceLabel) {
     // 官方此 chip 是 workspace 选择器（WorkspacePicker）：点击弹下拉——全部
@@ -2579,7 +2583,7 @@ function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
     // 从 composer 底部挪到 hero 的 preset 选择 chip（交互不变，仍弹下拉）。
     const ap = state.agentPreset
     const current = ap.options.find((o) => o.id === ap.current)
-    const preset = buttonEl('hero-chip', '')
+    const preset = buttonEl('hero-chip hero-chip-preset', '')
     preset.appendChild(presetIconSvg())
     preset.appendChild(el('span', 'label', current?.label ?? ap.current))
     const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
@@ -4710,8 +4714,21 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     input.value = draft
   }
 
-  const button = buttonEl('send-button', recall?.kind === 'queue' ? '保存' : '发送')
+  // 主按钮（对齐官方 InputBar primary）：无文字图标按钮——非运行显示发送
+  // 箭头，运行中同一按钮切换为停止方块（primaryStops），点击即 stop；排队
+  // 发送走 Enter（官方同款交互，独立的「停止」文字按钮随之淘汰）。
+  const running = !!state?.running
+  const button = buttonEl('send-button', '')
+  const buttonLabel = running ? '停止' : recall?.kind === 'queue' ? '保存修改' : '发送'
+  button.title = buttonLabel
+  button.setAttribute('aria-label', buttonLabel)
+  button.appendChild(iconSvg(running ? STOP_PRIMARY_ICON : SEND_ICON, 16))
   const updateButton = (): void => {
+    if (running) {
+      // 运行中主按钮=停止，stop 无前置条件（官方 disabled: stop === void 0）。
+      button.disabled = false
+      return
+    }
     button.disabled =
       !canSend ||
       !modelAvailable ||
@@ -4763,8 +4780,14 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     // 后续流式输出继续贴底（host 快照回来后 render 会按跟随态钉住）。
     pinToLatest()
   }
-  button.addEventListener('click', () => sendCurrent())
-  button.title = state?.running ? 'Enter 排队发送，⌘/Ctrl+Enter 立即插话' : ''
+  button.addEventListener('click', () => {
+    // 官方交互：运行中主按钮点击 = stop；否则发送。
+    if (state?.running) {
+      post({ type: 'stop' })
+      return
+    }
+    sendCurrent()
+  })
   input.addEventListener('keydown', (e) => {
     // Slash completion owns these keys while open: arrows navigate, Tab/Enter
     // complete, Escape dismisses (an Escape with no popup falls through).
@@ -4890,13 +4913,6 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   })
   updateButton()
   row.appendChild(input)
-  // While a turn runs, stop gets its own button; send stays available and
-  // queues the prompt (dsh mode 'queue').
-  if (state?.running) {
-    const stop = buttonEl('secondary stop-button', '停止')
-    stop.addEventListener('click', () => post({ type: 'stop' }))
-    row.appendChild(stop)
-  }
   row.appendChild(button)
   wrap.appendChild(row)
 

@@ -39,8 +39,18 @@
         u('把 store 改成 immutable 吧。'),
         aText('可以。把派生状态集中到 reducer，避免多处直接改 store 后渲染不一致。', [toolBlock({ detail: 'src/pure/sessionTree.ts' })]),
       ]),
+      session('sess-blank', 'Session session-', undefined, []),
     ]
     const byId = Object.fromEntries(store.map((s) => [s.sessionId, s]))
+    const PERMS = { options: [{ value: 'read-only', label: 'Read Only' }, { value: 'workspace-write', label: 'Workspace Write' }, { value: 'danger-full-access', label: 'Full access' }], current: 'workspace-write' }
+    const PRESETS = { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }
+    // 懒切换 pending（对齐真实宿主 ChatTabHost.pendingPresetId/pendingPermission）。
+    let pending = {} // { workspace?, preset?, permission? }
+    let turnStarted = false
+    // roster 就绪时序模拟（对齐真实宿主 refreshAgentPresets 异步拉取）：新建
+    // 会话后先未就绪（hero 无 preset chip），1s 后就绪推一帧（chip 由保活
+    // 分支补建）。
+    let rosterReady = true
 
     const wsMain = { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true, sessions: ['sess-1', 'sess-2'] }
     const wsUn = { workspaceId: UNGROUPED, path: '', label: '未分组', isCurrent: false, sessions: [] }
@@ -52,10 +62,15 @@
     const cur = () => byId[currentId]
 
     function stateOf(s) {
+      const perms = pending.permission ? { ...PERMS, current: pending.permission } : PERMS
+      const ap = !turnStarted && rosterReady && PRESETS
+        ? { ...PRESETS, current: pending.preset ?? PRESETS.current }
+        : undefined
       return {
         sessionId: s.sessionId, sessionTitle: s.sessionTitle, messages: s.messages,
         pending: [], running: !!s._running, canSend: !s._running,
         modelLabel: s.modelLabel, presetLabel: s.presetLabel, statsLine: `${s.messages.length} 条消息 · 45s`,
+        permissions: perms, ...(ap ? { agentPreset: ap } : {}),
       }
     }
     function workspaceViews() {
@@ -71,6 +86,7 @@
 
     // 单条 assistant 消息流式：先空文本，逐截增量，末尾追加工具卡 + complete。
     function startStream(sess, userText) {
+      turnStarted = true
       sess.messages.push(u(userText)); sess._running = true; pushState()
       const asst = { kind: 'assistant', id: rid('a'), complete: false, blocks: [{ type: 'text', text: '' }] }
       sess.messages.push(asst)
@@ -94,14 +110,27 @@
     const handlers = {
       // webview 脚本加载完成的报到：此时初次 push 可能已错过，重推当前快照。
       ready() { pushSession(); pushState() },
-      send(m) { if (typeof m.text === 'string' && m.text.trim()) startStream(cur(), m.text) },
+      send(m) {
+        // 懒切换落地（对齐真实宿主）：preset 落地、权限走命令节点、占位消息。
+        if (pending.preset) PRESETS.current = pending.preset
+        if (pending.permission) {
+          PERMS.current = pending.permission
+          cur().messages.push({ kind: 'command', id: rid('c'), text: `/permission ${pending.permission}` })
+        }
+        pending = {}
+        if (typeof m.text === 'string' && m.text.trim()) startStream(cur(), m.text)
+      },
       stop() { if (streamTimer) { clearInterval(streamTimer); streamTimer = null; cur()._running = false; const last = cur().messages.at(-1); if (last?.kind === 'assistant') last.complete = true; pushState() } },
       requestModels() { post({ type: 'modelCatalog', catalog: modelCatalog }) },
       setModel(m) { modelCatalog.current = { provider: 'deepseek', model: m.model, reasoningEffort: m.reasoningEffort }; cur().modelLabel = m.model; pushState() },
       sessionOpen(m) { if (byId[m.sessionId]) { currentId = m.sessionId; pushSession(); pushState() } },
-      sessionNew() { const id = rid('sess'); const s = session(id, '新会话', '标准模式', []); byId[id] = s; wsMain.sessions.unshift(id); currentId = id; pushSession(); pushState() },
+      sessionNew() { const id = rid('sess'); const s = session(id, '新会话', '标准模式', []); byId[id] = s; wsMain.sessions.unshift(id); currentId = id; rosterReady = false; pushSession(); pushState(); setTimeout(() => { rosterReady = true; pushState() }, 1000) },
       sessionRename(m) { const s = byId[m.sessionId]; if (s) s.sessionTitle = m.title; pushSession() },
       sessionArchive(m) { delete byId[m.sessionId]; wsMain.sessions = wsMain.sessions.filter((x) => x !== m.sessionId); if (currentId === m.sessionId) currentId = store[0].sessionId; pushSession(); pushState() },
+      // 懒切换（对齐真实宿主）：preset/权限点选只记 pending + 覆盖显示，不立即
+      // 执行；发送时落地（send handler 里先应用 pending 再看消息流变化）。
+      setAgentPreset(m) { pending = { preset: m.id }; pushState() },
+      setPermission(m) { pending = { ...pending, permission: m.value }; pushState() },
       sessionsRefresh() { pushSession() },
       sessionsSearch(m) { snap.query = m.query; pushSession() },
       sessionsSort(m) { snap.sortOrder = m.order; pushSession() },

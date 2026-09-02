@@ -1214,7 +1214,22 @@ const STYLE = `
     font-family: inherit; font-size: inherit; max-height: 160px;
   }
   #input:focus { outline: 1px solid var(--vscode-focusBorder); }
-  .send-button { flex: none; }
+  /* 主发送/停止按钮（对齐官方 InputBar primary，uV2eYG_primary）：34×34 圆形
+     图标按钮，品牌蓝底白图标，无文字；运行中同一按钮变停止（图标切换在
+     webview.ts 主按钮处）。颜色跟随 dsh web 官方 deepseek-400/500 对
+     （light: #4176e6/#679efe，dark: #679efe/#4176e6），VS Code 亮色主题
+     用 body.vscode-light 反显。 */
+  .send-button {
+    flex: none; width: 34px; height: 34px; padding: 0; border: 0;
+    border-radius: 999px; display: grid; place-items: center;
+    background: #4176e6; color: #fff; cursor: pointer;
+    transition: background-color .1s; transform: translateY(-2px);
+  }
+  .send-button:hover:not(:disabled) { background: #679efe; }
+  .send-button:disabled { opacity: .4; cursor: default; }
+  body.vscode-light .send-button { background: #679efe; }
+  body.vscode-light .send-button:hover:not(:disabled) { background: #4176e6; }
+  .send-button svg { display: block; }
   .msg-images { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   /* 消息图片缩略图复用 .attach-thumb 方图；加载中的占位方块居中省略号。 */
   .msg-thumb-loading {
@@ -1263,17 +1278,16 @@ const STYLE = `
     width: 100%; max-width: 780px; margin: 0 auto;
     display: flex; flex-direction: column; gap: 12px;
   }
-  .hero-headline {
-    display: flex; align-items: center; justify-content: center; gap: 10px;
-    color: var(--vscode-foreground);
-  }
-  /* 品牌鱼标（官方 FishLogo SVG）：居中、主题蓝色，左右缓游的轻量动画——
+  /* DSH One 品牌 logo（像素鲸鱼）：居中，左右缓游的轻量动画——
      只动 transform（合成层，不触发布局），空态加载零额外成本；
      prefers-reduced-motion 下静止。 */
   .hero-fish {
     align-self: center;
-    color: var(--vscode-textLink-foreground, #4da3ff);
+    color: #2563eb;
     animation: hero-fish-swim 4.8s ease-in-out infinite;
+  }
+  .hero-brand {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
   }
   @keyframes hero-fish-swim {
     0%, 100% { transform: translateX(-8px) rotate(-3deg); }
@@ -1281,15 +1295,6 @@ const STYLE = `
   }
   @media (prefers-reduced-motion: reduce) {
     .hero-fish { animation: none; }
-  }
-  .hero-headline-text { font-size: 26px; font-weight: 500; line-height: 32px; }
-  .hero-badge {
-    align-self: flex-start; margin-top: 4px; white-space: nowrap;
-    font-size: 12px; font-weight: 500; line-height: 18px; padding: 1px 7px 0;
-    border-radius: 24px;
-    color: var(--vscode-textLink-foreground, #4da3ff);
-    border: 1px solid var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
-    background: var(--vscode-editor-inactiveSelectionBackground, rgba(90,140,255,.12));
   }
   .hero-chips { display: flex; align-items: center; gap: 4px; padding-left: 8px; }
   .hero-chip {

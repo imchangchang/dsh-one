@@ -21,7 +21,7 @@ import * as vscode from 'vscode'
 import { randomUUID } from 'node:crypto'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
-import { createSession, ensureSession } from '../server/dshRpc.ts'
+import { createSession, ensureSession, executeCommand } from '../server/dshRpc.ts'
 import type { WorkspaceView } from '../server/dshRpc.ts'
 import type { ChatState, OutgoingImage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import { contextMenuResource } from '../pure/contextResource.ts'
@@ -103,6 +103,10 @@ export class ChatViewProvider implements vscode.Disposable {
       push: (host, state) => this.push(host, state),
       setPendingWorkspace: (host, workspaceId) => this.setPendingWorkspace(host, workspaceId),
       resolvePendingWorkspace: (host) => this.resolvePendingWorkspace(host),
+      setPendingPreset: (host, presetId) => this.setPendingPreset(host, presetId),
+      resolvePendingPreset: (host) => this.resolvePendingPreset(host),
+      setPendingPermission: (host, value) => this.setPendingPermission(host, value),
+      resolvePendingPermission: (host) => this.resolvePendingPermission(host),
       addWorkspaceAndOpen: (host) => this.addWorkspaceAndOpen(host),
       createWorkspaceAndOpen: (host) => this.createWorkspaceAndOpen(host),
     }
@@ -516,6 +520,19 @@ export class ChatViewProvider implements vscode.Disposable {
       !state.agentPreset && presetId !== undefined
         ? tab.controller?.agentPresetDescriptionFor(presetId)
         : undefined
+    // 懒切换的 preset/权限 pending 覆盖：chip/pill 显示选中的目标（未发送前
+    // 会话真实值不变，随 send/resolve 落地后由清标记恢复真实显示）。
+    const pendingPreset = tab.pendingPresetId
+      ? state.agentPreset && state.agentPreset.options.some((o) => o.id === tab.pendingPresetId)
+        ? { ...state.agentPreset, current: tab.pendingPresetId }
+        : state.agentPreset
+      : state.agentPreset
+    const pendingPermissions = tab.pendingPermission
+      ? state.permissions &&
+        state.permissions.options.some((o) => o.value === tab.pendingPermission)
+        ? { ...state.permissions, current: tab.pendingPermission }
+        : state.permissions
+      : state.permissions
     return {
       ...state,
       ...(subagents.length > 0 ? { subagents } : {}),
@@ -526,6 +543,8 @@ export class ChatViewProvider implements vscode.Disposable {
       ...(parentSession ? { parentSession } : {}),
       ...(presetLabel ? { presetLabel } : {}),
       ...(presetDescription ? { presetDescription } : {}),
+      ...(pendingPreset ? { agentPreset: pendingPreset } : {}),
+      ...(pendingPermissions ? { permissions: pendingPermissions } : {}),
     }
   }
 
@@ -623,6 +642,63 @@ export class ChatViewProvider implements vscode.Disposable {
     const ok = await this.openWorkspaceSession(workspace)
     if (!ok && host.controller) this.push(host, host.controller.getState())
     return ok
+  }
+
+  /**
+   * 空会话 hero 的 preset 懒切换（与 workspace 同模式）：只记录目标并重推
+   * state（chip 显示选中项），**不发 setAgentPreset RPC**——真正落地推迟到
+   * 发送时（resolvePendingPreset），让点击切换零等待、不打断 hero 布局。
+   * preset 不在会话列表（被删）或已与会话当前一致时取消。
+   */
+  setPendingPreset(host: ChatTabHost, presetId: string): void {
+    const ap = host.controller?.getState().agentPreset
+    host.pendingPresetId =
+      !ap || ap.current === presetId || !ap.options.some((o) => o.id === presetId)
+        ? null
+        : presetId
+    if (host.controller) this.push(host, host.controller.getState())
+  }
+
+  /** 发送前落地 pending preset：真正 setAgentPreset；失败只记日志不阻塞发送。 */
+  async resolvePendingPreset(host: ChatTabHost): Promise<void> {
+    const presetId = host.pendingPresetId
+    if (!presetId) return
+    host.pendingPresetId = null
+    const target = host.controller
+    if (!target) return
+    try {
+      await target.setAgentPreset(presetId)
+    } catch (err) {
+      this.logger.warn(`chat: resolvePendingPreset(${presetId}) failed — ${errorText(err)}`)
+    }
+  }
+
+  /**
+   * 权限模式懒切换：只记录目标并重推 state（pill 显示选中项），**不发
+   * /permission 命令**——真正落地推迟到发送时（resolvePendingPermission），
+   * 避免命令节点进消息流把空态 hero 变成消息流 tab。目标等于当前值时取消。
+   */
+  setPendingPermission(host: ChatTabHost, value: string): void {
+    const perms = host.controller?.getState().permissions
+    host.pendingPermission =
+      !perms || perms.current === value || !perms.options.some((o) => o.value === value)
+        ? null
+        : value
+    if (host.controller) this.push(host, host.controller.getState())
+  }
+
+  /** 发送前落地 pending 权限：执行 /permission 命令；失败只记日志不阻塞发送。 */
+  async resolvePendingPermission(host: ChatTabHost): Promise<void> {
+    const value = host.pendingPermission
+    if (!value) return
+    host.pendingPermission = null
+    const controller = host.controller
+    if (!controller) return
+    try {
+      await executeCommand(controller.url, controller.sessionId, `/permission ${value}`)
+    } catch (err) {
+      this.logger.warn(`chat: resolvePendingPermission(${value}) failed — ${errorText(err)}`)
+    }
   }
 
   /** hero picker「添加已有文件夹…」：复用 dshOne.workspace.add 命令（VSCode

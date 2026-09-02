@@ -26,11 +26,15 @@
 
 ### Changed
 
+- 空会话 hero 的 preset（Agent 模式）与权限模式切换改为**懒更新**（与 workspace 懒切换同模式）：点选只记录 pending 并就地更新 chip/pill 显示，**不发 RPC、不执行 /permission 命令**——真正 `setAgentPreset` / `/permission` 在发送时随消息一起落地。此前切换 preset 会触发 hero 整页重建（鲸鱼动画重播、chip 是 popover 锚点被换掉）；切换权限模式的 `/permission` 命令会直接写进消息流，把空态 hero 变成「输入过问题」的消息流 tab。修法：`agentPreset`/`permissions` 移出 composer 签名、hero 保活分支就地 patch（对齐 workspaceLabel 的既有做法）；`ChatTabHost` 增加 `pendingPresetId`/`pendingPermission`，由 `composeHeader` 覆盖显示、send handler 统一落地。
+
+- 聊天输入区的发送按钮对齐官方 dsh web（hero 空态与普通消息流一致）：文字「发送」按钮改为 34×34 圆形图标按钮（品牌蓝 `deepseek-400/500` 底、白色 16px 上箭头图标、无文字、disabled 半透明）；运行中同一按钮变停止方块图标（官方 primaryStops 交互），点击即停止——原来并排的独立「停止」文字按钮移除；排队发送仍走 Enter（⌘/Ctrl+Enter 插话）。图标取自官方 InputBar 主按钮内联 path（`IconSendOutline16` 发送箭头、`<rect rx=3>` 停止方块）。
+
 - 「发送到当前会话」右键菜单项改为 `DSH One: 发送到当前会话`（标题自带 DSH One 标识，右键菜单不显示 category，不加前缀看不出是谁的菜单）：编辑器/资源管理器菜单里的位置从最顶的 navigation 组移到中间独立分组 `2_dshOne`（与相邻分组自动以分割线隔开）；添加成功后的右下角提示移除（composer 里出现的附件 chip 本身就是反馈，不再弹 toast）。
 
 - 会话面板的 workspace 标识与 dsh web 融合：当前 VSCode 打开的 workspace 行尾标签从「当前」改为「vscode」（语义不变，只是标明"这个文件夹开在 VSCode 里"）；附着会话所在 workspace 的文件夹图标染 deepseek 蓝（对齐 dsh web 官方标识），折叠组同样生效，随附着会话切换实时跟随（复用 syncSessionHighlight 的免重建通道，凭组元素上的 workspaceId 回查快照模型）。
 
-- 空会话（还没有任何消息）的聊天区改为官方 dsh web 空态的居中排版（对齐 HeroShell + composer 卡片）：居中 hero 标题「探索未至之境」+「预览版」徽章（26px/500），其下一行 chip——只读 workspace 名（文件夹图标 + 名称，来自 workspace.list 基线；官方是可点开的选择器，我们没有更换 blank 会话所属 workspace 的链路，故只读）和 preset 选择 chip（从 composer 底部挪入，交互不变，下拉向下展开），再下是居中的大圆角 composer 卡片（max-width 780px 自适应收缩、22px 圆角、浮层底色、柔和双层阴影，placeholder 对齐官方「描述你想要构建的内容」，输入字号 16px/24px，附件/斜杠命令/权限/模型 pill/发送按钮功能不变）。一旦有了消息或 turn 进行中即恢复常规的消息流 + 底部 composer 布局；原「会话还没有消息」提示随之移除（被 hero 取代）。
+- 空会话（还没有任何消息）的聊天区改为官方 dsh web 空态的居中排版并做本地化定制：居中 DSH One 像素鲸鱼 logo（品牌蓝 #2563EB，约 64px，像素图形取自 assets/icon.svg，轻量游动动画；不用官方 dsh 的鲸鱼标）；无「探索未至之境」标题与「预览版」徽章（用户要求去掉）。其下一行 chip——workspace 名（文件夹图标 + 名称 + 可点开的选择器，来自 workspace.list 基线）和 preset 选择 chip（从 composer 底部挪入，交互不变，下拉向下展开），再下是居中的大圆角 composer 卡片（max-width 780px 自适应收缩、22px 圆角、浮层底色、柔和双层阴影，placeholder 对齐官方「描述你想要构建的内容」，输入字号 16px/24px）。一旦有了消息或 turn 进行中即恢复常规的消息流 + 底部 composer 布局；原「会话还没有消息」提示随之移除（被 hero 取代）。
 
 - 聊天头部样式逐项对齐官方 dsh web 会话头部：标题从 13px/600 改为 14px/20px/500（官方 crumbCurrent），头部 padding 加大（12px 12px 8px）、元素间距 8→10px；「N 个子代理」「N 个后台任务」chip 从徽章底色改为透明底小字（12px，descriptionForeground），文字版「⌄」换成官方 IconChevronDownOutline14 矢量图标，hover 只提亮文字不再整片变亮；只读 preset 标签改为独立的浅底胶囊（22px 高、圆角 6px、最大宽 160px 截断），前置官方 IconAgentPresetOutline16 三环图标（14px、70% 不透明度）。
 
