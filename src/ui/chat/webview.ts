@@ -7,7 +7,7 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { CONTEXT_BROWSE_ICON, CODE_ICON, DSH_ONE_MARK, GOAL_ICONS, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, SKILL_ICON, STOP_ICON, STOP_PRIMARY_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
+import { AGENT_PRESET_ICON, CONTEXT_BROWSE_ICON, CODE_ICON, DSH_ONE_MARK, GOAL_ICONS, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, SKILL_ICON, STOP_ICON, STOP_PRIMARY_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
@@ -523,42 +523,9 @@ const SPIN_CELLS: ReadonlyArray<readonly [number, number]> = [
  * 官方 IconAgentPresetOutline16（dsh-client-ui-primitives）的逐元素复刻：
  * 圆环路径用 mask 在三个节点处镂空。IconDef 不支持 mask，故单独构建。
  */
+/** Agent preset 三环图标（官方 IconAgentPresetOutline16，14px）。 */
 function presetIconSvg(): SVGSVGElement {
-  const NS = 'http://www.w3.org/2000/svg'
-  const svg = document.createElementNS(NS, 'svg')
-  svg.setAttribute('width', '14')
-  svg.setAttribute('height', '14')
-  svg.setAttribute('viewBox', '0 0 16 16')
-  svg.setAttribute('fill', 'none')
-  const mask = document.createElementNS(NS, 'mask')
-  mask.setAttribute('id', 'preset-icon-mask')
-  const bg = document.createElementNS(NS, 'rect')
-  bg.setAttribute('width', '16')
-  bg.setAttribute('height', '16')
-  bg.setAttribute('fill', 'white')
-  mask.appendChild(bg)
-  for (const [cx, cy] of [
-    ['7.9995', '3.28319'],
-    ['3.51122', '11.3855'],
-    ['12.4878', '11.3855'],
-  ]) {
-    const c = document.createElementNS(NS, 'circle')
-    c.setAttribute('cx', cx)
-    c.setAttribute('cy', cy)
-    c.setAttribute('r', '1.712')
-    c.setAttribute('fill', 'black')
-    mask.appendChild(c)
-  }
-  svg.appendChild(mask)
-  const ring = document.createElementNS(NS, 'path')
-  ring.setAttribute('mask', 'url(#preset-icon-mask)')
-  ring.setAttribute(
-    'd',
-    'M12.2881 11.0425C12.6002 11.3723 13.0413 11.5786 13.5312 11.5786L13.5342 11.5776C13.1476 12.3233 12.6119 12.9785 11.9639 13.5005C10.9327 14.3309 9.6199 14.8286 8.19336 14.8286C7.29864 14.8285 6.45056 14.6313 5.6875 14.2808C6.08309 14.0281 6.36707 13.6189 6.45215 13.1392C6.99022 13.3561 7.57767 13.476 8.19336 13.4761C9.30019 13.4761 10.3157 13.0915 11.1152 12.4478C11.5935 12.0626 11.9924 11.5848 12.2881 11.0425ZM4.14746 4.36475C4.25569 4.83228 4.55488 5.2247 4.95898 5.4585C4.07956 6.30639 3.53144 7.49605 3.53125 8.81396C3.53125 9.69534 3.77613 10.5202 4.20117 11.2231C3.74959 11.3817 3.38395 11.7232 3.19531 12.1597C2.5541 11.2032 2.17969 10.052 2.17969 8.81396C2.17989 7.05087 2.93868 5.4646 4.14746 4.36475ZM8.19336 2.80029C8.85717 2.80029 9.49784 2.90834 10.0967 3.10791C12.3237 3.85044 13.9725 5.86061 14.1846 8.28369C13.9832 8.20048 13.7627 8.15382 13.5312 8.15381C13.2802 8.15381 13.042 8.20907 12.8271 8.30615C12.6281 6.47264 11.3666 4.95616 9.66895 4.39014C9.2063 4.236 8.70989 4.15186 8.19336 4.15186C7.96112 4.15189 7.7329 4.16981 7.50977 4.20264C7.51947 4.12886 7.52637 4.05348 7.52637 3.97705C7.52628 3.56604 7.3811 3.18914 7.13965 2.89404C7.48183 2.83352 7.83381 2.80033 8.19336 2.80029Z',
-  )
-  ring.setAttribute('fill', 'currentColor')
-  svg.appendChild(ring)
-  return svg
+  return iconSvg(AGENT_PRESET_ICON, 14)
 }
 
 /**
