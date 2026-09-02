@@ -45,6 +45,7 @@ export interface ToolEventViewLike {
   for: 'call' | 'result'
   view: {
     card?: string
+    kind?: string
     title?: string
     description?: string
     cwd?: string
@@ -105,6 +106,22 @@ function textOfBlocks(content: Array<{ type: string; text?: unknown }> | undefin
     .filter((b) => b && (b.type === 'text' || b.type === 'reasoning') && typeof b.text === 'string')
     .map((b) => b.text as string)
     .join('\n')
+}
+
+/**
+ * 一次调用 view 声明产出/改写的文件路径（对齐官方 dsh-client-ui-deliverables
+ * 的 producedPaths，按渲染意图判定而非工具名）：diff 卡，或 card 为 generic
+ * 且 kind 为 edit（str_replace_editor 的 insert 呈现形态）的 locations。
+ * 其余卡片无产物可开——read 只是看了一眼，delete 已无文件可开，terminal 只是
+ * 跑命令。root 调用 view 才进累积；嵌套 Code Mode 派发不独立贡献。
+ */
+function producedPathsOf(view: ToolEventViewLike['view'] | undefined): string[] {
+  if (!view || typeof view.card !== 'string') return []
+  if (view.card === 'diff') return (view.locations ?? []).map((l) => l.path).filter((p): p is string => typeof p === 'string')
+  if (view.card === 'generic' && view.kind === 'edit') {
+    return (view.locations ?? []).map((l) => l.path).filter((p): p is string => typeof p === 'string')
+  }
+  return []
 }
 
 /**
@@ -212,6 +229,12 @@ export class ConversationFolder {
   private stepStreamed = false
   private openTurns = new Set<number>()
   private tools = new Map<string, ChatToolBlock>()
+  /** tool/call 时的 call view（按 callId；无 view 存 undefined 占位，结果不再补）。 */
+  private callViews = new Map<string, ToolEventViewLike['view'] | undefined>()
+  /** 按 turn 累积的产物条目（{seq, path}，path 首次出现去重），turn/end 时挂到消息。 */
+  private produced = new Map<number, Array<{ seq: number; path: string }>>()
+  /** 每个 turn 已累积过的 path（首次出现去重）。 */
+  private producedSeen = new Map<number, Set<string>>()
 
   /** Reset and fold a full history window (initial load / re-baseline). */
   applyHistory(entries: readonly HistoryEntryLike[]): void {
@@ -222,6 +245,9 @@ export class ConversationFolder {
     this.stepStreamed = false
     this.openTurns.clear()
     this.tools.clear()
+    this.callViews.clear()
+    this.produced.clear()
+    this.producedSeen.clear()
     for (const entry of entries) this.applyEvent(entry.event, entry.view)
   }
 
@@ -305,6 +331,13 @@ export class ConversationFolder {
           msg.turnEnd = true
           if (interrupted) msg.interrupted = true
           if (turnError) msg.turnError = turnError
+          // 产物（对齐官方 ProducedFiles）：本 turn 累积的路径，首次出现顺序，
+          // 只挂 turnEnd 消息；seq 晚于 turn/end 的迟交 tool/result 不参与。
+          const entries = this.produced.get(Number(data.turn))
+          if (entries) {
+            const paths = entries.filter((p) => p.seq <= event.seq).map((p) => p.path)
+            if (paths.length > 0) msg.producedFiles = paths
+          }
         }
         this.current = null
         this.stepKey = null
@@ -512,6 +545,10 @@ export class ConversationFolder {
       // 输入参数原样快照（模型原始 JSON 字符串），供工具卡展开显示 IN。
       args: data.arguments,
     }
+    // 产物累积的 call view 快照（对齐官方 deliverables 累积器：tool/result
+    // 回读的是 tool/call 时带的 call view，不是 result view；无 view 存
+    // undefined 占位，表示这次调用没有可开产物）。
+    this.callViews.set(data.callId, view?.for === 'call' ? view.view : undefined)
     if (view?.for === 'call') this.applyCallView(block, view.view)
     // todo_write 的事件 arguments 是模型原始 JSON 字符串（整表快照），比 host
     // 渲染 view 的 rawInput 更可靠；解析出 planSummary 供 webview 渲染任务卡。
@@ -543,6 +580,31 @@ export class ConversationFolder {
     if (view?.for === 'result') this.applyResultView(block, view.view)
     // meta 原样透传（cordis_define/run 卡的 pluginId/packageId/pluginRunId 来源）。
     if (data.meta !== undefined) block.meta = data.meta
+    // 产物累积（对齐官方 deliverables）：成功结果才贡献，路径来自 call 时
+    // 快照的 view（diff / generic+edit 卡的 locations），按 turn 去重保序。
+    if (block.status !== 'error') {
+      const turn = Number(data.turn)
+      if (Number.isFinite(turn)) {
+        const paths = producedPathsOf(this.callViews.get(callId))
+        if (paths.length > 0) {
+          let entries = this.produced.get(turn)
+          let seen = this.producedSeen.get(turn)
+          if (!entries) {
+            entries = []
+            this.produced.set(turn, entries)
+          }
+          if (!seen) {
+            seen = new Set()
+            this.producedSeen.set(turn, seen)
+          }
+          for (const path of paths) {
+            if (seen.has(path)) continue
+            seen.add(path)
+            entries.push({ seq, path })
+          }
+        }
+      }
+    }
     // A result paired to an earlier call skipped ensureAssistant; still bump seq.
     if (this.current) this.current.seq = seq
     return true

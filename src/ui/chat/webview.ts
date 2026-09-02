@@ -52,6 +52,7 @@ import {
 import { subagentInTree, subagentIdFromOutput } from '../../pure/subagentCard.ts'
 import { codeBlockPreview } from '../../pure/codeBlock.ts'
 import { alignDiffLines } from '../../pure/diffAlign.ts'
+import { producedBasename } from '../../pure/producedFiles.ts'
 import {
   formatJobDuration,
   isLiveJob,
@@ -1631,6 +1632,7 @@ function render(): void {
     workflowDisclosure.clear()
     jsonTreeOpen.clear()
     innerScrollPositions.clear()
+    producedOpen.clear()
   }
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
   const hadFocus = oldInput !== null && document.activeElement === oldInput
@@ -2456,6 +2458,12 @@ let detailsSession: string | null = null
 const jsonTreeOpen = new Map<string, boolean>()
 
 /**
+ * 产物行「+N 个文件」的展开态（key = 消息位置键，同 detailsOpen 约定）：
+ * 命中 = 展开显示全部 chip；换会话清空。
+ */
+const producedOpen = new Set<string>()
+
+/**
  * workflow 运行卡片的展开/折叠状态，按 runId（run 级）/ `${runId}:${phase.key}`
  * （phase 级）持久化——runId 跨分页稳定，loadEarlier 补页不会错位；与 detailsOpen
  * 一样在换会话时清空。
@@ -2656,6 +2664,10 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
   if (m.interrupted) row.appendChild(el('div', 'interrupted', '已中断'))
   if (m.turnError) row.appendChild(renderTurnError(m.turnError))
+  // 产物行（对齐 dsh web ProducedFiles 的 turn-tail 槽位）：在操作栏之前。
+  if (m.producedFiles && m.producedFiles.length > 0) {
+    row.appendChild(renderProducedFiles(m.producedFiles, `${key}:produced`))
+  }
   // Copy/feedback/fork attach only to the turn's final message (turnEnd): a
   // turn split by mid-turn injected user/messages folds into several complete
   // messages, and the bar must not repeat on each. Also meaningless on an
@@ -2818,6 +2830,48 @@ function assistantText(m: ChatAssistantMessage): string {
     .map((b) => (b as { text: string }).text)
     .filter(Boolean)
     .join('\n\n')
+}
+
+/** 最多六个 chip 竞争一行展示；其余路径只保留在计数里（对齐官方 SHOWN_LIMIT）。 */
+const PRODUCED_SHOWN_LIMIT = 6
+
+/**
+ * 产物行（对齐 dsh web ProducedFiles，比官方多一个展开交互）：label + 最多
+ * 6 个文件 chip（点击在 VSCode 编辑器打开该文件）；超出的部分折叠成
+ * 「+N 个文件」——点击展开全部 chip，展开后变「收起」（官方 web 是静态
+ * 计数不可展开，这里按用户验收反馈补上）。宽度自适应测量简化为固定上限。
+ */
+function renderProducedFiles(paths: string[], key: string): HTMLElement {
+  const expanded = producedOpen.has(key)
+  const row = el('div', 'produced-files')
+  row.appendChild(el('span', 'produced-label', '产物'))
+  const lane = el('div', 'produced-lane')
+  const shown = paths.slice(0, expanded ? paths.length : PRODUCED_SHOWN_LIMIT)
+  for (const path of shown) {
+    const chip = el('button', 'produced-file') as HTMLButtonElement
+    chip.type = 'button'
+    chip.title = path
+    chip.textContent = producedBasename(path)
+    chip.addEventListener('click', () => post({ type: 'producedOpenFile', path }))
+    lane.appendChild(chip)
+  }
+  if (paths.length > PRODUCED_SHOWN_LIMIT) {
+    // 折叠态显示「+N 个文件」，展开态显示「收起」；click 只更新持久化状态，
+    // 再同步 render() 按新状态重画（同 workflow 卡 toggle 的模式——终态
+    // snapshot 不再来，不补一次点击会像没反应）。
+    const toggle = el('button', 'produced-more') as HTMLButtonElement
+    toggle.type = 'button'
+    toggle.textContent = expanded ? '收起' : `+ ${paths.length - shown.length} 个文件`
+    toggle.title = expanded ? '收起全部产物 chips' : '展开全部产物文件'
+    toggle.addEventListener('click', () => {
+      if (expanded) producedOpen.delete(key)
+      else producedOpen.add(key)
+      render()
+    })
+    lane.appendChild(toggle)
+  }
+  row.appendChild(lane)
+  return row
 }
 
 /** Action row under a completed assistant message: copy / feedback / fork. */
