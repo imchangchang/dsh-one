@@ -40,3 +40,5 @@
 - 2026-09-02：认领（open → doing），worktree 开发中。
 
 - 2026-09-02：开发完成（doing → done），自测通过（typecheck/test/build），待人工 dev-ui-test 验收后合入。
+
+- 2026-09-02：dev-ui-test 反馈 .xlsx 链接报「binary」打不开，已补：文件存在但编辑器打不开时退化到系统默认应用打开（openFileInEditor 三处共用，链接/产物/附件行为统一）。
