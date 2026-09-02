@@ -50,7 +50,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 
 ## 发版流程
 
-1. **改 publisher**：`package.json` 的 `"publisher": "dsh-one"` 是占位，发布前必须改成你在 marketplace 的 publisher ID。
+1. **确认 publisher**：`package.json` 的 `"publisher"` 应是你要发布的 marketplace 账号（现为 `cgeng`），发布前确认即可，无需修改。
 2. 更新 `package.json` 的 `version` 和 `CHANGELOG.md`。
 3. `npm run typecheck && npm test && npm run package`，确认打出 `.vsix`。
 4. 登录与发布（PAT 来自 Azure DevOps，scope 要勾 Marketplace > Manage）：
