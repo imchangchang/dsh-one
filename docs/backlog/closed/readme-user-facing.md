@@ -33,3 +33,5 @@
 - 2026-09-02 认领 → doing
 
 - 2026-09-02 开发完成，自测通过（typecheck/336 test/build），done 标记 7b1d3ff → done
+
+- 2026-09-02 主线合入（e6daf73），复测通过（typecheck/336 test/build）→ closed
