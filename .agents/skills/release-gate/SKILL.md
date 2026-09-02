@@ -11,7 +11,8 @@ description: 发布 dsh-one 到 VS Code Marketplace 的完整操作与验收流�
 
 - **两个角色，两个子代理**：发布执行代理、独立验收代理。串行派发——先发布完成（收口 + tag + push），等 Actions 出 Release 产物，再派验收（验收对象 = GitHub Release 的 vsix）。
 - **验收代理不信任发布代理**：不采信发布报告，自动化校验全部自己重跑（dry-run 一致性 / 下载 Release 产物 unzip 验 vsix / git 验 tag）。
-- **版本号由调用方给定**（建议每次都 patch+1，首发 1.0.0），发布代理不擅自决定；`scripts/release-gate.sh --apply` 交互输入版本，子代理用 `echo "<版本>" | bash scripts/release-gate.sh --apply` 管道喂入。
+- **版本号由调用方给定**（正式版 patch+1；预发布 `x.y.z-rc.N` 内测用，首发 1.0.0），发布代理不擅自决定；`scripts/release-gate.sh --apply` 交互输入版本，子代理用 `echo "<版本>" | bash scripts/release-gate.sh --apply` 管道喂入。
+- **预发布（rc）与正式版是两步**：rc 只 bump package.json（CHANGELOG [Unreleased] 不消费），GitHub Release 标 prerelease，**不上市场**；内测通过后发同核心正式版（如 1.0.0-rc.1 → 1.0.0）才收口 CHANGELOG、才 vsce publish。
 - **构建产物一律来自 GitHub Actions**：`release.yml` 在 tag push 时打包 + 验 vsix + 挂 GitHub Release；本地不打包（release-gate.sh 已去掉打包段）。
 - **release-gate.sh 不跑 vsce publish**：发布动作永远由人执行，且用验收通过的那份（GitHub Release 下载的 vsix），不重打包。
 - **GUI 沙盒装机 headless 子代理做不了**（起不了 VSCode 窗口）：验收代理只做自动化核验 + 把 GUI 项整理成待人工清单，人工部分由调用方转交用户。
@@ -32,9 +33,9 @@ description: 发布 dsh-one 到 VS Code Marketplace 的完整操作与验收流�
 ```
 你是发布执行代理。目标：在 <仓库路径>（main，工作树干净）把当前版本发布为 <新版本号>。严格按脚本输出行事，任何一步报错就停下报告，不要绕过校验。
 - 用 bash 执行：echo "<新版本号>" | bash scripts/release-gate.sh --apply
-- 第一遍：脚本会 bump package.json version → <新版本号>、把 CHANGELOG [Unreleased] 收口成 [<新版本号>]，然后停下。git diff 确认只改了这两个文件，然后提交（只提交这两个文件）：
+- 第一遍：脚本会 bump package.json version → <新版本号>，然后停下。正式版同时把 CHANGELOG [Unreleased] 收口成 [<新版本号>]；预发布（<新版本号> 含 -rc.）不消费 CHANGELOG。git diff 确认改动范围（正式版 = package.json + CHANGELOG.md；rc = 只 package.json），然后提交：
   git add package.json CHANGELOG.md && git commit -m "release: v<新版本号>"
-- 第二遍：重跑同一命令。脚本会校验工作树干净并打 annotated tag v<新版本号>（== HEAD）。
+- 第二遍：scripts/release-gate.sh --tag 打 annotated tag v<新版本号>（== HEAD）。
 - 然后 push 触发构建：
   git push origin main && git push origin v<新版本号>
 - 等 .github/workflows/release.yml 跑完（gh run watch 或 gh run list），确认 GitHub Release v<新版本号> 出现 dsh-one-<新版本号>.vsix：
@@ -62,7 +63,7 @@ Release 产出后。prompt 模板：
 ### 3. 人工部分（调用方转交用户）
 
 - 把验收代理生成的「待人工验收清单」+ 沙盒安装命令转交用户，按 `docs/release-checklist.md` 在真实终端完成沙盒装机验收（未装 dsh 降级 / 定位启动 / webview / 收养实例 / 进程回收 / 命令抽查）和 README 与版本确认。
-- 全部通过后由人执行 `npx vsce login <publisher>` + `npx vsce publish dsh-one-<新版本号>.vsix`，上传的是 Release 下载的那份。
+- **rc 到这里就结束**（内测用，不上市场）；正式版全部通过后由人执行 `npx vsce login <publisher>` + `npx vsce publish dsh-one-<新版本号>.vsix`，上传的是 Release 下载的那份。
 
 ## 交接物
 
@@ -73,4 +74,4 @@ vsix 下载路径（GitHub Release）/ 版本号 / tag commit / Release URL / �
 - 两个子代理串行派发，不要并行——验收依赖 Release 产物。
 - 验收代理重跑 dry-run 不写任何文件，安全；`gh release download` 只写 /tmp，不动仓库。
 - 发布/验收都作用于真实仓库（通常是 main），不是 worktree；子代理是 headless 的，GUI 步骤一律交给用户。
-- 验收不通过：不 bump 重发（市场同版本不可重发），而是修 bug → bump patch+1 → 重走本流程；已建的 Release v<旧版本> 保留作历史，别删。
+- 验收不通过：正式版不 bump 重发（市场同版本不可重发），修 bug → bump patch+1 → 重走本流程；**rc 不通过则可以 bump rc.N（如 1.0.0-rc.1 → rc.2）重新出内测版**；已建的 Release v<旧版本> 保留作历史，别删。
