@@ -337,5 +337,14 @@
   "Starting the DSH service…": "Starting the DSH service…",
   "Unknown or malformed command: {0}": "Unknown or malformed command: {0}",
   "dsh startup timed out ({0}s)\\n{1}": "dsh startup timed out ({0}s)\\n{1}",
-  "dsh exited early\\n{0}": "dsh exited early\\n{0}"
+  "dsh exited early\\n{0}": "dsh exited early\\n{0}",
+  "Select multiple": "Select multiple",
+  "Archive {0} selected": "Archive {0} selected",
+  "Archive {0} session?": "Archive {0} session?",
+  "Archive {0} sessions?": "Archive {0} sessions?",
+  "Archived sessions will be hidden from the list.": "Archived sessions will be hidden from the list.",
+  "Archiving…": "Archiving…",
+  "Selection applies to current search results": "Selection applies to current search results",
+  "Failed to archive {0} session(s): {1}": "Failed to archive {0} session(s): {1}",
+  "Other sessions": "Other sessions"
 }

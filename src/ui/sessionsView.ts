@@ -70,6 +70,76 @@ const SESSIONS_STYLE = `
   @keyframes dsh-tool-spin { to { transform: rotate(360deg); } }
   .sessions-tool:disabled { opacity: 0.5; cursor: default; }
   .sessions-list { flex: 1; overflow-y: auto; padding: 2px 0; }
+  /* 多选归档模式的顶部操作条：搜索框下、第一个工作区上。 */
+  .selection-bar {
+    flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .selection-bar button { padding: 3px 10px; font-size: 12px; }
+  /* 复选框（会话行/组头共用）：自绘外观，indeterminate 画横线。 */
+  .select-checkbox {
+    flex: none; width: 16px; height: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .select-checkbox input {
+    appearance: none; -webkit-appearance: none; margin: 0; padding: 0;
+    width: 14px; height: 14px; box-sizing: border-box; display: block; position: relative;
+    border: 1px solid var(--vscode-checkbox-border, rgba(127,127,127,.6));
+    border-radius: 4px; background: var(--vscode-checkbox-background, transparent);
+    cursor: pointer;
+  }
+  .select-checkbox input:hover:not(:disabled) { border-color: var(--vscode-focusBorder, #5686fe); }
+  .select-checkbox input:checked,
+  .select-checkbox input:indeterminate {
+    background: var(--vscode-charts-blue, #5686fe); border-color: var(--vscode-charts-blue, #5686fe);
+  }
+  .select-checkbox input:checked::after {
+    content: ''; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px;
+    border: solid #fff; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg);
+  }
+  .select-checkbox input:indeterminate::after {
+    content: ''; position: absolute; left: 3px; top: 6px; width: 6px; height: 1.5px; background: #fff;
+  }
+  .select-checkbox input:disabled { opacity: .35; cursor: default; }
+  /* 多选模式：行首让位给复选框（原 12px 左内边距收窄）。 */
+  .session-row.selection-mode { padding-left: 4px; }
+  /* 批量归档确认弹窗：面板内 modal（vscode.window 弹窗放不了树形富内容）。 */
+  .selection-modal-overlay {
+    position: fixed; inset: 0; z-index: 30;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.35);
+  }
+  .selection-modal {
+    width: min(440px, 92vw); max-height: 70vh; display: flex; flex-direction: column;
+    background: var(--vscode-editor-background, var(--vscode-menu-background));
+    color: var(--vscode-foreground);
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.2);
+  }
+  .selection-modal-title { padding: 12px 14px 4px; font-size: 13px; font-weight: 600; }
+  .selection-modal-desc { padding: 0 14px; font-size: 11px; opacity: .7; }
+  /* 树形分组列表：flex:1 + min-height:0 + overflow 自适应，展开也不超屏。 */
+  .selection-modal-tree {
+    flex: 1; min-height: 0; overflow-y: auto; margin: 8px 8px 0; padding: 4px;
+    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.2));
+  }
+  .modal-group { margin-bottom: 2px; }
+  .modal-group-head {
+    display: flex; align-items: center; gap: 6px; padding: 5px 6px;
+    border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  .modal-group-head:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
+  .modal-group-arrow { flex: none; width: 10px; height: 10px; color: var(--vscode-descriptionForeground, #888); transition: transform .12s ease; }
+  .modal-group:not(.collapsed) .modal-group-arrow { transform: rotate(90deg); }
+  .modal-group-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .modal-group-count { flex: none; font-size: 11px; font-weight: 400; opacity: .65; }
+  .modal-group.collapsed .modal-group-list { display: none; }
+  .modal-session { display: flex; align-items: baseline; gap: 8px; padding: 2px 6px 2px 26px; font-size: 12px; }
+  .modal-session-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .modal-session-time { flex: none; font-size: 11px; opacity: .55; }
+  .selection-modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px 12px; }
+  .selection-modal-actions button { padding: 4px 12px; font-size: 12px; }
   .workspace-row {
     display: flex; align-items: center; gap: 6px; padding: 0 10px;
     height: 32px; box-sizing: border-box; overflow: hidden;
@@ -381,6 +451,23 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       case 'sessionArchive':
         void vscode.commands.executeCommand('dshOne.session.archive', m.sessionId, m.title)
         return
+      // 批量归档（多选模式）：确认框在 webview 内，宿主直接执行并把失败 id
+      // 回传（archiveManyDone），面板据此保留失败项勾选或退出多选模式。
+      case 'sessionArchiveMany': {
+        void (async () => {
+          const ids = Array.isArray(m.sessionIds) ? m.sessionIds.filter((x): x is string => typeof x === 'string') : []
+          if (ids.length === 0) return
+          let failed: string[] = ids
+          try {
+            const result = await vscode.commands.executeCommand<unknown>('dshOne.session.archiveMany', ids)
+            failed = Array.isArray(result) ? result.filter((x): x is string => typeof x === 'string') : []
+          } catch {
+            // 命令整体失败（如基线刷新抛错）：全部保留勾选，让用户重试。
+          }
+          this.view?.webview.postMessage({ type: 'archiveManyDone', failed })
+        })()
+        return
+      }
       case 'sessionFork':
         void vscode.commands.executeCommand('dshOne.session.fork', m.sessionId)
         return

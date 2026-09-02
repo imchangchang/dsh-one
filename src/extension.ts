@@ -222,6 +222,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Archiving an opened chat session closes its tab (per-session).
       chatView.closeSession(sessionId)
     }),
+    // 批量归档（多选模式）：确认框已在 sessions webview 内展示，这里不再弹
+    // 确认，直接循环归档；返回失败 id 列表供面板保留勾选重试。
+    vscode.commands.registerCommand('dshOne.session.archiveMany', async (sessionIds?: unknown) => {
+      const url = sessions.runningUrl
+      const ids = Array.isArray(sessionIds) ? sessionIds.filter((x): x is string => typeof x === 'string' && x !== '') : []
+      if (!url || ids.length === 0) return []
+      const failed: string[] = []
+      const succeeded: string[] = []
+      for (const sessionId of ids) {
+        try {
+          await archiveSession(url, sessionId)
+          succeeded.push(sessionId)
+        } catch {
+          failed.push(sessionId)
+        }
+      }
+      if (succeeded.length > 0) {
+        await sessions.refresh()
+        for (const sessionId of succeeded) chatView.closeSession(sessionId)
+      }
+      if (failed.length > 0) {
+        const sample = failed.slice(0, 3).map((id) => id.slice(0, 8)).join(', ')
+        vscode.window.showWarningMessage(
+          vscode.l10n.t('Failed to archive {0} session(s): {1}', failed.length, sample),
+        )
+      }
+      return failed
+    }),
     vscode.commands.registerCommand('dshOne.session.fork', async (arg?: unknown) => {
       const url = sessions.runningUrl
       const sessionId = resolveSessionArg(arg, chatView)

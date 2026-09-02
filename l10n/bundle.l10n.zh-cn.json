@@ -337,5 +337,14 @@
   "Starting the DSH service…": "正在启动 dsh 服务…",
   "Unknown or malformed command: {0}": "未知或格式错误的命令:{0}",
   "dsh startup timed out ({0}s)\\n{1}": "dsh 启动超时（{0} 秒）\\n{1}",
-  "dsh exited early\\n{0}": "dsh 启动即退出\\n{0}"
+  "dsh exited early\\n{0}": "dsh 启动即退出\\n{0}",
+  "Select multiple": "选择多个",
+  "Archive {0} selected": "归档选中的 {0} 个会话",
+  "Archive {0} session?": "确认归档 {0} 个会话？",
+  "Archive {0} sessions?": "确认归档 {0} 个会话？",
+  "Archived sessions will be hidden from the list.": "归档后会从列表中隐藏。",
+  "Archiving…": "正在归档…",
+  "Selection applies to current search results": "勾选仅作用于当前筛选结果",
+  "Failed to archive {0} session(s): {1}": "归档 {0} 个会话失败：{1}",
+  "Other sessions": "其他会话"
 }
