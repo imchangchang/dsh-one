@@ -70,6 +70,7 @@ import {
   USER_SCROLL_INTENT_MS,
   archiveScrollPosition,
   isAtBottom,
+  isProgramScrollEcho,
   isScrollKey,
   reconcileScrollPinning,
   restoreScrollTarget,
@@ -128,6 +129,14 @@ let stickToBottom = true
  * without any user gesture.
  */
 let pinnedScrollTop: number | null = null
+/** 最近一次程序写 `messages.scrollTop` 的时间戳（performance.now() 单调时钟）。
+ *  写后更新，scroll 监听用它把「自己写出来的回声事件」从滚动活动锁里剔除——
+ *  否则程序 pin 的 scroll 事件把 lastScrollActivityAt 刷新，锁掉下次补 pin，
+ *  视口脱底 → 120ms 后 settle 吸回，形成周期脉冲。 */
+let programPinAt = 0
+function markProgramPin(): void {
+  programPinAt = performance.now()
+}
 /**
  * Per-session 滚动存档：每个会话记住自己最后的位置（贴底记 atBottom，
  * 翻历史记 scrollTop），换会话时先存档旧会话、再按新会话存档恢复——
@@ -203,6 +212,7 @@ function maybeSettlePin(): void {
   if (!shouldSettlePinNow(stickToBottom, userScrollIntentActive(), isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight), scrollActiveRecently())) return
   messages.scrollTop = messages.scrollHeight
   pinnedScrollTop = messages.scrollTop
+  markProgramPin()
   const jump = messages.querySelector<HTMLElement>('.jump-latest')
   if (jump) jump.style.display = 'none'
 }
@@ -220,6 +230,7 @@ function pinToLatest(): void {
   messages.scrollTop = messages.scrollHeight
   stickToBottom = isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight)
   pinnedScrollTop = messages.scrollTop
+  markProgramPin()
 }
 
 // Scrollbar drags dispatch no events to the page between pointerdown and
@@ -2144,6 +2155,24 @@ function render(): void {
     // follow state was still false — correct that one direction (fixes a
     // stale "回到最新" floater), but never set false on a programmatic scroll.
     messages.addEventListener('scroll', () => {
+      // 程序 pin 写的回声 scroll 事件：距上次程序写 ≤ SETTLE_IDLE_MS、无用户滚动意图、
+      // 且实际位置与程序写后的目标一致（±1 抵消取整），判为「自己写出来的回声」——
+      // 直接忽略，别让它进滚动活动锁。否则程序 pin 的 scroll 事件刷新了滚动活动时间戳，
+      // 锁掉 SETTLE_IDLE_MS 内的下次补 pin → 视口脱底一帧增量 → 120ms 后 settle 吸回，
+      // 形成「脱底→吸回」周期脉冲。用户滚动的 scroll 事件位置 ≠ pinnedScrollTop 或
+      // 意图活跃（wheel/touch/键盘意图窗口内），不会命中，照常记账。
+      if (
+        isProgramScrollEcho(
+          performance.now(),
+          programPinAt,
+          pinnedScrollTop,
+          messages.scrollTop,
+          userScrollIntentActive(),
+          SETTLE_IDLE_MS,
+        )
+      ) {
+        return
+      }
       // 任何 scroll（含回归动画的 scroll 事件流）都算滚动活动：更新 idle 时间戳并
       // 重排 debounce——动画期间 debounce 被反复推迟，真正停滚动才可能 settle 补 pin。
       noteScrollActivity()
@@ -2230,6 +2259,8 @@ function render(): void {
   jump.addEventListener('click', () => {
     stickToBottom = true
     messages.scrollTop = messages.scrollHeight
+    pinnedScrollTop = messages.scrollTop
+    markProgramPin()
     jump.style.display = 'none'
   })
   messages.appendChild(jump)
@@ -2304,11 +2335,18 @@ function render(): void {
   const prepended =
     landed !== null && (state.messages.length > landed.count || state.messages[0]?.id !== landed.firstId)
   // 恢复/补偿路径（换会话恢复历史位置、加载更早、非贴底跳转）同步写：它们是
-  // 用户明确动作，不涉及「抢原生惯性动画」，也无需等布局 settle。
-  if (restoreScrollTop !== null) messages.scrollTop = restoreScrollTop
-  else if (!switchingSession && prevScrollTop !== null && prepended && prevScrollHeight !== null) {
+  // 用户明确动作，不涉及「抢原生惯性动画」，也无需等布局 settle。写 scrollTop 的
+  // 分支同样标记程序 pin，让滚动监听把它的回声事件从活动锁里剔除。
+  if (restoreScrollTop !== null) {
+    messages.scrollTop = restoreScrollTop
+    markProgramPin()
+  } else if (!switchingSession && prevScrollTop !== null && prepended && prevScrollHeight !== null) {
     messages.scrollTop = prevScrollTop + (messages.scrollHeight - prevScrollHeight)
-  } else if (!switchingSession && prevScrollTop !== null) messages.scrollTop = prevScrollTop
+    markProgramPin()
+  } else if (!switchingSession && prevScrollTop !== null) {
+    messages.scrollTop = prevScrollTop
+    markProgramPin()
+  }
   // 内部滚动容器（展开的 IN/OUT、指令卡、JSON 树、todo 清单）在新 DOM 上恢复位置。
   // 换会话时不恢复：存档已随 detailsOpen 一起清空，旧会话位置对新内容无意义。
   if (!switchingSession) restoreInnerScroll(chatCol)
@@ -2338,8 +2376,10 @@ function render(): void {
       if (!shouldSettlePinNow(stickToBottom, userScrollIntentActive(), isAtBottom(m.scrollHeight, m.scrollTop, m.clientHeight), scrollActiveRecently())) return
       m.scrollTop = m.scrollHeight
       // 写回程序滚动锁：下一帧 render 头部拿它跟实时位置对比以区分用户滚动，
-      // pin 得靠它避免自己被误判为用户滚离。
+      // pin 得靠它避免自己被误判为用户滚离。同时记录程序 pin 时间戳，滚动监听
+      // 据此把本次写触发的回声 scroll 事件从活动锁里剔除。
       pinnedScrollTop = m.scrollTop
+      markProgramPin()
     })
   }
   // 内容已按新会话重建落地，容器归属切换到新会话（loading 帧不动它，
