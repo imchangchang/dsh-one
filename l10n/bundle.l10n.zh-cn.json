@@ -335,5 +335,7 @@
   "First use downloads the Node.js runtime and dsh; please wait.": "首次使用需下载 Node.js 运行时和 dsh，请稍候。",
   "Start": "启动",
   "Starting the DSH service…": "正在启动 dsh 服务…",
-  "Unknown or malformed command: {0}": "未知或格式错误的命令:{0}"
+  "Unknown or malformed command: {0}": "未知或格式错误的命令:{0}",
+  "dsh startup timed out ({0}s)\\n{1}": "dsh 启动超时（{0} 秒）\\n{1}",
+  "dsh exited early\\n{0}": "dsh 启动即退出\\n{0}"
 }

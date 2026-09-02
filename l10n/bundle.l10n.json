@@ -335,5 +335,7 @@
   "First use downloads the Node.js runtime and dsh; please wait.": "First use downloads the Node.js runtime and dsh; please wait.",
   "Start": "Start",
   "Starting the DSH service…": "Starting the DSH service…",
-  "Unknown or malformed command: {0}": "Unknown or malformed command: {0}"
+  "Unknown or malformed command: {0}": "Unknown or malformed command: {0}",
+  "dsh startup timed out ({0}s)\\n{1}": "dsh startup timed out ({0}s)\\n{1}",
+  "dsh exited early\\n{0}": "dsh exited early\\n{0}"
 }
