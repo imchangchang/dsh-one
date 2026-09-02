@@ -95,3 +95,5 @@ cd /Users/cgeng/Workspaces/dsh-one/.worktrees/workspace-picker-blank-session && 
 - **webview 零重建**：`composerSig` 移除 workspaceLabel（pending 帧只改 chip 文字，不进 composer 签名）；hero 保活分支就地 patch workspace chip 文字（草稿、焦点、IME 不中断）；picker 行点击不再拦截当前项（统一 post，宿主判断取消）。
 
 人工验收补充：点 workspace 行即刻无等待地变成目标名（页面零重建、输入框草稿/焦点不动）；点其他 workspace 再点回当前（或点当前显示项）= 取消恢复原 chip；输入文字点发送后才发生切换并在新会话发出消息；选 preset 后发送，preset 生效于目标会话。
+
+- 2026-09-02 主线合入（merge 47d161f）并回归通过（typecheck + 298 test + build 全绿），人工 dev-ui-test 验收通过 → closed
