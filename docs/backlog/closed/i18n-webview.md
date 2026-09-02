@@ -37,6 +37,7 @@
 - 2026-09-02 补充核实（201 处中文字面量、bundle 现状、注入点），范围调整为「通道 + 基础设施 + webview.ts 存量替换」→ 认领 → doing
 - 2026-09-02 开发完成，自测通过（typecheck + 336 test + build）→ done
 - 2026-09-02 用户 visual 验收发现侧栏漏翻：补做侧栏 sessionsWebview 通道 + pure 模块共享文案（ac1b952），复跑自测 → done
+- 2026-09-02 主线合入（f7cabef），人工验收通过（中文/英文环境侧栏均符合预期）→ closed
 
 ## 开发完成（2026-09-02，worktree agent/i18n-webview）
 
