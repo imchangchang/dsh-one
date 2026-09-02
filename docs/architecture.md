@@ -15,7 +15,7 @@ dsh-one/
 │   ├── log.ts              # 输出通道日志，写入前对 URL query 值脱敏
 │   ├── server/
 │   │   ├── locateDsh.ts    # 定位 dsh 可执行文件（dshPath 配置 → PATH → 报错引导安装）
-│   │   ├── manager.ts      # dsh web 进程生命周期：re-own/探测收养/spawn/就绪/清理
+│   │   ├── manager.ts      # dsh web 进程生命周期：re-own/复用探测/spawn/就绪/清理
 │   │   ├── spawnDsh.ts     # 短命启动器：detached spawn dsh 后立即退出，使其脱离扩展宿主进程树（防 reload 树杀）
 │   │   ├── dshRpc.ts       # host RPC 客户端（workspace.create、session 增删改查等）
 │   │   ├── muxEvents.ts    # 订阅会话事件流（WS /api/events.mux）的公共助手；chatSession 侧有退避重连（bc23e7c），jobsStore 侧无，见 docs/backlog/open/mux-reconnect.md
@@ -65,15 +65,15 @@ dsh-one/
 2. 对候选同步跑 `--version` 验证（`src/server/locateDsh.ts:38`）：失败（不存在/退出码非 0）→ 抛出 `DshNotFoundError`（引导安装文案：`npm install -g @deepseek-ai/dsh@next` 或配置 `dshOne.dshPath`）。
 3. 从输出提取 semver 版本号（:15-21），提取不到记为 `unknown`（按新版对待）。
 
-## 核心流程二：服务启动（re-own → 探测收养/spawn → 轮询就绪 → webview 加载）
+## 核心流程二：服务启动（re-own → 复用探测/spawn → 轮询就绪 → webview 加载）
 
 入口 `ServerManager.ensureStarted()`，单例语义：并发调用共享同一个 in-flight Promise；实际逻辑在 `start()`。
 
 1. **re-own（reload 存活认领）**：dsh 与 VSCode 窗口生命周期已解绑（设计决策 5），上一个宿主 spawn 的 dsh 可能仍在跑。先读 globalStorage 的 pidfile（`dsh-owned.json`，记 `{pid, port}`）：pid 存活（`process.kill(pid, 0)`）且端口通过 host.describe 身份确认 → 恢复 owned 身份（stop/restart 照常可杀）。pidfile 里 `port=0`（系统分配端口）时从日志文件的就绪行解析实际端口再确认；spawn 就绪后也会把实际端口回填进 pidfile。记录过期（pid 死/端口不应答）则删除 pidfile 继续正常流程。已知风险（已拍板接受）：dsh 死后 pid 被复用且端口被另一手动 dsh 占用时，stop 会误杀复用 pid 的进程组——host.describe 响应不含 pid，无法更严格验证。
-2. **探测与收养**：`port > 0` 时先 `probePort(port)` 三态探测——POST `http://127.0.0.1:<port>/api/host.describe`，信封是 `{type:'client-request', rpcId:<uuid>, method:'host.describe', payload:{}}`（`makeDescribeRequest()`，`src/pure/envelope.ts`）；只有回包 JSON 的 `rpcId` 与发出的一致才算 `'dsh'`（`validateDescribeResponse()`，同文件），有 HTTP 应答但校验失败算 `'foreign'`，无应答算 `'down'`。`'dsh'` → 状态置为 `running` 且 `adopted: true`，**收养的实例永不 kill**；`'foreign'` → 从 `port+1` 起扫最多 50 个候选找空闲端口**临时顶替**（不写回用户设置，弹窗告知）；`'down'` → 原端口 spawn。`port = 0` 跳过探测。
+2. **探测与复用**：`port > 0` 时先 `probePort(port)` 三态探测——POST `http://127.0.0.1:<port>/api/host.describe`，信封是 `{type:'client-request', rpcId:<uuid>, method:'host.describe', payload:{}}`（`makeDescribeRequest()`，`src/pure/envelope.ts`）；只有回包 JSON 的 `rpcId` 与发出的一致才算 `'dsh'`（`validateDescribeResponse()`，同文件），有 HTTP 应答但校验失败算 `'foreign'`，无应答算 `'down'`。`'dsh'` → 状态置为 `running` 且 `adopted: true`，**复用的实例永不 kill**；`'foreign'` → 从 `port+1` 起扫最多 50 个候选找空闲端口**临时顶替**（不写回用户设置，弹窗告知）；`'down'` → 原端口 spawn。`port = 0` 跳过探测。
 3. **spawn（双层）**：`locateDsh()` 定位可执行文件；构造 env 时删除 `NODE_OPTIONS` 和 `ELECTRON_RUN_AS_NODE`；参数为 `web --host 127.0.0.1 --port <实际端口>`（fallback 端口也正确传给 dsh），仅当版本 ≥ 0.1.0-rc.7（或 `unknown`）时追加 `--no-open`（`gte()` 判断）。**单层 detached+unref 不够**——实测 VS Code 在 reload 时会对扩展宿主的进程树做 SIGTERM 树杀（`pgrep -P` 递归，`out/vs/base/node/terminateProcess.sh`；信号级 wrapper 实测捕获：宿主退出后 ~43ms SIGTERM 到达），detached 的 dsh 因 ppid 链仍在而被带走。所以 spawn 经短命启动器 `dist/spawnDsh.js`（以 `ELECTRON_RUN_AS_NODE=1` 跑在宿主自带的 Electron 二进制上，不依赖 PATH 里有 node）：启动器 detached spawn dsh（stdio 重定向到 globalStorage 的 `dsh-web.log`，每次截断）后立即退出，dsh 被 launchd 收养、从宿主进程树消失；启动器 stdout 回传 dsh 真实 pid 写 pidfile。
 4. **就绪轮询**（`waitReady()`）：dsh 端口被占时直接启动失败（不会自己换端口），所以固定端口每 250ms 轮询 `probeDsh()` 直到应答，不依赖 stdout 就绪行。`port = 0`（系统分配）是例外：实际端口从日志文件的 `dsh web: http://127.0.0.1:<port>` 行解析（`parseReadyLine()`，`src/pure/readyLine.ts`）后再确认。失败路径：90s 超时（`START_TIMEOUT_MS`）、pid 提前消失（双层 spawn 后没有进程句柄，早退靠 `pidAlive()` 判断），都带日志文件尾部 40 行作为错误详情。
-5. **健康检查**：ready 后每 30s 重新探测一次（收养、re-own、自己拉起的实例都查）。失联即回到 `stopped`——owned 实例还会被 kill 掉回收端口，避免"状态栏显示运行中、实际已死"的假状态。双层 spawn 后扩展不再持有 dsh 进程句柄，dsh 意外退出统一靠健康检查发现（不弹窗）。
+5. **健康检查**：ready 后每 30s 重新探测一次（复用、re-own、自己拉起的实例都查）。失联即回到 `stopped`——owned 实例还会被 kill 掉回收端口，避免"状态栏显示运行中、实际已死"的假状态。双层 spawn 后扩展不再持有 dsh 进程句柄，dsh 意外退出统一靠健康检查发现（不弹窗）。
 6. **webview 加载**：状态变为 `running` 后，`onDidChangeState` 触发 `bind()` 重渲染，`dshFrame()`（`src/ui/webview.ts:95`）输出 `<iframe src="http://127.0.0.1:<port>/?dsh_embed=vscode">`。dsh web 只在编辑区标签页展示（`openInTab()`，:133）。CSP 只允许 `frame-src http://127.0.0.1:* http://localhost:*`（:48）。
 
 激活扩展时默认自动 `ensureStarted()`（配置 `dshOne.autoStart`，默认 `true`），不再需要手动点击触发首次启动。
@@ -106,7 +106,7 @@ dsh-one/
 以下结论来自对 marketplace 上 28 个 dsh 相关插件的逐一源码调研，完整报告在父仓库 `../docs/05-vscode插件调研.md`（不在本仓库内）。
 
 1. **桥接而非整合包。** 产品定位参照 Claude Code CLI 与其 VSCode 扩展的关系：dsh 由用户自行安装/升级，扩展只负责定位、启动、连接。早期方案是扩展按需下载 Node + dsh 运行时（依赖树 455 个包 / 约 280MB / 11 个平台相关原生 .node），下载慢、跨平台麻烦，还会把扩展绑进版本管理（current/last-good 指针、回退、更新检查）的复杂度里；桥接定位把这些整体退役。
-2. **先探后起 + 收养语义。** 两个 dsh 实例共享 `~/.dsh` 并发写会永久损坏会话日志（seq gap，Skylake0216 插件已有实际故障案例）。所以启动前必须先探测，已有实例就收养且绝不 kill。实现：`src/server/manager.ts:136-144`、`:277`（`killOwned` 注释）。
+2. **先探后起 + 复用语义。** 两个 dsh 实例共享 `~/.dsh` 并发写会永久损坏会话日志（seq gap，Skylake0216 插件已有实际故障案例）。所以启动前必须先探测，已有实例就复用且绝不 kill。实现：`src/server/manager.ts:136-144`、`:277`（`killOwned` 注释）。
 3. **spawn 环境净化。** env 里删掉扩展宿主注入的 `NODE_OPTIONS` / `ELECTRON_RUN_AS_NODE`（会让普通 node 子进程异常）；Windows 下 `.cmd` shim 不能直接 spawn，走 `shell: true`。实现：`src/server/manager.ts:151-153`、`:170`。
 4. **`--no-open` 按版本 gate。** 只有 dsh ≥ 0.1.0-rc.7 认识该参数，旧版收到会直接退出（Xizhi1024 插件已出现过这个 critical bug）。实现：`src/server/manager.ts:12-13`、`:158`。
 5. **dsh 与窗口生命周期解绑（2026-10 反转原决策）。** 原设计在 `deactivate()` 里同步 SIGTERM + detached reaper 补 SIGKILL，导致 reload window 就中断进行中的 session（开发期一天十余次）。现改为「父死子存」，且必须**双层 spawn**：单层 `detached + unref + stdio 进日志文件`只解决进程组与 EPIPE，实测 VS Code reload 时会对扩展宿主进程树做 SIGTERM 树杀（`pgrep -P` 递归），ppid 链不断就逃不掉；短命启动器（`src/server/spawnDsh.ts`）拉起 dsh 后立即退出，dsh 被 launchd 收养才彻底脱离。身份写 globalStorage pidfile，下个宿主 re-own；dsh 只在用户显式 `dshOne.stop` / `dshOne.restart` 时被杀（POSIX 整组 SIGTERM→SIGKILL，Windows `taskkill /T /F`）。副作用：终端升级 dsh 后需手动 restart 生效（已拍板暂不做版本提示）；扩展不再持有 dsh 进程句柄，意外退出由 30s 健康检查发现（不弹窗）。
