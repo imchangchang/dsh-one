@@ -596,6 +596,8 @@ const STYLE = `
     margin-top: 4px; border-radius: 4px; overflow: hidden;
     font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em;
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    /* container query 断点：以 .diff 自身宽度为准，窄容器切单栏。 */
+    container-type: inline-size;
   }
   /* 左右分栏：每行一个两列 grid，左 old 右 new，行对逐行对齐。 */
   .diff-row { display: grid; grid-template-columns: 1fr 1fr; }
@@ -605,6 +607,16 @@ const STYLE = `
   .diff-cell.add { background: var(--vscode-diffEditor-insertedTextBackground, rgba(80,255,80,.14)); }
   /* 纯增/删行的空侧：淡灰占位，提示该行无对应内容。 */
   .diff-cell.empty { background: rgba(127,127,127,.08); }
+  /* 窄容器退化为单栏统一 diff：相同行只显示一遍（隐藏 .new 但非 .add 的右侧副本）、
+     修改行上下堆叠（old 红上、new 绿下）、纯增/删的空侧淡灰占位隐藏、行对间距分隔。 */
+  @container (max-width: 480px) {
+    .diff-row { display: block; }
+    .diff-row + .diff-row { margin-top: 3px; }
+    .diff-cell.old { border-right: none; }
+    .diff-cell.empty { display: none; }
+    /* 相同行（无 .add）隐藏右侧副本，只留一遍；修改/新增行的 .new.add 保留。 */
+    .diff-cell.new:not(.add) { display: none; }
+  }
   /* diff 行折叠 toggle（对齐 dsh web DiffBlock「展开其余 N 行差异」）。 */
   .diff-toggle {
     cursor: pointer; opacity: 0.6; margin-top: 2px; font-size: 0.85em; padding-left: 6px;
