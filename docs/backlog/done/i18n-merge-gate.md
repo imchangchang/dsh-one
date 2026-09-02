@@ -47,3 +47,4 @@
 - `scripts/check-i18n.sh`(新增)
 
 - 2026-09-02 认领（Sprint 1 节点，worktree: agent/i18n-merge-gate）→ doing
+- 2026-09-02 实现：新增 `scripts/check-i18n.sh` 并接入 `dev-merge.sh` 校验阶段（done 标记校验后、rebase 前）。只查「相对 merge-base 新增的行」，不扫整分支历史；覆盖 宿主层/ webview层 / manifest层 / 对外README / 硬编码中文 五类检查；硬编码中文命中即 fail（先报错，未降级）；脚本可单跑 `scripts/check-i18n.sh <branch>`，exit 0/1 → done
