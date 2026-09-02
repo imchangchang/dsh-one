@@ -1744,8 +1744,20 @@ export class ChatViewProvider implements vscode.Disposable {
           try {
             await vscode.window.showTextDocument(vscode.Uri.file(path))
           } catch (err) {
-            this.logger.warn(`chat: producedOpenFile(${path}) failed — ${err instanceof Error ? err.message : err}`)
-            vscode.window.showErrorMessage(`无法打开产物文件：${path}`)
+            const detail = err instanceof Error ? err.message : String(err)
+            this.logger.warn(`chat: producedOpenFile(${path}) failed — ${detail}`)
+            // 产物路径是 turn 结束时的快照：文件可能后来被移动/删除（如 backlog
+            // git mv），报错时先区分「已不存在」并说明原因，避免只有干巴巴的
+            // 「无法打开」而不知道发生了什么。
+            const missing = await fs.access(path).then(
+              () => false,
+              () => true,
+            )
+            vscode.window.showErrorMessage(
+              missing
+                ? `产物文件已不存在（可能已被移动或删除）：${path}`
+                : `打开产物文件失败：${detail}`,
+            )
           }
           return
         }
