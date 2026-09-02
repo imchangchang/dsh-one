@@ -21,3 +21,4 @@
 ## 变更记录
 
 - 2026-09-XX 记录 → open
+- 2026-09-XX 认领（worktree: agent/attachment-file-chip-uniform-size）→ doing
