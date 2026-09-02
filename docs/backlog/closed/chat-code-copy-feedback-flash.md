@@ -26,3 +26,5 @@
 - 2026-09-02 认领（Sprint 1 节点，worktree: agent/chat-code-copy-feedback-flash）→ doing
 
 - 2026-09-02 Sprint 1 开发完成，自测通过（typecheck/test/build，087bfaa），人工 dev-ui-test 窗口验收通过 → done
+
+- 2026-09-02 主线合入测试通过，人工 dev-ui-test 窗口验收通过 → closed
