@@ -220,11 +220,11 @@ export class ServerManager implements vscode.Disposable {
       if (probe === 'foreign') {
         const free = await this.findFreePort(port)
         if (free === null) {
-          throw new Error(`端口 ${port} 被其他程序占用，且 ${port + 1}–${port + PORT_FALLBACK_ATTEMPTS} 均不可用`)
+          throw new Error(vscode.l10n.t('Port {0} is occupied by another program, and ports {1}–{2} are all unavailable', port, port + 1, port + PORT_FALLBACK_ATTEMPTS))
         }
         this.logger.warn(`port ${port} is occupied by a foreign service; falling back to ${free}`)
         void vscode.window.showWarningMessage(
-          `DSH One: 端口 ${port} 被其他程序占用，本次已改用端口 ${free}（未修改设置）`,
+          vscode.l10n.t('DSH One: port {0} is occupied by another program; using port {1} this time (setting unchanged)', port, free),
         )
         spawnPort = free
       }
@@ -348,10 +348,10 @@ export class ServerManager implements vscode.Disposable {
       }
       // 启动器正常是毫秒级退出；挂死（极端情况）不能拖着 start() 永远
       // 停在 starting，10s 兜底杀掉并报错。
-      const hangTimer = setTimeout(() => fail(new Error('dsh 启动器无响应（10s 超时）')), 10_000)
+      const hangTimer = setTimeout(() => fail(new Error(vscode.l10n.t('dsh launcher did not respond ({0}s timeout)', 10))), 10_000)
       proc.stdout?.on('data', (d: Buffer) => (out += d.toString()))
       proc.stderr?.on('data', (d: Buffer) => (errOut += d.toString()))
-      proc.once('error', (err) => fail(new Error(`无法启动 dsh 启动器: ${err.message}`)))
+      proc.once('error', (err) => fail(new Error(vscode.l10n.t('Failed to start dsh launcher: {0}', err.message))))
       proc.once('exit', (code) => {
         if (settled) return
         settled = true
@@ -360,7 +360,7 @@ export class ServerManager implements vscode.Disposable {
         if (code === 0 && Number.isInteger(pid) && pid > 0) {
           resolve(pid)
         } else {
-          reject(new Error(`dsh 启动器失败 (code=${code}): ${errOut.trim() || out.trim()}`))
+          reject(new Error(vscode.l10n.t('dsh launcher failed (code={0}): {1}', String(code), errOut.trim() || out.trim())))
         }
       })
     })
@@ -396,7 +396,7 @@ export class ServerManager implements vscode.Disposable {
 
       const timer = setTimeout(() => {
         void this.readLogTail().then((tail) =>
-          fail(new Error(`dsh 启动超时（${START_TIMEOUT_MS / 1000}s）\n${tail}`)),
+          fail(new Error(vscode.l10n.t('dsh startup timed out ({0}s)\n{1}', START_TIMEOUT_MS / 1000, tail))),
         )
       }, START_TIMEOUT_MS)
 
@@ -409,7 +409,7 @@ export class ServerManager implements vscode.Disposable {
         void (async () => {
           if (!pidAlive(pid)) {
             const tail = await this.readLogTail()
-            fail(new Error(`dsh 提前退出\n${tail}`))
+            fail(new Error(vscode.l10n.t('dsh exited early\n{0}', tail)))
             return
           }
           let candidate = port

@@ -26,9 +26,13 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 
 ```
 【测试命令】（单条，复制即跑，已含进入 worktree）
+
+```bash
 cd <repo-root>/.worktrees/<slug> && bash <repo-root>/scripts/dev-ui-test.sh
+```
 
 【应有现象】
+
 1. 弹出隔离 VSCode 窗口（标题 = 该 worktree 目录，user-data 在 /tmp/dsh-uidev/<slug>/）
 2. 左侧活动栏出现 DSH One 图标，点击能打开 chat 面板
 3. 扩展激活无报错（输出面板"DSH One"）
@@ -37,6 +41,7 @@ cd <repo-root>/.worktrees/<slug> && bash <repo-root>/scripts/dev-ui-test.sh
 
 规则：
 
+- **命令必须用 markdown 代码块包裹（fenced code block，` ```bash ` 起止），且只包命令本身**：用户点选/复制代码块内容即整条命令，不带「测试命令」「应有现象」等说明文字。说明文字（含现象清单）一律放代码块外，不要混进代码块。
 - **一个单元 = 一个功能/一个窗口门禁**。worktree 里有多个要验的功能就拆成多个单元，各自"一条命令 + 各自现象"，不要全塞进一条消息。
 - **命令只给 dev-ui-test 这一条**。`ui-visual.sh`（截图）、`npm test`、`dev-finish` 是别的步骤，**不混进**这个给窗口门禁的单元——它们不能替代人的眼。
 - **命令里必须包含 `cd <repo-root>/.worktrees/<slug>`**：`dev-ui-test.sh` 靠 `git rev-parse --show-toplevel` 定位当前 worktree，cwd 在 worktree 里它才把**这个 worktree** 当扩展加载；cwd 在主线会打开主线而不是本任务。
