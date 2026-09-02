@@ -1365,6 +1365,41 @@ function patchStatsRow(composer: HTMLElement, statsLine: string | undefined, usa
   if (bar) patchContextBar(bar, usage)
 }
 
+/** 懒切换选中帧的就地 patch：hero preset chip 的文字随 pending 更新。 */
+function patchHeroPresetChip(
+  hero: HTMLElement,
+  agentPreset: ChatState['agentPreset'],
+): void {
+  const chip = hero.querySelector<HTMLElement>('.hero-chips .hero-chip-preset')
+  if (!chip || !agentPreset) return
+  const current = agentPreset.options.find((o) => o.id === agentPreset.current)
+  const label = chip.querySelector<HTMLElement>('.label')
+  if (label) {
+    const text = current?.label ?? agentPreset.current
+    if (label.innerText !== text) label.innerText = text
+  }
+  chip.title = current?.description ?? 'Agent 模式'
+}
+
+/** 懒切换选中帧的就地 patch：composer 权限 pill 的图标与文字随 pending 更新。 */
+function patchPermissionPill(
+  composer: HTMLElement,
+  permissions: ChatState['permissions'],
+): void {
+  if (!permissions) return
+  const pill = composer.querySelector<HTMLElement>('.input-footer .pill[title="权限模式"]')
+  if (!pill) return
+  const current = permissions.options.find((o) => o.value === permissions.current)
+  if (!current) return
+  const glyph = pill.querySelector<HTMLElement>('.glyph')
+  if (glyph) {
+    const g = PERMISSION_GLYPHS[current.value]
+    glyph.innerHTML = g ?? glyph.innerHTML // build-time constant, not user input
+  }
+  const label = pill.querySelector<HTMLElement>('span:not(.glyph)')
+  if (label && label.textContent !== current.label) label.textContent = current.label
+}
+
 /** Click-open panel next to the ring: occupancy figure plus the breakdown bars. */
 function openContextPanel(anchor: HTMLElement): void {
   const usage = state?.contextUsage
@@ -2001,12 +2036,10 @@ function render(): void {
     state?.sessionId ?? null,
     state?.canSend ?? false,
     state?.running ?? false,
-    state?.permissions ?? null,
     state?.modelLabel ?? null,
-    state?.agentPreset ?? null,
-    // workspaceLabel 刻意不进签名：懒切换的 pending 帧只改 chip 文字，composer
-    // 内容不变——进签名会整页重建 hero，焦点/IME 全断（见 hero 保活分支的
-    // 就地 patch）。
+    // agentPreset / permissions 刻意不进签名：懒切换的 pending 帧只改
+    // chip/pill 显示，composer 内容不变——进签名会整页重建 hero，焦点/IME
+    // 全断且鱼标动画重播（见 hero 保活分支与 keepComposer 的就地 patch）。
     state?.plan ?? null,
     recall ? (recall.kind === 'queue' ? `queue:${recall.itemId}` : recall.kind) : null,
     pendingImages.map((i) => i.name ?? ''),
@@ -2148,6 +2181,10 @@ function render(): void {
       if (wsLabel && wsLabel.innerText !== state.workspaceLabel) {
         wsLabel.innerText = state.workspaceLabel ?? ''
       }
+      // 同款就地 patch：preset chip（懒切换选中帧）与权限 pill（懒切换选中帧）
+      // 的文字；swap 不改签名，面板指针稳定（chip 是 popover 锚点）。
+      patchHeroPresetChip(oldHero, state.agentPreset)
+      patchPermissionPill(oldComposer, state.permissions)
       if (slashPopupEl && oldInput) positionSlashPopup(oldInput)
     } else {
       chatCol.appendChild(renderHero(state, draft))
@@ -2424,6 +2461,8 @@ function render(): void {
     // The composer element was never detached, so focus, caret, and any
     // in-flight IME composition survive; only patch the stats line in place.
     patchStatsRow(oldComposer, state.statsLine, state.contextUsage)
+    // 权限 pill 懒切换选中帧的就地 patch（permissions 不在 composerSig 里）。
+    patchPermissionPill(oldComposer, state.permissions)
   } else {
     chatCol.appendChild(renderInput(draft))
     // 本帧消费了恢复草稿，标志清零（pending 接管帧走不到这里，标志保留到
@@ -2559,7 +2598,7 @@ function renderHero(state: ChatState, draft: string | undefined): HTMLElement {
     // 从 composer 底部挪到 hero 的 preset 选择 chip（交互不变，仍弹下拉）。
     const ap = state.agentPreset
     const current = ap.options.find((o) => o.id === ap.current)
-    const preset = buttonEl('hero-chip', '')
+    const preset = buttonEl('hero-chip hero-chip-preset', '')
     preset.appendChild(presetIconSvg())
     preset.appendChild(el('span', 'label', current?.label ?? ap.current))
     const chev = iconSvg(PANEL_ICONS.chevronDown, 14)

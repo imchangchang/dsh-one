@@ -97,6 +97,10 @@ const chatHandlers: ChatTabMessageHandler[] = [
       if (!(await host.actions.resolvePendingWorkspace(host))) return
       const target = host.controller
       if (!target) return
+      // 懒切换落地：pending 的 preset 与权限模式在此真正生效（同 workspace：
+      // 只记显示、发送时执行，避免预先 RPC 打断 hero/消息流布局）。
+      await host.actions.resolvePendingPreset(host)
+      await host.actions.resolvePendingPermission(host)
       // Slash commands route to runCommand; pasted absolute paths like
       // /Users/… are prompts for the model, not commands.
       if (looksLikeSlashCommand(text)) {
@@ -187,16 +191,10 @@ const chatHandlers: ChatTabMessageHandler[] = [
     types: ['setAgentPreset'],
     async handle(host, m) {
       if (m.type !== 'setAgentPreset') return
-      // 懒切换落地（preset 必须选在目标会话上，且发送前生效）。
-      if (!(await host.actions.resolvePendingWorkspace(host))) return
-      const target = host.controller
-      if (!target) return
-      // 失败（尤其 agent-preset-locked：会话已开跑）只记日志，不打扰用户。
-      try {
-        await target.setAgentPreset(m.id)
-      } catch (err) {
-        host.actions.logger.warn(`chat: setAgentPreset(${m.id}) failed — ${errorText(err)}`)
-      }
+      // 懒切换：只记录 pending 并推 state（chip 显示选中项），零 RPC——真正
+      // setAgentPreset 在发送时随 resolvePendingPreset 落地（与 workspace 同
+      // 模式，避免选中即 RPC 打断 hero 布局/动画）。
+      host.actions.setPendingPreset(host, m.id)
     },
   },
   {
@@ -537,11 +535,10 @@ async function applyModelSelection(host: ChatTabHost, selection: SessionModelSel
 }
 
 /**
- * Permission preset switch; rides the /permission slash command through the
- * dedicated command channel (session.prompt would not dispatch it). Mirrors
- * the web client: `danger-full-access` requires an explicit risk
- * confirmation first. The resulting permission/preset event refreshes the
- * footer pill through the permissions projection push.
+ * Permission preset switch — 懒更新：只记录 pending 并推 state（pill 显示
+ * 选中项），零 RPC——真正 /permission 命令在发送时随 resolvePendingPermission
+ * 落地，避免命令节点进消息流把空态 hero 变成消息流 tab。`danger-full-access`
+ * 保留显式风险确认（确认后仍只记录 pending，执行推迟到发送）。
  */
 async function setPermission(host: ChatTabHost, value: string): Promise<void> {
   if (value === 'danger-full-access') {
@@ -552,7 +549,7 @@ async function setPermission(host: ChatTabHost, value: string): Promise<void> {
     )
     if (!confirm) return
   }
-  await runCommand(host, `/permission ${value}`)
+  host.actions.setPendingPermission(host, value)
 }
 
 /**

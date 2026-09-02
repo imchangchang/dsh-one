@@ -26,6 +26,8 @@
 
 ### Changed
 
+- 空会话 hero 的 preset（Agent 模式）与权限模式切换改为**懒更新**（与 workspace 懒切换同模式）：点选只记录 pending 并就地更新 chip/pill 显示，**不发 RPC、不执行 /permission 命令**——真正 `setAgentPreset` / `/permission` 在发送时随消息一起落地。此前切换 preset 会触发 hero 整页重建（鲸鱼动画重播、chip 是 popover 锚点被换掉）；切换权限模式的 `/permission` 命令会直接写进消息流，把空态 hero 变成「输入过问题」的消息流 tab。修法：`agentPreset`/`permissions` 移出 composer 签名、hero 保活分支就地 patch（对齐 workspaceLabel 的既有做法）；`ChatTabHost` 增加 `pendingPresetId`/`pendingPermission`，由 `composeHeader` 覆盖显示、send handler 统一落地。
+
 - 聊天输入区的发送按钮对齐官方 dsh web（hero 空态与普通消息流一致）：文字「发送」按钮改为 34×34 圆形图标按钮（品牌蓝 `deepseek-400/500` 底、白色 16px 上箭头图标、无文字、disabled 半透明）；运行中同一按钮变停止方块图标（官方 primaryStops 交互），点击即停止——原来并排的独立「停止」文字按钮移除；排队发送仍走 Enter（⌘/Ctrl+Enter 插话）。图标取自官方 InputBar 主按钮内联 path（`IconSendOutline16` 发送箭头、`<rect rx=3>` 停止方块）。
 
 - 「发送到当前会话」右键菜单项改为 `DSH One: 发送到当前会话`（标题自带 DSH One 标识，右键菜单不显示 category，不加前缀看不出是谁的菜单）：编辑器/资源管理器菜单里的位置从最顶的 navigation 组移到中间独立分组 `2_dshOne`（与相邻分组自动以分割线隔开）；添加成功后的右下角提示移除（composer 里出现的附件 chip 本身就是反馈，不再弹 toast）。

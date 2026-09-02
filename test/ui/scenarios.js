@@ -209,6 +209,32 @@
       expect: '有消息的普通对话（非 hero）：composer 输入行右侧主按钮为**圆形品牌蓝底 + 白色停止方块图标**（不是发送箭头、没有「停止」文字按钮、没有第二个按钮）；点击该按钮发出 stop（可后续在交互态验证）。输入框仍可输入排队消息。',
     },
 
+    'hero-preset-pending': {
+      // 懒切换选中帧：preset 点选后 host 推回 pending 覆盖的 state（current 已
+      // 变），hero 应保持不重建（chip 文字就地更新）——本场景验证 chip 显示
+      // 新选中项，其余 hero 元素原样。
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', workspaceId: 'ws-main', workspaces: [
+        { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', title: 'dsh-one' },
+      ], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'deep' }, statsLine: undefined }),
+      title: '空会话 hero：preset 懒切换选中帧',
+      expect: '空会话 hero（无历史）：品牌区为**单个 DSH One 像素鲸鱼 logo**；preset chip 显示**深度思考**（懒切换选中帧，未发送前会话真实预设未变）；其余与 empty 场景一致（无标题、无官方鲸鱼、发送按钮为圆形图标按钮）。',
+    },
+
+    'hero-permission-pending': {
+      // 懒切换选中帧：权限点选后 host 推回 pending 覆盖的 state，hero 保持
+      // 不重建——本场景验证权限 pill 显示新选中项（图标 + 文字），且界面仍
+      // 是空态 hero（没有命令节点、没变消息流）。
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', workspaceId: 'ws-main', workspaces: [
+        { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', title: 'dsh-one' },
+      ], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }, { id: 'deep', label: '深度思考', description: '更强推理' }], current: 'standard' }, permissions: { options: [
+        { value: 'read-only', label: 'Read Only' },
+        { value: 'workspace-write', label: 'Workspace Write' },
+        { value: 'danger-full-access', label: 'Full access' },
+      ], current: 'danger-full-access' }, statsLine: undefined }),
+      title: '空会话 hero：权限懒切换选中帧',
+      expect: '空会话 hero（无历史）：composer 底部权限 pill 显示 **Full access**（带感叹号护盾图标，懒切换选中帧；未发送前真实权限未变）；右侧发送按钮为圆形图标按钮；消息区**没有** /permission 命令节点、**仍是空态 hero**（未变消息流）。',
+    },
+
     'workspace-picker-open': {
       // hero workspace chip 点击后弹 WorkspacePicker（对齐官方 Menu）：workspace
       // 列表 + 当前项对勾 + footer 两个添加入口。

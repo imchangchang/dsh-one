@@ -103,6 +103,16 @@ export interface ChatTabHostActions {
   setPendingWorkspace(host: ChatTabHost, workspaceId: string): void
   /** 发送/选 preset 前落地懒切换；返回 false = 切换失败（已提示用户）。 */
   resolvePendingWorkspace(host: ChatTabHost): Promise<boolean>
+  /** hero 空会话的 preset 懒切换：记录 pending 并推 state（chip 显示选中帧），
+   *  零 RPC——真正 setAgentPreset 推迟到发送落地。 */
+  setPendingPreset(host: ChatTabHost, presetId: string): void
+  /** 发送前落地 pending preset（setAgentPreset RPC）；失败只记日志。 */
+  resolvePendingPreset(host: ChatTabHost): Promise<void>
+  /** 空会话与消息流的权限模式懒切换：记录 pending 并推 state（pill 显示选中帧），
+   *  零 RPC——真正 /permission 命令推迟到发送落地。 */
+  setPendingPermission(host: ChatTabHost, value: string): void
+  /** 发送前落地 pending 权限（/permission 命令）；失败只记日志。 */
+  resolvePendingPermission(host: ChatTabHost): Promise<void>
   /** hero picker「添加已有文件夹…」：注册 workspace 后设为 pending 目标。 */
   addWorkspaceAndOpen(host: ChatTabHost): Promise<void>
   /** hero picker「创建工作区…」：注册 workspace 后设为 pending 目标。 */
@@ -147,6 +157,18 @@ export class ChatTabHost implements vscode.Disposable {
    * 清除（跟 tab 同生命周期）。
    */
   pendingWorkspaceId: string | null = null
+  /**
+   * 懒切换的 preset 目标（per-tab；null = 无待切换）。点击 hero preset chip
+   * 只记录这里并更新显示（零 RPC），发送时经 provider 的 resolvePendingPreset
+   * 落地（setAgentPreset RPC）。发送落地后清空。
+   */
+  pendingPresetId: string | null = null
+  /**
+   * 懒切换的权限模式（per-tab；null = 无待切换）。点击权限 pill 只记录这里并
+   * 更新显示（零 RPC），发送时经 provider 的 resolvePendingPermission 落地
+   * （/permission 命令）。发送落地后清空。
+   */
+  pendingPermission: string | null = null
   /** controller 状态订阅；tab 关闭后保留（pending 兜底需要继续听）。 */
   private controllerSub: vscode.Disposable | null = null
   /** panel 消息订阅（panel 侧，随 panel 关闭清理）。 */
