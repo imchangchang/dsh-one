@@ -188,10 +188,16 @@
           files: 2, insertions: 14, deletions: 2,
           githubUrl: 'https://github.com/imchangchang/dsh-one/commit/351a7664d4f6e86bb0ef58c94d84d0ee1fb9aa53',
         }] }, '*')
-        setTimeout(() => {
+        // commitInfo 是异步送达：监听 class 变化，chip 点亮（缓存已就绪）的同一
+        // 微任务里立即悬停弹卡，卡片必然在 1.3s 截图前打开。
+        const mo = new MutationObserver(() => {
           const chip = document.querySelector('.commit-hash.commit-hash-found')
-          chip?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
-        }, 400)
+          if (chip) {
+            mo.disconnect()
+            chip.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+          }
+        })
+        mo.observe(document.querySelector('.messages'), { subtree: true, attributes: true, attributeFilter: ['class'] })
       })()`,
       title: 'commit 悬浮卡贴面板底部：below 溢出视口时翻到 chip 上方',
       expect: '长消息滚动区钉底：最后一段的「351a766」commit-hash chip 位于消息流底部（composer 上方、视口下半部），found 点亮态。悬浮卡（.commit-card popover）出现在 chip **上方**（below 放不下 → 翻转，卡片下边缘与 chip 行上边缘间隔 ~6px），整卡完整可见——作者行（account + cgeng + 相对时间）、subject 加粗行 + 4 行 body 灰字、分隔线、变更统计（「2 files changed, 14 insertions(+) 绿色, 2 deletions(-) 红色」）、分隔线 + 命令行（git-commit 图标 + 短 hash 351a766 + copy + Open on GitHub）——卡片下边缘不贴视口底边、没有被裁半截，也没有滚动条截断内容；卡片深色浮层、圆角、描边、阴影，宽 ≤420px。',
