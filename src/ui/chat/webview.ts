@@ -714,22 +714,24 @@ function enhanceCodeBlocks(container: HTMLElement, prefix: string): void {
     if (lang) bar.appendChild(el('span', 'md-code-lang', lang))
     const copy = buttonEl('md-code-copy', t('Copy'))
     copy.title = t('Copy code')
+    const showCopied = () => {
+      copy.textContent = t('Copied')
+      copy.title = t('Copied')
+    }
+    const restore = () => {
+      copy.textContent = t('Copy')
+      copy.title = t('Copy code')
+    }
     copy.addEventListener('click', () => {
       if (!text) return
       void navigator.clipboard.writeText(text).then(
-        () => {
-          copy.textContent = t('Copied')
-          copy.title = t('Copied')
-          setTimeout(() => {
-            copy.textContent = t('Copy')
-            copy.title = t('Copy code')
-          }, 1000)
-        },
+        () => showCopyFeedback(key, showCopied, restore),
         () => {
           copy.title = t('Copy failed')
         },
       )
     })
+    initCopyFeedback(key, showCopied, restore)
     bar.appendChild(copy)
 
     // 折叠/展开按钮：折叠态给「… 其余 N 行」，展开态给「收起」。
@@ -2029,6 +2031,7 @@ function render(): void {
     jsonTreeOpen.clear()
     innerScrollPositions.clear()
     producedOpen.clear()
+    copyConfirmedAt.clear()
   }
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
   const hadFocus = oldInput !== null && document.activeElement === oldInput
@@ -3031,6 +3034,41 @@ const producedOpen = new Set<string>()
  * 一样在换会话时清空。
  */
 const workflowDisclosure = new Map<string, WorkflowDisclosureState>()
+
+const COPY_FEEDBACK_MS = 1000
+
+/**
+ * 复制按钮「已复制」反馈的成功时刻（key 按复制入口的位置/路径）。流式输出每帧
+ * 全量重建消息 DOM，新建的复制按钮初始文案都是「复制」，会把 1s 的「已复制」
+ * 反馈冲掉。这里记下成功时刻：重建后距成功不足 1s 就初始渲染成「已复制」并按
+ * 剩余时间恢复（同 detailsOpen/jsonTreeOpen 的跨重建持久化）。换会话时清空
+ * （key 是位置键，跨会话无意义）。
+ */
+const copyConfirmedAt = new Map<string, number>()
+
+/**
+ * 复制成功：记下时刻并立即显示「已复制」，1s 后恢复。恢复带 guard——仅当距
+ * 最近一次复制满 1s 才恢复，防止连点/旧 timer 在第二次复制未满 1s 时过早归位。
+ * 若期间发生重建，旧按钮被丢弃，新按钮由 initCopyFeedback 补初始状态。
+ */
+function showCopyFeedback(key: string, showCopied: () => void, restore: () => void): void {
+  copyConfirmedAt.set(key, Date.now())
+  showCopied()
+  setTimeout(() => {
+    const at = copyConfirmedAt.get(key)
+    if (at !== undefined && Date.now() - at >= COPY_FEEDBACK_MS) restore()
+  }, COPY_FEEDBACK_MS)
+}
+
+/** 重建后给新按钮补初始「已复制」状态：距成功不足 1s 则按剩余时间渲染并恢复。 */
+function initCopyFeedback(key: string, showCopied: () => void, restore: () => void): void {
+  const at = copyConfirmedAt.get(key)
+  if (at === undefined) return
+  const elapsed = Date.now() - at
+  if (elapsed >= COPY_FEEDBACK_MS) return
+  showCopied()
+  setTimeout(restore, COPY_FEEDBACK_MS - elapsed)
+}
 
 /** <details> whose open state persists across re-renders under `key`. */
 function detailsEl(key: string, className: string, summaryText: string): HTMLDetailsElement {
@@ -4247,22 +4285,25 @@ function renderJsonTree(value: JsonContainer, outputKey: string): HTMLElement {
   const bar = el('div', 'json-tree-bar')
   const copy = buttonEl('json-tree-copy', t('Copy'))
   copy.title = t('Copy JSON')
+  const copyKey = `${outputKey}:tree-copy`
+  const showCopied = () => {
+    copy.textContent = t('Copied')
+    copy.title = t('Copied')
+  }
+  const restore = () => {
+    copy.textContent = t('Copy')
+    copy.title = t('Copy JSON')
+  }
   copy.addEventListener('click', () => {
     const text = jsonTreeCopyText(value)
     void navigator.clipboard.writeText(text).then(
-      () => {
-        copy.textContent = t('Copied')
-        copy.title = t('Copied')
-        setTimeout(() => {
-          copy.textContent = t('Copy')
-          copy.title = t('Copy JSON')
-        }, 1000)
-      },
+      () => showCopyFeedback(copyKey, showCopied, restore),
       () => {
         copy.title = t('Copy failed')
       },
     )
   })
+  initCopyFeedback(copyKey, showCopied, restore)
   bar.appendChild(copy)
   shell.appendChild(bar)
 
@@ -4319,7 +4360,7 @@ function renderJsonTreeRow(row: JsonTreeRow, outputKey: string, rootValue: JsonC
   if (row.type === 'primitive') {
     line.appendChild(jsonPrimitiveSpan(row.primitive))
     // 节点级复制：非根行尾部放 hover 出现的复制图标（复制该标量）。
-    if (row.key !== null) line.appendChild(renderJsonNodeCopy(rootValue, row.path))
+    if (row.key !== null) line.appendChild(renderJsonNodeCopy(outputKey, rootValue, row.path))
     return line
   }
   // container：展开显示开括号（子行 + 关闭行随后）；收起显示 `{…}` 预览；
@@ -4338,7 +4379,7 @@ function renderJsonTreeRow(row: JsonTreeRow, outputKey: string, rootValue: JsonC
   }
   // 节点级复制：容器行尾部放 hover 出现的复制图标（复制整个容器的值；根行
   // key===null 不放——整树复制已由右上角按钮承担，避免同一值两个复制入口）。
-  if (row.key !== null) line.appendChild(renderJsonNodeCopy(rootValue, row.path))
+  if (row.key !== null) line.appendChild(renderJsonNodeCopy(outputKey, rootValue, row.path))
   return line
 }
 
@@ -4347,13 +4388,22 @@ function renderJsonTreeRow(row: JsonTreeRow, outputKey: string, rootValue: JsonC
  * 该节点（路径解析出的子值）的 pretty JSON。反馈与容器按钮同款——成功把图标短暂
  * 换成勾、title「已复制」1s 后还原，失败改 title；行级空间小，用图标变化而非文案。
  */
-function renderJsonNodeCopy(rootValue: JsonContainer, path: JsonPath): HTMLElement {
+function renderJsonNodeCopy(outputKey: string, rootValue: JsonContainer, path: JsonPath): HTMLElement {
   const btn = el('button', 'json-tree-copy-icon') as HTMLButtonElement
   btn.type = 'button'
   btn.title = t('Copy')
   const copyIcon = iconSvg(MESSAGE_ACTION_ICONS.copy, 12)
   const checkIcon = iconSvg(MESSAGE_ACTION_ICONS.check, 12)
   btn.appendChild(copyIcon)
+  const copyKey = `${outputKey}:node-copy:${jsonPathKey(path)}`
+  const showCopied = () => {
+    btn.replaceChild(checkIcon, copyIcon)
+    btn.title = t('Copied')
+  }
+  const restore = () => {
+    btn.replaceChild(copyIcon, checkIcon)
+    btn.title = t('Copy')
+  }
   // 路径解析在 click 时做（流式重建后行可能已失效）；解析不到就不复制。
   btn.addEventListener('click', (e) => {
     e.stopPropagation()
@@ -4361,19 +4411,13 @@ function renderJsonNodeCopy(rootValue: JsonContainer, path: JsonPath): HTMLEleme
     if (subValue === undefined) return
     const text = jsonTreeCopyText(subValue)
     void navigator.clipboard.writeText(text).then(
-      () => {
-        btn.replaceChild(checkIcon, copyIcon)
-        btn.title = t('Copied')
-        setTimeout(() => {
-          btn.replaceChild(copyIcon, checkIcon)
-          btn.title = t('Copy')
-        }, 1000)
-      },
+      () => showCopyFeedback(copyKey, showCopied, restore),
       () => {
         btn.title = t('Copy failed')
       },
     )
   })
+  initCopyFeedback(copyKey, showCopied, restore)
   return btn
 }
 
