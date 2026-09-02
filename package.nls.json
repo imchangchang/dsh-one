@@ -15,6 +15,7 @@
 	"dshOne.session.rename.title": "Rename Session",
 	"dshOne.session.archive.title": "Archive Session",
 	"dshOne.session.fork.title": "Fork Session",
+	"dshOne.session.copyReference.title": "Copy Session Reference",
 	"dshOne.session.attachFile.title": "DSH One: Send to Current Session",
 	"dshOne.workspace.openFolder.title": "Open Folder in VS Code",
 	"dshOne.dshPath.description": "Path to the dsh executable. Leave empty to look it up from PATH.",

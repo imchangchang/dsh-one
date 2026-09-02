@@ -15,6 +15,7 @@
 	"dshOne.session.rename.title": "重命名会话",
 	"dshOne.session.archive.title": "归档会话",
 	"dshOne.session.fork.title": "分叉会话",
+	"dshOne.session.copyReference.title": "复制会话引用",
 	"dshOne.session.attachFile.title": "DSH One: 发送到当前会话",
 	"dshOne.workspace.openFolder.title": "在 VSCode 中打开文件夹",
 	"dshOne.dshPath.description": "dsh 可执行文件路径。留空则从 PATH 查找。",
