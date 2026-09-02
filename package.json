@@ -1,7 +1,7 @@
 {
   "name": "dsh-one",
   "displayName": "DSH One",
-  "description": "dsh 与 VSCode 的桥接插件：定位本机已安装的 dsh，从 VSCode 直接启动或复用 dsh web 服务，并内嵌界面、同步 workspace。",
+  "description": "%extension.description%",
   "version": "0.1.0",
   "publisher": "cgeng",
   "icon": "assets/icon.png",
@@ -30,7 +30,7 @@
   "contributes": {
     "icons": {
       "dsh-fish": {
-        "description": "dsh 像素鱼图标",
+        "description": "%icon.dshFish.description%",
         "default": {
           "fontPath": "assets/dsh-icon.woff",
           "fontCharacter": "\\f101"
@@ -40,85 +40,85 @@
     "commands": [
       {
         "command": "dshOne.open",
-        "title": "打开面板",
+        "title": "%dshOne.open.title%",
         "category": "DSH One"
       },
       {
         "command": "dshOne.openExternal",
-        "title": "在浏览器中打开 dsh 页面",
+        "title": "%dshOne.openExternal.title%",
         "category": "DSH One"
       },
       {
         "command": "dshOne.openInTab",
-        "title": "打开 dsh 页面",
+        "title": "%dshOne.openInTab.title%",
         "category": "DSH One",
         "icon": "$(globe)"
       },
       {
         "command": "dshOne.restart",
-        "title": "重启服务",
+        "title": "%dshOne.restart.title%",
         "category": "DSH One"
       },
       {
         "command": "dshOne.stop",
-        "title": "停止服务",
+        "title": "%dshOne.stop.title%",
         "category": "DSH One"
       },
       {
         "command": "dshOne.showLogs",
-        "title": "显示日志",
+        "title": "%dshOne.showLogs.title%",
         "category": "DSH One"
       },
       {
         "command": "dshOne.sessions.refresh",
-        "title": "刷新会话列表",
+        "title": "%dshOne.sessions.refresh.title%",
         "category": "DSH One",
         "icon": "$(refresh)"
       },
       {
         "command": "dshOne.session.new",
-        "title": "新建会话",
+        "title": "%dshOne.session.new.title%",
         "category": "DSH One",
         "icon": "$(add)"
       },
       {
         "command": "dshOne.workspace.add",
-        "title": "新建 workspace",
+        "title": "%dshOne.workspace.add.title%",
         "category": "DSH One",
         "icon": "$(add)"
       },
       {
         "command": "dshOne.workspace.create",
-        "title": "创建工作区",
+        "title": "%dshOne.workspace.create.title%",
         "category": "DSH One"
       },
       {
         "command": "dshOne.openInstallPage",
-        "title": "查看 dsh 安装指南",
+        "title": "%dshOne.openInstallPage.title%",
         "category": "DSH One"
       },
       {
         "command": "dshOne.session.rename",
-        "title": "重命名会话",
+        "title": "%dshOne.session.rename.title%",
         "category": "DSH One"
       },
       {
         "command": "dshOne.session.archive",
-        "title": "归档会话",
+        "title": "%dshOne.session.archive.title%",
         "category": "DSH One"
       },
       {
         "command": "dshOne.session.fork",
-        "title": "分叉会话",
+        "title": "%dshOne.session.fork.title%",
         "category": "DSH One"
       },
       {
         "command": "dshOne.session.attachFile",
-        "title": "DSH One: 发送到当前会话"
+        "title": "%dshOne.session.attachFile.title%"
       },
       {
         "command": "dshOne.workspace.openFolder",
-        "title": "在 VSCode 中打开文件夹",
+        "title": "%dshOne.workspace.openFolder.title%",
         "category": "DSH One"
       }
     ],
@@ -162,18 +162,18 @@
         "dshOne.dshPath": {
           "type": "string",
           "default": "",
-          "description": "dsh 可执行文件路径。留空则从 PATH 查找。"
+          "description": "%dshOne.dshPath.description%"
         },
         "dshOne.autoStart": {
           "type": "boolean",
           "default": true,
-          "description": "激活扩展时自动启动（或复用）dsh web 服务。"
+          "description": "%dshOne.autoStart.description%"
         },
         "dshOne.port": {
           "type": "number",
           "default": 3080,
           "minimum": 0,
-          "description": "dsh web 服务端口。0 表示由操作系统分配；非 0 时会先探测该端口上是否已有 dsh 实例并复用之。注意 0 会让 dsh UI 的会话恢复失效（localStorage 按 origin 隔离）。"
+          "description": "%dshOne.port.description%"
         }
       }
     }

@@ -27,4 +27,14 @@
 
 - 只覆盖 manifest 层；运行时/宿主文案走 `i18n-runtime`，webview 走 `i18n-webview`。
 
+## 落地与人工验收
+
+- 用户已确认默认语言策略：**英文 base**（`package.nls.json` 英文，`package.nls.zh-cn.json` 中文覆盖）；视图名 `Sessions`（已是英文）保持不动、不本地化。
+- 改动：`package.json` 的 `description`、`contributes.commands[].title`（16 条）、`contributes.configuration.properties[].description`（3 条）、`contributes.icons.dsh-fish.description` 改为 `%key%` 引用；key 命名镜像 command/property id。`displayName`、命令 `category`、`viewsContainers.title`、`configuration.title`（均为品牌名 "DSH One"）与视图名 `Sessions` 保持字面量。两个 nls 文件 21 个 key 全对齐（脚本校验，无缺失/多余/残留中文字面量）。
+- 人工验收方法（真实 VSCode，合入前主线窗口验证）：
+  1. `cd <repo>/.worktrees/i18n-manifest && bash <repo>/scripts/dev-ui-test.sh`——默认英文环境：命令面板（Cmd+Shift+P）搜 "DSH One" 应见英文命令名（Open Panel / Restart Service / Stop Service / Show Logs / New Session 等）；设置页搜 `dshOne` 配置描述为英文。
+  2. 中文环境：用同一命令但追加 `--locale=zh-cn` 启动（`code` 命令最后加参数），或窗口内 "Configure Display Language" 切中文后 Reload Window——命令名应恢复中文（打开面板 / 重启服务等），与改动前一致。
+  3. 任何界面出现 `%xxx%` 字面量 = key 缺失（不应出现）。
+
 - 2026-09-01 认领 → doing（并行开发 session）
+- 2026-09-01 开发完成，自测通过（typecheck / 253 tests / build 全绿）→ done

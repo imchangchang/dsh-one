@@ -1,0 +1,23 @@
+{
+	"extension.description": "A bridge between dsh and VS Code: locates your locally installed dsh, starts or reuses the dsh web service from VS Code, embeds its UI, and syncs the workspace.",
+	"icon.dshFish.description": "dsh pixel fish icon",
+	"dshOne.open.title": "Open Panel",
+	"dshOne.openExternal.title": "Open dsh Page in Browser",
+	"dshOne.openInTab.title": "Open dsh Page",
+	"dshOne.restart.title": "Restart Service",
+	"dshOne.stop.title": "Stop Service",
+	"dshOne.showLogs.title": "Show Logs",
+	"dshOne.sessions.refresh.title": "Refresh Sessions",
+	"dshOne.session.new.title": "New Session",
+	"dshOne.workspace.add.title": "New Workspace",
+	"dshOne.workspace.create.title": "Create Workspace",
+	"dshOne.openInstallPage.title": "View dsh Installation Guide",
+	"dshOne.session.rename.title": "Rename Session",
+	"dshOne.session.archive.title": "Archive Session",
+	"dshOne.session.fork.title": "Fork Session",
+	"dshOne.session.attachFile.title": "DSH One: Send to Current Session",
+	"dshOne.workspace.openFolder.title": "Open Folder in VS Code",
+	"dshOne.dshPath.description": "Path to the dsh executable. Leave empty to look it up from PATH.",
+	"dshOne.autoStart.description": "Automatically start (or reuse) the dsh web service when the extension activates.",
+	"dshOne.port.description": "Port for the dsh web service. 0 lets the OS pick one; a non-zero value first probes whether a dsh instance is already running on that port and reuses it. Note that 0 breaks session restore in the dsh UI (localStorage is isolated per origin)."
+}

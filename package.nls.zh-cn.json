@@ -1,0 +1,23 @@
+{
+	"extension.description": "dsh 与 VSCode 的桥接插件：定位本机已安装的 dsh，从 VSCode 直接启动或复用 dsh web 服务，并内嵌界面、同步 workspace。",
+	"icon.dshFish.description": "dsh 像素鱼图标",
+	"dshOne.open.title": "打开面板",
+	"dshOne.openExternal.title": "在浏览器中打开 dsh 页面",
+	"dshOne.openInTab.title": "打开 dsh 页面",
+	"dshOne.restart.title": "重启服务",
+	"dshOne.stop.title": "停止服务",
+	"dshOne.showLogs.title": "显示日志",
+	"dshOne.sessions.refresh.title": "刷新会话列表",
+	"dshOne.session.new.title": "新建会话",
+	"dshOne.workspace.add.title": "新建 workspace",
+	"dshOne.workspace.create.title": "创建工作区",
+	"dshOne.openInstallPage.title": "查看 dsh 安装指南",
+	"dshOne.session.rename.title": "重命名会话",
+	"dshOne.session.archive.title": "归档会话",
+	"dshOne.session.fork.title": "分叉会话",
+	"dshOne.session.attachFile.title": "DSH One: 发送到当前会话",
+	"dshOne.workspace.openFolder.title": "在 VSCode 中打开文件夹",
+	"dshOne.dshPath.description": "dsh 可执行文件路径。留空则从 PATH 查找。",
+	"dshOne.autoStart.description": "激活扩展时自动启动（或复用）dsh web 服务。",
+	"dshOne.port.description": "dsh web 服务端口。0 表示由操作系统分配；非 0 时会先探测该端口上是否已有 dsh 实例并复用之。注意 0 会让 dsh UI 的会话恢复失效（localStorage 按 origin 隔离）。"
+}
