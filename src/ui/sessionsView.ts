@@ -422,7 +422,7 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       case 'sessionCopyReference': {
         const mention = formatSessionMention(m.title, m.sessionId)
         await vscode.env.clipboard.writeText(mention)
-        void vscode.window.showInformationMessage(vscode.l10n.t('已复制会话引用，粘贴到输入框即可 @ 这个会话'))
+        void vscode.window.showInformationMessage(vscode.l10n.t('Session reference copied. Paste it into the input box to mention this session'))
         return
       }
       case 'serverStart':
@@ -459,16 +459,16 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
     const url = this.store.runningUrl
     if (!url) return
     const confirm = await vscode.window.showWarningMessage(
-      vscode.l10n.t('将把“{0}”从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在“未分组”下。', label),
+      vscode.l10n.t('"{0}" will be removed from the workspace list. The folder and session records are kept; its sessions will appear under "Ungrouped".', label),
       { modal: true },
-      vscode.l10n.t('从列表移除'),
+      vscode.l10n.t('Remove from list'),
     )
     if (!confirm) return
     try {
       await deleteWorkspace(url, workspaceId)
     } catch (error) {
       this.logger.warn(`workspace: remove ${workspaceId} failed: ${errorText(error)}`)
-      vscode.window.showWarningMessage(vscode.l10n.t('移除工作区失败：{0}', errorText(error)))
+      vscode.window.showWarningMessage(vscode.l10n.t('Failed to remove workspace: {0}', errorText(error)))
       return
     }
     await this.store.refresh()

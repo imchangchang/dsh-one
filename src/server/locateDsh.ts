@@ -42,7 +42,7 @@ export async function locateDsh(logger: Logger): Promise<LocatedDsh> {
   })
   if (result.error || result.status !== 0) {
     throw new DshNotFoundError(
-      vscode.l10n.t('未找到 dsh。请先安装：npm install -g @deepseek-ai/dsh@next；或在设置 dshOne.dshPath 中指定 dsh 可执行文件路径。'),
+      vscode.l10n.t('dsh not found. Install it with: npm install -g @deepseek-ai/dsh@next; or point the dshOne.dshPath setting at the dsh executable.'),
     )
   }
 

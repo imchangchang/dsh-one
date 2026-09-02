@@ -496,16 +496,16 @@ export class ChatViewProvider implements vscode.Disposable {
     const fsPath = target?.fsPath ?? active?.fsPath
     const scheme = target?.scheme ?? active?.scheme
     if (!fsPath) {
-      vscode.window.showWarningMessage(vscode.l10n.t('没有可发送的文件：请先在编辑器中打开文件，或在资源管理器中右键一个文件。'))
+      vscode.window.showWarningMessage(vscode.l10n.t('No file to send: open a file in the editor first, or right-click a file in the explorer.'))
       return
     }
     if (scheme !== undefined && scheme !== 'file') {
-      vscode.window.showWarningMessage(vscode.l10n.t('只能发送本地文件（当前资源 scheme 是 {0}）。', scheme))
+      vscode.window.showWarningMessage(vscode.l10n.t('Only local files can be sent (current resource scheme is {0}).', scheme))
       return
     }
     const status = await this.manager.ensureStarted()
     if (status.state !== 'running' || !status.url) {
-      vscode.window.showErrorMessage(vscode.l10n.t('DSH 服务未就绪，无法发送文件。'))
+      vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not ready; cannot send the file.'))
       return
     }
     // 目标 = 当前活动 chat tab；焦点不在 chat tab（如正在看文件）时回退到
@@ -597,7 +597,7 @@ export class ChatViewProvider implements vscode.Disposable {
       return true
     } catch (error) {
       this.logger.warn(`workspace: switch to ${workspace.workspaceId} failed: ${errorText(error)}`)
-      vscode.window.showWarningMessage(vscode.l10n.t('切换 workspace 失败：{0}', errorText(error)))
+      vscode.window.showWarningMessage(vscode.l10n.t('Failed to switch workspace: {0}', errorText(error)))
       return false
     }
   }
@@ -611,7 +611,7 @@ export class ChatViewProvider implements vscode.Disposable {
     if (!url) return null
     const targetWorkspaceId = this.store.defaultWorkspaceId()
     if (!targetWorkspaceId) {
-      vscode.window.showWarningMessage(vscode.l10n.t('没有可用的 workspace，请先在 VSCode 中打开文件夹。'))
+      vscode.window.showWarningMessage(vscode.l10n.t('No workspace available. Open a folder in VSCode first.'))
       return null
     }
     try {
@@ -619,7 +619,7 @@ export class ChatViewProvider implements vscode.Disposable {
       await this.store.refresh()
       return sessionId
     } catch (err) {
-      vscode.window.showErrorMessage(vscode.l10n.t('新建会话失败：{0}', errorText(err)))
+      vscode.window.showErrorMessage(vscode.l10n.t('Failed to create session: {0}', errorText(err)))
       return null
     }
   }

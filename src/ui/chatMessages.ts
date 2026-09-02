@@ -320,14 +320,14 @@ const fileHandlers: ChatTabMessageHandler[] = [
     types: ['producedOpenFile'],
     async handle(_host, m) {
       if (m.type !== 'producedOpenFile' || typeof m.path !== 'string' || !m.path) return
-      await openFileInEditor(m.path, vscode.l10n.t('产物文件'))
+      await openFileInEditor(m.path, vscode.l10n.t('produced file'))
     },
   },
   {
     types: ['openAttachmentFile'],
     async handle(_host, m) {
       if (m.type !== 'openAttachmentFile' || typeof m.path !== 'string' || !m.path) return
-      await openFileInEditor(m.path, vscode.l10n.t('附件文件'))
+      await openFileInEditor(m.path, vscode.l10n.t('attachment file'))
     },
   },
 ]
@@ -356,8 +356,8 @@ async function openFileInEditor(path: string, label: string): Promise<void> {
     )
     vscode.window.showErrorMessage(
       missing
-        ? vscode.l10n.t('{0}已不存在（可能已被移动或删除）：{1}', label, path)
-        : vscode.l10n.t('打开{0}失败：{1}', label, detail),
+        ? vscode.l10n.t('{0} no longer exists (it may have been moved or deleted): {1}', label, path)
+        : vscode.l10n.t('Failed to open {0}: {1}', label, detail),
     )
   }
 }
@@ -391,7 +391,7 @@ async function sendModelCatalog(host: ChatTabHost): Promise<void> {
   } catch (err) {
     const detail = errorText(err)
     host.actions.logger.warn(`chat: session.models failed — ${detail}`)
-    vscode.window.showErrorMessage(vscode.l10n.t('获取模型列表失败：{0}', detail))
+    vscode.window.showErrorMessage(vscode.l10n.t('Failed to fetch model list: {0}', detail))
   }
 }
 
@@ -419,7 +419,7 @@ async function applyModelSelection(host: ChatTabHost, selection: SessionModelSel
     await controller.refreshModels()
   } catch (err) {
     const detail = errorText(err)
-    vscode.window.showErrorMessage(vscode.l10n.t('切换模型失败：{0}', detail))
+    vscode.window.showErrorMessage(vscode.l10n.t('Failed to switch model: {0}', detail))
   }
 }
 
@@ -433,9 +433,9 @@ async function applyModelSelection(host: ChatTabHost, selection: SessionModelSel
 async function setPermission(host: ChatTabHost, value: string): Promise<void> {
   if (value === 'danger-full-access') {
     const confirm = await vscode.window.showWarningMessage(
-      vscode.l10n.t('确认启用 Full access？启用后 agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。'),
+      vscode.l10n.t('Enable Full access? Full access reduces confirmation steps and lets the agent perform more operations directly, including sensitive operations, file modifications, or external commands. Only use it when you trust the current task.'),
       { modal: true },
-      vscode.l10n.t('启用 Full access'),
+      vscode.l10n.t('Enable Full access'),
     )
     if (!confirm) return
   }
@@ -470,20 +470,20 @@ async function runCommand(host: ChatTabHost, line: string, images?: OutgoingImag
 async function saveSessionLog(host: ChatTabHost, url: string, sessionId: string): Promise<void> {
   try {
     const zip = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('正在导出会话日志…') },
+      { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Exporting session log…') },
       () => exportSessionLog(url, sessionId),
     )
     const target = await vscode.window.showSaveDialog({
       defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Downloads', sessionLogZipFilename(sessionId))),
       filters: { ZIP: ['zip'] },
-      saveLabel: vscode.l10n.t('保存会话日志'),
+      saveLabel: vscode.l10n.t('Save session log'),
     })
     if (!target) return
     await fs.writeFile(target.fsPath, zip)
-    void vscode.window.showInformationMessage(vscode.l10n.t('会话日志已保存到 {0}', target.fsPath))
+    void vscode.window.showInformationMessage(vscode.l10n.t('Session log saved to {0}', target.fsPath))
   } catch (err) {
     const detail = errorText(err)
-    vscode.window.showErrorMessage(vscode.l10n.t('导出会话日志失败：{0}', detail))
+    vscode.window.showErrorMessage(vscode.l10n.t('Failed to export session log: {0}', detail))
   }
 }
 
@@ -491,7 +491,7 @@ async function saveSessionLog(host: ChatTabHost, url: string, sessionId: string)
 async function forkAt(host: ChatTabHost, controller: ChatSessionController, atSeq: number): Promise<void> {
   try {
     const childId = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('正在创建分支会话…') },
+      { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Creating forked session…') },
       () => controller.fork(atSeq),
     )
     // The tree learns about the child via this hook; the chat opens a new
@@ -500,7 +500,7 @@ async function forkAt(host: ChatTabHost, controller: ChatSessionController, atSe
     host.actions.openSessionInNewTab(childId)
   } catch (err) {
     const detail = errorText(err)
-    vscode.window.showErrorMessage(vscode.l10n.t('创建分支会话失败：{0}', detail))
+    vscode.window.showErrorMessage(vscode.l10n.t('Failed to fork session: {0}', detail))
   }
 }
 
@@ -514,6 +514,6 @@ async function renameCurrentSession(host: ChatTabHost, title: string): Promise<v
     host.actions.onSessionsChanged()
   } catch (err) {
     const detail = errorText(err)
-    vscode.window.showErrorMessage(vscode.l10n.t('重命名会话失败：{0}', detail))
+    vscode.window.showErrorMessage(vscode.l10n.t('Failed to rename session: {0}', detail))
   }
 }

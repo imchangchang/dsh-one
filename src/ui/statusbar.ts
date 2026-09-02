@@ -13,13 +13,13 @@ import type { ServerManager, ServerStatus } from '../server/manager.ts'
 function text(status: ServerStatus): string {
   switch (status.state) {
     case 'running':
-      return `$(dsh-fish) DSH: ${vscode.l10n.t('运行中')} :${status.port ?? '?'}`
+      return `$(dsh-fish) DSH: ${vscode.l10n.t('Running')} :${status.port ?? '?'}`
     case 'starting':
-      return `$(dsh-fish) DSH: ${vscode.l10n.t('启动中…')}`
+      return `$(dsh-fish) DSH: ${vscode.l10n.t('Starting…')}`
     case 'error':
-      return `$(dsh-fish) DSH: ${vscode.l10n.t('错误')}`
+      return `$(dsh-fish) DSH: ${vscode.l10n.t('Error')}`
     default:
-      return `$(dsh-fish) DSH: ${vscode.l10n.t('已停止')}`
+      return `$(dsh-fish) DSH: ${vscode.l10n.t('Stopped')}`
   }
 }
 
@@ -43,28 +43,28 @@ function tooltip(status: ServerStatus): vscode.MarkdownString {
   switch (status.state) {
     case 'running':
       md.appendMarkdown(`**DSH One** — ${status.url}\n\n`)
-      if (status.adopted) md.appendMarkdown(`${vscode.l10n.t('复用外部启动的实例，不会被插件停止')}\n\n`)
-      md.appendMarkdown(`[$(globe) ${vscode.l10n.t('在浏览器中打开')}](command:dshOne.openExternal)`)
+      if (status.adopted) md.appendMarkdown(`${vscode.l10n.t('Reusing an externally started instance; the extension will not stop it')}\n\n`)
+      md.appendMarkdown(`[$(globe) ${vscode.l10n.t('Open in Browser')}](command:dshOne.openExternal)`)
       if (!status.adopted) {
         md.appendMarkdown(
-          `　[$(refresh) ${vscode.l10n.t('重启服务')}](command:dshOne.restart)　[$(debug-stop) ${vscode.l10n.t('停止服务')}](command:dshOne.stop)`,
+          `　[$(refresh) ${vscode.l10n.t('Restart Service')}](command:dshOne.restart)　[$(debug-stop) ${vscode.l10n.t('Stop Service')}](command:dshOne.stop)`,
         )
       }
-      md.appendMarkdown(`　[$(output) ${vscode.l10n.t('显示日志')}](command:dshOne.showLogs)`)
+      md.appendMarkdown(`　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`)
       return md
     case 'starting':
-      md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('服务启动中…')}`)
+      md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service is starting…')}`)
       return md
     case 'error':
-      md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('服务出错')}\n\n`)
+      md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service Error')}\n\n`)
       md.appendMarkdown(
-        `[$(refresh) ${vscode.l10n.t('重试启动')}](command:dshOne.openExternal)　[$(output) ${vscode.l10n.t('显示日志')}](command:dshOne.showLogs)`,
+        `[$(refresh) ${vscode.l10n.t('Retry Starting')}](command:dshOne.openExternal)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
       )
       return md
     default:
-      md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('服务已停止')}\n\n`)
+      md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service Stopped')}\n\n`)
       md.appendMarkdown(
-        `[$(play) ${vscode.l10n.t('启动服务')}](command:dshOne.openExternal)　[$(output) ${vscode.l10n.t('显示日志')}](command:dshOne.showLogs)`,
+        `[$(play) ${vscode.l10n.t('Start Service')}](command:dshOne.openExternal)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
       )
       return md
   }
