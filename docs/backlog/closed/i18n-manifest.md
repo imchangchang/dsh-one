@@ -38,3 +38,4 @@
 
 - 2026-09-01 认领 → doing（并行开发 session）
 - 2026-09-01 开发完成，自测通过（typecheck / 253 tests / build 全绿）→ done
+- 2026-09-01 主线合入 f0682a7，复测通过（dev-merge 内置 typecheck/test/build 全绿）→ closed
