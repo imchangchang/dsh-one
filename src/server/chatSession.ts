@@ -7,6 +7,7 @@ import { WorkflowRunFolder } from '../pure/workflowRun.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
 import type { SessionStatsLike } from '../pure/sessionStats.ts'
 import { contextUsageUnknown, pressureWithContextWindow } from '../pure/contextMeter.ts'
+import { modelWindowRecord, parseModelWindowRecord } from '../pure/modelWindowCache.ts'
 import { subscribeMuxEvents } from './muxEvents.ts'
 import type { MuxFrame } from './muxEvents.ts'
 import {
@@ -200,8 +201,28 @@ function asContextPressure(value: unknown): ContextPressureLike | null {
  * contextWindow }）；host 的 `session.models` 目录与 `selectModel` 响应都不带
  * context，客户端无 RPC 可查。selectModel 成功后用它把
  * `contextPressure.contextWindow` 覆写为新模型窗口，contextBar 立即可见。
+ *
+ * 学习只覆盖「尾部历史窗口（50 条消息）的事件扫描 + 本进程实时流」，而
+ * request/context 只在模型/窗口变化时 append——同模型长会话往往只有最早一条、
+ * 早被尾部窗口切掉。不持久化的话，扩展进程重启后映射为空，切回此前用过的
+ * 模型也进「窗口未知」占位（尽管压力投影里就有它的窗口）。持久化到
+ * globalState（extension.ts 注入读写）后观察过一次的窗口永久可用。
  */
 const MODEL_CONTEXT_WINDOW = new Map<string, number>()
+
+/** 持久化 sink（extension.ts 注入 globalState 写入器；未注入时 no-op）。 */
+let persistModelWindowCache: (record: Record<string, number>) => void = () => {}
+
+/** 启动时载入持久化的学习映射（extension.ts 从 globalState 读出后调用）。 */
+export function loadModelWindowCache(value: unknown): void {
+  for (const [key, contextWindow] of parseModelWindowRecord(value)) MODEL_CONTEXT_WINDOW.set(key, contextWindow)
+}
+
+/** 注册持久化回调：learn 到新窗口时把整表落盘（映射极小，整表写）。 */
+export function setModelWindowCachePersist(persist: (record: Record<string, number>) => void): void {
+  persistModelWindowCache = persist
+}
+
 function modelContextWindowKey(provider: string, model: string): string {
   return `${provider}/${model}`
 }
@@ -226,7 +247,10 @@ function learnModelContextWindow(event: SessionEventLike): LearnedModelContext |
     return undefined
   }
   const key = modelContextWindowKey(provider, model)
-  MODEL_CONTEXT_WINDOW.set(key, contextWindow)
+  if (MODEL_CONTEXT_WINDOW.get(key) !== contextWindow) {
+    MODEL_CONTEXT_WINDOW.set(key, contextWindow)
+    persistModelWindowCache(modelWindowRecord(MODEL_CONTEXT_WINDOW))
+  }
   return { key, contextWindow }
 }
 

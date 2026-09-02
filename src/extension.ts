@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
+import { loadModelWindowCache, setModelWindowCachePersist } from './server/chatSession.ts'
 import { archiveSession, createSession, ensureWorkspace, forkSession, renameSession } from './server/dshRpc.ts'
 import { openInTab } from './ui/webview.ts'
 import { ChatViewProvider } from './ui/chatView.ts'
@@ -15,6 +16,9 @@ import { StatusBar } from './ui/statusbar.ts'
 /** Official dsh product page with the "Get started" install instructions. */
 const DSH_INSTALL_URL = 'https://www.deepseek.com/harness/'
 
+/** globalState key for the learned provider/model → contextWindow map (见 chatSession.ts）。 */
+const MODEL_WINDOW_CACHE_KEY = 'chat.modelWindowCache'
+
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -22,6 +26,13 @@ function errorText(err: unknown): string {
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const logger = new Logger()
   logger.info(`dsh-one activating (platform=${process.platform}/${process.arch})`)
+
+  // 模型→窗口学习映射跨进程持久化：不持久化则扩展重启后映射为空，切回此前
+  // 用过的模型也进「窗口未知」占位。加载必须在任何会话 controller 附着之前。
+  loadModelWindowCache(context.globalState.get(MODEL_WINDOW_CACHE_KEY))
+  setModelWindowCachePersist((record) => {
+    void context.globalState.update(MODEL_WINDOW_CACHE_KEY, record)
+  })
 
   const manager = new ServerManager(context, logger)
 
