@@ -22,3 +22,4 @@
 
 - 2026-09-XX 记录 → open
 - 2026-09-XX 认领（worktree: agent/attachment-file-chip-uniform-size）→ doing
+- 2026-09-XX 开发完成，自测通过（typecheck + 317 test + build，commit 30d92dc）→ done
