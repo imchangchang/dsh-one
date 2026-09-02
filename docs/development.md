@@ -30,7 +30,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 注意：
 
 - 扩展不再自动下载运行时。dev host 里如果 PATH 上没有 dsh，启动会失败并提示安装（`npm i -g @deepseek-ai/dsh@next`）；也可以用 `dshOne.dshPath` 指向任意 dsh 可执行文件。
-- dev host 与正式 VSCode 共用 `~/.dsh` 和默认端口：如果 3080 上已有 dsh 在跑，dev host 会直接**收养**它而不是另起实例。
+- dev host 与正式 VSCode 共用 `~/.dsh` 和默认端口：如果 3080 上已有 dsh 在跑，dev host 会直接**复用**它而不是另起实例。
 
 ## src/pure/ 为什么不许 import vscode
 
@@ -46,7 +46,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 ## 手动模拟异常场景
 
 - **未安装 dsh**：临时把 PATH 里的 dsh 摘掉（或把 `dshOne.dshPath` 指到不存在的路径），打开面板应报"未找到 dsh"并引导安装。
-- **验证收养语义**：先手动 `dsh web --port 3080` 起一个实例，再打开面板，状态栏 tooltip 应显示"已复用已有实例"，关闭 VSCode 后该实例应仍在运行。
+- **验证复用语义**：先手动 `dsh web --port 3080` 起一个实例，再打开面板，状态栏 tooltip 应显示"已复用已有实例"，关闭 VSCode 后该实例应仍在运行。
 
 ## 发版流程
 

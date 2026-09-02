@@ -62,7 +62,7 @@
 | 项 | 类别 | 说明 |
 | --- | --- | --- |
 | Remote（SSH/WSL/容器）未验证 | 缺陷 | 声明了 `extensionKind: ["workspace"]`（跑在远端），webview 里访问 127.0.0.1 依赖 VSCode 自动端口转发，理论上可行但没实测过。 |
-| 多窗口 port=0 各起各的 | 缺陷 | `port: 0` 时跳过收养探测（`src/server/manager.ts:136`），每个窗口各 spawn 一个 dsh 实例。多个实例并发写 `~/.dsh` 正是收养机制要防的场景，目前靠"默认端口非 0"规避。 |
+| 多窗口 port=0 各起各的 | 缺陷 | `port: 0` 时跳过复用探测（`src/server/manager.ts:136`），每个窗口各 spawn 一个 dsh 实例。多个实例并发写 `~/.dsh` 正是复用机制要防的场景，目前靠"默认端口非 0"规避。 |
 | 真实 UI 未经人工点验 | 缺陷 | iframe 嵌入官方 UI 的完整链路（含 `dsh_embed=vscode` 的侧栏隐藏效果）没有人工验证记录；单测只覆盖 `src/pure/`。 |
 
 ## 候选方向
@@ -70,6 +70,6 @@
 | 项 | 类别 | 说明 |
 | --- | --- | --- |
 | Remote 实测 | 增强 | 在 SSH / WSL / devcontainer 三种环境各过一遍发版点验清单（见 `docs/development.md`），根据结果决定改代码还是改 README 的限制声明。 |
-| 心跳看门狗防孤儿 | 增强 | 目前 VSCode 崩溃（非 deactivate 路径）会留下孤儿 dsh 进程。可以加周期性心跳文件，dsh 侧或扩展重启时发现陈旧实例做提示/回收（回收必须沿用收养语义，只动自己 spawn 过的）。 |
+| 心跳看门狗防孤儿 | 增强 | 目前 VSCode 崩溃（非 deactivate 路径）会留下孤儿 dsh 进程。可以加周期性心跳文件，dsh 侧或扩展重启时发现陈旧实例做提示/回收（回收必须沿用复用语义，只动自己 spawn 过的）。 |
 | 上游融合：dsh_embed 与 postMessage 桥 | 增强 | 扩展侧融合（workspace 预置，空窗口侦听桥已随阶段一退役）已落地，但受限于 dsh 客户端能力：rc.2 未消费 `dsh_embed=vscode`（侧栏无法隐藏）、无 workspace 锁定模式、无 postMessage 桥（无法深链/跟随打开）。需给上游 dsh 提 issue/PR。阶段二落地后本项自然消解。 |
 | Copilot LM Provider | 增强 | 把 dsh 的模型能力注册为 VSCode Language Model Provider（`vscode.lm`），让 Copilot Chat 等消费。属于新能力探索，优先级最低。 |

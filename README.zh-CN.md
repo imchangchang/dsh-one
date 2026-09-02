@@ -24,7 +24,7 @@
 ## 能做什么
 
 - **dsh 界面嵌进 VSCode**：dsh web 以本地服务运行，DSH One 把它显示在编辑器标签页（iframe），并提供原生侧边栏：会话列表 + 聊天面板。
-- **启动或复用**：扩展探测配置端口，已有 dsh 实例就直接收养复用（只连接，永不 kill）；否则自己 spawn `dsh web`。不下载、不管理运行时、不做更新检查——升级 dsh 由你自己 `npm update -g`。
+- **启动或复用**：扩展探测配置端口，已有 dsh 实例就直接复用（只连接，永不 kill）；否则自己 spawn `dsh web`。不下载、不管理运行时、不做更新检查——升级 dsh 由你自己 `npm update -g`。
 - **workspace 同步**：把当前文件夹注册为 dsh workspace（幂等），dsh 打开就落在你正在工作的目录。
 - **原生会话列表**：按 workspace 分组（当前文件夹置顶），支持搜索（标题 / 会话 ID）、排序（最近 / 最早 / 按标题）、置顶、标为未读、重命名、归档、分叉、"打开文件夹"等操作；会话行 hover 出「⋯」菜单，列表订阅 dsh host 事件流自动刷新。
 - **原生聊天面板**：markdown 渲染、工具调用紧凑行式排版（动作短语、输出折叠可展开）、内联权限确认与提问、plan-review 卡片、todo 清单、子代理运行、运行中一键停止。
@@ -50,7 +50,7 @@ flowchart LR
   VS["VSCode 窗口"] -->|"激活"| EXT["DSH One 扩展"]
   EXT -->|"1. 定位 dsh"| DSH["dsh 可执行文件<br/>(dshOne.dshPath 或 PATH)"]
   DSH -->|"2. 探测端口（默认 3080）"| PROBE{"端口上已有<br/>dsh 实例？"}
-  PROBE -->|"是 — 收养复用，永不 kill"| SRV["dsh web 服务<br/>127.0.0.1:&lt;端口&gt;"]
+  PROBE -->|"是 — 复用已有，永不 kill"| SRV["dsh web 服务<br/>127.0.0.1:&lt;端口&gt;"]
   PROBE -->|"否 — 自己启动"| SPAWN["dsh web --host 127.0.0.1 --port &lt;端口&gt;"]
   SPAWN -->|"验证"| SRV
   SRV -->|"3. 显示"| UI["编辑器标签页 iframe +<br/>原生会话 / 聊天面板"]
@@ -58,7 +58,7 @@ flowchart LR
 ```
 
 1. **定位**：`dshOne.dshPath` 配置优先，否则在 PATH 上找 `dsh`。
-2. **启动或复用**：先探测配置端口上有没有已经在跑的真 dsh：有就直接**收养复用**（只连接，永不 kill）；没有就自己启动 `dsh web`。
+2. **启动或复用**：先探测配置端口上有没有已经在跑的真 dsh：有就直接**复用**（只连接，永不 kill）；没有就自己启动 `dsh web`。
 3. **显示**：编辑器标签页内嵌完整官方 dsh web 界面，侧边栏提供原生会话列表与聊天面板，由 dsh 事件流驱动。
 4. **workspace 预置**：把当前文件夹注册为 dsh workspace，dsh 直接落在你正在工作的目录。
 
@@ -84,7 +84,7 @@ flowchart LR
 | 配置 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `dshOne.dshPath` | `string` | `""` | dsh 可执行文件路径；留空则在 PATH 上查找 `dsh` |
-| `dshOne.port` | `number` | `3080` | 服务端口；`0` 表示由 OS 分配（此时跳过收养探测） |
+| `dshOne.port` | `number` | `3080` | 服务端口；`0` 表示由 OS 分配（此时跳过复用探测） |
 | `dshOne.autoStart` | `boolean` | `true` | 扩展激活时自动启动（或复用）dsh web 服务 |
 
 ## 安全与权限
@@ -107,7 +107,7 @@ flowchart LR
 
 ## 卸载
 
-在 VS Code 扩展视图中卸载本扩展即可。dsh 本体由你自行安装，不受影响；扩展只会停止自己 spawn 的 dsh 进程（收养的实例继续运行），dsh 数据（workspace、会话）原样保留。
+在 VS Code 扩展视图中卸载本扩展即可。dsh 本体由你自行安装，不受影响；扩展只会停止自己 spawn 的 dsh 进程（复用的实例继续运行），dsh 数据（workspace、会话）原样保留。
 
 ---
 
