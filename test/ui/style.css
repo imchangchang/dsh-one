@@ -93,6 +93,8 @@
     color: var(--vscode-descriptionForeground);
   }
   .header-chip:hover { color: var(--vscode-foreground); }
+  /* 头部会话 ⋯ 按钮：靠右端（标题/chips 左侧排列，margin-left:auto 顶到行尾）。 */
+  .chat-header .header-chip.session-menu-btn { margin-left: auto; padding: 3px 6px; }
   /* 只读 preset 标签：浅底胶囊 + 14px 图标，对齐官方 AgentPresetLabel（SVAs4q_label）。 */
   .preset-chip {
     flex: none; display: inline-flex; align-items: center; gap: 4px;
@@ -144,20 +146,20 @@
   .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
   /* 引用 chip（@会话/@文件/@文件夹//命令，对齐 dsh web refChip）：链接色、字重 500、行内 flex。
      .session-mention 是会话 chip（button，可点击打开会话）；.ref-chip 是文件/文件夹/命令
-     chip（span，纯展示）。 */
+     chip（span），其中文件/文件夹带 .ref-chip-link 可点击打开。 */
   .session-mention, .ref-chip {
     display: inline-flex; align-items: center; gap: 3px; margin: 0 2px;
     padding: 0; border: none; background: none; vertical-align: baseline;
     color: var(--vscode-textLink-foreground);
     font: inherit; font-weight: 500; white-space: nowrap;
   }
-  .session-mention { cursor: pointer; }
+  .session-mention, .ref-chip-link { cursor: pointer; }
   /* 给 chip 补一个带文本基线的首个 flex 项：inline-flex 容器基线原先退化为盒底边
      （第一个子项是 SVG 图标、无文本基线），导致 chip 文字相对同行正文抬高。
      content 是零宽空格（有文本基线）；margin-left 抵消 gap:3px 多出的间距。 */
   .session-mention::before, .ref-chip::before { content: '​'; margin-left: -3px; }
   .session-mention svg, .ref-chip svg { flex: none; }
-  .session-mention:hover { text-decoration: underline; }
+  .session-mention:hover, .ref-chip-link:hover { text-decoration: underline; }
   /* 用户气泡下方的会话引用摘要行（对齐 dsh web referenceSummary）：小号、降级文字色。 */
   .ref-summary { font-size: 12px; opacity: 0.75; }
   /* 跨会话召回上下文行：图标与文字基线对齐。 */
@@ -556,6 +558,8 @@
     margin-top: 4px; border-radius: 4px; overflow: hidden;
     font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em;
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    /* container query 断点：以 .diff 自身宽度为准，窄容器切单栏。 */
+    container-type: inline-size;
   }
   /* 左右分栏：每行一个两列 grid，左 old 右 new，行对逐行对齐。 */
   .diff-row { display: grid; grid-template-columns: 1fr 1fr; }
@@ -565,6 +569,16 @@
   .diff-cell.add { background: var(--vscode-diffEditor-insertedTextBackground, rgba(80,255,80,.14)); }
   /* 纯增/删行的空侧：淡灰占位，提示该行无对应内容。 */
   .diff-cell.empty { background: rgba(127,127,127,.08); }
+  /* 窄容器退化为单栏统一 diff：相同行只显示一遍（隐藏 .new 但非 .add 的右侧副本）、
+     修改行上下堆叠（old 红上、new 绿下）、纯增/删的空侧淡灰占位隐藏、行对间距分隔。 */
+  @container (max-width: 480px) {
+    .diff-row { display: block; }
+    .diff-row + .diff-row { margin-top: 3px; }
+    .diff-cell.old { border-right: none; }
+    .diff-cell.empty { display: none; }
+    /* 相同行（无 .add）隐藏右侧副本，只留一遍；修改/新增行的 .new.add 保留。 */
+    .diff-cell.new:not(.add) { display: none; }
+  }
   /* diff 行折叠 toggle（对齐 dsh web DiffBlock「展开其余 N 行差异」）。 */
   .diff-toggle {
     cursor: pointer; opacity: 0.6; margin-top: 2px; font-size: 0.85em; padding-left: 6px;
@@ -998,6 +1012,11 @@
     padding: 4px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-size: 12px;
   }
   .menu-item:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+  /* 禁用态菜单项：置灰、cursor 默认、hover 无高亮（onClick 未绑定，与侧栏一致）。 */
+  .menu-item.disabled,
+  .menu-item.disabled:hover {
+    opacity: .45; cursor: default; background: none; color: inherit;
+  }
   .menu-item .menu-item-icon {
     flex: none; width: 14px; height: 14px; display: inline-flex;
     align-items: center; justify-content: center;
