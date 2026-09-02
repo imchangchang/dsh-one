@@ -23,3 +23,5 @@
 4. webview 防御：占位缺 `usedTokens` 时按无数据显示（隐藏 bar）。
 
 - 2026-09-02 用户报告并拍板修复（要求合理改动而非最小补丁）。
+
+- 2026-09-02 认领（worktree: agent/context-bar-blank-window-unknown）→ doing
