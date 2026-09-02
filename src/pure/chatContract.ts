@@ -336,6 +336,12 @@ export interface ChatState {
   /** Server + session ready for input. */
   canSend: boolean
   /**
+   * 当前模型是否可用（host 从 session.models 的 routable 存；未知/未拉取到
+   * 视为可用，只有明确 routable=false 才为 false）：false 时输入区显示
+   * 「当前模型不可用，请先选择模型」式阻塞文案，模型 pill 保持可点以便重选。
+   */
+  modelAvailable?: boolean
+  /**
    * Set only in the no-session empty state when the server failed to start;
    * the webview replaces its placeholder with the matching guidance.
    */
@@ -556,6 +562,11 @@ export type ToWebviewMessage =
   | { type: 'imagesPicked'; images: OutgoingImage[] }
   | { type: 'filesPicked'; files: StagedFile[] }
   | { type: 'modelCatalog'; catalog: ModelCatalog }
+  /**
+   * 模型目录拉取失败（session.models RPC 出错）：webview 的模型菜单据此显示
+   * error/Retry 行（有旧目录时保留旧数据，不打断）。
+   */
+  | { type: 'modelCatalogError' }
   | { type: 'attachmentData'; attachmentId: string; mediaType: string; data: string }
   | { type: 'restoreDraft'; text: string }
   | { type: 'commandResult'; text: string }

@@ -249,6 +249,9 @@ let pendingFiles: StagedFile[] = []
 let stagedForSession: string | null = null
 /** Latest model catalog reply; dropped on session switch, refetched on menu open. */
 let modelCatalog: ModelCatalog | null = null
+/** 最近一次模型目录拉取是否失败（modelCatalogError）；打开菜单时重置。有旧目录
+ *  时失败不打断（保留旧数据），无目录时菜单显示 error/Retry 行。 */
+let modelCatalogFailed = false
 /** Attachment id → data URL, filled by attachmentData replies; lives for the webview's lifetime. */
 const attachmentCache = new Map<string, string>()
 /** Attachment ids already requested, so re-renders don't repost while a fetch is in flight. */
@@ -694,7 +697,12 @@ window.addEventListener('message', (event) => {
     render()
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
+    modelCatalogFailed = false
     if (modelMenuBody) renderModelMenuRoot(modelMenuBody, msg.catalog)
+  } else if (msg?.type === 'modelCatalogError') {
+    // 有旧目录时保留旧数据不打断；无目录时菜单切到 error/Retry 行。
+    modelCatalogFailed = true
+    if (modelMenuBody && !modelCatalog) renderModelMenuError(modelMenuBody)
   } else if (msg?.type === 'attachmentData' && typeof msg.attachmentId === 'string') {
     const dataUrl = `data:${msg.mediaType};base64,${msg.data}`
     attachmentCache.set(msg.attachmentId, dataUrl)
@@ -1274,7 +1282,14 @@ function openContextPanel(anchor: HTMLElement): void {
 
 function menuItem(
   label: string,
-  opts: { right?: string; checked?: boolean; glyph?: string; icon?: SVGSVGElement; onClick: () => void },
+  opts: {
+    sub?: string
+    right?: string
+    checked?: boolean
+    glyph?: string
+    icon?: SVGSVGElement
+    onClick: () => void
+  },
 ): HTMLElement {
   const item = el('div', opts.checked ? 'menu-item checked' : 'menu-item')
   if (opts.glyph) {
@@ -1288,7 +1303,16 @@ function menuItem(
     ic.appendChild(opts.icon)
     item.appendChild(ic)
   }
-  item.appendChild(el('span', undefined, label))
+  // 带描述（sub）时渲染成名称 + 描述小字两行（.has-desc 行高自适应）。
+  if (opts.sub) {
+    item.classList.add('has-desc')
+    const main = el('div', 'menu-item-main')
+    main.appendChild(el('div', undefined, label))
+    main.appendChild(el('div', 'menu-item-desc', opts.sub))
+    item.appendChild(main)
+  } else {
+    item.appendChild(el('span', undefined, label))
+  }
   if (opts.right) item.appendChild(el('span', 'menu-right', opts.right))
   // 选中态 check 放尾部（dsh web 模式），未选中不渲染。
   if (opts.checked) item.appendChild(el('span', 'check', '✓'))
@@ -1319,6 +1343,8 @@ function openModelMenu(anchor: HTMLElement): void {
   const body = el('div')
   showPopover(anchor, body)
   modelMenuBody = body
+  // 新一轮请求，清掉上一次的失败标志；失败由 modelCatalogError 再置回。
+  modelCatalogFailed = false
   if (modelCatalog) {
     renderModelMenuRoot(body, modelCatalog)
   } else {
@@ -1326,6 +1352,22 @@ function openModelMenu(anchor: HTMLElement): void {
   }
   // Always refetch so the menu reflects the server's current selection.
   post({ type: 'requestModels' })
+}
+
+/** 模型目录拉取失败且无旧目录可用：error hint + Retry 行（点击重发请求）。 */
+function renderModelMenuError(body: HTMLElement): void {
+  body.textContent = ''
+  body.appendChild(el('div', 'menu-hint', '模型列表加载失败'))
+  body.appendChild(
+    menuItem('重试', {
+      onClick: () => {
+        modelCatalogFailed = false
+        body.textContent = ''
+        body.appendChild(el('div', 'menu-hint', '加载中…'))
+        post({ type: 'requestModels' })
+      },
+    }),
+  )
 }
 
 function renderModelMenuRoot(body: HTMLElement, catalog: ModelCatalog): void {
@@ -1361,6 +1403,7 @@ function renderModelMenuModels(body: HTMLElement, catalog: ModelCatalog): void {
       const isCurrent = catalog.current.provider === g.id && catalog.current.model === m.id
       body.appendChild(
         menuItem(m.name, {
+          sub: m.description,
           checked: isCurrent,
           onClick: () => {
             closePopover()
@@ -4194,16 +4237,21 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   const input = document.createElement('textarea')
   input.id = 'input'
   input.rows = 1
+  // 模型不可用（routable=false）时输入区整体阻塞，文案对齐 dsh web 的
+  // 「当前模型不可用，请先选择模型」；与「服务未就绪」是两个独立维度。
+  const modelAvailable = state?.modelAvailable !== false
   input.placeholder = !canSend
     ? '服务未就绪，暂时无法发送'
-    : recall?.kind === 'queue'
-      ? '正在修改排队消息，Enter 保存，Esc 取消'
-      : state?.running
-        ? '输入消息，Enter 排队发送，⌘Enter 立即插话，↑ 修改排队消息，Esc 打断'
-        : hero
-          ? '描述你想要构建的内容'
-          : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件，↑ 召回上一条'
-  input.disabled = !canSend
+    : !modelAvailable
+      ? '当前模型不可用，请先选择模型'
+      : recall?.kind === 'queue'
+        ? '正在修改排队消息，Enter 保存，Esc 取消'
+        : state?.running
+          ? '输入消息，Enter 排队发送，⌘Enter 立即插话，↑ 修改排队消息，Esc 打断'
+          : hero
+            ? '描述你想要构建的内容'
+            : '输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件，↑ 召回上一条'
+  input.disabled = !canSend || !modelAvailable
   if (stashedDraft) {
     input.value = draft?.trim() ? `${draft.trimEnd()}\n${stashedDraft}` : stashedDraft
     stashedDraft = undefined
@@ -4214,10 +4262,12 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   const button = buttonEl('send-button', recall?.kind === 'queue' ? '保存' : '发送')
   const updateButton = (): void => {
     button.disabled =
-      !canSend || (input.value.trim().length === 0 && pendingImages.length === 0 && pendingFiles.length === 0)
+      !canSend ||
+      !modelAvailable ||
+      (input.value.trim().length === 0 && pendingImages.length === 0 && pendingFiles.length === 0)
   }
   const sendCurrent = (steer = false): void => {
-    if (!state || !state.canSend) return
+    if (!state || !state.canSend || state.modelAvailable === false) return
     hideSlashPopup()
     // Staged file chips travel as <attachment> path lines appended to the
     // prompt text (dsh has no file content part); the folder parses them

@@ -323,6 +323,11 @@ export class ChatSessionController implements vscode.Disposable {
   imageLimits: ImageLimits | undefined
   /** Footer model pill, filled by refreshModels(). */
   private modelLabel: string | undefined
+  /**
+   * 当前模型可用位（session.models 的 routable；未拉取到/拉取失败保持 true，
+   * 不误报「模型不可用」）。false 时 webview 输入区显示阻塞文案并禁输入。
+   */
+  private modelRoutable = true
   /** Stored per-message ratings: host messageId → rating + optimistic-lock version. */
   private feedback = new Map<string, { rating: 'positive' | 'negative'; version: string }>()
   private ready = false
@@ -376,6 +381,7 @@ export class ChatSessionController implements vscode.Disposable {
       hasEarlierHistory: this.historyCursor.hasMore,
       loadingEarlier: this.loadingEarlier,
       modelLabel: this.modelLabel,
+      modelAvailable: this.modelRoutable,
       permissions: this.permissions,
       statsLine: this.statsLine,
       todos: this.todos,
@@ -405,11 +411,12 @@ export class ChatSessionController implements vscode.Disposable {
     }
   }
 
-  /** Re-read session.models and refresh the footer model pill. */
+  /** Re-read session.models and refresh the footer model pill + availability. */
   async refreshModels(): Promise<void> {
     const models = await sessionModels(this.url, this.sessionId)
     if (this.disposed) return
     this.modelLabel = modelLabelOf(models)
+    this.modelRoutable = models.routable
     this.push(true)
   }
 
