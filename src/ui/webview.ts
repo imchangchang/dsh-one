@@ -85,6 +85,8 @@ function statusPage(n: string, status: ServerStatus): string {
   }
   const script = `<script nonce="${n}">
     const vscode = acquireVsCodeApi();
+    // 窗口 reload 恢复凭据：给面板一个持久状态（serializer 恢复时重新 bind）。
+    vscode.setState({});
     document.getElementById('retry').addEventListener('click', () => {
       vscode.postMessage({ type: 'retry' });
     });
@@ -94,9 +96,13 @@ function statusPage(n: string, status: ServerStatus): string {
 
 function dshFrame(url: string): string {
   const src = `${url}/?dsh_embed=vscode`
+  const n = nonce()
+  const script = `<script nonce="${n}">
+    acquireVsCodeApi().setState({});
+  </script>`
   return shellHtml(
-    nonce(),
-    `<iframe src="${escapeHtml(src)}" allow="clipboard-read; clipboard-write"></iframe>`,
+    n,
+    `<iframe src="${escapeHtml(src)}" allow="clipboard-read; clipboard-write"></iframe>${script}`,
   )
 }
 
@@ -119,13 +125,25 @@ function bind(webview: vscode.Webview, manager: ServerManager, onDidDispose: vsc
   })
 }
 
+/** Editor 面板的 viewType（窗口 reload 时 serializer 按它匹配恢复）。 */
+export const DSH_TAB_VIEW_TYPE = 'dshOne.tab'
+
 /** Open the dsh web UI as a full editor-area tab. */
 export function openInTab(manager: ServerManager): vscode.WebviewPanel {
-  const panel = vscode.window.createWebviewPanel('dshOne.tab', 'DSH One', vscode.ViewColumn.Active, {
+  const panel = vscode.window.createWebviewPanel(DSH_TAB_VIEW_TYPE, 'DSH One', vscode.ViewColumn.Active, {
     enableScripts: true,
     retainContextWhenHidden: true,
   })
   bind(panel.webview, manager, panel.onDidDispose)
   void manager.ensureStarted()
   return panel
+}
+
+/**
+ * WebviewPanelSerializer 的 deserializeWebviewPanel：reload 后 VSCode 交回的
+ * 面板（位置已还原）重新绑定服务状态与 retry 消息；内容随状态订阅刷新。
+ */
+export async function restoreDshWebTab(panel: vscode.WebviewPanel, manager: ServerManager): Promise<void> {
+  bind(panel.webview, manager, panel.onDidDispose)
+  void manager.ensureStarted()
 }
