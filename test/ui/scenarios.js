@@ -1224,6 +1224,5 @@
     'produced-files', 'produced-files-expanded', 'produced-files-wrap',
     'goal-active',
   ]
-  ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()
