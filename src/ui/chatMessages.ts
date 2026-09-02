@@ -320,14 +320,14 @@ const fileHandlers: ChatTabMessageHandler[] = [
     types: ['producedOpenFile'],
     async handle(_host, m) {
       if (m.type !== 'producedOpenFile' || typeof m.path !== 'string' || !m.path) return
-      await openFileInEditor(m.path, '产物文件')
+      await openFileInEditor(m.path, vscode.l10n.t('产物文件'))
     },
   },
   {
     types: ['openAttachmentFile'],
     async handle(_host, m) {
       if (m.type !== 'openAttachmentFile' || typeof m.path !== 'string' || !m.path) return
-      await openFileInEditor(m.path, '附件文件')
+      await openFileInEditor(m.path, vscode.l10n.t('附件文件'))
     },
   },
 ]
@@ -355,7 +355,9 @@ async function openFileInEditor(path: string, label: string): Promise<void> {
       () => true,
     )
     vscode.window.showErrorMessage(
-      missing ? `${label}已不存在（可能已被移动或删除）：${path}` : `打开${label}失败：${detail}`,
+      missing
+        ? vscode.l10n.t('{0}已不存在（可能已被移动或删除）：{1}', label, path)
+        : vscode.l10n.t('打开{0}失败：{1}', label, detail),
     )
   }
 }
@@ -389,7 +391,7 @@ async function sendModelCatalog(host: ChatTabHost): Promise<void> {
   } catch (err) {
     const detail = errorText(err)
     host.actions.logger.warn(`chat: session.models failed — ${detail}`)
-    vscode.window.showErrorMessage(`获取模型列表失败：${detail}`)
+    vscode.window.showErrorMessage(vscode.l10n.t('获取模型列表失败：{0}', detail))
   }
 }
 
@@ -417,7 +419,7 @@ async function applyModelSelection(host: ChatTabHost, selection: SessionModelSel
     await controller.refreshModels()
   } catch (err) {
     const detail = errorText(err)
-    vscode.window.showErrorMessage(`切换模型失败：${detail}`)
+    vscode.window.showErrorMessage(vscode.l10n.t('切换模型失败：{0}', detail))
   }
 }
 
@@ -431,9 +433,9 @@ async function applyModelSelection(host: ChatTabHost, selection: SessionModelSel
 async function setPermission(host: ChatTabHost, value: string): Promise<void> {
   if (value === 'danger-full-access') {
     const confirm = await vscode.window.showWarningMessage(
-      '确认启用 Full access？启用后 agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。',
+      vscode.l10n.t('确认启用 Full access？启用后 agent 将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任当前任务时使用。'),
       { modal: true },
-      '启用 Full access',
+      vscode.l10n.t('启用 Full access'),
     )
     if (!confirm) return
   }
@@ -468,20 +470,20 @@ async function runCommand(host: ChatTabHost, line: string, images?: OutgoingImag
 async function saveSessionLog(host: ChatTabHost, url: string, sessionId: string): Promise<void> {
   try {
     const zip = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: '正在导出会话日志…' },
+      { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('正在导出会话日志…') },
       () => exportSessionLog(url, sessionId),
     )
     const target = await vscode.window.showSaveDialog({
       defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Downloads', sessionLogZipFilename(sessionId))),
       filters: { ZIP: ['zip'] },
-      saveLabel: '保存会话日志',
+      saveLabel: vscode.l10n.t('保存会话日志'),
     })
     if (!target) return
     await fs.writeFile(target.fsPath, zip)
-    void vscode.window.showInformationMessage(`会话日志已保存到 ${target.fsPath}`)
+    void vscode.window.showInformationMessage(vscode.l10n.t('会话日志已保存到 {0}', target.fsPath))
   } catch (err) {
     const detail = errorText(err)
-    vscode.window.showErrorMessage(`导出会话日志失败：${detail}`)
+    vscode.window.showErrorMessage(vscode.l10n.t('导出会话日志失败：{0}', detail))
   }
 }
 
@@ -489,7 +491,7 @@ async function saveSessionLog(host: ChatTabHost, url: string, sessionId: string)
 async function forkAt(host: ChatTabHost, controller: ChatSessionController, atSeq: number): Promise<void> {
   try {
     const childId = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: '正在创建分支会话…' },
+      { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('正在创建分支会话…') },
       () => controller.fork(atSeq),
     )
     // The tree learns about the child via this hook; the chat opens a new
@@ -498,7 +500,7 @@ async function forkAt(host: ChatTabHost, controller: ChatSessionController, atSe
     host.actions.openSessionInNewTab(childId)
   } catch (err) {
     const detail = errorText(err)
-    vscode.window.showErrorMessage(`创建分支会话失败：${detail}`)
+    vscode.window.showErrorMessage(vscode.l10n.t('创建分支会话失败：{0}', detail))
   }
 }
 
@@ -512,6 +514,6 @@ async function renameCurrentSession(host: ChatTabHost, title: string): Promise<v
     host.actions.onSessionsChanged()
   } catch (err) {
     const detail = errorText(err)
-    vscode.window.showErrorMessage(`重命名会话失败：${detail}`)
+    vscode.window.showErrorMessage(vscode.l10n.t('重命名会话失败：{0}', detail))
   }
 }

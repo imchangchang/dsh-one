@@ -184,7 +184,7 @@ export class ChatTabHost implements vscode.Disposable {
   /** 用户关闭 tab 后 pending 交互到来：重建 panel（复用保留的 controller）。 */
   ensurePanel(): void {
     if (this.panel) return
-    this.createPanel(this.sessionId ? `会话 ${this.sessionId.slice(0, 8)}` : 'DSH One')
+    this.createPanel(this.sessionId ? vscode.l10n.t('会话 {0}', this.sessionId.slice(0, 8)) : 'DSH One')
     this.actions.pushSessions()
     this.actions.syncAttachedSessions()
     this.reveal()
@@ -296,7 +296,7 @@ export class ChatTabHost implements vscode.Disposable {
     const state = this.controller?.getState()
     this.panel.title = !state?.sessionId
       ? 'DSH One'
-      : state.sessionTitle ?? `会话 ${state.sessionId.slice(0, 8)}`
+      : state.sessionTitle ?? vscode.l10n.t('会话 {0}', state.sessionId.slice(0, 8))
   }
 
   // ---- 消息处理（按域分发） ----
@@ -319,7 +319,7 @@ export class ChatTabHost implements vscode.Disposable {
         } catch (err) {
           const detail = err instanceof Error ? err.message : String(err)
           this.actions.logger.warn(`chat: ${m.type} failed — ${detail}`)
-          vscode.window.showErrorMessage(`聊天操作失败：${detail}`)
+          vscode.window.showErrorMessage(vscode.l10n.t('聊天操作失败：{0}', detail))
         }
         return
       }
@@ -338,7 +338,7 @@ export class ChatTabHost implements vscode.Disposable {
   async pickFiles(): Promise<void> {
     const uris = await vscode.window.showOpenDialog({
       canSelectMany: true,
-      openLabel: '添加附件',
+      openLabel: vscode.l10n.t('添加附件'),
       // No filters: any file type is a valid attachment (images are inlined,
       // everything else goes into the prompt as a path).
     })
@@ -357,7 +357,7 @@ export class ChatTabHost implements vscode.Disposable {
       try {
         data = await fs.readFile(uri.fsPath)
       } catch (err) {
-        skipped.push(`${name}（读取失败：${err instanceof Error ? err.message : String(err)}）`)
+        skipped.push(vscode.l10n.t('{0}（读取失败：{1}）', name, err instanceof Error ? err.message : String(err)))
         continue
       }
       images.push({ mediaType, data: Buffer.from(data).toString('base64'), name })
@@ -384,7 +384,7 @@ export class ChatTabHost implements vscode.Disposable {
     const staged: Array<{ name: string; path: string }> = []
     const skipped: string[] = []
     for (const file of files) {
-      const name = file.name ?? '附件'
+      const name = file.name ?? vscode.l10n.t('附件')
       const bytes = Buffer.from(file.data, 'base64')
       const mediaType = sniffImageMediaType(bytes) ?? file.mediaType.trim().toLowerCase()
       if (mediaType.startsWith('image/')) {
@@ -394,11 +394,11 @@ export class ChatTabHost implements vscode.Disposable {
       try {
         staged.push({ name, path: await this.saveTempAttachment(name, bytes) })
       } catch (err) {
-        skipped.push(`${name}（写入临时文件失败：${err instanceof Error ? err.message : String(err)}）`)
+        skipped.push(vscode.l10n.t('{0}（写入临时文件失败：{1}）', name, err instanceof Error ? err.message : String(err)))
       }
     }
     if (skipped.length > 0) {
-      vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
+      vscode.window.showWarningMessage(vscode.l10n.t('已跳过 {0} 个文件：{1}', skipped.length, skipped.join('；')))
     }
     this.stageImages(images)
     if (staged.length > 0) {
@@ -456,7 +456,7 @@ export class ChatTabHost implements vscode.Disposable {
       try {
         data = await fs.readFile(fsPath)
       } catch (err) {
-        vscode.window.showErrorMessage(`读取文件失败：${err instanceof Error ? err.message : String(err)}`)
+        vscode.window.showErrorMessage(vscode.l10n.t('读取文件失败：{0}', err instanceof Error ? err.message : String(err)))
         return
       }
       const skipped: string[] = []
@@ -467,7 +467,7 @@ export class ChatTabHost implements vscode.Disposable {
         skipped,
       )
       if (skipped.length > 0) {
-        vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
+        vscode.window.showWarningMessage(vscode.l10n.t('已跳过 {0} 个文件：{1}', skipped.length, skipped.join('；')))
         return
       }
       this.pendingStagedImages.push(...accepted)
@@ -482,7 +482,7 @@ export class ChatTabHost implements vscode.Disposable {
     if (!this.controller) return
     const accepted = this.validateImages(this.controller, images, skipped)
     if (skipped.length > 0) {
-      vscode.window.showWarningMessage(`已跳过 ${skipped.length} 个文件：${skipped.join('；')}`)
+      vscode.window.showWarningMessage(vscode.l10n.t('已跳过 {0} 个文件：{1}', skipped.length, skipped.join('；')))
     }
     if (accepted.length > 0) {
       const message: ToWebviewMessage = { type: 'imagesPicked', images: accepted }
@@ -500,25 +500,27 @@ export class ChatTabHost implements vscode.Disposable {
     const accepted: OutgoingImage[] = []
     let acceptedBytes = 0
     for (const image of images) {
-      const name = image.name ?? '图片'
+      const name = image.name ?? vscode.l10n.t('图片')
       const byteLength = Buffer.from(image.data, 'base64').byteLength
       const mediaType = image.mediaType.trim().toLowerCase()
       if (limits && !limits.mediaTypes.some((t) => t.trim().toLowerCase() === mediaType)) {
-        skipped.push(`${name}（不支持的格式：${image.mediaType || '未知'}；支持 ${limits.mediaTypes.join('、')}）`)
+        skipped.push(
+          vscode.l10n.t('{0}（不支持的格式：{1}；支持 {2}）', name, image.mediaType || vscode.l10n.t('未知'), limits.mediaTypes.join('、')),
+        )
         this.actions.logger.warn(`chat: image rejected — mediaType=${JSON.stringify(image.mediaType)}, allowed=${JSON.stringify(limits.mediaTypes)}`)
         continue
       }
       if (limits) {
         if (accepted.length >= limits.maxImagesPerMessage) {
-          skipped.push(`${name}（每条消息最多 ${limits.maxImagesPerMessage} 张图片）`)
+          skipped.push(vscode.l10n.t('{0}（每条消息最多 {1} 张图片）', name, limits.maxImagesPerMessage))
           continue
         }
         if (byteLength > limits.maxImageBytes) {
-          skipped.push(`${name}（超过单张 ${formatBytes(limits.maxImageBytes)} 限制）`)
+          skipped.push(vscode.l10n.t('{0}（超过单张 {1} 限制）', name, formatBytes(limits.maxImageBytes)))
           continue
         }
         if (acceptedBytes + byteLength > limits.maxMessageImageBytes) {
-          skipped.push(`${name}（超过单条消息图片总大小 ${formatBytes(limits.maxMessageImageBytes)} 限制）`)
+          skipped.push(vscode.l10n.t('{0}（超过单条消息图片总大小 {1} 限制）', name, formatBytes(limits.maxMessageImageBytes)))
           continue
         }
       }

@@ -113,14 +113,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!url) return
       const targetWorkspaceId = typeof workspaceId === 'string' ? workspaceId : sessions.defaultWorkspaceId()
       if (!targetWorkspaceId) {
-        vscode.window.showWarningMessage('没有可用的 workspace，请先在 VSCode 中打开文件夹。')
+        vscode.window.showWarningMessage(vscode.l10n.t('没有可用的 workspace，请先在 VSCode 中打开文件夹。'))
         return
       }
       let sessionId: string
       try {
         sessionId = await createSession(url, { workspaceId: targetWorkspaceId })
       } catch (err) {
-        vscode.window.showErrorMessage(`新建会话失败：${errorText(err)}`)
+        vscode.window.showErrorMessage(vscode.l10n.t('新建会话失败：{0}', errorText(err)))
         return
       }
       await sessions.refresh()
@@ -139,7 +139,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         createdId = await createSession(url, { cwd, sessionId })
       } catch (err) {
-        vscode.window.showErrorMessage(`新建未分组会话失败：${errorText(err)}`)
+        vscode.window.showErrorMessage(vscode.l10n.t('新建未分组会话失败：{0}', errorText(err)))
         return
       }
       await sessions.refresh()
@@ -149,15 +149,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const url = sessions.runningUrl
       if (!url || typeof sessionId !== 'string') return
       const title = await vscode.window.showInputBox({
-        title: '重命名会话',
-        prompt: '输入新的会话标题',
+        title: vscode.l10n.t('重命名会话'),
+        prompt: vscode.l10n.t('输入新的会话标题'),
         value: typeof currentTitle === 'string' ? currentTitle : '',
       })
       if (title === undefined) return
       try {
         await renameSession(url, sessionId, title)
       } catch (err) {
-        vscode.window.showErrorMessage(`重命名会话失败：${errorText(err)}`)
+        vscode.window.showErrorMessage(vscode.l10n.t('重命名会话失败：{0}', errorText(err)))
         return
       }
       await sessions.refresh()
@@ -166,16 +166,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const url = sessions.runningUrl
       if (!url || typeof sessionId !== 'string') return
       const label = typeof currentTitle === 'string' ? currentTitle : sessionId
+      const archive = vscode.l10n.t('归档')
       const pick = await vscode.window.showWarningMessage(
-        `确认归档会话「${label}」？归档后会从列表中隐藏。`,
+        vscode.l10n.t('确认归档会话「{0}」？归档后会从列表中隐藏。', label),
         { modal: true },
-        '归档',
+        archive,
       )
-      if (pick !== '归档') return
+      if (pick !== archive) return
       try {
         await archiveSession(url, sessionId)
       } catch (err) {
-        vscode.window.showErrorMessage(`归档会话失败：${errorText(err)}`)
+        vscode.window.showErrorMessage(vscode.l10n.t('归档会话失败：{0}', errorText(err)))
         return
       }
       await sessions.refresh()
@@ -189,7 +190,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         newSessionId = await forkSession(url, sessionId)
       } catch (err) {
-        vscode.window.showErrorMessage(`分支会话失败：${errorText(err)}`)
+        vscode.window.showErrorMessage(vscode.l10n.t('分支会话失败：{0}', errorText(err)))
         return
       }
       await sessions.refresh()
@@ -226,8 +227,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         canSelectFiles: false,
         canSelectFolders: true,
         canSelectMany: false,
-        openLabel: '添加为 workspace',
-        title: '新建 workspace：选择文件夹',
+        openLabel: vscode.l10n.t('添加为 workspace'),
+        title: vscode.l10n.t('新建 workspace：选择文件夹'),
       })
       const path = picked?.[0]?.fsPath
       if (!path) return undefined
@@ -236,7 +237,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await sessions.refresh()
         return workspace
       } catch (err) {
-        vscode.window.showErrorMessage(`新建 workspace 失败：${errorText(err)}`)
+        vscode.window.showErrorMessage(vscode.l10n.t('新建 workspace 失败：{0}', errorText(err)))
         return undefined
       }
     }),
@@ -250,21 +251,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         await fs.access(dshHome)
       } catch {
-        vscode.window.showErrorMessage('未找到 dsh 全局目录 ~/.dsh，请先安装并运行一次 dsh 再创建工作区。')
+        vscode.window.showErrorMessage(vscode.l10n.t('未找到 dsh 全局目录 ~/.dsh，请先安装并运行一次 dsh 再创建工作区。'))
         return undefined
       }
       const workspacesDir = path.join(dshHome, 'workspaces')
       const name = await vscode.window.showInputBox({
-        title: '创建工作区',
-        prompt: '将在 ~/.dsh/workspaces/ 下创建同名目录，并注册为 dsh workspace。',
-        placeHolder: '工作区名称',
+        title: vscode.l10n.t('创建工作区'),
+        prompt: vscode.l10n.t('将在 ~/.dsh/workspaces/ 下创建同名目录，并注册为 dsh workspace。'),
+        placeHolder: vscode.l10n.t('工作区名称'),
         validateInput: async (value) => {
           const trimmed = value.trim()
-          if (!trimmed) return '名称不能为空'
-          if (/[/\\]/.test(trimmed) || trimmed === '.' || trimmed === '..') return '名称不能包含路径分隔符'
+          if (!trimmed) return vscode.l10n.t('名称不能为空')
+          if (/[/\\]/.test(trimmed) || trimmed === '.' || trimmed === '..') {
+            return vscode.l10n.t('名称不能包含路径分隔符')
+          }
           try {
             await fs.access(path.join(workspacesDir, trimmed))
-            return '该名称的工作区已存在'
+            return vscode.l10n.t('该名称的工作区已存在')
           } catch {
             return null
           }
@@ -277,7 +280,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await sessions.refresh()
         return workspace
       } catch (err) {
-        vscode.window.showErrorMessage(`创建工作区失败：${errorText(err)}`)
+        vscode.window.showErrorMessage(vscode.l10n.t('创建工作区失败：{0}', errorText(err)))
         return undefined
       }
     }),
