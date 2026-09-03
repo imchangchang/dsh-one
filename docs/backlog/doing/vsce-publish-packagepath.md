@@ -14,3 +14,4 @@
 - `scripts/release-gate.sh:156`（提示输出）
 - `.agents/skills/release-gate/SKILL.md:66`
 - `docs/backlog/open/marketplace-publish.md` 追加一行修正记录（历史行不改）
+- 2026-09-03 认领（open → doing）
