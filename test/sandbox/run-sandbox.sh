@@ -130,7 +130,7 @@ build() {
     echo "已把 test/mock-llm/*.ts 暂存进 $CONTEXT/.build-mock-llm/"
   fi
 
-  echo "构建镜像 ${IMAGE}（LOCALE=$locale THEME=$theme VSIX=${build_vsix:+是} MOCK_LLM=$mock_llm）"
+  echo "构建镜像 ${IMAGE}（LOCALE=$locale THEME=$theme VSIX=${build_vsix:+是} MOCK_LLM=${mock_llm}）"
   echo "上下文: $CONTEXT"
   docker build \
     --build-arg "VSIX=$build_vsix" \

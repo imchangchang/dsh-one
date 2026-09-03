@@ -69,10 +69,10 @@ YAML
     sleep 0.2
   done
   if [ -z "$MOCK_LLM_UP" ]; then
-    echo "[entrypoint] mock-llm 端点未在 ~10s 内就绪（pid=$MOCK_LLM_PID），退出" >&2
+    echo "[entrypoint] mock-llm 端点未在 ~10s 内就绪（pid=${MOCK_LLM_PID}），退出" >&2
     exit 1
   fi
-  echo "[entrypoint] mock-llm 已就绪（pid=$MOCK_LLM_PID）" >&2
+  echo "[entrypoint] mock-llm 已就绪（pid=${MOCK_LLM_PID}）" >&2
 fi
 
 # 2) 主题与语言：LOCALE/THEME 来自镜像 ENV 默认（Dockerfile），运行期可用 -e 覆盖。
