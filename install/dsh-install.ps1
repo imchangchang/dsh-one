@@ -289,6 +289,11 @@ if ($systemNode -and (Test-NodeCompatible $systemNode.Version)) {
 
 # 2. pnpm (required by `dsh plugin` for profile plugin management)
 $npmCmd = Get-NpmCmd $nodeHome $systemNode
+# npm lifecycle scripts (e.g. koffi's postinstall) invoke `node` by name but
+# npm does NOT prepend the node dir to the child PATH: make sure the portable
+# node dir is on THIS process's PATH for the npm runs. This is process-scoped
+# only -- the persistent user PATH stays untouched (DSH_NO_MODIFY_PATH honored).
+if ($nodeMode -eq 'portable' -and $nodeHome) { $env:Path = "$nodeHome;$env:Path" }
 Write-Step "Ensuring pnpm"
 Invoke-Npm $npmCmd @('install','-g','pnpm') $systemNode $nodeHome
 
