@@ -92,7 +92,7 @@ latest_lts_version() {
     ver=$(curl -fsSL "$base/index.json" 2>/dev/null \
       | grep -oE '"version":"v[0-9.]+"|"lts":(false|"[^"]*")' \
       | awk '/"version":"v/ { v=$0; sub(/.*"version":"v/,"",v); sub(/".*/,"",v) }
-             /"lts":"[^"]"/ { print v; exit }' \
+             /"lts":"[^"]+"/ { print v; exit }' \
       || true)
     [ -n "$ver" ] && break
     warn "version resolution failed from $base"
