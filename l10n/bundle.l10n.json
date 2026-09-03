@@ -363,6 +363,8 @@
   "A two-tool coding agent: persistent bash and str_replace_editor only.": "A two-tool coding agent: persistent bash and str_replace_editor only.",
   "Cordis mode": "Cordis mode",
   "For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.": "For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.",
-  "{0} (failed to write attachment file: {1})": "{0} (failed to write temp file: {1})",
-  "Attachments": "Attachments"
+  "{0} (failed to write attachment file: {1})": "{0} (failed to write attachment file: {1})",
+  "Attachments": "Attachments",
+  "Attach files to a session first (open a chat panel)": "Attach files to a session first (open a chat panel)",
+  "Pasted content exceeds {0} MB; save it as a file and attach instead": "Pasted content exceeds {0} MB; save it as a file and attach instead"
 }

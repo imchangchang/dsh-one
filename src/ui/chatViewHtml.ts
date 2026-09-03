@@ -1361,6 +1361,11 @@ const STYLE = `
     font-family: inherit; font-size: inherit; max-height: 160px;
   }
   #input::placeholder { color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground, #9d9d9d)); }
+  /* 透明文字下选区仍要有底色（否则选中无视觉反馈）；文字保持透明由叠层绘制。 */
+  #input::selection {
+    background: var(--vscode-editor-selectionBackground, rgba(101, 158, 254, .35));
+    color: transparent;
+  }
   #input:focus { outline: 1px solid var(--vscode-focusBorder); }
   /* 输入框文本高亮层：与 #input 同字体流叠加，@ 引用 token 有底色；
      鼠标悬停 token 时 .active 加深并联动附件 chip 高亮。 */

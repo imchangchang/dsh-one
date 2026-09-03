@@ -298,8 +298,12 @@ let lastTodosSig: string | null = null
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
 let pendingFiles: StagedFile[] = []
-/** 长文本粘贴折叠进行中：宿主回投 filesPicked 后在光标处自动插入 @ token。 */
-let pendingTextPaste = false
+/**
+ * 长文本粘贴折叠挂起态：宿主写盘失败/无回执时通过超时兜底——把原文重新插回
+ * 光标处（不丢数据）并复位，避免卡死导致后续正常附件回投被误插 token。
+ * 回执核对走文件名协议（pasted-*），见 filesPicked 分支。
+ */
+let pendingTextPaste: { timer: ReturnType<typeof setTimeout>; text: string } | null = null
 /** Session the staged images belong to; a switch drops them. */
 let stagedForSession: string | null = null
 /** Per-session composer text drafts: sessionId → 未发送文本。切走时存旧、切回时取新，
@@ -329,8 +333,9 @@ const attachmentCache = new Map<string, string>()
 const attachmentRequested = new Set<string>()
 /** File-path → data URL for image-file chips (message history), filled by fileThumb replies. */
 const fileThumbCache = new Map<string, string>()
-/** File paths already thumb-requested; a failed read is cached as a miss to avoid retry loops. */
-const fileThumbRequested = new Set<string>()
+/** File path → 上次请求时间戳：失败（无回执）5 秒后允许重试，避免瞬时失败永久降级。 */
+const fileThumbRequested = new Map<string, number>()
+const FILE_THUMB_RETRY_MS = 5000
 /** Half-answered pending questions: rpcId → question index → draft. */
 const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
 /** Composer-takeover panel per pending rpcId: current page (question index), minimized state, skipped pages and a transient notice. */
@@ -1122,8 +1127,11 @@ window.addEventListener('message', (event) => {
   } else if (msg?.type === 'filesPicked' && Array.isArray(msg.files)) {
     pendingFiles = [...pendingFiles, ...msg.files]
     // 长文本粘贴折叠的回执：光标处自动插入 @ 短 token（canonical 记绑定，发送时展开）。
-    if (pendingTextPaste && msg.files.length > 0) {
-      pendingTextPaste = false
+    // 核对回执文件名协议（pasted-*，折叠专属命名）：挂起期间的普通 pickFiles
+    // 回执不会误插；跨会话/超时的慢回执由超时兜底兜住。
+    if (pendingTextPaste !== null && msg.files.length > 0 && msg.files[0].name.startsWith('pasted-')) {
+      clearTimeout(pendingTextPaste.timer)
+      pendingTextPaste = null
       insertMentionToken(msg.files[0].name, msg.files[0].path)
     }
     render()
@@ -1354,6 +1362,8 @@ let slashIndex = 0
 let fileRefSeq = 0
 let fileRefRequestKey = ''
 let fileRefResult: { key: string; items: FileRefCandidate[] } | null = null
+/** @ 补全请求防抖（宿主工作区扫描有目录 stat 开销，防每键一次全量扫描）。 */
+let fileRefDebounce: ReturnType<typeof setTimeout> | null = null
 
 /**
  * 显示 token（`@标题`）→ canonical mention 的映射，发送时由
@@ -1468,13 +1478,39 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
 }
 
 /** 长文本粘贴折叠：超过阈值且会话可发送时拦截，交给宿主落盘（回投后自动插 @ token）。
- *  无附着会话（canSend=false）不折叠，走默认插入——文本不会无处可去。 */
+ *  无附着会话（canSend=false）不折叠，走默认插入——文本不会无处可去。
+ *  超时（3s）未回投视为失败：复位并原文插回光标（不能丢了用户的文本）。 */
+const PASTE_FOLD_TIMEOUT_MS = 3000
+/** 折叠上限：超过该长度的粘贴既不折叠也不塞进 textarea（两者都兜不住），提示另存文件。 */
+const PASTE_FOLD_MAX_BYTES = 2 * 1024 * 1024
 function foldLongTextPaste(e: ClipboardEvent): boolean {
   if (state?.canSend !== true) return false
   const text = e.clipboardData?.getData('text/plain') ?? ''
   if (!shouldFoldPastText(text)) return false
+  if (text.length > PASTE_FOLD_MAX_BYTES) {
+    // 巨量粘贴：不折叠也不塞进 textarea（两者都兜不住），提示用户另存文件。
+    e.preventDefault()
+    commandNotices = [...commandNotices, t('Pasted content exceeds {0} MB; save it as a file and attach instead', Math.round(PASTE_FOLD_MAX_BYTES / 1024 / 1024))]
+    render()
+    return true
+  }
   e.preventDefault()
-  pendingTextPaste = true
+  pendingTextPaste = {
+    text,
+    timer: setTimeout(() => {
+      if (pendingTextPaste?.text !== text) return
+      pendingTextPaste = null
+      // 宿主没回投：原文插回光标处（粘贴点的原始语义），不丢数据。
+      const el = document.getElementById('input') as HTMLTextAreaElement | null
+      if (el) {
+        const cursor = el.selectionStart ?? el.value.length
+        el.value = `${el.value.slice(0, cursor)}${text}${el.value.slice(el.selectionEnd ?? cursor)}`
+        el.focus()
+        el.setSelectionRange(cursor + text.length, cursor + text.length)
+        el.dispatchEvent(new Event('input'))
+      }
+    }, PASTE_FOLD_TIMEOUT_MS),
+  }
   post({ type: 'pasteText', data: text })
   return true
 }
@@ -1508,12 +1544,17 @@ function computeRefRows(input: HTMLTextAreaElement): SlashRow[] {
   if (input.selectionStart !== input.selectionEnd) return []
   const at = activeAtToken(input.value.slice(0, input.selectionStart))
   if (!at) return []
-  // token 变了才发新请求；响应到达后由消息处理分支重算本函数上屏。
+  // token 变了才发新请求；250ms 防抖（宿主侧工作区扫描有目录 stat 开销）。
+  // 响应到达后由消息处理分支重算本函数上屏。本地附件候选即时出，不等宿主。
   if (fileRefResult?.key !== at.prefix) {
     fileRefSeq += 1
     fileRefRequestKey = at.prefix
     fileRefResult = null
-    post({ type: 'fileRefList', requestId: fileRefSeq, query: at.query })
+    if (fileRefDebounce !== null) clearTimeout(fileRefDebounce)
+    fileRefDebounce = setTimeout(() => {
+      fileRefDebounce = null
+      post({ type: 'fileRefList', requestId: fileRefSeq, query: at.query })
+    }, 250)
   }
   const { attachments, workspace } = fileRows(input, at)
   const sessions = at.quoted ? [] : sessionRows(input, at)
@@ -3522,10 +3563,13 @@ function imageChip(image: ChatImage): HTMLElement {
 
 /** Compact chip for one attached file; click opens the path in the VS Code editor. */
 function fileChip(file: ChatFile): HTMLElement {
-  // 图片文件：先画图标 chip 并懒请求缩略图（回执后整卡换成缩略图，失败保持图标）。
-  if (file.image && !fileThumbCache.has(file.path) && !fileThumbRequested.has(file.path)) {
-    fileThumbRequested.add(file.path)
-    post({ type: 'requestFileThumb', path: file.path })
+  // 图片文件：先画图标 chip 并懒请求缩略图（回执后整卡换成缩略图，失败 5s 后重试）。
+  if (file.image && !fileThumbCache.has(file.path)) {
+    const at = fileThumbRequested.get(file.path) ?? 0
+    if (Date.now() - at > FILE_THUMB_RETRY_MS) {
+      fileThumbRequested.set(file.path, Date.now())
+      post({ type: 'requestFileThumb', path: file.path })
+    }
   }
   if (file.image) {
     const dataUrl = fileThumbCache.get(file.path)
@@ -4008,11 +4052,11 @@ function renderUserBubbleParts(
   return { bubble, summary, files: fileRefs }
 }
 
-/** 合并消息内既有附件与 @ 文件引用（按 path 去重）后的附件渲染列表。 */
+/** 合并消息内既有附件与 @ 文件引用（路径不区分大小写去重——Windows 大小写不敏感）。 */
 function mergedAttachments(fileRefs: ChatFile[], existing: readonly ChatFile[] | undefined): ChatFile[] {
   const byPath = new Map<string, ChatFile>()
-  for (const f of existing ?? []) byPath.set(f.path, f)
-  for (const f of fileRefs) if (!byPath.has(f.path)) byPath.set(f.path, f)
+  for (const f of existing ?? []) byPath.set(f.path.toLowerCase(), f)
+  for (const f of fileRefs) if (!byPath.has(f.path.toLowerCase())) byPath.set(f.path.toLowerCase(), f)
   return [...byPath.values()]
 }
 
@@ -5660,7 +5704,9 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   row.appendChild(frame)
 
   /** 按当前输入渲染高亮层：mentionBindings 里的显示 token 高亮（含路径关联）。 */
+  let composerComposing = false
   const renderRefLayer = (): void => {
+    if (composerComposing) return // IME 组合中跳过重建（组合文本由 textarea 原生绘制）
     refLayer.textContent = ''
     const value = input.value
     const tokens = [...mentionBindings.keys()].sort((a, b) => b.length - a.length)
@@ -5700,8 +5746,9 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     for (const span of Array.from(refLayer.querySelectorAll<HTMLElement>('.ref-token'))) {
       span.classList.toggle('active', path !== null && span.dataset.path === path)
     }
-    // hover 用独立 class（hovered），不碰点击选中态的 referenced。
-    for (const chip of Array.from(document.querySelectorAll<HTMLElement>('[data-attach-path]'))) {
+    // hover 用独立 class（hovered），不碰点击选中态的 referenced；查询收窄到
+    // composer 输入区（避免点亮历史消息里同路径的附件 chip）。
+    for (const chip of Array.from(document.querySelectorAll<HTMLElement>('.input-area [data-attach-path]'))) {
       chip.classList.toggle('hovered', plain !== null && chip.dataset.attachPath === plain)
     }
   }
@@ -5929,6 +5976,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       }
       render()
     }
+  })
+  input.addEventListener('compositionstart', () => {
+    composerComposing = true
+  })
+  input.addEventListener('compositionend', () => {
+    composerComposing = false
+    renderRefLayer()
   })
   input.addEventListener('input', () => {
     autoGrow(input)

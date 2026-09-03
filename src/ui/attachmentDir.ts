@@ -13,7 +13,8 @@ export function attachmentDir(sessionId: string | undefined): string {
   return path.join(os.tmpdir(), 'dsh-one-attachments', sessionId || 'default')
 }
 
-/** 会话目录里下一个序号：扫描匹配 `namePattern` 的现有文件取最大 N + 1（新目录从 1 起）。 */
+/** 会话目录里下一个序号：扫描匹配 `namePattern` 的现有文件取最大 N + 1（新目录从 1 起）。
+ *  命名兼容 `imgN-M.ext` 防撞后缀（孤儿也占位，避免重复分配）。 */
 export async function nextSequenceIndex(dir: string, namePattern: RegExp): Promise<number> {
   let max = 0
   try {

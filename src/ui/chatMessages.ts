@@ -396,10 +396,19 @@ const chatHandlers: ChatTabMessageHandler[] = [
       try {
         const dir = attachmentDir(controller.sessionId)
         await fs.mkdir(dir, { recursive: true })
-        const seq = await nextSequenceIndex(dir, /^pasted-(\d+)\.txt$/i)
-        const name = pastedFileName(seq)
-        await fs.writeFile(path.join(dir, name), m.data, 'utf8')
-        host.postMessage({ type: 'filesPicked', files: [{ name, path: path.join(dir, name) }] })
+        // 原子写：wx 独占创建，冲突则序号 +1 重试（并发粘贴不互相覆盖）。
+        for (let i = 0; ; i += 1) {
+          const seq = await nextSequenceIndex(dir, /^pasted-(\d+)(?:-\d+)?\.txt$/i)
+          const name = pastedFileName(seq + i)
+          const target = path.join(dir, name)
+          try {
+            await fs.writeFile(target, m.data, { encoding: 'utf8', flag: 'wx' })
+            host.postMessage({ type: 'filesPicked', files: [{ name, path: target }] })
+            return
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+          }
+        }
       } catch (err) {
         host.actions.logger.warn(`chat: pasteText failed — ${errorText(err)}`)
       }

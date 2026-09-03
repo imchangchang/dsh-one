@@ -1605,7 +1605,7 @@
       title: '附件框尺寸统一（输入区 + 已发送消息）',
       expect: '已发送的用户消息气泡上方一行两个同尺寸方块：左边图片缩略图（红色实心图），右边文件框（文档图标在上、README.md 在下）；两框同宽同高、圆角一致、垂直对齐。输入区上方同样一行两个同尺寸方块：图片缩略图 + 文件框（README.md），与消息区的两框尺寸一致。文件框内文字不溢出框外（过长 ellipsis）。不应再出现横向长条 pill 形状的文件 chip。',
       interact: `postMessage({ type:'attachmentData', attachmentId:'img-1', mediaType:'image/png', data:'${PNG_RED}' }, '*');
-postMessage({ type:'imagesPicked', images:[{ mediaType:'image/png', data:'${PNG_RED}', name:'photo.png' }] }, '*');
+postMessage({ type:'filesPicked', files:[{ name:'photo.png', path:'/tmp/dsh-one-attachments/u-1/photo.png', image:true, mediaType:'image/png', previewData:'${PNG_RED}' }] }, '*');
 postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/Workspaces/dsh-one/README.md' }] }, '*');`,
     },
 

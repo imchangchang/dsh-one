@@ -449,6 +449,11 @@ export class ChatTabHost implements vscode.Disposable {
    */
   async stagePastedFiles(files: OutgoingImage[]): Promise<void> {
     if (files.length === 0) return
+    // 无附着会话：与长文本折叠的门控保持一致，不落共享 default/ 目录（提示走 webview 侧）。
+    if (!this.controller) {
+      vscode.window.showWarningMessage(vscode.l10n.t('Attach files to a session first (open a chat panel)'))
+      return
+    }
     const staged: StagedFile[] = []
     const skipped: string[] = []
     const dir = attachmentDir(this.controller?.sessionId)
@@ -458,7 +463,7 @@ export class ChatTabHost implements vscode.Disposable {
       const mediaType = sniffImageMediaType(bytes) ?? file.mediaType.trim().toLowerCase()
       try {
         if (mediaType.startsWith('image/')) {
-          const seq = await nextSequenceIndex(dir, /^img(\d+)\.(?:png|jpg|webp|gif)$/i)
+          const seq = await nextSequenceIndex(dir, /^img(\d+)(?:-\d+)?\.(?:png|jpg|webp|gif)$/i)
           const target = await this.saveTempAttachment(imgFileName(mediaType, seq), bytes)
           staged.push({ name: path.basename(target), path: target, image: true, mediaType, previewData: file.data })
         } else {
@@ -477,7 +482,8 @@ export class ChatTabHost implements vscode.Disposable {
     }
   }
 
-  /** Persist one paste under the per-session attachment dir; returns the file path. Colliding names get a numeric suffix. */
+  /** 原子写一个附件名：wx 独占创建，冲突即递增 -N 后缀重试（并发粘贴不互相覆盖；
+   *  -N 后缀虽不入 imgN 序号序列，但原子写下正常路径永远不会产生它）。 */
   private async saveTempAttachment(name: string, bytes: Buffer): Promise<string> {
     const dir = attachmentDir(this.controller?.sessionId)
     await fs.mkdir(dir, { recursive: true })
@@ -485,13 +491,16 @@ export class ChatTabHost implements vscode.Disposable {
     const dot = safe.lastIndexOf('.')
     const base = dot > 0 ? safe.slice(0, dot) : safe
     const ext = dot > 0 ? safe.slice(dot) : ''
-    let candidate = path.join(dir, safe)
-    for (let i = 1; await fs.access(candidate).then(() => true, () => false); i += 1) {
-      candidate = path.join(dir, `${base}-${i + 1}${ext}`)
+    for (let i = 0; ; i += 1) {
+      const candidate = path.join(dir, i === 0 ? safe : `${base}-${i + 1}${ext}`)
+      try {
+        await fs.writeFile(candidate, bytes, { flag: 'wx' })
+        this.actions.logger.info(`chat: pasted file saved to ${candidate}`)
+        return candidate
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+      }
     }
-    await fs.writeFile(candidate, bytes)
-    this.actions.logger.info(`chat: pasted file saved to ${candidate}`)
-    return candidate
   }
 
   /**
