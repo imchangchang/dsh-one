@@ -165,9 +165,9 @@ function Invoke-DownloadMirrored([string[]]$urls, [string]$dest) {
 
 function Install-PortableNode([string]$version, [string]$arch) {
   $nodeHome = Join-Path $DshBase "node-$arch"
-  $zip      = Join-Path $DshBase "node-$version-win-$arch.zip"
+  $zip      = Join-Path $DshBase "node-v$version-win-$arch.zip"
   $extract  = Join-Path $DshBase ".node-extract"
-  $inner    = Join-Path $extract "node-$version-win-$arch"
+  $inner    = Join-Path $extract "node-v$version-win-$arch"
 
   if (Test-Path -LiteralPath (Join-Path $nodeHome 'node.exe')) {
     Write-Step "Portable Node already installed at $nodeHome"
@@ -175,7 +175,7 @@ function Install-PortableNode([string]$version, [string]$arch) {
   }
 
   Write-Step "Downloading Node $version (win-$arch)"
-  $zipUrls = foreach ($base in $NodeDistBases) { "$base/v$version/node-$version-win-$arch.zip" }
+  $zipUrls = foreach ($base in $NodeDistBases) { "$base/v$version/node-v$version-win-$arch.zip" }
   Invoke-DownloadMirrored $zipUrls $zip
 
   Write-Step "Verifying SHA256"
@@ -190,17 +190,17 @@ function Install-PortableNode([string]$version, [string]$arch) {
   $expected = $null
   foreach ($raw in ([string]$sums.Content -split "`n")) {
     $line = $raw.Trim()
-    if ($line -match "^([0-9a-f]{64})\s{2}$([regex]::Escape("node-$version-win-$arch.zip"))$") {
+    if ($line -match "^([0-9a-f]{64})\s{2}$([regex]::Escape("node-v$version-win-$arch.zip"))$") {
       $expected = $Matches[1].ToLower(); break
     }
   }
-  if (-not $expected) { Die "no checksum entry for node-$version-win-$arch.zip in SHASUMS256.txt" }
+  if (-not $expected) { Die "no checksum entry for node-v$version-win-$arch.zip in SHASUMS256.txt" }
   $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
   if ($actual -ne $expected) { Die "checksum mismatch: expected $expected, got $actual" }
 
   if (Test-Path -LiteralPath $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
   Expand-Archive -LiteralPath $zip -DestinationPath $extract
-  if (-not (Test-Path -LiteralPath $inner)) { Die "extracted archive missing node-$version-win-$arch" }
+  if (-not (Test-Path -LiteralPath $inner)) { Die "extracted archive missing node-v$version-win-$arch" }
   if (Test-Path -LiteralPath $nodeHome) { Remove-Item -LiteralPath $nodeHome -Recurse -Force }
   Move-Item -LiteralPath $inner -Destination $nodeHome
   Remove-Item -LiteralPath $extract -Recurse -Force
