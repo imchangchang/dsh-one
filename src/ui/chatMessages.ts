@@ -22,7 +22,7 @@ import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { FileRefCandidate } from '../pure/fileReference.ts'
 import type { ChatState, CommitInfoResult, FromWebviewMessage, OutgoingImage, ToWebviewMessage } from '../pure/chatContract.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
-import { splitAttachmentLines } from '../pure/composerAttachment.ts'
+import { imageMediaTypeByExtension, splitAttachmentLines } from '../pure/composerAttachment.ts'
 import type { ChatSessionController } from '../server/chatSession.ts'
 import type { ChatTabHost } from './chatTab.ts'
 
@@ -308,6 +308,8 @@ const chatHandlers: ChatTabMessageHandler[] = [
       if (!controller) return
       const text = typeof m.text === 'string' ? m.text.trim() : ''
       const images = Array.isArray(m.images) ? m.images : []
+      // webview 附带的暂存附件（含图片的预览元数据）：发送失败时按原样还原 chips。
+      const files = Array.isArray(m.files) ? m.files : []
       if (!text && images.length === 0) return
       // 懒切换落地：把消息发到 pending 目标 workspace 的会话（resolve 会换
       // controller，后续逻辑一律用重取的 target，不用入参 controller）。
@@ -329,13 +331,15 @@ const chatHandlers: ChatTabMessageHandler[] = [
       } catch (err) {
         // 发送失败（模型不支持图片、服务重启等）：把消息原样还回 composer，
         // 不让输入被吞。文件行还原成 chips（与发送前状态一致），错误通知继续
-        // 走 chatTab 的「聊天操作失败」通用路径。
-        const { text: body, files } = splitAttachmentLines(text)
+        // 走 chatTab 的「聊天操作失败」通用路径。webview 附带的 files 优先
+        // （带图片预览元数据），缺失时从文本行解析兜底。
+        const { text: body, files: parsedFiles } = splitAttachmentLines(text)
+        const restoreFiles = files.length > 0 ? files.map((f) => ({ ...f, path: f.path })) : parsedFiles
         host.postMessage({
           type: 'restoreDraft',
           text: body,
           ...(images.length > 0 ? { images } : {}),
-          ...(files.length > 0 ? { files } : {}),
+          ...(restoreFiles.length > 0 ? { files: restoreFiles } : {}),
         })
         throw err
       }
@@ -576,6 +580,22 @@ const fileHandlers: ChatTabMessageHandler[] = [
     async handle(_host, m) {
       if (m.type !== 'openAttachmentFile' || typeof m.path !== 'string' || !m.path) return
       await openFileInEditor(m.path, vscode.l10n.t('attachment file'))
+    },
+  },
+  {
+    // 消息里图片文件 chip 的缩略图懒加载：读盘转 base64 回传（失败静默，
+    // webview 回退成图标 chip——历史消息的文件可能已被移动/删除）。
+    types: ['requestFileThumb'],
+    async handle(host, m) {
+      if (m.type !== 'requestFileThumb' || typeof m.path !== 'string' || !m.path) return
+      const mediaType = imageMediaTypeByExtension(path.extname(m.path))
+      if (!mediaType) return
+      try {
+        const data = await fs.readFile(m.path)
+        host.postMessage({ type: 'fileThumb', path: m.path, mediaType, data: Buffer.from(data).toString('base64') })
+      } catch (err) {
+        host.actions.logger.warn(`chat: fileThumb ${m.path} failed — ${errorText(err)}`)
+      }
     },
   },
   {

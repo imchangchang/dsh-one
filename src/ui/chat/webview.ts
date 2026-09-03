@@ -325,6 +325,10 @@ let modelCatalogFailed = false
 const attachmentCache = new Map<string, string>()
 /** Attachment ids already requested, so re-renders don't repost while a fetch is in flight. */
 const attachmentRequested = new Set<string>()
+/** File-path → data URL for image-file chips (message history), filled by fileThumb replies. */
+const fileThumbCache = new Map<string, string>()
+/** File paths already thumb-requested; a failed read is cached as a miss to avoid retry loops. */
+const fileThumbRequested = new Set<string>()
 /** Half-answered pending questions: rpcId → question index → draft. */
 const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
 /** Composer-takeover panel per pending rpcId: current page (question index), minimized state, skipped pages and a transient notice. */
@@ -1112,11 +1116,12 @@ window.addEventListener('message', (event) => {
       shas.push(r.sha)
     }
     if (shas.length > 0) refreshCommitHashSpans(shas)
-  } else if (msg?.type === 'imagesPicked' && Array.isArray(msg.images)) {
-    pendingImages = [...pendingImages, ...msg.images]
-    render()
   } else if (msg?.type === 'filesPicked' && Array.isArray(msg.files)) {
     pendingFiles = [...pendingFiles, ...msg.files]
+    render()
+  } else if (msg?.type === 'fileThumb' && typeof msg.path === 'string' && typeof msg.data === 'string') {
+    // 消息里图片文件 chip 的缩略图回执：缓存后重渲染（占位变真图）。
+    fileThumbCache.set(msg.path, `data:${msg.mediaType};base64,${msg.data}`)
     render()
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
@@ -3451,6 +3456,42 @@ function imageChip(image: ChatImage): HTMLElement {
 
 /** Compact chip for one attached file; click opens the path in the VS Code editor. */
 function fileChip(file: ChatFile): HTMLElement {
+  // 图片文件：先画图标 chip 并懒请求缩略图（回执后整卡换成缩略图，失败保持图标）。
+  if (file.image && !fileThumbCache.has(file.path) && !fileThumbRequested.has(file.path)) {
+    fileThumbRequested.add(file.path)
+    post({ type: 'requestFileThumb', path: file.path })
+  }
+  if (file.image) {
+    const dataUrl = fileThumbCache.get(file.path)
+    if (dataUrl) return fileThumbItem(file, dataUrl)
+  }
+  const chip = el('span', 'file-chip')
+  const icon = el('span', 'file-chip-icon')
+  icon.appendChild(strokeSvg(FILE_ICON))
+  chip.appendChild(icon)
+  const name = el('span', 'chip-name', file.name)
+  name.title = file.path
+  chip.appendChild(name)
+  chip.title = t('Open {0} in VS Code', file.path)
+  chip.addEventListener('click', () => post({ type: 'openAttachmentFile', path: file.path }))
+  return chip
+}
+
+/** 图片文件的缩略图 chip（历史消息）：点击放大（复用 attach-thumb 样式）。 */
+function fileThumbItem(file: ChatFile, dataUrl: string): HTMLElement {
+  const item = el('span', 'attach-thumb')
+  item.title = t('{0} (click to preview)', file.name)
+  const img = document.createElement('img')
+  img.src = dataUrl
+  img.alt = file.name
+  img.addEventListener('error', () => item.replaceWith(fileIconChip(file)))
+  item.addEventListener('click', () => openLightbox(dataUrl))
+  item.appendChild(img)
+  return item
+}
+
+/** 缩略图加载失败/未取到时的纯图标 chip（点击打开文件）。 */
+function fileIconChip(file: ChatFile): HTMLElement {
   const chip = el('span', 'file-chip')
   const icon = el('span', 'file-chip-icon')
   icon.appendChild(strokeSvg(FILE_ICON))
@@ -5416,8 +5457,29 @@ function pendingImageFallback(img: OutgoingImage, index: number): HTMLElement {
   return chip
 }
 
-/** 待发送文件：与图片缩略图同尺寸方框（文档小图标 + 文件名，hover 右上角 ×）；点击在 VS Code 打开。 */
+/** 待发送文件：与图片缩略图同尺寸方框（文档小图标 + 文件名，hover 右上角 ×）；点击在 VS Code 打开。
+ *  图片文件（image 标记）：用 host 提供的 previewData 画缩略图（无数据或加载失败回退图标 chip）。 */
 function pendingFileChip(file: StagedFile, index: number): HTMLElement {
+  if (file.image && file.previewData && file.mediaType) {
+    const dataUrl = attachmentDataUrl(file.mediaType, file.previewData)
+    const item = el('span', 'attach-thumb')
+    item.title = t('{0} (click to preview)', file.name)
+    const image = document.createElement('img')
+    image.src = dataUrl
+    image.alt = file.name
+    image.addEventListener('error', () => item.replaceWith(fileIconChip({ name: file.name, path: file.path })))
+    const remove = buttonEl('thumb-remove', '×')
+    remove.title = t('Remove file')
+    remove.addEventListener('click', (e) => {
+      e.stopPropagation()
+      pendingFiles.splice(index, 1)
+      render()
+    })
+    item.addEventListener('click', () => openLightbox(dataUrl))
+    item.appendChild(image)
+    item.appendChild(remove)
+    return item
+  }
   const chip = el('span', 'file-chip')
   const icon = el('span', 'file-chip-icon')
   icon.appendChild(strokeSvg(FILE_ICON))
@@ -5532,9 +5594,16 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     recall = null
     recallDraft = ''
     const images = pendingImages
+    const files = pendingFiles
     pendingImages = []
     pendingFiles = []
-    post({ type: 'send', text: expanded, ...(images.length > 0 ? { images } : {}), ...(steer ? { steer } : {}) })
+    post({
+      type: 'send',
+      text: expanded,
+      ...(images.length > 0 ? { images } : {}),
+      ...(files.length > 0 ? { files } : {}),
+      ...(steer ? { steer } : {}),
+    })
     input.value = ''
     render()
     // 发送是"看最新"信号：本轮 render 之后无条件滚到底并复位跟随态，

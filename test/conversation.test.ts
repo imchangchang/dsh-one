@@ -416,7 +416,7 @@ test('attachment lines in user text fold into file chips', () => {
       content: [
         {
           type: 'text',
-          text: '这个文件能读吗？\n<attachment>/Users/a/手册.xlsx</attachment>\n<attachment>/tmp/dsh-one-attachments/1-note.txt</attachment>',
+          text: '看看这个\n<attachment>/Users/a/手册.xlsx</attachment>\n<attachment>/tmp/dsh-one-attachments/1-note.txt</attachment>\n<attachment>/Users/a/dsh-attachments/截图-0903-153812.png</attachment>',
         },
       ],
       source: { kind: 'user' },
@@ -426,10 +426,11 @@ test('attachment lines in user text fold into file chips', () => {
   const msg = f.messages()[0]
   assert.equal(msg.kind, 'user')
   if (msg.kind !== 'user') return
-  assert.equal(msg.text, '这个文件能读吗？')
+  assert.equal(msg.text, '看看这个')
   assert.deepEqual(msg.files, [
     { name: '手册.xlsx', path: '/Users/a/手册.xlsx' },
     { name: '1-note.txt', path: '/tmp/dsh-one-attachments/1-note.txt' },
+    { name: '截图-0903-153812.png', path: '/Users/a/dsh-attachments/截图-0903-153812.png', image: true },
   ])
 })
 

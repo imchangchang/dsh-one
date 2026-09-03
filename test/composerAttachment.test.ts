@@ -1,6 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { attachmentDataUrl, isImageMediaType, splitAttachmentLines } from '../src/pure/composerAttachment.ts'
+import {
+  attachmentDataUrl,
+  imageMediaTypeByExtension,
+  isImageMediaType,
+  isImagePath,
+  snapshotFileName,
+  splitAttachmentLines,
+} from '../src/pure/composerAttachment.ts'
 
 test('isImageMediaType matches image/* case-insensitively, tolerating whitespace', () => {
   assert.equal(isImageMediaType('image/png'), true)
@@ -22,7 +29,7 @@ test('splitAttachmentLines pulls file lines back into chips, keeps user text', (
   )
   assert.equal(text, '看看这个\n顺便')
   assert.deepEqual(files, [
-    { name: 'b.png', path: '/tmp/a/b.png' },
+    { name: 'b.png', path: '/tmp/a/b.png', image: true },
     { name: 'y.txt', path: 'C:\\x\\y.txt' },
   ])
 })
@@ -30,4 +37,42 @@ test('splitAttachmentLines pulls file lines back into chips, keeps user text', (
 test('splitAttachmentLines leaves non-file text untouched', () => {
   const text = '见 <attachment>x</attachment> 部分\n<a href="x">link</a>'
   assert.deepEqual(splitAttachmentLines(text), { text, files: [] })
+})
+
+test('isImagePath recognizes the four dsh raster extensions case-insensitively', () => {
+  assert.equal(isImagePath('/a/b/截图-0903-153812.png'), true)
+  assert.equal(isImagePath('C:\\x\\cover.JPG'), true)
+  assert.equal(isImagePath('a/b/photo.webp'), true)
+  assert.equal(isImagePath('a/b/photo.gif'), true)
+  assert.equal(isImagePath('a/b/note.JPEG'), true)
+  assert.equal(isImagePath('a/b/readme.md'), false)
+  assert.equal(isImagePath('a/b/archive.tar'), false)
+})
+
+test('imageMediaTypeByExtension maps extensions to dsh media types', () => {
+  assert.equal(imageMediaTypeByExtension('.png'), 'image/png')
+  assert.equal(imageMediaTypeByExtension('.jpg'), 'image/jpeg')
+  assert.equal(imageMediaTypeByExtension('.JPEG'), 'image/jpeg')
+  assert.equal(imageMediaTypeByExtension('.webp'), 'image/webp')
+  assert.equal(imageMediaTypeByExtension('.gif'), 'image/gif')
+  assert.equal(imageMediaTypeByExtension('.md'), undefined)
+})
+
+test('snapshotFileName builds a short timestamp name with the media-type extension', () => {
+  const now = new Date(2026, 8, 3, 15, 38, 12) // 本地时间 2026-09-03 15:38:12
+  assert.equal(snapshotFileName('image/png', now), '截图-0903-153812.png')
+  assert.equal(snapshotFileName('Image/JPEG', now), '截图-0903-153812.jpg')
+  assert.equal(snapshotFileName('image/webp', now), '截图-0903-153812.webp')
+  assert.equal(snapshotFileName('image/gif', now), '截图-0903-153812.gif')
+})
+
+test('snapshotFileName appends a clash index and pads stamps to two digits', () => {
+  const now = new Date(2026, 8, 3, 9, 5, 7)
+  assert.equal(snapshotFileName('image/png', now), '截图-0903-090507.png')
+  assert.equal(snapshotFileName('image/png', now, 1), '截图-0903-090507-2.png')
+  assert.equal(snapshotFileName('image/png', now, 2), '截图-0903-090507-3.png')
+})
+
+test('snapshotFileName falls back to png for unknown media types', () => {
+  assert.equal(snapshotFileName('application/octet-stream', new Date(2026, 0, 2, 3, 4, 5)), '截图-0102-030405.png')
 })
