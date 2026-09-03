@@ -27,6 +27,7 @@ import type {
   StagedFile,
   ToWebviewMessage,
 } from '../pure/chatContract.ts'
+import { hostOsFromPlatform } from '../pure/installScript.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
 import type { SubagentCatalogStore } from './subagentsStore.ts'
@@ -634,4 +635,5 @@ export const EMPTY_STATE: ChatState = {
   pending: [],
   running: false,
   canSend: false,
+  hostOs: hostOsFromPlatform(process.platform),
 }

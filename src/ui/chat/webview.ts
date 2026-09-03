@@ -36,6 +36,11 @@ import type {
 import { questionInteractionStatus } from '../../pure/chatContract.ts'
 import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../../pure/sessionTree.ts'
 import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTree.ts'
+import {
+  INSTALL_SCRIPT_OS_ORDER,
+  installCommandFor,
+  type HostOs,
+} from '../../pure/installScript.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { isFilePathHref } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
@@ -3073,6 +3078,7 @@ function renderEmpty(state: ChatState | null): HTMLElement {
     const btn = buttonEl(undefined, t('View install guide'))
     btn.addEventListener('click', () => post({ type: 'openInstallPage' }))
     wrap.appendChild(btn)
+    wrap.appendChild(renderInstallScriptBlock(state.hostOs))
     return wrap
   }
   wrap.appendChild(el('div', 'empty-title', t('dsh chat')))
@@ -3080,6 +3086,73 @@ function renderEmpty(state: ChatState | null): HTMLElement {
     el('div', 'empty-hint', t('Click a session in the list to start chatting. If the list is empty, start the dsh service first.')),
   )
   return wrap
+}
+
+/* ---- 非官方一键安装脚本块（dshNotFound 空态，kimi 同款代码块体验） ---- */
+
+/** 用户手动选中的平台（跨重建保留；未选过 = 跟随宿主平台）。 */
+let selectedInstallOs: HostOs | null = null
+
+/**
+ * 说明 + 平台 chip 行 + 命令代码块 + 复制按钮。默认选中宿主平台
+ * （hostOs 由 host 端 process.platform 映射），未知平台回退第一项。
+ */
+function renderInstallScriptBlock(hostOs: HostOs | undefined): HTMLElement {
+  const block = el('div', 'install-script')
+  block.appendChild(
+    el('div', 'install-script-hint', t('Or use the community one-liner script below (unofficial):')),
+  )
+  const tabs = el('div', 'install-script-tabs')
+  const code = el('code', 'install-script-code')
+  let active = selectedInstallOs ?? hostOs ?? INSTALL_SCRIPT_OS_ORDER[0]
+  if (!INSTALL_SCRIPT_OS_ORDER.includes(active)) active = INSTALL_SCRIPT_OS_ORDER[0]
+  for (const os of INSTALL_SCRIPT_OS_ORDER) {
+    const tab = buttonEl('install-script-tab', INSTALL_SCRIPT_OS_LABEL[os])
+    tab.classList.toggle('active', os === active)
+    tab.addEventListener('click', () => {
+      selectedInstallOs = os
+      active = os
+      for (const b of tabs.children) b.classList.toggle('active', b === tab)
+      code.textContent = installCommandFor(os)
+    })
+    tabs.appendChild(tab)
+  }
+  code.textContent = installCommandFor(active)
+  const row = el('div', 'install-script-row')
+  row.appendChild(code)
+  const copy = buttonEl('install-script-copy', '')
+  copy.title = t('Copy')
+  copy.appendChild(iconSvg(COPY_ICON, 14))
+  copy.addEventListener('click', () => {
+    void navigator.clipboard.writeText(code.textContent ?? '').then(
+      () => flashCopyLabel(copy, t('Copied')),
+      () => flashCopyLabel(copy, t('Copy failed')),
+    )
+  })
+  row.appendChild(copy)
+  block.appendChild(tabs)
+  block.appendChild(row)
+  return block
+}
+
+/** 复制反馈：按钮文字短暂替换为已复制状态，2s 后恢复图标。 */
+function flashCopyLabel(button: HTMLButtonElement, label: string): void {
+  const original = button.title
+  button.title = label
+  button.textContent = ''
+  button.appendChild(el('span', undefined, label))
+  setTimeout(() => {
+    button.title = original
+    button.textContent = ''
+    button.appendChild(iconSvg(COPY_ICON, 14))
+  }, 2000)
+}
+
+/** 平台 chip 标签：平台名不随 locale 翻译（对齐 kimi 的 Win/macOS/Linux）。 */
+const INSTALL_SCRIPT_OS_LABEL: Record<HostOs, string> = {
+  windows: 'Windows',
+  macos: 'macOS',
+  linux: 'Linux',
 }
 
 function contextLabel(kind: string): string {

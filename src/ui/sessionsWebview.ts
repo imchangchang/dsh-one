@@ -8,10 +8,15 @@
  * 会话高亮（active/has-active）由快照的 activeSessionId 驱动；@ 提及补全
  * 仍属 chat webview，与这里的 sessions 快照无关。
  */
-import { PANEL_ICONS, MESSAGE_ACTION_ICONS, type IconDef } from './chat/icons.ts'
+import { COPY_ICON, PANEL_ICONS, MESSAGE_ACTION_ICONS, type IconDef } from './chat/icons.ts'
 import type { FromWebviewMessage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../pure/sessionTree.ts'
 import { UNGROUPED_WORKSPACE_ID } from '../pure/sessionTree.ts'
+import {
+  INSTALL_SCRIPT_OS_ORDER,
+  installCommandFor,
+  type HostOs,
+} from '../pure/installScript.ts'
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
@@ -652,6 +657,7 @@ function renderServerEmpty(snap: SessionsSnapshot): HTMLElement {
     const btn = buttonEl(undefined, t('View install guide'))
     btn.addEventListener('click', () => post({ type: 'openInstallPage' }))
     box.appendChild(btn)
+    box.appendChild(renderInstallScriptBlock(snap.hostOs))
     return box
   }
   if (snap.serverState === 'starting') {
@@ -663,6 +669,73 @@ function renderServerEmpty(snap: SessionsSnapshot): HTMLElement {
   btn.addEventListener('click', () => post({ type: 'serverStart' }))
   box.appendChild(btn)
   return box
+}
+
+/* ---- 非官方一键安装脚本块（dshNotFound 空态，kimi 同款代码块体验） ---- */
+
+/** 用户手动选中的平台（跨面板重建保留；未选过 = 跟随宿主平台）。 */
+let selectedInstallOs: HostOs | null = null
+
+/**
+ * 说明 + 平台 chip 行 + 命令代码块 + 复制按钮。默认选中宿主平台
+ * （hostOs 由 host 端 process.platform 映射），未知平台回退第一项。
+ */
+function renderInstallScriptBlock(hostOs: HostOs | undefined): HTMLElement {
+  const block = el('div', 'install-script')
+  block.appendChild(
+    el('div', 'install-script-hint', t('Or use the community one-liner script below (unofficial):')),
+  )
+  const tabs = el('div', 'install-script-tabs')
+  const code = el('code', 'install-script-code')
+  let active = selectedInstallOs ?? hostOs ?? INSTALL_SCRIPT_OS_ORDER[0]
+  if (!INSTALL_SCRIPT_OS_ORDER.includes(active)) active = INSTALL_SCRIPT_OS_ORDER[0]
+  for (const os of INSTALL_SCRIPT_OS_ORDER) {
+    const tab = buttonEl('install-script-tab', INSTALL_SCRIPT_OS_LABEL[os])
+    tab.classList.toggle('active', os === active)
+    tab.addEventListener('click', () => {
+      selectedInstallOs = os
+      active = os
+      for (const b of tabs.children) b.classList.toggle('active', b === tab)
+      code.textContent = installCommandFor(os)
+    })
+    tabs.appendChild(tab)
+  }
+  code.textContent = installCommandFor(active)
+  const row = el('div', 'install-script-row')
+  row.appendChild(code)
+  const copy = buttonEl('install-script-copy', '')
+  copy.title = t('Copy')
+  copy.appendChild(iconSvg(COPY_ICON, 14))
+  copy.addEventListener('click', () => {
+    void navigator.clipboard.writeText(code.textContent ?? '').then(
+      () => flashCopyLabel(copy, t('Copied')),
+      () => flashCopyLabel(copy, t('Copy failed')),
+    )
+  })
+  row.appendChild(copy)
+  block.appendChild(tabs)
+  block.appendChild(row)
+  return block
+}
+
+/** 复制反馈：按钮文字短暂替换为已复制状态，2s 后恢复（含 label 重置）。 */
+function flashCopyLabel(button: HTMLButtonElement, label: string): void {
+  const original = button.title
+  button.title = label
+  button.textContent = ''
+  button.appendChild(el('span', undefined, label))
+  setTimeout(() => {
+    button.title = original
+    button.textContent = ''
+    button.appendChild(iconSvg(COPY_ICON, 14))
+  }, 2000)
+}
+
+/** 平台 chip 标签：平台名不随 locale 翻译（对齐 kimi 的 Win/macOS/Linux）。 */
+const INSTALL_SCRIPT_OS_LABEL: Record<HostOs, string> = {
+  windows: 'Windows',
+  macos: 'macOS',
+  linux: 'Linux',
 }
 
 /** 组名右侧角标：待交互（黄点）、运行中（像素环）、未读/已完成（绿点）三个独立计数。 */

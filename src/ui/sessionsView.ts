@@ -5,6 +5,7 @@ import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { deleteWorkspace, renameSession } from '../server/dshRpc.ts'
 import type { FromWebviewMessage, SessionsSnapshot } from '../pure/chatContract.ts'
+import { hostOsFromPlatform } from '../pure/installScript.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 
 function errorText(err: unknown): string {
@@ -249,6 +250,44 @@ const SESSIONS_STYLE = `
   }
   .sessions-empty .empty-hint { font-size: 12px; }
   .sessions-empty button { margin-top: 4px; }
+  /* 非官方一键安装脚本块（dshNotFound 空态）：hint + 平台 chip + 命令代码 + 复制。 */
+  .install-script {
+    margin-top: 10px; width: 100%; box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 6px; align-items: stretch;
+  }
+  .install-script-hint { font-size: 12px; opacity: 0.7; }
+  .install-script-tabs { display: flex; gap: 4px; justify-content: center; }
+  .install-script-tab {
+    padding: 2px 10px; font-size: 11px; border-radius: 10px;
+    background: transparent; color: var(--vscode-descriptionForeground, #888);
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .install-script-tab.active {
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+    border-color: transparent;
+  }
+  .install-script-row {
+    display: flex; align-items: center; gap: 4px;
+    background: var(--vscode-editorWidget-background, rgba(127,127,127,.12));
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    border-radius: 6px; padding: 4px 6px 4px 8px;
+  }
+  .install-script-code {
+    flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 11px; line-height: 16px; color: var(--vscode-foreground);
+  }
+  .install-script-copy {
+    flex: none; width: 22px; height: 22px; padding: 0; margin: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; color: var(--vscode-descriptionForeground, #888);
+    border-radius: 4px;
+  }
+  .install-script-copy:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    color: var(--vscode-foreground);
+  }
+  .install-script-copy span { font-size: 11px; }
   /* 内容命中的片段块：跟会话行下面，暗色小字最多 2 行，点击与父行一致。 */
   .session-snippet {
     margin: 0 4px 0 12px; padding: 1px 6px 2px; font-size: 11px; line-height: 16px;
@@ -415,6 +454,7 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       ...this.store.snapshot(),
       serverState: status.state,
       dshNotFound: status.state === 'error' && status.reason === 'dshNotFound',
+      hostOs: hostOsFromPlatform(process.platform),
       activeSessionId: this.getActiveSessionId(),
       attachedSessionId: this.getAttachedSessionId(),
     }
