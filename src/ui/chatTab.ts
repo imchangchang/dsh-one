@@ -14,7 +14,6 @@
  */
 import * as vscode from 'vscode'
 import * as fs from 'node:fs/promises'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Logger } from '../log.ts'
@@ -29,6 +28,7 @@ import type {
 } from '../pure/chatContract.ts'
 import { hostOsFromPlatform } from '../pure/installScript.ts'
 import { imageMediaTypeByExtension, snapshotFileName } from '../pure/composerAttachment.ts'
+import { attachmentDir } from './attachmentDir.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
 import type { SubagentCatalogStore } from './subagentsStore.ts'
@@ -440,11 +440,11 @@ export class ChatTabHost implements vscode.Disposable {
   }
 
   /**
-   * Paste intake: every clipboard file becomes an attachment. Images get a
-   * short timestamp name and are written to the session workspace
-   * (`dsh-attachments/`) so the user can grab the original and `@`-reference
-   * it; anything else is a transient paste — written to the OS temp dir and
-   * staged as a path chip for the agent to read, never touching the repo.
+   * Paste intake: every clipboard file becomes an attachment. Everything is
+   * written to the OS temp dir (system-pruned, never inside a project/git
+   * tree, so no repo pollution and no unbounded growth); images get a short
+   * timestamp name, other files keep their own name. Both are staged as path
+   * chips; the path joins the prompt on send and the agent reads it directly.
    */
   async stagePastedFiles(files: OutgoingImage[]): Promise<void> {
     if (files.length === 0) return
@@ -456,7 +456,7 @@ export class ChatTabHost implements vscode.Disposable {
       const mediaType = sniffImageMediaType(bytes) ?? file.mediaType.trim().toLowerCase()
       try {
         if (mediaType.startsWith('image/')) {
-          const target = await this.saveAttachment(
+          const target = await this.saveTempAttachment(
             snapshotFileName(mediaType, new Date(), 0, vscode.l10n.t('Screenshot')),
             bytes,
           )
@@ -477,25 +477,9 @@ export class ChatTabHost implements vscode.Disposable {
     }
   }
 
-  /** Persist a non-image paste under the OS temp dir; returns the file path. */
+  /** Persist one paste under the OS temp dir; returns the file path. Colliding names get a numeric suffix. */
   private async saveTempAttachment(name: string, bytes: Buffer): Promise<string> {
-    const dir = path.join(os.tmpdir(), 'dsh-one-attachments')
-    await fs.mkdir(dir, { recursive: true })
-    const safe = name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_') || 'attachment'
-    const file = path.join(dir, `${Date.now()}-${safe}`)
-    await fs.writeFile(file, bytes)
-    this.actions.logger.info(`chat: pasted file saved to ${file}`)
-    return file
-  }
-
-  /**
-   * Write pasted image bytes under the session workspace's `dsh-attachments/`
-   * dir (so file-reference `@` completion can find them and the user gets a
-   * directly processable copy); sessions without a cwd fall back to the OS
-   * temp dir. Colliding names get a numeric suffix.
-   */
-  private async saveAttachment(name: string, bytes: Buffer): Promise<string> {
-    const dir = await this.attachmentDir()
+    const dir = attachmentDir()
     await fs.mkdir(dir, { recursive: true })
     const safe = name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_') || 'attachment'
     const dot = safe.lastIndexOf('.')
@@ -508,14 +492,6 @@ export class ChatTabHost implements vscode.Disposable {
     await fs.writeFile(candidate, bytes)
     this.actions.logger.info(`chat: pasted file saved to ${candidate}`)
     return candidate
-  }
-
-  /** 粘贴/选择的附件落盘目录：会话 cwd 下 `dsh-attachments/`，无 cwd 回退系统临时目录。 */
-  private async attachmentDir(): Promise<string> {
-    const cwd = this.actions.store
-      .rawList()
-      .find((s) => s.sessionId === this.controller?.sessionId)?.cwd
-    return cwd ? path.join(cwd, 'dsh-attachments') : path.join(os.tmpdir(), 'dsh-one-attachments')
   }
 
   /**

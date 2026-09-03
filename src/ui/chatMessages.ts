@@ -23,6 +23,7 @@ import type { FileRefCandidate } from '../pure/fileReference.ts'
 import type { ChatState, CommitInfoResult, FromWebviewMessage, OutgoingImage, ToWebviewMessage } from '../pure/chatContract.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
 import { imageMediaTypeByExtension, splitAttachmentLines } from '../pure/composerAttachment.ts'
+import { attachmentDir } from './attachmentDir.ts'
 import type { ChatSessionController } from '../server/chatSession.ts'
 import type { ChatTabHost } from './chatTab.ts'
 
@@ -441,7 +442,11 @@ const chatHandlers: ChatTabMessageHandler[] = [
           `chat: fileRefList(${JSON.stringify(m.query)}) failed — ${errorText(err)}`,
         )
       }
-      host.postMessage({ type: 'fileRefList', requestId: m.requestId, items })
+      // 前端 @ 语义扩展：DSH 的 fileReferences/list 只扫会话 cwd，这里的
+      // 附件目录（OS 临时目录，粘贴图片/文件的落盘处）用绝对路径候选补上——
+      // 模型侧 @path 本就允许任意路径（提示约定 + 自由路径解析），无需改 DSH。
+      const local = await attachmentCandidates(m.query)
+      host.postMessage({ type: 'fileRefList', requestId: m.requestId, items: [...local, ...items] })
     },
   },
   {
@@ -641,9 +646,25 @@ export const chatMessageHandlers: ChatTabMessageHandler[] = [
   ...fileHandlers,
 ]
 
-/** Open an absolute path in the VS Code editor; failure toast names the chip kind. */
-async function openFileInEditor(path: string, label: string): Promise<void> {
+/** 附件目录（粘贴图片/文件的落盘处）的 @ 补全候选：绝对路径形式，按文件名模糊过滤。
+ *  目录不存在/不可读时返回空（@ 弹窗不因此打断）。调子目录只在顶层列出文件。 */
+async function attachmentCandidates(query: string): Promise<FileRefCandidate[]> {
+  let names: string[]
   try {
+    names = await fs.readdir(attachmentDir())
+  } catch {
+    return []
+  }
+  const q = query.trim().toLowerCase()
+  const matched = names
+    .filter((n) => !n.startsWith('.') && (q === '' || n.toLowerCase().includes(q)))
+    .sort()
+    .slice(0, 50)
+  return matched.map((n) => ({ path: path.join(attachmentDir(), n), kind: 'file' as const }))
+}
+
+/** Open an absolute path in the VS Code editor; failure toast names the chip kind. */
+async function openFileInEditor(path: string, label: string): Promise<void> {  try {
     await vscode.window.showTextDocument(vscode.Uri.file(path))
     return
   } catch (err) {
