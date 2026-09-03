@@ -19,3 +19,4 @@
 
 - `docs/screenshot/`（重组）
 - `README.md`、`README.zh-CN.md`（加 Screenshots 一节）
+- 2026-09-03 认领，开始整理（open → doing）
