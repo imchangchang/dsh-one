@@ -53,6 +53,10 @@ YAML
   # ③ 导出 apiKeyEnv 指向的凭证（settings 里 apiKeyEnv: MOCK_LLM_KEY；导出的 env 被 code-server 及其后代继承）。
   export MOCK_LLM_KEY=mock-key-1
 
+  # ④ 清掉复制进来的会话状态：真实会话自带模型选择（会覆盖 agent-default-model），
+  #    不清的话 LLM 还是打到真 provider。清空后从「新建会话」开始，新会话走 mock 模型。
+  rm -rf "$HOME/.dsh/sessions" "$HOME/.dsh"/session-query.sqlite*
+
   # ② 后台起 mock-llm 端点，等它就绪：轮询 GET /v1/models，上限约 10s（50 次 × 0.2s）。
   #    这里用 node 做健康 check（容器内有 node 运行时；不依赖 curl 是否随镜像附带）。
   node /app/mock-llm/server.ts --port 9009 &
