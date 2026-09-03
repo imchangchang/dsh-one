@@ -63,7 +63,7 @@ Release 产出后。prompt 模板：
 ### 3. 人工部分（调用方转交用户）
 
 - 把验收代理生成的「待人工验收清单」+ 沙盒安装命令转交用户，按 `docs/release-checklist.md` 在真实终端完成沙盒装机验收（未装 dsh 降级 / 定位启动 / webview / 收养实例 / 进程回收 / 命令抽查）和 README 与版本确认。
-- **rc 到这里就结束**（内测用，不上市场）；正式版全部通过后由人执行 `npx vsce login <publisher>` + `npx vsce publish dsh-one-<新版本号>.vsix`，上传的是 Release 下载的那份。
+- **rc 到这里就结束**（内测用，不上市场）；正式版全部通过后由人执行 `npx vsce login <publisher>` + `npx vsce publish --packagePath dsh-one-<新版本号>.vsix`（位置参数是版本号，发布已有 vsix 必须走 `--packagePath`），上传的是 Release 下载的那份。
 
 ## 交接物
 
