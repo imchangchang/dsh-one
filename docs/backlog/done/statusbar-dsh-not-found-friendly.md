@@ -19,3 +19,5 @@
 - 2026-09-03 用户提出：未安装 dsh 时状态栏红色 Error 碍眼，此为正常预期状态。核实 manager 已有 reason 字段、statusbar 未消费，方案如上，进 open/。
 
 - 2026-09-03 认领，进入开发（worktree agent/statusbar-dsh-not-found-friendly）。
+
+- 2026-09-03 开发完成（typecheck + 337 测试 + build 全过，done 标记 7ce7cf2）：statusbar 识别 dshNotFound 显示黄色「未安装」+ tooltip 安装链接 + 点击跳安装页，真实错误保持红色 Error。待主线合入与人工验收。
