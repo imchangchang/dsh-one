@@ -261,11 +261,19 @@ fi
 
 # 3. dsh itself
 say "Installing @deepseek-ai/dsh (this pulls the Web UI + agent plugins; keep the terminal open)"
+# npm 11 blocks dependency build scripts unless allow-scripts lists them; koffi
+# and node-pty must run theirs or their native binaries never arrive and dsh
+# fails at runtime. Older npm rejects the flag, so gate it on the npm version.
+NPM_MAJOR="$( "$NPM" --version 2>/dev/null | cut -d. -f1 || true )"
+DSH_INSTALL_ARGS=(install -g @deepseek-ai/dsh)
+if [ "${NPM_MAJOR:-0}" -ge 11 ] 2>/dev/null; then
+  DSH_INSTALL_ARGS+=(--allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs)
+fi
 if [ "$NODE_MODE" = portable ]; then
-  "$NPM" --prefix "$NODE_HOME" install -g @deepseek-ai/dsh
+  "$NPM" --prefix "$NODE_HOME" "${DSH_INSTALL_ARGS[@]}"
   add_to_user_path "$NODE_HOME/bin"   # idempotent; earlier call may have been skipped via DSH_NO_MODIFY_PATH
 else
-  "$NPM" install -g @deepseek-ai/dsh
+  "$NPM" "${DSH_INSTALL_ARGS[@]}"
 fi
 
 # 4. git (best effort)
