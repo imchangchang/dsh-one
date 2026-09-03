@@ -98,7 +98,7 @@ rpcId（`pendingRpcIds` 去重登记），返回 `{"accepted":true}`；未知/�
   projections: { asOfSeq, values: { title, sessionStats, todos } },  // 基线
   models: { current, routable, groups },                     // session.models
   onPrompt: [/* MuxFrameSpec[]：session.prompt 后的编排时间线 */],
-  onSubscribe: [/* MuxFrameSpec[]：mux 订阅后补发（approval 待批准态走这） */],
+  pendingRequests: [/* PendingRequestSpec[]：未应答的服务器请求（approval/question）走这 */],
 }
 ```
 
@@ -108,8 +108,8 @@ rpcId（`pendingRpcIds` 去重登记），返回 `{"accepted":true}`；未知/�
 
 - `completeConversationScenario()`：一条已完成的天单（用户消息 + 思考 + 文本 + 工具卡）
   的 `history` + `projections`，再 prompt 走 `conversationContinueTimeline()` 演示流式续写。
-- `approvalScenario()`：半截 turn（工具卡 running）+ `onSubscribe` 推 `approval/requested`，
-  打开该会话即见待批准态。
+- `approvalScenario()`：半截 turn（工具卡 running）+ `pendingRequests` 声明未应答
+  `approval/requested`，打开该会话即见待批准态（应答前一直存在）。
 - `emptyScenario()`：blank 会话 + 空历史 + preset 花名册（空会话 hero 选择 chip 可见）。
 
 想让 mock 被扩展「看到」更多会话，把多个 `ScopedSession` 一起放进 `sessions`，
@@ -158,9 +158,8 @@ rpcId（`pendingRpcIds` 去重登记），返回 `{"accepted":true}`；未知/�
 
 - `onPrompt` 在 mock 里是一次性的：场景给了显式 seq 的编排只会在首个 prompt 播放；
   之后的 prompt 走默认流（保证 seq 始终单调）。这符合「一次 prompt 出一张确定性截图」。
-- `onSubscribe` 由 `session.history` 的 tail 页（会话被打开）触发：mock 延迟约
-  400ms 再推，等 chatSession 的 mux 连接建立（扩展的消费者按 `payload.sessionId`
-  过滤帧，但「哪个连接属于哪个会话」协议上没有标记，连接时猜会话会把帧送给
-  sessionsStore/jobsStore 的连接、chat 选项卡永远收不到——实测踩过）。同一会话的
-  编排在途时重复拉 history 不会重复推（防双 pending）。
+- `pendingRequests`（approval/question 待批准）是**会话状态**而非一次性事件：任何 mux
+  连接进来都会随订阅基线一起下发、rpcId 稳定不变、`/api/respond` 应答后移除并广播
+  `*-resolved` 帧——对齐真实 dsh 的行为（pending 是状态不是事件，不做任何时序猜测，
+  扩展的消费者按 `payload.sessionId` 过滤帧，只有对应会话的 chatSession 折叠进面板）。
 - 手写 WS 不支持分片/超大帧/部分控制帧的完整语义（见「简化边界」）。

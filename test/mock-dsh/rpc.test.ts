@@ -49,22 +49,51 @@ test('典型 RPC 信封往返：session.list 返回 items，每个 item 有 sess
   for (const item of items) assert.equal(typeof item.sessionId, 'string')
 })
 
-test('/api/respond：对已下发 approval/question 的 rpcId 返回 accepted:true，未知 rpcId 返回 false', async () => {
-  // chatSession 的挂载顺序：先拉 history 基线（tail 页）、再连 mux；mock 的
-  // onSubscribe 由 history tail 页触发（见 server.ts scheduleOnSubscribe），
-  // 所以先 rpc history 再连 WS。
-  await rpc('session.history', { sessionId: 'scn-approval' }, 'rpc-history-appr')
+/** 读帧直到谓词命中（readFrame 无超时，这里包一层 deadline 上限）。 */
+async function readUntil(
+  ws: RawWsClient,
+  pred: (m: Record<string, any>) => boolean,
+  deadlineMs = 2000,
+): Promise<Record<string, any> | null> {
+  const deadline = Date.now() + deadlineMs
+  for (;;) {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) return null
+    const read = ws.readFrame().then((f) => JSON.parse(f.payload.toString('utf8')))
+    const timeout = new Promise((r) => setTimeout(() => r(null), Math.max(remaining, 1)))
+    const msg = (await Promise.race([read, timeout])) as Record<string, any> | null
+    if (msg === null) return null
+    if (pred(msg)) return msg
+  }
+}
+
+test('pending 状态：未应答时每次连接都重放，rpcId 跨连接稳定', async () => {
+  const ws1 = new RawWsClient()
+  await ws1.connect(mock.port, '/api/events.mux')
+  const a1 = await readUntil(ws1, (m) => m.method === 'approval/requested' && m.payload?.sessionId === 'scn-approval')
+  assert.notEqual(a1, null)
+  ws1.close()
+
+  const ws2 = new RawWsClient()
+  await ws2.connect(mock.port, '/api/events.mux')
+  const a2 = await readUntil(ws2, (m) => m.method === 'approval/requested' && m.payload?.sessionId === 'scn-approval')
+  assert.notEqual(a2, null)
+  // 未应答 → rpcId 稳定（真实 dsh 的 pending 请求在应答前编号不变）。
+  assert.equal((a1 as Record<string, any>).rpcId, (a2 as Record<string, any>).rpcId)
+  ws2.close()
+})
+
+test('/api/respond：pending 应答后 accepted:true，未知 rpcId 返回 false', async () => {
+  // pending 是会话状态：连上 mux 就会收到 scn-approval 的 approval/requested
+  // （状态重放，与 history/连接时序无关——对齐真实 dsh）。
   const ws = new RawWsClient()
   await ws.connect(mock.port, '/api/events.mux')
-  let approvalRpcId: string | undefined
-  for (let i = 0; i < 20 && !approvalRpcId; i++) {
-    const frame = await ws.readFrame()
-    const msg = JSON.parse(frame.payload.toString('utf8'))
-    if (msg.method === 'approval/requested' && msg.payload.sessionId === 'scn-approval') {
-      approvalRpcId = msg.rpcId
-    }
-  }
-  assert.equal(typeof approvalRpcId, 'string')
+  const approval = await readUntil(
+    ws,
+    (m) => m.method === 'approval/requested' && m.payload?.sessionId === 'scn-approval',
+  )
+  assert.notEqual(approval, null)
+  const approvalRpcId = (approval as Record<string, any>).rpcId as string
 
   const okRes = await fetch(mock.url + '/api/respond', {
     method: 'POST',
@@ -74,38 +103,27 @@ test('/api/respond：对已下发 approval/question 的 rpcId 返回 accepted:tr
   const ok = await okRes.json()
   assert.equal(ok.accepted, true)
 
-  // 已应答过的 rpcId 或未知 rpcId → accepted:false。
+  // 应答成功 → mock 广播 approval/resolved（扩展按 approvalId 清 pending 面板）。
+  const resolved = await readUntil(ws, (m) => m.method === 'approval/resolved')
+  assert.notEqual(resolved, null)
+  const resolvedMsg = resolved as Record<string, any>
+  assert.equal(resolvedMsg.payload?.approvalId, 'ap-1')
+  assert.equal(resolvedMsg.payload?.sessionId, 'scn-approval')
+
+  ws.close()
+  // 已应答的 rpcId 不再可用；未知 rpcId 同样拒绝。
+  const again = await fetch(mock.url + '/api/respond', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ type: 'client-response', rpcId: approvalRpcId, result: { ok: true, value: {} } }),
+  })
+  assert.equal((await again.json()).accepted, false)
   const unknownRes = await fetch(mock.url + '/api/respond', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ type: 'client-response', rpcId: '00000000-0000-4000-8000-000000000000', result: { ok: true, value: {} } }),
   })
   assert.equal((await unknownRes.json()).accepted, false)
-  ws.close()
-})
-
-test('onSubscribe 依 history tail 页触发：只连 mux 不拉 history 不推 approval', async () => {
-  const ws = new RawWsClient()
-  await ws.connect(mock.port, '/api/events.mux')
-  // 限时收集帧（readFrame 无超时，这里用 deadline 竞速）。
-  const frames: Array<Record<string, unknown>> = []
-  const deadline = Date.now() + 600
-  while (Date.now() < deadline) {
-    const remaining = deadline - Date.now()
-    const read = ws.readFrame().then((f) => f.payload.toString('utf8'))
-    const timeout = new Promise((r) => setTimeout(() => r(null), Math.max(remaining, 1)))
-    const text = (await Promise.race([read, timeout])) as string | null
-    if (text === null) break
-    frames.push(JSON.parse(text))
-  }
-  const approvals = frames.filter((m) => m.method === 'approval/requested')
-  assert.equal(approvals.length, 0, `未拉 history 不应推 approval，实际收到 ${approvals.length} 帧`)
-  assert.equal(
-    frames.every((m) => m.method === 'session/subscribed'),
-    true,
-    '未拉 history 时只应有 subscribed 基线帧',
-  )
-  ws.close()
 })
 
 test('编排：session.prompt 后 mux 收到 session/event，seq 单调递增且第一帧 seq=1', async () => {

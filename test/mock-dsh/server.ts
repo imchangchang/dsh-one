@@ -12,7 +12,8 @@
  *   mock 只要把 describe 验过，扩展就认定「这是 dsh」并 adopt，无需假可执行文件。
  * - POST /api/respond：`{"type":"client-response","rpcId","result":{"ok":true,"value"}}`，
  *   回包 `{"accepted":true}`（扩展检查 body.accepted===true）。只接受曾在
- *   approval/question 帧里下发过的 rpcId（与应答对上）。
+ *   approval/question 帧里下发过的 rpcId（与应答对上）。应答成功即移除该
+ *   pending 状态并广播 *-resolved 帧（对齐真实 dsh）。
  * - GET /api/session.export?sessionId=...&includeDescendants=true：任意字节
  *   （扩展原样存文件）。
  * - WS /api/events.host + /api/events.mux：最小 RFC6455 服务端。
@@ -49,11 +50,6 @@ import type { WorkspaceView, SessionSummary } from '../../src/server/dshRpc.ts'
 // ---------------------------------------------------------------------------
 
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
-
-/** session.history tail 页被拉取后，onSubscribe 帧延迟推送的宽限时间（ms）：
- *  chatSession 先拉 history 基线、后连 mux，留出连接建立窗口，避免帧落在
- *  别的消费者连接上（扩展按 payload.sessionId 过滤，不会误收，但会漏收）。 */
-const ONSUBSCRIBE_GRACE_MS = 400
 
 /** 计算 Sec-WebSocket-Accept：sha1(key + GUID) base64。 */
 export function wsAccept(key: string): string {
@@ -232,8 +228,9 @@ class Gateway {
   private readonly turnBySession = new Map<string, number>()
   private readonly archived = new Set<string>()
   private readonly pendingRpcIds = new Set<string>()
-  /** 每个会话的 onSubscribe 编排是否在途（防止同一会话重复进 pending）。 */
-  private readonly onSubscribeInFlight = new Set<string>()
+  /** 每个会话的「未应答服务器请求」：状态化 pending（对齐真实 dsh——应答前一直存在、
+   *  rpcId 稳定、任何连接进来都带；应答后移除并推 resolved 帧）。 */
+  private readonly pendingBySession = new Map<string, Array<{ rpcId: string; method: string; payload: Record<string, unknown> }>>()
   /** 每个会话的 onPrompt 是否已被消费（一次性，见 session.prompt case）。 */
   private readonly promptUsed = new Set<string>()
   /** 每个会话待取消的定时器（session.cancel 清掉）。 */
@@ -269,6 +266,17 @@ class Gateway {
       }
     }
     this.turnBySession.set(s.sessionId, maxTurn)
+    // pending 状态入册：rpcId 在注册时确定一次（payload 给了就沿用，否则随机），
+    // 之后跨连接稳定——直到 /api/respond 应答才移除。
+    const pendings: Array<{ rpcId: string; method: string; payload: Record<string, unknown> }> = []
+    for (const req of s.pendingRequests ?? []) {
+      const rpcId = typeof req.payload.rpcId === 'string' ? req.payload.rpcId : crypto.randomUUID()
+      const { rpcId: _keep, ...rest } = req.payload
+      void _keep
+      pendings.push({ rpcId, method: req.method, payload: rest })
+      this.pendingRpcIds.add(rpcId)
+    }
+    if (pendings.length > 0) this.pendingBySession.set(s.sessionId, pendings)
   }
 
   private nextSeq(sessionId: string): number {
@@ -322,33 +330,20 @@ class Gateway {
 
   private onMuxConnect(conn: WsConnection): void {
     this.muxSockets.add(conn)
-    // 补发每个已注册会话的 subscription 基线（lastSeq 带 gap 检查信息）。
+    // 订阅基线：补发每个已注册会话的 session/subscribed（lastSeq 带 gap 检查信息）。
     // 扩展侧的每个消费者（chatSession/jobsStore/sessionsStore）各有一条独立 WS，
     // 按 payload.sessionId 过滤帧；补发全部会话的基线没有副作用。
     for (const sessionId of this.sessions.keys()) {
       this.pushMux({ method: 'session/subscribed', payload: { sessionId, lastSeq: this.seqBySession.get(sessionId) ?? 0 } })
     }
-    // onSubscribe（approval/question 等）不在这里推：这是广播通道，消费方按
-    // sessionId 过滤，但「哪个连接属于哪个会话」协议上没有标记，连接时猜会话
-    // 会把帧发给错误的消费者（实测：sessionsStore/jobsStore 的连接先到，chat
-    // 选项卡的 approval 就永远收不到）。改用 session.history 的 tail 页作为
-    // 「会话被打开」的信号（chatSession 先拉 history 再连 mux），延迟小段
-    // 时间再推，保证投票能落到刚建立的 chat 连接上。
-  }
-
-  /** 会话被打开（history tail 页被拉取）后，延迟推它声明的 onSubscribe 帧。 */
-  private scheduleOnSubscribe(sessionId: string): void {
-    const s = this.sessions.get(sessionId)
-    if (!s?.onSubscribe?.length || this.onSubscribeInFlight.has(sessionId)) return
-    this.onSubscribeInFlight.add(sessionId)
-    const timer = setTimeout(() => {
-      this.onSubscribeInFlight.delete(sessionId)
-      if (!this.sessions.has(sessionId)) return
-      void this.scheduleSessionFrames(sessionId, s.onSubscribe!)
-    }, ONSUBSCRIBE_GRACE_MS)
-    const list = this.timers.get(sessionId) ?? []
-    list.push(timer)
-    this.timers.set(sessionId, list)
+    // 状态重放：把尚未应答的服务器请求（approval/question）随每个新连接重新下发。
+    // 这是真实 dsh 的行为——pending 是会话状态不是一次性事件，扩展的消费者按
+    // sessionId 过滤，只有对应会话的 chatSession 会折叠进 pending 面板。
+    for (const [sessionId, pendings] of this.pendingBySession) {
+      for (const p of pendings) {
+        this.pushMux({ method: p.method, payload: { ...p.payload, sessionId }, rpcId: p.rpcId })
+      }
+    }
   }
 
   private onHostConnect(conn: WsConnection): void {
@@ -373,7 +368,7 @@ class Gateway {
    * 推一序列会话帧：逐帧等待 delayMs（可选），注入 sessionId，保证
    * session/event 的 seq 单调递增（场景给了显式 seq 则沿用并推进游标）。
    * approval/question 帧自动分配并登记 rpcId（/api/respond 只能答这些）。
-   * 定时器按会话登记，session.cancel 会清掉（onSubscribe 帧同样可取消）。
+   * 定时器按会话登记，session.cancel 会清掉（onPrompt 帧同样可取消）。
    */
   private async scheduleSessionFrames(sessionId: string, steps: readonly MuxFrameSpec[]): Promise<void> {
     const timers: Array<ReturnType<typeof setTimeout>> = []
@@ -513,9 +508,6 @@ class Gateway {
         const maxMessages = typeof payload.maxMessages === 'number' ? payload.maxMessages : 50
         const history = this.sessions.get(sessionId)?.history ?? []
         if (beforeSeq === undefined) {
-          // tail 页 = 会话被打开（chatSession 拉基线后连 mux）；approval 等
-          // onSubscribe 帧从这里编排，见 onMuxConnect 的注释。
-          this.scheduleOnSubscribe(sessionId)
           return { events: history, hasMore: false, projections: this.sessions.get(sessionId)?.projections }
         }
         const earlier = history.filter((h) => h.event.seq < beforeSeq)
@@ -731,6 +723,23 @@ class Gateway {
       const body = await readJson(req)
       const rpcId = typeof body.rpcId === 'string' ? body.rpcId : ''
       if (this.pendingRpcIds.delete(rpcId)) {
+        // 状态化 pending：应答成功即移除，并向各连接推 resolved 帧（扩展按
+        // approvalId / questionRpcId 清 pending 面板）。
+        for (const [sessionId, pendings] of this.pendingBySession) {
+          const idx = pendings.findIndex((p) => p.rpcId === rpcId)
+          if (idx === -1) continue
+          const [entry] = pendings.splice(idx, 1)
+          if (pendings.length === 0) this.pendingBySession.delete(sessionId)
+          if (entry.method === 'approval/requested') {
+            this.pushMux({
+              method: 'approval/resolved',
+              payload: { sessionId, approvalId: entry.payload.approvalId },
+            })
+          } else {
+            this.pushMux({ method: 'question/resolved', payload: { sessionId, questionRpcId: rpcId } })
+          }
+          break
+        }
         this.writeJson(res, 200, { accepted: true })
       } else {
         this.writeJson(res, 200, { accepted: false, reason: 'not-pending' })

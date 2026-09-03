@@ -11,7 +11,8 @@
  * - session.list / workspace.list：场景的 sessions / workspaces 摘要基线。
  * - agentPreset.list：场景的 presets 花名册（空会话选择 chip + 头部标签）。
  * - session.prompt：场景的 onPrompt 时间线（或 mock 默认流）经 mux 推给扩展。
- * - mux 订阅：一次性补发 session/subscribed 与每会话 onSubscribe 帧
+ * - mux 订阅：补发 session/subscribed（gap 检查用）与每个会话的 pendingRequests
+ *   状态（approval/question 待批准，未应答就一直在）
  *   （approval/question 待批准态从这里进 pending）。
  *
  * 场景帧是「低层」的：字段直接对应 wire 帧，mock 只补 sessionId 和递增 seq，
@@ -50,10 +51,21 @@ export interface ScopedSession {
   projections?: { asOfSeq: number; values: Record<string, unknown> }
   /** session.models 的响应覆写（缺省 mock 给一个通用目录）。 */
   models?: Partial<SessionModels>
-  /** mux 订阅后立即补发的帧（如 approval/question 待批准态）。 */
-  onSubscribe?: MuxFrameSpec[]
+  /**
+   * 该会话的「未应答服务器请求」状态（approval/question 待批准态）。
+   * 对齐真实 dsh 的行为：pending 是会话状态，任何 mux 连接进来都会带上、
+   * rpcId 稳定不变、/api/respond 应答后消失——不是一次性事件。
+   * payload 里可给 rpcId 固定值（稳定跨连接）；不给则 mock 注册时分配一次。
+   */
+  pendingRequests?: PendingRequestSpec[]
   /** session.prompt 后推送的编排时间线（缺省 mock 走默认流）。 */
   onPrompt?: MuxFrameSpec[]
+}
+
+/** 一个待批准请求的说明（approval/requested 或 question/requested 帧）。 */
+export interface PendingRequestSpec {
+  method: 'approval/requested' | 'question/requested'
+  payload: Record<string, unknown>
 }
 
 /** 顶层场景：一次启动 mock 的完整「世界」。 */
@@ -262,8 +274,8 @@ export function approvalScenario(): ScopedSession {
       }), view: { for: 'call', view: { card: 'terminal', title: 'bash', description: 'rm -rf ./tmp', cwd: '/repo' } } },
       // turn 未结束（pending approval 中）。
     ],
-    // mux 订阅即推送一个待批准审批帧（扩展折叠进 pending）。
-    onSubscribe: [
+    // pending 状态：未应答的 approval，任何 mux 连接进来都会带上（对齐真实 dsh）。
+    pendingRequests: [
       { method: 'approval/requested', payload: { approvalId: 'ap-1', toolName: 'bash', reason: 'rm -rf ./tmp 需要批准' } },
     ],
   }
