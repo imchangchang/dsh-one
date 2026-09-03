@@ -100,3 +100,26 @@ export function arrowNavPosition(
   }
   return null
 }
+
+/**
+ * 退格/Delete 的「token 原子删除」：光标在 token 后/内部时整段删除该 token
+ * （Backspace 删前的 token，Delete 删后的 token——对称），返回删除后的文本、
+ * 新光标位置与删除的 token（调用方须一并清理 mentionBindings）。非 token 位置
+ * 返回 null，走原生删除。
+ */
+export function tokenDeletion(
+  value: string,
+  pos: number,
+  dir: 1 | -1,
+  bindings: ReadonlyMap<string, string>,
+): { text: string; pos: number; token: string } | null {
+  for (const r of mentionTokenRanges(value, bindings)) {
+    if (dir === -1 && pos > r.start && pos <= r.end) {
+      return { text: value.slice(0, r.start) + value.slice(r.end), pos: r.start, token: value.slice(r.start, r.end) }
+    }
+    if (dir === 1 && pos >= r.start && pos < r.end) {
+      return { text: value.slice(0, r.start) + value.slice(r.end), pos: r.start, token: value.slice(r.start, r.end) }
+    }
+  }
+  return null
+}

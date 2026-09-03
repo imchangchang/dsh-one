@@ -96,7 +96,7 @@ import {
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { splitUserBubble, type UserBubbleSegment } from '../../pure/userBubble.ts'
-import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
+import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, tokenDeletion, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
 import {
   WORKFLOW_STATUS_TEXT,
   advanceWorkflowDisclosure,
@@ -5796,6 +5796,32 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       if (next !== null) {
         e.preventDefault()
         input.setSelectionRange(next, next)
+        return
+      }
+    }
+    // 退格/Delete 原子删除：光标在 token 后/内部时整段删除该 token（对称），
+    // 并清理对应 mention 绑定（避免同名 token 被误判冲突）。
+    if (
+      (e.key === 'Backspace' || e.key === 'Delete') &&
+      !e.shiftKey &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.isComposing &&
+      input.selectionStart === input.selectionEnd
+    ) {
+      const del = tokenDeletion(
+        input.value,
+        input.selectionStart ?? 0,
+        e.key === 'Backspace' ? -1 : 1,
+        mentionBindings,
+      )
+      if (del) {
+        e.preventDefault()
+        mentionBindings.delete(del.token)
+        input.value = del.text
+        input.setSelectionRange(del.pos, del.pos)
+        input.dispatchEvent(new Event('input'))
         return
       }
     }

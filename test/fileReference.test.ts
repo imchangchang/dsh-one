@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention } from '../src/pure/fileReference.ts'
+import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, tokenDeletion } from '../src/pure/fileReference.ts'
 
 test('activeAtToken：行首与空白后的 @query 触发，query 允许 / 与 @', () => {
   assert.deepEqual(activeAtToken('@rea'), { prefix: '@rea', query: 'rea', quoted: false })
@@ -90,3 +90,28 @@ test('arrowNavPosition：方向键以整个 @ token 为单元跨越', () => {
 })
 
 assert.equal(arrowNavPosition('@img9.png 和 @pasted-1.txt 都看看', 25, -1, new Map([['@pasted-1.txt','@/x/pasted-1.txt'],['@img9.png','@/x/img9.png']])), 12)
+
+
+test('tokenDeletion：退格删前 token、Delete 删后 token，整段删除', () => {
+  const bindings = new Map([
+    ['@img9.png', '@/tmp/dsh-one-attachments/s1/img9.png'],
+    ['@pasted-1.txt', '@/tmp/dsh-one-attachments/s1/pasted-1.txt'],
+  ])
+  const value = '@img9.png 和 @pasted-1.txt 都看看'
+  // 光标在 token1 紧后（pos 9）→ 退格整段删 token1，光标回到 token1 起点
+  assert.deepEqual(tokenDeletion(value, 9, -1, bindings), {
+    text: ' 和 @pasted-1.txt 都看看', pos: 0, token: '@img9.png',
+  })
+  // 光标在 token2 内部 → 退格删 token2
+  const del = tokenDeletion(value, 20, -1, bindings)
+  assert.equal(del?.token, '@pasted-1.txt')
+  assert.equal(del?.pos, 12)
+  assert.equal(del?.text, '@img9.png 和  都看看')
+  // 光标在 token1 开头 → Delete 删 token1（对称）
+  assert.equal(tokenDeletion(value, 0, 1, bindings)?.token, '@img9.png')
+  // 非 token 位置 → null（走原生）
+  assert.equal(tokenDeletion(value, 10, -1, bindings), null)
+  assert.equal(tokenDeletion(value, 26, -1, bindings), null)
+  // 文本末尾退格正常（无绑定 token 在附近）
+  assert.equal(tokenDeletion(value, value.length, -1, new Map()), null)
+})
