@@ -26,3 +26,5 @@
 ## 变更记录
 
 - 2026-09-03 用户报 Windows 创建 workspace 失败 → 核实：dsh 0.1.1-rc.2 源码（dsh-workspace registry.create realpath 语义、host apiproxy 错误包装）+ 本机网关实测复现 → 根因是插件 `dshOne.workspace.create` 未建目录，非 Windows 特有 → 记录进 open/（未开始修改）。
+
+- 2026-09-03 认领 → doing，worktree: agent/workspace-create-missing-dir
