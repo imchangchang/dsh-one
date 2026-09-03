@@ -133,7 +133,10 @@ add_to_user_path() {
 
 install_portable_node() { # $1=version $2=os $3=arch
   local version="$1" os="$2" arch="$3"
-  local tarball="node-v$version-$os-$arch"
+  # nodejs.org ships macOS artifacts with a darwin prefix (node-vX-darwin-arm64.tar.gz).
+  local tar_os
+  [ "$os" = macos ] && tar_os=darwin || tar_os="$os"
+  local tarball="node-v$version-$tar_os-$arch"
   local ext
   [ "$os" = macos ] && ext=tar.gz || ext=tar.xz
   local node_home="$DSH_BASE/node-$os-$arch"
