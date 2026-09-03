@@ -58,3 +58,7 @@
 
 - 2026-09-03 跨平台适配：Windows 分隔符（basename 双分隔符、isImagePath 先取 basename）、
   os.tmpdir() 各平台归一 → 仍 done
+
+- 2026-09-03 用户拍板 @ 体验：输入栏短 token（发送时展开）、@ 图片引用进附件区缩略图、
+  @ 范围收窄为「当前附件 + 工作区浅层文件」、选中附件 chip 高亮；
+  修 @token 中文粘连吞正文（标点终止）→ 仍 done
