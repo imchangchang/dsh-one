@@ -94,6 +94,61 @@
       expect: '会话面板列出会话；主区显示用户消息（右侧）+ 助手回复，含 markdown 加粗、一条折叠工具卡（Ran a command bash / npm test）、「复制/反馈/分叉」操作栏；底部 composer + 模型 pill + 会话统计。',
     },
 
+    'file-ref-bubble': {
+      // @ 文件引用渲染：file 引用从气泡行内提升到附件区（图片缩略图懒加载，
+      // 其他文件图标 chip），folder 引用保持行内 chip；interact 模拟宿主回传
+      // fileThumb（懒加载回执），缩略图据此上屏。
+      png: PNG_RED,
+      state: base({
+        messages: [
+          {
+            kind: 'user',
+            id: 'u-ref',
+            text: '截图在 @/var/folders/xx/T/dsh-one-attachments/截图-0903-171126.png，源码在 @/Users/a/dsh-one/src/index.ts，目录 @/Users/a/dsh-one/src/ 也看看。',
+          },
+          at('收到，我读一下截图和源码。'),
+        ],
+      }),
+      interact: `(() => {
+        window.postMessage({ type: 'fileThumb', path: '/var/folders/xx/T/dsh-one-attachments/截图-0903-171126.png', mediaType: 'image/png', data: window.SCENARIOS['file-ref-bubble'].png }, '*')
+      })()`,
+      title: '@ 文件引用：图片提升附件区缩略图，行内不留长路径',
+      expect: '用户气泡：正文只剩「截图在，源码在，目录 @/Users/a/dsh-one/src/ 也看看。」——图片/源码两个文件引用从行内移除（不显示长路径），目录引用保持行内 chip；附件区（气泡上方）两个 chip：截图 = 红色 48px 缩略图（懒加载回执后），index.ts = 文档图标 + 短名 chip；无长路径文本出现在气泡里。',
+    },
+
+    'file-ref-token': {
+      // @ 附件交互：补全选中后输入框插入 @短名 token（canonical 记 mentionBindings，
+      // 发送时展开），对应 staged 图片 chip 高亮描边。interact 投喂 filesPicked
+      // 模拟粘贴附件的回投，再驱动输入 @截 → 选中候选行。
+      png: PNG_RED,
+      state: base({ messages: [] }),
+      interact: `(() => {
+        const s = window.SCENARIOS['file-ref-token']
+        window.postMessage({ type: 'filesPicked', files: [
+          { name: '截图-0903-171126.png', path: '/var/folders/x/T/dsh-one-attachments/截图-0903-171126.png', image: true, mediaType: 'image/png', previewData: s.png },
+        ] }, '*')
+        setTimeout(() => {
+          const input = document.getElementById('input')
+          input.focus()
+          input.value = '@截'
+          input.setSelectionRange(2, 2)
+          input.dispatchEvent(new Event('input'))
+          setTimeout(() => {
+            const rows = document.querySelectorAll('.slash-popup .menu-item')
+            for (const row of rows) {
+              if (row.textContent?.startsWith('@截图')) {
+                // 弹窗行用 mousedown 完成补全（防止 textarea 失焦），模拟真实点击序列。
+                row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+                break
+              }
+            }
+          }, 120)
+        }, 100)
+      })()`,
+      title: '@ 附件：输入框短 token + 对应图片 chip 高亮',
+      expect: '输入框内容为「@截图-0903-171126.png」（短名 token，无长路径）；composer 的截图缩略图 chip 带高亮描边（主题色 outline）；点选后弹窗关闭。',
+    },
+
     'attachment-file-images': {
       // 图片附件文件方式：历史消息的图片文件 chip（image: true）与 composer
       // staging chips（filesPicked 投喂，image + previewData）。interact 先回

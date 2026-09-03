@@ -72,7 +72,7 @@ import {
   orderJobs,
   type ActivityJob,
 } from '../../pure/activityTree.ts'
-import { attachmentBaseName, attachmentDataUrl, isImageMediaType, splitAttachmentLines } from '../../pure/composerAttachment.ts'
+import { attachmentBaseName, attachmentDataUrl, isImageMediaType, isImagePath, splitAttachmentLines } from '../../pure/composerAttachment.ts'
 import {
   SETTLE_IDLE_MS,
   USER_SCROLL_INTENT_MS,
@@ -96,7 +96,7 @@ import {
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { splitUserBubble, type UserBubbleSegment } from '../../pure/userBubble.ts'
-import { activeAtToken, formatFileMention, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
+import { activeAtToken, fileMentionToken, formatFileMention, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
 import {
   WORKFLOW_STATUS_TEXT,
   advanceWorkflowDisclosure,
@@ -298,6 +298,8 @@ let lastTodosSig: string | null = null
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
 let pendingFiles: StagedFile[] = []
+/** 已被 @ 引用（mentionBindings 登记）的附件路径：对应 chip 渲染高亮描边。 */
+const referencedFiles = new Set<string>()
 /** Session the staged images belong to; a switch drops them. */
 let stagedForSession: string | null = null
 /** Per-session composer text drafts: sessionId → 未发送文本。切走时存旧、切回时取新，
@@ -1484,30 +1486,64 @@ function computeRefRows(input: HTMLTextAreaElement): SlashRow[] {
   ]
 }
 
-/** 文件/文件夹候选行；响应未到达或已过期时为空（会话行先顶着）。 */
+/**
+ * 本地附件候选：当前 composer 的 staged 附件 + 历史用户消息里的附件文件，
+ * 按 path 去重。这些是「现在作为附件的文件」——@ 范围收窄后由本地即时
+ * 提供（不依赖宿主响应），宿主只负责工作区候选。
+ */
+function attachedFileCandidates(query: string): FileRefCandidate[] {
+  const byPath = new Map<string, FileRefCandidate>()
+  for (const f of pendingFiles) {
+    if (!byPath.has(f.path)) byPath.set(f.path, { path: f.path, kind: 'file' })
+  }
+  for (const m of state?.messages ?? []) {
+    if (m.kind !== 'user') continue
+    for (const f of m.files ?? []) {
+      if (!byPath.has(f.path)) byPath.set(f.path, { path: f.path, kind: 'file' })
+    }
+  }
+  const q = query.trim().toLowerCase()
+  return [...byPath.values()].filter((c) => q === '' || attachmentBaseName(c.path).toLowerCase().includes(q))
+}
+
+/**
+ * 文件/文件夹候选行：本地附件候选在前（即时可点），宿主返回的工作区候选
+ * 在后（异步到达后整表重算）。选中后输入框插入 `@短名` 显示 token，canonical
+ * 路径引用（`@/abs/path` 或 `@"..."`）记入 mentionBindings、发送时才展开——
+ * textarea 里看不到长路径；选中的若正是已附加的图片，对应 chip 高亮。
+ */
 function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] {
-  if (fileRefResult === null || fileRefResult.key !== at.prefix) return []
   const cursor = input.selectionStart
   const tokenStart = cursor - at.prefix.length
-  return fileRefResult.items.flatMap((c) => {
+  const rows: SlashRow[] = []
+  const pushRow = (c: FileRefCandidate): void => {
     const mention = formatFileMention(c, at.quoted)
-    if (mention === undefined) return [] // 编辑器语法无法安全表示的路径不出候选
-    const directory = c.kind === 'directory'
+    if (mention === undefined) return // 编辑器语法无法安全表示的路径不出候选
     const name = attachmentBaseName(c.path)
-    return [{
-      label: `@${name}${directory ? '/' : ''}`,
+    rows.push({
+      label: `@${name}`,
       right: c.path,
       apply: () => {
-        // 目录不补空格：token 保持活跃（@dir/ 或 @"dir/），弹窗继续出下一层。
-        const tail = directory ? '' : ' '
-        input.value = `${input.value.slice(0, tokenStart)}${mention}${tail}${input.value.slice(cursor)}`
+        const token = fileMentionToken(name, mention, mentionBindings)
+        mentionBindings.set(token, mention)
+        if (pendingFiles.some((f) => f.path === c.path)) referencedFiles.add(c.path)
+        const tail = ' '
+        input.value = `${input.value.slice(0, tokenStart)}${token}${tail}${input.value.slice(cursor)}`
         input.focus()
-        const caret = tokenStart + mention.length + tail.length
+        const caret = tokenStart + token.length + tail.length
         input.setSelectionRange(caret, caret)
         input.dispatchEvent(new Event('input'))
+        // 重建 chips 让「已被 @ 引用」的高亮生效；焦点/光标由 render 恢复。
+        render()
       },
-    }]
-  })
+    })
+  }
+  for (const c of attachedFileCandidates(at.query)) pushRow(c)
+  // 宿主工作区候选（异步）：响应未到达或已过期时为空（本地附件行先顶着）。
+  if (fileRefResult !== null && fileRefResult.key === at.prefix) {
+    for (const c of fileRefResult.items) pushRow(c)
+  }
+  return rows
 }
 
 /**
@@ -3387,17 +3423,18 @@ function renderSteeringItem(item: QueuedItem): HTMLElement {
   // row 是横向 flex（[spinner][内容]），内容包一层纵向容器复用 .msg.user 的
   // 堆叠布局：附件区在上、气泡居中、引用摘要行在下（与正式用户消息一致）。
   const body = el('div', 'msg user')
-  // 附件与正式用户消息同款：图片缩略图（字节懒取）+ 文件名称 chip。
-  const attachments = renderUserAttachments(item.images, item.files)
+  // 附件与正式用户消息同款：图片缩略图（字节懒取）+ 文件名称 chip；
+  // @ 文件引用同样提升到附件区（fileRefs）。
+  const { text: readable, references } = parseSessionMentions(splitAttachmentLines(item.editText).text)
+  const parts = readable.length > 0 ? renderUserBubbleParts(readable, references) : null
+  const attachments = renderUserAttachments(item.images, mergedAttachments(parts?.files ?? [], item.files))
   if (attachments) body.appendChild(attachments)
   // 文本与正式用户消息同款：剥离 <attachment> 文件行，canonical mention
   // （@[标题](dsh-session:…)）展开成可读 @label + references——与 host 解析
   // 后落盘的形态一致，气泡据此拼可点击的会话 chip 与引用摘要行。
-  const { text: readable, references } = parseSessionMentions(splitAttachmentLines(item.editText).text)
-  if (readable.length > 0) {
-    const [bubble, summary] = renderUserBubbleParts(readable, references)
-    body.appendChild(bubble)
-    if (summary) body.appendChild(summary)
+  if (parts) {
+    body.appendChild(parts.bubble)
+    if (parts.summary) body.appendChild(parts.summary)
   } else if (!attachments) {
     body.appendChild(el('div', 'bubble', t('(empty message)')))
   }
@@ -3913,17 +3950,35 @@ function renderUserAttachments(
 function renderUserBubbleParts(
   text: string,
   references?: readonly { sessionId: string; label: string }[],
-): [HTMLElement, HTMLElement | null] {
+): { bubble: HTMLElement; summary: HTMLElement | null; files: ChatFile[] } {
   const bubble = el('div', 'bubble')
+  const fileRefs: ChatFile[] = []
   for (const seg of splitUserBubble(text, references)) {
     if (seg.kind === 'text') bubble.appendChild(document.createTextNode(seg.text))
     else if (seg.kind === 'session') bubble.appendChild(sessionMentionChip(seg.label, seg.sessionId))
-    else bubble.appendChild(referenceChip(seg))
+    else if (seg.kind === 'file') {
+      // @ 文件引用不在行内渲染：提升到附件区（与 <attachment> 折叠同款）——
+      // 图片显示缩略图（懒加载），其他文件显示图标 chip，点击打开。
+      const target = seg.path.replace(/^@/, '').replace(/^"|"$/g, '')
+      fileRefs.push({
+        name: seg.label,
+        path: target,
+        ...(isImagePath(target) ? { image: true } : {}),
+      })
+    } else bubble.appendChild(referenceChip(seg))
   }
   const summary = references?.length
     ? el('div', 'ref-summary', t('Referenced sessions: {0}', references.map((r) => r.label).join(t(', '))))
     : null
-  return [bubble, summary]
+  return { bubble, summary, files: fileRefs }
+}
+
+/** 合并消息内既有附件与 @ 文件引用（按 path 去重）后的附件渲染列表。 */
+function mergedAttachments(fileRefs: ChatFile[], existing: readonly ChatFile[] | undefined): ChatFile[] {
+  const byPath = new Map<string, ChatFile>()
+  for (const f of existing ?? []) byPath.set(f.path, f)
+  for (const f of fileRefs) if (!byPath.has(f.path)) byPath.set(f.path, f)
+  return [...byPath.values()]
 }
 
 function renderMessage(m: ChatMessage, key: string): HTMLElement {
@@ -3934,12 +3989,12 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
     }
     const row = el('div', 'msg user')
     // 附件在文字气泡上方（对齐 dsh web）：图片显示方形缩略图，文件仍是名称 chip。
-    const attachments = renderUserAttachments(m.images, m.files)
+    const parts = m.text ? renderUserBubbleParts(m.text, m.references) : null
+    const attachments = renderUserAttachments(m.images, mergedAttachments(parts?.files ?? [], m.files))
     if (attachments) row.appendChild(attachments)
-    if (m.text) {
-      const [bubble, summary] = renderUserBubbleParts(m.text, m.references)
-      row.appendChild(bubble)
-      if (summary) row.appendChild(summary)
+    if (parts) {
+      row.appendChild(parts.bubble)
+      if (parts.summary) row.appendChild(parts.summary)
     }
     return row
   }
@@ -5458,11 +5513,16 @@ function pendingImageFallback(img: OutgoingImage, index: number): HTMLElement {
 }
 
 /** 待发送文件：与图片缩略图同尺寸方框（文档小图标 + 文件名，hover 右上角 ×）；点击在 VS Code 打开。
- *  图片文件（image 标记）：用 host 提供的 previewData 画缩略图（无数据或加载失败回退图标 chip）。 */
+ *  图片文件（image 标记）：用 host 提供的 previewData 画缩略图（无数据或加载失败回退图标 chip）。
+ *  已被 @ 引用的附件加高亮描边（referenced）。 */
 function pendingFileChip(file: StagedFile, index: number): HTMLElement {
+  const markReferenced = (el: HTMLElement): HTMLElement => {
+    if (referencedFiles.has(file.path)) el.classList.add('referenced')
+    return el
+  }
   if (file.image && file.previewData && file.mediaType) {
     const dataUrl = attachmentDataUrl(file.mediaType, file.previewData)
-    const item = el('span', 'attach-thumb')
+    const item = markReferenced(el('span', 'attach-thumb'))
     item.title = t('{0} (click to preview)', file.name)
     const image = document.createElement('img')
     image.src = dataUrl
@@ -5473,6 +5533,7 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
     remove.addEventListener('click', (e) => {
       e.stopPropagation()
       pendingFiles.splice(index, 1)
+      referencedFiles.delete(file.path)
       render()
     })
     item.addEventListener('click', () => openLightbox(dataUrl))
@@ -5480,7 +5541,7 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
     item.appendChild(remove)
     return item
   }
-  const chip = el('span', 'file-chip')
+  const chip = markReferenced(el('span', 'file-chip'))
   const icon = el('span', 'file-chip-icon')
   icon.appendChild(strokeSvg(FILE_ICON))
   chip.appendChild(icon)
@@ -5494,6 +5555,7 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
   remove.addEventListener('click', (e) => {
     e.stopPropagation()
     pendingFiles.splice(index, 1)
+    referencedFiles.delete(file.path)
     render()
   })
   chip.appendChild(remove)
@@ -5597,6 +5659,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     const files = pendingFiles
     pendingImages = []
     pendingFiles = []
+    referencedFiles.clear()
     post({
       type: 'send',
       text: expanded,

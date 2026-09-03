@@ -11,7 +11,6 @@ import * as path from 'node:path'
 import {
   executeCommand,
   exportSessionLog,
-  listFileReferences,
   renameSession,
   selectModel,
   sessionAttachment,
@@ -20,10 +19,9 @@ import {
 } from '../server/dshRpc.ts'
 import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { FileRefCandidate } from '../pure/fileReference.ts'
-import type { ChatState, CommitInfoResult, FromWebviewMessage, OutgoingImage, ToWebviewMessage } from '../pure/chatContract.ts'
+import type { ChatState, CommitInfoResult, FromWebviewMessage, OutgoingImage, StagedFile, ToWebviewMessage } from '../pure/chatContract.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
 import { imageMediaTypeByExtension, splitAttachmentLines } from '../pure/composerAttachment.ts'
-import { attachmentDir } from './attachmentDir.ts'
 import type { ChatSessionController } from '../server/chatSession.ts'
 import type { ChatTabHost } from './chatTab.ts'
 
@@ -333,14 +331,14 @@ const chatHandlers: ChatTabMessageHandler[] = [
         // 发送失败（模型不支持图片、服务重启等）：把消息原样还回 composer，
         // 不让输入被吞。文件行还原成 chips（与发送前状态一致），错误通知继续
         // 走 chatTab 的「聊天操作失败」通用路径。webview 附带的 files 优先
-        // （带图片预览元数据），缺失时从文本行解析兜底。
+        // （带图片预览元数据），缺失时从文本行解析兜底（预览从磁盘补读）。
         const { text: body, files: parsedFiles } = splitAttachmentLines(text)
         const restoreFiles = files.length > 0 ? files : parsedFiles
         host.postMessage({
           type: 'restoreDraft',
           text: body,
           ...(images.length > 0 ? { images } : {}),
-          ...(restoreFiles.length > 0 ? { files: restoreFiles } : {}),
+          ...(restoreFiles.length > 0 ? { files: await withFilePreviews(restoreFiles) } : {}),
         })
         throw err
       }
@@ -432,21 +430,13 @@ const chatHandlers: ChatTabMessageHandler[] = [
       if (m.type !== 'fileRefList') return
       const controller = host.controller
       if (!controller) return
-      // @ 补全候选：失败静默降级为空列表（对齐 web——这个领域失败只是
-      // 少出候选，不弹错误打断输入）。
-      let items: FileRefCandidate[] = []
-      try {
-        items = await listFileReferences(controller.url, controller.sessionId, m.query)
-      } catch (err) {
-        host.actions.logger.warn(
-          `chat: fileRefList(${JSON.stringify(m.query)}) failed — ${errorText(err)}`,
-        )
-      }
-      // 前端 @ 语义扩展：DSH 的 fileReferences/list 只扫会话 cwd，这里的
-      // 附件目录（OS 临时目录，粘贴图片/文件的落盘处）用绝对路径候选补上——
-      // 模型侧 @path 本就允许任意路径（提示约定 + 自由路径解析），无需改 DSH。
-      const local = await attachmentCandidates(m.query)
-      host.postMessage({ type: 'fileRefList', requestId: m.requestId, items: [...local, ...items] })
+      // @ 范围收窄：候选只有「当前附件（webview 本地合成）+ 会话工作区文件」，
+      // 不再走 DSH 的 fileReferences/list（它扫 cwd 全树、量太大）。工作区候选
+      // 这里列：cwd 下浅层文件（排除构建物），绝对路径形式（模型 @path 允许
+      // 任意路径，无需 DSH 改动）；列表为空静默（弹窗只剩本地附件行）。
+      const cwd = host.actions.store.rawList().find((s) => s.sessionId === controller.sessionId)?.cwd
+      const items = await workspaceFileCandidates(cwd, m.query)
+      host.postMessage({ type: 'fileRefList', requestId: m.requestId, items })
     },
   },
   {
@@ -646,21 +636,67 @@ export const chatMessageHandlers: ChatTabMessageHandler[] = [
   ...fileHandlers,
 ]
 
-/** 附件目录（粘贴图片/文件的落盘处）的 @ 补全候选：绝对路径形式，按文件名模糊过滤。
- *  目录不存在/不可读时返回空（@ 弹窗不因此打断）。调子目录只在顶层列出文件。 */
-async function attachmentCandidates(query: string): Promise<FileRefCandidate[]> {
-  let names: string[]
-  try {
-    names = await fs.readdir(attachmentDir())
-  } catch {
-    return []
-  }
+/** @ 补全的工作区候选：会话 cwd 下浅层文件（顶层 + 一层子目录）的绝对路径，
+ *  排除构建物/隐藏目录，上限 200；按路径排序。cwd 缺失或不可读返回空。 */
+const WORKSPACE_EXCLUDED_DIRS = new Set([
+  '.git', 'node_modules', 'dist', 'out', 'build', 'coverage', '.next', '.idea', '.vscode', 'test-results',
+])
+
+async function workspaceFileCandidates(cwd: string | undefined, query: string): Promise<FileRefCandidate[]> {
+  if (!cwd) return []
   const q = query.trim().toLowerCase()
-  const matched = names
-    .filter((n) => !n.startsWith('.') && (q === '' || n.toLowerCase().includes(q)))
-    .sort()
-    .slice(0, 50)
-  return matched.map((n) => ({ path: path.join(attachmentDir(), n), kind: 'file' as const }))
+  const out: FileRefCandidate[] = []
+  const subdirs: string[] = []
+  const addDir = async (dir: string, collectSubdirs: boolean): Promise<void> => {
+    let names: string[]
+    try {
+      names = await fs.readdir(dir)
+    } catch {
+      return
+    }
+    for (const name of names) {
+      if (name.startsWith('.')) continue
+      const full = path.join(dir, name)
+      let stat: import('node:fs').Stats
+      try {
+        stat = await fs.stat(full)
+      } catch {
+        continue
+      }
+      if (stat.isDirectory()) {
+        if (collectSubdirs && !WORKSPACE_EXCLUDED_DIRS.has(name)) subdirs.push(full)
+        continue
+      }
+      if (stat.isFile() && (q === '' || name.toLowerCase().includes(q))) {
+        out.push({ path: full, kind: 'file' })
+        if (out.length >= 200) return
+      }
+    }
+  }
+  await addDir(cwd, true)
+  for (const dir of subdirs) {
+    await addDir(dir, false)
+    if (out.length >= 200) break
+  }
+  return out.sort((a, b) => a.path.localeCompare(b.path))
+}
+
+/** 发送失败还原时给图片文件补缩略图预览（从磁盘读 base64）；读不到就留空回退图标 chip。 */
+async function withFilePreviews(files: StagedFile[]): Promise<StagedFile[]> {
+  const out: StagedFile[] = []
+  for (const f of files) {
+    if (!f.image || f.previewData) {
+      out.push(f)
+      continue
+    }
+    try {
+      const data = await fs.readFile(f.path)
+      out.push({ ...f, previewData: Buffer.from(data).toString('base64') })
+    } catch {
+      out.push(f)
+    }
+  }
+  return out
 }
 
 /** Open an absolute path in the VS Code editor; failure toast names the chip kind. */

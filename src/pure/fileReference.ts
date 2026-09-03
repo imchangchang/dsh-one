@@ -47,3 +47,17 @@ export function formatFileMention(candidate: FileRefCandidate, preserveQuote = f
   if (candidate.kind === 'directory') return `@"${path}`
   return `@"${path}"`
 }
+
+/**
+ * 为一次文件引用插入挑一个不冲突的显示 token：首选 `@短名`；已被别的
+ * 绑定占用时追加 ` (2)`、` (3)`…直到唯一（与会话 mention 的
+ * mentionDisplayToken 同策略）。key 即 bindings 里的键，发送时经
+ * expandMentionBindings 展开成 canonical 路径引用。
+ */
+export function fileMentionToken(name: string, candidateMention: string, bindings: ReadonlyMap<string, string>): string {
+  let token = `@${name}`
+  for (let i = 2; bindings.has(token) && bindings.get(token) !== candidateMention; i += 1) {
+    token = `@${name} (${i})`
+  }
+  return token
+}

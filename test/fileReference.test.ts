@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { activeAtToken, formatFileMention } from '../src/pure/fileReference.ts'
+import { activeAtToken, fileMentionToken, formatFileMention } from '../src/pure/fileReference.ts'
 
 test('activeAtToken：行首与空白后的 @query 触发，query 允许 / 与 @', () => {
   assert.deepEqual(activeAtToken('@rea'), { prefix: '@rea', query: 'rea', quoted: false })
@@ -39,4 +39,15 @@ test('formatFileMention：preserveQuote 保留显式打开的引号', () => {
 test('formatFileMention：控制字符与内嵌引号无法安全表示', () => {
   assert.equal(formatFileMention({ path: 'a"b.txt', kind: 'file' }), undefined)
   assert.equal(formatFileMention({ path: 'a\tb.txt', kind: 'file' }), undefined)
+})
+
+test('fileMentionToken：首选 @短名，冲突时追加序号直到唯一', () => {
+  const bindings = new Map<string, string>()
+  const first = fileMentionToken('截图.png', '@/a/截图.png', bindings)
+  assert.equal(first, '@截图.png')
+  bindings.set(first, '@/a/截图.png')
+  // 同名被别的绑定占用（不同 mention）→ 序号递增
+  assert.equal(fileMentionToken('截图.png', '@/b/截图.png', bindings), '@截图.png (2)')
+  // 同名同 mention（重复插入同一文件）→ 直接用 @短名 覆盖注册，不递增
+  assert.equal(fileMentionToken('截图.png', '@/a/截图.png', bindings), '@截图.png')
 })

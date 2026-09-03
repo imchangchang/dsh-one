@@ -138,3 +138,20 @@ test('会话与文件引用同现：references 与会话 chip 不冲突', () => 
     { kind: 'file', path: '@src/a.ts', label: 'a.ts' },
   ])
 })
+
+test('splitUserBubble：@路径后直接接中文标点不吞正文（中文路径名保留）', () => {
+  const segs = splitUserBubble('截图在 @/var/folders/T/dsh-one-attachments/截图-0903-171126.png，源码在 @/Users/a/src/index.ts，目录 @/Users/a/src/ 也看看。')
+  const files = segs.filter((s) => s.kind === 'file')
+  assert.deepEqual(files.map((s) => s.label), ['截图-0903-171126.png', 'index.ts'])
+  // 中文文件名路径不被截断（汉字属于路径内容）
+  assert.equal(files[0].path, '@/var/folders/T/dsh-one-attachments/截图-0903-171126.png')
+  const folder = segs.find((s) => s.kind === 'folder')
+  assert.equal(folder?.label, 'src')
+  // 正文保留（中文标点留在正文侧）
+  assert.ok(segs.some((s) => s.kind === 'text' && s.text.includes('，源码在')))
+})
+
+test('splitUserBubble：全角括号同样终止 token', () => {
+  const segs = splitUserBubble('见 @/a/b.md（说明）')
+  assert.deepEqual(segs.filter((s) => s.kind === 'file').map((s) => s.label), ['b.md'])
+})

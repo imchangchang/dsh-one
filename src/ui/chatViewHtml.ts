@@ -1314,6 +1314,11 @@ const STYLE = `
     background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
   }
   .attach-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* 已被 @ 引用的 staged 附件：主题色描边高亮（引用即所附图）。 */
+  .attach-thumb.referenced, .file-chip.referenced {
+    outline: 2px solid var(--vscode-focusBorder, #4daafc);
+    outline-offset: 2px;
+  }
   .attach-thumb .thumb-remove, .file-chip .thumb-remove {
     position: absolute; top: 3px; right: 3px; z-index: 1;
     width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
