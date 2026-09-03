@@ -11,3 +11,4 @@ README.md / README.zh-CN.md 的「快速开始」一节补一段：未装 dsh �
 - README.md、README.zh-CN.md（Quick start / 快速开始）
 - 2026-09-03 认领（open → doing）
 - 2026-09-03 开发完成，自测通过，打 done/readme-install-script（doing → done）
+- 2026-09-03 主线合入（merge 后复测通过），docs-only 无 UI 变更，转 closed
