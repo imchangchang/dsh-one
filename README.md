@@ -33,6 +33,20 @@
 - **Send files into the conversation** — right-click any file in the editor or explorer → `DSH One: Send to Current Session`; images show as thumbnails, other files as path chips.
 - **Status bar** — `DSH: running :port / starting / stopped / error`, click to focus the panel.
 
+## Screenshots
+
+<img src="docs/screenshot/en/new-session-hero.jpeg" alt="New session in the DSH One chat panel" width="100%">
+
+| First-run guidance when dsh is missing | Plan review card |
+| --- | --- |
+| ![](docs/screenshot/en/install-guide.jpeg) | ![](docs/screenshot/en/plan-review.jpeg) |
+
+| Inline question prompt | Context usage popover |
+| --- | --- |
+| ![](docs/screenshot/en/ask-user-question.jpeg) | ![](docs/screenshot/en/context-usage.jpeg) |
+
+<img src="docs/screenshot/en/status-bar-menu.jpeg" alt="Status bar: DSH running on port 3080, with open-in-browser / restart / stop / logs actions">
+
 ## Quick start
 
 Prerequisite: install dsh yourself (needs Node ≥ 22):
