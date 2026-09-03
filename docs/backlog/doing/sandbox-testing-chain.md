@@ -31,3 +31,5 @@
 ## 变更记录
 
 - 2026-09-03 spike 验证通过后记录进 open/，方案已经 session 内确认。
+
+- 2026-09-03 认领开发（open → doing）：docker 沙盒脚本化 + mock dsh server。
