@@ -1487,20 +1487,14 @@ function computeRefRows(input: HTMLTextAreaElement): SlashRow[] {
 }
 
 /**
- * 本地附件候选：当前 composer 的 staged 附件 + 历史用户消息里的附件文件，
- * 按 path 去重。这些是「现在作为附件的文件」——@ 范围收窄后由本地即时
- * 提供（不依赖宿主响应），宿主只负责工作区候选。
+ * 本地附件候选：**只列当前 composer 已附加（staged）的附件文件**，按 path
+ * 去重。历史消息里出现过的附件/截图不进 @ 列表（用户拍板：只出现附件内的
+ * 照片文件，不出现所有历史截图）——想引用旧附件就重新附加一次。
  */
 function attachedFileCandidates(query: string): FileRefCandidate[] {
   const byPath = new Map<string, FileRefCandidate>()
   for (const f of pendingFiles) {
     if (!byPath.has(f.path)) byPath.set(f.path, { path: f.path, kind: 'file' })
-  }
-  for (const m of state?.messages ?? []) {
-    if (m.kind !== 'user') continue
-    for (const f of m.files ?? []) {
-      if (!byPath.has(f.path)) byPath.set(f.path, { path: f.path, kind: 'file' })
-    }
   }
   const q = query.trim().toLowerCase()
   return [...byPath.values()].filter((c) => q === '' || attachmentBaseName(c.path).toLowerCase().includes(q))
