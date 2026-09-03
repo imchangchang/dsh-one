@@ -47,9 +47,12 @@ const SYSTEM_PRESET_LABELS: Record<string, { label: string; description: string 
 
 /**
  * Roster → picker options. Broken rows and entries without a usable id drop
- * out; official system presets (trust 'system' + known id) get the localized
- * label/description, everything else (user presets, unknown system ids) falls
- * back to the roster's own name/description, then to the bare id.
+ * out; the roster's own name/description takes precedence — official presets
+ * ship localized copy from the server (preset.yml: 标准模式, PTC 模式, ...),
+ * so overwriting it with the built-in English map here is what made the
+ * Chinese UI show English. The map is only a fallback for older servers that
+ * omit the copy (fallback text goes through t()); unknown ids fall back to
+ * the bare id.
  */
 export function resolveAgentPresets(
   roster: readonly AgentPresetLike[],
@@ -59,13 +62,13 @@ export function resolveAgentPresets(
   for (const p of roster) {
     if (p.broken === true || typeof p.id !== 'string' || p.id === '') continue
     const known = p.trust === 'system' ? SYSTEM_PRESET_LABELS[p.id] : undefined
-    const label = known ? t(known.label) : typeof p.name === 'string' && p.name !== '' ? p.name : p.id
-    const description =
-      known?.description !== undefined
-        ? t(known.description)
-        : typeof p.description === 'string' && p.description !== ''
-          ? p.description
-          : undefined
+    const rosterName = typeof p.name === 'string' && p.name !== '' ? p.name : undefined
+    const rosterDesc = typeof p.description === 'string' && p.description !== '' ? p.description : undefined
+    // Roster 提供任一文案即视为本地化原文：全部用它（缺失字段留空），
+    // 避免「标准模式 + 英文描述」混搭；两项全缺才回退内置映射（过 t()）。
+    const useBuiltIn = rosterName === undefined && rosterDesc === undefined
+    const label = useBuiltIn ? (known ? t(known.label) : p.id) : rosterName ?? p.id
+    const description = useBuiltIn ? (known ? t(known.description) : undefined) : rosterDesc
     options.push({ id: p.id, label, ...(description ? { description } : {}) })
   }
   return options

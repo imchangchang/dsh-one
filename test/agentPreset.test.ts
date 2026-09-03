@@ -33,6 +33,24 @@ test('unknown system ids fall back to the roster name/description', () => {
   assert.deepEqual(options, [{ id: 'future-mode', label: 'Future Mode', description: 'roster 文案' }])
 })
 
+test('roster copy wins over the built-in system map (official presets ship localized names)', () => {
+  // 官方 preset.yml 自带本地化文案（标准模式 …）；映射只应兜底，不能覆盖中文原文。
+  const options = resolveAgentPresets([
+    preset('standard', { trust: 'system', name: '标准模式', description: '功能完整的编码 Agent。' }),
+    preset('code', { trust: 'system', name: 'PTC 模式' }),
+  ])
+  assert.deepEqual(options, [
+    { id: 'standard', label: '标准模式', description: '功能完整的编码 Agent。' },
+    { id: 'code', label: 'PTC 模式' },
+  ])
+  // 中文界面的 t() 即使给英文 key 也不参与——roster 原文直接透传。
+  const viaT = resolveAgentPresets(
+    [preset('standard', { trust: 'system', name: '标准模式' })],
+    (s) => `[${s}]`,
+  )
+  assert.deepEqual(viaT, [{ id: 'standard', label: '标准模式' }])
+})
+
 test('user presets always use their own name/description', () => {
   const options = resolveAgentPresets([
     // user preset 的 id 撞了官方名也不套用本地化文案。

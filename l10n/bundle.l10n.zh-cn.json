@@ -355,5 +355,13 @@
   "Some sessions cannot be archived; this group cannot be fully selected": "该组有会话无法归档，不能全部选中",
   "{0} session(s) in this group cannot be archived": "该组有 {0} 个会话不能归档",
   "Or use the community one-liner script below (unofficial):": "或者也可以直接运行下面的社区一键脚本（非官方）：",
-  "The first start may take a while (preparing profiles and dependencies).": "首次启动可能较慢（正在初始化 profile 与依赖）。"
+  "The first start may take a while (preparing profiles and dependencies).": "首次启动可能较慢（正在初始化 profile 与依赖）。",
+  "Standard mode": "标准模式",
+  "A full-featured coding agent: file editing, shell, file and web search, skills, plan, goals, subagents, and workflows.": "功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。",
+  "PTC mode": "PTC 模式",
+  "All standard capabilities, with tools exposed through the Code Mode SDK so the model composes multi-step operations in one TypeScript program.": "具备标准模式的全部能力，并通过 Code Mode SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。",
+  "Minimal mode": "极简模式",
+  "A two-tool coding agent: persistent bash and str_replace_editor only.": "仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。",
+  "Cordis mode": "创造模式",
+  "For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.": "用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。"
 }
