@@ -890,6 +890,11 @@ const STYLE = `
   .panel-toggle svg { transition: transform .15s ease; }
   .panel-toggle.minimized svg { transform: rotate(180deg); }
   .panel-body { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 10px; }
+  /* 问题卡提示行（提交时存在未完成题）：颜色对齐 dsh web 的错误反馈。 */
+  .panel-feedback {
+    color: var(--vscode-inputValidation-errorBorder, #f14c4c);
+    font-size: 12px; line-height: 16px; padding: 0 2px;
+  }
   /* 最小化态的回答输入行（去聊天里说）：一行输入框 + 提交按钮。 */
   .panel-answer { display: flex; gap: 8px; align-items: center; padding: 0 10px 10px; }
   .panel-answer input {
