@@ -3088,38 +3088,53 @@ function renderEmpty(state: ChatState | null): HTMLElement {
   return wrap
 }
 
-/* ---- 非官方一键安装脚本块（dshNotFound 空态，kimi 同款代码块体验） ---- */
+/* ---- 非官方一键安装脚本块（dshNotFound 空态，kimi 同款体验） ---- */
 
 /** 用户手动选中的平台（跨重建保留；未选过 = 跟随宿主平台）。 */
 let selectedInstallOs: HostOs | null = null
 
 /**
- * 说明 + 平台 chip 行 + 命令代码块 + 复制按钮。默认选中宿主平台
- * （hostOs 由 host 端 process.platform 映射），未知平台回退第一项。
+ * kimi 式安装引导：平台下拉按钮 + 单行省略的命令条（无横向滚动）+ 复制按钮；
+ * 平台按钮与命令条同排 flex-wrap——容器够宽左右排（kimi 一行），侧栏窄时
+ * 命令条自动换到下一行上下排。默认选中宿主平台（hostOs 由 host 端
+ * process.platform 映射），未知平台回退第一项；平台切换经全局 popover 弹层。
  */
 function renderInstallScriptBlock(hostOs: HostOs | undefined): HTMLElement {
   const block = el('div', 'install-script')
   block.appendChild(
     el('div', 'install-script-hint', t('Or use the community one-liner script below (unofficial):')),
   )
-  const tabs = el('div', 'install-script-tabs')
-  const code = el('code', 'install-script-code')
   let active = selectedInstallOs ?? hostOs ?? INSTALL_SCRIPT_OS_ORDER[0]
   if (!INSTALL_SCRIPT_OS_ORDER.includes(active)) active = INSTALL_SCRIPT_OS_ORDER[0]
-  for (const os of INSTALL_SCRIPT_OS_ORDER) {
-    const tab = buttonEl('install-script-tab', INSTALL_SCRIPT_OS_LABEL[os])
-    tab.classList.toggle('active', os === active)
-    tab.addEventListener('click', () => {
-      selectedInstallOs = os
-      active = os
-      for (const b of Array.from(tabs.children)) b.classList.toggle('active', b === tab)
-      code.textContent = installCommandFor(os)
-    })
-    tabs.appendChild(tab)
-  }
-  code.textContent = installCommandFor(active)
+
   const row = el('div', 'install-script-row')
-  row.appendChild(code)
+  const platform = buttonEl('install-script-platform', '')
+  const label = el('span', 'install-script-platform-label', INSTALL_SCRIPT_OS_LABEL[active])
+  platform.appendChild(label)
+  platform.appendChild(iconSvg(PANEL_ICONS.chevronDown, 12))
+  const code = el('code', 'install-script-code')
+  const apply = (os: HostOs): void => {
+    selectedInstallOs = os
+    active = os
+    label.textContent = INSTALL_SCRIPT_OS_LABEL[os]
+    const text = installCommandFor(os)
+    code.textContent = text
+    code.title = text
+  }
+  apply(active)
+  platform.addEventListener('click', () => {
+    const menu = el('div', 'install-script-menu')
+    for (const os of INSTALL_SCRIPT_OS_ORDER) {
+      const item = el('div', 'install-script-menu-item' + (os === active ? ' active' : ''), INSTALL_SCRIPT_OS_LABEL[os])
+      item.addEventListener('click', () => {
+        apply(os)
+        closePopover()
+      })
+      menu.appendChild(item)
+    }
+    showPopover(platform, menu, 'below')
+  })
+
   const copy = buttonEl('install-script-copy', '')
   copy.title = t('Copy')
   copy.appendChild(iconSvg(COPY_ICON, 14))
@@ -3129,8 +3144,11 @@ function renderInstallScriptBlock(hostOs: HostOs | undefined): HTMLElement {
       () => flashCopyLabel(copy, t('Copy failed')),
     )
   })
-  row.appendChild(copy)
-  block.appendChild(tabs)
+  const cmd = el('div', 'install-script-cmd')
+  cmd.appendChild(code)
+  cmd.appendChild(copy)
+  row.appendChild(platform)
+  row.appendChild(cmd)
   block.appendChild(row)
   return block
 }
@@ -3148,7 +3166,7 @@ function flashCopyLabel(button: HTMLButtonElement, label: string): void {
   }, 2000)
 }
 
-/** 平台 chip 标签：平台名不随 locale 翻译（对齐 kimi 的 Win/macOS/Linux）。 */
+/** 平台名：不随 locale 翻译（对齐 kimi 的 Win/macOS/Linux）。 */
 const INSTALL_SCRIPT_OS_LABEL: Record<HostOs, string> = {
   windows: 'Windows',
   macos: 'macOS',

@@ -1384,31 +1384,36 @@ const STYLE = `
   .empty-title { font-weight: 600; }
   .empty-hint { opacity: 0.7; font-size: 0.9em; }
   .empty button { margin-top: 8px; padding: 4px 14px; }
-  /* 非官方一键安装脚本块（dshNotFound 空态）：hint + 平台 chip + 命令代码 + 复制。 */
+  /* 非官方一键安装脚本块（dshNotFound 空态）：说明 + 平台下拉 + 单行省略命令条 + 复制。 */
   .install-script {
     width: 100%; max-width: 560px; margin-top: 14px;
     display: flex; flex-direction: column; gap: 8px; align-items: stretch;
     text-align: left;
   }
   .install-script-hint { font-size: 13px; opacity: 0.7; text-align: center; }
-  .install-script-tabs { display: flex; gap: 6px; justify-content: center; }
-  .install-script-tab {
-    padding: 3px 14px; font-size: 12px; border-radius: 12px;
-    background: transparent; color: var(--vscode-descriptionForeground, #888);
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .install-script-tab.active {
-    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-    border-color: transparent;
-  }
+  /* kimi 式一排：平台按钮 + 命令条同排 flex-wrap——容器够宽左右排，侧栏窄时
+     命令条换到下一行上下排（min-width 260px 触发换行）。 */
   .install-script-row {
-    display: flex; align-items: center; gap: 6px;
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch;
+  }
+  .install-script-platform {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 12px; border-radius: 14px;
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+    border: 0; font-size: 12px; font-weight: 500;
+  }
+  .install-script-platform svg { flex: none; opacity: .8; }
+  .install-script-cmd {
+    flex: 1 1 260px; min-width: 0;
+    display: flex; align-items: center; gap: 4px;
     background: var(--vscode-editorWidget-background, rgba(127,127,127,.12));
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    border-radius: 8px; padding: 6px 8px 6px 12px;
+    border-radius: 14px; padding: 3px 6px 3px 12px;
   }
   .install-script-code {
-    flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap;
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: 12px; line-height: 18px; color: var(--vscode-foreground);
   }
@@ -1423,6 +1428,14 @@ const STYLE = `
     color: var(--vscode-foreground);
   }
   .install-script-copy span { font-size: 12px; }
+  /* 平台下拉菜单（挂在全局 .popover 容器里）：当前平台加粗 + 对勾。 */
+  .install-script-menu-item {
+    display: flex; align-items: center; gap: 6px; min-height: 30px; box-sizing: border-box;
+    padding: 4px 12px; border-radius: 8px; cursor: pointer; font-size: 12px; white-space: nowrap;
+  }
+  .install-script-menu-item:hover { background: var(--vscode-menu-selectionBackground, rgba(127,127,127,.2)); }
+  .install-script-menu-item.active::before { content: '✓'; font-weight: 600; }
+  .install-script-menu-item.active { font-weight: 600; }
   /* 空会话 hero（官方 dsh web 空态 HeroShell，pXSMma_*）：整列水平居中。 */
   .hero {
     flex: 1; min-height: 0; overflow-y: auto;

@@ -36,7 +36,11 @@ $DshBase      = if ($env:DSH_INSTALL_DIR)    { $env:DSH_INSTALL_DIR }    else { 
 $DshNoPath    = $env:DSH_NO_MODIFY_PATH
 $DshNodePin   = $env:DSH_NODE_VERSION
 $DshSkipGit   = $env:DSH_SKIP_GIT
-$NodeDistBase = 'https://nodejs.org/dist'
+# Node 官方 dist + npmmirror 镜像（国内网络/临时 CDN 失败时自动换源重试，逐项按序尝试）。
+$NodeDistBases = @(
+  'https://nodejs.org/dist',
+  'https://registry.npmmirror.com/-/binary/node'
+)
 $NodeMinMajor = 22
 $NodeMinMinor = 19
 
@@ -103,9 +107,11 @@ function Add-ToUserPath([string]$dir) {
 
 function Test-DiskSpace([string]$path, [long]$requiredMb) {
   try {
-    $root = [System.IO.Path]::GetPathRoot($path)
-    $free = [System.IO.DriveInfo]::GetDriveInfo($root).AvailableFreeSpace
-    if ($free -lt ($requiredMb * 1MB)) { Die "not enough disk space on $root (need $requiredMb MB)" }
+    # Get-PSDrive（而不是 [System.IO.DriveInfo]::GetDriveInfo——该静态方法不存在，
+    # PS 5.1/7 都会报"方法调用失败"）。取路径所在文件系统盘符检查剩余空间。
+    $drive = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -and $path.StartsWith($_.Root, [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
+    if (-not $drive) { return }
+    if ($drive.Free -lt ($requiredMb * 1MB)) { Die "not enough disk space on $($drive.Name) (need $requiredMb MB)" }
   } catch { Warn "could not check disk space: $($_.Exception.Message)" }
 }
 
@@ -128,15 +134,33 @@ function Get-NodeDownloadVersion {
     if (-not (Split-NodeVersion $DshNodePin)) { Die "bad DSH_NODE_VERSION: $DshNodePin" }
     return $DshNodePin
   }
-  Write-Step "Resolving latest Node LTS from $NodeDistBase/index.json"
-  $index = Invoke-RestMethod "$NodeDistBase/index.json" -Method Get
-  foreach ($entry in $index) {
-    if ($entry.lts -ne $false) {
-      $ver = ([string]$entry.version).TrimStart('v')
-      if (Test-NodeCompatible "v$ver") { return $ver }
+  foreach ($base in $NodeDistBases) {
+    try {
+      Write-Step "Resolving latest Node LTS from $base/index.json"
+      $index = Invoke-RestMethod "$base/index.json" -Method Get
+      foreach ($entry in $index) {
+        if ($entry.lts -ne $false) {
+          $ver = ([string]$entry.version).TrimStart('v')
+          if (Test-NodeCompatible "v$ver") { return $ver }
+        }
+      }
+      Die "no Node LTS version satisfying ^$NodeMinMajor.$NodeMinMinor.0 found"
+    } catch { Warn "version resolution failed from $base: $($_.Exception.Message)" }
+  }
+  Die "could not resolve the latest Node LTS from any mirror"
+}
+
+# 逐个镜像源下载文件；全部失败才 Die。
+function Invoke-DownloadMirrored([string[]]$urls, [string]$dest) {
+  foreach ($u in $urls) {
+    try {
+      Invoke-WebRequest $u -OutFile $dest -UseBasicParsing
+      return
+    } catch {
+      Warn "download failed from $u ($($_.Exception.Message)); trying the next source"
     }
   }
-  Die "no Node LTS version satisfying ^$NodeMinMajor.$NodeMinMinor.0 found"
+  Die "download failed from all mirrors: $($urls -join ', ')"
 }
 
 function Install-PortableNode([string]$version, [string]$arch) {
@@ -151,12 +175,18 @@ function Install-PortableNode([string]$version, [string]$arch) {
   }
 
   Write-Step "Downloading Node $version (win-$arch)"
-  try {
-    Invoke-WebRequest "$NodeDistBase/v$version/node-$version-win-$arch.zip" -OutFile $zip -UseBasicParsing
-  } catch { Die "Node download failed: $($_.Exception.Message)" }
+  $zipUrls = foreach ($base in $NodeDistBases) { "$base/v$version/node-$version-win-$arch.zip" }
+  Invoke-DownloadMirrored $zipUrls $zip
 
   Write-Step "Verifying SHA256"
-  $sums = Invoke-WebRequest "$NodeDistBase/v$version/SHASUMS256.txt" -UseBasicParsing
+  $sums = $null
+  foreach ($base in $NodeDistBases) {
+    try {
+      $sums = Invoke-WebRequest "$base/v$version/SHASUMS256.txt" -UseBasicParsing
+      break
+    } catch { Warn "checksum list fetch failed from $base: $($_.Exception.Message)" }
+  }
+  if (-not $sums) { Die "could not fetch SHASUMS256.txt from any mirror" }
   $expected = $null
   foreach ($raw in ([string]$sums.Content -split "`n")) {
     $line = $raw.Trim()

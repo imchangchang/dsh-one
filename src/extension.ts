@@ -295,6 +295,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.openInstallPage', async () => {
       await vscode.env.openExternal(vscode.Uri.parse(DSH_INSTALL_URL))
     }),
+    // 未安装 dsh 时状态栏/「Install dsh」链接的落点：聚焦侧栏面板，那里是带
+    // 非官方一键脚本的安装引导空态（dshNotFound）；官方网址在面板空态里还有
+    // 「View install guide」入口。
+    vscode.commands.registerCommand('dshOne.openSessions', async () => {
+      await vscode.commands.executeCommand('dshOne.chat.focus')
+    }),
     // Title-area "+": register a picked folder as a new dsh workspace.
     // Returns the registered workspace (or undefined when cancelled/failed) so
     // the chat hero picker's「添加已有文件夹…」can switch to it afterwards;

@@ -67,7 +67,7 @@ function tooltip(status: ServerStatus): vscode.MarkdownString {
       if (isDshNotFound(status)) {
         md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('dsh is not installed')}\n\n`)
         md.appendMarkdown(
-          `[$(cloud-download) ${vscode.l10n.t('Install dsh')}](command:dshOne.openInstallPage)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
+          `[$(cloud-download) ${vscode.l10n.t('Install dsh')}](command:dshOne.openSessions)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
         )
         return md
       }
@@ -101,8 +101,9 @@ export class StatusBar implements vscode.Disposable {
     this.item.text = text(status)
     this.item.tooltip = tooltip(status)
     this.item.color = color(status)
-    // 未安装 dsh 时整块点击跳安装页；点击「重试启动」本来就无意义（没装就是没装）。
-    this.item.command = isDshNotFound(status) ? 'dshOne.openInstallPage' : 'dshOne.openExternal'
+    // 未安装 dsh 时整块点击聚焦侧栏面板（安装引导空态，含非官方脚本）；
+    // 点击「重试启动」本来就无意义（没装就是没装）。
+    this.item.command = isDshNotFound(status) ? 'dshOne.openSessions' : 'dshOne.openExternal'
   }
 
   dispose(): void {
