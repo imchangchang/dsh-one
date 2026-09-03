@@ -146,7 +146,7 @@
         }, 100)
       })()`,
       title: '@ 附件：输入框短 token + 对应图片 chip 高亮',
-      expect: '@ 补全弹窗顶部出现「Attachments」组标题（分割线），其下是 img1.png 附件候选（@img1.png 短名 + 右侧路径）；选中后输入框内容为「@img1.png」——显示为高亮 token（浅蓝底、圆角，由文本高亮层绘制——textarea 文字色透明、色调一致不重影），无长路径；composer 的截图缩略图 chip 带高亮描边（主题色 outline）且底部名称横幅清晰显示「img1.png」（小字号、不截断）；点选后弹窗关闭。',
+      expect: '@ 补全弹窗顶部出现「Attachments」组标题（分割线），其下是 img1.png 附件候选（@img1.png 短名 + 右侧路径）；选中后输入框内容为「@img1.png」——显示为高亮 token（浅蓝底、圆角，由文本高亮层绘制——textarea 文字色透明、色调一致不重影），无长路径；composer 的截图缩略图 chip 底部名称横幅清晰显示「img1.png」（小字号、不截断）；点选后弹窗关闭——chip 无常驻高亮（高亮只在鼠标悬停 @token 时出现，场景无法模拟 hover，真实交互在 dev-ui-test 验收）。',
     },
 
     'attachment-file-images': {

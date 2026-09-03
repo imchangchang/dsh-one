@@ -298,8 +298,6 @@ let lastTodosSig: string | null = null
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
 let pendingFiles: StagedFile[] = []
-/** 已被 @ 引用（mentionBindings 登记）的附件路径：对应 chip 渲染高亮描边。 */
-const referencedFiles = new Set<string>()
 /** Session the staged images belong to; a switch drops them. */
 let stagedForSession: string | null = null
 /** Per-session composer text drafts: sessionId → 未发送文本。切走时存旧、切回时取新，
@@ -1507,7 +1505,6 @@ function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): { attachments:
       apply: () => {
         const token = fileMentionToken(name, mention, mentionBindings)
         mentionBindings.set(token, mention)
-        if (pendingFiles.some((f) => f.path === c.path)) referencedFiles.add(c.path)
         const tail = ' '
         input.value = `${input.value.slice(0, tokenStart)}${token}${tail}${input.value.slice(cursor)}`
         input.focus()
@@ -5509,15 +5506,11 @@ function pendingImageFallback(img: OutgoingImage, index: number): HTMLElement {
 
 /** 待发送文件：与图片缩略图同尺寸方框（文档小图标 + 文件名，hover 右上角 ×）；点击在 VS Code 打开。
  *  图片文件（image 标记）：用 host 提供的 previewData 画缩略图（无数据或加载失败回退图标 chip）。
- *  已被 @ 引用的附件加高亮描边（referenced）。 */
+ *  高亮只走 hover 联动（.hovered，见 applyHover）——点击选中不常驻高亮。 */
 function pendingFileChip(file: StagedFile, index: number): HTMLElement {
-  const markReferenced = (el: HTMLElement): HTMLElement => {
-    if (referencedFiles.has(file.path)) el.classList.add('referenced')
-    return el
-  }
   if (file.image && file.previewData && file.mediaType) {
     const dataUrl = attachmentDataUrl(file.mediaType, file.previewData)
-    const item = markReferenced(el('span', 'attach-thumb'))
+    const item = el('span', 'attach-thumb')
     item.dataset.attachPath = file.path
     item.title = t('{0} (click to preview)', file.name)
     const image = document.createElement('img')
@@ -5529,7 +5522,6 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
     remove.addEventListener('click', (e) => {
       e.stopPropagation()
       pendingFiles.splice(index, 1)
-      referencedFiles.delete(file.path)
       render()
     })
     item.addEventListener('click', () => openLightbox(dataUrl))
@@ -5539,7 +5531,7 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
     item.appendChild(remove)
     return item
   }
-  const chip = markReferenced(el('span', 'file-chip'))
+  const chip = el('span', 'file-chip')
   chip.dataset.attachPath = file.path
   const icon = el('span', 'file-chip-icon')
   icon.appendChild(strokeSvg(FILE_ICON))
@@ -5554,7 +5546,6 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
   remove.addEventListener('click', (e) => {
     e.stopPropagation()
     pendingFiles.splice(index, 1)
-    referencedFiles.delete(file.path)
     render()
   })
   chip.appendChild(remove)
@@ -5729,7 +5720,6 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     const files = pendingFiles
     pendingImages = []
     pendingFiles = []
-    referencedFiles.clear()
     post({
       type: 'send',
       text: expanded,
