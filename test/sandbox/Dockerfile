@@ -24,7 +24,7 @@ COPY --from=node /usr/local/bin /usr/local/bin
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 
 # 构建期参数：LOCALE/THEME 默认值（运行期可 -e 覆盖）；VSIX 非空才预装扩展；
-# MOCK_LLM=1 时 entrypoint 走 mock 分支（容器内真 dsh 打打到容器内假端点）。
+# MOCK_LLM=1 时 entrypoint 走 mock 分支（容器内真 dsh 打到容器内假端点）。
 # 镜像默认 0（真实模式）；mock 模式由 run-sandbox.sh build --mock-llm / start --mock-llm 配套切换。
 ARG LOCALE=en
 ARG THEME=dark
