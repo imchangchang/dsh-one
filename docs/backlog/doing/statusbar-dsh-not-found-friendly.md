@@ -17,3 +17,5 @@
 ## 变更记录
 
 - 2026-09-03 用户提出：未安装 dsh 时状态栏红色 Error 碍眼，此为正常预期状态。核实 manager 已有 reason 字段、statusbar 未消费，方案如上，进 open/。
+
+- 2026-09-03 认领，进入开发（worktree agent/statusbar-dsh-not-found-friendly）。
