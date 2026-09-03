@@ -455,7 +455,10 @@ export class ChatTabHost implements vscode.Disposable {
       const mediaType = sniffImageMediaType(bytes) ?? file.mediaType.trim().toLowerCase()
       try {
         if (mediaType.startsWith('image/')) {
-          const target = await this.saveAttachment(snapshotFileName(mediaType, new Date()), bytes)
+          const target = await this.saveAttachment(
+            snapshotFileName(mediaType, new Date(), 0, vscode.l10n.t('Screenshot')),
+            bytes,
+          )
           staged.push({ name: path.basename(target), path: target, image: true, mediaType, previewData: file.data })
         } else {
           const target = await this.saveAttachment(name, bytes)

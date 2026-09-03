@@ -334,7 +334,7 @@ const chatHandlers: ChatTabMessageHandler[] = [
         // 走 chatTab 的「聊天操作失败」通用路径。webview 附带的 files 优先
         // （带图片预览元数据），缺失时从文本行解析兜底。
         const { text: body, files: parsedFiles } = splitAttachmentLines(text)
-        const restoreFiles = files.length > 0 ? files.map((f) => ({ ...f, path: f.path })) : parsedFiles
+        const restoreFiles = files.length > 0 ? files : parsedFiles
         host.postMessage({
           type: 'restoreDraft',
           text: body,

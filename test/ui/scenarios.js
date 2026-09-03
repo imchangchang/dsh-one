@@ -94,6 +94,38 @@
       expect: '会话面板列出会话；主区显示用户消息（右侧）+ 助手回复，含 markdown 加粗、一条折叠工具卡（Ran a command bash / npm test）、「复制/反馈/分叉」操作栏；底部 composer + 模型 pill + 会话统计。',
     },
 
+    'attachment-file-images': {
+      // 图片附件文件方式：历史消息的图片文件 chip（image: true）与 composer
+      // staging chips（filesPicked 投喂，image + previewData）。interact 先回
+      // fileThumb（模拟宿主懒加载缩略图），再投喂 filesPicked 让 composer 出现
+      // 两张 staging chips（图片缩略图 + 普通文件图标）。
+      png: PNG_RED,
+      state: base({
+        messages: [
+          {
+            kind: 'user',
+            id: 'u-img',
+            text: '这是界面截图，你看看。',
+            files: [
+              { name: '截图-0903-153812.png', path: '/Users/a/dsh-one/dsh-attachments/截图-0903-153812.png', image: true },
+              { name: 'note.md', path: '/Users/a/dsh-one/dsh-attachments/note.md' },
+            ],
+          },
+          at('收到。截图已在工作区 `dsh-attachments/截图-0903-153812.png`，我直接读文件即可。'),
+        ],
+      }),
+      interact: `(() => {
+        const s = window.SCENARIOS['attachment-file-images']
+        window.postMessage({ type: 'fileThumb', path: '/Users/a/dsh-one/dsh-attachments/截图-0903-153812.png', mediaType: 'image/png', data: s.png }, '*')
+        window.postMessage({ type: 'filesPicked', files: [
+          { name: '截图-0903-153812.png', path: '/Users/a/dsh-one/dsh-attachments/截图-0903-153812.png', image: true, mediaType: 'image/png', previewData: s.png },
+          { name: 'note.md', path: '/Users/a/dsh-one/dsh-attachments/note.md' },
+        ] }, '*')
+      })()`,
+      title: '图片附件文件方式：历史缩略图 + composer staging chips',
+      expect: '用户消息右侧附件区：图片文件渲染成 48px 红色方块缩略图（点击可预览，悬停 title 为短名，不出现长路径文本），note.md 显示为文档图标文件 chip；气泡正文只显示「这是界面截图，你看看。」（看不到 <attachment> 路径行）；composer 上方 chips 区：图片渲染红色缩略图 + 右上角 × 移除钮，note.md 文档图标 chip；底部发送按钮可用。',
+    },
+
     markdown: {
       state: base({
         messages: [

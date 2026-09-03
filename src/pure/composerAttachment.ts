@@ -75,13 +75,15 @@ function snapshotExtension(mediaType: string): string {
 }
 
 /**
- * 粘贴图片的落盘短名：`截图-MMDD-HHmmss.ext`（如 `截图-0903-153812.png`），
- * 同时间段多次粘贴由宿主用 clashIndex 递增（`截图-0903-153812-2.png`）。
- * 不依赖 node:path/时区库——本地时间戳即文件名含义，测试可注入 now。
+ * 粘贴图片的落盘短名：`<prefix>-MMDD-HHmmss.ext`（如 `截图-0903-153812.png`），
+ * prefix 由宿主按当前语言传（vscode.l10n 的 "Screenshot" 翻译——纯函数不落
+ * 中文字面量）；同时间段多次粘贴由宿主用 clashIndex 递增
+ * （`截图-0903-153812-2.png`）。不依赖 node:path/时区库——本地时间戳即文件名
+ * 含义，测试可注入 now。
  */
-export function snapshotFileName(mediaType: string, now: Date, clashIndex = 0): string {
+export function snapshotFileName(mediaType: string, now: Date, clashIndex = 0, prefix = 'Screenshot'): string {
   const p2 = (n: number): string => String(n).padStart(2, '0')
   const stamp = `${p2(now.getMonth() + 1)}${p2(now.getDate())}-${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}`
   const clash = clashIndex > 0 ? `-${clashIndex + 1}` : ''
-  return `截图-${stamp}${clash}.${snapshotExtension(mediaType)}`
+  return `${prefix}-${stamp}${clash}.${snapshotExtension(mediaType)}`
 }

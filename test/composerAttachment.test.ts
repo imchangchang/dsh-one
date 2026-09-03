@@ -60,19 +60,21 @@ test('imageMediaTypeByExtension maps extensions to dsh media types', () => {
 
 test('snapshotFileName builds a short timestamp name with the media-type extension', () => {
   const now = new Date(2026, 8, 3, 15, 38, 12) // 本地时间 2026-09-03 15:38:12
-  assert.equal(snapshotFileName('image/png', now), '截图-0903-153812.png')
-  assert.equal(snapshotFileName('Image/JPEG', now), '截图-0903-153812.jpg')
-  assert.equal(snapshotFileName('image/webp', now), '截图-0903-153812.webp')
-  assert.equal(snapshotFileName('image/gif', now), '截图-0903-153812.gif')
+  assert.equal(snapshotFileName('image/png', now, 0, '截图'), '截图-0903-153812.png')
+  assert.equal(snapshotFileName('Image/JPEG', now, 0, '截图'), '截图-0903-153812.jpg')
+  assert.equal(snapshotFileName('image/webp', now, 0, '截图'), '截图-0903-153812.webp')
+  assert.equal(snapshotFileName('image/gif', now, 0, '截图'), '截图-0903-153812.gif')
 })
 
-test('snapshotFileName appends a clash index and pads stamps to two digits', () => {
+test('snapshotFileName appends a clash index, pads stamps, and defaults the prefix', () => {
   const now = new Date(2026, 8, 3, 9, 5, 7)
-  assert.equal(snapshotFileName('image/png', now), '截图-0903-090507.png')
-  assert.equal(snapshotFileName('image/png', now, 1), '截图-0903-090507-2.png')
-  assert.equal(snapshotFileName('image/png', now, 2), '截图-0903-090507-3.png')
+  assert.equal(snapshotFileName('image/png', now, 0, '截图'), '截图-0903-090507.png')
+  assert.equal(snapshotFileName('image/png', now, 1, '截图'), '截图-0903-090507-2.png')
+  assert.equal(snapshotFileName('image/png', now, 2, '截图'), '截图-0903-090507-3.png')
+  // 默认英文前缀（纯函数不落中文字面量）
+  assert.equal(snapshotFileName('image/png', now), 'Screenshot-0903-090507.png')
 })
 
 test('snapshotFileName falls back to png for unknown media types', () => {
-  assert.equal(snapshotFileName('application/octet-stream', new Date(2026, 0, 2, 3, 4, 5)), '截图-0102-030405.png')
+  assert.equal(snapshotFileName('application/octet-stream', new Date(2026, 0, 2, 3, 4, 5), 0, '截图'), '截图-0102-030405.png')
 })

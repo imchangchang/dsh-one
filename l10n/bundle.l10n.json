@@ -63,7 +63,6 @@
   "Creating forked session…": "Creating forked session…",
   "Add attachment": "Add attachment",
   "{0} (read failed: {1})": "{0} (read failed: {1})",
-  "{0} (failed to write temp file: {1})": "{0} (failed to write temp file: {1})",
   "Skipped {0} file(s): {1}": "Skipped {0} file(s): {1}",
   "{0} (unsupported format: {1}; supported: {2})": "{0} (unsupported format: {1}; supported: {2})",
   "unknown": "unknown",
@@ -363,5 +362,7 @@
   "Minimal mode": "Minimal mode",
   "A two-tool coding agent: persistent bash and str_replace_editor only.": "A two-tool coding agent: persistent bash and str_replace_editor only.",
   "Cordis mode": "Cordis mode",
-  "For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.": "For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance."
+  "For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.": "For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.",
+  "{0} (failed to write attachment file: {1})": "{0} (failed to write temp file: {1})",
+  "Screenshot": "Screenshot"
 }
