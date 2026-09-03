@@ -21,7 +21,8 @@ import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { FileRefCandidate } from '../pure/fileReference.ts'
 import type { ChatState, CommitInfoResult, FromWebviewMessage, OutgoingImage, StagedFile, ToWebviewMessage } from '../pure/chatContract.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
-import { imageMediaTypeByExtension, splitAttachmentLines } from '../pure/composerAttachment.ts'
+import { imageMediaTypeByExtension, pastedFileName, splitAttachmentLines } from '../pure/composerAttachment.ts'
+import { attachmentDir, nextSequenceIndex } from './attachmentDir.ts'
 import type { ChatSessionController } from '../server/chatSession.ts'
 import type { ChatTabHost } from './chatTab.ts'
 
@@ -381,6 +382,27 @@ const chatHandlers: ChatTabMessageHandler[] = [
     async handle(host, m) {
       if (m.type !== 'filesPasted') return
       await host.stagePastedFiles(Array.isArray(m.files) ? m.files : [])
+    },
+  },
+  {
+    // 长文本粘贴折叠：落盘到会话附件目录（pasted-N.txt），回投 filesPicked
+    // 让 webview 显示 chip 并自动插 @ token；无附着会话不回投（webview 侧已
+    // 在 canSend=false 时不触发折叠，不会丢文本）。
+    types: ['pasteText'],
+    async handle(host, m) {
+      if (m.type !== 'pasteText' || typeof m.data !== 'string' || m.data.length === 0) return
+      const controller = host.controller
+      if (!controller) return
+      try {
+        const dir = attachmentDir(controller.sessionId)
+        await fs.mkdir(dir, { recursive: true })
+        const seq = await nextSequenceIndex(dir, /^pasted-(\d+)\.txt$/i)
+        const name = pastedFileName(seq)
+        await fs.writeFile(path.join(dir, name), m.data, 'utf8')
+        host.postMessage({ type: 'filesPicked', files: [{ name, path: path.join(dir, name) }] })
+      } catch (err) {
+        host.actions.logger.warn(`chat: pasteText failed — ${errorText(err)}`)
+      }
     },
   },
   {

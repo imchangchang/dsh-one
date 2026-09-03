@@ -87,3 +87,17 @@ function snapshotExtension(mediaType: string): string {
 export function imgFileName(mediaType: string, n: number): string {
   return `img${n}.${snapshotExtension(mediaType)}`
 }
+
+/** 长文本粘贴的文件名：`pasted-N.txt`（N 从 1 起，按会话目录递增）。 */
+export function pastedFileName(n: number): string {
+  return `pasted-${n}.txt`
+}
+
+/**
+ * 长文本粘贴是否折叠为文件附件：超过 10 行或 800 字符（固定阈值，可后议）。
+ * 短文本维持默认直接插入。
+ */
+export function shouldFoldPastText(text: string): boolean {
+  if (text.length === 0) return false
+  return text.split('\n').length > 10 || text.length > 800
+}

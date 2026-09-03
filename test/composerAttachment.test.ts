@@ -7,6 +7,8 @@ import {
   imgFileName,
   isImageMediaType,
   isImagePath,
+  pastedFileName,
+  shouldFoldPastText,
   splitAttachmentLines,
 } from '../src/pure/composerAttachment.ts'
 
@@ -82,3 +84,23 @@ test('imgFileName falls back to png for unknown media types', () => {
 })
 
 
+
+
+test('pastedFileName builds pasted-N.txt sequence names', () => {
+  assert.equal(pastedFileName(1), 'pasted-1.txt')
+  assert.equal(pastedFileName(12), 'pasted-12.txt')
+})
+
+test('shouldFoldPastText folds >10 lines or >800 chars, keeps short text in place', () => {
+  assert.equal(shouldFoldPastText(''), false)
+  assert.equal(shouldFoldPastText('一行'), false)
+  // 11 行触发（行数>10）
+  assert.equal(shouldFoldPastText('a\n'.repeat(10).trimEnd() + '\nlast'), true)
+  // 10 行不触发
+  assert.equal(shouldFoldPastText('a\n'.repeat(9).trimEnd()), false)
+  // 超字符触发
+  assert.equal(shouldFoldPastText('x'.repeat(801)), true)
+  assert.equal(shouldFoldPastText('x'.repeat(800)), false)
+  // 多行但总字符少且行数达标（日志场景）
+  assert.equal(shouldFoldPastText('line\n' + 'x'.repeat(100) + '\nend'), false)
+})

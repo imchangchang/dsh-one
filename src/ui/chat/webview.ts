@@ -72,7 +72,7 @@ import {
   orderJobs,
   type ActivityJob,
 } from '../../pure/activityTree.ts'
-import { attachmentBaseName, attachmentDataUrl, isImageMediaType, isImagePath, splitAttachmentLines } from '../../pure/composerAttachment.ts'
+import { attachmentBaseName, attachmentDataUrl, isImageMediaType, isImagePath, shouldFoldPastText, splitAttachmentLines } from '../../pure/composerAttachment.ts'
 import {
   SETTLE_IDLE_MS,
   USER_SCROLL_INTENT_MS,
@@ -298,6 +298,8 @@ let lastTodosSig: string | null = null
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
 let pendingFiles: StagedFile[] = []
+/** 长文本粘贴折叠进行中：宿主回投 filesPicked 后在光标处自动插入 @ token。 */
+let pendingTextPaste = false
 /** Session the staged images belong to; a switch drops them. */
 let stagedForSession: string | null = null
 /** Per-session composer text drafts: sessionId → 未发送文本。切走时存旧、切回时取新，
@@ -1118,6 +1120,11 @@ window.addEventListener('message', (event) => {
     if (shas.length > 0) refreshCommitHashSpans(shas)
   } else if (msg?.type === 'filesPicked' && Array.isArray(msg.files)) {
     pendingFiles = [...pendingFiles, ...msg.files]
+    // 长文本粘贴折叠的回执：光标处自动插入 @ 短 token（canonical 记绑定，发送时展开）。
+    if (pendingTextPaste && msg.files.length > 0) {
+      pendingTextPaste = false
+      insertMentionToken(msg.files[0].name, msg.files[0].path)
+    }
     render()
   } else if (msg?.type === 'fileThumb' && typeof msg.path === 'string' && typeof msg.data === 'string') {
     // 消息里图片文件 chip 的缩略图回执：缓存后重渲染（占位变真图）。
@@ -1457,6 +1464,36 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
   const cmd = COMPLETABLE_COMMANDS.find((c) => c.name === name)
   if (cmd?.hint) return [{ label: t('Arguments: {0}', cmd.hint) }]
   return []
+}
+
+/** 长文本粘贴折叠：超过阈值且会话可发送时拦截，交给宿主落盘（回投后自动插 @ token）。
+ *  无附着会话（canSend=false）不折叠，走默认插入——文本不会无处可去。 */
+function foldLongTextPaste(e: ClipboardEvent): boolean {
+  if (state?.canSend !== true) return false
+  const text = e.clipboardData?.getData('text/plain') ?? ''
+  if (!shouldFoldPastText(text)) return false
+  e.preventDefault()
+  pendingTextPaste = true
+  post({ type: 'pasteText', data: text })
+  return true
+}
+
+/** 在输入框光标处插入 @ 文件引用显示 token（canonical 路径记 mentionBindings，发送时展开）。 */
+function insertMentionToken(name: string, path: string): void {
+  const input = document.getElementById('input') as HTMLTextAreaElement | null
+  if (!input) return
+  const mention = formatFileMention({ path, kind: 'file' }, false)
+  if (mention === undefined) return
+  const token = fileMentionToken(name, mention, mentionBindings)
+  mentionBindings.set(token, mention)
+  const cursor = input.selectionStart ?? input.value.length
+  const end = input.selectionEnd ?? cursor
+  const tail = ' '
+  input.value = `${input.value.slice(0, cursor)}${token}${tail}${input.value.slice(end)}`
+  input.focus()
+  const caret = cursor + token.length + tail.length
+  input.setSelectionRange(caret, caret)
+  input.dispatchEvent(new Event('input'))
 }
 
 /**
@@ -5839,7 +5876,10 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     // sniffs the bytes, so a missing declared type (macOS file promises) is fine.
     const items = Array.from(e.clipboardData?.items ?? []).filter((item) => item.kind === 'file')
     if (items.length === 0) {
-      pasteSessionMentions(input, e)
+      // 会话 mention 粘贴优先（canonical 转显示 token）；长文本折叠为文件附件；
+      // 都未命中时默认插入。
+      if (pasteSessionMentions(input, e)) return
+      if (foldLongTextPaste(e)) return
       return
     }
     e.preventDefault()

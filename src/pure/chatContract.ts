@@ -775,6 +775,8 @@ export type FromWebviewMessage =
   | { type: 'answer'; rpcId: string; answers: QuestionAnswerInput[] }
   | { type: 'pickFiles' }
   | { type: 'filesPasted'; files: OutgoingImage[] }
+  /** 长文本粘贴被折叠为文件附件：宿主落盘后经 filesPicked 回投（webview 自动插 @ token）。 */
+  | { type: 'pasteText'; data: string }
   /** 消息里图片文件 chip 需要缩略图：宿主读盘转 base64 后回 fileThumb（失败静默）。 */
   | { type: 'requestFileThumb'; path: string }
   | { type: 'requestModels' }

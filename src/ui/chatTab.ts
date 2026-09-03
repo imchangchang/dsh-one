@@ -28,7 +28,7 @@ import type {
 } from '../pure/chatContract.ts'
 import { hostOsFromPlatform } from '../pure/installScript.ts'
 import { imageMediaTypeByExtension, imgFileName } from '../pure/composerAttachment.ts'
-import { attachmentDir } from './attachmentDir.ts'
+import { attachmentDir, nextSequenceIndex } from './attachmentDir.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
 import type { SubagentCatalogStore } from './subagentsStore.ts'
@@ -458,7 +458,7 @@ export class ChatTabHost implements vscode.Disposable {
       const mediaType = sniffImageMediaType(bytes) ?? file.mediaType.trim().toLowerCase()
       try {
         if (mediaType.startsWith('image/')) {
-          const seq = await nextImageSequence(dir)
+          const seq = await nextSequenceIndex(dir, /^img(\d+)\.(?:png|jpg|webp|gif)$/i)
           const target = await this.saveTempAttachment(imgFileName(mediaType, seq), bytes)
           staged.push({ name: path.basename(target), path: target, image: true, mediaType, previewData: file.data })
         } else {
@@ -552,21 +552,6 @@ export class ChatTabHost implements vscode.Disposable {
     this.viewStateSub = null
     panel?.dispose()
   }
-}
-
-/** 会话目录里下一个图片序号：扫描 `imgN.ext` 取最大 N + 1（新目录从 1 起）。 */
-async function nextImageSequence(dir: string): Promise<number> {
-  let max = 0
-  try {
-    const entries = await fs.readdir(dir)
-    for (const entry of entries) {
-      const m = /^img(\d+)\.(?:png|jpg|webp|gif)$/i.exec(entry)
-      if (m) max = Math.max(max, Number(m[1]))
-    }
-  } catch {
-    // 目录尚不存在：从 1 起
-  }
-  return max + 1
 }
 
 /** Pushed when no session is attached; the webview renders the empty state. */
