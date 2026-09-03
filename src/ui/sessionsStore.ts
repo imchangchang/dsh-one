@@ -55,6 +55,15 @@ const COLLAPSED_STATE_KEY = 'sessions.collapsed'
 /** workspaceState key for manually unread-marked sessions (UI-only; dsh 无未读概念）. */
 const UNREAD_STATE_KEY = 'sessions.unread'
 
+/**
+ * 面向 Windows 的 workspace 路径等价比较：大小写、斜杠与尾斜杠不敏感
+ * （VS Code fsPath 返回小写盘符 + 反斜杠，dsh 服务端 path 未必一致）。
+ */
+function windowsPathEqual(a: string, b: string): boolean {
+  const norm = (p: string): string => p.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase()
+  return norm(a) === norm(b)
+}
+
 /** The sessions panel model as pushed to the chat webview (不含服务状态，由 ChatViewProvider 补充). */
 export interface SessionsStoreSnapshot {
   workspaces: WorkspaceNodeModel[]
@@ -708,6 +717,10 @@ export class SessionsStore implements vscode.Disposable {
         unread: unreadDisplay,
         pendingInteractions: pendingDisplay,
         contentHits: this.contentHits,
+        // VS Code 的 fsPath 在 Windows 返回小写盘符 + 反斜杠，dsh 服务端的
+        // workspace path 可能是不同大小写/正斜杠/尾斜杠——严格全等会漏掉
+        // 「vscode」标签（macOS/Linux 大小写敏感，维持严格比较）。
+        ...(process.platform === 'win32' ? { pathEqual: windowsPathEqual } : {}),
       },
       vscode.l10n.t,
     )

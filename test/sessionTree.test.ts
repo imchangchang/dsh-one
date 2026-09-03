@@ -62,6 +62,31 @@ test('current folder first and flagged; others by workspace updatedAt desc', () 
   assert.deepEqual(tree.map((n) => n.isCurrent), [true, false, false, false])
 })
 
+test('pathEqual normalizes Windows-style path differences for the vscode badge', () => {
+  // Windows 场景：dsh 侧 path 为正斜杠大写盘符，VS Code fsPath 为反斜杠小写盘符。
+  const norm = (p: string): string => p.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase()
+  const tree = buildSessionTree(
+    [ws('w1', [], { path: 'C:/Users/imcha/proj' })],
+    [],
+    new Set(),
+    noTitles,
+    'c:\\Users\\imcha\\proj',
+    NOW,
+    { pathEqual: (a, b) => norm(a) === norm(b) },
+  )
+  assert.equal(tree[0].isCurrent, true)
+  // 默认严格比较（macOS/Linux）：大小写/斜杠不同视为不同目录。
+  const strict = buildSessionTree(
+    [ws('w1', [], { path: 'C:/Users/imcha/proj' })],
+    [],
+    new Set(),
+    noTitles,
+    'c:\\Users\\imcha\\proj',
+    NOW,
+  )
+  assert.equal(strict[0].isCurrent, false)
+})
+
 test('hides archived and blank sessions', () => {
   const tree = buildSessionTree(
     [ws('w1', ['keep', 'gone', 'empty'])],

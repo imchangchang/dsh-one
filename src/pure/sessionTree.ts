@@ -123,6 +123,13 @@ export interface SessionTreeViewOptions {
   pinned?: readonly string[]
   /** Client-side unread ids; purely a display flag (bold title + dot). */
   unread?: ReadonlySet<string>
+  /**
+   * Workspace-path equality for the vscode badge (isCurrent). Default is
+   * strict equality; on Windows callers pass a normalizing comparator
+   * (case + separator folding) because vscode.workspace fsPath and the dsh
+   * server's path often differ in drive-letter case / slash style.
+   */
+  pathEqual?: (a: string, b: string) => boolean
   /** Mux-tracked pending interaction per session; display-only yellow dot. */
   pendingInteractions?: ReadonlyMap<string, PendingInteraction>
   /**
@@ -187,6 +194,8 @@ export function buildSessionTree(
   const byId = new Map(sessions.map((s) => [s.sessionId, s]))
   const query = view.query?.trim().toLowerCase() ?? ''
   const sort = view.sort ?? 'updatedDesc'
+  const pathEqual = view.pathEqual ?? ((a: string, b: string): boolean => a === b)
+  const isCurrentFolder = (path: string): boolean => currentFolder !== undefined && pathEqual(path, currentFolder)
 
   // 血缘：只有真子代理（origin === 'subagent'）挂在父会话下。子代理行不进
   // 任何组（workspace 不引用它们，也未分组组也不收——见下方 orphans 过滤），
@@ -257,8 +266,8 @@ export function buildSessionTree(
       })
 
   const ordered = [...workspaces].sort((a, b) => {
-    const aCurrent = currentFolder !== undefined && a.path === currentFolder
-    const bCurrent = currentFolder !== undefined && b.path === currentFolder
+    const aCurrent = isCurrentFolder(a.path)
+    const bCurrent = isCurrentFolder(b.path)
     if (aCurrent !== bCurrent) return aCurrent ? -1 : 1
     return Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
   })
@@ -273,7 +282,7 @@ export function buildSessionTree(
       // 空 title 兜底（防御：dsh 侧 title 正常是 basename(path)，渲染层
       // 不赌它非空）；basename 为空（如根路径）时退回完整 path。
       label: w.title || basenameOf(w.path) || w.path,
-      isCurrent: currentFolder !== undefined && w.path === currentFolder,
+      isCurrent: isCurrentFolder(w.path),
       sessions: toSessionNodes(visible),
     }
   })
