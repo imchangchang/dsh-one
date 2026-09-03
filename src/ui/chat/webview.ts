@@ -658,6 +658,7 @@ function referenceChip(seg: Extract<UserBubbleSegment, { kind: 'file' | 'folder'
     chip.appendChild(el('span', undefined, seg.label))
     // @token 原文（@"/a b/x.md" / @docs/foo.md）：去 @ 与引号得到路径。
     const target = seg.path.replace(/^@/, '').replace(/^"|"$/g, '')
+    if (seg.kind === 'file') chip.dataset.refPath = target
     chip.classList.add('ref-chip-link')
     chip.setAttribute('role', 'button')
     chip.tabIndex = 0
@@ -3531,6 +3532,7 @@ function fileChip(file: ChatFile): HTMLElement {
     if (dataUrl) return fileThumbItem(file, dataUrl)
   }
   const chip = el('span', 'file-chip')
+  chip.dataset.attachPath = file.path
   const icon = el('span', 'file-chip-icon')
   icon.appendChild(strokeSvg(FILE_ICON))
   chip.appendChild(icon)
@@ -3545,6 +3547,7 @@ function fileChip(file: ChatFile): HTMLElement {
 /** 图片文件的缩略图 chip（历史消息）：点击放大（复用 attach-thumb 样式，底部名称横幅）。 */
 function fileThumbItem(file: ChatFile, dataUrl: string): HTMLElement {
   const item = el('span', 'attach-thumb')
+  item.dataset.attachPath = file.path
   item.title = t('{0} (click to preview)', file.name)
   const img = document.createElement('img')
   img.src = dataUrl
@@ -3559,6 +3562,7 @@ function fileThumbItem(file: ChatFile, dataUrl: string): HTMLElement {
 /** 缩略图加载失败/未取到时的纯图标 chip（点击打开文件）。 */
 function fileIconChip(file: ChatFile): HTMLElement {
   const chip = el('span', 'file-chip')
+  chip.dataset.attachPath = file.path
   const icon = el('span', 'file-chip-icon')
   icon.appendChild(strokeSvg(FILE_ICON))
   chip.appendChild(icon)
@@ -3986,8 +3990,10 @@ function renderUserBubbleParts(
     if (seg.kind === 'text') bubble.appendChild(document.createTextNode(seg.text))
     else if (seg.kind === 'session') bubble.appendChild(sessionMentionChip(seg.label, seg.sessionId))
     else if (seg.kind === 'file') {
-      // @ 文件引用不在行内渲染：提升到附件区（与 <attachment> 折叠同款）——
-      // 图片显示缩略图（懒加载），其他文件显示图标 chip，点击打开。
+      // @ 文件引用双显：行内保留可点击引用 chip（与工作区文件效果一致，引用
+      // 不因提升而"丢失"），同时收集进附件区（图片缩略图/文件图标）。行内
+      // chip hover 时与附件 chip 联动高亮（见 renderMessage 的行内委托）。
+      bubble.appendChild(referenceChip(seg))
       const target = seg.path.replace(/^@/, '').replace(/^"|"$/g, '')
       fileRefs.push({
         name: seg.label,
@@ -4025,6 +4031,25 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
       row.appendChild(parts.bubble)
       if (parts.summary) row.appendChild(parts.summary)
     }
+    // 行内 @ 文件引用 chip 的 hover 联动：悬停时对应附件 chip 高亮（与
+    // composer 输入框的 hover 同款反馈；委托到整行，短名 chip 与附件区
+    // 一一对应）。
+    const clearRefHighlight = (): void => {
+      for (const el of Array.from(row.querySelectorAll('.ref-hover, .hovered'))) {
+        el.classList.remove('ref-hover', 'hovered')
+      }
+    }
+    row.addEventListener('mouseover', (e) => {
+      const ref = (e.target as Element | null)?.closest?.('[data-ref-path]')
+      if (!ref || !(ref instanceof HTMLElement)) return
+      const path = ref.dataset.refPath ?? ''
+      clearRefHighlight()
+      ref.classList.add('ref-hover')
+      for (const chip of Array.from(row.querySelectorAll<HTMLElement>('[data-attach-path]'))) {
+        if (chip.dataset.attachPath === path) chip.classList.add('hovered')
+      }
+    })
+    row.addEventListener('mouseleave', clearRefHighlight)
     return row
   }
   if (m.kind === 'command') {

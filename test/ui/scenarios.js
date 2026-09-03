@@ -113,7 +113,7 @@
         window.postMessage({ type: 'fileThumb', path: '/var/folders/xx/T/dsh-one-attachments/sess-1/img1.png', mediaType: 'image/png', data: window.SCENARIOS['file-ref-bubble'].png }, '*')
       })()`,
       title: '@ 文件引用：图片提升附件区缩略图，行内不留长路径',
-      expect: '用户气泡：正文只剩「截图在，源码在，目录 @/Users/a/dsh-one/src/ 也看看。」——图片/源码两个文件引用从行内移除（不显示长路径），目录引用保持行内 chip；附件区（气泡上方）两个 chip：img1.png = 红色 48px 缩略图 + 底部名称横幅「img1.png」（懒加载回执后），index.ts = 文档图标 + 短名 chip；无长路径文本出现在气泡里。',
+      expect: '用户气泡正文：截图在（行内 @img1.png 引用 chip，图标+短名，可点击）@img1.png，源码在（行内 @index.ts chip）@index.ts，目录 @src 保持行内 folder chip；附件区（气泡上方）两个 chip：img1.png = 红色 48px 缩略图 + 底部名称横幅「img1.png」（懒加载回执后），index.ts = 文档图标 + 短名 chip；无长路径文本。悬停行内 @img1.png chip 时对应附件缩略图 chip 高亮描边（mouseover 委托，真实交互 dev-ui-test 验收）。',
     },
 
     'file-ref-token': {

@@ -1376,6 +1376,8 @@ const STYLE = `
   }
   .ref-token { background: rgba(101, 158, 254, .22); border-radius: 3px; }
   .ref-token.active { background: rgba(101, 158, 254, .5); }
+  /* 气泡行内 @ 引用 chip 的 hover 态：与附件 chip 的 hovered 描述联动。 */
+  .ref-chip.ref-hover { background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, .18)); }
   /* 主发送/停止按钮（对齐官方 InputBar primary，uV2eYG_primary）：34×34 圆形
      图标按钮，品牌蓝底白图标，无文字；运行中同一按钮变停止（图标切换在
      webview.ts 主按钮处）。颜色跟随 dsh web 官方 deepseek-400/500 对
