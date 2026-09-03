@@ -26,7 +26,11 @@ DSH_BASE="${DSH_INSTALL_DIR:-$HOME/.dsh}"
 DSH_NO_PATH="${DSH_NO_MODIFY_PATH:-}"
 DSH_NODE_PIN="${DSH_NODE_VERSION:-}"
 DSH_SKIP_GIT="${DSH_SKIP_GIT:-}"
-NODE_DIST_BASE="https://nodejs.org/dist"
+# Node 官方 dist + npmmirror 镜像（国内网络/临时 CDN 失败时自动换源重试，逐项按序尝试）。
+NODE_DIST_BASES=(
+  "https://nodejs.org/dist"
+  "https://registry.npmmirror.com/-/binary/node"
+)
 
 say()  { printf '==> %s\n' "$*"; }
 warn() { printf 'warn: %s\n' "$*" >&2; }
@@ -77,17 +81,23 @@ latest_lts_version() {
     echo "$DSH_NODE_PIN"
     return
   fi
-  say "Resolving latest Node LTS from $NODE_DIST_BASE/index.json"
+  say "Resolving latest Node LTS from ${NODE_DIST_BASES[0]}/index.json"
   # entries are newest-first; the first entry whose "lts" is a non-false string
   # is the latest LTS release. Token stream keeps version and its lts paired
   # without a JSON parser: version and lts tokens alternate per entry.
-  local ver
-  ver=$(curl -fsSL "$NODE_DIST_BASE/index.json" \
-    | grep -oE '"version":"v[0-9.]+"|"lts":(false|"[^"]*")' \
-    | awk '/"version":"v/ { v=$0; sub(/.*"version":"v/,"",v); sub(/".*/,"",v) }
-           /"lts":"[^"]"/ { print v; exit }' \
-    || die "could not resolve a Node LTS version (network failure?)")
-  [ -n "$ver" ] || die "could not resolve a Node LTS version"
+  local ver=""
+  local base
+  for base in "${NODE_DIST_BASES[@]}"; do
+    say "Trying $base/index.json"
+    ver=$(curl -fsSL "$base/index.json" 2>/dev/null \
+      | grep -oE '"version":"v[0-9.]+"|"lts":(false|"[^"]*")' \
+      | awk '/"version":"v/ { v=$0; sub(/.*"version":"v/,"",v); sub(/".*/,"",v) }
+             /"lts":"[^"]"/ { print v; exit }' \
+      || true)
+    [ -n "$ver" ] && break
+    warn "version resolution failed from $base"
+  done
+  [ -n "$ver" ] || die "could not resolve a Node LTS version (network failure?)"
   node_compatible "v$ver" || die "no Node LTS >= 22.19 found"
   echo "$ver"
 }
@@ -138,12 +148,24 @@ install_portable_node() { # $1=version $2=os $3=arch
   mkdir -p "$DSH_BASE"
   local tmp="$DSH_BASE/.node-extract-$$"
   rm -rf "$tmp"; mkdir -p "$tmp"
-  curl -fsSL "$NODE_DIST_BASE/v$version/$tarball.$ext" -o "$tmp/$tarball.$ext" \
-    || die "Node download failed"
+  local base ok=0
+  for base in "${NODE_DIST_BASES[@]}"; do
+    if curl -fsSL "$base/v$version/$tarball.$ext" -o "$tmp/$tarball.$ext" 2>/dev/null; then
+      ok=1; case "$base" in *nodejs.org*) : ;; *) say "downloaded from mirror $base" ;; esac
+      break
+    fi
+    warn "download failed from $base; trying the next source"
+  done
+  [ "$ok" -eq 1 ] || die "Node download failed from all mirrors"
 
   say "Verifying SHA256"
   local sums expected actual
-  sums=$(curl -fsSL "$NODE_DIST_BASE/v$version/SHASUMS256.txt" || die "could not fetch SHASUMS256.txt")
+  sums=""
+  for base in "${NODE_DIST_BASES[@]}"; do
+    sums=$(curl -fsSL "$base/v$version/SHASUMS256.txt" 2>/dev/null || true)
+    [ -n "$sums" ] && break
+  done
+  [ -n "$sums" ] || die "could not fetch SHASUMS256.txt from any mirror"
   expected=$(printf '%s\n' "$sums" | awk -v f="$tarball.$ext" '$2 == f { print $1 }')
   [ -n "$expected" ] || die "no checksum entry for $tarball.$ext"
   if command -v sha256sum >/dev/null 2>&1; then
