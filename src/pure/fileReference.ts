@@ -17,14 +17,15 @@ export interface ActiveAtToken {
 
 /**
  * 提取光标前的 `@path` 或未闭合 `@"path with spaces` token。其它 token
- * 内部的 @（如邮箱地址）不触发补全。
+ * 内部的 @（如邮箱地址）不触发补全。触发边界 = 行首/空白/常见标点（中文
+ * 句子里 `，@img1` 的 @ 能开补全——官方只用 \s，dsh-one 扩展为行间触发）。
  */
 export function activeAtToken(beforeCursor: string): ActiveAtToken | undefined {
-  const quoted = /(?:^|\s)(@"([^"]*))$/.exec(beforeCursor)
+  const quoted = /(?:^|[\s，。；：！？、,;!?])(@"([^"]*))$/.exec(beforeCursor)
   if (quoted?.[1] !== undefined && quoted[2] !== undefined) {
     return { prefix: quoted[1], query: quoted[2], quoted: true }
   }
-  const plain = /(?:^|\s)(@(\S*))$/.exec(beforeCursor)
+  const plain = /(?:^|[\s，。；：！？、,;!?])(@(\S*))$/.exec(beforeCursor)
   if (plain?.[1] === undefined || plain[2] === undefined) return undefined
   return { prefix: plain[1], query: plain[2], quoted: false }
 }

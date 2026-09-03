@@ -104,16 +104,16 @@
           {
             kind: 'user',
             id: 'u-ref',
-            text: '截图在 @/var/folders/xx/T/dsh-one-attachments/截图-0903-171126.png，源码在 @/Users/a/dsh-one/src/index.ts，目录 @/Users/a/dsh-one/src/ 也看看。',
+            text: '截图在 @/var/folders/xx/T/dsh-one-attachments/sess-1/img1.png，源码在 @/Users/a/dsh-one/src/index.ts，目录 @/Users/a/dsh-one/src/ 也看看。',
           },
           at('收到，我读一下截图和源码。'),
         ],
       }),
       interact: `(() => {
-        window.postMessage({ type: 'fileThumb', path: '/var/folders/xx/T/dsh-one-attachments/截图-0903-171126.png', mediaType: 'image/png', data: window.SCENARIOS['file-ref-bubble'].png }, '*')
+        window.postMessage({ type: 'fileThumb', path: '/var/folders/xx/T/dsh-one-attachments/sess-1/img1.png', mediaType: 'image/png', data: window.SCENARIOS['file-ref-bubble'].png }, '*')
       })()`,
       title: '@ 文件引用：图片提升附件区缩略图，行内不留长路径',
-      expect: '用户气泡：正文只剩「截图在，源码在，目录 @/Users/a/dsh-one/src/ 也看看。」——图片/源码两个文件引用从行内移除（不显示长路径），目录引用保持行内 chip；附件区（气泡上方）两个 chip：截图 = 红色 48px 缩略图（懒加载回执后），index.ts = 文档图标 + 短名 chip；无长路径文本出现在气泡里。',
+      expect: '用户气泡：正文只剩「截图在，源码在，目录 @/Users/a/dsh-one/src/ 也看看。」——图片/源码两个文件引用从行内移除（不显示长路径），目录引用保持行内 chip；附件区（气泡上方）两个 chip：img1.png = 红色 48px 缩略图 + 底部名称横幅「img1.png」（懒加载回执后），index.ts = 文档图标 + 短名 chip；无长路径文本出现在气泡里。',
     },
 
     'file-ref-token': {
@@ -125,13 +125,13 @@
       interact: `(() => {
         const s = window.SCENARIOS['file-ref-token']
         window.postMessage({ type: 'filesPicked', files: [
-          { name: '截图-0903-171126.png', path: '/var/folders/x/T/dsh-one-attachments/截图-0903-171126.png', image: true, mediaType: 'image/png', previewData: s.png },
+          { name: 'img1.png', path: '/var/folders/x/T/dsh-one-attachments/sess-1/img1.png', image: true, mediaType: 'image/png', previewData: s.png },
         ] }, '*')
         setTimeout(() => {
           const input = document.getElementById('input')
           input.focus()
-          input.value = '@截'
-          input.setSelectionRange(2, 2)
+          input.value = '@img'
+          input.setSelectionRange(4, 4)
           input.dispatchEvent(new Event('input'))
           setTimeout(() => {
             const rows = document.querySelectorAll('.slash-popup .menu-item')
@@ -146,7 +146,7 @@
         }, 100)
       })()`,
       title: '@ 附件：输入框短 token + 对应图片 chip 高亮',
-      expect: '输入框内容为「@截图-0903-171126.png」（短名 token，无长路径）；composer 的截图缩略图 chip 带高亮描边（主题色 outline）；点选后弹窗关闭。',
+      expect: '@ 补全弹窗顶部出现「Attachments」组标题（分割线），其下是 img1.png 附件候选（@img1.png 短名 + 缩略图/右侧路径）；选中后输入框内容为「@img1.png」（短名 token，无长路径），composer 的截图缩略图 chip 带高亮描边（主题色 outline）且底部显示名称横幅「img1.png」；点选后弹窗关闭。',
     },
 
     'attachment-file-images': {
@@ -162,7 +162,7 @@
             id: 'u-img',
             text: '这是界面截图，你看看。',
             files: [
-              { name: '截图-0903-153812.png', path: '/Users/a/dsh-one/dsh-attachments/截图-0903-153812.png', image: true },
+              { name: 'img1.png', path: '/Users/a/dsh-one/dsh-attachments/img1.png', image: true },
               { name: 'note.md', path: '/Users/a/dsh-one/dsh-attachments/note.md' },
             ],
           },
@@ -171,9 +171,9 @@
       }),
       interact: `(() => {
         const s = window.SCENARIOS['attachment-file-images']
-        window.postMessage({ type: 'fileThumb', path: '/Users/a/dsh-one/dsh-attachments/截图-0903-153812.png', mediaType: 'image/png', data: s.png }, '*')
+        window.postMessage({ type: 'fileThumb', path: '/Users/a/dsh-one/dsh-attachments/img1.png', mediaType: 'image/png', data: s.png }, '*')
         window.postMessage({ type: 'filesPicked', files: [
-          { name: '截图-0903-153812.png', path: '/Users/a/dsh-one/dsh-attachments/截图-0903-153812.png', image: true, mediaType: 'image/png', previewData: s.png },
+          { name: 'img1.png', path: '/Users/a/dsh-one/dsh-attachments/img1.png', image: true, mediaType: 'image/png', previewData: s.png },
           { name: 'note.md', path: '/Users/a/dsh-one/dsh-attachments/note.md' },
         ] }, '*')
       })()`,

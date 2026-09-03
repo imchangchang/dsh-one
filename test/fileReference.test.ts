@@ -51,3 +51,13 @@ test('fileMentionToken：首选 @短名，冲突时追加序号直到唯一', ()
   // 同名同 mention（重复插入同一文件）→ 直接用 @短名 覆盖注册，不递增
   assert.equal(fileMentionToken('截图.png', '@/a/截图.png', bindings), '@截图.png')
 })
+
+test('activeAtToken：常见中英文标点后可触发（行间 @ 引用）', () => {
+  assert.deepEqual(activeAtToken('第一张，@img'), { prefix: '@img', query: 'img', quoted: false })
+  assert.deepEqual(activeAtToken('对比：@img1'), { prefix: '@img1', query: 'img1', quoted: false })
+  // 引号 token 同样支持标点后触发（汉字前是内容边界，不误触）
+  assert.deepEqual(activeAtToken('第一张，@"img 1.png'), { prefix: '@"img 1.png', query: 'img 1.png', quoted: true })
+  assert.equal(activeAtToken('看@"img 1.png'), undefined)
+  // 标点后不误触发（邮箱/普通字符边界不变）
+  assert.equal(activeAtToken('foo.a@b'), undefined)
+})

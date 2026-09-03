@@ -1463,9 +1463,10 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
 
 /**
  * @ 补全（对齐 dsh web）：光标前的 `@query`（或未闭合 `@"query`）触发，
- * 文件/文件夹候选在前（host fileReferences/list，异步返回），当前会话
- * 所属工作区的会话候选在后，两组各有小标题 + 分割线；引号 token 只出
- * 文件。引用其它会话主要靠会话面板的"复制引用"，这里只补本工作区的会话。
+ * 候选分三组（各有小标题 + 分割线）：附件（当前 composer 已附加的）、
+ * 工作区文件（宿主 fileReferences/list 异步返回，cwd 浅层）、当前会话所属
+ * 工作区的会话。引号 token 只出文件。
+ * 引用其它会话主要靠会话面板的"复制引用"，这里只补本工作区的会话。
  */
 function computeRefRows(input: HTMLTextAreaElement): SlashRow[] {
   if (input.selectionStart !== input.selectionEnd) return []
@@ -1478,43 +1479,29 @@ function computeRefRows(input: HTMLTextAreaElement): SlashRow[] {
     fileRefResult = null
     post({ type: 'fileRefList', requestId: fileRefSeq, query: at.query })
   }
-  const files = fileRows(input, at)
+  const { attachments, workspace } = fileRows(input, at)
   const sessions = at.quoted ? [] : sessionRows(input, at)
   return [
-    ...(files.length > 0 ? [{ label: t('Files'), header: true } as SlashRow, ...files] : []),
+    ...(attachments.length > 0 ? [{ label: t('Attachments'), header: true } as SlashRow, ...attachments] : []),
+    ...(workspace.length > 0 ? [{ label: t('Files'), header: true } as SlashRow, ...workspace] : []),
     ...(sessions.length > 0 ? [{ label: t('Sessions'), header: true } as SlashRow, ...sessions] : []),
   ]
 }
 
 /**
- * 本地附件候选：**只列当前 composer 已附加（staged）的附件文件**，按 path
- * 去重。历史消息里出现过的附件/截图不进 @ 列表（用户拍板：只出现附件内的
- * 照片文件，不出现所有历史截图）——想引用旧附件就重新附加一次。
+ * 文件/文件夹候选行：**附件组**（本地即时，当前 composer 已附加的）与
+ * **工作区组**（宿主异步返回）分开返回。选中后输入框插入 `@短名` 显示 token，
+ * canonical 路径引用（`@/abs/path` 或 `@"..."`）记入 mentionBindings、发送时
+ * 才展开——textarea 里看不到长路径；选中的若正是已附加的图片，对应 chip 高亮。
  */
-function attachedFileCandidates(query: string): FileRefCandidate[] {
-  const byPath = new Map<string, FileRefCandidate>()
-  for (const f of pendingFiles) {
-    if (!byPath.has(f.path)) byPath.set(f.path, { path: f.path, kind: 'file' })
-  }
-  const q = query.trim().toLowerCase()
-  return [...byPath.values()].filter((c) => q === '' || attachmentBaseName(c.path).toLowerCase().includes(q))
-}
-
-/**
- * 文件/文件夹候选行：本地附件候选在前（即时可点），宿主返回的工作区候选
- * 在后（异步到达后整表重算）。选中后输入框插入 `@短名` 显示 token，canonical
- * 路径引用（`@/abs/path` 或 `@"..."`）记入 mentionBindings、发送时才展开——
- * textarea 里看不到长路径；选中的若正是已附加的图片，对应 chip 高亮。
- */
-function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] {
+function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): { attachments: SlashRow[]; workspace: SlashRow[] } {
   const cursor = input.selectionStart
   const tokenStart = cursor - at.prefix.length
-  const rows: SlashRow[] = []
-  const pushRow = (c: FileRefCandidate): void => {
+  const rowOf = (c: FileRefCandidate): SlashRow[] => {
     const mention = formatFileMention(c, at.quoted)
-    if (mention === undefined) return // 编辑器语法无法安全表示的路径不出候选
+    if (mention === undefined) return [] // 编辑器语法无法安全表示的路径不出候选
     const name = attachmentBaseName(c.path)
-    rows.push({
+    return [{
       label: `@${name}`,
       right: c.path,
       apply: () => {
@@ -1530,14 +1517,27 @@ function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] {
         // 重建 chips 让「已被 @ 引用」的高亮生效；焦点/光标由 render 恢复。
         render()
       },
-    })
+    }]
   }
-  for (const c of attachedFileCandidates(at.query)) pushRow(c)
-  // 宿主工作区候选（异步）：响应未到达或已过期时为空（本地附件行先顶着）。
-  if (fileRefResult !== null && fileRefResult.key === at.prefix) {
-    for (const c of fileRefResult.items) pushRow(c)
+  return {
+    attachments: attachedFileCandidates(at.query).flatMap(rowOf),
+    // 宿主工作区候选（异步）：响应未到达或已过期时为空（附件组先顶着）。
+    workspace: fileRefResult !== null && fileRefResult.key === at.prefix ? fileRefResult.items.flatMap(rowOf) : [],
   }
-  return rows
+}
+
+/**
+ * 本地附件候选：**只列当前 composer 已附加（staged）的附件文件**，按 path
+ * 去重。历史消息里出现过的附件/截图不进 @ 列表（用户拍板：只出现附件内的
+ * 照片文件，不出现所有历史截图）——想引用旧附件就重新附加一次。
+ */
+function attachedFileCandidates(query: string): FileRefCandidate[] {
+  const byPath = new Map<string, FileRefCandidate>()
+  for (const f of pendingFiles) {
+    if (!byPath.has(f.path)) byPath.set(f.path, { path: f.path, kind: 'file' })
+  }
+  const q = query.trim().toLowerCase()
+  return [...byPath.values()].filter((c) => q === '' || attachmentBaseName(c.path).toLowerCase().includes(q))
 }
 
 /**
@@ -3508,7 +3508,7 @@ function fileChip(file: ChatFile): HTMLElement {
   return chip
 }
 
-/** 图片文件的缩略图 chip（历史消息）：点击放大（复用 attach-thumb 样式）。 */
+/** 图片文件的缩略图 chip（历史消息）：点击放大（复用 attach-thumb 样式，底部名称横幅）。 */
 function fileThumbItem(file: ChatFile, dataUrl: string): HTMLElement {
   const item = el('span', 'attach-thumb')
   item.title = t('{0} (click to preview)', file.name)
@@ -3518,6 +3518,7 @@ function fileThumbItem(file: ChatFile, dataUrl: string): HTMLElement {
   img.addEventListener('error', () => item.replaceWith(fileIconChip(file)))
   item.addEventListener('click', () => openLightbox(dataUrl))
   item.appendChild(img)
+  item.appendChild(el('span', 'thumb-name', file.name))
   return item
 }
 
@@ -5532,6 +5533,8 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
     })
     item.addEventListener('click', () => openLightbox(dataUrl))
     item.appendChild(image)
+    // 底部名称横幅：img1.png 这类短名直接可见（截图多时靠它区分）。
+    item.appendChild(el('span', 'thumb-name', file.name))
     item.appendChild(remove)
     return item
   }

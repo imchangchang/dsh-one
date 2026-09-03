@@ -1276,6 +1276,15 @@
     background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
   }
   .attach-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* 缩略图底部名称横幅（img1.png 之类的短名直接可见，靠它区分多张截图）。 */
+  .attach-thumb .thumb-name {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
+    padding: 1px 3px 2px;
+    font-size: 10px; line-height: 1.3; text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: #fff; background: rgba(0, 0, 0, .5);
+    pointer-events: none;
+  }
   /* 已被 @ 引用的 staged 附件：主题色描边高亮（引用即所附图）。 */
   .attach-thumb.referenced, .file-chip.referenced {
     outline: 2px solid var(--vscode-focusBorder, #4daafc);

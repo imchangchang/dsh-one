@@ -27,7 +27,7 @@ import type {
   ToWebviewMessage,
 } from '../pure/chatContract.ts'
 import { hostOsFromPlatform } from '../pure/installScript.ts'
-import { imageMediaTypeByExtension, snapshotFileName } from '../pure/composerAttachment.ts'
+import { imageMediaTypeByExtension, imgFileName } from '../pure/composerAttachment.ts'
 import { attachmentDir } from './attachmentDir.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
@@ -441,25 +441,25 @@ export class ChatTabHost implements vscode.Disposable {
 
   /**
    * Paste intake: every clipboard file becomes an attachment. Everything is
-   * written to the OS temp dir (system-pruned, never inside a project/git
-   * tree, so no repo pollution and no unbounded growth); images get a short
-   * timestamp name, other files keep their own name. Both are staged as path
-   * chips; the path joins the prompt on send and the agent reads it directly.
+   * written to the per-session dir under the OS temp dir (system-pruned, never
+   * inside a project/git tree, so no repo pollution and no unbounded growth);
+   * images get sequential `imgN.ext` names (N per session directory), other
+   * files keep their own name. Both are staged as path chips; the path joins
+   * the prompt on send and the agent reads it directly.
    */
   async stagePastedFiles(files: OutgoingImage[]): Promise<void> {
     if (files.length === 0) return
     const staged: StagedFile[] = []
     const skipped: string[] = []
+    const dir = attachmentDir(this.controller?.sessionId)
     for (const file of files) {
       const name = file.name ?? vscode.l10n.t('Attachment')
       const bytes = Buffer.from(file.data, 'base64')
       const mediaType = sniffImageMediaType(bytes) ?? file.mediaType.trim().toLowerCase()
       try {
         if (mediaType.startsWith('image/')) {
-          const target = await this.saveTempAttachment(
-            snapshotFileName(mediaType, new Date(), 0, vscode.l10n.t('Screenshot')),
-            bytes,
-          )
+          const seq = await nextImageSequence(dir)
+          const target = await this.saveTempAttachment(imgFileName(mediaType, seq), bytes)
           staged.push({ name: path.basename(target), path: target, image: true, mediaType, previewData: file.data })
         } else {
           staged.push({ name, path: await this.saveTempAttachment(name, bytes) })
@@ -477,9 +477,9 @@ export class ChatTabHost implements vscode.Disposable {
     }
   }
 
-  /** Persist one paste under the OS temp dir; returns the file path. Colliding names get a numeric suffix. */
+  /** Persist one paste under the per-session attachment dir; returns the file path. Colliding names get a numeric suffix. */
   private async saveTempAttachment(name: string, bytes: Buffer): Promise<string> {
-    const dir = attachmentDir()
+    const dir = attachmentDir(this.controller?.sessionId)
     await fs.mkdir(dir, { recursive: true })
     const safe = name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_') || 'attachment'
     const dot = safe.lastIndexOf('.')
@@ -552,6 +552,21 @@ export class ChatTabHost implements vscode.Disposable {
     this.viewStateSub = null
     panel?.dispose()
   }
+}
+
+/** 会话目录里下一个图片序号：扫描 `imgN.ext` 取最大 N + 1（新目录从 1 起）。 */
+async function nextImageSequence(dir: string): Promise<number> {
+  let max = 0
+  try {
+    const entries = await fs.readdir(dir)
+    for (const entry of entries) {
+      const m = /^img(\d+)\.(?:png|jpg|webp|gif)$/i.exec(entry)
+      if (m) max = Math.max(max, Number(m[1]))
+    }
+  } catch {
+    // 目录尚不存在：从 1 起
+  }
+  return max + 1
 }
 
 /** Pushed when no session is attached; the webview renders the empty state. */

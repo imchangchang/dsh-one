@@ -364,5 +364,5 @@
   "Cordis mode": "Cordis mode",
   "For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.": "For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.",
   "{0} (failed to write attachment file: {1})": "{0} (failed to write temp file: {1})",
-  "Screenshot": "Screenshot"
+  "Attachments": "Attachments"
 }

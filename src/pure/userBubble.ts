@@ -25,13 +25,13 @@ export type UserBubbleSegment =
   | { kind: 'skill'; label: string }
 
 /**
- * 官方 projectUserText 的普通 token 扫描（行首或空白后的词边界 token）。
- * plain 分支在中文标点/全角标点处终止：中文句子的引用后面通常直接跟“，”
- * 这类标点（没有空格），不终止会把后续正文吞进 token、图片/文件判定全失效
- * （路径本身允许中文（如「截图-0903-171126.png」），只对「、。，；：！？（）」
- * 这类半角/全角标点终止）。
+ * 官方 projectUserText 的普通 token 扫描（行首或空白后的词边界 token；
+ * dsh-one 扩展：常见中英文标点后也可触发，支持行间 @ 引用）。plain 分支在
+ * 中文标点/全角标点处终止：中文句子的引用后面通常直接跟“，”这类标点（没有
+ * 空格），不终止会把后续正文吞进 token、图片/文件判定全失效（路径本身允许
+ * 中文（如「img1.png」），只对「、。，；：！？（）」这类半角/全角标点终止）。
  */
-const PLAIN_TOKEN_PATTERN = /(^|\s)(\/[\w-]+|@"[^"\n]+"|@[^\s\u3000-\u303f\uff00-\uffef]+)/gu
+const PLAIN_TOKEN_PATTERN = /(^|[\s，。；：！？、,;!?])(\/[\w-]+|@"[^"\n]+"|@[^\s\u3000-\u303f\uff00-\uffef]+)/gu
 /** 官方对非引号 token 的尾部标点剥离（引号 token 的捕获在闭引号前止步，无需剥离）。 */
 const TRAILING_PUNCTUATION = /[.,;:!?，。；：！？]+$/gu
 
