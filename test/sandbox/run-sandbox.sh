@@ -36,10 +36,12 @@ run-sandbox.sh —— 构建并驱动 DSH One 的 docker 沙盒（code-server + 
           --vsix <绝对路径>    预装的插件 vsix（省略则跳过安装，镜像仍可用）
           --locale <en|zh-cn>  镜像默认界面语言（默认 en）
           --theme <dark|light> 镜像默认主题（默认 dark）
+          --mock-llm           把仓库 test/mock-llm/*.ts 拷进构建上下文（.build-mock-llm/），镜像带假端点
   start   启动容器（名字固定为 dsh-sandbox；宿主 ~/.dsh 只读挂载进容器）
           --locale <en|zh-cn>  本次界面语言（默认 en，由容器 entrypoint 消费）
           --theme <dark|light> 本次主题（默认 dark，由容器 entrypoint 消费）
           --port <端口>        宿主/容器端口（默认 8080，容器内 code-server 监听此端口）
+          --mock-llm           mock 模式启动：-e MOCK_LLM=1 + 宿主 9009 映射到容器内假端点
   stop    停止并删除容器 dsh-sandbox
   logs    跟随容器 dsh-sandbox 日志（Ctrl-C 退出）
   status  显示镜像与容器状态、端口映射
@@ -49,6 +51,8 @@ run-sandbox.sh —— 构建并驱动 DSH One 的 docker 沙盒（code-server + 
 示例:
   test/sandbox/run-sandbox.sh build --vsix "$(pwd)/dsh-one-1.0.0.vsix"
   test/sandbox/run-sandbox.sh start --locale zh-cn --theme light --port 9000
+  test/sandbox/run-sandbox.sh build --mock-llm        # mock-llm 模式需 build+start 配套
+  test/sandbox/run-sandbox.sh start --mock-llm
   test/sandbox/run-sandbox.sh status
   test/sandbox/run-sandbox.sh sh
 EOF
@@ -88,11 +92,13 @@ build() {
   local vsix=""
   local locale="$DEFAULT_LOCALE"
   local theme="$DEFAULT_THEME"
+  local mock_llm=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --vsix) vsix="${2:?--vsix 需要绝对路径}"; shift 2 ;;
       --locale) locale="${2:?--locale 需要值}"; shift 2 ;;
       --theme) theme="${2:?--theme 需要值}"; shift 2 ;;
+      --mock-llm) mock_llm=1; shift ;;
       *) die "未知参数: $1" ;;
     esac
   done
@@ -113,12 +119,24 @@ build() {
     : > "$CONTEXT/$VSIX_NAME"
   fi
 
-  echo "构建镜像 ${IMAGE}（LOCALE=$locale THEME=$theme VSIX=${build_vsix:+是}）"
+  # mock-llm 模式：把仓库 test/mock-llm/*.ts 暂存进构建上下文 .build-mock-llm/（gitignored，不污染仓库）。
+  # 上下文固定为 test/sandbox/，docker build 只能 COPY 上下文内文件；Dockerfile 再从 .build-mock-llm 拷到 /app/mock-llm。
+  # 真实模式也创建（可为空的）目录，保证 Dockerfile 里 COPY .build-mock-llm 这一行始终能通过。
+  rm -rf "$CONTEXT/.build-mock-llm"
+  mkdir -p "$CONTEXT/.build-mock-llm"
+  if [ "$mock_llm" = "1" ]; then
+    [ -f "$REPO_ROOT/test/mock-llm/server.ts" ] || die "--mock-llm 构建需要仓库 test/mock-llm/server.ts（含 scenario.ts），但该文件不存在"
+    cp "$REPO_ROOT/test/mock-llm/"*.ts "$CONTEXT/.build-mock-llm/"
+    echo "已把 test/mock-llm/*.ts 暂存进 $CONTEXT/.build-mock-llm/"
+  fi
+
+  echo "构建镜像 ${IMAGE}（LOCALE=$locale THEME=$theme VSIX=${build_vsix:+是} MOCK_LLM=$mock_llm）"
   echo "上下文: $CONTEXT"
   docker build \
     --build-arg "VSIX=$build_vsix" \
     --build-arg "LOCALE=$locale" \
     --build-arg "THEME=$theme" \
+    --build-arg "MOCK_LLM=$mock_llm" \
     -t "$IMAGE" "$CONTEXT"
 }
 
@@ -126,11 +144,13 @@ start() {
   local locale="$DEFAULT_LOCALE"
   local theme="$DEFAULT_THEME"
   local port="8080"
+  local mock_llm=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --locale) locale="${2:?--locale 需要值}"; shift 2 ;;
       --theme) theme="${2:?--theme 需要值}"; shift 2 ;;
       --port) port="${2:?--port 需要值}"; shift 2 ;;
+      --mock-llm) mock_llm=1; shift ;;
       *) die "未知参数: $1" ;;
     esac
   done
@@ -150,14 +170,19 @@ start() {
 
   local dsh_cfg="$HOME/.dsh"
   # 宿主 dsh 配置只读挂载进容器（entrypoint 复制到容器内可写副本，不污染宿主）。
-  # ~/.dsh 不存在时跳过挂载（mock dsh 场景不需要，也避免 docker 自动建 root 属主目录）。
+  # ~/.dsh 不存在时跳过挂载（mock 场景不需要，也避免 docker 自动建 root 属主目录）。
   set -- \
     --name "$CONTAINER" \
     -e "LOCALE=$locale" \
     -e "THEME=$theme" \
     -e "PORT=$port" \
+    -e "MOCK_LLM=$mock_llm" \
     -p "$port:$port" \
     "$IMAGE"
+  # mock-llm 模式额外暴露 9009（容器内 mock 端点）到宿主，便于 curl /v1/models 调试。
+  if [ "$mock_llm" = "1" ]; then
+    set -- -p 9009:9009 "$@"
+  fi
   if [ -d "$dsh_cfg" ]; then
     set -- -v "$dsh_cfg:/dsh-config-ro:ro" "$@"
   else
@@ -165,7 +190,7 @@ start() {
   fi
 
   docker run -d "$@"
-  echo "沙盒已启动: http://localhost:${port}（容器名 ${CONTAINER}）"
+  echo "沙盒已启动: http://localhost:${port}（容器名 ${CONTAINER}${mock_llm:+，mock-llm 端点 http://localhost:9009}）"
   echo "开浏览器访问上面的地址；日志: test/sandbox/run-sandbox.sh logs"
 }
 

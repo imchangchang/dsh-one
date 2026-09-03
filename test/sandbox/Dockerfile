@@ -23,12 +23,16 @@ FROM codercom/code-server:latest
 COPY --from=node /usr/local/bin /usr/local/bin
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 
-# 构建期参数：LOCALE/THEME 默认值（运行期可 -e 覆盖）；VSIX 非空才预装扩展
+# 构建期参数：LOCALE/THEME 默认值（运行期可 -e 覆盖）；VSIX 非空才预装扩展；
+# MOCK_LLM=1 时 entrypoint 走 mock 分支（容器内真 dsh 打打到容器内假端点）。
+# 镜像默认 0（真实模式）；mock 模式由 run-sandbox.sh build --mock-llm / start --mock-llm 配套切换。
 ARG LOCALE=en
 ARG THEME=dark
 ARG VSIX=""
+ARG MOCK_LLM=0
 ENV LOCALE=$LOCALE \
-    THEME=$THEME
+    THEME=$THEME \
+    MOCK_LLM=$MOCK_LLM
 
 USER root
 # pin 0.1.1-rc.2 而不是 @next：0.1.2-rc.1 起 /api/* 带 token 认证，扩展不支持会 90s 启动超时。
@@ -50,6 +54,11 @@ RUN if [ -n "$VSIX" ]; then \
     else \
       rm -f /tmp/dsh-one.vsix; \
     fi
+
+# 拷入 mock-llm 端点源码：构建脚本把仓库 test/mock-llm/*.ts 暂存到上下文 .build-mock-llm/（见 run-sandbox.sh），
+# 这里定在 /app/mock-llm；entrypoint 在 MOCK_LLM=1 时启动它（node 24 直接跑 .ts）。
+# 真实模式（--mock-llm 未传）暂存目录为空，镜像 /app/mock-llm 空目录无碍（entrypoint 不会启动）。
+COPY --chown=coder:coder .build-mock-llm /app/mock-llm
 
 COPY --chown=coder:coder entrypoint.sh /tmp/entrypoint.sh
 ENTRYPOINT ["/bin/bash", "/tmp/entrypoint.sh"]

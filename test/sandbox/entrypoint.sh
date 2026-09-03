@@ -11,6 +11,70 @@ if [ -d /dsh-config-ro ]; then
   cp -r /dsh-config-ro/. "$HOME/.dsh/" 2>/dev/null || true
 fi
 
+# ── mock-llm 模式（MOCK_LLM=1，由镜像 ENV 默认 / 运行期 -e 覆盖）──────────────────────
+# 容器里真 dsh 走真实逻辑，但 LLM 请求打到容器内假端点 /app/mock-llm/server.ts（node 24 直接跑 .ts）。
+# 与真实模式差异：真实模式沿用宿主 ~/.dsh 配置；mock 模式把 settings.yaml 整体替换为 mock 配置
+# （不做 YAML 合并——宿主其他 provider 在 mock 模式下无用，直接替换最确定；字段由 dsh-llm-pi-ai
+#  schema 核对过，见 settings.yaml 内注释与沙盒 README）。
+# 三步：① 覆盖 settings.yaml ② 后台起 mock-llm 并等它就绪 ③ 导出 apiKeyEnv 指向的凭证。
+if [ "${MOCK_LLM:-0}" = "1" ]; then
+  # ① 覆盖容器内 dsh 配置为 mock 配置（容器可写，不污染宿主）。
+  mkdir -p "$HOME/.dsh"
+  cat > "$HOME/.dsh/settings.yaml" <<'YAML'
+# mock-llm 沙盒配置：dsh 走真实逻辑，LLM 打到容器内假端点
+# 字段对照 @deepseek-ai/dsh-llm-pi-ai/lib/index.js 核过（见 README.md「mock 模式」）：
+#   * profile: apiKeyEnv(933)/displayName(934)/api(935)/baseURL(936)/models(937) 必填；
+#   * modelProfile: id(927) 必填；name/contextWindow/maxTokens/input 走运行时兜底但这里显式补齐；
+#   * reasoningEfforts(916)：声明 off:null 表示「不支持思考」，max/high 声明 wire 值（THINKING_LEVELS=290）；
+#   * compat 故意不填：openai-completions 网关会拒绝非该协议提供的 compat 字段（index.js:589），留空更稳。
+agent-default-model:
+  provider: mock-llm
+  model: mock-flash
+  reasoningEffort: max
+llm-pi-ai:
+  providers:
+    mock-llm:
+      baseURL: "http://127.0.0.1:9009/v1"
+      api: "openai-completions"
+      apiKeyEnv: MOCK_LLM_KEY
+      displayName: "Mock LLM"
+      models:
+        - id: mock-flash
+          name: mock-flash
+          contextWindow: 128000
+          maxTokens: 8192
+          input: ["text"]
+          reasoningEfforts:
+            off: null
+            high: "high"
+            max: "max"
+YAML
+
+  # ③ 导出 apiKeyEnv 指向的凭证（settings 里 apiKeyEnv: MOCK_LLM_KEY；导出的 env 被 code-server 及其后代继承）。
+  export MOCK_LLM_KEY=mock-key-1
+
+  # ② 后台起 mock-llm 端点，等它就绪：轮询 GET /v1/models，上限约 10s（50 次 × 0.2s）。
+  #    这里用 node 做健康 check（容器内有 node 运行时；不依赖 curl 是否随镜像附带）。
+  node /app/mock-llm/server.ts --port 9009 &
+  MOCK_LLM_PID=$!
+  echo "[entrypoint] 启动 mock-llm pid=$MOCK_LLM_PID (http://127.0.0.1:9009)" >&2
+  MOCK_LLM_UP=""
+  _MOCK_TRY=0
+  while [ "$_MOCK_TRY" -lt 50 ]; do
+    if node -e 'const http=require("node:http");const r=http.get("http://127.0.0.1:9009/v1/models",s=>process.exit(s.statusCode<500?0:1));r.on("error",()=>process.exit(1));r.setTimeout(1000,()=>{r.destroy();process.exit(1)});'; then
+      MOCK_LLM_UP=1
+      break
+    fi
+    _MOCK_TRY=$((_MOCK_TRY + 1))
+    sleep 0.2
+  done
+  if [ -z "$MOCK_LLM_UP" ]; then
+    echo "[entrypoint] mock-llm 端点未在 ~10s 内就绪（pid=$MOCK_LLM_PID），退出" >&2
+    exit 1
+  fi
+  echo "[entrypoint] mock-llm 已就绪（pid=$MOCK_LLM_PID）" >&2
+fi
+
 # 2) 主题与语言：LOCALE/THEME 来自镜像 ENV 默认（Dockerfile），运行期可用 -e 覆盖。
 #    这里再兜一层：非法值回退默认，保证下面写进 JSON 的是合法字符串。
 case "$LOCALE" in
