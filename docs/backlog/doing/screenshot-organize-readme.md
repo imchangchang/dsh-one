@@ -21,3 +21,4 @@
 - `README.md`、`README.zh-CN.md`（加 Screenshots 一节）
 - 2026-09-03 认领，开始整理（open → doing）
 - 2026-09-03 开发完成，自测通过（339 tests + build），打 done/screenshot-organize（doing → done）
+- 2026-09-03 按反馈继续调整：README 只保留整窗口截图，路径暴露确认可接受（done → doing）
