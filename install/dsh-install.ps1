@@ -169,6 +169,14 @@ function Install-PortableNode([string]$version, [string]$arch) {
   $extract  = Join-Path $DshBase ".node-extract"
   $inner    = Join-Path $extract "node-v$version-win-$arch"
 
+  # The install dir may not exist yet (default ~\.dsh or a custom
+  # DSH_INSTALL_DIR): without it even the download -OutFile cannot be opened
+  # (PS 5.1 IWR reports "path not found"). Keep this file pure ASCII --
+  # PS 5.1 reads BOM-less .ps1 as ANSI/GBK and non-ASCII corrupts parsing.
+  if (-not (Test-Path -LiteralPath $DshBase)) {
+    New-Item -ItemType Directory -Path $DshBase -Force | Out-Null
+  }
+
   if (Test-Path -LiteralPath (Join-Path $nodeHome 'node.exe')) {
     Write-Step "Portable Node already installed at $nodeHome"
     return $nodeHome
