@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { activeAtToken, fileMentionToken, formatFileMention } from '../src/pure/fileReference.ts'
+import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention } from '../src/pure/fileReference.ts'
 
 test('activeAtToken：行首与空白后的 @query 触发，query 允许 / 与 @', () => {
   assert.deepEqual(activeAtToken('@rea'), { prefix: '@rea', query: 'rea', quoted: false })
@@ -61,3 +61,32 @@ test('activeAtToken：常见中英文标点后可触发（行间 @ 引用）', (
   // 标点后不误触发（邮箱/普通字符边界不变）
   assert.equal(activeAtToken('foo.a@b'), undefined)
 })
+
+test('arrowNavPosition：方向键以整个 @ token 为单元跨越', () => {
+  const bindings = new Map([
+    ['@img9.png', '@/tmp/dsh-one-attachments/s1/img9.png'],
+    ['@pasted-1.txt', '@/tmp/dsh-one-attachments/s1/pasted-1.txt'],
+  ])
+  // '@img9.png 和 @pasted-1.txt 都看看'：token1 [0,9)，token2 [12,25)
+  const value = '@img9.png 和 @pasted-1.txt 都看看'
+  // token 起始处 → 向右跳到 token 后
+  assert.equal(arrowNavPosition(value, 0, 1, bindings), 9)
+  // token 内部 → 向右/向左都跨出
+  assert.equal(arrowNavPosition(value, 4, 1, bindings), 9)
+  assert.equal(arrowNavPosition(value, 4, -1, bindings), 0)
+  // token 紧后方 → 向左跨过整个 token
+  assert.equal(arrowNavPosition(value, 9, -1, bindings), 0)
+  // 第二个 token 同规则
+  assert.equal(arrowNavPosition(value, 12, 1, bindings), 25)
+  assert.equal(arrowNavPosition(value, 20, -1, bindings), 12)
+  assert.equal(arrowNavPosition(value, 26, -1, bindings), null)
+  // 非 token 位置（空白/文本）→ null（走原生）
+  assert.equal(arrowNavPosition(value, 10, 1, bindings), null)
+  assert.equal(arrowNavPosition(value, 25, 1, bindings), null)
+  assert.equal(arrowNavPosition(value, 26, 1, bindings), null)
+  assert.equal(arrowNavPosition(value, value.length, -1, bindings), null)
+  // 无绑定 → null
+  assert.equal(arrowNavPosition(value, 0, 1, new Map()), null)
+})
+
+assert.equal(arrowNavPosition('@img9.png 和 @pasted-1.txt 都看看', 25, -1, new Map([['@pasted-1.txt','@/x/pasted-1.txt'],['@img9.png','@/x/img9.png']])), 12)

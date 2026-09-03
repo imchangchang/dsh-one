@@ -62,3 +62,41 @@ export function fileMentionToken(name: string, candidateMention: string, binding
   }
   return token
 }
+
+/** 输入文本里 mention 显示 token 的区间（长 token 优先、不重叠扫描）。 */
+export function mentionTokenRanges(
+  value: string,
+  bindings: ReadonlyMap<string, string>,
+): Array<{ start: number; end: number }> {
+  const tokens = [...bindings.keys()].sort((a, b) => b.length - a.length)
+  const ranges: Array<{ start: number; end: number }> = []
+  let cursor = 0
+  while (cursor < value.length) {
+    let best: { index: number; token: string } | null = null
+    for (const token of tokens) {
+      const index = value.indexOf(token, cursor)
+      if (index >= 0 && (best === null || index < best.index)) best = { index, token }
+    }
+    if (best === null) break
+    ranges.push({ start: best.index, end: best.index + best.token.length })
+    cursor = best.index + best.token.length
+  }
+  return ranges
+}
+
+/**
+ * 方向键的「token 原子导航」：光标在 token 上（含边界）时返回应该到达的位置
+ * （整个 @ 引用作为一个单元跨过）；不在 token 上或选中态返回 null，走原生。
+ */
+export function arrowNavPosition(
+  value: string,
+  pos: number,
+  dir: 1 | -1,
+  bindings: ReadonlyMap<string, string>,
+): number | null {
+  for (const r of mentionTokenRanges(value, bindings)) {
+    if (dir === 1 && pos >= r.start && pos < r.end) return r.end
+    if (dir === -1 && pos > r.start && pos <= r.end) return r.start
+  }
+  return null
+}

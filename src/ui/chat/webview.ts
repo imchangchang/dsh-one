@@ -96,7 +96,7 @@ import {
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { splitUserBubble, type UserBubbleSegment } from '../../pure/userBubble.ts'
-import { activeAtToken, fileMentionToken, formatFileMention, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
+import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
 import {
   WORKFLOW_STATUS_TEXT,
   advanceWorkflowDisclosure,
@@ -5779,6 +5779,26 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     sendCurrent()
   })
   input.addEventListener('keydown', (e) => {
+    // @ 引用 token 原子导航：左右方向键跨过整个显示 token（textarea 没有
+    // 原子引用，用位置计算模拟）；非 collapsed 选中态走原生。
+    if (
+      (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+      !e.shiftKey &&
+      !e.isComposing &&
+      input.selectionStart === input.selectionEnd
+    ) {
+      const next = arrowNavPosition(
+        input.value,
+        input.selectionStart ?? 0,
+        e.key === 'ArrowRight' ? 1 : -1,
+        mentionBindings,
+      )
+      if (next !== null) {
+        e.preventDefault()
+        input.setSelectionRange(next, next)
+        return
+      }
+    }
     // Slash completion owns these keys while open: arrows navigate, Tab/Enter
     // complete, Escape dismisses (an Escape with no popup falls through).
     if (slashPopupEl && !e.isComposing) {
