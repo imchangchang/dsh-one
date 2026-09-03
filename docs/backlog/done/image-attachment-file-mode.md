@@ -21,7 +21,8 @@
 1. 图片附件（粘贴/选择/右键发送）一律转换为文件方式：
    - 粘贴：图片字节写到**会话 cwd 下 `dsh-attachments/`**（无点前缀，`@` 补全会扫到；`file-reference-local` 对 dot 目录会过滤），命名 `截图-MMDD-HHmmss.ext`（简短可区分，同秒撞名加序号）
    - 选择/右键：图片本来就在磁盘，直接引用原路径，不复制
-   - 非图粘贴文件也改写到 `dsh-attachments/`（原文件名），与图片一致、可被 `@` 补全
+   - 非图粘贴文件保持 OS 临时目录（`/tmp/dsh-one-attachments/`）：粘贴物是临时中转，
+     落工作区会污染仓库（untracked 堆积、git status 噪音）；图片落工作区（原图处理 + `@` 引用）
    - 无 cwd（未分组会话）回退现有 tmp 目录
 2. 消息只发 `<attachment>path</attachment>` 行，不再带 base64 图片（`OutgoingImage` 契约保留兼容旧 queue 项）
 3. UI：
@@ -47,3 +48,5 @@
 - 2026-09-03 认领（worktree: agent/image-attachment-file-mode）→ doing
 
 - 2026-09-03 开发完成，自测通过（typecheck/test 344 绿/i18n 门禁/ui-visual 85 场景）→ done
+
+- 2026-09-03 用户修订：非图粘贴文件回 /tmp（原行为），仅图片落工作区 → 仍 done
