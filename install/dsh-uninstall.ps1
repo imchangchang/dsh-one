@@ -48,7 +48,12 @@ if ($dshProcs) {
 Write-Step "Backing up and removing $dshDir"
 $backup = Join-Path $env:TEMP ("dsh-backup-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 if (Test-Path -LiteralPath $dshDir) {
-  Copy-Item -LiteralPath $dshDir -Destination $backup -Recurse -Force
+  # robocopy (not Copy-Item): npm trees easily exceed the 260-char MAX_PATH,
+  # where Copy-Item fails with DirectoryNotFoundException mid-copy.
+  robocopy $dshDir $backup /E /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+  if ($LASTEXITCODE -ge 8) {
+    Write-Host "warn: backup incomplete (robocopy exit $LASTEXITCODE); removing anyway" -ForegroundColor Yellow
+  }
   Remove-Item -LiteralPath $dshDir -Recurse -Force
   Write-Step "Backed up to: $backup (delete it once you no longer need the old config)"
 } else {
