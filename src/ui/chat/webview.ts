@@ -5518,6 +5518,7 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
   if (file.image && file.previewData && file.mediaType) {
     const dataUrl = attachmentDataUrl(file.mediaType, file.previewData)
     const item = markReferenced(el('span', 'attach-thumb'))
+    item.dataset.attachPath = file.path
     item.title = t('{0} (click to preview)', file.name)
     const image = document.createElement('img')
     image.src = dataUrl
@@ -5539,6 +5540,7 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
     return item
   }
   const chip = markReferenced(el('span', 'file-chip'))
+  chip.dataset.attachPath = file.path
   const icon = el('span', 'file-chip-icon')
   icon.appendChild(strokeSvg(FILE_ICON))
   chip.appendChild(icon)
@@ -5571,6 +5573,9 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   }
 
   const row = el('div', 'input-row')
+  // 输入框外包 frame：@ 引用 token 由叠加高亮层绘制（透明文字 + 底色 token），
+  // hover token → 联动对应附件 chip 高亮（textarea 无法直接 hover 文本）。
+  const frame = el('div', 'composer-frame')
   const input = document.createElement('textarea')
   input.id = 'input'
   input.rows = 1
@@ -5595,6 +5600,70 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   } else if (draft) {
     input.value = draft
   }
+  frame.appendChild(input)
+  const refLayer = el('div', 'ref-token-layer')
+  refLayer.setAttribute('aria-hidden', 'true')
+  frame.appendChild(refLayer)
+  row.appendChild(frame)
+
+  /** 按当前输入渲染高亮层：mentionBindings 里的显示 token 高亮（含路径关联）。 */
+  const renderRefLayer = (): void => {
+    refLayer.textContent = ''
+    const value = input.value
+    const tokens = [...mentionBindings.keys()].sort((a, b) => b.length - a.length)
+    if (tokens.length === 0) {
+      if (value) refLayer.appendChild(document.createTextNode(value))
+      refLayer.style.transform = `translateY(${-input.scrollTop}px)`
+      return
+    }
+    let cursor = 0
+    while (cursor < value.length) {
+      let best: { index: number; token: string } | null = null
+      for (const token of tokens) {
+        const index = value.indexOf(token, cursor)
+        if (index >= 0 && (best === null || index < best.index)) best = { index, token }
+      }
+      if (best === null) break
+      if (best.index > cursor) refLayer.appendChild(document.createTextNode(value.slice(cursor, best.index)))
+      const span = el('span', 'ref-token', best.token)
+      span.dataset.path = mentionBindings.get(best.token) ?? ''
+      refLayer.appendChild(span)
+      cursor = best.index + best.token.length
+    }
+    if (cursor < value.length) refLayer.appendChild(document.createTextNode(value.slice(cursor)))
+    refLayer.style.transform = `translateY(${-input.scrollTop}px)`
+  }
+  renderRefLayer()
+
+  /** hover 联动：token 高亮加深 + 对应附件 chip 高亮（直接 DOM 操作，不整页重渲染）。 */
+  let hoverTokenPath: string | null = null
+  const applyHover = (path: string | null): void => {
+    if (path === hoverTokenPath) return
+    hoverTokenPath = path
+    for (const span of Array.from(refLayer.querySelectorAll<HTMLElement>('.ref-token'))) {
+      const hit = path !== null && span.dataset.path === path
+      span.classList.toggle('active', hit)
+    }
+    for (const chip of Array.from(document.querySelectorAll<HTMLElement>('[data-attach-path]'))) {
+      chip.classList.toggle('referenced', path !== null && chip.dataset.attachPath === path)
+    }
+  }
+  input.addEventListener('mousemove', (e) => {
+    let hit: string | null = null
+    for (const span of Array.from(refLayer.querySelectorAll<HTMLElement>('.ref-token'))) {
+      if (!span.dataset.path) continue
+      const r = span.getBoundingClientRect()
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+        hit = span.dataset.path
+        break
+      }
+    }
+    applyHover(hit)
+  })
+  input.addEventListener('mouseleave', () => applyHover(null))
+  input.addEventListener('scroll', () => {
+    refLayer.style.transform = `translateY(${-input.scrollTop}px)`
+  })
 
   // 主按钮（对齐官方 InputBar primary）：无文字图标按钮——非运行显示发送
   // 箭头，运行中同一按钮切换为停止方块（primaryStops），点击即 stop；排队
@@ -5763,10 +5832,14 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     autoGrow(input)
     updateButton()
     updateSlashPopup(input)
+    renderRefLayer()
     // 纯输入不触发 render，脏位上报单独跟一次（宿主的 dirty 保护决策读它）。
     reportComposerDirty()
   })
-  input.addEventListener('blur', () => hideSlashPopup())
+  input.addEventListener('blur', () => {
+    hideSlashPopup()
+    applyHover(null)
+  })
   input.addEventListener('paste', (e) => {
     // Every clipboard file becomes an attachment, images or not — the host
     // sniffs the bytes, so a missing declared type (macOS file promises) is fine.
@@ -5802,7 +5875,6 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     })()
   })
   updateButton()
-  row.appendChild(input)
   row.appendChild(button)
   wrap.appendChild(row)
 

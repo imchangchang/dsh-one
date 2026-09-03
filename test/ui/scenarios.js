@@ -136,7 +136,7 @@
           setTimeout(() => {
             const rows = document.querySelectorAll('.slash-popup .menu-item')
             for (const row of rows) {
-              if (row.textContent?.startsWith('@截图')) {
+              if (row.textContent?.startsWith('@img1')) {
                 // 弹窗行用 mousedown 完成补全（防止 textarea 失焦），模拟真实点击序列。
                 row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
                 break
@@ -146,7 +146,7 @@
         }, 100)
       })()`,
       title: '@ 附件：输入框短 token + 对应图片 chip 高亮',
-      expect: '@ 补全弹窗顶部出现「Attachments」组标题（分割线），其下是 img1.png 附件候选（@img1.png 短名 + 缩略图/右侧路径）；选中后输入框内容为「@img1.png」（短名 token，无长路径），composer 的截图缩略图 chip 带高亮描边（主题色 outline）且底部显示名称横幅「img1.png」；点选后弹窗关闭。',
+      expect: '@ 补全弹窗顶部出现「Attachments」组标题（分割线），其下是 img1.png 附件候选（@img1.png 短名 + 右侧路径）；选中后输入框内容为「@img1.png」——显示为高亮 token（浅蓝底、圆角，由文本高亮层绘制——textarea 文字色透明、色调一致不重影），无长路径；composer 的截图缩略图 chip 带高亮描边（主题色 outline）且底部名称横幅清晰显示「img1.png」（小字号、不截断）；点选后弹窗关闭。',
     },
 
     'attachment-file-images': {
