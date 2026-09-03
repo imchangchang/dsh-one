@@ -21,3 +21,5 @@
 - 2026-09-03 认领，进入开发（worktree agent/statusbar-dsh-not-found-friendly）。
 
 - 2026-09-03 开发完成（typecheck + 337 测试 + build 全过，done 标记 7ce7cf2）：statusbar 识别 dshNotFound 显示黄色「未安装」+ tooltip 安装链接 + 点击跳安装页，真实错误保持红色 Error。待主线合入与人工验收。
+
+- 2026-09-03 主线合入（merge commit 见 dev-merge，rebase 后复测 337 测试全过 + dist 重建；用户已看视觉报告确认效果，未跑 dev-ui-test 窗口）。
