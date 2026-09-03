@@ -5635,17 +5635,21 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   }
   renderRefLayer()
 
-  /** hover 联动：token 高亮加深 + 对应附件 chip 高亮（直接 DOM 操作，不整页重渲染）。 */
+  /** hover 联动：token 高亮加深 + 对应附件 chip 高亮（直接 DOM 操作，不整页重渲染）。
+   *  span 里存的是 canonical 引用（`@/abs/path` 或 `@"..."`），chip 上存的是
+   *  纯路径——匹配前归一化（去 @ 与引号），否则永远对不上。 */
   let hoverTokenPath: string | null = null
+  const plainPath = (p: string): string => p.replace(/^@/, '').replace(/^"|"$/g, '')
   const applyHover = (path: string | null): void => {
     if (path === hoverTokenPath) return
     hoverTokenPath = path
+    const plain = path === null ? null : plainPath(path)
     for (const span of Array.from(refLayer.querySelectorAll<HTMLElement>('.ref-token'))) {
-      const hit = path !== null && span.dataset.path === path
-      span.classList.toggle('active', hit)
+      span.classList.toggle('active', path !== null && span.dataset.path === path)
     }
+    // hover 用独立 class（hovered），不碰点击选中态的 referenced。
     for (const chip of Array.from(document.querySelectorAll<HTMLElement>('[data-attach-path]'))) {
-      chip.classList.toggle('referenced', path !== null && chip.dataset.attachPath === path)
+      chip.classList.toggle('hovered', plain !== null && chip.dataset.attachPath === plain)
     }
   }
   input.addEventListener('mousemove', (e) => {

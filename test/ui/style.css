@@ -1287,8 +1287,10 @@
     color: #fff; background: rgba(0, 0, 0, .55);
     pointer-events: none;
   }
-  /* 已被 @ 引用的 staged 附件：主题色描边高亮（引用即所附图）。 */
-  .attach-thumb.referenced, .file-chip.referenced {
+  /* 已被 @ 引用的 staged 附件：主题色描边高亮（引用即所附图）；hover 态独立
+     描边（hovered），与点击选中态互不覆盖。 */
+  .attach-thumb.referenced, .file-chip.referenced,
+  .attach-thumb.hovered, .file-chip.hovered {
     outline: 2px solid var(--vscode-focusBorder, #4daafc);
     outline-offset: 2px;
   }
