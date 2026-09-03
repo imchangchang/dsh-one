@@ -74,7 +74,9 @@ export interface MockLlmScenario {
  */
 export function defaultScenario(): MockLlmScenario {
   return {
-    models: [{ id: 'mock-llm' }],
+    // mock-flash 是沙盒 settings.yaml（entrypoint mock 模式）声明的模型 id；
+    // mock-llm 保留别名一并列出，保证 /v1/models 与配置面一致。
+    models: [{ id: 'mock-flash' }, { id: 'mock-llm' }],
     rules: [
       // 工具调用场景：user 说「查天气」触发一次 get_weather 调用。
       {

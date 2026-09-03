@@ -164,7 +164,9 @@ test('GET /v1/models：列出场景声明的模型 id（object=list / data 每�
   const body = await res.json()
   assert.equal(body.object, 'list')
   assert.ok(Array.isArray(body.data))
-  assert.equal(body.data[0].id, 'mock-llm')
+  const ids = body.data.map((m: { id: string }) => m.id)
+  assert.ok(ids.includes('mock-flash'), '沙盒 settings.yaml 声明的模型必须在列表中')
+  assert.ok(ids.includes('mock-llm'))
   assert.equal(body.data[0].object, 'model')
 })
 
