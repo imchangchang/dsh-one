@@ -416,7 +416,7 @@ test('attachment lines in user text fold into file chips', () => {
       content: [
         {
           type: 'text',
-          text: '看看这个\n<attachment>/Users/a/手册.xlsx</attachment>\n<attachment>/tmp/dsh-one-attachments/1-note.txt</attachment>\n<attachment>/Users/a/dsh-attachments/截图-0903-153812.png</attachment>',
+          text: '看看这个\n<attachment>/Users/a/手册.xlsx</attachment>\n<attachment>C:\\Users\\a\\AppData\\Local\\Temp\\dsh-one-attachments\\1-note.txt</attachment>\n<attachment>/Users/a/dsh-attachments/截图-0903-153812.png</attachment>\n<attachment>C:\\Users\\a\\Temp\\dsh-one-attachments\\2-shot.png</attachment>',
         },
       ],
       source: { kind: 'user' },
@@ -429,8 +429,9 @@ test('attachment lines in user text fold into file chips', () => {
   assert.equal(msg.text, '看看这个')
   assert.deepEqual(msg.files, [
     { name: '手册.xlsx', path: '/Users/a/手册.xlsx' },
-    { name: '1-note.txt', path: '/tmp/dsh-one-attachments/1-note.txt' },
+    { name: '1-note.txt', path: 'C:\\Users\\a\\AppData\\Local\\Temp\\dsh-one-attachments\\1-note.txt' },
     { name: '截图-0903-153812.png', path: '/Users/a/dsh-attachments/截图-0903-153812.png', image: true },
+    { name: '2-shot.png', path: 'C:\\Users\\a\\Temp\\dsh-one-attachments\\2-shot.png', image: true },
   ])
 })
 

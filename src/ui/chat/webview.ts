@@ -72,7 +72,7 @@ import {
   orderJobs,
   type ActivityJob,
 } from '../../pure/activityTree.ts'
-import { attachmentDataUrl, isImageMediaType, splitAttachmentLines } from '../../pure/composerAttachment.ts'
+import { attachmentBaseName, attachmentDataUrl, isImageMediaType, splitAttachmentLines } from '../../pure/composerAttachment.ts'
 import {
   SETTLE_IDLE_MS,
   USER_SCROLL_INTENT_MS,
@@ -1493,7 +1493,7 @@ function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] {
     const mention = formatFileMention(c, at.quoted)
     if (mention === undefined) return [] // 编辑器语法无法安全表示的路径不出候选
     const directory = c.kind === 'directory'
-    const name = c.path.slice(c.path.lastIndexOf('/') + 1)
+    const name = attachmentBaseName(c.path)
     return [{
       label: `@${name}${directory ? '/' : ''}`,
       right: c.path,

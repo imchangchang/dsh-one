@@ -22,7 +22,7 @@ import type {
   ChatTurnTiming,
   ContextForm,
 } from './chatContract.ts'
-import { isImagePath } from './composerAttachment.ts'
+import { attachmentBaseName, isImagePath } from './composerAttachment.ts'
 
 /** Subset of dsh-llm's StreamChunk the folder folds. */
 export type StreamChunkData =
@@ -218,7 +218,7 @@ function splitAttachments(text: string): { text: string; files: ChatFile[] } {
     const match = ATTACHMENT_LINE.exec(line.trim())
     if (match) {
       const p = match[1]
-      files.push({ name: p.split('/').pop() ?? p, path: p, ...(isImagePath(p) ? { image: true } : {}) })
+      files.push({ name: attachmentBaseName(p), path: p, ...(isImagePath(p) ? { image: true } : {}) })
     } else {
       kept.push(line)
     }

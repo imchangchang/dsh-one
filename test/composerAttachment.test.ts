@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  attachmentBaseName,
   attachmentDataUrl,
   imageMediaTypeByExtension,
   isImageMediaType,
@@ -47,6 +48,17 @@ test('isImagePath recognizes the four dsh raster extensions case-insensitively',
   assert.equal(isImagePath('a/b/note.JPEG'), true)
   assert.equal(isImagePath('a/b/readme.md'), false)
   assert.equal(isImagePath('a/b/archive.tar'), false)
+  // Windows 盘符路径 + 目录里带点：basename 无扩展名时不算图片
+  assert.equal(isImagePath('C:\\Users\\v1.2\\dsh-one-attachments\\shot.png'), true)
+  assert.equal(isImagePath('C:\\Users\\v1.2\\dsh-one-attachments\\shot'), false)
+})
+
+test('attachmentBaseName handles posix, windows and bare names', () => {
+  assert.equal(attachmentBaseName('/a/b/截图.png'), '截图.png')
+  assert.equal(attachmentBaseName('C:\\Users\\x\\note.md'), 'note.md')
+  assert.equal(attachmentBaseName('C:\\a\\b'), 'b')
+  assert.equal(attachmentBaseName('plain.txt'), 'plain.txt')
+  assert.equal(attachmentBaseName('C:\\a\\b\\'), '')
 })
 
 test('imageMediaTypeByExtension maps extensions to dsh media types', () => {

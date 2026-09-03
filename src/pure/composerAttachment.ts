@@ -45,21 +45,27 @@ export function splitAttachmentLines(text: string): { text: string; files: Stage
     const m = /^<attachment>(.+)<\/attachment>$/.exec(line.trim())
     if (m) {
       const path = m[1]
-      files.push({ name: baseName(path), path })
+      files.push({ name: attachmentBaseName(path), path })
       if (isImagePath(path)) files[files.length - 1].image = true
     } else lines.push(line)
   }
   return { text: lines.join('\n'), files }
 }
 
-function baseName(p: string): string {
+/** 按 / 与 \\ 两种分隔符取 basename（Windows 盘符路径同样适用）；无分隔符时原样返回。 */
+export function attachmentBaseName(p: string): string {
   const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
   return i < 0 ? p : p.slice(i + 1)
 }
 
-/** 常见图片扩展名（dsh ImageMediaType 对应的四种 + 大小写容忍）。 */
+/**
+ * 常见图片扩展名判定（dsh ImageMediaType 对应的四种 + 大小写容忍）。
+ * 先取 basename 再判扩展名：Windows 的 `C:\v1.2\shot` 这类路径不会因目录里
+ * 的点把「扩展名」切错（无真实扩展名时保持非图片）。
+ */
 export function isImagePath(p: string): boolean {
-  const ext = p.slice(p.lastIndexOf('.')).toLowerCase()
+  const base = attachmentBaseName(p)
+  const ext = base.slice(base.lastIndexOf('.')).toLowerCase()
   return ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.webp' || ext === '.gif'
 }
 
