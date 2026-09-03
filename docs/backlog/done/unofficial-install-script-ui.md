@@ -27,3 +27,5 @@
 ## 变更记录
 
 - 2026-09-03 用户直接提出需求；主线 stash 后转入 worktree 开发（slug: unofficial-install-script-ui）。
+
+- 2026-09-03 开发完成：自测通过（typecheck/build/test 337 通过），已打 done/unofficial-install-script-ui 标记，待主线合入前人工 dev-ui-test 验收。
