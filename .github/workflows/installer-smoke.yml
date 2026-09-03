@@ -8,56 +8,66 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install dsh (isolated) and verify
+      - name: Install dsh (isolated, portable) and verify
         shell: bash
         run: |
           set -euo pipefail
-          export DSH_INSTALL_DIR="$RUNNER_TEMP/dsh-test"
-          export DSH_NO_MODIFY_PATH=1
+          # Fake HOME: the installer writes rc-file PATH entries -- keep the
+          # runner's real profile untouched and test the uninstall closure.
+          export HOME="$RUNNER_TEMP/dsh-fake-home"
+          mkdir -p "$HOME"
+          touch "$HOME/.bashrc"
+          export DSH_FORCE_PORTABLE=1
           bash install/dsh-install.sh
-          # The runner may already have a compatible Node -> the script reuses
-          # it and dsh lands in the system prefix; otherwise it is portable
-          # under DSH_INSTALL_DIR. Find dsh either way.
-          DSH_BIN="$(command -v dsh 2>/dev/null || true)"
-          if [ -z "$DSH_BIN" ]; then
-            DSH_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/dsh 2>/dev/null | head -1 || true)"
-          fi
+          DSH_BIN="$(ls -d "$HOME"/.dsh/node-*/bin/dsh 2>/dev/null | head -1 || true)"
           test -n "$DSH_BIN" || { echo "dsh binary not found"; exit 1; }
           "$DSH_BIN" --version
-          # npm global package dir on unix: <prefix>/lib/node_modules.
-          PKG="$(CDPATH= cd -- "$(dirname -- "$DSH_BIN")" && pwd)/../lib/node_modules/@deepseek-ai/dsh"
-          [ -d "$PKG" ] || PKG="$(dirname "$(dirname "$DSH_BIN")")/node_modules/@deepseek-ai/dsh"
-          NODE_BIN="$(command -v node 2>/dev/null || true)"
-          if [ -z "$NODE_BIN" ]; then
-            NODE_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/node 2>/dev/null | head -1 || true)"
-          fi
+          PKG="$(dirname "$(dirname "$DSH_BIN")")/lib/node_modules/@deepseek-ai/dsh"
+          NODE_BIN="$(ls -d "$HOME"/.dsh/node-*/bin/node 2>/dev/null | head -1 || true)"
           ( cd "$PKG" && "$NODE_BIN" -e "require('node-pty'); require('koffi'); console.log('native modules OK')" )
-          cd "$RUNNER_TEMP"
-          rm -rf "$DSH_INSTALL_DIR"
+          grep -q '# dsh installer PATH' "$HOME/.bashrc" || { echo "installer rc marker missing"; exit 1; }
+      - name: Uninstall and assert clean state
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/dsh-fake-home"
+          bash install/dsh-uninstall.sh
+          [ ! -d "$HOME/.dsh" ] || { echo "FAIL: .dsh still exists"; exit 1; }
+          ! grep -q '# dsh installer PATH' "$HOME/.bashrc" || { echo "FAIL: rc marker remains"; exit 1; }
+          echo "uninstall clean OK"
+      - name: Cleanup fake HOME
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/dsh-fake-home"
 
   macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install dsh (isolated) and verify
+      - name: Install dsh (isolated, portable) and verify
         shell: bash
         run: |
           set -euo pipefail
-          export DSH_INSTALL_DIR="$RUNNER_TEMP/dsh-test"
-          export DSH_NO_MODIFY_PATH=1
+          export HOME="$RUNNER_TEMP/dsh-fake-home"
+          mkdir -p "$HOME"
+          touch "$HOME/.bashrc"
+          export DSH_FORCE_PORTABLE=1
           bash install/dsh-install.sh
-          DSH_BIN="$(command -v dsh 2>/dev/null || true)"
-          if [ -z "$DSH_BIN" ]; then
-            DSH_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/dsh 2>/dev/null | head -1 || true)"
-          fi
+          DSH_BIN="$(ls -d "$HOME"/.dsh/node-*/bin/dsh 2>/dev/null | head -1 || true)"
           test -n "$DSH_BIN" || { echo "dsh binary not found"; exit 1; }
           "$DSH_BIN" --version
-          PKG="$(CDPATH= cd -- "$(dirname -- "$DSH_BIN")" && pwd)/../lib/node_modules/@deepseek-ai/dsh"
-          [ -d "$PKG" ] || PKG="$(dirname "$(dirname "$DSH_BIN")")/node_modules/@deepseek-ai/dsh"
-          NODE_BIN="$(command -v node 2>/dev/null || true)"
-          if [ -z "$NODE_BIN" ]; then
-            NODE_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/node 2>/dev/null | head -1 || true)"
-          fi
+          PKG="$(dirname "$(dirname "$DSH_BIN")")/lib/node_modules/@deepseek-ai/dsh"
+          NODE_BIN="$(ls -d "$HOME"/.dsh/node-*/bin/node 2>/dev/null | head -1 || true)"
           ( cd "$PKG" && "$NODE_BIN" -e "require('node-pty'); require('koffi'); console.log('native modules OK')" )
-          cd "$RUNNER_TEMP"
-          rm -rf "$DSH_INSTALL_DIR"
+          grep -q '# dsh installer PATH' "$HOME/.bashrc" || { echo "installer rc marker missing"; exit 1; }
+      - name: Uninstall and assert clean state
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/dsh-fake-home"
+          bash install/dsh-uninstall.sh
+          [ ! -d "$HOME/.dsh" ] || { echo "FAIL: .dsh still exists"; exit 1; }
+          ! grep -q '# dsh installer PATH' "$HOME/.bashrc" || { echo "FAIL: rc marker remains"; exit 1; }
+          echo "uninstall clean OK"
+      - name: Cleanup fake HOME
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/dsh-fake-home"

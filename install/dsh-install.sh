@@ -224,6 +224,10 @@ fi
 NODE_MODE=""
 NODE_HOME=""
 NODE_BIN="$(node_on_path)"
+if [ -n "${DSH_FORCE_PORTABLE:-}" ]; then
+  say "DSH_FORCE_PORTABLE set; skipping system Node detection"
+  NODE_BIN=""
+fi
 if [ -n "$NODE_BIN" ]; then
   NODE_VER="$("$NODE_BIN" --version)"
   if node_compatible "$NODE_VER"; then
