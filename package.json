@@ -209,7 +209,7 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts test/mock-dsh/*.test.ts",
+    "test": "node --test test/*.test.ts test/mock-dsh/*.test.ts test/mock-llm/*.test.ts",
     "package": "npm run build && vsce package"
   },
   "devDependencies": {
