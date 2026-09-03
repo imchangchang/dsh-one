@@ -25,6 +25,11 @@
 2. **点击打开 diff**：无 git model 仓库时 `git.viewCommit` 不可用。回退：有 GitHub 链接就浏览器开 commit 页（最简单）；或 `executeCommand('git.openRepository', uri)` 注册进 git model 再走原生路径（有 trust 确认弹窗，需实测验证）。
 3. **实现注意**：批量查询按 repo root 分组、一次 `git log --no-walk` 带多个 sha，避免每 hash 起一个进程。
 
+## git 依赖说明（用户追问已明确）
+
+- 兜底**需要系统 git CLI**，但不新增依赖：vscode 内置 git 扩展本身就是 `git` 二进制的壳（所有操作都 spawn 系统 git；找不到 git 时扩展瘫痪，`git.missing` 门控所有命令并提示「Git not found. Install it or configure it using the 'git.path' setting.」）。所以「用 vscode 的 git 能力」和「用户装了 git」是同一个前提——没装 git 时现在的卡片本来也不显示。
+- 唯一缝隙：`git.path` 设置（string/string[]/null，`scope: machine`）允许用户把 git 装在 PATH 之外，vscode.git 认它；直接 spawn `git` 会漏掉。实现时读 `vscode.workspace.getConfiguration('git').get('path')` 作为二进制路径即可对齐。
+
 ## 失败面（不新增依赖）
 
 - git 二进制缺失时 vscode.git 本身也瘫痪（它同样 shell 出去跑 git），两者依赖相同。
@@ -39,3 +44,4 @@
 ## 变更记录
 
 - 2026-09-03 用户反馈「卡片要当前文件夹在 VS Code 打开才显示」→ 核实（数据源仅 vscode.git API；内置 git 仓库发现 = 当前窗口 workspace folders 扫描 + `git.scanRepositories` + 打开的编辑器，默认扫描深度 1）→ 调研（git CLI 兜底可行：dsh server 恒本机、会话 cwd 本地路径、`a5c9358` 实测字段齐全）→ 记入 open/（未开始修改）。
+- 2026-09-03 用户追问「兜底要用户装 git 么」→ 核实内置 git 扩展源码（`git.path` 设置、`git.missing` 门控、找不到 git 的提示）→ 明确不新增依赖，补「git 依赖说明」节。
