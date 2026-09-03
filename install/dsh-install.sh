@@ -26,7 +26,7 @@ DSH_BASE="${DSH_INSTALL_DIR:-$HOME/.dsh}"
 DSH_NO_PATH="${DSH_NO_MODIFY_PATH:-}"
 DSH_NODE_PIN="${DSH_NODE_VERSION:-}"
 DSH_SKIP_GIT="${DSH_SKIP_GIT:-}"
-# Node 官方 dist + npmmirror 镜像（国内网络/临时 CDN 失败时自动换源重试，逐项按序尝试）。
+# Official Node dist + npmmirror mirror (tried in order; auto fallback on network/CDN failures).
 NODE_DIST_BASES=(
   "https://nodejs.org/dist"
   "https://registry.npmmirror.com/-/binary/node"

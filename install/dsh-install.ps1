@@ -36,7 +36,7 @@ $DshBase      = if ($env:DSH_INSTALL_DIR)    { $env:DSH_INSTALL_DIR }    else { 
 $DshNoPath    = $env:DSH_NO_MODIFY_PATH
 $DshNodePin   = $env:DSH_NODE_VERSION
 $DshSkipGit   = $env:DSH_SKIP_GIT
-# Node 官方 dist + npmmirror 镜像（国内网络/临时 CDN 失败时自动换源重试，逐项按序尝试）。
+# Official Node dist + npmmirror mirror (tried in order; auto fallback on network/CDN failures).
 $NodeDistBases = @(
   'https://nodejs.org/dist',
   'https://registry.npmmirror.com/-/binary/node'
@@ -107,8 +107,8 @@ function Add-ToUserPath([string]$dir) {
 
 function Test-DiskSpace([string]$path, [long]$requiredMb) {
   try {
-    # Get-PSDrive（而不是 [System.IO.DriveInfo]::GetDriveInfo——该静态方法不存在，
-    # PS 5.1/7 都会报"方法调用失败"）。取路径所在文件系统盘符检查剩余空间。
+# Get-PSDrive (NOT [System.IO.DriveInfo]::GetDriveInfo -- that static method does not
+# exist; PS 5.1/7 both fail with "method not found"). Check free space of the drive.
     $drive = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -and $path.StartsWith($_.Root, [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
     if (-not $drive) { return }
     if ($drive.Free -lt ($requiredMb * 1MB)) { Die "not enough disk space on $($drive.Name) (need $requiredMb MB)" }
@@ -150,7 +150,7 @@ function Get-NodeDownloadVersion {
   Die "could not resolve the latest Node LTS from any mirror"
 }
 
-# 逐个镜像源下载文件；全部失败才 Die。
+# Download from each mirror in order; Die only when all fail.
 function Invoke-DownloadMirrored([string[]]$urls, [string]$dest) {
   foreach ($u in $urls) {
     try {
