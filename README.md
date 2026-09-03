@@ -49,13 +49,15 @@
 
 ## Quick start
 
-Prerequisite: install dsh yourself (needs Node ≥ 22):
+Install DSH One from the VS Code Marketplace and click the DSH One activity-bar icon. On first use the extension locates dsh and starts the service automatically. The service listens on `127.0.0.1` only.
+
+If dsh is not installed yet, the sidebar shows a one-click install command (a community script maintained by dsh-one, shown in the screenshot above): pick your platform, copy, run. The script reuses a compatible Node (≥ 22.19 or ≥ 24) or downloads an official portable Node — no admin rights needed — then installs the official `@deepseek-ai/dsh` package. Matching uninstall scripts live in [`install/`](install/).
+
+Prefer to set it up yourself? Install dsh manually instead (needs Node ≥ 22):
 
 ```bash
 npm install -g @deepseek-ai/dsh@next
 ```
-
-Then install DSH One from the VS Code Marketplace and click the DSH One activity-bar icon. On first use the extension locates dsh and starts the service automatically (it prompts you to install dsh if it is missing). The service listens on `127.0.0.1` only.
 
 ## How it works
 
