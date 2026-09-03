@@ -8,6 +8,7 @@ import type { SessionSortOrder, WorkspaceNodeModel } from './sessionTree.ts'
 import type { ActivityJob } from './activityTree.ts'
 import type { FileRefCandidate } from './fileReference.ts'
 import type { WorkflowRunView } from './workflowRun.ts'
+import type { HostOs } from './installScript.ts'
 
 /** One renderable block inside an assistant message. */
 export interface ChatTextBlock {
@@ -446,6 +447,11 @@ export interface ChatState {
    * the webview replaces its placeholder with the matching guidance.
    */
   serverError?: 'dshNotFound'
+  /**
+   * 宿主操作系统（host 端 process.platform 映射）：dshNotFound 空态里
+   * 非官方一键安装脚本默认选中的平台；无附着会话时也下发（EMPTY_STATE）。
+   */
+  hostOs?: HostOs
   /** Footer model pill, host-computed from session.models ("DeepSeek-V4-Flash High" style). */
   modelLabel?: string
   /**
@@ -658,6 +664,8 @@ export interface SessionsSnapshot {
   serverState: 'stopped' | 'starting' | 'running' | 'error'
   /** 启动失败原因是未找到 dsh 可执行文件。 */
   dshNotFound: boolean
+  /** 宿主操作系统（host 端 process.platform 映射）：安装脚本默认平台。 */
+  hostOs?: HostOs
   /** 本地置顶的会话 id（dsh 无置顶 API，纯客户端状态）。 */
   pinned: string[]
   /** 折叠的 workspace id。 */
