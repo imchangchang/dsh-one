@@ -32,3 +32,4 @@
 - 2026-09-02 构建链路已改：**上市场的 vsix 来自 GitHub Release**（tag push → release.yml 构建挂产物 → 验收该产物后 `vsce publish`，本地不打包）。首发流程改为：`git push origin main`（release.yml 生效）→ release-gate bump 1.0.0 + tag → push tag → 下载 Release 产物验收 → `npx vsce publish dsh-one-1.0.0.vsix`。详见 release-gate skill 与 docs/release-checklist.md。
 
 - 2026-09-03：v1.0.0 已走 release-gate 发布——tag v1.0.0（commit 607e508）→ release.yml 构建 → GitHub Release 挂 dsh-one-1.0.0.vsix；独立验收代理重验通过（sha256 与 Release 一致、vsix 内容/版本合规）。剩：人工 GUI 沙盒装机验收 → vsce login cgeng → npx vsce publish <Release 下载的 vsix>（用 /tmp/dsh-relcheck/dsh-one-1.0.0.vsix 那份，不重打包）。
+- 2026-09-03 修正：`vsce publish` 的位置参数是版本号不是文件路径，发布已有 vsix 的正确写法是 `npx vsce publish --packagePath <vsix>`（首发 1.0.0 时踩到，报 Invalid version）。文档与 release-gate.sh 提示已统一修正。

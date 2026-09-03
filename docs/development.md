@@ -61,7 +61,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 7. 正式版登录与发布（PAT 来自 Azure DevOps，scope 要勾 Marketplace > Manage；release-gate 不跑 publish，这一步由人执行；**rc 不发布市场**）：
    ```bash
    npx vsce login cgeng
-   npx vsce publish dsh-one-<x.y.z>.vsix   # 带路径、用 Release 下载的那份，不重新打包
+   npx vsce publish --packagePath dsh-one-<x.y.z>.vsix   # 发布已有 vsix 用 --packagePath（位置参数是版本号）；用 Release 下载的那份，不重新打包
    ```
 
 注意：`package.json` 的 `"publisher"` 应是你发布的 marketplace 账号（现为 `cgeng`），发布前确认即可，无需修改。版本策略：每次发布 +1（正式版 patch+1，rc 按 rc.N 递增；首发 1.0.0），市场不可同版本重发。

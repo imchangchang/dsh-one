@@ -153,7 +153,7 @@ tag() {
   if is_rc "$VERSION"; then
     say "  4. rc 到此为止：内测通过后 bump 同核心正式版（CHANGELOG 收口）再发"
   else
-    say "  4. 验收通过后执行 npx vsce publish dsh-one-${VERSION}.vsix（带路径、用 Release 那份，不重打包）"
+    say "  4. 验收通过后执行 npx vsce publish --packagePath dsh-one-${VERSION}.vsix（用 Release 那份，不重打包；位置参数是版本号，发布已有 vsix 必须走 --packagePath）"
   fi
 }
 
