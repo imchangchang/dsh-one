@@ -3112,7 +3112,7 @@ function renderInstallScriptBlock(hostOs: HostOs | undefined): HTMLElement {
     tab.addEventListener('click', () => {
       selectedInstallOs = os
       active = os
-      for (const b of tabs.children) b.classList.toggle('active', b === tab)
+      for (const b of Array.from(tabs.children)) b.classList.toggle('active', b === tab)
       code.textContent = installCommandFor(os)
     })
     tabs.appendChild(tab)
