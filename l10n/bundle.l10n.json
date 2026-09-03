@@ -352,5 +352,6 @@
   "Other sessions": "Other sessions",
   "Some sessions cannot be archived; this group cannot be fully selected": "Some sessions cannot be archived; this group cannot be fully selected",
   "{0} session(s) in this group cannot be archived": "{0} session(s) in this group cannot be archived",
-  "Or use the community one-liner script below (unofficial):": "Or use the community one-liner script below (unofficial):"
+  "Or use the community one-liner script below (unofficial):": "Or use the community one-liner script below (unofficial):",
+  "The first start may take a while (preparing profiles and dependencies).": "The first start may take a while (preparing profiles and dependencies)."
 }

@@ -352,5 +352,6 @@
   "Other sessions": "其他会话",
   "Some sessions cannot be archived; this group cannot be fully selected": "该组有会话无法归档，不能全部选中",
   "{0} session(s) in this group cannot be archived": "该组有 {0} 个会话不能归档",
-  "Or use the community one-liner script below (unofficial):": "或者也可以直接运行下面的社区一键脚本（非官方）："
+  "Or use the community one-liner script below (unofficial):": "或者也可以直接运行下面的社区一键脚本（非官方）：",
+  "The first start may take a while (preparing profiles and dependencies).": "首次启动可能较慢（正在初始化 profile 与依赖）。"
 }

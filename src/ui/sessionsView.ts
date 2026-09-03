@@ -249,6 +249,7 @@ const SESSIONS_STYLE = `
     gap: 6px; text-align: center;
   }
   .sessions-empty .empty-hint { font-size: 12px; }
+  .sessions-empty .empty-hint-secondary { font-size: 11px; opacity: 0.55; }
   .sessions-empty button { margin-top: 4px; }
   /* 非官方一键安装脚本块（dshNotFound 空态）：说明 + 平台下拉 + 单行省略命令条 + 复制。 */
   .install-script {

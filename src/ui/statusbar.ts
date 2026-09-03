@@ -61,7 +61,8 @@ function tooltip(status: ServerStatus): vscode.MarkdownString {
       md.appendMarkdown(`　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`)
       return md
     case 'starting':
-      md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service is starting…')}`)
+      md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service is starting…')}\n\n`)
+      md.appendMarkdown(`${vscode.l10n.t('The first start may take a while (preparing profiles and dependencies).')}`)
       return md
     case 'error':
       if (isDshNotFound(status)) {

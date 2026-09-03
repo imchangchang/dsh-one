@@ -662,6 +662,11 @@ function renderServerEmpty(snap: SessionsSnapshot): HTMLElement {
   }
   if (snap.serverState === 'starting') {
     box.appendChild(el('div', 'empty-hint', t('Starting the dsh service…')))
+    // 首次启动（刚装完 dsh）要初始化 profile/依赖，时间长——显式告诉用户是在
+    // 准备而非卡死；进程实际在跑（状态栏 starting + 日志可查）。
+    box.appendChild(
+      el('div', 'empty-hint empty-hint-secondary', t('The first start may take a while (preparing profiles and dependencies).')),
+    )
     return box
   }
   box.appendChild(el('div', 'empty-hint', t('The dsh service is not running; no sessions yet.')))
