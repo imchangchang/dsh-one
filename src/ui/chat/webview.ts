@@ -327,14 +327,14 @@ const attachmentCache = new Map<string, string>()
 const attachmentRequested = new Set<string>()
 /** Half-answered pending questions: rpcId → question index → draft. */
 const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
-/** Composer-takeover panel per pending rpcId: current page (question index) and minimized state. */
-const panelState = new Map<string, { page: number; minimized: boolean }>()
+/** Composer-takeover panel per pending rpcId: current page (question index), minimized state, skipped pages and a transient notice. */
+const panelState = new Map<string, { page: number; minimized: boolean; skipped: Set<number>; notice: string }>()
 
 /** Lazy panel-state accessor: defaults page 0 / expanded. */
-function panelStateFor(rpcId: string): { page: number; minimized: boolean } {
+function panelStateFor(rpcId: string): { page: number; minimized: boolean; skipped: Set<number>; notice: string } {
   let s = panelState.get(rpcId)
   if (!s) {
-    s = { page: 0, minimized: false }
+    s = { page: 0, minimized: false, skipped: new Set(), notice: '' }
     panelState.set(rpcId, s)
   }
   return s
@@ -5064,6 +5064,7 @@ function questionPager(p: PendingQuestion): HTMLElement | null {
   prev.disabled = st.page <= 0
   prev.addEventListener('click', () => {
     st.page = Math.max(0, st.page - 1)
+    st.notice = ''
     render()
   })
   pager.appendChild(prev)
@@ -5072,6 +5073,7 @@ function questionPager(p: PendingQuestion): HTMLElement | null {
   next.disabled = st.page >= n - 1
   next.addEventListener('click', () => {
     st.page = Math.min(n - 1, st.page + 1)
+    st.notice = ''
     render()
   })
   pager.appendChild(next)
@@ -5129,6 +5131,22 @@ function draftFor(rpcId: string, index: number): QuestionDraft {
 }
 
 function submitAnswer(p: PendingQuestion, chatOverride?: { index: number; text: string }): void {
+  // 对齐 dsh web QuestionFlow：所有题「已答或已跳过」才发送；有缺失（含
+  // 「去聊天里说」路径）跳回第一道未完成题并展开面板，避免漏题空答。
+  const st = panelStateFor(p.rpcId)
+  const answeredAt = (index: number): boolean => {
+    if (chatOverride && chatOverride.index === index) return true
+    const v = answerDrafts.get(p.rpcId)?.get(index)
+    return (v?.selected.size ?? 0) > 0 || (v?.custom.trim() ?? '') !== ''
+  }
+  const missing = p.questions.findIndex((_, i) => !answeredAt(i) && !st.skipped.has(i))
+  if (missing >= 0) {
+    st.page = missing
+    st.minimized = false
+    st.notice = t('Please complete this question first.')
+    render()
+    return
+  }
   const d = answerDrafts.get(p.rpcId)
   // Same encoding as dsh's web QuestionComposer: a custom answer replaces the
   // selection for single-select questions, and accompanies it for multi-select.
@@ -5178,31 +5196,39 @@ function renderQuestionPanel(p: PendingQuestion): HTMLElement {
     return panel
   }
   const body = el('div', 'panel-body')
+  if (st.notice) body.appendChild(el('div', 'panel-feedback', st.notice))
   const actions = el('div', 'pending-actions')
-  const ok = buttonEl('', t('Submit'))
-  // 所有问题（含单选）都显式点「提交」才发送，避免点选即继续的误触。
-  // 没有任何选择/输入时提交不可点：必须「选择了之后」才允许提交。
-  const hasAnswer = () =>
-    p.questions.some((_, i) => {
-      const v = answerDrafts.get(p.rpcId)?.get(i)
-      return (v?.selected.size ?? 0) > 0 || (v?.custom.trim() ?? '') !== ''
-    })
+  // 主按钮随当前页切换（对齐 dsh web QuestionFlow）：非最后一页只翻页不发送，
+  // 最后一页才提交整组；当前页未作答时不可点。
+  const ok = buttonEl('', page < n - 1 ? t('Next question') : t('Submit'))
+  const answeredAt = (index: number): boolean => {
+    const v = answerDrafts.get(p.rpcId)?.get(index)
+    return (v?.selected.size ?? 0) > 0 || (v?.custom.trim() ?? '') !== ''
+  }
   const updateOkState = () => {
-    ok.disabled = !hasAnswer()
+    ok.disabled = !answeredAt(page)
   }
   updateOkState()
   ok.addEventListener('click', () => {
+    if (page < n - 1) {
+      st.page = page + 1
+      st.notice = ''
+      render()
+      return
+    }
     ok.disabled = true
     submitAnswer(p)
   })
   body.appendChild(renderQuestionItem(p, page, updateOkState))
   if (n > 1 && page < n - 1) {
-    // 跳过本题（对齐 dsh web QuestionFlow）：此题不答，清空草稿并翻到下一题；
-    // 最后一题没有下一题可跳，直接提交即可。
+    // 跳过本题（对齐 dsh web QuestionFlow）：此题不答，清空草稿、记为跳过并
+    // 翻到下一题；最后一题没有下一题可跳，直接提交即可。
     const skip = buttonEl('secondary', t('Skip this question'))
     skip.addEventListener('click', () => {
       answerDrafts.get(p.rpcId)?.delete(page)
+      st.skipped.add(page)
       st.page = page + 1
+      st.notice = ''
       render()
     })
     actions.appendChild(skip)
@@ -5257,7 +5283,7 @@ function renderQuestionItem(
         if (opt.description) btn.title = opt.description
         if (draft.custom === '' && draft.selected.has(opt.label)) btn.classList.add('selected')
         btn.addEventListener('click', () => {
-          // 点击只选中，提交一律走底部的「提交」按钮：直接提交容易误触。
+          // 点击只选中，翻页/提交一律走底部的「下一题/提交」按钮：误触直接提交容易漏题。
           draft.selected = new Set([opt.label])
           draft.custom = ''
           // 保活态下 render() 不会重建面板，选中高亮与自定义输入框必须就地
