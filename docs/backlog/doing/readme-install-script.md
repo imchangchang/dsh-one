@@ -9,3 +9,4 @@ README.md / README.zh-CN.md 的「快速开始」一节补一段：未装 dsh �
 ## 涉及位置
 
 - README.md、README.zh-CN.md（Quick start / 快速开始）
+- 2026-09-03 认领（open → doing）
