@@ -158,6 +158,9 @@ rpcId（`pendingRpcIds` 去重登记），返回 `{"accepted":true}`；未知/�
 
 - `onPrompt` 在 mock 里是一次性的：场景给了显式 seq 的编排只会在首个 prompt 播放；
   之后的 prompt 走默认流（保证 seq 始终单调）。这符合「一次 prompt 出一张确定性截图」。
-- `onSubscribe` 跨 mux 连接只推一次（去重），所以多会话同时打开时，approval 帧只会
-  在「首个连接」建立的会话上出现；单会话（截图常用）没有这个问题。
+- `onSubscribe` 由 `session.history` 的 tail 页（会话被打开）触发：mock 延迟约
+  400ms 再推，等 chatSession 的 mux 连接建立（扩展的消费者按 `payload.sessionId`
+  过滤帧，但「哪个连接属于哪个会话」协议上没有标记，连接时猜会话会把帧送给
+  sessionsStore/jobsStore 的连接、chat 选项卡永远收不到——实测踩过）。同一会话的
+  编排在途时重复拉 history 不会重复推（防双 pending）。
 - 手写 WS 不支持分片/超大帧/部分控制帧的完整语义（见「简化边界」）。

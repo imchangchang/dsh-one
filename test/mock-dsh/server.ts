@@ -50,6 +50,11 @@ import type { WorkspaceView, SessionSummary } from '../../src/server/dshRpc.ts'
 
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
+/** session.history tail 页被拉取后，onSubscribe 帧延迟推送的宽限时间（ms）：
+ *  chatSession 先拉 history 基线、后连 mux，留出连接建立窗口，避免帧落在
+ *  别的消费者连接上（扩展按 payload.sessionId 过滤，不会误收，但会漏收）。 */
+const ONSUBSCRIBE_GRACE_MS = 400
+
 /** 计算 Sec-WebSocket-Accept：sha1(key + GUID) base64。 */
 export function wsAccept(key: string): string {
   return crypto.createHash('sha1').update(key + WS_GUID).digest('base64')
@@ -227,8 +232,8 @@ class Gateway {
   private readonly turnBySession = new Map<string, number>()
   private readonly archived = new Set<string>()
   private readonly pendingRpcIds = new Set<string>()
-  /** 每个会话的 onSubscribe 是否已推过（跨连接去重，避免重复 approval）。 */
-  private readonly onSubscribePushed = new Set<string>()
+  /** 每个会话的 onSubscribe 编排是否在途（防止同一会话重复进 pending）。 */
+  private readonly onSubscribeInFlight = new Set<string>()
   /** 每个会话的 onPrompt 是否已被消费（一次性，见 session.prompt case）。 */
   private readonly promptUsed = new Set<string>()
   /** 每个会话待取消的定时器（session.cancel 清掉）。 */
@@ -317,16 +322,33 @@ class Gateway {
 
   private onMuxConnect(conn: WsConnection): void {
     this.muxSockets.add(conn)
-    // 先补发每个已注册会话的 subscription 基线（lastSeq 带 gap 检查信息）。
+    // 补发每个已注册会话的 subscription 基线（lastSeq 带 gap 检查信息）。
+    // 扩展侧的每个消费者（chatSession/jobsStore/sessionsStore）各有一条独立 WS，
+    // 按 payload.sessionId 过滤帧；补发全部会话的基线没有副作用。
     for (const sessionId of this.sessions.keys()) {
       this.pushMux({ method: 'session/subscribed', payload: { sessionId, lastSeq: this.seqBySession.get(sessionId) ?? 0 } })
     }
-    // 各会话的 onSubscribe（跨连接只推一次）；approval/question 从这进 pending。
-    for (const s of this.sessions.values()) {
-      if (!(s.onSubscribe?.length) || this.onSubscribePushed.has(s.sessionId)) continue
-      this.onSubscribePushed.add(s.sessionId)
-      this.scheduleSessionFrames(s.sessionId, s.onSubscribe)
-    }
+    // onSubscribe（approval/question 等）不在这里推：这是广播通道，消费方按
+    // sessionId 过滤，但「哪个连接属于哪个会话」协议上没有标记，连接时猜会话
+    // 会把帧发给错误的消费者（实测：sessionsStore/jobsStore 的连接先到，chat
+    // 选项卡的 approval 就永远收不到）。改用 session.history 的 tail 页作为
+    // 「会话被打开」的信号（chatSession 先拉 history 再连 mux），延迟小段
+    // 时间再推，保证投票能落到刚建立的 chat 连接上。
+  }
+
+  /** 会话被打开（history tail 页被拉取）后，延迟推它声明的 onSubscribe 帧。 */
+  private scheduleOnSubscribe(sessionId: string): void {
+    const s = this.sessions.get(sessionId)
+    if (!s?.onSubscribe?.length || this.onSubscribeInFlight.has(sessionId)) return
+    this.onSubscribeInFlight.add(sessionId)
+    const timer = setTimeout(() => {
+      this.onSubscribeInFlight.delete(sessionId)
+      if (!this.sessions.has(sessionId)) return
+      void this.scheduleSessionFrames(sessionId, s.onSubscribe!)
+    }, ONSUBSCRIBE_GRACE_MS)
+    const list = this.timers.get(sessionId) ?? []
+    list.push(timer)
+    this.timers.set(sessionId, list)
   }
 
   private onHostConnect(conn: WsConnection): void {
@@ -491,6 +513,9 @@ class Gateway {
         const maxMessages = typeof payload.maxMessages === 'number' ? payload.maxMessages : 50
         const history = this.sessions.get(sessionId)?.history ?? []
         if (beforeSeq === undefined) {
+          // tail 页 = 会话被打开（chatSession 拉基线后连 mux）；approval 等
+          // onSubscribe 帧从这里编排，见 onMuxConnect 的注释。
+          this.scheduleOnSubscribe(sessionId)
           return { events: history, hasMore: false, projections: this.sessions.get(sessionId)?.projections }
         }
         const earlier = history.filter((h) => h.event.seq < beforeSeq)

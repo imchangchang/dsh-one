@@ -50,7 +50,10 @@ test('典型 RPC 信封往返：session.list 返回 items，每个 item 有 sess
 })
 
 test('/api/respond：对已下发 approval/question 的 rpcId 返回 accepted:true，未知 rpcId 返回 false', async () => {
-  // 先连 mux 拿到 approval/requested 帧（场景 scn-approval 的 onSubscribe 会推它）。
+  // chatSession 的挂载顺序：先拉 history 基线（tail 页）、再连 mux；mock 的
+  // onSubscribe 由 history tail 页触发（见 server.ts scheduleOnSubscribe），
+  // 所以先 rpc history 再连 WS。
+  await rpc('session.history', { sessionId: 'scn-approval' }, 'rpc-history-appr')
   const ws = new RawWsClient()
   await ws.connect(mock.port, '/api/events.mux')
   let approvalRpcId: string | undefined
@@ -78,6 +81,30 @@ test('/api/respond：对已下发 approval/question 的 rpcId 返回 accepted:tr
     body: JSON.stringify({ type: 'client-response', rpcId: '00000000-0000-4000-8000-000000000000', result: { ok: true, value: {} } }),
   })
   assert.equal((await unknownRes.json()).accepted, false)
+  ws.close()
+})
+
+test('onSubscribe 依 history tail 页触发：只连 mux 不拉 history 不推 approval', async () => {
+  const ws = new RawWsClient()
+  await ws.connect(mock.port, '/api/events.mux')
+  // 限时收集帧（readFrame 无超时，这里用 deadline 竞速）。
+  const frames: Array<Record<string, unknown>> = []
+  const deadline = Date.now() + 600
+  while (Date.now() < deadline) {
+    const remaining = deadline - Date.now()
+    const read = ws.readFrame().then((f) => f.payload.toString('utf8'))
+    const timeout = new Promise((r) => setTimeout(() => r(null), Math.max(remaining, 1)))
+    const text = (await Promise.race([read, timeout])) as string | null
+    if (text === null) break
+    frames.push(JSON.parse(text))
+  }
+  const approvals = frames.filter((m) => m.method === 'approval/requested')
+  assert.equal(approvals.length, 0, `未拉 history 不应推 approval，实际收到 ${approvals.length} 帧`)
+  assert.equal(
+    frames.every((m) => m.method === 'session/subscribed'),
+    true,
+    '未拉 history 时只应有 subscribed 基线帧',
+  )
   ws.close()
 })
 
