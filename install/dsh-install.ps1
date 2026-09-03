@@ -145,7 +145,7 @@ function Get-NodeDownloadVersion {
         }
       }
       Die "no Node LTS version satisfying ^$NodeMinMajor.$NodeMinMinor.0 found"
-    } catch { Warn "version resolution failed from $base: $($_.Exception.Message)" }
+    } catch { Warn "version resolution failed from ${base}: $($_.Exception.Message)" }
   }
   Die "could not resolve the latest Node LTS from any mirror"
 }
@@ -184,7 +184,7 @@ function Install-PortableNode([string]$version, [string]$arch) {
     try {
       $sums = Invoke-WebRequest "$base/v$version/SHASUMS256.txt" -UseBasicParsing
       break
-    } catch { Warn "checksum list fetch failed from $base: $($_.Exception.Message)" }
+    } catch { Warn "checksum list fetch failed from ${base}: $($_.Exception.Message)" }
   }
   if (-not $sums) { Die "could not fetch SHASUMS256.txt from any mirror" }
   $expected = $null
