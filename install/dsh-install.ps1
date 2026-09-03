@@ -299,7 +299,15 @@ Invoke-Npm $npmCmd @('install','-g','pnpm') $systemNode $nodeHome
 
 # 3. dsh itself
 Write-Step "Installing @deepseek-ai/dsh (this pulls the Web UI + agent plugins; keep the terminal open)"
-Invoke-Npm $npmCmd @('install','-g','@deepseek-ai/dsh') $systemNode $nodeHome
+# npm 11 blocks dependency build scripts unless allow-scripts lists them; koffi
+# and node-pty must run theirs or their native binaries never arrive and dsh
+# fails at runtime. Older npm rejects the flag, so gate it on the npm version.
+$dshArgs = @('install','-g','@deepseek-ai/dsh')
+$npmMajor = [int](((& $npmCmd --version) -split '\.')[0])
+if ($npmMajor -ge 11) {
+  $dshArgs += '--allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs'
+}
+Invoke-Npm $npmCmd $dshArgs $systemNode $nodeHome
 
 # 4. npm global prefix reachability, then PATH
 if ($nodeMode -eq 'portable') {
