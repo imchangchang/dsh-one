@@ -10,6 +10,11 @@ import type { ServerManager, ServerStatus } from '../server/manager.ts'
  * compact priority，扩展 API 的 priority 只接受 number（1.135 ext
  * host 会丢弃非数字），逐块高亮和块间距扩展都改不了，所以不做分段。
  */
+/** 未安装 dsh 不是错误：用户可能只是暂时没装，属于符合预期的正常状态。 */
+function isDshNotFound(status: ServerStatus): boolean {
+  return status.state === 'error' && status.reason === 'dshNotFound'
+}
+
 function text(status: ServerStatus): string {
   switch (status.state) {
     case 'running':
@@ -17,6 +22,8 @@ function text(status: ServerStatus): string {
     case 'starting':
       return `$(dsh-fish) DSH: ${vscode.l10n.t('Starting…')}`
     case 'error':
+      // 未安装 dsh 用「未安装」而非红色 Error：是待办提示，不是错误。
+      if (isDshNotFound(status)) return `$(dsh-fish) DSH: ${vscode.l10n.t('Not installed')}`
       return `$(dsh-fish) DSH: ${vscode.l10n.t('Error')}`
     default:
       return `$(dsh-fish) DSH: ${vscode.l10n.t('Stopped')}`
@@ -30,6 +37,7 @@ function color(status: ServerStatus): vscode.ThemeColor {
     case 'starting':
       return new vscode.ThemeColor('charts.yellow')
     case 'error':
+      if (isDshNotFound(status)) return new vscode.ThemeColor('charts.yellow')
       return new vscode.ThemeColor('charts.red')
     default:
       return new vscode.ThemeColor('disabledForeground')
@@ -56,6 +64,13 @@ function tooltip(status: ServerStatus): vscode.MarkdownString {
       md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service is starting…')}`)
       return md
     case 'error':
+      if (isDshNotFound(status)) {
+        md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('dsh is not installed')}\n\n`)
+        md.appendMarkdown(
+          `[$(cloud-download) ${vscode.l10n.t('Install dsh')}](command:dshOne.openInstallPage)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
+        )
+        return md
+      }
       md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service Error')}\n\n`)
       md.appendMarkdown(
         `[$(refresh) ${vscode.l10n.t('Retry Starting')}](command:dshOne.openExternal)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
@@ -86,6 +101,8 @@ export class StatusBar implements vscode.Disposable {
     this.item.text = text(status)
     this.item.tooltip = tooltip(status)
     this.item.color = color(status)
+    // 未安装 dsh 时整块点击跳安装页；点击「重试启动」本来就无意义（没装就是没装）。
+    this.item.command = isDshNotFound(status) ? 'dshOne.openInstallPage' : 'dshOne.openExternal'
   }
 
   dispose(): void {
