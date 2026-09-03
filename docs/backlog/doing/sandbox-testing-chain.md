@@ -35,3 +35,5 @@
 - 2026-09-03 认领开发（open → doing）：docker 沙盒脚本化 + mock dsh server。
 
 - 2026-09-03 开发完成（doing → done）：test/sandbox 脚本化（Dockerfile/entrypoint/run-sandbox.sh/README）+ test/mock-dsh 零依赖 mock（server/scenario/单测 13 条）。自测：typecheck + npm test 352 全过 + build 通过，done 标记 d1df06a。待主线合入后做 docker/真窗口验收。
+
+- 2026-09-03 追加方案（done → doing）：不做协议层 mock 的全量验证，主路径改为「真 dsh + mock LLM 端点」——dsh 的 llm-pi-ai provider 原生支持 baseURL（schema 有 baseURL/api 字段，已核实 0.1.1-rc.2 源码），零 patch；协议层 mock（test/mock-dsh）保留为快速单测工具。新增 test/mock-llm（OpenAI 兼容假端点）+ 沙盒接线（--mock-llm 模式）。
