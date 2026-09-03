@@ -15,3 +15,4 @@
 - `.agents/skills/release-gate/SKILL.md:66`
 - `docs/backlog/open/marketplace-publish.md` 追加一行修正记录（历史行不改）
 - 2026-09-03 认领（open → doing）
+- 2026-09-03 修复完成，自测通过（doing → done）
