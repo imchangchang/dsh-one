@@ -102,6 +102,7 @@ flowchart LR
 
 ### 已知限制
 
+- **Windows：派生子任务 / 后台命令可能弹出控制台窗口**：当 dsh 以无控制台方式运行（扩展的启动路径即是）时，Windows 会给 dsh spawn 的每个子进程（bash、pwsh、taskkill 等）分配一个可见的控制台窗口。这是 dsh 上游的问题（[#1564](https://github.com/deepseek-ai/deepseek-harness/discussions/1564)，根因见 [#1344](https://github.com/deepseek-ai/deepseek-harness/discussions/1344) 与 [#1102](https://github.com/deepseek-ai/deepseek-harness/discussions/1102)）：上游已有验证过的补丁但尚未发版——等 dsh 新版本发布后再复核一次。
 - **Remote（SSH/WSL/容器）未验证**：插件支持在远端运行，但尚未实际测试。
 - **多窗口**：每个 VSCode 窗口各自管理服务；端口被占用时共享已有实例，端口为 0 时各窗口各自起实例（会话恢复可能失效——建议固定端口）。
 
