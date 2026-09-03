@@ -19,13 +19,15 @@
 ## 方案
 
 1. 图片附件（粘贴/选择/右键发送）一律转换为文件方式：
-   - 粘贴：图片字节写到**会话 cwd 下 `dsh-attachments/`**（无点前缀，`@` 补全会扫到；`file-reference-local` 对 dot 目录会过滤），命名 `截图-MMDD-HHmmss.ext`（简短可区分，同秒撞名加序号）
+   - 粘贴：图片字节写到**系统临时目录**（`os.tmpdir()/dsh-one-attachments/`，定期清理、不污染任何项目/git），命名 `截图-MMDD-HHmmss.ext`（简短可区分，同秒撞名加序号）
    - 选择/右键：图片本来就在磁盘，直接引用原路径，不复制
-   - 非图粘贴文件保持 OS 临时目录（`/tmp/dsh-one-attachments/`）：粘贴物是临时中转，
-     落工作区会污染仓库（untracked 堆积、git status 噪音）；图片落工作区（原图处理 + `@` 引用）
+   - 非图粘贴文件同一临时目录（原名，防撞 `-N` 后缀）：粘贴物是临时中转，
+     落工作区会污染仓库（untracked 堆积、git status 噪音）
    - 无 cwd（未分组会话）回退现有 tmp 目录
 2. 消息只发 `<attachment>path</attachment>` 行，不再带 base64 图片（`OutgoingImage` 契约保留兼容旧 queue 项）
-3. UI：
+3. `@` 补全前端扩展：DSH 的 fileReferences/list 只扫会话 cwd；前端把附件目录的
+   绝对路径候选合并进 fileRefList（模型侧 `@path` 允许任意路径，DSH 零改动）
+4. UI：
    - staging chip：图片显示缩略图（host 提供 base64 previewData，webview 内存态，不随消息发送）
    - 历史消息：`ChatFile` 按扩展名标 `image`，chip 显示缩略图（懒加载：webview `requestFileThumb` → host 读盘转 dataUrl 回 `fileThumb`），短名显示、长路径只留 title
 4. 发送失败/撤销恢复（restoreDraft/unsteer）时图片 chip 按文件方式恢复，previewData 由 host 从磁盘重新读
@@ -39,8 +41,8 @@
 ## 验收
 
 - 粘贴/选择截图 → 出现缩略图 chip，发送后用户消息显示短名 chip（可点开、不显示长路径）
-- `<cwd>/dsh-attachments/` 出现原始字节截图，短名（如 `截图-0903-153812.png`）
-- 模型消息里能通过 `@ dsh-attachments/截图-xxx.png` 补全引用
+- 系统临时目录（`os.tmpdir()/dsh-one-attachments/`）出现原始字节截图，短名（如 `截图-0903-153812.png`）
+- 模型消息里能通过 `@` 补全引用到附件目录截图（绝对路径候选）
 - 模型（agent）能读到该路径文件内容
 
 - 2026-09-03 发现需求（用户：图片附件希望文件方式，落盘工作区+路径引用）→ open
@@ -50,3 +52,6 @@
 - 2026-09-03 开发完成，自测通过（typecheck/test 344 绿/i18n 门禁/ui-visual 85 场景）→ done
 
 - 2026-09-03 用户修订：非图粘贴文件回 /tmp（原行为），仅图片落工作区 → 仍 done
+
+- 2026-09-03 方案修订：附件统一落系统临时目录（用户拍板：工作区会被 git 看到且无限增长），
+  @ 补全扩展绝对路径候选（前端合并，DSH 零改动）→ 仍 done
