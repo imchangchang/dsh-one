@@ -37,11 +37,11 @@
 
 <img src="docs/screenshot/zh-CN/new-session-hero.jpeg" alt="DSH One 聊天面板的新会话空态" width="100%">
 
-| 未安装 dsh 时的首次使用引导 | 上下文用量弹层 |
+| 未安装 dsh 时的首次使用引导 | 会话右键菜单 |
 | --- | --- |
-| ![](docs/screenshot/zh-CN/install-guide.jpeg) | ![](docs/screenshot/zh-CN/context-usage.jpeg) |
+| ![](docs/screenshot/zh-CN/install-guide.jpeg) | ![](docs/screenshot/zh-CN/session-context-menu.jpeg) |
 
-<img src="docs/screenshot/zh-CN/status-bar-menu.jpeg" alt="状态栏：DSH 运行中 :3080，含在浏览器中打开 / 重启 / 停止 / 日志操作">
+<img src="docs/screenshot/zh-CN/new-session-status-menu.jpeg" alt="状态栏悬停卡：在浏览器中打开 / 重启服务 / 停止服务 / 显示日志" width="100%">
 
 ## 快速开始
 

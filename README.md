@@ -37,15 +37,15 @@
 
 <img src="docs/screenshot/en/new-session-hero.jpeg" alt="New session in the DSH One chat panel" width="100%">
 
-| First-run guidance when dsh is missing | Plan review card |
+| First-run guidance when dsh is missing | Chat panel in use |
 | --- | --- |
-| ![](docs/screenshot/en/install-guide.jpeg) | ![](docs/screenshot/en/plan-review.jpeg) |
+| ![](docs/screenshot/en/install-guide.jpeg) | ![](docs/screenshot/en/chat-first-reply.jpeg) |
 
-| Inline question prompt | Context usage popover |
+| Plan review card | Inline question prompt |
 | --- | --- |
-| ![](docs/screenshot/en/ask-user-question.jpeg) | ![](docs/screenshot/en/context-usage.jpeg) |
+| ![](docs/screenshot/en/plan-review.jpeg) | ![](docs/screenshot/en/ask-user-question.jpeg) |
 
-<img src="docs/screenshot/en/status-bar-menu.jpeg" alt="Status bar: DSH running on port 3080, with open-in-browser / restart / stop / logs actions">
+<img src="docs/screenshot/en/permission-request.jpeg" alt="Inline permission request with Allow once / Reject" width="100%">
 
 ## Quick start
 
