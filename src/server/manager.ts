@@ -17,7 +17,7 @@ const START_TIMEOUT_MS = 90_000
 const PROBE_TIMEOUT_MS = 3_000
 const KILL_GRACE_MS = 5_000
 const TAIL_LINES = 40
-const HEALTH_INTERVAL_MS = 30_000
+const HEALTH_INTERVAL_MS = 10_000
 /** Readiness poll cadence while a spawned dsh boots. */
 const READY_POLL_MS = 250
 /** How far past the configured port we scan for a free fallback port. */
@@ -289,10 +289,12 @@ export class ServerManager implements vscode.Disposable {
   }
 
   /**
-   * Post-ready health check (dsh-vscode's design): probe every 30s; a lost
+   * Post-ready health check (dsh-vscode's design): probe every 10s; a lost
    * server — including an adopted instance we do not own — drops the status
-   * back to stopped so the UI stops claiming "running". An owned child that
-   * stops answering is killed so the next start gets its port back.
+   * back to stopped so the UI stops claiming "running". The interval is short
+   * on purpose: users close their own terminal-started `dsh web` and expect
+   * the status bar to follow quickly, not after half a minute. An owned child
+   * that stops answering is killed so the next start gets its port back.
    */
   private startHealthCheck(port: number): void {
     this.stopHealthCheck()
