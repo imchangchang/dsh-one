@@ -1,0 +1,41 @@
+name: installer-smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dsh (isolated) and verify
+        shell: bash
+        run: |
+          export DSH_INSTALL_DIR="$RUNNER_TEMP/dsh-test"
+          export DSH_NO_MODIFY_PATH=1
+          bash install/dsh-install.sh
+          DSH_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/dsh | head -1)"
+          test -n "$DSH_BIN"
+          "$DSH_BIN" --version
+          cd "$(dirname "$(dirname "$DSH_BIN")")/node_modules/@deepseek-ai/dsh"
+          node -e "require('node-pty'); require('koffi'); console.log('native modules OK')"
+          cd "$RUNNER_TEMP"
+          rm -rf "$DSH_INSTALL_DIR"
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dsh (isolated) and verify
+        shell: bash
+        run: |
+          export DSH_INSTALL_DIR="$RUNNER_TEMP/dsh-test"
+          export DSH_NO_MODIFY_PATH=1
+          bash install/dsh-install.sh
+          DSH_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/dsh | head -1)"
+          test -n "$DSH_BIN"
+          "$DSH_BIN" --version
+          cd "$(dirname "$(dirname "$DSH_BIN")")/node_modules/@deepseek-ai/dsh"
+          node -e "require('node-pty'); require('koffi'); console.log('native modules OK')"
+          cd "$RUNNER_TEMP"
+          rm -rf "$DSH_INSTALL_DIR"
