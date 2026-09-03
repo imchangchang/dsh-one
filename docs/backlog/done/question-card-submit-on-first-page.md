@@ -39,3 +39,4 @@ dsh-one 插件 webview 的 ask_user_question 卡片（多个 questions 时）在
 
 - 2026-09-08 核实（现象属实：dsh-one 插件卡片；dsh web 已是建议行为）→ open
 - 2026-09-08 认领（worktree: agent/question-card-paged-submit）→ doing
+- 2026-09-08 开发完成，自测通过（typecheck + test 337 + build + check-i18n）→ done
