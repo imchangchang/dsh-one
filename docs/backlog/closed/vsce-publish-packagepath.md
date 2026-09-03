@@ -16,3 +16,4 @@
 - `docs/backlog/open/marketplace-publish.md` 追加一行修正记录（历史行不改）
 - 2026-09-03 认领（open → doing）
 - 2026-09-03 修复完成，自测通过（doing → done）
+- 2026-09-03 主线合入（复测通过），docs/脚本提示修正，无功能变更，转 closed
