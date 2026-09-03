@@ -2,7 +2,7 @@
   "name": "dsh-one",
   "displayName": "DSH One",
   "description": "%extension.description%",
-  "version": "0.1.2-rc.4",
+  "version": "0.1.2-rc.5",
   "publisher": "cgeng",
   "icon": "assets/icon.png",
   "license": "MIT",
