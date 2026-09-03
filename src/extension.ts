@@ -361,6 +361,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!name) return undefined
       const dir = path.join(workspacesDir, name.trim())
       try {
+        // Host-side workspace.create 只能「认领已存在目录」（fs.realpath 校验，
+        // 路径不存在直接 ENOENT），所以先建目录再注册。
+        await fs.mkdir(dir, { recursive: true })
         const workspace = await ensureWorkspace(url, dir)
         await sessions.refresh()
         return workspace
