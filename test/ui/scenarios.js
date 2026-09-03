@@ -333,14 +333,21 @@
     'dsh-not-found': {
       state: base({ sessionId: null, sessionTitle: undefined, messages: [], canSend: false, presetLabel: undefined, serverError: 'dshNotFound', statsLine: undefined, hostOs: 'macos' }),
       title: '找不到 dsh（安装引导 + 非官方脚本块）',
-      expect: '主区居中显示「dsh not found」+ 说明文案 + 「View install guide」按钮；按钮下方是脚本块：说明行（community one-liner…unofficial）+ 三个平台 chip（Windows / macOS / Linux，**macOS 高亮** = 当前平台）+ 命令代码块（只显示 curl -fsSL https://raw.githubusercontent.com/imchangchang/dsh-one/main/install/dsh-install.sh | bash）+ 复制按钮（拷贝图标）；无 composer；侧边栏会话列表正常。',
+      expect: '主区居中显示「dsh not found」+ 说明文案 + 「View install guide」按钮；按钮下方是脚本块：说明行（community one-liner…unofficial）+ 平台下拉按钮（深色圆角，显示 macOS + 下拉小箭头）+ 命令条（浅色圆角单行、命令以省略号截断、**无横向滚动条**，尾部复制图标按钮）；无 composer；侧边栏会话列表正常。',
+    },
+
+    'dsh-not-found-menu': {
+      state: base({ sessionId: null, sessionTitle: undefined, messages: [], canSend: false, presetLabel: undefined, serverError: 'dshNotFound', statsLine: undefined, hostOs: 'macos' }),
+      title: '找不到 dsh（平台下拉展开）',
+      interact: `document.querySelector('.install-script-platform')?.click()`,
+      expect: '点击平台按钮后弹出下拉浮层：列表项 Windows / macOS / Linux，**macOS 项加粗带 ✓**（当前项）；浮层悬停在命令条上方不截断命令条；其余元素不变。',
     },
 
     'dsh-not-found-windows-chip': {
       state: base({ sessionId: null, sessionTitle: undefined, messages: [], canSend: false, presetLabel: undefined, serverError: 'dshNotFound', statsLine: undefined, hostOs: 'macos' }),
-      title: '找不到 dsh（手动切到 Windows 平台）',
-      interact: `Array.from(document.querySelectorAll('.install-script-tab')).find((b) => b.textContent === 'Windows')?.click()`,
-      expect: '点击 Windows chip 后：Windows chip 变高亮（button 背景色），macOS 恢复非高亮；命令行变为 irm https://raw.githubusercontent.com/imchangchang/dsh-one/main/install/dsh-install.ps1 | iex；其余元素（说明行、复制按钮）不变。',
+      title: '找不到 dsh（下拉切到 Windows 平台）',
+      interact: `(() => { const b = document.querySelector('.install-script-platform'); if (b) b.click(); const it = Array.from(document.querySelectorAll('.install-script-menu-item')).find((e) => e.textContent === 'Windows'); if (it) it.click(); })()`,
+      expect: '平台按钮变 Windows（下拉浮层已关闭，Windows 成当前项）；命令条变为 irm https://raw.githubusercontent.com/imchangchang/dsh-one/main/install/dsh-install.ps1 | iex（省略号截断显示）；其余元素（说明行、复制按钮）不变。',
     },
 
     approval: {
@@ -540,7 +547,7 @@
         return s
       })(),
       title: '侧栏面板（找不到 dsh：安装引导 + 非官方脚本块）',
-      expect: '整个列表区是「dsh not found」空态：标题 + 说明文案 + 「View install guide」按钮；按钮下方脚本块：说明行（community one-liner…unofficial）+ 三个平台 chip（Windows / macOS / Linux，**macOS 高亮** = 当前平台）+ 命令代码块（curl -fsSL https://raw.githubusercontent.com/imchangchang/dsh-one/main/install/dsh-install.sh | bash）+ 复制按钮；无任何会话行/workspace 组；头部工具栏照常显示。',
+      expect: '整个列表区是「dsh not found」空态：标题 + 说明文案 + 「View install guide」按钮；按钮下方脚本块：说明行（community one-liner…unofficial）+ 平台下拉按钮（深色圆角，macOS + 下拉箭头）+ 命令条（浅色圆角单行、命令 curl -fsSL https://raw.githubusercontent.com/imchangchang/dsh-one/main/install/dsh-install.sh | bash 省略号截断、无横向滚动条，尾部复制图标）；**侧栏窄容器：命令条换行到平台按钮下方（上下排列，命令条占满宽度）**；无任何会话行/workspace 组；头部工具栏照常显示。',
     },
 
     sessions: {

@@ -250,30 +250,35 @@ const SESSIONS_STYLE = `
   }
   .sessions-empty .empty-hint { font-size: 12px; }
   .sessions-empty button { margin-top: 4px; }
-  /* 非官方一键安装脚本块（dshNotFound 空态）：hint + 平台 chip + 命令代码 + 复制。 */
+  /* 非官方一键安装脚本块（dshNotFound 空态）：说明 + 平台下拉 + 单行省略命令条 + 复制。 */
   .install-script {
     margin-top: 10px; width: 100%; box-sizing: border-box;
     display: flex; flex-direction: column; gap: 6px; align-items: stretch;
   }
   .install-script-hint { font-size: 12px; opacity: 0.7; }
-  .install-script-tabs { display: flex; gap: 4px; justify-content: center; }
-  .install-script-tab {
-    padding: 2px 10px; font-size: 11px; border-radius: 10px;
-    background: transparent; color: var(--vscode-descriptionForeground, #888);
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .install-script-tab.active {
-    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-    border-color: transparent;
-  }
+  /* kimi 式一排：平台按钮 + 命令条同排 flex-wrap——容器够宽左右排，侧栏窄时
+     命令条换到下一行上下排（min-width 260px 触发换行）。 */
   .install-script-row {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch;
+  }
+  .install-script-platform {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 12px;
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+    border: 0; font-size: 11px; font-weight: 500;
+  }
+  .install-script-platform svg { flex: none; opacity: .8; }
+  .install-script-cmd {
+    flex: 1 1 260px; min-width: 0;
     display: flex; align-items: center; gap: 4px;
     background: var(--vscode-editorWidget-background, rgba(127,127,127,.12));
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    border-radius: 6px; padding: 4px 6px 4px 8px;
+    border-radius: 12px; padding: 2px 4px 2px 10px;
   }
   .install-script-code {
-    flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap;
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: 11px; line-height: 16px; color: var(--vscode-foreground);
   }
@@ -281,13 +286,21 @@ const SESSIONS_STYLE = `
     flex: none; width: 22px; height: 22px; padding: 0; margin: 0;
     display: inline-flex; align-items: center; justify-content: center;
     background: transparent; color: var(--vscode-descriptionForeground, #888);
-    border-radius: 4px;
+    border-radius: 6px;
   }
   .install-script-copy:hover {
     background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
     color: var(--vscode-foreground);
   }
   .install-script-copy span { font-size: 11px; }
+  /* 平台下拉菜单（挂在全局 .popover 容器里）：当前平台加粗 + 对勾。 */
+  .install-script-menu-item {
+    display: flex; align-items: center; gap: 6px; min-height: 28px; box-sizing: border-box;
+    padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap;
+  }
+  .install-script-menu-item:hover { background: var(--vscode-menu-selectionBackground, rgba(127,127,127,.2)); }
+  .install-script-menu-item.active::before { content: '✓'; font-weight: 600; }
+  .install-script-menu-item.active { font-weight: 600; }
   /* 内容命中的片段块：跟会话行下面，暗色小字最多 2 行，点击与父行一致。 */
   .session-snippet {
     margin: 0 4px 0 12px; padding: 1px 6px 2px; font-size: 11px; line-height: 16px;
