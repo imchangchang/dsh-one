@@ -43,3 +43,5 @@
 - 2026-09-07 用户拍板方案：文件式 + `@` 引用，排除纯折叠占位符 → 仍 open
 
 - 2026-09-03 认领（worktree: agent/image-attachment-file-mode，与 image-attachment-file-mode 同 worktree 一起做）→ doing
+
+- 2026-09-03 开发完成，自测通过（350 用例/typecheck/build/i18n；手动 WebBridge 全链路验证）→ done
