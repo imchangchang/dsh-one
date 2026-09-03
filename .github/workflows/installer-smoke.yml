@@ -17,7 +17,7 @@ jobs:
           DSH_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/dsh | head -1)"
           test -n "$DSH_BIN"
           "$DSH_BIN" --version
-          cd "$(dirname "$(dirname "$DSH_BIN")")/node_modules/@deepseek-ai/dsh"
+          cd "$(dirname "$(dirname "$DSH_BIN")")/lib/node_modules/@deepseek-ai/dsh"
           node -e "require('node-pty'); require('koffi'); console.log('native modules OK')"
           cd "$RUNNER_TEMP"
           rm -rf "$DSH_INSTALL_DIR"
@@ -35,7 +35,7 @@ jobs:
           DSH_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/dsh | head -1)"
           test -n "$DSH_BIN"
           "$DSH_BIN" --version
-          cd "$(dirname "$(dirname "$DSH_BIN")")/node_modules/@deepseek-ai/dsh"
+          cd "$(dirname "$(dirname "$DSH_BIN")")/lib/node_modules/@deepseek-ai/dsh"
           node -e "require('node-pty'); require('koffi'); console.log('native modules OK')"
           cd "$RUNNER_TEMP"
           rm -rf "$DSH_INSTALL_DIR"
