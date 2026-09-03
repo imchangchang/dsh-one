@@ -32,7 +32,7 @@ NODE_DIST_BASES=(
   "https://registry.npmmirror.com/-/binary/node"
 )
 
-say()  { printf '==> %s\n' "$*"; }
+say()  { printf '==> %s\n' "$*" >&2; }
 warn() { printf 'warn: %s\n' "$*" >&2; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 
