@@ -1539,6 +1539,9 @@ const STYLE = `
     background: transparent; border-color: transparent;
     font-size: 16px; line-height: 24px;
   }
+  /* 文本高亮层必须与 hero 输入框同字号/行高（否则层层叠文本变窄，
+     真实光标落在文字后方的"空位"，退格/选择都对不齐）。 */
+  .hero .composer-frame { font-size: 16px; line-height: 24px; }
   .hero #input:focus { outline: none; }
 `
 
