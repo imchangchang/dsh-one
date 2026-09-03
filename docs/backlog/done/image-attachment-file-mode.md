@@ -55,3 +55,6 @@
 
 - 2026-09-03 方案修订：附件统一落系统临时目录（用户拍板：工作区会被 git 看到且无限增长），
   @ 补全扩展绝对路径候选（前端合并，DSH 零改动）→ 仍 done
+
+- 2026-09-03 跨平台适配：Windows 分隔符（basename 双分隔符、isImagePath 先取 basename）、
+  os.tmpdir() 各平台归一 → 仍 done
