@@ -33,6 +33,16 @@
 - **把文件发进对话**：编辑器或资源管理器里右键任意文件 → `DSH One: 发送到当前会话`；图片显示缩略图、其他文件显示路径 chip。
 - **状态栏**：显示 `DSH: 运行中 :端口 / 启动中 / 已停止 / 错误`，点击聚焦面板。
 
+## 截图
+
+<img src="docs/screenshot/zh-CN/new-session-hero.jpeg" alt="DSH One 聊天面板的新会话空态" width="100%">
+
+| 未安装 dsh 时的首次使用引导 | 会话右键菜单 |
+| --- | --- |
+| ![](docs/screenshot/zh-CN/install-guide.jpeg) | ![](docs/screenshot/zh-CN/session-context-menu.jpeg) |
+
+<img src="docs/screenshot/zh-CN/new-session-status-menu.jpeg" alt="状态栏悬停卡：在浏览器中打开 / 重启服务 / 停止服务 / 显示日志" width="100%">
+
 ## 快速开始
 
 前置：先自行安装 dsh（需要 Node ≥ 22）：
