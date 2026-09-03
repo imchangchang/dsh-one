@@ -442,8 +442,9 @@ export class ChatTabHost implements vscode.Disposable {
   /**
    * Paste intake: every clipboard file becomes an attachment. Images get a
    * short timestamp name and are written to the session workspace
-   * (`dsh-attachments/`), then staged as path chips; anything else is
-   * written there under its own name for the agent to read.
+   * (`dsh-attachments/`) so the user can grab the original and `@`-reference
+   * it; anything else is a transient paste — written to the OS temp dir and
+   * staged as a path chip for the agent to read, never touching the repo.
    */
   async stagePastedFiles(files: OutgoingImage[]): Promise<void> {
     if (files.length === 0) return
@@ -461,8 +462,7 @@ export class ChatTabHost implements vscode.Disposable {
           )
           staged.push({ name: path.basename(target), path: target, image: true, mediaType, previewData: file.data })
         } else {
-          const target = await this.saveAttachment(name, bytes)
-          staged.push({ name: path.basename(target), path: target })
+          staged.push({ name, path: await this.saveTempAttachment(name, bytes) })
         }
       } catch (err) {
         skipped.push(vscode.l10n.t('{0} (failed to write attachment file: {1})', name, err instanceof Error ? err.message : String(err)))
@@ -477,9 +477,20 @@ export class ChatTabHost implements vscode.Disposable {
     }
   }
 
+  /** Persist a non-image paste under the OS temp dir; returns the file path. */
+  private async saveTempAttachment(name: string, bytes: Buffer): Promise<string> {
+    const dir = path.join(os.tmpdir(), 'dsh-one-attachments')
+    await fs.mkdir(dir, { recursive: true })
+    const safe = name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_') || 'attachment'
+    const file = path.join(dir, `${Date.now()}-${safe}`)
+    await fs.writeFile(file, bytes)
+    this.actions.logger.info(`chat: pasted file saved to ${file}`)
+    return file
+  }
+
   /**
-   * Write pasted bytes under the session workspace's `dsh-attachments/` dir
-   * (so file-reference `@` completion can find them and the user gets a
+   * Write pasted image bytes under the session workspace's `dsh-attachments/`
+   * dir (so file-reference `@` completion can find them and the user gets a
    * directly processable copy); sessions without a cwd fall back to the OS
    * temp dir. Colliding names get a numeric suffix.
    */
