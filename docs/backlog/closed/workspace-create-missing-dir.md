@@ -30,3 +30,5 @@
 - 2026-09-03 认领 → doing，worktree: agent/workspace-create-missing-dir
 
 - 2026-09-03 开发完成（agent/workspace-create-missing-dir @ 7d5efdc：注册前 mkdir，typecheck/test 337 通过 + 真实网关端到端验证，dev-finish 自测通过）→ done
+
+- 2026-09-03 主线合入（merge 7876d88，dev-merge 校验+复测 337 通过），确认 → closed
