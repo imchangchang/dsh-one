@@ -11,14 +11,27 @@ jobs:
       - name: Install dsh (isolated) and verify
         shell: bash
         run: |
+          set -euo pipefail
           export DSH_INSTALL_DIR="$RUNNER_TEMP/dsh-test"
           export DSH_NO_MODIFY_PATH=1
           bash install/dsh-install.sh
-          DSH_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/dsh | head -1)"
-          test -n "$DSH_BIN"
+          # The runner may already have a compatible Node -> the script reuses
+          # it and dsh lands in the system prefix; otherwise it is portable
+          # under DSH_INSTALL_DIR. Find dsh either way.
+          DSH_BIN="$(command -v dsh 2>/dev/null || true)"
+          if [ -z "$DSH_BIN" ]; then
+            DSH_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/dsh 2>/dev/null | head -1 || true)"
+          fi
+          test -n "$DSH_BIN" || { echo "dsh binary not found"; exit 1; }
           "$DSH_BIN" --version
-          cd "$(dirname "$(dirname "$DSH_BIN")")/lib/node_modules/@deepseek-ai/dsh"
-          node -e "require('node-pty'); require('koffi'); console.log('native modules OK')"
+          # npm global package dir on unix: <prefix>/lib/node_modules.
+          PKG="$(CDPATH= cd -- "$(dirname -- "$DSH_BIN")" && pwd)/../lib/node_modules/@deepseek-ai/dsh"
+          [ -d "$PKG" ] || PKG="$(dirname "$(dirname "$DSH_BIN")")/node_modules/@deepseek-ai/dsh"
+          NODE_BIN="$(command -v node 2>/dev/null || true)"
+          if [ -z "$NODE_BIN" ]; then
+            NODE_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/node 2>/dev/null | head -1 || true)"
+          fi
+          ( cd "$PKG" && "$NODE_BIN" -e "require('node-pty'); require('koffi'); console.log('native modules OK')" )
           cd "$RUNNER_TEMP"
           rm -rf "$DSH_INSTALL_DIR"
 
@@ -29,13 +42,22 @@ jobs:
       - name: Install dsh (isolated) and verify
         shell: bash
         run: |
+          set -euo pipefail
           export DSH_INSTALL_DIR="$RUNNER_TEMP/dsh-test"
           export DSH_NO_MODIFY_PATH=1
           bash install/dsh-install.sh
-          DSH_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/dsh | head -1)"
-          test -n "$DSH_BIN"
+          DSH_BIN="$(command -v dsh 2>/dev/null || true)"
+          if [ -z "$DSH_BIN" ]; then
+            DSH_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/dsh 2>/dev/null | head -1 || true)"
+          fi
+          test -n "$DSH_BIN" || { echo "dsh binary not found"; exit 1; }
           "$DSH_BIN" --version
-          cd "$(dirname "$(dirname "$DSH_BIN")")/lib/node_modules/@deepseek-ai/dsh"
-          node -e "require('node-pty'); require('koffi'); console.log('native modules OK')"
+          PKG="$(CDPATH= cd -- "$(dirname -- "$DSH_BIN")" && pwd)/../lib/node_modules/@deepseek-ai/dsh"
+          [ -d "$PKG" ] || PKG="$(dirname "$(dirname "$DSH_BIN")")/node_modules/@deepseek-ai/dsh"
+          NODE_BIN="$(command -v node 2>/dev/null || true)"
+          if [ -z "$NODE_BIN" ]; then
+            NODE_BIN="$(ls -d "$DSH_INSTALL_DIR"/node-*/bin/node 2>/dev/null | head -1 || true)"
+          fi
+          ( cd "$PKG" && "$NODE_BIN" -e "require('node-pty'); require('koffi'); console.log('native modules OK')" )
           cd "$RUNNER_TEMP"
           rm -rf "$DSH_INSTALL_DIR"
