@@ -45,3 +45,5 @@
 - 2026-09-03 发现需求（用户：图片附件希望文件方式，落盘工作区+路径引用）→ open
 
 - 2026-09-03 认领（worktree: agent/image-attachment-file-mode）→ doing
+
+- 2026-09-03 开发完成，自测通过（typecheck/test 344 绿/i18n 门禁/ui-visual 85 场景）→ done
