@@ -23,3 +23,4 @@
 - 2026-09-03 开发完成，自测通过（339 tests + build），打 done/screenshot-organize（doing → done）
 - 2026-09-03 按反馈继续调整：README 只保留整窗口截图，路径暴露确认可接受（done → doing）
 - 2026-09-03 调整完成，自测通过，重打 done/screenshot-organize（doing → done）
+- 2026-09-03 主线合入（merge 后复测通过），docs-only 无 UI 变更，转 closed
