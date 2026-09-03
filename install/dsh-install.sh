@@ -106,8 +106,12 @@ latest_lts_version() {
 
 add_to_user_path() {
   local dir="$1"
+  # This process always needs the dir on PATH: npm's shebang is
+  # #!/usr/bin/env node, so without it even the npm call fails.
+  # Persisting to rc files is a separate concern, gated below.
+  export PATH="$dir:$PATH"
   if [ -n "$DSH_NO_PATH" ]; then
-    say "Skipping PATH update (DSH_NO_MODIFY_PATH set)"
+    say "Skipping persistent PATH update (DSH_NO_MODIFY_PATH set)"
     return
   fi
   # Append the export snippet to existing shell rc files (bash and zsh);
