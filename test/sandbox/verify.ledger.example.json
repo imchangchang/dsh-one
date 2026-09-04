@@ -1,0 +1,44 @@
+{
+  "title": "示例：DSH One 沙盒验收报告",
+  "branch": "agent/sandbox-testing-chain",
+  "commit": "9f22811",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox:latest",
+    "date": "2026-09-04T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code、真模型输出、平台专项（Windows/macOS）不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "mock-LLM 回显回复",
+      "expect": "composer 发送「测试一下」后，新会话内出现助手消息「收到：测试一下…」（mock-LLM 兜底规则），模型选择器显示 mock-flash Max。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/mockllm-13-tool.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      }
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "未知工具错误路径",
+      "expect": "发送「查天气」触发 mock-LLM 的 get_weather 工具调用后，真 dsh 走未知工具重试与报错路径，统计行显示 2 turns。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/mockllm-12-attach.png"
+      ],
+      "driver": {
+        "prompt": "查天气",
+        "expectText": "get_weather"
+      }
+    }
+  ]
+}

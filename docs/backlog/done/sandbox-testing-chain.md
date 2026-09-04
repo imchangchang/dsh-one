@@ -33,3 +33,17 @@
 - 2026-09-03 spike 验证通过后记录进 open/，方案已经 session 内确认。
 
 - 2026-09-03 认领开发（open → doing）：docker 沙盒脚本化 + mock dsh server。
+
+- 2026-09-03 开发完成（doing → done）：test/sandbox 脚本化（Dockerfile/entrypoint/run-sandbox.sh/README）+ test/mock-dsh 零依赖 mock（server/scenario/单测 13 条）。自测：typecheck + npm test 352 全过 + build 通过，done 标记 d1df06a。待主线合入后做 docker/真窗口验收。
+
+- 2026-09-03 追加方案（done → doing）：不做协议层 mock 的全量验证，主路径改为「真 dsh + mock LLM 端点」——dsh 的 llm-pi-ai provider 原生支持 baseURL（schema 有 baseURL/api 字段，已核实 0.1.1-rc.2 源码），零 patch；协议层 mock（test/mock-dsh）保留为快速单测工具。新增 test/mock-llm（OpenAI 兼容假端点）+ 沙盒接线（--mock-llm 模式）。
+
+- 2026-09-03 mock-LLM 端点与沙盒接线开发完成（doing → done）：test/mock-llm（零依赖 OpenAI 兼容端点 + 15 条单测）、test/sandbox --mock-llm 模式（容器内真 dsh 打假端点）。自测：typecheck + npm test 368 全过 + build 通过。待主线合入后 docker/真窗口验收。
+
+- 2026-09-04 追加（done → doing）：合入报告 gate 落地——新增 test/sandbox/report.mjs（ledger+截图→HTML 报告）与 Playwright 驱动（CI 用，本地仍 WebBridge）；配套场景/ledger 格式定义。
+
+- 2026-09-04 全部完成（doing → done）：test/sandbox/report.mjs（ledger→单文件 HTML 报告）+ verify-driver.mjs（Playwright 自动驱动，实测 F-01/R-01 done）+ playwright devDep。自测 typecheck + 368 测试 + build 通过。合入 gate 流程变更见 backlog open/merge-gate-test-report.md（待单独认领）。
+
+- 2026-09-04 改进（done → doing）：修复 mock 首轮注入匹配 + 沙盒 workspace 宿主路径清理（同分支未合，一起收口）。
+
+- 2026-09-04 收口完成（doing → done）：注入判别扩为两类（<system-reminder> 标签 + 无标签 Current runtime context 快照），mock 模式清 storages 注册表（EACCES 消除），驱动去暖场。实测 F-01/R-01 首轮直接命中 2/2 done，截图确认侧边栏无宿主残留。自测 369 测试全过。

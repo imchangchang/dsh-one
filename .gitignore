@@ -4,3 +4,4 @@ dist/
 .dev-host/
 .worktrees/
 .gh-cache/
+test/sandbox/.build-mock-llm/
