@@ -129,7 +129,7 @@ test/sandbox/run-sandbox.sh --help   # 全部参数
 
 ## 自动驱动（Playwright）
 
-`test/sandbox/verify-driver.mjs` 用 Playwright 在宿主侧驱动 code-server 页面，对 ledger（`verify.ledger.json`）里**带 `driver` 字段**的条目做确定性回归：新建会话 → 发 prompt → 断 mock 回复 → 截图 → 把该项 `result` 写回 ledger（`done`/`fail`）。用于 CI/主线自动回归；本地人工循环走上面的 WebBridge 配方（见「与 WebBridge 的分工」）。
+`test/sandbox/verify-driver.mjs` 用 Playwright 在宿主侧驱动 code-server 页面，对 ledger（`verify.ledger.json`）里**带 `driver` 字段**的条目做确定性回归：新建会话 → 发 prompt → 断 mock 回复 → 截图 → 把该项 `result` 写回 ledger（`done`/`fail`）。用于 CI/主线自动回归；本地人工循环走上面的 WebBridge 配方（见「与 WebBridge 的分工」）。驱动写完结果后用 `report.mjs` 渲染成 HTML 报告（见「任务测试报告」）。
 
 ### 前提
 
@@ -201,4 +201,60 @@ node test/sandbox/verify-driver.mjs \
 | 输出 | 人截图/记录 | ledger `result` + `<id>.png` + 汇总 |
 
 WebBridge 适合「边改边看」的本地人工迭代，Playwright 驱动适合「无人在场」的自动回归，两者互不替代。
+
+## 任务测试报告（worktree dev-finish 产物，合入门禁）
+
+`report.mjs` 把 ledger + 截图渲染成单文件 HTML（截图 base64 内嵌，可直接分发/发给用户审）。
+按 worktree-dev-flow 流程 5，dev-finish 前生成；**人审报告通过 = 合入门禁**（对功能有疑问才人工开窗 dev-ui-test）。
+
+### 场景模板
+
+从示例复制为**任务专属** ledger，不动 CI 基线 `test/sandbox/verify.ledger.json`：
+
+```bash
+cp test/sandbox/verify.ledger.example.json test/sandbox/verify.<slug>.ledger.json
+```
+
+字段（完整示例见 `verify.ledger.example.json`，实测样例见 `verify.ledger.json`）：
+
+| 字段 | 说明 |
+|---|---|
+| `title` | 报告标题 |
+| `branch` / `commit` | 被验分支与 commit（dev-finish 时由生成方填写） |
+| `environment` | `{mode,dsh,locale,theme,image,driver,date}` 任意键值，渲染成信息表 |
+| `coverageNote` | 覆盖范围声明（真桌面/真模型/平台问题不在范围内） |
+| `items[]` | 条目，见下 |
+| `items[].id` | `F-xx`（新增功能）/ `R-xx`（回归） |
+| `items[].phase` | `new-feature` 或 `regression`；**new-feature 排前、regression 排后** |
+| `items[].name` / `expect` | 名称 + 期望描述（人审/报告看，写「看到什么」，别写「应当正常」） |
+| `items[].result` | `pending`=未执行；`done`=驱动执行完待人工判定；`pass`/`fail`=结论已定 |
+| `items[].screenshots` | 截图路径数组（指向 `--out` 输出目录） |
+| `items[].notes` | 失败原因/执行说明 |
+| `items[].driver` | 可选；`{prompt, expectText}`，有则 verify-driver 自动跑 |
+
+### 命令
+
+```bash
+# 1. 起沙盒（共享单实例，先 run-sandbox.sh status 确认空闲）
+test/sandbox/run-sandbox.sh start --mock-llm --port 8080
+
+# 2. 驱动：结果写回 ledger（done/fail + 截图路径）
+node test/sandbox/verify-driver.mjs \
+  --ledger test/sandbox/verify.<slug>.ledger.json \
+  --url http://127.0.0.1:8080 \
+  --out /tmp/dsh-sandbox-shots/
+
+# 3. 逐项看截图定结论：符合期望 done→pass，不符改 fail 并在 notes 写明；
+#    渲染前不能留 pending/done——「每项通过/失败」是 gate 的判定依据。
+
+# 4. 渲染 HTML 报告
+node test/sandbox/report.mjs \
+  --ledger test/sandbox/verify.<slug>.ledger.json \
+  --out test/sandbox/verify.<slug>.report.html
+```
+
+- 报告 HTML 已 gitignore（`test/sandbox/*.report.html`），随时可重新渲染；**ledger（含结论）随任务分支提交**，是报告的事实来源。
+- 截图产物在 `/tmp/dsh-sandbox-shots/`（不落仓库，见「产物目录约定」）。
+- 无 UI 行为变化的任务（纯逻辑/文档）可不建 ledger，在 backlog 条目变更记录里注明「无 UI 行为变化，沙盒报告不适用」。
+
 
