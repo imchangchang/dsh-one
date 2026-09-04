@@ -67,10 +67,15 @@ export interface MockLlmScenario {
 }
 
 /**
- * 默认场景。包含三类规则（顺序即优先级演示）：
- * 1. 「查天气」→ tool_calls（具体规则先于兜底命中）；
- * 2. 含「401」→ 注入 401 错误；
- * 3. '*' → 兜底：把最后一条 user 消息原样包进「收到：…」，stream:true 时分两段播。
+ * 默认场景。分类规则（顺序即优先级演示）：
+ * 1. 「查天气」→ get_weather 工具调用；
+ * 2. 「慢命令」→ bash sleep 90（运行态/子代理慢任务）；
+ * 3. 「审批测试」→ bash 带 sandbox_permissions 升级参数（触发真 dsh 审批）；
+ * 4. 「提个问题」→ ask_user_question（真 dsh 提问面板）；
+ * 5. 「派个子代理」→ subagent 后台任务；
+ * 6. 「开两个后台任务」→ subagent ×2（多后台任务 chip）；
+ * 7. 含「401」→ 注入 401 错误；
+ * 8. '*' → 兜底回显：把最后一条 user 消息原样包进「收到：…」，分两段流式播。
  */
 export function defaultScenario(): MockLlmScenario {
   return {
@@ -84,6 +89,64 @@ export function defaultScenario(): MockLlmScenario {
         respond: {
           toolCalls: [{ id: 'call-weather', name: 'get_weather', arguments: '{"city":"上海"}' }],
           usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        },
+      },
+      // 慢命令：bash sleep 90，工具卡保持 running，用于截「运行中」形态。
+      {
+        match: { contains: '慢命令' },
+        respond: {
+          toolCalls: [{ id: 'call-slow', name: 'bash', arguments: '{"command":"sleep 90 && echo finished"}' }],
+        },
+      },
+      // 审批：bash 带 sandbox_permissions + justification 升级参数，真 dsh 在
+      // policy=ask 下会弹「Permission request」卡片（字段对齐 dsh-tool-bash）。
+      {
+        match: { contains: '审批测试' },
+        respond: {
+          toolCalls: [{
+            id: 'call-approve',
+            name: 'bash',
+            arguments: '{"command":"echo approved","sandbox_permissions":"danger-full-access","justification":"测试审批路径"}',
+          }],
+        },
+      },
+      // 提问：ask_user_question（字段对齐 dsh-tool-ask-user 的 question schema）。
+      {
+        match: { contains: '提个问题' },
+        respond: {
+          toolCalls: [{
+            id: 'call-ask',
+            name: 'ask_user_question',
+            arguments: JSON.stringify({
+              questions: [{
+                id: 'q-1',
+                question: '继续执行吗？',
+                header: '测试提问',
+                options: [{ label: '继续 (Recommended)', description: '按编排继续' }, { label: '停止', description: '暂停此轮' }],
+              }],
+            }),
+          }],
+        },
+      },
+      // 子代理：subagent 默认后台执行（字段对齐 dsh-tool-subagent）。
+      {
+        match: { contains: '派个子代理' },
+        respond: {
+          toolCalls: [{
+            id: 'call-sub',
+            name: 'subagent',
+            arguments: JSON.stringify({ prompt: '慢命令', description: '子代理测试' }),
+          }],
+        },
+      },
+      // 多后台任务：一次两个 subagent（各自跑「慢命令」子循环，job 保持 running）。
+      {
+        match: { contains: '开两个后台任务' },
+        respond: {
+          toolCalls: [
+            { id: 'call-j1', name: 'subagent', arguments: JSON.stringify({ prompt: '慢命令', description: '后台任务 A' }) },
+            { id: 'call-j2', name: 'subagent', arguments: JSON.stringify({ prompt: '慢命令', description: '后台任务 B' }) },
+          ],
         },
       },
       // 401 注入场景：user 消息含「401」触发鉴权失败。
