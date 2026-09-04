@@ -3572,6 +3572,10 @@ let pendingStash:
   | null = null
 /** Slash-command receipt texts shown at the message tail; cleared on session switch. */
 let commandNotices: string[] = []
+/** 消息区 ref chip 的 hover 高亮缓存（跨渲染帧）：流式快照每帧全量重建 DOM，
+ *  重建后按它恢复高亮（否则鼠标不动就永久丢失）；msgKey 定位行（renderMessage 的
+ *  key），path 为 ref chip 的 data-ref-path。mouseleave / 命中无对应行时清空。 */
+let refHoverCache: { msgKey: string; path: string } | null = null
 
 /** One queued inbox row: tag + preview, plus steer/edit/remove actions. */
 function renderQueueItem(item: QueuedItem): HTMLElement {
@@ -4243,17 +4247,33 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
         el.classList.remove('ref-hover', 'hovered')
       }
     }
-    row.addEventListener('mouseover', (e) => {
-      const ref = (e.target as Element | null)?.closest?.('[data-ref-path]')
-      if (!ref || !(ref instanceof HTMLElement)) return
-      const path = ref.dataset.refPath ?? ''
+    const applyRefHover = (ref: HTMLElement, path: string): void => {
       clearRefHighlight()
       ref.classList.add('ref-hover')
       for (const chip of Array.from(row.querySelectorAll<HTMLElement>('[data-attach-path]'))) {
         if (chip.dataset.attachPath === path) chip.classList.add('hovered')
       }
+    }
+    row.addEventListener('mouseover', (e) => {
+      const ref = (e.target as Element | null)?.closest?.('[data-ref-path]')
+      if (!ref || !(ref instanceof HTMLElement)) return
+      const path = ref.dataset.refPath ?? ''
+      applyRefHover(ref, path)
+      refHoverCache = { msgKey: key, path }
     })
-    row.addEventListener('mouseleave', clearRefHighlight)
+    row.addEventListener('mouseleave', () => {
+      clearRefHighlight()
+      refHoverCache = null
+    })
+    // 流式快照每帧全量重建 DOM：重建后按缓存恢复高亮（鼠标不动就保持）。
+    if (refHoverCache?.msgKey === key) {
+      const cached = refHoverCache.path
+      const ref = Array.from(row.querySelectorAll<HTMLElement>('[data-ref-path]')).find(
+        (el) => el.dataset.refPath === cached,
+      )
+      if (ref) applyRefHover(ref, cached)
+      else refHoverCache = null
+    }
     return row
   }
   if (m.kind === 'command') {
