@@ -1,0 +1,108 @@
+{
+  "title": "question-other-option：问题卡单选「其他」选项 + 输入框显隐 + 输入取消选项高亮",
+  "branch": "agent/question-other-option",
+  "commit": "670c060",
+  "environment": {
+    "mode": "harness（浏览器独立渲染 webview + 场景 interact）",
+    "harness": "test/ui/harness.html（dist/chatWebview.js 本任务构建）",
+    "domAssert": "Playwright 无头浏览器 evaluate（.dev-host/dom-assert.mjs，6 场景全过）",
+    "theme": "dark（注入 --vscode-focusBorder 等变量核对 selected 渲染）",
+    "date": "2026-09-05T00:00:00Z"
+  },
+  "coverageNote": "纯 UI 行为变更：验收用 test/ui harness 确定性场景（截图 + DOM 断言），未走真 dsh 沙盒端到端（不涉宿主/协议链路——提交编码未变，单选 custom 覆盖 selected 的既有约定保持）。真桌面 VS Code、真模型输出不在本报告范围。424 项单测全绿（npm test）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "问题卡单选初始态：「其他」选项存在、自定义输入框隐藏",
+      "expect": "等待回答面板：问题+选项列表为 最新优先/最旧优先/「其他」三个 bullet 选项；「其他（自定义回答）」输入框初始隐藏（未点「其他」不出现）；提交按钮初始禁用；无 answer 消息发出。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/question.png",
+        "/tmp/dsh-ui-shots/panel-zoom-initial.png"
+      ],
+      "notes": "截图 + DOM 断言（question-initial）：3 个选项按钮、input 带 hidden、Submit disabled、window.__posted 无 answer。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "点「其他」展开其下自定义输入框并聚焦",
+      "expect": "点击「其他」后：该选项 selected 高亮（focusBorder outline + bullet 实心），其余选项恢复无高亮；其下方出现「其他（自定义回答）」输入框（visible 且聚焦）；「提交」仍禁用——只点「其他」未输文本不算已答。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/question-other.png",
+        "/tmp/dsh-ui-shots/panel-zoom-other.png"
+      ],
+      "notes": "暗色变量下放大截图可见 Other 按钮蓝框高亮 + 输入框显示并聚焦；DOM 断言 question-other 通过。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "输入自定义文字时取消真实选项高亮（修复残留）",
+      "expect": "「其他」输入框打字后：最新优先/最旧优先均无高亮（输入即覆盖 selected 的视觉一致）；「其他」保持高亮（自定义通道激活）；输入框保值；提交按钮变可用。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/question-other-typed.png",
+        "/tmp/dsh-ui-shots/panel-zoom-other-typed.png"
+      ],
+      "notes": "DOM 断言 question-other-typed：selected=[false,false,true]、input value=可以再讨论一下、Submit enabled。修复点=此前 input 事件只清 draft.selected 未移除 .selected class 的高亮残留。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "自定义输入后点回选项：收起输入框并清空自定义草稿",
+      "expect": "自定义输入后再点「最新优先」：该选项重新高亮、「其他」取消高亮；「其他（自定义回答）」输入框隐藏且内容清空；提交按钮可用。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/question-other-back-to-option.png",
+        "/tmp/dsh-ui-shots/panel-zoom-back-to-option.png"
+      ],
+      "notes": "DOM 断言 question-other-back-to-option：selected=[true,false,false]、input hidden 且 value=空。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "单选点选项：仅该项高亮 + 提交可用（原交互）",
+      "expect": "点击「最新优先」：该选项高亮、接管面板仍在（不提交）、「提交」变可用、输入框保持隐藏。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/question-selected.png",
+        "/tmp/dsh-ui-shots/panel-zoom-selected.png"
+      ],
+      "notes": "与旧期望一致（仅输入框显隐语义变化）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "多题分页/跳过本题（第 1 页）不受影响",
+      "expect": "分页器 ‹ 1/2 ›、正文只有第一题、可点「跳过本题」+「下一题」（Next question 初始禁用），输入框隐藏不干扰分页。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/question-multi.png"
+      ],
+      "notes": "两题问题列表也各带「其他」选项，翻页交互正常。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "问答面板最小化回答行（去聊天里说）",
+      "expect": "点最小化后面板只剩 header + 回答输入行（Say it in chat… + Submit），正文选项隐藏。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/question-minimized.png"
+      ],
+      "notes": "DOM 断言 question-minimized-regression 通过。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "plan-review 三分结构不受影响",
+      "expect": "warn strip + 计划 Markdown 全文 + 批准/拒绝/Reply in chat 三分按钮；无「其他（自定义回答）」输入框。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/plan-review.png"
+      ],
+      "notes": "plan-review 仍走 renderPlanReviewPanel，未触碰。"
+    }
+  ]
+}
