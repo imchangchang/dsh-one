@@ -22,3 +22,5 @@
 ## 变更记录
 
 - 2026-09-04 由 Playwright 驱动实测发现，核实为 mock/沙盒适配问题（非 dsh、非扩展 bug），记录进 open/。
+
+- 2026-09-04 认领（open → doing）：修复随 sandbox-testing-chain 分支完成（注入判别两类 + storages 清理 + 驱动去暖场，实测 2/2 done）；分支合入验证后转 done。
