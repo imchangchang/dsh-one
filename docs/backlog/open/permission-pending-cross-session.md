@@ -6,11 +6,14 @@
 
 懒切换语义：点权限 pill 只记 pending（零 RPC、pill 显示目标模式），真正 `/permission` 命令推迟到**发送时**落地（`resolvePendingPermission`）。
 
-1. A 会话（tab 1）运行输出中，用户点权限 pill 选新模式 → 只写入 `ChatTabHost.pendingPermission`，A 不落地；
-2. 用户点侧栏会话 B → `openSession(B)` → 活动 chat tab（A 的 tab）无草稿（composerDirty=false）→ `replaceTabSession` 复用同一 tab（`ChatTabHost.replaceWith`）换成 B；
-3. 用户在 B 发送消息 → send handler 依次 `resolvePendingWorkspace/Preset/Permission` → `host.pendingPermission` 仍是 A 的值 → 对 **B 的 controller** 执行 `/permission <A 的选择>`。
+**用户补充关键信息（2026-09-03）：切换发生在空白会话（hero、无消息）里**——正常消息流对话没有权限切换入口（与 DSH web 一致），需求场景是「新会话开始前先定权限模式」。完整链条：
 
-「在 A 卡住」= A 里除非发送消息否则不落地（发送时输出中主按钮已是 Stop，用户自然切到 B 去发）；「跑进 B」= 第 2、3 步的泄漏。
+1. 会话 A（tab 1）运行输出中；用户点「新建会话」→ `openSession(blank)` 复用活动 tab 1（无草稿）→ `replaceWith` 把 tab 1 换成空白会话（A 的 controller 释放，A 服务端继续跑）；
+2. 空白 hero 里点权限 pill 选目标 → 只写入该 tab host 的 `ChatTabHost.pendingPermission`，pill 显示目标模式（=「卡住发不出去」的观感：hero 不发消息不落地）；
+3. 用户点侧栏 A（想查看输出）→ A 已无 tab → `openSession(A)` 复用同一 tab → `replaceWith` 又把 tab 换回 A——**pending 没清，跟着 tab 走**；
+4. A 仍输出中，用户发送消息 → send handler 的 `resolvePendingPermission` 把空白会话留下的 pending 对 **A 的 controller** 执行 `/permission`。
+
+「跑到另一个对话发送出去」= 第 3、4 步：pending 挂的是 tab 不是会话，tab 跨会话复用（A→空白→A 或任意 B）时旧切换意图贴着 tab 保留，发送时落在新会话上。
 
 ## 根因（已核实）
 
@@ -31,3 +34,4 @@ pending 状态挂在 `ChatTabHost`（per-tab），但 tab 是**跨会话复用**
 ## 变更记录
 
 - 2026-09-03 用户反馈：A 输出中切权限卡住，到 B 发消息时权限切换到 B 落地 → 代码核实完整链路（tab 复用不清 pending + 发送时落地到当前 tab 的 controller）→ 根因确认 → 记入 open/（未开始修改）。
+- 2026-09-03 用户补充：切换发生在空白会话（hero）里，正常消息流对话没有权限切换（与 DSH web 一致）→ 复现链修正为「A 输出中新建空白会话（同 tab 替换）→ hero 里切权限 → 点回 A（同 tab 再替换）→ A 发送时落地到 A」，根因不变（pending 挂 tab、replaceWith 不清、发送时落地）。
