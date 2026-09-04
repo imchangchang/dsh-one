@@ -126,3 +126,79 @@ test/sandbox/run-sandbox.sh --help   # 全部参数
 - **命令面板路径**：`Cmd+Shift+P` → insertText → Enter 走的是 workbench 顶层 DOM，最可靠；但 WebBridge 的 `cdp` 通道需要浏览器扩展开启开发者模式（`cdpFullAccess`），没开时回退到 evaluate 合成事件。
 - **真 dsh 的 queue 语义**：网关直接 `session.prompt` 无会话 attach 时只是排队、turn 不启动（真行为，不是坑）；要从扩展 UI 的 New Chat 入口发（attach 后 prompt 即跑）。
 - **新建会话**：点侧边栏 + 后即使 tab 没立刻出现，会话与 attach 已生效——标题生成由 dsh 异步跑（mock 模式下标题也是 mock 编排的，易验证：标题会变成「收到：…」）。
+
+## 自动驱动（Playwright）
+
+`test/sandbox/verify-driver.mjs` 用 Playwright 在宿主侧驱动 code-server 页面，对 ledger（`verify.ledger.json`）里**带 `driver` 字段**的条目做确定性回归：新建会话 → 发 prompt → 断 mock 回复 → 截图 → 把该项 `result` 写回 ledger（`done`/`fail`）。用于 CI/主线自动回归；本地人工循环走上面的 WebBridge 配方（见「与 WebBridge 的分工」）。
+
+### 前提
+
+- 沙盒**已起**（`test/sandbox/run-sandbox.sh start --mock-llm`，mock-llm 模式），`--url` 指向它。
+- Playwright 与 Chromium 已装（在仓库根执行）：
+
+  ```bash
+  npm i -D playwright
+  npx playwright install chromium
+  ```
+
+### 命令
+
+```bash
+node test/sandbox/verify-driver.mjs \
+  --ledger test/sandbox/verify.ledger.json \
+  --url http://127.0.0.1:8080 \
+  --out /tmp/dsh-sandbox-shots/ \
+  [--only F-01]            # 逗号分隔的 id 列表，可选；不给=全部装 driver 的项
+```
+
+- `--ledger <path>`：台账；默认 `test/sandbox/verify.ledger.json`。
+- `--url <code-server地址>`：默认 `http://127.0.0.1:8080`。
+- `--out <截图目录>`：每项截图 `<id>.png`；默认 `/tmp/dsh-sandbox-shots/`。
+- `--only F-01,R-01`：只跑指定 id。
+- `--headed` / `--keep-open`：调试用（有头浏览器 / 结束后不关浏览器）。
+
+### Ledger 字段
+
+驱动只读这两格（`driver` 可缺省，缺省的项跳过不执行）：
+
+```json
+{
+  "id": "F-01",
+  "driver": {
+    "prompt": "测试一下",             // 发送给新会话的消息
+    "expectText": "收到：测试一下"      // 断言：等待 webview 中出现该文本（超时 60s）
+  },
+  "result": "pending",              // 驱动每次跑完覆写：done（断言命中）/ fail（断言超时，notes 写原因）
+  "screenshots": []
+}
+```
+
+其余字段（`phase`/`name`/`expect`/`coverageNote` 等）是报告/人看的，驱动不动。跑完把更新后的 ledger 原样写回（JSON 格式化，见 `result`/`screenshots`/`notes`）。
+
+### 执行流程（每项）
+
+1. 打开 `--url`，等 `.monaco-workbench` 出现（超时 30s）。
+2. 点活动栏 `a.action-label[aria-label="DSH One"]`。
+3. 新建会话（主路径侧边栏「New ungrouped session」；后备命令面板「New Session」——见「已知边界」）。
+4. 在聊天 webview 内嵌同源 iframe（`#active-frame`）里对 `textarea#input` `fill`，再点 `.send-button`（合成 Enter 不可靠，点按钮可靠——实测结论）。
+5. 断 `expectText`（`frame.locator('body').filter({hasText})` 轮询，超时 60s）；命中 `done`，超时 `fail`。
+6. 截图 `page.screenshot({path: --out/<id>.png})`（整页可见区域，webview iframe 内容渲染进图）。
+7. `Meta+W` 关当前 chat tab，再进下一项。
+
+**实测坑（2026-09-04 记录）**：
+
+- 新会话**首条** prompt 的 mock 回显是 skill/上下文注入文本，不是 prompt 本身。dsh 在新会话首轮会把 skill 与上下文作为一条 **user 消息**注入，成为 mock「最后一条 user 消息」的匹配对象，于是兜底规则回显成「收到：<注入文本>」，`「查天气」→ get_weather` 规则也因此在首条不命中。驱动先发一条固定暖场消息（`开始`）消耗注入轮，再发 `driver.prompt`，此时它才是最后一条 user 消息，mock 干净回显「收到：<prompt>」/ 命中工具规则。这是 dsh 首轮注入的确定性行为。
+- webview 内嵌 iframe 会被宿主**反复重建**（见上方 WebBridge 配方），所以每条对 frame 的操作都要即时重扫 `page.frames()`，不能缓存 FrameHandle——驱动里 `findFrame` 每次都重扫。
+- webview 内的「New ungrouped session」按钮 hover 才可见；用 `.workspace-group[data-workspace-id="__ungrouped__"] .workspace-row` hover 后再点。
+
+### 与 WebBridge 的分工
+
+| | WebBridge（Kimi 浏览器扩展） | Playwright 驱动（本小节） |
+|---|---|---|
+| 驱动者 | 人/AI 在真实浏览器里点 | 宿主脚本（Node + Playwright） |
+| 触发 | 人工循环、临时截图/交互 | CI/主线自动回归 |
+| 确定性 | 靠人判断 | 脚本按 ledger `expectText` 断 |
+| 输出 | 人截图/记录 | ledger `result` + `<id>.png` + 汇总 |
+
+WebBridge 适合「边改边看」的本地人工迭代，Playwright 驱动适合「无人在场」的自动回归，两者互不替代。
+
