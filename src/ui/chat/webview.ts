@@ -2768,7 +2768,7 @@ function render(): void {
     if (anchor) chatCol.insertBefore(node, anchor)
     else chatCol.appendChild(node)
   }
-  const jobsLabel = state.backgroundJobs ? jobsChipLabel(state.backgroundJobs) : null
+  const jobsLabel = state.backgroundJobs ? jobsChipLabel(state.backgroundJobs, t) : null
   const headerWanted = !!(
     state.sessionTitle ||
     state.parentSession ||
