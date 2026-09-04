@@ -3,6 +3,7 @@
 	"icon.dshFish.description": "dsh pixel fish icon",
 	"dshOne.open.title": "Open Panel",
 	"dshOne.openExternal.title": "Open dsh Page in Browser",
+	"dshOne.start.title": "Start Service",
 	"dshOne.openInTab.title": "Open dsh Page",
 	"dshOne.restart.title": "Restart Service",
 	"dshOne.stop.title": "Stop Service",

@@ -115,6 +115,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void manager.ensureStarted()
       chatView.openPanel()
     }),
+    // Status bar "Retry Starting / Start Service": start (or retry) the
+    // service only, without opening the system browser. Opening the browser
+    // stays reserved for "Open in Browser" and the status bar click
+    // (dshOne.openExternal).
+    vscode.commands.registerCommand('dshOne.start', async () => {
+      await manager.ensureStarted()
+    }),
     // Status bar click: open the dsh web UI in the system browser (starting
     // the service first when needed).
     vscode.commands.registerCommand('dshOne.openExternal', async () => {
