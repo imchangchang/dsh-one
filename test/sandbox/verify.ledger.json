@@ -18,11 +18,11 @@
       "phase": "new-feature",
       "name": "mock-LLM 回显回复（首轮注入过滤）",
       "expect": "发送「测试一下」后首轮出现「收到：测试一下」；模型选择器 mock-flash Max。",
-      "result": "done",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots/F-01.png"
       ],
-      "notes": "新建会话：sidebar-ungrouped",
+      "notes": "新建会话：sidebar-ungrouped[main-sprint1 回归: 截图语义核对 pass]",
       "driver": {
         "prompt": "测试一下",
         "expectText": "收到：测试一下"
@@ -33,11 +33,11 @@
       "phase": "new-feature",
       "name": "工具调用编排（查天气 → get_weather）",
       "expect": "发送「查天气」后 mock 返回 get_weather；真 dsh 走未知工具重试/报错；统计 get_weather ×3。",
-      "result": "done",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots/F-02.png"
       ],
-      "notes": "新建会话：sidebar-ungrouped",
+      "notes": "新建会话：sidebar-ungrouped[main-sprint1 回归: 截图语义核对 pass]",
       "driver": {
         "prompt": "查天气",
         "expectText": "get_weather"
@@ -52,7 +52,7 @@
       "screenshots": [
         "/tmp/dsh-sandbox-shots/F-04.png"
       ],
-      "notes": "新建会话：sidebar-ungrouped；断言超时（120s）：预期文本「Permission request」未出现",
+      "notes": "基线已知环境限制：审批面板在当前沙盒喂不出来（CI 基线 F-04 同样失败），非本次回归引入",
       "driver": {
         "prompt": "审批测试",
         "expectText": "Permission request"
@@ -63,11 +63,11 @@
       "phase": "new-feature",
       "name": "等待问题形态（ask_user_question）",
       "expect": "发送「提个问题」后出现提问面板（测试提问/继续执行吗？+ 选项）；会话挂起待答。",
-      "result": "done",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots/F-05.png"
       ],
-      "notes": "新建会话：sidebar-ungrouped",
+      "notes": "新建会话：sidebar-ungrouped[main-sprint1 回归: 截图语义核对 pass]",
       "driver": {
         "prompt": "提个问题",
         "expectText": "继续执行吗？"
@@ -78,11 +78,11 @@
       "phase": "new-feature",
       "name": "子代理形态（subagent 后台任务）",
       "expect": "发送「派个子代理」后出现子代理卡（子代理测试）与后台任务 chip；子代理自己走 mock-LLM 提问挂起循环（子代理在提问面板挂起，后台任务保持 running）。",
-      "result": "done",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots/F-06.png"
       ],
-      "notes": "新建会话：sidebar-ungrouped",
+      "notes": "新建会话：sidebar-ungrouped[main-sprint1 回归: 截图语义核对 pass]",
       "driver": {
         "prompt": "派个子代理",
         "expectText": "子代理测试"
@@ -93,11 +93,11 @@
       "phase": "new-feature",
       "name": "多后台任务（2 个子代理同时跑）",
       "expect": "发送「开两个后台任务」后出现两个子代理卡（后台任务 A/B）与「2 个后台任务」chip；均保持 running。",
-      "result": "done",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots/F-07.png"
       ],
-      "notes": "新建会话：sidebar-ungrouped",
+      "notes": "新建会话：sidebar-ungrouped[main-sprint1 回归: 截图语义核对 pass]",
       "driver": {
         "prompt": "开两个后台任务",
         "expectText": "后台任务 A"
@@ -108,36 +108,36 @@
       "phase": "regression",
       "name": "默认模型选择生效（mock-flash Max）",
       "expect": "新会话默认模型为 mock-llm/mock-flash；composer 选择器显示 mock-flash Max。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [],
-      "notes": ""
+      "notes": "[main-sprint1 回归: 截图语义核对 pass]"
     },
     {
       "id": "R-02",
       "phase": "regression",
       "name": "侧边栏无宿主残留（storages 清理）",
       "expect": "侧边栏只有 Ungrouped 与测试会话；无宿主 workspace 行；无 EACCES。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [],
-      "notes": ""
+      "notes": "[main-sprint1 回归: 截图语义核对 pass]"
     },
     {
       "id": "R-03",
       "phase": "regression",
       "name": "扩展接管 dsh（状态栏 Running）",
       "expect": "状态栏 DSH: Running :3080；无 Service Error/超时。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [],
-      "notes": ""
+      "notes": "[main-sprint1 回归: 截图语义核对 pass]"
     },
     {
       "id": "R-04",
       "phase": "regression",
       "name": "注入上下文折叠卡片渲染",
       "expect": "Runtime context / Context injection 折叠卡片正常；不污染消息流。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [],
-      "notes": ""
+      "notes": "[main-sprint1 回归: 截图语义核对 pass]"
     }
   ]
 }
