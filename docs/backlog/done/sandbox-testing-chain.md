@@ -45,3 +45,5 @@
 - 2026-09-04 全部完成（doing → done）：test/sandbox/report.mjs（ledger→单文件 HTML 报告）+ verify-driver.mjs（Playwright 自动驱动，实测 F-01/R-01 done）+ playwright devDep。自测 typecheck + 368 测试 + build 通过。合入 gate 流程变更见 backlog open/merge-gate-test-report.md（待单独认领）。
 
 - 2026-09-04 改进（done → doing）：修复 mock 首轮注入匹配 + 沙盒 workspace 宿主路径清理（同分支未合，一起收口）。
+
+- 2026-09-04 收口完成（doing → done）：注入判别扩为两类（<system-reminder> 标签 + 无标签 Current runtime context 快照），mock 模式清 storages 注册表（EACCES 消除），驱动去暖场。实测 F-01/R-01 首轮直接命中 2/2 done，截图确认侧边栏无宿主残留。自测 369 测试全过。
