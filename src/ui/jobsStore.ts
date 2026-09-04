@@ -2,6 +2,8 @@ import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { subscribeMuxEvents } from '../server/muxEvents.ts'
+import { isModern } from '../server/serverAuth.ts'
+import { subscribeControlStream } from '../server/modernStreams.ts'
 import type { ActivityJob } from '../pure/activityTree.ts'
 
 /** Debounce window for mux-driven change notifications. */
@@ -79,12 +81,27 @@ export class JobsStore implements vscode.Disposable {
       this.debounceTimer = null
     }
     if (url) {
-      this.mux = subscribeMuxEvents(
-        url,
-        this.logger,
-        (frame) => this.onFrame(frame.method, frame.payload),
-        () => this.onMuxClose(url),
-      )
+      if (isModern(url)) {
+        // 0.1.2 无 session/jobs 事件：jobs 走共享 session/control 流
+        // （基线 + 增量，形状与旧 mux 帧一致）。
+        this.mux = subscribeControlStream(url, this.logger, (frame) => {
+          if (frame.type === 'jobs') {
+            this.onFrame('session/jobs', { sessionId: frame.sessionId, jobs: frame.jobs })
+          } else if (frame.type === 'baseline') {
+            const jobs = (frame.value.jobs ?? {}) as Record<string, unknown>
+            for (const [sessionId, rows] of Object.entries(jobs)) {
+              this.onFrame('session/jobs', { sessionId, jobs: rows })
+            }
+          }
+        })
+      } else {
+        this.mux = subscribeMuxEvents(
+          url,
+          this.logger,
+          (frame) => this.onFrame(frame.method, frame.payload),
+          () => this.onMuxClose(url),
+        )
+      }
     } else if (this.jobsBySession.size > 0) {
       this.jobsBySession = new Map()
       this.onDidChangeEmitter.fire()

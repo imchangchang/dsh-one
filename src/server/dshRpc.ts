@@ -4,6 +4,7 @@ import { historyWindowRequest } from '../pure/historyWindow.ts'
 import type { OutgoingImage } from '../pure/chatContract.ts'
 import type { AgentPresetLike } from '../pure/agentPreset.ts'
 import type { FileRefCandidate } from '../pure/fileReference.ts'
+import { cookieHeader, isModern } from './serverAuth.ts'
 
 export interface WorkspaceView {
   workspaceId: string
@@ -36,11 +37,65 @@ interface RpcResponse<T> {
   result?: { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 }
 
+/** Plain-record guard for legacy payloads wrapped into a `request` arg. */
+function asRecord(payload: unknown): Record<string, unknown> {
+  return typeof payload === 'object' && payload !== null && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)
+    : {}
+}
+
+/**
+ * dsh >= 0.1.2 rewrote the unary RPC wire: dot-method names became
+ * namespace/method paths (`session.list` → `session/list`) and payloads are
+ * wrapped per generated argument descriptors (`payload.args` with wire names
+ * like `request`/`_request`/`agentId`). The legacy names/payloads stay for
+ * 0.1.1; this table maps the legacy call surface onto the modern wire.
+ * The value is `undefined` (never returned) — the OLD method is gone on the
+ * modern server and any dot-method left unmapped is a caller bug.
+ */
+const MODERN_WIRE: Record<string, { method: string; args: (payload: unknown) => Record<string, unknown> }> = {
+  'session.list': { method: 'session/list', args: () => ({ _request: {} }) },
+  'session.create': { method: 'session/create', args: (p) => ({ request: asRecord(p) }) },
+  'session.rename': { method: 'session/rename', args: (p) => ({ request: asRecord(p) }) },
+  'session.fork': { method: 'session/fork', args: (p) => ({ request: asRecord(p) }) },
+  // session.prompt 的现代描述子要求客户端 mint requestId（落进用户消息头）。
+  'session.prompt': {
+    method: 'session/prompt',
+    args: (p) => ({ request: { requestId: crypto.randomUUID(), ...asRecord(p) } }),
+  },
+  'session.cancel': { method: 'session/cancel', args: (p) => ({ request: asRecord(p) }) },
+  'session.search': { method: 'session/search', args: (p) => ({ request: asRecord(p) }) },
+  'session.attachment': { method: 'session/attachment', args: (p) => ({ request: asRecord(p) }) },
+  'session.updateQueue': { method: 'session/updateQueue', args: (p) => ({ request: asRecord(p) }) },
+  'session.selectModel': { method: 'session/selectModel', args: (p) => ({ request: asRecord(p) }) },
+  'session.models': { method: 'session/modelCatalog', args: () => ({}) },
+  'workspace.create': { method: 'workspace/create', args: (p) => ({ request: asRecord(p) }) },
+  'workspace.delete': { method: 'workspace/delete', args: (p) => ({ request: asRecord(p) }) },
+  'workspace.archiveSession': {
+    method: 'workspace/archiveSession',
+    args: (p) => ({ request: { sessionId: asRecord(p).sessionId } }),
+  },
+  'subagent.list': {
+    method: 'subagents/list',
+    args: (p) => ({ parentSessionId: asRecord(p).parentSessionId }),
+  },
+  'agentPreset.list': { method: 'agentPresets/list', args: () => ({}) },
+  'agentPreset.select': {
+    method: 'agentPresets/select',
+    args: (p) => ({ agentId: asRecord(p).sessionId, agentPreset: asRecord(p).agentPreset }),
+  },
+}
+
 /**
  * Generic unary Gateway RPC call (same envelope as the host.describe probe).
  * `timeoutMs` guards against a hung gateway; pass `null` for calls whose
  * duration is workload-bound (e.g. commands/execute awaits a whole
  * compaction), where a client-side deadline would abort real work.
+ *
+ * The modern (0.1.2) server authenticates every /api/* call with the
+ * authority-bound cookie registered by ServerManager; the legacy 0.1.1
+ * server has no auth, so no cookie header is sent and the request is
+ * byte-identical to the pre-0.1.2 extension.
  */
 export async function callRpc<T>(
   baseUrl: string,
@@ -49,18 +104,34 @@ export async function callRpc<T>(
   timeoutMs: number | null = 15_000,
 ): Promise<T> {
   const rpcId = crypto.randomUUID()
-  const res = await fetch(`${baseUrl}/api/${method}`, {
+  const cookie = cookieHeader(baseUrl)
+  const modern = isModern(baseUrl)
+  let wireMethod = method
+  let wirePayload = payload
+  if (modern) {
+    if (method.includes('.')) {
+      const mapped = MODERN_WIRE[method]
+      if (!mapped) throw new Error(`${method}: no dsh 0.1.2 wire mapping (dot-method removed)`)
+      wireMethod = mapped.method
+      wirePayload = { args: mapped.args(payload) }
+    }
+    // slash methods already use the modern args form; pass through unchanged.
+  }
+  const res = await fetch(`${baseUrl}/api/${wireMethod}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type: 'client-request', rpcId, method, payload }),
+    headers: {
+      'content-type': 'application/json',
+      ...(cookie !== undefined ? { cookie } : {}),
+    },
+    body: JSON.stringify({ type: 'client-request', rpcId, method: wireMethod, payload: wirePayload }),
     ...(timeoutMs === null ? {} : { signal: AbortSignal.timeout(timeoutMs) }),
   })
   const body = (await res.json()) as RpcResponse<T>
   if (!res.ok || body.rpcId !== rpcId || !body.result) {
-    throw new Error(`${method}: bad gateway response (HTTP ${res.status})`)
+    throw new Error(`${wireMethod}: bad gateway response (HTTP ${res.status})`)
   }
   if (!body.result.ok) {
-    throw new Error(`${method} failed: ${body.result.error.code} ${body.result.error.message}`)
+    throw new Error(`${wireMethod} failed: ${body.result.error.code} ${body.result.error.message}`)
   }
   return body.result.value
 }
@@ -434,6 +505,27 @@ export interface SessionModels {
 
 /** Advisory model directory for one session (session.models). */
 export async function sessionModels(baseUrl: string, sessionId: string): Promise<SessionModels> {
+  if (isModern(baseUrl)) {
+    // 0.1.2: per-session selection lives in the session.list projections
+    // (modelSelection); the catalog itself is the unary modelCatalog.
+    const [catalog, sessions] = await Promise.all([
+      callRpc<{
+        default?: SessionModelSelection
+        groups?: Array<{ id: string; name: string; models: SessionCatalogModel[] }>
+        failures?: Array<{ id: string; name: string; message: string }>
+      }>(baseUrl, 'session.models', {}),
+      listSessions(baseUrl).catch(() => []),
+    ])
+    const current = sessions
+      .find((s) => s.sessionId === sessionId)
+      ?.projections?.values.modelSelection as SessionModelSelection | undefined
+    return {
+      current: current ?? catalog.default ?? { provider: '', model: '' },
+      routable: (catalog.groups?.length ?? 0) > 0,
+      groups: catalog.groups ?? [],
+      failures: catalog.failures ?? [],
+    }
+  }
   return callRpc(baseUrl, 'session.models', { sessionId })
 }
 
@@ -614,10 +706,76 @@ export async function exportSessionLog(baseUrl: string, sessionId: string): Prom
   const url = new URL('/api/session.export', baseUrl)
   url.searchParams.set('sessionId', sessionId)
   url.searchParams.set('includeDescendants', 'true')
-  const res = await fetch(url)
+  const cookie = cookieHeader(baseUrl)
+  const res = await fetch(url, {
+    ...(cookie === undefined ? {} : { headers: { cookie } }),
+  })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     throw new Error(`session.export: HTTP ${res.status}${detail ? ` ${detail}` : ''}`)
   }
   return new Uint8Array(await res.arrayBuffer())
+}
+
+/**
+ * dsh >= 0.1.2 live history page (session/page). The modern stream model
+ * replaces the legacy unary window: `throughSeq` comes from the follow
+ * stream's snapshot cursor (inclusive cut); `beforeSeq`/`maxMessages` page
+ * backwards from it.
+ */
+export interface ModernSessionPage {
+  records: unknown[]
+  hasMore: boolean
+}
+
+export async function sessionPage(
+  baseUrl: string,
+  sessionId: string,
+  throughSeq: number,
+  beforeSeq?: number,
+  maxMessages?: number,
+): Promise<ModernSessionPage> {
+  return callRpc<ModernSessionPage>(baseUrl, 'session/page', {
+    args: {
+      request: {
+        address: { kind: 'session', sessionId },
+        throughSeq,
+        ...(beforeSeq === undefined ? {} : { beforeSeq }),
+        ...(maxMessages === undefined ? {} : { maxMessages }),
+      },
+    },
+  })
+}
+
+/**
+ * dsh >= 0.1.2 waterfall answer (`$events/result`): one approval/question
+ * request delivered on the $events stream is answered by correlating the
+ * stream's clientId with the frame eventId. `outcome.value` is the raw
+ * listener result ('allowed-once'/'rejected', the question answer object…).
+ */
+export async function sendWaterfallResult(
+  baseUrl: string,
+  clientId: string,
+  eventId: string,
+  value: unknown,
+): Promise<void> {
+  const cookie = cookieHeader(baseUrl)
+  const res = await fetch(`${baseUrl}/api/$events/result`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(cookie === undefined ? {} : { cookie }),
+    },
+    body: JSON.stringify({
+      type: 'client-request',
+      rpcId: crypto.randomUUID(),
+      method: '$events/result',
+      payload: { args: { clientId, eventId, outcome: { kind: 'result', value } } },
+    }),
+    signal: AbortSignal.timeout(15_000),
+  })
+  const body = (await res.json().catch(() => null)) as { result?: { ok: boolean; error?: { message?: string } } } | null
+  if (!res.ok || body?.result?.ok !== true) {
+    throw new Error(`$events/result rejected: ${body?.result?.error?.message ?? `HTTP ${res.status}`}`)
+  }
 }

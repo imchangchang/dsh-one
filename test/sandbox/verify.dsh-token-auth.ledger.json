@@ -1,0 +1,77 @@
+{
+  "title": "Sprint 2：dsh 0.1.2-rc.1 token 认证兼容（全量协议迁移）",
+  "branch": "agent/dsh-token-auth",
+  "commit": "be2f87b",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.2-rc.1（F 项，实例 dsh-v012，容器内升级全局 dsh）/ 0.1.1-rc.2（R 项，实例 dsh-legacy，镜像原 pin）",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-dsh-v012:latest / dsh-sandbox-dsh-legacy:latest",
+    "driver": "playwright (verify-driver.mjs)",
+    "date": "2026-09-06"
+  },
+  "coverageNote": "本报告验证：0.1.2 认证链路（spawn → stdout token → 换 cookie → RPC/WS 全带 cookie）+ 新协议（slash RPC/remote.mux 流）下的会话列表/聊天/工具流；0.1.1 旧路径回归。不覆盖：真桌面 VS Code、真模型输出（mock 端点回放）、审批面板喂不出来（与 CI 基线 F-04 相同的沙盒限制，协议层面已由 .dev-host/verify-modern.mjs 对真 0.1.2 服务器验证）。 另：0.1.2 下沙盒（code-server）里点状态栏「打开 dsh web」不可用——code-server 的 openExternal 会把代理 URL 的 query（?token=）剥掉（实测：asExternalUri 返回带 token 的 URL，打开时被剥成 /proxy/<port>/ → 401）；这是 code-server 环境固有行为，桌面 VS Code 无此代理层不受影响。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "0.1.2 认证启动 + mock 回显（全链路）",
+      "expect": "扩展在 0.1.2-rc.1 上启动成功（状态栏 running 无 Service Error）：spawn → stdout ?token= → GET / 换票 → cookie 全链路。新建会话发送「测试一下」，聊天出现「收到：测试一下…」——证明 session.list/prompt 新端点（slash + args）与 cookie 均打通；dsh-web.log 里无 token 明文。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dsh-v012/F-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "截图核对：DSH: Running :3080、聊天出现「收到：测试一下」、模型 chip 正常；扩展日志「dsh auth exchanged」「re-owning authenticated dsh (pidfile token)」；扩展日志无 token 泄漏。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "0.1.2 工具调用编排",
+      "expect": "发送「查天气」触发 mock 的 get_weather 工具调用，聊天出现 get_weather 工具卡（未知工具重试/报错路径，统计行显示 2 turns）——证明 session/prompt + 流式事件（session/follow 流）在 0.1.2 下工作。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dsh-v012/F-02.png"
+      ],
+      "driver": {
+        "prompt": "查天气",
+        "expectText": "get_weather"
+      },
+      "notes": "截图核对：工具卡 get_weather（未知工具重试/Deep diving）与 mock 回显同屏，2 steps。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "0.1.2 审批水瀑布（bash 升级参数）",
+      "expect": "发送「审批测试」后出现 Permission request 卡片（允许一次/拒绝），点 Allow once 后审批答复经 $events/result 送达，会话继续。注：CI 基线 F-04 显示审批面板在本沙盒喂不出来（既有环境限制）；若同样失败，结论按限制写，协议层由 verify-modern 覆盖。",
+      "result": "fail",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dsh-v012/F-03.png"
+      ],
+      "driver": {
+        "prompt": "审批测试",
+        "expectText": "Permission request"
+      },
+      "notes": "与 CI 基线 F-04 相同的既有沙盒限制：mock 配置未开启 ask approval policy，bash 升级参数不会触发审批请求（直接拒绝/结束），面板喂不出来，非本任务回归。协议层由容器内脚本验证：$events ready(clientId)/emit 正常；waterfall 触发需要 policy=ask 配置，不在本任务范围。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "0.1.1 旧路径回归：认证启动 + mock 回显",
+      "expect": "0.1.1-rc.2（镜像原 pin，无认证）上扩展行为与此前一致：启动无 Service Error，新建会话发送「测试一下」出现「收到：测试一下…」——证明既有无 token 路径未受影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dsh-v012/R-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "0.1.1-rc.2（dsh-sandbox-dsh-legacy 实例）截图核对：Running、mock 回显、mock-flash Max 与基线行为一致。"
+    }
+  ]
+}
