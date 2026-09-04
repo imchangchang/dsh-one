@@ -1302,6 +1302,9 @@
         const s = window.sessionsTree('sess-4')
         Object.assign(s, window.SESSION_GROUPS_FIXTURE)
         s.activeGroupId = 'g-demo'
+        // store 快照已按选中组预过滤（本场景模拟其结果：组内两个 workspace，
+        // 无未分组虚拟组）；fixture 未经过 host，这里手写过滤后的 workspaces。
+        s.workspaces = s.workspaces.filter((w) => w.workspaceId !== UNGROUPED)
         return s
       })(),
       title: '侧栏面板（选中「演示」分组：只显示组内 workspace）',
@@ -1315,6 +1318,7 @@
         Object.assign(s, window.SESSION_GROUPS_FIXTURE)
         s.activeGroupId = 'g-dev' // 只有 ws-main
         s.query = '重构'
+        s.workspaces = s.workspaces.filter((w) => w.workspaceId === 'ws-main')
         s.workspaces[0].sessions = [sess('sess-2', '重构 sessionStore', '5 小时前')]
         return s
       })(),
@@ -1329,6 +1333,7 @@
         const s = window.sessionsTree('sess-4')
         Object.assign(s, window.SESSION_GROUPS_FIXTURE)
         s.activeGroupId = 'g-daily' // 空组：没有任何 workspace 归组
+        s.workspaces = [] // store 预过滤结果（组内 0 个 workspace，未分组也不显示）
         return s
       })(),
       title: '侧栏面板（选中空分组：组专属空态）',
@@ -1346,7 +1351,7 @@
       interact: `(() => {
         document.querySelector('.ws-group-select')?.click()
         const items = [...document.querySelectorAll('.menu-item')]
-        items.find((i) => i.textContent?.includes('管理分组'))?.click()
+        items.find((i) => i.textContent?.includes('Manage groups'))?.click()
       })()`,
       title: '侧栏面板（管理分组视图：组行 + 工作区打标勾选）',
       expect: '点「Manage groups…」后弹出管理视图弹层（居中卡片）：① 头部「Manage groups」+ 右上 ✕ 关闭；② 「Groups」区：三行组（演示 2 / 开发 1 / 日常 0），每行最左为六点拖拽手柄，行尾 ✎（Rename group）+ 🗑（Delete group）按钮；当前选中组「演示」行高亮（selected 背景）；③ 区底是新建行（placeholder「Group name」输入框 + 「Create」按钮）；④ 分隔线下「Workspaces in group: 演示 2」区，列出全部 workspace——dsh-one ✓、dsh-web research ✓（都在演示组）两项勾选；弹层外主列表仍可见（半透明遮罩盖住）。',
@@ -1362,7 +1367,7 @@
       interact: `(() => {
         document.querySelector('.ws-group-select')?.click()
         const items = [...document.querySelectorAll('.menu-item')]
-        items.find((i) => i.textContent?.includes('管理分组'))?.click()
+        items.find((i) => i.textContent?.includes('Manage groups'))?.click()
         const row = document.querySelector('.wsg-row[data-group-id="g-dev"]')
         row?.querySelector('[aria-label="Rename group"]')?.click()
         const input = row?.querySelector('.wsg-row-rename-input')
@@ -1383,7 +1388,7 @@
       interact: `(() => {
         document.querySelector('.ws-group-select')?.click()
         const items = [...document.querySelectorAll('.menu-item')]
-        items.find((i) => i.textContent?.includes('管理分组'))?.click()
+        items.find((i) => i.textContent?.includes('Manage groups'))?.click()
         document.querySelector('.wsg-row[data-group-id="g-daily"] [aria-label="Delete group"]')?.click()
       })()`,
       title: '侧栏面板（管理分组：删除确认态）',
