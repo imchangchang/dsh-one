@@ -20,3 +20,4 @@
 - 2026-09-08 用户反馈 → 排查定位（Playwright 复现两个缺陷）→ 开发完成提交（worktree）→ open 条目直接建立并认领（doing）
 - 2026-09-08 开发完成（worktree agent/composer-ghost-after-send，commit 39e7e24）：sendCurrent 清空后补高亮层就地收尾 + 首帧空态归档保留 stashedDraft + harness 基线场景 composer-clear-after-send；自测 449/449 测试通过、typecheck 通过、浏览器诊断 A1-A5/B/C 全回填正常、dev-host 时序复现修复前后对比；验收报告 test/sandbox/verify.composer-ghost-after-send.report.html（F-01/F-02/R-01/R-02 全 pass）→ 待 dev-finish 打 done
 - 2026-09-08 dev-finish 通过（自测 typecheck + 449/449 + build 全绿），done 标记 done/composer-ghost-after-send；doing → done，待主线合入
+- 2026-09-04 主线合入后人工确认（用户确认合入）→ closed
