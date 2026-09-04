@@ -412,5 +412,16 @@
   "No workspaces yet. Add one from the panel first, then tag it here.": "No workspaces yet. Add one from the panel first, then tag it here.",
   "This group has no workspaces yet. Tag workspaces in \"Manage groups…\" first.": "This group has no workspaces yet. Tag workspaces in \"Manage groups…\" first.",
   "You can also create a new group from the row above.": "You can also create a new group from the row above.",
-  "Manage groups": "Manage groups"
+  "Manage groups": "Manage groups",
+  "Archive all sessions in this workspace": "Archive all sessions in this workspace",
+  "Archived sessions will be hidden from the list. {0} session(s) cannot be archived and were skipped.": "Archived sessions will be hidden from the list. {0} session(s) cannot be archived and were skipped.",
+  "Copy folder reference": "Copy folder reference",
+  "Copy path": "Copy path",
+  "Folder reference copied. Paste it into the input box to reference this folder": "Folder reference copied. Paste it into the input box to reference this folder",
+  "Groups…": "Groups…",
+  "No archivable sessions in this workspace": "No archivable sessions in this workspace",
+  "No groups yet. Create one from the group bar above.": "No groups yet. Create one from the group bar above.",
+  "Open folder in a new window": "Open folder in a new window",
+  "Path copied to clipboard": "Path copied to clipboard",
+  "Workspace: {0}": "Workspace: {0}"
 }

@@ -412,5 +412,16 @@
   "No workspaces yet. Add one from the panel first, then tag it here.": "还没有工作区。先在面板里添加一个，再在这里打标。",
   "This group has no workspaces yet. Tag workspaces in \"Manage groups…\" first.": "该分组还没有工作区。先在「管理分组…」里给工作区打标。",
   "You can also create a new group from the row above.": "也可以用上方一行的 + 新建一个分组。",
-  "Manage groups": "管理分组"
+  "Manage groups": "管理分组",
+  "Archive all sessions in this workspace": "归档该工作区全部会话",
+  "Archived sessions will be hidden from the list. {0} session(s) cannot be archived and were skipped.": "归档后会从列表中隐藏。{0} 个会话无法归档，已跳过。",
+  "Copy folder reference": "复制文件夹引用",
+  "Copy path": "复制路径",
+  "Folder reference copied. Paste it into the input box to reference this folder": "已复制文件夹引用，粘贴到输入框即可引用该文件夹",
+  "Groups…": "分组…",
+  "No archivable sessions in this workspace": "该工作区没有可归档的会话",
+  "No groups yet. Create one from the group bar above.": "还没有分组。用上方分组栏的 + 新建一个。",
+  "Open folder in a new window": "在新窗口打开文件夹",
+  "Path copied to clipboard": "路径已复制到剪贴板",
+  "Workspace: {0}": "工作区：{0}"
 }
