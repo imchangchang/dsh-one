@@ -1,0 +1,32 @@
+{
+  "title": "DSH One 沙盒验收报告：permission-pending-cross-session（懒切换 pending → per-session 意图归档）",
+  "branch": "agent/permission-pending-cross-session",
+  "commit": "67f17df",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox:latest",
+    "driver": "node test/sandbox/verify-driver.mjs --ledger test/sandbox/verify.permission-pending-cross-session.ledger.json --url http://127.0.0.1:8080 --out /tmp/dsh-sandbox-shots/",
+    "date": "2026-09-04T09:45:00Z"
+  },
+  "coverageNote": "本次改动是宿主层状态归属重构（三个 pending 裸字段 → per-session 意图归档，UI 展示不变），沙盒只能覆盖 driver 确定性链（新建会话 → 发送 → 断 mock 回复）。修复目标场景（A 输出中新建空白会话 → hero 切权限 → 切回 A → 发送时落地）需要真 VS Code 的活动 tab 跨会话复用（replaceWith）与侧栏会话切换，verify-driver 与 webview 独立渲染（ai-visual-validation）都覆盖不到；该场景连同「切回原会话 pending 恢复」「组合意图落点」留人工 dev-ui-test 验收。",
+  "items": [
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "发送链回归（send handler → applySendIntent 收口）",
+      "expect": "新建会话后发送「测试一下」，mock-LLM 回显「收到：测试一下」——证明无 pending 意图时 applySendIntent 直接放行、发送主链不受影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "新建会话：sidebar-ungrouped"
+    }
+  ]
+}
