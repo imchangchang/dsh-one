@@ -366,8 +366,8 @@ const TRASH_ICON = [
 const CLEAR_ICON = ['M4 4l8 8', 'M12 4l-8 8']
 /** 恢复（undo）描边图标：回收站行菜单「恢复」用。 */
 const RESTORE_ICON = ['M10 3.5L7 6.5l3 3', 'M7 6.5h3.2a3.6 3.6 0 0 1 0 7.2H6.4']
-/** 返回箭头（‹）：回收站视图头。 */
-const BACK_ICON = ['M10 3.5L5.5 8l4.5 4.5']
+/** 下拉箭头（▼，描边）：抽屉头「收起」用——抽屉向下滑出/收起，用下箭头指示。 */
+const COLLAPSE_ICON = ['M3.5 5.5L8 10l4.5-4.5']
 
 function makePinIcon(): SVGSVGElement {
   const svg = strokeSvg(PIN_ICON)
@@ -1215,21 +1215,23 @@ function onDrawerKey(e: KeyboardEvent): void {
   }
 }
 
-/** 回收站抽屉头：‹ 收起 + 「回收站 (N)」+ 清空回收站，右侧「恢复全部」。 */
+/** 回收站抽屉头：▼ 收起 + 「回收站 (N)」（计数徽标紧跟标题）+ 清空回收站，右侧「恢复全部」。 */
 function renderRecycleHeader(): HTMLElement {
   const count = recycleCount(sessionsSnapshot)
   const header = el('div', 'recycle-header')
   const back = el('button', 'recycle-back')
-  back.appendChild(strokeSvg(BACK_ICON, 12))
-  back.appendChild(el('span', undefined, t('‹ Back')))
+  back.appendChild(strokeSvg(COLLAPSE_ICON, 12))
+  back.appendChild(el('span', undefined, t('Back')))
   back.addEventListener('click', () => closeRecycleDrawer())
   header.appendChild(back)
   const title = el('div', 'recycle-header-title')
   title.setAttribute('data-tip', t('Recycle bin ({0})', count))
   title.appendChild(el('span', undefined, t('Recycle bin')))
+  // 计数徽标紧跟标题文本（同一内联组）：不占 flex 主位、不被省略号截掉，
+  // 也不被标题挤到行尾和清空按钮挨着（用户实测反馈位置不对）。
+  title.appendChild(el('span', 'recycle-header-count', String(count)))
   header.appendChild(title)
-  header.appendChild(el('span', 'recycle-header-count', String(count)))
-  const emptyBtn = panelTool(strokeSvg(TRASH_ICON, 18), t('Empty recycle bin'))
+  const emptyBtn = panelTool(strokeSvg(TRASH_ICON, 22), t('Empty recycle bin'))
   emptyBtn.disabled = count === 0
   emptyBtn.addEventListener('click', () => openRecycleArchiveModal(recycleSessionModels()))
   header.appendChild(emptyBtn)

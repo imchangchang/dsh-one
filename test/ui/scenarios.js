@@ -1096,7 +1096,7 @@
       interact: `document.querySelector('.recycle-entry')?.click()`,
       theme: 'dark',
       title: '侧栏面板（回收站抽屉：半栏叠加 + 提手 + 放大清空图标）',
-      expect: '点击底部「Recycle bin (3)」入口后抽屉从面板底部滑出，占约一半高度：顶部提手横条（grab 光标区）；抽屉头 = ›Back 收起 + 「Recycle bin」标题 + 计数徽标 3 + 垃圾桶图标按钮（32px 点击区、18px 图标、悬停提示 Empty recycle bin）+ 「Restore all」；会话按原 workspace 分组（组头 dsh-one 计数 2 / 已删除的目录 计数 1，各带折叠箭头。未分组虚拟组不出现——没有可归组的回收站会话）；主列表上半部仍可见（dsh-one / dsh-web research 组头与底部的回收站入口…入口被抽屉盖住属预期）。',
+      expect: '点击底部「Recycle bin (3)」入口后抽屉从面板底部滑出，占约一半高度：顶部提手横条（grab 光标区）；抽屉头 = ▼ Back 收起按钮（单个下拉箭头，无重复「‹」）+ 标题「Recycle bin」右紧跟计数徽标 3（与标题同组，不挤到行尾）+ 垃圾桶图标按钮（34px 点击区、22px 图标、悬停提示 Empty recycle bin；与「Restore all」视觉相称）+ 「Restore all」；会话按原 workspace 分组（组头 dsh-one 计数 2 / 已删除的目录 计数 1，各带折叠箭头。未分组虚拟组不出现——没有可归组的回收站会话）；主列表上半部仍可见（dsh-one / dsh-web research 组头与底部的回收站入口…入口被抽屉盖住属预期）。',
     },
 
     'sessions-menu-busy': {

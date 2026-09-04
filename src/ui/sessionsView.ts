@@ -200,13 +200,14 @@ const SESSIONS_STYLE = `
   .recycle-back:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
   .recycle-header-title {
     flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 4px;
   }
   .recycle-header-title > span:first-child {
-    display: inline-block; max-width: 100%;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
+    flex: 0 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  /* 计数徽标（标题右侧，独立节点）：flex:none 不被标题省略号截掉——计数是
-     视图头/入口的关键信息（EN 300px 侧栏标题会被按钮挤掉时徽标恒显示）。 */
+  /* 计数徽标（紧跟标题文本，同一内联组）：flex:none 不被标题省略号截掉——
+     计数是视图头/入口的关键信息（窄侧栏标题被按钮挤掉时徽标恒显示）。 */
   .recycle-header-count {
     flex: none; font-size: 10px; font-weight: 400; padding: 0 5px; border-radius: 8px;
     background: var(--vscode-badge-background, rgba(127,127,127,.25));
@@ -216,9 +217,10 @@ const SESSIONS_STYLE = `
   /* 回收站视图头按钮小号化（压全局 button 默认尺寸）；不换行。 */
   .recycle-header button { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
   /* 清空回收站用图标按钮（300px 侧栏一行放不下三个文本按钮 + 标题）：
-     ≥32px 点击区 + 18px 图标，与「恢复全部」文本按钮相称（用户实测反馈 20px 太小）；
+     34×34 点击区 + 22px 图标，与「恢复全部」文本按钮相称（用户实测反馈
+     20px 太小、放大后仍偏小）；padding 归零 + border-box 保证按钮尺寸精确；
      悬停提示/aria 都带全名「Empty recycle bin」。 */
-  .recycle-header .sessions-tool { width: 32px; height: 32px; }
+  .recycle-header .sessions-tool { width: 34px; height: 34px; padding: 0; box-sizing: border-box; }
   .workspace-row {
     display: flex; align-items: center; gap: 6px; padding: 0 10px;
     height: 32px; box-sizing: border-box; overflow: hidden;
