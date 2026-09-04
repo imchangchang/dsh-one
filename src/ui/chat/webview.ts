@@ -5978,6 +5978,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         // 历史里存的是 canonical @长路径（发送时展开的结果）；还原成显示 token，
         // 与第一次输入时的形态一致。
         input.value = restoreFileMentionTokens(lastUser.text, mentionBindings)
+        // 原附件一并恢复（文件形式后可直接再编辑重发）：按 path 去重，
+        // 图片带 image 标记（缩略图需磁盘数据，恢复为图标 chip 可接受）。
+        const existing = new Set(pendingFiles.map((f) => f.path))
+        const restoredFiles = (lastUser.files ?? [])
+          .filter((f) => !existing.has(f.path))
+          .map((f) => ({ name: f.name, path: f.path, ...(f.image ? { image: true } : {}) }))
+        if (restoredFiles.length > 0) pendingFiles = [...pendingFiles, ...restoredFiles]
       }
       render()
     }
