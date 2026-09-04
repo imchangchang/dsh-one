@@ -30,3 +30,5 @@ const jobsLabel = state.backgroundJobs ? jobsChipLabel(state.backgroundJobs) : n
 ## 变更记录
 
 - 2026-09-03 用户反馈中文界面后台运行 job 没翻译 → 核实根因（webview.ts:2658 调 jobsChipLabel 未传 t，走 enFallback；zh bundle 译文存在）→ 记入 open/（未开始修改）。
+
+- 2026-09-04 认领（open → doing）：按条目方案实施——webview.ts 的 jobsChipLabel 调用补传 t（实际行号 :2771，条目中 :2658 已漂移），中英文沙盒验证。
