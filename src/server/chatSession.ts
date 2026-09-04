@@ -847,7 +847,9 @@ export class ChatSessionController implements vscode.Disposable {
       this.logger.warn(`chat: feedback baseline failed for ${this.sessionId}: ${errorText(error)}`)
     }
     if (this.disposed) return
-    this.attach()
+    // 0.1.2 的 follow/control/events 订阅已在 initModern 内完成，这里不再
+    // 重复 attach（每 attach 一次 = 一条新的 follow 流 + 一段快照）。
+    if (!isModern(this.url)) this.attach()
     this.ready = true
     this.push(true)
     // Model label rides no projection; fetch it once the stream is attached.
@@ -889,7 +891,7 @@ export class ChatSessionController implements vscode.Disposable {
         onSnapshot,
         onEvent: (event) => {
           if (this.disposed) return
-          this.onFrame({ method: 'session/event', payload: { event } })
+          this.onFrame({ method: 'session/event', payload: { sessionId: this.sessionId, event } })
         },
         onError: () => this.onMuxClose(),
       })
@@ -1045,7 +1047,7 @@ export class ChatSessionController implements vscode.Disposable {
         onSnapshot: (snapshot) => this.applyModernBaseline(snapshot),
         onEvent: (event) => {
           if (this.disposed) return
-          this.onFrame({ method: 'session/event', payload: { event } })
+          this.onFrame({ method: 'session/event', payload: { sessionId: this.sessionId, event } })
         },
         onError: () => this.onMuxClose(),
       },
