@@ -47,3 +47,5 @@
 - 2026-09-04 改进（done → doing）：修复 mock 首轮注入匹配 + 沙盒 workspace 宿主路径清理（同分支未合，一起收口）。
 
 - 2026-09-04 收口完成（doing → done）：注入判别扩为两类（<system-reminder> 标签 + 无标签 Current runtime context 快照），mock 模式清 storages 注册表（EACCES 消除），驱动去暖场。实测 F-01/R-01 首轮直接命中 2/2 done，截图确认侧边栏无宿主残留。自测 369 测试全过。
+
+- 2026-09-04 合入通过（done → closed）：merge f0b8d28，主线复测 typecheck + 370 测试全过，人工确认报告并同意合入。
