@@ -607,6 +607,24 @@
       interact: `postMessage({ type:'attachmentData', attachmentId:'steer-img-1', mediaType:'image/png', data:'${PNG_RED}' }, '*');`,
     },
 
+    'steering-pending-narrow': {
+      // 回归锚点：676px 消息列宽下气泡 max-width:85% 按整行解析（不按
+      // shrink-to-fit 的包含块），气泡不被压窄提前换行——interact 把聊天列
+      // 收窄到 676px 复现原报告列宽。
+      state: base({
+        running: true,
+        queue: [
+          { id: 'q-1', placement: 'steering', text: '比如说remote ssh这个插件', editText: '比如说remote ssh这个插件' },
+        ],
+      }),
+      interact: `(() => {
+        const col = document.querySelector('.chat-col')
+        if (col) { col.style.flex = 'none'; col.style.width = '676px'; col.style.minWidth = '676px' }
+      })()`,
+      title: '等待插话（676px 窄列宽：气泡单行）',
+      expect: '对话流末尾（turn-status 行之后）显示气泡「比如说remote ssh这个插件」完整一行（不提前换行），气泡左侧同一行紧贴处理中圆圈（spinner），整体右对齐；气泡宽度≈内容自然宽，与插话落地后的正式用户消息一致。',
+    },
+
     subagents: {
       state: base({ subagents: [{ sessionId: 'sub-1', title: '子代理 A', running: true, updatedAt: Date.now(), children: [{ sessionId: 'sub-1-1', title: '孙代理', running: false, updatedAt: Date.now() }] }] }),
       title: '子代理下拉',
