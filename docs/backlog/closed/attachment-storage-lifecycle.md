@@ -31,3 +31,4 @@
 - 2026-09-04 认领（open → doing，worktree: agent/attachment-storage）：按方案实施——扫描优化（lstat 跳 symlink、子目录上限 64、候选池缓存 + 目录 mtime 指纹失效、query 内存过滤）与两处注释修正；清理不做应用级，随 dsh 归档语义。
 
 - 2026-09-04 开发完成（doing → done，worktree: agent/attachment-storage，dev-finish @ 81058cd）：方案第 2/3 条落地——扫描优化（lstat 跳 symlink、子目录排序后前 64、候选池按 cwd 缓存 + 已扫目录 mtime 指纹失效、query 池上内存过滤、总数上限 200、webview 250ms 防抖不变，新模块 src/ui/workspaceScan.ts）+ 两处注释修正；清理不做（第 1 条）与 shouldFoldPastText 不变（第 4 条）、归档命令不做附件联动（第 5 条，确认）。自测：typecheck + 397 项单测（含新增 workspaceScan 11 项）+ build 全绿；测试报告 test/sandbox/verify.attachment-storage.report.html——宿主侧扫描行为驱动不可达，由单测覆盖，R-01 聊天主流程回归通过（沙盒 --instance attachment-storage，端口 8085）。
+- 2026-09-04 主线合入后人工确认（用户审报告通过）→ closed
