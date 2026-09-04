@@ -2542,40 +2542,42 @@ function buildWorkspaceGroupsMenu(w: WorkspaceNodeModel): HTMLElement {
 
 /**
  * 「分组…」二级菜单：多选勾 tag（复用 workspaceGroupSetMembership 全量替换接口，
- * 与管理视图打标同源）。勾选 = 归组、点已勾 = 移除，勾完不关菜单可连续勾，
- * 每次提交后在同一位置重建菜单刷新勾选态（快照回来前即可看到新态）。
- * 关闭（Esc / 点击外部）后 closePopover 解冻并用最新快照重渲染列表。
+ * 与管理视图打标同源）。勾选 = 归组、点已勾 = 移除，勾完不关菜单可连续勾；
+ * 提交后就地翻转该项自身的 ✓（不重建菜单——快照往返是异步的，重建会读到旧
+ * 归属显示成未勾）。关闭（Esc / 点击外部）后 closePopover 解冻，重开菜单时
+ * 从最新快照渲染勾选态。
  */
 function showWorkspaceGroupsSubmenu(w: WorkspaceNodeModel, anchor: HTMLElement): void {
-  const body = el('div')
-  const rect = anchor.getBoundingClientRect()
-  const open = (): void => {
-    body.replaceChildren(...workspaceGroupCheckItems(w, open))
-    showPopoverAt(Math.min(rect.right + 6, window.innerWidth - 4), rect.top, body)
-  }
-  open()
-}
-
-function workspaceGroupCheckItems(w: WorkspaceNodeModel, refresh: () => void): HTMLElement[] {
   const snap = sessionsSnapshot
+  const body = el('div')
   if (!snap || snap.groups.length === 0) {
-    return [menuItem(t('No groups yet. Create one from the group bar above.'), { disabled: true, onClick: () => {} })]
+    body.appendChild(menuItem(t('No groups yet. Create one from the group bar above.'), { disabled: true, onClick: () => {} }))
+  } else {
+    for (const g of snap.groups) {
+      const item = menuItem(g.name, {
+        right: String(g.count),
+        checked: (snap.groupMembership[w.workspaceId] ?? []).includes(g.id),
+        onClick: () => {
+          // 勾选态随时取最新快照的归属（快速连点不依赖本次渲染时的旧值），
+          // 与管理视图 buildGroupManageMembers 的提交口径一致。
+          const current = sessionsSnapshot?.groupMembership[w.workspaceId] ?? []
+          const becameMember = !current.includes(g.id)
+          const next = becameMember ? [...current, g.id] : current.filter((id) => id !== g.id)
+          post({ type: 'workspaceGroupSetMembership', workspaceId: w.workspaceId, groupIds: next })
+          item.classList.toggle('checked', becameMember)
+          const chk = item.querySelector('.check')
+          if (becameMember) {
+            if (!chk) item.appendChild(el('span', 'check', '✓'))
+          } else {
+            chk?.remove()
+          }
+        },
+      })
+      body.appendChild(item)
+    }
   }
-  const member = new Set((snap.groupMembership[w.workspaceId] ?? []).filter((id) => snap.groups.some((g) => g.id === id)))
-  return snap.groups.map((g) =>
-    menuItem(g.name, {
-      right: String(g.count),
-      checked: member.has(g.id),
-      onClick: () => {
-        // 勾选态随时取最新快照的归属（快速连点不依赖本次渲染时的旧值），
-        // 与管理视图 buildGroupManageMembers 的提交口径一致。
-        const current = sessionsSnapshot?.groupMembership[w.workspaceId] ?? []
-        const next = member.has(g.id) ? current.filter((id) => id !== g.id) : [...current, g.id]
-        post({ type: 'workspaceGroupSetMembership', workspaceId: w.workspaceId, groupIds: next })
-        refresh()
-      },
-    }),
-  )
+  const rect = anchor.getBoundingClientRect()
+  showPopoverAt(Math.min(rect.right + 6, window.innerWidth - 4), rect.top, body)
 }
 
 /** 「归档该工作区全部会话」：收集该工作区可归档会话（同多选归档规则，置顶/
