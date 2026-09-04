@@ -537,14 +537,35 @@
     question: {
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
       title: '工具提问（composer 接管面板）',
-      expect: '输入区位置渲染接管面板：header「等待你的回答」+ 最小化按钮（单题**无**分页器）；正文：问题「用哪种排序？」+ header「排序方向」+ 单项选择（最新优先/最旧优先）+ 「其他（自定义回答）」输入框 + 「提交」按钮（初始禁用——半透明不可点）；消息流尾部无 pending 卡，无普通 composer。',
+      expect: '输入区位置渲染接管面板：header「等待你的回答」+ 最小化按钮（单题**无**分页器）；正文：问题「用哪种排序？」+ header「排序方向」+ 单项选择（最新优先/最旧优先 + **「其他」选项**，bullet ·）+ **「其他（自定义回答）」输入框初始隐藏** + 「提交」按钮（初始禁用——半透明不可点）；消息流尾部无 pending 卡，无普通 composer。',
     },
 
     'question-selected': {
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
       title: '工具提问（已选一项，未提交）',
       interact: `document.querySelectorAll('.question-options .option-btn')[0]?.click()`,
-      expect: '点击「最新优先」后：该选项高亮（selected outline，· 实心），**接管面板仍在**（没有提交——答案没有发走、对话没有继续）；「提交」按钮变为可用（不透明）。',
+      expect: '点击「最新优先」后：该选项高亮（selected outline，· 实心），**接管面板仍在**（没有提交——答案没有发走、对话没有继续）；**「其他（自定义回答）」输入框仍隐藏**（点选项后收起了自定义输入通道）；「提交」按钮变为可用（不透明）。',
+    },
+
+    'question-other': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
+      title: '工具提问（点「其他」选项展开输入框）',
+      interact: `document.querySelectorAll('.question-options .option-btn')[2]?.click()`,
+      expect: '点击「其他」后：**「其他」高亮**（selected outline），「最新优先/最旧优先」无高亮；**其下方出现「其他（自定义回答）」输入框**（visible，input 聚焦）；「提交」按钮**仍禁用**——只点「其他」未输文本不算已答。',
+    },
+
+    'question-other-typed': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
+      title: '工具提问（「其他」输入框里打字）',
+      interact: `(() => { const opt = document.querySelectorAll('.question-options .option-btn')[2]; if (opt) opt.click(); const i = document.querySelector('.question-custom input'); if (i) { i.value = '可以再讨论一下'; i.dispatchEvent(new Event('input', { bubbles: true })) } })()`,
+      expect: '「其他」输入框有文本「可以再讨论一下」；「最新优先/最旧优先」**无高亮**（打字即取消先前选项高亮——单选 custom 覆盖 selected 的视觉一致）；「其他」保持高亮（自定义回答通道激活）；「提交」按钮可用。',
+    },
+
+    'question-other-back-to-option': {
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
+      title: '工具提问（自定义输入后点回选项）',
+      interact: `(() => { const opts = document.querySelectorAll('.question-options .option-btn'); if (opts[2]) opts[2].click(); const i = document.querySelector('.question-custom input'); if (i) { i.value = '可以再讨论一下'; i.dispatchEvent(new Event('input', { bubbles: true })) } if (opts[0]) opts[0].click() })()`,
+      expect: '自定义输入后再点「最新优先」：该选项高亮、「其他」不再高亮；**「其他（自定义回答）」输入框隐藏、内容清空**（自定义草稿被选项覆盖）；「提交」按钮可用。',
     },
 
     'question-multi': {

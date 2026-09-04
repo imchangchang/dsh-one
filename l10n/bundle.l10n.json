@@ -178,6 +178,7 @@
   "Open in VS Code built-in browser": "Open in VS Code built-in browser",
   "Open in system browser": "Open in system browser",
   "Open {0} in VS Code": "Open {0} in VS Code",
+  "Other": "Other",
   "Other (custom answer)": "Other (custom answer)",
   "Output token limit reached": "Output token limit reached",
   "Outputs": "Outputs",

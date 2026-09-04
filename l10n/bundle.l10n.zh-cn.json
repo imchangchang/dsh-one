@@ -178,6 +178,7 @@
   "Open in VS Code built-in browser": "在 VS Code 内置浏览器中打开",
   "Open in system browser": "在系统浏览器中打开",
   "Open {0} in VS Code": "在 VS Code 中打开 {0}",
+  "Other": "其他",
   "Other (custom answer)": "其他（自定义回答）",
   "Output token limit reached": "已达到输出 token 上限",
   "Outputs": "产物",
