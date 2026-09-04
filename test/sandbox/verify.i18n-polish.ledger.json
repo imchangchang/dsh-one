@@ -1,0 +1,108 @@
+{
+  "title": "DSH One 沙盒验收报告（i18n-polish：jobs chip 漏传 t / preset 内置映射过 t）",
+  "branch": "agent/i18n-polish",
+  "commit": "ba5706a",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en（沙盒）+ zh-cn（webview harness 注入真实 bundle；沙盒 code-server 无 zh nls，zh 界面切不出，见 coverageNote）",
+    "theme": "dark",
+    "image": "dsh-sandbox:latest",
+    "driver": "node test/sandbox/verify-driver.mjs --ledger test/sandbox/verify.i18n-polish.ledger.json（driver 项，en 沙盒）+ .dev-host/preset-shot.mjs（en preset 文案提取/截图）+ .dev-host/zh-shots.mjs（zh harness 场景，测试产物）",
+    "date": "2026-09-04T00:00:00Z",
+    "roster": "容器内 @deepseek-ai/dsh@0.1.1-rc.2 config/agent-presets/*/preset.yml（标准/PTC/极简/创造，system）+ 宿主 ~/.dsh/.agent-presets/kimi/preset.yml（Kimi 模式，user preset）"
+  },
+  "coverageNote": "沙盒里 code-server 只带 en 的 vscode nls：argv.json locale / 运行期 --locale / Playwright 浏览器语言三种切 zh 的方式都实测无效（extension host 的 vscode.env.language 恒为 en），所以【中文界面】的条目用 webview harness 确定性验证：.dev-host/zh-harness.html 在加载 dist/chatWebview.js（本任务构建产物）前注入真实 l10n/bundle.l10n.zh-cn.json 为 window.__DSH_L10N__，状态手工构造；条目 1 另做 A/B——同一个 zh 场景用修复前的 chatWebview.js 渲染出英文「1 background jobs running」，修复后为「1 个后台任务运行中」。沙盒 en 用真 extension + 真 dsh 验证 preset 英文（修复目标）与既有功能回归。真桌面 VS Code、真模型输出、平台专项（Windows/macOS）不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "中文界面 jobs chip 显示「1 个后台任务运行中」（条目 1 主验证）",
+      "expect": "注入真实 zh bundle 后渲染有 1 个 running job 的状态：头部 chip 文本「1 个后台任务运行中」（修复前同一状态为英文「1 background jobs running」——A/B 对照见 notes）；子代理 chip「1 个子代理」保持。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/zh-jobs-running-zh.png"
+      ],
+      "notes": "zh harness（.dev-host/zh-harness.html，真实 zh bundle 注入）；提取 headerChips=['1 个子代理','1 个后台任务运行中']。A/B 对照：修复前 chatWebview.js 同场景 headerChips=['1 个子代理','1 background jobs running']。沙盒 zh locale 不可行（见 coverageNote），driver 断言无法用于 zh 项。",
+      "driver": null
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "中文界面 job 已结束 chip 与下拉菜单中文（条目 1 结束态路径）",
+      "expect": "有 1 个 completed job 的状态：头部 chip「1 个后台任务」（无像素环）；点击后下拉行「subagent 子代理测试」「已完成 30 秒」等中文摘要。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/zh-jobs-settled-zh.png",
+        "/tmp/dsh-sandbox-shots/zh-jobs-settled-zh-menu.png"
+      ],
+      "notes": "zh harness；提取 headerChips=['1 个子代理','1 个后台任务']，下拉 popover 内容 ['subagent子代理测试已完成30秒']。",
+      "driver": null
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "英文界面空会话 preset 选择器显示英文（条目 2 主验证）",
+      "expect": "en 沙盒（真 extension + 真 dsh）新建空会话：hero preset chip 与下拉菜单显示 Standard mode / PTC mode / Minimal mode / Cordis mode + 英文描述（修复前为 preset.yml 固定中文「标准模式 / PTC 模式 / 极简模式 / 创造模式」）；user preset 行仍显示 roster 原文「Kimi 模式」。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/preset-en-hero.png",
+        "/tmp/dsh-sandbox-shots/preset-en-menu.png"
+      ],
+      "notes": "locale=en（私有镜像容器 dsh-sandbox-i18n @8082，含修复的 vsix——共享 tag 镜像被并行任务重建为旧扩展，发现后改用私有容器复验）；提取 heroLabel='Standard mode'（悬停 title 英文描述），menuItems=[Standard mode / PTC mode / Minimal mode / Cordis mode + 英文描述, Kimi 模式 + 中文原文（user preset 保持 roster 文案）]。",
+      "driver": null
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "英文界面已启动会话头部 preset 只读标签显示英文",
+      "expect": "en 沙盒启动会话后，头部只读 preset-chip 文本为「Standard mode」，悬停 title 为内置映射的英文描述——头部标签与选择器同源，跟随界面 locale。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/preset-en-header.png"
+      ],
+      "notes": "locale=en（同上私有容器 @8082）；提取 headerPreset='Standard mode'，title=英文描述。",
+      "driver": null
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "中文界面 preset 选择器文案保持中文且与 roster 一致",
+      "expect": "注入真实 zh bundle 的空会话 hero：preset chip「标准模式」，下拉 标准模式/创造模式/Kimi 模式 + 中文描述——zh bundle 译文与 preset.yml 原文逐字一致，修复后中文界面文案肉眼不变；kimi（user preset）保持 roster 原文。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/zh-hero-preset-zh.png",
+        "/tmp/dsh-sandbox-shots/zh-hero-preset-zh-menu.png"
+      ],
+      "notes": "zh harness；提取 heroPresetLabel='标准模式'，menuNames=['标准模式','创造模式','Kimi 模式']，menuDescs 为中文描述（与 preset roster 逐字一致）。",
+      "driver": null
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "英文界面 jobs chip 仍显示英文",
+      "expect": "en 下渲染有 1 个 running job 的状态：头部 chip 文本「1 background jobs running」——t() 路径在英文 locale 不回归（webview 英文不注入译文 map，key 即文案）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/zh-jobs-running-en.png"
+      ],
+      "notes": "zh harness 同状态、?noln=1（不注入 zh bundle，等价英文界面）；提取 headerChips=['1 subagents','1 background jobs running']。沙盒 driver（本项原计划）实测超时：mock 场景子代理的 job 只存活数秒，chip 瞬态消失（基线 F-06/F-07 也只断言卡片文本、从未断言 chip；dsh 快照的 settled job 会清空 backgroundJobs）——非本次修复引入，改用 harness 确定性覆盖。",
+      "driver": null
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "mock 回显会话基线无回归",
+      "expect": "en 沙盒发送「测试一下」后首轮出现「收到：测试一下」——扩展端到端交互（新建会话 → 发 prompt → mock 回复渲染）不受两条修复影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-03.png"
+      ],
+      "notes": "locale=en（私有镜像容器 dsh-sandbox-i18n @8082）；driver 断言命中（done→人工核对截图：回显文本出现在消息流）。",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      }
+    }
+  ]
+}
