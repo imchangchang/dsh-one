@@ -34,3 +34,4 @@ recycle-bin（回收站，方案 A）合入后用户实测反馈两点：
 - 2026-09-05 用户实测反馈两点（整栏切换不符预期 / 清空图标太小，附截图）→ 建条目（open）
 
 - 2026-09-05 认领（worktree recycle-bin-drawer）：开始开发。
+- 2026-09-05 开发完成（worktree recycle-bin-drawer，branch agent/recycle-bin-drawer，done tag 98835dc）：两点落地——① 抽屉式半栏覆盖：点击「回收站 (N)」不再整栏切换，改为从侧栏底部滑出抽屉（默认 50% 高、无遮罩直接叠，主列表上半部仍可交互），收起 = 点击外部 / ‹ Back / Esc / 提手拖到下拉到底；提手（grab 横条）上拉可扩到 90%（两档吸附 50%/90%），面板内保留原有全部功能（按原 workspace 分组、组头计数+折叠、行菜单恢复/归档、恢复全部、清空 modal、置顶保护），行菜单/归档弹窗内的点击不触发「点击外部收起」。② 清空回收站图标按钮 24px → 32px（图标 16→18px），保留悬停提示。附带修复：harness scenarios.js 的 sessionsTree 缺回收站快照字段（recycle-bin 合入时遗留，导致基线场景渲染中断）→ 补齐并新增 sessions-recycle-drawer 场景；回收站入口空态修饰类 empty → is-empty（避开 chat 侧全局 .empty 样式冲突，仅 harness 合成样式受影响）。自测全绿（typecheck/test 449/build）；沙盒验收 ledger 全 pass（verify.recycle-bin-drawer.report.html，F-01..F-06 + R-01/R-02；E2E 尾段 webview 帧重建伪影已在 R-01 注明并以受控复现二验）。无 UI 行为变化以外的纯逻辑改动。
