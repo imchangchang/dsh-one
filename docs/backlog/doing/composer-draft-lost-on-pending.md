@@ -28,3 +28,5 @@
 ## 变更记录
 
 - 2026-09-03 用户提出需求（弹卡不丢草稿），核实根因并实测复现 → open
+
+- 2026-09-06 认领（agent/composer-draft-clear，worktree .worktrees/composer-draft-clear）→ doing

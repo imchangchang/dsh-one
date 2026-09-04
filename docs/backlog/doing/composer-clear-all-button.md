@@ -31,3 +31,5 @@ composer 有内容（文本 / 图片 / 文件附件）时，输入框右上角�
 ## 变更记录
 
 - 2026-09-03 用户提出需求，核实现状后讨论必要性（认可做，作本地增强）→ open
+
+- 2026-09-06 认领（agent/composer-draft-clear，worktree .worktrees/composer-draft-clear）→ doing
