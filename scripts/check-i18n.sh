@@ -251,7 +251,8 @@ for (const [file, lines] of Object.entries(added)) {
 }
 
 // ========== 3. manifest 层：package.json 新增 %KEY% 必须两个 nls 都有 ==========
-for (const line of (added['package.json'] || [])) {
+// added[file] 元素是 {no, text} 对象（见 parseDiff），这里取 text 行内容。
+for (const { text: line } of (added['package.json'] || [])) {
   for (const key of pctKeys(line)) {
     const missing = []
     if (!(key in enNls)) missing.push('package.nls.json')
