@@ -411,5 +411,6 @@
   "Workspaces in group: {0}": "工作区归组：{0}",
   "No workspaces yet. Add one from the panel first, then tag it here.": "还没有工作区。先在面板里添加一个，再在这里打标。",
   "This group has no workspaces yet. Tag workspaces in \"Manage groups…\" first.": "该分组还没有工作区。先在「管理分组…」里给工作区打标。",
-  "You can also create a new group from the row above.": "也可以用上方一行的 + 新建一个分组。"
+  "You can also create a new group from the row above.": "也可以用上方一行的 + 新建一个分组。",
+  "Manage groups": "管理分组"
 }

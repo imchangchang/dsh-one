@@ -411,5 +411,6 @@
   "Workspaces in group: {0}": "Workspaces in group: {0}",
   "No workspaces yet. Add one from the panel first, then tag it here.": "No workspaces yet. Add one from the panel first, then tag it here.",
   "This group has no workspaces yet. Tag workspaces in \"Manage groups…\" first.": "This group has no workspaces yet. Tag workspaces in \"Manage groups…\" first.",
-  "You can also create a new group from the row above.": "You can also create a new group from the row above."
+  "You can also create a new group from the row above.": "You can also create a new group from the row above.",
+  "Manage groups": "Manage groups"
 }
