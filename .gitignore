@@ -5,3 +5,4 @@ dist/
 .worktrees/
 .gh-cache/
 test/sandbox/.build-mock-llm/
+test/sandbox/*.report.html

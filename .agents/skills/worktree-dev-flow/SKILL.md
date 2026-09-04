@@ -10,8 +10,8 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 - **主线（main）不开发任何东西**，只负责测试、集成、合入。所有开发都在 worktree 里。
 - 每个任务一个 worktree：`.worktrees/<slug>`，分支 `agent/<slug>`，独立装依赖，不跨目录复用。
 - worktree 里高频小提交，commit message 写清每步做了什么——合并后靠分支历史还原开发过程。
-- 完成 = 自测通过 + 打 `done/<slug>` 标记；合入只能由主线做，且**串行合入**：一次只跑一个 dev-merge，等它完全结束（含末尾重建 dist）再合下一个任务。串行靠 `main-lock.sh` 的主线写锁**强制**（不是自觉）：任何会写 main 分支历史或主工作区内容的操作都要先 `acquire_main_lock`，拿不到锁直接退出；`dev-start`/`dev-finish`/`dev-ui-test` 只写 worktree 自己的分支/tag/dist，不需要锁。**合入前须人工在 dev-ui-test 窗口验收通过**（见流程 4）。
-- **worktree 开发 session 不主动合入主线**：职责止于 dev-finish（自测通过 + done 标记），dev-merge 只由主线 agent 跑，开发 session 不得自行合入。
+- 完成 = 自测通过 + 打 `done/<slug>` 标记；合入只能由主线做，且**串行合入**：一次只跑一个 dev-merge，等它完全结束（含末尾重建 dist）再合下一个任务。串行靠 `main-lock.sh` 的主线写锁**强制**（不是自觉）：任何会写 main 分支历史或主工作区内容的操作都要先 `acquire_main_lock`，拿不到锁直接退出；`dev-start`/`dev-finish`/`dev-ui-test` 只写 worktree 自己的分支/tag/dist，不需要锁。**合入前 gate = 人工审查 dev-finish 产出的测试报告**（`test/sandbox/verify.<slug>.report.html`：新增功能项在前 + 现有功能回归项在后，每项带期望/截图/通过或失败结论；见流程 5）——报告无问题直接合入；对功能有疑问才人工开窗 `dev-ui-test.sh` 验收（见流程 6）。
+- **worktree 开发 session 不主动合入主线**：职责止于 dev-finish（自测 + 生成测试报告 + done 标记），dev-merge 只由主线 agent 跑，开发 session 不得自行合入。
 - 不要并行起抢同一资源的东西（同端口 dev server、同一个应用实例）；worktree 只隔离代码。例外：`dev-ui-test.sh` 起的隔离 VSCode 实例——user-data-dir 每个 worktree 一份，可并行。
 - 任务划分尽量不动同一批文件；做完尽快合，拖越久 rebase 冲突越多。
 
@@ -22,7 +22,18 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 1. 认领 backlog 条目：`git mv docs/backlog/open/<条目>.md docs/backlog/doing/`，文件末尾追加变更记录（见 backlog-folder-index）。
 2. `scripts/dev-start.sh <任务名>`——任意位置跑：建 worktree + 分支 + 装依赖。
 3. `cd .worktrees/<slug>` 进去开发，高频小提交。
-4. UI 类改动：`scripts/dev-ui-test.sh`——构建 dist 后起该 worktree 专属的隔离 VSCode 实例（设置/扩展隔离在 `/tmp/dsh-uidev/<slug>/`，不碰日常 VSCode），人工验证渲染与交互没问题再继续；纯逻辑改动可跳过。**视觉验收是合入前的强制 gate**：这一步由「人工」在 dev-finish 之后、dev-merge 之前执行（`dev-finish` 只代表自测通过，`done → closed` 最终以人工窗口验收通过为前提），避免「合入主线才发现问题再打回」。**代理/会话别自己跑 dev-ui-test**：沙箱或远程环境下 `code` 命令会静默返回 exit 0 但窗口不弹出（`/tmp/dsh-uidev/<slug>/user-data` 不生），而本机 GUI 会话（用户本机 dsh web 服务下跑的会话）里 `code` 会**真的弹出窗口并阻塞等待**——两种情况都别试，窗口是给用户看的。这一步直接把命令丢给用户本人，在真实终端跑，等验收结果回传再继续。**交给用户的单元 = 一条可复制的命令 + 应有的现象，分单下发**（示例）：
+4. UI 类改动的视觉自测（**开发自测环节，不再是合入门禁**）：二选一或都用——
+   - 沙盒场景驱动：`test/sandbox/run-sandbox.sh start --mock-llm` 起沙盒后跑 `test/sandbox/verify-driver.mjs`，对场景做确定性验证（ledger 字段、命令与坑见 `test/sandbox/README.md`；沙盒容器是共享单实例——先 `run-sandbox.sh status` 确认空闲再 `start`，别与其他任务并行抢）。
+   - `ai-visual-validation`：浏览器独立渲染 webview + 截图对照期望（见该 skill）。
+   纯逻辑改动可跳过视觉自测；跳过不影响测试报告——报告里现有功能的回归项仍要跑（流程 5）。
+5. **生成测试报告**（合入门禁产物，dev-finish 前置）：ledger 场景 → `verify-driver.mjs` 跑 → `report.mjs` 渲染 HTML。
+   a. 场景定稿进任务专属 ledger：`cp test/sandbox/verify.ledger.example.json test/sandbox/verify.<slug>.ledger.json`（**任务专属文件名，不动 CI 基线** `test/sandbox/verify.ledger.json`）；`phase: new-feature` 条目排前、`regression` 排后，每项写清 `id/name/expect`，能自动断的加 `driver` 字段，截图产物放 `/tmp/dsh-sandbox-shots/`。
+   b. 跑驱动（有 `driver` 项时，沙盒已起）：`node test/sandbox/verify-driver.mjs --ledger test/sandbox/verify.<slug>.ledger.json --url http://127.0.0.1:8080 --out /tmp/dsh-sandbox-shots/`——结果写回 ledger（断言命中 `done`；超时/异常 `fail` + `notes` 原因 + 截图路径）。
+   c. 逐项看截图定结论：符合期望的 `done → pass`，不符的改 `fail` 并在 `notes` 写明；**渲染报告前不能留 `pending`/`done`**——「每项通过/失败结论」是 gate 的判定依据。
+   d. 渲染：`node test/sandbox/report.mjs --ledger test/sandbox/verify.<slug>.ledger.json --out test/sandbox/verify.<slug>.report.html`（截图 base64 内嵌，单文件可分发）。
+   e. 提交 ledger（报告 HTML 已 gitignore，不必提交），把报告路径交给用户审——**合入门禁 = 人审报告**：无问题直接等合入；有疑问才走流程 6。
+   f. 无 UI 行为变化的任务（纯逻辑/文档）可不建 ledger，在条目变更记录里注明「无 UI 行为变化，沙盒报告不适用」。
+6. （仅当报告审查有疑问时）人工 `dev-ui-test.sh` 窗口验收——不再是默认门禁，命令与交接收口不变：构建 dist 后起该 worktree 专属的隔离 VSCode 实例（设置/扩展隔离在 `/tmp/dsh-uidev/<slug>/`，不碰日常 VSCode），人工验证渲染与交互。**代理/会话别自己跑 dev-ui-test**：沙箱或远程环境下 `code` 命令会静默返回 exit 0 但窗口不弹出（`/tmp/dsh-uidev/<slug>/user-data` 不生），而本机 GUI 会话（用户本机 dsh web 服务下跑的会话）里 `code` 会**真的弹出窗口并阻塞等待**——两种情况都别试，窗口是给用户看的。这一步直接把命令丢给用户本人，在真实终端跑，等验收结果回传再继续。**交给用户的单元 = 一条可复制的命令 + 应有的现象，分单下发**（示例）：
 
 ```
 【测试命令】（单条，复制即跑，已含进入 worktree）
@@ -42,18 +53,18 @@ cd <repo-root>/.worktrees/<slug> && bash <repo-root>/scripts/dev-ui-test.sh
 规则：
 
 - **命令必须用 markdown 代码块包裹（fenced code block，` ```bash ` 起止），且只包命令本身**：用户点选/复制代码块内容即整条命令，不带「测试命令」「应有现象」等说明文字。说明文字（含现象清单）一律放代码块外，不要混进代码块。
-- **一个单元 = 一个功能/一个窗口门禁**。worktree 里有多个要验的功能就拆成多个单元，各自"一条命令 + 各自现象"，不要全塞进一条消息。
-- **命令只给 dev-ui-test 这一条**。`ui-visual.sh`（截图）、`npm test`、`dev-finish` 是别的步骤，**不混进**这个给窗口门禁的单元——它们不能替代人的眼。
+- **一个单元 = 一个功能/一次开窗验收**。worktree 里有多个要验的功能就拆成多个单元，各自"一条命令 + 各自现象"，不要全塞进一条消息。
+- **命令只给 dev-ui-test 这一条**。`ui-visual.sh`（截图）、`npm test`、`dev-finish` 是别的步骤，**不混进**这个开窗验收单元——它们不能替代人的眼。
 - **命令里必须包含 `cd <repo-root>/.worktrees/<slug>`**：`dev-ui-test.sh` 靠 `git rev-parse --show-toplevel` 定位当前 worktree，cwd 在 worktree 里它才把**这个 worktree** 当扩展加载；cwd 在主线会打开主线而不是本任务。
 - 这是**纯对话框交接**：不生成脚本文件、不改 `dev-ui-test.sh`，就是交给人复制即跑。
-5. `scripts/dev-finish.sh`——worktree 里跑：检查已提交 → 自测 → 打 `done/<slug>` 标记；随后 backlog 条目 `doing → done`（git mv + 追加变更记录）。
+7. `scripts/dev-finish.sh`——worktree 里跑：检查已提交（ledger/本次改动都已提交，未提交会挡）→ 自测 → 打 `done/<slug>` 标记；随后 backlog 条目 `doing → done`（git mv + 追加变更记录）。
 
 **到此为止**：不跑 dev-merge、不合入主线，那是主线 agent 的活。
 
 **主线 agent**（main 上）：
 
 1. `scripts/dev-merge.sh <slug>`——校验 → rebase 到最新 main → 复测 → --no-ff 合入 → 清理。合入串行进行，一次一个任务。
-2. 视觉验证已由人工在 dev-ui-test 窗口验收通过（headless 子代理条目的 gate 环节），合入后只做回归：复测（typecheck/test/build）+ 已验功能抽查，通过 → backlog 条目 `done → closed`；测试有问题 → `done → open`（对应 agent 重新认领再走一遍），代码层面怎么处理见下面「合入后测试发现问题」。
+2. 合入前 gate 已过（测试报告已人工审查通过，见流程 5；有疑问的功能已按流程 6 人工开窗验收），合入后只做回归：复测（typecheck/test/build）+ 已验功能抽查，通过 → backlog 条目 `done → closed`；测试有问题 → `done → open`（对应 agent 重新认领再走一遍），代码层面怎么处理见下面「合入后测试发现问题」。
 3. `scripts/dev-merge.sh` 不带参数：列出所有待合并任务（即 `docs/backlog/done/` 里的条目）。
 
 rebase 有冲突时：进 worktree 解决 → 重跑 `dev-finish.sh`（backlog 记录同步更新）→ 回主线重跑 `dev-merge.sh <slug>`。主线始终不被冲突污染。
@@ -76,6 +87,7 @@ rebase 有冲突时：进 worktree 解决 → 重跑 `dev-finish.sh`（backlog �
 3. `.gitignore` 加 `.worktrees/`。
 4. 把「核心规则」和「流程」两节写进工程的 `AGENTS.md`，让所有 session（人或 AI）都能看到。
 5. 脚本假设主分支叫 `main`，不是的话全局替换脚本里的 `main`。
+6. 流程 5 的测试报告约定（ledger + `test/sandbox/report.mjs`）是本仓库 dsh-one 的落地细节；其他工程没有对应工具时，把该步换成各自可执行的报告/验收方式。
 
 ## 注意
 
