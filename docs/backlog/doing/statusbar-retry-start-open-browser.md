@@ -33,3 +33,4 @@
 
 - 2026-09-03 Remote-SSH 调研时发现（statusbar.ts:77,83 与 extension.ts:120-123 核实）→ 记入 open/（未开始修改，定级待确认）。
 - 2026-09-04 方案讨论拍板：走方案 A（新增 `dshOne.start` 只启动不开浏览器，Retry/Start 改绑），方案 B 否决；补充 package.json 命令注册与 remote-ssh-support 条目分工 → 条目更新（仍 open/，未开始开发）。
+- 2026-09-04 认领：worktree slug `statusbar-start-command`，按方案 A 实施（新增 `dshOne.start` 只启动/重试不开浏览器，Retry Starting / Start Service 改绑；开发结果见条目完成时追加）。
