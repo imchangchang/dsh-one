@@ -1792,6 +1792,62 @@
       interact: `document.querySelector('.produced-more')?.click()`,
       expect: '点击「+ N 个文件」展开后：14 个长文件名 chip **多行换行铺开**（行尾不截断、不裁掉 chip），每行 label「产物」左侧只出现一次且与首行对齐；每个 chip 内超宽文件名以省略号截断、悬停 title 为完整路径；「收起」在最后一个 chip 后。',
     },
+
+    // 消息右键菜单（user 气泡）：右键弹「复制」坐标菜单（与既有外链菜单同款
+    // popover），复制纯文本。interact 先把图片字节喂进懒取缓存（缩略图上屏
+    // 等效宿主回执），再在气泡上派发 contextmenu 打开菜单截图。
+    'msg-menu-user': {
+      png: PNG_RED,
+      state: base({
+        messages: [
+          {
+            kind: 'user', id: 'u-copy',
+            text: '看下这张截图和源码，然后回复。',
+            images: [{ attachmentId: 'att-1', mediaType: 'image/png', name: 'chart.png' }],
+            files: [
+              { name: 'img1.png', path: '/Users/a/dsh-one/dsh-attachments/img1.png', image: true },
+              { name: 'note.md', path: '/Users/a/dsh-one/dsh-attachments/note.md' },
+            ],
+          },
+          at('收到，我先看截图和附带的源码。'),
+        ],
+      }),
+      interact: `(() => {
+        const s = window.SCENARIOS['msg-menu-user']
+        window.postMessage({ type: 'attachmentData', attachmentId: 'att-1', mediaType: 'image/png', data: s.png }, '*')
+        window.postMessage({ type: 'fileThumb', path: '/Users/a/dsh-one/dsh-attachments/img1.png', mediaType: 'image/png', data: s.png }, '*')
+        setTimeout(() => {
+          document.querySelector('.msg.user')?.dispatchEvent(
+            new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 220 }),
+          )
+        }, 150)
+      })()`,
+      title: '用户消息右键菜单：复制（纯文本）',
+      expect: '用户消息区域出现坐标定位的右键菜单（popover，深色圆角、贴近右击点、钳制在视口内）：一项「Copy」，带左侧复制图标；菜单与消息气泡同时可见。消息附件区（气泡上方）：chart.png 与 img1.png 两张红色 48px 缩略图（底部名称横幅）、note.md 文档图标文件 chip；气泡正文只有「看下这张截图和源码，然后回复。」——复制针对纯文本，附件不进剪贴板。',
+    },
+
+    // 消息右键菜单（assistant 气泡）：producedFiles 消息右键同样只弹「复制」。
+    'msg-menu-assistant': {
+      state: base({
+        messages: [
+          u('帮我改下界面，出个截图。'),
+          {
+            kind: 'assistant', id: 'a-copy', complete: true, turnEnd: true,
+            blocks: [{ type: 'text', text: '已改好，产出截图和说明。' }],
+            producedFiles: ['/Users/a/dsh-one/out/shot-1.png', '/Users/a/dsh-one/out/notes.md'],
+          },
+        ],
+      }),
+      interact: `(() => {
+        setTimeout(() => {
+          document.querySelector('.msg.assistant')?.dispatchEvent(
+            new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }),
+          )
+        }, 150)
+      })()`,
+      title: '助手消息右键菜单：复制（producedFiles 消息只复制正文）',
+      expect: 'assistant 消息区域出现的右键菜单只有一项「Copy」（带复制图标）；消息尾部「产物」行两个 chip：shot-1.png、notes.md；操作栏（复制/反馈/分叉）在产物行下方。',
+    },
     'turn-status-notices': {
       state: base({
         messages: [

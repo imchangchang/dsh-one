@@ -1,0 +1,78 @@
+{
+  "title": "DSH One 消息右键菜单：复制（纯文本）",
+  "branch": "agent/message-context-menu",
+  "commit": "b389a58",
+  "environment": {
+    "mode": "harness(playwright) + mock-llm sandbox",
+    "dsh": "0.1.1-rc.2（沙盒 R-01）",
+    "locale": "en",
+    "theme": "light（harness）/ dark（沙盒 R-01）",
+    "image": "dsh-sandbox-message-context-menu:latest",
+    "driver": "test/ui/scenarios.js + .dev-host/msg-menu-drive.mjs（F 项）；test/sandbox/verify-driver.mjs（R-01）",
+    "date": "2026-09-04"
+  },
+  "coverageNote": "按用户拍板简化范围：仅「复制」一项、复制纯文本（user 取 text / assistant 取 assistantText），附件（图片/文件）不参与复制，故无剪贴板二进制验证需求；真模型输出、平台专项（Windows/macOS）不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "用户消息右键菜单 + 复制（一项 Copy）",
+      "expect": "右键用户气泡弹出坐标菜单，只有一项「Copy」（带复制图标）；点击后剪贴板 text/plain 恰好等于「看下这张截图和源码，然后回复。」——附带的图片（chart.png / img1.png）与文件（note.md）不进入剪贴板；底部出现 Copied 提示。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-message-context-menu/F-01-user-copy-1-menu.png",
+        "/tmp/dsh-sandbox-shots-message-context-menu/F-01-user-copy-2-after.png"
+      ],
+      "notes": "harness 驱动（Playwright 真右键 + 点击 + 剪贴板回读）：菜单恰一项 Copy ✓；剪贴板文本精确匹配（无附件路径）✓；写入为 writeText ✓。消息含引用会话时同样只复制可读 @label 文本（另测：references 已解析消息复制 = 纯文本）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "助手消息右键菜单 + 复制（producedFiles 消息只复制正文）",
+      "expect": "右击助手气泡（含产物行 shot-1.png / notes.md）弹出同款菜单，只有一项「Copy」；点击后剪贴板 =「已改好，产出截图和说明。」——产物文件不进入剪贴板；菜单与产物行、操作栏渲染正常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-message-context-menu/F-02-assistant-copy-1-menu.png",
+        "/tmp/dsh-sandbox-shots-message-context-menu/F-02-assistant-copy-2-after.png"
+      ],
+      "notes": "harness 驱动：菜单恰一项 Copy ✓；剪贴板文本精确匹配 ✓；writeText 路径 ✓。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "沙盒对话回归：收发回显（真 dsh + 新 webview 代码）",
+      "expect": "沙盒（--instance message-context-menu，mock-llm）新建会话发送 prompt 后，助手消息回显「收到：…」；用户气泡、助手气泡、操作栏正常渲染——证明 renderUserBubbleParts 重构与右键监听未破坏常规对话。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-message-context-menu/R-01.png"
+      ],
+      "driver": {
+        "prompt": "消息右键菜单回归",
+        "expectText": "收到：消息右键菜单回归"
+      },
+      "notes": "沙盒（--instance message-context-menu，mock-llm，最终 vsix）verify-driver：断言命中 done；截图确认用户气泡/助手气泡/操作栏/计时行正常。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "用户气泡 @文件引用渲染回归（复用既有 file-ref-bubble 场景）",
+      "expect": "行内 @img1.png / @index.ts 引用 chip + 附件区红色缩略图（img1.png）与文档 chip（index.ts）都不受 inlineFileRefs 抽离影响；正文不出现长路径文本。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-message-context-menu/R-02-file-ref-bubble.png"
+      ],
+      "notes": "harness 既有场景 file-ref-bubble + Playwright 截图与 DOM 断言。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "常规对话渲染回归（复用既有 conversation 场景）",
+      "expect": "用户/助手气泡、markdown 加粗、工具卡「Ran a command bash / npm test」、操作栏（复制/反馈/分叉）与底部 composer 照常渲染。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-message-context-menu/R-03-conversation.png"
+      ],
+      "notes": "harness 既有场景 conversation + Playwright 截图。"
+    }
+  ]
+}

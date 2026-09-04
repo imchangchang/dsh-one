@@ -20,6 +20,7 @@ import type {
   ChatState,
   ChatTodoItem,
   ChatToolBlock,
+  ChatUserMessage,
   CommitInfoResult,
   FromWebviewMessage,
   ModelCatalog,
@@ -461,6 +462,41 @@ document.addEventListener(
         onClick: () => {
           closePopover()
           post({ type: 'openInBuiltinBrowser', url: href })
+        },
+      }),
+    )
+    showPopoverAt(e.clientX, e.clientY, body)
+  },
+  true,
+)
+
+/**
+ * 消息气泡右键菜单（user/assistant 均显示）：复制纯文本。
+ * 链接的右键保持原有处理（外链菜单 / 默认菜单）——外链监听先跑并弹自己的
+ * 菜单，这里碰到 a[href] 直接让路；注入上下文卡（.msg.context）、命令卡与
+ * 压缩卡不弹，只有 genuine 气泡（.msg.user / .msg.assistant）响应。
+ * 行内 @参考 chip / 附件 chip 都是 span/button，不属于 a[href]，正常弹。
+ */
+document.addEventListener(
+  'contextmenu',
+  (e) => {
+    const target = e.target as HTMLElement | null
+    if (!target || target.closest('a[href]')) return
+    const row = target.closest('.msg.user, .msg.assistant') as HTMLElement | null
+    const key = row?.dataset.msgKey
+    if (!key) return
+    // renderMessage 的 key 是 `m${下标}`，正好是 state.messages 的索引。
+    const m = state?.messages?.[Number(key.slice(1))]
+    if (!m || (m.kind !== 'user' && m.kind !== 'assistant')) return
+    e.preventDefault()
+    e.stopPropagation()
+    const body = el('div')
+    body.appendChild(
+      menuItem(t('Copy'), {
+        icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
+        onClick: () => {
+          closePopover()
+          copyMessageText(m)
         },
       }),
     )
@@ -4094,6 +4130,20 @@ function renderUserAttachments(
   return attachments.childElementCount > 0 ? attachments : null
 }
 
+/** 气泡行内 @文件引用 → ChatFile 列表（附件区渲染与右键复制共用同一合并源）。 */
+function inlineFileRefs(
+  text: string,
+  references?: readonly { sessionId: string; label: string }[],
+): ChatFile[] {
+  const refs: ChatFile[] = []
+  for (const seg of splitUserBubble(text, references)) {
+    if (seg.kind !== 'file') continue
+    const target = seg.path.replace(/^@/, '').replace(/^"|"$/g, '')
+    refs.push({ name: seg.label, path: target, ...(isImagePath(target) ? { image: true } : {}) })
+  }
+  return refs
+}
+
 /**
  * 用户气泡（纯文本不走 markdown，引用按段拼成 chip，对齐 dsh web 的
  * projectUserText）：会话 chip 可点击（host 解析过的引用落盘为可读
@@ -4108,22 +4158,12 @@ function renderUserBubbleParts(
   references?: readonly { sessionId: string; label: string }[],
 ): { bubble: HTMLElement; summary: HTMLElement | null; files: ChatFile[] } {
   const bubble = el('div', 'bubble')
-  const fileRefs: ChatFile[] = []
+  const fileRefs = inlineFileRefs(text, references)
   for (const seg of splitUserBubble(text, references)) {
     if (seg.kind === 'text') bubble.appendChild(document.createTextNode(seg.text))
     else if (seg.kind === 'session') bubble.appendChild(sessionMentionChip(seg.label, seg.sessionId))
-    else if (seg.kind === 'file') {
-      // @ 文件引用双显：行内保留可点击引用 chip（与工作区文件效果一致，引用
-      // 不因提升而"丢失"），同时收集进附件区（图片缩略图/文件图标）。行内
-      // chip hover 时与附件 chip 联动高亮（见 renderMessage 的行内委托）。
-      bubble.appendChild(referenceChip(seg))
-      const target = seg.path.replace(/^@/, '').replace(/^"|"$/g, '')
-      fileRefs.push({
-        name: seg.label,
-        path: target,
-        ...(isImagePath(target) ? { image: true } : {}),
-      })
-    } else bubble.appendChild(referenceChip(seg))
+    // 文件/文件夹/命令引用 chip（文件及文件夹带图标，命令纯文本）。
+    else bubble.appendChild(referenceChip(seg))
   }
   const summary = references?.length
     ? el('div', 'ref-summary', t('Referenced sessions: {0}', references.map((r) => r.label).join(t(', '))))
@@ -4146,6 +4186,7 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
       return renderInjectedContext(contextOf(m.context), m.text, key)
     }
     const row = el('div', 'msg user')
+    row.dataset.msgKey = key
     // 附件在文字气泡上方（对齐 dsh web）：图片显示方形缩略图，文件仍是名称 chip。
     const parts = m.text ? renderUserBubbleParts(m.text, m.references) : null
     const attachments = renderUserAttachments(m.images, mergedAttachments(parts?.files ?? [], m.files))
@@ -4218,6 +4259,7 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
     })
   }
   const row = el('div', 'msg assistant')
+  row.dataset.msgKey = key
   m.blocks.forEach((block, bi) => row.appendChild(renderBlock(block, `${key}:b${bi}`)))
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
   if (m.interrupted) row.appendChild(el('div', 'interrupted', t('Interrupted')))
@@ -4618,6 +4660,25 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
   // renders 时钟 + 用时/首 token/吞吐 after the icons with clock="end").
   if (m.timing) actions.appendChild(renderTurnTiming(m.timing))
   return actions
+}
+
+// ---- 消息右键菜单：复制 ----
+
+/** 瞬时提示（复制成功/失败：菜单已关闭，没有按钮图标可换）。 */
+function showCopyToast(text: string): void {
+  const toast = el('div', 'copy-toast', text)
+  document.body.appendChild(toast)
+  setTimeout(() => toast.remove(), 2000)
+}
+
+/** 复制纯文本（user 取 m.text；assistant 复用 assistantText，与操作栏复制按钮同内容）。 */
+function copyMessageText(m: ChatUserMessage | ChatAssistantMessage): void {
+  const text = m.kind === 'user' ? m.text : assistantText(m)
+  if (!text) return
+  void navigator.clipboard.writeText(text).then(
+    () => showCopyToast(t('Copied')),
+    () => showCopyToast(t('Copy failed')),
+  )
 }
 
 function pad2(n: number): string {

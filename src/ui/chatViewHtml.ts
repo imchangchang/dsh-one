@@ -1127,6 +1127,15 @@ const STYLE = `
     border-radius: 12px; padding: 4px;
     box-shadow: 0 0 1px 0 rgba(0,0,0,.2), 0 12px 32px 0 rgba(0,0,0,.14);
   }
+  /* 复制反馈小提示（消息右键菜单复制：菜单已关闭，没有按钮图标可换）。 */
+  .copy-toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    z-index: 30; padding: 5px 14px; border-radius: 6px; font-size: 12px;
+    background: var(--vscode-menu-background, var(--vscode-dropdown-background, #2d2d30));
+    color: var(--vscode-menu-foreground, var(--vscode-dropdown-foreground, #cccccc));
+    border: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border, #454545));
+    box-shadow: 0 0 1px 0 rgba(0,0,0,.2), 0 12px 32px 0 rgba(0,0,0,.14);
+  }
   /* 菜单项几何对齐 dsh web：30px 行高、8px 圆角、左图标位 14px tertiary 色。 */
   .menu-item {
     display: flex; align-items: center; gap: 8px; min-height: 30px; box-sizing: border-box;
