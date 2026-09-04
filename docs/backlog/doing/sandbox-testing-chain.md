@@ -39,3 +39,5 @@
 - 2026-09-03 追加方案（done → doing）：不做协议层 mock 的全量验证，主路径改为「真 dsh + mock LLM 端点」——dsh 的 llm-pi-ai provider 原生支持 baseURL（schema 有 baseURL/api 字段，已核实 0.1.1-rc.2 源码），零 patch；协议层 mock（test/mock-dsh）保留为快速单测工具。新增 test/mock-llm（OpenAI 兼容假端点）+ 沙盒接线（--mock-llm 模式）。
 
 - 2026-09-03 mock-LLM 端点与沙盒接线开发完成（doing → done）：test/mock-llm（零依赖 OpenAI 兼容端点 + 15 条单测）、test/sandbox --mock-llm 模式（容器内真 dsh 打假端点）。自测：typecheck + npm test 368 全过 + build 通过。待主线合入后 docker/真窗口验收。
+
+- 2026-09-04 追加（done → doing）：合入报告 gate 落地——新增 test/sandbox/report.mjs（ledger+截图→HTML 报告）与 Playwright 驱动（CI 用，本地仍 WebBridge）；配套场景/ledger 格式定义。
