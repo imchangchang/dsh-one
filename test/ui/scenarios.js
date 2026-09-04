@@ -1793,9 +1793,9 @@
       expect: '点击「+ N 个文件」展开后：14 个长文件名 chip **多行换行铺开**（行尾不截断、不裁掉 chip），每行 label「产物」左侧只出现一次且与首行对齐；每个 chip 内超宽文件名以省略号截断、悬停 title 为完整路径；「收起」在最后一个 chip 后。',
     },
 
-    // 消息右键菜单（user 气泡）：右键弹「复制文字 / 复制文字和附件」坐标菜单
-    // （与既有外链菜单同款 popover）。interact 先把图片字节喂进懒取缓存
-    // （等效宿主回执，缩略图上屏），再在气泡上派发 contextmenu 打开菜单截图。
+    // 消息右键菜单（user 气泡）：右键弹「复制」坐标菜单（与既有外链菜单同款
+    // popover），复制纯文本。interact 先把图片字节喂进懒取缓存（缩略图上屏
+    // 等效宿主回执），再在气泡上派发 contextmenu 打开菜单截图。
     'msg-menu-user': {
       png: PNG_RED,
       state: base({
@@ -1822,14 +1822,12 @@
           )
         }, 150)
       })()`,
-      title: '用户消息右键菜单（user/assistant 均显示，附件齐全）',
-      expect: '用户消息区域出现坐标定位的右键菜单（popover，深色圆角、贴近右击点、钳制在视口内）：两项「Copy text」「Copy text and attachments」，各带左侧复制图标；菜单与消息气泡同时可见。消息附件区（气泡上方）：chart.png 与 img1.png 两张红色 48px 缩略图（底部名称横幅）、note.md 文档图标文件 chip；气泡正文只有「看下这张截图和源码，然后回复。」。',
+      title: '用户消息右键菜单：复制（纯文本）',
+      expect: '用户消息区域出现坐标定位的右键菜单（popover，深色圆角、贴近右击点、钳制在视口内）：一项「Copy」，带左侧复制图标；菜单与消息气泡同时可见。消息附件区（气泡上方）：chart.png 与 img1.png 两张红色 48px 缩略图（底部名称横幅）、note.md 文档图标文件 chip；气泡正文只有「看下这张截图和源码，然后回复。」——复制针对纯文本，附件不进剪贴板。',
     },
 
-    // 消息右键菜单（assistant 气泡）：producedFiles 算附件——图片与普通文件都
-    // 进「复制文字和附件」；菜单恒显示两项（无附件时第二项退化为纯文字）。
+    // 消息右键菜单（assistant 气泡）：producedFiles 消息右键同样只弹「复制」。
     'msg-menu-assistant': {
-      png: PNG_RED,
       state: base({
         messages: [
           u('帮我改下界面，出个截图。'),
@@ -1841,15 +1839,14 @@
         ],
       }),
       interact: `(() => {
-        window.postMessage({ type: 'fileThumb', path: '/Users/a/dsh-one/out/shot-1.png', mediaType: 'image/png', data: window.SCENARIOS['msg-menu-assistant'].png }, '*')
         setTimeout(() => {
           document.querySelector('.msg.assistant')?.dispatchEvent(
             new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }),
           )
         }, 150)
       })()`,
-      title: '助手消息右键菜单（producedFiles 图片 + 文件）',
-      expect: 'assistant 消息区域出现同款右键菜单（Copy text / Copy text and attachments 两项，各带复制图标）；消息尾部「产物」行两个 chip：shot-1.png、notes.md；操作栏（复制/反馈/分叉）在产物行下方。',
+      title: '助手消息右键菜单：复制（producedFiles 消息只复制正文）',
+      expect: 'assistant 消息区域出现的右键菜单只有一项「Copy」（带复制图标）；消息尾部「产物」行两个 chip：shot-1.png、notes.md；操作栏（复制/反馈/分叉）在产物行下方。',
     },
     'turn-status-notices': {
       state: base({

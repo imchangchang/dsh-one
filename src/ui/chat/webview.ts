@@ -471,7 +471,7 @@ document.addEventListener(
 )
 
 /**
- * 消息气泡右键菜单（user/assistant 均显示）：复制文字 / 复制文字和附件。
+ * 消息气泡右键菜单（user/assistant 均显示）：复制纯文本。
  * 链接的右键保持原有处理（外链菜单 / 默认菜单）——外链监听先跑并弹自己的
  * 菜单，这里碰到 a[href] 直接让路；注入上下文卡（.msg.context）、命令卡与
  * 压缩卡不弹，只有 genuine 气泡（.msg.user / .msg.assistant）响应。
@@ -492,20 +492,11 @@ document.addEventListener(
     e.stopPropagation()
     const body = el('div')
     body.appendChild(
-      menuItem(t('Copy text'), {
+      menuItem(t('Copy'), {
         icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
         onClick: () => {
           closePopover()
           copyMessageText(m)
-        },
-      }),
-    )
-    body.appendChild(
-      menuItem(t('Copy text and attachments'), {
-        icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
-        onClick: () => {
-          closePopover()
-          copyMessageTextAndAttachments(m)
         },
       }),
     )
@@ -1191,12 +1182,8 @@ window.addEventListener('message', (event) => {
     }
     render()
   } else if (msg?.type === 'fileThumb' && typeof msg.path === 'string' && typeof msg.data === 'string') {
-    // 消息里图片文件 chip 的缩略图回执：缓存后重渲染（占位变真图）；顺带
-    // 唤醒等这份字节的复制动作（右键菜单「复制文字和附件」）。
-    const thumbDataUrl = `data:${msg.mediaType};base64,${msg.data}`
-    fileThumbCache.set(msg.path, thumbDataUrl)
-    copyImageWaiters.get(`f:${msg.path}`)?.(thumbDataUrl)
-    copyImageWaiters.delete(`f:${msg.path}`)
+    // 消息里图片文件 chip 的缩略图回执：缓存后重渲染（占位变真图）。
+    fileThumbCache.set(msg.path, `data:${msg.mediaType};base64,${msg.data}`)
     render()
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
@@ -1209,8 +1196,6 @@ window.addEventListener('message', (event) => {
   } else if (msg?.type === 'attachmentData' && typeof msg.attachmentId === 'string') {
     const dataUrl = `data:${msg.mediaType};base64,${msg.data}`
     attachmentCache.set(msg.attachmentId, dataUrl)
-    copyImageWaiters.get(`a:${msg.attachmentId}`)?.(dataUrl)
-    copyImageWaiters.delete(`a:${msg.attachmentId}`)
     if (pendingPreview === msg.attachmentId) {
       pendingPreview = null
       openLightbox(dataUrl)
@@ -4677,75 +4662,7 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
   return actions
 }
 
-// ---- 消息右键菜单：复制文字 / 复制文字和附件 ----
-
-/**
- * 一条待复制图片：真实字节（进剪贴板 binary item）+ 文本兜底标识。字节经
- * 既有懒取通道获取并缓存（ChatImage → attachmentData；图片文件 →
- * fileThumb），复制时未取到则补发请求等回执，超时按路径文本兜底。
- */
-interface MessageCopyImage {
-  /** 字节取数源：attachment（ChatImage.attachmentId）或磁盘路径（文件 chip / producedFiles）。 */
-  source: { kind: 'attachment'; attachmentId: string } | { kind: 'path'; path: string }
-  /** text/plain 里的标识行（多图时粘贴目标通常只认第一张，剩余靠文本兜底）。 */
-  label: string
-  /** 已取到的图片字节；未取到时为 null，退化为仅文本。 */
-  bytes: { mediaType: string; base64: string } | null
-}
-
-interface MessageCopyPayload {
-  /** 纯文本部分（user: m.text；assistant: assistantText）。 */
-  text: string
-  /** 图片（字节懒取，全部写入剪贴板；粘贴目标通常只认第一张）。 */
-  images: MessageCopyImage[]
-  /** 文件 markdown 引用行（`[文件名](路径)`；webview 剪贴板复制不了文件本体）。 */
-  fileLines: string[]
-}
-
-/** 复制字节回执的等待表（key：`a:<attachmentId>` / `f:<path>`）。 */
-const copyImageWaiters = new Map<string, (dataUrl: string) => void>()
-/** 单张图片的字节等待上限：超时按未取到处理（文本兜底），不无限挂住复制动作。 */
-const COPY_IMAGE_TIMEOUT_MS = 4000
-/** Chromium 的 ClipboardItem 图片只认 png/jpeg（webp/gif 写入会整体 reject）。 */
-const CLIPBOARD_IMAGE_TYPES = new Set(['image/png', 'image/jpeg'])
-
-/** `data:<mediaType>;base64,<data>` → {mediaType, base64}；非本 webview 自产格式返回 null。 */
-function decodeImageDataUrl(dataUrl: string): { mediaType: string; base64: string } | null {
-  if (!dataUrl.startsWith('data:')) return null
-  const comma = dataUrl.indexOf(',')
-  if (comma < 0) return null
-  const header = dataUrl.slice(5, comma)
-  if (!header.endsWith(';base64')) return null
-  return {
-    mediaType: header.slice(0, -';base64'.length) || 'image/png',
-    base64: dataUrl.slice(comma + 1),
-  }
-}
-
-/** base64 → Blob（ClipboardItem 要求真实二进制）。 */
-function imageDataUrlBlob(mediaType: string, base64: string): Blob {
-  const bin = atob(base64)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i)
-  return new Blob([out], { type: mediaType })
-}
-
-/** 取一条图片字节：缓存命中直接用；未命中补发懒取请求并等回执（超时置 null）。 */
-async function ensureCopyImageBytes(img: MessageCopyImage): Promise<void> {
-  if (img.bytes) return
-  const key = img.source.kind === 'attachment' ? `a:${img.source.attachmentId}` : `f:${img.source.path}`
-  const dataUrl = await new Promise<string>((resolve) => {
-    copyImageWaiters.set(key, resolve)
-    if (img.source.kind === 'attachment') {
-      post({ type: 'requestAttachment', attachmentId: img.source.attachmentId })
-    } else {
-      post({ type: 'requestFileThumb', path: img.source.path })
-    }
-    setTimeout(() => resolve(''), COPY_IMAGE_TIMEOUT_MS)
-  })
-  copyImageWaiters.delete(key)
-  if (dataUrl) img.bytes = decodeImageDataUrl(dataUrl)
-}
+// ---- 消息右键菜单：复制 ----
 
 /** 瞬时提示（复制成功/失败：菜单已关闭，没有按钮图标可换）。 */
 function showCopyToast(text: string): void {
@@ -4754,45 +4671,7 @@ function showCopyToast(text: string): void {
   setTimeout(() => toast.remove(), 2000)
 }
 
-/** 组装一条消息的复制内容：文本 + 图片（字节）+ 文件 markdown 行。 */
-function messageCopyPayload(m: ChatUserMessage | ChatAssistantMessage): MessageCopyPayload {
-  if (m.kind === 'user') {
-    // 附件与气泡附件区同一合并源：行内 @文件引用 + <attachment> 行文件（去重）。
-    const attachments = mergedAttachments(inlineFileRefs(m.text, m.references), m.files)
-    return {
-      text: m.text,
-      images: [
-        ...(m.images ?? []).map((img) => ({
-          source: { kind: 'attachment' as const, attachmentId: img.attachmentId },
-          label: img.name ?? img.attachmentId,
-          bytes: decodeImageDataUrl(attachmentCache.get(img.attachmentId) ?? ''),
-        })),
-        ...attachments
-          .filter((f) => f.image)
-          .map((f) => ({
-            source: { kind: 'path' as const, path: f.path },
-            label: f.path,
-            bytes: decodeImageDataUrl(fileThumbCache.get(f.path) ?? ''),
-          })),
-      ],
-      fileLines: attachments.filter((f) => !f.image).map((f) => `[${f.name}](${f.path})`),
-    }
-  }
-  const produced = m.producedFiles ?? []
-  return {
-    text: assistantText(m),
-    images: produced
-      .filter((p) => isImagePath(p))
-      .map((p) => ({
-        source: { kind: 'path' as const, path: p },
-        label: p,
-        bytes: decodeImageDataUrl(fileThumbCache.get(p) ?? ''),
-      })),
-    fileLines: produced.filter((p) => !isImagePath(p)).map((p) => `[${attachmentBaseName(p)}](${p})`),
-  }
-}
-
-/** 复制纯文本（菜单「复制文字」，与操作栏复制按钮同内容）。 */
+/** 复制纯文本（user 取 m.text；assistant 复用 assistantText，与操作栏复制按钮同内容）。 */
 function copyMessageText(m: ChatUserMessage | ChatAssistantMessage): void {
   const text = m.kind === 'user' ? m.text : assistantText(m)
   if (!text) return
@@ -4800,71 +4679,6 @@ function copyMessageText(m: ChatUserMessage | ChatAssistantMessage): void {
     () => showCopyToast(t('Copied')),
     () => showCopyToast(t('Copy failed')),
   )
-}
-
-/**
- * 复制文字和附件（无附件时退化为纯文字）：text/plain = 正文 + 附件标识
- * （图片路径 / [文件名](路径)）；图片真实字节进剪贴板。
- *
- * 平台差异的降级阶梯（Safari 与 Chromium 行为不一致，逐级试写）：
- * 1. 多 ClipboardItem 数组（每图一项 + 文本项）——Safari 支持；
- * 2. 单 item 多类型（第一张图片 + 文本）——Chromium/VS Code Electron 只支持
- *    一个 ClipboardItem，且同类型图片只能写一张：首图真实字节 + 全部路径文本；
- * 3. 纯文本 writeText——图片写不进去（权限/格式不支持）也要保住文本。
- * 每级成功都算完成（文本始终进得去，图片路径已在文本里兜底），三级全败才提示。
- */
-function copyMessageTextAndAttachments(m: ChatUserMessage | ChatAssistantMessage): void {
-  const payload = messageCopyPayload(m)
-  const attachmentLines = [...payload.images.map((i) => i.label), ...payload.fileLines]
-  const fullText = attachmentLines.length
-    ? payload.text
-      ? `${payload.text}\n\n${attachmentLines.join('\n')}`
-      : attachmentLines.join('\n')
-    : payload.text
-  if (!fullText) return
-
-  // 没有真实图片：纯文本走 writeText（对权限最宽容，内容等价）。
-  if (payload.images.length === 0) {
-    void navigator.clipboard.writeText(fullText).then(
-      () => showCopyToast(t('Copied')),
-      () => showCopyToast(t('Copy failed')),
-    )
-    return
-  }
-
-  void (async () => {
-    await Promise.all(payload.images.map((img) => ensureCopyImageBytes(img)))
-    const blobs: Array<{ mediaType: string; blob: Blob }> = []
-    for (const img of payload.images) {
-      if (!img.bytes || !CLIPBOARD_IMAGE_TYPES.has(img.bytes.mediaType)) continue
-      blobs.push({ mediaType: img.bytes.mediaType, blob: imageDataUrlBlob(img.bytes.mediaType, img.bytes.base64) })
-    }
-    const textBlob = new Blob([fullText], { type: 'text/plain' })
-    try {
-      const items: ClipboardItem[] = blobs.map((b) => new ClipboardItem({ [b.mediaType]: b.blob }))
-      items.push(new ClipboardItem({ 'text/plain': textBlob }))
-      await navigator.clipboard.write(items)
-    } catch {
-      try {
-        // Chromium 单 item：首图 + 文本一次写入（多 item 数组会整体 reject）。
-        if (blobs.length > 0) {
-          await navigator.clipboard.write([
-            new ClipboardItem({ [blobs[0].mediaType]: blobs[0].blob, 'text/plain': textBlob }),
-          ])
-        } else {
-          await navigator.clipboard.writeText(fullText)
-        }
-      } catch {
-        try {
-          await navigator.clipboard.writeText(fullText)
-        } catch {
-          showCopyToast(t('Copy failed'))
-          return
-        }
-      }
-    }
-    showCopyToast(t('Copied'))
-  })()
 }
 
 function pad2(n: number): string {
