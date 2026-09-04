@@ -1,0 +1,74 @@
+{
+  "title": "mention-bindings-lifecycle：@mention 绑定按会话归档 + 边界校验 + recall 反查",
+  "branch": "agent/mention-bindings",
+  "commit": "e51acdf",
+  "environment": {
+    "mode": "mock-llm",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox:mention-bindings（含本任务 vsix）",
+    "date": "2026-09-08T00:00:00Z"
+  },
+  "coverageNote": "本条目逻辑面：① mentionBindings 按会话归档/恢复（webview 模块级 → mentionBindingsPerSession，切换时归档旧会话、新会话空 Map、发送不清空）——webview 内部模块状态，单测不可达，用 harness 确定性场景 F-01 + DOM 断言覆盖；② 展开前边界校验——前置 paste-token-parsing-boundaries 已把 expandMentionBindings/restoreFileMentionTokens/高亮/导航/删除全部入口切到 tokenScan（boundTokenRanges/scanAtTokens），本条目未另写扫描，词中/邮箱不替换由既有单测覆盖（fileReference/sessionMention/tokenScan 425 项全绿，本轮新增 2 项反查优先用例）；③ recall 反查（canonical 长路径 → 显示短 token，与发送展开互逆）——纯函数 restoreFileMentionTokens 反查优先由单测覆盖，UI 链路（↑ 召回历史）由 harness 场景 F-02 覆盖。R-01/R-02 为 harness 既有场景回归（file-ref-token 高亮、ref-token-word-boundary 词中不高亮——按会话归档后未触碰这两条路径，防回归）。发送成功/失败不强制清空绑定（按会话存储天然实现，sendCurrent 无新增清理）为代码路径行为，harness 无法模拟「发送成功后宿主不回 state」的完整时序，在报告说明。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "按会话归档：跨会话同名文件不强制 (2)，切回草稿与绑定一起恢复（harness 确定性场景）",
+      "expect": "harness 场景 mention-bindings-per-session：会话 A 经 @ 补全绑定 @img1.png（canonical /sess-A/img1.png）后切换到会话 B，B 附加同名不同路径文件（/sess-B/img1.png）并 @ 选中——输入框为 @img1.png 而非 @img1.png (2)（DOM 断言 window.__mentionPerSession.contaminated=false，bToken=@img1.png）；再切回 A——输入框恢复 A 的草稿 @img1.png（restoredText），高亮层恰好一个 .ref-token 且 dataset.path 是 A 的 canonical（不是 B 的），证明绑定按会话恢复、跨会话零污染。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-mbl/mention-bindings-per-session.png"
+      ],
+      "notes": "harness 场景（非真 dsh）：WebBridge evaluate 核对 window.__mentionPerSession = {aToken: '@img1.png ', bToken: '@img1.png ', contaminated: false, restoredText: '@img1.png ', refTokens: [{text: '@img1.png', path: '@/var/folders/x/T/dsh-one-attachments/sess-A/img1.png'}]}——B 会话同名不同路径不 (2)、切回 A 草稿与绑定一起恢复且 path 是 A 的 canonical（不是 B 的）。截图：输入框 @img1.png 高亮 token（浅蓝底，textarea 文字色透明）+ 附件缩略图 chip。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "recall 反查：↑ 历史 canonical 长路径还原为显示短 token（harness 确定性场景）",
+      "expect": "harness 场景 mention-bindings-recall：先经 @ 补全绑定 @img1.png，按 ↑ 召回历史消息「帮我看看 @/var/folders/x/T/dsh-one-attachments/sess-1/img1.png 这个截图」——输入框变为「帮我看看 @img1.png 这个截图」（canonical 长路径反查回短 token），高亮层恰好一个 .ref-token（DOM 断言 window.__mentionRecall = {recalled: '帮我看看 @img1.png 这个截图', refTokens: ['@img1.png']}）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-mbl/mention-bindings-recall.png"
+      ],
+      "notes": "harness 场景（非真 dsh）：WebBridge evaluate 核对 window.__mentionRecall = {recalled: '帮我看看 @img1.png 这个截图', refTokens: ['@img1.png']}——↑ 召回后 canonical 长路径还原为显示短 token、高亮层恰一个 .ref-token。截图：composer 中「帮我看看 @img1.png 这个截图」+ 历史消息气泡正常。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "输入框 @ 补全选中后 token 高亮（harness file-ref-token）",
+      "expect": "输入 @img 弹出附件候选（@img1.png + 路径），点选后输入框内容 @img1.png 显示为高亮 token（浅蓝底圆角、textarea 文字色透明不重影），无长路径；图片 staging chip 显示 img1.png 横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-mbl/file-ref-token.png"
+      ],
+      "notes": "harness 场景（非真 dsh）：evaluate 核对 input.value='@img1.png '、.ref-token 恰 1 个；截图见 @img1.png 高亮 token（浅蓝底、与 textarea 透明色不重影）、无长路径、弹窗已关闭、staging chip 显示 img1.png 横幅与红色缩略图。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "输入框高亮层：词中命中不高亮、边界命中照常（harness ref-token-word-boundary）",
+      "expect": "composer 值「a@img1.png b @img1.png c」——高亮层只绘制一处 .ref-token（边界处第二个 @img1.png）；第一处词中 a@img1.png 无高亮背景（DOM 断言 window.__refTokenCheck = {count:1, texts:['@img1.png']}）；两处文本清晰、无长路径、无补全弹窗。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-mbl/ref-token-word-boundary.png"
+      ],
+      "notes": "harness 场景（非真 dsh）：evaluate 核对 window.__refTokenCheck = {count:1, texts:['@img1.png'], layerText:'a@img1.png b @img1.png c'}；截图可见词中第一处无高亮、第二处浅蓝高亮。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "基础发送与 mock-LLM 回显（沙盒真 dsh 端到端）",
+      "expect": "新会话发送「测试一下」后助手消息回显「收到：测试一下」（mock-LLM 兜底规则）；composer 正常清空、消息流渲染不受本轮改动影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-mbl/R-03.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "新建会话：sidebar-ungrouped。驱动 done 后人工判图：助手回显「收到：测试一下」、composer 清空、消息流与统计行正常，本轮改动未影响发送链路。"
+    }
+  ]
+}

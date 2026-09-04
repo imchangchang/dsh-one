@@ -125,7 +125,12 @@ export function tokenDeletion(
  * token（`@短名`），与第一次输入时的形态一致（含绑定注册，高亮/原子导航
  * 可用）。只处理含分隔符的路径引用——无分隔符的 @token（相对路径/命令/
  * 邮箱）保持原样。扫描起点与终止规则与渲染侧一致（tokenScan），词中的
- * @（`a@img`）不还原。返回还原后的文本；新增绑定写入传入的 bindings。
+ * @（`a@img`）不还原。
+ *
+ * 反查优先（与发送展开互逆）：sendCurrent 展开是 token → canonical 长路径，
+ * 这里先按 canonical 反查绑定里的原 token（含 ` (2)` 后缀的原样键），命中
+ * 直接用、不重复注册——上次输入过的形态原样回来；未命中（token 被删过或
+ * 从未绑定）再按 fileMentionToken 生成并登记。
  */
 export function restoreFileMentionTokens(text: string, bindings: Map<string, string>): string {
   let out = ''
@@ -138,8 +143,17 @@ export function restoreFileMentionTokens(text: string, bindings: Map<string, str
     if (name.length === 0 || name === cleaned) continue
     const m = formatFileMention({ path: cleaned, kind: 'file' }, false)
     if (m === undefined) continue
-    const token = fileMentionToken(name, m, bindings)
-    bindings.set(token, m)
+    let token: string | null = null
+    for (const [key, value] of bindings) {
+      if (value === m) {
+        token = key
+        break
+      }
+    }
+    if (token === null) {
+      token = fileMentionToken(name, m, bindings)
+      bindings.set(token, m)
+    }
     out += text.slice(cursor, range.start) + token
     cursor = range.end
   }
