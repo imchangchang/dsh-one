@@ -3,6 +3,8 @@ import type { Logger } from '../log.ts'
 import { subscribeHostEvents } from '../server/hostEvents.ts'
 import { subscribeMuxEvents } from '../server/muxEvents.ts'
 import type { MuxFrame } from '../server/muxEvents.ts'
+import { isModern } from '../server/serverAuth.ts'
+import { subscribeModernEvents, subscribeWorkspaceStream } from '../server/modernStreams.ts'
 import { listSessions, listWorkspaces, searchSessions, sessionTitle, sessionTotalTokens, sessionCompletedTurns } from '../server/dshRpc.ts'
 import type { SessionSummary } from '../server/dshRpc.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
@@ -10,6 +12,7 @@ import { applyHostFrame, parseHostFrame } from '../pure/hostFrames.ts'
 import type { HostFrame } from '../pure/hostFrames.ts'
 import { questionInteractionStatus, type PendingInteraction } from '../pure/chatContract.ts'
 import type { PendingQuestion } from '../pure/chatContract.ts'
+import { parseWorkspaceStreamFrame } from '../pure/remoteFrames.ts'
 import {
   buildSessionTree,
   UNGROUPED_WORKSPACE_ID,
@@ -435,22 +438,39 @@ export class SessionsStore implements vscode.Disposable {
       this.tickTimer = null
     }
     if (url) {
-      this.hostEvents = subscribeHostEvents(
-        url,
-        this.logger,
-        (method, payload) => this.onHostFrame(method, payload),
-        () => this.onHostClose(url),
-      )
-      // 全局 mux 下行：approval/question 的 requested/resolved 帧喂
-      // pendingInteractions（官方 web 侧栏黄点的同一数据源）。此订阅不重连：
-      // pending 是瞬时态，断流即清、不补恢复（黄点随下一次订阅代际由 host
-      // 重放回来），避免断流盲区里的过期状态滞留。
-      this.mux = subscribeMuxEvents(url, this.logger, (frame) => this.onMuxFrame(frame), () => {
-        if (this.pendingInteractions.size === 0) return
-        this.pendingInteractions = new Map()
-        this.rebuildModel()
-        this.onDidChangeEmitter.fire()
-      })
+      if (isModern(url)) {
+        // 0.1.2：$events 流（api-session/* 触发刷新 + approval/question
+        // 水瀑布）+ workspace/follow 流（workspace 与 archived 的基线/增量）。
+        this.hostEvents = subscribeModernEvents(url, this.logger, {
+          onEvent: (event) => this.onModernEvent(event),
+          onRequest: (request) => this.onModernRequest(request),
+          onCancel: (eventId) => this.onModernCancel(eventId),
+          onClose: () => {
+            if (this.pendingInteractions.size === 0) return
+            this.pendingInteractions = new Map()
+            this.rebuildModel()
+            this.onDidChangeEmitter.fire()
+          },
+        })
+        this.mux = subscribeWorkspaceStream(url, this.logger, (frame) => this.onWorkspaceFrame(frame))
+      } else {
+        this.hostEvents = subscribeHostEvents(
+          url,
+          this.logger,
+          (method, payload) => this.onHostFrame(method, payload),
+          () => this.onHostClose(url),
+        )
+        // 全局 mux 下行：approval/question 的 requested/resolved 帧喂
+        // pendingInteractions（官方 web 侧栏黄点的同一数据源）。此订阅不重连：
+        // pending 是瞬时态，断流即清、不补恢复（黄点随下一次订阅代际由 host
+        // 重放回来），避免断流盲区里的过期状态滞留。
+        this.mux = subscribeMuxEvents(url, this.logger, (frame) => this.onMuxFrame(frame), () => {
+          if (this.pendingInteractions.size === 0) return
+          this.pendingInteractions = new Map()
+          this.rebuildModel()
+          this.onDidChangeEmitter.fire()
+        })
+      }
       // dsh web 的相对时间也只在渲染时取 Date.now()、不轮询；这里用本地
       // tick 纯重建模型（不发 RPC），让"N 分钟前"随时间走。
       this.tickTimer = setInterval(() => {
@@ -483,6 +503,102 @@ export class SessionsStore implements vscode.Disposable {
       return
     }
     this.applyFrame(frame)
+  }
+
+  /** 0.1.2 $events 的 emit 帧：api-session/* 语义 = 列表状态变了，重拉基线。 */
+  private onModernEvent(event: string): void {
+    if (
+      event === 'api-session/added' ||
+      event === 'api-session/removed' ||
+      event === 'api-session/status' ||
+      event === 'api-session/activity' ||
+      event === 'api-session/error'
+    ) {
+      this.refreshSoon()
+    }
+  }
+
+  /** 0.1.2 $events 水瀑布帧 → 侧栏 pending 黄点（复用旧 mux 帧的跟踪键）。 */
+  private onModernRequest(request: {
+    eventId: string
+    agentId: string
+    event: string
+    req: Record<string, unknown>
+  }): void {
+    let changed = false
+    let pendingChanged = false
+    if (request.event === 'approval/request') {
+      changed = this.trackPending(request.agentId, `a:${request.eventId}`, 'approval')
+      pendingChanged = changed
+    } else if (request.event === 'user-questions/request') {
+      const questions = Array.isArray(request.req.questions)
+        ? (request.req.questions as PendingQuestion['questions'])
+        : []
+      changed = this.trackPending(request.agentId, `q:${request.eventId}`, questionInteractionStatus(questions))
+      pendingChanged = changed
+    }
+    if (!changed) return
+    this.rebuildModel()
+    this.onDidChangeEmitter.fire()
+    if (pendingChanged) this.refreshSoon()
+  }
+
+  /** 0.1.2 宿主取消水瀑布（答复后由回答方本地清除）。 */
+  private onModernCancel(eventId: string): void {
+    let changed = false
+    for (const [sessionId, interactions] of [...this.pendingInteractions]) {
+      if (interactions.delete(`a:${eventId}`) || interactions.delete(`q:${eventId}`)) {
+        if (interactions.size === 0) this.pendingInteractions.delete(sessionId)
+        changed = true
+      }
+    }
+    if (!changed) return
+    this.rebuildModel()
+    this.onDidChangeEmitter.fire()
+  }
+
+  /** 0.1.2 workspace/follow 帧 → 更新工作区与 archived 基线后重建模型。 */
+  private onWorkspaceFrame(
+    frame: NonNullable<ReturnType<typeof parseWorkspaceStreamFrame>>,
+  ): void {
+    switch (frame.type) {
+      case 'baseline': {
+        this.rawWorkspaces = (frame.items as WorkspaceInput[]).filter(
+          (w) => typeof w?.workspaceId === 'string',
+        )
+        this.rawArchived = new Set(frame.archivedSessionIds)
+        break
+      }
+      case 'upsert': {
+        const workspace = frame.workspace as unknown as WorkspaceInput
+        const index = this.rawWorkspaces.findIndex((w) => w.workspaceId === workspace.workspaceId)
+        this.rawWorkspaces =
+          index === -1
+            ? [...this.rawWorkspaces, workspace]
+            : this.rawWorkspaces.map((w, i) => (i === index ? workspace : w))
+        break
+      }
+      case 'remove':
+        this.rawWorkspaces = this.rawWorkspaces.filter((w) => w.workspaceId !== frame.workspaceId)
+        break
+      case 'order': {
+        const byId = new Map(this.rawWorkspaces.map((w) => [w.workspaceId, w]))
+        this.rawWorkspaces = frame.workspaceIds
+          .map((id) => byId.get(id))
+          .filter((w): w is WorkspaceInput => w !== undefined)
+        break
+      }
+      case 'archived':
+        this.rawArchived = new Set(frame.archivedSessionIds)
+        break
+      default:
+        return
+    }
+    this.knownSessionIds = new Set(
+      this.rawSessions.map((s) => s.sessionId).filter((id) => !this.rawArchived.has(id)),
+    )
+    this.rebuildModel()
+    this.onDidChangeEmitter.fire()
   }
 
   /**
@@ -658,15 +774,22 @@ export class SessionsStore implements vscode.Disposable {
     this.refreshInFlight = true
     try {
       const prevRunning = new Map(this.rawSessions.map((s) => [s.sessionId, s.running]))
-      const [workspaceList, sessions] = await Promise.all([listWorkspaces(url), listSessions(url)])
-      const archived = new Set(workspaceList.archivedSessionIds)
-      this.rawWorkspaces = workspaceList.items
+      // 0.1.2 没有 workspace.list：workspace/archived 由 workspace/follow 流
+      // 维护（onWorkspaceFrame），这里只拉会话列表。
+      let sessions: SessionSummary[]
+      if (isModern(url)) {
+        sessions = await listSessions(url)
+      } else {
+        const [workspaceList, sessionList] = await Promise.all([listWorkspaces(url), listSessions(url)])
+        this.rawWorkspaces = workspaceList.items
+        this.rawArchived = new Set(workspaceList.archivedSessionIds)
+        sessions = sessionList
+      }
       this.rawSessions = sessions.map((s) => toSessionInput(s))
       // 标题投影 seq 水位按基线切点播种：之后的 title 推送帧只认更新的 seq。
       for (const s of sessions) {
         if (typeof s.projections?.asOfSeq === 'number') this.titleSeqs.set(s.sessionId, s.projections.asOfSeq)
       }
-      this.rawArchived = archived
       this.knownSessionIds = new Set(
         this.rawSessions.map((s) => s.sessionId).filter((id) => !this.rawArchived.has(id)),
       )

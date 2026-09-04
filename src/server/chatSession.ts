@@ -11,6 +11,12 @@ import { contextUsageUnknown, pressureWithContextWindow } from '../pure/contextM
 import { modelWindowRecord, parseModelWindowRecord } from '../pure/modelWindowCache.ts'
 import { subscribeMuxEvents } from './muxEvents.ts'
 import type { MuxFrame } from './muxEvents.ts'
+import { isModern } from './serverAuth.ts'
+import { recordsToEntries } from '../pure/chunkRows.ts'
+import type { HistoryRecordLike } from '../pure/chunkRows.ts'
+import { subscribeFollowStream, subscribeControlStream, subscribeModernEvents } from './modernStreams.ts'
+import type { FollowSnapshot } from './modernStreams.ts'
+import { parseControlStreamFrame } from '../pure/remoteFrames.ts'
 import {
   cancelSession,
   clearGoal,
@@ -27,13 +33,14 @@ import {
   selectAgentPreset,
   sessionAttachment,
   sessionHistory,
+  sessionPage,
   sessionModels,
   updateQueue,
 } from './dshRpc.ts'
 import type { GoalRef, ImageLimits, SessionModelSelection, SessionModels } from './dshRpc.ts'
 import { agentPresetDescription, agentPresetLabel, defaultAgentPresetId, resolveAgentPresets } from '../pure/agentPreset.ts'
 import type { AgentPresetOption } from '../pure/agentPreset.ts'
-import { extendWindowCursor, pageMeetsWindow, windowCursorOf } from '../pure/historyWindow.ts'
+import { extendWindowCursor, pageMeetsWindow, windowCursorOf, HISTORY_WINDOW_MESSAGES } from '../pure/historyWindow.ts'
 import type { HistoryWindowCursor } from '../pure/historyWindow.ts'
 
 /** Streaming snapshots are pushed at most this often; structural changes flush immediately. */
@@ -381,6 +388,13 @@ export class ChatSessionController implements vscode.Disposable {
    */
   private serverRunning: boolean | undefined
   private mux: vscode.Disposable | undefined
+  /** 0.1.2: 共享 subscription（共享流由 modernStreams 单例管理）。 */
+  private controlStream: vscode.Disposable | undefined
+  private modernEvents: vscode.Disposable | undefined
+  /** 0.1.2: follow 快照的 throughSeq（session/page 前翻页的游标）。 */
+  private followCursor = -1
+  /** 0.1.2: 水瀑布答复句柄（approval/question → $events/result）。 */
+  private waterfallAnswers = new Map<string, (value: unknown) => Promise<void>>()
   private flushTimer: ReturnType<typeof setTimeout> | undefined
   private lastFlush = 0
   private disposed = false
@@ -640,7 +654,9 @@ export class ChatSessionController implements vscode.Disposable {
     this.loadingEarlier = true
     this.push(true)
     try {
-      const page = await sessionHistory(this.url, this.sessionId, beforeSeq)
+      const page = isModern(this.url)
+        ? await this.loadModernEarlier(beforeSeq)
+        : await sessionHistory(this.url, this.sessionId, beforeSeq)
       if (this.disposed) return
       if (!pageMeetsWindow(page, this.historyCursor)) {
         this.logger.warn(`chat: history page of ${this.sessionId} discontinuous before seq ${beforeSeq}; stop paging`)
@@ -659,6 +675,23 @@ export class ChatSessionController implements vscode.Disposable {
     } finally {
       this.loadingEarlier = false
       this.push(true)
+    }
+  }
+
+  /** 0.1.2 前翻页：session/page（throughSeq 取 follow 快照的 cursor）。 */
+  private async loadModernEarlier(
+    beforeSeq: number,
+  ): Promise<{ events: HistoryEntryLike[]; hasMore: boolean }> {
+    const page = await sessionPage(
+      this.url,
+      this.sessionId,
+      this.followCursor,
+      beforeSeq,
+      HISTORY_WINDOW_MESSAGES,
+    )
+    return {
+      events: recordsToEntries(page.records as HistoryRecordLike[]),
+      hasMore: page.hasMore,
     }
   }
 
@@ -681,6 +714,16 @@ export class ChatSessionController implements vscode.Disposable {
   async respondApproval(rpcId: string, outcome: 'allowed-once' | 'rejected'): Promise<void> {
     const entry = this.pending.find((p) => p.kind === 'approval' && p.rpcId === rpcId)
     if (!entry || entry.kind !== 'approval') throw new Error(`approval ${rpcId} is not pending`)
+    if (isModern(this.url)) {
+      // 0.1.2：答复走 $events/result，值就是 ApprovalOutcome 字符串。
+      const answer = this.waterfallAnswers.get(rpcId)
+      if (!answer) throw new Error(`approval ${rpcId} is not pending`)
+      await answer(outcome)
+      this.waterfallAnswers.delete(rpcId)
+      this.pending = this.pending.filter((p) => !(p.kind === 'approval' && p.rpcId === rpcId))
+      this.push(true)
+      return
+    }
     await respond(this.url, rpcId, { sessionId: this.sessionId, approvalId: entry.approvalId, outcome })
   }
 
@@ -702,6 +745,17 @@ export class ChatSessionController implements vscode.Disposable {
         }),
       },
     }
+    if (isModern(this.url)) {
+      // 0.1.2：水瀑布答复值就是 AskUserQuestionAnswer（无 sessionId 包装）。
+      const answer = this.waterfallAnswers.get(rpcId)
+      if (!answer) throw new Error(`question ${rpcId} is not pending`)
+      await answer(value.answer)
+      this.waterfallAnswers.delete(rpcId)
+      this.questionItems.delete(rpcId)
+      this.pending = this.pending.filter((p) => !(p.kind === 'question' && p.rpcId === rpcId))
+      this.push(true)
+      return
+    }
     await respond(this.url, rpcId, value)
   }
 
@@ -712,6 +766,8 @@ export class ChatSessionController implements vscode.Disposable {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = undefined
     this.mux?.dispose()
+    this.controlStream?.dispose()
+    this.modernEvents?.dispose()
     this.emitter.dispose()
   }
 
@@ -751,26 +807,38 @@ export class ChatSessionController implements vscode.Disposable {
       this.todosSeq = projections.asOfSeq
       this.planSeq = projections.asOfSeq
       this.goalSeq = projections.asOfSeq
-      this.applyPermissionsValue(projections.values.permissions)
-      this.applyStatsValue(projections.values.sessionStats)
-      this.applyTodosValue(projections.values.todos)
-      this.applyPlanValue(projections.values.plan)
-      this.applyGoalValue(projections.values.goal)
-      const limits = asImageLimits(projections.values.imageLimits)
-      if (limits) this.imageLimits = limits
-      const pressure = asContextPressure(projections.values.contextPressure)
-      if (pressure) this.contextPressure = pressure
-      const breakdown = asContextBreakdown(projections.values.contextBreakdown)
-      if (breakdown) this.contextBreakdown = breakdown
+      this.applyProjectionValues(projections.values)
     }
+  }
+
+  /**
+   * 非标题投影的公共落地（标题由各基线单独取，因为其水位由调用方直接管理）。
+   * legacy 与 0.1.2 的投影值形状一致。
+   */
+  private applyProjectionValues(values: Record<string, unknown>): void {
+    this.applyPermissionsValue(values.permissions)
+    this.applyStatsValue(values.sessionStats)
+    this.applyTodosValue(values.todos)
+    this.applyPlanValue(values.plan)
+    this.applyGoalValue(values.goal)
+    const limits = asImageLimits(values.imageLimits)
+    if (limits) this.imageLimits = limits
+    const pressure = asContextPressure(values.contextPressure)
+    if (pressure) this.contextPressure = pressure
+    const breakdown = asContextBreakdown(values.contextBreakdown)
+    if (breakdown) this.contextBreakdown = breakdown
   }
 
   /** Baseline: fold the full history window, then subscribe the mux stream. */
   private async init(): Promise<void> {
-    try {
-      await this.loadBaseline()
-    } catch (error) {
-      this.logger.warn(`chat: history baseline failed for ${this.sessionId}: ${errorText(error)}`)
+    if (isModern(this.url)) {
+      await this.initModern()
+    } else {
+      try {
+        await this.loadBaseline()
+      } catch (error) {
+        this.logger.warn(`chat: history baseline failed for ${this.sessionId}: ${errorText(error)}`)
+      }
     }
     try {
       // Ancillary baseline; a feedback outage must not sink the history above.
@@ -795,13 +863,192 @@ export class ChatSessionController implements vscode.Disposable {
     })
   }
 
+  /**
+   * 0.1.2 baseline：订阅 session/follow，以首帧 snapshot（records + cursor +
+   * projections）当历史基线与服务端已开跑（等不到快照说明会话不存在或服务端
+   * 拖沓，定时兜底放行，其后重连照常生效）。随后订阅共享 control / $events。
+   */
+  private async initModern(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      const bail = setTimeout(() => {
+        this.logger.warn(`chat: follow snapshot timed out for ${this.sessionId}; proceeding without a baseline`)
+        resolve()
+      }, 20_000)
+      let done = false
+      const settle = (): void => {
+        if (done) return
+        done = true
+        clearTimeout(bail)
+        resolve()
+      }
+      const onSnapshot = (snapshot: FollowSnapshot): void => {
+        this.applyModernBaseline(snapshot)
+        settle()
+      }
+      this.mux = subscribeFollowStream(this.url, this.logger, this.sessionId, {
+        onSnapshot,
+        onEvent: (event) => {
+          if (this.disposed) return
+          this.onFrame({ method: 'session/event', payload: { event } })
+        },
+        onError: () => this.onMuxClose(),
+      })
+      this.controlStream = subscribeControlStream(this.url, this.logger, (frame) => this.onModernControl(frame))
+      this.modernEvents = subscribeModernEvents(this.url, this.logger, {
+        onRequest: (request) => this.onModernRequest(request),
+        onCancel: (eventId) => this.onModernCancel(eventId),
+      })
+    })
+  }
+
+  /** 0.1.2 follow snapshot 当作历史基线（applyHistory 自带全重置语义）。 */
+  private applyModernBaseline(snapshot: FollowSnapshot): void {
+    this.followCursor = snapshot.cursor
+    const entries = recordsToEntries(snapshot.records as HistoryRecordLike[])
+    this.historyCursor = { earliestSeq: entries[0]?.event.seq, hasMore: snapshot.hasMore }
+    this.folder.applyHistory(entries)
+    this.workflowRuns.applyHistory(entries)
+    for (const entry of entries) this.foldPresetMarkers(entry.event)
+    for (const entry of entries) this.observeRequestContext(entry.event)
+    if (this.folder.messages().some((m) => m.kind === 'user' || m.kind === 'assistant')) this.turnStarted = true
+    this.maxSeqFolded = entries.reduce((max, entry) => Math.max(max, entry.event.seq), -1)
+    const projections = snapshot.projections as { asOfSeq?: number; values?: Record<string, unknown> } | undefined
+    if (projections && typeof projections.asOfSeq === 'number' && projections.values) {
+      this.titleSeq = projections.asOfSeq
+      const title = projections.values.title
+      this.sessionTitle = typeof title === 'string' && title ? title : undefined
+      this.permissionsSeq = projections.asOfSeq
+      this.statsSeq = projections.asOfSeq
+      this.pressureSeq = projections.asOfSeq
+      this.breakdownSeq = projections.asOfSeq
+      this.todosSeq = projections.asOfSeq
+      this.planSeq = projections.asOfSeq
+      this.goalSeq = projections.asOfSeq
+      this.applyProjectionValues(projections.values)
+    }
+    this.logger.info(`chat: follow baseline applied for ${this.sessionId} (cursor ${String(snapshot.cursor)}, ${String(entries.length)} records)`)
+  }
+
+  /** 0.1.2 shared session/control 帧 → 本会话的 onFrame 同形状载荷。 */
+  private onModernControl(
+    frame: NonNullable<ReturnType<typeof parseControlStreamFrame>>,
+  ): void {
+    if (this.disposed) return
+    if (frame.type === 'queue') {
+      if (frame.sessionId === this.sessionId) this.onFrame({ method: 'session/queue', payload: { sessionId: frame.sessionId, items: frame.items } })
+      return
+    }
+    if (frame.type === 'jobs') {
+      if (frame.sessionId === this.sessionId) this.onFrame({ method: 'session/jobs', payload: { sessionId: frame.sessionId, jobs: frame.jobs } })
+      return
+    }
+    if (frame.type === 'projection') {
+      if (frame.sessionId !== this.sessionId) return
+      this.onFrame({ method: 'session/projection', payload: { sessionId: frame.sessionId, key: frame.key, value: frame.value, seq: frame.seq } })
+      return
+    }
+    if (frame.type === 'baseline') {
+      this.applyModernControlBaseline(frame.value)
+    }
+  }
+
+  /** 0.1.2 control 基线：queues/jobs/projections 按会话的整体快照。 */
+  private applyModernControlBaseline(value: Record<string, unknown>): void {
+    const queues = value.queues as Record<string, unknown> | undefined
+    const jobs = value.jobs as Record<string, unknown> | undefined
+    const projections = value.projections as Record<string, { asOfSeq?: number; values?: Record<string, unknown> }> | undefined
+    const queuesFor = queues?.[this.sessionId]
+    if (Array.isArray(queuesFor)) {
+      this.onFrame({ method: 'session/queue', payload: { sessionId: this.sessionId, items: queuesFor } })
+    }
+    const jobsFor = jobs?.[this.sessionId]
+    if (Array.isArray(jobsFor)) {
+      this.onFrame({ method: 'session/jobs', payload: { sessionId: this.sessionId, jobs: jobsFor } })
+    }
+    const projectionFor = projections?.[this.sessionId]
+    if (projectionFor && typeof projectionFor.asOfSeq === 'number' && projectionFor.values) {
+      for (const [key, val] of Object.entries(projectionFor.values)) {
+        this.onFrame({
+          method: 'session/projection',
+          payload: { sessionId: this.sessionId, key, value: val, seq: projectionFor.asOfSeq },
+        })
+      }
+    }
+  }
+
+  /** 0.1.2 $events 水瀑布请求 → 进 pending（与旧 mux 帧同形状）。 */
+  private onModernRequest(request: {
+    eventId: string
+    agentId: string
+    event: string
+    req: Record<string, unknown>
+    answer: (value: unknown) => Promise<void>
+  }): void {
+    if (this.disposed || request.agentId !== this.sessionId) return
+    if (request.event === 'approval/request') {
+      this.waterfallAnswers.set(request.eventId, request.answer)
+      this.onFrame({
+        method: 'approval/requested',
+        rpcId: request.eventId,
+        payload: {
+          sessionId: this.sessionId,
+          approvalId: request.eventId,
+          toolName: typeof request.req.toolName === 'string' ? request.req.toolName : '',
+          ...(typeof request.req.reason === 'string' ? { reason: request.req.reason } : {}),
+        },
+      })
+      return
+    }
+    if (request.event === 'user-questions/request') {
+      const items = Array.isArray(request.req.questions) ? (request.req.questions as QuestionItem[]) : []
+      this.waterfallAnswers.set(request.eventId, request.answer)
+      this.onFrame({
+        method: 'question/requested',
+        rpcId: request.eventId,
+        payload: { sessionId: this.sessionId, questions: items },
+      })
+    }
+  }
+
+  /** 0.1.2 宿主取消了挂起的水瀑布（会话被重置/转向时）。 */
+  private onModernCancel(eventId: string): void {
+    if (this.disposed) return
+    if (this.waterfallAnswers.delete(eventId)) {
+      const before = this.pending.length
+      this.pending = this.pending.filter((p) => !(p.rpcId === eventId || (p.kind === 'approval' && p.approvalId === eventId)))
+      this.questionItems.delete(eventId)
+      if (this.pending.length !== before) this.push(true)
+    }
+  }
+
   /** Attach the mux stream; the close callback drives reconnect. */
   private attach(): void {
+    if (isModern(this.url)) {
+      this.attachModernFollow()
+      return
+    }
     this.mux = subscribeMuxEvents(
       this.url,
       this.logger,
       (frame) => this.onFrame(frame),
       () => this.onMuxClose(),
+    )
+  }
+
+  /** 0.1.2：follow 流是历史/事件的载体；共享流断线各自重连，不在此重开。 */
+  private attachModernFollow(): void {
+    this.mux = subscribeFollowStream(
+      this.url,
+      this.logger,
+      this.sessionId,
+      {
+        onSnapshot: (snapshot) => this.applyModernBaseline(snapshot),
+        onEvent: (event) => {
+          if (this.disposed) return
+          this.onFrame({ method: 'session/event', payload: { event } })
+        },
+        onError: () => this.onMuxClose(),
+      },
     )
   }
 

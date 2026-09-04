@@ -30,7 +30,7 @@ test('legacy (0.1.1) wire is unchanged without auth registration', async () => {
   const call = captured[0]
   assert.equal(call.url, 'http://127.0.0.1:9999/api/session.list')
   assert.deepEqual(call.body.payload, {})
-  assert.equal(call.init.headers?.['cookie'], undefined)
+  assert.equal((call.init.headers as Record<string, string> | undefined)?.['cookie'], undefined)
 })
 
 test('modern (0.1.2) wire translates dot-methods and sends the cookie', async () => {
@@ -42,7 +42,6 @@ test('modern (0.1.2) wire translates dot-methods and sends the cookie', async ()
   assert.equal(call.url, 'http://127.0.0.1:9999/api/session/list')
   assert.deepEqual(call.body.payload, { args: { _request: {} } })
   assert.equal((call.init.headers as Record<string, string>)['cookie'], 'dsh-auth-x=v1.y.z')
-
   await callRpc('http://127.0.0.1:9999', 'session.prompt', { sessionId: 's1', mode: 'queue', content: [] })
   call = captured[1]
   assert.equal(call.url, 'http://127.0.0.1:9999/api/session/prompt')
