@@ -63,7 +63,6 @@
   "Creating forked session…": "正在创建分支会话…",
   "Add attachment": "添加附件",
   "{0} (read failed: {1})": "{0}（读取失败：{1}）",
-  "{0} (failed to write temp file: {1})": "{0}（写入临时文件失败：{1}）",
   "Skipped {0} file(s): {1}": "已跳过 {0} 个文件：{1}",
   "{0} (unsupported format: {1}; supported: {2})": "{0}（不支持的格式：{1}；支持 {2}）",
   "unknown": "未知",
@@ -363,5 +362,9 @@
   "Minimal mode": "极简模式",
   "A two-tool coding agent: persistent bash and str_replace_editor only.": "仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。",
   "Cordis mode": "创造模式",
-  "For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.": "用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。"
+  "For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.": "用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。",
+  "{0} (failed to write attachment file: {1})": "{0}（写入附件文件失败：{1}）",
+  "Attachments": "附件",
+  "Attach files to a session first (open a chat panel)": "请先打开聊天面板附着会话，再添加附件",
+  "Pasted content exceeds {0} MB; save it as a file and attach instead": "粘贴内容超过 {0} MB，未折叠为附件；请另存为文件后添加"
 }

@@ -138,3 +138,31 @@ test('会话与文件引用同现：references 与会话 chip 不冲突', () => 
     { kind: 'file', path: '@src/a.ts', label: 'a.ts' },
   ])
 })
+
+test('splitUserBubble：@路径后直接接中文标点不吞正文（中文路径名保留）', () => {
+  const segs = splitUserBubble('截图在 @/var/folders/T/dsh-one-attachments/截图-0903-171126.png，源码在 @/Users/a/src/index.ts，目录 @/Users/a/src/ 也看看。')
+  const files = segs.filter((s) => s.kind === 'file')
+  assert.deepEqual(files.map((s) => s.label), ['截图-0903-171126.png', 'index.ts'])
+  // 中文文件名路径不被截断（汉字属于路径内容）
+  assert.equal(files[0].path, '@/var/folders/T/dsh-one-attachments/截图-0903-171126.png')
+  const folder = segs.find((s) => s.kind === 'folder')
+  assert.equal(folder?.label, 'src')
+  // 正文保留（中文标点留在正文侧）
+  assert.ok(segs.some((s) => s.kind === 'text' && s.text.includes('，源码在')))
+})
+
+test('splitUserBubble：全角括号不是 token 终止符（文件名可含（说明））', () => {
+  const segs = splitUserBubble('见 @/a/b.md（说明）')
+  const file = segs.find((s) => s.kind === 'file')
+  assert.equal(file?.label, 'b.md（说明）')
+  assert.equal(file?.path, '@/a/b.md（说明）')
+})
+
+test('splitUserBubble：含全角括号的路径不截断（（草案）.docx 完整保留）', () => {
+  const segs = splitUserBubble('这个文件 @/Users/a/济南市既有住宅增设电梯项目合同补充协议（草案）.docx 你能看吗？')
+  const file = segs.find((s) => s.kind === 'file')
+  assert.equal(file?.label, '济南市既有住宅增设电梯项目合同补充协议（草案）.docx')
+  assert.equal(file?.path, '@/Users/a/济南市既有住宅增设电梯项目合同补充协议（草案）.docx')
+  // 全角问号仍终止（正文不吞）
+  assert.ok(segs.some((s) => s.kind === 'text' && s.text.includes('？') && s.text.includes('你能看吗')))
+})

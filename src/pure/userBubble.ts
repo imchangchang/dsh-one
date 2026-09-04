@@ -24,8 +24,16 @@ export type UserBubbleSegment =
   | { kind: 'folder'; path: string; label: string }
   | { kind: 'skill'; label: string }
 
-/** 官方 projectUserText 的普通 token 扫描（行首或空白后的词边界 token）。 */
-const PLAIN_TOKEN_PATTERN = /(^|\s)(\/[\w-]+|@"[^"\n]+"|@[^\s]+)/gu
+/**
+ * 官方 projectUserText 的普通 token 扫描（行首或空白后的词边界 token；
+ * dsh-one 扩展：常见中英文标点后也可触发，支持行间 @ 引用）。plain 分支在
+ * 句读标点处终止：中文句子的引用后面通常直接跟“，”这类标点（没有空格），
+ * 不终止会把后续正文吞进 token、图片/文件判定全失效。终止集只含句读标点
+ * （不能含全角括号等——路径常见 `（草案）.docx` 这类文件名，括号被截断会
+ * 让路径对不上、行内 chip 名字残缺）。
+ */
+const PLAIN_TOKEN_PATTERN =
+  /(^|[\s，。；：！？、,;!?])(\/[\w-]+|@"[^"\n]+"|@[^\s\u3000-\u303f\uff0c\uff01\uff1f\uff1b\uff1a\uff0e\uff65]+)/gu
 /** 官方对非引号 token 的尾部标点剥离（引号 token 的捕获在闭引号前止步，无需剥离）。 */
 const TRAILING_PUNCTUATION = /[.,;:!?，。；：！？]+$/gu
 

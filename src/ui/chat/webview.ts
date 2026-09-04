@@ -72,7 +72,7 @@ import {
   orderJobs,
   type ActivityJob,
 } from '../../pure/activityTree.ts'
-import { attachmentDataUrl, isImageMediaType, splitAttachmentLines } from '../../pure/composerAttachment.ts'
+import { attachmentBaseName, attachmentDataUrl, isImageMediaType, isImagePath, shouldFoldPastText, splitAttachmentLines } from '../../pure/composerAttachment.ts'
 import {
   SETTLE_IDLE_MS,
   USER_SCROLL_INTENT_MS,
@@ -96,7 +96,7 @@ import {
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { splitUserBubble, type UserBubbleSegment } from '../../pure/userBubble.ts'
-import { activeAtToken, formatFileMention, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
+import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, restoreFileMentionTokens, tokenDeletion, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
 import {
   WORKFLOW_STATUS_TEXT,
   advanceWorkflowDisclosure,
@@ -298,6 +298,12 @@ let lastTodosSig: string | null = null
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
 let pendingFiles: StagedFile[] = []
+/**
+ * 长文本粘贴折叠挂起态：宿主写盘失败/无回执时通过超时兜底——把原文重新插回
+ * 光标处（不丢数据）并复位，避免卡死导致后续正常附件回投被误插 token。
+ * 回执核对走文件名协议（pasted-*），见 filesPicked 分支。
+ */
+let pendingTextPaste: { timer: ReturnType<typeof setTimeout>; text: string } | null = null
 /** Session the staged images belong to; a switch drops them. */
 let stagedForSession: string | null = null
 /** Per-session composer text drafts: sessionId → 未发送文本。切走时存旧、切回时取新，
@@ -325,6 +331,11 @@ let modelCatalogFailed = false
 const attachmentCache = new Map<string, string>()
 /** Attachment ids already requested, so re-renders don't repost while a fetch is in flight. */
 const attachmentRequested = new Set<string>()
+/** File-path → data URL for image-file chips (message history), filled by fileThumb replies. */
+const fileThumbCache = new Map<string, string>()
+/** File path → 上次请求时间戳：失败（无回执）5 秒后允许重试，避免瞬时失败永久降级。 */
+const fileThumbRequested = new Map<string, number>()
+const FILE_THUMB_RETRY_MS = 5000
 /** Half-answered pending questions: rpcId → question index → draft. */
 const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
 /** Composer-takeover panel per pending rpcId: current page (question index), minimized state, skipped pages and a transient notice. */
@@ -652,6 +663,7 @@ function referenceChip(seg: Extract<UserBubbleSegment, { kind: 'file' | 'folder'
     chip.appendChild(el('span', undefined, seg.label))
     // @token 原文（@"/a b/x.md" / @docs/foo.md）：去 @ 与引号得到路径。
     const target = seg.path.replace(/^@/, '').replace(/^"|"$/g, '')
+    if (seg.kind === 'file') chip.dataset.refPath = target
     chip.classList.add('ref-chip-link')
     chip.setAttribute('role', 'button')
     chip.tabIndex = 0
@@ -1112,11 +1124,20 @@ window.addEventListener('message', (event) => {
       shas.push(r.sha)
     }
     if (shas.length > 0) refreshCommitHashSpans(shas)
-  } else if (msg?.type === 'imagesPicked' && Array.isArray(msg.images)) {
-    pendingImages = [...pendingImages, ...msg.images]
-    render()
   } else if (msg?.type === 'filesPicked' && Array.isArray(msg.files)) {
     pendingFiles = [...pendingFiles, ...msg.files]
+    // 长文本粘贴折叠的回执：光标处自动插入 @ 短 token（canonical 记绑定，发送时展开）。
+    // 核对回执文件名协议（pasted-*，折叠专属命名）：挂起期间的普通 pickFiles
+    // 回执不会误插；跨会话/超时的慢回执由超时兜底兜住。
+    if (pendingTextPaste !== null && msg.files.length > 0 && msg.files[0].name.startsWith('pasted-')) {
+      clearTimeout(pendingTextPaste.timer)
+      pendingTextPaste = null
+      insertMentionToken(msg.files[0].name, msg.files[0].path)
+    }
+    render()
+  } else if (msg?.type === 'fileThumb' && typeof msg.path === 'string' && typeof msg.data === 'string') {
+    // 消息里图片文件 chip 的缩略图回执：缓存后重渲染（占位变真图）。
+    fileThumbCache.set(msg.path, `data:${msg.mediaType};base64,${msg.data}`)
     render()
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
@@ -1137,14 +1158,16 @@ window.addEventListener('message', (event) => {
     render()
   } else if (msg?.type === 'restoreDraft' && typeof msg.text === 'string') {
     // 还原回 composer：stop 抽干队列的草稿文本，或发送失败的消息（图片/文件
-    // chips 一并恢复，不让输入被吞）。
+    // chips 一并恢复，不让输入被吞）。回填文本里的 canonical @长路径还原为
+    // 显示 token（与第一次输入形态一致；发送时 expand 展开回 canonical）。
+    const restoredText = restoreFileMentionTokens(msg.text, mentionBindings)
     const input = document.getElementById('input') as HTMLTextAreaElement | null
     if (input) {
-      input.value = input.value.trim() ? `${input.value.trimEnd()}\n${msg.text}` : msg.text
+      input.value = input.value.trim() ? `${input.value.trimEnd()}\n${restoredText}` : restoredText
       input.dispatchEvent(new Event('input'))
       input.focus()
     } else {
-      stashedDraft = stashedDraft ? `${stashedDraft}\n${msg.text}` : msg.text
+      stashedDraft = stashedDraft ? `${stashedDraft}\n${restoredText}` : restoredText
     }
     let stagedRestore = false
     if (Array.isArray(msg.images) && msg.images.length > 0) {
@@ -1341,6 +1364,8 @@ let slashIndex = 0
 let fileRefSeq = 0
 let fileRefRequestKey = ''
 let fileRefResult: { key: string; items: FileRefCandidate[] } | null = null
+/** @ 补全请求防抖（宿主工作区扫描有目录 stat 开销，防每键一次全量扫描）。 */
+let fileRefDebounce: ReturnType<typeof setTimeout> | null = null
 
 /**
  * 显示 token（`@标题`）→ canonical mention 的映射，发送时由
@@ -1454,55 +1479,143 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
   return []
 }
 
+/** 长文本粘贴折叠：超过阈值且会话可发送时拦截，交给宿主落盘（回投后自动插 @ token）。
+ *  无附着会话（canSend=false）不折叠，走默认插入——文本不会无处可去。
+ *  超时（3s）未回投视为失败：复位并原文插回光标（不能丢了用户的文本）。 */
+const PASTE_FOLD_TIMEOUT_MS = 3000
+/** 折叠上限：超过该长度的粘贴既不折叠也不塞进 textarea（两者都兜不住），提示另存文件。 */
+const PASTE_FOLD_MAX_BYTES = 2 * 1024 * 1024
+function foldLongTextPaste(e: ClipboardEvent): boolean {
+  if (state?.canSend !== true) return false
+  const text = e.clipboardData?.getData('text/plain') ?? ''
+  if (!shouldFoldPastText(text)) return false
+  if (text.length > PASTE_FOLD_MAX_BYTES) {
+    // 巨量粘贴：不折叠也不塞进 textarea（两者都兜不住），提示用户另存文件。
+    e.preventDefault()
+    commandNotices = [...commandNotices, t('Pasted content exceeds {0} MB; save it as a file and attach instead', Math.round(PASTE_FOLD_MAX_BYTES / 1024 / 1024))]
+    render()
+    return true
+  }
+  e.preventDefault()
+  pendingTextPaste = {
+    text,
+    timer: setTimeout(() => {
+      if (pendingTextPaste?.text !== text) return
+      pendingTextPaste = null
+      // 宿主没回投：原文插回光标处（粘贴点的原始语义），不丢数据。
+      const el = document.getElementById('input') as HTMLTextAreaElement | null
+      if (el) {
+        const cursor = el.selectionStart ?? el.value.length
+        el.value = `${el.value.slice(0, cursor)}${text}${el.value.slice(el.selectionEnd ?? cursor)}`
+        el.focus()
+        el.setSelectionRange(cursor + text.length, cursor + text.length)
+        el.dispatchEvent(new Event('input'))
+      }
+    }, PASTE_FOLD_TIMEOUT_MS),
+  }
+  post({ type: 'pasteText', data: text })
+  return true
+}
+
+/** 在输入框光标处插入 @ 文件引用显示 token（canonical 路径记 mentionBindings，发送时展开）。 */
+function insertMentionToken(name: string, path: string): void {
+  const input = document.getElementById('input') as HTMLTextAreaElement | null
+  if (!input) return
+  const mention = formatFileMention({ path, kind: 'file' }, false)
+  if (mention === undefined) return
+  const token = fileMentionToken(name, mention, mentionBindings)
+  mentionBindings.set(token, mention)
+  const cursor = input.selectionStart ?? input.value.length
+  const end = input.selectionEnd ?? cursor
+  const tail = ' '
+  input.value = `${input.value.slice(0, cursor)}${token}${tail}${input.value.slice(end)}`
+  input.focus()
+  const caret = cursor + token.length + tail.length
+  input.setSelectionRange(caret, caret)
+  input.dispatchEvent(new Event('input'))
+}
+
 /**
  * @ 补全（对齐 dsh web）：光标前的 `@query`（或未闭合 `@"query`）触发，
- * 文件/文件夹候选在前（host fileReferences/list，异步返回），当前会话
- * 所属工作区的会话候选在后，两组各有小标题 + 分割线；引号 token 只出
- * 文件。引用其它会话主要靠会话面板的"复制引用"，这里只补本工作区的会话。
+ * 候选分三组（各有小标题 + 分割线）：附件（当前 composer 已附加的）、
+ * 工作区文件（宿主 fileReferences/list 异步返回，cwd 浅层）、当前会话所属
+ * 工作区的会话。引号 token 只出文件。
+ * 引用其它会话主要靠会话面板的"复制引用"，这里只补本工作区的会话。
  */
 function computeRefRows(input: HTMLTextAreaElement): SlashRow[] {
   if (input.selectionStart !== input.selectionEnd) return []
   const at = activeAtToken(input.value.slice(0, input.selectionStart))
   if (!at) return []
-  // token 变了才发新请求；响应到达后由消息处理分支重算本函数上屏。
+  // token 变了才发新请求；250ms 防抖（宿主侧工作区扫描有目录 stat 开销）。
+  // 响应到达后由消息处理分支重算本函数上屏。本地附件候选即时出，不等宿主。
   if (fileRefResult?.key !== at.prefix) {
     fileRefSeq += 1
     fileRefRequestKey = at.prefix
     fileRefResult = null
-    post({ type: 'fileRefList', requestId: fileRefSeq, query: at.query })
+    if (fileRefDebounce !== null) clearTimeout(fileRefDebounce)
+    fileRefDebounce = setTimeout(() => {
+      fileRefDebounce = null
+      post({ type: 'fileRefList', requestId: fileRefSeq, query: at.query })
+    }, 250)
   }
-  const files = fileRows(input, at)
+  const { attachments, workspace } = fileRows(input, at)
   const sessions = at.quoted ? [] : sessionRows(input, at)
   return [
-    ...(files.length > 0 ? [{ label: t('Files'), header: true } as SlashRow, ...files] : []),
+    ...(attachments.length > 0 ? [{ label: t('Attachments'), header: true } as SlashRow, ...attachments] : []),
+    ...(workspace.length > 0 ? [{ label: t('Files'), header: true } as SlashRow, ...workspace] : []),
     ...(sessions.length > 0 ? [{ label: t('Sessions'), header: true } as SlashRow, ...sessions] : []),
   ]
 }
 
-/** 文件/文件夹候选行；响应未到达或已过期时为空（会话行先顶着）。 */
-function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] {
-  if (fileRefResult === null || fileRefResult.key !== at.prefix) return []
+/**
+ * 文件/文件夹候选行：**附件组**（本地即时，当前 composer 已附加的）与
+ * **工作区组**（宿主异步返回）分开返回。选中后输入框插入 `@短名` 显示 token，
+ * canonical 路径引用（`@/abs/path` 或 `@"..."`）记入 mentionBindings、发送时
+ * 才展开——textarea 里看不到长路径；选中的若正是已附加的图片，对应 chip 高亮。
+ */
+function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): { attachments: SlashRow[]; workspace: SlashRow[] } {
   const cursor = input.selectionStart
   const tokenStart = cursor - at.prefix.length
-  return fileRefResult.items.flatMap((c) => {
+  const rowOf = (c: FileRefCandidate): SlashRow[] => {
     const mention = formatFileMention(c, at.quoted)
     if (mention === undefined) return [] // 编辑器语法无法安全表示的路径不出候选
-    const directory = c.kind === 'directory'
-    const name = c.path.slice(c.path.lastIndexOf('/') + 1)
+    const name = attachmentBaseName(c.path)
     return [{
-      label: `@${name}${directory ? '/' : ''}`,
+      label: `@${name}`,
       right: c.path,
       apply: () => {
-        // 目录不补空格：token 保持活跃（@dir/ 或 @"dir/），弹窗继续出下一层。
-        const tail = directory ? '' : ' '
-        input.value = `${input.value.slice(0, tokenStart)}${mention}${tail}${input.value.slice(cursor)}`
+        const token = fileMentionToken(name, mention, mentionBindings)
+        mentionBindings.set(token, mention)
+        const tail = ' '
+        input.value = `${input.value.slice(0, tokenStart)}${token}${tail}${input.value.slice(cursor)}`
         input.focus()
-        const caret = tokenStart + mention.length + tail.length
+        const caret = tokenStart + token.length + tail.length
         input.setSelectionRange(caret, caret)
         input.dispatchEvent(new Event('input'))
+        // 重建 chips 让「已被 @ 引用」的高亮生效；焦点/光标由 render 恢复。
+        render()
       },
     }]
-  })
+  }
+  return {
+    attachments: attachedFileCandidates(at.query).flatMap(rowOf),
+    // 宿主工作区候选（异步）：响应未到达或已过期时为空（附件组先顶着）。
+    workspace: fileRefResult !== null && fileRefResult.key === at.prefix ? fileRefResult.items.flatMap(rowOf) : [],
+  }
+}
+
+/**
+ * 本地附件候选：**只列当前 composer 已附加（staged）的附件文件**，按 path
+ * 去重。历史消息里出现过的附件/截图不进 @ 列表（用户拍板：只出现附件内的
+ * 照片文件，不出现所有历史截图）——想引用旧附件就重新附加一次。
+ */
+function attachedFileCandidates(query: string): FileRefCandidate[] {
+  const byPath = new Map<string, FileRefCandidate>()
+  for (const f of pendingFiles) {
+    if (!byPath.has(f.path)) byPath.set(f.path, { path: f.path, kind: 'file' })
+  }
+  const q = query.trim().toLowerCase()
+  return [...byPath.values()].filter((c) => q === '' || attachmentBaseName(c.path).toLowerCase().includes(q))
 }
 
 /**
@@ -3382,17 +3495,18 @@ function renderSteeringItem(item: QueuedItem): HTMLElement {
   // row 是横向 flex（[spinner][内容]），内容包一层纵向容器复用 .msg.user 的
   // 堆叠布局：附件区在上、气泡居中、引用摘要行在下（与正式用户消息一致）。
   const body = el('div', 'msg user')
-  // 附件与正式用户消息同款：图片缩略图（字节懒取）+ 文件名称 chip。
-  const attachments = renderUserAttachments(item.images, item.files)
+  // 附件与正式用户消息同款：图片缩略图（字节懒取）+ 文件名称 chip；
+  // @ 文件引用同样提升到附件区（fileRefs）。
+  const { text: readable, references } = parseSessionMentions(splitAttachmentLines(item.editText).text)
+  const parts = readable.length > 0 ? renderUserBubbleParts(readable, references) : null
+  const attachments = renderUserAttachments(item.images, mergedAttachments(parts?.files ?? [], item.files))
   if (attachments) body.appendChild(attachments)
   // 文本与正式用户消息同款：剥离 <attachment> 文件行，canonical mention
   // （@[标题](dsh-session:…)）展开成可读 @label + references——与 host 解析
   // 后落盘的形态一致，气泡据此拼可点击的会话 chip 与引用摘要行。
-  const { text: readable, references } = parseSessionMentions(splitAttachmentLines(item.editText).text)
-  if (readable.length > 0) {
-    const [bubble, summary] = renderUserBubbleParts(readable, references)
-    body.appendChild(bubble)
-    if (summary) body.appendChild(summary)
+  if (parts) {
+    body.appendChild(parts.bubble)
+    if (parts.summary) body.appendChild(parts.summary)
   } else if (!attachments) {
     body.appendChild(el('div', 'bubble', t('(empty message)')))
   }
@@ -3451,7 +3565,50 @@ function imageChip(image: ChatImage): HTMLElement {
 
 /** Compact chip for one attached file; click opens the path in the VS Code editor. */
 function fileChip(file: ChatFile): HTMLElement {
+  // 图片文件：先画图标 chip 并懒请求缩略图（回执后整卡换成缩略图，失败 5s 后重试）。
+  if (file.image && !fileThumbCache.has(file.path)) {
+    const at = fileThumbRequested.get(file.path) ?? 0
+    if (Date.now() - at > FILE_THUMB_RETRY_MS) {
+      fileThumbRequested.set(file.path, Date.now())
+      post({ type: 'requestFileThumb', path: file.path })
+    }
+  }
+  if (file.image) {
+    const dataUrl = fileThumbCache.get(file.path)
+    if (dataUrl) return fileThumbItem(file, dataUrl)
+  }
   const chip = el('span', 'file-chip')
+  chip.dataset.attachPath = file.path
+  const icon = el('span', 'file-chip-icon')
+  icon.appendChild(strokeSvg(FILE_ICON))
+  chip.appendChild(icon)
+  const name = el('span', 'chip-name', file.name)
+  name.title = file.path
+  chip.appendChild(name)
+  chip.title = t('Open {0} in VS Code', file.path)
+  chip.addEventListener('click', () => post({ type: 'openAttachmentFile', path: file.path }))
+  return chip
+}
+
+/** 图片文件的缩略图 chip（历史消息）：点击放大（复用 attach-thumb 样式，底部名称横幅）。 */
+function fileThumbItem(file: ChatFile, dataUrl: string): HTMLElement {
+  const item = el('span', 'attach-thumb')
+  item.dataset.attachPath = file.path
+  item.title = t('{0} (click to preview)', file.name)
+  const img = document.createElement('img')
+  img.src = dataUrl
+  img.alt = file.name
+  img.addEventListener('error', () => item.replaceWith(fileIconChip(file)))
+  item.addEventListener('click', () => openLightbox(dataUrl))
+  item.appendChild(img)
+  item.appendChild(el('span', 'thumb-name', file.name))
+  return item
+}
+
+/** 缩略图加载失败/未取到时的纯图标 chip（点击打开文件）。 */
+function fileIconChip(file: ChatFile): HTMLElement {
+  const chip = el('span', 'file-chip')
+  chip.dataset.attachPath = file.path
   const icon = el('span', 'file-chip-icon')
   icon.appendChild(strokeSvg(FILE_ICON))
   chip.appendChild(icon)
@@ -3872,17 +4029,37 @@ function renderUserAttachments(
 function renderUserBubbleParts(
   text: string,
   references?: readonly { sessionId: string; label: string }[],
-): [HTMLElement, HTMLElement | null] {
+): { bubble: HTMLElement; summary: HTMLElement | null; files: ChatFile[] } {
   const bubble = el('div', 'bubble')
+  const fileRefs: ChatFile[] = []
   for (const seg of splitUserBubble(text, references)) {
     if (seg.kind === 'text') bubble.appendChild(document.createTextNode(seg.text))
     else if (seg.kind === 'session') bubble.appendChild(sessionMentionChip(seg.label, seg.sessionId))
-    else bubble.appendChild(referenceChip(seg))
+    else if (seg.kind === 'file') {
+      // @ 文件引用双显：行内保留可点击引用 chip（与工作区文件效果一致，引用
+      // 不因提升而"丢失"），同时收集进附件区（图片缩略图/文件图标）。行内
+      // chip hover 时与附件 chip 联动高亮（见 renderMessage 的行内委托）。
+      bubble.appendChild(referenceChip(seg))
+      const target = seg.path.replace(/^@/, '').replace(/^"|"$/g, '')
+      fileRefs.push({
+        name: seg.label,
+        path: target,
+        ...(isImagePath(target) ? { image: true } : {}),
+      })
+    } else bubble.appendChild(referenceChip(seg))
   }
   const summary = references?.length
     ? el('div', 'ref-summary', t('Referenced sessions: {0}', references.map((r) => r.label).join(t(', '))))
     : null
-  return [bubble, summary]
+  return { bubble, summary, files: fileRefs }
+}
+
+/** 合并消息内既有附件与 @ 文件引用（路径不区分大小写去重——Windows 大小写不敏感）。 */
+function mergedAttachments(fileRefs: ChatFile[], existing: readonly ChatFile[] | undefined): ChatFile[] {
+  const byPath = new Map<string, ChatFile>()
+  for (const f of existing ?? []) byPath.set(f.path.toLowerCase(), f)
+  for (const f of fileRefs) if (!byPath.has(f.path.toLowerCase())) byPath.set(f.path.toLowerCase(), f)
+  return [...byPath.values()]
 }
 
 function renderMessage(m: ChatMessage, key: string): HTMLElement {
@@ -3893,13 +4070,32 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
     }
     const row = el('div', 'msg user')
     // 附件在文字气泡上方（对齐 dsh web）：图片显示方形缩略图，文件仍是名称 chip。
-    const attachments = renderUserAttachments(m.images, m.files)
+    const parts = m.text ? renderUserBubbleParts(m.text, m.references) : null
+    const attachments = renderUserAttachments(m.images, mergedAttachments(parts?.files ?? [], m.files))
     if (attachments) row.appendChild(attachments)
-    if (m.text) {
-      const [bubble, summary] = renderUserBubbleParts(m.text, m.references)
-      row.appendChild(bubble)
-      if (summary) row.appendChild(summary)
+    if (parts) {
+      row.appendChild(parts.bubble)
+      if (parts.summary) row.appendChild(parts.summary)
     }
+    // 行内 @ 文件引用 chip 的 hover 联动：悬停时对应附件 chip 高亮（与
+    // composer 输入框的 hover 同款反馈；委托到整行，短名 chip 与附件区
+    // 一一对应）。
+    const clearRefHighlight = (): void => {
+      for (const el of Array.from(row.querySelectorAll('.ref-hover, .hovered'))) {
+        el.classList.remove('ref-hover', 'hovered')
+      }
+    }
+    row.addEventListener('mouseover', (e) => {
+      const ref = (e.target as Element | null)?.closest?.('[data-ref-path]')
+      if (!ref || !(ref instanceof HTMLElement)) return
+      const path = ref.dataset.refPath ?? ''
+      clearRefHighlight()
+      ref.classList.add('ref-hover')
+      for (const chip of Array.from(row.querySelectorAll<HTMLElement>('[data-attach-path]'))) {
+        if (chip.dataset.attachPath === path) chip.classList.add('hovered')
+      }
+    })
+    row.addEventListener('mouseleave', clearRefHighlight)
     return row
   }
   if (m.kind === 'command') {
@@ -5416,9 +5612,47 @@ function pendingImageFallback(img: OutgoingImage, index: number): HTMLElement {
   return chip
 }
 
-/** 待发送文件：与图片缩略图同尺寸方框（文档小图标 + 文件名，hover 右上角 ×）；点击在 VS Code 打开。 */
+/** 待发送文件：与图片缩略图同尺寸方框（文档小图标 + 文件名，hover 右上角 ×）；点击在 VS Code 打开。
+ *  图片文件（image 标记）：优先用 host 提供的 previewData 画缩略图；恢复/还原的
+ *  附件没有 previewData 时走懒加载（requestFileThumb，同历史 chip 机制）——回执
+ *  到达后换缩略图，文件已被系统清理则保持图标 chip。高亮只走 hover 联动。 */
 function pendingFileChip(file: StagedFile, index: number): HTMLElement {
+  const lazyUrl = fileThumbCache.get(file.path)
+  if (file.image && (file.previewData || lazyUrl)) {
+    const dataUrl = file.previewData && file.mediaType
+      ? attachmentDataUrl(file.mediaType, file.previewData)
+      : (lazyUrl ?? '')
+    const item = el('span', 'attach-thumb')
+    item.dataset.attachPath = file.path
+    item.title = t('{0} (click to preview)', file.name)
+    const image = document.createElement('img')
+    image.src = dataUrl
+    image.alt = file.name
+    image.addEventListener('error', () => item.replaceWith(fileIconChip({ name: file.name, path: file.path })))
+    const remove = buttonEl('thumb-remove', '×')
+    remove.title = t('Remove file')
+    remove.addEventListener('click', (e) => {
+      e.stopPropagation()
+      pendingFiles.splice(index, 1)
+      render()
+    })
+    item.addEventListener('click', () => openLightbox(dataUrl))
+    item.appendChild(image)
+    // 底部名称横幅：img1.png 这类短名直接可见（截图多时靠它区分）。
+    item.appendChild(el('span', 'thumb-name', file.name))
+    item.appendChild(remove)
+    return item
+  }
+  // 图片但暂时无预览：懒加载请求（失败 5s 后允许重试一次，之后保持图标）。
+  if (file.image && !file.previewData) {
+    const at = fileThumbRequested.get(file.path) ?? 0
+    if (Date.now() - at > FILE_THUMB_RETRY_MS) {
+      fileThumbRequested.set(file.path, Date.now())
+      post({ type: 'requestFileThumb', path: file.path })
+    }
+  }
   const chip = el('span', 'file-chip')
+  chip.dataset.attachPath = file.path
   const icon = el('span', 'file-chip-icon')
   icon.appendChild(strokeSvg(FILE_ICON))
   chip.appendChild(icon)
@@ -5450,6 +5684,9 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   }
 
   const row = el('div', 'input-row')
+  // 输入框外包 frame：@ 引用 token 由叠加高亮层绘制（透明文字 + 底色 token），
+  // hover token → 联动对应附件 chip 高亮（textarea 无法直接 hover 文本）。
+  const frame = el('div', 'composer-frame')
   const input = document.createElement('textarea')
   input.id = 'input'
   input.rows = 1
@@ -5474,6 +5711,77 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   } else if (draft) {
     input.value = draft
   }
+  frame.appendChild(input)
+  const refLayer = el('div', 'ref-token-layer')
+  refLayer.setAttribute('aria-hidden', 'true')
+  frame.appendChild(refLayer)
+  row.appendChild(frame)
+
+  /** 按当前输入渲染高亮层：mentionBindings 里的显示 token 高亮（含路径关联）。 */
+  let composerComposing = false
+  const renderRefLayer = (): void => {
+    if (composerComposing) return // IME 组合中跳过重建（组合文本由 textarea 原生绘制）
+    refLayer.textContent = ''
+    const value = input.value
+    const tokens = [...mentionBindings.keys()].sort((a, b) => b.length - a.length)
+    if (tokens.length === 0) {
+      if (value) refLayer.appendChild(document.createTextNode(value))
+      refLayer.style.transform = `translateY(${-input.scrollTop}px)`
+      return
+    }
+    let cursor = 0
+    while (cursor < value.length) {
+      let best: { index: number; token: string } | null = null
+      for (const token of tokens) {
+        const index = value.indexOf(token, cursor)
+        if (index >= 0 && (best === null || index < best.index)) best = { index, token }
+      }
+      if (best === null) break
+      if (best.index > cursor) refLayer.appendChild(document.createTextNode(value.slice(cursor, best.index)))
+      const span = el('span', 'ref-token', best.token)
+      span.dataset.path = mentionBindings.get(best.token) ?? ''
+      refLayer.appendChild(span)
+      cursor = best.index + best.token.length
+    }
+    if (cursor < value.length) refLayer.appendChild(document.createTextNode(value.slice(cursor)))
+    refLayer.style.transform = `translateY(${-input.scrollTop}px)`
+  }
+  renderRefLayer()
+
+  /** hover 联动：token 高亮加深 + 对应附件 chip 高亮（直接 DOM 操作，不整页重渲染）。
+   *  span 里存的是 canonical 引用（`@/abs/path` 或 `@"..."`），chip 上存的是
+   *  纯路径——匹配前归一化（去 @ 与引号），否则永远对不上。 */
+  let hoverTokenPath: string | null = null
+  const plainPath = (p: string): string => p.replace(/^@/, '').replace(/^"|"$/g, '')
+  const applyHover = (path: string | null): void => {
+    if (path === hoverTokenPath) return
+    hoverTokenPath = path
+    const plain = path === null ? null : plainPath(path)
+    for (const span of Array.from(refLayer.querySelectorAll<HTMLElement>('.ref-token'))) {
+      span.classList.toggle('active', path !== null && span.dataset.path === path)
+    }
+    // hover 用独立 class（hovered），不碰点击选中态的 referenced；查询收窄到
+    // composer 输入区（避免点亮历史消息里同路径的附件 chip）。
+    for (const chip of Array.from(document.querySelectorAll<HTMLElement>('.input-area [data-attach-path]'))) {
+      chip.classList.toggle('hovered', plain !== null && chip.dataset.attachPath === plain)
+    }
+  }
+  input.addEventListener('mousemove', (e) => {
+    let hit: string | null = null
+    for (const span of Array.from(refLayer.querySelectorAll<HTMLElement>('.ref-token'))) {
+      if (!span.dataset.path) continue
+      const r = span.getBoundingClientRect()
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+        hit = span.dataset.path
+        break
+      }
+    }
+    applyHover(hit)
+  })
+  input.addEventListener('mouseleave', () => applyHover(null))
+  input.addEventListener('scroll', () => {
+    refLayer.style.transform = `translateY(${-input.scrollTop}px)`
+  })
 
   // 主按钮（对齐官方 InputBar primary）：无文字图标按钮——非运行显示发送
   // 箭头，运行中同一按钮切换为停止方块（primaryStops），点击即 stop；排队
@@ -5532,9 +5840,16 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     recall = null
     recallDraft = ''
     const images = pendingImages
+    const files = pendingFiles
     pendingImages = []
     pendingFiles = []
-    post({ type: 'send', text: expanded, ...(images.length > 0 ? { images } : {}), ...(steer ? { steer } : {}) })
+    post({
+      type: 'send',
+      text: expanded,
+      ...(images.length > 0 ? { images } : {}),
+      ...(files.length > 0 ? { files } : {}),
+      ...(steer ? { steer } : {}),
+    })
     input.value = ''
     render()
     // 发送是"看最新"信号：本轮 render 之后无条件滚到底并复位跟随态，
@@ -5550,6 +5865,52 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     sendCurrent()
   })
   input.addEventListener('keydown', (e) => {
+    // @ 引用 token 原子导航：左右方向键跨过整个显示 token（textarea 没有
+    // 原子引用，用位置计算模拟）；非 collapsed 选中态走原生。
+    if (
+      (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+      !e.shiftKey &&
+      !e.isComposing &&
+      input.selectionStart === input.selectionEnd
+    ) {
+      const next = arrowNavPosition(
+        input.value,
+        input.selectionStart ?? 0,
+        e.key === 'ArrowRight' ? 1 : -1,
+        mentionBindings,
+      )
+      if (next !== null) {
+        e.preventDefault()
+        input.setSelectionRange(next, next)
+        return
+      }
+    }
+    // 退格/Delete 原子删除：光标在 token 后/内部时整段删除该 token（对称），
+    // 并清理对应 mention 绑定（避免同名 token 被误判冲突）。
+    if (
+      (e.key === 'Backspace' || e.key === 'Delete') &&
+      !e.shiftKey &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.isComposing &&
+      input.selectionStart === input.selectionEnd
+    ) {
+      const del = tokenDeletion(
+        input.value,
+        input.selectionStart ?? 0,
+        e.key === 'Backspace' ? -1 : 1,
+        mentionBindings,
+      )
+      if (del) {
+        e.preventDefault()
+        mentionBindings.delete(del.token)
+        input.value = del.text
+        input.setSelectionRange(del.pos, del.pos)
+        input.dispatchEvent(new Event('input'))
+        return
+      }
+    }
     // Slash completion owns these keys while open: arrows navigate, Tab/Enter
     // complete, Escape dismisses (an Escape with no popup falls through).
     if (slashPopupEl && !e.isComposing) {
@@ -5622,28 +5983,59 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       recallDraft = input.value
       if (lastQueued) {
         recall = { kind: 'queue', itemId: lastQueued.id }
-        input.value = lastQueued.editText
+        // canonical @长路径还原为显示 token（排队项往返自洽：回写时 expand 展开回 canonical）
+        input.value = restoreFileMentionTokens(lastQueued.editText, mentionBindings)
       } else if (lastUser && lastUser.kind === 'user') {
         recall = { kind: 'history' }
-        input.value = lastUser.text
+        // 历史里存的是 canonical @长路径（发送时展开的结果）；还原成显示 token，
+        // 与第一次输入时的形态一致。
+        input.value = restoreFileMentionTokens(lastUser.text, mentionBindings)
+        // 原附件一并恢复（文件形式后可直接再编辑重发）：按 path 去重，
+        // 图片带 image 标记（缩略图需磁盘数据，恢复为图标 chip 可接受）。
+        const existing = new Set(pendingFiles.map((f) => f.path))
+        const restoredFiles = (lastUser.files ?? [])
+          .filter((f) => !existing.has(f.path))
+          .map((f) => ({ name: f.name, path: f.path, ...(f.image ? { image: true } : {}) }))
+        if (restoredFiles.length > 0) pendingFiles = [...pendingFiles, ...restoredFiles]
       }
       render()
     }
+  })
+  input.addEventListener('compositionstart', () => {
+    // IME 组合期间：组合文本由浏览器原生画在 textarea 上（input.value 不含它），
+    // 而 textarea 文字是透明的——必须隐藏叠层并恢复 textarea 文字色，否则
+    // 拼音组合串整段不可见（用户看到的"已经输入的内容不显示"）。
+    composerComposing = true
+    refLayer.style.display = 'none'
+    input.style.color = 'var(--vscode-input-foreground)'
+  })
+  input.addEventListener('compositionend', () => {
+    composerComposing = false
+    refLayer.style.display = ''
+    input.style.color = 'transparent'
+    renderRefLayer()
   })
   input.addEventListener('input', () => {
     autoGrow(input)
     updateButton()
     updateSlashPopup(input)
+    renderRefLayer()
     // 纯输入不触发 render，脏位上报单独跟一次（宿主的 dirty 保护决策读它）。
     reportComposerDirty()
   })
-  input.addEventListener('blur', () => hideSlashPopup())
+  input.addEventListener('blur', () => {
+    hideSlashPopup()
+    applyHover(null)
+  })
   input.addEventListener('paste', (e) => {
     // Every clipboard file becomes an attachment, images or not — the host
     // sniffs the bytes, so a missing declared type (macOS file promises) is fine.
     const items = Array.from(e.clipboardData?.items ?? []).filter((item) => item.kind === 'file')
     if (items.length === 0) {
-      pasteSessionMentions(input, e)
+      // 会话 mention 粘贴优先（canonical 转显示 token）；长文本折叠为文件附件；
+      // 都未命中时默认插入。
+      if (pasteSessionMentions(input, e)) return
+      if (foldLongTextPaste(e)) return
       return
     }
     e.preventDefault()
@@ -5673,7 +6065,6 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     })()
   })
   updateButton()
-  row.appendChild(input)
   row.appendChild(button)
   wrap.appendChild(row)
 

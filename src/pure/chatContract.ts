@@ -97,6 +97,8 @@ export interface ChatImage {
 export interface ChatFile {
   name: string
   path: string
+  /** 图片文件（按扩展名识别）：消息流里渲染成缩略图 chip，不再走 base64 附件。 */
+  image?: boolean
 }
 
 /** Declared information shape of injected context (source.form). */
@@ -362,12 +364,18 @@ export interface OutgoingImage {
 
 /**
  * A non-image file staged in the composer as a chip. Bytes stay on disk
- * (picked in place, or a temp copy for pastes); the path joins the prompt
- * text on send so the agent can read the file itself.
+ * (picked in place, or a workspace copy for pastes); the path joins the
+ * prompt text on send so the agent can read the file itself.
  */
 export interface StagedFile {
   name: string
   path: string
+  /** 图片文件（粘贴/选择的图片附件）：chip 显示缩略图，消息仍只发 path。 */
+  image?: boolean
+  /** image 时的图片 MIME（缩略图 data URL 用；仅内存态，不随消息发送）。 */
+  mediaType?: string
+  /** 图片预览 base64（仅内存态，不随消息发送；host 提供）。 */
+  previewData?: string
 }
 
 /**
@@ -727,7 +735,6 @@ export interface CommitInfoResult {
 export type ToWebviewMessage =
   | { type: 'state'; state: ChatState }
   | { type: 'sessions'; snapshot: SessionsSnapshot }
-  | { type: 'imagesPicked'; images: OutgoingImage[] }
   | { type: 'filesPicked'; files: StagedFile[] }
   | { type: 'modelCatalog'; catalog: ModelCatalog }
   /**
@@ -736,6 +743,8 @@ export type ToWebviewMessage =
    */
   | { type: 'modelCatalogError' }
   | { type: 'attachmentData'; attachmentId: string; mediaType: string; data: string }
+  /** 消息里图片文件 chip 的懒加载缩略图（requestFileThumb 的回执；data 为 base64）。 */
+  | { type: 'fileThumb'; path: string; mediaType: string; data: string }
   /**
    * 把内容还原回 composer：stop 时被抽干队列的排队消息文本，或发送失败
    * 时原样还回的消息（图片/文件 chips 一并恢复，不让输入被吞）。
@@ -760,12 +769,16 @@ export type FromWebviewMessage =
    * 的 tab」：点击其他会话时若有未发送内容则新开 tab，不覆盖当前 tab。
    */
   | { type: 'composerDirty'; dirty: boolean }
-  | { type: 'send'; text: string; images?: OutgoingImage[]; steer?: boolean }
+  | { type: 'send'; text: string; images?: OutgoingImage[]; files?: StagedFile[]; steer?: boolean }
   | { type: 'stop' }
   | { type: 'approval'; rpcId: string; outcome: 'allowed-once' | 'rejected' }
   | { type: 'answer'; rpcId: string; answers: QuestionAnswerInput[] }
   | { type: 'pickFiles' }
   | { type: 'filesPasted'; files: OutgoingImage[] }
+  /** 长文本粘贴被折叠为文件附件：宿主落盘后经 filesPicked 回投（webview 自动插 @ token）。 */
+  | { type: 'pasteText'; data: string }
+  /** 消息里图片文件 chip 需要缩略图：宿主读盘转 base64 后回 fileThumb（失败静默）。 */
+  | { type: 'requestFileThumb'; path: string }
   | { type: 'requestModels' }
   | { type: 'setModel'; provider: string; model: string; reasoningEffort?: string }
   | { type: 'setPermission'; value: string }

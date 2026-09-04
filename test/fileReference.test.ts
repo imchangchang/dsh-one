@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { activeAtToken, formatFileMention } from '../src/pure/fileReference.ts'
+import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, restoreFileMentionTokens, tokenDeletion } from '../src/pure/fileReference.ts'
 
 test('activeAtToken：行首与空白后的 @query 触发，query 允许 / 与 @', () => {
   assert.deepEqual(activeAtToken('@rea'), { prefix: '@rea', query: 'rea', quoted: false })
@@ -39,4 +39,102 @@ test('formatFileMention：preserveQuote 保留显式打开的引号', () => {
 test('formatFileMention：控制字符与内嵌引号无法安全表示', () => {
   assert.equal(formatFileMention({ path: 'a"b.txt', kind: 'file' }), undefined)
   assert.equal(formatFileMention({ path: 'a\tb.txt', kind: 'file' }), undefined)
+})
+
+test('fileMentionToken：首选 @短名，冲突时追加序号直到唯一', () => {
+  const bindings = new Map<string, string>()
+  const first = fileMentionToken('截图.png', '@/a/截图.png', bindings)
+  assert.equal(first, '@截图.png')
+  bindings.set(first, '@/a/截图.png')
+  // 同名被别的绑定占用（不同 mention）→ 序号递增
+  assert.equal(fileMentionToken('截图.png', '@/b/截图.png', bindings), '@截图.png (2)')
+  // 同名同 mention（重复插入同一文件）→ 直接用 @短名 覆盖注册，不递增
+  assert.equal(fileMentionToken('截图.png', '@/a/截图.png', bindings), '@截图.png')
+})
+
+test('activeAtToken：常见中英文标点后可触发（行间 @ 引用）', () => {
+  assert.deepEqual(activeAtToken('第一张，@img'), { prefix: '@img', query: 'img', quoted: false })
+  assert.deepEqual(activeAtToken('对比：@img1'), { prefix: '@img1', query: 'img1', quoted: false })
+  // 引号 token 同样支持标点后触发（汉字前是内容边界，不误触）
+  assert.deepEqual(activeAtToken('第一张，@"img 1.png'), { prefix: '@"img 1.png', query: 'img 1.png', quoted: true })
+  assert.equal(activeAtToken('看@"img 1.png'), undefined)
+  // 标点后不误触发（邮箱/普通字符边界不变）
+  assert.equal(activeAtToken('foo.a@b'), undefined)
+})
+
+test('arrowNavPosition：方向键以整个 @ token 为单元跨越', () => {
+  const bindings = new Map([
+    ['@img9.png', '@/tmp/dsh-one-attachments/s1/img9.png'],
+    ['@pasted-1.txt', '@/tmp/dsh-one-attachments/s1/pasted-1.txt'],
+  ])
+  // '@img9.png 和 @pasted-1.txt 都看看'：token1 [0,9)，token2 [12,25)
+  const value = '@img9.png 和 @pasted-1.txt 都看看'
+  // token 起始处 → 向右跳到 token 后
+  assert.equal(arrowNavPosition(value, 0, 1, bindings), 9)
+  // token 内部 → 向右/向左都跨出
+  assert.equal(arrowNavPosition(value, 4, 1, bindings), 9)
+  assert.equal(arrowNavPosition(value, 4, -1, bindings), 0)
+  // token 紧后方 → 向左跨过整个 token
+  assert.equal(arrowNavPosition(value, 9, -1, bindings), 0)
+  // 第二个 token 同规则
+  assert.equal(arrowNavPosition(value, 12, 1, bindings), 25)
+  assert.equal(arrowNavPosition(value, 20, -1, bindings), 12)
+  assert.equal(arrowNavPosition(value, 26, -1, bindings), null)
+  // 非 token 位置（空白/文本）→ null（走原生）
+  assert.equal(arrowNavPosition(value, 10, 1, bindings), null)
+  assert.equal(arrowNavPosition(value, 25, 1, bindings), null)
+  assert.equal(arrowNavPosition(value, 26, 1, bindings), null)
+  assert.equal(arrowNavPosition(value, value.length, -1, bindings), null)
+  // 无绑定 → null
+  assert.equal(arrowNavPosition(value, 0, 1, new Map()), null)
+})
+
+assert.equal(arrowNavPosition('@img9.png 和 @pasted-1.txt 都看看', 25, -1, new Map([['@pasted-1.txt','@/x/pasted-1.txt'],['@img9.png','@/x/img9.png']])), 12)
+
+
+test('tokenDeletion：退格删前 token、Delete 删后 token，整段删除', () => {
+  const bindings = new Map([
+    ['@img9.png', '@/tmp/dsh-one-attachments/s1/img9.png'],
+    ['@pasted-1.txt', '@/tmp/dsh-one-attachments/s1/pasted-1.txt'],
+  ])
+  const value = '@img9.png 和 @pasted-1.txt 都看看'
+  // 光标在 token1 紧后（pos 9）→ 退格整段删 token1，光标回到 token1 起点
+  assert.deepEqual(tokenDeletion(value, 9, -1, bindings), {
+    text: ' 和 @pasted-1.txt 都看看', pos: 0, token: '@img9.png',
+  })
+  // 光标在 token2 内部 → 退格删 token2
+  const del = tokenDeletion(value, 20, -1, bindings)
+  assert.equal(del?.token, '@pasted-1.txt')
+  assert.equal(del?.pos, 12)
+  assert.equal(del?.text, '@img9.png 和  都看看')
+  // 光标在 token1 开头 → Delete 删 token1（对称）
+  assert.equal(tokenDeletion(value, 0, 1, bindings)?.token, '@img9.png')
+  // 非 token 位置 → null（走原生）
+  assert.equal(tokenDeletion(value, 10, -1, bindings), null)
+  assert.equal(tokenDeletion(value, 26, -1, bindings), null)
+  // 文本末尾退格正常（无绑定 token 在附近）
+  assert.equal(tokenDeletion(value, value.length, -1, new Map()), null)
+})
+
+test('restoreFileMentionTokens：recall 时 canonical @长路径还原为 @短名 token', () => {
+  const bindings = new Map<string, string>()
+  const text = '@/var/folders/T/sess-1/img1.png 你看看 @/Users/a/合同（草案）.docx 还有 @src/foo 保持原样'
+  const restored = restoreFileMentionTokens(text, bindings)
+  // 绝对路径与相对路径引用都还原成 @短名（发送时可展开回原文）；正文不被吞
+  assert.equal(restored, '@img1.png 你看看 @合同（草案）.docx 还有 @foo 保持原样')
+  assert.equal(bindings.get('@img1.png'), '@/var/folders/T/sess-1/img1.png')
+  assert.equal(bindings.get('@合同（草案）.docx'), '@/Users/a/合同（草案）.docx')
+  assert.equal(bindings.get('@foo'), '@src/foo')
+})
+
+test('restoreFileMentionTokens：空格引号路径与同名冲突', () => {
+  const bindings = new Map<string, string>()
+  const text = '@/a/b.md @"/Users/x/with space.txt"'
+  const restored = restoreFileMentionTokens(text, bindings)
+  assert.equal(restored, '@b.md @with space.txt')
+  assert.equal(bindings.get('@b.md'), '@/a/b.md')
+  assert.equal(bindings.get('@with space.txt'), '@"/Users/x/with space.txt"')
+  // 同名不同路径 → 递增后缀
+  const again = restoreFileMentionTokens('@/a/b.md 又一次 @/c/b.md', bindings)
+  assert.equal(again, '@b.md 又一次 @b.md (2)')
 })

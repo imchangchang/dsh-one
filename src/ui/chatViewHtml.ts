@@ -1305,7 +1305,15 @@ const STYLE = `
     background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
     font-size: 11px; line-height: 1.2;
   }
-  .file-chip .chip-name { max-width: 42px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 文件 chip 名称：小字号紧凑排版，最多两行完整显示（pasted-1.txt 这类
+     文件名不再截断成 paste…；与图片横幅同风格）。 */
+  .file-chip .chip-name {
+    max-width: none; padding: 0 2px 1px;
+    font-size: 9px; line-height: 1.15; text-align: center;
+    white-space: normal; word-break: break-all;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   /* 待发送图片缩略图（对齐官方 AttachmentRail：方图 cover，hover 右上角出移除钮）。 */
   .attach-thumb {
     position: relative; width: 48px; height: 48px; flex: none;
@@ -1314,6 +1322,22 @@ const STYLE = `
     background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12));
   }
   .attach-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* 缩略图底部名称横幅：小字号紧凑排版，允许两行完整显示（img10.png 等两位数序号不断行截断）。 */
+  .attach-thumb .thumb-name {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
+    padding: 1px 2px;
+    font-size: 9px; line-height: 1.15; text-align: center;
+    white-space: normal; word-break: break-all;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+    color: #fff; background: rgba(0, 0, 0, .55);
+    pointer-events: none;
+  }
+  /* hover @ 引用 token 时的附件 chip 高亮描边（hovered，即时态；移出即恢复）。 */
+  .attach-thumb.hovered, .file-chip.hovered {
+    outline: 2px solid var(--vscode-focusBorder, #4daafc);
+    outline-offset: 2px;
+  }
   .attach-thumb .thumb-remove, .file-chip .thumb-remove {
     position: absolute; top: 3px; right: 3px; z-index: 1;
     width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
@@ -1329,11 +1353,36 @@ const STYLE = `
   @media (prefers-reduced-motion: reduce) { .attach-thumb .thumb-remove, .file-chip .thumb-remove { transition: none; } }
   #input {
     flex: 1; resize: none; box-sizing: border-box; padding: 6px 8px;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    /* 文字透明：@ 引用 token 由 .ref-token-layer 高亮层绘制（同一字体流），
+       hover 联动对应附件 chip 高亮；光标颜色单独保可见。 */
+    color: transparent; caret-color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
     border: 1px solid var(--vscode-input-border, transparent); border-radius: 6px;
     font-family: inherit; font-size: inherit; max-height: 160px;
   }
+  #input::placeholder { color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground, #9d9d9d)); }
+  /* 透明文字下选区仍要有底色（否则选中无视觉反馈）；文字保持透明由叠层绘制。 */
+  #input::selection {
+    background: var(--vscode-editor-selectionBackground, rgba(101, 158, 254, .35));
+    color: transparent;
+  }
   #input:focus { outline: 1px solid var(--vscode-focusBorder); }
+  /* 输入框文本高亮层：与 #input 同字体流叠加，@ 引用 token 有底色；
+     鼠标悬停 token 时 .active 加深并联动附件 chip 高亮。 */
+  .composer-frame { position: relative; flex: 1; min-width: 0; display: flex; }
+  .composer-frame #input { flex: 1; width: 100%; min-width: 0; }
+  .ref-token-layer {
+    position: absolute; inset: 1px; padding: 6px 8px;
+    pointer-events: none; overflow: hidden;
+    white-space: pre-wrap; overflow-wrap: break-word;
+    font-family: inherit; font-size: inherit; line-height: inherit;
+    color: var(--vscode-input-foreground);
+    border-radius: 6px;
+  }
+  .ref-token { background: rgba(101, 158, 254, .22); border-radius: 3px; }
+  .ref-token.active { background: rgba(101, 158, 254, .5); }
+  /* 气泡行内 @ 引用 chip 的 hover 态：与附件 chip 的 hovered 描述联动。 */
+  .ref-chip.ref-hover { background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, .18)); }
   /* 主发送/停止按钮（对齐官方 InputBar primary，uV2eYG_primary）：34×34 圆形
      图标按钮，品牌蓝底白图标，无文字；运行中同一按钮变停止（图标切换在
      webview.ts 主按钮处）。颜色跟随 dsh web 官方 deepseek-400/500 对
@@ -1495,6 +1544,9 @@ const STYLE = `
     background: transparent; border-color: transparent;
     font-size: 16px; line-height: 24px;
   }
+  /* 文本高亮层必须与 hero 输入框同字号/行高（否则层层叠文本变窄，
+     真实光标落在文字后方的"空位"，退格/选择都对不齐）。 */
+  .hero .composer-frame { font-size: 16px; line-height: 24px; }
   .hero #input:focus { outline: none; }
 `
 

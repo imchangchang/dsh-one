@@ -94,6 +94,139 @@
       expect: '会话面板列出会话；主区显示用户消息（右侧）+ 助手回复，含 markdown 加粗、一条折叠工具卡（Ran a command bash / npm test）、「复制/反馈/分叉」操作栏；底部 composer + 模型 pill + 会话统计。',
     },
 
+    'file-ref-bubble': {
+      // @ 文件引用渲染：file 引用从气泡行内提升到附件区（图片缩略图懒加载，
+      // 其他文件图标 chip），folder 引用保持行内 chip；interact 模拟宿主回传
+      // fileThumb（懒加载回执），缩略图据此上屏。
+      png: PNG_RED,
+      state: base({
+        messages: [
+          {
+            kind: 'user',
+            id: 'u-ref',
+            text: '截图在 @/var/folders/xx/T/dsh-one-attachments/sess-1/img1.png，源码在 @/Users/a/dsh-one/src/index.ts，目录 @/Users/a/dsh-one/src/ 也看看。',
+          },
+          at('收到，我读一下截图和源码。'),
+        ],
+      }),
+      interact: `(() => {
+        window.postMessage({ type: 'fileThumb', path: '/var/folders/xx/T/dsh-one-attachments/sess-1/img1.png', mediaType: 'image/png', data: window.SCENARIOS['file-ref-bubble'].png }, '*')
+      })()`,
+      title: '@ 文件引用：图片提升附件区缩略图，行内不留长路径',
+      expect: '用户气泡正文：截图在（行内 @img1.png 引用 chip，图标+短名，可点击）@img1.png，源码在（行内 @index.ts chip）@index.ts，目录 @src 保持行内 folder chip；附件区（气泡上方）两个 chip：img1.png = 红色 48px 缩略图 + 底部名称横幅「img1.png」（懒加载回执后），index.ts = 文档图标 + 短名 chip；无长路径文本。悬停行内 @img1.png chip 时对应附件缩略图 chip 高亮描边（mouseover 委托，真实交互 dev-ui-test 验收）。',
+    },
+
+    'file-ref-token': {
+      // @ 附件交互：补全选中后输入框插入 @短名 token（canonical 记 mentionBindings，
+      // 发送时展开），对应 staged 图片 chip 高亮描边。interact 投喂 filesPicked
+      // 模拟粘贴附件的回投，再驱动输入 @截 → 选中候选行。
+      png: PNG_RED,
+      state: base({ messages: [] }),
+      interact: `(() => {
+        const s = window.SCENARIOS['file-ref-token']
+        window.postMessage({ type: 'filesPicked', files: [
+          { name: 'img1.png', path: '/var/folders/x/T/dsh-one-attachments/sess-1/img1.png', image: true, mediaType: 'image/png', previewData: s.png },
+        ] }, '*')
+        setTimeout(() => {
+          const input = document.getElementById('input')
+          input.focus()
+          input.value = '@img'
+          input.setSelectionRange(4, 4)
+          input.dispatchEvent(new Event('input'))
+          setTimeout(() => {
+            const rows = document.querySelectorAll('.slash-popup .menu-item')
+            for (const row of rows) {
+              if (row.textContent?.startsWith('@img1')) {
+                // 弹窗行用 mousedown 完成补全（防止 textarea 失焦），模拟真实点击序列。
+                row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+                break
+              }
+            }
+          }, 120)
+        }, 100)
+      })()`,
+      title: '@ 附件：输入框短 token + 对应图片 chip 高亮',
+      expect: '@ 补全弹窗顶部出现「Attachments」组标题（分割线），其下是 img1.png 附件候选（@img1.png 短名 + 右侧路径）；选中后输入框内容为「@img1.png」——显示为高亮 token（浅蓝底、圆角，由文本高亮层绘制——textarea 文字色透明、色调一致不重影），无长路径；composer 的截图缩略图 chip 底部名称横幅清晰显示「img1.png」（小字号、不截断）；点选后弹窗关闭——chip 无常驻高亮（高亮只在鼠标悬停 @token 时出现，场景无法模拟 hover，真实交互在 dev-ui-test 验收）。',
+    },
+
+    'file-ref-mixed': {
+      // 附件候选混合验证：图片（临时目录 imgN）+ 粘贴文件（临时目录原名）+
+      // 选择/右键文件（其他目录原路径），三种都在 @ 弹窗「附件」组候选里。
+      png: PNG_RED,
+      state: base({ messages: [] }),
+      interact: `(() => {
+        const s = window.SCENARIOS['file-ref-mixed']
+        window.postMessage({ type: 'filesPicked', files: [
+          { name: 'img1.png', path: '/var/folders/x/T/dsh-one-attachments/sess-1/img1.png', image: true, mediaType: 'image/png', previewData: s.png },
+          { name: 'note.md', path: '/var/folders/x/T/dsh-one-attachments/sess-1/note.md' },
+          { name: 'plan.txt', path: '/Users/a/other-project/docs/plan.txt' },
+        ] }, '*')
+        setTimeout(() => {
+          const input = document.getElementById('input')
+          input.focus()
+          input.value = '@'
+          input.setSelectionRange(1, 1)
+          input.dispatchEvent(new Event('input'))
+        }, 120)
+      })()`,
+      title: '@ 附件候选：图片与文件（临时目录/其他目录）都在',
+      expect: '@ 补全弹窗顶部「Attachments」组下出现三行：@img1.png（图片，缩略图）、@note.md（临时目录粘贴文件）、@plan.txt（其他目录文件）——文件与图片同等出现在附件候选；弹窗上方 composer 三个 staging chip（图片缩略图 + 两个文件图标 chip）。',
+    },
+
+    'paste-long-text': {
+      // 长文本粘贴折叠：interact 构造 ClipboardEvent（DataTransfer text/plain 超阈值）
+      // 触发 foldLongTextPaste → 宿主回投 filesPicked（pasted-1.txt）→ 光标处自动插
+      // @ token。mock 宿主不回，interact 手动回投模拟。
+      state: base({ messages: [] }),
+      interact: `(() => {
+        const input = document.getElementById('input')
+        input.focus()
+        const lines = Array.from({ length: 12 }, (_, i) => ('第 ' + (i + 1) + ' 行日志内容 lorem ipsum ' + i))
+        const dt = new DataTransfer()
+        dt.setData('text/plain', lines.join('\n'))
+        input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+        setTimeout(() => {
+          window.postMessage({ type: 'filesPicked', files: [
+            { name: 'pasted-1.txt', path: '/var/folders/x/T/dsh-one-attachments/sess-1/pasted-1.txt' },
+          ] }, '*')
+        }, 120)
+      })()`,
+      title: '长文本粘贴折叠：落盘附件 + 自动 @ token',
+      expect: '输入框出现在光标处的 @pasted-1.txt 显示 token（文本高亮层，浅蓝底）；composer 附件区出现 pasted-1.txt 文件 chip（文档图标 + 短名）；粘贴的 12 行原文没有出现在输入框里。',
+    },
+
+    'attachment-file-images': {
+      // 图片附件文件方式：历史消息的图片文件 chip（image: true）与 composer
+      // staging chips（filesPicked 投喂，image + previewData）。interact 先回
+      // fileThumb（模拟宿主懒加载缩略图），再投喂 filesPicked 让 composer 出现
+      // 两张 staging chips（图片缩略图 + 普通文件图标）。
+      png: PNG_RED,
+      state: base({
+        messages: [
+          {
+            kind: 'user',
+            id: 'u-img',
+            text: '这是界面截图，你看看。',
+            files: [
+              { name: 'img1.png', path: '/Users/a/dsh-one/dsh-attachments/img1.png', image: true },
+              { name: 'note.md', path: '/Users/a/dsh-one/dsh-attachments/note.md' },
+            ],
+          },
+          at('收到。截图已在工作区 `dsh-attachments/截图-0903-153812.png`，我直接读文件即可。'),
+        ],
+      }),
+      interact: `(() => {
+        const s = window.SCENARIOS['attachment-file-images']
+        window.postMessage({ type: 'fileThumb', path: '/Users/a/dsh-one/dsh-attachments/img1.png', mediaType: 'image/png', data: s.png }, '*')
+        window.postMessage({ type: 'filesPicked', files: [
+          { name: 'img1.png', path: '/Users/a/dsh-one/dsh-attachments/img1.png', image: true, mediaType: 'image/png', previewData: s.png },
+          { name: 'note.md', path: '/Users/a/dsh-one/dsh-attachments/note.md' },
+        ] }, '*')
+      })()`,
+      title: '图片附件文件方式：历史缩略图 + composer staging chips',
+      expect: '用户消息右侧附件区：图片文件渲染成 48px 红色方块缩略图（点击可预览，悬停 title 为短名，不出现长路径文本），note.md 显示为文档图标文件 chip；气泡正文只显示「这是界面截图，你看看。」（看不到 <attachment> 路径行）；composer 上方 chips 区：图片渲染红色缩略图 + 右上角 × 移除钮，note.md 文档图标 chip；底部发送按钮可用。',
+    },
+
     markdown: {
       state: base({
         messages: [
@@ -1472,7 +1605,7 @@
       title: '附件框尺寸统一（输入区 + 已发送消息）',
       expect: '已发送的用户消息气泡上方一行两个同尺寸方块：左边图片缩略图（红色实心图），右边文件框（文档图标在上、README.md 在下）；两框同宽同高、圆角一致、垂直对齐。输入区上方同样一行两个同尺寸方块：图片缩略图 + 文件框（README.md），与消息区的两框尺寸一致。文件框内文字不溢出框外（过长 ellipsis）。不应再出现横向长条 pill 形状的文件 chip。',
       interact: `postMessage({ type:'attachmentData', attachmentId:'img-1', mediaType:'image/png', data:'${PNG_RED}' }, '*');
-postMessage({ type:'imagesPicked', images:[{ mediaType:'image/png', data:'${PNG_RED}', name:'photo.png' }] }, '*');
+postMessage({ type:'filesPicked', files:[{ name:'photo.png', path:'/tmp/dsh-one-attachments/u-1/photo.png', image:true, mediaType:'image/png', previewData:'${PNG_RED}' }] }, '*');
 postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/Workspaces/dsh-one/README.md' }] }, '*');`,
     },
 

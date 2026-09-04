@@ -14,7 +14,6 @@
  */
 import * as vscode from 'vscode'
 import * as fs from 'node:fs/promises'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Logger } from '../log.ts'
@@ -28,20 +27,13 @@ import type {
   ToWebviewMessage,
 } from '../pure/chatContract.ts'
 import { hostOsFromPlatform } from '../pure/installScript.ts'
+import { imageMediaTypeByExtension, imgFileName } from '../pure/composerAttachment.ts'
+import { attachmentDir, nextSequenceIndex } from './attachmentDir.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
 import type { SubagentCatalogStore } from './subagentsStore.ts'
 import { chatHtml, loadWebviewL10n } from './chatViewHtml.ts'
 import { chatMessageHandlers } from './chatMessages.ts'
-
-/** Media type by file extension (dsh ImageMediaType: png/jpeg/webp/gif). */
-const IMAGE_MEDIA_TYPES: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-}
 
 /** Editor 面板的 viewType（窗口 reload 时 serializer 按它匹配恢复）。 */
 export const CHAT_PANEL_VIEW_TYPE = 'dshOne.chatPanel'
@@ -145,11 +137,11 @@ export class ChatTabHost implements vscode.Disposable {
   lastSessionTitle: string | undefined
   /**
    * 右键「发送到当前会话」暂存的附件：webview 尚未解析（用户还没打开过
-   * 这个会话的 tab）时先落这两个队列，tab 打开后再投给 composer。只活到
-   * 下一次 flush——成功后清空，不跨会话堆积（per-tab）。
+   * 这个会话的 tab）时先落这个队列，tab 打开后再投给 composer。只活到
+   * 下一次 flush——成功后清空，不跨会话堆积（per-tab）。图片也走文件
+   * 方式（原路径引用，不做 base64 暂存）。
    */
   pendingStagedFiles: StagedFile[] = []
-  pendingStagedImages: OutgoingImage[] = []
   /**
    * 空会话 hero 的懒切换目标 workspace id（per-tab；null = 无待切换）。点
    * workspace chip 只记录这里并更新显示（零 RPC），发送/选 preset 时经
@@ -331,7 +323,6 @@ export class ChatTabHost implements vscode.Disposable {
   replaceWith(sessionId: string): void {
     this.detachController()
     this.pendingStagedFiles = []
-    this.pendingStagedImages = []
     this.lastSessionTitle = undefined
     // 脏位先归零，等 webview 切换渲染后按新会话的真实草稿重新上报。
     this.composerDirty = false
@@ -409,28 +400,27 @@ export class ChatTabHost implements vscode.Disposable {
   // ---- 暂存附件 ----
 
   /**
-   * Attachment picker: images are read into base64 and staged via the shared
-   * validator; any other file already lives on disk, so it is staged as a
-   * path chip (no temp copy needed).
+   * Attachment picker: everything is staged as a path chip — images keep
+   * their on-disk location (no copy) and carry a base64 preview for the
+   * thumbnail; other files join the prompt as a path for the agent to read.
    */
   async pickFiles(): Promise<void> {
     const uris = await vscode.window.showOpenDialog({
       canSelectMany: true,
       openLabel: vscode.l10n.t('Add attachment'),
-      // No filters: any file type is a valid attachment (images are inlined,
-      // everything else goes into the prompt as a path).
+      // No filters: any file type is a valid attachment (images are staged
+      // as files too; everything goes into the prompt as a path).
     })
     if (!uris || uris.length === 0) return
     const skipped: string[] = []
-    const images: OutgoingImage[] = []
-    const paths: string[] = []
+    const staged: StagedFile[] = []
     for (const uri of uris) {
-      const mediaType = IMAGE_MEDIA_TYPES[path.extname(uri.fsPath).toLowerCase()]
+      const name = path.basename(uri.fsPath)
+      const mediaType = imageMediaTypeByExtension(path.extname(uri.fsPath))
       if (!mediaType) {
-        paths.push(uri.fsPath)
+        staged.push({ name, path: uri.fsPath })
         continue
       }
-      const name = path.basename(uri.fsPath)
       let data: Uint8Array
       try {
         data = await fs.readFile(uri.fsPath)
@@ -438,62 +428,79 @@ export class ChatTabHost implements vscode.Disposable {
         skipped.push(vscode.l10n.t('{0} (read failed: {1})', name, err instanceof Error ? err.message : String(err)))
         continue
       }
-      images.push({ mediaType, data: Buffer.from(data).toString('base64'), name })
-    }
-    this.stageImages(images, skipped)
-    if (paths.length > 0) {
-      const message: ToWebviewMessage = {
-        type: 'filesPicked',
-        files: paths.map((p) => ({ name: path.basename(p), path: p })),
-      }
-      void this.panel?.webview.postMessage(message)
-    }
-  }
-
-  /**
-   * Paste intake: every clipboard file becomes an attachment. Images (sniffed
-   * from bytes, or a declared image/* type) go through the same staging and
-   * limit validation as the picker; anything else is written to a temp file
-   * and staged as a path chip for the agent to read.
-   */
-  async stagePastedFiles(files: OutgoingImage[]): Promise<void> {
-    if (files.length === 0) return
-    const images: OutgoingImage[] = []
-    const staged: Array<{ name: string; path: string }> = []
-    const skipped: string[] = []
-    for (const file of files) {
-      const name = file.name ?? vscode.l10n.t('Attachment')
-      const bytes = Buffer.from(file.data, 'base64')
-      const mediaType = sniffImageMediaType(bytes) ?? file.mediaType.trim().toLowerCase()
-      if (mediaType.startsWith('image/')) {
-        images.push({ ...file, mediaType })
-        continue
-      }
-      try {
-        staged.push({ name, path: await this.saveTempAttachment(name, bytes) })
-      } catch (err) {
-        skipped.push(vscode.l10n.t('{0} (failed to write temp file: {1})', name, err instanceof Error ? err.message : String(err)))
-      }
+      staged.push({ name, path: uri.fsPath, image: true, mediaType, previewData: Buffer.from(data).toString('base64') })
     }
     if (skipped.length > 0) {
       vscode.window.showWarningMessage(vscode.l10n.t('Skipped {0} file(s): {1}', skipped.length, skipped.join('；')))
     }
-    this.stageImages(images)
     if (staged.length > 0) {
       const message: ToWebviewMessage = { type: 'filesPicked', files: staged }
       void this.panel?.webview.postMessage(message)
     }
   }
 
-  /** Persist a non-image paste under the OS temp dir; returns the file path. */
+  /**
+   * Paste intake: every clipboard file becomes an attachment. Everything is
+   * written to the per-session dir under the OS temp dir (system-pruned, never
+   * inside a project/git tree, so no repo pollution and no unbounded growth);
+   * images get sequential `imgN.ext` names (N per session directory), other
+   * files keep their own name. Both are staged as path chips; the path joins
+   * the prompt on send and the agent reads it directly.
+   */
+  async stagePastedFiles(files: OutgoingImage[]): Promise<void> {
+    if (files.length === 0) return
+    // 无附着会话：与长文本折叠的门控保持一致，不落共享 default/ 目录（提示走 webview 侧）。
+    if (!this.controller) {
+      vscode.window.showWarningMessage(vscode.l10n.t('Attach files to a session first (open a chat panel)'))
+      return
+    }
+    const staged: StagedFile[] = []
+    const skipped: string[] = []
+    const dir = attachmentDir(this.controller?.sessionId)
+    for (const file of files) {
+      const name = file.name ?? vscode.l10n.t('Attachment')
+      const bytes = Buffer.from(file.data, 'base64')
+      const mediaType = sniffImageMediaType(bytes) ?? file.mediaType.trim().toLowerCase()
+      try {
+        if (mediaType.startsWith('image/')) {
+          const seq = await nextSequenceIndex(dir, /^img(\d+)(?:-\d+)?\.(?:png|jpg|webp|gif)$/i)
+          const target = await this.saveTempAttachment(imgFileName(mediaType, seq), bytes)
+          staged.push({ name: path.basename(target), path: target, image: true, mediaType, previewData: file.data })
+        } else {
+          staged.push({ name, path: await this.saveTempAttachment(name, bytes) })
+        }
+      } catch (err) {
+        skipped.push(vscode.l10n.t('{0} (failed to write attachment file: {1})', name, err instanceof Error ? err.message : String(err)))
+      }
+    }
+    if (skipped.length > 0) {
+      vscode.window.showWarningMessage(vscode.l10n.t('Skipped {0} file(s): {1}', skipped.length, skipped.join('；')))
+    }
+    if (staged.length > 0) {
+      const message: ToWebviewMessage = { type: 'filesPicked', files: staged }
+      void this.panel?.webview.postMessage(message)
+    }
+  }
+
+  /** 原子写一个附件名：wx 独占创建，冲突即递增 -N 后缀重试（并发粘贴不互相覆盖；
+   *  -N 后缀虽不入 imgN 序号序列，但原子写下正常路径永远不会产生它）。 */
   private async saveTempAttachment(name: string, bytes: Buffer): Promise<string> {
-    const dir = path.join(os.tmpdir(), 'dsh-one-attachments')
+    const dir = attachmentDir(this.controller?.sessionId)
     await fs.mkdir(dir, { recursive: true })
-    const safe = name.replace(/[^\w.-]+/g, '_') || 'attachment'
-    const file = path.join(dir, `${Date.now()}-${safe}`)
-    await fs.writeFile(file, bytes)
-    this.actions.logger.info(`chat: pasted file saved to ${file}`)
-    return file
+    const safe = name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_') || 'attachment'
+    const dot = safe.lastIndexOf('.')
+    const base = dot > 0 ? safe.slice(0, dot) : safe
+    const ext = dot > 0 ? safe.slice(dot) : ''
+    for (let i = 0; ; i += 1) {
+      const candidate = path.join(dir, i === 0 ? safe : `${base}-${i + 1}${ext}`)
+      try {
+        await fs.writeFile(candidate, bytes, { flag: 'wx' })
+        this.actions.logger.info(`chat: pasted file saved to ${candidate}`)
+        return candidate
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+      }
+    }
   }
 
   /**
@@ -505,13 +512,7 @@ export class ChatTabHost implements vscode.Disposable {
     if (!this.panel) return
     if (!this.controller) {
       this.pendingStagedFiles = []
-      this.pendingStagedImages = []
       return
-    }
-    if (this.pendingStagedImages.length > 0) {
-      const message: ToWebviewMessage = { type: 'imagesPicked', images: this.pendingStagedImages }
-      void this.panel.webview.postMessage(message)
-      this.pendingStagedImages = []
     }
     if (this.pendingStagedFiles.length > 0) {
       const message: ToWebviewMessage = { type: 'filesPicked', files: this.pendingStagedFiles }
@@ -521,14 +522,14 @@ export class ChatTabHost implements vscode.Disposable {
   }
 
   /**
-   * 右键「发送到当前会话」的附件暂存：图片读 base64 + 限额校验后入
-   * pendingStagedImages，其他文件以路径 chip 入 pendingStagedFiles（发送时
-   * 拼进 prompt 让 agent 自己读）。由 ChatViewProvider.attachFileToSession
-   * 选好目标 tab 后调用；投递由 flushStaged 完成。
+   * 右键「发送到当前会话」的附件暂存：图片以原路径引用（带 base64 预览）
+   * 入 pendingStagedFiles——与粘贴相比图片已在磁盘，无需复制；发送时拼进
+   * prompt 让 agent 自己读。由 ChatViewProvider.attachFileToSession 选好
+   * 目标 tab 后调用；投递由 flushStaged 完成。
    */
   async stageContextFile(fsPath: string): Promise<void> {
     const name = path.basename(fsPath)
-    const mediaType = IMAGE_MEDIA_TYPES[path.extname(fsPath).toLowerCase()]
+    const mediaType = imageMediaTypeByExtension(path.extname(fsPath))
     if (mediaType) {
       let data: Uint8Array
       try {
@@ -537,75 +538,16 @@ export class ChatTabHost implements vscode.Disposable {
         vscode.window.showErrorMessage(vscode.l10n.t('Failed to read file: {0}', err instanceof Error ? err.message : String(err)))
         return
       }
-      const skipped: string[] = []
-      if (!this.controller) return
-      const accepted = this.validateImages(
-        this.controller,
-        [{ mediaType, data: Buffer.from(data).toString('base64'), name }],
-        skipped,
-      )
-      if (skipped.length > 0) {
-        vscode.window.showWarningMessage(vscode.l10n.t('Skipped {0} file(s): {1}', skipped.length, skipped.join('；')))
-        return
-      }
-      this.pendingStagedImages.push(...accepted)
+      this.pendingStagedFiles.push({
+        name,
+        path: fsPath,
+        image: true,
+        mediaType,
+        previewData: Buffer.from(data).toString('base64'),
+      })
     } else {
       this.pendingStagedFiles.push({ name, path: fsPath })
     }
-  }
-
-  /** Validate then post accepted images back to this tab's webview (picker/paste path). */
-  stageImages(images: OutgoingImage[], skipped: string[] = []): void {
-    if (images.length === 0 && skipped.length === 0) return
-    if (!this.controller) return
-    const accepted = this.validateImages(this.controller, images, skipped)
-    if (skipped.length > 0) {
-      vscode.window.showWarningMessage(vscode.l10n.t('Skipped {0} file(s): {1}', skipped.length, skipped.join('；')))
-    }
-    if (accepted.length > 0) {
-      const message: ToWebviewMessage = { type: 'imagesPicked', images: accepted }
-      void this.panel?.webview.postMessage(message)
-    }
-  }
-
-  /**
-   * Validate staged images (from the picker, a webview paste, or the context
-   * menu) against the session's image limits; returns the accepted ones.
-   * Skipped files are appended to `skipped` with human-readable reasons.
-   */
-  private validateImages(controller: ChatSessionController, images: OutgoingImage[], skipped: string[]): OutgoingImage[] {
-    const limits = controller.imageLimits
-    const accepted: OutgoingImage[] = []
-    let acceptedBytes = 0
-    for (const image of images) {
-      const name = image.name ?? vscode.l10n.t('Image')
-      const byteLength = Buffer.from(image.data, 'base64').byteLength
-      const mediaType = image.mediaType.trim().toLowerCase()
-      if (limits && !limits.mediaTypes.some((t) => t.trim().toLowerCase() === mediaType)) {
-        skipped.push(
-          vscode.l10n.t('{0} (unsupported format: {1}; supported: {2})', name, image.mediaType || vscode.l10n.t('unknown'), limits.mediaTypes.join('、')),
-        )
-        this.actions.logger.warn(`chat: image rejected — mediaType=${JSON.stringify(image.mediaType)}, allowed=${JSON.stringify(limits.mediaTypes)}`)
-        continue
-      }
-      if (limits) {
-        if (accepted.length >= limits.maxImagesPerMessage) {
-          skipped.push(vscode.l10n.t('{0} (max {1} images per message)', name, limits.maxImagesPerMessage))
-          continue
-        }
-        if (byteLength > limits.maxImageBytes) {
-          skipped.push(vscode.l10n.t('{0} (exceeds the per-image limit of {1})', name, formatBytes(limits.maxImageBytes)))
-          continue
-        }
-        if (acceptedBytes + byteLength > limits.maxMessageImageBytes) {
-          skipped.push(vscode.l10n.t('{0} (exceeds the total image size limit of {1} per message)', name, formatBytes(limits.maxMessageImageBytes)))
-          continue
-        }
-      }
-      accepted.push(image)
-      acceptedBytes += byteLength
-    }
-    return accepted
   }
 
   /** 释放本 tab 的全部资源（panel + controller + 订阅）。 */
@@ -619,13 +561,6 @@ export class ChatTabHost implements vscode.Disposable {
     this.viewStateSub = null
     panel?.dispose()
   }
-}
-
-/** Human byte size for limit warnings, e.g. "10 MB". */
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${bytes} B`
 }
 
 /** Pushed when no session is attached; the webview renders the empty state. */

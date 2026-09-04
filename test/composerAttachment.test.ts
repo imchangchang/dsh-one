@@ -1,6 +1,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { attachmentDataUrl, isImageMediaType, splitAttachmentLines } from '../src/pure/composerAttachment.ts'
+import {
+  attachmentBaseName,
+  attachmentDataUrl,
+  imageMediaTypeByExtension,
+  imgFileName,
+  isImageMediaType,
+  isImagePath,
+  pastedFileName,
+  shouldFoldPastText,
+  splitAttachmentLines,
+} from '../src/pure/composerAttachment.ts'
 
 test('isImageMediaType matches image/* case-insensitively, tolerating whitespace', () => {
   assert.equal(isImageMediaType('image/png'), true)
@@ -22,7 +32,7 @@ test('splitAttachmentLines pulls file lines back into chips, keeps user text', (
   )
   assert.equal(text, '看看这个\n顺便')
   assert.deepEqual(files, [
-    { name: 'b.png', path: '/tmp/a/b.png' },
+    { name: 'b.png', path: '/tmp/a/b.png', image: true },
     { name: 'y.txt', path: 'C:\\x\\y.txt' },
   ])
 })
@@ -30,4 +40,67 @@ test('splitAttachmentLines pulls file lines back into chips, keeps user text', (
 test('splitAttachmentLines leaves non-file text untouched', () => {
   const text = '见 <attachment>x</attachment> 部分\n<a href="x">link</a>'
   assert.deepEqual(splitAttachmentLines(text), { text, files: [] })
+})
+
+test('isImagePath recognizes the four dsh raster extensions case-insensitively', () => {
+  assert.equal(isImagePath('/a/b/截图-0903-153812.png'), true)
+  assert.equal(isImagePath('C:\\x\\cover.JPG'), true)
+  assert.equal(isImagePath('a/b/photo.webp'), true)
+  assert.equal(isImagePath('a/b/photo.gif'), true)
+  assert.equal(isImagePath('a/b/note.JPEG'), true)
+  assert.equal(isImagePath('a/b/readme.md'), false)
+  assert.equal(isImagePath('a/b/archive.tar'), false)
+  // Windows 盘符路径 + 目录里带点：basename 无扩展名时不算图片
+  assert.equal(isImagePath('C:\\Users\\v1.2\\dsh-one-attachments\\shot.png'), true)
+  assert.equal(isImagePath('C:\\Users\\v1.2\\dsh-one-attachments\\shot'), false)
+})
+
+test('attachmentBaseName handles posix, windows and bare names', () => {
+  assert.equal(attachmentBaseName('/a/b/截图.png'), '截图.png')
+  assert.equal(attachmentBaseName('C:\\Users\\x\\note.md'), 'note.md')
+  assert.equal(attachmentBaseName('C:\\a\\b'), 'b')
+  assert.equal(attachmentBaseName('plain.txt'), 'plain.txt')
+  assert.equal(attachmentBaseName('C:\\a\\b\\'), '')
+})
+
+test('imageMediaTypeByExtension maps extensions to dsh media types', () => {
+  assert.equal(imageMediaTypeByExtension('.png'), 'image/png')
+  assert.equal(imageMediaTypeByExtension('.jpg'), 'image/jpeg')
+  assert.equal(imageMediaTypeByExtension('.JPEG'), 'image/jpeg')
+  assert.equal(imageMediaTypeByExtension('.webp'), 'image/webp')
+  assert.equal(imageMediaTypeByExtension('.gif'), 'image/gif')
+  assert.equal(imageMediaTypeByExtension('.md'), undefined)
+})
+
+test('imgFileName builds imgN.ext names with the media-type extension', () => {
+  assert.equal(imgFileName('image/png', 1), 'img1.png')
+  assert.equal(imgFileName('Image/JPEG', 2), 'img2.jpg')
+  assert.equal(imgFileName('image/webp', 3), 'img3.webp')
+  assert.equal(imgFileName('image/gif', 4), 'img4.gif')
+})
+
+test('imgFileName falls back to png for unknown media types', () => {
+  assert.equal(imgFileName('application/octet-stream', 5), 'img5.png')
+})
+
+
+
+
+test('pastedFileName builds pasted-N.txt sequence names', () => {
+  assert.equal(pastedFileName(1), 'pasted-1.txt')
+  assert.equal(pastedFileName(12), 'pasted-12.txt')
+})
+
+test('shouldFoldPastText folds >10 lines or >800 chars, keeps short text in place', () => {
+  assert.equal(shouldFoldPastText(''), false)
+  assert.equal(shouldFoldPastText('一行'), false)
+  // 11 行触发（行数>10）
+  assert.equal(shouldFoldPastText('a\n'.repeat(10).trimEnd() + '\nlast'), true)
+  // 10 行不触发
+  assert.equal(shouldFoldPastText('a\n'.repeat(9).trimEnd()), false)
+  // 超字符触发
+  assert.equal(shouldFoldPastText('x'.repeat(801)), true)
+  assert.equal(shouldFoldPastText('x'.repeat(800)), false)
+  // 多行但总字符少且行数达标（日志场景）
+  assert.equal(shouldFoldPastText('line\n' + 'x'.repeat(100) + '\nend'), false)
 })
