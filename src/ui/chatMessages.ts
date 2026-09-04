@@ -311,15 +311,13 @@ const chatHandlers: ChatTabMessageHandler[] = [
       // webview 附带的暂存附件（含图片的预览元数据）：发送失败时按原样还原 chips。
       const files = Array.isArray(m.files) ? m.files : []
       if (!text && images.length === 0) return
-      // 懒切换落地：把消息发到 pending 目标 workspace 的会话（resolve 会换
-      // controller，后续逻辑一律用重取的 target，不用入参 controller）。
-      if (!(await host.actions.resolvePendingWorkspace(host))) return
+      // 懒切换落地（方案 C 收口）：applySendIntent 快照一次当前会话的待发送意图
+      // 并依次落地（workspace → preset → permission）。workspace 失败会提示并
+      // 取消发送（成功后换了 controller，后续逻辑一律用重取的 target，不用入参
+      // controller）。
+      if (!(await host.actions.applySendIntent(host))) return
       const target = host.controller
       if (!target) return
-      // 懒切换落地：pending 的 preset 与权限模式在此真正生效（同 workspace：
-      // 只记显示、发送时执行，避免预先 RPC 打断 hero/消息流布局）。
-      await host.actions.resolvePendingPreset(host)
-      await host.actions.resolvePendingPermission(host)
       // Slash commands route to runCommand; pasted absolute paths like
       // /Users/… are prompts for the model, not commands.
       if (looksLikeSlashCommand(text)) {
@@ -442,9 +440,9 @@ const chatHandlers: ChatTabMessageHandler[] = [
     types: ['setAgentPreset'],
     async handle(host, m) {
       if (m.type !== 'setAgentPreset') return
-      // 懒切换：只记录 pending 并推 state（chip 显示选中项），零 RPC——真正
-      // setAgentPreset 在发送时随 resolvePendingPreset 落地（与 workspace 同
-      // 模式，避免选中即 RPC 打断 hero 布局/动画）。
+      // 懒切换：只记录当前会话的 pending 并推 state（chip 显示选中项），零
+      // RPC——真正 setAgentPreset 在发送时随 applySendIntent 落地（与 workspace
+      // 同模式，避免选中即 RPC 打断 hero 布局/动画）。
       host.actions.setPendingPreset(host, m.id)
     },
   },
@@ -543,9 +541,9 @@ const workspaceHandlers: ChatTabMessageHandler[] = [
     types: ['workspacePick'],
     async handle(host, m) {
       if (m.type !== 'workspacePick') return
-      // 懒切换到目标 workspace（只记录、更新 chip 显示，零 RPC——真正切换
-      // 推迟到 send/setAgentPreset 的 resolvePendingWorkspace）。目标等于当前
-      // 会话所属 workspace 时解释为取消。
+      // 懒切换目标 workspace（只记录当前会话 pending、更新 chip 显示，零 RPC
+      // ——真正切换推迟到 send 的 applySendIntent 落地）。目标等于当前会话所属
+      // workspace 时解释为取消。
       host.actions.setPendingWorkspace(host, m.workspaceId)
     },
   },
@@ -862,8 +860,8 @@ async function applyModelSelection(host: ChatTabHost, selection: SessionModelSel
 }
 
 /**
- * Permission preset switch — 懒更新：只记录 pending 并推 state（pill 显示
- * 选中项），零 RPC——真正 /permission 命令在发送时随 resolvePendingPermission
+ * Permission preset switch — 懒更新：只记录当前会话的 pending 并推 state
+ * （pill 显示选中项），零 RPC——真正 /permission 命令在发送时随 applySendIntent
  * 落地，避免命令节点进消息流把空态 hero 变成消息流 tab。`danger-full-access`
  * 保留显式风险确认（确认后仍只记录 pending，执行推迟到发送）。
  */

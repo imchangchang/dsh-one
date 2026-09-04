@@ -102,11 +102,9 @@ export class ChatViewProvider implements vscode.Disposable {
       syncAttachedSessions: () => this.syncAttachedSessions(),
       push: (host, state) => this.push(host, state),
       setPendingWorkspace: (host, workspaceId) => this.setPendingWorkspace(host, workspaceId),
-      resolvePendingWorkspace: (host) => this.resolvePendingWorkspace(host),
       setPendingPreset: (host, presetId) => this.setPendingPreset(host, presetId),
-      resolvePendingPreset: (host) => this.resolvePendingPreset(host),
       setPendingPermission: (host, value) => this.setPendingPermission(host, value),
-      resolvePendingPermission: (host) => this.resolvePendingPermission(host),
+      applySendIntent: (host) => this.applySendIntent(host),
       addWorkspaceAndOpen: (host) => this.addWorkspaceAndOpen(host),
       createWorkspaceAndOpen: (host) => this.createWorkspaceAndOpen(host),
     }
@@ -496,10 +494,12 @@ export class ChatViewProvider implements vscode.Disposable {
     // label，没有回退 title/短 id」——对齐官方 dsh web 的菜单行名。
     const subagents = buildSubagentTree(raw, state.sessionId, (s) => this.subagents.labelFor(s.sessionId), vscode.l10n.t)
     const jobs = orderJobs(this.jobs.jobs().get(state.sessionId) ?? [])
-    // 懒切换的目标 workspace 覆盖：chip 与选择器对勾显示 pending 目标（未发送
-    // 前真实的会话所属 workspace 不变，随 send/resolve 落地后由 attach 清标记）。
-    const pendingWs = tab.pendingWorkspaceId
-      ? this.store.workspaceBaseline.find((w) => w.workspaceId === tab.pendingWorkspaceId)
+    // 懒切换的目标 workspace 覆盖：chip 与选择器对勾显示**当前会话**的 pending
+    // 意图目标（未发送前真实的会话所属 workspace 不变，随 applySendIntent 落地
+    // 后由清条目恢复真实显示）。
+    const intent = tab.pendingIntentFor(sid)
+    const pendingWs = intent?.workspaceId
+      ? this.store.workspaceBaseline.find((w) => w.workspaceId === intent.workspaceId)
       : undefined
     const workspaceLabel = pendingWs?.title ?? this.store.workspaceLabelFor(state.sessionId)
     // workspace 选择器数据（空会话 hero chip 的弹层）：全部 workspace 的轻量
@@ -528,17 +528,17 @@ export class ChatViewProvider implements vscode.Disposable {
       !state.agentPreset && presetId !== undefined
         ? tab.controller?.agentPresetDescriptionFor(presetId)
         : undefined
-    // 懒切换的 preset/权限 pending 覆盖：chip/pill 显示选中的目标（未发送前
-    // 会话真实值不变，随 send/resolve 落地后由清标记恢复真实显示）。
-    const pendingPreset = tab.pendingPresetId
-      ? state.agentPreset && state.agentPreset.options.some((o) => o.id === tab.pendingPresetId)
-        ? { ...state.agentPreset, current: tab.pendingPresetId }
+    // 懒切换的 preset/权限 pending 覆盖：chip/pill 显示当前会话选中的目标（未
+    // 发送前会话真实值不变，随 applySendIntent 落地后由清条目恢复真实显示）。
+    const pendingPreset = intent?.presetId
+      ? state.agentPreset && state.agentPreset.options.some((o) => o.id === intent.presetId)
+        ? { ...state.agentPreset, current: intent.presetId }
         : state.agentPreset
       : state.agentPreset
-    const pendingPermissions = tab.pendingPermission
+    const pendingPermissions = intent?.permission
       ? state.permissions &&
-        state.permissions.options.some((o) => o.value === tab.pendingPermission)
-        ? { ...state.permissions, current: tab.pendingPermission }
+        state.permissions.options.some((o) => o.value === intent.permission)
+        ? { ...state.permissions, current: intent.permission }
         : state.permissions
       : state.permissions
     return {
@@ -616,97 +616,113 @@ export class ChatViewProvider implements vscode.Disposable {
   }
 
   /**
-   * 空会话 hero 懒切换：只记录目标 workspace 并重推 state（chip/对勾显示
-   * pending 目标），**不发任何 RPC、不换 controller**——真正切换推迟到
-   * 下一次 send / setAgentPreset 的 {@link resolvePendingWorkspace}，让点
-   * 击切换瞬时完成、把等待移进发送动作本身。目标等于当前会话所属 workspace
-   * 时解释为取消（点当前显示项是取消手势）；基线里找不到目标（刚被删除）也
-   * 取消。per-tab：状态挂在 ChatTabHost.pendingWorkspaceId 上（多 tab 各自
-   * 独立，不串台）。
+   * 空会话 hero 懒切换：只记录**当前会话**的意图条目并重推 state（chip/对勾显示
+   * pending 目标），**不发任何 RPC、不换 controller**——真正切换推迟到下一次
+   * send 的 {@link applySendIntent}，让点击切换瞬时完成、把等待移进发送动作
+   * 本身。目标等于当前会话所属 workspace 时解释为取消（点当前显示项是取消
+   * 手势）；基线里找不到目标（刚被删除）也取消。per-session：按会话归档
+   * （ChatTabHost.pendingIntentBySession），多 tab/换会话互不串台。
    */
   setPendingWorkspace(host: ChatTabHost, workspaceId: string): void {
-    const cur = host.controller?.sessionId
-    const current = cur
-      ? this.store.workspaceBaseline.find((w) => w.sessionIds.includes(cur))?.workspaceId
-      : undefined
-    host.pendingWorkspaceId =
+    const currentSession = host.controller?.sessionId
+    if (!currentSession) return
+    const current = this.store.workspaceBaseline.find((w) => w.sessionIds.includes(currentSession))?.workspaceId
+    host.setPendingIntentField(
+      currentSession,
+      'workspaceId',
       workspaceId === current || !this.store.workspaceBaseline.some((w) => w.workspaceId === workspaceId)
         ? null
-        : workspaceId
+        : workspaceId,
+    )
     if (host.controller) this.push(host, host.controller.getState())
   }
 
   /**
-   * 发送/选 preset 前落地懒切换：在 pending 目标 workspace 下复用/新建 blank
-   * 会话（dshRpc.ensureSession，官方 connectWorkspace 语义）并打开附着。
-   * 成功返回 true；失败清理标记并返回 false（错误提示在 openWorkspaceSession）。
-   */
-  async resolvePendingWorkspace(host: ChatTabHost): Promise<boolean> {
-    const workspaceId = host.pendingWorkspaceId
-    if (!workspaceId) return true
-    host.pendingWorkspaceId = null
-    const workspace = this.store.workspaceBaseline.find((w) => w.workspaceId === workspaceId)
-    if (!workspace) return false
-    const ok = await this.openWorkspaceSession(workspace)
-    if (!ok && host.controller) this.push(host, host.controller.getState())
-    return ok
-  }
-
-  /**
-   * 空会话 hero 的 preset 懒切换（与 workspace 同模式）：只记录目标并重推
-   * state（chip 显示选中项），**不发 setAgentPreset RPC**——真正落地推迟到
-   * 发送时（resolvePendingPreset），让点击切换零等待、不打断 hero 布局。
+   * 空会话 hero 的 preset 懒切换（与 workspace 同模式）：只记录**当前会话**的
+   * 意图条目并重推 state（chip 显示选中项），**不发 setAgentPreset RPC**——真正
+   * 落地推迟到发送时（applySendIntent），让点击切换零等待、不打断 hero 布局。
    * preset 不在会话列表（被删）或已与会话当前一致时取消。
    */
   setPendingPreset(host: ChatTabHost, presetId: string): void {
+    const currentSession = host.controller?.sessionId
+    if (!currentSession) return
     const ap = host.controller?.getState().agentPreset
-    host.pendingPresetId =
+    host.setPendingIntentField(
+      currentSession,
+      'presetId',
       !ap || ap.current === presetId || !ap.options.some((o) => o.id === presetId)
         ? null
-        : presetId
+        : presetId,
+    )
     if (host.controller) this.push(host, host.controller.getState())
-  }
-
-  /** 发送前落地 pending preset：真正 setAgentPreset；失败只记日志不阻塞发送。 */
-  async resolvePendingPreset(host: ChatTabHost): Promise<void> {
-    const presetId = host.pendingPresetId
-    if (!presetId) return
-    host.pendingPresetId = null
-    const target = host.controller
-    if (!target) return
-    try {
-      await target.setAgentPreset(presetId)
-    } catch (err) {
-      this.logger.warn(`chat: resolvePendingPreset(${presetId}) failed — ${errorText(err)}`)
-    }
   }
 
   /**
-   * 权限模式懒切换：只记录目标并重推 state（pill 显示选中项），**不发
-   * /permission 命令**——真正落地推迟到发送时（resolvePendingPermission），
+   * 权限模式懒切换：只记录**当前会话**的意图条目并重推 state（pill 显示选中
+   * 项），**不发 /permission 命令**——真正落地推迟到发送时（applySendIntent），
    * 避免命令节点进消息流把空态 hero 变成消息流 tab。目标等于当前值时取消。
    */
   setPendingPermission(host: ChatTabHost, value: string): void {
+    const currentSession = host.controller?.sessionId
+    if (!currentSession) return
     const perms = host.controller?.getState().permissions
-    host.pendingPermission =
+    host.setPendingIntentField(
+      currentSession,
+      'permission',
       !perms || perms.current === value || !perms.options.some((o) => o.value === value)
         ? null
-        : value
+        : value,
+    )
     if (host.controller) this.push(host, host.controller.getState())
   }
 
-  /** 发送前落地 pending 权限：执行 /permission 命令；失败只记日志不阻塞发送。 */
-  async resolvePendingPermission(host: ChatTabHost): Promise<void> {
-    const value = host.pendingPermission
-    if (!value) return
-    host.pendingPermission = null
-    const controller = host.controller
-    if (!controller) return
-    try {
-      await executeCommand(controller.url, controller.sessionId, `/permission ${value}`)
-    } catch (err) {
-      this.logger.warn(`chat: resolvePendingPermission(${value}) failed — ${errorText(err)}`)
+  /**
+   * 发送前落地当前会话的待发送意图（方案 C 收口，替代三个 resolvePending*）：
+   * 快照一次 intent 条目并即清（消费后不残留，失败重试发送需重新选目标），按序
+   * 执行——workspace 失败短路（提示已由 openWorkspaceSession 给出，调用方取消
+   * 发送），preset/permission 失败只记日志不阻塞。workspace 成功会经
+   * openWorkspaceSession → openSession 换 controller，preset/permission 落在
+   * 切换后的目标会话——组合意图（切 workspace 同时切权限）落点正确。
+   */
+  async applySendIntent(host: ChatTabHost): Promise<boolean> {
+    const currentSession = host.controller?.sessionId
+    if (!currentSession) return true
+    const intent = host.pendingIntentFor(currentSession)
+    if (intent) host.clearPendingIntent(currentSession)
+    // workspace：失败短路=提示 + 取消发送。
+    const workspaceId = intent?.workspaceId
+    if (workspaceId) {
+      const workspace = this.store.workspaceBaseline.find((w) => w.workspaceId === workspaceId)
+      if (!workspace) return false
+      const ok = await this.openWorkspaceSession(workspace)
+      if (!ok) {
+        if (host.controller) this.push(host, host.controller.getState())
+        return false
+      }
     }
+    // preset：失败只记日志不阻塞发送。
+    if (intent?.presetId) {
+      const target = host.controller
+      if (target) {
+        try {
+          await target.setAgentPreset(intent.presetId)
+        } catch (err) {
+          this.logger.warn(`chat: applySendIntent preset(${intent.presetId}) failed — ${errorText(err)}`)
+        }
+      }
+    }
+    // permission：失败只记日志不阻塞发送。
+    if (intent?.permission) {
+      const controller = host.controller
+      if (controller) {
+        try {
+          await executeCommand(controller.url, controller.sessionId, `/permission ${intent.permission}`)
+        } catch (err) {
+          this.logger.warn(`chat: applySendIntent permission(${intent.permission}) failed — ${errorText(err)}`)
+        }
+      }
+    }
+    return true
   }
 
   /** hero picker「添加已有文件夹…」：复用 dshOne.workspace.add 命令（VSCode

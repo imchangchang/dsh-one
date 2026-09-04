@@ -91,26 +91,40 @@ export interface ChatTabHostActions {
   push(host: ChatTabHost, state: ChatState): void
   /**
    * 空会话 hero 的 workspace 懒切换（main 功能移植，per-tab）：
-   * 记录/取消 pending 目标（点 chip 时零 RPC），发送/选 preset 前落地。
+   * 记录/取消当前会话的 pending 目标（点 chip 时零 RPC），发送前随
+   * applySendIntent 落地。
    */
   setPendingWorkspace(host: ChatTabHost, workspaceId: string): void
-  /** 发送/选 preset 前落地懒切换；返回 false = 切换失败（已提示用户）。 */
-  resolvePendingWorkspace(host: ChatTabHost): Promise<boolean>
-  /** hero 空会话的 preset 懒切换：记录 pending 并推 state（chip 显示选中帧），
-   *  零 RPC——真正 setAgentPreset 推迟到发送落地。 */
+  /** hero 空会话的 preset 懒切换：记录当前会话 pending 并推 state（chip 显示
+   *  选中帧），零 RPC——真正 setAgentPreset 推迟到发送落地。 */
   setPendingPreset(host: ChatTabHost, presetId: string): void
-  /** 发送前落地 pending preset（setAgentPreset RPC）；失败只记日志。 */
-  resolvePendingPreset(host: ChatTabHost): Promise<void>
-  /** 空会话与消息流的权限模式懒切换：记录 pending 并推 state（pill 显示选中帧），
-   *  零 RPC——真正 /permission 命令推迟到发送落地。 */
+  /** 空会话与消息流的权限模式懒切换：记录当前会话 pending 并推 state（pill 显示
+   *  选中帧），零 RPC——真正 /permission 命令推迟到发送落地。 */
   setPendingPermission(host: ChatTabHost, value: string): void
-  /** 发送前落地 pending 权限（/permission 命令）；失败只记日志。 */
-  resolvePendingPermission(host: ChatTabHost): Promise<void>
+  /** 发送前落地当前会话的待发送意图（快照一次，按序执行 workspace → preset →
+   *  permission；workspace 失败=已提示并取消发送，preset/permission 失败只记
+   *  日志）。返回 false = workspace 切换失败，调用方应取消发送。 */
+  applySendIntent(host: ChatTabHost): Promise<boolean>
   /** hero picker「添加已有文件夹…」：注册 workspace 后设为 pending 目标。 */
   addWorkspaceAndOpen(host: ChatTabHost): Promise<void>
   /** hero picker「创建工作区…」：注册 workspace 后设为 pending 目标。 */
   createWorkspaceAndOpen(host: ChatTabHost): Promise<void>
 }
+
+/**
+ * 一次发送前待落地的会话级懒切换意图（workspace/preset/permission 各一域，
+ * 域缺省 = 无该域切换）。按会话归档（见 ChatTabHost.pendingIntentBySession）：
+ * tab 跨会话复用（replaceWith）时不清不迁、零处理，结构上不可能串台；切回
+ * 原会话时恢复——与草稿/附件生命周期一致。tab 销毁随对象回收。
+ */
+export interface SendIntent {
+  workspaceId?: string
+  presetId?: string
+  permission?: string
+}
+
+/** SendIntent 的意图域（setPendingIntentField 按域记账用）。 */
+export type SendIntentField = keyof SendIntent
 
 /** 一个会话 tab 的全部状态：panel（可被用户关闭）+ controller（服务重启前
  * 常驻）+ 各自的订阅。关闭 tab 只置空 panel 与面板侧订阅；controller 与
@@ -143,25 +157,12 @@ export class ChatTabHost implements vscode.Disposable {
    */
   pendingStagedFiles: StagedFile[] = []
   /**
-   * 空会话 hero 的懒切换目标 workspace id（per-tab；null = 无待切换）。点
-   * workspace chip 只记录这里并更新显示（零 RPC），发送/选 preset 时经
-   * provider 的 resolvePendingWorkspace 落地（ensureSession + 打开目标会话
-   * tab），让「点击切换」瞬时完成、把等待移进发送动作本身。会话切换/附着时
-   * 清除（跟 tab 同生命周期）。
+   * 会话级懒切换意图归档（per-session；key = 附着会话 id，见 SendIntent）：
+   * 三个 pending 裸字段的替代（方案 C）。懒切换目标与原会话绑定——tab 跨会话
+   * 复用（replaceWith）时 Map 按会话隔离、不清不迁，结构上不可能串台；切回原
+   * 会话 pending 恢复（与草稿/附件生命周期一致）。tab 销毁随对象回收。
    */
-  pendingWorkspaceId: string | null = null
-  /**
-   * 懒切换的 preset 目标（per-tab；null = 无待切换）。点击 hero preset chip
-   * 只记录这里并更新显示（零 RPC），发送时经 provider 的 resolvePendingPreset
-   * 落地（setAgentPreset RPC）。发送落地后清空。
-   */
-  pendingPresetId: string | null = null
-  /**
-   * 懒切换的权限模式（per-tab；null = 无待切换）。点击权限 pill 只记录这里并
-   * 更新显示（零 RPC），发送时经 provider 的 resolvePendingPermission 落地
-   * （/permission 命令）。发送落地后清空。
-   */
-  pendingPermission: string | null = null
+  private readonly pendingIntentBySession = new Map<string, SendIntent>()
   /** controller 状态订阅；tab 关闭后保留（pending 兜底需要继续听）。 */
   private controllerSub: vscode.Disposable | null = null
   /** panel 消息订阅（panel 侧，随 panel 关闭清理）。 */
@@ -313,6 +314,40 @@ export class ChatTabHost implements vscode.Disposable {
     this.controllerSub = null
     this.controller?.dispose()
     this.controller = null
+  }
+
+  // ---- 懒切换意图（per-session 归档） ----
+
+  /** 读：某会话的待发送意图（无 = undefined）。 */
+  pendingIntentFor(sessionId: string): SendIntent | undefined {
+    return this.pendingIntentBySession.get(sessionId)
+  }
+
+  /**
+   * 写：设置/取消某会话意图的指定域（value = null 清该域；条目三个域全空时
+   * 删除）。setPending* 的记账入口，key 只使用「产生意图的会话」，与发送时
+   * applySendIntent 的归属一致。
+   */
+  setPendingIntentField(sessionId: string, field: SendIntentField, value: string | null): void {
+    let entry = this.pendingIntentBySession.get(sessionId)
+    if (!entry) {
+      if (value === null) return
+      entry = {}
+      this.pendingIntentBySession.set(sessionId, entry)
+    }
+    if (value === null) {
+      delete entry[field]
+      if (!entry.workspaceId && !entry.presetId && !entry.permission) {
+        this.pendingIntentBySession.delete(sessionId)
+      }
+      return
+    }
+    entry[field] = value
+  }
+
+  /** 清：消费后删除某会话的整个意图条目。 */
+  clearPendingIntent(sessionId: string): void {
+    this.pendingIntentBySession.delete(sessionId)
   }
 
   /**
