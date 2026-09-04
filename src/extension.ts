@@ -223,6 +223,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const url = sessions.runningUrl
       const sessionId = resolveSessionArg(arg, chatView)
       if (!url || !sessionId) return
+      // 置顶防线（pinned-not-archivable）：UI 已置灰，这层兜底防命令被绕过。
+      if (sessions.snapshot().pinned.includes(sessionId)) {
+        vscode.window.showWarningMessage(vscode.l10n.t('Pinned sessions cannot be archived; unpin them first'))
+        return
+      }
       const label = typeof currentTitle === 'string' && currentTitle ? currentTitle : sessionId
       const archive = vscode.l10n.t('Archive')
       const pick = await vscode.window.showWarningMessage(
@@ -247,9 +252,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const url = sessions.runningUrl
       const ids = Array.isArray(sessionIds) ? sessionIds.filter((x): x is string => typeof x === 'string' && x !== '') : []
       if (!url || ids.length === 0) return []
+      // 置顶防线（pinned-not-archivable）：批量请求里的置顶 id 直接计入 failed，
+      // 面板据此保留勾选（checkbox 已置灰，命令层兜底防绕过）。
+      const pinned = new Set(sessions.snapshot().pinned)
       const failed: string[] = []
       const succeeded: string[] = []
       for (const sessionId of ids) {
+        if (pinned.has(sessionId)) {
+          failed.push(sessionId)
+          continue
+        }
         try {
           await archiveSession(url, sessionId)
           succeeded.push(sessionId)

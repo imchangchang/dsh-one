@@ -308,6 +308,7 @@
   "Open folder in VS Code": "在 VS Code 中打开文件夹",
   "Open in a new tab": "在新标签页中打开",
   "Open in terminal": "在终端中打开",
+  "Pinned sessions cannot be archived; unpin them first": "置顶会话不能归档，先取消置顶",
   "Pending interaction": "待处理交互",
   "Refresh session list": "刷新会话列表",
   "Search sessions": "搜索会话",

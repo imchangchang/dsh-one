@@ -1061,13 +1061,15 @@ function highlightText(text: string): HTMLElement {
 
 /* ---- 多选归档模式 ---- */
 
-/** 与单项归档一致：运行中/未读/待处理的会话不可勾选（归档后状态难追踪）。 */
+/** 与单项归档一致：运行中/未读/待处理/置顶的会话不可勾选（归档后状态难追踪；
+ *  置顶归档会绕过「置顶不能归档」保护，置顶条件优先于其他）。 */
 function sessionSelectable(s: SessionNodeModel): boolean {
-  return !(s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined)
+  return !(s.pinned || s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined)
 }
 
 /** 不可勾选原因的悬停提示；可勾选返回 null。文案与单项归档禁用提示一致。 */
 function sessionSelectTip(s: SessionNodeModel): string | null {
+  if (s.pinned) return t('Pinned sessions cannot be archived; unpin them first')
   if (s.pendingInteraction !== undefined) return t('Sessions with pending items cannot be archived')
   if (s.running || s.descendantRunning) return t('Running sessions cannot be archived')
   if (s.unread) return t('Unread sessions cannot be archived')
@@ -1412,10 +1414,11 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   body.appendChild(
     menuItem(t('Archive session'), {
       icon: iconSvg(PANEL_ICONS.archive),
-      // 运行中/未读/待处理的会话归档后状态难追踪，置灰禁用。
-      disabled: s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined,
-      disabledTip:
-        s.pendingInteraction !== undefined
+      // 运行中/未读/待处理/置顶的会话归档后状态难追踪（置顶归档绕过置顶保护），置灰禁用。
+      disabled: pinned || s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined,
+      disabledTip: pinned
+        ? t('Pinned sessions cannot be archived; unpin them first')
+        : s.pendingInteraction !== undefined
           ? t('Sessions with pending items cannot be archived')
           : s.running || s.descendantRunning
             ? t('Running sessions cannot be archived')

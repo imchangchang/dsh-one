@@ -308,6 +308,7 @@
   "Open folder in VS Code": "Open folder in VS Code",
   "Open in a new tab": "Open in a new tab",
   "Open in terminal": "Open in terminal",
+  "Pinned sessions cannot be archived; unpin them first": "Pinned sessions cannot be archived; unpin them first",
   "Pending interaction": "Pending interaction",
   "Refresh session list": "Refresh session list",
   "Search sessions": "Search sessions",
