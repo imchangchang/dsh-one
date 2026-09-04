@@ -30,6 +30,7 @@ import {
 import type { GitShowRecord } from '../pure/commitGit.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
 import { imageMediaTypeByExtension, pastedFileName, splitAttachmentLines } from '../pure/composerAttachment.ts'
+import { DEFAULT_THUMB_FETCH, runAttempts, ThrottledQueue } from '../pure/thumbQueue.ts'
 import { attachmentDir, nextSequenceIndex } from './attachmentDir.ts'
 import { workspaceFileCandidates } from './workspaceScan.ts'
 import type { ChatSessionController } from '../server/chatSession.ts'
@@ -44,6 +45,14 @@ export interface ChatTabMessageHandler {
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
+
+/**
+ * 消息图片懒加载（requestFileThumb / requestAttachment）的宿主侧节流队列：
+ * 一次渲染 N 张图时不再同时读 N 个文件（大图单请求可达 MB 级 base64），
+ * 并发上限内排队执行；单任务失败/超时最多尝试 DEFAULT_THUMB_FETCH.maxAttempts
+ * 次后回传失败态（fileThumbFailed）收敛。模块级共享一个实例：跨 tab 一起限流。
+ */
+const fileFetchQueue = new ThrottledQueue(DEFAULT_THUMB_FETCH.concurrency)
 
 // ---- commit hash 联动（点击打开 git 提交视图 / 悬浮显示提交信息） ----
 
@@ -696,17 +705,19 @@ const fileHandlers: ChatTabMessageHandler[] = [
     },
   },
   {
-    // 消息里图片文件 chip 的缩略图懒加载：读盘转 base64 回传（失败静默，
-    // webview 回退成图标 chip——历史消息的文件可能已被移动/删除）。
+    // 消息里图片文件 chip 的缩略图懒加载：读盘转 base64 回传。失败（文件被
+    // 移动/删除、超时）在 1-2 次尝试后回 fileThumbFailed，webview 标记失败态
+    // 不再 5s 重发（占位图标 chip 保持）——不再无限重试。
     types: ['requestFileThumb'],
     async handle(host, m) {
       if (m.type !== 'requestFileThumb' || typeof m.path !== 'string' || !m.path) return
       const mediaType = imageMediaTypeByExtension(path.extname(m.path))
       if (!mediaType) return
       try {
-        const data = await fs.readFile(m.path)
+        const data = await fileFetchQueue.run(() => runAttempts(() => fs.readFile(m.path), DEFAULT_THUMB_FETCH))
         host.postMessage({ type: 'fileThumb', path: m.path, mediaType, data: Buffer.from(data).toString('base64') })
       } catch (err) {
+        host.postMessage({ type: 'fileThumbFailed', path: m.path })
         host.actions.logger.warn(`chat: fileThumb ${m.path} failed — ${errorText(err)}`)
       }
     },
@@ -880,10 +891,16 @@ async function sendAttachment(host: ChatTabHost, attachmentId: string): Promise<
   const controller = host.controller
   if (typeof attachmentId !== 'string' || !attachmentId || !controller) return
   try {
-    const { mediaType, data } = await sessionAttachment(controller.url, controller.sessionId, attachmentId)
+    const { mediaType, data } = await fileFetchQueue.run(() =>
+      runAttempts(
+        () => sessionAttachment(controller.url, controller.sessionId, attachmentId),
+        DEFAULT_THUMB_FETCH,
+      ),
+    )
     host.postMessage({ type: 'attachmentData', attachmentId, mediaType, data })
   } catch (err) {
-    // Thumbnail stays a placeholder; not worth an error popup.
+    // 失败收敛：占位/图标 chip 保持，webview 侧 attachmentRequested 已置位
+    // 不再重复请求；不值得为缩略图弹错。
     host.actions.logger.warn(`chat: attachment ${attachmentId} fetch failed — ${errorText(err)}`)
   }
 }

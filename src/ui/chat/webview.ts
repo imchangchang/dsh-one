@@ -335,9 +335,22 @@ const attachmentCache = new Map<string, string>()
 const attachmentRequested = new Set<string>()
 /** File-path → data URL for image-file chips (message history), filled by fileThumb replies. */
 const fileThumbCache = new Map<string, string>()
-/** File path → 上次请求时间戳：失败（无回执）5 秒后允许重试，避免瞬时失败永久降级。 */
-const fileThumbRequested = new Map<string, number>()
+/**
+ * File path → 请求状态：at=上次请求时间（无回执 5 秒后允许重试），
+ * failed=true=宿主失败回执（fileThumbFailed）——该文件不再重发，保持图标 chip。
+ */
+const fileThumbRequested = new Map<string, { at: number; failed: boolean }>()
 const FILE_THUMB_RETRY_MS = 5000
+
+/** 图片文件 chip 的懒缩略图请求：失败态不再发；同一次请求 5 秒内不重复（防重渲染重发）。 */
+function requestFileThumbIfNeeded(path: string): void {
+  const rec = fileThumbRequested.get(path)
+  if (rec?.failed) return
+  if (Date.now() - (rec?.at ?? 0) > FILE_THUMB_RETRY_MS) {
+    fileThumbRequested.set(path, { at: Date.now(), failed: false })
+    post({ type: 'requestFileThumb', path })
+  }
+}
 /** Half-answered pending questions: rpcId → question index → draft. */
 const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
 /** Composer-takeover panel per pending rpcId: current page (question index), minimized state, skipped pages and a transient notice. */
@@ -1196,6 +1209,10 @@ window.addEventListener('message', (event) => {
   } else if (msg?.type === 'fileThumb' && typeof msg.path === 'string' && typeof msg.data === 'string') {
     // 消息里图片文件 chip 的缩略图回执：缓存后重渲染（占位变真图）。
     fileThumbCache.set(msg.path, `data:${msg.mediaType};base64,${msg.data}`)
+    render()
+  } else if (msg?.type === 'fileThumbFailed' && typeof msg.path === 'string') {
+    // 宿主放弃该文件（缺失/损坏/超时）：标失败态，重渲染保持图标 chip，不再重发。
+    fileThumbRequested.set(msg.path, { at: 0, failed: true })
     render()
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
@@ -3704,13 +3721,10 @@ function imageChip(image: ChatImage): HTMLElement {
 
 /** Compact chip for one attached file; click opens the path in the VS Code editor. */
 function fileChip(file: ChatFile): HTMLElement {
-  // 图片文件：先画图标 chip 并懒请求缩略图（回执后整卡换成缩略图，失败 5s 后重试）。
+  // 图片文件：先画图标 chip 并懒请求缩略图（回执后整卡换成缩略图；宿主失败
+  // 回执后标记失败态不再重发——保持图标 chip）。
   if (file.image && !fileThumbCache.has(file.path)) {
-    const at = fileThumbRequested.get(file.path) ?? 0
-    if (Date.now() - at > FILE_THUMB_RETRY_MS) {
-      fileThumbRequested.set(file.path, Date.now())
-      post({ type: 'requestFileThumb', path: file.path })
-    }
+    requestFileThumbIfNeeded(file.path)
   }
   if (file.image) {
     const dataUrl = fileThumbCache.get(file.path)
@@ -5837,13 +5851,9 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
     item.appendChild(remove)
     return item
   }
-  // 图片但暂时无预览：懒加载请求（失败 5s 后允许重试一次，之后保持图标）。
+  // 图片但暂时无预览：懒加载请求（宿主失败回执后标记失败态不再重试——保持图标）。
   if (file.image && !file.previewData) {
-    const at = fileThumbRequested.get(file.path) ?? 0
-    if (Date.now() - at > FILE_THUMB_RETRY_MS) {
-      fileThumbRequested.set(file.path, Date.now())
-      post({ type: 'requestFileThumb', path: file.path })
-    }
+    requestFileThumbIfNeeded(file.path)
   }
   const chip = el('span', 'file-chip')
   chip.dataset.attachPath = file.path
