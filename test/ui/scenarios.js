@@ -1255,6 +1255,83 @@
       expect: '从未完成过轮次的会话（hasCompletedTurn=false）的 ⋯ 菜单：「分叉会话」灰置（.menu-item.disabled，置灰不响应点击）；悬停该项时其下方出现 tooltip 气泡「会话没有已完成轮次，无法分叉」；「重命名/置顶/标为未读/复制引用」正常；「归档会话」正常（非运行/未读/无待处理）；无「复制会话 ID」。',
     },
 
+    // ================= 工作区右键菜单（6 项 / 分组…子菜单 / 归档该工作区全部） =================
+
+    'sessions-workspace-menu': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        return s
+      })(),
+      interact: `(() => {
+        const head = document.querySelector('.workspace-group[data-workspace-id="ws-main"] .workspace-row')
+        head?.classList.add('menu-open')
+        head?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }))
+      })()`,
+      title: '侧栏面板（工作区行右键菜单：6 项）',
+      expect: '右键 ws-main 工作区行弹出 popover 菜单：首行标题「Workspace: dsh-one」（操作对象显式化）；自上而下 6 项：复制文件夹引用（copy 图标）/ 分组…（齿轮图标 + 右缘 › 子菜单指示）/ 归档该工作区全部会话（archive 图标，该组有可归档会话故可用）/ 在新窗口打开文件夹（folderOpen 图标）/ 复制路径（copy 图标）/ 从列表移除（trash 图标）；无「重命名」「只显示此工作区」等不做项；菜单下方无分隔线（6 项同一段）。',
+    },
+
+    'sessions-workspace-menu-groups': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        return s
+      })(),
+      interact: `(() => {
+        const head = document.querySelector('.workspace-group[data-workspace-id="ws-main"] .workspace-row')
+        head?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }))
+        const items = [...document.querySelectorAll('.menu-item')]
+        items.find((i) => i.textContent?.includes('Groups…'))?.click()
+      })()`,
+      title: '侧栏面板（分组… 子菜单：多选勾 tag）',
+      expect: '点「分组…」后二级 popover 从菜单项右侧展开（右缘对齐顶层菜单，不覆盖 6 项）：三个组行自上而下「演示 2 ✓」「开发 1 ✓」「日常 0」（勾选态来自 ws-main 的归属 groupMembership；「日常」未勾无 ✓、计数 0 仍列出）；勾选行带 ✓ 于行尾；组名 + 右侧计数 + ✓ 布局在列。',
+    },
+
+    'sessions-workspace-archive-modal': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.workspaces[0].sessions = [
+          sess('sess-1', 'DSH One 示例会话', '3 小时前'),
+          sess('sess-7', '另一个可归档会话', '1 小时前'),
+          sess('sess-2', '运行中的会话', '5 小时前', { running: true }),
+        ]
+        return s
+      })(),
+      interact: `(() => {
+        const head = document.querySelector('.workspace-group[data-workspace-id="ws-main"] .workspace-row')
+        head?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }))
+        const items = [...document.querySelectorAll('.menu-item')]
+        items.find((i) => i.textContent?.includes('Archive all sessions in this workspace'))?.click()
+      })()`,
+      title: '侧栏面板（归档该工作区全部会话：确认弹窗 + 跳过说明）',
+      expect: '点「归档该工作区全部会话」后页面内弹出确认弹窗（selection-modal）：标题「Archive 2 sessions?」；副标题「Archived sessions will be hidden from the list. 1 session(s) cannot be archived and were skipped.」；树区一个组「dsh-one · 2」明细展开，含 2 条可归档会话行（运行中的 sess-2 不在列，被跳过）；底部「Cancel」secondary +「Archive」primary；遮罩半透明。',
+    },
+
+    'sessions-workspace-menu-archive-disabled': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.workspaces[0].sessions = [sess('sess-1', '运行中的会话', '3 小时前', { running: true })]
+        return s
+      })(),
+      interact: `(() => {
+        const head = document.querySelector('.workspace-group[data-workspace-id="ws-main"] .workspace-row')
+        head?.classList.add('menu-open')
+        head?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }))
+        setTimeout(() => {
+          const items = [...document.querySelectorAll('.menu-item.disabled')]
+          const last = items[items.length - 1]
+          if (last) last.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+        }, 150)
+      })()`,
+      title: '侧栏面板（无归档会话的工作区：一键归档禁用 + 悬停提示）',
+      expect: '工作区内全部会话运行中（无任何可归档会话）：右键菜单「归档该工作区全部会话」灰置（.menu-item.disabled）；悬停该项时其下方出现 tooltip 气泡「该工作区没有可归档的会话」；其余 5 项（复制文件夹引用/分组…/新窗口/复制路径/从列表移除）正常可用。',
+    },
+
     'sessions-rename': {
       view: 'sessions',
       sessions: (() => {

@@ -207,11 +207,15 @@ function closePopover(): void {
   renderSessions()
 }
 
-// 右键按下（button===2）且落在会话行内即进入冻结窗口——contextmenu 随后打开
-// 菜单，期间列表不因快照重建而销毁该行，菜单锚/视觉锚保持稳定。解冻由
-// closePopover 统一处理。左键 ⋯ 按钮走其 onClick 里置冻结。多选模式右键无菜单。
+// 右键按下（button===2）且落在会话行/工作区行内即进入冻结窗口——contextmenu
+// 随后打开菜单，期间列表不因快照重建而销毁该行，菜单锚/视觉锚保持稳定。解冻
+// 由 closePopover 统一处理。左键 ⋯ 按钮走其 onClick 里置冻结。多选模式右键无菜单。
 document.addEventListener('pointerdown', (e) => {
-  if (e.button === 2 && !selectionMode && (e.target as HTMLElement | null)?.closest?.('.session-row')) {
+  if (
+    e.button === 2 &&
+    !selectionMode &&
+    (e.target as HTMLElement | null)?.closest?.('.session-row, .workspace-row')
+  ) {
     menuFreezeActive = true
   }
 })
@@ -1443,6 +1447,17 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
       post({ type: 'workspaceCollapse', workspaceId: w.workspaceId, collapsed: !collapsed }),
     )
   }
+  // 工作区右键菜单（真实 workspace；未分组虚拟组无 path/标签语义，无菜单）：
+  // 与会话行右键同款 popover + 冻结机制，多选模式右键无菜单。
+  if (!ungrouped) {
+    head.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      if (selectionMode) return
+      menuFreezeActive = true
+      showPopoverAt(e.clientX, e.clientY, buildWorkspaceMenuBody(w))
+      markMenuRow(head)
+    })
+  }
   group.appendChild(head)
   // 未分组恒展开（collapsed 恒 false），总会渲染会话行。
   if (!collapsed) {
@@ -2227,6 +2242,20 @@ function openSelectionModal(): void {
     }
     groups.push({ ws, sessions: ws.sessions })
   }
+  openArchiveModal([...archivableIds], groups, skipped)
+}
+
+/**
+ * 归档确认弹窗本体（多选模式与工作区右键菜单「归档该工作区全部会话」共用）：
+ * 确认 → sessionArchiveMany → archiveManyDone 分流。skippedDesc 供「归档某工作区
+ * 全部」这类非勾选语境改写跳过说明（默认文案按「选中的」做）。
+ */
+function openArchiveModal(
+  ids: string[],
+  groups: Array<{ ws: WorkspaceNodeModel; sessions: SessionNodeModel[] }>,
+  skipped: number,
+  opts: { skippedDesc?: string } = {},
+): void {
   const total = groups.reduce((n, g) => n + g.sessions.length, 0)
   if (total === 0) return
   const overlay = el('div', 'selection-modal-overlay')
@@ -2238,7 +2267,8 @@ function openSelectionModal(): void {
   modal.appendChild(el('div', 'selection-modal-title', title))
   const desc =
     skipped > 0
-      ? t('Archived sessions will be hidden from the list. {0} selected session(s) cannot be archived and were skipped.', skipped)
+      ? (opts.skippedDesc ??
+        t('Archived sessions will be hidden from the list. {0} selected session(s) cannot be archived and were skipped.', skipped))
       : t('Archived sessions will be hidden from the list.')
   modal.appendChild(el('div', 'selection-modal-desc', desc))
   const tree = el('div', 'selection-modal-tree')
@@ -2256,7 +2286,7 @@ function openSelectionModal(): void {
   modal.appendChild(actions)
   overlay.appendChild(modal)
   document.body.appendChild(overlay)
-  selectionModal = { overlay, busy: false, ids: [...archivableIds] }
+  selectionModal = { overlay, busy: false, ids }
   document.addEventListener('keydown', onSelectionModalKey, true)
 }
 
@@ -2436,6 +2466,132 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
     }),
   )
   return body
+}
+
+/* ---- 工作区右键菜单（仅真实 workspace；未分组虚拟组无菜单） ---- */
+
+/** 工作区菜单内容（右键菜单，6 项定稿）：复制文件夹引用 / 分组… / 归档该工作区
+ *  全部会话 / 在新窗口打开文件夹 / 复制路径 / 从列表移除。与会话行菜单共用
+ *  popover + 冻结机制；hover 行内按钮全部保留，右键为并存入口。 */
+function buildWorkspaceMenuBody(w: WorkspaceNodeModel): HTMLElement {
+  const body = el('div')
+  body.appendChild(el('div', 'session-menu-title', t('Workspace: {0}', w.label)))
+  body.appendChild(
+    menuItem(t('Copy folder reference'), {
+      icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
+      onClick: () => {
+        closePopover()
+        post({ type: 'workspaceCopyFolderRef', path: w.path })
+      },
+    }),
+  )
+  body.appendChild(buildWorkspaceGroupsMenu(w))
+  body.appendChild(
+    menuItem(t('Archive all sessions in this workspace'), {
+      icon: iconSvg(PANEL_ICONS.archive),
+      // 与多选归档/单项归档同规则（置顶/运行中/未读/待处理跳过），全不可归档时置灰。
+      disabled: !w.sessions.some(sessionArchiveSelectable),
+      disabledTip: t('No archivable sessions in this workspace'),
+      onClick: () => {
+        closePopover()
+        openWorkspaceArchiveModal(w)
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem(t('Open folder in a new window'), {
+      icon: iconSvg(PANEL_ICONS.folderOpen),
+      onClick: () => {
+        closePopover()
+        post({ type: 'workspaceOpenNewWindow', path: w.path })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem(t('Copy path'), {
+      icon: iconSvg(COPY_ICON, 14),
+      onClick: () => {
+        closePopover()
+        post({ type: 'workspaceCopyPath', path: w.path })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem(t('Remove from list'), {
+      icon: strokeSvg(TRASH_ICON, 16),
+      onClick: () => {
+        closePopover()
+        post({ type: 'workspaceRemove', workspaceId: w.workspaceId, label: w.label })
+      },
+    }),
+  )
+  return body
+}
+
+/** 「分组…」菜单项（带 › 子菜单指示）：点击开二级 popover（锚在项右侧）。 */
+function buildWorkspaceGroupsMenu(w: WorkspaceNodeModel): HTMLElement {
+  const item = el('div', 'menu-item')
+  const iconWrap = el('span', 'menu-item-icon')
+  iconWrap.appendChild(iconSvg(GEAR_ICON, 14))
+  item.appendChild(iconWrap)
+  item.appendChild(el('span', undefined, t('Groups…')))
+  item.appendChild(el('span', 'menu-right', '›'))
+  item.addEventListener('click', () => showWorkspaceGroupsSubmenu(w, item))
+  return item
+}
+
+/**
+ * 「分组…」二级菜单：多选勾 tag（复用 workspaceGroupSetMembership 全量替换接口，
+ * 与管理视图打标同源）。勾选 = 归组、点已勾 = 移除，勾完不关菜单可连续勾；
+ * 提交后就地翻转该项自身的 ✓（不重建菜单——快照往返是异步的，重建会读到旧
+ * 归属显示成未勾）。关闭（Esc / 点击外部）后 closePopover 解冻，重开菜单时
+ * 从最新快照渲染勾选态。
+ */
+function showWorkspaceGroupsSubmenu(w: WorkspaceNodeModel, anchor: HTMLElement): void {
+  const snap = sessionsSnapshot
+  const body = el('div')
+  if (!snap || snap.groups.length === 0) {
+    body.appendChild(menuItem(t('No groups yet. Create one from the group bar above.'), { disabled: true, onClick: () => {} }))
+  } else {
+    for (const g of snap.groups) {
+      const item = menuItem(g.name, {
+        right: String(g.count),
+        checked: (snap.groupMembership[w.workspaceId] ?? []).includes(g.id),
+        onClick: () => {
+          // 勾选态随时取最新快照的归属（快速连点不依赖本次渲染时的旧值），
+          // 与管理视图 buildGroupManageMembers 的提交口径一致。
+          const current = sessionsSnapshot?.groupMembership[w.workspaceId] ?? []
+          const becameMember = !current.includes(g.id)
+          const next = becameMember ? [...current, g.id] : current.filter((id) => id !== g.id)
+          post({ type: 'workspaceGroupSetMembership', workspaceId: w.workspaceId, groupIds: next })
+          item.classList.toggle('checked', becameMember)
+          const chk = item.querySelector('.check')
+          if (becameMember) {
+            if (!chk) item.appendChild(el('span', 'check', '✓'))
+          } else {
+            chk?.remove()
+          }
+        },
+      })
+      body.appendChild(item)
+    }
+  }
+  const rect = anchor.getBoundingClientRect()
+  showPopoverAt(Math.min(rect.right + 6, window.innerWidth - 4), rect.top, body)
+}
+
+/** 「归档该工作区全部会话」：收集该工作区可归档会话（同多选归档规则，置顶/
+ *  运行中/未读/待处理跳过），复用确认弹窗 + sessionArchiveMany → archiveManyDone 链路。 */
+function openWorkspaceArchiveModal(w: WorkspaceNodeModel): void {
+  const archivable = w.sessions.filter(sessionArchiveSelectable)
+  if (archivable.length === 0) return
+  const skipped = w.sessions.length - archivable.length
+  openArchiveModal(
+    archivable.map((s) => s.sessionId),
+    [{ ws: w, sessions: archivable }],
+    skipped,
+    { skippedDesc: t('Archived sessions will be hidden from the list. {0} session(s) cannot be archived and were skipped.', skipped) },
+  )
 }
 
 window.addEventListener('message', (event) => {
