@@ -1,0 +1,123 @@
+{
+  "title": "回收站抽屉式半栏覆盖 + 清空图标放大（recycle-bin-drawer 任务）",
+  "branch": "agent/recycle-bin-drawer",
+  "commit": "ee2e461",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-recycle-bin-drawer:latest",
+    "date": "2026-09-05T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code 窗口 chrome、真模型输出、Windows/macOS 平台专项不在本报告范围。宿主层本次无改动（抽屉/图标均是 webview 内 UI 态），无 host 命令层新增待覆盖项。视觉自测另有 harness 场景（sessions-recycle-drawer / sessions / sessions-collapsed / sessions-selection-mode，/tmp/recycle-drawer/shots/）与沙盒 E2E 双通道：E2E 为主（真 VS Code 交互断言 + 截图），harness 为辅（确定态渲染核对）。E2E 尾段（R-01）曾受 code-server webview 帧重建伪影影响（读到已废弃 iframe 的 0 行状态），该断言另以受控复现脚本二次验证（确定性输出 + 截图 100-R01-restore-all-rows-back.png）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "抽屉打开：半栏叠加（高约 50% + 主列表上半可见 + 入口被盖）",
+      "expect": "点击底部「Recycle bin (2)」入口后抽屉从面板底部滑出，高度 ≈ 面板 50%；主列表上半部仍可见（会话行在抽屉上沿以上）；底部入口行被抽屉覆盖不可见；抽屉顶部有提手横条（grab 光标区）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/04-03-drawer-open-half.png"
+      ],
+      "notes": "E2E 断言：ratio=0.501（±3% 内）、mainVisibleAbove=true、entryCovered=true；截图可见主列表 8 行 + 抽屉内 Recycle bin (2) + Ungrouped 2 行。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "收起：点击抽屉外 / ▼ Back / Esc",
+      "expect": "三种方式都能收起：点击主列表任意处（无遮罩直接叠）、点击抽屉头「▼ Back」（单个下拉箭头，无重复「‹」）、按 Esc。收起后抽屉节点移除，主列表不变。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/05-04-after-outside-click.png"
+      ],
+      "notes": "E2E 断言：外部点击后 gone=true；Esc 后 gone=true；‹ Back 后 gone=true。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "提手拖拽：上拉扩大（90% 档）、下拉到底松手关闭",
+      "expect": "拖动提手条上拉：高度随拖动变大，松手吸附到 90% 档（仍留 ~10% 主列表可见）；从 90% 档拖动下拉到底松手：抽屉关闭。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/06-05-drawer-open-again.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/07-06-drag-up-expanded.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/08-07-drag-down-closed.png"
+      ],
+      "notes": "E2E 断言：拖上 250px 后 expanded=true 且 ratio=0.901；拖下 700px 松手后 gone=true。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "抽屉内功能：按原 workspace 分组 + 行菜单恢复 + 恢复全部 → 空态",
+      "expect": "抽屉内会话仍按原 workspace 分组（组头 + 计数徽标，可折叠）；行菜单「Restore」恢复单项（计数递减）；「Restore all」恢复全部后抽屉空态「The recycle bin is empty」+ 引导文案，头部计数与底部入口计数同步归 0，主列表行数回到移入前。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/11-10-after-in-drawer-restore.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/12-11-after-restore-all-empty.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/100-R01-restore-all-rows-back.png"
+      ],
+      "notes": "E2E 断言：组头 Ungrouped 计数 2 且行存在；行恢复后抽屉计数 2→1；恢复全部后计数 0 + 空态文案 + 入口计数 0；主列表行恢复由受控复现确认（移入 16 行→恢复后 0.5s 内 18 行，快照 workspaces 计数一致，见 R-01）。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "清空回收站图标按钮放大（34px 点击区 + 22px 图标 + 悬停提示）",
+      "expect": "抽屉头垃圾桶图标按钮点击区 34×34px、图标 22px，与「Restore all」文本按钮相称；悬停提示与 aria-label 均为「Empty recycle bin」；计数 0 时置灰。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/04-03-drawer-open-half.png"
+      ],
+      "notes": "E2E 断言：按钮 w=34 h=34（先 24px 后 18px 图标均被实测反馈偏小，再放大）、svg width=22、aria=data-tip=Empty recycle bin。"
+    },
+    {
+      "id": "F-05b",
+      "phase": "new-feature",
+      "name": "抽屉头修正：▼ Back 单箭头 + 计数徽标在标题组内",
+      "expect": "抽屉头收起按钮为单个下拉箭头 +「Back」（不再出现「‹‹ 返回」双重箭头）；计数徽标紧跟标题「Recycle bin」文本（同一内联组），不被标题 flex 挤到行尾与垃圾桶挨着。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/04-03-drawer-open-half.png"
+      ],
+      "notes": "E2E 断言：backText=Back、backSvg=1（无重复图标/字符）、countInsideTitle=true。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "清空弹窗（modal 确认）+ 弹窗内点击不意外收起抽屉",
+      "expect": "点清空图标弹出确认 modal（标题含数量「Empty the recycle bin (2 sessions)?」+ 说明 + 分组明细 + Cancel/Archive）；取消后抽屉保持打开（弹窗属于临时浮层，点击其中内容不触发「点击外部收起」）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/09-08-empty-modal.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/10-09-modal-cancel-drawer-open.png"
+      ],
+      "notes": "E2E 断言：modal 标题含 (2 sessions)；Cancel 后 drawerStillOpen=true。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "回收站链路回归：移入 → 抽屉内恢复 → 恢复全部 → 主列表行回齐",
+      "expect": "行菜单移入（计数 +1、主列表行减少）、抽屉内行恢复（主列表行回来）、恢复全部（主列表行回齐、计数归 0）——与合入前整栏视图版一致的本地集合并行语义。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/03-02-after-two-moves.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/100-R01-restore-all-rows-back.png"
+      ],
+      "notes": "受控复现（同尾段：移入2个 → 抽屉内行恢复1个 → 恢复全部）：rows 18→16→17→18（+0.5s 内），快照 workspaces 计数 18、recycleBin 0——确定通过。完整 E2E 尾段曾读到 rows=0，已定位为 code-server webview 帧重建后旧 iframe 残留的测试伪影（同一时刻 webview 收到的最新快照含全部会话 18 行、DOM 却在旧帧上读取），非产品缺陷；终态（重开页面）确认 18 行可见。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "主列表回归：入口行/组折叠/多选条（harness 场景）",
+      "expect": "主列表底部入口行横排（图标 + Recycle bin + 计数 0 灰态）；组折叠状态正常；多选操作条（移入回收站/归档/Cancel）与勾选正常——渲染与合入前一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/recycle-drawer/shots/sessions.png",
+        "/tmp/recycle-drawer/shots/sessions-collapsed.png",
+        "/tmp/recycle-drawer/shots/sessions-selection-mode.png"
+      ],
+      "notes": "harness Playwright 截图核对：三场景均符合 expect；顺带修复了 recycle-bin 合入时留下的 harness fixture 缺口（sessionsTree 缺回收站快照字段导致基线场景渲染中断，见提交 test(ui)）。"
+    }
+  ]
+}

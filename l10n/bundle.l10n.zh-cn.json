@@ -390,5 +390,6 @@
   "The recycle bin is empty": "回收站是空的",
   "Move sessions here from the row menu or multi-select to keep them out of the list; they can be restored later, only archiving is final.": "从行菜单或多选操作把会话移入这里，可随时恢复；只有归档是终点动作。",
   "Move to recycle bin": "移入回收站",
-  "Archived sessions will be hidden from the list. {0} selected session(s) cannot be archived and were skipped.": "归档会话会从列表隐藏。{0} 个选中会话不能归档，已被跳过。"
+  "Archived sessions will be hidden from the list. {0} selected session(s) cannot be archived and were skipped.": "归档会话会从列表隐藏。{0} 个选中会话不能归档，已被跳过。",
+  "Back": "返回"
 }

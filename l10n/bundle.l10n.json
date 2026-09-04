@@ -390,5 +390,6 @@
   "The recycle bin is empty": "The recycle bin is empty",
   "Move sessions here from the row menu or multi-select to keep them out of the list; they can be restored later, only archiving is final.": "Move sessions here from the row menu or multi-select to keep them out of the list; they can be restored later, only archiving is final.",
   "Move to recycle bin": "Move to recycle bin",
-  "Archived sessions will be hidden from the list. {0} selected session(s) cannot be archived and were skipped.": "Archived sessions will be hidden from the list. {0} selected session(s) cannot be archived and were skipped."
+  "Archived sessions will be hidden from the list. {0} selected session(s) cannot be archived and were skipped.": "Archived sessions will be hidden from the list. {0} selected session(s) cannot be archived and were skipped.",
+  "Back": "Back"
 }
