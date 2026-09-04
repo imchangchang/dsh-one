@@ -130,6 +130,14 @@ build() {
     echo "已把 test/mock-llm/*.ts 暂存进 $CONTEXT/.build-mock-llm/"
   fi
 
+  # docker build 默认走 buildx，buildx 会把 builder 元数据（activity 记录等）写到
+  # $HOME/.docker/buildx/——在 session workspace 外，DSH workspace-write 沙盒下写被拦
+  # （实测报错: failed to update builder last activity time: ... operation not permitted），
+  # 只能提权重试。把 BUILDX_CONFIG 重定向到 /tmp（平台临时区可写）即可完全避开；
+  # 用户已显式设置时尊重其值。
+  export BUILDX_CONFIG="${BUILDX_CONFIG:-/tmp/dsh-sandbox-buildx}"
+  mkdir -p "$BUILDX_CONFIG"
+
   echo "构建镜像 ${IMAGE}（LOCALE=$locale THEME=$theme VSIX=${build_vsix:+是} MOCK_LLM=${mock_llm}）"
   echo "上下文: $CONTEXT"
   docker build \
