@@ -31,3 +31,5 @@
 - 2026-09-03 用户反馈英文界面 preset 不带翻译 → 核实根因（服务端 preset.yml 固定中文 + 8b06be8 roster 优先使英文界面也拿到中文文案；zh bundle 译文已与 roster 逐字一致）→ 记入 open/（未开始修改）。
 
 - 2026-09-04 认领（open → doing）：按条目方案实施——resolveAgentPresets 对 trust=system 且 id 命中内置映射的 preset 恢复内置映射过 t()（roster 只用于 user preset 与未知 id），随方案调整测试用例。
+
+- 2026-09-04 开发完成（doing → done，agent/i18n-polish）：resolveAgentPresets 对 trust=system 且 id 命中内置映射的 preset 恢复内置映射过 t()（roster 只用于 user preset 与未知 id）；测试用例随方案调整；自测全绿（typecheck + 386 tests + build，check-i18n.sh 通过）；测试报告同条目 jobs-chip-label——en 沙盒（含修复 vsix 的私有容器）实测 hero/下拉/头部标签均英文、kimi user preset 保持 roster 原文；zh bundle 译文与 preset.yml 逐字一致，中文界面文案不变。方案里「refreshAgentPresets 传 vscode.l10n.t」已由 8b06be8 满足。漂移对照测试未加：roster 在 dsh 安装目录、不在本仓库，仓库内测试取不到；映射 key 入 bundle 已由 check-i18n.sh 存量检查覆盖。
