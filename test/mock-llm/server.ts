@@ -57,8 +57,11 @@ function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
 }
 
 /**
- * 从 messages 里取「最后一条 role==='user' 的消息」文本。
- * content 可能是字符串，也可能是 [{type:'text',text}] 数组；只取 text 块。
+ * 提取「最后一条非注入 user 消息」的文本，供规则匹配。
+ * 真实 dsh 会在会话首轮把 skill/运行上下文作为 user 消息注入给模型，wire 上以
+ * `<system-reminder>` 包裹（dsh-agent-instructions 的 SYSTEM_REMINDER_OPEN 约定，
+ * 扩展侧也是据此折叠成「Context injection」卡片的）——注入块不作为规则匹配对象。
+ * 全部是注入/空消息时返回 ''（此时 '*' 兜底会命中空文本，属预期）。
  */
 function lastUserText(messages: unknown[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -67,13 +70,22 @@ function lastUserText(messages: unknown[]): string {
     const m = msg as Record<string, unknown>
     if (m.role !== 'user') continue
     const content = m.content
-    if (typeof content === 'string') return content
-    if (Array.isArray(content)) {
-      return content
-        .filter((b): b is { type: string; text?: unknown } => typeof b === 'object' && b !== null && (b as { type?: unknown }).type === 'text')
-        .map((b) => (typeof b.text === 'string' ? b.text : ''))
-        .join('\n')
-    }
+    const text = userTextOf(content)
+    if (text.includes('<system-reminder>')) continue
+    if (text.trim().length === 0) continue
+    return text
+  }
+  return ''
+}
+
+/** user 消息 content 的纯文本提取：字符串直取，块数组只取 text 块。 */
+function userTextOf(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
+      .filter((b): b is { type: string; text?: unknown } => typeof b === 'object' && b !== null && (b as { type?: unknown }).type === 'text')
+      .map((b) => (typeof b.text === 'string' ? b.text : ''))
+      .join('\n')
   }
   return ''
 }

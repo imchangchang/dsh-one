@@ -186,6 +186,42 @@ test('规则匹配优先级：具体规则先于兜底命中（查天气→tool_
   assert.equal(body.choices[0].message.tool_calls, undefined)
 })
 
+test('首轮注入过滤：<system-reminder> 注入的 user 消息不作为匹配对象（对齐 dsh 首轮注入）', async () => {
+  const injected = '<system-reminder>\nA skill is a reusable set...\n</system-reminder>'
+  // 注入在最后：应取前面真正的 prompt「查天气」，命中工具规则（首轮注入场景）。
+  let res = await postChat(mock, {
+    model: 'mock-llm',
+    messages: [
+      { role: 'user', content: '查天气' },
+      { role: 'user', content: injected },
+    ],
+    stream: false,
+  })
+  let body = await res.json()
+  assert.ok(body.choices[0].message.tool_calls, '注入块在最后时应忽略，命中真实 prompt 的规则')
+
+  // 数组块形式 + 注入在前：仍命中最后的真实 prompt。
+  res = await postChat(mock, {
+    model: 'mock-llm',
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: injected }] },
+      { role: 'user', content: [{ type: 'text', text: '随便聊聊' }] },
+    ],
+    stream: false,
+  })
+  body = await res.json()
+  assert.equal(body.choices[0].message.content, '收到：随便聊聊')
+
+  // 只有注入：返回空文本 → 兜底 '*' 命中空字符串（dsh 标题生成这类场景）。
+  res = await postChat(mock, {
+    model: 'mock-llm',
+    messages: [{ role: 'user', content: injected }],
+    stream: false,
+  })
+  body = await res.json()
+  assert.ok(typeof body.choices[0].message.content === 'string')
+})
+
 test('自定义场景：regex 规则按正则命中', async () => {
   const sc: MockLlmScenario = {
     models: [{ id: 'm' }],
