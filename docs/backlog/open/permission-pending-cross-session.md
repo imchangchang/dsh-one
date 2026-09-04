@@ -27,12 +27,20 @@ pending 状态挂在 `ChatTabHost`（per-tab），但 tab 是**跨会话复用**
 - `src/ui/chatView.ts` — `openSession`（:216）/ `replaceTabSession`（:300）；`setPendingPermission`（:689）/ `resolvePendingPermission`（:699）
 - `src/ui/chatMessages.ts` — send handler 的落地顺序（:314-320）
 
-## 修复方向（待确认，未动手）
+## 修复方向（已确认，未实施）
 
-最小修：`replaceWith` 里把三个 pending 一并清空（换会话 = 旧切换意图作废）。预期同时覆盖 preset/workspace 同款泄漏。是否还要处理「运行输出中懒切换不可见/需发送才落地」的 UX，另议。
+**已拍板方案 C（per-session intent 归档 + 发送时原子消费）：**
+
+- `src/ui/chatTab.ts`：三个 pending 字段 → `pendingIntentBySession: Map<string, SendIntent>`（SendIntent = workspace/preset/permission），含读写/清 helper；tab 销毁即随对象回收
+- `src/ui/chatView.ts`：三个 `setPending*` 改写成当前会话条目；`composeHeader` 覆盖改从 intent 读；`resolvePending*` 收口为 `applySendIntent(host)`（发送开始时一次性快照当前 tab intent，按序执行：workspace 失败短路=提示+取消发送，preset/permission 失败只记日志；消费后清条目）
+- `src/ui/chatMessages.ts`：send handler 调用收口后的接口
+- `ChatTabHostActions`：三个 set 保留，resolve 合成一个
+
+换会话零处理（结构上不可能串台）；切回原会话 pending 保留（与草稿/附件生命周期一致）；组合意图（切 workspace 同时切权限）落点正确。
 
 ## 变更记录
 
 - 2026-09-03 用户反馈：A 输出中切权限卡住，到 B 发消息时权限切换到 B 落地 → 代码核实完整链路（tab 复用不清 pending + 发送时落地到当前 tab 的 controller）→ 根因确认 → 记入 open/（未开始修改）。
 - 2026-09-03 用户补充：切换发生在空白会话（hero）里，正常消息流对话没有权限切换（与 DSH web 一致）→ 复现链修正为「A 输出中新建空白会话（同 tab 替换）→ hero 里切权限 → 点回 A（同 tab 再替换）→ A 发送时落地到 A」，根因不变（pending 挂 tab、replaceWith 不清、发送时落地）。
-- 2026-09-03 方案探讨（用户要求架构层面审视，不做最小改动）：定性——三个 pending 是「会话级软状态」却挂在 tab 的裸字段上，而 tab 跨会话复用（产品决策），属于**结构性错位**，补一行清理只是治标，后续新增同类状态还会再漏。参照系：webview 侧同类状态（草稿 composerDrafts、附件 stagedPerSession）已用「per-session Map 归档」范式处理，pending 是唯一没对齐的。方案对比：A 最小改（replaceWith 清字段，意图作废，且下次还会漏）；B 收拢为 SendIntent 对象 + replaceWith 整组作废（防漏但语义与草稿不一致）；C（推荐）per-session intent 归档（`Map<sessionId, SendIntent>`，换会话零处理、切回恢复、结构性不串台）+ 发送时原子快照消费（applySendIntent 收口，一并解决 workspace+permission 组合意图落在目标会话的问题）。待用户拍板 C 后实施。
+- 2026-09-03 方案探讨（用户要求架构层面审视，不做最小改动）：定性——三个 pending 是「会话级软状态」却挂在 tab 的裸字段上，而 tab 跨会话复用（产品决策），属于**结构性错位**，补一行清理只是治标，后续新增同类状态还会再漏。参照系：webview 侧同类状态（草稿 composerDrafts、附件 stagedPerSession）已用「per-session Map 归档」范式处理，pending 是唯一没对齐的。方案对比：A 最小改（replaceWith 清字段，意图作废，且下次还会漏）；B 收拢为 SendIntent 对象 + replaceWith 整组作废（防漏但语义与草稿不一致）；C（推荐）per-session intent 归档（`Map<sessionId, SendIntent>`，换会话零处理、切回恢复、结构性不串台）+ 发送时原子快照消费（applySendIntent 收口，一并解决 workspace+permission 组合意图落在目标会话的问题）。
+- 2026-09-03 用户拍板采用推荐方案 C，仅记录 backlog（未实施）；条目继续留在 open/，实施入口为「认领 → doing」。
