@@ -142,6 +142,17 @@ export function defaultScenario(): MockLlmScenario {
           ],
         },
       },
+      // commit 卡演示（CLI 兜底验证）：回文本带固定提交 sha——sha 与沙盒
+      // entrypoint 在 $HOME 建的演示仓库一致；窗口没打开该仓库，查询走 git CLI 兜底。
+      {
+        match: { contains: 'commit 演示' },
+        respond: { content: ['参见提交 cb1f933e15289a00e30865e8dd3963ba90a96780（CLI 兜底演示）。'] },
+      },
+      // commit 卡未命中：回一个不存在的 sha（chip 保持灰显「Commit not found」）。
+      {
+        match: { contains: 'commit 不存在' },
+        respond: { content: ['这个提交 deadbeef00112233445566778899aabbccddeeff 应该查不到。'] },
+      },
       // 401 注入场景：user 消息含「401」触发鉴权失败。
       {
         match: { contains: '401' },

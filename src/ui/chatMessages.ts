@@ -8,6 +8,7 @@ import * as vscode from 'vscode'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { execFile } from 'node:child_process'
 import {
   executeCommand,
   exportSessionLog,
@@ -19,6 +20,14 @@ import {
 } from '../server/dshRpc.ts'
 import type { SessionModelSelection } from '../server/dshRpc.ts'
 import type { ChatState, CommitInfoResult, FromWebviewMessage, OutgoingImage, StagedFile, ToWebviewMessage } from '../pure/chatContract.ts'
+import {
+  GIT_INFO_FORMAT,
+  commitInfoFromShowRecord,
+  formatCommitDate,
+  githubUrlFromRemoteUrl,
+  parseGitShowOutput,
+} from '../pure/commitGit.ts'
+import type { GitShowRecord } from '../pure/commitGit.ts'
 import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
 import { imageMediaTypeByExtension, pastedFileName, splitAttachmentLines } from '../pure/composerAttachment.ts'
 import { attachmentDir, nextSequenceIndex } from './attachmentDir.ts'
@@ -74,11 +83,17 @@ async function getGitApi(): Promise<GitApi | null> {
   }
 }
 
+/** 附着会话的 cwd（会话未附着时为 undefined）；commit 查询与链接解析都用它定位仓库。 */
+function sessionCwd(host: ChatTabHost): string | undefined {
+  const self = host.sessionId ? host.actions.store.rawList().find((s) => s.sessionId === host.sessionId) : undefined
+  return self?.cwd
+}
+
 /** 多仓库时「激活仓库优先」：取附着会话 cwd 所在仓库，退化到活动编辑器所在仓库。 */
 function preferredRepository(api: GitApi, host: ChatTabHost): GitRepository | undefined {
-  const self = host.sessionId ? host.actions.store.rawList().find((s) => s.sessionId === host.sessionId) : undefined
-  if (self?.cwd) {
-    const repo = api.getRepository(vscode.Uri.file(self.cwd))
+  const cwd = sessionCwd(host)
+  if (cwd) {
+    const repo = api.getRepository(vscode.Uri.file(cwd))
     if (repo) return repo
   }
   const active = vscode.window.activeTextEditor?.document.uri
@@ -106,66 +121,135 @@ function commitInfoFrom(sha: string, commit: GitCommit): CommitInfoResult {
 }
 
 /** 从仓库 remote fetchUrl 推导 GitHub commit 链接；非 GitHub 仓库返回 undefined。
- *  支持 https://github.com/owner/repo.git 与 git@github.com:owner/repo.git 两种形状。 */
+ *  解析源迁移到 src/pure/commitGit.ts（git CLI 兜底共用同一解析）。 */
 async function githubCommitUrl(repo: GitRepository, sha: string): Promise<string | undefined> {
   try {
     const remotes = await repo.getRemotes()
     const url = remotes.find((r) => (r.fetchUrl ?? '').length > 0)?.fetchUrl ?? ''
-    const m = url.match(/(?:https?:\/\/|git@)github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/)
-    if (!m) return undefined
-    return `https://github.com/${m[1]}/${m[2]}/commit/${sha}`
+    return githubUrlFromRemoteUrl(url, sha)
   } catch {
     return undefined
   }
 }
 
-/** 提交日期格式化为 ISO 完整时间戳（YYYY-MM-DDTHH:mm），悬浮卡的相对时间计算与
- *  命令行短 hash 展示都用它。只留日期会导致 webview new Date() 解析丢时区偏移，
- *  显示「N hours ago」比真实时间差几个小时（同日提交会偏到半天）。 */
-function formatCommitDate(date: Date): string {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  const h = String(date.getHours()).padStart(2, '0')
-  const min = String(date.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${d}T${h}:${min}`
-}
-
-/** 逐个仓库查 sha（激活仓库优先），命中即取该仓库的提交信息；全未命中 mark found:false。 */
+/** 查询 commit 信息：vscode.git 仓库逐个查（激活仓库优先），命中即取该仓库信息；
+ *  全未命中的 sha 走 git CLI 兜底（会话 cwd 所在仓库，任意窗口状态都能查）。 */
 async function queryCommitInfo(host: ChatTabHost, shas: string[]): Promise<CommitInfoResult[]> {
   const api = await getGitApi()
   const repos = api?.repositories ?? []
-  if (repos.length === 0) return shas.map((sha) => ({ sha, found: false }))
   const preferred = api ? preferredRepository(api, host) : undefined
   const ordered = preferred ? [preferred, ...repos.filter((r) => r !== preferred)] : repos
-  const results: CommitInfoResult[] = []
+  const found = new Map<string, CommitInfoResult>()
   for (const sha of shas) {
-    let hit: CommitInfoResult | null = null
-    let hitRepo: GitRepository | null = null
     for (const repo of ordered) {
       try {
         const commit = await repo.getCommit(sha)
-        hit = commit ? commitInfoFrom(sha, commit) : null
-        hitRepo = commit ? repo : null
+        if (!commit) continue
+        const hit = commitInfoFrom(sha, commit)
+        hit.githubUrl = await githubCommitUrl(repo, hit.commitHash ?? sha)
+        found.set(sha, hit)
+        break
       } catch {
         // 该仓库无此 commit（getCommit 对不存在的 ref 抛错），试下一个
       }
-      if (hit) break
     }
-    if (hit && hitRepo) hit.githubUrl = await githubCommitUrl(hitRepo, hit.commitHash ?? sha)
-    results.push(hit ?? { sha, found: false })
   }
-  return results
+  if (found.size < shas.length) {
+    const missing = shas.filter((sha) => !found.has(sha))
+    for (const hit of await queryCommitInfoCli(host, missing)) found.set(hit.sha, hit)
+  }
+  return shas.map((sha) => found.get(sha) ?? { sha, found: false })
+}
+
+// ---- git CLI 兜底（vscode.git 未命中时用，任意窗口状态都能查） ----
+// 数据源：会话 cwd → rev-parse --show-toplevel 找仓库根（失败 = 不在 git 仓库，
+// 维持灰显）→ git log/show 拿全卡片字段 → origin remote 推 GitHub 链接。
+// 失败一律静默（保持灰显），不记录 sha/命令文本，避免敏感信息进日志。
+
+/** git CLI 命令超时（ms）：仓库大/慢时兜底允许稍慢，超时按失败处理。 */
+const GIT_CLI_TIMEOUT_MS = 5000
+
+/** 读 vscode.git 的 git.path 设置（string/string[]/null，scope: machine）：有就用它，
+ *  没有/非法则退回 PATH 里的 git——与内置 git 扩展对齐，不漏掉装在 PATH 之外的 git。 */
+function gitBinaryPath(): string {
+  const configured = vscode.workspace.getConfiguration('git').get<string | string[] | null>('path')
+  const first = Array.isArray(configured) ? configured[0] : configured
+  if (typeof first === 'string' && first.trim().length > 0) return first
+  return 'git'
+}
+
+/** 跑一条 git 命令；任何失败（非零/超时/被 kill）返回 null，调用方按未命中处理。 */
+function runGit(args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(
+      gitBinaryPath(),
+      args,
+      { encoding: 'utf8', timeout: GIT_CLI_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout) => {
+        resolve(err ? null : (stdout as string))
+      },
+    )
+  })
+}
+
+/** 查一个仓库根下的多个 sha：批量 git log --no-walk（一次进程，避免每 hash 起一个）；
+ *  批量失败（任一 sha 不存在整条命令 fatal、歧义缩略 sha 等）时逐 sha git show 重试。 */
+async function cliCommitRecords(root: string, shas: string[]): Promise<GitShowRecord[]> {
+  const batch = await runGit(['-C', root, 'log', '--no-walk', `--format=${GIT_INFO_FORMAT}`, '--shortstat', ...shas])
+  if (batch !== null) return parseGitShowOutput(batch)
+  const records: GitShowRecord[] = []
+  for (const sha of shas) {
+    const out = await runGit(['-C', root, 'show', '-s', `--format=${GIT_INFO_FORMAT}`, '--shortstat', sha])
+    if (out !== null) records.push(...parseGitShowOutput(out))
+  }
+  return records
+}
+
+/** 输入可能是缩略 sha（7–40 位），git 输出恒为完整 40 位——按前缀匹配到记录。 */
+function findShowRecord(records: GitShowRecord[], sha: string): GitShowRecord | undefined {
+  const lower = sha.toLowerCase()
+  return records.find((r) => r.hash.toLowerCase().startsWith(lower))
+}
+
+/** git CLI 兜底查询（vscode.git 未命中的 sha）：会话 cwd 所在仓库一次批量查全部，
+ *  GitHub 链接为 root 的 origin remote（一次进程）。 */
+async function queryCommitInfoCli(host: ChatTabHost, shas: string[]): Promise<CommitInfoResult[]> {
+  const cwd = sessionCwd(host)
+  if (!cwd) return shas.map((sha) => ({ sha, found: false }))
+  const root = (await runGit(['-C', cwd, 'rev-parse', '--show-toplevel']))?.trim()
+  if (!root) return shas.map((sha) => ({ sha, found: false })) // 不在 git 仓库：维持灰显
+  const records = await cliCommitRecords(root, shas)
+  const origin = (await runGit(['-C', root, 'remote', 'get-url', 'origin']))?.trim()
+  return shas.map((sha) => {
+    const rec = findShowRecord(records, sha)
+    if (!rec) return { sha, found: false }
+    const info = commitInfoFromShowRecord(sha, rec)
+    info.githubUrl = origin ? githubUrlFromRemoteUrl(origin, rec.hash) : undefined
+    return info
+  })
+}
+
+/** git CLI 兜底拿 GitHub 链接（openCommit 用）：仓库根 + 该 sha 存在 + origin remote。 */
+async function cliCommitGithubUrl(host: ChatTabHost, sha: string): Promise<string | undefined> {
+  const cwd = sessionCwd(host)
+  if (!cwd) return undefined
+  const root = (await runGit(['-C', cwd, 'rev-parse', '--show-toplevel']))?.trim()
+  if (!root) return undefined
+  const records = await cliCommitRecords(root, [sha])
+  const rec = findShowRecord(records, sha)
+  if (!rec) return undefined
+  const origin = (await runGit(['-C', root, 'remote', 'get-url', 'origin']))?.trim()
+  return (origin && githubUrlFromRemoteUrl(origin, rec.hash)) || undefined
 }
 
 /** 点击 commit hash：激活仓库优先查库，命中打开该提交的 diff 视图（git.viewCommit）；
- *  全未命中返回 false。曾尝试 git.openRepository 跳转 SCM history 视图，但内置 git
+ *  未命中时 git CLI 兜底——commit 在窗口打开之外仓库时 viewCommit 不可用，有 GitHub
+ *  链接就浏览器开 commit 页（最简；git.openRepository 有 trust 确认弹窗，备选未做）。
+ *  都没有返回 false。曾尝试 git.openRepository 跳转 SCM history 视图，但内置 git
  *  无公开的「定位到某 commit」接口（graph reveal 是 SCM 内部命令），用户拍板回退 diff。 */
 async function openCommit(host: ChatTabHost, sha: string): Promise<boolean> {
   const api = await getGitApi()
   const repos = api?.repositories ?? []
-  if (repos.length === 0) return false
   const preferred = api ? preferredRepository(api, host) : undefined
   const ordered = preferred ? [preferred, ...repos.filter((r) => r !== preferred)] : repos
   for (const repo of ordered) {
@@ -177,6 +261,11 @@ async function openCommit(host: ChatTabHost, sha: string): Promise<boolean> {
     } catch {
       // 该仓库无此 commit，试下一个
     }
+  }
+  const url = await cliCommitGithubUrl(host, sha)
+  if (url) {
+    await vscode.env.openExternal(vscode.Uri.parse(url))
+    return true
   }
   return false
 }
