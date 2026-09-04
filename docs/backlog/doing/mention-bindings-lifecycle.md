@@ -27,5 +27,6 @@ webview.ts 的 mentionBindings / expandMentionBindings（sendCurrent 展开）�
 
 ## 变更记录
 
+- 2026-09-08 认领：开发 session 开工（worktree mention-bindings）
 - 2026-09-08 代码评审（4 角度子代理）确认后建条目 → open
 - 2026-09-04 主 session 拍板：选 B 按会话归档（含 recall 反查 + 展开前边界校验），发送即消费否决；补「前置：paste-token-parsing-boundaries」→ 条目更新（仍 open/，排在其前置之后开发）
