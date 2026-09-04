@@ -138,10 +138,10 @@
     white-space: pre-wrap; word-break: break-word;
   }
   /* 等待插话的 steering 消息：与正常用户消息同样的气泡，左侧加处理中圆圈。
-     row 布局下水平右对齐靠 justify-content（.msg.user 的 align-items:flex-end
-     在 column 布局时管水平方向，改 row 后只管垂直）。 */
-  .msg.user.steering-pending {
-    flex-direction: row; align-items: center; justify-content: flex-end; gap: 6px;
+     .steering-line 撑满行宽，气泡 max-width:85% 按整行解析——与插话落地后的
+     正式用户消息一致；spinner 只对气泡行垂直居中（gap 6px 紧贴气泡）。 */
+  .msg.user .steering-line {
+    display: flex; justify-content: flex-end; align-items: center; gap: 6px; width: 100%;
   }
   .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
   /* 引用 chip（@会话/@文件/@文件夹//命令，对齐 dsh web refChip）：链接色、字重 500、行内 flex。

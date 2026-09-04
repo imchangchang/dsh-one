@@ -1,0 +1,65 @@
+{
+  "title": "steering-pending-bubble：等待插话气泡布局修复验收",
+  "branch": "agent/steering-pending-bubble",
+  "commit": "0865ce9",
+  "environment": {
+    "mode": "harness 场景 + mock-llm 沙盒",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "light",
+    "image": "dsh-sandbox:latest（重装 0865ce9 的 vsix）",
+    "driver": "node test/sandbox/verify-driver.mjs --ledger test/sandbox/verify.steering-pending-bubble.ledger.json",
+    "date": "2026-09-04T00:00:00Z"
+  },
+  "coverageNote": "F-01/F-02 是 webview 渲染态（steering 待落地 UI），由 test/ui harness 用 mock 宿主构造确定状态截图（agent 逐项读截图判定）；R-01 同理由 harness 截图。R-02 由 verify-driver 驱动真 dsh + mock-llm 回显证明整体回归。真桌面 VS Code、真模型输出、平台专项（Windows/macOS）不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "steering 待落地布局（附件在气泡行上方，spinner 紧贴气泡）",
+      "expect": "对话流末尾（turn-status「Deep diving...」行之后）一条与正常用户消息一致的气泡组：气泡上方一行两个同尺寸附件方块（左图右文件 chip）；气泡左侧同一行紧贴处理中圆圈（spinner，间距 6px），整体右对齐，同一行只有一个圆圈；气泡内「@旧会话」链接色 chip；气泡下方引用摘要行。spinner 不再对附件+气泡+摘要整列垂直居中。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/steering-pending.png"
+      ],
+      "notes": "harness 场景 steering-pending（attach 图片懒加载回执后截图）；截图与期望逐条相符：附件方块在气泡上方一行、spinner 与气泡同一行右对齐间距 6px、同一行一个圆圈、chip 链接色、摘要行在下方。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "676px 窄列宽：气泡单行不提前换行（与落地态一致）",
+      "expect": "聊天列收窄到 676px 后，「比如说remote ssh这个插件」气泡完整一行（不因 max-width:85% 按 shrink-to-fit 包含块解析被压窄成两行）；气泡左侧同一行紧贴 spinner；气泡宽度≈内容自然宽，与插话落地后的正式用户消息一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/steering-pending-narrow.png"
+      ],
+      "notes": "harness 场景 steering-pending-narrow（interact 收窄 .chat-col 至 676px）；截图与期望相符：气泡「比如说remote ssh这个插件」完整一行、spinner 同列右侧 6px 紧贴、气泡宽度≈内容自然宽。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "正常对话渲染回归（.msg.user / .steering-line 无副作用）",
+      "expect": "用户消息右侧气泡、助手消息左侧 markdown 文本、工具卡（Ran a command bash / npm test）、操作栏、composer + 模型 pill + 会话统计与改动前一致；新加的 .steering-line 规则不影响非 steering 消息。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png"
+      ],
+      "notes": "harness 场景 conversation；截图与期望相符：用户/助手气泡、工具卡、操作栏、composer 均正常，.steering-line 不影响非 steering 消息。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "真 dsh + mock-llm 回显回归（webview 消息流整体可用）",
+      "expect": "新建会话发送「测试一下」后，mock-llm 干净回显「收到：测试一下」，消息流正常渲染（含真实 dsh 注入上下文折叠卡）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-02.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；截图与期望相符：状态栏 DSH: Running :3080，用户消息右侧、助手「收到：测试一下」左侧，Runtime context/Context injection 折叠卡正常，模型 pill mock-flash Max。首跑曾因容器刚起扩展未激活而失败，重跑即过。",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      }
+    }
+  ]
+}
