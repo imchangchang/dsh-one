@@ -1,0 +1,22 @@
+{
+  "title": "dsh-embed-cleanup 验证报告（清理 dsh_embed=vscode 预留参数）",
+  "branch": "agent/dsh-embed-cleanup",
+  "commit": "78928d9",
+  "environment": {
+    "mode": "无 UI 行为变化，未起沙盒",
+    "checks": "typecheck ✓ / test 449 pass ✓ / build ✓",
+    "grep": "全仓库 dsh_embed 残留核对",
+    "date": "2026-09-04"
+  },
+  "coverageNote": "本任务是一行参数删除 + 文档清理：iframe 加载行为零变化（官方从未消费 dsh_embed，0.1.1-rc.2 与 0.1.2-rc.1 源码均无消费侧），harness 场景/沙盒截图不适用。验证 = 仓库既有检查（typecheck/test/build）+ 文档一致性核对（grep 残留）。",
+  "items": [
+    {
+      "id": "D-01",
+      "phase": "regression",
+      "name": "文档与代码一致性：dsh_embed 不再作为能力/参数描述",
+      "expect": "src/ui/webview.ts 不再 set dsh_embed；docs/release-checklist.md 无「侧栏隐藏」验收项；docs/architecture.md 与 docs/roadmap.md 改为「官方未提供嵌入隐藏侧栏能力，预留参数已删除，跟进走上游 issue/PR」。",
+      "result": "pass",
+      "notes": "grep 全仓库 dsh_embed：命中剩 3 处且均不在本任务范围——docs/backlog/doing/dsh-embed-param-cleanup.md（任务记录本身）、docs/backlog/open/remote-ssh-support.md（另一条目「Remote 支持」的提案文本，现状描述改由该任务处理时同步）、docs/backlog/closed/readme-user-facing.md（历史记载）。另 docs/architecture.md:77 的 iframe URL 示例同步去掉参数（否则与代码不符）。"
+    }
+  ]
+}
