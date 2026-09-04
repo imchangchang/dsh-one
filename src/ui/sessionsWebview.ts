@@ -134,8 +134,10 @@ const selectedSessionIds = new Set<string>()
  *  ids = 弹窗打开时锁定的可归档子集（确认时原样提交，不随勾选变化）。 */
 let selectionModal: { overlay: HTMLElement; busy: boolean; ids: string[] } | null = null
 
-/* ---- 回收站（本地可逆缓冲层）：视图开关是纯 webview UI 态，内容来自快照 ---- */
+/* ---- 回收站（本地可逆缓冲层）：抽屉开关是纯 webview UI 态，内容来自快照 ---- */
 let recycleView = false
+/** 抽屉 DOM 节点（打开期间存在，收起动画结束后移除）。 */
+let recycleDrawer: HTMLElement | null = null
 /** 回收站归档确认弹窗（清空/单个共用）；busy = 归档请求已发出。 */
 let recycleModal: { overlay: HTMLElement; busy: boolean; sessionIds: string[] } | null = null
 
@@ -595,21 +597,9 @@ function renderSessions(): void {
   oldList?.remove()
   const oldBar = sessionsPanel.querySelector<HTMLElement>('.selection-bar')
   oldBar?.remove()
-  const oldRecycleHeader = sessionsPanel.querySelector<HTMLElement>('.recycle-header')
-  oldRecycleHeader?.remove()
-  const oldRecycleList = sessionsPanel.querySelector<HTMLElement>('.recycle-list')
-  oldRecycleList?.remove()
   const oldRecycleEntry = sessionsPanel.querySelector<HTMLElement>('.recycle-entry')
   oldRecycleEntry?.remove()
-  // 回收站视图：整体替换（不复用主列表滚动区），主列表 header/入口不渲染。
-  if (recycleView) {
-    sessionsPanel.classList.add('recycle-mode')
-    sessionsPanel.appendChild(renderRecycleHeader())
-    sessionsPanel.appendChild(renderRecycleList())
-    rebuildInProgress = false
-    return
-  }
-  sessionsPanel.classList.remove('recycle-mode')
+  // 主列表恒渲染；回收站改为从底部滑出的抽屉叠加在其上（不再整栏切换）。
   const list = el('div', 'sessions-list')
   if (!snap) {
     list.appendChild(el('div', 'sessions-empty', t('Loading…')))
@@ -664,6 +654,16 @@ function renderSessions(): void {
   if (selectionMode) sessionsPanel.insertBefore(buildSelectionBar(), list)
   // 回收站入口：面板底部固定行（列表滚动区之外，不随滚动消失）；计数 0 灰态。
   sessionsPanel.appendChild(renderRecycleEntry())
+  // 抽屉已打开：头部计数/列表/空态随快照刷新（行菜单冻结时上面已提前返回，
+  // 抽屉内容与主列表同步冻结，菜单锚不销毁）。
+  if (recycleDrawer) {
+    const oldHeader = recycleDrawer.querySelector<HTMLElement>('.recycle-header')
+    oldHeader?.remove()
+    const oldRecycleList = recycleDrawer.querySelector<HTMLElement>('.recycle-list')
+    oldRecycleList?.remove()
+    recycleDrawer.appendChild(renderRecycleHeader())
+    recycleDrawer.appendChild(renderRecycleList())
+  }
   rebuildInProgress = false
   // 行内改名跨重建保留：重建后恢复编辑输入框的焦点与选区。
   if (editingSessionId) {
@@ -1086,7 +1086,15 @@ function highlightText(text: string): HTMLElement {
   return span
 }
 
-/* ---- 回收站视图（本地可逆缓冲层：移入/恢复只改本地集合，不碰 dsh；归档即终点） ---- */
+/* ---- 回收站抽屉（本地可逆缓冲层：移入/恢复只改本地集合，不碰 dsh；归档即终点） ---- */
+
+/** 抽屉档位（占 .sessions-panel 高度比例）：默认半高；提手上拉可到 90%（仍留主列表可见）。 */
+const DRAWER_HEIGHT_DEFAULT = 0.5
+const DRAWER_HEIGHT_EXPANDED = 0.9
+/** 拖动松手时低于此比例 = 收起抽屉（下拉到底关闭）。 */
+const DRAWER_CLOSE_BELOW = 0.35
+/** 滑入/滑出动画时长（CSS transition 同步值，.recycle-drawer transition）。 */
+const DRAWER_ANIM_MS = 200
 
 /** 回收站可见会话数（分组模型 flat 计数；已按非归档/存在过滤）。 */
 function recycleCount(snap: SessionsSnapshot | null): number {
@@ -1109,33 +1117,112 @@ function renderRecycleEntry(): HTMLElement {
   row.appendChild(icon)
   row.appendChild(el('span', 'recycle-entry-label', t('Recycle bin')))
   row.appendChild(el('span', 'recycle-entry-count', String(count)))
-  row.addEventListener('click', () => enterRecycleView())
+  row.addEventListener('click', () => openRecycleDrawer())
   return row
 }
 
-/** 切到回收站视图：多选模式自然退出（回收站内无多选），行内重命名一并取消，已开弹层关闭。 */
-function enterRecycleView(): void {
+/** 打开回收站抽屉：从面板底部滑出（默认半高），主列表上半部仍可见可交互。 */
+function openRecycleDrawer(): void {
+  if (recycleView) return
+  closePopover() // mousedown 之外打开（如键盘 Enter）时残留弹层兜底
   recycleView = true
-  closePopover()
-  if (editingSessionId) cancelRowRename() // cancelRowRename 内部已 renderSessions（此时 recycleView 已 true）
-  if (selectionMode) exitSelectionMode() // exitSelectionMode 内部已 renderSessions
-  renderSessions()
+  const drawer = el('div', 'recycle-drawer')
+  drawer.appendChild(renderDrawerHandle())
+  drawer.appendChild(renderRecycleHeader())
+  drawer.appendChild(renderRecycleList())
+  sessionsPanel.appendChild(drawer)
+  recycleDrawer = drawer
+  // 先提交初始（translateY(100%)）样式，再加 .open 触发滑入过渡。
+  void drawer.offsetHeight
+  drawer.classList.add('open')
+  document.addEventListener('mousedown', onDrawerOutside, true)
+  document.addEventListener('keydown', onDrawerKey, true)
 }
 
-/** 返回主列表：搜索草稿/折叠状态保留在 header DOM 与快照里，无需处理。 */
-function exitRecycleView(): void {
+/** 收起抽屉（‹ 返回 / 点击抽屉外 / Esc / 拖到下拉到底）：滑出动画结束后移除节点。 */
+function closeRecycleDrawer(): void {
+  const drawer = recycleDrawer
+  if (!drawer) return
+  recycleDrawer = null
   recycleView = false
-  renderSessions()
+  document.removeEventListener('mousedown', onDrawerOutside, true)
+  document.removeEventListener('keydown', onDrawerKey, true)
+  drawer.classList.remove('open')
+  setTimeout(() => drawer.remove(), DRAWER_ANIM_MS + 40)
 }
 
-/** 回收站视图头：‹ 返回 + 「回收站 (N)」+ 清空回收站，右侧「恢复全部」。 */
+/** 提手条：顶部居中横条 + 全宽可拖区（cursor: grab），上拉扩大 / 下拉收起的入口。 */
+function renderDrawerHandle(): HTMLElement {
+  const handle = el('div', 'recycle-drawer-handle')
+  handle.appendChild(el('div', 'recycle-drawer-grip'))
+  handle.addEventListener('pointerdown', onDrawerDragStart)
+  return handle
+}
+
+/**
+ * 提手拖拽（pointer capture 全程跟随）：上拉扩大高度（半高 → 90%），下拉松手
+ * 低于 DRAWER_CLOSE_BELOW 关闭抽屉。松手吸附两档：< 中值回半高，≥ 中值到 90%。
+ */
+function onDrawerDragStart(e: PointerEvent): void {
+  if (e.button !== 0 || !recycleDrawer) return
+  e.preventDefault()
+  const drawer = recycleDrawer
+  const handle = e.currentTarget as HTMLElement
+  const startY = e.clientY
+  const basePx = drawer.offsetHeight
+  const panelPx = sessionsPanel.offsetHeight
+  handle.setPointerCapture(e.pointerId)
+  const move = (ev: PointerEvent): void => {
+    const ratio = (basePx + (startY - ev.clientY)) / panelPx
+    drawer.style.height = `${Math.min(0.97, Math.max(0.15, ratio)) * 100}%`
+  }
+  const up = (): void => {
+    handle.removeEventListener('pointermove', move)
+    handle.removeEventListener('pointerup', up)
+    handle.removeEventListener('pointercancel', up)
+    const h = drawer.style.height
+    drawer.style.height = ''
+    if (h === '') return // 只点提手未拖动：保持当前档位
+    const ratio = parseFloat(h) / 100
+    if (ratio < DRAWER_CLOSE_BELOW) {
+      closeRecycleDrawer()
+      return
+    }
+    drawer.classList.toggle('expanded', ratio >= (DRAWER_HEIGHT_DEFAULT + DRAWER_HEIGHT_EXPANDED) / 2)
+  }
+  handle.addEventListener('pointermove', move)
+  handle.addEventListener('pointerup', up)
+  handle.addEventListener('pointercancel', up)
+}
+
+/** 点击抽屉外收起（无遮罩直接叠：主列表可交互，点击其上任一处即收起）。
+ *  临时浮层（行菜单 popover / 归档确认弹窗）内的点击不收起——用户点的是浮层。 */
+function onDrawerOutside(e: MouseEvent): void {
+  const t = e.target
+  if (!recycleDrawer || !(t instanceof Node) || recycleDrawer.contains(t)) return
+  if (popover && popover.contains(t)) return
+  if (selectionModal?.overlay.contains(t)) return
+  if (recycleModal?.overlay.contains(t)) return
+  closeRecycleDrawer()
+}
+
+/** Esc 收起：先关浮层（其 keydown 处理器已 preventDefault），再关抽屉。 */
+function onDrawerKey(e: KeyboardEvent): void {
+  if (e.defaultPrevented) return
+  if (e.key === 'Escape' && !popover && !selectionModal && !recycleModal) {
+    e.preventDefault()
+    closeRecycleDrawer()
+  }
+}
+
+/** 回收站抽屉头：‹ 收起 + 「回收站 (N)」+ 清空回收站，右侧「恢复全部」。 */
 function renderRecycleHeader(): HTMLElement {
   const count = recycleCount(sessionsSnapshot)
   const header = el('div', 'recycle-header')
   const back = el('button', 'recycle-back')
   back.appendChild(strokeSvg(BACK_ICON, 12))
   back.appendChild(el('span', undefined, t('‹ Back')))
-  back.addEventListener('click', () => exitRecycleView())
+  back.addEventListener('click', () => closeRecycleDrawer())
   header.appendChild(back)
   const title = el('div', 'recycle-header-title')
   title.setAttribute('data-tip', t('Recycle bin ({0})', count))

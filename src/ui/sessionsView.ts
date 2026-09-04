@@ -32,6 +32,7 @@ const SESSIONS_STYLE = `
   .sessions-panel {
     flex: 1; min-height: 0; display: flex; flex-direction: column;
     background: var(--vscode-sideBar-background, transparent);
+    position: relative; /* 回收站抽屉的定位基准 */
   }
   .sessions-header {
     flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 8px;
@@ -139,8 +140,31 @@ const SESSIONS_STYLE = `
   .modal-session-time { flex: none; font-size: 11px; opacity: .55; }
   .selection-modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px 12px; }
   .selection-modal-actions button { padding: 4px 12px; font-size: 12px; }
-  /* 回收站模式：隐藏主列表头部（搜索框等），整面板切回收站视图。 */
-  .sessions-panel.recycle-mode .sessions-header { display: none; }
+  /* 回收站抽屉：从面板底部滑出，默认占据约一半高度，叠加在主列表上（主列表
+     上半部仍可见可交互，不整栏切换）；提手上拉可扩到 90%（.expanded），
+     下拉到底松手 = 收起。无遮罩直接叠——点击抽屉外区域即收起。 */
+  .recycle-drawer {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 50%;
+    z-index: 10;
+    display: flex; flex-direction: column;
+    background: var(--vscode-editor-background, var(--vscode-sideBar-background, transparent));
+    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    box-shadow: 0 -10px 24px rgba(0,0,0,.16);
+    transform: translateY(100%);
+    transition: transform .2s ease;
+  }
+  .recycle-drawer.open { transform: translateY(0); }
+  .recycle-drawer.expanded { height: 90%; }
+  /* 提手条：全宽可拖区 + 顶部居中小横条（上拉扩大 / 下拉收起的入口）。 */
+  .recycle-drawer-handle {
+    flex: none; display: flex; align-items: center; justify-content: center;
+    height: 16px; cursor: grab; touch-action: none;
+  }
+  .recycle-drawer-handle:active { cursor: grabbing; }
+  .recycle-drawer-grip {
+    width: 36px; height: 4px; border-radius: 2px;
+    background: var(--vscode-descriptionForeground, #888); opacity: 0.5;
+  }
   .recycle-list { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 0; }
   /* 回收站入口行（面板底部固定，不随列表滚动）：描边垃圾桶 + 标签 + 计数；
      计数为 0 时灰态。压掉全局 button 的实底样式。 */
