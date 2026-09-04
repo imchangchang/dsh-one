@@ -74,7 +74,7 @@ dsh-one/
 3. **spawn（双层）**：`locateDsh()` 定位可执行文件；构造 env 时删除 `NODE_OPTIONS` 和 `ELECTRON_RUN_AS_NODE`；参数为 `web --host 127.0.0.1 --port <实际端口>`（fallback 端口也正确传给 dsh），仅当版本 ≥ 0.1.0-rc.7（或 `unknown`）时追加 `--no-open`（`gte()` 判断）。**单层 detached+unref 不够**——实测 VS Code 在 reload 时会对扩展宿主的进程树做 SIGTERM 树杀（`pgrep -P` 递归，`out/vs/base/node/terminateProcess.sh`；信号级 wrapper 实测捕获：宿主退出后 ~43ms SIGTERM 到达），detached 的 dsh 因 ppid 链仍在而被带走。所以 spawn 经短命启动器 `dist/spawnDsh.js`（以 `ELECTRON_RUN_AS_NODE=1` 跑在宿主自带的 Electron 二进制上，不依赖 PATH 里有 node）：启动器 detached spawn dsh（stdio 重定向到 globalStorage 的 `dsh-web.log`，每次截断）后立即退出，dsh 被 launchd 收养、从宿主进程树消失；启动器 stdout 回传 dsh 真实 pid 写 pidfile。
 4. **就绪轮询**（`waitReady()`）：dsh 端口被占时直接启动失败（不会自己换端口），所以固定端口每 250ms 轮询 `probeDsh()` 直到应答，不依赖 stdout 就绪行。`port = 0`（系统分配）是例外：实际端口从日志文件的 `dsh web: http://127.0.0.1:<port>` 行解析（`parseReadyLine()`，`src/pure/readyLine.ts`）后再确认。失败路径：90s 超时（`START_TIMEOUT_MS`）、pid 提前消失（双层 spawn 后没有进程句柄，早退靠 `pidAlive()` 判断），都带日志文件尾部 40 行作为错误详情。
 5. **健康检查**：ready 后每 30s 重新探测一次（复用、re-own、自己拉起的实例都查）。失联即回到 `stopped`——owned 实例还会被 kill 掉回收端口，避免"状态栏显示运行中、实际已死"的假状态。双层 spawn 后扩展不再持有 dsh 进程句柄，dsh 意外退出统一靠健康检查发现（不弹窗）。
-6. **webview 加载**：状态变为 `running` 后，`onDidChangeState` 触发 `bind()` 重渲染，`dshFrame()`（`src/ui/webview.ts:95`）输出 `<iframe src="http://127.0.0.1:<port>/?dsh_embed=vscode">`。dsh web 只在编辑区标签页展示（`openInTab()`，:133）。CSP 只允许 `frame-src http://127.0.0.1:* http://localhost:*`（:48）。
+6. **webview 加载**：状态变为 `running` 后，`onDidChangeState` 触发 `bind()` 重渲染，`dshFrame()`（`src/ui/webview.ts:95`）输出 `<iframe src="http://127.0.0.1:<port>">`。dsh web 只在编辑区标签页展示（`openInTab()`，:133）。CSP 只允许 `frame-src http://127.0.0.1:* http://localhost:*`（:48）。
 
 激活扩展时默认自动 `ensureStarted()`（配置 `dshOne.autoStart`，默认 `true`），不再需要手动点击触发首次启动。
 
@@ -111,7 +111,7 @@ dsh-one/
 4. **`--no-open` 按版本 gate。** 只有 dsh ≥ 0.1.0-rc.7 认识该参数，旧版收到会直接退出（Xizhi1024 插件已出现过这个 critical bug）。实现：`src/server/manager.ts:12-13`、`:158`。
 5. **dsh 与窗口生命周期解绑（2026-10 反转原决策）。** 原设计在 `deactivate()` 里同步 SIGTERM + detached reaper 补 SIGKILL，导致 reload window 就中断进行中的 session（开发期一天十余次）。现改为「父死子存」，且必须**双层 spawn**：单层 `detached + unref + stdio 进日志文件`只解决进程组与 EPIPE，实测 VS Code reload 时会对扩展宿主进程树做 SIGTERM 树杀（`pgrep -P` 递归），ppid 链不断就逃不掉；短命启动器（`src/server/spawnDsh.ts`）拉起 dsh 后立即退出，dsh 被 launchd 收养才彻底脱离。身份写 globalStorage pidfile，下个宿主 re-own；dsh 只在用户显式 `dshOne.stop` / `dshOne.restart` 时被杀（POSIX 整组 SIGTERM→SIGKILL，Windows `taskkill /T /F`）。副作用：终端升级 dsh 后需手动 restart 生效（已拍板暂不做版本提示）；扩展不再持有 dsh 进程句柄，意外退出由 30s 健康检查发现（不弹窗）。
 6. **就绪轮询 + 身份确认。** dsh 端口被占直接启动失败（不换端口），固定端口轮询 probeDsh 即可；port=0 例外，从日志文件解析就绪行拿实际端口后再 RPC 确认。实现：`src/server/manager.ts`（`waitReady`）。
-7. **iframe 嵌入官方 UI（现阶段）。** 调研的 28 个竞品里，重写派每家都在追官方协议叫苦；iframe 嵌入零 UI 同步成本。URL 带 `dsh_embed=vscode` 是给官方预留的嵌入参数（截至 0.1.1-rc.2 未被消费）。长期方向是原生前端，见 `docs/roadmap.md`。实现：`src/ui/webview.ts:95`。
+7. **iframe 嵌入官方 UI（现阶段）。** 调研的 28 个竞品里，重写派每家都在追官方协议叫苦；iframe 嵌入零 UI 同步成本。官方未提供嵌入隐藏侧栏的能力，预留参数 `dsh_embed` 已删除（0.1.1-rc.2/0.1.2-rc.1 均未消费）；如需跟进见 `docs/roadmap.md` 上游 issue/PR 路线。长期方向是原生前端，见 `docs/roadmap.md`。实现：`src/ui/webview.ts:95`。
 8. **零运行时依赖（扩展宿主）。** 扩展宿主只用 Node 22 内置模块 + vscode API，esbuild 打单文件 bundle。**修订（阶段二）**：聊天 webview 前端（`src/ui/chat/`）允许打包依赖——marked + dompurify 由 esbuild 内联进 `dist/chatWebview.js`，无运行时外部加载；宿主 bundle（`dist/extension.js`）仍零依赖。依据：`package.json` 的 `dependencies` 仅被 webview entry 引用；`build.mjs` 双入口打包。
 
 ## 日志与安全细节
