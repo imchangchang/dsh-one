@@ -54,3 +54,4 @@ dsh 0.1.2-rc.1 起 web 服务时打印的 URL 带 `?token=***`，且 `/api/host.
   落地：launch token（stdout ?token=）→ GET /?token= 换签名 cookie（记住 authority）→ 全链 RPC/WS/probe 带 cookie；token 持久化进 pidfile，扩展宿主 reload 后 re-own（实测验证：杀扩展宿主 → 新宿主「re-owning authenticated dsh」）；探测/健康检查按 cookie 化；浏览器/Open in Tab 打开带 token 的 URL；0.1.1 旧路径字节级不变（无 cookie 即旧行为，version 无关，按服务器行为自适应）。
   自测：typecheck/406 tests/build 全绿；沙盒双实例——dsh-v012（0.1.2-rc.1，F 项）与 dsh-legacy（0.1.1-rc.2，回归 R-01）；报告 test/sandbox/verify.dsh-token-auth.report.html：F-01（认证启动+mock 回显）pass、F-02（工具编排）pass、F-03（审批水瀑布）fail=既有沙盒限制（mock 配置未开 ask policy，与基线 F-04 同因，非回归；$events ready/emit 已由容器内脚本对真服务器验证）、R-01（0.1.1 回归）pass；另 .dev-host/verify-modern.mjs 对真 0.1.2-rc.1 服务器协议级全过（list/models/presets/search/follow/page/control/workspace/events）。
   已知缺口（诚实记录）：审批/提问水瀑布的端到端受沙盒 policy 配置限制未覆盖；0.1.2 无 path 参数的 workspace.list 不可用（已由 workspace/follow 流承接）；0.1.2 会话列表的 workspaceId 字段取消，分组依赖 workspace/follow 流。
+- 2026-09-04 主线合入后人工确认（用户审报告通过）→ closed
