@@ -41,3 +41,5 @@
 - 2026-09-03 mock-LLM 端点与沙盒接线开发完成（doing → done）：test/mock-llm（零依赖 OpenAI 兼容端点 + 15 条单测）、test/sandbox --mock-llm 模式（容器内真 dsh 打假端点）。自测：typecheck + npm test 368 全过 + build 通过。待主线合入后 docker/真窗口验收。
 
 - 2026-09-04 追加（done → doing）：合入报告 gate 落地——新增 test/sandbox/report.mjs（ledger+截图→HTML 报告）与 Playwright 驱动（CI 用，本地仍 WebBridge）；配套场景/ledger 格式定义。
+
+- 2026-09-04 全部完成（doing → done）：test/sandbox/report.mjs（ledger→单文件 HTML 报告）+ verify-driver.mjs（Playwright 自动驱动，实测 F-01/R-01 done）+ playwright devDep。自测 typecheck + 368 测试 + build 通过。合入 gate 流程变更见 backlog open/merge-gate-test-report.md（待单独认领）。
