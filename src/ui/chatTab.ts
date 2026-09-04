@@ -476,11 +476,13 @@ export class ChatTabHost implements vscode.Disposable {
 
   /**
    * Paste intake: every clipboard file becomes an attachment. Everything is
-   * written to the per-session dir under the OS temp dir (system-pruned, never
-   * inside a project/git tree, so no repo pollution and no unbounded growth);
-   * images get sequential `imgN.ext` names (N per session directory), other
-   * files keep their own name. Both are staged as path chips; the path joins
-   * the prompt on send and the agent reads it directly.
+   * written to the per-session dir under the OS temp dir (the OS does not
+   * guarantee periodic cleanup; consistent with dsh archive semantics —
+   * archiving only marks a session, never deletes data — attachments only
+   * grow and stay recoverable; never inside a project/git tree, so no repo
+   * pollution); images get sequential `imgN.ext` names (N per session
+   * directory), other files keep their own name. Both are staged as path
+   * chips; the path joins the prompt on send and the agent reads it directly.
    */
   async stagePastedFiles(files: OutgoingImage[]): Promise<void> {
     if (files.length === 0) return

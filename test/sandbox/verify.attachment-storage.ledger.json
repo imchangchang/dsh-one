@@ -1,0 +1,41 @@
+{
+  "title": "attachment-storage-lifecycle Sprint 2 自测报告",
+  "branch": "agent/attachment-storage",
+  "commit": "060f7b9",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox:attachment-storage",
+    "driver": "verify-driver.mjs",
+    "date": "2026-09-04T00:00:00Z"
+  },
+  "coverageNote": "本任务核心是宿主侧 fs 扫描逻辑（lstat/子目录 64 上限/候选池缓存 + mtime 指纹失效/200 上限/query 内存过滤），浏览器驱动无法操纵宿主进程的文件扫描：这些行为由 test/workspaceScan.test.ts 的 11 项单测覆盖（symlink 跳过、深度 1、64/200 上限、增删文件触发重扫、内容变化不重扫、cwd 被删/改名自愈、query 过滤），沙盒报告回归验证聊天主流程（发送/接收）无回归。真桌面 VS Code、真模型输出、平台专项（Windows/macOS）不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "工作区候选扫描优化（宿主侧）",
+      "expect": "@ 补全的工作区候选扫描：lstat 不跟随 symlink（链接条目跳过）；子目录只扫排序后前 64 个；候选池按 cwd 缓存并以已扫目录自身 mtime 为指纹失效（子项增删改名即重扫，内容变化不重扫）；query 为池上内存过滤；候选总数上限 200；webview 250ms 防抖不变。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "宿主侧 fs 逻辑，浏览器驱动不可达；由 test/workspaceScan.test.ts 11 项单测逐条验证（含 cwd 被删/改名自愈、64/200 边界、mtime 指纹失效）。typecheck/test/build 全绿。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "聊天发送/接收主流程",
+      "expect": "mock-llm 模式下新建会话并发送「开始」暖场后，发送「测试一下」，新会话内出现助手回复「收到：测试一下…」，聊天主流程不受本次 chatMessages 改动影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-attachment-storage/R-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "新建会话：sidebar-ungrouped；截图确认 mock 回显「收到：测试一下」、统计行 1 turns·1 steps、模型选择器 mock-flash Max，符合期望。"
+    }
+  ]
+}
