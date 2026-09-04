@@ -40,6 +40,9 @@
       contentSearchHasMore: false,
       contentSearchError: false,
       baselineReady: true,
+      recycleBin: [],
+      recycleWorkspaces: [],
+      recycleCollapsed: [],
       workspaces: [
         {
           workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true,
@@ -1069,6 +1072,33 @@
       expect: '点击会话行尾 ⋯ 后弹出菜单，自上而下：选择多个（Select multiple）/ 重命名 / 置顶（带 ✓ 选中态）/ 标为未读 / 分叉会话 / 复制引用 / 归档会话；「复制会话 ID」不在菜单里；置顶会话的菜单项「置顶」带 checked；全部项可用（无 disabled 灰置）。',
     },
 
+    'sessions-recycle-drawer': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree()
+        s.recycleBin = ['sess-4', 'sess-5', 'sess-6']
+        s.recycleWorkspaces = [
+          {
+            workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true,
+            sessions: [
+              sess('sess-4', '回收站里的会话一', '昨天'),
+              sess('sess-5', '回收站里的会话二', '2 天前', { unread: true }),
+            ],
+          },
+          {
+            workspaceId: 'ws-gone', path: '/gone', label: '已删除的目录', isCurrent: false,
+            sessions: [sess('sess-6', '软删目录会话', '上周')],
+          },
+        ]
+        s.recycleCollapsed = []
+        return s
+      })(),
+      interact: `document.querySelector('.recycle-entry')?.click()`,
+      theme: 'dark',
+      title: '侧栏面板（回收站抽屉：半栏叠加 + 提手 + 放大清空图标）',
+      expect: '点击底部「Recycle bin (3)」入口后抽屉从面板底部滑出，占约一半高度：顶部提手横条（grab 光标区）；抽屉头 = ›Back 收起 + 「Recycle bin」标题 + 计数徽标 3 + 垃圾桶图标按钮（32px 点击区、18px 图标、悬停提示 Empty recycle bin）+ 「Restore all」；会话按原 workspace 分组（组头 dsh-one 计数 2 / 已删除的目录 计数 1，各带折叠箭头。未分组虚拟组不出现——没有可归组的回收站会话）；主列表上半部仍可见（dsh-one / dsh-web research 组头与底部的回收站入口…入口被抽屉盖住属预期）。',
+    },
+
     'sessions-menu-busy': {
       view: 'sessions',
       sessions: (() => {
@@ -2066,7 +2096,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
   window.BASELINE_SCENARIOS = [
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
-    'sessions-search', 'sessions-collapsed',
+    'sessions-search', 'sessions-collapsed', 'sessions-recycle-drawer',
     'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',
