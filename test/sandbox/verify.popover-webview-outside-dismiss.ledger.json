@@ -1,0 +1,70 @@
+{
+  "title": "DSH One 沙盒验收报告：自绘弹出菜单点击 webview 外不关闭修复",
+  "branch": "agent/popover-webview-outside-dismiss",
+  "commit": "0269703",
+  "environment": {
+    "mode": "real-dsh",
+    "dsh": "0.1.1-rc.2",
+    "locale": "zh-cn",
+    "theme": "light",
+    "image": "dsh-sandbox:latest",
+    "date": "2026-09-04T00:00:00Z"
+  },
+  "coverageNote": "F-01/R-01 在真 VS Code（沙盒 code-server + 真 dsh、宿主真实会话列表）中由 Playwright 驱动验证：打开 DSH ONE SESSIONS 侧栏、右键会话行、点击 webview 外区域与侧栏空白，全部有截图。F-02/R-02/R-03 在独立渲染 harness（普通浏览器等价 DOM 环境）验证事件链路与回归。项目既有 verify-driver.mjs 只覆盖 chat 会话类 driver 场景，本任务为 webview 外点击行为，无匹配 driver 字段，故以专用脚本+人工判图代替（同样写回 ledger 结论）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "真 VS Code：右键菜单打开后点击 webview 外区域（编辑器/欢迎页）菜单关闭",
+      "expect": "DSH ONE SESSIONS 侧栏中右键会话行弹出会话菜单（Select multiple / Open in a new tab / Rename / Pin / Mark as unread / Fork session / Copy reference / Move to recycle bin / Archive session），随后点击 webview 外的欢迎页（编辑区）空白位置：菜单消失，会话列表完整恢复。修复前该操作不会关闭菜单。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/blur-02-menu-open.png",
+        "/tmp/dsh-sandbox-shots/blur-03-after-editor-click.png"
+      ]
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "sessions webview：window blur 事件关闭右键菜单（失焦即关）",
+      "expect": "侧栏渲染中右键会话行弹出菜单，派发 window blur（模拟 webview 失焦）后菜单关闭、无残留弹层；工具函数断言 popover 元素被移除。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/blur-harness-01-sessions-menu-open.png",
+        "/tmp/dsh-sandbox-shots/blur-harness-02-sessions-after-blur.png"
+      ]
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "真 VS Code：菜单打开后点击侧栏空白处仍正常关闭",
+      "expect": "右键会话行弹出菜单后点击侧栏列表下方空白处：菜单关闭、列表完整恢复（原有 mousedown 外点关闭不回归）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/blur-04-after-blank-click.png"
+      ]
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "chat webview：消息右键菜单点击空白处仍正常关闭",
+      "expect": "chat 渲染中右键用户消息弹出「Copy」菜单，点击空白处后菜单关闭、界面无残留（chat 侧同款 popover 外点关闭不回归）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/blur-harness-03-chat-menu-open.png",
+        "/tmp/dsh-sandbox-shots/blur-harness-04-chat-after-blank.png"
+      ]
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "Esc 与菜单项点击关闭菜单",
+      "expect": "sessions 右键菜单打开后按 Esc 菜单关闭；再次打开后点击任意菜单项（Rename）菜单关闭且动作生效，无残留。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/blur-harness-05-sessions-after-esc.png",
+        "/tmp/dsh-sandbox-shots/blur-harness-06-sessions-after-item.png"
+      ]
+    }
+  ]
+}

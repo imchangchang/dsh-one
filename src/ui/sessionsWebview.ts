@@ -181,6 +181,13 @@ function onPopoverKey(e: KeyboardEvent): void {
   }
 }
 
+// webview 文档失焦即关菜单：点击编辑器/其他面板时 mousedown 在另一个文档
+// 派发，webview 收不到（onPopoverOutside 无效），只有 blur 可靠——自绘菜单
+// 没有宿主菜单系统帮它全局关闭，靠这一个信号补上「点外面就关」的原生体验。
+function onPopoverBlur(): void {
+  closePopover()
+}
+
 /** 只清弹层 DOM、锚与事件监听的内部清理（showPopover/showPopoverAt 换菜单时
  *  用——不清冻结、不补渲染，因为新菜单还要继续开着）。 */
 function disposePopover(): void {
@@ -190,6 +197,7 @@ function disposePopover(): void {
   markMenuRow(null)
   document.removeEventListener('mousedown', onPopoverOutside, true)
   document.removeEventListener('keydown', onPopoverKey, true)
+  window.removeEventListener('blur', onPopoverBlur)
 }
 
 /** 菜单真正关闭（Esc / 点击外部 / 菜单项点击）：解除冻结 + 用最新快照补一次渲染。 */
@@ -231,6 +239,7 @@ function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' 
   positionPopover()
   document.addEventListener('mousedown', onPopoverOutside, true)
   document.addEventListener('keydown', onPopoverKey, true)
+  window.addEventListener('blur', onPopoverBlur)
 }
 
 function showPopoverAt(x: number, y: number, body: HTMLElement): void {
@@ -246,6 +255,7 @@ function showPopoverAt(x: number, y: number, body: HTMLElement): void {
   p.style.top = `${Math.max(4, top)}px`
   document.addEventListener('mousedown', onPopoverOutside, true)
   document.addEventListener('keydown', onPopoverKey, true)
+  window.addEventListener('blur', onPopoverBlur)
 }
 
 /* ---- 悬停 tooltip（VS Code webview 原生 title 不显示，自实现） ---- */

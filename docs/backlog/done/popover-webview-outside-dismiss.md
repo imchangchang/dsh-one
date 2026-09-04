@@ -24,3 +24,4 @@ VS Code 原生菜单由宿主全局管理所以无此问题；webview 自绘菜�
 ## 变更记录
 
 - 2026-09-04 用户报侧栏 session 右键菜单点击编辑区不关闭；代码确认根因为关闭仅依赖 webview 文档内 mousedown，webview 外事件不可达；方案定为 window blur 失焦关闭，sessions + chat 两处同根因一起修。
+- 2026-09-04 开发完成（worktree popover-webview-outside-dismiss，dev-finish 通过：typecheck/test 449 全过）：sessions 与 chat 两处 popover 打开时挂 window blur 监听、dispose 时移除，webview 失焦即关菜单。验收报告 `test/sandbox/verify.popover-webview-outside-dismiss.report.html`（沙盒真 VS Code 验证 F-01/R-01 + harness 验证 F-02/R-02/R-03，5 项全 pass）。待主线合入。

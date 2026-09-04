@@ -1314,6 +1314,13 @@ function onPopoverKey(e: KeyboardEvent): void {
   }
 }
 
+// webview 文档失焦即关弹层：点击编辑器/其他面板时 mousedown 在另一个文档
+// 派发，webview 收不到（onPopoverOutside 无效），只有 blur 可靠——自绘菜单
+// 没有宿主菜单系统帮它全局关闭，靠这一个信号补上「点外面就关」的原生体验。
+function onPopoverBlur(): void {
+  closePopover()
+}
+
 function closePopover(): void {
   popover?.remove()
   popover = null
@@ -1326,6 +1333,7 @@ function closePopover(): void {
   }
   document.removeEventListener('mousedown', onPopoverOutside, true)
   document.removeEventListener('keydown', onPopoverKey, true)
+  window.removeEventListener('blur', onPopoverBlur)
 }
 
 /** (Re)position the open popover from its anchor's live rect. */
@@ -1373,6 +1381,7 @@ function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' 
   positionPopover()
   document.addEventListener('mousedown', onPopoverOutside, true)
   document.addEventListener('keydown', onPopoverKey, true)
+  window.addEventListener('blur', onPopoverBlur)
 }
 
 /**
@@ -1393,6 +1402,7 @@ function showPopoverAt(x: number, y: number, body: HTMLElement): void {
   p.style.top = `${Math.max(4, top)}px`
   document.addEventListener('mousedown', onPopoverOutside, true)
   document.addEventListener('keydown', onPopoverKey, true)
+  window.addEventListener('blur', onPopoverBlur)
 }
 
 /**
