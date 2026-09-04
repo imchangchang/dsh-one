@@ -868,6 +868,23 @@
       expect: '对话流末尾（turn-status 行之后）显示气泡「比如说remote ssh这个插件」完整一行（不提前换行），气泡左侧同一行紧贴处理中圆圈（spinner），整体右对齐；气泡宽度≈内容自然宽，与插话落地后的正式用户消息一致。',
     },
 
+    'composer-clear-after-send': {
+      // 运行中 Enter 排队发送后，高亮层不得残留发送前的文字（「鬼影」叠在
+      // 占位符上）——输入框 value 与 ref-token-layer 必须同步清空。keepComposer
+      // 保活帧（签名未变）不重建输入区，清空收尾由 sendCurrent 就地完成。
+      state: base({ running: true }),
+      interact: `(() => {
+        const i = document.getElementById('input')
+        if (!i) return
+        i.focus()
+        i.value = '等等，先停下，看看状态。'
+        i.dispatchEvent(new Event('input'))
+        i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })()`,
+      title: '运行中 Enter 排队发送：输入区无鬼影残留',
+      expect: '输入框 value 为空，仅显示浅灰占位符「Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts」；输入框上方高亮层（ref-token-layer）没有任何文字（不残留发送前的「等等，先停下，看看状态。」）；主按钮显示停止图标（运行中）；无消息流之外的异常浮层。',
+    },
+
     subagents: {
       state: base({ subagents: [{ sessionId: 'sub-1', title: '子代理 A', running: true, updatedAt: Date.now(), children: [{ sessionId: 'sub-1-1', title: '孙代理', running: false, updatedAt: Date.now() }] }] }),
       title: '子代理下拉',
@@ -2056,6 +2073,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'produced-files', 'produced-files-expanded', 'produced-files-wrap',
     'goal-active',
     'steering-pending',
+    'composer-clear-after-send',
     'attachment-uniform',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
