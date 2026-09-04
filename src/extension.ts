@@ -60,7 +60,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const statusBar = new StatusBar(manager)
-  const sessions = new SessionsStore(manager, logger, context.workspaceState)
+  // 分组状态走 globalState（跨窗口/重启共享），与 workspaceState 偏好键分区。
+  const sessions = new SessionsStore(manager, logger, context.workspaceState, context.globalState)
   const chatView = new ChatViewProvider(manager, logger, context.extensionUri, sessions, context.workspaceState, () =>
     void sessions.refresh(),
   )

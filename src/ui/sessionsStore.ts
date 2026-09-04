@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import { randomUUID } from 'node:crypto'
 import type { Logger } from '../log.ts'
 import { subscribeHostEvents } from '../server/hostEvents.ts'
 import { subscribeMuxEvents } from '../server/muxEvents.ts'
@@ -63,6 +64,50 @@ const RECYCLE_BIN_STATE_KEY = 'sessions.recycleBin'
 const RECYCLE_COLLAPSED_STATE_KEY = 'sessions.recycleCollapsed'
 
 /**
+ * 工作区分组状态（globalState，跨窗口/重启共享）：分组定义与顺序、
+ * workspace↔组 归属、当前选中组。与上面的 workspaceState 偏好键
+ * （排序/折叠/置顶/未读/回收站）分区，扩展开多窗口时两边互不覆盖。
+ * 归组是纯客户端状态（dsh 无分组概念），与 pinned/unread 同性质。
+ */
+const GROUPS_STATE_KEY = 'sessions.groups'
+const GROUP_MEMBERSHIP_STATE_KEY = 'sessions.groupMembership'
+const ACTIVE_GROUP_STATE_KEY = 'sessions.activeGroup'
+
+/** 分组定义的持久化形态（数组顺序 = 展示顺序）。 */
+interface GroupDef {
+  id: string
+  name: string
+}
+
+/** 从 globalState 读出的分组定义做防御清洗（旧版本残留/手工改坏不崩）。 */
+function sanitizeGroups(raw: unknown): GroupDef[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const out: GroupDef[] = []
+  for (const g of raw) {
+    if (typeof g !== 'object' || g === null) continue
+    const { id, name } = g as Record<string, unknown>
+    if (typeof id !== 'string' || !id || typeof name !== 'string' || !name.trim()) continue
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, name: name.trim() })
+  }
+  return out
+}
+
+/** 从 globalState 读出的归属映射做防御清洗：只保留已知组 id、去重。 */
+function sanitizeMembership(raw: unknown, groupIds: ReadonlySet<string>): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out
+  for (const [wsId, ids] of Object.entries(raw)) {
+    if (!Array.isArray(ids)) continue
+    const cleaned = [...new Set(ids.filter((x): x is string => typeof x === 'string' && groupIds.has(x)))]
+    if (cleaned.length > 0) out[wsId] = cleaned
+  }
+  return out
+}
+
+/**
  * 面向 Windows 的 workspace 路径等价比较：大小写、斜杠与尾斜杠不敏感
  * （VS Code fsPath 返回小写盘符 + 反斜杠，dsh 服务端 path 未必一致）。
  */
@@ -94,6 +139,14 @@ export interface SessionsStoreSnapshot {
   contentSearchError: boolean
   /** 基线是否已成功加载；false 时面板应显示 Loading，未分组组头/空导向不渲染。 */
   baselineReady: boolean
+  /** 工作区分组（有序定义 + 全量归组计数），见 SessionsSnapshot 对应字段。 */
+  groups: Array<{ id: string; name: string; count: number }>
+  /** 当前选中的分组 id；null = 全部工作区。 */
+  activeGroupId: string | null
+  /** workspaceId → 组 id 列表（多对多，全量）。 */
+  groupMembership: Record<string, string[]>
+  /** 管理视图的 workspace 目录（全量，排除「未分组」虚拟组）。 */
+  workspaceDirectory: Array<{ workspaceId: string; label: string }>
 }
 
 /**
@@ -125,6 +178,12 @@ export class SessionsStore implements vscode.Disposable {
   private recycleBin: string[] = []
   /** 回收站视图的折叠组（独立于主列表 collapsed，互不影响）。 */
   private recycleCollapsed = new Set<string>()
+  /** 工作区分组定义（globalState 持久化；数组顺序 = 展示顺序）。 */
+  private groups: GroupDef[] = []
+  /** workspaceId → 组 id 列表（多对多，globalState 持久化）。 */
+  private groupMembership: Record<string, string[]> = {}
+  /** 当前选中的分组 id；null = 全部工作区。（globalState 持久化） */
+  private activeGroupId: string | null = null
   /** 回收站视图的展示模型（只含回收站会话，无搜索过滤；基线与主列表同一份 raw 数据）。 */
   private recycleWorkspaces: WorkspaceNodeModel[] = []
   /** 内容搜索命中：sessionId → 最佳匹配片段（query 非空时由 session.search 填充）。 */
@@ -190,6 +249,8 @@ export class SessionsStore implements vscode.Disposable {
     private readonly manager: ServerManager,
     private readonly logger: Logger,
     private readonly state?: vscode.Memento,
+    /** globalState（分组状态用，跨窗口共享；与 workspaceState 偏好键分区）。 */
+    private readonly globalState?: vscode.Memento,
   ) {
     const savedSort = state?.get<string>(SORT_STATE_KEY)
     if (savedSort === 'updatedDesc' || savedSort === 'updatedAsc' || savedSort === 'title') {
@@ -203,6 +264,13 @@ export class SessionsStore implements vscode.Disposable {
     this.recycleBin = state?.get<string[]>(RECYCLE_BIN_STATE_KEY) ?? []
     this.recycleCollapsed = new Set(state?.get<string[]>(RECYCLE_COLLAPSED_STATE_KEY) ?? [])
     this.recycleCollapsed.delete(UNGROUPED_WORKSPACE_ID)
+    // 分组状态从 globalState 载入（跨窗口共享）；activeGroup 落到未知组时
+    // 回落「全部工作区」（组被删/数据残余的兜底，与删除时的回落同规则）。
+    this.groups = sanitizeGroups(globalState?.get<unknown>(GROUPS_STATE_KEY))
+    const groupIds = new Set(this.groups.map((g) => g.id))
+    this.groupMembership = sanitizeMembership(globalState?.get<unknown>(GROUP_MEMBERSHIP_STATE_KEY), groupIds)
+    const savedActive = globalState?.get<unknown>(ACTIVE_GROUP_STATE_KEY)
+    this.activeGroupId = typeof savedActive === 'string' && groupIds.has(savedActive) ? savedActive : null
     this.stateSub = manager.onDidChangeState((status) => this.onStateChange(status))
     this.onStateChange(manager.getStatus())
   }
@@ -277,10 +345,16 @@ export class SessionsStore implements vscode.Disposable {
     return this.sortOrder
   }
 
-  /** Current panel model for the webview. */
+  /**
+   * Current panel model for the webview. 主列表 workspaces 按选中分组过滤
+   * （先分组后搜索：buildSessionTree 已把搜索/排序/折叠应用到全量，这里从
+   * 结果里剔除组外 workspace；「未分组」虚拟组在组过滤下也不显示——它不是
+   * 任何组员，「全部工作区」才出现它）。
+   */
   snapshot(): SessionsStoreSnapshot {
+    const currentIds = new Set(this.rawWorkspaces.map((w) => w.workspaceId))
     return {
-      workspaces: this.workspaces,
+      workspaces: this.filteredWorkspaces(),
       query: this.query,
       sortOrder: this.sortOrder,
       pinned: [...this.pinned],
@@ -292,7 +366,138 @@ export class SessionsStore implements vscode.Disposable {
       contentSearchHasMore: this.contentSearchHasMore,
       contentSearchError: this.contentSearchError,
       baselineReady: this.baselineReady,
+      groups: this.groups.map((g) => ({
+        ...g,
+        // 归组计数只认当前基线里真实存在的 workspace（成员残留旧 id 不计）。
+        count: this.groupMembershipCount(g.id, currentIds),
+      })),
+      activeGroupId: this.activeGroupId,
+      groupMembership: this.groupMembership,
+      workspaceDirectory: this.workspaces
+        .filter((w) => w.workspaceId !== UNGROUPED_WORKSPACE_ID)
+        .map((w) => ({ workspaceId: w.workspaceId, label: w.label })),
     }
+  }
+
+  /** 选中分组下的可见 workspace（null = 全部，原样返回）。 */
+  private filteredWorkspaces(): WorkspaceNodeModel[] {
+    const groupId = this.activeGroupId
+    if (groupId === null) return this.workspaces
+    return this.workspaces.filter(
+      (w) =>
+        w.workspaceId !== UNGROUPED_WORKSPACE_ID &&
+        (this.groupMembership[w.workspaceId] ?? []).includes(groupId),
+    )
+  }
+
+  /** 某组的归组计数（只数当前基线里存在的 workspace）。 */
+  private groupMembershipCount(groupId: string, currentIds: ReadonlySet<string>): number {
+    let n = 0
+    for (const [wsId, ids] of Object.entries(this.groupMembership)) {
+      if (currentIds.has(wsId) && ids.includes(groupId)) n += 1
+    }
+    return n
+  }
+
+  /* ---- 工作区分组（客户端状态，globalState 持久化） ---- */
+
+  private persistGroups(): void {
+    void this.globalState?.update(GROUPS_STATE_KEY, this.groups)
+  }
+
+  private persistMembership(): void {
+    void this.globalState?.update(GROUP_MEMBERSHIP_STATE_KEY, this.groupMembership)
+  }
+
+  private persistActiveGroup(): void {
+    void this.globalState?.update(ACTIVE_GROUP_STATE_KEY, this.activeGroupId)
+  }
+
+  /** 新建分组：名称 trim 后非空且不重名；成功返回组定义，失败返回 null。
+   *  webview 已做同款校验（空名/重名在输入处给出提示），这里兜底防竞态。 */
+  createGroup(name: string): GroupDef | null {
+    const trimmed = name.trim()
+    if (!trimmed || this.groups.some((g) => g.name === trimmed)) return null
+    const group: GroupDef = { id: `g-${randomUUID()}`, name: trimmed }
+    this.groups = [...this.groups, group]
+    this.persistGroups()
+    this.onDidChangeEmitter.fire()
+    return group
+  }
+
+  /** 重命名分组（同名校验同 createGroup，排除自身）；成功返回 true。 */
+  renameGroup(groupId: string, name: string): boolean {
+    const trimmed = name.trim()
+    const group = this.groups.find((g) => g.id === groupId)
+    if (!group || !trimmed || this.groups.some((g) => g.id !== groupId && g.name === trimmed)) {
+      return false
+    }
+    if (group.name === trimmed) return true
+    this.groups = this.groups.map((g) => (g.id === groupId ? { ...g, name: trimmed } : g))
+    this.persistGroups()
+    this.onDidChangeEmitter.fire()
+    return true
+  }
+
+  /** 删除分组：组定义移除、归属清理；若删的是当前选中组，回落「全部工作区」。 */
+  deleteGroup(groupId: string): void {
+    const index = this.groups.findIndex((g) => g.id === groupId)
+    if (index === -1) return
+    this.groups = this.groups.filter((g) => g.id !== groupId)
+    this.persistGroups()
+    let changed = false
+    const nextMembership: Record<string, string[]> = {}
+    for (const [wsId, ids] of Object.entries(this.groupMembership)) {
+      const cleaned = ids.filter((id) => id !== groupId)
+      if (cleaned.length !== ids.length) changed = true
+      if (cleaned.length > 0) nextMembership[wsId] = cleaned
+    }
+    if (changed) {
+      this.groupMembership = nextMembership
+      this.persistMembership()
+    }
+    if (this.activeGroupId === groupId) {
+      this.activeGroupId = null
+      this.persistActiveGroup()
+    }
+    this.onDidChangeEmitter.fire()
+  }
+
+  /** 设置一个 workspace 的分组归属（多对多全量替换，幂等；未知组 id 剔除）。 */
+  setGroupMembership(workspaceId: string, groupIds: readonly string[]): void {
+    const known = new Set(this.groups.map((g) => g.id))
+    const cleaned = [...new Set(groupIds.filter((id) => known.has(id)))]
+    const prev = this.groupMembership[workspaceId] ?? []
+    if (prev.length === cleaned.length && prev.every((id, i) => id === cleaned[i])) return
+    const next = { ...this.groupMembership }
+    if (cleaned.length > 0) next[workspaceId] = cleaned
+    else delete next[workspaceId]
+    this.groupMembership = next
+    this.persistMembership()
+    this.onDidChangeEmitter.fire()
+  }
+
+  /** 切换当前选中分组（null = 全部工作区）；未知组 id 忽略（等价未选中）。 */
+  setActiveGroup(groupId: string | null): void {
+    const next = groupId !== null && this.groups.some((g) => g.id === groupId) ? groupId : null
+    if (next === this.activeGroupId) return
+    this.activeGroupId = next
+    this.persistActiveGroup()
+    this.onDidChangeEmitter.fire()
+  }
+
+  /** 持久化分组顺序（管理视图拖拽后提交全量顺序；缺失/未知 id 丢弃）。 */
+  reorderGroups(groupIds: readonly string[]): void {
+    const byId = new Map(this.groups.map((g) => [g.id, g]))
+    const next = groupIds
+      .map((id) => byId.get(id))
+      .filter((g): g is GroupDef => g !== undefined)
+    if (next.length === 0 || next.length !== this.groups.length || next.every((g, i) => g.id === this.groups[i].id)) {
+      return
+    }
+    this.groups = next
+    this.persistGroups()
+    this.onDidChangeEmitter.fire()
   }
 
   /** Pin/unpin a session (client-side only); persists across reloads. */
