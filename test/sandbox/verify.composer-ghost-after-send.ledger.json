@@ -1,0 +1,65 @@
+{
+  "title": "composer-ghost-after-send：发送后高亮层鬼影残留 + 首帧前回填丢失修复验收",
+  "branch": "agent/composer-ghost-after-send",
+  "commit": "39e7e24",
+  "environment": {
+    "mode": "harness 场景 + dev-host 时序诊断页 + mock-llm 沙盒",
+    "dsh": "0.1.1-rc.2",
+    "locale": "zh-cn",
+    "theme": "light",
+    "image": "dsh-sandbox:latest（重装 39e7e24 的 vsix）",
+    "driver": "node test/sandbox/verify-driver.mjs --ledger test/sandbox/verify.composer-ghost-after-send.ledger.json",
+    "date": "2026-09-08T00:00:00Z"
+  },
+  "coverageNote": "F-01 是 webview 渲染态（运行中 Enter 排队发送后高亮层不得残留），由 test/ui harness 场景 composer-clear-after-send 用 mock 宿主构造确定状态截图（agent 读截图逐条判定）；F-02 是消息时序缺陷（restoreDraft 早于首个 state 帧），harness 无法构造消息序列，由 .dev-host 时序诊断页（case=A3：restore → state → state）+ Playwright 确定性复现，截图 + DOM 断言（value 已回填、:placeholder-shown=false）。R-01 由 harness 截图证明正常对话渲染无副作用；R-02 由 verify-driver 驱动真 dsh + mock-llm 回显证明整体回归。真桌面 VS Code、真模型输出、平台专项（Windows/macOS）不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "运行中 Enter 排队发送：输入区无鬼影残留（占位符不再与发送文本叠加）",
+      "expect": "运行中会话（running=true），输入「等等，先停下，看看状态。」后按 Enter（排队发送）：输入框 value 为空且仅显示浅灰占位符「Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts」；输入框上方高亮层（ref-token-layer）没有任何文字（不残留发送前的输入文本，修复前残留造成「鬼影」叠在占位符上）；主按钮显示停止图标（运行中）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/composer-clear-after-send.png"
+      ],
+      "notes": "harness 场景 composer-clear-after-send（interact 真实输入 + Enter 键盘事件）；DOM 断言：value=''、:placeholder-shown=true、ref-token-layer.textContent=''、发送按钮 aria-label=Stop；截图与期望相符：输入区只有浅灰占位符，无鬼影文字，按钮为停止图标。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "restoreDraft 早于首个 state 帧：回填文本不再被空态归档吞掉",
+      "expect": "消息序列 restoreDraft → state(running=true, queue=[steer]) → state(running=false, queue=[])：恢复的插话文本「等等，先停下，看看 main 分支状态。」出现在 composer 输入框（value 非空、:placeholder-shown=false、高亮层同步绘制）。修复前 stashedDraft 被首个 state 帧归档进空态档并清空，输入框为空、仅剩占位符。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/a3-restored.png"
+      ],
+      "notes": ".dev-host/composer-restore.html 诊断页 case=A3（Playwright 确定性时序）；DOM 断言：value='等等，先停下，看看 main 分支状态。'、placeholder-shown=false、layerText 同 value；截图与期望相符。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "正常对话渲染回归（sendCurrent 补丁无副作用）",
+      "expect": "用户消息右侧气泡、助手消息左侧 markdown 文本、工具卡（Ran a command bash / npm test）、复制/反馈/分叉操作栏、composer + 模型 pill + 会话统计与改动前一致；发送按钮（非运行态）为发送箭头图标。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png"
+      ],
+      "notes": "harness 场景 conversation；截图与期望相符：用户/助手气泡、工具卡、操作栏、composer 均正常。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "真 dsh + mock-llm 回显回归（webview 消息流整体可用）",
+      "expect": "新建会话发送「测试一下」后，mock-llm 干净回显「收到：测试一下」，消息流正常渲染（含真实 dsh 注入上下文折叠卡）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-02.png"
+      ],
+      "notes": "driver 断言命中（新建会话 sidebar-ungrouped）；截图与期望相符：用户消息「测试一下」右侧气泡、助手「收到：测试一下」左侧、Runtime context/Context injection 折叠卡正常，模型 pill mock-flash Max，composer 占位符正常。",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      }
+    }
+  ]
+}
