@@ -18,7 +18,13 @@
       "name": "mock-LLM 回显回复",
       "expect": "composer 发送「测试一下」后，新会话内出现助手消息「收到：测试一下…」（mock-LLM 兜底规则），模型选择器显示 mock-flash Max。",
       "result": "pending",
-      "screenshots": ["/tmp/dsh-sandbox-shots/mockllm-13-tool.png"]
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/mockllm-13-tool.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      }
     },
     {
       "id": "R-01",
@@ -26,7 +32,13 @@
       "name": "未知工具错误路径",
       "expect": "发送「查天气」触发 mock-LLM 的 get_weather 工具调用后，真 dsh 走未知工具重试与报错路径，统计行显示 2 turns。",
       "result": "pending",
-      "screenshots": ["/tmp/dsh-sandbox-shots/mockllm-12-attach.png"]
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/mockllm-12-attach.png"
+      ],
+      "driver": {
+        "prompt": "查天气",
+        "expectText": "get_weather"
+      }
     }
   ]
 }

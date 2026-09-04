@@ -22,7 +22,7 @@
         "prompt": "测试一下",
         "expectText": "收到：测试一下"
       },
-      "result": "done",
+      "result": "pending",
       "screenshots": [
         "/tmp/dsh-sandbox-shots/F-01.png"
       ],
@@ -37,7 +37,7 @@
         "prompt": "查天气",
         "expectText": "get_weather"
       },
-      "result": "done",
+      "result": "pending",
       "screenshots": [
         "/tmp/dsh-sandbox-shots/R-01.png"
       ],
