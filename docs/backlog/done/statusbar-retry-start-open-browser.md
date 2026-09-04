@@ -34,3 +34,5 @@
 - 2026-09-03 Remote-SSH 调研时发现（statusbar.ts:77,83 与 extension.ts:120-123 核实）→ 记入 open/（未开始修改，定级待确认）。
 - 2026-09-04 方案讨论拍板：走方案 A（新增 `dshOne.start` 只启动不开浏览器，Retry/Start 改绑），方案 B 否决；补充 package.json 命令注册与 remote-ssh-support 条目分工 → 条目更新（仍 open/，未开始开发）。
 - 2026-09-04 认领：worktree slug `statusbar-start-command`，按方案 A 实施（新增 `dshOne.start` 只启动/重试不开浏览器，Retry Starting / Start Service 改绑；开发结果见条目完成时追加）。
+- 2026-09-04 开发完成（doing → done）：方案 A 落地——新增 `dshOne.start` 命令（`src/extension.ts` 注册，只 `ensureStarted()` 不开浏览器），`src/ui/statusbar.ts:77,83` 的「Retry Starting / Start Service」改绑它；「Open in Browser」与整块点击保留 `dshOne.openExternal`，运行中态「Restart Service」仍走 `dshOne.restart` 不变；`package.json` contributes.commands 新增 `dshOne.start` 条目，`package.nls.json`/`package.nls.zh-cn.json` 补标题（Start Service / 启动服务）。
+  自测：typecheck / test（386 pass）/ build 全绿；i18n 合入门禁自检通过；沙盒报告 `test/sandbox/verify.statusbar-start-command.report.html`（F-01 状态栏改绑与不弹浏览器、F-02 命令面板条目 pass；R-01 mock-LLM 回归 pass）；dev-finish 已打 `done/statusbar-start-command` 标记（分支 HEAD bcb94a6）。待主线 dev-merge 合入。
