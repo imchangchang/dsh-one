@@ -5621,7 +5621,7 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
   if (file.image && (file.previewData || lazyUrl)) {
     const dataUrl = file.previewData && file.mediaType
       ? attachmentDataUrl(file.mediaType, file.previewData)
-      : lazyUrl
+      : (lazyUrl ?? '')
     const item = el('span', 'attach-thumb')
     item.dataset.attachPath = file.path
     item.title = t('{0} (click to preview)', file.name)
