@@ -1,0 +1,106 @@
+{
+  "title": "chat-render-scaling 阶段 1 webview 侧：hover 缓存恢复 + undo execCommand",
+  "branch": "agent/chat-render-scale-1b",
+  "commit": "2f75038",
+  "environment": {
+    "mode": "browser-standalone + mock-state",
+    "renderer": "harness.html 独立渲染 dist/chatWebview.js（Chromium，Playwright headless）",
+    "driver": "诊断脚本 .dev-host/verify-1b.mjs（独立渲染 + 真实键盘/鼠标交互）",
+    "regression": "test/ui 基线 33 场景截图 + interactive.html 发送/流式 + npm test 470 项",
+    "date": "2026-09-10T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code 窗口（快捷键/菜单宿主）、真实 dsh 对话、跨平台（Windows/Linux 的 Ctrl+Z 键位行为）不在本报告范围；undo 键位验证在本机（macOS）用 Meta+z，Linux/Windows 的 Ctrl+Z 对应关系需真桌面确认。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "hover：流式快照重建后高亮保留（鼠标不动）",
+      "expect": "用户消息行内 @ 文件引用 chip 悬停时（ref-hover 类 + 对应附件 chip .hovered 双高亮），流式等价的重投同一份 state（render 每帧全量重建 DOM）后，鼠标不动、高亮仍保留；重建前后两张截图一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-1b/c1-hover-before.png",
+        "/tmp/dsh-ui-shots-1b/c1-hover-after-replay.png"
+      ],
+      "notes": "诊断断言：C1-a 悬停后 ref-hover + hovered 均在；C1-b 重投 state（重建）后两高亮仍在。两张截图 sha 相同（重建前后视觉无差别）。验证场景 = file-ref-bubble（行内 @img1.png chip + 附件缩略图 /var/folders/xx/.../img1.png）。mouseover 命中的 chip 子元素（svg/span）同步 clear+re-add 的既有行为未改动（代码原样保留）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "hover：鼠标移开清缓存后不粘滞",
+      "expect": "悬停后物理移开鼠标（真实 mouseleave 清缓存），再重投 state——高亮不应复活（缓存不粘滞，只覆盖鼠标静止停留的重建场景）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-1b/c1-hover-moved.png"
+      ],
+      "notes": "诊断断言：C1-c 移开清空=true、重投后无残留=true。注意：合成 dispatch mouseleave 不可靠（鼠标物理位置未动时 Chromium 在重建 hit-test 后会自动补发 mouseover、高亮复活——这是正确的真实行为），验证须用物理移动鼠标。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "undo：@ 候选程序化插入进 undo 历史，两步可退",
+      "expect": "真实键盘输入「hello @img」→ 点击 @ 候选（程序化插入 token，走 execCommand('insertText')）→ 再输入「world」→ undo 序列应：先撤掉后续键入（world），再撤掉程序化插入的 token（回到 hello @img 插入前态）。即 token 插入在 undo 历史里（旧实现 .value= 会把整条 undo 链清空）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-1b/c2-popup.png",
+        "/tmp/dsh-ui-shots-1b/c2-inserted.png",
+        "/tmp/dsh-ui-shots-1b/c2-undo.png"
+      ],
+      "notes": "诊断断言全部命中：C2-a 候选弹窗（Attachments 组）出现；C2-b 点击候选后 value=hello @img1.png ；C2-c 插入后弹窗关闭（execCommand 自触发 input 事件被正确消费，未再手动 dispatch）；C2-d 再输入 world 成功；C2-e undo 序列 = [worl→wor→wo→w→hello @img1.png →hello @img→...]——第 5 步撤掉 token 整段回到插入前态（hello @img）。合成键入按字符分组（见 F-04 说明），真实用户词级分组时「两步可退」语义相同。偶发记录：首轮运行 C2-e 曾失败一次（undo 序列卡在插入后态），此后 3 轮重跑（click/Enter/Tab 三种补全路径）均稳定通过，未复现根因，判定为 headless 页面焦点时序抖动。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "undo 分组边界实测（Chromium 行为测定）",
+      "expect": "① 连续两次 execCommand insertText（无间隔）合并为一个 undo 组（一次 undo 全部撤销）；② 程序化插入与随后的真实键入分属不同 undo 组（先逐字符撤键入，程序化插入的整段作为独立组一步撤销）；③ 本环境（webview input 事件每字符触发 DOM 更新）下合成键入为逐字符组。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-1b/c3-grouping.png"
+      ],
+      "notes": "实测：AAA+BBB 连续 execCommand → 一次 Meta+z 全部撤销（合并一组，已确认条目 §3 预言的坑）；CCC（execCommand）+ DDD（键入）→ undo 序列 [CCCDD, CCCD, '']——键入逐字符撤（2 步后 CCC 未动），CCC 整段一步撤到空（分组边界存在，程序化插入保留独立 undo 身份）。合成键入（Playwright CDP）为逐字符组；裸页面对照实验里真实键入为词级组——分组粒度受输入通道影响，但「键入与程序化插入分属不同组」这一边界在两种粒度下一致成立。另：macOS Chromium 的 undo 键是 Cmd+Z（Meta+z），Ctrl+z 在 mac 上非 undo 键（未拦截，键位差异非代码问题）。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "交互插入点改造范围与还原路径不改动",
+      "expect": "仅 7 个交互插入点（slash 弹窗整值补全、长粘贴超时回填、mention 补全回执、@ 候选、session 候选、会话 mention 粘贴接管、slash 命令前缀插入）改走 composerInsertText（execCommand + 失败回退 .value=）；recall/草稿恢复/clear-all/发送后清空等还原路径保持 .value=（不应进入 undo）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "代码审查：7 点全部替换；还原/清空路径（restoreDraft L1224、draft 渲染 L5903/5906、/model 清空 L6024、queue 保存清空 L6039、发送后清空 L6056、token 原子删除 L6112、recall 取消 L6162、recall 装载 L6191/6196、clear-all L6286）均未动。composerInsertText 带 execCommand 不可用回退（直接写值打断 undo 但功能不坏）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "视觉基线冒烟 33 场景",
+      "expect": "test/ui 基线 33 个场景（conversation/markdown/empty/dsh-not-found/approval/question/plan-review/todos/subagents/history/model-picker/sessions 系列/mention/attachment/composer-clear-after-send/workflow/tool 系列等）渲染不回归，重点抽查与本次改动相邻的：conversation、composer-clear-after-send（发送清空无鬼影）、attachment-uniform、mention-chips。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png",
+        "/tmp/dsh-ui-shots/composer-clear-after-send.png",
+        "/tmp/dsh-ui-shots/attachment-uniform.png",
+        "/tmp/dsh-ui-shots/mention-chips.png"
+      ],
+      "notes": "scripts/ui-visual.sh --mode baseline 全部 33 场景产出截图，抽查 4 张与 composer/mention/附件相关的均符合期望：conversation 正常对话消息流+工具卡；composer-clear-after-send 输入框清空、高亮层无鬼影残留、主按钮为停止图标；mention-chips/attachment-uniform 引用 chip 与附件框渲染正常。其余场景未逐张肉眼核对（改动面不涉及）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "发送/流式交互回归（interactive mock host）",
+      "expect": "真实键盘输入 + 点击发送按钮后：用户消息上屏、assistant 流式增量刷新、最终完整回复 + 工具卡出现、run 状态结束。输入事件链（autoGrow/按钮态/弹窗刷新/renderRefLayer）不因去掉手动 dispatch('input') 而缺事件。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-1b/int-streaming.png",
+        "/tmp/dsh-ui-shots-1b/int-done.png"
+      ],
+      "notes": "发送「帮我看看流式渲染」→ 流式 chunk 逐段刷新 → 完整回复 + 工具卡（bash npm test 7 passed）→ 完成态。点发送按钮路径可靠（合成 Enter 键盘不可靠为驱动侧已知坑）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "typecheck / 单测 / build",
+      "expect": "npm run typecheck 无错误；node --test 全部通过；npm run build 产出 dist/chatWebview.js。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "typecheck 0 错误；单测 470 pass / 0 fail；build 成功（dist/extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js）。"
+    }
+  ]
+}
