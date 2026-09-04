@@ -27,3 +27,4 @@ worktree 开发完成到主线合入之间，人工 gate 是 `dev-ui-test.sh`（
 - 2026-09-04 方案确认后记录进 open/。状态变更（skill/AGENTS 改写）待单独认领。
 
 - 2026-09-04 认领（open → doing）：按条目方案实施——SKILL.md/AGENTS.md 改写合入门禁为测试报告审查，test/sandbox 工具缺口补齐。
+- 2026-09-04 开发完成（doing → done）：前置 sandbox-testing-chain 已交付（report.mjs/verify-driver.mjs/ledger 模板），按方案改写 `.agents/skills/worktree-dev-flow/SKILL.md`（流程 4 视觉自测降为开发自测、新增流程 5「生成测试报告」：任务专属 ledger → verify-driver 写回结果 → report.mjs 渲染 HTML，new-feature 在前 regression 在后，每项期望/截图/结论；合入门禁 = 人审报告，流程 6 dev-ui-test 仅疑问兜底）与 `AGENTS.md`（主线职责/合入门禁描述）；`test/sandbox/README.md` 补 report.mjs 用法与任务报告流程（场景模板/结果确认）；`.gitignore` 忽略报告 HTML。自测 typecheck + 386 test + build 全绿；report.mjs 端到端冒烟（verify-driver 跑 F-01 写回 done+screenshot → report.mjs 渲染内嵌截图/待判定/通过徽章）通过；done 标记 e44f754。本任务为文档/流程变更，无 UI 行为变化，按约定不建沙盒 ledger（报告工具链已实测）。
