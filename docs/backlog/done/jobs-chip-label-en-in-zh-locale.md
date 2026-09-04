@@ -32,3 +32,5 @@ const jobsLabel = state.backgroundJobs ? jobsChipLabel(state.backgroundJobs) : n
 - 2026-09-03 用户反馈中文界面后台运行 job 没翻译 → 核实根因（webview.ts:2658 调 jobsChipLabel 未传 t，走 enFallback；zh bundle 译文存在）→ 记入 open/（未开始修改）。
 
 - 2026-09-04 认领（open → doing）：按条目方案实施——webview.ts 的 jobsChipLabel 调用补传 t（实际行号 :2771，条目中 :2658 已漂移），中英文沙盒验证。
+
+- 2026-09-04 开发完成（doing → done，agent/i18n-polish）：webview.ts:2771（条目原文 :2658 已漂移）jobsChipLabel 补传 t；自测全绿（typecheck + 386 tests + build，check-i18n.sh 通过）；测试报告 test/sandbox/verify.i18n-polish.report.html——沙盒 code-server 无 zh nls 切不出中文界面（argv.json/--locale/浏览器语言均实测无效），zh 项用 webview harness 注入真实 zh bundle 验证，并 A/B 对照修复前同场景显示英文「1 background jobs running」；另注：check-i18n.sh 查不出漏传 t（只查 key 是否入 bundle），本条只能靠测试/人工发现。
