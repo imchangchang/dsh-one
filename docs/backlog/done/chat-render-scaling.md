@@ -86,3 +86,5 @@
 阶段 1 可拆 2-3 个 session 并行（host 侧限流 vs webview 侧 hover/undo 不冲突）；阶段 2-4 同区域（webview 渲染路径）串行。
 
 - 2026-09-05 认领（open → doing）：阶段 1 拆 1A/1B 两条并行开发线——1A host 侧限流+失败收敛（本 session，slug chat-render-scaling-1a）；1B webview 侧 hover 恢复+undo（并行 session，slug chat-render-scaling-1b），不单独记 backlog；两线成果在本条目 done 变更记录一并注明。
+
+- 2026-09-05 开发完成（doing → done）：阶段 1A host 侧限流+失败收敛（worktree chat-render-scaling-1a，HEAD 3870e32）——requestFileThumb/requestAttachment 走串行队列并发上限 4（原来一次渲染 N 图同时读 N 个完整文件，MB 级 base64 齐发），单任务超时/失败最多 2 次尝试后回 fileThumbFailed（新契约消息），webview 按失败态不再无限 5s 重发（fileThumbRequested 时间戳 Map 改 {at,failed}）；语义保持：成功路径渲染行为不变，失败文件最终呈现占位图标。自测 typecheck/test（477）无回归 + 7 项新增单测 + 沙盒验收（41 图全量渲染、缺失文件收敛、主流程回归）全过，报告 test/sandbox/verify.chat-render-scaling-1a.report.html。阶段 1B（webview 侧 hover 缓存恢复 + undo execCommand，slug chat-render-scaling-1b）由并行 session 开发中，完成后另记。
