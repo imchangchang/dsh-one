@@ -50,3 +50,4 @@ dsh web UI 的两个入口在 Remote-SSH 下：（iframe 入口必坏；系统�
 
 - 2026-09-03 推演 Remote-SSH 场景（extensionKind/manager 端口/iframe 渲染进程/端口转发变数逐项核实）→ 定位两处必坏入口与两个次要降级点，其余功能确认自洽 → 记入 open/（未开始修改）。
 - 2026-09-04 方案讨论拍板：核实官方 API（`asExternalUri` 自动建隧道 / `openExternal` 自动转发，推翻原「扩展无转发接口」假设）；范围定为 iframe 入口以 asExternalUri 解析 + 降级页、openExternal 入口不动、remoteName 仅辅助文案、次要点三处提示；验收=本地单测 mock 分支，不安排真实 Remote-SSH 验收；优先级：低。
+- 2026-09-04 用户拍板：**暂缓，不排入任何 sprint**（真实 Remote-SSH 环境不好验证，等有真实使用场景再排）；条目保留 open/，方案与验收方式不变。
