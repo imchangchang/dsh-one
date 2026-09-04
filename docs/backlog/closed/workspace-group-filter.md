@@ -64,3 +64,4 @@
 - 2026-09-04 待决点全部拍板（用户确认）：① 开工节奏——与 `workspace-rightclick-menu` 各自认领、并行开发，本条目先合入（右键菜单「分组…」子菜单依赖本条目分组数据，故先做其非分组项并预留接口）；② 两条目不合并 worktree，各由独立 session 开发；③ 管理视图含打标（建组/重命名/删除 + 视图内勾选归组），本条目功能闭环；④ 分组顺序 = 管理视图内拖拽排序，空组保留显示（计数 0、可删除），重名拒绝、选中组删除回落「全部」。方案已拍板，可开工（认领动作由开发 session 执行 open → doing）。
 - 2026-09-05 认领：worktree 开发 session（slug workspace-group-filter）开工，方案与拍板细节按正文执行。
 - 2026-09-05 开发完成（doing → done）：分支 agent/workspace-group-filter，HEAD 34df8da，dev-finish 自测全绿（typecheck/build/456 tests/check-i18n 通过），质量门禁产物 `test/sandbox/verify.workspace-group-filter.report.html`（ledger：F-01..F-11 + R-01..R-03 全通过，截图内嵌）。实现：分组栏下拉选择器 + 「+」快速建组 + 管理视图（建组/改名/删除/拖拽排序/视图内打标）；数据模型（sessions.groups/groupMembership/activeGroup）存 globalState，纯层拆出可单测；本条目先合入主线，workspace-rightclick-menu 排其后（其「分组…」子菜单复用 workspaceGroupSetMembership/共享快照字段）。
+- 2026-09-05 主线合入后人工确认（用户测试通过）→ closed
