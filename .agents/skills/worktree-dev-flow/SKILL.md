@@ -23,7 +23,7 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 2. `scripts/dev-start.sh <任务名>`——任意位置跑：建 worktree + 分支 + 装依赖。
 3. `cd .worktrees/<slug>` 进去开发，高频小提交。
 4. UI 类改动的视觉自测（**开发自测环节，不再是合入门禁**）：二选一或都用——
-   - 沙盒场景驱动：`test/sandbox/run-sandbox.sh start --mock-llm` 起沙盒后跑 `test/sandbox/verify-driver.mjs`，对场景做确定性验证（ledger 字段、命令与坑见 `test/sandbox/README.md`；沙盒容器是共享单实例——先 `run-sandbox.sh status` 确认空闲再 `start`，别与其他任务并行抢）。
+   - 沙盒场景驱动：`test/sandbox/run-sandbox.sh start --mock-llm` 起沙盒后跑 `test/sandbox/verify-driver.mjs`，对场景做确定性验证（ledger 字段、命令与坑见 `test/sandbox/README.md`；沙盒默认实例是共享单实例——先 `run-sandbox.sh status` 确认空闲再 `start`，别与其他任务并行抢；多个 session 同时验证时各用各的 `--instance <slug>` 并行实例 + 独立端口/截图目录，见 README「并行实例」）。
    - `ai-visual-validation`：浏览器独立渲染 webview + 截图对照期望（见该 skill）。
    纯逻辑改动可跳过视觉自测；跳过不影响测试报告——报告里现有功能的回归项仍要跑（流程 5）。
 5. **生成测试报告**（合入门禁产物，dev-finish 前置）：ledger 场景 → `verify-driver.mjs` 跑 → `report.mjs` 渲染 HTML。

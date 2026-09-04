@@ -7,6 +7,7 @@
 - 镜像名：`dsh-sandbox:latest`
 - 容器名：`dsh-sandbox`（固定，重建前会被强制删除）
 - 访问：`http://localhost:<port>`（默认 8080）
+- 并行实例：多个 session 同时验证时传 `--instance <slug>`（镜像/容器/buildx 目录按 slug 派生，端口显式指定），见「并行实例」。
 
 ## 前置
 
@@ -43,6 +44,8 @@ test/sandbox/run-sandbox.sh start --locale zh-cn --theme light --port 8080
 - 容器固定名 `dsh-sandbox`；若已存在同名容器会先强制删除重建。
 - `--locale`/`--theme` 由容器 entrypoint 消费：locale 写进 code-server 的 `argv.json`，theme 写进 `settings.json` 的 `workbench.colorTheme`。
 - `--port` 默认 8080，宿主与容器内同一个端口（`-p $port:$port -e PORT=$port`）。
+- `--instance <slug>`：并行实例，容器名/镜像 tag/buildx 目录按 slug 派生；此时 `--port` 必填（默认实例已占 8080）。
+- `--mock-llm` 时 `--mock-port <端口>` 是 mock 端点的**宿主**端口（容器内映射固定 9009）；默认 9009，实例化未显式给时自动取 `--port+1`。
 - 宿主 `~/.dsh`（存在时）以只读挂载进容器，entrypoint 复制一份到容器内 `$HOME/.dsh`（容器可写，不污染宿主）。
 
 ### Mock-LLM 模式（`--mock-llm`）
@@ -102,20 +105,46 @@ test/sandbox/run-sandbox.sh start --locale zh-cn --theme light  # 中文 × 浅�
 
 启动后开浏览器访问 `http://localhost:<port>`，再用浏览器自动化进去浏览、操作、截图。
 
+### 并行实例（多 session 同时验证）
+
+worktree 并行开发时每个 session 用自己的实例，互不干扰（镜像 tag/容器名/端口/截图目录按 slug 与显式端口错开；无 `--instance` 的默认实例保持原行为）：
+
+```bash
+# session A（slug a，宿主端口 8081，mock 端点自动取 8082）
+test/sandbox/run-sandbox.sh build --instance a --mock-llm --vsix "$(pwd)/dsh-one-1.0.0.vsix"
+test/sandbox/run-sandbox.sh start --instance a --mock-llm --port 8081
+
+# session B（slug b，宿主端口 8083，mock 端点自动取 8084）
+test/sandbox/run-sandbox.sh build --instance b --mock-llm --vsix "$(pwd)/dsh-one-1.0.0.vsix"
+test/sandbox/run-sandbox.sh start --instance b --mock-llm --port 8083
+
+test/sandbox/run-sandbox.sh status --instance a        # 查看实例 a 的镜像/容器/端口
+test/sandbox/run-sandbox.sh stop --instance b          # 停止实例 b
+```
+
+- 实例 id 只用字母/数字/连字符（脚本校验）。**同一 worktree 里不要并行跑两个 build**：构建上下文
+  （`test/sandbox/`）与暂存文件（`dsh-one.vsix`、`.build-mock-llm/`，gitignored）是共享的，会互相踩；
+  不同 worktree 的并行 build 用各自上下文，互不干扰。两个 session 用不同 slug 才能完全并行。
+- mock 端点宿主端口不想用 `--port+1` 就显式传 `--mock-port <端口>`（容器内固定 9009，映射的是宿主端口）。
+- 截图目录约定：实例化时用 `/tmp/dsh-sandbox-shots-<slug>/`（见「产物目录约定」）。
+
 ### 其他子命令
 
 ```bash
-test/sandbox/run-sandbox.sh status   # 镜像/容器状态、端口映射
+test/sandbox/run-sandbox.sh status   # 镜像/容器状态、端口映射（并行实例加 --instance <slug>）
 test/sandbox/run-sandbox.sh logs     # 跟随容器日志（Ctrl-C 退出）
 test/sandbox/run-sandbox.sh sh       # 进容器 shell
 test/sandbox/run-sandbox.sh stop     # 停止并删除容器 dsh-sandbox
 test/sandbox/run-sandbox.sh --help   # 全部参数
 ```
 
+`status`/`logs`/`sh`/`stop` 都接受 `--instance <slug>`，只作用于指定实例。
+
 ## 产物目录约定
 
 截图统一输出到 `/tmp/dsh-sandbox-shots/`（脚本或截图工具负责 `mkdir -p`），命名建议 `shot-<NN>-<描述>.png`
-（参照 spike 的 `/tmp/dsh-sandbox/shot-*.png`）。都是测试产物，放 /tmp，不落仓库。
+（参照 spike 的 `/tmp/dsh-sandbox/shot-*.png`）。**并行实例用 `/tmp/dsh-sandbox-shots-<slug>/`**（实例 a → `...-a/`），
+避免两个 session 的 `<id>.png` 互相覆盖。都是测试产物，放 /tmp，不落仓库。
 
 ## 已知边界
 
@@ -244,7 +273,7 @@ cp test/sandbox/verify.ledger.example.json test/sandbox/verify.<slug>.ledger.jso
 ### 命令
 
 ```bash
-# 1. 起沙盒（共享单实例，先 run-sandbox.sh status 确认空闲）
+# 1. 起沙盒（默认实例，先 run-sandbox.sh status 确认空闲；与其他任务并行验证时各用各的 --instance，见「并行实例」）
 test/sandbox/run-sandbox.sh start --mock-llm --port 8080
 
 # 2. 驱动：结果写回 ledger（done/fail + 截图路径）
