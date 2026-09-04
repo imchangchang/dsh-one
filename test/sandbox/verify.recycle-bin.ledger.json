@@ -1,0 +1,140 @@
+{
+  "title": "回收站 + 置顶不能归档/移入（recycle-bin 任务）",
+  "branch": "agent/recycle-bin",
+  "commit": "HEAD(dev-finish 时补)",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-recycle-bin:latest",
+    "date": "2026-09-04T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code、真模型输出、Windows/macOS 平台专项不在本报告范围。host 命令层置顶兜底（vscode.window.showWarningMessage）无法经 UI 自动化触发（UI 已置灰），经代码审查 + typecheck 覆盖，已注明。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "主列表底部回收站入口（固定行 + 计数 0 灰态）",
+      "expect": "主列表底部恒定一行：描边垃圾桶图标 + 「Recycle bin」标签 + 计数徽标 0（灰态），位于列表滚动区之外（底部固定，不随滚动消失）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin/01-F-01-main-list-entry-0.png"
+      ],
+      "notes": "E2E 断言：入口存在 + 计数=0"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "行菜单「移入回收站」（可逆、无确认弹窗、短提示）",
+      "expect": "主列表行菜单含「Move to recycle bin」项；点击后无确认弹窗，行从主列表消失，底部入口计数徽标变 1。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin/02-F-02a-row-menu.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/03-F-02b-after-move-count-1.png"
+      ],
+      "notes": "E2E 断言：count=1 rowGone=true"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "回收站视图（头部/分组/折叠）与单项恢复",
+      "expect": "点击底部入口切换到回收站视图：‹ 返回 + 标题「Recycle bin」+ 计数徽标（恒显示，不被省略号截断）+ 垃圾桶图标按钮（悬停「Empty recycle bin」）+ 右侧「Restore all」；会话按原 workspace 分组（组头 = 名称 + 计数徽标 + 折叠箭头）；行菜单「Restore / Archive (cannot be restored)」；恢复后回原组，空态「The recycle bin is empty」+ 引导文案；返回主列表计数归 0。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin/04-F-03a-recycle-view.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/05-F-03b-recycle-row-menu.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/06-F-03c-recycle-empty-after-restore.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/07-F-03d-back-main-list-restored.png"
+      ],
+      "notes": "E2E 断言：title=Recycle bin count=1 group=Ungrouped badge=1；恢复后空态提示正确；返回主列表 count=0 rowBack=true"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "「恢复全部」与组折叠",
+      "expect": "组头点击可折叠（行隐藏）/展开（行恢复）；「Restore all」点击后计数归 0、回收站空态、主列表两个会话全部回原组。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin/01-F-04a-group-collapsed.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/02-F-04b-restore-all-empty.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/03-F-04c-restore-all-back.png"
+      ],
+      "notes": "E2E 断言：组头 badge=2，折叠 rows=0，展开 rows=2；Restore all 后空态 + count=0 + 主列表两行都在"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "多选操作条「移入回收站」",
+      "expect": "多选模式操作条含「Move N selected to the recycle bin」（计数与勾选一致）+「Archive N selected」+ Cancel；点击移入后所勾会话全部进站，底部计数 +N，无确认弹窗。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin/08-F-05a-selection-bar-two.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/09-F-05b-after-bulk-move-count-2.png"
+      ],
+      "notes": "E2E 断言：bar=Move 2 selected to the recycle bin，点击后 count=2"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "清空回收站（modal 确认 → 逐个归档 → 空态）",
+      "expect": "回收站视图垃圾桶图标按钮弹确认 modal（标题含数量「Empty the recycle bin (3 sessions)?」，说明「Archiving cannot be undone here; the session records are still kept on dsh.」，明细按分组列出）；确认后回收站空态、标题计数归 0，被清空会话从主列表消失（已归档）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin/14-F-06a-recycle-view-3.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/15-F-06b-empty-modal.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/16-F-06c-after-empty.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/17-F-06d-back-main-list.png"
+      ],
+      "notes": "E2E 断言：modal 标题含 (3 sessions)；确认后空态 + count=0；返回主列表只剩测试四（其余已归档）"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "置顶豁免（行菜单置灰 + 复选框禁用）",
+      "expect": "置顶会话的行菜单「Move to recycle bin」与「Archive session」均为禁用灰态；多选模式下其复选框 disabled。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin/12-F-07a-pinned-menu-disabled.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/13-F-07b-pinned-checkbox-disabled.png"
+      ],
+      "notes": "E2E 断言：menu 两项 disabled=true；复选框 disabled=true"
+    },
+    {
+      "id": "F-08",
+      "phase": "new-feature",
+      "name": "未读/运行中/待处理可移入（与归档不同）",
+      "expect": "未读（手动标）会话在列表框可选（复选框 enabled、绿点加粗标题）、可经多选「移入回收站」计数 +1；归档操作侧保持不可归档过滤（确认弹窗列明跳过数）。运行中/待处理同规则（本 E2E 以未读覆盖）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin/10-F-08a-unread-checkbox-enabled.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/11-F-08b-unread-moved-count-3.png"
+      ],
+      "notes": "E2E 断言：未读复选框 disabled=false；移入后 count=3"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "主列表批量归档链路回归（webview modal + host archiveMany）",
+      "expect": "多选模式下「Archive N selected」→ webview 确认 modal（标题/描述正常）→ 确认后会话归档从列表消失；回收站计数与主列表其余会话不受影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin/18-R-01a-archive-modal.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/19-R-01b-archived-empty-list.png"
+      ],
+      "notes": "E2E 断言：modal=Archive 1 session?；确认后 deleted=true 且 count=0"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "主列表单会话归档回归（多选链路 + 恢复全部前置）",
+      "expect": "会话经多选「Archive 1 selected」归档后从主列表消失，其余会话不受影响；面板仍正常渲染。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin/04-R-01a-archive-modal.png",
+        "/tmp/dsh-sandbox-shots-recycle-bin/05-R-01b-archived.png"
+      ],
+      "notes": "E2E 断言：modal=Archive 1 session?；确认后 gone=true，另一会话保留"
+    }
+  ]
+}
