@@ -30,3 +30,5 @@
 - 2026-09-03 用户提出需求（弹卡不丢草稿），核实根因并实测复现 → open
 
 - 2026-09-06 认领（agent/composer-draft-clear，worktree .worktrees/composer-draft-clear）→ doing
+
+- 2026-09-06 开发完成（agent/composer-draft-clear）→ done。自测：typecheck/test（386 全绿）/build 通过；真 dsh E2E（沙盒 mock-llm）：问答 pending 接管 → 应答后草稿恢复 ✓；harness 场景 pending-typing-draft 草稿保留断言 ✓（报告 test/sandbox/verify.composer-draft-clear.report.html，7 项全 pass）
