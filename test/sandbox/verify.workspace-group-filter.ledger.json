@@ -1,0 +1,182 @@
+{
+  "title": "Sessions 工作区分组过滤：下拉选择器 + 管理视图打标（workspace-group-filter 任务）",
+  "branch": "agent/workspace-group-filter",
+  "commit": "0475bff",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-workspace-group-filter:latest",
+    "date": "2026-09-05T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code 窗口 chrome、真模型输出、Windows/macOS 平台专项不在本报告范围。宿主层改动仅新增分组消息处理（纯 store/Memento，无 RPC），会话/workspace 既有 RPC 链无回归面。测试三条通道并行：① 沙盒 E2E（code-server + 真扩展 + 真 dsh，种 4 个 workspace，断言带截图）；② harness 视觉场景（test/ui/scenarios.js 8 个新场景 + 6 个既有 sessions 场景回归，Playwright 截图核对）；③ 纯层单测（test/workspaceGroups.test.ts 7 项，belongs to 456 pass 全量）。持久化（globalState）在沙盒内不可靠：code-server 不落盘 state.vscdb，跨运行/同运行实测行为不一（有的运行 reload 后选中与分组完整保留——F-11 曾实测 persistence 生效；有的运行全部丢失——与 workspaceState 同类键同为沙盒全局限制）。真实 VS Code 的 Memento 持久化由官方 API 保证（与已有 modelWindowCache 同款）；语义正确性由纯层单测钉住（清洗/计数/重排/删除清归属/重名拒绝）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "分组栏 + 下拉菜单（初始态：全部工作区 + 无分组）",
+      "expect": "搜索框下一行分组栏：左「All workspaces ▼」（加粗 + 下拉箭头）右「+」；点开下拉：首项「All workspaces 4」（全部 workspace 计数 + 当前选中 ✓），底部「Manage groups…」（齿轮图标）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/e2e-01-dropdown-initial.png",
+        "/tmp/wgf-shots/vis-02-dropdown-counts.png"
+      ],
+      "notes": "E2E 断言：首项 All workspaces 含 4、Manage groups… 入口存在；harness 场景 sessions-groups-dropdown + 真机截图 vis-02 均核对。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "「+」快速建组 + 空名/重名校验",
+      "expect": "点「+」弹内联建组浮层（标题 New group + 名称输入 + Create 按钮）；Enter/Create 建组成功弹层关闭；空名提示「Group name cannot be empty」、重名提示「A group with this name already exists」且弹层不关、不发消息。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/sessions-groups-create-popover.png",
+        "/tmp/wgf-shots/e2e-02-quick-create-validation.png"
+      ],
+      "notes": "E2E 断言：演示/开发经「+」创建成功；两个校验提示逐条命中（webview 校验 + store 兜底拒绝，host 无弹窗）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "管理视图：建组/重命名/删除 + 视图内给 workspace 打标（多对多）",
+      "expect": "「Manage groups…」开管理视图：组行（六点拖拽手柄 + 名称 + 计数 + ✎/🗑）、底部新建输入行；选中某组后下方「Workspaces in group: 名称 N」列出全部 workspace，勾选 = 归组；同一 workspace 可归多组（切组不丢勾选）；空组计数 0 保留显示。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/vis-01-manage-tag-demo.png",
+        "/tmp/wgf-shots/e2e-03-manage-tag-demo.png"
+      ],
+      "notes": "E2E 断言：管理视图建「日常」计数 0 成功；演示组勾 wgf-demo-a/b、开发组勾 wgf-dev；切回演示组 demo-a/b 勾选保留（多对多）；真机截图 vis-01 核对模态内容（组行/计数/勾选态/新建行）。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "下拉菜单计数：全量 + 分组（含空组 0）",
+      "expect": "下拉列出：All workspaces 4 / 演示 2 / 开发 1 / 日常 0（空组保留计 0）；计数按当前基线全量统计（不受搜索/当前选中影响）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/vis-02-dropdown-counts.png",
+        "/tmp/wgf-shots/e2e-05-dropdown-counts.png"
+      ],
+      "notes": "E2E 断言四项计数逐条命中；真机截图 vis-02 核对（该轮只勾 demo-a/b，故 开发 0/日常 0 与种数据场景一致）。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "选中分组过滤：只显示组内 workspace，未分组组头隐藏",
+      "expect": "下拉选「演示」后：分组栏左按钮变「演示 ▼」；列表只剩组内 2 个 workspace（wgf-demo-a/b）；组外（wgf-dev、wgf-untagged）与「未分组」虚拟组头都不出现；未打标 workspace 只在「全部工作区」出现。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/vis-03-filter-demo.png",
+        "/tmp/wgf-shots/sessions-groups-selected.png"
+      ],
+      "notes": "E2E 断言：栏标签=演示、组数=2、无 __ungrouped__、组外 id 隐藏；真机截图 vis-03 核对。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "分组 + 搜索叠加（先分组后搜索）",
+      "expect": "选中组 + 搜索词叠加生效：搜索不改变分组选中；无命中显示「No sessions match」；清除搜索恢复分组过滤列表。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/e2e-07-filter-demo-search.png",
+        "/tmp/wgf-shots/sessions-groups-selected-search.png"
+      ],
+      "notes": "E2E 断言：搜索词 zzz-no-match 后空态文案、栏标签仍为演示、清空后恢复 2 组；harness 场景核对分组+搜索叠加渲染（先分组后搜索：组外 workspace 不出现）。"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "管理视图内重命名：行内输入 + 重名拒绝",
+      "expect": "✎ 进行内重命名（输入框 prefill 原组名）；Enter 提交「开发」→「开发中」成功；把「演示」改名成「开发中」被拒（行内错误提示 already exists，保持编辑态）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/e2e-08-manage-renamed.png",
+        "/tmp/wgf-shots/sessions-groups-manage-rename.png"
+      ],
+      "notes": "E2E 断言：重命名成功（组行文本变开发中）+ 重名提示命中；harness 场景核对行内编辑态布局（输入框 prefill、计数角标保留）。"
+    },
+    {
+      "id": "F-08",
+      "phase": "new-feature",
+      "name": "空组选中 → 组专属空态（不是「没有 workspace」引导）",
+      "expect": "选中计数 0 的分组（日常）：列表区显示组专属空态——「This group has no workspaces yet. Tag workspaces in \"Manage groups…\" first.」+ 补充行 + 「Manage groups…」按钮；不显示「No workspaces yet. Add an existing folder...」默认引导。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/vis-04-empty-group.png",
+        "/tmp/wgf-shots/sessions-groups-empty.png"
+      ],
+      "notes": "E2E 断言空态文案；真机截图 vis-04 与 harness 场景核对排版与按钮。"
+    },
+    {
+      "id": "F-09",
+      "phase": "new-feature",
+      "name": "删除分组：清理归属 + 删除当前选中组回落「全部工作区」",
+      "expect": "管理视图 🗑 → 行内确认态（Delete group \"日常\"? + Delete/Cancel）；确认后组消失、其归属清理（计数据此不计）；若删的是当前选中组，分组栏回落「All workspaces」，列表恢复全部（4 工作区 + 未分组 = 5 组）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/e2e-10-after-delete-fallback.png",
+        "/tmp/wgf-shots/sessions-groups-purge.png"
+      ],
+      "notes": "E2E 断言：确认删除成功、栏标签回 All workspaces、5 组齐全；harness 场景核对确认态行布局（✎/🗑 消失、Delete/Cancel 按钮）。"
+    },
+    {
+      "id": "F-10",
+      "phase": "new-feature",
+      "name": "管理视图内拖拽排序：双向生效 + 持久化（下拉顺序跟随）",
+      "expect": "六点手柄拖拽换位（向上/向下都生效）；松手提交后下拉菜单按新顺序渲染（开发中、演示）；顺序存入 globalState（sessions.groups 数组序）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/e2e-11-manage-reordered.png"
+      ],
+      "notes": "E2E 断言：拖拽后组行顺序 开发中、演示 + 下拉菜单顺序跟随；harness 双向受控复现通过（down-drag + up-drag 均换位）。E2E 内真实鼠标路径受嵌套 iframe 几何/帧重建干扰（首次失败概率性出现），改用帧内合成 PointerEvent 走同一条指针处理链（document 监听 + clientY 判定）；真实鼠标路径由 harness 受控复现脚本确定性验证。"
+    },
+    {
+      "id": "F-11",
+      "phase": "new-feature",
+      "name": "持久化：分组定义/归属/当前选中存 globalState（与 workspaceState 分区）",
+      "expect": "sessions.groups / sessions.groupMembership / sessions.activeGroup 存到 globalState（跨窗口/重启）；删除选中组回落 null；与 workspaceState 偏好键（sortOrder/collapsed/pinned/unread）分区互不影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/e2e-12-after-reload.png"
+      ],
+      "notes": "沙盒内可验证部分：E2E 有一次运行 reload 后「演示」选中 + 过滤 2 组完整保留（persistence 生效，见截图 e2e-12）；另有运行 reload 后回落全部工作区——code-server 不落盘 state.vscdb，globalState 写入是否持久随运行漂移，属沙盒全局限制（workspaceState 同类键同样行为），报告范围声明已注明。持久化语义由纯层单测钉住（test/workspaceGroups.test.ts：清洗/计数/重排/删除清归属/重名拒绝）；API 用法与既有 modelWindowCache 的 globalState 持久化同款。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "sessions 面板既有功能回归（沙盒 E2E）",
+      "expect": "全部工作区 = 现状（4 工作区 + 未分组）；搜索无命中态「No sessions match」；清空搜索恢复；折叠全部/展开全部正常；多选归档模式不涉及（无会话）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/e2e-13-regression-all.png"
+      ],
+      "notes": "E2E 断言：清空搜索回 5 组、折叠≥5 行、展开正常；搜索词命中会话标题语义（workspace 组名不在搜索范围——既有行为，无回退）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "sessions 面板既有 harness 场景回归（渲染）",
+      "expect": "sessions / sessions-search / sessions-collapsed / sessions-recycle-drawer / sessions-selection-mode / sessions-menu 六场景与合入前一致；分组栏作为新行存在于搜索框下（不影响原有搜索框/工具按钮/列表/回收站/抽屉）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/wgf-shots/sessions.png",
+        "/tmp/wgf-shots/sessions-search.png",
+        "/tmp/wgf-shots/sessions-collapsed.png",
+        "/tmp/wgf-shots/sessions-recycle-drawer.png",
+        "/tmp/wgf-shots/sessions-selection-mode.png",
+        "/tmp/wgf-shots/sessions-menu.png"
+      ],
+      "notes": "Playwright 截图逐场景核对：列表/搜索高亮/折叠态/回收站抽屉/多选操作条/会话菜单均与合入前一致；分组栏新行不遮挡、不破坏。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量单元测试（含新增 workspaceGroups 7 项）",
+      "expect": "npm test 456 项全 pass（存量 449 + 新增 7）；typecheck、build 通过；check-i18n 门禁通过（新增 key 双 bundle 同步）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test 456 pass / 0 fail；tsc --noEmit 无错误；build 产出 4 个 bundle；scripts/check-i18n.sh agent/workspace-group-filter → OK。"
+    }
+  ]
+}
