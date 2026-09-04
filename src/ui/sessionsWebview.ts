@@ -130,8 +130,14 @@ let rebuildInProgress = false
 /* ---- 多选归档模式（临时 UI 状态：不进 store、不持久化，退出即清空） ---- */
 let selectionMode = false
 const selectedSessionIds = new Set<string>()
-/** 批量归档确认弹窗（挂 body，不随列表重建销毁）；busy = 归档请求已发出。 */
-let selectionModal: { overlay: HTMLElement; busy: boolean } | null = null
+/** 批量归档确认弹窗（挂 body，不随列表重建销毁）；busy = 归档请求已发出；
+ *  ids = 弹窗打开时锁定的可归档子集（确认时原样提交，不随勾选变化）。 */
+let selectionModal: { overlay: HTMLElement; busy: boolean; ids: string[] } | null = null
+
+/* ---- 回收站（本地可逆缓冲层）：视图开关是纯 webview UI 态，内容来自快照 ---- */
+let recycleView = false
+/** 回收站归档确认弹窗（清空/单个共用）；busy = 归档请求已发出。 */
+let recycleModal: { overlay: HTMLElement; busy: boolean; sessionIds: string[] } | null = null
 
 const sessionsPanel = el('aside', 'sessions-panel')
 app.appendChild(sessionsPanel)
@@ -356,6 +362,10 @@ const TRASH_ICON = [
 ]
 /** 一键清除 ✕ 描边图标（搜索框右侧按钮，与排序/置顶图钉同 stroke 风格）。 */
 const CLEAR_ICON = ['M4 4l8 8', 'M12 4l-8 8']
+/** 恢复（undo）描边图标：回收站行菜单「恢复」用。 */
+const RESTORE_ICON = ['M10 3.5L7 6.5l3 3', 'M7 6.5h3.2a3.6 3.6 0 0 1 0 7.2H6.4']
+/** 返回箭头（‹）：回收站视图头。 */
+const BACK_ICON = ['M10 3.5L5.5 8l4.5 4.5']
 
 function makePinIcon(): SVGSVGElement {
   const svg = strokeSvg(PIN_ICON)
@@ -585,6 +595,21 @@ function renderSessions(): void {
   oldList?.remove()
   const oldBar = sessionsPanel.querySelector<HTMLElement>('.selection-bar')
   oldBar?.remove()
+  const oldRecycleHeader = sessionsPanel.querySelector<HTMLElement>('.recycle-header')
+  oldRecycleHeader?.remove()
+  const oldRecycleList = sessionsPanel.querySelector<HTMLElement>('.recycle-list')
+  oldRecycleList?.remove()
+  const oldRecycleEntry = sessionsPanel.querySelector<HTMLElement>('.recycle-entry')
+  oldRecycleEntry?.remove()
+  // 回收站视图：整体替换（不复用主列表滚动区），主列表 header/入口不渲染。
+  if (recycleView) {
+    sessionsPanel.classList.add('recycle-mode')
+    sessionsPanel.appendChild(renderRecycleHeader())
+    sessionsPanel.appendChild(renderRecycleList())
+    rebuildInProgress = false
+    return
+  }
+  sessionsPanel.classList.remove('recycle-mode')
   const list = el('div', 'sessions-list')
   if (!snap) {
     list.appendChild(el('div', 'sessions-empty', t('Loading…')))
@@ -637,6 +662,8 @@ function renderSessions(): void {
   sessionsPanel.appendChild(list)
   // 多选模式：操作条插在搜索框（header）与列表之间。
   if (selectionMode) sessionsPanel.insertBefore(buildSelectionBar(), list)
+  // 回收站入口：面板底部固定行（列表滚动区之外，不随滚动消失）；计数 0 灰态。
+  sessionsPanel.appendChild(renderRecycleEntry())
   rebuildInProgress = false
   // 行内改名跨重建保留：重建后恢复编辑输入框的焦点与选区。
   if (editingSessionId) {
@@ -1059,18 +1086,302 @@ function highlightText(text: string): HTMLElement {
   return span
 }
 
-/* ---- 多选归档模式 ---- */
+/* ---- 回收站视图（本地可逆缓冲层：移入/恢复只改本地集合，不碰 dsh；归档即终点） ---- */
 
-/** 与单项归档一致：运行中/未读/待处理的会话不可勾选（归档后状态难追踪）。 */
-function sessionSelectable(s: SessionNodeModel): boolean {
-  return !(s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined)
+/** 回收站可见会话数（分组模型 flat 计数；已按非归档/存在过滤）。 */
+function recycleCount(snap: SessionsSnapshot | null): number {
+  if (!snap) return 0
+  return snap.recycleWorkspaces.reduce((n, w) => n + w.sessions.length, 0)
 }
 
-/** 不可勾选原因的悬停提示；可勾选返回 null。文案与单项归档禁用提示一致。 */
+/** 回收站全部会话模型（清空回收站的确认弹窗用；flat 所有分组）。 */
+function recycleSessionModels(): SessionNodeModel[] {
+  return sessionsSnapshot?.recycleWorkspaces.flatMap((w) => w.sessions) ?? []
+}
+
+/** 主列表底部的回收站入口行：面板底部固定（不随列表滚动），计数 0 灰态仍可点入。 */
+function renderRecycleEntry(): HTMLElement {
+  const count = recycleCount(sessionsSnapshot)
+  const row = el('button', 'recycle-entry' + (count === 0 ? ' empty' : ''))
+  row.setAttribute('aria-label', t('Recycle bin ({0})', count))
+  const icon = el('span')
+  icon.appendChild(strokeSvg(TRASH_ICON, 16))
+  row.appendChild(icon)
+  row.appendChild(el('span', 'recycle-entry-label', t('Recycle bin')))
+  row.appendChild(el('span', 'recycle-entry-count', String(count)))
+  row.addEventListener('click', () => enterRecycleView())
+  return row
+}
+
+/** 切到回收站视图：多选模式自然退出（回收站内无多选），行内重命名一并取消，已开弹层关闭。 */
+function enterRecycleView(): void {
+  recycleView = true
+  closePopover()
+  if (editingSessionId) cancelRowRename() // cancelRowRename 内部已 renderSessions（此时 recycleView 已 true）
+  if (selectionMode) exitSelectionMode() // exitSelectionMode 内部已 renderSessions
+  renderSessions()
+}
+
+/** 返回主列表：搜索草稿/折叠状态保留在 header DOM 与快照里，无需处理。 */
+function exitRecycleView(): void {
+  recycleView = false
+  renderSessions()
+}
+
+/** 回收站视图头：‹ 返回 + 「回收站 (N)」+ 清空回收站，右侧「恢复全部」。 */
+function renderRecycleHeader(): HTMLElement {
+  const count = recycleCount(sessionsSnapshot)
+  const header = el('div', 'recycle-header')
+  const back = el('button', 'recycle-back')
+  back.appendChild(strokeSvg(BACK_ICON, 12))
+  back.appendChild(el('span', undefined, t('‹ Back')))
+  back.addEventListener('click', () => exitRecycleView())
+  header.appendChild(back)
+  const title = el('div', 'recycle-header-title')
+  title.setAttribute('data-tip', t('Recycle bin ({0})', count))
+  title.appendChild(el('span', undefined, t('Recycle bin')))
+  header.appendChild(title)
+  header.appendChild(el('span', 'recycle-header-count', String(count)))
+  const emptyBtn = panelTool(strokeSvg(TRASH_ICON, 16), t('Empty recycle bin'))
+  emptyBtn.disabled = count === 0
+  emptyBtn.addEventListener('click', () => openRecycleArchiveModal(recycleSessionModels()))
+  header.appendChild(emptyBtn)
+  const restoreAllBtn = buttonEl('secondary', t('Restore all'))
+  restoreAllBtn.disabled = count === 0
+  restoreAllBtn.addEventListener('click', () => {
+    closePopover()
+    post({ type: 'sessionsRestoreAll' })
+  })
+  header.appendChild(restoreAllBtn)
+  return header
+}
+
+/** 回收站列表：按原 workspace 分组（空态/服务未运行态与主列表空态同构）。 */
+function renderRecycleList(): HTMLElement {
+  const snap = sessionsSnapshot
+  const list = el('div', 'recycle-list')
+  if (!snap) {
+    list.appendChild(el('div', 'sessions-empty', t('Loading…')))
+    return list
+  }
+  if (snap.serverState !== 'running') {
+    list.appendChild(renderServerEmpty(snap))
+    return list
+  }
+  if (!snap.baselineReady) {
+    list.appendChild(el('div', 'sessions-empty', t('Loading…')))
+    return list
+  }
+  if (snap.recycleWorkspaces.length === 0) {
+    const box = el('div', 'sessions-empty')
+    box.appendChild(el('div', 'empty-hint', t('The recycle bin is empty')))
+    box.appendChild(
+      el('div', 'empty-hint-secondary', t('Move sessions here from the row menu or multi-select to keep them out of the list; they can be restored later, only archiving is final.')),
+    )
+    list.appendChild(box)
+    return list
+  }
+  for (const w of snap.recycleWorkspaces) list.appendChild(renderRecycleGroup(w))
+  return list
+}
+
+/** 回收站分组：组头 = 原 workspace 名 + 计数 + 折叠箭头；折叠态独立持久化（互不影响主列表）。 */
+function renderRecycleGroup(w: WorkspaceNodeModel): HTMLElement {
+  const snap = sessionsSnapshot
+  const group = el('div', 'workspace-group')
+  group.dataset.workspaceId = w.workspaceId
+  const collapsed = snap?.recycleCollapsed.includes(w.workspaceId) ?? false
+  const head = el('div', collapsed ? 'workspace-row' : 'workspace-row expanded')
+  head.classList.toggle('has-active', w.sessions.some((s) => s.sessionId === currentSessionId))
+  const folderIcon = el('span', 'ws-folder')
+  folderIcon.appendChild(iconSvg(collapsed ? PANEL_ICONS.folder : PANEL_ICONS.folderOpen))
+  head.appendChild(folderIcon)
+  const arrow = el('span', 'ws-arrow')
+  arrow.appendChild(iconSvg(PANEL_ICONS.triangle))
+  head.appendChild(arrow)
+  const labelGroup = el('span', 'workspace-label-group')
+  labelGroup.appendChild(el('span', 'workspace-label', w.label))
+  head.appendChild(labelGroup)
+  head.appendChild(el('span', 'workspace-badge', String(w.sessions.length)))
+  head.addEventListener('click', () =>
+    post({ type: 'recycleGroupCollapse', workspaceId: w.workspaceId, collapsed: !collapsed }),
+  )
+  group.appendChild(head)
+  if (!collapsed) {
+    for (const s of w.sessions) group.appendChild(renderRecycleSessionRow(s))
+  }
+  return group
+}
+
+/** 回收站会话行：状态点照常显示（运行中/未读/待处理可以移入，回收站可逆）；点击 = 打开会话。 */
+function renderRecycleSessionRow(s: SessionNodeModel): HTMLElement {
+  const row = el('div', 'session-row')
+  row.dataset.sessionId = s.sessionId
+  if (currentSessionId === s.sessionId) row.classList.add('active')
+  row.title = s.label
+  const busy = s.running || s.descendantRunning
+  const slot = el('span', 'session-status')
+  const slotTaken = s.pendingInteraction !== undefined || busy || s.unread
+  if (s.pendingInteraction !== undefined) {
+    const dot = el('span', 'session-dot warning')
+    dot.title =
+      s.pendingInteraction === 'approval'
+        ? t('Waiting for approval')
+        : s.pendingInteraction === 'plan-review'
+          ? t('Plan review')
+          : t('Waiting for answer')
+    slot.appendChild(dot)
+  } else if (busy) slot.appendChild(spinSvg())
+  else if (s.unread) slot.appendChild(el('span', 'session-dot completed'))
+  else if (s.pinned) slot.appendChild(makePinIcon())
+  row.appendChild(slot)
+  const main = el('span', 'session-main')
+  if (s.pinned && slotTaken) {
+    const pin = el('span', 'session-pin')
+    pin.appendChild(makePinIcon())
+    main.appendChild(pin)
+  }
+  main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title', s.label))
+  main.appendChild(el('span', 'session-time', s.description))
+  row.appendChild(main)
+  const actions = el('span', 'row-actions')
+  const more = rowAction(iconSvg(PANEL_ICONS.ellipsis), t('More actions'), () => {
+    menuFreezeActive = true
+    showPopover(more, buildRecycleSessionMenuBody(s), 'below')
+    markMenuRow(row)
+  })
+  actions.appendChild(more)
+  row.appendChild(actions)
+  row.addEventListener('click', () => post({ type: 'sessionOpen', sessionId: s.sessionId }))
+  row.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    menuFreezeActive = true
+    showPopoverAt(e.clientX, e.clientY, buildRecycleSessionMenuBody(s))
+    markMenuRow(row)
+  })
+  return row
+}
+
+/** 回收站行菜单（⋯ 与右键共用）：恢复（可逆）/ 归档（终点动作，确认弹窗）。 */
+function buildRecycleSessionMenuBody(s: SessionNodeModel): HTMLElement {
+  const body = el('div')
+  body.appendChild(el('div', 'session-menu-title', t('Session: {0}', s.label)))
+  body.appendChild(
+    menuItem(t('Restore'), {
+      icon: strokeSvg(RESTORE_ICON),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionRestore', sessionId: s.sessionId })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem(t('Archive (cannot be restored)'), {
+      icon: iconSvg(PANEL_ICONS.archive),
+      onClick: () => {
+        closePopover()
+        openRecycleArchiveModal([s])
+      },
+    }),
+  )
+  return body
+}
+
+/** 回收站归档确认弹窗（清空全部/单个归档共用）：归档是终点动作（复用 archiveMany 链路）。 */
+function openRecycleArchiveModal(sessions: SessionNodeModel[]): void {
+  if (recycleModal || sessions.length === 0) return
+  const single = sessions.length === 1
+  const title = single
+    ? t('Archive session "{0}"?', sessions[0].label)
+    : t('Empty the recycle bin ({0} sessions)?', sessions.length)
+  const overlay = el('div', 'selection-modal-overlay')
+  const modal = el('div', 'selection-modal')
+  modal.appendChild(el('div', 'selection-modal-title', title))
+  modal.appendChild(
+    el('div', 'selection-modal-desc', t('Archiving cannot be undone here; the session records are still kept on dsh.')),
+  )
+  const tree = el('div', 'selection-modal-tree')
+  if (single) {
+    const s = sessions[0]
+    tree.appendChild(
+      renderModalGroup(
+        { ws: { workspaceId: '', path: '', label: s.label, isCurrent: false, sessions }, sessions },
+        false,
+      ),
+    )
+  } else {
+    const defaultCollapsed = sessions.length > 10
+    for (const g of sessionsSnapshot?.recycleWorkspaces ?? []) {
+      tree.appendChild(renderModalGroup({ ws: g, sessions: g.sessions }, defaultCollapsed))
+    }
+  }
+  modal.appendChild(tree)
+  const actions = el('div', 'selection-modal-actions')
+  const cancelBtn = buttonEl('secondary', t('Cancel'))
+  cancelBtn.addEventListener('click', () => {
+    if (recycleModal?.busy) return
+    closeRecycleModal()
+  })
+  actions.appendChild(cancelBtn)
+  const archiveBtn = buttonEl(undefined, t('Archive'))
+  archiveBtn.addEventListener('click', () => confirmRecycleArchive())
+  actions.appendChild(archiveBtn)
+  modal.appendChild(actions)
+  overlay.appendChild(modal)
+  document.body.appendChild(overlay)
+  recycleModal = { overlay, busy: false, sessionIds: sessions.map((s) => s.sessionId) }
+  document.addEventListener('keydown', onRecycleModalKey, true)
+}
+
+function confirmRecycleArchive(): void {
+  if (!recycleModal || recycleModal.busy) return
+  recycleModal.busy = true
+  recycleModal.overlay.querySelectorAll('button').forEach((b) => ((b as HTMLButtonElement).disabled = true))
+  const title = recycleModal.overlay.querySelector<HTMLElement>('.selection-modal-title')
+  if (title) title.textContent = t('Archiving…')
+  post({ type: 'sessionArchiveMany', sessionIds: recycleModal.sessionIds })
+}
+
+function closeRecycleModal(): void {
+  if (!recycleModal) return
+  recycleModal.overlay.remove()
+  recycleModal = null
+  document.removeEventListener('keydown', onRecycleModalKey, true)
+}
+
+function onRecycleModalKey(e: KeyboardEvent): void {
+  // 归档请求已发出（busy）时 Esc 不关闭：避免用户以为取消了，实际仍在执行。
+  if (e.key === 'Escape' && recycleModal && !recycleModal.busy) {
+    e.preventDefault()
+    closeRecycleModal()
+  }
+}
+
+/** 回收站归档回执（archiveManyDone）：成功项随快照更新消失，失败项保留（宿主已弹提示）。 */
+function onRecycleArchiveManyDone(): void {
+  closeRecycleModal()
+}
+
+/* ---- 多选模式（操作条：「移入回收站」+「归档选中的 N 个」） ---- */
+
+/**
+ * 复选框可勾选条件：只有置顶不可勾选——置顶不能移入回收站、也不能归档
+ * （清空回收站 = 归档，置顶入站会绕过置顶保护）。运行中/未读/待处理可以
+ * 勾选（可移入回收站，回收站可逆），只是不能归档（归档侧再过滤一次，
+ * 见 sessionArchiveSelectable）。
+ */
+function sessionSelectable(s: SessionNodeModel): boolean {
+  return !s.pinned
+}
+
+/** 归档资格（与单项归档一致）：置顶（同 selectable）与运行中/未读/待处理都不可；后者可移入回收站。 */
+function sessionArchiveSelectable(s: SessionNodeModel): boolean {
+  return !(s.pinned || s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined)
+}
+
+/** 不可勾选原因的悬停提示；可勾选返回 null。 */
 function sessionSelectTip(s: SessionNodeModel): string | null {
-  if (s.pendingInteraction !== undefined) return t('Sessions with pending items cannot be archived')
-  if (s.running || s.descendantRunning) return t('Running sessions cannot be archived')
-  if (s.unread) return t('Unread sessions cannot be archived')
+  if (s.pinned) return t('Pinned sessions cannot be moved to the recycle bin or archived; unpin them first')
   return null
 }
 
@@ -1135,12 +1446,12 @@ function toggleGroupSelection(w: WorkspaceNodeModel): void {
     if (allSelected) selectedSessionIds.delete(s.sessionId)
     else selectedSessionIds.add(s.sessionId)
   }
-  // 选中方向（不是取消）且组内有不可归档会话：飘提示，说明没法真正全选。
+  // 选中方向（不是取消）且组内有置顶会话：飘提示，说明没法真正全选。
   if (!allSelected && selectable.length < w.sessions.length) {
     const cb = document.querySelector<HTMLElement>(
       `.workspace-group[data-workspace-id="${CSS.escape?.(w.workspaceId) ?? w.workspaceId}"] .select-checkbox`,
     )
-    if (cb) flashTip(t('Some sessions cannot be archived; this group cannot be fully selected'), cb)
+    if (cb) flashTip(t('Pinned sessions cannot be moved to the recycle bin or archived; this group cannot be fully selected'), cb)
   }
   renderSessions()
 }
@@ -1162,11 +1473,15 @@ function groupSelectionState(w: WorkspaceNodeModel): SelectState {
   return 'some'
 }
 
-/** 组头复选框悬停提示：组内有不可归档会话时说明数量；搜索态补充作用范围。 */
+/** 组头复选框悬停提示：置顶数（不可勾选，移入/归档都禁止）+ 非归档数（可勾选但归档会跳过）。 */
 function groupSelectTip(w: WorkspaceNodeModel, inSearch: boolean): string | null {
   const parts: string[] = []
-  const disabledCount = w.sessions.length - w.sessions.filter(sessionSelectable).length
-  if (disabledCount > 0) parts.push(t('{0} session(s) in this group cannot be archived', disabledCount))
+  const pinnedCount = w.sessions.filter((s) => !sessionSelectable(s)).length
+  if (pinnedCount > 0) {
+    parts.push(t('{0} pinned session(s) cannot be moved to the recycle bin or archived', pinnedCount))
+  }
+  const nonArchivable = w.sessions.filter((s) => sessionSelectable(s) && !sessionArchiveSelectable(s)).length
+  if (nonArchivable > 0) parts.push(t('{0} session(s) cannot be archived', nonArchivable))
   if (inSearch) parts.push(t('Selection applies to current search results'))
   return parts.length > 0 ? parts.join(' · ') : null
 }
@@ -1187,11 +1502,28 @@ function exitSelectionMode(): void {
   renderSessions()
 }
 
-/** 顶部操作条：搜索框下、第一个工作区上，含「归档选中的 N 个」与「取消」。 */
+/** 顶部操作条：搜索框下、第一个工作区上，含「移入回收站」「归档选中的 N 个」与「取消」。 */
 function buildSelectionBar(): HTMLElement {
   const bar = el('div', 'selection-bar')
-  const archiveBtn = buttonEl(undefined, t('Archive {0} selected', selectedSessionIds.size))
-  archiveBtn.disabled = selectedSessionIds.size === 0
+  // 移入回收站：可勾选 = 非置顶，全部可移入（运行中/未读/待处理也允许，回收站可逆）。
+  const moveBtn = buttonEl(undefined, t('Move {0} selected to the recycle bin', selectedSessionIds.size))
+  moveBtn.disabled = selectedSessionIds.size === 0
+  moveBtn.addEventListener('click', () => {
+    const ids = [...selectedSessionIds]
+    if (ids.length === 0) return
+    closePopover()
+    post({ type: 'sessionMoveToRecycleMany', sessionIds: ids })
+    flashTip(t('Moved to the recycle bin'), moveBtn)
+  })
+  bar.appendChild(moveBtn)
+  // 归档：勾选里可归档的子集（运行中/未读/待处理可勾选但不可归档——归档后
+  // 状态难追踪；确认弹窗里会再过滤并列明跳过数）。按钮计数与之对齐。
+  const archivableCount = [...selectedSessionIds].filter((id) => {
+    const s = findSessionModel(id)
+    return s ? sessionArchiveSelectable(s) : true
+  }).length
+  const archiveBtn = buttonEl(undefined, t('Archive {0} selected', archivableCount))
+  archiveBtn.disabled = archivableCount === 0
   archiveBtn.addEventListener('click', () => openSelectionModal())
   bar.appendChild(archiveBtn)
   const cancelBtn = buttonEl('secondary', t('Cancel'))
@@ -1200,14 +1532,23 @@ function buildSelectionBar(): HTMLElement {
   return bar
 }
 
-/** 确认弹窗：按工作区树形分组展示选中会话；过多默认折叠明细，展开不超屏。 */
+/** 确认弹窗：按工作区树形分组展示选中会话（只列可归档的；过多默认折叠明细，展开不超屏）。 */
 function openSelectionModal(): void {
   const snap = sessionsSnapshot
   if (!snap || selectedSessionIds.size === 0) return
+  // 勾选里可归档的子集：运行中/未读/待处理可以勾选（为了移入回收站）但不能
+  // 归档，这里过滤掉并列明跳过数，不静默放行。
+  const archivableIds = new Set(
+    [...selectedSessionIds].filter((id) => {
+      const s = findSessionModel(id)
+      return s ? sessionArchiveSelectable(s) : true
+    }),
+  )
+  const skipped = selectedSessionIds.size - archivableIds.size
   const groups: Array<{ ws: WorkspaceNodeModel; sessions: SessionNodeModel[] }> = []
   const seen = new Set<string>()
   for (const ws of snap.workspaces) {
-    const sels = ws.sessions.filter((s) => selectedSessionIds.has(s.sessionId))
+    const sels = ws.sessions.filter((s) => archivableIds.has(s.sessionId))
     if (sels.length > 0) {
       groups.push({ ws, sessions: sels })
       for (const s of sels) seen.add(s.sessionId)
@@ -1215,7 +1556,7 @@ function openSelectionModal(): void {
   }
   // 勾选项可能因搜索过滤/别处归档而不在当前树里（组被整组过滤、行不渲染，
   // 但勾选保留）：兜底组列出，不静默丢弃也不归档不存在的 id。
-  const leftover = [...selectedSessionIds].filter((id) => !seen.has(id))
+  const leftover = [...archivableIds].filter((id) => !seen.has(id))
   if (leftover.length > 0) {
     const ws: WorkspaceNodeModel = {
       workspaceId: '',
@@ -1249,7 +1590,11 @@ function openSelectionModal(): void {
       ? t('Archive {0} session?', total)
       : t('Archive {0} sessions?', total)
   modal.appendChild(el('div', 'selection-modal-title', title))
-  modal.appendChild(el('div', 'selection-modal-desc', t('Archived sessions will be hidden from the list.')))
+  const desc =
+    skipped > 0
+      ? t('Archived sessions will be hidden from the list. {0} selected session(s) cannot be archived and were skipped.', skipped)
+      : t('Archived sessions will be hidden from the list.')
+  modal.appendChild(el('div', 'selection-modal-desc', desc))
   const tree = el('div', 'selection-modal-tree')
   // 过长（多组或大量会话）默认折叠明细，组头恒可见；展开后靠滚动不超屏。
   const defaultCollapsed = groups.length > 1 || total > 10
@@ -1265,7 +1610,7 @@ function openSelectionModal(): void {
   modal.appendChild(actions)
   overlay.appendChild(modal)
   document.body.appendChild(overlay)
-  selectionModal = { overlay, busy: false }
+  selectionModal = { overlay, busy: false, ids: [...archivableIds] }
   document.addEventListener('keydown', onSelectionModalKey, true)
 }
 
@@ -1305,10 +1650,11 @@ function closeSelectionModal(): void {
   document.removeEventListener('keydown', onSelectionModalKey, true)
 }
 
-/** 确认归档：请求已发出 → busy（按钮禁用 + 标题“正在归档”），等 archiveManyDone。 */
+/** 确认归档：请求已发出 → busy（按钮禁用 + 标题“正在归档”），等 archiveManyDone。
+ *  提交弹窗打开时锁定的可归档子集（运行中/未读/待处理在弹窗里已列明跳过）。 */
 function confirmArchive(): void {
   if (!selectionModal || selectionModal.busy) return
-  const ids = [...selectedSessionIds]
+  const ids = selectionModal.ids
   if (ids.length === 0) return
   selectionModal.busy = true
   selectionModal.overlay.querySelectorAll('button').forEach((b) => ((b as HTMLButtonElement).disabled = true))
@@ -1409,13 +1755,30 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
       },
     }),
   )
+  // 移入回收站（可逆缓冲层，无确认弹窗）：置顶不可移入（清空回收站 = 归档，
+  // 置顶入站会绕过置顶保护）；运行中/未读/待处理可以移入（与归档限制不同）。
+  body.appendChild(
+    menuItem(t('Move to recycle bin'), {
+      icon: strokeSvg(TRASH_ICON),
+      disabled: pinned,
+      disabledTip: t('Pinned sessions cannot be moved to the recycle bin; unpin them first'),
+      onClick: () => {
+        const anchor = menuOpenRow
+        // 先飘提示（此时行还在 DOM 里能取到 rect），再关菜单/发消息。
+        if (anchor) flashTip(t('Moved to the recycle bin'), anchor)
+        closePopover()
+        post({ type: 'sessionMoveToRecycle', sessionId: s.sessionId })
+      },
+    }),
+  )
   body.appendChild(
     menuItem(t('Archive session'), {
       icon: iconSvg(PANEL_ICONS.archive),
-      // 运行中/未读/待处理的会话归档后状态难追踪，置灰禁用。
-      disabled: s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined,
-      disabledTip:
-        s.pendingInteraction !== undefined
+      // 运行中/未读/待处理/置顶的会话归档后状态难追踪（置顶归档绕过置顶保护），置灰禁用。
+      disabled: pinned || s.running || s.descendantRunning || s.unread || s.pendingInteraction !== undefined,
+      disabledTip: pinned
+        ? t('Pinned sessions cannot be archived; unpin them first')
+        : s.pendingInteraction !== undefined
           ? t('Sessions with pending items cannot be archived')
           : s.running || s.descendantRunning
             ? t('Running sessions cannot be archived')
@@ -1436,7 +1799,10 @@ window.addEventListener('message', (event) => {
     currentSessionId = msg.snapshot.activeSessionId ?? null
     renderSessions()
   } else if (msg?.type === 'archiveManyDone' && Array.isArray(msg.failed)) {
-    onArchiveManyDone(msg.failed)
+    // 回收站归档（清空/单个）与主列表批量归档共用 sessionArchiveMany 链路：
+    // 按当前打开的确认弹窗分流回执。
+    if (recycleModal) onRecycleArchiveManyDone()
+    else onArchiveManyDone(msg.failed)
   }
 })
 

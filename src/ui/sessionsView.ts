@@ -139,6 +139,61 @@ const SESSIONS_STYLE = `
   .modal-session-time { flex: none; font-size: 11px; opacity: .55; }
   .selection-modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px 12px; }
   .selection-modal-actions button { padding: 4px 12px; font-size: 12px; }
+  /* 回收站模式：隐藏主列表头部（搜索框等），整面板切回收站视图。 */
+  .sessions-panel.recycle-mode .sessions-header { display: none; }
+  .recycle-list { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 0; }
+  /* 回收站入口行（面板底部固定，不随列表滚动）：描边垃圾桶 + 标签 + 计数；
+     计数为 0 时灰态。压掉全局 button 的实底样式。 */
+  .recycle-entry {
+    flex: none; width: 100%; box-sizing: border-box;
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 14px; margin: 0; border: 0; border-radius: 0;
+    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    background: transparent; color: var(--vscode-foreground);
+    font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+  }
+  .recycle-entry:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
+  .recycle-entry.empty { color: var(--vscode-descriptionForeground, #888); opacity: .75; }
+  .recycle-entry svg { flex: none; }
+  .recycle-entry-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recycle-entry-count {
+    flex: none; font-size: 10px; padding: 0 5px; border-radius: 8px;
+    background: var(--vscode-badge-background, rgba(127,127,127,.25));
+    color: var(--vscode-badge-foreground, var(--vscode-foreground));
+  }
+  .recycle-entry.empty .recycle-entry-count { background: transparent; padding: 0; opacity: .8; }
+  /* 回收站视图头：‹ 返回 + 标题 + 清空回收站，右侧「恢复全部」。 */
+  .recycle-header {
+    flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .recycle-back {
+    flex: none; display: inline-flex; align-items: center; gap: 2px;
+    padding: 3px 6px; margin: 0; border: 0; border-radius: 4px;
+    background: transparent; color: var(--vscode-foreground);
+    font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .recycle-back:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  .recycle-header-title {
+    flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 600;
+  }
+  .recycle-header-title > span:first-child {
+    display: inline-block; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
+  }
+  /* 计数徽标（标题右侧，独立节点）：flex:none 不被标题省略号截掉——计数是
+     视图头/入口的关键信息（EN 300px 侧栏标题会被按钮挤掉时徽标恒显示）。 */
+  .recycle-header-count {
+    flex: none; font-size: 10px; font-weight: 400; padding: 0 5px; border-radius: 8px;
+    background: var(--vscode-badge-background, rgba(127,127,127,.25));
+    color: var(--vscode-badge-foreground, var(--vscode-foreground));
+  }
+  .recycle-header-spacer { flex: 1; }
+  /* 回收站视图头按钮小号化（压全局 button 默认尺寸）；不换行。 */
+  .recycle-header button { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
+  /* 清空回收站用图标按钮（300px 侧栏一行放不下三个文本按钮 + 标题）：
+     悬停提示/aria 都带全名「Empty recycle bin」。 */
+  .recycle-header .sessions-tool { width: 24px; height: 24px; }
   .workspace-row {
     display: flex; align-items: center; gap: 6px; padding: 0 10px;
     height: 32px; box-sizing: border-box; overflow: hidden;
@@ -522,6 +577,45 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       }
       case 'sessionFork':
         void vscode.commands.executeCommand('dshOne.session.fork', m.sessionId)
+        return
+      // 移入回收站（可逆本地操作，不碰 dsh）：置顶会话与归档同规则拒绝——
+      // 回收站清空 = 归档，置顶入站会绕过置顶保护（UI 已置灰，这里兜底）。
+      case 'sessionMoveToRecycle':
+        if (this.store.snapshot().pinned.includes(m.sessionId)) {
+          vscode.window.showWarningMessage(
+            vscode.l10n.t('Pinned sessions cannot be moved to the recycle bin; unpin them first'),
+          )
+          return
+        }
+        this.store.moveToRecycleBin(m.sessionId)
+        return
+      // 批量移入（多选操作条）：置顶 id 跳过并提示（正常流程下勾选已排除置顶，
+      // 命中表示绕过 UI 的竞态/异常路径）。
+      case 'sessionMoveToRecycleMany': {
+        const ids = Array.isArray(m.sessionIds)
+          ? m.sessionIds.filter((x): x is string => typeof x === 'string' && x !== '')
+          : []
+        if (ids.length === 0) return
+        const pinned = new Set(this.store.snapshot().pinned)
+        const accepted = ids.filter((id) => !pinned.has(id))
+        const rejected = ids.length - accepted.length
+        if (accepted.length > 0) this.store.moveToRecycleBinMany(accepted)
+        if (rejected > 0) {
+          vscode.window.showWarningMessage(
+            vscode.l10n.t('{0} pinned session(s) cannot be moved to the recycle bin; unpin them first', rejected),
+          )
+        }
+        return
+      }
+      case 'sessionRestore':
+        this.store.restoreFromRecycleBin(m.sessionId)
+        return
+      case 'sessionsRestoreAll':
+        this.store.restoreAllFromRecycleBin()
+        return
+      // 回收站视图的组折叠：独立持久化，与主列表折叠互不影响。
+      case 'recycleGroupCollapse':
+        this.store.setRecycleCollapsed(m.workspaceId, m.collapsed)
         return
       case 'workspaceAdd':
         void vscode.commands.executeCommand('dshOne.workspace.add')

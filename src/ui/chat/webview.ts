@@ -2486,12 +2486,16 @@ function buildHeaderSessionMenu(header: HTMLElement): HTMLElement {
   body.appendChild(
     menuItem(t('Archive session'), {
       icon: iconSvg(PANEL_ICONS.archive),
-      disabled: running || unread || pending,
-      disabledTip: pending
-        ? t('Sessions with pending items cannot be archived')
-        : running
-          ? t('Running sessions cannot be archived')
-          : t('Unread sessions cannot be archived'),
+      // 置顶/运行中/未读/待处理禁用：置顶归档绕过置顶保护（pinned-not-archivable），
+      // 其余归档后状态难追踪。host 命令层对置顶还有兜底（防菜单绕过）。
+      disabled: pinned || running || unread || pending,
+      disabledTip: pinned
+        ? t('Pinned sessions cannot be archived; unpin them first')
+        : pending
+          ? t('Sessions with pending items cannot be archived')
+          : running
+            ? t('Running sessions cannot be archived')
+            : t('Unread sessions cannot be archived'),
       onClick: () => {
         closePopover()
         post({ type: 'sessionArchive', sessionId: sid, title: state?.sessionTitle ?? '' })
