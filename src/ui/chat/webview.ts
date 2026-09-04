@@ -5371,6 +5371,9 @@ function renderPanelAnswer(p: PendingQuestion, index: number): HTMLElement {
 interface QuestionDraft {
   selected: Set<string>
   custom: string
+  /** 单选「其他」选项态：选中后其下方展开自定义输入框（不入 selected，避免
+   *  提交伪造的「其他」label——单选 custom 非空时 selected 本就置空）。 */
+  other: boolean
 }
 
 function questionDraft(rpcId: string): Map<number, QuestionDraft> {
@@ -5386,7 +5389,7 @@ function draftFor(rpcId: string, index: number): QuestionDraft {
   const d = questionDraft(rpcId)
   let v = d.get(index)
   if (!v) {
-    v = { selected: new Set(), custom: '' }
+    v = { selected: new Set(), custom: '', other: false }
     d.set(index, v)
   }
   return v
@@ -5548,24 +5551,51 @@ function renderQuestionItem(
           // 点击只选中，翻页/提交一律走底部的「下一题/提交」按钮：误触直接提交容易漏题。
           draft.selected = new Set([opt.label])
           draft.custom = ''
+          draft.other = false
           // 保活态下 render() 不会重建面板，选中高亮与自定义输入框必须就地
           // 更新；无保活时下次快照重建也会按 draft 恢复同态。
           group.querySelectorAll('.option-btn').forEach((b) => b.classList.toggle('selected', b === btn))
+          const customRow = wrap.querySelector<HTMLElement>('.question-custom')
+          if (customRow) customRow.classList.add('hidden')
           const customInput = wrap.querySelector<HTMLInputElement>('.question-custom input')
           if (customInput) customInput.value = ''
           updateOkState()
         })
         group.appendChild(btn)
       }
+      // 单选「其他」选项：选中后展开其下方的自定义输入框并聚焦；「其他」本身
+      // 不进入 draft.selected（提交时 custom 非空即 selected 置空，编码不变）。
+      const otherBtn = buttonEl('secondary option-btn', t('Other'))
+      if (draft.other) otherBtn.classList.add('selected')
+      otherBtn.addEventListener('click', () => {
+        draft.selected.clear()
+        draft.custom = ''
+        draft.other = true
+        group.querySelectorAll('.option-btn').forEach((b) => b.classList.toggle('selected', b === otherBtn))
+        const customRow = wrap.querySelector<HTMLElement>('.question-custom')
+        if (customRow) customRow.classList.remove('hidden')
+        const customInput = wrap.querySelector<HTMLInputElement>('.question-custom input')
+        if (customInput) {
+          customInput.value = ''
+          customInput.focus()
+        }
+        updateOkState()
+      })
+      group.appendChild(otherBtn)
       wrap.appendChild(group)
     }
   }
   // Every question also takes a free-text "Other" answer, like the web UI.
+  // 单选有选项时输入框跟随「其他」选项显隐（初始/点其他选项后隐藏）；多选与
+  // 无选项问题常显（多选时 custom 伴随 selected，无选项时输入框即唯一作答方式）。
   const customRow = el('div', 'question-custom')
   const input = document.createElement('input')
   input.type = 'text'
   input.placeholder = q.options?.length ? t('Other (custom answer)') : t('Type your answer')
   input.value = draft.custom
+  if (!q.multiSelect && q.options?.length && !draft.other && draft.custom === '') {
+    customRow.classList.add('hidden')
+  }
   input.addEventListener('input', () => {
     draft.custom = input.value
     if (input.value && !q.multiSelect) draft.selected.clear()

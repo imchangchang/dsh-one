@@ -944,6 +944,8 @@ const STYLE = `
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
   }
+  /* 单选「其他」选项的自定义输入框：未选中「其他」时隐藏（多选/无选项题常显）。 */
+  .question-custom.hidden { display: none; }
   button {
     background: var(--vscode-button-background); color: var(--vscode-button-foreground);
     border: 0; border-radius: 4px; padding: 4px 12px; cursor: pointer;
