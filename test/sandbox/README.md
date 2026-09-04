@@ -197,14 +197,18 @@ node test/sandbox/verify-driver.mjs \
 
 ### Ledger 字段
 
-驱动只读这两格（`driver` 可缺省，缺省的项跳过不执行）：
+驱动只读 `driver` 格（`driver` 可缺省，缺省的项跳过不执行）。除 `prompt` 外都是可选字段，缺省走原有行为：
 
 ```json
 {
   "id": "F-01",
   "driver": {
-    "prompt": "测试一下",             // 发送给新会话的消息
-    "expectText": "收到：测试一下"      // 断言：等待 webview 中出现该文本（超时 60s）
+    "prompt": "测试一下",             // 发送给新会话的消息（可选：fillAndClear 项可省）
+    "expectText": "收到：测试一下",    // 断言：等待 webview 中出现该文本（超时 120s）
+    "afterSendFill": "我的草稿",      // 可选：点发送后立刻填入 composer（pending 接管前正在输入）
+    "approve": true,                  // 可选：等待权限审批面板并点 Allow once（英文 locale）
+    "expectDraft": "我的草稿",        // 可选：断言 composer textarea 值包含该文本（草稿恢复检查）
+    "fillAndClear": "草稿文本"         // 可选：填入该文本并点 .clear-all-button，断言输入框为空
   },
   "result": "pending",              // 驱动每次跑完覆写：done（断言命中）/ fail（断言超时，notes 写原因）
   "screenshots": []

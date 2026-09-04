@@ -535,6 +535,55 @@
       expect: '接管面板 header「计划待审」+ 最小化按钮；正文：**warn strip 警示条**（⚠ 图标 + 「计划待审」，黄色底/边框）+ 计划 Markdown 全文直接展开（### 方案 + 正文，限高滚动，**无**「查看详情」折叠） + 三分按钮行：「批准」（主按钮 option-btn 样式，bullet ·）+「拒绝」（次要按钮）+「去聊天里说」（次要按钮）；**不再有**「其他（自定义回答）」输入框与「确认」按钮（三分结构替代）；消息流尾部无 pending 卡。',
     },
 
+    // ---- 交互场景：pending 接管不丢 composer 草稿（回归 composer-draft-lost-on-pending）----
+    // 时序：输入草稿 → 宿主推来带 approval 的 state（composer 被面板替换）→
+    // 点「Allow once」应答 → 宿主推回无 pending 的 state（composer 恢复）→
+    // 断言 textarea#input.value 还是原草稿。步骤间用 MutationObserver 链接
+    // （不用固定 setTimeout：后台 tab 定时器被浏览器节流，链接会断），截图停在
+    // 恢复后的 composer。
+    'pending-typing-draft': {
+      state: base({}),
+      title: '输入中 pending 到达 → 应答后草稿还在',
+      interact: `(() => {
+        const post = (m) => window.postMessage(m, '*')
+        const state = () => ({
+          sessionId: 'sess-1', sessionTitle: 'DSH One 示例会话',
+          messages: [
+            { kind: 'user', id: 'u-1', text: '你帮我看看这个插件的架构，总结一下核心思路。' },
+            { kind: 'assistant', id: 'a-1', complete: true, turnEnd: true, blocks: [{ type: 'text', text: '这个插件是 dsh 与 VSCode 的桥接。' }] },
+          ],
+          pending: [], running: true, canSend: true, modelLabel: 'DeepSeek-V4-Flash High', presetLabel: '标准模式', statsLine: '2 条消息 · 45s',
+        })
+        const ta = document.getElementById('input')
+        if (!ta) return
+        ta.value = '输入到一半的草稿——pending 应答后必须还在'
+        ta.dispatchEvent(new Event('input'))
+        // 宿主推来审批 pending：composer 被面板替换（接管帧应把草稿暂存）
+        const s = state()
+        s.pending = [{ kind: 'approval', rpcId: 'rpc-1', sessionId: 'sess-1', approvalId: 'appr-1', toolName: 'bash', reason: '允许执行 npm test 吗？' }]
+        post({ type: 'state', state: s })
+        const root = document.getElementById('app')
+        const onPanel = new MutationObserver(() => {
+          const allow = [...document.querySelectorAll('.pending-panel button')].find((b) => (b.textContent || '').trim() === 'Allow once')
+          if (!allow) return
+          onPanel.disconnect()
+          // 用户在面板里应答，随后宿主推回无 pending 的 state
+          allow.click()
+          post({ type: 'state', state: state() })
+          const onInput = new MutationObserver(() => {
+            const input = document.getElementById('input')
+            if (!input) return
+            onInput.disconnect()
+            window.__draftRestored = input.value
+            document.title = 'DRAFT-RESTORED:' + input.value
+          })
+          onInput.observe(root, { childList: true, subtree: true })
+        })
+        onPanel.observe(root, { childList: true, subtree: true })
+      })()`,
+      expect: '恢复后的 composer 输入框里还是应答前输入的那段草稿「输入到一半的草稿——pending 应答后必须还在」（输入区高亮层绘制，非占位符）；pending 面板已消失；无报错（旧回归：pending 帧 autoGrow 对 null 抛 TypeError，吞掉渲染尾部）。',
+    },
+
     todos: {
       state: base({ todos: [{ content: '梳理架构', status: 'completed' }, { content: '写测试', status: 'in_progress' }, { content: '发版', status: 'pending' }] }),
       title: 'todo 清单卡',
@@ -1625,6 +1674,53 @@
       interact: `postMessage({ type:'attachmentData', attachmentId:'img-1', mediaType:'image/png', data:'${PNG_RED}' }, '*');
 postMessage({ type:'filesPicked', files:[{ name:'photo.png', path:'/tmp/dsh-one-attachments/u-1/photo.png', image:true, mediaType:'image/png', previewData:'${PNG_RED}' }] }, '*');
 postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/Workspaces/dsh-one/README.md' }] }, '*');`,
+    },
+
+    // ---- 一键清空按钮（本地增强 composer-clear-all-button）----
+    'composer-clear-all': {
+      state: base({}),
+      title: '一键清空按钮（文本 + 附件时可见）',
+      interact: `(() => {
+        const post = (m) => window.postMessage(m, '*')
+        const ta = document.getElementById('input')
+        if (ta) {
+          ta.value = '把这段草稿和附件一起清空'
+          ta.dispatchEvent(new Event('input'))
+        }
+        post({ type: 'filesPicked', files: [{ name: 'photo.png', path: '/tmp/dsh-one-attachments/u-1/photo.png', image: true, mediaType: 'image/png', previewData: '${PNG_RED}' }, { name: 'notes.md', path: '/tmp/notes.md' }] }, '*')
+      })()`,
+      expect: '输入框右侧、发送按钮左侧出现 ghost × 按钮（20px，灰色小字，无底色）；输入框高亮层绘制「把这段草稿和附件一起清空」；输入区上方 chips 行：红色图片缩略图 + 文件框（notes.md）——× 与 chip 自带 ×（chips 各自右上角）不在同一位置，无重叠；本轮只验证「有内容时 × 可见」的散布与排版。',
+    },
+    'composer-clear-all-click': {
+      state: base({}),
+      title: '点击一键清空：文本/附件全清，焦点回输入框',
+      interact: `(() => {
+        const post = (m) => window.postMessage(m, '*')
+        const ta = document.getElementById('input')
+        if (!ta) return
+        ta.value = '这段文本会被 × 清空'
+        ta.dispatchEvent(new Event('input'))
+        post({ type: 'filesPicked', files: [{ name: 'photo.png', path: '/tmp/dsh-one-attachments/u-1/photo.png', image: true, mediaType: 'image/png', previewData: '${PNG_RED}' }] }, '*')
+        // 附件回执触发 render 后 × 才可见：用 MutationObserver 等它上屏再点
+        // （不用固定 setTimeout：后台 tab 定时器被浏览器节流）。
+        const root = document.getElementById('app')
+        const onBtn = new MutationObserver(() => {
+          const btn = document.querySelector('.clear-all-button')
+          if (!btn || btn.hidden) return
+          onBtn.disconnect()
+          btn.click()
+          // click 处理器内 render() 同步重建 composer，随后记录断言结果
+          const input = document.getElementById('input')
+          window.__clearAllCheck = {
+            value: input ? input.value : null,
+            focused: input ? document.activeElement === input : false,
+            buttonHidden: document.querySelector('.clear-all-button')?.hidden ?? null,
+          }
+          document.title = 'CLEARED:' + JSON.stringify(window.__clearAllCheck)
+        })
+        onBtn.observe(root, { childList: true, subtree: true })
+      })()`,
+      expect: '点击 × 后：输入框为空（高亮层无文本、无占位残影）、图片 chips 行消失、× 隐藏（内容清空后不再是 dirty 态）、输入框拿到焦点（focus outline）。',
     },
 
   }

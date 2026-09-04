@@ -31,3 +31,7 @@ composer 有内容（文本 / 图片 / 文件附件）时，输入框右上角�
 ## 变更记录
 
 - 2026-09-03 用户提出需求，核实现状后讨论必要性（认可做，作本地增强）→ open
+
+- 2026-09-06 认领（agent/composer-draft-clear，worktree .worktrees/composer-draft-clear）→ doing
+
+- 2026-09-06 开发完成（agent/composer-draft-clear）→ done。自测：typecheck/test（386 全绿）/build 通过；真 dsh E2E（沙盒 mock-llm）：填文本 → 点 × → 输入框为空、按钮隐藏 ✓；harness 场景 composer-clear-all / composer-clear-all-click ✓（报告 test/sandbox/verify.composer-draft-clear.report.html，7 项全 pass）
