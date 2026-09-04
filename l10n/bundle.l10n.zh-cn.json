@@ -22,6 +22,7 @@
   "Rename Session": "重命名会话",
   "Enter a new session title": "输入新的会话标题",
   "Failed to rename session: {0}": "重命名会话失败：{0}",
+  "Archive session \"{0}\"?": "确认归档会话「{0}」？",
   "Archive session \"{0}\"? It will be hidden from the list after archiving.": "确认归档会话「{0}」？归档后会从列表中隐藏。",
   "Archive": "归档",
   "Failed to archive session: {0}": "归档会话失败：{0}",

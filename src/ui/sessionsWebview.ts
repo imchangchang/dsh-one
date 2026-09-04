@@ -601,68 +601,69 @@ function renderSessions(): void {
   oldRecycleList?.remove()
   const oldRecycleEntry = sessionsPanel.querySelector<HTMLElement>('.recycle-entry')
   oldRecycleEntry?.remove()
+  // 回收站视图：整体替换（不复用主列表滚动区），主列表 header/入口不渲染。
   if (recycleView) {
-    // 回收站视图：整体替换（不复用主列表滚动区），主列表 header/入口不渲染。
     sessionsPanel.classList.add('recycle-mode')
     sessionsPanel.appendChild(renderRecycleHeader())
     sessionsPanel.appendChild(renderRecycleList())
-  } else {
-    sessionsPanel.classList.remove('recycle-mode')
-    const list = el('div', 'sessions-list')
-    if (!snap) {
-      list.appendChild(el('div', 'sessions-empty', t('Loading…')))
-    } else if (snap.serverState !== 'running') {
-      list.appendChild(renderServerEmpty(snap))
-    } else if (!snap.baselineReady) {
-      // 服务已 running 但基线还没拉到（或代际切换后未重拉成功）：空基线会被
-      // 恒渲染的「未分组」组误导成「没有 workspace」，未分组组头先于工作区组
-      // 出现。等基线就绪再渲染列表，这里保持 Loading。
-      list.appendChild(el('div', 'sessions-empty', t('Loading…')))
-    } else if (snap.workspaces.every((w) => w.workspaceId === UNGROUPED_WORKSPACE_ID)) {
-      // 没有真实 workspace：保留「添加工作区」引导，同时仍渲染「未分组」组
-      // （空组头 + 新建按钮，「新建未分组对话」入口恒可达）。搜索态下未分组
-      // 有命中时不显示提示（下方组即结果），无命中才显示「没有匹配」。
-      if (snap.query === null) {
-        const box = el('div', 'sessions-empty')
-        box.appendChild(el('div', 'empty-hint', t('No workspaces yet. Add an existing folder or create one with the + button above.')))
-        list.appendChild(box)
-      } else if (snap.workspaces.length === 0) {
-        const box = el('div', 'sessions-empty')
-        box.appendChild(el('div', 'empty-hint', t('No sessions match “{0}”.', snap.query)))
-        list.appendChild(box)
-      }
-      for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
-    } else {
-      for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
-      if (snap.contentSearchHasMore) {
-        list.appendChild(el('div', 'sessions-search-more', t('More matching sessions; try a more precise keyword')))
-      }
+    rebuildInProgress = false
+    return
+  }
+  sessionsPanel.classList.remove('recycle-mode')
+  const list = el('div', 'sessions-list')
+  if (!snap) {
+    list.appendChild(el('div', 'sessions-empty', t('Loading…')))
+  } else if (snap.serverState !== 'running') {
+    list.appendChild(renderServerEmpty(snap))
+  } else if (!snap.baselineReady) {
+    // 服务已 running 但基线还没拉到（或代际切换后未重拉成功）：空基线会被
+    // 恒渲染的「未分组」组误导成「没有 workspace」，未分组组头先于工作区组
+    // 出现。等基线就绪再渲染列表，这里保持 Loading。
+    list.appendChild(el('div', 'sessions-empty', t('Loading…')))
+  } else if (snap.workspaces.every((w) => w.workspaceId === UNGROUPED_WORKSPACE_ID)) {
+    // 没有真实 workspace：保留「添加工作区」引导，同时仍渲染「未分组」组
+    // （空组头 + 新建按钮，「新建未分组对话」入口恒可达）。搜索态下未分组
+    // 有命中时不显示提示（下方组即结果），无命中才显示「没有匹配」。
+    if (snap.query === null) {
+      const box = el('div', 'sessions-empty')
+      box.appendChild(el('div', 'empty-hint', t('No workspaces yet. Add an existing folder or create one with the + button above.')))
+      list.appendChild(box)
+    } else if (snap.workspaces.length === 0) {
+      const box = el('div', 'sessions-empty')
+      box.appendChild(el('div', 'empty-hint', t('No sessions match “{0}”.', snap.query)))
+      list.appendChild(box)
     }
-    // 内容搜索降级：后端索引未启用等导致全文搜索失败——给用户可见提示，不静默。
-    if (snap && snap.query != null && snap.query !== '' && snap.contentSearchError) {
-      const degraded = el(
-        'div',
-        'sessions-search-more sessions-search-degraded',
-        t('Full-text search unavailable; matching titles only (dsh search index not enabled)'),
-      )
-      // 悬停显示更详细的原因与启用索引的方法（复用自实现 tooltip）。
-      degraded.setAttribute(
-        'data-tip',
-        `dsh 全文搜索默认 opt-in：session-query 索引 openAt: "never"（未启用），session.search 被禁用。
+    for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
+  } else {
+    for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
+    if (snap.contentSearchHasMore) {
+      list.appendChild(el('div', 'sessions-search-more', t('More matching sessions; try a more precise keyword')))
+    }
+  }
+  // 内容搜索降级：后端索引未启用等导致全文搜索失败——给用户可见提示，不静默。
+  if (snap && snap.query != null && snap.query !== '' && snap.contentSearchError) {
+    const degraded = el(
+      'div',
+      'sessions-search-more sessions-search-degraded',
+      t('Full-text search unavailable; matching titles only (dsh search index not enabled)'),
+    )
+    // 悬停显示更详细的原因与启用索引的方法（复用自实现 tooltip）。
+    degraded.setAttribute(
+      'data-tip',
+      `dsh 全文搜索默认 opt-in：session-query 索引 openAt: "never"（未启用），session.search 被禁用。
 启用：编辑 ~/.dsh/profiles/web/cordis.patch.yml，追加以下配置后重启 dsh 服务：
 - id: session-query-sqlite
   config:
     path: !!js dshHomePath('session-query.sqlite')
     openAt: first-search`,
-      )
-      list.appendChild(degraded)
-    }
-    sessionsPanel.appendChild(list)
-    // 多选模式：操作条插在搜索框（header）与列表之间。
-    if (selectionMode) sessionsPanel.insertBefore(buildSelectionBar(), list)
-    // 回收站入口：面板底部固定行（列表滚动区之外，不随滚动消失）；计数 0 灰态。
-    sessionsPanel.appendChild(renderRecycleEntry())
+    )
+    list.appendChild(degraded)
   }
+  sessionsPanel.appendChild(list)
+  // 多选模式：操作条插在搜索框（header）与列表之间。
+  if (selectionMode) sessionsPanel.insertBefore(buildSelectionBar(), list)
+  // 回收站入口：面板底部固定行（列表滚动区之外，不随滚动消失）；计数 0 灰态。
+  sessionsPanel.appendChild(renderRecycleEntry())
   rebuildInProgress = false
   // 行内改名跨重建保留：重建后恢复编辑输入框的焦点与选区。
   if (editingSessionId) {

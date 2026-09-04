@@ -22,6 +22,7 @@
   "Rename Session": "Rename Session",
   "Enter a new session title": "Enter a new session title",
   "Failed to rename session: {0}": "Failed to rename session: {0}",
+  "Archive session \"{0}\"?": "Archive session \"{0}\"?",
   "Archive session \"{0}\"? It will be hidden from the list after archiving.": "Archive session \"{0}\"? It will be hidden from the list after archiving.",
   "Archive": "Archive",
   "Failed to archive session: {0}": "Failed to archive session: {0}",
