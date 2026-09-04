@@ -38,3 +38,5 @@
 
 - 2026-09-04 方案细节与主 session 拍板：平衡规则、`.`/`,` 条件规则、`\p{So}` 入终止集、ASCII `(` 不入边界、ASCII `;!?:` 入终止集、本条目先于 mention-bindings → open（可开工）
 - 2026-09-08 代码评审确认后建条目 → open
+
+- 2026-09-08 认领：开发 session 开工（worktree paste-token-boundaries）
