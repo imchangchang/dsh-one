@@ -226,9 +226,9 @@ start() {
   # mock 端点宿主端口：显式给了用显式值；实例化但没给时自动取 --port+1（并行时避免撞 9009）。
   if [ "$mock_llm" = "1" ] && [ "$mock_port_given" = "0" ] && [ -n "$INSTANCE" ]; then
     mock_port=$((port + 1))
-    echo "--mock-port 未显式指定，实例化模式取 --port+1 => $mock_port（容器内映射固定 9009）"
+    echo "--mock-port 未显式指定，实例化模式取 --port+1 => ${mock_port}（容器内映射固定 9009）"
   fi
-  [ "$port" = "$mock_port" ] && die "--port 与 --mock-port 不能相同（$port）"
+  [ "$port" = "$mock_port" ] && die "--port 与 --mock-port 不能相同（${port}）"
 
   local image container
   image="$(instance_image)"
@@ -236,7 +236,9 @@ start() {
   docker image inspect "$image" >/dev/null 2>&1 || die "镜像 $image 不存在，先跑 build"
 
   # 幂等重创：已存在同名容器先强制删除（开发沙盒，允许直接重建）。
-  if docker inspect "$container" >/dev/null 2>&1; then
+  # 注意必须 --type container：实例化后存在同名镜像（dsh-sandbox-<slug>:latest），
+  # docker inspect 裸名会匹配镜像导致判断失真。
+  if docker inspect --type container "$container" >/dev/null 2>&1; then
     echo "容器 $container 已存在，先强制删除以重创"
     docker rm -f "$container" >/dev/null
   fi
@@ -277,7 +279,7 @@ stop() {
   validate_instance
   local container
   container="$(instance_container)"
-  if docker inspect "$container" >/dev/null 2>&1; then
+  if docker inspect --type container "$container" >/dev/null 2>&1; then
     docker rm -f "$container" >/dev/null && echo "已停止并删除容器 $container"
   else
     echo "容器 $container 不存在（无需停止）"
@@ -314,7 +316,7 @@ status() {
   fi
   echo
   echo "--- 容器 ---"
-  if docker inspect "$container" >/dev/null 2>&1; then
+  if docker inspect --type container "$container" >/dev/null 2>&1; then
     docker ps -a --filter "name=$container" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
   else
     echo "容器 $container 不存在，先跑 start"

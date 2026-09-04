@@ -122,7 +122,9 @@ test/sandbox/run-sandbox.sh status --instance a        # 查看实例 a 的镜�
 test/sandbox/run-sandbox.sh stop --instance b          # 停止实例 b
 ```
 
-- 实例 id 只用字母/数字/连字符（脚本校验）；同一实例并行跑**两个 build** 仍会撞（同一镜像 tag 与构建上下文），两个 session 用不同 slug 才互不干扰。
+- 实例 id 只用字母/数字/连字符（脚本校验）。**同一 worktree 里不要并行跑两个 build**：构建上下文
+  （`test/sandbox/`）与暂存文件（`dsh-one.vsix`、`.build-mock-llm/`，gitignored）是共享的，会互相踩；
+  不同 worktree 的并行 build 用各自上下文，互不干扰。两个 session 用不同 slug 才能完全并行。
 - mock 端点宿主端口不想用 `--port+1` 就显式传 `--mock-port <端口>`（容器内固定 9009，映射的是宿主端口）。
 - 截图目录约定：实例化时用 `/tmp/dsh-sandbox-shots-<slug>/`（见「产物目录约定」）。
 
