@@ -18,6 +18,8 @@ export interface ServerAuth {
   cookie: string
   /** Request Host the cookie is bound to (`127.0.0.1:<port>`). */
   authority: string
+  /** 本次进程的 launch token（浏览器首次打开需要用它的 URL 换 cookie）。 */
+  token?: string
 }
 
 const EXCHANGE_TIMEOUT_MS = 5_000
@@ -67,10 +69,19 @@ export async function exchangeToken(origin: string, token: string, logger: Logge
     throw new Error('dsh token exchange returned no auth cookie')
   }
   const authority = new URL(origin).host
-  const auth: ServerAuth = { cookie, authority }
+  const auth: ServerAuth = { cookie, authority, token }
   registerAuth(origin, auth)
   logger.info(`dsh auth exchanged at ${origin}`)
   return auth
+}
+
+/**
+ * 用户浏览器/扩展 webview 首次打开 dsh web GUI 的地址：认证服务器必须经
+ * `?token=` 换票（打印 URL 即此形态）；0.1.1 无认证，直接给干净 URL。
+ */
+export function browserUrl(origin: string): string {
+  const token = getAuth(origin)?.token
+  return token === undefined ? origin : `${origin}/?token=${encodeURIComponent(token)}`
 }
 
 /**

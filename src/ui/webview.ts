@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
+import { browserUrl } from '../server/serverAuth.ts'
 
 function nonce(): string {
   return crypto.randomBytes(16).toString('base64')
@@ -95,7 +96,11 @@ function statusPage(n: string, status: ServerStatus): string {
 }
 
 function dshFrame(url: string): string {
-  const src = `${url}/?dsh_embed=vscode`
+  // 0.1.2 认证：webview iframe 与原浏览器一样必须先经 ?token= 换 cookie
+  // （303 → 干净 /，cookie 按同源存储，后续渲染即无凭证）。
+  const target = new URL(browserUrl(url))
+  target.searchParams.set('dsh_embed', 'vscode')
+  const src = target.href
   const n = nonce()
   const script = `<script nonce="${n}">
     acquireVsCodeApi().setState({});

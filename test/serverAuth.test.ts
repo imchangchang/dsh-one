@@ -34,7 +34,7 @@ test('exchangeToken registers the cookie from the 303 Set-Cookie', async () => {
     })
   })
   const auth = await exchangeToken('http://127.0.0.1:62433', 'TOKEN', noopLogger)
-  assert.deepEqual(auth, { cookie: 'dsh-auth-abc=v1.pay.load', authority: '127.0.0.1:62433' })
+  assert.deepEqual(auth, { cookie: 'dsh-auth-abc=v1.pay.load', authority: '127.0.0.1:62433', token: 'TOKEN' })
   assert.equal(isModern('http://127.0.0.1:62433'), true)
   assert.equal(cookieHeader('http://127.0.0.1:62433'), 'dsh-auth-abc=v1.pay.load')
 })

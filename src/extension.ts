@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
+import { browserUrl } from './server/serverAuth.ts'
 import { loadModelWindowCache, setModelWindowCachePersist } from './server/chatSession.ts'
 import { archiveSession, createSession, ensureWorkspace, forkSession, renameSession } from './server/dshRpc.ts'
 import { isChatPanelTabArg } from './pure/contextResource.ts'
@@ -123,10 +124,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await manager.ensureStarted()
     }),
     // Status bar click: open the dsh web UI in the system browser (starting
-    // the service first when needed).
+    // the service first when needed). 0.1.2 认证：浏览器没有扩展的 cookie，
+    // 只能开带 token 的 URL（官方打印 URL 的同一形态）换自己的 cookie。
     vscode.commands.registerCommand('dshOne.openExternal', async () => {
       const status = await manager.ensureStarted()
-      if (status.url) await vscode.env.openExternal(vscode.Uri.parse(status.url))
+      if (status.url) await vscode.env.openExternal(vscode.Uri.parse(browserUrl(status.url)))
     }),
     vscode.commands.registerCommand('dshOne.openInTab', () => {
       openInTab(manager)
