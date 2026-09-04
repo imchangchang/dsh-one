@@ -30,3 +30,5 @@
 - 2026-09-04 用户决定**砍掉编辑相关功能**（编辑重发 / 分支重做，含此前讨论过的 E1 追加 / E2 分支方案与交互原型 `.dev-host/msg-menu-proto.html`），本条目只保留复制；「复制文字和附件」的剪贴板写入细节（多项目、路径兜底）不受影响。
 
 - 2026-09-04 认领（dev session，worktree agent/message-context-menu）：按已拍板方案开发消息级右键复制（仅复制，无编辑）；开发中。
+
+- 2026-09-04 开发完成（dev session，worktree agent/message-context-menu，commit bc6399b）：消息级右键菜单两项（复制文字 / 复制文字和附件）落地；user=images+files（含行内 @文件引用）、assistant=producedFiles 算附件；图片真实字节进剪贴板（多图受 Chromium 单 ClipboardItem 限制只能写首张，全部路径以文本兜底）、文件用 [文件名](路径) markdown 引用；纯 webview 本地动作，无新 webview↔host 消息。自测全绿（typecheck/build/test 425）+ 测试报告已产出（test/sandbox/verify.message-context-menu.report.html，F-01~F-04 + R-01~R-03 全 pass）。待主线合入。
