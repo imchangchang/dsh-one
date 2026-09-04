@@ -31,3 +31,4 @@
 
 - 2026-09-05 提出（方案甲：输入取消高亮 + 「其他」选项）→ open
 - 2026-09-05 认领（worktree: agent/question-other-option）→ doing
+- 2026-09-05 开发完成，自测通过（typecheck/424 单测/build；视觉 harness 8 项全过，报告 test/sandbox/verify.question-other-option.report.html）→ done
