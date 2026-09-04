@@ -1667,6 +1667,48 @@ postMessage({ type:'filesPicked', files:[{ name:'photo.png', path:'/tmp/dsh-one-
 postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/Workspaces/dsh-one/README.md' }] }, '*');`,
     },
 
+    // ---- 一键清空按钮（本地增强 composer-clear-all-button）----
+    'composer-clear-all': {
+      state: base({}),
+      title: '一键清空按钮（文本 + 附件时可见）',
+      interact: `(() => {
+        const post = (m) => window.postMessage(m, '*')
+        const ta = document.getElementById('input')
+        if (ta) {
+          ta.value = '把这段草稿和附件一起清空'
+          ta.dispatchEvent(new Event('input'))
+        }
+        post({ type: 'filesPicked', files: [{ name: 'photo.png', path: '/tmp/dsh-one-attachments/u-1/photo.png', image: true, mediaType: 'image/png', previewData: '${PNG_RED}' }, { name: 'notes.md', path: '/tmp/notes.md' }] }, '*')
+      })()`,
+      expect: '输入框右侧、发送按钮左侧出现 ghost × 按钮（20px，灰色小字，无底色）；输入框高亮层绘制「把这段草稿和附件一起清空」；输入区上方 chips 行：红色图片缩略图 + 文件框（notes.md）——× 与 chip 自带 ×（chips 各自右上角）不在同一位置，无重叠；本轮只验证「有内容时 × 可见」的散布与排版。',
+    },
+    'composer-clear-all-click': {
+      state: base({}),
+      title: '点击一键清空：文本/附件全清，焦点回输入框',
+      interact: `(() => {
+        const post = (m) => window.postMessage(m, '*')
+        const ta = document.getElementById('input')
+        if (!ta) return
+        ta.value = '这段文本会被 × 清空'
+        ta.dispatchEvent(new Event('input'))
+        post({ type: 'filesPicked', files: [{ name: 'photo.png', path: '/tmp/dsh-one-attachments/u-1/photo.png', image: true, mediaType: 'image/png', previewData: '${PNG_RED}' }] }, '*')
+        setTimeout(() => {
+          const btn = document.querySelector('.clear-all-button')
+          if (btn) btn.click()
+          setTimeout(() => {
+            const input = document.getElementById('input')
+            window.__clearAllCheck = {
+              value: input ? input.value : null,
+              focused: input ? document.activeElement === input : false,
+              buttonHidden: document.querySelector('.clear-all-button')?.hidden ?? null,
+            }
+            document.title = 'CLEARED:' + JSON.stringify(window.__clearAllCheck)
+          }, 150)
+        }, 150)
+      })()`,
+      expect: '点击 × 后：输入框为空（高亮层无文本、无占位残影）、图片 chips 行消失、× 隐藏（内容清空后不再是 dirty 态）、输入框拿到焦点（focus outline）。',
+    },
+
   }
 
   catalog.conversation.sessions = window.sessionsTree('sess-1')

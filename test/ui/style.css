@@ -1361,6 +1361,20 @@
   body.vscode-light .send-button { background: #679efe; }
   body.vscode-light .send-button:hover:not(:disabled) { background: #4176e6; }
   .send-button svg { display: block; }
+  /* 一键清空按钮（本地增强，官方 dsh web 无此按钮）：input-row 内、发送按钮
+     左侧的 ghost ×，仅 composer 有内容（文本/待发附件任一）时显示——webview.ts
+     按 hidden 属性切换。不设 display（hidden 需要 UA 的 display:none 生效）；
+     flex 流内定位：既不与附件 chip 自带的 ×（chip 右上角 absolute）重叠，
+     也不受 hero 大圆角卡片布局影响。 */
+  .clear-all-button {
+    flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 6px;
+    background: transparent; color: var(--vscode-descriptionForeground, #888);
+    cursor: pointer; font-size: 14px; line-height: 1;
+  }
+  .clear-all-button:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
+    color: var(--vscode-foreground);
+  }
   .msg-images { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   /* 消息图片缩略图复用 .attach-thumb 方图；加载中的占位方块居中省略号。 */
   .msg-thumb-loading {

@@ -6083,6 +6083,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   input.addEventListener('input', () => {
     autoGrow(input)
     updateButton()
+    updateClearAll()
     updateSlashPopup(input)
     renderRefLayer()
     // 纯输入不触发 render，脏位上报单独跟一次（宿主的 dirty 保护决策读它）。
@@ -6130,6 +6131,32 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     })()
   })
   updateButton()
+  // 一键清空（本地增强，官方 dsh web 无此按钮）：仅 composer 有内容（文本/
+  // 附件任一非空）时显示，点击清空文本（含 recall 态与召回草稿）+ 全部待发附件。
+  // 放在 input-row 内、发送按钮左侧——既不与附件 chip 自带 ×（chip 右上角）
+  // 重叠，也不受 hero 大圆角卡片布局影响。content 变化只发生在输入/附件事件里，
+  // 不经 render() 的帧（输入不触发 render），所以可见性在输入事件里就地同步。
+  const clearAll = buttonEl('clear-all-button', '×')
+  clearAll.title = t('Clear input')
+  clearAll.setAttribute('aria-label', t('Clear input'))
+  const updateClearAll = (): void => {
+    clearAll.hidden = !(input.value.length > 0 || pendingImages.length > 0 || pendingFiles.length > 0)
+  }
+  updateClearAll()
+  clearAll.addEventListener('click', () => {
+    input.value = ''
+    recall = null
+    recallDraft = ''
+    pendingImages = []
+    pendingFiles = []
+    // 保活态（如 model 菜单开着）下 render() 不重建 composer：旧 × 就地隐藏，
+    // 重建态则由新渲染的按钮自然带出正确可见性。
+    updateClearAll()
+    render()
+    // render() 重建了 composer（新 input 元素），焦点回到输入框（光标默认在末尾）。
+    document.getElementById('input')?.focus()
+  })
+  row.appendChild(clearAll)
   row.appendChild(button)
   wrap.appendChild(row)
 
