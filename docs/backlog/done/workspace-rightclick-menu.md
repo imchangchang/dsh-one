@@ -50,3 +50,4 @@
 - 2026-09-04 需求提出（用户：session 参考另一工作区结构，右键直接引用工作区文件夹；确认按会话「复制引用」同款方式）。讨论后确认菜单清单与不做项；打标入口并入本菜单（前置 `workspace-group-filter`）。未开始开发。
 - 2026-09-04 方案确认（与用户逐项拍板）：菜单清单定稿 6 项，hover 按钮现状全部保留（右键菜单为并存入口）；核实宿主源码——@ 引用无「注入目录结构」步骤、fs 工具绝对路径可用，降级方案保留「失败退化复制纯路径文本」；开发节奏：与 workspace-group-filter 分两个 worktree，先做 group-filter 合入后本条目再开工。
 - 2026-09-05 认领（open -> doing）：worktree 开发（分支 agent/workspace-rightclick-menu）。开工前实测 @/abs/path 引用（结论见变更记录后文与测试报告）。
+- 2026-09-05 开发完成（doing -> done）：6 项菜单全部落地（复制文件夹引用/分组…/归档该工作区全部会话/在新窗口打开文件夹/复制路径/从列表移除）。@/abs/path 实测通过（宿主网关探针：工作区外绝对路径被模型 read 工具成功读取，宿主未启用工作区外 fs 限制）→ 不退化为纯路径；分组… 子菜单复用 workspaceGroupSetMembership（勾选就地翻转，修掉快照往返竞态）；归档复用 openArchiveModal（从多选归档抽出）+ sessionArchiveMany → archiveManyDone。测试报告 test/sandbox/verify.workspace-rightclick-menu.report.html：11 项全 pass（harness 4 新场景 + 116 场景全量回归 + 沙盒 E2E 8 步全过 + 全量单测 470 pass + i18n OK），分支 agent/workspace-rightclick-menu，done 标记 0284273。
