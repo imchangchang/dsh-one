@@ -52,3 +52,4 @@
 
 - 2026-09-04 认领（worktree recycle-bin，与 recycle-bin 一起开发并共用 host 层防线）：开始开发。
 - 2026-09-04 开发完成（与 recycle-bin 同 worktree，branch agent/recycle-bin，done tag 8294548）：归档路径全部封死——批量多选 sessionSelectable/sessionSelectTip 增加置顶条件（复选框置灰 + 悬停提示）；sessions 面板行菜单与 chat 头部 ⋯ 菜单「Archive session」两处加入置顶禁用（置灰 + 提示，优先级在 running/unread/pending 前）；extension.ts dshOne.session.archive/archiveMany 命令层兜底（单项命中警告返回、批量计入 failed 回传，两个 webview 菜单同走这两个命令一处兜底两端生效）；延伸（recycle-bin 并行落地）：置顶同样不能移入回收站（行菜单/多选禁用 + sessionsView host 层过滤并提示，同一条防线）。不强制取消置顶、不清理历史残留 id（按方案边界）。自测全绿（typecheck/build/test 429）；沙盒验收 F-07 场景 + 全量 E2E 断言 pass（verify.recycle-bin.report.html）。
+- 2026-09-04 主线合入后人工确认（用户审报告通过）→ closed

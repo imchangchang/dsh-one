@@ -65,3 +65,4 @@
 
 - 2026-09-04 认领（worktree recycle-bin，与 pinned-not-archivable 一起开发并共用 host 层防线）：开始开发。
 - 2026-09-04 开发完成（worktree recycle-bin，branch agent/recycle-bin，done tag 8294548）：方案 A 落地——底部固定入口「回收站 (N)」（0 灰态）→ 独立回收站视图（‹ 返回 + 标题 + 计数徽标 + 清空图标按钮 + 恢复全部；按原 workspace 分组，组头计数+折叠，折叠态独立持久化；软删 workspace 的会话自动归未分组；空态引导）；移入（行菜单 + 多选操作条，可逆、无确认弹窗、短提示；运行中/未读/待处理可移入）；恢复（单项行菜单 + 头部恢复全部）；清空/单个归档 = 复用 archiveMany 链路（confirm modal，说明归档后无法恢复/记录保留），成功后从本地集合清掉，dsh 侧归档的 id 下次刷新清理；置顶不能移入（复选框置灰 + 提示 + host 命令层兜底）；状态存 workspaceState sessions.recycleBin（dsh 无此概念，纯本地缓冲层）。自测全绿（typecheck/build/test 429）；沙盒验收 ledger 全 pass（verify.recycle-bin.report.html，F-01..F-08 + R-01/R-02，20 断言/24 截图；host 命令层兜底无法 UI 自动化，经代码审查覆盖）。
+- 2026-09-04 主线合入后人工确认（用户审报告通过）→ closed
