@@ -790,6 +790,36 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       case 'workspaceOpenFolder':
         void vscode.commands.executeCommand('dshOne.workspace.openFolder', m.path)
         return
+      // 工作区右键菜单「在新窗口打开文件夹」：仅 forceNewWindow 与上面不同。
+      case 'workspaceOpenNewWindow':
+        if (typeof m.path === 'string' && m.path) {
+          void vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(m.path), {
+            forceNewWindow: true,
+          })
+        }
+        return
+      // 复制文件夹引用：`@绝对路径` 进剪贴板（对齐会话「复制引用」的交互）；含空格的
+      // 路径用引号语法（与 webview 的 fileMention 格式一致），粘贴后 tokenizer 切成 chip。
+      case 'workspaceCopyFolderRef':
+        if (typeof m.path === 'string' && m.path) {
+          void vscode.env.clipboard
+            .writeText(/\s/.test(m.path) ? `@"${m.path}` : `@${m.path}`)
+            .then(() => {
+              void vscode.window.showInformationMessage(
+                vscode.l10n.t('Folder reference copied. Paste it into the input box to reference this folder'),
+              )
+            })
+        }
+        return
+      case 'workspaceCopyPath':
+        if (typeof m.path === 'string' && m.path) {
+          void vscode.env.clipboard
+            .writeText(m.path)
+            .then(() => {
+              void vscode.window.showInformationMessage(vscode.l10n.t('Path copied to clipboard'))
+            })
+        }
+        return
       case 'workspaceOpenTerminal':
         void vscode.commands.executeCommand('dshOne.workspace.openTerminal', m.path)
         return

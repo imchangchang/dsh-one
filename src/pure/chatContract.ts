@@ -889,6 +889,12 @@ export type FromWebviewMessage =
   | { type: 'workspaceOpenFolder'; path: string }
   /** Sessions 面板：在 VSCode 终端中打开该 workspace 的文件夹。 */
   | { type: 'workspaceOpenTerminal'; path: string }
+  /** Sessions 面板：在新窗口打开该 workspace 的文件夹（openFolder forceNewWindow）。 */
+  | { type: 'workspaceOpenNewWindow'; path: string }
+  /** Sessions 面板：复制工作区文件夹引用（@绝对路径）到剪贴板（对齐会话「复制引用」交互）。 */
+  | { type: 'workspaceCopyFolderRef'; path: string }
+  /** Sessions 面板：复制工作区文件夹路径（纯文本）到剪贴板。 */
+  | { type: 'workspaceCopyPath'; path: string }
   /** Sessions 面板：手动刷新列表。 */
   | { type: 'sessionsRefresh' }
   /** Sessions 面板：设置/清除搜索词。 */
