@@ -716,6 +716,25 @@ export interface SessionsSnapshot {
    * 误导成「没有 workspace」，导致未分组先于工作区组出现。
    */
   baselineReady: boolean
+  /**
+   * 工作区分组：有序定义（数组顺序 = 下拉/管理视图的展示顺序）+
+   * count（归组的工作区数，按当前基线全量统计，不受搜索与当前选中影响）。
+   * 「全部工作区」是隐式选项（activeGroupId = null），不在此数组里。
+   */
+  groups: Array<{ id: string; name: string; count: number }>
+  /** 当前选中的分组 id；null = 全部工作区（显示所有 workspace，含未打标）。 */
+  activeGroupId: string | null
+  /**
+   * workspaceId → 分组 id 列表（多对多）。管理视图勾选态的数据源，
+   * 也是后续右键菜单「分组…」子菜单的数据接口：全量映射（含未显示
+   * workspace），webview 只读。
+   */
+  groupMembership: Record<string, string[]>
+  /**
+   * 管理视图的 workspace 目录：全量（id + 显示名），不含「未分组」虚拟组。
+   * 主列表 workspaces 已按选中分组过滤，目录补全量供管理视图打标与计数。
+   */
+  workspaceDirectory: Array<{ workspaceId: string; label: string }>
 }
 /**
  * 单个 commit hash 的查询结果：webview 据此点亮/灰显点击 chip 并填悬浮卡。
@@ -909,3 +928,15 @@ export type FromWebviewMessage =
   | { type: 'commitOpen'; sha: string }
   /** 渲染发现新 commit hash：批量请求提交信息供悬浮 title（先查后亮，见 webview 缓存去重）。 */
   | { type: 'commitInfo'; shas: string[] }
+  /** Sessions 面板：切换当前选中的分组（null = 全部工作区，显示所有 workspace）。 */
+  | { type: 'workspaceGroupSelect'; groupId: string | null }
+  /** Sessions 面板：新建分组（名称 trim 后非空且不重名；重名/空名由 webview 校验后不发）。 */
+  | { type: 'workspaceGroupCreate'; name: string }
+  /** Sessions 面板：重命名分组（校验同上）。 */
+  | { type: 'workspaceGroupRename'; groupId: string; name: string }
+  /** Sessions 面板：删除分组（组归属一并清理；删的是当前选中组则回落「全部工作区」）。 */
+  | { type: 'workspaceGroupDelete'; groupId: string }
+  /** Sessions 面板：设置一个 workspace 的分组归属（多对多全量替换，幂等；右键菜单同款接口）。 */
+  | { type: 'workspaceGroupSetMembership'; workspaceId: string; groupIds: string[] }
+  /** Sessions 面板：持久化分组顺序（管理视图拖拽结束后提交全量顺序）。 */
+  | { type: 'workspaceGroupReorder'; groupIds: string[] }

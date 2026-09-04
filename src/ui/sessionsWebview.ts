@@ -580,6 +580,535 @@ function updateCollapseAllIcon(): void {
   collapseAllBtn.setAttribute('aria-label', tip)
 }
 
+/* ---- 工作区分组（tag 多对多过滤 + 下拉选择器 + 管理视图） ---- */
+
+/** 分组栏（搜索框下、列表上一行）：只建一次，选中态经 updateGroupBar 更新。 */
+let groupBarEl: HTMLElement | null = null
+/** 分组栏左按钮的标签（「全部工作区」或当前组名）。 */
+let groupBarLabel: HTMLElement | null = null
+
+/**
+ * 管理视图弹层状态（null = 关闭）。open 后跨快照重建保留：选中组、改名/
+ * 删除确认、新建输入草稿都在这里；快照到达时经 rebuildGroupManage 重建
+ * 列表（勾选态/组列表随新快照刷新）。dragOrder 只在拖拽进行中有意义。
+ */
+let groupManage: {
+  overlay: HTMLElement
+  selectedGroupId: string | null
+  renameGroupId: string | null
+  renameDraft: string
+  renameError: string | null
+  confirmDeleteId: string | null
+  newGroupDraft: string
+  newGroupError: string | null
+  dragOrder: string[] | null
+  dragging: boolean
+} | null = null
+
+/** 管理分组… 菜单项的齿轮图标（codicon settings-gear 路径，MIT）。 */
+const GEAR_ICON: IconDef = {
+  viewBox: '0 0 16 16',
+  paths: [
+    'M13.9 8.5944l.9244-.5391.7423.1381c.4427.0824.7589.5166.7322.9547l-.118 1.8667c-.0288.455-.3939.8152-.8481.8402l-1.7734.0989-.657.7233.5132 1.7068c.1458.4853-.1646.9801-.6635 1.0521l-1.8334.2638c-.4738.0682-.9033-.0941-1.1708-.4356l-.9629-1.5233h-1.3375l-.9628 1.5233c-.2675.3415-.697.5038-1.1707.4356l-1.8335-.2638c-.4989-.072-.8093-.5668-.6634-1.0521l.5131-1.7068-.657-.7233-1.7734-.0989c-.4541-.025-.8193-.3852-.8481-.8402l-.118-1.8667c-.0267-.4381.2895-.8723.7321-.9547l.7423-.1381.9244-.5391-.5131-1.7069c-.1458-.4853.1646-.98.6635-1.0521l1.8334-.2638c.4738-.0682.9033.0941 1.1707.4356l.963 1.5234h1.3374l.9629-1.5234c.2674-.3415.6969-.5038 1.1707-.4356l1.8334.2638c.4989.072.8093.5668.6635 1.0521z',
+    'M8 10.2a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4z',
+  ],
+}
+
+/** 拖拽手柄的六点图标（管理视图组行排序用）。 */
+function dragHandleSvg(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('width', '9')
+  svg.setAttribute('height', '14')
+  svg.setAttribute('viewBox', '0 0 9 14')
+  svg.setAttribute('fill', 'currentColor')
+  for (const cy of [1.5, 7, 12.5]) {
+    for (const cx of [2, 7]) {
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+      c.setAttribute('cx', String(cx))
+      c.setAttribute('cy', String(cy))
+      c.setAttribute('r', '1.4')
+      svg.appendChild(c)
+    }
+  }
+  return svg
+}
+
+/** 分组栏（含左选择器 + 右「+」新建）：只建一次，避免快照重建打断输入/点击。 */
+function buildGroupBar(): HTMLElement {
+  const bar = el('div', 'ws-group-bar')
+  const select = buttonEl('ws-group-select', '')
+  const label = el('span', 'ws-group-select-label', t('All workspaces'))
+  const chevron = el('span', 'ws-group-select-chevron')
+  chevron.appendChild(iconSvg(PANEL_ICONS.chevronDown, 12))
+  select.appendChild(label)
+  select.appendChild(chevron)
+  select.addEventListener('click', () => openGroupMenu())
+  groupBarLabel = label
+  bar.appendChild(select)
+  const add = buttonEl('ws-group-add', '')
+  add.setAttribute('aria-label', t('New group'))
+  add.setAttribute('data-tip', t('New group'))
+  add.appendChild(iconSvg(PANEL_ICONS.plus, 14))
+  add.addEventListener('click', () => openGroupCreate())
+  bar.appendChild(add)
+  return bar
+}
+
+/** 分组栏选中态随快照刷新（只改 label 文本，不重建 DOM）。 */
+function updateGroupBar(): void {
+  const snap = sessionsSnapshot
+  if (!snap || !groupBarLabel) return
+  const name = snap.activeGroupId !== null ? (snap.groups.find((g) => g.id === snap.activeGroupId)?.name ?? null) : null
+  groupBarLabel.textContent = name ?? t('All workspaces')
+}
+
+/** 分组选择下拉：全部工作区 + 当前选中置顶 + 其余按持久化顺序 + 管理分组…。 */
+function openGroupMenu(): void {
+  const snap = sessionsSnapshot
+  if (!snap || !groupBarEl) return
+  const body = el('div')
+  body.appendChild(
+    menuItem(t('All workspaces'), {
+      right: String(snap.workspaceDirectory.length),
+      checked: snap.activeGroupId === null,
+      onClick: () => {
+        closePopover()
+        if (snap.activeGroupId !== null) post({ type: 'workspaceGroupSelect', groupId: null })
+      },
+    }),
+  )
+  if (snap.activeGroupId !== null) {
+    const current = snap.groups.find((g) => g.id === snap.activeGroupId)
+    // 当前选中项置顶列出（长列表时选中态不被淹没），点它只收起菜单。
+    if (current) {
+      body.appendChild(
+        menuItem(current.name, {
+          right: String(current.count),
+          checked: true,
+          onClick: () => closePopover(),
+        }),
+      )
+    }
+  }
+  for (const g of snap.groups) {
+    if (g.id === snap.activeGroupId) continue
+    body.appendChild(
+      menuItem(g.name, {
+        right: String(g.count),
+        onClick: () => {
+          closePopover()
+          post({ type: 'workspaceGroupSelect', groupId: g.id })
+        },
+      }),
+    )
+  }
+  body.appendChild(el('div', 'menu-sep'))
+  body.appendChild(
+    menuItem(t('Manage groups…'), {
+      icon: iconSvg(GEAR_ICON, 14),
+      onClick: () => {
+        closePopover()
+        openGroupManage()
+      },
+    }),
+  )
+  showPopover(groupBarEl.querySelector('.ws-group-select') ?? groupBarEl, body, 'below')
+}
+
+/** 「+」快速建组：内联输入（Enter/按钮提交），空名/重名就地提示。 */
+function openGroupCreate(): void {
+  const snap = sessionsSnapshot
+  if (!snap || !groupBarEl) return
+  const body = el('div', 'wsg-create')
+  body.appendChild(el('div', 'wsg-create-title', t('New group')))
+  const input = document.createElement('input')
+  input.className = 'wsg-create-input'
+  input.placeholder = t('Group name')
+  input.maxLength = 100
+  const error = el('div', 'wsg-error')
+  const commit = (): void => {
+    const name = input.value.trim()
+    if (name === '') {
+      error.textContent = t('Group name cannot be empty')
+      return
+    }
+    if (snap.groups.some((g) => g.name === name)) {
+      error.textContent = t('A group with this name already exists')
+      return
+    }
+    post({ type: 'workspaceGroupCreate', name })
+    closePopover()
+  }
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault()
+      commit()
+    }
+  })
+  const submit = buttonEl('wsg-create-submit', t('Create'))
+  submit.addEventListener('click', commit)
+  body.appendChild(input)
+  body.appendChild(error)
+  body.appendChild(submit)
+  showPopover(groupBarEl.querySelector('.ws-group-add') ?? groupBarEl, body, 'below')
+  // 弹层渲染后聚焦输入（IME 用户直接可输入）。
+  window.setTimeout(() => input.focus(), 0)
+}
+
+/** 打开管理视图（弹层）：建组/重命名/删除 + 拖拽排序 + 视图内给 workspace 打标。 */
+function openGroupManage(): void {
+  const snap = sessionsSnapshot
+  if (!snap || groupManage) return
+  const overlay = el('div', 'wsg-manage-overlay')
+  // 点遮罩（弹层卡片外）即关闭；卡片内点击不冒泡到遮罩判定。
+  overlay.addEventListener('pointerdown', (e) => {
+    if (e.target === overlay) closeGroupManage()
+  })
+  document.body.appendChild(overlay)
+  groupManage = {
+    overlay,
+    selectedGroupId: snap.activeGroupId,
+    renameGroupId: null,
+    renameDraft: '',
+    renameError: null,
+    confirmDeleteId: null,
+    newGroupDraft: '',
+    newGroupError: null,
+    dragOrder: null,
+    dragging: false,
+  }
+  rebuildGroupManage()
+  document.addEventListener('keydown', onGroupManageKey, true)
+}
+
+function closeGroupManage(): void {
+  if (!groupManage) return
+  groupManage.overlay.remove()
+  groupManage = null
+  document.removeEventListener('keydown', onGroupManageKey, true)
+}
+
+/** 管理视图 Esc：改名/新建输入框内的 Esc 由输入框自身处理（取消输入态），
+ *  其余任意处 Esc 关闭整个弹层。 */
+function onGroupManageKey(e: KeyboardEvent): void {
+  const target = e.target as HTMLElement | null
+  if (target?.closest?.('.wsg-manage input')) return
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    closeGroupManage()
+  }
+}
+
+/** 管理视图内容整体重建（快照到达/本地动作后调用）；拖拽进行中跳过（不打断拖拽）。 */
+function rebuildGroupManage(): void {
+  const m = groupManage
+  const snap = sessionsSnapshot
+  if (!m || !snap || m.dragging) return
+  m.overlay.replaceChildren(buildGroupManageCard(snap))
+  // 改名输入框重建后恢复焦点与选区（快照刷新不打断正在输入的名字）。
+  if (m.renameGroupId !== null) {
+    const input = m.overlay.querySelector<HTMLInputElement>('.wsg-row-rename-input')
+    if (input) {
+      input.focus()
+      input.setSelectionRange(input.value.length, input.value.length)
+    }
+  }
+}
+
+function buildGroupManageCard(snap: SessionsSnapshot): HTMLElement {
+  const m = groupManage!
+  const card = el('div', 'wsg-manage')
+  const head = el('div', 'wsg-manage-head')
+  head.appendChild(el('span', 'wsg-manage-title', t('Manage groups')))
+  const closeBtn = buttonEl('wsg-manage-close', '')
+  closeBtn.setAttribute('aria-label', t('Close'))
+  closeBtn.appendChild(strokeSvg(CLEAR_ICON, 12))
+  closeBtn.addEventListener('click', () => closeGroupManage())
+  head.appendChild(closeBtn)
+  card.appendChild(head)
+
+  const body = el('div', 'wsg-manage-body')
+  body.appendChild(buildGroupManageGroups(snap))
+  body.appendChild(buildGroupManageMembers(snap))
+  card.appendChild(body)
+  return card
+}
+
+/** 管理视图「分组」区：组行（拖拽手柄/名称/计数/改名/删除）+ 底部新建行。 */
+function buildGroupManageGroups(snap: SessionsSnapshot): HTMLElement {
+  const m = groupManage!
+  const sec = el('div', 'wsg-groups')
+  sec.appendChild(el('div', 'wsg-section-title', t('Groups')))
+  if (snap.groups.length === 0) {
+    sec.appendChild(el('div', 'wsg-groups-empty', t('No groups yet. Enter a name below to create one.')))
+  } else {
+    const order = m.dragOrder ?? snap.groups.map((g) => g.id)
+    const byId = new Map(snap.groups.map((g) => [g.id, g]))
+    for (const id of order) {
+      const g = byId.get(id)
+      if (g) sec.appendChild(buildGroupManageRow(g, snap))
+    }
+  }
+  const newRow = el('div', 'wsg-new-row')
+  const input = document.createElement('input')
+  input.className = 'wsg-new-input'
+  input.placeholder = t('Group name')
+  input.maxLength = 100
+  input.value = m.newGroupDraft
+  const commit = (): void => {
+    const name = input.value.trim()
+    if (name === '') {
+      m.newGroupDraft = input.value
+      m.newGroupError = t('Group name cannot be empty')
+      rebuildGroupManage()
+      return
+    }
+    if (snap.groups.some((g) => g.name === name)) {
+      m.newGroupDraft = input.value
+      m.newGroupError = t('A group with this name already exists')
+      rebuildGroupManage()
+      return
+    }
+    post({ type: 'workspaceGroupCreate', name })
+    m.newGroupDraft = ''
+    m.newGroupError = null
+    rebuildGroupManage()
+  }
+  input.addEventListener('input', () => {
+    m.newGroupDraft = input.value
+    m.newGroupError = null
+  })
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault()
+      commit()
+    } else if (e.key === 'Escape' && !e.isComposing) {
+      e.preventDefault()
+      m.newGroupDraft = input.value
+      m.newGroupError = null
+      input.blur()
+    }
+  })
+  const submit = buttonEl('wsg-new-add', t('Create'))
+  submit.addEventListener('click', commit)
+  newRow.appendChild(input)
+  newRow.appendChild(submit)
+  sec.appendChild(newRow)
+  if (m.newGroupError) sec.appendChild(el('div', 'wsg-error', m.newGroupError))
+  return sec
+}
+
+/** 管理视图的一行分组：行点击 = 选中（下方工作区打标区切换）；✎/🗑 行内操作。 */
+function buildGroupManageRow(g: { id: string; name: string; count: number }, snap: SessionsSnapshot): HTMLElement {
+  const m = groupManage!
+  const renaming = m.renameGroupId === g.id
+  const confirming = m.confirmDeleteId === g.id
+  const row = el('div', `wsg-row${m.selectedGroupId === g.id ? ' selected' : ''}`)
+  row.dataset.groupId = g.id
+  const handle = el('span', 'wsg-row-handle')
+  handle.setAttribute('aria-label', t('Drag to reorder'))
+  handle.setAttribute('data-tip', t('Drag to reorder'))
+  handle.appendChild(dragHandleSvg())
+  handle.addEventListener('pointerdown', (e) => onGroupDragStart(e, g.id))
+  row.appendChild(handle)
+  if (confirming) {
+    row.appendChild(el('span', 'wsg-row-confirm', t('Delete group "{0}"?', g.name)))
+    const confirmBtn = buttonEl('wsg-row-delete', t('Delete'))
+    confirmBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      post({ type: 'workspaceGroupDelete', groupId: g.id })
+      m.confirmDeleteId = null
+      rebuildGroupManage()
+    })
+    const cancelBtn = buttonEl('secondary', t('Cancel'))
+    cancelBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      m.confirmDeleteId = null
+      rebuildGroupManage()
+    })
+    row.appendChild(confirmBtn)
+    row.appendChild(cancelBtn)
+  } else if (renaming) {
+    const input = document.createElement('input')
+    input.className = 'wsg-row-rename-input'
+    input.maxLength = 100
+    input.value = m.renameDraft
+    input.addEventListener('input', () => {
+      m.renameDraft = input.value
+      m.renameError = null
+    })
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault()
+        commitGroupRename(g.id)
+      } else if (e.key === 'Escape' && !e.isComposing) {
+        e.preventDefault()
+        m.renameGroupId = null
+        m.renameError = null
+        rebuildGroupManage()
+      }
+    })
+    row.appendChild(input)
+    if (m.renameError) row.appendChild(el('span', 'wsg-error', m.renameError))
+  } else {
+    row.appendChild(el('span', 'wsg-row-name', g.name))
+  }
+  if (!confirming) {
+    row.appendChild(el('span', 'wsg-row-count', String(g.count)))
+    const renameBtn = buttonEl('wsg-row-btn', '')
+    renameBtn.setAttribute('aria-label', t('Rename group'))
+    renameBtn.setAttribute('data-tip', t('Rename group'))
+    renameBtn.appendChild(iconSvg(PANEL_ICONS.edit, 12))
+    renameBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      m.renameGroupId = g.id
+      m.renameDraft = g.name
+      m.renameError = null
+      rebuildGroupManage()
+    })
+    row.appendChild(renameBtn)
+    const deleteBtn = buttonEl('wsg-row-btn', '')
+    deleteBtn.setAttribute('aria-label', t('Delete group'))
+    deleteBtn.setAttribute('data-tip', t('Delete group'))
+    deleteBtn.appendChild(strokeSvg(TRASH_ICON, 12))
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      m.confirmDeleteId = g.id
+      m.renameGroupId = null
+      rebuildGroupManage()
+    })
+    row.appendChild(deleteBtn)
+  }
+  // 行点击 = 选该组（改名/确认态里点输入框不触发——重建会打断输入）。
+  row.addEventListener('click', (e) => {
+    if (renaming && (e.target as HTMLElement).closest('input')) return
+    m.selectedGroupId = g.id
+    rebuildGroupManage()
+  })
+  return row
+}
+
+/** 改名提交：非空、不重名（排除自身）才发；失败就地提示并保持编辑态。 */
+function commitGroupRename(groupId: string): void {
+  const m = groupManage
+  const snap = sessionsSnapshot
+  if (!m || !snap) return
+  const name = m.renameDraft.trim()
+  if (name === '') {
+    m.renameError = t('Group name cannot be empty')
+    rebuildGroupManage()
+    return
+  }
+  if (snap.groups.some((g) => g.id !== groupId && g.name === name)) {
+    m.renameError = t('A group with this name already exists')
+    rebuildGroupManage()
+    return
+  }
+  post({ type: 'workspaceGroupRename', groupId, name })
+  m.renameGroupId = null
+  m.renameError = null
+  rebuildGroupManage()
+}
+
+/** 管理视图「工作区归组」区：选中某组后列出全部 workspace，勾选/取消归组。 */
+function buildGroupManageMembers(snap: SessionsSnapshot): HTMLElement {
+  const m = groupManage!
+  const sec = el('div', 'wsg-members')
+  const selected = snap.groups.find((g) => g.id === m.selectedGroupId)
+  if (!selected) {
+    sec.appendChild(el('div', 'wsg-section-title', t('Workspaces in group')))
+    sec.appendChild(el('div', 'wsg-hint', t('Select a group above, then check the workspaces it contains.')))
+    return sec
+  }
+  const title = el('div', 'wsg-members-title')
+  title.appendChild(el('span', 'wsg-members-title-label', t('Workspaces in group: {0}', selected.name)))
+  title.appendChild(el('span', 'wsg-row-count', String(selected.count)))
+  sec.appendChild(title)
+  if (snap.workspaceDirectory.length === 0) {
+    sec.appendChild(el('div', 'wsg-hint', t('No workspaces yet. Add one from the panel first, then tag it here.')))
+    return sec
+  }
+  for (const w of snap.workspaceDirectory) {
+    const line = el('label', 'wsg-member')
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'
+    // 勾选态随时取最新快照的归属（快速连点不依赖本次渲染时的旧值）。
+    cb.checked = (sessionsSnapshot?.groupMembership[w.workspaceId] ?? []).includes(selected.id)
+    cb.addEventListener('change', () => {
+      const current = sessionsSnapshot?.groupMembership[w.workspaceId] ?? []
+      const next = cb.checked ? [...current, selected.id] : current.filter((id) => id !== selected.id)
+      post({ type: 'workspaceGroupSetMembership', workspaceId: w.workspaceId, groupIds: next })
+    })
+    line.appendChild(cb)
+    line.appendChild(el('span', 'wsg-member-label', w.label))
+    sec.appendChild(line)
+  }
+  return sec
+}
+
+/** 组行拖拽排序（pointer capture 跟随）：实时换位，松手把全量顺序提交宿主。 */
+function onGroupDragStart(e: PointerEvent, groupId: string): void {
+  const m = groupManage
+  const snap = sessionsSnapshot
+  if (!m || !snap || e.button !== 0) return
+  const handle = e.currentTarget as HTMLElement
+  const row = handle.closest<HTMLElement>('.wsg-row')
+  const list = row?.parentElement
+  if (!row || !list || row.dataset.groupId !== groupId) return
+  e.preventDefault()
+  m.dragging = true
+  m.dragOrder = snap.groups.map((g) => g.id)
+  row.classList.add('dragging')
+  const move = (ev: PointerEvent): void => {
+    // 扫描时排除被拖行本身：找到「中线已越过指针」的第一行 → 插到它前面；
+    // 指针低于最后一行 → 插到末尾。双向都生效（旧实现向下拖时目标行
+    // 恒为被拖行自身，insertBefore 原地不动，拖不下去）。
+    const others = Array.from(list.querySelectorAll<HTMLElement>('.wsg-row')).filter((r) => r !== row)
+    let target: HTMLElement | null = null
+    for (const r of others) {
+      const rect = r.getBoundingClientRect()
+      if (ev.clientY < rect.top + rect.height / 2) {
+        target = r
+        break
+      }
+    }
+    if (target !== null) list.insertBefore(row, target)
+    else if (list.lastElementChild !== row) list.appendChild(row)
+    m.dragOrder = Array.from(list.querySelectorAll<HTMLElement>('.wsg-row'))
+      .map((r) => r.dataset.groupId)
+      .filter((id): id is string => id !== undefined)
+  }
+  const up = (): void => {
+    document.removeEventListener('pointermove', move, true)
+    document.removeEventListener('pointerup', up, true)
+    document.removeEventListener('pointercancel', up, true)
+    row.classList.remove('dragging')
+    const finalOrder = Array.from(list.querySelectorAll<HTMLElement>('.wsg-row'))
+      .map((r) => r.dataset.groupId)
+      .filter((id): id is string => id !== undefined)
+    m.dragging = false
+    m.dragOrder = null
+    // 顺序没变就不发（store 侧同样有幂等判断，这里省一次往返）。
+    if (finalOrder.length === snap.groups.length && finalOrder.every((id, i) => id === snap.groups[i].id)) {
+      rebuildGroupManage()
+      return
+    }
+    post({ type: 'workspaceGroupReorder', groupIds: finalOrder })
+  }
+  // 移动/抬起监听挂 document（捕获阶段）：指针划出手柄后仍能跟踪；拖拽是
+  // 短暂交互，全局监听用完即摘。setPointerCapture 是优化项——合成事件
+  // （自动化测试）或异常指针 id 下会抛 InvalidPointerId，降级为纯 document
+  // 监听（指针仍在页面内移动即可），不影响功能。
+  document.addEventListener('pointermove', move, true)
+  document.addEventListener('pointerup', up, true)
+  document.addEventListener('pointercancel', up, true)
+  try {
+    handle.setPointerCapture(e.pointerId)
+  } catch {
+    // 忽略：无捕获也行，document 监听已跟踪。
+  }
+}
+
 function renderSessions(): void {
   const snap = sessionsSnapshot
   // 坐标定位的右键菜单锚在会话行上，列表重建会销毁锚 → 关闭；其余锚（如
@@ -596,6 +1125,12 @@ function renderSessions(): void {
     sessionsPanel.appendChild(sessionsHeaderEl)
   }
   updateCollapseAllIcon()
+  // 分组栏同样只建一次（选择器/「+」按钮不随快照重建；label 文本单独更新）。
+  if (!groupBarEl) {
+    groupBarEl = buildGroupBar()
+    sessionsPanel.appendChild(groupBarEl)
+  }
+  updateGroupBar()
   // 会话行菜单（右键/⋯）打开期间的冻结：跳过列表重建，保留现有 DOM（行/菜单
   // 锚不销毁），新快照仍存进 sessionsSnapshot 等解冻后渲染。header 逻辑照旧
   // （header 本就不重建）。上面的 popover 锚处理段此时走 positionPopover（旧行
@@ -620,6 +1155,18 @@ function renderSessions(): void {
     // 恒渲染的「未分组」组误导成「没有 workspace」，未分组组头先于工作区组
     // 出现。等基线就绪再渲染列表，这里保持 Loading。
     list.appendChild(el('div', 'sessions-empty', t('Loading…')))
+  } else if (snap.activeGroupId !== null && snap.workspaces.length === 0 && snap.query === null) {
+    // 选中分组下没有任何 workspace：专属空态（不是「没有 workspace」的添加入口，
+    // 也不是搜索无命中——用户需要知道要先在管理视图里打标）。
+    const box = el('div', 'sessions-empty')
+    box.appendChild(
+      el('div', 'empty-hint', t('This group has no workspaces yet. Tag workspaces in "Manage groups…" first.')),
+    )
+    box.appendChild(el('div', 'empty-hint-secondary', t('You can also create a new group from the row above.')))
+    const manageBtn = buttonEl('secondary', t('Manage groups…'))
+    manageBtn.addEventListener('click', () => openGroupManage())
+    box.appendChild(manageBtn)
+    list.appendChild(box)
   } else if (snap.workspaces.every((w) => w.workspaceId === UNGROUPED_WORKSPACE_ID)) {
     // 没有真实 workspace：保留「添加工作区」引导，同时仍渲染「未分组」组
     // （空组头 + 新建按钮，「新建未分组对话」入口恒可达）。搜索态下未分组
@@ -1897,6 +2444,8 @@ window.addEventListener('message', (event) => {
     sessionsSnapshot = msg.snapshot
     currentSessionId = msg.snapshot.activeSessionId ?? null
     renderSessions()
+    // 管理视图打开期间快照到达：内容整体刷新（组列表/勾选态随新数据更新）。
+    if (groupManage && !groupManage.dragging) rebuildGroupManage()
   } else if (msg?.type === 'archiveManyDone' && Array.isArray(msg.failed)) {
     // 回收站归档（清空/单个）与主列表批量归档共用 sessionArchiveMany 链路：
     // 按当前打开的确认弹窗分流回执。

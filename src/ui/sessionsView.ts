@@ -78,6 +78,34 @@ const SESSIONS_STYLE = `
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
   .selection-bar button { padding: 3px 10px; font-size: 12px; }
+  /* 工作区分组栏：搜索框下、列表上一行；左 = 分组选择器（组名 + ▼），右 = 新建分组。 */
+  .ws-group-bar {
+    flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+  }
+  .ws-group-select {
+    flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 6px; margin: 0; border: 0; border-radius: 4px;
+    background: transparent; color: var(--vscode-foreground);
+    font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+  }
+  .ws-group-select:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  .ws-group-select-label {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 600;
+  }
+  .ws-group-select-chevron { flex: none; display: inline-flex; color: var(--vscode-descriptionForeground, #888); }
+  .ws-group-select-chevron svg { display: block; }
+  .ws-group-add {
+    flex: none; width: 24px; height: 24px; padding: 0; margin: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 0; border-radius: 4px;
+    color: inherit; opacity: 0.7; cursor: pointer;
+  }
+  .ws-group-add svg { display: block; }
+  .ws-group-add:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  /* 分组菜单分隔线（下拉里「管理分组…」之上）。 */
+  .menu-sep { border-top: 1px solid var(--vscode-menu-border, rgba(127,127,127,.2)); margin: 4px 2px; }
   /* 复选框（会话行/组头共用）：自绘外观，indeterminate 画横线。 */
   .select-checkbox {
     flex: none; width: 16px; height: 16px;
@@ -140,6 +168,113 @@ const SESSIONS_STYLE = `
   .modal-session-time { flex: none; font-size: 11px; opacity: .55; }
   .selection-modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px 12px; }
   .selection-modal-actions button { padding: 4px 12px; font-size: 12px; }
+  /* 分组管理视图弹层（侧栏内 modal）：分组区（建组/改名/删除/拖拽排序）+
+     工作区打标区（勾选/取消归组），两区上下排列。 */
+  .wsg-manage-overlay {
+    position: fixed; inset: 0; z-index: 30;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.35);
+  }
+  .wsg-manage {
+    width: min(380px, 94vw); max-height: 76vh; display: flex; flex-direction: column;
+    background: var(--vscode-editor-background, var(--vscode-menu-background));
+    color: var(--vscode-foreground);
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.2);
+  }
+  .wsg-manage-head {
+    flex: none; display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px;
+  }
+  .wsg-manage-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; }
+  .wsg-manage-close {
+    flex: none; width: 22px; height: 22px; padding: 0; margin: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 0; border-radius: 4px;
+    color: var(--vscode-descriptionForeground, #888); cursor: pointer;
+  }
+  .wsg-manage-close:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); color: var(--vscode-foreground); }
+  .wsg-manage-close svg { display: block; }
+  .wsg-manage-body { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 10px 10px; }
+  .wsg-section-title {
+    font-size: 11px; opacity: .6; padding: 6px 2px 4px;
+  }
+  .wsg-groups-empty { padding: 4px 2px 8px; font-size: 12px; opacity: .7; }
+  .wsg-row {
+    display: flex; align-items: center; gap: 4px; padding: 2px 2px 2px 0;
+    border-radius: 6px; cursor: pointer;
+  }
+  .wsg-row:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
+  .wsg-row.selected { background: var(--vscode-menu-selectionBackground, rgba(0,122,204,.35)); }
+  .wsg-row.dragging { opacity: .55; }
+  .wsg-row-handle {
+    flex: none; width: 16px; height: 24px; box-sizing: border-box;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--vscode-descriptionForeground, #888);
+    cursor: grab; touch-action: none;
+  }
+  .wsg-row-handle:active { cursor: grabbing; }
+  .wsg-row-name {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 12px;
+  }
+  .wsg-row-rename-input {
+    flex: 1; min-width: 0; font: inherit; font-size: 12px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
+    border-radius: 4px; padding: 2px 6px; outline: none;
+  }
+  .wsg-row-count {
+    flex: none; font-size: 10px; font-weight: 400; padding: 0 5px; border-radius: 8px;
+    background: var(--vscode-badge-background, rgba(127,127,127,.25));
+    color: var(--vscode-badge-foreground, var(--vscode-foreground));
+  }
+  .wsg-row-btn {
+    flex: none; width: 20px; height: 20px; padding: 0; margin: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 0; border-radius: 3px;
+    color: var(--vscode-descriptionForeground, #888);
+    opacity: .8; cursor: pointer;
+  }
+  .wsg-row-btn:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); color: var(--vscode-foreground); }
+  .wsg-row-btn svg { display: block; }
+  .wsg-row-confirm { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wsg-row-delete { flex: none; padding: 2px 8px; font-size: 12px; }
+  .wsg-error { flex: none; font-size: 11px; color: var(--vscode-errorForeground, #f48771); padding: 2px 4px 0; }
+  .wsg-new-row { display: flex; align-items: center; gap: 6px; padding: 6px 2px 2px; }
+  .wsg-new-input {
+    flex: 1; min-width: 0; font: inherit; font-size: 12px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
+    padding: 3px 6px; outline: none;
+  }
+  .wsg-new-input:focus { outline: 1px solid var(--vscode-focusBorder); }
+  .wsg-new-add { flex: none; padding: 3px 10px; font-size: 12px; white-space: nowrap; }
+  /* 「+」快速建组的弹层内容：标题 + 输入 + 错误 + 创建按钮。 */
+  .wsg-create { display: flex; flex-direction: column; gap: 6px; padding: 2px; }
+  .wsg-create-title { font-size: 12px; font-weight: 600; padding: 2px 4px 0; }
+  .wsg-create-input {
+    min-width: 160px; font: inherit; font-size: 12px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
+    padding: 3px 6px; outline: none;
+  }
+  .wsg-create-input:focus { outline: 1px solid var(--vscode-focusBorder); }
+  .wsg-create-submit { align-self: flex-end; padding: 3px 10px; font-size: 12px; }
+  /* 工作区打标区：选中某组后列出全部 workspace，勾选 = 归组。 */
+  .wsg-members { border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.2)); margin-top: 8px; padding-top: 2px; }
+  .wsg-members-title {
+    display: flex; align-items: center; gap: 6px; padding: 6px 2px;
+    font-size: 12px; font-weight: 600;
+  }
+  .wsg-members-title-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wsg-hint { padding: 2px; font-size: 12px; opacity: .7; }
+  .wsg-member {
+    display: flex; align-items: center; gap: 6px; padding: 4px 2px;
+    font-size: 12px; cursor: pointer;
+  }
+  .wsg-member input { flex: none; margin: 0; accent-color: var(--vscode-charts-blue, #5686fe); cursor: pointer; }
+  .wsg-member-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 回收站抽屉：从面板底部滑出，默认占据约一半高度，叠加在主列表上（主列表
      上半部仍可见可交互，不整栏切换）；提手上拉可扩到 90%（.expanded），
      下拉到底松手 = 收起。无遮罩直接叠——点击抽屉外区域即收起。 */
@@ -412,7 +547,9 @@ const SESSIONS_STYLE = `
   button:disabled { opacity: 0.5; cursor: default; }
   .popover {
     position: fixed; z-index: 20; min-width: 180px; max-width: 340px; max-height: 50vh; overflow-y: auto;
-    background: var(--vscode-menu-background, var(--vscode-dropdown-background));
+    /* 兜底实色背景：VS Code 恒注入 menu-background；harness 等无主题变量的环境
+       下透明会叠出下层列表。 */
+    background: var(--vscode-menu-background, var(--vscode-dropdown-background, #ffffff));
     color: var(--vscode-menu-foreground, var(--vscode-dropdown-foreground));
     border: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
     border-radius: 12px; padding: 4px;
@@ -688,6 +825,34 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
         // 复制引用走统一命令（chat 头部 ⋯ 菜单与编辑器 tab 右键共用）。
         void vscode.commands.executeCommand('dshOne.session.copyReference', m.sessionId, m.title)
         return
+      /* ---- 工作区分组（纯客户端状态，store 持久化到 globalState） ---- */
+      case 'workspaceGroupSelect':
+        this.store.setActiveGroup(typeof m.groupId === 'string' ? m.groupId : null)
+        return
+      case 'workspaceGroupCreate':
+        // webview 已校验（空名/重名在输入处提示）；store 兜底拒绝，不弹宿主警告。
+        if (typeof m.name === 'string') this.store.createGroup(m.name)
+        return
+      case 'workspaceGroupRename':
+        if (typeof m.name === 'string') this.store.renameGroup(m.groupId, m.name)
+        return
+      case 'workspaceGroupDelete':
+        this.store.deleteGroup(m.groupId)
+        return
+      case 'workspaceGroupSetMembership': {
+        const ids = Array.isArray(m.groupIds)
+          ? m.groupIds.filter((x): x is string => typeof x === 'string')
+          : []
+        this.store.setGroupMembership(m.workspaceId, ids)
+        return
+      }
+      case 'workspaceGroupReorder': {
+        const ids = Array.isArray(m.groupIds)
+          ? m.groupIds.filter((x): x is string => typeof x === 'string')
+          : []
+        this.store.reorderGroups(ids)
+        return
+      }
       case 'serverStart':
         void this.manager.ensureStarted()
         return
