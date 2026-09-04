@@ -26,3 +26,4 @@
 - 2026-09-04 认领（open → doing）：修复随 sandbox-testing-chain 分支完成（注入判别两类 + storages 清理 + 驱动去暖场，实测 2/2 done）；分支合入验证后转 done。
 
 - 2026-09-04 修复随 sandbox-testing-chain 合入（merge f0b8d28）并复测通过，doing → done。
+- 2026-09-04 主线合入（f0b8d28）并人工确认 → closed
