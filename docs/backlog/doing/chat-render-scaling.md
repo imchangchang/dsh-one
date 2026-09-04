@@ -84,3 +84,5 @@
 | 后手 | 消息列表虚拟化 | 大改 |
 
 阶段 1 可拆 2-3 个 session 并行（host 侧限流 vs webview 侧 hover/undo 不冲突）；阶段 2-4 同区域（webview 渲染路径）串行。
+
+- 2026-09-05 认领（open → doing）：阶段 1 拆 1A/1B 两条并行开发线——1A host 侧限流+失败收敛（本 session，slug chat-render-scaling-1a）；1B webview 侧 hover 恢复+undo（并行 session，slug chat-render-scaling-1b），不单独记 backlog；两线成果在本条目 done 变更记录一并注明。
