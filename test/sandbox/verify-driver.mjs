@@ -172,6 +172,26 @@ async function waitForText(page, expectText, timeoutMs) {
   return false
 }
 
+/** 在 webview 内嵌 frame 里悬停含指定文本的元素（commit chip 等）：等 chip
+ *  状态类落地（commitInfo 回传：found 点亮 / unknown 灰显）再悬停，悬浮卡才弹。
+ *  用于 hoverText 驱动字段——截图前把卡片弹出，让报告里能看到卡内容。 */
+async function hoverTextInFrame(page, text) {
+  for (const f of page.frames()) {
+    try {
+      const chip = f.locator('.commit-hash').filter({ hasText: text }).first()
+      await chip.waitFor({ state: 'visible', timeout: 20_000 })
+      await f.locator('.commit-hash-found, .commit-hash-unknown').first().waitFor({ state: 'visible', timeout: 20_000 })
+      await chip.scrollIntoViewIfNeeded()
+      await chip.hover({ timeout: 10_000 })
+      await sleep(500)
+      return true
+    } catch {
+      // 该 frame 没有/还没渲染出目标，试下一个（iframe 会被宿主重建，重扫）
+    }
+  }
+  return false
+}
+
 /** 点发送后立刻把 afterSendFill 填进 composer：发送清空输入后 composer 仍在，
  *  pending 帧到达前（mock-LLM 工具调用往返 ~百毫秒级）把草稿填进去。 */
 async function fillAfterSend(page, text) {
@@ -308,6 +328,15 @@ try {
         if (!ok) {
           result = 'fail'
           notes.push(`断言超时（${EXPECT_TEXT_TIMEOUT / 1000}s）：预期文本「${driver.expectText}」未出现`)
+        }
+      }
+      if (driver.hoverText) {
+        // 悬停含该文本的元素（commit chip 等）让悬浮卡弹出，随后截图能拍到卡片。
+        const ok = await hoverTextInFrame(page, driver.hoverText)
+        notes.push(ok ? `已悬停：${driver.hoverText}` : `悬停失败：${driver.hoverText}`)
+        if (!ok) {
+          result = 'fail'
+          notes.push('hoverText：未找到可悬停元素或状态未落地')
         }
       }
       if (driver.fillAndClear) {

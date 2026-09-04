@@ -1,0 +1,63 @@
+{
+  "title": "DSH One 沙盒验收报告 — commit 卡不依赖窗口打开仓库（git CLI 兜底）",
+  "branch": "agent/commit-card-window-independent",
+  "commit": "53b385a",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-commit-card-independent:latest",
+    "date": "2026-09-04T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code、点击 chip 后 vscode.env.openExternal 的真实打开行为（沙盒容器无外部浏览器）、非 GitHub remote、git.path 设置点不在本报告范围；解析与 URL 派生由 test/commitGit.test.ts 单测覆盖。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "git CLI 兜底：窗口未打开仓库时 commit 卡仍显示",
+      "expect": "发送「commit 演示」后，mock 回复文本里的 40 位 sha 渲染为 commit chip 且点亮（found，不再灰显）；悬停 chip 弹出详情卡：作者行（Demo Author + 时间）、subject「feat(demo): 初始提交」+ body「这是 body 第二行。」、变更统计 1 file changed, 1 insertion(+)、命令行短 hash + 复制 + Open on GitHub。窗口打开的 workspace 目录不是 git 仓库，vscode.git 应未命中——卡片来自 git CLI 兜底；GitHub 链接由 origin remote（git@github.com:imchangchang/dsh-one.git）派生。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-commit-card-independent/F-01.png"
+      ],
+      "driver": {
+        "prompt": "commit 演示",
+        "expectText": "cb1f933e15289a00e30865e8dd3963ba90a96780",
+        "hoverText": "cb1f933e15289a00e30865e8dd3963ba90a96780"
+      },
+      "notes": "新建会话：sidebar-ungrouped；已悬停：cb1f933e15289a00e30865e8dd3963ba90a96780"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "不存在的 sha：灰显保持",
+      "expect": "发送「commit 不存在」后，mock 回复里的 40 位 sha 渲染为灰显 chip（unknown），悬停显示「Commit not found」提示卡，不弹详情卡、无异常弹窗。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-commit-card-independent/R-01.png"
+      ],
+      "driver": {
+        "prompt": "commit 不存在",
+        "expectText": "deadbeef00112233445566778899aabbccddeeff",
+        "hoverText": "deadbeef00112233445566778899aabbccddeeff"
+      },
+      "notes": "新建会话：sidebar-ungrouped；已悬停：deadbeef00112233445566778899aabbccddeeff"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "普通对话回显回归",
+      "expect": "发送普通消息「回归一下」，助手消息回显「收到：回归一下」（mock 兜底规则），无 commit chip 干扰。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-commit-card-independent/R-02.png"
+      ],
+      "driver": {
+        "prompt": "回归一下",
+        "expectText": "收到：回归一下"
+      },
+      "notes": "新建会话：sidebar-ungrouped"
+    }
+  ]
+}
