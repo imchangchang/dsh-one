@@ -1059,28 +1059,29 @@ function onGroupDragStart(e: PointerEvent, groupId: string): void {
   m.dragging = true
   m.dragOrder = snap.groups.map((g) => g.id)
   row.classList.add('dragging')
-  handle.setPointerCapture(e.pointerId)
   const move = (ev: PointerEvent): void => {
-    const rows = Array.from(list.querySelectorAll<HTMLElement>('.wsg-row'))
-    // 目标 = 指针越过中线的那一行；没有越线则留在原处（不交换）。
+    // 扫描时排除被拖行本身：找到「中线已越过指针」的第一行 → 插到它前面；
+    // 指针低于最后一行 → 插到末尾。双向都生效（旧实现向下拖时目标行
+    // 恒为被拖行自身，insertBefore 原地不动，拖不下去）。
+    const others = Array.from(list.querySelectorAll<HTMLElement>('.wsg-row')).filter((r) => r !== row)
     let target: HTMLElement | null = null
-    for (const r of rows) {
+    for (const r of others) {
       const rect = r.getBoundingClientRect()
       if (ev.clientY < rect.top + rect.height / 2) {
         target = r
         break
       }
     }
-    if (target !== null && target !== row) list.insertBefore(row, target)
-    else if (target === null && list.lastElementChild !== row) list.appendChild(row)
+    if (target !== null) list.insertBefore(row, target)
+    else if (list.lastElementChild !== row) list.appendChild(row)
     m.dragOrder = Array.from(list.querySelectorAll<HTMLElement>('.wsg-row'))
       .map((r) => r.dataset.groupId)
       .filter((id): id is string => id !== undefined)
   }
   const up = (): void => {
-    handle.removeEventListener('pointermove', move)
-    handle.removeEventListener('pointerup', up)
-    handle.removeEventListener('pointercancel', up)
+    document.removeEventListener('pointermove', move, true)
+    document.removeEventListener('pointerup', up, true)
+    document.removeEventListener('pointercancel', up, true)
     row.classList.remove('dragging')
     const finalOrder = Array.from(list.querySelectorAll<HTMLElement>('.wsg-row'))
       .map((r) => r.dataset.groupId)
@@ -1094,9 +1095,18 @@ function onGroupDragStart(e: PointerEvent, groupId: string): void {
     }
     post({ type: 'workspaceGroupReorder', groupIds: finalOrder })
   }
-  handle.addEventListener('pointermove', move)
-  handle.addEventListener('pointerup', up)
-  handle.addEventListener('pointercancel', up)
+  // 移动/抬起监听挂 document（捕获阶段）：指针划出手柄后仍能跟踪；拖拽是
+  // 短暂交互，全局监听用完即摘。setPointerCapture 是优化项——合成事件
+  // （自动化测试）或异常指针 id 下会抛 InvalidPointerId，降级为纯 document
+  // 监听（指针仍在页面内移动即可），不影响功能。
+  document.addEventListener('pointermove', move, true)
+  document.addEventListener('pointerup', up, true)
+  document.addEventListener('pointercancel', up, true)
+  try {
+    handle.setPointerCapture(e.pointerId)
+  } catch {
+    // 忽略：无捕获也行，document 监听已跟踪。
+  }
 }
 
 function renderSessions(): void {

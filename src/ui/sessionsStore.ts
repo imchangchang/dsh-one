@@ -22,6 +22,16 @@ import {
   type WorkspaceInput,
   type WorkspaceNodeModel,
 } from '../pure/sessionTree.ts'
+import {
+  groupMembershipCount,
+  groupNameError,
+  removeGroupId,
+  reorderGroups,
+  sanitizeGroups,
+  sanitizeMembership,
+  setWorkspaceGroupIds,
+  type WorkspaceGroupDef as GroupDef,
+} from '../pure/workspaceGroups.ts'
 
 /** Map one session.list entry onto the pure-layer SessionInput. */
 function toSessionInput(s: SessionSummary): SessionInput {
@@ -73,39 +83,6 @@ const GROUPS_STATE_KEY = 'sessions.groups'
 const GROUP_MEMBERSHIP_STATE_KEY = 'sessions.groupMembership'
 const ACTIVE_GROUP_STATE_KEY = 'sessions.activeGroup'
 
-/** 分组定义的持久化形态（数组顺序 = 展示顺序）。 */
-interface GroupDef {
-  id: string
-  name: string
-}
-
-/** 从 globalState 读出的分组定义做防御清洗（旧版本残留/手工改坏不崩）。 */
-function sanitizeGroups(raw: unknown): GroupDef[] {
-  if (!Array.isArray(raw)) return []
-  const seen = new Set<string>()
-  const out: GroupDef[] = []
-  for (const g of raw) {
-    if (typeof g !== 'object' || g === null) continue
-    const { id, name } = g as Record<string, unknown>
-    if (typeof id !== 'string' || !id || typeof name !== 'string' || !name.trim()) continue
-    if (seen.has(id)) continue
-    seen.add(id)
-    out.push({ id, name: name.trim() })
-  }
-  return out
-}
-
-/** 从 globalState 读出的归属映射做防御清洗：只保留已知组 id、去重。 */
-function sanitizeMembership(raw: unknown, groupIds: ReadonlySet<string>): Record<string, string[]> {
-  const out: Record<string, string[]> = {}
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out
-  for (const [wsId, ids] of Object.entries(raw)) {
-    if (!Array.isArray(ids)) continue
-    const cleaned = [...new Set(ids.filter((x): x is string => typeof x === 'string' && groupIds.has(x)))]
-    if (cleaned.length > 0) out[wsId] = cleaned
-  }
-  return out
-}
 
 /**
  * 面向 Windows 的 workspace 路径等价比较：大小写、斜杠与尾斜杠不敏感
@@ -392,11 +369,7 @@ export class SessionsStore implements vscode.Disposable {
 
   /** 某组的归组计数（只数当前基线里存在的 workspace）。 */
   private groupMembershipCount(groupId: string, currentIds: ReadonlySet<string>): number {
-    let n = 0
-    for (const [wsId, ids] of Object.entries(this.groupMembership)) {
-      if (currentIds.has(wsId) && ids.includes(groupId)) n += 1
-    }
-    return n
+    return groupMembershipCount(this.groupMembership, groupId, currentIds)
   }
 
   /* ---- 工作区分组（客户端状态，globalState 持久化） ---- */
@@ -416,23 +389,20 @@ export class SessionsStore implements vscode.Disposable {
   /** 新建分组：名称 trim 后非空且不重名；成功返回组定义，失败返回 null。
    *  webview 已做同款校验（空名/重名在输入处给出提示），这里兜底防竞态。 */
   createGroup(name: string): GroupDef | null {
-    const trimmed = name.trim()
-    if (!trimmed || this.groups.some((g) => g.name === trimmed)) return null
-    const group: GroupDef = { id: `g-${randomUUID()}`, name: trimmed }
+    if (groupNameError(name, this.groups) !== null) return null
+    const group: GroupDef = { id: `g-${randomUUID()}`, name: name.trim() }
     this.groups = [...this.groups, group]
     this.persistGroups()
     this.onDidChangeEmitter.fire()
     return group
   }
 
-  /** 重命名分组（同名校验同 createGroup，排除自身）；成功返回 true。 */
+  /** 重命名分组（同名校验同 createGroup，排除自身）；无变化返回 true。 */
   renameGroup(groupId: string, name: string): boolean {
+    if (!this.groups.some((g) => g.id === groupId)) return false
+    if (groupNameError(name, this.groups, groupId) !== null) return false
     const trimmed = name.trim()
-    const group = this.groups.find((g) => g.id === groupId)
-    if (!group || !trimmed || this.groups.some((g) => g.id !== groupId && g.name === trimmed)) {
-      return false
-    }
-    if (group.name === trimmed) return true
+    if (this.groups.find((g) => g.id === groupId)!.name === trimmed) return true
     this.groups = this.groups.map((g) => (g.id === groupId ? { ...g, name: trimmed } : g))
     this.persistGroups()
     this.onDidChangeEmitter.fire()
@@ -441,18 +411,11 @@ export class SessionsStore implements vscode.Disposable {
 
   /** 删除分组：组定义移除、归属清理；若删的是当前选中组，回落「全部工作区」。 */
   deleteGroup(groupId: string): void {
-    const index = this.groups.findIndex((g) => g.id === groupId)
-    if (index === -1) return
+    if (!this.groups.some((g) => g.id === groupId)) return
     this.groups = this.groups.filter((g) => g.id !== groupId)
     this.persistGroups()
-    let changed = false
-    const nextMembership: Record<string, string[]> = {}
-    for (const [wsId, ids] of Object.entries(this.groupMembership)) {
-      const cleaned = ids.filter((id) => id !== groupId)
-      if (cleaned.length !== ids.length) changed = true
-      if (cleaned.length > 0) nextMembership[wsId] = cleaned
-    }
-    if (changed) {
+    const nextMembership = removeGroupId(this.groupMembership, groupId)
+    if (nextMembership !== this.groupMembership) {
       this.groupMembership = nextMembership
       this.persistMembership()
     }
@@ -466,12 +429,8 @@ export class SessionsStore implements vscode.Disposable {
   /** 设置一个 workspace 的分组归属（多对多全量替换，幂等；未知组 id 剔除）。 */
   setGroupMembership(workspaceId: string, groupIds: readonly string[]): void {
     const known = new Set(this.groups.map((g) => g.id))
-    const cleaned = [...new Set(groupIds.filter((id) => known.has(id)))]
-    const prev = this.groupMembership[workspaceId] ?? []
-    if (prev.length === cleaned.length && prev.every((id, i) => id === cleaned[i])) return
-    const next = { ...this.groupMembership }
-    if (cleaned.length > 0) next[workspaceId] = cleaned
-    else delete next[workspaceId]
+    const next = setWorkspaceGroupIds(this.groupMembership, workspaceId, groupIds, known)
+    if (next === null) return
     this.groupMembership = next
     this.persistMembership()
     this.onDidChangeEmitter.fire()
@@ -488,13 +447,8 @@ export class SessionsStore implements vscode.Disposable {
 
   /** 持久化分组顺序（管理视图拖拽后提交全量顺序；缺失/未知 id 丢弃）。 */
   reorderGroups(groupIds: readonly string[]): void {
-    const byId = new Map(this.groups.map((g) => [g.id, g]))
-    const next = groupIds
-      .map((id) => byId.get(id))
-      .filter((g): g is GroupDef => g !== undefined)
-    if (next.length === 0 || next.length !== this.groups.length || next.every((g, i) => g.id === this.groups[i].id)) {
-      return
-    }
+    const next = reorderGroups(this.groups, groupIds)
+    if (next === null) return
     this.groups = next
     this.persistGroups()
     this.onDidChangeEmitter.fire()
