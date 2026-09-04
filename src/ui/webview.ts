@@ -115,7 +115,6 @@ function dshFrame(url: string): string {
 async function render(status: ServerStatus): Promise<string> {
   if (status.state === 'running' && status.url) {
     const target = new URL(browserUrl(status.url))
-    target.searchParams.set('dsh_embed', 'vscode')
     const external = await vscode.env.asExternalUri(vscode.Uri.parse(target.href))
     return dshFrame(external.toString())
   }
