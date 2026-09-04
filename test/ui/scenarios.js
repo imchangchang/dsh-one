@@ -27,6 +27,22 @@
     sessionId, label, description, running: false, pinned: false, unread: false, descendantRunning: false, hasCompletedTurn: true, ...over,
   })
   window.sessionsTree = function (activeId) {
+    const workspaces = [
+      {
+        workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true,
+        sessions: [
+          sess('sess-1', 'DSH One 示例会话', '3 小时前'),
+          sess('sess-2', '重构 sessionStore', '5 小时前', { unread: true }),
+        ],
+      },
+      {
+        workspaceId: 'ws-research', path: '/Users/cgeng/Workspaces/dsh-web', label: 'dsh-web research', isCurrent: false,
+        sessions: [
+          sess('sess-3', 'dsh web 可展开 UI 调研', '昨天'),
+        ],
+      },
+      { workspaceId: UNGROUPED, path: '', label: '未分组', isCurrent: false, sessions: [] },
+    ]
     return {
       query: null,
       sortOrder: 'updatedDesc',
@@ -43,23 +59,25 @@
       recycleBin: [],
       recycleWorkspaces: [],
       recycleCollapsed: [],
-      workspaces: [
-        {
-          workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true,
-          sessions: [
-            sess('sess-1', 'DSH One 示例会话', '3 小时前'),
-            sess('sess-2', '重构 sessionStore', '5 小时前', { unread: true }),
-          ],
-        },
-        {
-          workspaceId: 'ws-research', path: '/Users/cgeng/Workspaces/dsh-web', label: 'dsh-web research', isCurrent: false,
-          sessions: [
-            sess('sess-3', 'dsh web 可展开 UI 调研', '昨天'),
-          ],
-        },
-        { workspaceId: UNGROUPED, path: '', label: '未分组', isCurrent: false, sessions: [] },
-      ],
+      // 工作区分组状态（空 = 无分组、全部工作区）；分组场景按需覆写。
+      groups: [],
+      activeGroupId: null,
+      groupMembership: {},
+      workspaceDirectory: workspaces
+        .filter((w) => w.workspaceId !== UNGROUPED)
+        .map((w) => ({ workspaceId: w.workspaceId, label: w.label })),
+      workspaces,
     }
+  }
+
+  // 工作区分组场景的分组数据（演示 = ws-main + ws-research；开发 = ws-main；日常 = 空组）。
+  window.SESSION_GROUPS_FIXTURE = {
+    groups: [
+      { id: 'g-demo', name: '演示', count: 2 },
+      { id: 'g-dev', name: '开发', count: 1 },
+      { id: 'g-daily', name: '日常', count: 0 },
+    ],
+    groupMembership: { 'ws-main': ['g-demo', 'g-dev'], 'ws-research': ['g-demo'] },
   }
 
   // ---- 基础 ChatState，供各场景覆写 ----
@@ -957,6 +975,7 @@
         s.dshNotFound = true
         s.hostOs = 'macos'
         s.workspaces = []
+        s.workspaceDirectory = []
         s.baselineReady = true
         return s
       })(),
@@ -1009,12 +1028,12 @@
         // 「添加工作区」引导 + 「未分组」空组头（新建未分组对话入口）应照常显示。
         s.baselineReady = true
         s.workspaces = [{ workspaceId: UNGROUPED, path: '', label: '未分组', isCurrent: false, sessions: [] }]
+        s.workspaceDirectory = [] // 没有真实 workspace → 分组栏「全部工作区」计数 0
         return s
       })(),
       title: '侧栏面板（基线就绪：确实没有 workspace）',
       expect: '列表上方「添加工作区」引导（No workspaces yet…），下方「未分组」组头（文件夹图标 + 组名「未分组」，行尾「+」新建按钮仅结构存在——截图为静态，不核对 hover），无任何会话行；头部工具栏照常显示。',
     },
-
     'sessions-search': {
       view: 'sessions',
       sessions: (() => {
@@ -1260,6 +1279,127 @@
       interact: `document.querySelector('.session-row[data-session-id="sess-4"]')?.click() // 未附着（仅高亮）→ 打开会话，不进重命名`,
       title: '侧栏面板（仅高亮未附着：点击打开）',
       expect: '会话行高亮（active）但 attachedSessionId 为 null（reload 后面板未开、懒加载待附着的典型态）；点击行后**不出现** rename-input——行保持标题文本；行为是 post sessionOpen 而非重命名。',
+    },
+
+    // ================= 工作区分组（tag 过滤 + 下拉选择器） =================
+
+    // 分组数据构造：演示（ws-main + ws-research）、开发（ws-main）、日常（空组）+ 一个未打标 workspace。
+    'sessions-groups-dropdown': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        return s
+      })(),
+      interact: `document.querySelector('.ws-group-select')?.click()`,
+      title: '侧栏面板（工作区分组栏：全部工作区 + 下拉菜单）',
+      expect: '搜索框下新出一行分组栏：左「All workspaces ▼」（加粗 + 下拉箭头），右「+」（New group 快捷按钮）；点击后弹下拉菜单：①首项「All workspaces 2」（全部 workspace 计数=2，当前选中 ✓ checked）；②各分组按序「演示 2 / 开发 1 / 日常 0」（右侧计数角标）；③分隔线下一项「Manage groups…」（齿轮图标）。主列表不受影响（全部工作区 = 现状：两个真实组 + 未分组组都在）。',
+    },
+
+    'sessions-groups-selected': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        s.activeGroupId = 'g-demo'
+        return s
+      })(),
+      title: '侧栏面板（选中「演示」分组：只显示组内 workspace）',
+      expect: '分组栏左按钮显示「演示 ▼」（选中的组名）；列表**只**显示「演示」组的两个 workspace（dsh-one、dsh-web research）——未分组组头**不出现**；未打标的 workspace 不出现（未打标只在「全部工作区」显示）；分组栏右侧「+」保留。',
+    },
+
+    'sessions-groups-selected-search': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        s.activeGroupId = 'g-dev' // 只有 ws-main
+        s.query = '重构'
+        s.workspaces[0].sessions = [sess('sess-2', '重构 sessionStore', '5 小时前')]
+        return s
+      })(),
+      interact: `(() => { const i = document.querySelector('.sessions-search'); i.value = '重构'; i.dispatchEvent(new Event('input', { bubbles: true })) })()`,
+      title: '侧栏面板（分组 + 搜索叠加：先分组后搜索）',
+      expect: '分组栏显示「开发 ▼」；搜索框显示「重构」；列表：ws-main 组展开，其下命中行「重构 sessionStore」（组内只有这一个 workspace 且命中）；dsh-web research（不在「开发」组）不出现；未分组组头不出现——分组过滤与搜索叠加（先分组后搜索）。',
+    },
+
+    'sessions-groups-empty': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        s.activeGroupId = 'g-daily' // 空组：没有任何 workspace 归组
+        return s
+      })(),
+      title: '侧栏面板（选中空分组：组专属空态）',
+      expect: '分组栏左按钮显示「日常 ▼」；列表区为**组专属空态**：居中提示「This group has no workspaces yet. Tag workspaces in "Manage groups…" first.」+ 补充行「You can also create a new group from the row above.」+ secondary 按钮「Manage groups…」；**不是**「No workspaces yet. Add an existing folder...」的默认引导；分组栏顶部照常。',
+    },
+
+    'sessions-groups-manage': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        s.activeGroupId = 'g-demo'
+        return s
+      })(),
+      interact: `(() => {
+        document.querySelector('.ws-group-select')?.click()
+        const items = [...document.querySelectorAll('.menu-item')]
+        items.find((i) => i.textContent?.includes('管理分组'))?.click()
+      })()`,
+      title: '侧栏面板（管理分组视图：组行 + 工作区打标勾选）',
+      expect: '点「Manage groups…」后弹出管理视图弹层（居中卡片）：① 头部「Manage groups」+ 右上 ✕ 关闭；② 「Groups」区：三行组（演示 2 / 开发 1 / 日常 0），每行最左为六点拖拽手柄，行尾 ✎（Rename group）+ 🗑（Delete group）按钮；当前选中组「演示」行高亮（selected 背景）；③ 区底是新建行（placeholder「Group name」输入框 + 「Create」按钮）；④ 分隔线下「Workspaces in group: 演示 2」区，列出全部 workspace——dsh-one ✓、dsh-web research ✓（都在演示组）两项勾选；弹层外主列表仍可见（半透明遮罩盖住）。',
+    },
+
+    'sessions-groups-manage-rename': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        return s
+      })(),
+      interact: `(() => {
+        document.querySelector('.ws-group-select')?.click()
+        const items = [...document.querySelectorAll('.menu-item')]
+        items.find((i) => i.textContent?.includes('管理分组'))?.click()
+        const row = document.querySelector('.wsg-row[data-group-id="g-dev"]')
+        row?.querySelector('[aria-label="Rename group"]')?.click()
+        const input = row?.querySelector('.wsg-row-rename-input')
+        if (input) { input.value = '开发中'; input.dispatchEvent(new Event('input', { bubbles: true })) }
+      })()`,
+      title: '侧栏面板（管理分组：行内重命名编辑态）',
+      expect: '管理视图中「开发」行进入重命名编辑态：组名替换为输入框（prefill「开发」，光标/选区在名上）；计数角标保留；行尾 ✎/🗑 仍在；行输入框无其他按钮（Enter 确认、Esc 取消；快照未回传时保持输入态）。',
+    },
+
+    'sessions-groups-purge': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        s.activeGroupId = null
+        return s
+      })(),
+      interact: `(() => {
+        document.querySelector('.ws-group-select')?.click()
+        const items = [...document.querySelectorAll('.menu-item')]
+        items.find((i) => i.textContent?.includes('管理分组'))?.click()
+        document.querySelector('.wsg-row[data-group-id="g-daily"] [aria-label="Delete group"]')?.click()
+      })()`,
+      title: '侧栏面板（管理分组：删除确认态）',
+      expect: '「日常」行进入删除确认态：组名位置替换为「Delete group "日常"?」+ 「Delete」primary +「Cancel」secondary 按钮；✎/🗑 按钮消失（确认态下不显示）；其余组行不受影响。',
+    },
+
+    'sessions-groups-create-popover': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        return s
+      })(),
+      interact: `document.querySelector('.ws-group-add')?.click()`,
+      title: '侧栏面板（「+」快速建组弹层）',
+      expect: '点击分组栏右侧「+」弹出小浮层：标题「New group」+ 名称输入框（placeholder「Group name」+「Create」按钮）；浮层定位在「+」按钮下方；主列表没变化。',
     },
 
     // ================= workflow 运行卡（run→phase→member 三层折叠行） =================
