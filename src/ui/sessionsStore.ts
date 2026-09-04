@@ -32,6 +32,7 @@ import {
   setWorkspaceGroupIds,
   type WorkspaceGroupDef as GroupDef,
 } from '../pure/workspaceGroups.ts'
+import { pruneRecycleIds, resolveRecycleIds } from '../pure/recycleBinState.ts'
 
 /** Map one session.list entry onto the pure-layer SessionInput. */
 function toSessionInput(s: SessionSummary): SessionInput {
@@ -68,15 +69,18 @@ const PINNED_STATE_KEY = 'sessions.pinned'
 const COLLAPSED_STATE_KEY = 'sessions.collapsed'
 /** workspaceState key for manually unread-marked sessions (UI-only; dsh 无未读概念）. */
 const UNREAD_STATE_KEY = 'sessions.unread'
-/** workspaceState key for recycle-bin session ids (UI-only; dsh 无回收站概念）. */
+/** globalState key for recycle-bin session ids（v2 起跨窗口共享；v1 同名 key 存
+ *  workspaceState，per-workspace——新窗口读不到，回收站整集合丢失。旧值经
+ *  resolveRecycleIds 一次性迁移后不再读 workspaceState）。 */
 const RECYCLE_BIN_STATE_KEY = 'sessions.recycleBin'
-/** workspaceState key for recycle view collapsed workspaces (与主列表折叠互不影响）. */
+/** globalState key for recycle view collapsed workspaces（与主列表折叠互不影响；
+ *  v1 同名 key 存 workspaceState，迁移同 RECYCLE_BIN_STATE_KEY）。 */
 const RECYCLE_COLLAPSED_STATE_KEY = 'sessions.recycleCollapsed'
 
 /**
  * 工作区分组状态（globalState，跨窗口/重启共享）：分组定义与顺序、
  * workspace↔组 归属、当前选中组。与上面的 workspaceState 偏好键
- * （排序/折叠/置顶/未读/回收站）分区，扩展开多窗口时两边互不覆盖。
+ * （排序/折叠/置顶/未读）分区，扩展开多窗口时两边互不覆盖。
  * 归组是纯客户端状态（dsh 无分组概念），与 pinned/unread 同性质。
  */
 const GROUPS_STATE_KEY = 'sessions.groups'
@@ -238,8 +242,27 @@ export class SessionsStore implements vscode.Disposable {
     // 清掉历史版本可能残留的「未分组」折叠键（虚拟组恒展开，不应进集合）。
     this.collapsed.delete(UNGROUPED_WORKSPACE_ID)
     this.unread = new Set(state?.get<string[]>(UNREAD_STATE_KEY) ?? [])
-    this.recycleBin = state?.get<string[]>(RECYCLE_BIN_STATE_KEY) ?? []
-    this.recycleCollapsed = new Set(state?.get<string[]>(RECYCLE_COLLAPSED_STATE_KEY) ?? [])
+    // 回收站状态 v2 起存 globalState（跨窗口/重启共享，与分组功能同层）。
+    // 旧版存 workspaceState（per-workspace），此处做一次性迁移：globalState
+    // 有值（哪怕空数组）就以它为准——升级后所有写入都只走 globalState；
+    // 否则回读 workspaceState 旧值写回新 key。旧 key 无论是否迁移都删除，
+    // 避免陈旧态在以后的窗口里复活。
+    const recycled = resolveRecycleIds(
+      globalState?.get(RECYCLE_BIN_STATE_KEY),
+      state?.get(RECYCLE_BIN_STATE_KEY),
+    )
+    this.recycleBin = recycled.ids
+    if (recycled.fromLegacy) void this.globalState?.update(RECYCLE_BIN_STATE_KEY, [...this.recycleBin])
+    void state?.update(RECYCLE_BIN_STATE_KEY, undefined)
+    const recycledCollapsed = resolveRecycleIds(
+      globalState?.get(RECYCLE_COLLAPSED_STATE_KEY),
+      state?.get(RECYCLE_COLLAPSED_STATE_KEY),
+    )
+    this.recycleCollapsed = new Set(recycledCollapsed.ids)
+    if (recycledCollapsed.fromLegacy) {
+      void this.globalState?.update(RECYCLE_COLLAPSED_STATE_KEY, [...recycledCollapsed.ids])
+    }
+    void state?.update(RECYCLE_COLLAPSED_STATE_KEY, undefined)
     this.recycleCollapsed.delete(UNGROUPED_WORKSPACE_ID)
     // 分组状态从 globalState 载入（跨窗口共享）；activeGroup 落到未知组时
     // 回落「全部工作区」（组被删/数据残余的兜底，与删除时的回落同规则）。
@@ -482,11 +505,21 @@ export class SessionsStore implements vscode.Disposable {
     this.onDidChangeEmitter.fire()
   }
 
+  /** 回收站 id 集合持久化（globalState：跨窗口/重启共享，见构造器迁移说明）。 */
+  private persistRecycleBin(): void {
+    void this.globalState?.update(RECYCLE_BIN_STATE_KEY, [...this.recycleBin])
+  }
+
+  /** 回收站视图折叠组持久化（globalState，与主列表 collapsed 互不影响）。 */
+  private persistRecycleCollapsed(): void {
+    void this.globalState?.update(RECYCLE_COLLAPSED_STATE_KEY, [...this.recycleCollapsed])
+  }
+
   /** 移入回收站（可逆本地操作，不碰 dsh）；幂等。 */
   moveToRecycleBin(sessionId: string): void {
     if (this.recycleBin.includes(sessionId)) return
     this.recycleBin.push(sessionId)
-    void this.state?.update(RECYCLE_BIN_STATE_KEY, [...this.recycleBin])
+    this.persistRecycleBin()
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -503,7 +536,7 @@ export class SessionsStore implements vscode.Disposable {
     }
     if (!changed) return
     this.recycleBin = next
-    void this.state?.update(RECYCLE_BIN_STATE_KEY, [...next])
+    this.persistRecycleBin()
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -513,7 +546,7 @@ export class SessionsStore implements vscode.Disposable {
     const idx = this.recycleBin.indexOf(sessionId)
     if (idx === -1) return
     this.recycleBin.splice(idx, 1)
-    void this.state?.update(RECYCLE_BIN_STATE_KEY, [...this.recycleBin])
+    this.persistRecycleBin()
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -522,7 +555,7 @@ export class SessionsStore implements vscode.Disposable {
   restoreAllFromRecycleBin(): void {
     if (this.recycleBin.length === 0) return
     this.recycleBin = []
-    void this.state?.update(RECYCLE_BIN_STATE_KEY, [])
+    this.persistRecycleBin()
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -536,7 +569,7 @@ export class SessionsStore implements vscode.Disposable {
     const next = this.recycleBin.filter((id) => !ids.includes(id))
     if (next.length === this.recycleBin.length) return
     this.recycleBin = next
-    void this.state?.update(RECYCLE_BIN_STATE_KEY, [...next])
+    this.persistRecycleBin()
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -546,7 +579,7 @@ export class SessionsStore implements vscode.Disposable {
     const changed = collapse ? !this.recycleCollapsed.has(workspaceId) : this.recycleCollapsed.delete(workspaceId)
     if (collapse) this.recycleCollapsed.add(workspaceId)
     if (!changed) return
-    void this.state?.update(RECYCLE_COLLAPSED_STATE_KEY, [...this.recycleCollapsed])
+    this.persistRecycleCollapsed()
     this.onDidChangeEmitter.fire()
   }
 
@@ -1132,11 +1165,10 @@ export class SessionsStore implements vscode.Disposable {
    * knownSessionIds 为空集合，不得据此清账——否则回收站会被冷启动清空。
    */
   private pruneRecycleBin(): void {
-    if (!this.baselineReady) return
-    const next = this.recycleBin.filter((id) => this.knownSessionIds.has(id))
-    if (next.length === this.recycleBin.length) return
+    const next = pruneRecycleIds(this.recycleBin, this.knownSessionIds, this.baselineReady)
+    if (next === null) return
     this.recycleBin = next
-    void this.state?.update(RECYCLE_BIN_STATE_KEY, [...next])
+    this.persistRecycleBin()
   }
 
   dispose(): void {
