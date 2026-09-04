@@ -149,6 +149,85 @@
       expect: '@ 补全弹窗顶部出现「Attachments」组标题（分割线），其下是 img1.png 附件候选（@img1.png 短名 + 右侧路径）；选中后输入框内容为「@img1.png」——显示为高亮 token（浅蓝底、圆角，由文本高亮层绘制——textarea 文字色透明、色调一致不重影），无长路径；composer 的截图缩略图 chip 底部名称横幅清晰显示「img1.png」（小字号、不截断）；点选后弹窗关闭——chip 无常驻高亮（高亮只在鼠标悬停 @token 时出现，场景无法模拟 hover，真实交互在 dev-ui-test 验收）。',
     },
 
+    'mention-bindings-per-session': {
+      // 按会话归档 mentionBindings：会话 A 里 @ 补全绑定同名文件后切到会话 B，
+      // B 附加同名不同路径的文件时 token 不被 A 的残留绑定强制 (2)（按会话隔离，
+      // B 拿到空绑定 Map）；B 里选中后输入框是 @img1.png 而非 @img1.png (2)。
+      // 再切回 A：草稿（@img1.png）与绑定一起恢复——高亮层画回一处 .ref-token，
+      // 且 dataset.path 是 A 的 canonical 路径（不是 B 的）。
+      png: PNG_RED,
+      state: base({ messages: [] }),
+      stateB: base({ sessionId: 'sess-2', sessionTitle: '另一个会话', messages: [], statsLine: '0 条消息' }),
+      interact: `(() => {
+        const s = window.SCENARIOS['mention-bindings-per-session']
+        const check = (patch) => { window.__mentionPerSession = { ...(window.__mentionPerSession || {}), ...patch } }
+        // 步骤 1：会话 A 附加 /a/img1.png 并 @ 补全选中 @img1.png
+        window.postMessage({ type: 'filesPicked', files: [
+          { name: 'img1.png', path: '/var/folders/x/T/dsh-one-attachments/sess-A/img1.png', image: true, mediaType: 'image/png', previewData: s.png },
+        ] }, '*')
+        setTimeout(() => {
+          const input = document.getElementById('input')
+          input.focus()
+          input.value = '@img'
+          input.setSelectionRange(4, 4)
+          input.dispatchEvent(new Event('input'))
+          setTimeout(() => {
+            for (const row of document.querySelectorAll('.slash-popup .menu-item')) {
+              if (row.textContent?.startsWith('@img1')) {
+                row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+                break
+              }
+            }
+            check({ aToken: document.getElementById('input')?.value })
+            // 步骤 2：切到会话 B（绑定归档 A、B 恢复空 Map），附加同名不同路径文件
+            window.postMessage({ type: 'sessions', snapshot: (() => {
+              const tree = window.sessionsTree('sess-2')
+              tree.workspaces[0].sessions[1].sessionId = 'sess-2'
+              tree.workspaces[0].sessions[1].label = '另一个会话'
+              tree.activeSessionId = 'sess-2'
+              return tree
+            })() }, '*')
+            window.postMessage({ type: 'state', state: s.stateB }, '*')
+            setTimeout(() => {
+              window.postMessage({ type: 'filesPicked', files: [
+                { name: 'img1.png', path: '/var/folders/x/T/dsh-one-attachments/sess-B/img1.png', image: true, mediaType: 'image/png', previewData: s.png },
+              ] }, '*')
+              setTimeout(() => {
+                const inputB = document.getElementById('input')
+                inputB.focus()
+                inputB.value = '@img'
+                inputB.setSelectionRange(4, 4)
+                inputB.dispatchEvent(new Event('input'))
+                setTimeout(() => {
+                  for (const row of document.querySelectorAll('.slash-popup .menu-item')) {
+                    if (row.textContent?.startsWith('@img1')) {
+                      row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+                      break
+                    }
+                  }
+                  // 断言：B 里 token 不带 (2)（A 的残留绑定未污染）
+                  const valueB = document.getElementById('input')?.value ?? ''
+                  check({ bToken: valueB, contaminated: valueB.includes('(2)') })
+                  // 步骤 3：切回 A——草稿与绑定一起恢复
+                  window.postMessage({ type: 'state', state: s.state }, '*')
+                  setTimeout(() => {
+                    const inputA = document.getElementById('input')
+                    const spans = Array.from(document.querySelectorAll('.ref-token'))
+                    check({
+                      restoredText: inputA?.value ?? null,
+                      refTokens: spans.map((sp) => ({ text: sp.textContent, path: sp.dataset.path })),
+                    })
+                  }, 350)
+                }, 160)
+              }, 120)
+            }, 250)
+          }, 180)
+        }, 100)
+      })()`,
+      title: '@ 绑定按会话归档：跨会话同名不 (2)，切回草稿与绑定一起恢复',
+      expect: '会话 A 附加 /a/img1.png 并 @ 选中后输入框 @img1.png；切到会话 B（同名不同路径 /b/img1.png）再 @ 选中——输入框仍是 @img1.png，不带「 (2)」后缀（DOM 断言 window.__mentionPerSession.contaminated = false）；切回 A——输入框恢复 A 的草稿 @img1.png，高亮层画回恰一个 .ref-token（DOM 断言 window.__mentionPerSession.refTokens = [{text:"@img1.png", path:"@/var/folders/x/T/dsh-one-attachments/sess-A/img1.png"}]，path 是 A 的 canonical——binding 恢复的不是 B 的）。',
+    },
+
     'ref-token-word-boundary': {
       // 词中 @ 不高亮：先经补全绑定 @img1.png，再把输入改成同时含词中
       // （a@img1.png b）与边界（@img1.png c）两处命中——高亮层只认扫描
@@ -192,6 +271,55 @@
       })()`,
       title: '@ 输入框高亮：词中命中不高亮，边界命中照常高亮（boundTokenRanges）',
       expect: 'composer 输入「a@img1.png b @img1.png c」：文本高亮层只绘制一处 .ref-token（浅蓝底 @img1.png，落在第二处——边界命中）；第一处词中 a@img1.png 保持普通文本、无高亮背景（DOM 断言 window.__refTokenCheck = {count: 1, texts: ["@img1.png"]}）；两处文本都清晰可见、无长路径、无补全弹窗。',
+    },
+
+    'mention-bindings-recall': {
+      // recall 反查：↑ 拉起历史消息时把 canonical 长路径换回显示短 token。
+      // 先经补全绑定 @img1.png（模块内 mentionBindings），再按 ↑ 召回含
+      // '@'/a/img1.png' 的历史消息——输入框应显示 @img1.png（与发送展开互逆），
+      // 且高亮层绘制一个 .ref-token。
+      png: PNG_RED,
+      state: base({
+        messages: [
+          u('帮我看看 @/var/folders/x/T/dsh-one-attachments/sess-1/img1.png 这个截图'),
+          at('收到，我看一下截图。'),
+        ],
+      }),
+      interact: `(() => {
+        const s = window.SCENARIOS['mention-bindings-recall']
+        const check = (patch) => { window.__mentionRecall = { ...(window.__mentionRecall || {}), ...patch } }
+        window.postMessage({ type: 'filesPicked', files: [
+          { name: 'img1.png', path: '/var/folders/x/T/dsh-one-attachments/sess-1/img1.png', image: true, mediaType: 'image/png', previewData: s.png },
+        ] }, '*')
+        setTimeout(() => {
+          const input = document.getElementById('input')
+          input.focus()
+          input.value = '@img'
+          input.setSelectionRange(4, 4)
+          input.dispatchEvent(new Event('input'))
+          setTimeout(() => {
+            for (const row of document.querySelectorAll('.slash-popup .menu-item')) {
+              if (row.textContent?.startsWith('@img1')) {
+                row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+                break
+              }
+            }
+            setTimeout(() => {
+              const input2 = document.getElementById('input')
+              // 补全选中后光标在 token 后，要先回到行首再按 ↑（recall 只在首行触发）
+              input2.setSelectionRange(0, 0)
+              input2.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }))
+              const spans = Array.from(document.querySelectorAll('.ref-token'))
+              check({
+                recalled: input2?.value ?? null,
+                refTokens: spans.map((sp) => sp.textContent),
+              })
+            }, 200)
+          }, 160)
+        }, 100)
+      })()`,
+      title: 'recall 反查：↑ 历史 canonical 长路径还原为显示短 token',
+      expect: '先经 @ 补全绑定 @img1.png（canonical 记在绑定 Map），光标回行首按 ↑ 召回历史消息「帮我看看 @/var/folders/x/T/dsh-one-attachments/sess-1/img1.png 这个截图」——输入框变为「帮我看看 @img1.png 这个截图」（canonical 长路径反查回显示短 token，与发送展开互逆）；高亮层恰好一个 .ref-token（@img1.png）。DOM 断言 window.__mentionRecall = {recalled: "帮我看看 @img1.png 这个截图", refTokens: ["@img1.png"]}。',
     },
 
     'file-ref-mixed': {
