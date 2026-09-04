@@ -30,12 +30,9 @@ const keepOpen = args.includes('--keep-open') // 调试：最后不关浏览器
 const WORKBENCH_TIMEOUT = 30_000
 const EXPECT_TEXT_TIMEOUT = 60_000
 
-// 暖场消息：mock-LLM 的兜底规则回显「最后一条 user 消息」。dsh 在新会话**首轮**会把 skill /
-// 上下文作为一条 user 消息注入并成为请求里的最后一条 user 消息，所以首条 prompt 的回显是注入
-// 文本（如 skills 列表）而非 prompt 本身。驱动先发一条固定暖场消息消耗注入轮，再发 ledger 的
-// prompt，此时它是最后一条 user 消息，mock 才干净回显「收到：<prompt>」/ 命中「查天气」规则。
-// 这是 dsh 首轮注入的确定性行为（见 README「自动驱动」说明）。
-const WARMUP_TEXT = '开始'
+// 注：mock-LLM 匹配器已过滤 dsh 首轮注入（<system-reminder> 包裹的上下文不算 user
+// prompt），所以首条 ledger prompt 直接命中规则，无需暖场消息（历史坑：首轮注入曾
+// 成为「最后一条 user 消息」，导致回显注入文本、规则首轮不命中）。
 
 // ── ledger ──────────────────────────────────────────────────────────────────
 const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'))
@@ -180,9 +177,6 @@ try {
     try {
       const { chat, source } = await newChatAndGetFrame(page)
       notes.push(`新建会话：${source}`)
-      // 暖场：消耗 dsh 新会话首轮注入（否则首条 prompt 回显注入文本而非 prompt 本身）。
-      await sendPrompt(page, WARMUP_TEXT)
-      await sleep(6000)
       await sendPrompt(page, driver.prompt)
       const ok = await waitForText(page, driver.expectText, EXPECT_TEXT_TIMEOUT)
       if (!ok) {
