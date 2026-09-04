@@ -71,3 +71,16 @@
 - 2026-09-08 代码评审确认后建条目 → open
 - 2026-09-04 主 session 拍板：四件全做（含虚拟化与 undo 迁移，不裁剪）；排期后置；开发前按当时代码重新核实 → 条目更新（仍 open/）
 - 2026-09-09 开发前重新核实完成（按当时 main 代码逐项复测）：①风暴仍存在（新增：无限 5s 重试、requestAttachment 同款无过滤、host 读全文件非缩略图）；②虚拟化仍是大改动，新增更便宜的增量更新中间方案；③undo 问题确认仍在，方案降级为 execCommand insertText、砍掉 contenteditable 迁移；④hover 原描述过时（间隙抖动未复现），真实残留为流式重建丢高亮；更新拆分建议 → 条目更新（仍 open/）
+- 2026-09-05 与 dsh-0.1.2-interaction-gaps 合并规划（用户拍板）：原 Sprint 4 + Sprint 5 合并为一个「chat 面板改造」序列，阶段表见下；本条目为主，interaction-gaps 条目同步标注。虚拟化=后手（长会话实测仍卡再做）。
+
+## 合并阶段表（2026-09-05 拍板）
+
+| 阶段 | 内容 | 量级 |
+|---|---|---|
+| 1 地基小修 | host 限流+失败收敛（缩略图/requestAttachment）、hover 缓存恢复（流式重建丢高亮）、undo 改 execCommand 保撤销链 | ~2 天，小改 |
+| 2 渲染基建 | 消息列表增量更新（按 id diff，替代每帧全量重建） | 中等 |
+| 3 P1 功能 | token 用量明细（药丸+弹窗，host 聚合 turn-usage）、回合导航（turnOutline 投影+轨道栏+跳转） | 低-中 |
+| 4 P2/P3 | 字号调节（CSS 变量链）、定时计划 chip（schedule 投影）、整轮聚合折叠（可选） | 低-中 |
+| 后手 | 消息列表虚拟化 | 大改 |
+
+阶段 1 可拆 2-3 个 session 并行（host 侧限流 vs webview 侧 hover/undo 不冲突）；阶段 2-4 同区域（webview 渲染路径）串行。

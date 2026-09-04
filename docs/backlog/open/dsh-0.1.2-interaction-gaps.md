@@ -38,3 +38,5 @@
 - **子代理模型配置**：入口在设置页插件卡（授权清单），非会话内；模型面参数仅 provider/model/reasoning_effort，无 max_tokens（仅 Host 配 agentOptions.maxTokens）；Claude Code/Codex 固定 model 不支持模型面选择。dsh-one 无设置插件卡体系，跟进成本高，**不做**（iframe 官方 UI 可配）。
 - **模型目录搜索**：官方 composer 位（ModelSelect）无搜索框；搜索只在 /model 命令壳与设置页 ModelListEditor。dsh-one 模型菜单与官方 composer 位对齐，**不做**。
 - **过程折叠**：官方为整轮聚合折叠 TurnProcessNodeView（turnProcesses 内存态，compact 模式），dsh-one 是逐块独立折叠。可选优化。
+
+- 2026-09-05 与 chat-render-scaling 合并规划（用户拍板）：两条目合并为一个「chat 面板改造」序列，按 chat-render-scaling 条目「合并阶段表」执行——阶段 3/4（P1 token 用量明细、回合导航；P2 字号、定时计划 chip、P3 聚合折叠）承接本条目各级别项；不做项（宽度拖拽/子代理模型配置/模型目录搜索）维持不做。
