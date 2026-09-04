@@ -1,0 +1,118 @@
+{
+  "title": "composer-draft-clear：pending 接管不丢草稿 + 一键清空按钮",
+  "branch": "agent/composer-draft-clear",
+  "commit": "HEAD",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox:latest（含本任务 vsix）",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code、真模型输出、平台专项（Windows/macOS）不在本报告范围。F-02/F-04 的确定性交互证据来自 harness 场景（mock 宿主注入 state，非真 dsh）；F-01/F-03 为沙盒内真 dsh + mock-LLM 端到端。审批 pending（bash 升级参数）在当前沙盒喂不出来——CI 基线 verify.ledger.json 的 F-04 同为 fail（环境限制，非本次回归），本报告用问答 pending（同一接管路径）做 F-03 的端到端证据。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "一键清空按钮（真 dsh 端到端）",
+      "expect": "新会话 composer 填入文本后，输入框右侧出现 × 清空按钮；点击后输入框为空（textarea#input.value === ''），发送按钮回到禁用态（无内容不可发）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dc/F-01.png"
+      ],
+      "driver": {
+        "fillAndClear": "草稿F01-清空按钮"
+      },
+      "notes": "新建会话：sidebar-ungrouped；已点击清空按钮，输入框为空"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "一键清空按钮可见性与排版（harness 场景）",
+      "expect": "文本 + 图片缩略图 + 文件框同时在 composer 时：× 按钮在输入框右侧、发送按钮左侧（flex 流内，不与 chip 自带 × 重叠）；图片 chips 行在上、× 不遮挡任何chip；点击后文本与附件全清、× 隐藏、焦点回输入框。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/composer-clear-all.png",
+        "/tmp/dsh-ui-shots/composer-clear-all-click.png"
+      ],
+      "notes": "harness 场景（非真 dsh）：composer-clear-all 截图核对 × 可见与排版（flex 流内、发送按钮左侧、不与 chip × 重叠）；composer-clear-all-click 截图核对点击后全清、× 隐藏、焦点回输入框（DOM 断言 __clearAllCheck = {value:'', focused:true, buttonHidden:true} 已核对）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "pending 接管不丢草稿（真 dsh 端到端）",
+      "expect": "发送「提个问题」触发问答 pending 接管（与审批同一接管路径）后，接管帧之前填入的草稿不丢：点击选项「继续 (Recommended)」→ 点 Submit 应答、mock-LLM 继续本轮、转轮结束后 composer 恢复且 textarea#input.value 仍包含草稿文本。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dc/F-03.png"
+      ],
+      "driver": {
+        "prompt": "提个问题",
+        "afterSendFill": "草稿F03-pending恢复",
+        "approve": [
+          "继续 (Recommended)",
+          "Submit"
+        ],
+        "expectDraft": "草稿F03-pending恢复"
+      },
+      "notes": "新建会话：sidebar-ungrouped；草稿已填入：草稿F03-pending恢复；已点击面板按钮：[\"继续 (Recommended)\",\"Submit\"]；草稿恢复：草稿F03-pending恢复"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "输入中 pending → 应答后草稿还在（harness 确定性交互场景）",
+      "expect": "harness 交互场景 pending-typing-draft：输入草稿 → 宿主推来 approval 接管（composer 被面板替换）→ 点 Allow once → 宿主推回无 pending state → 恢复后的输入框 value 仍是原草稿（DOM 级断言 window.__draftRestored 已核对，附图）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/pending-typing-draft.png"
+      ],
+      "notes": "harness 交互场景 pending-typing-draft：输入草稿 → approval 接管 → Allow once → 恢复后 textarea#input.value 仍为原草稿（DOM 断言 window.__draftRestored 已核对），截图见上。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "基础发送与 mock-LLM 回显",
+      "expect": "新会话发送「测试一下」后，助手消息回显「收到：测试一下」（mock-LLM 兜底规则）；composer 正常清空、流式渲染与消息卡不受本轮改动影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dc/R-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "新建会话：sidebar-ungrouped"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "工具调用卡渲染（get_weather）",
+      "expect": "发送「查天气」后 mock-LLM 编排 get_weather 工具调用，消息流渲染工具卡（get_weather + 参数城市）；流式/工具卡路径不受本轮改动影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dc/R-02.png"
+      ],
+      "driver": {
+        "prompt": "查天气",
+        "expectText": "get_weather"
+      },
+      "notes": "新建会话：sidebar-ungrouped"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "工具提问面板显示（真 dsh 接管路径）",
+      "expect": "发送「提个问题」后输入区被问答面板接管：问题文本「继续执行吗？」+ 选项（继续/停止）+ 自定义回答输入框；无报错。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dc/R-03.png"
+      ],
+      "driver": {
+        "prompt": "提个问题",
+        "expectText": "继续执行吗？"
+      },
+      "notes": "新建会话：sidebar-ungrouped"
+    }
+  ]
+}
