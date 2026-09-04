@@ -17,3 +17,5 @@
 - 2026-09-08 调研确认：官方 0.1.2-rc.1 不消费 dsh_embed；主 session 拍板清理 → open
 
 - 2026-09-04 认领（worktree: agent/dsh-embed-cleanup）→ doing
+
+- 2026-09-04 开发完成，自测通过（typecheck/449 test/build），dev-finish 标记 done/dsh-embed-cleanup=73fd8a9；无 UI 行为变化，沙盒报告不适用，验证 = 仓库检查 + 文档一致性核对（test/sandbox/verify.dsh-embed-cleanup.report.html，D-01 pass）→ done
