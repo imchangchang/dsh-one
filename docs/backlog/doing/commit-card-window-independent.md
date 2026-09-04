@@ -45,3 +45,4 @@
 
 - 2026-09-03 用户反馈「卡片要当前文件夹在 VS Code 打开才显示」→ 核实（数据源仅 vscode.git API；内置 git 仓库发现 = 当前窗口 workspace folders 扫描 + `git.scanRepositories` + 打开的编辑器，默认扫描深度 1）→ 调研（git CLI 兜底可行：dsh server 恒本机、会话 cwd 本地路径、`a5c9358` 实测字段齐全）→ 记入 open/（未开始修改）。
 - 2026-09-03 用户追问「兜底要用户装 git 么」→ 核实内置 git 扩展源码（`git.path` 设置、`git.missing` 门控、找不到 git 的提示）→ 明确不新增依赖，补「git 依赖说明」节。
+- 2026-09-04 Sprint 3 认领（worktree: agent/commit-card-window-independent）：实现 git CLI 兜底（vscode.git 未命中 → 会话 cwd 仓库根 + git show/log 拿全字段 + origin 推 GitHub 链接；点击打开 = GitHub commit 页兜底），任意窗口状态显示 commit 卡。
