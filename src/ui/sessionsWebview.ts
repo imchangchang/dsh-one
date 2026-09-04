@@ -1136,12 +1136,15 @@ function renderRecycleHeader(): HTMLElement {
   back.appendChild(el('span', undefined, t('‹ Back')))
   back.addEventListener('click', () => exitRecycleView())
   header.appendChild(back)
-  header.appendChild(el('div', 'recycle-header-title', t('Recycle bin ({0})', count)))
-  const emptyBtn = buttonEl(undefined, t('Empty recycle bin'))
+  const title = el('div', 'recycle-header-title')
+  title.setAttribute('data-tip', t('Recycle bin ({0})', count))
+  title.appendChild(el('span', undefined, t('Recycle bin')))
+  header.appendChild(title)
+  header.appendChild(el('span', 'recycle-header-count', String(count)))
+  const emptyBtn = panelTool(strokeSvg(TRASH_ICON, 16), t('Empty recycle bin'))
   emptyBtn.disabled = count === 0
   emptyBtn.addEventListener('click', () => openRecycleArchiveModal(recycleSessionModels()))
   header.appendChild(emptyBtn)
-  header.appendChild(el('div', 'recycle-header-spacer'))
   const restoreAllBtn = buttonEl('secondary', t('Restore all'))
   restoreAllBtn.disabled = count === 0
   restoreAllBtn.addEventListener('click', () => {
