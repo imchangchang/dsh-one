@@ -88,7 +88,20 @@ function isChatFrame(f) {
  *   Chat 而非 DSH One）——在 workspace 可解析的干净环境才命中 composer。
  */
 async function newChatAndGetFrame(page) {
-  // 主路径：侧边栏 New ungrouped session
+  // 主路径：侧边栏面板头部「New Chat (⌘N)」（随时可见，不依赖 hover 行揭示）
+  for (const root of [page, ...page.frames()]) {
+    try {
+      const newBtn = root.locator('[aria-label^="New Chat"]').locator('visible=true').first()
+      if ((await newBtn.count()) === 0) continue
+      await newBtn.click({ timeout: 5_000 })
+      const chat = await findFrame(page, isChatFrame, 30_000)
+      if (chat) return { chat, source: 'pane-header New Chat' }
+    } catch (e) {
+      console.warn(`  [warn] 头部 New Chat 失败：${e.message}`)
+    }
+  }
+
+  // 后备 1：Ungrouped 行 hover 揭示「New ungrouped session」按钮
   const sessions = await findFrame(page, isSessionsFrame, 10_000)
   if (sessions) {
     try {
@@ -100,12 +113,11 @@ async function newChatAndGetFrame(page) {
       const chat = await findFrame(page, isChatFrame, 30_000)
       if (chat) return { chat, source: 'sidebar-ungrouped' }
     } catch (e) {
-      // 侧边栏路径失败则尝试命令面板
       console.warn(`  [warn] 侧边栏新建失败：${e.message}`)
     }
   }
 
-  // 后备：命令面板 New Session
+  // 后备 2：命令面板 New Session
   await page.keyboard.press('Meta+Shift+P')
   await sleep(1500)
   await page.keyboard.type('New Session', { delay: 50 })
@@ -114,7 +126,7 @@ async function newChatAndGetFrame(page) {
   const chat = await findFrame(page, isChatFrame, 12_000)
   if (chat) return { chat, source: 'palette-New Session' }
 
-  throw new Error('未能打开聊天 composer（侧边栏未分组新建与命令面板 New Session 均失败）')
+  throw new Error('未能打开聊天 composer（头部/侧边栏/命令面板均失败）')
 }
 
 /** 在聊天帧里填充 composer 并点 .send-button（帧会被重建，先重扫一次拿新鲜帧）。 */
