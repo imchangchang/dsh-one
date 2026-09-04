@@ -547,7 +547,9 @@ const SESSIONS_STYLE = `
   button:disabled { opacity: 0.5; cursor: default; }
   .popover {
     position: fixed; z-index: 20; min-width: 180px; max-width: 340px; max-height: 50vh; overflow-y: auto;
-    background: var(--vscode-menu-background, var(--vscode-dropdown-background));
+    /* 兜底实色背景：VS Code 恒注入 menu-background；harness 等无主题变量的环境
+       下透明会叠出下层列表。 */
+    background: var(--vscode-menu-background, var(--vscode-dropdown-background, #ffffff));
     color: var(--vscode-menu-foreground, var(--vscode-dropdown-foreground));
     border: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
     border-radius: 12px; padding: 4px;
