@@ -40,3 +40,5 @@
 - 2026-09-08 代码评审确认后建条目 → open
 
 - 2026-09-08 认领：开发 session 开工（worktree paste-token-boundaries）
+
+- 2026-09-04 开发完成（worktree paste-token-boundaries）：统一 @token 扫描纯函数 src/pure/tokenScan.ts，渲染/输入侧消费；单测 413 全绿（8 个验收 case 逐条覆盖 + tokenScan 专项），typecheck/build 通过；测试报告 test/sandbox/verify.paste-token-boundaries.report.html（F-01/F-02 + R-01/R-02/R-03 全 pass，F-02 为 harness DOM 断言，paste-long-text harness 场景为主线既有环境限制、与本条目无关）→ doing → done
