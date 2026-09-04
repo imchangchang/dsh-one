@@ -27,6 +27,7 @@ webview.ts 的 mentionBindings / expandMentionBindings（sendCurrent 展开）�
 
 ## 变更记录
 
+- 2026-09-08 开发完成（worktree mention-bindings）：① mentionBindings 按会话归档/恢复（webview 模块级 → mentionBindingsPerSession，切换时归档旧会话、新会话空 Map、发送成功/失败不清空——绑定随草稿生命周期走），消除跨会话同名的强制 ` (2)` 后缀与 token 唯一性污染；② 展开前边界校验复用前置 tokenScan（boundTokenRanges/scanAtTokens，词中/邮箱不替换，未另写扫描）；③ restoreFileMentionTokens 反查优先（canonical → 原短 token，与发送展开互逆；↑ 召回历史时换回显示 token）。发送即消费未做（按拍板否决）。自测：typecheck/build 通过、单测 425 全绿（本轮新增 2 项反查优先用例）；测试报告 test/sandbox/verify.mention-bindings-lifecycle.report.html（F-01/F-02 新增 + R-01/R-02/R-03 回归全 pass，前两项为 harness 确定性场景 + DOM 断言，R-03 为沙盒真 dsh 端到端）→ doing → done
 - 2026-09-08 认领：开发 session 开工（worktree mention-bindings）
 - 2026-09-08 代码评审（4 角度子代理）确认后建条目 → open
 - 2026-09-04 主 session 拍板：选 B 按会话归档（含 recall 反查 + 展开前边界校验），发送即消费否决；补「前置：paste-token-parsing-boundaries」→ 条目更新（仍 open/，排在其前置之后开发）
