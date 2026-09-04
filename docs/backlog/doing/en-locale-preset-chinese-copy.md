@@ -29,3 +29,5 @@
 ## 变更记录
 
 - 2026-09-03 用户反馈英文界面 preset 不带翻译 → 核实根因（服务端 preset.yml 固定中文 + 8b06be8 roster 优先使英文界面也拿到中文文案；zh bundle 译文已与 roster 逐字一致）→ 记入 open/（未开始修改）。
+
+- 2026-09-04 认领（open → doing）：按条目方案实施——resolveAgentPresets 对 trust=system 且 id 命中内置映射的 preset 恢复内置映射过 t()（roster 只用于 user preset 与未知 id），随方案调整测试用例。
