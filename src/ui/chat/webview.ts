@@ -389,12 +389,14 @@ let lastReportedDirty: boolean | null = null
  * 把本 tab composer 的脏位（有未发送文本/附件）同步给宿主。宿主用它在点击
  * 其他会话时决定「复用本 tab 还是新开 tab」：脏位为 true 时绝不覆盖本 tab。
  * 文本从还挂在 DOM 里的输入框读；pending 面板接管（无输入框）时读停驻的
- * stashedDraft。`force` 用于会话切换帧——宿主在替换 tab 时会把脏位归零，
- * 这里必须无条件重报一次真实状态，否则同值变化会被比较短路漏报。
+ * stashedDraft / pendingStash（接管帧快照——正在输入却被面板替换的文本也算
+ * 脏位，宿主「脏位为 true 不覆盖本 tab」的保护要靠它）。`force` 用于会话切换帧——
+ * 宿主在替换 tab 时会把脏位归零，这里必须无条件重报一次真实状态，否则同值变化
+ * 会被比较短路漏报。
  */
 function reportComposerDirty(force = false): void {
   const input = document.getElementById('input') as HTMLTextAreaElement | null
-  const text = input ? input.value : (stashedDraft ?? '')
+  const text = input ? input.value : (stashedDraft ?? pendingStash?.text ?? '')
   const dirty = text.trim().length > 0 || pendingImages.length > 0 || pendingFiles.length > 0
   if (!force && dirty === lastReportedDirty) return
   lastReportedDirty = dirty
@@ -1080,13 +1082,14 @@ window.addEventListener('message', (event) => {
       // 换会话：先存档旧会话的 composer 草稿（文本 + 附件），再恢复新会话的
       // ——文本不再跟着搬到下一个会话，附件不再切换即丢。
       // 文本从还挂在 DOM 里的旧输入框读；面板被 pending 接管（无输入框、
-      // restoreDraft 暂存进 stashedDraft）时把暂存一并归档。空态（无附着
-      // 会话）同样存档，占位 key 为 EMPTY_SESSION_KEY。
+      // restoreDraft 暂存进 stashedDraft、接管帧快照进 pendingStash）时把
+      // 暂存一并归档。空态（无附着会话）同样存档，占位 key 为 EMPTY_SESSION_KEY。
       const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
       const oldKey = stagedForSession ?? EMPTY_SESSION_KEY
-      composerDrafts.set(oldKey, oldInput ? oldInput.value : stashedDraft ?? '')
+      composerDrafts.set(oldKey, oldInput ? oldInput.value : stashedDraft ?? pendingStash?.text ?? '')
       stagedPerSession.set(oldKey, { images: pendingImages, files: pendingFiles })
       stashedDraft = undefined
+      pendingStash = null
       // 数组浅拷贝：归档持有原数组，恢复出的 pending* 之后会被用户在 composer
       // 里 splice 编辑，不能直接引用归档数组（否则删附件会污染归档）。
       const restored = stagedPerSession.get(state.sessionId ?? EMPTY_SESSION_KEY)
@@ -2471,12 +2474,39 @@ function render(): void {
   }
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
   const hadFocus = oldInput !== null && document.activeElement === oldInput
+  // Pending 接管（approval/question/plan-review 把 composer 整体替换成面板）是
+  // 本帧唯一会移除 input 元素的情形：先把输入状态（文本/recall 态/焦点/光标）
+  // 存入 pendingStash——pending 期间 oldInput 恒为 null，没有这份快照，pending
+  // 结束恢复 composer 时草稿会按 undefined 还原（回归：输入到一半弹卡，应答后
+  // 内容全丢）。
+  if (oldInput !== null && (state?.pending.length ?? 0) > 0) {
+    pendingStash = {
+      sessionId: state?.sessionId ?? null,
+      text: oldInput.value,
+      recall,
+      recallDraft,
+      focus: hadFocus,
+      selStart: oldInput.selectionStart,
+      selEnd: oldInput.selectionEnd,
+    }
+  }
+  // Pending 结束后恢复 composer 的那帧按暂存还原；会话已切走（sessionId 不匹配）
+  // 则作废——切换时文本已归档进 composerDrafts 并清空了 pendingStash。
+  const stashRestore =
+    pendingStash !== null && state?.sessionId === pendingStash.sessionId
+  const stashSel =
+    stashRestore && pendingStash !== null && pendingStash.focus
+      ? { start: pendingStash.selStart, end: pendingStash.selEnd }
+      : null
   // 换会话后的首个消费帧：草稿按会话从 composerDrafts 恢复（message handler
-  // 已把旧会话的文本归档）；其余帧仍从 DOM 读，流式重建时正在输入的内容不丢。
+  // 已把旧会话的文本归档）；pending 结束恢复帧按 pendingStash 还原；其余帧仍从
+  // DOM 读，流式重建时正在输入的内容不丢。
   const draft =
     draftRestoreFor === state?.sessionId && state.sessionId !== null
       ? composerDrafts.get(state.sessionId)
-      : oldInput?.value
+      : stashRestore
+        ? pendingStash?.text ?? ''
+        : oldInput?.value
   const inputSel = hadFocus ? { start: oldInput.selectionStart, end: oldInput.selectionEnd } : null
   // The rebuild wipes scroll state; remember it so a user reading history
   // mid-stream is not thrown back to the top. Also re-evaluate pinning from
@@ -2615,8 +2645,8 @@ function render(): void {
     composerSig === lastComposerSig &&
     (oldHero !== null && oldHero.contains(oldComposer)) === blankHero &&
     // Pending 接管面板（approval/question/plan-review）存在时不保留 composer：
-    // 输入区整个换成面板，原输入框被移除（draft 内容仍保留，pending 结束后
-    // 恢复普通 composer 时按 draft 还原）。
+    // 输入区整个换成面板，原输入框被移除。文本不丢：接管那帧已存入
+    // pendingStash，pending 结束恢复普通 composer 时按暂存还原。
     (state?.pending.length ?? 0) === 0
   // 空会话 hero 保活不要求焦点/菜单：hero 内容只由 composer 签名描述，签名
   // 没变（懒切换 pending 帧只改 workspace chip 文字等）时 DOM 不动——重建会
@@ -2707,6 +2737,9 @@ function render(): void {
     lastTodosSig = null
     turnStatusStart = null
     scrollSession = null
+    // 无附着会话：pending 快照没有归属（sessionId 不匹配也不会被消费），
+    // 清掉避免滞留到下一个同 key 会话的 composer 上。
+    pendingStash = null
     chatCol.appendChild(renderEmpty(state))
     return
   }
@@ -2744,12 +2777,14 @@ function render(): void {
       chatCol.appendChild(renderHero(state, draft))
       // 本帧消费了恢复草稿，标志清零；loading 帧/pending 帧不走这里，标志保留。
       draftRestoreFor = null
+      pendingStash = null
       const input = document.getElementById('input') as HTMLTextAreaElement
       autoGrow(input)
-      if (hadFocus) {
+      if (hadFocus || stashSel !== null) {
         input.focus()
         // A rebuilt composer at least keeps the caret where it was.
-        if (inputSel) input.setSelectionRange(inputSel.start, inputSel.end)
+        const sel = stashSel ?? inputSel
+        if (sel) input.setSelectionRange(sel.start, sel.end)
       }
       // 重建后恢复补全弹窗（含 @ 会话补全；无候选时 updateSlashPopup 自行隐藏）
       updateSlashPopup(input)
@@ -3034,6 +3069,7 @@ function render(): void {
     // 本帧消费了恢复草稿，标志清零（pending 接管帧走不到这里，标志保留到
     // pending 结束恢复普通 composer 时）。
     draftRestoreFor = null
+    pendingStash = null
   }
   lastComposerSig = composerSig
   lastHeaderSig = headerSig
@@ -3113,15 +3149,23 @@ function render(): void {
     goalAutoFocus = false
   }
   if (!keepComposer) {
-    const input = document.getElementById('input') as HTMLTextAreaElement
-    autoGrow(input)
-    if (hadFocus) {
-      input.focus()
-      // A rebuilt composer at least keeps the caret where it was.
-      if (inputSel) input.setSelectionRange(inputSel.start, inputSel.end)
+    const input = document.getElementById('input') as HTMLTextAreaElement | null
+    // Pending 接管帧不渲染 composer（renderPendingPanel 替换输入区），input
+    // 不存在——跳过全部收尾。旧代码在此无条件 autoGrow，对 null 抛
+    // `Cannot read properties of null (reading 'style')` 吞掉渲染尾部（焦点/
+    // 光标恢复、补全弹窗、脏位上报警告全丢）。
+    if (input) {
+      autoGrow(input)
+      if (hadFocus || stashSel !== null) {
+        input.focus()
+        // A rebuilt composer at least keeps the caret where it was; pending
+        // 恢复帧回到接管时的光标位置。
+        const sel = stashSel ?? inputSel
+        if (sel) input.setSelectionRange(sel.start, sel.end)
+      }
+      // 同上：重建后恢复补全弹窗（含 @ 会话补全）
+      updateSlashPopup(input)
     }
-    // 同上：重建后恢复补全弹窗（含 @ 会话补全）
-    updateSlashPopup(input)
   } else if (slashPopupEl && oldInput) {
     positionSlashPopup(oldInput)
   }
@@ -3415,6 +3459,26 @@ let recallDraft = ''
 const queueEditDrafts = new Map<string, string>()
 /** Composer draft arriving while no input element exists yet (restoreDraft before first render). */
 let stashedDraft: string | undefined
+/**
+ * Pending 接管（approval/question/plan-review 把 composer 整体替换成面板）那帧的
+ * composer 快照：文本 + recall 态 + 焦点/光标。render() 取草稿只在当前帧从 DOM 读
+ * （oldInput?.value），接管后 oldInput 恒为 null——没有这份暂存，pending 结束
+ * 恢复 composer 时草稿按 undefined 还原（输入到一半弹卡，应答后内容全丢）。
+ * 恢复帧渲染输入框时消费；会话切换时归档进 composerDrafts 后清空。recall 态
+ * 恢复走模块级 recall/recallDraft 的实时值（排队项被领取的清理逻辑会合法地
+ * 把 recall 清成 null），快照里留一份仅供追溯。
+ */
+let pendingStash:
+  | {
+      sessionId: string | null
+      text: string
+      recall: { kind: 'queue'; itemId: string } | { kind: 'history' } | null
+      recallDraft: string
+      focus: boolean
+      selStart: number
+      selEnd: number
+    }
+  | null = null
 /** Slash-command receipt texts shown at the message tail; cleared on session switch. */
 let commandNotices: string[] = []
 

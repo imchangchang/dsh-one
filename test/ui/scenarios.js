@@ -535,6 +535,46 @@
       expect: '接管面板 header「计划待审」+ 最小化按钮；正文：**warn strip 警示条**（⚠ 图标 + 「计划待审」，黄色底/边框）+ 计划 Markdown 全文直接展开（### 方案 + 正文，限高滚动，**无**「查看详情」折叠） + 三分按钮行：「批准」（主按钮 option-btn 样式，bullet ·）+「拒绝」（次要按钮）+「去聊天里说」（次要按钮）；**不再有**「其他（自定义回答）」输入框与「确认」按钮（三分结构替代）；消息流尾部无 pending 卡。',
     },
 
+    // ---- 交互场景：pending 接管不丢 composer 草稿（回归 composer-draft-lost-on-pending）----
+    // 时序：输入草稿 → 宿主推来带 approval 的 state（composer 被面板替换）→
+    // 点「Allow once」应答 → 宿主推回无 pending 的 state（composer 恢复）→
+    // 断言 textarea#input.value 还是原草稿。截图停在恢复后的 composer。
+    'pending-typing-draft': {
+      state: base({}),
+      title: '输入中 pending 到达 → 应答后草稿还在',
+      interact: `(() => {
+        const post = (m) => window.postMessage(m, '*')
+        const state = () => ({
+          sessionId: 'sess-1', sessionTitle: 'DSH One 示例会话',
+          messages: [
+            { kind: 'user', id: 'u-1', text: '你帮我看看这个插件的架构，总结一下核心思路。' },
+            { kind: 'assistant', id: 'a-1', complete: true, turnEnd: true, blocks: [{ type: 'text', text: '这个插件是 dsh 与 VSCode 的桥接。' }] },
+          ],
+          pending: [], running: true, canSend: true, modelLabel: 'DeepSeek-V4-Flash High', presetLabel: '标准模式', statsLine: '2 条消息 · 45s',
+        })
+        const ta = document.getElementById('input')
+        if (!ta) return
+        ta.value = '输入到一半的草稿——pending 应答后必须还在'
+        ta.dispatchEvent(new Event('input'))
+        // 宿主推来审批 pending：composer 被面板替换（接管帧应把草稿暂存）
+        const s = state()
+        s.pending = [{ kind: 'approval', rpcId: 'rpc-1', sessionId: 'sess-1', approvalId: 'appr-1', toolName: 'bash', reason: '允许执行 npm test 吗？' }]
+        post({ type: 'state', state: s })
+        setTimeout(() => {
+          // 用户在面板里应答（Allow once）后宿主推回无 pending 的 state
+          const allow = [...document.querySelectorAll('.pending-panel button')].find((b) => (b.textContent || '').trim() === 'Allow once')
+          if (allow) allow.click()
+          post({ type: 'state', state: state() })
+          setTimeout(() => {
+            const input = document.getElementById('input')
+            window.__draftRestored = input ? input.value : null
+            document.title = 'DRAFT-RESTORED:' + (input ? input.value : 'MISSING')
+          }, 150)
+        }, 150)
+      })()`,
+      expect: '恢复后的 composer 输入框里还是应答前输入的那段草稿「输入到一半的草稿——pending 应答后必须还在」（输入区高亮层绘制，非占位符）；pending 面板已消失；无报错（旧回归：pending 帧 autoGrow 对 null 抛 TypeError，吞掉渲染尾部）。',
+    },
+
     todos: {
       state: base({ todos: [{ content: '梳理架构', status: 'completed' }, { content: '写测试', status: 'in_progress' }, { content: '发版', status: 'pending' }] }),
       title: 'todo 清单卡',
