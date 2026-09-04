@@ -1123,10 +1123,22 @@ window.addEventListener('message', (event) => {
       // 暂存一并归档。空态（无附着会话）同样存档，占位 key 为 EMPTY_SESSION_KEY。
       const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
       const oldKey = stagedForSession ?? EMPTY_SESSION_KEY
-      composerDrafts.set(oldKey, oldInput ? oldInput.value : stashedDraft ?? pendingStash?.text ?? '')
+      // 首个 state 帧（此前无附着会话，oldKey 为空态占位）时保留 stashedDraft：
+      // 它只可能来自「composer 尚未渲染时到达的 restoreDraft」回填（发送失败/
+      // stop 抽干队列的回填先于首帧 State），属于即将恢复的会话；若随空态一并
+      // 归档清空，回填文本会丢（输入区只剩 placeholder）。真实「切走再切回」的
+      // 切换帧 oldKey 是真会话 id，仍走归档清空（stashedDraft 归旧会话）。
+      //   ——首帧 oldInput 恒为 null（无 composer 可读），pendingStash 也恒为
+      //     null（尚无 pending 帧），归档空态档时两者都不参与。
+      composerDrafts.set(
+        oldKey,
+        oldInput ? oldInput.value : oldKey === EMPTY_SESSION_KEY ? '' : stashedDraft ?? pendingStash?.text ?? '',
+      )
       stagedPerSession.set(oldKey, { images: pendingImages, files: pendingFiles })
-      stashedDraft = undefined
-      pendingStash = null
+      if (oldKey !== EMPTY_SESSION_KEY) {
+        stashedDraft = undefined
+        pendingStash = null
+      }
       // 数组浅拷贝：归档持有原数组，恢复出的 pending* 之后会被用户在 composer
       // 里 splice 编辑，不能直接引用归档数组（否则删附件会污染归档）。
       const restored = stagedPerSession.get(state.sessionId ?? EMPTY_SESSION_KEY)
@@ -5975,6 +5987,17 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   const sendCurrent = (steer = false): void => {
     if (!state || !state.canSend || state.modelAvailable === false) return
     hideSlashPopup()
+    // 发送/清空后的输入区就地收尾：keepComposer 保活（签名未变的帧——运行中
+    // Enter 排队、⌘Enter 插话、/model 打开菜单）时 render() 只 patch 不重建
+    // 输入区，value 清空后高亮层仍画着发送前的文字，透明文字输入框下表现为
+    // 「鬼影」草稿叠在占位符上（与一键清空同源）。input 已被重建时无需操作。
+    const syncComposerAfterClear = (): void => {
+      if (input.isConnected) {
+        autoGrow(input)
+        updateButton()
+        renderRefLayer()
+      }
+    }
     // Staged file chips travel as <attachment> path lines appended to the
     // prompt text (dsh has no file content part); the folder parses them
     // back into chips for history rendering.
@@ -5990,6 +6013,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     if (text === '/model' && !recall) {
       input.value = ''
       render()
+      syncComposerAfterClear()
       const pill = document.querySelector<HTMLElement>('.input-footer .pill[data-role="model"]')
       if (pill) openModelMenu(pill)
       return
@@ -6021,6 +6045,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     })
     input.value = ''
     render()
+    syncComposerAfterClear()
     // 发送是"看最新"信号：本轮 render 之后无条件滚到底并复位跟随态，
     // 后续流式输出继续贴底（host 快照回来后 render 会按跟随态钉住）。
     pinToLatest()
