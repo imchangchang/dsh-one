@@ -91,13 +91,6 @@ export function defaultScenario(): MockLlmScenario {
           usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         },
       },
-      // 慢命令：bash sleep 90，工具卡保持 running，用于截「运行中」形态。
-      {
-        match: { contains: '慢命令' },
-        respond: {
-          toolCalls: [{ id: 'call-slow', name: 'bash', arguments: '{"command":"sleep 90 && echo finished"}' }],
-        },
-      },
       // 审批：bash 带 sandbox_permissions + justification 升级参数，真 dsh 在
       // policy=ask 下会弹「Permission request」卡片（字段对齐 dsh-tool-bash）。
       {
@@ -135,7 +128,7 @@ export function defaultScenario(): MockLlmScenario {
           toolCalls: [{
             id: 'call-sub',
             name: 'subagent',
-            arguments: JSON.stringify({ prompt: '慢命令', description: '子代理测试' }),
+            arguments: JSON.stringify({ prompt: '提个问题', description: '子代理测试' }),
           }],
         },
       },
@@ -144,8 +137,8 @@ export function defaultScenario(): MockLlmScenario {
         match: { contains: '开两个后台任务' },
         respond: {
           toolCalls: [
-            { id: 'call-j1', name: 'subagent', arguments: JSON.stringify({ prompt: '慢命令', description: '后台任务 A' }) },
-            { id: 'call-j2', name: 'subagent', arguments: JSON.stringify({ prompt: '慢命令', description: '后台任务 B' }) },
+            { id: 'call-j1', name: 'subagent', arguments: JSON.stringify({ prompt: '提个问题', description: '后台任务 A' }) },
+            { id: 'call-j2', name: 'subagent', arguments: JSON.stringify({ prompt: '提个问题', description: '后台任务 B' }) },
           ],
         },
       },

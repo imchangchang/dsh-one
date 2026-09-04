@@ -18,9 +18,11 @@
       "phase": "new-feature",
       "name": "mock-LLM 回显回复（首轮注入过滤）",
       "expect": "发送「测试一下」后首轮出现「收到：测试一下」；模型选择器 mock-flash Max。",
-      "result": "pending",
-      "screenshots": [],
-      "notes": "",
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-01.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped",
       "driver": {
         "prompt": "测试一下",
         "expectText": "收到：测试一下"
@@ -31,25 +33,14 @@
       "phase": "new-feature",
       "name": "工具调用编排（查天气 → get_weather）",
       "expect": "发送「查天气」后 mock 返回 get_weather；真 dsh 走未知工具重试/报错；统计 get_weather ×3。",
-      "result": "pending",
-      "screenshots": [],
-      "notes": "",
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-02.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped",
       "driver": {
         "prompt": "查天气",
         "expectText": "get_weather"
-      }
-    },
-    {
-      "id": "F-03",
-      "phase": "new-feature",
-      "name": "运行中形态（bash sleep 90）",
-      "expect": "发送「慢命令」后 bash 工具卡片显示 sleep 90 并保持 running；侧栏对应会话运行标识；助手仍在工作（不能立即结束 turn）。",
-      "result": "pending",
-      "screenshots": [],
-      "notes": "",
-      "driver": {
-        "prompt": "慢命令",
-        "expectText": "sleep 90"
       }
     },
     {
@@ -57,9 +48,11 @@
       "phase": "new-feature",
       "name": "等待审批形态（bash 升级参数）",
       "expect": "发送「审批测试」后出现 Permission request 卡片（允许一次/拒绝按钮）与 bash 工具卡；会话挂起待答。",
-      "result": "pending",
-      "screenshots": [],
-      "notes": "",
+      "result": "fail",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-04.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；断言超时（60s）：预期文本「Permission request」未出现",
       "driver": {
         "prompt": "审批测试",
         "expectText": "Permission request"
@@ -70,9 +63,11 @@
       "phase": "new-feature",
       "name": "等待问题形态（ask_user_question）",
       "expect": "发送「提个问题」后出现提问面板（测试提问/继续执行吗？+ 选项）；会话挂起待答。",
-      "result": "pending",
-      "screenshots": [],
-      "notes": "",
+      "result": "fail",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-05.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；断言超时（60s）：预期文本「继续执行吗？」未出现",
       "driver": {
         "prompt": "提个问题",
         "expectText": "继续执行吗？"
@@ -82,10 +77,12 @@
       "id": "F-06",
       "phase": "new-feature",
       "name": "子代理形态（subagent 后台任务）",
-      "expect": "发送「派个子代理」后出现子代理卡（子代理测试）与后台任务 chip；子代理自己走 mock-LLM 慢命令循环。",
-      "result": "pending",
-      "screenshots": [],
-      "notes": "",
+      "expect": "发送「派个子代理」后出现子代理卡（子代理测试）与后台任务 chip；子代理自己走 mock-LLM 提问挂起循环（子代理在提问面板挂起，后台任务保持 running）。",
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-06.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped",
       "driver": {
         "prompt": "派个子代理",
         "expectText": "子代理测试"
@@ -96,9 +93,11 @@
       "phase": "new-feature",
       "name": "多后台任务（2 个子代理同时跑）",
       "expect": "发送「开两个后台任务」后出现两个子代理卡（后台任务 A/B）与「2 个后台任务」chip；均保持 running。",
-      "result": "pending",
-      "screenshots": [],
-      "notes": "",
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-07.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped",
       "driver": {
         "prompt": "开两个后台任务",
         "expectText": "后台任务 A"

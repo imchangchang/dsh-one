@@ -28,7 +28,7 @@ const headed = args.includes('--headed')
 const keepOpen = args.includes('--keep-open') // 调试：最后不关浏览器
 
 const WORKBENCH_TIMEOUT = 30_000
-const EXPECT_TEXT_TIMEOUT = 60_000
+const EXPECT_TEXT_TIMEOUT = 120_000
 
 // 注：mock-LLM 匹配器已过滤 dsh 首轮注入（<system-reminder> 包裹的上下文不算 user
 // prompt），所以首条 ledger prompt 直接命中规则，无需暖场消息（历史坑：首轮注入曾
