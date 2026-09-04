@@ -47,3 +47,4 @@
 - 2026-09-03 用户追问「兜底要用户装 git 么」→ 核实内置 git 扩展源码（`git.path` 设置、`git.missing` 门控、找不到 git 的提示）→ 明确不新增依赖，补「git 依赖说明」节。
 - 2026-09-04 Sprint 3 认领（worktree: agent/commit-card-window-independent）：实现 git CLI 兜底（vscode.git 未命中 → 会话 cwd 仓库根 + git show/log 拿全字段 + origin 推 GitHub 链接；点击打开 = GitHub commit 页兜底），任意窗口状态显示 commit 卡。
 - 2026-09-04 开发完成（worktree f5210c9，分支 agent/commit-card-window-independent，dev-finish 自测通过 + done 标记）：① vscode.git 未命中时 git CLI 兜底查询（会话 cwd rev-parse --show-toplevel → git log --no-walk 批量 --shortstat 拿全字段；git.path 设置对齐；失败静默保持灰显）；② 点击打开：无 git model 仓库时 GitHub 链接浏览器开 commit 页兜底；③ 解析/投影收敛到 src/pure/commitGit.ts + 9 个单测；④ 验收报告 test/sandbox/verify.commit-card-window-independent.report.html（F-01 新增 / R-01 灰显 / R-02 回显，三项全 pass，沙盒实例 commit-card-independent 独立验证）。
+- 2026-09-05 主线合入后人工确认（用户确认开发完成）→ closed
