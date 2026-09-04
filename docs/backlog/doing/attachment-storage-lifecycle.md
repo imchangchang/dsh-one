@@ -27,3 +27,5 @@
 
 - 2026-09-08 代码评审确认后建条目 → open
 - 2026-09-04 方案讨论拍板：清理不做应用级（跟随 dsh 归档只标记不删、保留恢复能力）；扫描优化参数定案（lstat 跳 symlink、深度 1、子目录上限 64、候选池缓存 + 目录 mtime 指纹失效、上限 200）；注释误述两处随代码修；shouldFoldPastText 不变 → open（未认领开发）
+
+- 2026-09-04 认领（open → doing，worktree: agent/attachment-storage）：按方案实施——扫描优化（lstat 跳 symlink、子目录上限 64、候选池缓存 + 目录 mtime 指纹失效、query 内存过滤）与两处注释修正；清理不做应用级，随 dsh 归档语义。
