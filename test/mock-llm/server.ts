@@ -208,7 +208,18 @@ class LlmEndpoint {
     const lastUserMessage = lastUserText(messages)
     const model = modelOf(body, this.scenario)
 
-    const rule = this.matchRule(lastUserMessage)
+    // 工具结果后的续拍（最后一条消息是 tool 角色）：真实模型会基于工具结果继续
+    // 对话而不是再次要求同一个工具——mock 若继续命中工具编排规则会引导 dsh 无限
+    // 重试同一调用（实测：bash/subagent ×3 直至 dsh 重复保护报错）。所以续拍一律
+    // 走兜底回显，让 turn 正常收尾。
+    const lastMsg = messages[messages.length - 1]
+    const isToolFollowup =
+      typeof lastMsg === 'object' &&
+      lastMsg !== null &&
+      (lastMsg as Record<string, unknown>).role === 'tool'
+    const rule = isToolFollowup
+      ? this.scenario.rules.find((r) => r.match === '*')
+      : this.matchRule(lastUserMessage)
     if (!rule) {
       // 场景专门不给兜底规则时，用 404 显式触发「dsh 当错误」。
       this.writeJson(res, 404, { error: { message: 'no matching rule for last user message', type: 'invalid_request_error', code: 'missing_rule' } })

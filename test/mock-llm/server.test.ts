@@ -186,6 +186,22 @@ test('规则匹配优先级：具体规则先于兜底命中（查天气→tool_
   assert.equal(body.choices[0].message.tool_calls, undefined)
 })
 
+test('工具结果后的续拍：最后一条是 tool 消息时跳过具体规则走兜底回显', async () => {
+  // 首次请求：命中工具规则（get_weather）。续拍（有 tool 结果）：应回显而非再次工具调用。
+  const res = await postChat(mock, {
+    model: 'mock-llm',
+    messages: [
+      { role: 'user', content: '查天气' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 't1', type: 'function', function: { name: 'get_weather', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 't1', content: '{"error":"unknown tool"}' },
+    ],
+    stream: false,
+  })
+  const body = await res.json()
+  assert.equal(body.choices[0].message.tool_calls, undefined, '续拍不应再次返回工具调用')
+  assert.equal(body.choices[0].message.content, '收到：查天气')
+})
+
 test('首轮注入过滤：两类注入（<system-reminder> 标签 / 无标签 runtime context）都不作为匹配对象', async () => {
   const tagged = '<system-reminder>\nA skill is a reusable set...\n</system-reminder>'
   const runtime =
