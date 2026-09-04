@@ -102,22 +102,30 @@ printf '{\n  "locale": "%s"\n}\n' "$LOCALE" > "$CONFIG_DIR/argv.json"
 printf '{\n  "security.workspace.trust.enabled": false,\n  "workbench.startupEditor": "none",\n  "workbench.colorTheme": "%s"\n}\n' "$COLOR_THEME" > "$CONFIG_DIR/User/settings.json"
 
 # ── commit 卡兜底演示仓库（mock 场景「commit 演示」专用）───────────────────────
-# 在 $HOME 建单提交 git 仓库：窗口打开的 $HOME/workspace 不是仓库（vscode.git
-# 扫不到、命中不了），而会话 cwd 在 $HOME/workspace 里——git CLI 兜底
-# rev-parse --show-toplevel 向上走到 $HOME 仓库根，验证「窗口没打开该仓库也能查」。
+# 在 $HOME/tmp 建单提交 git 仓库，并把 TMPDIR 指进去：未分组会话的 cwd 是
+# os.tmpdir()/dsh-ungrouped-<stamp>-<id>，默认落在 /tmp（不在任何 git 仓库，
+# CLI 兜底会「正确」地查不到——那是方案里明确的灰显场景，测不到命中路径）。
+# TMPDIR 指进仓库后会话 cwd 落在仓库内；窗口打开的 $HOME/workspace 是它的兄弟
+# 目录（不在仓库里），vscode.git 扫描不到——命中只能走 git CLI 兜底。
 # sha 由固定 author/日期/内容决定（cb1f933e15289a00e30865e8dd3963ba90a96780，
 # 与 test/mock-llm/scenario.ts 规则文本、verify.commit-card-window-independent.ledger.json
 # 期望一致）；改任一创建参数都会 sha 失配（卡片查不到 → 灰显），三处必须同步改。
-if [ "${MOCK_LLM:-0}" = "1" ] && [ ! -d "$HOME/.git" ]; then
-  git -C "$HOME" init -q
-  printf 'demo content\n' > "$HOME/README.md"
-  git -C "$HOME" add README.md
-  GIT_AUTHOR_NAME='Demo Author' GIT_AUTHOR_EMAIL=demo@example.com \
-  GIT_AUTHOR_DATE='2026-09-03T10:00:00+08:00' \
-  GIT_COMMITTER_NAME='Demo Author' GIT_COMMITTER_EMAIL=demo@example.com \
-  GIT_COMMITTER_DATE='2026-09-03T10:00:00+08:00' \
-  git -C "$HOME" -c commit.gpgsign=false commit -q -m 'feat(demo): 初始提交' -m '这是 body 第二行。'
-  echo "[entrypoint] commit-card demo repo ready (sha=$(git -C "$HOME" rev-parse HEAD))" >&2
+if [ "${MOCK_LLM:-0}" = "1" ]; then
+  if [ ! -d "$HOME/tmp/.git" ]; then
+    mkdir -p "$HOME/tmp"
+    git -C "$HOME/tmp" init -q
+    printf 'demo content\n' > "$HOME/tmp/README.md"
+    git -C "$HOME/tmp" add README.md
+    GIT_AUTHOR_NAME='Demo Author' GIT_AUTHOR_EMAIL=demo@example.com \
+    GIT_AUTHOR_DATE='2026-09-03T10:00:00+08:00' \
+    GIT_COMMITTER_NAME='Demo Author' GIT_COMMITTER_EMAIL=demo@example.com \
+    GIT_COMMITTER_DATE='2026-09-03T10:00:00+08:00' \
+    git -C "$HOME/tmp" -c commit.gpgsign=false commit -q -m 'feat(demo): 初始提交' -m '这是 body 第二行。'
+    # origin remote 不参与提交 hash（加上不影响上面的 sha），供 GitHub 链接派生验证
+    git -C "$HOME/tmp" remote add origin git@github.com:imchangchang/dsh-one.git
+    echo "[entrypoint] commit-card demo repo ready (sha=$(git -C "$HOME/tmp" rev-parse HEAD))" >&2
+  fi
+  export TMPDIR="$HOME/tmp"
 fi
 
 # 4) 启动 code-server：默认监听 8080，port 可由 -e PORT 覆盖（run-sandbox.sh start 用 -p $PORT:$PORT 联动）。
