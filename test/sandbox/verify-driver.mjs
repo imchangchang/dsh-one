@@ -129,14 +129,15 @@ async function sendPrompt(page, text) {
   await chat.locator('.send-button').click({ timeout: 15_000 })
 }
 
-/** 在聊天帧里等待 expectText 出现（每轮重扫帧，容忍宿主重建）。 */
+/** 扫描全部 frame 等待 expectText 出现（每轮重扫，容忍宿主重建）。
+ *  提问/审批面板会替换 composer（textarea#input 消失），不能用 isChatFrame 定位，
+ *  直接全文搜索所有 frame。 */
 async function waitForText(page, expectText, timeoutMs) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
-    const chat = await findFrame(page, isChatFrame, 5_000)
-    if (chat) {
+    for (const f of page.frames()) {
       try {
-        const n = await chat.locator('body').filter({ hasText: expectText }).count()
+        const n = await f.locator('body').filter({ hasText: expectText }).count()
         if (n > 0) return true
       } catch {
         // 帧重建瞬间忽略
