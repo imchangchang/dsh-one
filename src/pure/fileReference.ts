@@ -5,6 +5,7 @@
  * 入参是光标前的整段文本，(?:^|\s) 里的 \s 覆盖换行，语义等价。
  */
 import { attachmentBaseName } from './composerAttachment.ts'
+import { AT_BOUNDARY_CHARS, boundTokenRanges, scanAtTokens } from './tokenScan.ts'
 
 /** 光标处活跃的 @ token；不在 @ token 上时为 undefined。 */
 export interface ActiveAtToken {
@@ -16,19 +17,34 @@ export interface ActiveAtToken {
   quoted: boolean
 }
 
+// 未闭合引号分支（与 tokenScan 的闭合引号语义互补：光标处引号未闭合才算
+// quoted，闭合引号回落 plain——官方行为，与既有测试一致）。边界集与
+// tokenScan 同步（含新增的中文开括号）。
+const QUOTED_AT_END = new RegExp(`(?:^|[${AT_BOUNDARY_CHARS}])(@"([^"]*))$`)
+
 /**
  * 提取光标前的 `@path` 或未闭合 `@"path with spaces` token。其它 token
- * 内部的 @（如邮箱地址）不触发补全。触发边界 = 行首/空白/常见标点（中文
- * 句子里 `，@img1` 的 @ 能开补全——官方只用 \s，dsh-one 扩展为行间触发）。
+ * 内部的 @（如邮箱地址）不触发补全。边界与终止规则与渲染侧共用
+ * （tokenScan.ts）：触发点必须是行首/边界字符后；token 区间由终止规则
+ * 决定——光标紧接正文分隔符（`!?;:`、空白、中文标点、emoji、`.`,/ 后无
+ * 续接字符等）时不再触发补全。
  */
 export function activeAtToken(beforeCursor: string): ActiveAtToken | undefined {
-  const quoted = /(?:^|[\s，。；：！？、,;!?])(@"([^"]*))$/.exec(beforeCursor)
+  const quoted = QUOTED_AT_END.exec(beforeCursor)
   if (quoted?.[1] !== undefined && quoted[2] !== undefined) {
     return { prefix: quoted[1], query: quoted[2], quoted: true }
   }
-  const plain = /(?:^|[\s，。；：！？、,;!?])(@(\S*))$/.exec(beforeCursor)
-  if (plain?.[1] === undefined || plain[2] === undefined) return undefined
-  return { prefix: plain[1], query: plain[2], quoted: false }
+  // plain：取扫描区间里「正好结束在光标处」的那个（同一段文本至多一个）。
+  let active: { start: number; end: number } | null = null
+  for (const range of scanAtTokens(beforeCursor)) {
+    if (range.end === beforeCursor.length) active = range
+  }
+  if (active === null) return undefined
+  return {
+    prefix: beforeCursor.slice(active.start, active.end),
+    query: beforeCursor.slice(active.start + 1, active.end),
+    quoted: false,
+  }
 }
 
 /** fileReferences/list 候选（路径相对会话 cwd）。 */
@@ -64,27 +80,6 @@ export function fileMentionToken(name: string, candidateMention: string, binding
   return token
 }
 
-/** 输入文本里 mention 显示 token 的区间（长 token 优先、不重叠扫描）。 */
-export function mentionTokenRanges(
-  value: string,
-  bindings: ReadonlyMap<string, string>,
-): Array<{ start: number; end: number }> {
-  const tokens = [...bindings.keys()].sort((a, b) => b.length - a.length)
-  const ranges: Array<{ start: number; end: number }> = []
-  let cursor = 0
-  while (cursor < value.length) {
-    let best: { index: number; token: string } | null = null
-    for (const token of tokens) {
-      const index = value.indexOf(token, cursor)
-      if (index >= 0 && (best === null || index < best.index)) best = { index, token }
-    }
-    if (best === null) break
-    ranges.push({ start: best.index, end: best.index + best.token.length })
-    cursor = best.index + best.token.length
-  }
-  return ranges
-}
-
 /**
  * 方向键的「token 原子导航」：光标在 token 上（含边界）时返回应该到达的位置
  * （整个 @ 引用作为一个单元跨过）；不在 token 上或选中态返回 null，走原生。
@@ -95,7 +90,7 @@ export function arrowNavPosition(
   dir: 1 | -1,
   bindings: ReadonlyMap<string, string>,
 ): number | null {
-  for (const r of mentionTokenRanges(value, bindings)) {
+  for (const r of boundTokenRanges(value, bindings)) {
     if (dir === 1 && pos >= r.start && pos < r.end) return r.end
     if (dir === -1 && pos > r.start && pos <= r.end) return r.start
   }
@@ -114,7 +109,7 @@ export function tokenDeletion(
   dir: 1 | -1,
   bindings: ReadonlyMap<string, string>,
 ): { text: string; pos: number; token: string } | null {
-  for (const r of mentionTokenRanges(value, bindings)) {
+  for (const r of boundTokenRanges(value, bindings)) {
     if (dir === -1 && pos > r.start && pos <= r.end) {
       return { text: value.slice(0, r.start) + value.slice(r.end), pos: r.start, token: value.slice(r.start, r.end) }
     }
@@ -129,18 +124,24 @@ export function tokenDeletion(
  * 把 recalled（↑ 拉起）的历史文本里的 canonical `@长路径` 引用还原为显示
  * token（`@短名`），与第一次输入时的形态一致（含绑定注册，高亮/原子导航
  * 可用）。只处理含分隔符的路径引用——无分隔符的 @token（相对路径/命令/
- * 邮箱）保持原样。返回还原后的文本；新增绑定写入传入的 bindings。
+ * 邮箱）保持原样。扫描起点与终止规则与渲染侧一致（tokenScan），词中的
+ * @（`a@img`）不还原。返回还原后的文本；新增绑定写入传入的 bindings。
  */
 export function restoreFileMentionTokens(text: string, bindings: Map<string, string>): string {
-  return text.replace(/@"[^"\n]+"|@[^\s，。；：！？、,;!?]+/gu, (mention) => {
-    const cleaned = mention.replace(/^@/, '').replace(/^"|"$/g, '')
-    if (!/[\\/]/.test(cleaned)) return mention // 无分隔符：不是路径引用，原样
+  let out = ''
+  let cursor = 0
+  for (const range of scanAtTokens(text)) {
+    const mention = text.slice(range.start, range.end)
+    const cleaned = mention.slice(1).replace(/^"|"$/g, '')
+    if (!/[\\/]/.test(cleaned)) continue // 无分隔符：不是路径引用，原样
     const name = attachmentBaseName(cleaned)
-    if (name.length === 0 || name === cleaned) return mention
+    if (name.length === 0 || name === cleaned) continue
     const m = formatFileMention({ path: cleaned, kind: 'file' }, false)
-    if (m === undefined) return mention
+    if (m === undefined) continue
     const token = fileMentionToken(name, m, bindings)
     bindings.set(token, m)
-    return token
-  })
+    out += text.slice(cursor, range.start) + token
+    cursor = range.end
+  }
+  return out + text.slice(cursor)
 }

@@ -96,6 +96,7 @@ import {
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { splitUserBubble, type UserBubbleSegment } from '../../pure/userBubble.ts'
+import { boundTokenRanges } from '../../pure/tokenScan.ts'
 import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, restoreFileMentionTokens, tokenDeletion, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
 import {
   WORKFLOW_STATUS_TEXT,
@@ -5788,25 +5789,22 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     if (composerComposing) return // IME 组合中跳过重建（组合文本由 textarea 原生绘制）
     refLayer.textContent = ''
     const value = input.value
-    const tokens = [...mentionBindings.keys()].sort((a, b) => b.length - a.length)
-    if (tokens.length === 0) {
+    if (mentionBindings.size === 0) {
       if (value) refLayer.appendChild(document.createTextNode(value))
       refLayer.style.transform = `translateY(${-input.scrollTop}px)`
       return
     }
+    // 区间来自输入侧边界扫描（tokenScan.boundTokenRanges）：只高亮扫描起点
+    // （边界校验通过）处按 key 最长匹配命中的 token——`a@img b` 词中命中
+    // 不再高亮，避免了裸子串匹配把正文里的 @ 误画成引用。
     let cursor = 0
-    while (cursor < value.length) {
-      let best: { index: number; token: string } | null = null
-      for (const token of tokens) {
-        const index = value.indexOf(token, cursor)
-        if (index >= 0 && (best === null || index < best.index)) best = { index, token }
-      }
-      if (best === null) break
-      if (best.index > cursor) refLayer.appendChild(document.createTextNode(value.slice(cursor, best.index)))
-      const span = el('span', 'ref-token', best.token)
-      span.dataset.path = mentionBindings.get(best.token) ?? ''
+    for (const range of boundTokenRanges(value, mentionBindings)) {
+      if (range.start > cursor) refLayer.appendChild(document.createTextNode(value.slice(cursor, range.start)))
+      const token = value.slice(range.start, range.end)
+      const span = el('span', 'ref-token', token)
+      span.dataset.path = mentionBindings.get(token) ?? ''
       refLayer.appendChild(span)
-      cursor = best.index + best.token.length
+      cursor = range.end
     }
     if (cursor < value.length) refLayer.appendChild(document.createTextNode(value.slice(cursor)))
     refLayer.style.transform = `translateY(${-input.scrollTop}px)`
