@@ -1,7 +1,7 @@
 {
   "title": "回收站 + 置顶不能归档/移入（recycle-bin 任务）",
   "branch": "agent/recycle-bin",
-  "commit": "HEAD(dev-finish 时补)",
+  "commit": "cf013f8",
   "environment": {
     "mode": "mock-llm",
     "dsh": "0.1.1-rc.2",
