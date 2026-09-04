@@ -1096,6 +1096,12 @@ window.addEventListener('message', (event) => {
       const restored = stagedPerSession.get(state.sessionId ?? EMPTY_SESSION_KEY)
       pendingImages = [...(restored?.images ?? [])]
       pendingFiles = [...(restored?.files ?? [])]
+      // @ 引用绑定随草稿同生命周期：旧会话的绑定归档（Map 引用，切回时原样
+      // 恢复），新会话取自己的那份、没有则空 Map（新会话不再被旧会话的占用
+      // token 强制 ` (2)` 后缀）。发送成功/失败不在此清空——草稿清空后回溯
+      // 历史（↑）仍要用绑定反查 canonical 长路径。
+      mentionBindingsPerSession.set(oldKey, mentionBindings)
+      mentionBindings = mentionBindingsPerSession.get(state.sessionId ?? EMPTY_SESSION_KEY) ?? new Map()
       modelCatalog = null
       commandNotices = []
       recall = null
@@ -1372,12 +1378,17 @@ let fileRefResult: { key: string; items: FileRefCandidate[] } | null = null
 let fileRefDebounce: ReturnType<typeof setTimeout> | null = null
 
 /**
- * 显示 token（`@标题`）→ canonical mention 的映射，发送时由
+ * 显示 token（`@标题`/`@短名`）→ canonical mention 的映射，发送时由
  * expandMentionBindings 展开（src/pure/sessionMention.ts）。@ 补全和
- * mention 粘贴都会登记。常驻不清理：token 指向的是固定会话，之后的
- * 消息里再写同一 token 也应展开成同一引用。
+ * mention 粘贴都会登记。与 composerDrafts/stagedPerSession 同级按会话
+ * 归档/恢复：切走存旧、切回取新，新会话空 Map；发送成功/失败不强制
+ * 清空——绑定随草稿生命周期走（草稿恢复时绑定也在，发送展开照常）。
+ * 按会话隔离后跨会话不再互相污染：会话 B 里附加同名文件不会被会话 A
+ * 的残留绑定强制加 ` (2)` 后缀。
  */
-const mentionBindings = new Map<string, string>()
+const mentionBindingsPerSession = new Map<string, Map<string, string>>()
+/** 当前会话的绑定（mentionBindingsPerSession 中对应会话的那份；空态用 EMPTY_SESSION_KEY）。 */
+let mentionBindings = new Map<string, string>()
 
 function hideSlashPopup(): void {
   slashPopupEl?.remove()
