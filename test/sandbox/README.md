@@ -28,6 +28,12 @@ test/sandbox/run-sandbox.sh build --vsix "$(pwd)/dsh-one-1.0.0.vsix" --locale en
 - `--locale <en|zh-cn>` / `--theme <dark|light>`：写进镜像的默认值；运行期可用 `start -e` 覆盖。
 - docker build 上下文固定为 `test/sandbox/`，脚本会先把 vsix 拷成 `test/sandbox/dsh-one.vsix`（gitignored，不污染仓库）；不带 `--vsix` 时用一个空占位文件让 COPY 通过，镜像里跳过安装。
 
+> **沙盒提权规避**：`docker build` 走 buildx，默认会把 builder 元数据写到 `~/.docker/buildx/`（session workspace 外），
+> 在 DSH `workspace-write` 文件沙盒下写被拦、命令报
+> `failed to update builder last activity time: ... operation not permitted`，只能提权重试。
+> 脚本已把 `BUILDX_CONFIG` 重定向到 `/tmp/dsh-sandbox-buildx`（可写）自动避开；若本机显式设置了
+> `BUILDX_CONFIG` 环境变量则尊重该值。
+
 ### 起容器
 
 ```bash
@@ -140,6 +146,9 @@ test/sandbox/run-sandbox.sh --help   # 全部参数
   npm i -D playwright
   npx playwright install chromium
   ```
+
+  `npx playwright install chromium` 默认写 `~/Library/Caches/ms-playwright`（workspace 外，会触发提权）；本机已装过缓存时可跳过。需要重装时用
+  `PLAYWRIGHT_BROWSERS_PATH=/tmp/dsh-sandbox-pw-browsers npx playwright install chromium`，把浏览器装进可写区（此后运行驱动脚本也须带同一环境变量）。
 
 ### 命令
 
