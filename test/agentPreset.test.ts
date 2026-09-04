@@ -33,22 +33,35 @@ test('unknown system ids fall back to the roster name/description', () => {
   assert.deepEqual(options, [{ id: 'future-mode', label: 'Future Mode', description: 'roster 文案' }])
 })
 
-test('roster copy wins over the built-in system map (official presets ship localized names)', () => {
-  // 官方 preset.yml 自带本地化文案（标准模式 …）；映射只应兜底，不能覆盖中文原文。
+test('built-in system map wins over roster copy (official presets localize via t())', () => {
+  // 官方 system preset 的文案走后端映射过 t()：语言由界面 locale 定，不能把
+  // preset.yml 的固定中文原文透传进英文界面（8b06be8 的 roster 优先即因此）。
   const options = resolveAgentPresets([
     preset('standard', { trust: 'system', name: '标准模式', description: '功能完整的编码 Agent。' }),
     preset('code', { trust: 'system', name: 'PTC 模式' }),
   ])
   assert.deepEqual(options, [
-    { id: 'standard', label: '标准模式', description: '功能完整的编码 Agent。' },
-    { id: 'code', label: 'PTC 模式' },
+    {
+      id: 'standard',
+      label: 'Standard mode',
+      description: 'A full-featured coding agent: file editing, shell, file and web search, skills, plan, goals, subagents, and workflows.',
+    },
+    {
+      id: 'code',
+      label: 'PTC mode',
+      description: 'All standard capabilities, with tools exposed through the Code Mode SDK so the model composes multi-step operations in one TypeScript program.',
+    },
   ])
-  // 中文界面的 t() 即使给英文 key 也不参与——roster 原文直接透传。
+  // 中文界面的 t() 输出 bundle 译文（与 preset.yml 原文逐字一致），文案不变。
+  const zh: Record<string, string> = {
+    'Standard mode': '标准模式',
+    'A full-featured coding agent: file editing, shell, file and web search, skills, plan, goals, subagents, and workflows.': '功能完整的编码 Agent。',
+  }
   const viaT = resolveAgentPresets(
     [preset('standard', { trust: 'system', name: '标准模式' })],
-    (s) => `[${s}]`,
+    (s) => zh[s] ?? s,
   )
-  assert.deepEqual(viaT, [{ id: 'standard', label: '标准模式' }])
+  assert.deepEqual(viaT, [{ id: 'standard', label: '标准模式', description: '功能完整的编码 Agent。' }])
 })
 
 test('user presets always use their own name/description', () => {

@@ -47,12 +47,13 @@ const SYSTEM_PRESET_LABELS: Record<string, { label: string; description: string 
 
 /**
  * Roster → picker options. Broken rows and entries without a usable id drop
- * out; the roster's own name/description takes precedence — official presets
- * ship localized copy from the server (preset.yml: 标准模式, PTC 模式, ...),
- * so overwriting it with the built-in English map here is what made the
- * Chinese UI show English. The map is only a fallback for older servers that
- * omit the copy (fallback text goes through t()); unknown ids fall back to
- * the bare id.
+ * out; official system presets (trust === 'system' && id in the built-in map)
+ * use the map through t(), so the picker follows the UI locale — the server's
+ * preset.yml only ships Chinese copy and must not leak into the English UI.
+ * The zh bundle's translations match the preset.yml copy verbatim, so the
+ * Chinese UI keeps showing the same strings. Roster copy is for user presets
+ * and unknown ids (the server can't localize those); label falls back to the
+ * bare id when the roster offers no name.
  */
 export function resolveAgentPresets(
   roster: readonly AgentPresetLike[],
@@ -64,11 +65,11 @@ export function resolveAgentPresets(
     const known = p.trust === 'system' ? SYSTEM_PRESET_LABELS[p.id] : undefined
     const rosterName = typeof p.name === 'string' && p.name !== '' ? p.name : undefined
     const rosterDesc = typeof p.description === 'string' && p.description !== '' ? p.description : undefined
-    // Roster 提供任一文案即视为本地化原文：全部用它（缺失字段留空），
-    // 避免「标准模式 + 英文描述」混搭；两项全缺才回退内置映射（过 t()）。
-    const useBuiltIn = rosterName === undefined && rosterDesc === undefined
-    const label = useBuiltIn ? (known ? t(known.label) : p.id) : rosterName ?? p.id
-    const description = useBuiltIn ? (known ? t(known.description) : undefined) : rosterDesc
+    // 官方 system preset 整条走内置映射过 t()（label + description 同源，
+    // 不会「标准模式 + 英文描述」混搭）；roster 原文只用于 user preset 与
+    // 未知 id——服务端改 preset.yml 文案时需同步内置映射（见 backlog 备注）。
+    const label = known ? t(known.label) : rosterName ?? p.id
+    const description = known ? t(known.description) : rosterDesc
     options.push({ id: p.id, label, ...(description ? { description } : {}) })
   }
   return options
