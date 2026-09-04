@@ -40,3 +40,5 @@ README（:247）与 worktree-dev-flow SKILL 也只写了「共享单实例，先
 
 - 2026-09-06 记录：i18n session 实测 + 代码核实，资源全固定（镜像 tag/容器名/端口/截图目录）→ open/。
 - 2026-09-06 认领（open → doing，worktree: agent/sandbox-parallel-instance）：run-sandbox.sh 加 --instance 派生资源，README 加并行小节。
+
+- 2026-09-06 开发完成（worktree: agent/sandbox-parallel-instance, commit 7494328+5c74484）→ done。自测：bash -n + 错误路径（--port 必填/非法 instance/端口相同）+ 双实例并行实测（a:8081/mock 8082、b:8083/mock 8084 并存互不删，连同并行 session 的 dc:8091 三方并存）；仓库自测 typecheck/386 test/build 全绿。实测还修了两处：docker inspect 裸名踩同名镜像（--type container）、bash 3.2 全角字符与变量名粘连（\${}）。无 UI 行为变化，沙盒报告不适用。
