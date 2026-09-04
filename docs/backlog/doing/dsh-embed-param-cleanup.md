@@ -15,3 +15,5 @@
 ## 变更记录
 
 - 2026-09-08 调研确认：官方 0.1.2-rc.1 不消费 dsh_embed；主 session 拍板清理 → open
+
+- 2026-09-04 认领（worktree: agent/dsh-embed-cleanup）→ doing
