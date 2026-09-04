@@ -16,6 +16,7 @@
  */
 
 import { sessionMentionRanges } from './sessionMention.ts'
+import { scanAtTokens } from './tokenScan.ts'
 
 export type UserBubbleSegment =
   | { kind: 'text'; text: string }
@@ -25,17 +26,10 @@ export type UserBubbleSegment =
   | { kind: 'skill'; label: string }
 
 /**
- * 官方 projectUserText 的普通 token 扫描（行首或空白后的词边界 token；
- * dsh-one 扩展：常见中英文标点后也可触发，支持行间 @ 引用）。plain 分支在
- * 句读标点处终止：中文句子的引用后面通常直接跟“，”这类标点（没有空格），
- * 不终止会把后续正文吞进 token、图片/文件判定全失效。终止集只含句读标点
- * （不能含全角括号等——路径常见 `（草案）.docx` 这类文件名，括号被截断会
- * 让路径对不上、行内 chip 名字残缺）。
+ * `/command`（skill 形态）沿用旧边界集（行首 + 常见中英文标点，不含新加的
+ * 中文开括号）——@ token 的边界扩展不扩到命令上，减少行为面。
  */
-const PLAIN_TOKEN_PATTERN =
-  /(^|[\s，。；：！？、,;!?])(\/[\w-]+|@"[^"\n]+"|@[^\s\u3000-\u303f\uff0c\uff01\uff1f\uff1b\uff1a\uff0e\uff65]+)/gu
-/** 官方对非引号 token 的尾部标点剥离（引号 token 的捕获在闭引号前止步，无需剥离）。 */
-const TRAILING_PUNCTUATION = /[.,;:!?，。；：！？]+$/gu
+const COMMAND_PATTERN = /(^|[\s，。；：！？、,;!?])(\/[\w-]+)/g
 
 interface BubbleRange {
   start: number
@@ -107,11 +101,18 @@ export function splitUserBubble(
     ranges = uriRanges.map((r) => ({ ...r, kind: 'session' as const }))
     reserved = new Set(uriRanges.map((r) => r.start))
   }
-  for (const match of text.matchAll(PLAIN_TOKEN_PATTERN)) {
+  // @token 区间来自统一扫描（tokenScan.ts：边界/终止/平衡/quoted 一套规则，
+  // 尾部标点由终止规则天然留在文本侧，无需再剥离）。
+  for (const range of scanAtTokens(text)) {
+    if (reserved.has(range.start)) continue
+    const label = text.slice(range.start, range.end)
+    if (label.length <= 1) continue // 裸 `@`/单个字符不成 chip
+    ranges.push({ ...range, kind: 'plain', label })
+  }
+  for (const match of text.matchAll(COMMAND_PATTERN)) {
     const start = match.index + (match[1]?.length ?? 0)
     if (reserved.has(start)) continue
-    let label = match[2] ?? ''
-    if (!label.startsWith('@"')) label = label.replace(TRAILING_PUNCTUATION, '')
+    const label = match[2] ?? ''
     if (label.length <= 1) continue
     ranges.push({ start, end: start + label.length, kind: 'plain', label })
   }

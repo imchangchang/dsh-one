@@ -138,3 +138,40 @@ test('restoreFileMentionTokens：空格引号路径与同名冲突', () => {
   const again = restoreFileMentionTokens('@/a/b.md 又一次 @/c/b.md', bindings)
   assert.equal(again, '@b.md 又一次 @b.md (2)')
 })
+
+test('activeAtToken：触发边界与渲染侧一致（中文开括号触发、ASCII ( 不触发）', () => {
+  assert.deepEqual(activeAtToken('（@img1'), { prefix: '@img1', query: 'img1', quoted: false })
+  assert.equal(activeAtToken('func(@arg'), undefined)
+})
+
+test('activeAtToken：终止规则生效（. 后无续接字符/;!?: 后不触发补全）', () => {
+  assert.deepEqual(activeAtToken('看下 @a.txt'), { prefix: '@a.txt', query: 'a.txt', quoted: false })
+  assert.equal(activeAtToken('看下 @a.txt.后'), undefined)
+  assert.equal(activeAtToken('看下 @a.txt,'), undefined)
+  assert.equal(activeAtToken('看下 @img1:'), undefined)
+  assert.equal(activeAtToken('看下 @img1;'), undefined)
+  assert.equal(activeAtToken('看下 @a😀'), undefined)
+})
+
+test('activeAtToken：词中/汉字紧邻的 @ 不触发补全', () => {
+  assert.equal(activeAtToken('a@img b'), undefined)
+  assert.equal(activeAtToken('看@img'), undefined)
+})
+
+test('arrowNavPosition / tokenDeletion：词中 @ 不算 token（a@img b 不参与导航与删除）', () => {
+  const bindings = new Map([['@img', '@/x/img.png']])
+  assert.equal(arrowNavPosition('a@img b', 3, 1, bindings), null)
+  assert.equal(arrowNavPosition('a@img b', 4, -1, bindings), null)
+  assert.equal(tokenDeletion('a@img b', 4, -1, bindings), null)
+  // 边界处的 @img 照常参与
+  assert.equal(arrowNavPosition('@img b', 2, 1, bindings), 4)
+  assert.equal(tokenDeletion('@img b', 4, -1, bindings)?.token, '@img')
+})
+
+test('restoreFileMentionTokens：词中的 @ 路径引用不还原（a@b/c 保持原样）', () => {
+  const bindings = new Map<string, string>()
+  const restored = restoreFileMentionTokens('这里 a@b/c 那里 @/x/y.txt', bindings)
+  assert.equal(restored, '这里 a@b/c 那里 @y.txt')
+  assert.equal(bindings.get('@y.txt'), '@/x/y.txt')
+  assert.equal(bindings.has('@b/c'), false)
+})

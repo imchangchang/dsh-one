@@ -1,0 +1,78 @@
+{
+  "title": "paste-token-boundaries：@token 扫描边界统一（ASCII 标点/括号/词中匹配）",
+  "branch": "agent/paste-token-boundaries",
+  "commit": "HEAD",
+  "environment": {
+    "mode": "mock-llm",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox:paste-token-boundaries（含本任务 vsix）",
+    "date": "2026-09-04T00:00:00Z"
+  },
+  "coverageNote": "本条目逻辑面在 test/tokenScan.test.ts + userBubble/fileReference/sessionMention 单测（413 项全绿，8 个验收 case 逐条覆盖）。UI 行为变化两处：用户气泡 chip 切分（F-01 沙盒真 dsh 端到端）与输入框高亮层（F-02 = test/ui harness 确定性场景 + DOM 断言 window.__refTokenCheck，非真 dsh）。R-02/R-03 为 harness 视觉回归（同 F-02 方法）；R-01 沙盒端到端回归。paste-long-text harness 场景在主线（未改代码）同样渲染空输入框——既有 harness 环境限制，与本条目无关；字符串粘贴折叠路径本条目未触碰。补全弹窗候选列表本身未改，不在覆盖重点。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "用户气泡 chip 切分新规则（真 dsh 端到端）",
+      "expect": "发送「（@img1 和 @img2）对比 @a.txt.后面，再看 @a.txt,后面」后用户气泡：`（` 与 `）` 留在文本、两个 @img1/@img2 各自成 chip（无括号被吞）；对比后面 `@a.txt` 成 chip、`@a.txt.` 的 `.` 停在文本（`.后面`）、`@a.txt,` 的 `,` 停在文本（`,后面`）；全角 `，` 在文本侧不吞正文；正文顺序与原文一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-ptb/F-01.png"
+      ],
+      "driver": {
+        "prompt": "（@img1 和 @img2）对比 @a.txt.后面，再看 @a.txt,后面",
+        "expectText": "收到：（@img1"
+      },
+      "notes": "新建会话：sidebar-ungrouped。气泡行内切分符合期望：（ 与 ）留文本、@img1/@img2/@a.txt/@a.txt 各自 chip、`.`/`,`/全角 `，` 停在文本侧、正文顺序一致。宿主侧把 @token 解析成附件占位（气泡上方 img1/img2/a.txt 文件 chip）属 dsh 对文件引用的宿主行为，不在本条目渲染范围（本条目验收面 = 气泡行内切分）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "输入框高亮层：词中命中不高亮、边界命中照常（harness 确定性场景）",
+      "expect": "test/ui harness 场景 ref-token-word-boundary：先经 @ 补全绑定 @img1.png，再把 composer 值改成「a@img1.png b @img1.png c」——高亮层只绘制一处 .ref-token（边界处第二个 @img1.png，浅蓝底）；第一处词中 a@img1.png 无高亮背景（DOM 断言 window.__refTokenCheck = {count:1, texts:[\"@img1.png\"]}，已 evaluate 核对）；两处文本清晰、无长路径、无补全弹窗。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/ref-token-word-boundary.png"
+      ],
+      "notes": "harness 场景（非真 dsh）：截图 + WebBridge evaluate 核对 window.__refTokenCheck = {count:1, texts:[\"@img1.png\"]}；截图可见词中第一处无高亮、第二处浅蓝 highlight。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "基础发送与 mock-LLM 回显（沙盒真 dsh 端到端）",
+      "expect": "新会话发送「测试一下」后助手消息回显「收到：测试一下」（mock-LLM 兜底规则）；composer 正常清空、消息流渲染不受本轮改动影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-ptb/R-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "新建会话：sidebar-ungrouped；助手回显「收到：测试一下」，composer 清空，本轮改动未影响发送链路。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "输入框 @ 补全选中后 token 高亮（harness file-ref-token）",
+      "expect": "输入 @img 弹出附件候选（@img1.png + 路径），点选后输入框内容 @img1.png 显示为高亮 token（浅蓝底圆角、textarea 文字色透明不重影），无长路径；图片 staging chip 显示 img1.png 横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/file-ref-token.png"
+      ],
+      "notes": "harness 场景（非真 dsh）：evaluate 核对 input.value=@img1.png、.ref-token 恰 1 个；截图见 @img1.png 浅蓝高亮、无长路径、补全弹窗已关闭、staging chip 显示 img1.png。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "用户气泡 @ 文件/文件夹引用渲染（harness file-ref-bubble）",
+      "expect": "气泡正文：行内 @img1.png chip、@index.ts chip、@src folder chip；附件区 img1.png 缩略图 + index.ts 芯片；全角逗号在文本侧；无长路径文本；助手消息正常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/file-ref-bubble.png"
+      ],
+      "notes": "harness 场景（非真 dsh）：截图见行内 img1.png/index.ts 两个文件 chip + src folder chip、附件区两张 chip（缩略图 + 文档图标）、全角逗号留在文本、无长路径文本。"
+    }
+  ]
+}

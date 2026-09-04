@@ -108,11 +108,12 @@ test('无 references 时回退 canonical URI mention（引用失败残留）', (
     { kind: 'session', sessionId: 's1', label: '旧会话' },
     { kind: 'text', text: ' 一下' },
   ])
-  // 坏 URI 解不开：按文件 chip 展示（对齐官方 projectUserText）
+  // 坏 URI 解不开：按文件 chip 展示（对齐官方 projectUserText）。ASCII ':' 是
+  // 终止符（已知取舍：mention 形态文本被 `:` 截断，与文件名含 ASCII ;!?: 截断同理）。
   assert.deepEqual(splitUserBubble('看 @[坏](dsh-session:%%%) 这个'), [
     { kind: 'text', text: '看 ' },
-    { kind: 'file', path: '@[坏](dsh-session:%%%)', label: '[坏](dsh-session:%%%)' },
-    { kind: 'text', text: ' 这个' },
+    { kind: 'file', path: '@[坏](dsh-session', label: '[坏](dsh-session' },
+    { kind: 'text', text: ':%%%) 这个' },
   ])
 })
 
@@ -165,4 +166,95 @@ test('splitUserBubble：含全角括号的路径不截断（（草案）.docx �
   assert.equal(file?.path, '@/Users/a/济南市既有住宅增设电梯项目合同补充协议（草案）.docx')
   // 全角问号仍终止（正文不吞）
   assert.ok(segs.some((s) => s.kind === 'text' && s.text.includes('？') && s.text.includes('你能看吗')))
+})
+
+test('验收：@a.txt.后面 / @a.txt,后面 → chip a.txt，标点留在文本', () => {
+  // `.`/`,` 后跟非续接字符（`后`）→ 条件终止，标点不进 token
+  assert.deepEqual(splitUserBubble('@a.txt.后面'), [
+    { kind: 'file', path: '@a.txt', label: 'a.txt' },
+    { kind: 'text', text: '.后面' },
+  ])
+  assert.deepEqual(splitUserBubble('@a.txt,后面'), [
+    { kind: 'file', path: '@a.txt', label: 'a.txt' },
+    { kind: 'text', text: ',后面' },
+  ])
+})
+
+test('验收：@a.txt😀 后面 → chip a.txt，emoji 留在文本', () => {
+  assert.deepEqual(splitUserBubble('@a.txt😀 后面'), [
+    { kind: 'file', path: '@a.txt', label: 'a.txt' },
+    { kind: 'text', text: '😀 后面' },
+  ])
+})
+
+test('验收：（@img1 和 @img2）→ 两个 chip，括号留在文本', () => {
+  // 中文开括号是触发边界；）无配对开括号 → 平衡规则终止
+  assert.deepEqual(splitUserBubble('（@img1 和 @img2）'), [
+    { kind: 'text', text: '（' },
+    { kind: 'file', path: '@img1', label: 'img1' },
+    { kind: 'text', text: ' 和 ' },
+    { kind: 'file', path: '@img2', label: 'img2' },
+    { kind: 'text', text: '）' },
+  ])
+})
+
+test('验收：a@img b / 看@img / a@b.com → 不渲染 chip（词中/汉字紧邻/邮箱）', () => {
+  assert.deepEqual(splitUserBubble('a@img b'), [{ kind: 'text', text: 'a@img b' }])
+  assert.deepEqual(splitUserBubble('看@img'), [{ kind: 'text', text: '看@img' }])
+  assert.deepEqual(splitUserBubble('a@b.com'), [{ kind: 'text', text: 'a@b.com' }])
+})
+
+test('验收：@a（说明）.docx / @src/index.ts / @a(1).jpg → 完整 chip', () => {
+  // （ 不是终止符；）遇到已有配对开括号不终止；. 后跟续接字符不终止
+  assert.deepEqual(splitUserBubble('@a（说明）.docx'), [
+    { kind: 'file', path: '@a（说明）.docx', label: 'a（说明）.docx' },
+  ])
+  assert.deepEqual(splitUserBubble('@src/index.ts'), [
+    { kind: 'file', path: '@src/index.ts', label: 'index.ts' },
+  ])
+  assert.deepEqual(splitUserBubble('@a(1).jpg'), [
+    { kind: 'file', path: '@a(1).jpg', label: 'a(1).jpg' },
+  ])
+})
+
+test('验收：@img2）闭括号不吞 token（与 @a（说明）平衡规则一致）', () => {
+  assert.deepEqual(splitUserBubble('看 @img2）这个'), [
+    { kind: 'text', text: '看 ' },
+    { kind: 'file', path: '@img2', label: 'img2' },
+    { kind: 'text', text: '）这个' },
+  ])
+})
+
+test('验收：ASCII !?;: 终止 token（@img1: 说明 / @a; 看）', () => {
+  assert.deepEqual(splitUserBubble('对比 @img1: 说明'), [
+    { kind: 'text', text: '对比 ' },
+    { kind: 'file', path: '@img1', label: 'img1' },
+    { kind: 'text', text: ': 说明' },
+  ])
+  assert.deepEqual(splitUserBubble('看 @a; 后面'), [
+    { kind: 'text', text: '看 ' },
+    { kind: 'file', path: '@a', label: 'a' },
+    { kind: 'text', text: '; 后面' },
+  ])
+})
+
+test('验收：@a.b.c 与 @a.txt. 后跟续接字符保持完整（条件终止不误伤）', () => {
+  assert.deepEqual(splitUserBubble('@a.b.c 和 @x-2_a/1.json 和 @b~c 和 @d/e'), [
+    { kind: 'file', path: '@a.b.c', label: 'a.b.c' },
+    { kind: 'text', text: ' 和 ' },
+    { kind: 'file', path: '@x-2_a/1.json', label: '1.json' },
+    { kind: 'text', text: ' 和 ' },
+    { kind: 'file', path: '@b~c', label: 'b~c' },
+    { kind: 'text', text: ' 和 ' },
+    { kind: 'file', path: '@d/e', label: 'e' },
+  ])
+  // 结尾的 . 后无续接字符 → 终止，. 留在文本（无正文可吞）
+  assert.deepEqual(splitUserBubble('@a.txt.'), [
+    { kind: 'file', path: '@a.txt', label: 'a.txt' },
+    { kind: 'text', text: '.' },
+  ])
+})
+
+test('验收：ASCII ( 不触发（func(@arg) 的 @arg 保持文本）', () => {
+  assert.deepEqual(splitUserBubble('func(@arg)'), [{ kind: 'text', text: 'func(@arg)' }])
 })

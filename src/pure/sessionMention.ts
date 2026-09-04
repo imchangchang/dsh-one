@@ -8,6 +8,8 @@
  * 浏览器安全：不用 Buffer（webview 由 esbuild 打包进浏览器环境）。
  */
 
+import { boundTokenRanges } from './tokenScan.ts'
+
 export const SESSION_REFERENCE_SCHEME = 'dsh-session:'
 
 function b64urlEncode(text: string): string {
@@ -146,15 +148,18 @@ export function splitReadableMentions(
 
 /**
  * 发送前把输入框里的显示 token（`@标题`）展开为 canonical mention。
- * bindings 由 @ 补全在插入时记录（token → mention）；按 token 长度从长到短
- * 替换，避免 `@A` 抢在 `@A B` 前面命中。token 不含 `[`，不会误伤已展开的
- * mention 文本。手动删改过 token（不再完整出现）就自然留在原文里。
+ * bindings 由 @ 补全在插入时记录（token → mention）。token 区间用输入侧的
+ * 边界扫描（tokenScan.boundTokenRanges：触发点边界校验 + key 最长匹配），
+ * 词中的 @（`a@img`）不展开；`@A B` 这类长 token 不会 `@A` 抢命中。手动
+ * 删改过 token（不再完整出现）就自然留在原文里。
  */
 export function expandMentionBindings(text: string, bindings: ReadonlyMap<string, string>): string {
+  const ranges = boundTokenRanges(text, bindings)
   let out = text
-  for (const token of [...bindings.keys()].sort((a, b) => b.length - a.length)) {
-    const mention = bindings.get(token)
-    if (mention && out.includes(token)) out = out.split(token).join(mention)
+  for (let i = ranges.length - 1; i >= 0; i -= 1) {
+    const range = ranges[i]
+    const mention = bindings.get(text.slice(range.start, range.end))
+    if (mention) out = out.slice(0, range.start) + mention + out.slice(range.end)
   }
   return out
 }

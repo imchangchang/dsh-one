@@ -149,6 +149,51 @@
       expect: '@ 补全弹窗顶部出现「Attachments」组标题（分割线），其下是 img1.png 附件候选（@img1.png 短名 + 右侧路径）；选中后输入框内容为「@img1.png」——显示为高亮 token（浅蓝底、圆角，由文本高亮层绘制——textarea 文字色透明、色调一致不重影），无长路径；composer 的截图缩略图 chip 底部名称横幅清晰显示「img1.png」（小字号、不截断）；点选后弹窗关闭——chip 无常驻高亮（高亮只在鼠标悬停 @token 时出现，场景无法模拟 hover，真实交互在 dev-ui-test 验收）。',
     },
 
+    'ref-token-word-boundary': {
+      // 词中 @ 不高亮：先经补全绑定 @img1.png，再把输入改成同时含词中
+      // （a@img1.png b）与边界（@img1.png c）两处命中——高亮层只认扫描
+      // 起点（边界校验）处按 key 最长匹配的结果，词中命中不画。
+      png: PNG_RED,
+      state: base({ messages: [] }),
+      interact: `(() => {
+        const s = window.SCENARIOS['ref-token-word-boundary']
+        window.postMessage({ type: 'filesPicked', files: [
+          { name: 'img1.png', path: '/var/folders/x/T/dsh-one-attachments/sess-1/img1.png', image: true, mediaType: 'image/png', previewData: s.png },
+        ] }, '*')
+        setTimeout(() => {
+          const input = document.getElementById('input')
+          input.focus()
+          input.value = '@img'
+          input.setSelectionRange(4, 4)
+          input.dispatchEvent(new Event('input'))
+          setTimeout(() => {
+            const rows = document.querySelectorAll('.slash-popup .menu-item')
+            for (const row of rows) {
+              if (row.textContent?.startsWith('@img1')) {
+                // 与 file-ref-token 一致：mousedown 完成补全（防 textarea 失焦）。
+                row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+                break
+              }
+            }
+            setTimeout(() => {
+              const input2 = document.getElementById('input')
+              input2.value = 'a@img1.png b @img1.png c'
+              input2.setSelectionRange(input2.value.length, input2.value.length)
+              input2.dispatchEvent(new Event('input'))
+              const spans = Array.from(document.querySelectorAll('.ref-token'))
+              window.__refTokenCheck = {
+                count: spans.length,
+                texts: spans.map((s2) => s2.textContent),
+                layerText: document.querySelector('.ref-token-layer')?.textContent ?? null,
+              }
+            }, 180)
+          }, 160)
+        }, 120)
+      })()`,
+      title: '@ 输入框高亮：词中命中不高亮，边界命中照常高亮（boundTokenRanges）',
+      expect: 'composer 输入「a@img1.png b @img1.png c」：文本高亮层只绘制一处 .ref-token（浅蓝底 @img1.png，落在第二处——边界命中）；第一处词中 a@img1.png 保持普通文本、无高亮背景（DOM 断言 window.__refTokenCheck = {count: 1, texts: ["@img1.png"]}）；两处文本都清晰可见、无长路径、无补全弹窗。',
+    },
+
     'file-ref-mixed': {
       // 附件候选混合验证：图片（临时目录 imgN）+ 粘贴文件（临时目录原名）+
       // 选择/右键文件（其他目录原路径），三种都在 @ 弹窗「附件」组候选里。

@@ -85,6 +85,11 @@ test('expandMentionBindings 不动未登记的 @ 文本和已展开的 mention',
   assert.equal(expandMentionBindings('没有登记 @路人', bindings), '没有登记 @路人')
 })
 
+test('expandMentionBindings：词中的 @ 不展开（a@img b），边界处的照常展开', () => {
+  const bindings = new Map([['@img', formatSessionMention('img', 'id-1')]])
+  assert.equal(expandMentionBindings('a@img b 和 看@img 和 @img', bindings), `a@img b 和 看@img 和 ${formatSessionMention('img', 'id-1')}`)
+})
+
 test('mentionDisplayToken 标题重复时追加序号直到唯一', () => {
   const bindings = new Map<string, string>()
   const t1 = mentionDisplayToken('周报', 'id-1', bindings)
