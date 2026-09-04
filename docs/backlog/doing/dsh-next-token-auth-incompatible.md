@@ -46,3 +46,5 @@ dsh 0.1.2-rc.1 起 web 服务时打印的 URL 带 `?token=***`，且 `/api/host.
 
 - 2026-09-03 沙盒 spike（docker code-server + dsh@next）中发现并核实，记录进 open/。
 - 2026-09-04 主 session 核实 0.1.2-rc.1 源码（dsh-client-connection / dsh-api-gateway 子包）→ 认证模型定案（launch token 换签名 cookie；token 不可直接调 API；loopback 不免认证）→ 用户拍板按官方标准路径实施（解析 stdout → 换 cookie → 全链路带 cookie）→ 条目更新（仍 open/，未开发；实施时验证 reload/stdout 丢失场景）。
+
+- 2026-09-06 认领（open → doing，worktree: agent/dsh-token-auth）：按方案实施 token 换 cookie 认证链路。
