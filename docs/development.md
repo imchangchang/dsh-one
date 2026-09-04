@@ -41,7 +41,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 `src/pure/` 里的 bug 修法：先在 `test/` 用 `node --test` 复现成一条**失败**测试，修码期间**不许碰测试文件**，修完让测试转绿。这样 bug 固化进回归，治标也治本。
 
 - 这条**只对 `src/pure/`（可被 `node --test` 覆盖的那层）成立**。
-- **UI bug 不适用**：渲染/布局/交互单测测不到，走 `ai-visual-validation`（浏览器渲染 + 截图对照期望）+ 人工 `dev-ui-test` 窗口，见 `worktree-dev-flow` skill 的人工门禁环节。
+- **UI bug 不适用**：渲染/布局/交互单测测不到，开发自测走 `ai-visual-validation`（浏览器渲染 + 截图对照期望）或 `test/sandbox/` 沙盒场景驱动（见 `test/sandbox/README.md`）；合入验收 = dev-finish 产出的测试报告（人审，见 `worktree-dev-flow` skill 流程 5），对功能有疑问才人工开窗 `dev-ui-test`。
 
 ## 手动模拟异常场景
 
