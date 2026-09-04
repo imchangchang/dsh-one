@@ -25,3 +25,5 @@ worktree 开发完成到主线合入之间，人工 gate 是 `dev-ui-test.sh`（
 ## 变更记录
 
 - 2026-09-04 方案确认后记录进 open/。状态变更（skill/AGENTS 改写）待单独认领。
+
+- 2026-09-04 认领（open → doing）：按条目方案实施——SKILL.md/AGENTS.md 改写合入门禁为测试报告审查，test/sandbox 工具缺口补齐。
