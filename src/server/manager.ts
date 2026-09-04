@@ -9,6 +9,7 @@ import { makeDescribeRequest, validateDescribeResponse } from '../pure/envelope.
 import { parseReadyLine } from '../pure/readyLine.ts'
 import { gte } from '../pure/semver.ts'
 import { locateDsh, DshNotFoundError } from './locateDsh.ts'
+import { exchangeToken, probeToken, clearAuth, cookieHeader, probeAuthRequired } from './serverAuth.ts'
 import type { Logger } from '../log.ts'
 
 /** dsh learned --no-open in 0.1.0-rc.7; older builds exit on the unknown flag. */
@@ -87,6 +88,18 @@ function pidAlive(pid: number): boolean {
 interface OwnedRecord {
   pid: number
   port: number
+  /**
+   * dsh >= 0.1.2 的每次启动 token（stdout URL 里的 ?token=）。进程级随机、
+   * 服务端不落盘，扩展 reload 后只能靠自己持久化的这份找回。0.1.1 无。
+   */
+  token?: string
+}
+
+/** Readiness result: the clean origin plus the launch token when it exists. */
+export interface ReadyResult {
+  url: string
+  port: number
+  token?: string
 }
 
 /**
@@ -161,6 +174,7 @@ export class ServerManager implements vscode.Disposable {
     try {
       await this.killOwned(KILL_GRACE_MS)
     } finally {
+      if (this.status.url) clearAuth(this.status.url)
       this.ownedPid = null
       this.setStatus({ state: 'stopped' })
       this.stopping = false
@@ -184,13 +198,27 @@ export class ServerManager implements vscode.Disposable {
       if (alive) {
         // port=0（系统分配）时 pidfile 里没有实际端口，从日志文件的就绪行拿。
         const ownedPort = owned.port > 0 ? owned.port : await this.readyPortFromLog()
-        if (ownedPort !== null && (await probePort(ownedPort, this.logger)) === 'dsh') {
-          const ownedUrl = `http://127.0.0.1:${ownedPort}`
-          this.logger.info(`re-owning dsh at ${ownedUrl} (pid=${owned.pid}, spawned by a previous window)`)
-          this.ownedPid = owned.pid
-          this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false })
-          this.startHealthCheck(ownedPort)
-          return this.status
+        if (ownedPort !== null) {
+          // 0.1.2 记录的 token：只有当前进程自己 mint 的 token 才能换到 cookie，
+          // 303 即身份确认，顺带完成认证（stdout 已随旧宿主丢失）。
+          if (owned.token) {
+            const auth = await probeToken(`http://127.0.0.1:${ownedPort}`, owned.token, this.logger)
+            if (auth !== null) {
+              const ownedUrl = `http://127.0.0.1:${ownedPort}`
+              this.logger.info(`re-owning authenticated dsh at ${ownedUrl} (pid=${owned.pid}, spawned by a previous window)`)
+              this.ownedPid = owned.pid
+              this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false })
+              this.startHealthCheck(ownedPort)
+              return this.status
+            }
+          } else if ((await probePort(ownedPort, this.logger)) === 'dsh') {
+            const ownedUrl = `http://127.0.0.1:${ownedPort}`
+            this.logger.info(`re-owning dsh at ${ownedUrl} (pid=${owned.pid}, spawned by a previous window)`)
+            this.ownedPid = owned.pid
+            this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false })
+            this.startHealthCheck(ownedPort)
+            return this.status
+          }
         }
       }
     } else {
@@ -218,6 +246,12 @@ export class ServerManager implements vscode.Disposable {
         return this.status
       }
       if (probe === 'foreign') {
+        // 0.1.2 起认证 dsh 对无凭证的 host.describe 回 401/404：没 token 就无法
+        // 认领（token 只随 spawn 的 stdout 出现、服务端不落盘），按不可占用
+        // 处理并换端口——日志里说明原因，避免「foreign service」误导。
+        if (await probeAuthRequired(`http://127.0.0.1:${port}`, this.logger)) {
+          this.logger.warn(`port ${port} runs an authenticated dsh without a launch token; treating it as occupied`)
+        }
         const free = await this.findFreePort(port)
         if (free === null) {
           throw new Error(vscode.l10n.t('Port {0} is occupied by another program, and ports {1}–{2} are all unavailable', port, port + 1, port + PORT_FALLBACK_ATTEMPTS))
@@ -271,12 +305,18 @@ export class ServerManager implements vscode.Disposable {
     await this.writeOwned({ pid: dshPid, port: spawnPort })
 
     const ready = await this.waitReady(dshPid, spawnPort)
-    const actualPort = Number(new URL(ready).port)
-    // port=0 时启动后才知道实际端口，回填 pidfile 供下次 re-own。
-    if (actualPort !== spawnPort) await this.writeOwned({ pid: dshPid, port: actualPort })
-    this.setStatus({ state: 'running', url: ready, adopted: false, port: actualPort })
+    const actualPort = ready.port
+    if (ready.token !== undefined) {
+      // 0.1.2：token 已随就绪行拿到并完成换票（auth 注册在 exchangeToken 内）。
+      // 持久化 token 供下次 re-own（stdout 届时已丢）。
+      await this.writeOwned({ pid: dshPid, port: actualPort, token: ready.token })
+    } else if (actualPort !== spawnPort) {
+      // port=0 时启动后才知道实际端口，回填 pidfile 供下次 re-own。
+      await this.writeOwned({ pid: dshPid, port: actualPort })
+    }
+    this.setStatus({ state: 'running', url: ready.url, adopted: false, port: actualPort })
     this.startHealthCheck(actualPort)
-    this.logger.info(`dsh is ready at ${ready}`)
+    this.logger.info(`dsh is ready at ${ready.url}`)
     return this.status
   }
 
@@ -298,11 +338,20 @@ export class ServerManager implements vscode.Disposable {
    */
   private startHealthCheck(port: number): void {
     this.stopHealthCheck()
+    const origin = `http://127.0.0.1:${port}`
     this.healthTimer = setInterval(() => {
-      void probeDsh(port, this.logger).then(async (url) => {
+      const cookie = cookieHeader(origin)
+      const probe = cookie !== undefined
+        ? fetch(origin, {
+            headers: { cookie },
+            signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+          }).then((res) => (res.ok ? origin : null)).catch(() => null)
+        : probeDsh(port, this.logger)
+      void probe.then(async (url) => {
         if (url || this.status.state !== 'running') return
         this.logger.warn(`health probe failed on :${port}; marking the server stopped`)
         this.stopHealthCheck()
+        clearAuth(origin)
         await this.killOwned(KILL_GRACE_MS)
         this.ownedPid = null
         this.setStatus({ state: 'stopped' })
@@ -369,14 +418,14 @@ export class ServerManager implements vscode.Disposable {
   }
 
   /**
-   * Readiness by polling: dsh 端口被占时直接启动失败（不会自己换端口），
-   * 所以固定端口轮询 probeDsh 即可，不依赖 stdout 就绪行。port=0（系统分配）
-   * 是例外——实际端口只能从日志文件里的 `dsh web: …` 就绪行拿到再确认。
+   * Readiness by polling the dsh log file for the `dsh web: …` line.
+   * 0.1.1：就绪行带端口，随后 probeDsh（host.describe）确认；0.1.2：就绪行
+   * 带 launch token，GET /?token= 的 303 既是「服务已就绪」也是换票本身。
    * 进程提前退出（pid 消失）/ 90s 超时都会带上日志文件尾部作为错误详情。
    * 双层 spawn 后扩展不再持有 dsh 的进程句柄，早退只能靠 pid 存活判断。
    */
-  private waitReady(pid: number, port: number): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
+  private waitReady(pid: number, port: number): Promise<ReadyResult> {
+    return new Promise<ReadyResult>((resolve, reject) => {
       let settled = false
 
       const cleanup = (): void => {
@@ -389,11 +438,11 @@ export class ServerManager implements vscode.Disposable {
         cleanup()
         reject(err)
       }
-      const done = (url: string): void => {
+      const done = (ready: ReadyResult): void => {
         if (settled) return
         settled = true
         cleanup()
-        resolve(url)
+        resolve(ready)
       }
 
       const timer = setTimeout(() => {
@@ -414,15 +463,22 @@ export class ServerManager implements vscode.Disposable {
             fail(new Error(vscode.l10n.t('dsh exited early\n{0}', tail)))
             return
           }
-          let candidate = port
-          if (candidate === 0) {
-            const text = await fsp.readFile(this.logFile(), 'utf8').catch(() => '')
-            const ready = parseReadyLine(text)
-            if (!ready) return
-            candidate = ready.port
+          const text = await fsp.readFile(this.logFile(), 'utf8').catch(() => '')
+          const info = parseReadyLine(text)
+          if (!info) return
+          const origin = new URL(info.url).origin
+          if (info.token !== undefined) {
+            // 换票失败（打印行与服务就绪之间的瞬时竞态）下一轮重试。
+            try {
+              await exchangeToken(origin, info.token, this.logger)
+              done({ url: origin, port: info.port, token: info.token })
+            } catch {
+              /* retry next poll */
+            }
+            return
           }
-          const url = await probeDsh(candidate, this.logger)
-          if (url) done(url)
+          const url = await probeDsh(info.port, this.logger)
+          if (url) done({ url, port: info.port })
         })().finally(() => {
           probing = false
         })
@@ -490,7 +546,11 @@ export class ServerManager implements vscode.Disposable {
     try {
       const parsed = JSON.parse(await fsp.readFile(this.ownedFile(), 'utf8')) as Partial<OwnedRecord>
       if (typeof parsed.pid !== 'number' || typeof parsed.port !== 'number') return null
-      return { pid: parsed.pid, port: parsed.port }
+      return {
+        pid: parsed.pid,
+        port: parsed.port,
+        ...(typeof parsed.token === 'string' ? { token: parsed.token } : {}),
+      }
     } catch {
       return null
     }
