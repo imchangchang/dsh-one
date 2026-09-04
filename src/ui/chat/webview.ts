@@ -3489,28 +3489,29 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
  */
 function renderSteeringItem(item: QueuedItem): HTMLElement {
   const row = el('div', 'msg user steering-pending')
-  const spin = el('span', 'spinner')
-  spin.style.animationDelay = `${-(performance.now() % 900)}ms`
-  row.appendChild(spin)
-  // row 是横向 flex（[spinner][内容]），内容包一层纵向容器复用 .msg.user 的
-  // 堆叠布局：附件区在上、气泡居中、引用摘要行在下（与正式用户消息一致）。
-  const body = el('div', 'msg user')
-  // 附件与正式用户消息同款：图片缩略图（字节懒取）+ 文件名称 chip；
-  // @ 文件引用同样提升到附件区（fileRefs）。
   const { text: readable, references } = parseSessionMentions(splitAttachmentLines(item.editText).text)
   const parts = readable.length > 0 ? renderUserBubbleParts(readable, references) : null
+  // 附件与正式用户消息同款：图片缩略图（字节懒取）+ 文件名称 chip；
+  // @ 文件引用同样提升到附件区（fileRefs）。
   const attachments = renderUserAttachments(item.images, mergedAttachments(parts?.files ?? [], item.files))
-  if (attachments) body.appendChild(attachments)
+  if (attachments) row.appendChild(attachments)
+  // 气泡行：spinner + 气泡一条横向 flex（.steering-line 撑满行宽）。气泡
+  // max-width:85% 因此按整行解析——与插话落地后的正式用户消息一致，不会
+  // 被 shrink-to-fit 的包含块压窄提前换行；spinner 只对气泡垂直居中。
+  const line = el('div', 'steering-line')
+  const spin = el('span', 'spinner')
+  spin.style.animationDelay = `${-(performance.now() % 900)}ms`
+  line.appendChild(spin)
   // 文本与正式用户消息同款：剥离 <attachment> 文件行，canonical mention
   // （@[标题](dsh-session:…)）展开成可读 @label + references——与 host 解析
   // 后落盘的形态一致，气泡据此拼可点击的会话 chip 与引用摘要行。
   if (parts) {
-    body.appendChild(parts.bubble)
-    if (parts.summary) body.appendChild(parts.summary)
+    line.appendChild(parts.bubble)
   } else if (!attachments) {
-    body.appendChild(el('div', 'bubble', t('(empty message)')))
+    line.appendChild(el('div', 'bubble', t('(empty message)')))
   }
-  row.appendChild(body)
+  row.appendChild(line)
+  if (parts?.summary) row.appendChild(parts.summary)
   return row
 }
 
