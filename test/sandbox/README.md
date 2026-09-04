@@ -115,3 +115,14 @@ test/sandbox/run-sandbox.sh --help   # 全部参数
 
 - **code-server 是浏览器工作台，没有原生窗口外壳**：插件 UI 以 webview 形式嵌在浏览器页面里，交互/截图都通过浏览器进行，与本机 VS Code 存在渲染差异（字体、主题刷新时机等）。这是设计内取舍——沙盒只保证环境一致与可重现，不追求像素级等同本机 VS Code。
 - 容器内跑真 dsh 需要模型凭证与联网；审批、流式、错误态等真 dsh 喂不出来的边界态，靠 mock dsh 场景喂（另见相关会话），不依赖本沙盒。**但用 `--mock-llm` 模式可以在不联网、无凭证的前提下把真 dsh 的整套逻辑跑起来**——LLM 走容器内假端点，边界态由该端点的 scenario 编排（见上文「Mock-LLM 模式」）。
+
+## 远程驱动配方（WebBridge 实测记录，2026-09-04）
+
+用 Kimi WebBridge 驱动这个页面做自动化截图/交互时的几个实测结论（避免重复踩坑）：
+
+- **webview iframe 是同源嵌套**：顶层有 2 个 `webview ready` 外框（聊天 840 宽 / 侧边栏 300 宽），内容在**内层 `active-frame`** iframe 里。evaluate 递归 `contentDocument` 可达（`try/catch` 跨源保护），往里钻到 `textarea#input`、`.send-button` 即可发消息。
+- **iframe 会被 webview host 反复重建**：查询和点击要在同一帧时序里完成，优雅写法 = 递归函数里找到即点；找不到就重试 2-3 次（重建间隙会瞬间查空）。
+- **发消息**：`textarea#input` 填值（用 `Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set` + `input` 事件，别直接 `el.value=`），再点 `.send-button`（合成 Enter keydown 无效，点按钮可靠）。
+- **命令面板路径**：`Cmd+Shift+P` → insertText → Enter 走的是 workbench 顶层 DOM，最可靠；但 WebBridge 的 `cdp` 通道需要浏览器扩展开启开发者模式（`cdpFullAccess`），没开时回退到 evaluate 合成事件。
+- **真 dsh 的 queue 语义**：网关直接 `session.prompt` 无会话 attach 时只是排队、turn 不启动（真行为，不是坑）；要从扩展 UI 的 New Chat 入口发（attach 后 prompt 即跑）。
+- **新建会话**：点侧边栏 + 后即使 tab 没立刻出现，会话与 attach 已生效——标题生成由 dsh 异步跑（mock 模式下标题也是 mock 编排的，易验证：标题会变成「收到：…」）。
