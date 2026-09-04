@@ -34,3 +34,4 @@ open /Users/cgeng/.docker/buildx/activity/.tmp-orbstack381403458: operation not 
 - 2026-09-04 建条目：复现 buildx 写 ~/.docker 被拦，提出 BUILDX_CONFIG 重定向方案，已实测有效。
 
 - 2026-09-04 开发完成：run-sandbox.sh build 内置 BUILDX_CONFIG=/tmp/dsh-sandbox-buildx，实测无提权构建成功；dev-finish 通过（typecheck/test 386/build）。无 UI 行为变化，沙盒报告不适用。
+- 2026-09-04 主线合入（8e4a2db）后人工确认（用户告知，记为 Sprint 1G）→ closed
