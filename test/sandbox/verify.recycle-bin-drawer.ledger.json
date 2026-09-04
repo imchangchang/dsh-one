@@ -1,7 +1,7 @@
 {
   "title": "回收站抽屉式半栏覆盖 + 清空图标放大（recycle-bin-drawer 任务）",
   "branch": "agent/recycle-bin-drawer",
-  "commit": "5ab815d",
+  "commit": "ee2e461",
   "environment": {
     "mode": "mock-llm",
     "dsh": "0.1.1-rc.2",
@@ -26,8 +26,8 @@
     {
       "id": "F-02",
       "phase": "new-feature",
-      "name": "收起：点击抽屉外 / ‹ Back / Esc",
-      "expect": "三种方式都能收起：点击主列表任意处（无遮罩直接叠）、点击抽屉头「‹ Back」、按 Esc。收起后抽屉节点移除，主列表不变。",
+      "name": "收起：点击抽屉外 / ▼ Back / Esc",
+      "expect": "三种方式都能收起：点击主列表任意处（无遮罩直接叠）、点击抽屉头「▼ Back」（单个下拉箭头，无重复「‹」）、按 Esc。收起后抽屉节点移除，主列表不变。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-recycle-bin-drawer/05-04-after-outside-click.png"
@@ -63,13 +63,24 @@
     {
       "id": "F-05",
       "phase": "new-feature",
-      "name": "清空回收站图标按钮放大（≥32px 点击区 + 悬停提示）",
-      "expect": "抽屉头垃圾桶图标按钮点击区 ≥32×32px、图标 18px，与「Restore all」文本按钮相称；悬停提示与 aria-label 均为「Empty recycle bin」；计数 0 时置灰。",
+      "name": "清空回收站图标按钮放大（34px 点击区 + 22px 图标 + 悬停提示）",
+      "expect": "抽屉头垃圾桶图标按钮点击区 34×34px、图标 22px，与「Restore all」文本按钮相称；悬停提示与 aria-label 均为「Empty recycle bin」；计数 0 时置灰。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-recycle-bin-drawer/04-03-drawer-open-half.png"
       ],
-      "notes": "E2E 断言：按钮 w=32 h=32（原为 24px）、aria=Empty recycle bin、data-tip=Empty recycle bin、svg width=18。"
+      "notes": "E2E 断言：按钮 w=34 h=34（先 24px 后 18px 图标均被实测反馈偏小，再放大）、svg width=22、aria=data-tip=Empty recycle bin。"
+    },
+    {
+      "id": "F-05b",
+      "phase": "new-feature",
+      "name": "抽屉头修正：▼ Back 单箭头 + 计数徽标在标题组内",
+      "expect": "抽屉头收起按钮为单个下拉箭头 +「Back」（不再出现「‹‹ 返回」双重箭头）；计数徽标紧跟标题「Recycle bin」文本（同一内联组），不被标题 flex 挤到行尾与垃圾桶挨着。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-bin-drawer/04-03-drawer-open-half.png"
+      ],
+      "notes": "E2E 断言：backText=Back、backSvg=1（无重复图标/字符）、countInsideTitle=true。"
     },
     {
       "id": "F-06",
