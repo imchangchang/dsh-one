@@ -74,13 +74,13 @@ function tooltip(status: ServerStatus): vscode.MarkdownString {
       }
       md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service Error')}\n\n`)
       md.appendMarkdown(
-        `[$(refresh) ${vscode.l10n.t('Retry Starting')}](command:dshOne.openExternal)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
+        `[$(refresh) ${vscode.l10n.t('Retry Starting')}](command:dshOne.start)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
       )
       return md
     default:
       md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service Stopped')}\n\n`)
       md.appendMarkdown(
-        `[$(play) ${vscode.l10n.t('Start Service')}](command:dshOne.openExternal)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
+        `[$(play) ${vscode.l10n.t('Start Service')}](command:dshOne.start)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
       )
       return md
   }
