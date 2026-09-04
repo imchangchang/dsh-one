@@ -34,3 +34,4 @@
 - 2026-09-04 开发完成（dev session，worktree agent/message-context-menu，commit bc6399b）：消息级右键菜单两项（复制文字 / 复制文字和附件）落地；user=images+files（含行内 @文件引用）、assistant=producedFiles 算附件；图片真实字节进剪贴板（多图受 Chromium 单 ClipboardItem 限制只能写首张，全部路径以文本兜底）、文件用 [文件名](路径) markdown 引用；纯 webview 本地动作，无新 webview↔host 消息。自测全绿（typecheck/build/test 425）+ 测试报告已产出（test/sandbox/verify.message-context-menu.report.html，F-01~F-04 + R-01~R-03 全 pass）。待主线合入。
 
 - 2026-09-04 范围简化（用户拍板，dev session）：右键菜单砍到只留一项「复制」，复制纯文本（user 取 text / assistant 取 assistantText）；附件（图片/文件）不参与复制，「复制文字和附件」选项及图片二进制机制整体移除。原因：@label 等文本经剪贴板贴回输入框会被按形态推断成文件引用，用户决定最简做法。commit 363c112，自测全绿。
+- 2026-09-04 主线合入后人工确认（用户实测通过，简化版单选项复制）→ closed
