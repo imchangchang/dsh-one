@@ -7,7 +7,7 @@
 dsh web UI 的两个入口在 Remote-SSH 下：（iframe 入口必坏；系统浏览器入口原推演必坏，2026-09-04 核实 `openExternal` 自动转发后判断大概率可用，见「已核实」节，待真实环境验证）
 
 1. **系统浏览器**（原推演必坏，已修正）：状态栏 tooltip「Open in Browser / Retry Starting / Start Service」与整块点击 → `dshOne.openExternal`（src/extension.ts:120-123）→ `vscode.env.openExternal(http://127.0.0.1:<port>)`——openExternal 对传入 URI 自动做 localhost 端口转发，Remote 下大概率能打开；需真实环境验证一次。
-2. **编辑器内 tab**：`dshOne.openInTab`（src/ui/webview.ts:97 `dshFrame`）在 webview 里嵌 `<iframe src="http://127.0.0.1:<port>/?dsh_embed=vscode">` —— iframe 由**本地** webview 渲染进程请求，同样连不上，白屏。
+2. **编辑器内 tab**：`dshOne.openInTab`（src/ui/webview.ts `dshFrame`）在 webview 里嵌 `<iframe src="http://127.0.0.1:<port>">`（原 `?dsh_embed=vscode` 参数已于 2026-09-04 清理——官方从未消费）—— iframe 由**本地** webview 渲染进程请求，同样连不上，白屏。
 
 端口是配置项 `dshOne.port`（默认 3080，package.json:200-206），被占用时 fallback 到附近空闲端口（src/server/manager.ts:201-227）。
 
@@ -25,7 +25,7 @@ dsh web UI 的两个入口在 Remote-SSH 下：（iframe 入口必坏；系统�
 
 按 VS Code 官方设计（asExternalUri）实施：
 
-1. **iframe 入口主修**：`bind`/`render` 处对 `status.url`（`http://127.0.0.1:<port>`，manager.ts:188/208）先 `await vscode.env.asExternalUri(...)` 再作 iframe src（保留 `?dsh_embed=vscode`）。本地无差别（no-op），Remote 下自动转发生效、不白屏。不需要 `remoteName` 分叉。
+1. **iframe 入口主修**：`bind`/`render` 处对 `status.url`（`http://127.0.0.1:<port>`，manager.ts:188/208）先 `await vscode.env.asExternalUri(...)` 再作 iframe src（不带任何参数——`?dsh_embed=vscode` 已清理）。本地无差别（no-op），Remote 下自动转发生效、不白屏。不需要 `remoteName` 分叉。
 2. **iframe 降级**：dshFrame 页加「复制 URL」「在浏览器打开」辅助（用 asExternalUri 返回的本地 URL，openExternal 可直接打开）；隧道建立失败/被用户关闭无事件可监听，静态降级按钮兜底。CSP `frame-src` 现有 `127.0.0.1:* localhost:*` 覆盖 SSH 隧道，实施时如返回其它 host 需同步放宽。
 3. **openExternal 入口**：不改代码（自动转发）；实施时如恰好有真实 Remote 环境，验证一次 127.0.0.1 形式的自动转发即可。
 4. **remoteName 辅助**：`vscode.env.remoteName` 仅用于降级/次要点文案判定（「当前在 Remote 环境」类提示），不作主分支。
