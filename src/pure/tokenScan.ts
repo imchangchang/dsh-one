@@ -157,7 +157,9 @@ export function scanAtTokens(text: string): AtTokenRange[] {
  * 互相抢命中的裸子串匹配。
  *
  * key 匹配后若紧跟续接字符（`[A-Za-z0-9/_~-]`），说明输入中的 token 已被
- * 手动改动、比绑定的 key 更长（如 `@img9.png2`），不复用该 key。
+ * 手动改动、比该 key 更长（如文本 `@img9.png2` 对 key `@img9.png`），该 key
+ * 不复用——但仍尝试更短的 key（如 `@A B2` 对 keys `@A B`/`@A`，`@A` 后跟的
+ * 是空白，按渲染侧规则 `@A` 是完整 token，应命中）。
  */
 export function boundTokenRanges(
   text: string,
@@ -173,8 +175,15 @@ export function boundTokenRanges(
       i += 1
       continue
     }
-    const key = keys.find((k) => text.startsWith(k, i))
-    if (key === undefined || isContinuationChar(text.codePointAt(i + key.length))) {
+    let key: string | null = null
+    for (const candidate of keys) {
+      if (!text.startsWith(candidate, i)) continue
+      if (!isContinuationChar(text.codePointAt(i + candidate.length))) {
+        key = candidate
+        break
+      }
+    }
+    if (key === null) {
       i += 1
       continue
     }

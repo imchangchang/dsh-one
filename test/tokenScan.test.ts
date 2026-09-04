@@ -91,8 +91,11 @@ test('boundTokenRanges：扫描起点按 key 最长匹配', () => {
     [9, 11],
     [15, 19],
   ])
-  // @A2：key 后紧跟续接字符（2）→ 视为手动改动过的 token，不命中
+  // @A2：最长 key 后紧跟续接字符（2）→ 视为手动改动过的 token，该 key 不命中
   assert.equal(boundTokenRanges('@A2', bindings).length, 0)
+  // @A B2：`@A B` 后跟续接字符不命中，但回退到更短的 `@A`（其后是空白，按
+  // 渲染侧规则 `@A` 是完整 token）
+  assert.deepEqual(boundTokenRanges('@A B2', bindings).map((r) => [r.start, r.end]), [[0, 2]])
 })
 
 test('boundTokenRanges：词中 @ 不命中（a@img b 自然排除）', () => {
