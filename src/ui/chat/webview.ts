@@ -6155,6 +6155,14 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     render()
     // render() 重建了 composer（新 input 元素），焦点回到输入框（光标默认在末尾）。
     document.getElementById('input')?.focus()
+    // keepComposer 保活时 render() 只 patch 不动输入区：清空后的高亮层、自动
+    // 高度、发送按钮态与 input 事件的收尾同款就地更新，否则高亮层残留清空前的
+    // 文字（透明输入框下表现为「鬼影」草稿）。
+    if (input.isConnected) {
+      autoGrow(input)
+      updateButton()
+      renderRefLayer()
+    }
   })
   row.appendChild(clearAll)
   row.appendChild(button)
