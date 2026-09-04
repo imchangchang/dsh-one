@@ -186,26 +186,29 @@ test('规则匹配优先级：具体规则先于兜底命中（查天气→tool_
   assert.equal(body.choices[0].message.tool_calls, undefined)
 })
 
-test('首轮注入过滤：<system-reminder> 注入的 user 消息不作为匹配对象（对齐 dsh 首轮注入）', async () => {
-  const injected = '<system-reminder>\nA skill is a reusable set...\n</system-reminder>'
-  // 注入在最后：应取前面真正的 prompt「查天气」，命中工具规则（首轮注入场景）。
+test('首轮注入过滤：两类注入（<system-reminder> 标签 / 无标签 runtime context）都不作为匹配对象', async () => {
+  const tagged = '<system-reminder>\nA skill is a reusable set...\n</system-reminder>'
+  const runtime =
+    'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent DSH file policy: workspace-write. ...'
+  // 无标签 runtime context 在最后（dsh 实际顺序不稳定）：应取真正的 prompt「查天气」。
   let res = await postChat(mock, {
     model: 'mock-llm',
     messages: [
       { role: 'user', content: '查天气' },
-      { role: 'user', content: injected },
+      { role: 'user', content: runtime },
     ],
     stream: false,
   })
   let body = await res.json()
-  assert.ok(body.choices[0].message.tool_calls, '注入块在最后时应忽略，命中真实 prompt 的规则')
+  assert.ok(body.choices[0].message.tool_calls, 'runtime context 在最后时应忽略，命中真实 prompt 的规则')
 
-  // 数组块形式 + 注入在前：仍命中最后的真实 prompt。
+  // 标签注入 + 无标签注入混排，prompt 居中：仍命中。
   res = await postChat(mock, {
     model: 'mock-llm',
     messages: [
-      { role: 'user', content: [{ type: 'text', text: injected }] },
-      { role: 'user', content: [{ type: 'text', text: '随便聊聊' }] },
+      { role: 'user', content: [{ type: 'text', text: tagged }] },
+      { role: 'user', content: '随便聊聊' },
+      { role: 'user', content: runtime },
     ],
     stream: false,
   })
@@ -215,7 +218,7 @@ test('首轮注入过滤：<system-reminder> 注入的 user 消息不作为匹�
   // 只有注入：返回空文本 → 兜底 '*' 命中空字符串（dsh 标题生成这类场景）。
   res = await postChat(mock, {
     model: 'mock-llm',
-    messages: [{ role: 'user', content: injected }],
+    messages: [{ role: 'user', content: runtime }],
     stream: false,
   })
   body = await res.json()

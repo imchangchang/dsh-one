@@ -58,10 +58,11 @@ function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
 
 /**
  * 提取「最后一条非注入 user 消息」的文本，供规则匹配。
- * 真实 dsh 会在会话首轮把 skill/运行上下文作为 user 消息注入给模型，wire 上以
- * `<system-reminder>` 包裹（dsh-agent-instructions 的 SYSTEM_REMINDER_OPEN 约定，
- * 扩展侧也是据此折叠成「Context injection」卡片的）——注入块不作为规则匹配对象。
- * 全部是注入/空消息时返回 ''（此时 '*' 兜底会命中空文本，属预期）。
+ * 真实 dsh 会把 skill/运行上下文作为 user 消息注入给模型，wire 判别见
+ * {@link isInjectedContext}（dsh 注入分两类：带 <system-reminder> 标签的
+ * agent-instructions，与不带标签的 runtime context 快照——两者顺序也不固定，
+ * 文本启发式是 dsh 0.1.1-rc.2 的实测 discriminant，新增注入样式会在这里失效，
+ * 表现为回复回显注入内容（fail 看得见，不会静默）。
  */
 function lastUserText(messages: unknown[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -71,11 +72,24 @@ function lastUserText(messages: unknown[]): string {
     if (m.role !== 'user') continue
     const content = m.content
     const text = userTextOf(content)
-    if (text.includes('<system-reminder>')) continue
+    if (isInjectedContext(text)) continue
     if (text.trim().length === 0) continue
     return text
   }
   return ''
+}
+
+/**
+ * dsh 注入上下文的两类已知 wire 形式（dsh 0.1.1-rc.2）：
+ * 1. agent-instructions 的 `SYSTEM_REMINDER_OPEN`（<system-reminder> 包裹）；
+ * 2. dsh-system-prompt 的 runtime context 快照：无标签纯文本，以
+ *    `Current runtime context.` 开头（joinContextSections 拼的）。
+ */
+function isInjectedContext(text: string): boolean {
+  const t = text.trim()
+  if (t.includes('<system-reminder>')) return true
+  if (t.startsWith('Current runtime context.')) return true
+  return false
 }
 
 /** user 消息 content 的纯文本提取：字符串直取，块数组只取 text 块。 */
