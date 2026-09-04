@@ -5613,11 +5613,15 @@ function pendingImageFallback(img: OutgoingImage, index: number): HTMLElement {
 }
 
 /** 待发送文件：与图片缩略图同尺寸方框（文档小图标 + 文件名，hover 右上角 ×）；点击在 VS Code 打开。
- *  图片文件（image 标记）：用 host 提供的 previewData 画缩略图（无数据或加载失败回退图标 chip）。
- *  高亮只走 hover 联动（.hovered，见 applyHover）——点击选中不常驻高亮。 */
+ *  图片文件（image 标记）：优先用 host 提供的 previewData 画缩略图；恢复/还原的
+ *  附件没有 previewData 时走懒加载（requestFileThumb，同历史 chip 机制）——回执
+ *  到达后换缩略图，文件已被系统清理则保持图标 chip。高亮只走 hover 联动。 */
 function pendingFileChip(file: StagedFile, index: number): HTMLElement {
-  if (file.image && file.previewData && file.mediaType) {
-    const dataUrl = attachmentDataUrl(file.mediaType, file.previewData)
+  const lazyUrl = fileThumbCache.get(file.path)
+  if (file.image && (file.previewData || lazyUrl)) {
+    const dataUrl = file.previewData && file.mediaType
+      ? attachmentDataUrl(file.mediaType, file.previewData)
+      : lazyUrl
     const item = el('span', 'attach-thumb')
     item.dataset.attachPath = file.path
     item.title = t('{0} (click to preview)', file.name)
@@ -5638,6 +5642,14 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
     item.appendChild(el('span', 'thumb-name', file.name))
     item.appendChild(remove)
     return item
+  }
+  // 图片但暂时无预览：懒加载请求（失败 5s 后允许重试一次，之后保持图标）。
+  if (file.image && !file.previewData) {
+    const at = fileThumbRequested.get(file.path) ?? 0
+    if (Date.now() - at > FILE_THUMB_RETRY_MS) {
+      fileThumbRequested.set(file.path, Date.now())
+      post({ type: 'requestFileThumb', path: file.path })
+    }
   }
   const chip = el('span', 'file-chip')
   chip.dataset.attachPath = file.path
