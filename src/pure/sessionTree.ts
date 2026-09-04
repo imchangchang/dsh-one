@@ -138,6 +138,17 @@ export interface SessionTreeViewOptions {
    * 节点透传。纯层只用于过滤与透传，不做高亮。
    */
   contentHits?: ReadonlyMap<string, string>
+  /**
+   * 主列表排除这些 id（已在回收站的会话不出现在正常列表；dsh 侧无「已删除/
+   * 已回收」区分，纯粹是本地 UI 过滤）。与只保留过滤互斥，两个都传时
+   * excludedSessionIds 优先（排除后不再被 only 拉回）。
+   */
+  excludedSessionIds?: ReadonlySet<string>
+  /**
+   * 只保留这些 id（回收站视图用：按原 workspace 分组展示回收站会话）。与原
+   * workspace 已软删的会话同现有 orphan 逻辑——自动归「未分组」。
+   */
+  onlySessionIds?: ReadonlySet<string>
 }
 
 const MINUTE_MS = 60_000
@@ -196,6 +207,11 @@ export function buildSessionTree(
   const sort = view.sort ?? 'updatedDesc'
   const pathEqual = view.pathEqual ?? ((a: string, b: string): boolean => a === b)
   const isCurrentFolder = (path: string): boolean => currentFolder !== undefined && pathEqual(path, currentFolder)
+  // 回收站过滤：主列表排除回收站会话；回收站视图只保留回收站会话。排除优先。
+  const excluded = view.excludedSessionIds
+  const only = view.onlySessionIds
+  const inListScope = (s: SessionInput): boolean =>
+    (excluded ? !excluded.has(s.sessionId) : true) && (only ? only.has(s.sessionId) : true)
 
   // 血缘：只有真子代理（origin === 'subagent'）挂在父会话下。子代理行不进
   // 任何组（workspace 不引用它们，也未分组组也不收——见下方 orphans 过滤），
@@ -275,7 +291,7 @@ export function buildSessionTree(
   const nodes = ordered.map((w) => {
     const visible = w.sessionIds
       .map((id) => byId.get(id))
-      .filter((s): s is SessionInput => !!s && !s.blank && !archivedSessionIds.has(s.sessionId))
+      .filter((s): s is SessionInput => !!s && !s.blank && !archivedSessionIds.has(s.sessionId) && inListScope(s))
     return {
       workspaceId: w.workspaceId,
       path: w.path,
@@ -298,7 +314,8 @@ export function buildSessionTree(
       !referenced.has(s.sessionId) &&
       s.origin !== 'subagent' &&
       !s.blank &&
-      !archivedSessionIds.has(s.sessionId),
+      !archivedSessionIds.has(s.sessionId) &&
+      inListScope(s),
   )
   nodes.push({
     workspaceId: UNGROUPED_WORKSPACE_ID,

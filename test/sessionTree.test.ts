@@ -683,3 +683,62 @@ test('subagentTreeSignature: a leaf becoming a parent changes the signature', ()
   const parent = [s('root'), line('root', 'c1'), line('c1', 'gc1')]
   assert.notEqual(subagentTreeSignature(leaf, 'root'), subagentTreeSignature(parent, 'root'))
 })
+
+test('excludedSessionIds removes recycle-bin sessions from every group, ungrouped included', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['keep', 'binned']), ws('w2', ['stray-binned'])],
+    [s('keep'), s('binned'), s('stray-binned')],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { excludedSessionIds: new Set(['binned', 'stray-binned']) },
+  )
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', 'w2', UNGROUPED_WORKSPACE_ID])
+  // 组内被过滤的会话不进任何组；w2 只剩空组头（buildSessionTree 不删空组）。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['keep'])
+  assert.deepEqual(tree[1].sessions, [])
+})
+
+test('onlySessionIds keeps only the given ids, grouped by original workspace; orphan goes ungrouped', () => {
+  // binned1 属于 w1，binned2 无 workspace 引用 →「未分组」；keep 不在回收站集合里。
+  const tree = buildSessionTree(
+    [ws('w1', ['keep', 'binned1'])],
+    [s('keep'), s('binned1'), s('binned2', { updatedAt: NOW - 1000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { onlySessionIds: new Set(['binned1', 'binned2']) },
+  )
+  assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', UNGROUPED_WORKSPACE_ID])
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['binned1'])
+  assert.deepEqual(tree[1].sessions.map((n) => n.sessionId), ['binned2'])
+})
+
+test('onlySessionIds respects archived/blank filters like the main list', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['binned', 'binned-gone', 'binned-blank'])],
+    [s('binned'), s('binned-gone'), s('binned-blank', { blank: true })],
+    new Set(['binned-gone']),
+    noTitles,
+    undefined,
+    NOW,
+    { onlySessionIds: new Set(['binned', 'binned-gone', 'binned-blank']) },
+  )
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['binned'])
+})
+
+test('excludedSessionIds takes priority over onlySessionIds', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b'])],
+    [s('a'), s('b')],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { excludedSessionIds: new Set(['a']), onlySessionIds: new Set(['a', 'b']) },
+  )
+  // a 被排除后不会被 only 拉回；b 只在 only 集合里。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b'])
+})

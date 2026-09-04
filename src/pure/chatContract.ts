@@ -681,6 +681,16 @@ export interface SessionsSnapshot {
   /** 手动标记未读的会话 id（dsh 无未读 API，纯客户端状态）。 */
   unread: string[]
   /**
+   * 已移入回收站的会话 id（dsh 无回收站概念，纯客户端缓冲层状态；归档即终点）。
+   * 主列表渲染排除这些 id（见 excludedSessionIds），回收站视图渲染它们（见
+   * recycleWorkspaces）。
+   */
+  recycleBin: string[]
+  /** 回收站视图的按原 workspace 分组模型（只含回收站会话，不套当前搜索过滤）。 */
+  recycleWorkspaces: WorkspaceNodeModel[]
+  /** 回收站视图折叠的 workspace id（与主列表 collapsed 互不影响，独立持久化）。 */
+  recycleCollapsed: string[]
+  /**
    * 高亮的会话 id（editor ChatViewProvider 的 activeSessionId）：当前活动
    * chat tab 附着的会话（多 tab 时侧栏高亮跟随活动编辑器）。所有 chat tab
    * 都关闭时 null（不高亮任何会话）。侧栏据此画 active 行高亮与所属
@@ -837,9 +847,21 @@ export type FromWebviewMessage =
   | { type: 'sessionArchive'; sessionId: string; title: string }
   /**
    * Sessions 面板：批量归档（多选模式确认后）。确认框在 webview 内展示，
-   * 宿主不再弹确认，直接循环归档；结果经 archiveManyDone 回传。
+   * 宿主不再弹确认，直接循环归档；结果经 archiveManyDone 回传。回收站视图
+   * 的「清空回收站 / 单个归档」也走这条（复用同一 host 链路；回收站归档即
+   * 终点动作）。
    */
   | { type: 'sessionArchiveMany'; sessionIds: string[] }
+  /** Sessions 面板：移入回收站（可逆本地操作；置顶会话被 host 拒绝）。 */
+  | { type: 'sessionMoveToRecycle'; sessionId: string }
+  /** Sessions 面板：批量移入回收站（多选操作条；置顶 id 被 host 跳过并提示）。 */
+  | { type: 'sessionMoveToRecycleMany'; sessionIds: string[] }
+  /** Sessions 面板：从回收站恢复单个会话（回原 workspace 组）。 */
+  | { type: 'sessionRestore'; sessionId: string }
+  /** Sessions 面板：恢复回收站全部会话（视图头部按钮）。 */
+  | { type: 'sessionsRestoreAll' }
+  /** Sessions 面板回收站视图：折叠/展开一个分组（独立于主列表折叠状态）。 */
+  | { type: 'recycleGroupCollapse'; workspaceId: string; collapsed: boolean }
   /** Sessions 面板：选文件夹注册新 workspace。 */
   | { type: 'workspaceAdd' }
   /** Sessions 面板：在 dsh 全局目录（~/.dsh/workspaces/）下新建目录并注册为 workspace。 */

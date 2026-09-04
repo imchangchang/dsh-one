@@ -243,6 +243,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return
       }
       await sessions.refresh()
+      // 归档即终点：从回收站本地集合移除（会话在回收站里的情形）。
+      sessions.clearRecycleBinIds([sessionId])
       // Archiving an opened chat session closes its tab (per-session).
       chatView.closeSession(sessionId)
     }),
@@ -271,6 +273,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       if (succeeded.length > 0) {
         await sessions.refresh()
+        // 归档即终点：成功项从回收站本地集合移除（清空回收站/单个归档的情形）。
+        sessions.clearRecycleBinIds(succeeded)
         for (const sessionId of succeeded) chatView.closeSession(sessionId)
       }
       if (failed.length > 0) {
