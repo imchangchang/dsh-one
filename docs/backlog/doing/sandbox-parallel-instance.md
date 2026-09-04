@@ -37,3 +37,6 @@ README（:247）与 worktree-dev-flow SKILL 也只写了「共享单实例，先
 - `test/sandbox/run-sandbox.sh` — 全部资源名与子命令（build/start/stop/logs/status/sh）
 - `test/sandbox/README.md` — 资源约定（镜像名/容器名/端口）、产物目录约定、任务测试报告小节
 - verify-driver.mjs 无需改（--out 已参数化，截图目录由调用方指定）
+
+- 2026-09-06 记录：i18n session 实测 + 代码核实，资源全固定（镜像 tag/容器名/端口/截图目录）→ open/。
+- 2026-09-06 认领（open → doing，worktree: agent/sandbox-parallel-instance）：run-sandbox.sh 加 --instance 派生资源，README 加并行小节。
