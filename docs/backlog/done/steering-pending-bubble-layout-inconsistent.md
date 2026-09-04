@@ -59,3 +59,4 @@ row (.msg.user.steering-pending)  [column flex; align-items: flex-end]
 
 - 2026-09-03 用户反馈「插话中 UI 与插话完成后的气泡渲染不一致，多行时转圈 UI 容易离气泡较远」→ 探针复现（676px 列宽：待落地 206px/2 行 vs 落地 217px/1 行）→ 核实根因（气泡 max-width:85% 按 shrink-to-fit 的 body 宽度解析；spinner 对整列 body 居中）→ 静态探针验证修复方案（`.steering-line` 撑满行宽后两态一致、spinner 距气泡 6px 居中）→ 记入 open/（未开始修改）。
 - 2026-09-04 认领（open → doing），按条目方案在 worktree `steering-pending-bubble` 开发。
+- 2026-09-04 开发完成（doing → done）在 worktree `steering-pending-bubble`：按方案重构 `renderSteeringItem`（spinner+bubble 包进 `.steering-line`）+ CSS 换 `.msg.user .steering-line` 规则 + scenarios 新增 `steering-pending-narrow`；自测全绿（typecheck / 386 项 test / build）；测试报告 `test/sandbox/verify.steering-pending-bubble.report.html`（F-01 布局 / F-02 676px 单行 pass；R-01 conversation、R-02 真 dsh+mock-llm 回显 pass）。
