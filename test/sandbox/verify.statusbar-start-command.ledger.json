@@ -1,0 +1,55 @@
+{
+  "title": "DSH One 沙盒验收报告（statusbar-start-command：Retry/Start 只启动不开浏览器）",
+  "branch": "agent/statusbar-start-command",
+  "commit": "1bd4c32",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox:latest（本分支 vsix 重建）",
+    "date": "2026-09-04T00:00:00Z"
+  },
+  "coverageNote": "本任务改动在宿主侧（状态栏 tooltip 命令绑定 + contributes.commands 注册），沙盒可观测到：tooltip 链接的 command id（DOM data-href）、命令面板条目、点击后的服务状态流转；「不弹系统浏览器」以点击后无新标签页近似验证。真桌面 VS Code 的 openExternal 行为与 Remote-SSH 场景不在本报告范围（条目里由 remote-ssh-support 条目管）。聊天 webview 渲染不受本次改动影响，回归项只做整体可用性验证。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "状态栏「Start Service / Retry Starting」改绑 dshOne.start 且不弹浏览器",
+      "expect": "停掉服务后悬停状态栏，tooltip 里「Start Service」链接的 command 为 dshOne.start（截图确认链接与文字）；点击该链接后服务重新启动、状态栏回到 DSH: Running :3080，且不产生新浏览器标签页（openExternal 未被触发）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-01-stopped.png",
+        "/tmp/dsh-sandbox-shots/F-01-tooltip.png",
+        "/tmp/dsh-sandbox-shots/F-01-after-start.png"
+      ],
+      "notes": "停服后悬停：tooltip 显示「DSH One — Service Stopped」+ Start Service / Show Logs；DOM 取到链接 data-href=\"command:dshOne.start\"（不再有 command:dshOne.openExternal）。点击 Start Service 后状态栏 DSH: Running :3080，标签页数 1→1（未新开浏览器标签 = openExternal 未触发），无错误对话框。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "命令面板可见「DSH One: Start Service」（contributes.commands 注册生效）",
+      "expect": "Ctrl+Shift+P 打开命令面板后输入「Start Service」，出现「DSH One: Start Service」条目（截图确认）；对应 l10n 标题在 en 下为 Start Service。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-02-palette.png"
+      ],
+      "notes": "命令面板第一条即为「DSH One: Start Service」（置顶高亮），下方为 fuzzy 的 similar commands；说明 package.json contributes.commands + package.nls 标题注册生效。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "mock-LLM 回显链路仍通（新 vsix 下扩展整体可用）",
+      "expect": "新建未分组会话，发「测试一下」，首轮后出现「收到：测试一下」（mock-LLM 兜底回显；驱动会先发暖场消息消耗首轮注入）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-01.png"
+      ],
+      "notes": "Playwright 驱动：断言「收到：测试一下」命中；新建会话：sidebar-ungrouped。",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      }
+    }
+  ]
+}

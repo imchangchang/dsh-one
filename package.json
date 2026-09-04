@@ -50,6 +50,11 @@
         "category": "DSH One"
       },
       {
+        "command": "dshOne.start",
+        "title": "%dshOne.start.title%",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.openInTab",
         "title": "%dshOne.openInTab.title%",
         "category": "DSH One",
