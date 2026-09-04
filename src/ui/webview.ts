@@ -96,30 +96,42 @@ function statusPage(n: string, status: ServerStatus): string {
 }
 
 function dshFrame(url: string): string {
-  // 0.1.2 认证：webview iframe 与原浏览器一样必须先经 ?token= 换 cookie
-  // （303 → 干净 /，cookie 按同源存储，后续渲染即无凭证）。
-  const target = new URL(browserUrl(url))
-  target.searchParams.set('dsh_embed', 'vscode')
-  const src = target.href
   const n = nonce()
   const script = `<script nonce="${n}">
     acquireVsCodeApi().setState({});
   </script>`
   return shellHtml(
     n,
-    `<iframe src="${escapeHtml(src)}" allow="clipboard-read; clipboard-write"></iframe>${script}`,
+    `<iframe src="${escapeHtml(url)}" allow="clipboard-read; clipboard-write"></iframe>${script}`,
   )
 }
 
-function render(status: ServerStatus): string {
-  return status.state === 'running' && status.url ? dshFrame(status.url) : statusPage(nonce(), status)
+/**
+ * 0.1.2 认证：webview iframe 与原浏览器一样必须先经 ?token= 换 cookie
+ * （303 → 干净 /，cookie 按同源存储，后续渲染即无凭证）。远程宿主
+ * （code-server）下 asExternalUri 保留 query 的代理 URL（直接注入
+ * http://127.0.0.1:3080 会被代理改写并剥掉 ?token=，同 openExternal）。
+ */
+async function render(status: ServerStatus): Promise<string> {
+  if (status.state === 'running' && status.url) {
+    const target = new URL(browserUrl(status.url))
+    target.searchParams.set('dsh_embed', 'vscode')
+    const external = await vscode.env.asExternalUri(vscode.Uri.parse(target.href))
+    return dshFrame(external.toString())
+  }
+  return statusPage(nonce(), status)
 }
 
 /** Binds one editor webview panel to the server status. */
 function bind(webview: vscode.Webview, manager: ServerManager, onDidDispose: vscode.Event<void>): void {
-  webview.html = render(manager.getStatus())
+  const push = (status: ServerStatus): void => {
+    void render(status).then((html) => {
+      webview.html = html
+    })
+  }
+  push(manager.getStatus())
   const sub = manager.onDidChangeState((s) => {
-    webview.html = render(s)
+    push(s)
   })
   const msg = webview.onDidReceiveMessage((m: { type?: string }) => {
     if (m?.type === 'retry') void manager.ensureStarted()

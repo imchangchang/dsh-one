@@ -11,7 +11,7 @@
     "driver": "playwright (verify-driver.mjs)",
     "date": "2026-09-06"
   },
-  "coverageNote": "本报告验证：0.1.2 认证链路（spawn → stdout token → 换 cookie → RPC/WS 全带 cookie）+ 新协议（slash RPC/remote.mux 流）下的会话列表/聊天/工具流；0.1.1 旧路径回归。不覆盖：真桌面 VS Code、真模型输出（mock 端点回放）、审批面板喂不出来（与 CI 基线 F-04 相同的沙盒限制，协议层面已由 .dev-host/verify-modern.mjs 对真 0.1.2 服务器验证）。",
+  "coverageNote": "本报告验证：0.1.2 认证链路（spawn → stdout token → 换 cookie → RPC/WS 全带 cookie）+ 新协议（slash RPC/remote.mux 流）下的会话列表/聊天/工具流；0.1.1 旧路径回归。不覆盖：真桌面 VS Code、真模型输出（mock 端点回放）、审批面板喂不出来（与 CI 基线 F-04 相同的沙盒限制，协议层面已由 .dev-host/verify-modern.mjs 对真 0.1.2 服务器验证）。 另：0.1.2 下沙盒（code-server）里点状态栏「打开 dsh web」不可用——code-server 的 openExternal 会把代理 URL 的 query（?token=）剥掉（实测：asExternalUri 返回带 token 的 URL，打开时被剥成 /proxy/<port>/ → 401）；这是 code-server 环境固有行为，桌面 VS Code 无此代理层不受影响。",
   "items": [
     {
       "id": "F-01",
