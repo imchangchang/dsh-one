@@ -1229,7 +1229,7 @@ function renderRecycleHeader(): HTMLElement {
   title.appendChild(el('span', undefined, t('Recycle bin')))
   header.appendChild(title)
   header.appendChild(el('span', 'recycle-header-count', String(count)))
-  const emptyBtn = panelTool(strokeSvg(TRASH_ICON, 16), t('Empty recycle bin'))
+  const emptyBtn = panelTool(strokeSvg(TRASH_ICON, 18), t('Empty recycle bin'))
   emptyBtn.disabled = count === 0
   emptyBtn.addEventListener('click', () => openRecycleArchiveModal(recycleSessionModels()))
   header.appendChild(emptyBtn)

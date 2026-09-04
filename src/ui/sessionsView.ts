@@ -216,8 +216,9 @@ const SESSIONS_STYLE = `
   /* 回收站视图头按钮小号化（压全局 button 默认尺寸）；不换行。 */
   .recycle-header button { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
   /* 清空回收站用图标按钮（300px 侧栏一行放不下三个文本按钮 + 标题）：
+     ≥32px 点击区 + 18px 图标，与「恢复全部」文本按钮相称（用户实测反馈 20px 太小）；
      悬停提示/aria 都带全名「Empty recycle bin」。 */
-  .recycle-header .sessions-tool { width: 24px; height: 24px; }
+  .recycle-header .sessions-tool { width: 32px; height: 32px; }
   .workspace-row {
     display: flex; align-items: center; gap: 6px; padding: 0 10px;
     height: 32px; box-sizing: border-box; overflow: hidden;
