@@ -1,0 +1,148 @@
+{
+  "title": "工作区右键菜单：复制文件夹引用 / 分组…打标 / 归档该工作区全部会话 / 新窗口打开 / 复制路径 / 从列表移除（workspace-rightclick-menu 任务）",
+  "branch": "agent/workspace-rightclick-menu",
+  "commit": "1e53be2",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-workspace-rightclick-menu:latest",
+    "date": "2026-09-05T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code 原生多窗口、真模型输出、Windows/macOS 平台专项不在本报告范围。验证三通道：① harness 视觉场景（test/ui/scenarios.js 4 个新场景，Playwright 截图核对/含 116 场景全量跑）；② 沙盒 E2E（code-server + 真 DSH One vsix + 真 dsh 0.1.1-rc.2 + mock-llm，种真实 workspace/会话，Playwright 驱动右键/点击/断言剪贴板，8 步全过）；③ 宿主网关实测 @/abs/path 引用（见 F-02 notes）。code-server 无原生窗口外壳：新窗口打开表现为工作台重载到目标目录（URL/title 变化），Desktop 多窗口行为由 openFolder forceNewWindow 保证。globalState 持久化在 code-server 内随运行漂移（既有全局限制），分组勾选持久语义由 store 在会话内快照往返验证。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "工作区行右键菜单：6 项定稿菜单弹开",
+      "expect": "右键真实工作区行（wsm-a）弹出 popover：首行「Workspace: wsm-a」（对象显式化）；自上而下 6 项——Copy folder reference（copy 图标）/ Groups…（齿轮图标 + 右缘 ›）/ Archive all sessions in this workspace（archive 图标，有可归档会话时可用）/ Open folder in a new window（folderOpen 图标）/ Copy path（copy 图标）/ Remove from list（trash 图标）；无「重命名」「只显示此工作区」等不做项；hover 行内按钮（新建会话/终端/打开文件夹/移除）仍在；未分组虚拟组无右键菜单。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-workspace-menu.png",
+        "/tmp/dsh-wsm-shots/e2e-01-workspace-menu.png"
+      ],
+      "notes": "harness 场景（固定 6 项布局核对）+ 沙盒 E2E-01 断言 items 文本全命中；E2E 截图可见 6 项顺序与图标、行内按钮保留。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "复制文件夹引用：@绝对路径 进剪贴板（@/abs/path 实测通过，不退化为纯路径）",
+      "expect": "点「Copy folder reference」后剪贴板内容为 @/home/coder/wsm-a（wsm-a 绝对路径），右下弹「Folder reference copied. Paste it into the input box to reference this folder.」提示；降低方案（纯路径文本 + 模型自行 ls）仅当 @/abs/path 被宿主拒绝时才启用，实测不触发。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-wsm-shots/e2e-02-copy-folder-ref-toast.png"
+      ],
+      "notes": "① @/abs/path 实测（宿主网关，会话 workspace=dsh-one，引用 cwd 外文件 /tmp/dsh-fs-probe.txt）：prompt 文本 @/tmp/dsh-fs-probe.txt 送出后模型的 read 工具直接调用并成功读取（tool/result isError:false，meta.path=/tmp/dsh-fs-probe.txt，内容行号完整返回），用户当前宿主未启用「限制工作区外 fs」插件 → 绝对路径引用可行，按原方案复制 @绝对路径，不退化为纯路径。② E2E-02 点击菜单项后 page.evaluate(navigator.clipboard.readText()) 读回 '@/home/coder/wsm-a'，断言命中；toast 截图可见（阴影 DOM 内，textContent 断言跳过用截图佐证）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "分组… 子菜单：多选勾 tag（复用 workspaceGroupSetMembership）",
+      "expect": "点「Groups…」开二级 popover（右缘对齐顶层菜单项）：组行 = 名称 + 计数 + 勾选 ✓（归组的组带 ✓）；点勾 = 归组、点已勾 = 移除，勾完不关菜单可就地看到 ✓ 翻转；Esc/点外部关菜单，重开后勾选态保持（store 快照）。无分组时显示灰置「No groups yet. Create one from the group bar above.」。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-groups.png",
+        "/tmp/dsh-wsm-shots/e2e-03a-groups-submenu-initial.png",
+        "/tmp/dsh-wsm-shots/e2e-03b-groups-checked.png",
+        "/tmp/dsh-wsm-shots/e2e-03c-groups-reopen.png"
+      ],
+      "notes": "harness 场景核对初始勾选态（演示 ✓/开发 ✓/日常 0）；E2E-03 全链：建组「演示」→ 子菜单显示 0 未勾 → 点勾 → ✓ 就地出现（截图 e2e-03b）→ 关菜单重开 ✓ 保持（e2e-03c）。开发中修过一个真 bug：原实现勾选后按快照重建菜单，快照往返前重建读到旧归属导致 ✓ 永远不出现——改为勾选后就地翻转自身 ✓（fix 提交）。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "归档该工作区全部会话：确认弹窗 + archiveManyDone 复用",
+      "expect": "点「Archive all sessions in this workspace」弹确认框：标题「Archive 2 sessions?」、说明「Archived sessions will be hidden from the list.」；树区 = 该工作区一组（wsm-a · 2）明细列出可归档会话；运行中/未读/待处理/置顶不在列（跳过数在说明里注明）；点 Archive 后弹窗关闭、该工作区会话行清空（归档经 sessionArchiveMany → archiveManyDone 链路）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-wsm-shots/e2e-04a-archive-confirm-modal.png",
+        "/tmp/dsh-wsm-shots/e2e-04b-after-archive.png"
+      ],
+      "notes": "E2E-04 断言：弹窗标题/组计数命中；点 Archive 后 modalGone=true 且 wsm-a 会话行数=0。带跳过的场景由 harness 场景 sessions-workspace-archive-modal（1 个运行中跳过 + 说明文案）覆盖。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "无归档会话的工作区：归档菜单项禁用 + 悬停提示",
+      "expect": "工作区内所有会话均不可归档（如全部运行中）时「Archive all sessions in this workspace」灰置（.menu-item.disabled），悬停显示 tooltip「No archivable sessions in this workspace」；其余 5 项正常可用。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-archive-disabled.png"
+      ],
+      "notes": "harness 场景核对灰置样式与 tooltip（悬停项上方，与既有会话菜单 busy 场景 tooltip 同款位置行为，非回归）。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "在新窗口打开文件夹（openFolder forceNewWindow）",
+      "expect": "点「Open folder in a new window」后宿主执行 vscode.openFolder(uri, {forceNewWindow:true})——桌面 VS Code 开新窗口；code-server 无原生多窗口，同款命令表现为工作台加载目标目录。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-wsm-shots/e2e-07-open-new-window.png"
+      ],
+      "notes": "E2E-07 点击后工作台重载：URL 变 ?folder=/home/coder/wsm-b、窗口标题变 wsm-b（截图右上）——openFolder 命令真实执行。桌面多窗口 = 同一命令 + forceNewWindow:true（与既有 workspaceOpenFolder 唯一差异已 code review）。"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "复制路径（纯文本）",
+      "expect": "点「Copy path」后剪贴板为纯路径 /home/coder/wsm-a（无 @ 前缀），右下弹「Path copied to clipboard」。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-wsm-shots/e2e-05-copy-path-toast.png"
+      ],
+      "notes": "E2E-05 断言 navigator.clipboard.readText() === '/home/coder/wsm-a'，toast 截图可见（右下「Path copied to clipboard」）。"
+    },
+    {
+      "id": "F-08",
+      "phase": "new-feature",
+      "name": "从列表移除入右键菜单（与 hover 按钮双入口）",
+      "expect": "点「Remove from list」弹宿主确认框（modal，「\"wsm-a\" will be removed from the workspace list...」+ Remove from list 按钮）；确认后该工作区行从列表消失（文件夹与会话记录保留，软删除语义与 hover 按钮一致）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-wsm-shots/e2e-06a-remove-confirm.png",
+        "/tmp/dsh-wsm-shots/e2e-06b-after-remove.png"
+      ],
+      "notes": "E2E-06：确认框出现（monaco-dialog-box）→ 点 Remove from list → 断言 wsm-a 行不存在；对话框为 VS Code 原生 modal（浏览器渲染），截图佐证。磁盘文件夹与会话在容器里仍存在（workspace.list 仍能列出 wsm-b 对照）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "sessions 面板既有场景回归（harness 6 场景）",
+      "expect": "sessions / sessions-search / sessions-collapsed / sessions-recycle-drawer / sessions-selection-mode / sessions-menu 渲染与合入前一致：列表/搜索高亮/折叠态/回收站抽屉/多选操作条/会话 ⋯ 菜单照旧；分组栏新行不破坏布局；会话行右键菜单行为不变（.session-row 右键仍开 8 项菜单）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions.png",
+        "/tmp/dsh-ui-shots/sessions-menu.png",
+        "/tmp/dsh-ui-shots/sessions-search.png",
+        "/tmp/dsh-ui-shots/sessions-collapsed.png",
+        "/tmp/dsh-ui-shots/sessions-recycle-drawer.png",
+        "/tmp/dsh-ui-shots/sessions-selection-mode.png"
+      ],
+      "notes": "2026-09-05 全量 ui-visual --mode all（116 场景）重跑，上述场景逐张与期望核对通过；116 张中本任务新 4 场景通过，其余 112 张基线场景目视抽查无异常。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "工作区分组过滤既有功能回归（下拉/计数/管理视图）",
+      "expect": "分组栏下拉（All workspaces 计数/演示/开发/日常 0/Manage groups…）、分组过滤选中态、管理视图打标/重命名/删除照旧——右键「分组…」子菜单与它们共用同一 workspaceGroupSetMembership 接口与数据。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-groups-dropdown.png",
+        "/tmp/dsh-ui-shots/sessions-groups-manage.png",
+        "/tmp/dsh-ui-shots/sessions-groups-selected.png"
+      ],
+      "notes": "下拉计数/管理视图勾选/组过滤选中态截图核对与 workspace-group-filter 报告一致；E2E-03 同时验证了子菜单勾选回到管理视图可见（共同的数据源）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量单测 + typecheck + build + i18n 门禁",
+      "expect": "npm test 全 pass（470 项）；tsc --noEmit 无错误；build 产出 4 个 bundle；scripts/check-i18n.sh agent/workspace-rightclick-menu → OK（新增 11 个 l10n key en/zh 双同步）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test 470 pass / 0 fail；typecheck 无错误；build 产出 dist/extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js；check-i18n OK。"
+    }
+  ]
+}
