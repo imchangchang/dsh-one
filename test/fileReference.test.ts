@@ -175,3 +175,20 @@ test('restoreFileMentionTokens：词中的 @ 路径引用不还原（a@b/c 保�
   assert.equal(bindings.get('@y.txt'), '@/x/y.txt')
   assert.equal(bindings.has('@b/c'), false)
 })
+
+test('restoreFileMentionTokens：反查优先——绑定里已有的 canonical 用原 token（含序号后缀）不重排', () => {
+  const bindings = new Map([
+    ['@截图.png', '@/a/截图.png'],
+    ['@截图.png (2)', '@/b/截图.png'],
+  ])
+  // 历史里两个同名不同路径：各回各的原 token，不重复注册（Map 大小不变）
+  const restored = restoreFileMentionTokens('@/a/截图.png 和 @/b/截图.png', bindings)
+  assert.equal(restored, '@截图.png 和 @截图.png (2)')
+  assert.equal(bindings.size, 2)
+  // 未绑定过的 canonical 走 fileMentionToken 生成并登记
+  const more = restoreFileMentionTokens('@/c/截图.png', bindings)
+  assert.equal(more, '@截图.png (3)')
+  assert.equal(bindings.get('@截图.png (3)'), '@/c/截图.png')
+  // 同一 canonical 在文本里多次出现，每次都用同一个原 token
+  assert.equal(restoreFileMentionTokens('@/b/截图.png 再看 @/b/截图.png', bindings), '@截图.png (2) 再看 @截图.png (2)')
+})
