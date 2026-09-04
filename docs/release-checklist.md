@@ -25,7 +25,6 @@ code --user-data-dir /tmp/dsh-relcheck/ .
 
 - [ ] 未安装 dsh 的环境（PATH 摘掉 dsh，或 `dshOne.dshPath` 指向不存在的路径）：打开面板报「未找到 dsh」并引导安装，无其他异常。
 - [ ] 装好 dsh 后打开面板：定位 dsh → 启动服务 → iframe 加载出官方 UI，全链路无报错。
-- [ ] `dsh_embed=vscode` 生效：iframe 里官方 UI 的侧栏隐藏。
 - [ ] 状态栏四态（运行中/启动中/已停止/错误）显示正确；复用已有实例时 tooltip 有提示。
 - [ ] 先手动 `dsh web --port 3080` 起实例再开面板：确认复用该实例且不 kill。
 - [ ] 关闭 VSCode 后确认 spawn 的 dsh 进程被回收（`ps` / 任务管理器），复用的实例不受影响。
