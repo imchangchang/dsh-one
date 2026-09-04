@@ -1,4 +1,4 @@
-# mention 绑定生命周期：发送即清 + 按会话归档
+# mention 绑定生命周期：按会话归档 + 边界校验 + recall 反查
 
 ## 背景与现象
 
@@ -11,17 +11,21 @@
 
 webview.ts 的 mentionBindings / expandMentionBindings（sendCurrent 展开）；recall 历史时输入框是 canonical 长路径（与 token 体验断裂，同调）。
 
-## 方案（待确认）
+## 方案（已拍板 2026-09-04：按会话归档）
 
-1. 发送即消费：发送后清空本次 draft 用到的绑定
-2. 按会话提案：mentionBindings 与 composerDrafts/stagedPerSession 同级归档/恢复（跨会话草稿 token 可展开）
-3. 展开前边界校验：token 必须作为独立词出现（前缀为行首/空白/标点），避免词中/邮箱误替换
-4. recall 历史时反查绑定，把 canonical 换回显示 token
+1. **按会话归档/恢复**：mentionBindings 与 composerDrafts/stagedPerSession 同级，按 session 存储（新会话空 Map、切会话恢复、发送成功/失败不强制清空——绑定随草稿生命周期走）。
+2. **展开前边界校验**：token 必须作为独立词出现（复用 paste-token-parsing-boundaries 的统一扫描起点的边界/终止规则），避免词中/邮箱误替换。
+3. **recall 反查**：召回历史消息时反查绑定，把 canonical 长路径换回显示短 token。
+
+**不做**：发送即消费（否决；与按会话归档互斥，且发送后草稿仍可能召回）。
+
+## 依赖
+
+**前置：paste-token-parsing-boundaries**（本条目先拍板先行，其统一 @token 扫描纯函数是本条目边界校验的实现基础；本条目排在它之后开发）。
 
 ## 注意点
-
-涉及会话 mention（既有语义）与文件 mention（新）两条路径；(2) 与 (1) 需同时保证「发送即消费」不破坏「切会话草稿恢复」。
 
 ## 变更记录
 
 - 2026-09-08 代码评审（4 角度子代理）确认后建条目 → open
+- 2026-09-04 主 session 拍板：选 B 按会话归档（含 recall 反查 + 展开前边界校验），发送即消费否决；补「前置：paste-token-parsing-boundaries」→ 条目更新（仍 open/，排在其前置之后开发）

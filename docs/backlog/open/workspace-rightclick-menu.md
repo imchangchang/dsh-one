@@ -11,15 +11,19 @@
 
 ## 建议方案（session 内已确认对照会话「复制引用」的交互）
 
-### 菜单项清单（按优先级）
+### 菜单项清单（已定稿 6 项）
 
-- **复制文件夹引用**：复制 `@绝对路径` 到剪贴板。对齐会话「复制引用」的交互：粘贴进 composer 后由 tokenizer 切成 `@文件夹` chip，发送时 dsh host 把该目录结构注入模型上下文——即「参考另一个工作区结构」的实现。已确认按会话引用同款方式做，不做「插入输入框」变体。
-  - **风险点**：现有 `@` 补全候选相对会话 cwd（`fileReferences/list`，见 `src/pure/fileReference.ts`），跨工作区引用必须发**绝对路径 token**。dsh host 是否接受 `@/abs/path`（注入目录结构）需一条消息实测；不行则退化为复制纯路径文本 + 让模型自行 `ls`/读取。
-- **分组…**：子菜单多选勾 tag（打标入口），模型与交互见 `workspace-group-filter`（前置）。
+- **复制文件夹引用**：复制 `@绝对路径` 到剪贴板。对齐会话「复制引用」的交互：粘贴进 composer 后由 tokenizer 切成 `@文件夹` chip，发送后模型拿到绝对路径 + system prompt 的显式引用提示（机制见下）——即「参考另一个工作区结构」的实现。已确认按会话引用同款方式做，不做「插入输入框」变体。
+  - **机制（已核实宿主源码 @deepseek-ai/dsh 本机安装）**：dsh 的 @ 文件引用没有「注入目录结构」步骤——host 只把 `@path` 文本原样进模型，另在 system prompt 注入提示段（`FILE_REFERENCE_PROMPT`：@ 前缀路径是用户显式引用，需要时用 read 工具）；目录结构由模型自行 read/ls/glob 探索。
+  - **绝对路径可行性**：补全候选（`fileReferences/list`）只给相对路径且 root 外拒绝；但 fs 工具路径解析用 `path.resolve(cwd, path)`（`dsh-fs-local` 的 `resolveLocalTarget`），**绝对路径直接生效**，`@/abs/path` 预计可行。唯一不确定项：宿主是否启用限制工作区外的 fs sandbox（可选插件，看用户宿主配置）。
+  - **风险点与降级（已确认）**：开工时先发一条消息实测 `@/abs/path`；若实测不行，**该项退化为复制纯路径文本 + 让模型自行 `ls`/读取**（保留原写法）。
+- **分组…**：子菜单多选勾 tag（打标入口），模型与交互见 `workspace-group-filter`（前置；本条目在其合入后开工）。
 - **归档该工作区全部会话**：确认弹窗后复用现有多选归档机制（`archiveManyDone`）；演示完一个场景一键清。
 - **在新窗口打开文件夹**：VS Code `openFolder(uri, { forceNewWindow: true })`（现有 `workspaceOpenFolder` 是当前窗口打开）。
 - **复制路径**：纯文本路径进剪贴板。
-- **从列表移除**：现有 hover 按钮并入菜单；高频按钮（新建会话/终端）保留 hover 快捷。
+- **从列表移除**：并入菜单，与现有 hover 按钮**双入口并存**。
+
+**已定：hover 按钮现状全部保留**（新建会话 / 打开终端 / 打开文件夹（当前窗口）/ 从列表移除，见 `renderWorkspaceGroup`），右键菜单为其另一入口；「打开文件夹（当前窗口）」不进菜单（hover 已覆盖），菜单里只有「在新窗口打开文件夹」。
 
 ### 明确不做
 
@@ -29,6 +33,10 @@
 ### 交互形态
 
 沿用现有 popover 菜单机制（`showPopoverAt` + `menuFreezeActive` 冻结窗口，与会话行右键同款），不加新弹层样式。工作区行 `contextmenu` 监听 + `buildWorkspaceMenuBody`。
+
+### 开发节奏（已定）
+
+与 `workspace-group-filter` 分**两个 worktree**：**group-filter 先开发、先合入主线**；本条目等其合入后基于新主线开工——「分组…」子菜单需要它的分组数据模型与持久化，也避免同批改 `sessionsWebview.ts` / `chatContract.ts` / `sessionsView.ts` 等重叠文件。
 
 ## 涉及代码位置
 
@@ -40,3 +48,4 @@
 ## 变更记录
 
 - 2026-09-04 需求提出（用户：session 参考另一工作区结构，右键直接引用工作区文件夹；确认按会话「复制引用」同款方式）。讨论后确认菜单清单与不做项；打标入口并入本菜单（前置 `workspace-group-filter`）。未开始开发。
+- 2026-09-04 方案确认（与用户逐项拍板）：菜单清单定稿 6 项，hover 按钮现状全部保留（右键菜单为并存入口）；核实宿主源码——@ 引用无「注入目录结构」步骤、fs 工具绝对路径可用，降级方案保留「失败退化复制纯路径文本」；开发节奏：与 workspace-group-filter 分两个 worktree，先做 group-filter 合入后本条目再开工。

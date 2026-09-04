@@ -13,21 +13,23 @@
 - 非功能性 bug（不会坏启动流程）；是 **label 与行为不符** + Remote-SSH 下表现为报错弹窗。
 - 可能是有意复用（「启动成功后直达 dsh web」），statusbar.ts 注释与 extension.ts:118 注释支持这一解读——是否按 bug 修需用户拍板（见「待确认」）。
 
-## 建议方案（待确认后实施）
+## 建议方案（已拍板，只待实施）
 
-- 新增 `dshOne.start` 命令（只 `ensureStarted()`，不开浏览器），「Retry Starting / Start Service」改绑它；「Open in Browser」与整块点击保留 `dshOne.openExternal`。
-- 若产品意图就是「启动 + 打开」：则不修 command，只在 Remote-SSH 下把打开失败改为提示（否则用户在本地报错弹窗外摸不着头脑）。
+- **方案 A（已确认）**：新增 `dshOne.start` 命令（只 `ensureStarted()`，不开浏览器），「Retry Starting / Start Service」改绑它；「Open in Browser」与整块点击保留 `dshOne.openExternal`。运行中态的「Restart Service」本就走 `dshOne.restart`（不弹浏览器），改后 Retry/Start 与之一致。
+- ~~方案 B（保留现状，启动+弹浏览器为有意产品行为）~~：已否决。
 
 ## 涉及代码位置
 
 - `src/ui/statusbar.ts:77,83`：两处按钮 command
-- `src/extension.ts:120-123`：`dshOne.openExternal` 实现
+- `src/extension.ts:120-123`：`dshOne.openExternal` 实现；新命令 `dshOne.start` 就近注册
 - `src/server/manager.ts`：`ensureStarted`（被内部调用，无需改动）
+- `package.json:41-51`：`contributes.commands` 需新增 `dshOne.start` 条目与 l10n title，否则命令无法绑定
 
 ## 待确认
 
-- 「启动后自动打开浏览器」是否为有意产品行为；「Retry Starting」场景要不要开浏览器。
+已确认（2026-09-04 用户拍板）：「Retry Starting / Start Service」= 只启动/重试，**不开浏览器**（与我们「没时间讨论，直接启动 dsh」的表述一致）；弹浏览器保留给「Open in Browser」与整块点击。Remote-SSH 下弹浏览器必失败的问题随之在 Retry/Start 上消失，剩余入口归 remote-ssh-support 条目管。
 
 ## 变更记录
 
 - 2026-09-03 Remote-SSH 调研时发现（statusbar.ts:77,83 与 extension.ts:120-123 核实）→ 记入 open/（未开始修改，定级待确认）。
+- 2026-09-04 方案讨论拍板：走方案 A（新增 `dshOne.start` 只启动不开浏览器，Retry/Start 改绑），方案 B 否决；补充 package.json 命令注册与 remote-ssh-support 条目分工 → 条目更新（仍 open/，未开始开发）。
