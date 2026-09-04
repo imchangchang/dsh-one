@@ -96,7 +96,7 @@ import {
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { splitUserBubble, type UserBubbleSegment } from '../../pure/userBubble.ts'
-import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, tokenDeletion, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
+import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, restoreFileMentionTokens, tokenDeletion, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
 import {
   WORKFLOW_STATUS_TEXT,
   advanceWorkflowDisclosure,
@@ -1158,14 +1158,16 @@ window.addEventListener('message', (event) => {
     render()
   } else if (msg?.type === 'restoreDraft' && typeof msg.text === 'string') {
     // 还原回 composer：stop 抽干队列的草稿文本，或发送失败的消息（图片/文件
-    // chips 一并恢复，不让输入被吞）。
+    // chips 一并恢复，不让输入被吞）。回填文本里的 canonical @长路径还原为
+    // 显示 token（与第一次输入形态一致；发送时 expand 展开回 canonical）。
+    const restoredText = restoreFileMentionTokens(msg.text, mentionBindings)
     const input = document.getElementById('input') as HTMLTextAreaElement | null
     if (input) {
-      input.value = input.value.trim() ? `${input.value.trimEnd()}\n${msg.text}` : msg.text
+      input.value = input.value.trim() ? `${input.value.trimEnd()}\n${restoredText}` : restoredText
       input.dispatchEvent(new Event('input'))
       input.focus()
     } else {
-      stashedDraft = stashedDraft ? `${stashedDraft}\n${msg.text}` : msg.text
+      stashedDraft = stashedDraft ? `${stashedDraft}\n${restoredText}` : restoredText
     }
     let stagedRestore = false
     if (Array.isArray(msg.images) && msg.images.length > 0) {
@@ -5969,10 +5971,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       recallDraft = input.value
       if (lastQueued) {
         recall = { kind: 'queue', itemId: lastQueued.id }
-        input.value = lastQueued.editText
+        // canonical @长路径还原为显示 token（排队项往返自洽：回写时 expand 展开回 canonical）
+        input.value = restoreFileMentionTokens(lastQueued.editText, mentionBindings)
       } else if (lastUser && lastUser.kind === 'user') {
         recall = { kind: 'history' }
-        input.value = lastUser.text
+        // 历史里存的是 canonical @长路径（发送时展开的结果）；还原成显示 token，
+        // 与第一次输入时的形态一致。
+        input.value = restoreFileMentionTokens(lastUser.text, mentionBindings)
       }
       render()
     }

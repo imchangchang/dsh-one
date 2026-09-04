@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, tokenDeletion } from '../src/pure/fileReference.ts'
+import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, restoreFileMentionTokens, tokenDeletion } from '../src/pure/fileReference.ts'
 
 test('activeAtToken：行首与空白后的 @query 触发，query 允许 / 与 @', () => {
   assert.deepEqual(activeAtToken('@rea'), { prefix: '@rea', query: 'rea', quoted: false })
@@ -114,4 +114,27 @@ test('tokenDeletion：退格删前 token、Delete 删后 token，整段删除', 
   assert.equal(tokenDeletion(value, 26, -1, bindings), null)
   // 文本末尾退格正常（无绑定 token 在附近）
   assert.equal(tokenDeletion(value, value.length, -1, new Map()), null)
+})
+
+test('restoreFileMentionTokens：recall 时 canonical @长路径还原为 @短名 token', () => {
+  const bindings = new Map<string, string>()
+  const text = '@/var/folders/T/sess-1/img1.png 你看看 @/Users/a/合同（草案）.docx 还有 @src/foo 保持原样'
+  const restored = restoreFileMentionTokens(text, bindings)
+  // 绝对路径与相对路径引用都还原成 @短名（发送时可展开回原文）；正文不被吞
+  assert.equal(restored, '@img1.png 你看看 @合同（草案）.docx 还有 @foo 保持原样')
+  assert.equal(bindings.get('@img1.png'), '@/var/folders/T/sess-1/img1.png')
+  assert.equal(bindings.get('@合同（草案）.docx'), '@/Users/a/合同（草案）.docx')
+  assert.equal(bindings.get('@foo'), '@src/foo')
+})
+
+test('restoreFileMentionTokens：空格引号路径与同名冲突', () => {
+  const bindings = new Map<string, string>()
+  const text = '@/a/b.md @"/Users/x/with space.txt"'
+  const restored = restoreFileMentionTokens(text, bindings)
+  assert.equal(restored, '@b.md @with space.txt')
+  assert.equal(bindings.get('@b.md'), '@/a/b.md')
+  assert.equal(bindings.get('@with space.txt'), '@"/Users/x/with space.txt"')
+  // 同名不同路径 → 递增后缀
+  const again = restoreFileMentionTokens('@/a/b.md 又一次 @/c/b.md', bindings)
+  assert.equal(again, '@b.md 又一次 @b.md (2)')
 })

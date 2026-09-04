@@ -4,6 +4,7 @@
  * 与 dsh web 完全一致的触发与序列化行为。官方按"行 + 列"匹配；这里的
  * 入参是光标前的整段文本，(?:^|\s) 里的 \s 覆盖换行，语义等价。
  */
+import { attachmentBaseName } from './composerAttachment.ts'
 
 /** 光标处活跃的 @ token；不在 @ token 上时为 undefined。 */
 export interface ActiveAtToken {
@@ -122,4 +123,24 @@ export function tokenDeletion(
     }
   }
   return null
+}
+
+/**
+ * 把 recalled（↑ 拉起）的历史文本里的 canonical `@长路径` 引用还原为显示
+ * token（`@短名`），与第一次输入时的形态一致（含绑定注册，高亮/原子导航
+ * 可用）。只处理含分隔符的路径引用——无分隔符的 @token（相对路径/命令/
+ * 邮箱）保持原样。返回还原后的文本；新增绑定写入传入的 bindings。
+ */
+export function restoreFileMentionTokens(text: string, bindings: Map<string, string>): string {
+  return text.replace(/@"[^"\n]+"|@[^\s，。；：！？、,;!?]+/gu, (mention) => {
+    const cleaned = mention.replace(/^@/, '').replace(/^"|"$/g, '')
+    if (!/[\\/]/.test(cleaned)) return mention // 无分隔符：不是路径引用，原样
+    const name = attachmentBaseName(cleaned)
+    if (name.length === 0 || name === cleaned) return mention
+    const m = formatFileMention({ path: cleaned, kind: 'file' }, false)
+    if (m === undefined) return mention
+    const token = fileMentionToken(name, m, bindings)
+    bindings.set(token, m)
+    return token
+  })
 }
