@@ -5978,10 +5978,17 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     }
   })
   input.addEventListener('compositionstart', () => {
+    // IME 组合期间：组合文本由浏览器原生画在 textarea 上（input.value 不含它），
+    // 而 textarea 文字是透明的——必须隐藏叠层并恢复 textarea 文字色，否则
+    // 拼音组合串整段不可见（用户看到的"已经输入的内容不显示"）。
     composerComposing = true
+    refLayer.style.display = 'none'
+    input.style.color = 'var(--vscode-input-foreground)'
   })
   input.addEventListener('compositionend', () => {
     composerComposing = false
+    refLayer.style.display = ''
+    input.style.color = 'transparent'
     renderRefLayer()
   })
   input.addEventListener('input', () => {
