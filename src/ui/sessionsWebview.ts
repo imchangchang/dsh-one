@@ -1110,7 +1110,7 @@ function recycleSessionModels(): SessionNodeModel[] {
 /** 主列表底部的回收站入口行：面板底部固定（不随列表滚动），计数 0 灰态仍可点入。 */
 function renderRecycleEntry(): HTMLElement {
   const count = recycleCount(sessionsSnapshot)
-  const row = el('button', 'recycle-entry' + (count === 0 ? ' empty' : ''))
+  const row = el('button', 'recycle-entry' + (count === 0 ? ' is-empty' : ''))
   row.setAttribute('aria-label', t('Recycle bin ({0})', count))
   const icon = el('span')
   icon.appendChild(strokeSvg(TRASH_ICON, 16))

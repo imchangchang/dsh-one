@@ -177,7 +177,7 @@ const SESSIONS_STYLE = `
     font: inherit; font-size: 12px; text-align: left; cursor: pointer;
   }
   .recycle-entry:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  .recycle-entry.empty { color: var(--vscode-descriptionForeground, #888); opacity: .75; }
+  .recycle-entry.is-empty { color: var(--vscode-descriptionForeground, #888); opacity: .75; }
   .recycle-entry svg { flex: none; }
   .recycle-entry-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .recycle-entry-count {
@@ -185,7 +185,7 @@ const SESSIONS_STYLE = `
     background: var(--vscode-badge-background, rgba(127,127,127,.25));
     color: var(--vscode-badge-foreground, var(--vscode-foreground));
   }
-  .recycle-entry.empty .recycle-entry-count { background: transparent; padding: 0; opacity: .8; }
+  .recycle-entry.is-empty .recycle-entry-count { background: transparent; padding: 0; opacity: .8; }
   /* 回收站视图头：‹ 返回 + 标题 + 清空回收站，右侧「恢复全部」。 */
   .recycle-header {
     flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px;
