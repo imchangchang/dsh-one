@@ -1,0 +1,58 @@
+{
+  "title": "DSH One 验收报告（statusbar-dsh-version-tooltip：running 态状态栏 tooltip 显示 dsh 版本）",
+  "branch": "agent/statusbar-dsh-version-tooltip",
+  "commit": "FILLED-AFTER-COMMIT",
+  "environment": {
+    "mode": "unit-test + 人工开窗（宿主 UI，未跑沙盒）",
+    "dsh": "本机 0.1.2-rc.1（locateDsh 实测 `dsh --version` 输出）；0.1.1 仅单测/代码审查（本机无 0.1.1）",
+    "date": "2026-09-05"
+  },
+  "coverageNote": "本任务改动全部在宿主侧（状态栏 tooltip 的 Markdown 文本 + ServerManager 的版本传递），沙盒 harness 只渲染聊天 webview，不渲染宿主状态栏，故不跑沙盒场景、无浏览器截图。覆盖方式：① 单测 test/statusTooltip.test.ts（node --test，用 mock ServerStatus 形状逐态断言，9 项全过，见各项 notes 的用例名与断言内容）；② 本机人工开窗验收（本机就是 0.1.2-rc.1 真环境，dev-ui-test 隔离窗口命令已交付用户，验收结果待回传；本报告各项结论由单测判定，若人工验收发现不符按 fail 回退处理）。0.1.1 兼容：version 字段与版本解析不依赖 0.1.2 特定路径（locateDsh 的 extractVersion 对 0.1.1/0.1.2 输出同等处理；manager 的 0.1.2 token 分支不触发时走与 0.1.1 相同的 probe 路径；version 持久化在两条分支都写入 pidfile）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "running 态 tooltip 显示 dsh 版本行（spawn 路径，0.1.2-rc.1）",
+      "expect": "状态栏 running 态（DSH: Running :3080）悬停：标题「DSH One — <url>」下一行出现「dsh v0.1.2-rc.1」，随后是动作链接（Open in Browser / Restart Service / Stop Service / Show Logs）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "单测覆盖（node --test test/statusTooltip.test.ts）：「running: version line after the title (dsh 0.1.2-rc.1)」对完整 Markdown 整串断言，实际输出 = '**DSH One** — http://127.0.0.1:3080\\ndsh v0.1.2-rc.1\\n\\n[$(globe) Open in Browser](command:dshOne.openExternal)　[$(refresh) Restart Service](command:dshOne.restart)　[$(debug-stop) Stop Service](command:dshOne.stop)　[$(output) Show Logs](command:dshOne.showLogs)'，与期望一致。本机人工开窗验收命令已交付用户（dev-ui-test 隔离窗口），确认后本项最终成立。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "reload/re-own 后版本仍在（pidfile 持久化，不经 PATH 近似）",
+      "expect": "VS Code reload 后扩展经 globalStorage pidfile re-own 上次 spawn 的 dsh，tooltip 版本行显示的仍是 spawn 时的版本（而不是当前 PATH 上 dsh 的版本——升级 dsh 后跑着的还是旧实例，显示新版本才是误导）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "代码审查覆盖：OwnedRecord.version 在 spawn 后 / 就绪后（token 与 port 回填两条分支）写 pidfile，readOwned 读回，re-own 两条 setStatus（0.1.2 token 换票路径与 0.1.1 probe 路径）都携带 version；adopted 路径不写 version。人工开窗验收含 reload 步骤（Cmd+R 后再次悬停确认版本行仍在）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "adopted（外部实例）不显示版本行，避免误导",
+      "expect": "复用外部实例（扩展不 kill 的那种）running 态 tooltip：无「dsh v」行，保留「Reusing an externally started instance; the extension will not stop it」说明；无 Restart/Stop 按钮（现有行为不变）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "单测覆盖：「running: adopted external instance shows no version line (would mislead)」断言不含 'dsh v'、含外部实例说明、含 Open in Browser 与 Show Logs、不含 Restart/Stop。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "其余状态 tooltip 内容不变；version 缺失/unknown 时 running 也不显示版本行",
+      "expect": "starting / error(dshNotFound) / error(通用) / stopped 四态内容与改动前逐字一致（中文/英文文案均走 l10n 键，未变）；running 态无 version 或 version='unknown' 时不出现「dsh v」行。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "单测覆盖（9 项全过）：「running: unknown version」「running: missing version field」「starting: content unchanged…」「error dshNotFound」「error generic」「stopped」逐态断言。全量测试 509 项通过（npm test）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "dsh 0.1.1 兼容（版本解析与持久化不依赖 0.1.2 特性）",
+      "expect": "0.1.1 的 `dsh --version` 输出解析为 '0.1.1'，tooltip 显示「dsh v0.1.1」；0.1.1 无 launch token，manager 走 probe 路径，pidfile 仍写 version，reload 后 re-own 正常。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "单测覆盖：「running: 0.1.1 stable version renders the same line」。0.1.1 真环境本机未装，实测仅 0.1.2-rc.1；manager 代码路径审查：0.1.1 走 probePort 分支，pidfile 的 version 写入位于分支公共代码，0.1.2 token 分支只是额外写 token。如人工验证中有 0.1.1 环境可补验。"
+    }
+  ]
+}
