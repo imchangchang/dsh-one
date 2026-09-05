@@ -531,6 +531,31 @@ export interface SessionModels {
   failures: Array<{ id: string; name: string; message: string }>
 }
 
+/** Host-generation model catalog (unary session/models): the catalog response
+ *  plus which groups are routable. `current` lives in the session's
+ *  `modelSelection` projection, not here. */
+export type ModelCatalogValue = Omit<SessionModels, 'current'> & { default?: SessionModelSelection }
+
+/**
+ * 现代（0.1.2）unary 目录：`session.models` 不带 sessionId，Host 级一份
+ * （对齐官方 ModelCatalogDirectory 的「Loads at most one model catalog for
+ * the current Host generation」）。调用方（modelCatalog.ts 的共享缓存）
+ * 负责 in-flight 合并与失效，这里只做一次 RPC 与形状归一。
+ */
+export async function fetchModelCatalog(baseUrl: string): Promise<ModelCatalogValue> {
+  const value = await callRpc<{
+    default?: SessionModelSelection
+    groups?: Array<{ id: string; name: string; models: SessionCatalogModel[] }>
+    failures?: Array<{ id: string; name: string; message: string }>
+  }>(baseUrl, 'session.models', {})
+  return {
+    ...(value.default !== undefined ? { default: value.default } : {}),
+    groups: value.groups ?? [],
+    failures: value.failures ?? [],
+    routable: (value.groups?.length ?? 0) > 0,
+  }
+}
+
 /**
  * Narrow a `modelSelection` projection value to the session's active selection.
  * 0.1.2 folds it as { lastUsed, next } where either side may be null (a blank
@@ -560,11 +585,7 @@ export async function sessionModels(baseUrl: string, sessionId: string): Promise
     // 0.1.2: per-session selection lives in the session.list projections
     // (modelSelection); the catalog itself is the unary modelCatalog.
     const [catalog, sessions] = await Promise.all([
-      callRpc<{
-        default?: SessionModelSelection
-        groups?: Array<{ id: string; name: string; models: SessionCatalogModel[] }>
-        failures?: Array<{ id: string; name: string; message: string }>
-      }>(baseUrl, 'session.models', {}),
+      fetchModelCatalog(baseUrl),
       listSessions(baseUrl).catch(() => []),
     ])
     const current =
@@ -573,9 +594,9 @@ export async function sessionModels(baseUrl: string, sessionId: string): Promise
       ) ?? catalog.default ?? { provider: '', model: '' }
     return {
       current,
-      routable: (catalog.groups?.length ?? 0) > 0,
-      groups: catalog.groups ?? [],
-      failures: catalog.failures ?? [],
+      routable: catalog.routable,
+      groups: catalog.groups,
+      failures: catalog.failures,
     }
   }
   return callRpc(baseUrl, 'session.models', { sessionId })
