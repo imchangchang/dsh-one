@@ -37,3 +37,4 @@ dsh-token-auth（2A）报告已注明：0.1.2 的 approval/question 走 `$events
   修复：modernStreams 单例登记当代际 pending 水瀑布，新 handler 注册时重放（answer 闭包绑当前 clientId）；cancel/断流清登记；应答成功后本地结算并广播 onCancel（网关不回播 cancel 给应答方——否则登记表与侧栏黄点残留）。chatSession 同 rpcId 去重防重放/重连重复卡。approval 同链路受影响同修。
   验证：沙盒 0.1.2-rc.1（mock-llm + 固定 vsix）F-01 提问卡渲染 pass（截图）；真机脚本对真实网关验证晚建 handler 重放 + $events/result 应答 + agent 继续（F-02）；0.1.1 基线 F-05 提问卡 pass 佐证回归（R-01）；typecheck / 502 tests / build 全绿。报告 test/sandbox/verify.question-waterfall-no-card.report.html。
   → done（合入由主线执行）。
+- 2026-09-05 开发完成（worktree question-waterfall-no-card，HEAD 33bae19）→ 主线合入后人工确认 → closed
