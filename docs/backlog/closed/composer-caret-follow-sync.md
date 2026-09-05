@@ -39,3 +39,5 @@ IME 提交路径同样命中：compositionend 恢复层时读取的 scrollTop �
 - 2026-09-05 认领（worktree: agent/composer-caret-follow-sync）→ doing
 
 - 2026-09-05 开发完成，自测通过（569 测试 + Playwright 真实按键/拦截 scroll 对照 + harness 全场景 142 个）→ done
+
+- 2026-09-05 主线合入测试通过（569 测试 + 基线冒烟 45 场景 + 无 scroll 事件兜底抽查 PASS），人工确认 → closed
