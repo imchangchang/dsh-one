@@ -24,3 +24,5 @@ Windows（14xpro-cgeng，192.168.100.226）rc.3 测试日志：`shared pidfile f
 - 2026-09-05 认领（open -> doing）：主线直接开发（worktree recover-token-from-log）；实现如上；typecheck/567 单测全过 i18n 门禁通过
 
 - 2026-09-05 开发完成（doing -> done）：分支 agent/recover-token-from-log；ledger test/sandbox/verify.recover-token-from-log.ledger.json（4 项全过）；Windows 真机验证步骤见条目覆盖说明（装 rc.4 → 清记录保实例 → reload 看自愈）。
+
+- 2026-09-05 合入（done -> closed）：dev-merge 合入 main（4eac9d9）；ledger 4 项全过、审查通过；Windows 自愈验证交用户（rc.4）。
