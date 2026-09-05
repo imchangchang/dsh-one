@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
+import { tooltipMarkdown } from '../pure/statusTooltip.ts'
 
 /**
  * 单块状态栏：$(dsh-fish) 图标 + 状态文字。动作全在悬停 tooltip 里
@@ -44,46 +45,15 @@ function color(status: ServerStatus): vscode.ThemeColor {
   }
 }
 
-/** 悬停 tooltip：动作都在这里（command 链接可点击）。 */
+/**
+ * 悬停 tooltip：动作都在这里（command 链接可点击）。Markdown 文本由
+ * src/pure/statusTooltip.ts 生成（纯函数，单测覆盖逐态内容）。
+ */
 function tooltip(status: ServerStatus): vscode.MarkdownString {
   const md = new vscode.MarkdownString(undefined, true)
   md.isTrusted = true
-  switch (status.state) {
-    case 'running':
-      md.appendMarkdown(`**DSH One** — ${status.url}\n\n`)
-      if (status.adopted) md.appendMarkdown(`${vscode.l10n.t('Reusing an externally started instance; the extension will not stop it')}\n\n`)
-      md.appendMarkdown(`[$(globe) ${vscode.l10n.t('Open in Browser')}](command:dshOne.openExternal)`)
-      if (!status.adopted) {
-        md.appendMarkdown(
-          `　[$(refresh) ${vscode.l10n.t('Restart Service')}](command:dshOne.restart)　[$(debug-stop) ${vscode.l10n.t('Stop Service')}](command:dshOne.stop)`,
-        )
-      }
-      md.appendMarkdown(`　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`)
-      return md
-    case 'starting':
-      md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service is starting…')}\n\n`)
-      md.appendMarkdown(`${vscode.l10n.t('The first start may take a while (preparing profiles and dependencies).')}`)
-      return md
-    case 'error':
-      if (isDshNotFound(status)) {
-        md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('dsh is not installed')}\n\n`)
-        md.appendMarkdown(
-          `[$(cloud-download) ${vscode.l10n.t('Install dsh')}](command:dshOne.openSessions)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
-        )
-        return md
-      }
-      md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service Error')}\n\n`)
-      md.appendMarkdown(
-        `[$(refresh) ${vscode.l10n.t('Retry Starting')}](command:dshOne.start)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
-      )
-      return md
-    default:
-      md.appendMarkdown(`**DSH One** — ${vscode.l10n.t('Service Stopped')}\n\n`)
-      md.appendMarkdown(
-        `[$(play) ${vscode.l10n.t('Start Service')}](command:dshOne.start)　[$(output) ${vscode.l10n.t('Show Logs')}](command:dshOne.showLogs)`,
-      )
-      return md
-  }
+  md.appendMarkdown(tooltipMarkdown(status, (message, ...args) => vscode.l10n.t(message, ...args)))
+  return md
 }
 
 export class StatusBar implements vscode.Disposable {
