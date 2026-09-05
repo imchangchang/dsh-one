@@ -1,0 +1,102 @@
+{
+  "title": "verify-driver 挂死修复验收报告（竞速看门狗 + 帧过滤 + 全局兜底 + 冒烟/重试）",
+  "branch": "agent/verify-driver-hang-fix",
+  "commit": "0f24738",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-verify-driver-hang-fix:latest",
+    "driver": "node test/sandbox/verify-driver.mjs --ledger test/sandbox/verify.verify-driver-hang-fix.ledger.json",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "本次改动仅 test/sandbox/verify-driver.mjs（测试基础设施，无产品代码/UI 行为变化）。new-feature 段 = 修复本身的挂死侧验证（假 workbench 确定性复现台 + 看门狗微测试，均已手动执行并核对日志/截图）；regression 段 = 修后 driver 在真实沙盒跑 CI 基线既有场景，确认不误伤正常路径。真桌面 VS Code、真模型输出不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "挂死复现对照：挂起导航帧与正常聊天帧并存",
+      "expect": "假 workbench 页面 A（一个永久挂起导航 iframe + 一个正常聊天 iframe）：原版 driver 挂死（>60s 无输出、进程存活、SIGTERM 才终止）；修后 driver 跳过空 URL 帧，正常完成且进程退出。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/verify-driver-fake/shots-fixed-a/H-01.png"
+      ],
+      "notes": "原版 3/3 挂死：banner 后 60s+ 无任何输出，Node 报 unsettled top-level await 恰好停在 L320 newChatAndGetFrame（findFrame 扫到挂起帧 evaluate 永久挂），SIGTERM 终止；修后版同场景冒烟通过、H-01 done、9.7s 退出（run-fixed-a.log）。对照复现台 /tmp/verify-driver-fake/（10.255.255.1:8 不可路由地址制造永久挂起导航）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "挂起场景 fail-fast：帧快照诊断 + 自动重试 + 进程必退出",
+      "expect": "假 workbench 页面 B（唯一聊天 iframe 永久挂起）：修后 driver 不得挂死——冒烟失败打印帧快照诊断（空 URL 帧标记）、该项转 fail（不裸 throw 杀进程）、整轮自动重试一次、最终进程正常退出。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/verify-driver-fake/shots-fixed-b/H-02.png"
+      ],
+      "notes": "实测（run-fixed-b.log）：冒烟 [warn] + 帧快照列出 2 帧；H-02 fail「执行异常：未能打开聊天 composer」；自动触发第 2 轮重试（仍 fail，环境确定性如此）；4m27s 进程自行退出 EXIT=0。时长来自 newChatAndGetFrame 三条路径的既有有界超时（30s+10s+12s），非挂死。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "bounded() 竞速看门狗微测试",
+      "expect": "与 driver 内逐字一致的 bounded()：(1) 正常 settle 的 promise 原样返回；(2) 永不 settle 的 promise 超时 reject WatchdogError（带 label 与 watchdog 标记）；(3) 竞速落败的 promise 之后 reject 不触发 unhandledRejection。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "3/3 PASS（/tmp/verify-driver-fake/bounded-test.mjs）：resolve 透传 42；2001ms 后 reject「watchdog: never-settle 用例 >2s 无回应（疑似挂起导航帧，playwright#40511）」；落败 promise 3s 后 late-reject 无 unhandledRejection。每项 5min 硬上限（ITEM_HARD_TIMEOUT）复用同一 bounded 机制，不另做 5 分钟实等。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "根因机制复确认（min-repro2）",
+      "expect": "对挂起导航 iframe（url()==''）：frame.evaluate / locator.count() / locator.evaluate 永不返回（>12s 无响应）；frame.isDetached() 恒 false（不可用作检测）；locator.waitFor 有超时参数可正常 reject。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "复跑 /tmp/dsh-hang-repro/min-repro2.mjs 全部吻合调研结论：evaluate/count/locator.evaluate 均 HANG(>12s)，isDetached 1ms 返回 false，waitFor(2s) 正常 Timeout reject，主帧 evaluate 不受影响（16ms）。证明根因风险真实存在、修复方向（过滤 + 竞速）正确。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "回归：mock-LLM 回显回复（CI 基线 F-01 场景）",
+      "expect": "真实沙盒 + 修后 driver：发送「测试一下」后首轮出现「收到：测试一下」；模型选择器 mock-flash Max。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-verify-driver-hang-fix/R-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "新建会话：sidebar-ungrouped；截图语义核对 pass：「收到：测试一下」回显在消息流，composer 选择器 mock-flash Max，状态栏 DSH: Running :3080（同基线形态）"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "回归：工具调用编排（CI 基线 F-02 场景，查天气 → get_weather）",
+      "expect": "发送「查天气」后 mock 返回 get_weather；真 dsh 走未知工具重试/报错；统计 get_weather ×3。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-verify-driver-hang-fix/R-02.png"
+      ],
+      "driver": {
+        "prompt": "查天气",
+        "expectText": "get_weather"
+      },
+      "notes": "新建会话：sidebar-ungrouped；截图语义核对 pass：get_weather 工具卡（红色未知工具报错标记，符合「重试/报错路径」）+「收到：查天气」回显"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "回归：等待问题形态（CI 基线 F-05 场景，ask_user_question）",
+      "expect": "发送「提个问题」后出现提问面板（测试提问/继续执行吗？+ 选项）；会话挂起待答。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-verify-driver-hang-fix/R-03.png"
+      ],
+      "driver": {
+        "prompt": "提个问题",
+        "expectText": "继续执行吗？"
+      },
+      "notes": "新建会话：sidebar-ungrouped；截图语义核对 pass：ask_user_question 工具卡 + Waiting-for-answer 面板（测试提问/继续执行吗？/继续·停止·Other/Submit）"
+    }
+  ]
+}
