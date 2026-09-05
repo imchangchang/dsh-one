@@ -41,3 +41,4 @@ roster（agentPresets/list）正常，标签映射无需改。hero 选择 chip �
 - 2026-09-06 开发完成（doing -> done）：sessionAgentPreset 窄化（projections.values.agentPreset
   + 顶层回退），toSessionInput 改走它；单测 +1（568 全过）；sessionTree/chatView 注释同步。
   真机 reload 后头部 chip 恢复显示的复核交用户。
+- 2026-09-06 合入（done -> closed）：dev-merge 合入 main（复测 typecheck/568 单测/build 全过，dist 已重建）；用户主线 reload 实测通过（列居中对齐、jump pill、头部 preset chip 恢复）。

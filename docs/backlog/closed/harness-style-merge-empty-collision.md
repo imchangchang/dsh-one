@@ -24,3 +24,6 @@
 ## 变更记录
 
 - 提出并定位（multi-select-exit-and-bar-wrap 任务中实测发现，确认为 harness-only artifact）。
+- 2026-09-06 关闭（open -> closed）：建议方案 1 随 chat-column-layout 合入落地（gen-ui-harness.mjs
+  按 view 拆 style.css / style-sessions.css，harness.html 按 scenario.view 换文件）；合入后
+  sessions-no-workspaces 等场景截图复核空组头渲染正常；主线测试由用户确认通过。

@@ -42,3 +42,4 @@ a0c0d17（聊天列 748 限宽）把 chat 区布局弄坏却通过了视觉验�
   版式断言 + 基线扩 4 个 + SKILL.md 新增 5-8 条 + scripts/ui-visual-diff.sh 分诊工具；
   顺带修 harness 基建（#app 定高 + 样式按 view 分文件，消掉 harness-style-merge-empty-collision
   的 .empty 合流冲突——该 open 条目可随本合入关闭）。
+- 2026-09-06 合入（done -> closed）：dev-merge 合入 main（复测 typecheck/568 单测/build 全过，dist 已重建）；用户主线 reload 实测通过（列居中对齐、jump pill、头部 preset chip 恢复）。

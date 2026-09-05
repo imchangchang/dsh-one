@@ -70,3 +70,4 @@ a0c0d17（chat-content-whitespace-width，v1.1.0 后合入）给 `.messages > *`
   ledger verify.chat-column-layout 8 项全过（141 场景全量截图 + v1.1.0 before 像素 diff 分诊 +
   关键场景逐张核对）；真机 reload 复核交用户。另发现 `.worktrees/fix-jump-latest-width` 有早前
   未提交的 jump-latest 单点补丁（治标），本修复已覆盖其作用，该 worktree 可丢弃。
+- 2026-09-06 合入（done -> closed）：dev-merge 合入 main（复测 typecheck/568 单测/build 全过，dist 已重建）；用户主线 reload 实测通过（列居中对齐、jump pill、头部 preset chip 恢复）。
