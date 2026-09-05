@@ -40,3 +40,5 @@
 - 2026-09-06 用户提出（原型图地址反引号路径不可点、复制繁琐，给出可点击打开 / hover 复制两种可接受方案）→ 核实现状（行内 code 无交互；markdown 链接与产物 chip 已可点；宿主 openPath 现成）→ 建条目（open/）
 
 - 2026-09-06 认领 → doing。用户拍板开工：方案 1+2 组合——行内码路径形状可点击打开（复用 isFilePathHref 与宿主 openPath），其余行内码 hover 复制按钮。
+
+- 2026-09-06 开发完成，自测通过 → done（worktree: agent/chat-inline-code-path-interact，done 标记 c43bf87；沙盒验收 F-01..F-04 + R-01 全 pass，报告 test/sandbox/verify.chat-inline-code-path-interact.report.html）
