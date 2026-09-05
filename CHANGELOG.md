@@ -12,6 +12,8 @@
 
 - 沙盒验收驱动防挂死（verify-driver-hang-investigation）：根因是 Playwright 已知缺陷（对「挂起导航、无执行上下文」的 iframe 调 `evaluate()`/`locator.count()` 永不返回，try/catch 与 `{timeout}` 选项均无效）。修复：帧扫描循环跳过空 URL 帧；所有无超时调用点接 `bounded()` 竞速看门狗（默认 10s，转该项 fail + 帧快照诊断）；每项 5min 硬上限兜底（转储 `page.frames()` 各帧 URL）；首项前冒烟预热 + 单项目 fail 自动重试一轮。
 
+- 状态栏 tooltip：adopted / external 实例也显示 dsh 版本（statusbar-adopted-version）：旧实现一刀切不显示（怕误导）——现在 shared 记录优先（spawn 时已存 version，另一窗口 adopt 直接展示）；无记录时从实例命令行解析真实入口（`@deepseek-ai/dsh/lib/bin.js` / 官方 `dist/dsh.js` / npm 全局 shim / Windows `dsh.cmd` 等形态）执行 `--version` 探询，不依赖扩展 PATH（多安装不误导）；探测失败才缺省不显示。
+
 ### Fixed
 
 - 流式输出中 commit 悬浮卡闪关闪开（commit-card-jumps-during-streaming）：消息行每帧重建摘除旧 chip 导致详情卡断开重开——行重建后按同身份重锚已打开弹层（commit chip 按 sha 限同 flow 行；token 用量药丸同机制），卡片被摘除时鼠标判定不排延迟关闭。
