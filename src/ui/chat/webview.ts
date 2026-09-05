@@ -3902,6 +3902,7 @@ function renderInjectedContext(ctx: ChatContext, text: string, key: string): HTM
   if (ctx.form === 'notice' && ctx.summary) summary.appendChild(el('span', 'context-summary', ctx.summary))
   det.appendChild(summary)
   det.appendChild(markScrollable(contextBodyOf(ctx, text), `${key}:ctx`))
+  attachCollapseFooter(det)
   return det
 }
 
@@ -4373,6 +4374,22 @@ function detailsEl(key: string, className: string, summaryText: string): HTMLDet
   return det
 }
 
+/**
+ * 展开块内容底部加一个「收起」小按钮：长内容（思考/工具调用/命令输出等）
+ * 展开后用户往往已滚到文字底部，顶部的 summary 够不着，底部一键收起。
+ * 按钮挂 details 内容之后，折叠态随内容一起隐藏；点击让 det.open = false，
+ * toggle 事件会照常更新 detailsOpen 持久化。调用方在 append 完内容后调用。
+ */
+function attachCollapseFooter(det: HTMLDetailsElement): void {
+  const b = buttonEl('details-collapse', t('Collapse'))
+  b.type = 'button'
+  b.title = t('Collapse')
+  b.addEventListener('click', () => {
+    det.open = false
+  })
+  det.appendChild(b)
+}
+
 /* ---------------- 任务清单卡（输入区上方，对齐官方 TodoPanel/TodoDock） ---------------- */
 
 /**
@@ -4766,6 +4783,7 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
       if (m.status === 'running') summary.appendChild(spinnerEl())
       summary.appendChild(el('span', 'command-text', text.split('\n')[0]))
       det.appendChild(el('pre', 'command-body', text))
+      attachCollapseFooter(det)
       row.appendChild(det)
     } else {
       row.appendChild(el('span', 'command-line', `/${m.name}${m.args ? ` ${m.args}` : ''}`))
@@ -5345,6 +5363,7 @@ function renderCompactionCard(
   body.innerHTML = md(opts.summary as string)
   enhanceCodeBlocks(body, `${key}:compact`)
   det.appendChild(body)
+  attachCollapseFooter(det)
   return det
 }
 
@@ -5418,6 +5437,7 @@ function renderRetryRow(block: ChatRetryBlock, key: string): HTMLElement {
   failure.appendChild(document.createTextNode(block.failure.message))
   details.appendChild(failure)
   det.appendChild(details)
+  attachCollapseFooter(det)
   return det
 }
 
@@ -5716,6 +5736,7 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
       summary.appendChild(iconSvg(THINK_ICON, 14))
       summary.appendChild(el('span', 'reasoning-summary', firstLine ? t('Thoughts · {0}', firstLine) : t('Thoughts')))
       det.appendChild(el('div', 'reasoning-body', block.text))
+      attachCollapseFooter(det)
       return det
     }
     case 'tool':
@@ -5796,6 +5817,7 @@ function renderSkillRow(block: ChatToolBlock, key: string): HTMLElement {
   instructions.appendChild(el('div', 'skill-instructions-header', t('Instructions')))
   instructions.appendChild(markScrollable(el('pre', 'skill-instructions', card.output), `${key}:instructions`))
   det.appendChild(instructions)
+  attachCollapseFooter(det)
   row.appendChild(det)
   return row
 }
@@ -5851,6 +5873,7 @@ function renderCordisDefineRow(block: ChatToolBlock, key: string): HTMLElement {
     body.appendChild(section)
   }
   det.appendChild(body)
+  attachCollapseFooter(det)
   row.appendChild(det)
   return row
 }
@@ -5988,6 +6011,7 @@ function renderTool(block: ChatToolBlock, key: string): HTMLElement {
   if (hasArgs) body.appendChild(toolInOut('IN', prettyJson(block.args as string), `${key}:in`, false))
   if (hasOutput) body.appendChild(toolInOut('OUT', block.output as string, `${key}:out`, true))
   det.appendChild(body)
+  attachCollapseFooter(det)
   row.appendChild(det)
   if (block.diff) row.appendChild(renderDiff(block.diff, `${key}:diff`))
   if (snapshotNote) row.appendChild(snapshotNote)
@@ -6558,6 +6582,7 @@ function renderQuestionItem(
     body.innerHTML = md(q.detail)
     enhanceCodeBlocks(body, `q:${p.rpcId}:${index}`)
     det.appendChild(body)
+    attachCollapseFooter(det)
     wrap.appendChild(det)
   }
   const draft = draftFor(p.rpcId, index)
