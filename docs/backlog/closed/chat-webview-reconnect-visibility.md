@@ -44,3 +44,4 @@
 - 2026-09-05 用户收窄范围（只做前端体验部分）：建议方案拆为「本期范围」（断连横幅+沙盒实测）与「暂缓项」（凭证兜底）
 - 2026-09-05 认领（worktree: agent/chat-webview-reconnect-banner，只做断连横幅+沙盒实测，凭证兜底暂缓）→ doing
 - 2026-09-06 开发完成，自测通过 → done（worktree: agent/chat-webview-reconnect-banner；断连横幅三相位 + 立即重连按钮 + kill/respawn 沙盒实测 4 项全 pass，报告 test/sandbox/verify.chat-webview-reconnect-banner.report.html；实测发现 dsh 0.1.1 重连后无 pending 事件时不发 session/subscribed（静默挂 socket 但事件照常流），重连成功信号放宽为「本会话任意帧到达」）
+- 2026-09-06 主线合入测试通过，人工确认 → closed（dev-merge 合入 main 7f6da71，rebase 解 2 处冲突：l10n bundle 新增行与 webview render 清理循环（主线同期加了 rebuildingHeader/keepQueue/keepGoalBar，横幅保活行并入）；主线回归复测 typecheck/591 tests/build/i18n 门禁全过）
