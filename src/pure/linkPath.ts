@@ -23,3 +23,31 @@ export function isFilePathHref(href: string): boolean {
   // 无 scheme：视为相对路径（docs/foo.md、AGENTS.md）
   return true
 }
+
+/**
+ * 行内码（反引号包裹）文本是否形如文件路径——用于「点击直接在 VS Code 打开」判定。
+ *
+ * 与 isFilePathHref 的 href 语义不同：href 里「无 scheme 一律视为相对路径」，
+ * 对行内码文本太宽——反引号里命令/变量（git status、npm run build、VITE_PORT）
+ * 远多于路径，照搬会把命令变成可点目标。这里收紧为「一眼是文件路径」的启发式：
+ * - 绝对路径（POSIX / UNC / ~ / file: / Windows drive）原样放行；
+ * - ./ ../ 前缀放行；
+ * - dotfile（.gitignore / .env 等）；
+ * - 相对路径或纯文件名：末段必须有 2–10 位纯字母扩展名（拿不准的不点，
+ *   交给 hover 复制兜底——见 webview 侧 decorateInlineCodes）。
+ * 含空白/括号/引号/通配的文本判为命令或占位符，一律不点。
+ */
+export function isInlineCodeFilePath(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (/\s/.test(t)) return false
+  if (/[`"'()<>{}[\]*?|]/.test(t)) return false
+  if (/^[\\/~]/u.test(t) || /^file:/i.test(t)) return true
+  if (/^[a-z]:[\\/]/i.test(t)) return true
+  if (/^\.{1,2}[\\/]/u.test(t)) return true
+  if (/^\.[a-z][a-z0-9_-]*$/iu.test(t)) return true
+  return (
+    /^(?:[a-zA-Z0-9_+@.-]+[\\/])+[a-zA-Z0-9_+@.-]+\.[a-zA-Z]{2,10}$/iu.test(t) ||
+    /^[a-zA-Z0-9_+@.-]+\.[a-zA-Z]{2,10}$/iu.test(t)
+  )
+}
