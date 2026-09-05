@@ -1208,7 +1208,27 @@
         return s
       })(),
       title: '侧栏面板（综合列表）',
-      expect: '头部工具栏（搜索框/排序/刷新/折叠全部/添加工作区）；搜索框下一行分组栏（左 All workspaces ▼ + 右 +）；dsh-one 组：vscode 标签、文件夹染蓝（组内有 active 行）、组名右侧角标（环 1 → 运行中 + 绿点 1 → 未读）、「sess-4 当前附加的会话」行高亮（active）；行首状态槽：sess-1 像素环、sess-2 未读绿点 + 标题加粗、sess-3 置顶图钉（槽位空时）；workspace 行尾 hover 动作仅结构存在（截图为静态，不核对 hover）；dsh-web research 组：sess-5 黄色待审批点（pendingInteraction）；未分组虚拟组显示「sess-6 未分组里的孤儿会话」。',
+      expect: '头部工具栏（搜索框/排序/刷新/折叠全部/添加工作区）；搜索框下一行分组栏（左 All workspaces ▼ + 右 +）；dsh-one 组：vscode 标签、文件夹染蓝（组内有 active 行）、组名右侧角标（环 1 → 运行中 + 绿点 1 → 未读）、「sess-4 当前附加的会话」行高亮（active）；行首状态槽只放置顶图钉（sess-3 置顶行），其余行首留空；行尾状态位与时间互斥：sess-1 像素环（无时间）、sess-2 未读绿点（无时间，标题加粗）、sess-3 置顶空闲（显示「昨天」）、sess-4 空闲（显示「10 分钟前」）；workspace 行尾 hover 动作仅结构存在（截图为静态，不核对 hover）；dsh-web research 组：sess-5 行尾黄色待审批点（pendingInteraction，无时间）；未分组虚拟组显示「sess-6 未分组里的孤儿会话」（空闲显示时间）。',
+    },
+
+    'sessions-status-rear-slot': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.workspaces[0].sessions = [
+          sess('sess-1', '空闲会话', '3 小时前'),
+          sess('sess-2', '未读会话', '5 小时前', { unread: true }),
+          sess('sess-3', '运行中的会话', '57 分钟前', { running: true }),
+          sess('sess-4', '待审批的会话', '昨天', { pendingInteraction: 'approval' }),
+          sess('sess-5', '置顶 + 运行中', '1 小时前', { pinned: true, running: true }),
+          sess('sess-6', '置顶空闲', '2 小时前', { pinned: true }),
+        ]
+        s.pinned = ['sess-5', 'sess-6']
+        s.unread = ['sess-2']
+        return s
+      })(),
+      title: '侧栏面板（行尾状态槽：标记与时间互斥）',
+      expect: '行首：只有 sess-5 / sess-6 有置顶图钉（常驻），其余行首留空。行尾互斥：sess-1 显示「3 小时前」；sess-2 显示绿色圆点（标题加粗，无时间）；sess-3 显示蓝色像素环（无时间——不得再出现「57 分钟前」与忙碌并存）；sess-4 显示黄色圆点（无时间）；sess-5 行首图钉 + 行尾像素环（无时间）；sess-6 行首图钉 + 行尾时间「2 小时前」。所有行尾标记（绿点/黄点/像素环）垂直中心与行中心对齐、水平中心在同一条竖线上；空闲行的时间右缘贴行尾。',
     },
 
     'sessions-baseline-loading': {
@@ -3378,6 +3398,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
   window.BASELINE_SCENARIOS = [
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'model-picker-effort-default', 'sessions',
+    'sessions-status-rear-slot',
     'sessions-search', 'sessions-collapsed', 'sessions-recycle-drawer',
     'sessions-recycle-entry-actions', 'sessions-recycle-handle',
     'sessions-workspace-menu-groups',
