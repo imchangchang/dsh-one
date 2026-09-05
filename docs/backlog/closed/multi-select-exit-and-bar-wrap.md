@@ -31,3 +31,4 @@ Sessions 面板多选模式下两个问题（用户实测反馈）：
 - 提出并核实根因，方案经用户确认（移入/归档都直接退多选 + 短文案方案）。
 - 认领，开 worktree 开发。
 - 开发完成：worktree agent/multi-select-exit-and-bar-wrap，done 标记 8471dc7；测试报告 test/sandbox/verify.multi-select-exit-and-bar-wrap.report.html（worktree 内，6 项全 pass），待主线审查合入。
+- 主线合入（merge commit f7acd1f）复测通过（typecheck + 567 单测 + build + dist 重建），用户确认，闭环。
