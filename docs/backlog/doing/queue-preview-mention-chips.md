@@ -41,3 +41,4 @@
 ## 变更记录
 
 - 2026-09-05 用户提出（排队中预览：除附件外其他 @ 情况也需渲染优化，询问意见）→ 核实现状（附件已剥行折叠、@ 引用原样上屏、steering 已走 chip 管线）→ 建条目（open/）
+- 2026-09-05 用户确认直接修复 → 认领（worktree: agent/queue-preview-mention-chips）→ doing
