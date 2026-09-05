@@ -384,15 +384,17 @@ function panelStateFor(rpcId: string): { page: number; minimized: boolean; skipp
 }
 
 /**
- * Fallback slash-command table, used only while the host's per-session roster
- * (state.slashCommands, from commands/list) has not arrived or failed to
- * fetch — e.g. a 0.1.1 host without the endpoint. The dynamic roster is
- * composed from the session's agent preset (a preset without command-goal
- * has no `goal`), so it is the authority whenever present. Commands execute
- * via commands/execute, not session.prompt. `hint` drives the composer's arg
- * hints.
+ * Known host slash commands. Two roles: (1) fallback roster while the host's
+ * per-session list (state.slashCommands, from commands/list) has not arrived
+ * or failed to fetch — e.g. a pre-commands/list host; (2) l10n overlay — the
+ * host's descriptions are English-only, so a dynamic entry whose name is
+ * known keeps this translated description (host text stays authoritative for
+ * `hint` and for any command not listed here). The dynamic roster is composed
+ * from the session's agent preset (a preset without command-goal has no
+ * `goal`), so it decides membership whenever present. Commands execute via
+ * commands/execute, not session.prompt.
  */
-const FALLBACK_HOST_COMMANDS: Array<{ name: string; description: string; hint?: string }> = [
+const KNOWN_HOST_COMMANDS: Array<{ name: string; description: string; hint?: string }> = [
   { name: 'compact', description: t('Compact older session history') },
   { name: 'export', description: t('Export this session log (ZIP)') },
   { name: 'feedback', description: t('Record feedback for this session'), hint: '<text>' },
@@ -406,7 +408,13 @@ const MODEL_COMMAND = { name: 'model', description: t('Select the model for this
 
 /** Commands the composer's slash completion and the command menu offer: host roster (or fallback) + the client-side /model. */
 function slashCommands(): Array<{ name: string; description: string; hint?: string }> {
-  return [...(state?.slashCommands ?? FALLBACK_HOST_COMMANDS), MODEL_COMMAND]
+  const dynamic = state?.slashCommands
+  const host =
+    dynamic?.map((c) => {
+      const known = KNOWN_HOST_COMMANDS.find((k) => k.name === c.name)
+      return known ? { ...c, description: known.description } : c
+    }) ?? KNOWN_HOST_COMMANDS
+  return [...host, MODEL_COMMAND]
 }
 
 /** Shield glyphs copied verbatim from dsh-client-ui-conversation's PermissionSelect. */
