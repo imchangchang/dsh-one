@@ -1307,6 +1307,27 @@
       expect: '与 hover 场景同布局，但由**点击**「分组…」展开（触屏/键盘兜底路径）：二级菜单锚在「分组…」项右侧，顶层 6 项菜单完整保留、与二级菜单并存，三个组行「演示 2 ✓」「开发 1 ✓」「日常 0」勾选态正确。',
     },
 
+    'sessions-workspace-menu-groups-leave': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        return s
+      })(),
+      interact: `(() => {
+        const head = document.querySelector('.workspace-group[data-workspace-id="ws-main"] .workspace-row')
+        head?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }))
+        const items = [...document.querySelectorAll('.menu-item')]
+        const anchor = items.find((i) => i.textContent?.includes('Groups…'))
+        anchor?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+        // hover 移出：指针落到顶层菜单其它项（如复制文件夹引用）
+        const other = items.find((i) => i.textContent?.includes('Copy folder reference'))
+        other?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+      })()`,
+      title: '侧栏面板（分组… 子菜单：hover 移出后收起）',
+      expect: 'hover 展开「分组…」二级菜单后，指针移出到顶层菜单其它项（复制文件夹引用）：二级 popover 收起（截图时已过 140ms 延时），顶层 6 项菜单仍完整保留、无任何残留二级菜单。',
+    },
+
     'sessions-workspace-archive-modal': {
       view: 'sessions',
       sessions: (() => {
