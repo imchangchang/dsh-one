@@ -51,6 +51,11 @@
     //   只投喂 sessions 快照；缺省（chat webview）投喂 sessions/state/modelCatalog。
     // 场景可选 interact 字段（一段 JS 字符串）：快照投喂后延迟执行，用于模拟
     // 点击打开菜单/进入行内重命名等交互态，再被脚本截图。
+    // 场景可选 interactSteps 字段（[{name, script, settle?}]，与 interact 二选一、
+    // 同时存在时优先）：分步交互——每步 script 执行并等待 settle 毫秒（默认 500）
+    // 后置 window.__interactStepDone = name（完成信号），ui-visual.sh 轮询到信号
+    // 截图该步，再调 window.__interactStepAdvance() 放行下一步（截图管线的握手
+    // 协议见 scripts/ui-visual.sh）。所有步骤执行完后 advance 为空操作。
     const q = new URLSearchParams(location.search)
     const name = q.get('scenario') || window.DEFAULT_SCENARIO
     const scen = window.SCENARIOS[name] || window.SCENARIOS[window.DEFAULT_SCENARIO]
@@ -63,7 +68,23 @@
       post({ type: 'sessions', snapshot: scen.sessions || window.sessionsTree(scen.state && scen.state.sessionId) })
       if (scen.state) post({ type: 'state', state: scen.state })
       if (scen.modelCatalog) post({ type: 'modelCatalog', catalog: scen.modelCatalog })
-      if (scen.interact) setTimeout(() => (0, eval)(scen.interact), 300)
+      if (scen.interactSteps && scen.interactSteps.length > 0) {
+        // 分步握手：先置空信号再执行本步脚本；脚本同步返回不代表 UI 稳定，
+        // settle 后（需长异步链的步骤在场景里调大）才推完成信号。
+        const steps = scen.interactSteps
+        let idx = -1
+        window.__interactStepDone = null
+        window.__interactStepAdvance = () => {
+          idx += 1
+          if (idx >= steps.length) return
+          window.__interactStepDone = null
+          ;(0, eval)(steps[idx].script)
+          setTimeout(() => { window.__interactStepDone = steps[idx].name }, steps[idx].settle ?? 500)
+        }
+        setTimeout(() => window.__interactStepAdvance(), 300)
+      } else if (scen.interact) {
+        setTimeout(() => (0, eval)(scen.interact), 300)
+      }
     }
     document.head.appendChild(s)
   }

@@ -5,6 +5,10 @@
 // 只增不改字段名；新增场景往 window.SCENARIOS 里加一个条目即可。
 // 侧栏面板场景（view: 'sessions'）只投喂 sessions 快照；interact 字段是一段 JS
 // 字符串，快照投喂后延迟执行，用于打开菜单/进入行内重命名等交互态再截图。
+// 交互要多步（如「打开菜单 → hover 展开二级」）且需要中间帧对照时，改用
+// interactSteps: [{ name, script, settle? }]——harness 每步执行后置
+// window.__interactStepDone = name，ui-visual.sh 逐步各截一张
+// <scenario>-<step>.png（交互前/后对照，见 harness.html 与 ui-visual.sh）。
 (function () {
   const UNGROUPED = '__ungrouped__'
   const rid = (p) => p + Math.random().toString(36).slice(2, 7)
@@ -97,12 +101,17 @@
     ...over,
   })
 
-  // 每个场景 = { state, title, expect }（+ 可选 view/interact）：
+  // 每个场景 = { state, title, expect }（+ 可选 view/interact/interactSteps）：
   //   view    — 'sessions' 时加载侧栏面板 bundle（只投喂 sessions）
   //   state   — ChatState / SessionsSnapshot 渲染输入（见 harness.html）
   //   interact — 投喂后执行的交互 JS（如模拟点击打开菜单）
+  //   interactSteps — 分步交互 [{name, script, settle?}]：每步执行完推完成信号，
+  //     ui-visual.sh 逐步各截一张 <scenario>-<step>.png（与 interact 二选一，
+  //     同时存在时 interactSteps 优先）；settle 是该步脚本执行后到 UI 稳定的
+  //     毫秒延迟（默认 500，脚本内有 setTimeout/MutationObserver 异步链的按需调大）
   //   title   — 显示名（给 agent / 人看）
-  //   expect  — 该状态应该呈现的逻辑与排版（agent 读截图后逐条对照核对，非像素 diff）
+  //   expect  — 该状态应该呈现的逻辑与排版（agent 读截图后逐条对照核对，非像素 diff）；
+  //     分步场景写清每张截图对应的子状态
   const catalog = {
     conversation: {
       state: base({
@@ -1391,14 +1400,27 @@
         Object.assign(s, window.SESSION_GROUPS_FIXTURE)
         return s
       })(),
-      interact: `(() => {
-        const head = document.querySelector('.workspace-group[data-workspace-id="ws-main"] .workspace-row')
-        head?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }))
-        const items = [...document.querySelectorAll('.menu-item')]
-        items.find((i) => i.textContent?.includes('Groups…'))?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
-      })()`,
+      // 分步交互（interactSteps）：第一步右键开顶层菜单、第二步悬停「分组…」展开
+      // 二级——两张截图分别对应「打开前（仅顶层菜单）/ 打开后（顶层 + 二级并存）」，
+      // 「顶层菜单被二级顶掉」类 bug 在两图对照下无从遁形。
+      interactSteps: [
+        {
+          name: 'menu',
+          script: `(() => {
+            const head = document.querySelector('.workspace-group[data-workspace-id="ws-main"] .workspace-row')
+            head?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }))
+          })()`,
+        },
+        {
+          name: 'groups',
+          script: `(() => {
+            const items = [...document.querySelectorAll('.menu-item')]
+            items.find((i) => i.textContent?.includes('Groups…'))?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+          })()`,
+        },
+      ],
       title: '侧栏面板（分组… 子菜单：hover 展开 + 与顶层菜单并存）',
-      expect: '右键 ws-main 弹出顶层菜单后，**悬停**「分组…」即展开二级 popover（不必点击）：二级菜单锚在「分组…」项右侧、右缘对齐；**顶层 6 项菜单完整保留、与二级菜单并存**（标题 Workspace: dsh-one、复制文件夹引用、分组…、归档该工作区全部会话、在新窗口打开文件夹、复制路径、从列表移除都仍在原位）；二级菜单三个组行自上而下「演示 2 ✓」「开发 1 ✓」「日常 0」（勾选态来自 ws-main 的归属 groupMembership；「日常」未勾无 ✓、计数 0 仍列出）；勾选行带 ✓ 于行尾；组名 + 右侧计数 + ✓ 布局在列。',
+      expect: '两张分步截图对照——① <scenario>-menu.png（右键后、悬停前）：右键 ws-main 工作区行弹出顶层菜单，自上而下 6 项：标题「Workspace: dsh-one」、复制文件夹引用、分组…（齿轮 + 右缘 ›）、归档该工作区全部会话、在新窗口打开文件夹、复制路径、从列表移除，无二级菜单。② <scenario>-groups.png（悬停「分组…」后）：二级 popover 锚在「分组…」项右侧、右缘对齐；**顶层 6 项菜单完整保留、与二级菜单并存**——从列表移动到组行都在原位；二级菜单三个组行自上而下「演示 2 ✓」「开发 1 ✓」「日常 0」（勾选态来自 ws-main 的归属 groupMembership；「日常」未勾无 ✓、计数 0 仍列出）；勾选行带 ✓ 于行尾；组名 + 右侧计数 + ✓ 布局在列。',
     },
 
     'sessions-workspace-menu-groups-click': {
