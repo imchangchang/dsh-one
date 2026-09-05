@@ -73,10 +73,12 @@
 
   /* ---- 方案 A：行尾统一槽（时间与标记互斥） ---- */
   .slot-rear {
-    flex: none; width: 64px; height: 16px;
+    flex: none; min-width: 16px; height: 16px;
     display: inline-flex; align-items: center; justify-content: flex-end;
+    align-self: center; /* 覆盖 .session-main 的 baseline：与行垂直中心对齐 */
   }
-  .slot-rear .session-spin { margin-right: 4px; }
+  /* 标记态：固定 16px 槽,内容水平居中——绿点/黄点/像素环中心在一条竖线上 */
+  .slot-rear.mark { width: 16px; justify-content: center; }
 
   .legend { padding: 10px 12px 12px; border-top: 1px solid #3c3c3c; font-size: 11px; color: #9d9d9d; line-height: 1.8; }
   .legend b { color: #cccccc; font-weight: 600; }
@@ -113,11 +115,11 @@
     <div class="panel-head">方案 A <span class="tag">行首只留置顶,行尾时间位放状态(互斥)</span></div>
     <div class="panel-body">
       <div class="session-row"><span class="session-status"></span><span class="session-main"><span class="session-title">DSH One 示例会话</span><span class="slot-rear"><span class="session-time">3 小时前</span></span></span></div>
-      <div class="session-row"><span class="session-status"></span><span class="session-main"><span class="session-title unread">重构 sessionStore</span><span class="slot-rear"><span class="session-dot completed"></span></span></span></div>
-      <div class="session-row"><span class="session-status"></span><span class="session-main"><span class="session-title">待审批的会话</span><span class="slot-rear"><span class="session-dot warning"></span></span></span></div>
-      <div class="session-row"><span class="session-status"></span><span class="session-main"><span class="session-title">运行中的会话</span><span class="slot-rear"><svg class="session-spin" width="10" height="10" viewBox="0 0 10 10" shape-rendering="crispEdges"><rect x="0" y="0" width="2" height="2"/><rect x="4" y="0" width="2" height="2"/><rect x="8" y="0" width="2" height="2"/><rect x="8" y="4" width="2" height="2"/><rect x="8" y="8" width="2" height="2"/><rect x="4" y="8" width="2" height="2"/><rect x="0" y="8" width="2" height="2"/><rect x="0" y="4" width="2" height="2"/></svg></span></span></div>
+      <div class="session-row"><span class="session-status"></span><span class="session-main"><span class="session-title unread">重构 sessionStore</span><span class="slot-rear mark"><span class="session-dot completed"></span></span></span></div>
+      <div class="session-row"><span class="session-status"></span><span class="session-main"><span class="session-title">待审批的会话</span><span class="slot-rear mark"><span class="session-dot warning"></span></span></span></div>
+      <div class="session-row"><span class="session-status"></span><span class="session-main"><span class="session-title">运行中的会话</span><span class="slot-rear mark"><svg class="session-spin" width="10" height="10" viewBox="0 0 10 10" shape-rendering="crispEdges"><rect x="0" y="0" width="2" height="2"/><rect x="4" y="0" width="2" height="2"/><rect x="8" y="0" width="2" height="2"/><rect x="8" y="4" width="2" height="2"/><rect x="8" y="8" width="2" height="2"/><rect x="4" y="8" width="2" height="2"/><rect x="0" y="8" width="2" height="2"/><rect x="0" y="4" width="2" height="2"/></svg></span></span></div>
       <div class="session-row"><span class="session-status"><svg class="pin-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z"/><path d="M8 9.5v4"/></svg></span><span class="session-main"><span class="session-title">置顶的会话</span><span class="slot-rear"><span class="session-time">2 小时前</span></span></span></div>
-      <div class="session-row"><span class="session-status"><svg class="pin-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z"/><path d="M8 9.5v4"/></svg></span><span class="session-main"><span class="session-title">运行中 + 置顶</span><span class="slot-rear"><svg class="session-spin" width="10" height="10" viewBox="0 0 10 10" shape-rendering="crispEdges"><rect x="0" y="0" width="2" height="2"/><rect x="4" y="0" width="2" height="2"/><rect x="8" y="0" width="2" height="2"/><rect x="8" y="4" width="2" height="2"/><rect x="8" y="8" width="2" height="2"/><rect x="4" y="8" width="2" height="2"/><rect x="0" y="8" width="2" height="2"/><rect x="0" y="4" width="2" height="2"/></svg></span></span></div>
+      <div class="session-row"><span class="session-status"><svg class="pin-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z"/><path d="M8 9.5v4"/></svg></span><span class="session-main"><span class="session-title">运行中 + 置顶</span><span class="slot-rear mark"><svg class="session-spin" width="10" height="10" viewBox="0 0 10 10" shape-rendering="crispEdges"><rect x="0" y="0" width="2" height="2"/><rect x="4" y="0" width="2" height="2"/><rect x="8" y="0" width="2" height="2"/><rect x="8" y="4" width="2" height="2"/><rect x="8" y="8" width="2" height="2"/><rect x="4" y="8" width="2" height="2"/><rect x="0" y="8" width="2" height="2"/><rect x="0" y="4" width="2" height="2"/></svg></span></span></div>
     </div>
     <div class="legend">
       <b>行首</b>:空闲留空;置顶图钉常驻。多选复选/未来新标记都可占用这里。<br>

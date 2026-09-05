@@ -47,3 +47,5 @@
 - 2026-09-05 用户提出（侧栏 session 分组，Chrome 垂直标签式，先出原型确认）；补充：预设 todo/doing/done 组 + 自定义组、拖拽入组、拖组排序、整组批量归档/移入回收站、预设组名走 l10n → 建条目（open/）
 
 - 2026-09-06 认领（doing）：用户确认方案，开 worktree 开发
+
+- 2026-09-06 开发完成（done）：单测 602 项全过，ai-visual-validation 场景核对通过，沙盒回归通过，dev-finish 打标 done/session-tag-groups → 47010c3，验收报告 test/sandbox/verify.session-tag-groups.report.html
