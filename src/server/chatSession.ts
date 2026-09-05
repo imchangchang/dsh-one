@@ -483,9 +483,12 @@ export class ChatSessionController implements vscode.Disposable {
     this.push(true)
   }
 
-  /** 基线成功落地后清除打开失败提示（重连重基线/快照到达共用）。 */
+  /** 基线成功落地后清除打开失败提示（重连重基线/快照到达共用）；
+   *  立即推一帧——提示条消失不能等下一次事件（空闲会话可能没有后续推送）。 */
   private clearOpenError(): void {
+    if (this.openErrorValue === undefined) return
     this.openErrorValue = undefined
+    this.push(true)
   }
 
   /** Queue (or steer) one user prompt. Slash commands do not belong here — see chatView's runCommand. */
