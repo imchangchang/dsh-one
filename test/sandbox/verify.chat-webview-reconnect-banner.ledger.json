@@ -1,0 +1,80 @@
+{
+  "title": "chat webview 断连横幅 + 实例重启自愈实测",
+  "branch": "agent/chat-webview-reconnect-banner",
+  "commit": "",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "light",
+    "image": "dsh-sandbox:latest",
+    "date": ""
+  },
+  "coverageNote": "沙盒（code-server + 真 dsh + mock-LLM）验证断连横幅三相位与 kill/respawn 自愈链路；真桌面 VS Code、真模型输出、0.1.2 认证 dsh、平台专项（Windows/macOS）不在本报告范围。断连场景用端口占位器（test/sandbox/dsh-port-holder.mjs）把健康探测与 mux 连接隔开：manager 不 detach controller（隔离 10s 健康探测竞态），重连横幅按退避确定性演进。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "断连横幅 + 自动重连自愈 + 盲窗消息经 re-baseline 补齐",
+      "expect": "会话发「断线前消息」得回显后 kill dsh：①顶部横幅出现 connecting 文案（转圈+立即重连按钮）；②约 3.5s 后转 failed 文案（红底+按钮）；③respawn dsh 后，横幅在自动退避重连成功时短暂显示 recovered 文案（绿底）并自动隐藏；④盲窗期间发送的「盲窗期间发送」在恢复后完整出现（失明期间的事件经 re-baseline 补上）；⑤恢复后新发「恢复后发送」正常回显；⑥断线前的消息仍在。",
+      "result": "pending",
+      "screenshots": [],
+      "driver": {
+        "prompt": "断线前消息",
+        "expectText": "收到：断线前消息",
+        "reconnect": {
+          "container": "dsh-sandbox",
+          "connectingText": "Connection lost, reconnecting",
+          "failedText": "Reconnection failed",
+          "recoveredText": "Connection restored",
+          "blindPrompt": "盲窗期间发送",
+          "afterPrompt": "恢复后发送"
+        }
+      }
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "断连横幅「立即重连」按钮路径",
+      "expect": "再次 kill dsh 出横幅后 respawn，点击横幅「Reconnect now」按钮：恢复横幅出现并自动隐藏，恢复后新发「按钮恢复后发送」正常回显，断线前内容仍在——按钮点击经 webview→host→forceReconnect 全链路生效。",
+      "result": "pending",
+      "screenshots": [],
+      "driver": {
+        "prompt": "按钮路径前消息",
+        "expectText": "收到：按钮路径前消息",
+        "reconnect": {
+          "container": "dsh-sandbox",
+          "connectingText": "Connection lost, reconnecting",
+          "failedText": "Reconnection failed",
+          "recoveredText": "Connection restored",
+          "buttonRecovery": true,
+          "afterPrompt": "按钮恢复后发送"
+        }
+      }
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "普通回显（respawn 后的 dsh 上基础链路回归）",
+      "expect": "新建会话发送「回归消息」得 mock 回显「收到：回归消息」。",
+      "result": "pending",
+      "screenshots": [],
+      "driver": {
+        "prompt": "回归消息",
+        "expectText": "收到：回归消息"
+      }
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "慢速流式输出（respawn 后的 dsh 上流式回归）",
+      "expect": "发送「慢命令」后消息流出现「慢速输出第 2 块」（mock 慢速流式 12 块 × 2s，respawn 后的 dsh 流式编排仍正常）。",
+      "result": "pending",
+      "screenshots": [],
+      "driver": {
+        "prompt": "慢命令",
+        "expectText": "慢速输出第 2 块"
+      }
+    }
+  ]
+}
