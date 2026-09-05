@@ -60,3 +60,8 @@ a0c0d17（chat-content-whitespace-width，v1.1.0 后合入）给 `.messages > *`
   流程反思（为何当时能过验）：验收只截 3 个自证场景未全量回归；jump-latest 无任何可见场景；
   compaction/workflow 的 expect 只写内容不写对齐，错位不违字面；compaction-cards/turn-navigator 不在 BASELINE_SCENARIOS，
   合入后也无 baseline 冒烟记录。改进项随修复一并落地（隐藏态场景 + expect 版式断言 + 布局改动必跑全量 before/after）。
+- 2026-09-06 认领（open -> doing）：用户指示彻底修改（不治标）、布局对齐 dsh web 最新源码。
+  dsh web 0.1.2-rc.1 布局模型已从线上 GUI 扒取：单一居中列容器（.EvIC1a_column，
+  width:100% + max-width:var(--dsh-chat-content-width) + margin auto，流内元素全部为其统一子项）；
+  内容宽 clamp(680px, 会话列宽×64%, 920px) + 拖拽手柄；composer 卡 = 内容宽+32 居中；
+  pending/dock = 内容宽居中；回到底部 pill 贴内容列右缘；回合轨道栏贴滚动面板右缘（不随列内移）。
