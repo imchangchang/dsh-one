@@ -82,3 +82,5 @@ renderSessions 整列表重建。
 - 2026-09-06 认领（worktree: agent/input-keepalive）→ doing
 
 - 2026-09-06 开发完成，自测通过 → done（worktree: agent/input-keepalive，done 标记 6bca311；测试报告 test/sandbox/verify.input-keepalive.report.html）
+
+- 2026-09-06 主线合入（merge 43424a6），复测 579 单测全绿 + 主线 harness 冒烟 3/3（rename/composer/question-other 流式保活）通过，人工确认 → closed
