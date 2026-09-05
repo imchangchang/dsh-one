@@ -47,7 +47,7 @@ import {
 } from '../../pure/installScript.ts'
 import { steerModifierLabel } from '../../pure/steerShortcut.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
-import { isFilePathHref } from '../../pure/linkPath.ts'
+import { isFilePathHref, isInlineCodeFilePath } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../pure/toolLine.ts'
 import { cordisActionCardModel, cordisDefineCardModel, cordisRunCardModel, skillCardModel } from '../../pure/toolCards.ts'
@@ -1102,6 +1102,62 @@ function refreshCommitHashSpans(shas: string[]): void {
   document.querySelectorAll<HTMLElement>('.commit-hash').forEach((span) => {
     const sha = span.dataset.sha ?? ''
     if (set.has(sha)) applyCommitHashState(span)
+  })
+}
+
+/**
+ * md 块渲染后给行内 code（反引号）补交互（用户反馈：正文反引号路径不可点、复制
+ * 要靠鼠标选中，繁琐）：
+ * - 内容形如文件路径（isInlineCodeFilePath）→ 可点击直接打开（post openPath，
+ *   宿主按附着会话 cwd 解析），hover 下划线 + title 提示；
+ * - 无论是否路径，行内码右下角带复制小图标（hover 显现）：非路径内容不必再
+ *   选中复制，路径码则是「点本体打开、点图标复制」。
+ * 跳过块级 code（pre 内，已有代码块复制按钮）与链接内 code（点链接即打开）。
+ * 流式下每次整块重建，装饰无状态；复制反馈是本地 1s 图标变化，不做跨重建持久化。
+ */
+function decorateInlineCodes(container: HTMLElement): void {
+  container.querySelectorAll<HTMLElement>('code').forEach((code) => {
+    if (code.closest('pre, a') || code.dataset.inlineCode) return
+    const text = (code.textContent ?? '').trim()
+    if (!text) return
+    code.dataset.inlineCode = '1'
+    code.classList.add('inline-code')
+    const isPath = isInlineCodeFilePath(text)
+    if (isPath) code.classList.add('inline-code-path')
+    const copyBtn = buttonEl('inline-code-copy', '')
+    copyBtn.type = 'button'
+    copyBtn.title = t('Copy')
+    copyBtn.setAttribute('aria-label', t('Copy'))
+    copyBtn.appendChild(iconSvg(COPY_ICON, 11))
+    copyBtn.addEventListener('click', (e) => {
+      // 路径码：点图标只复制，不触发码本体的「打开」。
+      e.stopPropagation()
+      const copied = () => {
+        copyBtn.replaceChildren(iconSvg(CHECK_ICON, 11))
+        copyBtn.title = t('Copied')
+        setTimeout(() => {
+          copyBtn.replaceChildren(iconSvg(COPY_ICON, 11))
+          copyBtn.title = t('Copy')
+        }, COPY_FEEDBACK_MS)
+      }
+      void navigator.clipboard.writeText(text).then(copied, () => {
+        copyBtn.title = t('Copy failed')
+      })
+    })
+    code.appendChild(copyBtn)
+    if (isPath) {
+      code.title = t('Open in VS Code')
+      code.setAttribute('role', 'button')
+      code.tabIndex = 0
+      const open = (): void => post({ type: 'openPath', path: text })
+      code.addEventListener('click', open)
+      code.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          open()
+        }
+      })
+    }
   })
 }
 
@@ -5467,6 +5523,7 @@ function renderCompactionCard(
   const body = el('div', 'md compaction-body')
   body.innerHTML = md(opts.summary as string)
   enhanceCodeBlocks(body, `${key}:compact`)
+  decorateInlineCodes(body)
   det.appendChild(body)
   attachCollapseFooter(det)
   return det
@@ -5829,6 +5886,7 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
       div.innerHTML = md(block.text)
       decorateSessionMentions(div)
       enhanceCodeBlocks(div, key)
+      decorateInlineCodes(div)
       decorateCommitHashes(div)
       return div
     }
@@ -6686,6 +6744,7 @@ function renderQuestionItem(
     const body = el('div', 'md')
     body.innerHTML = md(q.detail)
     enhanceCodeBlocks(body, `q:${p.rpcId}:${index}`)
+    decorateInlineCodes(body)
     det.appendChild(body)
     attachCollapseFooter(det)
     wrap.appendChild(det)
@@ -6793,6 +6852,7 @@ function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
     const plan = el('div', 'md plan-md')
     plan.innerHTML = md(q.detail)
     enhanceCodeBlocks(plan, `plan:${p.rpcId}`)
+    decorateInlineCodes(plan)
     body.appendChild(plan)
   }
   // 三分结构：确认执行（approve 选项，主按钮）/ 拒绝（另一选项）/ 去聊天里说。

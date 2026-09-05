@@ -199,6 +199,30 @@ export function defaultScenario(): MockLlmScenario {
         match: { contains: '401' },
         respond: { error: { status: 401, message: 'invalid api key' } },
       },
+      // 行内码交互演示：回复带路径形状行内码 + 命令/变量行内码（验证路径可点、
+      // 非路径带复制图标——chat-inline-code-path-interact 任务）。
+      // ~/.dsh/settings.yaml 是容器内确定存在的文件（entrypoint mock 分支生成），
+      // 供「点击打开真实文件」E2E 断言；相对路径 src/ui/chat/webview.ts 只验证
+      // 判定与消息（harness 层），点击在宿主侧报文件不存在属预期。
+      {
+        match: { contains: '行内码路径' },
+        respond: {
+          content: [
+            '主要文件是 `~/.dsh/settings.yaml` 与 `src/ui/chat/webview.ts`；检查命令 `npm run build`；变量 `DSH_PORT`。',
+            ' 绝对路径 `/home/coder/.dsh/settings.yaml` 是同一文件。',
+          ],
+        },
+      },
+      // markdown 回归演示：表格 + 加粗 + 代码块（行内码装饰不影响的既有渲染）。
+      {
+        match: { contains: '回归演示' },
+        respond: {
+          content: [
+            '| col A | col B |\n| --- | --- |\n| 1 | **bold** |\n\n```ts\nconst x: number = 1\n```\n',
+            ' 完毕。',
+          ],
+        },
+      },
       // 兜底回显：把最后一条 user 消息原样包进「收到：…」，分两段流式播。
       {
         match: '*',

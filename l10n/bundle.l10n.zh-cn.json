@@ -497,5 +497,6 @@
   "Connection lost, reconnecting… (attempt {0})": "连接中断，正在重连…（第 {0} 次）",
   "Connection lost, reconnection failed": "连接中断，自动重连失败",
   "Connection restored": "连接已恢复",
-  "Reconnect now": "立即重连"
+  "Reconnect now": "立即重连",
+  "Open in VS Code": "在 VS Code 中打开"
 }
