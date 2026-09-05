@@ -121,6 +121,11 @@
        意义：防 .messages 自身（若它成为滚动容器）的 rubber band 与程序滚动打架。
        非 macOS 无行为差异。 */
     overscroll-behavior-y: none;
+    /* 增量更新（chat-render-incremental-update）：消息流从全量重建改为按行对账后，
+       顶部补页（loadEarlier）/ 行插入会命中 Chromium 原生 scroll anchoring，叠加
+       render 尾部的程序补偿（prevScrollTop + ΔscrollHeight）会双重补偿。关掉原生
+       锚定，滚动锚定语义完全由程序补偿路径负责（与全量重建时代的行为一致）。 */
+    overflow-anchor: none;
   }
   .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
   /* 切换会话时历史基线加载中的占位：撑满聊天列垂直居中。 */

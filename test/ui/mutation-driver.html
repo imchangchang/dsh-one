@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH One — mutation 对比驱动（消息列表增量更新验收）</title>
+<link rel="stylesheet" href="/test/ui/style.css">
+<style>body { margin: 0; font-family: sans-serif; } #app { height: 620px; }</style>
+</head>
+<body>
+<div id="app"></div>
+<script>window.acquireVsCodeApi = function () { return { postMessage: function (m) { (window.__posted = window.__posted || []).push(m) } } }</script>
+<script>
+// 消息列表增量更新（chat-render-incremental-update）验收用：确定性流式重投 state
+// 快照，MutationObserver 统计 #messages 子树 DOM 变更量。改动前（全量重建基线）
+// 与改动后（增量更新）用同一驱动页各跑一次，added/removed/records 对比 = 验收指标；
+// 终态 DOM 顺序与 finalTextHash 用于语义一致性核对（两版须一致）。
+//
+// 运行方式：仓库根起 http server（python3 -m http.server 8899），WebBridge 导航
+// http://<root>/test/ui/mutation-driver.html（URL 后加 ?v=<ts> 防缓存），完成后
+// evaluate `window.__mutationResult` 取结果。
+//
+// 场景覆盖：追加（流式 assistant 每帧变化）、行插入（workflow 卡 anchorSeq 落位）、
+// 原位重渲染（run 状态 running→completed）、顶部 prepend（真实点击「加载更早」+
+// earlierAnchor 配对补偿）、older 按钮设态（Loading…→消失）、尾部气泡（turn-status
+// 出现/消失、steering 出现/消失）、滚动锚定（视口滚到中部后逐帧记录 scrollTop，
+// 补页帧应补偿到 原位置 + 新增高度，两版序列应一致）。
+(function () {
+  window.__err = []
+  window.addEventListener('error', (e) => window.__err.push(String(e.message || e)))
+  window.addEventListener('unhandledrejection', (e) => window.__err.push('rej:' + String(e.reason)))
+  const rid = (p, i) => `${p}-${i}`
+  const N = 13 // 泵入帧数
+  const STEP_MS = 60
+
+  // —— 基础消息（10 条静态 + 1 个 workflow 卡 ——
+  const base = [
+    { kind: 'user', id: 'u-1', text: '第一条：用户问插件架构。' },
+    { kind: 'assistant', id: 'a-1', complete: true, turnEnd: true, seq: 2, messageId: 'ma-1-1', blocks: [{ type: 'text', text: '注意 **加粗** 与 `code`。' }] },
+    { kind: 'user', id: 'u-2', text: '第二条：带附件。', images: [{ attachmentId: 'img-1', name: '图1.png' }], files: [{ path: '/tmp/foo.md', name: 'foo.md' }] },
+    { kind: 'assistant', id: 'a-2', complete: true, turnEnd: true, seq: 4, messageId: 'ma-2-1', blocks: [{ type: 'tool', callId: 't-1', name: 'bash', status: 'done', title: 'bash', detail: 'npm test', output: '7 passed, 0 failed' }, { type: 'text', text: '测试通过。' }] },
+    { kind: 'command', id: 'cmd-1', name: 'compact', status: 'success', text: 'compacted 8 messages' },
+    { kind: 'compaction', id: 'comp-1', summary: '早前对话摘要', items: 8, tokens: 1234 },
+    { kind: 'user', id: 'u-3', text: '第三条：有引用会话。', references: [{ sessionId: 'sess-x', label: '旧会话' }] },
+    { kind: 'assistant', id: 'a-3', complete: true, turnEnd: true, seq: 8, messageId: 'ma-3-1', blocks: [{ type: 'reasoning', text: '思考过程' }, { type: 'text', text: '引用会话来处理。' }] },
+    { kind: 'command', id: 'cmd-2', name: 'permission', status: 'error', text: 'denied' },
+    { kind: 'assistant', id: 'a-4', complete: true, turnEnd: true, seq: 10, messageId: 'ma-4-1', blocks: [{ type: 'text', text: '最后一条静态回复。' }], timing: { time: 1234, runMs: 1000, ttftMs: 200, tokensPerSecond: 42 } },
+  ]
+  const baseRuns = [
+    { runId: 'run-1', name: '代码审查', status: 'completed', anchorSeq: 1, phases: [{ key: 'p1', phase: '审查', members: [{ seq: 0, label: 'worker-1', childId: 'child-1', status: 'completed' }] }] },
+  ]
+  const older = [
+    { kind: 'user', id: 'u-5', text: '更早：第五' },
+    { kind: 'assistant', id: 'a-5', complete: true, turnEnd: true, seq: 1, blocks: [{ type: 'text', text: '更早答第五' }] },
+    { kind: 'user', id: 'u-6', text: '更早：第六' },
+    { kind: 'assistant', id: 'a-6', complete: true, turnEnd: true, seq: 3, blocks: [{ type: 'text', text: '更早答第六' }] },
+    { kind: 'user', id: 'u-7', text: '更早：第七' },
+  ]
+  const chunks = ['增量更新', '逐帧追加', 'DOM 不动', '其余消息', '保持原样', '流式完成', '工具卡出现', 'workflow 卡插入', 'turn 结束', '加载更早插入顶部']
+  const aNew = { kind: 'assistant', id: 'a-new', complete: false, blocks: [{ type: 'text', text: '' }] }
+
+  function stateOf(messages, over) {
+    return {
+      sessionId: 'sess-pump', sessionTitle: '增量更新压测', messages,
+      pending: [], running: false, canSend: true,
+      modelLabel: 'DeepSeek-V4-Flash High', presetLabel: '标准模式',
+      permissions: { options: [{ value: 'workspace-write', label: 'Workspace Write' }], current: 'workspace-write' },
+      statsLine: '18 条消息 · 45s',
+      ...over,
+    }
+  }
+
+  // 帧状态脚本（func(state) → 派生帧状态；返回 {messages, over}）。
+  const frames = []
+  {
+    // F0 初始：10 条静态 + run-1 + older 按钮可见
+    frames.push({ messages: [...base], over: { hasEarlierHistory: true, loadingEarlier: false, workflowRuns: [...baseRuns] } })
+    let m = [...base]
+    let runs = [...baseRuns]
+    // F1 回合开始：u-new + a-new(空) + running
+    m = [...m, { kind: 'user', id: 'u-new', text: '跑一遍发布。' }, { ...aNew }]
+    frames.push({ messages: [...m], over: { running: true, hasEarlierHistory: true, workflowRuns: [...runs] } })
+    // F2..F8 流式增长（a-new.text 每帧追加）
+    for (let i = 0; i < 7; i++) {
+      const text = chunks.slice(0, i + 1).join('')
+      m = [...m.slice(0, -1), { ...aNew, blocks: [{ type: 'text', text }] }]
+      // F4 起加工具卡（running）
+      if (i === 3) {
+        const last = m[m.length - 1]
+        m = [...m.slice(0, -1), { ...last, blocks: [...last.blocks, { type: 'tool', callId: 't-2', name: 'bash', status: 'running', title: 'bash', detail: 'npm run deploy', output: '' }] }]
+      }
+      frames.push({ messages: [...m], over: { running: true, hasEarlierHistory: true, workflowRuns: [...runs] } })
+    }
+    // F8：工具卡 done + seq 90；run-2 出现（anchorSeq 90 → 排在 a-new 后）
+    {
+      const last = m[m.length - 1]
+      m = [...m.slice(0, -1), { ...last, seq: 90, blocks: [...last.blocks.slice(0, -1), { type: 'tool', callId: 't-2', name: 'bash', status: 'done', title: 'bash', detail: 'npm run deploy', output: 'deployed' }] }]
+      runs = [...runs, { runId: 'run-2', name: '发布流程', status: 'running', anchorSeq: 90, phases: [{ key: 'p2', phase: '部署', members: [{ seq: 0, label: 'deploy-1', childId: 'child-2', status: 'running' }] }] }]
+      frames.push({ messages: [...m], over: { running: true, hasEarlierHistory: true, workflowRuns: [...runs] } })
+    }
+    // F9：turn 结束：complete + turnEnd + timing；run-2 completed；running false
+    {
+      const last = m[m.length - 1]
+      m = [...m.slice(0, -1), { ...last, complete: true, turnEnd: true, seq: 91, messageId: 'ma-new-1', timing: { time: 2000, runMs: 900, ttftMs: 100, tokensPerSecond: 66 } }]
+      runs = runs.map((r) => (r.runId === 'run-2' ? { ...r, status: 'completed', phases: [{ key: 'p2', phase: '部署', members: [{ seq: 0, label: 'deploy-1', childId: 'child-2', status: 'completed' }] }] } : r))
+      frames.push({ messages: [...m], over: { running: false, hasEarlierHistory: true, workflowRuns: [...runs] } })
+    }
+    // F10：loadingEarlier true（按钮变 Loading…）；真正点击由驱动在投递本帧前模拟
+    frames.push({ messages: [...m], over: { running: false, hasEarlierHistory: true, loadingEarlier: true, workflowRuns: [...runs] } })
+    // F11：prepend 5 条；hasEarlierHistory false（older 按钮消失；滚动补偿由
+    // earlierAnchor 配对驱动，真点击已经在 F10 之前触发）
+    frames[frames.length - 1].clickOlder = true // 投 F10 前点击「加载更早」
+    frames.push({ messages: [...older, ...m], over: { running: false, hasEarlierHistory: false, loadingEarlier: false, workflowRuns: [...runs] } })
+    // F12：steering 气泡出现
+    frames.push({ messages: [...older, ...m], over: { running: false, queue: [{ id: 'queue-1', placement: 'steering', text: '等待插话', editText: '等待插话' }], workflowRuns: [...runs] } })
+    // F13：steering 移除（终态）
+    frames.push({ messages: [...older, ...m], over: { running: false, queue: [], workflowRuns: [...runs] } })
+  }
+
+  // —— MutationObserver 统计 ——
+  const stats = { added: 0, removed: 0, charData: 0, attr: 0, records: 0, perFrame: [], recordSummary: [] }
+  let observer = null
+
+  function observe() {
+    const messages = document.getElementById('messages')
+    observer = new MutationObserver((recs) => {
+      let a = 0, r = 0, c = 0, at = 0
+      const summary = []
+      for (const rec of recs) {
+        if (rec.type === 'childList') {
+          a += rec.addedNodes.length; r += rec.removedNodes.length
+          const added = [...rec.addedNodes].map((n) => n.nodeType === 1 ? ('<' + (n.className || n.tagName)) : ':t').join('+')
+          const removed = [...rec.removedNodes].map((n) => n.nodeType === 1 ? ('<' + (n.className || n.tagName)) : ':t').join('+')
+          summary.push(`+${added} -${removed}`)
+        } else if (rec.type === 'characterData') c++
+        else if (rec.type === 'attributes') at++
+      }
+      stats.added += a; stats.removed += r; stats.charData += c; stats.attr += at; stats.records += recs.length
+      if (stats.recordSummary.length < 400) stats.recordSummary.push(...summary)
+    })
+    if (messages) observer.observe(messages, { childList: true, subtree: true, characterData: true, attributes: true })
+  }
+
+  // task 门控：window.postMessage 的 message 事件是异步 task，微任务泵入会先于
+  // 渲染跑完（观察器挂在尚未创建的容器上）。MessageChannel 的 port task 在后台
+  // tab 不受定时器节流（setTimeout 会被节流到 ~1s），用它逐帧等渲染落地。
+  const task = () => new Promise((r) => { const ch = new MessageChannel(); ch.port1.onmessage = r; ch.port2.postMessage(0) })
+
+  let frameIdx = 1 // F0 已由 boot 作为初始快照投递
+
+  async function pump() {
+    window.__frameIdx = frameIdx
+    if (frameIdx >= frames.length) return finish()
+    const f = frames[frameIdx]
+    frameIdx++
+    const fstats = stats.perFrame[frameIdx - 2] || (stats.perFrame[frameIdx - 2] = { added: 0, removed: 0, charData: 0, attr: 0 })
+    const before = { added: stats.added, removed: stats.removed, charData: stats.charData, attr: stats.attr }
+    // 真实点击「加载更早」（模拟用户路径：maybeLoadEarlier 会设 earlierAnchor 并
+    // post loadEarlier），随后帧由 host 返回 loadingEarlier / 补页结果。
+    if (f.clickOlder) {
+      const btn = document.querySelector<HTMLButtonElement>('.older button')
+      if (btn) btn.click()
+      await task()
+    }
+    window.postMessage({ type: 'state', state: f.over ? stateOf(f.messages, f.over) : stateOf(f.messages) }, '*')
+    await task()
+    fstats.added = stats.added - before.added
+    fstats.removed = stats.removed - before.removed
+    fstats.charData = stats.charData - before.charData
+    fstats.attr = stats.attr - before.attr
+    fstats.alive = !!document.getElementById('messages')
+    fstats.children = document.getElementById('messages')?.children.length ?? -1
+    fstats.scrollTop = document.getElementById('messages')?.scrollTop ?? -1
+    fstats.keys = [...(document.getElementById('messages')?.children || [])].map((e) => e.getAttribute('data-flow-key')).join(',')
+    await pump()
+  }
+
+  function finish() {
+    if (observer) observer.disconnect()
+    const messages = document.getElementById('messages')
+    const order = messages ? [...messages.querySelectorAll(':scope > *')].map((e) => `${(e.getAttribute('data-flow-key') || '')}|${e.className}|${(e.textContent || '').slice(0, 24)}`.replace(/\n/g, ' ')) : []
+    const text = messages ? messages.textContent : ''
+    const postCount = (t) => (window.__posted || []).filter((m) => m.type === t).length
+    window.__mutationResult = {
+      frames: frameIdx,
+      scrollStart: window.__scrollStart ?? null,
+      ...stats,
+      finalOrderCount: order.length,
+      finalOrder: order,
+      finalTextLength: text.length,
+      finalTextHash: hash(text),
+      posts: {
+        requestFileThumb: postCount('requestFileThumb'),
+        requestAttachment: postCount('requestAttachment'),
+        commitInfo: postCount('commitInfo'),
+        loadEarlier: postCount('loadEarlier'),
+        total: (window.__posted || []).length,
+      },
+      domState: {
+        messagesChildren: messages ? messages.children.length : -1,
+        msgRows: messages ? messages.querySelectorAll('.msg').length : -1,
+        workflowCards: messages ? messages.querySelectorAll('.workflow-run').length : -1,
+      },
+      scrollTop: messages ? messages.scrollTop : null,
+      scrollHeight: messages ? messages.scrollHeight : null,
+    }
+    document.title = 'MUTATION_DONE'
+  }
+
+  function hash(s) {
+    let h = 2166136261
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
+    return (h >>> 0).toString(16)
+  }
+
+  window.__pumpReady = false
+  window.__runPump = async function () {
+    // 等 boot 的初始快照渲染完（postMessage 与 port task 的任务源顺序不保证，
+    // 挂观察器前必须确认容器存在且 F0 已落地，否则首帧统计被 F0 污染）。
+    while (!document.getElementById('messages')) await task()
+    // 滚动锚定检查：把视口滚到中部（模拟用户读历史），流式期间位置应保持，
+    // 加载更早补页后应补偿到 原位置 + 新增高度。
+    const m0 = document.getElementById('messages')
+    if (m0) {
+      // 驱动页不约束视口时布局自动撑开（内容全高、无滚动机会）：限高让滚动语义
+      // （锚定补偿）可测。
+      m0.style.maxHeight = '520px'
+      m0.scrollTop = 250
+    }
+    await task(); await task()
+    window.__scrollStart = document.getElementById('messages')?.scrollTop ?? -1
+    await observe()
+    await pump()
+  }
+
+  // webview 加载完成报到（ready）后投初始快照并开始泵入
+  const boot = setInterval(() => {
+    if ((window.__posted || []).some((m) => m.type === 'ready')) {
+      clearInterval(boot)
+      window.postMessage({ type: 'sessions', snapshot: { workspaces: [{ workspaceId: 'ws', path: '/tmp', label: 'ws', isCurrent: true, sessions: ['sess-pump'] }], query: null, sortOrder: 'updatedDesc', serverState: 'running', dshNotFound: false, pinned: [], collapsed: [], unread: [], baselineReady: true } }, '*')
+      window.postMessage({ type: 'state', state: stateOf(frames[0].messages, frames[0].over) }, '*')
+      window.__pumpReady = true
+      window.__runPump()
+    }
+  }, 50)
+})()
+</script>
+<script src="/dist/chatWebview.js"></script>
+</body>
+</html>
