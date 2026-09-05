@@ -16,6 +16,9 @@
 //   expectPlaceholder 断言 composer textarea#input 的 placeholder 包含该文本
 //                 （占位符文案检查，如运行中的插话快捷键提示）
 //   fillAndClear  在新会话里填充这段文本并点击 .clear-all-button，断言输入框为空
+//   fillSlash     填充该文本但不发送（触发 slash 补全弹窗/参数 hint 行等纯输入态）
+//   expectPopup   断言 webview 里出现这些文本（数组逐项断言，配 fillSlash 用；
+//                 弹窗行文本/描述/hint 各算一条，超时 15s/条）
 //   hoverText     悬停含该文本的元素（如 commit chip），让悬浮卡弹出再截图
 //   hoverSustainMs hoverText 之后继续轮询该时长（ms）：弹层 commit 卡必须全程在位
 //                 （慢速流式回归——消息行每帧重建会摘掉 chip 锚点，卡片闪关=失败）
@@ -219,6 +222,18 @@ async function sendPrompt(page, text) {
   await ta.fill(text)
   await sleep(200)
   await chat.locator('.send-button').click({ timeout: 15_000 })
+}
+
+/** 填 composer 不发送（fillSlash 驱动字段）：触发 slash 补全弹窗/参数 hint 行等纯输入态。 */
+async function fillComposer(page, text) {
+  const chat = await findFrame(page, isChatFrame, 30_000)
+  if (!chat) throw new Error('composer 帧未出现')
+  const ta = chat.locator('textarea#input')
+  await ta.waitFor({ state: 'visible', timeout: 30_000 })
+  await ta.click()
+  await ta.fill(text)
+  // 弹窗随 input 事件重渲染，留一拍再断言。
+  await sleep(400)
 }
 
 /** 扫描全部 frame 等待 expectText 出现（每轮重扫，容忍宿主重建）。
@@ -440,6 +455,21 @@ try {
         await bounded((async () => {
           const { chat, source } = await newChatAndGetFrame(page)
           notes.push(`新建会话：${source}`)
+          if (driver.fillSlash !== undefined) {
+            // 填入但不发送：触发 slash 补全弹窗，供 expectPopup 断言弹窗内容。
+            await fillComposer(page, driver.fillSlash)
+            notes.push(`composer 已填入（未发送）：${JSON.stringify(driver.fillSlash)}`)
+          }
+          if (driver.expectPopup) {
+            for (const text of [].concat(driver.expectPopup)) {
+              const ok = await waitForText(page, text, 15_000)
+              notes.push(ok ? `弹窗文本命中：${text}` : `弹窗文本未命中：${text}`)
+              if (!ok) {
+                result = 'fail'
+                notes.push(`expectPopup：「${text}」15s 内未出现`)
+              }
+            }
+          }
           if (driver.prompt) {
             await sendPrompt(page, driver.prompt)
             // 发送后立刻填草稿：pending 接管（若本轮有审批）前 composer 还在。

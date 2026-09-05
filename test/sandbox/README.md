@@ -209,7 +209,9 @@ node test/sandbox/verify-driver.mjs \
     "approve": true,                  // 可选：等待权限审批面板并点 Allow once（英文 locale）
     "expectDraft": "我的草稿",        // 可选：断言 composer textarea 值包含该文本（草稿恢复检查）
     "expectPlaceholder": "占位文本",  // 可选：断言 composer textarea 的 placeholder 包含该文本
-    "fillAndClear": "草稿文本"         // 可选：填入该文本并点 .clear-all-button，断言输入框为空
+    "fillAndClear": "草稿文本",        // 可选：填入该文本并点 .clear-all-button，断言输入框为空
+    "fillSlash": "/g",                // 可选：填入该文本但不发送（触发 slash 补全弹窗/参数 hint 行）
+    "expectPopup": ["/goal", "hint"], // 可选：断言 webview 出现这些文本（数组逐条，15s/条；配 fillSlash）
   },
   "result": "pending",              // 驱动每次跑完覆写：done（断言命中）/ fail（断言超时，notes 写原因）
   "screenshots": []
