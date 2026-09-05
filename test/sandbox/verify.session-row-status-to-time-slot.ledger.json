@@ -59,9 +59,9 @@
       "expect": "sessions 场景截图：dsh-one 组行尾会话状态与时间互斥——运行中行「DSH One 示例会话」行尾像素环无时间、未读行「重构 sessionStore」行尾绿点 + 标题加粗无时间、置顶行「置顶的调研会话」行首图钉 + 行尾时间「昨天」、active 行行尾时间「10 分钟前」；dsh-web 组待审批行行尾黄点无时间；未分组行显示时间。",
       "result": "pass",
       "screenshots": [
-        "/tmp/dsh-ui-shots-mine2/sessions.png"
+        "/tmp/dsh-ui-shots-rb/sessions.png"
       ],
-      "notes": "ai-visual 截图核对（最终布局：行首无状态槽、置顶图钉在标题前）：运行中行尾像素环无时间、未读行尾绿点+加粗无时间、置顶行标题前图钉+行尾时间、待审批行尾黄点无时间、空闲行显示时间。"
+      "notes": "ai-visual 截图核对（rebase + 组块适配后最终布局）：行首无状态槽、置顶图钉标题前；运行中行尾像素环无时间、未读行尾绿点+加粗无时间、待审批行尾黄点无时间、空闲行显示时间。"
     }
   ]
 }

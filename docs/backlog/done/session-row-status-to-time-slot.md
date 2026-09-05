@@ -31,3 +31,4 @@
 - 2026-09-06 认领（doing）：用户确认「记录 backlog 并认领开工」，开 worktree 开发
 - 2026-09-06 开发完成，自测通过 → done（592 项单测全过、typecheck/build 通过；ai-visual-validation 新场景 sessions-status-rear-slot + 9 个侧栏基线场景逐项核对通过；沙盒真环境回归 4 项全 pass——含「慢命令」24s 流式期间侧栏运行中像素环、完成后恢复时间；验收报告 test/sandbox/verify.session-row-status-to-time-slot.report.html）
 - 2026-09-06 用户微调：行首槽只剩置顶图钉导致标题缩进过大(38px) → 移除行首状态槽、图钉移标题前，标题缩进回到 16px；重跑 dev-finish → done（a42e640）
+- 2026-09-06 主线合入 session-tag-groups（大更新），rebase + 适配 → done：排序层级合并为 置顶 > 组块序 > 活跃层 > sort 键（组件内生效）；渲染层自动合并后复验组块/行尾互斥/图钉标题前组合布局；用户确认组块下「行首空槽（红框）」已随布局移除。（最终标记 cb61041）
