@@ -17,3 +17,5 @@
 - 2026-09-05 用户反馈（代码块复制按钮与右侧对话条重叠 + 追问留白是否记录——核查：留白讨论在 session 55c489e9 有结论但从未落 backlog，记录习惯缺口）→ 建条目（open/，两条合并）
 - 2026-09-05 认领（open -> doing）：主线直接开发（worktree chat-content-width）；纯 CSS 限宽（748px 居中 + 窄屏自适应）；harness 1280/700px 渲染核对（Copy 按钮分离、工具卡/消息布局不破）
 - 2026-09-05 开发完成（doing -> done）：typecheck/567 单测/build 全绿；ledger 4 项全过；真机 reload 复核由用户完成
+
+- 2026-09-05 合入（done -> closed）：dev-merge 合入 main；ledger 4 项全过、审查通过（1280/700px 截图核对）；真机 reload 复核交用户。本修复属 1.1.1 而非 1.2.0（UI 小修随 rc 补丁走，若 1.2.0 前发版则并入）。
