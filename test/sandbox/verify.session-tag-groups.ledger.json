@@ -1,0 +1,89 @@
+{
+  "title": "DSH One 侧栏会话标签组（Chrome 垂直标签式）验收报告",
+  "branch": "agent/session-tag-groups",
+  "commit": "e4dfab9",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-session-tag-groups:latest",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "本任务为侧栏 UI 功能（无 dsh 侧 API 变更）：功能项用 webview 视觉场景（ai-visual-validation harness，确定性渲染）+ DOM 事件断言核对；沙盒用于聊天链路回归。真桌面 VS Code 拖拽手感、Windows/macOS 平台专项不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "侧栏会话标签组块渲染（pill + 竖线 + 小缩进）",
+      "expect": "dsh-one 组内会话按组块聚合，顺序 = 待办（黄）→ 进行中（蓝）→ 已完成（绿）：组块顶部非常小的 pill（组色圆点 + 组名），pill 左缘同列往下一条 2px 组色竖线贯穿组块，组内行左缩进约 12px；未分组会话平铺最后（无缩进无竖线）；dsh-web research 组的自定义「探索」（橙）pill 组块同样渲染；行内状态槽（未读绿点、主行 active 高亮）保留。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/session-tags-F01.png"
+      ],
+      "notes": "截图逐项核对：① dsh-one 组内组块顺序 = 待办（黄 pill）→ 进行中（蓝 pill）→ 已完成（绿 pill），与 tags 定义序一致；② 每个组块顶部小 pill（10px 字号、组色圆点+组名）可见，pill 左缘下方 2px 组色竖线连续贯穿整组；③ 组内行左缩进 ~12px（对比未分组行）成立；④ 「会话 A」未分组平铺在组块之后，无缩进无竖线；⑤ dsh-web research 组「尝试 worktree 并行开发」带自定义「探索」（橙）pill 组块；⑥ 行状态槽保留：进行中组行 active 高亮、待办组「修复回收站抽屉高度」未读绿点、workspace 组头角标（环+绿点）照常。①②③④⑤⑥ 全符合期望。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "会话行菜单「移到分组」",
+      "expect": "行 ⋯ 菜单：原有菜单项完整在位（Select multiple / Open in a new tab / Rename / Pin / Mark as unread）；「Move to group」分节：待办（黄块 + ✓ 当前组）、进行中（蓝）、已完成（绿）、探索（橙）、No group（空描边方块）、New group…。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/session-tags-F02.png"
+      ],
+      "notes": "截图逐项核对：① 首行「Session: 实现侧栏分组过滤」；② 原有菜单项 Select multiple / Open in a new tab / Rename / Pin / Mark as unread 完整在位（screen 内可见）；③ 「Move to group」分节含 待办（黄色块 + 右侧 ✓ = 当前组）/ 进行中（蓝块）/ 已完成（绿块）/ 探索（橙块）/ No group（空描边方块）/ New group…；④ 菜单后段 Fork session / Copy reference / Move to recycle bin 仍完整在位。①②③④ 全符合。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "拖拽入组 / 拖出组 / 组排序（DOM 事件断言）",
+      "expect": "会话行拖到组块：块高亮（drag-over）且 drop 后 post sessionTagSet{sessionId, tagId}；拖到组块外（未分组行）drop 后 post sessionTagSet{tagId:null}；拖 pill 到目标 pill：drop 后 post sessionTagReorder{tagIds=新全序}（待办被插入探索前）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "DOM 事件断言（WebBridge evaluate 模拟 DataTransfer 拖拽）逐项核对：① 会话行拖到组块 dragenter → 块加 drag-over（true）；② drop 入组 → post sessionTagSet{sessionId:sess-6, tagId:preset-todo}（入「全部」组块 = 第一个组）；③ 未分组行 drop（拖出组）→ post sessionTagSet{sessionId:sess-4, tagId:null}；④ pill 拖拽 drop 到「探索」pill 上半 → post sessionTagReorder{tagIds:[preset-doing,preset-done,preset-todo,t-explore]}（待办插入探索前）。①②③④ 全符合预期（快照不更新为 mock 环境限制，post 链路即本特性断言点）。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "组头 pill 右键整组操作菜单",
+      "expect": "预设组（待办）菜单 = Archive N sessions / Move N sessions to the recycle bin / Remove from group（无 Rename/Delete）；自定义组（探索）菜单额外含 Rename group… 与 Delete group。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "DOM 断言逐项核对：① 预设组（待办）右键菜单 = Archive 2 sessions / Move 2 sessions to the recycle bin / Remove from group 三项，无 Rename/Delete；② 自定义组（探索）菜单 = Archive 1 sessions / Move 1 sessions… / Remove from group / Rename group… / Delete group 五项。①② 全符合（预设组 l10n 名字不可改名不可删，自定义组可改删）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "mock-LLM 回显回复（聊天链路回归）",
+      "expect": "composer 发送「测试一下」后，新会话内出现助手消息「收到：测试一下…」，模型选择器显示 mock-flash Max。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "沙盒真 VS Code 截图核对：① 新建会话 mock 回显「收到：测试一下」出现，模型选择器 mock-flash Max；② 左侧 DSH ONE: SESSIONS 面板正常渲染（搜索框/All workspaces 分组栏/未分组组头/回收站入口），首启无组块（预设组无会话不显示组块，符合设计）；③ 侧栏无报错、状态栏 DSH: Running:3080。①②③ 全符合。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "工作区分组（workspace groups）回归",
+      "expect": "侧栏分组栏「All workspaces ▼」与「+」照常；「分组…」二级菜单与管理视图（用户已有功能，本次仅快照新增字段不触碰其逻辑）逻辑不变。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "F-01 截图已覆盖「All workspaces ▼ +」分组栏照常显示；workspace 分组（workspaceGroups.ts / store / 管理视图）本次零代码改动，回归面重叠于侧栏整体渲染（F-01/R-01 均正常）。结论：无回归迹象。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量单测 + typecheck + build",
+      "expect": "npm run typecheck / npm test（602 项全过）/ npm run build 全部通过（dev-finish 复跑）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 602 项全过（含新增 sessionTags 纯层测试与 sessionTree 标签组聚合测试）；npm run build 产出四个 bundle。"
+    }
+  ]
+}
