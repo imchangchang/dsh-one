@@ -1,0 +1,80 @@
+{
+  "title": "DSH One 沙盒验收报告 — 流式输出中 commit 悬浮卡不闪关（行重建后重锚）",
+  "branch": "agent/commit-card-jumps-during-streaming",
+  "commit": "388404b",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox:latest",
+    "date": "2026-09-07T00:00:00Z"
+  },
+  "coverageNote": "mock-llm 慢速流式规则（deltaDelayMs=1200，4 块）在沙盒内必须用本次重建的镜像（含新规则）验证；真桌面 VS Code 与真实模型输出不在本报告范围——后者无慢速流式确定性，行为由 test/ui 的 commit-card-stays-during-streaming 场景 + mock 慢速规则确定性覆盖。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "流式输出中 commit 悬浮卡持续在位（不闪关闪开）",
+      "expect": "发送「commit 慢速」后 mock 首块就带 cb1f933e15289a00e30865e8dd3963ba90a96780（4 块、块间 1.2s 慢速流式）：chip 先查后亮（found）后悬停弹出 commit 详情卡；后续内容块到达时消息行每帧重建（chip 被摘除再插入），卡片必须**全程在位**（驱动 hoverSustainMs 4000ms 轮询 .popover .commit-card），不得闪没/闪关；截图时卡片浮在最新一帧文本的 chip 附近，作者行 cgeng + subject「fix(commit-hash): 流式重建期间悬浮卡重锚」可见。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-commit-card-jumps/F-01.png"
+      ],
+      "driver": {
+        "prompt": "commit 慢速",
+        "expectText": "cb1f933e15289a00e30865e8dd3963ba90a96780",
+        "hoverText": "cb1f933e15289a00e30865e8dd3963ba90a96780",
+        "hoverSustainMs": 4000
+      },
+      "notes": "新建会话：sidebar-ungrouped；已悬停：cb1f933e15289a00e30865e8dd3963ba90a96780；悬停后 4000ms 持续在位：commit 卡在流式重建期间未闪关"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "commit 卡常规路径回归（found 完整卡）",
+      "expect": "发送「commit 演示」后，mock 回复文本里的 40 位 sha 渲染为 commit chip 且点亮（found）；悬停 chip 弹出详情卡：作者行（Demo Author + 时间）、subject「feat(demo): 初始提交」+ body、变更统计、命令行短 hash + 复制 + Open on GitHub。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-commit-card-jumps/R-01.png"
+      ],
+      "driver": {
+        "prompt": "commit 演示",
+        "expectText": "cb1f933e15289a00e30865e8dd3963ba90a96780",
+        "hoverText": "cb1f933e15289a00e30865e8dd3963ba90a96780"
+      },
+      "notes": "新建会话：sidebar-ungrouped；已悬停：cb1f933e15289a00e30865e8dd3963ba90a96780"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "不存在的 sha：灰显保持（unknown 路径）",
+      "expect": "发送「commit 不存在」后，mock 回复里的 40 位 sha 渲染为灰显 chip（unknown），悬停显示「Commit not found」提示卡，不弹详情卡、无异常弹窗。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-commit-card-jumps/R-02.png"
+      ],
+      "driver": {
+        "prompt": "commit 不存在",
+        "expectText": "deadbeef00112233445566778899aabbccddeeff",
+        "hoverText": "deadbeef00112233445566778899aabbccddeeff"
+      },
+      "notes": "新建会话：sidebar-ungrouped；已悬停：deadbeef00112233445566778899aabbccddeeff"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "普通对话回显回归",
+      "expect": "发送普通消息「回归一下」，助手消息回显「收到：回归一下」（mock 兜底规则），无 commit chip 干扰、无异常弹窗。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-commit-card-jumps/R-03.png"
+      ],
+      "driver": {
+        "prompt": "回归一下",
+        "expectText": "收到：回归一下"
+      },
+      "notes": "新建会话：sidebar-ungrouped"
+    }
+  ]
+}
