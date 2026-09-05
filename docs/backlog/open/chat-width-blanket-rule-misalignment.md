@@ -51,3 +51,12 @@ a0c0d17（chat-content-whitespace-width，v1.1.0 后合入）给 `.messages > *`
 - 2026-09-06 用户反馈「当前 chat 区域界面非常乱」（1.1.0 后宽度提交引入）→ 核实：
   harness 全场景截图 + jump-latest 强制显示实测（748 通栏）+ CSS 优先级分析定位四处问题，
   建条目（open/，仅记录，修改待确认）
+- 2026-09-06 视觉回归实测（v1.1.0 worktree 构建 vs 当前，138 场景全量 before/after + 像素 diff 分类 + 关键场景逐张核对）：
+  ① 106/140 对有像素差，绝大多数是「内容居中」的预期位移；sessions-selection-modal 两张 99.5% 来自 e104bee（多选改动，与宽度无关）；
+  ② 实锤破坏两处：jump-latest 由 107px 右下 pill（x=1369）撑成 748px 居中通栏（x=370）；
+  compaction-cards / workflow-running 的卡片 748 宽贴面板左缘，与居中消息列明显错位（before 全宽一致布局对照）；
+  ③ commit-hash-card-bottom-flip 22% 像素差核查为居中位移，非破坏；
+  ④ 34 对完全一致（多为 sessions 面板场景，符合预期）。
+  流程反思（为何当时能过验）：验收只截 3 个自证场景未全量回归；jump-latest 无任何可见场景；
+  compaction/workflow 的 expect 只写内容不写对齐，错位不违字面；compaction-cards/turn-navigator 不在 BASELINE_SCENARIOS，
+  合入后也无 baseline 冒烟记录。改进项随修复一并落地（隐藏态场景 + expect 版式断言 + 布局改动必跑全量 before/after）。
