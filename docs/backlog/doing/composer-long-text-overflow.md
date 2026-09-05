@@ -43,3 +43,5 @@ harness：`test/ui/harness.html?scenario=empty` → `#input` 填入超长文本�
 ## 变更记录
 
 - 2026-09-05 主线复现并定位根因（ai-visual-validation harness 截图对照用户报告），输入框全量审计完成 → open
+
+- 2026-09-05 认领（worktree: agent/composer-long-text-overflow）→ doing
