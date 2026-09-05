@@ -65,3 +65,8 @@ a0c0d17（chat-content-whitespace-width，v1.1.0 后合入）给 `.messages > *`
   width:100% + max-width:var(--dsh-chat-content-width) + margin auto，流内元素全部为其统一子项）；
   内容宽 clamp(680px, 会话列宽×64%, 920px) + 拖拽手柄；composer 卡 = 内容宽+32 居中；
   pending/dock = 内容宽居中；回到底部 pill 贴内容列右缘；回合轨道栏贴滚动面板右缘（不随列内移）。
+- 2026-09-06 开发完成（doing -> done）：列容器化重构（.flow-col 统一居中列 + jump-latest toBottomSlot
+  结构 + turn-rail 回面板右缘 + dock/composer 内容收列宽，全对齐 dsh web 0.1.2 实测规则）；
+  ledger verify.chat-column-layout 8 项全过（141 场景全量截图 + v1.1.0 before 像素 diff 分诊 +
+  关键场景逐张核对）；真机 reload 复核交用户。另发现 `.worktrees/fix-jump-latest-width` 有早前
+  未提交的 jump-latest 单点补丁（治标），本修复已覆盖其作用，该 worktree 可丢弃。

@@ -38,3 +38,7 @@ a0c0d17（聊天列 748 限宽）把 chat 区布局弄坏却通过了视觉验�
 
 - 2026-09-06 用户要求反思「为什么当时能过验」并确保不再发生 → 逐条归因 + 改进项，
   建条目并认领（open → doing），随 chat-column-layout 一并落地
+- 2026-09-06 开发完成（doing -> done）：jump-latest-visible 场景（真实触发链）+ 三条 expect
+  版式断言 + 基线扩 4 个 + SKILL.md 新增 5-8 条 + scripts/ui-visual-diff.sh 分诊工具；
+  顺带修 harness 基建（#app 定高 + 样式按 view 分文件，消掉 harness-style-merge-empty-collision
+  的 .empty 合流冲突——该 open 条目可随本合入关闭）。

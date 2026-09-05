@@ -38,3 +38,6 @@ roster（agentPresets/list）正常，标签映射无需改。hero 选择 chip �
 
 - 2026-09-06 用户反馈 preset 显示消失（位置：会话头部只读 chip）→ 真机数据定位根因
   （服务端字段迁移 projections），建条目并认领（open → doing），随 chat-column-layout 一并修复
+- 2026-09-06 开发完成（doing -> done）：sessionAgentPreset 窄化（projections.values.agentPreset
+  + 顶层回退），toSessionInput 改走它；单测 +1（568 全过）；sessionTree/chatView 注释同步。
+  真机 reload 后头部 chip 恢复显示的复核交用户。
