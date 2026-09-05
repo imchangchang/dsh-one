@@ -22,6 +22,8 @@
 
 - i18n 合入门禁误报（check-i18n.sh）：`return /regex/` 前是字母（如 `n`）不在操作符表里被当除法解析，状态机错位后其后的中文注释剥离失败、被误判漏翻——补关键字回溯识别（`return|typeof|case|…` 后紧跟 `/` 视为正则），不弱化硬编码中文检查。
 
+- Windows 自愈：无 token 记录 + 认证实例时从日志恢复 token（recover-token-from-log）：扩展 spawn 的 dsh 冷启动慢（Windows 60s+），用户在 waitReady 完成前 reload/关闭窗口 → token 补写没执行、记录停在无 token 版 → 下次启动身份无法确认、进防护死循环（实例活着却连不上）。现在无 token 记录 + 端口 authDsh 时从日志文件重解析就绪行 token 换票，成功即补写记录 re-own/adopt 自愈；失败落空走原清记录+防护（不退化）。
+
 ### Changed
 
 - 沙盒验收基建：`scripts/ui-visual.sh` 支持场景 `interactSteps` 分步交互截图（harness `window.__interactStepDone` / `__interactStepAdvance` 信号严格对齐交互状态，非固定延时）。
