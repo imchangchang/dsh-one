@@ -30,7 +30,7 @@ test('running: adopted external instance shows no version line (would mislead)',
     t,
   )
   assert.ok(!md.includes('dsh v'))
-  assert.ok(md.includes('Reusing an externally started instance; the extension will not stop it'))
+  assert.ok(md.includes('Reusing a dsh started in another window; stopping or restarting it asks for confirmation and may affect that window'))
   assert.ok(md.includes('[$(globe) Open in Browser](command:dshOne.openExternal)'))
   // 外部实例不提供 Restart/Stop 按钮（现有行为，回归确认）。
   assert.ok(!md.includes('Restart Service'))
@@ -109,7 +109,7 @@ test('running: adopted with recorded/probed version shows the version line', () 
   )
   assert.ok(md.includes('dsh v0.1.2-rc.1\n'))
   // adopted 分支文案与管理入口不变（无 Restart/Stop Service）。
-  assert.ok(md.includes('Reusing an externally started instance; the extension will not stop it'))
+  assert.ok(md.includes('Reusing a dsh started in another window; stopping or restarting it asks for confirmation and may affect that window'))
   assert.ok(!md.includes('Restart Service'))
   assert.ok(!md.includes('Stop Service'))
 })

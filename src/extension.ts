@@ -185,11 +185,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // A 档：停止外部实例——单 pid、杀前身份确认，杀前确认弹窗（外部实例可能正在用户终端看日志）。
     vscode.commands.registerCommand('dshOne.external.stop', async () => {
       const status = manager.getStatus()
-      if (status.reason !== 'authDshNoToken' && status.external !== true) return
+      if (status.reason !== 'authDshNoToken' && status.external !== true && status.adopted !== true) return
       const port = status.port ?? '?'
       const confirm = vscode.l10n.t('Stop')
       const pick = await vscode.window.showWarningMessage(
-        vscode.l10n.t('Stop the externally started dsh on port {0}? It may be running in your terminal.', port),
+        vscode.l10n.t('Stop the dsh on port {0}? It was started outside this extension (in your terminal or another window).', port),
         { modal: true },
         confirm,
       )
@@ -204,7 +204,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // A 档重启：停止外部实例 + 扩展 spawn 新实例（新实例归扩展管理，此后免确认）。
     vscode.commands.registerCommand('dshOne.external.restart', async () => {
       const status = manager.getStatus()
-      if (status.reason !== 'authDshNoToken' && status.external !== true) return
+      if (status.reason !== 'authDshNoToken' && status.external !== true && status.adopted !== true) return
       const port = status.port ?? '?'
       const confirm = vscode.l10n.t('Restart')
       const pick = await vscode.window.showWarningMessage(
