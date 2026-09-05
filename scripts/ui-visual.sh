@@ -10,6 +10,11 @@
 # 视觉验证方法：脚本先把每个场景的「期望描述」（expect）打印出来，agent 据截图逐条对照
 # 核对逻辑与排版是否正确（语义判断，非图和图做像素 diff）。
 #
+# 分步截图：场景带 interactSteps（见 harness.html）时，每步各截一张
+# <scenario>-<step>.png——轮询页面步骤完成信号（window.__interactStepDone）到位
+# 再截图，截图后调 window.__interactStepAdvance() 放行下一步；无 interactSteps
+# 的场景行为不变（单张 <scenario>.png）。
+#
 # 前提：WebBridge daemon 在跑（http://127.0.0.1:10086）。失败时先启动 daemon。
 set -euo pipefail
 
@@ -46,17 +51,24 @@ if [ "${#scenarios[@]}" -eq 0 ]; then
 fi
 echo "mode=$MODE 场景(${#scenarios[@]}): ${scenarios[*]}"
 
-# 打印每个场景的期望描述（agent 读截图后对照核对）
+# 打印每个场景的期望描述（agent 读截图后对照核对），并输出 interactSteps 步骤映射
+# （STEPS| 前缀行，tab 分隔：场景名<tab>步骤名逗号列表；分步截图管线用这个切片）。
 echo
 echo "—— 期望清单（读截图后逐条核对）——"
-node -e '
+node_out=$(node -e '
 const fs=require("fs"), vm=require("vm");
 const window={}; const ctx={window, Date, Math};
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync("test/ui/scenarios.js","utf8"), ctx);
 const sc=ctx.window.SCENARIOS;
 for(const n of process.argv.slice(1)){ const s=sc[n]; if(s) console.log(`[${n}] ${s.title}: ${s.expect}`); }
-' "${scenarios[@]}"
+for(const n of process.argv.slice(1)){ const s=sc[n]; if(s && s.interactSteps) console.log(`STEPS|${n}\t${s.interactSteps.map(st=>st.name).join(",")}`); }
+' "${scenarios[@]}")
+echo "$node_out" | grep -v '^STEPS|'
+declare -A STEPS_OF
+while IFS=$'\t' read -r key steps; do
+  STEPS_OF["${key#STEPS|}"]="$steps"
+done < <(echo "$node_out" | grep '^STEPS|')
 echo
 
 # 起 http server（复用端口时先杀旧占位进程）
@@ -70,18 +82,55 @@ curl -s -m 15 -X POST "$DAEMON/command" -H 'Content-Type: application/json' \
   -d "{\"action\":\"close_session\",\"args\":{},\"session\":\"$SESSION\"}" >/dev/null 2>&1 || true
 sleep 0.5
 
+# WebBridge 命令包装（json 参数原样嵌入，字段值必须已转义好）
+webbridge() { # $1=action $2=json-args
+  curl -s -m 20 -X POST "$DAEMON/command" -H 'Content-Type: application/json' \
+    -d "{\"action\":\"$1\",\"args\":$2,\"session\":\"$SESSION\"}"
+}
+
+# 轮询页面里的步骤完成信号 window.__interactStepDone（harness.html 的交互协议）；
+# 信号到位即 UI 已稳定（步骤脚本 + settle 延时都过了），返回 0。
+wait_step() { # $1=场景名 $2=步骤名
+  local deadline=$((SECONDS + 25)) val=""
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    val=$(webbridge evaluate '{"code":"(window.__interactStepDone || \"\")"}' 2>/dev/null \
+      | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("value") or "")' 2>/dev/null || true)
+    [ "$val" = "$2" ] && return 0
+    sleep 0.2
+  done
+  echo "    ! 等 $1 步骤 $2 信号超时（当前信号: ${val:-无}），按当前画面截图" >&2
+  return 1
+}
+
 for s in "${scenarios[@]}"; do
   # _=<ts> 属文档级防缓存：python http.server 无 Cache-Control，浏览器启发式
   # 缓存会在 scenarios.js/dist 更新后仍把旧页面（含旧内联脚本）拿来用。
   url="http://127.0.0.1:$PORT/test/ui/harness.html?scenario=$s&_=$(date +%s%N)"
   # 每场景开一个干净 tab（newTab:true），截图后关闭，避免 tab 累积让 daemon 卡住
-  curl -s -m 20 -X POST "$DAEMON/command" -H 'Content-Type: application/json' \
-    -d "{\"action\":\"navigate\",\"args\":{\"url\":\"$url\",\"newTab\":true,\"group_title\":\"DSH One UI 视觉验证\"},\"session\":\"$SESSION\"}" >/dev/null
-  sleep 1.3
-  out="$OUT/$s.png"
-  curl -s -m 20 -X POST "$DAEMON/command" -H 'Content-Type: application/json' \
-    -d "{\"action\":\"screenshot\",\"args\":{\"format\":\"png\",\"path\":\"$out\"},\"session\":\"$SESSION\"}" >/dev/null
-  echo "  $s -> $out"
+  navigate_args="{\"url\":\"$url\",\"newTab\":true,\"group_title\":\"DSH One UI 视觉验证\"}"
+  webbridge navigate "$navigate_args" >/dev/null
+  steps="${STEPS_OF[$s]:-}"
+  if [ -n "$steps" ]; then
+    # 分步交互场景：每步等完成信号后各截一张 <scenario>-<step>.png，
+    # 截图完调 __interactStepAdvance() 放行下一步（最后一步后保持终态）。
+    IFS=, read -ra step_names <<< "$steps"
+    for i in "${!step_names[@]}"; do
+      step="${step_names[$i]}"
+      wait_step "$s" "$step" || true
+      out="$OUT/$s-$step.png"
+      webbridge screenshot "{\"format\":\"png\",\"path\":\"$out\"}" >/dev/null
+      echo "  $s step=$step -> $out"
+      if [ "$i" -lt $((${#step_names[@]} - 1)) ]; then
+        webbridge evaluate '{"code":"(window.__interactStepAdvance && window.__interactStepAdvance())"}' >/dev/null || true
+      fi
+    done
+  else
+    # 无 interactSteps：既有路径不变——固定延时后单张 <scenario>.png。
+    sleep 1.3
+    out="$OUT/$s.png"
+    webbridge screenshot "{\"format\":\"png\",\"path\":\"$out\"}" >/dev/null
+    echo "  $s -> $out"
+  fi
 done
 
 # 清掉累积的 tab 分组（别在循环里 close_tab——快速开关会让 daemon 卡住）
@@ -89,4 +138,4 @@ curl -s -m 15 -X POST "$DAEMON/command" -H 'Content-Type: application/json' \
   -d "{\"action\":\"close_session\",\"args\":{},\"session\":\"$SESSION\"}" >/dev/null 2>&1 || true
 
 echo
-echo "done; mode=$MODE; ${#scenarios[@]} shots; ls $OUT"
+echo "done; mode=$MODE; ${#scenarios[@]} scenarios; ls $OUT"
