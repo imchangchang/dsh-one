@@ -126,6 +126,24 @@ let editSelStart = 0
 let editSelEnd = 0
 /** 列表重建进行中：blur 不应把编辑当取消（重建销毁输入框触发的 blur 要忽略）。 */
 let rebuildInProgress = false
+/**
+ * 正在 IME 组合中的元素（document 级捕获）。保活兜底：组合期间 renderSessions
+ * 冻结列表重建、组管理弹层跳过快照重建——元素销毁会中止浏览器 composition
+ * 会话（拼音组合直接断），重建后恢复焦点/选区救不了它。compositionend 补一帧
+ * 让冻结期间到达的快照落地。
+ */
+let composingEl: Element | null = null
+document.addEventListener('compositionstart', (e) => {
+  composingEl = e.target instanceof Element ? e.target : null
+})
+document.addEventListener('compositionend', () => {
+  composingEl = null
+  renderSessions()
+})
+document.addEventListener('focusout', () => {
+  // 组合未正常结束（异常销毁/程序抢焦点）时清标志，避免永久冻结。
+  if (composingEl !== null && !composingEl.isConnected) composingEl = null
+})
 
 /* ---- 多选归档模式（临时 UI 状态：不进 store、不持久化，退出即清空） ---- */
 let selectionMode = false
@@ -1194,6 +1212,16 @@ function renderSessions(): void {
   // （header 本就不重建）。上面的 popover 锚处理段此时走 positionPopover（旧行
   // 还在、锚 isConnected 为 true），不会误关菜单。
   if (menuFreezeActive) return
+  // 行内改名编辑态冻结（与菜单冻结同款）：列表重建会销毁 rename 输入框、中止
+  // IME 组合——进入编辑态那帧旧列表还没有输入框，照常重建渲染；编辑期间快照
+  // 到达一律跳过，退出编辑（commit/cancel）时用最新快照一次性重建。IME 组合
+  // 中的其他输入点（搜索框常驻不重建，无碍）同样借 composingEl 冻结整列表，
+  // compositionend 补帧落地。
+  if (editingSessionId !== null) {
+    const renameLive = sessionsPanel.querySelector('.session-main .rename-input') !== null
+    if (renameLive) return
+  }
+  if (composingEl !== null) return
   // 列表重建期间，销毁在编输入框触发的 blur 不应把编辑当取消（rebuildGuard）。
   rebuildInProgress = true
   const oldList = sessionsPanel.querySelector<HTMLElement>('.sessions-list')
@@ -2655,7 +2683,13 @@ window.addEventListener('message', (event) => {
     currentSessionId = msg.snapshot.activeSessionId ?? null
     renderSessions()
     // 管理视图打开期间快照到达：内容整体刷新（组列表/勾选态随新数据更新）。
-    if (groupManage && !groupManage.dragging) rebuildGroupManage()
+    // 焦点在弹层内（正在输入新建组名/重命名）时跳过：重建销毁输入框会断
+    // IME/丢焦点，文本有 m.newGroupDraft/m.renameDraft 恢复但焦点不回来——
+    // 焦点移出弹层后下次快照到达自然刷新；本地动作（选组/提交/删除）照常
+    // 自行 rebuild。IME 组合中的弹层输入同样被焦点条件覆盖。
+    if (groupManage && !groupManage.dragging && !groupManage.overlay.contains(document.activeElement)) {
+      rebuildGroupManage()
+    }
   } else if (msg?.type === 'archiveManyDone' && Array.isArray(msg.failed)) {
     // 回收站归档（清空/单个）与主列表批量归档共用 sessionArchiveMany 链路：
     // 按当前打开的确认弹窗分流回执。
