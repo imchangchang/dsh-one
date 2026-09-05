@@ -1541,10 +1541,8 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
   if (!looksLikeSlashCommand(value) || value.includes('\n')) return []
   /** Filling the value and dispatching `input` re-enters updateSlashPopup. */
   const complete = (text: string) => () => {
-    input.value = text
-    input.focus()
-    input.setSelectionRange(text.length, text.length)
-    input.dispatchEvent(new Event('input'))
+    input.setSelectionRange(0, input.value.length)
+    composerInsertText(input, text)
   }
   const sp = value.indexOf(' ')
   if (sp === -1) {
@@ -1596,15 +1594,33 @@ function foldLongTextPaste(e: ClipboardEvent): boolean {
       const el = document.getElementById('input') as HTMLTextAreaElement | null
       if (el) {
         const cursor = el.selectionStart ?? el.value.length
-        el.value = `${el.value.slice(0, cursor)}${text}${el.value.slice(el.selectionEnd ?? cursor)}`
-        el.focus()
-        el.setSelectionRange(cursor + text.length, cursor + text.length)
-        el.dispatchEvent(new Event('input'))
+        const end = el.selectionEnd ?? cursor
+        el.setSelectionRange(cursor, end)
+        composerInsertText(el, text)
       }
     }, PASTE_FOLD_TIMEOUT_MS),
   }
   post({ type: 'pasteText', data: text })
   return true
+}
+
+/**
+ * 程序化插入走 execCommand('insertText')：Chromium/Electron 下把插入记入浏览器
+ * undo 历史（随后 Ctrl+Z 可退），替代直接 .value= 打断 undo 链的写法（见
+ * chat-render-scaling 条目 §3）。调用前须完成 focus + setSelectionRange（替换
+ * 区间）；execCommand 会自行触发 input 事件（inputType=insertText），调用点
+ * 不需要再手动 dispatch('input')。execCommand 不可用的极端环境回退直接写值
+ * （打断 undo，但保持功能可用）。
+ */
+function composerInsertText(input: HTMLTextAreaElement, text: string): void {
+  input.focus()
+  if (!document.execCommand('insertText', false, text)) {
+    const start = input.selectionStart ?? 0
+    const end = input.selectionEnd ?? start
+    input.value = input.value.slice(0, start) + text + input.value.slice(end)
+    input.setSelectionRange(start + text.length, start + text.length)
+    input.dispatchEvent(new Event('input'))
+  }
 }
 
 /** 在输入框光标处插入 @ 文件引用显示 token（canonical 路径记 mentionBindings，发送时展开）。 */
@@ -1618,11 +1634,11 @@ function insertMentionToken(name: string, path: string): void {
   const cursor = input.selectionStart ?? input.value.length
   const end = input.selectionEnd ?? cursor
   const tail = ' '
-  input.value = `${input.value.slice(0, cursor)}${token}${tail}${input.value.slice(end)}`
-  input.focus()
-  const caret = cursor + token.length + tail.length
+  const insert = token + tail
+  input.setSelectionRange(cursor, end)
+  composerInsertText(input, insert)
+  const caret = cursor + insert.length
   input.setSelectionRange(caret, caret)
-  input.dispatchEvent(new Event('input'))
 }
 
 /**
@@ -1677,11 +1693,11 @@ function fileRows(input: HTMLTextAreaElement, at: ActiveAtToken): { attachments:
         const token = fileMentionToken(name, mention, mentionBindings)
         mentionBindings.set(token, mention)
         const tail = ' '
-        input.value = `${input.value.slice(0, tokenStart)}${token}${tail}${input.value.slice(cursor)}`
-        input.focus()
-        const caret = tokenStart + token.length + tail.length
+        const insert = token + tail
+        input.setSelectionRange(tokenStart, cursor)
+        composerInsertText(input, insert)
+        const caret = tokenStart + insert.length
         input.setSelectionRange(caret, caret)
-        input.dispatchEvent(new Event('input'))
         // 重建 chips 让「已被 @ 引用」的高亮生效；焦点/光标由 render 恢复。
         render()
       },
@@ -1736,11 +1752,11 @@ function sessionRows(input: HTMLTextAreaElement, at: ActiveAtToken): SlashRow[] 
       apply: () => {
         const token = mentionDisplayToken(s.label, s.sessionId, mentionBindings)
         mentionBindings.set(token, formatSessionMention(s.label, s.sessionId))
-        input.value = `${input.value.slice(0, tokenStart)}${token} ${input.value.slice(cursor)}`
-        input.focus()
-        const caret = tokenStart + token.length + 1
+        const insert = token + ' '
+        input.setSelectionRange(tokenStart, cursor)
+        composerInsertText(input, insert)
+        const caret = tokenStart + insert.length
         input.setSelectionRange(caret, caret)
-        input.dispatchEvent(new Event('input'))
       },
     }))
 }
@@ -1766,18 +1782,22 @@ function pasteSessionMentions(input: HTMLTextAreaElement, e: ClipboardEvent): bo
       return token
     })
     .join('')
-  let before = input.value.slice(0, input.selectionStart)
-  if (inserted.startsWith('@')) {
-    const trigger = /(^|\s)@[^\s@]{0,30}$/.exec(before)
-    if (trigger) before = before.slice(0, before.length - trigger[0].length) + trigger[1]
-  }
-  const after = input.value.slice(input.selectionEnd)
+  const selStart = input.selectionStart
+  const selEnd = input.selectionEnd
+  const before = input.value.slice(0, selStart)
+  const after = input.value.slice(selEnd)
   const endsWithMention = typeof segments[segments.length - 1] !== 'string'
   const pad = endsWithMention && !/^\s/.test(after) ? ' ' : ''
-  input.value = before + inserted + pad + after
-  const caret = before.length + inserted.length + pad.length
+  // 光标前正在输入的 @query 触发词一并吃掉（先打 @ 再粘贴不会变成 `@@标题`）。
+  let insertStart = selStart
+  if (inserted.startsWith('@')) {
+    const trigger = /(^|\s)@[^\s@]{0,30}$/.exec(before)
+    if (trigger) insertStart = selStart - trigger[0].length + (trigger[1]?.length ?? 0)
+  }
+  input.setSelectionRange(insertStart, selEnd)
+  composerInsertText(input, inserted + pad)
+  const caret = insertStart + inserted.length + pad.length
   input.setSelectionRange(caret, caret)
-  input.dispatchEvent(new Event('input'))
   return true
 }
 
@@ -2402,11 +2422,10 @@ function insertSlashCommand(name: string): void {
   const input = document.getElementById('input') as HTMLTextAreaElement | null
   if (!input || input.disabled) return
   // Slash commands must lead the prompt; prepend ahead of any draft (its args).
-  input.value = `/${name} ` + input.value
-  input.focus()
+  const prefix = `/${name} `
+  input.setSelectionRange(0, 0)
+  composerInsertText(input, prefix)
   input.setSelectionRange(input.value.length, input.value.length)
-  // The input event refreshes the send button, auto-grow, and the arg hint popup.
-  input.dispatchEvent(new Event('input'))
 }
 
 /** Inline rename: swap the header title for an input; Enter commits, Esc/blur cancels. */
@@ -3572,6 +3591,10 @@ let pendingStash:
   | null = null
 /** Slash-command receipt texts shown at the message tail; cleared on session switch. */
 let commandNotices: string[] = []
+/** 消息区 ref chip 的 hover 高亮缓存（跨渲染帧）：流式快照每帧全量重建 DOM，
+ *  重建后按它恢复高亮（否则鼠标不动就永久丢失）；msgKey 定位行（renderMessage 的
+ *  key），path 为 ref chip 的 data-ref-path。mouseleave / 命中无对应行时清空。 */
+let refHoverCache: { msgKey: string; path: string } | null = null
 
 /** One queued inbox row: tag + preview, plus steer/edit/remove actions. */
 function renderQueueItem(item: QueuedItem): HTMLElement {
@@ -4243,17 +4266,33 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
         el.classList.remove('ref-hover', 'hovered')
       }
     }
-    row.addEventListener('mouseover', (e) => {
-      const ref = (e.target as Element | null)?.closest?.('[data-ref-path]')
-      if (!ref || !(ref instanceof HTMLElement)) return
-      const path = ref.dataset.refPath ?? ''
+    const applyRefHover = (ref: HTMLElement, path: string): void => {
       clearRefHighlight()
       ref.classList.add('ref-hover')
       for (const chip of Array.from(row.querySelectorAll<HTMLElement>('[data-attach-path]'))) {
         if (chip.dataset.attachPath === path) chip.classList.add('hovered')
       }
+    }
+    row.addEventListener('mouseover', (e) => {
+      const ref = (e.target as Element | null)?.closest?.('[data-ref-path]')
+      if (!ref || !(ref instanceof HTMLElement)) return
+      const path = ref.dataset.refPath ?? ''
+      applyRefHover(ref, path)
+      refHoverCache = { msgKey: key, path }
     })
-    row.addEventListener('mouseleave', clearRefHighlight)
+    row.addEventListener('mouseleave', () => {
+      clearRefHighlight()
+      refHoverCache = null
+    })
+    // 流式快照每帧全量重建 DOM：重建后按缓存恢复高亮（鼠标不动就保持）。
+    if (refHoverCache?.msgKey === key) {
+      const cached = refHoverCache.path
+      const ref = Array.from(row.querySelectorAll<HTMLElement>('[data-ref-path]')).find(
+        (el) => el.dataset.refPath === cached,
+      )
+      if (ref) applyRefHover(ref, cached)
+      else refHoverCache = null
+    }
     return row
   }
   if (m.kind === 'command') {
