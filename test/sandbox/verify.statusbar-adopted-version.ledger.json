@@ -1,0 +1,76 @@
+{
+  "title": "状态栏 tooltip：adopted / external 实例也显示 dsh 版本",
+  "branch": "agent/statusbar-adopted-version",
+  "commit": "3e31d94",
+  "environment": {
+    "mode": "unit（宿主 tooltip 不随沙盒渲染——沿用 statusbar-dsh-version-tooltip 的验收口径：单测 + 本机人工开窗核对）",
+    "dsh": "n/a（版本探测对象来自进程命令行解析，单测 fixture 覆盖真实执行路径）",
+    "date": "2026-09-05T16:00:00Z"
+  },
+  "coverageNote": "macOS 真机命令行形态已实测（node …/bin/dsh web --port 3080）；Windows/Linux 命令行形态由 parse 单测覆盖（dsh.cmd / 反斜杠路径 / dist/dsh.js）；真实 tooltip 渲染与 adopted 判定建议 dev-ui-test 人工开窗复核。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "adopted（另一窗口 spawn）显示版本——shared 记录优先",
+      "expect": "startLocked 对「owner 不同 + token 有效」的 adopted 分支 setStatus 带 version: owned.version（spawn 时已存）；tooltip 渲染 dsh v{version} 行。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "manager.ts adopted 分支两处（token/无 token）均带 version: owned.version ?? 探测；tooltip 测试『adopted with recorded/probed version shows the version line』验证渲染（dsh v0.1.2-rc.1 + adopted 文案 + 无 Restart/Stop 入口不变）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "external（token 连接）显示版本——命令行解析真实入口探询",
+      "expect": "external 连接成功分支 setStatus 带 version: probeDshVersionFromCommandLine(processCommandLine(owned.pid))；tooltip 渲染版本行且管理入口（Restart/Stop External Instance）保留。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "manager.ts external 分支已接入；probe 走真实 spawnSync（fixture bin.js 打印 'dsh version 0.1.2-rc.1' → 提取 0.1.2-rc.1）；tooltip 测试 external + version 渲染通过。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "无记录 adopt（0.1.1 无认证）经 findListenerPid 探测",
+      "expect": "probe 'dsh' 分支 findListenerPid(port) 拿监听 pid → 命令行解析入口 → --version；pid 拿不到/解析失败/执行失败 → version undefined（不显示）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "manager.ts 325-340 行实现；解析失败（裸 dsh 命令/空/入口不存在）返回 undefined 的单测覆盖。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "命令行入口解析（pure parseDshEntryFromCommandLine）",
+      "expect": "npm 全局包（node …/node_modules/@deepseek-ai/dsh/lib/bin.js）、包目录直指、官方 dist/dsh.js、nvm shim（node …/bin/dsh）、Windows dsh.cmd（含引号/反斜杠）、本地 checkout 形态全部解析出正确入口；裸 dsh / 无路径 → null。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "test/dshCommandLine.test.ts 9 项全过（含 Windows 反斜杠归一化与保留原样的差异：.js 走 node+归一化路径，.cmd/.exe 入口原样保留）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "spawn 实例版本行行为不变",
+      "expect": "locateDsh 版本提取仍走同一逻辑（extractVersion → pure extractDshVersion，语义不变）；running 态无版本/unknown 不显示行回归。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "locateDsh 仅把 extractVersion 内联函数改为 pure 层同名实现（测试确认等价输出）；tooltip 既有 running 版本行/无版本 2 项测试全过。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "adopted/external 无版本时行为不变（不显示、不误导）",
+      "expect": "adopted 无 version / version='unknown' → 版本行不显示；external 无 version → 不显示。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "statusTooltip 既有『adopted external instance shows no version line』与新增『unknown 隐藏』测试通过；探测失败仅缺省，不影响 startup 路径（probe 有 5s 超时）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量回归：typecheck / 单测 / build",
+      "expect": "typecheck 干净；567 项单测全过（原 554 + 新增 13）；build 成功。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck ✓；npm test 567/567 ✓；npm run build ✓（dist 三件套 + spawnDsh）。"
+    }
+  ]
+}
