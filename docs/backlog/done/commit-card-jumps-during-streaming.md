@@ -32,3 +32,12 @@ sha（限同 flow 行，防同 sha 在多条消息并存时锚错行）在新 DO
 - 2026-09-07 问题记录（open）：现象截图（流式中 commit 卡悬浮在聊天记录上、底栏
   仍在 Deep diving）；根因如上；方案与涉及位置如上。
 - 2026-09-07 认领（open -> doing）：worktree 开发（分支 agent/commit-card-jumps-during-streaming）。
+- 2026-09-07 开发完成（doing -> done）：worktree 开发（分支 agent/commit-card-jumps-during-streaming）。
+  修复：流式行重建后按同身份重锚已打开弹层（commit chip 按 sha 限同 flow 行；token 用量药丸同
+  机制；dshNotFound 空态安装脚本菜单同机制），card 被摘除时鼠标判定（elementFromPoint 仍会有
+  chip 在指针下）不排延迟关闭；同类排查另覆盖 ref hover（已有缓存恢复）、header/composer/hero
+  菜单（已有保活）。测试：mock-llm 新增 deltaDelayMs 慢速规则与单测；verify-driver 新增
+  hoverSustainMs；test/ui 新增 commit-card-stays-during-streaming 场景（无修复复现卡片闪关，
+  修复后三帧重建仍在位）；沙盒报告（F-01 慢速流式悬停 4s 持续在位 + R-01~R-03 回归）全部 pass，
+  报告 .worktrees/commit-card-jumps-during-streaming/test/sandbox/verify.commit-card-jumps-during-streaming.report.html；
+  typecheck/test（540 项，含新增 3 项）/build 全过。done 标记 2e8106a。
