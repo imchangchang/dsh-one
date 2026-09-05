@@ -14,6 +14,7 @@ import type { MuxFrame } from './muxEvents.ts'
 import { isModern } from './serverAuth.ts'
 import { recordsToEntries } from '../pure/chunkRows.ts'
 import type { HistoryRecordLike } from '../pure/chunkRows.ts'
+import { permissionDisplayName, permissionOptionLabel } from '../pure/permissionLabel.ts'
 import { subscribeFollowStream, subscribeControlStream, subscribeModernEvents } from './modernStreams.ts'
 import type { FollowSnapshot } from './modernStreams.ts'
 import { parseControlStreamFrame } from '../pure/remoteFrames.ts'
@@ -83,28 +84,6 @@ interface PermissionSelectLike {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-/**
- * kebab-case machine name → Title Case (`workspace-write` → `Workspace Write`),
- * same transform as the web client's permission select; non-kebab names pass
- * through unchanged.
- */
-export function permissionDisplayName(name: string): string {
-  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) return name
-  return name
-    .split('-')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ')
-}
-
-/**
- * Web-client option label: `danger-full-access` uses the product label
- * "Full access" instead of the machine-name transform (dsh-client-ui-conversation
- * PermissionSelect does the same override).
- */
-function permissionOptionLabel(value: string, name: string): string {
-  return value === 'danger-full-access' ? 'Full access' : permissionDisplayName(name)
 }
 
 /**
@@ -1215,7 +1194,7 @@ export class ChatSessionController implements vscode.Disposable {
       .filter((o): o is { value: string; name: string } =>
         typeof o?.value === 'string' && typeof o?.name === 'string',
       )
-      .map((o) => ({ value: o.value, label: permissionOptionLabel(o.value, o.name) }))
+      .map((o) => ({ value: o.value, label: permissionOptionLabel(o.value, o.name, vscode.l10n.t) }))
     if (options.length === 0) return
     this.permissions = { options, current: select.currentValue as string }
   }

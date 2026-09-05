@@ -458,5 +458,8 @@
   "seconds": "秒",
   "Due now": "现在到期",
   "in {0} {1}": "{0}{1}后",
-  "{0} {1} overdue": "已逾期 {0}{1}"
+  "{0} {1} overdue": "已逾期 {0}{1}",
+  "Read Only": "仅可查看",
+  "Workspace Write": "工作区内修改",
+  "Full access": "完全权限"
 }
