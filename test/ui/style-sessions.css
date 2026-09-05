@@ -524,6 +524,45 @@
   }
   /* 内容搜索结果超过 20 条的底部轻提示（非交互）。 */
   .sessions-search-more { padding: 6px 12px; font-size: 11px; opacity: 0.6; }
+  /* ===== 会话标签组（Chrome 垂直标签式）：小 pill + 贯穿竖线 + 小缩进 ===== */
+  .tag-group { position: relative; margin: 4px 4px 2px; }
+  /* 组头：非常小的标签 pill，左缘与竖线同列（缩进列）。 */
+  .tag-head { display: flex; align-items: center; height: 22px; padding-left: 12px; }
+  .tag-pill {
+    position: relative; display: inline-flex; align-items: center; gap: 4px;
+    height: 16px; padding: 0 7px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; line-height: 1; white-space: nowrap;
+    cursor: grab;
+  }
+  .tag-pill:active { cursor: grabbing; }
+  .tag-pill-dot { width: 6px; height: 6px; border-radius: 2px; background: var(--tc); }
+  /* 组色（预设组沿用 dsh 状态语义色：待办黄/进行中蓝/已完成绿）。 */
+  .tag-yellow { --tc: var(--vscode-charts-yellow, #e5c07b); }
+  .tag-blue   { --tc: var(--vscode-charts-blue,   #5686fe); }
+  .tag-green  { --tc: var(--vscode-charts-green,  #89d185); }
+  .tag-orange { --tc: var(--vscode-charts-orange, #d18616); }
+  .tag-purple { --tc: var(--vscode-charts-purple, #b180d7); }
+  .tag-red    { --tc: var(--vscode-charts-red,    #f14c4c); }
+  .tag-pill {
+    color: var(--tc);
+    background: color-mix(in srgb, var(--tc) 22%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tc) 45%, transparent);
+  }
+  /* 贯穿整组的竖线：从 pill 下沿到组尾（收在缩进列，不越过工作区行）。 */
+  .tag-line {
+    position: absolute; left: 12px; top: 19px; bottom: 2px; width: 2px;
+    border-radius: 1px; background: color-mix(in srgb, var(--tc) 55%, transparent);
+    pointer-events: none;
+  }
+  /* 组内会话行：仅增加 ~12px 左缩进，其余行内元素不动。 */
+  .session-row.tagged { padding-left: 24px; }
+  /* 拖拽入组：目标组块高亮（组色淡背景，不遮盖行）。 */
+  .tag-group.drag-over { background: color-mix(in srgb, var(--tc) 14%, transparent); border-radius: 4px; }
+  /* 拖拽组排序：插入位置指示线（pill 上/下沿，box-shadow 不占布局）。 */
+  .tag-pill.drop-before { box-shadow: 0 -2px 0 0 var(--tc); }
+  .tag-pill.drop-after  { box-shadow: 0  2px 0 0 var(--tc); }
+  /* 拖拽中的会话行半透明（源行）。 */
+  .session-row.dragging { opacity: .45; }
   button {
     background: var(--vscode-button-background); color: var(--vscode-button-foreground);
     border: 0; border-radius: 4px; padding: 4px 12px; cursor: pointer;
@@ -562,6 +601,8 @@
   .menu-item .menu-item-icon svg { width: 14px; height: 14px; display: block; }
   /* 选中态的 check 放菜单项尾部（dsh web 模式），仅 checked 时渲染。 */
   .menu-item .check { margin-left: auto; flex: none; }
+  /* 标签组颜色小方块（菜单项/组头共用图标位）。 */
+  .tag-swatch { width: 10px; height: 10px; border-radius: 3px; display: block; }
   .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }

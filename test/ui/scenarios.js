@@ -1691,6 +1691,69 @@
       expect: '两张分步截图对照——① <scenario>-modal.png：点「Archive (2)」后弹确认框（标题 Archive 2 sessions?，两组各 · 1，明细折叠，底部 Cancel/Archive），多选操作条仍在弹窗后方。② <scenario>-exited.png：点确认并收到 archiveManyDone（场景脚本模拟宿主回执，failed 空）后——确认框消失、多选操作条消失、行首复选框全部消失、行尾 ⋯ 按钮恢复；无红色断言横幅（断言内容：modal/selection-bar/复选框已移除，且 __posted 含 sessionArchiveMany 带 2 个 id）。mock 宿主不更新快照，会话行仍在列表；真实宿主会随快照让已归档会话消失。',
     },
 
+    // ================= 会话标签组（Chrome 垂直标签式单组） =================
+
+    'session-tags': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 2 },
+          { id: 'preset-doing', name: '进行中', color: 'blue', preset: true, count: 1 },
+          { id: 'preset-done', name: '已完成', color: 'green', preset: true, count: 1 },
+          { id: 't-explore', name: '探索', color: 'orange', preset: false, count: 1 },
+        ]
+        s.tagSessionIds = {
+          'preset-todo': ['sess-1', 'sess-2'],
+          'preset-doing': ['sess-4'],
+          'preset-done': ['sess-3'],
+          't-explore': ['sess-5'],
+        }
+        // 注意：快照即最终渲染输入——顺序 = buildSessionTree 聚合后的输出
+        // （组块按 tags 数组序聚合、无组殿后），单测已覆盖纯层排序。
+        s.workspaces[0].sessions = [
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-2', '修复回收站抽屉高度', '5 小时前', { tagId: 'preset-todo', unread: true }),
+          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', running: true }),
+          sess('sess-3', '会话复制引用功能', '1 天前', { tagId: 'preset-done' }),
+          sess('sess-6', '会话 A', '2 天前'),
+        ]
+        s.workspaces[1].sessions = [
+          sess('sess-5', '尝试 worktree 并行开发', '2 天前', { tagId: 't-explore' }),
+        ]
+        s.workspaces[2].sessions = []
+        s.pinned = []
+        s.unread = ['sess-2']
+        return s
+      })(),
+      title: '侧栏面板（会话标签组块：pill + 竖线 + 小缩进）',
+      expect: 'dsh-one 组内会话按组块聚合，组块顺序 = 待办（黄）→ 进行中（蓝）→ 已完成（绿）：每个组块顶部一个非常小的 pill（10px 字号、16px 高、组色圆点 + 组名，如「待办」），pill 左缘同列往下一条 2px 组色竖线贯穿整个组块（竖线从 pill 下沿起、止于组尾行底），组内会话行比未分组行左缩进约 12px；组内行状态槽照常（进行中组「探索 Chrome 式分组原型」行首像素环、待办组「修复回收站抽屉高度」未读绿点 + 标题加粗）；workspace 组头角标照常计算（环 1 + 绿点 1）；「会话 A」未分组平铺在组块之后（无缩进、无竖线）。dsh-web research 组内「尝试 worktree 并行开发」带「探索」（橙）pill 组块。组块之间无折叠箭头、无组头复选框（非多选模式）；未分组虚拟组无会话。',
+    },
+
+    'session-tags-row-menu': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 1 },
+          { id: 'preset-doing', name: '进行中', color: 'blue', preset: true, count: 0 },
+          { id: 'preset-done', name: '已完成', color: 'green', preset: true, count: 0 },
+          { id: 't-explore', name: '探索', color: 'orange', preset: false, count: 1 },
+        ]
+        s.tagSessionIds = { 'preset-todo': ['sess-1'], 't-explore': ['sess-5'] }
+        s.workspaces[0].sessions = [
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-6', '会话 A', '2 天前'),
+        ]
+        s.workspaces[1].sessions = []
+        s.workspaces[2].sessions = []
+        return s
+      })(),
+      interact: `document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()`,
+      title: '侧栏面板（会话行菜单：移到分组）',
+      expect: '「实现侧栏分组过滤」行的 ⋯ 菜单打开：首行会话标题；原有菜单项完整在位（Select multiple / Open in a new tab / Rename / Pin / Mark as unread，屏幕内可见的前几项）；「Move to group」分节标题下有四项：待办（黄色小方色块 + 勾选 ✓，当前组）、进行中（蓝色块）、已完成（绿色块）、探索（橙色块）、No group（空描边方块）；再往下 New group…。菜单较长时 popover 内可滚动（max-height 50vh），底部原菜单项（Move to recycle bin / Archive session）不必在首屏可见。',
+    },
+
     'sessions-menu-fork-disabled': {
       view: 'sessions',
       sessions: (() => {
@@ -3189,6 +3252,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'sessions-workspace-menu-groups',
     'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',
     'sessions-selection-exit-recycle', 'sessions-selection-exit-archive',
+    'session-tags', 'session-tags-row-menu',
     'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',
