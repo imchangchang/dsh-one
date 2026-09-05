@@ -21,5 +21,6 @@
 	"dshOne.workspace.openFolder.title": "Open Folder in VS Code",
 	"dshOne.dshPath.description": "Path to the dsh executable. Leave empty to look it up from PATH.",
 	"dshOne.autoStart.description": "Automatically start (or reuse) the dsh web service when the extension activates.",
-	"dshOne.port.description": "Port for the dsh web service. 0 lets the OS pick one; a non-zero value first probes whether a dsh instance is already running on that port and reuses it. Note that 0 breaks session restore in the dsh UI (localStorage is isolated per origin)."
+	"dshOne.port.description": "Port for the dsh web service. 0 lets the OS pick one; a non-zero value first probes whether a dsh instance is already running on that port and reuses it. Note that 0 breaks session restore in the dsh UI (localStorage is isolated per origin).",
+	"dshOne.chatFontSize.description": "Chat content font size in px (12-17, default 14). Markdown tables and secondary text scale with the conversation content font."
 }

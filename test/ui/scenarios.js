@@ -2471,6 +2471,82 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     expect: '点击 turn 1（未载入）刻度无报错；host 收到 turnJump（seq=200）（__posted 断言）；轨道栏与消息流保持原样（harness mock 无宿主响应）。',
   }
 
+  // ---- 阶段 4：字号调节 + 定时计划 chip ----
+
+  /** 字号场景共用的消息流：markdown 表格 + 思考块 + 正文，检查内容区联动。 */
+  function fontState(over) {
+    return base({
+      messages: [
+        u('把本次改造的方案整理成表格，并给出思考过程。'),
+        {
+          kind: 'assistant', id: rid('a'), complete: true, turnEnd: true,
+          blocks: [
+            { type: 'reasoning', text: '先对齐官方变量链，再处理次级文字档位，最后把设置写进面板 HTML 防止首帧闪烁。' },
+            { type: 'text', text: '## 方案要点\n\n| 改造项 | 做法 | 成本 |\n| --- | --- | --- |\n| 字号调节 | 设置 12-17px → CSS 变量链 | 低 |\n| 定时计划 | host 折叠 schedule 投影 | 低 |\n\n正文说明：**只调内容区**，头部与 composer 不动。' },
+          ],
+        },
+      ],
+      ...over,
+    })
+  }
+
+  catalog['chat-font-size-default'] = {
+    state: fontState({}),
+    title: '字号：默认 14px（内容区 + 表格 + 思考块）',
+    expect: '标题区与 composer 不变；消息内容区正文为默认字号（14px 级），markdown 表格/思考块为次级档（13px 级，比正文略小）；行内 code 等宽字体不动；面板布局与默认 baseline 一致。',
+  }
+
+  catalog['chat-font-size-large'] = {
+    state: fontState({}),
+    interact: `window.postMessage({ type: 'chatFontSize', value: 17 }, '*')`,
+    title: '字号：运行中改为 17px（内容区联动）',
+    expect: '上下文区正文明显大于默认档（17px 级）；表格与思考块为次级档（17 档 = 15px 级）随之放大；标题区 chips/composer 字号不变（面板 chrome 不随动）；行内 code/代码块保持等宽与既有比例。',
+  }
+
+  catalog['schedule-chip'] = {
+    state: fontState({
+      // 投影 wire 视图：活动提醒（overdue 在前 + scheduled every 一条）。
+      schedule: [
+        { id: 'sch-1', kind: 'at', prompt: '检查测试报告是否完成', scheduledAt: '2020-01-01T00:00:00.000Z' },
+        { id: 'sch-2', kind: 'every', everySeconds: 3600, prompt: '每小时代码审查', scheduledAt: '2099-01-01T09:00:00.000Z' },
+      ],
+    }),
+    interact: `(() => { const chip = [...document.querySelectorAll('button.header-chip')].find((c) => c.title === 'Active reminders'); if (chip) chip.click() })()`,
+    title: '定时计划：AlarmClock chip + 只读下拉（scheduled/overdue）',
+    expect: '标题区子代理/后台任务同排出现「2 reminders」chip（AlarmClock 图标 + 计数 + chevron）；点击弹只读下拉：2 行——逾期行在前（琥珀状态点 + Overdue + prompt + 元信息「Once · 本地时刻 · 2439 days overdue」），等待中行（蓝色状态点 + Scheduled + 「Every 1 hour」频率 + 剩余时间 in …days）；逾期行淡黄底。',
+  }
+
+  catalog['schedule-chip-closed'] = {
+    state: fontState({
+      schedule: [
+        { id: 'sch-1', kind: 'at', prompt: '检查测试报告是否完成', scheduledAt: '2020-01-01T00:00:00.000Z' },
+      ],
+    }),
+    title: '定时计划：chip 收起态（单一提醒）',
+    expect: '标题区显示「1 个提醒」chip（AlarmClock + 计数 + chevron），菜单未开；无任何弹层残留。',
+  }
+
+  catalog['schedule-chip-live'] = {
+    state: fontState({}),
+    interact: `(() => {
+      // 复现运行中追加（真 0.1.2 schedule 投影中途到达）：首帧无 schedule，
+      // 300ms 后再推带 schedule 的 state——header 签名必须识别变化并重建出 chip。
+      const s = window.SCENARIOS['schedule-chip-live'].state
+      window.postMessage({ type: 'state', state: {
+        ...s,
+        schedule: [{ id: 'sch-9', kind: 'at', prompt: '追加提醒', scheduledAt: '2099-02-02T09:00:00.000Z' }],
+      } }, '*')
+    })()`,
+    title: '定时计划：运行中投影到达（首帧无 → 后帧有，head 重建出 chip）',
+    expect: '首帧渲染时标题区无提醒 chip；interact 后 state 带 schedule 到达，标题区重建出现「1 reminder」chip（AlarmClock + 计数 + chevron）——验证 header 签名包含 schedule（保活旧头部会吞掉新 chip）。',
+  }
+
+  catalog['schedule-chip-empty'] = {
+    state: fontState({}),
+    title: '定时计划：无计划（0.1.1 服务器降级 / 无活动提醒）',
+    expect: '标题区无 AlarmClock chip、无提醒计数（state.schedule 缺省 = 0.1.1 服务器无该投影或暂无计划）；header 布局与其余 chips 正常，无报错。',
+  }
+
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"
   // 的存量状态，就把它的名字加进 BASELINE_SCENARIOS —— 随合入并入主线基线。

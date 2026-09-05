@@ -43,6 +43,25 @@ const STYLE = `
     font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
     color: var(--vscode-foreground);
   }
+  /* 字号调节（对齐官方 dsh web 的 --dsh-content-font-* 变量链，见官方
+     ui-theme gradient-shadow-text.css）：--dsh-content-font-size 是聊天内容
+     区正文字号（整数 px，12-17，默认 14），由 VS Code 设置 dshOne.chatFontSize
+     注入——chatHtml 在 <head> 里写死该值（激活前即生效，无首帧闪烁），运行中
+     改设置由宿主 post chatFontSize 覆盖 body 内联值（内联 > 样式表，即改即效，
+     持久化 = VS Code settings，跨 reload 自然生效）。
+     派生：--dsh-content-font-delta = 相对 14px 的像素增量；次级文字（think/
+     工具/表格/流内说明）用 --dsh-content-font-size-secondary，官方规则
+     设置 ≤14 时 −1、>14 时 −2（12→11、13→12、14→13、15→13、16→14、17→15）；
+     small/code 属密集次级文本，不随动（保持既有 0.85em/0.95em 相对与等宽字体）。 */
+  body {
+    --dsh-content-font-size: 14px;
+    --dsh-content-font-delta: calc(var(--dsh-content-font-size, 14px) - 14px);
+    --dsh-content-font-size-secondary: min(calc(var(--dsh-content-font-size, 14px) - 1px), max(13px, calc(var(--dsh-content-font-size, 14px) - 2px)));
+    --dsh-content-font-delta-secondary: calc(var(--dsh-content-font-size-secondary) - 13px);
+  }
+  /* 聊天内容区（消息流 + 用户气泡 + markdown/表格 + 流内说明）正文字号随
+     --dsh-content-font-size；头部 chips/composer/计时行等面板 chrome 不随动。 */
+  .messages { font-size: var(--dsh-content-font-size); }
   #app { display: flex; flex-direction: row; height: 100%; }
   /* 宽屏：左 sessions 面板 + 右聊天列；窄屏（<720px）改上下布局，面板限高自滚动。 */
   .chat-col {
@@ -87,6 +106,34 @@ const STYLE = `
     font-size: 11px; opacity: 0.75;
   }
   .job-duration { flex: none; font-size: 11px; opacity: 0.55; font-variant-numeric: tabular-nums; }
+  /* 定时计划「N 个提醒」chip 的下拉（对齐官方 ScheduleCatalogAction 只读
+     catalog）：每行 状态点 + 状态文案 + 提醒内容 + 元信息（频率 · 本地时刻 ·
+     相对剩余/逾期）；逾期行淡黄底（warn 三级），状态点/相对时间转琥珀。 */
+  .schedule-menu { display: flex; flex-direction: column; gap: 2px; width: 320px; max-width: 320px; }
+  .schedule-row {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 7px 10px; border-radius: 8px; min-width: 0;
+  }
+  .schedule-row.overdue { background: var(--vscode-editorWarning-background, rgba(204,167,0,.12)); }
+  .schedule-status {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--vscode-descriptionForeground);
+  }
+  .schedule-status.overdue { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .schedule-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vscode-charts-blue, #5686fe); }
+  .schedule-dot.overdue { background: var(--vscode-editorWarning-foreground, #cca700); }
+  .schedule-prompt {
+    font-size: 13px; line-height: 18px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* 元信息是纯展示，弹窗里允许换行（官方 metadata flex-wrap）；超长 prompt
+     在下方行内 ellipsis 保证行高稳定。 */
+  .schedule-meta {
+    color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 16px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0;
+  }
+  .schedule-meta-sep { opacity: 0.6; }
+  .schedule-relative.overdue { color: var(--vscode-editorWarning-foreground, #cca700); }
   @media (max-width: 719px) {
     #app { flex-direction: column; }
     .chat-col { min-height: 0; }
@@ -169,7 +216,7 @@ const STYLE = `
   /* 切换会话时历史基线加载中的占位：撑满聊天列垂直居中。 */
   .loading-hint { flex: 1; display: flex; align-items: center; justify-content: center; }
   .command-notice {
-    font-size: 0.9em; opacity: 0.8; white-space: pre-wrap; word-break: break-word;
+    font-size: var(--dsh-content-font-size-secondary); opacity: 0.8; white-space: pre-wrap; word-break: break-word;
     border-left: 2px solid var(--vscode-panel-border, rgba(127,127,127,.4));
     padding: 4px 10px;
   }
@@ -292,10 +339,12 @@ const STYLE = `
   .md hr {
     margin: 12px 0; border: 0; border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.4));
   }
-  /* 表格：紧凑边框 + 表头底色，超宽横向滚动；对齐 dsh web 观感。 */
+  /* 表格：紧凑边框 + 表头底色，超宽横向滚动；对齐 dsh web 观感。字号用
+     次级档（--dsh-content-font-size-secondary，14 档 13px），随正文缩放联动。 */
   .md table {
     display: block; width: max-content; max-width: 100%; overflow-x: auto;
-    border-collapse: collapse; margin: 0 0 8px; font-size: 0.92em;
+    border-collapse: collapse; margin: 0 0 8px;
+    font-size: var(--dsh-content-font-size-secondary);
   }
   .md table th, .md table td {
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
@@ -341,11 +390,13 @@ const STYLE = `
   .md-code pre { margin: 0; }
   .reasoning {
     border-left: 2px solid var(--vscode-panel-border, rgba(127,127,127,.4));
-    padding-left: 8px; color: var(--vscode-descriptionForeground, #888); font-size: 0.9em;
+    padding-left: 8px; color: var(--vscode-descriptionForeground, #888);
+    font-size: var(--dsh-content-font-size-secondary);
   }
   .msg.context {
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.25));
-    border-radius: 6px; padding: 4px 10px; opacity: 0.8; font-size: 0.9em;
+    border-radius: 6px; padding: 4px 10px; opacity: 0.8;
+    font-size: var(--dsh-content-font-size-secondary);
   }
   .msg.context summary { cursor: pointer; }
   .context-body {
@@ -1664,6 +1715,23 @@ const STYLE = `
   .hero #input:focus { outline: none; }
 `
 
+export const CHAT_FONT_SIZE_MIN = 12
+export const CHAT_FONT_SIZE_MAX = 17
+export const CHAT_FONT_SIZE_DEFAULT = 14
+
+/**
+ * 当前 VS Code 设置的 chat 内容字号（整数 px，12-17，越界退默认 14）。
+ * chatHtml 在生成面板时读一次并写进 <head>（激活前生效，无首帧闪烁）；
+ * 设置运行中变化由宿主 onDidChangeConfiguration 监听并 post chatFontSize
+ * 覆盖 body 内联变量（即改即效），持久化 = VS Code settings（跨 reload 自然生效）。
+ */
+export function chatFontSize(): number {
+  const raw = vscode.workspace.getConfiguration('dshOne').get<number>('chatFontSize', CHAT_FONT_SIZE_DEFAULT)
+  return Number.isInteger(raw) && raw >= CHAT_FONT_SIZE_MIN && raw <= CHAT_FONT_SIZE_MAX
+    ? raw
+    : CHAT_FONT_SIZE_DEFAULT
+}
+
 export function chatHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
@@ -1687,6 +1755,7 @@ export function chatHtml(
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>${STYLE}</style>
+<style>body { --dsh-content-font-size: ${chatFontSize()}px; }</style>
 </head>
 <body>
 <div id="app" data-tab-id="${escapeHtml(tabId)}"></div>

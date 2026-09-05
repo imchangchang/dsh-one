@@ -31,6 +31,7 @@ import { SubagentCatalogStore } from './subagentsStore.ts'
 import type { SessionsStore } from './sessionsStore.ts'
 import { JobsStore } from './jobsStore.ts'
 import { ChatTabHost, EMPTY_STATE, type ChatPanelRestoreState, type ChatTabHostActions } from './chatTab.ts'
+import { chatFontSize } from './chatViewHtml.ts'
 
 /** workspaceState key：tabId → 当前附着会话（reload 后 serializer 按它重建 tab）。 */
 const OPEN_TABS_KEY = 'chat.openTabs'
@@ -71,6 +72,8 @@ export class ChatViewProvider implements vscode.Disposable {
   /** 子代理目录数据层（subagent.list）：菜单行显示名的来源（descriptor label）。 */
   private readonly subagents: SubagentCatalogStore
   private readonly subagentsSub: vscode.Disposable
+  /** dshOne.chatFontSize 设置变化订阅（运行中改字号 → 全 tab 覆盖内容区 CSS 变量）。 */
+  private readonly configSub: vscode.Disposable
   /** 注入给每个 ChatTabHost 的集合级能力（见 ChatTabHostActions）。 */
   private readonly hostActions: ChatTabHostActions
   /** tabId → 附着会话（窗口 reload 恢复映射，增量维护；见 syncTabMapping）。 */
@@ -142,6 +145,17 @@ export class ChatViewProvider implements vscode.Disposable {
     this.subagentsSub = this.subagents.onDidChange(() => {
       for (const tab of this.tabs.values()) {
         if (tab.controller) this.push(tab, tab.controller.getState())
+      }
+    })
+    // chat 内容字号（dshOne.chatFontSize）运行中变化：改写所有打开 tab 的
+    // webview 内容区字号（webview 侧覆盖 body 内联 CSS 变量，即改即效）。
+    // 持久化是 VS Code settings 本身——不用另外存，跨 reload 由 chatHtml
+    // 在生成面板时按当前设置重新写入（见 chatViewHtml.chatFontSize）。
+    this.configSub = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!e.affectsConfiguration('dshOne.chatFontSize')) return
+      const value = chatFontSize()
+      for (const tab of this.tabs.values()) {
+        tab.postMessage({ type: 'chatFontSize', value })
       }
     })
   }
@@ -792,6 +806,7 @@ export class ChatViewProvider implements vscode.Disposable {
     this.jobs.dispose()
     this.subagentsSub.dispose()
     this.subagents.dispose()
+    this.configSub.dispose()
     for (const tab of [...this.tabs.values()]) {
       tab.dispose()
     }

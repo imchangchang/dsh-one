@@ -21,5 +21,6 @@
 	"dshOne.workspace.openFolder.title": "在 VSCode 中打开文件夹",
 	"dshOne.dshPath.description": "dsh 可执行文件路径。留空则从 PATH 查找。",
 	"dshOne.autoStart.description": "激活扩展时自动启动（或复用）dsh web 服务。",
-	"dshOne.port.description": "dsh web 服务端口。0 表示由操作系统分配；非 0 时会先探测该端口上是否已有 dsh 实例并复用之。注意 0 会让 dsh UI 的会话恢复失效（localStorage 按 origin 隔离）。"
+	"dshOne.port.description": "dsh web 服务端口。0 表示由操作系统分配；非 0 时会先探测该端口上是否已有 dsh 实例并复用之。注意 0 会让 dsh UI 的会话恢复失效（localStorage 按 origin 隔离）。",
+	"dshOne.chatFontSize.description": "聊天内容字号（12-17，默认 14）。Markdown 表格与次级文字随聊天内容字号联动缩放。"
 }

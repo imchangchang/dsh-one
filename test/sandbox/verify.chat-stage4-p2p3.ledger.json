@@ -1,0 +1,75 @@
+{
+  "title": "阶段 4（P2/P3）：字号调节 + 定时计划 chip（chat-stage4-p2p3）",
+  "branch": "agent/chat-stage4-p2p3",
+  "commit": "44927c7",
+  "environment": {
+    "mode": "mock-llm + 容器内升级 dsh 0.1.2-rc.1（镜像 pin 0.1.1-rc.2，docker exec -u root npm i -g @deepseek-ai/dsh@0.1.2-rc.1 后重启扩展路径，同 dsh-token-auth 任务配方）",
+    "dsh": "0.1.2-rc.1（容器内升级；schedule 投影为 0.1.2 专属）",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-chat-stage4-p2p3:latest",
+    "driver": "verify-driver.mjs 驱动（F-01/F-03/R-01）；F-02 由 .dev-host/font-probe.mjs（Playwright 独立探针：settings.json 写 dshOne.chatFontSize=17 后开面板，断言 .messages 计算字号 + 截图）",
+    "date": "2026-09-05"
+  },
+  "coverageNote": "本报告验证：① 真 dsh 0.1.2-rc.1 + mock-llm（新增 schedule_create 场景规则）+ 真扩展 vsix 端到端——模型调 schedule_create → dsh 落 schedule/change → schedule 投影折叠 → host 收到（基线或 session/projection 帧）→ webview 头部出现在「1 reminder」AlarmClock chip（0.1.2 通路全程真代码）；② 字号设置 17px 经 VS Code settings → chatHtml 注入 CSS 变量 → 内容区计算字号 17px（真扩展，.messages computed style 断言）。缺口（诚实记录）：a) schedule 下拉的点击展开/状态区分由 harness 确定性场景覆盖（沙盒探针只断 chip 出现——driver 无点击语义扩展，未改共享 driver）；b) 0.1.1-rc.2 下降级（无 schedule 投影 → 无 chip、不崩）未在沙盒端到端复跑——host 侧 schedule 字段全程 undefined 属结构缺省（0.1.1 无该投影键，无基线值也无推送帧），对应视觉态由 harness 场景 schedule-chip-empty 覆盖；c) 真实模型输出/真桌面 VS Code/跨平台不在本报告范围；d) P3 整轮聚合折叠评估为不做（见条目变更记录）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "定时计划 chip：模型 schedule_create → 真 0.1.2 折叠 → 头部 AlarmClock chip",
+      "expect": "新会话发送「设置一个提醒」：mock-llm 规则命中 schedule_create 工具调用（prompt + 2099 远期 at），真 dsh 0.1.2 执行工具并追加 schedule/change 事件，schedule 投影折叠出 active 记录并广播；webview 标题区（子代理/后台任务同排）出现 AlarmClock chip「1 reminder」+ chevron；工具卡展示 Create reminder；对话正常收尾（无重复工具调用循环）。",
+      "driver": {
+        "prompt": "设置一个提醒",
+        "expectText": "1 reminder"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-stage4-p2p3/F-01.png"
+      ],
+      "notes": "verify-driver：新建会话 → 设置一个提醒 → mock 规则 schedule_create（prompt+2099 at）→ 真 dsh 0.1.2 schedule 插件落 schedule/change → schedule 投影控制流广播 → host 折叠 → 头部「1 reminder」chip 出现（截图）。前置：容器内升级 dsh 0.1.2-rc.1 + 官方 --patch overlay 启用 Schedule 插件（shipped web graph 默认 disabled，opt-in）；修复了 header 签名不含 schedule 导致 chip 不出现的 bug（schedule-chip-live harness 场景回归）。mock-llm 側：0.1.2 time-context 注入过滤 + 工具续拍扫描（跳过注入上下文）——默认场景无 schedule 规则时其它规则被时间上下文劫持。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "字号调节：dshOne.chatFontSize=17 → 内容区随动（设置 → 面板 → CSS 变量）",
+      "expect": "在 code-server 用户 settings.json 写入 dshOne.chatFontSize=17 后打开 chat 面板：.messages 区域计算字号为 17px（chatHtml 在生成面板时把设置读进 <head>，无首帧闪烁——body inline 变量 17px 已落地）；头部标题/chips 与 composer 字号不变（chrome 不随动，14px/13px）。markdown 表格/思考块的次级档缩放由 harness 断言补足（17 档 = 15px）。",
+      "driver": {},
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-stage4-p2p3/F-02-font-size-17.png",
+        "/tmp/dsh-sandbox-shots-chat-stage4-p2p3/F-02-font-size-default.png"
+      ],
+      "notes": ".dev-host/font-probe.mjs：body --dsh-content-font-size=17px、.messages computed=17px、.chat-title=14px、#input=13px；截图 F-02-font-size-17.png。harness chat-font-size-default/large 断言表格 13px→15px、思考块 13px→15px。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "0.1.2 下无活动提醒不显示 chip（投影 active=[] / 无 schedule/change）",
+      "expect": "普通会话（无定时计划）在 0.1.2 服务器上：schedule 投影恒存在但 state.active=[]（或尚无该投影推送），头部无 AlarmClock chip、无提醒计数；其余头部 chips 与消息流正常，无报错。",
+      "driver": {
+        "prompt": "回归检查",
+        "expectText": "收到：回归检查"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-stage4-p2p3/F-03.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "既有对话回归：工具编排 + 用量药丸（真 0.1.2 通路）",
+      "expect": "发送「查天气」：get_weather 工具卡正常（mock 规则），对话以回显收尾（工具续拍走兜底回显，无循环）；已结束回答操作栏出现「Usage N」药丸（数字来自 mock/上游——0.1.2 通路下 mock 上报的 usage 未计入折折叠，药丸为 0；非零聚合形态由 harness turn-usage-detail 场景覆盖）。",
+      "driver": {
+        "prompt": "查天气",
+        "expectText": "Usage 0"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-stage4-p2p3/R-01.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped"
+    }
+  ]
+}

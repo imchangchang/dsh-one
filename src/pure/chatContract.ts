@@ -317,6 +317,31 @@ export interface ChatTurnOutlineEntry {
 }
 
 /**
+ * 会话标题区定时计划 chip 的一条（官方 `schedule` 投影的 wire 视图：
+ * state.active 的活动提醒记录数组，见 packages/schedule/schedule
+ * projection.ts；dsh 0.1.2-rc.1 起由服务端 fold，1.1 服务器无此投影）。
+ * 计划由模型工具 schedule_create/list/delete 管理，chip 只读展示；状态
+ * 只有 scheduled（等待中）/overdue（已逾期）两态，到期生成一条 user
+ * message 插回会话。带形状校验（id/kind/prompt/scheduledAt 及 kind 关联
+ * 字段），畸形整条丢弃——chip 宁可少一行，不渲染错误数据。
+ */
+export interface ChatScheduleEntry {
+  /** Session-local stable identity（不重复使用）。 */
+  id: string
+  /** 规则分支：延迟单次 / 绝对时刻单次 / 固定间隔重复。 */
+  kind: 'after' | 'at' | 'every'
+  /** 提醒内容（创建时裁剪）。 */
+  prompt: string
+  /** RFC 3339 UTC 目标时刻（`every` 为下一次发生）。
+   * 到期判定：Date.parse(scheduledAt) <= now（overdue）。 */
+  scheduledAt: string
+  /** `after` 专属：创建时接受的延迟秒数（正整数）。 */
+  afterSeconds?: number
+  /** `every` 专属：固定间隔秒数（≥5 分钟，正整数）。 */
+  everySeconds?: number
+}
+
+/**
  * One slash-command lifecycle (dsh `command/run` + `command/done` pair),
  * rendered as a flow node like the official web client does.
  */
@@ -650,6 +675,15 @@ export interface ChatState {
    * session/projection（key=turnOutline）推送，整体替换。
    */
   turnOutline?: ChatTurnOutlineEntry[]
+  /**
+   * 定时计划（官方 `schedule` 投影 wire 视图：活动提醒记录数组，只暴露
+   * state.active）：webview 在头部 chips（子代理/后台任务同排）渲染 AlarmClock
+   * chip + 只读下拉（scheduled/overdue 状态区分）。投影缺失（dsh 0.1.1
+   * 服务器无该投影，无基线也无替换推送）时缺省，chip 不渲染——降级不崩、
+   * 无计划也不显示。到达 = 首帧投影基线或 session/projection（key=schedule）
+   * 推送，整体替换。
+   */
+  schedule?: ChatScheduleEntry[]
 }
 
 /**
@@ -872,6 +906,12 @@ export type ToWebviewMessage =
    * messageId 为 null，webview 静默不动。
    */
   | { type: 'turnJumped'; messageId: string | null }
+  /**
+   * chat 内容字号设置变化（dshOne.chatFontSize 运行中被改）：webview 覆盖
+   * body 内联的 --dsh-content-font-size，派生变量与内容区随动（即改即效，
+   * 无需 reload；不改只读 origin，只影响 webview 视觉）。
+   */
+  | { type: 'chatFontSize'; value: number }
 
 export type FromWebviewMessage =
   /** Webview 脚本加载完成（含 tab 切走后 VSCode 重载的场合）；宿主据此重推当前状态。 */

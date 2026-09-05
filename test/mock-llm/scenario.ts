@@ -142,6 +142,19 @@ export function defaultScenario(): MockLlmScenario {
           ],
         },
       },
+      // 定时计划（dsh >= 0.1.2 的 schedule_create；镜像基础 dsh 0.1.1-rc.2 无此
+      // 工具，容器内升级 0.1.2-rc.1 后场景可用——见 chat-stage4-p2p3 沙盒环境）：
+      // 远期单次提醒（2099 → 保持 active），到期后投影折叠 active=[]。
+      {
+        match: { contains: '设置一个提醒' },
+        respond: {
+          toolCalls: [{
+            id: 'call-schedule',
+            name: 'schedule_create',
+            arguments: JSON.stringify({ prompt: '检查测试报告是否完成', at: '2099-01-01T09:00:00.000Z' }),
+          }],
+        },
+      },
       // commit 卡演示（CLI 兜底验证）：回文本带固定提交 sha——sha 与沙盒
       // entrypoint 在 $HOME 建的演示仓库一致；窗口没打开该仓库，查询走 git CLI 兜底。
       {
