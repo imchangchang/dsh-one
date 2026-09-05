@@ -1,0 +1,66 @@
+{
+  "title": "chat-render-scaling 阶段 1A：host 侧缩略图限流+失败收敛 沙盒测试报告",
+  "branch": "agent/chat-render-scaling-1a",
+  "commit": "9639b63",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-chat-render-scaling-1a:latest",
+    "driver": "verify-driver.mjs + 任务探针 /tmp/dsh-sandbox-e2e-1a/1b/1d.mjs",
+    "date": "2026-09-05T00:00:00Z"
+  },
+  "coverageNote": "本任务核心是宿主进程内的节流队列（并发上限 4、单任务 1-2 次尝试后回失败态）——浏览器驱动无法直接观测宿主进程的并发/重试次数，这部分由 test/thumbQueue.test.ts 的 7 项单测确定性断言（41 任务峰值并发≤4、FIFO、瞬败重试成功、持续失败恰好 maxAttempts 次停止、超时按失败计、缺失文件 1 次尝试/2 次尝试收敛且其余文件各读 1 次）。沙盒（mock-llm + 真 dsh + 真扩展 vsix）验证两条端到端行为：①41 张图片一次渲染全部经宿主队列取回并渲染缩略图（成功路径语义保持，DOM 断言 41/41 已加载）；②消息引用缺失的图片文件时收敛为确定态（宿主 1-2 次后回 fileThumbFailed，webview 不再 5s 重发——用「失败回执后创建文件 + 强制重渲染」判别：旧行为会重发并读到晚到文件变为缩略图，新行为保持图标）。真桌面 VS Code、真模型输出、平台专项（Windows/macOS）不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "41 张图片一次渲染：经宿主队列全部取回并渲染缩略图",
+      "expect": "composer 合成粘贴 41 张 1x1 PNG（走 filesPasted → 41 个附件 chip）后发送；用户消息渲染 41 个缩略图（requestAttachment 经宿主节流队列取回，attachmentData 到达后占位变真图）；消息区 DOM 中 .msg-images .attach-thumb img = 41 个且全部 naturalWidth>0（无占位残留、无重发风暴）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-render-scaling-1a/F-01a-composer-41-chips.png",
+        "/tmp/dsh-sandbox-shots-chat-render-scaling-1a/F-01d-thumbs-element.png",
+        "/tmp/dsh-sandbox-shots-chat-render-scaling-1a/F-01e-full-top.png"
+      ],
+      "notes": "探针 /tmp/dsh-sandbox-e2e-1d.mjs：composer chips=41；消息缩略图 img=41、naturalWidth>0=41、零尺寸 img=0；元素截图 F-01d 可见 41 个缩略图（img1..img41）。host 端并发上限的「≤4」由 F-03 单测断言。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "缺失图片文件：宿主 1-2 次重试后失败收敛，webview 不再 5s 重发",
+      "expect": "用户消息引用不存在的图片文件（<attachment>/home/coder/workspace/chip-missing.png</attachment>，image 芯片）→ 渲染时发 requestFileThumb → 宿主读盘失败重试 1 次后回 fileThumbFailed → webview 标失败态：此后任何重渲染都不再重发，chip 保持占位图标。判别：发送 3 秒后（失败回执之后）在容器创建该文件，再发一条消息强制整帧重渲染——旧行为会在重渲染时按 5s 间隔重发、读到晚到文件把 chip 换成缩略图；新行为保持图标。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-render-scaling-1a/F-02b-chip-t8.png",
+        "/tmp/dsh-sandbox-shots-chat-render-scaling-1a/F-02c-chip-t14.png"
+      ],
+      "notes": "探针 /tmp/dsh-sandbox-e2e-1b.mjs：chip 出现时 {cls:file-chip, hasImg:false}；t+3 容器创建文件（校验存在：70 字节）；t+8 与第二条消息回显重渲染后的 t+14 均保持 {cls:file-chip, hasImg:false}——晚到文件未被拾起，证明失败后未再重发。宿主侧「恰好 2 次尝试」由 F-03 单测断言。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "宿主节流队列：并发上限 + 重试/超时收敛（单测覆盖）",
+      "expect": "test/thumbQueue.test.ts 7 项：41 任务峰值并发 ≤4 且全部完成；并发 1 时排队 FIFO；runAttempts 首次成功=1 次尝试、瞬败重试成功=2 次、持续失败恰好 maxAttempts 次后 reject、超时按失败计（每次尝试足额等待）；41 文件 1 缺失的组合场景：缺失文件恰好 2 次尝试后放弃、其余 40 个各读 1 次、峰值并发 ≤4、队列清空。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test test/thumbQueue.test.ts 7/7 通过；npm test 全量 477/477 通过。宿主进程内逻辑，浏览器驱动不可达（覆盖声明见 coverageNote）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "聊天发送/接收主流程",
+      "expect": "mock-llm 模式下新建会话发送「测试一下」，新会话内出现助手回复「收到：测试一下…」，聊天主流程不受本次 chatMessages/webview 改动影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-render-scaling-1a/R-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "新建会话：sidebar-ungrouped；截图确认 mock 回显「收到：测试一下」、统计行 1 turns·1 steps、模型选择器 mock-flash Max，符合期望。"
+    }
+  ]
+}

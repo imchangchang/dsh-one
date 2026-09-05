@@ -775,6 +775,11 @@ export type ToWebviewMessage =
   /** 消息里图片文件 chip 的懒加载缩略图（requestFileThumb 的回执；data 为 base64）。 */
   | { type: 'fileThumb'; path: string; mediaType: string; data: string }
   /**
+   * requestFileThumb 的失败回执：宿主在 1-2 次尝试后放弃（文件缺失/损坏/
+   * 超时），webview 把该文件标记为失败态、不再 5s 重发（占位图标 chip 保持）。
+   */
+  | { type: 'fileThumbFailed'; path: string }
+  /**
    * 把内容还原回 composer：stop 时被抽干队列的排队消息文本，或发送失败
    * 时原样还回的消息（图片/文件 chips 一并恢复，不让输入被吞）。
    */
