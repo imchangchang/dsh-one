@@ -3286,7 +3286,7 @@ function render(): void {
       const input = document.createElement('input')
       input.className = 'rename-input'
       input.value = renameDraft
-      input.setAttribute('aria-label', t('Rename session'))
+      input.setAttribute('aria-label', t('Rename'))
       input.addEventListener('input', () => {
         renameDraft = input.value
         renameSelStart = input.selectionStart ?? renameDraft.length
