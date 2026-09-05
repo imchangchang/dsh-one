@@ -181,7 +181,12 @@ export class ServerManager implements vscode.Disposable {
    */
   async stopExternal(): Promise<void> {
     const port = this.status.port
-    if (port === undefined || (this.status.reason !== 'authDshNoToken' && this.status.external !== true)) {
+    // adopted（另一窗口 spawn 的实例）同样可停：单用户多窗口场景下两个窗口属于
+    // 同一人，确认弹窗由命令层负责（提示可能影响正在使用它的窗口）。
+    if (
+      port === undefined ||
+      (this.status.reason !== 'authDshNoToken' && this.status.external !== true && this.status.adopted !== true)
+    ) {
       throw new Error(vscode.l10n.t('No external dsh instance is running'))
     }
     const pid = await findListenerPid(port, this.logger)

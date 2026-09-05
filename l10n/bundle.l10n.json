@@ -489,5 +489,7 @@
   "No external dsh instance is waiting for a token": "No external dsh instance is waiting for a token",
   "No external dsh instance is running": "No external dsh instance is running",
   "Could not find the process listening on port {0}": "Could not find the process listening on port {0}",
-  "Process {0} on port {1} does not look like dsh; stopping it was refused": "Process {0} on port {1} does not look like dsh; stopping it was refused"
+  "Process {0} on port {1} does not look like dsh; stopping it was refused": "Process {0} on port {1} does not look like dsh; stopping it was refused",
+  "Reusing a dsh started in another window; stopping or restarting it asks for confirmation and may affect that window": "Reusing a dsh started in another window; stopping or restarting it asks for confirmation and may affect that window",
+  "Stop the dsh on port {0}? It was started outside this extension (in your terminal or another window).": "Stop the dsh on port {0}? It was started outside this extension (in your terminal or another window)."
 }

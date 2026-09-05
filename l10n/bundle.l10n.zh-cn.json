@@ -489,5 +489,7 @@
   "No external dsh instance is waiting for a token": "没有等待 token 的外部 dsh 实例",
   "No external dsh instance is running": "没有运行中的外部 dsh 实例",
   "Could not find the process listening on port {0}": "找不到监听端口 {0} 的进程",
-  "Process {0} on port {1} does not look like dsh; stopping it was refused": "端口 {1} 上的进程 {0} 不是 dsh，已拒绝停止"
+  "Process {0} on port {1} does not look like dsh; stopping it was refused": "端口 {1} 上的进程 {0} 不是 dsh，已拒绝停止",
+  "Reusing a dsh started in another window; stopping or restarting it asks for confirmation and may affect that window": "复用另一窗口启动的 dsh；停止/重启会先弹确认，且可能影响正在使用它的窗口",
+  "Stop the dsh on port {0}? It was started outside this extension (in your terminal or another window).": "停止端口 {0} 上的 dsh？它由本扩展之外启动（你的终端或另一个窗口）。"
 }

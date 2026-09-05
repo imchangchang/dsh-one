@@ -40,9 +40,12 @@ export function tooltipMarkdown(status: TooltipStatus, t: Translate): string {
         md += `　[$(refresh) ${t('Restart External Instance')}](command:dshOne.external.restart)`
         md += `　[$(debug-stop) ${t('Stop External Instance')}](command:dshOne.external.stop)`
       } else if (status.adopted) {
-        // 另一窗口 spawn 的实例：只复用、提供不了 kill 权（原行为不变）。
-        md += `${t('Reusing an externally started instance; the extension will not stop it')}\n\n`
+        // 另一窗口 spawn 的实例：可管理（确认弹窗由命令层负责）——单用户多窗口
+        // 场景两个窗口都是同一人的，停止/重启影响同一套 dsh；与外部实例同款入口。
+        md += `${t('Reusing a dsh started in another window; stopping or restarting it asks for confirmation and may affect that window')}\n\n`
         md += `[$(globe) ${t('Open in Browser')}](command:dshOne.openExternal)`
+        md += `　[$(refresh) ${t('Restart External Instance')}](command:dshOne.external.restart)`
+        md += `　[$(debug-stop) ${t('Stop External Instance')}](command:dshOne.external.stop)`
       } else {
         md += `[$(globe) ${t('Open in Browser')}](command:dshOne.openExternal)`
         md += `　[$(refresh) ${t('Restart Service')}](command:dshOne.restart)　[$(debug-stop) ${t('Stop Service')}](command:dshOne.stop)`
