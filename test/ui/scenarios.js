@@ -532,8 +532,11 @@
           authorName: 'cgeng', authorEmail: 'cgeng@c3ng.com', commitDate: '2026-09-07',
           files: 3, insertions: 120, deletions: 20,
           githubUrl: 'https://github.com/imchangchang/dsh-one/commit/351a7664d4f6e86bb0ef58c94d84d0ee1fb9aa53' }
-        const frame = (text) => ({ kind: 'assistant', id: 'a-stream', complete: false, turnEnd: true,
-          blocks: [{ type: 'text', text }] })
+        const base = window.SCENARIOS['commit-card-stays-during-streaming'].state
+        const stateWith = (text) => ({ ...base, messages: [{
+          kind: 'assistant', id: 'a-stream', complete: false, turnEnd: true,
+          blocks: [{ type: 'text', text }],
+        }] })
         const post = (state) => window.postMessage({ type: 'state', state }, '*')
         window.postMessage({ type: 'commitInfo', results: [commitInfo] }, '*')
         setTimeout(() => {
@@ -541,10 +544,10 @@
             ?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
         }, 400)
         setTimeout(() => {
-          post(frame('正在输出：相关提交是 351a766（第一帧）。\\n\\n第二帧：行已重建，卡片必须还在。'))
+          post(stateWith('正在输出：相关提交是 351a766（第一帧）。\\n\\n第二帧：行已重建，卡片必须还在。'))
         }, 600)
         setTimeout(() => {
-          post(frame('正在输出：相关提交是 351a766（第一帧）。\\n\\n第二帧：行已重建，卡片必须还在。\\n\\n第三帧：卡片应随 chip 重定位到这里。'))
+          post(stateWith('正在输出：相关提交是 351a766（第一帧）。\\n\\n第二帧：行已重建，卡片必须还在。\\n\\n第三帧：卡片应随 chip 重定位到这里。'))
           setTimeout(() => {
             document.body.setAttribute('data-commit-card-stayed',
               document.querySelector('.popover .commit-card') ? 'yes' : 'no')
