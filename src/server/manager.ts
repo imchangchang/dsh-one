@@ -1,7 +1,6 @@
 import * as vscode from 'vscode'
 import { spawn, spawnSync } from 'node:child_process'
 import * as crypto from 'node:crypto'
-import * as fs from 'node:fs'
 import * as fsp from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -10,6 +9,16 @@ import { parseReadyLine } from '../pure/readyLine.ts'
 import { gte } from '../pure/semver.ts'
 import { locateDsh, DshNotFoundError } from './locateDsh.ts'
 import { exchangeToken, probeToken, clearAuth, cookieHeader, probeAuthRequired } from './serverAuth.ts'
+import {
+  acquireOwnedLock,
+  clearOwnedRecord,
+  defaultOwnedPath,
+  migrateOwnedRecord,
+  readOwnedRecord,
+  resolveOwnership,
+  writeOwnedRecord,
+} from './ownedRecord.ts'
+import type { OwnedRecord } from './ownedRecord.ts'
 import type { Logger } from '../log.ts'
 
 /** dsh learned --no-open in 0.1.0-rc.7; older builds exit on the unknown flag. */
@@ -86,19 +95,6 @@ function pidAlive(pid: number): boolean {
   }
 }
 
-/** pidfile 记录：上一次（可能已退出的扩展宿主）spawn 的 dsh 身份。 */
-interface OwnedRecord {
-  pid: number
-  port: number
-  /**
-   * dsh >= 0.1.2 的每次启动 token（stdout URL 里的 ?token=）。进程级随机、
-   * 服务端不落盘，扩展 reload 后只能靠自己持久化的这份找回。0.1.1 无。
-   */
-  token?: string
-  /** spawn 时 locateDsh 报的版本；reload 后 re-own 时展示用（不是当前 PATH 的近似值）。 */
-  version?: string
-}
-
 /** Readiness result: the clean origin plus the launch token when it exists. */
 export interface ReadyResult {
   url: string
@@ -111,12 +107,17 @@ export interface ReadyResult {
  * and careful cleanup (only processes we spawned ourselves are ever killed).
  * dsh 与 VSCode 窗口生命周期解绑：reload/关窗不再终止 dsh——spawn 时
  * detached + unref、stdio 进日志文件（管道读端随宿主退出会造成 EPIPE），
- * 身份经 globalStorage 的 pidfile 跨宿主传递，下次激活时 re-own。
+ * 身份经共享记录（`~/.dsh/dsh-owned.json`，见 ownedRecord.ts）跨宿主传递，
+ * 下次激活时 re-own。0.1.2 认证起，记录里的 token 让第二个 user-data 的窗口
+ * 也能认证式 adopt（adopted: true，绝不 kill——kill 权只归 spawn 的窗口）。
  */
 export class ServerManager implements vscode.Disposable {
   private status: ServerStatus = { state: 'stopped' }
   /** PID of the process group we own; null when adopted or stopped. */
   private ownedPid: number | null = null
+  /** 窗口身份：globalStorage 路径（per user-data）。reload 后同值 → 认回自己 spawn
+   * 的实例（kill 权）；另一 user-data 的窗口不匹配 → adopted。 */
+  private readonly ownerId: string
   private inflight: Promise<ServerStatus> | null = null
   private stopping = false
   /** stop() 递增；进行中的 start 失败时据此判断是用户喊停而非真错误。 */
@@ -129,7 +130,9 @@ export class ServerManager implements vscode.Disposable {
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    this.ownerId = context.globalStorageUri.fsPath
+  }
 
   getStatus(): ServerStatus {
     return this.status
@@ -189,46 +192,77 @@ export class ServerManager implements vscode.Disposable {
     this.setStatus({ state: 'starting' })
     const cfg = vscode.workspace.getConfiguration('dshOne')
     const port = cfg.get<number>('port', 3080)
+    // 关键段锁：串行化「读记录 → 判定 → spawn → 落盘」（见 ownedRecord.ts）——
+    // 两个窗口同时启动时后到者等前一个落盘后按记录 adopt，不会各自 spawn 出双实例。
+    const lock = await acquireOwnedLock(defaultOwnedPath(), this.logger)
+    try {
+      return await this.startLocked(port)
+    } finally {
+      lock.release()
+    }
+  }
 
-    // Re-own 优先：上一个扩展宿主 spawn 的 dsh 在 reload 后仍在跑（生命周期
-    // 已解绑）。pidfile + pid 存活 + 端口身份确认三者齐备才认领。
+  private async startLocked(port: number): Promise<ServerStatus> {
+    // 升级路径：旧 build 把记录写在 globalStorage（per user-data，窗口隔离），
+    // 一次性迁到共享位置——owner 补成当前窗口，升级后 reload 仍认回自己的实例。
+    await this.migrateLegacyRecord()
+
+    // Re-own/adopt 优先：共享记录里上一次 spawn 的 dsh 身份（reload 或第二窗口
+    // 场景）。pid 存活 + 端口身份确认（token 换票 / host.describe）才认领。
+    // owner 与当前窗口一致 → 上一个宿主会话 spawn 的实例，re-own 并保留 kill 权；
+    // owner 不同 → 另一窗口的实例，认证式 adopted（adopted:true，绝不 kill）。
     // 已知风险（已拍板接受）：dsh 死亡后 pid 被系统复用、且端口又被另一个手动
     // 启动的 dsh 占用时，stop 会误杀复用 pid 的进程组——host.describe 不含
     // pid，无法更严格地验证。
-    const owned = await this.readOwned()
+    const owned = await readOwnedRecord(defaultOwnedPath(), this.logger)
     if (owned) {
       const alive = pidAlive(owned.pid)
-      this.logger.info(`pidfile found: pid=${owned.pid} port=${owned.port} alive=${alive}`)
+      const ownerLabel = owned.owner === undefined
+        ? 'unknown'
+        : owned.owner === this.ownerId ? 'this window' : 'another window'
+      this.logger.info(`shared pidfile found: pid=${owned.pid} port=${owned.port} alive=${alive} owner=${ownerLabel}`)
       if (alive) {
-        // port=0（系统分配）时 pidfile 里没有实际端口，从日志文件的就绪行拿。
+        // port=0（系统分配）时记录里没有实际端口，从日志文件的就绪行拿。
         const ownedPort = owned.port > 0 ? owned.port : await this.readyPortFromLog()
         if (ownedPort !== null) {
-          // 0.1.2 记录的 token：只有当前进程自己 mint 的 token 才能换到 cookie，
-          // 303 即身份确认，顺带完成认证（stdout 已随旧宿主丢失）。
+          const ownedUrl = `http://127.0.0.1:${ownedPort}`
+          const ownership = resolveOwnership(owned, this.ownerId)
+          // 0.1.2 记录的 token：换到 cookie 既证明进程身份也完成认证（stdout 已随
+          // 旧宿主丢失）。第二窗口拿到 token 同样能换票——这正是跨窗口 adopt 的前提。
           if (owned.token) {
-            const auth = await probeToken(`http://127.0.0.1:${ownedPort}`, owned.token, this.logger)
+            const auth = await probeToken(ownedUrl, owned.token, this.logger)
             if (auth !== null) {
-              const ownedUrl = `http://127.0.0.1:${ownedPort}`
-              this.logger.info(`re-owning authenticated dsh at ${ownedUrl} (pid=${owned.pid}, spawned by a previous window)`)
+              if (ownership === 'own') {
+                this.logger.info(`re-owning authenticated dsh at ${ownedUrl} (pid=${owned.pid}, spawned by this window's previous session)`)
+                this.ownedPid = owned.pid
+                this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false, version: owned.version })
+                this.startHealthCheck(ownedPort)
+                return this.status
+              }
+              this.logger.info(`adopting another window's authenticated dsh at ${ownedUrl} (pid=${owned.pid}, will never kill it)`)
+              this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: true })
+              this.startHealthCheck(ownedPort)
+              return this.status
+            }
+          } else if ((await probePort(ownedPort, this.logger)) === 'dsh') {
+            if (ownership === 'own') {
+              this.logger.info(`re-owning dsh at ${ownedUrl} (pid=${owned.pid}, spawned by this window's previous session)`)
               this.ownedPid = owned.pid
               this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false, version: owned.version })
               this.startHealthCheck(ownedPort)
               return this.status
             }
-          } else if ((await probePort(ownedPort, this.logger)) === 'dsh') {
-            const ownedUrl = `http://127.0.0.1:${ownedPort}`
-            this.logger.info(`re-owning dsh at ${ownedUrl} (pid=${owned.pid}, spawned by a previous window)`)
-            this.ownedPid = owned.pid
-            this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false, version: owned.version })
+            this.logger.info(`adopting another window's dsh at ${ownedUrl} (pid=${owned.pid}, will never kill it)`)
+            this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: true })
             this.startHealthCheck(ownedPort)
             return this.status
           }
         }
       }
+      await this.clearOwned() // 记录过期（pid 已死/端口不应答/token 失效），清掉走正常流程
     } else {
-      this.logger.info('no pidfile found, falling through to probe/spawn')
+      this.logger.info('no shared pidfile found, falling through to probe/spawn')
     }
-    await this.clearOwned() // 记录过期（pid 已死或端口不应答），清掉再走正常流程
 
     // Probe before spawn: adopt an already-running dsh on the configured port;
     // when a foreign service occupies it, fall back to a nearby free port
@@ -532,37 +566,25 @@ export class ServerManager implements vscode.Disposable {
     return path.join(this.context.globalStorageUri.fsPath, 'dsh-web.log')
   }
 
-  /** globalStorage 下的 pidfile：{pid, port}，reload 后据此 re-own。 */
-  private ownedFile(): string {
-    return path.join(this.context.globalStorageUri.fsPath, 'dsh-owned.json')
-  }
-
+  /** 写共享记录（~/.dsh/dsh-owned.json），owner = 当前窗口身份——kill 权只记给 spawn 方。 */
   private async writeOwned(record: OwnedRecord): Promise<void> {
-    try {
-      await fsp.mkdir(this.context.globalStorageUri.fsPath, { recursive: true })
-      await fsp.writeFile(this.ownedFile(), JSON.stringify(record))
-    } catch (err) {
-      this.logger.warn(`writing the dsh pidfile failed: ${err instanceof Error ? err.message : err}`)
-    }
+    await writeOwnedRecord(defaultOwnedPath(), { ...record, owner: this.ownerId }, this.logger)
   }
 
-  private async readOwned(): Promise<OwnedRecord | null> {
-    try {
-      const parsed = JSON.parse(await fsp.readFile(this.ownedFile(), 'utf8')) as Partial<OwnedRecord>
-      if (typeof parsed.pid !== 'number' || typeof parsed.port !== 'number') return null
-      return {
-        pid: parsed.pid,
-        port: parsed.port,
-        ...(typeof parsed.token === 'string' ? { token: parsed.token } : {}),
-        ...(typeof parsed.version === 'string' ? { version: parsed.version } : {}),
-      }
-    } catch {
-      return null
-    }
-  }
-
+  /** 清共享记录 + 旧 globalStorage 位置（迁移后应为空，force 兜底）。 */
   private async clearOwned(): Promise<void> {
-    await fsp.rm(this.ownedFile(), { force: true }).catch(() => undefined)
+    await clearOwnedRecord(defaultOwnedPath())
+    await clearOwnedRecord(path.join(this.context.globalStorageUri.fsPath, 'dsh-owned.json'))
+  }
+
+  /** 旧 globalStorage pidfile → 共享位置一次性迁移（见 ownedRecord.ts）。 */
+  private async migrateLegacyRecord(): Promise<void> {
+    await migrateOwnedRecord(
+      path.join(this.context.globalStorageUri.fsPath, 'dsh-owned.json'),
+      defaultOwnedPath(),
+      this.ownerId,
+      this.logger,
+    )
   }
 
   /** port=0 spawn 的实际端口只能从日志文件的就绪行解析（读前 64KB）；读不到返回 null。 */
@@ -593,8 +615,9 @@ export class ServerManager implements vscode.Disposable {
 
   /**
    * dispose 只清理本地资源（健康检查计时器、事件发射器）。
-   * dsh 不随扩展宿主退出——它由 pidfile 记录身份，下个窗口 re-own；
-   * 只有用户显式 dshOne.stop / dshOne.restart 才会杀它。
+   * dsh 不随扩展宿主退出——它由共享记录（~/.dsh/dsh-owned.json）记录身份，
+   * 下个窗口 re-own/adopt；只有用户显式 dshOne.stop / dshOne.restart 才会杀它
+   * （且只有持有该记录 owner 的窗口才会真正 kill）。
    */
   dispose(): void {
     this.stopHealthCheck()
