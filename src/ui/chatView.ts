@@ -231,7 +231,12 @@ export class ChatViewProvider implements vscode.Disposable {
     this.pendingRestoreSessionId = null
     const existing = this.tabs.get(sessionId)
     if (existing) {
-      if (!existing.controller) existing.attachController(sessionId)
+      if (existing.controller?.hasOpenError()) {
+        // 之前打开失败（提示条可见）：再点一次 = 重试（重建 controller 重读）。
+        existing.retryOpen()
+      } else if (!existing.controller) {
+        existing.attachController(sessionId)
+      }
       if (!existing.panel) {
         // 用户关过这个 tab：重建 panel（复用保留的 controller）。
         existing.ensurePanel()
@@ -273,7 +278,12 @@ export class ChatViewProvider implements vscode.Disposable {
     this.pendingRestoreSessionId = null
     const existing = this.tabs.get(sessionId)
     if (existing) {
-      if (!existing.controller) existing.attachController(sessionId)
+      if (existing.controller?.hasOpenError()) {
+        // 打开失败重试：同侧栏单击路径，重建 controller。
+        existing.retryOpen()
+      } else if (!existing.controller) {
+        existing.attachController(sessionId)
+      }
       if (!existing.panel) {
         existing.ensurePanel()
       } else {

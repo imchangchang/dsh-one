@@ -520,6 +520,12 @@ export interface ChatState {
    * 上翻到顶时发 loadEarlier。
    */
   hasEarlierHistory?: boolean
+  /**
+   * 会话打开（历史基线读取）失败原因（RPC 错误、会话日志损坏/不存在等），
+   * 原样透传后端错误文本（含 dsh 错误码与简述）。设置时 webview 整页渲染
+   * 可读错误提示，而不是空白/空会话 hero；基线成功后清除（含重试重建）。
+   */
+  openError?: string
   /** 一页更早历史正在加载：按钮变加载态，webview 的滚动锚定也靠它配对。 */
   loadingEarlier?: boolean
   messages: ChatMessage[]

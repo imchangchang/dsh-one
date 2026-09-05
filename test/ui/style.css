@@ -1565,6 +1565,16 @@
   .empty-title { font-weight: 600; }
   .empty-hint { opacity: 0.7; font-size: 0.9em; }
   .empty button { margin-top: 8px; padding: 4px 14px; }
+  /* 打开失败提示（open-error）：后端错误原因行——等宽小字、可选中复制、长文本换行。 */
+  .open-error-reason {
+    max-width: 520px; margin-top: 6px; padding: 6px 10px;
+    font-size: 11px; line-height: 1.5; font-family: var(--vscode-editor-font-family, monospace);
+    word-break: break-word; user-select: text;
+    background: var(--vscode-inputValidation-errorBackground, rgba(186, 22, 22, 0.1));
+    border: 1px solid var(--vscode-inputValidation-errorBorder, rgba(186, 22, 22, 0.4));
+    border-radius: 4px;
+    color: var(--vscode-errorForeground);
+  }
   /* 非官方一键安装脚本块（dshNotFound 空态）：说明 + 平台下拉 + 单行省略命令条 + 复制。 */
   .install-script {
     width: 100%; max-width: 560px; margin-top: 14px;

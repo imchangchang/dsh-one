@@ -2658,6 +2658,30 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     expect: '标题区无 AlarmClock chip、无提醒计数（state.schedule 缺省 = 0.1.1 服务器无该投影或暂无计划）；header 布局与其余 chips 正常，无报错。',
   }
 
+  catalog['session-open-failure'] = {
+    state: base({
+      loading: false,
+      messages: [],
+      running: false,
+      pending: [],
+      openError: 'session.history failed: corrupt_session_log corrupt session log: seq gap in committed region at line 26045 (expected 331845, got 331843)',
+    }),
+    title: '打开失败：会话日志损坏（后端拒绝读取）',
+    expect: '聊天区整页显示可读错误提示，而不是空白/空会话 hero：标题「Failed to open session」、一句建议（会话日志可能已损坏或被删除、在侧栏列表再次点击可重试）、下方错误原因行（等宽小字、可换行、显示 corrupt session log 简述）；不出现 composer/空态 hero 与「Loading session…」占位。',
+  }
+
+  catalog['session-open-failure-not-found'] = {
+    state: base({
+      loading: false,
+      messages: [],
+      running: false,
+      pending: [],
+      openError: 'session/follow failed: session_not_found session does not exist',
+    }),
+    title: '打开失败：会话不存在（RPC 错误）',
+    expect: '与日志损坏同款整页错误提示：标题 + 建议 + 原因行显示 session_not_found 错误；无空态 hero、无 composer、无空白页。',
+  }
+
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"
   // 的存量状态，就把它的名字加进 BASELINE_SCENARIOS —— 随合入并入主线基线。
@@ -2675,6 +2699,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'steering-pending',
     'composer-clear-after-send',
     'attachment-uniform',
+    'session-open-failure',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()

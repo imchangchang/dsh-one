@@ -381,6 +381,13 @@ export class ChatSessionController implements vscode.Disposable {
   private feedback = new Map<string, { rating: 'positive' | 'negative'; version: string }>()
   private ready = false
   /**
+   * 打开（历史基线读取）失败的原因：已透传给 webview（ChatState.openError）
+   * 做可读提示——成功读取过基线后清除（重连重基线、重试重建都从它出发）。
+   */
+  private openErrorValue: string | undefined
+  /** 0.1.2: follow 快照是否已落地（区分「第一次打开就失败」与「已开跑后断流」）。 */
+  private baselineApplied = false
+  /**
    * 服务端 running 位（session.list 摘要 + host/session-status 帧，由
    * ChatViewProvider 从 SessionsStore 中继；官方 handleRunning 同款数据
    * 渠道）。undefined = 基线还没覆盖本会话，回退到 mux 事件折叠的
@@ -433,7 +440,9 @@ export class ChatSessionController implements vscode.Disposable {
       ...(workflowRuns.length > 0 ? { workflowRuns } : {}),
       running: this.serverRunning ?? this.folder.hasOpenTurn(),
       canSend: this.ready && !this.disposed,
-      loading: !this.ready,
+      // 打开已失败就不算「加载中」：webview 该显示错误提示而不是 loading 占位。
+      loading: !this.ready && this.openErrorValue === undefined,
+      ...(this.openErrorValue !== undefined ? { openError: this.openErrorValue } : {}),
       hasEarlierHistory: this.historyCursor.hasMore,
       loadingEarlier: this.loadingEarlier,
       modelLabel: this.modelLabel,
@@ -459,6 +468,27 @@ export class ChatSessionController implements vscode.Disposable {
    */
   setServerRunning(running: boolean | undefined): void {
     this.serverRunning = running
+  }
+
+  /** 打开是否失败（ChatTabHost 据此在侧栏再点一次该会话时重建 controller 重试）。 */
+  hasOpenError(): boolean {
+    return this.openErrorValue !== undefined
+  }
+
+  /** 记录打开失败：已有一条时保留首条（重连中的重复报错不刷新提示）。
+   *  立即推一帧——现代路径的 20s 快照兜底到达前，用户先看到可读提示。 */
+  private setOpenError(error: unknown): void {
+    if (this.openErrorValue !== undefined) return
+    this.openErrorValue = errorText(error)
+    this.push(true)
+  }
+
+  /** 基线成功落地后清除打开失败提示（重连重基线/快照到达共用）；
+   *  立即推一帧——提示条消失不能等下一次事件（空闲会话可能没有后续推送）。 */
+  private clearOpenError(): void {
+    if (this.openErrorValue === undefined) return
+    this.openErrorValue = undefined
+    this.push(true)
   }
 
   /** Queue (or steer) one user prompt. Slash commands do not belong here — see chatView's runCommand. */
@@ -877,7 +907,11 @@ export class ChatSessionController implements vscode.Disposable {
     } else {
       try {
         await this.loadBaseline()
+        this.clearOpenError()
       } catch (error) {
+        // 打开失败（RPC 错误/日志损坏/会话不存在）：记录给 webview 显示
+        // 可读提示，而不是让用户面对一个静默的空白 tab。
+        this.setOpenError(error)
         this.logger.warn(`chat: history baseline failed for ${this.sessionId}: ${errorText(error)}`)
       }
     }
@@ -925,6 +959,7 @@ export class ChatSessionController implements vscode.Disposable {
         resolve()
       }
       const onSnapshot = (snapshot: FollowSnapshot): void => {
+        this.clearOpenError()
         this.applyModernBaseline(snapshot)
         settle()
       }
@@ -934,7 +969,12 @@ export class ChatSessionController implements vscode.Disposable {
           if (this.disposed) return
           this.onFrame({ method: 'session/event', payload: { sessionId: this.sessionId, event } })
         },
-        onError: () => this.onMuxClose(),
+        onError: (err) => {
+          // 基线还没落地（首次打开）时的失败 = 打开失败，记录给 webview；
+          // 已开跑后的断流是普通重连（onMuxClose 重连），不打扰用户。
+          if (!this.baselineApplied && !this.openErrorValue) this.setOpenError(err)
+          this.onMuxClose()
+        },
       })
       this.controlStream = subscribeControlStream(this.url, this.logger, (frame) => this.onModernControl(frame))
       this.modernEvents = subscribeModernEvents(this.url, this.logger, {
@@ -946,6 +986,8 @@ export class ChatSessionController implements vscode.Disposable {
 
   /** 0.1.2 follow snapshot 当作历史基线（applyHistory 自带全重置语义）。 */
   private applyModernBaseline(snapshot: FollowSnapshot): void {
+    this.baselineApplied = true
+    this.clearOpenError()
     this.followCursor = snapshot.cursor
     const entries = recordsToEntries(snapshot.records as HistoryRecordLike[])
     this.historyCursor = { earliestSeq: entries[0]?.event.seq, hasMore: snapshot.hasMore }
@@ -1126,6 +1168,7 @@ export class ChatSessionController implements vscode.Disposable {
     this.rebaselineInFlight = true
     try {
       await this.loadBaseline()
+      this.clearOpenError()
     } catch (error) {
       this.logger.warn(`chat: reconnect re-baseline failed for ${this.sessionId}: ${errorText(error)}`)
     }

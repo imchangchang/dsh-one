@@ -316,6 +316,21 @@ export class ChatTabHost implements vscode.Disposable {
     this.controller = null
   }
 
+  /**
+   * 打开失败后重试（侧栏再点一次该会话触发）：整控制器重建——旧 controller
+   * 可能挂着失败的基线/订阅，原地重跑 init 会与残留流叠床架屋。
+   */
+  retryOpen(): void {
+    if (!this.sessionId) return
+    this.detachController()
+    this.attachController(this.sessionId)
+    if (!this.controller) {
+      // 服务没起来（或已关）：attach 静默失败，tab 回落空态。
+      this.push(this.emptyState())
+      this.syncPanelTitle()
+    }
+  }
+
   // ---- 懒切换意图（per-session 归档） ----
 
   /** 读：某会话的待发送意图（无 = undefined）。 */

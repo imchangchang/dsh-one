@@ -1,0 +1,148 @@
+{
+  "title": "session-open-failure-hint：打开会话失败给可读提示",
+  "branch": "agent/session-open-failure-hint",
+  "commit": "78a481d",
+  "environment": {
+    "mode": "ui-harness",
+    "driver": "ai-visual-validation（WebBridge + 独立渲染 chat webview，test/ui/harness.html 确定性状态投喂）",
+    "dsh": "n/a（状态级验证，不依赖真实 dsh）",
+    "locale": "en（webview key 即英文默认串；zh 译文经 l10n bundle 同步，见 i18n 门禁）",
+    "theme": "light",
+    "date": "2026-09-05"
+  },
+  "coverageNote": "本报告用 test/ui 场景目录（SCENARIOS + BASELINE_SCENARIOS）做 webview 渲染验证，覆盖打开失败提示的两种原因文案与既有 UI 状态回归。宿主侧行为（ChatSessionController 捕获错误、ChatState.openError 透传、侧栏再点重试）经 typecheck + 单测 + 代码路径核对，未在真实 dsh 桌面环境跑通（真实破坏路径需要构造损坏会话日志，属 dev-ui-test 人工验收范畴）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "打开失败提示：会话日志损坏（corrupt session log）",
+      "expect": "聊天区整页显示可读错误提示：标题「Failed to open session」+ 一句建议（会话日志可能已损坏或被删除、在侧栏列表再次点击可重试）+ 等宽小字原因行（contain corrupt session log: seq gap...）；不出现 composer/空态 hero 与「Loading session…」占位。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/session-open-failure.png"
+      ],
+      "notes": "F-01：截图核对通过——标题/建议/原因行齐全，无 hero/composer/loading 占位。截图于 13:55 重拍：原文件在基线批量重跑的断连页覆盖（13:49），已重新渲染正确提示条并确认。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "打开失败提示：会话不存在（RPC session_not_found）",
+      "expect": "与日志损坏同款整页错误提示：标题 + 建议 + 原因行显示 session/follow failed: session_not_found；无空态 hero、无 composer、无空白页。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/session-open-failure-not-found.png"
+      ],
+      "notes": "F-02：截图核对通过——session_not_found 原因行按预期展示，无空白。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "空会话 hero 不受影响（empty）",
+      "expect": "空会话仍渲染居中 hero：鲸鱼 logo + workspace/preset 选择 chip + 大圆角 composer，无错误提示元素。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/empty.png"
+      ],
+      "notes": "R-01：截图与 expect 逐条核对通过"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "dsh 未安装空态不受影响（dsh-not-found）",
+      "expect": "仍显示「dsh not found」标题 + 安装引导 + View install guide 按钮 + 一键安装脚本块；无报错堆栈。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/recheck-dsh-not-found.png"
+      ],
+      "notes": "R-02：截图与 expect 逐条核对通过"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "权限批准卡不受影响（approval）",
+      "expect": "底部仍渲染 Permission request 卡片：bash 工具名 + 理由 + Allow once/Reject 按钮；消息区正常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/recheck-approval.png"
+      ],
+      "notes": "R-03：截图与 expect 逐条核对通过"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "正常对话布局不受影响（conversation）",
+      "expect": "用户/助手消息流 + 操作栏（复制/反馈/分叉）+ 底部 composer 与统计行正常渲染；无错误提示。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png"
+      ],
+      "notes": "R-04：截图与 expect 逐条核对通过"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "计划评审卡不受影响（plan-review）",
+      "expect": "底部渲染 Plan review 面板（方案 + 批准/拒绝/Reply in chat），无错误提示。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/plan-review.png"
+      ],
+      "notes": "R-05：截图与 expect 逐条核对通过"
+    },
+    {
+      "id": "R-06",
+      "phase": "regression",
+      "name": "历史窗口「加载更早」不受影响（history）",
+      "expect": "消息流顶部出现「Load earlier」按钮；点击/上翻到顶按需加载一页更早历史，无错误提示。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/history.png"
+      ],
+      "notes": "R-06：截图与 expect 逐条核对通过"
+    },
+    {
+      "id": "R-07",
+      "phase": "regression",
+      "name": "工具错误卡不受影响（tool-skill-error）",
+      "expect": "工具卡以错误态渲染（红色语义元素 + 输出/重试操作），错误文案可见；无整页错误替换。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/tool-skill-error.png"
+      ],
+      "notes": "R-07：截图与 expect 逐条核对通过"
+    },
+    {
+      "id": "R-08",
+      "phase": "regression",
+      "name": "侧栏会话树不受影响（sessions）",
+      "expect": "侧栏渲染工作区分组、会话行、未读点、Attached 高亮、搜索框，无错误提示。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions.png"
+      ],
+      "notes": "R-08：截图与 expect 逐条核对通过"
+    },
+    {
+      "id": "R-09",
+      "phase": "regression",
+      "name": "运行中工作流卡不受影响（workflow-running）",
+      "expect": "run/phase/member 层级卡渲染正常、运行态像素环/进度可见，无错误提示。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/workflow-running.png"
+      ],
+      "notes": "R-09：截图与 expect 逐条核对通过"
+    },
+    {
+      "id": "R-10",
+      "phase": "regression",
+      "name": "任务目标卡不受影响（goal-active）",
+      "expect": "goal 卡渲染 objective/phase/rounds，无错误提示。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/goal-active.png"
+      ],
+      "notes": "R-10：截图与 expect 逐条核对通过"
+    }
+  ]
+}
