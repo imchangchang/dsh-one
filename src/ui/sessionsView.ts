@@ -72,12 +72,13 @@ const SESSIONS_STYLE = `
   @keyframes dsh-tool-spin { to { transform: rotate(360deg); } }
   .sessions-tool:disabled { opacity: 0.5; cursor: default; }
   .sessions-list { flex: 1; overflow-y: auto; padding: 2px 0; }
-  /* 多选归档模式的顶部操作条：搜索框下、第一个工作区上。 */
+  /* 多选归档模式的顶部操作条：搜索框下、第一个工作区上。按钮不换行——300px
+     侧栏一行放三个按钮靠短文案（同 .recycle-header 的 nowrap 处理）。 */
   .selection-bar {
     flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px;
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
-  .selection-bar button { padding: 3px 10px; font-size: 12px; }
+  .selection-bar button { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
   /* 工作区分组栏：搜索框下、列表上一行；左 = 分组选择器（组名 + ▼），右 = 新建分组。 */
   .ws-group-bar {
     flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 8px;
@@ -723,7 +724,7 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
         void vscode.commands.executeCommand('dshOne.session.archive', m.sessionId, m.title)
         return
       // 批量归档（多选模式）：确认框在 webview 内，宿主直接执行并把失败 id
-      // 回传（archiveManyDone），面板据此保留失败项勾选或退出多选模式。
+      // 回传（archiveManyDone）；面板收悉即退出多选（失败项此处已弹提示）。
       case 'sessionArchiveMany': {
         void (async () => {
           const ids = Array.isArray(m.sessionIds) ? m.sessionIds.filter((x): x is string => typeof x === 'string') : []

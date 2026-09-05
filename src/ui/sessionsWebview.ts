@@ -2221,14 +2221,17 @@ function exitSelectionMode(): void {
 function buildSelectionBar(): HTMLElement {
   const bar = el('div', 'selection-bar')
   // 移入回收站：可勾选 = 非置顶，全部可移入（运行中/未读/待处理也允许，回收站可逆）。
-  const moveBtn = buttonEl(undefined, t('Move {0} selected to the recycle bin', selectedSessionIds.size))
+  const moveBtn = buttonEl(undefined, t('Recycle bin ({0})', selectedSessionIds.size))
   moveBtn.disabled = selectedSessionIds.size === 0
   moveBtn.addEventListener('click', () => {
     const ids = [...selectedSessionIds]
     if (ids.length === 0) return
     closePopover()
     post({ type: 'sessionMoveToRecycleMany', sessionIds: ids })
+    // 点击即退出多选（操作完成语义）。flashTip 挂在 body、定位在点击时已算好，
+    // 操作条随退出消失不影响它飘完。
     flashTip(t('Moved to the recycle bin'), moveBtn)
+    exitSelectionMode()
   })
   bar.appendChild(moveBtn)
   // 归档：勾选里可归档的子集（运行中/未读/待处理可勾选但不可归档——归档后
@@ -2237,7 +2240,7 @@ function buildSelectionBar(): HTMLElement {
     const s = findSessionModel(id)
     return s ? sessionArchiveSelectable(s) : true
   }).length
-  const archiveBtn = buttonEl(undefined, t('Archive {0} selected', archivableCount))
+  const archiveBtn = buttonEl(undefined, t('Archive ({0})', archivableCount))
   archiveBtn.disabled = archivableCount === 0
   archiveBtn.addEventListener('click', () => openSelectionModal())
   bar.appendChild(archiveBtn)
@@ -2393,17 +2396,9 @@ function confirmArchive(): void {
   post({ type: 'sessionArchiveMany', sessionIds: ids })
 }
 
-/** 批量归档结果回执：成功项清出勾选并退出模式；失败项保留可重试。 */
-function onArchiveManyDone(failed: string[]): void {
+/** 批量归档结果回执：无论成败都退出多选——失败项宿主已弹提示，会话仍在列表可重选。 */
+function onArchiveManyDone(): void {
   closeSelectionModal()
-  if (failed.length > 0) {
-    const failedSet = new Set(failed)
-    for (const id of [...selectedSessionIds]) {
-      if (!failedSet.has(id)) selectedSessionIds.delete(id)
-    }
-    renderSessions()
-    return
-  }
   exitSelectionMode()
 }
 
@@ -2665,7 +2660,7 @@ window.addEventListener('message', (event) => {
     // 回收站归档（清空/单个）与主列表批量归档共用 sessionArchiveMany 链路：
     // 按当前打开的确认弹窗分流回执。
     if (recycleModal) onRecycleArchiveManyDone()
-    else onArchiveManyDone(msg.failed)
+    else onArchiveManyDone()
   }
 })
 
