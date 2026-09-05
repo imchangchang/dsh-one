@@ -30,3 +30,5 @@ dsh-token-auth（2A）报告已注明：0.1.2 的 approval/question 走 `$events
 ## 变更记录
 
 - 2026-09-05 用户实测反馈（0.1.2 下 ask_user_question 无问题卡，model-selector-012 会话实例截图）→ 关联 2A 已知缺口 → 建条目（open/）
+
+- 2026-09-05 认领（open → doing）：实测协议与渲染定位中（worktree 待建）。
