@@ -23,3 +23,5 @@
 ## 变更记录
 
 - 2026-09-05 从 dsh-0.1.2-interaction-gaps 拆分（P1 项）→ open
+
+- 2026-09-05 认领（open → doing）：阶段 3-P1 token 用量明细开发 session 认领，worktree slug chat-stage3-p1
