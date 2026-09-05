@@ -1,0 +1,58 @@
+{
+  "title": "状态栏/管理：adopted（另一窗口 spawn）实例提供确认式停止/重启入口",
+  "branch": "agent/adopted-manageable",
+  "commit": "cc351af",
+  "environment": {
+    "mode": "unit（tooltip 纯函数 + 命令 guard 代码审查；宿主交互（确认弹窗/杀进程）留待人工开窗）",
+    "dsh": "n/a",
+    "date": "2026-09-05T16:40:00Z"
+  },
+  "coverageNote": "adopted 判定与杀进程路径在真机（multi-window）验证；沙盒无法复现多窗口宿主。人工开窗步骤：主窗口 spawn → 另一窗口（isolated dev）打开 → tooltip 应出现 Restart/Stop External Instance → 点停止弹确认 → 杀单 pid 优雅退出。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "adopted tooltip 提供停止/重启入口（与 external 同款）",
+      "expect": "adopted 分支渲染 Restart External Instance + Stop External Instance 命令链接；文案改为「复用另一窗口启动的 dsh；停止/重启会先弹确认，并可能影响正在使用它的窗口」；仍不含本窗口 spawn 的 Restart/Stop Service 入口。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "statusTooltip.test.ts『running: adopted shows confirm-managed stop/restart entries』断言通过（含新文案 + 两个命令链接 + 无 Restart/Stop Service）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "命令层与 manager guard 放行 adopted",
+      "expect": "dshOne.external.stop/restart 命令与 manager.stopExternal 对 status.adopted === true 的目标不再拒绝（原来只认 authDshNoToken/external）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "extension.ts 两处 guard + manager.ts stopExternal 守卫均加 adopted 条件（代码审查）；stopExternal 仍走 pid→命令行 dsh 特征→单 pid SIGTERM 原路径，不放宽任何安全校验。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "确认弹窗文案覆盖两种来源（终端/另一窗口）",
+      "expect": "停止弹窗不再只说『可能正运行在你的终端里』，统一为『由本扩展之外启动（你的终端或另一个窗口）』；l10n en+zh 各加 2 key，无漏翻。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "l10n/bundle.l10n.json + zh-cn.json 新增 2 key；scripts/check-i18n.sh 对分支跑通过（合入门禁自检；typecheck/test/build 全绿）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "external 分支行为不变",
+      "expect": "external（token 连接）tooltip 文案与管理入口不变；spawn（owned）分支不变；护态（authDshNoToken）不变。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "statusTooltip 既有 external/spawn/error/starting/stopped 测试全过（无变化）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "全量回归：typecheck / 单测 / build",
+      "expect": "typecheck 干净；567 项单测全过；build 成功。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck ✓；npm test 567/567 ✓；npm run build ✓。"
+    }
+  ]
+}
