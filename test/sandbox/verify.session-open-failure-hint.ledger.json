@@ -21,7 +21,7 @@
       "screenshots": [
         "/tmp/dsh-ui-shots/session-open-failure.png"
       ],
-      "notes": "F-01：截图核对通过——标题/建议/原因行齐全，无 hero/composer/loading 占位。"
+      "notes": "F-01：截图核对通过——标题/建议/原因行齐全，无 hero/composer/loading 占位。截图于 13:55 重拍：原文件在基线批量重跑的断连页覆盖（13:49），已重新渲染正确提示条并确认。"
     },
     {
       "id": "F-02",
