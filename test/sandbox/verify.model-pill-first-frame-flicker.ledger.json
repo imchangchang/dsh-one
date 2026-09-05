@@ -28,7 +28,9 @@
       "name": "目录在途：模型 pill 显示「正在加载模型…」而非「选择模型」",
       "expect": "webview harness 场景 model-pill-loading（state.modelLabel 缺省 + modelStatus=loading）：composer 底部模型 pill 显示 **Loading models…**（不是 Select model 占位），pill 仍可点（canSend true），消息区/输入区不受影响。",
       "result": "pass",
-      "screenshots": ["/tmp/dsh-ui-shots/model-pill-loading.png"],
+      "screenshots": [
+        "/tmp/dsh-ui-shots/model-pill-loading.png"
+      ],
       "notes": "【截图语义核对（harness 场景 model-pill-loading，中文场景名：模型 pill：目录加载中）】模型 pill 文案 = Loading models… ✓（非 Select model）；pill 未被禁用；footer 同行其余（权限 pill、stats 行）渲染正常；输入区 placeholder/发送按钮正常。l10n 键「Loading models…」已入 bundle.l10n.json/zh-cn（中文=正在加载模型…），沙盒/harness 无中文注入显示英文原文属预期。"
     },
     {
@@ -37,7 +39,9 @@
       "name": "目录失败：模型 pill 回「选择模型」兜底且不阻塞输入",
       "expect": "webview harness 场景 model-pill-error-fallback（state.modelLabel 缺省 + modelStatus=error）：模型 pill 显示 **Select model**（兜底文案），输入框未禁用（canSend 仍 true，无「当前模型不可用」阻塞条）。",
       "result": "pass",
-      "screenshots": ["/tmp/dsh-ui-shots/model-pill-error-fallback.png"],
+      "screenshots": [
+        "/tmp/dsh-ui-shots/model-pill-error-fallback.png"
+      ],
       "notes": "【截图语义核对（harness 场景 model-pill-error-fallback，中文场景名：模型 pill：目录加载失败兜底）】模型 pill 文案 = Select model ✓；输入框可聚焦可输入（placeholder 正常、发送按钮亮）；无模型阻塞条。与官方 ModelSelect 的 waiting/fallback 文案二分一致（trigger.loading vs trigger.fallback）。"
     },
     {
@@ -46,8 +50,14 @@
       "name": "0.1.1 legacy 模型 pill/菜单无回归（mock-flash Max）",
       "expect": "沙盒 mock-llm（0.1.1-rc.2）：新建未分组会话 → 发 prompt 回显后，composer 模型选择器仍显示 mock-flash Max（legacy 路径 sessionModels/refreshModels 未改，只有共享化分支）。",
       "result": "pass",
-      "screenshots": ["/tmp/dsh-sandbox-shots/model-pill-F-01.png"],
-      "notes": "【沙盒驱动 + 截图核对】F-01 driver 场景（新建会话 → prompt「测试一下」→ 回显「收到：测试一下」）截图：composer 底部模型 pill = mock-flash Max ✓；消息流回显正常；无模型相关报错。legacy 代码等价性：refreshModels/sessionModels legacy 分支与 sendModelCatalog 的 legacy 回退路径逐行未变（diff 仅 isModern 分支重构）。"
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-model-pill/R-01.png"
+      ],
+      "notes": "【沙盒驱动 + 截图语义核对（mock-llm 0.1.1 实例，新建未分组会话 → 发「测试一下」→ 回显落地后截图）】① composer 底部模型 pill = mock-flash Max（real label，非 Select model 占位）✓；② 权限 pill = Workspace Write 照旧 ✓；③ 回显「收到：测试一下」✓；④ 注入折叠卡片（Runtime context / Context injection）正常折叠显示、不污染消息流 ✓；⑤ 状态栏 DSH: Running :3080 ✓。legacy 等价性：refreshModels/sessionModels legacy 分支与 sendModelCatalog legacy 回退路径逐行未变（diff 仅 isModern 分支重构）。",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      }
     },
     {
       "id": "R-02",
@@ -55,8 +65,10 @@
       "name": "mock-llm 回显 + 注入卡片回归",
       "expect": "沙盒 mock-llm：发送「测试一下」首轮出现「收到：测试一下」；注入上下文折叠卡片正常渲染不污染消息流。",
       "result": "pass",
-      "screenshots": ["/tmp/dsh-sandbox-shots/model-pill-F-01.png"],
-      "notes": "【沙盒驱动 + 截图核对】回显 ✓；注入卡片正常（默认折叠、标题可见），无布局回归。基线 F-01/R-04 同项复测。"
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-model-pill/R-01.png"
+      ],
+      "notes": "【引用 R-01 同帧核对】回显 ✓；注入上下文折叠卡片正常（默认折叠、标题可见），无布局回归，基线 F-01/R-04 同项复测。"
     },
     {
       "id": "R-03",
@@ -64,7 +76,10 @@
       "name": "全量单测/typecheck/build + harness baseline 冒烟（42 场景）",
       "expect": "typecheck 0 错；node --test 全量 588 项全绿（含新增 modelCatalog.test.ts 9 项）；build 成功产出四个 bundle；ui-visual.sh --mode baseline 42 场景截图齐全，抽查 conversation/model-picker（模型 pill 真名渲染）正常。",
       "result": "pass",
-      "screenshots": ["/tmp/dsh-ui-shots/conversation.png", "/tmp/dsh-ui-shots/model-picker.png"],
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png",
+        "/tmp/dsh-ui-shots/model-picker.png"
+      ],
       "notes": "【自测核对】typecheck：0 errors；npm test：588 pass / 0 fail（新增 modelCatalog.test.ts：in-flight 共享、url 变更失效、失败置 error 后重试、listener 广播、modelLabelOf 3 组）；npm run build：built extension/chatWebview/sessionsWebview/spawnDsh；ui-visual baseline 48 张（42 场景含分步）全部生成，抽查 conversation 与 model-picker：模型 pill 真名渲染正常，无 composer/footer 回归。"
     }
   ]
