@@ -1199,6 +1199,80 @@ function enhanceCodeBlocks(container: HTMLElement, prefix: string): void {
 const chatCol = el('div', 'chat-col')
 app.appendChild(chatCol)
 
+// ── 断连横幅（重连状态透出）─────────────────────────────────────────────────
+// 横幅是 chatCol 的常驻首子元素，在消息流之外（不受 .flow-col 内容列限宽），
+// 由 chatReconnect 消息直接驱动、不进 render() 的重建循环——断连/恢复是与
+// ChatState 快照无关的瞬态事件流。render() 的清理循环跳过它（openError/空态
+// 分支同），换会话/重建都不会摘掉。
+type ReconnectPhase = 'connecting' | 'recovered' | 'failed'
+let reconnectBanner: HTMLElement | null = null
+/** recovered 短暂显示后的自动隐藏定时器。 */
+let reconnectHideTimer: ReturnType<typeof setTimeout> | undefined
+
+/** 取（或建）横幅根元素：惰性插入 chatCol 首子位，render() 重建不摘。 */
+function reconnectBannerEl(): HTMLElement {
+  if (reconnectBanner) return reconnectBanner
+  const banner = el('div', 'reconnect-banner')
+  banner.style.display = 'none'
+  banner.appendChild(el('span', 'reconnect-banner-icon'))
+  banner.appendChild(el('span', 'reconnect-banner-text'))
+  const button = buttonEl('reconnect-banner-btn', t('Reconnect now'))
+  button.title = t('Reconnect now')
+  button.addEventListener('click', () => post({ type: 'forceReconnect' }))
+  banner.appendChild(button)
+  reconnectBanner = banner
+  chatCol.insertBefore(banner, chatCol.firstChild)
+  return banner
+}
+
+/** 隐藏横幅（恢复自动隐藏 / 空态复位共用）。 */
+function hideReconnectBanner(): void {
+  if (reconnectHideTimer !== undefined) {
+    clearTimeout(reconnectHideTimer)
+    reconnectHideTimer = undefined
+  }
+  if (reconnectBanner) reconnectBanner.style.display = 'none'
+}
+
+/** 驱动横幅相位：connecting/failed 常驻；recovered 短暂显示（~3s）后自动隐藏。 */
+function applyReconnectPhase(phase: ReconnectPhase | null, attempts = 0): void {
+  if (reconnectHideTimer !== undefined) {
+    clearTimeout(reconnectHideTimer)
+    reconnectHideTimer = undefined
+  }
+  const banner = reconnectBannerEl()
+  if (phase === null) {
+    banner.style.display = 'none'
+    return
+  }
+  banner.classList.remove('connecting', 'failed', 'recovered')
+  banner.classList.add(phase)
+  const icon = banner.querySelector<HTMLElement>('.reconnect-banner-icon')
+  const label = banner.querySelector<HTMLElement>('.reconnect-banner-text')
+  if (icon) {
+    icon.replaceChildren(
+      phase === 'connecting'
+        ? spinnerEl()
+        : phase === 'failed'
+          ? strokeSvg(['M8 2.6l5.6 10H2.4z', 'M8 6.4v3.2', 'M8 11.6v.05'])
+          : strokeSvg(['M3.5 8.5l3 3 6-7']),
+    )
+  }
+  if (label) {
+    label.textContent =
+      phase === 'connecting'
+        ? t('Connection lost, reconnecting… (attempt {0})', attempts)
+        : phase === 'failed'
+          ? t('Connection lost, reconnection failed')
+          : t('Connection restored')
+  }
+  banner.style.display = ''
+  if (phase === 'recovered') {
+    // 恢复给一个明确信号：绿色横幅短暂显示后自动收起。
+    reconnectHideTimer = setTimeout(hideReconnectBanner, 3000)
+  }
+}
+
 /** 最新 sessions 快照；null = 尚未收到。仅作 @ 提及补全的数据源。 */
 let sessionsSnapshot: SessionsSnapshot | null = null
 
@@ -1305,6 +1379,11 @@ window.addEventListener('message', (event) => {
     // ResizeObserver 捕不到这类 H 扰动，这里在样式应用后的下一帧补一次
     // settle pin（幂等：仅跟随且脱底才写，非跟随保持阅读位置）。
     requestAnimationFrame(() => maybeSettlePin())
+  } else if (msg?.type === 'chatReconnect' && typeof msg.attempts === 'number') {
+    // 断连重连状态（host 侧 onMuxClose / 重连成功 / forceReconnect 发射）：
+    // 驱动顶部横幅——connecting 转圈 + 立即重连、failed 红字 + 按钮、
+    // recovered 绿色短暂显示后自动收起（见 applyReconnectPhase）。
+    applyReconnectPhase(msg.phase, msg.attempts)
   } else if (msg?.type === 'modelCatalogError') {
     // 有旧目录时保留旧数据不打断；无目录时菜单切到 error/Retry 行。
     modelCatalogFailed = true
@@ -3153,6 +3232,8 @@ function render(): void {
     rebuildingHeader = true
     try {
       for (const child of Array.from(chatCol.children)) {
+        // 断连横幅常驻首子位，重建不摘（它由 chatReconnect 消息独立驱动）。
+        if (reconnectBanner !== null && child === reconnectBanner) continue
         if (keepMessages && child === oldMessages) continue
         if (keepHeader && child === oldHeader) continue
         if (keepBlankHero && (child === oldComposer || child === oldHero)) continue
@@ -3192,6 +3273,8 @@ function render(): void {
     // 无附着会话：pending 快照没有归属（sessionId 不匹配也不会被消费），
     // 清掉避免滞留到下一个同 key 会话的 composer 上。
     pendingStash = null
+    // 断连横幅同源复位：controller 已释放（服务 down），旧横幅不能残留。
+    hideReconnectBanner()
     chatCol.appendChild(renderEmpty(state))
     // 空态整块重建（dshNotFound 的安装脚本等锚点在里面）：重建后收尾重锚。
     reanchorPopoverAfterRebuild()
@@ -3219,7 +3302,11 @@ function render(): void {
     turnStatusStart = null
     scrollSession = null
     pendingStash = null
-    for (const child of Array.from(chatCol.children)) child.remove()
+    for (const child of Array.from(chatCol.children)) {
+      // 断连横幅保留：打开失败 + 重连进行中时横幅照常透出（见 render 主循环）。
+      if (reconnectBanner !== null && child === reconnectBanner) continue
+      child.remove()
+    }
     chatCol.appendChild(renderOpenError(state.openError))
     return
   }

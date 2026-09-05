@@ -455,6 +455,14 @@ const chatHandlers: ChatTabMessageHandler[] = [
     },
   },
   {
+    // 断连横幅「立即重连」：取消退避定时器立即 attach（见 ChatSessionController
+    // .forceReconnect；无断连周期时 controller 侧幂等防御，静默忽略）。
+    types: ['forceReconnect'],
+    async handle(host, _m) {
+      host.controller?.forceReconnect()
+    },
+  },
+  {
     types: ['approval'],
     async handle(host, m) {
       if (m.type !== 'approval') return

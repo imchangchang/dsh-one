@@ -52,6 +52,11 @@ import type { HistoryWindowCursor } from '../pure/historyWindow.ts'
 const FLUSH_INTERVAL_MS = 100
 /** Mux reconnect backoff: 1s doubling up to this cap. */
 const RECONNECT_MAX_MS = 30_000
+/** 连续失败达到该次数后断连横幅转 failed 态（自动重试仍在后台继续）。 */
+const RECONNECT_FAIL_ATTEMPTS = 3
+
+/** 断连横幅的三个相位（webview 顶部横幅；见 chatContract.chatReconnect）。 */
+export type ReconnectPhase = 'connecting' | 'recovered' | 'failed'
 
 /** Loose mirror of AskUserQuestionItem (dsh-user-questions types). */
 interface QuestionItem {
@@ -411,6 +416,15 @@ export class ChatSessionController implements vscode.Disposable {
   private reconnectAttempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
   private awaitingRebaseline = false
+  /**
+   * 断连横幅状态（webview 可见性）：undefined = 流健康（无断连周期）。
+   * recovered 发射后立即回落 undefined（横幅短暂显示后自动隐藏，不残留）；
+   * connecting/failed 常驻，供 webview ready 重报时补发（reconnectStatus）。
+   */
+  private reconnectPhase: ReconnectPhase | undefined
+  private readonly reconnectEmitter = new vscode.EventEmitter<{ phase: ReconnectPhase; attempts: number }>()
+  /** 重连状态变化（onMuxClose / 重连成功 / forceReconnect）→ ChatTabHost 中继给 webview。 */
+  readonly onReconnect = this.reconnectEmitter.event
   /** While a reconnect re-baseline fetches history, live events buffer here
    *  and refold onto the fresh baseline (they may postdate the fetch). */
   private rebaselineInFlight = false
@@ -895,6 +909,7 @@ export class ChatSessionController implements vscode.Disposable {
     this.controlStream?.dispose()
     this.modernEvents?.dispose()
     this.emitter.dispose()
+    this.reconnectEmitter.dispose()
   }
 
   /**
@@ -1065,6 +1080,9 @@ export class ChatSessionController implements vscode.Disposable {
   private applyModernBaseline(snapshot: FollowSnapshot): void {
     this.baselineApplied = true
     this.clearOpenError()
+    // follow 快照 = 现代路径的 healthy frame（首次打开时计数为 0/无相位，
+    // noteReconnectSuccess 自动跳过）；重连周期就此恢复。
+    this.noteReconnectSuccess()
     this.followCursor = snapshot.cursor
     const entries = recordsToEntries(snapshot.records as HistoryRecordLike[])
     this.historyCursor = { earliestSeq: entries[0]?.event.seq, hasMore: snapshot.hasMore }
@@ -1189,6 +1207,11 @@ export class ChatSessionController implements vscode.Disposable {
 
   /** Attach the mux stream; the close callback drives reconnect. */
   private attach(): void {
+    // 先释放旧订阅（若有）：重连/forceReconnect 时旧 socket 可能已死（惰性
+    // disposable）但 dispose 幂等；forceReconnect 打断「正在连接中」的 socket
+    // 时靠这里避免双订阅叠流。
+    this.mux?.dispose()
+    this.mux = undefined
     if (isModern(this.url)) {
       this.attachModernFollow()
       return
@@ -1222,19 +1245,60 @@ export class ChatSessionController implements vscode.Disposable {
    * Stream dropped (host restart, hot reload, network blip, sleep/wake).
    * Re-subscribe with 1s doubling backoff capped at RECONNECT_MAX_MS; the
    * next session/subscribed frame gap-checks lastSeq and re-baselines when
-   * events were missed while we were blind.
+   * events were missed while we were blind. 每次掉线都向 webview 透出横幅
+   * 相位：前 RECONNECT_FAIL_ATTEMPTS-1 次 connecting，之后 failed。
    */
   private onMuxClose(): void {
     if (this.disposed) return
     const delay = Math.min(1000 * 2 ** this.reconnectAttempts, RECONNECT_MAX_MS)
     this.reconnectAttempts += 1
     this.logger.warn(`chat: mux stream for ${this.sessionId} closed; reconnecting in ${delay}ms`)
+    this.emitReconnect(this.reconnectAttempts >= RECONNECT_FAIL_ATTEMPTS ? 'failed' : 'connecting')
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined
       if (this.disposed) return
       this.awaitingRebaseline = true
       this.attach()
     }, delay)
+  }
+
+  /** 发射一条重连相位消息（attempts 取当前累计尝试次数）。 */
+  private emitReconnect(phase: ReconnectPhase): void {
+    this.reconnectPhase = phase
+    this.reconnectEmitter.fire({ phase, attempts: this.reconnectAttempts })
+  }
+
+  /** 重连成功（healthy frame 到达）：发 recovered 并复位整个断连周期。 */
+  private noteReconnectSuccess(): void {
+    if (this.reconnectPhase === undefined && this.reconnectAttempts === 0) return
+    this.reconnectEmitter.fire({ phase: 'recovered', attempts: this.reconnectAttempts })
+    this.reconnectPhase = undefined
+    this.reconnectAttempts = 0
+  }
+
+  /**
+   * 当前断连横幅状态（webview ready 重报时补发用；健康时 null）。recovered
+   * 是瞬态（发射后即回落），不会出现在这里。
+   */
+  reconnectStatus(): { phase: ReconnectPhase; attempts: number } | null {
+    return this.reconnectPhase !== undefined ? { phase: this.reconnectPhase, attempts: this.reconnectAttempts } : null
+  }
+
+  /**
+   * 横幅「立即重连」：取消退避定时器、立即重新 attach。尝试计数继续累计
+   * （手动尝试也是一次尝试）；失败会经 onMuxClose 走回 failed 相位。旧的
+   * mux 订阅由 attach() 开头统一释放，不会与在途 socket 叠成双订阅。
+   */
+  forceReconnect(): void {
+    if (this.disposed || this.reconnectPhase === undefined) return
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
+    this.reconnectAttempts += 1
+    this.emitReconnect('connecting')
+    this.awaitingRebaseline = true
+    this.attach()
   }
 
   /**
@@ -1552,8 +1616,9 @@ export class ChatSessionController implements vscode.Disposable {
     switch (frame.method) {
       case 'session/subscribed': {
         this.logger.info(`chat: subscribed to ${this.sessionId} (lastSeq ${String(payload.lastSeq)})`)
-        // A healthy subscription resets the backoff ladder.
-        this.reconnectAttempts = 0
+        // A healthy subscription resets the backoff ladder; a reconnect cycle
+        // (connecting/failed 相位) 就此恢复——先发 recovered 再复位计数。
+        this.noteReconnectSuccess()
         if (!this.awaitingRebaseline) return
         this.awaitingRebaseline = false
         // Reconnected: events between maxSeqFolded and lastSeq are lost.
