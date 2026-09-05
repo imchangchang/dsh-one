@@ -20,4 +20,4 @@
 ## 变更记录
 
 - 2026-09-05 从 dsh-0.1.2-interaction-gaps 拆分（P2 两项必做 + P3 可选评估）→ open
-- 2026-09-11 认领（open → doing）：阶段 4（P2/P3）开发 session 认领，worktree slug chat-stage4-p2p3；已核实 dsh-v0.1.2-rc.1 官方 schedule 投影存在（packages/schedule/schedule projection.ts：key='schedule'，wire 视图 = 活动记录数组），0.1.1 服务器无此投影（无基线/无推送 → host 保持 undefined → 不显示 chip，降级自然生效）
+- 2026-09-05 认领（open → doing）：阶段 4（P2/P3）开发 session 认领，worktree slug chat-stage4-p2p3；已核实 dsh-v0.1.2-rc.1 官方 schedule 投影存在（packages/schedule/schedule projection.ts：key='schedule'，wire 视图 = 活动记录数组），0.1.1 服务器无此投影（无基线/无推送 → host 保持 undefined → 不显示 chip，降级自然生效）
