@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import * as fsp from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { parseReadyLine } from '../pure/readyLine.ts'
+import { parseReadyLine, type ReadyInfo } from '../pure/readyLine.ts'
 import { gte } from '../pure/semver.ts'
 import { locateDsh, DshNotFoundError } from './locateDsh.ts'
 import { probePort, probeDsh, PROBE_TIMEOUT_MS } from './portProbe.ts'
@@ -321,6 +321,36 @@ export class ServerManager implements vscode.Disposable {
               })
               this.startHealthCheck(ownedPort)
               return this.status
+            } else {
+              // 0.1.2 认证实例 + 记录无 token：多半是 spawn 后 waitReady 未完成时
+              // 窗口被关闭/reload（Windows 冷启动 60s+ 常见），399 行 token 补写
+              // 没执行——就绪行（含 token）已写进 logFile，从这里恢复换票：
+              // 换票成功 = 端口实例真实身份（token 只被该进程换出），补写记录
+              // re-own/adopt 自愈；失败则落空走原来的 clear + 防护。
+              const recovered = await this.tokenFromLog()
+              if (recovered !== undefined) {
+                const auth = await probeToken(ownedUrl, recovered, this.logger)
+                if (auth !== null) {
+                  const livePid = (await findListenerPid(ownedPort, this.logger)) ?? owned.pid
+                  await this.writeOwned({ pid: livePid, port: ownedPort, token: recovered, version: owned.version })
+                  if (ownership === 'own') {
+                    this.logger.info(
+                      `re-owning authenticated dsh at ${ownedUrl} (token recovered from log; pid=${owned.pid})`,
+                    )
+                    this.ownedPid = livePid
+                    this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false, version: owned.version })
+                    this.startHealthCheck(ownedPort)
+                    return this.status
+                  }
+                  this.logger.info(
+                    `adopting another window's authenticated dsh at ${ownedUrl} (token recovered from log, will never kill it)`,
+                  )
+                  this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: true, version: owned.version })
+                  this.startHealthCheck(ownedPort)
+                  return this.status
+                }
+                this.logger.info(`token recovered from log but exchange failed (port=${ownedPort}); falling through`)
+              }
             }
           }
         }
@@ -675,12 +705,24 @@ export class ServerManager implements vscode.Disposable {
 
   /** port=0 spawn 的实际端口只能从日志文件的就绪行解析（读前 64KB）；读不到返回 null。 */
   private async readyPortFromLog(): Promise<number | null> {
+    return (await this.readyInfoFromLog())?.port ?? null
+  }
+
+  /** 日志文件里的 launch token（若就绪行带 token）；读不到返回 undefined。 */
+  private async tokenFromLog(): Promise<string | undefined> {
+    const info = await this.readyInfoFromLog()
+    if (info === null) return undefined
+    return info.token
+  }
+
+  /** 读日志文件头部（≤64KB）解析就绪行（URL/port/token）。 */
+  private async readyInfoFromLog(): Promise<ReadyInfo | null> {
     try {
       const handle = await fsp.open(this.logFile(), 'r')
       try {
         const buf = Buffer.alloc(64 * 1024)
         const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
-        return parseReadyLine(buf.toString('utf8', 0, bytesRead))?.port ?? null
+        return parseReadyLine(buf.toString('utf8', 0, bytesRead))
       } finally {
         await handle.close()
       }
