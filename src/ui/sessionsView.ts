@@ -364,6 +364,10 @@ const SESSIONS_STYLE = `
      20px 太小、放大后仍偏小）；padding 归零 + border-box 保证按钮尺寸精确；
      悬停提示/aria 都带全名「Empty recycle bin」。 */
   .recycle-header .sessions-tool { width: 34px; height: 34px; padding: 0; box-sizing: border-box; }
+  /* 清空回收站是终点动作（= 归档全部，不可恢复）：图标用错误红强调危险性，
+     抽屉头与收起态入口行两处共用；disabled 时回落灰色（沿用 .sessions-tool:disabled 半透明）。 */
+  .sessions-tool.danger { color: var(--vscode-errorForeground, #f14c4c); opacity: 1; }
+  .sessions-tool.danger:disabled { color: var(--vscode-descriptionForeground, #888); opacity: 0.5; }
   .workspace-row {
     display: flex; align-items: center; gap: 6px; padding: 0 10px;
     height: 32px; box-sizing: border-box; overflow: hidden;

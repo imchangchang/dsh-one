@@ -1777,6 +1777,7 @@ function renderRecycleEntry(): HTMLElement {
   main.addEventListener('click', () => openRecycleDrawer())
   row.appendChild(main)
   const emptyBtn = panelTool(strokeSvg(TRASH_ICON, 14), t('Empty recycle bin'))
+  emptyBtn.classList.add('danger')
   emptyBtn.disabled = count === 0
   emptyBtn.addEventListener('click', () => openRecycleArchiveModal(recycleSessionModels()))
   row.appendChild(emptyBtn)
@@ -1915,6 +1916,7 @@ function renderRecycleHeader(): HTMLElement {
   title.appendChild(el('span', 'recycle-header-count', String(count)))
   header.appendChild(title)
   const emptyBtn = panelTool(strokeSvg(TRASH_ICON, 22), t('Empty recycle bin'))
+  emptyBtn.classList.add('danger')
   emptyBtn.disabled = count === 0
   emptyBtn.addEventListener('click', () => openRecycleArchiveModal(recycleSessionModels()))
   header.appendChild(emptyBtn)
