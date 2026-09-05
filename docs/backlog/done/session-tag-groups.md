@@ -49,3 +49,5 @@
 - 2026-09-06 认领（doing）：用户确认方案，开 worktree 开发
 
 - 2026-09-06 开发完成（done）：单测 602 项全过，ai-visual-validation 场景核对通过，沙盒回归通过，dev-finish 打标 done/session-tag-groups → 47010c3，验收报告 test/sandbox/verify.session-tag-groups.report.html
+
+- 2026-09-06 开发中补充（折叠/展开）：组头 pill 后加小三角，组块可折叠（workspaceState 持久化），搜索态强制展开、拖入折叠块自动展开；修复「右键选组不立即刷新」（setSessionTag 等未 rebuildModel，快照仍是旧模型）；单测 602 全过，折叠场景 session-tags-collapse 进入基线，报告更新为 8 项全 pass（dev-finish 打标 ede0d33）
