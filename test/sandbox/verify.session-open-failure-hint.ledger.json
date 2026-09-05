@@ -1,7 +1,7 @@
 {
   "title": "session-open-failure-hint：打开会话失败给可读提示",
   "branch": "agent/session-open-failure-hint",
-  "commit": "61ea849",
+  "commit": "78a481d",
   "environment": {
     "mode": "ui-harness",
     "driver": "ai-visual-validation（WebBridge + 独立渲染 chat webview，test/ui/harness.html 确定性状态投喂）",
