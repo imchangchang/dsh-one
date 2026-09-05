@@ -683,6 +683,30 @@
       expect: '空会话 hero（无历史）：品牌区为**单个 DSH One 像素鲸鱼 logo**（品牌蓝 #2563EB，约 64px，游动动画），**无**官方 dsh 鲸鱼标、× 分隔符、「探索未至之境」标题与「预览版」徽章；其下 workspace 选择 chip（dsh-one，文件夹图标 + 名称 + chevron，可点击）+ preset 选择 chip（标准模式/深度思考）+ 大圆角 composer 卡（canSend 就绪）；composer 右下角发送按钮为**圆形图标按钮**（品牌蓝底、白色上箭头图标、无文字）；composer 右下角**无** contextBar——无「窗口未知」灰字占位、无进度条、无悬停说明（空白对话无任何上下文数据，切换模型后也不显示任何上下文指示）。',
     },
 
+    // ---- 回归 composer-long-text-overflow：长文本内部滚动时高亮层窗口不越界 ----
+    // 超长文本超过 #input max-height:160px 后 textarea 内部滚动（scrollTop>0）；
+    // 若滚动同步把 translateY(-scrollTop) 加在 .ref-token-layer 层元素（盒子）上，
+    // 盒子整体上移、文字画到卡片上方。正确形态：层盒子锚定在输入框内，内容层
+    // 平移，可见窗口与 textarea 滚动窗口一致（顶部行被裁成半行是滚动窗口语义）。
+    'composer-long-scrolled': {
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', workspaceId: 'ws-main', workspaces: [
+        { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', title: 'dsh-one' },
+      ], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }], current: 'standard' }, statsLine: undefined }),
+      title: 'composer 长文本滚动窗口（不越界）',
+      interact: `(() => {
+        const ta = document.getElementById('input')
+        if (!ta) return
+        ta.value = '调查一下现在主线的问题就是我发现空白的3页面去输入，如果输入一个很长的文字，非常长的文字输入框那里会溢出。我等会会截个图给你看看调查一下现在主线的问题就是我发现空白的3页面去输入，如果输入一个很长的文字，非常长的文字输入框那里会溢出。我等会会截个图给你看看调查一下现在主线的问题就是我发现空白的3页面去输入，如果输入一个很长的文字，非常长的文字输入框那里会溢出。我等会会截个图给你看看调查一下现在主线的问题就是我发现空白的3页面去输入，如果输入一个很长的文字，非常长的文字输入框那里会溢出。我等会会截个图给你看看'
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+        ta.focus()
+        ta.setSelectionRange(ta.value.length, ta.value.length)
+        // 长文本超过 max-height 后 textarea 内部滚动；滚动后高亮层窗口必须仍在框内
+        ta.scrollTop = ta.scrollHeight
+        ta.dispatchEvent(new Event('scroll'))
+      })()`,
+      expect: 'hero 大圆角 composer 卡内：输入框显示超长文本的滚动窗口（顶部一行被裁成半行=正常滚动语义，其后数行完整、最后一行完整可见，窗口与 textarea 一致）；**卡片外（上方/两侧）无任何文字、无文本块**；文本全部落在输入框矩形内；footer 行（+/ / workspace chip / 模型 pill）不被文本遮挡；发送按钮正常可见。',
+    },
+
     'composer-running': {
       // 运行中：官方 primaryStops 交互——主按钮从发送箭头切换为停止方块，
       // 点击即 stop；没有独立的「停止」文字按钮。
@@ -2853,6 +2877,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'steering-pending',
     'compaction-cards', 'turn-navigator', 'jump-latest-visible',
     'composer-clear-after-send',
+    'composer-long-scrolled',
     'attachment-uniform',
     'session-open-failure',
   ]
