@@ -1,0 +1,92 @@
+{
+  "title": "session-stats-row：会话级统计行对齐官方（缓存命中/输入输出 token 组 + 时长本地化）",
+  "branch": "agent/session-stats-row",
+  "commit": "7f32cd9",
+  "environment": {
+    "mode": "harness 确定性场景 + 沙盒真 dsh（默认镜像 0.1.1-rc.2，容器内升级 0.1.2-rc.1）",
+    "dsh": "0.1.2-rc.1（F-02，容器内 npm i -g + 重启）/ 0.1.1-rc.2（R-01，镜像 pin）/ 本机 0.1.2-rc.1（F-03，127.0.0.1:3080 在跑实例的 session.list 真实投影）",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-session-stats-row:latest",
+    "driver": "harness 场景（.dev-host/harness-shots.mjs，Playwright 确定性渲染）+ 沙盒探针（.dev-host/stats-row-probe.mjs，Playwright：新建会话→发「开始」→等待回显→读取 .stats-row/.input-stats 文本→截图）；未走 verify-driver（其 driver 字段断回显文本，本项断的是统计行 DOM/文本，由探针完成）",
+    "date": "2026-09-05"
+  },
+  "coverageNote": "本报告验证：① 官方 StatsLine 全字段（轮数/步数/LLM/工具/首 token/tok/s/缓存命中/输入输出 token）在 webview 的确定性渲染与「统计行 + context 环」同排布局（harness）；② 真 dsh 下宿主的投影折叠链路——沙盒容器内升级 dsh 0.1.2-rc.1（认证/新协议路径，dsh-owned.json version=0.1.2-rc.1）发一轮后统计行出现，0.1.1-rc.2 同路径回归；③ 本机 0.1.2-rc.1 真实投影字段覆盖——session.list 实测 sessionStats 8 字段全有、tokenUsage totals 4 桶（当前会话真实值：uncached 183358 / output 99301 / cacheRead 32852736 / cacheWrite 0 → 缓存命中 99%），用真实 JSON 跑 formatStatsLine 得 EN/ZH 全行；④ 降级路径——tokenUsage 全 0（沙盒 mock-llm 适配器 emptyPiUsage）或投影缺失（0.1.1）时无缓存命中/token 组，不虚标 0%。覆盖缺口（诚实记录）：① 非零 tokenUsage 的端到端 UI 呈现未在沙盒覆盖（mock 适配器上报全 0），由 harness 全字段场景（F-01）+ 真机数据 formatter 输出（F-03）+ 单测覆盖；② 切换会话刷新未在沙盒逐一操作验证——statsLine 是每会话独立 fold（基线 + seq 水位推送），跨会话无共享状态，属既有会话状态机路径（阶段 3 已验证 per-session 快照）；③ 真桌面 VS Code、真模型输出、跨平台不在本报告范围；④ 条目原假设「0.1.1 服务器无 sessionStats 投影则行不显示」实测不成立——0.1.1-rc.2 也提供 sessionStats，缺的是 tokenUsage，实际降级为「显示可得字段、token 组缺省」（R-01）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "harness：官方全字段统计行 + context 环同排（确定性渲染）",
+      "expect": "chat-stats-line：输入框下方一行统计，左侧小字号灰字（11px 半透明）逐字显示「4 轮 · 197 步 | LLM 16分38秒 · 工具调用 3分48秒 | 首 token 平均 1秒 · 124 tok/s | 缓存命中 99% | 输入 33M tok · 输出 99.3K tok」，组间「 | 」、组内「 · 」；右侧同一行 context 占用环（96% 黄红级）；超宽省略号截断单行不换行。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-session-stats-row/final-chat-stats-line.png"
+      ],
+      "notes": "截图逐字核对：统计行文本与官方 StatsLine 字段全对齐（计数/时长/速度/缓存命中/输入输出五组），组间 ASCII「 | 」分隔，小字灰显；右侧 context 环 96% 同排；composer 下方布局无撑破。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "沙盒：真 dsh 0.1.2-rc.1（认证路径）下统计行从真实投影折叠出现",
+      "expect": "容器内升级 dsh 0.1.2-rc.1（带 token 认证的现代传输；dsh-owned.json version=0.1.2-rc.1 佐证）后新建会话发「开始」并等到回显：composer 下方出现统计行（sessionStats 投影折叠，如「1 turns · 1 steps | LLM 0.1s | TTFT avg 0.1s · 0 tok/s」）；tokenUsage 全 0（mock-llm 适配器 emptyPiUsage）时无「缓存命中/输入输出」组——不虚标 0%。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-session-stats-row/F-02-012-row.png"
+      ],
+      "notes": "探针输出 {\"row\":true,\"text\":\"1 turns · 1 steps | LLM 0.1s | TTFT avg 0.1s · 0 tok/s\"}；截图可见统计行出现在 pill 行下方（小字灰字），消息行带 Usage 0 药丸（mock 真实上报全 0），无缓存命中/token 组——诚实降级。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "本机 0.1.2-rc.1 真实投影字段覆盖 + formatter 全行",
+      "expect": "对在跑的真 dsh 0.1.2-rc.1（127.0.0.1:3080，token 换 cookie）查 session.list：sessionStats 投影 8 字段（turns/steps/llmMs/toolMs/ttftMs/ttftSteps/decodeMs/decodeTokens）与 tokenUsage totals 4 桶（uncachedInputTokens/outputTokens/cacheReadTokens/cacheWriteTokens）均可得；用当前会话真实 JSON 跑 formatStatsLine 得到官方同构全行（含缓存命中 99%）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "真实采样（session-ace65ab8，asOfSeq 92854）：sessionStats={turns:4,steps:197,llmMs:998126,toolMs:227883,ttftMs:190484,ttftSteps:197,decodeMs:802470,decodeTokens:99301}；tokenUsage={uncachedInputTokens:183358,outputTokens:99301,cacheReadTokens:32852736,cacheWriteTokens:0}（billedInput=33036094，缓存命中 99.4%→诚实取整 99）。formatter 输出 EN:『4 turns · 197 steps | LLM 16m38s · Tool call 3m48s | TTFT avg 1s · 124 tok/s | Cache hit 99% | Input 33M tok · Output 99.3K tok』；ZH:『4 轮 · 197 步 | LLM 16分38秒 · 工具调用 3分48秒 | 首 token 平均 1秒 · 124 tok/s | 缓存命中 99% | 输入 33M tok · 输出 99.3K tok』。另实测 641 个会话中仅部分会话带 tokenUsage（较早会话无该投影）——缺失时行照常显示 sessionStats 字段（降级路径）。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "harness：无投影/无可显示数据时统计行不渲染（降级）",
+      "expect": "chat-stats-line-empty：statsLine undefined（0.1.1 无 tokenUsage / 无已闭步骤）且 contextUsage 未就绪时，输入框下方无统计行也没有 context 环（composer 底部只留权限/模型 pill 行）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-session-stats-row/final-chat-stats-line-empty.png"
+      ],
+      "notes": "截图核对：composer 下方无 .stats-row，仅剩 pill 行；与 F-01 形成有无对比。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "0.1.1-rc.2 沙盒回归：统计行显示可得字段，无 token 组，无崩溃",
+      "expect": "默认镜像（dsh 0.1.1-rc.2，legacy 无认证路径）发一轮后统计行出现可得字段（如「1 turns · 1 steps | LLM 0.1s | TTFT avg 0.1s · 0 tok/s」）；无 tokenUsage 投影 → 缓存命中/输入输出组缺省；面板其余交互（消息行计时/发送回显）无回归。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-session-stats-row/R-01-011-row-absent.png"
+      ],
+      "notes": "探针输出 {\"row\":true,\"text\":\"1 turns · 1 steps | LLM 0.1s | TTFT avg 0.1s · 0 tok/s\"}；截图：统计行 + 消息行计时正常。修正条目原假设：0.1.1-rc.2 也提供 sessionStats（行不隐藏），实际降级=显示可得、token 组缺省。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "harness：conversation 基线场景（composer + pill + 统计行共存）",
+      "expect": "conversation：消息流/工具卡/操作栏正常；底部 composer + 权限/模型 pill 行 + 统计行（官方格式种子行）共存，无错位。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-session-stats-row/final-conversation.png"
+      ],
+      "notes": "截图核对：统计行「2 轮 · 16 步 | LLM 48.3秒 · 工具调用 26.9秒 | 首 token 平均 0.8秒 · 33 tok/s | 缓存命中 99% | 输入 33M tok · 输出 99.3K tok」在 pill 行下方正常显示。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "harness：turn-usage-detail（webview 助手迁移 pure 后回归）",
+      "expect": "turn-usage-detail：消息行计时 + Usage 2.9K 药丸；点开弹窗字段不变（Turn usage 2,890 / Provider-model / Cache hit 30.9% / Uncached input / Cached input / Cache write / Output 含推理子行）——formatCacheHitPercent/formatCompactTokens 上移 pure 后行为一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-session-stats-row/final-turn-usage-detail.png"
+      ],
+      "notes": "截图核对：药丸与明细弹窗字段、30.9% 缓存命中与推理子行均正常；统计行同时显示（同屏双功能无冲突）。"
+    }
+  ]
+}
