@@ -14,7 +14,10 @@
 </script>
 <style>
   body { margin: 0; font-family: sans-serif; }
-  #app { min-height: 100vh; }
+  /* 与真实 webview 模板同效（html/body/#app 全 height:100%）：视口钉死，
+     超高内容在 .messages 内部滚——不能用 min-height（#app 会随内容长高，
+     composer 掉出视口、浮层几何全变，与真机不一致）。 */
+  #app { height: 100vh; }
   /* 场景可选 theme:'dark'：替代 VS Code 注入的 --vscode-* 变量，模拟暗色界面。 */
   body[data-theme='dark'] {
     --vscode-editor-background: #1e1e1e;
@@ -59,6 +62,13 @@
     const q = new URLSearchParams(location.search)
     const name = q.get('scenario') || window.DEFAULT_SCENARIO
     const scen = window.SCENARIOS[name] || window.SCENARIOS[window.DEFAULT_SCENARIO]
+    // 按场景 view 换样式文件（gen-ui-harness 按 view 分抽，合并会让 sessions
+    // 的 #app flex-direction:column 后赢 chat 的 row，超高内容把 composer 顶出
+    // 视口）：sessions 场景换 style-sessions.css，其余保持 style.css。
+    if (scen.view === 'sessions') {
+      const link = document.querySelector('link[rel="stylesheet"]')
+      if (link) link.href = `/test/ui/style-sessions.css?v=${Date.now()}`
+    }
     if (scen.theme === 'dark') document.body.setAttribute('data-theme', 'dark')
     const post = (m) => window.postMessage(m, '*')
     const bundle = (scen.view === 'sessions' ? '/dist/sessionsWebview.js' : '/dist/chatWebview.js') + bust

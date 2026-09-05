@@ -30,7 +30,7 @@ description: 用浏览器独立渲染 DSH One 的 chat webview + mock 后台 + �
 
 ```bash
 npm run build                      # 产出 dist/chatWebview.js
-node scripts/gen-ui-harness.mjs    # 从 src/ui/chatView.ts 抽 STYLE → test/ui/style.css（改动样式后重跑）
+node scripts/gen-ui-harness.mjs    # 抽 STYLE → test/ui/style.css（chat）+ style-sessions.css（sessions，按 view 分开；改动样式后重跑）
 # WebBridge daemon（http://127.0.0.1:10086）在跑；不在跑则启动它
 ~/.kimi-webbridge/bin/kimi-webbridge start
 ```
@@ -138,5 +138,5 @@ harness 每步执行完推送 `window.__interactStepDone = name`，`ui-visual.sh
 
 - **截图空白/只有样式没内容**：确认 `dist/chatWebview.js` 是最新（`npm run build`），且 `test/ui/style.css` 是当前源码抽出（`node scripts/gen-ui-harness.mjs`）。
 - **WebBridge snapshot 抓不到节点**：这页 webview 的 DOM 对 a11y 树不友好，别依赖 snapshot。用 `screenshot`（给人看）或 `evaluate` 查 DOM（给程序断言），不要用 snapshot 的 @e 引用点元素。
-- **harness 404**：http server 的根目录必须是仓库根目录（`test/`、`dist/`、`scripts/` 都在那）。harness 引用 `/test/ui/style.css`、`/dist/chatWebview.js`、`/test/ui/scenarios.js`。
+- **harness 404**：http server 的根目录必须是仓库根目录（`test/`、`dist/`、`scripts/` 都在那）。harness 引用 `/test/ui/style.css`（chat 场景；sessions 场景自动换 `/test/ui/style-sessions.css`）、`/dist/chatWebview.js`、`/test/ui/scenarios.js`。
 - **新样式不生效**：样式从源码抽的，改了 `src/ui/chatView.ts` 的 `STYLE` 必须重跑 `gen-ui-harness.mjs`。
