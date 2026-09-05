@@ -14,6 +14,8 @@
 
 - 状态栏 tooltip：adopted / external 实例也显示 dsh 版本（statusbar-adopted-version）：旧实现一刀切不显示（怕误导）——现在 shared 记录优先（spawn 时已存 version，另一窗口 adopt 直接展示）；无记录时从实例命令行解析真实入口（`@deepseek-ai/dsh/lib/bin.js` / 官方 `dist/dsh.js` / npm 全局 shim / Windows `dsh.cmd` 等形态）执行 `--version` 探询，不依赖扩展 PATH（多安装不误导）；探测失败才缺省不显示。
 
+- 另一窗口 spawn 的实例（adopted）提供确认式停止/重启（adopted-manageable）：此前 adopted 只有复用入口（kill 权归 owner 窗口），单用户多窗口（主窗口 + isolated dev 窗口）场景下第二窗口无法调度实例——现 tooltip 与外部实例同款提供「停止/重启外部实例」入口，确认弹窗文案统一覆盖「终端或另一窗口启动」两种来源；停止仍走 pid→命令行 dsh 特征→单 pid SIGTERM 安全校验。
+
 ### Fixed
 
 - 流式输出中 commit 悬浮卡闪关闪开（commit-card-jumps-during-streaming）：消息行每帧重建摘除旧 chip 导致详情卡断开重开——行重建后按同身份重锚已打开弹层（commit chip 按 sha 限同 flow 行；token 用量药丸同机制），卡片被摘除时鼠标判定不排延迟关闭。
