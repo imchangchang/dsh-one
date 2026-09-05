@@ -393,10 +393,32 @@ export class ServerManager implements vscode.Disposable {
         return this.status
       }
       if (probe === 'authDsh') {
+        // 无记录 + 认证 dsh：先尝试日志恢复——dsh-web.log 是扩展 spawn 实例的
+        // stdout（外部手动启动的不会写进来），就绪行 token 与端口实例绑死：
+        // 换票成功 = 端口实例确实是「扩展上次 spawn 的」（典型场景：waitReady
+        // 未完成时窗口被关，记录已被上次防护清掉、实例还活着）→ 补写记录 re-own
+        // 自愈。换票失败/无就绪行才落空走防护。
+        const recovered = await this.tokenFromLog()
+        if (recovered !== undefined) {
+          const auth = await probeToken(`http://127.0.0.1:${port}`, recovered, this.logger)
+          if (auth !== null) {
+            const livePid = (await findListenerPid(port, this.logger)) ?? 0
+            const version = livePid !== 0
+              ? probeDshVersionFromCommandLine(processCommandLine(livePid), this.logger)
+              : undefined
+            await this.writeOwned({ pid: livePid, port, token: recovered, version })
+            this.logger.info(`recovered launch token from log and re-owned authenticated dsh at ${port} (pid=${livePid})`)
+            this.ownedPid = livePid
+            this.setStatus({ state: 'running', url: `http://127.0.0.1:${port}`, port, adopted: false, version })
+            this.startHealthCheck(port)
+            return this.status
+          }
+          this.logger.info(`token recovered from log but exchange failed (port=${port}); falling through to protection`)
+        }
         // 防护（用户已拍板，见 external-dsh-manage-012）：端口上是无凭证的认证
-        // dsh（外部启动，token 只在它的终端 URL/stdout，扩展拿不到）——报错
-        // 不另起，不再换端口 spawn 双实例。tooltip 提供「粘贴 token / 停止 /
-        // 重启」管理入口（A/B 档）；错误态携带 port 供命令定位目标。
+        // dsh（外部启动，token 只在它的终端 URL/stdout，扩展拿不到，或日志已
+        // 无法对应本次实例）——报错不另起，不再换端口 spawn 双实例。tooltip
+        // 提供「粘贴 token / 停止 / 重启」管理入口（A/B 档）；错误态携带 port。
         const message = vscode.l10n.t(
           'Port {0} runs an authenticated dsh instance started outside this extension. Paste its launch token to connect, or stop it first.',
           port,
