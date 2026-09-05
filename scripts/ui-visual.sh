@@ -65,10 +65,18 @@ for(const n of process.argv.slice(1)){ const s=sc[n]; if(s) console.log(`[${n}] 
 for(const n of process.argv.slice(1)){ const s=sc[n]; if(s && s.interactSteps) console.log(`STEPS|${n}\t${s.interactSteps.map(st=>st.name).join(",")}`); }
 ' "${scenarios[@]}")
 echo "$node_out" | grep -v '^STEPS|'
-declare -A STEPS_OF
-while IFS=$'\t' read -r key steps; do
-  STEPS_OF["${key#STEPS|}"]="$steps"
+# 步骤映射（bash 3.2 无关联数组，用「场景名|步骤逗号列表」条目数组 + 线性查找）
+STEPS_ENTRIES=()
+while IFS=$'\t' read -r name steps; do
+  [ -n "$name" ] && STEPS_ENTRIES+=("${name#STEPS|}|${steps}")
 done < <(echo "$node_out" | grep '^STEPS|')
+steps_of() { # $1=场景名；echo 步骤逗号列表，无步骤时返回 1
+  local entry
+  for entry in "${STEPS_ENTRIES[@]}"; do
+    if [ "${entry%%|*}" = "$1" ]; then echo "${entry#*|}"; return 0; fi
+  done
+  return 1
+}
 echo
 
 # 起 http server（复用端口时先杀旧占位进程）
@@ -94,7 +102,7 @@ wait_step() { # $1=场景名 $2=步骤名
   local deadline=$((SECONDS + 25)) val=""
   while [ "$SECONDS" -lt "$deadline" ]; do
     val=$(webbridge evaluate '{"code":"(window.__interactStepDone || \"\")"}' 2>/dev/null \
-      | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("value") or "")' 2>/dev/null || true)
+      | python3 -c 'import sys,json; d=json.load(sys.stdin); print((d.get("data") or {}).get("value") or "")' 2>/dev/null || true)
     [ "$val" = "$2" ] && return 0
     sleep 0.2
   done
@@ -109,7 +117,7 @@ for s in "${scenarios[@]}"; do
   # 每场景开一个干净 tab（newTab:true），截图后关闭，避免 tab 累积让 daemon 卡住
   navigate_args="{\"url\":\"$url\",\"newTab\":true,\"group_title\":\"DSH One UI 视觉验证\"}"
   webbridge navigate "$navigate_args" >/dev/null
-  steps="${STEPS_OF[$s]:-}"
+  steps=$(steps_of "$s" || true)
   if [ -n "$steps" ]; then
     # 分步交互场景：每步等完成信号后各截一张 <scenario>-<step>.png，
     # 截图完调 __interactStepAdvance() 放行下一步（最后一步后保持终态）。
