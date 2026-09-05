@@ -30,3 +30,4 @@
 - 2026-09-06 用户提出（先讨论时间语义：显示的是「上次输入时间」而非最后活动时间，运行中会话显示旧时间造成困惑）；讨论后改为布局方案：状态标记与时间互斥、集中在行尾。原型两轮调优（垂直居中 → 标记中心共线）后用户确认 → 建条目（open/）
 - 2026-09-06 认领（doing）：用户确认「记录 backlog 并认领开工」，开 worktree 开发
 - 2026-09-06 开发完成，自测通过 → done（592 项单测全过、typecheck/build 通过；ai-visual-validation 新场景 sessions-status-rear-slot + 9 个侧栏基线场景逐项核对通过；沙盒真环境回归 4 项全 pass——含「慢命令」24s 流式期间侧栏运行中像素环、完成后恢复时间；验收报告 test/sandbox/verify.session-row-status-to-time-slot.report.html）
+- 2026-09-06 用户微调：行首槽只剩置顶图钉导致标题缩进过大(38px) → 移除行首状态槽、图钉移标题前，标题缩进回到 16px；重跑 dev-finish → done（a42e640）
