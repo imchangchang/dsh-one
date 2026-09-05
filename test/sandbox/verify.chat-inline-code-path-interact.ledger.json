@@ -10,66 +10,67 @@
     "image": "dsh-sandbox-inline-code:latest",
     "date": "2026-09-06T00:00:00Z"
   },
-  "coverageNote": "真桌面 VS Code 窗口 chrome、真模型输出、Windows/macOS 平台专项不在本报告范围。本功能是 chat webview 渲染层（webview.ts 装饰 + chatViewHtml.ts 样式），宿主 openPath 解析为既有能力（本任务未改宿主）。视觉自测另有 harness 场景 inline-code-interact（分步：初始/点路径码/点命令码，/tmp/dsh-ui-shots/），与沙盒 E2E 双通道：E2E 为主（真 VS Code 内点击路径码打开文件、命令码不误开），harness 为辅（确定态渲染 + openPath 消息断言）。",
+  "coverageNote": "真桌面 VS Code 窗口 chrome、真模型输出、Windows/macOS 平台专项不在本报告范围。本功能是 chat webview 渲染层（webview.ts 装饰 + chatViewHtml.ts 样式），宿主 openPath 解析为既有能力（本任务未改宿主）。视觉自测另有 harness 场景 inline-code-interact（分步：初始/点路径码/点命令码，/tmp/dsh-ui-shots/），与沙盒 E2E 双通道：E2E 为主（真 VS Code 内点击路径码打开文件、命令码不误开），harness 为辅（确定态渲染 + openPath 消息断言）。 补充：此次运行 Kimi WebBridge 的 evaluate 通道不可用（cdpFullAccess 未开），分步场景信号全部超时且整批截图串页（截图拍到相邻 tab 画面，已对照发现 conversation/markdown 等既有场景截图内容错位），harness 层改以本地 Playwright 确定性重拍（inline-code-interact 三步 + 回归子集 conversation/markdown/produced-files/tool-skill/compaction-cards/workflow-running 等 7 场景，/tmp/dsh-ui-shots-local/）为核图依据；沙盒 E2E 不受影响（Playwright 独立实例）。",
   "items": [
     {
       "id": "F-01",
       "phase": "new-feature",
       "name": "行内码渲染：路径/命令/变量均为浅底 chip + 右下角复制图标",
       "expect": "mock-llm 会话发送「行内码路径」后，助手回复中的反引号内容全部渲染为浅灰底圆角小 chip：路径（~/.dsh/settings.yaml、src/ui/chat/webview.ts、/home/coder/.dsh/settings.yaml）与非路径（npm run build、DSH_PORT）外观一致，右下角均带小复制图标；行内码文本内容与回复一致；页面其余部分（composer、统计行）无异常。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-inline-code/10-01-inline-code-chips.png"
       ],
-      "notes": ""
+      "notes": "E2E 断言：chips=5（路径码 3：~/.dsh/settings.yaml、src/ui/chat/webview.ts、/home/coder/.dsh/settings.yaml；命令/变量 2：npm run build、DSH_PORT）全部带浅底 chip 样式；截图核对：行内码带圆角浅底、右下角复制图标、文案与 mock 回复一致；composer 与统计行正常。"
     },
     {
       "id": "F-02",
       "phase": "new-feature",
       "name": "点击路径行内码：VS Code 编辑器打开该文件",
       "expect": "点击行内码 ~/.dsh/settings.yaml 后，VS Code 打开对应编辑器 tab（标题栏 settings.yaml 标签出现，正文是 dsh 配置内容）；容器会话 cwd 无关紧要（~ 展开到 /home/coder）；无报错弹窗。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-inline-code/11-02-after-open-path.png"
       ],
-      "notes": ""
+      "notes": "E2E 断言：点击路径码 ~/.dsh/settings.yaml 后编辑器 tab settings.yaml=1；截图核对：中间编辑器区出现 settings.yaml tab，面包屑 home > coder > .dsh，内容为 mock 配置 YAML（~ 展开正确）；会话侧栏仍在、无报错弹窗。"
     },
     {
       "id": "F-03",
       "phase": "new-feature",
       "name": "点击命令/变量行内码：不误开（无编辑器变化）",
       "expect": "点击行内码 npm run build 与 DSH_PORT：不发生编辑器打开（无新 tab、无「file not found」报错弹窗）；行内码外观无点击痕迹以外的变化。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-inline-code/12-03-command-no-open.png"
       ],
-      "notes": ""
+      "notes": "E2E 断言：点击命令码 npm run build 前后编辑器 tab 数 2→2（无新 tab）；截图核对：画面与 F-02 同（仅 settings.yaml tab 在开），无 file-not-found 报错弹窗。"
     },
     {
       "id": "F-04",
       "phase": "new-feature",
       "name": "复制图标：点击复制行内码文本（含已复制反馈）",
       "expect": "点击任意行内码右下角复制图标：图标短暂换勾（title 变 Copied）后还原，剪贴板内容=行内码文本；点击路径码的复制图标只复制不打开。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [
-        "/tmp/dsh-sandbox-shots-inline-code/13-04-copy-feedback.png"
+        "/tmp/dsh-sandbox-shots-inline-code/13-04-copy-feedback.png",
+        "/tmp/dsh-ui-shots/inline-code-interact-copy.png"
       ],
-      "notes": ""
+      "notes": "沙盒 headless 浏览器 webview iframe 的 origin 是 vscode-webview://（动态生成，Playwright 无法授予 clipboard 权限），点击复制图标后走 reject 分支 title=Copy failed——证明点击-事件-反馈链路触发；成功反馈（title=Copied + 图标换勾）在 harness 顶层页面（127.0.0.1 origin 已授权 clipboard）验证：点击后 title=Copied，另附截图。真实 VS Code 的 webview 带 clipboard 授权（既有块级复制按钮同机制）。"
     },
     {
       "id": "R-01",
       "phase": "regression",
       "name": "既有 markdown/代码块渲染不受行内码装饰影响",
       "expect": "发送「回归演示」后，回复含 markdown 表格（col A/col B、加粗 bold）与 ```ts 代码块：代码块带语言标签 ts + 复制按钮 + 独立浅底块（不是行内码 chip 样式）；表格边框/表头正常；消息操作栏（复制/反馈）正常。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [
-        "/tmp/dsh-sandbox-shots-inline-code/20-01-markdown-normal.png"
+        "/tmp/dsh-sandbox-shots-inline-code/R-01.png"
       ],
       "driver": {
         "prompt": "回归演示",
         "expectText": "const x: number = 1"
       },
-      "notes": ""
+      "notes": "verify-driver 自动断言命中（prompt 回归演示 → 等 const x: number = 1，新建会话 sidebar-ungrouped 路径）；截图核对：markdown 表格（col A/col B + bold 加粗）渲染正常；```ts 代码块为独立块级样式（语言标签 ts + 右上 Copy 按钮），未被行内码装饰影响；消息操作栏正常。"
     }
   ]
 }
