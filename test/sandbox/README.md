@@ -212,11 +212,37 @@ node test/sandbox/verify-driver.mjs \
     "fillAndClear": "草稿文本",        // 可选：填入该文本并点 .clear-all-button，断言输入框为空
     "fillSlash": "/g",                // 可选：填入该文本但不发送（触发 slash 补全弹窗/参数 hint 行）
     "expectPopup": ["/goal", "hint"], // 可选：断言 webview 出现这些文本（数组逐条，15s/条；配 fillSlash）
+    "hoverText": "文本",              // 可选：悬停含该文本的元素（commit chip 等）让悬浮卡弹出再截图
+    "reconnect": {                    // 可选：断连横幅场景（kill dsh → 横幅 → respawn → 恢复），见下方小节
+      "container": "dsh-sandbox-<slug>",
+      "connectingText": "Connection lost, reconnecting",
+      "failedText": "Reconnection failed",
+      "recoveredText": "Connection restored",
+      "buttonRecovery": false,        // true=点「立即重连」恢复；false=自动退避自愈
+      "blindPrompt": "盲窗期间发送",   // 自动路径：失明期间发送，恢复后断言补齐（re-baseline）
+      "afterPrompt": "恢复后发送"      // 恢复后发送，断言消息流续上
+    }
   },
   "result": "pending",              // 驱动每次跑完覆写：done（断言命中）/ fail（断言超时，notes 写原因）
   "screenshots": []
 }
 ```
+
+### reconnect 断连场景（driver.reconnect）
+
+对「kill 实例 → webview 断连横幅 → respawn → 自愈」类场景的确定性驱动，流程：
+
+1. `dsh-port-holder.mjs` + `dsh-probe.mjs` 经 stdin 拷进容器（docker cp 保留宿主 uid/权限、粘滞 /tmp 里容器用户删不掉旧文件——先 `docker exec -u root rm -f`）。
+2. capture：`pgrep -f 'web --host 127.0.0.1 --port'` 找 dsh（注意：真实 dsh 进程的 comm 是 `MainThread`，**不能按 `node` 匹配**；且 pgrep 会同时匹配到 respawn 的 `sh -c` 包装层与捕获脚本自身——排除 self、排除 comm=sh），把 cmdline/env/cwd/port 落 `/tmp/dsh-reconnect/` 后 kill -9。
+3. 立即在同端口拉起 holder：POST /api/host.describe 回 rpcId 回显（**扩展 10s 健康探测继续通过，manager 不 detach controller**——否则「探测最多 10s 后必然 detach」会把重连窗口挤没），其余请求 404/WS 断连（mux attach 立即失败，退避确定性演进）。
+4. 断言 connecting → failed 横幅 → respawn（停 holder + 按保存信息重拉 dsh + probe 等就绪）。
+5. 恢复路径二选一：自动退避（先发 blindPrompt 制造盲窗事件，恢复后经 re-baseline 补齐）；按钮（点「立即重连」后**立即发 afterPrompt**——dsh 0.1.1 重连后无 pending 事件时不发 session/subscribed、静默挂住 socket 但事件照常流，host 把「本会话任意帧」当恢复信号，消息帧即确定性信号）。
+6. 断言 recovered 横幅出现并自动隐藏 → 恢复后回显 → 断线前内容仍在。多阶段截图。
+7. 结尾幂等 cleanup（停 holder、dsh 死了就重拉）；SIGTERM/SIGINT 兜底同款 cleanup（外部超时杀进程也要收敛沙盒——裸 try/finally 兜不住 SIGTERM）。
+
+所有 docker exec 走 `execFile` 的 `timeout`（超时杀子进程）；Playwright 等待全部走 bounded 看门狗 + 显式 timeout；另有一项 5min 硬上限。
+
+### 执行流程（每项）
 
 其余字段（`phase`/`name`/`expect`/`coverageNote` 等）是报告/人看的，驱动不动。跑完把更新后的 ledger 原样写回（JSON 格式化，见 `result`/`screenshots`/`notes`）。
 

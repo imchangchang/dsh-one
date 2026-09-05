@@ -54,7 +54,7 @@
 //   4. 首项前冒烟预热（耗掉 dsh 冷启动的挂起导航窗口）+ 有 fail 项时整轮自动重试一次。
 import { chromium } from 'playwright'
 import { execFile } from 'node:child_process'
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { createReadStream, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -427,12 +427,14 @@ async function closeEditorTab(page) {
 // ── 断连横幅场景（driver.reconnect）─────────────────────────────────────────
 
 /** 容器内执行命令：execFile 的 timeout 超时杀掉子进程（挂死调查约定——每个
- *  await 阶段必须有界，docker 子进程不允许裸等）。 */
-function dockerExec(container, argv, timeoutMs = 30_000) {
+ *  await 阶段必须有界，docker 子进程不允许裸等）。root=true 时以容器 root 跑
+ *  （docker 的 -u 必须在 container 名之前，单独成参数避免顺序错误）。 */
+function dockerExec(container, argv, timeoutMs = 30_000, root = false) {
+  const dockerArgs = root ? ['exec', '-u', 'root', container, ...argv] : ['exec', container, ...argv]
   return new Promise((resolve, reject) => {
     execFile(
       'docker',
-      ['exec', container, ...argv],
+      dockerArgs,
       { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) {
@@ -449,43 +451,54 @@ function dockerExec(container, argv, timeoutMs = 30_000) {
   })
 }
 
-/** 拷文件进容器（holder 脚本）；execFile timeout 同款保护。 */
+/** 把宿主文件经 stdin 写进容器（docker cp 会保留宿主 uid/权限，容器用户
+ *  chmod 不了；exec -i cat > 以容器用户落盘，属主/权限天然正确）。 */
 function dockerCp(container, hostPath, containerPath) {
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       'docker',
-      ['cp', hostPath, `${container}:${containerPath}`],
+      ['exec', '-i', container, 'sh', '-c', `cat > ${containerPath}`],
       { timeout: 30_000 },
       (err) => {
         if (err) reject(new Error(`docker cp ${hostPath} 失败：${err.message}`))
         else resolve()
       },
     )
+    createReadStream(hostPath).pipe(child.stdin)
   })
 }
 
-/** 容器内 dsh 健康探测（POST /api/host.describe + rpcId 回显校验）单行脚本。 */
-function dshProbeScript(label, timeoutMs) {
-  return [
-    "const http=require('node:http')",
-    'const port=Number(process.argv[1])',
-    `const rpcId='${label}-'+Date.now()`,
-    'const tryOnce=()=>new Promise(r=>{',
-    "const body=JSON.stringify({type:'client-request',rpcId,method:'host.describe',payload:{}})",
-    "const q=http.request({host:'127.0.0.1',port,path:'/api/host.describe',method:'POST',headers:{'content-type':'application/json'},timeout:2000},s=>{",
-    "let t='';s.on('data',c=>t+=c)",
-    "s.on('end',()=>{let ok=false;try{ok=JSON.parse(t).rpcId===rpcId}catch{}r(ok)})",
-    '})',
-    "q.on('error',()=>r(false))",
-    "q.on('timeout',()=>{q.destroy();r(false)})",
-    'q.end(body)})',
-    '(async()=>{',
-    `const dl=Date.now()+${timeoutMs}`,
-    'while(Date.now()<dl){if(await tryOnce()){console.log("ready");process.exit(0)}await new Promise(r=>setTimeout(r,250))}',
-    `console.error('${label} not ready in ${timeoutMs}ms')`,
-    'process.exit(1)',
-    '})()',
-  ].join(';')
+/** 等重拉后的 dsh 就绪（容器内 describe 探测，30s 上限；探测脚本经 stdin 落盘，
+ *  避免 inline node -e 的引号地狱）。 */
+async function waitDshReady(container, timeoutMs = 30_000) {
+  return dockerExec(
+    container,
+    ['sh', '-c', `node /tmp/dsh-probe.mjs ready "$(cat /tmp/dsh-reconnect/port)" ${timeoutMs}`],
+    timeoutMs + 10_000,
+  )
+}
+
+/**
+ * 幂等残局恢复：holder 还在就杀；dsh 已死就按保存信息重拉；一切健康则无操作。
+ * reconnect 场景结束（无论成败）后调用，保证后续回归条目不被残局拖垮。
+ */
+async function reconnectCleanup(container) {
+  try {
+    await dockerExec(container, ['sh', '-c', `
+if [ ! -f /tmp/dsh-reconnect/port ]; then exit 0; fi
+PORT=$(cat /tmp/dsh-reconnect/port)
+HOLDER=$(cat /tmp/dsh-reconnect/holder.pid 2>/dev/null || true)
+if [ -n "$HOLDER" ] && kill -0 "$HOLDER" 2>/dev/null; then kill "$HOLDER" 2>/dev/null || true; sleep 0.5; fi
+if node /tmp/dsh-probe.mjs cleanup-chk "$PORT" 2000 2>/dev/null; then exit 0; fi
+cd "$(cat /tmp/dsh-reconnect/cwd)"
+set -a
+. /tmp/dsh-reconnect/environ
+set +a
+nohup sh -c "$(cat /tmp/dsh-reconnect/cmdline)" > /tmp/dsh-reconnect/respawn.log 2>&1 &
+`], 40_000)
+  } catch (e) {
+    console.warn(`  [warn] reconnect cleanup 未完成（人工注意沙盒状态）：${e.message}`)
+  }
 }
 
 /**
@@ -501,16 +514,40 @@ async function captureDshAndHold(container) {
 set -e
 mkdir -p /tmp/dsh-reconnect
 SELF=$$
-PID=$(pgrep -f 'web --host 127.0.0.1 --port' | grep -v "^$SELF$" | head -1)
-if [ -z "$PID" ]; then echo 'no dsh process found' >&2; exit 1; fi
+{
+  echo "capture start self=$SELF"
+  for P in $(pgrep -f 'web --host 127.0.0.1 --port'); do
+    echo "match pid=$P comm=[$(cat /proc/$P/comm 2>/dev/null)] cmdline=[$(tr '\\0' '|' < /proc/$P/cmdline 2>/dev/null)]"
+  done
+} > /tmp/dsh-reconnect/capture-debug.log 2>&1 || true
+PID=""
+# pgrep -f 会匹配到本 sh 自身与 respawn 留下的 sh -c 包装层（cmdline 里都含
+# 同一串模式）：先记录信息、最后再全部杀掉（包装层死了不影响其 dsh 子进程，
+# 子进程下面单杀）。真实 dsh 进程的 comm 实测是 MainThread（dsh 运行时改名
+# 线程），不能按 comm=node 认——反过来排除 sh 包装层，剩下的第一个就是 dsh。
+for P in $(pgrep -f 'web --host 127.0.0.1 --port'); do
+  [ "$P" = "$SELF" ] && continue
+  COMM=$(cat /proc/$P/comm 2>/dev/null || true)
+  if [ "$COMM" != "sh" ] && [ -z "$PID" ]; then PID=$P; fi
+done
+if [ -z "$PID" ]; then echo 'no dsh process found' >&2; cat /tmp/dsh-reconnect/capture-debug.log >&2; exit 1; fi
 CMDLINE=$(tr '\\0' ' ' < /proc/$PID/cmdline)
 PORT=$(printf '%s' "$CMDLINE" | sed -n 's/.*--port \\([0-9][0-9]*\\).*/\\1/p')
-if [ -z "$PORT" ]; then echo 'no --port in dsh cmdline' >&2; exit 1; fi
+if [ -z "$PORT" ]; then
+  echo "no --port in dsh cmdline (pid=$PID): $CMDLINE" >&2
+  cat /tmp/dsh-reconnect/capture-debug.log >&2
+  exit 1
+fi
 printf '%s' "$CMDLINE" > /tmp/dsh-reconnect/cmdline
 printf '%s' "$PORT" > /tmp/dsh-reconnect/port
 tr '\\0' '\\n' < /proc/$PID/environ > /tmp/dsh-reconnect/environ
 readlink /proc/$PID/cwd > /tmp/dsh-reconnect/cwd
-kill -9 $PID
+# 信息落盘完成后再杀：排除自身与包装层，其余全杀（含 dsh）。
+for P in $(pgrep -f 'web --host 127.0.0.1 --port'); do
+  [ "$P" = "$SELF" ] && continue
+  kill -9 $P 2>/dev/null || true
+done
+sleep 0.2
 nohup node /tmp/dsh-port-holder.mjs "$PORT" /tmp/dsh-reconnect/holder.pid > /tmp/dsh-reconnect/holder.log 2>&1 &
 sleep 0.5
 cat /tmp/dsh-reconnect/holder.pid
@@ -530,38 +567,6 @@ set -a
 set +a
 nohup sh -c "$(cat /tmp/dsh-reconnect/cmdline)" > /tmp/dsh-reconnect/respawn.log 2>&1 &
 `], 20_000)
-}
-
-/** 等重拉后的 dsh 就绪（容器内 describe 探测，30s 上限）。 */
-async function waitDshReady(container, timeoutMs = 30_000) {
-  return dockerExec(
-    container,
-    ['sh', '-c', `node -e '${dshProbeScript('ready', timeoutMs)}' "$(cat /tmp/dsh-reconnect/port)"`],
-    timeoutMs + 10_000,
-  )
-}
-
-/**
- * 幂等残局恢复：holder 还在就杀；dsh 已死就按保存信息重拉；一切健康则无操作。
- * reconnect 场景结束（无论成败）后调用，保证后续回归条目不被残局拖垮。
- */
-async function reconnectCleanup(container) {
-  try {
-    await dockerExec(container, ['sh', '-c', `
-if [ ! -f /tmp/dsh-reconnect/port ]; then exit 0; fi
-PORT=$(cat /tmp/dsh-reconnect/port)
-HOLDER=$(cat /tmp/dsh-reconnect/holder.pid 2>/dev/null || true)
-if [ -n "$HOLDER" ] && kill -0 "$HOLDER" 2>/dev/null; then kill "$HOLDER" 2>/dev/null || true; sleep 0.5; fi
-if node -e '${dshProbeScript('cleanup-chk', 2000)}' "$PORT" 2>/dev/null; then exit 0; fi
-cd "$(cat /tmp/dsh-reconnect/cwd)"
-set -a
-. /tmp/dsh-reconnect/environ
-set +a
-nohup sh -c "$(cat /tmp/dsh-reconnect/cmdline)" > /tmp/dsh-reconnect/respawn.log 2>&1 &
-`], 40_000)
-  } catch (e) {
-    console.warn(`  [warn] reconnect cleanup 未完成（人工注意沙盒状态）：${e.message}`)
-  }
 }
 
 /** 断连横幅当前是否可见（任一 live frame 内 .reconnect-banner 非 display:none）。 */
@@ -632,6 +637,25 @@ async function takeReconnectShot(page, itemId, label) {
 }
 
 /**
+ * 断连场景进行中的沙盒容器（SIGTERM 兜底清理用）：外部超时杀进程时 try/finally
+ * 不执行，kill 后若把「holder 在跑 + dsh 已死」的残局留给沙盒，后续全部条目的
+ * newChat 都打不开（扩展 10s 探测失败已 detach）——实测踩过。SIGTERM/SIGINT
+ * 先跑幂等 cleanup（停 holder、重拉 dsh）再退出，进程被杀也收敛沙盒。
+ */
+let activeReconnectContainer = null
+process.on('SIGTERM', () => {
+  const container = activeReconnectContainer
+  console.warn(`[warn] SIGTERM：${container ? `先清理断连残局（${container}）` : '无断连残局'}再退出`)
+  const done = container ? reconnectCleanup(container) : Promise.resolve()
+  void Promise.race([done, sleep(15_000)]).finally(() => process.exit(143))
+})
+process.on('SIGINT', () => {
+  const container = activeReconnectContainer
+  const done = container ? reconnectCleanup(container) : Promise.resolve()
+  void Promise.race([done, sleep(15_000)]).finally(() => process.exit(130))
+})
+
+/**
  * 断连横幅场景主流程（driver.reconnect，见文件头字段说明）：
  *   kill dsh + 占位器 → 等 connecting 横幅 → 等 failed 横幅 → respawn dsh →
  *   [自动路径] 盲窗发 blindPrompt → 等 recovered（自动退避自愈）→ blindPrompt
@@ -654,8 +678,13 @@ async function runReconnectScenario(page, cfg, itemId, firstEcho, notes) {
   }
 
   try {
-    // 1) holder 脚本进容器 + capture dsh。
+    // 1) holder/probe 脚本进容器（stdin 管道以容器用户落盘）+ capture dsh。
+    //    先以 root 清掉可能残留的旧文件（docker cp 时代的 600/uid501 残留
+    //    在粘滞 /tmp 里容器用户删不掉）。
+    activeReconnectContainer = container
+    await dockerExec(container, ['rm', '-f', '/tmp/dsh-port-holder.mjs', '/tmp/dsh-probe.mjs'], 10_000, true)
     await dockerCp(container, resolve(SCRIPT_DIR, 'dsh-port-holder.mjs'), '/tmp/dsh-port-holder.mjs')
+    await dockerCp(container, resolve(SCRIPT_DIR, 'dsh-probe.mjs'), '/tmp/dsh-probe.mjs')
     await captureDshAndHold(container)
 
     // 2) connecting 横幅（mux close 后第一条 chatReconnect，~1s 内到达）。
@@ -674,6 +703,7 @@ async function runReconnectScenario(page, cfg, itemId, firstEcho, notes) {
     await waitDshReady(container, 30_000)
     notes.push('dsh 已 respawn 并确认就绪（describe 探测通过）')
 
+    let afterSentBeforeRecovery = false
     if (buttonRecovery) {
       // 5a) 按钮路径：dsh 就绪后立即点「立即重连」（failed 相位后的自动 tick
       //     至少 4s 后才来；forceReconnect 同时取消退避定时器，不会双 attach）。
@@ -684,9 +714,23 @@ async function runReconnectScenario(page, cfg, itemId, firstEcho, notes) {
       } else {
         notes.push('已点击横幅「立即重连」按钮')
       }
+      // 点击后立即发一条消息：实测 dsh 0.1.1 重连后若会话无 pending 事件，
+      // mux 不发 subscribed、静默挂住 socket，但事件照常流动——host 把
+      // 「本会话任意帧」当恢复信号，这条消息的事件帧就是确定性的恢复信号。
+      if (typeof cfg.afterPrompt === 'string' && cfg.afterPrompt) {
+        try {
+          await sendPrompt(page, cfg.afterPrompt)
+          notes.push(`点击后已发送：${cfg.afterPrompt}（其事件帧作为恢复信号）`)
+          afterSentBeforeRecovery = true
+        } catch (e) {
+          step(false, '', `点击后发送失败：${e.message}`)
+          return { ok, shots }
+        }
+      }
     } else {
       // 5b) 自动路径：盲窗内发 blindPrompt——事件在扩展「失明」期间被 dsh 记录，
-      //     自动重连成功后经 gap-check → re-baseline 补回，验证内容完整。
+      //     自动重连成功后 dsh 发 subscribed(lastSeq) + 事件，经 gap-check →
+      //     re-baseline 补回，验证内容完整。
       if (typeof cfg.blindPrompt === 'string' && cfg.blindPrompt) {
         try {
           await sendPrompt(page, cfg.blindPrompt)
@@ -698,7 +742,7 @@ async function runReconnectScenario(page, cfg, itemId, firstEcho, notes) {
       }
     }
 
-    // 6) recovered（自动退避最迟 ~30s；按钮路径立等）。
+    // 6) recovered（自动退避最迟 ~30s；按钮路径等 afterPrompt 事件帧）。
     const recovered = await waitForText(page, recoveredText, 45_000)
     step(recovered, `恢复横幅出现：「${recoveredText}」`, `恢复横幅未出现：「${recoveredText}」`)
     if (recovered) shots.push(await takeReconnectShot(page, itemId, 'banner-recovered'))
@@ -717,15 +761,18 @@ async function runReconnectScenario(page, cfg, itemId, firstEcho, notes) {
       )
     }
 
-    // 9) 恢复后新消息续上（消息流自愈的直接证明）。
-    if (typeof cfg.afterPrompt === 'string' && cfg.afterPrompt) {
+    // 9) 恢复后新消息续上（消息流自愈的直接证明）。自动路径在这步发；按钮路径
+    //    已在恢复前发出（它的回显断言复用同一条消息）。
+    if (typeof cfg.afterPrompt === 'string' && cfg.afterPrompt && !afterSentBeforeRecovery) {
       try {
         await sendPrompt(page, cfg.afterPrompt)
-        const afterOk = await waitForText(page, `收到：${cfg.afterPrompt}`, 60_000)
-        step(afterOk, `恢复后新消息回显：「收到：${cfg.afterPrompt}」`, `恢复后新消息无回显：「收到：${cfg.afterPrompt}」`)
       } catch (e) {
         step(false, '', `恢复后发送失败：${e.message}`)
       }
+    }
+    if (typeof cfg.afterPrompt === 'string' && cfg.afterPrompt) {
+      const afterOk = await waitForText(page, `收到：${cfg.afterPrompt}`, 60_000)
+      step(afterOk, `恢复后新消息回显：「收到：${cfg.afterPrompt}」`, `恢复后新消息无回显：「收到：${cfg.afterPrompt}」`)
     }
 
     // 10) 断线前的内容仍在（历史未丢）。
@@ -740,6 +787,7 @@ async function runReconnectScenario(page, cfg, itemId, firstEcho, notes) {
   } finally {
     // 幂等残局恢复（场景失败也不把沙盒留给后续条目）。
     await reconnectCleanup(container)
+    activeReconnectContainer = null
   }
   return { ok, shots }
 }

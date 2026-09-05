@@ -1613,6 +1613,13 @@ export class ChatSessionController implements vscode.Disposable {
       return
     }
     if (payload.sessionId !== this.sessionId) return
+    // 本会话的任意帧 = 流已恢复。不能只认 session/subscribed：实测 dsh 0.1.1
+    // 的 mux 在重连后若该会话没有 pending 事件，不发 subscribed、静默挂住
+    // socket，后续事件照常流动（「官方 GUI 静默卡死」同款行为）——把 healthy
+    // 信号放宽到「任何帧到达」，空闲会话不误报（无帧 = 无信号），有新事件
+    // 到达即恢复。subscribed 的 lastSeq gap-check（re-baseline）不受影响：
+    // 有 missed 事件时 dsh 一定会发 subscribed（携带 lastSeq）。
+    this.noteReconnectSuccess()
     switch (frame.method) {
       case 'session/subscribed': {
         this.logger.info(`chat: subscribed to ${this.sessionId} (lastSeq ${String(payload.lastSeq)})`)
