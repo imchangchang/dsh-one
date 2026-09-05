@@ -25,3 +25,5 @@
 - 2026-09-05 用户反馈（展开后底部无收起入口）→ 建条目（open/）
 
 - 2026-09-05 认领（doing）：开 worktree 开发
+
+- 2026-09-06 开发完成（doing → done）：底部「收起」按钮落地（worktree 8427783），视觉验收 F-01/02 + 回归 R-01/02/03 全 pass，报告 test/sandbox/verify.chat-block-collapse-footer.report.html
