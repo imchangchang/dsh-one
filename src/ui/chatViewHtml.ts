@@ -371,20 +371,22 @@ const STYLE = `
     font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em;
   }
   /* 行内码（反引号）交互态：轻背景承载 hover 的复制图标与路径点击（见
-     webview 侧 decorateInlineCodes）。右上角留出 14px 给复制图标位，布局稳定
-     不跳动；图标默认隐藏（悬停/键盘聚焦才显示，避免所有行内码常驻图标的
-     视觉噪音——用户实测反馈），pointer-events:none 防止点击穿透误触。
-     路径码 hover 下划线提示可点，cursor 由 JS/role 语义给出。 */
+     webview 侧 decorateInlineCodes）。chip 底色紧凑（padding 不预留图标位，
+     图标浮在 chip 右侧外面——用户实测反馈：预留 14px 让底色被拉长、别扭）。
+     图标默认隐藏（悬停/键盘聚焦才显示），pointer-events:none 防止点击穿透
+     误触；hover 时浮出在 chip 右缘外侧垂直居中（absolute 相对 code，仍属
+     code 子元素，鼠标移到图标上 hover 不丢）。路径码 hover 下划线提示可点，
+     cursor 由 JS/role 语义给出。 */
   .md code.inline-code {
     position: relative;
     background: rgba(127,127,127,.12);
     border-radius: 3px;
-    padding: 1px 14px 1px 4px;
+    padding: 1px 4px;
   }
   .md code.inline-code-path { cursor: pointer; }
   .md code.inline-code-path:hover { text-decoration: underline; }
   .inline-code-copy {
-    position: absolute; right: 1px; bottom: 1px;
+    position: absolute; right: -14px; top: 50%; transform: translateY(-50%);
     width: 13px; height: 13px; padding: 0;
     display: inline-flex; align-items: center; justify-content: center;
     border: none; background: transparent; cursor: pointer;
