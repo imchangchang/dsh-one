@@ -1,0 +1,49 @@
+{
+  "title": "无记录 + 认证实例：日志恢复 token 自愈（rc.4 补齐无记录路径）",
+  "branch": "agent/recover-token-no-record",
+  "commit": "bfb3957",
+  "environment": {
+    "mode": "unit + Windows 真机证据（SSH 实测：NO-PIDFILE + 12164 存活 + dsh-web.log 82B 含就绪行 token）",
+    "dsh": "0.1.2-rc.1（C:\\Users\\imcha\\.dsh\\node-x64，SSH 实测）",
+    "date": "2026-09-05T17:40:00Z"
+  },
+  "coverageNote": "manager 依赖 vscode 宿主，单测覆盖不了；验证 = ① 恢复链与 rc.4 同构（probeToken→writeOwned→findListenerPid 均已真机验证）；② 用户 Windows 装 rc.5 后按当前现场（无记录+实例活+日志有 token）验证自愈；③ 127.0.0.1 host.describe 401 指纹判定由 portProbe 单测覆盖。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "无记录 + probe authDsh → 日志恢复 token 换票 re-own",
+      "expect": "fall-through probePort 返回 authDsh 时先 tokenFromLog → probeToken：成功则 findListenerPid 定位 pid、命令行探测版本、writeOwned 补记录（source 缺省 spawn，owner=this window）→ setStatus running adopted:false + healthCheck（kill 权回归）；失败/无就绪行 → 原防护（authDshNoToken 错误态 + 管理入口）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "代码审查：恢复尝试置于 authDsh 防护分支前，成功即 return，失败落空走原防护（无行为退化）；日志 token 与本端口实例绑死（token 只被本次进程换出），换票失败即安全回退，不会误接管手动实例。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "恢复后记录带 token + version（命令行探测），tooltip 显示版本",
+      "expect": "writeOwned 记录含 token + version（probeDshVersionFromCommandLine）；setStatus 同带 version。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "复用已合入的 probeDshVersionFromCommandLine（statusbar-adopted-version）；无法定位 pid 时 version 缺省不显示（不误导）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "防护路径不退化：无法恢复时仍报错不另起",
+      "expect": "tokenFromLog undefined 或换票失败 → 原 authDshNoToken 错误态 + tooltip 三个管理入口（粘贴/停止/重启）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "代码审查：恢复失败仅多一行 info 日志后走原分支；external-dsh-manage-012 防护行为不变。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "全量回归：typecheck / 单测",
+      "expect": "typecheck 干净；567 项单测全过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck ✓；npm test 567/567 ✓（dev-finish 跑 build）。"
+    }
+  ]
+}
