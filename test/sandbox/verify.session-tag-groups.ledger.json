@@ -76,6 +76,17 @@
       "notes": "playwright 断言逐项核对：① 预设组（待办）菜单 = Archive 2 / Move 2 / Remove from group / Rename group… / Color›，无 Delete（预设保护保持）；② Color… 展开 6 色子菜单（Yellow…Red，当前色 ✓），点 Purple → post sessionTagSetColor{tagId:preset-todo, color:purple}，两层菜单同时关闭；③ 行菜单「New group…」→ 弹层：标题 New group、输入框、6 个 20×20 色块（offsetWidth/Height 断言可见）、默认选中紫（场景有 1 个自定义组 → 轮换 palette[1]）、空名提交就地提示 cannot be empty；④ 输入「复盘」+ 选绿 → post sessionTagCreate{name:复盘, color:green}。①②③④ 全符合。"
     },
     {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "折叠组头待处理计数（黄点/像素环/绿点）",
+      "expect": "折叠的标签组块在 pill 行右端显示组内待处理计数（与 workspace 组头同规则：待交互 > 运行中 > 未读互斥分桶，各带数字）；展开态不显示（组内会话直接可见）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/session-tags-F07.png"
+      ],
+      "notes": "playwright 断言逐项核对：① 预置折叠的「已完成」组（1 行未读）pill 行右端 1 个计数（绿点+1）；②「待办」组初始展开 → 0 计数（展开不显示，即使组内有 pending/unread）；③ 点击待办 toggle + 回推快照折叠 → 行尾出现 2 个计数（黄点+1 待交互、绿点+1 未读）；④ 展开组不渲染 .tag-counts 节点（todoCounts=0）。①②③④ 全符合（workspace 组头角标同帧照常：黄1 环1 绿2）。"
+    },
+    {
       "id": "R-01",
       "phase": "regression",
       "name": "mock-LLM 回显回复（聊天链路回归）",
@@ -106,7 +117,7 @@
       "expect": "npm run typecheck / npm test（602 项全过）/ npm run build 全部通过（dev-finish 复跑）。",
       "result": "pass",
       "screenshots": [],
-      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 602 项全过（含新增 sessionTags 纯层测试与 sessionTree 标签组聚合测试）；npm run build 产出四个 bundle。 折叠功能提交后复跑：602 项仍全过，build 产出正常。 重命名/改色功能提交后复跑：602 项仍全过。"
+      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 602 项全过（含新增 sessionTags 纯层测试与 sessionTree 标签组聚合测试）；npm run build 产出四个 bundle。 折叠功能提交后复跑：602 项仍全过，build 产出正常。 重命名/改色功能提交后复跑：602 项仍全过。 折叠计数提交后复跑：602 项仍全过。"
     }
   ]
 }
