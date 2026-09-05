@@ -28,3 +28,6 @@ dsh 0.1.2 的排队消息是**非持久事件**，只由共享 `session/control`
 - `src/ui/jobsStore.ts`：另一个晚订阅者（同样受益，不用改）
 
 - 2026-09-06 认领（worktree: agent/queue-lost-after-session-switch）→ doing
+
+- 2026-09-06 开发完成，自测通过（typecheck + 577 tests + build）→ done
+- 验证方式：integration test（controlStreamReplay）+ 单测（controlSnapshot）；webview 渲染零改动，沙盒 UI 报告不适用
