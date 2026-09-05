@@ -98,16 +98,23 @@ export class ModelCatalogDirectory {
 /**
  * Footer pill label for the current selection, web style "DeepSeek-V4-Flash
  * High": catalog display name + reasoning effort name, falling back to the
- * raw ids when the route is absent from the (advisory) catalog.
+ * raw ids when the route is absent from the (advisory) catalog. A reasoning
+ * model without a declared default effort (e.g. Kimi K3) labels "Default",
+ * matching the official web trigger.
  */
 export function modelLabelOf(selection: SessionModelSelection, catalog: ModelCatalogValue): string {
   const group = catalog.groups.find((g) => g.id === selection.provider)
   const model = group?.models.find((m) => m.id === selection.model)
   let label = model?.name ?? selection.model
+  const efforts = model?.reasoning?.efforts ?? []
   const effortId = selection.reasoningEffort ?? model?.reasoning?.defaultEffort
   if (effortId) {
-    const effort = model?.reasoning?.efforts.find((e) => e.id === effortId)
+    const effort = efforts.find((e) => e.id === effortId)
     label += ` ${effort?.name ?? permissionDisplayName(effortId)}`
+  } else if (efforts.length > 0) {
+    // 对齐官方 web：模型有推理能力但未声明默认档（如 Kimi K3·Default 形态）
+    // 时标注 Default；无推理能力（efforts 为空）则不标。
+    label += ' Default'
   }
   return label
 }
