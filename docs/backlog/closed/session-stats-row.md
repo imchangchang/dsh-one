@@ -25,3 +25,6 @@
 - 2026-09-05 差异对账发现（官方输入框下方统计行）→ 建条目（open/）
 
 - 2026-09-05 认领（open → doing，worktree: agent/session-stats-row）。
+
+- 2026-09-05 开发完成（worktree: agent/session-stats-row，commits 6d982ce+ef58b96+42bc341+7f32cd9+c4dda68，done 标记 c4dda68）。落地：formatStatsLine 增 tokenUsage 参数补「缓存命中 X% · 输入/输出 tok」组（官方 StatsLine 同构）；时长格式化本地化（zh 2分42秒/45.2秒，原硬编码英文单位）；组间分隔符改 ASCII「 | 」；文案键对齐官方（TTFT avg/Tool call/Cache hit/Input…Output）；缓存命中与紧凑 token 助手从 webview 上移 pure 合并一份；chatSession 折叠 tokenUsage 投影（基线+live 任一落地即重算统计行），0.1.1 无 tokenUsage 时行照常显示 sessionStats 可得字段。自测：typecheck/523 tests/build + check-i18n 全绿。报告 test/sandbox/verify.session-stats-row.report.html：F-01 harness 官方全字段行+context 环 pass、F-02 沙盒真 dsh 0.1.2-rc.1（容器内升级）统计行折叠 pass、F-03 本机 0.1.2-rc.1 真实投影字段覆盖（sessionStats 8 字段+tokenUsage 4 桶，真实值出 EN/ZH 全行含缓存命中 99%）pass、F-04 无投影整行隐藏 pass、R-01 0.1.1-rc.2 沙盒回归 pass（实测 0.1.1 也有 sessionStats——条目原「无投影不显示」假设不成立，实际降级=显示可得字段）、R-02/R-03 conversation/turn-usage-detail webview 回归 pass。→ done
+- 2026-09-05 主线合入后人工确认（目标验收通过）→ closed
