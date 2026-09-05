@@ -493,5 +493,9 @@
   "Process {0} on port {1} does not look like dsh; stopping it was refused": "Process {0} on port {1} does not look like dsh; stopping it was refused",
   "Reusing a dsh started in another window; stopping or restarting it asks for confirmation and may affect that window": "Reusing a dsh started in another window; stopping or restarting it asks for confirmation and may affect that window",
   "Stop the dsh on port {0}? It was started outside this extension (in your terminal or another window).": "Stop the dsh on port {0}? It was started outside this extension (in your terminal or another window).",
-  "Loading models…": "Loading models…"
+  "Loading models…": "Loading models…",
+  "Connection lost, reconnecting… (attempt {0})": "Connection lost, reconnecting… (attempt {0})",
+  "Connection lost, reconnection failed": "Connection lost, reconnection failed",
+  "Connection restored": "Connection restored",
+  "Reconnect now": "Reconnect now"
 }

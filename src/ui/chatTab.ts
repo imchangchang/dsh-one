@@ -168,6 +168,8 @@ export class ChatTabHost implements vscode.Disposable {
   private readonly pendingIntentBySession = new Map<string, SendIntent>()
   /** controller 状态订阅；tab 关闭后保留（pending 兜底需要继续听）。 */
   private controllerSub: vscode.Disposable | null = null
+  /** controller 断连状态订阅（chatReconnect → 横幅）；随 controller 释放。 */
+  private reconnectSub: vscode.Disposable | null = null
   /** panel 消息订阅（panel 侧，随 panel 关闭清理）。 */
   private msgSub: vscode.Disposable | null = null
   /** panel 活动状态订阅（随 panel 关闭清理）。 */
@@ -289,6 +291,10 @@ export class ChatTabHost implements vscode.Disposable {
     )
     this.sessionId = sessionId
     this.controller = controller
+    // 断连重连状态 → webview 顶部横幅（独立于 state 快照的瞬态事件流）。
+    this.reconnectSub = controller.onReconnect((status) => {
+      this.postMessage({ type: 'chatReconnect', ...status })
+    })
     // 附着即取一次服务端 running 位（基线未覆盖时为 undefined，controller
     // 内部回退 mux 折叠值）；之后随 store 变更中继。
     controller.setServerRunning(this.actions.store.runningFor(sessionId))
@@ -320,6 +326,8 @@ export class ChatTabHost implements vscode.Disposable {
   detachController(): void {
     this.controllerSub?.dispose()
     this.controllerSub = null
+    this.reconnectSub?.dispose()
+    this.reconnectSub = null
     this.controller?.dispose()
     this.controller = null
   }
@@ -431,6 +439,10 @@ export class ChatTabHost implements vscode.Disposable {
     if (m.type === 'ready') {
       this.push(this.controller?.getState() ?? this.emptyState())
       this.actions.pushSessions()
+      // webview 重载后断连横幅状态也丢（横幅是瞬态消息流，不进 state）：
+      // 重连周期还在进行时补发一次当前相位，横幅不会因 reload 漏掉。
+      const reconnect = this.controller?.reconnectStatus()
+      if (reconnect) this.postMessage({ type: 'chatReconnect', ...reconnect })
       return
     }
     // composer 脏位上报：webview 侧在输入/附件/会话切换后同步真实状态；

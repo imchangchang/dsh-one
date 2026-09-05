@@ -935,6 +935,13 @@ export type ToWebviewMessage =
    * 无需 reload；不改只读 origin，只影响 webview 视觉）。
    */
   | { type: 'chatFontSize'; value: number }
+  /**
+   * 断连重连状态（ChatSessionController.onReconnect 经 ChatTabHost 中继）：
+   * webview 顶部横幅据此显示「连接中断，正在重连…/重连失败/连接已恢复」。
+   * attempts 是「自上次流健康以来的重连尝试次数」。recovered 之后横幅短暂
+   * 显示即自动隐藏；connecting/failed 常驻直到状态变化。
+   */
+  | { type: 'chatReconnect'; phase: 'connecting' | 'recovered' | 'failed'; attempts: number }
 
 export type FromWebviewMessage =
   /** Webview 脚本加载完成（含 tab 切走后 VSCode 重载的场合）；宿主据此重推当前状态。 */
@@ -990,6 +997,12 @@ export type FromWebviewMessage =
   | { type: 'openPath'; path: string }
   /** 加载更早的一页历史（窗口分页；ChatState.hasEarlierHistory 为 true 时才有意义）。 */
   | { type: 'loadEarlier' }
+  /**
+   * 断连横幅「立即重连」：取消当前退避定时器并立刻重新 attach（
+   * ChatSessionController.forceReconnect）。无断连周期时（横幅不显示）不会
+   * 到达，controller 侧幂等防御。
+   */
+  | { type: 'forceReconnect' }
   /**
    * 回合轨道栏点击（seq = 目标回合 turn/start 的 seq）：宿主循环翻页直到
    * 窗口覆盖目标 seq，再经 turnJumped 回传定位消息 id。
