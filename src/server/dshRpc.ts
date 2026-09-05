@@ -503,6 +503,29 @@ export interface SessionModels {
   failures: Array<{ id: string; name: string; message: string }>
 }
 
+/**
+ * Narrow a `modelSelection` projection value to the session's active selection.
+ * 0.1.2 folds it as { lastUsed, next } where either side may be null (a blank
+ * session has both null); the web client resolves `next ?? catalog.default`
+ * (dsh-client-ui-model-selection syncInputs), lastUsed only backs it up when
+ * the host has not projected `next` yet.
+ */
+export function activeModelSelection(value: unknown): SessionModelSelection | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const wrapped = value as { next?: unknown; lastUsed?: unknown }
+  for (const candidate of [wrapped.next, wrapped.lastUsed]) {
+    if (
+      typeof candidate === 'object' &&
+      candidate !== null &&
+      typeof (candidate as SessionModelSelection).provider === 'string' &&
+      typeof (candidate as SessionModelSelection).model === 'string'
+    ) {
+      return candidate as SessionModelSelection
+    }
+  }
+  return undefined
+}
+
 /** Advisory model directory for one session (session.models). */
 export async function sessionModels(baseUrl: string, sessionId: string): Promise<SessionModels> {
   if (isModern(baseUrl)) {
@@ -516,11 +539,12 @@ export async function sessionModels(baseUrl: string, sessionId: string): Promise
       }>(baseUrl, 'session.models', {}),
       listSessions(baseUrl).catch(() => []),
     ])
-    const current = sessions
-      .find((s) => s.sessionId === sessionId)
-      ?.projections?.values.modelSelection as SessionModelSelection | undefined
+    const current =
+      activeModelSelection(
+        sessions.find((s) => s.sessionId === sessionId)?.projections?.values.modelSelection,
+      ) ?? catalog.default ?? { provider: '', model: '' }
     return {
-      current: current ?? catalog.default ?? { provider: '', model: '' },
+      current,
       routable: (catalog.groups?.length ?? 0) > 0,
       groups: catalog.groups ?? [],
       failures: catalog.failures ?? [],

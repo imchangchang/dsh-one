@@ -1,0 +1,66 @@
+{
+  "title": "DSH One 沙盒验收报告（model-selector-012：0.1.2 模型位占位 + 权限 label 本地化）",
+  "branch": "agent/model-selector-012",
+  "commit": "e2ee7ce",
+  "environment": {
+    "mode": "harness（webview 独立渲染）+ 真机探针（本机 dsh 0.1.2-rc.1，非沙盒/mock）",
+    "dsh": "0.1.2-rc.1（真机 127.0.0.1:3080，探针）+ 0.1.1-rc.2（legacy 回归经单测）",
+    "locale": "zh-cn（权限映射验证）+ en（identity t 回归）",
+    "theme": "dark",
+    "image": "不适用——沙盒 mock dsh 是 0.1.1 协议，isModern 分支（本任务修复对象）不触发；0.1.2 专项改用本机真服务器探针 + webview harness",
+    "driver": "node test/... 单测（permissionLabel.test.ts / dshRpcModern.test.ts）+ /tmp/probe-models-012.mjs（本机真 0.1.2-rc.1 数据 + 修复后模块）+ scripts/ui-visual.sh（harness 场景截图，worktree 构建产物）",
+    "date": "2026-09-05T00:00:00Z"
+  },
+  "coverageNote": "面板宿主 UI（VS Code 窗口 chrome、扩展激活/复用本机 dsh 实例）harness 不渲染——真实扩展行为以 dev-ui-test 人工开窗验收（命令已交付用户，见会话）。沙盒 mock dsh 为 0.1.1 协议，本任务修复的 isModern（0.1.2）分支无法在沙盒触发，故 0.1.2 数据链路用本机真 0.1.2-rc.1 服务器的探针（真实 session/list + session/modelCatalog 响应喂修复后模块，非 mock），webview 渲染层用 harness 确定性截图。真桌面 VS Code、真模型输出、平台专项（Windows/macOS）不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "0.1.2 模型位显示真实模型名（不再「选择模型」占位）",
+      "expect": "已选模型的会话：模型 pill 显示「DeepSeek-V4-Flash-Vision-Exp Max」（catalog 名 + effort 名），不是「选择模型」占位。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/model-pill-012.png"
+      ],
+      "notes": "两层验证。(1) 真机探针（本机 dsh 0.1.2-rc.1 3080，真实 session/list + session/modelCatalog 响应喂修复后模块）：current={provider:deepseek-official,model:deepseek-v4-flash-vision-exp,reasoningEffort:max}，label='DeepSeek-V4-Flash-Vision-Exp Max'，group 命中、routable=true。修复前同数据 current.provider/model 均为 undefined（旧解析把 {lastUsed,next} 整体当 SessionModelSelection），label 丢失 → webview 占位，回归已在单测断言注明。(2) harness 截图模型 pill 显示 DeepSeek-V4-Flash-Vision-Exp Max + 权限 pill 工作区内修改。",
+      "driver": null
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "权限 label 中文（对齐官方命名）与权限菜单中文选项",
+      "expect": "中文环境权限 pill/菜单显示「仅可查看 / 工作区内修改 / 完全权限」（官方 dsh web 同款命名），当前项带对勾；英文环境保持 Read Only / Workspace Write / Full access。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/permission-menu-zh.png"
+      ],
+      "notes": "服务端 permissions 投影 options.name 实测为英文机器名（workspace-write），无 locale 协商；官方 web 中文是客户端映射（dsh-client-ui-permission-presets displayPermissionPreset）。真机探针复刻 applyPermissionsValue：raw options=[read-only/workspace-write/danger-full-access]→ zh labels=[仅可查看/工作区内修改/完全权限]，en labels=[Read Only/Workspace Write/Full access]（与官方 en 一致）。单测覆盖判定（机器名/英文 product label 命中映射、未知 preset Title Case 兜底、服务端未来直接发本地化 name 原样透传）。harness 截图：pill 工作区内修改 + 菜单三项中文、当前项对勾。",
+      "driver": null
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "0.1.1 legacy 模型位/权限显示不受影响",
+      "expect": "0.1.1（无 auth）模型 pill 正常显示模型名；权限 label 英文界面仍为 Title Case / Full access（行为不变）；dshRpc wire 测试全绿。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png",
+        "/tmp/dsh-ui-shots/model-picker.png"
+      ],
+      "notes": "sessionModels legacy 分支代码未动（diff 仅 isModern 分支）；dshRpcModern.test.ts legacy wire 用例通过（body 无 args 包装、无 cookie）；permissionOptionLabel 在 identity t() 下输出与旧行为一致（Workspace Write / Read Only / Full access，单测）。harness conversation/model-picker 基线场景模型 pill 正常（DeepSeek-V4-Flash High）。",
+      "driver": null
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "webview 基线场景冒烟（34 场景）",
+      "expect": "既有 UI 状态（conversation/empty/model-picker/approval/question/…）渲染不因本次改动漂移（本次未改 webview.ts，风险集中在 l10n key 与场景文件）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/empty.png"
+      ],
+      "notes": "scripts/ui-visual.sh --mode baseline 34 场景全部截图；重点抽查与 footer/pill 相关的 conversation、model-picker、empty 均正常（模型 pill DeepSeek-V4-Flash High、hero 布局无损）。其余场景本次 diff 不涉及（webview.ts 未改，l10n 只新增 key 不改存量）。",
+      "driver": null
+    }
+  ]
+}

@@ -458,5 +458,8 @@
   "seconds": "seconds",
   "Due now": "Due now",
   "in {0} {1}": "in {0} {1}",
-  "{0} {1} overdue": "{0} {1} overdue"
+  "{0} {1} overdue": "{0} {1} overdue",
+  "Read Only": "Read Only",
+  "Workspace Write": "Workspace Write",
+  "Full access": "Full access"
 }
