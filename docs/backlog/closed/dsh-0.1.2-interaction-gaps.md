@@ -40,3 +40,5 @@
 - **过程折叠**：官方为整轮聚合折叠 TurnProcessNodeView（turnProcesses 内存态，compact 模式），dsh-one 是逐块独立折叠。可选优化。
 
 - 2026-09-05 与 chat-render-scaling 合并规划（用户拍板）：两条目合并为一个「chat 面板改造」序列，按 chat-render-scaling 条目「合并阶段表」执行——阶段 3/4（P1 token 用量明细、回合导航；P2 字号、定时计划 chip、P3 聚合折叠）承接本条目各级别项；不做项（宽度拖拽/子代理模型配置/模型目录搜索）维持不做。
+
+- 2026-09-05 全部项处理完毕（用户授权监控收尾）：P1 两项（token 用量明细 chat-turn-usage-detail / 回合导航 chat-turn-navigator）与 P2 两项（字号、定时计划 chip，chat-render-options-p2p3）均已拆出开发并合入 closed；P3 聚合折叠评估后不做（与阶段 2 行级保活冲突，见 chat-render-options-p2p3 条目）；不做项（宽度拖拽/子代理模型配置/模型目录搜索）维持不做。本条调研记录归档 → closed。
