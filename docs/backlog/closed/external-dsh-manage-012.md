@@ -39,3 +39,5 @@ adopted-dsh-takeover 曾于 2026-09-02 拍板「先不做」（调研齐备：ds
 - 2026-09-06 用户拍板重开（全做：A+B+三平台；macOS 优先验证，Windows 有机器可测）；并入防护方案（401 指纹报错不另起，用户已拍板）→ 建条目（open/）
 - 2026-09-06 主线开发 session 认领（open → doing）：按 adopted-dsh-takeover 调研结论直接动工，不改调研结论（无 shutdown RPC / POSIX SIGTERM 优雅路径 / 单 pid 杀 / 三平台 pid 探测）；dev-start external-dsh-manage 建 worktree 开发，完成后交主线 dev-merge
 - 2026-09-06 开发完成（doing → done，分支 agent/external-dsh-manage）：A 档单 pid 停止/重启（确认弹窗 + ps 身份确认 + SIGTERM 优雅路径，Windows taskkill /T /F）与 B 档 token 粘贴连接（换票校验 + source:external/owned:false 共享记录，旧记录兼容）；防护默认动作改为认证 dsh 无 token 报错不另起。自动验证 = 单测 16 项新增（全量 552 通过）+ 真机探针 11/11（临时端口 3099 真 dsh 0.1.2-rc.1 全链路，3080 只读复验）；报告 test/sandbox/verify.external-dsh-manage-012.report.html。UI 与 Windows 验收步骤交付用户（macOS 先验，Windows 用户机器实测补报告）
+
+- 2026-09-06 合入（done -> closed）：dev-merge 合入 main（526e4e3），报告 13 项全过、人工审查通过；i18n 门禁修复（check-i18n.sh 正则剥离关键字识别）一并合入。Windows 实测步骤待用户机器补报告。
