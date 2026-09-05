@@ -1502,7 +1502,10 @@
   }
   #input:focus { outline: 1px solid var(--vscode-focusBorder); }
   /* 输入框文本高亮层：与 #input 同字体流叠加，@ 引用 token 有底色；
-     鼠标悬停 token 时 .active 加深并联动附件 chip 高亮。 */
+     鼠标悬停 token 时 .active 加深并联动附件 chip 高亮。盒子用
+     inset+overflow:hidden 锚死在 textarea 上；textarea 内部滚动时只平移
+     内部 .ref-token-scroll（内容），盒子本身不动——否则长文本 scrollTop
+     会把整个层顶出输入框（回归 composer-long-text-overflow）。 */
   .composer-frame { position: relative; flex: 1; min-width: 0; display: flex; }
   .composer-frame #input { flex: 1; width: 100%; min-width: 0; }
   .ref-token-layer {
@@ -1513,6 +1516,9 @@
     color: var(--vscode-input-foreground);
     border-radius: 6px;
   }
+  /* 滚动同步的内容层：文本/token 挂这里，translateY(-scrollTop) 只作用于此层，
+     由 .ref-token-layer 的 overflow:hidden 裁出与 textarea 一致的可见窗口。
+     块级 div 默认撑满内容盒，无需额外布局规则。 */
   .ref-token { background: rgba(101, 158, 254, .22); border-radius: 3px; }
   .ref-token.active { background: rgba(101, 158, 254, .5); }
   /* 气泡行内 @ 引用 chip 的 hover 态：与附件 chip 的 hovered 描述联动。 */

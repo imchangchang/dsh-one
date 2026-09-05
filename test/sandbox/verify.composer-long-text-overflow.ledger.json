@@ -1,0 +1,128 @@
+{
+  "title": "DSH One 沙盒验收报告：composer 长文本溢出修复",
+  "branch": "agent/composer-long-text-overflow",
+  "commit": "4fe286d",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-composer-lto:latest",
+    "date": "2026-09-05T20:30:00Z"
+  },
+  "coverageNote": "本次修复只改 webview 渲染（.ref-token-layer 滚动同步结构），宿主逻辑（激活/命令注册/dsh 对话链路）不在改动面。验证组合：沙盒真 webview（vsix=修复版）三态截图 + ai-visual-validation harness 全场景（142 个）回归，重点核对 composer 相关场景。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "composer 长文本滚动窗口不越界（真 webview）",
+      "expect": "空白对话 hero 输入超长文本、textarea 内部滚动到底（scrollTop>0）后：所有可见文本均在大圆角输入卡内；卡片上方/两侧无任何文字；输入框顶部一行被裁成半行（与 textarea 滚动窗口一致的正常语义）；footer 行（+ / / workspace / 模型）不被文本遮挡。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-composer-lto/lto-f01-long-scrolled.png"
+      ],
+      "notes": "检查点逐条：① 文本全部落在输入卡内（第一行顶部半行裁切=滚动窗口语义）✓；② 卡片上方无文本块（对比修复前：文字整体顶到卡片上方、hero chips 行被覆盖）✓；③ 卡片外两侧无文字 ✓；④ footer「Workspace Write | mock-flash Max」完整可见、未被遮挡 ✓；⑤ 发送按钮/清除 × 位置正常 ✓。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "harness 场景 composer-long-scrolled（可回归的确定性复现）",
+      "expect": "场景注入超长草稿并置 scrollTop=scrollHeight 后：文本窗口与 textarea 一致、全部在输入框矩形内；卡片外无文字。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/composer-long-scrolled.png"
+      ],
+      "notes": "检查点逐条：① 文本在卡内、顶部半行裁切 ✓；② 卡片上方/两侧无文字 ✓；③ footer 行不被遮挡 ✓。场景已加入 BASELINE_SCENARIOS（后续每次合入后主线冒烟自动覆盖该回归）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "空会话 hero + 空 composer 正常（真 webview）",
+      "expect": "清空输入后空白对话页：占位符「Describe what you want to build」正常显示，无残留文本（无「鬼影」草稿）、清除 × 隐藏、发送按钮置灰、hero chips（Ungrouped/Standard mode）与 footer 正常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-composer-lto/lto-r01-empty-hero.png"
+      ],
+      "notes": "检查点逐条：① 占位符正常 ✓；② 无残留文本/鬼影 ✓；③ 清除 × 隐藏 ✓；④ hero chips 行正常 ✓；⑤ footer 正常 ✓。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "短文本经高亮层渲染正常（真 webview）",
+      "expect": "输入短文本后：文字由透明文字 + 高亮层绘制正常显示（文本可见）、光标位置正确、清除 × 出现、发送按钮可用。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-composer-lto/lto-r02-short-text.png"
+      ],
+      "notes": "检查点逐条：① 文本正常显示（层渲染未因新增内容 wrapper 移位）✓；② 光标在文本末尾可见 ✓；③ 清除 × 出现 ✓；④ 发送按钮高亮可用 ✓。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "harness conversation：消息流 + composer 正常",
+      "expect": "正常对话页：消息气泡（用户/助手）正常，composer 占位符与发送按钮正常，无文本溢出/错位。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png"
+      ],
+      "notes": "检查点逐条：① 消息气泡正常 ✓；② composer 占位符/发送按钮正常 ✓；③ 无溢出或错位 ✓。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "harness mention-chips / session-mention：mention token 渲染正常",
+      "expect": "消息内 @ 引用 chip 与 composer mention 相关渲染不因层结构变化受影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/mention-chips.png",
+        "/tmp/dsh-ui-shots/session-mention.png"
+      ],
+      "notes": "检查点逐条：① mention chip 显示与缩进正常 ✓；② composer 无残留文本 ✓；③ 层内 .ref-token span 查询（hover 联动）路径未受影响（span 仍在 .ref-token-layer 内，被 .ref-token-scroll 包裹不影响 querySelector）✓。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "harness pending-typing-draft：pending 接管后草稿还原",
+      "expect": "应答 pending 后 composer 恢复，之前输入的草稿文本还在（由高亮层绘制，非占位符）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/pending-typing-draft.png"
+      ],
+      "notes": "检查点逐条：① 草稿「输入到一半的草稿——pending 应答后必须还在」原样显示 ✓；② pending 面板已消失 ✓；③ 无报错残留 ✓。"
+    },
+    {
+      "id": "R-06",
+      "phase": "regression",
+      "name": "harness composer-clear-all-click：清空无鬼影",
+      "expect": "点击一键清空后：composer 恢复占位符，高亮层无残留文字。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/composer-clear-all-click.png"
+      ],
+      "notes": "检查点逐条：① 占位符恢复 ✓；② 无鬼影草稿 ✓；③ 发送按钮置灰 ✓。"
+    },
+    {
+      "id": "R-07",
+      "phase": "regression",
+      "name": "harness file-ref-token / ref-token-word-boundary：@ 附件补全 token",
+      "expect": "@ 补全选中后 composer 显示 @img1.png（与主线基线一致），与附件 chip 联动正常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/file-ref-token.png",
+        "/tmp/dsh-ui-shots/ref-token-word-boundary.png"
+      ],
+      "notes": "检查点逐条：① composer 文本/弹窗状态与主线原版渲染一致（手工对照主线同场景截图：文本、弹窗、chip 均无差异）✓；② 无 token 丢失/错位 ✓。注：自动化跑批中该场景截图时机略早（弹窗未收起），手工重跑确认到达终态且与基线一致。"
+    },
+    {
+      "id": "R-08",
+      "phase": "regression",
+      "name": "harness hero-preset-pending：hero 懒切换保留",
+      "expect": "hero 页 preset 选择后 chip 就地更新，composer/hero 布局不重建不异常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/hero-preset-pending.png"
+      ],
+      "notes": "检查点逐条：① preset chip 显示新选中项 ✓；② hero/鱼 logo/composer 正常 ✓；③ 无溢出 ✓。"
+    }
+  ]
+}
