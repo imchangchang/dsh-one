@@ -28,3 +28,4 @@
 - 2026-09-06 用户提出（抽屉收起态也想要清空全部/恢复全部快捷操作）→ 核实现状（入口行无快捷操作，只在抽屉头有）→ 建条目（open/）
 - 2026-09-06 认领（worktree: agent/recycle-drawer-polish）→ doing。用户拍板做法：**方案 1——入口行右侧常驻两个图标按钮**（清空 + 恢复全部，计数 0 置灰，点击不触发打开抽屉）。与 recycle-drawer-handle-affordance 同 worktree 开发。
 - 2026-09-06 开发完成（worktree recycle-drawer-polish，branch agent/recycle-drawer-polish，done tag da68b6e）：按方案 1 落地——入口行外层 button 改 div（button 不能嵌套），主区 .recycle-entry-main 点击开抽屉，右侧常驻清空（复用 openRecycleArchiveModal 确认链路）/恢复全部（sessionsRestoreAll）两个 .sessions-tool 图标按钮，计数 0 置灰；新增 harness 场景 sessions-recycle-entry-actions / sessions-recycle-handle 并进 BASELINE_SCENARIOS。自测全绿（typecheck/test 588/build）；沙盒验收 ledger 全 pass（verify.recycle-drawer-polish.report.html，F-01/F-02 + R-01..R-03）。
+- 2026-09-06 用户追加反馈：清空全部图标（入口行快捷按钮 + 抽屉头）都改成红色 → 已在同 worktree 完成（commit 834d610）：两处清空按钮加 .sessions-tool.danger（color: --vscode-errorForeground），disabled（计数 0）回落灰色；ledger 增 F-05 专项并重渲报告（8 项全 pass），done tag 待随本次提交前移。

@@ -31,3 +31,4 @@
 - 2026-09-06 用户实测反馈（抽屉顶部横条不知道有什么用）→ 核实代码：横条是纯拖动提手、点击无反应，交互不可发现 → 建条目（open/）
 - 2026-09-06 认领（worktree: agent/recycle-drawer-polish）→ doing。用户拍板做法：**点横条 = 收起抽屉**（拖动扩/收逻辑保留），并加悬停提示。与 recycle-entry-quick-actions 同 worktree 开发。
 - 2026-09-06 开发完成（worktree recycle-drawer-polish，branch agent/recycle-drawer-polish，done tag da68b6e）：按用户拍板落地——提手点击（<4px 抖动）= 收起抽屉，悬停提示「拖动调整高度，点击收起」（新 l10n 键 en/zh）；拖动扩大/下拉收起保留；setPointerCapture 加 try/catch 兜底（合成事件环境）。自测全绿（typecheck/test 588/build）；沙盒验收 ledger 全 pass（verify.recycle-drawer-polish.report.html，F-03/F-04 + R-01..R-03；F-04 drag-expand 帧背景透明为 harness 无主题变量既有 artifact，已在 notes 注明）。无 host 层改动。
+- 2026-09-06 同 worktree 追加（用户反馈，与本条同批合入）：清空全部图标（抽屉头 + 入口行）改错误红（commit 834d610，.sessions-tool.danger），详见 recycle-entry-quick-actions 变更记录；本条的提手点击收起不受影响（R-01/F-04 回归照旧 pass）。
