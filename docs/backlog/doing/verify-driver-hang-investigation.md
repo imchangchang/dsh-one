@@ -99,3 +99,4 @@
 
 - 2026-09-06 用户反馈「反复出现的问题都是咋回事（挂死）」→ 汇总 slash-goal/commit-card 两实例 + 会话层 delta 0 → 建条目（open/，调研任务）
 - 2026-09-05 调研 session 完成：读码盘点等待点 → 最小实验复现挂死机制（Playwright 已知缺陷：挂起导航 iframe 上 evaluate/count 永不返回）→ 沙盒实例 hang-inv 复跑 10 轮未撞窗口（标注推断）→ 根因/修复/防复发写入本条目；未改代码，建议开发 session 认领修复（涉及 verify-driver.mjs 帧过滤 + 竞速看门狗 + 全局兜底，非一行修）。
+- 2026-09-06 开发 session 认领修复（doing）：按「修复方案」1-4 仅改 test/sandbox/verify-driver.mjs（帧过滤 + 竞速看门狗 bounded + 每项 5min 全局兜底 + 冒烟预热/单轮重试），worktree = verify-driver-hang-fix
