@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import { spawnSync } from 'node:child_process'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { parse } from '../pure/semver.ts'
+import { extractDshVersion } from '../pure/dshCommandLine.ts'
 import type { Logger } from '../log.ts'
 
 export interface LocatedDsh {
@@ -13,14 +13,8 @@ export interface LocatedDsh {
 /** Thrown when no dsh executable could be located; the UI offers an install link. */
 export class DshNotFoundError extends Error {}
 
-/** Extract the first semver-shaped token from `dsh --version` output. */
-function extractVersion(text: string): string {
-  for (const token of text.split(/\s+/)) {
-    const cleaned = token.replace(/^v/, '')
-    if (parse(cleaned)) return cleaned
-  }
-  return 'unknown'
-}
+/** Extract the first semver-shaped token from `dsh --version` output (see pure/dshCommandLine). */
+const extractVersion = extractDshVersion
 
 /**
  * The one-click installers (install/dsh-install.ps1 / .sh) install a portable

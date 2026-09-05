@@ -18,7 +18,7 @@ import {
   resolveOwnership,
   writeOwnedRecord,
 } from './ownedRecord.ts'
-import { findListenerPid, processCommandLine, isDshCommandLine, stopExternalPid, drainPort, pidAlive } from './externalDsh.ts'
+import { findListenerPid, processCommandLine, isDshCommandLine, stopExternalPid, drainPort, pidAlive, probeDshVersionFromCommandLine } from './externalDsh.ts'
 import type { OwnedRecord } from './ownedRecord.ts'
 import type { Logger } from '../log.ts'
 
@@ -247,7 +247,13 @@ export class ServerManager implements vscode.Disposable {
           const ownedUrl = `http://127.0.0.1:${ownedPort}`
           if ((await probeToken(ownedUrl, owned.token, this.logger)) !== null) {
             this.logger.info(`connecting to external dsh at ${ownedUrl} (past launch token, pid=${owned.pid})`)
-            this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, external: true })
+            this.setStatus({
+              state: 'running',
+              url: ownedUrl,
+              port: ownedPort,
+              external: true,
+              version: probeDshVersionFromCommandLine(processCommandLine(owned.pid), this.logger),
+            })
             this.startHealthCheck(ownedPort)
             return this.status
           }
@@ -279,7 +285,16 @@ export class ServerManager implements vscode.Disposable {
                   return this.status
                 }
                 this.logger.info(`adopting another window's authenticated dsh at ${ownedUrl} (pid=${owned.pid}, will never kill it)`)
-                this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: true })
+                this.setStatus({
+                  state: 'running',
+                  url: ownedUrl,
+                  port: ownedPort,
+                  adopted: true,
+                  // 另一窗口 spawn 的实例：版本优先用 shared 记录（spawn 时已存）；
+                  // 旧记录无 version（或外部记录）→ 从实例命令行解析真实入口查询，
+                  // 不用扩展 PATH 的 dsh 近似（多安装会误导）。
+                  version: owned.version ?? probeDshVersionFromCommandLine(processCommandLine(owned.pid), this.logger),
+                })
                 this.startHealthCheck(ownedPort)
                 return this.status
               }
@@ -292,7 +307,13 @@ export class ServerManager implements vscode.Disposable {
                 return this.status
               }
               this.logger.info(`adopting another window's dsh at ${ownedUrl} (pid=${owned.pid}, will never kill it)`)
-              this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: true })
+              this.setStatus({
+                state: 'running',
+                url: ownedUrl,
+                port: ownedPort,
+                adopted: true,
+                version: owned.version ?? probeDshVersionFromCommandLine(processCommandLine(owned.pid), this.logger),
+              })
               this.startHealthCheck(ownedPort)
               return this.status
             }
@@ -315,13 +336,24 @@ export class ServerManager implements vscode.Disposable {
       if (probe === 'dsh') {
         const adoptedUrl = `http://127.0.0.1:${port}`
         this.logger.info(`adopting existing dsh at ${adoptedUrl} (will never kill it)`)
+        // 无 shared 记录（纯探测 adopt，如 0.1.1 无认证实例）：从监听 pid 命令行
+        // 解析真实入口查询版本；探测失败就不显示（不拿扩展 PATH 的 dsh 近似）。
+        const listenerPid = await findListenerPid(port, this.logger)
+        this.setStatus({
+          state: 'running',
+          url: adoptedUrl,
+          port,
+          adopted: true,
+          version: listenerPid === null
+            ? undefined
+            : probeDshVersionFromCommandLine(processCommandLine(listenerPid), this.logger),
+        })
         // 不再 preseed：影响方向是 dsh → VS Code 单向，当前文件夹不在 dsh
         // 工作区列表里就什么都不做（不注册、不建会话），被用户删掉的工作区
         // 不再在 reload 后复活。已知配套变化：当前文件夹无 dsh 会话时
         // sessionsStore.latestCurrentSessionId() 返回 null，聊天面板停在
         // 空态（extension.ts 的 auto-attach 对 null 天然跳过），用户手动
         // 选会话即可。
-        this.setStatus({ state: 'running', url: adoptedUrl, port, adopted: true })
         this.startHealthCheck(port)
         return this.status
       }
