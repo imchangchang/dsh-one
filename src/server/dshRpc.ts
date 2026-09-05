@@ -3,6 +3,8 @@ import type { HistoryEntryLike } from '../pure/conversation.ts'
 import { historyWindowRequest } from '../pure/historyWindow.ts'
 import type { OutgoingImage } from '../pure/chatContract.ts'
 import type { AgentPresetLike } from '../pure/agentPreset.ts'
+import { asSlashCommandSpec } from '../pure/slashCommand.ts'
+import type { SlashCommandSpecLike } from '../pure/slashCommand.ts'
 import type { FileRefCandidate } from '../pure/fileReference.ts'
 import { cookieHeader, isModern } from './serverAuth.ts'
 
@@ -434,6 +436,20 @@ export async function executeCommand(
   )
   if (value === undefined) return { matched: false }
   return { matched: true, kind: value.result.kind, text: value.result.text }
+}
+
+/**
+ * The session's slash-command roster entry (dsh-commands `commands/list`,
+ * same envelope as commands/execute). Per-session: the host composes the
+ * roster from the session's agent preset, so a preset without command-goal
+ * returns no `goal` entry. Entries carry the composer's display fields only.
+ */
+export type SlashCommandSpec = SlashCommandSpecLike
+
+/** Fetch the session's slash-command roster; throws when the host lacks the endpoint. */
+export async function listCommands(baseUrl: string, sessionId: string): Promise<SlashCommandSpec[]> {
+  const value = await callRpc<unknown[] | undefined>(baseUrl, 'commands/list', { args: { agentId: sessionId } })
+  return (value ?? []).map(asSlashCommandSpec).filter((c): c is SlashCommandSpec => c !== undefined)
 }
 
 /** Loose mirror of dsh-goal's GoalRef: the CAS token every goals/* mutation echoes. */

@@ -32,12 +32,14 @@ export function slashCommandName(text: string): string | undefined {
 }
 
 /**
- * The panel's built-in slash commands mirrored from the host's commands/list
- * under a stock preset (keep in sync with webview.ts SLASH_COMMANDS minus the
- * client-side `/model`). When the host rejects one of these while the panel
- * advertises it, the cause is the host composition (dsh version / session
- * agent preset), not a typo — the host uses it to pick a targeted notice
- * (see chatMessages.runCommand).
+ * Host built-in slash commands the panel may advertise. The composer's list
+ * is normally the host's own per-session roster (state.slashCommands, from
+ * commands/list), so an advertised command is by definition host-provided;
+ * this set matters when the roster fell back to the static table (endpoint
+ * missing/fetch failed) or went stale across a preset switch — a host reject
+ * then means the host composition (dsh version / session agent preset) lacks
+ * the command, not a typo, and the host answers with a targeted notice (see
+ * chatMessages.runCommand).
  */
 export const HOST_SLASH_COMMAND_NAMES = [
   'compact',
@@ -51,4 +53,27 @@ export const HOST_SLASH_COMMAND_NAMES = [
 /** Whether `name` is one of the host-built-in commands the panel advertises. */
 export function isHostSlashCommand(name: string): boolean {
   return (HOST_SLASH_COMMAND_NAMES as readonly string[]).includes(name)
+}
+
+/** One commands/list entry, narrowed to the fields the panel displays. */
+export interface SlashCommandSpecLike {
+  name: string
+  description: string
+  hint?: string
+}
+
+/**
+ * Narrow one commands/list roster entry (dsh-commands wire: `name`,
+ * `description`, optional `input.hint`) to the panel's spec shape; malformed
+ * entries drop out (undefined) instead of poisoning the whole roster.
+ */
+export function asSlashCommandSpec(value: unknown): SlashCommandSpecLike | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const c = value as { name?: unknown; description?: unknown; input?: { hint?: unknown } }
+  if (typeof c.name !== 'string' || typeof c.description !== 'string') return undefined
+  return {
+    name: c.name,
+    description: c.description,
+    ...(typeof c.input?.hint === 'string' ? { hint: c.input.hint } : {}),
+  }
 }

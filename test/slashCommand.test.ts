@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  asSlashCommandSpec,
   HOST_SLASH_COMMAND_NAMES,
   isHostSlashCommand,
   looksLikeSlashCommand,
@@ -68,4 +69,29 @@ test('host built-in set covers the panel-mirrored six, not the client-only /mode
   assert.equal(isHostSlashCommand('model'), false)
   assert.equal(isHostSlashCommand('schedule'), false)
   assert.equal(isHostSlashCommand(''), false)
+})
+
+test('asSlashCommandSpec narrows the commands/list wire shape', () => {
+  assert.deepEqual(asSlashCommandSpec({ name: 'goal', description: 'set or view the goal', input: { hint: '<objective>', images: true } }), {
+    name: 'goal',
+    description: 'set or view the goal',
+    hint: '<objective>',
+  })
+  assert.deepEqual(asSlashCommandSpec({ name: 'compact', description: 'compact history' }), {
+    name: 'compact',
+    description: 'compact history',
+  })
+})
+
+test('asSlashCommandSpec drops malformed entries instead of poisoning the roster', () => {
+  assert.equal(asSlashCommandSpec({ name: 'goal' }), undefined)
+  assert.equal(asSlashCommandSpec({ description: 'no name' }), undefined)
+  assert.equal(asSlashCommandSpec(null), undefined)
+  assert.equal(asSlashCommandSpec('goal'), undefined)
+  assert.equal(asSlashCommandSpec({ name: 1, description: 'x' }), undefined)
+  // input.hint 非字符串不致死：按无 hint 处理。
+  assert.deepEqual(asSlashCommandSpec({ name: 'goal', description: 'x', input: { hint: 3 } }), {
+    name: 'goal',
+    description: 'x',
+  })
 })
