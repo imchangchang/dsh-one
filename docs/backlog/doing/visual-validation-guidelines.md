@@ -24,3 +24,4 @@
 ## 变更记录
 
 - 2026-09-05 问题记录（open）：上述三项缺口与修复方向（用户确认 1/3/4 开工；分步截图另立项 visual-interaction-step-shots）。
+- 2026-09-05 认领（open -> doing）：worktree 开发（分支 agent/visual-validation-guidelines）。
