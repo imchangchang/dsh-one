@@ -26,3 +26,5 @@ statusbar-dsh-version-tooltip（closed）实现后，spawn 实例 tooltip 显示
 - 2026-09-05 用户反馈（截图：外部启动实例 tooltip 无版本行）+ 讨论拍板「从实例命令行解析真实入口执行 --version 查询」→ 建条目（open/）
 - 2026-09-05 认领（open -> doing）：主线直接开发（worktree statusbar-adopted-version）；实现如上；新增单测 13 项（parse 形态 9 + probe 执行 1 + tooltip 3），全量 567 通过
 
+
+- 2026-09-05 开发完成（doing -> done）：分支 agent/statusbar-adopted-version；实现 = 记录优先 + 命令行解析真实入口执行 --version（探询 fail 缺省不显示）；自测 typecheck/567 单测/build 全绿；ledger test/sandbox/verify.statusbar-adopted-version.ledger.json（7 项全过，覆盖说明：宿主 tooltip 不随沙盒渲染，单测 + 人工开窗）。
