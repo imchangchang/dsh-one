@@ -1,7 +1,7 @@
 {
   "title": "阶段 4（P2/P3）：字号调节 + 定时计划 chip（chat-stage4-p2p3）",
   "branch": "agent/chat-stage4-p2p3",
-  "commit": "(dev-finish 后回填)",
+  "commit": "44927c7",
   "environment": {
     "mode": "mock-llm + 容器内升级 dsh 0.1.2-rc.1（镜像 pin 0.1.1-rc.2，docker exec -u root npm i -g @deepseek-ai/dsh@0.1.2-rc.1 后重启扩展路径，同 dsh-token-auth 任务配方）",
     "dsh": "0.1.2-rc.1（容器内升级；schedule 投影为 0.1.2 专属）",
