@@ -28,3 +28,13 @@
 ## 变更记录
 
 - 2026-09-05 session-open-failure-hint 认领（open → doing）。
+
+- 2026-09-05 session-open-failure-hint 开发完成（doing → done，附实现/自测/报告结论）：
+  - 实现：ChatState.openError 透传后端打开失败原因；ChatSessionController 在历史基线失败
+    （legacy session.history / 0.1.2 follow 快照落地前）记录并在基线成功后清除；webview
+    整页渲染错误提示（标题 + 建议 + 原因行），侧栏再点一次该会话重建 controller 重试。
+  - 覆盖：打开失败的主要路径（日志读取失败/RPC 错误/会话不存在与损坏）；文案中英 l10n。
+  - 自测：typecheck + test(537 过) + build 通过；test/ui 场景 session-open-failure 与
+    -not-found 渲染核对通过（F-01/F-02），既有 UI 回归 10 项通过；报告
+    test/sandbox/verify.session-open-failure-hint.report.html（12 项全 pass）。
+  - 注明：宿主全链路（真实损坏日志）未在真 dsh 桌面环境跑通，属 dev-ui-test 人工验收范畴。
