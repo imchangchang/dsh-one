@@ -33,11 +33,18 @@ export class RemoteMux {
   private pendingFrames: RemoteMuxClientFrame[] = []
   private streams = new Map<string, StreamHandlers>()
   private disposed = false
-
   constructor(
-    private readonly origin: string,
-    private readonly logger: Logger,
-  ) {}
+    // 不用 TS parameter property（含 readonly）：Node strip-only 模式
+    // （node --test 直接跑 test/*.test.ts）不支持该语法，与本仓库可测代码
+    // 的写法保持一致。
+    origin: string,
+    logger: Logger,
+  ) {
+    this.origin = origin
+    this.logger = logger
+  }
+  readonly origin: string
+  readonly logger: Logger
 
   /** Open a logical stream; resolves nothing (frames arrive via handlers). */
   open(endpoint: string, payload: unknown, handlers: StreamHandlers): string {

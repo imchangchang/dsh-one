@@ -222,13 +222,13 @@ export function subscribeControlStream(
   state.handlers.add(onFrame)
   state.closed = false
   startControlStream(origin, logger, state)
-  // Late subscriber on an already-connected stream: replay the merged snapshot
-  // it missed (the baseline was sent once, at stream creation). Symmetric with
-  // the $events stream's pending-waterfall replay above.
-  if (state.subscription !== null) {
-    const replay = replayControlSnapshot(state.snapshot)
-    if (replay !== null) onFrame(replay)
-  }
+  // Late subscriber: replay the merged snapshot it missed (the baseline was
+  // sent once, at stream creation; increments since then are not re-sent).
+  // Covering the reconnect-gap case too: the last known state is better than
+  // nothing, and the fresh baseline after reconnect replaces it wholesale.
+  // Symmetric with the $events stream's pending-waterfall replay above.
+  const replay = replayControlSnapshot(state.snapshot)
+  if (replay !== null) onFrame(replay)
   return {
     dispose(): void {
       state.handlers.delete(onFrame)
