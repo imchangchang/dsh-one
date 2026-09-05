@@ -1,0 +1,75 @@
+{
+  "title": "行内码路径可点打开 + 复制图标（chat-inline-code-path-interact）",
+  "branch": "agent/chat-inline-code-path-interact",
+  "commit": "2032b8f",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-inline-code:latest",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code 窗口 chrome、真模型输出、Windows/macOS 平台专项不在本报告范围。本功能是 chat webview 渲染层（webview.ts 装饰 + chatViewHtml.ts 样式），宿主 openPath 解析为既有能力（本任务未改宿主）。视觉自测另有 harness 场景 inline-code-interact（分步：初始/点路径码/点命令码，/tmp/dsh-ui-shots/），与沙盒 E2E 双通道：E2E 为主（真 VS Code 内点击路径码打开文件、命令码不误开），harness 为辅（确定态渲染 + openPath 消息断言）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "行内码渲染：路径/命令/变量均为浅底 chip + 右下角复制图标",
+      "expect": "mock-llm 会话发送「行内码路径」后，助手回复中的反引号内容全部渲染为浅灰底圆角小 chip：路径（~/.dsh/settings.yaml、src/ui/chat/webview.ts、/home/coder/.dsh/settings.yaml）与非路径（npm run build、DSH_PORT）外观一致，右下角均带小复制图标；行内码文本内容与回复一致；页面其余部分（composer、统计行）无异常。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code/10-01-inline-code-chips.png"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "点击路径行内码：VS Code 编辑器打开该文件",
+      "expect": "点击行内码 ~/.dsh/settings.yaml 后，VS Code 打开对应编辑器 tab（标题栏 settings.yaml 标签出现，正文是 dsh 配置内容）；容器会话 cwd 无关紧要（~ 展开到 /home/coder）；无报错弹窗。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code/11-02-after-open-path.png"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "点击命令/变量行内码：不误开（无编辑器变化）",
+      "expect": "点击行内码 npm run build 与 DSH_PORT：不发生编辑器打开（无新 tab、无「file not found」报错弹窗）；行内码外观无点击痕迹以外的变化。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code/12-03-command-no-open.png"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "复制图标：点击复制行内码文本（含已复制反馈）",
+      "expect": "点击任意行内码右下角复制图标：图标短暂换勾（title 变 Copied）后还原，剪贴板内容=行内码文本；点击路径码的复制图标只复制不打开。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code/13-04-copy-feedback.png"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "既有 markdown/代码块渲染不受行内码装饰影响",
+      "expect": "发送「回归演示」后，回复含 markdown 表格（col A/col B、加粗 bold）与 ```ts 代码块：代码块带语言标签 ts + 复制按钮 + 独立浅底块（不是行内码 chip 样式）；表格边框/表头正常；消息操作栏（复制/反馈）正常。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code/20-01-markdown-normal.png"
+      ],
+      "driver": {
+        "prompt": "回归演示",
+        "expectText": "const x: number = 1"
+      },
+      "notes": ""
+    }
+  ]
+}
