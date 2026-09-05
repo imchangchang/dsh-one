@@ -392,14 +392,14 @@
     background: var(--vscode-list-activeSelectionBackground, rgba(0,122,204,.35));
     color: var(--vscode-list-activeSelectionForeground, inherit);
   }
-  /* 行首状态槽：宽度固定（对齐官方 dsh web 的 16px slot），只放置顶图钉
-     （常驻，空闲留空）；运行中/未读/待交互标记已移到行尾时间位（.session-rear）。 */
-  .session-status {
-    width: 16px; height: 16px; flex: none;
-    display: inline-flex; align-items: center; justify-content: center;
+  /* 置顶图钉：标题前常驻（行首状态槽已移除，整行缩进更紧凑）。main 的
+     flex gap 为 8px，-2px margin 收回到与行 gap 一致的 6px。 */
+  .session-pin {
+    flex: none; width: 14px; height: 14px; margin-right: -2px;
+    color: var(--vscode-descriptionForeground);
+    display: inline-flex; align-items: center; align-self: center;
   }
-  /* 槽内图钉（strokeSvg 固定输出 14px，缩到 13px 与槽匹配）。 */
-  .session-status svg.pin-icon { width: 13px; height: 13px; display: block; color: var(--vscode-descriptionForeground); }
+  .session-pin svg { width: 14px; height: 14px; display: block; }
   /* 运行中：官方 dsh web StateDot(ongoing) 的 8 格像素环追逐动画，deepseek 蓝。 */
   .session-spin { display: block; color: var(--vscode-charts-blue, #5686fe); }
   .session-spin rect { fill: currentColor; opacity: 0.15; animation: session-spin-chase 1s infinite; }

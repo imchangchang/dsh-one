@@ -2048,13 +2048,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   if (currentSessionId === s.sessionId) row.classList.add('active')
   row.title = s.label
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
-  const slot = el('span', 'session-status')
-  // 行首槽只放置顶图钉（常驻，空闲留空）；状态标记全部移到了行尾时间位
-  // （与时间互斥，见 sessionStatusMarker / .session-rear）。
-  if (pinned) slot.appendChild(makePinIcon())
-  row.appendChild(slot)
-  // 多选模式：复选框紧跟标题（状态槽右侧）——组头勾选框在最左，行勾选框
-  // 缩进一层，形成清晰的树形层次。
+  // 多选模式：复选框紧跟标题（组头勾选框在最左，行勾选框缩进一层）。
   if (selectionMode) {
     row.classList.add('selection-mode')
     const selectable = sessionSelectable(s)
@@ -2068,6 +2062,12 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
     )
   }
   const main = el('span', 'session-main')
+  // 置顶图钉放标题前（常驻；行首不再保留独立状态槽，缩进更紧凑）。
+  if (pinned) {
+    const pin = el('span', 'session-pin')
+    pin.appendChild(makePinIcon())
+    main.appendChild(pin)
+  }
   // 行内重命名：编辑中的该行渲染为输入框（prefill 标题），保留跨重建。
   if (s.sessionId === editingSessionId) {
     main.appendChild(renderRenameInput(s))
@@ -2494,11 +2494,13 @@ function renderRecycleSessionRow(s: SessionNodeModel): HTMLElement {
   row.dataset.sessionId = s.sessionId
   if (currentSessionId === s.sessionId) row.classList.add('active')
   row.title = s.label
-  const slot = el('span', 'session-status')
-  // 行首槽只放置顶图钉（常驻）；状态标记在行尾时间位，与主列表一致。
-  if (s.pinned) slot.appendChild(makePinIcon())
-  row.appendChild(slot)
   const main = el('span', 'session-main')
+  // 置顶图钉放标题前（常驻；行首不再保留独立状态槽，与主列表一致）。
+  if (s.pinned) {
+    const pin = el('span', 'session-pin')
+    pin.appendChild(makePinIcon())
+    main.appendChild(pin)
+  }
   main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title', s.label))
   const marker = sessionStatusMarker(s)
   if (marker === null) main.appendChild(el('span', 'session-time', s.description))
