@@ -26,13 +26,13 @@
     {
       "id": "F-02",
       "phase": "new-feature",
-      "name": "会话行菜单「移到分组」二级菜单（Move to group… ›）",
-      "expect": "行 ⋯ 菜单：原有菜单项完整在位（Select multiple / Open in a new tab / Rename / Pin / Mark as unread）；「Move to group…」是一个单项菜单项（带 › 子菜单指示），hover/点击展开二级菜单：待办（黄块 + ✓ 当前组）/ 进行中（蓝块）/ 已完成（绿块）/ 探索（橙块）/ No group（空描边方块）/ New group…；顶层菜单始终完整在位（group 列表不平铺）。",
+      "name": "会话行菜单「移到分组」菜单内上下展开（accordion）",
+      "expect": "行 ⋯ 菜单：原有菜单项完整在位（Select multiple / Open in a new tab / Rename / Pin / Mark as unread）；「Move to group…」单项右端 ▸（折叠指示），点击后组列表在主菜单内该行**下方**内联展开（子项缩进一级）：待办（黄块 + ✓ 当前组）/ 进行中（蓝块）/ 已完成（绿块）/ 探索（橙块）/ No group（空描边方块）/ New group…；再点收起（指示回 ▸）；整个菜单是单个弹层（无横向二级弹层），Fork session 等后续项在组列表之后可滚动。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots/session-tags-F02.png"
       ],
-      "notes": "playwright 断言逐项核对：① 主菜单 10 项（含 Move to group…› 单项，无组列表平铺）；② pointerover 展开二级 → 2 个 popover 并存、二级 6 项（待办✓/进行中/已完成/探索/No group/New group…）、顶层菜单项数与展开前一致（未移除/遮挡）；③ 二级点「探索」→ post sessionTagSet{tagId:t-explore} 两层菜单关闭；④ 截图核对：二级菜单在顶层菜单右侧展开，层级清晰。①②③④ 全符合。"
+      "notes": "playwright 断言逐项核对：① 初始菜单 1 个 popover、.tag-submenu display:none（组列表隐藏）、指示 ▸；② 点击「Move to group…」→ 仍 1 个 popover（无横向二级弹层），组列表 display 展开、6 项（待办✓/进行中/已完成/探索/No group/New group…）、子项 padding-left=24px（缩进一级）、指示变 ▾；③ 再点收起、指示回 ▸；④ 二级点「探索」→ post sessionTagSet{tagId:t-explore}；⑤ 截图核对：单弹层上下排布、子项缩进、整个菜单窄于侧栏宽度。①②③④⑤ 全符合。"
     },
     {
       "id": "F-03",
@@ -117,7 +117,7 @@
       "expect": "npm run typecheck / npm test（602 项全过）/ npm run build 全部通过（dev-finish 复跑）。",
       "result": "pass",
       "screenshots": [],
-      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 602 项全过（含新增 sessionTags 纯层测试与 sessionTree 标签组聚合测试）；npm run build 产出四个 bundle。 折叠功能提交后复跑：602 项仍全过，build 产出正常。 重命名/改色功能提交后复跑：602 项仍全过。 折叠计数提交后复跑：602 项仍全过。 二级菜单重构后复跑：602 项仍全过。"
+      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 602 项全过（含新增 sessionTags 纯层测试与 sessionTree 标签组聚合测试）；npm run build 产出四个 bundle。 折叠功能提交后复跑：602 项仍全过，build 产出正常。 重命名/改色功能提交后复跑：602 项仍全过。 折叠计数提交后复跑：602 项仍全过。 二级菜单重构后复跑：602 项仍全过。 accordion 重构后复跑：602 项仍全过。"
     }
   ]
 }
