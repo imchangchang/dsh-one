@@ -2705,6 +2705,10 @@ let renameDraft = ''
 let renameOriginal = ''
 let renameSelStart = 0
 let renameSelEnd = 0
+/** 清理循环移除 header 期间为 true：销毁输入框同步派发的 blur 不视为取消
+ *  （元素被 remove 时浏览器先重置焦点再摘离，blur 派发时 isConnected 仍为
+ *  true，isConnected 守卫无效——与侧栏 rebuildInProgress 同款）。 */
+let rebuildingHeader = false
 
 /** Inline rename: Enter commits, Esc/blur cancels. */
 function startInlineRename(_header: HTMLElement): void {
@@ -3125,16 +3129,21 @@ function render(): void {
   // 清成「加载会话…」空占位再重建，观感像整页刷新。keep* 布尔照常计算（无
   // 副作用），落地帧仍按签名决定重建。
   if (state?.loading !== true) {
-    for (const child of Array.from(chatCol.children)) {
-      if (keepMessages && child === oldMessages) continue
-      if (keepHeader && child === oldHeader) continue
-      if (keepBlankHero && (child === oldComposer || child === oldHero)) continue
-      if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
-      if (keepPending && child === oldPending) continue
-      if (keepTodoPanel && child === oldTodoPanel) continue
-      if (keepQueue && child === oldQueue) continue
-      if (keepGoalBar && child === oldGoalBar) continue
-      child.remove()
+    rebuildingHeader = true
+    try {
+      for (const child of Array.from(chatCol.children)) {
+        if (keepMessages && child === oldMessages) continue
+        if (keepHeader && child === oldHeader) continue
+        if (keepBlankHero && (child === oldComposer || child === oldHero)) continue
+        if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
+        if (keepPending && child === oldPending) continue
+        if (keepTodoPanel && child === oldTodoPanel) continue
+        if (keepQueue && child === oldQueue) continue
+        if (keepGoalBar && child === oldGoalBar) continue
+        child.remove()
+      }
+    } finally {
+      rebuildingHeader = false
     }
   }
   // Menus anchored to surviving elements (kept composer, sessions header)
@@ -3231,12 +3240,12 @@ function render(): void {
       // 重建后恢复补全弹窗（含 @ 会话补全；无候选时 updateSlashPopup 自行隐藏）
       updateSlashPopup(input)
     }
-    lastComposerSig = composerSig
-    lastHeaderSig = headerSig
-    lastPendingSig = pendingSig
-    lastTodosSig = todosSig
-    lastQueueSig = queueSig
-    lastGoalSig = goalSig
+    lastComposerSig = composingInside(oldComposer) ? lastComposerSig : composerSig
+    lastHeaderSig = composingInside(oldHeader) ? lastHeaderSig : headerSig
+    lastPendingSig = composingInside(oldPending) ? lastPendingSig : pendingSig
+    lastTodosSig = composingInside(oldTodoPanel) ? lastTodosSig : todosSig
+    lastQueueSig = composingInside(oldQueue) ? lastQueueSig : queueSig
+    lastGoalSig = composingInside(oldGoalBar) ? lastGoalSig : goalSig
     return
   }
   // Regions above the composer; insert before the preserved composer when kept.
@@ -3295,9 +3304,9 @@ function render(): void {
         }
       })
       input.addEventListener('blur', () => {
-        // 重建销毁导致的 blur（元素已摘离）不是用户离开，忽略——否则签名
-        // 变化重建 header 会把改名误取消；其余 blur 取消改名。
-        if (!input.isConnected) return
+        // 重建销毁输入框同步派发的 blur（rebuildingHeader）不是用户离开，忽略；
+        // 其余 blur 取消改名。
+        if (rebuildingHeader) return
         if (renaming) endInlineRename()
       })
       header.appendChild(input)
@@ -3576,12 +3585,14 @@ function render(): void {
     draftRestoreFor = null
     pendingStash = null
   }
-  lastComposerSig = composerSig
-  lastHeaderSig = headerSig
-  lastPendingSig = pendingSig
-  lastTodosSig = todosSig
-  lastQueueSig = queueSig
-  lastGoalSig = goalSig
+  // composing 兜底保活的区域不推进签名：保持旧签名，组合结束后补帧时差异
+  // 仍在，按签名差异重建落地（否则保活帧吞掉「推迟的签名变化」）。
+  lastComposerSig = composingInside(oldComposer) ? lastComposerSig : composerSig
+  lastHeaderSig = composingInside(oldHeader) ? lastHeaderSig : headerSig
+  lastPendingSig = composingInside(oldPending) ? lastPendingSig : pendingSig
+  lastTodosSig = composingInside(oldTodoPanel) ? lastTodosSig : todosSig
+  lastQueueSig = composingInside(oldQueue) ? lastQueueSig : queueSig
+  lastGoalSig = composingInside(oldGoalBar) ? lastGoalSig : goalSig
   // 「加载更早」的锚定配对：先记下 loadingEarlier 曾为 true（请求确实被
   // 接受），它翻回 false 的这一帧若消息从顶部插入（首条变了或条数多了），
   // 按新增高度补偿 scrollTop；无论是否插入都解除锚点（空页/失败同样落地）。
