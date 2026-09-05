@@ -1,0 +1,71 @@
+{
+  "title": "steer-shortcut-copy-per-platform 沙盒验收报告",
+  "branch": "agent/steer-shortcut-copy-per-platform",
+  "commit": "187df5d",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox:latest",
+    "date": "2026-09-08T00:00:00Z"
+  },
+  "coverageNote": "沙盒容器为 Linux，F-01 真实走 win/linux 的 Ctrl+Enter 分支；macOS 的 ⌘Enter 分支由单测 steerModifierLabel（macos→⌘）与本机 mac 开发态既有场景（scenarios.js、composer-ghost ledger 的占位符期望均保持 ⌘ 原文案）覆盖；中文变体由 l10n bundle 映射 + check-i18n 门禁覆盖，未单独跑 zh-cn 实例；真桌面 VS Code 与 Windows 真机不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "运行中占位符按平台显示 Ctrl+Enter（Linux 容器真实分支）",
+      "expect": "发送「慢命令」（mock-llm 慢速流式 ≈24s，turn 保持运行态且 composer 不被面板接管）后，运行中的 composer 占位符为「Type a message; Enter queues, Ctrl+Enter steers now, ↑ edits the queued message, Esc interrupts」——容器宿主是 Linux，hostOs=linux，占位符走 Ctrl+Enter 分支而不是修复前写死的 ⌘Enter。（「慢命令」规则此前只存在于注释里，本次补回真实规则；原设计的 bash sleep 90 在沙盒内立即返回（Tool call 0s），「审批测试」在默认权限策略下不弹审批，提问场景整区替换 composer，均不可用，最终用慢速流式保持运行态。）",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-01.png"
+      ],
+      "driver": {
+        "prompt": "慢命令",
+        "expectText": "慢速输出第 1 块",
+        "expectPlaceholder": "Ctrl+Enter steers now"
+      },
+      "notes": "截图核对：① turn 运行中（「Deep diving…」进度行在、发送按钮为止态方块图标）；② composer 占位符完整显示「Type a message; Enter queues, Ctrl+Enter steers now, ↑ edits the queued message, Esc interrupts」——Ctrl+Enter 分支命中（容器 Linux，hostOs=linux），不再是修复前写死的 ⌘Enter；③ 驱动断言 expectText「慢速输出第 1 块」与 expectPlaceholder「Ctrl+Enter steers now」均命中。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "macOS 分支保持 ⌘Enter 原文案",
+      "expect": "macOS 宿主上运行中占位符保持修复前的「⌘Enter steers now」不变。沙盒容器恒为 Linux 无法渲染 mac 分支；本项由单测 steerModifierLabel（macos→⌘、windows/linux→Ctrl、undefined→⌘ 回退）与 mac 开发机既有占位符期望（test/ui/scenarios.js、verify.composer-ghost-after-send.ledger.json 均保持 ⌘ 原文案未改）覆盖。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "无沙盒截图（容器恒 Linux，无法渲染 mac 分支）。覆盖依据：① 单测 steerModifierLabel 断言 macos→⌘、windows/linux→Ctrl、undefined→⌘ 回退（node --test 568 全绿）；② mac 开发机既有占位符期望（test/ui/scenarios.js、verify.composer-ghost-after-send.ledger.json）保持 ⌘ 原文案未改，mac 下渲染结果与修复前逐字一致。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "非运行态占位符与回显回复不变",
+      "expect": "发送「测试一下」出现 mock-LLM 回显「收到：测试一下」；turn 结束后 composer 占位符回到普通态文案（含「Enter sends」），证明只对 running 分支动了文案。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下",
+        "expectPlaceholder": "Enter sends"
+      },
+      "notes": "截图核对：① mock 回显「收到：测试一下」正常出现；② turn 已结束（统计行 1 turns），占位符回到普通态「Type a message; Enter sends, Shift+Enter for newline, paste images/files, ↑ recalls the previous one」——只动 running 分支，普通态文案逐字不变；③ 驱动断言 expectText 与 expectPlaceholder「Enter sends」均命中。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "composer 一键清空回归",
+      "expect": "新会话填入草稿后点 .clear-all-button，输入框清空——composer 输入区既有交互不受占位符改动影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-02.png"
+      ],
+      "driver": {
+        "fillAndClear": "占位符回归草稿"
+      },
+      "notes": "截图核对：填入草稿点清空按钮后输入框为空（hero 空态「Describe what you want to build」占位符显示、无草稿残留），composer 一键清空既有行为不受影响；驱动 fillAndClear 断言通过。"
+    }
+  ]
+}

@@ -551,7 +551,9 @@ export interface ChatState {
   serverError?: 'dshNotFound'
   /**
    * 宿主操作系统（host 端 process.platform 映射）：dshNotFound 空态里
-   * 非官方一键安装脚本默认选中的平台；无附着会话时也下发（EMPTY_STATE）。
+   * 非官方一键安装脚本默认选中的平台；无附着会话时也下发（EMPTY_STATE）；
+   * 附着会话由 controller getState() 常态下发，composer 占位符的插话
+   * 快捷键文案按它分平台（mac ⌘Enter / win、linux Ctrl+Enter）。
    */
   hostOs?: HostOs
   /** Footer model pill, host-computed from session.models ("DeepSeek-V4-Flash High" style). */

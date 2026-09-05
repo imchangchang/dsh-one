@@ -13,6 +13,8 @@
 //   approve       等待 pending 面板并点击按钮文本：字符串=单次（如审批 Allow once），
 //                 数组=按序点击（如问答面板先选选项再点 Submit）
 //   expectDraft   断言 composer textarea#input.value 包含该文本（草稿恢复检查）
+//   expectPlaceholder 断言 composer textarea#input 的 placeholder 包含该文本
+//                 （占位符文案检查，如运行中的插话快捷键提示）
 //   fillAndClear  在新会话里填充这段文本并点击 .clear-all-button，断言输入框为空
 //   hoverText     悬停含该文本的元素（如 commit chip），让悬浮卡弹出再截图
 //   hoverSustainMs hoverText 之后继续轮询该时长（ms）：弹层 commit 卡必须全程在位
@@ -362,6 +364,28 @@ async function waitForDraft(page, expectDraft, timeoutMs) {
   return false
 }
 
+/** 扫描全部 frame，断言 composer textarea#input 的 placeholder 包含 expectPlaceholder。 */
+async function waitForPlaceholder(page, expectPlaceholder, timeoutMs) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    for (const f of page.frames()) {
+      if (!isLiveFrame(f)) continue
+      try {
+        const v = await bounded(
+          f.evaluate(() => document.getElementById('input')?.getAttribute('placeholder') ?? null),
+          'waitForPlaceholder evaluate',
+        )
+        if (typeof v === 'string' && v.includes(expectPlaceholder)) return true
+      } catch (e) {
+        rethrowWatchdog(e)
+        // 帧重建瞬间忽略
+      }
+    }
+    await sleep(500)
+  }
+  return false
+}
+
 async function closeEditorTab(page) {
   // 关闭当前编辑器的 chat tab（Meta+W），避免串场
   await page.keyboard.press('Meta+W')
@@ -486,6 +510,14 @@ try {
             if (!ok) {
               result = 'fail'
               notes.push('expectDraft：pending 应答后 composer 草稿丢失')
+            }
+          }
+          if (driver.expectPlaceholder) {
+            const ok = await waitForPlaceholder(page, driver.expectPlaceholder, 30_000)
+            notes.push(ok ? `占位符命中：${driver.expectPlaceholder}` : `占位符不含：${driver.expectPlaceholder}`)
+            if (!ok) {
+              result = 'fail'
+              notes.push('expectPlaceholder：composer 占位符断言失败')
             }
           }
         })(), `条目 ${id} 整体执行`, ITEM_HARD_TIMEOUT)

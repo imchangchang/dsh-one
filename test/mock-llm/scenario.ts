@@ -72,7 +72,7 @@ export interface MockLlmScenario {
 /**
  * 默认场景。分类规则（顺序即优先级演示）：
  * 1. 「查天气」→ get_weather 工具调用；
- * 2. 「慢命令」→ bash sleep 90（运行态/子代理慢任务）；
+ * 2. 「慢命令」→ 慢速流式输出 ≈24s（运行态窗口，供运行中 UI 验证；不能用 bash sleep，沙盒内 bash 立即返回）；
  * 3. 「审批测试」→ bash 带 sandbox_permissions 升级参数（触发真 dsh 审批）；
  * 4. 「提个问题」→ ask_user_question（真 dsh 提问面板）；
  * 5. 「派个子代理」→ subagent 后台任务；
@@ -92,6 +92,17 @@ export function defaultScenario(): MockLlmScenario {
         respond: {
           toolCalls: [{ id: 'call-weather', name: 'get_weather', arguments: '{"city":"上海"}' }],
           usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        },
+      },
+      // 慢命令：慢速流式输出（deltaDelayMs 2000 × 12 块 ≈ 24s 运行态窗口）——
+      // turn 保持运行态且 composer 不被面板接管，供运行中 UI（占位符、停止按钮、
+      // 排队/插话）的确定性验证。注意不能用 bash sleep 90：沙盒内 bash 工具立即
+      // 返回（实测 Tool call 0s），靠它保持运行态不可靠。
+      {
+        match: { contains: '慢命令' },
+        respond: {
+          deltaDelayMs: 2000,
+          content: Array.from({ length: 12 }, (_, i) => `慢速输出第 ${i + 1} 块（运行态窗口验证）。`),
         },
       },
       // 审批：bash 带 sandbox_permissions + justification 升级参数，真 dsh 在

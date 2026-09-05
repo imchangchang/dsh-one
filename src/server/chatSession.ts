@@ -15,6 +15,7 @@ import { isModern } from './serverAuth.ts'
 import { recordsToEntries } from '../pure/chunkRows.ts'
 import type { HistoryRecordLike } from '../pure/chunkRows.ts'
 import { permissionDisplayName, permissionOptionLabel } from '../pure/permissionLabel.ts'
+import { hostOsFromPlatform } from '../pure/installScript.ts'
 import { subscribeFollowStream, subscribeControlStream, subscribeModernEvents } from './modernStreams.ts'
 import type { FollowSnapshot } from './modernStreams.ts'
 import { parseControlStreamFrame } from '../pure/remoteFrames.ts'
@@ -433,6 +434,9 @@ export class ChatSessionController implements vscode.Disposable {
     return {
       sessionId: this.sessionId,
       sessionTitle: this.sessionTitle,
+      // 附着会话也下发宿主平台：composer 占位符的插话快捷键按平台出文案
+      // （mac ⌘Enter / win/linux Ctrl+Enter）。
+      hostOs: hostOsFromPlatform(process.platform),
       messages: this.folder.messages(),
       pending: [...this.pending],
       queue: [...this.queue],
