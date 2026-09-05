@@ -3005,9 +3005,11 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
       },
     }),
   )
-  // 移到分组（Chrome 垂直标签式单组）：二级菜单（preset + 自建 + 无组 + 新建），
-  // 主菜单只挂一项「Move to group…」——原平铺版本让菜单过长（用户反馈）。
-  body.appendChild(buildTagGroupsMenuItem(s))
+  // 移到分组（Chrome 垂直标签式单组）：菜单内上下展开的 accordion（侧栏窄，
+  // 横排二级放不下——用户反馈）。点击「Move to group…」展开/收起组列表。
+  const tagEntry = buildTagGroupsMenuItem(s)
+  body.appendChild(tagEntry.item)
+  body.appendChild(tagEntry.tagList)
   body.appendChild(    menuItem(t('Fork session'), {
       icon: iconSvg(MESSAGE_ACTION_ICONS.branch),
       // 列表级 fork 不带 atSeq，服务端回退到最后一个 turn/end 切点；会话
@@ -3068,30 +3070,26 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
 }
 
 /**
- * 「Move to group…」菜单项（带 › 子菜单指示）：hover 展开二级（组列表），
- * 点击兜底（触屏/键盘）；已展开时幂等不重建（勾选中途重建会闪）。
- * 与工作区「分组…」菜单项同款（见 buildWorkspaceGroupsMenu）。
+ * 「Move to group…」菜单项 + 组列表 accordion：点击在**菜单内部上下展开/收起**
+ * 组列表（侧栏窄，横排二级弹层放不下）；项右端 ▸/▾ 指示展开态。子项点击走
+ * 现有行为（选组 = 关菜单 + sessionTagSet；New group… = 关菜单 + 新建弹层）。
  */
-function buildTagGroupsMenuItem(s: SessionNodeModel): HTMLElement {
-  const item = el('div', 'menu-item')
-  const iconWrap = el('span', 'menu-item-icon')
-  iconWrap.appendChild(iconSvg(GEAR_ICON, 14))
-  item.appendChild(iconWrap)
-  item.appendChild(el('span', undefined, t('Move to group…')))
-  item.appendChild(el('span', 'menu-right', '›'))
-  const open = (): void => {
-    if (subPopover === null) showTagGroupsSubmenu(s, item)
-  }
-  item.addEventListener('pointerover', open)
-  item.addEventListener('click', open)
-  return item
-}
-
-/** 「Move to group…」二级菜单：各组（当前组 ✓）+ No group + New group…（新建弹层）。 */
-function showTagGroupsSubmenu(s: SessionNodeModel, anchor: HTMLElement): void {
-  const body = el('div')
+function buildTagGroupsMenuItem(s: SessionNodeModel): { item: HTMLElement; tagList: HTMLElement } {
+  const tagList = el('div', 'tag-submenu')
+  tagList.style.display = 'none'
+  let expanded = false
+  const item = menuItem(t('Move to group…'), {
+    icon: iconSvg(GEAR_ICON, 14),
+    right: '▸',
+    onClick: () => {
+      expanded = !expanded
+      tagList.style.display = expanded ? '' : 'none'
+      const right = item.querySelector('.menu-right')
+      if (right) right.textContent = expanded ? '▾' : '▸'
+    },
+  })
   for (const tag of tagsSnapshot()) {
-    body.appendChild(
+    tagList.appendChild(
       menuItem(tag.name, {
         icon: tagSwatchIcon(tag.color),
         checked: s.tagId === tag.id,
@@ -3102,7 +3100,7 @@ function showTagGroupsSubmenu(s: SessionNodeModel, anchor: HTMLElement): void {
       }),
     )
   }
-  body.appendChild(
+  tagList.appendChild(
     menuItem(t('No group'), {
       icon: tagEmptySwatchIcon(),
       checked: s.tagId === undefined,
@@ -3112,7 +3110,7 @@ function showTagGroupsSubmenu(s: SessionNodeModel, anchor: HTMLElement): void {
       },
     }),
   )
-  body.appendChild(
+  tagList.appendChild(
     menuItem(t('New group…'), {
       icon: iconSvg(PANEL_ICONS.plus, 14),
       onClick: () => {
@@ -3123,8 +3121,7 @@ function showTagGroupsSubmenu(s: SessionNodeModel, anchor: HTMLElement): void {
       },
     }),
   )
-  const rect = anchor.getBoundingClientRect()
-  showSubPopoverAt(Math.min(rect.right + 6, window.innerWidth - 4), rect.top, anchor, body)
+  return { item, tagList }
 }
 
 /* ---- 工作区右键菜单（仅真实 workspace；未分组虚拟组无菜单） ---- */

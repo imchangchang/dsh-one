@@ -642,6 +642,8 @@ const SESSIONS_STYLE = `
   .menu-item .check { margin-left: auto; flex: none; }
   /* 标签组颜色小方块（菜单项/组头共用图标位）。 */
   .tag-swatch { width: 10px; height: 10px; border-radius: 3px; display: block; }
+  /* 「Move to group…」accordion 的组列表：内嵌菜单、子项缩进一级。 */
+  .tag-submenu .menu-item { padding-left: 24px; }
   /* 新建标签组弹层的色板：6 色一排，选中描边 + 对勾。 */
   .tag-create-colors { display: flex; align-items: center; gap: 6px; padding: 4px 2px; }
   .tag-color-swatch {
