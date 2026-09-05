@@ -871,6 +871,8 @@ export interface SessionsSnapshot {
   tags: Array<{ id: string; name: string; color: TagColor; preset: boolean; count: number }>
   /** 标签组 → 会话 id（单组倒排，全量未清洗）：整组批量操作（归档/回收站）按此收集全集。 */
   tagSessionIds: Record<string, string[]>
+  /** 折叠的标签组块 id（UI 偏好，workspaceState 持久化）。 */
+  tagCollapsed: string[]
 }
 /**
  * 单个 commit hash 的查询结果：webview 据此点亮/灰显点击 chip 并填悬浮卡。
@@ -1130,3 +1132,5 @@ export type FromWebviewMessage =
   | { type: 'sessionTagDelete'; tagId: string }
   /** Sessions 面板：持久化标签组顺序（拖拽结束后提交全量顺序）。 */
   | { type: 'sessionTagReorder'; tagIds: string[] }
+  /** Sessions 面板：折叠/展开一个标签组块（UI 偏好，workspaceState 持久化）。 */
+  | { type: 'sessionTagCollapse'; tagId: string; collapsed: boolean }

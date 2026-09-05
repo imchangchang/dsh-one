@@ -108,6 +108,9 @@ const ACTIVE_GROUP_STATE_KEY = 'sessions.activeGroup'
  */
 const TAGS_STATE_KEY = 'sessions.tags'
 const SESSION_TAGS_STATE_KEY = 'sessions.sessionTags'
+/** workspaceState key for collapsed tag-group blocks（UI 偏好，per-workspace，
+ *  与 workspace 组折叠同层——不跨窗口共享，与组内容无关）。 */
+const TAG_COLLAPSED_STATE_KEY = 'sessions.tagCollapsed'
 
 
 /**
@@ -154,6 +157,8 @@ export interface SessionsStoreSnapshot {
   tags: Array<{ id: string; name: string; color: TagColor; preset: boolean; count: number }>
   /** 标签组 → 会话 id（单组倒排，全量未清洗；整组批量操作（归档/回收站）按此收集全集）。 */
   tagSessionIds: Record<string, string[]>
+  /** 折叠的标签组块 id（UI 偏好，workspaceState 持久化）。 */
+  tagCollapsed: string[]
 }
 
 /**
@@ -196,6 +201,8 @@ export class SessionsStore implements vscode.Disposable {
   private tags: TagDef[] = []
   /** sessionId → 标签组 id（单组；globalState 持久化，dsh 无概念，纯客户端状态）。 */
   private sessionTags: Record<string, string> = {}
+  /** 折叠的标签组块 id（UI 偏好，workspaceState 持久化；与组内容无关）。 */
+  private tagCollapsed = new Set<string>()
   /** 回收站视图的展示模型（只含回收站会话，无搜索过滤；基线与主列表同一份 raw 数据）。 */
   private recycleWorkspaces: WorkspaceNodeModel[] = []
   /** 内容搜索命中：sessionId → 最佳匹配片段（query 非空时由 session.search 填充）。 */
@@ -314,6 +321,8 @@ export class SessionsStore implements vscode.Disposable {
     if (!Array.isArray(rawTags)) {
       void this.globalState?.update(TAGS_STATE_KEY, this.tags)
     }
+    // 标签组块折叠偏好（workspaceState；未知组 id 无碍，渲染时按需判断）。
+    this.tagCollapsed = new Set(state?.get<string[]>(TAG_COLLAPSED_STATE_KEY) ?? [])
     this.stateSub = manager.onDidChangeState((status) => this.onStateChange(status))
     this.onStateChange(manager.getStatus())
   }
@@ -428,6 +437,7 @@ export class SessionsStore implements vscode.Disposable {
         count: this.tagSessionCount(t.id),
       })),
       tagSessionIds: invertSessionTagIds(this.sessionTags),
+      tagCollapsed: [...this.tagCollapsed],
     }
   }
 
@@ -629,6 +639,16 @@ export class SessionsStore implements vscode.Disposable {
     this.persistTags()
     // 组顺序改变组块聚合顺序，同样需要重建模型。
     this.rebuildModel()
+    this.onDidChangeEmitter.fire()
+  }
+
+  /** 折叠/展开一个标签组块（UI 偏好，workspaceState 持久化；幂等）。 */
+  setTagCollapsed(tagId: string, collapsed: boolean): void {
+    const changed = collapsed ? !this.tagCollapsed.has(tagId) : this.tagCollapsed.delete(tagId)
+    if (collapsed) this.tagCollapsed.add(tagId)
+    if (!changed) return
+    void this.state?.update(TAG_COLLAPSED_STATE_KEY, [...this.tagCollapsed])
+    // 折叠是展示态（不动会话树模型），只需通知快照。
     this.onDidChangeEmitter.fire()
   }
 

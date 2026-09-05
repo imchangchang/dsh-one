@@ -1527,6 +1527,9 @@ function appendTagBlocks(
   sessions: SessionNodeModel[],
   rowRender: (s: SessionNodeModel) => HTMLElement,
 ): void {
+  const collapsedSet = new Set(sessionsSnapshot?.tagCollapsed ?? [])
+  // 搜索态强制展开（与 workspace 组折叠同规则）：搜索结果被折叠块藏起来不可接受。
+  const inSearch = sessionsSnapshot?.query != null && sessionsSnapshot.query !== ''
   let i = 0
   while (i < sessions.length) {
     const s = sessions[i]
@@ -1537,31 +1540,52 @@ function appendTagBlocks(
       i += 1
       continue
     }
-    const block = el('div', `tag-group tag-${tag.color}`)
-    block.dataset.tagId = tag.id
-    block.appendChild(tagHeadEl(tag, block))
-    block.appendChild(el('div', 'tag-line'))
+    // 组块 = 同 tagId 的连续段落（纯层已聚合排序），一次收齐再按折叠态渲染。
+    const rows: SessionNodeModel[] = []
     while (i < sessions.length) {
       const cur = sessions[i]
       if (cur.pinned || cur.tagId !== tag.id) break
-      const row = rowRender(cur)
-      row.classList.add('tagged')
-      block.appendChild(row)
-      if (cur.contentSnippet) block.appendChild(renderContentSnippet(cur.sessionId, cur.contentSnippet))
+      rows.push(cur)
       i += 1
+    }
+    const collapsed = !inSearch && collapsedSet.has(tag.id)
+    const block = el('div', `tag-group tag-${tag.color}${collapsed ? ' collapsed' : ''}`)
+    block.dataset.tagId = tag.id
+    block.appendChild(tagHeadEl(tag, block, collapsed))
+    if (!collapsed) {
+      block.appendChild(el('div', 'tag-line'))
+      for (const cur of rows) {
+        const row = rowRender(cur)
+        row.classList.add('tagged')
+        block.appendChild(row)
+        if (cur.contentSnippet) block.appendChild(renderContentSnippet(cur.sessionId, cur.contentSnippet))
+      }
     }
     container.appendChild(block)
   }
 }
 
-/** 组头：小 pill（组名 + 组色点）——pill 可拖排组序，右键开整组菜单，块体收会话拖拽入组。 */
-function tagHeadEl(tag: SnapshotTag, block: HTMLElement): HTMLElement {
+/** 组头：小 pill（组名 + 组色点，可拖排组序、右键整组菜单）+ 折叠/展开箭头。
+ *  块体收会话拖拽入组。 */
+function tagHeadEl(tag: SnapshotTag, block: HTMLElement, collapsed: boolean): HTMLElement {
   const head = el('div', 'tag-head')
   const pill = el('span', 'tag-pill')
   pill.setAttribute('data-tip', t('Group: {0}', tag.name))
   pill.appendChild(el('span', 'tag-pill-dot'))
   pill.appendChild(el('span', undefined, tag.name))
   head.appendChild(pill)
+  // 折叠/展开箭头（用户要求的「标签页后面」交互）：小三角，点击切换。
+  const toggle = document.createElement('button')
+  toggle.type = 'button'
+  toggle.className = 'tag-toggle'
+  toggle.setAttribute('data-tip', collapsed ? t('Expand group') : t('Collapse group'))
+  toggle.setAttribute('aria-label', toggle.getAttribute('data-tip')!)
+  toggle.appendChild(iconSvg(PANEL_ICONS.triangle, 10))
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation()
+    post({ type: 'sessionTagCollapse', tagId: tag.id, collapsed: !collapsed })
+  })
+  head.appendChild(toggle)
   attachTagPillDrag(pill, tag.id)
   pill.addEventListener('contextmenu', (e) => {
     e.preventDefault()
@@ -1606,7 +1630,13 @@ function attachTagBlockDrop(block: HTMLElement, tagId: string): void {
     e.stopPropagation()
     clear()
     const sessionId = e.dataTransfer?.getData('text/dsh-session')
-    if (sessionId) post({ type: 'sessionTagSet', sessionId, tagId })
+    if (!sessionId) return
+    post({ type: 'sessionTagSet', sessionId, tagId })
+    // 拖入折叠块：自动展开该组（让用户看到刚拖进来的会话；折叠态是偏好，
+    // 显式再次折叠才算用户意图）。
+    if (block.classList.contains('collapsed')) {
+      post({ type: 'sessionTagCollapse', tagId, collapsed: false })
+    }
   })
 }
 

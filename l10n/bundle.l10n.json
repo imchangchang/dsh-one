@@ -512,5 +512,7 @@
   "Rename group…": "Rename group…",
   "New group name": "New group name",
   "Delete group \"{0}\"? Tagged sessions go back to Ungrouped": "Delete group \"{0}\"? Tagged sessions go back to Ungrouped",
-  "e.g. \"Code review\"": "e.g. \"Code review\""
+  "e.g. \"Code review\"": "e.g. \"Code review\"",
+  "Expand group": "Expand group",
+  "Collapse group": "Collapse group"
 }

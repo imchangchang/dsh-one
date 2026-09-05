@@ -554,6 +554,19 @@
     border-radius: 1px; background: color-mix(in srgb, var(--tc) 55%, transparent);
     pointer-events: none;
   }
+  /* 组头折叠/展开箭头（pill 右侧）；展开向下、折叠向右（与 workspace 组头同款）。 */
+  .tag-toggle {
+    flex: none; width: 16px; height: 16px; padding: 0; margin-left: 2px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 0; border-radius: 3px;
+    color: var(--vscode-descriptionForeground, #888); cursor: pointer; opacity: .7;
+  }
+  .tag-toggle:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  .tag-toggle svg { display: block; transition: transform .15s ease; }
+  .tag-group:not(.collapsed) .tag-toggle svg { transform: rotate(90deg); }
+  /* 折叠块：组内行与竖线隐藏，组块收成一行（pill + 箭头）。 */
+  .tag-group.collapsed .tag-line { display: none; }
+  .tag-group.collapsed { margin-bottom: 2px; }
   /* 组内会话行：仅增加 ~12px 左缩进，其余行内元素不动。 */
   .session-row.tagged { padding-left: 24px; }
   /* 拖拽入组：目标组块高亮（组色淡背景，不遮盖行）。 */

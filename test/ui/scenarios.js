@@ -1754,6 +1754,87 @@
       expect: '「实现侧栏分组过滤」行的 ⋯ 菜单打开：首行会话标题；原有菜单项完整在位（Select multiple / Open in a new tab / Rename / Pin / Mark as unread，屏幕内可见的前几项）；「Move to group」分节标题下有四项：待办（黄色小方色块 + 勾选 ✓，当前组）、进行中（蓝色块）、已完成（绿色块）、探索（橙色块）、No group（空描边方块）；再往下 New group…。菜单较长时 popover 内可滚动（max-height 50vh），底部原菜单项（Move to recycle bin / Archive session）不必在首屏可见。',
     },
 
+    'session-tags-collapse': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 2 },
+          { id: 'preset-doing', name: '进行中', color: 'blue', preset: true, count: 1 },
+          { id: 'preset-done', name: '已完成', color: 'green', preset: true, count: 1 },
+        ]
+        s.tagSessionIds = {
+          'preset-todo': ['sess-1', 'sess-2'],
+          'preset-doing': ['sess-4'],
+          'preset-done': ['sess-3'],
+        }
+        s.tagCollapsed = ['preset-done']
+        s.workspaces[0].sessions = [
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-2', '修复回收站抽屉高度', '5 小时前', { tagId: 'preset-todo', unread: true }),
+          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', running: true }),
+          sess('sess-3', '会话复制引用功能', '1 天前', { tagId: 'preset-done' }),
+        ]
+        s.workspaces[1].sessions = []
+        s.workspaces[2].sessions = []
+        return s
+      })(),
+      interactSteps: [
+        {
+          name: 'collapsed',
+          settle: 900,
+          script: `
+            window.__posted = []
+            const snap = window.SCENARIOS['session-tags-collapse'].sessions
+            const block = document.querySelector('.tag-group[data-tag-id="preset-todo"]')
+            block?.querySelector('.tag-toggle')?.click()
+            // 模拟宿主回推（真实链路：host 改 store → 推新快照）。
+            snap.tagCollapsed = ['preset-done', 'preset-todo']
+            window.postMessage({ type: 'sessions', snapshot: snap }, '*')
+            setTimeout(() => {
+              // 快照重建会替换组块 DOM：断言前重新查询（旧引用是 detached 节点）。
+              const block2 = document.querySelector('.tag-group[data-tag-id="preset-todo"]')
+              const ok = block2 !== null && block2.classList.contains('collapsed')
+                && block2.querySelectorAll('.session-row').length === 0
+                && (window.__posted || []).some((m) => m.type === 'sessionTagCollapse' && m.tagId === 'preset-todo' && m.collapsed === true)
+              if (!ok) {
+                const d = document.createElement('div')
+                d.textContent = 'COLLAPSE ASSERT FAILED'
+                d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+                document.body.appendChild(d)
+              }
+            }, 300)
+          `,
+        },
+        {
+          name: 'expanded',
+          settle: 900,
+          script: `
+            window.__posted = []
+            const snap = window.SCENARIOS['session-tags-collapse'].sessions
+            const block = document.querySelector('.tag-group[data-tag-id="preset-todo"]')
+            block?.querySelector('.tag-toggle')?.click()
+            snap.tagCollapsed = ['preset-done']
+            window.postMessage({ type: 'sessions', snapshot: snap }, '*')
+            setTimeout(() => {
+              const block2 = document.querySelector('.tag-group[data-tag-id="preset-todo"]')
+              const ok = block2 !== null && !block2.classList.contains('collapsed')
+                && block2.querySelectorAll('.session-row').length === 2
+                && (window.__posted || []).some((m) => m.type === 'sessionTagCollapse' && m.tagId === 'preset-todo' && m.collapsed === false)
+              if (!ok) {
+                const d = document.createElement('div')
+                d.textContent = 'EXPAND ASSERT FAILED'
+                d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+                document.body.appendChild(d)
+              }
+            }, 300)
+          `,
+        },
+      ],
+      title: '侧栏面板（标签组块折叠/展开）',
+      expect: '三张截图对照——① 初始帧：三个组块 pill 右侧各有一个小三角（展开向下）；「已完成」组因快照 tagCollapsed=[preset-done] 预置为折叠态——只剩一行（pill + 三角朝右），组内会话行与竖线消失，其余两组展开。② <scenario>-collapsed.png：点击「待办」组块箭头后——该组块同样只剩一行（pill + 三角朝右），组内两个会话行与竖线消失；无红色断言横幅（断言：post 了 sessionTagCollapse{tagId:preset-todo, collapsed:true}）。③ <scenario>-expanded.png：再点一次箭头——post sessionTagCollapse{collapsed:false}；mock 宿主不回推快照，组块保持折叠为预期行为（真实宿主随快照展开）。',
+    },
+
     'sessions-menu-fork-disabled': {
       view: 'sessions',
       sessions: (() => {
@@ -3252,7 +3333,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'sessions-workspace-menu-groups',
     'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',
     'sessions-selection-exit-recycle', 'sessions-selection-exit-archive',
-    'session-tags', 'session-tags-row-menu',
+    'session-tags', 'session-tags-row-menu', 'session-tags-collapse',
     'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',

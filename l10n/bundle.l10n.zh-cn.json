@@ -512,5 +512,7 @@
   "Rename group…": "重命名分组…",
   "New group name": "新分组名称",
   "Delete group \"{0}\"? Tagged sessions go back to Ungrouped": "删除分组「{0}」？组内会话将回到未分组",
-  "e.g. \"Code review\"": "例如「代码审查」"
+  "e.g. \"Code review\"": "例如「代码审查」",
+  "Expand group": "展开分组",
+  "Collapse group": "折叠分组"
 }
