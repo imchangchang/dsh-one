@@ -15,14 +15,14 @@
 缺口：
 
 1. **重连状态不透出 UI**：断线只 `logger.warn`，webview 无任何提示——和官方 GUI 一样的假死感
-2. **无 401 兜底**：重连路径只用内存里的旧 cookie（`remoteMux.ts` 的 `cookieHeader(origin)`），cookie 过期或意外失效后无限静默重试；没有任何「重新 token 交换」路径
-3. **没实测过**：这套重连 + re-baseline 从未在「杀实例重起」场景下验证过
+2. **没实测过**：这套重连 + re-baseline 从未在「杀实例重起」场景下验证过
+3. **401 兜底只剩窄边**（2026-09-05 对照主线复核后修正）：凭证链比最初判断的完整——manager 的所有获票路径（spawn 就绪行换票 486、re-own/adopt 253/283、日志恢复 332/403、外部连接 164）都会 `exchangeToken` → `registerAuth` 更新 per-origin store；`remoteMux.ensureSocket` 每次重连都重读 `cookieHeader`。即 **manager 知情的重启路径，重连自动带新 cookie，链路闭环**。真正缺的兜底只剩两种 manager 不知情的场景：实例被外部替换（同端口新进程、健康检查照样通过）与 cookie 30 天过期（`cookieMaxAgeDays`）——此时重连反复 401，需要「重连连续失败 → 触发 manager 重新感知实例（probe/换票）」的联动
 
 ## 建议方案
 
 1. **断连横幅**：host 在 reconnect 开始/成功/最终失败时 postMessage 通知 webview，显示/收起「连接中断，重连中…」横幅（含手动「立即重连」按钮）——对齐官方连接层设计了但未落地的 observable recovery state + immediate reconnect command
-2. **凭证兜底**：重连连续失败 N 次（或明确 401）→ 用 manager 持有的当前实例 token 重新 `exchangeToken` 换 cookie 再重连；manager 实例身份变化（re-own/spawn 新实例）时主动失效旧凭证
-3. **沙盒实测**：起实例 → 开会话 → kill 实例 → respawn → 验证 webview 自愈（横幅出现→消失、消息流续上）；进 ledger
+2. **凭证兜底（窄边）**：重连连续失败 N 次（或明确 401）→ 触发 manager 重新感知实例（probe 端口 + 必要时重新换票/重 spawn），而不是盲目带旧 cookie 重试；复用 serverAuth 现有 `probeToken`/`exchangeToken` 原语
+3. **沙盒实测**：起实例 → 开会话 → kill 实例 → respawn → 验证 webview 自愈（横幅出现→消失、消息流续上）；进 ledger。预期主线现有凭证链大概率已能自愈（见缺口 3），实测同时验证这一点
 
 ## 涉及代码位置
 
@@ -35,3 +35,4 @@
 ## 变更记录
 
 - 2026-09-05 用户要求（讨论「我们自己能规避官方 GUI 冻结问题么」后确认的三条之一）：建条目（open/）
+- 2026-09-05 用户要求（对照主线最新状态复核修改方案）：chat-column-layout 合入未触动本方案涉及的文件，方案主体不变；修正凭证兜底的问题描述与方案精度（manager 知情路径凭证链已闭环，兜底只剩外部替换/cookie 过期窄边），实测项同时验证自愈假设
