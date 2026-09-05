@@ -4356,14 +4356,20 @@ function renderTurnRail(entries: ChatTurnOutlineEntry[], messages: ChatMessage[]
   frame.setAttribute('aria-label', t('Turn navigation'))
   const marks = el('div', 'turn-rail-marks')
   marks.style.height = `${(entries.length - 1) * TURN_RAIL_SPACING + 2 * TURN_RAIL_INSET}px`
-  // 已载入判定：窗口首事件（消息最小 seq）≤ 回合锚点 seq 才算——主题口内容
-  // 在窗口里；窗口头切在回合中间（锚点在窗口外）按未载入显示（装饰性差异）。
-  let headSeq: number | undefined
+  // 已载入判定：存在消息 seq 落在本回合区间 [S_k, S_{k+1})（最后一个回合
+  // 无上界）——回合内容（或它的尾部）在窗口里才算载入；窗口头切在回合中间
+  // 时该回合按其尾部消息正确标为已载入。
+  const msgSeqs: number[] = []
   for (const m of messages) {
     const s = (m as { seq?: unknown }).seq
-    if (typeof s === 'number' && (headSeq === undefined || s < headSeq)) headSeq = s
+    if (typeof s === 'number') msgSeqs.push(s)
   }
-  const isLoaded = (seq: number): boolean => headSeq !== undefined && seq >= headSeq
+  msgSeqs.sort((a, b) => a - b)
+  const loadedAt = (index: number): boolean => {
+    const lo = entries[index].seq
+    const hi = index + 1 < entries.length ? entries[index + 1].seq : Number.POSITIVE_INFINITY
+    return msgSeqs.some((s) => s >= lo && s < hi)
+  }
   const preview = el('div', 'turn-rail-preview')
   const previewPrompt = el('div', 'turn-rail-preview-prompt')
   const previewResponse = el('div', 'turn-rail-preview-response')
@@ -4374,7 +4380,7 @@ function renderTurnRail(entries: ChatTurnOutlineEntry[], messages: ChatMessage[]
     position.style.top = `${index * TURN_RAIL_SPACING + TURN_RAIL_INSET}px`
     const mark = el('button', 'turn-rail-mark') as HTMLButtonElement
     mark.type = 'button'
-    const loaded = isLoaded(entry.seq)
+    const loaded = loadedAt(index)
     if (!loaded) mark.classList.add('mark-unloaded')
     // active = 最新回合（新近锚点；官方按视口阅读位跟随，此处取最新简化）。
     if (index === entries.length - 1) mark.classList.add('mark-active')

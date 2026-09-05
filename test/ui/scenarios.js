@@ -2346,7 +2346,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     }),
     interact: `document.querySelector('.msg-actions .msg-usage-pill').click()`,
     title: 'token 用量明细：药丸 + 锚定弹窗',
-    expect: '第一条已结束回答的操作栏尾部分别显示：计时行（用时 2分42秒 · 首 token 1.2秒 · 45.2 tok/s 等）、用量药丸「Usage 2.9K」；点击药丸后锚定小窗在药丸上方展开：标题「Turn usage」+ 精确总量 2,890；分隔线下四行明细：Provider / model → deepseek/deepseek-v4-flash, deepseek/deepseek-chat；Cache hit → 30.9%；Uncached input → 1,048；Cached input → 512；Cache write → 96；Output → 1,234（其中推理 432，灰字小号）。第二条回答（无可证明用量）无药丸，只有计时行。outside 点击/ Esc 关闭弹窗。',
+    expect: '第一条已结束回答的操作栏尾部分别显示：计时行（用时 2分42秒 · 首 token 1.2秒 · 45 tok/s 等）、用量药丸「Usage 2.9K」；点击药丸后锚定小窗在药丸上方展开：标题「Turn usage」+ 精确总量 2,890；分隔线下四行明细：Provider / model → deepseek/deepseek-v4-flash, deepseek/deepseek-chat；Cache hit → 30.9%；Uncached input → 1,048；Cached input → 512；Cache write → 96；Output → 1,234（其中推理 432，灰字小号）。第二条回答（无可证明用量）无药丸，只有计时行。outside 点击/ Esc 关闭弹窗。',
   }
 
   catalog['turn-usage-no-buckets'] = {
