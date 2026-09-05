@@ -2817,7 +2817,7 @@
           settle: 400,
         },
       ],
-      expect: '**逐张核对**（无像素 diff）：① <scenario>-initial.png：正文中每个反引号行内码都是浅灰底圆角小 chip、右下角带小复制图标（淡灰半透明，常驻）；路径码（`src/ui/chat/webview.ts`、`src/ui/chatViewHtml.ts`、`dist/chatWebview.js`、`/repo/src/pure/producedFiles.ts`）与非路径码（`npm run build`、`DSH_PORT`、`Makefile`）外观一致（复制图标齐全）；无红色断言条。② <scenario>-open-path.png：顶部红条显示 `openPath:src/ui/chat/webview.ts`（点击路径码后宿主收到打开消息，路径原样无改动）；正文行内码样式未变。③ <scenario>-no-open.png：红条显示 `no-openPath`（点击命令码 `npm run build` 不会触发打开消息）且无 FAIL 字样。',
+      expect: '**逐张核对**（无像素 diff）：① <scenario>-initial.png：正文中每个反引号行内码都是浅灰底圆角小 chip、右下角**无复制图标**（图标悬停/键盘聚焦才显示，初始态不出现——用户实测反馈隐藏常态图标）；路径码（`src/ui/chat/webview.ts`、`src/ui/chatViewHtml.ts`、`dist/chatWebview.js`、`/repo/src/pure/producedFiles.ts`）与非路径码（`npm run build`、`DSH_PORT`、`Makefile`）外观一致；无红色断言条。② <scenario>-open-path.png：顶部红条显示 `openPath:src/ui/chat/webview.ts`（点击路径码后宿主收到打开消息，路径原样无改动）；正文行内码样式未变。③ <scenario>-no-open.png：红条显示 `no-openPath`（点击命令码 `npm run build` 不会触发打开消息）且无 FAIL 字样。悬停显示本身由本地 Playwright 真实 hover 截图验证（CSS :hover 无法在 harness 脚本里触发）。',
     },
 
     // 消息右键菜单（user 气泡）：右键弹「复制」坐标菜单（与既有外链菜单同款
