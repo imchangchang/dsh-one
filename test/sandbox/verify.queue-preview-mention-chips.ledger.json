@@ -1,0 +1,86 @@
+{
+  "title": "排队中卡片预览 @ 引用 chip 渲染——queue-preview-mention-chips 任务",
+  "branch": "agent/queue-preview-mention-chips",
+  "commit": "cd09a12",
+  "environment": {
+    "mode": "harness-visual",
+    "theme": "dark",
+    "date": "2026-09-05T00:00:00Z"
+  },
+  "coverageNote": "验证通道：harness 视觉场景（浏览器独立渲染 webview + mock 后台，WebBridge 截图，scripts/ui-visual.sh mode=all 全量 143 场景）。改动面 = webview 的 renderQueueItem（排队卡片预览从纯文本改为 parseSessionMentions + renderUserBubbleParts，复用插话/正式气泡同款 chip 管线），无宿主/dsh 链路变化，沙盒 E2E 不适用。宿主行为（真实 dsh 排队消息生产、会话 chip 点击打开会话）不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "排队卡片预览：canonical @会话/@文件/@文件夹引用渲染成 chip，两行 clamp 截断",
+      "expect": "composer 上方一条排队卡片（harness 场景 queue-preview-mention）：左侧「Queued」徽章；预览区依次为——纯文本计数「[图片 ×1]」；会话 chip（聊天气泡图标 + 链接色「长文本输入时对话刷新问题」）；正文；文件 chip（文档图标 +「webview.ts」）；正文；文件夹 chip（文件夹图标 +「pure」）；正文继续到第二行被省略号「…」收束（内容超两行）；任何位置看不到 base64 URI 原文；右侧「Steer  Edit  Delete」三个链接按钮与预览同一行基线；卡片下方是输入区（英文占位符）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/queue-preview-mention.png"
+      ],
+      "notes": "按检查点逐条核对截图：① Queued 徽章在位，位置与 actions 基线对齐 ✓；② [图片 ×1] 为灰色纯文本（无图标、未折叠成 chip）✓；③ 会话 chip = 聊天气泡图标 + 链接色「长文本输入时对话刷新问题」，DOM 验证 title 为完整引用（Referenced session <sessionId>, click to open）✓；④ 文件 chip「webview.ts」带文档图标、文件夹 chip「pure」带文件夹图标，均为链接色 ✓；⑤ 正文顺序「…的输入抖动，看下 → webview.ts → 的渲染路径，还有 → pure → …」正确;⑥ 截断：DOM 测量 .queue-text scrollHeight 62px > clientHeight 41px（内容确超两行），截图第二行末尾可见省略号「…」，chips 本身完整未被截半 ✓；⑦ 全文检索无 dsh-session: 原文可见 ✓；⑧ Steer/Edit/Delete 链接按钮与预览同行基线 ✓；⑨ 卡片下方输入区占位符英文 ✓。",
+      "driver": null
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "排队卡片编辑态仍为 raw 原文 textarea（chip 化只动预览）",
+      "expect": "点击预览区右侧「Edit」后，排队行变为 textarea（.queue-editor），值为 editText 原文：含 canonical «@[标题](dsh-session:…)» 与 <attachment> 行，不 chip 化；右侧 Save/Cancel 按钮。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/queue-preview-mention-edit.png"
+      ],
+      "notes": "在场景页面 evaluate 点击 Edit 后断言：.queue-editor 存在，value 同时包含「dsh-session:InNlc3MtMSI」与「<attachment>」（raw 原文，len=256）；截图见编辑态 textarea 与 Save/Cancel。预览 chip 化不影响编辑回填（host 的 queueEdit 仍收 editText）。",
+      "driver": null
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "等待插话（steering）气泡 chip 渲染不变",
+      "expect": "场景 steering-pending：对话流末尾「Deep diving...」行之后，spinner + 气泡「等等，先停下，看着 旧会话 的状态。」——气泡内会话 chip（聊天气泡图标 + 链接色「旧会话」，可点击），气泡下方引用摘要行「Referenced sessions · 旧会话」；输入框上方无排队条目；composer 占位符为排队/插话快捷键文案。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/steering-pending.png"
+      ],
+      "notes": "核对：① 气泡 + 左侧 spinner 同排右对齐 ✓；② 会话 chip「旧会话」链接色 + 图标，引用摘要行在位 ✓；③ 输入框上方无排队条目 ✓；④ 占位符「Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts」✓。图片缩略图仍为「…」占位、README.md 文件框正常——缩略图长留占位与 open 条目 message-image-thumb-stale-after-incremental（行签名未含懒加载缓存态）描述一致，renderSteeringItem 与附件渲染路径本次零改动，判定为存量缺陷，非本任务引入。",
+      "driver": null
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "正文气泡 chip 全 kind 与排队 dock 折叠布局不变",
+      "expect": "场景 mention-chips：两条用户气泡的引用 chip 全 kind（会话/文件/文件夹/命令）与正文同排、图标 + 链接色 + 摘要行，引号路径「chatView.ts」不残留引号。场景 goal-stack：composer 上方顺序 todo 清单卡 → Active goal 条幅 → 「2 queued messages」折叠 header（chevron 收起态）→ 输入区，各一条分隔线无重叠。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/mention-chips.png",
+        "/tmp/dsh-ui-shots/goal-stack.png"
+      ],
+      "notes": "mention-chips：第一气泡「参考 旧会话 的实现，看下 webview.ts 和 pure 目录，用 /help 看看思路」——四类 chip 依序在位（命令 chip 无图标纯文本），摘要行「Referenced sessions · 旧会话」✓；第二气泡「带空格路径 chatView.ts 也看下」（引号并入 chip）✓。goal-stack：todo 卡（Tasks | done · 1 running）→ Active goal 条幅 → 2 queued messages 折叠 header（chevron 朝上）→ 输入区，顺序与叠放正确 ✓；排队卡两条各自的行内布局未见回退（折叠态下不展开逐条）。",
+      "driver": null
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量 143 场景出图（mode=all，含分步场景 -step 截图）",
+      "expect": "scripts/ui-visual.sh（mode=all）遍历 window.SCENARIOS 全部 143 个场景，每场景至少一张截图落盘；带 interactSteps 的场景额外产出 -step 图（jump-latest-visible-scrolled-up、sessions-workspace-menu-groups-menu/groups、sessions-selection-exit-recycle-selected/exited、sessions-selection-exit-archive-modal/exited 等）；无场景缺图、无步骤信号超时告警导致缺图。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png",
+        "/tmp/dsh-ui-shots/jump-latest-visible-scrolled-up.png",
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-groups-groups.png"
+      ],
+      "notes": "143 场景全部出图（含新增 queue-preview-mention，出图后按最终场景文本复截一次覆盖）；分步交互场景 -step 截图齐全；脚本输出无「! 等…超时」告警、无缺图；本次改动命中 renderQueueItem 单点 DOM，未触碰容器级/通配 CSS 规则，全量截图抽查（conversation/empty/goal-stack/steering-pending/mention-chips/composer-clear-after-send/attachment-uniform）未见其他区域排版回退。",
+      "driver": null
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "typecheck + 569 单测 + build 全绿",
+      "expect": "npm run typecheck 无错误；npm test 569 pass / 0 fail；npm run build 成功产出 dist/extension.js + dist/chatWebview.js + dist/sessionsWebview.js + dist/spawnDsh.js。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "typecheck 通过；node --test 569 pass / 0 fail（含 userBubble/sessionMention 既有套件）；build 产出四个 bundle 无报错；gen-ui-harness 重抽 test/ui/style.css 后 harness 加载正常（无样式失配）。",
+      "driver": null
+    }
+  ]
+}
