@@ -9,6 +9,12 @@ import {
   parseFollowStreamFrame,
 } from '../pure/remoteFrames.ts'
 import type { EventStreamFrame, WorkspaceStreamFrame } from '../pure/remoteFrames.ts'
+import {
+  applyControlFrame,
+  createControlSnapshot,
+  replayControlSnapshot,
+  type ControlSnapshot,
+} from '../pure/controlSnapshot.ts'
 import { sendWaterfallResult } from './dshRpc.ts'
 
 /**
@@ -193,6 +199,11 @@ interface ControlStreamState {
   attempts: number
   closed: boolean
   logger: Logger
+  /**
+   * Baseline + 增量的合并快照（见 pure/controlSnapshot.ts）：服务端只在流
+   * 创建时发一次 baseline，晚订阅者需要它恢复排队消息/任务/投影的当前状态。
+   */
+  snapshot: ControlSnapshot
 }
 
 const controlStreams = new Map<string, ControlStreamState>()
@@ -205,12 +216,19 @@ export function subscribeControlStream(
 ): Disposable {
   let state = controlStreams.get(origin)
   if (state === undefined) {
-    state = { handlers: new Set(), subscription: null, timer: null, attempts: 0, closed: false, logger }
+    state = { handlers: new Set(), subscription: null, timer: null, attempts: 0, closed: false, logger, snapshot: createControlSnapshot() }
     controlStreams.set(origin, state)
   }
   state.handlers.add(onFrame)
   state.closed = false
   startControlStream(origin, logger, state)
+  // Late subscriber: replay the merged snapshot it missed (the baseline was
+  // sent once, at stream creation; increments since then are not re-sent).
+  // Covering the reconnect-gap case too: the last known state is better than
+  // nothing, and the fresh baseline after reconnect replaces it wholesale.
+  // Symmetric with the $events stream's pending-waterfall replay above.
+  const replay = replayControlSnapshot(state.snapshot)
+  if (replay !== null) onFrame(replay)
   return {
     dispose(): void {
       state.handlers.delete(onFrame)
@@ -238,6 +256,7 @@ function startControlStream(origin: string, logger: Logger, state: ControlStream
       onItem(value: unknown) {
         const frame = parseControlStreamFrame(value)
         if (frame === null) return
+        applyControlFrame(state.snapshot, frame)
         for (const handler of state.handlers) handler(frame)
       },
       onError() {
