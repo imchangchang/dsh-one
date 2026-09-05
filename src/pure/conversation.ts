@@ -665,9 +665,9 @@ export class ConversationFolder {
               (m): m is ChatCommandMessage => m.kind === 'command' && m.id === checkpoint.sourceCommandId,
             )
             if (cmd) cmd.compaction = compaction
-            else this.msgs.push({ kind: 'compaction', id: checkpoint.compactionId, ...compaction })
+            else this.msgs.push({ kind: 'compaction', id: checkpoint.compactionId, seq: event.seq, ...compaction })
           } else {
-            this.msgs.push({ kind: 'compaction', id: checkpoint.compactionId, ...compaction })
+            this.msgs.push({ kind: 'compaction', id: checkpoint.compactionId, seq: event.seq, ...compaction })
           }
           // 与普通 user/message 一样切断当前 assistant 消息：checkpoint 之后
           // 的内容另起一条（官方按 seq 位置渲染成独立节点）。
@@ -707,6 +707,7 @@ export class ConversationFolder {
           kind: 'user',
           id,
           text,
+          seq: event.seq,
           ...(context ? { context } : {}),
           ...(images.length > 0 ? { images } : {}),
           ...(files.length > 0 ? { files } : {}),
@@ -747,7 +748,7 @@ export class ConversationFolder {
         const commandId = typeof data.commandId === 'string' && data.commandId ? data.commandId : `command-${event.seq}`
         const name = typeof data.name === 'string' ? data.name : 'command'
         const args = typeof data.args === 'string' && data.args.trim() ? data.args.trim() : undefined
-        this.msgs.push({ kind: 'command', id: commandId, name, ...(args ? { args } : {}), status: 'running' })
+        this.msgs.push({ kind: 'command', id: commandId, name, seq: event.seq, ...(args ? { args } : {}), status: 'running' })
         return true
       }
       case 'command/done': {

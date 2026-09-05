@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
-import type { ChatState, ChatGoal, ChatTodoItem, ChatFile, ChatImage, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem, StagedFile } from '../pure/chatContract.ts'
+import type { ChatState, ChatGoal, ChatTodoItem, ChatFile, ChatImage, ChatTurnOutlineEntry, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem, StagedFile } from '../pure/chatContract.ts'
 import { ConversationFolder, applyFeedbackRatings, imagesOfBlocks } from '../pure/conversation.ts'
 import { splitAttachmentLines } from '../pure/composerAttachment.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
@@ -369,6 +369,10 @@ export class ChatSessionController implements vscode.Disposable {
   /** Plan-mode state from the `plan` projection (higher seq wins); undefined = host has no plan projection. */
   private plan: { active: boolean; pending: boolean } | undefined
   private planSeq = -1
+  /** turnOutline 投影的水位线（higher seq wins；与 title 同套基线）。 */
+  private turnOutlineSeq = -1
+  /** 整份日志的回合大纲（官方 session-turn-outline 投影）；undefined = 无投影。 */
+  private turnOutline: ChatTurnOutlineEntry[] | undefined
   /** Footer model pill, filled by refreshModels(). */
   private modelLabel: string | undefined
   /**
@@ -439,6 +443,7 @@ export class ChatSessionController implements vscode.Disposable {
       modelAvailable: this.modelRoutable,
       permissions: this.permissions,
       plan: this.plan,
+      ...(this.turnOutline !== undefined ? { turnOutline: this.turnOutline } : {}),
       statsLine: this.statsLine,
       todos: this.todos,
       goal: this.goal,
@@ -695,6 +700,42 @@ export class ChatSessionController implements vscode.Disposable {
     }
   }
 
+  /**
+   * 回合跳转（轨道栏点击未载入回合）：循环 loadEarlier 直到窗口覆盖目标 seq
+   * （turn/start 的 seq——翻过它就是覆盖整个回合），再返回窗口内「第一条
+   * seq ≥ 目标」的消息 id（目标回合的首行锚，webview 按它滚动定位）。
+   * 翻不动（日志有洞/页失败）或覆盖不到时返回 null，webview 静默不动。
+   */
+  async jumpToTurn(seq: number): Promise<string | null> {
+    if (!this.ready || !Number.isSafeInteger(seq) || seq < 0) return null
+    // 在途的「加载更早」先落地，避免窗口状态与并发翻页互相打架。
+    for (let i = 0; i < 100 && this.loadingEarlier; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    if (this.disposed) return null
+    let guard = 0
+    while (
+      guard < 200 &&
+      this.historyCursor.earliestSeq !== undefined &&
+      this.historyCursor.earliestSeq > seq &&
+      this.historyCursor.hasMore
+    ) {
+      const before = this.historyCursor.earliestSeq
+      await this.loadEarlier()
+      if (this.disposed) return null
+      // 一页没挪动（日志有洞/页失败）：停止翻页，不硬拼。
+      if (this.historyCursor.earliestSeq === before) break
+      guard += 1
+    }
+    // 覆盖不到目标（窗口首 seq 仍大于目标）= 日志里没有该 seq，无锚可定位。
+    if (this.historyCursor.earliestSeq !== undefined && this.historyCursor.earliestSeq > seq) return null
+    for (const m of this.folder.messages()) {
+      const s = (m as { seq?: unknown }).seq
+      if (typeof s === 'number' && s >= seq) return m.id
+    }
+    return null
+  }
+
   /** Fetch messageFeedback/list and merge the ratings into the folded messages. */
   private async refreshFeedback(): Promise<void> {
     const items = await listMessageFeedback(this.url, this.sessionId)
@@ -807,6 +848,7 @@ export class ChatSessionController implements vscode.Disposable {
       this.todosSeq = projections.asOfSeq
       this.planSeq = projections.asOfSeq
       this.goalSeq = projections.asOfSeq
+      this.turnOutlineSeq = projections.asOfSeq
       this.applyProjectionValues(projections.values)
     }
   }
@@ -821,6 +863,7 @@ export class ChatSessionController implements vscode.Disposable {
     this.applyTodosValue(values.todos)
     this.applyPlanValue(values.plan)
     this.applyGoalValue(values.goal)
+    this.applyTurnOutlineValue(values.turnOutline)
     const limits = asImageLimits(values.imageLimits)
     if (limits) this.imageLimits = limits
     const pressure = asContextPressure(values.contextPressure)
@@ -926,6 +969,7 @@ export class ChatSessionController implements vscode.Disposable {
       this.todosSeq = projections.asOfSeq
       this.planSeq = projections.asOfSeq
       this.goalSeq = projections.asOfSeq
+      this.turnOutlineSeq = projections.asOfSeq
       this.applyProjectionValues(projections.values)
     }
     this.logger.info(`chat: follow baseline applied for ${this.sessionId} (cursor ${String(snapshot.cursor)}, ${String(entries.length)} records)`)
@@ -1262,6 +1306,42 @@ export class ChatSessionController implements vscode.Disposable {
     }
   }
 
+  /**
+   * Fold one `turnOutline` projection value（官方 session-turn-outline 的 wire
+   * 视图：{turn, seq, prompt, response} 数组，turn 严格递增）。逐条校验形状；
+   * 任一畸形（非 int / 非字符串 / turn 不递增）整条丢弃并保留 last good——
+   * 轨道栏宁可少一个点，不渲染错误点。
+   */
+  private applyTurnOutlineValue(value: unknown): void {
+    if (!Array.isArray(value)) return
+    let previous = -1
+    const entries: ChatTurnOutlineEntry[] = []
+    for (const raw of value) {
+      if (!raw || typeof raw !== 'object') return
+      const item = raw as Record<string, unknown>
+      const turn = item.turn
+      const seq = item.seq
+      const prompt = item.prompt
+      const response = item.response
+      if (
+        typeof turn !== 'number' ||
+        !Number.isSafeInteger(turn) ||
+        turn < 0 ||
+        typeof seq !== 'number' ||
+        !Number.isSafeInteger(seq) ||
+        seq < 0 ||
+        typeof prompt !== 'string' ||
+        typeof response !== 'string'
+      ) {
+        return
+      }
+      if (turn <= previous) return
+      previous = turn
+      entries.push({ turn, seq, prompt, response })
+    }
+    this.turnOutline = entries
+  }
+
   private onFrame(frame: MuxFrame): void {
     if (this.disposed) return
     const payload = (frame.payload ?? {}) as Record<string, unknown>
@@ -1369,6 +1449,13 @@ export class ChatSessionController implements vscode.Disposable {
             if (seq <= this.goalSeq) return
             this.goalSeq = seq
             this.applyGoalValue(payload.value)
+            this.push(true)
+            return
+          }
+          case 'turnOutline': {
+            if (seq <= this.turnOutlineSeq) return
+            this.turnOutlineSeq = seq
+            this.applyTurnOutlineValue(payload.value)
             this.push(true)
             return
           }

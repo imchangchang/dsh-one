@@ -361,10 +361,11 @@ test('applyHistory resets state for a re-baseline', () => {
   f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: 'stale' }))
   assert.equal(f.hasOpenTurn(), true)
 
+  const before = seq
   f.applyHistory([{ event: userEv('u1', 'only user text') }])
   assert.equal(f.messages().length, 1)
   assert.equal(f.hasOpenTurn(), false)
-  assert.deepEqual(f.messages()[0], { kind: 'user', id: 'u1', text: 'only user text' })
+  assert.deepEqual(f.messages()[0], { kind: 'user', id: 'u1', text: 'only user text', seq: before + 1 })
 })
 
 test('user messages keep image content parts as attachment references', () => {
@@ -449,6 +450,7 @@ test('tool output is kept in full (no folding-layer truncation)', () => {
 
 test('host-injected context user messages are flagged, human input is not', () => {
   const f = new ConversationFolder()
+  const before = seq
   f.applyEvent(userEv('u1', 'real question'))
   f.applyEvent(
     ev('user/message', {
@@ -468,15 +470,17 @@ test('host-injected context user messages are flagged, human input is not', () =
   )
 
   const [human, instructions, snapshot] = f.messages()
-  assert.deepEqual(human, { kind: 'user', id: 'u1', text: 'real question' })
+  assert.deepEqual(human, { kind: 'user', id: 'u1', text: 'real question', seq: before + 1 })
   // form='instructions' 声明了但该消息没带 changes，all-or-nothing 校验失败 → 只留 kind 退化 opaque。
   assert.deepEqual(instructions, {
     kind: 'user',
     id: 'ctx1',
     text: '<system-reminder>\nworkspace instructions…',
+    seq: before + 2,
     context: { kind: 'agent-instructions' },
   })
   assert.equal(snapshot.kind, 'user')
+  assert.equal((snapshot as { seq?: number }).seq, before + 3)
   assert.deepEqual((snapshot as { context?: unknown }).context, { kind: 'plugin' })
 })
 
@@ -492,6 +496,7 @@ test('user message without source falls back to the system-reminder prefix', () 
 
 test('session-reference context attaches its references to the triggering user message', () => {
   const f = new ConversationFolder()
+  const before = seq
   f.applyEvent(userEv('u1', '@会话甲 这个看下'))
   f.applyEvent(
     ev('user/message', {
@@ -515,6 +520,7 @@ test('session-reference context attaches its references to the triggering user m
     kind: 'user',
     id: 'u1',
     text: '@会话甲 这个看下',
+    seq: before + 1,
     references: [{ sessionId: 'id-1', label: '会话甲' }],
   })
   // recall form 的 references 取有 label 的条目（畸形 sessionId 条目被丢弃）。
@@ -729,6 +735,7 @@ test('turn/end 落在历史窗口外（本 turn 无消息可找回）时不标�
 
 test('command/run pushes a running flow node and command/done settles it', () => {
   const f = new ConversationFolder()
+  const before = seq
   f.applyEvent(ev('command/run', { commandId: 'cmd-1', name: 'compact', source: { kind: 'user' } }))
   f.applyEvent(ev('command/run', { commandId: 'cmd-2', name: 'permission', args: 'read-only', source: { kind: 'user' } }))
   f.applyEvent(ev('command/done', { commandId: 'cmd-1', kind: 'success', text: 'Compacted 12 history items (~900 tokens).' }))
@@ -739,6 +746,7 @@ test('command/run pushes a running flow node and command/done settles it', () =>
     kind: 'command',
     id: 'cmd-1',
     name: 'compact',
+    seq: before + 1, // command/run 事件的 seq：回合跳转定位用（seq >= 目标 的首行锚）。
     status: 'success',
     text: 'Compacted 12 history items (~900 tokens).',
   })
@@ -747,6 +755,7 @@ test('command/run pushes a running flow node and command/done settles it', () =>
     id: 'cmd-2',
     name: 'permission',
     args: 'read-only',
+    seq: before + 2,
     status: 'error',
     text: 'unknown preset "x"',
   })

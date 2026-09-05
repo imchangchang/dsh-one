@@ -173,6 +173,11 @@ export interface ChatUserMessage {
   /** Non-image files attached to this message (parsed back out of the prompt text). */
   files?: ChatFile[]
   /**
+   * 折叠进本消息的最后一条事件的 seq（user/message 事件本身）。回合导航的
+   * 跳转定位用它：「第一条 seq ≥ turn/start seq 的消息」就是目标回合的首行。
+   */
+  seq?: number
+  /**
    * Host-injected context masquerading as a user message (source.kind from
    * the user/message event, e.g. 'agent-instructions' or a plugin snapshot).
    * Absent for genuine human input. The UI collapses these by default.
@@ -294,6 +299,24 @@ export interface ChatTurnTiming {
 }
 
 /**
+ * 回合导航轨道栏的一条（官方 session-turn-outline 投影的 wire 视图
+ * {turn, seq, prompt, response}）：turn/start 的 seq 是跳转加载目标
+ * （翻页覆盖它即覆盖整个回合），prompt/response 是预览文本（已裁剪）。
+ * 带回合边界校验（turn 严格递增、seq/prompt/response 形状合法），畸形整条
+ * 丢弃——轨道栏宁可少一个点，不渲染错误点。
+ */
+export interface ChatTurnOutlineEntry {
+  /** 回合序号（turn/start 的 data.turn，0 起）。 */
+  turn: number
+  /** turn/start 事件的 seq（跳转翻页目标；seq < turn 内其他事件）。 */
+  seq: number
+  /** 首个人类 prompt 的预览（≤50 字符，未到则空串）。 */
+  prompt: string
+  /** 末条文字回答的预览（≤120 字符，未到则空串）。 */
+  response: string
+}
+
+/**
  * One slash-command lifecycle (dsh `command/run` + `command/done` pair),
  * rendered as a flow node like the official web client does.
  */
@@ -306,6 +329,8 @@ export interface ChatCommandMessage {
   status: 'running' | 'success' | 'error'
   /** Handler receipt text from command/done, when the handler produced one. */
   text?: string
+  /** command/run 事件的 seq（跳转定位用：第一条 seq ≥ 目标的消息）。 */
+  seq?: number
   /**
    * 手动 /compact 的压缩摘要（对齐官方 CompactionCommandCard）：checkpoint
    * user/message 的 source.sourceCommandId 命中本命令卡时挂上来，命令卡就此
@@ -330,6 +355,8 @@ export interface ChatCompactionMessage {
   items: number | null
   /** 被替换内容的估计 token 数；同上。 */
   tokens: number | null
+  /** checkpoint user/message 事件的 seq（跳转定位用）。 */
+  seq?: number
 }
 
 export type ChatMessage = ChatUserMessage | ChatAssistantMessage | ChatCommandMessage | ChatCompactionMessage
@@ -614,6 +641,15 @@ export interface ChatState {
    * projection — the webview renders no chip then (web PlanChip parity).
    */
   plan?: { active: boolean; pending: boolean }
+  /**
+   * 整份日志的回合大纲（官方 session-turn-outline 投影 wire 视图）：按
+   * turn/start 锚定收集 {turn, seq, prompt, response}，不依赖窗口——未载入
+   * 回合也在（预览文本在投影侧裁剪）。webview 在消息流右上渲染回合轨道栏，
+   * 点击未载入回合 = 翻页加载到目标 seq 后定位。投影缺失（host 无该投
+   * 影/服务端无该插件）时缺省，轨道栏不渲染。到达 = 首帧投影基线或
+   * session/projection（key=turnOutline）推送，整体替换。
+   */
+  turnOutline?: ChatTurnOutlineEntry[]
 }
 
 /**
@@ -830,6 +866,12 @@ export type ToWebviewMessage =
    * 失败的会话 id（成功即从列表消失）。webview 据此保留失败项勾选或退出多选模式。
    */
   | { type: 'archiveManyDone'; failed: string[] }
+  /**
+   * 回合跳转结果回传（webview 发 turnJump 后）：宿主翻页直到窗口覆盖目标
+   * seq，把目标回合的首行消息 id 发回；定位不到（日志有洞/窗口空/失败）时
+   * messageId 为 null，webview 静默不动。
+   */
+  | { type: 'turnJumped'; messageId: string | null }
 
 export type FromWebviewMessage =
   /** Webview 脚本加载完成（含 tab 切走后 VSCode 重载的场合）；宿主据此重推当前状态。 */
@@ -885,6 +927,11 @@ export type FromWebviewMessage =
   | { type: 'openPath'; path: string }
   /** 加载更早的一页历史（窗口分页；ChatState.hasEarlierHistory 为 true 时才有意义）。 */
   | { type: 'loadEarlier' }
+  /**
+   * 回合轨道栏点击（seq = 目标回合 turn/start 的 seq）：宿主循环翻页直到
+   * 窗口覆盖目标 seq，再经 turnJumped 回传定位消息 id。
+   */
+  | { type: 'turnJump'; seq: number }
   /** Open the official dsh install page in the system browser. */
   | { type: 'openInstallPage' }
   /** 对话里的外链（http/https/mailto 锚点）被点击；webview 已阻止自身导航。 */

@@ -631,6 +631,15 @@ const chatHandlers: ChatTabMessageHandler[] = [
       await host.controller?.loadEarlier()
     },
   },
+  {
+    types: ['turnJump'],
+    async handle(host, m) {
+      if (m.type !== 'turnJump') return
+      // 翻页覆盖目标 seq 后回传定位消息 id；定位不到（null）webview 静默。
+      const messageId = (await host.controller?.jumpToTurn(m.seq)) ?? null
+      host.postMessage({ type: 'turnJumped', messageId })
+    },
+  },
 ]
 
 /** 空会话 hero 的 workspace 选择器域（main 功能移植，按 tab 路由）。 */

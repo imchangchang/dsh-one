@@ -2309,9 +2309,9 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     interact: `document.querySelectorAll('.msg.context').forEach((d) => { d.open = true })`,
     title: '上下文注入：6 种 form 结构化 body',
     expect: '逐条带「（已随消息注入）」折叠卡的上下文（可展开，展开后 body 在 141px 内滚动）：① 工作区指令（instructions）→ [set/replace/remove] 文件变更列表（等宽字体），下方保留注入正文；② Runtime context（catalog）→ 顶部「目录已替换」提示 + 能力目录 entries（名称粗体 + 描述），下方保留正文；③ Runtime context（snapshot）→ 顶部「本快照取代先前版本」说明 + 分段（name 标题 + 正文）；④ Runtime context（notice）→ 折叠行 summary 追加「后台子代理完成通知」，展开后仅正文；⑤ Runtime context（relay）→「来自会话 sess-9」一行 + 正文；⑥ 跨会话召回（recall，行首 ReferenceIcon 聊天气泡图标）→ 每个召回会话「label · 保留 X / 省略 Y」+「已截断」标记 + 正文；⑦ 未知 form（mystery）→ 退化为纯正文（无结构化列表）。所有折叠卡行首图标：recall 用聊天气泡，其余用浏览图标；折叠头正文不换行溢出。',
-  },
+  }
 
-  'turn-usage-detail': {
+  catalog['turn-usage-detail'] = {
     state: base({
       messages: [
         u('帮我看看这里有没有内存泄漏。'),
@@ -2347,9 +2347,9 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     interact: `document.querySelector('.msg-actions .msg-usage-pill').click()`,
     title: 'token 用量明细：药丸 + 锚定弹窗',
     expect: '第一条已结束回答的操作栏尾部分别显示：计时行（用时 2分42秒 · 首 token 1.2秒 · 45.2 tok/s 等）、用量药丸「Usage 2.9K」；点击药丸后锚定小窗在药丸上方展开：标题「Turn usage」+ 精确总量 2,890；分隔线下四行明细：Provider / model → deepseek/deepseek-v4-flash, deepseek/deepseek-chat；Cache hit → 30.9%；Uncached input → 1,048；Cached input → 512；Cache write → 96；Output → 1,234（其中推理 432，灰字小号）。第二条回答（无可证明用量）无药丸，只有计时行。outside 点击/ Esc 关闭弹窗。',
-  },
+  }
 
-  'turn-usage-no-buckets': {
+  catalog['turn-usage-no-buckets'] = {
     state: base({
       messages: [
         u('只用输出计数一条样本。'),
@@ -2362,7 +2362,76 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     }),
     title: 'token 用量明细：缺计数不显示药丸（缺省语义）',
     expect: '已结束回答的操作栏只有计时行（时钟 + 用时 5秒），没有「Usage」药丸；无任何弹窗触发入口。',
-  },
+  }
+
+  // ---- 回合导航（轨道栏）场景 ----
+
+  catalog['turn-navigator'] = {
+    state: base({
+      hasEarlierHistory: true,
+      // 窗口只载入最后 3 个回合（turn 9-11）；turn 0-8 在窗口外（轨道栏仍显示）。
+      messages: (() => {
+        const msgs = []
+        for (let k = 9; k <= 11; k += 1) {
+          msgs.push({ kind: 'user', id: rid('u'), text: `第 ${k + 1} 个问题：继续推进。`, seq: 100 + k * 100 + 1 })
+          msgs.push({
+            kind: 'assistant', id: rid('a'), complete: true, turnEnd: true, seq: 100 + k * 100 + 99,
+            blocks: [{ type: 'text', text: `第 ${k + 1} 轮回答：已经推进完了。` }],
+          })
+        }
+        return msgs
+      })(),
+      // 整份日志 12 个回合的 outline（投影侧预览已裁剪）。
+      turnOutline: Array.from({ length: 12 }, (_, k) => ({
+        turn: k,
+        seq: 100 + k * 100,
+        prompt: `第 ${k + 1} 个问题：继续推进。`,
+        response: `第 ${k + 1} 轮回答：已经推进完了。这次改动覆盖了渲染与交互两条路径，剩余部分明天收尾。`,
+      })),
+    }),
+    title: '回合导航：竖直轨道栏（已载入/未载入同显）',
+    expect: '消息流右上角出现竖直轨道栏：12 条刻度（间距 10px），turn 0-8 未载入（半透明、较短），turn 9-11 已载入（实心），最新回合（turn 11）高亮蓝色；轨道栏悬浮于消息流上方（不占滚动流）；消息流顶部同时保留「Load earlier」按钮（hasEarlierHistory）。hover 任一刻度左侧弹出 preview 气泡（prompt 粗体一行 + response 三行省略裁剪）。',
+  }
+
+  catalog['turn-navigator-preview'] = {
+    state: base({
+      hasEarlierHistory: true,
+      messages: [
+        { kind: 'user', id: rid('u'), text: '第 10 个问题：继续推进。', seq: 1001 },
+        { kind: 'assistant', id: rid('a'), complete: true, turnEnd: true, seq: 1099, blocks: [{ type: 'text', text: '第 10 轮回答：已经推进完了。' }] },
+        { kind: 'user', id: rid('u'), text: '第 11 个问题：收尾。', seq: 1101 },
+        { kind: 'assistant', id: rid('a'), complete: true, turnEnd: true, seq: 1199, blocks: [{ type: 'text', text: '第 11 轮回答：收尾完成。' }] },
+      ],
+      turnOutline: [
+        { turn: 0, seq: 100, prompt: '第 1 个问题：开始。', response: '第 1 轮回答：开始做了。' },
+        { turn: 1, seq: 200, prompt: '第 2 个问题：继续。', response: '第 2 轮回答：继续做了。' },
+        { turn: 9, seq: 1000, prompt: '第 10 个问题：继续推进。', response: '第 10 轮回答：已经推进完了。' },
+        { turn: 10, seq: 1100, prompt: '第 11 个问题：收尾。', response: '第 11 轮回答：收尾完成。' },
+      ],
+    }),
+    interact: `document.querySelectorAll('.turn-rail-mark')[1].dispatchEvent(new MouseEvent('mouseenter'))`,
+    title: '回合导航：hover preview 气泡',
+    expect: '轨道栏 4 条刻度；hover 第 2 条（turn 1，未载入回合）时其左侧弹出 preview 气泡：首行粗体「第 2 个问题：继续。」（prompt，一行），下一行灰色小字「第 2 轮回答：继续做了。」（response，最多三行）；其他刻度无气泡；气泡带圆角卡片底+投影。',
+  }
+
+  catalog['turn-navigator-jump'] = {
+    state: base({
+      hasEarlierHistory: true,
+      messages: [
+        { kind: 'user', id: rid('u'), text: '第 11 个问题：收尾。', seq: 1101 },
+        { kind: 'assistant', id: rid('a'), complete: true, turnEnd: true, seq: 1199, blocks: [{ type: 'text', text: '第 11 轮回答：收尾完成。' }] },
+      ],
+      turnOutline: [
+        { turn: 0, seq: 100, prompt: '第 1 个问题：开始。', response: '第 1 轮回答：开始做了。' },
+        { turn: 1, seq: 200, prompt: '第 2 个问题：继续。', response: '第 2 轮回答：继续做了。' },
+        { turn: 2, seq: 300, prompt: '第 3 个问题：再继续。', response: '第 3 轮回答：再继续做了。' },
+        { turn: 10, seq: 1100, prompt: '第 11 个问题：收尾。', response: '第 11 轮回答：收尾完成。' },
+      ],
+    }),
+    interact: `document.querySelectorAll('.turn-rail-mark')[1].click()`,
+    title: '回合导航：点击未载入回合发布跳转',
+    expect: '点击 turn 1（未载入）刻度无报错；host 收到 turnJump（seq=200）（__posted 断言）；轨道栏与消息流保持原样（harness mock 无宿主响应）。',
+  }
 
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"

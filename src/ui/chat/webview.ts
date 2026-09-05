@@ -20,6 +20,7 @@ import type {
   ChatState,
   ChatTodoItem,
   ChatToolBlock,
+  ChatTurnOutlineEntry,
   ChatTurnUsage,
   ChatUserMessage,
   CommitInfoResult,
@@ -1265,6 +1266,10 @@ window.addEventListener('message', (event) => {
     fileRefResult = { key: fileRefRequestKey, items: Array.isArray(msg.items) ? msg.items : [] }
     const input = document.getElementById('input') as HTMLTextAreaElement | null
     if (input) updateSlashPopup(input)
+  } else if (msg?.type === 'turnJumped') {
+    // 回合跳转回执：宿主已翻页覆盖目标 seq，滚动定位到目标回合首行。
+    // 行元素可能因刚落的页还没 reconciliation 完，等多帧再滚。
+    scrollToMessageId(msg.messageId)
   }
 })
 
@@ -4336,6 +4341,111 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
 }
 
 /**
+ * 回合轨道栏（web parity: TurnNavigator 的垂直刻度栏）：数据源是 host 透传的
+ * turnOutline 投影（整份日志所有回合，未载入回合也在）。每个回合一条刻度：
+ * 已载入实心、未载入半透明；hover 显示 preview 气泡（prompt 一行 + response
+ * 三行，投影侧已裁剪）；点击发布 turnJump，host 翻页覆盖目标 seq 后经
+ * turnJumped 回传定位消息 id。mark 高度 10px、间距 10px（官方刻度几何）。
+ */
+const TURN_RAIL_SPACING = 10
+const TURN_RAIL_INSET = 6
+
+function renderTurnRail(entries: ChatTurnOutlineEntry[], messages: ChatMessage[]): HTMLElement {
+  const slot = el('div', 'turn-rail-slot')
+  const frame = el('nav', 'turn-rail-frame')
+  frame.setAttribute('aria-label', t('Turn navigation'))
+  const marks = el('div', 'turn-rail-marks')
+  marks.style.height = `${(entries.length - 1) * TURN_RAIL_SPACING + 2 * TURN_RAIL_INSET}px`
+  // 已载入判定：窗口首事件（消息最小 seq）≤ 回合锚点 seq 才算——主题口内容
+  // 在窗口里；窗口头切在回合中间（锚点在窗口外）按未载入显示（装饰性差异）。
+  let headSeq: number | undefined
+  for (const m of messages) {
+    const s = (m as { seq?: unknown }).seq
+    if (typeof s === 'number' && (headSeq === undefined || s < headSeq)) headSeq = s
+  }
+  const isLoaded = (seq: number): boolean => headSeq !== undefined && seq >= headSeq
+  const preview = el('div', 'turn-rail-preview')
+  const previewPrompt = el('div', 'turn-rail-preview-prompt')
+  const previewResponse = el('div', 'turn-rail-preview-response')
+  preview.appendChild(previewPrompt)
+  preview.appendChild(previewResponse)
+  entries.forEach((entry, index) => {
+    const position = el('div', 'turn-rail-mark-position')
+    position.style.top = `${index * TURN_RAIL_SPACING + TURN_RAIL_INSET}px`
+    const mark = el('button', 'turn-rail-mark') as HTMLButtonElement
+    mark.type = 'button'
+    const loaded = isLoaded(entry.seq)
+    if (!loaded) mark.classList.add('mark-unloaded')
+    // active = 最新回合（新近锚点；官方按视口阅读位跟随，此处取最新简化）。
+    if (index === entries.length - 1) mark.classList.add('mark-active')
+    const jumpLabel = loaded ? t('Jump to turn {0}', entry.turn) : t('Load turn {0}', entry.turn)
+    mark.title = jumpLabel
+    mark.setAttribute('aria-label', jumpLabel)
+    mark.addEventListener('click', () => post({ type: 'turnJump', seq: entry.seq }))
+    mark.addEventListener('mouseenter', () => {
+      const scroller = frame.querySelector<HTMLElement>('.turn-rail-scroller')
+      const scrollTop = scroller?.scrollTop ?? 0
+      const top = index * TURN_RAIL_SPACING + TURN_RAIL_INSET - scrollTop
+      preview.classList.add('show')
+      const height = preview.offsetHeight
+      const maxOffset = Math.max(0, frame.offsetHeight - height)
+      preview.style.top = `${Math.max(0, Math.min(top - height / 2, maxOffset))}px`
+      previewPrompt.textContent = entry.prompt || t('Turn {0}', entry.turn)
+      previewResponse.textContent = entry.response
+      previewResponse.style.display = entry.response === '' ? 'none' : ''
+    })
+    mark.addEventListener('mouseleave', () => preview.classList.remove('show'))
+    position.appendChild(mark)
+    marks.appendChild(position)
+  })
+  const scroller = el('div', 'turn-rail-scroller')
+  scroller.appendChild(marks)
+  frame.appendChild(scroller)
+  frame.appendChild(preview)
+  slot.appendChild(frame)
+  return slot
+}
+
+/**
+ * 回合跳转落点（turnJumped 回执）：释放吸底并滚动定位到目标消息行。行可能
+ * 因新页刚落尚未 reconcile，队列多帧重试（最多 ~20 帧），找不到静默。
+ */
+function scrollToMessageId(messageId: string | null): void {
+  if (!messageId) return
+  stickToBottom = false
+  const messages = document.getElementById('messages')
+  if (!messages) return
+  const rowKey = `msg:${messageId}`
+  let attempts = 0
+  const tryScroll = (): void => {
+    let row: Element | null = null
+    for (const child of Array.from(messages.querySelectorAll('[data-flow-key]'))) {
+      if (child.getAttribute('data-flow-key') === rowKey) {
+        row = child
+        break
+      }
+    }
+    if (row) {
+      const target = Math.max(
+        0,
+        row.getBoundingClientRect().top - messages.getBoundingClientRect().top + messages.scrollTop - 8,
+      )
+      messages.scrollTop = target
+      pinnedScrollTop = messages.scrollTop
+      markProgramPin()
+      const jump = messages.querySelector<HTMLElement>('.jump-latest')
+      if (jump) jump.style.display = 'none'
+      return
+    }
+    if (attempts < 20) {
+      attempts += 1
+      requestAnimationFrame(tryScroll)
+    }
+  }
+  tryScroll()
+}
+
+/**
  * 消息流增量更新（替代每快照 textContent='' 全量重建）：
  *
  * 每个快照按当前 state 算出一份「期望流」（older 入口、消息行 + workflow 卡按
@@ -4384,6 +4494,20 @@ let flowLastNotices: string[] = []
  */
 function buildFlowItems(state: ChatState): FlowItem[] {
   const items: FlowItem[] = []
+  // 回合轨道栏（web parity: TurnNavigator）：整份日志的回合刻度，未载入回合
+  // 同显可点（click → host 翻页 → 定位）。放在流首（sticky 悬浮层，DOM 顺序
+  // 不影响视觉与对账）；≥2 回合才有导航意义，单回合/无投影不渲染。
+  const outline = state.turnOutline
+  if (outline !== undefined && outline.length >= 2) {
+    const sig = JSON.stringify(outline)
+    const same = flowRailSig === sig
+    flowRailSig = sig
+    items.push({
+      key: 'turn-rail',
+      same,
+      create: () => renderTurnRail(outline, state.messages),
+    })
+  }
   // 「加载更早」入口（对齐官方 dsh web ChatView 的分页按钮）：还有更早历史
   // 或一页正在加载时显示在消息流顶部。
   if (state.hasEarlierHistory || state.loadingEarlier === true) {
@@ -4500,6 +4624,8 @@ function buildFlowItems(state: ChatState): FlowItem[] {
 }
 
 let olderWasLoading = false
+/** 上一帧回合大纲的签名（turn-rail 复用判断；仅用于 same 对账）。 */
+let flowRailSig = ''
 
 /**
  * 期望流与容器现有 child 对账（单遍指针 + key 索引）：

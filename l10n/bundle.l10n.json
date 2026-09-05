@@ -436,4 +436,9 @@
   "({0} reasoning)": "({0} reasoning)",
   "{0}K": "{0}K",
   "{0}M": "{0}M"
+,
+  "Turn navigation": "Turn navigation",
+  "Jump to turn {0}": "Jump to turn {0}",
+  "Load turn {0}": "Load turn {0}",
+  "Turn {0}": "Turn {0}"
 }
