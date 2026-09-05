@@ -15,14 +15,15 @@
 - 标记槽固定 16px、内容水平居中——绿点（6px）/黄点（6px）/像素环（10px）中心共线；垂直与行中心对齐（覆盖 `.session-main` 的 baseline）。
 - 行首状态槽只放置顶图钉（常驻，空闲留空）；「置顶被挤出后退到标题前」的补偿逻辑删除。
 - 多选模式、回收站行、归档确认 modal 不受影响；回收站行的同类行渲染（renderSessionRow 的回收站版本）一并同步。
+- **排序**（用户补充确认）：行尾标记与时间互斥后，活跃会话（running/运行中后代/未读/待交互）排序整体前置——所有排序模式生效，活跃组内固定按 updatedAt 降序。与标签组聚合（session-tag-groups）的层级：置顶 > 组块序（分了组的靠前，组块内每个组内部排序）> 活跃层 > sort 键。
 
 原型：`.prototype/session-row-prototype.html` / `.png`（临时目录，实现后可不保留）。
 
 ## 涉及代码位置
 
 - `src/ui/sessionsWebview.ts`：`renderSessionRow`（主列表 + 回收站列表两处行渲染）——行尾互斥槽、行首槽只剩图钉、删除 session-pin 补偿分支。
-- `src/ui/sessionsView.ts`：行尾槽 CSS（`.slot-rear` 思路）、删除 `.session-pin` 相关补偿样式。
-- `src/pure/sessionTree.ts` 不动（模型无变化，`description` 仍为相对时间文案，渲染层决定何时不用它）。
+- `src/ui/sessionsView.ts`：行尾槽 CSS（`.session-rear`）、删除 `.session-pin` 相关补偿样式。
+- `src/pure/sessionTree.ts`：非置顶会话排序加「活跃优先」层（`active` 预计算 + 组内比较器），有运行中后代的判定 memo 化；与标签组聚合合入后组内生效。
 
 ## 变更记录
 
