@@ -42,3 +42,5 @@
 - 2026-09-06 认领 → doing。用户拍板开工：方案 1+2 组合——行内码路径形状可点击打开（复用 isFilePathHref 与宿主 openPath），其余行内码 hover 复制按钮。
 
 - 2026-09-06 开发完成，自测通过 → done（worktree: agent/chat-inline-code-path-interact，done 标记 c43bf87；沙盒验收 F-01..F-04 + R-01 全 pass，报告 test/sandbox/verify.chat-inline-code-path-interact.report.html）
+
+- 2026-09-06 主线合入测试通过（591 tests + build），人工确认 → closed（merge commit 4d3f223）
