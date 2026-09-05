@@ -423,8 +423,7 @@
   "No groups yet. Create one from the group bar above.": "No groups yet. Create one from the group bar above.",
   "Open folder in a new window": "Open folder in a new window",
   "Path copied to clipboard": "Path copied to clipboard",
-  "Workspace: {0}": "Workspace: {0}"
-,
+  "Workspace: {0}": "Workspace: {0}",
   "Usage {0}": "Usage {0}",
   "Turn usage": "Turn usage",
   "Provider / model": "Provider / model",
@@ -435,8 +434,7 @@
   "Output": "Output",
   "({0} reasoning)": "({0} reasoning)",
   "{0}K": "{0}K",
-  "{0}M": "{0}M"
-,
+  "{0}M": "{0}M",
   "Turn navigation": "Turn navigation",
   "Jump to turn {0}": "Jump to turn {0}",
   "Load turn {0}": "Load turn {0}",
@@ -461,5 +459,6 @@
   "{0} {1} overdue": "{0} {1} overdue",
   "Read Only": "Read Only",
   "Workspace Write": "Workspace Write",
-  "Full access": "Full access"
+  "Full access": "Full access",
+  "The {0} command is not provided by this dsh host (check the session agent preset or the dsh version)": "The {0} command is not provided by this dsh host (check the session agent preset or the dsh version)"
 }

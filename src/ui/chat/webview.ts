@@ -381,6 +381,9 @@ function panelStateFor(rpcId: string): { page: number; minimized: boolean; skipp
  * serves the same six; `model` below is our own submenu entry — the host has
  * no /model command). Commands execute via commands/execute, not session.prompt.
  * `hint` mirrors the host's input hint and drives the composer's arg hints.
+ * The six host names are also asserted host-side (HOST_SLASH_COMMAND_NAMES in
+ * pure/slashCommand.ts) to explain a host-rejected-but-advertised command;
+ * keep the two lists in sync.
  */
 const SLASH_COMMANDS: Array<{ name: string; description: string; hint?: string }> = [
   { name: 'compact', description: t('Compact older session history') },
