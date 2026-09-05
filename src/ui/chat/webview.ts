@@ -6716,6 +6716,14 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   }
   renderRefLayer()
 
+  /** 滚动窗口兜底同步：input/compositionend 事件时 textarea 的光标滚入视野还没
+   *  发生（读到的 scrollTop 是滚动前的值），rAF 在浏览器完成布局后、绘制前重读
+   *  最终 scrollTop 重新同步——显示窗口跟光标不押注在 scroll 事件派发上（回归
+   *  composer-caret-follow-sync）。 */
+  const syncRefLayerScroll = (): void => {
+    if (input.isConnected) refContent.style.transform = `translateY(${-input.scrollTop}px)`
+  }
+
   /** hover 联动：token 高亮加深 + 对应附件 chip 高亮（直接 DOM 操作，不整页重渲染）。
    *  span 里存的是 canonical 引用（`@/abs/path` 或 `@"..."`），chip 上存的是
    *  纯路径——匹配前归一化（去 @ 与引号），否则永远对不上。 */
@@ -6995,6 +7003,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     refLayer.style.display = ''
     input.style.color = 'transparent'
     renderRefLayer()
+    requestAnimationFrame(syncRefLayerScroll)
   })
   input.addEventListener('input', () => {
     autoGrow(input)
@@ -7002,6 +7011,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     updateClearAll()
     updateSlashPopup(input)
     renderRefLayer()
+    requestAnimationFrame(syncRefLayerScroll)
     // 纯输入不触发 render，脏位上报单独跟一次（宿主的 dirty 保护决策读它）。
     reportComposerDirty()
   })
