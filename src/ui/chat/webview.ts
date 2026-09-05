@@ -945,9 +945,17 @@ function applyCommitHashState(span: HTMLElement): void {
  *  离开 chip 延迟 120ms 关闭（指针移向卡片留缓冲），进卡片即取消。 */
 let commitCardHoverTimer: ReturnType<typeof setTimeout> | null = null
 
-function onCommitHashHover(span: HTMLElement, show: boolean): void {
+function onCommitHashHover(span: HTMLElement, show: boolean, ev?: MouseEvent): void {
   if (!show) {
     if (!popover) return
+    // 流式重建把 chip「先插新后删旧」：旧元素被摘除时浏览器补发的 mouseleave
+    // 坐标还停在 chip 上——此时指针下已是新 chip（elementFromPoint 判定），
+    // 不排延迟关闭，卡片交给行重建后的 reanchorPopoverAfterRebuild 接管；
+    // 否则每帧重建都触发「关→开」，就是用户看到的卡片一直跳。
+    if (ev !== undefined && ev.clientX !== undefined && ev.clientY !== undefined) {
+      const under = document.elementFromPoint(ev.clientX, ev.clientY)
+      if (under instanceof HTMLElement && under.classList.contains('commit-hash')) return
+    }
     if (commitCardHoverTimer !== null) return
     commitCardHoverTimer = setTimeout(() => {
       commitCardHoverTimer = null
@@ -1000,7 +1008,7 @@ function commitHashEl(sha: string): HTMLElement {
     }
   })
   span.addEventListener('mouseenter', () => onCommitHashHover(span, true))
-  span.addEventListener('mouseleave', () => onCommitHashHover(span, false))
+  span.addEventListener('mouseleave', (e) => onCommitHashHover(span, false, e))
   applyCommitHashState(span)
   noteCommitInfoRequest(sha)
   return span
@@ -1460,6 +1468,60 @@ function showPopoverAt(x: number, y: number, body: HTMLElement): void {
   document.addEventListener('mousedown', onPopoverOutside, true)
   document.addEventListener('keydown', onPopoverKey, true)
   window.addEventListener('blur', onPopoverBlur)
+}
+
+/** 重建后能在新 DOM 里按身份找回替代元素的弹层锚点类型；其余类型的锚点被
+ *  重建摘除时只能关闭。新增类型要答「新元素凭什么唯一对应旧元素」。 */
+function reanchorablePopoverAnchor(anchor: HTMLElement): boolean {
+  return (
+    (anchor.classList.contains('commit-hash') && anchor.dataset.sha !== undefined) ||
+    anchor.classList.contains('msg-usage-pill') ||
+    anchor.classList.contains('install-script-platform')
+  )
+}
+
+/** 在重建后的新 DOM 里找同身份的替代锚点。消息行内的类型限同 flow 行
+ *  （data-flow-key 由 reconcileFlow 写入、跨重建稳定），避免同 sha 在多条消息
+ *  并存时锚到别的行。 */
+function findPopoverAnchorReplacement(anchor: HTMLElement): HTMLElement | null {
+  const rowKey = anchor.closest<HTMLElement>('[data-flow-key]')?.getAttribute('data-flow-key') ?? null
+  if (anchor.classList.contains('commit-hash') && anchor.dataset.sha !== undefined) {
+    const sha = CSS.escape(anchor.dataset.sha)
+    const scoped =
+      rowKey !== null
+        ? document.querySelector<HTMLElement>(
+            `[data-flow-key="${CSS.escape(rowKey)}"] .commit-hash[data-sha="${sha}"]`,
+          )
+        : null
+    return scoped ?? document.querySelector<HTMLElement>(`.commit-hash[data-sha="${sha}"]`)
+  }
+  if (anchor.classList.contains('msg-usage-pill') && rowKey !== null) {
+    return document.querySelector<HTMLElement>(`[data-flow-key="${CSS.escape(rowKey)}"] .msg-usage-pill`)
+  }
+  if (anchor.classList.contains('install-script-platform')) {
+    return document.querySelector<HTMLElement>('.install-script-platform')
+  }
+  return null
+}
+
+/** 重建点（流式行对账、空态整块重建）之后收尾弹层：锚点还在 → 按实时布局
+ *  重定位（卡片/菜单随锚点移动）；被摘除 → 找同身份替代元素接住，卡片不闪
+ *  关闪开（流式每帧重建行时 chip 每帧被摘，不重锚就是「正在输出时卡片一直
+ *  跳/闪没」）；找不到替代才关闭。 */
+function reanchorPopoverAfterRebuild(): void {
+  if (popover === null || popoverAnchor === null) return
+  const anchor = popoverAnchor
+  if (anchor.isConnected) {
+    positionPopover()
+    return
+  }
+  const replacement = findPopoverAnchorReplacement(anchor)
+  if (replacement !== null) {
+    popoverAnchor = replacement
+    positionPopover()
+  } else {
+    closePopover()
+  }
 }
 
 /**
@@ -2990,11 +3052,14 @@ function render(): void {
   // stay open across snapshot renders — re-anchor in case the layout shifted
   // under them; only close when the rebuild above actually removed the anchor.
   // popoverAnchor === null：坐标定位菜单（会话右键），没有锚点，保持原样。
+  // 可重锚类型（commit chip / 用量药丸 / 安装脚本平台）被摘除时不在这里关闭：
+  // 本帧重建可能在更后面才挂上替代元素（空态 appendChild 在存活检查之后），
+  // 由各重建点末尾的 reanchorPopoverAfterRebuild 收尾（重锚或关闭）。
   if (popover) {
     if (popoverAnchor === null) {
       // 坐标定位：不关闭、不 reposition。
     } else if (popoverAnchor.isConnected) positionPopover()
-    else closePopover()
+    else if (!reanchorablePopoverAnchor(popoverAnchor)) closePopover()
   }
   if (!state || !state.sessionId) {
     lastComposerSig = null
@@ -3007,6 +3072,8 @@ function render(): void {
     // 清掉避免滞留到下一个同 key 会话的 composer 上。
     pendingStash = null
     chatCol.appendChild(renderEmpty(state))
+    // 空态整块重建（dshNotFound 的安装脚本等锚点在里面）：重建后收尾重锚。
+    reanchorPopoverAfterRebuild()
     return
   }
   // 历史基线加载中：旧视图已被上面跳过清理而保留，这里只在确实没有任何
@@ -3043,6 +3110,7 @@ function render(): void {
       chatCol.appendChild(renderHero(state, draft))
       // 本帧消费了恢复草稿，标志清零；loading 帧/pending 帧不走这里，标志保留。
       draftRestoreFor = null
+      reanchorPopoverAfterRebuild()
       pendingStash = null
       const input = document.getElementById('input') as HTMLTextAreaElement
       autoGrow(input)
@@ -3253,6 +3321,9 @@ function render(): void {
     turnStatusStart = null
   }
   reconcileFlow(messages, buildFlowItems(state))
+  // 流式行重建把行内弹层锚点（commit chip / 用量药丸）摘掉了：立即按同身份
+  // 替代元素重锚，卡片随行增长移动而不是闪关闪开。
+  reanchorPopoverAfterRebuild()
   // 正文 commit hash 的「先查后亮」：把本次 render 新建行里发现的 hash 批量上报宿主查询。
   flushCommitInfoRequests()
   // "Back to latest" floater（jump-latest 是流的末位项，由对账保活/重建）。

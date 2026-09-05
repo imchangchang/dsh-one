@@ -508,6 +508,53 @@
       expect: '助手消息文本里 "351a766" 渲染成 commit-hash chip：先查后亮——interact 回传 found 后 chip 为已点亮态（.commit-hash-found，链接色，可点击），且行内 code 里也不例外。400ms 后鼠标 enter 触发悬浮卡（.commit-card popover，定位 chip 下方）：内容自上而下——① 作者行：account 图标 + cgeng（链接色，mailto：cgeng@c3ng.com）+ history 图标 + 相对时间 (2026-09-02)；② message 全文：subject 行加粗「backlog: commit-hash-interactive 开发完成（doing → done）」+ 两行 body 灰字；③ 分隔线；④ 变更统计：「1 files changed, 40 insertions(+) 绿色, 2 deletions(-) 红色」；⑤ 分隔线 + 命令行：git-commit 图标 + 短 hash「351a766」（点开 commit）+ copy 图标 + Open on GitHub。卡片深色浮层、圆角、描边、阴影，宽 ≤420px。',
     },
 
+    'commit-card-stays-during-streaming': {
+      // 流式重建回归（用户反馈「正在输出时 commit 卡一直跳」）：助手消息同 id
+      // 分三帧增长，每帧行重建、chip 被摘。interact 打开卡片后再投喂两帧模拟
+      // 流式——卡片必须被重锚接住（不闪关闪开）。截图时点取在 950ms 后的第三帧。
+      theme: 'dark',
+      state: base({
+        running: true,
+        messages: [
+          {
+            kind: 'assistant',
+            id: 'a-stream',
+            complete: false,
+            turnEnd: true,
+            blocks: [{ type: 'text', text: '正在输出：相关提交是 351a766（第一帧，卡片在此打开）。' }],
+          },
+        ],
+      }),
+      interact: `(() => {
+        const commitInfo = { sha: '351a766', found: true, commitHash: '351a7664d4f6e86bb0ef58c94d84d0ee1fb9aa53',
+          message: 'fix(commit-hash): 流式重建期间悬浮卡重锚',
+          fullMessage: 'fix(commit-hash): 流式重建期间悬浮卡重锚\\n\\n- 用户反馈：正在输出时 commit 卡一直跳\\n- 修复：行重建后按同身份找替代 chip 重锚',
+          authorName: 'cgeng', authorEmail: 'cgeng@c3ng.com', commitDate: '2026-09-07',
+          files: 3, insertions: 120, deletions: 20,
+          githubUrl: 'https://github.com/imchangchang/dsh-one/commit/351a7664d4f6e86bb0ef58c94d84d0ee1fb9aa53' }
+        const frame = (text) => ({ kind: 'assistant', id: 'a-stream', complete: false, turnEnd: true,
+          blocks: [{ type: 'text', text }] })
+        const post = (state) => window.postMessage({ type: 'state', state }, '*')
+        window.postMessage({ type: 'commitInfo', results: [commitInfo] }, '*')
+        setTimeout(() => {
+          document.querySelector('.commit-hash.commit-hash-found')
+            ?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+        }, 400)
+        setTimeout(() => {
+          post(frame('正在输出：相关提交是 351a766（第一帧）。\\n\\n第二帧：行已重建，卡片必须还在。'))
+        }, 600)
+        setTimeout(() => {
+          post(frame('正在输出：相关提交是 351a766（第一帧）。\\n\\n第二帧：行已重建，卡片必须还在。\\n\\n第三帧：卡片应随 chip 重定位到这里。'))
+          setTimeout(() => {
+            document.body.setAttribute('data-commit-card-stayed',
+              document.querySelector('.popover .commit-card') ? 'yes' : 'no')
+          }, 100)
+        }, 950)
+      })()`,
+      title: 'commit 悬浮卡：流式重建期间不闪关（重锚回归）',
+      expect: '底部助手消息正在输出（消息尾 ▍ 光标；底部 turn 状态行「Deep diving…」），正文 commit-hash chip「351a766」为 found 点亮态。interact 依次投喂三帧（同 id 消息内容逐帧变长、行每帧重建 → chip 每帧被替换）：悬浮卡（.commit-card popover）打开后**在第二、三帧之后仍保持在位**——卡片浮在最新一帧文本的 chip 附近（作者行 cgeng + subject「fix(commit-hash): 流式重建期间悬浮卡重锚」+ 命令行短 hash 351a766）；卡片与 chip 相邻（按重建后的 chip 实时位置重定位，不是悬停在旧位置），未闪关、未消失。',
+    },
+
     'commit-hash-not-found': {
       theme: 'dark',
       state: base({

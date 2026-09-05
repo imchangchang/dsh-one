@@ -14,6 +14,9 @@
 //                 数组=按序点击（如问答面板先选选项再点 Submit）
 //   expectDraft   断言 composer textarea#input.value 包含该文本（草稿恢复检查）
 //   fillAndClear  在新会话里填充这段文本并点击 .clear-all-button，断言输入框为空
+//   hoverText     悬停含该文本的元素（如 commit chip），让悬浮卡弹出再截图
+//   hoverSustainMs hoverText 之后继续轮询该时长（ms）：弹层 commit 卡必须全程在位
+//                 （慢速流式回归——消息行每帧重建会摘掉 chip 锚点，卡片闪关=失败）
 //
 // 注意：本脚本在宿主侧用 Playwright 驱动 code-server 浏览器页面；沙盒内嵌的同源 webview
 // iframe（`#active-frame`）会被宿主反复重建，所以对 frame 的操作必须**即时重新扫描**
@@ -192,6 +195,19 @@ async function hoverTextInFrame(page, text) {
   return false
 }
 
+/** 扫描全部 frame：弹层里的 commit 卡当前是否可见（hoverSustainMs 轮询用）。 */
+async function popoverCommitCardVisible(page) {
+  for (const f of page.frames()) {
+    try {
+      const n = await f.locator('.popover .commit-card').count()
+      if (n > 0) return true
+    } catch {
+      // 帧重建瞬间忽略
+    }
+  }
+  return false
+}
+
 /** 点发送后立刻把 afterSendFill 填进 composer：发送清空输入后 composer 仍在，
  *  pending 帧到达前（mock-LLM 工具调用往返 ~百毫秒级）把草稿填进去。 */
 async function fillAfterSend(page, text) {
@@ -337,6 +353,26 @@ try {
         if (!ok) {
           result = 'fail'
           notes.push('hoverText：未找到可悬停元素或状态未落地')
+        } else if (driver.hoverSustainMs) {
+          // 慢速流式回归：悬停后轮询 N ms，弹层 commit 卡必须持续在位（消息行每帧
+          // 重建会摘掉 chip 锚点，重锚失败 = 卡片闪关）。结束前 500ms 内仍可见才过。
+          const ms = Math.max(0, Number(driver.hoverSustainMs) || 0)
+          const until = Date.now() + ms
+          let lastSeen = -Infinity
+          while (Date.now() < until) {
+            if (await popoverCommitCardVisible(page)) lastSeen = Date.now()
+            await sleep(300)
+          }
+          const sustained = Date.now() - lastSeen < 500
+          notes.push(
+            sustained
+              ? `悬停后 ${ms}ms 持续在位：commit 卡在流式重建期间未闪关`
+              : `悬停后 commit 卡中途消失（${ms}ms 内曾不可见）`,
+          )
+          if (!sustained) {
+            result = 'fail'
+            notes.push('hoverSustainMs：流式重建期间 commit 卡被弹层存活检查关掉（锚点未重锚）')
+          }
         }
       }
       if (driver.fillAndClear) {

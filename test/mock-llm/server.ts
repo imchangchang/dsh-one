@@ -267,7 +267,7 @@ class LlmEndpoint {
       model,
     }
 
-    if (stream) this.respondStream(res, { ...response, content, toolCalls, usage })
+    if (stream) this.respondStream(res, { ...response, content, toolCalls, usage, deltaDelayMs: respond.deltaDelayMs })
     else this.respondJson(res, { ...response, content, toolCalls, usage })
   }
 
@@ -332,7 +332,7 @@ class LlmEndpoint {
 
   private respondStream(
     res: http.ServerResponse,
-    { id, created, model, content, toolCalls, usage }: { id: string; created: number; model: string; content: string[]; toolCalls: MockToolCall[]; usage?: MockRespond['usage'] },
+    { id, created, model, content, toolCalls, usage, deltaDelayMs }: { id: string; created: number; model: string; content: string[]; toolCalls: MockToolCall[]; usage?: MockRespond['usage']; deltaDelayMs?: number },
   ): void {
     res.writeHead(200, {
       'content-type': 'text/event-stream',
@@ -341,21 +341,29 @@ class LlmEndpoint {
     })
     const base = { id, object: LlmEndpoint.CHUNK_OBJECT, created, model }
 
-    if (toolCalls.length > 0) this.emitToolCallStream(res, base, toolCalls)
-    else this.emitContentStream(res, base, content)
+    void (async () => {
+      if (toolCalls.length > 0) this.emitToolCallStream(res, base, toolCalls)
+      else await this.emitContentStream(res, base, content, deltaDelayMs)
 
-    // 末尾 finish 块：空 delta + finish_reason；usage 若声明则挂这里。
-    const finish: Record<string, unknown> = { choices: [{ index: 0, delta: {}, finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop' }] }
-    if (usage) finish.usage = usage
-    this.sse(res, { ...base, ...finish })
-    this.sseDone(res)
-    res.end()
+      // 末尾 finish 块：空 delta + finish_reason；usage 若声明则挂这里。
+      const finish: Record<string, unknown> = { choices: [{ index: 0, delta: {}, finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop' }] }
+      if (usage) finish.usage = usage
+      this.sse(res, { ...base, ...finish })
+      this.sseDone(res)
+      res.end()
+    })()
   }
 
-  private emitContentStream(res: http.ServerResponse, base: Record<string, unknown>, content: string[]): void {
+  private async emitContentStream(
+    res: http.ServerResponse,
+    base: Record<string, unknown>,
+    content: string[],
+    deltaDelayMs?: number,
+  ): Promise<void> {
     if (content.length === 0) return
     this.sse(res, { ...base, choices: [{ index: 0, delta: { role: 'assistant', content: content[0] }, finish_reason: null }] })
     for (let i = 1; i < content.length; i++) {
+      if (deltaDelayMs !== undefined) await new Promise((r) => setTimeout(r, deltaDelayMs))
       this.sse(res, { ...base, choices: [{ index: 0, delta: { content: content[i] }, finish_reason: null }] })
     }
   }

@@ -44,6 +44,9 @@ export interface MockRespond {
   error?: { status: number; message: string }
   /** 附加 usage（stream:true 挂在末尾 finish 块上；stream:false 直接放进响应）。 */
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
+  /** 流式内容块之间的间隔（ms），仅 stream:true 时生效——模拟慢速流式，供
+   *  「输出过程中交互状态」类 UI 回归用（逐块重建消息行时锚点每帧被摘）。 */
+  deltaDelayMs?: number
 }
 
 /** 一条规则：match 命中就 respond，从上到下第一条生效。 */
@@ -165,6 +168,20 @@ export function defaultScenario(): MockLlmScenario {
       {
         match: { contains: 'commit 不存在' },
         respond: { content: ['这个提交 deadbeef00112233445566778899aabbccddeeff 应该查不到。'] },
+      },
+      // commit 卡慢速流式（输出中悬停卡不闪关回归）：首块就带 sha，之后逐块
+      // 慢推——对话框里卡片打开后消息行仍每帧重建，验「输出中卡片不跳」。
+      {
+        match: { contains: 'commit 慢速' },
+        respond: {
+          deltaDelayMs: 1200,
+          content: [
+            '提交是 cb1f933e15289a00e30865e8dd3963ba90a96780（慢速流式回归）。',
+            '第二块：继续输出，上面那行的 chip 不能被重建摘走。',
+            '第三块：卡片应跟随 chip 上移而不是闪关。',
+            '第四块：流式收尾。',
+          ],
+        },
       },
       // 401 注入场景：user 消息含「401」触发鉴权失败。
       {

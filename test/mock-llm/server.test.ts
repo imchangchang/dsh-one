@@ -312,3 +312,41 @@ test('未知路径 → 404', async () => {
   const res = await fetch(mock.url + '/v1/whatever', { method: 'POST' })
   assert.equal(res.status, 404)
 })
+
+test('stream:true deltaDelayMs：内容块之间按声明间隔推送（慢速流式回归用）', async () => {
+  const sc: MockLlmScenario = {
+    models: [{ id: 'm' }],
+    rules: [{ match: '*', respond: { deltaDelayMs: 80, content: ['A', 'B', 'C'] } }],
+  }
+  const m = await createMockLlm({ scenario: sc })
+  await m.listen(0)
+  try {
+    const res = await postChat(m, { model: 'm', messages: [{ role: 'user', content: 'x' }], stream: true })
+    assert.equal(res.status, 200)
+    // 逐块读：每出现一个新的 content delta 记录到达时刻，块间应隔 deltaDelayMs。
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    let seenPieces = 0
+    const times: number[] = []
+    const t0 = Date.now()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const pieces = buf
+        .split('\n')
+        .filter((l) => l.startsWith('data: ') && l.trim() !== 'data: [DONE]')
+      if (pieces.length > seenPieces) {
+        seenPieces = pieces.length
+        times.push(Date.now() - t0)
+      }
+    }
+    // 3 个 content delta + 1 个 finish 块。
+    assert.equal(seenPieces, 4)
+    assert.ok(times[1] - times[0] >= 60, `第二块应等待 deltaDelayMs（实测间隔 ${times[1] - times[0]}ms）`)
+    assert.ok(times[2] - times[1] >= 60, `第三块应等待 deltaDelayMs（实测间隔 ${times[2] - times[1]}ms）`)
+  } finally {
+    await m.close()
+  }
+})
