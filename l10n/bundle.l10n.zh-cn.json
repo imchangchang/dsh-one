@@ -501,7 +501,6 @@
   "Open in VS Code": "在 VS Code 中打开",
   "Todo": "待办",
   "Doing": "进行中",
-  "Move to group": "移到分组",
   "No group": "无分组",
   "New group…": "新建分组…",
   "Group: {0}": "组：{0}",
@@ -521,5 +520,6 @@
   "Green": "绿",
   "Orange": "橙",
   "Purple": "紫",
-  "Red": "红"
+  "Red": "红",
+  "Move to group…": "移到分组…"
 }

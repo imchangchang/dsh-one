@@ -1750,8 +1750,37 @@
         return s
       })(),
       interact: `document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()`,
-      title: '侧栏面板（会话行菜单：移到分组）',
-      expect: '「实现侧栏分组过滤」行的 ⋯ 菜单打开：首行会话标题；原有菜单项完整在位（Select multiple / Open in a new tab / Rename / Pin / Mark as unread，屏幕内可见的前几项）；「Move to group」分节标题下有四项：待办（黄色小方色块 + 勾选 ✓，当前组）、进行中（蓝色块）、已完成（绿色块）、探索（橙色块）、No group（空描边方块）；再往下 New group…。菜单较长时 popover 内可滚动（max-height 50vh），底部原菜单项（Move to recycle bin / Archive session）不必在首屏可见。',
+      title: '侧栏面板（会话行菜单：Move to group… 二级入口）',
+      expect: '「实现侧栏分组过滤」行的 ⋯ 菜单打开：首行会话标题；原有菜单项完整在位（Select multiple / Open in a new tab / Rename / Pin / Mark as unread）；「Move to group…」是一个**单项菜单项**（齿轮图标 + 文本 + 右侧 › 子菜单指示），其后紧跟 Fork session / Copy reference / Move to recycle bin / Archive session——组列表不再平铺在主菜单里。菜单较长时 popover 内可滚动（max-height 50vh）。',
+    },
+
+    'session-tags-row-menu-groups': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 1 },
+          { id: 'preset-doing', name: '进行中', color: 'blue', preset: true, count: 0 },
+          { id: 'preset-done', name: '已完成', color: 'green', preset: true, count: 0 },
+          { id: 't-explore', name: '探索', color: 'orange', preset: false, count: 1 },
+        ]
+        s.tagSessionIds = { 'preset-todo': ['sess-1'], 't-explore': ['sess-5'] }
+        s.workspaces[0].sessions = [
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-6', '会话 A', '2 天前'),
+        ]
+        s.workspaces[1].sessions = []
+        s.workspaces[2].sessions = []
+        return s
+      })(),
+      interact: `(() => {
+        const row = document.querySelector('.session-row[data-session-id="sess-1"]')
+        row?.querySelector('.row-action')?.click()
+        const item = [...document.querySelectorAll('.popover .menu-item')].find((i) => i.textContent.includes('Move to group'))
+        item?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+      })()`,
+      title: '侧栏面板（Move to group… 二级菜单展开）',
+      expect: '两级菜单并存：左侧顶层菜单完整在位（Select multiple / Open in a new tab / Rename / Pin / Mark as unread 显示，Move to group… 项带 ›），右侧二级菜单列出全部组：待办（黄色块 + ✓ 当前组）/ 进行中（蓝块）/ 已完成（绿块）/ 探索（橙块）/ No group（空描边方块）/ New group…（带 + 图标）；顶层菜单未被移除或遮挡。',
     },
 
     'session-tags-collapse': {
@@ -3354,7 +3383,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'sessions-workspace-menu-groups',
     'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',
     'sessions-selection-exit-recycle', 'sessions-selection-exit-archive',
-    'session-tags', 'session-tags-row-menu', 'session-tags-collapse', 'session-tags-create',
+    'session-tags', 'session-tags-row-menu', 'session-tags-row-menu-groups', 'session-tags-collapse', 'session-tags-create',
     'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',

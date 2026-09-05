@@ -501,7 +501,6 @@
   "Open in VS Code": "Open in VS Code",
   "Todo": "Todo",
   "Doing": "Doing",
-  "Move to group": "Move to group",
   "No group": "No group",
   "New group…": "New group…",
   "Group: {0}": "Group: {0}",
@@ -521,5 +520,6 @@
   "Green": "Green",
   "Orange": "Orange",
   "Purple": "Purple",
-  "Red": "Red"
+  "Red": "Red",
+  "Move to group…": "Move to group…"
 }
