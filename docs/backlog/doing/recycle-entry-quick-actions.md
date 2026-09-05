@@ -26,3 +26,4 @@
 ## 变更记录
 
 - 2026-09-06 用户提出（抽屉收起态也想要清空全部/恢复全部快捷操作）→ 核实现状（入口行无快捷操作，只在抽屉头有）→ 建条目（open/）
+- 2026-09-06 认领（worktree: agent/recycle-drawer-polish）→ doing。用户拍板做法：**方案 1——入口行右侧常驻两个图标按钮**（清空 + 恢复全部，计数 0 置灰，点击不触发打开抽屉）。与 recycle-drawer-handle-affordance 同 worktree 开发。

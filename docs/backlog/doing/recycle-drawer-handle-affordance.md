@@ -29,3 +29,4 @@
 ## 变更记录
 
 - 2026-09-06 用户实测反馈（抽屉顶部横条不知道有什么用）→ 核实代码：横条是纯拖动提手、点击无反应，交互不可发现 → 建条目（open/）
+- 2026-09-06 认领（worktree: agent/recycle-drawer-polish）→ doing。用户拍板做法：**点横条 = 收起抽屉**（拖动扩/收逻辑保留），并加悬停提示。与 recycle-entry-quick-actions 同 worktree 开发。
