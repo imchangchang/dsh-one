@@ -41,3 +41,4 @@ Windows/Linux 用户的键盘上没有 ⌘ 键，看到的占位符却是「⌘E
 - 2026-09-08 用户要求排查平台差异化文案后记录：建条目（open/）
 - 2026-09-08 认领（worktree: agent/steer-shortcut-copy-per-platform）→ doing
 - 2026-09-08 开发完成，自测通过（typecheck + 568 单测 + build + check-i18n + 沙盒报告 4 项全 pass：F-01 运行中占位符 Linux 容器真实命中 Ctrl+Enter 分支，报告 test/sandbox/verify.steer-shortcut-copy-per-platform.report.html）→ done
+- 2026-09-08 主线合入测试通过（dev-merge 复测 + dist 重建），用户直接确认合入 → closed
