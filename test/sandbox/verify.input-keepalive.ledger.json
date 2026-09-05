@@ -1,0 +1,146 @@
+{
+  "title": "input-keepalive：全输入点保活——流式刷新不再打断输入（rename/queue/goal/panel-answer/侧栏）",
+  "branch": "agent/input-keepalive",
+  "commit": "dc349a1",
+  "environment": {
+    "mode": "harness（浏览器独立渲染 webview + 确定性快照序列）",
+    "harness": "test/ui/harness.html（dist/chatWebview.js + dist/sessionsWebview.js 本任务构建）",
+    "domAssert": "Playwright 无头浏览器 evaluate（.dev-host/keepalive-assert.mjs，12/12 全过）",
+    "theme": "light（默认变量）",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "验收用 test/ui harness 确定性场景 + DOM 断言（元素引用稳定/焦点/选区/文本恢复/提交消息/标题还原），未走真 dsh 沙盒端到端（本任务纯 webview 渲染层改动，不涉宿主/协议链路）。IME 组合用合成 compositionstart/end 事件模拟——真输入法（macOS 拼音等）的组合时序在浏览器里一致（composition 会话绑定输入元素），元素不销毁即组合不断。真桌面 VS Code、真模型输出不在本报告范围。577 项单测全绿（npm test）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "chat header 行内改名：流式快照下输入框元素稳定",
+      "expect": "点标题进入改名后，输入框聚焦并全选原标题；连续 5 帧流式快照（statsLine 变化）后：输入框 DOM 元素仍是同一个（未被销毁重建）、焦点仍在其上、草稿文本与光标选区保留。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/keepalive-rename-streaming.png"
+      ],
+      "notes": "DOM 断言 F-01：5 帧后 same=true（元素引用不变）、focused=true、value=新标题草稿、选区 [2,4] 保留。改名渲染模型化（renaming/renameDraft 模块态 + headerSig 纳入 renaming），保活帧不重建 header。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "rename + IME 组合兜底：组合中签名变化不重建，组合结束后重建落地",
+      "expect": "改名输入进行中（合成 compositionstart）推 header 签名变化的快照（subagents 新增）：输入框元素保持（组合不被打断）、焦点与文本保留；compositionend 后补帧重建（元素被替换、输入框仍按 renaming 状态渲染、文本从草稿恢复、焦点恢复）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/keepalive-rename-composing.png",
+        "/tmp/dsh-ui-shots/keepalive-rename-after-composition.png"
+      ],
+      "notes": "DOM 断言 F-02：组合中签名变化帧后 same=true、focused=true、value=改到一半；compositionend 后 same=false（重建落地）、value=改到一半（草稿恢复）、focused=true（焦点恢复）。保活帧不推进 lastHeaderSig——组合结束后差异仍在，按签名重建。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "queue editor：编辑态流式快照下编辑器元素稳定",
+      "expect": "排队卡片点 Edit 进入编辑器（textarea）后，5 帧流式快照到达：编辑器元素仍是同一个、焦点保持、编辑文本与光标选区保留。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/keepalive-queue-streaming.png"
+      ],
+      "notes": "DOM 断言 F-03：same=true、focused=true、value=改过的排队文本、选区 [2,4]。queue 容器接入签名保活（queueSig=sessionId+editingQueueItem+queue 数据），焦点在内且签名不变时不重建。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "goal 编辑 input：编辑态流式快照下输入框元素稳定",
+      "expect": "目标条幅点编辑进入 input 后，5 帧流式快照到达：输入框元素仍是同一个、焦点保持、文本与光标选区保留。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/keepalive-goal-streaming.png"
+      ],
+      "notes": "DOM 断言 F-04：same=true、focused=true、value=改过的目标、选区 [1,3]。goal-bar-dock 接入签名保活（goalSig=sessionId+goal+goalEditingId）。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "question「其他」自定义输入：流式快照下元素稳定（e03efdd 保活回归）",
+      "expect": "问题卡点「其他」展开自定义输入框并打字后，5 帧流式快照到达：输入框元素仍是同一个、焦点保持、文本保留。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/keepalive-question-other-streaming.png"
+      ],
+      "notes": "DOM 断言 F-05：same=true、focused=true、value=自定义回答。keepPending 保活 + composing 兜底扩展（签名变化且组合中同样保活）叠加验证。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "panel-answer（最小化「在聊天里说」）草稿：面板重建后文本恢复",
+      "expect": "面板最小化后在「Say it in chat…」输入框打字，pending 数组变化（新增 approval）导致面板必须重建：输入框被重建但文本从草稿恢复（不丢）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/keepalive-panel-answer-rebuild.png"
+      ],
+      "notes": "DOM 断言 F-06：重建后 same=false、value=面板重建前的草稿。panel-answer 输入值接入 answerDrafts 的 custom 字段（与 question 自定义输入同生命周期，提交后随 answerDrafts 清理）。"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "侧栏行内 rename：快照到达时输入框元素稳定（编辑态冻结）",
+      "expect": "侧栏会话行单击进入行内改名（输入框全选原标题）后，连续 3 帧 sessions 快照到达：输入框元素仍是同一个、焦点保持、文本与选区保留；编辑期间列表不重建。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/keepalive-sessions-rename.png"
+      ],
+      "notes": "DOM 断言 F-07：3 帧快照后 same=true、focused=true、value=侧栏改名草稿、选区 [2,4]。renderSessions 编辑态冻结（rename-input 已在列表时跳过重建），快照照常落地、退出编辑态用最新快照重建。"
+    },
+    {
+      "id": "F-08",
+      "phase": "new-feature",
+      "name": "侧栏组管理·新建组输入：快照到达不重建",
+      "expect": "Manage groups 弹层的新建组输入框打字后，3 帧 sessions 快照到达：输入框元素仍是同一个、焦点保持、文本与选区保留（弹层不被快照刷新重建）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/keepalive-wsg-new.png"
+      ],
+      "notes": "DOM 断言 F-08：same=true、focused=true、value=新分组草稿、选区 [1,3]。焦点在弹层内时跳过快照触发的 rebuildGroupManage；本地动作（提交/选组/删除）仍自行重建。"
+    },
+    {
+      "id": "F-09",
+      "phase": "new-feature",
+      "name": "侧栏组管理·重命名输入：快照到达不重建",
+      "expect": "Manage groups 弹层组行重命名输入框打字后，3 帧 sessions 快照到达：输入框元素仍是同一个、焦点保持、文本保留。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/keepalive-wsg-rename.png"
+      ],
+      "notes": "DOM 断言 F-09：same=true、focused=true、value=组名草稿。与 F-08 同机制（弹层焦点保活）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "composer：流式快照下元素稳定（既有保活回归）",
+      "expect": "composer 打字后 5 帧流式快照到达：输入框元素仍是同一个、焦点保持、文本保留（keepComposer 行为不变）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "DOM 断言 R-01：same=true、focused=true、value=流式中输入。keepComposer 新增 composing 兜底分支不改变签名匹配路径的行为。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "rename Esc 取消：标题还原（交互语义不变）",
+      "expect": "改名输入框按 Esc：退出改名态、header 重建还原为原标题「DSH One 示例会话」、无 rename-input 残留、无 renameSession 消息发出。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/keepalive-rename-esc.png"
+      ],
+      "notes": "DOM 断言 R-02：escOk=true（rename-input 消失 + chat-title 文本还原）。endInlineRename → renaming=false → 签名变化驱动 header 重建。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "rename Enter 提交：发 renameSession（交互语义不变）",
+      "expect": "改名输入框输入「新标题」按 Enter：post renameSession {title:新标题}，退出改名态。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/keepalive-rename-enter.png"
+      ],
+      "notes": "DOM 断言 R-03：enterOk=true（__posted 含 renameSession 且 title=新标题）。Enter 提交与原名 rename 一致（isComposing 时 Enter 只确认候选不提交）。"
+    }
+  ]
+}

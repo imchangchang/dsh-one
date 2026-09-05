@@ -80,3 +80,5 @@ renderSessions 整列表重建。
   （rename-input-stream-interrupt → input-keepalive-coverage-gaps）
 
 - 2026-09-06 认领（worktree: agent/input-keepalive）→ doing
+
+- 2026-09-06 开发完成，自测通过 → done（worktree: agent/input-keepalive，done 标记 6bca311；测试报告 test/sandbox/verify.input-keepalive.report.html）

@@ -313,6 +313,31 @@ let lastHeaderSig: string | null = null
 let lastPendingSig: string | null = null
 /** Signature of the todo list at the last render; see render(). */
 let lastTodosSig: string | null = null
+/** Signature of the queued-inbox dock at the last render; see render(). */
+let lastQueueSig: string | null = null
+/** Signature of the goal bar at the last render; see render(). */
+let lastGoalSig: string | null = null
+/**
+ * 正在 IME 组合中的元素（document 级捕获，所有输入点共用）。保活兜底：焦点
+ * 所在区域签名变了也不重建，推迟到 compositionend 再落地——元素销毁会中止
+ * 浏览器 composition 会话，拼音组合直接断，这是「恢复焦点/文本」救不了的。
+ */
+let composingEl: Element | null = null
+document.addEventListener('compositionstart', (e) => {
+  composingEl = e.target instanceof Element ? e.target : null
+})
+document.addEventListener('compositionend', () => {
+  composingEl = null
+  // 组合期间可能推迟过区域重建：组合结束立即补一帧，让被推迟的签名变化落地。
+  render()
+})
+document.addEventListener('focusout', () => {
+  // 组合未正常结束（异常销毁/程序抢焦点）时清标志，避免永久保活。
+  if (composingEl !== null && !composingEl.isConnected) composingEl = null
+})
+/** composingEl 是否落在 root 子树内（root 为 null 恒 false）。 */
+const composingInside = (root: Element | null): boolean =>
+  root !== null && composingEl !== null && root.contains(composingEl)
 /** Images staged in the composer, sent with the next `send`. */
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
@@ -2668,35 +2693,39 @@ function insertSlashCommand(name: string): void {
   input.setSelectionRange(input.value.length, input.value.length)
 }
 
-/** Inline rename: swap the header title for an input; Enter commits, Esc/blur cancels. */
-function startInlineRename(header: HTMLElement): void {
-  const titleEl = header.querySelector('.chat-title')
-  if (!titleEl || !state?.sessionId) return
-  const original = state.sessionTitle ?? ''
-  const input = document.createElement('input')
-  input.className = 'rename-input'
-  input.value = original
-  titleEl.replaceWith(input)
-  input.focus()
-  input.select()
-  let settled = false
-  const cancel = (): void => {
-    if (settled) return
-    settled = true
-    render()
-  }
-  input.addEventListener('keydown', (e) => {
-    // isComposing: Enter confirms an IME candidate, not the rename.
-    if (e.key === 'Enter' && !e.isComposing) {
-      const title = input.value.trim()
-      if (title && title !== original) post({ type: 'renameSession', title })
-      cancel()
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      cancel()
-    }
-  })
-  input.addEventListener('blur', cancel)
+/**
+ * Inline rename 的渲染状态（显式化进渲染模型，不再就地替换 title span）：
+ * renaming 期间 renderHeader 渲染输入框而非标题；headerSig 纳入 renaming 且
+ * 剔除 sessionTitle（标题投影变化不改渲染输出）——流式快照时 keepHeader 原位
+ * 保留，输入框存活、IME 组合不断。Enter 提交、Esc/blur 取消后 renaming=false，
+ * 签名变化驱动 header 重建还原标题。
+ */
+let renaming = false
+let renameDraft = ''
+let renameOriginal = ''
+let renameSelStart = 0
+let renameSelEnd = 0
+/** 清理循环移除 header 期间为 true：销毁输入框同步派发的 blur 不视为取消
+ *  （元素被 remove 时浏览器先重置焦点再摘离，blur 派发时 isConnected 仍为
+ *  true，isConnected 守卫无效——与侧栏 rebuildInProgress 同款）。 */
+let rebuildingHeader = false
+
+/** Inline rename: Enter commits, Esc/blur cancels. */
+function startInlineRename(_header: HTMLElement): void {
+  if (!state?.sessionId) return
+  renaming = true
+  renameDraft = state.sessionTitle ?? ''
+  renameOriginal = renameDraft
+  renameSelStart = 0
+  renameSelEnd = renameDraft.length
+  render()
+}
+
+/** 改名输入框的提交/取消公共收尾：退出改名态并重建 header 还原标题。 */
+function endInlineRename(): void {
+  renaming = false
+  renameDraft = ''
+  render()
 }
 
 // ---- 头部会话 ⋯ 菜单（与侧栏 session 右键同款动作） ----
@@ -2929,11 +2958,13 @@ function render(): void {
           }),
         ])
       : null
+  // 签名相同时焦点在内即保活（输入不被打断）；签名变化但 IME 组合中同样
+  // 保活，推迟到 compositionend 补帧重建（见 composingEl）。
   const keepPending =
     oldPending !== null &&
-    pendingFocus &&
+    (pendingFocus || composingInside(oldPending)) &&
     pendingSig !== null &&
-    pendingSig === lastPendingSig &&
+    (pendingSig === lastPendingSig || composingInside(oldPending)) &&
     state?.loading !== true
   // A recalled queue item claimed by the agent (or removed) drops the recall;
   // the text stays in the composer as a plain draft.
@@ -2988,9 +3019,9 @@ function render(): void {
   // 策略只在布局不变时生效，避免把已随旧布局拆除的 composer 当成存活锚点。
   const keepComposer =
     oldComposer !== null &&
-    (hadFocus || popoverInComposer) &&
+    (hadFocus || popoverInComposer || composingInside(oldComposer)) &&
     stashedDraft === undefined &&
-    composerSig === lastComposerSig &&
+    (composerSig === lastComposerSig || composingInside(oldComposer)) &&
     (oldHero !== null && oldHero.contains(oldComposer)) === blankHero &&
     // Pending 接管面板（approval/question/plan-review）存在时不保留 composer：
     // 输入区整个换成面板，原输入框被移除。文本不丢：接管那帧已存入
@@ -3006,7 +3037,7 @@ function render(): void {
     oldHero !== null &&
     oldComposer !== null &&
     stashedDraft === undefined &&
-    composerSig === lastComposerSig &&
+    (composerSig === lastComposerSig || composingInside(oldComposer)) &&
     oldHero.contains(oldComposer)
   // A rebuilt composer gets fresh listeners; the popup re-opens below when the
   // draft still starts with '/'. With a kept composer it only re-anchors.
@@ -3025,23 +3056,26 @@ function render(): void {
   // 永远不出现（实测：真 dsh 0.1.2 schedule 投影推送后头部无变化）。
   const headerSig = JSON.stringify([
     state?.sessionId ?? null,
-    state?.sessionTitle ?? null,
+    // 改名中 sessionTitle 不进签名：标题 span 已被输入框替换，投影变化不
+    // 改渲染输出——进签名会让标题更新打断改名输入。renaming 自身进签名。
+    renaming ? null : (state?.sessionTitle ?? null),
     state?.parentSession ?? null,
     state?.presetLabel ?? null,
     state?.presetDescription ?? null,
     state?.subagents ?? null,
     state?.backgroundJobs ?? null,
     state?.schedule ?? null,
+    renaming,
   ])
-  // 改名中的 header 不保留：标题 span 已被输入框就地替换，保留会让输入框
-  // 在 commit/cancel 后的 render 里残留（重建才会还原成标题）。
+  // 改名中 header 同样保活（renaming 是渲染模型的一部分，commit/cancel 置
+  // false 后签名变化驱动重建还原标题）；IME 组合中强制保活——签名真变了也
+  // 推迟到 compositionend 补帧再重建，输入框销毁会中止组合会话。
   const keepHeader =
     oldHeader !== null &&
     !!state?.sessionId &&
     state.loading !== true &&
     !blankHero &&
-    headerSig === lastHeaderSig &&
-    oldHeader.querySelector('.rename-input') === null
+    (headerSig === lastHeaderSig || composingInside(oldHeader))
   // 任务清单 todo 卡保活（与 composer/pending 同款 keep）：todos 内容没变时保留
   // 原元素。流式快照每帧重建 chatCol，in_progress 行首的转圈弧环是新建 SVG——
   // CSS 动画随节点替换从 0° 重启，~100ms 一帧的快照下转圈永远走不完，看起来像
@@ -3056,20 +3090,60 @@ function render(): void {
     !switchingSession &&
     !blankHero &&
     todosSig !== null &&
-    todosSig === lastTodosSig
+    (todosSig === lastTodosSig || composingInside(oldTodoPanel))
+  // Queue dock 保活（与 pending 同款）：编辑态（editingQueueItem 非空）且焦点在
+  // 编辑器内时流式快照不重建 queue 容器——文本有 queueEditDrafts、焦点有
+  // queueFocus 恢复，但元素销毁会中止 IME 组合。签名含 queuedItems 与编辑目标：
+  // 队列数据变化或切换编辑项必须重建（就地更新），输入本身不触发 render 不进
+  // 签名。组合中签名变化同样推迟（composing 兜底）。
+  const oldQueue = chatCol.querySelector<HTMLElement>(':scope > .queue')
+  const queueFocusInside =
+    oldQueue !== null && oldQueue.contains(document.activeElement)
+  const queueSig =
+    state && (state.queue?.length ?? 0) > 0
+      ? JSON.stringify([state.sessionId, editingQueueItem, state.queue ?? []])
+      : null
+  const keepQueue =
+    oldQueue !== null &&
+    (queueFocusInside || composingInside(oldQueue)) &&
+    queueSig !== null &&
+    (queueSig === lastQueueSig || composingInside(oldQueue)) &&
+    state?.loading !== true
+  // Goal bar 保活（同 queue）：编辑态（goalEditingId 非空）且焦点在输入框内时
+  // 保留 dock；签名含 goal 数据与编辑 id。
+  const oldGoalBar = chatCol.querySelector<HTMLElement>(':scope > .goal-bar-dock')
+  const goalFocusInside =
+    oldGoalBar !== null && oldGoalBar.contains(document.activeElement)
+  const goalSig =
+    state && state.goal
+      ? JSON.stringify([state.sessionId, state.goal, goalEditingId])
+      : null
+  const keepGoalBar =
+    oldGoalBar !== null &&
+    (goalFocusInside || composingInside(oldGoalBar)) &&
+    goalSig !== null &&
+    (goalSig === lastGoalSig || composingInside(oldGoalBar)) &&
+    state?.loading !== true
   // loading 帧（换会话的历史基线加载中）不动现有 DOM：整页保留到新状态落地
   // 再一次性切换——否则 hero 布局切换（blank→blank 切 workspace 尤甚）会先被
   // 清成「加载会话…」空占位再重建，观感像整页刷新。keep* 布尔照常计算（无
   // 副作用），落地帧仍按签名决定重建。
   if (state?.loading !== true) {
-    for (const child of Array.from(chatCol.children)) {
-      if (keepMessages && child === oldMessages) continue
-      if (keepHeader && child === oldHeader) continue
-      if (keepBlankHero && (child === oldComposer || child === oldHero)) continue
-      if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
-      if (keepPending && child === oldPending) continue
-      if (keepTodoPanel && child === oldTodoPanel) continue
-      child.remove()
+    rebuildingHeader = true
+    try {
+      for (const child of Array.from(chatCol.children)) {
+        if (keepMessages && child === oldMessages) continue
+        if (keepHeader && child === oldHeader) continue
+        if (keepBlankHero && (child === oldComposer || child === oldHero)) continue
+        if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
+        if (keepPending && child === oldPending) continue
+        if (keepTodoPanel && child === oldTodoPanel) continue
+        if (keepQueue && child === oldQueue) continue
+        if (keepGoalBar && child === oldGoalBar) continue
+        child.remove()
+      }
+    } finally {
+      rebuildingHeader = false
     }
   }
   // Menus anchored to surviving elements (kept composer, sessions header)
@@ -3090,6 +3164,8 @@ function render(): void {
     lastHeaderSig = null
     lastPendingSig = null
     lastTodosSig = null
+    lastQueueSig = null
+    lastGoalSig = null
     turnStatusStart = null
     scrollSession = null
     // 无附着会话：pending 快照没有归属（sessionId 不匹配也不会被消费），
@@ -3117,6 +3193,8 @@ function render(): void {
     lastHeaderSig = null
     lastPendingSig = null
     lastTodosSig = null
+    lastQueueSig = null
+    lastGoalSig = null
     turnStatusStart = null
     scrollSession = null
     pendingStash = null
@@ -3162,10 +3240,12 @@ function render(): void {
       // 重建后恢复补全弹窗（含 @ 会话补全；无候选时 updateSlashPopup 自行隐藏）
       updateSlashPopup(input)
     }
-    lastComposerSig = composerSig
-    lastHeaderSig = headerSig
-    lastPendingSig = pendingSig
-    lastTodosSig = todosSig
+    lastComposerSig = composingInside(oldComposer) ? lastComposerSig : composerSig
+    lastHeaderSig = composingInside(oldHeader) ? lastHeaderSig : headerSig
+    lastPendingSig = composingInside(oldPending) ? lastPendingSig : pendingSig
+    lastTodosSig = composingInside(oldTodoPanel) ? lastTodosSig : todosSig
+    lastQueueSig = composingInside(oldQueue) ? lastQueueSig : queueSig
+    lastGoalSig = composingInside(oldGoalBar) ? lastGoalSig : goalSig
     return
   }
   // Regions above the composer; insert before the preserved composer when kept.
@@ -3200,13 +3280,44 @@ function render(): void {
     // 标题 ellipsis 截断但 hover 出完整标题（原生 title tooltip）；
     // 单击标题直接进改名（本地增强，官方无此交互）。面包屑里附着的是
     // 子代理会话时，当前标题用小号字（官方 .crumbSubagent：12px/18px，
-    // 与「N 个子代理」chip 同字号），不与父会话标题同级。
-    const titleSpan = el('span', state.parentSession ? 'chat-title crumb-subagent' : 'chat-title', state.sessionTitle ?? '')
-    if (state.sessionTitle) {
-      titleSpan.title = state.sessionTitle
-      titleSpan.addEventListener('click', () => startInlineRename(header))
+    // 与「N 个子代理」chip 同字号），不与父会话标题同级。改名态渲染输入框
+    // 替代标题（渲染模型的一部分，保活逻辑见 keepHeader）。
+    if (renaming) {
+      const input = document.createElement('input')
+      input.className = 'rename-input'
+      input.value = renameDraft
+      input.setAttribute('aria-label', t('Rename'))
+      input.addEventListener('input', () => {
+        renameDraft = input.value
+        renameSelStart = input.selectionStart ?? renameDraft.length
+        renameSelEnd = input.selectionEnd ?? renameDraft.length
+      })
+      input.addEventListener('keydown', (e) => {
+        // isComposing: Enter confirms an IME candidate, not the rename.
+        if (e.key === 'Enter' && !e.isComposing) {
+          const title = renameDraft.trim()
+          if (title && title !== renameOriginal) post({ type: 'renameSession', title })
+          endInlineRename()
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          endInlineRename()
+        }
+      })
+      input.addEventListener('blur', () => {
+        // 重建销毁输入框同步派发的 blur（rebuildingHeader）不是用户离开，忽略；
+        // 其余 blur 取消改名。
+        if (rebuildingHeader) return
+        if (renaming) endInlineRename()
+      })
+      header.appendChild(input)
+    } else {
+      const titleSpan = el('span', state.parentSession ? 'chat-title crumb-subagent' : 'chat-title', state.sessionTitle ?? '')
+      if (state.sessionTitle) {
+        titleSpan.title = state.sessionTitle
+        titleSpan.addEventListener('click', () => startInlineRename(header))
+      }
+      header.appendChild(titleSpan)
     }
-    header.appendChild(titleSpan)
     // 「N 个子代理」chip（对齐官方 SubagentHeader trigger：透明底小字 + chevron）：
     // 点击弹下拉，行点击附着子会话。chip 在有运行中子代理时带像素环。
     if (state.subagents && state.subagents.length > 0) {
@@ -3414,33 +3525,41 @@ function render(): void {
 
   // 目标条幅（对齐官方 input.dock id=goal order 10：todo 之后、queue 之前）：
   // 缺省/null（无投影 / create 前 / clear 后）与 complete 目标都不渲染。
+  // keepGoalBar 时 dock 原位保留（编辑输入不被流式快照打断）。
   if (state.goal) {
-    const goalBar = renderGoalBar(state.goal)
-    if (goalBar) add(goalBar)
+    if (!(keepGoalBar && oldGoalBar !== null)) {
+      const goalBar = renderGoalBar(state.goal)
+      if (goalBar) add(goalBar)
+    }
   }
 
   if (queuedItems.length > 0) {
     if (editingQueueItem && !queuedItems.some((item) => item.id === editingQueueItem)) editingQueueItem = null
-    const queue = el('div', 'queue')
-    // 多条排队折叠成计数 header（对齐 dsh web QueueDock：>1 条才出现折叠 header）：
-    // 编辑/插话/删除等操作入口随列表一起藏进展开态；单条保持一行内联。
-    if (queuedItems.length === 1) {
-      queue.appendChild(renderQueueItem(queuedItems[0]))
+    // keepQueue 时 queue 容器原位保留（编辑器输入不被流式快照打断）。
+    if (keepQueue && oldQueue !== null) {
+      // nothing to rebuild; the live editor stays attached
     } else {
-      const det = detailsEl('queue', 'queue-dock', '')
-      // 编辑态（编辑器在列表里）必须展开，否则保存/取消入口被折叠藏掉。
-      if (editingQueueItem !== null) det.open = true
-      const summary = det.querySelector('summary') as HTMLElement
-      const chev = iconSvg(PANEL_ICONS.chevronUp, 14)
-      chev.classList.add('queue-chevron')
-      summary.appendChild(chev)
-      summary.appendChild(el('span', 'queue-dock-count', t('{0} queued messages', queuedItems.length)))
-      const list = el('div', 'queue-dock-list')
-      for (const item of queuedItems) list.appendChild(renderQueueItem(item))
-      det.appendChild(list)
-      queue.appendChild(det)
+      const queue = el('div', 'queue')
+      // 多条排队折叠成计数 header（对齐 dsh web QueueDock：>1 条才出现折叠 header）：
+      // 编辑/插话/删除等操作入口随列表一起藏进展开态；单条保持一行内联。
+      if (queuedItems.length === 1) {
+        queue.appendChild(renderQueueItem(queuedItems[0]))
+      } else {
+        const det = detailsEl('queue', 'queue-dock', '')
+        // 编辑态（编辑器在列表里）必须展开，否则保存/取消入口被折叠藏掉。
+        if (editingQueueItem !== null) det.open = true
+        const summary = det.querySelector('summary') as HTMLElement
+        const chev = iconSvg(PANEL_ICONS.chevronUp, 14)
+        chev.classList.add('queue-chevron')
+        summary.appendChild(chev)
+        summary.appendChild(el('span', 'queue-dock-count', t('{0} queued messages', queuedItems.length)))
+        const list = el('div', 'queue-dock-list')
+        for (const item of queuedItems) list.appendChild(renderQueueItem(item))
+        det.appendChild(list)
+        queue.appendChild(det)
+      }
+      add(queue)
     }
-    add(queue)
   } else {
     editingQueueItem = null
   }
@@ -3466,10 +3585,14 @@ function render(): void {
     draftRestoreFor = null
     pendingStash = null
   }
-  lastComposerSig = composerSig
-  lastHeaderSig = headerSig
-  lastPendingSig = pendingSig
-  lastTodosSig = todosSig
+  // composing 兜底保活的区域不推进签名：保持旧签名，组合结束后补帧时差异
+  // 仍在，按签名差异重建落地（否则保活帧吞掉「推迟的签名变化」）。
+  lastComposerSig = composingInside(oldComposer) ? lastComposerSig : composerSig
+  lastHeaderSig = composingInside(oldHeader) ? lastHeaderSig : headerSig
+  lastPendingSig = composingInside(oldPending) ? lastPendingSig : pendingSig
+  lastTodosSig = composingInside(oldTodoPanel) ? lastTodosSig : todosSig
+  lastQueueSig = composingInside(oldQueue) ? lastQueueSig : queueSig
+  lastGoalSig = composingInside(oldGoalBar) ? lastGoalSig : goalSig
   // 「加载更早」的锚定配对：先记下 loadingEarlier 曾为 true（请求确实被
   // 接受），它翻回 false 的这一帧若消息从顶部插入（首条变了或条数多了），
   // 按新增高度补偿 scrollTop；无论是否插入都解除锚点（空页/失败同样落地）。
@@ -3536,6 +3659,15 @@ function render(): void {
       goalFocus !== null ? goalFocus.end : goalInput.value.length,
     )
     goalAutoFocus = false
+  }
+  // 改名态跨重建恢复：进入编辑态那帧聚焦全选；签名变化重建（标题投影/子代理
+  // 变化等）后按记录的选区恢复焦点。保活帧（activeElement 已在输入框上）跳过。
+  if (renaming) {
+    const renameInput = document.querySelector<HTMLInputElement>('.chat-header .rename-input')
+    if (renameInput && document.activeElement !== renameInput) {
+      renameInput.focus()
+      renameInput.setSelectionRange(renameSelStart, renameSelEnd)
+    }
   }
   if (!keepComposer) {
     const input = document.getElementById('input') as HTMLTextAreaElement | null
@@ -6241,6 +6373,11 @@ function renderPanelAnswer(p: PendingQuestion, index: number): HTMLElement {
   const input = document.createElement('input')
   input.type = 'text'
   input.placeholder = t('Say it in chat… (Enter submits as the answer)')
+  // 草稿复用 answerDrafts 的 custom 字段：pending 内容变化面板重建时文本不丢
+  // （保活帧下输入框本就不动，这里是重建路径的恢复源）。提交后随 answerDrafts
+  // 清理，与 question 自定义输入同生命周期。
+  const draft = draftFor(p.rpcId, index)
+  input.value = draft.custom
   const send = buttonEl('', t('Submit'))
   const submit = (): void => {
     const text = input.value.trim()
@@ -6248,6 +6385,9 @@ function renderPanelAnswer(p: PendingQuestion, index: number): HTMLElement {
     if (questionInteractionStatus(p.questions) === 'plan-review') submitPlanReview(p, [], text)
     else submitAnswer(p, { index, text })
   }
+  input.addEventListener('input', () => {
+    draft.custom = input.value
+  })
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.isComposing) {
       e.preventDefault()

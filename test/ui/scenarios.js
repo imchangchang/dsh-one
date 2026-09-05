@@ -991,7 +991,8 @@
     },
     'goal-editing': {
       state: base({ goal: { id: 'g-1', revision: 3, objective: '给 dsh-one 补 goal 模式条幅', phase: 'active', maxGoalRounds: 16 } }),
-      interact: `document.querySelector('.goal-bar-btn[aria-label="编辑目标"]')?.click()`,
+      // harness 不注入 __DSH_L10N__（英文默认串即 label）：用英文 key 找按钮。
+      interact: `document.querySelector('.goal-bar-btn[aria-label="Edit goal"]')?.click()`,
       title: '目标条幅（编辑态）',
       expect: '点击编辑后：条幅变成单行输入框（预填当前 objective，自动聚焦）+ 右侧两个图标按钮（保存目标：对勾；取消编辑：叉号）；预填非空所以保存按钮初始可用；条内无报错。',
     },
