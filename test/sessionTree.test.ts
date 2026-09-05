@@ -385,7 +385,7 @@ test('pinned group stays fixed even under title sort (absolute priority beats so
   assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['c', 'a', 'b', 'd'])
 })
 
-test('unread marks nodes without affecting order', () => {
+test('unread marks promote the session ahead of idle ones under default order', () => {
   const tree = buildSessionTree(
     [ws('w1', ['a', 'b'])],
     [s('a', { updatedAt: NOW - 1000 }), s('b', { updatedAt: NOW - 2000 })],
@@ -395,9 +395,100 @@ test('unread marks nodes without affecting order', () => {
     NOW,
     { unread: new Set(['b']) },
   )
-  // 未读只是展示标记，不参与排序（仍按 updatedAt 倒序）。
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'b'])
-  assert.deepEqual(tree[0].sessions.map((n) => n.unread), [false, true])
+  // 未读 = 行尾有标记、时间不可见 → 活跃优先：b 虽更旧仍排在 a 前。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b', 'a'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.unread), [true, false])
+})
+
+test('active sessions sort first under default order; active group by updatedAt desc', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c', 'd', 'e'])],
+    [
+      s('a', { updatedAt: NOW - 1000 }),
+      s('b', { updatedAt: NOW - 3000, running: true }),
+      s('c', { updatedAt: NOW - 2000 }),
+      s('d', { updatedAt: NOW - 500 }),
+      s('e', { updatedAt: NOW - 1500, running: true }),
+    ],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { unread: new Set(['c']) },
+  )
+  // 活跃组 b/c/e（running/未读）整体前置，组内按 updatedAt 降序（e 最新）；空闲 d/a 按默认 updatedDesc。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['e', 'c', 'b', 'd', 'a'])
+})
+
+test('active-first applies under title sort and updatedAsc; only the idle group follows the sort key', () => {
+  const titleTree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c'])],
+    [
+      s('a', { title: 'zebra', updatedAt: NOW - 3000 }),
+      s('b', { title: 'apple', updatedAt: NOW - 2000, running: true }),
+      s('c', { title: 'mango', updatedAt: NOW - 1000 }),
+    ],
+    new Set(),
+    (x) => x.title ?? null,
+    undefined,
+    NOW,
+    { sort: 'title' },
+  )
+  // title 模式下：活跃 b 前置（组内只有它），空闲 a/c 按标题升序（mango < zebra）。
+  assert.deepEqual(titleTree[0].sessions.map((n) => n.sessionId), ['b', 'c', 'a'])
+
+  const ascTree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c', 'd'])],
+    [
+      s('a', { updatedAt: NOW - 1000 }),
+      s('b', { updatedAt: NOW - 2000 }),
+      s('c', { updatedAt: NOW - 3000, running: true }),
+      s('d', { updatedAt: NOW - 4000 }),
+    ],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { sort: 'updatedAsc' },
+  )
+  // updatedAsc 模式下：活跃 c 前置（组内按时间降序仅一项），空闲按时间升序 a,b,d。
+  assert.deepEqual(ascTree[0].sessions.map((n) => n.sessionId), ['c', 'd', 'b', 'a'])
+})
+
+test('pinning still wins over active-first; a pinned idle session stays ahead of unpinned active ones', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c'])],
+    [
+      s('a', { updatedAt: NOW - 2000 }),
+      s('b', { updatedAt: NOW - 1000, running: true }),
+      s('c', { updatedAt: NOW - 3000 }),
+    ],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { pinned: ['c'], unread: new Set(['a']) },
+  )
+  // 置顶 c 在最前（无视活跃/时间）；然后活跃组按 updatedAt 降序 b(更近) 再 a。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['c', 'b', 'a'])
+})
+
+test('a session with a running subagent descendant counts as active', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['parent', 'idle'])],
+    [
+      s('parent', { updatedAt: NOW - 2000 }),
+      s('idle', { updatedAt: NOW - 1000 }),
+      // 真子代理行：origin=subagent，running；不进列表但父会话算活跃。
+      s('child', { updatedAt: NOW - 1500, running: true, origin: 'subagent', parentSessionId: 'parent' }),
+    ],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+  )
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['parent', 'idle'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.descendantRunning), [true, false])
 })
 
 test('pendingInteractions flag matching nodes only, absent without the option', () => {
@@ -410,8 +501,10 @@ test('pendingInteractions flag matching nodes only, absent without the option', 
     NOW,
     { pendingInteractions: new Map([['b', 'approval']]) },
   )
-  assert.equal(withPending[0].sessions[0].pendingInteraction, undefined)
-  assert.equal(withPending[0].sessions[1].pendingInteraction, 'approval')
+  // b 待交互 → 活跃优先，排到 a 前（两者同 updatedAt）。
+  assert.equal(withPending[0].sessions[0].sessionId, 'b')
+  assert.equal(withPending[0].sessions[0].pendingInteraction, 'approval')
+  assert.equal(withPending[0].sessions[1].pendingInteraction, undefined)
 
   const without = buildSessionTree([ws('w1', ['a'])], [s('a')], new Set(), noTitles, undefined, NOW)
   assert.equal(without[0].sessions[0].pendingInteraction, undefined)
@@ -482,7 +575,8 @@ test('a plain fork (parentSessionId, no origin) appears as a row and does not bu
     NOW,
   )
   // fork 是普通会话行，出现在 workspace 组；父会话不被它标 descendantRunning。
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['parent', 'fork'])
+  // 两者同 updatedAt，但 fork running → 活跃优先排前。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['fork', 'parent'])
   assert.equal(tree[0].sessions.find((n) => n.sessionId === 'parent')?.descendantRunning, false)
   assert.equal(tree[0].sessions.find((n) => n.sessionId === 'fork')?.running, true)
 })

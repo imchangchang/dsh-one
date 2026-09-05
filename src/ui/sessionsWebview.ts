@@ -2020,15 +2020,13 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {  const group
   return group
 }
 
-function renderSessionRow(s: SessionNodeModel): HTMLElement {
-  const row = el('div', 'session-row')
-  row.dataset.sessionId = s.sessionId
-  if (currentSessionId === s.sessionId) row.classList.add('active')
-  row.title = s.label
-  const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
+/**
+ * 行尾状态标记（按优先级）：待交互黄点 > 运行中像素环（含运行中后代）> 未读绿点；
+ * 返回 null = 空闲（行尾渲染相对时间）。主列表与回收站行共用，标记与时间在
+ * 行尾互斥显示（用户确认：行尾槽固定 16px、标记居中，绿点/黄点/像素环中心共线）。
+ */
+function sessionStatusMarker(s: SessionNodeModel): HTMLElement | SVGSVGElement | null {
   const busy = s.running || s.descendantRunning
-  const slot = el('span', 'session-status')
-  const slotTaken = s.pendingInteraction !== undefined || busy || s.unread
   if (s.pendingInteraction !== undefined) {
     const dot = el('span', 'session-dot warning')
     dot.title =
@@ -2037,13 +2035,20 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
         : s.pendingInteraction === 'plan-review'
           ? t('Plan review')
           : t('Waiting for answer')
-    slot.appendChild(dot)
-  } else if (busy) slot.appendChild(spinSvg())
-  else if (s.unread) slot.appendChild(el('span', 'session-dot completed'))
-  else if (pinned) slot.appendChild(makePinIcon())
-  row.appendChild(slot)
-  // 多选模式：复选框紧跟标题（状态槽右侧）——组头勾选框在最左，行勾选框
-  // 缩进一层，形成清晰的树形层次。
+    return dot
+  }
+  if (busy) return spinSvg()
+  if (s.unread) return el('span', 'session-dot completed')
+  return null
+}
+
+function renderSessionRow(s: SessionNodeModel): HTMLElement {
+  const row = el('div', 'session-row')
+  row.dataset.sessionId = s.sessionId
+  if (currentSessionId === s.sessionId) row.classList.add('active')
+  row.title = s.label
+  const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
+  // 多选模式：复选框紧跟标题（组头勾选框在最左，行勾选框缩进一层）。
   if (selectionMode) {
     row.classList.add('selection-mode')
     const selectable = sessionSelectable(s)
@@ -2057,7 +2062,8 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
     )
   }
   const main = el('span', 'session-main')
-  if (pinned && slotTaken) {
+  // 置顶图钉放标题前（常驻；行首不再保留独立状态槽，缩进更紧凑）。
+  if (pinned) {
     const pin = el('span', 'session-pin')
     pin.appendChild(makePinIcon())
     main.appendChild(pin)
@@ -2068,7 +2074,13 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   } else {
     main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title')).appendChild(highlightText(s.label))
   }
-  main.appendChild(el('span', 'session-time', s.description))
+  const marker = sessionStatusMarker(s)
+  if (marker === null) main.appendChild(el('span', 'session-time', s.description))
+  else {
+    const rear = el('span', 'session-rear')
+    rear.appendChild(marker)
+    main.appendChild(rear)
+  }
   row.appendChild(main)
   // 多选模式：行内 hover 按钮隐藏（点行 = 勾选，避免误触）。
   if (!selectionMode) {
@@ -2482,30 +2494,21 @@ function renderRecycleSessionRow(s: SessionNodeModel): HTMLElement {
   row.dataset.sessionId = s.sessionId
   if (currentSessionId === s.sessionId) row.classList.add('active')
   row.title = s.label
-  const busy = s.running || s.descendantRunning
-  const slot = el('span', 'session-status')
-  const slotTaken = s.pendingInteraction !== undefined || busy || s.unread
-  if (s.pendingInteraction !== undefined) {
-    const dot = el('span', 'session-dot warning')
-    dot.title =
-      s.pendingInteraction === 'approval'
-        ? t('Waiting for approval')
-        : s.pendingInteraction === 'plan-review'
-          ? t('Plan review')
-          : t('Waiting for answer')
-    slot.appendChild(dot)
-  } else if (busy) slot.appendChild(spinSvg())
-  else if (s.unread) slot.appendChild(el('span', 'session-dot completed'))
-  else if (s.pinned) slot.appendChild(makePinIcon())
-  row.appendChild(slot)
   const main = el('span', 'session-main')
-  if (s.pinned && slotTaken) {
+  // 置顶图钉放标题前（常驻；行首不再保留独立状态槽，与主列表一致）。
+  if (s.pinned) {
     const pin = el('span', 'session-pin')
     pin.appendChild(makePinIcon())
     main.appendChild(pin)
   }
   main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title', s.label))
-  main.appendChild(el('span', 'session-time', s.description))
+  const marker = sessionStatusMarker(s)
+  if (marker === null) main.appendChild(el('span', 'session-time', s.description))
+  else {
+    const rear = el('span', 'session-rear')
+    rear.appendChild(marker)
+    main.appendChild(rear)
+  }
   row.appendChild(main)
   const actions = el('span', 'row-actions')
   const more = rowAction(iconSvg(PANEL_ICONS.ellipsis), t('More actions'), () => {

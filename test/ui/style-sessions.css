@@ -381,7 +381,7 @@
     color: var(--vscode-badge-foreground, var(--vscode-foreground));
   }
   .session-row {
-    display: flex; align-items: center; gap: 6px; margin: 0 4px; padding: 0 6px 0 12px;
+    display: flex; align-items: center; gap: 6px; margin: 0 4px; padding: 0 6px 0 20px;
     height: 32px; box-sizing: border-box; overflow: hidden;
     cursor: pointer; border-radius: 4px; font-size: 12px;
   }
@@ -392,14 +392,14 @@
     background: var(--vscode-list-activeSelectionBackground, rgba(0,122,204,.35));
     color: var(--vscode-list-activeSelectionForeground, inherit);
   }
-  /* 行首状态槽：宽度固定（对齐官方 dsh web 的 16px slot），四种标记同一位置
-     居中——待交互黄点 > 运行中像素环 > 已完成/未读绿点 > 置顶图钉；空闲会话留空。 */
-  .session-status {
-    width: 16px; height: 16px; flex: none;
-    display: inline-flex; align-items: center; justify-content: center;
+  /* 置顶图钉：标题前常驻（行首状态槽已移除，整行缩进更紧凑）。main 的
+     flex gap 为 8px，-2px margin 收回到与行 gap 一致的 6px。 */
+  .session-pin {
+    flex: none; width: 14px; height: 14px; margin-right: -2px;
+    color: var(--vscode-descriptionForeground);
+    display: inline-flex; align-items: center; align-self: center;
   }
-  /* 槽内图钉（strokeSvg 固定输出 14px，缩到 13px 与槽匹配）。 */
-  .session-status svg.pin-icon { width: 13px; height: 13px; display: block; color: var(--vscode-descriptionForeground); }
+  .session-pin svg { width: 14px; height: 14px; display: block; }
   /* 运行中：官方 dsh web StateDot(ongoing) 的 8 格像素环追逐动画，deepseek 蓝。 */
   .session-spin { display: block; color: var(--vscode-charts-blue, #5686fe); }
   .session-spin rect { fill: currentColor; opacity: 0.15; animation: session-spin-chase 1s infinite; }
@@ -419,14 +419,15 @@
      --dsw-alias-state-warn-primary 的 VS Code 对应色）。 */
   .session-dot.warning { background: var(--vscode-charts-yellow, #e5c07b); }
   .session-title.unread { font-weight: 600; }
-  /* 组合状态（置顶 + 运行中/未读）时被挤出槽位的图钉，退到标题前。
-     main 的 flex gap 已有 8px，用 -2px margin 收回到与行 gap 一致的 6px。 */
-  .session-pin {
-    flex: none; width: 14px; height: 14px; margin-right: -2px;
-    color: var(--vscode-descriptionForeground);
-    display: inline-flex; align-items: center; align-self: center;
+  /* 行尾状态槽：与时间互斥（有标记就不显示时间）。槽固定 16px、标记居中——
+     绿点（6px）/黄点（6px）/像素环（10px）宽度不同仍中心共线；align-self
+     覆盖 .session-main 的 baseline，垂直与行中心对齐。空闲时该槽不渲染，
+     时间文本右缘贴行尾（.session-time）。 */
+  .session-rear {
+    width: 16px; height: 16px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    align-self: center;
   }
-  .session-pin svg { width: 14px; height: 14px; display: block; }
   /* 紧凑单行：标题省略号 + 右对齐的相对时间（对齐原原生树的观感）。 */
   .session-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
   .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

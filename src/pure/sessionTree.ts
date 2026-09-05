@@ -194,9 +194,15 @@ export function formatRelativeTime(updatedAt: number, now: number, t: L10nFn = e
  * client reuses for "new session") and archived ones are hidden. The
  * workspace matching `currentFolder` comes first (flagged isCurrent); the
  * rest follow their updatedAt descending. Sessions within a workspace put
- * workspace put `view.pinned` ids first (absolute priority); pinned members
- * hold the order of `view.pinned` (置顶顺序，不随 updatedAt/title 调整), the
- * remaining unpinned ones follow `view.sort` (default updatedAt descending). A
+ * `view.pinned` ids first (absolute priority); pinned members hold the order
+ * of `view.pinned` (置顶顺序，不随 updatedAt/title 调整), the remaining
+ * unpinned ones put active sessions first — running / running-descendant /
+ * unread / pending-interaction, any sort mode — ordered by updatedAt
+ * descending inside the active group, then the idle ones follow
+ * `view.sort` (default updatedAt descending). Active-first mirrors the row
+ * rendering, where the rear slot shows a status marker instead of the
+ * relative time, so the (invisible) idle time must not drive ordering for
+ * marked sessions. A
  * non-empty `view.query`
  * keeps only sessions whose label or id contains it (case-insensitive) and
  * drops workspaces left without a match. Sessions not referenced by any
@@ -241,12 +247,17 @@ export function buildSessionTree(
     kids.push(s)
     childrenOf.set(s.parentSessionId, kids)
   }
+  const descendantRunningMemo = new Map<string, boolean>()
   const hasRunningDescendant = (sessionId: string, seen: ReadonlySet<string> = new Set()): boolean => {
+    const hit = descendantRunningMemo.get(sessionId)
+    if (hit !== undefined) return hit
     if (seen.has(sessionId)) return false
     const nextSeen = new Set(seen).add(sessionId)
-    return (childrenOf.get(sessionId) ?? []).some(
+    const value = (childrenOf.get(sessionId) ?? []).some(
       (k) => k.running || hasRunningDescendant(k.sessionId, nextSeen),
     )
+    descendantRunningMemo.set(sessionId, value)
+    return value
   }
 
   // 置顶顺序索引：sessionId → 在 view.pinned（数组）里的位置，越靠前置顶越前。
@@ -267,11 +278,23 @@ export function buildSessionTree(
 
   // 会话行流水线：label 解析（query 匹配和 title 排序都要用，先算一次）→
   // 查询过滤（标题/ID 命中 或 内容命中）→ 置顶绝对优先（组内按置顶顺序）→
-  // 非置顶成员：先按标签组聚合（组块顺序），组内再按 view.sort；无组殿后。
-  // workspace 组与「未分组」组共用。
+  // 非置顶成员：先按标签组聚合（组块顺序，组内再排），组内活跃优先（运行中/
+  // 运行中后代/未读/待交互，任何排序模式下都整体前置）→ 其余按 view.sort；
+  // 无组殿后。workspace 组与「未分组」组共用。
   const toSessionNodes = (list: SessionInput[]): SessionNodeModel[] =>
     list
-      .map((s) => ({ session: s, label: titleOf(s) ?? t('Session {0}', s.sessionId.slice(0, 8)) }))
+      .map((s) => ({
+        session: s,
+        label: titleOf(s) ?? t('Session {0}', s.sessionId.slice(0, 8)),
+        // 活跃判定（展示层排序用）：与行尾标记同义——运行中/有运行中后代/
+        // 未读/待交互任一即活跃。这些会话行尾不再显示时间，排序上整体前置，
+        // 避免「不可见的时间」成为排序依据（用户确认：所有排序模式生效）。
+        active:
+          s.running ||
+          view.unread?.has(s.sessionId) === true ||
+          view.pendingInteractions?.has(s.sessionId) === true ||
+          hasRunningDescendant(s.sessionId),
+      }))
       .filter(
         ({ session, label }) =>
           query === '' ||
@@ -283,7 +306,7 @@ export function buildSessionTree(
         const aPinned = pinnedIndex.has(a.session.sessionId)
         const bPinned = pinnedIndex.has(b.session.sessionId)
         if (aPinned !== bPinned) return aPinned ? -1 : 1
-        // 置顶组内按置顶顺序固定；非置顶成员先按标签组聚合再按 sort 键比较。
+        // 置顶组内按置顶顺序固定；非置顶成员先按标签组聚合再比活跃/排序键。
         if (aPinned) {
           return (pinnedIndex.get(a.session.sessionId) ?? 0) - (pinnedIndex.get(b.session.sessionId) ?? 0)
         }
@@ -292,6 +315,12 @@ export function buildSessionTree(
           const bRank = tagRankOf(tagFor(b.session.sessionId))
           if (aRank !== bRank) return aRank - bRank
         }
+        // 活跃优先（组内层）：有状态标记的会话整体前置，活跃组内固定按
+        // updatedAt 降序（越活跃越新），不受 view.sort 的 title/asc 影响。
+        // 与标签组聚合（view.tags / sessionTagFor）的层级：组块序 > 活跃层 >
+        // sort 键——“分了组的靠前（组块序），每个组内部再排序（活跃+sort）”。
+        if (a.active !== b.active) return a.active ? -1 : 1
+        if (a.active) return b.session.updatedAt - a.session.updatedAt
         if (sort === 'updatedAsc') return a.session.updatedAt - b.session.updatedAt
         if (sort === 'title') return a.label.localeCompare(b.label)
         return b.session.updatedAt - a.session.updatedAt

@@ -1,0 +1,67 @@
+{
+  "title": "DSH One 沙盒验收报告 — 会话行状态标记移到行尾时间位（与时间互斥）+ 活跃优先排序",
+  "branch": "agent/session-row-status-to-time-slot",
+  "commit": "b70075c",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-session-row-status-to-time-slot:latest",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code、真模型输出、平台专项（Windows/macOS）不在本报告范围。侧栏行尾互斥槽的逐状态视觉核对以 ai-visual-validation 场景（sessions-status-rear-slot / sessions）截图为准，见报告附注。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "新会话发送后行尾像素环、完成空闲后恢复时间（真环境链路）",
+      "expect": "发送「测试一下」后 mock-LLM 回显「收到：测试一下…」；会话运行期间侧栏该会话行尾显示像素环（无相对时间——不得出现「N 分钟前」与忙碌并存），回复完成后该行恢复相对时间显示；行首槽只有置顶图钉（本会话未置顶时留空）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/srts-f01-running.png",
+        "/tmp/dsh-sandbox-shots/F-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "driver done → 人工核对：srts-f01-running 截图会话「查天气」运行中（chat 区流式输出 1 turns·2 steps）时侧栏该行行尾蓝色像素环、无相对时间——「57 分钟前」式矛盾未出现；行首无图钉（未置顶留空）。F-01 截图（回复完成 just now）该行恢复相对时间显示；相邻「收到：Generate the session…」空闲行显示 13 minutes ago。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "活跃优先排序（纯层，单测覆盖）",
+      "expect": "buildSessionTree 对运行中/运行中后代/未读/待交互会话整体前置（所有排序模式生效，活跃组内按 updatedAt 降序；组块序 > 活跃层 > sort 键）。node --test 全量 592 项通过（新增活跃排序用例 5 项）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test 全量 592 项通过（其中 sessionTree 新增 5 项活跃排序用例：默认/标题/升序/置顶/子代理后代）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "未知工具错误路径",
+      "expect": "发送「查天气」触发 mock-LLM 的 get_weather 工具调用后，真 dsh 走未知工具重试与报错路径，统计行显示 2 turns。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-01.png"
+      ],
+      "driver": {
+        "prompt": "查天气",
+        "expectText": "get_weather"
+      },
+      "notes": "driver done → 人工核对：查天气会话出现 get_weather 工具卡、统计行 2 turns；侧栏行「查天气」空闲 just now、下行 1 minutes ago（互斥显示正常）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "侧栏综合渲染（ai-visual-validation 截图）",
+      "expect": "sessions 场景截图：dsh-one 组行尾会话状态与时间互斥——运行中行「DSH One 示例会话」行尾像素环无时间、未读行「重构 sessionStore」行尾绿点 + 标题加粗无时间、置顶行「置顶的调研会话」行首图钉 + 行尾时间「昨天」、active 行行尾时间「10 分钟前」；dsh-web 组待审批行行尾黄点无时间；未分组行显示时间。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-rb/sessions.png"
+      ],
+      "notes": "ai-visual 截图核对（rebase + 组块适配后最终布局）：行首无状态槽、置顶图钉标题前；运行中行尾像素环无时间、未读行尾绿点+加粗无时间、待审批行尾黄点无时间、空闲行显示时间。"
+    }
+  ]
+}
