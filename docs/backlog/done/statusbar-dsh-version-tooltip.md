@@ -30,3 +30,5 @@
 - 2026-09-05 用户反馈（升级 0.1.2 后想随时确认版本）→ 核实现状 → 建条目（open/）
 
 - 2026-09-05 认领（open → doing）：按条目方案开发；版本取 locateDsh 已执行的 `dsh --version`（spawnSync），经 pidfile 持久化供 re-own；adopted 不显示版本（外部实例，避免误导）。
+
+- 2026-09-05 开发完成（doing → done）：版本取 locateDsh 已执行的 `dsh --version`，经 ServerStatus.version + pidfile 持久化；running 态 tooltip 标题下加 `dsh v{version}`（adopted 外部实例不显示，保留原 external 说明）。自测 typecheck/test(509)/build 全绿，单测 mock ServerStatus 逐态 9 项；报告 test/sandbox/verify.statusbar-dsh-version-tooltip.report.html（覆盖方式：宿主 tooltip 不随沙盒渲染 → 单测 + 本机人工开窗，验收命令已交付用户）。
