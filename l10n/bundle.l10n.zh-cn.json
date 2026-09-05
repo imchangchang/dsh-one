@@ -423,8 +423,7 @@
   "No groups yet. Create one from the group bar above.": "还没有分组。用上方分组栏的 + 新建一个。",
   "Open folder in a new window": "在新窗口打开文件夹",
   "Path copied to clipboard": "路径已复制到剪贴板",
-  "Workspace: {0}": "工作区：{0}"
-,
+  "Workspace: {0}": "工作区：{0}",
   "Usage {0}": "用量 {0}",
   "Turn usage": "本轮用量",
   "Provider / model": "提供方 / 模型",
@@ -435,8 +434,7 @@
   "Output": "输出",
   "({0} reasoning)": "（其中推理 {0}）",
   "{0}K": "{0}K",
-  "{0}M": "{0}M"
-,
+  "{0}M": "{0}M",
   "Turn navigation": "回合导航",
   "Jump to turn {0}": "转到回合 {0}",
   "Load turn {0}": "加载回合 {0}",
@@ -461,5 +459,6 @@
   "{0} {1} overdue": "已逾期 {0}{1}",
   "Read Only": "仅可查看",
   "Workspace Write": "工作区内修改",
-  "Full access": "完全权限"
+  "Full access": "完全权限",
+  "The {0} command is not provided by this dsh host (check the session agent preset or the dsh version)": "当前 dsh 宿主未提供 {0} 命令（检查会话的 agent preset 或 dsh 版本）"
 }

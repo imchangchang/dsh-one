@@ -28,7 +28,7 @@ import {
   parseGitShowOutput,
 } from '../pure/commitGit.ts'
 import type { GitShowRecord } from '../pure/commitGit.ts'
-import { looksLikeSlashCommand } from '../pure/slashCommand.ts'
+import { isHostSlashCommand, looksLikeSlashCommand, slashCommandName } from '../pure/slashCommand.ts'
 import { imageMediaTypeByExtension, pastedFileName, splitAttachmentLines } from '../pure/composerAttachment.ts'
 import { DEFAULT_THUMB_FETCH, runAttempts, ThrottledQueue } from '../pure/thumbQueue.ts'
 import { attachmentDir, nextSequenceIndex } from './attachmentDir.ts'
@@ -959,7 +959,20 @@ async function runCommand(host: ChatTabHost, line: string, images?: OutgoingImag
   if (!controller) return
   const outcome = await executeCommand(controller.url, controller.sessionId, line, images)
   if (!outcome.matched) {
-    host.postMessage({ type: 'commandResult', text: vscode.l10n.t('Unknown or malformed command: {0}', line) })
+    // 面板广告了但宿主不认的命令：不是拼写问题，是宿主组合（dsh 版本 / 会话
+    // agent preset）没提供该命令——给定向提示（如自定义 preset 没装载
+    // command-goal 时 /goal 即落这里）；其余（拼写错等）保留官方同款文案。
+    const name = slashCommandName(line)
+    host.postMessage({
+      type: 'commandResult',
+      text:
+        name !== undefined && isHostSlashCommand(name)
+          ? vscode.l10n.t(
+              'The {0} command is not provided by this dsh host (check the session agent preset or the dsh version)',
+              `/${name}`,
+            )
+          : vscode.l10n.t('Unknown or malformed command: {0}', line),
+    })
     return
   }
   // `/export` only marks the request host-side ("Session log download
