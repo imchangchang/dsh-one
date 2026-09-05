@@ -32,6 +32,8 @@ export interface ServerStatus {
   port?: number
   /** true when we connected to an already-running instance we must never kill. */
   adopted?: boolean
+  /** dsh version reported by `dsh --version` at locate time; absent for adopted instances. */
+  version?: string
   error?: string
   /** Why startup failed; 'dshNotFound' means no dsh executable was located. */
   reason?: 'dshNotFound'
@@ -93,6 +95,8 @@ interface OwnedRecord {
    * 服务端不落盘，扩展 reload 后只能靠自己持久化的这份找回。0.1.1 无。
    */
   token?: string
+  /** spawn 时 locateDsh 报的版本；reload 后 re-own 时展示用（不是当前 PATH 的近似值）。 */
+  version?: string
 }
 
 /** Readiness result: the clean origin plus the launch token when it exists. */
@@ -207,7 +211,7 @@ export class ServerManager implements vscode.Disposable {
               const ownedUrl = `http://127.0.0.1:${ownedPort}`
               this.logger.info(`re-owning authenticated dsh at ${ownedUrl} (pid=${owned.pid}, spawned by a previous window)`)
               this.ownedPid = owned.pid
-              this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false })
+              this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false, version: owned.version })
               this.startHealthCheck(ownedPort)
               return this.status
             }
@@ -215,7 +219,7 @@ export class ServerManager implements vscode.Disposable {
             const ownedUrl = `http://127.0.0.1:${ownedPort}`
             this.logger.info(`re-owning dsh at ${ownedUrl} (pid=${owned.pid}, spawned by a previous window)`)
             this.ownedPid = owned.pid
-            this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false })
+            this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false, version: owned.version })
             this.startHealthCheck(ownedPort)
             return this.status
           }
@@ -302,19 +306,19 @@ export class ServerManager implements vscode.Disposable {
     const dshPid = await this.spawnViaLauncher(launcher, dsh.command, args, env, workspaceRoot)
     this.ownedPid = dshPid
     this.logger.info(`dsh logs to ${this.logFile()}`)
-    await this.writeOwned({ pid: dshPid, port: spawnPort })
+    await this.writeOwned({ pid: dshPid, port: spawnPort, version: dsh.version })
 
     const ready = await this.waitReady(dshPid, spawnPort)
     const actualPort = ready.port
     if (ready.token !== undefined) {
       // 0.1.2：token 已随就绪行拿到并完成换票（auth 注册在 exchangeToken 内）。
       // 持久化 token 供下次 re-own（stdout 届时已丢）。
-      await this.writeOwned({ pid: dshPid, port: actualPort, token: ready.token })
+      await this.writeOwned({ pid: dshPid, port: actualPort, token: ready.token, version: dsh.version })
     } else if (actualPort !== spawnPort) {
       // port=0 时启动后才知道实际端口，回填 pidfile 供下次 re-own。
-      await this.writeOwned({ pid: dshPid, port: actualPort })
+      await this.writeOwned({ pid: dshPid, port: actualPort, version: dsh.version })
     }
-    this.setStatus({ state: 'running', url: ready.url, adopted: false, port: actualPort })
+    this.setStatus({ state: 'running', url: ready.url, adopted: false, port: actualPort, version: dsh.version })
     this.startHealthCheck(actualPort)
     this.logger.info(`dsh is ready at ${ready.url}`)
     return this.status
@@ -550,6 +554,7 @@ export class ServerManager implements vscode.Disposable {
         pid: parsed.pid,
         port: parsed.port,
         ...(typeof parsed.token === 'string' ? { token: parsed.token } : {}),
+        ...(typeof parsed.version === 'string' ? { version: parsed.version } : {}),
       }
     } catch {
       return null
