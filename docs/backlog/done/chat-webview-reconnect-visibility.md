@@ -43,3 +43,4 @@
 - 2026-09-05 用户要求（对照主线最新状态复核修改方案）：chat-column-layout 合入未触动本方案涉及的文件，方案主体不变；修正凭证兜底的问题描述与方案精度（manager 知情路径凭证链已闭环，兜底只剩外部替换/cookie 过期窄边），实测项同时验证自愈假设
 - 2026-09-05 用户收窄范围（只做前端体验部分）：建议方案拆为「本期范围」（断连横幅+沙盒实测）与「暂缓项」（凭证兜底）
 - 2026-09-05 认领（worktree: agent/chat-webview-reconnect-banner，只做断连横幅+沙盒实测，凭证兜底暂缓）→ doing
+- 2026-09-06 开发完成，自测通过 → done（worktree: agent/chat-webview-reconnect-banner；断连横幅三相位 + 立即重连按钮 + kill/respawn 沙盒实测 4 项全 pass，报告 test/sandbox/verify.chat-webview-reconnect-banner.report.html；实测发现 dsh 0.1.1 重连后无 pending 事件时不发 session/subscribed（静默挂 socket 但事件照常流），重连成功信号放宽为「本会话任意帧到达」）
