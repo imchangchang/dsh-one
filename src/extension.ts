@@ -151,6 +151,78 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.stop', async () => {
       await manager.stop()
     }),
+    // 外部启动的认证 dsh（防护错误态）：粘贴终端 URL 里的 launch token 连接（B 档）。
+    vscode.commands.registerCommand('dshOne.external.pasteToken', async () => {
+      const status = manager.getStatus()
+      if (status.reason !== 'authDshNoToken') return
+      const token = await vscode.window.showInputBox({
+        title: vscode.l10n.t('Paste dsh Launch Token'),
+        prompt: vscode.l10n.t('Paste the part after ?token= from the URL printed by dsh web in the terminal'),
+        placeHolder: 'token=…',
+        ignoreFocusOut: true,
+      })
+      const trimmed = token?.trim()
+      if (!trimmed) return
+      try {
+        const next = await manager.connectExternalToken(trimmed)
+        await sessions.refresh()
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t('Connected to the external dsh instance on port {0}', next.port ?? status.port ?? '?'),
+        )
+      } catch (err) {
+        void vscode.window.showErrorMessage(vscode.l10n.t('Failed to connect to the external dsh: {0}', errorText(err)))
+      }
+    }),
+    // 一键复制 URL 模板：http://127.0.0.1:<port>/?token=（用户拿终端打印的 URL 对照补 token）。
+    vscode.commands.registerCommand('dshOne.external.copyTokenTemplate', async () => {
+      const port = manager.getStatus().port
+      if (port === undefined) return
+      await vscode.env.clipboard.writeText(`http://127.0.0.1:${port}/?token=`)
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t('Copied the URL template. Fill in the token from the URL printed by dsh web in the terminal.'),
+      )
+    }),
+    // A 档：停止外部实例——单 pid、杀前身份确认，杀前确认弹窗（外部实例可能正在用户终端看日志）。
+    vscode.commands.registerCommand('dshOne.external.stop', async () => {
+      const status = manager.getStatus()
+      if (status.reason !== 'authDshNoToken' && status.external !== true) return
+      const port = status.port ?? '?'
+      const confirm = vscode.l10n.t('Stop')
+      const pick = await vscode.window.showWarningMessage(
+        vscode.l10n.t('Stop the externally started dsh on port {0}? It may be running in your terminal.', port),
+        { modal: true },
+        confirm,
+      )
+      if (pick !== confirm) return
+      try {
+        await manager.stopExternal()
+        await sessions.refresh()
+      } catch (err) {
+        void vscode.window.showErrorMessage(vscode.l10n.t('Failed to stop the external dsh: {0}', errorText(err)))
+      }
+    }),
+    // A 档重启：停止外部实例 + 扩展 spawn 新实例（新实例归扩展管理，此后免确认）。
+    vscode.commands.registerCommand('dshOne.external.restart', async () => {
+      const status = manager.getStatus()
+      if (status.reason !== 'authDshNoToken' && status.external !== true) return
+      const port = status.port ?? '?'
+      const confirm = vscode.l10n.t('Restart')
+      const pick = await vscode.window.showWarningMessage(
+        vscode.l10n.t(
+          'Stop the external dsh on port {0} and start a new instance managed by this extension? The new instance will be owned by this extension from then on.',
+          port,
+        ),
+        { modal: true },
+        confirm,
+      )
+      if (pick !== confirm) return
+      try {
+        await manager.restartExternal()
+        await sessions.refresh()
+      } catch (err) {
+        void vscode.window.showErrorMessage(vscode.l10n.t('Failed to restart the external dsh: {0}', errorText(err)))
+      }
+    }),
     vscode.commands.registerCommand('dshOne.showLogs', () => {
       logger.show()
     }),

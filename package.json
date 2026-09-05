@@ -71,6 +71,26 @@
         "category": "DSH One"
       },
       {
+        "command": "dshOne.external.pasteToken",
+        "title": "%dshOne.external.pasteToken.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.external.copyTokenTemplate",
+        "title": "%dshOne.external.copyTokenTemplate.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.external.stop",
+        "title": "%dshOne.external.stop.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.external.restart",
+        "title": "%dshOne.external.restart.title%",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.showLogs",
         "title": "%dshOne.showLogs.title%",
         "category": "DSH One"
