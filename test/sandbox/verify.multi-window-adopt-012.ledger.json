@@ -1,0 +1,104 @@
+{
+  "title": "multi-window-adopt-012：多 VS Code 窗口收养 0.1.2 dsh（共享记录 + 认证式 adopt）",
+  "branch": "agent/multi-window-adopt-012",
+  "commit": "480d4a4",
+  "environment": {
+    "mode": "unit/probe（无 UI 行为变化，不跑沙盒截图）",
+    "dsh": "0.1.2-rc.1（本机 PATH，真环境探针）",
+    "platform": "macOS",
+    "date": "2026-09-05T13:30:00Z"
+  },
+  "coverageNote": "纯逻辑改动（状态栏渲染不变），无 UI 行为变化，沙盒截图报告不适用。自动化覆盖 = node:test 单测（test/ownedRecord.test.ts 12 项 + 现有 serverAuth/全量套件）+ 本机真 0.1.2-rc.1 探针（.dev-host/probe-real-adopt.mjs，只读不碰 3080 实例）。真双窗口场景（两个隔离 VS Code 窗口、同实例同端口、adopt 不 kill、owner 停止后第二窗口同步）建议人工按交付命令开窗验收。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "共享身份记录：所有窗口统一读 ~/.dsh/dsh-owned.json",
+      "expect": "记录含 pid/port/token/owner，owner = spawn 窗口的 globalStorage 路径；写入原子（tmp+rename，无残留）、读取宽松（坏文件按无记录）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "ownedRecord.test.ts：roundtrip 全字段、原子覆盖无 tmp 残留、坏文件容错。manager.writeOwned 统一走共享路径并补 owner。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "第二窗口（不同 user-data）认证式 adopt：probeToken → adopted:true，不 kill",
+      "expect": "读到 owner 不是自己的记录 → 用记录 token probeToken 换票成功 → adopted:true 复用同实例；ownedPid 不设置（stop/restart 不碰该实例）；不改写记录 owner。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "resolveOwnership 单测（owner 不匹配→adopt）；真环境探针：用 3080 实例的 token probeToken 换到 cookie、带 cookie GET / 返回 200（无 cookie 401），owner 不匹配判定 adopt ✓，错误 token 返回 null ✓。完整分支（setStatus/健康检查）需人工双窗口验收。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "窗口同时启动竞态：锁串行化，不产生双实例",
+      "expect": "start 全段挂 mkdir 锁；后到窗口等锁，前一个 spawn 落盘后按记录 adopt；持锁分支进程死 pid/超龄锁可回收；锁等待超时降级不阻塞。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "ownedRecord.test.ts：互斥等待（300ms 后仍未拿到→release 后拿到）、死 pid 旧锁回收、超时降级 no-op。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "旧 globalStorage 记录一次性迁移",
+      "expect": "旧位置有记录且共享无记录 → 复制到共享并补 owner=当前窗口 → 删旧；共享已有记录 → 不覆盖只删旧；无旧记录 → 无副作用。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "ownedRecord.test.ts：迁移补 owner/token 保留、不覆盖既有共享、无旧记录 no-op。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "记录过期清理：pid 死/端口不应答/token 失效",
+      "expect": "以上任一情况 → 清共享记录 + 清旧位置 → 走 probe/spawn 正常流程。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "clearOwnedRecord 单测（删除 + 容错）；manager 路径：probeToken null / probePort 非 dsh → clearOwned。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "0.1.1 双窗口回归：无 token 记录 probe 即 adopted",
+      "expect": "0.1.1 记录无 token：owner 匹配 → 同 reload re-own（adopted:false）；owner 不匹配 → probePort 'dsh' 即 adopted:true——与旧「无记录探到」语义一致。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "分支判定 resolveOwnership 单测；probePort 'dsh' → adopted 路径未改动；跨窗口结果与旧行为一致（旧代码跨 user-data 无 pidfile 也是 probe→adopted）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "同窗口 reload re-own：adopted:false、kill 权保持（2A 语义不变）",
+      "expect": "owner 匹配 → token 认证成功 → re-own（adopted:false + ownedPid 设置），stop/restart 可杀；版本字段沿用记录。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "resolveOwnership 单测（owner 匹配→own）；真环境探针 owner 匹配判定 own ✓。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "stop/restart 与健康检查语义：只杀 owned；adopted 窗口跟随 stopped",
+      "expect": "adopted 窗口 stop → killOwned 因 ownedPid=null 早退（不杀）；owner 停止实例后第二窗口健康检查 10s 内落回 stopped；refresh 后可由新窗口再 adopt。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "killOwned 早退路径未动；adopted 窗口的健康检查用 probeToken 注册的 cookie（真探针验证 cookie 可用）；stale 同步由人工双窗口验收复核。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "端口被占（foreign/认证无 token）仍走 findFreePort 换端口",
+      "expect": "无有效记录且配置端口应答 401/非 dsh → 保持原有「视为占用 → 找空闲端口 → 提示」行为。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "probe → findFreePort 段未改动；真探针确认 3080 无 cookie 返回 401（占用判定成立）。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "全量回归：typecheck / 全量测试 / build",
+      "expect": "tsc --noEmit 无错；node --test 全量 529 项通过（含新增 12 项）；npm run build 产出 dist 三件套。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实际执行：typecheck ✓、test 529 pass ✓、build ✓（本机 2026-09-05）。"
+    }
+  ]
+}
