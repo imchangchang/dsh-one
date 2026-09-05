@@ -497,5 +497,6 @@
   "Connection lost, reconnecting… (attempt {0})": "Connection lost, reconnecting… (attempt {0})",
   "Connection lost, reconnection failed": "Connection lost, reconnection failed",
   "Connection restored": "Connection restored",
-  "Reconnect now": "Reconnect now"
+  "Reconnect now": "Reconnect now",
+  "Open in VS Code": "Open in VS Code"
 }
