@@ -1770,10 +1770,10 @@
         }
         s.tagCollapsed = ['preset-done']
         s.workspaces[0].sessions = [
-          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo', pendingInteraction: 'approval' }),
           sess('sess-2', '修复回收站抽屉高度', '5 小时前', { tagId: 'preset-todo', unread: true }),
           sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', running: true }),
-          sess('sess-3', '会话复制引用功能', '1 天前', { tagId: 'preset-done' }),
+          sess('sess-3', '会话复制引用功能', '1 天前', { tagId: 'preset-done', unread: true }),
         ]
         s.workspaces[1].sessions = []
         s.workspaces[2].sessions = []
@@ -1831,8 +1831,8 @@
           `,
         },
       ],
-      title: '侧栏面板（标签组块折叠/展开）',
-      expect: '三张截图对照——① 初始帧：三个组块 pill 右侧各有一个小三角（展开向下）；「已完成」组因快照 tagCollapsed=[preset-done] 预置为折叠态——只剩一行（pill + 三角朝右），组内会话行与竖线消失，其余两组展开。② <scenario>-collapsed.png：点击「待办」组块箭头后——该组块同样只剩一行（pill + 三角朝右），组内两个会话行与竖线消失；无红色断言横幅（断言：post 了 sessionTagCollapse{tagId:preset-todo, collapsed:true}）。③ <scenario>-expanded.png：再点一次箭头——post sessionTagCollapse{collapsed:false}；mock 宿主不回推快照，组块保持折叠为预期行为（真实宿主随快照展开）。',
+      title: '侧栏面板（标签组块折叠/展开 + 折叠态计数）',
+      expect: '三张截图对照——① 初始帧：三个组块 pill 右侧各有一个小三角（展开向下）；「已完成」组因快照 tagCollapsed=[preset-done] 预置为折叠态——只剩一行（pill + 三角朝右），且箭头右侧显示该组组内待处理计数（绿点 + 1，组内一行未读），组内会话行与竖线消失；「待办」（黄）组初始展开（行内：第一行黄点待交互、第二行未读绿点加粗）。② <scenario>-collapsed.png：点击「待办」组块箭头后——该组块只剩一行，箭头右侧显示计数「黄点+1、绿点+1」（待交互 1 + 未读 1）；无红色断言横幅（断言：post 了 sessionTagCollapse{tagId:preset-todo, collapsed:true}）。③ <scenario>-expanded.png：再点一次箭头——post sessionTagCollapse{collapsed:false}；mock 宿主不回推快照，组块保持折叠为预期行为（真实宿主随快照展开）。',
     },
 
     'session-tags-create': {

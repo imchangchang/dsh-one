@@ -1561,7 +1561,9 @@ function appendTagBlocks(
     const collapsed = !inSearch && collapsedSet.has(tag.id)
     const block = el('div', `tag-group tag-${tag.color}${collapsed ? ' collapsed' : ''}`)
     block.dataset.tagId = tag.id
-    block.appendChild(tagHeadEl(tag, block, collapsed))
+    // 折叠态在 pill 行显示组内待处理计数（workspace 组头同款角标）：折叠时
+    // 看不到组内会话，计数提示「这组还有 N 个任务要处理」；展开时直接可见、不显示。
+    block.appendChild(tagHeadEl(tag, block, collapsed, collapsed ? rows : []))
     if (!collapsed) {
       block.appendChild(el('div', 'tag-line'))
       for (const cur of rows) {
@@ -1575,9 +1577,35 @@ function appendTagBlocks(
   }
 }
 
-/** 组头：小 pill（组名 + 组色点，可拖排组序、右键整组菜单）+ 折叠/展开箭头。
- *  块体收会话拖拽入组。 */
-function tagHeadEl(tag: SnapshotTag, block: HTMLElement, collapsed: boolean): HTMLElement {
+/**
+ * 折叠组头角标：组内会话的待交互/运行中/未读计数（互斥优先级与 workspace
+ * 组头一致：待交互 > 运行中 > 未读；每会话只入一个桶）。
+ */
+function appendTagCounts(head: HTMLElement, sessions: SessionNodeModel[]): void {
+  let pending = 0
+  let running = 0
+  let unread = 0
+  for (const s of sessions) {
+    if (s.pendingInteraction !== undefined) pending += 1
+    else if (s.running || s.descendantRunning) running += 1
+    else if (s.unread) unread += 1
+  }
+  if (pending === 0 && running === 0 && unread === 0) return
+  const counts = el('span', 'ws-counts tag-counts')
+  if (pending > 0) appendCountBadge(counts, el('span', 'session-dot warning'), pending, t('Pending interaction'))
+  if (running > 0) appendCountBadge(counts, spinSvg(), running, t('Running'))
+  if (unread > 0) appendCountBadge(counts, el('span', 'session-dot completed'), unread, t('Unread'))
+  head.appendChild(counts)
+}
+
+/** 组头：小 pill（组名 + 组色点，可拖排组序、右键整组菜单）+ 折叠/展开箭头；
+ *  countSessions 非空时（折叠态）在箭头后显示组内待处理计数。块体收会话拖拽入组。 */
+function tagHeadEl(
+  tag: SnapshotTag,
+  block: HTMLElement,
+  collapsed: boolean,
+  countSessions: SessionNodeModel[] = [],
+): HTMLElement {
   const head = el('div', 'tag-head')
   const pill = el('span', 'tag-pill')
   pill.setAttribute('data-tip', t('Group: {0}', tag.name))
@@ -1596,6 +1624,8 @@ function tagHeadEl(tag: SnapshotTag, block: HTMLElement, collapsed: boolean): HT
     post({ type: 'sessionTagCollapse', tagId: tag.id, collapsed: !collapsed })
   })
   head.appendChild(toggle)
+  // 折叠态计数（展开态不渲染）：靠右对齐，与 workspace 组头角标同款小号样式。
+  if (countSessions.length > 0) appendTagCounts(head, countSessions)
   attachTagPillDrag(pill, tag.id)
   pill.addEventListener('contextmenu', (e) => {
     e.preventDefault()

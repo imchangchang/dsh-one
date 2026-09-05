@@ -588,6 +588,8 @@ const SESSIONS_STYLE = `
   .tag-toggle:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
   .tag-toggle svg { display: block; transition: transform .15s ease; }
   .tag-group:not(.collapsed) .tag-toggle svg { transform: rotate(90deg); }
+  /* 折叠组头角标（组内待处理计数）：靠右、小号，复用 .ws-count 的 10px 样式。 */
+  .tag-counts { margin-left: auto; padding-right: 2px; }
   /* 折叠块：组内行与竖线隐藏，组块收成一行（pill + 箭头）。 */
   .tag-group.collapsed .tag-line { display: none; }
   .tag-group.collapsed { margin-bottom: 2px; }
