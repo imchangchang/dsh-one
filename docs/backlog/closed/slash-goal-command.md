@@ -30,3 +30,4 @@ dsh-one 面板的 slash 命令补全/解析表（`src/pure/slashCommand.ts` 或 
 - 代码改动（branch agent/slash-goal-command，852e304）：未匹配时区分「面板广告的宿主内建命令」（定向提示：宿主未提供，检查 preset/dsh 版本）与拼写错（官方同款文案）；pure/slashCommand 加 slashCommandName + HOST_SLASH_COMMAND_NAMES + isHostSlashCommand，l10n 中英一条，单测 2 个，519 全绿。
 - 沙盒报告：test/sandbox/verify.slash-goal-command.report.html（5 项全过，mock-llm + 真 dsh 0.1.1-rc.2；0.1.2 语义/根因在真 0.1.2 环境实测，见本条目与 ledger coverageNote）。
 - 遗留：用户 kimi preset 需补 command-goal 行（`- id: command-goal/name: '@deepseek-ai/dsh-command-goal'`）才能真正用上 /goal；新增同类命令（如未来官方新命令）面板静态表同样滞后——同机制已能给定向提示，未扩展。
+- 2026-09-05 主线合入后人工确认（目标验收通过）→ closed
