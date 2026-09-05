@@ -1,12 +1,18 @@
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  probeDshVersionFromCommandLine,
   isDshCommandLine,
   parseLsofPids,
   parseNetstatPids,
   parseProcTcpListeners,
   socketInodeFromFdLink,
 } from '../src/server/externalDsh.ts'
+
+const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as unknown as import('../src/log.ts').Logger
 
 test('parseLsofPids: 只取纯数字行（lsof -ti 输出）', () => {
   assert.deepEqual(parseLsofPids('33411\n'), [33411])
@@ -70,4 +76,21 @@ test('isDshCommandLine: 识别 npm 全局安装与本地 checkout 的 dsh 命令
   assert.equal(isDshCommandLine('python3 -m http.server 3080'), false)
   // 路径里恰好含 "dsh" 的无关程序（不匹配独立 path 段或包路径）
   assert.equal(isDshCommandLine('node /Users/u/Desktop/dsh-backup/app.js'), false)
+})
+
+test('probeDshVersionFromCommandLine: 解析入口并执行 --version（临时 bin.js fixture）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-probe-'))
+  const pkgDir = join(dir, 'node_modules', '@deepseek-ai', 'dsh')
+  mkdirSync(join(pkgDir, 'lib'), { recursive: true })
+  writeFileSync(join(pkgDir, 'lib', 'bin.js'), "console.log('dsh version 0.1.2-rc.1')\n")
+  const cmdline = `node ${join(pkgDir, 'lib', 'bin.js')} web --port 3080`
+  assert.equal(probeDshVersionFromCommandLine(cmdline, silentLogger), '0.1.2-rc.1')
+  // 入口不存在（路径解析出但执行失败）→ undefined
+  assert.equal(
+    probeDshVersionFromCommandLine(`node ${join(dir, 'missing', '@deepseek-ai', 'dsh', 'lib', 'bin.js')} web --port 3080`, silentLogger),
+    undefined,
+  )
+  // 裸命令/空 → undefined（来源不可确认，显示会误导）
+  assert.equal(probeDshVersionFromCommandLine('dsh web --port 3080', silentLogger), undefined)
+  assert.equal(probeDshVersionFromCommandLine(null, silentLogger), undefined)
 })

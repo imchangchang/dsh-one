@@ -101,3 +101,33 @@ test('stopped: start link, no version line', () => {
   assert.ok(md.includes('**DSH One** — Service Stopped'))
   assert.ok(md.includes('[$(play) Start Service](command:dshOne.start)'))
 })
+
+test('running: adopted with recorded/probed version shows the version line', () => {
+  const md = tooltipMarkdown(
+    { state: 'running', url: 'http://127.0.0.1:3080', adopted: true, version: '0.1.2-rc.1' },
+    t,
+  )
+  assert.ok(md.includes('dsh v0.1.2-rc.1\n'))
+  // adopted 分支文案与管理入口不变（无 Restart/Stop Service）。
+  assert.ok(md.includes('Reusing an externally started instance; the extension will not stop it'))
+  assert.ok(!md.includes('Restart Service'))
+  assert.ok(!md.includes('Stop Service'))
+})
+
+test('running: external (token-pasted) instance with probed version shows it', () => {
+  const md = tooltipMarkdown(
+    { state: 'running', url: 'http://127.0.0.1:3080', external: true, version: '0.1.1' },
+    t,
+  )
+  assert.ok(md.includes('dsh v0.1.1\n'))
+  assert.ok(md.includes('Restart External Instance'))
+  assert.ok(md.includes('Stop External Instance'))
+})
+
+test('running: adopted with unknown version still hides the line (probe failed)', () => {
+  const md = tooltipMarkdown(
+    { state: 'running', url: 'http://127.0.0.1:3080', adopted: true, version: 'unknown' },
+    t,
+  )
+  assert.ok(!md.includes('dsh v'))
+})

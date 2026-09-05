@@ -21,9 +21,11 @@ export interface TooltipStatus {
 export type Translate = (message: string, ...args: Array<string | number | boolean>) => string
 
 /**
- * running 态：标题行后追加 `dsh v{version}`（纯文本格式串，无文案故无需 l10n）；
- * version 缺失/unknown（含 adopted 外部实例）时不显示版本行——外部实例
- * 来自哪个安装无法确认，显示会误导。外部连接的认证实例（external）同样无版本。
+ * running 态：标题行后追加 `dsh v{version}`（纯文本格式串，无文案故无需 l10n）。
+ * version 缺失/unknown 时不显示版本行。spawn 实例版本来自 locate 时的
+ * `dsh --version`；adopted（另一窗口 spawn）/external（token 连接）实例的版本
+ * 来自 shared 记录或「命令行解析真实入口 → 执行 --version」的探测，两者都不
+ * 依赖扩展 PATH 近似（多安装会误导），探测不出才缺省不显示。
  */
 export function tooltipMarkdown(status: TooltipStatus, t: Translate): string {
   switch (status.state) {

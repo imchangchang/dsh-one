@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import * as fsp from 'node:fs/promises'
 import { probePort } from './portProbe.ts'
+import { parseDshEntryFromCommandLine, extractDshVersion } from '../pure/dshCommandLine.ts'
 import type { Logger } from '../log.ts'
 
 /**
@@ -154,6 +155,43 @@ export function processCommandLine(pid: number): string | null {
     windowsHide: true,
   })
   return res.status === 0 ? res.stdout.trim() || null : null
+}
+
+/** `--version` 查询超时；实例卡死时也保证 tooltip 组装有界。 */
+const VERSION_TIMEOUT_MS = 5_000
+
+/**
+ * 探询一个「外部启动/收养实例」的真实版本：从其命令行解析 dsh 入口并执行
+ * `--version`（与扩展 PATH 无关，避免多安装误导）。解析或执行失败返回
+ * undefined（调用方不显示版本）；版本串提取失败返回 'unknown'。
+ *
+ * 与 locateDsh 同款 env 清理：扩展宿主注入的 NODE_OPTIONS /
+ * ELECTRON_RUN_AS_NODE 会破坏子进程（node 直跑 bin.js 场景）。
+ */
+export function probeDshVersionFromCommandLine(
+  cmdline: string | null,
+  logger: Logger,
+): string | undefined {
+  if (!cmdline) return undefined
+  const entry = parseDshEntryFromCommandLine(cmdline)
+  if (!entry) {
+    logger.info(`dsh version probe skipped: cannot resolve dsh entry from command line: ${cmdline.slice(0, 120)}`)
+    return undefined
+  }
+  const env = { ...process.env }
+  delete env.NODE_OPTIONS
+  delete env.ELECTRON_RUN_AS_NODE
+  const res = spawnSync(entry.command, [...entry.args, '--version'], {
+    shell: process.platform === 'win32',
+    env,
+    encoding: 'utf8',
+    timeout: VERSION_TIMEOUT_MS,
+  })
+  if (res.error || res.status !== 0) {
+    logger.info(`dsh version probe failed (exit=${res.status ?? 'err'}): ${entry.command} ${entry.args.join(' ')}`)
+    return undefined
+  }
+  return extractDshVersion(`${res.stdout ?? ''}\n${res.stderr ?? ''}`)
 }
 
 /**
