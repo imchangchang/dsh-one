@@ -325,10 +325,6 @@ export function buildSessionTree(
         if (sort === 'title') return a.label.localeCompare(b.label)
         return b.session.updatedAt - a.session.updatedAt
       })
-        if (sort === 'updatedAsc') return a.session.updatedAt - b.session.updatedAt
-        if (sort === 'title') return a.label.localeCompare(b.label)
-        return b.session.updatedAt - a.session.updatedAt
-      })
       .map(({ session, label }) => {
         const pendingInteraction = view.pendingInteractions?.get(session.sessionId)
         const snippet = view.contentHits?.get(session.sessionId)
