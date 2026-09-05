@@ -118,6 +118,38 @@ test('modelLabelOf: explicit reasoningEffort wins over default effort', () => {
   assert.equal(label, 'Model One Low')
 })
 
+test('modelLabelOf: reasoning model without default effort labels Default', () => {
+  const catalog = catalogOf()
+  catalog.groups[0].models.push({
+    id: 'model-2',
+    name: 'Model Two',
+    reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] },
+  })
+  const label = modelLabelOf({ provider: 'provider-a', model: 'model-2' }, catalog)
+  assert.equal(label, 'Model Two Default')
+})
+
+test('modelLabelOf: reasoning model without default effort honors explicit effort', () => {
+  const catalog = catalogOf()
+  catalog.groups[0].models.push({
+    id: 'model-2',
+    name: 'Model Two',
+    reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] },
+  })
+  const label = modelLabelOf(
+    { provider: 'provider-a', model: 'model-2', reasoningEffort: 'high' },
+    catalog,
+  )
+  assert.equal(label, 'Model Two High')
+})
+
+test('modelLabelOf: non-reasoning model has no effort suffix', () => {
+  const catalog = catalogOf()
+  catalog.groups[0].models.push({ id: 'model-3', name: 'Model Three' })
+  const label = modelLabelOf({ provider: 'provider-a', model: 'model-3' }, catalog)
+  assert.equal(label, 'Model Three')
+})
+
 test('modelLabelOf: unknown route falls back to raw ids (advisory catalog)', () => {
   const label = modelLabelOf({ provider: 'provider-x', model: 'model-9' }, catalogOf())
   assert.equal(label, 'model-9')

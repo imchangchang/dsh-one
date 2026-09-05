@@ -1,0 +1,85 @@
+{
+  "title": "模型推理等级 UI 对齐官方 web（Default 档/去 description）",
+  "branch": "agent/model-effort-default",
+  "commit": "1fec324",
+  "environment": {
+    "mode": "ai-visual-validation",
+    "dsh": "0.1.2-rc.1（官方行为基线，dsh-client-ui-model-selection 源码核对）",
+    "locale": "en",
+    "theme": "dark",
+    "image": "n/a（浏览器独立渲染 webview + mock 后台）",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "纯前端改动（webview 模型菜单 + modelLabelOf 纯函数）。视觉行为由 test/ui/scenarios.js 的 model-picker-effort-default 场景（分步截图）覆盖；菜单 DOM 断言与消息断言（window.__posted）在 harness 内 evaluate 完成；modelLabelOf 由 node:test 单测覆盖。真桌面 VS Code 不在本报告范围（无宿主逻辑改动）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "无默认档模型（Kimi 形态）：pill 显示「模型名 Default」",
+      "expect": "模型目录里 Kimi K3 有 efforts（low/high/max）但无 defaultEffort 时，footer 模型 pill 文本为「Kimi K3 Default」；根菜单「Reasoning effort」行右侧为「Default ›」，且模型/档位行均无 description 小字。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-mef/model-picker-effort-default-menu.png"
+      ],
+      "notes": "核对：① pill 文本「✳ Kimi K3 Default」正确；② 根菜单两行「Model · Kimi K3 ›」「Reasoning effort · Default ›」，均为单行（无 .has-desc 两行式，无 description）；③ 根菜单不显示档位 description。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "effort 下拉：Default 首项且默认选中，档位无 description",
+      "expect": "点「Reasoning effort」后档位列表为 ‹ Back + Default(✓)/Low/High/Max；Default 是唯一选中行；每行单行无 description。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-mef/model-picker-effort-default-efforts.png"
+      ],
+      "notes": "核对：① 截图档位列表可见 Default ✓ / Low / High / Max（Max 行在截图管线里被 fixed 弹层截图帧裁切，见独立 DOM 断言）；② harness evaluate DOM 断言：menu-item 文本 = 「‹ Back | Default✓ | Low | High | Max」，checks=1（唯一选中），descs=0（无 description 小字），popover scrollTop=0、scrollHeight=clientHeight=158（无滚动无裁切，Max 行 rect 890-920 完整在弹层 766-924 内）；③ 该截图管线对 fixed 弹层的捕获与 DOM 不同步（元素截图四帧字节级相同），以 DOM 断言为准。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "点 Default 清除会话显式档位（setModel 不带 reasoningEffort）",
+      "expect": "模拟当前模型已显式选 Low（catalog.current.reasoningEffort='low'）后，effort 下拉 Low 为选中行（Default 不再选中）；点 Default 后 webview 发出的 setModel 消息只含 provider/model，不带 reasoningEffort。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "harness evaluate 断言（window.__posted 捕获）：① 显式 Low 状态下档位列表 = Default(c:false)/Low✓/High/Max；② 点击 Default 后 __posted 末条 setModel = {type:'setModel', provider:'kimi-coding', model:'kimi-k3'}（无 reasoningEffort 字段）——与官方 chooseEffort(undefined) 行为一致。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "切模型重置为新模型默认档（不保留旧档位）",
+      "expect": "选中 Kimi K3（efforts 无默认档）后切换到 DeepSeek-V4-Flash（defaultEffort='high'），setModel 消息应带 reasoningEffort:'high'。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "harness evaluate 断言：点击模型列表里 DeepSeek-V4-Flash 后 __posted 末条 setModel = {provider:'deepseek', model:'deepseek-v4-flash', reasoningEffort:'high'}——切模型采用新模型 defaultEffort，不再保留旧档位（旧实现是「新模型支持旧档位才保留」）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "声明默认档的模型（DeepSeek 形态）下拉不变：无 Default 项、默认档选中",
+      "expect": "DeepSeek-V4-Flash（defaultEffort='high'）的 effort 下拉为 Back + Off/Low/High，无 Default 项；High 是选中行。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-mef/model-picker.png"
+      ],
+      "notes": "harness evaluate 断言：档位列表 = Back/Off/Low/High✓（无 Default 项、High 唯一选中）——defaultEffort 存在时行为与官方一致（官方 effortChoices 只对 defaultEffort undefined 显示 provider-default 项）。现有 model-picker 场景（pill「DeepSeek-V4-Flash High」）截图不受影响。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "modelLabelOf 单测（默认档后缀/显式档优先/未知路由兜底）",
+      "expect": "既有 3 个 modelLabelOf 测试保持通过，新增 3 个 case（无默认档→Default 后缀；无默认档+显式档→显式档名；无 reasoning→不加后缀）通过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm test：591 tests / 591 pass（含新增 3 个 modelLabelOf case）；npm run typecheck 通过。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量 UI 场景截图无回归（147 场景）",
+      "expect": "ui-visual.sh mode=all 跑完 147 个场景（含基线）无脚本异常；本次改动涉及模型菜单/pill 的场景（model-picker、model-pill-*）截图与既有期望一致。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "ui-visual.sh 147 场景 exit 0，产物 /tmp/dsh-ui-shots-mef/。改动仅命中模型菜单渲染与 modelLabelOf（host 侧 label 由场景显式投喂，不依赖 modelLabelOf），其余场景截图的渲染路径未被触碰（无 CSS/容器级改动）。"
+    }
+  ]
+}

@@ -1104,6 +1104,32 @@
       expect: 'footer 模型 pill 可点开下拉：DeepSeek 组 → DeepSeek-V4-Flash → High/Low 档位，当前为 high。',
     },
 
+    // 无默认档推理模型（Kimi K3 形态，对齐官方 web）：档位下拉首项为
+    // Default 且默认选中（选中它 = 清除会话显式档位）；pill 显示「模型名
+    // Default」；模型行/档位行均不显示 description（官方只显示 name）。
+    'model-picker-effort-default': {
+      state: base({
+        modelLabel: 'Kimi K3 Default',
+      }),
+      modelCatalog: {
+        current: { provider: 'kimi-coding', model: 'kimi-k3' },
+        groups: [
+          { id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', efforts: [{ id: 'off', name: 'Off' }, { id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'high' }] },
+          { id: 'kimi-coding', name: 'kimi-coding', models: [{ id: 'kimi-k3', name: 'Kimi K3', efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }, { id: 'max', name: 'Max' }] }, { id: 'kimi-k2-7', name: 'Kimi K2.7 Code', efforts: [] }] },
+        ],
+      },
+      title: '模型选择器：无默认档模型显示 Default（对齐官方）',
+      // 每张截图对应一个子状态：
+      // - 初始：footer 模型 pill 文本「Kimi K3 Default」
+      // - menu 步：点开根菜单，「Model · Kimi K3 ›」与「Reasoning effort · Default ›」
+      // - efforts 步：档位列表「‹ Back」+ Default（✓ 唯一选中）/ Low / High / Max
+      interactSteps: [
+        { name: 'menu', script: `document.querySelector('[data-role="model"]')?.click()` },
+        { name: 'efforts', script: `(() => { const row = [...document.querySelectorAll('.menu-item')].find((el) => (el.textContent ?? '').includes('Reasoning effort')); row?.click() })()` },
+      ],
+      expect: '初始：composer 底部 footer 左侧模型 pill 文本为「Kimi K3 Default」，pill 单行不换行。menu 步：点开模型菜单弹出（浮层在 composer 上方），菜单两行——「Model」行右侧「Kimi K3 ›」、「Reasoning effort」行右侧「Default ›」；两行都是单行「名称+右侧值」，没有第二行灰色小字描述（模型名行不带 description 两行式）。efforts 步：点「Reasoning effort」后菜单变为「‹ Back」+ 四个档位行 Default/Low/High/Max；Default 行尾部有 ✓（唯一选中行），Low/High/Max 无 ✓；每个档位单行，右侧无 description 小字。',
+    },
+
     // 切换模型后 contextBar 立即反映新模型窗口（回归点：不等下一条消息）。
     // 从 1M 切到 256K 后、未发消息前，窗口应立刻是 256K 而不是旧 1M。
     'context-switch-smaller-window': {
@@ -2969,7 +2995,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
   window.SCENARIOS = catalog
   window.BASELINE_SCENARIOS = [
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
-    'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
+    'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'model-picker-effort-default', 'sessions',
     'sessions-search', 'sessions-collapsed', 'sessions-recycle-drawer',
     'sessions-workspace-menu-groups',
     'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',

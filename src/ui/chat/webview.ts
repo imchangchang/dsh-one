@@ -2297,18 +2297,17 @@ function renderModelMenuModels(body: HTMLElement, catalog: ModelCatalog): void {
       const isCurrent = catalog.current.provider === g.id && catalog.current.model === m.id
       body.appendChild(
         menuItem(m.name, {
-          sub: m.description,
           checked: isCurrent,
           onClick: () => {
             closePopover()
             if (isCurrent) return
-            // Keep the current effort only when the new model supports it.
-            const keep = m.efforts.some((e) => e.id === catalog.current.reasoningEffort)
+            // 对齐官方 web：切模型重置为新模型声明默认档（未声明 = Default，
+            // 不带 reasoningEffort），不保留旧档位。
             post({
               type: 'setModel',
               provider: g.id,
               model: m.id,
-              reasoningEffort: keep ? catalog.current.reasoningEffort : undefined,
+              reasoningEffort: m.defaultEffort,
             })
           },
         }),
@@ -2323,11 +2322,30 @@ function renderModelMenuEfforts(body: HTMLElement, catalog: ModelCatalog): void 
   const model = catalog.groups
     .find((g) => g.id === catalog.current.provider)
     ?.models.find((m) => m.id === catalog.current.model)
+  const efforts = model?.efforts ?? []
   const effortId = catalog.current.reasoningEffort ?? model?.defaultEffort
-  for (const e of model?.efforts ?? []) {
+  // 对齐官方 web：模型未声明 defaultEffort 时，首项是 Default（清除显式档位，
+  // 交给 provider 默认），不显示各档位 description。
+  if (model?.defaultEffort === undefined) {
+    body.appendChild(
+      menuItem(t('Default'), {
+        checked: effortId === undefined,
+        onClick: () => {
+          closePopover()
+          if (catalog.current.reasoningEffort !== undefined) {
+            post({
+              type: 'setModel',
+              provider: catalog.current.provider,
+              model: catalog.current.model,
+            })
+          }
+        },
+      }),
+    )
+  }
+  for (const e of efforts) {
     body.appendChild(
       menuItem(e.name, {
-        right: e.description,
         checked: e.id === effortId,
         onClick: () => {
           closePopover()
