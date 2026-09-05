@@ -1,0 +1,49 @@
+{
+  "title": "无 token 记录 + 认证实例：从日志恢复就绪行 token 自愈重连",
+  "branch": "agent/recover-token-from-log",
+  "commit": "361ced3",
+  "environment": {
+    "mode": "unit + 真机证据（Windows 复现链：dsh-web.log 就绪行 82B、进程时间线、spawnDsh.js 实测均正常）",
+    "dsh": "0.1.2-rc.1（Windows 真机 C:\\Users\\imcha\\.dsh\\node-x64 安装，SSH 实测）",
+    "date": "2026-09-05T17:10:00Z"
+  },
+  "coverageNote": "manager 逻辑依赖 vscode 宿主（run 在扩展内），单测覆盖不了——验证方式：① 就绪行解析已由 readyLine.test.ts 覆盖（含带 / 的 Windows URL）；② 恢复链在 Windows 真机总体验证（用户装 rc.4 后：清记录 + 保持实例运行 + reload 窗口，看是否自愈 re-own）；③ 本机可推演路径：writeOwned→findListenerPid→probeToken 均已有真机验证（external-dsh-manage-012 探针）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "无 token 记录 + authDsh 探测 → 日志恢复 token 换票自愈",
+      "expect": "startLocked record 分支：owned.token 缺失、openedPort 探测为 authDsh 时，从 logFile 重解析就绪行 token（readyInfoFromLog 读前 64KB），probeToken 成功 → writeOwned 补写（pid 用 findListenerPid 刷新的 livePid）→ own 走 re-own（adopted:false+version）/ 另一窗口走 adopted；失败落空走原 clear+防护。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "代码审查：恢复分支插入在 else if(probePort==='dsh') 之后（306-352 行区域）；readyPortFromLog 重构为基于 readyInfoFromLog（行为不变）；token 换票失败/日志无就绪行均 fall-through 原 clear+防护路径（无新竞态）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "恢复后记录 pid 刷新（findListenerPid），防旧 pid 复用误导",
+      "expect": "writeOwned 用 livePid = findListenerPid(port) ?? owned.pid；kill 权/停止目标指向真实监听者。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "findListenerPid 三平台实现已由 externalDsh 单测覆盖（macOS lsof / Linux proc / Windows netstat）；fallback owned.pid 保留旧记录 pid（无法定位时不劣化）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "有 token 记录路径不变",
+      "expect": "owned.token 存在时仍先 probeToken → re-own/adopt（行为不变）；external 记录分支不动。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "新恢复分支只藏在 else（无 token + 非 'dsh' 探测）里，其余分支未动。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "全量回归：typecheck / 单测 / build",
+      "expect": "typecheck 干净；567 项单测全过；build 成功。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck ✓；npm test 567/567 ✓（未跑 build 前 ledger 撰写——dev-finish 会跑）。"
+    }
+  ]
+}
