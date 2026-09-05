@@ -1,0 +1,53 @@
+# 748 限宽一刀切：浮标撑通栏、压缩/workflow 卡贴左、与其余区域不对齐
+
+## 背景与现象
+
+a0c0d17（chat-content-whitespace-width，v1.1.0 后合入）给 `.messages > *` 加了
+`width:100%; max-width:748px; margin: 0 auto`。宽屏（chat tab 拖宽 / 编辑器区）下聊天区整体错乱：
+
+1. **「↓ Back to latest」浮标从小 pill 撑成 748px 通栏**（已 harness 实测：宽 748、居中）——
+   原来 `align-self:flex-end` 收缩包裹、右对齐吸底，现在是一条横贯内容列的宽条。
+2. **compaction 卡 / workflow 运行卡 748 宽但贴左，与居中的消息行错位**——同屏里
+   消息居中、这两类卡顶到面板左缘（harness compaction-cards 场景截图可见）。
+3. **turn-rail 回合轨道栏从面板右缘内移到内容列右缘**，刻度压/贴消息文字
+   （turn-navigator 场景可见刻度与用户气泡文字相贴）。
+4. **只有 .messages 被限宽，其余区域仍满宽**：chat-header、todo 卡、goal 条幅、
+   queue dock、pending 接管面板、composer 都是 chatCol 直接子项未受影响——宽屏下
+   消息列居中窄条、其余通栏，左右缘全对不上（goal-stack 场景可见）。
+
+## 根因
+
+- `.messages` 的直接子项不只是消息行：还混着浮层（`.jump-latest` sticky、
+  `.turn-rail-slot` sticky）和自带 margin 的卡（`.compaction`/`.compaction-row`/
+  `.workflow-run` 都是 `margin: 2px 0`）。通配选择器把浮层一并卷进来（问题 1、3）。
+- `.messages > *` 与 `.compaction` 等单类选择器同优先级（0,1,0）且位置在前，
+  子项自身的 `margin: 2px 0` 把 `margin: 0 auto` 盖掉 → max-width 生效但居中失效（问题 2）。
+- 原问题只是「代码块复制按钮贴右缘」一个局部对齐问题，却用了全局通配修；
+  dsh web 的 748 是整列（含 composer）收敛，这里只收 .messages（问题 4）。
+- 验收盲区：当时只核了 conversation / json-message-fenced / tool-cordis-run 三场景；
+  jump-latest 在 harness 默认隐藏（stickToBottom=true）从未出现在截图里，
+  compaction-cards / turn-navigator 场景也没复查。
+
+## 建议方案
+
+二选一（倾向 B）：
+- A. 回退 a0c0d17，改用局部修法解决原问题（如给 `.md-code-bar` 加右留白），不做整列限宽。
+- B. 保留 748 居中但修对：① 限宽范围扩到整个 chat-col 内容区（header/docks/composer 同列对齐，
+  与 dsh web 一致）；② 浮层豁免——`.jump-latest`、`.turn-rail-slot` 排除在限宽规则外
+  （`:not()` 或恢复 align-self 收缩）；③ compaction/workflow 卡的 margin 改为只设垂直方向
+  （`margin: 2px auto` 或 margin-block），不盖水平 auto。
+- 无论哪个方案：验收必须补 compaction-cards / workflow-running / turn-navigator /
+  jump-latest 可见态（滚动上翻触发）四类场景的截图核对。
+
+## 涉及代码位置
+
+- `src/ui/chatViewHtml.ts`：`.messages > *`（~L218）、`.jump-latest`（~L1582）、
+  `.turn-rail-slot`（~L959）、`.compaction`/`.compaction-row`（~L818/L838）、`.workflow-run`（~L551）
+- `test/ui/style.css`（harness 同步副本）
+- `src/ui/chat/webview.ts`：buildFlowItems（.messages 直接子项清单，~L4788）
+
+## 变更记录
+
+- 2026-09-06 用户反馈「当前 chat 区域界面非常乱」（1.1.0 后宽度提交引入）→ 核实：
+  harness 全场景截图 + jump-latest 强制显示实测（748 通栏）+ CSS 优先级分析定位四处问题，
+  建条目（open/，仅记录，修改待确认）
