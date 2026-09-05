@@ -872,6 +872,12 @@ export type ToWebviewMessage =
    * messageId 为 null，webview 静默不动。
    */
   | { type: 'turnJumped'; messageId: string | null }
+  /**
+   * chat 内容字号设置变化（dshOne.chatFontSize 运行中被改）：webview 覆盖
+   * body 内联的 --dsh-content-font-size，派生变量与内容区随动（即改即效，
+   * 无需 reload；不改只读 origin，只影响 webview 视觉）。
+   */
+  | { type: 'chatFontSize'; value: number }
 
 export type FromWebviewMessage =
   /** Webview 脚本加载完成（含 tab 切走后 VSCode 重载的场合）；宿主据此重推当前状态。 */

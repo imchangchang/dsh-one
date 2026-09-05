@@ -207,6 +207,13 @@
           "default": 3080,
           "minimum": 0,
           "description": "%dshOne.port.description%"
+        },
+        "dshOne.chatFontSize": {
+          "type": "number",
+          "default": 14,
+          "minimum": 12,
+          "maximum": 17,
+          "description": "%dshOne.chatFontSize.description%"
         }
       }
     }

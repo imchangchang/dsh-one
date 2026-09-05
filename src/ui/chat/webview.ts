@@ -1223,6 +1223,10 @@ window.addEventListener('message', (event) => {
     modelCatalog = msg.catalog
     modelCatalogFailed = false
     if (modelMenuBody) renderModelMenuRoot(modelMenuBody, msg.catalog)
+  } else if (msg?.type === 'chatFontSize' && Number.isInteger(msg.value)) {
+    // 内容字号设置运行中变化（dshOne.chatFontSize）：覆盖 body 内联变量，
+    // 派生变量（delta/secondary）与内容区随 CSS 实时重算，无需重渲染/reload。
+    document.body.style.setProperty('--dsh-content-font-size', `${msg.value}px`)
   } else if (msg?.type === 'modelCatalogError') {
     // 有旧目录时保留旧数据不打断；无目录时菜单切到 error/Retry 行。
     modelCatalogFailed = true
