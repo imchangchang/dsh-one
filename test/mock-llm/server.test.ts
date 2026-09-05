@@ -202,6 +202,24 @@ test('工具结果后的续拍：最后一条是 tool 消息时跳过具体规�
   assert.equal(body.choices[0].message.content, '收到：查天气')
 })
 
+test('工具结果后的续拍：tool 结果后插入了注入上下文（0.1.2 time-context）仍走兜底回显', async () => {
+  // dsh 0.1.2+ 在工具结果后继续注入 time-context user 消息：扫描应跳过注入、
+  // 撞到 tool 即认定续拍，避免同一工具规则再次命中（dsh 重复保护前无限循环）。
+  const res = await postChat(mock, {
+    model: 'mock-llm',
+    messages: [
+      { role: 'user', content: '设置一个提醒' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 't1', type: 'function', function: { name: 'schedule_create', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 't1', content: '{"id":"sch-1"}' },
+      { role: 'user', content: 'Time sampled while preparing turn 2, step 1. Browser time zone for this request: UTC.' },
+    ],
+    stream: false,
+  })
+  const body = await res.json()
+  assert.equal(body.choices[0].message.tool_calls, undefined, '续拍（工具后夹注入）不应再次返回工具调用')
+  assert.equal(body.choices[0].message.content, '收到：设置一个提醒')
+})
+
 test('首轮注入过滤：两类注入（<system-reminder> 标签 / 无标签 runtime context）都不作为匹配对象', async () => {
   const tagged = '<system-reminder>\nA skill is a reusable set...\n</system-reminder>'
   const runtime =
@@ -230,6 +248,19 @@ test('首轮注入过滤：两类注入（<system-reminder> 标签 / 无标签 r
   })
   body = await res.json()
   assert.equal(body.choices[0].message.content, '收到：随便聊聊')
+
+  // dsh 0.1.2+ time-context 注入（首行 Time sampled while preparing turn…）：
+  // 在最后也不应劫持规则匹配，命中真实 prompt。
+  res = await postChat(mock, {
+    model: 'mock-llm',
+    messages: [
+      { role: 'user', content: '设置一个提醒' },
+      { role: 'user', content: 'Time sampled while preparing turn 1, step 1. Browser time zone for this request: UTC.' },
+    ],
+    stream: false,
+  })
+  body = await res.json()
+  assert.ok(body.choices[0].message.tool_calls, '0.1.2 time-context 注入在最后时应忽略，命中 schedule 规则')
 
   // 只有注入：返回空文本 → 兜底 '*' 命中空字符串（dsh 标题生成这类场景）。
   res = await postChat(mock, {

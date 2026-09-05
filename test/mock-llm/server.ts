@@ -83,12 +83,16 @@ function lastUserText(messages: unknown[]): string {
  * dsh 注入上下文的两类已知 wire 形式（dsh 0.1.1-rc.2）：
  * 1. agent-instructions 的 `SYSTEM_REMINDER_OPEN`（<system-reminder> 包裹）；
  * 2. dsh-system-prompt 的 runtime context 快照：无标签纯文本，以
- *    `Current runtime context.` 开头（joinContextSections 拼的）。
+ *    `Current runtime context.` 开头（joinContextSections 拼的）；
+ * 3. dsh 0.1.2+ time-context 插件的注入（首行 "Time sampled while preparing turn…"）——
+ *    不过滤的话它是最后一条 user 消息，所有按文本匹配的规则都会被它劫持
+ *    （实测 0.1.2 首轮注入后工具规则全部失配，回显的也是上下文文本）。
  */
 function isInjectedContext(text: string): boolean {
   const t = text.trim()
   if (t.includes('<system-reminder>')) return true
   if (t.startsWith('Current runtime context.')) return true
+  if (t.startsWith('Time sampled while preparing')) return true
   return false
 }
 
@@ -102,6 +106,26 @@ function userTextOf(content: unknown): string {
       .join('\n')
   }
   return ''
+}
+
+/**
+ * 是否为工具结果之后的续拍（应走兜底回显，避免规则再命中同一工具编排）：
+ * 从尾部扫描消息，跳过注入上下文（time-context/runtime context/system-reminder）
+ * 与 assistant 消息；撞到 role=tool 说明本轮工具已执行过 → 续拍；先撞到真实
+ * user prompt 则是新一轮提问（或 dsh 标题生成等空上下文），按规则匹配。
+ */
+function isConversationFollowingToolResult(messages: unknown[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (typeof msg !== 'object' || msg === null) continue
+    const m = msg as Record<string, unknown>
+    if (m.role === 'tool') return true
+    if (m.role === 'user') {
+      const text = userTextOf(m.content)
+      if (text.trim() !== '' && !isInjectedContext(text)) return false
+    }
+  }
+  return false
 }
 
 /** OpenAI 风格错误 type（按状态码映射，未列出的走 invalid_request_error）。 */
@@ -208,15 +232,14 @@ class LlmEndpoint {
     const lastUserMessage = lastUserText(messages)
     const model = modelOf(body, this.scenario)
 
-    // 工具结果后的续拍（最后一条消息是 tool 角色）：真实模型会基于工具结果继续
+    // 工具结果后的续拍（对话里存在 tool 角色的结果）：真实模型会基于工具结果继续
     // 对话而不是再次要求同一个工具——mock 若继续命中工具编排规则会引导 dsh 无限
     // 重试同一调用（实测：bash/subagent ×3 直至 dsh 重复保护报错）。所以续拍一律
     // 走兜底回显，让 turn 正常收尾。
-    const lastMsg = messages[messages.length - 1]
-    const isToolFollowup =
-      typeof lastMsg === 'object' &&
-      lastMsg !== null &&
-      (lastMsg as Record<string, unknown>).role === 'tool'
+    // 判定：从尾部扫描（dsh 0.1.2+ 会在 tool 结果后继续注入 time-context user
+    // 消息，最后一条可能是注入而非 tool——跳过注入上下文后撞到 tool 即算续拍）；
+    // 若先撞到真实 user prompt，则是新一轮提问，走规则匹配。
+    const isToolFollowup = isConversationFollowingToolResult(messages)
     const rule = isToolFollowup
       ? this.scenario.rules.find((r) => r.match === '*')
       : this.matchRule(lastUserMessage)
