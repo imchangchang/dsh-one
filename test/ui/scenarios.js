@@ -122,6 +122,7 @@
       state: base({
         statsLine:
           '4 轮 · 197 步 | LLM 16分38秒 · 工具调用 3分48秒 | 首 token 平均 1秒 · 124 tok/s | 缓存命中 99% | 输入 33M tok · 输出 99.3K tok',
+        contextUsage: { percent: 96, usedTokens: 245_000, contextWindow: 256_000, turns: 3 },
       }),
       title: '会话统计行：官方全字段（轮数/步数/LLM/工具/首 token/tok/s/缓存命中/输入输出）',
       expect:
