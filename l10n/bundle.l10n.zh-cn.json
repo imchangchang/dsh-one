@@ -424,4 +424,21 @@
   "Open folder in a new window": "在新窗口打开文件夹",
   "Path copied to clipboard": "路径已复制到剪贴板",
   "Workspace: {0}": "工作区：{0}"
+,
+  "Usage {0}": "用量 {0}",
+  "Turn usage": "本轮用量",
+  "Provider / model": "提供方 / 模型",
+  "Cache hit": "缓存命中",
+  "Uncached input": "未缓存输入",
+  "Cached input": "缓存读取",
+  "Cache write": "缓存写入",
+  "Output": "输出",
+  "({0} reasoning)": "（其中推理 {0}）",
+  "{0}K": "{0}K",
+  "{0}M": "{0}M"
+,
+  "Turn navigation": "回合导航",
+  "Jump to turn {0}": "转到回合 {0}",
+  "Load turn {0}": "加载回合 {0}",
+  "Turn {0}": "回合 {0}"
 }

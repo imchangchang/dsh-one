@@ -38,7 +38,7 @@ m=re.search(r"BASELINE_SCENARIOS\s*=\s*\[([\s\S]*?)\]", s)
 print(" ".join(re.findall(r"\x27([^\x27]+)\x27", m.group(1))) if m else "")
 '))
 else
-  scenarios=($(grep -oE "^ {4}[a-zA-Z0-9'-]+: \{" test/ui/scenarios.js | sed -E 's/[[:space:]]*:[[:space:]]*\{.*//' | tr -d "'\"" || true))
+  scenarios=($( { grep -oE "^ {4}[a-zA-Z0-9'-]+: \{" test/ui/scenarios.js | sed -E 's/[[:space:]]*:[[:space:]]*\{.*//' ; grep -oE "^ {2}catalog\['[a-zA-Z0-9'-]+'\] = \{" test/ui/scenarios.js | sed -E "s/catalog\['([^']+)'\] = \{/\1/" ; } | tr -d "'\"" || true))
 fi
 if [ "${#scenarios[@]}" -eq 0 ]; then
   echo "未能从 test/ui/scenarios.js 解析出场景名（MODE=$MODE）" >&2

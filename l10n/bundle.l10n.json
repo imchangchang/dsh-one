@@ -424,4 +424,21 @@
   "Open folder in a new window": "Open folder in a new window",
   "Path copied to clipboard": "Path copied to clipboard",
   "Workspace: {0}": "Workspace: {0}"
+,
+  "Usage {0}": "Usage {0}",
+  "Turn usage": "Turn usage",
+  "Provider / model": "Provider / model",
+  "Cache hit": "Cache hit",
+  "Uncached input": "Uncached input",
+  "Cached input": "Cached input",
+  "Cache write": "Cache write",
+  "Output": "Output",
+  "({0} reasoning)": "({0} reasoning)",
+  "{0}K": "{0}K",
+  "{0}M": "{0}M"
+,
+  "Turn navigation": "Turn navigation",
+  "Jump to turn {0}": "Jump to turn {0}",
+  "Load turn {0}": "Load turn {0}",
+  "Turn {0}": "Turn {0}"
 }

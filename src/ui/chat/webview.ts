@@ -20,6 +20,8 @@ import type {
   ChatState,
   ChatTodoItem,
   ChatToolBlock,
+  ChatTurnOutlineEntry,
+  ChatTurnUsage,
   ChatUserMessage,
   CommitInfoResult,
   FromWebviewMessage,
@@ -1264,6 +1266,10 @@ window.addEventListener('message', (event) => {
     fileRefResult = { key: fileRefRequestKey, items: Array.isArray(msg.items) ? msg.items : [] }
     const input = document.getElementById('input') as HTMLTextAreaElement | null
     if (input) updateSlashPopup(input)
+  } else if (msg?.type === 'turnJumped') {
+    // 回合跳转回执：宿主已翻页覆盖目标 seq，滚动定位到目标回合首行。
+    // 行元素可能因刚落的页还没 reconciliation 完，等多帧再滚。
+    scrollToMessageId(msg.messageId)
   }
 })
 
@@ -4335,6 +4341,117 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
 }
 
 /**
+ * 回合轨道栏（web parity: TurnNavigator 的垂直刻度栏）：数据源是 host 透传的
+ * turnOutline 投影（整份日志所有回合，未载入回合也在）。每个回合一条刻度：
+ * 已载入实心、未载入半透明；hover 显示 preview 气泡（prompt 一行 + response
+ * 三行，投影侧已裁剪）；点击发布 turnJump，host 翻页覆盖目标 seq 后经
+ * turnJumped 回传定位消息 id。mark 高度 10px、间距 10px（官方刻度几何）。
+ */
+const TURN_RAIL_SPACING = 10
+const TURN_RAIL_INSET = 6
+
+function renderTurnRail(entries: ChatTurnOutlineEntry[], messages: ChatMessage[]): HTMLElement {
+  const slot = el('div', 'turn-rail-slot')
+  const frame = el('nav', 'turn-rail-frame')
+  frame.setAttribute('aria-label', t('Turn navigation'))
+  const marks = el('div', 'turn-rail-marks')
+  marks.style.height = `${(entries.length - 1) * TURN_RAIL_SPACING + 2 * TURN_RAIL_INSET}px`
+  // 已载入判定：存在消息 seq 落在本回合区间 [S_k, S_{k+1})（最后一个回合
+  // 无上界）——回合内容（或它的尾部）在窗口里才算载入；窗口头切在回合中间
+  // 时该回合按其尾部消息正确标为已载入。
+  const msgSeqs: number[] = []
+  for (const m of messages) {
+    const s = (m as { seq?: unknown }).seq
+    if (typeof s === 'number') msgSeqs.push(s)
+  }
+  msgSeqs.sort((a, b) => a - b)
+  const loadedAt = (index: number): boolean => {
+    const lo = entries[index].seq
+    const hi = index + 1 < entries.length ? entries[index + 1].seq : Number.POSITIVE_INFINITY
+    return msgSeqs.some((s) => s >= lo && s < hi)
+  }
+  const preview = el('div', 'turn-rail-preview')
+  const previewPrompt = el('div', 'turn-rail-preview-prompt')
+  const previewResponse = el('div', 'turn-rail-preview-response')
+  preview.appendChild(previewPrompt)
+  preview.appendChild(previewResponse)
+  entries.forEach((entry, index) => {
+    const position = el('div', 'turn-rail-mark-position')
+    position.style.top = `${index * TURN_RAIL_SPACING + TURN_RAIL_INSET}px`
+    const mark = el('button', 'turn-rail-mark') as HTMLButtonElement
+    mark.type = 'button'
+    const loaded = loadedAt(index)
+    if (!loaded) mark.classList.add('mark-unloaded')
+    // active = 最新回合（新近锚点；官方按视口阅读位跟随，此处取最新简化）。
+    if (index === entries.length - 1) mark.classList.add('mark-active')
+    const jumpLabel = loaded ? t('Jump to turn {0}', entry.turn) : t('Load turn {0}', entry.turn)
+    mark.title = jumpLabel
+    mark.setAttribute('aria-label', jumpLabel)
+    mark.addEventListener('click', () => post({ type: 'turnJump', seq: entry.seq }))
+    mark.addEventListener('mouseenter', () => {
+      const scroller = frame.querySelector<HTMLElement>('.turn-rail-scroller')
+      const scrollTop = scroller?.scrollTop ?? 0
+      const top = index * TURN_RAIL_SPACING + TURN_RAIL_INSET - scrollTop
+      preview.classList.add('show')
+      const height = preview.offsetHeight
+      const maxOffset = Math.max(0, frame.offsetHeight - height)
+      preview.style.top = `${Math.max(0, Math.min(top - height / 2, maxOffset))}px`
+      previewPrompt.textContent = entry.prompt || t('Turn {0}', entry.turn)
+      previewResponse.textContent = entry.response
+      previewResponse.style.display = entry.response === '' ? 'none' : ''
+    })
+    mark.addEventListener('mouseleave', () => preview.classList.remove('show'))
+    position.appendChild(mark)
+    marks.appendChild(position)
+  })
+  const scroller = el('div', 'turn-rail-scroller')
+  scroller.appendChild(marks)
+  frame.appendChild(scroller)
+  frame.appendChild(preview)
+  slot.appendChild(frame)
+  return slot
+}
+
+/**
+ * 回合跳转落点（turnJumped 回执）：释放吸底并滚动定位到目标消息行。行可能
+ * 因新页刚落尚未 reconcile，队列多帧重试（最多 ~20 帧），找不到静默。
+ */
+function scrollToMessageId(messageId: string | null): void {
+  if (!messageId) return
+  stickToBottom = false
+  const messages = document.getElementById('messages')
+  if (!messages) return
+  const rowKey = `msg:${messageId}`
+  let attempts = 0
+  const tryScroll = (): void => {
+    let row: Element | null = null
+    for (const child of Array.from(messages.querySelectorAll('[data-flow-key]'))) {
+      if (child.getAttribute('data-flow-key') === rowKey) {
+        row = child
+        break
+      }
+    }
+    if (row) {
+      const target = Math.max(
+        0,
+        row.getBoundingClientRect().top - messages.getBoundingClientRect().top + messages.scrollTop - 8,
+      )
+      messages.scrollTop = target
+      pinnedScrollTop = messages.scrollTop
+      markProgramPin()
+      const jump = messages.querySelector<HTMLElement>('.jump-latest')
+      if (jump) jump.style.display = 'none'
+      return
+    }
+    if (attempts < 20) {
+      attempts += 1
+      requestAnimationFrame(tryScroll)
+    }
+  }
+  tryScroll()
+}
+
+/**
  * 消息流增量更新（替代每快照 textContent='' 全量重建）：
  *
  * 每个快照按当前 state 算出一份「期望流」（older 入口、消息行 + workflow 卡按
@@ -4383,6 +4500,20 @@ let flowLastNotices: string[] = []
  */
 function buildFlowItems(state: ChatState): FlowItem[] {
   const items: FlowItem[] = []
+  // 回合轨道栏（web parity: TurnNavigator）：整份日志的回合刻度，未载入回合
+  // 同显可点（click → host 翻页 → 定位）。放在流首（sticky 悬浮层，DOM 顺序
+  // 不影响视觉与对账）；≥2 回合才有导航意义，单回合/无投影不渲染。
+  const outline = state.turnOutline
+  if (outline !== undefined && outline.length >= 2) {
+    const sig = JSON.stringify(outline)
+    const same = flowRailSig === sig
+    flowRailSig = sig
+    items.push({
+      key: 'turn-rail',
+      same,
+      create: () => renderTurnRail(outline, state.messages),
+    })
+  }
   // 「加载更早」入口（对齐官方 dsh web ChatView 的分页按钮）：还有更早历史
   // 或一页正在加载时显示在消息流顶部。
   if (state.hasEarlierHistory || state.loadingEarlier === true) {
@@ -4499,6 +4630,8 @@ function buildFlowItems(state: ChatState): FlowItem[] {
 }
 
 let olderWasLoading = false
+/** 上一帧回合大纲的签名（turn-rail 复用判断；仅用于 same 对账）。 */
+let flowRailSig = ''
 
 /**
  * 期望流与容器现有 child 对账（单遍指针 + key 索引）：
@@ -4928,6 +5061,9 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
   // Turn-level timing rides the action row's tail (web parity: TurnTailNodeView
   // renders 时钟 + 用时/首 token/吞吐 after the icons with clock="end").
   if (m.timing) actions.appendChild(renderTurnTiming(m.timing))
+  // Token 用量药丸（web parity: TurnUsagePanel）——只有 host 可证明的精确聚合
+  // 才带上（usage 缺省 = 缺边界/计数不安全，药丸不渲染）。
+  if (m.usage) actions.appendChild(renderTurnUsagePill(m.usage))
   return actions
 }
 
@@ -4979,6 +5115,150 @@ function renderTurnTiming(timing: NonNullable<ChatAssistantMessage['timing']>): 
     wrap.appendChild(document.createTextNode(part))
   }
   return wrap
+}
+
+/**
+ * Token 用量药丸（web parity: TurnUsagePanel 的 trigger「用量 N tokens」）：
+ * 点击弹锚定小窗（复用全局 .popover 基建，outside-dismiss / Esc 关闭）。
+ */
+function renderTurnUsagePill(usage: ChatTurnUsage): HTMLElement {
+  const pill = buttonEl('msg-usage-pill', t('Usage {0}', formatCompactTokens(usage.totalTokens)))
+  pill.title = t('Turn usage')
+  pill.setAttribute('aria-haspopup', 'dialog')
+  pill.setAttribute('aria-expanded', 'false')
+  pill.addEventListener('click', () => {
+    const expanded = pill.getAttribute('aria-expanded') === 'true'
+    if (expanded) {
+      closePopover()
+    } else {
+      showPopover(pill, renderTurnUsagePanel(usage), 'above')
+      pill.setAttribute('aria-expanded', 'true')
+    }
+  })
+  // 弹层关闭（outside 点击 / Esc / blur）后回滚 pill 的 aria-expanded。
+  const observer = new MutationObserver(() => {
+    if (popover === null) pill.setAttribute('aria-expanded', 'false')
+  })
+  observer.observe(document.body, { childList: true })
+  return pill
+}
+
+/** 用量明细弹窗内容（字段对齐官方 TurnUsagePanel 的 dl 列）。 */
+function renderTurnUsagePanel(usage: ChatTurnUsage): HTMLElement {
+  const panel = el('div', 'usage-panel')
+  const title = el('div', 'usage-panel-title')
+  title.appendChild(el('span', 'usage-panel-title-label', t('Turn usage')))
+  title.appendChild(el('span', 'usage-panel-title-value', formatExactTokens(usage.totalTokens)))
+  panel.appendChild(title)
+  panel.appendChild(el('div', 'usage-panel-rule'))
+  const dl = el('dl', 'usage-panel-details')
+  const routes = (usage.routes ?? []).map((r) => `${r.provider}/${r.model}`).join(', ')
+  if (routes) {
+    dl.appendChild(el('dt', undefined, t('Provider / model')))
+    dl.appendChild(el('dd', 'usage-panel-route', routes))
+  }
+  // 缓存命中率只在缓存桶可证明时显示（缺省 = 未知，不在 UI 上标 0%）。
+  const cacheHit =
+    usage.cacheReadTokens !== undefined
+      ? formatCacheHitPercent(usage.cacheReadTokens, usage.totalTokens - usage.outputTokens, 1)
+      : null
+  if (cacheHit !== null) {
+    dl.appendChild(el('dt', undefined, t('Cache hit')))
+    dl.appendChild(el('dd', undefined, `${cacheHit}%`))
+  }
+  dl.appendChild(el('dt', undefined, t('Uncached input')))
+  dl.appendChild(el('dd', undefined, formatExactTokens(usage.uncachedInputTokens)))
+  if (usage.cacheReadTokens !== undefined) {
+    dl.appendChild(el('dt', undefined, t('Cached input')))
+    dl.appendChild(el('dd', undefined, formatExactTokens(usage.cacheReadTokens)))
+  }
+  if (usage.cacheWriteTokens !== undefined) {
+    dl.appendChild(el('dt', undefined, t('Cache write')))
+    dl.appendChild(el('dd', undefined, formatExactTokens(usage.cacheWriteTokens)))
+  }
+  dl.appendChild(el('dt', undefined, t('Output')))
+  const output = el('dd', undefined, formatExactTokens(usage.outputTokens))
+  if (usage.reasoningTokens !== undefined) {
+    output.appendChild(el('span', 'usage-panel-reasoning', t('({0} reasoning)', formatExactTokens(usage.reasoningTokens))))
+  }
+  dl.appendChild(output)
+  panel.appendChild(dl)
+  return panel
+}
+
+/** 官方 formatTokens：整数 / 12.2K / 517K / 1.2M（≥100 取整，其余一位小数）。 */
+function formatCompactTokens(value: number): string {
+  const scaled = (candidate: number): string =>
+    candidate >= 100 ? String(Math.round(candidate)) : String(Math.round(candidate * 10) / 10)
+  if (value < 1_000) return String(value)
+  if (value < 1_000_000) return t('{0}K', scaled(value / 1_000))
+  return t('{0}M', scaled(value / 1_000_000))
+}
+
+/** 官方 formatExactTokens：三位分组的精确整数。 */
+function formatExactTokens(value: number): string {
+  const digits = String(value)
+  const groups: string[] = []
+  for (let end = digits.length; end > 0; end -= 3) groups.unshift(digits.slice(Math.max(0, end - 3), end))
+  return groups.join(',')
+}
+
+/** 官方 roundedPercentUnits：按百分比单位向上取整的精确比较。 */
+function roundedPercentUnits(cacheReadTokens: number, denominator: number, decimalPlaces: number): number {
+  const scale = (decimalPlaces === 0 ? 1 : 10) * 100
+  const doubledScale = scale * 2
+  const denominatorQuotient = Math.floor(denominator / doubledScale)
+  const denominatorRemainder = denominator % doubledScale
+  let lower = 0
+  let upper = scale
+  while (lower < upper) {
+    const candidate = Math.floor((lower + upper + 1) / 2)
+    const factor = candidate * 2 - 1
+    if (cacheReadTokens >= factor * denominatorQuotient + Math.ceil((factor * denominatorRemainder) / doubledScale)) {
+      lower = candidate
+    } else {
+      upper = candidate - 1
+    }
+  }
+  return lower
+}
+
+function displayPercentUnits(units: number, decimalPlaces: number): string {
+  if (decimalPlaces === 0) return String(units)
+  const whole = Math.floor(units / 10)
+  const tenths = units % 10
+  return tenths === 0 ? String(whole) : `${whole}.${tenths}`
+}
+
+/**
+ * 官方 formatCacheHitPercent：精确缓存命中百分比；部分命中要「诚实」——若
+ * 一位小数会把它舍成 100%，自动提升位数直到能区分（99.9…）。无 prompt 输入
+ * （分母 0）返回 null，UI 不显示。
+ */
+function formatCacheHitPercent(cacheReadTokens: number, promptTokens: number, decimalPlaces = 0): string | null {
+  if (promptTokens === 0) return null
+  const missedInputTokens = promptTokens - cacheReadTokens
+  if (missedInputTokens === 0) return '100'
+  const roundedUnits = roundedPercentUnits(cacheReadTokens, promptTokens, decimalPlaces)
+  if (roundedUnits < (decimalPlaces === 0 ? 100 : 1_000)) return displayPercentUnits(roundedUnits, decimalPlaces)
+  let distinguishingPlaces = 1
+  let scaledDoubleGap = missedInputTokens * 200
+  const denominatorTens = Math.floor(promptTokens / 10)
+  while (scaledDoubleGap <= denominatorTens) {
+    scaledDoubleGap *= 10
+    distinguishingPlaces += 1
+  }
+  const denominatorOnes = promptTokens % 10
+  let roundedLoss = 5
+  for (let loss = 1; loss < 5; loss += 1) {
+    const factor = loss * 2 + 1
+    const threshold = factor * denominatorTens + Math.floor((factor * denominatorOnes) / 10)
+    if (scaledDoubleGap <= threshold) {
+      roundedLoss = loss
+      break
+    }
+  }
+  return `99.${'9'.repeat(distinguishingPlaces - 1)}${10 - roundedLoss}`
 }
 
 /** 官方 formatRunDuration：分钟级「2分42秒」，秒级「12秒」。 */

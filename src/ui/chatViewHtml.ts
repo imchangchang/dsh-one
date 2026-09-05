@@ -864,6 +864,90 @@ const STYLE = `
     color: var(--vscode-descriptionForeground, #888);
   }
   .msg-timing .msg-timing-dot { margin: 0 10px; }
+  /* Token 用量药丸（web parity: TurnUsagePanel trigger）：与计时行同排，可点
+     弹锚定明细窗；hover 提亮（与官方 pill 的「无边框、哑光标签」一致）。 */
+  .msg-actions .msg-usage-pill {
+    flex: none; margin: 0; padding: 0 8px; white-space: nowrap;
+    font-size: 12px; line-height: 22px; font-variant-numeric: tabular-nums;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
+    border-radius: 11px; background: transparent; cursor: pointer;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .msg-actions .msg-usage-pill:hover { color: var(--vscode-foreground); }
+  /* 用量明细弹窗（TurnUsagePanel 同款 dl 列：左标签右数值）。 */
+  .usage-panel { min-width: 240px; padding: 6px 8px 2px; font-size: 12px; }
+  .usage-panel-title {
+    display: flex; align-items: baseline; gap: 8px; padding: 0 2px;
+  }
+  .usage-panel-title-label { font-weight: 500; }
+  .usage-panel-title-value {
+    margin-left: auto; font-variant-numeric: tabular-nums;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .usage-panel-rule {
+    height: 1px; margin: 6px 2px; background: var(--vscode-panel-border, rgba(127,127,127,.35));
+  }
+  .usage-panel-details {
+    display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0;
+    padding: 0 2px 6px;
+  }
+  .usage-panel-details dt { color: var(--vscode-descriptionForeground, #888); }
+  .usage-panel-details dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .usage-panel-details .usage-panel-route { color: var(--vscode-descriptionForeground, #888); }
+  .usage-panel-reasoning { margin-left: 4px; opacity: 0.65; }
+  /* 回合轨道栏（web parity: TurnNavigator）：sticky 悬浮层（高 0、不占流），
+     框架钉在消息流右上；刻度间距 10px——已载入实心、未载入半透明、最新回合
+     高亮；roll 长过框架高度时内部滚动，preview 气泡钉在 hover 刻度左侧。 */
+  .turn-rail-slot {
+    position: sticky; top: 0; height: 0; z-index: 7; pointer-events: none;
+  }
+  .turn-rail-frame {
+    position: absolute; top: 10px; right: 6px; width: 28px;
+    max-height: min(55vh, 420px); pointer-events: auto; cursor: pointer;
+  }
+  .turn-rail-scroller { overflow-y: auto; scrollbar-width: none; }
+  .turn-rail-scroller::-webkit-scrollbar { display: none; }
+  .turn-rail-marks { position: relative; min-width: 20px; }
+  .turn-rail-mark-position {
+    position: absolute; left: 0; right: 0; height: 10px;
+    transform: translateY(-50%);
+  }
+  .turn-rail-mark {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    margin: 0; padding: 0; border: 0; background: none; border-radius: 4px; cursor: pointer;
+  }
+  .turn-rail-mark::before {
+    content: ''; position: absolute; top: 50%; right: 2px; transform: translateY(-50%);
+    width: 14px; height: 2px; border-radius: 2px;
+    background: var(--vscode-panel-border, rgba(127,127,127,.4));
+    transition: width .14s, background-color .14s;
+  }
+  .turn-rail-mark.mark-unloaded::before { opacity: 0.55; width: 9px; }
+  .turn-rail-mark.mark-active::before {
+    background: var(--vscode-charts-blue, #5686fe); width: 20px;
+  }
+  .turn-rail-mark:hover::before { width: 20px; }
+  .turn-rail-preview {
+    position: absolute; right: calc(100% + 10px); width: 260px; max-width: calc(100vw - 90px);
+    box-sizing: border-box; padding: 8px 10px; border-radius: 8px; display: none;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
+    background: var(--vscode-menu-background, var(--vscode-dropdown-background));
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    box-shadow: 0 0 1px 0 rgba(0,0,0,.2), 0 12px 32px 0 rgba(0,0,0,.14);
+    pointer-events: none; overflow: hidden;
+  }
+  .turn-rail-preview.show { display: block; }
+  .turn-rail-preview-prompt {
+    font-size: 12px; font-weight: 500; line-height: 16px; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+  }
+  .turn-rail-preview-response {
+    margin-top: 4px; font-size: 12px; line-height: 15px; opacity: 0.75; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  }
+  @media (max-width: 480px) {
+    .turn-rail-frame { display: none; }
+  }
   /* Pending 接管面板（approval/question/plan-review 挂 composer 区，对齐 dsh
      web QuestionFlow / PlanReviewPanel）：容器占输入区位置，一个 pending 一块。 */
   .pending-panel {
