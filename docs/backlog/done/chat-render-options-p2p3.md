@@ -21,3 +21,29 @@
 
 - 2026-09-05 从 dsh-0.1.2-interaction-gaps 拆分（P2 两项必做 + P3 可选评估）→ open
 - 2026-09-05 认领（open → doing）：阶段 4（P2/P3）开发 session 认领，worktree slug chat-stage4-p2p3；已核实 dsh-v0.1.2-rc.1 官方 schedule 投影存在（packages/schedule/schedule projection.ts：key='schedule'，wire 视图 = 活动记录数组），0.1.1 服务器无此投影（无基线/无推送 → host 保持 undefined → 不显示 chip，降级自然生效）
+- 2026-09-05 开发完成（doing → done，worktree agent/chat-stage4-p2p3 HEAD 34062c1）：P2 两项 + P3 评估决定。
+  ① 字号调节：VS Code 设置 dshOne.chatFontSize（12-17 默认 14）→ chatViewHtml body CSS 变量链（官方
+  --dsh-content-font-size/-delta/-size-secondary ≤14 时 −1、>14 时 −2）→ .messages 内容区随动、表格/思考块
+  /上下文/命令通知读次级档；行内 code/代码块保持既有等宽与相对比例（不覆盖）。chatHtml 生成面板时把设置
+  写进 <head>（激活前生效，无首帧闪烁）；运行中改设置由 ChatViewProvider.onDidChangeConfiguration →
+  post chatFontSize → webview 覆盖 body 内联变量即改即效；持久化 = VS Code settings（跨 reload 由
+  chatHtml 重新写入）。
+  ② 定时计划 chip：官方核实（dsh-v0.1.2-rc.1 packages/schedule/schedule/projection.ts 确认存在，key=
+  'schedule'，wire 视图 = state.active 数组）——但 Schedule 插件是 **opt-in**（shipped web graph 默认
+  disabled，官方启用 `dsh web --patch apps/cli/config/examples/schedule/cordis.yml`），0.1.1 服务器无该投影
+  → 降级不显示 chip（结构缺省，不崩）。host 折叠 schedule 投影（基线 + session/projection 帧，higher-seq-
+  wins，保守校验畸形整条丢弃）；webview 头部 AlarmClock chip（官方 IconAlarmClockOutline16 stroke 图标，
+  icons.ts IconPath 扩展 strokeWidth）+「N 个提醒」+ 只读下拉（状态点 scheduled/overdue、频率/本地时刻/
+  相对时间、逾期行淡黄底、1s tick 就地刷新）；schedule 进入 header 保活签名（真 0.1.2 端到端暴露的 bug：
+  运行中投影到达时 keepHeader 吞掉新 chip）。
+  ③ P3 整轮聚合折叠评估：**不做**。官方 TurnProcessNodeView 会把一个回合的多条消息行包进单个折叠容器，
+  与阶段 2 增量更新的扁平 keyed reconcileFlow（行级保活/details 折叠态按消息键持久/滚动锚定/工作流卡
+  anchorSeq 插流）结构性冲突——需要把多行包进容器 FlowItem、内部再按消息 id 对账，成本中等以上；官方
+  该功能也是先行版本（turnProcesses 内存态、仅 compact 模式、无持久展开态）。维持逐块独立折叠现状。
+  自测：typecheck + 501 单测（新增 schedule 纯函数 4 项 + mock-llm 3 项）+ build 全绿；harness 8 个新场景
+  （字号默认/17px、schedule chip 四项态 + live 到达）ui-visual 截图核对；沙盒（--instance
+  chat-stage4-p2p3，容器内 dsh 0.1.2-rc.1 + overlay 启用 schedule 插件，mock-llm 场景加 schedule_create
+  规则、time-context 注入过滤与工具续拍扫描修复）4 项 ledger 全 pass（F-01 schedule 真端到端、
+  F-02 字号 17px 真设置注入、F-03 无计划不显示、R-01 工具回显/usage 药丸回归）；报告
+  test/sandbox/verify.chat-stage4-p2p3.report.html。注：mock-llm 在 0.1.2 通路下 usage 上报未计入药丸
+  （0 值，非零聚合形态由 harness turn-usage 场景覆盖）；真模型输出/真桌面 VS Code 不在本报告范围。
