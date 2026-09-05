@@ -895,6 +895,35 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
         this.store.reorderGroups(ids)
         return
       }
+      /* ---- 会话标签组（纯客户端状态，store 持久化到 globalState） ---- */
+      case 'sessionTagSet':
+        // webview 已校验（只提交存在的组 id / null）；store 兜底拒绝未知 id。
+        if (typeof m.sessionId === 'string') this.store.setSessionTag(m.sessionId, m.tagId ?? null)
+        return
+      case 'sessionTagSetMany': {
+        const ids = Array.isArray(m.sessionIds)
+          ? m.sessionIds.filter((x): x is string => typeof x === 'string')
+          : []
+        // 整组「移出分组」等批量操作失败面为零（本地状态），无回执。
+        if (ids.length > 0) this.store.setSessionTagMany(ids, m.tagId ?? null)
+        return
+      }
+      case 'sessionTagCreate':
+        if (typeof m.name === 'string') this.store.createTag(m.name)
+        return
+      case 'sessionTagRename':
+        if (typeof m.name === 'string') this.store.renameTag(m.tagId, m.name)
+        return
+      case 'sessionTagDelete':
+        this.store.deleteTag(m.tagId)
+        return
+      case 'sessionTagReorder': {
+        const ids = Array.isArray(m.tagIds)
+          ? m.tagIds.filter((x): x is string => typeof x === 'string')
+          : []
+        this.store.reorderSessionTags(ids)
+        return
+      }
       case 'serverStart':
         void this.manager.ensureStarted()
         return

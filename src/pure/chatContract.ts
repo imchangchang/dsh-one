@@ -9,6 +9,7 @@ import type { ActivityJob } from './activityTree.ts'
 import type { FileRefCandidate } from './fileReference.ts'
 import type { WorkflowRunView } from './workflowRun.ts'
 import type { HostOs } from './installScript.ts'
+import type { TagColor } from './sessionTags.ts'
 
 /** One renderable block inside an assistant message. */
 export interface ChatTextBlock {
@@ -863,6 +864,13 @@ export interface SessionsSnapshot {
    * 主列表 workspaces 已按选中分组过滤，目录补全量供管理视图打标与计数。
    */
   workspaceDirectory: Array<{ workspaceId: string; label: string }>
+  /**
+   * 会话标签组（有序，数组顺序 = 展示顺序；预设组名已按当前 locale 翻译）。
+   * count = 当前基线中打该组的会话数（残留旧 id 不计）。
+   */
+  tags: Array<{ id: string; name: string; color: TagColor; count: number }>
+  /** 标签组 → 会话 id（单组倒排，全量未清洗）：整组批量操作（归档/回收站）按此收集全集。 */
+  tagSessionIds: Record<string, string[]>
 }
 /**
  * 单个 commit hash 的查询结果：webview 据此点亮/灰显点击 chip 并填悬浮卡。
@@ -1110,3 +1118,15 @@ export type FromWebviewMessage =
   | { type: 'workspaceGroupSetMembership'; workspaceId: string; groupIds: string[] }
   /** Sessions 面板：持久化分组顺序（管理视图拖拽结束后提交全量顺序）。 */
   | { type: 'workspaceGroupReorder'; groupIds: string[] }
+  /** Sessions 面板：设置一个会话的标签组（tagId = null 移出组；单组语义）。 */
+  | { type: 'sessionTagSet'; sessionId: string; tagId: string | null }
+  /** Sessions 面板：批量设置标签组（整组「移出分组」等；单次持久化）。 */
+  | { type: 'sessionTagSetMany'; sessionIds: string[]; tagId: string | null }
+  /** Sessions 面板：新建自建标签组（名称 trim 后非空且不重名；webview 已校验）。 */
+  | { type: 'sessionTagCreate'; name: string }
+  /** Sessions 面板：重命名自建标签组（预设组不可改名，webview 不提供入口）。 */
+  | { type: 'sessionTagRename'; tagId: string; name: string }
+  /** Sessions 面板：删除自建标签组（组内会话回到未分组；预设组拒绝）。 */
+  | { type: 'sessionTagDelete'; tagId: string }
+  /** Sessions 面板：持久化标签组顺序（拖拽结束后提交全量顺序）。 */
+  | { type: 'sessionTagReorder'; tagIds: string[] }

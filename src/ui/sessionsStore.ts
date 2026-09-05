@@ -33,6 +33,20 @@ import {
   type WorkspaceGroupDef as GroupDef,
 } from '../pure/workspaceGroups.ts'
 import { pruneRecycleIds, resolveRecycleIds } from '../pure/recycleBinState.ts'
+import {
+  invertSessionTagIds,
+  isPresetTag,
+  nextCustomColor,
+  removeTagFromAll,
+  reorderTags as reorderTagsPure,
+  sanitizeSessionTagIds,
+  sanitizeTags,
+  setSessionTagId,
+  tagDisplayName,
+  tagNameError,
+  type SessionTagDef as TagDef,
+  type TagColor,
+} from '../pure/sessionTags.ts'
 
 /** Map one session.list entry onto the pure-layer SessionInput. */
 function toSessionInput(s: SessionSummary): SessionInput {
@@ -87,6 +101,13 @@ const RECYCLE_COLLAPSED_STATE_KEY = 'sessions.recycleCollapsed'
 const GROUPS_STATE_KEY = 'sessions.groups'
 const GROUP_MEMBERSHIP_STATE_KEY = 'sessions.groupMembership'
 const ACTIVE_GROUP_STATE_KEY = 'sessions.activeGroup'
+/**
+ * 会话标签组状态（globalState，跨窗口/重启共享）：组定义（含预设组，名字
+ * 走 l10n）与 sessionId → tagId 单组映射。与 workspace 分组同层同模式；
+ * 纯客户端状态（dsh 无分组概念）。
+ */
+const TAGS_STATE_KEY = 'sessions.tags'
+const SESSION_TAGS_STATE_KEY = 'sessions.sessionTags'
 
 
 /**
@@ -129,6 +150,10 @@ export interface SessionsStoreSnapshot {
   groupMembership: Record<string, string[]>
   /** 管理视图的 workspace 目录（全量，排除「未分组」虚拟组）。 */
   workspaceDirectory: Array<{ workspaceId: string; label: string }>
+  /** 会话标签组（有序；预设组名已按当前 locale 翻译；count = 当前基线中打组的会话数）。 */
+  tags: Array<{ id: string; name: string; color: TagColor; count: number }>
+  /** 标签组 → 会话 id（单组倒排，全量未清洗；整组批量操作（归档/回收站）按此收集全集）。 */
+  tagSessionIds: Record<string, string[]>
 }
 
 /**
@@ -166,6 +191,11 @@ export class SessionsStore implements vscode.Disposable {
   private groupMembership: Record<string, string[]> = {}
   /** 当前选中的分组 id；null = 全部工作区。（globalState 持久化） */
   private activeGroupId: string | null = null
+  /** 会话标签组定义（globalState 持久化；数组顺序 = 展示顺序，用户可拖拽排序）：
+   *  预设组名字为 null（按 l10n 出），自定义组为用户原文。 */
+  private tags: TagDef[] = []
+  /** sessionId → 标签组 id（单组；globalState 持久化，dsh 无概念，纯客户端状态）。 */
+  private sessionTags: Record<string, string> = {}
   /** 回收站视图的展示模型（只含回收站会话，无搜索过滤；基线与主列表同一份 raw 数据）。 */
   private recycleWorkspaces: WorkspaceNodeModel[] = []
   /** 内容搜索命中：sessionId → 最佳匹配片段（query 非空时由 session.search 填充）。 */
@@ -272,6 +302,18 @@ export class SessionsStore implements vscode.Disposable {
     this.groupMembership = sanitizeMembership(globalState?.get<unknown>(GROUP_MEMBERSHIP_STATE_KEY), groupIds)
     const savedActive = globalState?.get<unknown>(ACTIVE_GROUP_STATE_KEY)
     this.activeGroupId = typeof savedActive === 'string' && groupIds.has(savedActive) ? savedActive : null
+    // 标签组：载入并清洗（缺失的预设组补齐）；首次（key 不存在/非数组）把
+    // seed 结果写回，之后的顺序完全由用户拖拽决定，load 只清洗不再重排。
+    const rawTags = globalState?.get<unknown>(TAGS_STATE_KEY)
+    this.tags = sanitizeTags(rawTags)
+    const tagIds = new Set(this.tags.map((t) => t.id))
+    this.sessionTags = sanitizeSessionTagIds(
+      globalState?.get<unknown>(SESSION_TAGS_STATE_KEY),
+      tagIds,
+    )
+    if (!Array.isArray(rawTags)) {
+      void this.globalState?.update(TAGS_STATE_KEY, this.tags)
+    }
     this.stateSub = manager.onDidChangeState((status) => this.onStateChange(status))
     this.onStateChange(manager.getStatus())
   }
@@ -377,7 +419,24 @@ export class SessionsStore implements vscode.Disposable {
       workspaceDirectory: this.workspaces
         .filter((w) => w.workspaceId !== UNGROUPED_WORKSPACE_ID)
         .map((w) => ({ workspaceId: w.workspaceId, label: w.label })),
+      // 标签组：count 只认当前基线里真实存在的会话（成员残留旧 id 不计）。
+      tags: this.tags.map((t) => ({
+        id: t.id,
+        name: tagDisplayName(t, vscode.l10n.t),
+        color: t.color,
+        count: this.tagSessionCount(t.id),
+      })),
+      tagSessionIds: invertSessionTagIds(this.sessionTags),
     }
+  }
+
+  /** 某组的会话计数（只数当前基线里的非归档会话；残留/已删 id 不计）。 */
+  private tagSessionCount(tagId: string): number {
+    let n = 0
+    for (const [sessionId, id] of Object.entries(this.sessionTags)) {
+      if (id === tagId && this.knownSessionIds.has(sessionId)) n += 1
+    }
+    return n
   }
 
   /** 选中分组下的可见 workspace（null = 全部，原样返回）。 */
@@ -475,6 +534,90 @@ export class SessionsStore implements vscode.Disposable {
     if (next === null) return
     this.groups = next
     this.persistGroups()
+    this.onDidChangeEmitter.fire()
+  }
+
+  /* ---- 会话标签组（客户端状态，globalState 持久化；单组语义） ---- */
+
+  private persistTags(): void {
+    void this.globalState?.update(TAGS_STATE_KEY, this.tags)
+  }
+
+  private persistSessionTags(): void {
+    void this.globalState?.update(SESSION_TAGS_STATE_KEY, this.sessionTags)
+  }
+
+  /** 新建自建组：名称 trim 后非空且不与自建组重名；颜色未指定时轮换。
+   *  返回组定义；失败（空名/重名）返回 null——webview 已做同款校验，这里兜底。 */
+  createTag(name: string, color?: TagColor): TagDef | null {
+    if (tagNameError(name, this.tags) !== null) return null
+    const tag: TagDef = { id: `t-${randomUUID()}`, name: name.trim(), color: color ?? nextCustomColor(this.tags) }
+    this.tags = [...this.tags, tag]
+    this.persistTags()
+    this.onDidChangeEmitter.fire()
+    return tag
+  }
+
+  /** 重命名自建组（同名校验同 createTag，排除自身）；预设组拒绝（名字走 l10n）。 */
+  renameTag(tagId: string, name: string): boolean {
+    const tag = this.tags.find((t) => t.id === tagId)
+    if (!tag || isPresetTag(tag)) return false
+    if (tagNameError(name, this.tags, tagId) !== null) return false
+    const trimmed = name.trim()
+    if (tag.name === trimmed) return true
+    this.tags = this.tags.map((t) => (t.id === tagId ? { ...t, name: trimmed } : t))
+    this.persistTags()
+    this.onDidChangeEmitter.fire()
+    return true
+  }
+
+  /** 删除自建组：组定义移除、成员打标清理（组内会话回到未分组）；预设组拒绝。 */
+  deleteTag(tagId: string): void {
+    const tag = this.tags.find((t) => t.id === tagId)
+    if (!tag || isPresetTag(tag)) return
+    this.tags = this.tags.filter((t) => t.id !== tagId)
+    this.persistTags()
+    const next = removeTagFromAll(this.sessionTags, tagId)
+    if (next !== this.sessionTags) {
+      this.sessionTags = next
+      this.persistSessionTags()
+    }
+    this.onDidChangeEmitter.fire()
+  }
+
+  /** 设置一个会话的组（tagId = null 移出组；未知组 id 忽略；幂等）。 */
+  setSessionTag(sessionId: string, tagId: string | null): void {
+    if (!sessionId) return
+    const known = new Set(this.tags.map((t) => t.id))
+    const next = setSessionTagId(this.sessionTags, sessionId, tagId, known)
+    if (next === null) return
+    this.sessionTags = next
+    this.persistSessionTags()
+    this.onDidChangeEmitter.fire()
+  }
+
+  /** 批量设置（整组操作「移出分组」/拖拽后多行同组）：单次持久化 + 一次通知。 */
+  setSessionTagMany(sessionIds: readonly string[], tagId: string | null): void {
+    if (sessionIds.length === 0) return
+    if (tagId !== null && !this.tags.some((t) => t.id === tagId)) return
+    const known = new Set(this.tags.map((t) => t.id))
+    let next = this.sessionTags
+    for (const id of sessionIds) {
+      const changed = setSessionTagId(next, id, tagId, known)
+      if (changed !== null) next = changed
+    }
+    if (next === this.sessionTags) return
+    this.sessionTags = next
+    this.persistSessionTags()
+    this.onDidChangeEmitter.fire()
+  }
+
+  /** 持久化标签组顺序（拖拽后提交全量顺序；缺失/未知 id 拒绝）。 */
+  reorderSessionTags(tagIds: readonly string[]): void {
+    const next = reorderTagsPure(this.tags, tagIds)
+    if (next === null) return
+    this.tags = next
+    this.persistTags()
     this.onDidChangeEmitter.fire()
   }
 
@@ -1120,6 +1263,10 @@ export class SessionsStore implements vscode.Disposable {
       pinned: this.pinned,
       unread: unreadDisplay,
       pendingInteractions: pendingDisplay,
+      // 标签组聚合（Chrome 垂直标签式）：组块顺序 = 定义顺序；workspace 内
+      // 非置顶会话按组块聚合，无组殿后（置顶会话保持绝对优先平铺）。
+      tags: this.tags.map((t) => t.id),
+      sessionTagFor: (sessionId: string): string | undefined => this.sessionTags[sessionId],
       // VS Code 的 fsPath 在 Windows 返回小写盘符 + 反斜杠，dsh 服务端的
       // workspace path 可能是不同大小写/正斜杠/尾斜杠——严格全等会漏掉
       // 「vscode」标签（macOS/Linux 大小写敏感，维持严格比较）。

@@ -138,6 +138,18 @@ export function reorderTags(
   return next
 }
 
+/** sessionId → tagId 单组映射的倒排：tagId → sessionId 列表（整组批量操作收集全集用）。 */
+export function invertSessionTagIds(
+  membership: Readonly<Record<string, string>>,
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const [sessionId, tagId] of Object.entries(membership)) {
+    const list = (out[tagId] ??= [])
+    list.push(sessionId)
+  }
+  return out
+}
+
 /** 名称校验（自建组新建/重命名共用）：trim 后非空；只与自建组比较重名
  *  （预设组名由 l10n 出、不可改名，不参与——同显示名交由用户自己注意）。 */
 export function tagNameError(
