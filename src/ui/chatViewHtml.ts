@@ -1599,7 +1599,8 @@ const STYLE = `
      槽位 pointer-events 关掉，点击只落在 pill 上。 */
   .jump-slot {
     position: sticky; bottom: 4px; height: 0; z-index: 5;
-    display: flex; justify-content: flex-end; pointer-events: none;
+    display: flex; justify-content: flex-end; align-items: flex-end;
+    pointer-events: none;
     padding-right: max(0px, calc((100% - var(--dsh-content-width)) / 2));
   }
   .jump-latest {

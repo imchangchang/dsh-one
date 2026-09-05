@@ -2464,12 +2464,13 @@
           script: `
             const m = document.getElementById('messages');
             if (m) {
+              // 真实触发链：wheel 记用户滚动意图 → scrollTop=0 → 合成 scroll 事件跑
+              // 真实 handler（后台 tab 里浏览器不补发原生 scroll 事件，必须显式
+              // dispatch 才走得到 reconcileScrollPinning）→ 跟随态置 false →
+              // render 逻辑让浮标显示。不是直接改 display。
+              m.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
               m.scrollTop = 0;
-              // 后台 tab 里合成 wheel/scroll 走不通真实触发链（程序位置被贴底 pin
-              // 回声判定吞掉）；浮标显隐的触发逻辑由 scrollFollow 单测覆盖，本场景
-              // 只钉「可见时」的形状与位置——直接置显。
-              const j = m.querySelector('.jump-latest');
-              if (j) j.style.display = '';
+              m.dispatchEvent(new Event('scroll'));
             }
           `,
         },
