@@ -60,3 +60,5 @@
 - 2026-09-05 用户会话直报，主线排查（真实 chat STYLE fixture + 手动驱动 mock）确认根因 → open
 - 2026-09-05 4 路并行子代理深析（现状盘点/几何建模/官方逆向/历史残留审计）收敛于 B+F2；用户拍板方案 1（机制层彻底），方案 2 布局重构另立条目 → 认领 → doing
 - 2026-09-05 开发完成（worktree: agent/composer-multiline-input-jitter，commit f6f8f83）：RO 统一补偿 + 写路径收口（writeMessagesScrollTop）+ 字号特例 rAF settle。自测：typecheck/554 单测/build 全绿；headless Chrome CDP 几何断言与截图验证（顶出瞬态同帧修回、收缩侧贴底保持、非跟随阅读位不动、流式 dist 恒 0、dock 开合补偿）；harness 基线 35 场景无回归。测试报告 test/sandbox/verify.composer-multiline-input-jitter.report.html → done
+
+- 2026-09-05 合入（done -> closed）：dev-merge 合入 main（from f6f8f83），报告 7 项全过、人工审查通过（before/after 截图核对）。
