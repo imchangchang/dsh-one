@@ -1284,10 +1284,48 @@
         const head = document.querySelector('.workspace-group[data-workspace-id="ws-main"] .workspace-row')
         head?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }))
         const items = [...document.querySelectorAll('.menu-item')]
+        items.find((i) => i.textContent?.includes('Groups…'))?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+      })()`,
+      title: '侧栏面板（分组… 子菜单：hover 展开 + 与顶层菜单并存）',
+      expect: '右键 ws-main 弹出顶层菜单后，**悬停**「分组…」即展开二级 popover（不必点击）：二级菜单锚在「分组…」项右侧、右缘对齐；**顶层 6 项菜单完整保留、与二级菜单并存**（标题 Workspace: dsh-one、复制文件夹引用、分组…、归档该工作区全部会话、在新窗口打开文件夹、复制路径、从列表移除都仍在原位）；二级菜单三个组行自上而下「演示 2 ✓」「开发 1 ✓」「日常 0」（勾选态来自 ws-main 的归属 groupMembership；「日常」未勾无 ✓、计数 0 仍列出）；勾选行带 ✓ 于行尾；组名 + 右侧计数 + ✓ 布局在列。',
+    },
+
+    'sessions-workspace-menu-groups-click': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        return s
+      })(),
+      interact: `(() => {
+        const head = document.querySelector('.workspace-group[data-workspace-id="ws-main"] .workspace-row')
+        head?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }))
+        const items = [...document.querySelectorAll('.menu-item')]
         items.find((i) => i.textContent?.includes('Groups…'))?.click()
       })()`,
-      title: '侧栏面板（分组… 子菜单：多选勾 tag）',
-      expect: '点「分组…」后二级 popover 从菜单项右侧展开（右缘对齐顶层菜单，不覆盖 6 项）：三个组行自上而下「演示 2 ✓」「开发 1 ✓」「日常 0」（勾选态来自 ws-main 的归属 groupMembership；「日常」未勾无 ✓、计数 0 仍列出）；勾选行带 ✓ 于行尾；组名 + 右侧计数 + ✓ 布局在列。',
+      title: '侧栏面板（分组… 子菜单：点击展开兜底 + 与顶层菜单并存）',
+      expect: '与 hover 场景同布局，但由**点击**「分组…」展开（触屏/键盘兜底路径）：二级菜单锚在「分组…」项右侧，顶层 6 项菜单完整保留、与二级菜单并存，三个组行「演示 2 ✓」「开发 1 ✓」「日常 0」勾选态正确。',
+    },
+
+    'sessions-workspace-menu-groups-leave': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        Object.assign(s, window.SESSION_GROUPS_FIXTURE)
+        return s
+      })(),
+      interact: `(() => {
+        const head = document.querySelector('.workspace-group[data-workspace-id="ws-main"] .workspace-row')
+        head?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 280 }))
+        const items = [...document.querySelectorAll('.menu-item')]
+        const anchor = items.find((i) => i.textContent?.includes('Groups…'))
+        anchor?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+        // hover 移出：指针落到顶层菜单其它项（如复制文件夹引用）
+        const other = items.find((i) => i.textContent?.includes('Copy folder reference'))
+        other?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+      })()`,
+      title: '侧栏面板（分组… 子菜单：hover 移出后收起）',
+      expect: 'hover 展开「分组…」二级菜单后，指针移出到顶层菜单其它项（复制文件夹引用）：二级 popover 收起（截图时已过 140ms 延时），顶层 6 项菜单仍完整保留、无任何残留二级菜单。',
     },
 
     'sessions-workspace-archive-modal': {
@@ -1329,7 +1367,7 @@
         }, 150)
       })()`,
       title: '侧栏面板（无归档会话的工作区：一键归档禁用 + 悬停提示）',
-      expect: '工作区内全部会话运行中（无任何可归档会话）：右键菜单「归档该工作区全部会话」灰置（.menu-item.disabled）；悬停该项时其下方出现 tooltip 气泡「该工作区没有可归档的会话」；其余 5 项（复制文件夹引用/分组…/新窗口/复制路径/从列表移除）正常可用。',
+      expect: '工作区内全部会话运行中（无任何可归档会话）：右键菜单「归档该工作区全部会话」灰置（.menu-item.disabled）；悬停该项时其上方出现 tooltip 气泡「该工作区没有可归档的会话」（tooltip 优先放锚点上方，顶部空间不足时放下方）；其余 5 项（复制文件夹引用/分组…/新窗口/复制路径/从列表移除）正常可用。',
     },
 
     'sessions-rename': {
@@ -2441,6 +2479,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
     'sessions-search', 'sessions-collapsed', 'sessions-recycle-drawer',
+    'sessions-workspace-menu-groups',
     'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',

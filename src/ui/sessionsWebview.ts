@@ -148,6 +148,11 @@ app.appendChild(sessionsPanel)
 let popover: HTMLElement | null = null
 let popoverAnchor: HTMLElement | null = null
 let popoverPlacement: 'above' | 'below' = 'above'
+/** 二级子菜单（叠在顶层菜单之上，如「分组…」的勾选组）：与顶层菜单并存、
+ *  随顶层菜单一起关闭。锚点 = 触发它的菜单项（hover 收起判定用）。 */
+let subPopover: HTMLElement | null = null
+let subPopoverAnchor: HTMLElement | null = null
+let subPopoverCloseTimer: ReturnType<typeof setTimeout> | null = null
 /** 菜单打开期间保持 hover 背景的来源行（会话行 ⋯ 菜单/右键菜单）。 */
 let menuOpenRow: HTMLElement | null = null
 /**
@@ -165,13 +170,13 @@ function markMenuRow(row: HTMLElement | null): void {
 }
 
 function onPopoverOutside(e: MouseEvent): void {
-  if (
-    popover &&
-    !popover.contains(e.target as Node) &&
-    !(popoverAnchor !== null && popoverAnchor.contains(e.target as Node))
-  ) {
-    closePopover()
-  }
+  const t = e.target as Node
+  const inside =
+    (popover !== null && popover.contains(t)) ||
+    (subPopover !== null && subPopover.contains(t)) ||
+    (popoverAnchor !== null && popoverAnchor.contains(t)) ||
+    (subPopoverAnchor !== null && subPopoverAnchor.contains(t))
+  if (!inside) closePopover()
 }
 
 function onPopoverKey(e: KeyboardEvent): void {
@@ -188,9 +193,43 @@ function onPopoverBlur(): void {
   closePopover()
 }
 
+/** 二级子菜单的延时关闭（hover 收起用，缓冲指针横穿两菜单间隙）。 */
+function cancelSubPopoverClose(): void {
+  if (subPopoverCloseTimer !== null) {
+    clearTimeout(subPopoverCloseTimer)
+    subPopoverCloseTimer = null
+  }
+}
+function scheduleSubPopoverClose(ms: number): void {
+  cancelSubPopoverClose()
+  subPopoverCloseTimer = setTimeout(() => {
+    subPopoverCloseTimer = null
+    disposeSubPopover()
+  }, ms)
+}
+/** 只清二级子菜单（顶层菜单保持打开：hover 离开「分组…」项/横穿到别处时收起）。 */
+function disposeSubPopover(): void {
+  cancelSubPopoverClose()
+  subPopover?.remove()
+  subPopover = null
+  subPopoverAnchor = null
+}
+// hover 收起判定：指针落在子菜单或锚点项内则保持，否则延时收起（横穿 6px
+// 间隙移入子菜单会在间隙里先触发一次「不在」——140ms 内回到子菜单就取消）。
+document.addEventListener('pointerover', (e) => {
+  if (subPopover === null) return
+  const t = e.target as Node
+  if (subPopover.contains(t) || (subPopoverAnchor !== null && subPopoverAnchor.contains(t))) {
+    cancelSubPopoverClose()
+  } else {
+    scheduleSubPopoverClose(140)
+  }
+})
+
 /** 只清弹层 DOM、锚与事件监听的内部清理（showPopover/showPopoverAt 换菜单时
  *  用——不清冻结、不补渲染，因为新菜单还要继续开着）。 */
 function disposePopover(): void {
+  disposeSubPopover()
   popover?.remove()
   popover = null
   popoverAnchor = null
@@ -260,6 +299,21 @@ function showPopoverAt(x: number, y: number, body: HTMLElement): void {
   document.addEventListener('mousedown', onPopoverOutside, true)
   document.addEventListener('keydown', onPopoverKey, true)
   window.addEventListener('blur', onPopoverBlur)
+}
+
+/** 二级子菜单（不清顶层菜单，两菜单并存）：锚在其触发项右侧。mousedown/keydown/
+ *  blur 监听由顶层菜单打开时统一挂着，点击/按键判定把两层都算「内部」。 */
+function showSubPopoverAt(x: number, y: number, anchor: HTMLElement, body: HTMLElement): void {
+  disposeSubPopover()
+  const p = el('div', 'popover')
+  p.appendChild(body)
+  document.body.appendChild(p)
+  subPopover = p
+  subPopoverAnchor = anchor
+  const left = Math.min(x, window.innerWidth - p.offsetWidth - 4)
+  const top = Math.min(y, window.innerHeight - p.offsetHeight - 4)
+  p.style.left = `${Math.max(4, left)}px`
+  p.style.top = `${Math.max(4, top)}px`
 }
 
 /* ---- 悬停 tooltip（VS Code webview 原生 title 不显示，自实现） ---- */
@@ -2528,7 +2582,8 @@ function buildWorkspaceMenuBody(w: WorkspaceNodeModel): HTMLElement {
   return body
 }
 
-/** 「分组…」菜单项（带 › 子菜单指示）：点击开二级 popover（锚在项右侧）。 */
+/** 「分组…」菜单项（带 › 子菜单指示）：hover 展开二级 popover（VS Code submenu
+ *  惯例），点击兜底（触屏/键盘）；已展开时幂等不重建（勾选中途重建会闪）。 */
 function buildWorkspaceGroupsMenu(w: WorkspaceNodeModel): HTMLElement {
   const item = el('div', 'menu-item')
   const iconWrap = el('span', 'menu-item-icon')
@@ -2536,7 +2591,11 @@ function buildWorkspaceGroupsMenu(w: WorkspaceNodeModel): HTMLElement {
   item.appendChild(iconWrap)
   item.appendChild(el('span', undefined, t('Groups…')))
   item.appendChild(el('span', 'menu-right', '›'))
-  item.addEventListener('click', () => showWorkspaceGroupsSubmenu(w, item))
+  const open = (): void => {
+    if (subPopover === null) showWorkspaceGroupsSubmenu(w, item)
+  }
+  item.addEventListener('pointerover', open)
+  item.addEventListener('click', open)
   return item
 }
 
@@ -2577,7 +2636,7 @@ function showWorkspaceGroupsSubmenu(w: WorkspaceNodeModel, anchor: HTMLElement):
     }
   }
   const rect = anchor.getBoundingClientRect()
-  showPopoverAt(Math.min(rect.right + 6, window.innerWidth - 4), rect.top, body)
+  showSubPopoverAt(Math.min(rect.right + 6, window.innerWidth - 4), rect.top, anchor, body)
 }
 
 /** 「归档该工作区全部会话」：收集该工作区可归档会话（同多选归档规则，置顶/

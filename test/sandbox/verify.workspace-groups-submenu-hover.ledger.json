@@ -1,0 +1,103 @@
+{
+  "title": "工作区右键「分组…」子菜单：hover 展开 + 双菜单并存修复（workspace-groups-submenu-hover 任务）",
+  "branch": "agent/workspace-groups-submenu-hover",
+  "commit": "HEAD-待dev-finish回填",
+  "environment": {
+    "mode": "harness-visual",
+    "theme": "light",
+    "date": "2026-09-05T00:00:00Z"
+  },
+  "coverageNote": "验证通道：harness 视觉场景（4 个定制场景 + 124 场景全量回归，浏览器独立渲染 webview + mock 后台）+ 单测 495 pass + typecheck + build。宿主链路（剪贴板/归档 RPC/持久化）无改动；未跑沙盒 E2E（纯 webview 交互修复，视觉场景即覆盖交互语义；如需容器级验收可补 verify-driver）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "hover 展开「分组…」子菜单 + 顶层菜单与其并存",
+      "expect": "右键工作区行弹出顶层菜单后，悬停「分组…」即展开二级 popover（不必点击）；二级菜单锚在「分组…」项右侧；顶层 6 项菜单（Workspace: dsh-one 标题/复制文件夹引用/分组…/归档该工作区全部会话/在新窗口打开文件夹/复制路径/从列表移除）完整保留、与二级菜单并存；二级菜单三个组行「演示 2 ✓」「开发 1 ✓」「日常 0」勾选态正确。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-groups.png",
+        "/tmp/dsh-ui-shots/sessions-workspace-menu.png"
+      ],
+      "notes": "修前复现：点击打开时顶层菜单被 disposePopover 移除（单例 popover），截图只见二级菜单。修后 showSubPopoverAt 独立子层，顶层菜单保留（见并列截图）。修复前/后对比见任务记录。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "点击「分组…」兜底展开（触屏/键盘路径）同样并存",
+      "expect": "点击「分组…」展开二级菜单（与 hover 场景同布局）：二级菜单锚在项右侧，顶层 6 项菜单完整保留、与二级菜单并存，勾选态正确。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-groups-click.png"
+      ],
+      "notes": "click 与 pointerover 共用 open 入口，幂等不重建（已有子菜单时点击不重建，避免勾选中途快照往返闪烁）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "hover 移出「分组…」后二级菜单收起、顶层菜单保留",
+      "expect": "hover 展开二级菜单后指针移到顶层菜单其它项（复制文件夹引用）：二级 popover 收起（140ms 延时缓冲），顶层 6 项菜单完整保留、无残留二级菜单。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-groups-leave.png"
+      ],
+      "notes": "仅收起子层（disposeSubPopover），不关主菜单；Esc/点击外部/blur 仍按既有路径两层一起关。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "工作区右键菜单 6 项布局不变（对照修复前截图）",
+      "expect": "右键菜单 6 项布局、图标、顺序与修复前一致（14px copy 图标/齿轮/archive/folderOpen/copy/trash）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-workspace-menu.png"
+      ],
+      "notes": "主菜单打开路径（showPopoverAt）行为未变；图标区截图比对一致。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "归档确认弹窗不受 popover 改动影响",
+      "expect": "点「归档该工作区全部会话」弹出确认弹窗（Archive 2 sessions? + 跳过说明 + 树区 + Cancel/Archive）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-workspace-archive-modal.png"
+      ],
+      "notes": "弹窗（selection-modal）不经过 popover 系统，行为不变。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "归档禁用态 + 悬停提示位置与修复前一致",
+      "expect": "无归档会话时「归档该工作区全部会话」灰置；悬停该项出现 tooltip「该工作区没有可归档的会话」；tooltip 优先锚点上方（顶部不足才下方）；其余 5 项正常可用。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-archive-disabled.png",
+        "/tmp/dsh-ui-shots/main-archive-disabled.png"
+      ],
+      "notes": "与 main 旧 dist 同场景截图逐像素一致（sha256 相同）——tooltip 行为非本改动引入。顺带修正了该场景期望文本（原文写「其下方」，实现为上方优先）。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "sessions 面板/多选模式回归抽查",
+      "expect": "主面板（组头角标/会话行/未分组/回收站入口）与多选模式（操作条/组头复选框/部分选中/置灰）渲染不变。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions.png",
+        "/tmp/dsh-ui-shots/sessions-selection-mode.png",
+        "/tmp/dsh-ui-shots/sessions-groups-dropdown.png"
+      ],
+      "notes": "popover 系统改动面（onPopoverOutside/disposePopover）抽查通过。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "全量视觉回归 124 场景 + 单测 495 pass + typecheck + build",
+      "expect": "scripts/ui-visual.sh --mode all：124 场景全部渲染出截图（含全部 sessions 弹层/菜单场景）；npm test 495 全过；typecheck 无错；npm run build 成功。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "全量截图在 /tmp/dsh-ui-shots/；popover 相关场景（workspace-menu/groups/archive/menu-disabled/dropdown/selection/recycle-drawer 等）逐张核对无回归。"
+    }
+  ]
+}
