@@ -635,6 +635,44 @@
       expect: '空会话 hero（无历史）：composer 底部权限 pill 显示 **Full access**（带感叹号护盾图标，懒切换选中帧；未发送前真实权限未变）；右侧发送按钮为圆形图标按钮；消息区**没有** /permission 命令节点、**仍是空态 hero**（未变消息流）。',
     },
 
+    'model-pill-012': {
+      // 0.1.2 修复后状态（backlog model-selector-012）：模型位 real label + 权限 pill 中文。
+      // modelLabel 由宿主 sessionModels → modelLabelOf 生成（真机探针 + 单测覆盖，数据链路
+      // 见 verify.model-selector-012.ledger.json），本场景验证 webview 渲染层把宿主值渲染出来。
+      state: base({
+        modelLabel: 'DeepSeek-V4-Flash-Vision-Exp Max',
+        permissions: {
+          options: [
+            { value: 'read-only', label: '仅可查看' },
+            { value: 'workspace-write', label: '工作区内修改' },
+            { value: 'danger-full-access', label: '完全权限' },
+          ],
+          current: 'workspace-write',
+        },
+      }),
+      title: '0.1.2 模型位真名 + 权限 pill 中文',
+      expect: 'composer 底部：模型 pill 显示 **DeepSeek-V4-Flash-Vision-Exp Max**（真实模型名 + effort，不是「选择模型」占位）；权限 pill 显示**工作区内修改**（带权限图标）；会话列表/消息区不受影响；模型 pill 右侧无「›」之类多余元素。',
+    },
+
+    'permission-menu-zh': {
+      // 中文权限菜单：选项 label 由宿主 applyPermissionsValue 本地化（permissionOptionLabel
+      // 过 vscode.l10n.t，机器名 workspace-write → 工作区内修改），webview 渲染 options.label。
+      state: base({
+        modelLabel: 'DeepSeek-V4-Flash-Vision-Exp Max',
+        permissions: {
+          options: [
+            { value: 'read-only', label: '仅可查看' },
+            { value: 'workspace-write', label: '工作区内修改' },
+            { value: 'danger-full-access', label: '完全权限' },
+          ],
+          current: 'workspace-write',
+        },
+      }),
+      interact: `document.querySelector('[data-role="perm"]')?.click()`,
+      title: '权限菜单中文选项',
+      expect: '点击权限 pill 后弹出菜单：三行选项**仅可查看 / 工作区内修改 / 完全权限**，当前项（工作区内修改）行尾 ✓ 对勾；pill 本身仍显示工作区内修改。',
+    },
+
     'workspace-picker-open': {
       // hero workspace chip 点击后弹 WorkspacePicker（对齐官方 Menu）：workspace
       // 列表 + 当前项对勾 + footer 两个添加入口。
