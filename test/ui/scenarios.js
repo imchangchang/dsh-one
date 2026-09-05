@@ -1691,6 +1691,200 @@
       expect: '两张分步截图对照——① <scenario>-modal.png：点「Archive (2)」后弹确认框（标题 Archive 2 sessions?，两组各 · 1，明细折叠，底部 Cancel/Archive），多选操作条仍在弹窗后方。② <scenario>-exited.png：点确认并收到 archiveManyDone（场景脚本模拟宿主回执，failed 空）后——确认框消失、多选操作条消失、行首复选框全部消失、行尾 ⋯ 按钮恢复；无红色断言横幅（断言内容：modal/selection-bar/复选框已移除，且 __posted 含 sessionArchiveMany 带 2 个 id）。mock 宿主不更新快照，会话行仍在列表；真实宿主会随快照让已归档会话消失。',
     },
 
+    // ================= 会话标签组（Chrome 垂直标签式单组） =================
+
+    'session-tags': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 2 },
+          { id: 'preset-doing', name: '进行中', color: 'blue', preset: true, count: 1 },
+          { id: 'preset-done', name: '已完成', color: 'green', preset: true, count: 1 },
+          { id: 't-explore', name: '探索', color: 'orange', preset: false, count: 1 },
+        ]
+        s.tagSessionIds = {
+          'preset-todo': ['sess-1', 'sess-2'],
+          'preset-doing': ['sess-4'],
+          'preset-done': ['sess-3'],
+          't-explore': ['sess-5'],
+        }
+        // 注意：快照即最终渲染输入——顺序 = buildSessionTree 聚合后的输出
+        // （组块按 tags 数组序聚合、无组殿后），单测已覆盖纯层排序。
+        s.workspaces[0].sessions = [
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-2', '修复回收站抽屉高度', '5 小时前', { tagId: 'preset-todo', unread: true }),
+          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', running: true }),
+          sess('sess-3', '会话复制引用功能', '1 天前', { tagId: 'preset-done' }),
+          sess('sess-6', '会话 A', '2 天前'),
+        ]
+        s.workspaces[1].sessions = [
+          sess('sess-5', '尝试 worktree 并行开发', '2 天前', { tagId: 't-explore' }),
+        ]
+        s.workspaces[2].sessions = []
+        s.pinned = []
+        s.unread = ['sess-2']
+        return s
+      })(),
+      title: '侧栏面板（会话标签组块：pill + 竖线 + 小缩进）',
+      expect: 'dsh-one 组内会话按组块聚合，组块顺序 = 待办（黄）→ 进行中（蓝）→ 已完成（绿）：每个组块顶部一个非常小的 pill（10px 字号、16px 高、组色圆点 + 组名，如「待办」），pill 左缘同列往下一条 2px 组色竖线贯穿整个组块（竖线从 pill 下沿起、止于组尾行底），组内会话行比未分组行左缩进约 12px；组内行状态槽照常（进行中组「探索 Chrome 式分组原型」行首像素环、待办组「修复回收站抽屉高度」未读绿点 + 标题加粗）；workspace 组头角标照常计算（环 1 + 绿点 1）；「会话 A」未分组平铺在组块之后（无缩进、无竖线）。dsh-web research 组内「尝试 worktree 并行开发」带「探索」（橙）pill 组块。组块之间无折叠箭头、无组头复选框（非多选模式）；未分组虚拟组无会话。',
+    },
+
+    'session-tags-row-menu': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 1 },
+          { id: 'preset-doing', name: '进行中', color: 'blue', preset: true, count: 0 },
+          { id: 'preset-done', name: '已完成', color: 'green', preset: true, count: 0 },
+          { id: 't-explore', name: '探索', color: 'orange', preset: false, count: 1 },
+        ]
+        s.tagSessionIds = { 'preset-todo': ['sess-1'], 't-explore': ['sess-5'] }
+        s.workspaces[0].sessions = [
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-6', '会话 A', '2 天前'),
+        ]
+        s.workspaces[1].sessions = []
+        s.workspaces[2].sessions = []
+        return s
+      })(),
+      interact: `document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()`,
+      title: '侧栏面板（会话行菜单：Move to group… 上下展开）',
+      expect: '「实现侧栏分组过滤」行的 ⋯ 菜单打开：首行会话标题；原有菜单项完整在位（Select multiple / Open in a new tab / Rename / Pin / Mark as unread）；「Move to group…」是**一个普通菜单项**（齿轮图标 + 文本 + 右端 ▸ 折叠指示），其后紧跟 Fork session / Copy reference / Move to recycle bin / Archive session——组列表平铺不再占用主菜单。',
+    },
+
+    'session-tags-row-menu-groups': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 1 },
+          { id: 'preset-doing', name: '进行中', color: 'blue', preset: true, count: 0 },
+          { id: 'preset-done', name: '已完成', color: 'green', preset: true, count: 0 },
+          { id: 't-explore', name: '探索', color: 'orange', preset: false, count: 1 },
+        ]
+        s.tagSessionIds = { 'preset-todo': ['sess-1'], 't-explore': ['sess-5'] }
+        s.workspaces[0].sessions = [
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-6', '会话 A', '2 天前'),
+        ]
+        s.workspaces[1].sessions = []
+        s.workspaces[2].sessions = []
+        return s
+      })(),
+      interact: `(() => {
+        const row = document.querySelector('.session-row[data-session-id="sess-1"]')
+        row?.querySelector('.row-action')?.click()
+        const item = [...document.querySelectorAll('.popover .menu-item')].find((i) => i.textContent.includes('Move to group'))
+        item?.click()
+      })()`,
+      title: '侧栏面板（Move to group… 上下展开 accordion）',
+      expect: '点击「Move to group…」（右端指示变 ▾）后：主菜单内、该菜单项**下方**内联展开组列表（子项左缩进一级）——待办（黄色块 + ✓ 当前组）/ 进行中（蓝块）/ 已完成（绿块）/ 探索（橙块）/ No group（空描边方块）/ New group…（+ 图标）；Fork session 及其后菜单项被**推到组列表下方**（仍完整在位）；整个菜单是上下排布的单个弹层（无独立二级弹层）。再点一次「Move to group…」组列表收起、指示回到 ▸。',
+    },
+
+    'session-tags-collapse': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 2 },
+          { id: 'preset-doing', name: '进行中', color: 'blue', preset: true, count: 1 },
+          { id: 'preset-done', name: '已完成', color: 'green', preset: true, count: 1 },
+        ]
+        s.tagSessionIds = {
+          'preset-todo': ['sess-1', 'sess-2'],
+          'preset-doing': ['sess-4'],
+          'preset-done': ['sess-3'],
+        }
+        s.tagCollapsed = ['preset-done']
+        s.workspaces[0].sessions = [
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo', pendingInteraction: 'approval' }),
+          sess('sess-2', '修复回收站抽屉高度', '5 小时前', { tagId: 'preset-todo', unread: true }),
+          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', running: true }),
+          sess('sess-3', '会话复制引用功能', '1 天前', { tagId: 'preset-done', unread: true }),
+        ]
+        s.workspaces[1].sessions = []
+        s.workspaces[2].sessions = []
+        return s
+      })(),
+      interactSteps: [
+        {
+          name: 'collapsed',
+          settle: 900,
+          script: `
+            window.__posted = []
+            const snap = window.SCENARIOS['session-tags-collapse'].sessions
+            const block = document.querySelector('.tag-group[data-tag-id="preset-todo"]')
+            block?.querySelector('.tag-toggle')?.click()
+            // 模拟宿主回推（真实链路：host 改 store → 推新快照）。
+            snap.tagCollapsed = ['preset-done', 'preset-todo']
+            window.postMessage({ type: 'sessions', snapshot: snap }, '*')
+            setTimeout(() => {
+              // 快照重建会替换组块 DOM：断言前重新查询（旧引用是 detached 节点）。
+              const block2 = document.querySelector('.tag-group[data-tag-id="preset-todo"]')
+              const ok = block2 !== null && block2.classList.contains('collapsed')
+                && block2.querySelectorAll('.session-row').length === 0
+                && (window.__posted || []).some((m) => m.type === 'sessionTagCollapse' && m.tagId === 'preset-todo' && m.collapsed === true)
+              if (!ok) {
+                const d = document.createElement('div')
+                d.textContent = 'COLLAPSE ASSERT FAILED'
+                d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+                document.body.appendChild(d)
+              }
+            }, 300)
+          `,
+        },
+        {
+          name: 'expanded',
+          settle: 900,
+          script: `
+            window.__posted = []
+            const snap = window.SCENARIOS['session-tags-collapse'].sessions
+            const block = document.querySelector('.tag-group[data-tag-id="preset-todo"]')
+            block?.querySelector('.tag-toggle')?.click()
+            snap.tagCollapsed = ['preset-done']
+            window.postMessage({ type: 'sessions', snapshot: snap }, '*')
+            setTimeout(() => {
+              const block2 = document.querySelector('.tag-group[data-tag-id="preset-todo"]')
+              const ok = block2 !== null && !block2.classList.contains('collapsed')
+                && block2.querySelectorAll('.session-row').length === 2
+                && (window.__posted || []).some((m) => m.type === 'sessionTagCollapse' && m.tagId === 'preset-todo' && m.collapsed === false)
+              if (!ok) {
+                const d = document.createElement('div')
+                d.textContent = 'EXPAND ASSERT FAILED'
+                d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+                document.body.appendChild(d)
+              }
+            }, 300)
+          `,
+        },
+      ],
+      title: '侧栏面板（标签组块折叠/展开 + 折叠态计数）',
+      expect: '三张截图对照——① 初始帧：三个组块 pill 右侧各有一个小三角（展开向下）；「已完成」组因快照 tagCollapsed=[preset-done] 预置为折叠态——只剩一行（pill + 三角朝右），且箭头右侧显示该组组内待处理计数（绿点 + 1，组内一行未读），组内会话行与竖线消失；「待办」（黄）组初始展开（行内：第一行黄点待交互、第二行未读绿点加粗）。② <scenario>-collapsed.png：点击「待办」组块箭头后——该组块只剩一行，箭头右侧显示计数「黄点+1、绿点+1」（待交互 1 + 未读 1）；无红色断言横幅（断言：post 了 sessionTagCollapse{tagId:preset-todo, collapsed:true}）。③ <scenario>-expanded.png：再点一次箭头——post sessionTagCollapse{collapsed:false}；mock 宿主不回推快照，组块保持折叠为预期行为（真实宿主随快照展开）。',
+    },
+
+    'session-tags-create': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 1 },
+        ]
+        s.tagSessionIds = { 'preset-todo': ['sess-1'] }
+        s.workspaces[0].sessions = [
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-6', '会话 A', '2 天前'),
+        ]
+        s.workspaces[1].sessions = []
+        s.workspaces[2].sessions = []
+        return s
+      })(),
+      interact: `document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()`,
+      title: '侧栏面板（行菜单新建分组：名字 + 色板弹层）',
+      expect: '行 ⋯ 菜单里「New group…」项点击后弹出小弹层（带边框圆角卡片，锚在行下方）：标题 New group、名字输入框（placeholder Group name）、一行 6 个色块（黄/蓝/绿/橙/紫/红，默认选中橙——当前无自定义组轮换到橙，选中色块有深色描边）、错误行（空）、底部 Create 按钮；输入空名点 Create 就地提示「cannot be empty」；输入与现有组显示名相同提示「already exists」。原有菜单项在弹层出现前保持完整（Select multiple 等仍应在出现弹层前的菜单里——弹层替换菜单后不叠加）。',
+    },
+
     'sessions-menu-fork-disabled': {
       view: 'sessions',
       sessions: (() => {
@@ -3189,6 +3383,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'sessions-workspace-menu-groups',
     'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',
     'sessions-selection-exit-recycle', 'sessions-selection-exit-archive',
+    'session-tags', 'session-tags-row-menu', 'session-tags-row-menu-groups', 'session-tags-collapse', 'session-tags-create',
     'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',

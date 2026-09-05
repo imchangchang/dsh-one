@@ -548,6 +548,60 @@ const SESSIONS_STYLE = `
   }
   /* 内容搜索结果超过 20 条的底部轻提示（非交互）。 */
   .sessions-search-more { padding: 6px 12px; font-size: 11px; opacity: 0.6; }
+  /* ===== 会话标签组（Chrome 垂直标签式）：小 pill + 贯穿竖线 + 小缩进 ===== */
+  .tag-group { position: relative; margin: 4px 4px 2px; }
+  /* 组头：非常小的标签 pill，左缘与竖线同列（缩进列）。 */
+  .tag-head { display: flex; align-items: center; height: 22px; padding-left: 12px; }
+  .tag-pill {
+    position: relative; display: inline-flex; align-items: center; gap: 4px;
+    height: 16px; padding: 0 7px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; line-height: 1; white-space: nowrap;
+    cursor: grab;
+  }
+  .tag-pill:active { cursor: grabbing; }
+  .tag-pill-dot { width: 6px; height: 6px; border-radius: 2px; background: var(--tc); }
+  /* 组色（预设组沿用 dsh 状态语义色：待办黄/进行中蓝/已完成绿）。 */
+  .tag-yellow { --tc: var(--vscode-charts-yellow, #e5c07b); }
+  .tag-blue   { --tc: var(--vscode-charts-blue,   #5686fe); }
+  .tag-green  { --tc: var(--vscode-charts-green,  #89d185); }
+  .tag-orange { --tc: var(--vscode-charts-orange, #d18616); }
+  .tag-purple { --tc: var(--vscode-charts-purple, #b180d7); }
+  .tag-red    { --tc: var(--vscode-charts-red,    #f14c4c); }
+  .tag-pill {
+    color: var(--tc);
+    background: color-mix(in srgb, var(--tc) 22%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tc) 45%, transparent);
+  }
+  /* 贯穿整组的竖线：从 pill 下沿到组尾（收在缩进列，不越过工作区行）。 */
+  .tag-line {
+    position: absolute; left: 12px; top: 19px; bottom: 2px; width: 2px;
+    border-radius: 1px; background: color-mix(in srgb, var(--tc) 55%, transparent);
+    pointer-events: none;
+  }
+  /* 组头折叠/展开箭头（pill 右侧）；展开向下、折叠向右（与 workspace 组头同款）。 */
+  .tag-toggle {
+    flex: none; width: 16px; height: 16px; padding: 0; margin-left: 2px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 0; border-radius: 3px;
+    color: var(--vscode-descriptionForeground, #888); cursor: pointer; opacity: .7;
+  }
+  .tag-toggle:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  .tag-toggle svg { display: block; transition: transform .15s ease; }
+  .tag-group:not(.collapsed) .tag-toggle svg { transform: rotate(90deg); }
+  /* 折叠组头角标（组内待处理计数）：靠右、小号，复用 .ws-count 的 10px 样式。 */
+  .tag-counts { margin-left: auto; padding-right: 2px; }
+  /* 折叠块：组内行与竖线隐藏，组块收成一行（pill + 箭头）。 */
+  .tag-group.collapsed .tag-line { display: none; }
+  .tag-group.collapsed { margin-bottom: 2px; }
+  /* 组内会话行：仅增加 ~12px 左缩进，其余行内元素不动。 */
+  .session-row.tagged { padding-left: 24px; }
+  /* 拖拽入组：目标组块高亮（组色淡背景，不遮盖行）。 */
+  .tag-group.drag-over { background: color-mix(in srgb, var(--tc) 14%, transparent); border-radius: 4px; }
+  /* 拖拽组排序：插入位置指示线（pill 上/下沿，box-shadow 不占布局）。 */
+  .tag-pill.drop-before { box-shadow: 0 -2px 0 0 var(--tc); }
+  .tag-pill.drop-after  { box-shadow: 0  2px 0 0 var(--tc); }
+  /* 拖拽中的会话行半透明（源行）。 */
+  .session-row.dragging { opacity: .45; }
   button {
     background: var(--vscode-button-background); color: var(--vscode-button-foreground);
     border: 0; border-radius: 4px; padding: 4px 12px; cursor: pointer;
@@ -586,6 +640,18 @@ const SESSIONS_STYLE = `
   .menu-item .menu-item-icon svg { width: 14px; height: 14px; display: block; }
   /* 选中态的 check 放菜单项尾部（dsh web 模式），仅 checked 时渲染。 */
   .menu-item .check { margin-left: auto; flex: none; }
+  /* 标签组颜色小方块（菜单项/组头共用图标位）。 */
+  .tag-swatch { width: 10px; height: 10px; border-radius: 3px; display: block; }
+  /* 「Move to group…」accordion 的组列表：内嵌菜单、子项缩进一级。 */
+  .tag-submenu .menu-item { padding-left: 24px; }
+  /* 新建标签组弹层的色板：6 色一排，选中描边 + 对勾。 */
+  .tag-create-colors { display: flex; align-items: center; gap: 6px; padding: 4px 2px; }
+  .tag-color-swatch {
+    position: relative; width: 20px; height: 20px; padding: 0; border: 0;
+    border-radius: 6px; cursor: pointer; box-sizing: border-box;
+  }
+  .tag-color-swatch:hover { outline: 1px solid var(--vscode-focusBorder, #5686fe); outline-offset: 1px; }
+  .tag-color-swatch.selected { outline: 2px solid var(--vscode-foreground, #cccccc); outline-offset: 1px; }
   .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
@@ -895,6 +961,61 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
         this.store.reorderGroups(ids)
         return
       }
+      /* ---- 会话标签组（纯客户端状态，store 持久化到 globalState） ---- */
+      case 'sessionTagSet':
+        // webview 已校验（只提交存在的组 id / null）；store 兜底拒绝未知 id。
+        if (typeof m.sessionId === 'string') this.store.setSessionTag(m.sessionId, m.tagId ?? null)
+        return
+      case 'sessionTagSetMany': {
+        const ids = Array.isArray(m.sessionIds)
+          ? m.sessionIds.filter((x): x is string => typeof x === 'string')
+          : []
+        // 整组「移出分组」等批量操作失败面为零（本地状态），无回执。
+        if (ids.length > 0) this.store.setSessionTagMany(ids, m.tagId ?? null)
+        return
+      }
+      case 'sessionTagCreate':
+        // webview 弹层已校验（空名/重名/颜色枚举），store 兜底拒绝。
+        if (typeof m.name === 'string') this.store.createTag(m.name, m.color)
+        return
+      case 'sessionTagSetColor':
+        this.store.setTagColor(m.tagId, m.color)
+        return
+      case 'sessionTagRenamePrompt':
+        // 所有组均可重命名（预设改后覆盖 l10n 默认名）；store 兜底拒绝未知 id。
+        if (typeof m.name === 'string') {
+          void (async () => {
+            const name = await vscode.window.showInputBox({
+              prompt: vscode.l10n.t('Rename group'),
+              value: m.name,
+              validateInput: (v) => this.store.tagNameErrorFor(v),
+            })
+            if (typeof name === 'string' && name.trim() !== '') this.store.renameTag(m.tagId, name)
+          })()
+        }
+        return
+      case 'sessionTagDelete':
+        void (async () => {
+          const tag = this.store.tagById(m.tagId)
+          if (!tag || tag.preset) return
+          const confirm = await vscode.window.showWarningMessage(
+            vscode.l10n.t('Delete group "{0}"? Tagged sessions go back to Ungrouped', tag.name),
+            { modal: true },
+            vscode.l10n.t('Delete'),
+          )
+          if (confirm) this.store.deleteTag(tag.id)
+        })()
+        return
+      case 'sessionTagReorder': {
+        const ids = Array.isArray(m.tagIds)
+          ? m.tagIds.filter((x): x is string => typeof x === 'string')
+          : []
+        this.store.reorderSessionTags(ids)
+        return
+      }
+      case 'sessionTagCollapse':
+        this.store.setTagCollapsed(m.tagId, m.collapsed)
+        return
       case 'serverStart':
         void this.manager.ensureStarted()
         return

@@ -65,6 +65,12 @@ export interface SessionNodeModel {
   /** Client-side pin (dsh has no pin API); pinned sessions carry absolute priority. */
   pinned: boolean
   /**
+   * 会话标签组 id（Chrome 垂直标签式单组）：workspace 内非置顶会话按组聚合
+   * 显示（组块顺序 = view.tags 的顺序），组内再按既有排序键；无组会话殿后。
+   * 置顶会话保持「绝对优先」平铺在会话区最前，不参与组块（现有语义）。
+   */
+  tagId?: string
+  /**
    * Whether the session has at least one completed turn (sessionStats
    * projection). The list fork action gates on this: a session with no
    * completed turn has no `turn/end` boundary, so the server rejects a fork.
@@ -149,6 +155,17 @@ export interface SessionTreeViewOptions {
    * workspace 已软删的会话同现有 orphan 逻辑——自动归「未分组」。
    */
   onlySessionIds?: ReadonlySet<string>
+  /**
+   * 会话标签组显示顺序（组 id 数组，第一 = 最上）。workspace 内非置顶会话
+   * 按组聚合（组块按此顺序），组内沿用 view.sort；没有组的会话殿后。缺省
+   * 不聚合（全部按既有规则平铺，兼容旧调用方与未打组状态）。
+   */
+  tags?: readonly string[]
+  /**
+   * 会话 → 标签组 id（单组映射）。会话属于某组时 SessionNodeModel 带上
+   * tagId（供渲染层按组切块）；未知组 id 降级为未分组。缺省无映射。
+   */
+  sessionTagFor?: (sessionId: string) => string | undefined
 }
 
 const MINUTE_MS = 60_000
@@ -239,9 +256,19 @@ export function buildSessionTree(
     if (!pinnedIndex.has(id)) pinnedIndex.set(id, i)
   })
 
+  // 标签组聚合索引：组 id → 块顺序（view.tags 数组序，第一 = 最上）；无组
+  // /未知组 id = Infinity（殿后）。tagFor 缺省视为无映射（不聚合）。
+  const tagIndex = new Map<string, number>()
+  view.tags?.forEach((id, i) => {
+    if (!tagIndex.has(id)) tagIndex.set(id, i)
+  })
+  const tagFor = view.sessionTagFor ?? ((): string | undefined => undefined)
+  const tagRankOf = (tagId: string | undefined): number => (tagId === undefined ? Infinity : (tagIndex.get(tagId) ?? Infinity))
+
   // 会话行流水线：label 解析（query 匹配和 title 排序都要用，先算一次）→
-  // 查询过滤（标题/ID 命中 或 内容命中）→ 置顶绝对优先（组内按置顶顺序）+
-  // 非置顶成员按 view.sort。workspace 组与「未分组」组共用。
+  // 查询过滤（标题/ID 命中 或 内容命中）→ 置顶绝对优先（组内按置顶顺序）→
+  // 非置顶成员：先按标签组聚合（组块顺序），组内再按 view.sort；无组殿后。
+  // workspace 组与「未分组」组共用。
   const toSessionNodes = (list: SessionInput[]): SessionNodeModel[] =>
     list
       .map((s) => ({ session: s, label: titleOf(s) ?? t('Session {0}', s.sessionId.slice(0, 8)) }))
@@ -256,9 +283,14 @@ export function buildSessionTree(
         const aPinned = pinnedIndex.has(a.session.sessionId)
         const bPinned = pinnedIndex.has(b.session.sessionId)
         if (aPinned !== bPinned) return aPinned ? -1 : 1
-        // 置顶组内按置顶顺序固定；非置顶成员照常按 sort 键比较。
+        // 置顶组内按置顶顺序固定；非置顶成员先按标签组聚合再按 sort 键比较。
         if (aPinned) {
           return (pinnedIndex.get(a.session.sessionId) ?? 0) - (pinnedIndex.get(b.session.sessionId) ?? 0)
+        }
+        if (tagIndex.size > 0) {
+          const aRank = tagRankOf(tagFor(a.session.sessionId))
+          const bRank = tagRankOf(tagFor(b.session.sessionId))
+          if (aRank !== bRank) return aRank - bRank
         }
         if (sort === 'updatedAsc') return a.session.updatedAt - b.session.updatedAt
         if (sort === 'title') return a.label.localeCompare(b.label)
@@ -267,6 +299,9 @@ export function buildSessionTree(
       .map(({ session, label }) => {
         const pendingInteraction = view.pendingInteractions?.get(session.sessionId)
         const snippet = view.contentHits?.get(session.sessionId)
+        // 未知组 id 降级为未分组：store 清洗后正常不会出现，防御旧残留。
+        const rawTagId = tagFor(session.sessionId)
+        const tagId = rawTagId !== undefined && tagIndex.has(rawTagId) ? rawTagId : undefined
         return {
           sessionId: session.sessionId,
           label,
@@ -276,6 +311,7 @@ export function buildSessionTree(
           hasCompletedTurn: (session.sessionStatsTurns ?? 0) > 0,
           unread: view.unread?.has(session.sessionId) === true,
           descendantRunning: hasRunningDescendant(session.sessionId),
+          ...(tagId !== undefined ? { tagId } : {}),
           ...(pendingInteraction !== undefined ? { pendingInteraction } : {}),
           ...(snippet !== undefined ? { contentSnippet: snippet } : {}),
         }

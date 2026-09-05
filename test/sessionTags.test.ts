@@ -1,0 +1,140 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  isPresetTag,
+  nextCustomColor,
+  PRESET_TAGS,
+  PRESET_TAG_IDS,
+  removeTagFromAll,
+  reorderTags,
+  sanitizeSessionTagIds,
+  sanitizeTags,
+  setSessionTagId,
+  tagDisplayName,
+  tagNameError,
+  type SessionTagDef,
+} from '../src/pure/sessionTags.ts'
+
+const en = (k: string): string => k
+
+const custom = (id: string, name: string, color: SessionTagDef['color'] = 'orange'): SessionTagDef => ({
+  id,
+  name,
+  color,
+})
+
+test('sanitizeTags seeds the three presets when raw is missing', () => {
+  assert.deepEqual(
+    sanitizeTags(undefined).map((t) => t.id),
+    [...PRESET_TAG_IDS],
+  )
+  assert.deepEqual(
+    sanitizeTags(null).map((t) => t.id),
+    [...PRESET_TAG_IDS],
+  )
+  // 预设组名都是 null（走 l10n），颜色为状态语义色。
+  assert.deepEqual(
+    sanitizeTags(undefined).map((t) => [t.id, t.name, t.color]),
+    [
+      ['preset-todo', null, 'yellow'],
+      ['preset-doing', null, 'blue'],
+      ['preset-done', null, 'green'],
+    ],
+  )
+})
+
+test('sanitizeTags keeps user order, appends missing presets, drops bad entries', () => {
+  const raw = [
+    { id: 't-1', name: ' 探索 ', color: 'orange' },
+    { id: 'preset-done', name: null, color: 'green' },
+    { id: '', name: 'x', color: 'orange' }, // 空 id 丢弃
+    { id: 't-2', name: '  ', color: 'orange' }, // 空名丢弃
+    { id: 't-3', name: 'x', color: 'nope' }, // 非法色回退 orange
+    { id: 't-1', name: '重复', color: 'purple' }, // 重复 id 丢弃
+    'garbage', // 非对象丢弃
+  ]
+  const tags = sanitizeTags(raw)
+  assert.deepEqual(
+    tags.map((t) => [t.id, t.name, t.color]),
+    [
+      ['t-1', '探索', 'orange'],
+      ['preset-done', null, 'green'],
+      ['t-3', 'x', 'orange'],
+      ['preset-todo', null, 'yellow'],
+      ['preset-doing', null, 'blue'],
+    ],
+  )
+})
+
+test('tagDisplayName: preset names come from l10n, custom names pass through', () => {
+  assert.equal(tagDisplayName(PRESET_TAGS[0], en), 'Todo')
+  assert.equal(tagDisplayName(custom('t-1', '探索'), en), '探索')
+})
+
+test('isPresetTag / nextCustomColor', () => {
+  assert.equal(isPresetTag(PRESET_TAGS[0]), true)
+  assert.equal(isPresetTag(custom('t-1', 'x')), false)
+  const tags = sanitizeTags(undefined)
+  assert.equal(nextCustomColor(tags), 'orange')
+  // 三个自定义组后回到橙（palette 轮换：orange → purple → red → orange…）。
+  assert.equal(nextCustomColor([...tags, custom('t-1', 'a'), custom('t-2', 'b'), custom('t-3', 'c')]), 'orange')
+  assert.equal(nextCustomColor([...tags, custom('t-1', 'a'), custom('t-2', 'b')]), 'red')
+})
+
+test('sanitizeSessionTagIds keeps known ids only and drops empty keys', () => {
+  const ids = new Set(['preset-todo', 't-1'])
+  assert.deepEqual(
+    sanitizeSessionTagIds(
+      { s1: 'preset-todo', s2: 't-1', s3: 't-gone', '': 'preset-todo', s4: 42 },
+      ids,
+    ),
+    { s1: 'preset-todo', s2: 't-1' },
+  )
+  assert.deepEqual(sanitizeSessionTagIds('nope', ids), {})
+})
+
+test('setSessionTagId is a single-membership assignment; null clears the key', () => {
+  const known = new Set(['todo', 't-1'])
+  const m = { s1: 'todo' }
+  // 同值幂等：返回 null。
+  assert.equal(setSessionTagId(m, 's1', 'todo', known), null)
+  // 换组：s1 → t-1；s2 入组。
+  const next = setSessionTagId(m, 's1', 't-1', known)!
+  assert.deepEqual(next, { s1: 't-1' })
+  const next2 = setSessionTagId(next, 's2', 'todo', known)!
+  assert.deepEqual(next2, { s1: 't-1', s2: 'todo' })
+  // 移出组（null）：键删除；未知组 id 拒绝。
+  assert.deepEqual(setSessionTagId(next2, 's2', null, known), { s1: 't-1' })
+  assert.equal(setSessionTagId(m, 's1', 't-gone', known), null)
+})
+
+test('removeTagFromAll clears every reference to a tag', () => {
+  const m = { s1: 'todo', s2: 't-1', s3: 'todo' }
+  const next = removeTagFromAll(m, 'todo')
+  assert.deepEqual(next, { s2: 't-1' })
+  // 无变化时返回原引用（调用方跳过持久化/通知）。
+  assert.equal(removeTagFromAll(next, 'todo'), next)
+})
+
+test('reorderTags validates full-id submissions and no-ops', () => {
+  const tags = sanitizeTags(undefined)
+  const ids = ['preset-doing', 'preset-todo', 'preset-done']
+  assert.deepEqual(reorderTags(tags, ids)!.map((t) => t.id), ids)
+  // 缺 id / 未知 id / 空提交 → null。
+  assert.equal(reorderTags(tags, ['preset-todo']), null)
+  assert.equal(reorderTags(tags, [...ids, 't-x']), null)
+  assert.equal(reorderTags(tags, []), null)
+  // 顺序一致 → null。
+  assert.equal(reorderTags(tags, [...PRESET_TAG_IDS]), null)
+})
+
+test('tagNameError checks non-empty unique names against custom tags only', () => {
+  const tags = sanitizeTags(undefined).concat(custom('t-1', '探索'))
+  assert.equal(tagNameError('', tags), 'empty')
+  assert.equal(tagNameError('   ', tags), 'empty')
+  assert.equal(tagNameError('探索', tags), 'duplicate')
+  // 预设组名（Todo/Doing/Done）不与自定义组比较重名。
+  assert.equal(tagNameError('Todo', tags), null)
+  // excludeId 排除自身（重命名不改名）。
+  assert.equal(tagNameError('探索', tags, 't-1'), null)
+})

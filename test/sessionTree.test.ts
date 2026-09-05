@@ -742,3 +742,102 @@ test('excludedSessionIds takes priority over onlySessionIds', () => {
   // a 被排除后不会被 only 拉回；b 只在 only 集合里。
   assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b'])
 })
+
+/* ---- 会话标签组聚合（Chrome 垂直标签式单组） ---- */
+
+test('sessions aggregate into tag blocks in tag order, untagged last', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c', 'd', 'e'])],
+    [
+      s('a', { updatedAt: NOW - 1000 }),
+      s('b', { updatedAt: NOW - 2000 }),
+      s('c', { updatedAt: NOW - 3000 }),
+      s('d', { updatedAt: NOW - 4000 }),
+      s('e', { updatedAt: NOW - 5000 }),
+    ],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    {
+      tags: ['preset-doing', 'preset-todo'],
+      sessionTagFor: (id) => ({ a: 'preset-doing', b: 'preset-todo', d: 'preset-doing' })[id],
+    },
+  )
+  // 组块按 tags 数组序（doing 在前、todo 在后），组内按 updatedDesc；
+  // 无组会话（c、e）殿后且仍按时间序（较新的 c 在前）。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'd', 'b', 'c', 'e'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.tagId), [
+    'preset-doing',
+    'preset-doing',
+    'preset-todo',
+    undefined,
+    undefined,
+  ])
+})
+
+test('tag blocks keep per-group sort (title sort applies inside blocks)', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c'])],
+    [s('a', { title: 'zebra' }), s('b', { title: 'apple' }), s('c', { title: 'mango' })],
+    new Set(),
+    (x) => x.title ?? null,
+    undefined,
+    NOW,
+    {
+      sort: 'title',
+      tags: ['t-1', 'preset-todo'],
+      sessionTagFor: (id) => (id === 'c' ? 'preset-todo' : id === 'a' ? 't-1' : undefined),
+    },
+  )
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'c', 'b'])
+})
+
+test('unknown tag ids degrade to untagged', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b'])],
+    [s('a'), s('b')],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { tags: ['preset-todo'], sessionTagFor: () => 't-gone' },
+  )
+  // 两个会话都映射到未知组：降级为未分组，按时间序平铺、tagId 不携带。
+  assert.deepEqual(tree[0].sessions.map((n) => n.tagId), [undefined, undefined])
+})
+
+test('pinned sessions stay at the front and skip tag aggregation', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c'])],
+    [s('a', { updatedAt: NOW - 1000 }), s('b', { updatedAt: NOW - 2000 }), s('c', { updatedAt: NOW - 3000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    {
+      pinned: ['b'],
+      tags: ['preset-todo', 'preset-doing'],
+      sessionTagFor: (id) => (id === 'b' ? 'preset-doing' : id === 'a' ? 'preset-todo' : undefined),
+    },
+  )
+  // b 置顶平铺在最前（即便属于 doing 组，也不被组块收编）；a（todo）在后，
+  // c 无组殿后。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b', 'a', 'c'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.tagId), ['preset-doing', 'preset-todo', undefined])
+})
+
+test('no tags option keeps the legacy flat ordering', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b'])],
+    [s('a', { updatedAt: NOW - 1000 }), s('b', { updatedAt: NOW - 2000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { sessionTagFor: () => 'preset-todo' },
+  )
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'b'])
+  // 没有 tags 顺序时聚合不生效（tagId 仍未知，降级不携带）。
+  assert.deepEqual(tree[0].sessions.map((n) => n.tagId), [undefined, undefined])
+})
