@@ -60,6 +60,13 @@ scripts/ui-visual.sh --mode baseline # 只跑 BASELINE_SCENARIOS（主线合入�
 
 不依赖像素 diff（图与图对照在不同机器/渲染下脆弱）。如果截图和期望对不上 → 说明逻辑或排版有 bug，报 `expect` 不符并说明差在哪。
 
+**改动容器级/通配 CSS 时，上面四条不够**（a0c0d17 用 `.messages > *` 一刀切把 jump-latest 撑通栏、compaction/workflow 卡错位却过验的教训）：
+
+5. **验收范围按爆炸半径定，不按「我改了哪」定**：改动命中容器级/通配/变量级规则（`.messages > *`、`:root` 变量、公共类）时，验收必须 `mode=all` 全量截图 + **逐张**核对，禁止只截自证场景。判断不了爆炸半径就按全量算。
+6. **隐藏态/交互态必须强制可见后进场景**：只在特定交互才出现的元素（jump-latest、hover 弹层、滚动态）默认不在任何截图里，它的回归完全不可见——为它们建 interactSteps 场景置出可见态（触发链走不通时脚本直接置显，expect 注明触发逻辑归单测管）。
+7. **expect 要写版式断言，不只写内容**：「X 与消息列同列对齐/左右缘对齐关系」这类位置断言进 expect；只写「有什么」的 expect 拦不住错位。
+8. **布局类改动附 before/after 像素 diff 分类清单**（scripts/ui-visual-diff.sh）：像素 diff 只做「哪些场景变了」的分诊，判定仍靠语义核对——改动号称只影响 X 但 diff 清单冒出 Y，就是漏网信号。
+
 ## 手动看单个场景
 
 ```bash
