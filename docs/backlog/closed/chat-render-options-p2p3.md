@@ -47,3 +47,4 @@
   F-02 字号 17px 真设置注入、F-03 无计划不显示、R-01 工具回显/usage 药丸回归）；报告
   test/sandbox/verify.chat-stage4-p2p3.report.html。注：mock-llm 在 0.1.2 通路下 usage 上报未计入药丸
   （0 值，非零聚合形态由 harness turn-usage 场景覆盖）；真模型输出/真桌面 VS Code 不在本报告范围。
+- 2026-09-05 主线合入后人工确认（阶段 4 验收通过）→ closed；chat 面板改造全部阶段收口
