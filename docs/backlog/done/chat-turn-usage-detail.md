@@ -25,3 +25,6 @@
 - 2026-09-05 从 dsh-0.1.2-interaction-gaps 拆分（P1 项）→ open
 
 - 2026-09-05 认领（open → doing）：阶段 3-P1 token 用量明细开发 session 认领，worktree slug chat-stage3-p1
+
+- 2026-09-05 开发完成（doing → done，worktree agent/chat-stage3-p1 HEAD ebe4125）：实现官方 turn-usage 语义的用量折叠（src/pure/turnUsage.ts 增量状态机：attempt 生命周期、计数安全、总量自洽、缺边界整项缺省），ConversationFolder 按 turn/start 在窗口门控建 fold、turn/end 挂到 turnEnd 消息；webview 操作栏加「Usage N tokens」药丸 + 锚定明细弹窗（provider/model、缓存命中
+- 2026-09-05 开发完成（doing → done，worktree agent/chat-stage3-p1 HEAD ebe4125）：实现官方 turn-usage 语义的用量折叠（src/pure/turnUsage.ts 增量状态机：attempt 生命周期、计数安全、总量自洽、缺边界整项缺省），ConversationFolder 按 turn/start 在窗口门控建 fold、turn/end 挂到 turnEnd 消息；webview 操作栏加「Usage N tokens」药丸 + 锚定明细弹窗（provider/model、缓存命中率、未缓存输入/缓存读取/缓存写入/输出/其中推理）。自测：typecheck + 495 单测（新增 15）+ build 全绿；harness 场景 turn-usage-detail / turn-usage-no-buckets；沙盒（mock-llm + 真 dsh 0.1.2-rc.1 + 真扩展 vsix）端到端：药丸出现、弹窗字段与缺省行正确（mock 适配器上报 usage 全 0，链路验证不受影响）。报告 test/sandbox/verify.chat-stage3-p1.report.html。
