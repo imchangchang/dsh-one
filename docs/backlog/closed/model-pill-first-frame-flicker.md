@@ -40,3 +40,4 @@
 - 2026-09-06 记录（用户反馈，根因已定位）→ open
 - 2026-09-06 认领 → doing（本轮修复：对齐官方投影取数时机 + 目录缓存 + 兜底文案）
 - 2026-09-06 开发完成，自测通过（typecheck + 588 tests + build 全绿；真机 0.1.2 探针 + harness 42 场景 + 沙盒 0.1.1 legacy 回归，验收报告 test/sandbox/verify.model-pill-first-frame-flicker.report.html）→ done
+- 2026-09-06 主线合入（merge 21412fa 之前：dc4d2d0 \`merge(agent): 合入 model-pill-first-frame-flicker\`），合入后复测 typecheck + 588 tests + build 全绿 → closed
