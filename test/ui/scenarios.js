@@ -93,7 +93,7 @@
     canSend: true,
     modelLabel: 'DeepSeek-V4-Flash High',
     presetLabel: '标准模式',
-    statsLine: '2 条消息 · 45s',
+    statsLine: '2 轮 · 16 步 | LLM 48.3秒 · 工具调用 26.9秒 | 首 token 平均 0.8秒 · 33 tok/s | 缓存命中 99% | 输入 33M tok · 输出 99.3K tok',
     ...over,
   })
 
@@ -113,6 +113,29 @@
       }),
       title: '正常对话',
       expect: '会话面板列出会话；主区显示用户消息（右侧）+ 助手回复，含 markdown 加粗、一条折叠工具卡（Ran a command bash / npm test）、「复制/反馈/分叉」操作栏；底部 composer + 模型 pill + 会话统计。',
+    },
+
+    'chat-stats-line': {
+      // 会话统计行：官方 StatsLine 全字段（counts/durations/speeds/缓存命中/token 组，
+      // 组间「 | 」分隔）由宿主格式化成字符串渲染，webview 原样逐字显示；文本超宽
+      // 时省略号截断（input-stats CSS：11px、opacity .65、ellipsis），不换行不撑破。
+      state: base({
+        statsLine:
+          '4 轮 · 197 步 | LLM 16分38秒 · 工具调用 3分48秒 | 首 token 平均 1秒 · 124 tok/s | 缓存命中 99% | 输入 33M tok · 输出 99.3K tok',
+        contextUsage: { percent: 96, usedTokens: 245_000, contextWindow: 256_000, turns: 3 },
+      }),
+      title: '会话统计行：官方全字段（轮数/步数/LLM/工具/首 token/tok/s/缓存命中/输入输出）',
+      expect:
+        '输入框下方一行统计：左侧小字号灰字（11px/半透明）逐字显示「4 轮 · 197 步 | LLM 16分38秒 · 工具调用 3分48秒 | 首 token 平均 1秒 · 124 tok/s | 缓存命中 99% | 输入 33M tok · 输出 99.3K tok」，组与组以「 | 」分隔、组内以「 · 」分隔，字段与官方 StatsLine 对齐；右侧同一行是 context 占用环；文本超出面板宽度时省略号截断（单行不换行）。',
+    },
+
+    'chat-stats-line-empty': {
+      // 投影缺失/无已闭步骤时 statsLine 为 undefined：统计行不渲染（context 环
+      // 也未就绪时整行隐藏——0.1.1 服务器无 sessionStats 投影即此路径）。
+      state: base({ statsLine: undefined }),
+      title: '会话统计行缺省：无投影时整行不显示',
+      expect:
+        '输入框下方没有统计行（composer 底部只有权限/模型等 pill 行）；context 占用环同样不出现（contextUsage 未就绪）。',
     },
 
     'file-ref-bubble': {
