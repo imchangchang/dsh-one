@@ -35,7 +35,8 @@
       "expect": "composer 输入 /g → slash 补全弹窗出现，首项 /goal（右列 Set or view the long-task goal）；继续输入 /goa 弹窗仍命中 /goal。",
       "result": "pass",
       "screenshots": [
-        "/tmp/dsh-sandbox-shots-slash-goal-command/F-02-popup.png"
+        "/tmp/dsh-sandbox-shots-slash-goal-command/F-02-popup-g.png",
+        "/tmp/dsh-sandbox-shots-slash-goal-command/F-02-popup-goa.png"
       ],
       "notes": "探针（/tmp/slash-goal-popup-probe.mjs）输入 /g 与 /goa 均命中补全弹窗首项 /goal（右列 Set or view the long-task goal），弹窗文本断言 popup contains /goal: true；两张截图 F-02-popup-g/F-02-popup-goa。"
     },
