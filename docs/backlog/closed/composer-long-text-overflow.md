@@ -47,3 +47,5 @@ harness：`test/ui/harness.html?scenario=empty` → `#input` 填入超长文本�
 - 2026-09-05 认领（worktree: agent/composer-long-text-overflow）→ doing
 
 - 2026-09-05 开发完成，自测通过（569 测试 + harness 全场景 142 个 + 沙盒真 webview 三态截图）→ done
+
+- 2026-09-05 主线合入（merge 0259a16）测试通过（569 测试 + 基线冒烟 45 场景），人工确认 → closed
