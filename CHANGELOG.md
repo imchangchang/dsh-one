@@ -12,6 +12,8 @@
 
 - 沙盒验收驱动防挂死（verify-driver-hang-investigation）：根因是 Playwright 已知缺陷（对「挂起导航、无执行上下文」的 iframe 调 `evaluate()`/`locator.count()` 永不返回，try/catch 与 `{timeout}` 选项均无效）。修复：帧扫描循环跳过空 URL 帧；所有无超时调用点接 `bounded()` 竞速看门狗（默认 10s，转该项 fail + 帧快照诊断）；每项 5min 硬上限兜底（转储 `page.frames()` 各帧 URL）；首项前冒烟预热 + 单项目 fail 自动重试一轮。
 
+- 状态栏 tooltip 显示 dsh 版本（statusbar-dsh-version-tooltip）：running 态标题下加 `dsh v{version}`——版本来自定位 dsh 时执行的 `--version`，经共享记录持久化（reload/多窗口收养后仍知道）。
+
 - 状态栏 tooltip：adopted / external 实例也显示 dsh 版本（statusbar-adopted-version）：旧实现一刀切不显示（怕误导）——现在 shared 记录优先（spawn 时已存 version，另一窗口 adopt 直接展示）；无记录时从实例命令行解析真实入口（`@deepseek-ai/dsh/lib/bin.js` / 官方 `dist/dsh.js` / npm 全局 shim / Windows `dsh.cmd` 等形态）执行 `--version` 探询，不依赖扩展 PATH（多安装不误导）；探测失败才缺省不显示。
 
 - 另一窗口 spawn 的实例（adopted）提供确认式停止/重启（adopted-manageable）：此前 adopted 只有复用入口（kill 权归 owner 窗口），单用户多窗口（主窗口 + isolated dev 窗口）场景下第二窗口无法调度实例——现 tooltip 与外部实例同款提供「停止/重启外部实例」入口，确认弹窗文案统一覆盖「终端或另一窗口启动」两种来源；停止仍走 pid→命令行 dsh 特征→单 pid SIGTERM 安全校验。
@@ -22,7 +24,7 @@
 
 - i18n 合入门禁误报（check-i18n.sh）：`return /regex/` 前是字母（如 `n`）不在操作符表里被当除法解析，状态机错位后其后的中文注释剥离失败、被误判漏翻——补关键字回溯识别（`return|typeof|case|…` 后紧跟 `/` 视为正则），不弱化硬编码中文检查。
 
-- Windows 自愈（recover-token-from-log / recover-token-no-record）：无 token 记录（记录缺失或被清）时从日志恢复 token ——扩展 spawn 的 dsh 冷启动慢（Windows 60s+），用户在 waitReady 完成前 reload/关闭窗口 → token 补写没执行、记录停在无 token 版，且记录会被防护清掉 → 下次启动身份无法确认、进防护死循环（实例活着却连不上）。现在「有记录无 token」与「无记录 + 认证实例」两条路径都会从 dsh-web.log 重解析就绪行 token 换票，成功即补写记录 re-own 自愈；换票失败/无就绪行才落空走原清记录+防护（不退化）。扩展 spawn 的 dsh 冷启动慢（Windows 60s+），用户在 waitReady 完成前 reload/关闭窗口 → token 补写没执行、记录停在无 token 版 → 下次启动身份无法确认、进防护死循环（实例活着却连不上）。现在无 token 记录 + 端口 authDsh 时从日志文件重解析就绪行 token 换票，成功即补写记录 re-own/adopt 自愈；失败落空走原清记录+防护（不退化）。
+- Windows 自愈（recover-token-from-log / recover-token-no-record）：扩展 spawn 的 dsh 冷启动慢（Windows 60s+），用户在 waitReady 完成前 reload/关闭窗口 → token 补写没执行、记录停在无 token 版（且会被防护流程清掉）→ 下次启动身份无法确认、进防护死循环（实例活着却连不上）。现在「有记录无 token」与「无记录 + 认证实例」两条路径都会从 dsh-web.log 重解析就绪行 token 换票，成功即补写记录 re-own 自愈；换票失败/无就绪行才落空走原清记录+防护（不退化）。
 
 ### Changed
 
