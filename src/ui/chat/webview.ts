@@ -498,8 +498,9 @@ document.addEventListener(
     const row = target.closest('.msg.user, .msg.assistant') as HTMLElement | null
     const key = row?.dataset.msgKey
     if (!key) return
-    // renderMessage 的 key 是 `m${下标}`，正好是 state.messages 的索引。
-    const m = state?.messages?.[Number(key.slice(1))]
+    // renderMessage 的 key 是消息 id（增量更新起不再用 `m${下标}` 位置键，
+    // loadEarlier 补页后位置键会指向别的消息）。
+    const m = state?.messages.find((mm) => mm.id === key)
     if (!m || (m.kind !== 'user' && m.kind !== 'assistant')) return
     e.preventDefault()
     e.stopPropagation()
@@ -623,8 +624,9 @@ function presetIconSvg(): SVGSVGElement {
 }
 
 /**
- * 无限周期 CSS 动画的「相位续播」：render() 随快照全量重建消息区 DOM，新建元素
- * 会让 animation 从 0 重新开始——流式期间快照 ~100ms 一帧，转圈/闪烁动画每帧被
+ * 无限周期 CSS 动画的「相位续播」：流水线的重建（消息区增量更新只重建变化行，
+ * 其余区域按 keep 保活）会新建元素，新建节点会让 animation 从 0 重新开始——
+ * 流式期间快照 ~100ms 一帧，转圈/闪烁动画每帧被
  * 打回起点，视觉上就是疯狂刷新。给新建元素补一个负 animation-delay（= 当前时刻
  * 在周期里的相位），新元素从旧元素的相位继续，观感即连续（周期 animation 相位
  * 对齐等价于节点保活，且能覆盖元素被重建的任意场景）。
@@ -748,7 +750,8 @@ function decorateSessionMentions(container: HTMLElement): void {
 const COMMIT_SHA_RE = /(?<![0-9a-fA-F])([0-9a-fA-F]{7,40})(?![0-9a-fA-F])/g
 
 /**
- * 查询结果缓存（sha → info）。流式每帧全量重建 DOM，不缓存会在每帧重复查询同一批
+ * 查询结果缓存（sha → info）。消息区增量更新下未变行不重渲染，但流式中
+ * 变化的行会被重建，不缓存仍会在每帧重复查询同一批
  * hash；in-flight 去重靠 commitInfoInflight，避免并发重复请求（决策 2 先查后亮）。
  */
 const commitInfoCache = new Map<string, CommitInfoResult>()
@@ -2564,13 +2567,11 @@ function buildHeaderSessionMenu(header: HTMLElement): HTMLElement {
 }
 
 function render(): void {
-  // The turn-status clock interval is owned by the row it updates; the rebuild
-  // below discards that row, so drop the timer first and re-arm it later if
-  // the turn is still open. Never leave an interval pointing at detached DOM.
-  clearTurnStatusTimer()
-  // 重试行倒计时计时器同样按行持有：重建会把行丢掉，先统一清掉。
-  clearRetryTimers()
-  // <details> 展开状态按会话隔离：换会话时清空（key 是位置序号，跨会话无意义）。
+  // 行级定时器（turn-status clock / 重试行倒计时）归各自行所有：增量更新下
+  // 未变行整体保活，定时器继续走；行被替换/移除时由 flow dispose 清理
+  // （clearTurnStatusTimer / clearRetryTimersFor），不再在 render 头全局清。
+  // <details> 展开状态按会话隔离：换会话时清空（key 是消息 id，跨 loadEarlier
+  // 补页稳定但跨会话无意义，换会话仍要防泄漏）。
   // workflow 卡片状态同样按会话隔离（runId 全局唯一但换会话仍清空，防泄漏）。
   const detailsSid = state?.sessionId ?? null
   if (detailsSid !== detailsSession) {
@@ -3077,47 +3078,19 @@ function render(): void {
   // 混在一个队列区里时，先插话再排队的快照顺序会让两条消息看起来颠倒。
   const steeringItems = (state.queue ?? []).filter((item) => item.placement === 'steering')
   const queuedItems = (state.queue ?? []).filter((item) => item.placement === 'queued')
-  messages.textContent = ''
-  // 「加载更早」入口（对齐官方 dsh web ChatView 的分页按钮）：还有更早历史
-  // 或一页正在加载时显示在消息流顶部。
-  if (state.hasEarlierHistory || state.loadingEarlier === true) {
-    const olderWrap = el('div', 'older')
-    const btn = buttonEl(undefined, state.loadingEarlier === true ? t('Loading…') : t('Load earlier'))
-    btn.disabled = state.loadingEarlier === true
-    btn.addEventListener('click', maybeLoadEarlier)
-    olderWrap.appendChild(btn)
-    messages.appendChild(olderWrap)
-  }
-  appendMessageFlow(messages, state)
-  // 正文 commit hash 的「先查后亮」：把本次 render 发现的新 hash 批量上报宿主查询。
-  flushCommitInfoRequests()
-  for (const notice of commandNotices) messages.appendChild(el('div', 'command-notice', notice))
-  if (state.messages.length === 0 && steeringItems.length === 0) {
-    messages.appendChild(el('div', 'muted-hint', t('No messages yet — start typing below.')))
-  }
-  // Turn-status row: last item of the conversation flow while a turn is open
-  // (official-client parity), gone the moment the turn ends.
-  if (state.running) {
-    messages.appendChild(renderTurnStatus())
-  } else {
+  // 消息流增量更新（不再 textContent='' 全量重建）：按消息 id / workflow runId
+  // 对账，未变行整体保活。turn-status 行的 clock interval 归行所有：行保活时
+  // 不动 timer，turn 结束行被移除时由 dispose 统一清理；turnStatusStart 由
+  // 下方 !running 分支复位（同旧「turn 结束」分支）。
+  if (!state.running) {
     turnStatusStart = null
   }
-  // Pending steering bubbles sit at the tail of the transcript, after the
-  // turn status — the spot their durable user message lands once claimed
-  // (official PendingSteeringBubble). Snapshot order = send order.
-  for (const item of steeringItems) messages.appendChild(renderSteeringItem(item))
-  // "Back to latest" floater: sticky at the scroller's bottom while the user
-  // reads history; hidden while pinned to the tail.
-  const jump = buttonEl('jump-latest', t('↓ Back to latest'))
-  jump.style.display = stickToBottom ? 'none' : ''
-  jump.addEventListener('click', () => {
-    stickToBottom = true
-    messages.scrollTop = messages.scrollHeight
-    pinnedScrollTop = messages.scrollTop
-    markProgramPin()
-    jump.style.display = 'none'
-  })
-  messages.appendChild(jump)
+  reconcileFlow(messages, buildFlowItems(state))
+  // 正文 commit hash 的「先查后亮」：把本次 render 新建行里发现的 hash 批量上报宿主查询。
+  flushCommitInfoRequests()
+  // "Back to latest" floater（jump-latest 是流的末位项，由对账保活/重建）。
+  const jump = messages.querySelector<HTMLElement>('.jump-latest')
+  if (jump) jump.style.display = stickToBottom ? 'none' : ''
   if (!keepMessages) add(messages)
 
   // 任务清单卡（对齐官方 input.dock id=todo order 0，排在排队消息之前）：
@@ -3219,8 +3192,8 @@ function render(): void {
   const clampedScrollTop = messages.scrollTop
   pinnedScrollTop = clampedScrollTop
   if (isAtBottom(messages.scrollHeight, clampedScrollTop, messages.clientHeight)) stickToBottom = true
-  jump.style.display = stickToBottom ? 'none' : ''
-  // 贴底跟随滚底：同步段不写 scrollTop。栈内（textContent='' + 重追加后）读
+  if (jump) jump.style.display = stickToBottom ? 'none' : ''
+  // 贴底跟随滚底：同步段不写 scrollTop。栈内（消息流对账后）读
   // 到的 scrollHeight 是瞬态值（布局批量，尚未 settle 到真实高度），按它写会
   // clamp 到瞬态 max，下一帧 settle 后视口悬空（单帧抖动，与 hermes-webui
   // PR #5685 同构）。改 microtask 在同步栈 unwind、paint 前读 settle 后的
@@ -3591,9 +3564,9 @@ let pendingStash:
   | null = null
 /** Slash-command receipt texts shown at the message tail; cleared on session switch. */
 let commandNotices: string[] = []
-/** 消息区 ref chip 的 hover 高亮缓存（跨渲染帧）：流式快照每帧全量重建 DOM，
- *  重建后按它恢复高亮（否则鼠标不动就永久丢失）；msgKey 定位行（renderMessage 的
- *  key），path 为 ref chip 的 data-ref-path。mouseleave / 命中无对应行时清空。 */
+/** 消息区 ref chip 的 hover 高亮缓存（跨渲染帧）：消息行重建后按它恢复高亮
+ *  （否则鼠标不动就永久丢失）；msgKey 定位行（renderMessage 的 key = 消息 id），
+ *  path 为 ref chip 的 data-ref-path。mouseleave / 命中无对应行时清空。 */
 let refHoverCache: { msgKey: string; path: string } | null = null
 
 /** One queued inbox row: tag + preview, plus steer/edit/remove actions. */
@@ -3660,8 +3633,8 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
  * 等待插话的 steering 消息：和正常用户消息一样的气泡（附件、引用 chip、
  * 引用摘要行同款），只在气泡左侧加一个处理中圆圈表示插话还没落地（插话
  * 落地后由正式用户消息原位替换，圆圈随之消失）。
- * 流式输出期间 render() 每快照全量重建消息区，新建节点会让 spinner 的 CSS
- * 动画从 0° 重新启动——转圈每帧被打回起点，看起来就是疯狂刷新。给新建元素补
+ * 该行被重建（等待插话内容变化 / 流式期间存在替换）时，新建节点的 spinner 的 CSS
+ * 动画会从 0° 重新启动——转圈每帧被打回起点，看起来就是疯狂刷新。给新建元素补
  * 一个负 animation-delay（= 当前时刻在 0.9s 周期里的相位），新节点从旧节点的
  * 相位继续转，观感连续（与 todo/命令卡 spinner 的 syncAnimPhase 同机制）。
  */
@@ -3827,8 +3800,8 @@ const detailsOpen = new Map<string, boolean>()
 
 /**
  * 消息流里内部滚动容器（工具卡 IN/OUT、skill 指令卡、JSON 树等）的滚动位置
- * 存档（key 按渲染 key，同 detailsOpen 机制）：流式输出每帧全量重建消息 DOM，
- * 这些容器是新建元素、scrollTop 归零——用户正在滚动读内容会被顶回起点。
+ * 存档（key 按渲染 key，同 detailsOpen 机制）：消息行重建（流式变化行 / 行替换）
+ * 时这些容器是新建元素、scrollTop 归零——用户正在滚动读内容会被顶回起点。
  * 重建前扫描 [data-scroll-key] 存下，重建后按 key 恢复。
  */
 const innerScrollPositions = new Map<string, number>()
@@ -3873,7 +3846,7 @@ let detailsSession: string | null = null
 const jsonTreeOpen = new Map<string, boolean>()
 
 /**
- * 产物行「+N 个文件」的展开态（key = 消息位置键，同 detailsOpen 约定）：
+ * 产物行「+N 个文件」的展开态（key = 消息 id，同 detailsOpen 约定）：
  * 命中 = 展开显示全部 chip；换会话清空。
  */
 const producedOpen = new Set<string>()
@@ -3888,8 +3861,8 @@ const workflowDisclosure = new Map<string, WorkflowDisclosureState>()
 const COPY_FEEDBACK_MS = 1000
 
 /**
- * 复制按钮「已复制」反馈的成功时刻（key 按复制入口的位置/路径）。流式输出每帧
- * 全量重建消息 DOM，新建的复制按钮初始文案都是「复制」，会把 1s 的「已复制」
+ * 复制按钮「已复制」反馈的成功时刻（key 按复制入口的位置/路径）。消息行重建
+ * （流式变化行）时，新建的复制按钮初始文案都是「复制」，会把 1s 的「已复制」
  * 反馈冲掉。这里记下成功时刻：重建后距成功不足 1s 就初始渲染成「已复制」并按
  * 剩余时间恢复（同 detailsOpen/jsonTreeOpen 的跨重建持久化）。换会话时清空
  * （key 是位置键，跨会话无意义）。
@@ -4150,7 +4123,7 @@ function todoStatusGlyph(status: ChatTodoItem['status']): SVGSVGElement {
 let turnStatusStart: number | null = null
 let turnStatusTimer: ReturnType<typeof setInterval> | null = null
 
-/** Drop the clock interval; every render calls this before rebuilding. */
+/** Drop the clock interval (called by the flow dispose when the row leaves). */
 function clearTurnStatusTimer(): void {
   if (turnStatusTimer !== null) {
     clearInterval(turnStatusTimer)
@@ -4161,11 +4134,13 @@ function clearTurnStatusTimer(): void {
 function renderTurnStatus(): HTMLElement {
   if (turnStatusStart === null) turnStatusStart = Date.now()
   const start = turnStatusStart
+  // 旧计时器若还挂着（替换路径的兜底）先清掉，再按本行重新注册。
+  clearTurnStatusTimer()
   const row = el('div', 'turn-status')
   row.setAttribute('role', 'status')
   row.setAttribute('aria-live', 'polite')
   const statusText = el('span', 'turn-status-text', 'Deep diving...')
-  // 1.8s shimmer 相位续播：流式每帧重建该行，不补进度会每帧从头闪。
+  // 1.8s shimmer 相位续播：该行被重建时不再从头闪。
   syncAnimPhase(statusText, 1800)
   row.appendChild(statusText)
   const clock = el('span', 'turn-status-clock')
@@ -4284,7 +4259,7 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
       clearRefHighlight()
       refHoverCache = null
     })
-    // 流式快照每帧全量重建 DOM：重建后按缓存恢复高亮（鼠标不动就保持）。
+    // 消息行重建（流式变化行）后按缓存恢复高亮（鼠标不动就保持）。
     if (refHoverCache?.msgKey === key) {
       const cached = refHoverCache.path
       const ref = Array.from(row.querySelectorAll<HTMLElement>('[data-ref-path]')).find(
@@ -4360,27 +4335,233 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
 }
 
 /**
+ * 消息流增量更新（替代每快照 textContent='' 全量重建）：
+ *
+ * 每个快照按当前 state 算出一份「期望流」（older 入口、消息行 + workflow 卡按
+ * anchorSeq 插流、命令通知、空态提示、turn-status、steering 气泡、jump-latest），
+ * 与现有 DOM 按稳定 key 对账（reconcileFlow）：内容未变的行整体保活——各自的
+ * <details> 展开态、内部滚动位置、异步图片/已加载缩略图、hover 高亮与行级
+ * 定时器全部随元素留存；只有新增/删除/内容变化的行才动 DOM。与原实现相比，
+ * 流式期间每帧只重建「变化的那一行」，其余行零变更。
+ *
+ * key 语义：
+ * - 消息行 = `msg:${m.id}`（消息 id 跨快照稳定；loadEarlier 从顶部补页后不变，
+ *   不会像旧的 `m${下标}` 位置键那样错位）；renderMessage 的 key 同步换成 m.id
+ *   （detailsOpen / jsonTreeOpen / producedOpen / innerScrollPositions 等派生键
+ *   跟随 id，展开状态贴在消息本身而非位置）。
+ * - workflow 卡 = `wf:${run.runId}`；steering 气泡 = `steer:${item.id}`；
+ *   通知按位置 `notice:${i}`；older / turn-status / jump 各自固定 key。
+ *
+ * 变更检测：消息/run/steering 渲染期签名 = JSON.stringify（快照对象每帧都是
+ * structured clone 的新对象，无法用引用比较；字符串化成本低于 markdown 渲染，
+ * 且只对变化行付）。签名相同 → 复用现元素；不同 → 重渲染该行原位替换。
+ */
+interface FlowItem {
+  key: string
+  /** 内容未变 → 复用现元素；false → 重渲染替换（同 key 原位）。 */
+  same: boolean
+  create: () => HTMLElement
+  /** 元素被移除/替换时的清理（行级定时器等）。 */
+  dispose?: (el: HTMLElement) => void
+}
+
+/** 每条消息最近一次渲染的签名（id → sig）；无此 id = 未渲染过。 */
+const flowMsgSigs = new Map<string, string>()
+/** workflow run 卡签名（runId → sig）。 */
+const flowRunSigs = new Map<string, string>()
+/** steering 气泡签名（item.id → sig）。 */
+const flowSteerSigs = new Map<string, string>()
+/** 上一帧的命令通知列表（逐条按位置比对）。 */
+let flowLastNotices: string[] = []
+
+/**
  * 消息流渲染：workflow 运行卡片按 anchorSeq 插进聊天流（对齐官方把 durable
  * workflow-run 节点放在 chat 流里的位置语义）。run 的全部事件都落在承载它的
  * tool 卡所在 turn 内，assistant 消息的 seq 会随 turn 内事件涨到 ≥ anchorSeq，
  * 所以「第一条 seq ≥ anchorSeq 的消息之后」就是该 run 的插位；没有配对消息
  * （窗口起点切在 run 之后）时统一排在流尾。runs 已按 anchorSeq 升序。
  */
-function appendMessageFlow(messages: HTMLElement, state: ChatState): void {
+function buildFlowItems(state: ChatState): FlowItem[] {
+  const items: FlowItem[] = []
+  // 「加载更早」入口（对齐官方 dsh web ChatView 的分页按钮）：还有更早历史
+  // 或一页正在加载时显示在消息流顶部。
+  if (state.hasEarlierHistory || state.loadingEarlier === true) {
+    const loading = state.loadingEarlier === true
+    items.push({
+      key: 'older',
+      same: loading === olderWasLoading,
+      create: () => {
+        const olderWrap = el('div', 'older')
+        const btn = buttonEl(undefined, loading ? t('Loading…') : t('Load earlier'))
+        btn.disabled = loading
+        btn.addEventListener('click', maybeLoadEarlier)
+        olderWrap.appendChild(btn)
+        return olderWrap
+      },
+    })
+    olderWasLoading = loading
+  } else {
+    olderWasLoading = false
+  }
   const runs = state.workflowRuns ?? []
   let ri = 0
   const emitThrough = (seq: number | undefined): void => {
     if (seq === undefined) return
     while (ri < runs.length && runs[ri].anchorSeq <= seq) {
-      messages.appendChild(renderWorkflowRun(runs[ri]))
+      const run = runs[ri]
+      const sig = JSON.stringify(run)
+      const same = flowRunSigs.get(run.runId) === sig
+      flowRunSigs.set(run.runId, sig)
+      items.push({ key: `wf:${run.runId}`, same, create: () => renderWorkflowRun(run) })
       ri += 1
     }
   }
-  state.messages.forEach((m, mi) => {
-    messages.appendChild(renderMessage(m, `m${mi}`))
+  const seenMsgIds = new Set<string>()
+  state.messages.forEach((m) => {
+    const sig = JSON.stringify(m)
+    const same = flowMsgSigs.get(m.id) === sig
+    flowMsgSigs.set(m.id, sig)
+    seenMsgIds.add(m.id)
+    items.push({
+      key: `msg:${m.id}`,
+      same,
+      create: () => renderMessage(m, m.id),
+      dispose: clearRetryTimersFor,
+    })
     emitThrough(m.kind === 'assistant' ? m.seq : undefined)
   })
   emitThrough(Number.POSITIVE_INFINITY)
+  // 换会话/窗口收缩后清掉不再出现的签名，防 Map 跨会话累积。
+  if (flowMsgSigs.size > seenMsgIds.size) {
+    for (const id of [...flowMsgSigs.keys()]) if (!seenMsgIds.has(id)) flowMsgSigs.delete(id)
+  }
+  // 命令通知（host 回执的文本消息，按位置比对）。
+  commandNotices.forEach((notice, i) => {
+    items.push({
+      key: `notice:${i}`,
+      same: flowLastNotices[i] === notice,
+      create: () => el('div', 'command-notice', notice),
+    })
+  })
+  flowLastNotices = [...commandNotices]
+  // 空态提示（无消息且无等待插话时）。
+  if (
+    state.messages.length === 0 &&
+    !(state.queue ?? []).some((item) => item.placement === 'steering')
+  ) {
+    items.push({
+      key: 'empty',
+      same: true,
+      create: () => el('div', 'muted-hint', t('No messages yet — start typing below.')),
+    })
+  }
+  // Turn-status row: 流程末位（对齐官方 turn 中），turn 结束即移除。
+  if (state.running) {
+    items.push({
+      key: 'turn-status',
+      same: true,
+      create: () => renderTurnStatus(),
+      dispose: () => clearTurnStatusTimer(),
+    })
+  }
+  // Pending steering bubbles sit at the tail of the transcript, after the
+  // turn status — the spot their durable user message lands once claimed
+  // (official PendingSteeringBubble). Snapshot order = send order.
+  const steeringItems = (state.queue ?? []).filter((item) => item.placement === 'steering')
+  const seenSteerIds = new Set<string>()
+  for (const item of steeringItems) {
+    const sig = JSON.stringify(item)
+    const same = flowSteerSigs.get(item.id) === sig
+    flowSteerSigs.set(item.id, sig)
+    seenSteerIds.add(item.id)
+    items.push({ key: `steer:${item.id}`, same, create: () => renderSteeringItem(item) })
+  }
+  for (const id of [...flowSteerSigs.keys()]) if (!seenSteerIds.has(id)) flowSteerSigs.delete(id)
+  // "Back to latest" floater：恒在流末位；display 由 render 尾部按跟随态设置。
+  items.push({
+    key: 'jump',
+    same: true,
+    create: () => {
+      const jump = buttonEl('jump-latest', t('↓ Back to latest'))
+      jump.addEventListener('click', () => {
+        stickToBottom = true
+        const m = document.getElementById('messages')
+        if (!m) return
+        m.scrollTop = m.scrollHeight
+        pinnedScrollTop = m.scrollTop
+        markProgramPin()
+        jump.style.display = 'none'
+      })
+      return jump
+    },
+  })
+  return items
+}
+
+let olderWasLoading = false
+
+/**
+ * 期望流与容器现有 child 对账（单遍指针 + key 索引）：
+ * - 同 key 且 same → 原位复用（最常见的纯尾部追加快照：除新行外零变更）；
+ * - 同 key 但内容变了 → 重建新元素原位替换（先插后删，避免列表闪空）；
+ * - 新 key → 插入（尾部追加 / loadEarlier 顶部补页 / workflow 卡按 anchorSeq
+ *   落位）；
+ * - 期望流之后残留的 child → 移除（turn-status 结束、older 关闭、steering
+ *   落地等），dispose 清理行级资源。
+ * 顺序修正（把已在 DOM 里但位置不对的元素 insertBefore 挪位）只会在真正重排
+ * 时触发（如 loadEarlier 补页后 anchorSeq 插位前移），正常流式零移动。
+ */
+function reconcileFlow(container: HTMLElement, items: FlowItem[]): void {
+  const byKey = new Map<string, Element>()
+  for (const child of Array.from(container.children)) {
+    const k = child.getAttribute('data-flow-key')
+    if (k && !byKey.has(k)) byKey.set(k, child)
+  }
+  const itemByKey = new Map<string, FlowItem>()
+  for (const item of items) itemByKey.set(item.key, item)
+  let next: Element | null = container.firstElementChild
+  for (const item of items) {
+    // 跳过（并移除）指针位置上的残留行——不在期望流里（older 关闭、turn-status
+    // 结束、steering 落地等）。不清掉它们，后续每个留在原位之后的元素都会被
+    // 「挪一位」处理成 move（低效且制造大量 childList 变更）。
+    while (next) {
+      const k = next.getAttribute('data-flow-key')
+      if (k !== null && itemByKey.has(k)) break
+      const victim = next as HTMLElement
+      next = victim.nextElementSibling
+      victim.remove()
+      if (k !== null) itemByKey.get(k)?.dispose?.(victim)
+    }
+    const el = byKey.get(item.key)
+    if (el) {
+      if (item.same) {
+        // 顺序修正（罕见）：元素在但位置不对 → 挪到正确位置。
+        if (el !== next) container.insertBefore(el, next)
+        next = el.nextElementSibling
+      } else {
+        const fresh = item.create()
+        fresh.setAttribute('data-flow-key', item.key)
+        container.insertBefore(fresh, next)
+        el.remove()
+        item.dispose?.(el as HTMLElement)
+        next = fresh.nextElementSibling
+      }
+    } else {
+      const fresh = item.create()
+      fresh.setAttribute('data-flow-key', item.key)
+      container.insertBefore(fresh, next)
+      next = fresh.nextElementSibling
+    }
+  }
+  // 清尾：期望流之外的残留全部移除。
+  let rem = next
+  while (rem) {
+    const victim = rem as HTMLElement
+    rem = victim.nextElementSibling
+    victim.remove()
+    const k = victim.getAttribute('data-flow-key')
+    if (k) itemByKey.get(k)?.dispose?.(victim)
+  }
 }
 
 /**
@@ -4563,7 +4744,9 @@ function renderCompactionCard(
 /**
  * 模型重试行（对齐官方 ModelRetryItem）：折叠行 = 状态文本（含倒计时），展开
  * 显示重试延迟 + 失败原因。scheduled 等待期行上每秒刷新剩余秒数（只改自己
- * 的文本节点，不触发列表重渲染；render 重建时会先清掉所有重试行计时器）。
+ * 的文本节点，不触发列表重渲染）。计时器按行元素登记：增量更新下行的替换/
+ * 移除由 dispose（clearRetryTimersFor）清掉本行的表，保活的行计时器继续走，
+ * 不再像全量重建那样每帧全局清一遍。
  */
 const RETRY_LABELS: Record<ChatRetryBlock['retryState'], string> = {
   scheduled: t('Retrying model request'),
@@ -4571,11 +4754,18 @@ const RETRY_LABELS: Record<ChatRetryBlock['retryState'], string> = {
   cancelled: t('Model request retry cancelled'),
 }
 
-let retryTimers = new Set<ReturnType<typeof setInterval>>()
+let retryTimers = new Map<HTMLElement, ReturnType<typeof setInterval>>()
 
-function clearRetryTimers(): void {
-  for (const t of retryTimers) clearInterval(t)
-  retryTimers = new Set()
+/** 清理某行（消息行）内所有重试行倒计时：行被替换/移除时由 flow dispose 调用。 */
+function clearRetryTimersFor(row: HTMLElement): void {
+  const rows = row.querySelectorAll<HTMLElement>('.retry-row')
+  for (let i = 0; i < rows.length; i++) {
+    const timer = retryTimers.get(rows[i])
+    if (timer !== undefined) {
+      clearInterval(timer)
+      retryTimers.delete(rows[i])
+    }
+  }
 }
 
 function retrySeconds(ms: number): number {
@@ -4587,7 +4777,7 @@ function renderRetryRow(block: ChatRetryBlock, key: string): HTMLElement {
   if (block.retryState === 'scheduled') det.setAttribute('data-active', '')
   const maximum = block.mode === 'normal' ? String(block.maxRetries ?? '?') : '∞'
   const status = el('span', 'retry-text')
-  // 1.6s retry-shimmer 相位续播：快照重建该行时不再从头闪。
+  // 1.6s retry-shimmer 相位续播：该行被重建时不再从头闪。
   syncAnimPhase(status, 1600)
   const scheduledSeconds = retrySeconds(block.delayMs)
   const setStatus = (): void => {
@@ -4605,10 +4795,10 @@ function renderRetryRow(block: ChatRetryBlock, key: string): HTMLElement {
       setStatus()
       if ((block.time ?? Date.now()) + block.delayMs - Date.now() <= 0) {
         clearInterval(timer)
-        retryTimers.delete(timer)
+        retryTimers.delete(det)
       }
     }, 1000)
-    retryTimers.add(timer)
+    retryTimers.set(det, timer)
   }
   det.querySelector('summary')?.appendChild(status)
   const details = el('div', 'retry-details')
