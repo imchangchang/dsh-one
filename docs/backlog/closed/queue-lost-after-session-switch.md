@@ -31,3 +31,5 @@ dsh 0.1.2 的排队消息是**非持久事件**，只由共享 `session/control`
 
 - 2026-09-06 开发完成，自测通过（typecheck + 577 tests + build）→ done
 - 验证方式：integration test（controlStreamReplay）+ 单测（controlSnapshot）；webview 渲染零改动，沙盒 UI 报告不适用
+
+- 2026-09-06 主线合入测试通过（577 tests + typecheck + build），人工确认 → closed
