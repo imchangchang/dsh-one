@@ -23,3 +23,5 @@
 ## 变更记录
 
 - 2026-09-05 差异对账发现（官方输入框下方统计行）→ 建条目（open/）
+
+- 2026-09-05 认领（open → doing，worktree: agent/session-stats-row）。

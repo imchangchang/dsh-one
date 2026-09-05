@@ -21,3 +21,4 @@ dsh-one 面板的 slash 命令补全/解析表（`src/pure/slashCommand.ts` 或 
 ## 变更记录
 
 - 2026-09-05 用户截图反馈 + 官方依赖核实（dsh-command-goal 存在）→ 建条目（open/）
+- 2026-09-05 开发 session 认领（open → doing）：实测 0.1.2-rc.1 确认面板侧 goal 补全/透传均已存在且 wire 正确；根因=用户默认 preset（kimi，旧版 standard 拷贝）未装载 command-goal，待 worktree 开发 + 报告。
