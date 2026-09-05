@@ -27,3 +27,5 @@
 - 2026-09-05 认领（doing）：开 worktree 开发
 
 - 2026-09-06 开发完成（doing → done）：底部「收起」按钮落地（worktree 8427783），视觉验收 F-01/02 + 回归 R-01/02/03 全 pass，报告 test/sandbox/verify.chat-block-collapse-footer.report.html
+
+- 2026-09-06 主线合入完成（dev-merge 成功，--no-ff 合入）→ closed：复测 588 单测全过 + build 成功 + 基线 49 场景视觉冒烟全出（collapse-footer 两张分步截图与既有 conversation 等场景核对无回归）
