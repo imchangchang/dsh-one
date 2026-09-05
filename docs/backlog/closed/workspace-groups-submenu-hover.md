@@ -37,3 +37,4 @@ harness 场景 `sessions-workspace-menu-groups` 存在、且模拟的正是真�
 - 2026-09-05 问题记录（open）：上述现象与根因；视觉测试在 main 复现（截图 /tmp/dsh-ui-shots/sessions-workspace-menu-groups.png 显示顶层菜单消失）。
 - 2026-09-05 认领（open -> doing）：worktree 开发（分支 agent/workspace-groups-submenu-hover）。
 - 2026-09-05 开发完成（doing -> done）：popover 双层化——二级子菜单（showSubPopoverAt）独立于顶层菜单，点击「分组…」不再移除顶层 6 项菜单；「分组…」项改为 hover（pointerover）展开 + click 兜底（幂等不重建）；hover 移出时 140ms 延时收起子层。harness 场景重写（hover/click 两路径 + 移出收起 + 期望明确「顶层菜单并存」），hover 场景升级进 BASELINE_SCENARIOS；顺带校正归档禁用场景期望文本（tooltip 实际在锚点上方）。测试报告 test/sandbox/verify.workspace-groups-submenu-hover.report.html：8 项全 pass（harness 4 定制场景 + 124 场景全量回归 + 单测 495 pass），分支 agent/workspace-groups-submenu-hover，done 标记 c7075fd。无宿主链路改动，未跑沙盒 E2E（视觉场景即覆盖交互语义）。
+- 2026-09-05 主线合入后人工确认（监控验收通过）→ closed
