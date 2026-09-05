@@ -2570,6 +2570,42 @@
       expect: '点击「+ N 个文件」展开后：14 个长文件名 chip **多行换行铺开**（行尾不截断、不裁掉 chip），每行 label「产物」左侧只出现一次且与首行对齐；每个 chip 内超宽文件名以省略号截断、悬停 title 为完整路径；「收起」在最后一个 chip 后。',
     },
 
+    // 行内码（反引号）交互（chat-inline-code-path-interact）：路径形状可点开
+    // （点击 post openPath，宿主按会话 cwd 解析），全部行内码右下角带复制图标。
+    // 分步：初始态 / 点路径码（断言 openPath）/ 点命令码（断言不误开）。
+    'inline-code-interact': {
+      state: base({
+        messages: [
+          u('改完了，把主要文件路径给你。'),
+          at('主要改动在 `src/ui/chat/webview.ts`，样式在 `src/ui/chatViewHtml.ts`，构建产物 `dist/chatWebview.js`。检查命令 `npm run build`；环境变量 `DSH_PORT` 不要动；`Makefile` 无扩展名；绝对路径 `/repo/src/pure/producedFiles.ts`。'),
+        ],
+      }),
+      title: '行内码：路径可点打开 + 复制图标（初始 / 点路径码 / 点命令码）',
+      interactSteps: [
+        {
+          name: 'initial',
+          script: 'void 0',
+          settle: 400,
+        },
+        {
+          name: 'open-path',
+          script: `const banner = (t) => { const d = document.createElement('div'); d.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:#fff;z-index:99;padding:4px;font:14px monospace'; d.textContent = t; document.body.insertBefore(d, document.body.firstChild) }
+  const code = [...document.querySelectorAll('code.inline-code-path')].find((c) => c.textContent === 'src/ui/chat/webview.ts')
+  if (!code) { banner('FAIL: no path code') } else { code.click(); const opened = (window.__posted || []).filter((m) => m.type === 'openPath').map((m) => m.path); banner(opened.length ? 'openPath:' + opened.join('|') : 'FAIL: click no post') }`,
+          settle: 400,
+        },
+        {
+          name: 'no-open',
+          script: `const banner = (t) => { const d = document.createElement('div'); d.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:#fff;z-index:99;padding:4px;font:14px monospace'; d.textContent = t; document.body.insertBefore(d, document.body.firstChild) }
+  const before = (window.__posted || []).filter((m) => m.type === 'openPath').length
+  const code = [...document.querySelectorAll('code.inline-code')].find((c) => c.textContent === 'npm run build')
+  if (!code) { banner('FAIL: no inline code') } else { code.click(); const after = (window.__posted || []).filter((m) => m.type === 'openPath').length; banner(after === before ? 'no-openPath' : 'FAIL: command opened') }`,
+          settle: 400,
+        },
+      ],
+      expect: '**逐张核对**（无像素 diff）：① <scenario>-initial.png：正文中每个反引号行内码都是浅灰底圆角小 chip、右下角带小复制图标（淡灰半透明，常驻）；路径码（`src/ui/chat/webview.ts`、`src/ui/chatViewHtml.ts`、`dist/chatWebview.js`、`/repo/src/pure/producedFiles.ts`）与非路径码（`npm run build`、`DSH_PORT`、`Makefile`）外观一致（复制图标齐全）；无红色断言条。② <scenario>-open-path.png：顶部红条显示 `openPath:src/ui/chat/webview.ts`（点击路径码后宿主收到打开消息，路径原样无改动）；正文行内码样式未变。③ <scenario>-no-open.png：红条显示 `no-openPath`（点击命令码 `npm run build` 不会触发打开消息）且无 FAIL 字样。',
+    },
+
     // 消息右键菜单（user 气泡）：右键弹「复制」坐标菜单（与既有外链菜单同款
     // popover），复制纯文本。interact 先把图片字节喂进懒取缓存（缩略图上屏
     // 等效宿主回执），再在气泡上派发 contextmenu 打开菜单截图。
@@ -3169,6 +3205,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'session-open-failure',
     'model-pill-loading',
     'model-pill-error-fallback',
+    'inline-code-interact',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()
