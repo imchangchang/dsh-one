@@ -35,3 +35,4 @@ harness 场景 `sessions-workspace-menu-groups` 存在、且模拟的正是真�
 ## 变更记录
 
 - 2026-09-05 问题记录（open）：上述现象与根因；视觉测试在 main 复现（截图 /tmp/dsh-ui-shots/sessions-workspace-menu-groups.png 显示顶层菜单消失）。
+- 2026-09-05 认领（open -> doing）：worktree 开发（分支 agent/workspace-groups-submenu-hover）。
