@@ -29,7 +29,7 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 5. **生成测试报告**（合入门禁产物，dev-finish 前置）：ledger 场景 → `verify-driver.mjs` 跑 → `report.mjs` 渲染 HTML。
    a. 场景定稿进任务专属 ledger：`cp test/sandbox/verify.ledger.example.json test/sandbox/verify.<slug>.ledger.json`（**任务专属文件名，不动 CI 基线** `test/sandbox/verify.ledger.json`）；`phase: new-feature` 条目排前、`regression` 排后，每项写清 `id/name/expect`，能自动断的加 `driver` 字段，截图产物放 `/tmp/dsh-sandbox-shots/`。
    b. 跑驱动（有 `driver` 项时，沙盒已起）：`node test/sandbox/verify-driver.mjs --ledger test/sandbox/verify.<slug>.ledger.json --url http://127.0.0.1:8080 --out /tmp/dsh-sandbox-shots/`——结果写回 ledger（断言命中 `done`；超时/异常 `fail` + `notes` 原因 + 截图路径）。
-   c. 逐项看截图定结论：符合期望的 `done → pass`，不符的改 `fail` 并在 `notes` 写明；**渲染报告前不能留 `pending`/`done`**——「每项通过/失败结论」是 gate 的判定依据。
+   c. 逐项看截图定结论：符合期望的 `done → pass`，不符的改 `fail` 并在 `notes` 写明；**渲染报告前不能留 `pending`/`done`**——「每项通过/失败结论」是 gate 的判定依据。`notes` 要**按检查点逐条记录核对结论**（如「勾选态 ✓ 且顶层菜单仍开」），不允许「核对勾选态」式一句带过——核对漏项（期望里有但 notes 没提）靠这个暴露，报告审查据此判断核对是否覆盖了全部断言。
    d. 渲染：`node test/sandbox/report.mjs --ledger test/sandbox/verify.<slug>.ledger.json --out test/sandbox/verify.<slug>.report.html`（截图 base64 内嵌，单文件可分发）。
    e. 提交 ledger（报告 HTML 已 gitignore，不必提交），把报告路径交给用户审——**合入门禁 = 人审报告**：无问题直接等合入；有疑问才走流程 6。
    f. 无 UI 行为变化的任务（纯逻辑/文档）可不建 ledger，在条目变更记录里注明「无 UI 行为变化，沙盒报告不适用」。

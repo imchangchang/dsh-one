@@ -23,7 +23,7 @@ description: 用浏览器独立渲染 DSH One 的 chat webview + mock 后台 + �
 | **基线冒烟集** | 主线随仓库预设的稳定集合（`window.BASELINE_SCENARIOS`） | **主线合入后** | 证明"合入产物没把既有 UI 状态弄坏" |
 
 - **功能场景防"没实现对"，基线场景防"弄坏了以前的东西"。** 作者自写验收容易自欺（只挑能过的写法），基线是人定的、作者改不动，所以能兜住"作者全绿但把通用 UI 弄挂"。
-- **升级为基线**：功能场景里"以后必须一直对"的真实状态，把名字加进 `window.BASELINE_SCENARIOS`，随合入并入主线。**一次性调试 fixture** 放 worktree 的 `.dev-host/`，别提交。
+- **升级为基线（默认动作）**：功能验收场景对应的是"以后必须一直对"的真实 UI 状态（含交互态场景）就**默认**把名字加进 `window.BASELINE_SCENARIOS`，随合入并入主线；只有**一次性调试 fixture** 例外——放 worktree 的 `.dev-host/`，别提交、别进基线。不默认进基线会出现"验收时跑一次、合入后主线冒烟永远碰不到"的盲区（既有实例：工作区右键菜单场景）。
 - 所以长期看：功能场景是增量，基线是存量；随功能落地，基线越来越全。
 
 ## 前置（一次）
@@ -56,6 +56,7 @@ scripts/ui-visual.sh --mode baseline # 只跑 BASELINE_SCENARIOS（主线合入�
 1. 截图是否出现了期望描述里的关键元素（如 dsh-not-found 的「查看安装指南」、approval 的「允许一次/拒绝」按钮、plan-review 里「批准」高亮）。
 2. 排版/层级是否符合（消息在右、助手在左、工具卡折叠、侧边栏分组缩进）。
 3. 不该出现的东西是否没有（如 dsh-not-found 不应有 composer、错误态不应有报错堆栈）。
+4. **弹层叠加/状态切换类场景，第 1 条里必须核对「发生前的东西还在不在」**（如二级菜单打开后顶层菜单 6 项仍完整显示）——期望里要写「**仍应在位清单**」，且禁止用「不遮挡/不覆盖」这类只否定遮挡、不断言存在的措辞（曾有场景把「顶层菜单被整层移除」写成「不覆盖 6 项」，实际被移除也能解读为「没遮挡」而放行）。清单里每一条都是独立的判定点。
 
 不依赖像素 diff（图与图对照在不同机器/渲染下脆弱）。如果截图和期望对不上 → 说明逻辑或排版有 bug，报 `expect` 不符并说明差在哪。
 
@@ -94,6 +95,8 @@ http://127.0.0.1:8899/test/ui/harness.html?scenario=dsh-not-found
 'myState': {
   state: { sessionId:'sess-1', messages:[...], pending:[], running:false, canSend:true, ... },
   title: '新功能状态',
+  // 交互/弹层叠加类场景：另写「仍应在位清单」（打开二级菜单后顶层菜单仍在、原有元素未被移除），
+  // 禁止「不遮挡/不覆盖」式只否定遮挡的措辞——见「视觉验证方法」第 4 条。
   expect: '这个状态应该呈现什么逻辑与排版（agent 读截图后逐条对照，写清关键元素/层级/不该出现的东西）',
 },
 ```
@@ -113,7 +116,7 @@ http://127.0.0.1:8899/test/ui/harness.html?scenario=dsh-not-found
 
 harness 每步执行完推送 `window.__interactStepDone = name`，`ui-visual.sh` 轮询到位后截 `<scenario>-<step>.png`，再调 `window.__interactStepAdvance()` 放行下一步。**`expect` 按「每张截图一个子状态」写**：哪张对应发生的哪个动作、该状态应呈现什么，以便逐张对照（示例：`sessions-workspace-menu-groups`）。
 
-**加完场景后**：worktree 验收用 `ui-visual.sh`（all）跑它；如果它是"以后必须一直对"的真实 UI 状态，把名字加进 `window.BASELINE_SCENARIOS`（随合入并入主线基线）。一次性调试 fixture 放 `.dev-host/`，别提交、别进基线。
+**加完场景后**：worktree 验收用 `ui-visual.sh`（all）跑它。**功能验收场景默认进基线**——只要是"以后必须一直对"的真实 UI 状态（含交互态场景），就把名字加进 `window.BASELINE_SCENARIOS`（随合入并入主线基线），不默认进基线会出现"验收时跑一次、合入后主线冒烟永远碰不到"的盲区（既有实例：工作区右键菜单场景）。仅**一次性调试 fixture** 例外：放 `.dev-host/`，别提交、别进基线。
 
 ## 可交互模式（测发消息/流式/切换会话）
 
