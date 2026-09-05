@@ -1,7 +1,7 @@
 {
   "title": "行内码复制图标改为悬停显示（inline-code-copy-hover）",
   "branch": "agent/inline-code-copy-hover",
-  "commit": "6dee701",
+  "commit": "a9f9111",
   "environment": {
     "mode": "mock-llm",
     "dsh": "0.1.1-rc.2",
@@ -16,23 +16,23 @@
       "id": "F-01",
       "phase": "new-feature",
       "name": "行内码初始态：复制图标不显示",
-      "expect": "mock-llm 会话「行内码路径」回复后，所有行内码 chip 右下角**无复制图标**（computed opacity=0）；chip 浅底与文本正常；无 hover 时无图标闪烁。",
+      "expect": "mock-llm 会话「行内码路径」回复后，所有行内码 chip 右下角**无复制图标**（computed opacity=0）；chip **底色紧凑**（padding-right 4px，不预留图标位，底色不因图标被拉长）；chip 浅底与文本正常。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-inline-code-hover/10-01-initial-hidden.png"
       ],
-      "notes": "E2E 断言：行内码 5 个（路径码 3 + 命令/变量 2）复制图标全部 opacity=0（computed style 断言 total=5 visible=0）；截图核对：chip 浅底、右下角无图标。"
+      "notes": "E2E 断言：行内码 5 个复制图标全 opacity=0；chip computed padding-right=4px（底色紧凑，无图标预留位）。截图核对：chip 浅底紧凑、文本正常、无图标。"
     },
     {
       "id": "F-02",
       "phase": "new-feature",
       "name": "悬停行内码：复制图标显示（其余仍隐藏）",
-      "expect": "真实鼠标悬停到某个行内码上：该码右下角复制图标出现（opacity=1）+ 路径码另见下划线；相邻未悬停的码图标保持隐藏。",
+      "expect": "真实鼠标悬停到某个行内码上：该码复制图标**浮出在 chip 右缘外侧**（图标左缘 ≥ chip 右缘，垂直居中，不占 chip 底色；computed opacity=1）+ 路径码另见下划线；相邻未悬停的码图标保持隐藏、底色紧凑。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-inline-code-hover/11-02-hover-show.png"
       ],
-      "notes": "E2E 断言：真实鼠标 hover 路径码 ~/.dsh/settings.yaml 后该码复制图标 opacity=1、其余码全部 opacity=0（self=1 othersVisible=0）；截图核对：hover 码右下角出现图标（另有路径码下划线），相邻码无图标。"
+      "notes": "E2E 断言：hover 路径码后图标 opacity=1 且图标左缘 ≥ chip 右缘（outside=true，浮出外侧不占底色）、其余码图标保持隐藏。截图核对：hover 码右侧浮现图标、下划线，相邻码无图标且底色紧凑。"
     },
     {
       "id": "F-03",
@@ -43,7 +43,7 @@
       "screenshots": [
         "/tmp/dsh-sandbox-shots-inline-code-hover/12-03-open-path.png"
       ],
-      "notes": "E2E 断言：hover 后点击路径码 → 编辑器 settings.yaml tab=1；截图核对：编辑器区 settings.yaml 打开（面包屑 home > coder > .dsh），无报错。"
+      "notes": "E2E 断言：hover 后点击路径码 → 编辑器 settings.yaml tab=1；截图核对：settings.yaml 打开（面包屑 home > coder > .dsh），无报错。"
     },
     {
       "id": "F-04",
@@ -54,7 +54,7 @@
       "screenshots": [
         "/tmp/dsh-sandbox-shots-inline-code-hover/13-04-copy-trigger.png"
       ],
-      "notes": "E2E 断言：点命令码 npm run build 后 tab 数 2→2（不误开）；点复制图标 title=Copy failed（沙盒 headless webview origin 无剪贴板权限走 reject 分支，链路触发；成功 Copied 反馈已在 harness 层验证 title=Copied）。截图核对：无新 tab、无报错弹窗。"
+      "notes": "E2E：点命令码 npm run build 后 tab 数 2→2（不误开）；点复制图标 title=Copy failed（沙盒 headless webview origin 无剪贴板权限走 reject 分支，链路触发；成功 Copied 反馈在 harness 层验证过 title=Copied）。"
     },
     {
       "id": "R-01",
@@ -69,7 +69,7 @@
         "prompt": "回归演示",
         "expectText": "const x: number = 1"
       },
-      "notes": "verify-driver 自动断言命中（prompt 回归演示 → 等 const x: number = 1）；截图核对：表格/加粗正常、代码块独立块级样式 + Copy 按钮、消息操作栏正常（行内码悬停显隐不影响）。"
+      "notes": "verify-driver 自动断言命中；截图核对：表格/加粗正常、代码块独立块级 + Copy 按钮、操作栏正常（悬停显隐与浮出不影响既有渲染）。"
     }
   ]
 }
