@@ -151,7 +151,7 @@ export interface SessionsStoreSnapshot {
   /** 管理视图的 workspace 目录（全量，排除「未分组」虚拟组）。 */
   workspaceDirectory: Array<{ workspaceId: string; label: string }>
   /** 会话标签组（有序；预设组名已按当前 locale 翻译；count = 当前基线中打组的会话数）。 */
-  tags: Array<{ id: string; name: string; color: TagColor; count: number }>
+  tags: Array<{ id: string; name: string; color: TagColor; preset: boolean; count: number }>
   /** 标签组 → 会话 id（单组倒排，全量未清洗；整组批量操作（归档/回收站）按此收集全集）。 */
   tagSessionIds: Record<string, string[]>
 }
@@ -424,6 +424,7 @@ export class SessionsStore implements vscode.Disposable {
         id: t.id,
         name: tagDisplayName(t, vscode.l10n.t),
         color: t.color,
+        preset: isPresetTag(t),
         count: this.tagSessionCount(t.id),
       })),
       tagSessionIds: invertSessionTagIds(this.sessionTags),
@@ -619,6 +620,21 @@ export class SessionsStore implements vscode.Disposable {
     this.tags = next
     this.persistTags()
     this.onDidChangeEmitter.fire()
+  }
+
+  /** 标签组名校验（host showInputBox 用的 validateInput）：合法返回 null。 */
+  tagNameErrorFor(name: string): string | null {
+    const err = tagNameError(name, this.tags)
+    if (err === 'empty') return vscode.l10n.t('Group name cannot be empty')
+    if (err === 'duplicate') return vscode.l10n.t('A group with this name already exists')
+    return null
+  }
+
+  /** 单个标签组的快照形状（含翻译名/preset 标记）；未知 id 返回 null（删除确认用）。 */
+  tagById(tagId: string): { id: string; name: string; preset: boolean } | null {
+    const t = this.tags.find((x) => x.id === tagId)
+    if (!t) return null
+    return { id: t.id, name: tagDisplayName(t, vscode.l10n.t), preset: isPresetTag(t) }
   }
 
   /** Pin/unpin a session (client-side only); persists across reloads. */

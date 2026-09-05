@@ -12,6 +12,7 @@ import { COPY_ICON, PANEL_ICONS, MESSAGE_ACTION_ICONS, type IconDef } from './ch
 import type { FromWebviewMessage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../pure/sessionTree.ts'
 import { UNGROUPED_WORKSPACE_ID } from '../pure/sessionTree.ts'
+import type { TagColor } from '../pure/sessionTags.ts'
 import {
   INSTALL_SCRIPT_OS_ORDER,
   installCommandFor,
@@ -406,7 +407,7 @@ function menuItem(
     right?: string
     checked?: boolean
     glyph?: string
-    icon?: SVGSVGElement
+    icon?: SVGSVGElement | HTMLElement
     /** 禁用态：加 .menu-item.disabled（置灰、不响应点击），onClick 不绑定。 */
     disabled?: boolean
     /** 禁用原因的悬停提示（data-tip）；仅 disabled 时设置。 */
@@ -1458,8 +1459,296 @@ function appendCountBadge(container: HTMLElement, badge: HTMLElement | SVGSVGEle
   container.appendChild(item)
 }
 
-function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
-  const group = el('div', 'workspace-group')
+/* ===== 会话标签组（Chrome 垂直标签式单组）渲染与拖拽 ===== */
+
+/** 标签色 → CSS 颜色值（与 sessionsView.ts 的 .tag-* 组色变量同映射）。 */
+const TAG_COLOR_CSS: Record<TagColor, string> = {
+  yellow: 'var(--vscode-charts-yellow, #e5c07b)',
+  blue: 'var(--vscode-charts-blue, #5686fe)',
+  green: 'var(--vscode-charts-green, #89d185)',
+  orange: 'var(--vscode-charts-orange, #d18616)',
+  purple: 'var(--vscode-charts-purple, #b180d7)',
+  red: 'var(--vscode-charts-red, #f14c4c)',
+}
+
+type SnapshotTag = SessionsSnapshot['tags'][number]
+
+/** 菜单里的组色小方块（移到分组/组操作菜单共用的图标位）。 */
+function tagSwatchIcon(color: TagColor): HTMLElement {
+  const s = el('span', 'tag-swatch')
+  s.style.background = TAG_COLOR_CSS[color]
+  return s
+}
+
+/** 「无分组」的空描边方块（行内移到分组菜单的移出项）。 */
+function tagEmptySwatchIcon(): HTMLElement {
+  const s = el('span', 'tag-swatch')
+  s.style.border = '1px solid var(--vscode-descriptionForeground, #888)'
+  return s
+}
+
+function tagsSnapshot(): SnapshotTag[] {
+  return sessionsSnapshot?.tags ?? []
+}
+
+function tagById(tagId: string): SnapshotTag | undefined {
+  return tagsSnapshot().find((t) => t.id === tagId)
+}
+
+/**
+ * 当前可见列表（快照 workspaces，经当前 workspace 分组过滤）里该组的会话，
+ * 按 workspace 分桶（组块可能跨 workspace 出现；整组操作只作用于可见集合）。
+ */
+function sessionsOfTagInView(tagId: string): Array<{ ws: WorkspaceNodeModel; sessions: SessionNodeModel[] }> {
+  const out: Array<{ ws: WorkspaceNodeModel; sessions: SessionNodeModel[] }> = []
+  for (const w of sessionsSnapshot?.workspaces ?? []) {
+    const sessions = w.sessions.filter((s) => s.tagId === tagId)
+    if (sessions.length > 0) out.push({ ws: w, sessions })
+  }
+  return out
+}
+
+/** 拖拽载荷判定：会话行拖拽 / 组 pill 拖拽（自定义 MIME，见下方 dragstart）。 */
+function dragCarriesSession(e: DragEvent): boolean {
+  return e.dataTransfer?.types.includes('text/dsh-session') === true
+}
+function dragCarriesTag(e: DragEvent): boolean {
+  return e.dataTransfer?.types.includes('text/dsh-tag') === true
+}
+
+/**
+ * workspace 会话区的组块渲染：置顶会话平铺（保持绝对优先）；其余按标签组
+ * 切块（小 pill + 贯穿竖线 + 12px 左缩进），未分组平铺殿后。rowRender 由
+ * 主列表/回收站各自提供（行行为不同）；snippet 块跟行（回收站无 snippet，
+ * 透传安全）。
+ */
+function appendTagBlocks(
+  container: HTMLElement,
+  sessions: SessionNodeModel[],
+  rowRender: (s: SessionNodeModel) => HTMLElement,
+): void {
+  let i = 0
+  while (i < sessions.length) {
+    const s = sessions[i]
+    const tag = s.tagId !== undefined ? tagById(s.tagId) : undefined
+    if (s.pinned || tag === undefined) {
+      container.appendChild(rowRender(s))
+      if (s.contentSnippet) container.appendChild(renderContentSnippet(s.sessionId, s.contentSnippet))
+      i += 1
+      continue
+    }
+    const block = el('div', `tag-group tag-${tag.color}`)
+    block.dataset.tagId = tag.id
+    block.appendChild(tagHeadEl(tag, block))
+    block.appendChild(el('div', 'tag-line'))
+    while (i < sessions.length) {
+      const cur = sessions[i]
+      if (cur.pinned || cur.tagId !== tag.id) break
+      const row = rowRender(cur)
+      row.classList.add('tagged')
+      block.appendChild(row)
+      if (cur.contentSnippet) block.appendChild(renderContentSnippet(cur.sessionId, cur.contentSnippet))
+      i += 1
+    }
+    container.appendChild(block)
+  }
+}
+
+/** 组头：小 pill（组名 + 组色点）——pill 可拖排组序，右键开整组菜单，块体收会话拖拽入组。 */
+function tagHeadEl(tag: SnapshotTag, block: HTMLElement): HTMLElement {
+  const head = el('div', 'tag-head')
+  const pill = el('span', 'tag-pill')
+  pill.setAttribute('data-tip', t('Group: {0}', tag.name))
+  pill.appendChild(el('span', 'tag-pill-dot'))
+  pill.appendChild(el('span', undefined, tag.name))
+  head.appendChild(pill)
+  attachTagPillDrag(pill, tag.id)
+  pill.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    // 多选模式点行 = 勾选；回收站视图的会话不在主列表（整组操作按主列表
+    // 可见集合收集），两者都不提供组操作菜单。
+    if (selectionMode || recycleView) return
+    menuFreezeActive = true
+    showPopoverAt(e.clientX, e.clientY, buildTagMenuBody(tag))
+    markMenuRow(pill)
+  })
+  attachTagBlockDrop(block, tag.id)
+  return head
+}
+
+/** 会话行拖入该组（块容器为 drop 目标；dragenter/dragover/drop 全程不冒泡，
+ *  避免未分组 drop 区误收——见 renderWorkspaceGroup 的 group 级 drop）。 */
+function attachTagBlockDrop(block: HTMLElement, tagId: string): void {
+  let depth = 0
+  const clear = (): void => {
+    depth = 0
+    block.classList.remove('drag-over')
+  }
+  block.addEventListener('dragenter', (e) => {
+    if (!dragCarriesSession(e)) return
+    e.stopPropagation()
+    depth += 1
+    block.classList.add('drag-over')
+  })
+  block.addEventListener('dragleave', () => {
+    if (depth > 0) depth -= 1
+    if (depth === 0) block.classList.remove('drag-over')
+  })
+  block.addEventListener('dragover', (e) => {
+    if (!dragCarriesSession(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  })
+  block.addEventListener('drop', (e) => {
+    if (!dragCarriesSession(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    clear()
+    const sessionId = e.dataTransfer?.getData('text/dsh-session')
+    if (sessionId) post({ type: 'sessionTagSet', sessionId, tagId })
+  })
+}
+
+/**
+ * 组 pill 拖拽（组排序）：拖到其他 pill 的上/下半 = 插入其前/后；拖拽期间
+ * 冻结列表重建（同菜单冻结），drop 后按新顺序 post，dragend 统一解冻重渲染。
+ * pill 自身的 dragover 对会话拖拽不接管（让块容器高亮收 drop）。
+ */
+function attachTagPillDrag(pill: HTMLElement, tagId: string): void {
+  pill.draggable = true
+  pill.addEventListener('dragstart', (e) => {
+    const dt = e.dataTransfer
+    if (dt) {
+      dt.setData('text/dsh-tag', tagId)
+      dt.effectAllowed = 'move'
+    }
+    menuFreezeActive = true
+  })
+  pill.addEventListener('dragend', () => {
+    menuFreezeActive = false
+    renderSessions()
+  })
+  pill.addEventListener('dragenter', (e) => {
+    if (dragCarriesTag(e)) e.stopPropagation()
+  })
+  pill.addEventListener('dragover', (e) => {
+    if (!dragCarriesTag(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    const rect = pill.getBoundingClientRect()
+    const before = e.clientY < rect.top + rect.height / 2
+    pill.classList.toggle('drop-before', before)
+    pill.classList.toggle('drop-after', !before)
+  })
+  pill.addEventListener('dragleave', () => {
+    pill.classList.remove('drop-before', 'drop-after')
+  })
+  pill.addEventListener('drop', (e) => {
+    if (!dragCarriesTag(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    pill.classList.remove('drop-before', 'drop-after')
+    const srcId = e.dataTransfer?.getData('text/dsh-tag')
+    if (!srcId || srcId === tagId) return
+    const ids = tagsSnapshot().map((t) => t.id)
+    const from = ids.indexOf(srcId)
+    const to = ids.indexOf(tagId)
+    if (from === -1 || to === -1) return
+    const rect = pill.getBoundingClientRect()
+    const before = e.clientY < rect.top + rect.height / 2
+    // 先摘下源组，再在目标（位置可能因摘除前移）前/后插入。
+    ids.splice(from, 1)
+    const insertAt = ids.indexOf(tagId) + (before ? 0 : 1)
+    ids.splice(insertAt, 0, srcId)
+    post({ type: 'sessionTagReorder', tagIds: ids })
+  })
+}
+
+/** 整组操作菜单（组头 pill 右键）：归档全部 / 移入回收站 / 移出分组；
+ *  自建组额外提供重命名与删除（预设组名字走 l10n，不提供）。 */
+function buildTagMenuBody(tag: SnapshotTag): HTMLElement {
+  const body = el('div')
+  body.appendChild(el('div', 'session-menu-title', t('Group: {0}', tag.name)))
+  const grouped = sessionsOfTagInView(tag.id)
+  const all = grouped.flatMap((g) => g.sessions)
+  const archivable = all.filter(sessionArchiveSelectable)
+  body.appendChild(
+    menuItem(t('Archive {0} sessions', all.length), {
+      icon: iconSvg(PANEL_ICONS.archive),
+      // 与单项/多选归档同规则（置顶/运行中/未读/待处理跳过），全不可归档时置灰。
+      disabled: archivable.length === 0,
+      disabledTip: t('No archivable sessions in this group'),
+      onClick: () => {
+        closePopover()
+        openTagArchiveModal(tag, grouped, archivable)
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem(t('Move {0} sessions to the recycle bin', all.length), {
+      icon: strokeSvg(TRASH_ICON, 16),
+      // 置顶会被 host 跳过并提示（同多选批量规则）；全置顶时禁用更诚实。
+      disabled: all.length > 0 && all.every((s) => s.pinned),
+      disabledTip: t('Pinned sessions cannot be moved to the recycle bin; unpin them first'),
+      onClick: () => {
+        const anchor = menuOpenRow
+        if (anchor) flashTip(t('Moved to the recycle bin'), anchor)
+        closePopover()
+        post({ type: 'sessionMoveToRecycleMany', sessionIds: all.map((s) => s.sessionId) })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem(t('Remove from group'), {
+      icon: iconSvg(PANEL_ICONS.remove, 14),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionTagSetMany', sessionIds: all.map((s) => s.sessionId), tagId: null })
+      },
+    }),
+  )
+  if (!tag.preset) {
+    body.appendChild(
+      menuItem(t('Rename group…'), {
+        icon: iconSvg(PANEL_ICONS.edit, 14),
+        onClick: () => {
+          closePopover()
+          post({ type: 'sessionTagRenamePrompt', tagId: tag.id, name: tag.name })
+        },
+      }),
+    )
+    body.appendChild(
+      menuItem(t('Delete group'), {
+        icon: strokeSvg(TRASH_ICON, 16),
+        onClick: () => {
+          closePopover()
+          post({ type: 'sessionTagDelete', tagId: tag.id })
+        },
+      }),
+    )
+  }
+  return body
+}
+
+/** 整组归档确认：复用多选归档的确认弹窗 + sessionArchiveMany → archiveManyDone
+ *  链路（组内不可归档会话在 skips 里列明；回执退出即按快照重建）。 */
+function openTagArchiveModal(
+  _tag: SnapshotTag,
+  grouped: Array<{ ws: WorkspaceNodeModel; sessions: SessionNodeModel[] }>,
+  archivable: SessionNodeModel[],
+): void {
+  if (archivable.length === 0) return
+  const skipped = grouped.reduce((n, g) => n + g.sessions.length, 0) - archivable.length
+  openArchiveModal(
+    archivable.map((s) => s.sessionId),
+    grouped.map((g) => ({ ws: g.ws, sessions: g.sessions.filter(sessionArchiveSelectable) })),
+    skipped,
+    { skippedDesc: t('Archived sessions will be hidden from the list. {0} session(s) cannot be archived and were skipped.', skipped) },
+  )
+}
+
+function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {  const group = el('div', 'workspace-group')
   group.dataset.workspaceId = w.workspaceId
   const ungrouped = w.workspaceId === UNGROUPED_WORKSPACE_ID
   const empty = w.sessions.length === 0
@@ -1541,13 +1830,22 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {
     })
   }
   group.appendChild(head)
-  // 未分组恒展开（collapsed 恒 false），总会渲染会话行。
+  // 未分组恒展开（collapsed 恒 false），总会渲染会话行：组块（标签聚合）+
+  // 未分组平铺由 appendTagBlocks 统一切分。
   if (!collapsed) {
-    for (const s of w.sessions) {
-      group.appendChild(renderSessionRow(s))
-      if (s.contentSnippet) group.appendChild(renderContentSnippet(s.sessionId, s.contentSnippet))
-    }
+    appendTagBlocks(group, w.sessions, (s) => renderSessionRow(s))
   }
+  // 拖出组：会话行拖到组块外的区域（组头/未分组行/组尾留白）= 移出分组。
+  // 块容器的 dragover/drop 已 stopPropagation，这里只收组块外的事件。
+  group.addEventListener('dragover', (e) => {
+    if (dragCarriesSession(e)) e.preventDefault()
+  })
+  group.addEventListener('drop', (e) => {
+    if (!dragCarriesSession(e)) return
+    e.preventDefault()
+    const sessionId = e.dataTransfer?.getData('text/dsh-session')
+    if (sessionId) post({ type: 'sessionTagSet', sessionId, tagId: null })
+  })
   return group
 }
 
@@ -1631,6 +1929,25 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
     showPopoverAt(e.clientX, e.clientY, buildSessionMenuBody(s))
     markMenuRow(row)
   })
+  // 拖拽入组：拖到组块 = 加入该组，拖到组块外（未分组区）= 移出分组。
+  // 多选模式点行 = 勾选、编辑态行有输入框，都不启用拖拽；拖拽期间冻结
+  // 列表重建（防止快照把被拖行销毁），dragend 统一解冻。
+  if (!selectionMode && editingSessionId !== s.sessionId) {
+    row.draggable = true
+    row.addEventListener('dragstart', (e) => {
+      const dt = e.dataTransfer
+      if (dt) {
+        dt.setData('text/dsh-session', s.sessionId)
+        dt.effectAllowed = 'move'
+      }
+      menuFreezeActive = true
+      row.classList.add('dragging')
+    })
+    row.addEventListener('dragend', () => {
+      menuFreezeActive = false
+      renderSessions()
+    })
+  }
   return row
 }
 
@@ -1982,7 +2299,8 @@ function renderRecycleGroup(w: WorkspaceNodeModel): HTMLElement {
   )
   group.appendChild(head)
   if (!collapsed) {
-    for (const s of w.sessions) group.appendChild(renderRecycleSessionRow(s))
+    // 与主列表同款组块聚合（标签组块 + 未分组平铺）；回收站行不启用拖拽。
+    appendTagBlocks(group, w.sessions, (s) => renderRecycleSessionRow(s))
   }
   return group
 }
@@ -2513,6 +2831,39 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
       onClick: () => {
         closePopover()
         post({ type: 'sessionUnread', sessionId: s.sessionId, unread: !s.unread })
+      },
+    }),
+  )
+  // 移到分组（Chrome 垂直标签式单组；预设 + 自建组，勾选态 = 当前组）。
+  body.appendChild(el('div', 'menu-group', t('Move to group')))
+  for (const tag of tagsSnapshot()) {
+    body.appendChild(
+      menuItem(tag.name, {
+        icon: tagSwatchIcon(tag.color),
+        checked: s.tagId === tag.id,
+        onClick: () => {
+          closePopover()
+          if (s.tagId !== tag.id) post({ type: 'sessionTagSet', sessionId: s.sessionId, tagId: tag.id })
+        },
+      }),
+    )
+  }
+  body.appendChild(
+    menuItem(t('No group'), {
+      icon: tagEmptySwatchIcon(),
+      checked: s.tagId === undefined,
+      onClick: () => {
+        closePopover()
+        if (s.tagId !== undefined) post({ type: 'sessionTagSet', sessionId: s.sessionId, tagId: null })
+      },
+    }),
+  )
+  body.appendChild(
+    menuItem(t('New group…'), {
+      icon: iconSvg(PANEL_ICONS.plus, 14),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionTagCreatePrompt' })
       },
     }),
   )

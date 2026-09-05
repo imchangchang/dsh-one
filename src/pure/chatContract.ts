@@ -865,10 +865,10 @@ export interface SessionsSnapshot {
    */
   workspaceDirectory: Array<{ workspaceId: string; label: string }>
   /**
-   * 会话标签组（有序，数组顺序 = 展示顺序；预设组名已按当前 locale 翻译）。
-   * count = 当前基线中打该组的会话数（残留旧 id 不计）。
+   * 会话标签组（有序，数组顺序 = 展示顺序；预设组名已按当前 locale 翻译，
+   * preset = 预设标记——不可改名/删除）。count = 当前基线中打该组的会话数。
    */
-  tags: Array<{ id: string; name: string; color: TagColor; count: number }>
+  tags: Array<{ id: string; name: string; color: TagColor; preset: boolean; count: number }>
   /** 标签组 → 会话 id（单组倒排，全量未清洗）：整组批量操作（归档/回收站）按此收集全集。 */
   tagSessionIds: Record<string, string[]>
 }
@@ -1122,11 +1122,11 @@ export type FromWebviewMessage =
   | { type: 'sessionTagSet'; sessionId: string; tagId: string | null }
   /** Sessions 面板：批量设置标签组（整组「移出分组」等；单次持久化）。 */
   | { type: 'sessionTagSetMany'; sessionIds: string[]; tagId: string | null }
-  /** Sessions 面板：新建自建标签组（名称 trim 后非空且不重名；webview 已校验）。 */
-  | { type: 'sessionTagCreate'; name: string }
-  /** Sessions 面板：重命名自建标签组（预设组不可改名，webview 不提供入口）。 */
-  | { type: 'sessionTagRename'; tagId: string; name: string }
-  /** Sessions 面板：删除自建标签组（组内会话回到未分组；预设组拒绝）。 */
+  /** Sessions 面板：请求新建自建标签组——host 弹输入框（校验后 store.createTag）。 */
+  | { type: 'sessionTagCreatePrompt' }
+  /** Sessions 面板：请求重命名自建标签组——host 弹输入框（预填当前名；预设组无此入口）。 */
+  | { type: 'sessionTagRenamePrompt'; tagId: string; name: string }
+  /** Sessions 面板：删除自建标签组（host 弹确认；组内会话回到未分组；预设组拒绝）。 */
   | { type: 'sessionTagDelete'; tagId: string }
   /** Sessions 面板：持久化标签组顺序（拖拽结束后提交全量顺序）。 */
   | { type: 'sessionTagReorder'; tagIds: string[] }
