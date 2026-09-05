@@ -20,6 +20,7 @@ import type {
   ChatState,
   ChatTodoItem,
   ChatToolBlock,
+  ChatTurnUsage,
   ChatUserMessage,
   CommitInfoResult,
   FromWebviewMessage,
@@ -4928,6 +4929,9 @@ function renderAssistantActions(m: ChatAssistantMessage): HTMLElement {
   // Turn-level timing rides the action row's tail (web parity: TurnTailNodeView
   // renders 时钟 + 用时/首 token/吞吐 after the icons with clock="end").
   if (m.timing) actions.appendChild(renderTurnTiming(m.timing))
+  // Token 用量药丸（web parity: TurnUsagePanel）——只有 host 可证明的精确聚合
+  // 才带上（usage 缺省 = 缺边界/计数不安全，药丸不渲染）。
+  if (m.usage) actions.appendChild(renderTurnUsagePill(m.usage))
   return actions
 }
 
@@ -4979,6 +4983,150 @@ function renderTurnTiming(timing: NonNullable<ChatAssistantMessage['timing']>): 
     wrap.appendChild(document.createTextNode(part))
   }
   return wrap
+}
+
+/**
+ * Token 用量药丸（web parity: TurnUsagePanel 的 trigger「用量 N tokens」）：
+ * 点击弹锚定小窗（复用全局 .popover 基建，outside-dismiss / Esc 关闭）。
+ */
+function renderTurnUsagePill(usage: ChatTurnUsage): HTMLElement {
+  const pill = buttonEl('msg-usage-pill', t('Usage {0}', formatCompactTokens(usage.totalTokens)))
+  pill.title = t('Turn usage')
+  pill.setAttribute('aria-haspopup', 'dialog')
+  pill.setAttribute('aria-expanded', 'false')
+  pill.addEventListener('click', () => {
+    const expanded = pill.getAttribute('aria-expanded') === 'true'
+    if (expanded) {
+      closePopover()
+    } else {
+      showPopover(pill, renderTurnUsagePanel(usage), 'above')
+      pill.setAttribute('aria-expanded', 'true')
+    }
+  })
+  // 弹层关闭（outside 点击 / Esc / blur）后回滚 pill 的 aria-expanded。
+  const observer = new MutationObserver(() => {
+    if (popover === null) pill.setAttribute('aria-expanded', 'false')
+  })
+  observer.observe(document.body, { childList: true })
+  return pill
+}
+
+/** 用量明细弹窗内容（字段对齐官方 TurnUsagePanel 的 dl 列）。 */
+function renderTurnUsagePanel(usage: ChatTurnUsage): HTMLElement {
+  const panel = el('div', 'usage-panel')
+  const title = el('div', 'usage-panel-title')
+  title.appendChild(el('span', 'usage-panel-title-label', t('Turn usage')))
+  title.appendChild(el('span', 'usage-panel-title-value', formatExactTokens(usage.totalTokens)))
+  panel.appendChild(title)
+  panel.appendChild(el('div', 'usage-panel-rule'))
+  const dl = el('dl', 'usage-panel-details')
+  const routes = (usage.routes ?? []).map((r) => `${r.provider}/${r.model}`).join(', ')
+  if (routes) {
+    dl.appendChild(el('dt', undefined, t('Provider / model')))
+    dl.appendChild(el('dd', 'usage-panel-route', routes))
+  }
+  // 缓存命中率只在缓存桶可证明时显示（缺省 = 未知，不在 UI 上标 0%）。
+  const cacheHit =
+    usage.cacheReadTokens !== undefined
+      ? formatCacheHitPercent(usage.cacheReadTokens, usage.totalTokens - usage.outputTokens, 1)
+      : null
+  if (cacheHit !== null) {
+    dl.appendChild(el('dt', undefined, t('Cache hit')))
+    dl.appendChild(el('dd', undefined, `${cacheHit}%`))
+  }
+  dl.appendChild(el('dt', undefined, t('Uncached input')))
+  dl.appendChild(el('dd', undefined, formatExactTokens(usage.uncachedInputTokens)))
+  if (usage.cacheReadTokens !== undefined) {
+    dl.appendChild(el('dt', undefined, t('Cached input')))
+    dl.appendChild(el('dd', undefined, formatExactTokens(usage.cacheReadTokens)))
+  }
+  if (usage.cacheWriteTokens !== undefined) {
+    dl.appendChild(el('dt', undefined, t('Cache write')))
+    dl.appendChild(el('dd', undefined, formatExactTokens(usage.cacheWriteTokens)))
+  }
+  dl.appendChild(el('dt', undefined, t('Output')))
+  const output = el('dd', undefined, formatExactTokens(usage.outputTokens))
+  if (usage.reasoningTokens !== undefined) {
+    output.appendChild(el('span', 'usage-panel-reasoning', t('({0} reasoning)', formatExactTokens(usage.reasoningTokens))))
+  }
+  dl.appendChild(output)
+  panel.appendChild(dl)
+  return panel
+}
+
+/** 官方 formatTokens：整数 / 12.2K / 517K / 1.2M（≥100 取整，其余一位小数）。 */
+function formatCompactTokens(value: number): string {
+  const scaled = (candidate: number): string =>
+    candidate >= 100 ? String(Math.round(candidate)) : String(Math.round(candidate * 10) / 10)
+  if (value < 1_000) return String(value)
+  if (value < 1_000_000) return t('{0}K', scaled(value / 1_000))
+  return t('{0}M', scaled(value / 1_000_000))
+}
+
+/** 官方 formatExactTokens：三位分组的精确整数。 */
+function formatExactTokens(value: number): string {
+  const digits = String(value)
+  const groups: string[] = []
+  for (let end = digits.length; end > 0; end -= 3) groups.unshift(digits.slice(Math.max(0, end - 3), end))
+  return groups.join(',')
+}
+
+/** 官方 roundedPercentUnits：按百分比单位向上取整的精确比较。 */
+function roundedPercentUnits(cacheReadTokens: number, denominator: number, decimalPlaces: number): number {
+  const scale = (decimalPlaces === 0 ? 1 : 10) * 100
+  const doubledScale = scale * 2
+  const denominatorQuotient = Math.floor(denominator / doubledScale)
+  const denominatorRemainder = denominator % doubledScale
+  let lower = 0
+  let upper = scale
+  while (lower < upper) {
+    const candidate = Math.floor((lower + upper + 1) / 2)
+    const factor = candidate * 2 - 1
+    if (cacheReadTokens >= factor * denominatorQuotient + Math.ceil((factor * denominatorRemainder) / doubledScale)) {
+      lower = candidate
+    } else {
+      upper = candidate - 1
+    }
+  }
+  return lower
+}
+
+function displayPercentUnits(units: number, decimalPlaces: number): string {
+  if (decimalPlaces === 0) return String(units)
+  const whole = Math.floor(units / 10)
+  const tenths = units % 10
+  return tenths === 0 ? String(whole) : `${whole}.${tenths}`
+}
+
+/**
+ * 官方 formatCacheHitPercent：精确缓存命中百分比；部分命中要「诚实」——若
+ * 一位小数会把它舍成 100%，自动提升位数直到能区分（99.9…）。无 prompt 输入
+ * （分母 0）返回 null，UI 不显示。
+ */
+function formatCacheHitPercent(cacheReadTokens: number, promptTokens: number, decimalPlaces = 0): string | null {
+  if (promptTokens === 0) return null
+  const missedInputTokens = promptTokens - cacheReadTokens
+  if (missedInputTokens === 0) return '100'
+  const roundedUnits = roundedPercentUnits(cacheReadTokens, promptTokens, decimalPlaces)
+  if (roundedUnits < (decimalPlaces === 0 ? 100 : 1_000)) return displayPercentUnits(roundedUnits, decimalPlaces)
+  let distinguishingPlaces = 1
+  let scaledDoubleGap = missedInputTokens * 200
+  const denominatorTens = Math.floor(promptTokens / 10)
+  while (scaledDoubleGap <= denominatorTens) {
+    scaledDoubleGap *= 10
+    distinguishingPlaces += 1
+  }
+  const denominatorOnes = promptTokens % 10
+  let roundedLoss = 5
+  for (let loss = 1; loss < 5; loss += 1) {
+    const factor = loss * 2 + 1
+    const threshold = factor * denominatorTens + Math.floor((factor * denominatorOnes) / 10)
+    if (scaledDoubleGap <= threshold) {
+      roundedLoss = loss
+      break
+    }
+  }
+  return `99.${'9'.repeat(distinguishingPlaces - 1)}${10 - roundedLoss}`
 }
 
 /** 官方 formatRunDuration：分钟级「2分42秒」，秒级「12秒」。 */

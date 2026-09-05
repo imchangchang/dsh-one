@@ -2309,7 +2309,60 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     interact: `document.querySelectorAll('.msg.context').forEach((d) => { d.open = true })`,
     title: '上下文注入：6 种 form 结构化 body',
     expect: '逐条带「（已随消息注入）」折叠卡的上下文（可展开，展开后 body 在 141px 内滚动）：① 工作区指令（instructions）→ [set/replace/remove] 文件变更列表（等宽字体），下方保留注入正文；② Runtime context（catalog）→ 顶部「目录已替换」提示 + 能力目录 entries（名称粗体 + 描述），下方保留正文；③ Runtime context（snapshot）→ 顶部「本快照取代先前版本」说明 + 分段（name 标题 + 正文）；④ Runtime context（notice）→ 折叠行 summary 追加「后台子代理完成通知」，展开后仅正文；⑤ Runtime context（relay）→「来自会话 sess-9」一行 + 正文；⑥ 跨会话召回（recall，行首 ReferenceIcon 聊天气泡图标）→ 每个召回会话「label · 保留 X / 省略 Y」+「已截断」标记 + 正文；⑦ 未知 form（mystery）→ 退化为纯正文（无结构化列表）。所有折叠卡行首图标：recall 用聊天气泡，其余用浏览图标；折叠头正文不换行溢出。',
-  }
+  },
+
+  'turn-usage-detail': {
+    state: base({
+      messages: [
+        u('帮我看看这里有没有内存泄漏。'),
+        {
+          kind: 'assistant', id: rid('a'), complete: true, turnEnd: true,
+          blocks: [{ type: 'text', text: '检查了 EventEmitter 的 dispose 路径：reload 断线重连时旧订阅未移除，会累积 listener。' }],
+          timing: {
+            time: Date.now(), runMs: 162000, ttftMs: 1200, tokensPerSecond: 45.2,
+          },
+          // 精确聚合：1048+512+96+1234 = 2890；缓存命中 512/1656 ≈ 30.9%。
+          usage: {
+            uncachedInputTokens: 1048,
+            outputTokens: 1234,
+            totalTokens: 2890,
+            cacheReadTokens: 512,
+            cacheWriteTokens: 96,
+            reasoningTokens: 432,
+            routes: [
+              { provider: 'deepseek', model: 'deepseek-v4-flash' },
+              { provider: 'deepseek', model: 'deepseek-chat' },
+            ],
+          },
+        },
+        u('那怎么修复？'),
+        // 第二条已结束回答没有可证明的用量（缺边界语义）：不渲染药丸。
+        {
+          kind: 'assistant', id: rid('a'), complete: true, turnEnd: true,
+          blocks: [{ type: 'text', text: '在 dispose() 里先移除订阅再释放 emitter，并给重连路径加复用标志。' }],
+          timing: { time: Date.now(), runMs: 90000 },
+        },
+      ],
+    }),
+    interact: `document.querySelector('.msg-actions .msg-usage-pill').click()`,
+    title: 'token 用量明细：药丸 + 锚定弹窗',
+    expect: '第一条已结束回答的操作栏尾部分别显示：计时行（用时 2分42秒 · 首 token 1.2秒 · 45.2 tok/s 等）、用量药丸「Usage 2.9K」；点击药丸后锚定小窗在药丸上方展开：标题「Turn usage」+ 精确总量 2,890；分隔线下四行明细：Provider / model → deepseek/deepseek-v4-flash, deepseek/deepseek-chat；Cache hit → 30.9%；Uncached input → 1,048；Cached input → 512；Cache write → 96；Output → 1,234（其中推理 432，灰字小号）。第二条回答（无可证明用量）无药丸，只有计时行。outside 点击/ Esc 关闭弹窗。',
+  },
+
+  'turn-usage-no-buckets': {
+    state: base({
+      messages: [
+        u('只用输出计数一条样本。'),
+        {
+          kind: 'assistant', id: rid('a'), complete: true, turnEnd: true,
+          blocks: [{ type: 'text', text: '这类样本没有输入/缓存计数，官方语义下无法证明，药丸不出现。' }],
+          timing: { time: Date.now(), runMs: 5000 },
+        },
+      ],
+    }),
+    title: 'token 用量明细：缺计数不显示药丸（缺省语义）',
+    expect: '已结束回答的操作栏只有计时行（时钟 + 用时 5秒），没有「Usage」药丸；无任何弹窗触发入口。',
+  },
 
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"

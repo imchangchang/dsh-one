@@ -864,6 +864,37 @@ const STYLE = `
     color: var(--vscode-descriptionForeground, #888);
   }
   .msg-timing .msg-timing-dot { margin: 0 10px; }
+  /* Token 用量药丸（web parity: TurnUsagePanel trigger）：与计时行同排，可点
+     弹锚定明细窗；hover 提亮（与官方 pill 的「无边框、哑光标签」一致）。 */
+  .msg-actions .msg-usage-pill {
+    flex: none; margin: 0; padding: 0 8px; white-space: nowrap;
+    font-size: 12px; line-height: 22px; font-variant-numeric: tabular-nums;
+    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
+    border-radius: 11px; background: transparent; cursor: pointer;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .msg-actions .msg-usage-pill:hover { color: var(--vscode-foreground); }
+  /* 用量明细弹窗（TurnUsagePanel 同款 dl 列：左标签右数值）。 */
+  .usage-panel { min-width: 240px; padding: 6px 8px 2px; font-size: 12px; }
+  .usage-panel-title {
+    display: flex; align-items: baseline; gap: 8px; padding: 0 2px;
+  }
+  .usage-panel-title-label { font-weight: 500; }
+  .usage-panel-title-value {
+    margin-left: auto; font-variant-numeric: tabular-nums;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .usage-panel-rule {
+    height: 1px; margin: 6px 2px; background: var(--vscode-panel-border, rgba(127,127,127,.35));
+  }
+  .usage-panel-details {
+    display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0;
+    padding: 0 2px 6px;
+  }
+  .usage-panel-details dt { color: var(--vscode-descriptionForeground, #888); }
+  .usage-panel-details dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .usage-panel-details .usage-panel-route { color: var(--vscode-descriptionForeground, #888); }
+  .usage-panel-reasoning { margin-left: 4px; opacity: 0.65; }
   /* Pending 接管面板（approval/question/plan-review 挂 composer 区，对齐 dsh
      web QuestionFlow / PlanReviewPanel）：容器占输入区位置，一个 pending 一块。 */
   .pending-panel {

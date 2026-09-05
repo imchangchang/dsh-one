@@ -23,6 +23,7 @@ import type {
   ContextForm,
 } from './chatContract.ts'
 import { attachmentBaseName, isImagePath } from './composerAttachment.ts'
+import { TurnUsageFold } from './turnUsage.ts'
 
 /** Subset of dsh-llm's StreamChunk the folder folds. */
 export type StreamChunkData =
@@ -488,6 +489,12 @@ export class ConversationFolder {
   private firstToken = new Map<string, number>()
   /** `${turn}:${step}` → assistant/message event time + its usage outputTokens. */
   private stepCompleted = new Map<string, { time: number; outputTokens: number | null }>()
+  /**
+   * Turn → 用量 fold（官方 deriveTurnTokenUsage 语义，见 src/pure/turnUsage.ts）：
+   * 只在窗口内看到 turn/start 时才建（turn/start 不在窗口 = 缺边界，整项缺省），
+   * turn/end 时取结果并删除。
+   */
+  private turnUsage = new Map<number, TurnUsageFold>()
 
   /** Reset and fold a full history window (initial load / re-baseline). */
   applyHistory(entries: readonly HistoryEntryLike[]): void {
@@ -507,6 +514,7 @@ export class ConversationFolder {
     this.stepStart.clear()
     this.firstToken.clear()
     this.stepCompleted.clear()
+    this.turnUsage.clear()
     for (const entry of entries) this.applyEvent(entry.event, entry.view)
   }
 
@@ -535,6 +543,12 @@ export class ConversationFolder {
         // Timing baseline: runMs needs the turn start inside the window.
         if (typeof event.time === 'number' && typeof data.turn === 'number') {
           this.turnStart.set(data.turn, event.time)
+        }
+        // 用量 fold：turn/start 在窗口内才建（缺边界 → 整项缺省）。
+        if (typeof data.turn === 'number' && Number.isFinite(data.turn)) {
+          const fold = new TurnUsageFold()
+          fold.fold(event)
+          this.turnUsage.set(data.turn, fold)
         }
         return true
       }
@@ -616,6 +630,17 @@ export class ConversationFolder {
           if (typeof event.time === 'number' && Number.isFinite(Number(data.turn))) {
             const timing = this.turnTimingOf(Number(data.turn), event.time)
             if (timing) msg.timing = timing
+          }
+          // 用量明细（官方 TurnUsagePanel 数据源）：fold 收边后取结果；不可证明
+          // 时整项缺省（宁可不出，不虚报）。turn/end 无承载消息时丢弃。
+          if (Number.isFinite(Number(data.turn))) {
+            const fold = this.turnUsage.get(Number(data.turn))
+            if (fold) {
+              fold.fold(event)
+              const usage = fold.result()
+              if (usage) msg.usage = usage
+              this.turnUsage.delete(Number(data.turn))
+            }
           }
         }
         this.current = null
@@ -700,11 +725,19 @@ export class ConversationFolder {
         if (typeof event.time === 'number' && typeof data.turn === 'number' && typeof data.step === 'number') {
           this.stepStart.set(`${data.turn}:${data.step}`, event.time)
         }
+        this.feedUsageFold(event)
         return false
       }
+      // step/end 不进对话流（无用消息副作用），但用量 fold 的尝试生命周期
+      // 依赖它（官方 step/end 关闭 open attempt）。
+      case 'step/end':
+        this.feedUsageFold(event)
+        return false
       case 'assistant/chunk':
+        this.feedUsageFold(event)
         return this.applyChunk(event.data as ChunkEventData, event.seq, event.time)
       case 'assistant/message':
+        this.feedUsageFold(event)
         return this.applyAssistantMessage(event.data as AssistantMessageEventData, event.seq, event.time)
       case 'tool/call':
         return this.applyToolCall(event.data as ToolCallEventData, view, event.seq)
@@ -730,6 +763,7 @@ export class ConversationFolder {
         // Durable record of one provider-routed retry scheduled after a failed
         // request attempt. 折叠成承载 turn 的消息里的重试行（对齐官方
         // ModelRetryItem）；同 retryId 的后续尝试原地更新（保持首次位置）。
+        this.feedUsageFold(event)
         const r = (data as { retryId?: unknown }).retryId
         if (typeof r !== 'string' || !r) return false
         const failure = (data as { failure?: unknown }).failure as { message?: unknown } | undefined
@@ -764,6 +798,7 @@ export class ConversationFolder {
       }
       case 'llm/retry-started': {
         // Durable transition: the retry wait succeeded, the next attempt starts.
+        this.feedUsageFold(event)
         const r = (data as { retryId?: unknown }).retryId
         if (typeof r !== 'string' || !r) return false
         const entry = this.retries.get(r)
@@ -790,6 +825,15 @@ export class ConversationFolder {
   /** Renderable snapshot. The live array is returned; postMessage serializes it. */
   messages(): ChatMessage[] {
     return this.msgs
+  }
+
+  /** Feed a turn-scoped event to the open usage fold of the matching turn (if any). */
+  private feedUsageFold(event: SessionEventLike): void {
+    const data = (event.data ?? {}) as Record<string, unknown>
+    const turn = Number(data.turn)
+    if (!Number.isFinite(turn)) return
+    const fold = this.turnUsage.get(turn)
+    if (fold) fold.fold(event)
   }
 
   /** A turn without its turn/end: the session is mid-turn. */

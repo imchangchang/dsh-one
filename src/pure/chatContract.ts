@@ -235,6 +235,14 @@ export interface ChatAssistantMessage {
   /** The user's stored rating for this message (messageFeedback/list), if any. */
   feedbackRating?: 'positive' | 'negative'
   /**
+   * Turn 级精确 token 用量（官方 TurnUsagePanel 数据源语义：
+   * dsh-token-meter 的 deriveTurnTokenUsage 折叠 turn/start→turn/end 间每
+   * 次尝试的 usage 样本）。只在 turn/start 在窗口内、尝试生命周期完整且计数
+   * 自洽时存在——缺边界或计数不安全整项缺省（宁可不出，不虚报），webview
+   * 此时不渲染药丸。只挂 turnEnd 消息（与 timing 同行）。
+   */
+  usage?: ChatTurnUsage
+  /**
    * Turn-level timing folded at turn/end (web parity: TurnTailNodeView's
    * 时钟 + 用时/首 token/吞吐). Only the turn's final message carries it;
    * the webview renders the present parts after the action icons.
@@ -243,6 +251,34 @@ export interface ChatAssistantMessage {
    * matching the official client's window-scoped derivation.
    */
   timing?: ChatTurnTiming
+}
+
+/** One provider/model route that contributed a billed request attempt (官方 TurnTokenUsageRoute）。 */
+export interface ChatTurnUsageRoute {
+  readonly provider: string
+  readonly model: string
+}
+
+/**
+ * Exact provider-reported token accounting for every attempt in one completed
+ * Turn（官方 TurnTokenUsage 同形状；字段语义与缺省规则照搬：
+ * totalTokens 是各次尝试精确总量之和；缓存/推理桶只在「每次尝试都上报了该
+ * 桶」时才出现；routes 只在「每次计费尝试都有 provider/model 归属」时才出现）。
+ */
+export interface ChatTurnUsage {
+  /** Sum of uncached prompt input across all attempts. */
+  readonly uncachedInputTokens: number
+  readonly outputTokens: number
+  /** Exact aggregate prompt plus output total across all attempts. */
+  readonly totalTokens: number
+  /** Present only when every attempt reported the bucket. */
+  readonly cacheReadTokens?: number
+  /** Present only when every attempt reported the bucket. */
+  readonly cacheWriteTokens?: number
+  /** Output subset, present only when every attempt reported it. */
+  readonly reasoningTokens?: number
+  /** Present only when every billed attempt has provider/model attribution. */
+  readonly routes?: readonly ChatTurnUsageRoute[]
 }
 
 /** Turn-level timing metrics derived by the folder at turn/end (see ChatAssistantMessage.timing). */
