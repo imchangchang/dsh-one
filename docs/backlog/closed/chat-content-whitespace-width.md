@@ -18,4 +18,4 @@
 - 2026-09-05 认领（open -> doing）：主线直接开发（worktree chat-content-width）；纯 CSS 限宽（748px 居中 + 窄屏自适应）；harness 1280/700px 渲染核对（Copy 按钮分离、工具卡/消息布局不破）
 - 2026-09-05 开发完成（doing -> done）：typecheck/567 单测/build 全绿；ledger 4 项全过；真机 reload 复核由用户完成
 
-- 2026-09-05 合入（done -> closed）：dev-merge 合入 main；ledger 4 项全过、审查通过（1280/700px 截图核对）；真机 reload 复核交用户。本修复属 1.1.1 而非 1.2.0（UI 小修随 rc 补丁走，若 1.2.0 前发版则并入）。
+- 2026-09-05 合入（done -> closed）：dev-merge 合入 main；ledger 4 项全过、审查通过（1280/700px 截图核对）；真机 reload 复核交用户。版本归属待用户定：1.2.0 修复集合与发布节奏由用户另行指示。
