@@ -3922,7 +3922,18 @@ function renderQueueItem(item: QueuedItem): HTMLElement {
     return row
   }
 
-  row.appendChild(el('span', 'queue-text', item.text || t('(empty message)')))
+  // 预览与插话/正式气泡同款拆分：canonical mention（@[标题](dsh-session:…)）
+  // 展开成可读 @label + references，渲染成会话 chip（短标题、title 完整引用）；
+  // @path/@folder 折叠成 basename chip——长 URI/路径不再把两行 clamp 占满、正文被
+  // `...` 吞没。计数前缀（[image ×N] 等）与无引用文本保持纯文本。
+  const preview = el('span', 'queue-text')
+  if (item.text) {
+    const { text: readable, references } = parseSessionMentions(item.text)
+    preview.appendChild(renderUserBubbleParts(readable, references).bubble)
+  } else {
+    preview.textContent = t('(empty message)')
+  }
+  row.appendChild(preview)
   const actions = el('div', 'queue-actions')
   const steer = buttonEl('link', t('Steer'))
   steer.title = t('Interrupt the current turn and steer with this message')
