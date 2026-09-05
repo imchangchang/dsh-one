@@ -1384,9 +1384,10 @@
       expect: '底部入口行（抽屉收起态）= 主区「🗑 Recycle bin + 计数徽标 3」+ 右侧常驻两个小图标按钮（清空 = 垃圾桶、恢复全部 = undo 箭头，26px 见方，悬停有提示）。两张分步截图对照——① <scenario>-restore-all.png：点恢复全部后无红色断言横幅（断言：__posted 含 sessionsRestoreAll 且抽屉未打开）；mock 宿主不更新快照，列表与计数不变。② <scenario>-empty-modal.png：点清空后弹出归档确认 modal（标题「Empty the recycle bin (3 sessions)?」+ 说明 + 按分组列出 3 个会话 + Cancel/Archive），抽屉仍未打开；无红色断言横幅。',
     },
 
-    // 提手点击 = 收起抽屉（用户拍板：横条不能「点了没反应」）。合成 pointerdown/up
-    // （不移动）模拟点击；settle 等收起动画（200ms）播完、节点移除后再截图。
-    'sessions-recycle-handle-collapse': {
+    // 提手交互：点击 = 收起抽屉（用户拍板：横条不能「点了没反应」）；拖动语义回归
+    // （上拉扩到 90% / 下拉到底关闭）。合成 pointerdown/move/up 模拟（setPointerCapture
+    // 对合成事件会抛，源码已 try/catch 兜底）；settle 等收起动画（200ms）播完再截图。
+    'sessions-recycle-handle': {
       view: 'sessions',
       sessions: (() => {
         const s = window.sessionsTree()
@@ -1414,19 +1415,55 @@
           settle: 300,
         },
         {
-          name: 'collapsed',
+          name: 'drag-expand',
           script: `
             const h = document.querySelector('.recycle-drawer-handle')
             if (h) {
               const r = h.getBoundingClientRect()
-              const opts = { bubbles: true, button: 0, pointerId: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }
+              const base = { bubbles: true, button: 0, pointerId: 1, clientX: r.left + r.width / 2 }
+              h.dispatchEvent(new PointerEvent('pointerdown', { ...base, clientY: r.top + 8 }))
+              h.dispatchEvent(new PointerEvent('pointermove', { ...base, clientY: r.top + 8 - 200 }))
+              h.dispatchEvent(new PointerEvent('pointerup', { ...base, clientY: r.top + 8 - 200 }))
+            }
+            const ok = !!h && !!document.querySelector('.recycle-drawer.expanded')
+            if (!ok) {
+              const d = document.createElement('div')
+              d.textContent = 'HANDLE DRAG-EXPAND ASSERT FAILED'
+              d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+              document.body.appendChild(d)
+            }
+          `,
+          settle: 300,
+        },
+        {
+          name: 'reopen',
+          script: `
+            // 先收起（点击提手），再重新打开，回到半高默认档
+            const h = document.querySelector('.recycle-drawer-handle')
+            if (h) {
+              const r = h.getBoundingClientRect()
+              const opts = { bubbles: true, button: 0, pointerId: 1, clientX: r.left + r.width / 2, clientY: r.top + 8 }
+              h.dispatchEvent(new PointerEvent('pointerdown', opts))
+              h.dispatchEvent(new PointerEvent('pointerup', opts))
+            }
+            setTimeout(() => document.querySelector('.recycle-entry-main')?.click(), 300)
+          `,
+          settle: 800,
+        },
+        {
+          name: 'click-collapse',
+          script: `
+            const h = document.querySelector('.recycle-drawer-handle')
+            if (h) {
+              const r = h.getBoundingClientRect()
+              const opts = { bubbles: true, button: 0, pointerId: 1, clientX: r.left + r.width / 2, clientY: r.top + 8 }
               h.dispatchEvent(new PointerEvent('pointerdown', opts))
               h.dispatchEvent(new PointerEvent('pointerup', opts))
             }
             const ok = !!h && !document.querySelector('.recycle-drawer.open')
             if (!ok) {
               const d = document.createElement('div')
-              d.textContent = 'HANDLE COLLAPSE ASSERT FAILED'
+              d.textContent = 'HANDLE CLICK-COLLAPSE ASSERT FAILED'
               d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
               document.body.appendChild(d)
             }
@@ -1434,8 +1471,8 @@
           settle: 400,
         },
       ],
-      title: '侧栏面板（提手点击收起回收站抽屉）',
-      expect: '两张分步截图对照——① <scenario>-open.png：抽屉滑出半高（提手横条 + 抽屉头 + 分组列表）。② <scenario>-collapsed.png：对提手横条发 pointerdown+pointerup（不移动 = 点击）后抽屉完全收起、节点已移除，回到普通主列表（底部入口行在位，右侧两个快捷图标按钮可见）；无红色断言横幅（断言：recycle-drawer.open 已不存在）。',
+      title: '侧栏面板（回收站提手：拖动扩大 + 点击收起）',
+      expect: '四张分步截图对照——① <scenario>-open.png：抽屉滑出半高（提手横条 + 抽屉头 + 分组列表）。② <scenario>-drag-expand.png：提手上拖 200px 后抽屉扩到 90% 档（.expanded，主列表只剩顶部一条可见），无红色断言横幅（断言：recycle-drawer.expanded 存在）。③ <scenario>-reopen.png：点击提手收起后重新打开，抽屉回到半高默认档。④ <scenario>-click-collapse.png：对提手发 pointerdown+pointerup（不移动 = 点击）后抽屉完全收起、节点已移除，回到普通主列表（底部入口行在位，右侧两个快捷图标按钮可见）；无红色断言横幅（断言：recycle-drawer.open 已不存在）。',
     },
 
     'sessions-menu-busy': {
@@ -3112,6 +3149,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'model-picker-effort-default', 'sessions',
     'sessions-search', 'sessions-collapsed', 'sessions-recycle-drawer',
+    'sessions-recycle-entry-actions', 'sessions-recycle-handle',
     'sessions-workspace-menu-groups',
     'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',
     'sessions-selection-exit-recycle', 'sessions-selection-exit-archive',
