@@ -78,3 +78,5 @@ renderSessions 整列表重建。
   editor / goal input / 侧栏组管理两输入 / 侧栏行内 rename 共 5 处 IME 中断缺口、
   panel-answer 1 处文本丢失缺口 → 条目改为总条目并重命名
   （rename-input-stream-interrupt → input-keepalive-coverage-gaps）
+
+- 2026-09-06 认领（worktree: agent/input-keepalive）→ doing
