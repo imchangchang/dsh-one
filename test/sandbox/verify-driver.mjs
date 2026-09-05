@@ -21,6 +21,16 @@
 // 注意：本脚本在宿主侧用 Playwright 驱动 code-server 浏览器页面；沙盒内嵌的同源 webview
 // iframe（`#active-frame`）会被宿主反复重建，所以对 frame 的操作必须**即时重新扫描**
 // `page.frames()`，不能缓存 FrameHandle。
+//
+// 挂死防护（根因：Playwright 已知缺陷 microsoft/playwright#40511——对「挂起导航、尚无执行
+// 上下文」的 iframe 调 evaluate()/locator.count() 永不返回，不 resolve 也不 reject，
+// try/catch 与循环墙钟都兜不住；evaluate 的 {timeout} 选项实测被忽略）：
+//   1. 所有帧扫描循环跳过空 URL 帧（isLiveFrame）——空 URL = 挂起导航帧；
+//   2. 所有无超时调用（evaluate/count/isVisible）套 bounded() 竞速看门狗（默认 10s）；
+//      watchdog 超时错误（err.watchdog=true）在扫描循环里重抛，由条目级 catch 转成
+//      该项 fail + notes 记录帧快照诊断，不静默吞掉重试（吞掉会卡到外层边界且无诊断）；
+//   3. 每项整体 5min 硬上限（ITEM_HARD_TIMEOUT）兜底——任何情况进程都会结束；
+//   4. 首项前冒烟预热（耗掉 dsh 冷启动的挂起导航窗口）+ 有 fail 项时整轮自动重试一次。
 import { chromium } from 'playwright'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -44,6 +54,7 @@ const keepOpen = args.includes('--keep-open') // 调试：最后不关浏览器
 const WORKBENCH_TIMEOUT = 30_000
 const EXPECT_TEXT_TIMEOUT = 120_000
 const PENDING_TIMEOUT = 60_000
+const ITEM_HARD_TIMEOUT = 300_000 // 每项整体硬上限 5min（全局兜底：保证进程永不结束不可能）
 
 // 注：mock-LLM 匹配器已过滤 dsh 首轮注入（<system-reminder> 包裹的上下文不算 user
 // prompt），所以首条 ledger prompt 直接命中规则，无需暖场消息（历史坑：首轮注入曾
@@ -68,14 +79,65 @@ function saveLedger() {
 // ── 通用工具 ────────────────────────────────────────────────────────────────
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+/** watchdog 超时错误（err.watchdog=true），扫描循环的 catch 靠 rethrowWatchdog 重抛它。 */
+class WatchdogError extends Error {
+  constructor(label, ms) {
+    super(`watchdog: ${label} >${ms / 1000}s 无回应（疑似挂起导航帧，playwright#40511）`)
+    this.name = 'WatchdogError'
+    this.watchdog = true
+  }
+}
+
+/**
+ * 竞速看门狗：p 超过 ms 不 settle 即 reject（带 label 诊断）。
+ * 背景：对挂起导航 iframe 的 evaluate/count 永不返回且 evaluate 的 {timeout} 选项被忽略，
+ * 唯一可靠办法是 Promise.race 竞速。竞速落败的 promise 挂在那儿之后若 reject，提前挂
+ * 空 catch，避免 unhandled rejection 干扰后续条目。
+ */
+async function bounded(p, label, ms = 10_000) {
+  let t
+  try {
+    return await Promise.race([
+      p,
+      new Promise((_, rej) => {
+        t = setTimeout(() => {
+          p.catch(() => {})
+          rej(new WatchdogError(label, ms))
+        }, ms)
+      }),
+    ])
+  } finally { clearTimeout(t) }
+}
+
+/** 扫描循环共用 catch 判定：watchdog 超时重抛（交条目级转 fail + 诊断），其余错误忽略续扫。 */
+function rethrowWatchdog(e) {
+  if (e && e.watchdog) throw e
+}
+
+/** 挂起导航帧（url()==''）上的 evaluate/count 会永久挂死，扫描时直接跳过，下轮重扫。 */
+function isLiveFrame(f) {
+  return !!f.url()
+}
+
+/** 帧快照诊断：列出各帧 URL（空 URL 单独标记），挂死类问题再现时的关键现场。 */
+function frameSnapshot(page) {
+  const lines = page.frames().map((f, i) => {
+    const url = f.url()
+    return `  [${i}] ${url || '(空 URL = 挂起导航帧)'}${f === page.mainFrame() ? ' [main]' : ''}`
+  })
+  return `帧快照（${lines.length} 帧）：\n${lines.join('\n')}`
+}
+
 /** 每调用都重新扫描 page.frames() 找满足 predicate 的新鲜 frame（帧会被宿主重建）。 */
 async function findFrame(page, predicate, timeoutMs = 10_000) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     for (const f of page.frames()) {
+      if (!isLiveFrame(f)) continue // 空 URL = 挂起导航帧，跳过
       try {
-        if (await predicate(f)) return f
-      } catch {
+        if (await bounded(predicate(f), 'findFrame predicate')) return f
+      } catch (e) {
+        rethrowWatchdog(e)
         // 帧重建间隙瞬间查空，忽略继续重试
       }
     }
@@ -105,9 +167,10 @@ function isChatFrame(f) {
 async function newChatAndGetFrame(page) {
   // 主路径：侧边栏面板头部「New Chat (⌘N)」（随时可见，不依赖 hover 行揭示）
   for (const root of [page, ...page.frames()]) {
+    if (!root.url()) continue // 挂起导航帧跳过（page 自身 url 非空，不受影响）
     try {
       const newBtn = root.locator('[aria-label^="New Chat"]').locator('visible=true').first()
-      if ((await newBtn.count()) === 0) continue
+      if ((await bounded(newBtn.count(), 'newChat 头部按钮 count')) === 0) continue
       await newBtn.click({ timeout: 5_000 })
       const chat = await findFrame(page, isChatFrame, 30_000)
       if (chat) return { chat, source: 'pane-header New Chat' }
@@ -163,10 +226,12 @@ async function waitForText(page, expectText, timeoutMs) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     for (const f of page.frames()) {
+      if (!isLiveFrame(f)) continue
       try {
-        const n = await f.locator('body').filter({ hasText: expectText }).count()
+        const n = await bounded(f.locator('body').filter({ hasText: expectText }).count(), `waitForText count（${expectText}）`)
         if (n > 0) return true
-      } catch {
+      } catch (e) {
+        rethrowWatchdog(e)
         // 帧重建瞬间忽略
       }
     }
@@ -180,6 +245,7 @@ async function waitForText(page, expectText, timeoutMs) {
  *  用于 hoverText 驱动字段——截图前把卡片弹出，让报告里能看到卡内容。 */
 async function hoverTextInFrame(page, text) {
   for (const f of page.frames()) {
+    if (!isLiveFrame(f)) continue
     try {
       const chip = f.locator('.commit-hash').filter({ hasText: text }).first()
       await chip.waitFor({ state: 'visible', timeout: 20_000 })
@@ -198,10 +264,12 @@ async function hoverTextInFrame(page, text) {
 /** 扫描全部 frame：弹层里的 commit 卡当前是否可见（hoverSustainMs 轮询用）。 */
 async function popoverCommitCardVisible(page) {
   for (const f of page.frames()) {
+    if (!isLiveFrame(f)) continue
     try {
-      const n = await f.locator('.popover .commit-card').count()
+      const n = await bounded(f.locator('.popover .commit-card').count(), 'popoverCommitCardVisible count')
       if (n > 0) return true
-    } catch {
+    } catch (e) {
+      rethrowWatchdog(e)
       // 帧重建瞬间忽略
     }
   }
@@ -233,14 +301,16 @@ async function approvePending(page, texts) {
     let clicked = false
     while (Date.now() - start < PENDING_TIMEOUT) {
       for (const f of page.frames()) {
+        if (!isLiveFrame(f)) continue
         try {
           const btn = f.locator('.pending-panel button', { hasText: text }).first()
-          if ((await btn.count()) > 0 && (await btn.isVisible())) {
+          if ((await bounded(btn.count(), `approvePending count（${text}）`)) > 0 && (await bounded(btn.isVisible(), `approvePending isVisible（${text}）`))) {
             await btn.click()
             clicked = true
             break
           }
-        } catch {
+        } catch (e) {
+          rethrowWatchdog(e)
           // 帧重建瞬间忽略
         }
       }
@@ -265,9 +335,10 @@ async function fillAndClickClear(page, text) {
     await clear.waitFor({ state: 'visible', timeout: 15_000 })
     await clear.click()
     await sleep(300)
-    const value = await chat.evaluate(() => document.getElementById('input')?.value ?? null)
+    const value = await bounded(chat.evaluate(() => document.getElementById('input')?.value ?? null), 'fillAndClickClear evaluate')
     return value === ''
-  } catch {
+  } catch (e) {
+    rethrowWatchdog(e)
     return false
   }
 }
@@ -277,10 +348,12 @@ async function waitForDraft(page, expectDraft, timeoutMs) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     for (const f of page.frames()) {
+      if (!isLiveFrame(f)) continue
       try {
-        const v = await f.evaluate(() => document.getElementById('input')?.value ?? null)
+        const v = await bounded(f.evaluate(() => document.getElementById('input')?.value ?? null), 'waitForDraft evaluate')
         if (typeof v === 'string' && v.includes(expectDraft)) return true
-      } catch {
+      } catch (e) {
+        rethrowWatchdog(e)
         // 帧重建瞬间忽略
       }
     }
@@ -311,112 +384,144 @@ try {
   await page.locator('a.action-label[aria-label="DSH One"]').first().click({ timeout: 15_000 })
   await sleep(4000)
 
-  for (const item of run) {
-    const { id, driver } = item
-    console.log(`\n=== ${id}: prompt「${driver.prompt ?? ''}」→ 期望「${driver.expectText ?? ''}」==="`)
-    let result = 'done'
-    const notes = []
-    try {
-      const { chat, source } = await newChatAndGetFrame(page)
-      notes.push(`新建会话：${source}`)
-      if (driver.prompt) {
-        await sendPrompt(page, driver.prompt)
-        // 发送后立刻填草稿：pending 接管（若本轮有审批）前 composer 还在。
-        if (driver.afterSendFill) {
-          const ok = await fillAfterSend(page, driver.afterSendFill)
-          notes.push(ok ? `草稿已填入：${driver.afterSendFill}` : '草稿填入失败：pending 早于填补到达')
-          if (!ok) {
-            result = 'fail'
-            notes.push('afterSendFill 未落上：composer 已被 pending 接管（时序竞速）')
-          }
-        }
-      }
-      if (driver.approve) {
-        const ok = await approvePending(page, driver.approve)
-        notes.push(ok ? `已点击面板按钮：${JSON.stringify(driver.approve)}` : `未等到面板按钮：${JSON.stringify(driver.approve)}`)
-        if (!ok) {
-          result = 'fail'
-          notes.push(`等待 ${PENDING_TIMEOUT / 1000}s 面板按钮未出现`)
-        }
-      }
-      if (driver.expectText) {
-        const ok = await waitForText(page, driver.expectText, EXPECT_TEXT_TIMEOUT)
-        if (!ok) {
-          result = 'fail'
-          notes.push(`断言超时（${EXPECT_TEXT_TIMEOUT / 1000}s）：预期文本「${driver.expectText}」未出现`)
-        }
-      }
-      if (driver.hoverText) {
-        // 悬停含该文本的元素（commit chip 等）让悬浮卡弹出，随后截图能拍到卡片。
-        const ok = await hoverTextInFrame(page, driver.hoverText)
-        notes.push(ok ? `已悬停：${driver.hoverText}` : `悬停失败：${driver.hoverText}`)
-        if (!ok) {
-          result = 'fail'
-          notes.push('hoverText：未找到可悬停元素或状态未落地')
-        } else if (driver.hoverSustainMs) {
-          // 慢速流式回归：悬停后轮询 N ms，弹层 commit 卡必须持续在位（消息行每帧
-          // 重建会摘掉 chip 锚点，重锚失败 = 卡片闪关）。结束前 500ms 内仍可见才过。
-          const ms = Math.max(0, Number(driver.hoverSustainMs) || 0)
-          const until = Date.now() + ms
-          let lastSeen = -Infinity
-          while (Date.now() < until) {
-            if (await popoverCommitCardVisible(page)) lastSeen = Date.now()
-            await sleep(300)
-          }
-          const sustained = Date.now() - lastSeen < 500
-          notes.push(
-            sustained
-              ? `悬停后 ${ms}ms 持续在位：commit 卡在流式重建期间未闪关`
-              : `悬停后 commit 卡中途消失（${ms}ms 内曾不可见）`,
-          )
-          if (!sustained) {
-            result = 'fail'
-            notes.push('hoverSustainMs：流式重建期间 commit 卡被弹层存活检查关掉（锚点未重锚）')
-          }
-        }
-      }
-      if (driver.fillAndClear) {
-        const ok = await fillAndClickClear(page, driver.fillAndClear)
-        notes.push(ok ? `已点击清空按钮，输入框为空` : '清空按钮未生效（找不到按钮或输入框未清空）')
-        if (!ok) {
-          result = 'fail'
-          notes.push('fillAndClear：输入框未清空')
-        }
-      }
-      if (driver.expectDraft) {
-        const ok = await waitForDraft(page, driver.expectDraft, 30_000)
-        notes.push(ok ? `草稿恢复：${driver.expectDraft}` : `草稿未恢复：${driver.expectDraft}`)
-        if (!ok) {
-          result = 'fail'
-          notes.push('expectDraft：pending 应答后 composer 草稿丢失')
-        }
-      }
-    } catch (err) {
-      result = 'fail'
-      notes.push(`执行异常：${err.message}`)
-    }
-
-    // 截图（整页可见区域，保证 webview iframe 内容渲染进截图）
-    const shotPath = resolve(outDir, `${id}.png`)
-    try {
-      await page.screenshot({ path: shotPath })
-    } catch (e) {
-      notes.push(`截图失败：${e.message}`)
-    }
-
-    // 写回 ledger
-    item.result = result
-    if (notes.length) item.notes = notes.join('；')
-    item.screenshots = [shotPath]
-    saveLedger()
-
-    if (result === 'done') summary.done.push(id)
-    else summary.fail.push(id)
-    console.log(`${id} → ${result}${notes.length ? `（${item.notes}）` : ''}`)
-
-    // 关闭当前 chat tab，避免串场
-    await closeEditorTab(page)
+  // 3. 冒烟预热：新建会话 → composer 出现 → Meta+W 关闭。
+  //    dsh 由插件按需冷启动，就绪轮询期间首个会话的 webview 内容帧处于挂起导航（1-3s
+  //    窗口），先跑一轮冒烟把冷启动窗口耗掉，后续正式项不再撞窗。冒烟失败不阻断——
+  //    正式项有看门狗兜底，会 fail-fast 并带帧快照诊断。
+  console.log('\n=== 冒烟预热：新建会话 → composer → 关闭 ===')
+  try {
+    await bounded((async () => {
+      const { source } = await newChatAndGetFrame(page)
+      console.log(`冒烟通过（${source}），关闭冒烟 tab`)
+      await closeEditorTab(page)
+    })(), '冒烟预热', 120_000)
+  } catch (e) {
+    console.warn(`  [warn] 冒烟预热失败（不阻断正式项）：${e.message}`)
+    console.warn(frameSnapshot(page))
   }
+
+  // 单轮重试：有项 fail 时把 fail 项整轮自动重跑一次（冷启动/时序竞速类失败重跑即过）。
+  let round = run
+  for (let attempt = 1; attempt <= 2 && round.length; attempt++) {
+    if (attempt > 1) console.log(`\n===== 第 ${attempt} 轮：重试 fail 项 ${round.map((i) => i.id).join(', ')} =====`)
+    const failed = []
+    for (const item of round) {
+      const { id, driver } = item
+      console.log(`\n=== ${id}: prompt「${driver.prompt ?? ''}」→ 期望「${driver.expectText ?? ''}」===${attempt > 1 ? '（重试）' : ''}`)
+      let result = 'done'
+      const notes = []
+      try {
+        // 每项整体 5min 硬上限（全局兜底）：任何未预见的挂起都在这里被斩断，
+        // 转 fail + 帧快照诊断，保证「进程永不结束」不可能发生。
+        await bounded((async () => {
+          const { chat, source } = await newChatAndGetFrame(page)
+          notes.push(`新建会话：${source}`)
+          if (driver.prompt) {
+            await sendPrompt(page, driver.prompt)
+            // 发送后立刻填草稿：pending 接管（若本轮有审批）前 composer 还在。
+            if (driver.afterSendFill) {
+              const ok = await fillAfterSend(page, driver.afterSendFill)
+              notes.push(ok ? `草稿已填入：${driver.afterSendFill}` : '草稿填入失败：pending 早于填补到达')
+              if (!ok) {
+                result = 'fail'
+                notes.push('afterSendFill 未落上：composer 已被 pending 接管（时序竞速）')
+              }
+            }
+          }
+          if (driver.approve) {
+            const ok = await approvePending(page, driver.approve)
+            notes.push(ok ? `已点击面板按钮：${JSON.stringify(driver.approve)}` : `未等到面板按钮：${JSON.stringify(driver.approve)}`)
+            if (!ok) {
+              result = 'fail'
+              notes.push(`等待 ${PENDING_TIMEOUT / 1000}s 面板按钮未出现`)
+            }
+          }
+          if (driver.expectText) {
+            const ok = await waitForText(page, driver.expectText, EXPECT_TEXT_TIMEOUT)
+            if (!ok) {
+              result = 'fail'
+              notes.push(`断言超时（${EXPECT_TEXT_TIMEOUT / 1000}s）：预期文本「${driver.expectText}」未出现`)
+            }
+          }
+          if (driver.hoverText) {
+            // 悬停含该文本的元素（commit chip 等）让悬浮卡弹出，随后截图能拍到卡片。
+            const ok = await hoverTextInFrame(page, driver.hoverText)
+            notes.push(ok ? `已悬停：${driver.hoverText}` : `悬停失败：${driver.hoverText}`)
+            if (!ok) {
+              result = 'fail'
+              notes.push('hoverText：未找到可悬停元素或状态未落地')
+            } else if (driver.hoverSustainMs) {
+              // 慢速流式回归：悬停后轮询 N ms，弹层 commit 卡必须持续在位（消息行每帧
+              // 重建会摘掉 chip 锚点，重锚失败 = 卡片闪关）。结束前 500ms 内仍可见才过。
+              const ms = Math.max(0, Number(driver.hoverSustainMs) || 0)
+              const until = Date.now() + ms
+              let lastSeen = -Infinity
+              while (Date.now() < until) {
+                if (await popoverCommitCardVisible(page)) lastSeen = Date.now()
+                await sleep(300)
+              }
+              const sustained = Date.now() - lastSeen < 500
+              notes.push(
+                sustained
+                  ? `悬停后 ${ms}ms 持续在位：commit 卡在流式重建期间未闪关`
+                  : `悬停后 commit 卡中途消失（${ms}ms 内曾不可见）`,
+              )
+              if (!sustained) {
+                result = 'fail'
+                notes.push('hoverSustainMs：流式重建期间 commit 卡被弹层存活检查关掉（锚点未重锚）')
+              }
+            }
+          }
+          if (driver.fillAndClear) {
+            const ok = await fillAndClickClear(page, driver.fillAndClear)
+            notes.push(ok ? `已点击清空按钮，输入框为空` : '清空按钮未生效（找不到按钮或输入框未清空）')
+            if (!ok) {
+              result = 'fail'
+              notes.push('fillAndClear：输入框未清空')
+            }
+          }
+          if (driver.expectDraft) {
+            const ok = await waitForDraft(page, driver.expectDraft, 30_000)
+            notes.push(ok ? `草稿恢复：${driver.expectDraft}` : `草稿未恢复：${driver.expectDraft}`)
+            if (!ok) {
+              result = 'fail'
+              notes.push('expectDraft：pending 应答后 composer 草稿丢失')
+            }
+          }
+        })(), `条目 ${id} 整体执行`, ITEM_HARD_TIMEOUT)
+      } catch (err) {
+        result = 'fail'
+        notes.push(`执行异常：${err.message}`)
+        if (err.watchdog) notes.push(frameSnapshot(page))
+      }
+
+      // 截图（整页可见区域，保证 webview iframe 内容渲染进截图）
+      const shotPath = resolve(outDir, `${id}.png`)
+      try {
+        await page.screenshot({ path: shotPath })
+      } catch (e) {
+        notes.push(`截图失败：${e.message}`)
+      }
+
+      // 写回 ledger
+      item.result = result
+      if (notes.length) item.notes = notes.join('；')
+      item.screenshots = [shotPath]
+      saveLedger()
+
+      if (result !== 'done') failed.push(item)
+      console.log(`${id} → ${result}${notes.length ? `（${item.notes}）` : ''}`)
+
+      // 关闭当前 chat tab，避免串场
+      await closeEditorTab(page)
+    }
+    round = failed
+    if (round.length && attempt === 1) console.log(`\n${round.length} 项 fail，整轮自动重试一次：${round.map((i) => i.id).join(', ')}`)
+  }
+
+  // 汇总按 ledger 最终状态算（重试会覆盖首轮结果）
+  summary.done = run.filter((it) => it.result === 'done').map((it) => it.id)
+  summary.fail = run.filter((it) => it.result !== 'done').map((it) => it.id)
 } finally {
   if (!keepOpen) await browser.close()
 }
