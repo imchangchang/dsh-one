@@ -1,0 +1,86 @@
+{
+  "title": "DSH One 沙盒验收报告（model-pill-first-frame-flicker：模型 pill 打开会话首帧即显示真名）",
+  "branch": "agent/model-pill-first-frame-flicker",
+  "commit": "",
+  "environment": {
+    "mode": "真机探针（本机 dsh 0.1.2 @127.0.0.1:3080，只读 RPC）+ webview harness（ui-visual.sh，worktree 构建产物）+ 沙盒 mock-llm（0.1.1 legacy 回归）+ 单测",
+    "dsh": "0.1.2（本机真服务器，fetchModelCatalog/listSessions 探针）+ 0.1.1-rc.2（沙盒 mock-llm legacy 回归）",
+    "locale": "en（harness/sandbox）+ zh-cn（真机探针数据）",
+    "theme": "dark",
+    "image": "不适用——沙盒 mock dsh 是 0.1.1 协议，现代路径（unary session.modelCatalog + modelSelection 投影，本任务修复对象）不触发；0.1.2 专项用本机真服务器探针 + webview harness（ui-visual.sh 42 场景）",
+    "driver": "node test/sandbox/verify-driver.mjs --ledger test/sandbox/verify.model-pill-first-frame-flicker.ledger.json（沙盒项）+ /tmp/probe-model-pill.mjs（本机真机数据）+ scripts/ui-visual.sh --mode baseline（worktree 构建产物渲染）",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "自动化覆盖：文档化单测（modelCatalog.test.ts 9 项 + 全量 588 项）、真机 0.1.2 数据链路探针（unary 目录 + 投影 → label 合成）、harness 渲染（baseline 42 场景含两个新 pill 文案场景）；沙盒 0.1.1（legacy）回归 mock-llm 确定性交互链（新建未分组会话 → 发 prompt → 断 mock 回复 → 模型 pill mock-flash Max）。真桌面 VS Code、真模型输出不在报告范围（新版扩展首次打开会话的实测见人工验收命令）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "现代链路：模型 pill 首帧显示真实模型名（不再「选择模型」占位）",
+      "expect": "本机 dsh 0.1.2（127.0.0.1:3080）真机数据：fetchModelCatalog（unary session.modelCatalog）一次拉取得 groups/default/routable；会话 list 投影 activeModelSelection → modelLabelOf 合成标签 = 真实模型名（DeepSeek-V4-Flash-Vision-Exp Max / DeepSeek-V4-Pro Max / Kimi K3 Max）；空白会话（next/lastUsed 均 null）回退目录 default 仍显示真名。目录共享缓存（in-flight 一次、url 变化失效）由单测覆盖。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "【真机探针 /tmp/probe-model-pill.mjs 输出核对】① fetchModelCatalog ok：default=deepseek-official/deepseek-v4-flash-vision-exp(max)，groups=[deepseek-official(DeepSeek,3 模型), kimi-coding(kimi-coding,4 模型)]，routable=true；② 6 个已选模型会话投影 → label 分别为 DeepSeek-V4-Flash-Vision-Exp Max（4 个）、DeepSeek-V4-Pro Max、Kimi K3 Max，与官方 dsh web 命名一致；③ 空白会话 projection={lastUsed:null,next:null} → 合成 selection=目录 default → label=DeepSeek-V4-Flash-Vision-Exp Max（不再「选择模型」占位）。controller 合成逻辑（composeModelFields：投影 ?? default → modelLabelOf）与该探针等价，目录未就绪帧由 F-02 覆盖。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "目录在途：模型 pill 显示「正在加载模型…」而非「选择模型」",
+      "expect": "webview harness 场景 model-pill-loading（state.modelLabel 缺省 + modelStatus=loading）：composer 底部模型 pill 显示 **Loading models…**（不是 Select model 占位），pill 仍可点（canSend true），消息区/输入区不受影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/model-pill-loading.png"
+      ],
+      "notes": "【截图语义核对（harness 场景 model-pill-loading，中文场景名：模型 pill：目录加载中）】模型 pill 文案 = Loading models… ✓（非 Select model）；pill 未被禁用；footer 同行其余（权限 pill、stats 行）渲染正常；输入区 placeholder/发送按钮正常。l10n 键「Loading models…」已入 bundle.l10n.json/zh-cn（中文=正在加载模型…），沙盒/harness 无中文注入显示英文原文属预期。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "目录失败：模型 pill 回「选择模型」兜底且不阻塞输入",
+      "expect": "webview harness 场景 model-pill-error-fallback（state.modelLabel 缺省 + modelStatus=error）：模型 pill 显示 **Select model**（兜底文案），输入框未禁用（canSend 仍 true，无「当前模型不可用」阻塞条）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/model-pill-error-fallback.png"
+      ],
+      "notes": "【截图语义核对（harness 场景 model-pill-error-fallback，中文场景名：模型 pill：目录加载失败兜底）】模型 pill 文案 = Select model ✓；输入框可聚焦可输入（placeholder 正常、发送按钮亮）；无模型阻塞条。与官方 ModelSelect 的 waiting/fallback 文案二分一致（trigger.loading vs trigger.fallback）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "0.1.1 legacy 模型 pill/菜单无回归（mock-flash Max）",
+      "expect": "沙盒 mock-llm（0.1.1-rc.2）：新建未分组会话 → 发 prompt 回显后，composer 模型选择器仍显示 mock-flash Max（legacy 路径 sessionModels/refreshModels 未改，只有共享化分支）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-model-pill/R-01.png"
+      ],
+      "notes": "【沙盒驱动 + 截图语义核对（mock-llm 0.1.1 实例，新建未分组会话 → 发「测试一下」→ 回显落地后截图）】① composer 底部模型 pill = mock-flash Max（real label，非 Select model 占位）✓；② 权限 pill = Workspace Write 照旧 ✓；③ 回显「收到：测试一下」✓；④ 注入折叠卡片（Runtime context / Context injection）正常折叠显示、不污染消息流 ✓；⑤ 状态栏 DSH: Running :3080 ✓。legacy 等价性：refreshModels/sessionModels legacy 分支与 sendModelCatalog legacy 回退路径逐行未变（diff 仅 isModern 分支重构）。",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      }
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "mock-llm 回显 + 注入卡片回归",
+      "expect": "沙盒 mock-llm：发送「测试一下」首轮出现「收到：测试一下」；注入上下文折叠卡片正常渲染不污染消息流。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-model-pill/R-01.png"
+      ],
+      "notes": "【引用 R-01 同帧核对】回显 ✓；注入上下文折叠卡片正常（默认折叠、标题可见），无布局回归，基线 F-01/R-04 同项复测。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量单测/typecheck/build + harness baseline 冒烟（42 场景）",
+      "expect": "typecheck 0 错；node --test 全量 588 项全绿（含新增 modelCatalog.test.ts 9 项）；build 成功产出四个 bundle；ui-visual.sh --mode baseline 42 场景截图齐全，抽查 conversation/model-picker（模型 pill 真名渲染）正常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png",
+        "/tmp/dsh-ui-shots/model-picker.png"
+      ],
+      "notes": "【自测核对】typecheck：0 errors；npm test：588 pass / 0 fail（新增 modelCatalog.test.ts：in-flight 共享、url 变更失效、失败置 error 后重试、listener 广播、modelLabelOf 3 组）；npm run build：built extension/chatWebview/sessionsWebview/spawnDsh；ui-visual baseline 48 张（42 场景含分步）全部生成，抽查 conversation 与 model-picker：模型 pill 真名渲染正常，无 composer/footer 回归。"
+    }
+  ]
+}

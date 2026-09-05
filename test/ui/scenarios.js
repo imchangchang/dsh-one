@@ -760,6 +760,23 @@
       expect: 'composer 底部：模型 pill 显示 **DeepSeek-V4-Flash-Vision-Exp Max**（真实模型名 + effort，不是「选择模型」占位）；权限 pill 显示**工作区内修改**（带权限图标）；会话列表/消息区不受影响；模型 pill 右侧无「›」之类多余元素。',
     },
 
+    'model-pill-loading': {
+      // 本任务（model-pill-first-frame-flicker）：目录在途时 pill 显示「正在加载模型…」
+      // 而不是「选择模型」（对齐官方 trigger.loading）——loading 帧不冒充可选态，
+      // 打开会话时的闪烁感来自那个假文案，宿主 push 一帧后就切真名。
+      state: base({ modelLabel: undefined, modelStatus: 'loading' }),
+      title: '模型 pill：目录加载中',
+      expect: 'composer 底部模型 pill 显示 **Loading models…**（不是 Select model 占位；harness 无中文注入，英文 key 原文即显示）；pill 仍可点（canSend true）；消息区/输入区不受影响。',
+    },
+
+    'model-pill-error-fallback': {
+      // 目录确实拿不到（error）：回「选择模型」兜底（官方 trigger.fallback 语义）；
+      // 输入区不因目录失败被阻塞（modelAvailable 缺省 ≠ false）。
+      state: base({ modelLabel: undefined, modelStatus: 'error' }),
+      title: '模型 pill：目录加载失败兜底',
+      expect: 'composer 底部模型 pill 显示 **Select model**（兜底文案）；输入框**未禁用**（canSend 仍 true，无「当前模型不可用」阻塞条）。',
+    },
+
     'permission-menu-zh': {
       // 中文权限菜单：选项 label 由宿主 applyPermissionsValue 本地化（permissionOptionLabel
       // 过 vscode.l10n.t，机器名 workspace-write → 工作区内修改），webview 渲染 options.label。
@@ -2899,6 +2916,8 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'composer-long-scrolled',
     'attachment-uniform',
     'session-open-failure',
+    'model-pill-loading',
+    'model-pill-error-fallback',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()

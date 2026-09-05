@@ -19,6 +19,7 @@ import {
   sessionModels,
 } from '../server/dshRpc.ts'
 import type { SessionModelSelection } from '../server/dshRpc.ts'
+import { isModern } from '../server/serverAuth.ts'
 import type { ChatState, CommitInfoResult, FromWebviewMessage, OutgoingImage, StagedFile, ToWebviewMessage } from '../pure/chatContract.ts'
 import {
   GIT_INFO_FORMAT,
@@ -869,12 +870,23 @@ async function sendModelCatalog(host: ChatTabHost): Promise<void> {
   const controller = host.controller
   if (!controller) return
   try {
-    const models = await sessionModels(controller.url, controller.sessionId)
+    // 现代路径：目录走共享缓存（打开菜单不重复拉；in-flight 共享）。
+    // legacy 路径（0.1.1 无 unary 目录）：回退 per-session session.models。
+    let value = isModern(controller.url)
+      ? host.actions.modelCatalog.read().value
+      : undefined
+    if (!value) {
+      value = isModern(controller.url)
+        ? await host.actions.modelCatalog.load(controller.url)
+        : await sessionModels(controller.url, controller.sessionId)
+    }
+    const current =
+      controller.currentModelSelection() ?? value.default ?? { provider: '', model: '' }
     const message: ToWebviewMessage = {
       type: 'modelCatalog',
       catalog: {
-        current: models.current,
-        groups: models.groups.map((g) => ({
+        current,
+        groups: value.groups.map((g) => ({
           id: g.id,
           name: g.name,
           models: g.models.map((m) => ({
@@ -922,7 +934,14 @@ async function applyModelSelection(host: ChatTabHost, selection: SessionModelSel
     // 切模型后立即重算 contextBar 的窗口：用新模型窗口覆写 contextPressure，
     // 不等下一条消息（否则会停留在旧模型窗口直到发消息）。
     controller.applyModelSwitch(selection)
-    await controller.refreshModels()
+    // 现代路径：本地覆盖投影值 + 立即推帧——label 马上切到新模型显示名
+    // （目录已 ready 时），宿主随后的 modelSelection 投影帧再校正；不再
+    // 重拉目录（共享缓存）。legacy 保持原 per-session 刷新。
+    if (isModern(controller.url)) {
+      controller.recordModelSelection(selection)
+    } else {
+      await controller.refreshModels()
+    }
   } catch (err) {
     const detail = errorText(err)
     vscode.window.showErrorMessage(vscode.l10n.t('Failed to switch model: {0}', detail))

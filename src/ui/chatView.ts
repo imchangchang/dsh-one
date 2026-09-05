@@ -21,8 +21,9 @@ import * as vscode from 'vscode'
 import { randomUUID } from 'node:crypto'
 import type { Logger } from '../log.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
-import { createSession, ensureSession, executeCommand } from '../server/dshRpc.ts'
+import { createSession, ensureSession, executeCommand, fetchModelCatalog } from '../server/dshRpc.ts'
 import type { WorkspaceView } from '../server/dshRpc.ts'
+import { ModelCatalogDirectory } from '../server/modelCatalog.ts'
 import type { ChatState, OutgoingImage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import { contextMenuResource } from '../pure/contextResource.ts'
 import { orderJobs } from '../pure/activityTree.ts'
@@ -72,6 +73,13 @@ export class ChatViewProvider implements vscode.Disposable {
   /** 子代理目录数据层（subagent.list）：菜单行显示名的来源（descriptor label）。 */
   private readonly subagents: SubagentCatalogStore
   private readonly subagentsSub: vscode.Disposable
+  /**
+   * 共享模型目录（对齐官方 ModelCatalogDirectory）：Host 级 unary catalog
+   * 只拉一次、in-flight 共享。controller 的模型 pill/菜单都从这读——打开
+   * 会话时目录通常已就绪，label 首帧即出（不再「选择模型」→真名的闪烁）。
+   * 服务 running 时预取；down/重启（url 变化）失效重拉。
+   */
+  private readonly modelCatalog: ModelCatalogDirectory
   /** dshOne.chatFontSize 设置变化订阅（运行中改字号 → 全 tab 覆盖内容区 CSS 变量）。 */
   private readonly configSub: vscode.Disposable
   /** 注入给每个 ChatTabHost 的集合级能力（见 ChatTabHostActions）。 */
@@ -96,6 +104,7 @@ export class ChatViewProvider implements vscode.Disposable {
       store,
       jobs: (this.jobs = new JobsStore(manager, logger)),
       subagents: (this.subagents = new SubagentCatalogStore(manager, logger)),
+      modelCatalog: (this.modelCatalog = new ModelCatalogDirectory(logger, fetchModelCatalog)),
       openSession: (sessionId) => this.openSession(sessionId),
       openSessionInNewTab: (sessionId) => this.openSessionInNewTab(sessionId),
       onSessionsChanged: () => this.onSessionsChanged?.(),
@@ -467,7 +476,9 @@ export class ChatViewProvider implements vscode.Disposable {
 
   private onServerState(status: ServerStatus): void {
     if (status.state !== 'running' || !status.url) {
-      // Server down → 全部空态；旧 controller 全释放。
+      // Server down → 全部空态；旧 controller 全释放。模型目录作废（下次
+      // running 时重拉；url 变化 = 新 host generation，缓存不能跨代复用）。
+      this.modelCatalog.invalidate()
       this.detachAllControllers()
       this.lastUrl = null
     } else if (this.lastUrl !== status.url) {
@@ -478,6 +489,11 @@ export class ChatViewProvider implements vscode.Disposable {
       const prevActive = this.lastActiveSessionId
       this.detachAllControllers()
       if (prevActive) this.pendingRestoreSessionId = prevActive
+    }
+    // 服务运行即预取模型目录（in-flight 共享，重复调用无害）：打开会话时
+    // 目录多半已就绪，模型 pill 首帧即出名字，不再闪「选择模型」占位。
+    if (status.state === 'running' && status.url) {
+      void this.modelCatalog.load(status.url).catch(() => {})
     }
     // 面板空态依赖 serverState/dshNotFound，状态变化时同步推一次。
     this.pushSessions()

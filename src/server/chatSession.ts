@@ -12,14 +12,16 @@ import { modelWindowRecord, parseModelWindowRecord } from '../pure/modelWindowCa
 import { subscribeMuxEvents } from './muxEvents.ts'
 import type { MuxFrame } from './muxEvents.ts'
 import { isModern } from './serverAuth.ts'
+import { ModelCatalogDirectory, modelLabelOf } from './modelCatalog.ts'
 import { recordsToEntries } from '../pure/chunkRows.ts'
 import type { HistoryRecordLike } from '../pure/chunkRows.ts'
-import { permissionDisplayName, permissionOptionLabel } from '../pure/permissionLabel.ts'
+import { permissionOptionLabel } from '../pure/permissionLabel.ts'
 import { hostOsFromPlatform } from '../pure/installScript.ts'
 import { subscribeFollowStream, subscribeControlStream, subscribeModernEvents } from './modernStreams.ts'
 import type { FollowSnapshot } from './modernStreams.ts'
 import { parseControlStreamFrame } from '../pure/remoteFrames.ts'
 import {
+  activeModelSelection,
   cancelSession,
   clearGoal,
   deleteMessageFeedback,
@@ -86,24 +88,6 @@ interface PermissionSelectLike {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-/**
- * Footer pill label for the current selection, web style "DeepSeek-V4-Flash
- * High": catalog display name + reasoning effort name, falling back to the
- * raw ids when the route is absent from the (advisory) catalog.
- */
-function modelLabelOf(models: SessionModels): string {
-  const { current } = models
-  const group = models.groups.find((g) => g.id === current.provider)
-  const model = group?.models.find((m) => m.id === current.model)
-  let label = model?.name ?? current.model
-  const effortId = current.reasoningEffort ?? model?.reasoning?.defaultEffort
-  if (effortId) {
-    const effort = model?.reasoning?.efforts.find((e) => e.id === effortId)
-    label += ` ${effort?.name ?? permissionDisplayName(effortId)}`
-  }
-  return label
 }
 
 /**
@@ -381,6 +365,16 @@ export class ChatSessionController implements vscode.Disposable {
    * 不误报「模型不可用」）。false 时 webview 输入区显示阻塞文案并禁输入。
    */
   private modelRoutable = true
+  /**
+   * `modelSelection` 投影的当前值（next ?? lastUsed，经 activeModelSelection
+   * 解析；{next:null,lastUsed:null} = 空白会话未选过 → undefined）。label 与
+   * 目录 default 的兜底在 getState 合成时做，这里只存投影原值——selectModel
+   * 成功后 recordModelSelection 本地覆盖（不等投影帧），宿主推帧再校正。
+   */
+  private modelSelection: SessionModelSelection | undefined
+  private modelSelectionSeq = -1
+  /** 共享模型目录的订阅：ready/error 时补一次 push（label 首帧即出）。 */
+  private catalogSub: (() => void) | undefined
   /** Stored per-message ratings: host messageId → rating + optimistic-lock version. */
   private feedback = new Map<string, { rating: 'positive' | 'negative'; version: string }>()
   private ready = false
@@ -428,7 +422,13 @@ export class ChatSessionController implements vscode.Disposable {
     readonly url: string,
     readonly sessionId: string,
     private readonly logger: Logger,
+    /** 共享模型目录（provider 级单例）：label 合成与菜单都从这里读。 */
+    private readonly modelCatalog: ModelCatalogDirectory,
   ) {
+    // 目录 ready/error 时补推：打开会话的 label 不依赖本会话自己的 RPC。
+    this.catalogSub = modelCatalog.onDidChange(() => {
+      if (this.ready && !this.disposed) this.push(true)
+    })
     void this.init()
   }
 
@@ -452,8 +452,7 @@ export class ChatSessionController implements vscode.Disposable {
       ...(this.openErrorValue !== undefined ? { openError: this.openErrorValue } : {}),
       hasEarlierHistory: this.historyCursor.hasMore,
       loadingEarlier: this.loadingEarlier,
-      modelLabel: this.modelLabel,
-      modelAvailable: this.modelRoutable,
+      ...this.composeModelFields(),
       permissions: this.permissions,
       plan: this.plan,
       ...(this.turnOutline !== undefined ? { turnOutline: this.turnOutline } : {}),
@@ -468,6 +467,31 @@ export class ChatSessionController implements vscode.Disposable {
         : {}),
       ...(this.slashCommands !== undefined ? { slashCommands: this.slashCommands } : {}),
     }
+  }
+
+  /**
+   * 模型 pill 字段的合成（现代路径）：label 与可用位都从**共享目录 + 投影**
+   * 同步算——目录已 ready 且投影/default 有值，首帧即出模型名；目录还在
+   * 途则标 loading（webview 显示「正在加载模型…」，不再闪「选择模型」）。
+   * legacy 路径（0.1.1，无 unary 目录/投影）保持原 refreshModels 异步更新。
+   */
+  private composeModelFields(): Pick<ChatState, 'modelLabel' | 'modelAvailable' | 'modelStatus'> {
+    if (!isModern(this.url)) {
+      return this.modelLabel !== undefined ? { modelLabel: this.modelLabel, modelAvailable: this.modelRoutable } : {}
+    }
+    const cat = this.modelCatalog.read()
+    if (cat.status === 'ready' && cat.value) {
+      const selection = this.modelSelection ?? cat.value.default
+      if (selection?.provider && selection.model) {
+        return {
+          modelLabel: modelLabelOf(selection, cat.value),
+          modelAvailable: cat.value.routable,
+        }
+      }
+      // 目录就绪但投影/default 都是畸形值：不封死输入（可用位照目录），只没标签。
+      return { modelAvailable: cat.value.routable }
+    }
+    return { modelStatus: cat.status === 'error' ? 'error' : 'loading' }
   }
 
   /**
@@ -509,13 +533,41 @@ export class ChatSessionController implements vscode.Disposable {
     }
   }
 
-  /** Re-read session.models and refresh the footer model pill + availability. */
+  /**
+   * Re-read session.models and refresh the footer model pill + availability.
+   * legacy（0.1.1）路径专用：现代路径的目录走共享缓存（modelCatalog
+   * onDidChange 订阅驱动 push），不要在这里再打 per-session RPC。
+   */
   async refreshModels(): Promise<void> {
     const models = await sessionModels(this.url, this.sessionId)
     if (this.disposed) return
-    this.modelLabel = modelLabelOf(models)
+    this.modelLabel = modelLabelOf(models.current, models)
     this.modelRoutable = models.routable
     this.push(true)
+  }
+
+  /** 当前模型选择（投影值；default 兜底由调用方按目录状态做）。 */
+  currentModelSelection(): SessionModelSelection | undefined {
+    return this.modelSelection
+  }
+
+  /**
+   * selectModel 成功后本地覆盖投影值（不等宿主投影帧）：label 立即切到新
+   * 模型的显示名（目录已 ready 时）。宿主随后的 modelSelection 投影帧会以
+   * 更高 seq 再校正（applyModelSelectionValue）。
+   */
+  recordModelSelection(selection: SessionModelSelection): void {
+    if (this.disposed) return
+    this.modelSelection = selection
+    if (isModern(this.url)) this.push(true)
+  }
+
+  /**
+   * 按投影值更新当前选择（next ?? lastUsed 已在 activeModelSelection 解析；
+   * undefined = 投影明确无值，如空白会话 → fallback 目录 default）。
+   */
+  private applyModelSelectionValue(value: unknown): void {
+    this.modelSelection = activeModelSelection(value)
   }
 
   /**
@@ -834,6 +886,7 @@ export class ChatSessionController implements vscode.Disposable {
 
   dispose(): void {
     this.disposed = true
+    this.catalogSub?.()
     if (this.flushTimer) clearTimeout(this.flushTimer)
     this.flushTimer = undefined
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
@@ -883,6 +936,7 @@ export class ChatSessionController implements vscode.Disposable {
       this.goalSeq = projections.asOfSeq
       this.turnOutlineSeq = projections.asOfSeq
       this.scheduleSeq = projections.asOfSeq
+      this.modelSelectionSeq = projections.asOfSeq
       this.applyProjectionValues(projections.values)
     }
   }
@@ -900,6 +954,7 @@ export class ChatSessionController implements vscode.Disposable {
     this.applyGoalValue(values.goal)
     this.applyTurnOutlineValue(values.turnOutline)
     this.applyScheduleValue(values.schedule)
+    this.applyModelSelectionValue(values.modelSelection)
     const limits = asImageLimits(values.imageLimits)
     if (limits) this.imageLimits = limits
     const pressure = asContextPressure(values.contextPressure)
@@ -936,9 +991,18 @@ export class ChatSessionController implements vscode.Disposable {
     this.ready = true
     this.push(true)
     // Model label rides no projection; fetch it once the stream is attached.
-    this.refreshModels().catch((error: unknown) => {
-      this.logger.warn(`chat: session.models failed for ${this.sessionId}: ${errorText(error)}`)
-    })
+    // 现代路径：目录是共享缓存（provider 已预取/正在拉），这里只 ensure 一次
+    // （in-flight 共享），label 合成由 getState 同步算，ready 后订阅补推。
+    // legacy 路径：目录 per-session，打开后单独拉（保持原行为）。
+    if (isModern(this.url)) {
+      this.modelCatalog.load(this.url).catch((error: unknown) => {
+        this.logger.warn(`chat: model catalog failed for ${this.sessionId}: ${errorText(error)}`)
+      })
+    } else {
+      this.refreshModels().catch((error: unknown) => {
+        this.logger.warn(`chat: session.models failed for ${this.sessionId}: ${errorText(error)}`)
+      })
+    }
     // Preset roster：空会话的选择 chip 与已开跑会话的头部 preset 标签
     // （id → roster 显示名，见 agentPresetLabelFor）共用同一份，所以开没开跑
     // 都拉一次（官方 AgentPresetLabel 同样在 roster 就绪后按 id 查 name）。
@@ -1025,6 +1089,7 @@ export class ChatSessionController implements vscode.Disposable {
       this.goalSeq = projections.asOfSeq
       this.turnOutlineSeq = projections.asOfSeq
       this.scheduleSeq = projections.asOfSeq
+      this.modelSelectionSeq = projections.asOfSeq
       this.applyProjectionValues(projections.values)
     }
     this.logger.info(`chat: follow baseline applied for ${this.sessionId} (cursor ${String(snapshot.cursor)}, ${String(entries.length)} records)`)
@@ -1546,6 +1611,13 @@ export class ChatSessionController implements vscode.Disposable {
             if (seq <= this.tokenUsageSeq) return
             this.tokenUsageSeq = seq
             this.applyTokenUsageValue(payload.value)
+            this.push(true)
+            return
+          }
+          case 'modelSelection': {
+            if (seq <= this.modelSelectionSeq) return
+            this.modelSelectionSeq = seq
+            this.applyModelSelectionValue(payload.value)
             this.push(true)
             return
           }

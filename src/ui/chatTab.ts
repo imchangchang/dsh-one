@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto'
 import type { Logger } from '../log.ts'
 import type { ServerManager } from '../server/manager.ts'
 import { ChatSessionController } from '../server/chatSession.ts'
+import type { ModelCatalogDirectory } from '../server/modelCatalog.ts'
 import type {
   ChatState,
   FromWebviewMessage,
@@ -69,6 +70,8 @@ export interface ChatTabHostActions {
   store: SessionsStore
   jobs: JobsStore
   subagents: SubagentCatalogStore
+  /** 共享模型目录（provider 级单例）：模型 pill/菜单的数据源（0.1.2 unary catalog）。 */
+  modelCatalog: ModelCatalogDirectory
   /** 打开一个会话（默认在当前活动 chat tab 打开；见 ChatViewProvider.openSession）。 */
   openSession(sessionId: string): void
   /** 显式在新 tab 中打开一个会话。 */
@@ -278,7 +281,12 @@ export class ChatTabHost implements vscode.Disposable {
       // 不会走到这里；走到说明重复调用，幂等处理）。
       return
     }
-    const controller = new ChatSessionController(url, sessionId, this.actions.logger)
+    const controller = new ChatSessionController(
+      url,
+      sessionId,
+      this.actions.logger,
+      this.actions.modelCatalog,
+    )
     this.sessionId = sessionId
     this.controller = controller
     // 附着即取一次服务端 running 位（基线未覆盖时为 undefined，controller

@@ -559,6 +559,13 @@ export interface ChatState {
   /** Footer model pill, host-computed from session.models ("DeepSeek-V4-Flash High" style). */
   modelLabel?: string
   /**
+   * 模型目录装载态（现代路径；webview 在 modelLabel 缺失时据此挑 pill 文案）：
+   * `loading` = 目录在途（显示「正在加载模型…」），`error` = 确实拿不到
+   * （回「选择模型」兜底）。缺省（undefined）= legacy 路径/目录就绪——就绪时
+   * modelLabel 必有值，文案选择不再依赖该字段。
+   */
+  modelStatus?: 'loading' | 'error'
+  /**
    * Agent preset picker for blank sessions（空会话 hero 区的选择 chip）：
    * roster options + the current id (last agent-preset/selected event,
    * else the roster default). Absent once any turn has started — the host

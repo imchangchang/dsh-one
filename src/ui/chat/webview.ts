@@ -3000,6 +3000,9 @@ function render(): void {
     state?.canSend ?? false,
     state?.running ?? false,
     state?.modelLabel ?? null,
+    // modelStatus 进签名：modelLabel 缺失时 pill 在「加载中/选择模型」间切换
+    // （目录从 loading 到 error），只靠 modelLabel 会漏帧（两帧 label 都是 null）。
+    state?.modelStatus ?? null,
     // agentPreset / permissions 刻意不进签名：懒切换的 pending 帧只改
     // chip/pill 显示，composer 内容不变——进签名会整页重建 hero，焦点/IME
     // 全断且鱼标动画重播（见 hero 保活分支与 keepComposer 的就地 patch）。
@@ -7319,7 +7322,12 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     preset.addEventListener('click', () => openAgentPresetMenu(preset))
     footer.appendChild(preset)
   }
-  const model = buttonEl('pill', state?.modelLabel ?? t('Select model'))
+  // 目录还在途时显示「正在加载模型…」（对齐官方 trigger.loading），不冒充
+  // 「选择模型」——宿主打开会话后一帧内就切真名，闪烁感来自那个假文案。
+  const model = buttonEl(
+    'pill',
+    state?.modelLabel ?? (state?.modelStatus === 'loading' ? t('Loading models…') : t('Select model')),
+  )
   model.dataset.role = 'model'
   model.title = t('Model')
   model.disabled = !canSend
