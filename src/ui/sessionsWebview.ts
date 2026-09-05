@@ -12,7 +12,7 @@ import { COPY_ICON, PANEL_ICONS, MESSAGE_ACTION_ICONS, type IconDef } from './ch
 import type { FromWebviewMessage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../pure/sessionTree.ts'
 import { UNGROUPED_WORKSPACE_ID } from '../pure/sessionTree.ts'
-import type { TagColor } from '../pure/sessionTags.ts'
+import { TAG_COLORS, type TagColor } from '../pure/sessionTags.ts'
 import {
   INSTALL_SCRIPT_OS_ORDER,
   installCommandFor,
@@ -1471,6 +1471,16 @@ const TAG_COLOR_CSS: Record<TagColor, string> = {
   red: 'var(--vscode-charts-red, #f14c4c)',
 }
 
+/** 颜色显示名（l10n key）。 */
+const TAG_COLOR_L10N: Record<TagColor, string> = {
+  yellow: 'Yellow',
+  blue: 'Blue',
+  green: 'Green',
+  orange: 'Orange',
+  purple: 'Purple',
+  red: 'Red',
+}
+
 type SnapshotTag = SessionsSnapshot['tags'][number]
 
 /** 菜单里的组色小方块（移到分组/组操作菜单共用的图标位）。 */
@@ -1738,16 +1748,19 @@ function buildTagMenuBody(tag: SnapshotTag): HTMLElement {
       },
     }),
   )
+  // 重命名：所有组都可改名（预设组改名后覆盖 l10n 默认名）。
+  body.appendChild(
+    menuItem(t('Rename group…'), {
+      icon: iconSvg(PANEL_ICONS.edit, 14),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionTagRenamePrompt', tagId: tag.id, name: tag.name })
+      },
+    }),
+  )
+  // 颜色：二级子菜单（6 色；选中态 = 当前色）。
+  body.appendChild(buildTagColorMenuItem(tag))
   if (!tag.preset) {
-    body.appendChild(
-      menuItem(t('Rename group…'), {
-        icon: iconSvg(PANEL_ICONS.edit, 14),
-        onClick: () => {
-          closePopover()
-          post({ type: 'sessionTagRenamePrompt', tagId: tag.id, name: tag.name })
-        },
-      }),
-    )
     body.appendChild(
       menuItem(t('Delete group'), {
         icon: strokeSvg(TRASH_ICON, 16),
@@ -1759,6 +1772,104 @@ function buildTagMenuBody(tag: SnapshotTag): HTMLElement {
     )
   }
   return body
+}
+
+/** 「Color…」菜单项（带 › 子菜单指示）：hover 展开二级色板（VS Code submenu
+ *  惯例），点击兜底；已展开时幂等不重建。 */
+function buildTagColorMenuItem(tag: SnapshotTag): HTMLElement {
+  const item = el('div', 'menu-item')
+  const iconWrap = el('span', 'menu-item-icon')
+  iconWrap.appendChild(tagSwatchIcon(tag.color))
+  item.appendChild(iconWrap)
+  item.appendChild(el('span', undefined, t('Color')))
+  item.appendChild(el('span', 'menu-right', '›'))
+  const open = (): void => {
+    if (subPopover === null) showTagColorSubmenu(tag, item)
+  }
+  item.addEventListener('pointerover', open)
+  item.addEventListener('click', open)
+  return item
+}
+
+/** 颜色二级菜单：6 色选项（色块 + 名称），当前色打 ✓；选色后关闭两层菜单。 */
+function showTagColorSubmenu(tag: SnapshotTag, anchor: HTMLElement): void {
+  const body = el('div')
+  body.appendChild(el('div', 'menu-group', t('Color')))
+  for (const c of TAG_COLORS) {
+    body.appendChild(
+      menuItem(t(TAG_COLOR_L10N[c]), {
+        icon: tagSwatchIcon(c),
+        checked: tag.color === c,
+        onClick: () => {
+          closePopover()
+          if (tag.color !== c) post({ type: 'sessionTagSetColor', tagId: tag.id, color: c })
+        },
+      }),
+    )
+  }
+  const rect = anchor.getBoundingClientRect()
+  showSubPopoverAt(Math.min(rect.right + 6, window.innerWidth - 4), rect.top, anchor, body)
+}
+
+/** 新建标签组弹层（行菜单「New group…」入口）：名字输入 + 6 色色板（默认
+ *  轮换色，点击可选）+ 就地校验（空名/与现有组显示名重名）；创建后快照回流
+ *  触发列表更新。复用 wsg-create 弹层样式（popover 内联，点外部关闭）。 */
+function openTagCreatePopup(anchor: HTMLElement | null): void {
+  const snap = sessionsSnapshot
+  if (!snap) return
+  const body = el('div', 'wsg-create')
+  body.appendChild(el('div', 'wsg-create-title', t('New group')))
+  const input = document.createElement('input')
+  input.className = 'wsg-create-input'
+  input.placeholder = t('Group name')
+  input.maxLength = 100
+  // 默认色 = 与 store 一致的轮换色（自定义组数 0/1/2 → 橙/紫/红）。
+  const customCount = snap.tags.filter((t) => !t.preset).length
+  const palette: TagColor[] = ['orange', 'purple', 'red']
+  let selected: TagColor = palette[customCount % palette.length]
+  const colors = el('div', 'tag-create-colors')
+  const swatches = new Map<TagColor, HTMLElement>()
+  for (const c of TAG_COLORS) {
+    const sw = el('span', 'tag-color-swatch')
+    sw.style.background = TAG_COLOR_CSS[c]
+    sw.setAttribute('data-tip', t(TAG_COLOR_L10N[c]))
+    sw.classList.toggle('selected', c === selected)
+    sw.addEventListener('click', () => {
+      selected = c
+      for (const [cc, el2] of swatches) el2.classList.toggle('selected', cc === c)
+    })
+    swatches.set(c, sw)
+    colors.appendChild(sw)
+  }
+  const error = el('div', 'wsg-error')
+  const commit = (): void => {
+    const name = input.value.trim()
+    if (name === '') {
+      error.textContent = t('Group name cannot be empty')
+      return
+    }
+    if (snap.tags.some((g) => g.name === name)) {
+      error.textContent = t('A group with this name already exists')
+      return
+    }
+    closePopover()
+    post({ type: 'sessionTagCreate', name, color: selected })
+  }
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault()
+      commit()
+    }
+  })
+  const submit = buttonEl('wsg-create-submit', t('Create'))
+  submit.addEventListener('click', commit)
+  body.appendChild(input)
+  body.appendChild(colors)
+  body.appendChild(error)
+  body.appendChild(submit)
+  showPopover(anchor ?? (menuOpenRow ?? document.body), body, 'below')
+  // 弹层渲染后聚焦输入。
+  window.setTimeout(() => input.focus(), 0)
 }
 
 /** 整组归档确认：复用多选归档的确认弹窗 + sessionArchiveMany → archiveManyDone
@@ -2892,8 +3003,10 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
     menuItem(t('New group…'), {
       icon: iconSvg(PANEL_ICONS.plus, 14),
       onClick: () => {
+        // closePopover 会清 menuOpenRow（markMenuRow(null)），先取锚再关。
+        const anchor = menuOpenRow
         closePopover()
-        post({ type: 'sessionTagCreatePrompt' })
+        openTagCreatePopup(anchor)
       },
     }),
   )

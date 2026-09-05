@@ -640,6 +640,14 @@ const SESSIONS_STYLE = `
   .menu-item .check { margin-left: auto; flex: none; }
   /* 标签组颜色小方块（菜单项/组头共用图标位）。 */
   .tag-swatch { width: 10px; height: 10px; border-radius: 3px; display: block; }
+  /* 新建标签组弹层的色板：6 色一排，选中描边 + 对勾。 */
+  .tag-create-colors { display: flex; align-items: center; gap: 6px; padding: 4px 2px; }
+  .tag-color-swatch {
+    position: relative; width: 20px; height: 20px; padding: 0; border: 0;
+    border-radius: 6px; cursor: pointer; box-sizing: border-box;
+  }
+  .tag-color-swatch:hover { outline: 1px solid var(--vscode-focusBorder, #5686fe); outline-offset: 1px; }
+  .tag-color-swatch.selected { outline: 2px solid var(--vscode-foreground, #cccccc); outline-offset: 1px; }
   .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
@@ -962,18 +970,15 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
         if (ids.length > 0) this.store.setSessionTagMany(ids, m.tagId ?? null)
         return
       }
-      case 'sessionTagCreatePrompt':
-        void (async () => {
-          const name = await vscode.window.showInputBox({
-            prompt: vscode.l10n.t('New group name'),
-            placeHolder: vscode.l10n.t('e.g. "Code review"'),
-            validateInput: (v) => this.store.tagNameErrorFor(v),
-          })
-          if (typeof name === 'string' && name.trim() !== '') this.store.createTag(name)
-        })()
+      case 'sessionTagCreate':
+        // webview 弹层已校验（空名/重名/颜色枚举），store 兜底拒绝。
+        if (typeof m.name === 'string') this.store.createTag(m.name, m.color)
+        return
+      case 'sessionTagSetColor':
+        this.store.setTagColor(m.tagId, m.color)
         return
       case 'sessionTagRenamePrompt':
-        // 预设组无此入口（菜单不提供）；store.renameTag 兜底拒绝。
+        // 所有组均可重命名（预设改后覆盖 l10n 默认名）；store 兜底拒绝未知 id。
         if (typeof m.name === 'string') {
           void (async () => {
             const name = await vscode.window.showInputBox({

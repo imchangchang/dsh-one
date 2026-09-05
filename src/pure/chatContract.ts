@@ -1124,9 +1124,11 @@ export type FromWebviewMessage =
   | { type: 'sessionTagSet'; sessionId: string; tagId: string | null }
   /** Sessions 面板：批量设置标签组（整组「移出分组」等；单次持久化）。 */
   | { type: 'sessionTagSetMany'; sessionIds: string[]; tagId: string | null }
-  /** Sessions 面板：请求新建自建标签组——host 弹输入框（校验后 store.createTag）。 */
-  | { type: 'sessionTagCreatePrompt' }
-  /** Sessions 面板：请求重命名自建标签组——host 弹输入框（预填当前名；预设组无此入口）。 */
+  /** Sessions 面板：新建自建标签组（webview 弹层已校验名字并选色；预设+自建均可重命名/改色）。 */
+  | { type: 'sessionTagCreate'; name: string; color: TagColor }
+  /** Sessions 面板：设置标签组颜色（所有组可改色；选中态由快照驱动）。 */
+  | { type: 'sessionTagSetColor'; tagId: string; color: TagColor }
+  /** Sessions 面板：请求重命名标签组——host 弹输入框（预填当前名；预设改后覆盖 l10n 默认名）。 */
   | { type: 'sessionTagRenamePrompt'; tagId: string; name: string }
   /** Sessions 面板：删除自建标签组（host 弹确认；组内会话回到未分组；预设组拒绝）。 */
   | { type: 'sessionTagDelete'; tagId: string }

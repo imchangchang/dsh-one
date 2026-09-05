@@ -1835,6 +1835,27 @@
       expect: '三张截图对照——① 初始帧：三个组块 pill 右侧各有一个小三角（展开向下）；「已完成」组因快照 tagCollapsed=[preset-done] 预置为折叠态——只剩一行（pill + 三角朝右），组内会话行与竖线消失，其余两组展开。② <scenario>-collapsed.png：点击「待办」组块箭头后——该组块同样只剩一行（pill + 三角朝右），组内两个会话行与竖线消失；无红色断言横幅（断言：post 了 sessionTagCollapse{tagId:preset-todo, collapsed:true}）。③ <scenario>-expanded.png：再点一次箭头——post sessionTagCollapse{collapsed:false}；mock 宿主不回推快照，组块保持折叠为预期行为（真实宿主随快照展开）。',
     },
 
+    'session-tags-create': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 1 },
+        ]
+        s.tagSessionIds = { 'preset-todo': ['sess-1'] }
+        s.workspaces[0].sessions = [
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-6', '会话 A', '2 天前'),
+        ]
+        s.workspaces[1].sessions = []
+        s.workspaces[2].sessions = []
+        return s
+      })(),
+      interact: `document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()`,
+      title: '侧栏面板（行菜单新建分组：名字 + 色板弹层）',
+      expect: '行 ⋯ 菜单里「New group…」项点击后弹出小弹层（带边框圆角卡片，锚在行下方）：标题 New group、名字输入框（placeholder Group name）、一行 6 个色块（黄/蓝/绿/橙/紫/红，默认选中橙——当前无自定义组轮换到橙，选中色块有深色描边）、错误行（空）、底部 Create 按钮；输入空名点 Create 就地提示「cannot be empty」；输入与现有组显示名相同提示「already exists」。原有菜单项在弹层出现前保持完整（Select multiple 等仍应在出现弹层前的菜单里——弹层替换菜单后不叠加）。',
+    },
+
     'sessions-menu-fork-disabled': {
       view: 'sessions',
       sessions: (() => {
@@ -3333,7 +3354,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'sessions-workspace-menu-groups',
     'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',
     'sessions-selection-exit-recycle', 'sessions-selection-exit-archive',
-    'session-tags', 'session-tags-row-menu', 'session-tags-collapse',
+    'session-tags', 'session-tags-row-menu', 'session-tags-collapse', 'session-tags-create',
     'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',

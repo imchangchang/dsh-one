@@ -514,5 +514,12 @@
   "Delete group \"{0}\"? Tagged sessions go back to Ungrouped": "Delete group \"{0}\"? Tagged sessions go back to Ungrouped",
   "e.g. \"Code review\"": "e.g. \"Code review\"",
   "Expand group": "Expand group",
-  "Collapse group": "Collapse group"
+  "Collapse group": "Collapse group",
+  "Color": "Color",
+  "Yellow": "Yellow",
+  "Blue": "Blue",
+  "Green": "Green",
+  "Orange": "Orange",
+  "Purple": "Purple",
+  "Red": "Red"
 }

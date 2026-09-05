@@ -42,6 +42,7 @@ import {
   sanitizeSessionTagIds,
   sanitizeTags,
   setSessionTagId,
+  TAG_COLORS,
   tagDisplayName,
   tagNameError,
   type SessionTagDef as TagDef,
@@ -571,10 +572,11 @@ export class SessionsStore implements vscode.Disposable {
     return tag
   }
 
-  /** 重命名自建组（同名校验同 createTag，排除自身）；预设组拒绝（名字走 l10n）。 */
+  /** 重命名标签组（所有组可改：预设组改名后覆盖 l10n 默认名，name 落为非 null；
+   *  同名校验同 createTag，排除自身）。无变化返回 true（弹窗关掉即可）。 */
   renameTag(tagId: string, name: string): boolean {
     const tag = this.tags.find((t) => t.id === tagId)
-    if (!tag || isPresetTag(tag)) return false
+    if (!tag) return false
     if (tagNameError(name, this.tags, tagId) !== null) return false
     const trimmed = name.trim()
     if (tag.name === trimmed) return true
@@ -583,6 +585,16 @@ export class SessionsStore implements vscode.Disposable {
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
     return true
+  }
+
+  /** 设置标签组颜色（所有组可改色；非法颜色忽略；颜色不进树模型，无需重建）。 */
+  setTagColor(tagId: string, color: TagColor): void {
+    if (!(TAG_COLORS as readonly unknown[]).includes(color)) return
+    const tag = this.tags.find((t) => t.id === tagId)
+    if (!tag || tag.color === color) return
+    this.tags = this.tags.map((t) => (t.id === tagId ? { ...t, color } : t))
+    this.persistTags()
+    this.onDidChangeEmitter.fire()
   }
 
   /** 删除自建组：组定义移除、成员打标清理（组内会话回到未分组）；预设组拒绝。 */
