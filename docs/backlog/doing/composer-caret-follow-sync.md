@@ -35,3 +35,5 @@ IME 提交路径同样命中：compositionend 恢复层时读取的 scrollTop �
 ## 变更记录
 
 - 2026-09-05 主线代码研究 + harness 真实按键复测后定位（事件时序依赖），待修复，先记录 → open
+
+- 2026-09-05 认领（worktree: agent/composer-caret-follow-sync）→ doing
