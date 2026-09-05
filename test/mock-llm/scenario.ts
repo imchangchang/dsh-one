@@ -199,6 +199,17 @@ export function defaultScenario(): MockLlmScenario {
         match: { contains: '401' },
         respond: { error: { status: 401, message: 'invalid api key' } },
       },
+      // 行内码交互演示：回复带路径形状行内码 + 命令/变量行内码（验证路径可点、
+      // 非路径带复制图标——chat-inline-code-path-interact 任务）。
+      {
+        match: { contains: '行内码路径' },
+        respond: {
+          content: [
+            '主要文件是 `src/ui/chat/webview.ts`，样式在 `src/ui/chatViewHtml.ts`；检查命令 `npm run build`；变量 `DSH_PORT`。',
+            ' 绝对路径 `/repo/src/pure/producedFiles.ts` 也在。',
+          ],
+        },
+      },
       // 兜底回显：把最后一条 user 消息原样包进「收到：…」，分两段流式播。
       {
         match: '*',
