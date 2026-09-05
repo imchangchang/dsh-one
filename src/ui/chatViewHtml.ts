@@ -212,6 +212,13 @@ const STYLE = `
        锚定，滚动锚定语义完全由程序补偿路径负责（与全量重建时代的行为一致）。 */
     overflow-anchor: none;
   }
+  /* 内容列限宽居中（对齐 dsh web 748px；不做社区 dsh-chat-width 的可拖拽 748→1040）：
+     消息行/提示/命令行收敛到 748px 居中，窄屏 width 100% 自适应——代码块头部复制
+     按钮因此有右侧留白，不再压消息区右缘（chat-content-whitespace-width）。 */
+  .messages > * {
+    width: 100%; max-width: 748px;
+    margin-left: auto; margin-right: auto;
+  }
   .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
   /* 切换会话时历史基线加载中的占位：撑满聊天列垂直居中。 */
   .loading-hint { flex: 1; display: flex; align-items: center; justify-content: center; }

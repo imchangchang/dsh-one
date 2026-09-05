@@ -1,0 +1,49 @@
+{
+  "title": "聊天内容列限宽居中（748px 对齐 dsh web）——代码块复制按钮不再压右缘",
+  "branch": "agent/chat-content-width",
+  "commit": "HEAD",
+  "environment": {
+    "mode": "headless-chromium-render（harness 场景截图；无 WebBridge）",
+    "dsh": "n/a（纯样式改动，mock state 直推）",
+    "date": "2026-09-05T18:10:00Z"
+  },
+  "coverageNote": "样式改动经 harness 场景在线渲染核对（1280px 宽屏 + 700px 窄屏）；真机 open 视口（VS Code 聊天面板宽度）另由用户 reload 复核。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "内容列 748px 居中：消息行/提示/命令行收敛，左右留白",
+      "expect": ".messages 直接子项 width:100% + max-width:748px + margin auto：1280px 视口下消息区居中、左右各 ~160px 留白；窄屏（700px）width100% 全宽自适应。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-ui-shots/width-conversation.png"],
+      "notes": "conversation 场景 1280px：用户/助手消息均在 748 列内、左右留白明显；json-message-fenced 700px：全宽、无挤压。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "代码块 Copy 按钮不再压消息区右缘（用户红框问题）",
+      "expect": "代码块头部 md-code-copy 按钮随内容列右对齐至 748px 内（宽屏距窗格右缘 ~200px；窄屏在 padding 12px 内），与右侧滚动条/窗格边缘分离。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-ui-shots/width-code-fenced.png", "/tmp/dsh-ui-shots/width-narrow.png"],
+      "notes": "json-message-fenced 1280px：Copy 按钮在代码块右上角内侧、右侧留白 ~200px；700px：按钮在窗格 12px padding 内，无重叠。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "工具卡/消息布局随列宽自适应不破",
+      "expect": "工具行（tool-cordis-run）、用户气泡 max-width:85%、动作行均在列内正常渲染。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-ui-shots/width-code-1.png"],
+      "notes": "tool-cordis-run 场景：工具行/输出行在 748 列内正常。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "全量回归：typecheck / 单测 / build",
+      "expect": "typecheck 干净；567 项单测全过；build 成功。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck ✓；npm test 567/567 ✓；npm run build ✓（纯 CSS 改动，无逻辑变化）。"
+    }
+  ]
+}
