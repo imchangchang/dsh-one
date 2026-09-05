@@ -1,0 +1,96 @@
+{
+  "title": "chat-render-incremental-update：消息列表增量更新（替代每帧全量重建）",
+  "branch": "agent/chat-render-incremental-update",
+  "commit": "e77f997",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-chat-render-incremental-update:latest",
+    "driver": "verify-driver.mjs + 流式 DOM 变更探针 /tmp/dsh-sandbox-e2e-incr.mjs",
+    "date": "2026-09-10T00:00:00Z"
+  },
+  "coverageNote": "DOM 变更量的量化验收（基线 vs 增量）在独立 harness 上做：test/ui/mutation-driver.html 同一驱动页、同一批 14 帧流式重投快照，改动前（全量重建基线）added=238/removed=231/records=252，改动后 added=22/removed=15/records=37（-91%/-93%/-85%），流式帧每帧 16/16 全量重建 → 1/1（仅流式行替换）；两版终态 DOM 顺序逐项一致、finalTextHash 相同（6befbc51）、mid-history 补页滚动补偿逐帧序列一致。沙盒（mock-llm + 真 dsh + 真扩展 vsix）负责端到端回归：真流式回显（两段流式 + turn-status 出现/消失）、工具卡流式、bash 工具卡、提问面板、子代理；「加载更早」的 50 条历史窗口不在沙盒构造（成本高），由 harness 驱动页覆盖（真实点击 + earlierAnchor 配对 + 滚动补偿断言）。本沙盒 settings.yaml 无 policy 段，dsh 对 sandbox_permissions 升级调用默认放行（不出现权限审批面板；该面板属宿主 pending 链路，本轮未改动，需 policy=ask 环境由主线/真桌面验收）。真桌面 VS Code、真模型输出、跨平台不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "真流式回显：增量渲染 + DOM 变更探针",
+      "expect": "新建会话发送「测试一下」→ mock-llm 分两段流式回「收到：」「测试一下」；期间 webview 逐帧只重建变化的流式行（其余行保活），turn-status 出现、turn 结束后消失；探针统计流式全程 #messages 子树 DOM 变更量（相比全量重建基线应为个位数/帧）。",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到："
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-render-incremental-update/F-01.png"
+      ],
+      "notes": "driver 断言 done + 探针 /tmp/dsh-sandbox-e2e-incr.mjs（真实两段流式全程 body 观察、只计 #messages 子树）：added=9/removed=6/charData=0，11 批变更逐批 0-2 个节点（全量重建时代每帧 16/16）；终态 4 行消息、turn-status 已随 turn 结束消失；截图 F-01-streaming.png 可见「收到: 测试一下」+ 操作栏。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "工具调用卡流式（查天气 → get_weather）",
+      "expect": "发送「查天气」→ 助手消息内渲染工具卡（get_weather）；流式期间消息行重建、后随完整落定；消息顺序：用户气泡 → 助手文本/工具卡，操作栏挂 turnEnd 消息。",
+      "driver": {
+        "prompt": "查天气",
+        "expectText": "get_weather"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-render-incremental-update/F-02.png"
+      ],
+      "notes": "driver 断言 done；截图见 get_weather 工具卡 + 回显，消息顺序正确（用户气泡 → 注入上下文卡 → 工具卡 → 回显），操作栏挂 turnEnd 消息。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "bash 工具卡回归（审批测试 → danger-full-access 执行 + 回显）",
+      "expect": "发送「审批测试」→ mock 返回 bash 工具调用（sandbox_permissions=danger-full-access）；本沙盒 settings.yaml 无 policy 段，dsh 默认放行（无审批面板——mock 环境的既定行为，审批面板路径本轮未改动），工具卡「Ran a command bash」渲染 + 工具后 mock 兜底回显「收到：审批测试」。",
+      "driver": {
+        "prompt": "审批测试",
+        "expectText": "Ran a command"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-render-incremental-update/R-01.png"
+      ],
+      "notes": "driver 断言 done；mock 沙盒 settings 无 policy 段，dsh 默认放行 bash 升级调用（无 Permission request 面板——既定环境行为，非本任务改动范围；面板路径属宿主 pending 链路），工具卡「Ran a command bash」+ 回显「收到: 审批测试」渲染正确。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "提问面板回归（提个问题 → 选择并提交）",
+      "expect": "发送「提个问题」→ ask_user_question 面板（问题 + 选项 + 自定义输入），点「继续 (Recommended)」再点「Submit」，面板关闭、对话流继续（mock 兜底回显）。",
+      "driver": {
+        "prompt": "提个问题",
+        "expectText": "继续执行吗？",
+        "approve": [
+          "继续 (Recommended)",
+          "Submit"
+        ]
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-render-incremental-update/R-02.png"
+      ],
+      "notes": "driver 断言 done（含 approve 两击：继续 (Recommended) → Submit）；截图末态 ask_user_question 工具卡 + 回显。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "子代理回归（派个子代理）",
+      "expect": "发送「派个子代理」→ subagent 工具卡出现（子代理测试），头部出现子代理相关 chip/血缘；消息流顺序与渲染正常。",
+      "driver": {
+        "prompt": "派个子代理",
+        "expectText": "子代理测试"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-chat-render-incremental-update/R-03.png"
+      ],
+      "notes": "driver 断言 done；subagent 工具卡出现。"
+    }
+  ]
+}
