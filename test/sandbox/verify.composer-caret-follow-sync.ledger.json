@@ -1,0 +1,62 @@
+{
+  "title": "DSH One 沙盒验收报告：composer 长文本滚动窗口跟随光标（rAF 兜底）",
+  "branch": "agent/composer-caret-follow-sync",
+  "commit": "93d9ab5",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-composer-lto:latest",
+    "date": "2026-09-05T21:00:00Z"
+  },
+  "coverageNote": "本改动只动 webview 输入路径（input/compositionend 后 rAF 重同步），宿主逻辑不在改动面。验证组合：Playwright 真实逐字按键 + 拦截 scroll 事件的最坏环境对照（旧代码失败/新代码通过），harness 全场景回归 + 沙盒真 webview 状态截图。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "无 scroll 事件环境下窗口跟随光标（rAF 兜底）",
+      "expect": "长文本输入后（textarea 内部滚动），即使 scroll 事件不派发到监听器（捕获阶段拦截模拟），输入框显示窗口也必须跟随最终 scrollTop（光标位置）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-caret-shots/fixed.png"
+      ],
+      "notes": "检查点逐条：① 场景 S0（value+input 后置 scrollTop=94、拦截 scroll 事件）：新代码两帧后 transform 校正为 -94（跟随 scrollTop）✓；② 同一场景旧代码（main 对照）：transform 停在 0、scrollTop=94（窗口不跟随=用户报告症状）✗——修复前后对照明确；③ 截图 fixed.png：长文本窗口在卡内、末行为文本结尾（光标处）✓。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "真实逐字按键期间每帧跟随",
+      "expect": "Playwright pressSequentially 逐字输入 384 字（20 个采样点，每点等一帧），每个采样 transform 都等于 -scrollTop（无滞后帧）；最终滚动到 86px 处窗口一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-caret-shots/fixed.png"
+      ],
+      "notes": "检查点逐条：① 20 个采样点 transform 全部等于 -scrollTop（2 个点位 scrollTop=0，transform=0，属 -0/0 字符串显示差异，实际一致）✓；② 最终 scrollTop=86、transform=-86 ✓；③ 层盒子在输入框内（layerInsideInput=true）✓。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "harness composer-long-scrolled 基线场景",
+      "expect": "超长草稿 + 滚动到底：文本窗口在输入卡内、卡片外无文字、footer 不被遮挡（composer-long-text-overflow 修复不回退）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/composer-long-scrolled.png"
+      ],
+      "notes": "检查点逐条：① 文本全部落在卡内 ✓；② 卡片外无文字 ✓；③ footer 不被遮挡 ✓。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "harness 空 hero + 常规对话 composer（composer 相关场景全量核对）",
+      "expect": "empty（空 hero 占位符/按钮正常）、conversation（消息流 + composer）、pending-typing-draft（草稿还原）、mention-chips/session-mention（mention token 渲染）、composer-clear-all-click（清空无鬼影）均与修复前一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/empty.png",
+        "/tmp/dsh-ui-shots/conversation.png",
+        "/tmp/dsh-ui-shots/mention-chips.png"
+      ],
+      "notes": "检查点逐条：① empty：占位符/发送按钮/hero 正常 ✓；② conversation：消息流与 composer 无异常 ✓；③ mention-chips：token/chip 渲染正常 ✓；④ pending-typing-draft 与 composer-clear-all-click 无异常（同一轮全量 142 场景跑通，无失败；rAF 兜底不改变渲染路径，仅输入后一帧内多一次 transform 写入）✓。"
+    }
+  ]
+}
