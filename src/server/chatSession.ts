@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
 import type { ChatState, ChatGoal, ChatTodoItem, ChatFile, ChatImage, ChatTurnOutlineEntry, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem, StagedFile } from '../pure/chatContract.ts'
-import { ConversationFolder, applyFeedbackRatings, imagesOfBlocks } from '../pure/conversation.ts'
+import { ConversationFolder, applyFeedbackRatings, imagesOfBlocks, navigateAnchorOf } from '../pure/conversation.ts'
 import { splitAttachmentLines } from '../pure/composerAttachment.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { WorkflowRunFolder } from '../pure/workflowRun.ts'
@@ -729,11 +729,7 @@ export class ChatSessionController implements vscode.Disposable {
     }
     // 覆盖不到目标（窗口首 seq 仍大于目标）= 日志里没有该 seq，无锚可定位。
     if (this.historyCursor.earliestSeq !== undefined && this.historyCursor.earliestSeq > seq) return null
-    for (const m of this.folder.messages()) {
-      const s = (m as { seq?: unknown }).seq
-      if (typeof s === 'number' && s >= seq) return m.id
-    }
-    return null
+    return navigateAnchorOf(this.folder.messages(), seq)
   }
 
   /** Fetch messageFeedback/list and merge the ratings into the folded messages. */

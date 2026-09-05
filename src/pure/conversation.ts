@@ -1118,6 +1118,20 @@ export class ConversationFolder {
 }
 
 /**
+ * 回合跳转的定位锚：窗口里「第一条 seq ≥ 目标 seq」的消息 id（目标回合的
+ * 首行）。消息按 seq 升序折叠，目标回合 turn/start 的 seq 落在其首行之前——
+ * 首个越过它的消息就是该回合第一条可见行。没有可定位消息（空窗口/日志洞/
+ * 目标在窗口外）返回 null。
+ */
+export function navigateAnchorOf(messages: readonly ChatMessage[], seq: number): string | null {
+  for (const m of messages) {
+    const s = (m as { seq?: unknown }).seq
+    if (typeof s === 'number' && s >= seq) return m.id
+  }
+  return null
+}
+
+/**
  * Merge stored feedback ratings (messageFeedback/list, keyed by host
  * messageId) into folded assistant messages. Returns true when any message's
  * rating changed, so callers can skip a redundant snapshot push.

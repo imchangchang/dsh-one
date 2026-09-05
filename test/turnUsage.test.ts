@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { TurnUsageFold } from '../src/pure/turnUsage.ts'
-import { ConversationFolder } from '../src/pure/conversation.ts'
+import { ConversationFolder, navigateAnchorOf } from '../src/pure/conversation.ts'
 import type { SessionEventLike, StreamChunkData } from '../src/pure/conversation.ts'
-import type { ChatAssistantMessage } from '../src/pure/chatContract.ts'
+import type { ChatAssistantMessage, ChatMessage } from '../src/pure/chatContract.ts'
 
 let seq = 0
 
@@ -298,4 +298,33 @@ test('folder: 样本不可证明（只有 outputTokens）→ 不渲染药丸的�
   const folder = new ConversationFolder()
   for (const event of completeTurnEvents(1, { outputTokens: 320 })) folder.applyEvent(event)
   assert.equal(assistantOf(folder.messages()).usage, undefined)
+})
+
+// ---- 回合跳转定位锚（navigateAnchorOf） ----
+
+test('navigateAnchor: 目标在窗口内 → 返回第一条 seq ≥ 目标的消息 id', () => {
+  const msgs: ChatMessage[] = [
+    { kind: 'user', id: 'u-1', text: 'a', seq: 100 },
+    { kind: 'assistant', id: 'a-1', blocks: [], complete: true, seq: 120 },
+    { kind: 'user', id: 'u-2', text: 'b', seq: 200 },
+    { kind: 'assistant', id: 'a-2', blocks: [], complete: true, seq: 220 },
+  ]
+  assert.equal(navigateAnchorOf(msgs, 150), 'u-2')
+  assert.equal(navigateAnchorOf(msgs, 100), 'u-1')
+  assert.equal(navigateAnchorOf(msgs, 220), 'a-2')
+  assert.equal(navigateAnchorOf(msgs, 221), null)
+})
+
+test('navigateAnchor: 目标在窗口首之前 → 返回窗口第一条消息（窗口头在回合中间）', () => {
+  const msgs: ChatMessage[] = [
+    { kind: 'assistant', id: 'a-tail', blocks: [], complete: true, seq: 130 },
+    { kind: 'user', id: 'u-2', text: 'b', seq: 200 },
+  ]
+  assert.equal(navigateAnchorOf(msgs, 100), 'a-tail')
+})
+
+test('navigateAnchor: 无消息 / 目标超出所有消息 → null', () => {
+  assert.equal(navigateAnchorOf([], 100), null)
+  const msgs: ChatMessage[] = [{ kind: 'user', id: 'u-1', text: 'a', seq: 100 }]
+  assert.equal(navigateAnchorOf(msgs, 101), null)
 })
