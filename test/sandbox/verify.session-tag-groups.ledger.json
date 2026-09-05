@@ -53,6 +53,18 @@
       "notes": "DOM 断言逐项核对：① 预设组（待办）右键菜单 = Archive 2 sessions / Move 2 sessions to the recycle bin / Remove from group 三项，无 Rename/Delete；② 自定义组（探索）菜单 = Archive 1 sessions / Move 1 sessions… / Remove from group / Rename group… / Delete group 五项。①② 全符合（预设组 l10n 名字不可改名不可删，自定义组可改删）。"
     },
     {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "标签组块折叠/展开（pill 后小三角）",
+      "expect": "每个组块 pill 右侧一个小三角（展开向下、折叠向右）；点击待办组三角后整组只剩 pill 行（组内会话行与竖线消失），再点恢复；折叠态随快照（tagCollapsed）持久化、搜索态强制展开；拖会话进折叠块自动展开。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/session-tags-F05-a.png",
+        "/tmp/dsh-sandbox-shots/session-tags-F05-b.png"
+      ],
+      "notes": "playwright 断言逐项核对：① 初始 4 组块各一个 .tag-toggle（4/4），预置 tagCollapsed 的「已完成」初始即折叠（行数 0、无竖线节点、三角朝右），其余展开（三角朝下）；② 点击待办 toggle → post sessionTagCollapse{tagId:preset-todo, collapsed:true}，回推快照后块 .collapsed 类生效、组内行数 0、.tag-line 不渲染；③ 再点 → post {collapsed:false}，回推后行数恢复 2、竖线恢复；④ harness 分步场景 session-tags-collapse（自动步进 + 回推 + 断言）全过、无失败横幅。①②③④ 全符合（折叠拖入自动展开见消息断言：drop 折叠块时会额外 post sessionTagCollapse{false}）。"
+    },
+    {
       "id": "R-01",
       "phase": "regression",
       "name": "mock-LLM 回显回复（聊天链路回归）",
@@ -74,7 +86,7 @@
       "expect": "侧栏分组栏「All workspaces ▼」与「+」照常；「分组…」二级菜单与管理视图（用户已有功能，本次仅快照新增字段不触碰其逻辑）逻辑不变。",
       "result": "pass",
       "screenshots": [],
-      "notes": "F-01 截图已覆盖「All workspaces ▼ +」分组栏照常显示；workspace 分组（workspaceGroups.ts / store / 管理视图）本次零代码改动，回归面重叠于侧栏整体渲染（F-01/R-01 均正常）。结论：无回归迹象。"
+      "notes": "F-01 截图已覆盖「All workspaces ▼ +」分组栏照常显示；workspace 分组（workspaceGroups.ts / store / 管理视图）本次零代码改动，回归面重叠于侧栏整体渲染（F-01/R-01 均正常）。结论：无回归迹象。 折叠提交复跑：侧栏整体渲染（F-01/F-05 截图）正常。"
     },
     {
       "id": "R-03",
@@ -83,7 +95,7 @@
       "expect": "npm run typecheck / npm test（602 项全过）/ npm run build 全部通过（dev-finish 复跑）。",
       "result": "pass",
       "screenshots": [],
-      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 602 项全过（含新增 sessionTags 纯层测试与 sessionTree 标签组聚合测试）；npm run build 产出四个 bundle。"
+      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 602 项全过（含新增 sessionTags 纯层测试与 sessionTree 标签组聚合测试）；npm run build 产出四个 bundle。 折叠功能提交后复跑：602 项仍全过，build 产出正常。"
     }
   ]
 }
