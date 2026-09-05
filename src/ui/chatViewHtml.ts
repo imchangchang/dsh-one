@@ -67,6 +67,14 @@ const STYLE = `
   .chat-col {
     flex: 1; min-width: 0; display: flex; flex-direction: column;
     background: var(--vscode-editor-background, transparent);
+    /* 内容列宽（对齐 dsh web 缺省公式 clamp(680px, 会话列宽×64%, 920px)；不做
+       官方/社区的可拖拽手柄）：列 max-width、dock 条 inline padding、回到底部
+       浮标右缘 padding 共用这一个变量。container 查询单位以 chat-col 为基准
+       （cqw 在 var() 里按使用处的最近容器解析——全部使用处都在 chat-col 内）；
+       chat-col 宽由父 flex 给定、fixed 浮层全挂 body，inline-size  containment
+       无副作用。 */
+    container-type: inline-size;
+    --dsh-content-width: clamp(680px, 64cqw, 920px);
   }
   /* 运行中：官方 dsh web StateDot(ongoing) 的 8 格像素环追逐动画，deepseek 蓝。 */
   .session-spin { display: block; color: var(--vscode-charts-blue, #5686fe); }
@@ -212,12 +220,13 @@ const STYLE = `
        锚定，滚动锚定语义完全由程序补偿路径负责（与全量重建时代的行为一致）。 */
     overflow-anchor: none;
   }
-  /* 内容列限宽居中（对齐 dsh web 748px；不做社区 dsh-chat-width 的可拖拽 748→1040）：
-     消息行/提示/命令行收敛到 748px 居中，窄屏 width 100% 自适应——代码块头部复制
-     按钮因此有右侧留白，不再压消息区右缘（chat-content-whitespace-width）。 */
-  .messages > * {
-    width: 100%; max-width: 748px;
-    margin-left: auto; margin-right: auto;
+  /* 居中内容列（对齐 dsh web EvIC1a_column）：所有流内元素是这一个列容器的
+     统一子项，宽度只在这一层约束——不做 .messages > * 式逐子项限宽（那会把
+     jump-latest/turn-rail 等浮层卷进来，也会被子项自带 margin 盖掉居中）。
+     窄屏 width:100% 自适应，宽屏收敛到 --dsh-content-width 居中留白。 */
+  .flow-col {
+    width: 100%; max-width: var(--dsh-content-width);
+    margin: 0 auto; display: flex; flex-direction: column; gap: 10px;
   }
   .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
   /* 切换会话时历史基线加载中的占位：撑满聊天列垂直居中。 */
@@ -1233,6 +1242,12 @@ const STYLE = `
   .goal-bar-input:focus {
     outline: 1px solid var(--vscode-focusBorder, #007fd4); outline-offset: -1px;
   }
+  /* 输入区与 dock 条的内容随内容列对齐（对齐 dsh web composerStack/dock 的
+     居中规则）：条带本身仍满宽（顶部分隔线是面板 chrome），内容经 inline
+     padding 收到列宽——不包额外 DOM，窄屏 max() 落回各自原有 padding。 */
+  .input-area, .queue, .todo-panel, .goal-bar, .pending-panel {
+    padding-inline: max(12px, calc((100% - var(--dsh-content-width)) / 2));
+  }
   .input-row { display: flex; gap: 8px; align-items: center; }
   .input-footer { display: flex; gap: 6px; align-items: center; }
   .stats-row { display: flex; align-items: center; gap: 10px; }
@@ -1579,9 +1594,16 @@ const STYLE = `
   }
   .msg-image-chip { cursor: zoom-in; padding-right: 8px; }
   .msg-image-chip:hover { filter: brightness(1.15); }
+  /* 「回到最新」浮标（对齐 dsh web EvIC1a_toBottomSlot）：sticky 零高槽位 +
+     右缘 padding = 列外留白宽——小 pill 贴内容列右缘、不占流高、不随列限宽；
+     槽位 pointer-events 关掉，点击只落在 pill 上。 */
+  .jump-slot {
+    position: sticky; bottom: 4px; height: 0; z-index: 5;
+    display: flex; justify-content: flex-end; pointer-events: none;
+    padding-right: max(0px, calc((100% - var(--dsh-content-width)) / 2));
+  }
   .jump-latest {
-    position: sticky; bottom: 4px; align-self: flex-end; flex: none;
-    margin-bottom: -30px; z-index: 5;
+    flex: none; pointer-events: auto;
     border-radius: 14px; padding: 4px 12px; font-size: 12px;
     background: var(--vscode-editorWidget-background, var(--vscode-button-secondaryBackground, rgba(127,127,127,.3)));
     color: var(--vscode-foreground);
