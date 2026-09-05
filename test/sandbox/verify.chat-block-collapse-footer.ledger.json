@@ -1,0 +1,74 @@
+{
+  "title": "展开块底部「收起」按钮（思考/工具卡/命令输出等）——chat-block-collapse-footer 任务",
+  "branch": "agent/chat-block-collapse-footer",
+  "commit": "9594c26",
+  "environment": {
+    "mode": "harness-visual",
+    "theme": "light",
+    "date": "2026-09-05T00:00:00Z"
+  },
+  "coverageNote": "验证通道：harness 视觉场景（浏览器独立渲染 webview + mock 后台，WebBridge 截图）。本任务改 webview 渲染代码（各 details 展开块内容追加「收起」按钮）；沙盒 E2E 不适用（无宿主/真实 dsh 行为变化，纯渲染层）。宿主链路（激活/服务/真实 dsh）不在范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "展开块底部出现「收起」按钮（思考/工具卡/命令输出）",
+      "expect": "collapse-footer-expanded.png：三个块都展开——思考块多行正文（左引用竖线）、工具卡展开出 IN/OUT 卡片、命令输出多行 pre；每个展开块的内容底端各有一行小灰字「Collapse」（收起）按钮（思考块正下方、工具卡 OUT 卡片下方、命令输出下方），按钮不带边框、与正文同色系半透明；顶部摘要行仍可点（未改动）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/collapse-footer-expanded.png"
+      ],
+      "notes": "逐条核对：① 思考块展开 → 正文下方独立一行「Collapse」✓；② 工具卡展开 → IN/OUT 两卡（IN 参数 JSON、OUT bash 测试输出 150px 内滚动）之后「Collapse」✓；③ /compact 命令输出多行 pre 之后「Collapse」✓；④ 按钮为无边框小灰字（0.85em、opacity .6），与上下文正文同色系；⑤ 三个摘要行仍保留原展开/收起交互（chevron 旋转）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "点思考块底部「收起」→ 只折叠思考块，其余块保持展开",
+      "expect": "collapse-footer-collapsed-reasoning.png：点思考块底部「Collapse」后思考块收回单行摘要（Thoughts · 首行），其「收起」按钮随正文一起消失；工具卡与命令输出仍保持展开（各自收起按钮仍在）；页面无红色断言横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/collapse-footer-collapsed-reasoning.png"
+      ],
+      "notes": "逐条核对：① 思考块折叠回「Thoughts · 用户要的是长内容展开后的底部收起入口…」单行摘要 ✓；② 思考块正文与 Collapse 按钮均消失 ✓；③ 工具卡 IN/OUT 与底部 Collapse 仍在 ✓；④ 命令输出与底部 Collapse 仍在 ✓；⑤ 无红色断言横幅（页面内脚本断言：思考块已折叠且工具卡仍展开，通过）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "折叠态无按钮残留（默认折叠的块头部不出现 Collapse）",
+      "expect": "conversation.png（工具卡默认折叠：单行「Ran a command bash / npm test」、无 Collapse 按钮）、compaction-cards.png（三张压缩卡折叠态单行、无按钮）、turn-status-notices.png（retry 行折叠态单行、无按钮）与期望一致——新按钮只出现在展开态内容底部，不改变折叠态行布局。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png",
+        "/tmp/dsh-ui-shots/compaction-cards.png",
+        "/tmp/dsh-ui-shots/turn-status-notices.png"
+      ],
+      "notes": "逐条核对：① conversation：工具卡仍是单行摘要 + chevron，无 Collapse 残留 ✓；② compaction-cards：三张压缩卡折叠态单行，无按钮 ✓；③ turn-status-notices：两条 retry 行折叠态单行（倒计时文本），无按钮 ✓。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "其他 details 展开块回归（skill 指令卡 / context 注入卡 / cordis 源码卡 / workflow 卡）",
+      "expect": "tool-skill.png：skill 指令卡展开，Instructions 头 + 260px 内滚动指令全文，底部 Collapse；context-injection-forms.png：6 张注入上下文卡展开（catalog/snapshot/notice/relay/recall/unknown），每张 body 底部 Collapse，141px 内滚动未受影响；tool-cordis-define.png：Host/Client/Result 三段源码卡底部 Collapse；workflow-finished.png：run→phase→member 三层折叠（非 details 实现）保持原样、无新按钮。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/tool-skill.png",
+        "/tmp/dsh-ui-shots/context-injection-forms.png",
+        "/tmp/dsh-ui-shots/tool-cordis-define.png",
+        "/tmp/dsh-ui-shots/workflow-finished.png"
+      ],
+      "notes": "逐条核对：① tool-skill：Instructions 卡底部 Collapse ✓；② context-injection-forms：6 卡全展开、各卡内容底部 Collapse（Catalog replaced / snapshot / notice / relay / recall / Unknown 各一块），滚动容器与内容排版无回归 ✓；③ tool-cordis-define：三段源码卡后 Collapse ✓；④ workflow-finished：workflow 卡仍为 run/phase 折叠行（按钮点击切换、非 details），无 Collapse 混入 ✓。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量 144 场景回归 + typecheck + 579 单测 + build",
+      "expect": "scripts/ui-visual.sh（mode=all）跑 window.SCENARIOS 全部场景，每场景至少一张截图落盘（collapse-footer 产出两张 -step 截图），无截图缺失、无步骤信号超时告警；npm run typecheck 无错误；npm test 579 pass / 0 fail；npm run build 成功产出 dist/extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/collapse-footer-expanded.png",
+        "/tmp/dsh-ui-shots/collapse-footer-collapsed-reasoning.png"
+      ],
+      "notes": "typecheck 通过、579 单测全过、build 成功；ui-visual.sh mode=all 截图清单 144 场景全部落盘，interactSteps 分步场景（collapse-footer 两张、sessions-workspace-menu-groups 两张、jump-latest-visible 两张等）步骤信号到位。"
+    }
+  ]
+}

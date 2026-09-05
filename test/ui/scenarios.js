@@ -2892,6 +2892,77 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     expect: '与日志损坏同款整页错误提示：标题 + 建议 + 原因行显示 session_not_found 错误；无空态 hero、无 composer、无空白页。',
   }
 
+  // 展开块底部收起按钮（用户反馈：思考/工具卡等长内容展开后，顶部 summary
+  // 够不着，底部要有一键收起）。分步：① 展开思考 + 工具卡 + 命令输出三个块，
+  // 各块展开内容底部出现「收起」小按钮；② 点思考块底部「收起」→ 思考块折叠
+  // 回一行摘要，其余块仍展开、按钮仍在。
+  catalog['collapse-footer'] = {
+    state: base({
+      messages: [
+        u('展开的内容太长，怎么从底部收起？'),
+        {
+          kind: 'assistant', id: rid('a'), complete: true, turnEnd: true,
+          blocks: [
+            {
+              type: 'reasoning',
+              text: [
+                '用户要的是长内容展开后的底部收起入口，不需要拖回顶部摘要。',
+                '',
+                '第一点：思考块文字很多时，用户会滚到底部阅读，收起只能点顶部 summary，要重新滚动，很麻烦。',
+                '第二点：工具卡展开出 IN/OUT 卡片同理，展开后内容高度可能超过视口。',
+                '第三点：命令输出、压缩摘要卡这类多行展开块也有相同问题。',
+                '第四点：方案是在每个展开块的内容末尾挂一个小「收起」按钮，点击即折叠。',
+                '',
+                '最后：按钮样式沿用现有的小灰字 toggle 观感，不喧宾夺主。',
+              ].join('\n'),
+            },
+            { type: 'text', text: '好，我在展开内容底部加了「收起」按钮，点一下就能折叠。' },
+            {
+              type: 'tool', callId: rid('t'), name: 'bash', status: 'done',
+              title: 'bash', detail: 'npm test',
+              args: JSON.stringify({ command: 'npm test' }),
+              output: '> dsh-one@1.1.0 test\n> node --test\n\n# tests 7\n# pass 7\n# fail 0\n# todo 0\n# skipped 0\n',
+            },
+          ],
+        },
+        {
+          kind: 'assistant', id: rid('c'), complete: true, turnEnd: true,
+          blocks: [{ type: 'text', text: '输出很多行：' }],
+        },
+        {
+          kind: 'command', id: rid('cmd'), name: 'compact', status: 'success',
+          text: '模型会话上下文压缩完成。\n重新组织后的消息列表已同步。\n后续轮次的 token 占用明显下降。',
+        },
+      ],
+    }),
+    interactSteps: [
+      {
+        name: 'expanded',
+        script: `
+          document.querySelector('.reasoning > summary')?.click()
+          document.querySelector('.tool-disclosure > summary')?.click()
+          document.querySelector('.command-detail > summary')?.click()
+        `,
+      },
+      {
+        name: 'collapsed-reasoning',
+        script: `
+          document.querySelector('.reasoning .details-collapse')?.click()
+          const still = !document.querySelector('.reasoning[open]')
+            && !!document.querySelector('.tool-disclosure[open]')
+          if (!still) {
+            const d = document.createElement('div')
+            d.textContent = 'COLLAPSE ASSERT FAILED'
+            d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+            document.body.appendChild(d)
+          }
+        `,
+      },
+    ],
+    title: '展开块底部「收起」按钮（思考 + 工具卡 + 命令输出）',
+    expect: '两张分步截图对照——① <scenario>-expanded.png：三个块都展开——思考块正文多行（左引用竖线）、工具卡展开出 IN/OUT 卡片、命令输出多行 pre；每个展开块的**内容底端**都有一行小灰字「收起」按钮（思考块正下方、工具卡 OUT 卡片下方、命令输出下方），按钮不带边框、与正文同色系半透明；顶部摘要行仍可点（未改动）。② <scenario>-collapsed-reasoning.png：点思考块底部「收起」后思考块收回单行摘要（Thoughts · 首行），其「收起」按钮随正文一起消失；工具卡与命令输出**仍保持展开**（各自收起按钮仍在原位）；无红色断言横幅（断言：思考块已折叠且工具卡仍展开）。',
+  }
+
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"
   // 的存量状态，就把它的名字加进 BASELINE_SCENARIOS —— 随合入并入主线基线。
@@ -2912,6 +2983,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'queue-preview-mention',
     'steering-pending',
     'compaction-cards', 'turn-navigator', 'jump-latest-visible',
+    'collapse-footer',
     'composer-clear-after-send',
     'composer-long-scrolled',
     'attachment-uniform',
