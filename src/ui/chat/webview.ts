@@ -2931,6 +2931,9 @@ function render(): void {
   // popover 锚点，流式快照每帧重建 header 会把锚点 remove 掉，保活逻辑随即
   // closePopover——弹层刚开就被下一帧杀掉。header 相关状态实质没变时保留
   // 原元素，锚点稳定、弹层存活。耗时/相对时间等渲染期派生值不进签名。
+  // schedule（定时计划 chip 数据源）必须进签名：它的到达是运行中帧（非首帧
+  // 基线），不进签名的话 keepHeader 会把未含 chip 的旧头部原样保留——chip
+  // 永远不出现（实测：真 dsh 0.1.2 schedule 投影推送后头部无变化）。
   const headerSig = JSON.stringify([
     state?.sessionId ?? null,
     state?.sessionTitle ?? null,
@@ -2939,6 +2942,7 @@ function render(): void {
     state?.presetDescription ?? null,
     state?.subagents ?? null,
     state?.backgroundJobs ?? null,
+    state?.schedule ?? null,
   ])
   // 改名中的 header 不保留：标题 span 已被输入框就地替换，保留会让输入框
   // 在 commit/cancel 后的 render 里残留（重建才会还原成标题）。

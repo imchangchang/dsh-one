@@ -33,9 +33,9 @@ export function scheduleEveryUnit(
 
 /**
  * 距目标时刻的相对量（官方 formatScheduleRelative 的数值部分）：正数 =
- * 剩余（future），负数 = 已逾期（overdue），0 = 现在到期。单位取
- * 绝对值能容纳的最大单位，value 向上（future）或向下（overdue）取整，
- * 且至少 1（0 只在恰好现在到期）。
+ * 剩余（future），负数 = 已逾期（overdue），0 = 现在到期。单位取绝对值能
+ * 容纳的最大单位；指定时刻的过期秒数整体取整（future 向上、overdue 向下，
+ * 均为非零整数）——符号只在文案选择时使用，数值本身即相对量的量级。
  */
 export function scheduleRelativeDelta(
   scheduledAt: string,
@@ -47,10 +47,11 @@ export function scheduleRelativeDelta(
   const selected = SCHEDULE_UNIT_SECONDS.find((c) => absoluteMs >= c.seconds * 1000)
     ?? SCHEDULE_UNIT_SECONDS[SCHEDULE_UNIT_SECONDS.length - 1]
   const seconds = absoluteMs / 1000
-  const value = difference > 0
-    ? Math.max(1, Math.ceil(seconds / selected.seconds))
-    : Math.max(1, Math.floor(seconds / selected.seconds))
-  return { unit: selected.unit, value }
+  const rounded = difference > 0
+    ? Math.ceil(seconds / selected.seconds)
+    : Math.floor(seconds / selected.seconds)
+  const magnitude = Math.max(1, rounded)
+  return { unit: selected.unit, value: difference > 0 ? magnitude : -magnitude }
 }
 
 /**

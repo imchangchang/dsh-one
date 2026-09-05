@@ -29,17 +29,17 @@ test('schedule every 频率：取能整除的最大单位（90 秒不被 60 整�
   assert.deepEqual(scheduleEveryUnit(60 * 60 * 24 * 3 + 1), { unit: 'second', value: 259_201 })
 })
 
-test('schedule 相对量：未来向上取整、逾期向下取整、最小 1，现在=0', () => {
-  const at = (iso: string): number => Date.parse(iso) - NOW
+test('schedule 相对量：未来向上取整（带符号正）、逾期向下取整（带符号负）、现在=0', () => {
   assert.deepEqual(scheduleRelativeDelta('2026-09-12T12:00:00.000Z', NOW), { unit: 'day', value: 1 })
-  assert.deepEqual(scheduleRelativeDelta('2026-09-10T12:00:00.000Z', NOW), { unit: 'day', value: 1 })
+  assert.deepEqual(scheduleRelativeDelta('2026-09-10T12:00:00.000Z', NOW), { unit: 'day', value: -1 })
   // 边界：整秒整分钟整小时各取对应最大单位。
   assert.deepEqual(scheduleRelativeDelta('2026-09-11T13:00:00.000Z', NOW), { unit: 'hour', value: 1 })
   assert.deepEqual(scheduleRelativeDelta('2026-09-11T12:01:00.000Z', NOW), { unit: 'minute', value: 1 })
   // 51 秒 → 秒档（官方取「容纳得下」的最大单位，不跨级进分钟）；
-  // 100 秒 → 分钟档 2 分钟（向上取整）。
+  // 100 秒（>1 分钟）→ 分钟档 2 分钟（未来向上取整）；100 秒前过期 → 分钟档 -1。
   assert.deepEqual(scheduleRelativeDelta('2026-09-11T12:00:51.000Z', NOW), { unit: 'second', value: 51 })
   assert.deepEqual(scheduleRelativeDelta('2026-09-11T12:01:40.000Z', NOW), { unit: 'minute', value: 2 })
+  assert.deepEqual(scheduleRelativeDelta('2026-09-11T11:58:20.000Z', NOW), { unit: 'minute', value: -1 })
   // 恰好现在到期。
   assert.deepEqual(scheduleRelativeDelta('2026-09-11T12:00:00.000Z', NOW), { unit: 'second', value: 0 })
 })
