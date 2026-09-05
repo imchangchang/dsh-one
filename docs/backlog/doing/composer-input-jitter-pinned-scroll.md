@@ -65,6 +65,10 @@ E-after-300ms   st=1878 ch=508 gap=0     <- 补偿逻辑最终拉回
 - 或次选：autoGrow 塌缩前后把 `.messages` 的 `scrollTop`/`stickToBottom` 记下来，
   `height` 恢复后如果 `stickToBottom` 且被 clamp 过，同步一次 `writeMessagesScrollTop`
   回新 max（不再等 140ms settle）。
+- **最终拍板（2026-09-06）**：结构性修复——composer 搬进滚动容器（见
+  composer-sticky-in-scroller-layout）后消息区尺寸不再被压缩，本类扰动在布局层消失；
+  autoGrow 塌缩改用 `field-sizing: content`（原生，Chromium 支持）+ 镜像测量兜底。
+  与本条目同 worktree 开发。
 
 ## 涉及代码位置
 
@@ -75,3 +79,4 @@ E-after-300ms   st=1878 ch=508 gap=0     <- 补偿逻辑最终拉回
 ## 变更记录
 
 - 2026-09-06 用户主线实机报告「输入长文本上方对话区不断跳动」→ harness+Playwright 复现与机制验证 → 确认（瞬态塌缩 clamp + 补偿竞态，非渲染重建）→ open
+- 2026-09-06 认领（worktree: agent/composer-sticky-in-scroller-layout；结构修复随 composer-sticky-in-scroller-layout 一并落地）→ doing

@@ -37,3 +37,15 @@ composer 是滚动容器**内部最后一项**（sticky bottom），不是容器
 ## 变更记录
 
 - 2026-09-05 由 composer-multiline-input-jitter 调查产出，用户拍板作为后续改进方向 → open
+- 2026-09-06 官方 bundle 实证补全（composer-input-jitter-pinned-scroll 调查）：
+  `dsh-client-ui-conversation/lib/client.js` L14476-14489 确认 `composerSeat`
+  是 `scrollBody`（`data-conversation-scroll`）的直接子项，CSS
+  `.wSkVaW_composerSeat{position:sticky;bottom:0}`；`--dsh-composer-height` 由
+  ResizeObserver 观测 seat 后写到 scroller（L14338），jump-latest 类浮标
+  `bottom: calc(var(--dsh-composer-height,152px) + 16px)` 纯 CSS 联动；
+  官方 composer **没有任何 `style.height` JS 测量**（全文 0 次），输入框是
+  Lexical 编辑器（`ReferenceChipNode`/`TextRefNode` 原生渲染 @ token）。
+  另实证：输入框跳动（composer-input-jitter-pinned-scroll）根因是
+  autoGrow 塌缩 clamp + 补偿竞态，在本布局里整类消失（消息区尺寸不再被压缩）。
+  与本条目合并开发（同一 worktree）。
+- 2026-09-06 认领（worktree: agent/composer-sticky-in-scroller-layout；与 composer-input-jitter-pinned-scroll 合并开发）→ doing
