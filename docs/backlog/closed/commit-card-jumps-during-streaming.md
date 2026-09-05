@@ -41,3 +41,5 @@ sha（限同 flow 行，防同 sha 在多条消息并存时锚错行）在新 DO
   修复后三帧重建仍在位）；沙盒报告（F-01 慢速流式悬停 4s 持续在位 + R-01~R-03 回归）全部 pass，
   报告 .worktrees/commit-card-jumps-during-streaming/test/sandbox/verify.commit-card-jumps-during-streaming.report.html；
   typecheck/test（540 项，含新增 3 项）/build 全过。done 标记 2e8106a。
+
+- 2026-09-07 合入（done -> closed）：dev-merge 合入 main（2742f83），沙盒报告 10 项全过、人工审查通过；ledger test/sandbox/verify.commit-card-jumps-during-streaming.ledger.json。
