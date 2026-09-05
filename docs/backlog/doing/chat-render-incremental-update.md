@@ -22,3 +22,5 @@
 ## 变更记录
 
 - 2026-09-05 用户拍板开始阶段 2；从 chat-render-scaling（已 closed）拆分本条目 → open
+
+- 2026-09-10 认领（open → doing）：阶段 2 消息列表增量更新开发 session 认领，worktree slug chat-render-incremental-update
