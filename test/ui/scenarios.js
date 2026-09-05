@@ -996,6 +996,23 @@
       expect: '点击编辑后：条幅变成单行输入框（预填当前 objective，自动聚焦）+ 右侧两个图标按钮（保存目标：对勾；取消编辑：叉号）；预填非空所以保存按钮初始可用；条内无报错。',
     },
 
+    // ---- 排队中卡片预览（queued, composer 上方）----
+    'queue-preview-mention': {
+      // 排队中卡片预览：canonical 会话引用（@[标题](dsh-session:…)）与 @路径
+      // 不能原样上屏——长 base64 URI/路径会把 .queue-text 两行 clamp 占满、
+      // 正文被省略号吞没。应与插话/正式气泡同款渲染成 chip：短标签/basename
+      // 上屏、完整引用/路径放 title；附件计数前缀保持纯文本。
+      state: base({
+        queue: [{
+          id: 'q-1', placement: 'queued',
+          text: '[图片 ×1] @[长文本输入时对话刷新问题](dsh-session:InNlc3MtMSI) 帮我看看这个会话里提到的输入抖动，看下 @src/ui/chat/webview.ts 的渲染路径，还有 @src/pure/ 的 token 切分，顺便把基线冒烟集也过一遍，确认没有把别的场景弄坏，最后记得核对编辑态回填原文，先看输入占位符的措辞，再检查发送按钮的图标形态，然后核对底部统计行。',
+          editText: '@[长文本输入时对话刷新问题](dsh-session:InNlc3MtMSI) 帮我看看这个会话里提到的输入抖动，看下 @src/ui/chat/webview.ts 的渲染路径，还有 @src/pure/ 的 token 切分，顺便把基线冒烟集也过一遍，确认没有把别的场景弄坏，最后记得核对编辑态回填原文，先看输入占位符的措辞，再检查发送按钮的图标形态，然后核对底部统计行。\n<attachment>/Users/cgeng/Workspaces/dsh-one/chart.png</attachment>',
+        }],
+      }),
+      title: '排队中卡片预览（@会话/@文件/@文件夹 chip）',
+      expect: 'composer 上方一条排队卡片：左侧「Queued」徽章；预览区一行内依次为——纯文本计数「[图片 ×1]」；会话 chip（聊天气泡图标 + 链接色「长文本输入时对话刷新问题」）；正文「帮我看看这个会话里提到的输入抖动，看下」；文件 chip（文档图标 + 「webview.ts」）；正文「的渲染路径，还有」；文件夹 chip（文件夹图标 + 「pure」）；正文继续到第二行被省略号截断（总内容超两行，尾部出现「…」，第二行末尾由省略号收束；chips 不因截断半截消失）。任何位置都看不到 base64 URI 原文；右侧「Steer  Edit  Delete」三个链接按钮与预览同一行基线；卡片下方是输入区（英文占位符）。',
+    },
+
     // ---- 等待插话（steering 待落地）----
     'steering-pending': {
       state: base({
@@ -2874,6 +2891,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'produced-files', 'produced-files-expanded', 'produced-files-wrap',
     'goal-active',
     'goal-stack',
+    'queue-preview-mention',
     'steering-pending',
     'compaction-cards', 'turn-navigator', 'jump-latest-visible',
     'composer-clear-after-send',
