@@ -43,6 +43,19 @@ interface EventStreamState {
   attempts: number
   closed: boolean
   logger: Logger
+  /** Current connection generation identity; null until the ready frame lands. */
+  clientId: string | null
+  /**
+   * Waterfalls of the current generation still pending host-side. The gateway
+   * delivers a waterfall frame once (at creation) to the clients connected at
+   * that moment — a handler that subscribes later (e.g. the user opens the
+   * session's chat tab after the question fired) would never see it, so the
+   * singleton keeps the frames and replays them to late subscribers. Entries
+   * leave when a cancel frame arrives, when the generation drops, or when we
+   * answer and settle them locally (the host does not broadcast the cancel
+   * back to the answering client, so local settlement must clean up itself).
+   */
+  pending: Map<string, { eventId: string; event: string; agentId: string; request: Record<string, unknown> }>
 }
 
 const eventStreams = new Map<string, EventStreamState>()
@@ -51,12 +64,26 @@ const eventStreams = new Map<string, EventStreamState>()
 export function subscribeModernEvents(origin: string, logger: Logger, handler: ModernEventsHandler): Disposable {
   let state = eventStreams.get(origin)
   if (state === undefined) {
-    state = { handlers: new Set(), subscription: null, timer: null, attempts: 0, closed: false, logger }
+    state = {
+      handlers: new Set(),
+      subscription: null,
+      timer: null,
+      attempts: 0,
+      closed: false,
+      logger,
+      clientId: null,
+      pending: new Map(),
+    }
     eventStreams.set(origin, state)
   }
   state.handlers.add(handler)
   state.closed = false
   startEventStream(origin, logger, state)
+  // Late subscriber on an already-connected generation: replay the pending
+  // waterfalls it missed (the gateway only delivers them at creation time).
+  if (state.clientId !== null) {
+    for (const frame of state.pending.values()) dispatchWaterfall(origin, state, handler, frame)
+  }
   return {
     dispose(): void {
       state.handlers.delete(handler)
@@ -71,10 +98,41 @@ export function subscribeModernEvents(origin: string, logger: Logger, handler: M
   }
 }
 
+/** Deliver one waterfall frame to one handler; `answer` settles it locally. */
+function dispatchWaterfall(
+  origin: string,
+  state: EventStreamState,
+  handler: ModernEventsHandler,
+  frame: { eventId: string; event: string; agentId: string; request: Record<string, unknown> },
+): void {
+  handler.onRequest?.({
+    eventId: frame.eventId,
+    agentId: frame.agentId,
+    event: frame.event,
+    req: frame.request,
+    answer: async (value: unknown) => {
+      await sendWaterfallResult(origin, state.clientId as string, frame.eventId, value)
+      settlePendingLocally(state, frame.eventId)
+    },
+  })
+}
+
+/**
+ * Drop one pending waterfall from the local registry after we answered it.
+ * Reused as a local counterpart of the host's cancel broadcast: the gateway
+ * removes the answering client from the delivery set *before* broadcasting
+ * cancel, so our own `onCancel` never fires for the event we just answered —
+ * without this, the registry entry (and every consumer's pending state, e.g.
+ * the sidebar yellow dot) would outlive the settled waterfall.
+ */
+function settlePendingLocally(state: EventStreamState, eventId: string): void {
+  if (!state.pending.delete(eventId)) return
+  for (const handler of state.handlers) handler.onCancel?.(eventId)
+}
+
 /** (Re)open the singleton $events stream; reconnect with backoff on loss. */
 function startEventStream(origin: string, logger: Logger, state: EventStreamState): void {
   if (state.subscription !== null || state.timer !== null || state.closed) return
-  let clientId: string | null = null
   state.subscription = openStream(
     origin,
     '$events',
@@ -82,15 +140,16 @@ function startEventStream(origin: string, logger: Logger, state: EventStreamStat
     logger,
     {
       onItem(value: unknown) {
-        if (clientId === null) {
+        if (state.clientId === null) {
           const ready = parseEventStreamReady(value)
           if (ready === null) return
-          clientId = ready.clientId
+          state.clientId = ready.clientId
           return
         }
         const frame: EventStreamFrame | null = parseEventStreamFrame(value)
         if (frame === null) return
         if (frame.type === 'cancel') {
+          state.pending.delete(frame.eventId)
           for (const handler of state.handlers) handler.onCancel?.(frame.eventId)
           return
         }
@@ -98,20 +157,21 @@ function startEventStream(origin: string, logger: Logger, state: EventStreamStat
           for (const handler of state.handlers) handler.onEvent?.(frame.event, frame.args)
           return
         }
-        for (const handler of state.handlers) {
-          handler.onRequest?.({
-            eventId: frame.eventId,
-            agentId: frame.agentId,
-            event: frame.event,
-            req: frame.request,
-            answer: (value: unknown) => sendWaterfallResult(origin, clientId as string, frame.eventId, value),
-          })
-        }
+        state.pending.set(frame.eventId, {
+          eventId: frame.eventId,
+          event: frame.event,
+          agentId: frame.agentId,
+          request: frame.request,
+        })
+        for (const handler of state.handlers) dispatchWaterfall(origin, state, handler, frame)
       },
       onError() {
         // Socket dropped: current generation is void — the host cancels its
-        // pending waterfalls; consumers clear transient state themselves.
-        clientId = null
+        // pending waterfalls; consumers clear transient state themselves. The
+        // registry dies with the generation (the host re-delivers whatever is
+        // still pending to the next generation, so nothing is lost).
+        state.clientId = null
+        state.pending.clear()
         state.subscription = null
         if (state.closed) return
         state.attempts += 1

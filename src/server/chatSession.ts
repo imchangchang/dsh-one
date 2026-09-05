@@ -1502,6 +1502,9 @@ export class ChatSessionController implements vscode.Disposable {
       }
       case 'approval/requested': {
         if (typeof frame.rpcId !== 'string') return
+        // 同一 rpcId 先替换再推：$events 断线重连后网关会重放仍挂起的水瀑布，
+        // 本地登记表对晚建 handler 也会重放，同一 eventId 可能到达两次。
+        this.pending = this.pending.filter((p) => !(p.kind === 'approval' && p.rpcId === frame.rpcId))
         this.pending.push({
           kind: 'approval',
           rpcId: frame.rpcId,
@@ -1525,6 +1528,8 @@ export class ChatSessionController implements vscode.Disposable {
         if (typeof frame.rpcId !== 'string') return
         const items = Array.isArray(payload.questions) ? (payload.questions as QuestionItem[]) : []
         this.questionItems.set(frame.rpcId, items)
+        // 同上：同一 rpcId 先替换再推，重放/重连不产生重复卡。
+        this.pending = this.pending.filter((p) => !(p.kind === 'question' && p.rpcId === frame.rpcId))
         this.pending.push({
           kind: 'question',
           rpcId: frame.rpcId,
