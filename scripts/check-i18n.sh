@@ -78,6 +78,12 @@ function jsonKeys(text) {
 // 判定 / 是否开启正则：前一个有效字符是这些（或行首）可视为正则开始。
 // 必须在 stripFileComments 首次被调用（下方「填充 stripped」循环）前初始化。
 const REGEX_PREV = new Set(['(', '[', '{', '=', ':', ',', ';', '!', '?', '&', '|', '+', '-', '*', '%', '^', '~', '<', '>'])
+// 关键字后紧跟 / 也是正则字面量（return /.../.test(x)、case /re/、typeof /a/ 等）；
+// 这些关键字前的有效字符是字母，不在 REGEX_PREV 里，按回溯文本识别。
+const REGEX_KEYWORD_RE = /(?:^|[^A-Za-z0-9_$])(?:return|typeof|case|throw|in|of|instanceof|delete|void|yield|new|do|else|await)\s+$/
+function regexAfterKeyword(text, i) {
+  return REGEX_KEYWORD_RE.test(text.slice(0, i))
+}
 function parseDiff(diff) {
   const added = {}   // file -> [{ no, text }]
   let cur = null
@@ -143,7 +149,9 @@ function isFixturePath(path) { return FIXTURE_RE.test(path) }
 //
 // 正则字面量与除法同以 / 开头：按「前一个有效非空白字符」判断——是操作符
 // （( [ { = : , ; ! ? & | + - * % ^ ~ < > 或行首）则视为正则开始，否则为
-// 除法。正则内部用 regex 状态防解析（处理 \ 转义与 [ ] 字符类），避免
+// 除法；另一个常见入口是关键字后紧跟 /（return /.../.test(x)、case /re/ 等），
+// 前一字符是字母（如 return 的 n）不在操作符表里，单独识别。正则内部用
+// regex 状态防解析（处理 \ 转义与 [ ] 字符类），避免
 // 例：.replace(/"/g, ...) 中 /"/ 里的 " 被误当字符串起点。启发式并非
 // 完全精确（如 a / b 后跟 ) 的极端情况），但对注释剥离的用途足够。
 function stripFileComments(text) {
@@ -159,7 +167,7 @@ function stripFileComments(text) {
     if (state === 'code') {
       if (ch === '/' && nx === '/') { out += '  '; state = 'line'; i += 2; continue }
       if (ch === '/' && nx === '*') { out += '  '; state = 'block'; i += 2; continue }
-      if (ch === '/' && REGEX_PREV.has(prevSig)) { out += '/'; state = 'regex'; inCharClass = false; i++; continue }
+      if (ch === '/' && (REGEX_PREV.has(prevSig) || regexAfterKeyword(text, i))) { out += '/'; state = 'regex'; inCharClass = false; i++; continue }
       if (ch === "'") { out += ch; prevSig = ch; state = 's1'; i++; continue }
       if (ch === '"') { out += ch; prevSig = ch; state = 's2'; i++; continue }
       if (ch === '`') { out += ch; state = 'tpl'; i++; continue }
