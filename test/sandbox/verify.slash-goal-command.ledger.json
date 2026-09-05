@@ -1,0 +1,88 @@
+{
+  "title": "slash-goal-command：/goal 命令入口 + 未匹配定向提示",
+  "branch": "agent/slash-goal-command",
+  "commit": "b6a00f1",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2（沙盒 pin；真 dsh 命令执行线，goal 为宿主平面命令）",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-slash-goal-command:latest",
+    "driver": "verify-driver.mjs + 自定义补全弹窗探针 /tmp/slash-goal-popup-probe.mjs",
+    "date": "2026-09-05T00:00:00Z"
+  },
+  "coverageNote": "官方 0.1.2-rc.1 /goal 语义与本任务命令线另在真 0.1.2 环境（临时 DSH_HOME 起 dsh web + 用扩展同款 client-request wire 逐条 commands/execute）实测：/goal（show）/goal <目标>（create）/goal edit <目标>（update）/goal pause /goal resume /goal clear /goal edit（报错）/goal 未知词（按 create）全部符合 dsh-command-goal 源码语义；0.1.2 下复现用户报错根因——默认 preset kimi（~/.dsh/.agent-presets/kimi，0.1.1 时代 standard 拷贝）只挂 tool-goal、未挂 command-goal（0.1.2 把 command-goal 从宿主平面移进 preset 组合），commands/list 无 goal、execute 返回未匹配。沙盒 pin 0.1.1-rc.2（command-goal 宿主平面无条件可用），故「广告但宿主未提供」的定向提示无法在沙盒 0.1.1 宿主上构造：该分支由纯函数单测（isHostSlashCommand/slashCommandName）+ 真 0.1.2 服务器返回未匹配 + 沙盒 R-01 的同通道 composer 提示渲染三面覆盖。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "/goal 命令面板真实执行：Goal created 流节点 + goal 条幅出现",
+      "expect": "空会话输入 /goal 处理当前版本发现问题 并发送 → 真实 dsh 命令执行（不进 LLM）：消息流出现 command 流节点（/goal 处理当前版本发现问题 + 折叠首行 Goal created）；输入坞出现 goal 条幅（goal 图标 + active 标签 + 目标文本）。",
+      "driver": {
+        "prompt": "/goal 处理当前版本发现问题",
+        "expectText": "Goal created"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-slash-goal-command/F-01.png"
+      ],
+      "notes": "driver 断言 done（waitForText 命中「Goal created」流节点）；截图：输入坞 goal 条幅（Active goal + 目标文本「处理当前版本发现问题」）+ 消息流 goal-round 注入轮次 20/256→21/256——真 dsh 宿主执行了 /goal 并进入 goal 域（0.1.1 宿主平面命令）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "补全弹窗列出 /goal",
+      "expect": "composer 输入 /g → slash 补全弹窗出现，首项 /goal（右列 Set or view the long-task goal）；继续输入 /goa 弹窗仍命中 /goal。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-slash-goal-command/F-02-popup.png"
+      ],
+      "notes": "探针（/tmp/slash-goal-popup-probe.mjs）输入 /g 与 /goa 均命中补全弹窗首项 /goal（右列 Set or view the long-task goal），弹窗文本断言 popup contains /goal: true；两张截图 F-02-popup-g/F-02-popup-goa。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "未匹配命令保持官方同款文案（拼写错）",
+      "expect": "输入 /permisison 并发送 → composer 提示「Unknown or malformed command: /permisison」（非本任务新文案——/permisison 不在面板广告集）。",
+      "driver": {
+        "prompt": "/permisison",
+        "expectText": "Unknown or malformed command: /permisison"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-slash-goal-command/R-01.png"
+      ],
+      "notes": "driver 断言 done；composer 提示「Unknown or malformed command: /permisison」——非广告集命令保留官方同款文案（本任务另分支的对照面）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "普通消息 mock 回显（基础链路回归）",
+      "expect": "空会话发送「测试一下」→ mock-llm 回显「收到：测试一下」。",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-slash-goal-command/R-02.png"
+      ],
+      "notes": "driver 断言 done；用户气泡「测试一下」+ mock 回显「收到：测试一下」，基础链路无回归。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "/permission 命令通道回归（真实命令执行）",
+      "expect": "输入 /permission read-only 并发送 → 命令流节点出现 /permission read-only，权限 pill 切为 read-only（真 dsh 命令执行线未被本任务改动影响）。",
+      "driver": {
+        "prompt": "/permission read-only",
+        "expectText": "/permission read-only"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-slash-goal-command/R-03.png"
+      ],
+      "notes": "driver 断言 done；命令流节点 /permission read-only preset read-only + composer 权限 pill 切为 Read Only——命令执行线（commands/execute）无回归。"
+    }
+  ]
+}
