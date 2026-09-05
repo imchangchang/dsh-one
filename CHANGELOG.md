@@ -1,5 +1,27 @@
 # Change Log
 
+## [Unreleased]
+
+### Added
+
+- 外部启动的 dsh 实例完全接管（external-dsh-manage-012）：状态栏 tooltip 标记 running+external 实例并给出管理入口；四个管理命令（粘贴 token 连接 / 复制 token 模板 / 停止 / 重启）带确认弹窗；停止只向单 pid 发信号（POSIX SIGTERM 优雅关闭 + 超时 SIGKILL，Windows `taskkill /T /F`）；token 连接走 `GET /?token=` 换票校验，成功写入共享记录 `source: external / owned: false`（kill 权不归任何窗口）；防护默认动作改为「认证 dsh 无可用 token → 报错不另起」，不再 fallback 换端口 spawn 双实例；非 dsh 的 foreign 占用保留原行为。
+
+- 会话打开失败提示条（session-open-failure-no-hint）：打开会话失败（日志损坏 / 会话不存在等）不再被前台静默吞掉——webview 整页显示「Failed to open session」标题 + 建议 + 等宽小字原因行（含未就绪 `loading` 占位隔离，避免闪空态 hero）；再点一次该会话 = 重建 controller 重试；失败清除时立即推帧恢复。
+
+- 视口尺寸变化统一补偿（composer-multiline-input-jitter）：输入框跨行增高（和 todo/queue dock 开合、窗口 resize 等一切改变消息区 clientHeight 的扰动）不再引起聊天区「顶出-拽回」上下跳动——`.messages` 挂 ResizeObserver，跟随态在 layout 后 paint 前同帧钉回底部；全部 8 处 `scrollTop` 写点收口为 `writeMessagesScrollTop` 原语（写后读回 clamp 落点 + 登记程序 pin，结构上杜绝回声锁漏登记）。
+
+- 沙盒验收驱动防挂死（verify-driver-hang-investigation）：根因是 Playwright 已知缺陷（对「挂起导航、无执行上下文」的 iframe 调 `evaluate()`/`locator.count()` 永不返回，try/catch 与 `{timeout}` 选项均无效）。修复：帧扫描循环跳过空 URL 帧；所有无超时调用点接 `bounded()` 竞速看门狗（默认 10s，转该项 fail + 帧快照诊断）；每项 5min 硬上限兜底（转储 `page.frames()` 各帧 URL）；首项前冒烟预热 + 单项目 fail 自动重试一轮。
+
+### Fixed
+
+- 流式输出中 commit 悬浮卡闪关闪开（commit-card-jumps-during-streaming）：消息行每帧重建摘除旧 chip 导致详情卡断开重开——行重建后按同身份重锚已打开弹层（commit chip 按 sha 限同 flow 行；token 用量药丸同机制），卡片被摘除时鼠标判定不排延迟关闭。
+
+- i18n 合入门禁误报（check-i18n.sh）：`return /regex/` 前是字母（如 `n`）不在操作符表里被当除法解析，状态机错位后其后的中文注释剥离失败、被误判漏翻——补关键字回溯识别（`return|typeof|case|…` 后紧跟 `/` 视为正则），不弱化硬编码中文检查。
+
+### Changed
+
+- 沙盒验收基建：`scripts/ui-visual.sh` 支持场景 `interactSteps` 分步交互截图（harness `window.__interactStepDone` / `__interactStepAdvance` 信号严格对齐交互状态，非固定延时）。
+
 ## [1.0.0]
 
 ### Fixed
