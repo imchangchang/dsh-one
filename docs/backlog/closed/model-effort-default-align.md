@@ -26,3 +26,4 @@
 - 2026-09-06 用户反馈（「dsh 官方 web ui 选择模型思考强度的时候有个 default」+ 确认是 Kimi）：建条目（open/）
 - 2026-09-06 用户确认目标（「我们和官方完全对齐就行了」+「不需要显示description」）：认领 → doing/
 - 2026-09-06 开发完成（worktree agent/model-effort-default，自测通过 + done 标记）：webview 菜单加 Default 档（无 defaultEffort 时）/切模型重置为默认档/菜单去 description、modelLabelOf 补 Default 后缀；新增 model-picker-effort-default 视觉场景进基线；测试 591 全过；报告 test/sandbox/verify.model-effort-default.report.html（7 项 pass，待主线人工审查后合入）
+- 2026-09-06 主线合入通过：dev-merge 复测 591 测试全过 + dist 重建；用户人工 dev-ui-test 验收通过（Kimi 形态 Default 档/去 description 正常）→ closed
