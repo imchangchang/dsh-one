@@ -43,3 +43,4 @@
 - 2026-09-05 用户提出（排队中预览：除附件外其他 @ 情况也需渲染优化，询问意见）→ 核实现状（附件已剥行折叠、@ 引用原样上屏、steering 已走 chip 管线）→ 建条目（open/）
 - 2026-09-05 用户确认直接修复 → 认领（worktree: agent/queue-preview-mention-chips）→ doing
 - 2026-09-05 开发完成，自测通过（typecheck + 569 单测 + build；harness 视觉全量 143 场景 + 验收 ledger 报告 verify.queue-preview-mention-chips.report.html，F-01/02 新功能 + R-01~04 回归）→ done
+- 2026-09-05 主线合入（de40b5a）；合入后复测 typecheck + 569 单测 + build 通过，harness 抽查 queue-preview-mention 场景与验收截图一致，人工确认 → closed
