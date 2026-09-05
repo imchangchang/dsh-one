@@ -28,3 +28,5 @@ statusbar-dsh-version-tooltip（closed）实现后，spawn 实例 tooltip 显示
 
 
 - 2026-09-05 开发完成（doing -> done）：分支 agent/statusbar-adopted-version；实现 = 记录优先 + 命令行解析真实入口执行 --version（探询 fail 缺省不显示）；自测 typecheck/567 单测/build 全绿；ledger test/sandbox/verify.statusbar-adopted-version.ledger.json（7 项全过，覆盖说明：宿主 tooltip 不随沙盒渲染，单测 + 人工开窗）。
+
+- 2026-09-05 合入（done -> closed）：dev-merge 合入 main（2c7415d）；ledger 7 项全过、审查通过；宿主 tooltip 项留待本机 reload 后人工开窗复核（与 statusbar-dsh-version-tooltip 同口径）。
