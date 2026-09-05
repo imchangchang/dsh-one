@@ -1368,6 +1368,7 @@
           sess('sess-7', '另一个会话', '1 小时前'),
         ]
         s.workspaces[1].sessions = [sess('sess-5', 'dsh web 可展开 UI 调研', '9 小时前')]
+        s.workspaces[2].sessions = [sess('sess-6', '未分组里的孤儿会话', '2 小时前')]
         return s
       })(),
       interactSteps: [
@@ -1399,7 +1400,7 @@
         },
       ],
       title: '侧栏面板（多选点「回收站」即退出多选）',
-      expect: '两张分步截图对照——① <scenario>-selected.png：多选操作条一行三按钮「Recycle bin (2)」「Archive (2)」「Cancel」不换行；sess-1/sess-5 行首复选框已勾。② <scenario>-exited.png：点「Recycle bin (2)」后操作条消失、行首复选框全部消失、行尾 ⋯ 按钮恢复（回到普通列表态）；「Moved to the recycle bin」瞬态提示气泡仍在原操作条位置上方飘浮（2.2s 内）；无红色断言横幅（断言内容：selection-bar 与复选框已移除，且 __posted 含 sessionMoveToRecycleMany 带 2 个 id）。注意 mock 宿主不更新快照，会话行仍在列表——真实宿主会随快照让其消失；本场景验收点是「点击即退出多选 + 消息发出」。',
+      expect: '两张分步截图对照——① <scenario>-selected.png：多选操作条一行三按钮「Recycle bin (2)」「Archive (2)」「Cancel」不换行；sess-1/sess-5 行首复选框已勾；未分组组头与 sess-6 行照常显示（未勾）。② <scenario>-exited.png：点「Recycle bin (2)」后操作条消失、行首复选框全部消失、行尾 ⋯ 按钮恢复（回到普通列表态）；「Moved to the recycle bin」瞬态提示气泡仍在原操作条位置上方飘浮（2.2s 内）；无红色断言横幅（断言内容：selection-bar 与复选框已移除，且 __posted 含 sessionMoveToRecycleMany 带 2 个 id）。注意 mock 宿主不更新快照，会话行仍在列表——真实宿主会随快照让其消失；本场景验收点是「点击即退出多选 + 消息发出」。',
     },
 
     // 多选退出语义：归档确认后（archiveManyDone 回执）退出多选。回执由场景脚本
@@ -1413,6 +1414,7 @@
           sess('sess-7', '另一个会话', '1 小时前'),
         ]
         s.workspaces[1].sessions = [sess('sess-5', 'dsh web 可展开 UI 调研', '9 小时前')]
+        s.workspaces[2].sessions = [sess('sess-6', '未分组里的孤儿会话', '2 小时前')]
         return s
       })(),
       interactSteps: [
