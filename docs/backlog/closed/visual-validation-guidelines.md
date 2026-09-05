@@ -26,3 +26,5 @@
 - 2026-09-05 问题记录（open）：上述三项缺口与修复方向（用户确认 1/3/4 开工；分步截图另立项 visual-interaction-step-shots）。
 - 2026-09-05 认领（open -> doing）：worktree 开发（分支 agent/visual-validation-guidelines）。
 - 2026-09-05 开发完成（doing -> done）：三处 skill 文档落地——ai-visual-validation 视觉验证方法加第 4 条（弹层叠加/状态切换场景期望写「仍应在位清单」、禁「不遮挡/不覆盖」措辞）+ 新增场景示例注释同步；功能验收场景默认进 BASELINE_SCENARIOS（仅一次性调试 fixture 例外），两处「升级为基线」表述统一；worktree-dev-flow ledger notes 按检查点逐条记录核对结论。无 UI 行为变化，沙盒报告不适用；typecheck/test 495/build 全过。分支 agent/visual-validation-guidelines，done 标记 6ddbd5f。分步截图（interactSteps）另立项 visual-interaction-step-shots（open）。
+
+- 2026-09-05 合入（done -> closed）：dev-merge 合入 main（33d5855 rebase 后，与已合入的 interactSteps 段冲突已解）；文档类无 UI 行为变化，审查通过。
