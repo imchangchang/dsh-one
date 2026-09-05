@@ -65,6 +65,17 @@
       "notes": "playwright 断言逐项核对：① 初始 4 组块各一个 .tag-toggle（4/4），预置 tagCollapsed 的「已完成」初始即折叠（行数 0、无竖线节点、三角朝右），其余展开（三角朝下）；② 点击待办 toggle → post sessionTagCollapse{tagId:preset-todo, collapsed:true}，回推快照后块 .collapsed 类生效、组内行数 0、.tag-line 不渲染；③ 再点 → post {collapsed:false}，回推后行数恢复 2、竖线恢复；④ harness 分步场景 session-tags-collapse（自动步进 + 回推 + 断言）全过、无失败横幅。①②③④ 全符合（折叠拖入自动展开见消息断言：drop 折叠块时会额外 post sessionTagCollapse{false}）。"
     },
     {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "组重命名 / 改色 / 新建组选色",
+      "expect": "组头 pill 右键菜单：所有组（含预设）都有 Rename group… 与 Color… 子菜单（6 色，当前色 ✓）；预设组仍无 Delete；行菜单「New group…」弹层 = 名字输入 + 6 色色板（默认轮换色：自定义组数 0/1/2 → 橙/紫/红，点击可选）+ Create。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/session-tags-F06.png"
+      ],
+      "notes": "playwright 断言逐项核对：① 预设组（待办）菜单 = Archive 2 / Move 2 / Remove from group / Rename group… / Color›，无 Delete（预设保护保持）；② Color… 展开 6 色子菜单（Yellow…Red，当前色 ✓），点 Purple → post sessionTagSetColor{tagId:preset-todo, color:purple}，两层菜单同时关闭；③ 行菜单「New group…」→ 弹层：标题 New group、输入框、6 个 20×20 色块（offsetWidth/Height 断言可见）、默认选中紫（场景有 1 个自定义组 → 轮换 palette[1]）、空名提交就地提示 cannot be empty；④ 输入「复盘」+ 选绿 → post sessionTagCreate{name:复盘, color:green}。①②③④ 全符合。"
+    },
+    {
       "id": "R-01",
       "phase": "regression",
       "name": "mock-LLM 回显回复（聊天链路回归）",
@@ -95,7 +106,7 @@
       "expect": "npm run typecheck / npm test（602 项全过）/ npm run build 全部通过（dev-finish 复跑）。",
       "result": "pass",
       "screenshots": [],
-      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 602 项全过（含新增 sessionTags 纯层测试与 sessionTree 标签组聚合测试）；npm run build 产出四个 bundle。 折叠功能提交后复跑：602 项仍全过，build 产出正常。"
+      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 602 项全过（含新增 sessionTags 纯层测试与 sessionTree 标签组聚合测试）；npm run build 产出四个 bundle。 折叠功能提交后复跑：602 项仍全过，build 产出正常。 重命名/改色功能提交后复跑：602 项仍全过。"
     }
   ]
 }
