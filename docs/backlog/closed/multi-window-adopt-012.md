@@ -39,3 +39,4 @@
 
 - 2026-09-05 开发 session 认领（open → doing，worktree: agent/multi-window-adopt-012）。
 - 2026-09-05 开发完成（doing → done，worktree: agent/multi-window-adopt-012）：共享记录迁移到 ~/.dsh/dsh-owned.json（原子写 + mkdir 锁，旧 globalStorage 一次性迁移）；第二窗口读到记录 → probeToken 认证 → adopted:true 复用（不 kill，owner=第一窗口保持 kill 权）；0.1.1 无 token 路径不变。自动化覆盖 = 12 项新单测 + 本机 0.1.2-rc.1 真环境探针 + 全量 529 pass；真双窗口场景建议人工开窗验收（命令见交接说明，报告 test/sandbox/verify.multi-window-adopt-012.report.html）。
+- 2026-09-05 主线合入后人工确认（目标验收通过）→ closed
