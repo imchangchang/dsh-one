@@ -1,7 +1,7 @@
 {
   "title": "DSH One 验收报告（statusbar-dsh-version-tooltip：running 态状态栏 tooltip 显示 dsh 版本）",
   "branch": "agent/statusbar-dsh-version-tooltip",
-  "commit": "FILLED-AFTER-COMMIT",
+  "commit": "b6b9122",
   "environment": {
     "mode": "unit-test + 人工开窗（宿主 UI，未跑沙盒）",
     "dsh": "本机 0.1.2-rc.1（locateDsh 实测 `dsh --version` 输出）；0.1.1 仅单测/代码审查（本机无 0.1.1）",
