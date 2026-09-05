@@ -6679,6 +6679,12 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   frame.appendChild(input)
   const refLayer = el('div', 'ref-token-layer')
   refLayer.setAttribute('aria-hidden', 'true')
+  // 内容 wrapper：滚动同步只平移内容，层盒子（absolute inset:1px + overflow:hidden）
+  // 必须锚在 textarea 上不动。把 translateY(-scrollTop) 加到层元素本身会把整个
+  // 盒子顶出 composer/卡片——长文本 scrollTop 大时文字画到输入框外面（回归
+  // composer-long-text-overflow）。
+  const refContent = el('div', 'ref-token-scroll')
+  refLayer.appendChild(refContent)
   frame.appendChild(refLayer)
   row.appendChild(frame)
 
@@ -6686,11 +6692,11 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   let composerComposing = false
   const renderRefLayer = (): void => {
     if (composerComposing) return // IME 组合中跳过重建（组合文本由 textarea 原生绘制）
-    refLayer.textContent = ''
+    refContent.textContent = ''
     const value = input.value
     if (mentionBindings.size === 0) {
-      if (value) refLayer.appendChild(document.createTextNode(value))
-      refLayer.style.transform = `translateY(${-input.scrollTop}px)`
+      if (value) refContent.appendChild(document.createTextNode(value))
+      refContent.style.transform = `translateY(${-input.scrollTop}px)`
       return
     }
     // 区间来自输入侧边界扫描（tokenScan.boundTokenRanges）：只高亮扫描起点
@@ -6698,15 +6704,15 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     // 不再高亮，避免了裸子串匹配把正文里的 @ 误画成引用。
     let cursor = 0
     for (const range of boundTokenRanges(value, mentionBindings)) {
-      if (range.start > cursor) refLayer.appendChild(document.createTextNode(value.slice(cursor, range.start)))
+      if (range.start > cursor) refContent.appendChild(document.createTextNode(value.slice(cursor, range.start)))
       const token = value.slice(range.start, range.end)
       const span = el('span', 'ref-token', token)
       span.dataset.path = mentionBindings.get(token) ?? ''
-      refLayer.appendChild(span)
+      refContent.appendChild(span)
       cursor = range.end
     }
-    if (cursor < value.length) refLayer.appendChild(document.createTextNode(value.slice(cursor)))
-    refLayer.style.transform = `translateY(${-input.scrollTop}px)`
+    if (cursor < value.length) refContent.appendChild(document.createTextNode(value.slice(cursor)))
+    refContent.style.transform = `translateY(${-input.scrollTop}px)`
   }
   renderRefLayer()
 
@@ -6742,7 +6748,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   })
   input.addEventListener('mouseleave', () => applyHover(null))
   input.addEventListener('scroll', () => {
-    refLayer.style.transform = `translateY(${-input.scrollTop}px)`
+    refContent.style.transform = `translateY(${-input.scrollTop}px)`
   })
 
   // 主按钮（对齐官方 InputBar primary）：无文字图标按钮——非运行显示发送
