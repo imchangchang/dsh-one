@@ -26,13 +26,13 @@
     {
       "id": "F-02",
       "phase": "new-feature",
-      "name": "会话行菜单「移到分组」",
-      "expect": "行 ⋯ 菜单：原有菜单项完整在位（Select multiple / Open in a new tab / Rename / Pin / Mark as unread）；「Move to group」分节：待办（黄块 + ✓ 当前组）、进行中（蓝）、已完成（绿）、探索（橙）、No group（空描边方块）、New group…。",
+      "name": "会话行菜单「移到分组」二级菜单（Move to group… ›）",
+      "expect": "行 ⋯ 菜单：原有菜单项完整在位（Select multiple / Open in a new tab / Rename / Pin / Mark as unread）；「Move to group…」是一个单项菜单项（带 › 子菜单指示），hover/点击展开二级菜单：待办（黄块 + ✓ 当前组）/ 进行中（蓝块）/ 已完成（绿块）/ 探索（橙块）/ No group（空描边方块）/ New group…；顶层菜单始终完整在位（group 列表不平铺）。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots/session-tags-F02.png"
       ],
-      "notes": "截图逐项核对：① 首行「Session: 实现侧栏分组过滤」；② 原有菜单项 Select multiple / Open in a new tab / Rename / Pin / Mark as unread 完整在位（screen 内可见）；③ 「Move to group」分节含 待办（黄色块 + 右侧 ✓ = 当前组）/ 进行中（蓝块）/ 已完成（绿块）/ 探索（橙块）/ No group（空描边方块）/ New group…；④ 菜单后段 Fork session / Copy reference / Move to recycle bin 仍完整在位。①②③④ 全符合。"
+      "notes": "playwright 断言逐项核对：① 主菜单 10 项（含 Move to group…› 单项，无组列表平铺）；② pointerover 展开二级 → 2 个 popover 并存、二级 6 项（待办✓/进行中/已完成/探索/No group/New group…）、顶层菜单项数与展开前一致（未移除/遮挡）；③ 二级点「探索」→ post sessionTagSet{tagId:t-explore} 两层菜单关闭；④ 截图核对：二级菜单在顶层菜单右侧展开，层级清晰。①②③④ 全符合。"
     },
     {
       "id": "F-03",
@@ -117,7 +117,7 @@
       "expect": "npm run typecheck / npm test（602 项全过）/ npm run build 全部通过（dev-finish 复跑）。",
       "result": "pass",
       "screenshots": [],
-      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 602 项全过（含新增 sessionTags 纯层测试与 sessionTree 标签组聚合测试）；npm run build 产出四个 bundle。 折叠功能提交后复跑：602 项仍全过，build 产出正常。 重命名/改色功能提交后复跑：602 项仍全过。 折叠计数提交后复跑：602 项仍全过。"
+      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 602 项全过（含新增 sessionTags 纯层测试与 sessionTree 标签组聚合测试）；npm run build 产出四个 bundle。 折叠功能提交后复跑：602 项仍全过，build 产出正常。 重命名/改色功能提交后复跑：602 项仍全过。 折叠计数提交后复跑：602 项仍全过。 二级菜单重构后复跑：602 项仍全过。"
     }
   ]
 }
