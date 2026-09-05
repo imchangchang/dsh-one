@@ -21,3 +21,4 @@ harness 交互场景的 `interact` 是一段同步 JS 字符串，navigate 后�
 ## 变更记录
 
 - 2026-09-05 记录（open）：workspace-groups-submenu-hover 复盘提出的缺口之一，本次仅记录不开发。
+- 认领（open → doing）：方案确认开工——`interactSteps: [{name, script, settle?}]`，harness 每步执行后置 `window.__interactStepDone = name`，ui-visual.sh 轮询到信号后截 `<scenario>-<step>.png` 并调 `window.__interactStepAdvance()` 放行下一步；兼容：无 interactSteps 场景行为不变。演示场景：`sessions-workspace-menu-groups` 拆成「右键开主菜单 → hover 分组…展开二级」两步。worktree：agent/visual-step-shots。
