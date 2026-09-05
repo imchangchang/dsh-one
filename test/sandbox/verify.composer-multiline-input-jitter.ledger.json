@@ -1,0 +1,79 @@
+{
+  "title": "composer-multiline-input-jitter 验收报告：视口尺寸变化统一补偿（ResizeObserver）",
+  "branch": "agent/composer-multiline-input-jitter",
+  "commit": "f6f8f83",
+  "environment": {
+    "mode": "headless-chrome-cdp-fixture + harness 基线",
+    "dsh": "无（真实 chat STYLE fixture + mock state 直推）",
+    "locale": "zh-cn",
+    "theme": "light",
+    "image": "无（本机 headless Chrome --headless=new，渲染流水线完整）",
+    "date": "2026-09-05T14:30:00Z"
+  },
+  "coverageNote": "修复在 webview 渲染层，用真实 chat STYLE fixture（.dev-host/jitter，harness 的 chat+sessions 样式拼接有 #app 规则互相覆盖的既有缺陷，不能用于精确几何复现）+ headless Chrome CDP 驱动做几何断言与截图；惯性碰撞（macOS 触控板弹性）headless 无法复现，其防护代码本次未改（意图/活动门控原样保留，RO 写路径复用同一门控）。沙盒真 dsh 不适用（本修复不涉及宿主逻辑）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "流式中 composer 跨行增高不再跳动（本 bug 主诉）",
+      "expect": "贴底跟随态下输入框从 1 行增到 3 行：顶出瞬态（dist=44）在 ResizeObserver 回调（layout 后 paint 前）同帧修回 dist=0——用户可见帧（截图 = 强制渲染帧）消息区始终贴住最新消息，无「顶出-拽回」跳动。对照图 jitter-before.png（主线未修：同操作后底部 44px 内容被顶出视口，整区上移）vs jitter-fixed.png（修复后：贴底）。几何断言：sync dist=44 → RO 后 dist=0；推帧后 dist=0 稳定。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-sandbox-shots/jitter-before.png", "/tmp/dsh-sandbox-shots/jitter-fixed.png"],
+      "notes": "CDP 实测序列：base{st:2925,dist:0} → 输入3行 sync dist=44 → 80ms 后 dist=0（RO 同帧修正）→ 逐字符跨行输入 dist 回 0 → 推相同 state 帧后 dist=0。截图 captureScreenshot 强制 BeginFrame，所见即用户可见帧。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "V 类扰动整类覆盖：dock 开合 / composer 收缩 / 非跟随保护",
+      "expect": "跟随态：任意改变 .messages clientHeight 的扰动（dock 面板出现/消失、composer 删行收缩）同帧钉底；非跟随态：阅读位置像素级不动（scrollTop 恒不变，仅 dist 随视口变化）。几何断言：收缩（6行→1行）后 dist=0 贴底保持；dock +120px 出现后 dist=0、移除后 dist=0；非跟随滚到 st=1200 后输入增高 st 恒 1200。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "CDP 实测：grown dist=0（ih=144）→ shrunk dist=0（ih=34）；afterDock=0 / afterDockRemove=0；非跟随 beforeGrow st=1200 → afterGrow st=1200（dist 1751→1795 为 clientHeight 减小的自然结果，内容不动）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "scrollTop 写路径收口（writeMessagesScrollTop 原语）",
+      "expect": "全部 8 处 .messages.scrollTop 写点（settle/pinToLatest/render 尾三分支/microtask 钉底/scrollToMessageId/jump 点击）收口为统一原语：写后读回 clamp 落点赋 pinnedScrollTop + markProgramPin 登记——结构上不可能漏登记（self-lock 回声锁的根因形态）。typecheck 通过、554 单测全绿（纯重构行为等价）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "git diff：webview.ts +45/-26。RO 的写也经此原语——回声剔除实测：RO 写后立即推流式帧，microtask 钉底不被活动锁挡（afterPush 恒 0）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "self-lock 回归：高频流式帧贴底稳定",
+      "expect": "跟随态 + 流式 100ms/帧推入：dist 序列恒 0，无「脱底→settle 吸回」周期脉冲。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "CDP 实测 12 帧采样 [0×12]（selfLock 段 6 次 + 后续 6 次全 0）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "非跟随阅读位稳定 + 回到最新按钮",
+      "expect": "用户滚离底部后流式增长：scrollTop 不动（阅读内容不移位）；点「回到最新」立即贴底（dist=0）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "CDP 实测：流式 600ms 期间 before=after（scrollTop 不变）；jump.click() 后 dist=0。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "harness 基线 35 场景渲染回归",
+      "expect": "webview 各 UI 状态（conversation/history/approval/question/plan-review/todos/subagents/model-picker/sessions 家族/diff/workflow 等）渲染与基线一致，无新增异常。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-sandbox-shots/reg-conversation.png", "/tmp/dsh-sandbox-shots/reg-history.png"],
+      "notes": "scripts/ui-visual.sh --mode baseline 35 场景全跑完；抽查 conversation（消息流+工具卡+composer+stats 行）与 history（Load earlier 按钮）渲染正常。注：RO 初始观察在贴底场景幂等不写；后台 tab 渲染冻结时 RO 不派发（浏览器标准行为），真实前台 webview 不受影响。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "typecheck / 单测 / build",
+      "expect": "npm run typecheck 无错误；npm test 554 全绿；npm run build 产物正常。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "worktree 内实测：tsc --noEmit 0 错；node:test 554 pass / 0 fail；build 产出 dist/extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js。"
+    }
+  ]
+}

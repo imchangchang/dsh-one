@@ -189,6 +189,16 @@ function markProgramPin(): void {
   programPinAt = performance.now()
 }
 /**
+ * 写 `.messages.scrollTop` 的唯一原语（写路径收口）：写后立即读回 clamp 落点
+ * 赋 pinnedScrollTop、登记程序 pin 时间戳——scroll 监听据此把本次写触发的回声
+ * 事件从滚动活动锁里剔除。任何新写路径都必须经这里（漏登记 = self-lock 回归）。
+ */
+function writeMessagesScrollTop(m: HTMLElement, target: number): void {
+  m.scrollTop = target
+  pinnedScrollTop = m.scrollTop
+  markProgramPin()
+}
+/**
  * Per-session 滚动存档：每个会话记住自己最后的位置（贴底记 atBottom，
  * 翻历史记 scrollTop），换会话时先存档旧会话、再按新会话存档恢复——
  * 不再把上个会话容器的 scrollTop 套到新内容上。
@@ -261,9 +271,7 @@ function maybeSettlePin(): void {
   const messages = document.getElementById('messages')
   if (!messages) return
   if (!shouldSettlePinNow(stickToBottom, userScrollIntentActive(), isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight), scrollActiveRecently())) return
-  messages.scrollTop = messages.scrollHeight
-  pinnedScrollTop = messages.scrollTop
-  markProgramPin()
+  writeMessagesScrollTop(messages, messages.scrollHeight)
   const jump = messages.querySelector<HTMLElement>('.jump-latest')
   if (jump) jump.style.display = 'none'
 }
@@ -278,10 +286,8 @@ function maybeSettlePin(): void {
 function pinToLatest(): void {
   const messages = document.getElementById('messages')
   if (!messages) return
-  messages.scrollTop = messages.scrollHeight
+  writeMessagesScrollTop(messages, messages.scrollHeight)
   stickToBottom = isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight)
-  pinnedScrollTop = messages.scrollTop
-  markProgramPin()
 }
 
 // Scrollbar drags dispatch no events to the page between pointerdown and
@@ -1256,6 +1262,10 @@ window.addEventListener('message', (event) => {
     // 内容字号设置运行中变化（dshOne.chatFontSize）：覆盖 body 内联变量，
     // 派生变量（delta/secondary）与内容区随 CSS 实时重算，无需重渲染/reload。
     document.body.style.setProperty('--dsh-content-font-size', `${msg.value}px`)
+    // 字号变化只改内容高度（scrollHeight 重排），不改 .messages 容器尺寸——
+    // ResizeObserver 捕不到这类 H 扰动，这里在样式应用后的下一帧补一次
+    // settle pin（幂等：仅跟随且脱底才写，非跟随保持阅读位置）。
+    requestAnimationFrame(() => maybeSettlePin())
   } else if (msg?.type === 'modelCatalogError') {
     // 有旧目录时保留旧数据不打断；无目录时菜单切到 error/Retry 行。
     modelCatalogFailed = true
@@ -3322,6 +3332,25 @@ function render(): void {
       },
       true,
     )
+    // V 类扰动统一补偿（composer-multiline-input-jitter 结构修复）：.messages 是
+    // flex:1 的弹性项，任何兄弟（composer autoGrow 增高、todo/queue dock 手动开合、
+    // 窗口/面板 resize）的高度变化都 1:1 转化为它的 clientHeight 变化——而这类
+    // 变化既不派发 scroll 事件也不伴随 render，旧机制只能在下一推帧拽回，形成
+    // 「顶出-拽回」跳动。ResizeObserver 回调在 layout 后 paint 前派发，跟随态
+    // 同帧钉底：顶出帧根本不被绘制。手势/滚动活动中不写，转 settle debounce
+    // 兜底；非跟随不写（纯视口尺寸变化下阅读位置像素级不动本就正确）。
+    // 写经 writeMessagesScrollTop 统一登记程序 pin 簿记，回声事件照常剔除。
+    new ResizeObserver(() => {
+      if (userScrollIntentActive() || scrollActiveRecently()) {
+        deferSettlePin()
+        return
+      }
+      if (!stickToBottom) return
+      if (isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight)) return
+      writeMessagesScrollTop(messages, messages.scrollHeight)
+      const jump = messages.querySelector<HTMLElement>('.jump-latest')
+      if (jump) jump.style.display = 'none'
+    }).observe(messages)
   }
   // 插话（steering）和排队分开展示，对齐官方 dsh web：等待插话的消息直接
   // 进对话流末尾（用户气泡 + 「等待插话」标记），排队消息留在输入框上方。
@@ -3420,17 +3449,13 @@ function render(): void {
   const prepended =
     landed !== null && (state.messages.length > landed.count || state.messages[0]?.id !== landed.firstId)
   // 恢复/补偿路径（换会话恢复历史位置、加载更早、非贴底跳转）同步写：它们是
-  // 用户明确动作，不涉及「抢原生惯性动画」，也无需等布局 settle。写 scrollTop 的
-  // 分支同样标记程序 pin，让滚动监听把它的回声事件从活动锁里剔除。
+  // 用户明确动作，不涉及「抢原生惯性动画」，也无需等布局 settle。
   if (restoreScrollTop !== null) {
-    messages.scrollTop = restoreScrollTop
-    markProgramPin()
+    writeMessagesScrollTop(messages, restoreScrollTop)
   } else if (!switchingSession && prevScrollTop !== null && prepended && prevScrollHeight !== null) {
-    messages.scrollTop = prevScrollTop + (messages.scrollHeight - prevScrollHeight)
-    markProgramPin()
+    writeMessagesScrollTop(messages, prevScrollTop + (messages.scrollHeight - prevScrollHeight))
   } else if (!switchingSession && prevScrollTop !== null) {
-    messages.scrollTop = prevScrollTop
-    markProgramPin()
+    writeMessagesScrollTop(messages, prevScrollTop)
   }
   // 内部滚动容器（展开的 IN/OUT、指令卡、JSON 树、todo 清单）在新 DOM 上恢复位置。
   // 换会话时不恢复：存档已随 detailsOpen 一起清空，旧会话位置对新内容无意义。
@@ -3459,12 +3484,10 @@ function render(): void {
       const m = document.getElementById('messages')
       if (!m) return
       if (!shouldSettlePinNow(stickToBottom, userScrollIntentActive(), isAtBottom(m.scrollHeight, m.scrollTop, m.clientHeight), scrollActiveRecently())) return
-      m.scrollTop = m.scrollHeight
-      // 写回程序滚动锁：下一帧 render 头部拿它跟实时位置对比以区分用户滚动，
-      // pin 得靠它避免自己被误判为用户滚离。同时记录程序 pin 时间戳，滚动监听
-      // 据此把本次写触发的回声 scroll 事件从活动锁里剔除。
-      pinnedScrollTop = m.scrollTop
-      markProgramPin()
+      // writeMessagesScrollTop 写回程序滚动锁：下一帧 render 头部拿它跟实时位置对比
+      // 以区分用户滚动，pin 得靠它避免自己被误判为用户滚离；同时登记程序 pin 时间戳，
+      // 滚动监听据此把本次写触发的回声 scroll 事件从活动锁里剔除。
+      writeMessagesScrollTop(m, m.scrollHeight)
     })
   }
   // 内容已按新会话重建落地，容器归属切换到新会话（loading 帧不动它，
@@ -4702,9 +4725,7 @@ function scrollToMessageId(messageId: string | null): void {
         0,
         row.getBoundingClientRect().top - messages.getBoundingClientRect().top + messages.scrollTop - 8,
       )
-      messages.scrollTop = target
-      pinnedScrollTop = messages.scrollTop
-      markProgramPin()
+      writeMessagesScrollTop(messages, target)
       const jump = messages.querySelector<HTMLElement>('.jump-latest')
       if (jump) jump.style.display = 'none'
       return
@@ -4884,9 +4905,7 @@ function buildFlowItems(state: ChatState): FlowItem[] {
         stickToBottom = true
         const m = document.getElementById('messages')
         if (!m) return
-        m.scrollTop = m.scrollHeight
-        pinnedScrollTop = m.scrollTop
-        markProgramPin()
+        writeMessagesScrollTop(m, m.scrollHeight)
         jump.style.display = 'none'
       })
       return jump
