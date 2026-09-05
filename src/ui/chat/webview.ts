@@ -96,7 +96,7 @@ import {
   shouldSettlePinNow,
   type ScrollArchive,
 } from '../../pure/scrollFollow.ts'
-import { formatDuration } from '../../pure/sessionStats.ts'
+import { formatCacheHitPercent, formatCompactTokens, formatDuration } from '../../pure/sessionStats.ts'
 import {
   SESSION_REFERENCE_SCHEME,
   decodeSessionReferenceUri,
@@ -5283,7 +5283,7 @@ function renderTurnTiming(timing: NonNullable<ChatAssistantMessage['timing']>): 
  * 点击弹锚定小窗（复用全局 .popover 基建，outside-dismiss / Esc 关闭）。
  */
 function renderTurnUsagePill(usage: ChatTurnUsage): HTMLElement {
-  const pill = buttonEl('msg-usage-pill', t('Usage {0}', formatCompactTokens(usage.totalTokens)))
+  const pill = buttonEl('msg-usage-pill', t('Usage {0}', formatCompactTokens(usage.totalTokens, t)))
   pill.title = t('Turn usage')
   pill.setAttribute('aria-haspopup', 'dialog')
   pill.setAttribute('aria-expanded', 'false')
@@ -5347,79 +5347,12 @@ function renderTurnUsagePanel(usage: ChatTurnUsage): HTMLElement {
   return panel
 }
 
-/** 官方 formatTokens：整数 / 12.2K / 517K / 1.2M（≥100 取整，其余一位小数）。 */
-function formatCompactTokens(value: number): string {
-  const scaled = (candidate: number): string =>
-    candidate >= 100 ? String(Math.round(candidate)) : String(Math.round(candidate * 10) / 10)
-  if (value < 1_000) return String(value)
-  if (value < 1_000_000) return t('{0}K', scaled(value / 1_000))
-  return t('{0}M', scaled(value / 1_000_000))
-}
-
 /** 官方 formatExactTokens：三位分组的精确整数。 */
 function formatExactTokens(value: number): string {
   const digits = String(value)
   const groups: string[] = []
   for (let end = digits.length; end > 0; end -= 3) groups.unshift(digits.slice(Math.max(0, end - 3), end))
   return groups.join(',')
-}
-
-/** 官方 roundedPercentUnits：按百分比单位向上取整的精确比较。 */
-function roundedPercentUnits(cacheReadTokens: number, denominator: number, decimalPlaces: number): number {
-  const scale = (decimalPlaces === 0 ? 1 : 10) * 100
-  const doubledScale = scale * 2
-  const denominatorQuotient = Math.floor(denominator / doubledScale)
-  const denominatorRemainder = denominator % doubledScale
-  let lower = 0
-  let upper = scale
-  while (lower < upper) {
-    const candidate = Math.floor((lower + upper + 1) / 2)
-    const factor = candidate * 2 - 1
-    if (cacheReadTokens >= factor * denominatorQuotient + Math.ceil((factor * denominatorRemainder) / doubledScale)) {
-      lower = candidate
-    } else {
-      upper = candidate - 1
-    }
-  }
-  return lower
-}
-
-function displayPercentUnits(units: number, decimalPlaces: number): string {
-  if (decimalPlaces === 0) return String(units)
-  const whole = Math.floor(units / 10)
-  const tenths = units % 10
-  return tenths === 0 ? String(whole) : `${whole}.${tenths}`
-}
-
-/**
- * 官方 formatCacheHitPercent：精确缓存命中百分比；部分命中要「诚实」——若
- * 一位小数会把它舍成 100%，自动提升位数直到能区分（99.9…）。无 prompt 输入
- * （分母 0）返回 null，UI 不显示。
- */
-function formatCacheHitPercent(cacheReadTokens: number, promptTokens: number, decimalPlaces = 0): string | null {
-  if (promptTokens === 0) return null
-  const missedInputTokens = promptTokens - cacheReadTokens
-  if (missedInputTokens === 0) return '100'
-  const roundedUnits = roundedPercentUnits(cacheReadTokens, promptTokens, decimalPlaces)
-  if (roundedUnits < (decimalPlaces === 0 ? 100 : 1_000)) return displayPercentUnits(roundedUnits, decimalPlaces)
-  let distinguishingPlaces = 1
-  let scaledDoubleGap = missedInputTokens * 200
-  const denominatorTens = Math.floor(promptTokens / 10)
-  while (scaledDoubleGap <= denominatorTens) {
-    scaledDoubleGap *= 10
-    distinguishingPlaces += 1
-  }
-  const denominatorOnes = promptTokens % 10
-  let roundedLoss = 5
-  for (let loss = 1; loss < 5; loss += 1) {
-    const factor = loss * 2 + 1
-    const threshold = factor * denominatorTens + Math.floor((factor * denominatorOnes) / 10)
-    if (scaledDoubleGap <= threshold) {
-      roundedLoss = loss
-      break
-    }
-  }
-  return `99.${'9'.repeat(distinguishingPlaces - 1)}${10 - roundedLoss}`
 }
 
 /** 官方 formatRunDuration：分钟级「2分42秒」，秒级「12秒」。 */

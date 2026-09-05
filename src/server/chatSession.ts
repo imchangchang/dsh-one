@@ -6,7 +6,7 @@ import { splitAttachmentLines } from '../pure/composerAttachment.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { WorkflowRunFolder } from '../pure/workflowRun.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
-import type { SessionStatsLike } from '../pure/sessionStats.ts'
+import type { SessionStatsLike, TokenUsageLike } from '../pure/sessionStats.ts'
 import { contextUsageUnknown, pressureWithContextWindow } from '../pure/contextMeter.ts'
 import { modelWindowRecord, parseModelWindowRecord } from '../pure/modelWindowCache.ts'
 import { subscribeMuxEvents } from './muxEvents.ts'
@@ -137,6 +137,15 @@ function asStats(value: unknown): SessionStatsLike | null {
   const nums = ['turns', 'steps', 'llmMs', 'toolMs', 'ttftMs', 'ttftSteps', 'decodeMs', 'decodeTokens']
   if (!nums.every((k) => typeof v[k] === 'number')) return null
   return value as SessionStatsLike
+}
+
+/** Narrow an unknown projection value to the tokenUsage totals; null when malformed. */
+function asTokenUsage(value: unknown): TokenUsageLike | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Record<string, unknown>
+  const nums = ['uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']
+  if (!nums.every((k) => typeof v[k] === 'number')) return null
+  return value as TokenUsageLike
 }
 
 /** Narrow an unknown projection value to the imageLimits shape; null when malformed. */
@@ -320,11 +329,16 @@ export class ChatSessionController implements vscode.Disposable {
   /** Permission select from the `permissions` projection (higher seq wins). */
   private permissions: { options: Array<{ value: string; label: string }>; current: string } | undefined
   private permissionsSeq = -1
-  /** Formatted stats line from the `sessionStats` projection (higher seq wins). */
+  /** Formatted stats line from the `sessionStats` + `tokenUsage` projections (higher seq wins). */
   private statsLine: string | undefined
   /** Closed-turn count from the same projection, for the context meter's per-turn estimate. */
   private statsTurns: number | undefined
+  /** Last good `sessionStats` value; the line recomputes when either projection arrives. */
+  private statsLike: SessionStatsLike | undefined
   private statsSeq = -1
+  /** Last good `tokenUsage` totals, feeding the line's cache-hit / token groups (higher seq wins). */
+  private tokenUsage: TokenUsageLike | undefined
+  private tokenUsageSeq = -1
   /** Context-occupancy projections (token-meter), each higher seq wins. */
   private contextPressure: ContextPressureLike | undefined
   private pressureSeq = -1
@@ -823,6 +837,7 @@ export class ChatSessionController implements vscode.Disposable {
       // higher-seq-wins rule as the title.
       this.permissionsSeq = projections.asOfSeq
       this.statsSeq = projections.asOfSeq
+      this.tokenUsageSeq = projections.asOfSeq
       this.pressureSeq = projections.asOfSeq
       this.breakdownSeq = projections.asOfSeq
       this.todosSeq = projections.asOfSeq
@@ -841,6 +856,7 @@ export class ChatSessionController implements vscode.Disposable {
   private applyProjectionValues(values: Record<string, unknown>): void {
     this.applyPermissionsValue(values.permissions)
     this.applyStatsValue(values.sessionStats)
+    this.applyTokenUsageValue(values.tokenUsage)
     this.applyTodosValue(values.todos)
     this.applyPlanValue(values.plan)
     this.applyGoalValue(values.goal)
@@ -946,6 +962,7 @@ export class ChatSessionController implements vscode.Disposable {
       this.sessionTitle = typeof title === 'string' && title ? title : undefined
       this.permissionsSeq = projections.asOfSeq
       this.statsSeq = projections.asOfSeq
+      this.tokenUsageSeq = projections.asOfSeq
       this.pressureSeq = projections.asOfSeq
       this.breakdownSeq = projections.asOfSeq
       this.todosSeq = projections.asOfSeq
@@ -1203,8 +1220,22 @@ export class ChatSessionController implements vscode.Disposable {
   private applyStatsValue(value: unknown): void {
     const stats = asStats(value)
     if (!stats) return
-    this.statsLine = formatStatsLine(stats, vscode.l10n.t)
+    this.statsLike = stats
     this.statsTurns = stats.turns
+    this.refreshStatsLine()
+  }
+
+  /** Fold one `tokenUsage` projection value (totals only) into the footer line. */
+  private applyTokenUsageValue(value: unknown): void {
+    const usage = asTokenUsage(value)
+    if (!usage) return
+    this.tokenUsage = usage
+    this.refreshStatsLine()
+  }
+
+  /** Rebuild the footer line from the last good projections (either may arrive alone). */
+  private refreshStatsLine(): void {
+    this.statsLine = this.statsLike === undefined ? undefined : formatStatsLine(this.statsLike, this.tokenUsage, vscode.l10n.t)
   }
 
   /**
@@ -1435,6 +1466,13 @@ export class ChatSessionController implements vscode.Disposable {
             if (seq <= this.statsSeq) return
             this.statsSeq = seq
             this.applyStatsValue(payload.value)
+            this.push(true)
+            return
+          }
+          case 'tokenUsage': {
+            if (seq <= this.tokenUsageSeq) return
+            this.tokenUsageSeq = seq
+            this.applyTokenUsageValue(payload.value)
             this.push(true)
             return
           }
