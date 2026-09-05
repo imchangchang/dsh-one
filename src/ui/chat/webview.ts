@@ -45,6 +45,7 @@ import {
   installCommandFor,
   type HostOs,
 } from '../../pure/installScript.ts'
+import { steerModifierLabel } from '../../pure/steerShortcut.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { isFilePathHref } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
@@ -6660,7 +6661,11 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       : recall?.kind === 'queue'
         ? t('Editing queued message; Enter saves, Esc cancels')
         : state?.running
-          ? t('Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts')
+          ? // 插话快捷键按宿主平台出文案：mac ⌘Enter，win/linux Ctrl+Enter
+            // （hostOs 未知回退 ⌘ 版，与修复前一致）。
+            steerModifierLabel(state?.hostOs) === 'Ctrl'
+            ? t('Type a message; Enter queues, Ctrl+Enter steers now, ↑ edits the queued message, Esc interrupts')
+            : t('Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts')
           : hero
             ? t('Describe what you want to build')
             : t('Type a message; Enter sends, Shift+Enter for newline, paste images/files, ↑ recalls the previous one')

@@ -244,6 +244,7 @@
   "Thoughts": "思考过程",
   "Thoughts · {0}": "思考过程 · {0}",
   "Tools": "工具",
+  "Type a message; Enter queues, Ctrl+Enter steers now, ↑ edits the queued message, Esc interrupts": "输入消息，Enter 排队发送，Ctrl+Enter 立即插话，↑ 修改排队消息，Esc 打断",
   "Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts": "输入消息，Enter 排队发送，⌘Enter 立即插话，↑ 修改排队消息，Esc 打断",
   "Type a message; Enter sends, Shift+Enter for newline, paste images/files, ↑ recalls the previous one": "输入消息，Enter 发送，Shift+Enter 换行，可粘贴图片/文件，↑ 召回上一条",
   "Type your answer": "输入回答",

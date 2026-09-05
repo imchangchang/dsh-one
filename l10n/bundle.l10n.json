@@ -244,6 +244,7 @@
   "Thoughts": "Thoughts",
   "Thoughts · {0}": "Thoughts · {0}",
   "Tools": "Tools",
+  "Type a message; Enter queues, Ctrl+Enter steers now, ↑ edits the queued message, Esc interrupts": "Type a message; Enter queues, Ctrl+Enter steers now, ↑ edits the queued message, Esc interrupts",
   "Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts": "Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts",
   "Type a message; Enter sends, Shift+Enter for newline, paste images/files, ↑ recalls the previous one": "Type a message; Enter sends, Shift+Enter for newline, paste images/files, ↑ recalls the previous one",
   "Type your answer": "Type your answer",

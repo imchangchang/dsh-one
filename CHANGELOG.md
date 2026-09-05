@@ -1,5 +1,11 @@
 # Change Log
 
+## [Unreleased]
+
+### Fixed
+
+- 插话快捷键占位符按平台区分文案（steer-shortcut-copy-per-platform）：会话运行中的 composer 占位符原来一律显示「⌘Enter 插话」，Windows/Linux 用户键盘上没有 ⌘ 键。现在附着会话的 ChatState 常态下发宿主平台（hostOs），macOS 保持 ⌘Enter，Windows/Linux 显示 Ctrl+Enter（按键处理本就 metaKey||ctrlKey 全平台可触发，纯文案修正）；hostOs 未知时回退 ⌘ 版原文案。
+
 ## [1.1.0]
 
 ### Added
