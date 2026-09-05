@@ -12,9 +12,16 @@ test('defaultScenario：声明模型 id + 规则集（回显/tool_calls/401/工�
   // 工具编排规则都在兜底之前。
   const has = (s: string) =>
     sc.rules.some((r) => typeof r.match === 'object' && (r.match as { contains?: string }).contains === s)
-  for (const k of ['审批测试', '提个问题', '派个子代理', '开两个后台任务', 'commit 演示', 'commit 不存在', '401']) {
+  for (const k of ['审批测试', '提个问题', '派个子代理', '开两个后台任务', 'commit 演示', 'commit 不存在', 'commit 慢速', '401']) {
     assert.ok(has(k), `缺少规则: ${k}`)
   }
+})
+
+test('defaultScenario：commit 慢速规则为流式分块 + deltaDelayMs（流式重建回归用）', () => {
+  const rule = defaultScenario().rules.find((r) => (r.match as { contains?: string }).contains === 'commit 慢速')!
+  assert.equal(rule.respond.deltaDelayMs, 1200)
+  assert.equal(rule.respond.content?.length, 4)
+  assert.match(String((rule.respond.content as string[])[0]), /cb1f933e/)
 })
 
 test('defaultScenario：查天气规则返回 get_weather 工具调用（arguments 是 JSON 串）', () => {
