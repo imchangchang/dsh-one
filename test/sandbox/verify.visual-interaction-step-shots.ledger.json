@@ -1,0 +1,58 @@
+{
+  "title": "视觉交互场景分步截图（interactSteps 管线）——visual-interaction-step-shots 任务",
+  "branch": "agent/visual-step-shots",
+  "commit": "8d0d78a",
+  "environment": {
+    "mode": "harness-visual",
+    "theme": "light",
+    "date": "2026-09-05T00:00:00Z"
+  },
+  "coverageNote": "验证通道：harness 视觉场景（浏览器独立渲染 webview + mock 后台，WebBridge 截图）。本任务改的是截图管线本身（scenarios.js 场景格式 + harness 步骤信号 + ui-visual.sh 分步截图）；webview 产品代码无改动，沙盒 E2E 不适用（无 UI/宿主行为变化）。宿主链路（激活/服务/真实 dsh）不在范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "分步截图：右键开主菜单 → hover 分组… 展开二级（两张对照）",
+      "expect": "① sessions-workspace-menu-groups-menu.png（右键后、悬停前）：右键 ws-main 工作区行弹出顶层菜单，自上而下 6 项——标题「Workspace: dsh-one」、复制文件夹引用、分组…（齿轮 + 右缘 ›）、归档该工作区全部会话、在新窗口打开文件夹、复制路径、从列表移除，**无二级菜单**。② sessions-workspace-menu-groups-groups.png（悬停「分组…」后）：二级 popover 锚在「分组…」项右侧、右缘对齐；**顶层 6 项菜单完整保留、与二级菜单并存**；二级菜单三个组行「演示 2 ✓」「开发 1 ✓」「日常 0」（勾选态来自 ws-main 的归属 groupMembership，「日常」未勾无 ✓）；勾选行 ✓ 于行尾，组名 + 右侧计数 + ✓ 布局在列。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-groups-menu.png",
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-groups-groups.png"
+      ],
+      "notes": "管线逐步执行：ui-visual.sh 轮询 harness 的 window.__interactStepDone 信号到位再截图，截图后调 window.__interactStepAdvance() 放行下一步（严格对齐交互状态，非固定延时）。两张图对照即见「打开前/打开后」——若顶层菜单被二级顶掉（旧单步 bug 形态），groups.png 会缺顶层 6 项，与 menu.png 对照立判。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "无 interactSteps 场景行为不变（单张 <scenario>.png）",
+      "expect": "既有交互场景（仍用 interact 字符串的）与无交互场景都只截单张 <scenario>.png：conversation（正常对话：用户/助手气泡 + 工具卡 + 统计行）、sessions-search（搜索词「重构」+ 命中高亮 + 内容 snippet + 底部更多匹配提示）截图内容与期望一致，文件名无 -<step> 后缀。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png",
+        "/tmp/dsh-ui-shots/sessions-search.png"
+      ],
+      "notes": "基线 34 场景全出单张（无 -step 后缀）；sessions-workspace-menu-groups-click / -leave 等菜单场景仍走 interact 单张路径（全量回归见 R-02）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "全量 135 场景回归 + 分步截图只在有 interactSteps 的场景多截",
+      "expect": "scripts/ui-visual.sh（mode=all）跑 window.SCENARIOS 全部场景，每场景至少一张截图落盘；只有 sessions-workspace-menu-groups 产出两张 -step 截图（其余仍单张）；无截图缺失、无步骤信号超时告警。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-groups-click.png",
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-groups-leave.png"
+      ],
+      "notes": "135 场景全出（/tmp/dsh-ui-shots/，含 sessions-workspace-menu-groups-click / -leave 等仍走 interact 单张路径的菜单场景，文件名无 -step 后缀）；分步场景 menu/groups 两张对照正确；与早期一次因 daemon 会话残留（close_session 未清干净）导致的轮询超时无关——干净会话下重跑信号全部到位（见 F-01/R-01 截图）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "typecheck + 537 单测 + build 全绿",
+      "expect": "npm run typecheck 无错误；npm test 537 pass / 0 fail；npm run build 成功产出 dist/extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "test/ui/scenarios.js 的格式注释/场景结构改动不影响 src 侧类型与单测；dist 重建后 harness 才能加载含 interactSteps 的产物路径。"
+    }
+  ]
+}

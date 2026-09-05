@@ -44,6 +44,8 @@ scripts/ui-visual.sh --mode baseline # 只跑 BASELINE_SCENARIOS（主线合入�
 
 会：起 http server 服务仓库根目录 → 遍历目标场景 → WebBridge 打开 `test/ui/harness.html?scenario=<name>` → 截图到 `/tmp/dsh-ui-shots/<name>.png`。**脚本会把每个场景的《期望清单》打印出来**（`expect` 字段），agent 逐张 `read_image` 后按下面方法核对。
 
+**分步交互场景**（带 `interactSteps`，见「怎么新增一个场景」）每步各截一张 `<name>-<step>.png`：脚本轮询页面步骤完成信号到位再截图（截图与交互状态严格对齐，不是固定延时赌），交互前/后对照——「打开主菜单」与「展开二级菜单后主菜单仍应在位」这类状态不再压成一张。无 `interactSteps` 的场景仍单张 `<name>.png`。
+
 - **worktree 功能验收**：`scripts/ui-visual.sh`（模式 all，含自己新加的场景）→ 逐张截图对照期望。
 - **主线冒烟**：`scripts/ui-visual.sh --mode baseline` → 只跑基线稳定场景，逐张对照期望确认没把既有 UI 弄坏。
 
@@ -97,6 +99,19 @@ http://127.0.0.1:8899/test/ui/harness.html?scenario=dsh-not-found
 ```
 
 `state` 是 `ChatState`；可选 `sessions`（`SessionsSnapshot`，缺省用 `window.sessionsTree(state.sessionId)`）和 `modelCatalog`。**`title`/`expect` 是必写的**——`expect` 就是这份场景的"验收描述"。`ui-visual.sh` 会把它打印成清单。改 `src/pure/chatContract.ts` 的契约时，`scenarios.js` 要同步对齐（字段冻结文件，两边一起改）。
+
+**交互分步（interactSteps）**：交互是多步且需要中间帧对照时，用 `interactSteps` 取代 `interact`（二选一，同时存在时 interactSteps 优先）：
+
+```js
+'interactSteps: [{
+  name: 'menu',                     // 步名：截图文件名 <scenario>-<step>.png，用 kebab 风格
+  script: `document.querySelector('.workspace-row')?.click()`,
+  // settle: 500,                   // 可选：本步脚本执行后到 UI 稳定的毫秒（默认 500；
+  //                                 脚本内有 setTimeout/MutationObserver 异步链的按需调大）
+}],
+```
+
+harness 每步执行完推送 `window.__interactStepDone = name`，`ui-visual.sh` 轮询到位后截 `<scenario>-<step>.png`，再调 `window.__interactStepAdvance()` 放行下一步。**`expect` 按「每张截图一个子状态」写**：哪张对应发生的哪个动作、该状态应呈现什么，以便逐张对照（示例：`sessions-workspace-menu-groups`）。
 
 **加完场景后**：worktree 验收用 `ui-visual.sh`（all）跑它；如果它是"以后必须一直对"的真实 UI 状态，把名字加进 `window.BASELINE_SCENARIOS`（随合入并入主线基线）。一次性调试 fixture 放 `.dev-host/`，别提交、别进基线。
 
