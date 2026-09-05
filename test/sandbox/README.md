@@ -208,6 +208,7 @@ node test/sandbox/verify-driver.mjs \
     "afterSendFill": "我的草稿",      // 可选：点发送后立刻填入 composer（pending 接管前正在输入）
     "approve": true,                  // 可选：等待权限审批面板并点 Allow once（英文 locale）
     "expectDraft": "我的草稿",        // 可选：断言 composer textarea 值包含该文本（草稿恢复检查）
+    "expectPlaceholder": "占位文本",  // 可选：断言 composer textarea 的 placeholder 包含该文本
     "fillAndClear": "草稿文本"         // 可选：填入该文本并点 .clear-all-button，断言输入框为空
   },
   "result": "pending",              // 驱动每次跑完覆写：done（断言命中）/ fail（断言超时，notes 写原因）
