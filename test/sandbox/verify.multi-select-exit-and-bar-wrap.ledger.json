@@ -1,0 +1,84 @@
+{
+  "title": "多选操作后退出多选模式 + 操作条按钮折行修复（multi-select-exit-and-bar-wrap 任务）",
+  "branch": "agent/multi-select-exit-and-bar-wrap",
+  "commit": "9531ab7",
+  "environment": {
+    "mode": "ui-harness（test/ui/harness.html + mock 宿主，Kimi WebBridge 截图；ai-visual-validation 通道）",
+    "dsh": "n/a（mock 宿主，不起真 dsh）",
+    "locale": "en（harness 不注入 __DSH_L10N__，文案取英文默认串）",
+    "theme": "light（sessions-recycle-drawer 回归项为 dark）",
+    "image": "n/a",
+    "date": "2026-09-05T09:17:24Z"
+  },
+  "coverageNote": "真 VS Code 侧栏宿主行为（真实面板宽度、主题变量、宿主归档执行）不在本报告范围——本次改动纯 webview 侧（点击后退出多选为 webview 本地逻辑；操作条折行为 SESSIONS_STYLE），宿主链路（sessionMoveToRecycleMany/sessionArchiveMany 处理）未改动。验证通道：① harness 视觉场景 140 个全量跑（ui-visual.sh mode=all）+ 本任务 5 个多选场景逐张核对；② typecheck + 567 单测 + build。harness 把 chat/sessions 两套样式合流进一个 style.css，chat 的裸 .empty 规则会泄漏到 sessions 空组头（.workspace-row.empty 居中）——属 harness 既有 artifact，真实面板只注入 SESSIONS_STYLE 不受影响，相关截图已用非空未分组规避。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "多选点「Recycle bin (N)」即退出多选",
+      "expect": "分步截图对照——① selected：多选操作条一行三按钮「Recycle bin (2)」「Archive (2)」「Cancel」不换行；sess-1/sess-5 行首复选框已勾；未分组组头与 sess-6 行照常显示（未勾）。② exited：点「Recycle bin (2)」后操作条消失、行首复选框全部消失、回到普通列表态；「Moved to the recycle bin」瞬态提示气泡仍在飘（2.2s 内）；无红色断言横幅（页面内断言：selection-bar 与复选框已移除，且 __posted 含 sessionMoveToRecycleMany 带 2 个 id）。mock 宿主不更新快照，会话行仍在列表属预期（真实宿主随快照让其消失）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-selection-exit-recycle-selected.png",
+        "/tmp/dsh-ui-shots/sessions-selection-exit-recycle-exited.png"
+      ],
+      "notes": "逐条核对：① selected 图三按钮一行无折行、sess-1/sess-5 已勾、未分组组头与 sess-6 在位 ✓；② exited 图操作条与全部复选框消失、列表恢复普通态（dsh-one/dsh-web research/未分组三组与各自会话行在位）✓、顶部「Moved to the recycle bin」气泡在飘 ✓、无红色断言横幅 ✓（断言含 __posted 消息校验：sessionMoveToRecycleMany 带 sess-1+sess-5 两个 id——断言失败会贴红横幅，未出现即通过）。退出由点击处理末尾 exitSelectionMode() 同步完成，不依赖宿主回执。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "多选归档确认后（archiveManyDone）退出多选",
+      "expect": "分步截图对照——① modal：点「Archive (2)」弹确认框（标题 Archive 2 sessions?、两组各 · 1 明细折叠、底部 Cancel/Archive），多选操作条仍在弹窗后方。② exited：点确认并收到 archiveManyDone（场景脚本 postMessage 模拟宿主回执，failed 空）后——确认框消失、操作条消失、复选框全部消失、恢复普通列表态；无红色断言横幅（断言：modal/selection-bar/复选框已移除，且 __posted 含 sessionArchiveMany 带 2 个 id）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-selection-exit-archive-modal.png",
+        "/tmp/dsh-ui-shots/sessions-selection-exit-archive-exited.png"
+      ],
+      "notes": "逐条核对：① modal 图确认框标题/副标题/两组折叠/底部按钮齐全，后方操作条在位 ✓；② exited 图 modal、操作条、复选框均消失 ✓，无红色断言横幅 ✓（__posted 校验 sessionArchiveMany 带 2 id）。新语义为无论成败都退出（原失败保留勾选重试）：失败时宿主已弹错误提示、未归档会话仍在列表可重选——harness 无法模拟宿主失败提示，该提示路径（sessionsView.ts showWarningMessage）未改动。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "多选操作条 300px 侧栏一行三按钮不折行（短文案 + nowrap）",
+      "expect": "面板限宽 300px（模拟真实侧栏）：操作条一行三按钮「Recycle bin (4)」「Archive (3)」「Cancel」，按钮文字不折行、不溢出；ws-main 组头半选（组内置顶的 sess-2 复选框灰置不可勾，未读的 sess-3 可勾且已勾）；组头附近有瞬态提示「Pinned sessions cannot be moved to the recycle bin or archived; this group cannot be fully selected」；dsh-web research（折叠）全选勾；未分组未勾；行尾 ⋯ 消失。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-selection-mode.png"
+      ],
+      "notes": "逐条核对：300px 限宽下三按钮单行无折行 ✓（修复前长文案「Move N selected to the recycle bin」在按钮内折成多行短行）；按钮计数 Recycle bin (4)=勾选总数、Archive (3)=可归档子集（未读 sess-3 排除）✓；ws-main 半选横线 ✓、sess-2 置顶复选框灰置 ✓、sess-3 未读已勾 ✓、置顶飘提示在显 ✓、折叠的 dsh-web research 全选勾 ✓、未分组与 sess-6 未勾 ✓、行尾 ⋯ 消失 ✓。按钮在 harness 无 --vscode-button-background 变量呈浅色属 harness 环境限制，布局核对不受影响。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "多选归档确认框场景修正：点击目标从首按钮改为 Archive 按钮",
+      "expect": "selection-modal 场景（默认折叠）：点操作条「Archive (2)」弹 modal——标题 Archive 2 sessions?、副标题、两组各 · 1 明细默认折叠、底部 Cancel/Archive。selection-modal-open 场景（展开明细）：两组展开列会话行（名称 + 相对时间）、组头箭头旋转、计数保留。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-selection-modal.png",
+        "/tmp/dsh-ui-shots/sessions-selection-modal-open.png"
+      ],
+      "notes": "背景：56348c5 给操作条加了「移入回收站」首按钮后，这两个场景的 interact 仍点 `.selection-bar button`（首按钮=回收站），点不出 modal——场景自那时起失效，本次一并修正（改点带 Archive 字样的按钮）。核对：默认折叠图两组各 · 1、明细收起、Cancel/Archive 在位 ✓；展开图两组会话行（DSH One 示例会话 · 3 小时前 / dsh web 可展开 UI 调研 · 9 小时前）列出、箭头旋转、计数保留 ✓。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "typecheck + 567 单测 + 构建",
+      "expect": "npm run typecheck 无错误；npm test 567 全过；npm run build 产出 dist 四件套；node scripts/gen-ui-harness.mjs 重抽 style.css 成功。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实测：tsc --noEmit 无输出（过）；node:test 567 pass / 0 fail；build.mjs 产出 extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js；gen-ui-harness 写 style.css 113268 字节（chatViewHtml STYLE + sessionsView SESSIONS_STYLE）。改动未触及任何单测覆盖的纯逻辑（sessionsTree/recycleBinState 等），主要面是 webview 交互与 CSS。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "140 个 harness 场景全量跑通 + 既有 sessions 场景抽查",
+      "expect": "ui-visual.sh mode=all 140 个场景全部出图无脚本错误；抽查 sessions（普通列表）与 sessions-recycle-drawer（回收站抽屉）确认未被 .selection-bar nowrap 与场景目录改动误伤。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions.png",
+        "/tmp/dsh-ui-shots/sessions-recycle-drawer.png"
+      ],
+      "notes": "140 场景全部出图（脚本 exit 0）。抽查：sessions.png 普通列表态正常（组头计数徽标/置顶钉/未读绿点/当前行高亮/底部回收站入口在位）✓；sessions-recycle-drawer.png 抽屉头（▼Back + Recycle bin 计数 3 + 清空图标 + Restore all）与按原 workspace 分组渲染正常 ✓。两张图中央出现的「未分组」居中块是 harness 样式合流 artifact（chat 裸 .empty 规则泄漏到 .workspace-row.empty），main 上既有、与本次改动无关，真实面板不加载 chat 样式不受影响。"
+    }
+  ]
+}
