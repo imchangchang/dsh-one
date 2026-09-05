@@ -7,7 +7,7 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { ACCOUNT_ICON, AGENT_PRESET_ICON, CHECK_ICON, CONTEXT_BROWSE_ICON, COPY_ICON, CODE_ICON, DSH_ONE_MARK, GIT_COMMIT_ICON, GITHUB_ICON, GOAL_ICONS, HISTORY_ICON, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, SKILL_ICON, STOP_ICON, STOP_PRIMARY_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
+import { ACCOUNT_ICON, AGENT_PRESET_ICON, ALARM_CLOCK_ICON, CHECK_ICON, CONTEXT_BROWSE_ICON, COPY_ICON, CODE_ICON, DSH_ONE_MARK, GIT_COMMIT_ICON, GITHUB_ICON, GOAL_ICONS, HISTORY_ICON, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, SKILL_ICON, STOP_ICON, STOP_PRIMARY_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
 import type {
   ChatAssistantMessage,
   ChatBlock,
@@ -23,6 +23,7 @@ import type {
   ChatTurnOutlineEntry,
   ChatTurnUsage,
   ChatUserMessage,
+  ChatScheduleEntry,
   CommitInfoResult,
   FromWebviewMessage,
   ModelCatalog,
@@ -49,6 +50,13 @@ import { isFilePathHref } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../pure/toolLine.ts'
 import { cordisActionCardModel, cordisDefineCardModel, cordisRunCardModel, skillCardModel } from '../../pure/toolCards.ts'
+import {
+  isScheduleOverdue,
+  orderScheduleRecords,
+  scheduleEveryUnit,
+  scheduleRelativeDelta,
+  type ScheduleTimeUnit,
+} from '../../pure/schedule.ts'
 import {
   JSON_TREE_ROOT_KEY,
   flattenJsonTree,
@@ -563,12 +571,22 @@ function iconSvg(icon: IconDef, size = 16): SVGSVGElement {
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
     if (typeof p === 'string') {
       path.setAttribute('d', p)
+      path.setAttribute('fill', 'currentColor')
     } else {
       path.setAttribute('d', p.d)
       if (p.transform) path.setAttribute('transform', p.transform)
       if (p.opacity) path.setAttribute('opacity', p.opacity)
+      // Stroke 型路径（如 AlarmClock）：描边渲染、不填色（fill 继承 svg 的
+      // none）；未标 strokeWidth 的路径仍走填色（既有行为）。
+      if (p.strokeWidth) {
+        path.setAttribute('stroke', 'currentColor')
+        path.setAttribute('stroke-width', p.strokeWidth)
+        if (p.strokeLinecap) path.setAttribute('stroke-linecap', p.strokeLinecap)
+        if (p.strokeLinejoin) path.setAttribute('stroke-linejoin', p.strokeLinejoin)
+      } else {
+        path.setAttribute('fill', 'currentColor')
+      }
     }
-    path.setAttribute('fill', 'currentColor')
     if (icon.fillRule) {
       path.setAttribute('fill-rule', icon.fillRule)
       path.setAttribute('clip-rule', icon.fillRule)
@@ -1316,6 +1334,8 @@ let modelMenuBody: HTMLElement | null = null
 let menuOpenRow: HTMLElement | null = null
 /** 后台任务下拉的耗时 tick（打开且有运行中行时挂上，关闭弹层时清理）。 */
 let jobsTick: ReturnType<typeof setInterval> | null = null
+/** 定时计划菜单打开期间的 1s tick（刷新相对时间/逾期态；closePopover 统一清理）。 */
+let scheduleTick: ReturnType<typeof setInterval> | null = null
 
 function markMenuRow(row: HTMLElement | null): void {
   menuOpenRow?.classList.remove('menu-open')
@@ -1360,6 +1380,10 @@ function closePopover(): void {
   if (jobsTick !== null) {
     clearInterval(jobsTick)
     jobsTick = null
+  }
+  if (scheduleTick !== null) {
+    clearInterval(scheduleTick)
+    scheduleTick = null
   }
   document.removeEventListener('mousedown', onPopoverOutside, true)
   document.removeEventListener('keydown', onPopoverKey, true)
@@ -2321,6 +2345,120 @@ function renderJobsMenuRow(job: ActivityJob, now: number): HTMLElement {
   return row
 }
 
+/**
+ * 头部「N 个提醒」chip 的下拉（对齐官方 ScheduleCatalogAction 的只读
+ * catalog）：每行 状态点（等待中蓝 / 逾期琥珀）+ 状态文案 + 提醒内容 +
+ * 元信息（频率 · 本地时刻 · 剩余/逾期相对时间），逾期行淡黄底。
+ * 打开期间每秒刷新相对时间与逾期态（官方同款 now tick，closePopover 清理）。
+ */
+function openScheduleMenu(anchor: HTMLElement): void {
+  // 点 trigger 切换开合（与 jobs 菜单同款 toggle）。
+  if (popover !== null && popoverAnchor === anchor) {
+    closePopover()
+    return
+  }
+  const records = state?.schedule
+  if (!records || records.length === 0) return
+  const now = Date.now()
+  const body = el('div', 'schedule-menu')
+  // 官方 orderScheduleRecords：overdue 在前、各自按目标时刻升序。
+  for (const record of orderScheduleRecords(records, now)) {
+    body.appendChild(renderScheduleMenuRow(record, now))
+  }
+  showPopover(anchor, body, 'below')
+  scheduleTick = setInterval(() => {
+    const tick = Date.now()
+    popover?.querySelectorAll<HTMLElement>('[data-schedule-target]').forEach((row) => {
+      patchScheduleRow(row, row.dataset.scheduleTarget ?? '', tick)
+    })
+  }, 1000)
+}
+
+/** 下拉里的一行提醒；now 由调用方取一次，保证同一帧渲染的行状态一致。 */
+function renderScheduleMenuRow(record: ChatScheduleEntry, now: number): HTMLElement {
+  const overdue = isScheduleOverdue(record, now)
+  const row = el('div', overdue ? 'schedule-row overdue' : 'schedule-row')
+  row.dataset.scheduleTarget = record.scheduledAt
+  const status = el('span', overdue ? 'schedule-status overdue' : 'schedule-status')
+  status.appendChild(el('span', overdue ? 'schedule-dot overdue' : 'schedule-dot'))
+  status.appendChild(el('span', 'schedule-status-label', scheduleStatusLabel(record, now)))
+  row.appendChild(status)
+  const prompt = el('span', 'schedule-prompt', record.prompt)
+  prompt.title = record.prompt
+  row.appendChild(prompt)
+  const meta = el('span', 'schedule-meta')
+  const freq = el('span', undefined, scheduleFrequencyLabel(record))
+  meta.appendChild(freq)
+  meta.appendChild(el('span', 'schedule-meta-sep', '·'))
+  const time = el('span', undefined, scheduleLocalTime(record.scheduledAt))
+  meta.appendChild(time)
+  meta.appendChild(el('span', 'schedule-meta-sep', '·'))
+  const rel = el('span', overdue ? 'schedule-relative overdue' : 'schedule-relative', scheduleRelativeLabel(record, now))
+  meta.appendChild(rel)
+  row.appendChild(meta)
+  return row
+}
+
+/** 打开期间每秒就地更新一行（状态文案/逾期态/相对时间），不重建弹层。 */
+function patchScheduleRow(row: HTMLElement, scheduledAt: string, now: number): void {
+  const overdue = isScheduleOverdue({ scheduledAt }, now)
+  row.classList.toggle('overdue', overdue)
+  const status = row.querySelector('.schedule-status')
+  status?.classList.toggle('overdue', overdue)
+  status?.querySelector('.schedule-dot')?.classList.toggle('overdue', overdue)
+  const label = status?.querySelector('.schedule-status-label')
+  if (label) label.textContent = overdue ? t('Overdue') : t('Scheduled')
+  const rel = row.querySelector('.schedule-relative')
+  if (rel) {
+    rel.classList.toggle('overdue', overdue)
+    rel.textContent = scheduleRelativeLabel({ scheduledAt }, now)
+  }
+}
+
+/** chip 计数文案（官方 trigger.one/trigger.other：单复数两种 key）。 */
+function scheduleCountLabel(count: number): string {
+  return t(count === 1 ? '{0} reminder' : '{0} reminders', count)
+}
+
+/** 频率文案：「单次」（after/at）或「每 N 单位一次」（every，取最大整除单位）。 */
+function scheduleFrequencyLabel(record: ChatScheduleEntry): string {
+  if (record.kind !== 'every' || record.everySeconds === undefined) return t('Once')
+  const { unit, value } = scheduleEveryUnit(record.everySeconds)
+  return t('Every {0} {1}', String(value), scheduleUnitWord(unit, value))
+}
+
+/** 目标时刻的本地化展示（官方 formatScheduleLocalTime：当前 locale 的 medium date + short time）。 */
+function scheduleLocalTime(scheduledAt: string): string {
+  return new Intl.DateTimeFormat(document.documentElement.lang || undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(Date.parse(scheduledAt))
+}
+
+/** 剩余/逾期相对文案（官方 formatScheduleRelative：future/overdue/now 三态）。 */
+function scheduleRelativeLabel(record: Pick<ChatScheduleEntry, 'scheduledAt'>, now: number): string {
+  const delta = scheduleRelativeDelta(record.scheduledAt, now)
+  if (delta.value === 0) return t('Due now')
+  const unit = scheduleUnitWord(delta.unit, Math.abs(delta.value))
+  const value = String(Math.abs(delta.value))
+  return delta.value > 0 ? t('in {0} {1}', value, unit) : t('{0} {1} overdue', value, unit)
+}
+
+/** 时间单位词（官方 unit.day.one/other 等：英文按 1 与否选单复数，中文同词）。 */
+function scheduleUnitWord(unit: ScheduleTimeUnit, value: number): string {
+  if (value === 1) {
+    const keys: Record<ScheduleTimeUnit, string> = { day: 'day', hour: 'hour', minute: 'minute', second: 'second' }
+    return t(keys[unit])
+  }
+  const keys: Record<ScheduleTimeUnit, string> = { day: 'days', hour: 'hours', minute: 'minutes', second: 'seconds' }
+  return t(keys[unit])
+}
+
+/** 状态文案（官方 status.scheduled/overdue）。 */
+function scheduleStatusLabel(record: Pick<ChatScheduleEntry, 'scheduledAt'>, now: number): string {
+  return isScheduleOverdue(record, now) ? t('Overdue') : t('Scheduled')
+}
+
 /** Agent preset 下拉：一行一个选项（名称 + 描述），当前选中打勾；风格沿用权限/模型选择器。 */
 function openAgentPresetMenu(anchor: HTMLElement, placement: 'above' | 'below' = 'above'): void {
   const ap = state?.agentPreset
@@ -2981,6 +3119,18 @@ function render(): void {
       chip.appendChild(iconSvg(PANEL_ICONS.chevronDown, 14))
       chip.title = t('Background jobs')
       chip.addEventListener('click', () => openJobsMenu(chip))
+      header.appendChild(chip)
+    }
+    // 「N 个提醒」chip（对齐官方 ScheduleCatalogAction：AlarmClock + 计数 +
+    // chevron → 只读下拉）：schedule 投影（state.active）非空才显示；0.1.1
+    // 服务器无该投影 → state.schedule 缺省 → 不渲染（降级不崩、无计划也不显示）。
+    if (state.schedule && state.schedule.length > 0) {
+      const chip = buttonEl('header-chip', '')
+      chip.appendChild(iconSvg(ALARM_CLOCK_ICON, 14))
+      chip.appendChild(el('span', undefined, scheduleCountLabel(state.schedule.length)))
+      chip.appendChild(iconSvg(PANEL_ICONS.chevronDown, 14))
+      chip.title = t('Active reminders')
+      chip.addEventListener('click', () => openScheduleMenu(chip))
       header.appendChild(chip)
     }
     // 只读 preset 标签（对齐官方 AgentPresetLabel：浅底胶囊 + 14px 三环图标；

@@ -106,6 +106,34 @@ const STYLE = `
     font-size: 11px; opacity: 0.75;
   }
   .job-duration { flex: none; font-size: 11px; opacity: 0.55; font-variant-numeric: tabular-nums; }
+  /* 定时计划「N 个提醒」chip 的下拉（对齐官方 ScheduleCatalogAction 只读
+     catalog）：每行 状态点 + 状态文案 + 提醒内容 + 元信息（频率 · 本地时刻 ·
+     相对剩余/逾期）；逾期行淡黄底（warn 三级），状态点/相对时间转琥珀。 */
+  .schedule-menu { display: flex; flex-direction: column; gap: 2px; width: 320px; max-width: 320px; }
+  .schedule-row {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 7px 10px; border-radius: 8px; min-width: 0;
+  }
+  .schedule-row.overdue { background: var(--vscode-editorWarning-background, rgba(204,167,0,.12)); }
+  .schedule-status {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--vscode-descriptionForeground);
+  }
+  .schedule-status.overdue { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .schedule-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vscode-charts-blue, #5686fe); }
+  .schedule-dot.overdue { background: var(--vscode-editorWarning-foreground, #cca700); }
+  .schedule-prompt {
+    font-size: 13px; line-height: 18px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* 元信息是纯展示，弹窗里允许换行（官方 metadata flex-wrap）；超长 prompt
+     在下方行内 ellipsis 保证行高稳定。 */
+  .schedule-meta {
+    color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 16px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0;
+  }
+  .schedule-meta-sep { opacity: 0.6; }
+  .schedule-relative.overdue { color: var(--vscode-editorWarning-foreground, #cca700); }
   @media (max-width: 719px) {
     #app { flex-direction: column; }
     .chat-col { min-height: 0; }

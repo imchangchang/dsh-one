@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
-import type { ChatState, ChatGoal, ChatTodoItem, ChatFile, ChatImage, ChatTurnOutlineEntry, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem, StagedFile } from '../pure/chatContract.ts'
+import type { ChatState, ChatGoal, ChatTodoItem, ChatFile, ChatImage, ChatTurnOutlineEntry, ChatScheduleEntry, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem, StagedFile } from '../pure/chatContract.ts'
 import { ConversationFolder, applyFeedbackRatings, imagesOfBlocks, navigateAnchorOf } from '../pure/conversation.ts'
 import { splitAttachmentLines } from '../pure/composerAttachment.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
@@ -373,6 +373,10 @@ export class ChatSessionController implements vscode.Disposable {
   private turnOutlineSeq = -1
   /** 整份日志的回合大纲（官方 session-turn-outline 投影）；undefined = 无投影。 */
   private turnOutline: ChatTurnOutlineEntry[] | undefined
+  /** `schedule` 投影（定时计划 state.active）的水位线（higher seq wins）。 */
+  private scheduleSeq = -1
+  /** 定时计划的活动提醒（官方 `schedule` 投影）；undefined = 无投影（0.1.1 服务器）。 */
+  private schedule: ChatScheduleEntry[] | undefined
   /** Footer model pill, filled by refreshModels(). */
   private modelLabel: string | undefined
   /**
@@ -444,6 +448,7 @@ export class ChatSessionController implements vscode.Disposable {
       permissions: this.permissions,
       plan: this.plan,
       ...(this.turnOutline !== undefined ? { turnOutline: this.turnOutline } : {}),
+      ...(this.schedule !== undefined ? { schedule: this.schedule } : {}),
       statsLine: this.statsLine,
       todos: this.todos,
       goal: this.goal,
@@ -845,6 +850,7 @@ export class ChatSessionController implements vscode.Disposable {
       this.planSeq = projections.asOfSeq
       this.goalSeq = projections.asOfSeq
       this.turnOutlineSeq = projections.asOfSeq
+      this.scheduleSeq = projections.asOfSeq
       this.applyProjectionValues(projections.values)
     }
   }
@@ -860,6 +866,7 @@ export class ChatSessionController implements vscode.Disposable {
     this.applyPlanValue(values.plan)
     this.applyGoalValue(values.goal)
     this.applyTurnOutlineValue(values.turnOutline)
+    this.applyScheduleValue(values.schedule)
     const limits = asImageLimits(values.imageLimits)
     if (limits) this.imageLimits = limits
     const pressure = asContextPressure(values.contextPressure)
@@ -966,6 +973,7 @@ export class ChatSessionController implements vscode.Disposable {
       this.planSeq = projections.asOfSeq
       this.goalSeq = projections.asOfSeq
       this.turnOutlineSeq = projections.asOfSeq
+      this.scheduleSeq = projections.asOfSeq
       this.applyProjectionValues(projections.values)
     }
     this.logger.info(`chat: follow baseline applied for ${this.sessionId} (cursor ${String(snapshot.cursor)}, ${String(entries.length)} records)`)
@@ -1338,6 +1346,53 @@ export class ChatSessionController implements vscode.Disposable {
     this.turnOutline = entries
   }
 
+  /**
+   * Fold one `schedule` projection value（官方 packages/schedule/schedule
+   * projection.ts 的 wire 视图：state.active 的 ScheduleRecord 数组）。
+   * 逐条校验形状（id/kind/prompt/scheduledAt + kind 关联字段），任一畸形
+   * 整条丢弃并保留 last good——chip 宁可少一行，不渲染错误数据（与
+   * turnOutline 的保守规则一致）。id 重复只保留首个（官方投影本就保证
+   * 唯一，防御万一）。
+   */
+  private applyScheduleValue(value: unknown): void {
+    if (!Array.isArray(value)) return
+    const entries: ChatScheduleEntry[] = []
+    const seenIds = new Set<string>()
+    for (const raw of value) {
+      if (!raw || typeof raw !== 'object') return
+      const item = raw as Record<string, unknown>
+      const id = item.id
+      const kind = item.kind
+      const prompt = item.prompt
+      const scheduledAt = item.scheduledAt
+      if (
+        typeof id !== 'string' ||
+        !id ||
+        seenIds.has(id) ||
+        (kind !== 'after' && kind !== 'at' && kind !== 'every') ||
+        typeof prompt !== 'string' ||
+        typeof scheduledAt !== 'string'
+      ) {
+        return
+      }
+      if (kind === 'after') {
+        if (typeof item.afterSeconds !== 'number' || !Number.isSafeInteger(item.afterSeconds) || item.afterSeconds <= 0) return
+      } else if (kind === 'every') {
+        if (typeof item.everySeconds !== 'number' || !Number.isSafeInteger(item.everySeconds) || item.everySeconds <= 0) return
+      }
+      seenIds.add(id)
+      entries.push({
+        id,
+        kind,
+        prompt,
+        scheduledAt,
+        ...(kind === 'after' ? { afterSeconds: item.afterSeconds as number } : {}),
+        ...(kind === 'every' ? { everySeconds: item.everySeconds as number } : {}),
+      })
+    }
+    this.schedule = entries
+  }
+
   private onFrame(frame: MuxFrame): void {
     if (this.disposed) return
     const payload = (frame.payload ?? {}) as Record<string, unknown>
@@ -1452,6 +1507,13 @@ export class ChatSessionController implements vscode.Disposable {
             if (seq <= this.turnOutlineSeq) return
             this.turnOutlineSeq = seq
             this.applyTurnOutlineValue(payload.value)
+            this.push(true)
+            return
+          }
+          case 'schedule': {
+            if (seq <= this.scheduleSeq) return
+            this.scheduleSeq = seq
+            this.applyScheduleValue(payload.value)
             this.push(true)
             return
           }
