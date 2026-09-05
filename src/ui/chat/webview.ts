@@ -3085,6 +3085,21 @@ function render(): void {
     }
     return
   }
+  // 打开失败（历史读取/RPC 错误、会话损坏或不存在）：整页换成可读错误
+  // 提示——不是空白、不是空会话 hero（后者会误导用户以为是个新会话）。
+  // 侧栏再点一次该会话即重试（host 端重建 controller，见 chatView.openSession）。
+  if (state.openError) {
+    lastComposerSig = null
+    lastHeaderSig = null
+    lastPendingSig = null
+    lastTodosSig = null
+    turnStatusStart = null
+    scrollSession = null
+    pendingStash = null
+    for (const child of Array.from(chatCol.children)) child.remove()
+    chatCol.appendChild(renderOpenError(state.openError))
+    return
+  }
   if (blankHero) {
     turnStatusStart = null
     scrollSession = null
@@ -3563,6 +3578,25 @@ function renderEmpty(state: ChatState | null): HTMLElement {
   wrap.appendChild(
     el('div', 'empty-hint', t('Click a session in the list to start chatting. If the list is empty, start the dsh service first.')),
   )
+  return wrap
+}
+
+/**
+ * 打开失败整页提示（不做空态 hero、不做 loading）：标题 + 可操作建议 +
+ * 后端原因（原样透传 RPC 错误码/简述，用户可据此判断是日志损坏还是会话
+ * 不存在）。重试入口 = 侧栏再点一次该会话（提示行里写明）。
+ */
+function renderOpenError(reason: string): HTMLElement {
+  const wrap = el('div', 'empty open-error')
+  wrap.appendChild(el('div', 'empty-title', t('Failed to open session')))
+  wrap.appendChild(
+    el(
+      'div',
+      'empty-hint',
+      t('This session could not be opened. The session log may be corrupt, or the session may have been deleted. Click the session in the list to try again.'),
+    ),
+  )
+  wrap.appendChild(el('div', 'open-error-reason', reason))
   return wrap
 }
 
