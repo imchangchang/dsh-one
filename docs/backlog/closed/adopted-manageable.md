@@ -25,3 +25,5 @@
 - 2026-09-05 认领（open -> doing）：主线直接开发（worktree adopted-manageable）；实现如上；单测 567 全过、typecheck/build 全绿、i18n 门禁通过
 
 - 2026-09-05 开发完成（doing -> done）：分支 agent/adopted-manageable；ledger test/sandbox/verify.adopted-manageable.ledger.json（5 项全过）；真机复验步骤（主窗口 spawn → 另一窗口管理）见条目覆盖说明。
+
+- 2026-09-05 合入（done -> closed）：dev-merge 合入 main（c1621e8）；ledger 5 项全过、审查通过；真机复验步骤见条目。
