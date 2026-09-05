@@ -555,6 +555,8 @@ export class SessionsStore implements vscode.Disposable {
     const tag: TagDef = { id: `t-${randomUUID()}`, name: name.trim(), color: color ?? nextCustomColor(this.tags) }
     this.tags = [...this.tags, tag]
     this.persistTags()
+    // 组顺序是树的重建输入（组块聚合序），新组立即参与显示。
+    this.rebuildModel()
     this.onDidChangeEmitter.fire()
     return tag
   }
@@ -568,6 +570,7 @@ export class SessionsStore implements vscode.Disposable {
     if (tag.name === trimmed) return true
     this.tags = this.tags.map((t) => (t.id === tagId ? { ...t, name: trimmed } : t))
     this.persistTags()
+    this.rebuildModel()
     this.onDidChangeEmitter.fire()
     return true
   }
@@ -583,6 +586,7 @@ export class SessionsStore implements vscode.Disposable {
       this.sessionTags = next
       this.persistSessionTags()
     }
+    this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
 
@@ -594,6 +598,9 @@ export class SessionsStore implements vscode.Disposable {
     if (next === null) return
     this.sessionTags = next
     this.persistSessionTags()
+    // 打组改变会话在树里的聚合（tagId/组块顺序），必须重建模型——只 fire
+    // 通知会让快照推回旧模型（列表不刷新，等下一个 60s tick 才生效）。
+    this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
 
@@ -610,6 +617,7 @@ export class SessionsStore implements vscode.Disposable {
     if (next === this.sessionTags) return
     this.sessionTags = next
     this.persistSessionTags()
+    this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
 
@@ -619,6 +627,8 @@ export class SessionsStore implements vscode.Disposable {
     if (next === null) return
     this.tags = next
     this.persistTags()
+    // 组顺序改变组块聚合顺序，同样需要重建模型。
+    this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
 
