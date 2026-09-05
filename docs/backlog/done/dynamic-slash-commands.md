@@ -30,3 +30,4 @@
 - 顺带产出：verify-driver 加 fillSlash/expectPopup 原语（补全弹窗断言，上个任务的一次性探针沉淀为仓库能力）。
 - 沙盒报告：test/sandbox/verify.dynamic-slash-commands.report.html（7 项全过：3 新增 + 4 回归；kimi preset 无 goal 的 UI 差异在 0.1.1 沙盒无法构造，宿主语义层实测见 ledger coverageNote）。
 - 仓库外：~/.dsh/.agent-presets/kimi/agent.cordis.yml 已补 command-goal 并对齐 0.1.2 注释（新会话生效）。
+- 2026-09-05 dev-finish 通过（自测 + 报告 + done 标记）→ doing → done
