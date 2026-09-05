@@ -7,6 +7,7 @@ import * as path from 'node:path'
 import {
   acquireOwnedLock,
   clearOwnedRecord,
+  isExternalRecord,
   migrateOwnedRecord,
   readOwnedRecord,
   resolveOwnership,
@@ -78,6 +79,45 @@ test('resolveOwnership: owner match → own, mismatch/missing → adopt, null �
   assert.equal(resolveOwnership(record, '/tmp/window-a'), 'own')
   assert.equal(resolveOwnership(record, '/tmp/window-b'), 'adopt')
   assert.equal(resolveOwnership({ pid: 1, port: 2 }, '/tmp/window-a'), 'adopt')
+})
+
+test('source/owned roundtrip: external record keeps the fields, spawn record defaults apply', async () => {
+  const dir = await tmpDir()
+  const file = path.join(dir, 'dsh-owned.json')
+  const external: OwnedRecord = { pid: 33411, port: 3080, token: 'tok', source: 'external', owned: false }
+  await writeOwnedRecord(file, external, noopLogger)
+  const read = await readOwnedRecord(file, noopLogger)
+  assert.deepEqual(read, external)
+  assert.equal(isExternalRecord(read!), true)
+  // spawn（owner + owned:true 显式）
+  await writeOwnedRecord(file, { pid: 1, port: 1, owner: '/tmp/a', source: 'spawn', owned: true }, noopLogger)
+  assert.equal(isExternalRecord((await readOwnedRecord(file, noopLogger))!), false)
+})
+
+test('old-format records (no source/owned) read as spawn-owned: compat for re-own/migrate', async () => {
+  const dir = await tmpDir()
+  const file = path.join(dir, 'dsh-owned.json')
+  await writeOwnedRecord(file, { pid: 4242, port: 3080, token: 'tok', owner: '/tmp/a' }, noopLogger)
+  const read = await readOwnedRecord(file, noopLogger)
+  assert.equal(read?.source, undefined) // 缺省：旧记录按 spawn 处理（isExternalRecord=false）
+  assert.equal(read?.owned, undefined) // 缺省：kill 权由 owner 判定（既有语义不变）
+  assert.equal(isExternalRecord(read!), false)
+  // 迁移路径同样兼容：旧 globalStorage 记录补 owner 后 source 保持缺省
+  const shared = path.join(dir, 'shared.json')
+  await writeOwnedRecord(path.join(dir, 'legacy.json'), { pid: 1, port: 1, token: 't' }, noopLogger)
+  await migrateOwnedRecord(path.join(dir, 'legacy.json'), shared, '/tmp/window-a', noopLogger)
+  const migrated = await readOwnedRecord(shared, noopLogger)
+  assert.equal(migrated?.owner, '/tmp/window-a')
+  assert.equal(isExternalRecord(migrated!), false)
+})
+
+test('invalid source/owned values are ignored (defaults apply)', async () => {
+  const dir = await tmpDir()
+  const file = path.join(dir, 'dsh-owned.json')
+  await writeFile(file, '{"pid":1,"port":2,"source":"weird","owned":"yes"}')
+  const read = await readOwnedRecord(file, noopLogger)
+  assert.equal(read?.source, undefined)
+  assert.equal(read?.owned, undefined)
 })
 
 test('migrateOwnedRecord copies legacy to shared (owner filled) and deletes legacy', async () => {

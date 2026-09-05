@@ -29,6 +29,23 @@ export interface OwnedRecord {
    * 缺省（旧格式记录）一律按 adopt 处理——宁可少杀不错杀。
    */
   owner?: string
+  /**
+   * 记录来源：'spawn' = 扩展 spawn 的实例（缺省，旧记录兼容即此意）；
+   * 'external' = 用户粘贴 token 连接的外部启动实例（B 档）——不写 owner，
+   * kill 权不归任何窗口，停止/重启走 A 档确认弹窗（单 pid 杀）。
+   */
+  source?: 'spawn' | 'external'
+  /**
+   * 扩展是否持有实例（kill 权）。旧记录缺省按 true；external 记录固定 false。
+   * 与 owner 互补：spawn 记录的 kill 权仍由 owner 窗口判定，external 记录
+   * （owned:false）不被任何窗口自动 kill——A 档管理走显式确认。
+   */
+  owned?: boolean
+}
+
+/** 外部粘贴 token 连接的记录（B 档）判据。 */
+export function isExternalRecord(record: OwnedRecord): boolean {
+  return record.source === 'external'
 }
 
 export type OwnedDecision = 'own' | 'adopt' | 'none'
@@ -55,6 +72,8 @@ export async function readOwnedRecord(filePath: string, logger: Logger): Promise
       ...(typeof parsed.token === 'string' ? { token: parsed.token } : {}),
       ...(typeof parsed.version === 'string' ? { version: parsed.version } : {}),
       ...(typeof parsed.owner === 'string' ? { owner: parsed.owner } : {}),
+      ...(parsed.source === 'spawn' || parsed.source === 'external' ? { source: parsed.source } : {}),
+      ...(typeof parsed.owned === 'boolean' ? { owned: parsed.owned } : {}),
     }
   } catch {
     return null
