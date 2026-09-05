@@ -1128,15 +1128,15 @@ function decorateInlineCodes(container: HTMLElement): void {
     copyBtn.type = 'button'
     copyBtn.title = t('Copy')
     copyBtn.setAttribute('aria-label', t('Copy'))
-    copyBtn.appendChild(iconSvg(COPY_ICON, 11))
+    copyBtn.appendChild(iconSvg(COPY_ICON, 13))
     copyBtn.addEventListener('click', (e) => {
       // 路径码：点图标只复制，不触发码本体的「打开」。
       e.stopPropagation()
       const copied = () => {
-        copyBtn.replaceChildren(iconSvg(CHECK_ICON, 11))
+        copyBtn.replaceChildren(iconSvg(CHECK_ICON, 13))
         copyBtn.title = t('Copied')
         setTimeout(() => {
-          copyBtn.replaceChildren(iconSvg(COPY_ICON, 11))
+          copyBtn.replaceChildren(iconSvg(COPY_ICON, 13))
           copyBtn.title = t('Copy')
         }, COPY_FEEDBACK_MS)
       }
