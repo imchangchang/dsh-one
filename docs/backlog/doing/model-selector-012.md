@@ -25,3 +25,4 @@
 ## 变更记录
 
 - 2026-09-05 用户反馈（0.1.2 升级后模型位「选择模型」占位 + 权限英文；官方 dsh web 对照正常）→ 代码初步定位 → 建条目（open/，待实测确认根因）
+- 2026-09-05 认领（open → doing）：主线派发开发 session 修复 model-selector-012；先本机 0.1.2-rc.1 实测 session/models（session/modelCatalog）与 session.list 投影 modelSelection 真实结构、确认模型位占位与权限 label 英文根因，再按实测结果修解析/标签本地化。
