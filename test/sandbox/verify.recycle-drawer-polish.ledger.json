@@ -1,0 +1,99 @@
+{
+  "title": "回收站提手点击收起 + 入口行快捷操作（recycle-drawer-polish 任务）",
+  "branch": "agent/recycle-drawer-polish",
+  "commit": "f14f1ee",
+  "environment": {
+    "mode": "harness（ai-visual-validation：独立浏览器渲染 webview + mock 后台）",
+    "dsh": "不涉及（纯 webview UI 态改动）",
+    "locale": "en",
+    "theme": "dark/light",
+    "image": "不涉及",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "本次改动全部是 sessions webview 内 UI 态（提手点击语义 + 入口行快捷按钮），宿主逻辑无改动，无 host 命令层新增待覆盖项。验证通道 = harness 场景（test/ui/scenarios.js，含两个新增断言场景）+ 全量 mode=all 截图回归；沙盒 E2E（真 VS Code）未跑——改动无宿主侧链路，harness 通道已覆盖全部断言点（与 recycle-bin-drawer 的 R-02 同通道先例）。提手悬停提示文案（Drag to resize; click to collapse）为 data-tip 属性，截图不含悬停态，经代码审查覆盖。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "入口行快捷按钮：恢复全部（收起态直接可用，不打开抽屉）",
+      "expect": "底部入口行 = 主区按钮（🗑 + Recycle bin + 计数徽标 3）+ 右侧常驻两个 26px 图标按钮（清空 = 垃圾桶、恢复全部 = undo 箭头，悬停提示 Empty recycle bin / Restore all）；点恢复全部后 __posted 含 sessionsRestoreAll、抽屉未打开（无 .recycle-drawer 节点）、无红色断言横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-recycle-entry-actions-restore-all.png"
+      ],
+      "notes": "截图核对：入口行主区（🗑 Recycle bin + 徽标 3）✓，右侧两个图标按钮常驻 ✓；无红色断言横幅 → 断言三项全中（按钮存在且非 disabled ✓、__posted 含 sessionsRestoreAll ✓、无 .recycle-drawer 节点 ✓）；mock 宿主不更新快照，列表与计数不变（场景已注明）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "入口行快捷按钮：清空（收起态直接弹确认 modal）",
+      "expect": "点入口行清空按钮后弹出归档确认 modal（标题「Empty the recycle bin (3 sessions)?」+ 说明文案 + 按分组列出 3 个会话 + Cancel/Archive 按钮）；抽屉仍未打开；无红色断言横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-recycle-entry-actions-empty-modal.png"
+      ],
+      "notes": "截图核对：modal 标题含 (3 sessions) ✓、说明文案「Archiving cannot be undone here…」✓、分组明细 dsh-one 2 行 + 已删除的目录 1 行 ✓、Cancel/Archive 按钮 ✓；无红色断言横幅 → 抽屉未打开断言命中 ✓。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "提手点击 = 收起抽屉",
+      "expect": "抽屉打开（半高、提手横条在位）后，对提手横条发 pointerdown+pointerup（不移动 = 点击）→ 抽屉收起、动画播完节点移除，回到主列表（入口行在位）；断言 .recycle-drawer.open 不存在，无红色断言横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-recycle-handle-open.png",
+        "/tmp/dsh-ui-shots/sessions-recycle-handle-click-collapse.png"
+      ],
+      "notes": "open 帧：半高抽屉 + 顶部提手横条 + 抽屉头（▼ Back / Recycle bin 3 / 清空图标 / Restore all）✓；click-collapse 帧：抽屉节点已移除、主列表完整、入口行在位（右侧两快捷按钮可见）✓；无红色断言横幅 → .open 消失断言命中 ✓。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "提手拖动语义保留：上拉扩到 90% 档、重新打开回半高",
+      "expect": "提手上拖 200px 松手 → 抽屉吸附到 90% 档（.expanded 断言，主列表只剩顶部一条可见）；点击提手收起后重新打开 → 回到 50% 默认档；无红色断言横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-recycle-handle-drag-expand.png",
+        "/tmp/dsh-ui-shots/sessions-recycle-handle-reopen.png"
+      ],
+      "notes": "drag-expand 帧无红色断言横幅 → .expanded 断言命中（抽屉已扩到 90% 档）✓；该帧抽屉区与主列表文字交叠是 harness 既有 artifact（无 VS Code 主题变量，--vscode-editor-background 回落 transparent；真机不透明，见 R-01 暗色帧抽屉正常遮盖），与本次改动无关。reopen 帧：点击收起后重新打开，抽屉滑回半高默认档（截图取在滑入动画尾段，抽屉头/分组可见）✓。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "抽屉场景回归：sessions-recycle-drawer（interact 改点主区按钮）",
+      "expect": "入口行改为「主区按钮 + 快捷按钮」结构后，点主区仍能正常滑出抽屉：提手横条 / ▼ Back / 标题 + 计数徽标 3 / 34px 清空图标 / Restore all / 按原 workspace 分组（dsh-one 2 + 已删除的目录 1）/ 主列表上半部可见——与合入前一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-recycle-drawer.png"
+      ],
+      "notes": "截图核对（暗色主题）：点 .recycle-entry-main 抽屉正常滑出半高 ✓；提手横条 ✓；▼ Back 单箭头 ✓；标题 + 计数徽标 3 同组紧跟 ✓；34px 清空图标 + Restore all ✓；分组 dsh-one 2 / 已删除的目录 1 各带折叠箭头 ✓；主列表上半部可见 ✓——与合入前一致。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "sessions 基线场景回归（入口行唯一预期差异 = 两个新图标按钮）",
+      "expect": "sessions / sessions-search / sessions-collapsed / sessions-selection-mode / sessions-menu / sessions-selection-exit-recycle / sessions-workspace-menu-groups 等基线场景渲染与合入前一致；唯一预期差异：底部入口行右侧多出清空/恢复全部两个图标按钮（计数 0 时置灰）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions.png",
+        "/tmp/dsh-ui-shots/sessions-collapsed.png",
+        "/tmp/dsh-ui-shots/sessions-selection-mode.png",
+        "/tmp/dsh-ui-shots/sessions-selection-exit-recycle-exited.png"
+      ],
+      "notes": "逐张核对：sessions.png 普通列表态正常（组头徽标/置顶钉/未读绿点/当前行高亮在位）✓；sessions-collapsed.png 三組折叠态正常 ✓；sessions-selection-mode.png 操作条三按钮不换行 + 组头复选框 + 置顶组半选提示气泡 ✓（气泡压操作条为该场景注明的瞬态提示，预期）；sessions-selection-exit-recycle-exited.png（补拍）操作条/复选框已退出、无红幅 ✓。唯一预期差异确认：入口行右侧两个图标按钮，计数 0 时与标签一起灰态置灰 ✓。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量 mode=all 出图无脚本错误",
+      "expect": "ui-visual.sh mode=all 全场景（含 2 个新增）出图完成、无场景加载失败/断言红幅（除历史已知 harness artifact 外）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-selection-exit-recycle-exited.png",
+        "/tmp/dsh-ui-shots/sessions-workspace-menu-groups-groups.png"
+      ],
+      "notes": "mode=all 147 场景跑完 exit 0。批量跑中 3 处分步信号超时（sessions-selection-exit-recycle exited / sessions-selection-exit-archive modal+exited / sessions-workspace-menu-groups menu+groups），逐场景手动逐步复跑全部信号到位、断言无红幅、无脚本异常——定位为 WebBridge daemon 快速开关 tab 抖动（超时帧截到了别的场景 tab），与本次改动无关（超时场景的脚本与断言路径均未触及本次改动文件）；两张终态图已单独补拍。"
+    }
+  ]
+}
