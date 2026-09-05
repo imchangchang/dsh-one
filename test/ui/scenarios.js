@@ -1280,28 +1280,30 @@
         s.workspaces[0].sessions = [
           sess('sess-1', 'DSH One 示例会话', '3 小时前'),
           sess('sess-7', '另一个待归档会话', '1 小时前'),
-          sess('sess-2', '运行中的会话', '5 小时前', { running: true }),
+          sess('sess-2', '置顶中的会话', '5 小时前', { pinned: true }),
           sess('sess-3', '未读的会话', '昨天', { unread: true }),
         ]
         s.workspaces[1].sessions = [sess('sess-5', 'dsh web 可展开 UI 调研', '9 小时前')]
         s.workspaces[2].sessions = [sess('sess-6', '未分组里的孤儿会话', '2 小时前')]
         s.collapsed = ['ws-research']
+        s.pinned = ['sess-2']
         s.unread = ['sess-3']
         return s
       })(),
-      // 打开 ⋯ 菜单 → 点「选择多个」进模式 → 点 ws-main 组头（组内有置灰的
-      // sess-2/sess-3）→ 该组无法真正全选：飘提示 + 组头保持半选 →
-      // 再点 ws-research 组头（全选态）。全同步链（每次点击后 DOM 同步重建，
-      // 后续查询都重新取），避免测试脚本在 setTimeout 链完成前截图。
+      // 限宽 300px 模拟真实侧栏（操作条不换行要靠这个宽度才验得到）。进多选 →
+      // 点 ws-main 组头（组内置顶的 sess-2 不可勾：半选 + 飘提示）→ 点 ws-research
+      // 组头（全选态）。全同步链（每次点击后 DOM 同步重建，后续查询都重新取）。
       interact: `(() => {
+        const app = document.getElementById('app')
+        if (app) { app.style.width = '300px'; app.style.overflow = 'hidden' }
         document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()
         const items = [...document.querySelectorAll('.menu-item')]
         items.find((i) => i.textContent.includes('Select multiple'))?.click()
         document.querySelector('.workspace-group[data-workspace-id="ws-main"] .select-checkbox input')?.click()
         document.querySelector('.workspace-group[data-workspace-id="ws-research"] .select-checkbox input')?.click()
       })()`,
-      title: '侧栏面板（多选归档模式）',
-      expect: '多选模式态：顶部搜索框下出现操作条（.selection-bar），左 primary 按钮「Archive 3 selected」+ 右「Cancel」secondary；三个组头行首都有复选框；ws-main 组头是部分选中（横线半选）——组内可归档的 sess-1/sess-7 都已勾，但有置灰的 sess-2（运行中）/sess-3（未读），所以组头不能是全选；组头复选框附近有瞬态提示气泡「该组有会话无法归档，不能全部选中」（截图时仍在显示）；dsh-web research 组头（折叠态）复选框为全选勾；未分组组头未勾、其下 sess-6 未勾；会话行行尾 ⋯ 按钮已消失；sess-2/sess-3 复选框灰置。',
+      title: '侧栏面板（多选模式操作条：三按钮一行不换行）',
+      expect: '多选模式态：顶部搜索框下出现操作条（.selection-bar，面板限宽 300px 模拟真实侧栏），一行三个按钮不换行、按钮文字不折行——「Recycle bin (4)」primary +「Archive (3)」primary +「Cancel」secondary；三个组头行首都有复选框；ws-main 组头是部分选中（横线半选）——组内 sess-1/sess-7/sess-3 已勾（未读可勾选），sess-2（置顶）复选框灰置不可勾，所以组头不能是全选；组头复选框附近有瞬态提示气泡「Pinned sessions cannot be moved to the recycle bin or archived; this group cannot be fully selected」（截图时仍在显示）；dsh-web research 组头（折叠态）复选框为全选勾；未分组组头未勾、其下 sess-6 未勾；会话行行尾 ⋯ 按钮已消失。',
     },
 
     'sessions-selection-modal': {
@@ -1322,10 +1324,11 @@
         items.find((i) => i.textContent.includes('Select multiple'))?.click()
         document.querySelector('.session-row[data-session-id="sess-1"]')?.click()
         document.querySelector('.session-row[data-session-id="sess-5"]')?.click()
-        document.querySelector('.selection-bar button')?.click()
+        // 操作条首按钮是「回收站」，归档要点带 Archive 字样的那个。
+        ;[...document.querySelectorAll('.selection-bar button')].find((b) => b.textContent.startsWith('Archive'))?.click()
       })()`,
       title: '侧栏面板（批量归档确认框：默认折叠）',
-      expect: '点「归档选中的 2 个」后页面内弹出 modal：深色半透明遮罩 + 居中白色卡片；标题「Archive 2 sessions?」、副标题「Archived sessions will be hidden from the list.」；树区两个组头各带数量（dsh-one · 1 / dsh-web research · 1）且明细默认折叠（.modal-group.collapsed，组头可展开）；底部右侧「Cancel」secondary +「Archive」primary 按钮。',
+      expect: '点「Archive (2)」后页面内弹出 modal：深色半透明遮罩 + 居中白色卡片；标题「Archive 2 sessions?」、副标题「Archived sessions will be hidden from the list.」；树区两个组头各带数量（dsh-one · 1 / dsh-web research · 1）且明细默认折叠（.modal-group.collapsed，组头可展开）；底部右侧「Cancel」secondary +「Archive」primary 按钮。',
     },
 
     'sessions-selection-modal-open': {
@@ -1346,12 +1349,109 @@
         items.find((i) => i.textContent.includes('Select multiple'))?.click()
         document.querySelector('.session-row[data-session-id="sess-1"]')?.click()
         document.querySelector('.session-row[data-session-id="sess-5"]')?.click()
-        document.querySelector('.selection-bar button')?.click()
+        ;[...document.querySelectorAll('.selection-bar button')].find((b) => b.textContent.startsWith('Archive'))?.click()
         const heads = [...document.querySelectorAll('.modal-group-head')]
         heads.forEach((h) => h.click())
       })()`,
       title: '侧栏面板（批量归档确认框：展开明细）',
       expect: '确认框 modal 内两组都展开：dsh-one 组下会话行「DSH One 示例会话 · 3 小时前」、dsh-web research 组下「dsh web 可展开 UI 调研 · 9 小时前」（名称 + 右侧相对时间）；组头三角箭头旋转（展开态），组头数量角标保留；底部 Cancel/Archive 按钮照常；弹窗不超屏。',
+    },
+
+    // 多选退出语义：点「回收站」立即退出多选（操作完成语义）。断言失败时页面上
+    // 会贴红色横幅（截图可见），成功则是干净 UI。
+    'sessions-selection-exit-recycle': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.workspaces[0].sessions = [
+          sess('sess-1', 'DSH One 示例会话', '3 小时前'),
+          sess('sess-7', '另一个会话', '1 小时前'),
+        ]
+        s.workspaces[1].sessions = [sess('sess-5', 'dsh web 可展开 UI 调研', '9 小时前')]
+        s.workspaces[2].sessions = [sess('sess-6', '未分组里的孤儿会话', '2 小时前')]
+        return s
+      })(),
+      interactSteps: [
+        {
+          name: 'selected',
+          script: `
+            document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()
+            const items = [...document.querySelectorAll('.menu-item')]
+            items.find((i) => i.textContent.includes('Select multiple'))?.click()
+            document.querySelector('.session-row[data-session-id="sess-1"]')?.click()
+            document.querySelector('.session-row[data-session-id="sess-5"]')?.click()
+          `,
+        },
+        {
+          name: 'exited',
+          script: `
+            window.__posted = []
+            ;[...document.querySelectorAll('.selection-bar button')].find((b) => b.textContent.startsWith('Recycle bin'))?.click()
+            const ok = !document.querySelector('.selection-bar')
+              && !document.querySelector('.select-checkbox')
+              && (window.__posted || []).some((m) => m.type === 'sessionMoveToRecycleMany' && (m.sessionIds || []).length === 2)
+            if (!ok) {
+              const d = document.createElement('div')
+              d.textContent = 'EXIT ASSERT FAILED'
+              d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+              document.body.appendChild(d)
+            }
+          `,
+        },
+      ],
+      title: '侧栏面板（多选点「回收站」即退出多选）',
+      expect: '两张分步截图对照——① <scenario>-selected.png：多选操作条一行三按钮「Recycle bin (2)」「Archive (2)」「Cancel」不换行；sess-1/sess-5 行首复选框已勾；未分组组头与 sess-6 行照常显示（未勾）。② <scenario>-exited.png：点「Recycle bin (2)」后操作条消失、行首复选框全部消失、行尾 ⋯ 按钮恢复（回到普通列表态）；「Moved to the recycle bin」瞬态提示气泡仍在原操作条位置上方飘浮（2.2s 内）；无红色断言横幅（断言内容：selection-bar 与复选框已移除，且 __posted 含 sessionMoveToRecycleMany 带 2 个 id）。注意 mock 宿主不更新快照，会话行仍在列表——真实宿主会随快照让其消失；本场景验收点是「点击即退出多选 + 消息发出」。',
+    },
+
+    // 多选退出语义：归档确认后（archiveManyDone 回执）退出多选。回执由场景脚本
+    // 直接 postMessage 模拟宿主发出。
+    'sessions-selection-exit-archive': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.workspaces[0].sessions = [
+          sess('sess-1', 'DSH One 示例会话', '3 小时前'),
+          sess('sess-7', '另一个会话', '1 小时前'),
+        ]
+        s.workspaces[1].sessions = [sess('sess-5', 'dsh web 可展开 UI 调研', '9 小时前')]
+        s.workspaces[2].sessions = [sess('sess-6', '未分组里的孤儿会话', '2 小时前')]
+        return s
+      })(),
+      interactSteps: [
+        {
+          name: 'modal',
+          script: `
+            document.querySelector('.session-row[data-session-id="sess-1"]')?.querySelector('.row-action')?.click()
+            const items = [...document.querySelectorAll('.menu-item')]
+            items.find((i) => i.textContent.includes('Select multiple'))?.click()
+            document.querySelector('.session-row[data-session-id="sess-1"]')?.click()
+            document.querySelector('.session-row[data-session-id="sess-5"]')?.click()
+            ;[...document.querySelectorAll('.selection-bar button')].find((b) => b.textContent.startsWith('Archive'))?.click()
+          `,
+        },
+        {
+          name: 'exited',
+          script: `
+            window.__posted = []
+            document.querySelector('.selection-modal-actions button:last-child')?.click()
+            window.postMessage({ type: 'archiveManyDone', failed: [] }, '*')
+            setTimeout(() => {
+              const ok = !document.querySelector('.selection-modal-overlay')
+                && !document.querySelector('.selection-bar')
+                && !document.querySelector('.select-checkbox')
+                && (window.__posted || []).some((m) => m.type === 'sessionArchiveMany' && (m.sessionIds || []).length === 2)
+              if (!ok) {
+                const d = document.createElement('div')
+                d.textContent = 'EXIT ASSERT FAILED'
+                d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+                document.body.appendChild(d)
+              }
+            }, 100)
+          `,
+        },
+      ],
+      title: '侧栏面板（多选归档确认后退出多选）',
+      expect: '两张分步截图对照——① <scenario>-modal.png：点「Archive (2)」后弹确认框（标题 Archive 2 sessions?，两组各 · 1，明细折叠，底部 Cancel/Archive），多选操作条仍在弹窗后方。② <scenario>-exited.png：点确认并收到 archiveManyDone（场景脚本模拟宿主回执，failed 空）后——确认框消失、多选操作条消失、行首复选框全部消失、行尾 ⋯ 按钮恢复；无红色断言横幅（断言内容：modal/selection-bar/复选框已移除，且 __posted 含 sessionArchiveMany 带 2 个 id）。mock 宿主不更新快照，会话行仍在列表；真实宿主会随快照让已归档会话消失。',
     },
 
     'sessions-menu-fork-disabled': {
@@ -2713,6 +2813,8 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'sessions',
     'sessions-search', 'sessions-collapsed', 'sessions-recycle-drawer',
     'sessions-workspace-menu-groups',
+    'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',
+    'sessions-selection-exit-recycle', 'sessions-selection-exit-archive',
     'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',

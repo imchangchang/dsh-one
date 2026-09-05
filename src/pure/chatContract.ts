@@ -903,7 +903,8 @@ export type ToWebviewMessage =
   | { type: 'fileRefList'; requestId: number; items: FileRefCandidate[] }
   /**
    * 批量归档执行结果回传（webview 先发 sessionArchiveMany）：failed 是归档
-   * 失败的会话 id（成功即从列表消失）。webview 据此保留失败项勾选或退出多选模式。
+   * 失败的会话 id（成功即从列表消失；宿主对失败项弹提示）。webview 收悉后
+   * 无论成败都退出多选模式，失败会话仍在列表可重选。
    */
   | { type: 'archiveManyDone'; failed: string[] }
   /**
