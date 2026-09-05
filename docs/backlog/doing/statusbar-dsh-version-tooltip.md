@@ -28,3 +28,5 @@
 ## 变更记录
 
 - 2026-09-05 用户反馈（升级 0.1.2 后想随时确认版本）→ 核实现状 → 建条目（open/）
+
+- 2026-09-05 认领（open → doing）：按条目方案开发；版本取 locateDsh 已执行的 `dsh --version`（spawnSync），经 pidfile 持久化供 re-own；adopted 不显示版本（外部实例，避免误导）。
