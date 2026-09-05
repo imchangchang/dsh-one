@@ -1,30 +1,30 @@
 import * as vscode from 'vscode'
 import { spawn, spawnSync } from 'node:child_process'
-import * as crypto from 'node:crypto'
 import * as fsp from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { makeDescribeRequest, validateDescribeResponse } from '../pure/envelope.ts'
 import { parseReadyLine } from '../pure/readyLine.ts'
 import { gte } from '../pure/semver.ts'
 import { locateDsh, DshNotFoundError } from './locateDsh.ts'
-import { exchangeToken, probeToken, clearAuth, cookieHeader, probeAuthRequired } from './serverAuth.ts'
+import { probePort, probeDsh, PROBE_TIMEOUT_MS } from './portProbe.ts'
+import { exchangeToken, probeToken, clearAuth, cookieHeader } from './serverAuth.ts'
 import {
   acquireOwnedLock,
   clearOwnedRecord,
   defaultOwnedPath,
+  isExternalRecord,
   migrateOwnedRecord,
   readOwnedRecord,
   resolveOwnership,
   writeOwnedRecord,
 } from './ownedRecord.ts'
+import { findListenerPid, processCommandLine, isDshCommandLine, stopExternalPid, drainPort, pidAlive } from './externalDsh.ts'
 import type { OwnedRecord } from './ownedRecord.ts'
 import type { Logger } from '../log.ts'
 
 /** dsh learned --no-open in 0.1.0-rc.7; older builds exit on the unknown flag. */
 const NO_OPEN_MIN_VERSION = '0.1.0-rc.7'
 const START_TIMEOUT_MS = 90_000
-const PROBE_TIMEOUT_MS = 3_000
 const KILL_GRACE_MS = 5_000
 const TAIL_LINES = 40
 const HEALTH_INTERVAL_MS = 10_000
@@ -41,58 +41,16 @@ export interface ServerStatus {
   port?: number
   /** true when we connected to an already-running instance we must never kill. */
   adopted?: boolean
+  /**
+   * true 时连接的是外部启动的 dsh 实例（0.1.2 认证 token 粘贴连接或 error 态
+   * 检测到但未连接）——可管理（停止/重启），但杀前必须确认弹窗 + 单 pid。
+   */
+  external?: boolean
   /** dsh version reported by `dsh --version` at locate time; absent for adopted instances. */
   version?: string
   error?: string
-  /** Why startup failed; 'dshNotFound' means no dsh executable was located. */
-  reason?: 'dshNotFound'
-}
-
-/**
- * Tri-state port probe (modeled on dsh-vscode's probeService): POST
- * /api/host.describe and verify the rpcId echo.
- * - 'dsh': the port speaks dsh Gateway RPC — safe to adopt.
- * - 'foreign': something answered HTTP but failed validation — occupied.
- * - 'down': no response — free to spawn on.
- */
-export type PortProbe = 'dsh' | 'foreign' | 'down'
-
-export async function probePort(port: number, logger: Logger): Promise<PortProbe> {
-  const rpcId = crypto.randomUUID()
-  const url = `http://127.0.0.1:${port}/api/host.describe`
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(makeDescribeRequest(rpcId)),
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    })
-    const text = await res.text()
-    if (res.ok && validateDescribeResponse(text, rpcId)) {
-      logger.info(`probe: ${url} answered host.describe (rpcId echoed)`)
-      return 'dsh'
-    }
-    logger.info(`probe: ${url} responded but failed rpcId validation (foreign service)`)
-    return 'foreign'
-  } catch {
-    logger.info(`probe: ${url} no response (down)`)
-    return 'down'
-  }
-}
-
-/** POST /api/host.describe and return the base URL only when the port is dsh. */
-export async function probeDsh(port: number, logger: Logger): Promise<string | null> {
-  return (await probePort(port, logger)) === 'dsh' ? `http://127.0.0.1:${port}` : null
-}
-
-/** process.kill(pid, 0) liveness probe: ESRCH = gone, EPERM = alive but not ours. */
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM'
-  }
+  /** Why startup failed; 'dshNotFound' = 未安装；'authDshNoToken' = 端口上是认证 dsh 且无 token（防护：报错不另起）。 */
+  reason?: 'dshNotFound' | 'authDshNoToken'
 }
 
 /** Readiness result: the clean origin plus the launch token when it exists. */
@@ -188,6 +146,69 @@ export class ServerManager implements vscode.Disposable {
     }
   }
 
+  /**
+   * B 档：粘贴外部实例的 launch token 换票连接。成功后把 token 记入共享记录
+   * （source:'external' / owned:false，不写 owner——kill 权不归任何窗口，
+   * 停止/重启走 A 档确认弹窗），任意窗口下次激活都能凭 token 重连。
+   * 换票失败抛错（token 无效/服务不应答），由命令层提示。
+   */
+  async connectExternalToken(token: string): Promise<ServerStatus> {
+    const port = this.status.port
+    const isExternalTarget = this.status.reason === 'authDshNoToken' || this.status.external === true
+    if (port === undefined || !isExternalTarget) {
+      throw new Error(vscode.l10n.t('No external dsh instance is waiting for a token'))
+    }
+    const origin = `http://127.0.0.1:${port}`
+    // exchangeToken 失败即抛（HTTP 非 303 / 无 cookie）——token 与实例进程绑死，
+    // 换不成就是 token 错、实例重启过或端口被别的程序占了。
+    const auth = await exchangeToken(origin, token, this.logger)
+    const pid = (await findListenerPid(port, this.logger)) ?? 0
+    await writeOwnedRecord(
+      defaultOwnedPath(),
+      { pid, port, token: auth.token ?? token, source: 'external', owned: false },
+      this.logger,
+    )
+    this.logger.info(`connected to external dsh at ${origin} (past launch token; pid=${pid})`)
+    this.setStatus({ state: 'running', url: origin, port, external: true })
+    this.startHealthCheck(port)
+    return this.status
+  }
+
+  /**
+   * A 档：停止外部实例——pid 探测（三平台）→ 杀前身份确认（命令行含 dsh 特征，
+   * 否则拒绝）→ 只向单 pid 发信号（外部实例进程组是 shell 的，不能复用
+   * killOwned 的进程组杀）。确认弹窗由命令层负责，这里不弹。
+   */
+  async stopExternal(): Promise<void> {
+    const port = this.status.port
+    if (port === undefined || (this.status.reason !== 'authDshNoToken' && this.status.external !== true)) {
+      throw new Error(vscode.l10n.t('No external dsh instance is running'))
+    }
+    const pid = await findListenerPid(port, this.logger)
+    if (pid === null) {
+      throw new Error(vscode.l10n.t('Could not find the process listening on port {0}', port))
+    }
+    const cmdline = processCommandLine(pid)
+    if (cmdline === null || !isDshCommandLine(cmdline)) {
+      throw new Error(vscode.l10n.t('Process {0} on port {1} does not look like dsh; stopping it was refused', pid, port))
+    }
+    this.stopHealthCheck()
+    await stopExternalPid(pid, KILL_GRACE_MS, this.logger)
+    // 等端口真正释放再收尾：SIGTERM 后 listener 关闭与进程退出有竞态，直接
+    // 紧接 ensureStarted 的 probe 可能还看到 401（authDsh）而误判。
+    await drainPort(port, this.logger)
+    if (this.status.url) clearAuth(this.status.url)
+    await this.clearOwned()
+    this.setStatus({ state: 'stopped' })
+    this.logger.info(`external dsh stopped (pid=${pid}, port=${port})`)
+  }
+
+  /** 重启外部实例 = A 档停止 + 扩展 spawn 新实例（新实例归扩展管理，后续免确认）。 */
+  async restartExternal(): Promise<ServerStatus> {
+    await this.stopExternal()
+    return this.ensureStarted()
+  }
+
   private async start(): Promise<ServerStatus> {
     this.setStatus({ state: 'starting' })
     const cfg = vscode.workspace.getConfiguration('dshOne')
@@ -211,55 +232,76 @@ export class ServerManager implements vscode.Disposable {
     // 场景）。pid 存活 + 端口身份确认（token 换票 / host.describe）才认领。
     // owner 与当前窗口一致 → 上一个宿主会话 spawn 的实例，re-own 并保留 kill 权；
     // owner 不同 → 另一窗口的实例，认证式 adopted（adopted:true，绝不 kill）。
+    // source==='external' → 用户粘贴 token 连接的外部实例（B 档）：token 换票是
+    // 身份闸，成功后 external:true（可管理需确认，kill 权不归窗口）。
     // 已知风险（已拍板接受）：dsh 死亡后 pid 被系统复用、且端口又被另一个手动
     // 启动的 dsh 占用时，stop 会误杀复用 pid 的进程组——host.describe 不含
     // pid，无法更严格地验证。
     const owned = await readOwnedRecord(defaultOwnedPath(), this.logger)
     if (owned) {
-      const alive = pidAlive(owned.pid)
-      const ownerLabel = owned.owner === undefined
-        ? 'unknown'
-        : owned.owner === this.ownerId ? 'this window' : 'another window'
-      this.logger.info(`shared pidfile found: pid=${owned.pid} port=${owned.port} alive=${alive} owner=${ownerLabel}`)
-      if (alive) {
-        // port=0（系统分配）时记录里没有实际端口，从日志文件的就绪行拿。
+      if (isExternalRecord(owned) && owned.token) {
+        // 外部实例重启后 token 必失效（token 只被生成它的进程换出 303），
+        // 所以探票失败即清记录走探测流程；pid 存活不作闸（pid 可能被复用）。
         const ownedPort = owned.port > 0 ? owned.port : await this.readyPortFromLog()
         if (ownedPort !== null) {
           const ownedUrl = `http://127.0.0.1:${ownedPort}`
-          const ownership = resolveOwnership(owned, this.ownerId)
-          // 0.1.2 记录的 token：换到 cookie 既证明进程身份也完成认证（stdout 已随
-          // 旧宿主丢失）。第二窗口拿到 token 同样能换票——这正是跨窗口 adopt 的前提。
-          if (owned.token) {
-            const auth = await probeToken(ownedUrl, owned.token, this.logger)
-            if (auth !== null) {
+          if ((await probeToken(ownedUrl, owned.token, this.logger)) !== null) {
+            this.logger.info(`connecting to external dsh at ${ownedUrl} (past launch token, pid=${owned.pid})`)
+            this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, external: true })
+            this.startHealthCheck(ownedPort)
+            return this.status
+          }
+          this.logger.info('external dsh record token no longer valid, clearing it')
+        }
+        await this.clearOwned()
+      } else {
+        const alive = pidAlive(owned.pid)
+        const ownerLabel = owned.owner === undefined
+          ? 'unknown'
+          : owned.owner === this.ownerId ? 'this window' : 'another window'
+        this.logger.info(`shared pidfile found: pid=${owned.pid} port=${owned.port} alive=${alive} owner=${ownerLabel}`)
+        if (alive) {
+          // port=0（系统分配）时记录里没有实际端口，从日志文件的就绪行拿。
+          const ownedPort = owned.port > 0 ? owned.port : await this.readyPortFromLog()
+          if (ownedPort !== null) {
+            const ownedUrl = `http://127.0.0.1:${ownedPort}`
+            const ownership = resolveOwnership(owned, this.ownerId)
+            // 0.1.2 记录的 token：换到 cookie 既证明进程身份也完成认证（stdout 已随
+            // 旧宿主丢失）。第二窗口拿到 token 同样能换票——这正是跨窗口 adopt 的前提。
+            if (owned.token) {
+              const auth = await probeToken(ownedUrl, owned.token, this.logger)
+              if (auth !== null) {
+                if (ownership === 'own') {
+                  this.logger.info(`re-owning authenticated dsh at ${ownedUrl} (pid=${owned.pid}, spawned by this window's previous session)`)
+                  this.ownedPid = owned.pid
+                  this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false, version: owned.version })
+                  this.startHealthCheck(ownedPort)
+                  return this.status
+                }
+                this.logger.info(`adopting another window's authenticated dsh at ${ownedUrl} (pid=${owned.pid}, will never kill it)`)
+                this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: true })
+                this.startHealthCheck(ownedPort)
+                return this.status
+              }
+            } else if ((await probePort(ownedPort, this.logger)) === 'dsh') {
               if (ownership === 'own') {
-                this.logger.info(`re-owning authenticated dsh at ${ownedUrl} (pid=${owned.pid}, spawned by this window's previous session)`)
+                this.logger.info(`re-owning dsh at ${ownedUrl} (pid=${owned.pid}, spawned by this window's previous session)`)
                 this.ownedPid = owned.pid
                 this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false, version: owned.version })
                 this.startHealthCheck(ownedPort)
                 return this.status
               }
-              this.logger.info(`adopting another window's authenticated dsh at ${ownedUrl} (pid=${owned.pid}, will never kill it)`)
+              this.logger.info(`adopting another window's dsh at ${ownedUrl} (pid=${owned.pid}, will never kill it)`)
               this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: true })
               this.startHealthCheck(ownedPort)
               return this.status
             }
-          } else if ((await probePort(ownedPort, this.logger)) === 'dsh') {
-            if (ownership === 'own') {
-              this.logger.info(`re-owning dsh at ${ownedUrl} (pid=${owned.pid}, spawned by this window's previous session)`)
-              this.ownedPid = owned.pid
-              this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: false, version: owned.version })
-              this.startHealthCheck(ownedPort)
-              return this.status
-            }
-            this.logger.info(`adopting another window's dsh at ${ownedUrl} (pid=${owned.pid}, will never kill it)`)
-            this.setStatus({ state: 'running', url: ownedUrl, port: ownedPort, adopted: true })
-            this.startHealthCheck(ownedPort)
-            return this.status
           }
         }
+        // 记录过期（pid 已死/端口不应答/token 失效），清掉走正常流程。
+        // 注意 external 记录不删 owner（本就没有）——clearOwned 删的是整份记录。
+        await this.clearOwned()
       }
-      await this.clearOwned() // 记录过期（pid 已死/端口不应答/token 失效），清掉走正常流程
     } else {
       this.logger.info('no shared pidfile found, falling through to probe/spawn')
     }
@@ -283,13 +325,20 @@ export class ServerManager implements vscode.Disposable {
         this.startHealthCheck(port)
         return this.status
       }
+      if (probe === 'authDsh') {
+        // 防护（用户已拍板，见 external-dsh-manage-012）：端口上是无凭证的认证
+        // dsh（外部启动，token 只在它的终端 URL/stdout，扩展拿不到）——报错
+        // 不另起，不再换端口 spawn 双实例。tooltip 提供「粘贴 token / 停止 /
+        // 重启」管理入口（A/B 档）；错误态携带 port 供命令定位目标。
+        const message = vscode.l10n.t(
+          'Port {0} runs an authenticated dsh instance started outside this extension. Paste its launch token to connect, or stop it first.',
+          port,
+        )
+        this.logger.warn(`port ${port} runs an authenticated dsh without a launch token; refusing to start a second instance`)
+        this.setStatus({ state: 'error', error: message, reason: 'authDshNoToken', port })
+        return this.status
+      }
       if (probe === 'foreign') {
-        // 0.1.2 起认证 dsh 对无凭证的 host.describe 回 401/404：没 token 就无法
-        // 认领（token 只随 spawn 的 stdout 出现、服务端不落盘），按不可占用
-        // 处理并换端口——日志里说明原因，避免「foreign service」误导。
-        if (await probeAuthRequired(`http://127.0.0.1:${port}`, this.logger)) {
-          this.logger.warn(`port ${port} runs an authenticated dsh without a launch token; treating it as occupied`)
-        }
         const free = await this.findFreePort(port)
         if (free === null) {
           throw new Error(vscode.l10n.t('Port {0} is occupied by another program, and ports {1}–{2} are all unavailable', port, port + 1, port + PORT_FALLBACK_ATTEMPTS))

@@ -96,13 +96,3 @@ export async function probeToken(origin: string, token: string, logger: Logger):
     return null
   }
 }
-
-/** True when the port appears to run an **authenticated** dsh we lack a token for. */
-export async function probeAuthRequired(origin: string, logger: Logger): Promise<boolean> {
-  try {
-    const res = await fetch(origin, { signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS) })
-    return res.status === 401
-  } catch {
-    return false
-  }
-}

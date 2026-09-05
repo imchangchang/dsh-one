@@ -1,0 +1,131 @@
+{
+  "title": "external-dsh-manage-012：外部启动的 dsh 实例完全接管（A 档停止/重启 + B 档 token 粘贴连接 + 防护）",
+  "branch": "agent/external-dsh-manage",
+  "commit": "e7a54d5",
+  "environment": {
+    "mode": "unit/probe（无沙盒截图：状态栏 tooltip/确认弹窗在宿主侧，且沙盒 pin 0.1.1 无认证，无法复现认证外部实例）",
+    "dsh": "0.1.2-rc.1（本机 PATH，真环境探针 + 单测 stub）",
+    "platform": "macOS 真机（探针临时端口 3099；3080 实例只读复验，未触碰）",
+    "date": "2026-09-06T06:30:00Z"
+  },
+  "coverageNote": "自动部分 = node:test 单测 16 项新增（probePort 指纹 / externalDsh 解析与身份规则 / ownedRecord source+owned 兼容 / statusTooltip 外部与防护态）+ 真机探针 .dev-host/probe-external-manage.mjs 11/11（真 dsh 0.1.2-rc.1 在临时端口 3099 走全链路：authDsh 指纹 → lsof pid 定位 → 身份确认 → token 换票连接 → 单 pid SIGTERM 优雅退出端口释放；3080 只读复验指纹与 pid）。UI 层（tooltip 文案、确认弹窗、命令输入框）为 VSCode 宿主交互，沙盒 webview 不覆盖 → 由用户 dev-ui-test 真机验收（交付步骤见报告）。Windows 路径（taskkill /T /F、netstat/PowerShell）无法在本机验证，实现在代码中，待用户 Windows 机器实测补报告。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "认证 dsh 指纹：probePort 四态，401+unauthorized 正文 → authDsh",
+      "expect": "POST /api/host.describe 无凭证时（实测 0.1.2-rc.1）回 401 + 正文 `unauthorized`；probePort 据此返回 'authDsh'；普通 401 非 dsh 指纹仍归 'foreign'；rpcId 回显仍为 'dsh'；无应答 'down'。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "portProbe.test.ts 5 项（authDsh/foreign/dsh/down/信封 POST 形态）；真机探针：临时 3099 与只读 3080 均判定 authDsh ✓；GET / 的 401 正文（dsh web authentication required）与 RPC 层正文不同——探测用 RPC 层正文，与条目指纹一致。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "pid 探测（macOS lsof 实测；Linux/Windows 解析单测覆盖）",
+      "expect": "macOS `lsof -tiTCP:<port> -sTCP:LISTEN` 返回监听 pid；Linux /proc/net/tcp(6) state 0A + /proc/<pid>/fd socket:[inode] 对照；Windows netstat -ano LISTENING 行解析——解析器均可单测（纯文本）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "externalDsh.test.ts：parseLsofPids/parseNetstatPids/parseProcTcpListeners/socketInodeFromFdLink 6 项；真机探针：3099 与子进程 pid 精确一致、3080 → 33411 ✓（macOS lsof 实路径）。Linux/Windows 真机未跑，解析器按 netstat/proc 格式单测覆盖。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "杀前身份确认：命令行含 dsh 特征才允许杀",
+      "expect": "ps/PowerShell 命令行含 @deepseek-ai/dsh 包路径或独立 path 段 dsh/dsh.js/dsh.cmd/dsh.exe → 判为 dsh；无关 node 服务/其他程序 → 拒绝（stopExternal 抛错不杀）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "isDshCommandLine 单测 6 样本（npm 全局/本地 checkout/shebang 形态/Windows 路径/无关程序/带 dsh 字样的目录）；真机探针：pgrep 取到真实命令行 `node .../bin/dsh web --host 127.0.0.1 --port 3099 --no-open` → 判为 dsh ✓（本 session 沙盒拦 ps，探针用 pgrep 同源 argv；扩展运行时走 ps，已按真实格式设计）。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "A 档停止：只杀单 pid，SIGTERM 优雅关闭",
+      "expect": "stopExternalPid 对单 pid 发 SIGTERM（绝不 -pgid），5s 兜底 SIGKILL；dsh 的 SIGTERM handler 走自身优雅关闭；Windows taskkill /T /F（无优雅路径，代码注明）。停止后 drainPort 等端口释放，避免竞态误判。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "真机探针：stopExternalPid(子进程 pid) → 子进程退出码 0、101ms 内退出（优雅路径）→ probePort 'down' 端口释放 ✓；弹窗/身份拒绝了路径由 F-03 单测 + 真机人工步骤覆盖。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "B 档：token 换票连接 + 共享记录 source:external/owned:false",
+      "expect": "粘贴 token → GET /?token= 303 换 cookie（认证即连接）；成功写共享记录 {pid, port, token, source:'external', owned:false}（不写 owner——kill 权不归任何窗口）；错误 token 拒绝（401）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "真机探针：真 token 303+cookie、带 cookie GET / 200、错误 token probeToken→null ✓；ownedRecord.test.ts：external 记录 roundtrip、旧记录（无 source/owned）按 spawn 缺省兼容 ✓——multi-window-adopt 的 owner 判定 kill 权语义未动（resolveOwnership 既有测试全过）。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "防护（拍板）：认证 dsh 无 token → 报错不另起",
+      "expect": "无有效记录且配置端口探测 authDsh → 状态 error + reason:'authDshNoToken' + port 携带；不再 findFreePort 换端口 spawn 双实例；非 dsh 的 foreign 占用保留原 fallback。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "manager 分支：authDsh 提前 return error（代码审查）；foreign fallback 未动（原逻辑保留）；portProbe.test.ts 覆盖两态判定，真机探针两个真实实例均复验 authDsh 判定。防护的「不另起」由错误态直接 return 保证（无 spawn 调用）。"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "tooltip：running+external 与 error+authDshNoToken 文案与入口",
+      "expect": "连接外部实例：提示已连接（已粘贴 token）+ 重启外部实例/停止外部实例入口（确认弹窗在命令层）；防护错误态：端口定位 + 错误说明 + 粘贴 token/复制 URL 模板/停止/重启入口；adopted（另一窗口）与 owned 行为文案不变。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "statusTooltip.test.ts 新增 2 项 + 既有 adopted 回归项全过；l10n check-i18n 通过（en+zh 双 bundle 齐）。渲染效果（状态栏悬停）由真机人工步骤核对。"
+    },
+    {
+      "id": "F-08",
+      "phase": "new-feature",
+      "name": "管理命令与确认弹窗：pasteToken/copyTokenTemplate/stop/restart",
+      "expect": "四个新命令注册（package.json + 双 nls）；停止/重启先弹 modal 确认（提示外部实例可能在终端）；粘贴 token 用输入框 + 校验失败报错；复制模板写剪贴板。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "代码审查 + 命令注册（package.json 与 nls 双文件）；交互路径（输入框/弹窗/剪贴板）属宿主行为，由真机验收步骤核对。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "0.1.1 无认证外部实例路径不变（probe 'dsh' → adopted 复用、不 kill、无管理按钮）",
+      "expect": "无记录 + host.describe 回显 → adopted:true；tooltip 显示旧文案且无停止/重启按钮；killOwned 不碰（ownedPid 未设）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "probePort 'dsh' 分支未改；statusTooltip adopted 回归测试通过（'Reusing an externally started instance...' + 无 Restart/Stop）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "spawn 记录语义不变：owner 判定 kill 权、跨窗口 adopt、迁移兼容",
+      "expect": "owner 匹配 → re-own（ownedPid 设置可杀）；owner 不匹配 → adopted 不杀不写记录；旧记录迁移补 owner；external 记录不含 owner 不被任何窗口 kill。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "resolveOwnership/迁移/锁既有测试全过；isExternalRecord 分支在记录读取之前按 source 分流，spawn 记录路径逐行未动（manager 代码审查 + 既有测试）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "token 换票/认证链路回归（multi-window-adopt 语义不受影响）",
+      "expect": "probeToken/exchangeToken 行为不变：303+cookie、错误 401→null；健康检查带 cookie；浏览器 URL 带 token（browserUrl 依赖注册的 auth）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "serverAuth 未改（仅删除已无调用的 probeAuthRequired，其两行实现，原判定条件被 F-01 的正文指纹取代）；serverAuth.test.ts 全过；真机探针重复验证换票/拒票。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "foreign（非 dsh）占用 fallback 保留",
+      "expect": "probe 'foreign' → findFreePort 换端口 + 弹窗提示（原行为）；仅 authDsh（认证 dsh 指纹）走新防护分支。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "manager foreign 分支只删了 probeAuthRequired 日志段（其判定并入 authDsh 指纹），fallback/弹窗代码原样保留。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "全量回归：typecheck / 全量测试 / build / check-i18n",
+      "expect": "tsc --noEmit 无错；node --test 全量 552 项通过（含新增 16 项）；npm run build 产出 dist 四件套；check-i18n 通过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实际执行（本机 2026-09-06）：typecheck ✓、test 552 pass ✓（新增 16 项）、build ✓、scripts/check-i18n.sh ✓。dev-finish 再复核一遍。"
+    }
+  ]
+}
