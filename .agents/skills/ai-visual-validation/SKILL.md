@@ -30,7 +30,7 @@ description: 用浏览器独立渲染 DSH One 的 chat webview + mock 后台 + �
 
 ```bash
 npm run build                      # 产出 dist/chatWebview.js
-node scripts/gen-ui-harness.mjs    # 从 src/ui/chatView.ts 抽 STYLE → test/ui/style.css（改动样式后重跑）
+node scripts/gen-ui-harness.mjs    # 抽 STYLE → test/ui/style.css（chat）+ style-sessions.css（sessions，按 view 分开；改动样式后重跑）
 # WebBridge daemon（http://127.0.0.1:10086）在跑；不在跑则启动它
 ~/.kimi-webbridge/bin/kimi-webbridge start
 ```
@@ -59,6 +59,13 @@ scripts/ui-visual.sh --mode baseline # 只跑 BASELINE_SCENARIOS（主线合入�
 4. **弹层叠加/状态切换类场景，第 1 条里必须核对「发生前的东西还在不在」**（如二级菜单打开后顶层菜单 6 项仍完整显示）——期望里要写「**仍应在位清单**」，且禁止用「不遮挡/不覆盖」这类只否定遮挡、不断言存在的措辞（曾有场景把「顶层菜单被整层移除」写成「不覆盖 6 项」，实际被移除也能解读为「没遮挡」而放行）。清单里每一条都是独立的判定点。
 
 不依赖像素 diff（图与图对照在不同机器/渲染下脆弱）。如果截图和期望对不上 → 说明逻辑或排版有 bug，报 `expect` 不符并说明差在哪。
+
+**改动容器级/通配 CSS 时，上面四条不够**（a0c0d17 用 `.messages > *` 一刀切把 jump-latest 撑通栏、compaction/workflow 卡错位却过验的教训）：
+
+5. **验收范围按爆炸半径定，不按「我改了哪」定**：改动命中容器级/通配/变量级规则（`.messages > *`、`:root` 变量、公共类）时，验收必须 `mode=all` 全量截图 + **逐张**核对，禁止只截自证场景。判断不了爆炸半径就按全量算。
+6. **隐藏态/交互态必须强制可见后进场景**：只在特定交互才出现的元素（jump-latest、hover 弹层、滚动态）默认不在任何截图里，它的回归完全不可见——为它们建 interactSteps 场景置出可见态（触发链走不通时脚本直接置显，expect 注明触发逻辑归单测管）。
+7. **expect 要写版式断言，不只写内容**：「X 与消息列同列对齐/左右缘对齐关系」这类位置断言进 expect；只写「有什么」的 expect 拦不住错位。
+8. **布局类改动附 before/after 像素 diff 分类清单**（scripts/ui-visual-diff.sh）：像素 diff 只做「哪些场景变了」的分诊，判定仍靠语义核对——改动号称只影响 X 但 diff 清单冒出 Y，就是漏网信号。
 
 ## 手动看单个场景
 
@@ -131,5 +138,5 @@ harness 每步执行完推送 `window.__interactStepDone = name`，`ui-visual.sh
 
 - **截图空白/只有样式没内容**：确认 `dist/chatWebview.js` 是最新（`npm run build`），且 `test/ui/style.css` 是当前源码抽出（`node scripts/gen-ui-harness.mjs`）。
 - **WebBridge snapshot 抓不到节点**：这页 webview 的 DOM 对 a11y 树不友好，别依赖 snapshot。用 `screenshot`（给人看）或 `evaluate` 查 DOM（给程序断言），不要用 snapshot 的 @e 引用点元素。
-- **harness 404**：http server 的根目录必须是仓库根目录（`test/`、`dist/`、`scripts/` 都在那）。harness 引用 `/test/ui/style.css`、`/dist/chatWebview.js`、`/test/ui/scenarios.js`。
+- **harness 404**：http server 的根目录必须是仓库根目录（`test/`、`dist/`、`scripts/` 都在那）。harness 引用 `/test/ui/style.css`（chat 场景；sessions 场景自动换 `/test/ui/style-sessions.css`）、`/dist/chatWebview.js`、`/test/ui/scenarios.js`。
 - **新样式不生效**：样式从源码抽的，改了 `src/ui/chatView.ts` 的 `STYLE` 必须重跑 `gen-ui-harness.mjs`。

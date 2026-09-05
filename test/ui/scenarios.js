@@ -121,7 +121,7 @@
         ],
       }),
       title: '正常对话',
-      expect: '会话面板列出会话；主区显示用户消息（右侧）+ 助手回复，含 markdown 加粗、一条折叠工具卡（Ran a command bash / npm test）、「复制/反馈/分叉」操作栏；底部 composer + 模型 pill + 会话统计。',
+      expect: '会话面板列出会话；主区显示用户消息（右侧）+ 助手回复，含 markdown 加粗、一条折叠工具卡（Ran a command bash / npm test）、「复制/反馈/分叉」操作栏；底部 composer + 模型 pill + 会话统计。版式：消息流是居中内容列（宽屏收敛到 --dsh-content-width、左右留白，窄屏满宽）；composer/dock 条内容同列对齐（条带分隔线可满宽）；用户气泡右缘与列右缘齐；所有行左右缘互相对齐，不出现「部分行贴面板左缘、部分行居中」的混杂。',
     },
 
     'chat-stats-line': {
@@ -1991,7 +1991,7 @@
       }),
       title: 'workflow 运行卡（点 run header 折叠）',
       interact: `document.querySelector('.workflow-run-header')?.click()`,
-      expect: '点击 run 折叠行 header 后**立即**收起：chevron 转成 collapsed（-90°），header 尾部出现「3 个成员 · 运行中」分隔点摘要，phase 列表（检查服务 + 3 个成员行）不再渲染；run 卡片保留标题行。',
+      expect: '点击 run 折叠行 header 后**立即**收起：chevron 转成 collapsed（-90°），header 尾部出现「3 个成员 · 运行中」分隔点摘要，phase 列表（检查服务 + 3 个成员行）不再渲染；run 卡片保留标题行。版式：run 卡与上下消息行同属居中内容列——左右缘与消息列对齐，不贴面板左缘（a0c0d17 回归形态是卡贴左、消息居中）。',
     },
 
     // 终止/异常卡（run 已 end 但含失败成员 → abnormal → 默认展开）：同样应能折叠。
@@ -2446,7 +2446,36 @@
         ],
       }),
       title: '压缩摘要卡（独立卡 / 命令卡合并 / 不可展开）',
-      expect: '消息流里出现三张压缩行：① 独立压缩卡（标题「上下文已压缩」+ 分隔点 + 摘要「已压缩 42 条历史记录（约 12340 tokens）」，行首 chevron 向右、整行可点展开摘要全文 markdown）；② 手动 /compact 卡同样形态但标题是「/compact」；③ 无摘要的退化卡是纯展示行（无 chevron、无点击态，摘要文字「压缩摘要不可用」）。三行都不渲染成用户气泡、不出现 checkpoint 原文。',
+      expect: '消息流里出现三张压缩行：① 独立压缩卡（标题「上下文已压缩」+ 分隔点 + 摘要「已压缩 42 条历史记录（约 12340 tokens）」，行首 chevron 向右、整行可点展开摘要全文 markdown）；② 手动 /compact 卡同样形态但标题是「/compact」；③ 无摘要的退化卡是纯展示行（无 chevron、无点击态，摘要文字「压缩摘要不可用」）。三行都不渲染成用户气泡、不出现 checkpoint 原文。版式：三张卡与上下消息行同属居中内容列——左右缘与消息列对齐；不当出现：卡贴面板左缘而消息列居中（a0c0d17 回归形态）。',
+    },
+
+    // ---- 「回到最新」浮标可见态（a0c0d17 把它撑成 748 通栏的回归位）----
+    'jump-latest-visible': {
+      state: base({
+        messages: Array.from({ length: 12 }, (_, i) => [
+          u(`第 ${i + 1} 个问题：继续推进。`),
+          at(`第 ${i + 1} 轮回答：已经推进完了。`),
+        ]).flat(),
+      }),
+      title: '「回到最新」浮标（滚动上翻后的可见态）',
+      interactSteps: [
+        {
+          name: 'scrolled-up',
+          script: `
+            const m = document.getElementById('messages');
+            if (m) {
+              // 真实触发链：wheel 记用户滚动意图 → scrollTop=0 → 合成 scroll 事件跑
+              // 真实 handler（后台 tab 里浏览器不补发原生 scroll 事件，必须显式
+              // dispatch 才走得到 reconcileScrollPinning）→ 跟随态置 false →
+              // render 逻辑让浮标显示。不是直接改 display。
+              m.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+              m.scrollTop = 0;
+              m.dispatchEvent(new Event('scroll'));
+            }
+          `,
+        },
+      ],
+      expect: '<scenario>-scrolled-up.png：消息流已滚到顶部；「↓ Back to latest」是小 pill（内容自适应 ~110px、圆角胶囊、带边框阴影），右缘贴内容列右缘、吸在滚动区底部附近；**不是**横贯内容列的通栏宽条（a0c0d17 回归形态是 748px 通栏居中）；浮标不遮挡 composer，不占消息流高度。',
     },
     'attachment-uniform': {
       state: base({
@@ -2820,7 +2849,9 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',
     'produced-files', 'produced-files-expanded', 'produced-files-wrap',
     'goal-active',
+    'goal-stack',
     'steering-pending',
+    'compaction-cards', 'turn-navigator', 'jump-latest-visible',
     'composer-clear-after-send',
     'attachment-uniform',
     'session-open-failure',

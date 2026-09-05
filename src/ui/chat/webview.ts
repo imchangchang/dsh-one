@@ -3260,6 +3260,20 @@ function render(): void {
   const messages = oldMessages ?? el('div', 'messages')
   if (!oldMessages) {
     messages.id = 'messages'
+    // 居中内容列 + 回到底部浮标槽（对齐 dsh web 的 EvIC1a_column/toBottomSlot
+    // 结构）：全部流内元素对账进 flow-col（宽度只在这一层约束）；jump-latest
+    // 的 sticky 槽位列在列外——小 pill 贴内容列右缘、不占流高、不随列限宽。
+    const flowCol = el('div', 'flow-col')
+    messages.appendChild(flowCol)
+    const jumpSlot = el('div', 'jump-slot')
+    const jumpBtn = buttonEl('jump-latest', t('↓ Back to latest'))
+    jumpBtn.addEventListener('click', () => {
+      stickToBottom = true
+      writeMessagesScrollTop(messages, messages.scrollHeight)
+      jumpBtn.style.display = 'none'
+    })
+    jumpSlot.appendChild(jumpBtn)
+    messages.appendChild(jumpSlot)
     // Only gesture-driven scrolls re-evaluate pinning bidirectionally;
     // programmatic moves (our own pins, restore of saved/prev scrollTop,
     // content-growth clamping during the rebuild) leave stickToBottom alone
@@ -3364,7 +3378,9 @@ function render(): void {
   if (!state.running) {
     turnStatusStart = null
   }
-  reconcileFlow(messages, buildFlowItems(state))
+  const flow = buildFlowItems(state)
+  syncTurnRail(messages, flow.rail)
+  reconcileFlow(flowColOf(messages), flow.colItems)
   // 流式行重建把行内弹层锚点（commit chip / 用量药丸）摘掉了：立即按同身份
   // 替代元素重锚，卡片随行增长移动而不是闪关闪开。
   reanchorPopoverAfterRebuild()
@@ -4742,11 +4758,14 @@ function scrollToMessageId(messageId: string | null): void {
  * 消息流增量更新（替代每快照 textContent='' 全量重建）：
  *
  * 每个快照按当前 state 算出一份「期望流」（older 入口、消息行 + workflow 卡按
- * anchorSeq 插流、命令通知、空态提示、turn-status、steering 气泡、jump-latest），
- * 与现有 DOM 按稳定 key 对账（reconcileFlow）：内容未变的行整体保活——各自的
+ * anchorSeq 插流、命令通知、空态提示、turn-status、steering 气泡），
+ * 与现有 DOM 按稳定 key 对账（reconcileFlow，容器是居中列 .flow-col）：
+ * 内容未变的行整体保活——各自的
  * <details> 展开态、内部滚动位置、异步图片/已加载缩略图、hover 高亮与行级
  * 定时器全部随元素留存；只有新增/删除/内容变化的行才动 DOM。与原实现相比，
  * 流式期间每帧只重建「变化的那一行」，其余行零变更。
+ * 列外成员：turn-rail（syncTurnRail 挂 .messages 顶层）与 jump-latest
+ * （随 messages 创建挂 .jump-slot）不参与对账，见 buildFlowItems 返回结构。
  *
  * key 语义：
  * - 消息行 = `msg:${m.id}`（消息 id 跨快照稳定；loadEarlier 从顶部补页后不变，
@@ -4784,22 +4803,24 @@ let flowLastNotices: string[] = []
  * tool 卡所在 turn 内，assistant 消息的 seq 会随 turn 内事件涨到 ≥ anchorSeq，
  * 所以「第一条 seq ≥ anchorSeq 的消息之后」就是该 run 的插位；没有配对消息
  * （窗口起点切在 run 之后）时统一排在流尾。runs 已按 anchorSeq 升序。
+ *
+ * 返回分两部分（chat-width 列容器化起）：colItems 对账进 .flow-col 居中列；
+ * turn-rail 与 jump-latest 不是内容流——rail 由 syncTurnRail 单独挂在
+ * .messages 顶层（sticky 贴滚动面板右缘，不随列限宽），jump 的元素在
+ * messages 创建时一次性挂在列外的 .jump-slot 里，这里不再重复创建。
  */
-function buildFlowItems(state: ChatState): FlowItem[] {
+function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: FlowItem[] } {
   const items: FlowItem[] = []
   // 回合轨道栏（web parity: TurnNavigator）：整份日志的回合刻度，未载入回合
   // 同显可点（click → host 翻页 → 定位）。放在流首（sticky 悬浮层，DOM 顺序
   // 不影响视觉与对账）；≥2 回合才有导航意义，单回合/无投影不渲染。
   const outline = state.turnOutline
+  let rail: FlowItem | null = null
   if (outline !== undefined && outline.length >= 2) {
     const sig = JSON.stringify(outline)
     const same = flowRailSig === sig
     flowRailSig = sig
-    items.push({
-      key: 'turn-rail',
-      same,
-      create: () => renderTurnRail(outline, state.messages),
-    })
+    rail = { key: 'turn-rail', same, create: () => renderTurnRail(outline, state.messages) }
   }
   // 「加载更早」入口（对齐官方 dsh web ChatView 的分页按钮）：还有更早历史
   // 或一页正在加载时显示在消息流顶部。
@@ -4895,23 +4916,9 @@ function buildFlowItems(state: ChatState): FlowItem[] {
     items.push({ key: `steer:${item.id}`, same, create: () => renderSteeringItem(item) })
   }
   for (const id of [...flowSteerSigs.keys()]) if (!seenSteerIds.has(id)) flowSteerSigs.delete(id)
-  // "Back to latest" floater：恒在流末位；display 由 render 尾部按跟随态设置。
-  items.push({
-    key: 'jump',
-    same: true,
-    create: () => {
-      const jump = buttonEl('jump-latest', t('↓ Back to latest'))
-      jump.addEventListener('click', () => {
-        stickToBottom = true
-        const m = document.getElementById('messages')
-        if (!m) return
-        writeMessagesScrollTop(m, m.scrollHeight)
-        jump.style.display = 'none'
-      })
-      return jump
-    },
-  })
-  return items
+  // "Back to latest" 浮标不入流：元素随 messages 创建时一次性挂在列外
+  // .jump-slot（见 messages 创建块），render 尾部只按跟随态切 display。
+  return { rail, colItems: items }
 }
 
 let olderWasLoading = false
@@ -4929,8 +4936,30 @@ let flowRailSig = ''
  * 顺序修正（把已在 DOM 里但位置不对的元素 insertBefore 挪位）只会在真正重排
  * 时触发（如 loadEarlier 补页后 anchorSeq 插位前移），正常流式零移动。
  */
-function reconcileFlow(container: HTMLElement, items: FlowItem[]): void {
-  const byKey = new Map<string, Element>()
+/** messages 顶层结构里的居中内容列（不存在 = 老 DOM，防御性兜底到 messages）。 */
+function flowColOf(messages: HTMLElement): HTMLElement {
+  return messages.querySelector<HTMLElement>(':scope > .flow-col') ?? messages
+}
+
+/**
+ * 回合轨道栏挂到 .messages 顶层（flow-col 之前的 sticky 槽位）：rail 不是内容
+ * 流成员，随列限宽会把它从滚动面板右缘拽到内容列右缘（dsh web 贴面板右缘）。
+ * 单元素同步：same 且已在位则不动；否则原位替换/移除。
+ */
+function syncTurnRail(messages: HTMLElement, item: FlowItem | null): void {
+  const existing = messages.querySelector<HTMLElement>(':scope > .turn-rail-slot')
+  if (item === null) {
+    existing?.remove()
+    return
+  }
+  if (existing !== null && item.same) return
+  const fresh = item.create()
+  fresh.setAttribute('data-flow-key', item.key)
+  existing?.remove()
+  messages.insertBefore(fresh, flowColOf(messages))
+}
+
+function reconcileFlow(container: HTMLElement, items: FlowItem[]): void {  const byKey = new Map<string, Element>()
   for (const child of Array.from(container.children)) {
     const k = child.getAttribute('data-flow-key')
     if (k && !byKey.has(k)) byKey.set(k, child)

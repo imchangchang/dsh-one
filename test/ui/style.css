@@ -1,4 +1,3 @@
-/* ==== chat webview (src/ui/chatViewHtml.ts STYLE) ==== */
 
   html, body { margin: 0; padding: 0; height: 100%; overscroll-behavior-y: none; }
   body {
@@ -29,6 +28,14 @@
   .chat-col {
     flex: 1; min-width: 0; display: flex; flex-direction: column;
     background: var(--vscode-editor-background, transparent);
+    /* 内容列宽（对齐 dsh web 缺省公式 clamp(680px, 会话列宽×64%, 920px)；不做
+       官方/社区的可拖拽手柄）：列 max-width、dock 条 inline padding、回到底部
+       浮标右缘 padding 共用这一个变量。container 查询单位以 chat-col 为基准
+       （cqw 在 var() 里按使用处的最近容器解析——全部使用处都在 chat-col 内）；
+       chat-col 宽由父 flex 给定、fixed 浮层全挂 body，inline-size  containment
+       无副作用。 */
+    container-type: inline-size;
+    --dsh-content-width: clamp(680px, 64cqw, 920px);
   }
   /* 运行中：官方 dsh web StateDot(ongoing) 的 8 格像素环追逐动画，deepseek 蓝。 */
   .session-spin { display: block; color: var(--vscode-charts-blue, #5686fe); }
@@ -174,12 +181,13 @@
        锚定，滚动锚定语义完全由程序补偿路径负责（与全量重建时代的行为一致）。 */
     overflow-anchor: none;
   }
-  /* 内容列限宽居中（对齐 dsh web 748px；不做社区 dsh-chat-width 的可拖拽 748→1040）：
-     消息行/提示/命令行收敛到 748px 居中，窄屏 width 100% 自适应——代码块头部复制
-     按钮因此有右侧留白，不再压消息区右缘（chat-content-whitespace-width）。 */
-  .messages > * {
-    width: 100%; max-width: 748px;
-    margin-left: auto; margin-right: auto;
+  /* 居中内容列（对齐 dsh web EvIC1a_column）：所有流内元素是这一个列容器的
+     统一子项，宽度只在这一层约束——不做 .messages > * 式逐子项限宽（那会把
+     jump-latest/turn-rail 等浮层卷进来，也会被子项自带 margin 盖掉居中）。
+     窄屏 width:100% 自适应，宽屏收敛到 --dsh-content-width 居中留白。 */
+  .flow-col {
+    width: 100%; max-width: var(--dsh-content-width);
+    margin: 0 auto; display: flex; flex-direction: column; gap: 10px;
   }
   .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
   /* 切换会话时历史基线加载中的占位：撑满聊天列垂直居中。 */
@@ -1195,6 +1203,12 @@
   .goal-bar-input:focus {
     outline: 1px solid var(--vscode-focusBorder, #007fd4); outline-offset: -1px;
   }
+  /* 输入区与 dock 条的内容随内容列对齐（对齐 dsh web composerStack/dock 的
+     居中规则）：条带本身仍满宽（顶部分隔线是面板 chrome），内容经 inline
+     padding 收到列宽——不包额外 DOM，窄屏 max() 落回各自原有 padding。 */
+  .input-area, .queue, .todo-panel, .goal-bar, .pending-panel {
+    padding-inline: max(12px, calc((100% - var(--dsh-content-width)) / 2));
+  }
   .input-row { display: flex; gap: 8px; align-items: center; }
   .input-footer { display: flex; gap: 6px; align-items: center; }
   .stats-row { display: flex; align-items: center; gap: 10px; }
@@ -1541,9 +1555,17 @@
   }
   .msg-image-chip { cursor: zoom-in; padding-right: 8px; }
   .msg-image-chip:hover { filter: brightness(1.15); }
+  /* 「回到最新」浮标（对齐 dsh web EvIC1a_toBottomSlot）：sticky 零高槽位 +
+     右缘 padding = 列外留白宽——小 pill 贴内容列右缘、不占流高、不随列限宽；
+     槽位 pointer-events 关掉，点击只落在 pill 上。 */
+  .jump-slot {
+    position: sticky; bottom: 4px; height: 0; z-index: 5;
+    display: flex; justify-content: flex-end; align-items: flex-end;
+    pointer-events: none;
+    padding-right: max(0px, calc((100% - var(--dsh-content-width)) / 2));
+  }
   .jump-latest {
-    position: sticky; bottom: 4px; align-self: flex-end; flex: none;
-    margin-bottom: -30px; z-index: 5;
+    flex: none; pointer-events: auto;
     border-radius: 14px; padding: 4px 12px; font-size: 12px;
     background: var(--vscode-editorWidget-background, var(--vscode-button-secondaryBackground, rgba(127,127,127,.3)));
     color: var(--vscode-foreground);
@@ -1692,581 +1714,4 @@
      真实光标落在文字后方的"空位"，退格/选择都对不齐）。 */
   .hero .composer-frame { font-size: 16px; line-height: 24px; }
   .hero #input:focus { outline: none; }
-
-/* ==== sessions 面板 (src/ui/sessionsView.ts SESSIONS_STYLE) ==== */
-
-  html, body { margin: 0; padding: 0; height: 100%; }
-  body {
-    font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
-    color: var(--vscode-foreground);
-  }
-  #app { display: flex; flex-direction: column; height: 100%; }
-  .sessions-panel {
-    flex: 1; min-height: 0; display: flex; flex-direction: column;
-    background: var(--vscode-sideBar-background, transparent);
-    position: relative; /* 回收站抽屉的定位基准 */
-  }
-  .sessions-header {
-    flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 8px;
-    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  /* 搜索框外裹一个相对定位容器，✕ 清空按钮绝对定位其右侧。 */
-  .search-wrap {
-    flex: 1; min-width: 0; position: relative;
-    display: flex; align-items: center;
-  }
-  .sessions-search {
-    flex: 1; min-width: 0; padding: 3px 22px 3px 6px; font-family: inherit; font-size: 12px;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
-  }
-  .sessions-search:focus { outline: 1px solid var(--vscode-focusBorder); }
-  /* 一键清除 ✕：默认隐藏，输入非空时显示；半透明 hover 变实，风格同 .sessions-tool。 */
-  .search-clear {
-    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
-    width: 20px; height: 20px; padding: 0;
-    display: none; align-items: center; justify-content: center;
-    background: transparent; border: 0; border-radius: 3px;
-    color: var(--vscode-descriptionForeground, #888); opacity: 0.7; cursor: pointer;
-  }
-  .search-wrap.has-text .search-clear { display: inline-flex; }
-  .search-clear:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
-  .search-clear svg { display: block; }
-  .sessions-tool {
-    flex: none; display: inline-flex; align-items: center; justify-content: center;
-    width: 24px; height: 24px; padding: 0; background: transparent; border: 0;
-    color: inherit; opacity: 0.7; cursor: pointer; border-radius: 4px;
-  }
-  .sessions-tool:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
-  .sessions-tool svg { display: block; }
-  /* 刷新中：图标短暂旋转 + 按钮变灰，给出操作反馈。 */
-  .sessions-tool.refreshing svg { animation: dsh-tool-spin 0.6s linear infinite; }
-  @keyframes dsh-tool-spin { to { transform: rotate(360deg); } }
-  .sessions-tool:disabled { opacity: 0.5; cursor: default; }
-  .sessions-list { flex: 1; overflow-y: auto; padding: 2px 0; }
-  /* 多选归档模式的顶部操作条：搜索框下、第一个工作区上。按钮不换行——300px
-     侧栏一行放三个按钮靠短文案（同 .recycle-header 的 nowrap 处理）。 */
-  .selection-bar {
-    flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px;
-    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .selection-bar button { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
-  /* 工作区分组栏：搜索框下、列表上一行；左 = 分组选择器（组名 + ▼），右 = 新建分组。 */
-  .ws-group-bar {
-    flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 8px;
-    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .ws-group-select {
-    flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 4px;
-    padding: 3px 6px; margin: 0; border: 0; border-radius: 4px;
-    background: transparent; color: var(--vscode-foreground);
-    font: inherit; font-size: 12px; text-align: left; cursor: pointer;
-  }
-  .ws-group-select:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
-  .ws-group-select-label {
-    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-weight: 600;
-  }
-  .ws-group-select-chevron { flex: none; display: inline-flex; color: var(--vscode-descriptionForeground, #888); }
-  .ws-group-select-chevron svg { display: block; }
-  .ws-group-add {
-    flex: none; width: 24px; height: 24px; padding: 0; margin: 0;
-    display: inline-flex; align-items: center; justify-content: center;
-    background: transparent; border: 0; border-radius: 4px;
-    color: inherit; opacity: 0.7; cursor: pointer;
-  }
-  .ws-group-add svg { display: block; }
-  .ws-group-add:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
-  /* 分组菜单分隔线（下拉里「管理分组…」之上）。 */
-  .menu-sep { border-top: 1px solid var(--vscode-menu-border, rgba(127,127,127,.2)); margin: 4px 2px; }
-  /* 复选框（会话行/组头共用）：自绘外观，indeterminate 画横线。 */
-  .select-checkbox {
-    flex: none; width: 16px; height: 16px;
-    display: inline-flex; align-items: center; justify-content: center;
-  }
-  .select-checkbox input {
-    appearance: none; -webkit-appearance: none; margin: 0; padding: 0;
-    width: 14px; height: 14px; box-sizing: border-box; display: block; position: relative;
-    border: 1px solid var(--vscode-checkbox-border, rgba(127,127,127,.6));
-    border-radius: 4px; background: var(--vscode-checkbox-background, transparent);
-    cursor: pointer;
-  }
-  .select-checkbox input:hover:not(:disabled) { border-color: var(--vscode-focusBorder, #5686fe); }
-  .select-checkbox input:checked,
-  .select-checkbox input:indeterminate {
-    background: var(--vscode-charts-blue, #5686fe); border-color: var(--vscode-charts-blue, #5686fe);
-  }
-  .select-checkbox input:checked::after {
-    content: ''; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px;
-    border: solid #fff; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg);
-  }
-  .select-checkbox input:indeterminate::after {
-    content: ''; position: absolute; left: 3px; top: 6px; width: 6px; height: 1.5px; background: #fff;
-  }
-  .select-checkbox input:disabled { opacity: .35; cursor: default; }
-  /* 批量归档确认弹窗：面板内 modal（vscode.window 弹窗放不了树形富内容）。 */
-  .selection-modal-overlay {
-    position: fixed; inset: 0; z-index: 30;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,.35);
-  }
-  .selection-modal {
-    width: min(440px, 92vw); max-height: 70vh; display: flex; flex-direction: column;
-    background: var(--vscode-editor-background, var(--vscode-menu-background));
-    color: var(--vscode-foreground);
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    border-radius: 10px;
-    box-shadow: 0 12px 32px rgba(0,0,0,.2);
-  }
-  .selection-modal-title { padding: 12px 14px 4px; font-size: 13px; font-weight: 600; }
-  .selection-modal-desc { padding: 0 14px; font-size: 11px; opacity: .7; }
-  /* 树形分组列表：flex:1 + min-height:0 + overflow 自适应，展开也不超屏。 */
-  .selection-modal-tree {
-    flex: 1; min-height: 0; overflow-y: auto; margin: 8px 8px 0; padding: 4px;
-    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.2));
-  }
-  .modal-group { margin-bottom: 2px; }
-  .modal-group-head {
-    display: flex; align-items: center; gap: 6px; padding: 5px 6px;
-    border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;
-  }
-  .modal-group-head:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  .modal-group-arrow { flex: none; width: 10px; height: 10px; color: var(--vscode-descriptionForeground, #888); transition: transform .12s ease; }
-  .modal-group:not(.collapsed) .modal-group-arrow { transform: rotate(90deg); }
-  .modal-group-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .modal-group-count { flex: none; font-size: 11px; font-weight: 400; opacity: .65; }
-  .modal-group.collapsed .modal-group-list { display: none; }
-  .modal-session { display: flex; align-items: baseline; gap: 8px; padding: 2px 6px 2px 26px; font-size: 12px; }
-  .modal-session-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .modal-session-time { flex: none; font-size: 11px; opacity: .55; }
-  .selection-modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px 12px; }
-  .selection-modal-actions button { padding: 4px 12px; font-size: 12px; }
-  /* 分组管理视图弹层（侧栏内 modal）：分组区（建组/改名/删除/拖拽排序）+
-     工作区打标区（勾选/取消归组），两区上下排列。 */
-  .wsg-manage-overlay {
-    position: fixed; inset: 0; z-index: 30;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,.35);
-  }
-  .wsg-manage {
-    width: min(380px, 94vw); max-height: 76vh; display: flex; flex-direction: column;
-    background: var(--vscode-editor-background, var(--vscode-menu-background));
-    color: var(--vscode-foreground);
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    border-radius: 10px;
-    box-shadow: 0 12px 32px rgba(0,0,0,.2);
-  }
-  .wsg-manage-head {
-    flex: none; display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px;
-  }
-  .wsg-manage-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; }
-  .wsg-manage-close {
-    flex: none; width: 22px; height: 22px; padding: 0; margin: 0;
-    display: inline-flex; align-items: center; justify-content: center;
-    background: transparent; border: 0; border-radius: 4px;
-    color: var(--vscode-descriptionForeground, #888); cursor: pointer;
-  }
-  .wsg-manage-close:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); color: var(--vscode-foreground); }
-  .wsg-manage-close svg { display: block; }
-  .wsg-manage-body { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 10px 10px; }
-  .wsg-section-title {
-    font-size: 11px; opacity: .6; padding: 6px 2px 4px;
-  }
-  .wsg-groups-empty { padding: 4px 2px 8px; font-size: 12px; opacity: .7; }
-  .wsg-row {
-    display: flex; align-items: center; gap: 4px; padding: 2px 2px 2px 0;
-    border-radius: 6px; cursor: pointer;
-  }
-  .wsg-row:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  .wsg-row.selected { background: var(--vscode-menu-selectionBackground, rgba(0,122,204,.35)); }
-  .wsg-row.dragging { opacity: .55; }
-  .wsg-row-handle {
-    flex: none; width: 16px; height: 24px; box-sizing: border-box;
-    display: inline-flex; align-items: center; justify-content: center;
-    color: var(--vscode-descriptionForeground, #888);
-    cursor: grab; touch-action: none;
-  }
-  .wsg-row-handle:active { cursor: grabbing; }
-  .wsg-row-name {
-    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: 12px;
-  }
-  .wsg-row-rename-input {
-    flex: 1; min-width: 0; font: inherit; font-size: 12px;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
-    border-radius: 4px; padding: 2px 6px; outline: none;
-  }
-  .wsg-row-count {
-    flex: none; font-size: 10px; font-weight: 400; padding: 0 5px; border-radius: 8px;
-    background: var(--vscode-badge-background, rgba(127,127,127,.25));
-    color: var(--vscode-badge-foreground, var(--vscode-foreground));
-  }
-  .wsg-row-btn {
-    flex: none; width: 20px; height: 20px; padding: 0; margin: 0;
-    display: inline-flex; align-items: center; justify-content: center;
-    background: transparent; border: 0; border-radius: 3px;
-    color: var(--vscode-descriptionForeground, #888);
-    opacity: .8; cursor: pointer;
-  }
-  .wsg-row-btn:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); color: var(--vscode-foreground); }
-  .wsg-row-btn svg { display: block; }
-  .wsg-row-confirm { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .wsg-row-delete { flex: none; padding: 2px 8px; font-size: 12px; }
-  .wsg-error { flex: none; font-size: 11px; color: var(--vscode-errorForeground, #f48771); padding: 2px 4px 0; }
-  .wsg-new-row { display: flex; align-items: center; gap: 6px; padding: 6px 2px 2px; }
-  .wsg-new-input {
-    flex: 1; min-width: 0; font: inherit; font-size: 12px;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
-    padding: 3px 6px; outline: none;
-  }
-  .wsg-new-input:focus { outline: 1px solid var(--vscode-focusBorder); }
-  .wsg-new-add { flex: none; padding: 3px 10px; font-size: 12px; white-space: nowrap; }
-  /* 「+」快速建组的弹层内容：标题 + 输入 + 错误 + 创建按钮。 */
-  .wsg-create { display: flex; flex-direction: column; gap: 6px; padding: 2px; }
-  .wsg-create-title { font-size: 12px; font-weight: 600; padding: 2px 4px 0; }
-  .wsg-create-input {
-    min-width: 160px; font: inherit; font-size: 12px;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
-    padding: 3px 6px; outline: none;
-  }
-  .wsg-create-input:focus { outline: 1px solid var(--vscode-focusBorder); }
-  .wsg-create-submit { align-self: flex-end; padding: 3px 10px; font-size: 12px; }
-  /* 工作区打标区：选中某组后列出全部 workspace，勾选 = 归组。 */
-  .wsg-members { border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.2)); margin-top: 8px; padding-top: 2px; }
-  .wsg-members-title {
-    display: flex; align-items: center; gap: 6px; padding: 6px 2px;
-    font-size: 12px; font-weight: 600;
-  }
-  .wsg-members-title-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .wsg-hint { padding: 2px; font-size: 12px; opacity: .7; }
-  .wsg-member {
-    display: flex; align-items: center; gap: 6px; padding: 4px 2px;
-    font-size: 12px; cursor: pointer;
-  }
-  .wsg-member input { flex: none; margin: 0; accent-color: var(--vscode-charts-blue, #5686fe); cursor: pointer; }
-  .wsg-member-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* 回收站抽屉：从面板底部滑出，默认占据约一半高度，叠加在主列表上（主列表
-     上半部仍可见可交互，不整栏切换）；提手上拉可扩到 90%（.expanded），
-     下拉到底松手 = 收起。无遮罩直接叠——点击抽屉外区域即收起。 */
-  .recycle-drawer {
-    position: absolute; left: 0; right: 0; bottom: 0; height: 50%;
-    z-index: 10;
-    display: flex; flex-direction: column;
-    background: var(--vscode-editor-background, var(--vscode-sideBar-background, transparent));
-    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    box-shadow: 0 -10px 24px rgba(0,0,0,.16);
-    transform: translateY(100%);
-    transition: transform .2s ease;
-  }
-  .recycle-drawer.open { transform: translateY(0); }
-  .recycle-drawer.expanded { height: 90%; }
-  /* 提手条：全宽可拖区 + 顶部居中小横条（上拉扩大 / 下拉收起的入口）。 */
-  .recycle-drawer-handle {
-    flex: none; display: flex; align-items: center; justify-content: center;
-    height: 16px; cursor: grab; touch-action: none;
-  }
-  .recycle-drawer-handle:active { cursor: grabbing; }
-  .recycle-drawer-grip {
-    width: 36px; height: 4px; border-radius: 2px;
-    background: var(--vscode-descriptionForeground, #888); opacity: 0.5;
-  }
-  .recycle-list { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 0; }
-  /* 回收站入口行（面板底部固定，不随列表滚动）：描边垃圾桶 + 标签 + 计数；
-     计数为 0 时灰态。压掉全局 button 的实底样式。 */
-  .recycle-entry {
-    flex: none; width: 100%; box-sizing: border-box;
-    display: flex; align-items: center; gap: 6px;
-    padding: 7px 14px; margin: 0; border: 0; border-radius: 0;
-    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    background: transparent; color: var(--vscode-foreground);
-    font: inherit; font-size: 12px; text-align: left; cursor: pointer;
-  }
-  .recycle-entry:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  .recycle-entry.is-empty { color: var(--vscode-descriptionForeground, #888); opacity: .75; }
-  .recycle-entry svg { flex: none; }
-  .recycle-entry-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .recycle-entry-count {
-    flex: none; font-size: 10px; padding: 0 5px; border-radius: 8px;
-    background: var(--vscode-badge-background, rgba(127,127,127,.25));
-    color: var(--vscode-badge-foreground, var(--vscode-foreground));
-  }
-  .recycle-entry.is-empty .recycle-entry-count { background: transparent; padding: 0; opacity: .8; }
-  /* 回收站视图头：‹ 返回 + 标题 + 清空回收站，右侧「恢复全部」。 */
-  .recycle-header {
-    flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px;
-    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-  }
-  .recycle-back {
-    flex: none; display: inline-flex; align-items: center; gap: 2px;
-    padding: 3px 6px; margin: 0; border: 0; border-radius: 4px;
-    background: transparent; color: var(--vscode-foreground);
-    font: inherit; font-size: 12px; cursor: pointer;
-  }
-  .recycle-back:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
-  .recycle-header-title {
-    flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 600;
-    display: inline-flex; align-items: center; gap: 4px;
-  }
-  .recycle-header-title > span:first-child {
-    flex: 0 1 auto; min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  /* 计数徽标（紧跟标题文本，同一内联组）：flex:none 不被标题省略号截掉——
-     计数是视图头/入口的关键信息（窄侧栏标题被按钮挤掉时徽标恒显示）。 */
-  .recycle-header-count {
-    flex: none; font-size: 10px; font-weight: 400; padding: 0 5px; border-radius: 8px;
-    background: var(--vscode-badge-background, rgba(127,127,127,.25));
-    color: var(--vscode-badge-foreground, var(--vscode-foreground));
-  }
-  .recycle-header-spacer { flex: 1; }
-  /* 回收站视图头按钮小号化（压全局 button 默认尺寸）；不换行。 */
-  .recycle-header button { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
-  /* 清空回收站用图标按钮（300px 侧栏一行放不下三个文本按钮 + 标题）：
-     34×34 点击区 + 22px 图标，与「恢复全部」文本按钮相称（用户实测反馈
-     20px 太小、放大后仍偏小）；padding 归零 + border-box 保证按钮尺寸精确；
-     悬停提示/aria 都带全名「Empty recycle bin」。 */
-  .recycle-header .sessions-tool { width: 34px; height: 34px; padding: 0; box-sizing: border-box; }
-  .workspace-row {
-    display: flex; align-items: center; gap: 6px; padding: 0 10px;
-    height: 32px; box-sizing: border-box; overflow: hidden;
-    font-weight: 600; font-size: 12px; cursor: pointer;
-  }
-  .workspace-row:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  /* 行首图标槽：默认文件夹图标，hover 换成实心三角（dsh web 分组行模式）。 */
-  .ws-folder, .ws-arrow {
-    flex: none; width: 16px; height: 16px;
-    display: inline-flex; align-items: center; justify-content: center;
-    color: var(--vscode-descriptionForeground, #888);
-  }
-  .ws-arrow { display: none; }
-  .workspace-row:hover .ws-arrow { display: inline-flex; }
-  .workspace-row:hover .ws-folder { display: none; }
-  /* 空组无可展开内容：hover 不切换成三角，保持闭合文件夹图标。 */
-  .workspace-row.empty:hover .ws-arrow { display: none; }
-  .workspace-row.empty:hover .ws-folder { display: inline-flex; }
-  /* 附着会话所在 workspace 的文件夹图标染 deepseek 蓝（dsh web 同款标识）。 */
-  .workspace-row.has-active .ws-folder { color: var(--vscode-charts-blue, #5686fe); }
-  .ws-arrow svg { transition: transform .15s ease; }
-  .workspace-row.expanded .ws-arrow svg { transform: rotate(90deg); }
-  /* label + counts 包在组里：组占 flex:1（badge 仍右对齐），组内 counts 紧跟
-     label 文本（label 只收缩不伸展，省略号行为不变）。 */
-  .workspace-label-group {
-    flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 6px;
-  }
-  .workspace-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* 组名右侧角标：待交互/运行中/未读 计数（小字 + 小图标，紧凑、不挤压 label/badge）。 */
-  .ws-counts { flex: none; display: inline-flex; align-items: center; gap: 6px; }
-  .ws-count { display: inline-flex; align-items: center; gap: 2px; font-size: 10px; line-height: 1; opacity: 0.75; }
-  .workspace-badge {
-    flex: none; font-size: 10px; font-weight: 400; padding: 0 5px; border-radius: 8px;
-    background: var(--vscode-badge-background, rgba(127,127,127,.25));
-    color: var(--vscode-badge-foreground, var(--vscode-foreground));
-  }
-  .session-row {
-    display: flex; align-items: center; gap: 6px; margin: 0 4px; padding: 0 6px 0 12px;
-    height: 32px; box-sizing: border-box; overflow: hidden;
-    cursor: pointer; border-radius: 4px; font-size: 12px;
-  }
-  .session-row:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  /* 会话菜单打开期间保持来源行的 hover 背景（webview.ts 的 .menu-open）。 */
-  .session-row.menu-open { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  .session-row.active {
-    background: var(--vscode-list-activeSelectionBackground, rgba(0,122,204,.35));
-    color: var(--vscode-list-activeSelectionForeground, inherit);
-  }
-  /* 行首状态槽：宽度固定（对齐官方 dsh web 的 16px slot），四种标记同一位置
-     居中——待交互黄点 > 运行中像素环 > 已完成/未读绿点 > 置顶图钉；空闲会话留空。 */
-  .session-status {
-    width: 16px; height: 16px; flex: none;
-    display: inline-flex; align-items: center; justify-content: center;
-  }
-  /* 槽内图钉（strokeSvg 固定输出 14px，缩到 13px 与槽匹配）。 */
-  .session-status svg.pin-icon { width: 13px; height: 13px; display: block; color: var(--vscode-descriptionForeground); }
-  /* 运行中：官方 dsh web StateDot(ongoing) 的 8 格像素环追逐动画，deepseek 蓝。 */
-  .session-spin { display: block; color: var(--vscode-charts-blue, #5686fe); }
-  .session-spin rect { fill: currentColor; opacity: 0.15; animation: session-spin-chase 1s infinite; }
-  @keyframes session-spin-chase {
-    0%, 12.4% { opacity: 1; }
-    12.5%, 24.9% { opacity: 0.6; }
-    25%, 37.4% { opacity: 0.35; }
-    37.5%, to { opacity: 0.15; }
-  }
-  /* 已完成/未读提醒：绿色实心点 + 标题加粗（对齐官方 StateDot completed
-     「已完成」视觉；本地未读沿用同一槽位，仅换颜色，合并逻辑不变）。 */
-  .session-dot {
-    width: 6px; height: 6px; border-radius: 50%;
-  }
-  .session-dot.completed { background: var(--vscode-charts-green, #89d185); }
-  /* 待审批/待回答/计划待审：黄色实心点（官方 StateDot warning，
-     --dsw-alias-state-warn-primary 的 VS Code 对应色）。 */
-  .session-dot.warning { background: var(--vscode-charts-yellow, #e5c07b); }
-  .session-title.unread { font-weight: 600; }
-  /* 组合状态（置顶 + 运行中/未读）时被挤出槽位的图钉，退到标题前。
-     main 的 flex gap 已有 8px，用 -2px margin 收回到与行 gap 一致的 6px。 */
-  .session-pin {
-    flex: none; width: 14px; height: 14px; margin-right: -2px;
-    color: var(--vscode-descriptionForeground);
-    display: inline-flex; align-items: center; align-self: center;
-  }
-  .session-pin svg { width: 14px; height: 14px; display: block; }
-  /* 紧凑单行：标题省略号 + 右对齐的相对时间（对齐原原生树的观感）。 */
-  .session-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-  .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* 行内重命名输入框：对齐 chat 内改名（session/main 内的 rename-input）。 */
-  .session-main .rename-input {
-    flex: 1; min-width: 0; font: inherit; font-weight: 500;
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, transparent));
-    border-radius: 4px; padding: 1px 6px; outline: none;
-  }
-  .session-time { flex: none; font-size: 11px; opacity: 0.55; }
-  .row-actions { display: none; gap: 2px; flex: none; }
-  .session-row:hover .row-actions, .workspace-row:hover .row-actions { display: inline-flex; }
-  /* 菜单打开期间 ⋯ 按钮不随 hover 离开而消失。 */
-  .session-row.menu-open .row-actions { display: inline-flex; }
-  .row-action {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 20px; height: 20px; padding: 0; background: transparent; border: 0;
-    color: inherit; opacity: 0.7; cursor: pointer; border-radius: 3px;
-  }
-  .row-action:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
-  .row-action svg { display: block; }
-  .sessions-empty {
-    padding: 20px 12px; display: flex; flex-direction: column; align-items: center;
-    gap: 6px; text-align: center;
-  }
-  .sessions-empty .empty-hint { font-size: 12px; }
-  .sessions-empty .empty-hint-secondary { font-size: 11px; opacity: 0.55; }
-  .sessions-empty button { margin-top: 4px; }
-  /* 非官方一键安装脚本块（dshNotFound 空态）：说明 + 平台下拉 + 单行省略命令条 + 复制。 */
-  .install-script {
-    margin-top: 10px; width: 100%; box-sizing: border-box;
-    display: flex; flex-direction: column; gap: 6px; align-items: stretch;
-  }
-  .install-script-hint { font-size: 12px; opacity: 0.7; }
-  /* kimi 式一排：平台按钮 + 命令条同排 flex-wrap——容器够宽左右排，侧栏窄时
-     命令条换到下一行上下排（min-width 260px 触发换行）。 */
-  .install-script-row {
-    display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch;
-  }
-  .install-script-platform {
-    flex: 0 0 auto;
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 3px 10px; border-radius: 12px;
-    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-    border: 0; font-size: 11px; font-weight: 500;
-  }
-  .install-script-platform svg { flex: none; opacity: .8; }
-  .install-script-cmd {
-    flex: 1 1 260px; min-width: 0;
-    display: flex; align-items: center; gap: 4px;
-    background: var(--vscode-editorWidget-background, rgba(127,127,127,.12));
-    border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    border-radius: 12px; padding: 2px 4px 2px 10px;
-  }
-  .install-script-code {
-    flex: 1; min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-family: var(--vscode-editor-font-family, monospace);
-    font-size: 11px; line-height: 16px; color: var(--vscode-foreground);
-  }
-  .install-script-copy {
-    flex: none; width: 22px; height: 22px; padding: 0; margin: 0;
-    display: inline-flex; align-items: center; justify-content: center;
-    background: transparent; color: var(--vscode-descriptionForeground, #888);
-    border-radius: 6px;
-  }
-  .install-script-copy:hover {
-    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
-    color: var(--vscode-foreground);
-  }
-  .install-script-copy span { font-size: 11px; }
-  /* 平台下拉菜单（挂在全局 .popover 容器里）：当前平台加粗 + 对勾。 */
-  .install-script-menu-item {
-    display: flex; align-items: center; gap: 6px; min-height: 28px; box-sizing: border-box;
-    padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap;
-  }
-  .install-script-menu-item:hover { background: var(--vscode-menu-selectionBackground, rgba(127,127,127,.2)); }
-  .install-script-menu-item.active::before { content: '✓'; font-weight: 600; }
-  .install-script-menu-item.active { font-weight: 600; }
-  /* 内容命中的片段块：跟会话行下面，暗色小字最多 2 行，点击与父行一致。 */
-  .session-snippet {
-    margin: 0 4px 0 12px; padding: 1px 6px 2px; font-size: 11px; line-height: 16px;
-    color: var(--vscode-descriptionForeground, #888);
-    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    word-break: break-word; cursor: pointer; border-radius: 4px;
-  }
-  .session-snippet:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
-  /* 命中关键词高亮：加粗 + 变色（无底色，用户要求"加底色不好看"）。对内容片段、
-     会话行标题、workspace 组名三处统一生效。 */
-  .session-snippet .dsh-mark,
-  .session-title .dsh-mark,
-  .workspace-label .dsh-mark {
-    font-weight: 600; color: var(--vscode-charts-blue, #5686fe); background: none;
-  }
-  /* 内容搜索结果超过 20 条的底部轻提示（非交互）。 */
-  .sessions-search-more { padding: 6px 12px; font-size: 11px; opacity: 0.6; }
-  button {
-    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-    border: 0; border-radius: 4px; padding: 4px 12px; cursor: pointer;
-  }
-  button.secondary {
-    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,.3));
-    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-  }
-  button:disabled { opacity: 0.5; cursor: default; }
-  .popover {
-    position: fixed; z-index: 20; min-width: 180px; max-width: 340px; max-height: 50vh; overflow-y: auto;
-    /* 兜底实色背景：VS Code 恒注入 menu-background；harness 等无主题变量的环境
-       下透明会叠出下层列表。 */
-    background: var(--vscode-menu-background, var(--vscode-dropdown-background, #ffffff));
-    color: var(--vscode-menu-foreground, var(--vscode-dropdown-foreground));
-    border: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
-    border-radius: 12px; padding: 4px;
-    box-shadow: 0 0 1px 0 rgba(0,0,0,.2), 0 12px 32px 0 rgba(0,0,0,.14);
-  }
-  /* 菜单项几何对齐 dsh web：30px 行高、8px 圆角、左图标位 14px tertiary 色。 */
-  .menu-item {
-    display: flex; align-items: center; gap: 8px; min-height: 30px; box-sizing: border-box;
-    padding: 4px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-size: 12px;
-  }
-  .menu-item:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
-  /* 禁用态菜单项：置灰、cursor 默认、hover 无高亮（onClick 未绑定）。 */
-  .menu-item.disabled,
-  .menu-item.disabled:hover {
-    opacity: .45; cursor: default; background: none; color: inherit;
-  }
-  .menu-item .menu-item-icon {
-    flex: none; width: 14px; height: 14px; display: inline-flex;
-    align-items: center; justify-content: center;
-    color: var(--vscode-descriptionForeground, #888);
-  }
-  .menu-item .menu-item-icon svg { width: 14px; height: 14px; display: block; }
-  /* 选中态的 check 放菜单项尾部（dsh web 模式），仅 checked 时渲染。 */
-  .menu-item .check { margin-left: auto; flex: none; }
-  .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
-  .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
-  .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
-  .menu-hint { padding: 8px; opacity: .7; }
-  /* 菜单首行的会话标题（操作对象显式化）：置灰小字、单行省略，与菜单项分隔。 */
-  .session-menu-title {
-    padding: 6px 10px 8px; font-size: .8em; opacity: .55;
-    max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    border-bottom: 1px solid var(--vscode-menu-border, rgba(127,127,127,.2));
-    margin-bottom: 2px;
-  }
-  /* 自实现悬停提示：fixed 定位挂在 body 上，不随 .sessions-list 滚动裁剪。
-     pre-wrap 让含换行的 data-tip（如降级详情）多行展示，长词可折行。 */
-  .dsh-tooltip {
-    position: fixed; z-index: 40; pointer-events: none;
-    padding: 3px 8px; border-radius: 6px; font-size: 11px; line-height: 16px;
-    white-space: pre-wrap; word-break: break-word; max-width: 380px;
-    background: var(--vscode-menu-background, var(--vscode-dropdown-background));
-    color: var(--vscode-menu-foreground, var(--vscode-foreground));
-    border: 1px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
-    box-shadow: 0 2px 8px rgba(0,0,0,.2);
-  }
 

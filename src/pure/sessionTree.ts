@@ -47,9 +47,9 @@ export interface SessionInput {
   /** Title projection resolved at fetch time (null when untitled). */
   title?: string | null
   /**
-   * Host-assigned composition (session.list 的 agentPreset 字段，官方
-   * sessionSummarySchema 同款；创建时即定，新旧会话都有）。显示树不用它，
-   * rawList 消费方（聊天头部 preset 标签）用。
+   * Host-assigned composition（session.list 行的 agentPreset——dsh 0.1.2 起在
+   * projections.values.agentPreset，由 sessionAgentPreset 窄化读入；创建时即定，
+   * 未设置过的会话没有）。显示树不用它，rawList 消费方（聊天头部 preset 标签）用。
    */
   agentPreset?: string
   /** Session cwd（session.list 基线），聊天链接相对路径的解析基准。 */

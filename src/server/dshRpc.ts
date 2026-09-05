@@ -143,6 +143,18 @@ export function sessionTitle(s: SessionSummary): string | null {
 }
 
 /**
+ * Agent preset id from one session.list row. dsh 0.1.2 把该字段从行顶层迁入了
+ * `projections.values.agentPreset`（字符串 id；实测 0.1.2-rc.1 行顶层已没有
+ * agentPreset，679/679 缺省、116 行只在 projections 有值）——顶层读取保留作
+ * 旧服务端回退。头部只读 preset chip 的数据源（sessionsStore.toSessionInput）。
+ */
+export function sessionAgentPreset(s: SessionSummary): string | undefined {
+  if (typeof s.agentPreset === 'string' && s.agentPreset !== '') return s.agentPreset
+  const proj = s.projections?.values.agentPreset
+  return typeof proj === 'string' && proj !== '' ? proj : undefined
+}
+
+/**
  * Closed-turn count from the `sessionStats` projection of one session.list row
  * (the host's `sessionProjections` registry; dsh-session-stats folds a
  * completed turn into `turns` at its first `step/end`). 0 when the projection

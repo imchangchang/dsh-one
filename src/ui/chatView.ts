@@ -495,8 +495,9 @@ export class ChatViewProvider implements vscode.Disposable {
    * 全部后台 job（JobsStore 的 mux 基线，含已结束，按官方 JobListAction 行序）、
    * 空会话 hero 区的 workspace 名（workspace.list 基线，blank 会话也在所属
    * workspace 的 sessionIds 里），以及头部只读 preset 标签——渠道对齐官方
-   * AgentPresetLabel：session.list 基线的 agentPreset id（官方
-   * sessionSummarySchema 字段，创建时即定、新旧会话都有）经 controller 的
+   * AgentPresetLabel：session.list 基线的 agentPreset id（dsh 0.1.2 起在
+   * projections.values.agentPreset，经 sessionAgentPreset 读入 rawList；创建时
+   * 即定，未设置过的会话没有）经 controller 的
    * roster 映射成显示名，roster 的 description 作为悬停 tooltip
    * （presetDescription，对齐官方 AgentPresetLabel 的悬停描述）。空会话由
    * hero 的选择 chip 呈现当前 preset（

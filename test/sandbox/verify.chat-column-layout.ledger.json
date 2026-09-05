@@ -1,0 +1,95 @@
+{
+  "title": "聊天内容列容器化对齐 dsh web（彻底修 748 一刀切）+ preset chip projections 修复 + 视觉验证流程加固",
+  "branch": "agent/chat-column-layout",
+  "commit": "HEAD",
+  "environment": {
+    "mode": "headless-chromium-render（harness 场景截图；无 WebBridge 真机）",
+    "dsh": "preset 根因实证来自真机 dsh 0.1.2-rc.1（GUI 页内按插件协议调 session/list）",
+    "date": "2026-09-06"
+  },
+  "coverageNote": "布局经 harness 全量 141 场景截图 + 与 v1.1.0 before 套的像素 diff 分诊 + 关键场景逐张语义核对；preset 修复走单测（真机 reload 复核留给用户）；真机 VS Code 面板视口复核留给用户。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "内容列容器化：全流内元素同列居中（对齐 dsh web EvIC1a_column）",
+      "expect": "消息行/compaction 卡/workflow 卡/提示行全部落在同一居中内容列（--dsh-content-width = clamp(680px, 列宽×64%, 920px)），左右缘互相对齐；不当出现：部分行贴面板左缘、部分行居中（a0c0d17 回归形态）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-fix2/conversation.png",
+        "/tmp/dsh-ui-shots-fix2/compaction-cards.png",
+        "/tmp/dsh-ui-shots-fix2/workflow-running.png"
+      ],
+      "notes": "conversation/compaction-cards/workflow-running 逐张核对：全部流内元素同列居中（1488px 视口下列宽 920=clamp(64%) 命中上限），compaction/workflow 卡左右缘与消息列对齐；无贴左错位。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "「回到最新」浮标恢复小 pill：贴内容列右缘、非通栏",
+      "expect": "jump-latest-visible-scrolled-up 场景：「↓ Back to latest」为内容自适应小 pill（~110px），右缘贴内容列右缘，吸在滚动区底部；不是 748px 通栏。composer 在视口内（harness 视口修复后）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-fix2/jump-latest-visible-scrolled-up.png"
+      ],
+      "notes": "管线产出截图：滚动区在顶部（scrollTop=0），「↓ Back to latest」为 107×24px 小 pill、右缘=内容列右缘（1204=1204 实测），吸在滚动区底部；非通栏；composer 在视口内。真实触发链（wheel+scroll）驱动，非置显。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "回合轨道栏回滚动面板右缘（不随内容列内移）",
+      "expect": "turn-navigator 场景：刻度栏贴滚动面板右缘（对齐 dsh web 实测位置），不再压内容列文字。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-fix2/turn-navigator.png"
+      ],
+      "notes": "turn-navigator 截图：刻度栏贴滚动面板右缘（x≈2470/2522），与 dsh web 实测位置同款；不再压内容列文字。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "composer/dock 条内容与列对齐（条带分隔线仍满宽）",
+      "expect": "goal-stack 场景：todo 卡 / goal 条幅 / queue dock / composer 的内容与消息列同宽同对齐；条带的顶部分隔线满宽（面板 chrome）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-fix2/goal-stack.png"
+      ],
+      "notes": "goal-stack 截图：Tasks 卡/Active goal 条幅/2 queued messages/composer 内容全部与消息列同宽同对齐（左右缘 ~505..2020）；条带顶部分隔线满宽。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "头部 preset chip：读 projections.values.agentPreset（dsh 0.1.2 字段迁移）",
+      "expect": "sessionAgentPreset 单测全过（projections 读入 / 顶层回退 / 顶层优先 / 缺省 undefined）；harness conversation 头部「标准模式」chip 照常（mock 直给 presetLabel）。真机：dsh 0.1.2 下头部 chip 恢复显示——reload 复核留给用户。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "sessionAgentPreset 单测 6 断言全过（projections 读入/顶层回退/顶层优先/缺省与非字符串/空串 undefined）；568 单测全绿。conversation 头部「标准模式」chip 照常。真机 reload 复核留给用户（根因实证：0.1.2-rc.1 的 679 行顶层全缺省、116 行 projections 有值）。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "视觉验证流程加固（场景/expect/基线/条款/工具）",
+      "expect": "新场景 jump-latest-visible 进 BASELINE_SCENARIOS（连同 compaction-cards/turn-navigator/goal-stack）；conversation/compaction-cards/workflow-running 的 expect 含版式对齐断言；SKILL.md 新增 4 条规则；scripts/ui-visual-diff.sh 可用。harness 基建修复：#app 定高 + 样式按 view 分文件（顺带消掉 harness-style-merge-empty-collision 的 .empty 冲突）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "jump-latest-visible 已进 BASELINE_SCENARIOS（连同 compaction-cards/turn-navigator/goal-stack）；三条 expect 含版式断言；SKILL.md 新增 5-8 条；ui-visual-diff.sh 可用（本报告 R-01 的分诊就是它产出的）。harness 修复证据：jump-latest-visible 场景 composer 在视口内、.messages 正常收缩（修前 chat-col 1494>视口 981）；sessions-no-workspaces 的未分组空组头恢复正常行（合流 .empty 冲突消失）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "全量回归：141 场景截图 + 与 v1.1.0 的像素 diff 分诊 + 关键场景逐张核对",
+      "expect": "diff 清单里除「列居中的预期位移」与 e104bee 的 sessions 多选改动外无异常；逐张核对无破坏（无错位/无遮挡/无丢失元素）；sessions 场景样式拆分后渲染不破。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "v1.1.0 vs fix3 共 140 对：超 10% 的仅 4 张——sessions-selection-modal 两张 99.5%（e104bee 多选改动 + 样式拆分，与本次无关）、commit-hash-card-bottom-flip 19.6% 与 json-message-over 14.7%（列居中预期位移）；其余为 ≤7% 的居中位移或 ≤0.1% 噪声；关键场景（conversation/compaction-cards/workflow-running/turn-navigator/goal-stack/approval/question/plan-review/steering-pending/json-message-fenced/history/todos/sessions/sessions-recycle-drawer/commit-hash-found）逐张核对无破坏。fix2→fix3（jump-slot flex-end + 场景触发链）144 对中 128 一致、16 张 ≤0.9% 无关联影响。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "typecheck / 单测 / build",
+      "expect": "typecheck 干净；568 项单测全过（含新增 sessionAgentPreset）；build 成功。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck 干净；npm test 568/568 全过；npm run build 成功。"
+    }
+  ]
+}
