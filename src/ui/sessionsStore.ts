@@ -6,7 +6,7 @@ import { subscribeMuxEvents } from '../server/muxEvents.ts'
 import type { MuxFrame } from '../server/muxEvents.ts'
 import { isModern } from '../server/serverAuth.ts'
 import { subscribeModernEvents, subscribeWorkspaceStream } from '../server/modernStreams.ts'
-import { listSessions, listWorkspaces, searchSessions, sessionTitle, sessionTotalTokens, sessionCompletedTurns } from '../server/dshRpc.ts'
+import { listSessions, listWorkspaces, searchSessions, sessionAgentPreset, sessionTitle, sessionTotalTokens, sessionCompletedTurns } from '../server/dshRpc.ts'
 import type { SessionSummary } from '../server/dshRpc.ts'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { applyHostFrame, parseHostFrame } from '../pure/hostFrames.ts'
@@ -46,7 +46,8 @@ function toSessionInput(s: SessionSummary): SessionInput {
     title: sessionTitle(s),
     ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
     ...(s.origin ? { origin: s.origin } : {}),
-    ...(s.agentPreset !== undefined ? { agentPreset: s.agentPreset } : {}),
+    // dsh 0.1.2 起 agentPreset 在 projections.values 里（sessionAgentPreset 含顶层回退）。
+    ...(sessionAgentPreset(s) !== undefined ? { agentPreset: sessionAgentPreset(s) } : {}),
     ...(s.cwd ? { cwd: s.cwd } : {}),
     ...(totalTokens !== undefined ? { totalTokens } : {}),
     ...(completedTurns > 0 ? { sessionStatsTurns: completedTurns } : {}),

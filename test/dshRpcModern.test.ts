@@ -145,3 +145,24 @@ test('sessionModels (0.1.2): falls back to lastUsed when next is absent, then ca
   assert.deepEqual((await sessionModels('http://127.0.0.1:9999', 's1')).current, CATALOG_VALUE.default)
   clearAuth('http://127.0.0.1:9999')
 })
+
+test('sessionAgentPreset: dsh 0.1.2 从 projections.values 读，顶层字段作旧服务端回退', async () => {
+  const { sessionAgentPreset } = await import('../src/server/dshRpc.ts')
+  const base = { sessionId: 's1', updatedAt: 0, running: false, blank: false }
+  // 0.1.2 形态：顶层缺省，投影里是字符串 id
+  assert.equal(
+    sessionAgentPreset({ ...base, projections: { asOfSeq: 1, values: { agentPreset: 'kimi' } } }),
+    'kimi',
+  )
+  // 旧服务端形态：顶层字段
+  assert.equal(sessionAgentPreset({ ...base, agentPreset: 'standard' }), 'standard')
+  // 顶层优先（两源并存时与旧行为一致）
+  assert.equal(
+    sessionAgentPreset({ ...base, agentPreset: 'standard', projections: { asOfSeq: 1, values: { agentPreset: 'kimi' } } }),
+    'standard',
+  )
+  // 都没有 / 非字符串 / 空串 → undefined（头部不渲染 chip）
+  assert.equal(sessionAgentPreset(base), undefined)
+  assert.equal(sessionAgentPreset({ ...base, projections: { asOfSeq: 1, values: { agentPreset: 3 } } }), undefined)
+  assert.equal(sessionAgentPreset({ ...base, agentPreset: '' }), undefined)
+})
