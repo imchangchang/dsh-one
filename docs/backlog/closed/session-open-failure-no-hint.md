@@ -38,3 +38,5 @@
     -not-found 渲染核对通过（F-01/F-02），既有 UI 回归 10 项通过；报告
     test/sandbox/verify.session-open-failure-hint.report.html（12 项全 pass）。
   - 注明：宿主全链路（真实损坏日志）未在真 dsh 桌面环境跑通，属 dev-ui-test 人工验收范畴。
+
+- 2026-09-05 合入（done -> closed）：dev-merge 合入 main（4d28d22），报告 12 项全过、人工审查通过（F-01 截图重拍后核对）。
