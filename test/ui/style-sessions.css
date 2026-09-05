@@ -254,7 +254,7 @@
   .wsg-member-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 回收站抽屉：从面板底部滑出，默认占据约一半高度，叠加在主列表上（主列表
      上半部仍可见可交互，不整栏切换）；提手上拉可扩到 90%（.expanded），
-     下拉到底松手 = 收起。无遮罩直接叠——点击抽屉外区域即收起。 */
+     下拉到底松手 = 收起，点击提手（不拖动）也 = 收起。无遮罩直接叠——点击抽屉外区域即收起。 */
   .recycle-drawer {
     position: absolute; left: 0; right: 0; bottom: 0; height: 50%;
     z-index: 10;
@@ -267,7 +267,7 @@
   }
   .recycle-drawer.open { transform: translateY(0); }
   .recycle-drawer.expanded { height: 90%; }
-  /* 提手条：全宽可拖区 + 顶部居中小横条（上拉扩大 / 下拉收起的入口）。 */
+  /* 提手条：全宽可拖区 + 顶部居中小横条（上拉扩大 / 下拉收起 / 点击收起）。 */
   .recycle-drawer-handle {
     flex: none; display: flex; align-items: center; justify-content: center;
     height: 16px; cursor: grab; touch-action: none;
@@ -278,17 +278,24 @@
     background: var(--vscode-descriptionForeground, #888); opacity: 0.5;
   }
   .recycle-list { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 0; }
-  /* 回收站入口行（面板底部固定，不随列表滚动）：描边垃圾桶 + 标签 + 计数；
-     计数为 0 时灰态。压掉全局 button 的实底样式。 */
+  /* 回收站入口行（面板底部固定，不随列表滚动）：外层 div（button 不能嵌套）——
+     主区按钮（描边垃圾桶 + 标签 + 计数）点击打开抽屉；右侧常驻两个快捷图标按钮
+     （清空 / 恢复全部，复用 .sessions-tool）。计数为 0 时灰态。 */
   .recycle-entry {
     flex: none; width: 100%; box-sizing: border-box;
-    display: flex; align-items: center; gap: 6px;
-    padding: 7px 14px; margin: 0; border: 0; border-radius: 0;
+    display: flex; align-items: center; gap: 2px; padding-right: 8px;
     border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-    background: transparent; color: var(--vscode-foreground);
-    font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+    color: var(--vscode-foreground); font-size: 12px;
   }
-  .recycle-entry:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
+  /* 主区按钮：压掉全局 button 的实底样式（原 .recycle-entry button 的重置挪到这里）。 */
+  .recycle-entry-main {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+    padding: 7px 4px 7px 14px; margin: 0; border: 0; border-radius: 0;
+    background: transparent; color: inherit;
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .recycle-entry-main:hover { background: var(--vscode-list-hoverBackground, rgba(127,127,127,.12)); }
+  .recycle-entry .sessions-tool { width: 26px; height: 26px; }
   .recycle-entry.is-empty { color: var(--vscode-descriptionForeground, #888); opacity: .75; }
   .recycle-entry svg { flex: none; }
   .recycle-entry-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

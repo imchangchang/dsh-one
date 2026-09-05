@@ -399,6 +399,7 @@
   "Move to recycle bin": "Move to recycle bin",
   "Archived sessions will be hidden from the list. {0} selected session(s) cannot be archived and were skipped.": "Archived sessions will be hidden from the list. {0} selected session(s) cannot be archived and were skipped.",
   "Back": "Back",
+  "Drag to resize; click to collapse": "Drag to resize; click to collapse",
   "All workspaces": "All workspaces",
   "New group": "New group",
   "Manage groups…": "Manage groups…",

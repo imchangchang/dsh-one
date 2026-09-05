@@ -1761,17 +1761,32 @@ function recycleSessionModels(): SessionNodeModel[] {
   return sessionsSnapshot?.recycleWorkspaces.flatMap((w) => w.sessions) ?? []
 }
 
-/** 主列表底部的回收站入口行：面板底部固定（不随列表滚动），计数 0 灰态仍可点入。 */
+/** 主列表底部的回收站入口行：面板底部固定（不随列表滚动），计数 0 灰态仍可点入。
+ *  右侧常驻快捷操作（清空 / 恢复全部，与抽屉头同一套动作）：收起态不用拉开抽屉。 */
 function renderRecycleEntry(): HTMLElement {
   const count = recycleCount(sessionsSnapshot)
-  const row = el('button', 'recycle-entry' + (count === 0 ? ' is-empty' : ''))
-  row.setAttribute('aria-label', t('Recycle bin ({0})', count))
+  // 外层 div（button 不能嵌套）：主区 button 点击打开抽屉，右侧两个独立图标按钮。
+  const row = el('div', 'recycle-entry' + (count === 0 ? ' is-empty' : ''))
+  const main = el('button', 'recycle-entry-main')
+  main.setAttribute('aria-label', t('Recycle bin ({0})', count))
   const icon = el('span')
   icon.appendChild(strokeSvg(TRASH_ICON, 16))
-  row.appendChild(icon)
-  row.appendChild(el('span', 'recycle-entry-label', t('Recycle bin')))
-  row.appendChild(el('span', 'recycle-entry-count', String(count)))
-  row.addEventListener('click', () => openRecycleDrawer())
+  main.appendChild(icon)
+  main.appendChild(el('span', 'recycle-entry-label', t('Recycle bin')))
+  main.appendChild(el('span', 'recycle-entry-count', String(count)))
+  main.addEventListener('click', () => openRecycleDrawer())
+  row.appendChild(main)
+  const emptyBtn = panelTool(strokeSvg(TRASH_ICON, 14), t('Empty recycle bin'))
+  emptyBtn.disabled = count === 0
+  emptyBtn.addEventListener('click', () => openRecycleArchiveModal(recycleSessionModels()))
+  row.appendChild(emptyBtn)
+  const restoreBtn = panelTool(strokeSvg(RESTORE_ICON, 14), t('Restore all'))
+  restoreBtn.disabled = count === 0
+  restoreBtn.addEventListener('click', () => {
+    closePopover()
+    post({ type: 'sessionsRestoreAll' })
+  })
+  row.appendChild(restoreBtn)
   return row
 }
 
@@ -1805,9 +1820,11 @@ function closeRecycleDrawer(): void {
   setTimeout(() => drawer.remove(), DRAWER_ANIM_MS + 40)
 }
 
-/** 提手条：顶部居中横条 + 全宽可拖区（cursor: grab），上拉扩大 / 下拉收起的入口。 */
+/** 提手条：顶部居中横条 + 全宽可拖区（cursor: grab）。拖动 = 上拉扩大 / 下拉收起；
+ *  点击（未实质拖动）= 收起抽屉——横条不再「点了没反应」。 */
 function renderDrawerHandle(): HTMLElement {
   const handle = el('div', 'recycle-drawer-handle')
+  handle.setAttribute('data-tip', t('Drag to resize; click to collapse'))
   handle.appendChild(el('div', 'recycle-drawer-grip'))
   handle.addEventListener('pointerdown', onDrawerDragStart)
   return handle
@@ -1816,6 +1833,7 @@ function renderDrawerHandle(): HTMLElement {
 /**
  * 提手拖拽（pointer capture 全程跟随）：上拉扩大高度（半高 → 90%），下拉松手
  * 低于 DRAWER_CLOSE_BELOW 关闭抽屉。松手吸附两档：< 中值回半高，≥ 中值到 90%。
+ * 未实质拖动（< 4px，含纯点击与微小抖动）= 点击语义：收起抽屉。
  */
 function onDrawerDragStart(e: PointerEvent): void {
   if (e.button !== 0 || !recycleDrawer) return
@@ -1825,8 +1843,15 @@ function onDrawerDragStart(e: PointerEvent): void {
   const startY = e.clientY
   const basePx = drawer.offsetHeight
   const panelPx = sessionsPanel.offsetHeight
-  handle.setPointerCapture(e.pointerId)
+  let maxDelta = 0
+  // 合成事件/非常规指针环境下没有活动指针，setPointerCapture 会抛——兜底不拖垮点击语义。
+  try {
+    handle.setPointerCapture(e.pointerId)
+  } catch {
+    /* 无指针捕获时 move/up 监听仍挂在提手上，常规点击/小拖动不受影响。 */
+  }
   const move = (ev: PointerEvent): void => {
+    maxDelta = Math.max(maxDelta, Math.abs(startY - ev.clientY))
     const ratio = (basePx + (startY - ev.clientY)) / panelPx
     drawer.style.height = `${Math.min(0.97, Math.max(0.15, ratio)) * 100}%`
   }
@@ -1836,7 +1861,11 @@ function onDrawerDragStart(e: PointerEvent): void {
     handle.removeEventListener('pointercancel', up)
     const h = drawer.style.height
     drawer.style.height = ''
-    if (h === '') return // 只点提手未拖动：保持当前档位
+    if (maxDelta < 4) {
+      closeRecycleDrawer()
+      return
+    }
+    if (h === '') return
     const ratio = parseFloat(h) / 100
     if (ratio < DRAWER_CLOSE_BELOW) {
       closeRecycleDrawer()

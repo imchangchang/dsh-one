@@ -1317,10 +1317,125 @@
         s.recycleCollapsed = []
         return s
       })(),
-      interact: `document.querySelector('.recycle-entry')?.click()`,
+      interact: `document.querySelector('.recycle-entry-main')?.click()`,
       theme: 'dark',
       title: '侧栏面板（回收站抽屉：半栏叠加 + 提手 + 放大清空图标）',
-      expect: '点击底部「Recycle bin (3)」入口后抽屉从面板底部滑出，占约一半高度：顶部提手横条（grab 光标区）；抽屉头 = ▼ Back 收起按钮（单个下拉箭头，无重复「‹」）+ 标题「Recycle bin」右紧跟计数徽标 3（与标题同组，不挤到行尾）+ 垃圾桶图标按钮（34px 点击区、22px 图标、悬停提示 Empty recycle bin；与「Restore all」视觉相称）+ 「Restore all」；会话按原 workspace 分组（组头 dsh-one 计数 2 / 已删除的目录 计数 1，各带折叠箭头。未分组虚拟组不出现——没有可归组的回收站会话）；主列表上半部仍可见（dsh-one / dsh-web research 组头与底部的回收站入口…入口被抽屉盖住属预期）。',
+      expect: '点击底部入口主区「Recycle bin (3)」后抽屉从面板底部滑出，占约一半高度：顶部提手横条（grab 光标区，拖动上拉扩大/下拉收起，点击 = 收起，悬停提示 Drag to resize; click to collapse）；抽屉头 = ▼ Back 收起按钮（单个下拉箭头，无重复「‹」）+ 标题「Recycle bin」右紧跟计数徽标 3（与标题同组，不挤到行尾）+ 垃圾桶图标按钮（34px 点击区、22px 图标、悬停提示 Empty recycle bin；与「Restore all」视觉相称）+ 「Restore all」；会话按原 workspace 分组（组头 dsh-one 计数 2 / 已删除的目录 计数 1，各带折叠箭头。未分组虚拟组不出现——没有可归组的回收站会话）；主列表上半部仍可见（dsh-one / dsh-web research 组头与底部的回收站入口…入口被抽屉盖住属预期）。',
+    },
+
+    // 入口行快捷操作（抽屉收起态）：恢复全部 / 清空不拉开抽屉直接可用，点击不打开抽屉。
+    'sessions-recycle-entry-actions': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree()
+        s.recycleBin = ['sess-4', 'sess-5', 'sess-6']
+        s.recycleWorkspaces = [
+          {
+            workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true,
+            sessions: [
+              sess('sess-4', '回收站里的会话一', '昨天'),
+              sess('sess-5', '回收站里的会话二', '2 天前', { unread: true }),
+            ],
+          },
+          {
+            workspaceId: 'ws-gone', path: '/gone', label: '已删除的目录', isCurrent: false,
+            sessions: [sess('sess-6', '软删目录会话', '上周')],
+          },
+        ]
+        s.recycleCollapsed = []
+        return s
+      })(),
+      interactSteps: [
+        {
+          name: 'restore-all',
+          script: `
+            window.__posted = []
+            const btn = [...document.querySelectorAll('.recycle-entry .sessions-tool')].find((b) => b.getAttribute('data-tip') === 'Restore all')
+            btn?.click()
+            const ok = !!btn && !btn.disabled
+              && (window.__posted || []).some((m) => m.type === 'sessionsRestoreAll')
+              && !document.querySelector('.recycle-drawer')
+            if (!ok) {
+              const d = document.createElement('div')
+              d.textContent = 'ENTRY RESTORE-ALL ASSERT FAILED'
+              d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+              document.body.appendChild(d)
+            }
+          `,
+        },
+        {
+          name: 'empty-modal',
+          script: `
+            const btn = [...document.querySelectorAll('.recycle-entry .sessions-tool')].find((b) => b.getAttribute('data-tip') === 'Empty recycle bin')
+            btn?.click()
+            const ok = !!btn && !btn.disabled
+              && !!document.querySelector('.selection-modal-overlay')
+              && !document.querySelector('.recycle-drawer')
+            if (!ok) {
+              const d = document.createElement('div')
+              d.textContent = 'ENTRY EMPTY-MODAL ASSERT FAILED'
+              d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+              document.body.appendChild(d)
+            }
+          `,
+        },
+      ],
+      title: '侧栏面板（回收站入口行快捷操作：恢复全部 / 清空）',
+      expect: '底部入口行（抽屉收起态）= 主区「🗑 Recycle bin + 计数徽标 3」+ 右侧常驻两个小图标按钮（清空 = 垃圾桶、恢复全部 = undo 箭头，26px 见方，悬停有提示）。两张分步截图对照——① <scenario>-restore-all.png：点恢复全部后无红色断言横幅（断言：__posted 含 sessionsRestoreAll 且抽屉未打开）；mock 宿主不更新快照，列表与计数不变。② <scenario>-empty-modal.png：点清空后弹出归档确认 modal（标题「Empty the recycle bin (3 sessions)?」+ 说明 + 按分组列出 3 个会话 + Cancel/Archive），抽屉仍未打开；无红色断言横幅。',
+    },
+
+    // 提手点击 = 收起抽屉（用户拍板：横条不能「点了没反应」）。合成 pointerdown/up
+    // （不移动）模拟点击；settle 等收起动画（200ms）播完、节点移除后再截图。
+    'sessions-recycle-handle-collapse': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree()
+        s.recycleBin = ['sess-4', 'sess-5', 'sess-6']
+        s.recycleWorkspaces = [
+          {
+            workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true,
+            sessions: [
+              sess('sess-4', '回收站里的会话一', '昨天'),
+              sess('sess-5', '回收站里的会话二', '2 天前', { unread: true }),
+            ],
+          },
+          {
+            workspaceId: 'ws-gone', path: '/gone', label: '已删除的目录', isCurrent: false,
+            sessions: [sess('sess-6', '软删目录会话', '上周')],
+          },
+        ]
+        s.recycleCollapsed = []
+        return s
+      })(),
+      interactSteps: [
+        {
+          name: 'open',
+          script: `document.querySelector('.recycle-entry-main')?.click()`,
+          settle: 300,
+        },
+        {
+          name: 'collapsed',
+          script: `
+            const h = document.querySelector('.recycle-drawer-handle')
+            if (h) {
+              const r = h.getBoundingClientRect()
+              const opts = { bubbles: true, button: 0, pointerId: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }
+              h.dispatchEvent(new PointerEvent('pointerdown', opts))
+              h.dispatchEvent(new PointerEvent('pointerup', opts))
+            }
+            const ok = !!h && !document.querySelector('.recycle-drawer.open')
+            if (!ok) {
+              const d = document.createElement('div')
+              d.textContent = 'HANDLE COLLAPSE ASSERT FAILED'
+              d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+              document.body.appendChild(d)
+            }
+          `,
+          settle: 400,
+        },
+      ],
+      title: '侧栏面板（提手点击收起回收站抽屉）',
+      expect: '两张分步截图对照——① <scenario>-open.png：抽屉滑出半高（提手横条 + 抽屉头 + 分组列表）。② <scenario>-collapsed.png：对提手横条发 pointerdown+pointerup（不移动 = 点击）后抽屉完全收起、节点已移除，回到普通主列表（底部入口行在位，右侧两个快捷图标按钮可见）；无红色断言横幅（断言：recycle-drawer.open 已不存在）。',
     },
 
     'sessions-menu-busy': {
