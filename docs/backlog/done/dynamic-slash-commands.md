@@ -20,5 +20,14 @@
 
 ## 变更记录
 
-- 2026-09-06 用户确认方向（动态获取 + 顺手修 kimi preset 缺 command-goal）→ 建条目（open/）
-- 2026-09-06 认领（open → doing）
+- 2026-09-05 用户确认方向（动态获取 + 顺手修 kimi preset 缺 command-goal）→ 建条目（open/）
+- 2026-09-05 认领（open → doing）
+
+## 开发结论（2026-09-05）
+
+- 落地：dshRpc.listCommands（commands/list，同 commands/execute 的 client-request wire，agentId 参数）；ChatSessionController 附着即拉、setAgentPreset 后重拉，拉到前/失败不下发；webview 命令表改 state.slashCommands 驱动，静态表降级为 KNOWN_HOST_COMMANDS（fallback 名单 + l10n 描述覆盖层——宿主 description 仅英文，已知命令名沿用面板翻译，未知命令与 hint 用宿主原文）；/model 客户端拼接不变。HOST_SLASH_COMMAND_NAMES 保留（fallback/清单过期时宿主拒绝的定向提示仍靠它）。
+- 实测：0.1.1-rc.2 有 commands/list（沙盒 probe curl，六条含 goal）；真 0.1.2-rc.1（dsh-sandbox-dsh-v012 + 临时 DSH_HOME 拷 kimi preset）standard 6 条有 goal、select → kimi 后 5 条无 goal、切 preset 清单即时生效；改后 kimi preset（补 command-goal）commands/list 恢复 6 条含 goal。
+- 顺带产出：verify-driver 加 fillSlash/expectPopup 原语（补全弹窗断言，上个任务的一次性探针沉淀为仓库能力）。
+- 沙盒报告：test/sandbox/verify.dynamic-slash-commands.report.html（7 项全过：3 新增 + 4 回归；kimi preset 无 goal 的 UI 差异在 0.1.1 沙盒无法构造，宿主语义层实测见 ledger coverageNote）。
+- 仓库外：~/.dsh/.agent-presets/kimi/agent.cordis.yml 已补 command-goal 并对齐 0.1.2 注释（新会话生效）。
+- 2026-09-05 dev-finish 通过（自测 + 报告 + done 标记）→ doing → done

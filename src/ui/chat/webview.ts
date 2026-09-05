@@ -384,25 +384,38 @@ function panelStateFor(rpcId: string): { page: number; minimized: boolean; skipp
 }
 
 /**
- * Static mirror of dsh's built-in slash commands (the host's commands/list RPC
- * serves the same six; `model` below is our own submenu entry — the host has
- * no /model command). Commands execute via commands/execute, not session.prompt.
- * `hint` mirrors the host's input hint and drives the composer's arg hints.
- * The six host names are also asserted host-side (HOST_SLASH_COMMAND_NAMES in
- * pure/slashCommand.ts) to explain a host-rejected-but-advertised command;
- * keep the two lists in sync.
+ * Known host slash commands. Two roles: (1) fallback roster while the host's
+ * per-session list (state.slashCommands, from commands/list) has not arrived
+ * or failed to fetch — e.g. a pre-commands/list host; (2) l10n overlay — the
+ * host's descriptions are English-only, so a dynamic entry whose name is
+ * known keeps this translated description (host text stays authoritative for
+ * `hint` and for any command not listed here). The dynamic roster is composed
+ * from the session's agent preset (a preset without command-goal has no
+ * `goal`), so it decides membership whenever present. Commands execute via
+ * commands/execute, not session.prompt.
  */
-const SLASH_COMMANDS: Array<{ name: string; description: string; hint?: string }> = [
+const KNOWN_HOST_COMMANDS: Array<{ name: string; description: string; hint?: string }> = [
   { name: 'compact', description: t('Compact older session history') },
   { name: 'export', description: t('Export this session log (ZIP)') },
   { name: 'feedback', description: t('Record feedback for this session'), hint: '<text>' },
   { name: 'goal', description: t('Set or view the long-task goal'), hint: '[<objective>|clear|edit <objective>|pause|resume]' },
   { name: 'permission', description: t('Switch permission preset'), hint: '<preset>' },
   { name: 'plan', description: t('Enter or leave plan mode'), hint: '[off|message]' },
-  { name: 'model', description: t('Select the model for this session') },
 ]
-/** Commands the composer's slash completion offers; `/model` is client-side (the send path intercepts it and opens the model menu, like the official web client). */
-const COMPLETABLE_COMMANDS = SLASH_COMMANDS
+
+/** Client-side command the host has no equivalent of: opens the model menu (the send path intercepts it, like the official web client). */
+const MODEL_COMMAND = { name: 'model', description: t('Select the model for this session') }
+
+/** Commands the composer's slash completion and the command menu offer: host roster (or fallback) + the client-side /model. */
+function slashCommands(): Array<{ name: string; description: string; hint?: string }> {
+  const dynamic = state?.slashCommands
+  const host =
+    dynamic?.map((c) => {
+      const known = KNOWN_HOST_COMMANDS.find((k) => k.name === c.name)
+      return known ? { ...c, description: known.description } : c
+    }) ?? KNOWN_HOST_COMMANDS
+  return [...host, MODEL_COMMAND]
+}
 
 /** Shield glyphs copied verbatim from dsh-client-ui-conversation's PermissionSelect. */
 const SHIELD_OUTLINE =
@@ -1661,7 +1674,7 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
   if (sp === -1) {
     const filter = value.slice(1).toLowerCase()
     if (filter.includes(' ')) return []
-    return COMPLETABLE_COMMANDS.filter((c) => c.name.startsWith(filter)).map((c) => ({
+    return slashCommands().filter((c) => c.name.startsWith(filter)).map((c) => ({
       label: `/${c.name}`,
       right: c.description,
       apply: complete(`/${c.name} `),
@@ -1675,7 +1688,7 @@ function computeSlashRows(input: HTMLTextAreaElement): SlashRow[] {
       .filter((o) => o.value !== argPrefix && (o.value.startsWith(argPrefix) || o.label.toLowerCase().includes(argPrefix.toLowerCase())))
       .map((o) => ({ label: o.label, right: o.value, apply: complete(`/permission ${o.value}`) }))
   }
-  const cmd = COMPLETABLE_COMMANDS.find((c) => c.name === name)
+  const cmd = slashCommands().find((c) => c.name === name)
   if (cmd?.hint) return [{ label: t('Arguments: {0}', cmd.hint) }]
   return []
 }
@@ -2614,7 +2627,7 @@ function openWorkspacePicker(anchor: HTMLElement): void {
 }
 
 function openCommandMenu(anchor: HTMLElement): void {  const body = el('div')
-  for (const c of SLASH_COMMANDS) {
+  for (const c of slashCommands()) {
     body.appendChild(
       menuItem(`/${c.name}`, {
         right: c.description,

@@ -631,6 +631,13 @@ export interface ChatState {
     options: Array<{ value: string; label: string }>
     current: string
   }
+  /**
+   * 会话的 slash 命令清单（宿主 commands/list，按会话 preset 组合——没挂
+   * command-goal 的 preset 返回里就没有 goal）：webview 的补全/命令菜单以它为
+   * 数据源，另拼客户端自有的 /model。缺省 = 宿主未提供该端点或拉取失败，
+   * webview 回退到内置静态表（0.1.1 时代行为）。
+   */
+  slashCommands?: Array<{ name: string; description: string; hint?: string }>
   /** Footer session-stats line, host-formatted (src/pure/sessionStats.ts); rendered verbatim. */
   statsLine?: string
   /**

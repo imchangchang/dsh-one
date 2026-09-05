@@ -1,0 +1,137 @@
+{
+  "title": "dynamic-slash-commands：slash 命令改 commands/list 动态获取",
+  "branch": "agent/dynamic-slash-commands",
+  "commit": "db6b689",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2（沙盒 pin；已实测有 commands/list 端点）",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-dyn-slash:latest",
+    "driver": "verify-driver.mjs（fillSlash/expectPopup 新原语）",
+    "date": "2026-09-05T22:40:00+0800"
+  },
+  "coverageNote": "① 0.1.1-rc.2 已实测有 commands/list（沙盒内 probe dsh web + 扩展同款 client-request wire：六条命令含 goal，hint 与面板静态表一致）——沙盒 UI 走的是动态路径而非 fallback；但 0.1.1 清单与静态表相同，UI 无法区分动态/fallback，fallback（拉取失败）路径由代码审查 + 宿主不下发时 webview 缺省 ?? 覆盖。② 真 0.1.2-rc.1 已实测宿主语义（dsh-sandbox-dsh-v012 容器 + 临时 DSH_HOME 拷入用户 kimi preset，扩展同款 wire + token 换 cookie）：standard preset 6 条含 goal；agentPresets/select → kimi 后 5 条无 goal——清单随 preset 即时变化，与「附着即拉 + setAgentPreset 后重拉」的设计吻合；kimi preset 下 UI 不出现 goal 是 state.slashCommands 的纯渲染结果（0.1.1 沙盒无 preset 组合概念，无法在沙盒构造）。③ l10n 覆盖层：宿主 description 仅英文（0.1.1/0.1.2 均实测），动态条目名字命中已知命令时沿用面板翻译描述——en locale 下 F-01 断「Compact older session history」（面板串）而非宿主原文「Compact older conversation history」即覆盖层生效；未知命令与 hint 用宿主原文。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "补全弹窗列出全部命令：动态清单 6 条 + 客户端 /model",
+      "expect": "composer 输入 / → slash 补全弹窗出现 7 行：/compact /export /feedback /goal /permission /plan /model；描述列为面板翻译文案（en locale 断「Compact older session history」——面板串，非宿主原文「Compact older conversation history」——证明动态成员 + l10n 覆盖层生效）。",
+      "driver": {
+        "fillSlash": "/",
+        "expectPopup": [
+          "/compact",
+          "/export",
+          "/feedback",
+          "/goal",
+          "/permission",
+          "/plan",
+          "/model",
+          "Compact older session history"
+        ]
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dynamic-slash-commands/F-01.png"
+      ],
+      "notes": "driver 断言 8 条全命中；截图逐行核对：弹窗 7 行 = /compact /export /feedback /goal /permission /plan /model，无多余行；首行描述「Compact older session history」= 面板串（宿主原文为「Compact older conversation history」）——动态成员 + l10n 覆盖层生效 ✓；/model 在末行（客户端拼接）✓；行右列描述均为面板文案 ✓。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "/goal 参数 hint 行用宿主 input.hint",
+      "expect": "composer 输入「/goal 」（带空格）→ 弹窗出现参数 hint 行「Arguments: [<objective>|clear|edit <objective>|pause|resume]」（hint 来自宿主 commands/list 的 input.hint，经动态清单下发）。",
+      "driver": {
+        "fillSlash": "/goal ",
+        "expectPopup": [
+          "Arguments:",
+          "[<objective>|clear|edit <objective>|pause|resume]"
+        ]
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dynamic-slash-commands/F-02.png"
+      ],
+      "notes": "driver 断言 2 条全命中；截图：hint 行「Arguments: [<objective>|clear|edit <objective>|pause|resu…」出现于弹窗（宽度截断是弹窗样式，文本断言已全量命中）✓；hint 文本与 0.1.1 宿主 commands/list 的 input.hint 一致（curl probe 值逐字比对）✓；composer 内容 /goal 未发送 ✓。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "前缀过滤：/g 命中 /goal（含描述列）",
+      "expect": "composer 输入 /g → 弹窗过滤命中 /goal 行，右列描述「Set or view the long-task goal」（动态清单 + 覆盖层描述）。",
+      "driver": {
+        "fillSlash": "/g",
+        "expectPopup": [
+          "/goal",
+          "Set or view the long-task goal"
+        ]
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dynamic-slash-commands/F-03.png"
+      ],
+      "notes": "driver 断言 2 条全命中；截图：/g 过滤后弹窗仅剩 /goal 一行 ✓，右列描述「Set or view the long-task goal」✓，无其他命令行 ✓。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "未匹配命令保持官方同款文案（拼写错）",
+      "expect": "输入 /permisison 并发送 → composer 提示「Unknown or malformed command: /permisison」。",
+      "driver": {
+        "prompt": "/permisison",
+        "expectText": "Unknown or malformed command: /permisison"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dynamic-slash-commands/R-01.png"
+      ],
+      "notes": "driver 断言 done；截图：composer 提示条「Unknown or malformed command: /permisison」✓（拼写错文案未变——/permisison 不在宿主内建集，走官方同款文案分支）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "/goal 命令真实执行（Goal created 流节点）",
+      "expect": "空会话输入 /goal 处理当前版本发现问题 并发送 → 真实 dsh 命令执行：消息流出现 Goal created（0.1.1 宿主平面命令，命令执行线未受动态清单影响）。",
+      "driver": {
+        "prompt": "/goal 处理当前版本发现问题",
+        "expectText": "Goal created"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dynamic-slash-commands/R-02.png"
+      ],
+      "notes": "driver 断言 done（Goal created 流节点命中）；截图：goal 条幅「Active goal 处理当前版本发现问题」✓ + goal-round 注入轮（13/256→14/256）✓——0.1.1 宿主平面真执行 /goal，命令执行线无回归。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "/permission 命令通道回归（真实命令执行）",
+      "expect": "输入 /permission read-only 并发送 → 命令流节点出现 /permission read-only，权限 pill 切为 read-only。",
+      "driver": {
+        "prompt": "/permission read-only",
+        "expectText": "/permission read-only"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dynamic-slash-commands/R-03.png"
+      ],
+      "notes": "driver 断言 done；截图：命令流节点「/permission read-only preset read-only」✓ + composer 权限 pill 已切「Read Only」✓。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "普通消息 mock 回显（基础链路回归）",
+      "expect": "空会话发送「测试一下」→ mock-llm 回显「收到：测试一下」。",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-dynamic-slash-commands/R-04.png"
+      ],
+      "notes": "driver 断言 done；截图：用户气泡「测试一下」✓ + mock 回显「收到：测试一下」✓，基础链路无回归。"
+    }
+  ]
+}
