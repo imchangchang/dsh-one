@@ -1,22 +1,10 @@
 import type { Logger } from '../log.ts'
 import { permissionDisplayName } from '../pure/permissionLabel.ts'
-import type { SessionCatalogModel, SessionModelSelection, SessionModels } from './dshRpc.ts'
+import type { ModelCatalogValue, SessionModelSelection } from './dshRpc.ts'
+
+export type { ModelCatalogValue }
 
 // ---- 目录数据（session.modelCatalog 的镜像，无 current——current 来自投影） ----
-
-export type ModelCatalogModel = SessionCatalogModel
-
-/** One provider group in the Host-generation catalog. */
-export interface ModelCatalogGroup {
-  id: string
-  name: string
-  models: ModelCatalogModel[]
-}
-
-/** Host-generation model catalog (unary session/models, 0.1.2+): the catalog
- *  response plus which groups are routable. `current` lives in the session's
- *  `modelSelection` projection, not here. */
-export type ModelCatalogValue = Omit<SessionModels, 'current'> & { default?: SessionModelSelection }
 
 /** Observable lifecycle of the shared catalog. */
 export interface ModelCatalogState {
