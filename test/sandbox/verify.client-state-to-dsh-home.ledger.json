@@ -1,16 +1,16 @@
 {
   "title": "DSH One 客户端状态迁到 ~/.dsh/dsh-one/ + 派生脚本 --tag 验收报告",
   "branch": "agent/client-state-to-dsh-home",
-  "commit": "e5a73ad",
+  "commit": "92ed06d",
   "environment": {
     "mode": "mock-llm",
     "dsh": "0.1.1-rc.2",
     "locale": "en",
     "theme": "dark",
     "image": "dsh-sandbox-client-state:latest",
-    "date": "2026-09-06T13:05:00Z"
+    "date": "2026-09-06T13:45:00Z"
   },
-  "coverageNote": "功能项 F-01/F-02/F-04 与回归项 R-02 由 .dev-host/e2e-client-state.mjs 在沙盒（code-server + 真扩展 vsix + 真 dsh + mock-llm）里端到端驱动：真实 UI 点击 + docker exec 断言文件内容 + DOM 断言侧栏。F-03（旧 Memento → 文件迁移）受沙盒全局限制无法端到端预置旧值：code-server 不把扩展 Memento 水合自/落盘到 state.vscdb（实测：播种的 globalStorage state.vscdb 行在整个会话期间原样未动，workspaceStorage 甚至没有 state.vscdb；与 verify.workspace-group-filter 记录的限制相同）——迁移决策与合并写盘由 23 项单测覆盖（test/dshStateFile.test.ts + test/dshStateStore.test.ts：resolve* 三态决策、旧值合并写盘、写失败保留旧 key、预设组 null-name 去重回归），真实 Memento 迁移留待 dev-ui-test 人工验收（真桌面 VS Code 有真 Memento 数据）。Windows/macOS 平台差异（fs.watch 行为）不在本报告范围。",
+  "coverageNote": "功能项 F-01/F-02/F-04 与回归项 R-02 由 .dev-host/e2e-client-state.mjs 在沙盒（code-server + 真扩展 vsix + 真 dsh + mock-llm）里端到端驱动：真实 UI 点击 + docker exec 断言文件内容 + DOM 断言侧栏。F-03（旧 Memento → 文件迁移）受沙盒全局限制无法端到端预置旧值：code-server 不把扩展 Memento 水合自/落盘到 state.vscdb（实测：播种的 globalStorage state.vscdb 行在整个会话期间原样未动，workspaceStorage 甚至没有 state.vscdb；与 verify.workspace-group-filter 记录的限制相同）——迁移决策与合并写盘由 23 项单测覆盖（test/dshStateFile.test.ts + test/dshStateStore.test.ts：resolve* 三态决策、旧值合并写盘、写失败保留旧 key、预设组 null-name 去重回归），真实 Memento 迁移留待 dev-ui-test 人工验收（真桌面 VS Code 有真 Memento 数据）。Windows/macOS 平台差异（fs.watch 行为）不在本报告范围。 迁移/热重载全程有决策日志（Output 频道「DSH One」，client-state 前缀）：本轮 E2E 后在容器 output_logging 里实证——首启五模块 fresh-start 逐条、扩展宿主重启后 file authoritative（计数正确）、脚本写盘后 \"reloaded from files: tags\"。",
   "items": [
     {
       "id": "F-01",
@@ -52,7 +52,7 @@
       "screenshots": [
         "/tmp/dsh-sandbox-shots/client-state-F04-rebuilt-from-files.png"
       ],
-      "notes": "全部断言通过：① 扩展宿主重生后 sessions 面板恢复；② sid1 行在主列表（pin 徽标可见）、回收站入口计数=1（sid2 在基线中存在故未被 prune）；③ sid1 ⋯ → Move to group… 子菜单中「派生批次」菜单项带 checked 类（截图核对可见 ✓）。证明 create() 的 load() 路径在无任何 Memento 的情况下完整重建了 pinned/recycleBin/tags/sessionTags。"
+      "notes": "全部断言通过：① 扩展宿主重生后 sessions 面板恢复；② sid1 行在主列表（pin 徽标可见）、回收站入口计数=1（sid2 在基线中存在故未被 prune）；③ sid1 ⋯ → Move to group… 子菜单中「派生批次」菜单项带 checked 类（截图核对可见 ✓）。证明 create() 的 load() 路径在无任何 Memento 的情况下完整重建了 pinned/recycleBin/tags/sessionTags。 日志实证：重启后的 output_logging 里逐模块打出 file authoritative 决策（recycle-bin 1 ids / pinned 1 / unread 1 / tags 5 defs+2 assignments），与文件内容一致。"
     },
     {
       "id": "R-01",
@@ -88,7 +88,7 @@
       "expect": "npm run typecheck / npm test / npm run build 全绿。",
       "result": "pass",
       "screenshots": [],
-      "notes": "typecheck 0 错误；npm test 638 项全过（含本任务新增 24 项：dshStateFile 解析/决策/合并 + dshStateStore IO 原子写/读-合-写/串行化/空文件预设组回归）；npm run build 产物正常（vsix 940.64 KB，沙盒 E2E 即用此包安装）。评审修复（6f52f30/e5a73ad）后全套重跑仍全绿。"
+      "notes": "typecheck 0 错误；npm test 639 项全过（含本任务新增 25 项：dshStateFile 解析/决策/合并 + dshStateStore IO 原子写/读-合-写/串行化/空文件预设组/日志出口）；npm run build 产物正常。评审修复（6f52f30/e5a73ad）与决策日志（92ed06d）后沙盒 E2E 用最新 vsix 全套重跑仍 ALL PASS。"
     }
   ]
 }
