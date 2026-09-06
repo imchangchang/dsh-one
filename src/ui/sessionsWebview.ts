@@ -1274,14 +1274,10 @@ function renderSessions(): void {
         t('Full-text search unavailable; matching titles only (dsh search index not enabled)'),
       )
       // 悬停显示更详细的原因与启用索引的方法（复用自实现 tooltip）。
+      // i18n 注：key 里 YAML 示例用双引号——单引号会让门禁的 t() 正则提前截断。
       degraded.setAttribute(
         'data-tip',
-        `dsh 全文搜索默认 opt-in：session-query 索引 openAt: "never"（未启用），session.search 被禁用。
-启用：编辑 ~/.dsh/profiles/web/cordis.patch.yml，追加以下配置后重启 dsh 服务：
-- id: session-query-sqlite
-  config:
-    path: !!js dshHomePath('session-query.sqlite')
-    openAt: first-search`,
+        t('dsh full-text search is opt-in by default: the session-query index has openAt: "never" (disabled), so session.search is unavailable.\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath("session-query.sqlite")\n    openAt: first-search'),
       )
       return degraded
     }))
