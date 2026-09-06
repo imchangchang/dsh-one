@@ -2794,11 +2794,23 @@
           at('主要改动在 `src/ui/chat/webview.ts`，样式在 `src/ui/chatViewHtml.ts`，构建产物 `dist/chatWebview.js`。检查命令 `npm run build`；环境变量 `DSH_PORT` 不要动；`Makefile` 无扩展名；绝对路径 `/repo/src/pure/producedFiles.ts`。'),
         ],
       }),
-      title: '行内码：路径可点打开 + 复制图标（初始 / 点路径码 / 点命令码）',
+      title: '行内码：路径可点打开 + 右键复制这段（初始 / 右键菜单 / 点菜单项复制 / 点路径码 / 点命令码）',
       interactSteps: [
         {
           name: 'initial',
           script: 'void 0',
+          settle: 400,
+        },
+        {
+          name: 'context-menu',
+          script: `const code = [...document.querySelectorAll('code.inline-code')].find((c) => c.textContent === 'npm run build')
+  if (code) code.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 420, clientY: 220 }))`,
+          settle: 400,
+        },
+        {
+          name: 'copy-clicked',
+          script: `const item = document.querySelector('.menu-item')
+  if (item) item.click()`,
           settle: 400,
         },
         {
@@ -2817,7 +2829,7 @@
           settle: 400,
         },
       ],
-      expect: '**逐张核对**（无像素 diff）：① <scenario>-initial.png：正文中每个反引号行内码都是浅灰底圆角小 chip、右下角带小复制图标（淡灰半透明，常驻）；路径码（`src/ui/chat/webview.ts`、`src/ui/chatViewHtml.ts`、`dist/chatWebview.js`、`/repo/src/pure/producedFiles.ts`）与非路径码（`npm run build`、`DSH_PORT`、`Makefile`）外观一致（复制图标齐全）；无红色断言条。② <scenario>-open-path.png：顶部红条显示 `openPath:src/ui/chat/webview.ts`（点击路径码后宿主收到打开消息，路径原样无改动）；正文行内码样式未变。③ <scenario>-no-open.png：红条显示 `no-openPath`（点击命令码 `npm run build` 不会触发打开消息）且无 FAIL 字样。',
+      expect: '**逐张核对**（无像素 diff）：① <scenario>-initial.png：正文中每个反引号行内码都是浅灰底圆角小 chip（底色紧凑贴文字），**无任何复制图标/按钮**，也无红色断言条。② <scenario>-context-menu.png：右键命令码 `npm run build` 弹出**自绘菜单**（对齐消息右键菜单样式：小竖线分隔、菜单项「Copy inline code」+ 复制图标），菜单出现在鼠标坐标附近；chip 本体变高亮背景（更深的灰）。③ <scenario>-copy-clicked.png：菜单已关闭（popover 消失），正文下方出现「Copied」瞬时提示（copy-toast 小字条，约 2s 后消失）；无红条。④ <scenario>-open-path.png：顶部红条显示 `openPath:src/ui/chat/webview.ts`（点击路径码后宿主收到打开消息，路径原样）；正文行内码样式未变。⑤ <scenario>-no-open.png：红条显示 `no-openPath`（点击命令码本体不触发打开）且无 FAIL 字样。hover 高亮由本地 Playwright 真实 hover 截图验证（CSS :hover 无法在 harness 脚本里触发）。',
     },
 
     // 消息右键菜单（user 气泡）：右键弹「复制」坐标菜单（与既有外链菜单同款

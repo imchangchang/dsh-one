@@ -370,31 +370,20 @@ const STYLE = `
   .md code {
     font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em;
   }
-  /* 行内码（反引号）交互态：轻背景承载 hover 的复制图标与路径点击（见
-     webview 侧 decorateInlineCodes）。右上角留出 14px 给常驻复制图标位，
-     布局稳定不跳动；图标默认 55% 透明，hover 行内码时点亮。路径码 hover
-     下划线提示可点，cursor 由 JS/role 语义给出。 */
+  /* 行内码（反引号）交互态：轻背景承载 hover 与路径点击（见 webview 侧
+     decorateInlineCodes）。chip 底色紧凑（padding 不预留图标位）；hover 高亮
+     背景加深 + 路径码下划线；复制走右键菜单（webview 侧 contextmenu 监听
+     「复制这段」）——替换初版悬浮复制按钮（用户实测反馈：按钮小且悬空、
+     鼠标滑过去 hover 断、难点到）。 */
   .md code.inline-code {
     position: relative;
     background: rgba(127,127,127,.12);
     border-radius: 3px;
-    padding: 1px 14px 1px 4px;
+    padding: 1px 4px;
   }
+  .md code.inline-code:hover { background: rgba(127,127,127,.22); }
   .md code.inline-code-path { cursor: pointer; }
   .md code.inline-code-path:hover { text-decoration: underline; }
-  .inline-code-copy {
-    position: absolute; right: 1px; bottom: 1px;
-    width: 13px; height: 13px; padding: 0;
-    display: inline-flex; align-items: center; justify-content: center;
-    border: none; background: transparent; cursor: pointer;
-    color: var(--vscode-descriptionForeground, #888);
-    opacity: .55;
-  }
-  .md code.inline-code:hover .inline-code-copy { opacity: 1; }
-  .inline-code-copy:hover {
-    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
-    border-radius: 2px;
-  }
   .md p { margin: 0 0 8px; }
   .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
     margin: 12px 0 6px; font-weight: 600; line-height: 1.25; color: var(--vscode-foreground);

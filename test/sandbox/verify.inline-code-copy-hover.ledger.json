@@ -1,0 +1,97 @@
+{
+  "title": "行内码复制交互改为 hover 高亮 + 右键「复制这段」菜单（inline-code-copy-hover）",
+  "branch": "agent/inline-code-copy-hover",
+  "commit": "f3deae6",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-inline-code-hover:latest",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "用户实测反馈迭代（2026-09-06）：悬浮复制按钮（小、悬空、鼠标滑过去 hover 断）整体放弃，改为「hover 高亮 + 右键弹菜单「Copy inline code」（复制这段）」——菜单复用既有消息右键菜单的 popover/menuItem 机制。注意实现细节：行内码 contextmenu 监听注册在消息/外链菜单监听之前且用 stopImmediatePropagation（同 document 捕获监听器 stopPropagation 挡不住后注册者），消息菜单 handler 另显式让路（双保险）。路径码左键点击打开行为未变。harness 层本地 Playwright 验证 6 断言（无按钮残留/hover 高亮/菜单项+图标/toast+菜单关闭/剪贴板内容=行内码文本/openPath），沙盒 E2E 为主通道。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "行内码无悬浮复制按钮（交互已替换）",
+      "expect": "行内码 chip 浅底紧凑（padding-right 4px）、右下角无任何复制按钮/图标（.inline-code-copy DOM 不残留）；常态干净无额外元素。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code-hover/10-01-no-button.png"
+      ],
+      "notes": "E2E 断言：.inline-code-copy count=0，chip padding-right=4px。截图核对：chip 紧凑、无按钮。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "悬停行内码：背景高亮",
+      "expect": "真实鼠标悬停到行内码：chip 背景从 0.12 加深到 0.22（明显高亮），路径码另有下划线；非悬停码背景不变。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code-hover/11-02-hover-highlight.png"
+      ],
+      "notes": "E2E 断言：computed backgroundColor 0.12 → 0.22；截图核对：悬停码更深的灰底，相邻码不变。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "右键行内码：弹出「Copy inline code」菜单",
+      "expect": "右键任意行内码：弹出自绘菜单（对齐消息右键菜单样式），唯一菜单项「Copy inline code」+ 复制图标，位于鼠标坐标附近；不弹系统/浏览器原生菜单；不被消息气泡右键菜单（复制）抢走。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code-hover/12-03-context-menu.png"
+      ],
+      "notes": "E2E 断言：弹出 .popover .menu-item 文本 Copy inline code 且带 svg 图标（若被消息菜单抢走文本会是 Copy——已修 stopImmediatePropagation + 消息菜单让路）。截图核对：菜单浮层 + 菜单项。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "点菜单项：复制行内码文本（toast 反馈 + 菜单关闭）",
+      "expect": "点击菜单项：菜单关闭，底部出现瞬时 toast（Copied / Copy failed——沙盒 headless webview origin 无剪贴板权限时走失败分支，成功反馈已 harness 层验证）；复制内容 = 行内码文本本身（非整条消息）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code-hover/13-04-toast.png"
+      ],
+      "notes": "E2E：toast=Copy failed（reject 分支，链路触发）+ menuGone=true；harness 顶层（授权 clipboard）验证 toast=Copied 且剪贴板读回 'npm run build'（行内码内容）。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "路径码左键点击仍打开文件（行为不变）",
+      "expect": "点击路径码 ~/.dsh/settings.yaml：编辑器打开 settings.yaml tab；无报错。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code-hover/14-05-open-path.png"
+      ],
+      "notes": "E2E 断言：settings.yaml tab=1；截图核对：编辑器打开（面包屑 home > coder > .dsh）。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "命令码左键点击不误开（行为不变）",
+      "expect": "点击命令码 npm run build：无新编辑器 tab、无报错弹窗。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code-hover/14-05-open-path.png"
+      ],
+      "notes": "E2E：tab 数 2→2。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "markdown 表格/代码块/消息右键菜单回归",
+      "expect": "「回归演示」回复：表格与加粗正常；代码块独立块级样式 + Copy 按钮；行内码所在的消息气泡右键仍弹原「复制」菜单（非行内码区域）；消息操作栏正常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-inline-code-hover/R-01.png"
+      ],
+      "driver": {
+        "prompt": "回归演示",
+        "expectText": "const x: number = 1"
+      },
+      "notes": "verify-driver 自动断言命中；截图核对：表格/加粗正常、代码块独立块级样式 + Copy 按钮、消息操作栏正常（非行内码区域的消息右键仍弹原「复制」菜单——由 harness msg-menu 场景覆盖）。"
+    }
+  ]
+}
