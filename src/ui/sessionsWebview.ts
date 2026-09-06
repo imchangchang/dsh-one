@@ -1527,10 +1527,12 @@ function dragCarriesTag(e: DragEvent): boolean {
 }
 
 /**
- * workspace 会话区的组块渲染：置顶会话平铺（保持绝对优先）；其余按标签组
- * 切块（小 pill + 贯穿竖线 + 12px 左缩进），未分组平铺殿后。rowRender 由
- * 主列表/回收站各自提供（行行为不同）；snippet 块跟行（回收站无 snippet，
- * 透传安全）。
+ * workspace 会话区的组块渲染：置顶会话平铺（保持绝对优先）、活跃会话平铺
+ * （状态优先：运行中/后代运行/未读/待交互，行尾已有状态标记），其余（空闲）
+ * 按标签组切块（小 pill + 贯穿竖线 + 12px 左缩进），未分组平铺殿后。活跃
+ * 会话脱离组块（纯层已把它们排到最前），否则会被折叠组藏住、折叠计数也不
+ * 对。rowRender 由主列表/回收站各自提供（行行为不同）；snippet 块跟行
+ * （回收站无 snippet，透传安全）。
  */
 function appendTagBlocks(
   container: HTMLElement,
@@ -1544,17 +1546,17 @@ function appendTagBlocks(
   while (i < sessions.length) {
     const s = sessions[i]
     const tag = s.tagId !== undefined ? tagById(s.tagId) : undefined
-    if (s.pinned || tag === undefined) {
+    if (s.pinned || s.active || tag === undefined) {
       container.appendChild(rowRender(s))
       if (s.contentSnippet) container.appendChild(renderContentSnippet(s.sessionId, s.contentSnippet))
       i += 1
       continue
     }
-    // 组块 = 同 tagId 的连续段落（纯层已聚合排序），一次收齐再按折叠态渲染。
+    // 组块 = 同 tagId 的连续空闲段落（纯层已聚合排序），一次收齐再按折叠态渲染。
     const rows: SessionNodeModel[] = []
     while (i < sessions.length) {
       const cur = sessions[i]
-      if (cur.pinned || cur.tagId !== tag.id) break
+      if (cur.pinned || cur.active || cur.tagId !== tag.id) break
       rows.push(cur)
       i += 1
     }
@@ -2840,6 +2842,7 @@ function openSelectionModal(): void {
             label: id.slice(0, 8),
             description: '',
             running: false,
+            active: false,
             pinned: false,
             hasCompletedTurn: false,
             unread: false,
