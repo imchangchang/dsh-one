@@ -5123,9 +5123,44 @@ function scrollToMessageId(messageId: string | null): void {
  *
  * 变更检测：消息/run/steering 渲染期签名 = JSON.stringify（快照对象每帧都是
  * structured clone 的新对象，无法用引用比较；字符串化成本低于 markdown 渲染，
- * 且只对变化行付）。签名相同 → 复用现元素；不同 → 重渲染该行原位替换。
+ * 且只对变化行付）。user 消息与 steering 行额外并入懒加载图片缓存态（lazyThumbSig：
+ * 回执只写缓存、消息数据不变，签名需覆盖缓存态否则缩略图回执后行被保活、
+ * 占位/文件框换不成真图）。签名相同 → 复用现元素；不同 → 重渲染该行原位替换。
  */
 type FlowItem = ReconcileItem
+
+/**
+ * 消息/steering 行渲染依赖的懒加载图片缓存态（逐项 '0'=未命中 '1'=已命中）：
+ * attachmentCache（消息 images 缩略图）与 fileThumbCache（图片文件 chip——
+ * files 区 + 行内 @ 文件引用提升路径）。并入 buildFlowItems 的行签名：
+ * attachmentData / fileThumb / fileThumbFailed 回执只写 webview 侧缓存、不改
+ * 消息数据，JSON.stringify(m/item) 本身不变——签名不含缓存态时行被对账保活，
+ * 占位/文件框永远换不成真图（回执后那次 render 只重算签名，行不重建）。
+ * 缓存态并入后：回执 → 下一帧签名变化 → 该行重建一次换真图，之后缓存稳定 →
+ * 签名稳定 → 行保活（流式期间无额外重建）。fileThumbFailed 不改渲染输出
+ * （仍是图标 chip、不再发请求），不加入签名，不触发无谓重建。
+ * 输入与渲染路径完全同源（inlineFileRefs / mergedAttachments 同函数同参数序），
+ * 避免回执侧失效签名方案要覆盖 images/files/@引用/steering 四处、漏项即复发。
+ */
+function lazyThumbSig(
+  images: readonly ChatImage[] | undefined,
+  text: string,
+  references: readonly { sessionId: string; label: string }[] | undefined,
+  files: readonly ChatFile[] | undefined,
+): string {
+  let sig = ''
+  for (const img of images ?? []) sig += attachmentCache.has(img.attachmentId) ? '1' : '0'
+  const merged = mergedAttachments(text ? inlineFileRefs(text, references) : [], files)
+  for (const f of merged) if (f.image) sig += fileThumbCache.has(f.path) ? '1' : '0'
+  return sig
+}
+
+/** steering 气泡的懒加载缓存态摘要：解析管线与 renderSteeringItem 一致
+ *  （先剥 <attachment> 行 + 会话 mention 解析，再提 @ 文件引用）。 */
+function steerLazyThumbSig(item: QueuedItem): string {
+  const { text, references } = parseSessionMentions(splitAttachmentLines(item.editText).text)
+  return lazyThumbSig(item.images, text, references, item.files)
+}
 
 /** 每条消息最近一次渲染的签名（id → sig）；无此 id = 未渲染过。 */
 const flowMsgSigs = new Map<string, string>()
@@ -5196,7 +5231,9 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
   }
   const seenMsgIds = new Set<string>()
   state.messages.forEach((m) => {
-    const sig = JSON.stringify(m)
+    const sig =
+      JSON.stringify(m) +
+      (m.kind === 'user' && !m.context ? `|${lazyThumbSig(m.images, m.text ?? '', m.references, m.files)}` : '')
     const same = flowMsgSigs.get(m.id) === sig
     flowMsgSigs.set(m.id, sig)
     seenMsgIds.add(m.id)
@@ -5248,7 +5285,7 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
   const steeringItems = (state.queue ?? []).filter((item) => item.placement === 'steering')
   const seenSteerIds = new Set<string>()
   for (const item of steeringItems) {
-    const sig = JSON.stringify(item)
+    const sig = JSON.stringify(item) + `|${steerLazyThumbSig(item)}`
     const same = flowSteerSigs.get(item.id) === sig
     flowSteerSigs.set(item.id, sig)
     seenSteerIds.add(item.id)
