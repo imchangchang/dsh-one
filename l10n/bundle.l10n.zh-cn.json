@@ -499,6 +499,7 @@
   "Connection restored": "连接已恢复",
   "Reconnect now": "立即重连",
   "Open in VS Code": "在 VS Code 中打开",
+<<<<<<< HEAD
   "Todo": "待办",
   "Doing": "进行中",
   "No group": "无分组",
@@ -522,4 +523,7 @@
   "Purple": "紫",
   "Red": "红",
   "Move to group…": "移到分组…"
+=======
+  "Copy inline code": "复制这段"
+>>>>>>> f3deae6 (feat(chat): 行内码复制交互改为 hover 高亮 + 右键「复制这段」菜单（替换悬浮按钮）)
 }

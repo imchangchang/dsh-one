@@ -503,6 +503,41 @@ document.addEventListener(
 )
 
 /**
+ * 行内码右键菜单：悬停高亮的行内码（反引号）右键 → 「复制这段」。替代初版
+ * 悬浮复制按钮交互（用户实测反馈：小按钮悬空在 chip 外、鼠标滑过去 hover 就
+ * 断、难点中），改为更稳的右键复制。注册在外链/消息右键菜单**之前**（捕获
+ * 阶段先命中）：行内码在消息气泡内，不先拦截会被消息菜单的「复制」抢走。
+ * 路径码的左键点击打开不受影响（那是 click，不经过这里）。
+ */
+document.addEventListener(
+  'contextmenu',
+  (e) => {
+    const target = e.target as HTMLElement | null
+    const code = target?.closest('code.inline-code') as HTMLElement | null
+    if (!code) return
+    e.preventDefault()
+    e.stopPropagation()
+    const text = (code.textContent ?? '').trim()
+    if (!text) return
+    const body = el('div')
+    body.appendChild(
+      menuItem(t('Copy inline code'), {
+        icon: iconSvg(MESSAGE_ACTION_ICONS.copy),
+        onClick: () => {
+          closePopover()
+          void navigator.clipboard.writeText(text).then(
+            () => showCopyToast(t('Copied')),
+            () => showCopyToast(t('Copy failed')),
+          )
+        },
+      }),
+    )
+    showPopoverAt(e.clientX, e.clientY, body)
+  },
+  true,
+)
+
+/**
  * 外链右键菜单：单击外链默认用系统浏览器打开（上面的 click 拦截），右键给
  * 「VS Code 内置浏览器打开」的选择。同样拦掉默认行为（浏览器/VS Code 的
  * 原生菜单），弹自绘菜单；非 http(s)/mailto 锚点（dsh-session: 残留）不弹。
@@ -1110,10 +1145,10 @@ function refreshCommitHashSpans(shas: string[]): void {
  * 要靠鼠标选中，繁琐）：
  * - 内容形如文件路径（isInlineCodeFilePath）→ 可点击直接打开（post openPath，
  *   宿主按附着会话 cwd 解析），hover 下划线 + title 提示；
- * - 无论是否路径，行内码右下角带复制小图标（hover 显现）：非路径内容不必再
- *   选中复制，路径码则是「点本体打开、点图标复制」。
+ * - 复制走右键菜单（见上方 contextmenu 监听）：hover 高亮 + 右键「复制这段」，
+ *   替换初版悬浮复制按钮（用户实测反馈：按钮小且悬空、鼠标滑过去 hover 断）。
  * 跳过块级 code（pre 内，已有代码块复制按钮）与链接内 code（点链接即打开）。
- * 流式下每次整块重建，装饰无状态；复制反馈是本地 1s 图标变化，不做跨重建持久化。
+ * 流式下每次整块重建，装饰无状态。
  */
 function decorateInlineCodes(container: HTMLElement): void {
   container.querySelectorAll<HTMLElement>('code').forEach((code) => {
@@ -1124,27 +1159,6 @@ function decorateInlineCodes(container: HTMLElement): void {
     code.classList.add('inline-code')
     const isPath = isInlineCodeFilePath(text)
     if (isPath) code.classList.add('inline-code-path')
-    const copyBtn = buttonEl('inline-code-copy', '')
-    copyBtn.type = 'button'
-    copyBtn.title = t('Copy')
-    copyBtn.setAttribute('aria-label', t('Copy'))
-    copyBtn.appendChild(iconSvg(COPY_ICON, 13))
-    copyBtn.addEventListener('click', (e) => {
-      // 路径码：点图标只复制，不触发码本体的「打开」。
-      e.stopPropagation()
-      const copied = () => {
-        copyBtn.replaceChildren(iconSvg(CHECK_ICON, 13))
-        copyBtn.title = t('Copied')
-        setTimeout(() => {
-          copyBtn.replaceChildren(iconSvg(COPY_ICON, 13))
-          copyBtn.title = t('Copy')
-        }, COPY_FEEDBACK_MS)
-      }
-      void navigator.clipboard.writeText(text).then(copied, () => {
-        copyBtn.title = t('Copy failed')
-      })
-    })
-    code.appendChild(copyBtn)
     if (isPath) {
       code.title = t('Open in VS Code')
       code.setAttribute('role', 'button')
