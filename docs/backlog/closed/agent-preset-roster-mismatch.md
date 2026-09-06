@@ -30,3 +30,5 @@
 - 2026-09-06 认领（worktree: agent/agent-preset-roster-mismatch）→ doing
 
 - 2026-09-06 开发完成：wire 失配修复 + 单测/harness 场景 + 报告 4 项全 pass（done 标记 8dcfd52）→ done
+
+- 2026-09-06 主线合入（merge 19185ef）＋复测通过（typecheck/test 620 pass/build）人工确认 → closed
