@@ -51,3 +51,5 @@
 ## 变更记录
 
 - 2026-09-06 用户提出（内部持久化状态应放 dsh 全局目录，回收站为例）；逐个盘点 11 个 key 后用户拍板：回收站 + 分组（定义/归属）+ 置顶 + 未读搬走，视图偏好（排序/折叠/回收站折叠/选中组）不搬，modelWindowCache 本次不动；文件布局定为每功能一个文件 → 建条目（open/）
+
+- 2026-09-06 认领（worktree: agent/client-state-to-dsh-home；本次把 tags/sessionTags 一并纳入落盘迁移，供派生脚本 --tag 归组）→ doing
