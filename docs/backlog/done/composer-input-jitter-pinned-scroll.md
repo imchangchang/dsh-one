@@ -80,3 +80,4 @@ E-after-300ms   st=1878 ch=508 gap=0     <- 补偿逻辑最终拉回
 
 - 2026-09-06 用户主线实机报告「输入长文本上方对话区不断跳动」→ harness+Playwright 复现与机制验证 → 确认（瞬态塌缩 clamp + 补偿竞态，非渲染重建）→ open
 - 2026-09-06 认领（worktree: agent/composer-sticky-in-scroller-layout；结构修复随 composer-sticky-in-scroller-layout 一并落地）→ doing
+- 2026-09-06 开发完成：seat 布局 + field-sizing 落地，探针实测输入零抖动；自测通过（typecheck/612 tests/build）+ 全量视觉回归 156 场景；ledger: test/sandbox/verify.composer-sticky-in-scroller-layout.ledger.json → done

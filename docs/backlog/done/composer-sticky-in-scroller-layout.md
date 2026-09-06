@@ -49,3 +49,4 @@ composer 是滚动容器**内部最后一项**（sticky bottom），不是容器
   autoGrow 塌缩 clamp + 补偿竞态，在本布局里整类消失（消息区尺寸不再被压缩）。
   与本条目合并开发（同一 worktree）。
 - 2026-09-06 认领（worktree: agent/composer-sticky-in-scroller-layout；与 composer-input-jitter-pinned-scroll 合并开发）→ doing
+- 2026-09-06 开发完成（worktree: agent/composer-sticky-in-scroller-layout，已 rebase 到 cf8e1c9+）：探针实测逐字输入消息区像素级静止；自测通过；ledger: test/sandbox/verify.composer-sticky-in-scroller-layout.ledger.json → done

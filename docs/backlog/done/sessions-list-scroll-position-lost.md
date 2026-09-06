@@ -60,3 +60,4 @@ const list = el('div', 'sessions-list')
 - 参考实现：`src/ui/chat/webview.ts`（keepMessages / scrollPositions / archiveScrollPosition）
 
 - 2026-09-06 记录（用户报告折叠跳顶，根因核实 + 侧栏全面排查）→ open
+- 2026-09-06 由 frontend-shared-foundation 收口：.sessions-list 保活对账（容器永不销毁，滚动随容器存活）+ 回收站抽屉同款 + 组管理弹层滚动存取；探针实测折叠不再跳顶 → done
