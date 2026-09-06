@@ -1303,6 +1303,47 @@
       expect: '三个组头（dsh-one / dsh-web research / 未分组）都折叠：文件夹闭合图标 + 向右箭头 + 组名；组下不渲染任何会话行；头部「折叠所有工作区」按钮图标为 +（boxedPlus，表示点击展开全部）；组角标仍显示（折叠/展开一致）。',
     },
 
+    // 保活对账回归（sessions-list-scroll-position-lost）：折叠工作区后列表
+    // 滚动位置保持（容器保活，不再整棵重建跳顶）；未涉及行元素保活。
+    'sessions-collapse-scroll-keep': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-4')
+        // 凑出可滚动列表：两组各 8 个会话。
+        s.workspaces[0].sessions = Array.from({ length: 8 }, (_, i) =>
+          sess(`main-${i}`, `主工作区会话 ${i}`, `${i + 1} 小时前`))
+        s.workspaces[1].sessions = Array.from({ length: 8 }, (_, i) =>
+          sess(`res-${i}`, `调研会话 ${i}`, `${i + 2} 小时前`))
+        window.__scenSnap = s
+        return s
+      })(),
+      interactSteps: [
+        {
+          name: 'scrolled',
+          script: `(() => { const l = document.querySelector('.sessions-list'); l.scrollTop = 160; window.__scrollBefore = l.scrollTop })()`,
+          settle: 200,
+        },
+        {
+          name: 'collapsed',
+          script: `(() => {
+            window.postMessage({ type: 'sessions', snapshot: { ...window.__scenSnap, collapsed: ['ws-main'] } }, '*')
+          })()`,
+          settle: 300,
+        },
+        {
+          name: 'verify',
+          script: `(() => {
+            const l = document.querySelector('.sessions-list')
+            const collapsed = !!document.querySelector('.workspace-group[data-workspace-id="ws-main"] .workspace-row:not(.expanded)')
+            window.__collapseScrollKeep = { scrollBefore: window.__scrollBefore, scrollAfter: l.scrollTop, kept: l.scrollTop === window.__scrollBefore, collapsed }
+          })()`,
+          settle: 100,
+        },
+      ],
+      title: '侧栏折叠工作区后滚动位置保持（保活对账回归）',
+      expect: 'scrolled 步：列表滚动到中下部（顶部第一组部分会话已滚出视口）。collapsed 步：第一组（dsh-one）折叠为闭合文件夹 + 向右箭头，组下会话行消失。verify 步（DOM 断言 window.__collapseScrollKeep）：kept === true（折叠前后 scrollTop 完全一致）且 collapsed === true；截图看折叠后列表上部仍是原来第二组（dsh-web research）的内容而不是跳回第一组顶部。',
+    },
+
     'sessions-menu': {
       view: 'sessions',
       sessions: (() => {
@@ -3498,7 +3539,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'model-picker-effort-default', 'sessions',
     'sessions-status-rear-slot',
-    'sessions-search', 'sessions-collapsed', 'sessions-recycle-drawer',
+    'sessions-search', 'sessions-collapsed', 'sessions-collapse-scroll-keep', 'sessions-recycle-drawer',
     'sessions-recycle-entry-actions', 'sessions-recycle-handle',
     'sessions-workspace-menu-groups',
     'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',
