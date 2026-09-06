@@ -1470,7 +1470,7 @@ function reconcileTagGroup(
 /**
  * 会话序列 → 对账项序列（沿用原 appendTagBlocks 的聚合语义）：
  * 置顶/无组会话平铺（key=`s:*`），同 tagId 的连续段聚成 tag 组壳
- * （key=`tag:*`，壳保活、内部递归对账）。主列表与回收站共用（行工厂不同）。
+ * （key=`tag:*`，壳保活、内部递归对账）。主列表用（回收站平铺不聚块）。
  */
 function tagBlockItems(
   container: HTMLElement,
@@ -1632,9 +1632,15 @@ function reconcileRecycleGroup(shell: HTMLElement, w: WorkspaceNodeModel): void 
       create: () => renderRecycleHead(w, collapsed),
     },
   ]
-  if (!collapsed) items.push(...tagBlockItems(shell, w.sessions, recycleRowItem))
+  if (!collapsed) {
+    // 回收站平铺（不按标签组聚块：纯层模型不传 tags，会话无 tagId；组内
+    // 直接平铺行 + 内容命中片段，与主列表非组块路径同款）。
+    for (const s of w.sessions) {
+      items.push(recycleRowItem(s, false))
+      if (s.contentSnippet) items.push(snippetItem(s))
+    }
+  }
   reconcileChildren(shell, items)
-  flushTagReconciles(shell)
 }
 
 /** 回收站顶层空态/提示项（与主列表分开的缓存，互不干扰保活判定）。 */
@@ -1702,13 +1708,7 @@ function pruneSessionSigs(snap: SessionsSnapshot | null): void {
       seenWs.add(w.workspaceId)
       collect(w.sessions)
     }
-    // 抽屉开着时回收站的 tag 头也吃同一份 tagHeadSigs 缓存：纳入 seen，
-    // 防主列表渲染把回收站的 tag 头签名顶掉（来回重建）。
-    if (recycleDrawer) {
-      for (const w of snap.recycleWorkspaces) {
-        for (const s of w.sessions) if (s.tagId !== undefined) seenTags.add(s.tagId)
-      }
-    }
+    // 回收站会话不渲染 tag 壳（平铺，模型层也不挂 tagId），无需纳入 seenTags。
   }
   // 顶层空态/提示项的 key 由本帧 items 决定——不在帧内出现的视为过期。
   const liveTopKeys = new Set(['empty:loading', 'empty:server', 'empty:group', 'empty:noworkspace', 'empty:nomatch', 'search:more', 'search:degraded', 'empty:loading-baseline'])
