@@ -7,7 +7,7 @@ const preset = (id: string, opts: Partial<AgentPresetLike> = {}): AgentPresetLik
 test('the four official system presets get localized labels and descriptions', () => {
   const options = resolveAgentPresets([
     preset('standard', { trust: 'system' }),
-    preset('code', { trust: 'system' }),
+    preset('ptc', { trust: 'system' }),
     preset('minimal', { trust: 'system' }),
     preset('cordis', { trust: 'system' }),
   ])
@@ -15,7 +15,7 @@ test('the four official system presets get localized labels and descriptions', (
     options.map((o) => [o.id, o.label]),
     [
       ['standard', 'Standard mode'],
-      ['code', 'PTC mode'],
+      ['ptc', 'PTC mode'],
       ['minimal', 'Minimal mode'],
       ['cordis', 'Cordis mode'],
     ],
@@ -38,7 +38,7 @@ test('built-in system map wins over roster copy (official presets localize via t
   // preset.yml 的固定中文原文透传进英文界面（8b06be8 的 roster 优先即因此）。
   const options = resolveAgentPresets([
     preset('standard', { trust: 'system', name: '标准模式', description: '功能完整的编码 Agent。' }),
-    preset('code', { trust: 'system', name: 'PTC 模式' }),
+    preset('ptc', { trust: 'system', name: 'PTC 模式' }),
   ])
   assert.deepEqual(options, [
     {
@@ -47,7 +47,7 @@ test('built-in system map wins over roster copy (official presets localize via t
       description: 'A full-featured coding agent: file editing, shell, file and web search, skills, plan, goals, subagents, and workflows.',
     },
     {
-      id: 'code',
+      id: 'ptc',
       label: 'PTC mode',
       description: 'All standard capabilities, with tools exposed through the Code Mode SDK so the model composes multi-step operations in one TypeScript program.',
     },
@@ -77,9 +77,11 @@ test('user presets always use their own name/description', () => {
 })
 
 test('broken rows and id-less entries drop out of the picker', () => {
+  // wire（agentPresets/list）的 broken 是原因文本；boolean true 是 shape 兼容保留。
   const options = resolveAgentPresets([
     preset('ok', { trust: 'user', name: 'OK' }),
-    preset('bad', { trust: 'system', broken: true }),
+    preset('bad', { trust: 'system', broken: 'preset.yml composition missing' }),
+    preset('worst', { trust: 'system', broken: true }),
     preset('', { trust: 'user' }),
   ])
   assert.deepEqual(options, [{ id: 'ok', label: 'OK' }])
@@ -91,14 +93,14 @@ test('defaultAgentPresetId prefers the isDefault row, else the first usable one'
     defaultAgentPresetId([preset('a'), preset('b', { isDefault: true }), preset('c')]),
     'b',
   )
-  // broken 的 isDefault 行不算，落到第一个可用行。
-  assert.equal(defaultAgentPresetId([preset('a'), preset('b', { isDefault: true, broken: true })]), 'a')
+  // broken（原因文本）的 isDefault 行不算，落到第一个可用行。
+  assert.equal(defaultAgentPresetId([preset('a'), preset('b', { isDefault: true, broken: 'composition missing' })]), 'a')
   assert.equal(defaultAgentPresetId([]), undefined)
 })
 
 test('agentPresetLabel localizes known system ids, passes others through', () => {
   assert.equal(agentPresetLabel('standard'), 'Standard mode')
-  assert.equal(agentPresetLabel('code'), 'PTC mode')
+  assert.equal(agentPresetLabel('ptc'), 'PTC mode')
   assert.equal(agentPresetLabel('minimal'), 'Minimal mode')
   assert.equal(agentPresetLabel('cordis'), 'Cordis mode')
   assert.equal(agentPresetLabel('my-custom'), 'my-custom')
@@ -106,7 +108,7 @@ test('agentPresetLabel localizes known system ids, passes others through', () =>
 
 test('agentPresetDescription returns Chinese copy for known system ids, undefined otherwise', () => {
   assert.equal(agentPresetDescription('standard')?.includes('A full-featured coding agent'), true)
-  assert.equal(agentPresetDescription('code')?.includes('Code Mode SDK'), true)
+  assert.equal(agentPresetDescription('ptc')?.includes('Code Mode SDK'), true)
   assert.equal(agentPresetDescription('minimal')?.includes('str_replace_editor'), true)
   assert.equal(agentPresetDescription('cordis')?.includes('authoring custom agent presets'), true)
   assert.equal(agentPresetDescription('my-custom'), undefined)

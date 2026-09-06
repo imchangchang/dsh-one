@@ -11,8 +11,11 @@ export interface AgentPresetLike {
   isDefault?: boolean
   name?: string
   description?: string
-  /** Broken rows never enter the picker. */
-  broken?: boolean
+  /**
+   * Why this preset cannot compose a session, absent when it can. The wire
+   * (agentPresets/list) sends a reason text; `true` kept for shape compatibility.
+   */
+  broken?: string | true
 }
 
 /** One picker option (chip label + dropdown row). */
@@ -29,7 +32,7 @@ const SYSTEM_PRESET_LABELS: Record<string, { label: string; description: string 
     description:
       'A full-featured coding agent: file editing, shell, file and web search, skills, plan, goals, subagents, and workflows.',
   },
-  code: {
+  ptc: {
     label: 'PTC mode',
     description:
       'All standard capabilities, with tools exposed through the Code Mode SDK so the model composes multi-step operations in one TypeScript program.',
@@ -61,7 +64,7 @@ export function resolveAgentPresets(
 ): AgentPresetOption[] {
   const options: AgentPresetOption[] = []
   for (const p of roster) {
-    if (p.broken === true || typeof p.id !== 'string' || p.id === '') continue
+    if (p.broken || typeof p.id !== 'string' || p.id === '') continue
     const known = p.trust === 'system' ? SYSTEM_PRESET_LABELS[p.id] : undefined
     const rosterName = typeof p.name === 'string' && p.name !== '' ? p.name : undefined
     const rosterDesc = typeof p.description === 'string' && p.description !== '' ? p.description : undefined
@@ -77,7 +80,7 @@ export function resolveAgentPresets(
 
 /** Roster 的默认行 id（broken 行不算）；没有 isDefault 时回退到第一个可选项。 */
 export function defaultAgentPresetId(roster: readonly AgentPresetLike[]): string | undefined {
-  const usable = roster.filter((p) => p.broken !== true && typeof p.id === 'string' && p.id !== '')
+  const usable = roster.filter((p) => !p.broken && typeof p.id === 'string' && p.id !== '')
   return (usable.find((p) => p.isDefault === true) ?? usable[0])?.id
 }
 
