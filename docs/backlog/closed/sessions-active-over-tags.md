@@ -25,3 +25,5 @@
 - 2026-09-06 认领（用户确认修改，开始开发）→ doing
 
 - 2026-09-06 开发完成（自测 614 项 + typecheck + build 过；ui-visual.sh 158 场景视觉核对过；沙盒 R-01 聊天链路回归过；报告 test/sandbox/verify.sessions-active-over-tags.report.html 6 项全 pass）→ done
+
+- 2026-09-06 主线合入（merge 提交见下，dev-merge 复测 typecheck/test/build 过，基线视觉冒烟进行中）→ closed
