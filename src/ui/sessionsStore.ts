@@ -477,6 +477,9 @@ export class SessionsStore implements vscode.Disposable {
       sessionTags,
     })
     store.unwatchFiles = io.watch(() => void store.reloadFromFiles())
+    // 补上 load→watch 之间可能错过的外部写入；无变化时 reload 内部逐模块比对
+    // 后跳过（不重建不通知），零成本。
+    void store.reloadFromFiles()
     return store
   }
 
