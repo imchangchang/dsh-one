@@ -341,10 +341,13 @@ export class SessionsStore implements vscode.Disposable {
     globalState: vscode.Memento,
     dir?: string,
   ): Promise<SessionsStore> {
-    const io = new DshStateStore(dir !== undefined ? { dir } : {})
+    const io = new DshStateStore({ ...(dir !== undefined ? { dir } : {}), log: logger })
     const snap = await io.load()
     const warn = (what: string): void =>
       logger.warn(`sessions store: migrate ${what} to ${io.dir} failed; legacy Memento keys kept for next launch`)
+    // 迁移/权威决策逐模块记 info——新旧版本切换的现场基本无法复现，只能靠日志定位。
+    const note = (msg: string): void => logger.info(`sessions store: ${msg}`)
+    note(`client-state dir: ${io.dir}`)
 
     // 回收站：文件权威；缺失时走 globalState(v2) → workspaceState(v1) 两级旧链。
     let recycleBin: string[]
@@ -352,6 +355,7 @@ export class SessionsStore implements vscode.Disposable {
       recycleBin = snap.recycleBin.sessionIds
       deleteLegacyKeys(globalState, [LEGACY_RECYCLE_BIN_KEY])
       deleteLegacyKeys(state, [LEGACY_RECYCLE_BIN_KEY])
+      note(`client-state[recycle-bin]: file authoritative (${recycleBin.length} ids); any legacy Memento keys cleared`)
     } else {
       const legacy = resolveRecycleIds(globalState.get(LEGACY_RECYCLE_BIN_KEY), state.get(LEGACY_RECYCLE_BIN_KEY))
       recycleBin = legacy.ids
@@ -363,10 +367,12 @@ export class SessionsStore implements vscode.Disposable {
         else {
           deleteLegacyKeys(globalState, [LEGACY_RECYCLE_BIN_KEY])
           deleteLegacyKeys(state, [LEGACY_RECYCLE_BIN_KEY])
+          note(`client-state[recycle-bin]: migrated ${ids.length} ids from legacy Memento to file; legacy keys deleted`)
         }
       } else {
         deleteLegacyKeys(globalState, [LEGACY_RECYCLE_BIN_KEY])
         deleteLegacyKeys(state, [LEGACY_RECYCLE_BIN_KEY])
+        note('client-state[recycle-bin]: no file, no legacy data — fresh start')
       }
     }
 
@@ -379,6 +385,9 @@ export class SessionsStore implements vscode.Disposable {
       groupMembership = snap.groups.membership
       activeGroupId = snap.groups.activeGroupId
       deleteLegacyKeys(globalState, [LEGACY_GROUPS_KEY, LEGACY_GROUP_MEMBERSHIP_KEY, LEGACY_ACTIVE_GROUP_KEY])
+      note(
+        `client-state[groups]: file authoritative (${groups.length} defs, ${Object.keys(groupMembership).length} workspaces, active=${activeGroupId}); any legacy Memento keys cleared`,
+      )
     } else {
       const legacy = resolveGroupFile(
         null,
@@ -402,9 +411,15 @@ export class SessionsStore implements vscode.Disposable {
           activeGroupId: prev.activeGroupId ?? value.activeGroupId,
         }))
         if (!ok) warn('groups')
-        else deleteLegacyKeys(globalState, [LEGACY_GROUPS_KEY, LEGACY_GROUP_MEMBERSHIP_KEY, LEGACY_ACTIVE_GROUP_KEY])
+        else {
+          deleteLegacyKeys(globalState, [LEGACY_GROUPS_KEY, LEGACY_GROUP_MEMBERSHIP_KEY, LEGACY_ACTIVE_GROUP_KEY])
+          note(
+            `client-state[groups]: migrated from legacy Memento to file (${value.groups.length} defs, ${Object.keys(value.membership).length} workspaces, active=${value.activeGroupId}); legacy keys deleted`,
+          )
+        }
       } else {
         deleteLegacyKeys(globalState, [LEGACY_GROUPS_KEY, LEGACY_GROUP_MEMBERSHIP_KEY, LEGACY_ACTIVE_GROUP_KEY])
+        note('client-state[groups]: no file, no legacy data — fresh start')
       }
     }
 
@@ -416,6 +431,9 @@ export class SessionsStore implements vscode.Disposable {
       tags = snap.tags.tags
       sessionTags = snap.tags.sessionTags
       deleteLegacyKeys(globalState, [LEGACY_TAGS_KEY, LEGACY_SESSION_TAGS_KEY])
+      note(
+        `client-state[tags]: file authoritative (${tags.length} defs, ${Object.keys(sessionTags).length} assignments); any legacy Memento keys cleared`,
+      )
     } else {
       const legacy = resolveTagFile(null, globalState.get(LEGACY_TAGS_KEY), globalState.get(LEGACY_SESSION_TAGS_KEY))
       tags = legacy.value.tags
@@ -428,7 +446,14 @@ export class SessionsStore implements vscode.Disposable {
           sessionTags: mergeSessionTags(prev.sessionTags, value.sessionTags),
         }))
         if (!ok) warn('tags')
-        else deleteLegacyKeys(globalState, [LEGACY_TAGS_KEY, LEGACY_SESSION_TAGS_KEY])
+        else {
+          deleteLegacyKeys(globalState, [LEGACY_TAGS_KEY, LEGACY_SESSION_TAGS_KEY])
+          note(
+            `client-state[tags]: migrated from legacy Memento to file (${value.tags.length} defs, ${Object.keys(value.sessionTags).length} assignments); legacy keys deleted`,
+          )
+        }
+      } else {
+        note('client-state[tags]: no file, no legacy data — fresh start (preset groups only, file created on first write)')
       }
     }
 
@@ -437,6 +462,7 @@ export class SessionsStore implements vscode.Disposable {
     if (snap.pinned !== null) {
       pinned = snap.pinned.sessionIds
       deleteLegacyKeys(state, [LEGACY_PINNED_KEY])
+      note(`client-state[pinned]: file authoritative (${pinned.length} ids); any legacy Memento keys cleared`)
     } else {
       const legacy = resolveIdList(null, state.get(LEGACY_PINNED_KEY))
       pinned = legacy.value
@@ -444,15 +470,20 @@ export class SessionsStore implements vscode.Disposable {
         const ids = legacy.value
         const ok = await io.updatePinned((prev) => mergeIdList(prev, ids))
         if (!ok) warn('pinned')
-        else deleteLegacyKeys(state, [LEGACY_PINNED_KEY])
+        else {
+          deleteLegacyKeys(state, [LEGACY_PINNED_KEY])
+          note(`client-state[pinned]: migrated ${ids.length} ids from legacy Memento to file; legacy keys deleted`)
+        }
       } else {
         deleteLegacyKeys(state, [LEGACY_PINNED_KEY])
+        note('client-state[pinned]: no file, no legacy data — fresh start')
       }
     }
     let unread: string[]
     if (snap.unread !== null) {
       unread = snap.unread.sessionIds
       deleteLegacyKeys(state, [LEGACY_UNREAD_KEY])
+      note(`client-state[unread]: file authoritative (${unread.length} ids); any legacy Memento keys cleared`)
     } else {
       const legacy = resolveIdList(null, state.get(LEGACY_UNREAD_KEY))
       unread = legacy.value
@@ -460,9 +491,13 @@ export class SessionsStore implements vscode.Disposable {
         const ids = legacy.value
         const ok = await io.updateUnread((prev) => mergeIdList(prev, ids))
         if (!ok) warn('unread')
-        else deleteLegacyKeys(state, [LEGACY_UNREAD_KEY])
+        else {
+          deleteLegacyKeys(state, [LEGACY_UNREAD_KEY])
+          note(`client-state[unread]: migrated ${ids.length} ids from legacy Memento to file; legacy keys deleted`)
+        }
       } else {
         deleteLegacyKeys(state, [LEGACY_UNREAD_KEY])
+        note('client-state[unread]: no file, no legacy data — fresh start')
       }
     }
 
@@ -1670,50 +1705,60 @@ export class SessionsStore implements vscode.Disposable {
    * 后会产生新的 watch 事件，避免读到写前旧值把内存态回退。
    */
   private async reloadFromFiles(): Promise<void> {
-    if (this.disposed || this.io.writePending) return
+    if (this.disposed) return
+    if (this.io.writePending) {
+      // 读到写前旧值会把内存态回退，跳过；写落定后的 watch 事件会补一次。
+      this.logger.info('sessions store: client-state reload skipped (own write in flight)')
+      return
+    }
     const snap = await this.io.load()
     if (this.disposed) return
-    let changed = false
+    const reloaded: string[] = []
     if (snap.recycleBin !== null && !sameIdList(snap.recycleBin.sessionIds, this.recycleBin)) {
       this.recycleBin = [...snap.recycleBin.sessionIds]
-      changed = true
+      reloaded.push('recycle-bin')
     }
     if (snap.pinned !== null && !sameIdList(snap.pinned.sessionIds, this.pinned)) {
       this.pinned = [...snap.pinned.sessionIds]
-      changed = true
+      reloaded.push('pinned')
     }
     if (snap.unread !== null) {
       const next = new Set(snap.unread.sessionIds)
       if (!sameStringSet(next, this.unread)) {
         this.unread = next
-        changed = true
+        reloaded.push('unread')
       }
     }
     if (snap.groups !== null) {
+      let groupsChanged = false
       if (!sameGroupDefs(snap.groups.groups, this.groups)) {
         this.groups = snap.groups.groups
-        changed = true
+        groupsChanged = true
       }
       if (!sameMembership(snap.groups.membership, this.groupMembership)) {
         this.groupMembership = snap.groups.membership
-        changed = true
+        groupsChanged = true
       }
       if (snap.groups.activeGroupId !== this.activeGroupId) {
         this.activeGroupId = snap.groups.activeGroupId
-        changed = true
+        groupsChanged = true
       }
+      if (groupsChanged) reloaded.push('groups')
     }
     if (snap.tags !== null) {
+      let tagsChanged = false
       if (!sameTagDefs(snap.tags.tags, this.tags)) {
         this.tags = snap.tags.tags
-        changed = true
+        tagsChanged = true
       }
       if (!sameSessionTags(snap.tags.sessionTags, this.sessionTags)) {
         this.sessionTags = snap.tags.sessionTags
-        changed = true
+        tagsChanged = true
       }
+      if (tagsChanged) reloaded.push('tags')
     }
-    if (!changed) return
+    if (reloaded.length === 0) return
+    this.logger.info(`sessions store: client-state reloaded from files: ${reloaded.join(', ')}`)
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }

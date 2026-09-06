@@ -52,6 +52,11 @@ export interface DshStateStoreOptions {
   dir?: string
   /** watch 事件防抖毫秒，默认 300；0 = 不防抖。 */
   watchDebounceMs?: number
+  /**
+   * 决策/失败日志出口（结构与 Logger 吻合，extension 直接传 logger；测试可不传）。
+   * 只记「难复现的现场」：迁移决策、写失败原因、坏文件、watch 状态——正常读写不记。
+   */
+  log?: { info(message: string): void; warn(message: string): void }
 }
 
 export class DshStateStore {
@@ -68,10 +73,20 @@ export class DshStateStore {
   private writeQueue: Promise<unknown> = Promise.resolve()
   /** 在途写操作数（>0 时调用方应暂缓重载——读到的可能是写前旧值）。 */
   private pendingWrites = 0
+  private readonly logSink: DshStateStoreOptions['log']
 
   constructor(opts: DshStateStoreOptions = {}) {
     this.dir = opts.dir ?? path.join(os.homedir(), '.dsh', 'dsh-one')
     this.watchDebounceMs = opts.watchDebounceMs ?? 300
+    this.logSink = opts.log
+  }
+
+  private info(message: string): void {
+    this.logSink?.info(`client-state: ${message}`)
+  }
+
+  private warn(message: string): void {
+    this.logSink?.warn(`client-state: ${message}`)
   }
 
   get writePending(): boolean {
@@ -82,28 +97,40 @@ export class DshStateStore {
     return path.join(this.dir, dshModuleFile(name))
   }
 
-  /** 读全部模块；坏文件/不存在 → null（宽松降级，绝不抛）。 */
+  /** 读全部模块；坏文件/不存在 → null（宽松降级，绝不抛；坏文件记 warn）。 */
   async load(): Promise<DshStateSnapshot> {
     const snapshot: DshStateSnapshot = { ...EMPTY_SNAPSHOT }
     await Promise.all(
       DSH_MODULE_NAMES.map(async (name) => {
         const value = await this.readRaw(name)
         if (value === null) return
+        const parsed =
+          name === 'groups'
+            ? parseGroupFile(value)
+            : name === 'tags'
+              ? parseTagFile(value)
+              : parseIdListFile(value)
+        if (parsed === null) {
+          this.warn(
+            `${this.modulePath(name)} exists but did not parse (bad JSON/shape/version) — treated as missing (legacy migration or in-memory keep)`,
+          )
+          return
+        }
         switch (name) {
           case 'recycle-bin':
-            snapshot.recycleBin = parseIdListFile(value)
+            snapshot.recycleBin = parsed as IdListFile
             break
           case 'pinned':
-            snapshot.pinned = parseIdListFile(value)
+            snapshot.pinned = parsed as IdListFile
             break
           case 'unread':
-            snapshot.unread = parseIdListFile(value)
+            snapshot.unread = parsed as IdListFile
             break
           case 'groups':
-            snapshot.groups = parseGroupFile(value)
+            snapshot.groups = parsed as GroupFile
             break
           case 'tags':
-            snapshot.tags = parseTagFile(value)
+            snapshot.tags = parsed as TagFile
             break
         }
       }),
@@ -132,8 +159,9 @@ export class DshStateStore {
       await fsp.writeFile(tmp, raw)
       await fsp.rename(tmp, file)
       return true
-    } catch {
+    } catch (err) {
       await fsp.rm(tmp, { force: true }).catch(() => undefined)
+      this.warn(`write ${file} failed: ${err instanceof Error ? err.message : String(err)}`)
       return false
     }
   }
@@ -180,7 +208,8 @@ export class DshStateStore {
         const next = mutator(prev)
         if (next === prev) return true
         return await this.writeFile(name, serializeIdListFile({ version: 1, sessionIds: next }))
-      } catch {
+      } catch (err) {
+        this.warn(`update ${name} failed: ${err instanceof Error ? err.message : String(err)}`)
         return false
       }
     })
@@ -194,7 +223,8 @@ export class DshStateStore {
         const next = mutator(prev)
         if (next === prev) return true
         return await this.writeFile('groups', serializeGroupFile(next))
-      } catch {
+      } catch (err) {
+        this.warn(`update groups failed: ${err instanceof Error ? err.message : String(err)}`)
         return false
       }
     })
@@ -208,7 +238,8 @@ export class DshStateStore {
         const next = mutator(prev)
         if (next === prev) return true
         return await this.writeFile('tags', serializeTagFile(next))
-      } catch {
+      } catch (err) {
+        this.warn(`update tags failed: ${err instanceof Error ? err.message : String(err)}`)
         return false
       }
     })
@@ -225,12 +256,15 @@ export class DshStateStore {
         // 热重载（写路径有自己的报错，不受影响）。
         fs.mkdirSync(this.dir, { recursive: true })
         this.watcher = fs.watch(this.dir, { persistent: false }, () => this.schedule())
-        this.watcher.on('error', () => {
+        this.watcher.on('error', (err) => {
+          this.warn(`watcher on ${this.dir} errored — hot reload disabled: ${err.message}`)
           this.watcher?.close()
           this.watcher = null
         })
-      } catch {
+        this.info(`watching ${this.dir} (hot reload on)`)
+      } catch (err) {
         this.watcher = null
+        this.warn(`cannot watch ${this.dir} — hot reload disabled: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
     return () => {

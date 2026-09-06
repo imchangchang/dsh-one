@@ -60,6 +60,21 @@ test('mutator returning prev unchanged skips the write (no file created)', async
   assert.deepEqual(await readdir(dir), [])
 })
 
+test('corrupt file load warns via log sink (现场可定位)', async () => {
+  const dir = await tmpDir()
+  await writeFile(path.join(dir, 'unread.json'), '{broken', 'utf8')
+  const logs: string[] = []
+  const io = new DshStateStore({
+    dir,
+    log: { info: (m) => logs.push(`info:${m}`), warn: (m) => logs.push(`warn:${m}`) },
+  })
+  await io.load()
+  assert.ok(
+    logs.some((l) => l.startsWith('warn:client-state:') && l.includes('unread.json')),
+    `expected corrupt-file warn, got ${JSON.stringify(logs)}`,
+  )
+})
+
 test('missing tags file: prev still carries preset tags (fresh-install assign-to-preset persists)', async () => {
   const dir = await tmpDir()
   const io = new DshStateStore({ dir })
