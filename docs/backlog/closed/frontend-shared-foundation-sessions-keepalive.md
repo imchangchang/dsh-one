@@ -56,3 +56,5 @@ chat webview（7556 行）与 sessions webview（3283 行）各自手写了一�
 - 2026-09-06 用户拍板（彻底优化 + 公共部分复用）→ open
 - 2026-09-06 认领（worktree: agent/frontend-shared-foundation）→ doing
 - 2026-09-06 开发完成：共享基座 ui/shared（reconcile/animPhase/composeGuard）落地 + 侧栏保活对账上线；探针实测折叠/展开/翻转滚动全保持；自测通过（typecheck/612 tests/build）+ 全量视觉回归 157 场景；ledger: test/sandbox/verify.frontend-shared-foundation.ledger.json → done
+
+- 2026-09-06 主线合入测试通过，人工确认 → closed（合入 4e6e646）

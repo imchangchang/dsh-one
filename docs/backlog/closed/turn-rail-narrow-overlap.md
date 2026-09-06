@@ -24,3 +24,5 @@
 - 2026-09-06 记录（实测重叠区间 + 官方方案对比）→ open
 - 2026-09-06 认领（worktree: agent/turn-rail-narrow-hide）→ doing
 - 2026-09-06 开发完成：@container(max-width:760px) 隐藏（阈值按最宽刻度 28px 精确推导，761px 刻度恰贴文字右缘实测）；自测通过（typecheck/612 tests/build）+ 全量视觉回归 158 场景；ledger: test/sandbox/verify.turn-rail-narrow-hide.ledger.json → done
+
+- 2026-09-06 主线合入测试通过，人工确认 → closed（合入 e016d3d）
