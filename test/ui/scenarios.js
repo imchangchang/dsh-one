@@ -1309,10 +1309,11 @@
       view: 'sessions',
       sessions: (() => {
         const s = window.sessionsTree('sess-4')
-        // 凑出可滚动列表：两组各 8 个会话。
-        s.workspaces[0].sessions = Array.from({ length: 8 }, (_, i) =>
+        // 凑出可滚动列表：两组各 20 个会话（折叠掉一组后剩余内容仍超一屏，
+        // scrollTop 才能合法保持——否则浏览器 clamp 归零不算回归）。
+        s.workspaces[0].sessions = Array.from({ length: 20 }, (_, i) =>
           sess(`main-${i}`, `主工作区会话 ${i}`, `${i + 1} 小时前`))
-        s.workspaces[1].sessions = Array.from({ length: 8 }, (_, i) =>
+        s.workspaces[1].sessions = Array.from({ length: 20 }, (_, i) =>
           sess(`res-${i}`, `调研会话 ${i}`, `${i + 2} 小时前`))
         window.__scenSnap = s
         return s
