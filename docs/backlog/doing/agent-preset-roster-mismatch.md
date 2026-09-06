@@ -26,3 +26,5 @@
 ## 变更记录
 
 - 2026-09-05 建档：调研 kimi-cli 复刻 preset 时核实定位，记入 open/。
+
+- 2026-09-06 认领（worktree: agent/agent-preset-roster-mismatch）→ doing
