@@ -22,3 +22,4 @@
 ## 变更记录
 
 - 2026-09-05 用户界面检查（Read read_image 后图片缺失）→ 视觉验证（harness 场景 data-URI vs 路径对照）→ 确认：路径图片不显示、data-URI 正常 → 建条目（open/）
+- 2026-09-06 认领（worktree: agent/tool-output-image-render）→ doing
