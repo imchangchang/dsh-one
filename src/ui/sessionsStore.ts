@@ -27,8 +27,6 @@ import {
   groupNameError,
   removeGroupId,
   reorderGroups,
-  sanitizeGroups,
-  sanitizeMembership,
   setWorkspaceGroupIds,
   type WorkspaceGroupDef as GroupDef,
 } from '../pure/workspaceGroups.ts'
@@ -39,8 +37,6 @@ import {
   nextCustomColor,
   removeTagFromAll,
   reorderTags as reorderTagsPure,
-  sanitizeSessionTagIds,
-  sanitizeTags,
   setSessionTagId,
   TAG_COLORS,
   tagDisplayName,
@@ -48,6 +44,17 @@ import {
   type SessionTagDef as TagDef,
   type TagColor,
 } from '../pure/sessionTags.ts'
+import { DshStateStore } from './dshStateStore.ts'
+import {
+  mergeGroupDefs,
+  mergeIdList,
+  mergeMembership,
+  mergeSessionTags,
+  mergeTagDefs,
+  resolveGroupFile,
+  resolveIdList,
+  resolveTagFile,
+} from '../pure/dshStateFile.ts'
 
 /** Map one session.list entry onto the pure-layer SessionInput. */
 function toSessionInput(s: SessionSummary): SessionInput {
@@ -78,40 +85,35 @@ const RECONNECT_MAX_MS = 30_000
  *  基线重拉，避免同一动作打多组全量 RPC。 */
 const REFRESH_DEBOUNCE_MS = 500
 
+/* ---- UI 展示偏好：留在 Memento，不进 dsh 目录（条目拍板） ---- */
 /** workspaceState key for the persisted sort preference (UI-only state). */
 const SORT_STATE_KEY = 'sessions.sortOrder'
-/** workspaceState keys for pinned sessions and collapsed workspaces (UI-only; dsh 无此概念）. */
-const PINNED_STATE_KEY = 'sessions.pinned'
+/** workspaceState key for collapsed workspaces（UI-only；dsh 无此概念）. */
 const COLLAPSED_STATE_KEY = 'sessions.collapsed'
-/** workspaceState key for manually unread-marked sessions (UI-only; dsh 无未读概念）. */
-const UNREAD_STATE_KEY = 'sessions.unread'
-/** globalState key for recycle-bin session ids（v2 起跨窗口共享；v1 同名 key 存
- *  workspaceState，per-workspace——新窗口读不到，回收站整集合丢失。旧值经
- *  resolveRecycleIds 一次性迁移后不再读 workspaceState）。 */
-const RECYCLE_BIN_STATE_KEY = 'sessions.recycleBin'
+/** workspaceState key for collapsed tag-group blocks（UI 偏好，与组内容无关）. */
+const TAG_COLLAPSED_STATE_KEY = 'sessions.tagCollapsed'
 /** globalState key for recycle view collapsed workspaces（与主列表折叠互不影响；
- *  v1 同名 key 存 workspaceState，迁移同 RECYCLE_BIN_STATE_KEY）。 */
+ *  v1 同名 key 存 workspaceState，构造器里做一次性 Memento→Memento 迁移）。 */
 const RECYCLE_COLLAPSED_STATE_KEY = 'sessions.recycleCollapsed'
 
-/**
- * 工作区分组状态（globalState，跨窗口/重启共享）：分组定义与顺序、
- * workspace↔组 归属、当前选中组。与上面的 workspaceState 偏好键
- * （排序/折叠/置顶/未读）分区，扩展开多窗口时两边互不覆盖。
- * 归组是纯客户端状态（dsh 无分组概念），与 pinned/unread 同性质。
- */
-const GROUPS_STATE_KEY = 'sessions.groups'
-const GROUP_MEMBERSHIP_STATE_KEY = 'sessions.groupMembership'
-const ACTIVE_GROUP_STATE_KEY = 'sessions.activeGroup'
-/**
- * 会话标签组状态（globalState，跨窗口/重启共享）：组定义（含预设组，名字
- * 走 l10n）与 sessionId → tagId 单组映射。与 workspace 分组同层同模式；
- * 纯客户端状态（dsh 无分组概念）。
- */
-const TAGS_STATE_KEY = 'sessions.tags'
-const SESSION_TAGS_STATE_KEY = 'sessions.sessionTags'
-/** workspaceState key for collapsed tag-group blocks（UI 偏好，per-workspace，
- *  与 workspace 组折叠同层——不跨窗口共享，与组内容无关）。 */
-const TAG_COLLAPSED_STATE_KEY = 'sessions.tagCollapsed'
+/* ---- 旧版 Memento key：本版本起这五组状态迁到 ~/.dsh/dsh-one/ 文件（权威存储，
+ *  跨窗口/重启共享），下列 key 只在 create() 迁移时回读，迁移成功后删除
+ *  （防陈旧态复活）。pinned/unread 旧值在 workspaceState（per-workspace），
+ *  迁文件后语义变为跨窗口全局共享（条目已拍板）。 ---- */
+/** recycleBin 旧 key：v2 在 globalState，v1 同名 key 在 workspaceState（迁移链两级都查）。 */
+const LEGACY_RECYCLE_BIN_KEY = 'sessions.recycleBin'
+const LEGACY_GROUPS_KEY = 'sessions.groups'
+const LEGACY_GROUP_MEMBERSHIP_KEY = 'sessions.groupMembership'
+const LEGACY_ACTIVE_GROUP_KEY = 'sessions.activeGroup'
+const LEGACY_TAGS_KEY = 'sessions.tags'
+const LEGACY_SESSION_TAGS_KEY = 'sessions.sessionTags'
+const LEGACY_PINNED_KEY = 'sessions.pinned'
+const LEGACY_UNREAD_KEY = 'sessions.unread'
+
+/** 迁移落定后删旧 Memento key（update(key, undefined) = 删除；fire-and-forget）。 */
+function deleteLegacyKeys(memento: vscode.Memento, keys: readonly string[]): void {
+  for (const key of keys) void memento.update(key, undefined)
+}
 
 
 /**
@@ -163,6 +165,20 @@ export interface SessionsStoreSnapshot {
 }
 
 /**
+ * create() 解析出的五组文件权威状态（已含旧 Memento 迁移结果），构造器直接采用。
+ */
+export interface SessionsBootstrap {
+  recycleBin: string[]
+  pinned: string[]
+  unread: string[]
+  groups: GroupDef[]
+  groupMembership: Record<string, string[]>
+  activeGroupId: string | null
+  tags: TagDef[]
+  sessionTags: Record<string, string>
+}
+
+/**
  * Sessions 数据层：原 SessionTreeProvider 去掉 vscode TreeItem 后的纯数据部分。
  * 服务运行时以 workspace.list + session.list 为基线缓存，host 事件逐帧增量
  * 维护（对齐官方 dsh-client-runtime：帧载荷自带增量所需的全部字段，不再
@@ -183,24 +199,26 @@ export class SessionsStore implements vscode.Disposable {
   private rawArchived: ReadonlySet<string> = new Set()
   private sortOrder: SessionSortOrder = 'updatedDesc'
   private query: string | null = null
-  /** 置顶会话 id（保持置顶顺序：数组越靠前置顶越早/越优先；dsh 无置顶 API，纯本地 UI 状态）。 */
+  /** 置顶会话 id（保持置顶顺序：数组越靠前置顶越早/越优先；dsh 无置顶 API，
+   *  纯客户端状态，~/.dsh/dsh-one/pinned.json 持久化）。 */
   private pinned: string[] = []
   private collapsed = new Set<string>()
   private unread = new Set<string>()
-  /** 回收站会话 id（与 pinned 同为纯本地 UI 态：移入/恢复只改本地集合，不碰 dsh）。 */
+  /** 回收站会话 id（与 pinned 同为纯客户端态：移入/恢复只改本地集合，不碰 dsh；
+   *  recycle-bin.json 持久化）。 */
   private recycleBin: string[] = []
-  /** 回收站视图的折叠组（独立于主列表 collapsed，互不影响）。 */
+  /** 回收站视图的折叠组（独立于主列表 collapsed，互不影响；Memento UI 偏好）。 */
   private recycleCollapsed = new Set<string>()
-  /** 工作区分组定义（globalState 持久化；数组顺序 = 展示顺序）。 */
+  /** 工作区分组定义（groups.json 持久化；数组顺序 = 展示顺序）。 */
   private groups: GroupDef[] = []
-  /** workspaceId → 组 id 列表（多对多，globalState 持久化）。 */
+  /** workspaceId → 组 id 列表（多对多，groups.json 持久化）。 */
   private groupMembership: Record<string, string[]> = {}
-  /** 当前选中的分组 id；null = 全部工作区。（globalState 持久化） */
+  /** 当前选中的分组 id；null = 全部工作区（groups.json 持久化）。 */
   private activeGroupId: string | null = null
-  /** 会话标签组定义（globalState 持久化；数组顺序 = 展示顺序，用户可拖拽排序）：
+  /** 会话标签组定义（tags.json 持久化；数组顺序 = 展示顺序，用户可拖拽排序）：
    *  预设组名字为 null（按 l10n 出），自定义组为用户原文。 */
   private tags: TagDef[] = []
-  /** sessionId → 标签组 id（单组；globalState 持久化，dsh 无概念，纯客户端状态）。 */
+  /** sessionId → 标签组 id（单组；tags.json 持久化，dsh 无概念，纯客户端状态）。 */
   private sessionTags: Record<string, string> = {}
   /** 折叠的标签组块 id（UI 偏好，workspaceState 持久化；与组内容无关）。 */
   private tagCollapsed = new Set<string>()
@@ -260,6 +278,8 @@ export class SessionsStore implements vscode.Disposable {
   private reconnectAttempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private disposed = false
+  /** 目录监视退订（create 接线；dispose 时调用）。 */
+  private unwatchFiles: (() => void) | null = null
   private readonly stateSub: vscode.Disposable
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>()
   /** Fired after every model rebuild (refresh, sort, query, server down). */
@@ -268,64 +288,196 @@ export class SessionsStore implements vscode.Disposable {
   constructor(
     private readonly manager: ServerManager,
     private readonly logger: Logger,
-    private readonly state?: vscode.Memento,
-    /** globalState（分组状态用，跨窗口共享；与 workspaceState 偏好键分区）。 */
-    private readonly globalState?: vscode.Memento,
+    private readonly state: vscode.Memento,
+    private readonly globalState: vscode.Memento,
+    /** ~/.dsh/dsh-one/ 文件 IO（五组客户端状态的权威存储）；UI 偏好仍走 Memento。 */
+    private readonly io: DshStateStore,
+    bootstrap: SessionsBootstrap,
   ) {
-    const savedSort = state?.get<string>(SORT_STATE_KEY)
+    // UI 展示偏好（Memento，不搬）：排序、折叠、回收站折叠、标签组折叠。
+    const savedSort = state.get<string>(SORT_STATE_KEY)
     if (savedSort === 'updatedDesc' || savedSort === 'updatedAsc' || savedSort === 'title') {
       this.sortOrder = savedSort
     }
-    this.pinned = state?.get<string[]>(PINNED_STATE_KEY) ?? []
-    this.collapsed = new Set(state?.get<string[]>(COLLAPSED_STATE_KEY) ?? [])
+    this.collapsed = new Set(state.get<string[]>(COLLAPSED_STATE_KEY) ?? [])
     // 清掉历史版本可能残留的「未分组」折叠键（虚拟组恒展开，不应进集合）。
     this.collapsed.delete(UNGROUPED_WORKSPACE_ID)
-    this.unread = new Set(state?.get<string[]>(UNREAD_STATE_KEY) ?? [])
-    // 回收站状态 v2 起存 globalState（跨窗口/重启共享，与分组功能同层）。
-    // 旧版存 workspaceState（per-workspace），此处做一次性迁移：globalState
-    // 有值（哪怕空数组）就以它为准——升级后所有写入都只走 globalState；
-    // 否则回读 workspaceState 旧值写回新 key。旧 key 无论是否迁移都删除，
-    // 避免陈旧态在以后的窗口里复活。
-    const recycled = resolveRecycleIds(
-      globalState?.get(RECYCLE_BIN_STATE_KEY),
-      state?.get(RECYCLE_BIN_STATE_KEY),
-    )
-    this.recycleBin = recycled.ids
-    if (recycled.fromLegacy) void this.globalState?.update(RECYCLE_BIN_STATE_KEY, [...this.recycleBin])
-    void state?.update(RECYCLE_BIN_STATE_KEY, undefined)
+    // 回收站折叠的 v1→v2（workspaceState→globalState，Memento 内部迁移，原样保留）。
     const recycledCollapsed = resolveRecycleIds(
-      globalState?.get(RECYCLE_COLLAPSED_STATE_KEY),
-      state?.get(RECYCLE_COLLAPSED_STATE_KEY),
+      globalState.get(RECYCLE_COLLAPSED_STATE_KEY),
+      state.get(RECYCLE_COLLAPSED_STATE_KEY),
     )
     this.recycleCollapsed = new Set(recycledCollapsed.ids)
     if (recycledCollapsed.fromLegacy) {
-      void this.globalState?.update(RECYCLE_COLLAPSED_STATE_KEY, [...recycledCollapsed.ids])
+      void this.globalState.update(RECYCLE_COLLAPSED_STATE_KEY, [...recycledCollapsed.ids])
     }
-    void state?.update(RECYCLE_COLLAPSED_STATE_KEY, undefined)
+    void state.update(RECYCLE_COLLAPSED_STATE_KEY, undefined)
     this.recycleCollapsed.delete(UNGROUPED_WORKSPACE_ID)
-    // 分组状态从 globalState 载入（跨窗口共享）；activeGroup 落到未知组时
-    // 回落「全部工作区」（组被删/数据残余的兜底，与删除时的回落同规则）。
-    this.groups = sanitizeGroups(globalState?.get<unknown>(GROUPS_STATE_KEY))
-    const groupIds = new Set(this.groups.map((g) => g.id))
-    this.groupMembership = sanitizeMembership(globalState?.get<unknown>(GROUP_MEMBERSHIP_STATE_KEY), groupIds)
-    const savedActive = globalState?.get<unknown>(ACTIVE_GROUP_STATE_KEY)
-    this.activeGroupId = typeof savedActive === 'string' && groupIds.has(savedActive) ? savedActive : null
-    // 标签组：载入并清洗（缺失的预设组补齐）；首次（key 不存在/非数组）把
-    // seed 结果写回，之后的顺序完全由用户拖拽决定，load 只清洗不再重排。
-    const rawTags = globalState?.get<unknown>(TAGS_STATE_KEY)
-    this.tags = sanitizeTags(rawTags)
-    const tagIds = new Set(this.tags.map((t) => t.id))
-    this.sessionTags = sanitizeSessionTagIds(
-      globalState?.get<unknown>(SESSION_TAGS_STATE_KEY),
-      tagIds,
-    )
-    if (!Array.isArray(rawTags)) {
-      void this.globalState?.update(TAGS_STATE_KEY, this.tags)
-    }
     // 标签组块折叠偏好（workspaceState；未知组 id 无碍，渲染时按需判断）。
-    this.tagCollapsed = new Set(state?.get<string[]>(TAG_COLLAPSED_STATE_KEY) ?? [])
+    this.tagCollapsed = new Set(state.get<string[]>(TAG_COLLAPSED_STATE_KEY) ?? [])
+    // 文件权威的五组状态：create 已完成读盘与旧 Memento 迁移，这里直接采用。
+    this.recycleBin = [...bootstrap.recycleBin]
+    this.pinned = [...bootstrap.pinned]
+    this.unread = new Set(bootstrap.unread)
+    this.groups = bootstrap.groups
+    this.groupMembership = bootstrap.groupMembership
+    this.activeGroupId = bootstrap.activeGroupId
+    this.tags = bootstrap.tags
+    this.sessionTags = bootstrap.sessionTags
     this.stateSub = manager.onDidChangeState((status) => this.onStateChange(status))
     this.onStateChange(manager.getStatus())
+  }
+
+  /**
+   * 异步构造入口（extension activate 里 await）：读 ~/.dsh/dsh-one/ 全部模块 →
+   * 文件缺失的模块从旧 Memento 一次性迁移（字段级合并写盘；写成功后删旧 key
+   * 防陈旧态复活，写失败保留旧 key 下次启动重试）→ 建 store → watch 目录
+   * （派生脚本/其它窗口写文件后热重载）。dir 仅测试用（覆盖默认目录）。
+   */
+  static async create(
+    manager: ServerManager,
+    logger: Logger,
+    state: vscode.Memento,
+    globalState: vscode.Memento,
+    dir?: string,
+  ): Promise<SessionsStore> {
+    const io = new DshStateStore(dir !== undefined ? { dir } : {})
+    const snap = await io.load()
+    const warn = (what: string): void =>
+      logger.warn(`sessions store: migrate ${what} to ${io.dir} failed; legacy Memento keys kept for next launch`)
+
+    // 回收站：文件权威；缺失时走 globalState(v2) → workspaceState(v1) 两级旧链。
+    let recycleBin: string[]
+    if (snap.recycleBin !== null) {
+      recycleBin = snap.recycleBin.sessionIds
+      deleteLegacyKeys(globalState, [LEGACY_RECYCLE_BIN_KEY])
+      deleteLegacyKeys(state, [LEGACY_RECYCLE_BIN_KEY])
+    } else {
+      const legacy = resolveRecycleIds(globalState.get(LEGACY_RECYCLE_BIN_KEY), state.get(LEGACY_RECYCLE_BIN_KEY))
+      recycleBin = legacy.ids
+      if (legacy.ids.length > 0) {
+        const ids = legacy.ids
+        // 合并而非覆盖：另一 user-data 的窗口可能同时在做自己的迁移。
+        const ok = await io.updateRecycleBin((prev) => mergeIdList(prev, ids))
+        if (!ok) warn('recycle-bin')
+        else {
+          deleteLegacyKeys(globalState, [LEGACY_RECYCLE_BIN_KEY])
+          deleteLegacyKeys(state, [LEGACY_RECYCLE_BIN_KEY])
+        }
+      } else {
+        deleteLegacyKeys(globalState, [LEGACY_RECYCLE_BIN_KEY])
+        deleteLegacyKeys(state, [LEGACY_RECYCLE_BIN_KEY])
+      }
+    }
+
+    // 工作区分组三件套（定义/归属/选中组）：旧值全在 globalState。
+    let groups: GroupDef[]
+    let groupMembership: Record<string, string[]>
+    let activeGroupId: string | null
+    if (snap.groups !== null) {
+      groups = snap.groups.groups
+      groupMembership = snap.groups.membership
+      activeGroupId = snap.groups.activeGroupId
+      deleteLegacyKeys(globalState, [LEGACY_GROUPS_KEY, LEGACY_GROUP_MEMBERSHIP_KEY, LEGACY_ACTIVE_GROUP_KEY])
+    } else {
+      const legacy = resolveGroupFile(
+        null,
+        globalState.get(LEGACY_GROUPS_KEY),
+        globalState.get(LEGACY_GROUP_MEMBERSHIP_KEY),
+        globalState.get(LEGACY_ACTIVE_GROUP_KEY),
+      )
+      groups = legacy.value.groups
+      groupMembership = legacy.value.membership
+      activeGroupId = legacy.value.activeGroupId
+      const hasData =
+        legacy.value.groups.length > 0 ||
+        Object.keys(legacy.value.membership).length > 0 ||
+        legacy.value.activeGroupId !== null
+      if (legacy.fromLegacy && hasData) {
+        const value = legacy.value
+        const ok = await io.updateGroups((prev) => ({
+          ...prev,
+          groups: mergeGroupDefs(prev.groups, value.groups),
+          membership: mergeMembership(prev.membership, value.membership),
+          activeGroupId: prev.activeGroupId ?? value.activeGroupId,
+        }))
+        if (!ok) warn('groups')
+        else deleteLegacyKeys(globalState, [LEGACY_GROUPS_KEY, LEGACY_GROUP_MEMBERSHIP_KEY, LEGACY_ACTIVE_GROUP_KEY])
+      } else {
+        deleteLegacyKeys(globalState, [LEGACY_GROUPS_KEY, LEGACY_GROUP_MEMBERSHIP_KEY, LEGACY_ACTIVE_GROUP_KEY])
+      }
+    }
+
+    // 会话标签组：fromLegacy 即落盘——哪怕只有预设组 seed 也写（对齐旧版
+    // 「首启把 seed 写回 Memento」的行为，文件从此权威）。
+    let tags: TagDef[]
+    let sessionTags: Record<string, string>
+    if (snap.tags !== null) {
+      tags = snap.tags.tags
+      sessionTags = snap.tags.sessionTags
+      deleteLegacyKeys(globalState, [LEGACY_TAGS_KEY, LEGACY_SESSION_TAGS_KEY])
+    } else {
+      const legacy = resolveTagFile(null, globalState.get(LEGACY_TAGS_KEY), globalState.get(LEGACY_SESSION_TAGS_KEY))
+      tags = legacy.value.tags
+      sessionTags = legacy.value.sessionTags
+      if (legacy.fromLegacy) {
+        const value = legacy.value
+        const ok = await io.updateTags((prev) => ({
+          ...prev,
+          tags: mergeTagDefs(prev.tags, value.tags),
+          sessionTags: mergeSessionTags(prev.sessionTags, value.sessionTags),
+        }))
+        if (!ok) warn('tags')
+        else deleteLegacyKeys(globalState, [LEGACY_TAGS_KEY, LEGACY_SESSION_TAGS_KEY])
+      }
+    }
+
+    // pinned/unread：旧值在 workspaceState（per-workspace），迁文件后全局共享。
+    let pinned: string[]
+    if (snap.pinned !== null) {
+      pinned = snap.pinned.sessionIds
+      deleteLegacyKeys(state, [LEGACY_PINNED_KEY])
+    } else {
+      const legacy = resolveIdList(null, state.get(LEGACY_PINNED_KEY))
+      pinned = legacy.value
+      if (legacy.value.length > 0) {
+        const ids = legacy.value
+        const ok = await io.updatePinned((prev) => mergeIdList(prev, ids))
+        if (!ok) warn('pinned')
+        else deleteLegacyKeys(state, [LEGACY_PINNED_KEY])
+      } else {
+        deleteLegacyKeys(state, [LEGACY_PINNED_KEY])
+      }
+    }
+    let unread: string[]
+    if (snap.unread !== null) {
+      unread = snap.unread.sessionIds
+      deleteLegacyKeys(state, [LEGACY_UNREAD_KEY])
+    } else {
+      const legacy = resolveIdList(null, state.get(LEGACY_UNREAD_KEY))
+      unread = legacy.value
+      if (legacy.value.length > 0) {
+        const ids = legacy.value
+        const ok = await io.updateUnread((prev) => mergeIdList(prev, ids))
+        if (!ok) warn('unread')
+        else deleteLegacyKeys(state, [LEGACY_UNREAD_KEY])
+      } else {
+        deleteLegacyKeys(state, [LEGACY_UNREAD_KEY])
+      }
+    }
+
+    const store = new SessionsStore(manager, logger, state, globalState, io, {
+      recycleBin,
+      pinned,
+      unread,
+      groups,
+      groupMembership,
+      activeGroupId,
+      tags,
+      sessionTags,
+    })
+    store.unwatchFiles = io.watch(() => void store.reloadFromFiles())
+    return store
   }
 
   /** Base URL while running, else null — for the command handlers. */
@@ -467,18 +619,15 @@ export class SessionsStore implements vscode.Disposable {
     return groupMembershipCount(this.groupMembership, groupId, currentIds)
   }
 
-  /* ---- 工作区分组（客户端状态，globalState 持久化） ---- */
+  /* ---- 工作区分组（客户端状态，groups.json 持久化） ----
+   * 持久化全部走「读文件 → 增量合并 → 原子写回」（io.update*，mutator 只表达
+   * 本次意图的增量，作用于文件最新值而非内存态——另一窗口/派生脚本写进文件的
+   * 条目不会被覆盖）；写失败只 warn，内存态照常（下次写/热重载会追平）。 */
 
-  private persistGroups(): void {
-    void this.globalState?.update(GROUPS_STATE_KEY, this.groups)
-  }
-
-  private persistMembership(): void {
-    void this.globalState?.update(GROUP_MEMBERSHIP_STATE_KEY, this.groupMembership)
-  }
-
-  private persistActiveGroup(): void {
-    void this.globalState?.update(ACTIVE_GROUP_STATE_KEY, this.activeGroupId)
+  private persistAck(ok: Promise<boolean>, what: string): void {
+    void ok.then((success) => {
+      if (!success) this.logger.warn(`sessions store: persist ${what} to ${this.io.dir} failed`)
+    })
   }
 
   /** 新建分组：名称 trim 后非空且不重名；成功返回组定义，失败返回 null。
@@ -487,7 +636,14 @@ export class SessionsStore implements vscode.Disposable {
     if (groupNameError(name, this.groups) !== null) return null
     const group: GroupDef = { id: `g-${randomUUID()}`, name: name.trim() }
     this.groups = [...this.groups, group]
-    this.persistGroups()
+    this.persistAck(
+      this.io.updateGroups((prev) => {
+        // 文件里可能已有另一窗口/脚本建的同名组——重名不追加（与内存校验同规则）。
+        if (prev.groups.some((g) => g.id === group.id || g.name === group.name)) return prev
+        return { ...prev, groups: [...prev.groups, group] }
+      }),
+      'groups',
+    )
     this.onDidChangeEmitter.fire()
     return group
   }
@@ -499,7 +655,13 @@ export class SessionsStore implements vscode.Disposable {
     const trimmed = name.trim()
     if (this.groups.find((g) => g.id === groupId)!.name === trimmed) return true
     this.groups = this.groups.map((g) => (g.id === groupId ? { ...g, name: trimmed } : g))
-    this.persistGroups()
+    this.persistAck(
+      this.io.updateGroups((prev) => {
+        if (!prev.groups.some((g) => g.id === groupId)) return prev
+        return { ...prev, groups: prev.groups.map((g) => (g.id === groupId ? { ...g, name: trimmed } : g)) }
+      }),
+      'groups',
+    )
     this.onDidChangeEmitter.fire()
     return true
   }
@@ -508,16 +670,25 @@ export class SessionsStore implements vscode.Disposable {
   deleteGroup(groupId: string): void {
     if (!this.groups.some((g) => g.id === groupId)) return
     this.groups = this.groups.filter((g) => g.id !== groupId)
-    this.persistGroups()
     const nextMembership = removeGroupId(this.groupMembership, groupId)
     if (nextMembership !== this.groupMembership) {
       this.groupMembership = nextMembership
-      this.persistMembership()
     }
     if (this.activeGroupId === groupId) {
       this.activeGroupId = null
-      this.persistActiveGroup()
     }
+    this.persistAck(
+      this.io.updateGroups((prev) => {
+        if (!prev.groups.some((g) => g.id === groupId)) return prev
+        return {
+          ...prev,
+          groups: prev.groups.filter((g) => g.id !== groupId),
+          membership: removeGroupId(prev.membership, groupId),
+          activeGroupId: prev.activeGroupId === groupId ? null : prev.activeGroupId,
+        }
+      }),
+      'groups',
+    )
     this.onDidChangeEmitter.fire()
   }
 
@@ -527,7 +698,14 @@ export class SessionsStore implements vscode.Disposable {
     const next = setWorkspaceGroupIds(this.groupMembership, workspaceId, groupIds, known)
     if (next === null) return
     this.groupMembership = next
-    this.persistMembership()
+    this.persistAck(
+      this.io.updateGroups((prev) => {
+        const prevKnown = new Set(prev.groups.map((g) => g.id))
+        const membership = setWorkspaceGroupIds(prev.membership, workspaceId, groupIds, prevKnown)
+        return membership === null ? prev : { ...prev, membership }
+      }),
+      'groups',
+    )
     this.onDidChangeEmitter.fire()
   }
 
@@ -536,7 +714,10 @@ export class SessionsStore implements vscode.Disposable {
     const next = groupId !== null && this.groups.some((g) => g.id === groupId) ? groupId : null
     if (next === this.activeGroupId) return
     this.activeGroupId = next
-    this.persistActiveGroup()
+    this.persistAck(
+      this.io.updateGroups((prev) => (prev.activeGroupId === next ? prev : { ...prev, activeGroupId: next })),
+      'groups',
+    )
     this.onDidChangeEmitter.fire()
   }
 
@@ -545,19 +726,17 @@ export class SessionsStore implements vscode.Disposable {
     const next = reorderGroups(this.groups, groupIds)
     if (next === null) return
     this.groups = next
-    this.persistGroups()
+    this.persistAck(
+      this.io.updateGroups((prev) => {
+        const groups = reorderGroups(prev.groups, groupIds)
+        return groups === null ? prev : { ...prev, groups }
+      }),
+      'groups',
+    )
     this.onDidChangeEmitter.fire()
   }
 
-  /* ---- 会话标签组（客户端状态，globalState 持久化；单组语义） ---- */
-
-  private persistTags(): void {
-    void this.globalState?.update(TAGS_STATE_KEY, this.tags)
-  }
-
-  private persistSessionTags(): void {
-    void this.globalState?.update(SESSION_TAGS_STATE_KEY, this.sessionTags)
-  }
+  /* ---- 会话标签组（客户端状态，tags.json 持久化；单组语义） ---- */
 
   /** 新建自建组：名称 trim 后非空且不与自建组重名；颜色未指定时轮换。
    *  返回组定义；失败（空名/重名）返回 null——webview 已做同款校验，这里兜底。 */
@@ -565,7 +744,14 @@ export class SessionsStore implements vscode.Disposable {
     if (tagNameError(name, this.tags) !== null) return null
     const tag: TagDef = { id: `t-${randomUUID()}`, name: name.trim(), color: color ?? nextCustomColor(this.tags) }
     this.tags = [...this.tags, tag]
-    this.persistTags()
+    this.persistAck(
+      this.io.updateTags((prev) => {
+        // 文件里可能已有派生脚本/另一窗口建的同名组——重名不追加。
+        if (prev.tags.some((t) => t.id === tag.id || (t.name !== null && t.name === tag.name))) return prev
+        return { ...prev, tags: [...prev.tags, tag] }
+      }),
+      'tags',
+    )
     // 组顺序是树的重建输入（组块聚合序），新组立即参与显示。
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
@@ -581,7 +767,13 @@ export class SessionsStore implements vscode.Disposable {
     const trimmed = name.trim()
     if (tag.name === trimmed) return true
     this.tags = this.tags.map((t) => (t.id === tagId ? { ...t, name: trimmed } : t))
-    this.persistTags()
+    this.persistAck(
+      this.io.updateTags((prev) => {
+        if (!prev.tags.some((t) => t.id === tagId)) return prev
+        return { ...prev, tags: prev.tags.map((t) => (t.id === tagId ? { ...t, name: trimmed } : t)) }
+      }),
+      'tags',
+    )
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
     return true
@@ -593,7 +785,13 @@ export class SessionsStore implements vscode.Disposable {
     const tag = this.tags.find((t) => t.id === tagId)
     if (!tag || tag.color === color) return
     this.tags = this.tags.map((t) => (t.id === tagId ? { ...t, color } : t))
-    this.persistTags()
+    this.persistAck(
+      this.io.updateTags((prev) => {
+        if (!prev.tags.some((t) => t.id === tagId)) return prev
+        return { ...prev, tags: prev.tags.map((t) => (t.id === tagId ? { ...t, color } : t)) }
+      }),
+      'tags',
+    )
     this.onDidChangeEmitter.fire()
   }
 
@@ -602,12 +800,21 @@ export class SessionsStore implements vscode.Disposable {
     const tag = this.tags.find((t) => t.id === tagId)
     if (!tag || isPresetTag(tag)) return
     this.tags = this.tags.filter((t) => t.id !== tagId)
-    this.persistTags()
     const next = removeTagFromAll(this.sessionTags, tagId)
     if (next !== this.sessionTags) {
       this.sessionTags = next
-      this.persistSessionTags()
     }
+    this.persistAck(
+      this.io.updateTags((prev) => {
+        if (!prev.tags.some((t) => t.id === tagId)) return prev
+        return {
+          ...prev,
+          tags: prev.tags.filter((t) => t.id !== tagId),
+          sessionTags: removeTagFromAll(prev.sessionTags, tagId),
+        }
+      }),
+      'tags',
+    )
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -619,7 +826,14 @@ export class SessionsStore implements vscode.Disposable {
     const next = setSessionTagId(this.sessionTags, sessionId, tagId, known)
     if (next === null) return
     this.sessionTags = next
-    this.persistSessionTags()
+    this.persistAck(
+      this.io.updateTags((prev) => {
+        const prevKnown = new Set(prev.tags.map((t) => t.id))
+        const sessionTags = setSessionTagId(prev.sessionTags, sessionId, tagId, prevKnown)
+        return sessionTags === null ? prev : { ...prev, sessionTags }
+      }),
+      'tags',
+    )
     // 打组改变会话在树里的聚合（tagId/组块顺序），必须重建模型——只 fire
     // 通知会让快照推回旧模型（列表不刷新，等下一个 60s tick 才生效）。
     this.rebuildModel()
@@ -638,7 +852,18 @@ export class SessionsStore implements vscode.Disposable {
     }
     if (next === this.sessionTags) return
     this.sessionTags = next
-    this.persistSessionTags()
+    this.persistAck(
+      this.io.updateTags((prev) => {
+        const prevKnown = new Set(prev.tags.map((t) => t.id))
+        let sessionTags = prev.sessionTags
+        for (const id of sessionIds) {
+          const changed = setSessionTagId(sessionTags, id, tagId, prevKnown)
+          if (changed !== null) sessionTags = changed
+        }
+        return sessionTags === prev.sessionTags ? prev : { ...prev, sessionTags }
+      }),
+      'tags',
+    )
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -648,7 +873,13 @@ export class SessionsStore implements vscode.Disposable {
     const next = reorderTagsPure(this.tags, tagIds)
     if (next === null) return
     this.tags = next
-    this.persistTags()
+    this.persistAck(
+      this.io.updateTags((prev) => {
+        const tags = reorderTagsPure(prev.tags, tagIds)
+        return tags === null ? prev : { ...prev, tags }
+      }),
+      'tags',
+    )
     // 组顺序改变组块聚合顺序，同样需要重建模型。
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
@@ -659,7 +890,7 @@ export class SessionsStore implements vscode.Disposable {
     const changed = collapsed ? !this.tagCollapsed.has(tagId) : this.tagCollapsed.delete(tagId)
     if (collapsed) this.tagCollapsed.add(tagId)
     if (!changed) return
-    void this.state?.update(TAG_COLLAPSED_STATE_KEY, [...this.tagCollapsed])
+    void this.state.update(TAG_COLLAPSED_STATE_KEY, [...this.tagCollapsed])
     // 折叠是展示态（不动会话树模型），只需通知快照。
     this.onDidChangeEmitter.fire()
   }
@@ -692,7 +923,17 @@ export class SessionsStore implements vscode.Disposable {
       if (idx === -1) return
       this.pinned.splice(idx, 1)
     }
-    void this.state?.update(PINNED_STATE_KEY, [...this.pinned])
+    this.persistAck(
+      this.io.updatePinned((prev) => {
+        const rest = prev.filter((id) => id !== sessionId)
+        if (pin) {
+          if (prev.length > 0 && prev[0] === sessionId) return prev
+          return [sessionId, ...rest]
+        }
+        return rest.length === prev.length ? prev : rest
+      }),
+      'pinned',
+    )
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -702,26 +943,30 @@ export class SessionsStore implements vscode.Disposable {
     const changed = unread ? !this.unread.has(sessionId) : this.unread.delete(sessionId)
     if (unread) this.unread.add(sessionId)
     if (!changed) return
-    void this.state?.update(UNREAD_STATE_KEY, [...this.unread])
+    this.persistAck(
+      this.io.updateUnread((prev) => {
+        if (unread) return prev.includes(sessionId) ? prev : [...prev, sessionId]
+        return prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : prev
+      }),
+      'unread',
+    )
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
 
-  /** 回收站 id 集合持久化（globalState：跨窗口/重启共享，见构造器迁移说明）。 */
-  private persistRecycleBin(): void {
-    void this.globalState?.update(RECYCLE_BIN_STATE_KEY, [...this.recycleBin])
-  }
-
-  /** 回收站视图折叠组持久化（globalState，与主列表 collapsed 互不影响）。 */
+  /** 回收站视图折叠组持久化（globalState Memento，UI 偏好不搬）。 */
   private persistRecycleCollapsed(): void {
-    void this.globalState?.update(RECYCLE_COLLAPSED_STATE_KEY, [...this.recycleCollapsed])
+    void this.globalState.update(RECYCLE_COLLAPSED_STATE_KEY, [...this.recycleCollapsed])
   }
 
   /** 移入回收站（可逆本地操作，不碰 dsh）；幂等。 */
   moveToRecycleBin(sessionId: string): void {
     if (this.recycleBin.includes(sessionId)) return
     this.recycleBin.push(sessionId)
-    this.persistRecycleBin()
+    this.persistAck(
+      this.io.updateRecycleBin((prev) => (prev.includes(sessionId) ? prev : [...prev, sessionId])),
+      'recycle-bin',
+    )
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -738,7 +983,13 @@ export class SessionsStore implements vscode.Disposable {
     }
     if (!changed) return
     this.recycleBin = next
-    this.persistRecycleBin()
+    this.persistAck(
+      this.io.updateRecycleBin((prev) => {
+        const missing = sessionIds.filter((id) => !prev.includes(id))
+        return missing.length === 0 ? prev : [...prev, ...missing]
+      }),
+      'recycle-bin',
+    )
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -748,7 +999,12 @@ export class SessionsStore implements vscode.Disposable {
     const idx = this.recycleBin.indexOf(sessionId)
     if (idx === -1) return
     this.recycleBin.splice(idx, 1)
-    this.persistRecycleBin()
+    this.persistAck(
+      this.io.updateRecycleBin((prev) =>
+        prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : prev,
+      ),
+      'recycle-bin',
+    )
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -757,7 +1013,10 @@ export class SessionsStore implements vscode.Disposable {
   restoreAllFromRecycleBin(): void {
     if (this.recycleBin.length === 0) return
     this.recycleBin = []
-    this.persistRecycleBin()
+    this.persistAck(
+      this.io.updateRecycleBin((prev) => (prev.length === 0 ? prev : [])),
+      'recycle-bin',
+    )
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -771,7 +1030,13 @@ export class SessionsStore implements vscode.Disposable {
     const next = this.recycleBin.filter((id) => !ids.includes(id))
     if (next.length === this.recycleBin.length) return
     this.recycleBin = next
-    this.persistRecycleBin()
+    this.persistAck(
+      this.io.updateRecycleBin((prev) => {
+        const filtered = prev.filter((id) => !ids.includes(id))
+        return filtered.length === prev.length ? prev : filtered
+      }),
+      'recycle-bin',
+    )
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -807,7 +1072,7 @@ export class SessionsStore implements vscode.Disposable {
     const changed = collapse ? !this.collapsed.has(workspaceId) : this.collapsed.delete(workspaceId)
     if (collapse) this.collapsed.add(workspaceId)
     if (!changed) return
-    void this.state?.update(COLLAPSED_STATE_KEY, [...this.collapsed])
+    void this.state.update(COLLAPSED_STATE_KEY, [...this.collapsed])
     this.onDidChangeEmitter.fire()
   }
 
@@ -821,7 +1086,7 @@ export class SessionsStore implements vscode.Disposable {
     const ids = this.workspaces.map((w) => w.workspaceId)
     if (ids.every((id) => this.collapsed.has(id))) return
     for (const id of ids) this.collapsed.add(id)
-    void this.state?.update(COLLAPSED_STATE_KEY, [...this.collapsed])
+    void this.state.update(COLLAPSED_STATE_KEY, [...this.collapsed])
     this.onDidChangeEmitter.fire()
   }
 
@@ -830,7 +1095,7 @@ export class SessionsStore implements vscode.Disposable {
     const ids = this.workspaces.map((w) => w.workspaceId)
     if (ids.every((id) => !this.collapsed.has(id))) return
     for (const id of ids) this.collapsed.delete(id)
-    void this.state?.update(COLLAPSED_STATE_KEY, [...this.collapsed])
+    void this.state.update(COLLAPSED_STATE_KEY, [...this.collapsed])
     this.onDidChangeEmitter.fire()
   }
 
@@ -838,7 +1103,7 @@ export class SessionsStore implements vscode.Disposable {
   setSortOrder(order: SessionSortOrder): void {
     if (order === this.sortOrder) return
     this.sortOrder = order
-    void this.state?.update(SORT_STATE_KEY, order)
+    void this.state.update(SORT_STATE_KEY, order)
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -1378,11 +1643,77 @@ export class SessionsStore implements vscode.Disposable {
     const next = pruneRecycleIds(this.recycleBin, this.knownSessionIds, this.baselineReady)
     if (next === null) return
     this.recycleBin = next
-    this.persistRecycleBin()
+    const keep = new Set(next)
+    this.persistAck(
+      this.io.updateRecycleBin((prev) => {
+        const filtered = prev.filter((id) => keep.has(id))
+        return filtered.length === prev.length ? prev : filtered
+      }),
+      'recycle-bin',
+    )
+  }
+
+  /**
+   * 文件热重载（watch 触发：派生脚本/另一窗口写了 ~/.dsh/dsh-one/，或本窗口
+   * 自己的写回响）。文件权威：快照逐模块替换内存态——与内存无差异的模块跳过，
+   * 全部无差异则不重建不通知（自己的写占绝大多数事件）。文件缺失/损坏的模块
+   * 保持内存态不动（下次事件再追平）。本窗口有在途写时跳过本次重载——写落定
+   * 后会产生新的 watch 事件，避免读到写前旧值把内存态回退。
+   */
+  private async reloadFromFiles(): Promise<void> {
+    if (this.disposed || this.io.writePending) return
+    const snap = await this.io.load()
+    if (this.disposed) return
+    let changed = false
+    if (snap.recycleBin !== null && !sameIdList(snap.recycleBin.sessionIds, this.recycleBin)) {
+      this.recycleBin = [...snap.recycleBin.sessionIds]
+      changed = true
+    }
+    if (snap.pinned !== null && !sameIdList(snap.pinned.sessionIds, this.pinned)) {
+      this.pinned = [...snap.pinned.sessionIds]
+      changed = true
+    }
+    if (snap.unread !== null) {
+      const next = new Set(snap.unread.sessionIds)
+      if (!sameStringSet(next, this.unread)) {
+        this.unread = next
+        changed = true
+      }
+    }
+    if (snap.groups !== null) {
+      if (!sameGroupDefs(snap.groups.groups, this.groups)) {
+        this.groups = snap.groups.groups
+        changed = true
+      }
+      if (!sameMembership(snap.groups.membership, this.groupMembership)) {
+        this.groupMembership = snap.groups.membership
+        changed = true
+      }
+      if (snap.groups.activeGroupId !== this.activeGroupId) {
+        this.activeGroupId = snap.groups.activeGroupId
+        changed = true
+      }
+    }
+    if (snap.tags !== null) {
+      if (!sameTagDefs(snap.tags.tags, this.tags)) {
+        this.tags = snap.tags.tags
+        changed = true
+      }
+      if (!sameSessionTags(snap.tags.sessionTags, this.sessionTags)) {
+        this.sessionTags = snap.tags.sessionTags
+        changed = true
+      }
+    }
+    if (!changed) return
+    this.rebuildModel()
+    this.onDidChangeEmitter.fire()
   }
 
   dispose(): void {
     this.disposed = true
+    this.unwatchFiles?.()
+    this.unwatchFiles = null
+    this.io.dispose()
     this.stateSub.dispose()
     this.hostEvents?.dispose()
     this.mux?.dispose()
@@ -1391,4 +1722,48 @@ export class SessionsStore implements vscode.Disposable {
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     this.onDidChangeEmitter.dispose()
   }
+}
+
+/* ---- reloadFromFiles 的相等判断：内容与内存一致就跳过替换+通知
+ * （watch 事件里本窗口自己的写占绝大多数，不值得重复重建模型）。 ---- */
+
+function sameIdList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i])
+}
+
+function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false
+  for (const v of a) if (!b.has(v)) return false
+  return true
+}
+
+function sameGroupDefs(a: readonly GroupDef[], b: readonly GroupDef[]): boolean {
+  return a.length === b.length && a.every((g, i) => g.id === b[i].id && g.name === b[i].name)
+}
+
+function sameTagDefs(a: readonly TagDef[], b: readonly TagDef[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((t, i) => t.id === b[i].id && t.name === b[i].name && t.color === b[i].color)
+  )
+}
+
+function hasOwn(rec: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(rec, key)
+}
+
+function sameMembership(
+  a: Readonly<Record<string, string[]>>,
+  b: Readonly<Record<string, string[]>>,
+): boolean {
+  const aKeys = Object.keys(a)
+  return aKeys.length === Object.keys(b).length && aKeys.every((k) => hasOwn(b, k) && sameIdList(a[k], b[k]))
+}
+
+function sameSessionTags(
+  a: Readonly<Record<string, string>>,
+  b: Readonly<Record<string, string>>,
+): boolean {
+  const aKeys = Object.keys(a)
+  return aKeys.length === Object.keys(b).length && aKeys.every((k) => hasOwn(b, k) && b[k] === a[k])
 }

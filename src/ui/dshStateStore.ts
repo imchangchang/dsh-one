@@ -65,10 +65,16 @@ export class DshStateStore {
    * 跨窗口/跨进程（派生脚本）不经过本队列，仍是 last-writer-wins。
    */
   private writeQueue: Promise<unknown> = Promise.resolve()
+  /** 在途写操作数（>0 时调用方应暂缓重载——读到的可能是写前旧值）。 */
+  private pendingWrites = 0
 
   constructor(opts: DshStateStoreOptions = {}) {
     this.dir = opts.dir ?? path.join(os.homedir(), '.dsh', 'dsh-one')
     this.watchDebounceMs = opts.watchDebounceMs ?? 300
+  }
+
+  get writePending(): boolean {
+    return this.pendingWrites > 0
   }
 
   private modulePath(name: DshModuleName): string {
@@ -133,12 +139,15 @@ export class DshStateStore {
 
   /** 写操作串行化：上一个写（成败不论）落定后才跑下一个。 */
   private enqueue<T>(op: () => Promise<T>): Promise<T> {
+    this.pendingWrites += 1
     const run = this.writeQueue.then(op, op)
     this.writeQueue = run.then(
       () => undefined,
       () => undefined,
     )
-    return run
+    return run.finally(() => {
+      this.pendingWrites -= 1
+    })
   }
 
   /* ---- 每个模块的「读-合-写」更新 ----

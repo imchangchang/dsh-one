@@ -60,9 +60,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const statusBar = new StatusBar(manager)
-  // 分组与回收站状态走 globalState（跨窗口/重启共享；回收站 v2 迁移至此），
-  // 与 workspaceState 偏好键（排序/折叠/置顶/未读）分区。
-  const sessions = new SessionsStore(manager, logger, context.workspaceState, context.globalState)
+  // 五组客户端状态（回收站/分组/标签组/置顶/未读）落在 ~/.dsh/dsh-one/ 文件
+  // （跨窗口/重启共享，create 里完成旧 Memento 一次性迁移并接管文件监视）；
+  // 排序/折叠等 UI 偏好仍走 Memento。
+  const sessions = await SessionsStore.create(manager, logger, context.workspaceState, context.globalState)
   const chatView = new ChatViewProvider(manager, logger, context.extensionUri, sessions, context.workspaceState, () =>
     void sessions.refresh(),
   )
