@@ -55,3 +55,4 @@ backlog 目前用 git 维护在 main 上（`docs/backlog/` 文件夹即索引）
 ## 变更记录
 
 - 2026-09-05 讨论确定方案（issue + label 状态机 + assignee 认领；不用 Projects board；存量分步迁）→ 记录 → open（目标：下一版本发布前完成切换）
+- 2026-09-07 重新梳理，完整工作流程与迁移方案见 `docs/backlog/migration-github-issues.md`（含认领复核流程、中文标题/编号约定、迁移步骤）
