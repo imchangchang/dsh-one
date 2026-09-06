@@ -1,0 +1,45 @@
+{
+  "title": "回合轨道栏窄面板（≤760px）隐藏——刻度线不再压文字",
+  "branch": "agent/turn-rail-narrow-hide",
+  "commit": "HEAD",
+  "environment": {
+    "mode": "headless-chromium 探针实测（480~800px 逐档量刻度与文字右缘坐标）+ WebBridge 全量场景截图（158 场景）",
+    "dsh": "官方方案对比过（恒留 32px 侧边区），用户拍板改窄窗口隐藏",
+    "date": "2026-09-06"
+  },
+  "coverageNote": "重叠区间与边界经 Playwright 坐标探针逐档实测（600/740/748/760/761/800px）；大视口渲染经 harness 全量 158 场景截图；真实 VS Code 面板复核留给用户。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "窄面板（≤760px）隐藏回合轨道栏，文字不再被刻度线压住",
+      "expect": "面板宽 ≤760px 时 .turn-rail-frame 不显示；>760px 时显示且最宽刻度（活跃/hover 20px）左缘恰好贴文字右缘、不压文字。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/turn-navigator.png"
+      ],
+      "notes": "探针逐档实测：480/600/740/748/760px 全隐藏；761px 显示且 mark-active 左缘 721 == 文字右缘 721（恰好相切）；800px 刻度与文字间 20px 净距。边界推导：最宽可见刻度 28px（frame right:6 + mark right:2 + mark 20px），文字右缘到 slot 右缘间隙 =(W-704)/2 ≥ 28 → W ≥ 760。修复前实测：600px 重叠 34px、740px 重叠 16px（刻度盖住用户气泡尾部）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "显隐判定改 @container（跟面板宽而非窗口宽）",
+      "expect": "轨道栏显隐由 chat-col 容器宽度决定（chat-col 本就是 container-type: inline-size 的容器）——嵌在窄编辑器组/窄侧栏里（即使窗口很宽）同样隐藏，与 diff 的窄容器退化同款。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "@container (max-width: 760px) 实测在 harness 生效（probe 容器类型 inline-size 确认）；比 @media 更贴合「面板窄」语义。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "大视口下轨道栏渲染不变 + 全量场景回归",
+      "expect": "视觉管线大视口（~3000px 宽，容器查询不命中）下 turn-navigator / turn-navigator-preview / turn-navigator-jump 场景与改动前一致；全量 158 场景无异常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/turn-navigator.png",
+        "/tmp/dsh-ui-shots/turn-navigator-preview.png"
+      ],
+      "notes": "turn-navigator 截图：刻度栏贴滚动面板右缘、已载入实心/未载入半透明/最新回合高亮蓝条，刻度与文字无重叠（大视口下同改动前）；turn-navigator-preview 气泡正常。全量 158 场景截图经关键场景逐张核对。typecheck 0 错误、612 单测全过、build 产出一致。"
+    }
+  ]
+}

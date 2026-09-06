@@ -1054,7 +1054,13 @@
     margin-top: 4px; font-size: 12px; line-height: 15px; opacity: 0.75; overflow: hidden;
     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
   }
-  @media (max-width: 480px) {
+  /* 窄面板隐藏轨道栏（回归 turn-rail-narrow-overlap）：最宽可见刻度 28px
+     （frame right:6 + mark right:2 + mark 最宽 20px，活跃/hover 常态宽），
+     文字右缘到 slot 右缘的间隙 =(contentBox-680)/2 = (W-704)/2 ≥ 28 需要
+     面板 ≥760px；748px 以下间隙必不足、刻度压用户气泡右缘（实测 600px 重叠
+     34px、740px 重叠 16px）。用 @container 而非 @media：显隐跟面板宽（嵌在
+     窄编辑器组/侧栏里也算窄），与 diff 的窄容器退化同款。 */
+  @container (max-width: 760px) {
     .turn-rail-frame { display: none; }
   }
   /* Pending 接管面板（approval/question/plan-review 挂 composer 区，对齐 dsh
