@@ -33,3 +33,5 @@
 - 2026-09-06 用户提出（回收站里不要保持标签组，直接平铺）；已核实现状属实（两组复用链路见上，含折叠态共享的连带发现）→ 建条目（open/，未开始开发）
 
 - 2026-09-06 认领（open → doing）：用户拍板开发；改动点 = 回收站模型不传 tags/sessionTagFor + 回收站组内不走 tag 块直接平铺，数据侧（组归属保留）不动。
+
+- 2026-09-06 开发完成（doing → done，worktree recycle-bin-flatten-tag-groups，branch agent/recycle-bin-flatten-tag-groups，done tag 8d71fc8）：改动两处——① sessionsStore.ts 回收站模型构建不传 tags/sessionTagFor（纯层不聚合、不挂 tagId，排序退化为活跃优先+sort 键；组归属数据不动，恢复后回原组不变）；② sessionsWebview.ts reconcileRecycleGroup 不再调 tagBlockItems，改为直接平铺行（连带清理 tagHeadSigs 共享收尾与过时注释）。新增 harness 场景 sessions-recycle-flat（回收站会话快照带 tagId 验证平铺 + 主列表对照 + DOM 断言）并进 BASELINE_SCENARIOS。自测全绿（typecheck/test 614/build）；沙盒报告 4 项全 pass（verify.recycle-bin-flatten-tag-groups.report.html，F-01 平铺核对 + R-01 既有回收站/标签组场景回归 + R-02 mock-llm 回显 + R-03 全量视觉 160 场景）。
