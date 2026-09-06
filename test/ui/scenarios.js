@@ -1778,12 +1778,42 @@
         s.unread = []
         return s
       })(),
+      title: '侧栏面板（活跃会话 > 标签组块 > 时间序）',
+      expect: 'dsh-one 组自上而下：① 最前「修复回收站抽屉高度」平铺（运行中，行尾蓝色像素环无时间，无组块头/竖线/缩进——虽属待办组但脱离组块）；② 其次「探索 Chrome 式分组原型」平铺（待交互，行尾黄色圆点无时间）；③ 待办（黄）组块：pill「待办」+ 组色竖线贯穿 + 行左缩进 ~12px，块内「实现侧栏分组过滤」1 行（无状态标记、显示时间）；④ 进行中（蓝）组块：块内「会话复制引用功能」「整理 mock 场景」2 行；⑤ 无组平铺「会话 A」（4 天前）「会话 B」（5 天前）——时间降序、无缩进无竖线；带组块头的只有 2 个（待办/进行中），活跃的 2 行都在组块外；workspace 组头角标照常。',
+    },
+
+    'session-tags-active-first-collapse': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-2')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 2 },
+          { id: 'preset-doing', name: '进行中', color: 'blue', preset: true, count: 3 },
+        ]
+        s.tagSessionIds = {
+          'preset-todo': ['sess-1', 'sess-2'],
+          'preset-doing': ['sess-3', 'sess-4', 'sess-5'],
+        }
+        s.workspaces[0].sessions = [
+          sess('sess-2', '修复回收站抽屉高度', '5 小时前', { tagId: 'preset-todo', running: true, active: true }),
+          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', pendingInteraction: 'approval', active: true }),
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-3', '会话复制引用功能', '1 天前', { tagId: 'preset-doing' }),
+          sess('sess-5', '整理 mock 场景', '2 天前', { tagId: 'preset-doing' }),
+          sess('sess-6', '会话 A', '4 天前'),
+          sess('sess-7', '会话 B', '5 天前'),
+        ]
+        s.workspaces[1].sessions = []
+        s.workspaces[2].sessions = []
+        s.unread = []
+        return s
+      })(),
       interactSteps: [
         {
           name: 'collapsed',
           settle: 900,
           script: `
-            const snap = window.SCENARIOS['session-tags-active-first'].sessions
+            const snap = window.SCENARIOS['session-tags-active-first-collapse'].sessions
             snap.tagCollapsed = ['preset-todo']
             window.postMessage({ type: 'sessions', snapshot: snap }, '*')
             setTimeout(() => {
@@ -1803,8 +1833,8 @@
           `,
         },
       ],
-      title: '侧栏面板（活跃会话 > 标签组块 > 时间序）',
-      expect: 'dsh-one 组自上而下：① 最前「修复回收站抽屉高度」平铺（运行中，行尾蓝色像素环无时间，无组块头/竖线/缩进——虽属待办组但脱离组块）；② 其次「探索 Chrome 式分组原型」平铺（待交互，行尾黄色圆点无时间）；③ 待办（黄）组块：pill「待办」+ 组色竖线贯穿 + 行左缩进 ~12px，块内「实现侧栏分组过滤」1 行（无状态标记、显示时间）；④ 进行中（蓝）组块：块内「会话复制引用功能」「整理 mock 场景」2 行；⑤ 无组平铺「会话 A」（4 天前）「会话 B」（5 天前）——时间降序、无缩进无竖线；带组块头的只有 2 个（待办/进行中），活跃的 2 行都在组块外；workspace 组头角标照常。② <scenario>-collapsed.png：待办组块折叠（只剩 pill + 计数「环+1」——组内空闲行被折叠）后，最前平铺的运行中「修复回收站抽屉高度」行**不受影响仍在位**（像素环仍在，没有被折叠组藏住）；无红色断言横幅（断言：组块折叠为 0 行 + 活动行仍在组块外）。',
+      title: '侧栏面板（折叠标签组不隐藏活跃会话）',
+      expect: '<scenario>-collapsed.png：待办组块被折叠（只剩 pill「待办」一行——组内唯一行空闲、无状态标记，故**无**计数角标），最前平铺的运行中「修复回收站抽屉高度」行**不受影响仍在位**（行尾像素环仍在、不在任何组块内），「探索 Chrome 式分组原型」待交互行其次；进行中组块（「会话复制引用功能」「整理 mock 场景」2 行）、无组「会话 A」「会话 B」照常；无红色断言横幅（断言：组块 .collapsed 且 0 行 + 活跃行仍在组块外）。',
     },
 
     'session-tags-row-menu': {
@@ -3474,7 +3504,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',
     'sessions-selection-exit-recycle', 'sessions-selection-exit-archive',
     'session-tags', 'session-tags-row-menu', 'session-tags-row-menu-groups', 'session-tags-collapse', 'session-tags-create',
-    'session-tags-active-first',
+    'session-tags-active-first', 'session-tags-active-first-collapse',
     'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',
