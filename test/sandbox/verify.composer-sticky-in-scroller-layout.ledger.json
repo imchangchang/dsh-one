@@ -1,0 +1,99 @@
+{
+  "title": "composer/dock 家族搬进滚动容器内 sticky seat（对齐官方 data-composer-seat）——输入长文本时消息区不再跳动",
+  "branch": "agent/composer-sticky-in-scroller-layout",
+  "commit": "6a31689",
+  "environment": {
+    "mode": "headless-chromium 探针实测（Playwright 逐字输入采样 scrollTop/clientHeight）+ WebBridge 全量场景截图（156 场景）",
+    "dsh": "布局结构对齐官方 dsh web data-composer-seat（实证自官方 conversation bundle）",
+    "date": "2026-09-06"
+  },
+  "coverageNote": "输入抖动修复经逐字输入探针实测（560px 视口、20 条消息贴底、350 字符）；布局经 harness 全量 156 场景截图 + 关键场景逐张语义核对；真实 VS Code webview 面板复核留给用户。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "输入长文本时消息区像素级静止（核心问题修复）",
+      "expect": "贴底跟随态逐字输入长文本时，上面的消息区内容完全不跳动；composer 换行增高时内容被 seat 平滑顶起，无 clamp→补偿往返。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "Playwright 探针实测（rebase 后构建）：逐字输入 175 次（350 字符），input 事件内 + rAF 后各采样一次共 702 个采样点。消息区 scrollTop/clientHeight/首条消息 top 全程零变化（除首键 placeholder 塌缩一次，属真实高度变化）；composer 每次换行 scrollHeight +17px、scrollTop 不动——seat 平滑顶起，无震荡。修复前同探针：每次按键 scrollTop 都震荡（塌缩→clamp→恢复→settle 误吸）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "composer/dock 家族坐席化：.composer-seat 挂进 .messages 滚动容器（sticky bottom）",
+      "expect": "DOM 结构为 #messages > .composer-seat（末位、sticky bottom、不透明背景），内含 todo/goal/queue/pending/composer；它们增高只涨 scrollHeight、不再压缩消息区 clientHeight（V 类扰动在布局层消失）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/conversation.png",
+        "/tmp/dsh-ui-shots/goal-stack.png",
+        "/tmp/dsh-ui-shots/todos.png"
+      ],
+      "notes": "DOM 探针确认 input 链路 = #input → .composer-frame → .input-area → .composer-seat → #messages。goal-stack 截图：todo 卡 / goal 条幅 / queue dock / composer 在 seat 内按序堆叠、与内容列同宽同对齐；conversation/todos 截图：seat 贴底、消息区贴 seat 上缘。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "autoGrow 改用 field-sizing:content（CSS 原生定高），不再对存活 textarea 做塌缩测量",
+      "expect": "Chromium 123+（VS Code ≥1.96 内嵌 Electron 32 = Chromium 128，恒支持）下 #input 用 field-sizing:content 按内容定高，无 height:auto 塌缩瞬态；旧环境回退为隐藏镜像（.grow-mirror）测量，同样不塌缩真元素。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "getComputedStyle(input).fieldSizing === 'content' 实测命中原生路径；逐字输入探针中 input.style.height 全程为空（CSS 定高）。塌缩瞬态（旧 autoGrow 的 height:auto → scrollHeight 测量）是抖动根因之一，已随原生定高消除。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "seat 尺寸变化的重跟随：跟随态同帧重钉底，收缩 clamp 事件登记成程序回声",
+      "expect": "seat 增高（composer 换行/dock 开合/pending 接管）时跟随态视口不被 seat 盖住尾部；seat 收缩时浏览器 clamp 的 scroll 事件被登记成程序回声，120ms 后 settle 不误吸。非跟随态阅读位置像素级不动。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "seat 上挂 ResizeObserver：发布 --dsh-composer-height（jump-latest 的 bottom 用 calc 跟住）+ 跟随态 writeMessagesScrollTop 重钉底（RO 回调在 layout 后 paint 前，顶出帧不被绘制）。探针实测：composer 换行时 scrollHeight 增长但视口钉住内容尾部，无「顶出-拽回」周期脉冲。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "Pending 面板接管 composer 区（approval/question/plan-review）",
+      "expect": "pending 存在时 seat 末位是面板而非 composer，面板与内容列同宽、按钮可用；草稿文本暂存、应答后还原。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/approval.png",
+        "/tmp/dsh-ui-shots/question-multi.png",
+        "/tmp/dsh-ui-shots/pending-typing-draft.png"
+      ],
+      "notes": "approval 截图：Permission request 卡在 seat 位、Allow once/Reject 按钮完整；question-multi 截图：Waiting for your answer 卡完整（分页器 + 选项 + 按钮行）；pending-typing-draft 截图：输入到一半的草稿在运行态照常显示。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "hero 空态（自己的 composer，不走 seat）与长文本滚动窗口",
+      "expect": "空会话 hero 布局不动：品牌 logo + workspace/preset chips + 大圆角 composer 卡；超长文本在输入框矩形内滚动，卡片外无文字、footer 不被遮挡。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/hero-permission-pending.png",
+        "/tmp/dsh-ui-shots/composer-long-scrolled.png"
+      ],
+      "notes": "hero-permission-pending 截图：hero 完整（logo/chips/composer 卡/权限 pill）；composer-long-scrolled 截图：超长文本落在输入框矩形内（顶行半行裁切=正常滚动语义），卡片外无文字，footer 行不被遮挡。hero 路径的 autoGrow 同样走 field-sizing。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "插队（steering）气泡挂流尾 + 回到最新浮标跟住 seat 高度",
+      "expect": "steering-pending 场景：气泡在 turn-status 行之后、spinner 在气泡左侧、附件区在上方；jump-latest-visible-scrolled-up 场景：「↓ Back to latest」小 pill 吸在 seat 上方（bottom = --dsh-composer-height + 16px）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/steering-pending.png",
+        "/tmp/dsh-ui-shots/jump-latest-visible-scrolled-up.png"
+      ],
+      "notes": "steering-pending 截图：气泡右对齐、spinner 在左侧、附件方块（缩略图占位 + README.md）在上方、引用摘要行在下方，seat 内无排队条目。jump-latest 截图：小 pill 贴内容列右缘、吸在 seat 上方，--dsh-composer-height CSS 变量链路生效。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "全量单测与构建（含主线 rebase 后的合并态）",
+      "expect": "npm run typecheck / npm test / npm run build 全过；分支已 rebase 到最新主线（cf8e1c9 + e4e3135 backlog 条目），rebase 冲突（webview.ts 三处：清理循环 / goal 装配 / queue 装配）已按「保活逻辑取主线、挂载点取 seat」原则合并。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "typecheck 0 错误；612 个单测全过（rebase 后主线的 queue/goalBar 保活与 reconnectBanner 常驻已并入 seat 结构）；build 产出 dist 四件套 + harness style.css 重新生成。rebase 后重跑了输入抖动探针（F-01）与全量视觉回归（156 场景）。"
+    }
+  ]
+}

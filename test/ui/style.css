@@ -21,8 +21,10 @@
     --dsh-content-font-delta-secondary: calc(var(--dsh-content-font-size-secondary) - 13px);
   }
   /* 聊天内容区（消息流 + 用户气泡 + markdown/表格 + 流内说明）正文字号随
-     --dsh-content-font-size；头部 chips/composer/计时行等面板 chrome 不随动。 */
-  .messages { font-size: var(--dsh-content-font-size); }
+     --dsh-content-font-size；头部 chips/composer/计时行等面板 chrome 不随动。
+     字号挂在 flow-col 而非 .messages：composer-seat 也在滚动容器内，不能让它
+     继承内容字号。 */
+  .flow-col { font-size: var(--dsh-content-font-size); }
   #app { display: flex; flex-direction: row; height: 100%; }
   /* 宽屏：左 sessions 面板 + 右聊天列；窄屏（<720px）改上下布局，面板限高自滚动。 */
   .chat-col {
@@ -205,7 +207,7 @@
   }
   .reconnect-banner.recovered .reconnect-banner-btn { display: none; }
   .messages {
-    flex: 1; overflow-y: auto; padding: 8px 12px;
+    flex: 1; overflow-y: auto; padding: 8px 12px 0;
     display: flex; flex-direction: column; gap: 10px;
     /* 双层防线（见 docs/backlog/doing/scroll-bottom-momentum-jitter.md）：
        1) 本容器（.messages）自身不产生弹性回弹——它是消息滚动容器；
@@ -223,10 +225,26 @@
   /* 居中内容列（对齐 dsh web EvIC1a_column）：所有流内元素是这一个列容器的
      统一子项，宽度只在这一层约束——不做 .messages > * 式逐子项限宽（那会把
      jump-latest/turn-rail 等浮层卷进来，也会被子项自带 margin 盖掉居中）。
-     窄屏 width:100% 自适应，宽屏收敛到 --dsh-content-width 居中留白。 */
+     窄屏 width:100% 自适应，宽屏收敛到 --dsh-content-width 居中留白。
+     flex:1 0 auto：内容短于视口时把 composer-seat 推到底部（seat 是滚动容器
+     内末位项，不做绝对定位浮层）。 */
   .flow-col {
+    flex: 1 0 auto;
     width: 100%; max-width: var(--dsh-content-width);
     margin: 0 auto; display: flex; flex-direction: column; gap: 10px;
+  }
+  /* composer 坐席（对齐官方 dsh web 的 data-composer-seat）：滚动容器内部
+     末位项、sticky bottom——composer/dock 家族（todo/goal/queue/pending/
+     input-area）全在这里面。它们增高只把滚动内容往上顶，**不再压缩消息区
+     clientHeight**，V 类扰动（塌缩 clamp→补偿抖动）在布局层消失（回归
+     composer-input-jitter-pinned-scroll / composer-multiline-input-jitter）。
+     margin 负值抵消 .messages 的水平 padding，seat 保持通栏（border-top 横贯）。
+     背景必须不透明：上滚时内容从 seat 下面滑过。 */
+  .composer-seat {
+    position: sticky; bottom: 0; z-index: 6; flex: none;
+    display: flex; flex-direction: column;
+    margin: 0 -12px;
+    background: var(--vscode-editor-background, #fff);
   }
   .muted-hint { opacity: 0.6; font-size: 12px; text-align: center; }
   /* 切换会话时历史基线加载中的占位：撑满聊天列垂直居中。 */
@@ -1556,6 +1574,22 @@
     background: var(--vscode-input-background);
     border: 1px solid var(--vscode-input-border, transparent); border-radius: 6px;
     font-family: inherit; font-size: inherit; max-height: 160px;
+    /* 原生按内容定高（Chromium 123+，VS Code ≥1.96 内嵌 Chromium 128）：
+       取代 JS autoGrow 的 height:auto 塌缩测量——塌缩瞬态会 clamp 兄弟滚动
+       容器的 scrollTop（回归 composer-input-jitter-pinned-scroll）。
+       不支持的旧环境走 webview.ts autoGrow 的塌缩+修复兜底。 */
+    field-sizing: content;
+  }
+  /* autoGrow 回退路径的隐藏测量镜像（无 field-sizing 的旧环境用，JS 在
+     composer-frame 里动态创建）：与 #input 同宽同盒模型同字体，脱离流
+     （position:absolute）不碍布局，value 同步后读 scrollHeight 得到目标高度——
+     全程不对存活 textarea 做塌缩。 */
+  .grow-mirror {
+    position: absolute; top: 0; left: 0; right: 0; height: auto;
+    visibility: hidden; pointer-events: none;
+    box-sizing: border-box; padding: 6px 8px; border: 1px solid transparent;
+    font: inherit; line-height: inherit;
+    resize: none; overflow: hidden; white-space: pre-wrap;
   }
   #input::placeholder { color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground, #9d9d9d)); }
   /* 透明文字下选区仍要有底色（否则选中无视觉反馈）；文字保持透明由叠层绘制。 */
@@ -1626,9 +1660,12 @@
   .msg-image-chip:hover { filter: brightness(1.15); }
   /* 「回到最新」浮标（对齐 dsh web EvIC1a_toBottomSlot）：sticky 零高槽位 +
      右缘 padding = 列外留白宽——小 pill 贴内容列右缘、不占流高、不随列限宽；
-     槽位 pointer-events 关掉，点击只落在 pill 上。 */
+     槽位 pointer-events 关掉，点击只落在 pill 上。
+     bottom 跟 composer 高度联动：--dsh-composer-height 由 ResizeObserver 观测
+     .composer-seat 后写到本容器（对齐官方 --dsh-composer-height 链路），
+     composer 增高时浮标自动上移，无 JS 重排。 */
   .jump-slot {
-    position: sticky; bottom: 4px; height: 0; z-index: 5;
+    position: sticky; bottom: calc(var(--dsh-composer-height, 0px) + 16px); height: 0; z-index: 5;
     display: flex; justify-content: flex-end; align-items: flex-end;
     pointer-events: none;
     padding-right: max(0px, calc((100% - var(--dsh-content-width)) / 2));

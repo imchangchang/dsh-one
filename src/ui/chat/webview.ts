@@ -3114,7 +3114,9 @@ function render(): void {
   // composer/header 同款策略。流式快照每帧重建面板，正在输入回答的输入框
   // 被销毁重造（draft 文本靠 answerDrafts 恢复，但焦点/光标/进行中的 IME
   // 组合全丢）。焦点在面板内且 pending 内容未变时保留原元素。
-  const oldPending = chatCol.querySelector<HTMLElement>(':scope > .pending-panel')
+  // 注意：pending 面板在 .messages 的 .composer-seat 里（sticky bottom 坐席），
+  // 不是 chatCol 直接子级。
+  const oldPending = chatCol.querySelector<HTMLElement>('.composer-seat > .pending-panel')
   const pendingFocus = oldPending !== null && oldPending.contains(document.activeElement)
   // 签名带 sessionId：换会话时旧会话的 pending 卡必须移除，不能因内容
   // 恰好相同（rpcId 全局唯一，理论不会，但防御起见）被保活成跨会话残留。
@@ -3256,7 +3258,9 @@ function render(): void {
   // 原元素。流式快照每帧重建 chatCol，in_progress 行首的转圈弧环是新建 SVG——
   // CSS 动画随节点替换从 0° 重启，~100ms 一帧的快照下转圈永远走不完，看起来像
   // 疯狂刷新。保活后动画连续；todos 真变了才重建，重启动画本就是期望行为。
-  const oldTodoPanel = chatCol.querySelector<HTMLElement>(':scope > .todo-panel')
+  // 注意：todo 卡在 .messages 的 .composer-seat 里（sticky bottom 坐席），
+  // 不是 chatCol 直接子级。
+  const oldTodoPanel = chatCol.querySelector<HTMLElement>('.composer-seat > .todo-panel')
   const todosSig = state?.todos ? JSON.stringify(state.todos) : null
   const keepTodoPanel =
     oldTodoPanel !== null &&
@@ -3272,7 +3276,7 @@ function render(): void {
   // queueFocus 恢复，但元素销毁会中止 IME 组合。签名含 queuedItems 与编辑目标：
   // 队列数据变化或切换编辑项必须重建（就地更新），输入本身不触发 render 不进
   // 签名。组合中签名变化同样推迟（composing 兜底）。
-  const oldQueue = chatCol.querySelector<HTMLElement>(':scope > .queue')
+  const oldQueue = chatCol.querySelector<HTMLElement>('.composer-seat > .queue')
   const queueFocusInside =
     oldQueue !== null && oldQueue.contains(document.activeElement)
   const queueSig =
@@ -3287,7 +3291,7 @@ function render(): void {
     state?.loading !== true
   // Goal bar 保活（同 queue）：编辑态（goalEditingId 非空）且焦点在输入框内时
   // 保留 dock；签名含 goal 数据与编辑 id。
-  const oldGoalBar = chatCol.querySelector<HTMLElement>(':scope > .goal-bar-dock')
+  const oldGoalBar = chatCol.querySelector<HTMLElement>('.composer-seat > .goal-bar-dock')
   const goalFocusInside =
     oldGoalBar !== null && oldGoalBar.contains(document.activeElement)
   const goalSig =
@@ -3313,15 +3317,24 @@ function render(): void {
         if (keepMessages && child === oldMessages) continue
         if (keepHeader && child === oldHeader) continue
         if (keepBlankHero && (child === oldComposer || child === oldHero)) continue
-        if (keepComposer && (child === oldComposer || (blankHero && child === oldHero))) continue
-        if (keepPending && child === oldPending) continue
-        if (keepTodoPanel && child === oldTodoPanel) continue
-        if (keepQueue && child === oldQueue) continue
-        if (keepGoalBar && child === oldGoalBar) continue
         child.remove()
       }
     } finally {
       rebuildingHeader = false
+    }
+    // dock 家族（todo/goal/queue）与 pending/composer 已搬进 messages 内的
+    // .composer-seat（sticky bottom 坐席，对齐官方 data-composer-seat）——
+    // chatCol 顶层清理碰不到它们，同一套保活规则在这里单独清理 seat 子级。
+    const oldSeat = oldMessages?.querySelector<HTMLElement>(':scope > .composer-seat') ?? null
+    if (oldSeat) {
+      for (const child of Array.from(oldSeat.children)) {
+        if (keepTodoPanel && child === oldTodoPanel) continue
+        if (keepQueue && child === oldQueue) continue
+        if (keepGoalBar && child === oldGoalBar) continue
+        if (keepPending && child === oldPending) continue
+        if (keepComposer && child === oldComposer) continue
+        child.remove()
+      }
     }
   }
   // Menus anchored to surviving elements (kept composer, sessions header)
@@ -3432,14 +3445,9 @@ function render(): void {
     lastGoalSig = composingInside(oldGoalBar) ? lastGoalSig : goalSig
     return
   }
-  // Regions above the composer; insert before the preserved composer when kept.
-  // Pending 面板同样充当 anchor：保活面板时消息流/todo/queue 重建要插到它
-  // 前面，否则追加到 chatCol 末尾会把面板挤到中间去。
-  const anchor = keepPending ? oldPending : keepComposer ? oldComposer : null
-  const add = (node: HTMLElement): void => {
-    if (anchor) chatCol.insertBefore(node, anchor)
-    else chatCol.appendChild(node)
-  }
+  // dock 家族与 pending/composer 的父容器是 messages 内的 .composer-seat
+  // （对齐官方 data-composer-seat），不是 chatCol——seat 随 messages 保活。
+  // seat/seatAnchor/seatAdd 在 messages 创建之后声明（见下方装配段）。
   const jobsLabel = state.backgroundJobs ? jobsChipLabel(state.backgroundJobs, t) : null
   const headerWanted = !!(
     state.sessionTitle ||
@@ -3561,7 +3569,7 @@ function render(): void {
       showPopover(sessionMenuBtn, buildHeaderSessionMenu(header), 'below')
     })
     header.appendChild(sessionMenuBtn)
-    const headerAnchor = keepMessages ? oldMessages : anchor
+    const headerAnchor = keepMessages ? oldMessages : null
     if (headerAnchor) chatCol.insertBefore(header, headerAnchor)
     else chatCol.appendChild(header)
   }
@@ -3583,6 +3591,36 @@ function render(): void {
     })
     jumpSlot.appendChild(jumpBtn)
     messages.appendChild(jumpSlot)
+    // composer 坐席（对齐官方 dsh web 的 data-composer-seat）：滚动容器内
+    // sticky bottom 的末位项，dock 家族（todo/goal/queue）与 pending 面板/
+    // composer 都挂这里。它们增高只把滚动内容往上顶，不再压缩 .messages 的
+    // clientHeight——V 类扰动（兄弟高度变化 1:1 传导成消息区尺寸变化）在布局
+    // 层消失（回归 composer-input-jitter-pinned-scroll /
+    // composer-multiline-input-jitter，官方同构）。
+    const seat = el('div', 'composer-seat')
+    messages.appendChild(seat)
+    // --dsh-composer-height 发布 + seat 尺寸变化的重跟随（对齐官方
+    // ConversationRoot.seatResizeRef 的 CSS 变量链路 + follow 语义）：
+    // - 发布变量：jump-latest 的 bottom 用 calc() 跟住 seat 高度，无 JS 重排。
+    // - 跟随态同帧钉底：seat 增高（composer 换行/dock 开合/pending 接管）只涨
+    //   scrollHeight、不动 clientHeight，浏览器不派发 scroll 事件——不写回的话
+    //   跟随态视口会被增高的 seat 盖住尾部。seat 收缩则浏览器先 clamp
+    //   scrollTop 到新区间并派发 scroll 事件；这里无条件写入最新
+    //   scrollHeight（clamp 后同值，仅刷新程序 pin 簿记），把那次 clamp 的
+    //   scroll 事件登记成程序回声——否则它被误记为用户滚动活动，120ms 后
+    //   settle 误吸（回归 composer-input-jitter-pinned-scroll 的尾音）。
+    //   非跟随态不写：阅读位置像素级不动。
+    new ResizeObserver(() => {
+      messages.style.setProperty('--dsh-composer-height', `${seat.offsetHeight}px`)
+      if (userScrollIntentActive() || scrollActiveRecently()) {
+        deferSettlePin()
+        return
+      }
+      if (!stickToBottom) return
+      writeMessagesScrollTop(messages, messages.scrollHeight)
+      const jump = messages.querySelector<HTMLElement>('.jump-latest')
+      if (jump) jump.style.display = 'none'
+    }).observe(seat)
     // Only gesture-driven scrolls re-evaluate pinning bidirectionally;
     // programmatic moves (our own pins, restore of saved/prev scrollTop,
     // content-growth clamping during the rebuild) leave stickToBottom alone
@@ -3655,13 +3693,14 @@ function render(): void {
       },
       true,
     )
-    // V 类扰动统一补偿（composer-multiline-input-jitter 结构修复）：.messages 是
-    // flex:1 的弹性项，任何兄弟（composer autoGrow 增高、todo/queue dock 手动开合、
-    // 窗口/面板 resize）的高度变化都 1:1 转化为它的 clientHeight 变化——而这类
+    // 视口尺寸变化补偿（窗口/面板 resize 改变 .messages clientHeight）：这类
     // 变化既不派发 scroll 事件也不伴随 render，旧机制只能在下一推帧拽回，形成
     // 「顶出-拽回」跳动。ResizeObserver 回调在 layout 后 paint 前派发，跟随态
     // 同帧钉底：顶出帧根本不被绘制。手势/滚动活动中不写，转 settle debounce
     // 兜底；非跟随不写（纯视口尺寸变化下阅读位置像素级不动本就正确）。
+    // 注：composer/dock 家族已搬进滚动容器内的 .composer-seat（composer-sticky-
+    // in-scroller-layout），它们的增高只顶内容、不再压缩 clientHeight，不会再
+    // 触发本补偿——这里只剩窗口/面板 resize 场景。
     // 写经 writeMessagesScrollTop 统一登记程序 pin 簿记，回声事件照常剔除。
     new ResizeObserver(() => {
       if (userScrollIntentActive() || scrollActiveRecently()) {
@@ -3698,13 +3737,24 @@ function render(): void {
   // "Back to latest" floater（jump-latest 是流的末位项，由对账保活/重建）。
   const jump = messages.querySelector<HTMLElement>('.jump-latest')
   if (jump) jump.style.display = stickToBottom ? 'none' : ''
-  if (!keepMessages) add(messages)
+  if (!keepMessages) chatCol.appendChild(messages)
+
+  // seat 装配（声明于 messages 创建之后）：dock 家族（todo/goal/queue）与
+  // pending/composer 的父容器是 messages 内的 .composer-seat（对齐官方
+  // data-composer-seat）。anchor 语义同原 chatCol 版 add()：保活的
+  // pending/composer 在 seat 末位，dock 重建要插到它前面。
+  const seat = seatOf(messages)
+  const seatAnchor = keepPending ? oldPending : keepComposer ? oldComposer : null
+  const seatAdd = (node: HTMLElement): void => {
+    if (seatAnchor) seat.insertBefore(node, seatAnchor)
+    else seat.appendChild(node)
+  }
 
   // 任务清单卡（对齐官方 input.dock id=todo order 0，排在排队消息之前）：
   // 缺省/null（首写前 / turn/start 后）与 [] 空数组都不渲染。
   if (state.todos && state.todos.length > 0) {
-    if (keepTodoPanel && oldTodoPanel !== null) add(oldTodoPanel)
-    else add(renderTodoPanel(state.todos))
+    if (keepTodoPanel && oldTodoPanel !== null) seatAdd(oldTodoPanel)
+    else seatAdd(renderTodoPanel(state.todos))
   }
 
   // 目标条幅（对齐官方 input.dock id=goal order 10：todo 之后、queue 之前）：
@@ -3713,7 +3763,7 @@ function render(): void {
   if (state.goal) {
     if (!(keepGoalBar && oldGoalBar !== null)) {
       const goalBar = renderGoalBar(state.goal)
-      if (goalBar) add(goalBar)
+      if (goalBar) seatAdd(goalBar)
     }
   }
 
@@ -3742,7 +3792,7 @@ function render(): void {
         det.appendChild(list)
         queue.appendChild(det)
       }
-      add(queue)
+      seatAdd(queue)
     }
   } else {
     editingQueueItem = null
@@ -3755,7 +3805,7 @@ function render(): void {
   if (state.pending.length > 0) {
     // Pending 接管 composer 区：消息流尾部不再渲染 pending 卡（对齐 dsh web
     // 的 QuestionFlow / PlanReviewPanel 挂 conversation.composer 的形态）。
-    if (!keepPending) chatCol.appendChild(renderPendingPanel(state.pending))
+    if (!keepPending) seat.appendChild(renderPendingPanel(state.pending))
   } else if (keepComposer && oldComposer) {
     // The composer element was never detached, so focus, caret, and any
     // in-flight IME composition survive; only patch the stats line in place.
@@ -3763,7 +3813,7 @@ function render(): void {
     // 权限 pill 懒切换选中帧的就地 patch（permissions 不在 composerSig 里）。
     patchPermissionPill(oldComposer, state.permissions)
   } else {
-    chatCol.appendChild(renderInput(draft))
+    seat.appendChild(renderInput(draft))
     // 本帧消费了恢复草稿，标志清零（pending 接管帧走不到这里，标志保留到
     // pending 结束恢复普通 composer 时）。
     draftRestoreFor = null
@@ -5298,6 +5348,11 @@ let flowRailSig = ''
 /** messages 顶层结构里的居中内容列（不存在 = 老 DOM，防御性兜底到 messages）。 */
 function flowColOf(messages: HTMLElement): HTMLElement {
   return messages.querySelector<HTMLElement>(':scope > .flow-col') ?? messages
+}
+
+/** messages 顶层结构里的 composer 坐席（dock 家族 + pending/composer 挂载点）。 */
+function seatOf(messages: HTMLElement): HTMLElement {
+  return messages.querySelector<HTMLElement>(':scope > .composer-seat') ?? messages
 }
 
 /**
@@ -7551,6 +7606,40 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
 }
 
 function autoGrow(input: HTMLTextAreaElement): void {
-  input.style.height = 'auto'
-  input.style.height = `${Math.min(input.scrollHeight, 160)}px`
+  // field-sizing:content（Chromium 123+，VS Code ≥1.96 内嵌 Electron/Chromium 128）
+  // 原生按内容定高，什么都不用做。保留函数作回退与集中收口。
+  if (supportsFieldSizing()) {
+    // 旧路径写的内联 height 若存在（升级前 DOM 存活），清掉交给 CSS。
+    if (input.style.height !== '') input.style.height = ''
+    return
+  }
+  // 回退：隐藏镜像测量（同宽同字体同 padding），不对存活 textarea 做
+  // height:auto 塌缩——塌缩瞬态会把兄弟 .messages 拉高，浏览器同步 clamp 其
+  // scrollTop，恢复后不落回（回归 composer-input-jitter-pinned-scroll）。
+  const frame = input.closest('.composer-frame')
+  if (!frame) {
+    // 兜底（理论上不会发生）：退化为旧塌缩法，保持功能可用。
+    input.style.height = 'auto'
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`
+    return
+  }
+  let mirror = frame.querySelector<HTMLTextAreaElement>('.grow-mirror')
+  if (!mirror) {
+    mirror = document.createElement('textarea')
+    mirror.className = 'grow-mirror'
+    mirror.rows = 1 // 与 input 一致，否则空值测量多出一行高度
+    mirror.setAttribute('aria-hidden', 'true')
+    mirror.tabIndex = -1
+    frame.appendChild(mirror)
+  }
+  mirror.value = input.value
+  input.style.height = `${Math.min(mirror.scrollHeight, 160)}px`
+}
+
+let fieldSizingSupported: boolean | null = null
+function supportsFieldSizing(): boolean {
+  if (fieldSizingSupported === null) {
+    fieldSizingSupported = typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content')
+  }
+  return fieldSizingSupported
 }
