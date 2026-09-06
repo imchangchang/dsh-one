@@ -803,6 +803,40 @@ function referenceChip(seg: Extract<UserBubbleSegment, { kind: 'file' | 'folder'
   return chip
 }
 
+/**
+ * 内嵌图片占位符号 src（增量对账下未变行保活，decorate 不会重跑，只能就地换）。
+ * 见 swapInlineImagePlaceholders。
+ */
+function findInlineImagePlaceholders(src: string): HTMLElement[] {
+  const out: HTMLElement[] = []
+  document.querySelectorAll<HTMLElement>('.md-img-loading').forEach((ph) => {
+    if (ph.dataset.mdimgSrc === src) out.push(ph)
+  })
+  return out
+}
+
+/**
+ * 内嵌图片占位 → 真图/失败 chip 的就地替换：消息行在增量对账下按签名保活，
+ * 宿主回执（fileThumb/fileThumbFailed）到达时行内容未变、decorateMarkdownImages
+ * 不会重跑，靠 render() 换不上——这里直接换掉占位元素（后续任何行重建再经
+ * decorate 走缓存，殊途同归）。
+ */
+function swapInlineImagePlaceholders(src: string): void {
+  const dataUrl = fileThumbCache.get(src)
+  const failed = fileThumbRequested.get(src)?.failed === true
+  for (const ph of findInlineImagePlaceholders(src)) {
+    if (dataUrl) {
+      const img = document.createElement('img')
+      img.className = 'md-img-inline'
+      img.src = dataUrl
+      img.alt = ph.dataset.mdimgAlt ?? attachmentBaseName(src)
+      ph.replaceWith(img)
+    } else if (failed) {
+      ph.replaceWith(markdownImageFailedChip(src, ph.dataset.mdimgAlt ?? attachmentBaseName(src)))
+    }
+  }
+}
+
 /** md 块渲染后，把 mention 链接（@[label](dsh-session:...)）换成可点击 chip。 */
 function decorateSessionMentions(container: HTMLElement): void {
   container.querySelectorAll<HTMLAnchorElement>('a[href^="dsh-session:"]').forEach((a) => {
@@ -840,6 +874,8 @@ function decorateMarkdownImages(container: HTMLElement): void {
     }
     const ph = el('span', 'md-img-inline md-img-loading', t('Loading image…'))
     ph.title = src
+    ph.dataset.mdimgSrc = src
+    ph.dataset.mdimgAlt = img.alt
     img.replaceWith(ph)
     requestInlineImageIfNeeded(src)
   })
@@ -1448,12 +1484,15 @@ window.addEventListener('message', (event) => {
     }
     render()
   } else if (msg?.type === 'fileThumb' && typeof msg.path === 'string' && typeof msg.data === 'string') {
-    // 消息里图片文件 chip 的缩略图回执：缓存后重渲染（占位变真图）。
+    // 消息图片缩略图回执：缓存后就地换占位（增量化对账下未变行不重建，见
+    // swapInlineImagePlaceholders），再重渲染走缓存。
     fileThumbCache.set(msg.path, `data:${msg.mediaType};base64,${msg.data}`)
+    swapInlineImagePlaceholders(msg.path)
     render()
   } else if (msg?.type === 'fileThumbFailed' && typeof msg.path === 'string') {
-    // 宿主放弃该文件（缺失/损坏/超时）：标失败态，重渲染保持图标 chip，不再重发。
+    // 宿主放弃该文件（缺失/损坏/超时）：标失败态，就地换失败态占位，不再重发。
     fileThumbRequested.set(msg.path, { at: 0, failed: true })
+    swapInlineImagePlaceholders(msg.path)
     render()
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
