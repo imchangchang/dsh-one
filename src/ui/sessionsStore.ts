@@ -1015,9 +1015,14 @@ export class SessionsStore implements vscode.Disposable {
   /** 恢复全部（视图头部按钮）；空集合时无操作。 */
   restoreAllFromRecycleBin(): void {
     if (this.recycleBin.length === 0) return
+    const removed = new Set(this.recycleBin)
     this.recycleBin = []
     this.persistAck(
-      this.io.updateRecycleBin((prev) => (prev.length === 0 ? prev : [])),
+      this.io.updateRecycleBin((prev) => {
+        // 增量清空：只移除本窗口视野里的这批——其它窗口/脚本并发移入的条目保留。
+        const filtered = prev.filter((id) => !removed.has(id))
+        return filtered.length === prev.length ? prev : filtered
+      }),
       'recycle-bin',
     )
     this.rebuildModel()
@@ -1646,10 +1651,11 @@ export class SessionsStore implements vscode.Disposable {
     const next = pruneRecycleIds(this.recycleBin, this.knownSessionIds, this.baselineReady)
     if (next === null) return
     this.recycleBin = next
-    const keep = new Set(next)
     this.persistAck(
       this.io.updateRecycleBin((prev) => {
-        const filtered = prev.filter((id) => keep.has(id))
+        // 清账不变量针对文件内容执行（而不是内存镜像 keep 集）：其它窗口刚
+        // 回收、本窗口还没热重载到的合法条目不能在这里被抹掉。
+        const filtered = prev.filter((id) => this.knownSessionIds.has(id))
         return filtered.length === prev.length ? prev : filtered
       }),
       'recycle-bin',
