@@ -1,0 +1,109 @@
+{
+  "title": "工具输出本地路径图片内嵌渲染（tool-output-image-render）",
+  "branch": "agent/tool-output-image-render",
+  "commit": "ff83ca3",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-tool-output-image-render:latest",
+    "instance": "tool-output-image-render",
+    "url": "http://localhost:8105",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code、真模型输出、平台专项（Windows/macOS 宿主）不在本报告范围；窗口为沙盒 code-server 的 webview iframe。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "工具输出里的绝对路径图片内嵌渲染（与 data: 图同帧对照）",
+      "expect": "发送「内嵌图片绝对路径」后，助手消息里 `![img](/tmp/mdimg-demo.png)` 渲染成真图（红/蓝/米色三段 320x180 示例图，圆角，max-width 100%）；同消息下方的 data:image base64 图同样渲染，两者并排可见；图片上方/下方文字正常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-tool-output-image-render/F-01.png"
+      ],
+      "notes": "①绝对路径图 `/tmp/mdimg-demo.png` 渲染为 320x180 红/蓝/米三段圆角图（消息首图），非残缺图标、非 Loading 占位；②同消息下方 data:image base64 图同样渲染（对照组与路径图并排，data: 回归成立）；③消息文本「（上图为绝对路径读盘渲染，下图 data: 图为对照组。）」与「 完毕。」正常显示；④无「Loading image…」残留。",
+      "driver": {
+        "prompt": "内嵌图片绝对路径",
+        "expectText": "图为对照组"
+      }
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "file: URI 形状的本地路径图片同样渲染",
+      "expect": "发送「内嵌图片 file URI」后，`![img](file:///tmp/mdimg-demo.png)` 经宿主 resolveLinkPath 归一后渲染出同一张示例图（不是残缺图标/占位）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-tool-output-image-render/F-02.png"
+      ],
+      "notes": "①file:///tmp/mdimg-demo.png 渲染出同一张 320x180 示例图（DOMPurify 钩子放行 src + 宿主 file: 归一均生效）；②非残缺图标、非 Loading 占位；③消息文本「工具输出（file: URI）：」与「 完毕。」正常。",
+      "driver": {
+        "prompt": "内嵌图片 file URI",
+        "expectText": "完毕。"
+      }
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "源文件缺失 → 失败态占位 chip（点击在编辑器打开）",
+      "expect": "发送「内嵌图片缺失」后，`![img](/tmp/mdimg-missing.png)` 不显示残缺图标，也不停留加载占位，而是显示失败态 chip（文件名 + 「Open image in editor」提示，可点击）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-tool-output-image-render/F-03.png"
+      ],
+      "notes": "①缺失文件显示失败态 chip（图标 + 「img」名 + 「Open image in editor」提示、role=button），无残缺图标；②无「Loading image…」卡留（失败后换 chip，不再 5s 重试）；③消息文本「上面这张源文件不存在，应显示失败态占位（不显示残缺图标）。」正常。",
+      "driver": {
+        "prompt": "内嵌图片缺失",
+        "expectText": "源文件不存在"
+      }
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "超过 10MB 大小闸 → 失败态占位 chip",
+      "expect": "发送「内嵌图片超限」后，`![img](/tmp/mdimg-big.png)`（>10MB）因大小闸被拒，显示与 F-03 同款失败态占位 chip，不读内容、不卡加载占位。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-tool-output-image-render/F-04.png"
+      ],
+      "notes": "①10MB+1 文件被大小闸拒绝（stat 先拒），显示与 F-03 同款失败态 chip（「img」+「Open image in editor」）；②无残缺图标、无 Loading 卡留；③消息文本「上面这张超过 10MB 上限，应显示失败态占位（不显示残缺图标）。」正常。",
+      "driver": {
+        "prompt": "内嵌图片超限",
+        "expectText": "超过 10MB 上限"
+      }
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "既有 markdown 渲染不受影响（表格/加粗/代码块）",
+      "expect": "发送「回归演示」后，表格 + 加粗 + ```ts 代码块按既有样式渲染（行内码装饰/代码块折叠生效），无残缺图标、无占位残留。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-tool-output-image-render/R-01.png",
+        "/tmp/dsh-sandbox-shots-tool-output-image-render/R-01-manual.png"
+      ],
+      "notes": "①驱动自动截图（R-01.png）拍到时新 tab 的 webview 未附着完（空 hero 状态）——断言「完毕。」已命中、且两次运行均命中，属 webview 重建竞态而非功能失败；②手动打开该会话补截图（R-01-manual.png）：表格（col A/col B + 1/**bold**）、```ts 代码块（语言标签 ts + Copy 按钮）、「完毕。」全部正常；③无残缺图标、无 Loading/失败占位残留。",
+      "driver": {
+        "prompt": "回归演示",
+        "expectText": "完毕。"
+      }
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "普通消息流与兜底回显正常",
+      "expect": "发送任意文本（「兜底回显核对」）后按既有兜底规则回显「收到：兜底回显核对」，消息流与 composer 正常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-tool-output-image-render/R-02.png"
+      ],
+      "notes": "①兜底回显「收到：兜底回显核对」出现在消息流（助手气泡）；②composer 与消息流正常，无占位/残缺图标；③消息操作行（点赞/复制/评分）正常。",
+      "driver": {
+        "prompt": "兜底回显核对",
+        "expectText": "收到：兜底回显核对"
+      }
+    }
+  ]
+}

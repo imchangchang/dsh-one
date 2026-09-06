@@ -48,6 +48,7 @@ import {
 import { steerModifierLabel } from '../../pure/steerShortcut.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { isFilePathHref, isInlineCodeFilePath } from '../../pure/linkPath.ts'
+import { inlineImageMediaType } from '../../pure/inlineImage.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../pure/toolLine.ts'
 import { cordisActionCardModel, cordisDefineCardModel, cordisRunCardModel, skillCardModel } from '../../pure/toolCards.ts'
@@ -380,6 +381,18 @@ function requestFileThumbIfNeeded(path: string): void {
   if (Date.now() - (rec?.at ?? 0) > FILE_THUMB_RETRY_MS) {
     fileThumbRequested.set(path, { at: Date.now(), failed: false })
     post({ type: 'requestFileThumb', path })
+  }
+}
+/**
+ * 内嵌图片（markdown 本地路径 src）的懒加载请求：与文件 chip 共用 fileThumbRequested
+ * 去重表——同一路径经任一侧发起后另一侧不会重复请求；失败回执后同样收敛不再发。
+ */
+function requestInlineImageIfNeeded(src: string): void {
+  const rec = fileThumbRequested.get(src)
+  if (rec?.failed) return
+  if (Date.now() - (rec?.at ?? 0) > FILE_THUMB_RETRY_MS) {
+    fileThumbRequested.set(src, { at: Date.now(), failed: false })
+    post({ type: 'requestInlineImage', src })
   }
 }
 /** Half-answered pending questions: rpcId → question index → draft. */
@@ -719,13 +732,22 @@ function md(text: string): string {
 }
 
 /**
- * 文件路径类 href 放行：DOMPurify 的 URI 白名单只认 scheme，绝对/相对路径
+ * 文件路径类 href/src 放行：DOMPurify 的 URI 白名单只认 scheme，绝对/相对路径
  * （/Users/…、docs/foo.md、file:…）会被剥成纯文本，模型写出的文件链接就点不
- * 了。钩子里只对「文件路径形状」的 href 设 forceKeepAttr，http(s)/mailto 等
+ * 了。钩子里只对「文件路径形状」的 href/src 设 forceKeepAttr，http(s)/mailto 等
  * 外链与 javascript:/data: 等危险 scheme 不匹配路径形状，仍走默认拦截。
+ * img 的 src 同理：内嵌图片的本地路径 src（工具输出 ![img](/a/x.png)）被剥掉就
+ * 连「占位后再加载」的入口都没有——decorateMarkdownImages 靠它识别。
  */
 DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
   if (data.attrName === 'href' && isFilePathHref(data.attrValue)) {
+    data.forceKeepAttr = true
+  }
+  if (
+    data.attrName === 'src' &&
+    _node?.nodeName?.toLowerCase() === 'img' &&
+    isFilePathHref(data.attrValue)
+  ) {
     data.forceKeepAttr = true
   }
 })
@@ -781,6 +803,40 @@ function referenceChip(seg: Extract<UserBubbleSegment, { kind: 'file' | 'folder'
   return chip
 }
 
+/**
+ * 内嵌图片占位符号 src（增量对账下未变行保活，decorate 不会重跑，只能就地换）。
+ * 见 swapInlineImagePlaceholders。
+ */
+function findInlineImagePlaceholders(src: string): HTMLElement[] {
+  const out: HTMLElement[] = []
+  document.querySelectorAll<HTMLElement>('.md-img-loading').forEach((ph) => {
+    if (ph.dataset.mdimgSrc === src) out.push(ph)
+  })
+  return out
+}
+
+/**
+ * 内嵌图片占位 → 真图/失败 chip 的就地替换：消息行在增量对账下按签名保活，
+ * 宿主回执（fileThumb/fileThumbFailed）到达时行内容未变、decorateMarkdownImages
+ * 不会重跑，靠 render() 换不上——这里直接换掉占位元素（后续任何行重建再经
+ * decorate 走缓存，殊途同归）。
+ */
+function swapInlineImagePlaceholders(src: string): void {
+  const dataUrl = fileThumbCache.get(src)
+  const failed = fileThumbRequested.get(src)?.failed === true
+  for (const ph of findInlineImagePlaceholders(src)) {
+    if (dataUrl) {
+      const img = document.createElement('img')
+      img.className = 'md-img-inline'
+      img.src = dataUrl
+      img.alt = ph.dataset.mdimgAlt ?? attachmentBaseName(src)
+      ph.replaceWith(img)
+    } else if (failed) {
+      ph.replaceWith(markdownImageFailedChip(src, ph.dataset.mdimgAlt ?? attachmentBaseName(src)))
+    }
+  }
+}
+
 /** md 块渲染后，把 mention 链接（@[label](dsh-session:...)）换成可点击 chip。 */
 function decorateSessionMentions(container: HTMLElement): void {
   container.querySelectorAll<HTMLAnchorElement>('a[href^="dsh-session:"]').forEach((a) => {
@@ -788,6 +844,61 @@ function decorateSessionMentions(container: HTMLElement): void {
     if (!sessionId) return // 坏 URI 保持原样
     a.replaceWith(sessionMentionChip(a.textContent ?? sessionId, sessionId))
   })
+}
+
+/**
+ * md 块渲染后处理内嵌的本地路径图片（read_image 工具输出 ![img](/abs/x.png)）：
+ * CSP 只放行 img-src data:，本地路径 src 永远加载失败，走宿主读盘通道
+ * （requestInlineImage → fileThumb 回执 → fileThumbCache，布局与文件 chip 同构）。
+ * 本 pass 每帧执行：无缓存 → 占位 + 发起请求；缓存命中 → 真图；宿主失败回执
+ * （缺失/超限）→ 失败 chip（点击在编辑器打开）。data:（CSP 已放行）与
+ * http(s)（维持「不可加载」现状，不走远程）不处理。
+ */
+function decorateMarkdownImages(container: HTMLElement): void {
+  container.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
+    const src = img.getAttribute('src') ?? ''
+    if (src.startsWith('data:') || !isFilePathHref(src)) return
+    // 扩展名白名单以外的 src 不动（broken 态保持现状），也不发请求
+    // ——避免对任意 markdown 路径每 5 秒砸一次 host（纯逻辑见 pure/inlineImage.ts）。
+    if (!inlineImageMediaType(src)) return
+    const dataUrl = fileThumbCache.get(src)
+    if (dataUrl) {
+      img.classList.add('md-img-inline')
+      img.src = dataUrl
+      return
+    }
+    if (fileThumbRequested.get(src)?.failed) {
+      const name = img.alt || attachmentBaseName(src)
+      img.replaceWith(markdownImageFailedChip(src, name))
+      return
+    }
+    const ph = el('span', 'md-img-inline md-img-loading', t('Loading image…'))
+    ph.title = src
+    ph.dataset.mdimgSrc = src
+    ph.dataset.mdimgAlt = img.alt
+    img.replaceWith(ph)
+    requestInlineImageIfNeeded(src)
+  })
+}
+
+/** 内嵌图片失败态（文件缺失/非图片之外的超限等）：占位 chip，点击在编辑器打开。 */
+function markdownImageFailedChip(src: string, name: string): HTMLElement {
+  const chip = el('span', 'md-img-failed ref-chip-link')
+  chip.title = src
+  chip.setAttribute('role', 'button')
+  chip.tabIndex = 0
+  chip.appendChild(iconSvg(CONTEXT_BROWSE_ICON, 14))
+  chip.appendChild(el('span', 'md-img-failed-name', name))
+  chip.appendChild(el('span', 'md-img-failed-hint', t('Open image in editor')))
+  const open = (): void => post({ type: 'openPath', path: src })
+  chip.addEventListener('click', open)
+  chip.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      open()
+    }
+  })
+  return chip
 }
 
 // ---- 消息正文 commit hash 联动（点击打开 git 提交视图 / 悬浮显示提交信息） ----
@@ -1373,12 +1484,15 @@ window.addEventListener('message', (event) => {
     }
     render()
   } else if (msg?.type === 'fileThumb' && typeof msg.path === 'string' && typeof msg.data === 'string') {
-    // 消息里图片文件 chip 的缩略图回执：缓存后重渲染（占位变真图）。
+    // 消息图片缩略图回执：缓存后就地换占位（增量化对账下未变行不重建，见
+    // swapInlineImagePlaceholders），再重渲染走缓存。
     fileThumbCache.set(msg.path, `data:${msg.mediaType};base64,${msg.data}`)
+    swapInlineImagePlaceholders(msg.path)
     render()
   } else if (msg?.type === 'fileThumbFailed' && typeof msg.path === 'string') {
-    // 宿主放弃该文件（缺失/损坏/超时）：标失败态，重渲染保持图标 chip，不再重发。
+    // 宿主放弃该文件（缺失/损坏/超时）：标失败态，就地换失败态占位，不再重发。
     fileThumbRequested.set(msg.path, { at: 0, failed: true })
+    swapInlineImagePlaceholders(msg.path)
     render()
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
@@ -5515,6 +5629,7 @@ function renderCompactionCard(
   })
   const body = el('div', 'md compaction-body')
   body.innerHTML = md(opts.summary as string)
+  decorateMarkdownImages(body)
   enhanceCodeBlocks(body, `${key}:compact`)
   decorateInlineCodes(body)
   det.appendChild(body)
@@ -5878,6 +5993,7 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
       const div = el('div', 'md')
       div.innerHTML = md(block.text)
       decorateSessionMentions(div)
+      decorateMarkdownImages(div)
       enhanceCodeBlocks(div, key)
       decorateInlineCodes(div)
       decorateCommitHashes(div)
@@ -6736,6 +6852,7 @@ function renderQuestionItem(
     const det = detailsEl(`q:${p.rpcId}:${index}`, 'question-detail', t('View details'))
     const body = el('div', 'md')
     body.innerHTML = md(q.detail)
+    decorateMarkdownImages(body)
     enhanceCodeBlocks(body, `q:${p.rpcId}:${index}`)
     decorateInlineCodes(body)
     det.appendChild(body)
@@ -6844,6 +6961,7 @@ function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
   if (q.detail) {
     const plan = el('div', 'md plan-md')
     plan.innerHTML = md(q.detail)
+    decorateMarkdownImages(plan)
     enhanceCodeBlocks(plan, `plan:${p.rpcId}`)
     decorateInlineCodes(plan)
     body.appendChild(plan)

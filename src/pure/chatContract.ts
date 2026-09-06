@@ -971,6 +971,12 @@ export type FromWebviewMessage =
   | { type: 'pasteText'; data: string }
   /** 消息里图片文件 chip 需要缩略图：宿主读盘转 base64 后回 fileThumb（失败静默）。 */
   | { type: 'requestFileThumb'; path: string }
+  /**
+   * 消息 markdown 里内嵌的本地路径图片（工具输出 `![img](/abs/x.png)` 一类）：
+   * 宿主 resolveLinkPath 归一（file:/~/相对/盘符）+ 扩展名/大小双闸后读盘转 base64。
+   * 回执复用 fileThumb / fileThumbFailed，path 为原始 src 原样回声（webview 按原文缓存）。
+   */
+  | { type: 'requestInlineImage'; src: string }
   | { type: 'requestModels' }
   | { type: 'setModel'; provider: string; model: string; reasoningEffort?: string }
   | { type: 'setPermission'; value: string }

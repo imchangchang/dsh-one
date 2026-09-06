@@ -22,3 +22,6 @@
 ## 变更记录
 
 - 2026-09-05 用户界面检查（Read read_image 后图片缺失）→ 视觉验证（harness 场景 data-URI vs 路径对照）→ 确认：路径图片不显示、data-URI 正常 → 建条目（open/）
+- 2026-09-06 认领（worktree: agent/tool-output-image-render）→ doing
+
+- 2026-09-06 开发完成（doing → done，worktree tool-output-image-render，branch agent/tool-output-image-render）：方案 1（host 图片通道，扩展名/10MB 双闸，全路径形状，不覆盖 WS/远端——扩展只连本机 127.0.0.1 dsh，无远端路径场景）。实现：pure/inlineImage.ts 策略层；chatContract 新增 requestInlineImage；chatMessages 宿主处理（resolveLinkPath 归一 + 双闸 + 复用 fileFetchQueue/runAttempts，回执复用 fileThumb/fileThumbFailed）；webview DOMPurify 钩子放行 img src 路径形状 + decorateMarkdownImages（占位/真图/失败 chip，回执后就地替换——增量对账下未变行不重建）；mock-llm 新增 4 条内嵌图片规则 + /tmp/mdimg-* fixture 预置。自测全绿（typecheck/test 620/build）；沙盒报告 6 项全 pass（verify.tool-output-image-render.report.html：F-01 绝对路径+data: 同帧对照、F-02 file: URI、F-03 缺失、F-04 超限、R-01 既有 markdown、R-02 兜底回显）。
