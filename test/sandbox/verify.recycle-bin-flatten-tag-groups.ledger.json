@@ -1,0 +1,65 @@
+{
+  "title": "回收站平铺：带标签组的会话不聚块（recycle-bin-flatten-tag-groups）",
+  "branch": "agent/recycle-bin-flatten-tag-groups",
+  "commit": "2236928",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-recycle-flat:latest",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "本任务为 sessions 面板渲染调整（store 回收站模型不传 tags/sessionTagFor + webview 回收站组内不走 tag 块），无 dsh 侧 API 与宿主层改动：功能项用 webview 视觉场景（ai-visual-validation harness，确定性渲染 + DOM 事件断言）核对；沙盒用于聊天链路与侧栏整体回归（R-02）。真实桌面 VS Code 窗口 chrome、拖拽手感、平台专项不在本报告范围。纯层未改动「no tags option keeps the legacy flat ordering」单测已锁定不传 tags 即平铺。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "回收站平铺：带标签组归属的会话在抽屉内不聚块（sessions-recycle-flat 场景）",
+      "expect": "见场景 expect：抽屉内 dsh-one（计数 2）/ 已删除的目录（计数 1）组下平铺行；快照行虽带 tagId（preset-todo/preset-doing，组归属保留是既定设计）但不渲染任何标签组块——无组色 pill、无组色竖线、无 12px 缩进，行左缘与组头对齐；sess-5 未读绿点 + 加粗 + 行尾时间照常；主列表上半部「待办」（黄）组块照常聚合（对照组）；无红色断言横幅（断言：.recycle-list 内 .tag-group === 0、行数 3、主列表 .tag-group === 1）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-recycle-flat.png"
+      ],
+      "notes": "截图逐项核对：① 抽屉头 ▼ Back + 「Recycle bin 3」（计数徽标紧跟标题）+ 红色垃圾桶 + Restore all ✓；② 抽屉内 dsh-one 组头（计数 2）/ 已删除的目录组头（计数 1），各带折叠箭头，未分组虚拟组不出现 ✓；③ 组内平铺行：「回收站里的会话一」（昨天）、「回收站里的会话二」（2 天前 + 未读绿点）、「软删目录会话」（上周）——行左缘与组头对齐、无组色 pill、无组色竖线、无 12px 缩进（与主列表未分组行同款）✓；④ 三行快照数据均带 tagId（preset-todo ×2 / preset-doing ×1）但完全不聚块——回收站平铺 ✓；⑤ 对照组：主列表上半部「待办」（黄）pill 组块 + 组色竖线 + 块内 2 行缩进（实现侧栏分组过滤 / 整理 mock 场景）照常聚合 ✓；⑥ dsh-web research 组头 + 平铺行、未分组组头照常 ✓；⑦ 无红色断言横幅（DOM 断言：.recycle-list 内 .tag-group === 0、.recycle-list 行数 3、主列表 .tag-group === 1，通过）✓。①②③④⑤⑥⑦ 全符合期望。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "回收站与标签组既有场景回归：sessions-recycle-drawer / sessions-recycle-entry-actions / session-tags / session-tags-collapse",
+      "expect": "sessions-recycle-drawer：抽屉半高、按原 workspace 分组（组头计数+折叠）、提手/清空图标/恢复全部照常；sessions-recycle-entry-actions：入口行快捷操作照常；session-tags：主列表标签组块（pill+竖线+缩进）照常；session-tags-collapse：折叠计数与活跃会话脱离组块照常。渲染与合入前一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-recycle-drawer.png",
+        "/tmp/dsh-ui-shots/sessions-recycle-entry-actions.png",
+        "/tmp/dsh-ui-shots/session-tags.png",
+        "/tmp/dsh-ui-shots/session-tags-collapse.png"
+      ],
+      "notes": "① sessions-recycle-drawer：抽屉半高（占下方约一半，主列表上半可见）、抽屉头（▼ Back + Recycle bin 3 + 垃圾桶 + Restore all）、组头 dsh-one 计数 2 / 已删除的目录 计数 1、行「回收站里的会话一/二」（昨天/2 天前未读绿点）与「软删目录会话」（上周）全部在位，提手横条可见——渲染与合入前一致 ✓；② session-tags：主列表标签组聚合照常——最前「探索 Chrome 式分组原型」平铺（运行中像素环）、「待办」（黄）pill + 竖线 + 块内 2 行（含未读绿点 + 加粗）、「已完成」（绿）块 1 行、无组「会话 A」平铺殿后、dsh-web research「探索」（橙）块照常、未分组组头与底部 Recycle bin 入口在位 ✓；③ session-tags-collapse 分步截图：初始帧待办组块展开（第一行待交互黄点、第二行未读绿点加粗）、已完成组块预置折叠（计数「绿点+1」）；collapsed 帧：待办组块只剩 pill 一行、箭头右侧计数「黄点+1、绿点+1」，最前平铺运行中行不受折叠影响；expanded 帧：再点后 mock 宿主不回推快照、组块保持折叠（预期）；三帧均无红色断言横幅 ✓；④ sessions-recycle-entry-actions 分步截图：恢复全部后无红色断言横幅（断言 __posted 含 sessionsRestoreAll 且抽屉未打开），底部入口行 = 主区「Recycle bin + 计数 3」+ 右侧清空/恢复全部两个小图标按钮，mock 宿主不回推快照故列表与计数不变（预期）✓。（首轮全量受 daemon tab 残留影响，偶尔把 session-tags/session-tags-collapse 截成 chat 视图、recycle-drawer 内容黑屏——均为截图管线偶发非渲染缺陷；干净会话第三轮全量重跑后上述场景截图像素正常，与手动单场景重截结果一致。）"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "mock-LLM 回显回复（聊天链路 + 侧栏整体回归）",
+      "expect": "composer 发送「测试一下」后，新会话内出现助手消息「收到：测试一下…」，模型选择器显示 mock-flash Max；侧栏 DSH ONE: SESSIONS 面板正常渲染（搜索框/分组栏/未分组组头/回收站入口），无报错横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-recycle-flat/R-02.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "沙盒真 VS Code 截图核对：① 新会话 mock 回显「收到：测试一下」助手消息出现（含标题自动生成「收到：Generate the session title...」）✓；② 模型选择器 mock-flash Max（状态栏 Workspace Write · mock-flash Max）✓；③ 侧栏 DSH ONE: SESSIONS 面板正常：搜索框 / All workspaces 分组栏 / 未分组（Ungrouped）组头 / 回收站入口（Recycle bin）照常；④ 状态栏 DSH: Running:3080、无报错横幅。①②③④ 全符合。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量单测 + typecheck + build + 全量视觉场景截图",
+      "expect": "npm run typecheck（tsc --noEmit 无输出）/ npm test（614 项全过）/ npm run build（四个 bundle）全部通过；ui-visual.sh mode=all 全量场景全部截图成功，sessions 系列渲染正常，无断言横幅。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 614 项全过（fail 0）；npm run build 产出 dist 四 bundle；ui-visual.sh mode=all 160 场景全部截图成功（第一、二轮曾因 daemon 残留偶发错位 3 个场景，干净会话第三轮重跑全部正常），抽查 sessions 系列（sessions / sessions-recycle-drawer / sessions-recycle-flat / session-tags / session-tags-collapse / sessions-recycle-entry-actions）渲染正常，无断言横幅。"
+    }
+  ]
+}
