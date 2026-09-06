@@ -870,7 +870,7 @@ test('sessions aggregate into tag blocks in tag order, untagged last', () => {
   ])
 })
 
-test('active sessions sort before tagged idle blocks, which sort before untagged idle', () => {
+test('tagged active sessions stay inside their block; only untagged active prefixed', () => {
   const tree = buildSessionTree(
     [ws('w1', ['a', 'b', 'c', 'd', 'e', 'f'])],
     [
@@ -890,15 +890,16 @@ test('active sessions sort before tagged idle blocks, which sort before untagged
       sessionTagFor: (id) => ({ a: 'preset-doing', b: 'preset-doing', c: 'preset-todo', d: 'preset-todo' })[id],
     },
   )
-  // 用户确认的层级：活跃（运行中 b/d/f）最前（组内按 updatedAt 降序，脱离组块
-  // 平铺但保留 tagId），空闲的按标签组块序（doing 组在 todo 组前），无组 e 殿后。
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b', 'd', 'f', 'a', 'c', 'e'])
-  assert.deepEqual(tree[0].sessions.map((n) => n.active), [true, true, true, false, false, false])
+  // 用户拍板「组块是容器」：有组会话（含运行中 b/d）留在组块内、组内活跃前置；
+  // 只有未分组活跃（f）平铺最外（按 updatedAt 降序）；未分组空闲 e 殿后。
+  // 序列 = 未分组活跃 f → doing 块（组内活跃 b 前 + 空闲 a）→ todo 块（d）→ 无组 e。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['f', 'b', 'a', 'd', 'c', 'e'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.active), [true, true, false, true, false, false])
   assert.deepEqual(tree[0].sessions.map((n) => n.tagId), [
-    'preset-doing',
-    'preset-todo',
     undefined,
     'preset-doing',
+    'preset-doing',
+    'preset-todo',
     'preset-todo',
     undefined,
   ])
@@ -955,15 +956,16 @@ test('pinned sessions stay at the front and skip tag aggregation', () => {
   assert.deepEqual(tree[0].sessions.map((n) => n.tagId), ['preset-doing', 'preset-todo', undefined])
 })
 
-test('sort hierarchy is pinned > active > tag blocks > idle by time', () => {
+test('sort hierarchy is pinned > untagged active > tag blocks (active inside) > idle by time', () => {
   const tree = buildSessionTree(
-    [ws('w1', ['a', 'b', 'c', 'd', 'e'])],
+    [ws('w1', ['a', 'b', 'c', 'd', 'e', 'f'])],
     [
       s('a', { updatedAt: NOW - 1000 }),
       s('b', { updatedAt: NOW - 2000, running: true }),
       s('c', { updatedAt: NOW - 3000 }),
       s('d', { updatedAt: NOW - 4000 }),
       s('e', { updatedAt: NOW - 5000 }),
+      s('f', { updatedAt: NOW - 6000, running: true }),
     ],
     new Set(),
     noTitles,
@@ -972,12 +974,13 @@ test('sort hierarchy is pinned > active > tag blocks > idle by time', () => {
     {
       pinned: ['a'],
       tags: ['preset-doing', 'preset-todo'],
-      sessionTagFor: (id) => ({ a: 'preset-doing', b: 'preset-todo', c: 'preset-doing' })[id],
+      sessionTagFor: (id) => ({ a: 'preset-doing', b: 'preset-todo', c: 'preset-doing', d: 'preset-doing', f: 'preset-todo' })[id],
     },
   )
-  // a 置顶最前（即便属于 doing 组）；活跃 b（属于 todo 组）其次——活跃层在
-  // 标签组之前；空闲按组块序（doing 的 c 在 todo 组前）；无组 d/e 按时间殿后。
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'b', 'c', 'd', 'e'])
+  // a 置顶最前（即便属于 doing 组）；组块序 doing（c/d 空闲按时间）→ todo
+  // （b/f 活跃按 updatedAt 降序）；无组 e 殿后。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'c', 'd', 'b', 'f', 'e'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.active), [false, false, false, true, true, false])
 })
 
 test('no tags option keeps the legacy flat ordering', () => {

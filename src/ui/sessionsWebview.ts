@@ -1485,19 +1485,19 @@ function tagBlockItems(
   while (i < sessions.length) {
     const s = sessions[i]
     const tag = s.tagId !== undefined ? tagById(s.tagId) : undefined
-    // 置顶/活跃（运行中/后代运行/未读/待交互）会话平铺，不进组块——否则
-    // 活跃会话会被折叠组藏住、折叠计数也不对（sessions-active-over-tags 语义）。
-    if (s.pinned || s.active || tag === undefined) {
+    // 置顶/无组会话平铺（置顶绝对优先；无组活跃由纯层前置，渲染不再特殊
+    // 判断 active——组块是容器，组内活跃也聚块，仅在块内前排）。
+    if (s.pinned || tag === undefined) {
       items.push(rowItemOf(s, false))
       if (s.contentSnippet) items.push(snippetItem(s))
       i += 1
       continue
     }
-    // 组块 = 同 tagId 的连续空闲段落（纯层已聚合排序），一次收齐再按折叠态渲染。
+    // 组块 = 同 tagId 的连续段（纯层已聚合排序，含组内活跃），一次收齐再按折叠态渲染。
     const rows: SessionNodeModel[] = []
     while (i < sessions.length) {
       const cur = sessions[i]
-      if (cur.pinned || cur.active || cur.tagId !== tag.id) break
+      if (cur.pinned || cur.tagId !== tag.id) break
       rows.push(cur)
       i += 1
     }

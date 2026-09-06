@@ -283,13 +283,18 @@ export function buildSessionTree(
     if (!tagIndex.has(id)) tagIndex.set(id, i)
   })
   const tagFor = view.sessionTagFor ?? ((): string | undefined => undefined)
+  /** 降级后的有效组 id（未知组视为无组）；排序与投影共用的单一判定。 */
+  const tagIdOf = (sessionId: string): string | undefined => {
+    const raw = tagFor(sessionId)
+    return raw !== undefined && tagIndex.has(raw) ? raw : undefined
+  }
   const tagRankOf = (tagId: string | undefined): number => (tagId === undefined ? Infinity : (tagIndex.get(tagId) ?? Infinity))
 
   // 会话行流水线：label 解析（query 匹配和 title 排序都要用，先算一次）→
   // 查询过滤（标题/ID 命中 或 内容命中）→ 置顶绝对优先（组内按置顶顺序）→
-  // 非置顶成员：活跃优先（运行中/运行中后代/未读/待交互，任何排序模式下都
-  // 整体前置，脱离标签组平铺）→ 标签组聚合（组块顺序，组内再排）→ 其余按
-  // view.sort；无组殿后。workspace 组与「未分组」组共用。
+  // 未分组活跃平铺（有状态标记的无组会话整体前置、脱离组块）→ 标签组聚合
+  // （组块 = 容器：组内活跃前置、余下按 sort 键）→ 无组空闲殿后。workspace
+  // 组与「未分组」组共用。
   const toSessionNodes = (list: SessionInput[]): SessionNodeModel[] =>
     list
       .map((s) => ({
@@ -315,24 +320,28 @@ export function buildSessionTree(
         const aPinned = pinnedIndex.has(a.session.sessionId)
         const bPinned = pinnedIndex.has(b.session.sessionId)
         if (aPinned !== bPinned) return aPinned ? -1 : 1
-        // 置顶组内按置顶顺序固定；非置顶成员先比活跃（有状态标记的会话整体
-        // 前置，用户确认：运行中/待交互比标签组更优先），再按标签组聚合，
-        // 最后比 sort 键。
+        // 置顶组内按置顶顺序固定。
         if (aPinned) {
           return (pinnedIndex.get(a.session.sessionId) ?? 0) - (pinnedIndex.get(b.session.sessionId) ?? 0)
         }
-        // 活跃层（继置顶后的最高优先）：有状态标记的会话整体前置，活跃组内
-        // 固定按 updatedAt 降序（越活跃越新），不受 view.sort 的 title/asc
-        // 影响；活跃会话脱离标签组聚合平铺（渲染层同款语义），保证「运行中/
-        // 待交互的最上面」不被打标签的空闲组块压过去，也不被折叠组藏住。
-        if (a.active !== b.active) return a.active ? -1 : 1
-        if (a.active) return b.session.updatedAt - a.session.updatedAt
-        // 标签组聚合（组块序）→ 组内按 sort 键；无组殿后。
-        if (tagIndex.size > 0) {
-          const aRank = tagRankOf(tagFor(a.session.sessionId))
-          const bRank = tagRankOf(tagFor(b.session.sessionId))
+        // 分层（用户拍板「组块是容器」）：未分组活跃(0) → 有组(1) → 无组空闲(2)。
+        // 有组会话无论是否活跃都留在组块聚合层（不脱离），只有无组活跃才平铺最前。
+        const aTag = tagIdOf(a.session.sessionId)
+        const bTag = tagIdOf(b.session.sessionId)
+        const aLayer = aTag === undefined ? (a.active ? 0 : 2) : 1
+        const bLayer = bTag === undefined ? (b.active ? 0 : 2) : 1
+        if (aLayer !== bLayer) return aLayer - bLayer
+        // 组块按 tags 数组序（同层 1 内）；无组空闲殿后自由排序。
+        if (aLayer === 1) {
+          const aRank = tagRankOf(aTag)
+          const bRank = tagRankOf(bTag)
           if (aRank !== bRank) return aRank - bRank
         }
+        // 组块内活跃前置，活跃组内固定按 updatedAt 降序（越活跃越新），不受
+        // view.sort 的 title/asc 影响——行尾无时间显示，不可见的时间不作排序依据。
+        if (a.active !== b.active) return a.active ? -1 : 1
+        if (a.active) return b.session.updatedAt - a.session.updatedAt
+        // 未分组活跃层内全部活跃（上面分支已兜底）；其余按 view.sort。
         if (sort === 'updatedAsc') return a.session.updatedAt - b.session.updatedAt
         if (sort === 'title') return a.label.localeCompare(b.label)
         return b.session.updatedAt - a.session.updatedAt
@@ -340,9 +349,7 @@ export function buildSessionTree(
       .map(({ session, label, active }) => {
         const pendingInteraction = view.pendingInteractions?.get(session.sessionId)
         const snippet = view.contentHits?.get(session.sessionId)
-        // 未知组 id 降级为未分组：store 清洗后正常不会出现，防御旧残留。
-        const rawTagId = tagFor(session.sessionId)
-        const tagId = rawTagId !== undefined && tagIndex.has(rawTagId) ? rawTagId : undefined
+        const tagId = tagIdOf(session.sessionId)
         return {
           sessionId: session.sessionId,
           label,

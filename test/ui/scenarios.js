@@ -1773,11 +1773,12 @@
           't-explore': ['sess-5'],
         }
         // 注意：快照即最终渲染输入——顺序 = buildSessionTree 聚合后的输出
-        // （活跃会话最前、组块按 tags 数组序聚合、无组殿后），单测已覆盖纯层排序。
+        // （组块是容器：组内活跃在块内最前、组块按 tags 数组序聚合、无组殿后），
+        // 单测已覆盖纯层排序。todo 组内 unread 的 sess-2 活跃前置。
         s.workspaces[0].sessions = [
-          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', running: true, active: true }),
+          sess('sess-2', '修复回收站抽屉高度', '5 小时前', { tagId: 'preset-todo', unread: true, active: true }),
           sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
-          sess('sess-2', '修复回收站抽屉高度', '5 小时前', { tagId: 'preset-todo', unread: true }),
+          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', running: true, active: true }),
           sess('sess-3', '会话复制引用功能', '1 天前', { tagId: 'preset-done' }),
           sess('sess-6', '会话 A', '2 天前'),
         ]
@@ -1790,7 +1791,7 @@
         return s
       })(),
       title: '侧栏面板（会话标签组块：pill + 竖线 + 小缩进）',
-      expect: 'dsh-one 组最前一行「探索 Chrome 式分组原型」**平铺**（运行中，行尾像素环，无缩进、无组块头）——它属于「进行中」组的唯一会话但正在运行，按「活跃最上面」脱离组块（进行中组块因此不出现）；其后组块聚合，组块顺序 = 待办（黄）→ 已完成（绿）：每个组块顶部一个非常小的 pill（10px 字号、16px 高、组色圆点 + 组名，如「待办」），pill 左缘同列往下一条 2px 组色竖线贯穿整个组块（竖线从 pill 下沿起、止于组尾行底），组内会话行比未分组行左缩进约 12px；待办组块：sess-1 行、sess-2 未读绿点 + 标题加粗；已完成组块：sess-3；「会话 A」未分组平铺在组块之后（无缩进、无竖线）；workspace 组头角标照常计算（环 1 + 绿点 1）。dsh-web research 组内「尝试 worktree 并行开发」带「探索」（橙）pill 组块。组块之间无折叠箭头、无组头复选框（非多选模式）；未分组虚拟组无会话。',
+      expect: 'dsh-one 组自上而下组块聚合，组块顺序 = 待办（黄）→ 进行中（蓝）→ 已完成（绿）：每个组块顶部一个非常小的 pill（10px 字号、16px 高、组色圆点 + 组名，如「待办」），pill 左缘同列往下一条 2px 组色竖线贯穿整个组块（竖线从 pill 下沿起、止于组尾行底），组内会话行比未分组行左缩进约 12px；待办组块：sess-2 未读绿点 + 标题加粗在前（组内活跃前置）、sess-1 行在后；进行中（蓝）组块：sess-4 **留在组块内**（运行中，行尾像素环无时间，不再平铺脱离）；已完成组块：sess-3；「会话 A」未分组平铺在组块之后（无缩进、无竖线）；workspace 组头角标照常计算（环 1 + 绿点 1）。dsh-web research 组内「尝试 worktree 并行开发」带「探索」（橙）pill 组块。组块之间无折叠箭头、无组头复选框（非多选模式）；未分组虚拟组无会话。',
     },
 
     'session-tags-active-first': {
@@ -1805,12 +1806,12 @@
           'preset-todo': ['sess-1', 'sess-2'],
           'preset-doing': ['sess-3', 'sess-4', 'sess-5'],
         }
-        // 顺序 = buildSessionTree 新层级输出：活跃（运行中/待交互）最前脱离
-        // 组块 → 空闲按标签组块序 → 无组按时间殿后。
+        // 顺序 = buildSessionTree 新层级输出：组块是容器——组内活跃前置
+        // （脱离组块的只有未分组活跃）；无组按时间殿后。
         s.workspaces[0].sessions = [
           sess('sess-2', '修复回收站抽屉高度', '5 小时前', { tagId: 'preset-todo', running: true, active: true }),
-          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', pendingInteraction: 'approval', active: true }),
           sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', pendingInteraction: 'approval', active: true }),
           sess('sess-3', '会话复制引用功能', '1 天前', { tagId: 'preset-doing' }),
           sess('sess-5', '整理 mock 场景', '2 天前', { tagId: 'preset-doing' }),
           sess('sess-6', '会话 A', '4 天前'),
@@ -1821,8 +1822,8 @@
         s.unread = []
         return s
       })(),
-      title: '侧栏面板（活跃会话 > 标签组块 > 时间序）',
-      expect: 'dsh-one 组自上而下：① 最前「修复回收站抽屉高度」平铺（运行中，行尾蓝色像素环无时间，无组块头/竖线/缩进——虽属待办组但脱离组块）；② 其次「探索 Chrome 式分组原型」平铺（待交互，行尾黄色圆点无时间）；③ 待办（黄）组块：pill「待办」+ 组色竖线贯穿 + 行左缩进 ~12px，块内「实现侧栏分组过滤」1 行（无状态标记、显示时间）；④ 进行中（蓝）组块：块内「会话复制引用功能」「整理 mock 场景」2 行；⑤ 无组平铺「会话 A」（4 天前）「会话 B」（5 天前）——时间降序、无缩进无竖线；带组块头的只有 2 个（待办/进行中），活跃的 2 行都在组块外；workspace 组头角标照常。',
+      title: '侧栏面板（组块是容器：组内活跃前置，无组活跃才平铺）',
+      expect: 'dsh-one 组自上而下：① 待办（黄）组块最上：pill「待办」+ 组色竖线贯穿 + 行左缩进 ~12px，块内「修复回收站抽屉高度」**留在组块内**（运行中，行尾蓝色像素环无时间）、「实现侧栏分组过滤」（无状态标记、显示时间）其次；② 进行中（蓝）组块：块内「探索 Chrome 式分组原型」**留在组块内**（待交互，行尾黄色圆点无时间）、「会话复制引用功能」「整理 mock 场景」2 行；③ 无组平铺「会话 A」（4 天前）「会话 B」（5 天前）——时间降序、无缩进无竖线；带组块头的 2 个（待办/进行中），活跃的 2 行都在各自组块内；workspace 组头角标照常。',
     },
 
     'session-tags-active-first-collapse': {
@@ -1839,8 +1840,8 @@
         }
         s.workspaces[0].sessions = [
           sess('sess-2', '修复回收站抽屉高度', '5 小时前', { tagId: 'preset-todo', running: true, active: true }),
-          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', pendingInteraction: 'approval', active: true }),
           sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', pendingInteraction: 'approval', active: true }),
           sess('sess-3', '会话复制引用功能', '1 天前', { tagId: 'preset-doing' }),
           sess('sess-5', '整理 mock 场景', '2 天前', { tagId: 'preset-doing' }),
           sess('sess-6', '会话 A', '4 天前'),
@@ -1862,10 +1863,11 @@
             setTimeout(() => {
               const block = document.querySelector('.tag-group[data-tag-id="preset-todo"]')
               const activeRow = document.querySelector('.session-row[data-session-id="sess-2"]')
+              // 新语义「折叠就全藏」：活跃行也在组块内，折叠后组块 0 行，
+              // 活跃行不可见（不在任何 .tag-group 壳外余留）。
               const ok = block !== null && block.classList.contains('collapsed')
                 && block.querySelectorAll('.session-row').length === 0
-                && activeRow !== null && !activeRow.closest('.tag-group')
-                && activeRow.querySelector('.session-spin') !== null
+                && activeRow === null
               if (!ok) {
                 const d = document.createElement('div')
                 d.textContent = 'ACTIVE-VS-COLLAPSED ASSERT FAILED'
@@ -1876,8 +1878,8 @@
           `,
         },
       ],
-      title: '侧栏面板（折叠标签组不隐藏活跃会话）',
-      expect: '<scenario>-collapsed.png：待办组块被折叠（只剩 pill「待办」一行——组内唯一行空闲、无状态标记，故**无**计数角标），最前平铺的运行中「修复回收站抽屉高度」行**不受影响仍在位**（行尾像素环仍在、不在任何组块内），「探索 Chrome 式分组原型」待交互行其次；进行中组块（「会话复制引用功能」「整理 mock 场景」2 行）、无组「会话 A」「会话 B」照常；无红色断言横幅（断言：组块 .collapsed 且 0 行 + 活跃行仍在组块外）。',
+      title: '侧栏面板（折叠标签组全藏：含组内活跃行）',
+      expect: '<scenario>-collapsed.png：待办组块被折叠（只剩 pill「待办」一行，组内活跃「修复回收站抽屉高度」一并隐藏——运行中像素环不残留任何位置；折叠态计数角标显示组内正常计数黄/蓝/绿点），「探索 Chrome 式分组原型」所属进行中组块照常展开（待交互行在组块内、行尾黄色圆点无时间）；进行中组块（「会话复制引用功能」「整理 mock 场景」2 行）、无组「会话 A」「会话 B」照常；无红色断言横幅（断言：组块 .collapsed 且 0 行 + 活跃行 DOM 已不存在）。',
     },
 
     'session-tags-row-menu': {
@@ -1948,10 +1950,12 @@
           'preset-done': ['sess-3'],
         }
         s.tagCollapsed = ['preset-done']
+        // 组块是容器：sess-4（运行中）留在进行中组块内。快照顺序 = 纯层输出
+        // （todo 组 → doing 组 → done 组，组内按时间降序）。
         s.workspaces[0].sessions = [
-          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', running: true, active: true }),
           sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo', pendingInteraction: 'approval' }),
           sess('sess-2', '修复回收站抽屉高度', '5 小时前', { tagId: 'preset-todo', unread: true }),
+          sess('sess-4', '探索 Chrome 式分组原型', '10 分钟前', { tagId: 'preset-doing', running: true, active: true }),
           sess('sess-3', '会话复制引用功能', '1 天前', { tagId: 'preset-done', unread: true }),
         ]
         s.workspaces[1].sessions = []
@@ -2011,7 +2015,7 @@
         },
       ],
       title: '侧栏面板（标签组块折叠/展开 + 折叠态计数）',
-      expect: '三张截图对照——① 初始帧：dsh-one 组最前一行「探索 Chrome 式分组原型」平铺（运行中像素环，无组块头——进行中组唯一会话是活跃的，已脱离组块）；其后「待办」（黄）组块展开（行内：第一行黄点待交互、第二行未读绿点加粗）与「已完成」（绿）组块预置为折叠态——只剩一行（pill + 三角朝右），箭头右侧显示该组组内待处理计数（绿点 + 1，组内一行未读），组内会话行与竖线消失；组块 pill 右侧各有一个小三角（展开向下/折叠朝右）。② <scenario>-collapsed.png：点击「待办」组块箭头后——该组块只剩一行，箭头右侧显示计数「黄点+1、绿点+1」（待交互 1 + 未读 1），**最前平铺的运行中行不受影响仍在位**；无红色断言横幅（断言：post 了 sessionTagCollapse{tagId:preset-todo, collapsed:true}）。③ <scenario>-expanded.png：再点一次箭头——post sessionTagCollapse{collapsed:false}；mock 宿主不回推快照，组块保持折叠为预期行为（真实宿主随快照展开）。',
+      expect: '三张截图对照——① 初始帧：待办（黄）组块展开（行内：第一行黄点待交互、第二行未读绿点加粗），进行中（蓝）组块：sess-4 **留在组块内**（运行中像素环，无组块外平铺行），「已完成」（绿）组块预置为折叠态——只剩一行（pill + 三角朝右），箭头右侧显示该组组内待处理计数（绿点 + 1，组内一行未读），组内会话行与竖线消失；组块 pill 右侧各有一个小三角（展开向下/折叠朝右）。② <scenario>-collapsed.png：点击「待办」组块箭头后——该组块只剩一行，箭头右侧显示计数「黄点+1、绿点+1」（待交互 1 + 未读 1），进行中组块留在块内的运行中行**照常**（组块壳不因其他块折叠受影响）；无红色断言横幅（断言：post 了 sessionTagCollapse{tagId:preset-todo, collapsed:true}）。③ <scenario>-expanded.png：再点一次箭头——post sessionTagCollapse{collapsed:false}；mock 宿主不回推快照，组块保持折叠为预期行为（真实宿主随快照展开）。',
     },
 
     'session-tags-create': {
