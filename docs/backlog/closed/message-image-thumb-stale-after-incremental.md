@@ -37,3 +37,4 @@
 ========
 - 2026-09-06 认领（worktree: agent/message-image-thumb-stale）→ doing；核实根因与影响路径（见下）
 >>>>>>>> 19bba4d (backlog: 认领 message-image-thumb-stale-after-incremental（open → doing）):docs/backlog/doing/message-image-thumb-stale-after-incremental.md
+- 2026-09-10 主线合入测试通过（merge 09a705c 合入；主线回归 typecheck + 620 tests + build 通过，thumb-ack-after-incremental 三态抽查含 ACK-REBUILD-ONCE:OK 角标复验）→ 人工确认 → closed
