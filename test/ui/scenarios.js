@@ -726,6 +726,43 @@
       expect: '空会话 hero（无历史）：品牌区为**单个 DSH One 像素鲸鱼 logo**；preset chip 显示**深度思考**（懒切换选中帧，未发送前会话真实预设未变）；其余与 empty 场景一致（无标题、无官方鲸鱼、发送按钮为圆形图标按钮）。',
     },
 
+    'hero-preset-wire-012': {
+      // agent-preset-roster-mismatch：0.1.2 wire 失配修复的 UI 呈现——真实
+      // agentPresets/list 响应（id=ptc 而非 code、broken 为 string 原因文本）
+      // 经 resolveAgentPresets 后的选项集：英文界面下官方 system preset 全部
+      // 本地化，user preset 用 roster 原文（Kimi 模式），broken 行（该 wire
+      // 里的 broken-test/quick-fix）不进选项；chip 点开下拉核对行数与文案。
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', workspaceId: 'ws-main', workspaces: [
+        { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', title: 'dsh-one' },
+      ], agentPreset: { options: [
+        { id: 'standard', label: 'Standard mode', description: 'A full-featured coding agent: file editing, shell, file and web search, skills, plan, goals, subagents, and workflows.' },
+        { id: 'ptc', label: 'PTC mode', description: 'All standard capabilities, with tools exposed through the Code Mode SDK so the model composes multi-step operations in one TypeScript program.' },
+        { id: 'minimal', label: 'Minimal mode', description: 'A two-tool coding agent: persistent bash and str_replace_editor only.' },
+        { id: 'cordis', label: 'Cordis mode', description: 'For authoring custom agent presets: all standard capabilities plus runtime checks, plugin experiments, and preset authoring guidance.' },
+        { id: 'kimi', label: 'Kimi 模式', description: '具备标准模式的全部能力，persona 移植了 kimi-code 的行为规范。' },
+      ], current: 'standard' }, statsLine: undefined }),
+      title: '空会话 hero：0.1.2 wire 选项（ptc 英文标签 + broken 过滤）',
+      interact: `(() => {
+        const chip = document.querySelector('.hero-chip-preset')
+        if (chip) chip.click()
+      })()`,
+      expect: '空会话 hero：preset 选择 chip 显示 **Standard mode**；点击后下拉菜单 **5 行**（standard/minimal/cordis 的英文 mode 行 + **ptc 行显示 PTC mode**（描述含 Code Mode SDK）+ kimi 行显示 roster 原文「Kimi 模式」），standard 行带 ✓ 对勾；**没有** broken 行（页面上不出现 broken-test/quick-fix 等候选，不是 6 行）；其余 hero 元素（workspace chip、大圆角 composer）与 empty 场景一致。',
+    },
+
+    'hero-preset-ptc-selected': {
+      // 懒切换选中帧：选择 ptc 后 host 推回 pending 覆盖的 state（current=ptc），
+      // chip 文字应为内置映射的英文标签 PTC mode，而不是 preset.yml 的固定中文
+      // 原文「PTC 模式」。（wire 失配修复前 key 是 code，ptc 不命中映射。）
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', workspaceId: 'ws-main', workspaces: [
+        { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', title: 'dsh-one' },
+      ], agentPreset: { options: [
+        { id: 'standard', label: 'Standard mode' },
+        { id: 'ptc', label: 'PTC mode', description: 'All standard capabilities, with tools exposed through the Code Mode SDK so the model composes multi-step operations in one TypeScript program.' },
+      ], current: 'ptc' }, statsLine: undefined }),
+      title: '空会话 hero：preset 懒切换选中 PTC（英文标签）',
+      expect: '空会话 hero：preset chip 显示 **PTC mode**（英文，无「PTC 模式」中文泄漏）；下拉未打开；其余与 empty 场景一致（无标题、无官方鲸鱼、发送按钮为圆形图标按钮）。',
+    },
+
     'hero-permission-pending': {
       // 懒切换选中帧：权限点选后 host 推回 pending 覆盖的 state，hero 保持
       // 不重建——本场景验证权限 pill 显示新选中项（图标 + 文字），且界面仍

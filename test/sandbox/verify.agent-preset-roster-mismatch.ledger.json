@@ -1,0 +1,65 @@
+{
+  "title": "DSH One 沙盒验收报告（agent-preset-roster-mismatch：preset id ptc + broken 原因文本过滤）",
+  "branch": "agent/agent-preset-roster-mismatch",
+  "commit": "3c5ed1a",
+  "environment": {
+    "mode": "harness（webview 独立渲染）+ 真 0.1.2-rc.1 网关探针（dsh-sandbox-dsh-v012 容器内临时实例，非沙盒/mock）",
+    "dsh": "0.1.2-rc.1（容器内真网关 agentPresets/list 探针）+ 单测（0.1.1 legacy 不受影响）",
+    "locale": "en（英文界面本地化验证）+ zh（l10n 单测回退）",
+    "theme": "dark",
+    "image": "不适用——沙盒 mock dsh 是 0.1.1 协议（镜像 pin @deepseek-ai/dsh@0.1.1-rc.2），无 agentPresets/list 的 ptc/string-broken wire；0.1.2 专项用 dsh-sandbox-dsh-v012 容器内的真 0.1.2-rc.1 网关现场 + webview harness",
+    "driver": "node test/agentPreset.test.ts（单测：ptc 用例 + string broken 用例）+ .dev-host/verify-roster-wire.mjs（真 0.1.2-rc.1 网关 agentPresets/list 真实响应——含 system 四 preset、user preset kimi、损坏 preset broken-test/quick-fix——喂修复后模块）+ scripts/ui-visual.sh / WebBridge 单场景截图（harness 场景，worktree 构建产物）",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "面板宿主 UI（VS Code 窗口 chrome、扩展激活、真实 select 链路）harness 不渲染。沙盒 mock dsh 为 0.1.1 协议，ptc/string-broken 的 0.1.2 wire 无法在沙盒触发，故用真 0.1.2-rc.1 网关探针（真实 agentPresets/list 响应喂修复后纯函数）+ harness 确定性截图验证 webview 渲染层。本任务无 UI 层代码改动（改的是 src/pure/agentPreset.ts 与单测），渲染层只验证输入选项集的呈现。真桌面 VS Code、真模型输出、平台专项（Windows/macOS）不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "0.1.2 wire 选项集：ptc 英文标签 + broken 行被过滤",
+      "expect": "空会话 hero 的 preset 选择 chip 显示 Standard mode；点开下拉 5 行候选：standard/minimal/cordis 的英文 mode 行 + ptc 行显示「PTC mode」（描述含 Code Mode SDK）+ kimi 行显示 roster 原文「Kimi 模式」；standard 行带 ✓ 对勾；broken 行（该 wire 里的 broken-test/quick-fix）不出现在任何候选里。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/hero-preset-wire-012.png"
+      ],
+      "notes": "截图核对（分检查点）：① hero 区域为空白会话 hero（鲸鱼 logo、无消息、无标题）✓；② preset chip 文字为 Standard mode（英文，绑定未点开前）✓；③ 点开下拉后菜单**恰好 5 行**：Standard mode（行尾 ✓ 对勾 + A full-featured coding agent 英文描述）/ PTC mode（行文字与描述含 Code Mode SDK）/ Minimal mode（描述 persistent bash and str_replace_editor）/ Cordis mode（描述 authoring custom agent presets）/ Kimi 模式（roster 原文中文，user preset 不走内置映射）✓；④ 无第 6 行——真实 wire 里 broken 的 broken-test/quick-fix 都不在候选 ✓；⑤ 其余 hero 元素（dsh-one workspace chip、composer 卡）与 empty 基线一致 ✓。说明：菜单展开时 PTC mode 行与输入框视觉重叠，为选择器既有布局行为（本任务未改 webview 层），不影响行数与文案核对。数据链路（同驱动 .dev-host/verify-roster-wire.mjs）：真实网关响应 presets=[standard/ptc/minimal/cordis/kimi/broken-test/quick-fix]，resolveAgentPresets 输出 5 项、ptc label='PTC mode'、default=standard，断言全绿。",
+      "driver": null
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "preset 懒切换选中帧：chip 显示 PTC mode 而非中文原文",
+      "expect": "空会话 hero（current=ptc）：preset chip 显示「PTC mode」英文标签（wire 失配修复前 key=code 不命中映射，会回落 preset.yml 的「PTC 模式」中文原文）；下拉未打开；其余 hero 元素与 empty 场景一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/hero-preset-ptc-selected.png"
+      ],
+      "notes": "截图核对：① 空会话 hero（鲸鱼 logo、无消息、无标题）✓；② preset chip 文字为 **PTC mode**（英文，无任何「PTC 模式」中文泄漏）✓；③ 下拉未打开，workspace chip（dsh-one）与 composer 卡与 empty 基线一致 ✓。",
+      "driver": null
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "空会话 hero 基础渲染（stock 中文选项）不受影响",
+      "expect": "empty 场景（已有基线场景，webview 渲染层零改动）：空会话 hero 的品牌区/workspace chip/preset chip（标准模式/深度思考）/大圆角 composer 与既有基线一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/empty.png"
+      ],
+      "notes": "截图核对：空会话 hero 与基线一致——鲸鱼 logo 品牌区、dsh-one workspace chip、preset chip 显示「标准模式」（stock 中文选项）、composer 卡与圆形发送按钮 ✓。",
+      "driver": null
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "preset 懒切换选中帧渲染（既有场景）不受影响",
+      "expect": "hero-preset-pending 场景（已有基线）：chip 就地更新为深度思考（懒切换选中帧）与既有基线一致；单测覆盖 user preset（trust=user 撞官方 id 也不套用内置文案）与未知 id 回退（agentPresetLabel('my-custom') 原样透传）行为不变。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/hero-preset-pending.png"
+      ],
+      "notes": "截图核对：preset chip 就地更新显示「深度思考」（懒切换选中帧），其余 hero 元素与基线一致 ✓。单测补充：非 system preset（trust=user 撞官方 id 不套内置文案）、未知 id（agentPresetLabel('my-custom') 原样透传）、空 roster（resolveAgentPresets([])=[]、defaultAgentPresetId([])=undefined）用例全绿（614 tests pass）。",
+      "driver": null
+    }
+  ]
+}
