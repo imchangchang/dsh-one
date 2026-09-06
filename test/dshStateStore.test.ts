@@ -60,6 +60,21 @@ test('mutator returning prev unchanged skips the write (no file created)', async
   assert.deepEqual(await readdir(dir), [])
 })
 
+test('missing tags file: prev still carries preset tags (fresh-install assign-to-preset persists)', async () => {
+  const dir = await tmpDir()
+  const io = new DshStateStore({ dir })
+  // sessionsStore.setSessionTag 的 mutator 模式：以文件内 tag id 做 prevKnown
+  // 校验——文件不存在时 prev 若缺预设组，这条写会被静默吞掉（评审发现的回归）。
+  const ok = await io.updateTags((prev) => {
+    const prevKnown = new Set(prev.tags.map((t) => t.id))
+    if (!prevKnown.has('preset-todo')) throw new Error('preset tags missing from empty file prev')
+    return { ...prev, sessionTags: { ...prev.sessionTags, s1: 'preset-todo' } }
+  })
+  assert.equal(ok, true)
+  const tags = (await io.load()).tags
+  assert.equal(tags?.sessionTags.s1, 'preset-todo')
+})
+
 test('updateGroups / updateTags merge onto existing file content field-wise', async () => {
   const dir = await tmpDir()
   const io = new DshStateStore({ dir })

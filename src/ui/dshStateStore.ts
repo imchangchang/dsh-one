@@ -28,6 +28,7 @@ import {
   type IdListFile,
   type TagFile,
 } from '../pure/dshStateFile.ts'
+import { sanitizeTags } from '../pure/sessionTags.ts'
 
 /** 全部模块的快照；模块缺失/坏文件 = null（触发旧值迁移）。 */
 export interface DshStateSnapshot {
@@ -266,5 +267,8 @@ function emptyGroupFile(): GroupFile {
 }
 
 function emptyTagFile(): TagFile {
-  return { version: 1, tags: [], sessionTags: {} }
+  // 预设组必须在内：sessionsStore 的 mutator 以文件内 tag id 做 prevKnown 校验，
+  // 文件缺失时若 prev 不含预设组，「指派到 Todo/Doing/Done」会被校验吞掉、
+  // 静默跳过落盘（全新安装首用打组重启即丢）。
+  return { version: 1, tags: sanitizeTags(undefined), sessionTags: {} }
 }
