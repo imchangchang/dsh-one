@@ -24,6 +24,7 @@
  */
 import * as http from 'node:http'
 import * as crypto from 'node:crypto'
+import { writeFileSync, existsSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import type { Socket } from 'node:net'
 import {
@@ -34,6 +35,7 @@ import {
   type MockRuleContext,
   type MockToolCall,
 } from './scenario.ts'
+import { MDIMG_DEMO_PNG_B64 } from './imageFixtures.ts'
 
 // ---------------------------------------------------------------------------
 // 小工具：请求体读取 / 文本抽取 / 错误类型 / 参数分片
@@ -465,6 +467,31 @@ export async function createMockLlm(opts?: { scenario?: MockLlmScenario }): Prom
   return wrap
 }
 
+/**
+ * 沙盒可视化 fixture 的容器路径（与 scenario.ts 的「内嵌图片…」规则引用一致）。
+ * 大小上限与 src/pure/inlineImage.ts 的 MAX_INLINE_IMAGE_BYTES 保持一致——
+ * mock-llm 被打进沙盒镜像时不带 src/ 源码（只拷 test/mock-llm/），
+ * 无法 import 该常量，这里字面量 + 注释锁定。
+ */
+export const MDIMG_DEMO_PNG = '/tmp/mdimg-demo.png'
+export const MDIMG_BIG_PNG = '/tmp/mdimg-big.png'
+export const MDIMG_MISSING_PNG = '/tmp/mdimg-missing.png'
+
+/**
+ * 预置内嵌图片 fixture（仅 CLI 启动路径调用，工厂/单测不触发）：320x180 示例
+ * PNG（server 侧读盘渲染的演示图）与一张超 10MB 的「大图」（大小闸验证用，
+ * stat 先拒、不读内容，所以字节不必是合法 PNG）。缺失路径故意不创建，
+ * 走宿主失败回执 → webview 失败态占位。
+ */
+function seedImageFixtures(): void {
+  if (!existsSync(MDIMG_DEMO_PNG)) {
+    writeFileSync(MDIMG_DEMO_PNG, Buffer.from(MDIMG_DEMO_PNG_B64, 'base64'))
+  }
+  if (!existsSync(MDIMG_BIG_PNG)) {
+    writeFileSync(MDIMG_BIG_PNG, Buffer.alloc(10 * 1024 * 1024 + 1, 7))
+  }
+}
+
 /** 动态 import 一个 .ts 场景模块并取 default（相对路径按 cwd 解析）。 */
 async function importScenario(path: string): Promise<MockLlmScenario> {
   const mod = await import(pathToFileURL(path).href)
@@ -486,6 +513,7 @@ export function main(): void {
   }
   const boot = scenarioPath ? importScenario(scenarioPath) : Promise.resolve(undefined)
   boot.then(async (scenario) => {
+    seedImageFixtures()
     const mock = await createMockLlm(scenario ? { scenario } : undefined)
     await mock.listen(port)
     console.log(`[mock-llm] listening on ${mock.url}${scenarioPath ? ` (scenario: ${scenarioPath})` : ''}`)

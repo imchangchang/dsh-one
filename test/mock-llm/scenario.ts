@@ -8,6 +8,7 @@
  * 协议面：server.ts 消费本文件导出的 MockLlmScenario，模型 id 列表喂给
  * /v1/models，规则从上到下第一条命中生效（match 匹配「最后一条 user 消息」的文本）。
  */
+import { MDIMG_DEMO_PNG_B64 } from './imageFixtures.ts'
 
 /** 规则匹配上下文（content 是函数时由 server 构造传入）。 */
 export interface MockRuleContext {
@@ -221,6 +222,41 @@ export function defaultScenario(): MockLlmScenario {
             '| col A | col B |\n| --- | --- |\n| 1 | **bold** |\n\n```ts\nconst x: number = 1\n```\n',
             ' 完毕。',
           ],
+        },
+      },
+      // markdown 内嵌本地路径图片的读盘渲染（backlog tool-output-path-image-not-rendered）：
+      // 绝对路径图 + data: 图同排对照（后者是既有能力的回归项）；fixture 文件由
+      // server.ts main() 的 seedImageFixtures() 预置（/tmp/mdimg-*，见 imageFixtures.ts）。
+      {
+        match: { contains: '内嵌图片绝对路径' },
+        respond: {
+          content: [
+            '工具输出里的本地路径图片：\n\n![img](/tmp/mdimg-demo.png)\n\n（上图为绝对路径读盘渲染，下图 data: 图为对照组。）\n\n![img](data:image/png;base64,'
+              + MDIMG_DEMO_PNG_B64
+              + ')\n',
+            ' 完毕。',
+          ],
+        },
+      },
+      // file: URI 形状的 src 一样走读盘（DOMPurify 钩子放行 + resolveLinkPath 归一）。
+      {
+        match: { contains: '内嵌图片 file URI' },
+        respond: {
+          content: ['工具输出（file: URI）：\n\n![img](file:///tmp/mdimg-demo.png)\n', ' 完毕。'],
+        },
+      },
+      // 文件缺失：宿主失败回执 → webview 失败态占位 chip（点击在编辑器打开）。
+      {
+        match: { contains: '内嵌图片缺失' },
+        respond: {
+          content: ['![img](/tmp/mdimg-missing.png)\n', ' 上面这张源文件不存在，应显示失败态占位（不显示残缺图标）。'],
+        },
+      },
+      // 超过 10MB：大小闸拒绝（stat 先拒，不读内容），同样落失败态占位。
+      {
+        match: { contains: '内嵌图片超限' },
+        respond: {
+          content: ['![img](/tmp/mdimg-big.png)\n', ' 上面这张超过 10MB 上限，应显示失败态占位（不显示残缺图标）。'],
         },
       },
       // 兜底回显：把最后一条 user 消息原样包进「收到：…」，分两段流式播。

@@ -31,6 +31,7 @@ import {
 import type { GitShowRecord } from '../pure/commitGit.ts'
 import { isHostSlashCommand, looksLikeSlashCommand, slashCommandName } from '../pure/slashCommand.ts'
 import { imageMediaTypeByExtension, pastedFileName, splitAttachmentLines } from '../pure/composerAttachment.ts'
+import { inlineImageMediaType, inlineImageTooLarge } from '../pure/inlineImage.ts'
 import { DEFAULT_THUMB_FETCH, runAttempts, ThrottledQueue } from '../pure/thumbQueue.ts'
 import { attachmentDir, nextSequenceIndex } from './attachmentDir.ts'
 import { workspaceFileCandidates } from './workspaceScan.ts'
@@ -737,6 +738,38 @@ const fileHandlers: ChatTabMessageHandler[] = [
       } catch (err) {
         host.postMessage({ type: 'fileThumbFailed', path: m.path })
         host.actions.logger.warn(`chat: fileThumb ${m.path} failed — ${errorText(err)}`)
+      }
+    },
+  },
+  {
+    // 消息 markdown 里内嵌的本地路径图片（read_image 工具输出 ![img](/abs/x.png)）：
+    // 与文件 chip 的 requestFileThumb 不同——src 可能是 file:/~/相对/Windows 盘符等
+    // 形状，先按 openPath 同款 resolveLinkPath 归一，再过「扩展名 + 大小」双闸
+    // （纯逻辑见 pure/inlineImage.ts）。回执复用 fileThumb/fileThumbFailed，
+    // path 回声原始 src（webview 按原文缓存/失败去重）。非图片扩展名直接丢：
+    // webview 侧已过滤，这里是纵深防御，不做失败回执（避免对任意 markdown 路径
+    // 制造 5s 重试风暴——webview 只对扩展名命中的 src 发请求）。
+    types: ['requestInlineImage'],
+    async handle(host, m) {
+      if (m.type !== 'requestInlineImage' || typeof m.src !== 'string' || !m.src) return
+      const mediaType = inlineImageMediaType(m.src)
+      if (!mediaType) return
+      const target = await resolveLinkPath(host, m.src)
+      if (!target) {
+        host.postMessage({ type: 'fileThumbFailed', path: m.src })
+        return
+      }
+      try {
+        const stat = await fs.stat(target).catch(() => null)
+        if (!stat || inlineImageTooLarge(stat.size)) {
+          host.postMessage({ type: 'fileThumbFailed', path: m.src })
+          return
+        }
+        const data = await fileFetchQueue.run(() => runAttempts(() => fs.readFile(target), DEFAULT_THUMB_FETCH))
+        host.postMessage({ type: 'fileThumb', path: m.src, mediaType, data: Buffer.from(data).toString('base64') })
+      } catch (err) {
+        host.postMessage({ type: 'fileThumbFailed', path: m.src })
+        host.actions.logger.warn(`chat: inline image ${m.src} failed — ${errorText(err)}`)
       }
     },
   },

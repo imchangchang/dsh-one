@@ -12,9 +12,22 @@ test('defaultScenario：声明模型 id + 规则集（回显/tool_calls/401/工�
   // 工具编排规则都在兜底之前。
   const has = (s: string) =>
     sc.rules.some((r) => typeof r.match === 'object' && (r.match as { contains?: string }).contains === s)
-  for (const k of ['审批测试', '提个问题', '派个子代理', '开两个后台任务', 'commit 演示', 'commit 不存在', 'commit 慢速', '401']) {
+  for (const k of ['审批测试', '提个问题', '派个子代理', '开两个后台任务', 'commit 演示', 'commit 不存在', 'commit 慢速', '401', '行内码路径', '回归演示', '内嵌图片绝对路径', '内嵌图片 file URI', '内嵌图片缺失', '内嵌图片超限']) {
     assert.ok(has(k), `缺少规则: ${k}`)
   }
+})
+
+test('defaultScenario：内嵌图片规则引用 /tmp/mdimg-* fixture（demo 文件由 server main() 预置）', () => {
+  const sc = defaultScenario()
+  const find = (s: string) =>
+    sc.rules.find((r) => (r.match as { contains?: string }).contains === s)!.respond.content as string[]
+  // 绝对路径规则：路径图与 data: 图同排（data: 是既有能力的回归项）。
+  const abs = find('内嵌图片绝对路径').join('')
+  assert.match(abs, /!\[img\]\(\/tmp\/mdimg-demo\.png\)/)
+  assert.match(abs, /data:image\/png;base64,/)
+  assert.match(find('内嵌图片 file URI').join(''), /!\[img\]\(file:\/\/\/tmp\/mdimg-demo\.png\)/)
+  assert.match(find('内嵌图片缺失').join(''), /!\[img\]\(\/tmp\/mdimg-missing\.png\)/)
+  assert.match(find('内嵌图片超限').join(''), /!\[img\]\(\/tmp\/mdimg-big\.png\)/)
 })
 
 test('defaultScenario：commit 慢速规则为流式分块 + deltaDelayMs（流式重建回归用）', () => {
