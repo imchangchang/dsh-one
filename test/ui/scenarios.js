@@ -1423,6 +1423,67 @@
       expect: '点击底部入口主区「Recycle bin (3)」后抽屉从面板底部滑出，占约一半高度：顶部提手横条（grab 光标区，拖动上拉扩大/下拉收起，点击 = 收起，悬停提示 Drag to resize; click to collapse）；抽屉头 = ▼ Back 收起按钮（单个下拉箭头，无重复「‹」）+ 标题「Recycle bin」右紧跟计数徽标 3（与标题同组，不挤到行尾）+ 红色垃圾桶图标按钮（34px 点击区、22px 图标、错误红色调，悬停提示 Empty recycle bin；与「Restore all」视觉相称）+ 「Restore all」；会话按原 workspace 分组（组头 dsh-one 计数 2 / 已删除的目录 计数 1，各带折叠箭头。未分组虚拟组不出现——没有可归组的回收站会话）；主列表上半部仍可见（dsh-one / dsh-web research 组头与底部的回收站入口…入口被抽屉盖住属预期）。',
     },
 
+    // 回收站平铺（recycle-bin-flatten-tag-groups）：带标签组的会话移入回收站后，
+    // 回收站内不渲染标签组块（数据上组归属仍保留——恢复后回原组），平铺行；
+    // 主列表标签组聚合不受影响（同快照对照组）。
+    'sessions-recycle-flat': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree('sess-1')
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 3 },
+          { id: 'preset-doing', name: '进行中', color: 'blue', preset: true, count: 1 },
+        ]
+        s.tagSessionIds = {
+          'preset-todo': ['sess-1', 'sess-2', 'sess-4', 'sess-5'],
+          'preset-doing': ['sess-6'],
+        }
+        s.unread = []
+        // 主列表（回收站会话已除名）：待办组块 2 行（对照组，聚合照常）。
+        s.workspaces[0].sessions = [
+          sess('sess-1', '实现侧栏分组过滤', '3 小时前', { tagId: 'preset-todo' }),
+          sess('sess-2', '整理 mock 场景', '5 小时前', { tagId: 'preset-todo' }),
+        ]
+        s.workspaces[1].sessions = [sess('sess-3', 'dsh web 可展开 UI 调研', '昨天')]
+        s.workspaces[2].sessions = []
+        // 回收站：行仍带 tagId（组归属未清，既定设计）——渲染应为平铺，无组块壳。
+        s.recycleBin = ['sess-4', 'sess-5', 'sess-6']
+        s.recycleWorkspaces = [
+          {
+            workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true,
+            sessions: [
+              sess('sess-4', '回收站里的会话一', '昨天', { tagId: 'preset-todo' }),
+              sess('sess-5', '回收站里的会话二', '2 天前', { tagId: 'preset-todo', unread: true }),
+            ],
+          },
+          {
+            workspaceId: 'ws-gone', path: '/gone', label: '已删除的目录', isCurrent: false,
+            sessions: [sess('sess-6', '软删目录会话', '上周', { tagId: 'preset-doing' })],
+          },
+        ]
+        s.recycleCollapsed = []
+        return s
+      })(),
+      interact: `
+        document.querySelector('.recycle-entry-main')?.click()
+        setTimeout(() => {
+          const recycleTags = document.querySelectorAll('.recycle-list .tag-group').length
+          const recycleRows = document.querySelectorAll('.recycle-list .session-row').length
+          const mainTags = document.querySelectorAll('.sessions-list .tag-group').length
+          const ok = recycleTags === 0 && recycleRows === 3 && mainTags === 1
+          if (!ok) {
+            const d = document.createElement('div')
+            d.textContent = 'RECYCLE-FLAT ASSERT FAILED'
+            d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+            document.body.appendChild(d)
+          }
+        }, 300)
+      `,
+      theme: 'dark',
+      title: '侧栏面板（回收站平铺：带标签组的会话不聚块，主列表照常聚合）',
+      expect: '点击底部入口「Recycle bin (3)」后抽屉滑出半高。抽屉内会话按原 workspace 分组（组头 dsh-one 计数 2 / 已删除的目录 计数 1，各带折叠箭头，未分组虚拟组不出现），但**组内是平铺行**：尽管这三行的快照数据都带 tagId（preset-todo / preset-doing，模拟「标签组会话移入回收站后组归属仍保留」），回收站内不渲染任何标签组块——无组色 pill、无组色竖线、无 12px 缩进，行左缘与组头左缘对齐（与主列表未分组行同款）；行状态照常：sess-5 未读绿点 + 标题加粗、行尾时间（昨天 / 2 天前 / 上周）。主列表上半部可见部分照常聚合（对照组）：dsh-one 组「待办」（黄）pill 组块 + 组色竖线 + 块内 2 行缩进（sess-1 / sess-2）；dsh-web research 组头可见；无红色断言横幅（断言：.recycle-list 内 .tag-group === 0、行数 3、主列表 .tag-group === 1）。',
+    },
+
     // 入口行快捷操作（抽屉收起态）：恢复全部 / 清空不拉开抽屉直接可用，点击不打开抽屉。
     'sessions-recycle-entry-actions': {
       view: 'sessions',
@@ -3674,7 +3735,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'model-picker-effort-default', 'sessions',
     'sessions-status-rear-slot',
     'sessions-search', 'sessions-collapsed', 'sessions-collapse-scroll-keep', 'sessions-recycle-drawer',
-    'sessions-recycle-entry-actions', 'sessions-recycle-handle',
+    'sessions-recycle-entry-actions', 'sessions-recycle-handle', 'sessions-recycle-flat',
     'sessions-workspace-menu-groups',
     'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',
     'sessions-selection-exit-recycle', 'sessions-selection-exit-archive',
