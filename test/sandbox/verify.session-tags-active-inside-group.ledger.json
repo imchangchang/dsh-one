@@ -1,0 +1,88 @@
+{
+  "title": "session-tags-active-inside-group：组块是容器验收报告",
+  "branch": "agent/session-tags-active-inside-group",
+  "commit": "HEAD",
+  "environment": {
+    "mode": "ai-visual-validation (mock webview) + 全量单测/typecheck",
+    "dsh": "n/a（纯前端渲染与纯层排序改动，宿主逻辑未动）",
+    "locale": "n/a",
+    "theme": "n/a",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "本任务只改 src/pure/sessionTree.ts 排序与 src/ui/sessionsWebview.ts 聚合逻辑，不涉宿主（激活/命令/真实 dsh）。验证：ai-visual-validation 渲染标签组场景截图 + DOM 断言；全量单测 614 项；主干基线 ui-visual 62 场景回归。真桌面 VS Code / 真 dsh 不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "组块是容器：组内活跃会话留在块内",
+      "expect": "session-tags 场景：进行中（蓝）组块存在，运行中的「探索 Chrome 式分组原型」在块内（pill + 竖线 + 缩进），不再平铺脱离；待办块内未读加粗在前；已完成、探索块照常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/wk-session-tags.png"
+      ],
+      "notes": "DOM 断言 groups=[preset-todo,preset-doing,preset-done,t-explore]，preset-doing rows=[sess-4]（运行中在块内）；待办 rows=[sess-2,sess-1]（未读前置）；截图核对 pill/竖线/缩进符合预期。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "组内活跃前置、未分组活跃才平铺最外",
+      "expect": "session-tags-active-first 场景：待办块内「修复回收站抽屉高度」（运行中）在块内最上、空闲「实现侧栏分组过滤」其次；进行中块内「探索 Chrome 式分组原型」（待交互）在块内最上；会话 A/B 无组平铺殿后。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/wk-session-tags-active-first.png"
+      ],
+      "notes": "DOM 断言 preset-todo rows=[sess-2,sess-1]（活跃前置），preset-doing rows=[sess-4,sess-3,sess-5]；截图核对组内活跃行有状态标记（像素环/黄点）且缩进与组色竖线一致。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "折叠即全藏：组内活跃行折叠后不可见",
+      "expect": "session-tags-active-first-collapse 场景：待办组块折叠后只剩 pill + 计数（组内全部会话状态计入），运行中的「修复回收站抽屉高度」行 DOM 移除（无组块外平铺残留）；进行中组块照常展开。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/wk-session-tags-active-first-collapse.png"
+      ],
+      "notes": "DOM 断言 preset-todo collapsed=true 且 rows=[]，sess-2 行不存在（activeRow===null 断言在场景 interact 脚本内命中，无红色横幅）；截图 pill 右侧显示计数角标。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "折叠/展开交互与折叠态计数（含组内活跃）",
+      "expect": "session-tags-collapse 场景：初始帧 待办块展开（黄点待交互 + 未读绿点加粗）、进行中块内 sess-4（运行中）、已完成块预置折叠（计数绿点+1）；点击待办折叠 → 只剩 pill + 计数「黄点+1、绿点+1」；再点展开恢复正常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/wk2-session-tags-collapse.png"
+      ],
+      "notes": "DOM 断言初始帧结构 [workspace-row, tag-todo(collapsed), tag-doing(展开), tag-done(collapsed)]；折叠步 __posted 含 sessionTagCollapse{preset-todo,true}；截图计数角标正确。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "纯层排序单测（56 项）与全量单测（614 项）",
+      "expect": "npm test 全绿；sessionTree 排序断言按新语义更新（组内活跃前置、无组活跃平铺最外、置顶不聚合）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test test/sessionTree.test.ts 56/56；npm test 614/614 pass，0 fail。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "typecheck 与构建",
+      "expect": "npm run typecheck 0 错误；npm run build 产出 dist。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "typecheck 无输出（0 错误）；build 输出 built dist/extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "主干基线 UI 回归（62 场景）",
+      "expect": "scripts/ui-visual.sh --mode baseline 对 worktree 构建 dist 跑 62 个基线场景，标签组相关场景（session-tags*）截图/DOM 符合新语义，其余场景无回归。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/session-tags-row-menu.png"
+      ],
+      "notes": "baseline 62 场景全部截取成功；session-tags-row-menu 截图核对菜单项完整（Select multiple/Open in a new tab/Rename/Pin/Mark as unread/Move to group…/Fork/Copy/Move to recycle bin/Archive）；sessions 平铺场景无标签组不受影响。"
+    }
+  ]
+}

@@ -38,3 +38,5 @@
 ## 变更记录
 
 - 2026-09-06 主线排查「标签页分组不能用了」：核实现象（组内全活跃 → 组块整体消失）与根因（排序/渲染的 active-脱离-组块语义）；用户拍板新语义（组块是容器，组内活跃排组内最上，未分组活跃才平铺最外）；随后拍板折叠细节（折叠就全藏，含活跃；计数计入组内全部会话）→ 建条目（open/）
+
+- 2026-09-06 开发完成（doing → done）：主线语义核定后开 worktree（agent/session-tags-active-inside-group）。改纯层排序（三层：置顶 → 未分组活跃 → 组块-组内活跃前置 → 无组空闲，tagIdOf 统一降级）+ 渲染聚合（tagBlockItems 去掉 s.active 平铺条件，有组即聚块；折叠全藏含活跃；计数计入组内全部会话）。单测 614 全过（sessionTree 56 项，含新层级断言），ai-visual-validation 场景核对通过（F-01..F-04），基线 62 场景回归通过（R-01..R-03），dev-finish 打标 done/session-tags-active-inside-group，验收报告 test/sandbox/verify.session-tags-active-inside-group.report.html
