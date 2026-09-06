@@ -516,7 +516,10 @@ document.addEventListener(
     const code = target?.closest('code.inline-code') as HTMLElement | null
     if (!code) return
     e.preventDefault()
-    e.stopPropagation()
+    // 同元素上的后注册监听器（消息/外链右键菜单）不执行：捕获阶段
+    // stopPropagation 挡不住同一 document 上的其他监听器，必须用
+    // stopImmediatePropagation（本监听注册在最前，先执行先拦截）。
+    e.stopImmediatePropagation()
     const text = (code.textContent ?? '').trim()
     if (!text) return
     const body = el('div')
@@ -588,6 +591,9 @@ document.addEventListener(
   (e) => {
     const target = e.target as HTMLElement | null
     if (!target || target.closest('a[href]')) return
+    // 行内码右键菜单优先（上面的监听器先注册已拦截；这里显式让路是双保险——
+    // 万一注册顺序调整，行内码右键不被消息菜单的「复制」抢走）。
+    if (target.closest('code.inline-code')) return
     const row = target.closest('.msg.user, .msg.assistant') as HTMLElement | null
     const key = row?.dataset.msgKey
     if (!key) return
