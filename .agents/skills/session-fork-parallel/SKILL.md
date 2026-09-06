@@ -90,6 +90,22 @@ curl -s -m 5 -X POST http://127.0.0.1:3080/api/session/list \
 4. 把 session 清单（标题 + 短 id）交给用户：这些是顶层 session，GUI 会话列表可见，直接点开交互，不再经主 session 转达。
 5. 可选：`session/list` 确认 running=true 即可撒手。**不要长期轮询等结果**——agent 没有完成回调，后续跟进是人在 GUI 里的事；如果主 session 需要统一收结果、编排、汇总，那是子代理/workflow 的场景，不是本 skill。
 
+## 复用脚本（推荐：批量建 session 直接用）
+
+`references/scripts/` 下有按 dsh 版本分的便捷脚本（python3 标准库，零依赖），把「换票/探测/拿 workspaceId/create+rename+prompt/attach 验证」整条链路做完，返回 session 清单：
+
+| 脚本 | 适用 | 备注 |
+|---|---|---|
+| `references/scripts/mk-sessions-modern.py` | dsh 0.1.2+ | 自动读 `~/.dsh/dsh-owned.json` 换票；可 `--base/--token/--owned` 覆盖；attach 验证不通过自动 cancel+archive 重建一次 |
+| `references/scripts/mk-sessions-legacy.py` | dsh 0.1.1 | 无认证；`workspace.list` 按 path 匹配 workspace，未注册则 `workspace.create` |
+
+两者输入一致：`--tasks` 指向 JSON 文件 `[{"title": "...", "prompt": "任务说明..."}, ...]`，`--repo <仓库绝对路径>`（默认 cwd）。加 `--dry-run` 只解析与验证不建 session。跑完把输出清单交给用户即可。
+
+```bash
+python3 .agents/skills/session-fork-parallel/references/scripts/mk-sessions-modern.py \
+  --tasks /tmp/tasks.json --repo /Users/me/workspace
+```
+
 ## 注意
 
 - **`session/create` 用 `cwd` 建的 session 归入「未分组」，不出现在 workspace 组的会话列表**——用户会以为没建成功（实际在跑，只是列表看不到）。务必带 `workspaceId` 建（`cwd` 语义是「不注册 workspace 的裸会话」，只有建「未分组对话」时才用，且那也要预分配临时 cwd）。
