@@ -3036,6 +3036,97 @@
       expect: '用户消息区域出现坐标定位的右键菜单（popover，深色圆角、贴近右击点、钳制在视口内）：一项「Copy」，带左侧复制图标；菜单与消息气泡同时可见。消息附件区（气泡上方）：chart.png 与 img1.png 两张红色 48px 缩略图（底部名称横幅）、note.md 文档图标文件 chip；气泡正文只有「看下这张截图和源码，然后回复。」——复制针对纯文本，附件不进剪贴板。',
     },
 
+    // 增量对账下行签名并入懒加载缓存态（回执驱动的行重建）：attachmentData /
+    // fileThumb 回执只写缓存不改消息数据——行签名若不含缓存态，回执后行被对账
+    // 保活，占位/文件框永远换不成真图（dcdd1ca 增量更新引入的回归）。
+    // interactSteps 三段：① no-ack 回执未到（占位/文件框态，即回归形态）；
+    // ② acked 注入全部回执（消息 images、消息 files 图片、行内 @ 引用提升、
+    // steering 气泡四条路径同帧验证）→ 行随签名变化重建一次换真图；③ re-snap
+    // 重投相同 state 帧（后续快照/流式帧，缓存已稳定）→ 行保活，角标探针断言
+    // 「回执后重建过一次、此后帧不再重建」（ACK-REBUILD-ONCE:OK）。
+    'thumb-ack-after-incremental': {
+      png: PNG_RED,
+      state: base({
+        running: true,
+        messages: [
+          {
+            kind: 'user', id: 'u-thumb',
+            text: '看图：截图 @/var/folders/xx/ref.png 和附件，马上回复。',
+            images: [{ attachmentId: 'att-msg', mediaType: 'image/png', name: 'chart.png' }],
+            files: [
+              { name: 'img1.png', path: '/var/folders/xx/dsh-one-attachments/sess-1/img1.png', image: true },
+              { name: 'note.md', path: '/var/folders/xx/dsh-one-attachments/sess-1/note.md' },
+            ],
+          },
+          at('收到，正在看图。'),
+        ],
+        queue: [
+          {
+            id: 'q-thumb', placement: 'steering',
+            text: '[图片 ×1] 先暂停，看下这个图。',
+            editText: '先暂停，看下这个图。\n<attachment>/var/folders/xx/dsh-one-attachments/sess-1/img1.png</attachment>',
+            images: [{ attachmentId: 'att-steer', mediaType: 'image/png', name: 'steer.png' }],
+            files: [{ name: 'img1.png', path: '/var/folders/xx/dsh-one-attachments/sess-1/img1.png', image: true }],
+          },
+        ],
+      }),
+      interactSteps: [
+        {
+          name: 'no-ack',
+          script: `/* 回执未到：保持首帧占位态（本步不注入任何回执） */`,
+        },
+        {
+          name: 'acked',
+          script: `(() => {
+            const s = window.SCENARIOS['thumb-ack-after-incremental']
+            // 行元素 identity 探针：先记回执前引用；postMessage 是异步派发的，
+            // message 处理器内 render() 同步完成，下一拍再记「回执后」引用——
+            // 两次不同 = 回执触发行重建（修复行为本体）。
+            const p = window.__thumbAckProbe = {
+              userBefore: document.querySelector('.msg.user'),
+              steerBefore: document.querySelector('.steering-pending'),
+              userAfter: null,
+              steerAfter: null,
+            }
+            const post = (m) => window.postMessage(m, '*')
+            post({ type: 'attachmentData', attachmentId: 'att-msg', mediaType: 'image/png', data: s.png }, '*')
+            post({ type: 'attachmentData', attachmentId: 'att-steer', mediaType: 'image/png', data: s.png }, '*')
+            post({ type: 'fileThumb', path: '/var/folders/xx/dsh-one-attachments/sess-1/img1.png', mediaType: 'image/png', data: s.png }, '*')
+            post({ type: 'fileThumb', path: '/var/folders/xx/ref.png', mediaType: 'image/png', data: s.png }, '*')
+            setTimeout(() => {
+              p.userAfter = document.querySelector('.msg.user')
+              p.steerAfter = document.querySelector('.steering-pending')
+            }, 120)
+          })()`,
+          settle: 800,
+        },
+        {
+          name: 're-snap-stable',
+          script: `(() => {
+            const p = window.__thumbAckProbe
+            // 回执已落地：重投同一帧 state（后续快照/流式帧），缓存态稳定 → 签名
+            // 不变 → 行保活（引用与回执后那次相同）；回执前引用 != 回执后引用
+            // = 回执恰好触发一次重建。postMessage 异步派发，下一拍再断言。
+            window.postMessage({ type: 'state', state: window.SCENARIOS['thumb-ack-after-incremental'].state }, '*')
+            setTimeout(() => {
+              const kept = document.querySelector('.msg.user') === p.userAfter
+                && document.querySelector('.steering-pending') === p.steerAfter
+              const rebuiltOnce = p.userBefore !== p.userAfter && p.steerBefore !== p.steerAfter
+              const badge = document.createElement('div')
+              badge.style.cssText = 'position:fixed;right:6px;bottom:6px;z-index:999;background:#000c;color:#fff;font:11px monospace;padding:2px 6px;border-radius:4px'
+              badge.textContent = kept && rebuiltOnce
+                ? 'ACK-REBUILD-ONCE:OK'
+                : ('PROBE-FAIL kept=' + kept + ' rebuiltOnce=' + rebuiltOnce)
+              document.body.appendChild(badge)
+            }, 120)
+          })()`,
+          settle: 800,
+        },
+      ],
+      title: '消息图片缩略图：回执驱动行重建（增量对账签名含懒加载缓存态）',
+      expect: '用户消息附件区（气泡上方）依次四个元素：chart.png「…」占位方块（attach-thumb 深色椭圆，标题「chart.png (loading…)」）、img1.png 图标文件框（文档图标+文件名，无缩略图）、note.md 图标文件框、ref.png 图标文件框（行内 @ 引用提升，无缩略图）；气泡正文「看图：截图 @ref.png chip 和附件，马上回复。」；对话流末尾 steering 气泡（spinner 左侧）附件区同款：steer.png「…」占位方块 + img1.png 图标文件框。\n\n② thumb-ack-after-incremental-acked.png：同一行附件区四个元素中三个已换红色 48px 缩略图（chart.png、img1.png、ref.png，底部名称横幅），note.md 保持图标文件框；steering 气泡附件区两个元素：steer.png 红色缩略图 + img1.png 红色缩略图；气泡正文与菜单布局不变。\n\n③ thumb-ack-after-incremental-re-snap-stable.png：视觉与 ② 一致（真图仍在、无占位回退、无菜单闪烁），右下角小角标显示「ACK-REBUILD-ONCE:OK」（探针：回执触发行重建一次、重投同帧后行元素引用未变——不再每帧重建）。',
+    },
+
     // 消息右键菜单（assistant 气泡）：producedFiles 消息右键同样只弹「复制」。
     'msg-menu-assistant': {
       state: base({
@@ -3597,6 +3688,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'goal-stack',
     'queue-preview-mention',
     'steering-pending',
+    'thumb-ack-after-incremental',
     'compaction-cards', 'turn-navigator', 'jump-latest-visible',
     'collapse-footer',
     'composer-clear-after-send',
