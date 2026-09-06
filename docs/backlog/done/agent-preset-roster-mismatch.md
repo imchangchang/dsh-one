@@ -28,3 +28,5 @@
 - 2026-09-05 建档：调研 kimi-cli 复刻 preset 时核实定位，记入 open/。
 
 - 2026-09-06 认领（worktree: agent/agent-preset-roster-mismatch）→ doing
+
+- 2026-09-06 开发完成：wire 失配修复 + 单测/harness 场景 + 报告 4 项全 pass（done 标记 8dcfd52）→ done
