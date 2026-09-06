@@ -1,0 +1,83 @@
+{
+  "title": "DSH One 侧栏会话排序层级：活跃会话 > 标签组 > 时间序",
+  "branch": "agent/sessions-active-over-tags",
+  "commit": "32b1666",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-sessions-active-over-tags:latest",
+    "date": "2026-09-06T00:00:00Z"
+  },
+  "coverageNote": "本任务为侧栏排序层级调整（纯层 buildSessionTree 排序 + sessionsWebview 组块渲染，无 dsh 侧 API 变更）：功能项用 webview 视觉场景（ai-visual-validation harness，确定性渲染）+ DOM 事件断言核对；沙盒用于聊天链路回归（R-01）。真实桌面 VS Code 拖拽手感、平台专项不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "排序层级：活跃会话 > 标签组块 > 时间序（session-tags-active-first 场景）",
+      "expect": "dsh-one 组自上而下：① 最前「修复回收站抽屉高度」平铺（运行中，行尾蓝色像素环无时间，无组块头/竖线/缩进——虽属待办组但脱离组块）；② 其次「探索 Chrome 式分组原型」平铺（待交互，行尾黄色圆点无时间）；③ 待办（黄）组块：pill「待办」+ 组色竖线贯穿 + 行左缩进 ~12px，块内「实现侧栏分组过滤」1 行（无状态标记、显示时间）；④ 进行中（蓝）组块：块内「会话复制引用功能」「整理 mock 场景」2 行；⑤ 无组平铺「会话 A」（4 天前）「会话 B」（5 天前）——时间降序、无缩进无竖线；带组块头的只有 2 个（待办/进行中），活跃的 2 行都在组块外；workspace 组头角标照常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/sessions-active-over-tags-F01.png"
+      ],
+      "notes": "截图逐项核对：① 最前「修复回收站抽屉高度」平铺（当前附加高亮行、行尾像素环无时间、无组块头/竖线/缩进——属待办组但脱离组块）✓；② 「探索 Chrome 式分组原型」平铺（行尾黄色圆点无时间）✓；③ 待办（黄）pill「待办」组块头 + 组色竖线贯穿 + 「实现侧栏分组过滤」缩进行、行尾「3 小时前」✓；④ 进行中（蓝）pill 组块头 + 缩进 2 行（「会话复制引用功能」1 天前、「整理 mock 场景」2 天前）✓；⑤ 「会话 A」（4 天前）「会话 B」（5 天前）无缩进、时间降序 ✓；⑥ 带组块头只有 2 个（待办/进行中），活跃 2 行（运行中像素环、待交互黄点）都在组块外 ✓；⑦ workspace 组头角标照常。①②③④⑤⑥⑦ 全符合期望。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "折叠标签组不隐藏活跃会话（session-tags-active-first-collapse 场景）",
+      "expect": "待办组块被折叠（只剩 pill「待办」一行——组内唯一行空闲、无状态标记，故无计数角标）后，最前平铺的运行中「修复回收站抽屉高度」行不受影响仍在位（行尾像素环仍在、不在任何组块内），「探索 Chrome 式分组原型」待交互行其次；进行中组块（2 行）、无组「会话 A」「会话 B」照常；无红色断言横幅（断言：组块 .collapsed 且 0 行 + 活跃行仍在组块外）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/sessions-active-over-tags-F02.png"
+      ],
+      "notes": "截图逐项核对：① 待办组块折叠为一行（pill「待办」+ 三角），组内「实现侧栏分组过滤」行与竖线消失 ✓；② 折叠 pill 行无计数角标（组内唯一行空闲无状态标记，符合计数规则）✓；③ 最前「修复回收站抽屉高度」运行行不受折叠影响（仍平铺最上、行尾像素环在位、不在任何组块内）✓；④ 「探索 Chrome 式分组原型」待交互行其次 ✓；⑤ 进行中组块 2 行、「会话 A」「会话 B」无组平铺照常 ✓；⑥ 无红色断言横幅（ACTIVE-VS-COLLAPSED ASSERT FAILED 未出现；断言：组块 .collapsed 且 0 行 + 活跃行仍在组块外）✓。①②③④⑤⑥ 全符合期望。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "纯层排序单测：活跃优先于标签组 + 全层级（pinned > active > tags > time）",
+      "expect": "sessionTree.test.ts 新增两项断言：活跃会话（运行中/待交互）最前脱离组块但保留 tagId；置顶 > 活跃 > 标签组块 > 时间序全层级锁定。npm test 全 614 项通过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "新增测试「active sessions sort before tagged idle blocks, which sort before untagged idle」（活跃运行中/待交互最前、保留 tagId、空闲按组块序、无组时间殿后）与「sort hierarchy is pinned > active > tag blocks > idle by time」（全层级锁定）均通过；npm test 614 项全过。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "mock-LLM 回显回复（聊天链路回归）",
+      "expect": "composer 发送「测试一下」后，新会话内出现助手消息「收到：测试一下…」，模型选择器显示 mock-flash Max；侧栏 DSH ONE: SESSIONS 面板正常渲染（搜索框/All workspaces 分组栏/未分组组头/回收站入口），无报错。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "notes": "沙盒真 VS Code 截图核对：① 新会话 mock 回显「收到：测试一下」助手消息出现（含标题自动生成「收到：Generate the session title...」）✓；② 模型选择器 mock-flash Max（状态栏 Workspace Write · mock-flash Max）✓；③ 侧栏 DSH ONE: SESSIONS 面板正常：搜索框 / All workspaces 分组栏 / 未分组（Ungrouped）组头 / 回收站入口（Recycle bin 1 0 0）照常；④ 状态栏 DSH: Running:3080、无报错横幅。①②③④ 全符合。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "会话标签组块渲染/折叠回归（session-tags、session-tags-collapse 场景）",
+      "expect": "session-tags：最前「探索 Chrome 式分组原型」平铺（运行中像素环，进行中组块整体不再出现——组内唯一会话已脱离组块）；待办（黄）pill 组块 2 行（未读绿点加粗）、已完成（绿）pill 组块 1 行、「会话 A」未分组平铺最后；dsh-web research「探索」（橙）pill 组块照常。session-tags-collapse：待办组块折叠计数「黄点+1、绿点+1」、展开照常、活跃平铺行不受折叠影响；无断言横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/sessions-active-over-tags-R02-a.png",
+        "/tmp/dsh-sandbox-shots/sessions-active-over-tags-R02-b.png"
+      ],
+      "notes": "① session-tags 截图逐项：最前「探索 Chrome 式分组原型」平铺（运行中像素环）——进行中组块整体不再出现（组内唯一行已脱离组块）✓；待办（黄）块 2 行（「修复回收站抽屉高度」未读绿点 + 标题加粗）✓；已完成（绿）块 1 行 ✓；「会话 A」未分组平铺最后 ✓；dsh-web research「探索」（橙）块照常 ✓；workspace 组头角标（环 1 + 绿 1）在位 ✓。② session-tags-collapse collapsed 截图：待办组块折叠计数「黄点+1、绿点+1」（待交互 1 + 未读 1）✓、已完成组预置折叠计数「绿点+1」✓、最前平铺运行行不受折叠影响 ✓、无断言横幅 ✓；expanded 截图：再点后待办块保持折叠为预期（mock 宿主不回推快照）✓。①② 全符合期望。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量单测 + typecheck + build + 全量视觉场景 158 张",
+      "expect": "npm run typecheck（tsc --noEmit 无输出）/ npm test（614 项全过）/ npm run build（四个 bundle）全部通过；ui-visual.sh mode=all 158 场景全部截图成功，抽查 sessions 系列（sessions/sessions-status-rear-slot/sessions-collapsed/sessions-recycle-drawer/sessions-search）渲染正常。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck 通过（tsc --noEmit 无输出）；npm test 614 项全过（含新增 2 项排序层级测试）；npm run build 产出 dist 四 bundle；scripts/ui-visual.sh --mode all 158 场景全部截图成功，抽查 sessions 系列（sessions / sessions-status-rear-slot / sessions-collapsed / sessions-recycle-drawer / sessions-search）渲染正常，无断言横幅。"
+    }
+  ]
+}

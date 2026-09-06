@@ -62,12 +62,19 @@ export interface SessionNodeModel {
   /** Relative time string, e.g. "3 小时前". */
   description: string
   running: boolean
+  /**
+   * 活跃（与行尾状态标记同义）：running / 后代运行 / 未读 / 待交互任一。
+   * 排序上它在标签组聚合之前（用户确认：运行中/待交互的最上面），渲染层
+   * 据此把活跃会话脱离标签组块平铺（同置顶语义），避免被折叠组藏住。
+   */
+  active: boolean
   /** Client-side pin (dsh has no pin API); pinned sessions carry absolute priority. */
   pinned: boolean
   /**
-   * 会话标签组 id（Chrome 垂直标签式单组）：workspace 内非置顶会话按组聚合
-   * 显示（组块顺序 = view.tags 的顺序），组内再按既有排序键；无组会话殿后。
-   * 置顶会话保持「绝对优先」平铺在会话区最前，不参与组块（现有语义）。
+   * 会话标签组 id（Chrome 垂直标签式单组）：workspace 内非置顶且非活跃会话
+   * 按组聚合显示（组块顺序 = view.tags 的顺序），组内再按既有排序键；无组
+   * 会话殿后。置顶与活跃会话保持「绝对/状态优先」平铺在会话区最前，不参与
+   * 组块（现有语义）。
    */
   tagId?: string
   /**
@@ -76,7 +83,7 @@ export interface SessionNodeModel {
    * completed turn has no `turn/end` boundary, so the server rejects a fork.
    */
   hasCompletedTurn: boolean
-  /** Client-side unread marker (dsh has no unread API); display-only, no sort effect. */
+  /** Client-side unread marker (dsh has no unread API); part of the active layer. */
   unread: boolean
   /**
    * 有运行中的血缘后代（子代理）——host 的 running 只管 agent 自身相位，
@@ -198,8 +205,10 @@ export function formatRelativeTime(updatedAt: number, now: number, t: L10nFn = e
  * of `view.pinned` (置顶顺序，不随 updatedAt/title 调整), the remaining
  * unpinned ones put active sessions first — running / running-descendant /
  * unread / pending-interaction, any sort mode — ordered by updatedAt
- * descending inside the active group, then the idle ones follow
- * `view.sort` (default updatedAt descending). Active-first mirrors the row
+ * descending inside the active group, then the tagged sessions follow tag
+ * block order (each block ordered by `view.sort`), and the idle untagged
+ * ones follow `view.sort` (default updatedAt descending). Active-first
+ * mirrors the row
  * rendering, where the rear slot shows a status marker instead of the
  * relative time, so the (invisible) idle time must not drive ordering for
  * marked sessions. A
@@ -278,9 +287,9 @@ export function buildSessionTree(
 
   // 会话行流水线：label 解析（query 匹配和 title 排序都要用，先算一次）→
   // 查询过滤（标题/ID 命中 或 内容命中）→ 置顶绝对优先（组内按置顶顺序）→
-  // 非置顶成员：先按标签组聚合（组块顺序，组内再排），组内活跃优先（运行中/
-  // 运行中后代/未读/待交互，任何排序模式下都整体前置）→ 其余按 view.sort；
-  // 无组殿后。workspace 组与「未分组」组共用。
+  // 非置顶成员：活跃优先（运行中/运行中后代/未读/待交互，任何排序模式下都
+  // 整体前置，脱离标签组平铺）→ 标签组聚合（组块顺序，组内再排）→ 其余按
+  // view.sort；无组殿后。workspace 组与「未分组」组共用。
   const toSessionNodes = (list: SessionInput[]): SessionNodeModel[] =>
     list
       .map((s) => ({
@@ -306,26 +315,29 @@ export function buildSessionTree(
         const aPinned = pinnedIndex.has(a.session.sessionId)
         const bPinned = pinnedIndex.has(b.session.sessionId)
         if (aPinned !== bPinned) return aPinned ? -1 : 1
-        // 置顶组内按置顶顺序固定；非置顶成员先按标签组聚合再比活跃/排序键。
+        // 置顶组内按置顶顺序固定；非置顶成员先比活跃（有状态标记的会话整体
+        // 前置，用户确认：运行中/待交互比标签组更优先），再按标签组聚合，
+        // 最后比 sort 键。
         if (aPinned) {
           return (pinnedIndex.get(a.session.sessionId) ?? 0) - (pinnedIndex.get(b.session.sessionId) ?? 0)
         }
+        // 活跃层（继置顶后的最高优先）：有状态标记的会话整体前置，活跃组内
+        // 固定按 updatedAt 降序（越活跃越新），不受 view.sort 的 title/asc
+        // 影响；活跃会话脱离标签组聚合平铺（渲染层同款语义），保证「运行中/
+        // 待交互的最上面」不被打标签的空闲组块压过去，也不被折叠组藏住。
+        if (a.active !== b.active) return a.active ? -1 : 1
+        if (a.active) return b.session.updatedAt - a.session.updatedAt
+        // 标签组聚合（组块序）→ 组内按 sort 键；无组殿后。
         if (tagIndex.size > 0) {
           const aRank = tagRankOf(tagFor(a.session.sessionId))
           const bRank = tagRankOf(tagFor(b.session.sessionId))
           if (aRank !== bRank) return aRank - bRank
         }
-        // 活跃优先（组内层）：有状态标记的会话整体前置，活跃组内固定按
-        // updatedAt 降序（越活跃越新），不受 view.sort 的 title/asc 影响。
-        // 与标签组聚合（view.tags / sessionTagFor）的层级：组块序 > 活跃层 >
-        // sort 键——“分了组的靠前（组块序），每个组内部再排序（活跃+sort）”。
-        if (a.active !== b.active) return a.active ? -1 : 1
-        if (a.active) return b.session.updatedAt - a.session.updatedAt
         if (sort === 'updatedAsc') return a.session.updatedAt - b.session.updatedAt
         if (sort === 'title') return a.label.localeCompare(b.label)
         return b.session.updatedAt - a.session.updatedAt
       })
-      .map(({ session, label }) => {
+      .map(({ session, label, active }) => {
         const pendingInteraction = view.pendingInteractions?.get(session.sessionId)
         const snippet = view.contentHits?.get(session.sessionId)
         // 未知组 id 降级为未分组：store 清洗后正常不会出现，防御旧残留。
@@ -336,6 +348,7 @@ export function buildSessionTree(
           label,
           description: formatRelativeTime(session.updatedAt, now, t),
           running: session.running,
+          active,
           pinned: pinnedIndex.has(session.sessionId),
           hasCompletedTurn: (session.sessionStatsTurns ?? 0) > 0,
           unread: view.unread?.has(session.sessionId) === true,
