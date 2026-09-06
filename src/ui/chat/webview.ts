@@ -124,6 +124,9 @@ import {
   type WorkflowRunStatus,
   type WorkflowRunView,
 } from '../../pure/workflowRun.ts'
+import { reconcileChildren, type ReconcileItem } from '../shared/reconcile.ts'
+import { syncAnimPhase, spinnerEl, spinSvg } from '../shared/animPhase.ts'
+import { composingInside, initComposeGuard } from '../shared/composeGuard.ts'
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
@@ -321,23 +324,9 @@ let lastGoalSig: string | null = null
  * 正在 IME 组合中的元素（document 级捕获，所有输入点共用）。保活兜底：焦点
  * 所在区域签名变了也不重建，推迟到 compositionend 再落地——元素销毁会中止
  * 浏览器 composition 会话，拼音组合直接断，这是「恢复焦点/文本」救不了的。
+ * （document 级跟踪与 composingInside 判定由共享模块 ui/shared/composeGuard 承担。）
  */
-let composingEl: Element | null = null
-document.addEventListener('compositionstart', (e) => {
-  composingEl = e.target instanceof Element ? e.target : null
-})
-document.addEventListener('compositionend', () => {
-  composingEl = null
-  // 组合期间可能推迟过区域重建：组合结束立即补一帧，让被推迟的签名变化落地。
-  render()
-})
-document.addEventListener('focusout', () => {
-  // 组合未正常结束（异常销毁/程序抢焦点）时清标志，避免永久保活。
-  if (composingEl !== null && !composingEl.isConnected) composingEl = null
-})
-/** composingEl 是否落在 root 子树内（root 为 null 恒 false）。 */
-const composingInside = (root: Element | null): boolean =>
-  root !== null && composingEl !== null && root.contains(composingEl)
+initComposeGuard(render)
 /** Images staged in the composer, sent with the next `send`. */
 let pendingImages: OutgoingImage[] = []
 /** Non-image files staged as chips; their paths join the prompt text on send. */
@@ -708,20 +697,9 @@ function strokeSvg(paths: string[], size = 14): SVGSVGElement {
 const FILE_ICON = ['M4.2 2h4.6L12 5.2V14H4.2z', 'M8.8 2v3.2H12']
 
 /**
- * 运行中像素环：复刻官方 dsh web StateDot(ongoing)——10×10 画布上 8 个
- * 2×2 方块沿环排布，各自带负的 animationDelay 错相，配合 .session-spin 的
- * chase keyframes（chatView.ts）形成转圈追逐效果。
+ * 运行中像素环（spinSvg/SPIN_CELLS）、相位续播（syncAnimPhase）与转圈 spinner
+ * （spinnerEl）已由共享模块 ui/shared/animPhase 承担——两份逐字复制合一。
  */
-const SPIN_CELLS: ReadonlyArray<readonly [number, number]> = [
-  [0, 0],
-  [4, 0],
-  [8, 0],
-  [8, 4],
-  [8, 8],
-  [4, 8],
-  [0, 8],
-  [0, 4],
-]
 
 /**
  * 官方 IconAgentPresetOutline16（dsh-client-ui-primitives）的逐元素复刻：
@@ -730,47 +708,6 @@ const SPIN_CELLS: ReadonlyArray<readonly [number, number]> = [
 /** Agent preset 三环图标（官方 IconAgentPresetOutline16，14px）。 */
 function presetIconSvg(): SVGSVGElement {
   return iconSvg(AGENT_PRESET_ICON, 14)
-}
-
-/**
- * 无限周期 CSS 动画的「相位续播」：流水线的重建（消息区增量更新只重建变化行，
- * 其余区域按 keep 保活）会新建元素，新建节点会让 animation 从 0 重新开始——
- * 流式期间快照 ~100ms 一帧，转圈/闪烁动画每帧被
- * 打回起点，视觉上就是疯狂刷新。给新建元素补一个负 animation-delay（= 当前时刻
- * 在周期里的相位），新元素从旧元素的相位继续，观感即连续（周期 animation 相位
- * 对齐等价于节点保活，且能覆盖元素被重建的任意场景）。
- */
-function syncAnimPhase(el: HTMLElement | SVGElement, periodMs: number): void {
-  el.style.animationDelay = `${-(performance.now() % periodMs)}ms`
-}
-
-/** 转圈 spinner（.spinner，0.9s/圈）：创建即对齐相位，见 syncAnimPhase。 */
-function spinnerEl(): HTMLSpanElement {
-  const s = el('span', 'spinner')
-  syncAnimPhase(s, 900)
-  return s
-}
-
-function spinSvg(): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', '10')
-  svg.setAttribute('height', '10')
-  svg.setAttribute('viewBox', '0 0 10 10')
-  svg.setAttribute('shape-rendering', 'crispEdges')
-  svg.classList.add('session-spin')
-  const phase = -(performance.now() % 1000)
-  SPIN_CELLS.forEach(([x, y], i) => {
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-    rect.setAttribute('x', String(x))
-    rect.setAttribute('y', String(y))
-    rect.setAttribute('width', '2')
-    rect.setAttribute('height', '2')
-    // 原有错相（-N..-1 步 × 125ms）保留，叠加全局相位：每格从自己该在的
-    // 相位续播（周期 1s），快照重建不再从头闪。
-    rect.style.animationDelay = `${phase + (i - SPIN_CELLS.length) * 125}ms`
-    svg.appendChild(rect)
-  })
-  return svg
 }
 
 function md(text: string): string {
@@ -5188,14 +5125,7 @@ function scrollToMessageId(messageId: string | null): void {
  * structured clone 的新对象，无法用引用比较；字符串化成本低于 markdown 渲染，
  * 且只对变化行付）。签名相同 → 复用现元素；不同 → 重渲染该行原位替换。
  */
-interface FlowItem {
-  key: string
-  /** 内容未变 → 复用现元素；false → 重渲染替换（同 key 原位）。 */
-  same: boolean
-  create: () => HTMLElement
-  /** 元素被移除/替换时的清理（行级定时器等）。 */
-  dispose?: (el: HTMLElement) => void
-}
+type FlowItem = ReconcileItem
 
 /** 每条消息最近一次渲染的签名（id → sig）；无此 id = 未渲染过。 */
 const flowMsgSigs = new Map<string, string>()
@@ -5373,57 +5303,8 @@ function syncTurnRail(messages: HTMLElement, item: FlowItem | null): void {
   messages.insertBefore(fresh, flowColOf(messages))
 }
 
-function reconcileFlow(container: HTMLElement, items: FlowItem[]): void {  const byKey = new Map<string, Element>()
-  for (const child of Array.from(container.children)) {
-    const k = child.getAttribute('data-flow-key')
-    if (k && !byKey.has(k)) byKey.set(k, child)
-  }
-  const itemByKey = new Map<string, FlowItem>()
-  for (const item of items) itemByKey.set(item.key, item)
-  let next: Element | null = container.firstElementChild
-  for (const item of items) {
-    // 跳过（并移除）指针位置上的残留行——不在期望流里（older 关闭、turn-status
-    // 结束、steering 落地等）。不清掉它们，后续每个留在原位之后的元素都会被
-    // 「挪一位」处理成 move（低效且制造大量 childList 变更）。
-    while (next) {
-      const k = next.getAttribute('data-flow-key')
-      if (k !== null && itemByKey.has(k)) break
-      const victim = next as HTMLElement
-      next = victim.nextElementSibling
-      victim.remove()
-      if (k !== null) itemByKey.get(k)?.dispose?.(victim)
-    }
-    const el = byKey.get(item.key)
-    if (el) {
-      if (item.same) {
-        // 顺序修正（罕见）：元素在但位置不对 → 挪到正确位置。
-        if (el !== next) container.insertBefore(el, next)
-        next = el.nextElementSibling
-      } else {
-        const fresh = item.create()
-        fresh.setAttribute('data-flow-key', item.key)
-        container.insertBefore(fresh, next)
-        el.remove()
-        item.dispose?.(el as HTMLElement)
-        next = fresh.nextElementSibling
-      }
-    } else {
-      const fresh = item.create()
-      fresh.setAttribute('data-flow-key', item.key)
-      container.insertBefore(fresh, next)
-      next = fresh.nextElementSibling
-    }
-  }
-  // 清尾：期望流之外的残留全部移除。
-  let rem = next
-  while (rem) {
-    const victim = rem as HTMLElement
-    rem = victim.nextElementSibling
-    victim.remove()
-    const k = victim.getAttribute('data-flow-key')
-    if (k) itemByKey.get(k)?.dispose?.(victim)
-  }
-}
+/** 消息流对账的承载（通用实现已抽到共享模块 ui/shared/reconcile）。 */
+const reconcileFlow = reconcileChildren
 
 /**
  * workflow 运行卡片（对齐 dsh web WorkflowRunPanel）：run 级折叠行 + 展开后

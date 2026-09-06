@@ -1,0 +1,82 @@
+{
+  "title": "前端共享基座（ui/shared）+ 侧栏会话列表保活对账——折叠工作区滚动不跳顶，行/组按 key 增量重建",
+  "branch": "agent/frontend-shared-foundation",
+  "commit": "HEAD",
+  "environment": {
+    "mode": "headless-chromium 探针实测（折叠/展开/running 翻转/tag 折叠滚动位置追踪）+ WebBridge 全量场景截图（157 场景）",
+    "dsh": "对账模式对齐 chat webview reconcileFlow（共享实现）；滚动保活对齐官方「容器不销毁」思路",
+    "date": "2026-09-06"
+  },
+  "coverageNote": "侧栏滚动保持经 Playwright 探针实测（5 工作区×6 会话、scrollTop=200，四场景）；布局与既有交互经 harness 全量 157 场景截图 + 关键场景逐张语义核对；chat webview 共享重构经输入抖动探针回归；真实 VS Code 侧栏复核留给用户。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "折叠工作区/快照更新时侧栏滚动位置保持（核心问题修复）",
+      "expect": "折叠/展开工作区、折叠 tag 组、会话状态（running/unread）翻转、任意快照更新后，.sessions-list 的 scrollTop 不再跳回 0；未涉及行元素保活（不重建、动画不重启、菜单锚不断）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-collapse-scroll-keep-scrolled.png",
+        "/tmp/dsh-ui-shots/sessions-collapse-scroll-keep-collapsed.png",
+        "/tmp/dsh-ui-shots/sessions-collapse-scroll-keep-verify.png"
+      ],
+      "notes": "Playwright 探针实测：scrollTop=200 时折叠 ws-1（scrollTop 200→200 保持、ws-2 的 6 行 100% 保活、ws-1 折叠态正确）、running 翻转（只有变化行重建）、展开（保持）、tag 组折叠（保持）。分步截图：scrolled（主工作区会话 4 在顶=已滚 160px）→ collapsed（调研会话 3 在顶=折叠后同一 scrollTop，不是跳回第一组顶部）。根因：旧实现每个快照把整个 .sessions-list 滚动容器 remove 重建（scrollTop 归零）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "侧栏主列表保活对账：.sessions-list 只建一次 + 递归按 key 增量重建",
+      "expect": "列表容器永不销毁（滚动位置随容器存活）；workspace 组壳（key=ws:*）/组头（按签名原位重建）/tag 组壳（key=tag:*）/会话行（key=s:*，按内容签名保活）/命中片段行（key=snip:*）按 key 对账；搜索词变化时滚动复位到顶（新结果集从头看）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions.png",
+        "/tmp/dsh-ui-shots/session-tags-collapse-collapsed.png",
+        "/tmp/dsh-ui-shots/sessions-groups-manage.png"
+      ],
+      "notes": "对账用共享的 reconcileChildren（与 chat webview 同一实现）。签名覆盖行渲染全部输入（label/unread/running/pendingInteraction/pinned/active/tagId/多选态/编辑态/description 相对时间/搜索高亮词）。关键坑：保活容器绝不能重复 appendChild——对已挂载元素 append 是 remove+insert，重挂会把 scrollTop 重置为 0（无 scroll 事件、无 JS 写，探针实锤），已挂 isConnected 守卫。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "前端共享基座 src/ui/shared：reconcile / animPhase / composeGuard 三件套",
+      "expect": "reconcileChildren（按 key 子级对账）、syncAnimPhase/spinnerEl/spinSvg（相位续播）、initComposeGuard/composingInside/composingActive（IME 组合守护）抽为共享模块，chat 与 sessions 两个 bundle 各 import 一份——同类问题修一处生效两边。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "消灭两份逐字复制（sessions 的 spinSvg/SPIN_CELLS 原注释自承「与 chat 同款处理」）；IME 守护两份合一；reconcileFlow 从 chat 原样提取为通用件（chat 留别名兼容）。chat webview 改消费共享版后经输入抖动探针回归：行为与重构前完全一致（scrollTop/firstTop 零震荡）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "回收站抽屉 + 组管理弹层同款滚动保持",
+      "expect": "回收站抽屉的 .recycle-list 同样保活对账（独立签名缓存，不与主列表互相干扰），快照更新不丢滚动；组管理弹层 .wsg-manage-body 重建前后存取滚动位置。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-recycle-drawer.png",
+        "/tmp/dsh-ui-shots/sessions-groups-manage.png"
+      ],
+      "notes": "sessions-recycle-drawer 截图：抽屉半栏滑出（提手/Back/计数 3/删除/Restore all/按 workspace 分组），主列表上半可见；sessions-groups-manage 截图：组管理弹层正常。回收站行/组头/片段用独立签名缓存（recycleRowSigs/recycleHeadSigs/recycleTopSigs），tag 头签名在主列表 prune 时纳入回收站 tag 防互相顶掉。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "侧栏既有交互全量回归（157 场景）",
+      "expect": "tag 组折叠/计数、会话菜单、多选模式、分组管理、搜索/降级提示、空态/加载态、回收站入口/抽屉等场景渲染与改造前一致。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/sessions-collapsed.png",
+        "/tmp/dsh-ui-shots/session-tags-collapse-collapsed.png",
+        "/tmp/dsh-ui-shots/sessions-selection-mode.png"
+      ],
+      "notes": "全量 157 场景截图经关键场景逐张语义核对：sessions-collapsed（全折叠+角标）、session-tags-collapse（tag 组折叠计数+展开高亮行）、sessions-recycle-drawer、sessions-groups-manage 等均符合各自 expect。menuFreeze/改名冻结/IME 冻结机制原样保留（对账不破坏冻结语义）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量单测与构建",
+      "expect": "npm run typecheck / npm test / npm run build 全过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "typecheck 0 错误；612 个单测全过；build 产出 dist 四件套 + harness 两个 style.css 重新生成。"
+    }
+  ]
+}

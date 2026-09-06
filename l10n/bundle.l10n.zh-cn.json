@@ -522,4 +522,7 @@
   "Purple": "紫",
   "Red": "红",
   "Move to group…": "移到分组…",
-  "Copy inline code": "复制这段"}
+  "Copy inline code": "复制这段",
+  "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath(\"session-query.sqlite\")\n    openAt: first-search": "dsh 全文搜索默认 opt-in：session-query 索引 openAt: \"never\"（未启用），session.search 被禁用。\n启用：编辑 ~/.dsh/profiles/web/cordis.patch.yml，追加以下配置后重启 dsh 服务：\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath('session-query.sqlite')\n    openAt: first-search",
+  "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\\n- id: session-query-sqlite\\n  config:\\n    path: !!js dshHomePath(\"session-query.sqlite\")\\n    openAt: first-search": "dsh 全文搜索默认 opt-in：session-query 索引 openAt: \"never\"（未启用），session.search 被禁用。\n启用：编辑 ~/.dsh/profiles/web/cordis.patch.yml，追加以下配置后重启 dsh 服务：\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath('session-query.sqlite')\n    openAt: first-search"
+}

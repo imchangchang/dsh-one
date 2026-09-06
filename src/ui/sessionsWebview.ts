@@ -18,6 +18,9 @@ import {
   installCommandFor,
   type HostOs,
 } from '../pure/installScript.ts'
+import { reconcileChildren, type ReconcileItem } from './shared/reconcile.ts'
+import { spinSvg } from './shared/animPhase.ts'
+import { composingActive, initComposeGuard } from './shared/composeGuard.ts'
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
@@ -128,23 +131,28 @@ let editSelEnd = 0
 /** 列表重建进行中：blur 不应把编辑当取消（重建销毁输入框触发的 blur 要忽略）。 */
 let rebuildInProgress = false
 /**
- * 正在 IME 组合中的元素（document 级捕获）。保活兜底：组合期间 renderSessions
- * 冻结列表重建、组管理弹层跳过快照重建——元素销毁会中止浏览器 composition
- * 会话（拼音组合直接断），重建后恢复焦点/选区救不了它。compositionend 补一帧
- * 让冻结期间到达的快照落地。
+ * 列表保活对账的签名缓存与持久容器（对标 chat webview 的 reconcileFlow 模式）：
+ * .sessions-list 只建一次、永不销毁——滚动位置随容器天然存活（折叠/快照不再
+ * 跳顶，回归 sessions-list-scroll-position-lost）；行/组头按内容签名决定是否
+ * 原位重建，未变行整体保活（hover/菜单锚/动画相位随元素留存）。
  */
-let composingEl: Element | null = null
-document.addEventListener('compositionstart', (e) => {
-  composingEl = e.target instanceof Element ? e.target : null
-})
-document.addEventListener('compositionend', () => {
-  composingEl = null
-  renderSessions()
-})
-document.addEventListener('focusout', () => {
-  // 组合未正常结束（异常销毁/程序抢焦点）时清标志，避免永久冻结。
-  if (composingEl !== null && !composingEl.isConnected) composingEl = null
-})
+const sessionRowSigs = new Map<string, string>()
+const recycleRowSigs = new Map<string, string>()
+const wsHeadSigs = new Map<string, string>()
+const recycleHeadSigs = new Map<string, string>()
+const tagHeadSigs = new Map<string, string>()
+const snippetSigs = new Map<string, string>()
+const topItemSigs = new Map<string, string>()
+let sessionsListEl: HTMLElement | null = null
+/** 上帧搜索词：变化时滚动复位到顶（新结果集从头看；对账不背这口锅）。 */
+let lastSessionsQuery: string | null = null
+/**
+ * IME 组合守护（document 级跟踪 + compositionend 补帧）已由共享模块
+ * ui/shared/composeGuard 承担（与 chat webview 同一份）。组合期间 renderSessions
+ * 冻结列表重建、组管理弹层跳过快照重建——元素销毁会中止浏览器 composition
+ * 会话（拼音组合直接断），重建后恢复焦点/选区救不了它。
+ */
+initComposeGuard(renderSessions)
 
 /* ---- 多选归档模式（临时 UI 状态：不进 store、不持久化，退出即清空） ---- */
 let selectionMode = false
@@ -467,38 +475,8 @@ function makePinIcon(): SVGSVGElement {
  * 2×2 方块沿环排布，各自带负的 animationDelay 错相，配合 .session-spin 的
  * chase keyframes（SessionsViewProvider 的 STYLE）形成转圈追逐效果。
  */
-const SPIN_CELLS: ReadonlyArray<readonly [number, number]> = [
-  [0, 0],
-  [4, 0],
-  [8, 0],
-  [8, 4],
-  [8, 8],
-  [4, 8],
-  [0, 8],
-  [0, 4],
-]
-
-function spinSvg(): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('width', '10')
-  svg.setAttribute('height', '10')
-  svg.setAttribute('viewBox', '0 0 10 10')
-  svg.setAttribute('shape-rendering', 'crispEdges')
-  svg.classList.add('session-spin')
-  // 全局相位（周期 1s）：快照重建会新建像素环，不叠加相位动画每帧从头闪
-  // （与 chat webview 的 spinSvg 同款处理）。
-  const phase = -(performance.now() % 1000)
-  SPIN_CELLS.forEach(([x, y], i) => {
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-    rect.setAttribute('x', String(x))
-    rect.setAttribute('y', String(y))
-    rect.setAttribute('width', '2')
-    rect.setAttribute('height', '2')
-    rect.style.animationDelay = `${phase + (i - SPIN_CELLS.length) * 125}ms`
-    svg.appendChild(rect)
-  })
-  return svg
-}
+/** 运行中像素环（spinSvg/SPIN_CELLS）已由共享模块 ui/shared/animPhase 承担
+ * （此处原本是 chat webview 的逐字复制，注释自承「同款处理」）。 */
 
 /** 排序菜单选项，与 store 持久化的 SessionSortOrder 一一对应。 */
 const SORT_OPTIONS: Array<{ order: SessionSortOrder; label: string }> = [
@@ -881,7 +859,13 @@ function rebuildGroupManage(): void {
   const m = groupManage
   const snap = sessionsSnapshot
   if (!m || !snap || m.dragging) return
+  // 弹层 body 是滚动容器（.wsg-manage-body）：整卡替换会丢滚动位置，
+  // 重建前后存取（回归 sessions-list-scroll-position-lost 同款）。
+  const body = m.overlay.querySelector<HTMLElement>('.wsg-manage-body')
+  const savedScrollTop = body?.scrollTop ?? 0
   m.overlay.replaceChildren(buildGroupManageCard(snap))
+  const newBody = m.overlay.querySelector<HTMLElement>('.wsg-manage-body')
+  if (newBody) newBody.scrollTop = savedScrollTop
   // 改名输入框重建后恢复焦点与选区（快照刷新不打断正在输入的名字）。
   if (m.renameGroupId !== null) {
     const input = m.overlay.querySelector<HTMLInputElement>('.wsg-row-rename-input')
@@ -1216,97 +1200,124 @@ function renderSessions(): void {
   // 行内改名编辑态冻结（与菜单冻结同款）：列表重建会销毁 rename 输入框、中止
   // IME 组合——进入编辑态那帧旧列表还没有输入框，照常重建渲染；编辑期间快照
   // 到达一律跳过，退出编辑（commit/cancel）时用最新快照一次性重建。IME 组合
-  // 中的其他输入点（搜索框常驻不重建，无碍）同样借 composingEl 冻结整列表，
+  // 中的其他输入点（搜索框常驻不重建，无碍）同样借 composingActive 冻结整列表，
   // compositionend 补帧落地。
   if (editingSessionId !== null) {
     const renameLive = sessionsPanel.querySelector('.session-main .rename-input') !== null
     if (renameLive) return
   }
-  if (composingEl !== null) return
+  if (composingActive()) return
   // 列表重建期间，销毁在编输入框触发的 blur 不应把编辑当取消（rebuildGuard）。
   rebuildInProgress = true
-  const oldList = sessionsPanel.querySelector<HTMLElement>('.sessions-list')
-  oldList?.remove()
   const oldBar = sessionsPanel.querySelector<HTMLElement>('.selection-bar')
   oldBar?.remove()
   const oldRecycleEntry = sessionsPanel.querySelector<HTMLElement>('.recycle-entry')
   oldRecycleEntry?.remove()
   // 主列表恒渲染；回收站改为从底部滑出的抽屉叠加在其上（不再整栏切换）。
-  const list = el('div', 'sessions-list')
+  // 列表容器只建一次、永不销毁（滚动位置随容器存活）；内容按 key 对账。
+  if (sessionsListEl === null) sessionsListEl = el('div', 'sessions-list')
+  const list = sessionsListEl
+  const items: ReconcileItem[] = []
   if (!snap) {
-    list.appendChild(el('div', 'sessions-empty', t('Loading…')))
+    items.push(topItem('empty:loading', 'loading', () => el('div', 'sessions-empty', t('Loading…'))))
   } else if (snap.serverState !== 'running') {
-    list.appendChild(renderServerEmpty(snap))
+    items.push(topItem('empty:server', serverEmptySig(snap), () => renderServerEmpty(snap)))
   } else if (!snap.baselineReady) {
     // 服务已 running 但基线还没拉到（或代际切换后未重拉成功）：空基线会被
     // 恒渲染的「未分组」组误导成「没有 workspace」，未分组组头先于工作区组
     // 出现。等基线就绪再渲染列表，这里保持 Loading。
-    list.appendChild(el('div', 'sessions-empty', t('Loading…')))
+    items.push(topItem('empty:loading', 'loading-baseline', () => el('div', 'sessions-empty', t('Loading…'))))
   } else if (snap.activeGroupId !== null && snap.workspaces.length === 0 && snap.query === null) {
     // 选中分组下没有任何 workspace：专属空态（不是「没有 workspace」的添加入口，
     // 也不是搜索无命中——用户需要知道要先在管理视图里打标）。
-    const box = el('div', 'sessions-empty')
-    box.appendChild(
-      el('div', 'empty-hint', t('This group has no workspaces yet. Tag workspaces in "Manage groups…" first.')),
-    )
-    box.appendChild(el('div', 'empty-hint-secondary', t('You can also create a new group from the row above.')))
-    const manageBtn = buttonEl('secondary', t('Manage groups…'))
-    manageBtn.addEventListener('click', () => openGroupManage())
-    box.appendChild(manageBtn)
-    list.appendChild(box)
+    items.push(topItem('empty:group', snap.activeGroupId, () => {
+      const box = el('div', 'sessions-empty')
+      box.appendChild(
+        el('div', 'empty-hint', t('This group has no workspaces yet. Tag workspaces in "Manage groups…" first.')),
+      )
+      box.appendChild(el('div', 'empty-hint-secondary', t('You can also create a new group from the row above.')))
+      const manageBtn = buttonEl('secondary', t('Manage groups…'))
+      manageBtn.addEventListener('click', () => openGroupManage())
+      box.appendChild(manageBtn)
+      return box
+    }))
   } else if (snap.workspaces.every((w) => w.workspaceId === UNGROUPED_WORKSPACE_ID)) {
     // 没有真实 workspace：保留「添加工作区」引导，同时仍渲染「未分组」组
     // （空组头 + 新建按钮，「新建未分组对话」入口恒可达）。搜索态下未分组
     // 有命中时不显示提示（下方组即结果），无命中才显示「没有匹配」。
     if (snap.query === null) {
-      const box = el('div', 'sessions-empty')
-      box.appendChild(el('div', 'empty-hint', t('No workspaces yet. Add an existing folder or create one with the + button above.')))
-      list.appendChild(box)
+      items.push(topItem('empty:noworkspace', 'noworkspace', () => {
+        const box = el('div', 'sessions-empty')
+        box.appendChild(el('div', 'empty-hint', t('No workspaces yet. Add an existing folder or create one with the + button above.')))
+        return box
+      }))
     } else if (snap.workspaces.length === 0) {
-      const box = el('div', 'sessions-empty')
-      box.appendChild(el('div', 'empty-hint', t('No sessions match “{0}”.', snap.query)))
-      list.appendChild(box)
+      items.push(topItem('empty:nomatch', snap.query, () => {
+        const box = el('div', 'sessions-empty')
+        box.appendChild(el('div', 'empty-hint', t('No sessions match “{0}”.', snap.query ?? '')))
+        return box
+      }))
     }
-    for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
+    for (const w of snap.workspaces) items.push(wsGroupItem(w))
   } else {
-    for (const w of snap.workspaces) list.appendChild(renderWorkspaceGroup(w))
+    for (const w of snap.workspaces) items.push(wsGroupItem(w))
     if (snap.contentSearchHasMore) {
-      list.appendChild(el('div', 'sessions-search-more', t('More matching sessions; try a more precise keyword')))
+      items.push(topItem('search:more', 'more', () => el('div', 'sessions-search-more', t('More matching sessions; try a more precise keyword'))))
     }
   }
   // 内容搜索降级：后端索引未启用等导致全文搜索失败——给用户可见提示，不静默。
   if (snap && snap.query != null && snap.query !== '' && snap.contentSearchError) {
-    const degraded = el(
-      'div',
-      'sessions-search-more sessions-search-degraded',
-      t('Full-text search unavailable; matching titles only (dsh search index not enabled)'),
-    )
-    // 悬停显示更详细的原因与启用索引的方法（复用自实现 tooltip）。
-    degraded.setAttribute(
-      'data-tip',
-      `dsh 全文搜索默认 opt-in：session-query 索引 openAt: "never"（未启用），session.search 被禁用。
-启用：编辑 ~/.dsh/profiles/web/cordis.patch.yml，追加以下配置后重启 dsh 服务：
-- id: session-query-sqlite
-  config:
-    path: !!js dshHomePath('session-query.sqlite')
-    openAt: first-search`,
-    )
-    list.appendChild(degraded)
+    items.push(topItem('search:degraded', String(snap.contentSearchError), () => {
+      const degraded = el(
+        'div',
+        'sessions-search-more sessions-search-degraded',
+        t('Full-text search unavailable; matching titles only (dsh search index not enabled)'),
+      )
+      // 悬停显示更详细的原因与启用索引的方法（复用自实现 tooltip）。
+      // i18n 注：key 里 YAML 示例用双引号——单引号会让门禁的 t() 正则提前截断。
+      degraded.setAttribute(
+        'data-tip',
+        t('dsh full-text search is opt-in by default: the session-query index has openAt: "never" (disabled), so session.search is unavailable.\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath("session-query.sqlite")\n    openAt: first-search'),
+      )
+      return degraded
+    }))
   }
-  sessionsPanel.appendChild(list)
+  reconcileChildren(list, items)
+  // 组内容递归对账（仅在有有效组数据时；空态/加载态没有 ws 壳需要处理）。
+  if (snap && snap.serverState === 'running' && snap.baselineReady) {
+    for (const w of snap.workspaces) {
+      const shell = list.querySelector<HTMLElement>(`:scope > .workspace-group[data-workspace-id="${CSS.escape(w.workspaceId)}"]`)
+      if (shell) reconcileWorkspaceGroup(shell, w)
+    }
+  }
+  pruneSessionSigs(snap)
+  // 保活的容器绝不能重复 appendChild：对已挂载元素 append 是 remove+insert
+  // 操作，重挂会把 scrollTop 重置为 0（无 scroll 事件、无 JS 写——探针实锤）。
+  if (!list.isConnected) sessionsPanel.appendChild(list)
   // 多选模式：操作条插在搜索框（header）与列表之间。
   if (selectionMode) sessionsPanel.insertBefore(buildSelectionBar(), list)
   // 回收站入口：面板底部固定行（列表滚动区之外，不随滚动消失）；计数 0 灰态。
   sessionsPanel.appendChild(renderRecycleEntry())
+  // 搜索词变化时滚动复位到顶（新结果集从头看；对账保持滚动不背这口锅）。
+  const queryNow = snap?.query ?? null
+  if (queryNow !== lastSessionsQuery) {
+    lastSessionsQuery = queryNow
+    list.scrollTop = 0
+  }
   // 抽屉已打开：头部计数/列表/空态随快照刷新（行菜单冻结时上面已提前返回，
-  // 抽屉内容与主列表同步冻结，菜单锚不销毁）。
+  // 抽屉内容与主列表同步冻结，菜单锚不销毁）。列表容器同样保活对账。
   if (recycleDrawer) {
     const oldHeader = recycleDrawer.querySelector<HTMLElement>('.recycle-header')
     oldHeader?.remove()
-    const oldRecycleList = recycleDrawer.querySelector<HTMLElement>('.recycle-list')
-    oldRecycleList?.remove()
-    recycleDrawer.appendChild(renderRecycleHeader())
-    recycleDrawer.appendChild(renderRecycleList())
+    let rlist = recycleDrawer.querySelector<HTMLElement>('.recycle-list')
+    if (rlist === null) {
+      rlist = el('div', 'recycle-list')
+      recycleDrawer.appendChild(renderRecycleHeader())
+      recycleDrawer.appendChild(rlist)
+    } else {
+      recycleDrawer.insertBefore(renderRecycleHeader(), rlist)
+    }
+    reconcileRecycleList(rlist)
   }
   rebuildInProgress = false
   // 行内改名跨重建保留：重建后恢复编辑输入框的焦点与选区。
@@ -1317,6 +1328,398 @@ function renderSessions(): void {
       input.setSelectionRange(editSelStart, editSelEnd)
     }
   }
+}
+
+/* ===== 保活对账辅助（对标 chat webview reconcileFlow 模式） ===== */
+
+/** 顶层空态/提示项（key 稳定，按签名决定是否原位重建）。 */
+function topItem(key: string, sig: string, create: () => HTMLElement): ReconcileItem {
+  const same = topItemSigs.get(key) === sig
+  topItemSigs.set(key, sig)
+  return { key, same, create }
+}
+
+/** 服务空态签名：影响 renderServerEmpty 输出的快照字段。 */
+function serverEmptySig(snap: SessionsSnapshot): string {
+  return JSON.stringify([snap.serverState, snap.dshNotFound, snap.hostOs])
+}
+
+/** 会话行签名：覆盖行渲染的全部输入（含选中态/编辑态/搜索高亮词/置顶/当前行）。 */
+function sessionRowSig(s: SessionNodeModel): string {
+  return JSON.stringify([
+    s,
+    currentSessionId === s.sessionId,
+    sessionsSnapshot?.pinned.includes(s.sessionId) ?? false,
+    selectionMode,
+    selectionMode && selectedSessionIds.has(s.sessionId),
+    editingSessionId === s.sessionId,
+    sessionsSnapshot?.query ?? null,
+  ])
+}
+
+/** 回收站行签名（无多选/改名态）。 */
+function recycleRowSig(s: SessionNodeModel): string {
+  return JSON.stringify([s, currentSessionId === s.sessionId])
+}
+
+function sessionRowItem(s: SessionNodeModel, tagged: boolean): ReconcileItem {
+  const sig = sessionRowSig(s)
+  const same = sessionRowSigs.get(s.sessionId) === sig
+  sessionRowSigs.set(s.sessionId, sig)
+  return {
+    key: `s:${s.sessionId}`,
+    same,
+    create: () => {
+      const row = renderSessionRow(s)
+      if (tagged) row.classList.add('tagged')
+      return row
+    },
+  }
+}
+
+function recycleRowItem(s: SessionNodeModel, tagged: boolean): ReconcileItem {
+  const sig = recycleRowSig(s)
+  const same = recycleRowSigs.get(s.sessionId) === sig
+  recycleRowSigs.set(s.sessionId, sig)
+  return {
+    key: `s:${s.sessionId}`,
+    same,
+    create: () => {
+      const row = renderRecycleSessionRow(s)
+      if (tagged) row.classList.add('tagged')
+      return row
+    },
+  }
+}
+
+/** 内容命中片段行（主列表/回收站共用渲染）。 */
+function snippetItem(s: SessionNodeModel): ReconcileItem {
+  const sig = JSON.stringify([s.sessionId, s.contentSnippet ?? '', sessionsSnapshot?.query ?? null])
+  const same = snippetSigs.get(s.sessionId) === sig
+  snippetSigs.set(s.sessionId, sig)
+  return {
+    key: `snip:${s.sessionId}`,
+    same,
+    create: () => renderContentSnippet(s.sessionId, s.contentSnippet ?? ''),
+  }
+}
+
+/** 状态计数桶（待交互 > 运行中 > 未读，与组头角标/行首状态槽同优先级）。 */
+function statusBuckets(sessions: SessionNodeModel[]): [number, number, number] {
+  let pending = 0
+  let running = 0
+  let unread = 0
+  for (const s of sessions) {
+    if (s.pendingInteraction !== undefined) pending += 1
+    else if (s.running || s.descendantRunning) running += 1
+    else if (s.unread) unread += 1
+  }
+  return [pending, running, unread]
+}
+
+/** tag 组头签名：pill（名称/颜色）、toggle 提示、折叠态计数、组菜单可用域。 */
+function tagHeadSig(tag: SnapshotTag, collapsed: boolean, rows: SessionNodeModel[]): string {
+  return JSON.stringify([
+    tag.id,
+    tag.name,
+    tag.color,
+    collapsed,
+    collapsed ? statusBuckets(rows) : null,
+    selectionMode,
+    recycleView,
+  ])
+}
+
+/** tag 组壳（只建一次；className 随折叠态/颜色在校对时校正，不重建壳）。 */
+function createTagShell(tag: SnapshotTag): HTMLElement {
+  const block = el('div', 'tag-group')
+  block.dataset.tagId = tag.id
+  attachTagBlockDrop(block, tag.id)
+  return block
+}
+
+/** tag 组递归对账：头按签名原位重建，行按会话 key 保活。 */
+function reconcileTagGroup(
+  shell: HTMLElement,
+  tag: SnapshotTag,
+  rows: SessionNodeModel[],
+  collapsed: boolean,
+  rowItemOf: (s: SessionNodeModel, tagged: boolean) => ReconcileItem,
+): void {
+  shell.className = `tag-group tag-${tag.color}${collapsed ? ' collapsed' : ''}`
+  const sig = tagHeadSig(tag, collapsed, rows)
+  const same = tagHeadSigs.get(tag.id) === sig
+  tagHeadSigs.set(tag.id, sig)
+  const items: ReconcileItem[] = [
+    {
+      key: 'tag-head',
+      same,
+      create: () => tagHeadEl(tag, collapsed, collapsed ? rows : []),
+    },
+  ]
+  if (!collapsed) {
+    items.push({ key: 'tag-line', same: true, create: () => el('div', 'tag-line') })
+    for (const cur of rows) {
+      items.push(rowItemOf(cur, true))
+      if (cur.contentSnippet) items.push(snippetItem(cur))
+    }
+  }
+  reconcileChildren(shell, items)
+}
+
+/**
+ * 会话序列 → 对账项序列（沿用原 appendTagBlocks 的聚合语义）：
+ * 置顶/无组会话平铺（key=`s:*`），同 tagId 的连续段聚成 tag 组壳
+ * （key=`tag:*`，壳保活、内部递归对账）。主列表与回收站共用（行工厂不同）。
+ */
+function tagBlockItems(
+  container: HTMLElement,
+  sessions: SessionNodeModel[],
+  rowItemOf: (s: SessionNodeModel, tagged: boolean) => ReconcileItem,
+): ReconcileItem[] {
+  const items: ReconcileItem[] = []
+  const collapsedSet = new Set(sessionsSnapshot?.tagCollapsed ?? [])
+  // 搜索态强制展开（与 workspace 组折叠同规则）：搜索结果被折叠块藏起来不可接受。
+  const inSearch = sessionsSnapshot?.query != null && sessionsSnapshot.query !== ''
+  let i = 0
+  while (i < sessions.length) {
+    const s = sessions[i]
+    const tag = s.tagId !== undefined ? tagById(s.tagId) : undefined
+    // 置顶/活跃（运行中/后代运行/未读/待交互）会话平铺，不进组块——否则
+    // 活跃会话会被折叠组藏住、折叠计数也不对（sessions-active-over-tags 语义）。
+    if (s.pinned || s.active || tag === undefined) {
+      items.push(rowItemOf(s, false))
+      if (s.contentSnippet) items.push(snippetItem(s))
+      i += 1
+      continue
+    }
+    // 组块 = 同 tagId 的连续空闲段落（纯层已聚合排序），一次收齐再按折叠态渲染。
+    const rows: SessionNodeModel[] = []
+    while (i < sessions.length) {
+      const cur = sessions[i]
+      if (cur.pinned || cur.active || cur.tagId !== tag.id) break
+      rows.push(cur)
+      i += 1
+    }
+    const collapsed = !inSearch && collapsedSet.has(tag.id)
+    const tagRef = tag
+    items.push({
+      key: `tag:${tag.id}`,
+      same: true, // 壳恒保活（内部递归对账）；create 只在首建时调用
+      create: () => createTagShell(tagRef),
+    })
+    // 壳在本帧 reconcileChildren 落位后立即递归校正（同一帧内，无中间态绘制）。
+    const existing = container.querySelector<HTMLElement>(`:scope > .tag-group[data-tag-id="${CSS.escape(tag.id)}"]`)
+    if (existing) reconcileTagGroup(existing, tag, rows, collapsed, rowItemOf)
+    else pendingTagReconciles.push({ tag, rows, collapsed, rowItemOf })
+  }
+  return items
+}
+
+/** tagBlockItems 里对「本帧新建壳」的延迟递归（壳要先由 reconcileChildren 挂载）。 */
+const pendingTagReconciles: Array<{
+  tag: SnapshotTag
+  rows: SessionNodeModel[]
+  collapsed: boolean
+  rowItemOf: (s: SessionNodeModel, tagged: boolean) => ReconcileItem
+}> = []
+
+function flushTagReconciles(container: HTMLElement): void {
+  for (const p of pendingTagReconciles.splice(0)) {
+    const shell = container.querySelector<HTMLElement>(`:scope > .tag-group[data-tag-id="${CSS.escape(p.tag.id)}"]`)
+    if (shell) reconcileTagGroup(shell, p.tag, p.rows, p.collapsed, p.rowItemOf)
+  }
+}
+
+/** workspace 折叠态（与原 renderWorkspaceGroup 同规则：搜索/空组强制展开）。 */
+function wsCollapsed(w: WorkspaceNodeModel): boolean {
+  const inSearch = sessionsSnapshot?.query != null && sessionsSnapshot.query !== ''
+  if (inSearch) return false
+  if (w.sessions.length === 0) return true
+  return sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false
+}
+
+/** workspace 组头签名：折叠态/计数/当前行/多选态/搜索高亮词等头渲染输入。 */
+function wsHeadSig(w: WorkspaceNodeModel, collapsed: boolean): string {
+  return JSON.stringify([
+    w.workspaceId,
+    w.label,
+    w.path,
+    w.isCurrent,
+    collapsed,
+    w.sessions.length === 0,
+    statusBuckets(w.sessions),
+    w.sessions.some((s) => s.sessionId === currentSessionId),
+    selectionMode,
+    selectionMode ? groupSelectionState(w) : null,
+    sessionsSnapshot?.query ?? null,
+  ])
+}
+
+/** workspace 组壳（只建一次；挂组级拖出事件，不随内容重建）。 */
+function createWorkspaceShell(w: WorkspaceNodeModel): HTMLElement {
+  const group = el('div', 'workspace-group')
+  group.dataset.workspaceId = w.workspaceId
+  // 拖出组：会话行拖到组块外的区域（组头/未分组行/组尾留白）= 移出分组。
+  // 块容器的 dragover/drop 已 stopPropagation，这里只收组块外的事件。
+  group.addEventListener('dragover', (e) => {
+    if (dragCarriesSession(e)) e.preventDefault()
+  })
+  group.addEventListener('drop', (e) => {
+    if (!dragCarriesSession(e)) return
+    e.preventDefault()
+    const sessionId = e.dataTransfer?.getData('text/dsh-session')
+    if (sessionId) post({ type: 'sessionTagSet', sessionId, tagId: null })
+  })
+  return group
+}
+
+/** 顶层组项：壳恒保活（same:true），子级由 reconcileWorkspaceGroup 递归对账。 */
+function wsGroupItem(w: WorkspaceNodeModel): ReconcileItem {
+  return { key: `ws:${w.workspaceId}`, same: true, create: () => createWorkspaceShell(w) }
+}
+
+/** workspace 组递归对账：组头按签名原位重建，子级（tag 块/平铺行）按 key 保活。 */
+function reconcileWorkspaceGroup(shell: HTMLElement, w: WorkspaceNodeModel): void {
+  const collapsed = wsCollapsed(w)
+  const sig = wsHeadSig(w, collapsed)
+  const same = wsHeadSigs.get(w.workspaceId) === sig
+  wsHeadSigs.set(w.workspaceId, sig)
+  const items: ReconcileItem[] = [
+    {
+      key: 'ws-head',
+      same,
+      create: () => renderWorkspaceHead(w, collapsed),
+    },
+  ]
+  if (!collapsed) items.push(...tagBlockItems(shell, w.sessions, sessionRowItem))
+  reconcileChildren(shell, items)
+  flushTagReconciles(shell)
+}
+
+/** 回收站顶层组项与递归对账（组头渲染与主列表不同，其余同款）。 */
+function recycleWsGroupItem(w: WorkspaceNodeModel): ReconcileItem {
+  return {
+    key: `ws:${w.workspaceId}`,
+    same: true,
+    create: () => {
+      const group = el('div', 'workspace-group')
+      group.dataset.workspaceId = w.workspaceId
+      return group
+    },
+  }
+}
+
+function recycleHeadSig(w: WorkspaceNodeModel, collapsed: boolean): string {
+  return JSON.stringify([
+    w.workspaceId,
+    w.label,
+    collapsed,
+    w.sessions.length,
+    w.sessions.some((s) => s.sessionId === currentSessionId),
+  ])
+}
+
+function reconcileRecycleGroup(shell: HTMLElement, w: WorkspaceNodeModel): void {
+  const collapsed = sessionsSnapshot?.recycleCollapsed.includes(w.workspaceId) ?? false
+  const sig = recycleHeadSig(w, collapsed)
+  const same = recycleHeadSigs.get(w.workspaceId) === sig
+  recycleHeadSigs.set(w.workspaceId, sig)
+  const items: ReconcileItem[] = [
+    {
+      key: 'ws-head',
+      same,
+      create: () => renderRecycleHead(w, collapsed),
+    },
+  ]
+  if (!collapsed) items.push(...tagBlockItems(shell, w.sessions, recycleRowItem))
+  reconcileChildren(shell, items)
+  flushTagReconciles(shell)
+}
+
+/** 回收站顶层空态/提示项（与主列表分开的缓存，互不干扰保活判定）。 */
+const recycleTopSigs = new Map<string, string>()
+
+function recycleTopItem(key: string, sig: string, create: () => HTMLElement): ReconcileItem {
+  const same = recycleTopSigs.get(key) === sig
+  recycleTopSigs.set(key, sig)
+  return { key, same, create }
+}
+
+/** 回收站列表对账（空态/组序列），容器由抽屉保活。 */
+function reconcileRecycleList(list: HTMLElement): void {
+  const snap = sessionsSnapshot
+  const items: ReconcileItem[] = []
+  if (!snap) {
+    items.push(recycleTopItem('empty:loading', 'loading', () => el('div', 'sessions-empty', t('Loading…'))))
+  } else if (snap.serverState !== 'running') {
+    items.push(recycleTopItem('empty:server', serverEmptySig(snap), () => renderServerEmpty(snap)))
+  } else if (!snap.baselineReady) {
+    items.push(recycleTopItem('empty:loading', 'loading-baseline', () => el('div', 'sessions-empty', t('Loading…'))))
+  } else if (snap.recycleWorkspaces.length === 0) {
+    items.push(recycleTopItem('empty:recycle', 'recycle-empty', () => {
+      const box = el('div', 'sessions-empty')
+      box.appendChild(el('div', 'empty-hint', t('The recycle bin is empty')))
+      box.appendChild(
+        el('div', 'empty-hint-secondary', t('Move sessions here from the row menu or multi-select to keep them out of the list; they can be restored later, only archiving is final.')),
+      )
+      return box
+    }))
+  } else {
+    for (const w of snap.recycleWorkspaces) items.push(recycleWsGroupItem(w))
+  }
+  reconcileChildren(list, items)
+  if (snap && snap.serverState === 'running' && snap.baselineReady) {
+    const seenRows = new Set<string>()
+    for (const w of snap.recycleWorkspaces) {
+      const shell = list.querySelector<HTMLElement>(`:scope > .workspace-group[data-workspace-id="${CSS.escape(w.workspaceId)}"]`)
+      if (shell) reconcileRecycleGroup(shell, w)
+      for (const s of w.sessions) seenRows.add(s.sessionId)
+    }
+    // 回收站签名随帧收敛（抽屉关闭期间保留，重开时按签名恢复保活判断）。
+    const seenWs = new Set(snap.recycleWorkspaces.map((w) => w.workspaceId))
+    for (const id of [...recycleHeadSigs.keys()]) if (!seenWs.has(id)) recycleHeadSigs.delete(id)
+    for (const id of [...recycleRowSigs.keys()]) if (!seenRows.has(id)) recycleRowSigs.delete(id)
+  }
+}
+
+/** 签名缓存收敛：删掉本帧不再出现的行/组，防 Map 跨会话累积。 */
+function pruneSessionSigs(snap: SessionsSnapshot | null): void {
+  const seenRows = new Set<string>()
+  const seenWs = new Set<string>()
+  const seenTags = new Set<string>()
+  const seenSnippets = new Set<string>()
+  const seenTop = new Set<string>()
+  if (snap && snap.serverState === 'running' && snap.baselineReady) {
+    const collect = (sessions: SessionNodeModel[]): void => {
+      for (const s of sessions) {
+        seenRows.add(s.sessionId)
+        if (s.tagId !== undefined) seenTags.add(s.tagId)
+        if (s.contentSnippet) seenSnippets.add(s.sessionId)
+      }
+    }
+    for (const w of snap.workspaces) {
+      seenWs.add(w.workspaceId)
+      collect(w.sessions)
+    }
+    // 抽屉开着时回收站的 tag 头也吃同一份 tagHeadSigs 缓存：纳入 seen，
+    // 防主列表渲染把回收站的 tag 头签名顶掉（来回重建）。
+    if (recycleDrawer) {
+      for (const w of snap.recycleWorkspaces) {
+        for (const s of w.sessions) if (s.tagId !== undefined) seenTags.add(s.tagId)
+      }
+    }
+  }
+  // 顶层空态/提示项的 key 由本帧 items 决定——不在帧内出现的视为过期。
+  const liveTopKeys = new Set(['empty:loading', 'empty:server', 'empty:group', 'empty:noworkspace', 'empty:nomatch', 'search:more', 'search:degraded', 'empty:loading-baseline'])
+  for (const k of liveTopKeys) {
+    if (sessionsListEl?.querySelector(`[data-flow-key="${k}"]`)) seenTop.add(k)
+  }
+  for (const id of [...sessionRowSigs.keys()]) if (!seenRows.has(id)) sessionRowSigs.delete(id)
+  for (const id of [...snippetSigs.keys()]) if (!seenSnippets.has(id)) snippetSigs.delete(id)
+  for (const id of [...wsHeadSigs.keys()]) if (!seenWs.has(id)) wsHeadSigs.delete(id)
+  for (const id of [...tagHeadSigs.keys()]) if (!seenTags.has(id)) tagHeadSigs.delete(id)
+  for (const k of [...topItemSigs.keys()]) if (!seenTop.has(k)) topItemSigs.delete(k)
 }
 
 /** 服务未运行时的面板空态：安装引导（dshNotFound）或启动按钮。 */
@@ -1527,57 +1930,11 @@ function dragCarriesTag(e: DragEvent): boolean {
 }
 
 /**
- * workspace 会话区的组块渲染：置顶会话平铺（保持绝对优先）、活跃会话平铺
- * （状态优先：运行中/后代运行/未读/待交互，行尾已有状态标记），其余（空闲）
- * 按标签组切块（小 pill + 贯穿竖线 + 12px 左缩进），未分组平铺殿后。活跃
- * 会话脱离组块（纯层已把它们排到最前），否则会被折叠组藏住、折叠计数也不
- * 对。rowRender 由主列表/回收站各自提供（行行为不同）；snippet 块跟行
- * （回收站无 snippet，透传安全）。
+ * workspace 会话区的组块渲染语义（置顶会话平铺绝对优先；活跃会话平铺——
+ * 运行中/后代运行/未读/待交互，脱离组块不被折叠藏住；其余空闲会话按标签组
+ * 切块，未分组平铺殿后）已由 tagBlockItems + reconcileTagGroup 承载（保活
+ * 对账版，见上方「保活对账辅助」区块）。
  */
-function appendTagBlocks(
-  container: HTMLElement,
-  sessions: SessionNodeModel[],
-  rowRender: (s: SessionNodeModel) => HTMLElement,
-): void {
-  const collapsedSet = new Set(sessionsSnapshot?.tagCollapsed ?? [])
-  // 搜索态强制展开（与 workspace 组折叠同规则）：搜索结果被折叠块藏起来不可接受。
-  const inSearch = sessionsSnapshot?.query != null && sessionsSnapshot.query !== ''
-  let i = 0
-  while (i < sessions.length) {
-    const s = sessions[i]
-    const tag = s.tagId !== undefined ? tagById(s.tagId) : undefined
-    if (s.pinned || s.active || tag === undefined) {
-      container.appendChild(rowRender(s))
-      if (s.contentSnippet) container.appendChild(renderContentSnippet(s.sessionId, s.contentSnippet))
-      i += 1
-      continue
-    }
-    // 组块 = 同 tagId 的连续空闲段落（纯层已聚合排序），一次收齐再按折叠态渲染。
-    const rows: SessionNodeModel[] = []
-    while (i < sessions.length) {
-      const cur = sessions[i]
-      if (cur.pinned || cur.active || cur.tagId !== tag.id) break
-      rows.push(cur)
-      i += 1
-    }
-    const collapsed = !inSearch && collapsedSet.has(tag.id)
-    const block = el('div', `tag-group tag-${tag.color}${collapsed ? ' collapsed' : ''}`)
-    block.dataset.tagId = tag.id
-    // 折叠态在 pill 行显示组内待处理计数（workspace 组头同款角标）：折叠时
-    // 看不到组内会话，计数提示「这组还有 N 个任务要处理」；展开时直接可见、不显示。
-    block.appendChild(tagHeadEl(tag, block, collapsed, collapsed ? rows : []))
-    if (!collapsed) {
-      block.appendChild(el('div', 'tag-line'))
-      for (const cur of rows) {
-        const row = rowRender(cur)
-        row.classList.add('tagged')
-        block.appendChild(row)
-        if (cur.contentSnippet) block.appendChild(renderContentSnippet(cur.sessionId, cur.contentSnippet))
-      }
-    }
-    container.appendChild(block)
-  }
-}
 
 /**
  * 折叠组头角标：组内会话的待交互/运行中/未读计数（互斥优先级与 workspace
@@ -1604,7 +1961,6 @@ function appendTagCounts(head: HTMLElement, sessions: SessionNodeModel[]): void 
  *  countSessions 非空时（折叠态）在箭头后显示组内待处理计数。块体收会话拖拽入组。 */
 function tagHeadEl(
   tag: SnapshotTag,
-  block: HTMLElement,
   collapsed: boolean,
   countSessions: SessionNodeModel[] = [],
 ): HTMLElement {
@@ -1638,7 +1994,6 @@ function tagHeadEl(
     showPopoverAt(e.clientX, e.clientY, buildTagMenuBody(tag))
     markMenuRow(pill)
   })
-  attachTagBlockDrop(block, tag.id)
   return head
 }
 
@@ -1921,14 +2276,10 @@ function openTagArchiveModal(
   )
 }
 
-function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {  const group = el('div', 'workspace-group')
-  group.dataset.workspaceId = w.workspaceId
+/** workspace 组头（组壳由 createWorkspaceShell 提供，子级按 key 对账）。 */
+function renderWorkspaceHead(w: WorkspaceNodeModel, collapsed: boolean): HTMLElement {
   const ungrouped = w.workspaceId === UNGROUPED_WORKSPACE_ID
   const empty = w.sessions.length === 0
-  // 搜索态：命中组（buildSessionTree 已过滤掉无匹配的组）强制展开，忽略
-  // collapsed 持久化；清空搜索后回到原折叠状态显示。
-  const inSearch = sessionsSnapshot?.query != null && sessionsSnapshot.query !== ''
-  const collapsed = inSearch ? false : empty || (sessionsSnapshot?.collapsed.includes(w.workspaceId) ?? false)
   const head = el('div', collapsed ? 'workspace-row' : 'workspace-row expanded')
   if (empty) head.classList.add('empty')
   head.classList.toggle('has-active', w.sessions.some((s) => s.sessionId === currentSessionId))
@@ -1939,7 +2290,7 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {  const group
     head.appendChild(
       makeSelectionCheckbox({
         state: groupSelectionState(w),
-        tip: groupSelectTip(w, inSearch),
+        tip: groupSelectTip(w, sessionsSnapshot?.query != null && sessionsSnapshot.query !== ''),
         onToggle: () => toggleGroupSelection(w),
       }),
     )
@@ -2002,24 +2353,7 @@ function renderWorkspaceGroup(w: WorkspaceNodeModel): HTMLElement {  const group
       markMenuRow(head)
     })
   }
-  group.appendChild(head)
-  // 未分组恒展开（collapsed 恒 false），总会渲染会话行：组块（标签聚合）+
-  // 未分组平铺由 appendTagBlocks 统一切分。
-  if (!collapsed) {
-    appendTagBlocks(group, w.sessions, (s) => renderSessionRow(s))
-  }
-  // 拖出组：会话行拖到组块外的区域（组头/未分组行/组尾留白）= 移出分组。
-  // 块容器的 dragover/drop 已 stopPropagation，这里只收组块外的事件。
-  group.addEventListener('dragover', (e) => {
-    if (dragCarriesSession(e)) e.preventDefault()
-  })
-  group.addEventListener('drop', (e) => {
-    if (!dragCarriesSession(e)) return
-    e.preventDefault()
-    const sessionId = e.dataTransfer?.getData('text/dsh-session')
-    if (sessionId) post({ type: 'sessionTagSet', sessionId, tagId: null })
-  })
-  return group
+  return head
 }
 
 /**
@@ -2301,9 +2635,12 @@ function openRecycleDrawer(): void {
   const drawer = el('div', 'recycle-drawer')
   drawer.appendChild(renderDrawerHandle())
   drawer.appendChild(renderRecycleHeader())
-  drawer.appendChild(renderRecycleList())
+  // 列表容器在抽屉存活期间保活（对账挂载，抽屉关闭时随抽屉整体移除）。
+  const rlist = el('div', 'recycle-list')
+  drawer.appendChild(rlist)
   sessionsPanel.appendChild(drawer)
   recycleDrawer = drawer
+  reconcileRecycleList(rlist)
   // 先提交初始（translateY(100%)）样式，再加 .open 触发滑入过渡。
   void drawer.offsetHeight
   drawer.classList.add('open')
@@ -2433,40 +2770,8 @@ function renderRecycleHeader(): HTMLElement {
 }
 
 /** 回收站列表：按原 workspace 分组（空态/服务未运行态与主列表空态同构）。 */
-function renderRecycleList(): HTMLElement {
-  const snap = sessionsSnapshot
-  const list = el('div', 'recycle-list')
-  if (!snap) {
-    list.appendChild(el('div', 'sessions-empty', t('Loading…')))
-    return list
-  }
-  if (snap.serverState !== 'running') {
-    list.appendChild(renderServerEmpty(snap))
-    return list
-  }
-  if (!snap.baselineReady) {
-    list.appendChild(el('div', 'sessions-empty', t('Loading…')))
-    return list
-  }
-  if (snap.recycleWorkspaces.length === 0) {
-    const box = el('div', 'sessions-empty')
-    box.appendChild(el('div', 'empty-hint', t('The recycle bin is empty')))
-    box.appendChild(
-      el('div', 'empty-hint-secondary', t('Move sessions here from the row menu or multi-select to keep them out of the list; they can be restored later, only archiving is final.')),
-    )
-    list.appendChild(box)
-    return list
-  }
-  for (const w of snap.recycleWorkspaces) list.appendChild(renderRecycleGroup(w))
-  return list
-}
-
-/** 回收站分组：组头 = 原 workspace 名 + 计数 + 折叠箭头；折叠态独立持久化（互不影响主列表）。 */
-function renderRecycleGroup(w: WorkspaceNodeModel): HTMLElement {
-  const snap = sessionsSnapshot
-  const group = el('div', 'workspace-group')
-  group.dataset.workspaceId = w.workspaceId
-  const collapsed = snap?.recycleCollapsed.includes(w.workspaceId) ?? false
+/** 回收站分组头：组头 = 原 workspace 名 + 计数 + 折叠箭头；折叠态独立持久化（互不影响主列表）。 */
+function renderRecycleHead(w: WorkspaceNodeModel, collapsed: boolean): HTMLElement {
   const head = el('div', collapsed ? 'workspace-row' : 'workspace-row expanded')
   head.classList.toggle('has-active', w.sessions.some((s) => s.sessionId === currentSessionId))
   const folderIcon = el('span', 'ws-folder')
@@ -2482,12 +2787,7 @@ function renderRecycleGroup(w: WorkspaceNodeModel): HTMLElement {
   head.addEventListener('click', () =>
     post({ type: 'recycleGroupCollapse', workspaceId: w.workspaceId, collapsed: !collapsed }),
   )
-  group.appendChild(head)
-  if (!collapsed) {
-    // 与主列表同款组块聚合（标签组块 + 未分组平铺）；回收站行不启用拖拽。
-    appendTagBlocks(group, w.sessions, (s) => renderRecycleSessionRow(s))
-  }
-  return group
+  return head
 }
 
 /** 回收站会话行：状态点照常显示（运行中/未读/待处理可以移入，回收站可逆）；点击 = 打开会话。 */
