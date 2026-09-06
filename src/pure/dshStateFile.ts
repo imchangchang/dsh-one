@@ -7,7 +7,7 @@
  * No `vscode` import — unit-testable with node --test. 文件 IO 在
  * src/ui/dshStateStore.ts，Memento 迁移在 sessionsStore.create。
  */
-import { sanitizeGroups, type WorkspaceGroupDef } from './workspaceGroups.ts'
+import { sanitizeGroups, sanitizeMembership, type WorkspaceGroupDef } from './workspaceGroups.ts'
 import { sanitizeRecycleIds } from './recycleBinState.ts'
 import { sanitizeSessionTagIds, sanitizeTags, type SessionTagDef } from './sessionTags.ts'
 
@@ -82,7 +82,7 @@ export function parseGroupFile(raw: string): GroupFile | null {
     return null
   }
   const groups = sanitizeGroups(rec.groups)
-  const membership = sanitizeMembershipRaw(rec.membership, groups.map((g) => g.id))
+  const membership = sanitizeMembership(rec.membership, new Set(groups.map((g) => g.id)))
   const active = typeof rec.activeGroupId === 'string' ? rec.activeGroupId : null
   return {
     version: 1,
@@ -103,22 +103,6 @@ export function parseTagFile(raw: string): TagFile | null {
     tags,
     sessionTags: sanitizeSessionTagIds(rec.sessionTags, new Set(tags.map((t) => t.id))),
   }
-}
-
-/** parseGroupFile 用的宽松 membership 清洗（去未知组 id / 非数组降级）。 */
-function sanitizeMembershipRaw(
-  raw: unknown,
-  groupIds: readonly string[],
-): Record<string, string[]> {
-  if (typeof raw !== 'object' || raw === null) return {}
-  const known = new Set(groupIds)
-  const out: Record<string, string[]> = {}
-  for (const [wsId, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (!Array.isArray(value)) continue
-    const ids = value.filter((id): id is string => typeof id === 'string' && known.has(id))
-    if (ids.length > 0) out[wsId] = [...new Set(ids)]
-  }
-  return out
 }
 
 /* ---- 序列化 ---- */
@@ -165,7 +149,7 @@ export function resolveGroupFile(
     return { value: fileValue, fromLegacy: false }
   }
   const groups = sanitizeGroups(legacyGroups)
-  const membership = sanitizeMembershipRaw(legacyMembership, groups.map((g) => g.id))
+  const membership = sanitizeMembership(legacyMembership, new Set(groups.map((g) => g.id)))
   const savedActive = typeof legacyActive === 'string' ? legacyActive : null
   return {
     value: {
@@ -214,16 +198,51 @@ export function mergeSessionTags(
   return { ...a, ...b }
 }
 
-/** tag 定义联合：按 id 或 name 去重（派生脚本重跑不产生重复组），id 前缀优先。 */
+/**
+ * tag 定义联合：按 id 去重，再按 name 去重（派生脚本/另一窗口重跑不产生
+ * 重复组）；a 在前（既有顺序与既有定义优先，同名/同 id 时 b 的被丢弃）。
+ * 预设组 name 全为 null——name 去重只对非 null 生效，否则三个预设组会
+ * 因共享 null 名字互相撞掉（初版骨架的坑）。
+ */
 export function mergeTagDefs(a: readonly SessionTagDef[], b: readonly SessionTagDef[]): SessionTagDef[] {
   const seen = new Set<string>()
   const names = new Set<string>()
   const out: SessionTagDef[] = []
   for (const t of [...a, ...b]) {
-    if (seen.has(t.id) || names.has(t.name)) continue
+    if (seen.has(t.id)) continue
+    if (t.name !== null && names.has(t.name)) continue
     seen.add(t.id)
-    names.add(t.name)
+    if (t.name !== null) names.add(t.name)
     out.push(t)
+  }
+  return out
+}
+
+/** 分组定义联合：按 id 去重，再按 name 去重（分组 name 恒为 string），a 优先。 */
+export function mergeGroupDefs(
+  a: readonly WorkspaceGroupDef[],
+  b: readonly WorkspaceGroupDef[],
+): WorkspaceGroupDef[] {
+  const seen = new Set<string>()
+  const names = new Set<string>()
+  const out: WorkspaceGroupDef[] = []
+  for (const g of [...a, ...b]) {
+    if (seen.has(g.id) || names.has(g.name)) continue
+    seen.add(g.id)
+    names.add(g.name)
+    out.push(g)
+  }
+  return out
+}
+
+/** 分组归属联合：逐 workspace 并集（a 的顺序优先，追加 b 中不在 a 的组 id）。 */
+export function mergeMembership(
+  a: Readonly<Record<string, string[]>>,
+  b: Readonly<Record<string, string[]>>,
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const wsId of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    out[wsId] = mergeIdList(a[wsId] ?? [], b[wsId] ?? [])
   }
   return out
 }

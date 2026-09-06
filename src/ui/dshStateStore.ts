@@ -1,10 +1,12 @@
 /**
  * ~/.dsh/dsh-one/ 客户端状态目录的 IO 壳：读全部模块（宽松）、原子写（同目录
- * tmp + rename）、写前重读的模块级更新（合并交给 dshStateFile 纯函数）、
- * 目录监视（派生脚本 / 其它窗口写文件后插件热重载）。
+ * tmp + rename）、写前重读的模块级更新（读-合-写经内部队列串行化——同窗口两个
+ * 写操作不互相覆盖；跨窗口/派生脚本之间仍是 last-writer-wins，丢失率靠
+ * dshStateFile 的字段级合并压低）、目录监视（派生脚本 / 其它窗口写文件后
+ * 插件热重载）。
  *
  * 与 Memento 的关系：文件是本方案的权威存储（跨窗口/重启共享），VSCode
- * Memento 只作为一次性迁移源，迁移后删除（见 sessionsStore.create）。
+ * Memento 只作为一次性迁移源，迁移成功后删除（见 sessionsStore.create）。
  * 原子写失败不阻断调用方（返回 false），下次写再试；坏文件按无文件降级。
  */
 import * as crypto from 'node:crypto'
@@ -20,9 +22,6 @@ import {
   serializeGroupFile,
   serializeIdListFile,
   serializeTagFile,
-  mergeIdList,
-  mergeSessionTags,
-  mergeTagDefs,
   DSH_MODULE_NAMES,
   type DshModuleName,
   type GroupFile,
@@ -54,14 +53,18 @@ export interface DshStateStoreOptions {
   watchDebounceMs?: number
 }
 
-const READ_TIMEOUTS_S = 0
-
 export class DshStateStore {
   readonly dir: string
   private readonly watchDebounceMs: number
   private watcher: fs.FSWatcher | null = null
   private watchTimer: ReturnType<typeof setTimeout> | null = null
-  private pending = false
+  private readonly listeners = new Set<() => void>()
+  /**
+   * 写操作串行队列：update* 是「读文件 → 合并 → 写回」，同窗口两个 update
+   * 若并发会让后写的读不到先写的结果（丢失更新）。串行化只保同窗口；
+   * 跨窗口/跨进程（派生脚本）不经过本队列，仍是 last-writer-wins。
+   */
+  private writeQueue: Promise<unknown> = Promise.resolve()
 
   constructor(opts: DshStateStoreOptions = {}) {
     this.dir = opts.dir ?? path.join(os.homedir(), '.dsh', 'dsh-one')
@@ -81,9 +84,13 @@ export class DshStateStore {
         if (value === null) return
         switch (name) {
           case 'recycle-bin':
+            snapshot.recycleBin = parseIdListFile(value)
+            break
           case 'pinned':
+            snapshot.pinned = parseIdListFile(value)
+            break
           case 'unread':
-            snapshot[name] = parseIdListFile(value)
+            snapshot.unread = parseIdListFile(value)
             break
           case 'groups':
             snapshot.groups = parseGroupFile(value)
@@ -105,8 +112,12 @@ export class DshStateStore {
     }
   }
 
-  /** 原子写（tmp+rename）；失败 warn 返回 false，不抛。 */
+  /** 原子写整模块（tmp+rename，经写队列串行）；失败返回 false，不抛。 */
   async writeModule(name: DshModuleName, raw: string): Promise<boolean> {
+    return this.enqueue(() => this.writeFile(name, raw))
+  }
+
+  private async writeFile(name: DshModuleName, raw: string): Promise<boolean> {
     const file = this.modulePath(name)
     const tmp = `${file}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`
     try {
@@ -120,62 +131,113 @@ export class DshStateStore {
     }
   }
 
-  /* ---- 每个模块的「读-合-写」更新（写前重读 + 字段级合并，见 dshStateFile） ---- */
+  /** 写操作串行化：上一个写（成败不论）落定后才跑下一个。 */
+  private enqueue<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.writeQueue.then(op, op)
+    this.writeQueue = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  /* ---- 每个模块的「读-合-写」更新 ----
+   * mutator 只表达本次意图的增量（追加/删除/按 id 改），作用于文件里的最新值
+   * 而不是调用方的内存态——这样另一窗口/脚本写进文件的条目不会被覆盖。
+   * mutator 原样返回 prev（同引用）表示无变化，跳过落盘。mutator 抛错按写失败
+   * 处理（返回 false），不向调用方抛（persist 全是 fire-and-forget）。 */
 
   async updateRecycleBin(mutator: (prev: string[]) => string[]): Promise<boolean> {
-    const raw = await this.readRaw('recycle-bin')
-    const prev = raw !== null ? (parseIdListFile(raw)?.sessionIds ?? []) : []
-    return this.writeModule('recycle-bin', serializeIdListFile({ version: 1, sessionIds: mutator(prev) }))
+    return this.updateIdList('recycle-bin', mutator)
   }
 
   async updatePinned(mutator: (prev: string[]) => string[]): Promise<boolean> {
-    const raw = await this.readRaw('pinned')
-    const prev = raw !== null ? (parseIdListFile(raw)?.sessionIds ?? []) : []
-    return this.writeModule('pinned', serializeIdListFile({ version: 1, sessionIds: mutator(prev) }))
+    return this.updateIdList('pinned', mutator)
   }
 
   async updateUnread(mutator: (prev: string[]) => string[]): Promise<boolean> {
-    const raw = await this.readRaw('unread')
-    const prev = raw !== null ? (parseIdListFile(raw)?.sessionIds ?? []) : []
-    return this.writeModule('unread', serializeIdListFile({ version: 1, sessionIds: mutator(prev) }))
+    return this.updateIdList('unread', mutator)
+  }
+
+  private async updateIdList(
+    name: 'recycle-bin' | 'pinned' | 'unread',
+    mutator: (prev: string[]) => string[],
+  ): Promise<boolean> {
+    return this.enqueue(async () => {
+      try {
+        const raw = await this.readRaw(name)
+        const prev = raw !== null ? (parseIdListFile(raw)?.sessionIds ?? []) : []
+        const next = mutator(prev)
+        if (next === prev) return true
+        return await this.writeFile(name, serializeIdListFile({ version: 1, sessionIds: next }))
+      } catch {
+        return false
+      }
+    })
   }
 
   async updateGroups(mutator: (prev: GroupFile) => GroupFile): Promise<boolean> {
-    const raw = await this.readRaw('groups')
-    const prev = raw !== null ? (parseGroupFile(raw) ?? emptyGroupFile()) : emptyGroupFile()
-    return this.writeModule('groups', serializeGroupFile(mutator(prev)))
+    return this.enqueue(async () => {
+      try {
+        const raw = await this.readRaw('groups')
+        const prev = raw !== null ? (parseGroupFile(raw) ?? emptyGroupFile()) : emptyGroupFile()
+        const next = mutator(prev)
+        if (next === prev) return true
+        return await this.writeFile('groups', serializeGroupFile(next))
+      } catch {
+        return false
+      }
+    })
   }
 
   async updateTags(mutator: (prev: TagFile) => TagFile): Promise<boolean> {
-    const raw = await this.readRaw('tags')
-    const prev = raw !== null ? (parseTagFile(raw) ?? emptyTagFile()) : emptyTagFile()
-    return this.writeModule('tags', serializeTagFile(mutator(prev)))
+    return this.enqueue(async () => {
+      try {
+        const raw = await this.readRaw('tags')
+        const prev = raw !== null ? (parseTagFile(raw) ?? emptyTagFile()) : emptyTagFile()
+        const next = mutator(prev)
+        if (next === prev) return true
+        return await this.writeFile('tags', serializeTagFile(next))
+      } catch {
+        return false
+      }
+    })
   }
 
-  /* ---- 目录监视：外部写（派生脚本/其它窗口）→ 防抖回调 ---- */
+  /* ---- 目录监视：外部写（派生脚本/其它窗口，也含本窗口自己的写）→ 防抖回调。
+   *  返回退订函数；dispose() 关闭监视器并清掉全部监听。 */
 
   watch(onChange: () => void): () => void {
+    this.listeners.add(onChange)
     if (this.watcher === null) {
-      // 目录可能还没建（首次启动）：先建再 watch，watch 失败直接重试 setTimeout。
-      fs.mkdirSync(this.dir, { recursive: true })
-      this.watcher = fs.watch(this.dir, { persistent: false }, () => this.schedule(onChange))
+      try {
+        // 目录可能还没建（首次启动）：先建再 watch；建不了/监视不了则跳过
+        // 热重载（写路径有自己的报错，不受影响）。
+        fs.mkdirSync(this.dir, { recursive: true })
+        this.watcher = fs.watch(this.dir, { persistent: false }, () => this.schedule())
+        this.watcher.on('error', () => {
+          this.watcher?.close()
+          this.watcher = null
+        })
+      } catch {
+        this.watcher = null
+      }
     }
-    return () => this.schedule(onChange)
+    return () => {
+      this.listeners.delete(onChange)
+    }
   }
 
-  private schedule(onChange: () => void): void {
-    if (this.pending) return
-    this.pending = true
+  private schedule(): void {
+    if (this.listeners.size === 0) return
     if (this.watchDebounceMs <= 0) {
-      onChange()
-      this.pending = false
+      for (const fn of this.listeners) fn()
       return
     }
-    if (this.watchTimer !== null) clearTimeout(this.watchTimer)
+    if (this.watchTimer !== null) return
     this.watchTimer = setTimeout(() => {
-      this.pending = false
       this.watchTimer = null
-      onChange()
+      for (const fn of this.listeners) fn()
     }, this.watchDebounceMs)
   }
 
@@ -186,6 +248,7 @@ export class DshStateStore {
       clearTimeout(this.watchTimer)
       this.watchTimer = null
     }
+    this.listeners.clear()
   }
 }
 
@@ -196,11 +259,3 @@ function emptyGroupFile(): GroupFile {
 function emptyTagFile(): TagFile {
   return { version: 1, tags: [], sessionTags: {} }
 }
-
-/** 供 sessionsStore 外部重载用的读取封装：全部模块（保持接口单一）。 */
-export async function loadDshSnapshot(io: DshStateStore): Promise<DshStateSnapshot> {
-  return io.load()
-}
-
-export { mergeIdList, mergeSessionTags, mergeTagDefs }
-export type { IdListFile }
