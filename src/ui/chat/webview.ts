@@ -7213,10 +7213,26 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   frame.appendChild(refLayer)
   row.appendChild(frame)
 
+  /** 高亮层的换行宽必须与 textarea 的真实内容宽一致：textarea 溢出到 max-height
+   *  时出现垂直滚动条，滚动条宽度被 textarea 自身吃掉（clientWidth 不含滚动条/
+   *  边框），而层盒子（inset:1px）是全宽、不吃滚动条 → 层内容比 textarea 内容宽
+   *  一截，两者换行点不同，长文本下高亮 token/选区/光标与可见文字逐行横向错位
+   *  （回归 composer-long-text-ref-token-drift）。把内容层宽度钳到
+   *  clientWidth - 左右 padding，滚到底/光标接入才不飘。 */
+  const syncRefLayerWidth = (): void => {
+    if (!input.isConnected) return
+    const cs = window.getComputedStyle(input)
+    const padL = parseFloat(cs.paddingLeft) || 0
+    const padR = parseFloat(cs.paddingRight) || 0
+    refContent.style.width = `${Math.max(0, input.clientWidth - padL - padR)}px`
+  }
+  syncRefLayerWidth()
+
   /** 按当前输入渲染高亮层：mentionBindings 里的显示 token 高亮（含路径关联）。 */
   let composerComposing = false
   const renderRefLayer = (): void => {
     if (composerComposing) return // IME 组合中跳过重建（组合文本由 textarea 原生绘制）
+    syncRefLayerWidth()
     refContent.textContent = ''
     const value = input.value
     if (mentionBindings.size === 0) {
@@ -7281,8 +7297,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   })
   input.addEventListener('mouseleave', () => applyHover(null))
   input.addEventListener('scroll', () => {
+    syncRefLayerWidth()
     refContent.style.transform = `translateY(${-input.scrollTop}px)`
   })
+  // 输入区容器尺寸变化（webview 宽度调整、field-sizing 生长/滚动条出现）也会改
+  // textarea 内容宽，高亮层换行宽要跟着变，否则又回到叠层比 textarea 宽的错位。
+  const refLayerResize = new ResizeObserver(() => syncRefLayerWidth())
+  refLayerResize.observe(frame)
 
   // 主按钮（对齐官方 InputBar primary）：无文字图标按钮——非运行显示发送
   // 箭头，运行中同一按钮切换为停止方块（primaryStops），点击即 stop；排队
