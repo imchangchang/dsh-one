@@ -25,15 +25,24 @@ export interface GroupFile {
   activeGroupId: string | null
 }
 
-/** 标签组：tag 定义 + 会话归属（派生脚本 --tag 直接写这里）。 */
+/** 单个 workspace 的标签组状态（组定义 + 归属，per-workspace）。 */
+export interface WorkspaceTagState {
+  /** 该 workspace 的组定义（预设组恒在，自定义组按创建序）。 */
+  tags: SessionTagDef[]
+  /** 该 workspace 内 sessionId → tagId 归属（单组语义）。 */
+  sessionTags: Record<string, string>
+  /** 折叠的标签组块 id（UI 偏好，跟随 workspace 隔离）。 */
+  collapsed: string[]
+}
+
+/** 标签组 v1（旧全局模型）：tag 定义 + 会话归属都是全局一份。 */
 export interface TagFile {
   version: 1
   tags: SessionTagDef[]
   sessionTags: Record<string, string>
 }
 
-/**
- * composer 草稿的一张暂存图片（粘贴的 base64 图）。与 OutgoingImage 同形；
+/** composer 草稿的一张暂存图片（粘贴的 base64 图）。与 OutgoingImage 同形；
  * 文件类附件只存路径引用（字节在磁盘），不进 drafts.json。
  */
 export interface DraftImage {
@@ -41,6 +50,15 @@ export interface DraftImage {
   data: string
   name?: string
 }
+
+/** 标签组 v2（per-workspace 模型）：每个 workspace 独立一套组定义 + 归属 + 折叠。 */
+export interface TagFileV2 {
+  version: 2
+  workspaces: Record<string, WorkspaceTagState>
+}
+
+/** 解析后可能落到的两种标签组文件形态（按 version 判别）。 */
+export type AnyTagFile = TagFile | TagFileV2
 
 /** composer 草稿的一个文件 chip：只存显示名 + 路径（previewData 是内存态，恢复后经 fileThumb 重取）。 */
 export interface DraftFileChip {
@@ -152,17 +170,48 @@ export function parseGroupFile(raw: string): GroupFile | null {
   }
 }
 
-export function parseTagFile(raw: string): TagFile | null {
+export function parseTagFile(raw: string): AnyTagFile | null {
   const rec = parseJson(raw)
-  if (rec === null || rec.version !== 1 || !hasField(rec, 'tags') || !hasField(rec, 'sessionTags')) {
-    return null
+  if (rec === null) return null
+  if (rec.version === 2 && hasField(rec, 'workspaces')) {
+    return sanitizeTagFileV2(rec.workspaces)
   }
-  const tags = sanitizeTags(rec.tags)
-  return {
-    version: 1,
-    tags,
-    sessionTags: sanitizeSessionTagIds(rec.sessionTags, new Set(tags.map((t) => t.id))),
+  // v1（旧全局模型）：仍能解析，由调用方按「待迁移」处理。
+  if (rec.version === 1 && hasField(rec, 'tags') && hasField(rec, 'sessionTags')) {
+    const tags = sanitizeTags(rec.tags)
+    return {
+      version: 1,
+      tags,
+      sessionTags: sanitizeSessionTagIds(rec.sessionTags, new Set(tags.map((t) => t.id))),
+    }
   }
+  return null
+}
+
+/** 清洗 v2 的 workspaces：逐 ws 清洗组定义（补齐预设）+ 归属（丢弃指向未知组的
+ *  归属）+ 折叠 id（丢弃未知组）。未知 ws/坏结构丢弃，返回 v2 或 null。 */
+export function sanitizeTagFileV2(raw: unknown): TagFileV2 | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
+  const workspaces: Record<string, WorkspaceTagState> = {}
+  for (const [wsId, wsRaw] of Object.entries(raw as Record<string, unknown>)) {
+    if (!wsId || typeof wsRaw !== 'object' || wsRaw === null) continue
+    const { tags: rawTags = [], sessionTags: rawSessionTags = {}, collapsed: rawCollapsed = [] } = wsRaw as Record<
+      string,
+      unknown
+    >
+    if (!Array.isArray(rawTags)) continue
+    const tags = sanitizeTags(rawTags)
+    const knownIds = new Set(tags.map((t) => t.id))
+    const collapsed = Array.isArray(rawCollapsed)
+      ? [...new Set(rawCollapsed.filter((id): id is string => typeof id === 'string' && knownIds.has(id)))]
+      : []
+    workspaces[wsId] = {
+      tags,
+      sessionTags: sanitizeSessionTagIds(rawSessionTags, knownIds),
+      collapsed,
+    }
+  }
+  return { version: 2, workspaces }
 }
 
 /* ---- drafts：逐字段宽松清洗（坏条目丢弃而不是整文件作废——草稿丢了不致命） ---- */
@@ -283,6 +332,53 @@ export function serializeTagFile(value: TagFile): string {
 
 export function serializeDraftsFile(value: DraftsFile): string {
   return JSON.stringify(value)
+}
+
+export function serializeTagFileV2(value: TagFileV2): string {
+  return JSON.stringify(value)
+}
+
+/**
+ * v1 全局标签组 → v2 per-workspace 的迁移（纯函数，无副作用）。
+ * 依赖会话 → workspace 的归属映射（来自 workspace.list 基线，v1 文件里没有，
+ * 所以不能离线静态迁移，只能等基线就绪后调用）。规则：
+ * - 每个有打组会话的 workspace 独立成一个 bucket；
+ * - bucket 必含预设组（todo/doing/done），外加该 workspace 成员实际引用的自定义组定义；
+ * - session 找不到 workspace（未分组/已删）→ 归入 fallbackWorkspaceId bucket；
+ * - 完全无任何会话引用的 v1 自定义组定义：无处安放，丢弃（重建成本低）。
+ * 返回 v2；无任何 bucket 时返回空 workspaces（视为全量未分组）。
+ */
+export function migrateTagFileV1ToV2(
+  v1: Pick<TagFile, 'tags' | 'sessionTags'>,
+  workspaceIdOfSession: (sessionId: string) => string | undefined,
+  fallbackWorkspaceId: string,
+): TagFileV2 {
+  const customById = new Map<string, SessionTagDef>()
+  for (const t of v1.tags) customById.set(t.id, t)
+  const presets = sanitizeTags(undefined)
+
+  const buckets = new Map<string, WorkspaceTagState>()
+  const ensureBucket = (wsId: string): WorkspaceTagState => {
+    let b = buckets.get(wsId)
+    if (!b) {
+      b = { tags: presets.map((p) => ({ ...p })), sessionTags: {}, collapsed: [] }
+      buckets.set(wsId, b)
+    }
+    return b
+  }
+
+  for (const [sessionId, tagId] of Object.entries(v1.sessionTags)) {
+    const wsId = workspaceIdOfSession(sessionId) ?? fallbackWorkspaceId
+    const bucket = ensureBucket(wsId)
+    bucket.sessionTags[sessionId] = tagId
+    // 该 bucket 必须含这个 tag 的定义：预设组已 seed，自定义组补进来。
+    if (!bucket.tags.some((t) => t.id === tagId)) {
+      const def = customById.get(tagId)
+      if (def) bucket.tags.push({ ...def })
+    }
+  }
+
+  return { version: 2, workspaces: Object.fromEntries(buckets) }
 }
 
 /* ---- 迁移决策：文件 present（哪怕空数据）即权威；否则回读旧值 ---- */
