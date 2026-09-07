@@ -1055,8 +1055,9 @@ export type FromWebviewMessage =
   | { type: 'sessionOpen'; sessionId: string }
   /** Sessions 面板：在新 tab 中打开一个会话（右键菜单，显式新开 tab）。 */
   | { type: 'sessionOpenInNewTab'; sessionId: string }
-  /** Sessions 面板：在指定 workspace 新建会话（缺省由宿主选默认 workspace）。 */
-  | { type: 'sessionNew'; workspaceId?: string }
+  /** Sessions 面板：在指定 workspace 新建会话（缺省由宿主选默认 workspace）。
+   *  tagId 可选：创建后把新会话挂到该标签组（组头右键「创建对话」入口）。 */
+  | { type: 'sessionNew'; workspaceId?: string; tagId?: string }
   /** Sessions 面板：新建不挂 workspace 的「未分组」会话（cwd 走宿主临时目录）。 */
   | { type: 'sessionNewUngrouped' }
   /** Sessions 面板：重命名会话；title 为当前标题，供宿主输入框预填。 */

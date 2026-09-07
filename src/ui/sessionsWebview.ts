@@ -2102,11 +2102,22 @@ function attachTagPillDrag(pill: HTMLElement, tagId: string, workspaceId: string
   })
 }
 
-/** 整组操作菜单（组头 pill 右键）：归档全部 / 移入回收站 / 移出分组；
+/** 整组操作菜单（组头 pill 右键）：新建会话 / 归档全部 / 移入回收站 / 移出分组；
  *  自建组额外提供重命名与删除（预设组名字走 l10n，不提供）。 */
 function buildTagMenuBody(tag: SnapshotTag, workspaceId: string): HTMLElement {
   const body = el('div')
   body.appendChild(el('div', 'session-menu-title', t('Group: {0}', tag.name)))
+  // 组头右键「创建对话」：在当前 group 下新建一个会话，并自动挂到该组
+  // （per-workspace 语义下归属唯一，见 issue #24）。
+  body.appendChild(
+    menuItem(t('New session in this group'), {
+      icon: iconSvg(PANEL_ICONS.plus, 14),
+      onClick: () => {
+        closePopover()
+        post({ type: 'sessionNew', workspaceId, tagId: tag.id })
+      },
+    }),
+  )
   const grouped = sessionsOfTagInView(tag.id, workspaceId)
   const all = grouped.flatMap((g) => g.sessions)
   const archivable = all.filter(sessionArchiveSelectable)

@@ -910,9 +910,11 @@ export class SessionsStore implements vscode.Disposable {
 
   /** 设置一个会话的组（tagId = null 移出组；未知组 id 忽略；幂等）。会话所属
    *  workspace 由基线反查；tag 打到该会话所属 ws 的 bucket。 */
-  setSessionTag(sessionId: string, tagId: string | null): void {
+  setSessionTag(sessionId: string, tagId: string | null, explicitWorkspaceId?: string): void {
     if (!sessionId) return
-    const workspaceId = this.workspaceOfSession(sessionId)
+    // 会话归属 workspace 默认由基线反查；新建会话尚未进基线时（组头「创建对话」）
+    // 由调用方显式传入所属 workspace，避免误归到「未分组」桶。
+    const workspaceId = explicitWorkspaceId ?? this.workspaceOfSession(sessionId)
     const bucket = this.ensureBucket(workspaceId)
     const known = new Set(bucket.tags.map((t) => t.id))
     const next = setSessionTagId(bucket.sessionTags, sessionId, tagId, known)
