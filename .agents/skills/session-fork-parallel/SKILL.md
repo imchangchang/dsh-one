@@ -101,7 +101,16 @@ curl -s -m 5 -X POST http://127.0.0.1:3080/api/session/list \
 
 两者输入一致：`--tasks` 指向 JSON 文件 `[{"title": "...", "prompt": "任务说明..."}, ...]`，`--repo <仓库绝对路径>`（默认 cwd）。加 `--dry-run` 只解析与验证不建 session。跑完把输出清单交给用户即可。
 
-**`--tag <组名>`（仅 modern 脚本）：一次派生 = 侧栏一个标签组**（类比 Kimi bridge 一个任务一个组）。建完 session 后经**扩展 loopback 桥**归组：脚本读 `~/.dsh/dsh-one/bridge.json`（扩展激活时写的 `{port, token}`，127.0.0.1 随机端口 + 每进程随机 token）→ `POST /tag {group, sessionIds}`。tags.json 的找/建组、颜色轮换、原子写全部由扩展进程完成（`sessionsStore.assignTagGroup` → `dshStateStore.updateTags`），脚本不再直写文件——**规避了 agent 进程写工作区外 `~/.dsh/dsh-one/` 被文件沙箱拦截的问题**，`--tag` 不再弹审批。dsh-one 插件 watch 该目录，写完侧栏自动聚出这个组，不用重启窗口。不加 `--tag` 则完全不动 tags.json。
+**`--tag <组名>`（仅 modern 脚本）：一次派生 = 侧栏一个标签组**（类比 Kimi bridge 一个任务一个组）。建完 session 后经**扩展 loopback 桥**归组：脚本读 `~/.dsh/dsh-one/bridge.json`（扩展激活时写的 `{port, token}`，127.0.0.1 随机端口 + 每进程随机 token）→ `POST /tag`，body `{"action":"assign","group":<组名>,"sessionIds":[...]}`（**显式 action，无默认行为**）。tags.json 的找/建组、颜色轮换、原子写全部由扩展进程完成（`sessionsStore` 的归组/读归属/清归属 → `dshStateStore.updateTags`），脚本不再直写文件——**规避了 agent 进程写工作区外 `~/.dsh/dsh-one/` 被文件沙箱拦截的问题**，`--tag` 不再弹审批。dsh-one 插件 watch 该目录，写完侧栏自动聚出这个组，不用重启窗口。不加 `--tag` 则完全不动 tags.json。
+
+桥对 session 级标签归属提供完整增删改查（`POST /tag`，显式 `action`，无默认行为；域收敛到标签组/会话归属，只绑 127.0.0.1 + Bearer token，不接任意路径/内容）：
+
+| action | body | 语义 | 返回 |
+|---|---|---|---|
+| `assign` | `{action, sessionIds, group}` | 按组名找/建组，把这些 session 归进去（单组语义覆盖旧组） | `{ok, tag:{name,id}, sessionCount}` |
+| `assign` | `{action, sessionIds, tagId}` | 归到指定已存在组（tagId 必须存在，未知拒绝） | 同上 |
+| `get` | `{action, sessionId}` | 查该 session 当前在哪个组（无组返回 null） | `{ok, group:{id,name,color,preset}\|null}` |
+| `unassign` | `{action, sessionIds}` | 把这些 session 移出组（组定义保留，不删组） | `{ok, sessionCount}` |
 
 **派生惯例（用户约定 2026-09-07）：批量派生默认带 `--tag <批次/任务组名>`**——一次派发的所有 session 归进一个标签组（同一次派发 = 一组，不同任务用不同组名）。已由 `#18` 落地：`--tag` 走桥、无沙箱审批；桥记录缺失 / token 陈旧 / 扩展未加载时脚本报错指路（「DSH One 扩展未加载？先在 VS Code 里启动扩展（或 reload 窗口）」），**不静默**。多窗口注意：多个 VS Code 窗口各自起端点、写同一份 bridge.json，**晚激活的窗口覆盖注册，早激活的失效**——派生时以当前 bridge.json 为准，若刚 reload 过窗口（或扩展重启过）桥记录会重建，脚本照常生效。
 
