@@ -1474,6 +1474,8 @@ window.addEventListener('message', (event) => {
     if (shas.length > 0) refreshCommitHashSpans(shas)
   } else if (msg?.type === 'filesPicked' && Array.isArray(msg.files)) {
     pendingFiles = [...pendingFiles, ...msg.files]
+    // 新附件不经 input 事件入场：在这里作废清空暂存（一次性反悔的边界）。
+    clearedStash = null
     // 长文本粘贴折叠的回执：光标处自动插入 @ 短 token（canonical 记绑定，发送时展开）。
     // 核对回执文件名协议（pasted-*，折叠专属命名）：挂起期间的普通 pickFiles
     // 回执不会误插；跨会话/超时的慢回执由超时兜底兜住。
@@ -1547,6 +1549,8 @@ window.addEventListener('message', (event) => {
       stagedRestore = true
     }
     if (stagedRestore && input) render()
+    // 附件恢复不经 input 事件：与 filesPicked 同款，作废清空暂存。
+    if (stagedRestore) clearedStash = null
   } else if (msg?.type === 'fileRefList') {
     // 乱序/过期响应丢弃；token 没变才存结果并重算弹窗（token 已消失时
     // updateSlashPopup 自己算不出行，弹窗保持关闭）。
@@ -3072,6 +3076,10 @@ function render(): void {
     innerScrollPositions.clear()
     producedOpen.clear()
     copyConfirmedAt.clear()
+    // 双击清空武装态与清空暂存同样按会话隔离：切走后旧会话的「再按一次清空」
+    // 提示和 Ctrl+Z 反悔内容都不该落到新会话（文本/附件归档各走各的）。
+    disarmClearConfirm()
+    clearedStash = null
   }
   const oldInput = document.getElementById('input') as HTMLTextAreaElement | null
   const hadFocus = oldInput !== null && document.activeElement === oldInput
@@ -4281,6 +4289,49 @@ let editingQueueItem: string | null = null
 let recall: { kind: 'queue'; itemId: string } | { kind: 'history' } | null = null
 /** Draft stashed when a recall replaced it; restored by Escape. */
 let recallDraft = ''
+/**
+ * 双击清空确认态（本地增强，官方 dsh web 无此功能）：空闲 + composer 有内容时
+ * 第一次 Ctrl+C/ESC 武装并亮提示小框，第二次执行清空（与 × 按钮同一函数）。
+ * 模块级：render() 重建 composer 后武装态不丢（新 input 的 keydown 读同一份）。
+ */
+let clearConfirmArmed = false
+let clearConfirmTimer: ReturnType<typeof setTimeout> | null = null
+/** 确认提示小框：挂 document.body（仿 composer popover），render() 重建不销毁。 */
+let clearConfirmHint: HTMLElement | null = null
+/**
+ * 清空暂存（× 按钮 / 双击 Ctrl+C / 双击 ESC 三入口共享）：空 composer 里
+ * Ctrl+Z/Cmd+Z 反悔恢复。一次性：恢复后作废；任何新输入/附件变动也作废
+ * （新内容入场后旧暂存再还回来只会迷惑）。mentionBindings 不在其中——清空
+ * 不动绑定，verbatim 灌回文本即可让 @ 引用 token 正确渲染/展开。
+ */
+let clearedStash: { text: string; images: OutgoingImage[]; files: StagedFile[] } | null = null
+
+/** 双击清空的武装超时时长。 */
+const CLEAR_CONFIRM_TIMEOUT_MS = 3000
+
+/** 解除双击清空武装并摘除提示小框（超时/输入/失焦/发送/清空/恢复/切会话统一走这里）。 */
+function disarmClearConfirm(): void {
+  clearConfirmArmed = false
+  if (clearConfirmTimer !== null) {
+    clearTimeout(clearConfirmTimer)
+    clearConfirmTimer = null
+  }
+  clearConfirmHint?.remove()
+  clearConfirmHint = null
+}
+
+/** 武装双击清空：在输入框上方亮「再按一次」提示小框（fixed 定位，只亮一次不跟随），超时自动解除。 */
+function armClearConfirm(anchor: HTMLElement): void {
+  disarmClearConfirm()
+  clearConfirmArmed = true
+  const hint = el('div', 'clear-confirm-hint', t('Press Esc or Ctrl+C again to clear the input'))
+  document.body.appendChild(hint)
+  clearConfirmHint = hint
+  const rect = anchor.getBoundingClientRect()
+  hint.style.left = `${Math.max(8, rect.left)}px`
+  hint.style.bottom = `${window.innerHeight - rect.top + 6}px`
+  clearConfirmTimer = setTimeout(disarmClearConfirm, CLEAR_CONFIRM_TIMEOUT_MS)
+}
 /** Unsaved queue-editor text by item id; survives the rebuild-per-snapshot rendering. */
 const queueEditDrafts = new Map<string, string>()
 /** Composer draft arriving while no input element exists yet (restoreDraft before first render). */
@@ -7250,6 +7301,8 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   const sendCurrent = (steer = false): void => {
     if (!state || !state.canSend || state.modelAvailable === false) return
     hideSlashPopup()
+    // 双击清空：发送即「内容有了归宿」，武装态不再保留（提示小框一并摘除）。
+    disarmClearConfirm()
     // 发送/清空后的输入区就地收尾：keepComposer 保活（签名未变的帧——运行中
     // Enter 排队、⌘Enter 插话、/model 打开菜单）时 render() 只 patch 不重建
     // 输入区，value 清空后高亮层仍画着发送前的文字，透明文字输入框下表现为
@@ -7417,6 +7470,54 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       render()
       return
     }
+    // 清空反悔（本地增强）：三入口（× 按钮 / 双击 Ctrl+C / 双击 ESC）清空后，
+    // 空 composer 里 Ctrl+Z/Cmd+Z 恢复暂存的文字 + 待发附件（@ 引用 token 的
+    // mentionBindings 未被清空动过，verbatim 灌回即可正确渲染/发送展开）。
+    // composer 非空时让位原生撤销；Ctrl+Shift+Z（redo）不接管。
+    if (
+      e.key === 'z' &&
+      (e.ctrlKey || e.metaKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      !e.isComposing &&
+      clearedStash !== null &&
+      input.value === '' &&
+      pendingImages.length === 0 &&
+      pendingFiles.length === 0
+    ) {
+      e.preventDefault()
+      restoreCleared()
+      return
+    }
+    // 双击清空（本地增强，与 × 按钮同一 clearComposer）：空闲 + composer 有内容
+    // 时第一次 Esc/Ctrl+C 亮提示小框并武装，第二次执行清空。运行中不接管——
+    // 让路给 document 级「Esc/Ctrl+C 停止 turn」兜底（那里按 defaultPrevented
+    // 与 running 判定）；优先级低于斜杠补全与 recall（上面已 return），弹层与
+    // 图片预览在 capture 阶段已消费 Esc（defaultPrevented）。Ctrl+C 有选区时
+    // 保持复制语义；IME 组合中不响应（Esc 是关输入法候选窗）。
+    const isClearChord =
+      e.key === 'Escape' || (e.key === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)
+    if (
+      isClearChord &&
+      !e.defaultPrevented &&
+      !e.isComposing &&
+      !state?.running &&
+      (e.key === 'Escape' || input.selectionStart === input.selectionEnd)
+    ) {
+      if (input.value.length > 0 || pendingImages.length > 0 || pendingFiles.length > 0) {
+        e.preventDefault()
+        if (clearConfirmArmed) {
+          clearComposer()
+        } else {
+          armClearConfirm(input)
+        }
+        return
+      }
+      // 武装期间内容已被清空/发送：残留的武装态就地解除。Esc/无选区 Ctrl+C 在
+      // 空闲空 composer 下本身无语义，不 preventDefault，落回 document 级（非
+      // 运行态那里直接返回）。
+      disarmClearConfirm()
+    }
     // ArrowUp on the first line with no selection recalls: 有等待插话的 steering
     // 气泡时首选撤销它（↑ 第一个可回退编辑的就是它——宿主移除该项并把内容
     // 含附件回填 composer）；否则召回排队消息（改回后 Enter 保存），再否则
@@ -7437,6 +7538,10 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         : [...state.messages].reverse().find((m) => m.kind === 'user' && !m.context && m.text.trim())
       if (!lastQueued && !lastUser) return
       e.preventDefault()
+      // 召回以编程方式改写 composer（不过 input 事件）：作废清空暂存并解除
+      // 双击清空武装，与手动输入同款边界。
+      clearedStash = null
+      disarmClearConfirm()
       recallDraft = input.value
       if (lastQueued) {
         recall = { kind: 'queue', itemId: lastQueued.id }
@@ -7480,12 +7585,19 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     updateSlashPopup(input)
     renderRefLayer()
     requestAnimationFrame(syncRefLayerScroll)
+    // 双击清空：任何输入都解除武装；清空暂存同步作废（新内容入场，旧暂存
+    // 再还回来只会迷惑——一次性反悔，不多级）。
+    disarmClearConfirm()
+    clearedStash = null
     // 纯输入不触发 render，脏位上报单独跟一次（宿主的 dirty 保护决策读它）。
     reportComposerDirty()
   })
   input.addEventListener('blur', () => {
     hideSlashPopup()
     applyHover(null)
+    // 焦点离开输入框（点别处/切面板）即解除双击清空武装：提示小框是给
+    // 「正在输入框里操作」的人看的，焦点没了再按第二次也没有上下文。
+    disarmClearConfirm()
   })
   input.addEventListener('paste', (e) => {
     // Every clipboard file becomes an attachment, images or not — the host
@@ -7537,12 +7649,20 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     clearAll.hidden = !(input.value.length > 0 || pendingImages.length > 0 || pendingFiles.length > 0)
   }
   updateClearAll()
-  clearAll.addEventListener('click', () => {
+  // 清空动作（× 按钮点击与「双击 Ctrl+C/ESC」共用）：清空文本（含 recall 态与
+  // 召回草稿）+ 全部待发附件，清空前暂存进 clearedStash 供 Ctrl+Z 反悔。
+  const clearComposer = (): void => {
+    const text = input.value
+    clearedStash =
+      text.length > 0 || pendingImages.length > 0 || pendingFiles.length > 0
+        ? { text, images: pendingImages, files: pendingFiles }
+        : null
     input.value = ''
     recall = null
     recallDraft = ''
     pendingImages = []
     pendingFiles = []
+    disarmClearConfirm()
     // 保活态（如 model 菜单开着）下 render() 不重建 composer：旧 × 就地隐藏，
     // 重建态则由新渲染的按钮自然带出正确可见性。
     updateClearAll()
@@ -7557,6 +7677,31 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       updateButton()
       renderRefLayer()
     }
+  }
+  // 清空反悔恢复：附件在 composer 签名里（pendingImages/pendingFiles），带附件
+  // 恢复必重建 composer（chips 由新渲染带出，草稿经 oldInput.value 进入新
+  // input）；纯文本且焦点在输入框时保活，render() 只 patch，靠补发的 input
+  // 事件收尾（高亮层/自动高度/发送与 × 按钮态/dirty 上报一套全，与手动输入
+  // 同款）。恢复后光标落在文末。
+  const restoreCleared = (): void => {
+    const stash = clearedStash
+    if (!stash) return
+    clearedStash = null
+    disarmClearConfirm()
+    pendingImages = stash.images
+    pendingFiles = stash.files
+    input.value = stash.text
+    render()
+    const live = (
+      input.isConnected ? input : document.getElementById('input')
+    ) as HTMLTextAreaElement | null
+    if (!live) return
+    live.focus()
+    live.setSelectionRange(live.value.length, live.value.length)
+    if (live === input) input.dispatchEvent(new Event('input'))
+  }
+  clearAll.addEventListener('click', () => {
+    clearComposer()
   })
   row.appendChild(clearAll)
   row.appendChild(button)

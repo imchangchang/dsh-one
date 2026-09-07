@@ -1714,6 +1714,18 @@ const STYLE = `
     background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25));
     color: var(--vscode-foreground);
   }
+  /* 双击清空确认提示（本地增强）：输入框上方的小浮框，webview.ts
+     armClearConfirm 挂 document.body + fixed 定位——render() 重建 composer
+     不销毁，也不进 input-row 的 flex 流。pointer-events:none 不吃点击；
+     3s 超时/输入/失焦即摘除，不做常驻。 */
+  .clear-confirm-hint {
+    position: fixed; z-index: 60; padding: 4px 10px; border-radius: 6px;
+    background: var(--vscode-editorWidget-background, #252526);
+    border: 1px solid var(--vscode-editorWidget-border, rgba(127,127,127,.35));
+    color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+    font-size: 12px; line-height: 1.4; white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3); pointer-events: none;
+  }
   .msg-images { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   /* 消息图片缩略图复用 .attach-thumb 方图；加载中的占位方块居中省略号。 */
   .msg-thumb-loading {
