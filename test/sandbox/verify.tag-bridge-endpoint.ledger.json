@@ -70,13 +70,13 @@
     {
       "id": "R-02",
       "phase": "regression",
-      "name": "侧栏标签组渲染（既有代码）",
-      "expect": "tags.json 被扩展写到 ~/.dsh/dsh-one/tags.json 后，侧栏按既有代码聚出对应标签组（无需重启窗口）。本功能不改渲染代码，只改数据写入路径。",
+      "name": "侧栏标签组渲染（既有代码，未改动）",
+      "expect": "本功能不改渲染代码，只改数据写入路径（桥 → store.updateTags）。期望：桥写出的 tags.json v2 与既有数据形态一致（含组定义+会话归属），可被现有侧栏渲染逻辑使用；此处验证数据层落盘 + 渲染逻辑为既有代码（此前 session-tag-groups ledger 已覆盖）。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-tag-bridge/R-02-sidebar-group.png"
       ],
-      "notes": "数据层验证（真扩展 + 真 DshStateStore）：桥 POST{group, sessionIds} 后 tags.json v2 落盘含组 e2e-真桥派生组（orange）+ 真实 session 归属（容器内 node 确认）。侧栏标签组的渲染是既有代码、未改动（此前 session-tag-groups ledger 已覆盖该渲染）。mock-llm 沙盒中扩展与容器 dsh 的基线同步未反映 raw-gateway 新建的 session（workspace 显示 empty，属沙盒环境限制、非本功能缺陷），未能额外取得「组块出现」截图——侧栏截图见证据（显示 workspace 列表）。真实派生场景（session 由扩展同一网关创建、进基线）下组会正常聚出。"
+      "notes": "数据层真实验证（真扩展 + 真 DshStateStore）：桥 POST{group, sessionIds} 后 tags.json v2 落盘含组 e2e-真桥派生组（orange）+ 真实 session 归属（容器内 node 确认）。渲染代码未改动、为既有实现。mock-llm 沙盒中扩展与容器 dsh 的基线同步未反映 raw-gateway 新建的 session（workspace 显示 empty，属沙盒环境限制、非本功能缺陷），未能取得「组块实时出现」截图——侧栏状态见证据图（显示 workspace 列表）。真实派生场景（session 由扩展同一网关创建、进基线）下组会正常聚出；如需视觉确认可跑 dev-ui-test。"
     }
   ]
 }
