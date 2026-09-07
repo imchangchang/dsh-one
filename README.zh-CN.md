@@ -116,7 +116,7 @@ flowchart LR
 
 ### dsh 版本兼容跟踪
 
-定时 GitHub Action（[dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)）每天检查 [dsh 上游 release](https://github.com/deepseek-ai/deepseek-harness/releases)：发现新版本即在 CI 上自动跑一轮 wire 协议兼容性探针（14 项，覆盖 dsh-one 依赖的启动/认证/unary RPC/WebSocket 接口面），并建 `upstream-watch` issue 记录结果。顶部最后两个徽章分别显示上游最新 release 与最近一次探针结论；完整测试清单（自动化 + 人工项）见 [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md)。
+定时 GitHub Action（[dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)）每天检查 [dsh 上游 release](https://github.com/deepseek-ai/deepseek-harness/releases)：发现新版本即在 CI 上自动跑一轮 wire 协议兼容性探针（14 项，覆盖 dsh-one 依赖的启动/认证/unary RPC/WebSocket 接口面），并建 `upstream-watch` issue 记录结果。顶部最后两个徽章分别显示上游最新 release 与最近一次探针结论；完整测试清单（自动化 + 人工项）见 [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md)。DSH One 目标版本为 dsh **0.1.2-rc.1** 与 GitHub-only 的 **0.1.3-alpha.1** wire（`commands/execute` 的 `submittedAttachments`、`session/follow` 的 `assistantStream` opt-in），同时仍服务 0.1.1 legacy wire——按版本探测隔离，老版本零改动。
 
 | 测试项 | 覆盖方式 |
 |---|---|
