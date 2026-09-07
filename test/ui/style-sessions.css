@@ -394,6 +394,11 @@
     background: rgba(86,134,254,.18);
     color: var(--vscode-charts-blue, #9fdcff);
   }
+  /* 不变量：行尾内容缘 = 面板右缘 −10px（margin-right 4px + padding-right 6px），
+     顶层行与组内行共用。行的水平盒模型完全归行自己管，任何包行的容器
+     （.sessions-list / .workspace-row / .tag-group 等）不得加水平 margin/padding，
+     否则行尾状态标记会推离这一列（#8 的教训）。组内行的左侧缩进也由行自己
+     的 .session-row.tagged padding-left 承担，不靠容器。 */
   .session-row {
     display: flex; align-items: center; gap: 6px; margin: 0 4px; padding: 0 6px 0 20px;
     height: 32px; box-sizing: border-box; overflow: hidden;
@@ -540,9 +545,12 @@
   /* 内容搜索结果超过 20 条的底部轻提示（非交互）。 */
   .sessions-search-more { padding: 6px 12px; font-size: 11px; opacity: 0.6; }
   /* ===== 会话标签组（Chrome 垂直标签式）：小 pill + 贯穿竖线 + 小缩进 ===== */
-  .tag-group { position: relative; margin: 4px 4px 2px; }
-  /* 组头：非常小的标签 pill，左缘与竖线同列（缩进列）。 */
-  .tag-head { display: flex; align-items: center; height: 22px; padding-left: 12px; }
+  /* 组块只做垂直节奏和装饰（pill/竖线），水平 margin 必须为 0——加水平 inset 会把
+     组内行的行尾内容缘推离面板 −10px 列，与顶层行错开（见 .session-row 的不变量）。 */
+  .tag-group { position: relative; margin: 4px 0 2px; }
+  /* 组头：非常小的标签 pill，左缘与竖线同列（缩进列）。padding-right 把折叠组头的
+     计数角标右缘对齐到状态列（面板 −10px，与 workspace 组头 badge 同列）。 */
+  .tag-head { display: flex; align-items: center; height: 22px; padding-left: 16px; padding-right: 10px; }
   .tag-pill {
     position: relative; display: inline-flex; align-items: center; gap: 4px;
     height: 16px; padding: 0 7px; border-radius: 4px;
@@ -565,7 +573,7 @@
   }
   /* 贯穿整组的竖线：从 pill 下沿到组尾（收在缩进列，不越过工作区行）。 */
   .tag-line {
-    position: absolute; left: 12px; top: 19px; bottom: 2px; width: 2px;
+    position: absolute; left: 16px; top: 19px; bottom: 2px; width: 2px;
     border-radius: 1px; background: color-mix(in srgb, var(--tc) 55%, transparent);
     pointer-events: none;
   }
