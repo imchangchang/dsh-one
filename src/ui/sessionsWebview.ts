@@ -1423,10 +1423,11 @@ function tagHeadSig(tag: SnapshotTag, collapsed: boolean, rows: SessionNodeModel
 }
 
 /** tag 组壳（只建一次；className 随折叠态/颜色在校对时校正，不重建壳）。 */
-function createTagShell(tag: SnapshotTag): HTMLElement {
+function createTagShell(tag: SnapshotTag, workspaceId: string): HTMLElement {
   const block = el('div', 'tag-group')
   block.dataset.tagId = tag.id
-  attachTagBlockDrop(block, tag.id)
+  block.dataset.workspaceId = workspaceId
+  attachTagBlockDrop(block, tag.id, workspaceId)
   return block
 }
 
@@ -1437,16 +1438,17 @@ function reconcileTagGroup(
   rows: SessionNodeModel[],
   collapsed: boolean,
   rowItemOf: (s: SessionNodeModel, tagged: boolean) => ReconcileItem,
+  workspaceId: string,
 ): void {
   shell.className = `tag-group tag-${tag.color}${collapsed ? ' collapsed' : ''}`
   const sig = tagHeadSig(tag, collapsed, rows)
-  const same = tagHeadSigs.get(tag.id) === sig
-  tagHeadSigs.set(tag.id, sig)
+  const same = tagHeadSigs.get(`${workspaceId}:${tag.id}`) === sig
+  tagHeadSigs.set(`${workspaceId}:${tag.id}`, sig)
   const items: ReconcileItem[] = [
     {
       key: 'tag-head',
       same,
-      create: () => tagHeadEl(tag, collapsed, collapsed ? rows : []),
+      create: () => tagHeadEl(tag, collapsed, collapsed ? rows : [], workspaceId),
     },
   ]
   if (!collapsed) {
@@ -1468,15 +1470,16 @@ function tagBlockItems(
   container: HTMLElement,
   sessions: SessionNodeModel[],
   rowItemOf: (s: SessionNodeModel, tagged: boolean) => ReconcileItem,
+  workspaceId: string,
 ): ReconcileItem[] {
   const items: ReconcileItem[] = []
-  const collapsedSet = new Set(sessionsSnapshot?.tagCollapsed ?? [])
+  const collapsedSet = new Set(sessionsSnapshot?.tagCollapsed?.[workspaceId] ?? [])
   // 搜索态强制展开（与 workspace 组折叠同规则）：搜索结果被折叠块藏起来不可接受。
   const inSearch = sessionsSnapshot?.query != null && sessionsSnapshot.query !== ''
   let i = 0
   while (i < sessions.length) {
     const s = sessions[i]
-    const tag = s.tagId !== undefined ? tagById(s.tagId) : undefined
+    const tag = s.tagId !== undefined ? tagById(s.tagId, workspaceId) : undefined
     // 置顶/无组会话平铺（置顶绝对优先；无组活跃由纯层前置，渲染不再特殊
     // 判断 active——组块是容器，组内活跃也聚块，仅在块内前排）。
     if (s.pinned || tag === undefined) {
@@ -1496,14 +1499,14 @@ function tagBlockItems(
     const collapsed = !inSearch && collapsedSet.has(tag.id)
     const tagRef = tag
     items.push({
-      key: `tag:${tag.id}`,
+      key: `tag:${workspaceId}:${tag.id}`,
       same: true, // 壳恒保活（内部递归对账）；create 只在首建时调用
-      create: () => createTagShell(tagRef),
+      create: () => createTagShell(tagRef, workspaceId),
     })
     // 壳在本帧 reconcileChildren 落位后立即递归校正（同一帧内，无中间态绘制）。
     const existing = container.querySelector<HTMLElement>(`:scope > .tag-group[data-tag-id="${CSS.escape(tag.id)}"]`)
-    if (existing) reconcileTagGroup(existing, tag, rows, collapsed, rowItemOf)
-    else pendingTagReconciles.push({ tag, rows, collapsed, rowItemOf })
+    if (existing) reconcileTagGroup(existing, tag, rows, collapsed, rowItemOf, workspaceId)
+    else pendingTagReconciles.push({ tag, rows, collapsed, rowItemOf, workspaceId })
   }
   return items
 }
@@ -1514,12 +1517,13 @@ const pendingTagReconciles: Array<{
   rows: SessionNodeModel[]
   collapsed: boolean
   rowItemOf: (s: SessionNodeModel, tagged: boolean) => ReconcileItem
+  workspaceId: string
 }> = []
 
 function flushTagReconciles(container: HTMLElement): void {
   for (const p of pendingTagReconciles.splice(0)) {
     const shell = container.querySelector<HTMLElement>(`:scope > .tag-group[data-tag-id="${CSS.escape(p.tag.id)}"]`)
-    if (shell) reconcileTagGroup(shell, p.tag, p.rows, p.collapsed, p.rowItemOf)
+    if (shell) reconcileTagGroup(shell, p.tag, p.rows, p.collapsed, p.rowItemOf, p.workspaceId)
   }
 }
 
@@ -1584,7 +1588,7 @@ function reconcileWorkspaceGroup(shell: HTMLElement, w: WorkspaceNodeModel): voi
       create: () => renderWorkspaceHead(w, collapsed),
     },
   ]
-  if (!collapsed) items.push(...tagBlockItems(shell, w.sessions, sessionRowItem))
+  if (!collapsed) items.push(...tagBlockItems(shell, w.sessions, sessionRowItem, w.workspaceId))
   reconcileChildren(shell, items)
   flushTagReconciles(shell)
 }
@@ -1896,17 +1900,30 @@ function tagsSnapshot(): SnapshotTag[] {
   return sessionsSnapshot?.tags ?? []
 }
 
-function tagById(tagId: string): SnapshotTag | undefined {
-  return tagsSnapshot().find((t) => t.id === tagId)
+/** 某 workspace 的组定义（per-workspace：同一个 tagId 可能出现在多个 ws 桶，
+ * 展示/操作必须按 ws 解析——预设组 id 全局共享，但颜色/成员按 ws 隔离）。 */
+function tagsOfWorkspace(workspaceId: string): SnapshotTag[] {
+  return tagsSnapshot().filter((t) => t.workspaceId === workspaceId)
+}
+
+/** 会话所属的 workspace（在快照 workspaces 里反查；命中第一个包含它的组）。 */
+function workspaceOfSession(sessionId: string): string | undefined {
+  return sessionsSnapshot?.workspaces.find((w) => w.sessions.some((s) => s.sessionId === sessionId))?.workspaceId
+}
+
+function tagById(tagId: string, workspaceId?: string): SnapshotTag | undefined {
+  const list = workspaceId !== undefined ? tagsOfWorkspace(workspaceId) : tagsSnapshot()
+  return list.find((t) => t.id === tagId)
 }
 
 /**
  * 当前可见列表（快照 workspaces，经当前 workspace 分组过滤）里该组的会话，
  * 按 workspace 分桶（组块可能跨 workspace 出现；整组操作只作用于可见集合）。
  */
-function sessionsOfTagInView(tagId: string): Array<{ ws: WorkspaceNodeModel; sessions: SessionNodeModel[] }> {
+function sessionsOfTagInView(tagId: string, workspaceId?: string): Array<{ ws: WorkspaceNodeModel; sessions: SessionNodeModel[] }> {
   const out: Array<{ ws: WorkspaceNodeModel; sessions: SessionNodeModel[] }> = []
   for (const w of sessionsSnapshot?.workspaces ?? []) {
+    if (workspaceId !== undefined && w.workspaceId !== workspaceId) continue
     const sessions = w.sessions.filter((s) => s.tagId === tagId)
     if (sessions.length > 0) out.push({ ws: w, sessions })
   }
@@ -1955,6 +1972,7 @@ function tagHeadEl(
   tag: SnapshotTag,
   collapsed: boolean,
   countSessions: SessionNodeModel[] = [],
+  workspaceId: string = tag.workspaceId,
 ): HTMLElement {
   const head = el('div', 'tag-head')
   const pill = el('span', 'tag-pill')
@@ -1971,19 +1989,19 @@ function tagHeadEl(
   toggle.appendChild(iconSvg(PANEL_ICONS.triangle, 10))
   toggle.addEventListener('click', (e) => {
     e.stopPropagation()
-    post({ type: 'sessionTagCollapse', tagId: tag.id, collapsed: !collapsed })
+    post({ type: 'sessionTagCollapse', workspaceId, tagId: tag.id, collapsed: !collapsed })
   })
   head.appendChild(toggle)
   // 折叠态计数（展开态不渲染）：靠右对齐，与 workspace 组头角标同款小号样式。
   if (countSessions.length > 0) appendTagCounts(head, countSessions)
-  attachTagPillDrag(pill, tag.id)
+  attachTagPillDrag(pill, tag.id, workspaceId)
   pill.addEventListener('contextmenu', (e) => {
     e.preventDefault()
     // 多选模式点行 = 勾选；回收站视图的会话不在主列表（整组操作按主列表
     // 可见集合收集），两者都不提供组操作菜单。
     if (selectionMode || recycleView) return
     menuFreezeActive = true
-    showPopoverAt(e.clientX, e.clientY, buildTagMenuBody(tag))
+    showPopoverAt(e.clientX, e.clientY, buildTagMenuBody(tag, workspaceId))
     markMenuRow(pill)
   })
   return head
@@ -1991,7 +2009,7 @@ function tagHeadEl(
 
 /** 会话行拖入该组（块容器为 drop 目标；dragenter/dragover/drop 全程不冒泡，
  *  避免未分组 drop 区误收——见 renderWorkspaceGroup 的 group 级 drop）。 */
-function attachTagBlockDrop(block: HTMLElement, tagId: string): void {
+function attachTagBlockDrop(block: HTMLElement, tagId: string, workspaceId: string): void {
   let depth = 0
   const clear = (): void => {
     depth = 0
@@ -2024,7 +2042,7 @@ function attachTagBlockDrop(block: HTMLElement, tagId: string): void {
     // 拖入折叠块：自动展开该组（让用户看到刚拖进来的会话；折叠态是偏好，
     // 显式再次折叠才算用户意图）。
     if (block.classList.contains('collapsed')) {
-      post({ type: 'sessionTagCollapse', tagId, collapsed: false })
+      post({ type: 'sessionTagCollapse', workspaceId, tagId, collapsed: false })
     }
   })
 }
@@ -2034,7 +2052,7 @@ function attachTagBlockDrop(block: HTMLElement, tagId: string): void {
  * 冻结列表重建（同菜单冻结），drop 后按新顺序 post，dragend 统一解冻重渲染。
  * pill 自身的 dragover 对会话拖拽不接管（让块容器高亮收 drop）。
  */
-function attachTagPillDrag(pill: HTMLElement, tagId: string): void {
+function attachTagPillDrag(pill: HTMLElement, tagId: string, workspaceId: string): void {
   pill.draggable = true
   pill.addEventListener('dragstart', (e) => {
     const dt = e.dataTransfer
@@ -2070,7 +2088,7 @@ function attachTagPillDrag(pill: HTMLElement, tagId: string): void {
     pill.classList.remove('drop-before', 'drop-after')
     const srcId = e.dataTransfer?.getData('text/dsh-tag')
     if (!srcId || srcId === tagId) return
-    const ids = tagsSnapshot().map((t) => t.id)
+    const ids = tagsOfWorkspace(workspaceId).map((t) => t.id)
     const from = ids.indexOf(srcId)
     const to = ids.indexOf(tagId)
     if (from === -1 || to === -1) return
@@ -2080,16 +2098,16 @@ function attachTagPillDrag(pill: HTMLElement, tagId: string): void {
     ids.splice(from, 1)
     const insertAt = ids.indexOf(tagId) + (before ? 0 : 1)
     ids.splice(insertAt, 0, srcId)
-    post({ type: 'sessionTagReorder', tagIds: ids })
+    post({ type: 'sessionTagReorder', workspaceId, tagIds: ids })
   })
 }
 
 /** 整组操作菜单（组头 pill 右键）：归档全部 / 移入回收站 / 移出分组；
  *  自建组额外提供重命名与删除（预设组名字走 l10n，不提供）。 */
-function buildTagMenuBody(tag: SnapshotTag): HTMLElement {
+function buildTagMenuBody(tag: SnapshotTag, workspaceId: string): HTMLElement {
   const body = el('div')
   body.appendChild(el('div', 'session-menu-title', t('Group: {0}', tag.name)))
-  const grouped = sessionsOfTagInView(tag.id)
+  const grouped = sessionsOfTagInView(tag.id, workspaceId)
   const all = grouped.flatMap((g) => g.sessions)
   const archivable = all.filter(sessionArchiveSelectable)
   body.appendChild(
@@ -2133,19 +2151,19 @@ function buildTagMenuBody(tag: SnapshotTag): HTMLElement {
       icon: iconSvg(PANEL_ICONS.edit, 14),
       onClick: () => {
         closePopover()
-        post({ type: 'sessionTagRenamePrompt', tagId: tag.id, name: tag.name })
+        post({ type: 'sessionTagRenamePrompt', workspaceId, tagId: tag.id, name: tag.name })
       },
     }),
   )
   // 颜色：二级子菜单（6 色；选中态 = 当前色）。
-  body.appendChild(buildTagColorMenuItem(tag))
+  body.appendChild(buildTagColorMenuItem(tag, workspaceId))
   if (!tag.preset) {
     body.appendChild(
       menuItem(t('Delete group'), {
         icon: strokeSvg(TRASH_ICON, 16),
         onClick: () => {
           closePopover()
-          post({ type: 'sessionTagDelete', tagId: tag.id })
+          post({ type: 'sessionTagDelete', workspaceId, tagId: tag.id })
         },
       }),
     )
@@ -2155,7 +2173,7 @@ function buildTagMenuBody(tag: SnapshotTag): HTMLElement {
 
 /** 「Color…」菜单项（带 › 子菜单指示）：hover 展开二级色板（VS Code submenu
  *  惯例），点击兜底；已展开时幂等不重建。 */
-function buildTagColorMenuItem(tag: SnapshotTag): HTMLElement {
+function buildTagColorMenuItem(tag: SnapshotTag, workspaceId: string): HTMLElement {
   const item = el('div', 'menu-item')
   const iconWrap = el('span', 'menu-item-icon')
   iconWrap.appendChild(tagSwatchIcon(tag.color))
@@ -2163,7 +2181,7 @@ function buildTagColorMenuItem(tag: SnapshotTag): HTMLElement {
   item.appendChild(el('span', undefined, t('Color')))
   item.appendChild(el('span', 'menu-right', '›'))
   const open = (): void => {
-    if (subPopover === null) showTagColorSubmenu(tag, item)
+    if (subPopover === null) showTagColorSubmenu(tag, item, workspaceId)
   }
   item.addEventListener('pointerover', open)
   item.addEventListener('click', open)
@@ -2171,7 +2189,7 @@ function buildTagColorMenuItem(tag: SnapshotTag): HTMLElement {
 }
 
 /** 颜色二级菜单：6 色选项（色块 + 名称），当前色打 ✓；选色后关闭两层菜单。 */
-function showTagColorSubmenu(tag: SnapshotTag, anchor: HTMLElement): void {
+function showTagColorSubmenu(tag: SnapshotTag, anchor: HTMLElement, workspaceId: string): void {
   const body = el('div')
   body.appendChild(el('div', 'menu-group', t('Color')))
   for (const c of TAG_COLORS) {
@@ -2181,7 +2199,7 @@ function showTagColorSubmenu(tag: SnapshotTag, anchor: HTMLElement): void {
         checked: tag.color === c,
         onClick: () => {
           closePopover()
-          if (tag.color !== c) post({ type: 'sessionTagSetColor', tagId: tag.id, color: c })
+          if (tag.color !== c) post({ type: 'sessionTagSetColor', workspaceId, tagId: tag.id, color: c })
         },
       }),
     )
@@ -2193,9 +2211,10 @@ function showTagColorSubmenu(tag: SnapshotTag, anchor: HTMLElement): void {
 /** 新建标签组弹层（行菜单「New group…」入口）：名字输入 + 6 色色板（默认
  *  轮换色，点击可选）+ 就地校验（空名/与现有组显示名重名）；创建后快照回流
  *  触发列表更新。复用 wsg-create 弹层样式（popover 内联，点外部关闭）。 */
-function openTagCreatePopup(anchor: HTMLElement | null): void {
+function openTagCreatePopup(anchor: HTMLElement | null, workspaceId: string): void {
   const snap = sessionsSnapshot
   if (!snap) return
+  const wsTags = tagsOfWorkspace(workspaceId)
   const body = el('div', 'wsg-create')
   body.appendChild(el('div', 'wsg-create-title', t('New group')))
   const input = document.createElement('input')
@@ -2203,7 +2222,7 @@ function openTagCreatePopup(anchor: HTMLElement | null): void {
   input.placeholder = t('Group name')
   input.maxLength = 100
   // 默认色 = 与 store 一致的轮换色（自定义组数 0/1/2 → 橙/紫/红）。
-  const customCount = snap.tags.filter((t) => !t.preset).length
+  const customCount = wsTags.filter((t) => !t.preset).length
   const palette: TagColor[] = ['orange', 'purple', 'red']
   let selected: TagColor = palette[customCount % palette.length]
   const colors = el('div', 'tag-create-colors')
@@ -2227,12 +2246,12 @@ function openTagCreatePopup(anchor: HTMLElement | null): void {
       error.textContent = t('Group name cannot be empty')
       return
     }
-    if (snap.tags.some((g) => g.name === name)) {
+    if (wsTags.some((g) => g.name === name)) {
       error.textContent = t('A group with this name already exists')
       return
     }
     closePopover()
-    post({ type: 'sessionTagCreate', name, color: selected })
+    post({ type: 'sessionTagCreate', workspaceId, name, color: selected })
   }
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.isComposing) {
@@ -3257,6 +3276,7 @@ function onArchiveManyDone(): void {
 /** 会话菜单内容（⋯ 按钮与右键菜单共用）。 */
 function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   const pinned = sessionsSnapshot?.pinned.includes(s.sessionId) ?? false
+  const menuWsId = workspaceOfSession(s.sessionId) ?? ''
   const body = el('div')
   // 菜单首行显示会话标题（操作对象显式化）：即使用户瞄错行也能立刻发现，点击前可收回。
   body.appendChild(el('div', 'session-menu-title', t('Session: {0}', s.label)))
@@ -3311,7 +3331,7 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
   )
   // 移到分组（Chrome 垂直标签式单组）：菜单内上下展开的 accordion（侧栏窄，
   // 横排二级放不下——用户反馈）。点击「Move to group…」展开/收起组列表。
-  const tagEntry = buildTagGroupsMenuItem(s)
+  const tagEntry = buildTagGroupsMenuItem(s, menuWsId)
   body.appendChild(tagEntry.item)
   body.appendChild(tagEntry.tagList)
   body.appendChild(    menuItem(t('Fork session'), {
@@ -3378,7 +3398,7 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
  * 组列表（侧栏窄，横排二级弹层放不下）；项右端 ▸/▾ 指示展开态。子项点击走
  * 现有行为（选组 = 关菜单 + sessionTagSet；New group… = 关菜单 + 新建弹层）。
  */
-function buildTagGroupsMenuItem(s: SessionNodeModel): { item: HTMLElement; tagList: HTMLElement } {
+function buildTagGroupsMenuItem(s: SessionNodeModel, workspaceId: string): { item: HTMLElement; tagList: HTMLElement } {
   const tagList = el('div', 'tag-submenu')
   tagList.style.display = 'none'
   let expanded = false
@@ -3392,7 +3412,9 @@ function buildTagGroupsMenuItem(s: SessionNodeModel): { item: HTMLElement; tagLi
       if (right) right.textContent = expanded ? '▾' : '▸'
     },
   })
-  for (const tag of tagsSnapshot()) {
+  // per-workspace：只列出该会话所属 ws 的组（预设组在每 ws 各自 seed，跨 ws
+  // 的同名组是不同实例——菜单只能列本 ws 的）。
+  for (const tag of tagsOfWorkspace(workspaceId)) {
     tagList.appendChild(
       menuItem(tag.name, {
         icon: tagSwatchIcon(tag.color),
@@ -3421,7 +3443,7 @@ function buildTagGroupsMenuItem(s: SessionNodeModel): { item: HTMLElement; tagLi
         // closePopover 会清 menuOpenRow（markMenuRow(null)），先取锚再关。
         const rowAnchor = menuOpenRow
         closePopover()
-        openTagCreatePopup(rowAnchor)
+        openTagCreatePopup(rowAnchor, workspaceId)
       },
     }),
   )

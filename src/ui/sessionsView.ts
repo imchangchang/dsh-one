@@ -996,10 +996,10 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       }
       case 'sessionTagCreate':
         // webview 弹层已校验（空名/重名/颜色枚举），store 兜底拒绝。
-        if (typeof m.name === 'string') this.store.createTag(m.name, m.color)
+        if (typeof m.name === 'string') this.store.createTag(m.workspaceId, m.name, m.color)
         return
       case 'sessionTagSetColor':
-        this.store.setTagColor(m.tagId, m.color)
+        this.store.setTagColor(m.workspaceId, m.tagId, m.color)
         return
       case 'sessionTagRenamePrompt':
         // 所有组均可重命名（预设改后覆盖 l10n 默认名）；store 兜底拒绝未知 id。
@@ -1008,33 +1008,33 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
             const name = await vscode.window.showInputBox({
               prompt: vscode.l10n.t('Rename group'),
               value: m.name,
-              validateInput: (v) => this.store.tagNameErrorFor(v),
+              validateInput: (v) => this.store.tagNameErrorFor(v, m.workspaceId),
             })
-            if (typeof name === 'string' && name.trim() !== '') this.store.renameTag(m.tagId, name)
+            if (typeof name === 'string' && name.trim() !== '') this.store.renameTag(m.workspaceId, m.tagId, name)
           })()
         }
         return
       case 'sessionTagDelete':
         void (async () => {
-          const tag = this.store.tagById(m.tagId)
+          const tag = this.store.tagById(m.tagId, m.workspaceId)
           if (!tag || tag.preset) return
           const confirm = await vscode.window.showWarningMessage(
             vscode.l10n.t('Delete group "{0}"? Tagged sessions go back to Ungrouped', tag.name),
             { modal: true },
             vscode.l10n.t('Delete'),
           )
-          if (confirm) this.store.deleteTag(tag.id)
+          if (confirm) this.store.deleteTag(m.workspaceId, tag.id)
         })()
         return
       case 'sessionTagReorder': {
         const ids = Array.isArray(m.tagIds)
           ? m.tagIds.filter((x): x is string => typeof x === 'string')
           : []
-        this.store.reorderSessionTags(ids)
+        this.store.reorderSessionTags(m.workspaceId, ids)
         return
       }
       case 'sessionTagCollapse':
-        this.store.setTagCollapsed(m.tagId, m.collapsed)
+        this.store.setTagCollapsed(m.workspaceId, m.tagId, m.collapsed)
         return
       case 'serverStart':
         void this.manager.ensureStarted()
