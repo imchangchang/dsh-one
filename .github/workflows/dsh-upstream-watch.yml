@@ -1,0 +1,47 @@
+# 监控上游 dsh release，新版本自动跑兼容性探针并提 issue
+name: dsh-upstream-watch
+
+on:
+  schedule:
+    # 每天 04:00（UTC+8）= 20:00 UTC。GitHub schedule 只在默认分支生效，
+    # 且高峰期可能延迟数十分钟，属正常。
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '指定上游 tag（如 dsh-v0.1.3-alpha.1；留空取最新 release）'
+        required: false
+      force:
+        description: '已有同 tag issue 也重新测试并再建 issue'
+        type: boolean
+        default: false
+
+permissions:
+  issues: write # 建兼容性测试 issue
+  contents: write # 回写 README 徽章数据（.github/dsh-compat/*.json）
+
+concurrency:
+  group: dsh-upstream-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # dsh engines 要求 ^22.19 || >=24；探针的 WS 用 Node 22+ 全局 WebSocket（带 headers）
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Watch upstream release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_FORCE: ${{ github.event.inputs.force }}
+        run: |
+          args=(--repo "${{ github.repository }}" --commit)
+          [ -n "$INPUT_TAG" ] && args+=(--tag "$INPUT_TAG")
+          [ "$INPUT_FORCE" = "true" ] && args+=(--force)
+          node scripts/dsh-upstream-watch/watch.mjs "${args[@]}"

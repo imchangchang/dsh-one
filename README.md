@@ -11,6 +11,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0F172A" alt="MIT license"></a>
   <a href="#compatibility"><img src="https://img.shields.io/badge/platform-win%20%7C%20mac%20%7C%20linux-2563EB" alt="Windows / macOS / Linux"></a>
   <a href="#compatibility"><img src="https://img.shields.io/badge/vscode-%5E1.96.0-2563EB" alt="VS Code ^1.96.0"></a>
+  <a href="https://github.com/imchangchang/dsh-one/issues?q=label%3Aupstream-watch"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fimchangchang%2Fdsh-one%2Fmain%2F.github%2Fdsh-compat%2Fupstream-latest.json" alt="dsh upstream latest"></a>
+  <a href="https://github.com/imchangchang/dsh-one/issues?q=label%3Aupstream-watch"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fimchangchang%2Fdsh-one%2Fmain%2F.github%2Fdsh-compat%2Fcompat.json" alt="dsh-one compatibility"></a>
 </p>
 
 <p align="center">
@@ -115,6 +117,18 @@ flowchart LR
 - **VS Code**: `^1.96.0`.
 - **dsh**: installed by you via npm (`@deepseek-ai/dsh@next`, Node ≥ 22).
 - **Platforms**: Windows / macOS / Linux.
+
+### dsh version tracking
+
+A scheduled GitHub Action ([dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)) checks for new [dsh releases](https://github.com/deepseek-ai/deepseek-harness/releases) daily; for each new version it runs an automated wire-protocol probe suite (14 checks covering the startup/auth/unary-RPC/WebSocket surface DSH One depends on) and files an `upstream-watch` issue with the results. The last two badges above show the latest upstream release and the latest probe outcome; the full test list (automated + manual items) lives in [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md).
+
+| Item | Coverage |
+|---|---|
+| Startup & auth (ready line, `?token=` cookie exchange, 401 fingerprint) | probe |
+| Unary RPC (`session/*`, `workspace/*`, `agentPresets/*`, `commands/*` args shapes) | probe |
+| WebSocket streams (`session/follow` snapshot, `session/control` baseline) | probe |
+| Live-streaming rendering, tool cards, real slash commands, approvals/questions | manual (per-version issue) |
+| Session-format migration & rollback, sandbox container regression | manual (per-version issue) |
 
 ### Known limitations
 
