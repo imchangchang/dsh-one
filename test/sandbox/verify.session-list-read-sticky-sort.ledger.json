@@ -1,0 +1,69 @@
+{
+  "title": "DSH One 验收报告 — 打开中的 tab 成为第五种活跃原因 + attach 统一清未读（issue #1 方案更新）",
+  "branch": "agent/session-list-read-sticky-sort",
+  "commit": "6c596a9",
+  "environment": {
+    "mode": "ai-visual-validation（harness.html + WebBridge 确定性 DOM 断言 + 截图）",
+    "dsh": "不涉及（纯客户端状态，dsh 无未读 API）",
+    "locale": "zh-cn",
+    "theme": "light",
+    "image": "无（未用 docker 沙盒）",
+    "date": "2026-09-07T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code 的 tab 附着链路（chatView → setAttachedSessions）不在 ai-visual-validation 范围，该链路由代码审查 + 单测覆盖；视觉核对以 harness 场景 DOM 断言（逐行标题/加粗/行尾时间/圆点/像素环全字段比对）+ 截图为据。真桌面 VS Code、平台专项不在本报告范围。注：ui-visual.sh 全量 sweep 本轮因 8899 端口被外部服务占用 + WebBridge tab 竞态不可用，改用自写确定性驱动（导航后轮询 location.search + 行渲染到位再断言再截图，见 notes）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "打开中的 tab = 第五种活跃原因：活跃层前置 + 行尾完全空白（无标识无时间）",
+      "expect": "sessions-attached-open 场景：sess-1「打开中的会话（tab 附着）」（attached=true，3 小时前）排在组内最前——先于更新的空闲 sess-3（10 分钟前），活跃层前置成立；sess-1 行尾无绿点/黄点/像素环、无「3 小时前」时间，标题不加粗；sess-2 未读绿点+加粗无时间；sess-3/sess-4 空闲行显示「10 分钟前」「20 分钟前」；组头角标只有绿点 1（attached 不计入角标）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-attached/sessions-attached-open.png"
+      ],
+      "notes": "DOM 断言逐行全字段比对通过（[标题, 加粗, 时间, 绿点, 黄点, 像素环] 五行全对上）：sess-1 行尾 time=null 且无任何标记 ✓、不加粗 ✓、排最前 ✓；未读行绿点+加粗 ✓；空闲行时间正常 ✓。截图人工复核：组头角标仅绿点 1（attached 不计数）✓；sess-1 行尾肉眼可见完全空白 ✓。纯层排序另有单测：attached 提升为活跃/脱离后回落原序/标签组内前置不脱离组块（sessionTree.test.ts 新增 2 用例通过）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "打开中手动标未读保留（Gmail 语义）+ attach 统一清除两套未读标记",
+      "expect": "sessions-attached-unread 场景：sess-1（attached + unread，开着 tab 时手动标的未读）仍显示未读绿点 + 标题加粗（无时间），排在空闲 sess-2 之前；组头角标绿点 1。代码层：setAttachedSessions 在 attach 瞬间同时清 completed 与手动 unread 并持久化（清除是事件不是持续约束，开着时标的未读不被立即清掉）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-attached/sessions-attached-unread.png"
+      ],
+      "notes": "DOM 断言三行全对上：sess-1 加粗 ✓ 绿点 ✓ 无时间 ✓ 前置 ✓；空闲行时间 ✓。截图复核组头角标绿点 1 ✓。attach 清除链路为 store 层逻辑（sessionsStore.setAttachedSessions 内 unread.delete + io.updateUnread 持久化），harness 不覆盖宿主逻辑，此项由代码审查确认：清除只发生在 attach 事件、持续约束不存在（setUnread 不查 attachedIds），开着时标未读 → 关掉后保留 → 下次打开才清，符合拍板语义。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "全量检查：typecheck + 单测 647 项 + 构建",
+      "expect": "npm run typecheck 零错误；node --test 全量 647 项通过（含 sessionTree 新增 2 项 attached 用例）；npm run build 产出 dist 四包成功。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "typecheck ✓（首轮报 3 错均为新测试辅助函数类型问题，修后归零）；npm test 647/647 pass ✓（新增用例：attached 提升为活跃且 detach 后回落、attached 在标签组块内前置不脱离）；build 产出 extension/chatWebview/sessionsWebview/spawnDsh 四包 ✓。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "侧栏综合列表（sessions 基线场景）",
+      "expect": "sessions 场景六行全对上：sess-1 运行中像素环无时间；sess-2 未读绿点+加粗无时间；sess-3 置顶空闲显示「昨天」；sess-4 当前附加行显示「10 分钟前」；sess-5 待审批黄点无时间；sess-6 未分组孤儿显示「2 小时前」。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-attached/sessions.png"
+      ],
+      "notes": "DOM 断言六行 [标题,加粗,时间,绿点,黄点,像素环] 与期望逐项全等 ✓——attached 新分支（marker===null && !s.attached 才显示时间）不影响 attached=false 的旧行。截图人工复核排版无异常。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "行尾状态槽互斥（sessions-status-rear-slot 基线场景）",
+      "expect": "七行全对上：空闲行显示时间；未读绿点+加粗；运行中像素环；待审批黄点；置顶+运行中 = 图钉+像素环；置顶空闲 = 图钉+时间；标记行一律无时间。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-attached/sessions-status-rear-slot.png"
+      ],
+      "notes": "DOM 断言七行全等 ✓（含回收站共用的 sessionStatusMarker 优先级未变：黄点 > 像素环 > 绿点）。截图人工复核：行尾标记居中、空闲行时间右缘贴行尾，排版无回归。"
+    }
+  ]
+}
