@@ -862,6 +862,48 @@ test('onlySessionIds keeps only the given ids, grouped by original workspace; or
   assert.deepEqual(tree[1].sessions.map((n) => n.sessionId), ['binned2'])
 })
 
+test('recycleOrder orders recycle-bin sessions latest-trash-first, ignoring sort keys', () => {
+  // 入站顺序 [c, b, a]（a 最新移入）；updatedAt 故意错序（b 最新）。
+  // 组内若走默认 updatedAt 降序应得 [b, c, a]；回收站按入站倒序应得 [a, b, c]——
+  // 证明 recycleOrder 生效且覆盖 sort/活跃前置。
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c'])],
+    [
+      s('a', { updatedAt: NOW - 3000 }),
+      s('b', { updatedAt: NOW - 1000 }),
+      s('c', { updatedAt: NOW - 2000 }),
+    ],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { onlySessionIds: new Set(['a', 'b', 'c']), recycleOrder: ['c', 'b', 'a'] },
+  )
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'b', 'c'])
+})
+
+test('recycleOrder falls back to position order per group; unknown ids trail', () => {
+  // w1 组内在入站序列里 [w1-c, w1-b, w1-a]，w1-a 最新；w2 组内 [w2-b, w2-a]。
+  // unknown（不在 recycleOrder 里）排本组最后。
+  const tree = buildSessionTree(
+    [ws('w1', ['w1-a', 'w1-b', 'w1-c', 'w1-x']), ws('w2', ['w2-a', 'w2-b'])],
+    [
+      s('w1-a'), s('w1-b'), s('w1-c'), s('w1-x'),
+      s('w2-a'), s('w2-b'),
+    ],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    {
+      onlySessionIds: new Set(['w1-a', 'w1-b', 'w1-c', 'w1-x', 'w2-a', 'w2-b']),
+      recycleOrder: ['w2-b', 'w2-a', 'w1-c', 'w1-b', 'w1-a'],
+    },
+  )
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['w1-a', 'w1-b', 'w1-c', 'w1-x'])
+  assert.deepEqual(tree[1].sessions.map((n) => n.sessionId), ['w2-a', 'w2-b'])
+})
+
 test('onlySessionIds respects archived/blank filters like the main list', () => {
   const tree = buildSessionTree(
     [ws('w1', ['binned', 'binned-gone', 'binned-blank'])],

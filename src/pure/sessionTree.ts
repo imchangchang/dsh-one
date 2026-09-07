@@ -174,6 +174,13 @@ export interface SessionTreeViewOptions {
    */
   onlySessionIds?: ReadonlySet<string>
   /**
+   * 回收站会话的入站顺序（数组尾部 = 最新移入回收站）。传入时组内排序不再
+   * 走 view.sort / 置顶 / 活跃前置，而是按此顺序倒序——最新入站的在本组最上
+   * （用户拍板：回收站不按时间/标题排序，只按进入回收站的顺序，最新在最上）。
+   * 缺省不传 = 维持既有排序（主列表路径不受影响）。
+   */
+  recycleOrder?: readonly string[]
+  /**
    * 会话标签组显示顺序（组 id 数组，第一 = 最上）。workspace 内非置顶会话
    * 按组聚合（组块按此顺序），组内沿用 view.sort；没有组的会话殿后。缺省
    * 不聚合（全部按既有规则平铺，兼容旧调用方与未打组状态）。
@@ -235,6 +242,9 @@ export function formatRelativeTime(updatedAt: number, now: number, t: L10nFn = e
  * Lineage subagents (origin === 'subagent') never appear as rows; they only
  * feed the parent's descendantRunning busy flag. Plain forks (parentSessionId
  * set, no origin) are normal sessions and do appear as rows.
+ * When `view.recycleOrder` is present (recycle-bin view), the ordering above
+ * is replaced inside each group: sessions sort by their position in
+ * `recycleOrder` descending (latest trashed first), ignoring sort/pin/active.
  */
 export function buildSessionTree(
   workspaces: WorkspaceInput[],
@@ -288,6 +298,13 @@ export function buildSessionTree(
     if (!pinnedIndex.has(id)) pinnedIndex.set(id, i)
   })
 
+  // 回收站入站顺序索引：sessionId → 在 view.recycleOrder（数组）里的位置，数组
+  // 尾部 = 最新移入。回收站组内由此倒序排（最新入站最上），忽略 sort/置顶/活跃。
+  const recycleOrderIndex = new Map<string, number>()
+  view.recycleOrder?.forEach((id, i) => {
+    if (!recycleOrderIndex.has(id)) recycleOrderIndex.set(id, i)
+  })
+
   // 标签组聚合索引：组 id → 块顺序（view.tags 数组序，第一 = 最上）；无组
   // /未知组 id = Infinity（殿后）。tagFor 缺省视为无映射（不聚合）。
   const tagIndex = new Map<string, number>()
@@ -330,6 +347,16 @@ export function buildSessionTree(
           view.contentHits?.has(session.sessionId) === true,
       )
       .sort((a, b) => {
+        // 回收站视图（recycleOrder 传入）：组内按入站顺序倒序（最新移入的最上），
+        // 不参与主列表的置顶/活跃/排序键逻辑——回收站会话按进入回收站的顺序排。
+        if (view.recycleOrder) {
+          const aIdx = recycleOrderIndex.get(a.session.sessionId)
+          const bIdx = recycleOrderIndex.get(b.session.sessionId)
+          if (aIdx === bIdx) return 0
+          if (aIdx === undefined) return 1
+          if (bIdx === undefined) return -1
+          return bIdx - aIdx
+        }
         const aPinned = pinnedIndex.has(a.session.sessionId)
         const bPinned = pinnedIndex.has(b.session.sessionId)
         if (aPinned !== bPinned) return aPinned ? -1 : 1
