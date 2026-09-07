@@ -96,8 +96,11 @@ function installFromNpm(version, tmp) {
  * pnpm run build → 以 `node --import tsx/esm apps/cli/src/bin.ts` 跑探针。
  * 依据上游 README「Run from source」。本机实测 0.1.3-alpha.1：install 2.5min +
  * build 4min；native/landlock-run 默认只 build:ts，无需 Rust 工具链。
+ * 源码包没有 .git，build 脚本的 client-build-environment 需要 commit hash——
+ * 用 DSH_CLIENT_COMMIT_HASH 显式传入（release 的 target_commitish），否则
+ * git rev-parse 在 CI 上必炸（scripts/client-build-environment.ts:52）。
  */
-function buildFromSource(tag, tmp) {
+function buildFromSource(tag, tmp, commit) {
   const tgz = path.join(tmp, 'src.tgz')
   const repoDir = path.join(tmp, 'repo')
   console.log(`[watch] downloading source ${tag}`)
@@ -106,14 +109,15 @@ function buildFromSource(tag, tmp) {
   execFileSync('tar', ['xzf', tgz, '-C', repoDir, '--strip-components=1'], { timeout: 120_000 })
   console.log('[watch] pnpm install (source build)')
   execFileSync('pnpm', ['install', '--frozen-lockfile'], { cwd: repoDir, stdio: 'inherit', timeout: 1_200_000 })
+  const buildEnv = { ...process.env, DSH_CLIENT_COMMIT_HASH: /^[0-9a-f]{7,40}$/i.test(commit ?? '') ? commit : '0000000' }
   console.log('[watch] pnpm run build (source build)')
-  execFileSync('pnpm', ['run', 'build'], { cwd: repoDir, stdio: 'inherit', timeout: 1_200_000 })
+  execFileSync('pnpm', ['run', 'build'], { cwd: repoDir, stdio: 'inherit', timeout: 1_200_000, env: buildEnv })
   return { command: `${process.execPath} --import tsx/esm apps/cli/src/bin.ts`, cwd: repoDir, via: `源码构建 ${tag}` }
 }
 
-function runProbe(version, target) {
+function runProbe(version, target, commit) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-watch-'))
-  const installed = target === 'source' ? buildFromSource(`dsh-v${version}`, tmp) : installFromNpm(version, tmp)
+  const installed = target === 'source' ? buildFromSource(`dsh-v${version}`, tmp, commit) : installFromNpm(version, tmp)
   const outJson = path.join(tmp, 'probe-results.json')
   const args = [path.join(HERE, 'probe.mjs'), '--command', installed.command, '--expect-version', version, '--json', outJson]
   if (installed.cwd) args.push('--cwd', installed.cwd)
@@ -222,7 +226,7 @@ async function main() {
       return
     }
     console.log(`[watch] #${existing.number} pending probe; running probe (${probeTarget})`)
-    const probe = runProbe(version, probeTarget)
+    const probe = runProbe(version, probeTarget, rel.target_commitish)
     if (opts.dryRun) {
       console.log('[watch] dry-run: would comment probe results:\n')
       console.log(probeResultsMarkdown(probe))
@@ -240,7 +244,7 @@ async function main() {
   let probe = null
   if (opts.probe) {
     try {
-      probe = runProbe(version, probeTarget)
+      probe = runProbe(version, probeTarget, rel.target_commitish)
     } catch (e) {
       console.error(`[watch] probe setup failed: ${e.message ?? e}`)
       probe = { exitCode: -1, results: null, via: `${probeTarget === 'source' ? '源码构建' : 'npm 安装'}失败: ${String(e.message ?? e).slice(0, 300)}` }
