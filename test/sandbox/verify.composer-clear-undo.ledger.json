@@ -1,0 +1,145 @@
+{
+  "title": "composer 双击清空（Ctrl+C/ESC + 提示小框）+ Ctrl+Z 反悔恢复（composer-clear-undo, #16）",
+  "branch": "agent/composer-clear-undo",
+  "commit": "9f8fe80",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2（沙盒镜像自带）",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-composer-clear-undo:latest（含本任务 vsix）",
+    "date": "2026-09-07T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code、真模型输出、平台专项（Windows/macOS 宿主快捷键差异）不在本报告范围。F-01/F-02 为沙盒内真 dsh + mock-LLM + 真 VS Code webview 的端到端键盘链路（Playwright 真实按键）；F-03/F-04 为 harness 确定态证据（mock 宿主注入 state，DOM 级断言 + 截图）——附件/会话引用的恢复在沙盒里喂不出来（需要宿主附件管道与 mention 选择器），而键盘语义守卫（运行中停止/选区复制/弹窗让位）需要确定性的 running/弹窗状态，harness 更稳。双通道互补：E2E 证真环境链路通，harness 证全组合态正确。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "Ctrl+C 双击清空：第一次亮提示不动文本，第二次清空，Ctrl+Z 恢复",
+      "driver": {
+        "keyClearUndo": "draft F-01: double-Ctrl+C clears, Ctrl+Z restores"
+      },
+      "expect": "新会话 composer 填入文本后：第一次 Ctrl+C 输入框上方浮出提示小框（.clear-confirm-hint，「Press Esc or Ctrl+C again to clear the input」）且文本原样不动；第二次 Ctrl+C 输入框清空（textarea#input.value === ''）；空输入框按 Ctrl+Z 恢复原文（value 与填入文本一致）。",
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-ccu/F-01.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；双击清空（Control+c）+Ctrl+Z 反悔链路通过：draft F-01: double-Ctrl+C clears, Ctrl+Z restores"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "ESC 双击清空：与 Ctrl+C 同一语义",
+      "driver": {
+        "keyClearUndo": "draft F-02: double-Escape clears, Ctrl+Z restores",
+        "keyClearUndoKey": "escape"
+      },
+      "expect": "与 F-01 同链路但清空键换 ESC：第一次 ESC 只亮提示小框、文本不动；第二次 ESC 清空；Ctrl+Z 恢复原文。",
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-ccu/F-02.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；双击清空（Escape）+Ctrl+Z 反悔链路通过：draft F-02: double-Escape clears, Ctrl+Z restores"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "清空范围含附件与 @ 引用：恢复后引用 token 正确重渲染（harness 证据）",
+      "expect": "harness 场景 composer-keyboard-clear-undo（/tmp/dsh-ui-shots/，分步截图）：composer 同时含文本 + 粘贴的 @会话引用 token + 图片 chip + 文件 chip 时——armed 步提示小框浮出且全部内容原样；cleared 步文本/chips 全清、提示消失、× 隐藏、焦点在输入框；restored 步 Ctrl+Z 后文本完整恢复、@引用以高亮 token（span.ref-token）形态重渲染（非裸文字）、图片与文件 chips 都回来、光标在文末。DOM 断言 window.__clearUndoAsserts 四步全 ok。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/composer-keyboard-clear-undo-filled.png",
+        "/tmp/dsh-ui-shots/composer-keyboard-clear-undo-armed.png",
+        "/tmp/dsh-ui-shots/composer-keyboard-clear-undo-cleared.png",
+        "/tmp/dsh-ui-shots/composer-keyboard-clear-undo-restored.png"
+      ],
+      "notes": "harness 分步场景 composer-keyboard-clear-undo 四步 DOM 断言全 ok（window.__clearUndoAsserts）：armed 步提示小框文案「Press Esc or Ctrl+C again to clear the input」且文本/引用/2 个附件 chips 原样；cleared 步 value 为空、chips 行消失、提示摘除、× 隐藏、焦点在输入框；restored 步文本完整恢复、@长文本输入时对话刷新问题 以 span.ref-token 高亮 token 重渲染、图片+文件 chips 都回来、光标在文末（selectionStart===value.length）。截图核对与断言一致，无红色断言横幅。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "键盘守卫回归：运行中停止优先 / 选区复制不动 / 打字解除武装 / 弹窗与召回让位（harness 证据）",
+      "expect": "三个 harness 场景（/tmp/dsh-ui-shots/）：① composer-esc-clear-disarm——ESC 武装后打字即解除（提示消失），再 ESC 重新武装不清空，再 ESC 才清空（纯文本走 keepComposer 保活路径）；② composer-clear-running-guard——running:true 时 ESC 与 Ctrl+C 都向宿主发 stop（__posted 断言），草稿原样保留、无提示小框；③ composer-clear-idle-guards——有选区 Ctrl+C 保持复制语义不动文本；↑ 召回历史后 ESC 是取消召回（草稿还原、不亮提示）；斜杠弹窗打开时 ESC 只关弹窗。各场景 DOM 断言全 ok，截图无红色断言横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/composer-esc-clear-disarm-esc-armed.png",
+        "/tmp/dsh-ui-shots/composer-esc-clear-disarm-typing-disarms.png",
+        "/tmp/dsh-ui-shots/composer-esc-clear-disarm-esc-rearmed.png",
+        "/tmp/dsh-ui-shots/composer-esc-clear-disarm-esc-cleared.png",
+        "/tmp/dsh-ui-shots/composer-clear-running-guard-esc-stops.png",
+        "/tmp/dsh-ui-shots/composer-clear-running-guard-ctrlc-stops.png",
+        "/tmp/dsh-ui-shots/composer-clear-idle-guards-selection-copy.png",
+        "/tmp/dsh-ui-shots/composer-clear-idle-guards-recall-esc.png",
+        "/tmp/dsh-ui-shots/composer-clear-idle-guards-slash-esc.png"
+      ],
+      "notes": "三组 harness 场景 DOM 断言全 ok：① esc-clear-disarm——ESC 武装→打字解除（提示消失）→再 ESC 重新武装且文本仍完整→再 ESC 才清空（保活路径不重建 composer）；② clear-running-guard——running:true 下 ESC 与 Ctrl+C 各发一次 stop（__posted 断言）、草稿原样、无提示小框；③ clear-idle-guards——选区 Ctrl+C 不动文本不亮提示、↑ 召回后 ESC 取消召回并还原草稿、斜杠弹窗 ESC 只关弹窗文本仍是「/」。截图核对无红色断言横幅。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "回归：× 清空按钮（既有入口，现与键盘清空共用 clearComposer）",
+      "driver": {
+        "fillAndClear": "draft R-01: clear-all button still clears"
+      },
+      "expect": "新会话 composer 填入文本后点 × 清空按钮：输入框为空（textarea#input.value === ''）。本次重构把 × 改为调用共享 clearComposer，须回归确认行为不变。",
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-ccu/R-01.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；已点击清空按钮，输入框为空"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "回归：基本发送回显",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "expect": "新会话发送「测试一下」后助手回显「收到：测试一下」（mock-LLM 兜底规则）；composer 发送后正常清空、消息流渲染不受影响。",
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-ccu/R-02.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "回归：pending 接管不丢草稿（clearComposer/stash 不干扰接管路径）",
+      "driver": {
+        "prompt": "提个问题",
+        "afterSendFill": "draft R-03: pending takeover keeps this",
+        "approve": [
+          "继续 (Recommended)",
+          "Submit"
+        ],
+        "expectDraft": "draft R-03: pending takeover keeps this"
+      },
+      "expect": "发送「提个问题」触发问答 pending 接管后，接管前填入的草稿不丢：点「继续 (Recommended)」→ Submit 应答、mock-LLM 继续本轮结束后 composer 恢复且 value 仍包含草稿文本。",
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-ccu/R-03.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；草稿已填入：draft R-03: pending takeover keeps this；已点击面板按钮：[\"继续 (Recommended)\",\"Submit\"]；草稿恢复：draft R-03: pending takeover keeps this"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "回归：slash 补全弹窗（ESC 让位链路的上游渲染不受影响）",
+      "driver": {
+        "fillSlash": "/g",
+        "expectPopup": [
+          "/goal",
+          "Set or view the long-task goal"
+        ]
+      },
+      "expect": "composer 填入「/g」后弹出 slash 补全浮层，含 /goal 项与描述「Set or view the long-task goal」；不发送。",
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-ccu/R-04.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；composer 已填入（未发送）：\"/g\"；弹窗文本命中：/goal；弹窗文本命中：Set or view the long-task goal"
+    }
+  ]
+}

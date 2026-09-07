@@ -377,10 +377,11 @@ async function fillAndClickClear(page, text) {
   }
 }
 
-/** 键盘双击清空 + 反悔（driver.keyClearUndo）：填文本 → Ctrl+C 第一次（提示小框
- *  .clear-confirm-hint 出现、文本原样不动）→ Ctrl+C 第二次（清空）→ Ctrl+Z
- *  （恢复原文）。逐步断言，任一步不符返回 false。 */
-async function keyClearUndo(page, text) {
+/** 键盘双击清空 + 反悔（driver.keyClearUndo）：填文本 → 清空键第一次（提示小框
+ *  .clear-confirm-hint 出现、文本原样不动）→ 第二次（清空）→ Ctrl+Z（恢复原文）。
+ *  key 取 'Control+c'（默认）或 'Escape'（driver.keyClearUndoKey: 'escape'）。
+ *  逐步断言，任一步不符返回 false。 */
+async function keyClearUndo(page, text, key = 'Control+c') {
   const chat = await findFrame(page, isChatFrame, 30_000)
   if (!chat) return false
   try {
@@ -389,7 +390,7 @@ async function keyClearUndo(page, text) {
     await ta.click()
     await ta.fill(text)
     await sleep(300)
-    await page.keyboard.press('Control+c')
+    await page.keyboard.press(key)
     await sleep(300)
     const armed = await bounded(
       chat.evaluate(() => ({
@@ -399,7 +400,7 @@ async function keyClearUndo(page, text) {
       'keyClearUndo armed evaluate',
     )
     if (!armed.hint || armed.value !== text) return false
-    await page.keyboard.press('Control+c')
+    await page.keyboard.press(key)
     await sleep(400)
     const cleared = await bounded(chat.evaluate(() => document.getElementById('input')?.value ?? null), 'keyClearUndo cleared evaluate')
     if (cleared !== '') return false
@@ -957,8 +958,9 @@ try {
             }
           }
           if (driver.keyClearUndo) {
-            const ok = await keyClearUndo(page, driver.keyClearUndo)
-            notes.push(ok ? `双击清空+Ctrl+Z 反悔链路通过：${driver.keyClearUndo}` : `keyClearUndo 链路失败：${driver.keyClearUndo}`)
+            const key = driver.keyClearUndoKey === 'escape' ? 'Escape' : 'Control+c'
+            const ok = await keyClearUndo(page, driver.keyClearUndo, key)
+            notes.push(ok ? `双击清空（${key}）+Ctrl+Z 反悔链路通过：${driver.keyClearUndo}` : `keyClearUndo（${key}）链路失败：${driver.keyClearUndo}`)
             if (!ok) {
               result = 'fail'
               notes.push('keyClearUndo：武装提示/双击清空/Ctrl+Z 恢复 某一步断言未过')
