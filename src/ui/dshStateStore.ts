@@ -16,13 +16,18 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import {
   dshModuleFile,
+  emptyDraftsFile,
+  capDraftsFile,
+  parseDraftsFile,
   parseGroupFile,
   parseIdListFile,
   parseTagFile,
+  serializeDraftsFile,
   serializeGroupFile,
   serializeIdListFile,
   serializeTagFile,
   DSH_MODULE_NAMES,
+  type DraftsFile,
   type DshModuleName,
   type GroupFile,
   type IdListFile,
@@ -240,6 +245,37 @@ export class DshStateStore {
         return await this.writeFile('tags', serializeTagFile(next))
       } catch (err) {
         this.warn(`update tags failed: ${err instanceof Error ? err.message : String(err)}`)
+        return false
+      }
+    })
+  }
+
+  /* ---- drafts 模块：不进 load() 快照/热重载（高频写，见 DSH_MODULE_NAMES 注释），
+   *  读在 webview ready 时现读现解析。---- */
+
+  /** 现读 drafts.json；缺失/坏文件按空草稿集降级（坏文件记 warn，不抛）。 */
+  async readDrafts(): Promise<DraftsFile> {
+    const raw = await this.readRaw('drafts')
+    if (raw === null) return emptyDraftsFile()
+    const parsed = parseDraftsFile(raw)
+    if (parsed === null) {
+      this.warn(`${this.modulePath('drafts')} exists but did not parse (bad JSON/shape/version) — treated as empty`)
+      return emptyDraftsFile()
+    }
+    return parsed
+  }
+
+  /** 读-合-写 drafts.json（同窗口串行；跨窗口 last-writer-wins，key 级合并压丢失率）。 */
+  async updateDrafts(mutator: (prev: DraftsFile) => DraftsFile): Promise<boolean> {
+    return this.enqueue(async () => {
+      try {
+        const raw = await this.readRaw('drafts')
+        const prev = raw !== null ? (parseDraftsFile(raw) ?? emptyDraftsFile()) : emptyDraftsFile()
+        const next = mutator(prev)
+        if (next === prev) return true
+        return await this.writeFile('drafts', serializeDraftsFile(capDraftsFile(next)))
+      } catch (err) {
+        this.warn(`update drafts failed: ${err instanceof Error ? err.message : String(err)}`)
         return false
       }
     })

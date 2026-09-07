@@ -54,6 +54,7 @@ import {
   resolveGroupFile,
   resolveIdList,
   resolveTagFile,
+  type DraftsFile,
 } from '../pure/dshStateFile.ts'
 
 /** Map one session.list entry onto the pure-layer SessionInput. */
@@ -666,6 +667,20 @@ export class SessionsStore implements vscode.Disposable {
     void ok.then((success) => {
       if (!success) this.logger.warn(`sessions store: persist ${what} to ${this.io.dir} failed`)
     })
+  }
+
+  /* ---- 输入草稿（drafts.json，chat tab 用；#14）----
+   *  drafts 不在启动快照/热重载里（高频写）：ready 时现读，写走读-合-写。
+   *  SessionsStore 只是 io 的唯一持有者，这里做透传，不维护内存镜像。 */
+
+  /** webview ready 报到时现读全部持久化草稿（坏文件按空降级）。 */
+  readDrafts(): Promise<DraftsFile> {
+    return this.io.readDrafts()
+  }
+
+  /** 读-合-写 drafts.json；写失败只 warn（草稿落盘失败不打断输入）。 */
+  updateDrafts(mutator: (prev: DraftsFile) => DraftsFile): void {
+    this.persistAck(this.io.updateDrafts(mutator), 'drafts')
   }
 
   /** 新建分组：名称 trim 后非空且不重名；成功返回组定义，失败返回 null。

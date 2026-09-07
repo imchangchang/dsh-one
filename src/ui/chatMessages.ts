@@ -707,6 +707,49 @@ const goalHandlers: ChatTabMessageHandler[] = [
   },
 ]
 
+/**
+ * 输入草稿域（#14）：webview 防抖上报 composer/问答卡草稿，宿主读-合-写
+ * drafts.json。落盘失败在 store 层只 warn 不抛——草稿保存失败不该打断输入，
+ * 也不弹错误 toast（这里永不 throw）。
+ */
+const draftHandlers: ChatTabMessageHandler[] = [
+  {
+    types: ['composerDraftSave'],
+    async handle(host, m) {
+      if (m.type !== 'composerDraftSave' || typeof m.key !== 'string' || !m.key) return
+      const { key, draft } = m
+      host.actions.store.updateDrafts((prev) => {
+        const empty = draft === null || (draft.text === '' && (draft.images?.length ?? 0) === 0 && (draft.files?.length ?? 0) === 0)
+        const composer = { ...prev.composer }
+        if (empty) {
+          if (!(key in composer)) return prev
+          delete composer[key]
+        } else {
+          composer[key] = { text: draft.text, ...(draft.images?.length ? { images: draft.images } : {}), ...(draft.files?.length ? { files: draft.files } : {}), updatedAt: Date.now() }
+        }
+        return { ...prev, composer }
+      })
+    },
+  },
+  {
+    types: ['answerDraftSave'],
+    async handle(host, m) {
+      if (m.type !== 'answerDraftSave' || typeof m.rpcId !== 'string' || !m.rpcId) return
+      const { rpcId, answers } = m
+      host.actions.store.updateDrafts((prev) => {
+        const next = { ...prev.answers }
+        if (answers === null || Object.keys(answers).length === 0) {
+          if (!(rpcId in next)) return prev
+          delete next[rpcId]
+        } else {
+          next[rpcId] = answers
+        }
+        return { ...prev, answers: next }
+      })
+    },
+  },
+]
+
 /** 产物/附件文件域：文件 chip 点击在 VS Code 编辑器打开（任意绝对路径）。 */
 const fileHandlers: ChatTabMessageHandler[] = [
   {
@@ -813,6 +856,7 @@ export const chatMessageHandlers: ChatTabMessageHandler[] = [
   ...chatHandlers,
   ...workspaceHandlers,
   ...goalHandlers,
+  ...draftHandlers,
   ...fileHandlers,
 ]
 

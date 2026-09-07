@@ -10,6 +10,7 @@ import type { FileRefCandidate } from './fileReference.ts'
 import type { WorkflowRunView } from './workflowRun.ts'
 import type { HostOs } from './installScript.ts'
 import type { TagColor } from './sessionTags.ts'
+import type { AnswerDraftEntry, ComposerDraftEntry } from './dshStateFile.ts'
 
 /** One renderable block inside an assistant message. */
 export interface ChatTextBlock {
@@ -952,6 +953,13 @@ export type ToWebviewMessage =
    * 显示即自动隐藏；connecting/failed 常驻直到状态变化。
    */
   | { type: 'chatReconnect'; phase: 'connecting' | 'recovered' | 'failed'; attempts: number }
+  /**
+   * 持久化草稿全量下发（webview ready 报到后、首个 state 帧之前到达）：
+   * composer key = sessionId 或空态 tab 的 `tab:<tabId>`；answers key =
+   * rpcId → 题号（字符串）→ 半答草稿。webview 据此种进内存草稿表，重启/
+   * reload 前的输入内容由此恢复（#14）。
+   */
+  | { type: 'draftRestore'; composer: Record<string, ComposerDraftEntry>; answers: Record<string, Record<string, AnswerDraftEntry>> }
 
 export type FromWebviewMessage =
   /** Webview 脚本加载完成（含 tab 切走后 VSCode 重载的场合）；宿主据此重推当前状态。 */
@@ -961,6 +969,18 @@ export type FromWebviewMessage =
    * 的 tab」：点击其他会话时若有未发送内容则新开 tab，不覆盖当前 tab。
    */
   | { type: 'composerDirty'; dirty: boolean }
+  /**
+   * composer 草稿落盘（防抖 + 签名去重后发送）：key = sessionId 或空态 tab 的
+   * `tab:<tabId>`；draft 为 null = 内容已清空/已发送，宿主删该条目。宿主补
+   * updatedAt 后写 drafts.json（#14）。
+   */
+  | { type: 'composerDraftSave'; key: string; draft: Omit<ComposerDraftEntry, 'updatedAt'> | null }
+  /**
+   * 问答卡半答草稿落盘：answers = 该 rpcId 的题号（字符串）→ 草稿全量；
+   * null = 已提交/放弃，宿主删该 rpcId 条目。提交成功或被别处回答（pending
+   * 解除）时宿主也会自行清理。
+   */
+  | { type: 'answerDraftSave'; rpcId: string; answers: Record<string, AnswerDraftEntry> | null }
   | { type: 'send'; text: string; images?: OutgoingImage[]; files?: StagedFile[]; steer?: boolean }
   | { type: 'stop' }
   | { type: 'approval'; rpcId: string; outcome: 'allowed-once' | 'rejected' }
