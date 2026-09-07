@@ -3,7 +3,8 @@
 
 Covers the script-side bridge client in `assign_tag(sids, tag_name, bridge_file)`:
 reads bridge.json {port, token} -> POST 127.0.0.1:<port>/tag with header
-`Authorization: Bearer <token>` and body `{"group", "sessionIds"}`. Verifies the
+`Authorization: Bearer <token>` and a body with an explicit action
+`{"action": "assign", "group", "sessionIds"}` (no default behavior). Verifies the
 request shape and every error path (missing/invalid record, HTTP error incl. 401,
 connect failure, bridge assign failure).
 
@@ -91,7 +92,7 @@ class AssignTagRequestTest(unittest.TestCase):
         headers = dict(req.header_items())
         self.assertEqual(headers.get("Authorization"), "Bearer tok")
         self.assertEqual(json.loads(req.data.decode()),
-                         {"group": "g", "sessionIds": ["a", "b"]})
+                         {"action": "assign", "group": "g", "sessionIds": ["a", "b"]})
         printed = "".join(c[0][0] for c in stdout.write.call_args_list)
         self.assertIn("t-1", printed)
         self.assertIn("2 sessions", printed)
