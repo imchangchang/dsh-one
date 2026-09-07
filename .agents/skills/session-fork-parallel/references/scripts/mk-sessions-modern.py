@@ -17,9 +17,11 @@ token (GET /?token=...); the token itself cannot call APIs.
 --repo defaults to the current directory; it must already be (or become) a
 registered workspace, the new sessions are attached to it by workspaceId.
 --tag groups all created sessions under one sidebar tag group (Kimi-bridge
-style: one batch = one group): after creation it writes
-~/.dsh/dsh-one/tags.json (create the tag by name if missing), which the
-DSH One extension picks up via its file watcher.
+style: one batch = one group): after creation it POSTs {group, sessionIds} to
+the DSH One extension's loopback bridge (~/.dsh/dsh-one/bridge.json -> port+token),
+which then writes ~/.dsh/dsh-one/tags.json via its store. The agent process no
+longer writes the client-state file directly (that is outside the workspace and
+gets blocked by the dsh file sandbox); the extension does it instead.
 No third-party dependencies (python3 stdlib only).
 """
 import argparse
@@ -33,48 +35,51 @@ import uuid
 
 BASE_DEFAULT = None  # filled from dsh-owned.json
 
-# ---- --tag：写 dsh-one 插件的客户端状态文件（~/.dsh/dsh-one/tags.json）----
-# 格式与插件 src/pure/dshStateFile.ts 的 TagFile 对齐：
-#   {"version":1, "tags":[{"id","name","color"}], "sessionTags":{sid: tagId}}
-# 预设组 id 与自定义组颜色轮换对齐 src/pure/sessionTags.ts（nextCustomColor）。
-DSH_ONE_TAGS_FILE = os.path.expanduser("~/.dsh/dsh-one/tags.json")
-PRESET_TAG_IDS = {"preset-todo", "preset-doing", "preset-done"}
-CUSTOM_TAG_PALETTE = ["orange", "purple", "red"]
+# ---- --tag：经扩展 loopback 桥代写 tags.json（#18）----
+# 扩展激活时在 127.0.0.1 起随机端口 + 每进程 token，写 ~/.dsh/dsh-one/bridge.json
+# {port, token}。本脚本只 POST 一次 /tag，tags.json 的找/建组/颜色轮换/原子写全部
+# 由扩展进程完成——agent 进程不再直写工作区外的文件（免沙箱拦截）。
+DSH_ONE_BRIDGE_FILE = os.path.expanduser("~/.dsh/dsh-one/bridge.json")
 
 
-def assign_tag(sids, tag_name):
-    """把 sids 归到名为 tag_name 的标签组：按 name 找/建 tag → sessionTags[sid]
-    = tagId → 原子写（同目录 tmp + replace）。插件 fs.watch 到变化后热重载侧栏。
-    文件存在但读不出/格式不认识时报错退出，不覆盖（坏文件由插件按「无文件」
-    降级处理，别在这里猜）。"""
+def assign_tag(sids, tag_name, bridge_file=DSH_ONE_BRIDGE_FILE):
+    """把 sids 归到名为 tag_name 的标签组：读 bridge.json（port+token）→ POST
+    /tag。tags.json 的写由扩展进程代做，本脚本不碰文件。bridge.json 缺失/连接
+    失败 = 扩展未加载或记录陈旧，报错指路（不静默）。"""
     try:
-        with open(DSH_ONE_TAGS_FILE, encoding="utf-8") as f:
-            doc = json.load(f)
-    except FileNotFoundError:
-        doc = None
-    except (OSError, json.JSONDecodeError) as e:
-        sys.exit(f"{DSH_ONE_TAGS_FILE} exists but is not valid JSON: {e}; refusing to overwrite")
-    if doc is None:
-        tags, session_tags = [], {}
-    elif doc.get("version") != 1 or not isinstance(doc.get("tags"), list) \
-            or not isinstance(doc.get("sessionTags"), dict):
-        sys.exit(f"{DSH_ONE_TAGS_FILE}: unrecognized shape/version; refusing to overwrite")
-    else:
-        tags, session_tags = doc["tags"], doc["sessionTags"]
-    tag = next((t for t in tags if isinstance(t, dict) and t.get("name") == tag_name), None)
-    if tag is None:
-        custom = sum(1 for t in tags if isinstance(t, dict) and t.get("id") not in PRESET_TAG_IDS)
-        tag = {"id": f"t-{uuid.uuid4()}", "name": tag_name,
-               "color": CUSTOM_TAG_PALETTE[custom % len(CUSTOM_TAG_PALETTE)]}
-        tags.append(tag)
-    for sid in sids:
-        session_tags[sid] = tag["id"]
-    os.makedirs(os.path.dirname(DSH_ONE_TAGS_FILE), exist_ok=True)
-    tmp = f"{DSH_ONE_TAGS_FILE}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"version": 1, "tags": tags, "sessionTags": session_tags}, f, ensure_ascii=False)
-    os.replace(tmp, DSH_ONE_TAGS_FILE)
-    print(f"tag: {tag_name} ({tag['id']}, {tag['color']}) → {len(sids)} sessions")
+        with open(bridge_file, encoding="utf-8") as f:
+            bridge = json.load(f)
+    except OSError as e:
+        sys.exit(
+            f"cannot read {bridge_file}: {e}\n"
+            "  DSH One 扩展未加载？先在 VS Code 里启动扩展（或 reload 窗口），再重试。"
+        )
+    port = bridge.get("port")
+    token = bridge.get("token")
+    if not isinstance(port, int) or not isinstance(token, str) or not token:
+        sys.exit(f"{bridge_file} 缺 port/token 或格式不对（扩展未加载/记录陈旧？）")
+    body = json.dumps({"group": tag_name, "sessionIds": sids}).encode()
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/tag", data=body, method="POST")
+    req.add_header("content-type", "application/json")
+    req.add_header("authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            doc = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode()[:200]
+        msg = f"bridge POST /tag failed: HTTP {e.code} {e.reason}: {detail}"
+        if e.code == 401:
+            msg += "\n  token 被拒——bridge.json 记录陈旧？reload 扩展窗口后重试。"
+        sys.exit(msg)
+    except urllib.error.URLError as e:
+        sys.exit(
+            f"bridge POST /tag failed (connect): {e.reason}\n"
+            "  扩展桥未监听？扩展未加载或已重启——reload 扩展窗口后重试。"
+        )
+    if not doc.get("ok"):
+        sys.exit(f"bridge assign tag failed: {doc.get('error', 'unknown')}")
+    tag = doc.get("tag") or {}
+    print(f"tag: {tag_name} ({tag.get('id')}) → {doc.get('sessionCount')} sessions")
 
 
 def http(base, method, payload, cookie=None, timeout=20):
@@ -135,7 +140,10 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="resolve & validate only; no sessions")
     ap.add_argument("--tag", default=None,
                     help="group all created sessions under this sidebar tag group "
-                         "(writes ~/.dsh/dsh-one/tags.json; DSH One picks it up via file watch)")
+                         "(POSTs to the DSH One loopback bridge; the extension writes "
+                         "~/.dsh/dsh-one/tags.json — no direct file write by this script)")
+    ap.add_argument("--bridge", default=DSH_ONE_BRIDGE_FILE,
+                    help="DSH One tag-bridge record (default: ~/.dsh/dsh-one/bridge.json)")
     args = ap.parse_args()
     if args.tag is not None and not args.tag.strip():
         sys.exit("--tag must be a non-empty group name")
@@ -208,7 +216,7 @@ def main():
         if args.dry_run:
             print(f"\nDRY-RUN: --tag {args.tag.strip()!r} would group the created sessions")
         elif sids:
-            assign_tag(sids, args.tag.strip())
+            assign_tag(sids, args.tag.strip(), args.bridge)
         else:
             print("\n--tag skipped: no session was created")
 
