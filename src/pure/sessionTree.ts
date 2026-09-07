@@ -176,6 +176,16 @@ export interface SessionTreeViewOptions {
    * tagId（供渲染层按组切块）；未知组 id 降级为未分组。缺省无映射。
    */
   sessionTagFor?: (sessionId: string) => string | undefined
+  /**
+   * per-workspace 的组顺序（组 id 数组）。与 tags 二选一：传了它就以
+   * workspace 内各自顺序聚合（v2 模型），未传则回退全局 tags。
+   */
+  tagOrderFor?: (workspaceId: string) => readonly string[]
+  /**
+   * per-workspace 的会话→组 id（单组映射）。与 sessionTagFor 二选一。v2 下
+   * 一个会话属于唯一 workspace，其归属从该 workspace 自己的桶里取。
+   */
+  sessionTagForWs?: (sessionId: string, workspaceId: string) => string | undefined
 }
 
 const MINUTE_MS = 60_000
@@ -288,27 +298,45 @@ export function buildSessionTree(
     if (!recycleOrderIndex.has(id)) recycleOrderIndex.set(id, i)
   })
 
-  // 标签组聚合索引：组 id → 块顺序（view.tags 数组序，第一 = 最上）；无组
-  // /未知组 id = Infinity（殿后）。tagFor 缺省视为无映射（不聚合）。
-  const tagIndex = new Map<string, number>()
-  view.tags?.forEach((id, i) => {
-    if (!tagIndex.has(id)) tagIndex.set(id, i)
-  })
-  const tagFor = view.sessionTagFor ?? ((): string | undefined => undefined)
-  /** 降级后的有效组 id（未知组视为无组）；排序与投影共用的单一判定。 */
-  const tagIdOf = (sessionId: string): string | undefined => {
-    const raw = tagFor(sessionId)
-    return raw !== undefined && tagIndex.has(raw) ? raw : undefined
+  // 标签组聚合索引：组 id → 块顺序。v2 下每个 workspace 有自己的顺序（tagOrderFor），
+  // 否则回退全局 tags。为每个 workspace 惰性计算聚合上下文（tagIndex + tagFor）。
+  // 未知组 id → Infinity（殿后）。无映射视为不聚合。
+  const tagIndexes = new Map<string, Map<string, number>>()
+  const tagFors = new Map<string, (sessionId: string) => string | undefined>()
+  const tagContextOf = (workspaceId: string): { tagIndex: Map<string, number>; tagFor: (sid: string) => string | undefined } => {
+    let tagIndex = tagIndexes.get(workspaceId)
+    let tagFor = tagFors.get(workspaceId)
+    if (tagIndex === undefined || tagFor === undefined) {
+      const order = view.tagOrderFor ? view.tagOrderFor(workspaceId) : view.tags
+      tagIndex = new Map<string, number>()
+      order?.forEach((id, i) => {
+        if (!tagIndex!.has(id)) tagIndex!.set(id, i)
+      })
+      const forWs = view.sessionTagForWs
+      tagFor = forWs
+        ? (sessionId: string): string | undefined => forWs(sessionId, workspaceId)
+        : (view.sessionTagFor ?? ((): string | undefined => undefined))
+      tagIndexes.set(workspaceId, tagIndex)
+      tagFors.set(workspaceId, tagFor)
+    }
+    return { tagIndex, tagFor }
   }
-  const tagRankOf = (tagId: string | undefined): number => (tagId === undefined ? Infinity : (tagIndex.get(tagId) ?? Infinity))
 
   // 会话行流水线：label 解析（query 匹配和标题显示要用，先算一次）→
   // 查询过滤（标题/ID 命中 或 内容命中）→ 置顶绝对优先（组内按置顶顺序）→
   // 未分组活跃平铺（有状态标记的无组会话整体前置、脱离组块）→ 标签组聚合
-  // （组块 = 容器：组内活跃前置、余下按 updatedAt 降序）→ 无组空闲殿后。workspace
-  // 组与「未分组」组共用。
-  const toSessionNodes = (list: SessionInput[]): SessionNodeModel[] =>
-    list
+  // （组块 = 容器：组内活跃前置、余下按 sort 键）→ 无组空闲殿后。workspace
+  // 组与「未分组」组共用。workspaceId 用于取其自己的标签组聚合上下文。
+  const toSessionNodes = (list: SessionInput[], workspaceId: string): SessionNodeModel[] => {
+    const { tagIndex, tagFor } = tagContextOf(workspaceId)
+    /** 降级后的有效组 id（未知组视为无组）；排序与投影共用的单一判定。 */
+    const tagIdOf = (sessionId: string): string | undefined => {
+      const raw = tagFor(sessionId)
+      return raw !== undefined && tagIndex.has(raw) ? raw : undefined
+    }
+    // 组块内排序（含 tagRankOf 供 sort 用）：置顶组内按置顶顺序、组块按 tags 序。
+    const tagRankOf = (tagId: string | undefined): number => (tagId === undefined ? Infinity : (tagIndex.get(tagId) ?? Infinity))
+    return list
       .map((s) => ({
         session: s,
         label: titleOf(s) ?? t('Session {0}', s.sessionId.slice(0, 8)),
@@ -383,6 +411,7 @@ export function buildSessionTree(
           ...(snippet !== undefined ? { contentSnippet: snippet } : {}),
         }
       })
+  }
 
   const ordered = [...workspaces].sort((a, b) => {
     const aCurrent = isCurrentFolder(a.path)
@@ -402,7 +431,7 @@ export function buildSessionTree(
       // 不赌它非空）；basename 为空（如根路径）时退回完整 path。
       label: w.title || basenameOf(w.path) || w.path,
       isCurrent: isCurrentFolder(w.path),
-      sessions: toSessionNodes(visible),
+      sessions: toSessionNodes(visible, w.workspaceId),
     }
   })
 
@@ -425,7 +454,7 @@ export function buildSessionTree(
     path: '',
     label: t('Ungrouped'),
     isCurrent: false,
-    sessions: toSessionNodes(orphans),
+    sessions: toSessionNodes(orphans, UNGROUPED_WORKSPACE_ID),
   })
 
   // Under an active query, a workspace with no matching session is noise.

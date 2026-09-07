@@ -1,0 +1,78 @@
+{
+  "title": "tag 存储 per-workspace（#23）验证报告",
+  "branch": "agent/tag-per-workspace-store",
+  "commit": "5fe1c1f",
+  "environment": {
+    "mode": "pure-logic + unit",
+    "node": "22",
+    "suite": "node --test test/*.test.ts",
+    "date": "2026-09-07T00:00:00Z"
+  },
+  "coverageNote": "本任务是纯逻辑 + 存储模型重构，**无渲染/交互 UI 行为变化**：标签组仍在会话列表按原样渲染，只是数据源从全局 tags.json v1 换成 per-workspace v2。因此不跑沙盒浏览器截图驱动（ui-visual 不适用），改用单元测试逐项核对迁移与 per-workspace 语义。验证命令：npx tsc --noEmit && npm test && npm run build。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "sessionTags 归属按 sessionId→workspace 拆桶（migrateTagFileV1ToV2）",
+      "expect": "v1 全局 sessionTags 中，s1/s2 归属 wsA、s3 无归属归 UNGROUPED 桶；每个桶含其成员引用的自定义组定义 + seed 的预设组；未被任何会话引用的 v1 自定义组（如 t-2）丢弃。",
+      "result": "pass",
+      "notes": "dshStateFile.test.ts『migrateTagFileV1ToV2 splits a global tag file into per-workspace buckets』：wsA.sessionTags={s1:preset-todo,s2:t-1}；ungrouped.sessionTags={s3:t-1}；wsA.tags 含 preset-todo 与 t-1、不含 t-2。符合预期。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "空 sessionTags 迁移产出空 workspaces",
+      "expect": "无任何打组归属的 v1 文件迁移后 workspaces 为空对象（不产出多余 bucket）。",
+      "result": "pass",
+      "notes": "dshStateFile.test.ts『...yields empty workspaces when no assignments』：out.workspaces 深等于 {}。符合预期。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "同 ws bucket 内自定义组定义不重复",
+      "expect": "多个 session 引用同一自定义组时，迁移后该 bucket 只保留一份该组定义。",
+      "result": "pass",
+      "notes": "dshStateFile.test.ts『...never duplicates the same tag def』：wsA.tags 里 t-1 只有 1 条。符合预期。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "tags.json v2 解析对 per-workspace 桶做清洗",
+      "expect": "parseTagFile 读 v2：坏 bucket 丢弃、指向未知组的归属丢弃、未知组折叠 id 丢弃、每个桶补齐三个预设组。",
+      "result": "pass",
+      "notes": "dshStateFile.test.ts『parseTagFile v2: per-workspace buckets are sanitized...』：ws1.sessionTags.s1=t-1、s2 丢弃；ws1.collapsed=['t-1']（t-unknown 丢弃）；bad 桶丢弃；ws1 含三个预设组。符合预期。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "v2 读写落盘 roundtrip + 写前重读字段级合并",
+      "expect": "write v2 → load 读回一致；updateTags 二次只动某桶的 sessionTags 时，该桶 tags/collapsed 原样保留。",
+      "result": "pass",
+      "notes": "dshStateStore.test.ts『missing tags file: updateTags creates a per-workspace bucket...』与『updateGroups merges field-wise; updateTags v2 merges per-workspace bucket』：ws1.sessionTags={s1,s2:preset-doing}，preset-doing 组恒在。符合预期。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "buildSessionTree 支持 per-workspace 标签组聚合（tagOrderFor/sessionTagForWs）",
+      "expect": "传 per-workspace accessor 时，各 workspace 按各自组顺序聚块；不传时回退全局 tags/sessionTagFor、行为不变——既有 58 项 sessionTree 测试全绿。",
+      "result": "pass",
+      "notes": "sessionTree.test.ts 全量 58 项通过（含置顶/活跃/无组/未知组多条边界）。本次为该函数新增 per-workspace accessor 分支，旧全局路径回归未破坏。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "迁移链路日志完整性",
+      "expect": "迁移路径需覆盖：启动读盘三态（v2 权威 / v1 待迁移 / 无数据）、v1→v2 拆分成功、写盘失败、热重载遇 v1。每条带 bucket/assignment 计数上下文。",
+      "result": "pass",
+      "notes": "migratePendingV1ToV2 已改串行：await updateTags，写成功才删 Memento + 清 pendingV1 + 记『migrated v1 global → v2 per-workspace (N buckets [...], M assignments)』；写失败记『FAILED...kept legacy Memento + pending data, will retry』；create() 三态各有 note()；reloadFromFiles 遇 v1 记 warn。全链路 context 齐备。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "全量回归（typecheck + 全部单测 + build）",
+      "expect": "无回归：tsc --noEmit 0 错误，651 项单测全过，dist 构建成功。",
+      "result": "pass",
+      "notes": "npm test 651 pass / 0 fail；npm run build 产出 extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js。"
+    }
+  ]
+}

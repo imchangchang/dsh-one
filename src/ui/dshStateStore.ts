@@ -26,20 +26,23 @@ import {
   serializeGroupFile,
   serializeIdListFile,
   serializeTagFile,
+  serializeTagFileV2,
   DSH_MODULE_NAMES,
   type DraftsFile,
   type DshModuleName,
   type GroupFile,
   type IdListFile,
   type TagFile,
+  type TagFileV2,
+  type AnyTagFile,
 } from '../pure/dshStateFile.ts'
-import { sanitizeTags } from '../pure/sessionTags.ts'
 
 /** 全部模块的快照；模块缺失/坏文件 = null（触发旧值迁移）。 */
 export interface DshStateSnapshot {
   recycleBin: IdListFile | null
   groups: GroupFile | null
-  tags: TagFile | null
+  /** 标签组文件：v2（per-workspace）或 v1（旧全局，待迁移），按 version 判别。 */
+  tags: TagFileV2 | TagFile | null
   pinned: IdListFile | null
   unread: IdListFile | null
 }
@@ -135,7 +138,7 @@ export class DshStateStore {
             snapshot.groups = parsed as GroupFile
             break
           case 'tags':
-            snapshot.tags = parsed as TagFile
+            snapshot.tags = parsed as AnyTagFile
             break
         }
       }),
@@ -235,14 +238,23 @@ export class DshStateStore {
     })
   }
 
-  async updateTags(mutator: (prev: TagFile) => TagFile): Promise<boolean> {
+  async updateTags(mutator: (prev: TagFileV2) => TagFileV2): Promise<boolean> {
     return this.enqueue(async () => {
       try {
         const raw = await this.readRaw('tags')
-        const prev = raw !== null ? (parseTagFile(raw) ?? emptyTagFile()) : emptyTagFile()
+        // 文件权威：读到 v2 用其值；读到 v1（旧全局，待迁移）也先升到 v2 空骨架再合并——
+        // 迁移落地前不主动写 v1 语义，但绝不能把文件读坏。坏文件/缺失按 v2 空骨架。
+        const prev = raw !== null ? (parseTagFile(raw) ?? emptyTagFileV2()) : emptyTagFileV2()
+        if (prev.version === 1) {
+          this.warn('client-state: tags.json is v1 legacy — treating as empty v2 for update; a separate migration pass writes v2')
+          // 不在此处转 v2：迁移要在基线就绪后由 sessionsStore 用 sessionId→workspace 拆分。
+          const next = mutator(emptyTagFileV2())
+          if (next === emptyTagFileV2()) return true
+          return await this.writeFile('tags', serializeTagFileV2(next))
+        }
         const next = mutator(prev)
         if (next === prev) return true
-        return await this.writeFile('tags', serializeTagFile(next))
+        return await this.writeFile('tags', serializeTagFileV2(next))
       } catch (err) {
         this.warn(`update tags failed: ${err instanceof Error ? err.message : String(err)}`)
         return false
@@ -336,9 +348,6 @@ function emptyGroupFile(): GroupFile {
   return { version: 1, groups: [], membership: {}, activeGroupId: null }
 }
 
-function emptyTagFile(): TagFile {
-  // 预设组必须在内：sessionsStore 的 mutator 以文件内 tag id 做 prevKnown 校验，
-  // 文件缺失时若 prev 不含预设组，「指派到 Todo/Doing/Done」会被校验吞掉、
-  // 静默跳过落盘（全新安装首用打组重启即丢）。
-  return { version: 1, tags: sanitizeTags(undefined), sessionTags: {} }
+function emptyTagFileV2(): TagFileV2 {
+  return { version: 2, workspaces: {} }
 }

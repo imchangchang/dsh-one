@@ -37,6 +37,7 @@ import {
   nextCustomColor,
   removeTagFromAll,
   reorderTags as reorderTagsPure,
+  sanitizeTags as sanitizeTagsPure,
   setSessionTagId,
   TAG_COLORS,
   tagDisplayName,
@@ -49,12 +50,13 @@ import {
   mergeGroupDefs,
   mergeIdList,
   mergeMembership,
-  mergeSessionTags,
-  mergeTagDefs,
+  migrateTagFileV1ToV2,
   resolveGroupFile,
   resolveIdList,
   resolveTagFile,
   type DraftsFile,
+  type TagFileV2,
+  type WorkspaceTagState,
 } from '../pure/dshStateFile.ts'
 
 /** Map one session.list entry onto the pure-layer SessionInput. */
@@ -89,8 +91,6 @@ const REFRESH_DEBOUNCE_MS = 500
 /* ---- UI 展示偏好：留在 Memento，不进 dsh 目录（条目拍板） ---- */
 /** workspaceState key for collapsed workspaces（UI-only；dsh 无此概念）. */
 const COLLAPSED_STATE_KEY = 'sessions.collapsed'
-/** workspaceState key for collapsed tag-group blocks（UI 偏好，与组内容无关）. */
-const TAG_COLLAPSED_STATE_KEY = 'sessions.tagCollapsed'
 /** globalState key for recycle view collapsed workspaces（与主列表折叠互不影响；
  *  v1 同名 key 存 workspaceState，构造器里做一次性 Memento→Memento 迁移）。 */
 const RECYCLE_COLLAPSED_STATE_KEY = 'sessions.recycleCollapsed'
@@ -155,11 +155,11 @@ export interface SessionsStoreSnapshot {
   /** 管理视图的 workspace 目录（全量，排除「未分组」虚拟组）。 */
   workspaceDirectory: Array<{ workspaceId: string; label: string }>
   /** 会话标签组（有序；预设组名已按当前 locale 翻译；count = 当前基线中打组的会话数）。 */
-  tags: Array<{ id: string; name: string; color: TagColor; preset: boolean; count: number }>
+  tags: Array<{ workspaceId: string; id: string; name: string; color: TagColor; preset: boolean; count: number }>
   /** 标签组 → 会话 id（单组倒排，全量未清洗；整组批量操作（归档/回收站）按此收集全集）。 */
   tagSessionIds: Record<string, string[]>
-  /** 折叠的标签组块 id（UI 偏好，workspaceState 持久化）。 */
-  tagCollapsed: string[]
+  /** 折叠的标签组块 id（per-workspace：wsId → 折叠的 tagId 列表；UI 偏好）。 */
+  tagCollapsed: Record<string, string[]>
 }
 
 /**
@@ -172,8 +172,14 @@ export interface SessionsBootstrap {
   groups: GroupDef[]
   groupMembership: Record<string, string[]>
   activeGroupId: string | null
-  tags: TagDef[]
-  sessionTags: Record<string, string>
+  /** per-workspace 标签组（v2）：wsId → 组定义/归属/折叠。权威时直接采用。 */
+  tags: Record<string, WorkspaceTagState>
+  /**
+   * v1 全局标签组（待迁移）。文件仍是 v1 全局模型时创建（此时基线未到无法拆桶），
+   * 等第一次基线就绪后按 sessionId→workspace 拆分（见 migratePendingV1ToV2）。
+   * null = 无待迁移数据（v2 权威，或全新安装）。
+   */
+  pendingV1: { tags: TagDef[]; sessionTags: Record<string, string> } | null
 }
 
 /**
@@ -212,13 +218,12 @@ export class SessionsStore implements vscode.Disposable {
   private groupMembership: Record<string, string[]> = {}
   /** 当前选中的分组 id；null = 全部工作区（groups.json 持久化）。 */
   private activeGroupId: string | null = null
-  /** 会话标签组定义（tags.json 持久化；数组顺序 = 展示顺序，用户可拖拽排序）：
-   *  预设组名字为 null（按 l10n 出），自定义组为用户原文。 */
-  private tags: TagDef[] = []
-  /** sessionId → 标签组 id（单组；tags.json 持久化，dsh 无概念，纯客户端状态）。 */
-  private sessionTags: Record<string, string> = {}
-  /** 折叠的标签组块 id（UI 偏好，workspaceState 持久化；与组内容无关）。 */
-  private tagCollapsed = new Set<string>()
+  /** 会话标签组（per-workspace，v2）：wsId → 组定义/归属/折叠。 */
+  private wsTags: Record<string, WorkspaceTagState> = {}
+  /**
+   * v1 全局标签组（待基线迁移）。null = 无待迁移数据。见 SessionsBootstrap.pendingV1。
+   */
+  private pendingV1: { tags: TagDef[]; sessionTags: Record<string, string> } | null = null
   /** 回收站视图的展示模型（只含回收站会话，无搜索过滤；基线与主列表同一份 raw 数据）。 */
   private recycleWorkspaces: WorkspaceNodeModel[] = []
   /** 内容搜索命中：sessionId → 最佳匹配片段（query 非空时由 session.search 填充）。 */
@@ -306,17 +311,16 @@ export class SessionsStore implements vscode.Disposable {
     }
     void state.update(RECYCLE_COLLAPSED_STATE_KEY, undefined)
     this.recycleCollapsed.delete(UNGROUPED_WORKSPACE_ID)
-    // 标签组块折叠偏好（workspaceState；未知组 id 无碍，渲染时按需判断）。
-    this.tagCollapsed = new Set(state.get<string[]>(TAG_COLLAPSED_STATE_KEY) ?? [])
     // 文件权威的五组状态：create 已完成读盘与旧 Memento 迁移，这里直接采用。
+    // 标签组折叠状态已随 v2 迁进文件（per-workspace），不再走 Memento。
     this.recycleBin = [...bootstrap.recycleBin]
     this.pinned = [...bootstrap.pinned]
     this.unread = new Set(bootstrap.unread)
     this.groups = bootstrap.groups
     this.groupMembership = bootstrap.groupMembership
     this.activeGroupId = bootstrap.activeGroupId
-    this.tags = bootstrap.tags
-    this.sessionTags = bootstrap.sessionTags
+    this.wsTags = bootstrap.tags
+    this.pendingV1 = bootstrap.pendingV1
     this.stateSub = manager.onDidChangeState((status) => this.onStateChange(status))
     this.onStateChange(manager.getStatus())
   }
@@ -416,38 +420,39 @@ export class SessionsStore implements vscode.Disposable {
       }
     }
 
-    // 会话标签组：fromLegacy 即落盘——哪怕只有预设组 seed 也写（对齐旧版
-    // 「首启把 seed 写回 Memento」的行为，文件从此权威）。
-    let tags: TagDef[]
-    let sessionTags: Record<string, string>
-    if (snap.tags !== null) {
-      tags = snap.tags.tags
-      sessionTags = snap.tags.sessionTags
+    // 会话标签组（per-workspace，v2）：文件权威采用 v2；v1 全局模型（无论来自
+    // 文件还是旧 Memento）不在此处拆桶——缺 sessionId→workspace 映射，只能等
+    // 基线就绪后迁移（记 pendingV1，见 migratePendingV1ToV2）。
+    let tags: Record<string, WorkspaceTagState>
+    let pendingV1: { tags: TagDef[]; sessionTags: Record<string, string> } | null = null
+    if (snap.tags !== null && snap.tags.version === 2) {
+      tags = snap.tags.workspaces
       deleteLegacyKeys(globalState, [LEGACY_TAGS_KEY, LEGACY_SESSION_TAGS_KEY])
       note(
-        `client-state[tags]: file authoritative (${tags.length} defs, ${Object.keys(sessionTags).length} assignments); any legacy Memento keys cleared`,
+        `client-state[tags]: file authoritative v2 (${Object.keys(tags).length} workspaces); any legacy Memento keys cleared`,
+      )
+    } else if (snap.tags !== null && snap.tags.version === 1) {
+      // 文件是 v1 全局模型：暂存待迁移。文件本身是数据的持久副本，保留，下次
+      // 启动仍可重读；Memento 里若有重复旧值此时已冗余，可清。
+      tags = {}
+      pendingV1 = { tags: snap.tags.tags, sessionTags: snap.tags.sessionTags }
+      deleteLegacyKeys(globalState, [LEGACY_TAGS_KEY, LEGACY_SESSION_TAGS_KEY])
+      note(
+        `client-state[tags]: file is v1 legacy (${pendingV1.tags.length} defs, ${Object.keys(pendingV1.sessionTags).length} assignments) — pending baseline-driven migration`,
       )
     } else {
       const legacy = resolveTagFile(null, globalState.get(LEGACY_TAGS_KEY), globalState.get(LEGACY_SESSION_TAGS_KEY))
-      tags = legacy.value.tags
-      sessionTags = legacy.value.sessionTags
       if (legacy.fromLegacy) {
-        const value = legacy.value
-        const ok = await io.updateTags((prev) => ({
-          ...prev,
-          tags: mergeTagDefs(prev.tags, value.tags),
-          sessionTags: mergeSessionTags(prev.sessionTags, value.sessionTags),
-        }))
-        if (!ok) warn('tags')
-        else {
-          deleteLegacyKeys(globalState, [LEGACY_TAGS_KEY, LEGACY_SESSION_TAGS_KEY])
-          note(
-            `client-state[tags]: migrated from legacy Memento to file (${value.tags.length} defs, ${Object.keys(value.sessionTags).length} assignments); legacy keys deleted`,
-          )
-        }
+        // 旧 Memento 是唯一持久副本：暂存待迁移，但**不删 Memento key、不写文件**
+        // ——迁移成功（写 v2 + 删 key）前绝不能丢。restart 时 Memento 仍可重读。
+        pendingV1 = { tags: legacy.value.tags, sessionTags: legacy.value.sessionTags }
+        note(
+          `client-state[tags]: legacy Memento v1 pending (${pendingV1.tags.length} defs, ${Object.keys(pendingV1.sessionTags).length} assignments) — baseline-driven migration; legacy keys kept until it succeeds`,
+        )
       } else {
-        note('client-state[tags]: no file, no legacy data — fresh start (preset groups only, file created on first write)')
+        note('client-state[tags]: no file, no legacy data — fresh start')
       }
+      tags = {}
     }
 
     // pinned/unread：旧值在 workspaceState（per-workspace），迁文件后全局共享。
@@ -502,7 +507,7 @@ export class SessionsStore implements vscode.Disposable {
       groupMembership,
       activeGroupId,
       tags,
-      sessionTags,
+      pendingV1,
     })
     store.unwatchFiles = io.watch(() => void store.reloadFromFiles())
     // 补上 load→watch 之间可能错过的外部写入；无变化时 reload 内部逐模块比对
@@ -607,23 +612,26 @@ export class SessionsStore implements vscode.Disposable {
       workspaceDirectory: this.workspaces
         .filter((w) => w.workspaceId !== UNGROUPED_WORKSPACE_ID)
         .map((w) => ({ workspaceId: w.workspaceId, label: w.label })),
-      // 标签组：count 只认当前基线里真实存在的会话（成员残留旧 id 不计）。
-      tags: this.tags.map((t) => ({
+      // 标签组：per-workspace 平铺（每项带 workspaceId，webview 在组内按 ws 解析）；
+      // count 只认当前基线里真实存在的会话（成员残留旧 id 不计）。
+      tags: collectTagSnapshots(this.wsTags, (t, wsId) => ({
+        workspaceId: wsId,
         id: t.id,
         name: tagDisplayName(t, vscode.l10n.t),
         color: t.color,
         preset: isPresetTag(t),
-        count: this.tagSessionCount(t.id),
+        count: this.tagSessionCount(wsId, t.id),
       })),
-      tagSessionIds: invertSessionTagIds(this.sessionTags),
-      tagCollapsed: [...this.tagCollapsed],
+      tagSessionIds: invertSessionTagIds(collectAllSessionTags(this.wsTags)),
+      tagCollapsed: collectCollapsed(this.wsTags),
     }
   }
 
-  /** 某组的会话计数（只数当前基线里的非归档会话；残留/已删 id 不计）。 */
-  private tagSessionCount(tagId: string): number {
+  /** 某 ws 某个组的会话计数（只数当前基线里的非归档会话；残留/已删 id 不计）。 */
+  private tagSessionCount(workspaceId: string, tagId: string): number {
+    const bucket = this.bucketOf(workspaceId)
     let n = 0
-    for (const [sessionId, id] of Object.entries(this.sessionTags)) {
+    for (const [sessionId, id] of Object.entries(bucket.sessionTags)) {
       if (id === tagId && this.knownSessionIds.has(sessionId)) n += 1
     }
     return n
@@ -776,20 +784,54 @@ export class SessionsStore implements vscode.Disposable {
     this.onDidChangeEmitter.fire()
   }
 
-  /* ---- 会话标签组（客户端状态，tags.json 持久化；单组语义） ---- */
+  /* ---- 会话标签组（客户端状态，tags.json v2 持久化；per-workspace、单组语义） ----
+   * 每个 workspace 自带一套组定义 + 归属 + 折叠（bucket）。预设组（todo/doing/done）
+   * 语义全局统一、在每个 workspace 各自 seed；自定义组只在该 workspace 存在。
+   * 操作都带 workspaceId——webview 在某个 workspace 组内交互，天然带着它。 */
 
-  /** 新建自建组：名称 trim 后非空且不与自建组重名；颜色未指定时轮换。
-   *  返回组定义；失败（空名/重名）返回 null——webview 已做同款校验，这里兜底。 */
-  createTag(name: string, color?: TagColor): TagDef | null {
-    if (tagNameError(name, this.tags) !== null) return null
-    const tag: TagDef = { id: `t-${randomUUID()}`, name: name.trim(), color: color ?? nextCustomColor(this.tags) }
-    this.tags = [...this.tags, tag]
+  /** 某 ws 的标签组 bucket；缺失时返回空骨架（不落盘，仅读），预设组 se seed。 */
+  private bucketOf(workspaceId: string): WorkspaceTagState {
+    return this.wsTags[workspaceId] ?? { tags: sanitizeTagsPure(undefined), sessionTags: {}, collapsed: [] }
+  }
+
+  /** 某 ws 的组定义数组（读用，不建桶）。 */
+  private bucketTags(workspaceId: string): TagDef[] {
+    return this.bucketOf(workspaceId).tags
+  }
+
+  /** 取（或建）某 ws 的标签组 bucket，返回可变的实际引用（新桶 seed 预设组）。 */
+  private ensureBucket(workspaceId: string): WorkspaceTagState {
+    let b = this.wsTags[workspaceId]
+    if (!b) {
+      b = { tags: sanitizeTagsPure(undefined), sessionTags: {}, collapsed: [] }
+      this.wsTags[workspaceId] = b
+    }
+    return b
+  }
+
+  /** 会话 → workspace（基线反查：session.list 的 cwd 归属 workspace.list 的
+   *  sessionIds）。基线未认识时回退 UNGROUPED——操作维度仍在，容器不同。 */
+  private workspaceOfSession(sessionId: string): string {
+    const owned = this.rawWorkspaces.find((w) => w.sessionIds.includes(sessionId))?.workspaceId
+    return owned ?? UNGROUPED_WORKSPACE_ID
+  }
+
+  /** 新建自建组（per-workspace）：名称 trim 后非空且不与该 ws 自建组重名；颜色
+   *  未指定时轮换。返回组定义；失败（空名/重名）返回 null。 */
+  createTag(workspaceId: string, name: string, color?: TagColor): TagDef | null {
+    const tags = this.bucketTags(workspaceId)
+    if (tagNameError(name, tags) !== null) return null
+    const tag: TagDef = { id: `t-${randomUUID()}`, name: name.trim(), color: color ?? nextCustomColor(tags) }
+    const bucket = this.ensureBucket(workspaceId)
+    bucket.tags = [...bucket.tags, tag]
     this.persistAck(
-      this.io.updateTags((prev) => {
-        // 文件里可能已有派生脚本/另一窗口建的同名组——重名不追加。
-        if (prev.tags.some((t) => t.id === tag.id || (t.name !== null && t.name === tag.name))) return prev
-        return { ...prev, tags: [...prev.tags, tag] }
-      }),
+      this.io.updateTags((prev) => ({
+        ...prev,
+        workspaces: {
+          ...prev.workspaces,
+          [workspaceId]: withTagAppended(prev.workspaces[workspaceId] ?? emptyBucket(), tag),
+        },
+      })),
       'tags',
     )
     // 组顺序是树的重建输入（组块聚合序），新组立即参与显示。
@@ -798,20 +840,23 @@ export class SessionsStore implements vscode.Disposable {
     return tag
   }
 
-  /** 重命名标签组（所有组可改：预设组改名后覆盖 l10n 默认名，name 落为非 null；
-   *  同名校验同 createTag，排除自身）。无变化返回 true（弹窗关掉即可）。 */
-  renameTag(tagId: string, name: string): boolean {
-    const tag = this.tags.find((t) => t.id === tagId)
+  /** 重命名标签组（per-workspace；预设组改名后覆盖 l10n 默认名，name 落为非 null）。 */
+  renameTag(workspaceId: string, tagId: string, name: string): boolean {
+    const tags = this.bucketTags(workspaceId)
+    const tag = tags.find((t) => t.id === tagId)
     if (!tag) return false
-    if (tagNameError(name, this.tags, tagId) !== null) return false
+    if (tagNameError(name, tags, tagId) !== null) return false
     const trimmed = name.trim()
     if (tag.name === trimmed) return true
-    this.tags = this.tags.map((t) => (t.id === tagId ? { ...t, name: trimmed } : t))
+    this.ensureBucket(workspaceId).tags = tags.map((t) => (t.id === tagId ? { ...t, name: trimmed } : t))
     this.persistAck(
-      this.io.updateTags((prev) => {
-        if (!prev.tags.some((t) => t.id === tagId)) return prev
-        return { ...prev, tags: prev.tags.map((t) => (t.id === tagId ? { ...t, name: trimmed } : t)) }
-      }),
+      this.io.updateTags((prev) => ({
+        ...prev,
+        workspaces: {
+          ...prev.workspaces,
+          [workspaceId]: withTagsMapped(prev.workspaces[workspaceId] ?? emptyBucket(), (t) => (t.id === tagId ? { ...t, name: trimmed } : t)),
+        },
+      })),
       'tags',
     )
     this.rebuildModel()
@@ -819,58 +864,69 @@ export class SessionsStore implements vscode.Disposable {
     return true
   }
 
-  /** 设置标签组颜色（所有组可改色；非法颜色忽略；颜色不进树模型，无需重建）。 */
-  setTagColor(tagId: string, color: TagColor): void {
+  /** 设置标签组颜色（per-workspace；非法颜色忽略；颜色不进树模型，无需重建）。 */
+  setTagColor(workspaceId: string, tagId: string, color: TagColor): void {
     if (!(TAG_COLORS as readonly unknown[]).includes(color)) return
-    const tag = this.tags.find((t) => t.id === tagId)
+    const tags = this.bucketTags(workspaceId)
+    const tag = tags.find((t) => t.id === tagId)
     if (!tag || tag.color === color) return
-    this.tags = this.tags.map((t) => (t.id === tagId ? { ...t, color } : t))
+    this.ensureBucket(workspaceId).tags = tags.map((t) => (t.id === tagId ? { ...t, color } : t))
     this.persistAck(
-      this.io.updateTags((prev) => {
-        if (!prev.tags.some((t) => t.id === tagId)) return prev
-        return { ...prev, tags: prev.tags.map((t) => (t.id === tagId ? { ...t, color } : t)) }
-      }),
+      this.io.updateTags((prev) => ({
+        ...prev,
+        workspaces: {
+          ...prev.workspaces,
+          [workspaceId]: withTagsMapped(prev.workspaces[workspaceId] ?? emptyBucket(), (t) => (t.id === tagId ? { ...t, color } : t)),
+        },
+      })),
       'tags',
     )
     this.onDidChangeEmitter.fire()
   }
 
-  /** 删除自建组：组定义移除、成员打标清理（组内会话回到未分组）；预设组拒绝。 */
-  deleteTag(tagId: string): void {
-    const tag = this.tags.find((t) => t.id === tagId)
+  /** 删除自建组（per-workspace）：组定义移除、成员打标清理（组内会话回未分组）；预设组拒绝。 */
+  deleteTag(workspaceId: string, tagId: string): void {
+    const tags = this.bucketTags(workspaceId)
+    const tag = tags.find((t) => t.id === tagId)
     if (!tag || isPresetTag(tag)) return
-    this.tags = this.tags.filter((t) => t.id !== tagId)
-    const next = removeTagFromAll(this.sessionTags, tagId)
-    if (next !== this.sessionTags) {
-      this.sessionTags = next
-    }
+    const bucket = this.ensureBucket(workspaceId)
+    bucket.tags = tags.filter((t) => t.id !== tagId)
+    bucket.sessionTags = removeTagFromAll(bucket.sessionTags, tagId)
+    bucket.collapsed = bucket.collapsed.filter((id) => id !== tagId)
     this.persistAck(
-      this.io.updateTags((prev) => {
-        if (!prev.tags.some((t) => t.id === tagId)) return prev
-        return {
-          ...prev,
-          tags: prev.tags.filter((t) => t.id !== tagId),
-          sessionTags: removeTagFromAll(prev.sessionTags, tagId),
-        }
-      }),
+      this.io.updateTags((prev) => ({
+        ...prev,
+        workspaces: {
+          ...prev.workspaces,
+          [workspaceId]: withTagRemoved(prev.workspaces[workspaceId] ?? emptyBucket(), tagId),
+        },
+      })),
       'tags',
     )
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
 
-  /** 设置一个会话的组（tagId = null 移出组；未知组 id 忽略；幂等）。 */
+  /** 设置一个会话的组（tagId = null 移出组；未知组 id 忽略；幂等）。会话所属
+   *  workspace 由基线反查；tag 打到该会话所属 ws 的 bucket。 */
   setSessionTag(sessionId: string, tagId: string | null): void {
     if (!sessionId) return
-    const known = new Set(this.tags.map((t) => t.id))
-    const next = setSessionTagId(this.sessionTags, sessionId, tagId, known)
+    const workspaceId = this.workspaceOfSession(sessionId)
+    const bucket = this.ensureBucket(workspaceId)
+    const known = new Set(bucket.tags.map((t) => t.id))
+    const next = setSessionTagId(bucket.sessionTags, sessionId, tagId, known)
     if (next === null) return
-    this.sessionTags = next
+    bucket.sessionTags = next
     this.persistAck(
       this.io.updateTags((prev) => {
-        const prevKnown = new Set(prev.tags.map((t) => t.id))
-        const sessionTags = setSessionTagId(prev.sessionTags, sessionId, tagId, prevKnown)
-        return sessionTags === null ? prev : { ...prev, sessionTags }
+        const pb = prev.workspaces[workspaceId] ?? emptyBucket()
+        return {
+          ...prev,
+          workspaces: {
+            ...prev.workspaces,
+            [workspaceId]: { ...pb, sessionTags: (() => { const k = new Set(pb.tags.map((t) => t.id)); const s = setSessionTagId(pb.sessionTags, sessionId, tagId, k); return s ?? pb.sessionTags })() },
+          },
+        }
       }),
       'tags',
     )
@@ -883,41 +939,24 @@ export class SessionsStore implements vscode.Disposable {
   /** 批量设置（整组操作「移出分组」/拖拽后多行同组）：单次持久化 + 一次通知。 */
   setSessionTagMany(sessionIds: readonly string[], tagId: string | null): void {
     if (sessionIds.length === 0) return
-    if (tagId !== null && !this.tags.some((t) => t.id === tagId)) return
-    const known = new Set(this.tags.map((t) => t.id))
-    let next = this.sessionTags
-    for (const id of sessionIds) {
-      const changed = setSessionTagId(next, id, tagId, known)
-      if (changed !== null) next = changed
-    }
-    if (next === this.sessionTags) return
-    this.sessionTags = next
-    this.persistAck(
-      this.io.updateTags((prev) => {
-        const prevKnown = new Set(prev.tags.map((t) => t.id))
-        let sessionTags = prev.sessionTags
-        for (const id of sessionIds) {
-          const changed = setSessionTagId(sessionTags, id, tagId, prevKnown)
-          if (changed !== null) sessionTags = changed
-        }
-        return sessionTags === prev.sessionTags ? prev : { ...prev, sessionTags }
-      }),
-      'tags',
-    )
-    this.rebuildModel()
-    this.onDidChangeEmitter.fire()
+    // 批量目标 = 这些会话各自所属 ws 的 bucket（逐个按会话归属写）。
+    for (const id of sessionIds) this.setSessionTag(id, tagId)
   }
 
-  /** 持久化标签组顺序（拖拽后提交全量顺序；缺失/未知 id 拒绝）。 */
-  reorderSessionTags(tagIds: readonly string[]): void {
-    const next = reorderTagsPure(this.tags, tagIds)
+  /** 持久化标签组顺序（per-workspace；拖拽后提交全量顺序；缺失/未知 id 拒绝）。 */
+  reorderSessionTags(workspaceId: string, tagIds: readonly string[]): void {
+    const tags = this.bucketTags(workspaceId)
+    const next = reorderTagsPure(tags, tagIds)
     if (next === null) return
-    this.tags = next
+    this.ensureBucket(workspaceId).tags = next
     this.persistAck(
-      this.io.updateTags((prev) => {
-        const tags = reorderTagsPure(prev.tags, tagIds)
-        return tags === null ? prev : { ...prev, tags }
-      }),
+      this.io.updateTags((prev) => ({
+        ...prev,
+        workspaces: {
+          ...prev.workspaces,
+          [workspaceId]: withTagsReordered(prev.workspaces[workspaceId] ?? emptyBucket(), tagIds),
+        },
+      })),
       'tags',
     )
     // 组顺序改变组块聚合顺序，同样需要重建模型。
@@ -925,27 +964,34 @@ export class SessionsStore implements vscode.Disposable {
     this.onDidChangeEmitter.fire()
   }
 
-  /** 折叠/展开一个标签组块（UI 偏好，workspaceState 持久化；幂等）。 */
-  setTagCollapsed(tagId: string, collapsed: boolean): void {
-    const changed = collapsed ? !this.tagCollapsed.has(tagId) : this.tagCollapsed.delete(tagId)
-    if (collapsed) this.tagCollapsed.add(tagId)
+  /** 折叠/展开一个标签组块（UI 偏好，per-workspace 存进 tags.json v2；幂等）。 */
+  setTagCollapsed(workspaceId: string, tagId: string, collapsed: boolean): void {
+    const bucket = this.ensureBucket(workspaceId)
+    const set = new Set(bucket.collapsed)
+    const changed = collapsed ? !set.has(tagId) : set.delete(tagId)
+    if (collapsed) set.add(tagId)
     if (!changed) return
-    void this.state.update(TAG_COLLAPSED_STATE_KEY, [...this.tagCollapsed])
-    // 折叠是展示态（不动会话树模型），只需通知快照。
+    bucket.collapsed = [...set]
+    // 折叠是展示态（不动会话树模型），只需落盘 + 通知快照。
+    this.persistAck(
+      this.io.updateTags((prev) => ({ ...prev, workspaces: { ...prev.workspaces, [workspaceId]: { ...bucket } } })),
+      'tags',
+    )
     this.onDidChangeEmitter.fire()
   }
 
   /** 标签组名校验（host showInputBox 用的 validateInput）：合法返回 null。 */
-  tagNameErrorFor(name: string): string | null {
-    const err = tagNameError(name, this.tags)
+  tagNameErrorFor(name: string, workspaceId: string): string | null {
+    const tags = this.bucketTags(workspaceId)
+    const err = tagNameError(name, tags)
     if (err === 'empty') return vscode.l10n.t('Group name cannot be empty')
     if (err === 'duplicate') return vscode.l10n.t('A group with this name already exists')
     return null
   }
 
-  /** 单个标签组的快照形状（含翻译名/preset 标记）；未知 id 返回 null（删除确认用）。 */
-  tagById(tagId: string): { id: string; name: string; preset: boolean } | null {
-    const t = this.tags.find((x) => x.id === tagId)
+  /** 单个标签组的快照形状（含翻译名/preset 标记）；未知 id / 无该 ws 的组返回 null。 */
+  tagById(tagId: string, workspaceId: string): { id: string; name: string; preset: boolean } | null {
+    const t = this.bucketTags(workspaceId).find((x) => x.id === tagId)
     if (!t) return null
     return { id: t.id, name: tagDisplayName(t, vscode.l10n.t), preset: isPresetTag(t) }
   }
@@ -1050,18 +1096,38 @@ export class SessionsStore implements vscode.Disposable {
     // 活跃成员 = 当前基线里存在的会话（归档已排除）且不在回收站。
     const isActive = (sessionId: string): boolean =>
       this.knownSessionIds.has(sessionId) && !recycleSet.has(sessionId)
-    const emptyIds = emptyCustomTagIds(this.tags, this.sessionTags, isActive)
-    if (emptyIds.length === 0) return
-    const emptySet = new Set(emptyIds)
-    this.tags = this.tags.filter((t) => !emptySet.has(t.id))
-    for (const id of emptyIds) this.sessionTags = removeTagFromAll(this.sessionTags, id)
+
+    // v2：per-workspace，逐桶修剪「已无活跃成员」的自定义组。两阶段——先收集
+    // 各桶的变化，再一次性落盘（避免逐桶多次写）。
+    const pruning: Array<{ workspaceId: string; bucket: WorkspaceTagState; emptyIds: string[] }> = []
+    for (const [wsId, bucket] of Object.entries(this.wsTags)) {
+      const emptyIds = emptyCustomTagIds(bucket.tags, bucket.sessionTags, isActive)
+      if (emptyIds.length === 0) continue
+      pruning.push({ workspaceId: wsId, bucket, emptyIds })
+    }
+    if (pruning.length === 0) return
+    const emptySetById = new Map(pruning.map((p) => [p.workspaceId, new Set(p.emptyIds)]))
+    // 内存态按桶落地。
+    for (const p of pruning) {
+      const emptySet = emptySetById.get(p.workspaceId)!
+      p.bucket.tags = p.bucket.tags.filter((t) => !emptySet.has(t.id))
+      for (const id of p.emptyIds) p.bucket.sessionTags = removeTagFromAll(p.bucket.sessionTags, id)
+    }
     this.persistAck(
       this.io.updateTags((prev) => {
-        if (!emptyIds.some((id) => prev.tags.some((t) => t.id === id))) return prev
-        const tags = prev.tags.filter((t) => !emptySet.has(t.id))
-        let sessionTags = prev.sessionTags
-        for (const id of emptyIds) sessionTags = removeTagFromAll(sessionTags, id)
-        return { ...prev, tags, sessionTags }
+        const workspaces = { ...prev.workspaces }
+        let changed = false
+        for (const p of pruning) {
+          const emptySet = emptySetById.get(p.workspaceId)!
+          const existing = workspaces[p.workspaceId] ?? emptyBucket()
+          const tags = existing.tags.filter((t) => !emptySet.has(t.id))
+          let sessionTags = existing.sessionTags
+          for (const id of p.emptyIds) sessionTags = removeTagFromAll(sessionTags, id)
+          if (tags.length === existing.tags.length && sessionTags === existing.sessionTags) continue
+          workspaces[p.workspaceId] = { ...existing, tags, sessionTags }
+          changed = true
+        }
+        return changed ? { ...prev, workspaces } : prev
       }),
       'tags',
     )
@@ -1635,6 +1701,8 @@ export class SessionsStore implements vscode.Disposable {
       // 基线重拉成功：host 流已恢复（初始连接/手动刷新时本就是 0，无副作用）。
       this.reconnectAttempts = 0
       this.baselineReady = true
+      // 基线就绪才拿到 sessionId→workspace：若还有 v1 全局标签组待迁移，此时拆桶。
+      void this.migratePendingV1ToV2()
       this.rebuildModel()
     } catch (err) {
       this.logger.warn(`sessions store: refresh failed — ${err instanceof Error ? err.message : err}`)
@@ -1646,6 +1714,44 @@ export class SessionsStore implements vscode.Disposable {
     this.pendingHostFrames = []
     for (const frame of buffered) this.applyFrame(frame)
     this.onDidChangeEmitter.fire()
+  }
+
+  /**
+   * 基线就绪后的一次性 v1→v2 迁移：把 pendingV1（v1 全局 tags/sessionTags）按
+   * sessionId→workspace（来自当前无线 baseline）拆成 per-workspace bucket，
+   * 写 v2 文件，删旧 Memento key，清 pendingV1。拿不到归属的会话归 UNGROUPED。
+   * dsh 未跑 / 基线从未就绪时不触发（pendingV1 保持，下次启动服务起来再迁）。
+   * 迁移幂等：无 pendingV1 直接返回。
+   *
+   * 严格先落盘再清旧数据：只有写成功才清 pendingV1 + 删 Memento key；写失败保留
+   * pendingV1 与旧 key，记一条带完整上下文的失败日志——下次基线就绪重试，绝不让
+   * 旧数据在写盘前丢失。
+   */
+  private async migratePendingV1ToV2(): Promise<void> {
+    if (this.pendingV1 === null) return
+    const pending = this.pendingV1
+    const v2 = migrateTagFileV1ToV2(pending, (sessionId) => this.workspaceOfSession(sessionId), UNGROUPED_WORKSPACE_ID)
+    const bucketCount = Object.keys(v2.workspaces).length
+    const assignmentCount = pending.sessionTags ? Object.keys(pending.sessionTags).length : 0
+    const bucketNames = Object.keys(v2.workspaces)
+
+    // 先落盘 v2：await 拿到真实结果，再决定是否清旧数据。
+    const ok = await this.io.updateTags((prev) => ({ version: 2, workspaces: { ...prev.workspaces, ...v2.workspaces } }))
+    if (!ok) {
+      // 写失败：保留 pendingV1 + Memento key，下次基线再试。此刻 pendingV1 尚未清。
+      this.logger.warn(
+        `sessions store: [tags] v1→v2 migration FAILED to write v2 file (${bucketCount} buckets, ${assignmentCount} assignments; buckets: ${bucketNames.join(', ') || '(none)'}); kept legacy Memento + pending data, will retry on next baseline`,
+      )
+      return
+    }
+
+    // 写成功才清旧数据（原子拆桶 + 落盘已确认）。
+    deleteLegacyKeys(this.globalState, [LEGACY_TAGS_KEY, LEGACY_SESSION_TAGS_KEY])
+    this.wsTags = { ...this.wsTags, ...v2.workspaces }
+    this.pendingV1 = null
+    this.logger.info(
+      `sessions store: [tags] migrated v1 global → v2 per-workspace (${bucketCount} workspace buckets [${bucketNames.join(', ') || '(none)'}], ${assignmentCount} assignments); legacy Memento keys cleared`,
+    )
   }
 
   /** Rebuild the display model from the cached baseline + current filter/query. */
@@ -1669,10 +1775,12 @@ export class SessionsStore implements vscode.Disposable {
       pinned: this.pinned,
       unread: unreadDisplay,
       pendingInteractions: pendingDisplay,
-      // 标签组聚合（Chrome 垂直标签式）：组块顺序 = 定义顺序；workspace 内
-      // 非置顶会话按组块聚合，无组殿后（置顶会话保持绝对优先平铺）。
-      tags: this.tags.map((t) => t.id),
-      sessionTagFor: (sessionId: string): string | undefined => this.sessionTags[sessionId],
+      // 标签组聚合（Chrome 垂直标签式，per-workspace）：组定义/归属都按 ws 取。
+      // 组块顺序 = 该 ws 桶的定义顺序；workspace 内非置顶会话按组块聚合，无组
+      // 殿后（置顶会话保持绝对优先平铺）。
+      tagOrderFor: (workspaceId: string): readonly string[] => this.bucketTags(workspaceId).map((t) => t.id),
+      sessionTagForWs: (sessionId: string, workspaceId: string): string | undefined =>
+        this.wsTags[workspaceId]?.sessionTags[sessionId],
       // VS Code 的 fsPath 在 Windows 返回小写盘符 + 反斜杠，dsh 服务端的
       // workspace path 可能是不同大小写/正斜杠/尾斜杠——严格全等会漏掉
       // 「vscode」标签（macOS/Linux 大小写敏感，维持严格比较）。
@@ -1696,11 +1804,11 @@ export class SessionsStore implements vscode.Disposable {
     )
     // 回收站视图模型：只保留回收站 id（按原 workspace 分组），不套当前搜索
     // 过滤；空组不渲染（主列表「未分组」组头恒显的语义在回收站不适用）。
-    // 回收站平铺：不传 tags/sessionTagFor——回收站里不按标签组聚合，会话也
+    // 回收站平铺：不传 tag 聚合选项——回收站里不按标签组聚合，会话也
     // 不挂 tagId（组归属数据不动，恢复后回原组不变；纯层排序退化为
-    // 活跃优先 + updatedAt）。recycleOrder = 入站顺序（数组尾部 = 最新移入）。
+    // 活跃优先 + 入站顺序）。recycleOrder = 入站顺序（数组尾部 = 最新移入），
     // 组内按入站倒序排（最新入站最上），不再走主列表的 置顶/活跃/updatedAt 排序。
-    const { tags: _tags, sessionTagFor: _tagFor, ...recycleBase } = baseViewOptions
+    const { tagOrderFor: _tagOrder, sessionTagForWs: _tagForWs, ...recycleBase } = baseViewOptions
     this.recycleWorkspaces = buildSessionTree(
       this.rawWorkspaces,
       this.rawSessions,
@@ -1787,17 +1895,25 @@ export class SessionsStore implements vscode.Disposable {
       }
       if (groupsChanged) reloaded.push('groups')
     }
-    if (snap.tags !== null) {
+    if (snap.tags !== null && snap.tags.version === 2) {
       let tagsChanged = false
-      if (!sameTagDefs(snap.tags.tags, this.tags)) {
-        this.tags = snap.tags.tags
+      if (!sameWorkspaceTags(snap.tags.workspaces, this.wsTags)) {
+        this.wsTags = snap.tags.workspaces
         tagsChanged = true
       }
-      if (!sameSessionTags(snap.tags.sessionTags, this.sessionTags)) {
-        this.sessionTags = snap.tags.sessionTags
+      // v2 权威即视为已迁移，清掉待迁移态。
+      if (this.pendingV1 !== null) {
+        this.pendingV1 = null
         tagsChanged = true
       }
       if (tagsChanged) reloaded.push('tags')
+    } else if (snap.tags !== null && snap.tags.version === 1) {
+      // 文件仍是 v1：内存的 v2 数据不采纳（迁移会覆写），只把 v1 数据暂存待迁移。
+      this.pendingV1 = { tags: snap.tags.tags, sessionTags: snap.tags.sessionTags }
+      this.logger.warn(
+        `sessions store: [tags] hot-reload saw v1 legacy file (${snap.tags.tags.length} defs, ${Object.keys(snap.tags.sessionTags).length} assignments); in-memory v2 discarded, waiting for baseline to migrate`,
+      )
+      reloaded.push('tags')
     }
     if (reloaded.length === 0) return
     this.logger.info(`sessions store: client-state reloaded from files: ${reloaded.join(', ')}`)
@@ -1837,13 +1953,6 @@ function sameGroupDefs(a: readonly GroupDef[], b: readonly GroupDef[]): boolean 
   return a.length === b.length && a.every((g, i) => g.id === b[i].id && g.name === b[i].name)
 }
 
-function sameTagDefs(a: readonly TagDef[], b: readonly TagDef[]): boolean {
-  return (
-    a.length === b.length &&
-    a.every((t, i) => t.id === b[i].id && t.name === b[i].name && t.color === b[i].color)
-  )
-}
-
 function hasOwn(rec: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(rec, key)
 }
@@ -1856,10 +1965,100 @@ function sameMembership(
   return aKeys.length === Object.keys(b).length && aKeys.every((k) => hasOwn(b, k) && sameIdList(a[k], b[k]))
 }
 
+function sameTagDefs(a: readonly TagDef[], b: readonly TagDef[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((t, i) => t.id === b[i].id && t.name === b[i].name && t.color === b[i].color)
+  )
+}
+
 function sameSessionTags(
   a: Readonly<Record<string, string>>,
   b: Readonly<Record<string, string>>,
 ): boolean {
   const aKeys = Object.keys(a)
   return aKeys.length === Object.keys(b).length && aKeys.every((k) => hasOwn(b, k) && b[k] === a[k])
+}
+
+/** v2 bucket 等同判断：逐 ws 比较组定义/归属/折叠。 */
+function sameWorkspaceTags(a: Readonly<Record<string, WorkspaceTagState>>, b: Readonly<Record<string, WorkspaceTagState>>): boolean {
+  const aKeys = Object.keys(a)
+  if (aKeys.length !== Object.keys(b).length) return false
+  return aKeys.every((k) => {
+    const av = a[k]
+    const bv = b[k]
+    return (
+      av !== undefined &&
+      sameTagDefs(av.tags, bv.tags) &&
+      sameSessionTags(av.sessionTags, bv.sessionTags) &&
+      sameIdList(av.collapsed, bv.collapsed)
+    )
+  })
+}
+
+/* ---- 标签组 v2 bucket 的字段级合并（写前重读时对文件旧值应用同款变换） ---- */
+
+/** 空 bucket（预设组作为 seed——v2 每个 ws 桶恒含 todo/doing/done）。 */
+function emptyBucket(): WorkspaceTagState {
+  return { tags: sanitizeTagsPure(undefined), sessionTags: {}, collapsed: [] }
+}
+
+/** 追加一个组定义（同 id / 同名（自定义）去重后追加；a 已有则不变）。 */
+function withTagAppended(bucket: WorkspaceTagState, tag: TagDef): WorkspaceTagState {
+  if (bucket.tags.some((t) => t.id === tag.id || (t.name !== null && t.name === tag.name))) return bucket
+  return { ...bucket, tags: [...bucket.tags, tag] }
+}
+
+/** 对 bucket 的组定义做映射（含补种该桶缺失的预设组后映射）。 */
+function withTagsMapped(bucket: WorkspaceTagState, fn: (t: TagDef) => TagDef): WorkspaceTagState {
+  const tags = sanitizeTagsPure(bucket.tags)
+  return { ...bucket, tags: tags.map(fn) }
+}
+
+/** 移除一个组定义 + 清其归属/折叠引用。 */
+function withTagRemoved(bucket: WorkspaceTagState, tagId: string): WorkspaceTagState {
+  return {
+    ...bucket,
+    tags: bucket.tags.filter((t) => t.id !== tagId),
+    sessionTags: removeTagFromAll(bucket.sessionTags, tagId),
+    collapsed: bucket.collapsed.filter((id) => id !== tagId),
+  }
+}
+
+/** 重排组定义；无效全量顺序（缺/未知/重复 id）原样返回（调用方跳过落盘）。 */
+function withTagsReordered(bucket: WorkspaceTagState, tagIds: readonly string[]): WorkspaceTagState {
+  const next = reorderTagsPure(bucket.tags, tagIds)
+  return next === null ? bucket : { ...bucket, tags: next }
+}
+
+/* ---- 标签组 v2 快照聚合（flat snapshot helpers） ---- */
+
+/** 收集全部 workspace bucket 的组定义快照，逐项回调（携带所属 workspaceId）。 */
+function collectTagSnapshots<T>(
+  wsTags: Readonly<Record<string, WorkspaceTagState>>,
+  map: (t: TagDef, workspaceId: string) => T,
+): T[] {
+  const out: T[] = []
+  for (const [wsId, bucket] of Object.entries(wsTags)) {
+    for (const t of bucket.tags) out.push(map(t, wsId))
+  }
+  return out
+}
+
+/** 收集全部 bucket 的 sessionTags 合并（全局倒排用：sessionId→tagId，全局唯一）。 */
+function collectAllSessionTags(wsTags: Readonly<Record<string, WorkspaceTagState>>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const bucket of Object.values(wsTags)) {
+    for (const [sessionId, tagId] of Object.entries(bucket.sessionTags)) out[sessionId] = tagId
+  }
+  return out
+}
+
+/** 收集全部 bucket 的折叠 id（wsId → 折叠的 tagId 数组），供 webview 按 ws 查。 */
+function collectCollapsed(wsTags: Readonly<Record<string, WorkspaceTagState>>): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const [wsId, bucket] of Object.entries(wsTags)) {
+    if (bucket.collapsed.length > 0) out[wsId] = [...bucket.collapsed]
+  }
+  return out
 }

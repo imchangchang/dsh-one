@@ -865,14 +865,16 @@ export interface SessionsSnapshot {
    */
   workspaceDirectory: Array<{ workspaceId: string; label: string }>
   /**
-   * 会话标签组（有序，数组顺序 = 展示顺序；预设组名已按当前 locale 翻译，
-   * preset = 预设标记——不可改名/删除）。count = 当前基线中打该组的会话数。
+   * 会话标签组（per-workspace，平铺：每项携带 workspaceId）。数组顺序 = 各组
+   * 定义顺序（webview 在某个 workspace 组内按 ws 过滤出该 ws 的组块序）。预设组
+   * 名已按当前 locale 翻译，preset = 预设标记（不可改名/删除）。count = 当前
+   * 基线中该 ws 里打该组的会话数。
    */
-  tags: Array<{ id: string; name: string; color: TagColor; preset: boolean; count: number }>
+  tags: Array<{ workspaceId: string; id: string; name: string; color: TagColor; preset: boolean; count: number }>
   /** 标签组 → 会话 id（单组倒排，全量未清洗）：整组批量操作（归档/回收站）按此收集全集。 */
   tagSessionIds: Record<string, string[]>
-  /** 折叠的标签组块 id（UI 偏好，workspaceState 持久化）。 */
-  tagCollapsed: string[]
+  /** 折叠的标签组块 id（per-workspace：wsId → 折叠的 tagId 列表；UI 偏好）。 */
+  tagCollapsed: Record<string, string[]>
 }
 /**
  * 单个 commit hash 的查询结果：webview 据此点亮/灰显点击 chip 并填悬浮卡。
@@ -1148,14 +1150,14 @@ export type FromWebviewMessage =
   /** Sessions 面板：批量设置标签组（整组「移出分组」等；单次持久化）。 */
   | { type: 'sessionTagSetMany'; sessionIds: string[]; tagId: string | null }
   /** Sessions 面板：新建自建标签组（webview 弹层已校验名字并选色；预设+自建均可重命名/改色）。 */
-  | { type: 'sessionTagCreate'; name: string; color: TagColor }
+  | { type: 'sessionTagCreate'; workspaceId: string; name: string; color: TagColor }
   /** Sessions 面板：设置标签组颜色（所有组可改色；选中态由快照驱动）。 */
-  | { type: 'sessionTagSetColor'; tagId: string; color: TagColor }
+  | { type: 'sessionTagSetColor'; workspaceId: string; tagId: string; color: TagColor }
   /** Sessions 面板：请求重命名标签组——host 弹输入框（预填当前名；预设改后覆盖 l10n 默认名）。 */
-  | { type: 'sessionTagRenamePrompt'; tagId: string; name: string }
+  | { type: 'sessionTagRenamePrompt'; workspaceId: string; tagId: string; name: string }
   /** Sessions 面板：删除自建标签组（host 弹确认；组内会话回到未分组；预设组拒绝）。 */
-  | { type: 'sessionTagDelete'; tagId: string }
+  | { type: 'sessionTagDelete'; workspaceId: string; tagId: string }
   /** Sessions 面板：持久化标签组顺序（拖拽结束后提交全量顺序）。 */
-  | { type: 'sessionTagReorder'; tagIds: string[] }
-  /** Sessions 面板：折叠/展开一个标签组块（UI 偏好，workspaceState 持久化）。 */
-  | { type: 'sessionTagCollapse'; tagId: string; collapsed: boolean }
+  | { type: 'sessionTagReorder'; workspaceId: string; tagIds: string[] }
+  /** Sessions 面板：折叠/展开一个标签组块（UI 偏好，per-workspace 落盘）。 */
+  | { type: 'sessionTagCollapse'; workspaceId: string; tagId: string; collapsed: boolean }

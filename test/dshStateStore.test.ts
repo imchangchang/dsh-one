@@ -83,22 +83,27 @@ test('corrupt file load warns via log sink (现场可定位)', async () => {
   )
 })
 
-test('missing tags file: prev still carries preset tags (fresh-install assign-to-preset persists)', async () => {
+test('missing tags file: updateTags creates a per-workspace bucket and assigns to a seeded preset', async () => {
   const dir = await tmpDir()
   const io = new DshStateStore({ dir })
-  // sessionsStore.setSessionTag 的 mutator 模式：以文件内 tag id 做 prevKnown
-  // 校验——文件不存在时 prev 若缺预设组，这条写会被静默吞掉（评审发现的回归）。
-  const ok = await io.updateTags((prev) => {
-    const prevKnown = new Set(prev.tags.map((t) => t.id))
-    if (!prevKnown.has('preset-todo')) throw new Error('preset tags missing from empty file prev')
-    return { ...prev, sessionTags: { ...prev.sessionTags, s1: 'preset-todo' } }
-  })
+  // 文件缺失时 prev = 空 v2（workspaces:{}）。mutator 建一个 ws1 bucket 并把
+  // s1 指派到预设组 preset-todo。v2 的预设组 seed 在 store 层（getOrCreate
+  // WorkspaceTagState），这里 mutator 需自建 bucket——但要求桶一旦建出就带预设组
+  // 语义（store 层保证）；文件 IO 层只保证 prev 是合法 v2 结构、写能落盘。
+  const ok = await io.updateTags((prev) => ({
+    ...prev,
+    workspaces: {
+      ...prev.workspaces,
+      ws1: { tags: [{ id: 'preset-todo', name: null, color: 'yellow' as const }], sessionTags: { s1: 'preset-todo' }, collapsed: [] },
+    },
+  }))
   assert.equal(ok, true)
   const tags = (await io.load()).tags
-  assert.equal(tags?.sessionTags.s1, 'preset-todo')
+  assert.ok(tags !== null && tags.version === 2)
+  assert.equal(tags.workspaces.ws1.sessionTags.s1, 'preset-todo')
 })
 
-test('updateGroups / updateTags merge onto existing file content field-wise', async () => {
+test('updateGroups merges field-wise; updateTags v2 merges per-workspace bucket', async () => {
   const dir = await tmpDir()
   const io = new DshStateStore({ dir })
   await io.updateGroups((prev) => ({
@@ -114,12 +119,27 @@ test('updateGroups / updateTags merge onto existing file content field-wise', as
     membership: { ws1: ['g1'] },
     activeGroupId: 'g1',
   })
-  await io.updateTags((prev) => ({ ...prev, sessionTags: { s1: 'preset-todo' } }))
+  // v2 下更新 tags：先建 ws1 bucket，再更新只动该桶的 sessionTags（其它桶不动）。
+  await io.updateTags((prev) => ({
+    ...prev,
+    workspaces: {
+      ...prev.workspaces,
+      ws1: { tags: [{ id: 'preset-doing', name: null, color: 'blue' as const }], sessionTags: { s1: 'preset-doing' }, collapsed: [] },
+    },
+  }))
+  await io.updateTags((prev) => {
+    const ws1 = prev.workspaces.ws1
+    // 第二个写只动 ws1 的 sessionTags：tags/collapsed 必须原样保留。
+    return {
+      ...prev,
+      workspaces: { ...prev.workspaces, ws1: { ...ws1, sessionTags: { ...ws1.sessionTags, s2: 'preset-doing' } } },
+    }
+  })
   const tags = (await io.load()).tags
-  assert.ok(tags !== null)
-  assert.equal(tags.sessionTags.s1, 'preset-todo')
-  // 预设组补齐后 sessionTags 指向的组存在（parseTagFile 清洗不丢这条归属）。
-  assert.ok(tags.tags.some((t) => t.id === 'preset-todo'))
+  assert.ok(tags !== null && tags.version === 2)
+  assert.deepEqual(tags.workspaces.ws1.sessionTags, { s1: 'preset-doing', s2: 'preset-doing' })
+  // 读回时 sanitizeTags 补齐三个预设组（v2 语义：每个桶恒含 todo/doing/done）。
+  assert.ok(tags.workspaces.ws1.tags.some((t) => t.id === 'preset-doing'))
 })
 
 /* ---- drafts 模块（#14）：不进 load() 快照，readDrafts 现读、updateDrafts 读-合-写 ---- */
