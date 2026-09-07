@@ -639,8 +639,10 @@ function updateCollapseAllIcon(): void {
 
 /** 分组栏（搜索框下、列表上一行）：只建一次，选中态经 updateGroupBar 更新。 */
 let groupBarEl: HTMLElement | null = null
-/** 分组栏左按钮的标签（「全部工作区」或当前组名）。 */
+/** 分组栏胶囊的标签（「全部工作区」或当前组名）。 */
 let groupBarLabel: HTMLElement | null = null
+/** 分组栏胶囊的数量角标（当前过滤范围下的 workspace 数）。 */
+let groupBarCount: HTMLElement | null = null
 
 /**
  * 管理视图弹层状态（null = 关闭）。open 后跨快照重建保留：选中组、改名/
@@ -688,33 +690,43 @@ function dragHandleSvg(): SVGSVGElement {
   return svg
 }
 
-/** 分组栏（含左选择器 + 右「+」新建）：只建一次，避免快照重建打断输入/点击。 */
+/** 分组栏胶囊左侧的 tag 图标（外轮廓 + evenodd 打孔圆点）。 */
+const TAG_ICON: IconDef = {
+  paths: ['M2 2h5.2l6.8 6.8-5.6 5.6L2 7.8V2z M5.3 6.4a1.1 1.1 0 1 0 0-2.2 1.1 1.1 0 0 0 0 2.2z'],
+  fillRule: 'evenodd',
+}
+
+/** 分组栏：分组选择器做成胶囊标签（图标 + 组名 + 角标 + ▾），只建一次，避免快照重建打断输入/点击。 */
 function buildGroupBar(): HTMLElement {
   const bar = el('div', 'ws-group-bar')
   const select = buttonEl('ws-group-select', '')
+  const tag = el('span', 'ws-group-select-tag')
+  tag.appendChild(iconSvg(TAG_ICON, 12))
   const label = el('span', 'ws-group-select-label', t('All workspaces'))
+  const count = el('span', 'ws-group-select-count')
   const chevron = el('span', 'ws-group-select-chevron')
   chevron.appendChild(iconSvg(PANEL_ICONS.chevronDown, 12))
+  select.appendChild(tag)
   select.appendChild(label)
+  select.appendChild(count)
   select.appendChild(chevron)
   select.addEventListener('click', () => openGroupMenu())
   groupBarLabel = label
+  groupBarCount = count
   bar.appendChild(select)
-  const add = buttonEl('ws-group-add', '')
-  add.setAttribute('aria-label', t('New group'))
-  add.setAttribute('data-tip', t('New group'))
-  add.appendChild(iconSvg(PANEL_ICONS.plus, 14))
-  add.addEventListener('click', () => openGroupCreate())
-  bar.appendChild(add)
   return bar
 }
 
-/** 分组栏选中态随快照刷新（只改 label 文本，不重建 DOM）。 */
+/** 分组栏选中态随快照刷新（label/角标/过滤态，不重建 DOM）。 */
 function updateGroupBar(): void {
   const snap = sessionsSnapshot
-  if (!snap || !groupBarLabel) return
-  const name = snap.activeGroupId !== null ? (snap.groups.find((g) => g.id === snap.activeGroupId)?.name ?? null) : null
-  groupBarLabel.textContent = name ?? t('All workspaces')
+  if (!snap || !groupBarLabel || !groupBarCount || !groupBarEl) return
+  const active =
+    snap.activeGroupId !== null ? (snap.groups.find((g) => g.id === snap.activeGroupId) ?? null) : null
+  groupBarLabel.textContent = active?.name ?? t('All workspaces')
+  groupBarCount.textContent = String(active ? active.count : snap.workspaceDirectory.length)
+  // 选中分组 = 列表被过滤：胶囊加 .filtered 蓝色调，提示当前不是全量视图。
+  groupBarEl.querySelector('.ws-group-select')?.classList.toggle('filtered', active !== null)
 }
 
 /** 分组选择下拉：全部工作区 + 当前选中置顶 + 其余按持久化顺序 + 管理分组…。 */
@@ -759,6 +771,15 @@ function openGroupMenu(): void {
   }
   body.appendChild(el('div', 'menu-sep'))
   body.appendChild(
+    menuItem(t('New group…'), {
+      icon: iconSvg(PANEL_ICONS.plus, 14),
+      onClick: () => {
+        closePopover()
+        openGroupCreate()
+      },
+    }),
+  )
+  body.appendChild(
     menuItem(t('Manage groups…'), {
       icon: iconSvg(GEAR_ICON, 14),
       onClick: () => {
@@ -770,7 +791,7 @@ function openGroupMenu(): void {
   showPopover(groupBarEl.querySelector('.ws-group-select') ?? groupBarEl, body, 'below')
 }
 
-/** 「+」快速建组：内联输入（Enter/按钮提交），空名/重名就地提示。 */
+/** 「新建分组…」快速建组：内联输入（Enter/按钮提交），空名/重名就地提示。 */
 function openGroupCreate(): void {
   const snap = sessionsSnapshot
   if (!snap || !groupBarEl) return
@@ -805,7 +826,7 @@ function openGroupCreate(): void {
   body.appendChild(input)
   body.appendChild(error)
   body.appendChild(submit)
-  showPopover(groupBarEl.querySelector('.ws-group-add') ?? groupBarEl, body, 'below')
+  showPopover(groupBarEl.querySelector('.ws-group-select') ?? groupBarEl, body, 'below')
   // 弹层渲染后聚焦输入（IME 用户直接可输入）。
   window.setTimeout(() => input.focus(), 0)
 }
@@ -1235,7 +1256,7 @@ function renderSessions(): void {
       box.appendChild(
         el('div', 'empty-hint', t('This group has no workspaces yet. Tag workspaces in "Manage groups…" first.')),
       )
-      box.appendChild(el('div', 'empty-hint-secondary', t('You can also create a new group from the row above.')))
+      box.appendChild(el('div', 'empty-hint-secondary', t('You can also create a new group from the group menu above.')))
       const manageBtn = buttonEl('secondary', t('Manage groups…'))
       manageBtn.addEventListener('click', () => openGroupManage())
       box.appendChild(manageBtn)

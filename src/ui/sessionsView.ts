@@ -79,33 +79,45 @@ const SESSIONS_STYLE = `
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
   .selection-bar button { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
-  /* 工作区分组栏：搜索框下、列表上一行；左 = 分组选择器（组名 + ▼），右 = 新建分组。 */
+  /* 工作区分组栏：搜索框下、列表上一行。分组选择器做成胶囊标签（描边 + 圆角 +
+     tag 图标 + 数量角标 + ▾），一眼可辨是「分组切换/过滤器」；「新建分组…」收进
+     选择器下拉菜单，栏上不再有裸「+」（避免与工具行「+ 添加工作区」撞脸）。 */
   .ws-group-bar {
-    flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 8px;
+    flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 8px;
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
   }
   .ws-group-select {
-    flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 4px;
-    padding: 3px 6px; margin: 0; border: 0; border-radius: 4px;
-    background: transparent; color: var(--vscode-foreground);
+    flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px 3px 8px; margin: 0; border-radius: 999px;
+    border: 1px solid rgba(127,127,127,.45);
+    background: rgba(127,127,127,.12);
+    color: var(--vscode-foreground);
     font: inherit; font-size: 12px; text-align: left; cursor: pointer;
   }
-  .ws-group-select:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
+  .ws-group-select:hover { background: rgba(127,127,127,.22); border-color: rgba(127,127,127,.75); }
+  /* 选中分组（列表被过滤）态：蓝色调提示当前不是全量视图。 */
+  .ws-group-select.filtered {
+    border-color: rgba(86,134,254,.55);
+    background: rgba(86,134,254,.12);
+  }
+  .ws-group-select-tag { flex: none; display: inline-flex; color: var(--vscode-descriptionForeground, #888); }
+  .ws-group-select-tag svg { display: block; }
   .ws-group-select-label {
     flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-weight: 600;
   }
+  .ws-group-select-count {
+    flex: none; font-size: 11px; line-height: 16px; padding: 0 7px; border-radius: 999px;
+    background: rgba(127,127,127,.28);
+    color: var(--vscode-descriptionForeground, #aaa);
+  }
+  .ws-group-select.filtered .ws-group-select-count {
+    background: rgba(86,134,254,.3);
+    color: var(--vscode-foreground);
+  }
   .ws-group-select-chevron { flex: none; display: inline-flex; color: var(--vscode-descriptionForeground, #888); }
   .ws-group-select-chevron svg { display: block; }
-  .ws-group-add {
-    flex: none; width: 24px; height: 24px; padding: 0; margin: 0;
-    display: inline-flex; align-items: center; justify-content: center;
-    background: transparent; border: 0; border-radius: 4px;
-    color: inherit; opacity: 0.7; cursor: pointer;
-  }
-  .ws-group-add svg { display: block; }
-  .ws-group-add:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); }
-  /* 分组菜单分隔线（下拉里「管理分组…」之上）。 */
+  /* 分组菜单分隔线（下拉里「新建分组…/管理分组…」之上）。 */
   .menu-sep { border-top: 1px solid var(--vscode-menu-border, rgba(127,127,127,.2)); margin: 4px 2px; }
   /* 复选框（会话行/组头共用）：自绘外观，indeterminate 画横线。 */
   .select-checkbox {
@@ -399,10 +411,12 @@ const SESSIONS_STYLE = `
   /* 组名右侧角标：待交互/运行中/未读 计数（小字 + 小图标，紧凑、不挤压 label/badge）。 */
   .ws-counts { flex: none; display: inline-flex; align-items: center; gap: 6px; }
   .ws-count { display: inline-flex; align-items: center; gap: 2px; font-size: 10px; line-height: 1; opacity: 0.75; }
+  /* 宿主徽章（vscode 等）：蓝色调描边胶囊，与灰色计数角标区分（色系同 checkbox 的 #5686fe）。 */
   .workspace-badge {
-    flex: none; font-size: 10px; font-weight: 400; padding: 0 5px; border-radius: 8px;
-    background: var(--vscode-badge-background, rgba(127,127,127,.25));
-    color: var(--vscode-badge-foreground, var(--vscode-foreground));
+    flex: none; font-size: 10px; font-weight: 400; padding: 0 7px; border-radius: 999px;
+    border: 1px solid rgba(86,134,254,.4);
+    background: rgba(86,134,254,.18);
+    color: var(--vscode-charts-blue, #9fdcff);
   }
   .session-row {
     display: flex; align-items: center; gap: 6px; margin: 0 4px; padding: 0 6px 0 20px;

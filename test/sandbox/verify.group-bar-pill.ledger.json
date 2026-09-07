@@ -1,0 +1,129 @@
+{
+  "title": "Sessions 分组栏胶囊化 + vscode 徽章改样（group-bar-pill 任务，#17）",
+  "branch": "agent/group-bar-pill",
+  "commit": "5276a47",
+  "environment": {
+    "channel": "harness 视觉场景（test/ui/scenarios.js，WebBridge 截图，逐张 location.search 校验场景对齐）+ 纯层单测",
+    "locale": "en",
+    "theme": "light（harness 默认；改动色值均为半透明 rgba，深浅主题通用）",
+    "date": "2026-09-07T00:00:00Z"
+  },
+  "coverageNote": "本任务只改 webview 渲染层（DOM 结构 + CSS + 一条 l10n 文案），宿主消息契约未动，故无沙盒 E2E 项；交互链（点胶囊→下拉→新建分组弹层）由 interact 场景覆盖。爆炸半径：改动仅命中 sessions 样式表的 .ws-group-bar/.ws-group-select*/.workspace-badge 具名类（非容器级/通配/变量级规则），chat 侧零改动。说明：scripts/ui-visual.sh 全量跑过两轮——第一轮 8899 端口被外项目服务器（ESP32 demo）占用，截图全为 Not Found；第二轮 8898 端口页面加载正常但 WebBridge 截图偶发捕获到错位的 tab。因此验收图改为逐场景手动导航 + 截图后立即校验 location.search，保证图与场景一一对应（/tmp/gbp-shots/）。before/after 像素 diff 缺省：旧基线截图已被第一轮污染覆盖，无法 diff，以逐张语义核对补偿。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "分组栏胶囊标签（常态：全部工作区）",
+      "expect": "分组栏为胶囊标签：tag 图标 + 「All workspaces」加粗 + 数量角标（= 全部 workspace 数）+ ▾，描边 + 大圆角 + 浅底色；栏上不再有「+」按钮（与工具行「+ 添加工作区」不再撞脸）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/gbp-shots/sessions.png",
+        "/tmp/gbp-shots/sessions-groups-dropdown.png"
+      ],
+      "notes": "① 胶囊结构齐：tag 图标 + 加粗「All workspaces」+ 角标「2」（= fixture 两个真实 workspace）+ ▾，描边大圆角浅底；② 分组栏右侧无「+」，工具行「+ 添加工作区」仍在原处，两者不再撞脸；③ 胶囊与工具行/列表的视觉层级明显区分于普通文字行。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "下拉菜单新增「New group…」项",
+      "expect": "点胶囊弹下拉：首项「All workspaces N」✓、各分组按序列出带计数；分隔线下两项「New group…」（+ 图标）、「Manage groups…」（齿轮图标）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/gbp-shots/sessions-groups-dropdown.png"
+      ],
+      "notes": "逐项核对：①首项 All workspaces 2 带 ✓ checked；②演示 2 / 开发 1 / 日常 0 按序、右侧计数；③分隔线后「New group…」（+ 图标）在「Manage groups…」（齿轮）之上；④菜单锚在胶囊下方。菜单遮住的列表行是正常弹层叠加。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "选中分组：胶囊蓝色过滤态 + 组内计数",
+      "expect": "选中「演示」后胶囊显示「演示 [2] ▾」且呈蓝色调（.filtered：蓝描边 + 蓝底 + 蓝角标），提示列表被过滤；列表只剩组内 workspace。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/gbp-shots/sessions-groups-selected.png"
+      ],
+      "notes": "①胶囊显示「演示」+ 角标 2 + ▾，蓝色描边/底色/角标（.filtered）与常态灰调差异明显；②列表只剩 dsh-one + dsh-web research 两个组内 workspace；③「未分组」组头不出现，组外 workspace 不出现；④栏上无「+」。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "「新建分组…」建组弹层（锚点改到胶囊）",
+      "expect": "菜单点「New group…」后弹内联建组浮层（标题 New group + 输入框 + Create），浮层定位在胶囊下方；下拉菜单已关闭；主列表不变。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/gbp-shots/sessions-groups-create-popover.png"
+      ],
+      "notes": "①浮层标题 New group + 输入框（placeholder Group name）+ Create 按钮；②浮层锚在胶囊下方（原锚点 .ws-group-add 已随按钮移除改到 .ws-group-select）；③下拉菜单已关闭（画面中只剩建组浮层）；④主列表组头/会话行仍在（浮层覆盖处除外）。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "vscode 徽章改蓝色调描边胶囊",
+      "expect": "workspace 行尾「vscode」徽章：蓝色描边 + 蓝底 + 蓝字胶囊（原灰色无描边块），与右侧灰色计数角标明显区分。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/gbp-shots/sessions.png",
+        "/tmp/gbp-shots/sessions-groups-selected.png"
+      ],
+      "notes": "dsh-one 行尾 vscode 徽章为蓝描边 + 半透明蓝底 + 蓝字胶囊，与组名旁灰色计数角标一眼可辨；其余无徽章的 workspace 行（dsh-web research、未分组）无变化。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "分组 + 搜索叠加",
+      "expect": "选中「开发」+ 搜索「重构」：胶囊「开发 [1] ▾」蓝色过滤态；搜索框显示「重构」；列表只出组内命中行「重构 sessionStore」。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/gbp-shots/sessions-groups-selected-search.png"
+      ],
+      "notes": "①胶囊「开发 [1] ▾」蓝色过滤态；②搜索框「重构」+ 清除 ✕；③列表只出 dsh-one 组 + 命中行「重构 sessionStore」（命中词高亮）；组外 workspace 与未分组组头不出现。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "空组专属空态（补充行文案更新）",
+      "expect": "选中空组「日常」：居中提示 + 补充行「You can also create a new group from the group menu above.」（原「from the row above」，「+」移除后同步改）+「Manage groups…」按钮。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/gbp-shots/sessions-groups-empty.png"
+      ],
+      "notes": "①胶囊「日常 [0] ▾」过滤态；②空态主提示 + 新补充行「…from the group menu above.」（不再是 row above）；③Manage groups… secondary 按钮在位；④不是默认的「No workspaces yet」引导。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "管理视图/重命名/删除确认不受改动影响",
+      "expect": "管理视图弹层照常（组行拖拽手柄 + ✎/🗑 + 新建行 + workspace 勾选区）；重命名编辑态、删除确认态照常。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/gbp-shots/sessions-groups-manage.png",
+        "/tmp/gbp-shots/sessions-groups-manage-rename.png",
+        "/tmp/gbp-shots/sessions-groups-purge.png"
+      ],
+      "notes": "①管理视图：三行组（演示 2 高亮选中 / 开发 1 / 日常 0）+ 拖拽手柄 + ✎/🗑 + 新建行 + 「Workspaces in group: 演示 2」两项勾选；②删除确认：「Delete group \"日常\"?」+ Delete/Cancel，其余行不受影响；③重命名编辑态截图与交互存在时序错位（截图帧为非编辑态），改用 DOM 断言补偿：点 ✎ 后 .wsg-row-rename-input 存在且 prefill「开发」，编辑态成立。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "sessions 面板既有场景回归",
+      "expect": "综合列表/搜索/折叠/会话菜单等既有 sessions-* 场景渲染不变（除分组栏与徽章两处预期内变化）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/gbp-shots/sessions.png",
+        "/tmp/gbp-shots/sessions-search.png",
+        "/tmp/gbp-shots/sessions-collapsed.png",
+        "/tmp/gbp-shots/sessions-menu.png"
+      ],
+      "notes": "①综合列表：组头/角标/置顶图钉/active 高亮/行尾状态位/未分组孤儿行均照常；②搜索：命中高亮 + snippet + 底部提示行照常；③全部折叠：闭合文件夹 + 向右箭头、折叠全部按钮变 boxedPlus；④会话 ⋯ 菜单：Select multiple/Open in new tab/Rename/Unpin ✓/Mark as unread/Move to group…/Fork/Copy reference/回收站/归档结构完整。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "纯层单测全量",
+      "expect": "npm test 全绿（分组纯逻辑：清洗/计数/重排/删除清归属/重名拒绝）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm test 645/645 pass；typecheck（tsc --noEmit）无错；npm run build 产物正常。"
+    }
+  ]
+}
