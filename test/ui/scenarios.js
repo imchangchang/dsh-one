@@ -326,6 +326,89 @@
       expect: 'composer 输入「a@img1.png b @img1.png c」：文本高亮层只绘制一处 .ref-token（浅蓝底 @img1.png，落在第二处——边界命中）；第一处词中 a@img1.png 保持普通文本、无高亮背景（DOM 断言 window.__refTokenCheck = {count: 1, texts: ["@img1.png"]}）；两处文本都清晰可见、无长路径、无补全弹窗。',
     },
 
+    'composer-long-ref-token-drift': {
+      // 复现「长文本 + @ 引用 token，叠层高亮与 textarea 文字/光标逐渐偏移」：
+      // 绑定 @img1.png 后把输入改成一段很长的中文（滚到超过 max-height），
+      // token 放在中后段；滚到底部后比对叠层 .ref-token 的 y 与 textarea 里
+      // 同一光标的 y（用 caret 取不到 rect，改用镜像 div 同盒模型对拍）。
+      png: PNG_RED,
+      state: base({ messages: [] }),
+      interact: `(() => {
+        const s = window.SCENARIOS['composer-long-ref-token-drift']
+        window.postMessage({ type: 'filesPicked', files: [
+          { name: 'img1.png', path: '/var/folders/x/T/dsh-one-attachments/sess-1/img1.png', image: true, mediaType: 'image/png', previewData: s.png },
+        ] }, '*')
+        setTimeout(() => {
+          const input = document.getElementById('input')
+          input.focus()
+          input.value = '@img'
+          input.setSelectionRange(4, 4)
+          input.dispatchEvent(new Event('input'))
+          setTimeout(() => {
+            for (const row of document.querySelectorAll('.slash-popup .menu-item')) {
+              if (row.textContent?.startsWith('@img1')) {
+                row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+                break
+              }
+            }
+            setTimeout(() => {
+              const LONG = '的嘛，就比如说我们现在想做的这个方案，它并不需要电脑支持某一个键才能执行，这是一个问题还有一个问题，就比如说，嗯，我想对接我的做一些其他的功能，按了按键之后，电脑上的软件会实现一些其他功能。这些功能以前必须要用系统快捷键做桥梁，这个限制其实非常大，因为电脑上的快捷键是数量有限的，并且如果你做得不好的话，有可能会冲突，有可能会和一些软件冲突，就很容易出问题。然后用户使用的时候映射起来也非常不方便，所以我觉得是可以做一些优化的。当然我本质是想做一个完整的键盘的，但是因为做一个小的比较简单嘛，也比较快，而且可以打通核心流程，所以我希望先做一个小的来测试一下。你仔细分析一下这件事情，帮我推演一下整个流程有没有什么问题。我说的包括我说这些痛点是不是真实的痛点，你也可以去网上调研一下，看一看有没有类似的评价，或者其他类似的需求。我觉得有一个很硬的需求点是可以讲的，就是但凡这种带上位机的软件，我最好是能够插插在电脑上，然后直接变成一个存储设备，us设备，然后就可以直接安装啊，不需要去网上去找，就是尽量的让上手的这个难度变小一些。那当然，用蓝牙的话，我觉得也有蓝牙的方式，这些都可以调研一下。@img1.png 这一段是结尾附近。'
+              const input2 = document.getElementById('input')
+              input2.value = LONG
+              input2.setSelectionRange(LONG.length, LONG.length)
+              input2.dispatchEvent(new Event('input'))
+              setTimeout(() => {
+                // 回到顶部再量：叠层是 translateY(-scrollTop) 同步滚动，滚下标会把
+                // @token 的 rect 平移 -scrollTop（与镜像自然位置比恒差 scrollTop，
+                // 不是 bug）。置 0 后测的才是叠层与 textarea 的真实排版差。
+                const cur = document.getElementById('input')
+                cur.scrollTop = 0
+                cur.dispatchEvent(new Event('scroll'))
+                setTimeout(() => {
+                  try {
+                    // 核心断言：高亮层（.ref-token-scroll）的换行宽必须等于 textarea
+                    // 真实内容宽（clientWidth - 左右 padding）。textarea 溢出弹出垂直
+                    // 滚动条后内容宽会变窄（clientWidth 不含滚动条），而层盒子
+                    // inset:1px 是全宽——若没做宽度同步，层会比 textarea 内容宽
+                    // 一截（约 15px），换行点不同 → @token 相对真实文本逐行横移。
+                    const cs = getComputedStyle(cur)
+                    const contentWidth = cur.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+                    const layerWidth = (document.querySelector('.ref-token-scroll') || {}).style?.width ?? null
+                    // 再对拍 @token：用「与 textarea 同内容宽」的文本层自然位置 vs 叠层 token，
+                    // 两者都应≈0（水平/垂直都对齐）。
+                    const ir = cur.getBoundingClientRect()
+                    const mir = document.createElement('div')
+                    mir.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;white-space:pre-wrap;overflow-wrap:break-word;box-sizing:border-box;left:' + (ir.left + parseFloat(cs.borderLeftWidth)) + 'px;top:' + (ir.top + parseFloat(cs.borderTopWidth)) + 'px;width:' + cur.clientWidth + 'px;padding:' + cs.padding + ';border:1px solid transparent;font:' + cs.fontSize + '/' + cs.lineHeight + ' ' + cs.fontFamily
+                    mir.textContent = cur.value
+                    document.body.appendChild(mir)
+                    const tok = document.querySelector('.ref-token')
+                    const rTok = tok ? tok.getBoundingClientRect() : null
+                    const start = cur.value.indexOf('@img1.png')
+                    const range = document.createRange()
+                    range.setStart(mir.firstChild, start)
+                    range.setEnd(mir.firstChild, start + '@img1.png'.length)
+                    const rMir = range.getBoundingClientRect()
+                    window.__driftCheck = {
+                      layerWidth,
+                      contentWidth,
+                      tokens: document.querySelectorAll('.ref-token').length,
+                      dy: rTok ? Math.round(rTok.top - rMir.top) : null,
+                      dx: rTok ? Math.round(rTok.left - rMir.left) : null,
+                    }
+                    mir.remove()
+                  } catch (err) {
+                    window.__driftCheck = { error: String((err && err.message) || err) }
+                  }
+                }, 180)
+              }, 200)
+            }, 160)
+          }, 160)
+        }, 120)
+      })()`,
+      title: '@ 输入框长文本滚动到底：叠层高亮与真实 textarea 排版是否对齐（drift 复现）',
+      expect: 'composer 输入一段长中文并滚到底部：叠层只把 .ref-token-scroll translateY(-scrollTop)，文本高亮层与 textarea 同字体/行高。由于 textarea 溢出弹出垂直滚动条后内容宽（clientWidth-左右 padding）变窄，而层盒子 inset:1px 是全宽，若无修复层会比 textarea 内容宽 15px 左右 → @img1.png 高亮 token 相对 textarea 真实排版横向漂移（dx 上百 px）。DOM 断言 window.__driftCheck：dy 与 dx 都应≈0（≤2px），layerWidth 应等于 textarea 内容宽；若 dx 明显非 0 即叠层漂移回归。',
+    },
+
     'mention-bindings-recall': {
       // recall 反查：↑ 拉起历史消息时把 canonical 长路径换回显示短 token。
       // 先经补全绑定 @img1.png（模块内 mentionBindings），再按 ↑ 召回含
