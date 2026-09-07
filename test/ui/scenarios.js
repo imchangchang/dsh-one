@@ -28,7 +28,7 @@
 
   // ---- 侧栏会话树快照构造器 ----
   const sess = (sessionId, label, description, over) => ({
-    sessionId, label, description, running: false, active: false, pinned: false, unread: false, descendantRunning: false, hasCompletedTurn: true, ...over,
+    sessionId, label, description, running: false, active: false, pinned: false, unread: false, attached: false, descendantRunning: false, hasCompletedTurn: true, ...over,
   })
   window.sessionsTree = function (activeId) {
     const workspaces = [

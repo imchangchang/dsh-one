@@ -217,7 +217,7 @@ export class ChatViewProvider implements vscode.Disposable {
     return ids
   }
 
-  /** 把当前打开的会话集合同步给 store（完成标记排除打开中的会话）。 */
+  /** 把当前打开的会话集合同步给 store（打开即已读：清完成标记与手动未读；打开中的会话在侧栏算活跃）。 */
   private syncAttachedSessions(): void {
     const ids: string[] = []
     for (const tab of this.tabs.values()) {

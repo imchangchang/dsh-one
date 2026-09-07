@@ -63,8 +63,8 @@ export interface SessionNodeModel {
   description: string
   running: boolean
   /**
-   * 活跃（与行尾状态标记同义）：running / 后代运行 / 未读 / 待交互任一。
-   * 排序上它在标签组聚合之前（用户确认：运行中/待交互的最上面），渲染层
+   * 活跃（与行尾状态标记同义）：running / 后代运行 / 未读 / 待交互 / tab 打开中
+   * 任一。排序上它在标签组聚合之前（用户确认：运行中/待交互的最上面），渲染层
    * 据此把活跃会话脱离标签组块平铺（同置顶语义），避免被折叠组藏住。
    */
   active: boolean
@@ -85,6 +85,12 @@ export interface SessionNodeModel {
   hasCompletedTurn: boolean
   /** Client-side unread marker (dsh has no unread API); part of the active layer. */
   unread: boolean
+  /**
+   * 会话 tab 当前打开着（chat view 附着的全量 tab 集合）：活跃原因之一，
+   * 但行尾不显示任何标识也不显示时间（用户确认：打开即活跃，关闭且无其他
+   * 状态才掉出活跃层）。纯层只参与排序与透传。
+   */
+  attached: boolean
   /**
    * 有运行中的血缘后代（子代理）——host 的 running 只管 agent 自身相位，
    * 父会话挂载等待子代理时是 idle；展示层用这个补忙碌指示（像素环）。
@@ -136,6 +142,11 @@ export interface SessionTreeViewOptions {
   pinned?: readonly string[]
   /** Client-side unread ids; purely a display flag (bold title + dot). */
   unread?: ReadonlySet<string>
+  /**
+   * 当前打开（chat tab 附着）的会话 id 集合：活跃原因之一，与其他活跃原因
+   * 同样整体前置；行尾无标识无时间（渲染层处理）。缺省无会话打开。
+   */
+  attached?: ReadonlySet<string>
   /**
    * Workspace-path equality for the vscode badge (isCurrent). Default is
    * strict equality; on Windows callers pass a normalizing comparator
@@ -204,7 +215,8 @@ export function formatRelativeTime(updatedAt: number, now: number, t: L10nFn = e
  * `view.pinned` ids first (absolute priority); pinned members hold the order
  * of `view.pinned` (置顶顺序，不随 updatedAt/title 调整), the remaining
  * unpinned ones put active sessions first — running / running-descendant /
- * unread / pending-interaction, any sort mode — ordered by updatedAt
+ * unread / pending-interaction / attached（tab 打开中）, any sort mode — ordered
+ * by updatedAt
  * descending inside the active group, then the tagged sessions follow tag
  * block order (each block ordered by `view.sort`), and the idle untagged
  * ones follow `view.sort` (default updatedAt descending). Active-first
@@ -301,12 +313,13 @@ export function buildSessionTree(
         session: s,
         label: titleOf(s) ?? t('Session {0}', s.sessionId.slice(0, 8)),
         // 活跃判定（展示层排序用）：与行尾标记同义——运行中/有运行中后代/
-        // 未读/待交互任一即活跃。这些会话行尾不再显示时间，排序上整体前置，
-        // 避免「不可见的时间」成为排序依据（用户确认：所有排序模式生效）。
+        // 未读/待交互/tab 打开中任一即活跃。这些会话行尾不再显示时间，排序上
+        // 整体前置，避免「不可见的时间」成为排序依据（用户确认：所有排序模式生效）。
         active:
           s.running ||
           view.unread?.has(s.sessionId) === true ||
           view.pendingInteractions?.has(s.sessionId) === true ||
+          view.attached?.has(s.sessionId) === true ||
           hasRunningDescendant(s.sessionId),
       }))
       .filter(
@@ -359,6 +372,7 @@ export function buildSessionTree(
           pinned: pinnedIndex.has(session.sessionId),
           hasCompletedTurn: (session.sessionStatsTurns ?? 0) > 0,
           unread: view.unread?.has(session.sessionId) === true,
+          attached: view.attached?.has(session.sessionId) === true,
           descendantRunning: hasRunningDescendant(session.sessionId),
           ...(tagId !== undefined ? { tagId } : {}),
           ...(pendingInteraction !== undefined ? { pendingInteraction } : {}),
