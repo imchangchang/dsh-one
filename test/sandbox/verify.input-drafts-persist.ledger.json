@@ -10,23 +10,17 @@
     "image": "dsh-sandbox:latest（含本任务 vsix）",
     "date": "2026-09-07T00:00:00Z"
   },
-  "coverageNote": "整页重载（page.reload）销毁全部 webview 内存态，覆盖「webview 丢失 → drafts.json 恢复」链路；真桌面 VSCode 进程级重启（扩展宿主一并重启）不在沙盒范围——其差异面（启动期 SessionsStore.create/文件读取）由 test/dshStateStore.test.ts 单测覆盖。附件图片持久化（base64 体积上限）为单测覆盖（parseDraftsFile/capDraftsFile），沙盒不做大图端到端。真模型输出、平台专项不在范围。",
+  "coverageNote": "整页重载（page.reload）销毁全部 webview 内存态，覆盖「webview 丢失 → drafts.json 恢复」链路（F-02/F-03 端到端）。环境限制：code-server 整页重载不恢复「创建后无标题变更的 blank 会话 tab」（VSCode 面板持久化时机问题，与本功能无关——草稿本体已确认落盘 drafts.json），blank 会话的重启恢复改由 harness 场景覆盖 webview 侧（F-01），宿主侧 readDrafts/draftRestore 时序由 test/dshStateStore.test.ts 单测覆盖；真桌面 VSCode 进程级重启如需确认走 dev-ui-test。图片附件的 base64 体积上限为单测覆盖（parseDraftsFile/capDraftsFile）。真模型输出、平台专项不在范围。开发期回归：沙盒抓到 draftRestore 无条件布防 draftRestoreFor 会把无暖场首发消息路径的已输入内容抹掉（commit 73f56e9 修复，R-02 即该路径的回归哨兵）。",
   "items": [
     {
       "id": "F-01",
       "phase": "new-feature",
-      "name": "composer 文本草稿重载恢复（真 dsh 端到端）",
-      "expect": "新会话 composer 填入文本不发送，整页重载（webview 内存全毁）后：chat tab 自动恢复、会话仍附着，composer textarea#input.value 仍包含重载前的草稿文本（来自 ~/.dsh/dsh-one/drafts.json，经 ready → draftRestore 恢复）。",
-      "result": "fail",
+      "name": "空会话（blank）草稿重启恢复（harness 确定性场景）",
+      "expect": "harness 场景 draft-restore-blank-hero：mock 宿主先发 draftRestore（composer['sess-blank'] 带草稿文本）再发空会话 state 帧（与真宿主 ready 回执顺序一致）；空会话 hero 的 composer 输入框直接带出草稿「重启前没发出去的草稿」（DOM 断言 window.__draftRestoreCheck.input 已核对），hero 其余元素与 empty 基线一致。",
+      "result": "pending",
       "screenshots": [
-        "/tmp/dsh-sandbox-shots-input-drafts/F-01.png"
-      ],
-      "driver": {
-        "fillDraft": "草稿F01-重启恢复",
-        "reloadWindow": true,
-        "expectDraft": "草稿F01-重启恢复"
-      },
-      "notes": "新建会话：sidebar-ungrouped；composer 草稿已填入（未发送）：\"草稿F01-重启恢复\"；已整页重载（模拟重启：webview 内存全毁，草稿靠 drafts.json 恢复）；草稿未恢复：草稿F01-重启恢复；expectDraft：pending 应答后 composer 草稿丢失"
+        "/tmp/dsh-ui-shots/draft-restore-blank-hero.png"
+      ]
     },
     {
       "id": "F-02",
@@ -66,6 +60,26 @@
       "notes": "新建会话：sidebar-ungrouped；composer 草稿已填入（未发送）：\"草稿F03-随历史恢复\"；已整页重载（模拟重启：webview 内存全毁，草稿靠 drafts.json 恢复）；重载后历史文本命中：收到：草稿F03前置消息；草稿恢复：草稿F03-随历史恢复"
     },
     {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "草稿附件（文件 chip）随重启恢复（harness 确定性场景）",
+      "expect": "harness 场景 draft-restore-with-files：draftRestore 的 composer['sess-1'] 带文本 + 文件附件；恢复后 composer 带出草稿文本且附件区有 main.ts 文件 chip（DOM 断言 window.__draftRestoreCheck = {input, chips} 已核对），历史消息流不受影响。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/draft-restore-with-files.png"
+      ]
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "问答卡半答恢复：选项选中态 + 自定义文本（harness 确定性场景）",
+      "expect": "harness 场景 draft-restore-question：draftRestore 的 answers['rpc-2']['0'] 带 selected + custom；问答卡恢复后选项「最新优先」为选中态、自定义输入框可见且值为半答文本、提交按钮可用（DOM 断言 window.__draftRestoreCheck 已核对）。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/draft-restore-question.png"
+      ]
+    },
+    {
       "id": "R-01",
       "phase": "regression",
       "name": "基础发送与 mock-LLM 回显",
@@ -83,8 +97,8 @@
     {
       "id": "R-02",
       "phase": "regression",
-      "name": "pending 接管不丢草稿（既有行为回归）",
-      "expect": "发送「提个问题」pending 接管前填入的草稿，应答（选项 + Submit）后 composer 恢复且 textarea#input.value 仍包含草稿文本（composer-draft-lost-on-pending 的既有修复不受本轮改动破坏）。",
+      "name": "pending 接管不丢草稿（既有行为回归 + 本轮回归哨兵）",
+      "expect": "发送「提个问题」pending 接管前填入的草稿，应答（选项 + Submit）后 composer 恢复且 textarea#input.value 仍包含草稿文本（composer-draft-lost-on-pending 既有修复 + 本轮 draftRestoreFor 布防回归的哨兵——无暖场首发消息路径）。",
       "result": "done",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-input-drafts/R-02.png"

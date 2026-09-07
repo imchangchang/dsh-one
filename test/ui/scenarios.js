@@ -1118,17 +1118,21 @@
     },
 
     'draft-restore-question': {
-      // 问答卡半答恢复：重启前选了选项、自定义框里写了半答（未提交）；
+      // 问答卡半答恢复：重启前点了「其他」并在自定义框里写了半答（未提交）；
       // 重启后 pending 由 dsh 重推，已答内容按 rpcId 从 drafts.json 种回。
-      draftRestore: { composer: {}, answers: { 'rpc-2': { '0': { selected: ['最新优先'], custom: '但想要倒序里的稳定排序', other: false } } } },
+      // （单选语义：custom 与选项 selected 互斥——打字清选择，选选项清文本；
+      // 「其他」选中态由 draft.other 承载。）
+      draftRestore: { composer: {}, answers: { 'rpc-2': { '0': { selected: [], custom: '但想要倒序里的稳定排序', other: true } } } },
       state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
       interact: `(() => {
-        const sel = [...document.querySelectorAll('.question-options .option-btn')].findIndex((b) => b.classList.contains('selected'))
+        const btns = [...document.querySelectorAll('.question-options .option-btn')]
+        const sel = btns.findIndex((b) => b.classList.contains('selected'))
         const custom = document.querySelector('.pending-panel .question-custom input')
-        window.__draftRestoreCheck = { selectedIndex: sel, custom: custom ? custom.value : null, customVisible: custom ? !!custom.offsetParent : false }
+        const submit = [...document.querySelectorAll('.pending-panel button')].find((b) => (b.textContent || '').trim() === '提交' || (b.textContent || '').trim() === 'Submit')
+        window.__draftRestoreCheck = { selectedIndex: sel, selectedLabel: sel >= 0 ? (btns[sel].textContent || '').trim() : null, custom: custom ? custom.value : null, customVisible: custom ? !custom.closest('.question-custom').classList.contains('hidden') : false, submitEnabled: submit ? !submit.disabled : null }
       })()`,
       title: '草稿持久化恢复：问答卡半答（#14）',
-      expect: '问答卡接管面板：选项「最新优先」为选中态（selected outline、· 实心）；「其他（自定义回答）」输入框**可见**且值为重启前写的半答「但想要倒序里的稳定排序」（selected 与 custom 可同时存在——单选里自定义文本不清选择）；「提交」按钮可用。DOM 断言 window.__draftRestoreCheck = {selectedIndex:0, custom, customVisible:true} 已核对。',
+      expect: '问答卡接管面板：「其他」选项为选中态（selected outline）；其下方自定义输入框**可见**且值为重启前写的半答「但想要倒序里的稳定排序」；「最新优先/最旧优先」无高亮；「提交」按钮可用。DOM 断言 window.__draftRestoreCheck = {selectedIndex:2, selectedLabel:"Other/其他", custom, customVisible:true, submitEnabled:true} 已核对。',
     },
 
     // ---- plan 状态 chip（对齐官方 dsh web PlanChip；plan-mode-chip 合入时漏的场景）----
