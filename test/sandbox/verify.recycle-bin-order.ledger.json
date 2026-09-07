@@ -1,0 +1,28 @@
+{
+  "title": "回收站会话按进入回收站的顺序排列（最新在最上）",
+  "branch": "agent/recycle-bin-order",
+  "commit": "519addb",
+  "environment": {
+    "mode": "unit（无沙盒视觉场景——纯层排序改动，mock 场景直接喂呈现模型、跳过排序函数）",
+    "date": "2026-09-08T00:00:00Z"
+  },
+  "coverageNote": "本次改动是纯层排序逻辑（src/pure/sessionTree.ts 新增 opt-in recycleOrder 排序分支 + src/ui/sessionsStore.ts 回收站视图传入入站顺序），不含任何 webview 渲染代码。沙盒/浏览器视觉场景（scenarios.js 的回收站抽屉/平铺/入口）直接喂 recycleWorkspaces 呈现模型、不经过 buildSessionTree 排序，因此视觉验证无法覆盖该排序改动——功能验证以纯层单测为准，回归由全量单测与「webview 渲染零改动」的代码审查保证。真桌面 VS Code、平台专项不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "回收站组内按进入回收站的顺序倒序排（最新移入最上）",
+      "expect": "回收站抽屉内每个原 workspace 组里的会话，不再按主列表的时间/标题排序、也不再被置顶/活跃前置，而是按进入回收站的顺序倒序（数组尾部 = 最新移入，排在本组最上）。主列表路径不受影响（未传 recycleOrder 时行为不变）。",
+      "result": "pass",
+      "notes": "被测点是 sessionsStore 回收站模型的组内排序输出，由纯层单测锁定：①「recycleOrder orders recycle-bin sessions latest-trash-first, ignoring sort keys」——入站顺序 [c,b,a] 且 updatedAt 故意错序（b 最新），组内输出 [a,b,c]（按入站倒序、覆盖默认 updatedAt 降序）；②「recycleOrder falls back to position order per group; unknown ids trail」——跨组各自按入站相对顺序，不在 recycleOrder 里的未知 id 排本组最后。webview 直接按回收站模型数组序渲染（无二次排序，见 sessionsWebview 的 recycleWorkspaces 遍历）。全量 649 项单测通过（npm test）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "回收站既有行为与主列表排序回归",
+      "expect": "回收站按原 workspace 分组、组头计数、平铺不聚块、恢复/归档/折叠等行为不受影响；主列表排序（updatedDesc/updatedAsc/title、置顶、活跃前置、标签组聚合、无组殿后）完全不变。",
+      "result": "pass",
+      "notes": "本次改动仅新增给回收站视图传入 recycleOrder（opt-in）；未传 recycleOrder 的主列表路径走原排序分支，行为完全不变（此类既有单测「no tags option keeps the legacy flat ordering」「sort hierarchy is pinned > untagged active > tag blocks > idle by time」「sessions aggregate into tag blocks in tag order」等全部通过）。不含任何 webview/渲染代码，回收站抽屉、入口、平铺场景的渲染与交互代码零改动。新增的 60 项 sessionTree 单测全过 + 全量 649 项通过（node --test）。"
+    }
+  ]
+}
