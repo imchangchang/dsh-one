@@ -23,14 +23,15 @@ import path from 'node:path'
 // ---------- 参数 ----------
 
 function parseArgs(argv) {
-  const opts = { command: null, expectVersion: null, json: null }
+  const opts = { command: null, expectVersion: null, json: null, cwd: null }
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i]
     if (a === '--command') opts.command = argv[++i]
     else if (a === '--expect-version') opts.expectVersion = argv[++i]
     else if (a === '--json') opts.json = argv[++i]
+    else if (a === '--cwd') opts.cwd = argv[++i]
     else if (a === '--help' || a === '-h') {
-      console.log('usage: probe.mjs --command <dsh> [--expect-version <v>] [--json <out>]')
+      console.log('usage: probe.mjs --command <dsh> [--expect-version <v>] [--json <out>] [--cwd <dir>]')
       process.exit(0)
     } else throw new Error(`unknown arg: ${a}`)
   }
@@ -60,9 +61,15 @@ function freePort() {
   })
 }
 
+/** `--command` 允许整串命令行（如源码构建的 `node --import tsx/esm apps/cli/src/bin.ts`）。 */
+function splitCommand(cmd) {
+  return cmd.trim().split(/\s+/)
+}
+
 function run(cmd, args, opts = {}) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { ...opts, stdio: ['ignore', 'pipe', 'pipe'] })
+    const [bin, ...prefix] = splitCommand(cmd)
+    const child = spawn(bin, [...prefix, ...args], { cwd: opts.cwd ?? undefined, ...opts, stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
     let err = ''
     child.stdout.on('data', (d) => { out += d })
@@ -120,7 +127,7 @@ async function main() {
   process.on('SIGINT', async () => { await cleanup(); process.exit(130) })
 
   // 1. 版本解析
-  const ver = await run(opts.command, ['--version'])
+  const ver = await run(opts.command, ['--version'], { cwd: opts.cwd ?? undefined })
   const version = extractVersion(ver.out + ver.err)
   if (ver.code === 0 && version) {
     const mismatch = opts.expectVersion && version !== opts.expectVersion
@@ -137,7 +144,7 @@ async function main() {
   const env = { ...process.env, DSH_HOME: dshHome }
   delete env.NODE_OPTIONS
   delete env.ELECTRON_RUN_AS_NODE
-  child = spawn(opts.command, ['web', '--host', '127.0.0.1', '--port', String(port), '--no-open'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  child = spawn(...(() => { const [bin, ...prefix] = splitCommand(opts.command); return [bin, [...prefix, 'web', '--host', '127.0.0.1', '--port', String(port), '--no-open'], { env, cwd: opts.cwd ?? undefined, stdio: ['ignore', 'pipe', 'pipe'] }] })())
   let stderrTail = ''
   child.stderr.on('data', (d) => { stderrTail = (stderrTail + d).slice(-2000) })
   const readyLine = await new Promise((resolve) => {
