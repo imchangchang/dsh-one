@@ -210,6 +210,8 @@ node test/sandbox/verify-driver.mjs \
     "expectDraft": "我的草稿",        // 可选：断言 composer textarea 值包含该文本（草稿恢复检查）
     "expectPlaceholder": "占位文本",  // 可选：断言 composer textarea 的 placeholder 包含该文本
     "fillAndClear": "草稿文本",        // 可选：填入该文本并点 .clear-all-button，断言输入框为空
+    "keyClearUndo": "草稿文本",        // 可选：填入该文本后 Ctrl+C 双击清空（断言第一次只亮 .clear-confirm-hint 提示不动文本、第二次清空）再 Ctrl+Z 断言恢复原文
+    "keyClearUndoKey": "escape",      // 可选：配 keyClearUndo，清空键换 ESC（缺省 ctrl+c）
     "fillSlash": "/g",                // 可选：填入该文本但不发送（触发 slash 补全弹窗/参数 hint 行）
     "expectPopup": ["/goal", "hint"], // 可选：断言 webview 出现这些文本（数组逐条，15s/条；配 fillSlash）
     "hoverText": "文本",              // 可选：悬停含该文本的元素（commit chip 等）让悬浮卡弹出再截图

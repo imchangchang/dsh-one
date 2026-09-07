@@ -1119,7 +1119,7 @@
         i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       })()`,
       title: '运行中 Enter 排队发送：输入区无鬼影残留',
-      expect: '输入框 value 为空，仅显示浅灰占位符「Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts」；输入框上方高亮层（ref-token-layer）没有任何文字（不残留发送前的「等等，先停下，看看状态。」）；主按钮显示停止图标（运行中）；无消息流之外的异常浮层。',
+      expect: '输入框 value 为空，仅显示浅灰占位符「Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc clears input first, then interrupts」；输入框上方高亮层（ref-token-layer）没有任何文字（不残留发送前的「等等，先停下，看看状态。」）；主按钮显示停止图标（运行中）；无消息流之外的异常浮层。',
     },
 
     subagents: {
@@ -3405,6 +3405,297 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
       expect: '点击 × 后：输入框为空（高亮层无文本、无占位残影）、图片 chips 行消失、× 隐藏（内容清空后不再是 dirty 态）、输入框拿到焦点（focus outline）。',
     },
 
+    // ---- 双击清空 + Ctrl+Z 反悔（composer-clear-undo）----
+    // 共享断言助手：失败时顶部红色横幅（截图可见），明细始终写 window.__clearUndoAsserts。
+    'composer-keyboard-clear-undo': {
+      state: base({}),
+      title: 'Ctrl+C 双击清空（文本+引用+附件）→ Ctrl+Z 整体反悔',
+      interactSteps: [
+        {
+          name: 'filled',
+          script: `(() => {
+            const post = (m) => window.postMessage(m, '*')
+            const ta = document.getElementById('input')
+            window.__clearUndoAsserts = []
+            window.__clearUndoFail = (step, detail) => {
+              window.__clearUndoAsserts.push({ step, ok: false, detail })
+              const d = document.createElement('div')
+              d.textContent = 'ASSERT FAILED [' + step + ']: ' + detail
+              d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+              document.body.appendChild(d)
+            }
+            ta.focus()
+            ta.value = '草稿：双击清空后 Ctrl+Z 应整体恢复 '
+            ta.dispatchEvent(new Event('input'))
+            ta.setSelectionRange(ta.value.length, ta.value.length)
+            const dt = new DataTransfer()
+            dt.setData('text/plain', '@[长文本输入时对话刷新问题](dsh-session:InNlc3MtMSI)')
+            ta.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+            post({ type: 'filesPicked', files: [{ name: 'photo.png', path: '/tmp/dsh-one-attachments/u-1/photo.png', image: true, mediaType: 'image/png', previewData: '${PNG_RED}' }, { name: 'notes.md', path: '/tmp/notes.md' }] }, '*')
+            window.__clearUndoAsserts.push({ step: 'filled', ok: true, value: document.getElementById('input').value })
+          })()`,
+          settle: 800,
+        },
+        {
+          name: 'armed',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }))
+            const hint = document.querySelector('.clear-confirm-hint')
+            const chips = document.querySelectorAll('.input-area .image-chips > *').length
+            const ok = !!hint && ta.value.includes('双击清空后') && ta.value.includes('长文本输入时对话刷新问题') && chips === 2
+            if (!ok) window.__clearUndoFail('armed', JSON.stringify({ hint: !!hint, value: ta.value, chips }))
+            else window.__clearUndoAsserts.push({ step: 'armed', ok: true, hintText: hint.textContent })
+          })()`,
+        },
+        {
+          name: 'cleared',
+          script: `(() => {
+            document.getElementById('input').dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }))
+            const input = document.getElementById('input')
+            const ok = input.value === ''
+              && !document.querySelector('.input-area .image-chips')
+              && !document.querySelector('.clear-confirm-hint')
+              && (document.querySelector('.clear-all-button')?.hidden ?? false)
+              && document.activeElement === input
+            if (!ok) window.__clearUndoFail('cleared', JSON.stringify({ value: input.value, chips: !!document.querySelector('.input-area .image-chips'), focused: document.activeElement === input }))
+            else window.__clearUndoAsserts.push({ step: 'cleared', ok: true })
+          })()`,
+        },
+        {
+          name: 'restored',
+          script: `(() => {
+            document.getElementById('input').dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
+            const input = document.getElementById('input')
+            const token = document.querySelector('.input-area .ref-token')
+            const chips = document.querySelectorAll('.input-area .image-chips > *').length
+            const ok = input.value.includes('草稿：双击清空后 Ctrl+Z 应整体恢复')
+              && input.value.includes('长文本输入时对话刷新问题')
+              && !!token && token.textContent.includes('长文本输入时对话刷新问题')
+              && chips === 2
+              && document.activeElement === input
+              && !(document.querySelector('.clear-all-button')?.hidden ?? true)
+              && input.selectionStart === input.value.length
+            if (!ok) window.__clearUndoFail('restored', JSON.stringify({ value: input.value, token: !!token, chips, focused: document.activeElement === input, caret: input.selectionStart }))
+            else window.__clearUndoAsserts.push({ step: 'restored', ok: true })
+          })()`,
+          settle: 800,
+        },
+      ],
+      expect: '四张分步截图对照——① filled：composer 内文本 + @会话引用 token（高亮层 span.ref-token 底色高亮「长文本输入时对话刷新问题」，textarea 文字透明）+ 图片缩略图 chip + 文件 chip（notes.md），× 清空按钮可见。② armed：按一次 Ctrl+C 后输入框上方浮出提示小框「再按一次 Esc 或 Ctrl+C 清空输入」（英文 locale 时为英文「Press Esc or Ctrl+C again to clear the input」），文本/引用 token/附件 chips **全部原样仍在**，× 仍可见。③ cleared：再按一次 Ctrl+C 后输入框为空、chips 行消失、提示小框消失、× 隐藏、焦点在输入框。④ restored：空 composer 按 Ctrl+Z 后——文本完整回来、@会话引用 token 重新以高亮 token 形态渲染（不是裸文字）、图片与文件 chips 都回来、× 重新可见、焦点在输入框且光标在文末。任何一步断言失败会有顶部红色横幅（本场景应无横幅）。',
+    },
+    'composer-esc-clear-disarm': {
+      state: base({}),
+      title: 'ESC 双击清空：打字解除武装（纯文本 keepComposer 保活路径）',
+      interactSteps: [
+        {
+          name: 'filled',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            window.__escClearAsserts = []
+            window.__escClearFail = (step, detail) => {
+              window.__escClearAsserts.push({ step, ok: false, detail })
+              const d = document.createElement('div')
+              d.textContent = 'ASSERT FAILED [' + step + ']: ' + detail
+              d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+              document.body.appendChild(d)
+            }
+            ta.focus()
+            ta.value = 'ESC 双击清空：第一次只亮提示'
+            ta.dispatchEvent(new Event('input'))
+          })()`,
+        },
+        {
+          name: 'esc-armed',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+            const hint = document.querySelector('.clear-confirm-hint')
+            const ok = !!hint && ta.value === 'ESC 双击清空：第一次只亮提示'
+            if (!ok) window.__escClearFail('esc-armed', JSON.stringify({ hint: !!hint, value: ta.value }))
+            else window.__escClearAsserts.push({ step: 'esc-armed', ok: true })
+          })()`,
+        },
+        {
+          name: 'typing-disarms',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            ta.value = 'ESC 双击清空：第一次只亮提示，打字后'
+            ta.dispatchEvent(new Event('input'))
+            const ok = !document.querySelector('.clear-confirm-hint')
+            if (!ok) window.__escClearFail('typing-disarms', '提示小框未随输入摘除')
+            else window.__escClearAsserts.push({ step: 'typing-disarms', ok: true })
+          })()`,
+        },
+        {
+          name: 'esc-rearmed',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+            const hint = document.querySelector('.clear-confirm-hint')
+            const ok = !!hint && ta.value === 'ESC 双击清空：第一次只亮提示，打字后'
+            if (!ok) window.__escClearFail('esc-rearmed', JSON.stringify({ hint: !!hint, value: ta.value, note: '打字解除后第一次 ESC 应重新武装而非清空' }))
+            else window.__escClearAsserts.push({ step: 'esc-rearmed', ok: true })
+          })()`,
+        },
+        {
+          name: 'esc-cleared',
+          script: `(() => {
+            document.getElementById('input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+            const input = document.getElementById('input')
+            const ok = input.value === '' && !document.querySelector('.clear-confirm-hint') && document.activeElement === input
+            if (!ok) window.__escClearFail('esc-cleared', JSON.stringify({ value: input.value, focused: document.activeElement === input }))
+            else window.__escClearAsserts.push({ step: 'esc-cleared', ok: true })
+          })()`,
+        },
+      ],
+      expect: '五张分步截图对照（纯文本、焦点在输入框，走 keepComposer 保活路径，composer 不重建）——① filled：输入框一行文本，× 可见。② esc-armed：按一次 ESC 浮出提示小框，文本原样不动。③ typing-disarms：继续输入一个字符后提示小框消失（输入解除武装），文本变长。④ esc-rearmed：再按一次 ESC 重新浮出提示小框且文本**仍完整**（证明上一步的武装已被打字解除，这次只是重新武装，不是确认清空）。⑤ esc-cleared：再按一次 ESC 文本清空、提示消失、× 隐藏、焦点在输入框。应无红色断言横幅。',
+    },
+    'composer-clear-running-guard': {
+      state: base({ running: true }),
+      title: '运行中分层：有内容先双击清空（不停 turn），空了再按才停止',
+      interactSteps: [
+        {
+          name: 'esc-arms-no-stop',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            window.__guardAsserts = []
+            window.__guardFail = (step, detail) => {
+              window.__guardAsserts.push({ step, ok: false, detail })
+              const d = document.createElement('div')
+              d.textContent = 'ASSERT FAILED [' + step + ']: ' + detail
+              d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+              document.body.appendChild(d)
+            }
+            ta.focus()
+            ta.value = '运行中有草稿：ESC 第一层是清输入'
+            ta.dispatchEvent(new Event('input'))
+            window.__posted = []
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+            const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+            const hint = document.querySelector('.clear-confirm-hint')
+            const ok = !stopped && !!hint && ta.value === '运行中有草稿：ESC 第一层是清输入'
+            if (!ok) window.__guardFail('esc-arms-no-stop', JSON.stringify({ stopped, hint: !!hint, value: ta.value }))
+            else window.__guardAsserts.push({ step: 'esc-arms-no-stop', ok: true })
+          })()`,
+        },
+        {
+          name: 'esc-clears-no-stop',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+            const input = document.getElementById('input')
+            const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+            const ok = !stopped && input.value === '' && !document.querySelector('.clear-confirm-hint')
+            if (!ok) window.__guardFail('esc-clears-no-stop', JSON.stringify({ stopped, value: input.value }))
+            else window.__guardAsserts.push({ step: 'esc-clears-no-stop', ok: true })
+          })()`,
+        },
+        {
+          name: 'esc-empty-stops',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            ta.focus()
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+            const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+            const ok = stopped && ta.value === '' && !document.querySelector('.clear-confirm-hint')
+            if (!ok) window.__guardFail('esc-empty-stops', JSON.stringify({ stopped, value: ta.value }))
+            else window.__guardAsserts.push({ step: 'esc-empty-stops', ok: true })
+          })()`,
+        },
+        {
+          name: 'ctrlc-arms-no-stop',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            ta.focus()
+            ta.value = '运行中 Ctrl+C 同样先清输入'
+            ta.dispatchEvent(new Event('input'))
+            window.__posted = []
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }))
+            const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+            const hint = document.querySelector('.clear-confirm-hint')
+            const ok = !stopped && !!hint && ta.value === '运行中 Ctrl+C 同样先清输入'
+            if (!ok) window.__guardFail('ctrlc-arms-no-stop', JSON.stringify({ stopped, hint: !!hint, value: ta.value }))
+            else window.__guardAsserts.push({ step: 'ctrlc-arms-no-stop', ok: true })
+          })()`,
+        },
+        {
+          name: 'ctrlc-clears-then-stops',
+          script: `(() => {
+            let ta = document.getElementById('input')
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }))
+            ta = document.getElementById('input')
+            const clearedNoStop = !(window.__posted || []).some((m) => m && m.type === 'stop') && ta.value === ''
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }))
+            const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+            const ok = clearedNoStop && stopped
+            if (!ok) window.__guardFail('ctrlc-clears-then-stops', JSON.stringify({ clearedNoStop, stopped }))
+            else window.__guardAsserts.push({ step: 'ctrlc-clears-then-stops', ok: true })
+          })()`,
+        },
+      ],
+      expect: '运行中（running:true）ESC/Ctrl+C 是两层语义——① esc-arms-no-stop：有草稿按 ESC，草稿**原样保留**、浮出提示小框、**不发** stop；② esc-clears-no-stop：再按 ESC 草稿清空、仍**不发** stop（截图：空输入框、占位符为运行中文案「…Esc clears input first, then interrupts」）；③ esc-empty-stops：空输入框按 ESC 才发 stop（断言查 __posted，画面与 ② 相同）；④ ctrlc-arms-no-stop：重新填入草稿按 Ctrl+C，同样只亮提示不清不发 stop；⑤ ctrlc-clears-then-stops：第二次 Ctrl+C 清空且不发 stop，第三次（空输入框）Ctrl+C 发 stop。每张截图都应无红色断言横幅；①④ 有提示小框，②③⑤ 无。',
+    },
+    'composer-clear-idle-guards': {
+      state: base({ slashCommands: [{ name: 'model', description: '选择模型' }, { name: 'goal', description: '设置目标' }] }),
+      title: '空闲态让位守卫：选区复制 / recall 取消 / 斜杠弹窗优先',
+      interactSteps: [
+        {
+          name: 'selection-copy',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            window.__idleGuardAsserts = []
+            window.__idleGuardFail = (step, detail) => {
+              window.__idleGuardAsserts.push({ step, ok: false, detail })
+              const d = document.createElement('div')
+              d.textContent = 'ASSERT FAILED [' + step + ']: ' + detail
+              d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+              document.body.appendChild(d)
+            }
+            ta.focus()
+            ta.value = '选中文字时 Ctrl+C 是复制'
+            ta.dispatchEvent(new Event('input'))
+            ta.setSelectionRange(0, 5)
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }))
+            const ok = ta.value === '选中文字时 Ctrl+C 是复制' && !document.querySelector('.clear-confirm-hint')
+            if (!ok) window.__idleGuardFail('selection-copy', JSON.stringify({ value: ta.value, hint: !!document.querySelector('.clear-confirm-hint') }))
+            else window.__idleGuardAsserts.push({ step: 'selection-copy', ok: true })
+            ta.setSelectionRange(0, 0)
+          })()`,
+        },
+        {
+          name: 'recall-esc',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            ta.setSelectionRange(0, 0)
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }))
+            const recalled = ta.value.includes('你帮我看看这个插件的架构')
+            const input2 = document.getElementById('input')
+            input2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+            const back = document.getElementById('input')
+            const ok = recalled && back.value === '选中文字时 Ctrl+C 是复制' && !document.querySelector('.clear-confirm-hint')
+            if (!ok) window.__idleGuardFail('recall-esc', JSON.stringify({ recalled, value: back.value, hint: !!document.querySelector('.clear-confirm-hint') }))
+            else window.__idleGuardAsserts.push({ step: 'recall-esc', ok: true })
+          })()`,
+        },
+        {
+          name: 'slash-esc',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            ta.focus()
+            ta.value = '/'
+            ta.dispatchEvent(new Event('input'))
+            const popup = document.querySelector('.slash-popup')
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+            const ok = !!popup && !document.querySelector('.slash-popup') && ta.value === '/' && !document.querySelector('.clear-confirm-hint')
+            if (!ok) window.__idleGuardFail('slash-esc', JSON.stringify({ popupBefore: !!popup, popupAfter: !!document.querySelector('.slash-popup'), value: ta.value, hint: !!document.querySelector('.clear-confirm-hint') }))
+            else window.__idleGuardAsserts.push({ step: 'slash-esc', ok: true })
+          })()`,
+        },
+      ],
+      expect: '三个让位守卫（空闲态）——① selection-copy：composer 里选中前 5 个字按 Ctrl+C，文本原样、不亮提示小框（选区复制语义不动）。② recall-esc：光标在行首按 ↑ 召回最后一条用户消息（输入框变为「你帮我看看这个插件的架构…」），此时按 ESC 是**取消召回**——输入框回到召回前的草稿「选中文字时 Ctrl+C 是复制」，不亮提示、不清空。③ slash-esc：输入「/」弹出斜杠补全菜单（.slash-popup 浮层），按 ESC 只关菜单、文本仍是「/」、不亮清空提示。每张截图应无红色断言横幅；slash-esc 截图里弹窗已关闭、输入框剩「/」。',
+    },
+
   }
 
   catalog.conversation.sessions = window.sessionsTree('sess-1')
@@ -3797,6 +4088,8 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'collapse-footer',
     'composer-clear-after-send',
     'composer-long-scrolled',
+    'composer-keyboard-clear-undo', 'composer-esc-clear-disarm',
+    'composer-clear-running-guard', 'composer-clear-idle-guards',
     'attachment-uniform',
     'session-open-failure',
     'model-pill-loading',
