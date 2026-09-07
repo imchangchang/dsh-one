@@ -1,0 +1,79 @@
+{
+  "title": "tag-bridge-session-crud：桥 session 级标签归属增删改查（#31）",
+  "branch": "agent/tag-bridge-session-crud",
+  "commit": "a0dd688",
+  "environment": {
+    "mode": "host + 真桥",
+    "dsh": "0.1.2-rc.1",
+    "node": "24",
+    "python": "3.9",
+    "locale": "en",
+    "date": "2026-09-07T00:00:00Z"
+  },
+  "coverageNote": "本任务改桥的 API 契约（host 逻辑），不改 UI 渲染。验证以 node --test（真 http 服务 + 真 DshStateStore.updateTags）+ 真实 python 脚本对活桥 POST 为主；真桌面 VS Code / 真模型输出不在范围。桥语义变更需扩展 reload（合入后重建 dist）才在宿主生效。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "assign：按组名找/建组归入 + 按 tagId 必需存在",
+      "expect": "`{action:assign, sessionIds, group}` 按组名找/建组并归入（单组语义覆盖旧组）；`{action:assign, sessionIds, tagId}` 归到指定已存在组，未知 tagId 拒绝（tag-not-found）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test：parseTagBridgeRequest 对二选一（group/tagId）校验（ambiguous-target 拒绝 both/neither、空组名/空 tagId 拒绝）；真桥 e2e 用真 DshStateStore 验证按组名建组+归属+幂等、按 tagId 归组、未知 tagId→桥 500 + {ok:false,error:'tag-not-found'}。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "get：查一个 session 当前所属组",
+      "expect": "`{action:get, sessionId}` 返回该 session 当前组 `{id,name,color,preset}`；无组返回 `{group:null}`。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test：get 请求校验（空 sessionId 拒绝）；真桥 e2e 验证已归组 session 返回正确组、无组 session 返回 group:null。桥路由 get 响应形态正确。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "unassign：清空 session 归属，组定义保留",
+      "expect": "`{action:unassign, sessionIds}` 把这些 session 移出组（sessionTags 清空），组定义保留、不删组。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test：真桥 e2e 验证 unassign 后 sessionTags 清空、组定义仍在 tags.json。桥路由 unassign 响应 {ok, sessionCount}。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "语义明确：无默认行为（缺 action 拒绝）",
+      "expect": "每个请求必须显式写 action；action 缺失或非法（如旧 `{group, sessionIds}` 无 action）一律 400。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test：缺 action（旧形态）→ bad-action；非法 action（如 'drop'）→ bad-action；非对象 → bad-request。桥路由无 action 请求 400。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "脚本 --tag 显式 action 走桥",
+      "expect": "`mk-sessions-modern.py --tag` POST body 为 `{action:'assign', group:<组名>, sessionIds:[...]}`；桥缺失/连接失败报错指路，不静默。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "真实 python assign_tag 对活桥 POST：`tag: 真桥CRUD组 (None) → 2 sessions` + 同组幂等 1 session，tags.json v2 落盘（version 2、归属命中、组不重复）。bridge.json 缺失 → 报错含「DSH One 扩展未加载」。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "桥安全/协议层不回归（认证/404/400/多窗口/dispose）",
+      "expect": "Bearer 认证（错/缺 token 401）、错方法/错路径 404、坏 JSON 400、dispose 清记录/多窗口晚覆盖不误清/幂等 不变。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test test/tagBridge.test.ts：401（错/缺 token 不触达 handle）、404（GET/错路径）、400（坏 JSON/缺 action/空组名）、store 错误 500+错误码、dispose 清记录/多窗口覆盖/幂等。全量 680 项 pass。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "既有 tags v2 解析/派生链路不回归",
+      "expect": "sanitizeTags/sanitizeSessionTagIds/sanitizeTagFileV2/setSessionTagId/assignTagGroup 等原语义不变；无 --tag 派生链路不受影响。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "全量 node --test 680 项 pass（含 dshStateFile/sessionTags/dshStateStore 既有标签组相关项 + #18 桥测试）。本次仅扩展桥 API + store 新增方法，未动既有纯函数。"
+    }
+  ]
+}
