@@ -27,6 +27,7 @@ concurrency:
 jobs:
   watch:
     runs-on: ubuntu-latest
+    timeout-minutes: 40 # 源码构建路径约 10min，留足余量
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +35,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      # GitHub-only 版本走源码构建（pnpm install + pnpm run build），上游 packageManager 固定 pnpm
+      - name: Enable pnpm via corepack
+        run: corepack enable
 
       - name: Watch upstream release
         env:
