@@ -95,3 +95,5 @@
 - 新版插件 + 旧版脚本/无插件 + 新脚本：脚本写的文件没人读就静等；新版启动即文件权威，向后兼容 [推演]
 
 结论：无新发现的 blocker/should-fix；三个已接受的代价（同毫秒互丢、writePending 极端变体、目录删除后 watch 死）都有日志或留档，修法都是重启窗口/重新操作。
+
+- 2026-09-06 主线合入（dev-merge 复测 typecheck/test/build 全绿），用户在 Windows 实测无问题 → closed
