@@ -1,0 +1,112 @@
+{
+  "title": "input-drafts-persist：输入草稿持久化（composer 文本/附件、问答卡半答）重启恢复",
+  "branch": "agent/input-drafts-persist",
+  "commit": "HEAD",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox:latest（含本任务 vsix）",
+    "date": "2026-09-07T00:00:00Z"
+  },
+  "coverageNote": "整页重载（page.reload）销毁全部 webview 内存态，覆盖「webview 丢失 → drafts.json 恢复」链路；真桌面 VSCode 进程级重启（扩展宿主一并重启）不在沙盒范围——其差异面（启动期 SessionsStore.create/文件读取）由 test/dshStateStore.test.ts 单测覆盖。附件图片持久化（base64 体积上限）为单测覆盖（parseDraftsFile/capDraftsFile），沙盒不做大图端到端。真模型输出、平台专项不在范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "composer 文本草稿重载恢复（真 dsh 端到端）",
+      "expect": "新会话 composer 填入文本不发送，整页重载（webview 内存全毁）后：chat tab 自动恢复、会话仍附着，composer textarea#input.value 仍包含重载前的草稿文本（来自 ~/.dsh/dsh-one/drafts.json，经 ready → draftRestore 恢复）。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-01.png"
+      ],
+      "driver": {
+        "fillDraft": "草稿F01-重启恢复",
+        "reloadWindow": true,
+        "expectDraft": "草稿F01-重启恢复"
+      }
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "问答卡半答重载恢复（真 dsh 端到端）",
+      "expect": "发送「提个问题」触发 ask_user_question pending 面板，点 Other 展开自定义输入并填入半答文本（不提交）；整页重载后：问答卡仍在（dsh 侧 pending 未丢）、自定义输入行展开且输入框值仍是重载前的半答文本（answerDrafts 按 rpcId 从 drafts.json 恢复）。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-02.png"
+      ],
+      "driver": {
+        "prompt": "提个问题",
+        "expectText": "继续执行吗",
+        "fillAnswer": "半答F02-重启恢复",
+        "reloadWindow": true,
+        "expectAnswerDraft": "半答F02-重启恢复"
+      }
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "已附着会话的草稿随历史一同恢复（真 dsh 端到端）",
+      "expect": "会话内先发一条消息（有历史），随后 composer 填入新草稿；整页重载后：历史消息「收到：草稿F03前置消息」仍在，且 composer 草稿「草稿F03-随历史恢复」一并恢复（state 首推与 draftRestore 时序竞速路径）。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-03.png"
+      ],
+      "driver": {
+        "prompt": "草稿F03前置消息",
+        "expectText": "收到：草稿F03前置消息",
+        "fillDraft": "草稿F03-随历史恢复",
+        "reloadWindow": true,
+        "expectDraft": "草稿F03-随历史恢复",
+        "expectTextAfterReload": "收到：草稿F03前置消息"
+      }
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "基础发送与 mock-LLM 回显",
+      "expect": "新会话发送「测试一下」后助手回显「收到：测试一下」；composer 正常清空、发送按钮与流式渲染不受草稿持久化挂钩影响。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-01.png"
+      ],
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      }
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "pending 接管不丢草稿（既有行为回归）",
+      "expect": "发送「提个问题」pending 接管前填入的草稿，应答（选项 + Submit）后 composer 恢复且 textarea#input.value 仍包含草稿文本（composer-draft-lost-on-pending 的既有修复不受本轮改动破坏）。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-02.png"
+      ],
+      "driver": {
+        "prompt": "提个问题",
+        "afterSendFill": "草稿R02-pending恢复",
+        "approve": [
+          "继续 (Recommended)",
+          "Submit"
+        ],
+        "expectDraft": "草稿R02-pending恢复"
+      }
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "一键清空按钮（既有行为回归）",
+      "expect": "composer 填入文本后点击输入框右侧 × 按钮，输入框清空（textarea#input.value === ''）；清空后 drafts.json 不落条目（签名去重 + 空内容删条路径）。",
+      "result": "pending",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-03.png"
+      ],
+      "driver": {
+        "fillAndClear": "草稿R03-清空按钮"
+      }
+    }
+  ]
+}

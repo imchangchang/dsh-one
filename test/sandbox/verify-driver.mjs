@@ -17,6 +17,12 @@
 //                 （占位符文案检查，如运行中的插话快捷键提示）
 //   fillAndClear  在新会话里填充这段文本并点击 .clear-all-button，断言输入框为空
 //   fillSlash     填充该文本但不发送（触发 slash 补全弹窗/参数 hint 行等纯输入态）
+//   fillDraft     填充该文本但不发送，随后等防抖落盘（草稿持久化场景，配 reloadWindow）
+//   fillAnswer    填充问答卡的自定义回答输入（pending 面板内，未提交；配 reloadWindow）
+//   reloadWindow  true=整页重载（模拟重启：webview 内存全毁，草稿靠 drafts.json 恢复）；
+//                 重载后 expectDraft/expectAnswerDraft 断言恢复结果
+//   expectAnswerDraft 断言 pending 问答卡自定义输入框的值包含该文本（重启后半答恢复检查）
+//   expectTextAfterReload 重载后断言 webview 中出现该文本（历史消息随状态重推仍在）
 //   expectPopup   断言 webview 里出现这些文本（数组逐项断言，配 fillSlash 用；
 //                 弹窗行文本/描述/hint 各算一条，超时 15s/条）
 //   hoverText     悬停含该文本的元素（如 commit chip），让悬浮卡弹出再截图
@@ -431,6 +437,73 @@ async function waitForDraft(page, expectDraft, timeoutMs) {
     await sleep(500)
   }
   return false
+}
+
+/**
+ * 填问答卡某题的自定义回答输入（fillAnswer 驱动字段）：pending 面板接管 composer，
+ * 输入框在 .pending-panel 内。单选带选项的卡自定义行默认隐藏（跟随「Other」显隐），
+ * 没有可见输入框就先点 Other 展开再填。
+ */
+async function fillQuestionAnswer(page, text) {
+  const start = Date.now()
+  while (Date.now() - start < 60_000) {
+    for (const f of page.frames()) {
+      if (!isLiveFrame(f)) continue
+      try {
+        const inputs = f.locator('.pending-panel .question-custom input')
+        const n = await bounded(inputs.count(), 'fillQuestionAnswer count')
+        for (let i = 0; i < n; i++) {
+          const input = inputs.nth(i)
+          if (await bounded(input.isVisible(), 'fillQuestionAnswer isVisible')) {
+            await input.click()
+            await input.fill(text)
+            return true
+          }
+        }
+        const other = f.locator('.pending-panel .option-btn', { hasText: 'Other' }).first()
+        if ((await bounded(other.count(), 'fillQuestionAnswer other count')) > 0 && (await bounded(other.isVisible(), 'fillQuestionAnswer other visible'))) {
+          await other.click()
+          await sleep(300)
+          continue // 展开后下一轮扫描再填
+        }
+      } catch (e) {
+        rethrowWatchdog(e)
+        // 帧重建瞬间忽略
+      }
+    }
+    await sleep(500)
+  }
+  return false
+}
+
+/** 断言 pending 问答卡自定义输入框的值包含 expectAnswerDraft（重启后半答恢复检查）。 */
+async function waitForAnswerDraft(page, text, timeoutMs) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    for (const f of page.frames()) {
+      if (!isLiveFrame(f)) continue
+      try {
+        const v = await bounded(
+          f.evaluate(() => [...document.querySelectorAll('.pending-panel .question-custom input')].map((el) => el.value).join('\n')),
+          'waitForAnswerDraft evaluate',
+        )
+        if (typeof v === 'string' && v.includes(text)) return true
+      } catch (e) {
+        rethrowWatchdog(e)
+        // 帧重建瞬间忽略
+      }
+    }
+    await sleep(500)
+  }
+  return false
+}
+
+/** 整页重载（reloadWindow 驱动字段）：webview 内存全毁后靠面板恢复链（serializer →
+ *  webview 重建 → ready → draftRestore 下发）还原，留足异步链余量。 */
+async function reloadWorkbench(page) {
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 })
+  await page.waitForSelector('.monaco-workbench', { timeout: WORKBENCH_TIMEOUT })
+  await sleep(6000)
 }
 
 /** 扫描全部 frame，断言 composer textarea#input 的 placeholder 包含 expectPlaceholder。 */
@@ -920,6 +993,33 @@ try {
               notes.push(`断言超时（${EXPECT_TEXT_TIMEOUT / 1000}s）：预期文本「${driver.expectText}」未出现`)
             }
           }
+          if (driver.fillDraft) {
+            await fillComposer(page, driver.fillDraft)
+            notes.push(`composer 草稿已填入（未发送）：${JSON.stringify(driver.fillDraft)}`)
+            // 防抖 400ms + webview→宿主→落盘链路余量。
+            await sleep(1500)
+          }
+          if (driver.fillAnswer) {
+            const ok = await fillQuestionAnswer(page, driver.fillAnswer)
+            notes.push(ok ? `问答卡半答已填入：${JSON.stringify(driver.fillAnswer)}` : '问答卡自定义输入未找到/不可见')
+            if (!ok) {
+              result = 'fail'
+              notes.push('fillAnswer：60s 内问答卡输入框不可填')
+            }
+            await sleep(1500)
+          }
+          if (driver.reloadWindow) {
+            await reloadWorkbench(page)
+            notes.push('已整页重载（模拟重启：webview 内存全毁，草稿靠 drafts.json 恢复）')
+          }
+          if (driver.expectTextAfterReload) {
+            const ok = await waitForText(page, driver.expectTextAfterReload, EXPECT_TEXT_TIMEOUT)
+            notes.push(ok ? `重载后历史文本命中：${driver.expectTextAfterReload}` : `重载后历史文本未命中：${driver.expectTextAfterReload}`)
+            if (!ok) {
+              result = 'fail'
+              notes.push(`expectTextAfterReload：重载后「${driver.expectTextAfterReload}」未出现`)
+            }
+          }
           if (driver.hoverText) {
             // 悬停含该文本的元素（commit chip 等）让悬浮卡弹出，随后截图能拍到卡片。
             const ok = await hoverTextInFrame(page, driver.hoverText)
@@ -972,6 +1072,14 @@ try {
             if (!ok) {
               result = 'fail'
               notes.push('expectDraft：pending 应答后 composer 草稿丢失')
+            }
+          }
+          if (driver.expectAnswerDraft) {
+            const ok = await waitForAnswerDraft(page, driver.expectAnswerDraft, 30_000)
+            notes.push(ok ? `问答卡半答恢复：${driver.expectAnswerDraft}` : `问答卡半答未恢复：${driver.expectAnswerDraft}`)
+            if (!ok) {
+              result = 'fail'
+              notes.push('expectAnswerDraft：重载后问答卡已填内容丢失')
             }
           }
           if (driver.expectPlaceholder) {

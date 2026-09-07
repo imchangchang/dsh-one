@@ -213,6 +213,11 @@ node test/sandbox/verify-driver.mjs \
     "keyClearUndo": "草稿文本",        // 可选：填入该文本后 Ctrl+C 双击清空（断言第一次只亮 .clear-confirm-hint 提示不动文本、第二次清空）再 Ctrl+Z 断言恢复原文
     "keyClearUndoKey": "escape",      // 可选：配 keyClearUndo，清空键换 ESC（缺省 ctrl+c）
     "fillSlash": "/g",                // 可选：填入该文本但不发送（触发 slash 补全弹窗/参数 hint 行）
+    "fillDraft": "草稿文本",           // 可选：填入该文本但不发送 + 等防抖落盘（草稿持久化，配 reloadWindow）
+    "fillAnswer": "半答文本",          // 可选：填问答卡自定义回答输入（未提交，配 reloadWindow）
+    "reloadWindow": true,             // 可选：整页重载模拟重启（webview 内存全毁，草稿靠 drafts.json 恢复）
+    "expectAnswerDraft": "半答文本",   // 可选：断言问答卡自定义输入框的值包含该文本（重载后半答恢复）
+    "expectTextAfterReload": "收到：x", // 可选：重载后断言 webview 出现该文本（历史消息随状态重推仍在）
     "expectPopup": ["/goal", "hint"], // 可选：断言 webview 出现这些文本（数组逐条，15s/条；配 fillSlash）
     "hoverText": "文本",              // 可选：悬停含该文本的元素（commit chip 等）让悬浮卡弹出再截图
     "reconnect": {                    // 可选：断连横幅场景（kill dsh → 横幅 → respawn → 恢复），见下方小节
