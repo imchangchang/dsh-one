@@ -1086,6 +1086,51 @@
       expect: 'composer 上方一条可折叠的「任务 N 已完成 · M 进行中 · K 待处理」摘要卡；内容含三个 todo 项及其状态。',
     },
 
+    // ---- #14 草稿持久化恢复：重启后宿主 ready 回执先发 draftRestore 全量下发，
+    // webview 种草稿表，随后首个 state 帧（切换恢复路径）消费。----
+    'draft-restore-blank-hero': {
+      // 空会话（已附着、无消息）的草稿：restart 后 tab 恢复附着，hero composer
+      // 应直接带出重启前未发送的文本。覆盖沙盒喂不出来的 blank-tab 恢复路径
+      // （code-server 不恢复无标题变更的 webview 面板，见任务报告 coverageNote）。
+      draftRestore: { composer: { 'sess-blank': { text: '重启前没发出去的草稿', images: [], files: [] } }, answers: {} },
+      state: base({ sessionId: 'sess-blank', sessionTitle: undefined, messages: [], canSend: true, presetLabel: undefined, workspaceLabel: 'dsh-one', workspaceId: 'ws-main', workspaces: [
+        { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', title: 'dsh-one' },
+      ], agentPreset: { options: [{ id: 'standard', label: '标准模式', description: '默认' }], current: 'standard' }, statsLine: undefined }),
+      interact: `(() => {
+        const input = document.getElementById('input')
+        window.__draftRestoreCheck = { input: input ? input.value : null }
+      })()`,
+      title: '草稿持久化恢复：空会话 hero（#14）',
+      expect: '空会话 hero 的 composer 输入框已带出重启前未发送的草稿「重启前没发出去的草稿」（DOM 断言 window.__draftRestoreCheck.input 已核对）；其余与 empty 场景一致（单个像素鲸鱼 logo、workspace/preset chips、圆形发送按钮）。草稿来自 draftRestore 全量下发 → 首个 state 切换帧恢复，不是占位符。',
+    },
+
+    'draft-restore-with-files': {
+      // 附着会话（有历史）的草稿 + 文件附件：重启后文本与文件 chip 一起回来。
+      draftRestore: { composer: { 'sess-1': { text: '顺带把 main.ts 也带上', images: [], files: [{ name: 'main.ts', path: '/repo/src/main.ts' }] } }, answers: {} },
+      state: base({}),
+      interact: `(() => {
+        const input = document.getElementById('input')
+        const chips = [...document.querySelectorAll('#app .file-chip')].map((c) => (c.textContent || '').trim())
+        window.__draftRestoreCheck = { input: input ? input.value : null, chips }
+      })()`,
+      title: '草稿持久化恢复：文本 + 文件附件（#14）',
+      expect: '普通对话态 composer：输入框带出草稿文本「顺带把 main.ts 也带上」；附件区有 main.ts 文件 chip（文档图标 + 短名，无长路径）；历史消息流不受影响（DOM 断言 window.__draftRestoreCheck = {input, chips} 已核对）。',
+    },
+
+    'draft-restore-question': {
+      // 问答卡半答恢复：重启前选了选项、自定义框里写了半答（未提交）；
+      // 重启后 pending 由 dsh 重推，已答内容按 rpcId 从 drafts.json 种回。
+      draftRestore: { composer: {}, answers: { 'rpc-2': { '0': { selected: ['最新优先'], custom: '但想要倒序里的稳定排序', other: false } } } },
+      state: base({ pending: [{ kind: 'question', rpcId: 'rpc-2', sessionId: 'sess-1', questions: [{ question: '用哪种排序？', header: '排序方向', options: [{ label: '最新优先' }, { label: '最旧优先' }] }] }] }),
+      interact: `(() => {
+        const sel = [...document.querySelectorAll('.question-options .option-btn')].findIndex((b) => b.classList.contains('selected'))
+        const custom = document.querySelector('.pending-panel .question-custom input')
+        window.__draftRestoreCheck = { selectedIndex: sel, custom: custom ? custom.value : null, customVisible: custom ? !!custom.offsetParent : false }
+      })()`,
+      title: '草稿持久化恢复：问答卡半答（#14）',
+      expect: '问答卡接管面板：选项「最新优先」为选中态（selected outline、· 实心）；「其他（自定义回答）」输入框**可见**且值为重启前写的半答「但想要倒序里的稳定排序」（selected 与 custom 可同时存在——单选里自定义文本不清选择）；「提交」按钮可用。DOM 断言 window.__draftRestoreCheck = {selectedIndex:0, custom, customVisible:true} 已核对。',
+    },
+
     // ---- plan 状态 chip（对齐官方 dsh web PlanChip；plan-mode-chip 合入时漏的场景）----
     'plan-chip': {
       state: base({ plan: { active: true, pending: false } }),
@@ -4216,6 +4261,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'model-pill-loading',
     'model-pill-error-fallback',
     'inline-code-interact',
+    'draft-restore-blank-hero', 'draft-restore-with-files', 'draft-restore-question',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()

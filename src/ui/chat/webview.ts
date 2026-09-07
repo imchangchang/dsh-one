@@ -1543,7 +1543,9 @@ window.addEventListener('message', (event) => {
       if (mine.text) stashedDraft = mine.text
       pendingImages = [...(mine.images ?? [])]
       pendingFiles = [...(mine.files ?? [])]
-      render()
+      // state 未到（首个 state 帧还在路上）时不主动 render：render 不在 null
+      // state 的取值域内；首个 state 帧的 hero 渲染同样会消费 stashedDraft。
+      if (state) render()
       return
     }
     // state 已到达（面板创建时的首推 state 排队在 ready 回执之前送达）：首个
@@ -1551,6 +1553,10 @@ window.addEventListener('message', (event) => {
     // （draftRestoreFor 帧消费文本，附件直接复位）。
     if (state?.sessionId) {
       const restored = stagedPerSession.get(state.sessionId)
+      // 本会话没有持久化草稿时不动作：draftRestoreFor 只在 composer 重建帧消费，
+      // 保活帧（keepBlankHero/keepComposer）不清它——空布防会让下一个重建帧从
+      // 空表取草稿，把用户已输入的内容抹掉（回归：无暖场首发消息路径）。
+      if (!composerDrafts.has(state.sessionId) && !restored) return
       pendingImages = [...(restored?.images ?? [])]
       pendingFiles = [...(restored?.files ?? [])]
       draftRestoreFor = state.sessionId
