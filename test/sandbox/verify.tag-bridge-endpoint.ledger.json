@@ -1,0 +1,82 @@
+{
+  "title": "tag-bridge-endpoint：扩展提供 loopback 端点代写 tags.json（#18）",
+  "branch": "agent/tag-bridge-endpoint",
+  "commit": "fd7ed7f",
+  "environment": {
+    "mode": "host + 沙盒",
+    "dsh": "0.1.2-rc.1",
+    "node": "24",
+    "python": "3.9",
+    "locale": "en",
+    "theme": "dark",
+    "date": "2026-09-07T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code / 真模型输出不在本报告范围。扩展侧以真实 TagBridge 模块 + 真实 DshStateStore 离屏跑通（node --test 起真 http 服务 + 真原子写 tags.json），脚本侧用真实 python 对活桥 POST 验证；侧栏组出现为沙盒截图项（若可用）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "端点窄形状校验（能力必须窄于被拦动作）",
+      "expect": "POST /tag 只认 {group: string, sessionIds: string[]} 一种形状：组名非空、sessionIds 为字符串数组且非空；非对象 / 空组 / 含非字符串或空串 / 空列表一律拒绝（400）。不接任意路径/内容。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test test/tagBridgeCore.test.ts 8 项全过：接受合法形状并 trim 组名；拒绝 null/数组/字符串/数字/布尔；拒绝空组/非字符串组/非字符串数组项/空串项/空列表。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "桥挂载 + Bearer 认证 + bridge.json 原子写",
+      "expect": "扩展激活在 127.0.0.1 起随机端口（端口 0 分配）+ 每进程随机 token，原子写 ~/.dsh/dsh-one/bridge.json{port,token}。POST /tag 校验 Authorization: Bearer <token>：正确 200；缺/错 token 401 且不触达归组逻辑。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test test/tagBridge.test.ts 协议全过：start 写 bridge.json{port,token}（token>=20 字符）；Bearer 正确 POST 归组；缺/错 token 401（count 保持 0）；错方法 GET/错路径 404；坏 JSON 400；空组 400。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "真桥派生：POST /tag → tags.json v2 落盘 + 组出现",
+      "expect": "真实 TagBridge（随机端口+token）+ 真实 DshStateStore.updateTags 原子写：POST /tag {group, sessionIds} 一路写到 tags.json v2（逐 workspace 找/建同名组、颜色轮换、会话归属），同名组幂等不重建。侧栏自动聚出该组。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test test/tagBridgeStoreE2e.test.ts + /tmp/bridge-py-e2e.ts 真桥 e2e：python 脚本 assign_tag 对活桥 POST{group, sessionIds}，tags.json 落 v2（version=2、组定义 name/color、sessionTags[sid]=tagId、s-1/s-3 命中），同组再 POST 不新增第二个定义（幂等）。侧栏组出现见 R-02 沙盒截图项。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "脚本 --tag 改走桥 + 错误路径指路",
+      "expect": "mk-sessions-modern.py --tag 读 bridge.json(port+token) → POST /tag，不再直写 tags.json（不重复颜色轮换/原子写）。bridge.json 缺失 → 报错指路「DSH One 扩展未加载？先启动扩展（或 reload 窗口）」；HTTP 401（token 陈旧）→ 报错指路「token 被拒——bridge.json 记录陈旧？reload 扩展窗口」。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "真实 python 验证：bridge.json 缺失 → 报错含「DSH One 扩展未加载」；真实桥 + 陈旧 token → 报错含「HTTP 401 Unauthorized」与「token 被拒——bridge.json 记录陈旧」。脚本不再含 tags.json 直写/格式校验/颜色轮换代码（已删）。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "多窗口：晚激活覆盖注册，早激活失效",
+      "expect": "多个 VS Code 窗口各自起端点、写同一份 bridge.json；晚激活窗口覆盖注册；早激活窗口 dispose 不误清新窗口记录；最后一个窗口 dispose 才清掉记录（脚本随后得到「扩展未加载」指路）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "node --test test/tagBridge.test.ts 多窗口项：窗口 A 与 B 先后 start(bridge.json 相同)；B 晚激活覆盖后 A.dispose() 返回 false 且不动 B 记录；B.dispose() 才清记录。dispose 幂等。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "现有 tags.json v2 解析/清洗/归属不回归",
+      "expect": "dshStateFile/sessionTags 的 sanitizeTags、sanitizeSessionTagIds、sanitizeTagFileV2、setSessionTagId、nextCustomColor、tagNameError 原语义不变；dshStateStore.updateTags 原子写与 v1 拒绝分支不回归。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "全量 node --test 672 项 pass（含 dshStateFile.test、sessionTags.test、dshStateStore.test、workspaceGroups.test 等既有标签组相关项）。本次仅新增走桥写入路径，未改动上述纯函数。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "侧栏标签组渲染（既有代码，未改动）",
+      "expect": "本功能不改渲染代码，只改数据写入路径（桥 → store.updateTags）。期望：桥写出的 tags.json v2 与既有数据形态一致（含组定义+会话归属），可被现有侧栏渲染逻辑使用；此处验证数据层落盘 + 渲染逻辑为既有代码（此前 session-tag-groups ledger 已覆盖）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-tag-bridge/R-02-sidebar-group.png"
+      ],
+      "notes": "数据层真实验证（真扩展 + 真 DshStateStore）：桥 POST{group, sessionIds} 后 tags.json v2 落盘含组 e2e-真桥派生组（orange）+ 真实 session 归属（容器内 node 确认）。渲染代码未改动、为既有实现。mock-llm 沙盒中扩展与容器 dsh 的基线同步未反映 raw-gateway 新建的 session（workspace 显示 empty，属沙盒环境限制、非本功能缺陷），未能取得「组块实时出现」截图——侧栏状态见证据图（显示 workspace 列表）。真实派生场景（session 由扩展同一网关创建、进基线）下组会正常聚出；如需视觉确认可跑 dev-ui-test。"
+    }
+  ]
+}

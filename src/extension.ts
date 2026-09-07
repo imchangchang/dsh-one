@@ -16,6 +16,7 @@ import { CHAT_PANEL_VIEW_TYPE } from './ui/chatTab.ts'
 import { SessionsStore } from './ui/sessionsStore.ts'
 import { SessionsViewProvider } from './ui/sessionsView.ts'
 import { StatusBar } from './ui/statusbar.ts'
+import { TagBridge } from './server/tagBridge.ts'
 
 /** Official dsh product page with the "Get started" install instructions. */
 const DSH_INSTALL_URL = 'https://www.deepseek.com/harness/'
@@ -64,6 +65,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // （跨窗口/重启共享，create 里完成旧 Memento 一次性迁移并接管文件监视）；
   // 排序/折叠等 UI 偏好仍走 Memento。
   const sessions = await SessionsStore.create(manager, logger, context.workspaceState, context.globalState)
+  // loopback tag-bridge（#18）：起 127.0.0.1 随机端口 + 每进程 token，写
+  // ~/.dsh/dsh-one/bridge.json，给派生脚本 --tag 代写 tags.json（规避 agent
+  // 进程直写工作区外文件的沙箱拦截）。失败（少数坏环境）只降级——--tag 不可用，
+  // 脚本会报「扩展未加载」指路，不影响其余扩展功能。
+  const tagBridge = new TagBridge({
+    assignTags: async (input) => sessions.assignTagGroup(input.group, input.sessionIds),
+    logger,
+  })
+  await tagBridge.start().catch((err) => logger.warn(`tag-bridge start failed (--tag unavailable): ${errorText(err)}`))
   const chatView = new ChatViewProvider(manager, logger, context.extensionUri, sessions, context.workspaceState, () =>
     void sessions.refresh(),
   )
@@ -97,6 +107,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     manager,
     statusBar,
     sessions,
+    tagBridge,
     chatView,
     sessionsView,
     reconcileChat,
