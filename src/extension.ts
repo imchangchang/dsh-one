@@ -239,7 +239,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.session.openInNewTab', (sessionId?: string) => {
       if (typeof sessionId === 'string') chatView.openSessionInNewTab(sessionId)
     }),
-    vscode.commands.registerCommand('dshOne.session.new', async (workspaceId?: string) => {
+    vscode.commands.registerCommand('dshOne.session.new', async (workspaceId?: string, tagId?: string) => {
       const url = sessions.runningUrl
       if (!url) return
       const targetWorkspaceId = typeof workspaceId === 'string' ? workspaceId : sessions.defaultWorkspaceId()
@@ -253,6 +253,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (err) {
         vscode.window.showErrorMessage(vscode.l10n.t('Failed to create session: {0}', errorText(err)))
         return
+      }
+      // 组头右键「创建对话」：创建后把新会话挂到指定 tag 组。显式传所属
+      // workspace（新建会话尚未进基线，workspaceOfSession 反查会落「未分组」），
+      // 确保归属写到正确桶；tagId 缺省时保持未分组。
+      if (typeof tagId === 'string' && tagId !== '') {
+        sessions.setSessionTag(sessionId, tagId, targetWorkspaceId)
       }
       await sessions.refresh()
       chatView.openSession(sessionId)

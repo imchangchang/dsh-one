@@ -1,0 +1,54 @@
+{
+  "title": "标签组组头右键「在此分组新建会话」验证报告（#24）",
+  "branch": "agent/tag-group-create-session",
+  "commit": "aedf21c",
+  "environment": {
+    "mode": "pure-logic + unit + build",
+    "node": "22",
+    "suite": "node --test test/*.test.ts",
+    "date": "2026-09-07T00:00:00Z"
+  },
+  "coverageNote": "本功能是「标签组组头右键菜单 + 新建会话并挂组」的 RPC 接线改动——不改变任何既有渲染布局，无新增视觉样式。因沙盒 mock-llm 场景面向 chat 渲染、不覆盖 sessions 侧栏右键菜单，**截图浏览器驱动不适用**；改用 typecheck + 全量单测 + build 逐项核对接线，交互验收走人工 dev-ui-test 窗口（命令另行下发）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "契约层 sessionNew 消息可携带 tagId",
+      "expect": "sessionNew 消息类型新增可选 tagId，且不破坏既有 workspaceId 用法（缺省新建仍走未分组）。",
+      "result": "pass",
+      "notes": "chatContract.ts sessionNew 定义为 { type:'sessionNew'; workspaceId?: string; tagId?: string }。既有不带 tagId 的调用（workspace 组头新建会话、未分组新建）签名兼容，tsc 全量 0 错误。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "dshOne.session.new 命令创建后挂组，且显式传所属 workspace",
+      "expect": "创建成功后调用 sessions.setSessionTag(sessionId, tagId, targetWorkspaceId)；tagId 为空/缺省时保持未分组、不额外写。",
+      "result": "pass",
+      "notes": "extension.ts 在 createSession 成功后，当 tagId 为 string 且非空时调用 setSessionTag(sessionId, tagId, targetWorkspaceId)。显式传 workspace 避免新建会话未进基线、workspaceOfSession 反查落到「未分组」桶的错位。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "setSessionTag 支持可选显式 workspace，既有调用不变",
+      "expect": "新增可选第三参 explicitWorkspaceId；缺省仍由 workspaceOfSession 反查——既有调用（拖拽入组、行内 Move to group 等）行为保持不变。",
+      "result": "pass",
+      "notes": "sessionsStore.setSessionTag(sessionId, tagId, explicitWorkspaceId?)：workspaceId = explicitWorkspaceId ?? workspaceOfSession(sessionId)。全部既有调用点未改签名仍编译通过。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "webview 组头右键菜单顶部增「New session in this group」入口",
+      "expect": "buildTagMenuBody（workspace-scoped）顶部新增菜单项，点击 post { type:'sessionNew', workspaceId, tagId }；位于归档/回收等整组操作之前。",
+      "result": "pass",
+      "notes": "sessionsWebview.ts buildTagMenuBody 在组名标题后、Archive 之前插入菜单项，icon 用 PANEL_ICONS.plus（已确认 icons.ts 导出），onClick post sessionNew + workspaceId + tagId。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "全量回归（typecheck + 全部单测 + build）",
+      "expect": "无回归：tsc --noEmit 0 错误，658 项单测全过，dist 构建成功。",
+      "result": "pass",
+      "notes": "npm test 658 pass / 0 fail；npm run build 产出 extension.js + sessionsWebview.js 等。"
+    }
+  ]
+}

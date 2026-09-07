@@ -809,7 +809,7 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
         void vscode.commands.executeCommand('dshOne.session.openInNewTab', m.sessionId)
         return
       case 'sessionNew':
-        void vscode.commands.executeCommand('dshOne.session.new', m.workspaceId)
+        void vscode.commands.executeCommand('dshOne.session.new', m.workspaceId, m.tagId)
         return
       case 'sessionNewUngrouped':
         void vscode.commands.executeCommand('dshOne.session.newUngrouped')
