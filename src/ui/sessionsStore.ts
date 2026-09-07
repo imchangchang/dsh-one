@@ -1702,7 +1702,7 @@ export class SessionsStore implements vscode.Disposable {
       this.reconnectAttempts = 0
       this.baselineReady = true
       // 基线就绪才拿到 sessionId→workspace：若还有 v1 全局标签组待迁移，此时拆桶。
-      this.migratePendingV1ToV2()
+      void this.migratePendingV1ToV2()
       this.rebuildModel()
     } catch (err) {
       this.logger.warn(`sessions store: refresh failed — ${err instanceof Error ? err.message : err}`)
@@ -1722,21 +1722,35 @@ export class SessionsStore implements vscode.Disposable {
    * 写 v2 文件，删旧 Memento key，清 pendingV1。拿不到归属的会话归 UNGROUPED。
    * dsh 未跑 / 基线从未就绪时不触发（pendingV1 保持，下次启动服务起来再迁）。
    * 迁移幂等：无 pendingV1 直接返回。
+   *
+   * 严格先落盘再清旧数据：只有写成功才清 pendingV1 + 删 Memento key；写失败保留
+   * pendingV1 与旧 key，记一条带完整上下文的失败日志——下次基线就绪重试，绝不让
+   * 旧数据在写盘前丢失。
    */
-  private migratePendingV1ToV2(): void {
+  private async migratePendingV1ToV2(): Promise<void> {
     if (this.pendingV1 === null) return
     const pending = this.pendingV1
-    this.pendingV1 = null
     const v2 = migrateTagFileV1ToV2(pending, (sessionId) => this.workspaceOfSession(sessionId), UNGROUPED_WORKSPACE_ID)
-    // 先落盘再清 Memento：写失败绝不能丢 pending（保留 v1 数据，下轮重试）。
-    this.persistAck(
-      this.io.updateTags((prev) => ({ version: 2, workspaces: { ...prev.workspaces, ...v2.workspaces } })),
-      'tags',
-    )
+    const bucketCount = Object.keys(v2.workspaces).length
+    const assignmentCount = pending.sessionTags ? Object.keys(pending.sessionTags).length : 0
+    const bucketNames = Object.keys(v2.workspaces)
+
+    // 先落盘 v2：await 拿到真实结果，再决定是否清旧数据。
+    const ok = await this.io.updateTags((prev) => ({ version: 2, workspaces: { ...prev.workspaces, ...v2.workspaces } }))
+    if (!ok) {
+      // 写失败：保留 pendingV1 + Memento key，下次基线再试。此刻 pendingV1 尚未清。
+      this.logger.warn(
+        `sessions store: [tags] v1→v2 migration FAILED to write v2 file (${bucketCount} buckets, ${assignmentCount} assignments; buckets: ${bucketNames.join(', ') || '(none)'}); kept legacy Memento + pending data, will retry on next baseline`,
+      )
+      return
+    }
+
+    // 写成功才清旧数据（原子拆桶 + 落盘已确认）。
     deleteLegacyKeys(this.globalState, [LEGACY_TAGS_KEY, LEGACY_SESSION_TAGS_KEY])
     this.wsTags = { ...this.wsTags, ...v2.workspaces }
+    this.pendingV1 = null
     this.logger.info(
-      `sessions store: [tags] migrated v1 global → v2 per-workspace (${Object.keys(v2.workspaces).length} workspace buckets, ${pending.sessionTags ? Object.keys(pending.sessionTags).length : 0} assignments)`,
+      `sessions store: [tags] migrated v1 global → v2 per-workspace (${bucketCount} workspace buckets [${bucketNames.join(', ') || '(none)'}], ${assignmentCount} assignments); legacy Memento keys cleared`,
     )
   }
 
@@ -1896,6 +1910,9 @@ export class SessionsStore implements vscode.Disposable {
     } else if (snap.tags !== null && snap.tags.version === 1) {
       // 文件仍是 v1：内存的 v2 数据不采纳（迁移会覆写），只把 v1 数据暂存待迁移。
       this.pendingV1 = { tags: snap.tags.tags, sessionTags: snap.tags.sessionTags }
+      this.logger.warn(
+        `sessions store: [tags] hot-reload saw v1 legacy file (${snap.tags.tags.length} defs, ${Object.keys(snap.tags.sessionTags).length} assignments); in-memory v2 discarded, waiting for baseline to migrate`,
+      )
       reloaded.push('tags')
     }
     if (reloaded.length === 0) return
