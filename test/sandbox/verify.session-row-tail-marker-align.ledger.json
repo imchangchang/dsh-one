@@ -1,0 +1,84 @@
+{
+  "title": "DSH One 侧栏会话行尾状态标记对齐（#8）验收报告",
+  "branch": "agent/session-row-tail-marker-align",
+  "commit": "127c11c",
+  "environment": {
+    "mode": "harness（ai-visual-validation：浏览器独立渲染 webview + mock 快照投喂 + WebBridge 截图，非 docker 沙盒）",
+    "view": "sessions",
+    "date": "2026-09-07T16:00:00Z"
+  },
+  "coverageNote": "本任务为纯 CSS 盒模型修复（只动 src/ui/sessionsView.ts 的 .tag-group/.tag-head/.tag-line 与 .session-row 注释），无 dsh 侧 API/链路变更：功能项用 harness 确定性渲染 + WebBridge DOM 坐标断言（getBoundingClientRect 实测右缘，非像素估读）；回归项用 main(基线源码) vs worktree 的全量 before/after 像素 diff 分诊 + 逐张语义核对。真桌面 VS Code、拖拽手感与实际运行态不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "组内行与顶层行的行尾状态标记右缘共线（面板 −10px 列）",
+      "expect": "新场景 session-row-tail-align（组内行 + 顶层行混合）：行尾四种标记（运行中蓝环 / 待交互黄点 / 未读绿点 / 时间文本）在组内行与顶层行各出现一遍；所有行尾右缘同一 x 坐标 = 面板 −10px；组内行标题左缘右移（缩进由行自己承担），但右缘不受缩进影响；无红色断言横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/session-row-tail-align.png"
+      ],
+      "notes": "① 截图核对：dsh-one 组自上而下 = 顶层运行中行（蓝环）→ 待办（黄）组块 2 行（绿点加粗/黄点）→ 进行中（蓝）组块 1 行（蓝环）→ 已完成（绿）组折叠（单行 pill + 三角 + 绿点计数 1）→ 顶层 3 行平铺（绿点加粗/黄点/时间「2 天前」）；行尾标记目测在同一竖线。② DOM 实测（WebBridge evaluate，viewport 1488px）：7 个 .session-row 的 .session-rear/.session-time 右缘**全部 = 1478px**，= 1488 − 10（margin-right 4 + padding-right 6）✓；rowRight 均 = 1484（margin 4）✓；组内 3 行（.tagged）与顶层 4 行 tailRight 完全相同，无左偏。③ 组内行左缩进仍由行自己承担（标题左缘比顶层行右移 ~12px），右缘不受影响。④ 无红色断言横幅。①②③④ 全部符合。",
+      "diffBaseline": "修复前组内行 tailRight = 面板 −14px（.tag-group 水平 margin 4px 叠加），与顶层行 −10px 错开 4px；修复后两者均 −10px——即 issue 所述错位消除。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "折叠组头计数角标（.tag-counts）右缘对齐状态列",
+      "expect": "折叠组头（已完成/绿）pill 右侧计数角标（绿点 + 1）右缘与行尾状态列同列（面板 −10px，与 workspace 组头 badge 同列）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/session-row-tail-align.png"
+      ],
+      "notes": "DOM 实测：.tag-counts 盒右缘 = 1478px = 状态列 ✓（.tag-head padding-right 10px 生效）；计数内容（绿点+1）右缘 = 1476px = 列 −2px——.tag-counts 自带 padding-right: 2px 的既有设计（方案未列该项改动，保持不动），与 workspace 组头 badge 右缘差 2px 可接受。截图可见折叠「已完成」组头计数（绿点+1）在 pill 右侧、与下方行尾标记基本同列。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "组色 pill 与竖线视觉位置不因组块 margin 移除而左移",
+      "expect": "修复后 .tag-pill 与 .tag-line 左缘仍在原缩进列：修复前 = 组块 margin-left 4 + 自身 12 = 16px；修复后 = 0 + 16 = 16px，视觉位置不变。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/session-row-tail-align.png"
+      ],
+      "notes": "DOM 实测：.tag-line left = 16px（全部 2 条）、.tag-pill left = 16px（全部 3 个）；与修复前盒模型推算一致（4 + 12 → 0 + 16），无左移。截图目测 pill/竖线与组内行缩进列保持一致。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "既有标签组场景回归（组块聚合/pill/竖线/缩进/折叠/计数）",
+      "expect": "session-tags、session-tags-active-first、session-tags-collapse（初始/click 折叠/再点展开 3 步）与各自 expect 一致：组块顺序 = 待办→进行中→已完成、pill + 2px 竖线贯穿、组内行缩进、运行中/待交互行留在组块内、未分组平铺殿后、折叠组计数角标、workspace 组头角标、无红色断言横幅。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/session-tags.png",
+        "/tmp/dsh-sandbox-shots/session-tags-active-first.png",
+        "/tmp/dsh-sandbox-shots/session-tags-collapse.png",
+        "/tmp/dsh-sandbox-shots/session-tags-collapse-collapsed.png",
+        "/tmp/dsh-sandbox-shots/session-tags-collapse-expanded.png",
+        "/tmp/dsh-sandbox-shots/session-tags-active-first-collapse-collapsed.png"
+      ],
+      "notes": "逐张核对：① session-tags：待办（黄）→进行中（蓝）→已完成（绿）顺序、小 pill（10px 字号 + 组色圆点 + 组名）、pill 左缘同列 2px 组色竖线贯穿、组内行缩进 ~12px、sess-4 运行中留在进行中组块内（active 高亮）、「会话 A」未分组平铺殿后（无缩进无竖线）、dsh-web research「探索」（橙）组块、workspace 组头角标（环 1 + 绿点 1）；② session-tags-active-first：运行中行留在待办组内、待交互黄点行留在进行中组内、无组「会话 A/B」时间降序平铺殿后；③ session-tags-collapse 三张：初始已完成组预折叠（计数 1）、点击待办三角后折叠（计数 = 黄点 1 + 绿点 1，进行中组运行中行不受影响）、再点展开（无红色横幅，断言 sessionTagCollapse{collapsed:true/false}）；④ session-tags-active-first-collapse：待办折叠计数（黄1+绿1）+ 进行中组留在块内运行中行。①②③④ 全部符合，行尾标记（环/点/时间）右缘在各自场景内与顶层行共列（4px 右移为本次预期效果）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "回收站抽屉/平铺场景回归",
+      "expect": "sessions-recycle-flat / sessions-recycle-drawer：回收站内会话平铺（无 tag 组块、无组色竖线、无组缩进），主列表对照组「待办」组块照常渲染，所有行尾标记右缘共列；抽屉滑出/把手拖拽 3 步信号到位。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/sessions-recycle-flat.png",
+        "/tmp/dsh-sandbox-shots/sessions-recycle-drawer.png"
+      ],
+      "notes": "① sessions-recycle-flat：回收站 3 行平铺（昨天/2 天前/上周 时间右缘同列）、无组块壳，主列表「待办」组块 + 竖线 + 组内 2 行缩进照常（行尾右移 4px 为预期的修复效果）；② sessions-recycle-drawer：抽屉半开动画帧（右缘滚动条占位使整列左移 ~8px），主列表行尾绿点/时间右缘在各自列内共线，抽屉内容与 header 正常；③ sessions-recycle-handle-open/reopen 的 4.17%/1.45% 像素差 = 抽屉动画中间帧 + 视口滚动条宽度差（浏览器先于 my 改动即如此，该场景无 tag 组，内容一致性已目检）。①②③ 无回归。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "main vs worktree 全量 before/after 像素 diff 分诊（201 对）",
+      "expect": "除 tag 组相关场景（预期 4px 右移）外，其余 UI 不受影响：完全一致的场景数应占多数，差异场景逐项可归因。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "ui-visual-diff.sh（main 基线源码截图 vs worktree，各 170/169 场景 + 分步帧，201 对）：**152 对完全一致（0.00%）**；49 对有差异，逐项归因——① 9 张 tag 组场景 0.03%-0.33%（session-tags 0.33 / active-first 0.31 / collapse-expanded 0.20 / active-first-collapse 0.17 / recycle-flat 0.13 / collapse 0.09 / create 0.03 / row-menu* 0.03×2）= 预期的 4px 右移；② sessions-recycle-drawer 0.57%、sessions-recycle-handle-open 4.17%/reopen 1.45% = 动画中间帧 + 视口滚动条宽度差（该场景无 tag 组，内容一致，见 R-02）；③ sessions-selection-exit-archive-modal 99.50% = before（main）拍错态——日志明确「等 modal 信号超时（当前信号: exited）」，after 图 modal（Archive 2 sessions? + 两组各 1）正确；④ sessions-groups-create-popover 1.15% 与 jump-latest-forced「新版缺截图」= before 目录混入 Sep 5 陈旧残留图（非本轮产物，已核实 mtime）；⑤ chat 场景 0.03%-0.74%（commit-card-stays 0.74 流式卡动画帧、turn-usage-detail 0.60 时间文本、mention-bindings 0.10、message-timing 0.07 等）= 截图时机噪声——style.css 与 main 逐字节一致（diff 为空），sessionsView 改动不波及 chat 渲染。分类全覆盖，无未归因差异。"
+    }
+  ]
+}

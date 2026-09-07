@@ -2153,6 +2153,43 @@
       expect: '三张截图对照——① 初始帧：待办（黄）组块展开（行内：第一行黄点待交互、第二行未读绿点加粗），进行中（蓝）组块：sess-4 **留在组块内**（运行中像素环，无组块外平铺行），「已完成」（绿）组块预置为折叠态——只剩一行（pill + 三角朝右），箭头右侧显示该组组内待处理计数（绿点 + 1，组内一行未读），组内会话行与竖线消失；组块 pill 右侧各有一个小三角（展开向下/折叠朝右）。② <scenario>-collapsed.png：点击「待办」组块箭头后——该组块只剩一行，箭头右侧显示计数「黄点+1、绿点+1」（待交互 1 + 未读 1），进行中组块留在块内的运行中行**照常**（组块壳不因其他块折叠受影响）；无红色断言横幅（断言：post 了 sessionTagCollapse{tagId:preset-todo, collapsed:true}）。③ <scenario>-expanded.png：再点一次箭头——post sessionTagCollapse{collapsed:false}；mock 宿主不回推快照，组块保持折叠为预期行为（真实宿主随快照展开）。',
     },
 
+    'session-row-tail-align': {
+      view: 'sessions',
+      sessions: (() => {
+        const s = window.sessionsTree(null)
+        s.tags = [
+          { id: 'preset-todo', name: '待办', color: 'yellow', preset: true, count: 2 },
+          { id: 'preset-doing', name: '进行中', color: 'blue', preset: true, count: 1 },
+          { id: 'preset-done', name: '已完成', color: 'green', preset: true, count: 1 },
+        ]
+        s.tagSessionIds = {
+          'preset-todo': ['sess-2', 'sess-1'],
+          'preset-doing': ['sess-4'],
+          'preset-done': ['sess-3'],
+        }
+        s.tagCollapsed = ['preset-done']
+        // 快照即最终渲染输入（顺序 = buildSessionTree 输出：未分组活跃最前 → 组块
+        // 按 tags 序 → 无组按时间殿后）。行尾四种标记（环/黄点/绿点/时间）在组内行
+        // 与顶层行各出现一遍，专用于核对两侧右缘共线（#8）。
+        s.workspaces[0].sessions = [
+          sess('sess-6', '顶层运行中会话', '刚刚', { running: true, active: true }),
+          sess('sess-2', '组内未读会话', '5 小时前', { tagId: 'preset-todo', unread: true }),
+          sess('sess-1', '组内待交互会话', '3 小时前', { tagId: 'preset-todo', pendingInteraction: 'approval' }),
+          sess('sess-4', '组内运行中会话', '10 分钟前', { tagId: 'preset-doing', running: true }),
+          sess('sess-3', '组内已完成会话', '1 天前', { tagId: 'preset-done', unread: true }),
+          sess('sess-7', '顶层未读会话', '2 小时前', { unread: true }),
+          sess('sess-8', '顶层待交互会话', '1 小时前', { pendingInteraction: 'approval' }),
+          sess('sess-9', '顶层空闲会话', '2 天前'),
+        ]
+        s.workspaces[1].sessions = []
+        s.workspaces[2].sessions = []
+        s.unread = ['sess-2', 'sess-3', 'sess-7']
+        return s
+      })(),
+      title: '侧栏面板（行尾状态标记：组内行与顶层行右缘共线）',
+      expect: 'dsh-one 组自上而下：顶层「顶层运行中会话」（行尾蓝色像素环）→ 待办（黄）组块（pill + 竖线，组内 2 行：「组内未读会话」绿点加粗、「组内待交互会话」黄点）→ 进行中（蓝）组块（1 行「组内运行中会话」像素环）→ 已完成（绿）组块折叠（单行 pill + 朝右三角 + 计数角标绿点 1）→ 顶层 3 行平铺（「顶层未读会话」绿点加粗 /「顶层待交互会话」黄点 /「顶层空闲会话」时间「2 天前」）。版式断言：① 所有会话行行尾状态标记右缘共线——组内行（绿点/黄点/蓝环）与顶层行（蓝环/绿点/黄点/时间文本）右缘在同一 x 坐标（面板 −10px 列），组内行不得左偏；② 组内行左侧缩进由行自己承担：组内行标题左缘比顶层行右移约 12px，但右缘不受缩进影响；③ 折叠「已完成」组头计数角标（绿点 + 1）右缘与行尾状态列同列；④ 组色竖线与 pill 仍在原缩进列（左缘约面板 +16px 一带），不随组块水平 margin 移除而左移；⑤ 无红色断言横幅。',
+    },
+
     'session-tags-create': {
       view: 'sessions',
       sessions: (() => {
@@ -4075,6 +4112,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'sessions-selection-exit-recycle', 'sessions-selection-exit-archive',
     'session-tags', 'session-tags-row-menu', 'session-tags-row-menu-groups', 'session-tags-collapse', 'session-tags-create',
     'session-tags-active-first', 'session-tags-active-first-collapse',
+    'session-row-tail-align',
     'session-mention', 'mention-chips', 'workflow-running', 'workflow-finished', 'diff-side-by-side',
     'tool-skill', 'tool-skill-running', 'tool-skill-error',
     'tool-cordis-define', 'tool-cordis-run', 'tool-cordis-actions',
