@@ -384,6 +384,25 @@
   .md a { color: var(--vscode-textLink-foreground); text-decoration: none; }
   .md a:hover { text-decoration: underline; }
   .md img { max-width: 100%; height: auto; }
+  /* 内嵌本地路径图片（工具输出 ![img](/abs/x.png)）：host 读盘回 data URL 后真图
+     （.md-img-inline）；加载中占位（.md-img-loading）；宿主失败态 chip
+     （.md-img-failed，点击在编辑器打开）——渲染逻辑见 webview decorateMarkdownImages。 */
+  .md img.md-img-inline { display: block; margin: 8px 0; border-radius: 6px; }
+  .md span.md-img-loading {
+    display: inline-block; min-width: 160px; min-height: 90px; margin: 8px 0;
+    border-radius: 6px; background: var(--vscode-editorWidget-background, rgba(127,127,127,.1));
+    color: var(--vscode-descriptionForeground, rgba(127,127,127,.8));
+    font-size: 0.85em; vertical-align: middle; text-align: center; line-height: 90px;
+  }
+  .md span.md-img-failed {
+    display: inline-flex; align-items: center; gap: 6px; margin: 8px 0;
+    padding: 3px 10px; border-radius: 6px;
+    background: var(--vscode-editorWidget-background, rgba(127,127,127,.1));
+  }
+  .md span.md-img-failed svg { flex: none; }
+  .md span.md-img-failed:hover { text-decoration: underline; }
+  .md span.md-img-failed .md-img-failed-name { font-weight: 600; }
+  .md span.md-img-failed .md-img-failed-hint { opacity: 0.7; font-size: 0.85em; }
   .md hr {
     margin: 12px 0; border: 0; border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.4));
   }

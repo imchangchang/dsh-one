@@ -1245,7 +1245,7 @@
         return s
       })(),
       title: '侧栏面板（综合列表）',
-      expect: '头部工具栏（搜索框/排序/刷新/折叠全部/添加工作区）；搜索框下一行分组栏（左 All workspaces ▼ + 右 +）；dsh-one 组：vscode 标签、文件夹染蓝（组内有 active 行）、组名右侧角标（环 1 → 运行中 + 绿点 1 → 未读）、「sess-4 当前附加的会话」行高亮（active）；行首无独立状态槽：置顶图钉放标题前（sess-3 置顶行），其余行标题贴行左缘；行尾状态位与时间互斥：sess-1 像素环（无时间）、sess-2 未读绿点（无时间，标题加粗）、sess-3 置顶空闲（显示「昨天」）、sess-4 空闲（显示「10 分钟前」）；workspace 行尾 hover 动作仅结构存在（截图为静态，不核对 hover）；dsh-web research 组：sess-5 行尾黄色待审批点（pendingInteraction，无时间）；未分组虚拟组显示「sess-6 未分组里的孤儿会话」（空闲显示时间）。',
+      expect: '头部工具栏（搜索框/排序/刷新/折叠全部/添加工作区）；搜索框下一行分组栏：胶囊标签（tag 图标 + All workspaces + 数量角标 + ▾，描边大圆角；栏上无「+」按钮）；dsh-one 组：vscode 标签（蓝色调描边胶囊）、文件夹染蓝（组内有 active 行）、组名右侧角标（环 1 → 运行中 + 绿点 1 → 未读）、「sess-4 当前附加的会话」行高亮（active）；行首无独立状态槽：置顶图钉放标题前（sess-3 置顶行），其余行标题贴行左缘；行尾状态位与时间互斥：sess-1 像素环（无时间）、sess-2 未读绿点（无时间，标题加粗）、sess-3 置顶空闲（显示「昨天」）、sess-4 空闲（显示「10 分钟前」）；workspace 行尾 hover 动作仅结构存在（截图为静态，不核对 hover）；dsh-web research 组：sess-5 行尾黄色待审批点（pendingInteraction，无时间）；未分组虚拟组显示「sess-6 未分组里的孤儿会话」（空闲显示时间）。',
     },
 
     'sessions-status-rear-slot': {
@@ -2361,7 +2361,7 @@
       })(),
       interact: `document.querySelector('.ws-group-select')?.click()`,
       title: '侧栏面板（工作区分组栏：全部工作区 + 下拉菜单）',
-      expect: '搜索框下新出一行分组栏：左「All workspaces ▼」（加粗 + 下拉箭头），右「+」（New group 快捷按钮）；点击后弹下拉菜单：①首项「All workspaces 2」（全部 workspace 计数=2，当前选中 ✓ checked）；②各分组按序「演示 2 / 开发 1 / 日常 0」（右侧计数角标）；③分隔线下一项「Manage groups…」（齿轮图标）。主列表不受影响（全部工作区 = 现状：两个真实组 + 未分组组都在）。',
+      expect: '搜索框下新出一行分组栏：胶囊标签「🏷 All workspaces [2] ▾」（描边 + 大圆角 + tag 图标 + 数量角标，栏上无「+」按钮）；点击后弹下拉菜单：①首项「All workspaces 2」（全部 workspace 计数=2，当前选中 ✓ checked）；②各分组按序「演示 2 / 开发 1 / 日常 0」（右侧计数角标）；③分隔线下两项：「New group…」（+ 图标）、「Manage groups…」（齿轮图标）。主列表不受影响（全部工作区 = 现状：两个真实组 + 未分组组都在）。',
     },
 
     'sessions-groups-selected': {
@@ -2376,7 +2376,7 @@
         return s
       })(),
       title: '侧栏面板（选中「演示」分组：只显示组内 workspace）',
-      expect: '分组栏左按钮显示「演示 ▼」（选中的组名）；列表**只**显示「演示」组的两个 workspace（dsh-one、dsh-web research）——未分组组头**不出现**；未打标的 workspace 不出现（未打标只在「全部工作区」显示）；分组栏右侧「+」保留。',
+      expect: '分组栏胶囊显示「演示 [2] ▾」（选中的组名 + 组内计数角标），且呈蓝色调过滤态（.filtered，提示列表被收窄）；列表**只**显示「演示」组的两个 workspace（dsh-one、dsh-web research）——未分组组头**不出现**；未打标的 workspace 不出现（未打标只在「全部工作区」显示）；分组栏上无「+」按钮。',
     },
 
     'sessions-groups-selected-search': {
@@ -2392,7 +2392,7 @@
       })(),
       interact: `(() => { const i = document.querySelector('.sessions-search'); i.value = '重构'; i.dispatchEvent(new Event('input', { bubbles: true })) })()`,
       title: '侧栏面板（分组 + 搜索叠加：先分组后搜索）',
-      expect: '分组栏显示「开发 ▼」；搜索框显示「重构」；列表：ws-main 组展开，其下命中行「重构 sessionStore」（组内只有这一个 workspace 且命中）；dsh-web research（不在「开发」组）不出现；未分组组头不出现——分组过滤与搜索叠加（先分组后搜索）。',
+      expect: '分组栏胶囊显示「开发 [1] ▾」且呈蓝色调过滤态；搜索框显示「重构」；列表：ws-main 组展开，其下命中行「重构 sessionStore」（组内只有这一个 workspace 且命中）；dsh-web research（不在「开发」组）不出现；未分组组头不出现——分组过滤与搜索叠加（先分组后搜索）。',
     },
 
     'sessions-groups-empty': {
@@ -2405,7 +2405,7 @@
         return s
       })(),
       title: '侧栏面板（选中空分组：组专属空态）',
-      expect: '分组栏左按钮显示「日常 ▼」；列表区为**组专属空态**：居中提示「This group has no workspaces yet. Tag workspaces in "Manage groups…" first.」+ 补充行「You can also create a new group from the row above.」+ secondary 按钮「Manage groups…」；**不是**「No workspaces yet. Add an existing folder...」的默认引导；分组栏顶部照常。',
+      expect: '分组栏胶囊显示「日常 [0] ▾」且呈蓝色调过滤态；列表区为**组专属空态**：居中提示「This group has no workspaces yet. Tag workspaces in "Manage groups…" first.」+ 补充行「You can also create a new group from the group menu above.」+ secondary 按钮「Manage groups…」；**不是**「No workspaces yet. Add an existing folder...」的默认引导；分组栏顶部照常。',
     },
 
     'sessions-groups-manage': {
@@ -2470,9 +2470,13 @@
         Object.assign(s, window.SESSION_GROUPS_FIXTURE)
         return s
       })(),
-      interact: `document.querySelector('.ws-group-add')?.click()`,
-      title: '侧栏面板（「+」快速建组弹层）',
-      expect: '点击分组栏右侧「+」弹出小浮层：标题「New group」+ 名称输入框（placeholder「Group name」+「Create」按钮）；浮层定位在「+」按钮下方；主列表没变化。',
+      interact: `(() => {
+        document.querySelector('.ws-group-select')?.click()
+        const items = [...document.querySelectorAll('.menu-item')]
+        items.find((i) => i.textContent?.includes('New group'))?.click()
+      })()`,
+      title: '侧栏面板（「新建分组…」建组弹层）',
+      expect: '点分组栏胶囊 → 下拉菜单里点「New group…」→ 弹出小浮层：标题「New group」+ 名称输入框（placeholder「Group name」+「Create」按钮）；浮层定位在胶囊下方（原「+」按钮已移除，锚点改到胶囊）；下拉菜单已关闭；主列表没变化。',
     },
 
     // ================= workflow 运行卡（run→phase→member 三层折叠行） =================
@@ -3775,6 +3779,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'sessions-search', 'sessions-collapsed', 'sessions-collapse-scroll-keep', 'sessions-recycle-drawer',
     'sessions-recycle-entry-actions', 'sessions-recycle-handle', 'sessions-recycle-flat',
     'sessions-workspace-menu-groups',
+    'sessions-groups-dropdown', 'sessions-groups-selected', 'sessions-groups-create-popover',
     'sessions-selection-mode', 'sessions-selection-modal', 'sessions-selection-modal-open',
     'sessions-selection-exit-recycle', 'sessions-selection-exit-archive',
     'session-tags', 'session-tags-row-menu', 'session-tags-row-menu-groups', 'session-tags-collapse', 'session-tags-create',
