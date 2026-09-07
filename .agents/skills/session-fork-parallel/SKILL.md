@@ -101,9 +101,9 @@ curl -s -m 5 -X POST http://127.0.0.1:3080/api/session/list \
 
 两者输入一致：`--tasks` 指向 JSON 文件 `[{"title": "...", "prompt": "任务说明..."}, ...]`，`--repo <仓库绝对路径>`（默认 cwd）。加 `--dry-run` 只解析与验证不建 session。跑完把输出清单交给用户即可。
 
-**`--tag <组名>`（仅 modern 脚本）：一次派生 = 侧栏一个标签组**（类比 Kimi bridge 一个任务一个组）。建完 session 后把它们的 sessionId 写进 `~/.dsh/dsh-one/tags.json`（组按 name 找/建，颜色按插件 `nextCustomColor` 的橙/紫/红轮换；原子写 tmp+replace；文件已存在但格式不认识时拒绝覆盖并退出）。dsh-one 插件 watch 该目录，写完侧栏自动聚出这个组，不用重启窗口。不加 `--tag` 则完全不动 tags.json。
+**`--tag <组名>`（仅 modern 脚本）：一次派生 = 侧栏一个标签组**（类比 Kimi bridge 一个任务一个组）。建完 session 后经**扩展 loopback 桥**归组：脚本读 `~/.dsh/dsh-one/bridge.json`（扩展激活时写的 `{port, token}`，127.0.0.1 随机端口 + 每进程随机 token）→ `POST /tag {group, sessionIds}`。tags.json 的找/建组、颜色轮换、原子写全部由扩展进程完成（`sessionsStore.assignTagGroup` → `dshStateStore.updateTags`），脚本不再直写文件——**规避了 agent 进程写工作区外 `~/.dsh/dsh-one/` 被文件沙箱拦截的问题**，`--tag` 不再弹审批。dsh-one 插件 watch 该目录，写完侧栏自动聚出这个组，不用重启窗口。不加 `--tag` 则完全不动 tags.json。
 
-**派生惯例（用户约定 2026-09-07）：批量派生默认带 `--tag <批次/任务组名>`**——一次派发的所有 session 归进一个标签组（同一次派发 = 一组，不同任务用不同组名）。例外与堵点：写 `~/.dsh/dsh-one/` 在工作区外，agent 会话默认沙箱（workspace-write）会拒绝（PermissionError）——当前解法二选一：① 派生命令带沙箱升级授权（弹审批给用户）；② 用户真终端跑；`#18`（扩展提供 loopback 端点代写 tags.json）落地后 agent 派生才能无感归组。
+**派生惯例（用户约定 2026-09-07）：批量派生默认带 `--tag <批次/任务组名>`**——一次派发的所有 session 归进一个标签组（同一次派发 = 一组，不同任务用不同组名）。已由 `#18` 落地：`--tag` 走桥、无沙箱审批；桥记录缺失 / token 陈旧 / 扩展未加载时脚本报错指路（「DSH One 扩展未加载？先在 VS Code 里启动扩展（或 reload 窗口）」），**不静默**。多窗口注意：多个 VS Code 窗口各自起端点、写同一份 bridge.json，**晚激活的窗口覆盖注册，早激活的失效**——派生时以当前 bridge.json 为准，若刚 reload 过窗口（或扩展重启过）桥记录会重建，脚本照常生效。
 
 ```bash
 python3 .agents/skills/session-fork-parallel/references/scripts/mk-sessions-modern.py \
