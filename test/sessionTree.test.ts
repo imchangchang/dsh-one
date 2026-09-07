@@ -200,32 +200,6 @@ test('description carries the relative time; running flag passes through', () =>
   assert.equal(tree[0].sessions[0].running, true)
 })
 
-test('sort updatedAsc reverses the session order within a workspace', () => {
-  const tree = buildSessionTree(
-    [ws('w1', ['a', 'b', 'c'])],
-    [s('a', { updatedAt: NOW - 3000 }), s('b', { updatedAt: NOW - 1000 }), s('c', { updatedAt: NOW - 2000 })],
-    new Set(),
-    noTitles,
-    undefined,
-    NOW,
-    { sort: 'updatedAsc' },
-  )
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'c', 'b'])
-})
-
-test('sort title orders by label, not by recency', () => {
-  const tree = buildSessionTree(
-    [ws('w1', ['a', 'b', 'c'])],
-    [s('a', { updatedAt: NOW }), s('b', { updatedAt: NOW - 2000 }), s('c', { updatedAt: NOW - 1000 })],
-    new Set(),
-    (x) => new Map([['a', 'zebra'], ['b', 'apple'], ['c', 'mango']]).get(x.sessionId) ?? null,
-    undefined,
-    NOW,
-    { sort: 'title' },
-  )
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b', 'c', 'a'])
-})
-
 test('query filters by title, case-insensitive, and drops empty workspaces', () => {
   const tree = buildSessionTree(
     [ws('w1', ['a', 'b']), ws('w2', ['c'])],
@@ -285,7 +259,7 @@ test('content-hit orphan sessions appear in ungrouped and carry the snippet', ()
   assert.equal(tree[0].sessions[0].contentSnippet, 'k8s 容器')
 })
 
-test('query keeps blank/archived hidden and combines with sort', () => {
+test('query keeps blank/archived hidden and orders by updatedAt desc', () => {
   const tree = buildSessionTree(
     [ws('w1', ['keep1', 'gone', 'empty', 'keep2'])],
     [s('keep1', { updatedAt: NOW - 1000 }), s('gone'), s('empty', { blank: true }), s('keep2', { updatedAt: NOW - 2000 })],
@@ -293,9 +267,9 @@ test('query keeps blank/archived hidden and combines with sort', () => {
     (x) => (x.sessionId.startsWith('keep') ? '匹配目标' : null),
     undefined,
     NOW,
-    { query: '匹配', sort: 'updatedAsc' },
+    { query: '匹配' },
   )
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['keep2', 'keep1'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['keep1', 'keep2'])
 })
 
 test('a whitespace-only query behaves as no filter', () => {
@@ -311,7 +285,7 @@ test('a whitespace-only query behaves as no filter', () => {
   assert.deepEqual(tree.map((n) => n.workspaceId), ['w1', 'w2', UNGROUPED_WORKSPACE_ID])
 })
 
-test('pinned sessions sort first; group holds array order, the rest follow the sort order', () => {
+test('pinned sessions sort first; group holds array order, the rest follow updatedAt desc', () => {
   const tree = buildSessionTree(
     [ws('w1', ['a', 'b', 'c', 'd'])],
     [
@@ -326,8 +300,8 @@ test('pinned sessions sort first; group holds array order, the rest follow the s
     NOW,
     { pinned: ['c', 'a'] },
   )
-  // 置顶组内按数组顺序（c 前 a 后），不顾 updatedAt；非置顶 b/d 按默认
-  // updatedDesc 排在其后（d 更新在前）。
+  // 置顶组内按数组顺序（c 前 a 后），不顾 updatedAt；非置顶 b/d 按 updatedAt
+  // 降序排在其后（d 更新在前）。
   assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['c', 'a', 'd', 'b'])
   assert.deepEqual(tree[0].sessions.map((n) => n.pinned), [true, true, false, false])
 })
@@ -366,25 +340,6 @@ test('re-pinning a session moves it to the pin-group front (unshift semantics)',
   assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b', 'a'])
 })
 
-test('pinned group stays fixed even under title sort (absolute priority beats sort key)', () => {
-  const tree = buildSessionTree(
-    [ws('w1', ['a', 'b', 'c', 'd'])],
-    [
-      s('a', { title: 'zebra' }),
-      s('b', { title: 'apple' }),
-      s('c', { title: 'mango' }),
-      s('d', { title: 'banana' }),
-    ],
-    new Set(),
-    (x) => x.title ?? null,
-    undefined,
-    NOW,
-    { sort: 'title', pinned: ['c', 'a'] },
-  )
-  // 置顶组 ['c','a'] 按数组顺序（忽略 title）；非置顶 b/d 按 title 升序排在其后。
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['c', 'a', 'b', 'd'])
-})
-
 test('unread marks promote the session ahead of idle ones under default order', () => {
   const tree = buildSessionTree(
     [ws('w1', ['a', 'b'])],
@@ -400,23 +355,9 @@ test('unread marks promote the session ahead of idle ones under default order', 
   assert.deepEqual(tree[0].sessions.map((n) => n.unread), [true, false])
 })
 
-test('attached (open tab) sessions count as active; detaching drops them back to idle order', () => {
+test('attached (open tab) sessions do NOT count as active; clicking only highlights, no reorder', () => {
+  // b 打开着（tab 附着）但更旧，且无 running/未读/待交互：不再算活跃，不被前置。
   const tree = buildSessionTree(
-    [ws('w1', ['a', 'b'])],
-    [s('a', { updatedAt: NOW - 1000 }), s('b', { updatedAt: NOW - 2000 })],
-    new Set(),
-    noTitles,
-    undefined,
-    NOW,
-    { attached: new Set(['b']) },
-  )
-  // tab 打开中 = 活跃（行尾无标识无时间）：b 虽更旧仍排在 a 前，节点带 attached 标记。
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b', 'a'])
-  assert.deepEqual(tree[0].sessions.map((n) => n.attached), [true, false])
-  assert.deepEqual(tree[0].sessions.map((n) => n.active), [true, false])
-
-  // 关闭 tab 后无其他状态 → 掉回空闲层，按 updatedAt 降序归位。
-  const detached = buildSessionTree(
     [ws('w1', ['a', 'b'])],
     [s('a', { updatedAt: NOW - 1000 }), s('b', { updatedAt: NOW - 2000 })],
     new Set(),
@@ -425,15 +366,17 @@ test('attached (open tab) sessions count as active; detaching drops them back to
     NOW,
     {},
   )
-  assert.deepEqual(detached[0].sessions.map((n) => n.sessionId), ['a', 'b'])
-  assert.deepEqual(detached[0].sessions.map((n) => n.active), [false, false])
+  // 没有任何「需要你注意」的状态 → 全按 updatedAt 降序：b 虽打开仍排在 a 后，
+  // active 全 false（打开只高亮，不跳序，用户拍板）。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'b'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.active), [false, false])
 })
 
-test('attached sessions stay inside their tag block, promoted within it', () => {
+test('attached sessions stay inside their tag block; only truly-active ones are promoted within it', () => {
   const tree = buildSessionTree(
     [ws('w1', ['a', 'b', 'c'])],
     [
-      s('a', { updatedAt: NOW - 1000 }),
+      s('a', { updatedAt: NOW - 1000, running: true }),
       s('b', { updatedAt: NOW - 2000 }),
       s('c', { updatedAt: NOW - 3000 }),
     ],
@@ -442,14 +385,14 @@ test('attached sessions stay inside their tag block, promoted within it', () => 
     undefined,
     NOW,
     {
-      attached: new Set(['b']),
       tags: ['preset-doing'],
       sessionTagFor: (id) => ({ a: 'preset-doing', b: 'preset-doing' })[id],
     },
   )
-  // 组块是容器：打开中的 b 不脱离组块平铺，只在组内前置（与 running 同规则）；
-  // 无组的 c 殿后。
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b', 'a', 'c'])
+  // 组块是容器：a（running，真正活跃）在组内前置；b（仅打开、空闲）不前置，
+  // 按 updatedAt 降序跟随后；无组的 c 殿后。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'b', 'c'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.active), [true, false, false])
 })
 
 test('active sessions sort first under default order; active group by updatedAt desc', () => {
@@ -470,41 +413,6 @@ test('active sessions sort first under default order; active group by updatedAt 
   )
   // 活跃组 b/c/e（running/未读）整体前置，组内按 updatedAt 降序（e 最新）；空闲 d/a 按默认 updatedDesc。
   assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['e', 'c', 'b', 'd', 'a'])
-})
-
-test('active-first applies under title sort and updatedAsc; only the idle group follows the sort key', () => {
-  const titleTree = buildSessionTree(
-    [ws('w1', ['a', 'b', 'c'])],
-    [
-      s('a', { title: 'zebra', updatedAt: NOW - 3000 }),
-      s('b', { title: 'apple', updatedAt: NOW - 2000, running: true }),
-      s('c', { title: 'mango', updatedAt: NOW - 1000 }),
-    ],
-    new Set(),
-    (x) => x.title ?? null,
-    undefined,
-    NOW,
-    { sort: 'title' },
-  )
-  // title 模式下：活跃 b 前置（组内只有它），空闲 a/c 按标题升序（mango < zebra）。
-  assert.deepEqual(titleTree[0].sessions.map((n) => n.sessionId), ['b', 'c', 'a'])
-
-  const ascTree = buildSessionTree(
-    [ws('w1', ['a', 'b', 'c', 'd'])],
-    [
-      s('a', { updatedAt: NOW - 1000 }),
-      s('b', { updatedAt: NOW - 2000 }),
-      s('c', { updatedAt: NOW - 3000, running: true }),
-      s('d', { updatedAt: NOW - 4000 }),
-    ],
-    new Set(),
-    noTitles,
-    undefined,
-    NOW,
-    { sort: 'updatedAsc' },
-  )
-  // updatedAsc 模式下：活跃 c 前置（组内按时间降序仅一项），空闲按时间升序 a,b,d。
-  assert.deepEqual(ascTree[0].sessions.map((n) => n.sessionId), ['c', 'd', 'b', 'a'])
 })
 
 test('pinning still wins over active-first; a pinned idle session stays ahead of unpinned active ones', () => {
@@ -862,10 +770,10 @@ test('onlySessionIds keeps only the given ids, grouped by original workspace; or
   assert.deepEqual(tree[1].sessions.map((n) => n.sessionId), ['binned2'])
 })
 
-test('recycleOrder orders recycle-bin sessions latest-trash-first, ignoring sort keys', () => {
+test('recycleOrder orders recycle-bin sessions latest-trash-first, ignoring recency', () => {
   // 入站顺序 [c, b, a]（a 最新移入）；updatedAt 故意错序（b 最新）。
   // 组内若走默认 updatedAt 降序应得 [b, c, a]；回收站按入站倒序应得 [a, b, c]——
-  // 证明 recycleOrder 生效且覆盖 sort/活跃前置。
+  // 证明 recycleOrder 生效且覆盖 updatedAt/置顶/活跃前置。
   const tree = buildSessionTree(
     [ws('w1', ['a', 'b', 'c'])],
     [
@@ -999,21 +907,21 @@ test('tagged active sessions stay inside their block; only untagged active prefi
   ])
 })
 
-test('tag blocks keep per-group sort (title sort applies inside blocks)', () => {
+test('tag blocks keep per-block updatedAt descending ordering', () => {
   const tree = buildSessionTree(
     [ws('w1', ['a', 'b', 'c'])],
-    [s('a', { title: 'zebra' }), s('b', { title: 'apple' }), s('c', { title: 'mango' })],
+    [s('a', { updatedAt: NOW - 1000 }), s('b', { updatedAt: NOW - 2000 }), s('c', { updatedAt: NOW - 3000 })],
     new Set(),
-    (x) => x.title ?? null,
+    noTitles,
     undefined,
     NOW,
     {
-      sort: 'title',
       tags: ['t-1', 'preset-todo'],
-      sessionTagFor: (id) => (id === 'c' ? 'preset-todo' : id === 'a' ? 't-1' : undefined),
+      sessionTagFor: (id) => (id === 'c' ? 'preset-todo' : id === 'a' ? 't-1' : id === 'b' ? 't-1' : undefined),
     },
   )
-  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'c', 'b'])
+  // 组块序 t-1（a/b 组内按 updatedAt 降序）→ preset-todo（c）→ 无组殿后。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['a', 'b', 'c'])
 })
 
 test('unknown tag ids degrade to untagged', () => {

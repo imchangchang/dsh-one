@@ -10,7 +10,7 @@
  */
 import { COPY_ICON, PANEL_ICONS, MESSAGE_ACTION_ICONS, type IconDef } from './chat/icons.ts'
 import type { FromWebviewMessage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
-import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../pure/sessionTree.ts'
+import type { SessionNodeModel, WorkspaceNodeModel } from '../pure/sessionTree.ts'
 import { UNGROUPED_WORKSPACE_ID } from '../pure/sessionTree.ts'
 import { TAG_COLORS, type TagColor } from '../pure/sessionTags.ts'
 import {
@@ -444,7 +444,6 @@ function menuItem(
 }
 
 /* ---- 会话面板图标 ---- */
-const SORT_ICON = ['M4.5 3v10', 'M4.5 13l-2.2-2.6', 'M4.5 13l2.2-2.6', 'M11.5 13V3', 'M11.5 3L9.3 5.6', 'M11.5 3l2.2 2.6']
 const PIN_ICON = ['M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z', 'M8 9.5v4']
 const UNREAD_ICON = ['M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8z']
 /** 垃圾桶描边图标（「从列表移除」，VS Code codicon trash 的简化线条画法：
@@ -478,13 +477,6 @@ function makePinIcon(): SVGSVGElement {
 /** 运行中像素环（spinSvg/SPIN_CELLS）已由共享模块 ui/shared/animPhase 承担
  * （此处原本是 chat webview 的逐字复制，注释自承「同款处理」）。 */
 
-/** 排序菜单选项，与 store 持久化的 SessionSortOrder 一一对应。 */
-const SORT_OPTIONS: Array<{ order: SessionSortOrder; label: string }> = [
-  { order: 'updatedDesc', label: t('Most recent first') },
-  { order: 'updatedAsc', label: t('Oldest first') },
-  { order: 'title', label: t('Sort by title') },
-]
-
 function panelTool(icon: SVGSVGElement, title: string): HTMLButtonElement {
   const b = document.createElement('button')
   b.type = 'button'
@@ -504,24 +496,6 @@ function rowAction(icon: SVGSVGElement, title: string, onClick: () => void): HTM
     onClick()
   })
   return b
-}
-
-function openSortMenu(anchor: HTMLElement): void {
-  const snap = sessionsSnapshot
-  if (!snap) return
-  const body = el('div')
-  for (const opt of SORT_OPTIONS) {
-    body.appendChild(
-      menuItem(opt.label, {
-        checked: snap.sortOrder === opt.order,
-        onClick: () => {
-          closePopover()
-          if (snap.sortOrder !== opt.order) post({ type: 'sessionsSort', order: opt.order })
-        },
-      }),
-    )
-  }
-  showPopover(anchor, body, 'below')
 }
 
 /* ---- 面板渲染 ---- */
@@ -578,9 +552,6 @@ function buildSessionsHeader(): HTMLElement {
   searchWrap.appendChild(search)
   searchWrap.appendChild(clearBtn)
   header.appendChild(searchWrap)
-  const sortBtn = panelTool(strokeSvg(SORT_ICON, 16), t('Sort by'))
-  sortBtn.addEventListener('click', () => openSortMenu(sortBtn))
-  header.appendChild(sortBtn)
   const refreshBtn = panelTool(iconSvg(PANEL_ICONS.refresh, 12), t('Refresh session list'))
   // 刷新视觉反馈：点击立即转圈 + 禁用，直至 ~450ms 后复位（header 持久，同一 DOM 节点）。
   refreshBtn.addEventListener('click', () => {
@@ -2379,10 +2350,9 @@ function renderWorkspaceHead(w: WorkspaceNodeModel, collapsed: boolean): HTMLEle
 
 /**
  * 行尾状态标记（按优先级）：待交互黄点 > 运行中像素环（含运行中后代）> 未读绿点；
- * 返回 null = 无状态标记。注意调用方还有个第五种活跃原因 attached（tab 打开中）：
- * 它没有任何标记，但行尾同样不显示时间（用户确认：打开中即活跃、行尾留空）。
- * 主列表与回收站行共用，标记与时间
- * 在行尾互斥显示（用户确认：行尾槽固定 16px、标记居中，绿点/黄点/像素环中心共线）。
+ * 返回 null = 无状态标记（即非活跃会话）。注意「tab 打开中」不算活跃，没有标记
+ * 也会照常显示时间（用户拍板：打开只高亮不跳序）。主列表与回收站行共用，标记与
+ * 时间在行尾互斥显示（用户确认：行尾槽固定 16px、标记居中，绿点/黄点/像素环中心共线）。
  */
 function sessionStatusMarker(s: SessionNodeModel): HTMLElement | SVGSVGElement | null {
   const busy = s.running || s.descendantRunning
@@ -2434,10 +2404,10 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
     main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title')).appendChild(highlightText(s.label))
   }
   const marker = sessionStatusMarker(s)
-  // attached（tab 打开中）且无其他状态标记：行尾留空——不显示时间（该会话
-  // 在活跃层按 updatedAt 排序，显示时间会让人误以为时间是排序依据）。
+  // 活跃层（运行中/后代运行/未读/待交互）行尾只画状态标记、不显示时间（不可见
+  // 的时间不作排序依据）；空闲层（含仅是 tab 打开中的会话）照常显示相对时间。
   if (marker === null) {
-    if (!s.attached) main.appendChild(el('span', 'session-time', s.description))
+    if (!s.active) main.appendChild(el('span', 'session-time', s.description))
   } else {
     const rear = el('span', 'session-rear')
     rear.appendChild(marker)
@@ -2831,9 +2801,9 @@ function renderRecycleSessionRow(s: SessionNodeModel): HTMLElement {
   }
   main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title', s.label))
   const marker = sessionStatusMarker(s)
-  // 与主列表行同规则：attached（tab 打开中）且无状态标记时行尾留空不显示时间。
+  // 与主列表行同规则：活跃层只画状态标记不显示时间；空闲层（含 tab 打开中）显示时间。
   if (marker === null) {
-    if (!s.attached) main.appendChild(el('span', 'session-time', s.description))
+    if (!s.active) main.appendChild(el('span', 'session-time', s.description))
   } else {
     const rear = el('span', 'session-rear')
     rear.appendChild(marker)
@@ -3174,7 +3144,6 @@ function openSelectionModal(): void {
             pinned: false,
             hasCompletedTurn: false,
             unread: false,
-            attached: false,
             descendantRunning: false,
           }
         )

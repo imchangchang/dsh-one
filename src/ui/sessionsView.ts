@@ -934,9 +934,6 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
       case 'sessionsSearch':
         this.store.setQuery(typeof m.query === 'string' && m.query.trim() !== '' ? m.query : null)
         return
-      case 'sessionsSort':
-        this.store.setSortOrder(m.order)
-        return
       case 'sessionPin':
         this.store.setPinned(m.sessionId, m.pin)
         return
