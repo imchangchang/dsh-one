@@ -400,6 +400,58 @@ test('unread marks promote the session ahead of idle ones under default order', 
   assert.deepEqual(tree[0].sessions.map((n) => n.unread), [true, false])
 })
 
+test('attached (open tab) sessions count as active; detaching drops them back to idle order', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b'])],
+    [s('a', { updatedAt: NOW - 1000 }), s('b', { updatedAt: NOW - 2000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    { attached: new Set(['b']) },
+  )
+  // tab 打开中 = 活跃（行尾无标识无时间）：b 虽更旧仍排在 a 前，节点带 attached 标记。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b', 'a'])
+  assert.deepEqual(tree[0].sessions.map((n) => n.attached), [true, false])
+  assert.deepEqual(tree[0].sessions.map((n) => n.active), [true, false])
+
+  // 关闭 tab 后无其他状态 → 掉回空闲层，按 updatedAt 降序归位。
+  const detached = buildSessionTree(
+    [ws('w1', ['a', 'b'])],
+    [s('a', { updatedAt: NOW - 1000 }), s('b', { updatedAt: NOW - 2000 })],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    {},
+  )
+  assert.deepEqual(detached[0].sessions.map((n) => n.sessionId), ['a', 'b'])
+  assert.deepEqual(detached[0].sessions.map((n) => n.active), [false, false])
+})
+
+test('attached sessions stay inside their tag block, promoted within it', () => {
+  const tree = buildSessionTree(
+    [ws('w1', ['a', 'b', 'c'])],
+    [
+      s('a', { updatedAt: NOW - 1000 }),
+      s('b', { updatedAt: NOW - 2000 }),
+      s('c', { updatedAt: NOW - 3000 }),
+    ],
+    new Set(),
+    noTitles,
+    undefined,
+    NOW,
+    {
+      attached: new Set(['b']),
+      tags: ['preset-doing'],
+      sessionTagFor: (id) => ({ a: 'preset-doing', b: 'preset-doing' })[id],
+    },
+  )
+  // 组块是容器：打开中的 b 不脱离组块平铺，只在组内前置（与 running 同规则）；
+  // 无组的 c 殿后。
+  assert.deepEqual(tree[0].sessions.map((n) => n.sessionId), ['b', 'a', 'c'])
+})
+
 test('active sessions sort first under default order; active group by updatedAt desc', () => {
   const tree = buildSessionTree(
     [ws('w1', ['a', 'b', 'c', 'd', 'e'])],

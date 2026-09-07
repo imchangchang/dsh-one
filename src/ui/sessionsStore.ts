@@ -1094,17 +1094,28 @@ export class SessionsStore implements vscode.Disposable {
   }
 
   /**
-   * Chat view 打开/关闭 tab 时同步已打开会话集合：已打开的会话不打完成标记
-   * （官方语义：当前选中的会话不标），且打开即清除其已有标记。
+   * Chat view 打开/关闭 tab 时同步已打开会话集合（全量 tab，非仅可见 tab）。
+   * 打开 = 已读（邮件语义，用户确认）：attach 瞬间同时清掉自动完成标记与手动
+   * 未读。清除是事件而非持续约束——开着 tab 时手动标的未读不会被立即清掉，
+   * 保留到下次打开才清（Gmail 式）。打开中的会话本身算活跃（buildSessionTree
+   * 的 attached 原因），所以集合成员变化也触发重建。
    */
   setAttachedSessions(sessionIds: Iterable<string>): void {
     const next = new Set(sessionIds)
+    let changed = !sameStringSet(next, this.attachedIds)
     this.attachedIds = next
-    let changed = false
+    let unreadChanged = false
     for (const id of next) {
       if (this.completed.delete(id)) changed = true
+      if (this.unread.delete(id)) unreadChanged = true
     }
-    if (changed) {
+    if (unreadChanged) {
+      this.persistAck(
+        this.io.updateUnread((prev) => prev.filter((id) => !next.has(id))),
+        'unread',
+      )
+    }
+    if (changed || unreadChanged) {
       this.rebuildModel()
       this.onDidChangeEmitter.fire()
     }
@@ -1628,6 +1639,8 @@ export class SessionsStore implements vscode.Disposable {
       sort: this.sortOrder,
       pinned: this.pinned,
       unread: unreadDisplay,
+      // 打开中的会话算活跃（第五种活跃原因）：排序前置、行尾无标识无时间。
+      attached: this.attachedIds,
       pendingInteractions: pendingDisplay,
       // 标签组聚合（Chrome 垂直标签式）：组块顺序 = 定义顺序；workspace 内
       // 非置顶会话按组块聚合，无组殿后（置顶会话保持绝对优先平铺）。
