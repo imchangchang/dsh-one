@@ -102,7 +102,7 @@
 **1. 工具卡 IN/OUT 展开（对齐 web ToolRow）**
 - 数据：✅ **完全可用**。`tool/call` 事件的 `data.arguments` 折叠时就在手里（`conversation.ts` `applyToolCall` 已用它算 todo_write 的 planSummary，只是没存）；输出 `block.output` 已有。
 - 改动面：`chatContract.ts` `ChatToolBlock` 加 `arguments?: string`；`conversation.ts` `applyToolCall` 存 args；`webview.ts` `renderTool` 加 chevron + 展开 IN/OUT 卡。
-- 备注：`docs/backlog/open/tool-call-expandable.md` 已挂条目，本报告就是它的前置调研。对齐形态：web 的 ioCard（IN/OUT 两栏、150px 内滚动、失败红字）。
+- 备注：条目 tool-call-expandable 已挂 backlog（已完成，见 `docs/backlog/closed-archive-2026Q3.md`），本报告就是它的前置调研。对齐形态：web 的 ioCard（IN/OUT 两栏、150px 内滚动、失败红字）。
 
 **2. 代码块折叠 + 复制（对齐 web CodeBlock）**
 - 数据：✅ 完全可用。text 块全文就在 `ChatTextBlock.text`，渲染时 marked 出的 `<pre><code>` 就是它。

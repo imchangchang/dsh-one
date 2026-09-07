@@ -19,7 +19,7 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
 
 **开发 session**（backlog 认领 + worktree 开发）：
 
-1. 认领 backlog 条目：`git mv docs/backlog/open/<条目>.md docs/backlog/doing/`，文件末尾追加变更记录（见 backlog-folder-index）。
+1. 认领 backlog 条目（GitHub Issues，见 backlog-github-issues）：`gh issue list --label b:open` 选活 → `gh issue edit <n> --add-assignee @me --remove-label b:open --add-label b:doing` + comment 留痕 → **再 `gh issue view <n>` 复核 assignee 是自己**（不是就放弃换一条）。
 2. `scripts/dev-start.sh <任务名>`——任意位置跑：建 worktree + 分支 + 装依赖。
 3. `cd .worktrees/<slug>` 进去开发，高频小提交。
 4. UI 类改动的视觉自测（**开发自测环节，不再是合入门禁**）：二选一或都用——
@@ -32,7 +32,7 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
    c. 逐项看截图定结论：符合期望的 `done → pass`，不符的改 `fail` 并在 `notes` 写明；**渲染报告前不能留 `pending`/`done`**——「每项通过/失败结论」是 gate 的判定依据。`notes` 要**按检查点逐条记录核对结论**（如「勾选态 ✓ 且顶层菜单仍开」），不允许「核对勾选态」式一句带过——核对漏项（期望里有但 notes 没提）靠这个暴露，报告审查据此判断核对是否覆盖了全部断言。
    d. 渲染：`node test/sandbox/report.mjs --ledger test/sandbox/verify.<slug>.ledger.json --out test/sandbox/verify.<slug>.report.html`（截图 base64 内嵌，单文件可分发）。
    e. 提交 ledger（报告 HTML 已 gitignore，不必提交），把报告路径交给用户审——**合入门禁 = 人审报告**：无问题直接等合入；有疑问才走流程 6。
-   f. 无 UI 行为变化的任务（纯逻辑/文档）可不建 ledger，在条目变更记录里注明「无 UI 行为变化，沙盒报告不适用」。
+   f. 无 UI 行为变化的任务（纯逻辑/文档）可不建 ledger，在 issue 里 comment 注明「无 UI 行为变化，沙盒报告不适用」。
 6. （仅当报告审查有疑问时）人工 `dev-ui-test.sh` 窗口验收——不再是默认门禁，命令与交接收口不变：构建 dist 后起该 worktree 专属的隔离 VSCode 实例（设置/扩展隔离在 `/tmp/dsh-uidev/<slug>/`，不碰日常 VSCode），人工验证渲染与交互。**代理/会话别自己跑 dev-ui-test**：沙箱或远程环境下 `code` 命令会静默返回 exit 0 但窗口不弹出（`/tmp/dsh-uidev/<slug>/user-data` 不生），而本机 GUI 会话（用户本机 dsh web 服务下跑的会话）里 `code` 会**真的弹出窗口并阻塞等待**——两种情况都别试，窗口是给用户看的。这一步直接把命令丢给用户本人，在真实终端跑，等验收结果回传再继续。**交给用户的单元 = 一条可复制的命令 + 应有的现象，分单下发**（示例）：
 
 ```
@@ -57,24 +57,24 @@ cd <repo-root>/.worktrees/<slug> && bash <repo-root>/scripts/dev-ui-test.sh
 - **命令只给 dev-ui-test 这一条**。`ui-visual.sh`（截图）、`npm test`、`dev-finish` 是别的步骤，**不混进**这个开窗验收单元——它们不能替代人的眼。
 - **命令里必须包含 `cd <repo-root>/.worktrees/<slug>`**：`dev-ui-test.sh` 靠 `git rev-parse --show-toplevel` 定位当前 worktree，cwd 在 worktree 里它才把**这个 worktree** 当扩展加载；cwd 在主线会打开主线而不是本任务。
 - 这是**纯对话框交接**：不生成脚本文件、不改 `dev-ui-test.sh`，就是交给人复制即跑。
-7. `scripts/dev-finish.sh`——worktree 里跑：检查已提交（ledger/本次改动都已提交，未提交会挡）→ 自测 → 打 `done/<slug>` 标记；随后 backlog 条目 `doing → done`（git mv + 追加变更记录）。
+7. `scripts/dev-finish.sh`——worktree 里跑：检查已提交（ledger/本次改动都已提交，未提交会挡）→ 自测 → 打 `done/<slug>` 标记；随后 issue 流转 `b:doing → b:done`（`gh issue edit <n> --remove-label b:doing --add-label b:done` + comment 记录测试报告路径/结论）。
 
 **到此为止**：不跑 dev-merge、不合入主线，那是主线 agent 的活。
 
 **主线 agent**（main 上）：
 
 1. `scripts/dev-merge.sh <slug>`——校验 → rebase 到最新 main → 复测 → --no-ff 合入 → 清理。合入串行进行，一次一个任务。
-2. 合入前 gate 已过（测试报告已人工审查通过，见流程 5；有疑问的功能已按流程 6 人工开窗验收），合入后只做回归：复测（typecheck/test/build）+ 已验功能抽查，通过 → backlog 条目 `done → closed`；测试有问题 → `done → open`（对应 agent 重新认领再走一遍），代码层面怎么处理见下面「合入后测试发现问题」。
-3. `scripts/dev-merge.sh` 不带参数：列出所有待合并任务（即 `docs/backlog/done/` 里的条目）。
+2. 合入前 gate 已过（测试报告已人工审查通过，见流程 5；有疑问的功能已按流程 6 人工开窗验收），合入后只做回归：复测（typecheck/test/build）+ 已验功能抽查，通过 → issue 流转 `b:done → b:closed`（换 label + comment + `gh issue close <n>`）；测试有问题 → `b:done → b:open`（换 label + 移除 assignee + comment 写明问题，对应 agent 重新认领再走一遍），代码层面怎么处理见下面「合入后测试发现问题」。
+3. `scripts/dev-merge.sh` 不带参数：列出所有待合并任务（`done/*` git 标记，与 `gh issue list --label b:done` 互相对照）。
 
-rebase 有冲突时：进 worktree 解决 → 重跑 `dev-finish.sh`（backlog 记录同步更新）→ 回主线重跑 `dev-merge.sh <slug>`。主线始终不被冲突污染。
+rebase 有冲突时：进 worktree 解决 → 重跑 `dev-finish.sh`（issue 状态/comment 同步更新）→ 回主线重跑 `dev-merge.sh <slug>`。主线始终不被冲突污染。
 
 ### 合入后测试发现问题
 
 判断标准：主线构建/自测挂、核心功能不可用 → **阻塞**；局部缺陷、有临时绕过 → **非阻塞**。
 
-- **非阻塞（fix-forward）**：已合入的代码不动。backlog 条目 `done → open`，条目里写清三样：已合入的 merge commit hash、发现的问题、剩余要做的。后续修复从最新 main 新开 worktree 走完整流程；原 `agent/<slug>` 分支的历史已在 main，不要再合第二次。
-- **阻塞（revert）**：先 `git revert -m 1 <merge-commit>` 恢复主线可用（`--no-ff` 合入，revert 一个 commit 即可），再 `done → open` 并按上面记录。要立刻处理——主线挂着会挡其他人的 dev-merge 复测。
+- **非阻塞（fix-forward）**：已合入的代码不动。issue 退回 `b:open`，comment 里写清三样：已合入的 merge commit hash、发现的问题、剩余要做的。后续修复从最新 main 新开 worktree 走完整流程；原 `agent/<slug>` 分支的历史已在 main，不要再合第二次。
+- **阻塞（revert）**：先 `git revert -m 1 <merge-commit>` 恢复主线可用（`--no-ff` 合入，revert 一个 commit 即可），再 `b:done → b:open` 并按上面记录。要立刻处理——主线挂着会挡其他人的 dev-merge 复测。
   - 重做时的坑：revert 后旧分支的提交在 main 里处于「已合并又被撤销」状态，直接再合旧分支 git 会认为已合过、改动会丢。正确做法：revert 那个 revert commit，或从旧分支 cherry-pick 到新分支。
 
 ## 在新工程搭建

@@ -12,4 +12,4 @@
 
 ## backlog 维护
 
-见 skill **`backlog-folder-index`**（正本在 `.agents/skills/backlog-folder-index/`），本仓库的落地约定在 `docs/backlog/README.md`。一句话版：加条目 = 在 `docs/backlog/open/` 建 `kebab-name.md`（不带序号前缀）；改状态 = `git mv` 到对应目录（认领 → `doing`，开发完成 → `done`，主线合入测试通过人工确认 → `closed`，测试有问题 `done` 退回 `open`）并在条目文件里追加一行变更记录；不要建任何手工索引表。
+见 skill **`backlog-github-issues`**（正本在 `.agents/skills/backlog-github-issues/`），本仓库的落地约定在 `docs/backlog/README.md`。一句话版：backlog 唯一事实源是 GitHub Issues——加条目 = 建 issue（默认 `b:open`，中文详细标题，正文首行写 slug）；认领 = `gh issue edit <n> --add-assignee @me --remove-label b:open --add-label b:doing` + comment，**认领后必须再 `gh issue view` 复核 assignee 是自己**；改状态 = 换 label + comment 留痕（`b:open` → `b:doing` → `b:done` → `b:closed`，合入测试有问题 `b:done` 退回 `b:open`）；引用统一用 `#N`；不要建任何手工索引表。

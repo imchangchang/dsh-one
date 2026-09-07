@@ -114,3 +114,12 @@ gh label create b:closed --description "已合入确认"  --color 5319e7
 - 走一遍完整流程：认领一条 → doing → done → closed，确认 label/assignee/comment 都对；
 - 两个 session 同时 `gh issue list` 看到的待认领列表一致；
 - 全仓库 grep `docs/backlog/open` 等旧路径，修掉残留引用。
+
+## 实施记录（2026-09-07 完成）
+
+- label 四个已建：`b:open` / `b:doing` / `b:done` / `b:closed`；issue 模板 `.github/ISSUE_TEMPLATE/backlog.md` 已建。
+- open 11 条 + 迁移条目本身（b:doing）+ done 1 条，共 13 条已迁成 issue #1–#13，原「变更记录」逐行转为 comment，逐条核对行数一致。
+- closed 182 条（迁移期间新增 1 条）归档进 `closed-archive-2026Q3.md` 后删除原文件；open/doing/done/closed 四个目录已删。
+- 约定文档已更新：`docs/backlog/README.md`（新流程正本）、`AGENTS.md`、`.agents/skills/backlog-github-issues/`（新 skill，已替代并删除 `backlog-folder-index`）、`.agents/skills/worktree-dev-flow/`（认领/完成/合入/退回步骤改 gh 命令）。
+- 残留引用已修：`scripts/check-i18n.sh`、`src/ui/chatViewHtml.ts`、`test/ui/style.css`、`test/sandbox/Dockerfile`、`docs/architecture.md`（两处）、`docs/dsh-web-expandable-ui-research.md`、`test/linkPath.test.ts`（测试样例路径）。历史产物（`test/sandbox/verify.dsh-embed-cleanup.ledger.json` 的 notes）按原样保留。
+- 迁移条目本身（issue #12）按新流程走完认领（b:doing + assignee），实施完成后转 b:done。

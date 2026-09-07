@@ -8,7 +8,7 @@
 # 参考文件（bundle / nls / README）一律从分支树读（git show），保证看到的是
 # 开发者在分支里改过的版本，而不是主线工作区。
 #
-# 检查口径（与 docs/backlog/doing/i18n-merge-gate.md 定稿一致）：
+# 检查口径（与 i18n-merge-gate 条目定稿一致，见 docs/backlog/closed-archive-2026Q3.md 中 slug: i18n-merge-gate）：
 #   1. 宿主层   src/**:     新增 `vscode.l10n.t('KEY')`   => KEY 必须在 l10n/bundle.l10n.json（英文基线）
 #   2. webview 层(定义本地 t() 的 src/ui/*.ts):
 #                          新增裸 `t('KEY')`             => KEY 必须在 l10n/bundle.l10n.zh-cn.json

@@ -51,7 +51,7 @@ test('isInlineCodeFilePath: 绝对路径与常见相对路径放行', () => {
 test('isInlineCodeFilePath: 相对路径与纯文件名（带扩展名）', () => {
   assert.equal(isInlineCodeFilePath('test/ui/xxx.png'), true)
   assert.equal(isInlineCodeFilePath('src/ui/chat/webview.ts'), true)
-  assert.equal(isInlineCodeFilePath('docs/backlog/open/chat-inline-code-path-interact.md'), true)
+  assert.equal(isInlineCodeFilePath('docs/backlog/README.md'), true)
   assert.equal(isInlineCodeFilePath('webview.ts'), true)
   assert.equal(isInlineCodeFilePath('package-lock.json'), true)
   assert.equal(isInlineCodeFilePath('style-sessions.css'), true)

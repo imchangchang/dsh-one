@@ -6,7 +6,7 @@
 #     /usr/local/bin 与 /usr/local/lib/node_modules（code-server 官方镜像既无 node 也无 npm）。
 #   * dsh 必须 pin 到 @deepseek-ai/dsh@0.1.1-rc.2：升到 @next（0.1.2-rc.1）会新增 token 认证，
 #     扩展侧没有任何 token 概念（probe/RPC 都不带凭证），/api/* 直接回 401，扩展 90s 启动超时起不来。
-#     根因与方案见 docs/backlog/open/dsh-next-token-auth-incompatible.md。
+#     根因与方案见条目 dsh-next-token-auth-incompatible（docs/backlog/closed-archive-2026Q3.md）。
 #   * VSIX 由构建脚本先拷进构建上下文（test/sandbox/dsh-one.vsix），用 --build-arg VSIX=<绝对主机路径>
 #     传入才安装；不带 --vsix（VSIX 为空）时跳过安装，镜像仍可用（后续 mock dsh 场景基本用不到真扩展）。
 #     docker build 的上下文路径只能是 test/sandbox/，所以 vsix 必须由脚本拷进来而不是 COPY 外部路径。
