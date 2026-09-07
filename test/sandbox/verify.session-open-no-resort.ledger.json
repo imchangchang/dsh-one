@@ -1,0 +1,69 @@
+{
+  "title": "DSH One 验收报告 — 打开会话只高亮不跳序 + 移除排序功能（#28）",
+  "branch": "agent/session-open-no-resort",
+  "commit": "4aabfcd",
+  "environment": {
+    "mode": "ai-visual-validation（harness.html + WebBridge 截图，agent 读图逐条对照 expect）",
+    "dsh": "不涉及（纯客户端状态：活跃判定/排序/attached 均无 dsh API）",
+    "locale": "zh-cn",
+    "theme": "light",
+    "image": "无（未用 docker 沙盒）",
+    "date": "2026-09-07T17:28:00Z"
+  },
+  "coverageNote": "本改动是纯客户端层的会话列表排序/活跃判定（sessionTree 模型 + sessionsStore 状态 + sessionsWebview 渲染），不涉及 dsh 协议/宿主激活链路，故用 ai-visual-validation（harness.html 渲染 dist/sessionsWebview.js + 截图）核对。真桌面 VS Code 的 tab 附着链路（chatView.openSession → setAttachedSessions → 排序）不在 harness 范围，该链路由代码审查 + 纯层单测覆盖（sessionTree.test.ts 重写/新增用例）。ui-visual.sh 全量 sweep 本轮因场景过多超时被 SIGTERM，但本次改动的 sessions 相关场景（sessions / sessions-attached-open / sessions-attached-unread / sessions-status-rear-slot）在超时前已完整截图，故据此核对。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "打开/附着不再算活跃：打开中的空闲会话不活跃前置，行尾恢复显示时间",
+      "expect": "sessions-attached-open 场景：sess-1「打开中的会话（tab 附着）」（3 小时前）**不再被活跃前置**——按 updatedAt 降序排在空闲区末尾（在更新的 sess-3「10 分钟前」/sess-4「20 分钟前」之后），行尾显示时间「3 小时前」，标题**不加粗**，无绿点/黄点/像素环；sess-2「未读会话」因未读仍活跃前置（绿点 + 加粗 + 无时间）；组头角标只有绿点 1（未读）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-session-open-no-resort/sessions-attached-open.png"
+      ],
+      "notes": "截图核对：sess-1「打开中的会话（tab 附着）」位列组内第四（末尾），右侧显示「3 小时前」，标题不加粗、无状态标记——不跳序成立；sess-2 未读行绿点+加粗+无时间置顶；sess-3/sess-4 空闲行显示「10 分钟前」「20 分钟前」；组头角标仅 1▾（未读）。纯层另有单测锁定（sessionTree.test.ts「attached sessions do NOT count as active」通过）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "移除排序功能：工具栏排序按钮/菜单消失，其余工具栏按钮齐全",
+      "expect": "sessions 面板头部无「排序（Sort by）」按钮与排序菜单；搜索框、折叠所有、新建等其余工具栏按钮齐全，列表按 updatedAt 降序 + 活跃浮顶渲染。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-session-open-no-resort/sessions.png"
+      ],
+      "notes": "截图核对：头部仅剩搜索框与右侧工具图标（刷新/新建等），无排序按钮。代码层已删 SORT_ICON/openSortMenu/SORT_OPTIONS，sessionsSort 消息与 store sortOrder 状态/持久化一并移除（typecheck 全绿证明无残留引用）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "打开中手动标未读仍是活跃：未读浮顶 + 绿点 + 加粗 + 无时间",
+      "expect": "sessions-attached-unread 场景：sess-1「打开中且手动标了未读」（unread）显示未读绿点 + 标题加粗（无时间），因未读仍活跃前置，排在空闲 sess-2「10 分钟前」之前；组头角标绿点 1。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-session-open-no-resort/sessions-attached-unread.png"
+      ],
+      "notes": "截图核对：sess-1「打开中且手动标了未读」加粗 + 绿点，行尾无时间，位列组内最前；sess-2 空闲行显示「10 分钟前」；组头角标 1▾。证明移除 attached 活跃不影响「未读仍是活跃原因」。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "全量检查：typecheck + 单测 + 构建",
+      "expect": "npm run typecheck 零错误；node --test 全量通过（含 sessionTree 重写/新增的 attached、tag-block、recycle 用例）；npm run build 产出 dist 四包成功。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "typecheck 0 错误；npm test 652/652 pass（sessionTree.test.ts 56 项全过，含「attached sessions do NOT count as active」「tag blocks keep per-block updatedAt descending」「recycleOrder … ignoring recency」）；build 产出 extension/chatWebview/sessionsWebview/spawnDsh 四包 ✓。删除了 sort 专用用例（updatedAsc/title），改写 attached 用例与 tag-block/recycle 用例。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "侧栏综合列表（sessions 基线场景）：行尾时间/状态互斥仍正确",
+      "expect": "sessions 场景六行全对上：sess-1 空闲显示「3 小时前」；sess-2 未读绿点+加粗无时间；sess-3 运行中像素环无时间；sess-4 待审批黄点无时间；置顶+运行中=图钉+像素环无时间；置顶空闲=图钉+时间。活跃层（有状态标记）行尾不显示时间、空闲行显示时间；「当前附着的会话」行高亮为浅蓝。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-session-open-no-resort/sessions-status-rear-slot.png"
+      ],
+      "notes": "截图核对：空闲会话「3 小时前」；未读绿点+加粗无时间；运行中像素环无时间；待审批黄点无时间；置顶+运行中=图钉+像素环；置顶空闲=图钉+「2 小时前」。逐行时间/标记互斥与旧行为一致——本改动只把「无标记且 attached」的分支改为「无标记且非活跃」，对真正活跃行（有标记）无影响。"
+    }
+  ]
+}
