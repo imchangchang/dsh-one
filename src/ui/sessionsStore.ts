@@ -32,6 +32,7 @@ import {
 } from '../pure/workspaceGroups.ts'
 import { pruneRecycleIds, resolveRecycleIds } from '../pure/recycleBinState.ts'
 import {
+  emptyCustomTagIds,
   invertSessionTagIds,
   isPresetTag,
   nextCustomColor,
@@ -1020,6 +1021,7 @@ export class SessionsStore implements vscode.Disposable {
       this.io.updateRecycleBin((prev) => (prev.includes(sessionId) ? prev : [...prev, sessionId])),
       'recycle-bin',
     )
+    this.pruneEmptyCustomTags()
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
@@ -1043,8 +1045,40 @@ export class SessionsStore implements vscode.Disposable {
       }),
       'recycle-bin',
     )
+    this.pruneEmptyCustomTags()
     this.rebuildModel()
     this.onDidChangeEmitter.fire()
+  }
+
+  /**
+   * 移入回收站后清理「已无活跃成员」的自定义组：组内会话全部移入回收站（或已
+   * 归档/消失）时，该自建组不再保留（预设组永不动）。新建尚未加入过会话的自建
+   * 组不视为空——保留给用户立即加入。只改内存态 + 单次持久化，不 trigger 通知
+   * （调用方随 moveToRecycleBin/many 的 rebuildModel + fire 一并落地）。
+   */
+  private pruneEmptyCustomTags(): void {
+    // 基线未就绪（服务停了/重启后未重拉）时 knownSessionIds 为空集合，不得据此
+    // 判定「无活跃成员」——否则会把所有自定义组误删。同 pruneRecycleBin 的保护。
+    if (!this.baselineReady) return
+    const recycleSet = new Set(this.recycleBin)
+    // 活跃成员 = 当前基线里存在的会话（归档已排除）且不在回收站。
+    const isActive = (sessionId: string): boolean =>
+      this.knownSessionIds.has(sessionId) && !recycleSet.has(sessionId)
+    const emptyIds = emptyCustomTagIds(this.tags, this.sessionTags, isActive)
+    if (emptyIds.length === 0) return
+    const emptySet = new Set(emptyIds)
+    this.tags = this.tags.filter((t) => !emptySet.has(t.id))
+    for (const id of emptyIds) this.sessionTags = removeTagFromAll(this.sessionTags, id)
+    this.persistAck(
+      this.io.updateTags((prev) => {
+        if (!emptyIds.some((id) => prev.tags.some((t) => t.id === id))) return prev
+        const tags = prev.tags.filter((t) => !emptySet.has(t.id))
+        let sessionTags = prev.sessionTags
+        for (const id of emptyIds) sessionTags = removeTagFromAll(sessionTags, id)
+        return { ...prev, tags, sessionTags }
+      }),
+      'tags',
+    )
   }
 
   /** 从回收站恢复单个会话（回原 workspace 组）；幂等。 */

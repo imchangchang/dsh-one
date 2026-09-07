@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  emptyCustomTagIds,
   isPresetTag,
   nextCustomColor,
   PRESET_TAGS,
@@ -114,6 +115,22 @@ test('removeTagFromAll clears every reference to a tag', () => {
   assert.deepEqual(next, { s2: 't-1' })
   // 无变化时返回原引用（调用方跳过持久化/通知）。
   assert.equal(removeTagFromAll(next, 'todo'), next)
+})
+
+test('emptyCustomTagIds prunes only custom groups with no active member', () => {
+  const tags = sanitizeTags(undefined).concat(custom('t-1', '探索'))
+  const membership = { s1: 't-1', s2: 't-1' }
+  // 组内会话全部不活跃 → 命中（内容全移到回收站/失效）。
+  assert.deepEqual(emptyCustomTagIds(tags, membership, () => false), ['t-1'])
+  // 至少一个活跃成员 → 保留。
+  assert.deepEqual(emptyCustomTagIds(tags, membership, (id) => id === 's1'), [])
+  // 预设组即使无活跃成员也不删（恒存在）。
+  const presetMembership = { s1: 'preset-todo' }
+  assert.deepEqual(emptyCustomTagIds(tags, presetMembership, () => false), [])
+  // 从未挂过会话的组（刚创建）不视为空——保留给用户新建后立即加入。
+  assert.deepEqual(emptyCustomTagIds(tags, {}, () => false), [])
+  // 无自定义组时恒空。
+  assert.deepEqual(emptyCustomTagIds(sanitizeTags(undefined), membership, () => false), [])
 })
 
 test('reorderTags validates full-id submissions and no-ops', () => {
