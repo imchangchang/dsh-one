@@ -1671,7 +1671,8 @@ export class SessionsStore implements vscode.Disposable {
     // 过滤；空组不渲染（主列表「未分组」组头恒显的语义在回收站不适用）。
     // 回收站平铺：不传 tags/sessionTagFor——回收站里不按标签组聚合，会话也
     // 不挂 tagId（组归属数据不动，恢复后回原组不变；纯层排序退化为
-    // 活跃优先 + sort 键）。
+    // 活跃优先 + sort 键）。recycleOrder = 入站顺序（数组尾部 = 最新移入）。
+    // 组内按入站倒序排（最新入站最上），不再走主列表的 sort/置顶/活跃排序。
     const { tags: _tags, sessionTagFor: _tagFor, ...recycleBase } = baseViewOptions
     this.recycleWorkspaces = buildSessionTree(
       this.rawWorkspaces,
@@ -1683,6 +1684,7 @@ export class SessionsStore implements vscode.Disposable {
       {
         ...recycleBase,
         onlySessionIds: recycleSet,
+        recycleOrder: this.recycleBin,
       },
       vscode.l10n.t,
     ).filter((w) => w.sessions.length > 0)
