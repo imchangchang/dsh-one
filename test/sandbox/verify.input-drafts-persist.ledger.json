@@ -1,7 +1,7 @@
 {
   "title": "input-drafts-persist：输入草稿持久化（composer 文本/附件、问答卡半答）重启恢复",
   "branch": "agent/input-drafts-persist",
-  "commit": "HEAD",
+  "commit": "f8959d4",
   "environment": {
     "mode": "mock-llm",
     "dsh": "0.1.1-rc.2",
@@ -17,17 +17,18 @@
       "phase": "new-feature",
       "name": "空会话（blank）草稿重启恢复（harness 确定性场景）",
       "expect": "harness 场景 draft-restore-blank-hero：mock 宿主先发 draftRestore（composer['sess-blank'] 带草稿文本）再发空会话 state 帧（与真宿主 ready 回执顺序一致）；空会话 hero 的 composer 输入框直接带出草稿「重启前没发出去的草稿」（DOM 断言 window.__draftRestoreCheck.input 已核对），hero 其余元素与 empty 基线一致。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-ui-shots/draft-restore-blank-hero.png"
-      ]
+      ],
+      "notes": "harness 场景 draft-restore-blank-hero：DOM 断言 window.__draftRestoreCheck.input === \"重启前没发出去的草稿\" 命中；截图核对 hero 元素齐全（鲸鱼 logo、workspace/preset chips、圆形发送按钮）且 composer 带出草稿。"
     },
     {
       "id": "F-02",
       "phase": "new-feature",
       "name": "问答卡半答重载恢复（真 dsh 端到端）",
       "expect": "发送「提个问题」触发 ask_user_question pending 面板，点 Other 展开自定义输入并填入半答文本（不提交）；整页重载后：问答卡仍在（dsh 侧 pending 未丢）、自定义输入行展开且输入框值仍是重载前的半答文本（answerDrafts 按 rpcId 从 drafts.json 恢复）。",
-      "result": "done",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-input-drafts/F-02.png"
       ],
@@ -38,14 +39,14 @@
         "reloadWindow": true,
         "expectAnswerDraft": "半答F02-重启恢复"
       },
-      "notes": "新建会话：sidebar-ungrouped；问答卡半答已填入：\"半答F02-重启恢复\"；已整页重载（模拟重启：webview 内存全毁，草稿靠 drafts.json 恢复）；问答卡半答恢复：半答F02-重启恢复"
+      "notes": "驱动断言命中（问答卡半答重载恢复）；截图人工复核：重载后问答卡在、Other 选中、自定义输入框值=「半答F02-重启恢复」、Submit 可用。"
     },
     {
       "id": "F-03",
       "phase": "new-feature",
       "name": "已附着会话的草稿随历史一同恢复（真 dsh 端到端）",
       "expect": "会话内先发一条消息（有历史），随后 composer 填入新草稿；整页重载后：历史消息「收到：草稿F03前置消息」仍在，且 composer 草稿「草稿F03-随历史恢复」一并恢复（state 首推与 draftRestore 时序竞速路径）。",
-      "result": "done",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-input-drafts/F-03.png"
       ],
@@ -57,34 +58,36 @@
         "expectDraft": "草稿F03-随历史恢复",
         "expectTextAfterReload": "收到：草稿F03前置消息"
       },
-      "notes": "新建会话：sidebar-ungrouped；composer 草稿已填入（未发送）：\"草稿F03-随历史恢复\"；已整页重载（模拟重启：webview 内存全毁，草稿靠 drafts.json 恢复）；重载后历史文本命中：收到：草稿F03前置消息；草稿恢复：草稿F03-随历史恢复"
+      "notes": "驱动断言命中（历史文本 + 草稿双恢复）；截图人工复核：重载后历史「收到：草稿F03前置消息」在、composer=「草稿F03-随历史恢复」。"
     },
     {
       "id": "F-04",
       "phase": "new-feature",
       "name": "草稿附件（文件 chip）随重启恢复（harness 确定性场景）",
       "expect": "harness 场景 draft-restore-with-files：draftRestore 的 composer['sess-1'] 带文本 + 文件附件；恢复后 composer 带出草稿文本且附件区有 main.ts 文件 chip（DOM 断言 window.__draftRestoreCheck = {input, chips} 已核对），历史消息流不受影响。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-ui-shots/draft-restore-with-files.png"
-      ]
+      ],
+      "notes": "harness 场景 draft-restore-with-files：DOM 断言 __draftRestoreCheck = {input:\"顺带把 main.ts 也带上\", chips:[\"main.ts×\"]} 命中；截图核对 main.ts 文件 chip 在附件区、历史消息流正常。"
     },
     {
       "id": "F-05",
       "phase": "new-feature",
       "name": "问答卡半答恢复：选项选中态 + 自定义文本（harness 确定性场景）",
       "expect": "harness 场景 draft-restore-question：draftRestore 的 answers['rpc-2']['0'] 带 selected + custom；问答卡恢复后选项「最新优先」为选中态、自定义输入框可见且值为半答文本、提交按钮可用（DOM 断言 window.__draftRestoreCheck 已核对）。",
-      "result": "pending",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-ui-shots/draft-restore-question.png"
-      ]
+      ],
+      "notes": "harness 场景 draft-restore-question：DOM 断言 __draftRestoreCheck = {selectedIndex:2, selectedLabel:\"Other\", custom:\"但想要倒序里的稳定排序\", customVisible:true, submitEnabled:true} 命中；截图核对问答卡 + 自定义输入行可见。注：单选语义里 custom 与选项互斥，fixture 用 custom+other（与 F-02 真实路径一致）。"
     },
     {
       "id": "R-01",
       "phase": "regression",
       "name": "基础发送与 mock-LLM 回显",
       "expect": "新会话发送「测试一下」后助手回显「收到：测试一下」；composer 正常清空、发送按钮与流式渲染不受草稿持久化挂钩影响。",
-      "result": "done",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-input-drafts/R-01.png"
       ],
@@ -92,14 +95,14 @@
         "prompt": "测试一下",
         "expectText": "收到：测试一下"
       },
-      "notes": "新建会话：sidebar-ungrouped"
+      "notes": "驱动断言命中；截图人工复核：发送+回显正常、composer 发送后清空。"
     },
     {
       "id": "R-02",
       "phase": "regression",
       "name": "pending 接管不丢草稿（既有行为回归 + 本轮回归哨兵）",
       "expect": "发送「提个问题」pending 接管前填入的草稿，应答（选项 + Submit）后 composer 恢复且 textarea#input.value 仍包含草稿文本（composer-draft-lost-on-pending 既有修复 + 本轮 draftRestoreFor 布防回归的哨兵——无暖场首发消息路径）。",
-      "result": "done",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-input-drafts/R-02.png"
       ],
@@ -112,21 +115,21 @@
         ],
         "expectDraft": "草稿R02-pending恢复"
       },
-      "notes": "新建会话：sidebar-ungrouped；草稿已填入：草稿R02-pending恢复；已点击面板按钮：[\"继续 (Recommended)\",\"Submit\"]；草稿恢复：草稿R02-pending恢复"
+      "notes": "驱动断言命中；截图人工复核：应答完成后 composer=「草稿R02-pending恢复」。本项同时是本轮 draftRestoreFor 回归（73f56e9 修复）的哨兵。"
     },
     {
       "id": "R-03",
       "phase": "regression",
       "name": "一键清空按钮（既有行为回归）",
       "expect": "composer 填入文本后点击输入框右侧 × 按钮，输入框清空（textarea#input.value === ''）；清空后 drafts.json 不落条目（签名去重 + 空内容删条路径）。",
-      "result": "done",
+      "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots-input-drafts/R-03.png"
       ],
       "driver": {
         "fillAndClear": "草稿R03-清空按钮"
       },
-      "notes": "新建会话：sidebar-ungrouped；已点击清空按钮，输入框为空"
+      "notes": "驱动断言命中；截图人工复核：清空后 hero composer 为空、× 按钮消失。"
     }
   ]
 }
