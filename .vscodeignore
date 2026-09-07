@@ -13,5 +13,6 @@ build.mjs
 docs/**
 scripts/**
 .agents/**
+.prototype/**
 .dev-host/**
 AGENTS.md
