@@ -4,15 +4,20 @@ import * as fsp from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { parseTagBridgeRequest, parseTagBridgeRecord, type TagBridgeRecord } from '../pure/tagBridgeCore.ts'
+import {
+  parseTagBridgeRequest,
+  parseTagBridgeRecord,
+  type TagBridgeRecord,
+  type TagBridgeRequest,
+} from '../pure/tagBridgeCore.ts'
 
 /**
- * Loopback tag-bridge：派生脚本 --tag 的落点。
+ * Loopback tag-bridge：对 session 级标签归属做增删改查（assign/get/unassign）。
  *
  * 职责：扩展激活时在 127.0.0.1 起一个 HTTP 监听（端口 0 随机分配），生成每进程
  * 随机 token，把 `{port, token}` 原子写进 `~/.dsh/dsh-one/bridge.json`（扩展进程
- * 自己写，不涉 dsh 文件沙箱）。端点只做一件事：收 `{group, sessionIds}` → 交给注入
- * 的 `assignTags` 回调（sessionsStore.assignTagGroup 的封装）——不接受任意路径/内容。
+ * 自己写，不涉 dsh 文件沙箱）。端点收显式 `action` 的请求，交给注入的 `handle`
+ * 回调（sessionsStore 的封装）——语义明确、无默认行为，域收敛到标签组/会话归属。
  *
  * 安全口径（与 dsh 网关同级信任模型）：只绑 127.0.0.1、随机端口、token 认证。
  * 多窗口：每个窗口各自起端点、写同一份 bridge.json；晚激活的窗口覆盖注册，
@@ -20,29 +25,40 @@ import { parseTagBridgeRequest, parseTagBridgeRecord, type TagBridgeRecord } fro
  *
  * IO-only（无 vscode import）——可用 node --test 离屏起真实 http 服务测协议与认证。
  */
-export interface TagBridgeAssignInput {
-  group: string
-  sessionIds: string[]
+
+/** 一个标签组的快照（get 返回）。预设组 name 为 null（显示名走 l10n）。 */
+export interface TagGroupSnapshot {
+  workspaceId: string
+  id: string
+  name: string | null
+  color: string
+  preset: boolean
 }
 
-export interface TagBridgeAssignResult {
+/** handle 回调的统一返回。按 action 各自携带对应字段。 */
+export interface TagBridgeHandleResult {
   ok: boolean
+  /** ok=false 时：错误码（由 store 给定，如 tag-not-found / tag-failed）。 */
   error?: string
+  /** assign：组名（trim 后）。 */
   tagName?: string
+  /** assign：命中的组 id。 */
   tagId?: string
+  /** assign/unassign：处理的会话数。 */
   sessionCount?: number
+  /** get：session 当前组；null = 无组（或该 session 无归属）。 */
+  group?: TagGroupSnapshot | null
 }
 
 export interface TagBridgeOptions {
   /** bridge.json 的落点；默认 `~/.dsh/dsh-one/bridge.json`。测试可覆盖。 */
   filePath?: string
-  /** 处理一次合法 tag 请求：找/建组 + 批量归属（真实实现 = sessionsStore.assignTagGroup）。 */
-  assignTags: (input: TagBridgeAssignInput) => Promise<TagBridgeAssignResult> | TagBridgeAssignResult
+  /** 处理一次已校验的 tag 请求（真实实现 = sessionsStore 的 assignByTagId/assignTagGroup/sessionTagOf/unassignSessions）。 */
+  handle: (req: TagBridgeRequest) => Promise<TagBridgeHandleResult> | TagBridgeHandleResult
   logger: { info(message: string): void; warn(message: string): void }
 }
 
-/** 请求体上限：派生一批 session 的 sessionId 列表足够小（每条 ~36 字节），
- *  1MB 是防滥用/内存的宽上限；超过直接 413。 */
+/** 请求体上限：一批 sessionId 足够小（每条 ~36 字节），1MB 是防滥用/内存的宽上限。 */
 const BODY_LIMIT_BYTES = 1024 * 1024
 
 /** 判定请求是否授权：Authorization: Bearer <token>（保持 token 不进 URL/日志）。 */
@@ -78,7 +94,7 @@ function readBody(req: IncomingMessage): Promise<string | null> {
 
 export class TagBridge {
   private readonly filePath: string
-  private readonly assignTags: TagBridgeOptions['assignTags']
+  private readonly handle: TagBridgeOptions['handle']
   private readonly logger: TagBridgeOptions['logger']
   private readonly record: TagBridgeRecord
   private readonly server: http.Server
@@ -86,10 +102,10 @@ export class TagBridge {
 
   constructor(opts: TagBridgeOptions) {
     this.filePath = opts.filePath ?? path.join(os.homedir(), '.dsh', 'dsh-one', 'bridge.json')
-    this.assignTags = opts.assignTags
+    this.handle = opts.handle
     this.logger = opts.logger
     this.record = { port: 0, token: crypto.randomBytes(32).toString('base64url') }
-    this.server = http.createServer((req, res) => void this.handle(req, res))
+    this.server = http.createServer((req, res) => void this.handleHttp(req, res))
   }
 
   get port(): number {
@@ -132,7 +148,7 @@ export class TagBridge {
     }
   }
 
-  private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
     // 只认这一个路径 + 一种方法，其余明确拒绝——能力窄于任何被拦的写动作。
     if (req.method !== 'POST' || req.url !== '/tag') {
       sendJson(res, 404, { ok: false, error: 'not-found' })
@@ -156,19 +172,28 @@ export class TagBridge {
     }
     const parsed = parseTagBridgeRequest(raw)
     if (!parsed.ok) {
-      sendJson(res, parsed.error === 'empty-group' ? 400 : 400, { ok: false, error: parsed.error })
+      sendJson(res, 400, { ok: false, error: parsed.error })
       return
     }
+    let result: TagBridgeHandleResult
     try {
-      const result = await this.assignTags(parsed.value)
-      if (!result.ok) {
-        sendJson(res, 500, { ok: false, error: result.error ?? 'internal' })
-        return
-      }
-      sendJson(res, 200, { ok: true, tag: { name: result.tagName, id: result.tagId }, sessionCount: result.sessionCount })
+      result = await this.handle(parsed.value)
     } catch (err) {
-      this.logger.warn(`tag-bridge: assignTags failed: ${err instanceof Error ? err.message : String(err)}`)
+      this.logger.warn(`tag-bridge: handle failed: ${err instanceof Error ? err.message : String(err)}`)
       sendJson(res, 500, { ok: false, error: 'internal' })
+      return
+    }
+    if (!result.ok) {
+      sendJson(res, 500, { ok: false, error: result.error ?? 'internal' })
+      return
+    }
+    // 按 action 格式化响应（语义各自明确）。
+    if (parsed.value.action === 'assign') {
+      sendJson(res, 200, { ok: true, tag: { name: result.tagName, id: result.tagId }, sessionCount: result.sessionCount })
+    } else if (parsed.value.action === 'get') {
+      sendJson(res, 200, { ok: true, group: result.group ?? null })
+    } else {
+      sendJson(res, 200, { ok: true, sessionCount: result.sessionCount })
     }
   }
 
