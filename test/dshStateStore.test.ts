@@ -103,6 +103,24 @@ test('missing tags file: updateTags creates a per-workspace bucket and assigns t
   assert.equal(tags.workspaces.ws1.sessionTags.s1, 'preset-todo')
 })
 
+test('updateTags on a v1-legacy file is rejected (does NOT overwrite v1 with an empty-v2 skeleton)', async () => {
+  const dir = await tmpDir()
+  // 预置一个 v1 文件（旧全局模型），模拟升级前已迁移失败的现场。
+  await writeFile(
+    path.join(dir, 'tags.json'),
+    JSON.stringify({ version: 1, tags: [{ id: 'preset-todo', name: null, color: 'yellow' }], sessionTags: { s1: 'preset-todo' } }),
+    'utf8',
+  )
+  const io = new DshStateStore({ dir })
+  // v1→v2 只能由迁移链（writeModule）完成；updateTags 对 v1 应拒绝写、不动文件。
+  const ok = await io.updateTags((prev) => ({ ...prev, workspaces: { ...prev.workspaces, ws1: { tags: [], sessionTags: {}, collapsed: [] } } }))
+  assert.equal(ok, false)
+  // 文件仍是 v1（未被空 v2 覆盖）——v1 数据是唯一持久副本，绝不能丢。
+  const tags = (await io.load()).tags
+  assert.ok(tags !== null && tags.version === 1, `file stays v1, got ${tags?.version}`)
+  assert.deepEqual(tags.sessionTags, { s1: 'preset-todo' })
+})
+
 test('updateGroups merges field-wise; updateTags v2 merges per-workspace bucket', async () => {
   const dir = await tmpDir()
   const io = new DshStateStore({ dir })
