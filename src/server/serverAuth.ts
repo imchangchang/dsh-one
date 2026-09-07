@@ -1,4 +1,5 @@
 import type { Logger } from '../log.ts'
+import { parse as parseSemver } from '../pure/semver.ts'
 
 /**
  * dsh >= 0.1.2-rc.1 browser-session auth: every process start mints a random
@@ -46,6 +47,43 @@ export function cookieHeader(origin: string): string | undefined {
 /** true when the origin runs dsh with browser-session auth (0.1.2+ protocol). */
 export function isModern(origin: string): boolean {
   return authByOrigin.has(origin)
+}
+
+// ---- 每 origin 的 dsh 版本协议寄存器 ----
+// dsh-one 同时服务 0.1.1（legacy）/0.1.2（modern）/0.1.3（modern + 侧信道/参数改名）。
+// modern wire 之上还有一次 0.1.3 的协议分裂：commands/execute 的 args 键改名
+// （images → submittedAttachments）、session/follow 的 assistantStream opt-in。
+// 这两处分叉不能用参数宽容性赌老版本（0.1.2 的网关 assertExactArguments 会拒
+// 未知键），必须按 dsh 版本隔离：老版本走原路径、新版本走新分支。
+// 版本由 manager 在 setStatus 时以 origin 为键注册（来自 `dsh --version` 或
+// 命令行探测），见 server/manager.ts。
+
+const versionByOrigin = new Map<string, string>()
+
+export function registerVersion(origin: string, version: string): void {
+  versionByOrigin.set(origin, version)
+}
+
+export function clearVersion(origin: string): void {
+  versionByOrigin.delete(origin)
+}
+
+/** dsh version reported for an origin; undefined when unknown. */
+export function dshVersion(origin: string): string | undefined {
+  return versionByOrigin.get(origin)
+}
+
+/**
+ * true when the origin runs dsh on the 0.1.3+ wire. 0.1.3 (及其任意 prerelease /
+ * 之后的 minor）才带 `submittedAttachments` 与 `assistantStream`；0.1.1/0.1.2
+ * 一律 false（按老路径走，确保老版本零改动）。无法解析的版本保守返回 false。
+ */
+export function is013Wire(origin: string): boolean {
+  const v = versionByOrigin.get(origin)
+  if (v === undefined) return false
+  const parsed = parseSemver(v)
+  if (parsed === null) return false
+  return parsed.major > 0 || parsed.minor > 1 || (parsed.minor === 1 && parsed.patch >= 3)
 }
 
 /** Parse the `name=value` pair out of a Set-Cookie header ("name=value; Attr=..."). */

@@ -106,3 +106,30 @@ test('session/follow frames: snapshot and events', () => {
     event: { type: 'assistant/chunk', seq: 43 },
   })
 })
+
+test('session/follow frames: 0.1.3 assistant-stream frame and snapshot assistantStream baseline', () => {
+  const snap = parseFollowStreamFrame({
+    type: 'snapshot',
+    cursor: 9,
+    records: [],
+    hasMore: false,
+    header: { version: 2, isSeeded: false },
+    projections: { asOfSeq: 9, values: {} },
+    assistantStream: { revision: 3, activeAttempt: { attemptId: 'a1', startedAfterSeq: 1, turn: 1, step: 1, nextIndex: 2, stream: [] } },
+  })
+  assert.equal(snap?.type, 'snapshot')
+  if (snap?.type === 'snapshot') {
+    assert.ok(snap.assistantStream && typeof snap.assistantStream.revision === 'number')
+    assert.equal(snap.assistantStream.activeAttempt?.attemptId, 'a1')
+  }
+  // snapshot without assistantStream → field absent
+  const plain = parseFollowStreamFrame({ type: 'snapshot', cursor: 0, records: [], hasMore: false, header: {}, projections: {} })
+  if (plain?.type === 'snapshot') assert.equal(plain.assistantStream, undefined)
+
+  const live = parseFollowStreamFrame({ type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'a1', revision: 3, index: 0, time: 11, chunk: { type: 'text-delta', index: 0, text: 'hi' } } })
+  assert.equal(live?.type, 'assistant-stream')
+  if (live?.type === 'assistant-stream') {
+    assert.equal(live.frame.type, 'chunk')
+  }
+  assert.deepEqual(parseFollowStreamFrame({ type: 'assistant-stream', frame: { type: 'bogus' } }), null)
+})

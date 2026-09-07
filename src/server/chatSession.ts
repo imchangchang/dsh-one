@@ -20,6 +20,8 @@ import { hostOsFromPlatform } from '../pure/installScript.ts'
 import { subscribeFollowStream, subscribeControlStream, subscribeModernEvents } from './modernStreams.ts'
 import type { FollowSnapshot } from './modernStreams.ts'
 import { parseControlStreamFrame } from '../pure/remoteFrames.ts'
+import { AssistantStreamFold } from '../pure/assistantStream.ts'
+import type { AssistantStreamFrame } from '../pure/assistantStream.ts'
 import {
   activeModelSelection,
   cancelSession,
@@ -431,6 +433,8 @@ export class ChatSessionController implements vscode.Disposable {
   private pendingLiveEvents: Array<{ event: SessionEventLike; view: ToolEventViewLike | undefined }> = []
   /** Original question items by rpcId; the answer payload echoes their ids. */
   private readonly questionItems = new Map<string, QuestionItem[]>()
+  /** 0.1.3 follow 侧信道的 assistant 增量折叠（把 presentation 帧还原成 fold 认识的 assistant/chunk）。 */
+  private liveAssistant = new AssistantStreamFold()
 
   constructor(
     readonly url: string,
@@ -1061,6 +1065,7 @@ export class ChatSessionController implements vscode.Disposable {
           if (this.disposed) return
           this.onFrame({ method: 'session/event', payload: { sessionId: this.sessionId, event } })
         },
+        onAssistantStream: (frame) => this.onAssistantStream(frame),
         onError: (err) => {
           // 基线还没落地（首次打开）时的失败 = 打开失败，记录给 webview；
           // 已开跑后的断流是普通重连（onMuxClose 重连），不打扰用户。
@@ -1110,7 +1115,40 @@ export class ChatSessionController implements vscode.Disposable {
       this.modelSelectionSeq = projections.asOfSeq
       this.applyProjectionValues(projections.values)
     }
+    // 0.1.3：follow snapshot 可能带内嵌 assistant 流基线（重连时在跑的 attempt
+    // 前缀）。展开成 chunk 增量折叠到基线之后，让「会话打开/恢复」时已在流的文案
+    // 立即可见。0.1.2 的 snapshot 没有该字段，replace(undefined) 返回空 → 无感。
+    // 合成 chunk seq 落在已折叠 durable seq 之后（重连后随后的实时帧继续递增）。
+    this.liveAssistant.noteDurableSeq(this.maxSeqFolded)
+    const liveEvents = this.liveAssistant.replace(snapshot.assistantStream)
+    if (liveEvents.length > 0) {
+      let changed = false
+      for (const ev of liveEvents) {
+        if (this.folder.applyEvent(ev, undefined)) changed = true
+      }
+      if (changed) this.push(true)
+    }
     this.logger.info(`chat: follow baseline applied for ${this.sessionId} (cursor ${String(snapshot.cursor)}, ${String(entries.length)} records)`)
+  }
+
+  /**
+   * 0.1.3 follow 的 assistant 侧信道帧（start/chunk/end）→ 折叠成
+   * `assistant/chunk` 事件并增量推给 webview。0.1.2 不发这些帧，handler 不触发。
+   */
+  private onAssistantStream(frame: AssistantStreamFrame): void {
+    if (this.disposed) return
+    const events = this.liveAssistant.acceptFrame(frame)
+    for (const ev of events) this.foldTransientEvent(ev)
+  }
+
+  /**
+   * 折叠一条瞬态 `assistant/chunk`：不更新 maxSeqFolded（合成 seq 是流式带内
+   * 细节，不能当成 durable 游标），rebaseline 期间丢弃（durable 重折叠会覆盖）。
+   */
+  private foldTransientEvent(event: SessionEventLike): void {
+    if (this.rebaselineInFlight) return
+    this.folder.applyEvent(event, undefined)
+    this.push(false)
   }
 
   /** 0.1.2 shared session/control 帧 → 本会话的 onFrame 同形状载荷。 */
@@ -1236,6 +1274,7 @@ export class ChatSessionController implements vscode.Disposable {
           if (this.disposed) return
           this.onFrame({ method: 'session/event', payload: { sessionId: this.sessionId, event } })
         },
+        onAssistantStream: (frame) => this.onAssistantStream(frame),
         onError: () => this.onMuxClose(),
       },
     )
@@ -1638,6 +1677,9 @@ export class ChatSessionController implements vscode.Disposable {
         const event = payload.event as SessionEventLike
         const view = payload.view as ToolEventViewLike | undefined
         if (typeof event.seq === 'number' && event.seq > this.maxSeqFolded) this.maxSeqFolded = event.seq
+        // 0.1.3：durable 事件到达即推进 assistant 流合成的 seq 游标，让随后的
+        // 瞬态 chunk 落在其之后（0.1.2/legacy 无瞬态帧，此推进无害）。
+        if (typeof event.seq === 'number') this.liveAssistant.noteDurableSeq(event.seq)
         // A re-baseline fetch is in flight: buffer so the fresh baseline can
         // refold events that may postdate the fetch window.
         if (this.rebaselineInFlight) {
