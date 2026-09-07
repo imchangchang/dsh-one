@@ -54,6 +54,7 @@ import {
   resolveGroupFile,
   resolveIdList,
   resolveTagFile,
+  serializeTagFileV2,
   type DraftsFile,
   type TagFileV2,
   type WorkspaceTagState,
@@ -1735,8 +1736,16 @@ export class SessionsStore implements vscode.Disposable {
     const assignmentCount = pending.sessionTags ? Object.keys(pending.sessionTags).length : 0
     const bucketNames = Object.keys(v2.workspaces)
 
-    // 先落盘 v2：await 拿到真实结果，再决定是否清旧数据。
-    const ok = await this.io.updateTags((prev) => ({ version: 2, workspaces: { ...prev.workspaces, ...v2.workspaces } }))
+    // 先落盘 v2：await 拿到真实结果，再决定是否清旧数据。用 writeModule 直接写
+    // 整模块（绕过 updateTags 的 v1 拒绝分支——本处正是 v1→v2 的唯一合法写入口）。
+    // 若目标文件已是 v2（此前曾部分迁移/另一窗口已迁），不覆盖——迁移幂等只做一次。
+    const existing = await this.io.load()
+    let ok: boolean
+    if (existing.tags !== null && existing.tags.version === 2 && Object.keys(existing.tags.workspaces).length > 0) {
+      ok = true
+    } else {
+      ok = await this.io.writeModule('tags', serializeTagFileV2(v2))
+    }
     if (!ok) {
       // 写失败：保留 pendingV1 + Memento key，下次基线再试。此刻 pendingV1 尚未清。
       this.logger.warn(

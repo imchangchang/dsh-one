@@ -242,15 +242,16 @@ export class DshStateStore {
     return this.enqueue(async () => {
       try {
         const raw = await this.readRaw('tags')
-        // 文件权威：读到 v2 用其值；读到 v1（旧全局，待迁移）也先升到 v2 空骨架再合并——
-        // 迁移落地前不主动写 v1 语义，但绝不能把文件读坏。坏文件/缺失按 v2 空骨架。
-        const prev = raw !== null ? (parseTagFile(raw) ?? emptyTagFileV2()) : emptyTagFileV2()
+        // 文件权威：读到 v2 用其值；缺失/坏文件按 v2 空骨架。
+        const parsed = raw !== null ? parseTagFile(raw) : null
+        const prev = parsed ?? emptyTagFileV2()
         if (prev.version === 1) {
-          this.warn('client-state: tags.json is v1 legacy — treating as empty v2 for update; a separate migration pass writes v2')
-          // 不在此处转 v2：迁移要在基线就绪后由 sessionsStore 用 sessionId→workspace 拆分。
-          const next = mutator(emptyTagFileV2())
-          if (next === emptyTagFileV2()) return true
-          return await this.writeFile('tags', serializeTagFileV2(next))
+          // v1（旧全局，待迁移）：本方法只服务 v2 写；v1→v2 转换只能由迁移链
+          // （sessionsStore.migratePendingV1ToV2，走 writeModule 原子替换）完成。
+          // 这里一旦响应写会落盘一个空 v2 骨架、覆盖 v1 唯一持久副本，与迁移竞态。
+          // 因此拒绝本次写（不动文件），等迁移落盘后由 store 内存态追平。
+          this.warn('tags.json is v1 legacy (pending migration) — write rejected; v2 conversion happens via the baseline-driven migration, will retry after it lands')
+          return false
         }
         const next = mutator(prev)
         if (next === prev) return true
