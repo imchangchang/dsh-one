@@ -343,7 +343,9 @@ let stagedForSession: string | null = null
 /** Per-session composer text drafts: sessionId → 未发送文本。切走时存旧、切回时取新，
  *  不再让旧会话的草稿「跟着搬到」下一个会话的输入框。空态（未附着会话）用
  *  EMPTY_SESSION_KEY 占位——有草稿的空态 tab 不会被宿主替换（dirty 保护），
- *  存档留给将来可能的恢复入口，也避免切走时清掉 stashedDraft。 */
+ *  存档留给将来可能的恢复入口，也避免切走时清掉 stashedDraft。
+ *  重启/reload 级持久化不经过本表（它是内存态）：内容变更经 scheduleDraftSave
+ *  防抖落盘 drafts.json，webview 重建时宿主 draftRestore 全量下发种回本表（#14）。 */
 const composerDrafts = new Map<string, string>()
 /** Per-session staged attachments: sessionId → { images, files }。与文本同款：按会话
  *  各存一份，切走时存档、切回时恢复（原来切换即清空）。 */
