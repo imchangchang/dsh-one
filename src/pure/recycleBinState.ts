@@ -1,15 +1,16 @@
 /**
  * Pure model for recycle-bin local state (dsh 无回收站概念，纯本地缓冲层).
- * No `vscode` import — unit-testable with node --test. The store owns Memento
- * persistence (`sessions.recycleBin` / `sessions.recycleCollapsed`) and snapshot
- * wiring; everything side-effect-free lives here so the semantics are pinned
- * by tests.
+ * No `vscode` import — unit-testable with node --test. The store owns
+ * persistence（本版本起 `sessions.recycleBin` 落 ~/.dsh/dsh-one/recycle-bin.json，
+ * 见 sessionsStore.create；`sessions.recycleCollapsed` 是 UI 偏好留 Memento）and
+ * snapshot wiring; everything side-effect-free lives here so the semantics are
+ * pinned by tests.
  *
- * v1 状态存 workspaceState（per-workspace：按当前打开的 workspace 隔离，
+ * 历史：v1 状态存 workspaceState（per-workspace：按当前打开的 workspace 隔离，
  * 新窗口——不同 workspace / untitled——读不到，回收站整集合丢失）。v2 迁到
  * globalState（独立于当前 workspace，跨窗口/重启共享，与分组功能同层）。
- * 旧 workspaceState 数据一次性迁移：globalState 有值就以它为准，否则回读
- * 旧值并由 store 写回新 key；两种路径都会删除旧 key，避免陈旧态复活。
+ * v3（本版本）迁到 dsh 全局目录文件。resolveRecycleIds 仍服务于 v1→v2 的
+ * Memento 内部迁移（recycleCollapsed 仍在用）与 create() 里 v2/v1 两级旧链回读。
  */
 
 /** 从持久化数据清洗回收站 id 集合（旧版本残留/手工改坏不崩）：非数组返回空；

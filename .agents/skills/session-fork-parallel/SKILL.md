@@ -101,9 +101,11 @@ curl -s -m 5 -X POST http://127.0.0.1:3080/api/session/list \
 
 两者输入一致：`--tasks` 指向 JSON 文件 `[{"title": "...", "prompt": "任务说明..."}, ...]`，`--repo <仓库绝对路径>`（默认 cwd）。加 `--dry-run` 只解析与验证不建 session。跑完把输出清单交给用户即可。
 
+**`--tag <组名>`（仅 modern 脚本）：一次派生 = 侧栏一个标签组**（类比 Kimi bridge 一个任务一个组）。建完 session 后把它们的 sessionId 写进 `~/.dsh/dsh-one/tags.json`（组按 name 找/建，颜色按插件 `nextCustomColor` 的橙/紫/红轮换；原子写 tmp+replace；文件已存在但格式不认识时拒绝覆盖并退出）。dsh-one 插件 watch 该目录，写完侧栏自动聚出这个组，不用重启窗口。不加 `--tag` 则完全不动 tags.json。
+
 ```bash
 python3 .agents/skills/session-fork-parallel/references/scripts/mk-sessions-modern.py \
-  --tasks /tmp/tasks.json --repo /Users/me/workspace
+  --tasks /tmp/tasks.json --repo /Users/me/workspace --tag "2026-09 批量改造"
 ```
 
 ## 注意
