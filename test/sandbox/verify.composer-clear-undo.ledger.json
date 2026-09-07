@@ -58,21 +58,24 @@
     {
       "id": "F-04",
       "phase": "new-feature",
-      "name": "键盘守卫回归：运行中停止优先 / 选区复制不动 / 打字解除武装 / 弹窗与召回让位（harness 证据）",
-      "expect": "三个 harness 场景（/tmp/dsh-ui-shots/）：① composer-esc-clear-disarm——ESC 武装后打字即解除（提示消失），再 ESC 重新武装不清空，再 ESC 才清空（纯文本走 keepComposer 保活路径）；② composer-clear-running-guard——running:true 时 ESC 与 Ctrl+C 都向宿主发 stop（__posted 断言），草稿原样保留、无提示小框；③ composer-clear-idle-guards——有选区 Ctrl+C 保持复制语义不动文本；↑ 召回历史后 ESC 是取消召回（草稿还原、不亮提示）；斜杠弹窗打开时 ESC 只关弹窗。各场景 DOM 断言全 ok，截图无红色断言横幅。",
+      "name": "键盘分层与守卫：运行中「先清输入、再停 turn」/ 选区复制不动 / 打字解除武装 / 弹窗与召回让位（harness 证据）",
+      "expect": "三个 harness 场景（/tmp/dsh-ui-shots/）：① composer-esc-clear-disarm——ESC 武装后打字即解除（提示消失），再 ESC 重新武装不清空，再 ESC 才清空（纯文本走 keepComposer 保活路径）；② composer-clear-running-guard——running:true 时分层语义：有草稿按 ESC/Ctrl+C 第一次只亮提示（不发 stop），第二次清空（仍不发 stop），输入框空了再按 ESC/Ctrl+C 才向宿主发 stop（__posted 断言）；运行中占位符文案更新为「Esc clears input first, then interrupts」；③ composer-clear-idle-guards——有选区 Ctrl+C 保持复制语义不动文本；↑ 召回历史后 ESC 是取消召回（草稿还原、不亮提示）；斜杠弹窗打开时 ESC 只关弹窗。各场景 DOM 断言全 ok，截图无红色断言横幅。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh-ui-shots/composer-esc-clear-disarm-esc-armed.png",
         "/tmp/dsh-ui-shots/composer-esc-clear-disarm-typing-disarms.png",
         "/tmp/dsh-ui-shots/composer-esc-clear-disarm-esc-rearmed.png",
         "/tmp/dsh-ui-shots/composer-esc-clear-disarm-esc-cleared.png",
-        "/tmp/dsh-ui-shots/composer-clear-running-guard-esc-stops.png",
-        "/tmp/dsh-ui-shots/composer-clear-running-guard-ctrlc-stops.png",
+        "/tmp/dsh-ui-shots/composer-clear-running-guard-esc-arms-no-stop.png",
+        "/tmp/dsh-ui-shots/composer-clear-running-guard-esc-clears-no-stop.png",
+        "/tmp/dsh-ui-shots/composer-clear-running-guard-esc-empty-stops.png",
+        "/tmp/dsh-ui-shots/composer-clear-running-guard-ctrlc-arms-no-stop.png",
+        "/tmp/dsh-ui-shots/composer-clear-running-guard-ctrlc-clears-then-stops.png",
         "/tmp/dsh-ui-shots/composer-clear-idle-guards-selection-copy.png",
         "/tmp/dsh-ui-shots/composer-clear-idle-guards-recall-esc.png",
         "/tmp/dsh-ui-shots/composer-clear-idle-guards-slash-esc.png"
       ],
-      "notes": "三组 harness 场景 DOM 断言全 ok：① esc-clear-disarm——ESC 武装→打字解除（提示消失）→再 ESC 重新武装且文本仍完整→再 ESC 才清空（保活路径不重建 composer）；② clear-running-guard——running:true 下 ESC 与 Ctrl+C 各发一次 stop（__posted 断言）、草稿原样、无提示小框；③ clear-idle-guards——选区 Ctrl+C 不动文本不亮提示、↑ 召回后 ESC 取消召回并还原草稿、斜杠弹窗 ESC 只关弹窗文本仍是「/」。截图核对无红色断言横幅。"
+      "notes": "三组 harness 场景 DOM 断言全 ok：① esc-clear-disarm——ESC 武装→打字解除→再武装不清空→再按才清空（保活路径不重建 composer）；② clear-running-guard 五步——运行中有草稿 ESC/Ctrl+C 第一次武装亮提示（__posted 无 stop）、第二次清空（仍无 stop）、空输入框再按才发 stop；ESC 与 Ctrl+C 两键均验证；占位符文案已更新为「…Esc clears input first, then interrupts」并在截图中可见；③ clear-idle-guards——选区复制不动、recall ESC 取消还原草稿、slash 弹窗 ESC 只关弹窗。截图核对无红色断言横幅。（注：运行中分层为评审后按用户反馈调整的语义——原实现运行中直接停止 turn，改为「先清输入、再停 turn」。）"
     },
     {
       "id": "R-01",

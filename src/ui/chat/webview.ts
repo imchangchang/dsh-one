@@ -1567,9 +1567,9 @@ window.addEventListener('message', (event) => {
 
 /**
  * Esc / Ctrl+C 打断当前 turn，等价于点「停止」按钮。优先级最低：
- * 弹层、图片预览（capture 阶段）与斜杠补全、草稿召回、重命名输入
- * （元素自身的 bubble 阶段）都先消费 Esc 并 preventDefault，这里靠
- * defaultPrevented 让路。本处理器挂在 document 的 bubble 阶段，
+ * 弹层、图片预览（capture 阶段）与斜杠补全、草稿召回、重命名输入、
+ * composer 双击清空（元素自身的 bubble 阶段）都先消费并 preventDefault，
+ * 这里靠 defaultPrevented 让路。本处理器挂在 document 的 bubble 阶段，
  * 保证最后执行。Ctrl+C 在有选区（输入框内或页面上）时保持复制语义。
  */
 document.addEventListener('keydown', (e) => {
@@ -1581,6 +1581,9 @@ document.addEventListener('keydown', (e) => {
     return
   }
   if (e.key === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+    // composer 双击清空武装/执行时已 preventDefault，这里让路（运行中也是
+    // 「先清输入、再停 turn」两层语义）。
+    if (e.defaultPrevented) return
     const active = document.activeElement
     const fieldSelection =
       (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) &&
@@ -7181,10 +7184,11 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         ? t('Editing queued message; Enter saves, Esc cancels')
         : state?.running
           ? // 插话快捷键按宿主平台出文案：mac ⌘Enter，win/linux Ctrl+Enter
-            // （hostOs 未知回退 ⌘ 版，与修复前一致）。
+            // （hostOs 未知回退 ⌘ 版，与修复前一致）。Esc/Ctrl+C 在运行中是
+            // 两层：composer 有内容先双击清空，空了再按才是打断 turn。
             steerModifierLabel(state?.hostOs) === 'Ctrl'
-            ? t('Type a message; Enter queues, Ctrl+Enter steers now, ↑ edits the queued message, Esc interrupts')
-            : t('Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts')
+            ? t('Type a message; Enter queues, Ctrl+Enter steers now, ↑ edits the queued message, Esc clears input first, then interrupts')
+            : t('Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc clears input first, then interrupts')
           : hero
             ? t('Describe what you want to build')
             : t('Type a message; Enter sends, Shift+Enter for newline, paste images/files, ↑ recalls the previous one')
@@ -7489,19 +7493,19 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       restoreCleared()
       return
     }
-    // 双击清空（本地增强，与 × 按钮同一 clearComposer）：空闲 + composer 有内容
-    // 时第一次 Esc/Ctrl+C 亮提示小框并武装，第二次执行清空。运行中不接管——
-    // 让路给 document 级「Esc/Ctrl+C 停止 turn」兜底（那里按 defaultPrevented
-    // 与 running 判定）；优先级低于斜杠补全与 recall（上面已 return），弹层与
-    // 图片预览在 capture 阶段已消费 Esc（defaultPrevented）。Ctrl+C 有选区时
-    // 保持复制语义；IME 组合中不响应（Esc 是关输入法候选窗）。
+    // 双击清空（本地增强，与 × 按钮同一 clearComposer）：composer 有内容时第一次
+    // Esc/Ctrl+C 亮提示小框并武装，第二次执行清空。运行中同样先走这层「清输入」——
+    // 武装/清空都 preventDefault，document 级「Esc/Ctrl+C 停止 turn」按
+    // defaultPrevented 让路；输入框空了再按才落到停止 turn。优先级低于斜杠补全
+    // 与 recall（上面已 return），弹层与图片预览在 capture 阶段已消费 Esc
+    // （defaultPrevented）。Ctrl+C 有选区时保持复制语义；IME 组合中不响应
+    // （Esc 是关输入法候选窗）。
     const isClearChord =
       e.key === 'Escape' || (e.key === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)
     if (
       isClearChord &&
       !e.defaultPrevented &&
       !e.isComposing &&
-      !state?.running &&
       (e.key === 'Escape' || input.selectionStart === input.selectionEnd)
     ) {
       if (input.value.length > 0 || pendingImages.length > 0 || pendingFiles.length > 0) {
@@ -7515,8 +7519,8 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         return
       }
       // 武装期间内容已被清空/发送：残留的武装态就地解除。Esc/无选区 Ctrl+C 在
-      // 空闲空 composer 下本身无语义，不 preventDefault，落回 document 级（非
-      // 运行态那里直接返回）。
+      // 空 composer 下不 preventDefault，落回 document 级（运行态=停止 turn，
+      // 空闲态那里直接返回）。
       disarmClearConfirm()
     }
     // ArrowUp on the first line with no selection recalls: 有等待插话的 steering

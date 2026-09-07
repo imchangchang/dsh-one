@@ -1119,7 +1119,7 @@
         i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       })()`,
       title: '运行中 Enter 排队发送：输入区无鬼影残留',
-      expect: '输入框 value 为空，仅显示浅灰占位符「Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc interrupts」；输入框上方高亮层（ref-token-layer）没有任何文字（不残留发送前的「等等，先停下，看看状态。」）；主按钮显示停止图标（运行中）；无消息流之外的异常浮层。',
+      expect: '输入框 value 为空，仅显示浅灰占位符「Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc clears input first, then interrupts」；输入框上方高亮层（ref-token-layer）没有任何文字（不残留发送前的「等等，先停下，看看状态。」）；主按钮显示停止图标（运行中）；无消息流之外的异常浮层。',
     },
 
     subagents: {
@@ -3553,10 +3553,10 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     },
     'composer-clear-running-guard': {
       state: base({ running: true }),
-      title: '运行中 ESC/Ctrl+C 保持「停止 turn」语义（不清空、不亮提示）',
+      title: '运行中分层：有内容先双击清空（不停 turn），空了再按才停止',
       interactSteps: [
         {
-          name: 'esc-stops',
+          name: 'esc-arms-no-stop',
           script: `(() => {
             const ta = document.getElementById('input')
             window.__guardAsserts = []
@@ -3568,30 +3568,73 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
               document.body.appendChild(d)
             }
             ta.focus()
-            ta.value = '运行中按 ESC 应停止 turn 而不是清空'
+            ta.value = '运行中有草稿：ESC 第一层是清输入'
             ta.dispatchEvent(new Event('input'))
             window.__posted = []
             ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
             const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
-            const ok = stopped && ta.value === '运行中按 ESC 应停止 turn 而不是清空' && !document.querySelector('.clear-confirm-hint')
-            if (!ok) window.__guardFail('esc-stops', JSON.stringify({ stopped, value: ta.value, hint: !!document.querySelector('.clear-confirm-hint') }))
-            else window.__guardAsserts.push({ step: 'esc-stops', ok: true })
+            const hint = document.querySelector('.clear-confirm-hint')
+            const ok = !stopped && !!hint && ta.value === '运行中有草稿：ESC 第一层是清输入'
+            if (!ok) window.__guardFail('esc-arms-no-stop', JSON.stringify({ stopped, hint: !!hint, value: ta.value }))
+            else window.__guardAsserts.push({ step: 'esc-arms-no-stop', ok: true })
           })()`,
         },
         {
-          name: 'ctrlc-stops',
+          name: 'esc-clears-no-stop',
           script: `(() => {
             const ta = document.getElementById('input')
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+            const input = document.getElementById('input')
+            const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+            const ok = !stopped && input.value === '' && !document.querySelector('.clear-confirm-hint')
+            if (!ok) window.__guardFail('esc-clears-no-stop', JSON.stringify({ stopped, value: input.value }))
+            else window.__guardAsserts.push({ step: 'esc-clears-no-stop', ok: true })
+          })()`,
+        },
+        {
+          name: 'esc-empty-stops',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            ta.focus()
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+            const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+            const ok = stopped && ta.value === '' && !document.querySelector('.clear-confirm-hint')
+            if (!ok) window.__guardFail('esc-empty-stops', JSON.stringify({ stopped, value: ta.value }))
+            else window.__guardAsserts.push({ step: 'esc-empty-stops', ok: true })
+          })()`,
+        },
+        {
+          name: 'ctrlc-arms-no-stop',
+          script: `(() => {
+            const ta = document.getElementById('input')
+            ta.focus()
+            ta.value = '运行中 Ctrl+C 同样先清输入'
+            ta.dispatchEvent(new Event('input'))
             window.__posted = []
             ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }))
             const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
-            const ok = stopped && ta.value === '运行中按 ESC 应停止 turn 而不是清空' && !document.querySelector('.clear-confirm-hint')
-            if (!ok) window.__guardFail('ctrlc-stops', JSON.stringify({ stopped, value: ta.value }))
-            else window.__guardAsserts.push({ step: 'ctrlc-stops', ok: true })
+            const hint = document.querySelector('.clear-confirm-hint')
+            const ok = !stopped && !!hint && ta.value === '运行中 Ctrl+C 同样先清输入'
+            if (!ok) window.__guardFail('ctrlc-arms-no-stop', JSON.stringify({ stopped, hint: !!hint, value: ta.value }))
+            else window.__guardAsserts.push({ step: 'ctrlc-arms-no-stop', ok: true })
+          })()`,
+        },
+        {
+          name: 'ctrlc-clears-then-stops',
+          script: `(() => {
+            let ta = document.getElementById('input')
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }))
+            ta = document.getElementById('input')
+            const clearedNoStop = !(window.__posted || []).some((m) => m && m.type === 'stop') && ta.value === ''
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true, cancelable: true }))
+            const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+            const ok = clearedNoStop && stopped
+            if (!ok) window.__guardFail('ctrlc-clears-then-stops', JSON.stringify({ clearedNoStop, stopped }))
+            else window.__guardAsserts.push({ step: 'ctrlc-clears-then-stops', ok: true })
           })()`,
         },
       ],
-      expect: '运行中（running:true）composer 有草稿时，键盘语义保持原有「打断 turn」优先——① esc-stops：按 ESC 后草稿**原样保留**、无提示小框、webview 向宿主发出 stop 消息（断言查 __posted，截图上看：占位符为运行中插话文案「…Esc interrupts」，文本不动）。② ctrlc-stops：无选区按 Ctrl+C 同样发出 stop、草稿保留、无提示小框。两张截图都应看到 composer 里草稿原样、无任何浮框、无红色断言横幅。',
+      expect: '运行中（running:true）ESC/Ctrl+C 是两层语义——① esc-arms-no-stop：有草稿按 ESC，草稿**原样保留**、浮出提示小框、**不发** stop；② esc-clears-no-stop：再按 ESC 草稿清空、仍**不发** stop（截图：空输入框、占位符为运行中文案「…Esc clears input first, then interrupts」）；③ esc-empty-stops：空输入框按 ESC 才发 stop（断言查 __posted，画面与 ② 相同）；④ ctrlc-arms-no-stop：重新填入草稿按 Ctrl+C，同样只亮提示不清不发 stop；⑤ ctrlc-clears-then-stops：第二次 Ctrl+C 清空且不发 stop，第三次（空输入框）Ctrl+C 发 stop。每张截图都应无红色断言横幅；①④ 有提示小框，②③⑤ 无。',
     },
     'composer-clear-idle-guards': {
       state: base({ slashCommands: [{ name: 'model', description: '选择模型' }, { name: 'goal', description: '设置目标' }] }),
