@@ -17,8 +17,9 @@ token (GET /?token=...); the token itself cannot call APIs.
 --repo defaults to the current directory; it must already be (or become) a
 registered workspace, the new sessions are attached to it by workspaceId.
 --tag groups all created sessions under one sidebar tag group (Kimi-bridge
-style: one batch = one group): after creation it POSTs {group, sessionIds} to
-the DSH One extension's loopback bridge (~/.dsh/dsh-one/bridge.json -> port+token),
+style: one batch = one group): after creation it POSTs the bridge with an
+explicit action ({"action":"assign","group":<组名>,"sessionIds":[...]}) to the
+DSH One extension's loopback bridge (~/.dsh/dsh-one/bridge.json -> port+token),
 which then writes ~/.dsh/dsh-one/tags.json via its store. The agent process no
 longer writes the client-state file directly (that is outside the workspace and
 gets blocked by the dsh file sandbox); the extension does it instead.
@@ -58,7 +59,8 @@ def assign_tag(sids, tag_name, bridge_file=DSH_ONE_BRIDGE_FILE):
     token = bridge.get("token")
     if not isinstance(port, int) or not isinstance(token, str) or not token:
         sys.exit(f"{bridge_file} 缺 port/token 或格式不对（扩展未加载/记录陈旧？）")
-    body = json.dumps({"group": tag_name, "sessionIds": sids}).encode()
+    # 显式 action（无默认行为）——按组名找/建组并把 sids 归入。
+    body = json.dumps({"action": "assign", "group": tag_name, "sessionIds": sids}).encode()
     req = urllib.request.Request(f"http://127.0.0.1:{port}/tag", data=body, method="POST")
     req.add_header("content-type", "application/json")
     req.add_header("authorization", f"Bearer {token}")
