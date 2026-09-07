@@ -183,6 +183,18 @@ export interface SessionsBootstrap {
   pendingV1: { tags: TagDef[]; sessionTags: Record<string, string> } | null
 }
 
+/** loopback tag-bridge 一次 `{group, sessionIds}` 请求的归组结果（#18）。 */
+export interface TagGroupAssignResult {
+  ok: boolean
+  /** ok=false 时的错误码（empty-group / no-sessions / tag-failed）。 */
+  error?: string
+  /** ok=true 时：组名（trim 后）与命中的组 id；多 workspace 时取最后一组。 */
+  tagName?: string
+  tagId?: string
+  /** ok=true 时：成功归入该组的会话数。 */
+  sessionCount?: number
+}
+
 /**
  * Sessions 数据层：原 SessionTreeProvider 去掉 vscode TreeItem 后的纯数据部分。
  * 服务运行时以 workspace.list + session.list 为基线缓存，host 事件逐帧增量
@@ -944,6 +956,41 @@ export class SessionsStore implements vscode.Disposable {
     if (sessionIds.length === 0) return
     // 批量目标 = 这些会话各自所属 ws 的 bucket（逐个按会话归属写）。
     for (const id of sessionIds) this.setSessionTag(id, tagId)
+  }
+
+  /* ---- loopback tag-bridge（#18）：派生脚本 --tag 的代写入口 ----
+   * 端点只做这一件事：按名找/建自建组，把一批会话归入该组。组是 per-workspace，
+   * 所以会话可能落在多个 workspace——每个 workspace 各找/建一个同名组，只归本
+   * workspace 的会话（语义与 UI 一致：同名的组在不同 workspace 是各自的）。 */
+
+  assignTagGroup(name: string, sessionIds: readonly string[]): TagGroupAssignResult {
+    const trimmed = name.trim()
+    if (!trimmed) return { ok: false, error: 'empty-group' }
+    if (sessionIds.length === 0) return { ok: false, error: 'no-sessions' }
+    // 按会话归属 workspace 分组；组名在每个 workspace 各自存在。
+    const byWs = new Map<string, string[]>()
+    for (const id of sessionIds) {
+      const ws = this.workspaceOfSession(id)
+      const list = byWs.get(ws) ?? []
+      list.push(id)
+      byWs.set(ws, list)
+    }
+    let total = 0
+    let lastTag: TagDef | null = null
+    for (const [wsId, ids] of byWs) {
+      const tag = this.findOrCreateTag(wsId, trimmed)
+      if (tag === null) return { ok: false, error: 'tag-failed' }
+      this.setSessionTagMany(ids, tag.id)
+      lastTag = tag
+      total += ids.length
+    }
+    return { ok: true, tagName: trimmed, tagId: lastTag?.id, sessionCount: total }
+  }
+
+  /** 按名找已存在的自建组；没有则新建（新建走 createTag 的校验/颜色轮换/原子写）。 */
+  private findOrCreateTag(workspaceId: string, name: string): TagDef | null {
+    const existing = this.bucketTags(workspaceId).find((t) => t.name === name)
+    return existing ?? this.createTag(workspaceId, name)
   }
 
   /** 持久化标签组顺序（per-workspace；拖拽后提交全量顺序；缺失/未知 id 拒绝）。 */
