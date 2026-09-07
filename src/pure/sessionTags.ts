@@ -122,6 +122,36 @@ export function removeTagFromAll(
 }
 
 /**
+ * 找出「已无活跃成员」的自定义组：组内曾挂有会话，但当前基线里已不存在任何
+ * 还在活跃（未归档/未入回收站）的成员——即内容全部移入回收站/消失。这样的组
+ * 不再保留，返回其 id 列表（预设组恒不参与；从未挂过会话的自建组——刚创建
+ * 尚未加入——不视为空，保留给用户新建后立即加入）。
+ */
+export function emptyCustomTagIds(
+  tags: readonly SessionTagDef[],
+  membership: Readonly<Record<string, string>>,
+  isActive: (sessionId: string) => boolean,
+): string[] {
+  const customTags = tags.filter((t) => !isPresetTag(t))
+  if (customTags.length === 0) return []
+  const membersByTag = new Map<string, string[]>()
+  for (const [sessionId, tagId] of Object.entries(membership)) {
+    const list = membersByTag.get(tagId) ?? []
+    list.push(sessionId)
+    membersByTag.set(tagId, list)
+  }
+  const empty: string[] = []
+  for (const tag of customTags) {
+    const members = membersByTag.get(tag.id)
+    // 从未挂过会话：保留（刚创建，等用户加入）。
+    if (members === undefined) continue
+    if (members.some((sessionId) => isActive(sessionId))) continue
+    empty.push(tag.id)
+  }
+  return empty
+}
+
+/**
  * 按新顺序重排标签组（拖拽提交的全量顺序）：只接受与全集等长且无未知/重复
  * id 的顺序（frozenset 匹配）；其余视为无效请求返回 null（调用方跳过）。
  * 与当前顺序一致也返回 null。
