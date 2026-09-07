@@ -28,7 +28,7 @@
 
   // ---- 侧栏会话树快照构造器 ----
   const sess = (sessionId, label, description, over) => ({
-    sessionId, label, description, running: false, active: false, pinned: false, unread: false, attached: false, descendantRunning: false, hasCompletedTurn: true, ...over,
+    sessionId, label, description, running: false, active: false, pinned: false, unread: false, descendantRunning: false, hasCompletedTurn: true, ...over,
   })
   window.sessionsTree = function (activeId) {
     const workspaces = [
@@ -49,7 +49,6 @@
     ]
     return {
       query: null,
-      sortOrder: 'updatedDesc',
       serverState: 'running',
       dshNotFound: false,
       pinned: [],
@@ -1404,20 +1403,19 @@
       view: 'sessions',
       sessions: (() => {
         const s = window.sessionsTree(null)
-        // 活跃层顺序由宿主 buildSessionTree 决定，这里按期望序手工摆：
-        // 活跃层（attached / 未读，层内按 updatedAt 降序）整体先于空闲层——
-        // 即使空闲 sess-3（10 分钟前）比活跃 sess-1（3 小时前）更新。
+        // 顺序由宿主 buildSessionTree 决定，这里按期望序手工摆（用户拍板：打开只
+        // 高亮不跳序——tab 打开中不再算活跃）。active 会话只有未读 sess-2。
         s.workspaces[0].sessions = [
-          sess('sess-1', '打开中的会话（tab 附着）', '3 小时前', { attached: true, active: true }),
           sess('sess-2', '未读会话', '5 小时前', { unread: true, active: true }),
           sess('sess-3', '空闲会话甲', '10 分钟前'),
           sess('sess-4', '空闲会话乙', '20 分钟前'),
+          sess('sess-1', '打开中的会话（tab 附着）', '3 小时前'),
         ]
         s.unread = ['sess-2']
         return s
       })(),
-      title: '侧栏面板（打开中的 tab：活跃前置但行尾无标识无时间）',
-      expect: 'sess-1「打开中的会话」排在组内最前（活跃层前置——尽管它 3 小时前比空闲 sess-3 的 10 分钟前更旧）；sess-1 行尾**完全空白**：无绿点/无黄点/无像素环、**无「3 小时前」时间**，标题**不加粗**；sess-2 未读绿点 + 标题加粗（无时间）；sess-3 / sess-4 空闲行正常显示时间「10 分钟前」「20 分钟前」；组头角标只有绿点 1（未读）——attached 行不计入任何角标计数。',
+      title: '侧栏面板（打开中的 tab：不再活跃前置，行尾照常显示时间）',
+      expect: 'sess-1「打开中的会话（tab 附着）」**不再被活跃前置**——按 updatedAt 降序排在空闲区末尾（在更新的 sess-3/sess-4 之后），行尾显示时间「3 小时前」，标题**不加粗**，无绿点/黄点/像素环；sess-2 未读绿点 + 标题加粗（无时间，因未读活跃前置到最前）；sess-3 / sess-4 空闲行正常显示时间「10 分钟前」「20 分钟前」；组头角标只有绿点 1（未读）。',
     },
 
     'sessions-attached-unread': {
@@ -1427,14 +1425,14 @@
         // 开着 tab 时手动标未读（Gmail 语义）：清除只发生在 attach 瞬间，
         // 开着时标的未读保留显示，关掉后仍未读、下次打开才清。
         s.workspaces[0].sessions = [
-          sess('sess-1', '打开中且手动标了未读', '1 小时前', { attached: true, unread: true, active: true }),
+          sess('sess-1', '打开中且手动标了未读', '1 小时前', { unread: true, active: true }),
           sess('sess-2', '空闲会话', '10 分钟前'),
         ]
         s.unread = ['sess-1']
         return s
       })(),
       title: '侧栏面板（打开中手动标未读：绿点保留）',
-      expect: 'sess-1 行（attached + unread）显示未读绿点 + 标题加粗（无时间）——未读标记优先于 attached 的「行尾留空」；sess-1 排在空闲 sess-2 之前（活跃层前置）；sess-2 显示时间「10 分钟前」；组头角标绿点 1。',
+      expect: 'sess-1 行（打开中且未读）显示未读绿点 + 标题加粗（无时间）——未读是活跃原因，仍前置；sess-1 排在空闲 sess-2 之前（活跃层前置）；sess-2 显示时间「10 分钟前」；组头角标绿点 1。',
     },
 
     'sessions-baseline-loading': {

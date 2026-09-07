@@ -54,7 +54,7 @@
 
     const wsMain = { workspaceId: 'ws-main', path: '/Users/cgeng/Workspaces/dsh-one', label: 'dsh-one', isCurrent: true, sessions: ['sess-1', 'sess-2'] }
     const wsUn = { workspaceId: UNGROUPED, path: '', label: '未分组', isCurrent: false, sessions: [] }
-    const snap = { query: null, sortOrder: 'updatedDesc', serverState: 'running', dshNotFound: false, pinned: [], collapsed: [], unread: [], baselineReady: true }
+    const snap = { query: null, serverState: 'running', dshNotFound: false, pinned: [], collapsed: [], unread: [], baselineReady: true }
     let currentId = store[0].sessionId
     const modelCatalog = { current: { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'high' }, groups: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', efforts: [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }], defaultEffort: 'high' }] }] }
     let streamTimer = null
@@ -133,7 +133,6 @@
       setPermission(m) { pending = { ...pending, permission: m.value }; pushState() },
       sessionsRefresh() { pushSession() },
       sessionsSearch(m) { snap.query = m.query; pushSession() },
-      sessionsSort(m) { snap.sortOrder = m.order; pushSession() },
       sessionPin(m) { const i = snap.pinned.indexOf(m.sessionId); if (m.pin && i < 0) snap.pinned.push(m.sessionId); if (!m.pin && i >= 0) snap.pinned.splice(i, 1); pushSession() },
       sessionUnread(m) { const i = snap.unread.indexOf(m.sessionId); if (m.unread && i < 0) snap.unread.push(m.sessionId); if (!m.unread && i >= 0) snap.unread.splice(i, 1); pushSession() },
       workspaceCollapse(m) { const i = snap.collapsed.indexOf(m.workspaceId); if (m.collapsed && i < 0) snap.collapsed.push(m.workspaceId); if (!m.collapsed && i >= 0) snap.collapsed.splice(i, 1); pushSession() },
