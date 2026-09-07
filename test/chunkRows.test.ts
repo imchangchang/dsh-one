@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { expandChunkRow, recordsToEntries } from '../src/pure/chunkRows.ts'
+import { expandChunkRow, expandAssistantAttempt, recordsToEntries } from '../src/pure/chunkRows.ts'
 import type { HistoryRecordLike } from '../src/pure/chunkRows.ts'
 
 test('expands chunkrow/text-chunks into assistant/chunk text deltas', () => {
@@ -45,4 +45,27 @@ test('recordsToEntries expands packed rows and passes scalar events', () => {
   assert.equal(entries[1].event.type, 'assistant/chunk')
   assert.equal(entries[1].event.seq, 2)
   assert.equal(entries[2].event.seq, 3)
+})
+
+test('assistant/attempt (0.1.3 interrupted) expands stream into assistant/chunk deltas', () => {
+  const expanded = expandAssistantAttempt({
+    type: 'assistant/attempt',
+    seq: 20,
+    time: 200,
+    data: { turn: 2, step: 4, stream: [{ type: 'text-chunks', time0: 200, index: 0, dt: [], texts: ['部分'] }] },
+  })
+  assert.equal(expanded?.length, 1)
+  assert.deepEqual(expanded?.[0]?.data, { turn: 2, step: 4, chunk: { type: 'text-delta', index: 0, text: '部分' } })
+
+  const entries = recordsToEntries([
+    { type: 'event', event: { type: 'assistant/attempt', seq: 20, time: 200, data: { turn: 2, step: 4, stream: [{ type: 'text-chunks', time0: 200, index: 0, dt: [], texts: ['x'] }] } } },
+  ])
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0].event.type, 'assistant/chunk')
+  assert.equal((entries[0].event.data as { chunk: { text: string } }).chunk.text, 'x')
+})
+
+test('assistant/attempt without stream is passed through unchanged', () => {
+  const expanded = expandAssistantAttempt({ type: 'assistant/attempt', seq: 1, data: { turn: 1, step: 1 } })
+  assert.equal(expanded, null)
 })

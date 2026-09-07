@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- dsh 0.1.3-alpha.1 兼容（GitHub-only，npm 未发）：`session/follow` 的 assistant 实时增量改为 `assistantStream: true` opt-in 侧信道（不传则流式文本转圈→整段蹦出），`commands/execute` 第三参数 `images` 改名 `submittedAttachments`（图片元素加 `type:'image'`，否则全部斜杠命令被 `gateway/arguments-invalid` 拒）。按 dsh 版本探测隔离：老版本（0.1.1 legacy / 0.1.2-rc.1 modern）路径零改动，0.1.3+ 走新分支（follow 送 `assistantStream`、execute 送 `submittedAttachments`，并把 assistant-stream 帧翻译回 `assistant/chunk` 折叠、展开 `assistant/attempt` 历史紧凑流）。
+
 - 插话快捷键占位符按平台区分文案（steer-shortcut-copy-per-platform）：会话运行中的 composer 占位符原来一律显示「⌘Enter 插话」，Windows/Linux 用户键盘上没有 ⌘ 键。现在附着会话的 ChatState 常态下发宿主平台（hostOs），macOS 保持 ⌘Enter，Windows/Linux 显示 Ctrl+Enter（按键处理本就 metaKey||ctrlKey 全平台可触发，纯文案修正）；hostOs 未知时回退 ⌘ 版原文案。
 
 ## [1.1.0]

@@ -18,6 +18,8 @@
  * Pure logic — no `vscode` import.
  */
 
+import type { AssistantStreamBaseline, AssistantStreamFrame } from './assistantStream.ts'
+
 export type RemoteMuxClientFrame =
   | { type: 'open'; streamId: string; endpoint: string; payload: unknown }
   | { type: 'cancel'; streamId: string }
@@ -172,7 +174,7 @@ export function parseWorkspaceStreamFrame(value: unknown): WorkspaceStreamFrame 
   return null
 }
 
-/** `session/follow` frames: opening snapshot then raw event entries. */
+/** `session/follow` frames: opening snapshot then raw event entries + live assistant-stream frames. */
 export type FollowStreamFrame =
   | {
       type: 'snapshot'
@@ -181,14 +183,17 @@ export type FollowStreamFrame =
       hasMore: boolean
       header: Record<string, unknown>
       projections: Record<string, unknown>
+      /** 0.1.3 opt-in 后的进程内 assistant 流基线（revision + 在跑的 attempt 前缀）。 */
+      assistantStream?: AssistantStreamBaseline
     }
   | { type: 'event'; event: { type: string; seq: number; time?: number; data?: unknown; surfaceOp?: unknown } }
+  | { type: 'assistant-stream'; frame: AssistantStreamFrame }
 
 export function parseFollowStreamFrame(value: unknown): FollowStreamFrame | null {
   if (typeof value !== 'object' || value === null) return null
   const frame = value as Record<string, unknown>
   if (frame.type === 'snapshot' && typeof frame.cursor === 'number' && Array.isArray(frame.records)) {
-    return {
+    const out: FollowStreamFrame = {
       type: 'snapshot',
       cursor: frame.cursor,
       records: frame.records as unknown[],
@@ -199,6 +204,10 @@ export function parseFollowStreamFrame(value: unknown): FollowStreamFrame | null
           ? (frame.projections as Record<string, unknown>)
           : {},
     }
+    if (typeof frame.assistantStream === 'object' && frame.assistantStream !== null) {
+      out.assistantStream = frame.assistantStream as AssistantStreamBaseline
+    }
+    return out
   }
   if (frame.type === 'event' && typeof frame.event === 'object' && frame.event !== null) {
     const event = frame.event as Record<string, unknown>
@@ -214,7 +223,12 @@ export function parseFollowStreamFrame(value: unknown): FollowStreamFrame | null
       },
     }
   }
-  // 0.1.2 packs Assistant delta runs into {type:'chunks', event} records inside
-  // the history page; the follow stream itself emits plain event entries.
+  // 0.1.3 opt-in 后的实时 assistant 侧信道帧：start / chunk / end。
+  if (frame.type === 'assistant-stream' && typeof frame.frame === 'object' && frame.frame !== null) {
+    const f = frame.frame as Record<string, unknown>
+    if (typeof f.type === 'string' && typeof f.attemptId === 'string') {
+      return { type: 'assistant-stream', frame: f as unknown as AssistantStreamFrame }
+    }
+  }
   return null
 }

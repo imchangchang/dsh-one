@@ -1,0 +1,72 @@
+{
+  "title": "dsh 0.1.3 适配验证（dsh-013-compat）",
+  "branch": "agent/dsh-013-compat",
+  "commit": "3f1aff4",
+  "environment": {
+    "mode": "wire-level（源码构建产物直连）",
+    "dsh": "0.1.3-alpha.1（GitHub-only 源码构建）+ 0.1.2-rc.1（本机）",
+    "iso-source": "/tmp/dsh-013-build/repo（pnpm 11.7.0 构建）",
+    "mock-llm": "test/mock-llm/server.ts 独立端点（端口 9100）",
+    "team": "imchangchang",
+    "date": "2026-09-07T00:00:00Z"
+  },
+  "coverageNote": "本任务是对 0.1.3 的 wire 层适配（commands/execute 参数改名 + session/follow assistantStream 侧信道），非 UI 行为。沙盒（pin dsh 0.1.1-rc.2）是 legacy wire，不涉及本次改动，故未用 sandbox 驱动跑 UI 场景；0.1.3/0.1.2 的协议面用「源码构建产物直连 + mock-llm」实测，0.1.1/0.1.2 回归由 667 项单测（typecheck/test/build 全绿）覆盖。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "commands/execute 形状改名为 submittedAttachments（0.1.3 接受）",
+      "expect": "对 0.1.3 直连：照旧发 `images` 键被网关 `gateway/arguments-invalid` 拒（破坏点复现）；发 `submittedAttachments`（元素带 `type:'image'`）被接受。",
+      "result": "pass",
+      "notes": "【实测】`node --import tsx/esm apps/cli/src/bin.ts`（0.1.3 构建产物）直连：\n- images 键 → HTTP 200 `gateway/arguments-invalid`（破坏点确认）\n- submittedAttachments 键（{type:'image',mediaType,data}）→ HTTP 200 result.ok=true（修复成立）\n【单测】dshRpc.is013Wire 版本分叉：0.1.3 走 submittedAttachments，0.1.2/0.1.1 走 images。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "session/follow assistantStream:true opt-in 生效",
+      "expect": "0.1.3 follow 不传 assistantStream 时 snapshot 无 assistantStream 基线；传 true 时 snapshot 带 `assistantStream:{revision}` 字段，之后交织下发 assistant-stream 帧。",
+      "result": "pass",
+      "notes": "【实测】0.1.3 构建产物：\n- 不带 assistantStream → snapshot keys=[type,header,cursor,records,hasMore,projections]，无 assistantStream 字段\n- 带 assistantStream:true（request 内）→ snapshot keys 含 assistantStream，值 {revision:0}；随后收到 assistant-stream 帧。\n【单测】remoteFrames.parseFollowStreamFrame 对 assistant-stream 帧与 snapshot.assistantStream 的解析（remoteFrames.test.ts）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "0.1.3 流式渲染：assistant-stream chunk 帧承载文本增量",
+      "expect": "0.1.3 上是 assistant-stream（start/chunk/end）侧信道承载增量；dsh-one 把 chunk 帧翻译成 `assistant/chunk` 折叠（不再转圈→整段蹦出）。mock-llm 回显应能从 chunk 帧拼回完整文本。",
+      "result": "pass",
+      "notes": "【实测】0.1.3 构建产物 + mock-llm 端点：prompt「你好世界流式验证」→ follow 收到 timeline=[start,chunk×6,end]；从 chunk 帧 `chunk.text` 拼回「收到：你好世界流式验证」（mock 兜底回显）；尾部到达 `assistant/message` 结算 + `turn/end`。\n【单测】assistantStream.ts：AssistantStreamFold 把 start/chunk/end fold 成 assistant/chunk（含 seq 合成、gap 跳过、reconnect 基线 replace）——6 项新增测试全绿。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "被中断 attempt（assistant/attempt）在历史中展开",
+      "expect": "0.1.3 被中断尝试的结算事件 `assistant/attempt`（data 只有 stream、无 message.content）在历史回顾中展开成 assistant/chunk，部分文案可见。",
+      "result": "pass",
+      "notes": "【单测】chunkRows.expandAssistantAttempt 把 data.stream 展开成 assistant/chunk（text/reasoning/tool-call 记录），且无 stream 时原样透传——chunkRows.test.ts 新增断言全绿。live 路径不缺此展开（实时增量已由 chunk 帧构建，assistant/attempt 结算被 fold 视为 default 忽略，不重复计数）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "0.1.2-rc.1 本机 commands/execute 行为零改动",
+      "expect": "对 0.1.2-rc.1：`images` 键被接受（分叉前行为），`submittedAttachments`/双键被拒——与适配前基线完全一致。dsh-one（is013Wire=false）继续发 `images`，0.1.2 请求体逐字节一致。",
+      "result": "pass",
+      "notes": "【实测】本机 dsh 0.1.2-rc.1（npm）：\n- images 键 → result.ok=true（接受，与基线一致）\n- submittedAttachments 键 → gateway/arguments-invalid（0.1.2 拒新键，故必须版本分叉、不能双键）\n- 双键 → gateway/arguments-invalid\n与适配前基线（acceptance 脚本同输出）逐项一致。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "0.1.2-rc.1 session/follow 请求体零改动",
+      "expect": "dsh-one 对 0.1.2（is013Wire=false）不送 assistantStream，follow 请求与适配前一致；0.1.2 snapshot 无 assistantStream 字段。",
+      "result": "pass",
+      "notes": "【实测】本机 dsh 0.1.2-rc.1：follow 无 session assistantStream 时 snapshot 正常（version=0 header [id,createdAt,cwd,agentPreset]，无 isSeeded/assistantStream 字段），与适配前基线一致。\n【单测】modernStreams.subscribeFollowStream 用 is013Wire(origin) 决定是否加 assistantStream；0.1.2 为 false → 请求体不带该键。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "0.1.1 legacy 路径零改动（667 单测 + typecheck + build 全绿）",
+      "expect": "0.1.1（沙盒 mock 基线，legacy wire）路径完全不动；全量单测/typecheck/build 通过。",
+      "result": "pass",
+      "notes": "【自动化】worktree `agent/dsh-013-compat` @ 3f1aff4：`npm run typecheck` 无错误；`npm test` 667 通过 / 0 失败（含新增 9 项 0.1.3 协议单测）；`npm run build` 成功。0.1.1（isModern=false）走 legacy mux 与 recordsToEntries 原分支，本次未触碰（断言：0.1.1 事件无 chunkrow/assistant-stream，expandChunkRow/recordsToEntries 原逻辑保留）。"
+    }
+  ]
+}

@@ -6,7 +6,8 @@
  * Pure logic — no `vscode` import.
  */
 
-import type { HistoryEntryLike, SessionEventLike } from './conversation.ts'
+import type { HistoryEntryLike, SessionEventLike, StreamChunkData } from './conversation.ts'
+import { expandAssistantStream } from './assistantStream.ts'
 
 /** The record union of a 0.1.2 history page/follow snapshot. */
 export interface HistoryRecordLike {
@@ -65,11 +66,42 @@ export function expandChunkRow(event: SessionEventLike): SessionEventLike[] | nu
   return null
 }
 
+/**
+ * 0.1.3 被中断 attempt 的结算事件（`assistant/attempt`）：data 只有 `stream`
+ * 紧凑流、无 `message.content`，折叠层不认。展开成 `assistant/chunk` 让部分文案
+ * 渲染出来（turn/end 的 aborted reason 再标记 interrupted/complete）。
+ */
+export function expandAssistantAttempt(event: SessionEventLike): SessionEventLike[] | null {
+  const data = event.data as Record<string, unknown> | undefined
+  if (typeof data !== 'object' || data === null) return null
+  const stream = data.stream
+  if (!Array.isArray(stream)) return null
+  const turn = data.turn
+  const step = data.step
+  if (typeof turn !== 'number' || typeof step !== 'number') return null
+  const chunks = expandAssistantStream(stream)
+  if (chunks.length === 0) return null
+  const n = chunks.length
+  return chunks.map((c, i) => ({
+    type: 'assistant/chunk' as const,
+    seq: event.seq + (i + 1) / (n + 1),
+    time: c.time,
+    data: { turn, step, chunk: c.chunk as StreamChunkData },
+  }))
+}
+
 /** Narrow one history page/follow record to the entry list the folder folds. */
 export function recordsToEntries(records: readonly HistoryRecordLike[]): HistoryEntryLike[] {
   const entries: HistoryEntryLike[] = []
   for (const record of records) {
     if (record.type === 'event') {
+      if (record.event.type === 'assistant/attempt') {
+        const expanded = expandAssistantAttempt(record.event)
+        if (expanded !== null) {
+          for (const event of expanded) entries.push({ event })
+          continue
+        }
+      }
       entries.push({ event: record.event })
       continue
     }

@@ -120,7 +120,7 @@ flowchart LR
 
 ### dsh version tracking
 
-A scheduled GitHub Action ([dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)) checks for new [dsh releases](https://github.com/deepseek-ai/deepseek-harness/releases) daily; for each new version it runs an automated wire-protocol probe suite (14 checks covering the startup/auth/unary-RPC/WebSocket surface DSH One depends on) and files an `upstream-watch` issue with the results. The last two badges above show the latest upstream release and the latest probe outcome; the full test list (automated + manual items) lives in [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md).
+A scheduled GitHub Action ([dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)) checks for new [dsh releases](https://github.com/deepseek-ai/deepseek-harness/releases) daily; for each new version it runs an automated wire-protocol probe suite (14 checks covering the startup/auth/unary-RPC/WebSocket surface DSH One depends on) and files an `upstream-watch` issue with the results. The last two badges above show the latest upstream release and the latest probe outcome; the full test list (automated + manual items) lives in [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md). DSH One targets dsh **0.1.2-rc.1** and the GitHub-only **0.1.3-alpha.1** wire (`commands/execute` `submittedAttachments` + `session/follow` `assistantStream` opt-in), while still serving the 0.1.1 legacy wire — version-detection isolates each so older versions are untouched.
 
 | Item | Coverage |
 |---|---|

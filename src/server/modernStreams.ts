@@ -9,6 +9,7 @@ import {
   parseFollowStreamFrame,
 } from '../pure/remoteFrames.ts'
 import type { EventStreamFrame, WorkspaceStreamFrame } from '../pure/remoteFrames.ts'
+import type { AssistantStreamBaseline, AssistantStreamFrame } from '../pure/assistantStream.ts'
 import {
   applyControlFrame,
   createControlSnapshot,
@@ -16,6 +17,7 @@ import {
   type ControlSnapshot,
 } from '../pure/controlSnapshot.ts'
 import { sendWaterfallResult } from './dshRpc.ts'
+import { is013Wire } from './serverAuth.ts'
 
 /**
  * Shared logical streams for the 0.1.2 transport, refcounted per origin:
@@ -343,6 +345,8 @@ export interface FollowSnapshot {
   hasMore: boolean
   header: Record<string, unknown>
   projections: Record<string, unknown>
+  /** 0.1.3 opt-in 后的内嵌 assistant 流基线（随时可能缺失）。 */
+  assistantStream?: AssistantStreamBaseline
 }
 
 /** `session/follow` stream subscription; reconnect is the caller's job. */
@@ -353,13 +357,24 @@ export function subscribeFollowStream(
   handlers: {
     onSnapshot: (snapshot: FollowSnapshot) => void
     onEvent: (event: unknown) => void
+    onAssistantStream?: (frame: AssistantStreamFrame) => void
     onError: (err: Error) => void
   },
 ): Disposable {
   return openStream(
     origin,
     'session/follow',
-    { args: { request: { address: { kind: 'session', sessionId } } } },
+    {
+      args: {
+        request: {
+          address: { kind: 'session', sessionId },
+          // 0.1.3 的实时 assistant 增量是显式 opt-in 侧信道；不传则旧客户端能跑
+          // 但文本在 attempt 落盘前完全不出现（转圈→整段蹦出）。0.1.2 没有此
+          // 字段，按版本分叉只对 0.1.3+ 送 —— 0.1.2 请求体保持逐字节一致。
+          ...(is013Wire(origin) ? { assistantStream: true } : {}),
+        },
+      },
+    },
     logger,
     {
       onItem(value: unknown) {
@@ -372,7 +387,12 @@ export function subscribeFollowStream(
             hasMore: frame.hasMore,
             header: frame.header,
             projections: frame.projections,
+            ...(frame.assistantStream !== undefined ? { assistantStream: frame.assistantStream } : {}),
           })
+          return
+        }
+        if (frame.type === 'assistant-stream') {
+          handlers.onAssistantStream?.(frame.frame)
           return
         }
         handlers.onEvent(frame.event)

@@ -7,7 +7,7 @@ import { parseReadyLine, type ReadyInfo } from '../pure/readyLine.ts'
 import { gte } from '../pure/semver.ts'
 import { locateDsh, DshNotFoundError } from './locateDsh.ts'
 import { probePort, probeDsh, PROBE_TIMEOUT_MS } from './portProbe.ts'
-import { exchangeToken, probeToken, clearAuth, cookieHeader } from './serverAuth.ts'
+import { exchangeToken, probeToken, clearAuth, clearVersion, cookieHeader, registerVersion } from './serverAuth.ts'
 import {
   acquireOwnedLock,
   clearOwnedRecord,
@@ -97,6 +97,9 @@ export class ServerManager implements vscode.Disposable {
   }
 
   private setStatus(next: ServerStatus): void {
+    // 以 origin 为键登记 dsh 版本，供 RPC/流层按版本隔离 0.1.3 协议分裂
+    // （commands/execute 参数改名、session/follow assistantStream opt-in）。
+    if (next.state === 'running' && next.url && next.version) registerVersion(next.url, next.version)
     this.status = next
     this.onDidChangeStateEmitter.fire(next)
   }
@@ -140,6 +143,7 @@ export class ServerManager implements vscode.Disposable {
       await this.killOwned(KILL_GRACE_MS)
     } finally {
       if (this.status.url) clearAuth(this.status.url)
+      if (this.status.url) clearVersion(this.status.url)
       this.ownedPid = null
       this.setStatus({ state: 'stopped' })
       this.stopping = false
@@ -203,6 +207,7 @@ export class ServerManager implements vscode.Disposable {
     // 紧接 ensureStarted 的 probe 可能还看到 401（authDsh）而误判。
     await drainPort(port, this.logger)
     if (this.status.url) clearAuth(this.status.url)
+    if (this.status.url) clearVersion(this.status.url)
     await this.clearOwned()
     this.setStatus({ state: 'stopped' })
     this.logger.info(`external dsh stopped (pid=${pid}, port=${port})`)
