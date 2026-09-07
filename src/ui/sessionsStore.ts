@@ -186,13 +186,24 @@ export interface SessionsBootstrap {
 /** loopback tag-bridge 一次 `{group, sessionIds}` 请求的归组结果（#18）。 */
 export interface TagGroupAssignResult {
   ok: boolean
-  /** ok=false 时的错误码（empty-group / no-sessions / tag-failed）。 */
+  /** ok=false 时的错误码（empty-group / no-sessions / tag-failed / tag-not-found）。 */
   error?: string
   /** ok=true 时：组名（trim 后）与命中的组 id；多 workspace 时取最后一组。 */
   tagName?: string
   tagId?: string
   /** ok=true 时：成功归入该组的会话数。 */
   sessionCount?: number
+}
+
+/** 一个会话当前所属的标签组引用（查用途）。预设组 name 为 null（显示名走 l10n）。 */
+export interface SessionTagRef {
+  workspaceId: string
+  id: string
+  /** 显示名；null = 预设组（todo/doing/done）。 */
+  name: string | null
+  color: TagColor
+  /** 是否预设组。 */
+  preset: boolean
 }
 
 /**
@@ -991,6 +1002,46 @@ export class SessionsStore implements vscode.Disposable {
   private findOrCreateTag(workspaceId: string, name: string): TagDef | null {
     const existing = this.bucketTags(workspaceId).find((t) => t.name === name)
     return existing ?? this.createTag(workspaceId, name)
+  }
+
+  /** 按 tagId 归组（assign-by-id）：tagId 必须在涉及的所有 workspace 桶中存在，未知
+   *  拒绝（返回 tag-not-found）；组名随 tagId 反查供返回。 */
+  assignByTagId(sessionIds: readonly string[], tagId: string): TagGroupAssignResult {
+    if (sessionIds.length === 0) return { ok: false, error: 'no-sessions' }
+    const byWs = new Map<string, string[]>()
+    for (const id of sessionIds) {
+      const ws = this.workspaceOfSession(id)
+      const list = byWs.get(ws) ?? []
+      list.push(id)
+      byWs.set(ws, list)
+    }
+    let tagName: string | null = null
+    for (const [wsId] of byWs) {
+      const tag = this.bucketTags(wsId).find((t) => t.id === tagId)
+      if (tag === undefined) return { ok: false, error: 'tag-not-found' }
+      tagName = tag.name
+    }
+    this.setSessionTagMany(sessionIds, tagId)
+    return { ok: true, tagId, sessionCount: sessionIds.length, ...(tagName !== null ? { tagName } : {}) }
+  }
+
+  /** 查一个 session 当前所属的标签组（无组 / 未知组归属 → null）。 */
+  sessionTagOf(sessionId: string): SessionTagRef | null {
+    if (!sessionId) return null
+    const wsId = this.workspaceOfSession(sessionId)
+    const bucket = this.bucketOf(wsId)
+    const tagId = bucket.sessionTags[sessionId]
+    if (!tagId) return null
+    const tag = bucket.tags.find((t) => t.id === tagId)
+    if (!tag) return null
+    return { workspaceId: wsId, id: tag.id, name: tag.name, color: tag.color, preset: isPresetTag(tag) }
+  }
+
+  /** 把一批 session 移出当前组（清空归属；组定义保留，不删组）。返回处理数。 */
+  unassignSessions(sessionIds: readonly string[]): number {
+    if (sessionIds.length === 0) return 0
+    this.setSessionTagMany(sessionIds, null)
+    return sessionIds.length
   }
 
   /** 持久化标签组顺序（per-workspace；拖拽后提交全量顺序；缺失/未知 id 拒绝）。 */

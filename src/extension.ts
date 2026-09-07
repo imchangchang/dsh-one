@@ -70,7 +70,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // 进程直写工作区外文件的沙箱拦截）。失败（少数坏环境）只降级——--tag 不可用，
   // 脚本会报「扩展未加载」指路，不影响其余扩展功能。
   const tagBridge = new TagBridge({
-    assignTags: async (input) => sessions.assignTagGroup(input.group, input.sessionIds),
+    handle: async (req) => {
+      if (req.action === 'assign') {
+        // 归组：按组名找/建（assignTagGroup）或按 tagId 必须存在（assignByTagId）。
+        return req.group !== undefined
+          ? sessions.assignTagGroup(req.group, req.sessionIds)
+          : sessions.assignByTagId(req.sessionIds, req.tagId!)
+      }
+      if (req.action === 'get') return { ok: true, group: sessions.sessionTagOf(req.sessionId) ?? null }
+      return { ok: true, sessionCount: sessions.unassignSessions(req.sessionIds) }
+    },
     logger,
   })
   await tagBridge.start().catch((err) => logger.warn(`tag-bridge start failed (--tag unavailable): ${errorText(err)}`))
