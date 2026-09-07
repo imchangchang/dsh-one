@@ -32,8 +32,68 @@ export interface TagFile {
   sessionTags: Record<string, string>
 }
 
-export type DshModuleName = 'recycle-bin' | 'groups' | 'tags' | 'pinned' | 'unread'
+/**
+ * composer 草稿的一张暂存图片（粘贴的 base64 图）。与 OutgoingImage 同形；
+ * 文件类附件只存路径引用（字节在磁盘），不进 drafts.json。
+ */
+export interface DraftImage {
+  mediaType: string
+  data: string
+  name?: string
+}
 
+/** composer 草稿的一个文件 chip：只存显示名 + 路径（previewData 是内存态，恢复后经 fileThumb 重取）。 */
+export interface DraftFileChip {
+  name: string
+  path: string
+  image?: boolean
+}
+
+/** 一个会话（或空态 tab）的 composer 草稿：文本 + 暂存附件。 */
+export interface ComposerDraftEntry {
+  text: string
+  images?: DraftImage[]
+  files?: DraftFileChip[]
+  /** 宿主落盘时戳的 epoch ms；超量条目按它淘旧的。 */
+  updatedAt: number
+}
+
+/** 一道问答卡题的半答草稿：勾选项 label + 自定义输入 + 单选「其他」态。 */
+export interface AnswerDraftEntry {
+  selected: string[]
+  custom: string
+  other: boolean
+}
+
+/**
+ * 输入草稿模块（drafts.json）：composer key = sessionId，空态 tab 用
+ * `tab:<tabId>`（重启后 serializer 按 tabId 认回）；answers key = rpcId →
+ * 题号（JSON 对象 key 为字符串）→ 半答草稿。发送/提交即删对应条目。
+ */
+export interface DraftsFile {
+  version: 1
+  composer: Record<string, ComposerDraftEntry>
+  answers: Record<string, Record<string, AnswerDraftEntry>>
+}
+
+/** composer 条目数上限（防关闭 tab/归档会话留下的陈旧条目无限堆积；超出按 updatedAt 淘旧）。 */
+export const DRAFTS_COMPOSER_CAP = 100
+/** 问答草稿 rpcId 数上限（同上；正常路径提交即删，这里只兜被遗弃的）。 */
+export const DRAFTS_ANSWERS_CAP = 100
+/**
+ * 单条 composer 草稿允许持久化的图片 base64 总字符数上限（≈6MB 二进制）：
+ * 超出部分丢弃（文本/文件 chip 仍持久化）——drafts.json 是单文件原子写，
+ * 无上限会让每次落盘都重写一个巨型 JSON。
+ */
+export const DRAFT_IMAGE_DATA_CAP = 8_000_000
+
+export type DshModuleName = 'recycle-bin' | 'groups' | 'tags' | 'pinned' | 'unread' | 'drafts'
+
+/**
+ * 参与启动快照/热重载的模块。drafts 刻意不在列：它是高频写（打字防抖落盘）
+ * 且读只在 webview ready 时现读（readDrafts），进快照会让每次击键落盘都
+ * 触发 watch 重读整个 drafts.json。
+ */
 export const DSH_MODULE_NAMES: readonly DshModuleName[] = [
   'recycle-bin',
   'groups',
@@ -105,6 +165,108 @@ export function parseTagFile(raw: string): TagFile | null {
   }
 }
 
+/* ---- drafts：逐字段宽松清洗（坏条目丢弃而不是整文件作废——草稿丢了不致命） ---- */
+
+function sanitizeDraftImages(value: unknown): DraftImage[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const out: DraftImage[] = []
+  let bytes = 0
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) continue
+    const rec = item as Record<string, unknown>
+    if (typeof rec.mediaType !== 'string' || typeof rec.data !== 'string' || rec.data === '') continue
+    if (bytes + rec.data.length > DRAFT_IMAGE_DATA_CAP) continue
+    bytes += rec.data.length
+    out.push({ mediaType: rec.mediaType, data: rec.data, ...(typeof rec.name === 'string' ? { name: rec.name } : {}) })
+  }
+  return out.length > 0 ? out : undefined
+}
+
+function sanitizeDraftFileChips(value: unknown): DraftFileChip[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const out: DraftFileChip[] = []
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) continue
+    const rec = item as Record<string, unknown>
+    if (typeof rec.name !== 'string' || typeof rec.path !== 'string' || rec.path === '') continue
+    out.push({ name: rec.name, path: rec.path, ...(rec.image === true ? { image: true } : {}) })
+  }
+  return out.length > 0 ? out : undefined
+}
+
+function sanitizeComposerDraft(value: unknown): ComposerDraftEntry | null {
+  if (typeof value !== 'object' || value === null) return null
+  const rec = value as Record<string, unknown>
+  const text = typeof rec.text === 'string' ? rec.text : ''
+  const images = sanitizeDraftImages(rec.images)
+  const files = sanitizeDraftFileChips(rec.files)
+  // 全空条目不复活（正常路径空即删，这里兜脏数据）。
+  if (text === '' && !images && !files) return null
+  return {
+    text,
+    ...(images ? { images } : {}),
+    ...(files ? { files } : {}),
+    updatedAt: typeof rec.updatedAt === 'number' && Number.isFinite(rec.updatedAt) ? rec.updatedAt : 0,
+  }
+}
+
+function sanitizeAnswerDraft(value: unknown): AnswerDraftEntry | null {
+  if (typeof value !== 'object' || value === null) return null
+  const rec = value as Record<string, unknown>
+  const selected = Array.isArray(rec.selected) ? rec.selected.filter((s): s is string => typeof s === 'string') : []
+  const custom = typeof rec.custom === 'string' ? rec.custom : ''
+  const other = rec.other === true
+  if (selected.length === 0 && custom === '' && !other) return null
+  return { selected, custom, other }
+}
+
+export function parseDraftsFile(raw: string): DraftsFile | null {
+  const rec = parseJson(raw)
+  if (rec === null || rec.version !== 1 || !hasField(rec, 'composer') || !hasField(rec, 'answers')) return null
+  const composer: Record<string, ComposerDraftEntry> = {}
+  if (typeof rec.composer === 'object' && rec.composer !== null) {
+    for (const [key, value] of Object.entries(rec.composer)) {
+      const entry = sanitizeComposerDraft(value)
+      if (entry) composer[key] = entry
+    }
+  }
+  const answers: Record<string, Record<string, AnswerDraftEntry>> = {}
+  if (typeof rec.answers === 'object' && rec.answers !== null) {
+    for (const [rpcId, perQuestion] of Object.entries(rec.answers)) {
+      if (typeof perQuestion !== 'object' || perQuestion === null) continue
+      const map: Record<string, AnswerDraftEntry> = {}
+      for (const [index, value] of Object.entries(perQuestion)) {
+        const entry = sanitizeAnswerDraft(value)
+        if (entry) map[index] = entry
+      }
+      if (Object.keys(map).length > 0) answers[rpcId] = map
+    }
+  }
+  return capDraftsFile({ version: 1, composer, answers })
+}
+
+/** 超量淘旧：composer 按 updatedAt 升序删到上限内；answers 无时间戳，按插入序删最旧。 */
+export function capDraftsFile(file: DraftsFile): DraftsFile {
+  const composerKeys = Object.keys(file.composer)
+  if (composerKeys.length > DRAFTS_COMPOSER_CAP) {
+    const sorted = composerKeys.sort((a, b) => (file.composer[a]?.updatedAt ?? 0) - (file.composer[b]?.updatedAt ?? 0))
+    const next = { ...file.composer }
+    for (const key of sorted.slice(0, composerKeys.length - DRAFTS_COMPOSER_CAP)) delete next[key]
+    file = { ...file, composer: next }
+  }
+  const answerKeys = Object.keys(file.answers)
+  if (answerKeys.length > DRAFTS_ANSWERS_CAP) {
+    const next = { ...file.answers }
+    for (const key of answerKeys.slice(0, answerKeys.length - DRAFTS_ANSWERS_CAP)) delete next[key]
+    file = { ...file, answers: next }
+  }
+  return file
+}
+
+export function emptyDraftsFile(): DraftsFile {
+  return { version: 1, composer: {}, answers: {} }
+}
+
 /* ---- 序列化 ---- */
 
 export function serializeIdListFile(value: IdListFile): string {
@@ -116,6 +278,10 @@ export function serializeGroupFile(value: GroupFile): string {
 }
 
 export function serializeTagFile(value: TagFile): string {
+  return JSON.stringify(value)
+}
+
+export function serializeDraftsFile(value: DraftsFile): string {
   return JSON.stringify(value)
 }
 

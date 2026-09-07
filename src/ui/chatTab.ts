@@ -168,6 +168,8 @@ export class ChatTabHost implements vscode.Disposable {
   private readonly pendingIntentBySession = new Map<string, SendIntent>()
   /** controller 状态订阅；tab 关闭后保留（pending 兜底需要继续听）。 */
   private controllerSub: vscode.Disposable | null = null
+  /** 上一帧 state 的 pending rpcId 集：pending 解除（本窗口/别客户端已答）时清理对应问答草稿（#14）。 */
+  private lastPendingRpcIds = new Set<string>()
   /** controller 断连状态订阅（chatReconnect → 横幅）；随 controller 释放。 */
   private reconnectSub: vscode.Disposable | null = null
   /** panel 消息订阅（panel 侧，随 panel 关闭清理）。 */
@@ -300,6 +302,7 @@ export class ChatTabHost implements vscode.Disposable {
     controller.setServerRunning(this.actions.store.runningFor(sessionId))
     this.controllerSub = controller.onDidChange((state) => {
       this.push(state)
+      this.pruneResolvedAnswerDrafts(state)
       // 兜底：tab 被用户关闭但有 pending 交互（审批/问题/计划评审）时自动
       // 再拉出该会话的 tab，避免交互被静默吞掉（per-session）。
       if (state.pending.length > 0 && !this.panel) this.ensurePanel()
@@ -330,6 +333,28 @@ export class ChatTabHost implements vscode.Disposable {
     this.reconnectSub = null
     this.controller?.dispose()
     this.controller = null
+    this.lastPendingRpcIds.clear()
+  }
+
+  /**
+   * pending 交互解除（提交/被别客户端回答/被取代）时删掉对应问答草稿（#14）：
+   * 本窗口提交路径 webview 会发 answerDraftSave null，这里兜「别客户端回答/
+   * superseded」——否则被遗弃的半答草稿会在 drafts.json 里无限残留。
+   */
+  private pruneResolvedAnswerDrafts(state: ChatState): void {
+    const current = new Set(state.pending.map((p) => p.rpcId))
+    const resolved: string[] = []
+    for (const rpcId of this.lastPendingRpcIds) {
+      if (!current.has(rpcId)) resolved.push(rpcId)
+    }
+    this.lastPendingRpcIds = current
+    if (resolved.length === 0) return
+    this.actions.store.updateDrafts((prev) => {
+      if (!resolved.some((rpcId) => rpcId in prev.answers)) return prev
+      const answers = { ...prev.answers }
+      for (const rpcId of resolved) delete answers[rpcId]
+      return { ...prev, answers }
+    })
   }
 
   /**
@@ -437,12 +462,25 @@ export class ChatTabHost implements vscode.Disposable {
     // 当前 ChatState 与 sessions 快照，恢复界面。不能依赖事件驱动推送——重载
     // 后若无新事件，webview 会一直收不到状态。
     if (m.type === 'ready') {
-      this.push(this.controller?.getState() ?? this.emptyState())
-      this.actions.pushSessions()
-      // webview 重载后断连横幅状态也丢（横幅是瞬态消息流，不进 state）：
-      // 重连周期还在进行时补发一次当前相位，横幅不会因 reload 漏掉。
-      const reconnect = this.controller?.reconnectStatus()
-      if (reconnect) this.postMessage({ type: 'chatReconnect', ...reconnect })
+      // 持久化草稿（#14）必须在首个 state 帧之前到达：webview 据它种进内存
+      // 草稿表，首个渲染帧（含会话切换归档帧）就能消费。读盘很快（单文件），
+      // 失败按空集降级不挡状态恢复。
+      void this.actions.store
+        .readDrafts()
+        .then((drafts) => {
+          this.postMessage({ type: 'draftRestore', composer: drafts.composer, answers: drafts.answers })
+          this.push(this.controller?.getState() ?? this.emptyState())
+          this.actions.pushSessions()
+          // webview 重载后断连横幅状态也丢（横幅是瞬态消息流，不进 state）：
+          // 重连周期还在进行时补发一次当前相位，横幅不会因 reload 漏掉。
+          const reconnect = this.controller?.reconnectStatus()
+          if (reconnect) this.postMessage({ type: 'chatReconnect', ...reconnect })
+        })
+        .catch((err) => {
+          this.actions.logger.warn(`chat: draftRestore read failed — ${err instanceof Error ? err.message : String(err)}`)
+          this.push(this.controller?.getState() ?? this.emptyState())
+          this.actions.pushSessions()
+        })
       return
     }
     // composer 脏位上报：webview 侧在输入/附件/会话切换后同步真实状态；

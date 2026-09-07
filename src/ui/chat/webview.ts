@@ -478,6 +478,111 @@ function reportComposerDirty(force = false): void {
   post({ type: 'composerDirty', dirty })
 }
 
+/* ---- 草稿持久化上报（#14）：内容变更防抖落盘到 ~/.dsh/dsh-one/drafts.json，
+ *  重启/reload 后宿主经 draftRestore 全量下发恢复。 ---- */
+
+/**
+ * 落盘防抖间隔。定时器挂起期间不复位（throttle 语义）：流式渲染每帧都会
+ * 调度，复位会让长流式期间永不落盘；不复位则陈旧窗口有界（≤间隔）。
+ */
+const DRAFT_SAVE_DEBOUNCE_MS = 400
+let draftSaveTimer: ReturnType<typeof setTimeout> | null = null
+/** 每个草稿 key 最近一次上报的签名（去重：draftRestore 恢复/切换回来的未变草稿不重写）。 */
+const draftSaveSignatures = new Map<string, string>()
+
+/** 当前草稿的持久化 key：附着会话用 sessionId；空态 tab 用 `tab:<tabId>`（重启后 serializer 按 tabId 认回，多空 tab 不撞）。 */
+function draftPersistKey(): string {
+  return stagedForSession ?? `tab:${tabId ?? 'unknown'}`
+}
+
+/** 内存归档占位 key（EMPTY_SESSION_KEY）→ 持久化 key 的翻译；真会话 id 原样。 */
+function persistKeyFor(archiveKey: string): string {
+  return archiveKey === EMPTY_SESSION_KEY ? `tab:${tabId ?? 'unknown'}` : archiveKey
+}
+
+/** 当前 composer 内容快照：文本从 DOM/暂存读（与 reportComposerDirty 同源），附件读模块级暂存。 */
+function composerDraftSnapshot(): { text: string; images: OutgoingImage[]; files: StagedFile[] } {
+  const input = document.getElementById('input') as HTMLTextAreaElement | null
+  const text = input ? input.value : (stashedDraft ?? pendingStash?.text ?? '')
+  return { text, images: pendingImages, files: pendingFiles }
+}
+
+/** 变更判定签名：文本 + 图片（大小:名字）+ 文件路径。内容没变就不发（流式渲染每帧都会调度到）。 */
+function draftSignature(d: { text: string; images: OutgoingImage[]; files: StagedFile[] }): string {
+  return [
+    d.text,
+    d.images.map((i) => `${i.data.length}:${i.name ?? ''}`).join(','),
+    d.files.map((f) => f.path).join(','),
+  ].join('\0')
+}
+
+/** 立即上报一份草稿；空内容发 null 让宿主删条目（发送/一键清空/全删都收敛到这里）。 */
+function flushDraftSave(key: string, d: { text: string; images: OutgoingImage[]; files: StagedFile[] }): void {
+  const sig = draftSignature(d)
+  if (draftSaveSignatures.get(key) === sig) return
+  const empty = d.text === '' && d.images.length === 0 && d.files.length === 0
+  // 从未上报过的空内容不发（新 webview 首帧恒空，避免每个 tab 白发一条 null）。
+  if (empty && !draftSaveSignatures.has(key)) return
+  draftSaveSignatures.set(key, sig)
+  post({
+    type: 'composerDraftSave',
+    key,
+    draft: empty
+      ? null
+      : {
+          text: d.text,
+          // previewData/mediaType 是内存态（缩略图恢复后经 fileThumb 重取），只存 name/path/image。
+          ...(d.images.length > 0
+            ? { images: d.images.map((i) => ({ mediaType: i.mediaType, data: i.data, ...(i.name ? { name: i.name } : {}) })) }
+            : {}),
+          ...(d.files.length > 0
+            ? { files: d.files.map((f) => ({ name: f.name, path: f.path, ...(f.image ? { image: true } : {}) })) }
+            : {}),
+        },
+  })
+}
+
+/** 防抖调度当前会话草稿上报：输入事件与渲染尾（发送清空/附件增删/草稿恢复）都经这里。 */
+function scheduleDraftSave(): void {
+  if (draftSaveTimer !== null) return
+  draftSaveTimer = setTimeout(() => {
+    draftSaveTimer = null
+    flushDraftSave(draftPersistKey(), composerDraftSnapshot())
+  }, DRAFT_SAVE_DEBOUNCE_MS)
+}
+
+/** 问答卡半答草稿上报：每 rpcId 一个防抖定时器（面板里打字/勾选不触发 render，需独立挂钩）。 */
+const answerSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function flushAnswerDraftSave(rpcId: string): void {
+  const d = answerDrafts.get(rpcId)
+  const answers: Record<string, { selected: string[]; custom: string; other: boolean }> = {}
+  for (const [index, v] of d ?? []) {
+    if (v.selected.size === 0 && v.custom === '' && !v.other) continue
+    answers[String(index)] = { selected: [...v.selected], custom: v.custom, other: v.other }
+  }
+  post({ type: 'answerDraftSave', rpcId, answers: Object.keys(answers).length > 0 ? answers : null })
+}
+
+function scheduleAnswerDraftSave(rpcId: string): void {
+  if (answerSaveTimers.has(rpcId)) return
+  answerSaveTimers.set(
+    rpcId,
+    setTimeout(() => {
+      answerSaveTimers.delete(rpcId)
+      flushAnswerDraftSave(rpcId)
+    }, DRAFT_SAVE_DEBOUNCE_MS),
+  )
+}
+
+/** 提交后立刻清持久化副本（宿主在 pending 解除时也会清，双保险幂等）。 */
+function clearAnswerDraft(rpcId: string): void {
+  const timer = answerSaveTimers.get(rpcId)
+  if (timer) clearTimeout(timer)
+  answerSaveTimers.delete(rpcId)
+  post({ type: 'answerDraftSave', rpcId, answers: null })
+}
+
 /**
  * 外部链接拦截（捕获阶段）：裸 `<a href="http…">` 的默认行为会让 webview
  * 自身导航到目标页，面板内容被顶掉——表现为「点对话里的链接，原来的 tab 就
@@ -1402,6 +1507,55 @@ let sessionsSnapshot: SessionsSnapshot | null = null
 
 window.addEventListener('message', (event) => {
   const msg = event.data as ToWebviewMessage
+  if (msg?.type === 'draftRestore') {
+    // 持久化草稿全量下发（#14，宿主保证先于首个 state 帧到达）：种进内存
+    // 草稿表——附着会话的恢复走首个 state 帧的切换归档/草稿消费路径；
+    // 签名一并种下，恢复后内容未变不会触发重写。
+    for (const [key, entry] of Object.entries(msg.composer ?? {})) {
+      if (typeof entry?.text !== 'string') continue
+      // 其他 tab 的空态草稿与本 tab 无关，不种。
+      if (key.startsWith('tab:') && key !== `tab:${tabId}`) continue
+      const images = entry.images ?? []
+      const files = entry.files ?? []
+      composerDrafts.set(key, entry.text)
+      stagedPerSession.set(key, { images: [...images], files: [...files] })
+      draftSaveSignatures.set(key, draftSignature({ text: entry.text, images, files }))
+    }
+    for (const [rpcId, perQuestion] of Object.entries(msg.answers ?? {})) {
+      const d = new Map<number, QuestionDraft>()
+      for (const [index, a] of Object.entries(perQuestion ?? {})) {
+        const i = Number(index)
+        if (!Number.isInteger(i) || !a) continue
+        d.set(i, {
+          selected: new Set(Array.isArray(a.selected) ? a.selected : []),
+          custom: typeof a.custom === 'string' ? a.custom : '',
+          other: a.other === true,
+        })
+      }
+      if (d.size > 0) answerDrafts.set(rpcId, d)
+    }
+    // 空态 tab：首个 state 帧 sessionId 恒 null（stagedForSession 也是 null）
+    // 不走切换归档，把本 tab 草稿直接停驻，首个 hero 渲染经 stashedDraft 消费。
+    const mine = tabId ? msg.composer?.[`tab:${tabId}`] : undefined
+    if (mine && !state?.sessionId) {
+      if (mine.text) stashedDraft = mine.text
+      pendingImages = [...(mine.images ?? [])]
+      pendingFiles = [...(mine.files ?? [])]
+      render()
+      return
+    }
+    // state 已到达（面板创建时的首推 state 排队在 ready 回执之前送达）：首个
+    // state 帧的切换恢复发生时草稿表还没种上，这里对当前会话主动补一次恢复
+    // （draftRestoreFor 帧消费文本，附件直接复位）。
+    if (state?.sessionId) {
+      const restored = stagedPerSession.get(state.sessionId)
+      pendingImages = [...(restored?.images ?? [])]
+      pendingFiles = [...(restored?.files ?? [])]
+      draftRestoreFor = state.sessionId
+      render()
+    }
+    return
+  }
   if (msg?.type === 'state' && msg.state) {
     state = msg.state
     const switched = state.sessionId !== stagedForSession
@@ -1425,6 +1579,13 @@ window.addEventListener('message', (event) => {
         oldInput ? oldInput.value : oldKey === EMPTY_SESSION_KEY ? '' : stashedDraft ?? pendingStash?.text ?? '',
       )
       stagedPerSession.set(oldKey, { images: pendingImages, files: pendingFiles })
+      // 旧会话草稿立即落盘（#14）：防抖定时器触发时读的是切换后的当前会话态，
+      // 等它火旧草稿已归档摸不着，必须在归档点同步上报。
+      flushDraftSave(persistKeyFor(oldKey), {
+        text: composerDrafts.get(oldKey) ?? '',
+        images: stagedPerSession.get(oldKey)?.images ?? [],
+        files: stagedPerSession.get(oldKey)?.files ?? [],
+      })
       if (oldKey !== EMPTY_SESSION_KEY) {
         stashedDraft = undefined
         pendingStash = null
@@ -1551,6 +1712,8 @@ window.addEventListener('message', (event) => {
     if (stagedRestore && input) render()
     // 附件恢复不经 input 事件：与 filesPicked 同款，作废清空暂存。
     if (stagedRestore) clearedStash = null
+    // 发送失败的回填不一定经过 render（stashedDraft 路径），这里兜一次落盘调度（#14）。
+    scheduleDraftSave()
   } else if (msg?.type === 'fileRefList') {
     // 乱序/过期响应丢弃；token 没变才存结果并重算弹窗（token 已消失时
     // updateSlashPopup 自己算不出行，弹窗保持关闭）。
@@ -3988,6 +4151,8 @@ function render(): void {
   }
   // 脏位跟随渲染结果上报：切换会话恢复草稿、发送清空、附件增删都经这里。
   reportComposerDirty()
+  // 草稿落盘同款（#14）：发送清空/附件增删/restoreDraft 回填等经 render 的变化在此收口。
+  scheduleDraftSave()
 }
 
 /**
@@ -6742,6 +6907,7 @@ function renderPanelAnswer(p: PendingQuestion, index: number): HTMLElement {
   }
   input.addEventListener('input', () => {
     draft.custom = input.value
+    scheduleAnswerDraftSave(p.rpcId)
   })
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.isComposing) {
@@ -6815,6 +6981,7 @@ function submitAnswer(p: PendingQuestion, chatOverride?: { index: number; text: 
   })
   answerDrafts.delete(p.rpcId)
   panelState.delete(p.rpcId)
+  clearAnswerDraft(p.rpcId)
   post({ type: 'answer', rpcId: p.rpcId, answers })
   // 提交答案同样延续对话流（回复继续流式输出），滚到底并复位跟随态。
   pinToLatest()
@@ -6831,6 +6998,7 @@ function submitPlanReview(p: PendingQuestion, selected: string[], custom = ''): 
   })
   answerDrafts.delete(p.rpcId)
   panelState.delete(p.rpcId)
+  clearAnswerDraft(p.rpcId)
   post({ type: 'answer', rpcId: p.rpcId, answers })
   pinToLatest()
 }
@@ -6926,6 +7094,7 @@ function renderQuestionItem(
         box.addEventListener('change', () => {
           if (box.checked) draft.selected.add(opt.label)
           else draft.selected.delete(opt.label)
+          scheduleAnswerDraftSave(p.rpcId)
           updateOkState()
         })
         label.appendChild(box)
@@ -6943,6 +7112,7 @@ function renderQuestionItem(
           draft.selected = new Set([opt.label])
           draft.custom = ''
           draft.other = false
+          scheduleAnswerDraftSave(p.rpcId)
           // 保活态下 render() 不会重建面板，选中高亮与自定义输入框必须就地
           // 更新；无保活时下次快照重建也会按 draft 恢复同态。
           group.querySelectorAll('.option-btn').forEach((b) => b.classList.toggle('selected', b === btn))
@@ -6962,6 +7132,7 @@ function renderQuestionItem(
         draft.selected.clear()
         draft.custom = ''
         draft.other = true
+        scheduleAnswerDraftSave(p.rpcId)
         group.querySelectorAll('.option-btn').forEach((b) => b.classList.toggle('selected', b === otherBtn))
         const customRow = wrap.querySelector<HTMLElement>('.question-custom')
         if (customRow) customRow.classList.remove('hidden')
@@ -6990,6 +7161,7 @@ function renderQuestionItem(
   input.addEventListener('input', () => {
     draft.custom = input.value
     if (input.value && !q.multiSelect) draft.selected.clear()
+    scheduleAnswerDraftSave(p.rpcId)
     updateOkState()
   })
   customRow.appendChild(input)
@@ -7619,6 +7791,8 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     clearedStash = null
     // 纯输入不触发 render，脏位上报单独跟一次（宿主的 dirty 保护决策读它）。
     reportComposerDirty()
+    // 草稿落盘同款（不经 render 的输入事件独立挂钩，#14）。
+    scheduleDraftSave()
   })
   input.addEventListener('blur', () => {
     hideSlashPopup()
