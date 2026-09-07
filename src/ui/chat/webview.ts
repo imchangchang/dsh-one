@@ -7509,7 +7509,8 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         if (clearConfirmArmed) {
           clearComposer()
         } else {
-          armClearConfirm(input)
+          // 锚定整个输入区（含附件 chips 行）：提示小框浮在 chips 上方，不遮内容。
+          armClearConfirm(input.closest('.input-area') ?? input)
         }
         return
       }
