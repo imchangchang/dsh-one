@@ -4,7 +4,7 @@
  * ChatMessage[]; the webview renders ChatState snapshots verbatim. Treat this
  * file as an interface freeze: change it only when both sides change together.
  */
-import type { SessionSortOrder, WorkspaceNodeModel } from './sessionTree.ts'
+import type { WorkspaceNodeModel } from './sessionTree.ts'
 import type { ActivityJob } from './activityTree.ts'
 import type { FileRefCandidate } from './fileReference.ts'
 import type { WorkflowRunView } from './workflowRun.ts'
@@ -797,7 +797,6 @@ export interface SessionsSnapshot {
   workspaces: WorkspaceNodeModel[]
   /** 当前搜索词（null = 未过滤）。 */
   query: string | null
-  sortOrder: SessionSortOrder
   /** ServerStatus.state 的拷贝（pure 层不 import server 模块）。 */
   serverState: 'stopped' | 'starting' | 'running' | 'error'
   /** 启动失败原因是未找到 dsh 可执行文件。 */
@@ -1099,8 +1098,6 @@ export type FromWebviewMessage =
   | { type: 'sessionsRefresh' }
   /** Sessions 面板：设置/清除搜索词。 */
   | { type: 'sessionsSearch'; query: string | null }
-  /** Sessions 面板：切换排序方式。 */
-  | { type: 'sessionsSort'; order: SessionSortOrder }
   /** Sessions 面板：置顶/取消置顶会话（本地状态）。 */
   | { type: 'sessionPin'; sessionId: string; pin: boolean }
   /** Sessions 面板：标记未读/已读会话（本地状态）。 */

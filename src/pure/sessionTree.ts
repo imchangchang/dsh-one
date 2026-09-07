@@ -63,9 +63,10 @@ export interface SessionNodeModel {
   description: string
   running: boolean
   /**
-   * 活跃（与行尾状态标记同义）：running / 后代运行 / 未读 / 待交互 / tab 打开中
-   * 任一。排序上它在标签组聚合之前（用户确认：运行中/待交互的最上面），渲染层
-   * 据此把活跃会话脱离标签组块平铺（同置顶语义），避免被折叠组藏住。
+   * 活跃（与行尾状态标记同义）：running / 后代运行 / 未读 / 待交互任一。排序上
+   * 它在标签组聚合之前（用户确认：运行中/待交互的最上面），渲染层据此把活跃
+   * 会话脱离标签组块平铺（同置顶语义），避免被折叠组藏住。注意：仅「tab 打开中」
+   * 不算活跃——点开只高亮不跳序（用户拍板）。
    */
   active: boolean
   /** Client-side pin (dsh has no pin API); pinned sessions carry absolute priority. */
@@ -85,12 +86,6 @@ export interface SessionNodeModel {
   hasCompletedTurn: boolean
   /** Client-side unread marker (dsh has no unread API); part of the active layer. */
   unread: boolean
-  /**
-   * 会话 tab 当前打开着（chat view 附着的全量 tab 集合）：活跃原因之一，
-   * 但行尾不显示任何标识也不显示时间（用户确认：打开即活跃，关闭且无其他
-   * 状态才掉出活跃层）。纯层只参与排序与透传。
-   */
-  attached: boolean
   /**
    * 有运行中的血缘后代（子代理）——host 的 running 只管 agent 自身相位，
    * 父会话挂载等待子代理时是 idle；展示层用这个补忙碌指示（像素环）。
@@ -117,9 +112,6 @@ export interface WorkspaceNodeModel {
   sessions: SessionNodeModel[]
 }
 
-/** Sort orders offered by the Sessions view title menu. */
-export type SessionSortOrder = 'updatedDesc' | 'updatedAsc' | 'title'
-
 /**
  * Sentinel workspaceId of the synthetic「未分组」group: sessions no
  * registered workspace references (dsh CLI in unregistered dirs, direct-API
@@ -129,8 +121,6 @@ export type SessionSortOrder = 'updatedDesc' | 'updatedAsc' | 'title'
 export const UNGROUPED_WORKSPACE_ID = '__ungrouped__'
 
 export interface SessionTreeViewOptions {
-  /** Session ordering within each workspace; workspaces themselves are unaffected. */
-  sort?: SessionSortOrder
   /** Case-insensitive substring matched against the session label and id. */
   query?: string
   /**
@@ -142,11 +132,6 @@ export interface SessionTreeViewOptions {
   pinned?: readonly string[]
   /** Client-side unread ids; purely a display flag (bold title + dot). */
   unread?: ReadonlySet<string>
-  /**
-   * 当前打开（chat tab 附着）的会话 id 集合：活跃原因之一，与其他活跃原因
-   * 同样整体前置；行尾无标识无时间（渲染层处理）。缺省无会话打开。
-   */
-  attached?: ReadonlySet<string>
   /**
    * Workspace-path equality for the vscode badge (isCurrent). Default is
    * strict equality; on Windows callers pass a normalizing comparator
@@ -175,14 +160,14 @@ export interface SessionTreeViewOptions {
   onlySessionIds?: ReadonlySet<string>
   /**
    * 回收站会话的入站顺序（数组尾部 = 最新移入回收站）。传入时组内排序不再
-   * 走 view.sort / 置顶 / 活跃前置，而是按此顺序倒序——最新入站的在本组最上
+   * 走 置顶 / 活跃前置 / updatedAt，而是按此顺序倒序——最新入站的在本组最上
    * （用户拍板：回收站不按时间/标题排序，只按进入回收站的顺序，最新在最上）。
    * 缺省不传 = 维持既有排序（主列表路径不受影响）。
    */
   recycleOrder?: readonly string[]
   /**
    * 会话标签组显示顺序（组 id 数组，第一 = 最上）。workspace 内非置顶会话
-   * 按组聚合（组块按此顺序），组内沿用 view.sort；没有组的会话殿后。缺省
+   * 按组聚合（组块按此顺序），组内沿用 updatedAt 降序；没有组的会话殿后。缺省
    * 不聚合（全部按既有规则平铺，兼容旧调用方与未打组状态）。
    */
   tags?: readonly string[]
@@ -222,11 +207,10 @@ export function formatRelativeTime(updatedAt: number, now: number, t: L10nFn = e
  * `view.pinned` ids first (absolute priority); pinned members hold the order
  * of `view.pinned` (置顶顺序，不随 updatedAt/title 调整), the remaining
  * unpinned ones put active sessions first — running / running-descendant /
- * unread / pending-interaction / attached（tab 打开中）, any sort mode — ordered
- * by updatedAt
+ * unread / pending-interaction — ordered by updatedAt
  * descending inside the active group, then the tagged sessions follow tag
- * block order (each block ordered by `view.sort`), and the idle untagged
- * ones follow `view.sort` (default updatedAt descending). Active-first
+ * block order (each block ordered by updatedAt descending), and the idle untagged
+ * ones follow updatedAt descending. Active-first
  * mirrors the row
  * rendering, where the rear slot shows a status marker instead of the
  * relative time, so the (invisible) idle time must not drive ordering for
@@ -258,7 +242,6 @@ export function buildSessionTree(
 ): WorkspaceNodeModel[] {
   const byId = new Map(sessions.map((s) => [s.sessionId, s]))
   const query = view.query?.trim().toLowerCase() ?? ''
-  const sort = view.sort ?? 'updatedDesc'
   const pathEqual = view.pathEqual ?? ((a: string, b: string): boolean => a === b)
   const isCurrentFolder = (path: string): boolean => currentFolder !== undefined && pathEqual(path, currentFolder)
   // 回收站过滤：主列表排除回收站会话；回收站视图只保留回收站会话。排除优先。
@@ -292,14 +275,14 @@ export function buildSessionTree(
   }
 
   // 置顶顺序索引：sessionId → 在 view.pinned（数组）里的位置，越靠前置顶越前。
-  // 置顶组内按此固定，不再比较 sort 键（updatedAt/title 只作用于非置顶成员）。
+  // 置顶组内按此固定，不再比较 updatedAt（时间只作用于非置顶成员）。
   const pinnedIndex = new Map<string, number>()
   view.pinned?.forEach((id, i) => {
     if (!pinnedIndex.has(id)) pinnedIndex.set(id, i)
   })
 
   // 回收站入站顺序索引：sessionId → 在 view.recycleOrder（数组）里的位置，数组
-  // 尾部 = 最新移入。回收站组内由此倒序排（最新入站最上），忽略 sort/置顶/活跃。
+  // 尾部 = 最新移入。回收站组内由此倒序排（最新入站最上），忽略 置顶/活跃/updatedAt。
   const recycleOrderIndex = new Map<string, number>()
   view.recycleOrder?.forEach((id, i) => {
     if (!recycleOrderIndex.has(id)) recycleOrderIndex.set(id, i)
@@ -319,10 +302,10 @@ export function buildSessionTree(
   }
   const tagRankOf = (tagId: string | undefined): number => (tagId === undefined ? Infinity : (tagIndex.get(tagId) ?? Infinity))
 
-  // 会话行流水线：label 解析（query 匹配和 title 排序都要用，先算一次）→
+  // 会话行流水线：label 解析（query 匹配和标题显示要用，先算一次）→
   // 查询过滤（标题/ID 命中 或 内容命中）→ 置顶绝对优先（组内按置顶顺序）→
   // 未分组活跃平铺（有状态标记的无组会话整体前置、脱离组块）→ 标签组聚合
-  // （组块 = 容器：组内活跃前置、余下按 sort 键）→ 无组空闲殿后。workspace
+  // （组块 = 容器：组内活跃前置、余下按 updatedAt 降序）→ 无组空闲殿后。workspace
   // 组与「未分组」组共用。
   const toSessionNodes = (list: SessionInput[]): SessionNodeModel[] =>
     list
@@ -336,7 +319,6 @@ export function buildSessionTree(
           s.running ||
           view.unread?.has(s.sessionId) === true ||
           view.pendingInteractions?.has(s.sessionId) === true ||
-          view.attached?.has(s.sessionId) === true ||
           hasRunningDescendant(s.sessionId),
       }))
       .filter(
@@ -377,13 +359,9 @@ export function buildSessionTree(
           const bRank = tagRankOf(bTag)
           if (aRank !== bRank) return aRank - bRank
         }
-        // 组块内活跃前置，活跃组内固定按 updatedAt 降序（越活跃越新），不受
-        // view.sort 的 title/asc 影响——行尾无时间显示，不可见的时间不作排序依据。
+        // 组块内活跃前置，活跃组内固定按 updatedAt 降序（越活跃越新）——行尾
+        // 无时间显示，不可见的时间不作排序依据；空闲层同样按 updatedAt 降序。
         if (a.active !== b.active) return a.active ? -1 : 1
-        if (a.active) return b.session.updatedAt - a.session.updatedAt
-        // 未分组活跃层内全部活跃（上面分支已兜底）；其余按 view.sort。
-        if (sort === 'updatedAsc') return a.session.updatedAt - b.session.updatedAt
-        if (sort === 'title') return a.label.localeCompare(b.label)
         return b.session.updatedAt - a.session.updatedAt
       })
       .map(({ session, label, active }) => {
@@ -399,7 +377,6 @@ export function buildSessionTree(
           pinned: pinnedIndex.has(session.sessionId),
           hasCompletedTurn: (session.sessionStatsTurns ?? 0) > 0,
           unread: view.unread?.has(session.sessionId) === true,
-          attached: view.attached?.has(session.sessionId) === true,
           descendantRunning: hasRunningDescendant(session.sessionId),
           ...(tagId !== undefined ? { tagId } : {}),
           ...(pendingInteraction !== undefined ? { pendingInteraction } : {}),

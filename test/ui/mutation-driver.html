@@ -237,7 +237,7 @@
   const boot = setInterval(() => {
     if ((window.__posted || []).some((m) => m.type === 'ready')) {
       clearInterval(boot)
-      window.postMessage({ type: 'sessions', snapshot: { workspaces: [{ workspaceId: 'ws', path: '/tmp', label: 'ws', isCurrent: true, sessions: ['sess-pump'] }], query: null, sortOrder: 'updatedDesc', serverState: 'running', dshNotFound: false, pinned: [], collapsed: [], unread: [], baselineReady: true } }, '*')
+      window.postMessage({ type: 'sessions', snapshot: { workspaces: [{ workspaceId: 'ws', path: '/tmp', label: 'ws', isCurrent: true, sessions: ['sess-pump'] }], query: null, serverState: 'running', dshNotFound: false, pinned: [], collapsed: [], unread: [], baselineReady: true } }, '*')
       window.postMessage({ type: 'state', state: stateOf(frames[0].messages, frames[0].over) }, '*')
       window.__pumpReady = true
       window.__runPump()

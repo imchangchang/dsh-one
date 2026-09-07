@@ -38,7 +38,7 @@ import type {
   ToWebviewMessage,
 } from '../../pure/chatContract.ts'
 import { questionInteractionStatus } from '../../pure/chatContract.ts'
-import type { SessionNodeModel, SessionSortOrder, WorkspaceNodeModel } from '../../pure/sessionTree.ts'
+import type { SessionNodeModel, WorkspaceNodeModel } from '../../pure/sessionTree.ts'
 import { formatRelativeTime, UNGROUPED_WORKSPACE_ID } from '../../pure/sessionTree.ts'
 import {
   INSTALL_SCRIPT_OS_ORDER,

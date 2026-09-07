@@ -18,7 +18,6 @@ import {
   buildSessionTree,
   UNGROUPED_WORKSPACE_ID,
   type SessionInput,
-  type SessionSortOrder,
   type WorkspaceInput,
   type WorkspaceNodeModel,
 } from '../pure/sessionTree.ts'
@@ -88,8 +87,6 @@ const RECONNECT_MAX_MS = 30_000
 const REFRESH_DEBOUNCE_MS = 500
 
 /* ---- UI 展示偏好：留在 Memento，不进 dsh 目录（条目拍板） ---- */
-/** workspaceState key for the persisted sort preference (UI-only state). */
-const SORT_STATE_KEY = 'sessions.sortOrder'
 /** workspaceState key for collapsed workspaces（UI-only；dsh 无此概念）. */
 const COLLAPSED_STATE_KEY = 'sessions.collapsed'
 /** workspaceState key for collapsed tag-group blocks（UI 偏好，与组内容无关）. */
@@ -131,7 +128,6 @@ function windowsPathEqual(a: string, b: string): boolean {
 export interface SessionsStoreSnapshot {
   workspaces: WorkspaceNodeModel[]
   query: string | null
-  sortOrder: SessionSortOrder
   /** Client-pinned session ids (dsh 无置顶 API，纯本地 UI 状态）. */
   pinned: string[]
   /** Collapsed workspace ids. */
@@ -195,11 +191,10 @@ export class SessionsStore implements vscode.Disposable {
   private workspaces: WorkspaceNodeModel[] = []
   /** Non-archived ids from the last successful session.list (blank included). */
   private knownSessionIds = new Set<string>()
-  /** Last fetched baseline, kept so search/sort rebuild locally without RPC. */
+  /** Last fetched baseline, kept so search/filter rebuild locally without RPC. */
   private rawWorkspaces: WorkspaceInput[] = []
   private rawSessions: SessionInput[] = []
   private rawArchived: ReadonlySet<string> = new Set()
-  private sortOrder: SessionSortOrder = 'updatedDesc'
   private query: string | null = null
   /** 置顶会话 id（保持置顶顺序：数组越靠前置顶越早/越优先；dsh 无置顶 API，
    *  纯客户端状态，~/.dsh/dsh-one/pinned.json 持久化）。 */
@@ -284,7 +279,7 @@ export class SessionsStore implements vscode.Disposable {
   private unwatchFiles: (() => void) | null = null
   private readonly stateSub: vscode.Disposable
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>()
-  /** Fired after every model rebuild (refresh, sort, query, server down). */
+  /** Fired after every model rebuild (refresh, filter, query, server down). */
   readonly onDidChange = this.onDidChangeEmitter.event
 
   constructor(
@@ -296,11 +291,7 @@ export class SessionsStore implements vscode.Disposable {
     private readonly io: DshStateStore,
     bootstrap: SessionsBootstrap,
   ) {
-    // UI 展示偏好（Memento，不搬）：排序、折叠、回收站折叠、标签组折叠。
-    const savedSort = state.get<string>(SORT_STATE_KEY)
-    if (savedSort === 'updatedDesc' || savedSort === 'updatedAsc' || savedSort === 'title') {
-      this.sortOrder = savedSort
-    }
+    // UI 展示偏好（Memento，不搬）：折叠、回收站折叠、标签组折叠。（排序已移除）
     this.collapsed = new Set(state.get<string[]>(COLLAPSED_STATE_KEY) ?? [])
     // 清掉历史版本可能残留的「未分组」折叠键（虚拟组恒展开，不应进集合）。
     this.collapsed.delete(UNGROUPED_WORKSPACE_ID)
@@ -586,10 +577,6 @@ export class SessionsStore implements vscode.Disposable {
     return this.rawWorkspaces
   }
 
-  get currentSortOrder(): SessionSortOrder {
-    return this.sortOrder
-  }
-
   /**
    * Current panel model for the webview. 主列表 workspaces 按选中分组过滤
    * （先分组后搜索：buildSessionTree 已把搜索/排序/折叠应用到全量，这里从
@@ -601,7 +588,6 @@ export class SessionsStore implements vscode.Disposable {
     return {
       workspaces: this.filteredWorkspaces(),
       query: this.query,
-      sortOrder: this.sortOrder,
       pinned: [...this.pinned],
       collapsed: [...this.collapsed],
       unread: [...this.unread],
@@ -1149,8 +1135,9 @@ export class SessionsStore implements vscode.Disposable {
    * Chat view 打开/关闭 tab 时同步已打开会话集合（全量 tab，非仅可见 tab）。
    * 打开 = 已读（邮件语义，用户确认）：attach 瞬间同时清掉自动完成标记与手动
    * 未读。清除是事件而非持续约束——开着 tab 时手动标的未读不会被立即清掉，
-   * 保留到下次打开才清（Gmail 式）。打开中的会话本身算活跃（buildSessionTree
-   * 的 attached 原因），所以集合成员变化也触发重建。
+   * 保留到下次打开才清（Gmail 式）。注意「tab 打开中」不再算活跃（用户拍板：
+   * 打开只高亮不跳序），成员变化本身不影响排序，这里仅因清未读/完成标记可能
+   * 改变显示而触发重建。
    */
   setAttachedSessions(sessionIds: Iterable<string>): void {
     const next = new Set(sessionIds)
@@ -1202,15 +1189,6 @@ export class SessionsStore implements vscode.Disposable {
     if (ids.every((id) => !this.collapsed.has(id))) return
     for (const id of ids) this.collapsed.delete(id)
     void this.state.update(COLLAPSED_STATE_KEY, [...this.collapsed])
-    this.onDidChangeEmitter.fire()
-  }
-
-  /** Rebuild with a new sort order; the preference survives reloads. */
-  setSortOrder(order: SessionSortOrder): void {
-    if (order === this.sortOrder) return
-    this.sortOrder = order
-    void this.state.update(SORT_STATE_KEY, order)
-    this.rebuildModel()
     this.onDidChangeEmitter.fire()
   }
 
@@ -1670,7 +1648,7 @@ export class SessionsStore implements vscode.Disposable {
     this.onDidChangeEmitter.fire()
   }
 
-  /** Rebuild the display model from the cached baseline + current sort/query. */
+  /** Rebuild the display model from the cached baseline + current filter/query. */
   private rebuildModel(): void {
     // 展示层合流：手动未读（持久化）与自动完成标记（内存）共用同一绿点，
     // 官方 dsh web 也是同一状态槽位的 done 圆点，视觉等价。
@@ -1688,11 +1666,8 @@ export class SessionsStore implements vscode.Disposable {
     this.pruneRecycleBin()
     const recycleSet = new Set(this.recycleBin)
     const baseViewOptions = {
-      sort: this.sortOrder,
       pinned: this.pinned,
       unread: unreadDisplay,
-      // 打开中的会话算活跃（第五种活跃原因）：排序前置、行尾无标识无时间。
-      attached: this.attachedIds,
       pendingInteractions: pendingDisplay,
       // 标签组聚合（Chrome 垂直标签式）：组块顺序 = 定义顺序；workspace 内
       // 非置顶会话按组块聚合，无组殿后（置顶会话保持绝对优先平铺）。
@@ -1723,8 +1698,8 @@ export class SessionsStore implements vscode.Disposable {
     // 过滤；空组不渲染（主列表「未分组」组头恒显的语义在回收站不适用）。
     // 回收站平铺：不传 tags/sessionTagFor——回收站里不按标签组聚合，会话也
     // 不挂 tagId（组归属数据不动，恢复后回原组不变；纯层排序退化为
-    // 活跃优先 + sort 键）。recycleOrder = 入站顺序（数组尾部 = 最新移入）。
-    // 组内按入站倒序排（最新入站最上），不再走主列表的 sort/置顶/活跃排序。
+    // 活跃优先 + updatedAt）。recycleOrder = 入站顺序（数组尾部 = 最新移入）。
+    // 组内按入站倒序排（最新入站最上），不再走主列表的 置顶/活跃/updatedAt 排序。
     const { tags: _tags, sessionTagFor: _tagFor, ...recycleBase } = baseViewOptions
     this.recycleWorkspaces = buildSessionTree(
       this.rawWorkspaces,
