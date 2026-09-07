@@ -1119,6 +1119,9 @@ export class SessionsStore implements vscode.Disposable {
    */
   clearRecycleBinIds(ids: readonly string[]): void {
     if (ids.length === 0) return
+    // 归档即终点：会话从基线消失，先清理「已无活跃成员」的自定义组（直接归档、
+    // 未走回收站的会话也在此触发）。下面 if 提前返回只影响回收站集合，不影响本次清账。
+    this.pruneEmptyCustomTags()
     const next = this.recycleBin.filter((id) => !ids.includes(id))
     if (next.length === this.recycleBin.length) return
     this.recycleBin = next
