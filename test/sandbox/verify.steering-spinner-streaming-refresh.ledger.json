@@ -1,0 +1,59 @@
+{
+  "title": "DSH One 验收报告（steering-spinner-streaming-refresh：todo 弧环补相位续播，#9）",
+  "branch": "agent/steering-spinner-streaming-refresh",
+  "commit": "08e9af9",
+  "environment": {
+    "mode": "webview harness 探针（worktree dist + python http.server @127.0.0.1:8921 + playwright headless）+ 单测",
+    "dsh": "不适用（harness 直接投喂 state 快照，不经 dsh）",
+    "locale": "en",
+    "theme": "light（默认）",
+    "image": "不适用——未用 docker 沙盒；改动为单行相位续播（syncAnimPhase(svg, 1000)），验证核心是动画相位连续性探针，harness 层面比真机更可控",
+    "driver": ".dev-host/probe-todo-progress.mjs（相位探针，worktree 内 gitignored 目录，手法同 issue #9 记录的 probe-*.mjs 套路）",
+    "date": "2026-09-07T00:00:00Z"
+  },
+  "coverageNote": "覆盖：todo 弧环在「流式期间 todo 内容真更新」场景的相位连续性（修复前后对照）、todos/steering-pending 场景渲染回归、全量单测/typecheck/build。真桌面 VS Code 实测不在报告范围（改动与既有 syncAnimPhase 机制同源，renderSteeringItem/statusText 等已在线上使用同机制）。探针环境发现：getAnimations()[0].currentTime 不含 CSS delay（Chromium 裸页面实测亦然），不能用作相位探针；有效读数是 effect.getComputedTiming().progress（含 delay）——issue #9 候选路径核实阶段用 currentTime 得出「相位连续」的结论对「未重建」场景仍成立，但对「重建+负 delay 续播」场景会误报为重启。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "todo 弧环相位续播：流式期间 todo 内容真更新时不再从 0° 重启",
+      "expect": "harness todos 场景（含 in_progress 项）推 30 帧流式文本、每 2 帧 todos 真变（in_progress 项文案更新、状态不变）：todo 面板整面板重建（rebuilds>0 属预期，内容真变合理重建），但弧环相位 progress 连续（phaseResets=0）。修复 = todoStatusGlyph in_progress 分支补 syncAnimPhase(svg, 1000)（todo-progress-spin 周期 1s），与全站其他旋转指示器对齐。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/spin-refresh-todos-expanded.png"
+      ],
+      "notes": "【探针 probe-todo-progress.mjs 实测，rAF 级采样元素身份 + getComputedTiming().progress】修复前（stash 对照）：rebuilds=29 phaseResets=29——每次 todo 真变弧环相位都掉回 0（最坏样本 prevProg=0.06 → prog=0.00），复现确认 issue 候选路径 1 成立。修复后：rebuilds=29 phaseResets=0，重跑 3 次全 0——面板重建依旧（内容真变），但弧环从旧相位续播。打点逐帧核对（probe-todo-angle2.mjs 修复后）：每次 rebuild 前后渲染角度平滑衔接（prevAngle 224°→angle 246° 逐级 +22°，无跳变；inline delay 逐次正确如 -684.6ms/-747.2ms）。截图语义核对（展开态 todo 面板）：三项齐全——completed 绿勾环 ✓、in_progress 蓝色弧环（弧段可见，非静止整圆）✓、pending 虚线环 ✓，摘要「Tasks 1 done · 1 running · 1 pending」✓。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "steering-pending 插队圆环渲染回归",
+      "expect": "harness steering-pending 场景：插队气泡左侧旋转圆环正常渲染（本任务改动只触及 todoStatusGlyph，插队圆环路径 renderSteeringItem 未动，核对无意外波及）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/spin-refresh-steering-pending.png"
+      ],
+      "notes": "【截图语义核对】插队气泡「等等，先停下，看看 旧会话 的状态」左侧蓝色圆环正常 ✓；会话 chip（旧会话）与 Referenced sessions 摘要行正常 ✓；composer 提示文案为排队模式（Enter queues…）✓。diff 核对：本次提交仅 src/ui/chat/webview.ts +3/-1（todoStatusGlyph 的 in_progress 分支），renderSteeringItem / reconcileFlow / flowSteerSigs 均未触及。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "todos 折叠态场景渲染回归",
+      "expect": "harness todos 场景默认折叠态：composer 上方一条可折叠摘要卡「Tasks 1 done · 1 running · 1 pending」，布局无回归。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/spin-refresh-todos.png"
+      ],
+      "notes": "【截图语义核对】摘要卡折叠态文案与计数正确 ✓；chevron 向上（折叠态方向，照 figma 字面约定）✓；消息区、composer、stats 行渲染正常，无布局挤压 ✓。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "全量单测 / typecheck / build",
+      "expect": "typecheck 0 错；node --test 全量全绿；build 产出四个 bundle。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "【自测核对】npm run typecheck：0 errors；npm test：647 pass / 0 fail；npm run build：built dist/extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js。修复后重建的 dist/chatWebview.js 已确认含 syncAnimPhase(svg, 1000)（探针跑的就是该构建产物）。"
+    }
+  ]
+}

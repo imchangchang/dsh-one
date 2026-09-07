@@ -4924,8 +4924,10 @@ function todoStatusGlyph(status: ChatTodoItem['status']): SVGSVGElement {
     check.setAttribute('stroke-linejoin', 'round')
     svg.appendChild(check)
   } else if (status === 'in_progress') {
-    // 一段可见弧 + CSS 旋转（对齐 web 的 todo-progress-spin）。
+    // 一段可见弧 + CSS 旋转（对齐 web 的 todo-progress-spin）。相位续播：
+    // todo 面板内容真变时整面板重建，弧环从旧相位继续转而非从 0° 重启。
     svg.classList.add('todo-glyph-progress', 'todo-progress-spin')
+    syncAnimPhase(svg, 1000)
     ring.setAttribute('stroke-dasharray', '9 24')
     ring.setAttribute('stroke-linecap', 'round')
   } else {
