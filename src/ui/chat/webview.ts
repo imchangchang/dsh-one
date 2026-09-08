@@ -1788,7 +1788,7 @@ function insertMentionToken(name: string, path: string): void {
   const token = fileMentionToken(name, mention, mentionBindings)
   mentionBindings.set(token, mention)
   const { start: cursor, end } = editor.selection()
-  editor.replaceRange(cursor, end, token + ' ')
+  editor.replaceTokenRange(cursor, end, token, mention)
 }
 
 /**
@@ -1842,7 +1842,7 @@ function fileRows(editor: ComposerEditor, at: ActiveAtToken): { attachments: Sla
       apply: () => {
         const token = fileMentionToken(name, mention, mentionBindings)
         mentionBindings.set(token, mention)
-        editor.replaceRange(tokenStart, cursor, token + ' ')
+        editor.replaceTokenRange(tokenStart, cursor, token, mention)
         // 重建 chips 让「已被 @ 引用」的高亮生效；焦点/光标由 render 恢复。
         render()
       },
@@ -1896,8 +1896,9 @@ function sessionRows(editor: ComposerEditor, at: ActiveAtToken): SlashRow[] {
       right: own.label,
       apply: () => {
         const token = mentionDisplayToken(s.label, s.sessionId, mentionBindings)
-        mentionBindings.set(token, formatSessionMention(s.label, s.sessionId))
-        editor.replaceRange(tokenStart, cursor, token + ' ')
+        const mention = formatSessionMention(s.label, s.sessionId)
+        mentionBindings.set(token, mention)
+        editor.replaceTokenRange(tokenStart, cursor, token, mention)
       },
     }))
 }
@@ -7439,14 +7440,19 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     bindings: mentionBindings,
   })
   composer.root.id = 'input'
-  // .value 存取 shim：让 harness/场景与残留的 getElementById('input').value 读法
-  // 能继续以编程方式读写编辑器文本（写走 setText 会重建 @token 节点，读走 getText，
-  // 与旧 textarea 的块间 \n 语义一致）。无生产副作用（真实 webview 不改 #input.value）。
-  Object.defineProperty(composer.root, 'value', {
-    get: () => composer.getText(),
-    set: (v: string) => composer.setText(String(v ?? '')),
-    configurable: true,
+  // .value/selectionStart/selectionEnd/setSelectionRange 存取 shim：让 harness/场景
+  // 与残留的 textarea 式读法能继续以编程方式读写编辑器（写走 setText 重建 @token 节点，
+  // 读走 getText/selection，与旧 textarea 的块间 \n 语义一致）。无生产副作用。
+  Object.defineProperties(composer.root, {
+    value: {
+      get: () => composer.getText(),
+      set: (v: string) => composer.setText(String(v ?? '')),
+      configurable: true,
+    },
+    selectionStart: { get: () => composer.selection().start, configurable: true },
+    selectionEnd: { get: () => composer.selection().end, configurable: true },
   })
+  ;(composer.root as unknown as { setSelectionRange: (start: number, end?: number) => void }).setSelectionRange = (start: number, end?: number) => composer.setSelection(start, end)
   frame.appendChild(composer.root)
   frame.appendChild(composer.placeholder)
   row.appendChild(frame)

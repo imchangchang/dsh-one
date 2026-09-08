@@ -85,6 +85,8 @@ export interface ComposerEditor {
   insertTokenAtCaret: (text: string, mention: string) => void
   /** 把纯文本区间 [start, end] 替换为给定文本（光标落到末尾）。 */
   replaceRange: (start: number, end: number, text: string) => void
+  /** 把纯文本区间 [start, end] 替换为一个 @token 高亮节点（光标落到末尾）。 */
+  replaceTokenRange: (start: number, end: number, text: string, mention: string) => void
   /** 当前光标/选区（纯文本偏移）。 */
   selection: () => { start: number; end: number }
   /** 设置光标/选区到纯文本偏移（end 缺省 = start），并聚焦编辑器。 */
@@ -169,18 +171,6 @@ function readPlainText(editor: LexicalEditor): string {
       parts.push(block.getTextContent())
     }
     out = parts.join('\n')
-  })
-  return out
-}
-
-/** 编辑器当前 RangeSelection 的 anchor/focus（保证是区间选区）。 */
-function readSelection(editor: LexicalEditor): { anchor: { key: NodeKey; offset: number; type: 'text' | 'element' }; focus: { key: NodeKey; offset: number; type: 'text' | 'element' } } | null {
-  let out: { anchor: { key: NodeKey; offset: number; type: 'text' | 'element' }; focus: { key: NodeKey; offset: number; type: 'text' | 'element' } } | null = null
-  editor.getEditorState().read(() => {
-    const sel = $getSelection()
-    if (sel && $isRangeSelection(sel)) {
-      out = { anchor: { key: sel.anchor.key, offset: sel.anchor.offset, type: sel.anchor.type }, focus: { key: sel.focus.key, offset: sel.focus.offset, type: sel.focus.type } }
-    }
   })
   return out
 }
@@ -274,12 +264,25 @@ export function createComposerEditor(opts: {
   const getText = (): string => readPlainText(editor)
 
   const selection = (): { start: number; end: number } => {
-    const sel = readSelection(editor)
-    if (!sel) {
-      const text = getText()
-      return { start: text.length, end: text.length }
-    }
-    return { start: pointToPlainOffset(sel.anchor), end: pointToPlainOffset(sel.focus) }
+    let start = 0
+    let end = 0
+    editor.getEditorState().read(() => {
+      const sel = $getSelection()
+      if (sel && $isRangeSelection(sel)) {
+        start = pointToPlainOffset(sel.anchor)
+        end = pointToPlainOffset(sel.focus)
+      } else {
+        // 无选区（无 focus）：退化为「光标在末尾」。
+        const blocks = $getRoot().getChildren()
+        let len = 0
+        for (let i = 0; i < blocks.length; i++) {
+          len += blocks[i].getTextContent().length + (i > 0 ? 1 : 0)
+        }
+        start = len
+        end = len
+      }
+    })
+    return { start, end }
   }
 
   const setSelection = (start: number, end = start): void => {
@@ -290,7 +293,7 @@ export function createComposerEditor(opts: {
       sel.focus.set(e.key, e.offset, e.type)
       $setSelection(sel)
       root.focus()
-    })
+    }, { discrete: true })
   }
 
   const beforeCaret = (): string => {
@@ -316,7 +319,7 @@ export function createComposerEditor(opts: {
   const focus = (atEnd = false): void => {
     root.focus()
     if (atEnd) {
-      editor.update(() => $getRoot().selectEnd())
+      editor.update(() => $getRoot().selectEnd(), { discrete: true })
     }
   }
 
@@ -330,7 +333,7 @@ export function createComposerEditor(opts: {
       const p = $createParagraphNode()
       p.append($createTextNode(text))
       $getRoot().append(p)
-    })
+    }, { discrete: true })
   }
 
   const insertTokenAtCaret = (text: string, mention: string): void => {
@@ -349,7 +352,7 @@ export function createComposerEditor(opts: {
         ;(last as ElementNode).append(token)
         $getRoot().selectEnd()
       }
-    })
+    }, { discrete: true })
   }
 
   const replaceRange = (start: number, end: number, text: string): void => {
@@ -360,7 +363,20 @@ export function createComposerEditor(opts: {
       sel.focus.set(e.key, e.offset, e.type)
       $setSelection(sel)
       sel.insertText(text)
-    })
+    }, { discrete: true })
+  }
+
+  const replaceTokenRange = (start: number, end: number, text: string, mention: string): void => {
+    const { s, e } = resolveTextOffsets(start, end)
+    editor.update(() => {
+      const sel = $createRangeSelection()
+      sel.anchor.set(s.key, s.offset, s.type)
+      sel.focus.set(e.key, e.offset, e.type)
+      $setSelection(sel)
+      const token = $createRefTokenNode(text, mention)
+      sel.insertNodes([token])
+      sel.insertText(' ')
+    }, { discrete: true })
   }
 
   const setText = (text: string, newBindings?: MentionBindings): void => {
@@ -380,26 +396,16 @@ export function createComposerEditor(opts: {
         }
         $getRoot().selectEnd()
       },
-      { tag: 'dsh-composer-set' },
+      { tag: 'dsh-composer-set', discrete: true },
     )
   }
 
   // 编辑器更新 → 同步文本/选区变化（占位符显隐 + 外层自动跟随）。
+  // 注意：必须在 setRootElement(root) 之后注册——挂载首帧的 update 在 setRootElement
+  // 内部触发，此时调用方尚未拿到编辑器（外层 composer 未赋值），提前触发 onTextChange
+  // 会在调用方闭包里读到未初始化的编辑器（回归：composer 不渲染）。
   let lastText: string | null = null
   let lastSel = { start: -1, end: -1 }
-  const unregisterUpdate = editor.registerUpdateListener(() => {
-    const text = getText()
-    if (text !== lastText) {
-      lastText = text
-      placeholder.style.display = text.length === 0 ? '' : 'none'
-      handlers.onTextChange(text)
-    }
-    const sel = selection()
-    if (sel.start !== lastSel.start || sel.end !== lastSel.end) {
-      lastSel = sel
-      handlers.onSelectionChange()
-    }
-  })
 
   // 键盘：Enter 发送 / ↑ 召回 / Esc 清空或停止 / ⌘Z 反悔。
   const unregisterKeys = mergeRegister(
@@ -454,6 +460,22 @@ export function createComposerEditor(opts: {
 
   editor.setRootElement(root)
 
+  // 挂载完成后再挂更新监听：首帧（setRootElement 内触发的 update）不让 onTextChange
+  // 提前触发，后续文本/选区变化才通知外层。
+  const unregisterUpdate = editor.registerUpdateListener(() => {
+    const text = getText()
+    if (text !== lastText) {
+      lastText = text
+      placeholder.style.display = text.length === 0 ? '' : 'none'
+      handlers.onTextChange(text)
+    }
+    const sel = selection()
+    if (sel.start !== lastSel.start || sel.end !== lastSel.end) {
+      lastSel = sel
+      handlers.onSelectionChange()
+    }
+  })
+
   return {
     root,
     editor,
@@ -463,6 +485,7 @@ export function createComposerEditor(opts: {
     insertTextAtCaret,
     insertTokenAtCaret,
     replaceRange,
+    replaceTokenRange,
     selection,
     setSelection,
     beforeCaret,
