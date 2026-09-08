@@ -365,36 +365,19 @@
                 cur.dispatchEvent(new Event('scroll'))
                 setTimeout(() => {
                   try {
-                    // 核心断言：高亮层（.ref-token-scroll）的换行宽必须等于 textarea
-                    // 真实内容宽（clientWidth - 左右 padding）。textarea 溢出弹出垂直
-                    // 滚动条后内容宽会变窄（clientWidth 不含滚动条），而层盒子
-                    // inset:1px 是全宽——若没做宽度同步，层会比 textarea 内容宽
-                    // 一截（约 15px），换行点不同 → @token 相对真实文本逐行横移。
-                    const cs = getComputedStyle(cur)
-                    const contentWidth = cur.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-                    const layerWidth = (document.querySelector('.ref-token-scroll') || {}).style?.width ?? null
-                    // 再对拍 @token：用「与 textarea 同内容宽」的文本层自然位置 vs 叠层 token，
-                    // 两者都应≈0（水平/垂直都对齐）。
-                    const ir = cur.getBoundingClientRect()
-                    const mir = document.createElement('div')
-                    mir.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;white-space:pre-wrap;overflow-wrap:break-word;box-sizing:border-box;left:' + (ir.left + parseFloat(cs.borderLeftWidth)) + 'px;top:' + (ir.top + parseFloat(cs.borderTopWidth)) + 'px;width:' + cur.clientWidth + 'px;padding:' + cs.padding + ';border:1px solid transparent;font:' + cs.fontSize + '/' + cs.lineHeight + ' ' + cs.fontFamily
-                    mir.textContent = cur.value
-                    document.body.appendChild(mir)
+                    // 核心断言：@token 由 Lexical 在编辑文本流里内联渲染，不再有独立
+                    // .ref-token-layer 叠加层——也就没有「叠层与 textarea 逐行错位/漂移」
+                    // 这类旧问题。校验 .ref-token 存在、其边界落在输入框内（内联，非浮层），
+                    // 且叠加层元素已移除。
+                    const editorRect = cur.getBoundingClientRect()
                     const tok = document.querySelector('.ref-token')
                     const rTok = tok ? tok.getBoundingClientRect() : null
-                    const start = cur.value.indexOf('@img1.png')
-                    const range = document.createRange()
-                    range.setStart(mir.firstChild, start)
-                    range.setEnd(mir.firstChild, start + '@img1.png'.length)
-                    const rMir = range.getBoundingClientRect()
                     window.__driftCheck = {
-                      layerWidth,
-                      contentWidth,
                       tokens: document.querySelectorAll('.ref-token').length,
-                      dy: rTok ? Math.round(rTok.top - rMir.top) : null,
-                      dx: rTok ? Math.round(rTok.left - rMir.left) : null,
+                      noLayer: document.querySelector('.ref-token-layer') === null,
+                      dx: rTok ? Math.round(rTok.left - editorRect.left) : null,
+                      dy: rTok ? Math.round(rTok.top - editorRect.top) : null,
                     }
-                    mir.remove()
                   } catch (err) {
                     window.__driftCheck = { error: String((err && err.message) || err) }
                   }
@@ -404,8 +387,8 @@
           }, 160)
         }, 120)
       })()`,
-      title: '@ 输入框长文本滚动到底：叠层高亮与真实 textarea 排版是否对齐（drift 复现）',
-      expect: 'composer 输入一段长中文并滚到底部：叠层只把 .ref-token-scroll translateY(-scrollTop)，文本高亮层与 textarea 同字体/行高。由于 textarea 溢出弹出垂直滚动条后内容宽（clientWidth-左右 padding）变窄，而层盒子 inset:1px 是全宽，若无修复层会比 textarea 内容宽 15px 左右 → @img1.png 高亮 token 相对 textarea 真实排版横向漂移（dx 上百 px）。DOM 断言 window.__driftCheck：dy 与 dx 都应≈0（≤2px），layerWidth 应等于 textarea 内容宽；若 dx 明显非 0 即叠层漂移回归。',
+      title: '@ 输入框长文本滚动到底：token 是否内联高亮（无叠加层漂移）',
+      expect: 'composer 输入一段长中文并滚到底部：@token 由 Lexical 在编辑文本流里内联渲染（不再有独立 .ref-token-layer 叠加层，因此不存在「叠层与 textarea 逐行错位」的旧漂移问题）。DOM 断言 window.__driftCheck：noLayer=true（叠加层已移除）、tokens=1（@img1.png 高亮）、dx/dy 为 token 相对输入框的位置（非 null，落在输入框内）。',
     },
 
     'mention-bindings-recall': {
@@ -1250,7 +1233,7 @@
         i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       })()`,
       title: '运行中 Enter 排队发送：输入区无鬼影残留',
-      expect: '输入框 value 为空，仅显示浅灰占位符「Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc clears input first, then interrupts」；输入框上方高亮层（ref-token-layer）没有任何文字（不残留发送前的「等等，先停下，看看状态。」）；主按钮显示停止图标（运行中）；无消息流之外的异常浮层。',
+      expect: '输入框（编辑器）文本为空，仅显示浅灰占位符「Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc clears input first, then interrupts」；文本流里没有任何 @token 高亮节点残留发送前的「等等，先停下，看看状态。」；主按钮显示停止图标（运行中）；无消息流之外的异常浮层。',
     },
 
     subagents: {
