@@ -250,6 +250,7 @@
     "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.24.2",
     "playwright": "^1.62.1",
+    "preact": "^10.29.8",
     "typescript": "^5.7.2"
   },
   "dependencies": {
