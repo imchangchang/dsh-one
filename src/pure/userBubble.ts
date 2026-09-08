@@ -10,7 +10,10 @@
  *   （按引用顺序各取第一次出现；同 label 多引用按文本顺序轮转）。无
  *   references 时回退到 canonical URI mention（@[label](dsh-session:…)）。
  * - `@path` / `@path/`：文件/文件夹（尾斜杠 = 文件夹）；`@"path"` 带引号
- *   路径同规则（目录的引号不闭合，如 `@"src/`）。
+ *   路径同规则（目录的引号不闭合，如 `@"src/`）。token 去掉 @ 与引号后
+ *   必须含路径分隔符（/ 或 \）才算文件/文件夹；否则按纯文本输出（对齐
+ *   输入侧 restoreFileMentionTokens：合法引用永远是绝对路径，裸名如
+ *   `@img.png`、`@人名` 不是文件引用）。
  * - `/command`：skill 形态，无图标。
  * 文件/文件夹 chip 展示 basename，悬停 title 用完整 token。
  */
@@ -128,12 +131,20 @@ export function splitUserBubble(
     if (range.kind === 'session' && range.sessionId !== undefined) {
       segments.push({ kind: 'session', sessionId: range.sessionId, label: range.label })
     } else if (range.label.startsWith('@')) {
-      const isFolder = range.label.endsWith('/')
-      segments.push({
-        kind: isFolder ? 'folder' : 'file',
-        path: range.label,
-        label: basename(range.label),
-      })
+      // 与输入侧 restoreFileMentionTokens 对齐：@token 去掉 @ 与引号后必须含
+      // 路径分隔符（/ 或 \）才算文件/文件夹引用；否则是纯文本（如 @人名/handle、
+      // 无目录的裸文件名 @img.png——dsh-one 的合法引用永远是绝对路径，见 #36）。
+      const cleaned = range.label.slice(1).replace(/^"|"$/gu, '')
+      if (/[\\/]/.test(cleaned)) {
+        const isFolder = range.label.endsWith('/')
+        segments.push({
+          kind: isFolder ? 'folder' : 'file',
+          path: range.label,
+          label: basename(range.label),
+        })
+      } else {
+        segments.push({ kind: 'text', text: range.label })
+      }
     } else {
       segments.push({ kind: 'skill', label: range.label })
     }

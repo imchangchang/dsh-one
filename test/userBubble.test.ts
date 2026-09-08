@@ -19,13 +19,14 @@ test('尾斜杠 @目录 切成文件夹 chip', () => {
   ])
 })
 
-test('@"带空格路径" 按引号 token 识别（闭引号并入 token，与官方一致）', () => {
+test('@"带空格路径" 按引号 token 识别（无分隔符保持纯文本；目录引号不闭合保留文件 chip）', () => {
+  // 含空格但无路径分隔符（如 cwd 裸名）→ 不是路径引用，按纯文本。
   assert.deepEqual(splitUserBubble('读 @"my file.txt" 内容'), [
     { kind: 'text', text: '读 ' },
-    { kind: 'file', path: '@"my file.txt"', label: 'my file.txt' },
+    { kind: 'text', text: '@"my file.txt"' },
     { kind: 'text', text: ' 内容' },
   ])
-  // 目录的引号不闭合（官方 formatFileMention 的保留引号语法）
+  // 目录的引号不闭合（官方 formatFileMention 的保留引号语法），且含 `/` 分隔符 → file chip。
   assert.deepEqual(splitUserBubble('看 @"src/ 下面'), [
     { kind: 'text', text: '看 ' },
     { kind: 'folder', path: '@"src/', label: 'src' },
@@ -33,12 +34,12 @@ test('@"带空格路径" 按引号 token 识别（闭引号并入 token，与官
   ])
 })
 
-test('非引号 token 剥离尾部标点', () => {
+test('非引号 token 剥离尾部标点（无分隔符按纯文本）', () => {
   assert.deepEqual(splitUserBubble('先看 @a.txt, 再看 @b.ts。'), [
     { kind: 'text', text: '先看 ' },
-    { kind: 'file', path: '@a.txt', label: 'a.txt' },
+    { kind: 'text', text: '@a.txt' },
     { kind: 'text', text: ', 再看 ' },
-    { kind: 'file', path: '@b.ts', label: 'b.ts' },
+    { kind: 'text', text: '@b.ts' },
     { kind: 'text', text: '。' },
   ])
 })
@@ -57,10 +58,10 @@ test('/command token 切成无图标的 skill chip', () => {
   ])
 })
 
-test('行首或空白后的 @ 才算 token（邮箱不误伤）；@ 与 / 单独不成 chip', () => {
+test('行首或空白后的 @ 才算 token（邮箱不误伤）；@ 与 / 单独不成 chip；无分隔符的 @x 按纯文本', () => {
   assert.deepEqual(splitUserBubble('联系 a@b.com 问 @x 和 @ 和 /'), [
     { kind: 'text', text: '联系 a@b.com 问 ' },
-    { kind: 'file', path: '@x', label: 'x' },
+    { kind: 'text', text: '@x' },
     { kind: 'text', text: ' 和 @ 和 /' },
   ])
 })
@@ -108,24 +109,24 @@ test('无 references 时回退 canonical URI mention（引用失败残留）', (
     { kind: 'session', sessionId: 's1', label: '旧会话' },
     { kind: 'text', text: ' 一下' },
   ])
-  // 坏 URI 解不开：按文件 chip 展示（对齐官方 projectUserText）。ASCII ':' 是
+  // 坏 URI 解不开：token 无路径分隔符 → 保持纯文本（对齐输入侧规则）。ASCII ':' 是
   // 终止符（已知取舍：mention 形态文本被 `:` 截断，与文件名含 ASCII ;!?: 截断同理）。
   assert.deepEqual(splitUserBubble('看 @[坏](dsh-session:%%%) 这个'), [
     { kind: 'text', text: '看 ' },
-    { kind: 'file', path: '@[坏](dsh-session', label: '[坏](dsh-session' },
+    { kind: 'text', text: '@[坏](dsh-session' },
     { kind: 'text', text: ':%%%) 这个' },
   ])
 })
 
-test('文件/文件夹/命令/会话混合按文本顺序切分', () => {
+test('文件/文件夹/命令/会话混合按文本顺序切分（无分隔符 @token 按纯文本）', () => {
   assert.deepEqual(splitUserBubble('@a.ts /cmd @b/ 和 @c'), [
-    { kind: 'file', path: '@a.ts', label: 'a.ts' },
+    { kind: 'text', text: '@a.ts' },
     { kind: 'text', text: ' ' },
     { kind: 'skill', label: '/cmd' },
     { kind: 'text', text: ' ' },
     { kind: 'folder', path: '@b/', label: 'b' },
     { kind: 'text', text: ' 和 ' },
-    { kind: 'file', path: '@c', label: 'c' },
+    { kind: 'text', text: '@c' },
   ])
 })
 
@@ -168,32 +169,32 @@ test('splitUserBubble：含全角括号的路径不截断（（草案）.docx �
   assert.ok(segs.some((s) => s.kind === 'text' && s.text.includes('？') && s.text.includes('你能看吗')))
 })
 
-test('验收：@a.txt.后面 / @a.txt,后面 → chip a.txt，标点留在文本', () => {
+test('验收：@a.txt.后面 / @a.txt,后面 → token 为 @a.txt，标点留在文本（无分隔符按纯文本）', () => {
   // `.`/`,` 后跟非续接字符（`后`）→ 条件终止，标点不进 token
   assert.deepEqual(splitUserBubble('@a.txt.后面'), [
-    { kind: 'file', path: '@a.txt', label: 'a.txt' },
+    { kind: 'text', text: '@a.txt' },
     { kind: 'text', text: '.后面' },
   ])
   assert.deepEqual(splitUserBubble('@a.txt,后面'), [
-    { kind: 'file', path: '@a.txt', label: 'a.txt' },
+    { kind: 'text', text: '@a.txt' },
     { kind: 'text', text: ',后面' },
   ])
 })
 
-test('验收：@a.txt😀 后面 → chip a.txt，emoji 留在文本', () => {
+test('验收：@a.txt😀 后面 → token 为 @a.txt，emoji 留在文本（无分隔符按纯文本）', () => {
   assert.deepEqual(splitUserBubble('@a.txt😀 后面'), [
-    { kind: 'file', path: '@a.txt', label: 'a.txt' },
+    { kind: 'text', text: '@a.txt' },
     { kind: 'text', text: '😀 后面' },
   ])
 })
 
-test('验收：（@img1 和 @img2）→ 两个 chip，括号留在文本', () => {
+test('验收：（@img1 和 @img2）→ 无分隔符 @token 保持纯文本，括号留在文本', () => {
   // 中文开括号是触发边界；）无配对开括号 → 平衡规则终止
   assert.deepEqual(splitUserBubble('（@img1 和 @img2）'), [
     { kind: 'text', text: '（' },
-    { kind: 'file', path: '@img1', label: 'img1' },
+    { kind: 'text', text: '@img1' },
     { kind: 'text', text: ' 和 ' },
-    { kind: 'file', path: '@img2', label: 'img2' },
+    { kind: 'text', text: '@img2' },
     { kind: 'text', text: '）' },
   ])
 })
@@ -204,57 +205,66 @@ test('验收：a@img b / 看@img / a@b.com → 不渲染 chip（词中/汉字紧
   assert.deepEqual(splitUserBubble('a@b.com'), [{ kind: 'text', text: 'a@b.com' }])
 })
 
-test('验收：@a（说明）.docx / @src/index.ts / @a(1).jpg → 完整 chip', () => {
-  // （ 不是终止符；）遇到已有配对开括号不终止；. 后跟续接字符不终止
+test('验收：@src/index.ts → 完整 file chip；@a（说明）.docx / @a(1).jpg 无分隔符保持纯文本', () => {
   assert.deepEqual(splitUserBubble('@a（说明）.docx'), [
-    { kind: 'file', path: '@a（说明）.docx', label: 'a（说明）.docx' },
+    { kind: 'text', text: '@a（说明）.docx' },
   ])
   assert.deepEqual(splitUserBubble('@src/index.ts'), [
     { kind: 'file', path: '@src/index.ts', label: 'index.ts' },
   ])
   assert.deepEqual(splitUserBubble('@a(1).jpg'), [
-    { kind: 'file', path: '@a(1).jpg', label: 'a(1).jpg' },
+    { kind: 'text', text: '@a(1).jpg' },
   ])
 })
 
-test('验收：@img2）闭括号不吞 token（与 @a（说明）平衡规则一致）', () => {
+test('验收：@img2）闭括号不吞 token（与 @a（说明）平衡规则一致；无分隔符按纯文本）', () => {
   assert.deepEqual(splitUserBubble('看 @img2）这个'), [
     { kind: 'text', text: '看 ' },
-    { kind: 'file', path: '@img2', label: 'img2' },
+    { kind: 'text', text: '@img2' },
     { kind: 'text', text: '）这个' },
   ])
 })
 
-test('验收：ASCII !?;: 终止 token（@img1: 说明 / @a; 看）', () => {
+test('验收：ASCII !?;: 终止 token（@img1: 说明 / @a; 看；无分隔符按纯文本）', () => {
   assert.deepEqual(splitUserBubble('对比 @img1: 说明'), [
     { kind: 'text', text: '对比 ' },
-    { kind: 'file', path: '@img1', label: 'img1' },
+    { kind: 'text', text: '@img1' },
     { kind: 'text', text: ': 说明' },
   ])
   assert.deepEqual(splitUserBubble('看 @a; 后面'), [
     { kind: 'text', text: '看 ' },
-    { kind: 'file', path: '@a', label: 'a' },
+    { kind: 'text', text: '@a' },
     { kind: 'text', text: '; 后面' },
   ])
 })
 
-test('验收：@a.b.c 与 @a.txt. 后跟续接字符保持完整（条件终止不误伤）', () => {
+test('验收：@a.b.c 与 @a.txt. 后跟续接字符保持完整（条件终止不误伤；无分隔符按纯文本）', () => {
   assert.deepEqual(splitUserBubble('@a.b.c 和 @x-2_a/1.json 和 @b~c 和 @d/e'), [
-    { kind: 'file', path: '@a.b.c', label: 'a.b.c' },
+    { kind: 'text', text: '@a.b.c' },
     { kind: 'text', text: ' 和 ' },
     { kind: 'file', path: '@x-2_a/1.json', label: '1.json' },
     { kind: 'text', text: ' 和 ' },
-    { kind: 'file', path: '@b~c', label: 'b~c' },
+    { kind: 'text', text: '@b~c' },
     { kind: 'text', text: ' 和 ' },
     { kind: 'file', path: '@d/e', label: 'e' },
   ])
   // 结尾的 . 后无续接字符 → 终止，. 留在文本（无正文可吞）
   assert.deepEqual(splitUserBubble('@a.txt.'), [
-    { kind: 'file', path: '@a.txt', label: 'a.txt' },
+    { kind: 'text', text: '@a.txt' },
     { kind: 'text', text: '.' },
   ])
 })
 
 test('验收：ASCII ( 不触发（func(@arg) 的 @arg 保持文本）', () => {
   assert.deepEqual(splitUserBubble('func(@arg)'), [{ kind: 'text', text: 'func(@arg)' }])
+})
+
+test('验收：无路径分隔符的 @token（如 @koalazf99 / @img.png）保持纯文本，不渲染成文件 chip', () => {
+  assert.deepEqual(splitUserBubble('请看 @koalazf99 和 读 @img.png 文件'), [
+    { kind: 'text', text: '请看 ' },
+    { kind: 'text', text: '@koalazf99' },
+    { kind: 'text', text: ' 和 读 ' },
+    { kind: 'text', text: '@img.png' },
+    { kind: 'text', text: ' 文件' },
+  ])
 })
