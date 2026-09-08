@@ -13,9 +13,17 @@
  */
 export interface ReconcileItem {
   key: string
-  /** 内容未变 → 复用现元素；false → 重渲染替换（同 key 原位）。 */
+  /** 内容未变 → 复用现元素；false → 就地更新或重渲染替换（同 key 原位）。 */
   same: boolean
   create: () => HTMLElement
+  /**
+   * 内容变化时实时刷新内容区而非整行重建（可选）。提供后 same=false 不再销毁
+   * 现元素，而是对它调用 update(el) 就地更新——行骨架（元素本身）保活，只有
+   * 内容区被替换。用于「行骨架保活 + 行内声明式对账（Preact diff）」，是修复
+   * 流式重建整行连坐销毁行内子块（tool 卡滚动/展开/动画被打断）的机制（#29）。
+   * 留空则走默认的 create 替换。update 时元素仍在 DOM，next 指针须随之推进。
+   */
+  update?: (el: HTMLElement) => void
   /** 元素被移除/替换时的清理（行级定时器等）。 */
   dispose?: (el: HTMLElement) => void
 }
@@ -46,6 +54,11 @@ export function reconcileChildren(container: HTMLElement, items: ReconcileItem[]
       if (item.same) {
         // 顺序修正（罕见）：元素在但位置不对 → 挪到正确位置。
         if (el !== next) container.insertBefore(el, next)
+        next = el.nextElementSibling
+      } else if (item.update) {
+        // 就地更新：行骨架（元素本身）保活，只刷新内容区。元素仍在 DOM，
+        // next 指针推进到其后继。（行内 Preact diff 用的更新入口，见 #29。）
+        item.update(el as HTMLElement)
         next = el.nextElementSibling
       } else {
         const fresh = item.create()
