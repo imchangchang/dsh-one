@@ -1,7 +1,7 @@
 {
   "title": "任何会话右键「Move to group…」恒列 Todo/Doing/Done 三个预设组（preset-tags-always-in-move-menu，#39）",
   "branch": "agent/preset-tags-always-in-move-menu",
-  "commit": "43f07c3",
+  "commit": "8d51d48",
   "environment": {
     "channel": "store 数据层改动（SessionsStore.snapshot 的 tags 补齐预设组）+ 纯层单测（node --test test/sessionTags.test.ts）",
     "locale": "en",
