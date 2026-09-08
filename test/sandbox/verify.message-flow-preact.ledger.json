@@ -1,0 +1,54 @@
+{
+  "title": "message-flow-preact：消息流 block 层 Preact 化（治 #29）",
+  "branch": "agent/message-flow-preact",
+  "commit": "e7912c9",
+  "environment": {
+    "mode": "harness（WebBridge 驱动 test/ui harness + mutation-driver）",
+    "webview": "dist/chatWebview.js（preact 已 bundle）",
+    "theme": "dark",
+    "verifier": "ui-visual.sh --mode baseline（81 场景）+ mutation-driver.html（流式 15 帧 DOM 变更统计）+ happy-dom 机制级验证",
+    "date": "2026-09-09T00:00:00Z"
+  },
+  "coverageNote": "真桌面 VS Code、真 dsh/真模型输出、mock-llm 沙盒 e2e 不在本报告范围——本任务为纯 webview 前端渲染改动，用 harness 浏览器独立渲染 + 流式 DOM 变更探针做验证。宿主激活/协议层未改动。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "流式时 tool 卡不被重建（治 #29）",
+      "expect": "assistant 消息流式追加 text 时，已完成工具卡（含内部 OUT 滚动容器 / expanded / 动画 / 复制反馈）的 DOM 节点保持同一实例存活，不被每帧替换；只有文本块随内容增长。用 mutation-driver.html 统计 #messages 子树流式全程 DOM 变更量，应远低于「整行全量重建」基线。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-t2/thumb-ack-after-incremental-re-snap-stable.png",
+        "/tmp/dsh-ui-shots-t2/tool-skill.png"
+      ],
+      "notes": "mutation-driver（流式重投 15 帧）：改动后 added=38/removed=30/records=60，对照整行全量重建基线 238/231/252（-84%/-87%/-76%），且流式帧不整行重建、仅变化行内块。happy-dom 机制级验证：流式只追加 text、tool 块 JSON 不变时，tool 卡 DOM 节点 + [data-scroll-key] OUT 滚动容器同一实例存活；tool 状态 running→done 才重建。终态 finalTextHash=226ade48、msgRows=16、workflowCards=2 与基线一致。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "test/ui 基线视觉回归（assistant 消息块布局）",
+      "expect": "scenarios.js BASELINE_SCENARIOS 全部场景浏览器独立渲染无报错；错 assistant 消息拆 .msg-blocks 后，text / tool 卡（skill/cordis） / diff / produced-files / markdown / reasoning 排版与层级与原实现一致（消息右、助手左、工具卡折叠、产物行在操作栏上方）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-t2/conversation.png",
+        "/tmp/dsh-ui-shots-t2/tool-skill.png",
+        "/tmp/dsh-ui-shots-t2/diff-side-by-side.png",
+        "/tmp/dsh-ui-shots-t2/produced-files.png",
+        "/tmp/dsh-ui-shots-t2/markdown.png"
+      ],
+      "notes": "scripts/ui-visual.sh --mode baseline：81 场景全部渲染且退出码 0（无 webview JS 报错）。抽查 conversation（text+tool 卡+操作栏）、tool-skill（skill 指令卡+chevron+collapse footer）、diff-side-by-side（左右分栏 diff+更多行）、produced-files（Outputs label+chip+「+2 files」）、markdown、thumb-ack 均与期望布局一致。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "工具卡 / JSON 树 / diff 定位属性与 DOM 结构",
+      "expect": "data-path（JSON 树行）、.json-tree-*（树容器/箭头/复制/节点）、.tool-*（tool-line/title/disclosure/inout/output）、.tool-skill、data-flow-key（行）等测试断言依赖的定位属性保留；block 内容由既有 renderBlock 构建，属性原样。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-t2/tool-skill.png",
+        "/tmp/dsh-ui-shots-t2/diff-side-by-side.png"
+      ],
+      "notes": "block 构建仍走 webview.ts 既有 renderBlock（内部 renderTool/renderJsonTree/renderDiff 原样），仅外层包 .block-shell 与 .msg-blocks；scenarios.js 断言（.tool-disclosure summary、.json-tree-row[data-path=...] .json-tree-copy-icon、.tool-skill details summary 等）均为后代选择器，命中不受影响。gen-ui-harness 重抽 style.css 同步 .msg-blocks/.block-shell。"
+    }
+  ]
+}

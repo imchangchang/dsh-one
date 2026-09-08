@@ -307,6 +307,15 @@ const STYLE = `
     display: flex; justify-content: flex-end; align-items: center; gap: 6px; width: 100%;
   }
   .msg.assistant { display: flex; flex-direction: column; gap: 6px; }
+  /* #42：assistant 的 block 层容器（Preact BlockList 挂载点）。原先是各 block
+     直接作 .msg.assistant 的 flex 子项；现包一层 .msg-blocks，同样 flex 列 + 6px
+     间距承接 block 之间的空隙，再把 .msg-blocks 与尾列（streaming/interrupted/…）
+     之间的空隙交给外层 .msg.assistant 的 gap。.block-shell 是每个 block 的 Preact
+     shell 容器（display: contents 消除自带的盒模型，布局上与原先受 gap 约束的
+     直接子项一致）。 */
+  .msg-blocks { display: flex; flex-direction: column; gap: 6px; min-width: 0;
+    align-items: stretch; }
+  .block-shell { display: contents; }
   /* 引用 chip（@会话/@文件/@文件夹//命令，对齐 dsh web refChip）：链接色、字重 500、行内 flex。
      .session-mention 是会话 chip（button，可点击打开会话）；.ref-chip 是文件/文件夹/命令
      chip（span），其中文件/文件夹带 .ref-chip-link 可点击打开。 */

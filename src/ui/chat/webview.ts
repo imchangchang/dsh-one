@@ -127,6 +127,8 @@ import {
 import { reconcileChildren, type ReconcileItem } from '../shared/reconcile.ts'
 import { syncAnimPhase, spinnerEl, spinSvg } from '../shared/animPhase.ts'
 import { composingInside, initComposeGuard } from '../shared/composeGuard.ts'
+import { h, render as renderPreact } from 'preact'
+import { BlockList, type BlockTools } from './preact/blocks.tsx'
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
@@ -2882,6 +2884,7 @@ function render(): void {
     innerScrollPositions.clear()
     producedOpen.clear()
     copyConfirmedAt.clear()
+    assistantTailSigs.clear()
     // 双击清空武装态与清空暂存同样按会话隔离：切走后旧会话的「再按一次清空」
     // 提示和 Ctrl+Z 反悔内容都不该落到新会话（文本/附件归档各走各的）。
     disarmClearConfirm()
@@ -4477,6 +4480,11 @@ const {
   markdownImageFailedChip,
 } = mdTools
 
+// #42：消息流 block 层 Preact 承载（治 #29）注入给 BlockList 的命令式渲染工具。
+// renderBlock 是函数声明（hoisted），在此绑定的引用在模块加载期即已完成初始化。
+// shell（preact/blocks.tsx）按 block 内容签名决定「重建/保活」，构建全权交给它。
+const blockTools: BlockTools = { renderBlock }
+
 /**
  * 消息流里内部滚动容器（工具卡 IN/OUT、skill 指令卡、JSON 树等）的滚动位置
  * 存档（key 按渲染 key，同 detailsOpen 机制）：消息行重建（流式变化行 / 行替换）
@@ -5012,7 +5020,15 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   }
   const row = el('div', 'msg assistant')
   row.dataset.msgKey = key
-  m.blocks.forEach((block, bi) => row.appendChild(renderBlock(block, `${key}:b${bi}`)))
+  // #42：assistant 行骨架（.msg.assistant）与尾列（streaming / interrupted /
+  // turnError / maxTokens / produced-files / assistant-actions）保持命令式；block
+  // 内容挂 .msg-blocks 容器，由 Preact BlockList 托管。流式内容变化走 buildFlowItems
+  // 的 update 分支只对 .msg-blocks 做 Preact diff（行骨架保活，tool 卡实例不因整行
+  // 重建而连坐销毁，治 #29）。块 key 沿用 `${key}:b${bi}`（与既有详情/滚动/复制反馈
+  // 的持久化键一致）。
+  const blocksContainer = el('div', 'msg-blocks')
+  row.appendChild(blocksContainer)
+  renderPreact(h(BlockList, { blocks: m.blocks, rowKey: key, tools: blockTools }), blocksContainer)
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
   if (m.interrupted) row.appendChild(el('div', 'interrupted', t('Interrupted')))
   if (m.turnError) row.appendChild(renderTurnError(m.turnError))
@@ -5029,7 +5045,62 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   if (m.turnEnd && !(m.blocks.length === 0 && (m.turnError || m.interrupted || m.maxTokens))) {
     row.appendChild(renderAssistantActions(m))
   }
+  // 记录该消息的尾列签名，流式更新首帧起即知道「尾列未变、无需重挂」。
+  assistantTailSigs.set(key, assistantTailSig(m))
   return row
+}
+
+/** 行尾（非 .msg-blocks）子节点的签名：流式中期这些字段稳定（只有 .streaming ▍），
+ *  到结束才翻转。签名不变就不重挂尾列——避免每帧 remove/re-add 落点信号与操作栏。 */
+function assistantTailSig(m: ChatAssistantMessage): string {
+  return JSON.stringify([
+    m.complete,
+    m.interrupted,
+    m.turnError ? m.turnError.message : null,
+    m.maxTokens,
+    m.producedFiles ?? null,
+    m.turnEnd && !(m.blocks.length === 0 && (m.turnError || m.interrupted || m.maxTokens)),
+  ])
+}
+
+/** 重挂 assistant 行的尾列（.streaming / .interrupted / .turn-error / .max-tokens /
+ *  .produced-files / .msg-actions）——只在尾列签名变化时调用（见 updateMessageBlocks）。 */
+function mountAssistantTail(row: HTMLElement, m: ChatAssistantMessage, key: string): void {
+  for (const child of Array.from(row.children)) {
+    if (!child.classList.contains('msg-blocks')) child.remove()
+  }
+  if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
+  if (m.interrupted) row.appendChild(el('div', 'interrupted', t('Interrupted')))
+  if (m.turnError) row.appendChild(renderTurnError(m.turnError))
+  if (m.maxTokens) row.appendChild(renderMaxTokensNotice())
+  if (m.producedFiles && m.producedFiles.length > 0) {
+    row.appendChild(renderProducedFiles(m.producedFiles, `${key}:produced`))
+  }
+  if (m.turnEnd && !(m.blocks.length === 0 && (m.turnError || m.interrupted || m.maxTokens))) {
+    row.appendChild(renderAssistantActions(m))
+  }
+}
+
+/** assistant 行尾列的最近签名（msg id → sig）；换签名才重挂。 */
+const assistantTailSigs = new Map<string, string>()
+
+/**
+ * #42：assistant 行骨架保活的更新入口（buildFlowItems 的 `update` 分支）。
+ * 内容变化（流式追加 text / tool 状态流转 / turn 结束翻转尾列）时不再整行重建，
+ * 而是：1) 对行内 `.msg-blocks` 做 Preact diff（shell 按 block 签名保活/重建，
+ * tool 卡实例与它的滚动/展开/动画随之存活，这是 #29 的根治）；2) 尾列只在签名
+ * 变化时重挂（流式中期尾列只有 `.streaming ▍`，签名稳定 → 不触碰 DOM）。
+ *
+ * `.msg-blocks` 容器自身保活（Preact 的 reconcile 依赖稳定的挂载点）。
+ */
+function updateMessageBlocks(row: HTMLElement, m: ChatAssistantMessage, key: string): void {
+  const blocks = row.querySelector<HTMLElement>('.msg-blocks')
+  if (blocks) renderPreact(h(BlockList, { blocks: m.blocks, rowKey: key, tools: blockTools }), blocks)
+  const tailSig = assistantTailSig(m)
+  if (assistantTailSigs.get(key) !== tailSig) {
+    assistantTailSigs.set(key, tailSig)
+    mountAssistantTail(row, m, key)
+  }
 }
 
 /**
@@ -5282,6 +5353,11 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
       key: `msg:${m.id}`,
       same,
       create: () => renderMessage(m, m.id),
+      // #42：assistant 行内容变化时走「行骨架保活」的 update 路径——只对行内
+      // .msg-blocks 做 Preact diff（块层 block 由 Preact 对账，text 流式增量、
+      // tool 卡按签名保活），不整行重建（治 #29）。`same` 仍按整条消息内容签名：
+      // 内容变化（流式追加/状态翻转）时 same=false 才触发 update 分支。
+      update: m.kind === 'assistant' ? (el) => updateMessageBlocks(el, m, m.id) : undefined,
       dispose: clearRetryTimersFor,
     })
     emitThrough(m.kind === 'assistant' ? m.seq : undefined)
