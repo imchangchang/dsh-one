@@ -23,6 +23,8 @@ const results = await Promise.all([
     target: 'es2022',
     sourcemap: true,
     logLevel: 'warning',
+    jsx: 'automatic',
+    jsxImportSource: 'preact',
   }),
   // Session-list webview frontend (sidebar dshOne.chat view; sessions only).
   esbuild.build({
