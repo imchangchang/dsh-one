@@ -176,3 +176,32 @@ export function mentionDisplayToken(title: string, sessionId: string, bindings: 
   }
   return token
 }
+
+/**
+ * 把 recalled（↑ 拉起）文本里的 canonical 会话 mention（`@[标签](dsh-session:…)`）
+ * 还原为显示 token（`@标签`），与第一次输入时的形态一致——含绑定注册，高亮/
+ * 原子导航可用。与 `mentionDisplayToken`/`formatSessionMention` 互逆（发送时经
+ * expandMentionBindings 展开回 canonical）。已绑定的 canonical 反查用原 token
+ * （含序号后缀），避免重复引用时被重新编号。
+ */
+export function restoreSessionMentionTokens(text: string, bindings: Map<string, string>): string {
+  let out = ''
+  let cursor = 0
+  for (const range of sessionMentionRanges(text)) {
+    const mention = formatSessionMention(range.label, range.sessionId)
+    let token: string | null = null
+    for (const [key, value] of bindings) {
+      if (value === mention) {
+        token = key
+        break
+      }
+    }
+    if (token === null) {
+      token = mentionDisplayToken(range.label, range.sessionId, bindings)
+      bindings.set(token, mention)
+    }
+    out += text.slice(cursor, range.start) + token
+    cursor = range.end
+  }
+  return out + text.slice(cursor)
+}

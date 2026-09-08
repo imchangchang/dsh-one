@@ -1,0 +1,91 @@
+{
+  "title": "DSH One 验收报告 — #5 ESC 中断 / ↑ 召回后 composer 还原",
+  "branch": "agent/esc-stop-recall-raw-mentions",
+  "commit": "e9da117",
+  "environment": {
+    "method": "ai-visual-validation（harness.html + dist/chatWebview.js + WebBridge 截图）",
+    "webview": "dist/chatWebview.js（worktree 构建）",
+    "node": "20",
+    "date": "2026-09-08"
+  },
+  "coverageNote": "本报告验证 webview 侧 composer 还原渲染：四条拉回路径（ESC 停止抽干队列 / ↑ 召回排队消息 / ↑ 撤销插话 unsteer / ↑ 召回历史消息）回填后 @ 标签不再显示 canonical 路径原文、附件显示为 chip、粘贴图恢复。宿主侧 chatSession.stop() 的返回结构改为 {text, images, files}（与 unsteer 同款还原：拆附件行 + 按 attachmentId 重拉图片字节），该签名变更由 tsc 类型检查覆盖；真实宿主（VS Code + dsh）端到端验收不在本报告范围（走 dev-ui-test 或主线合并前人工复核）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "ESC 停止抽干队列回填：附件行拆 chip、canonical 引用还原、图片 staging",
+      "expect": "composer 输入框文本为「等等，先停下，看看 @旧会话 的状态。」——@ 会话标签从 canonical @[旧会话](dsh-session:…) 还原成 @旧会话（高亮层一个 .ref-token），正文里看不到 <attachment>…</attachment> 路径行；composer 附件区一个文档图标文件 chip（短名 README.md，无长路径）+ 一个红色方形图片缩略图（chart.png）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/restore-draft-stop.png"
+      ],
+      "notes": "DOM 断言 window.__restoreDraftStop = {input: \"等等，先停下，看看 @旧会话 的状态。\", chips: [\"README.md\"], refTokens: [\"@旧会话\"], thumbs: 1} 全部命中：附件行被 splitAttachmentLines 拆掉、@[旧会话] 还原成 @旧会话、图片 staging 进 composer。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "↑ 召回排队消息：附件行拆 chip、canonical 引用还原",
+      "expect": "composer 输入框文本为「等等，先停下，看看 @旧会话 的状态。」——排队项里的 @[旧会话](dsh-session:…) 还原成 @旧会话（高亮层一个 .ref-token），看不到 <attachment>…</attachment> 行；composer 附件区一个文档图标文件 chip（README.md，无长路径）；输入区上方出现排队召回条（recall 态，Esc 可取消）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/recall-queue-row.png"
+      ],
+      "notes": "DOM 断言 window.__recallQueueRow = {input: \"等等，先停下，看看 @旧会话 的状态。\", chips: [\"README.md\"], refTokens: [\"@旧会话\"]} 全部命中：排队项 editText 里的 <attachment> 行拆成 chip、canonical 引用还原（round-trip 回写时 expand 重拼 attachment 行）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "↑ 召回历史消息：会话标签还原 + 图片/文件一并恢复",
+      "expect": "composer 输入框文本为「等等，@旧会话 的状态也看下。」——历史消息里的 @[旧会话](dsh-session:…) 还原成 @旧会话（高亮层一个 .ref-token）；composer 附件区一个文档图标文件 chip（README.md，无长路径）+ 一个红色方形图片缩略图（chart.png，即历史消息的粘贴图被重新 staging 进 composer）。消息流里那条用户气泡本身也各带一个 README.md chip 和 chart.png 缩略图（属消息渲染，不是 composer 重复）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/recall-history-images.png"
+      ],
+      "notes": "DOM 断言 window.__recallHistoryImages = {input: \"等等，@旧会话 的状态也看下。\", chips: [\"README.md\"], refTokens: [\"@旧会话\"], thumbs: 1} 全部命中：lastUser.images 经 requestAttachment 重拉字节 staging 进 composer（此前缺失）。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "↑ 撤销插话回填：canonical 会话标签还原、图片/文件 chips",
+      "expect": "composer 输入框文本为「等等，先停下，看看 @旧会话 的状态。」——canonical @[旧会话](dsh-session:…) 还原成 @旧会话（高亮层一个 .ref-token）；composer 附件区一个文档图标文件 chip（README.md）+ 一个红色方形图片缩略图（chart.png）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/recall-unsteer-session.png"
+      ],
+      "notes": "DOM 断言 window.__recallUnsteerSession = {input: \"等等，先停下，看看 @旧会话 的状态。\", chips: [\"README.md\"], refTokens: [\"@旧会话\"], thumbs: 1} 全部命中：unsteer 此前唯一缺的会话标签还原补上了。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "↑ 召回历史消息：canonical @长路径还原为显示短 token（既有）",
+      "expect": "先经 @ 补全绑定 @img1.png，光标回行首按 ↑ 召回历史消息「帮我看看 @/var/folders/x/T/dsh-one-attachments/sess-1/img1.png 这个截图」——输入框变为「帮我看看 @img1.png 这个截图」（canonical 长路径反查回显示短 token）；高亮层恰好一个 .ref-token（@img1.png）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/mention-bindings-recall.png"
+      ],
+      "notes": "既有 mention-bindings-recall 场景回归通过：把 restoreFileMentionTokens 换成带会话标签还原的组合（restoreRecallMentions）后，@/长路径 的文件引用仍正确还原为 @img1.png 短 token。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "等待插话（steering-pending）气泡渲染（既有）",
+      "expect": "对话流末尾显示等待插话气泡组：@旧会话 为链接色会话 chip，气泡上方图片缩略图（红色）+ README.md 文件框；气泡下方引用摘要行「引用会话 · 旧会话」。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/steering-pending.png"
+      ],
+      "notes": "既有 steering-pending 场景回归通过：unsteer 重构未影响等待插话气泡的渲染（图片/文件/会话 mention 正常）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "排队预览 mention chips（既有）",
+      "expect": "Queued 预览条显示 [图片 ×1] + @长文本输入时对话刷新问题（会话 mention chip）+ @webview.ts / @pure（文件 token chip），附件行被剥离。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/queue-preview-mention.png"
+      ],
+      "notes": "既有 queue-preview-mention 场景回归通过：改动未影响排队预览的 mention chips 渲染与附件行剥离。"
+    }
+  ]
+}

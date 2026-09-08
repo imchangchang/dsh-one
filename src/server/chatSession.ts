@@ -631,26 +631,33 @@ export class ChatSessionController implements vscode.Disposable {
    * Stop the active turn and drain the queue. dsh's cancel deliberately
    * preserves pending inbox work (it resumes FIFO once cancellation
    * settles), so "stop" here also removes every queued prompt and returns
-   * their texts for the composer to restore as drafts.
+   * their texts for the composer to restore as drafts. 与 unsteer 同款还原：
+   * 文本拆分附件行、文件还原成 chips、图片按 attachmentId 重新拉字节。
    */
-  async stop(): Promise<string[]> {
+  async stop(): Promise<{ text: string; images: OutgoingImage[]; files: StagedFile[] }> {
     try {
       await cancelSession(this.url, this.sessionId)
     } catch (error) {
       this.logger.error(`chat: cancel failed: ${errorText(error)}`)
       throw error
     }
-    const restored: string[] = []
+    const texts: string[] = []
+    const images: OutgoingImage[] = []
+    const files: StagedFile[] = []
     for (const item of this.queue) {
       try {
         await updateQueue(this.url, this.sessionId, item.id, { kind: 'remove' })
-        if (item.editText) restored.push(item.editText)
+        if (!item.editText && (item.images ?? []).length === 0) continue
+        const { text, files: splitFiles } = splitAttachmentLines(item.editText)
+        if (text) texts.push(text)
+        files.push(...splitFiles)
+        images.push(...(await this.refetchImages(item.images ?? [])))
       } catch (error) {
         // A concurrently claimed item is already running — nothing to restore.
         this.logger.warn(`chat: removing queued ${item.id} failed: ${errorText(error)}`)
       }
     }
-    return restored
+    return { text: texts.join('\n'), images, files }
   }
 
   /** Turn one queued prompt into an immediate steer. */
@@ -674,19 +681,24 @@ export class ChatSessionController implements vscode.Disposable {
     if (!item) return null
     const { text, files } = splitAttachmentLines(queueItemOf(item).editText)
     await this.removeQueued(itemId)
-    const images: OutgoingImage[] = []
-    for (const block of item.message?.content ?? []) {
-      const image = block as { type?: string; attachment?: { attachmentId?: string; name?: string } } | null | undefined
-      if (block?.type !== 'image' || !image?.attachment?.attachmentId) continue
+    const images = await this.refetchImages(queueItemOf(item).images)
+    return { text, images, files }
+  }
+
+  /** 按 attachmentId 重拉一组附件图片的字节（composer 回填 staging 用；单项失败不阻塞整体）。 */
+  private async refetchImages(images: ChatImage[]): Promise<OutgoingImage[]> {
+    const out: OutgoingImage[] = []
+    for (const image of images) {
+      if (!image.attachmentId) continue
       try {
-        const { mediaType, data } = await sessionAttachment(this.url, this.sessionId, image.attachment.attachmentId)
-        images.push({ mediaType, data, name: image.attachment.name })
+        const { mediaType, data } = await sessionAttachment(this.url, this.sessionId, image.attachmentId)
+        out.push({ mediaType, data, name: image.name })
       } catch (error) {
         // 单个附件取不回不阻塞整体恢复：文本/文件照常回填，缺一张图可接受。
-        this.logger.warn(`chat: steering image ${image.attachment.attachmentId} refetch failed: ${errorText(error)}`)
+        this.logger.warn(`chat: image ${image.attachmentId} refetch failed: ${errorText(error)}`)
       }
     }
-    return { text, images, files }
+    return out
   }
 
   /** Current goal's CAS ref; undefined when the projection has no goal. */

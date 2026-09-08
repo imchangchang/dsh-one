@@ -7,6 +7,7 @@ import {
   formatSessionMention,
   mentionDisplayToken,
   parseSessionMentions,
+  restoreSessionMentionTokens,
   splitReadableMentions,
   splitSessionMentions,
 } from '../src/pure/sessionMention.ts'
@@ -123,4 +124,41 @@ test('splitReadableMentions 找不到的引用跳过，无命中时返回整段�
     { sessionId: 'id-1', label: '甲' },
     ' @甲',
   ])
+})
+
+test('restoreSessionMentionTokens：recall 时 canonical mention 还原为 @标签并登记绑定', () => {
+  const bindings = new Map<string, string>()
+  const text = `先看看 @[旧会话](${encodeSessionReferenceUri('s-see3')}) 的状态，再 @[新会话](${encodeSessionReferenceUri('s-new')})`
+  const restored = restoreSessionMentionTokens(text, bindings)
+  assert.equal(restored, '先看看 @旧会话 的状态，再 @新会话')
+  assert.equal(bindings.get('@旧会话'), formatSessionMention('旧会话', 's-see3'))
+  assert.equal(bindings.get('@新会话'), formatSessionMention('新会话', 's-new'))
+})
+
+test('restoreSessionMentionTokens：同名不同会话追加序号，同会话复用原 token', () => {
+  const bindings = new Map<string, string>()
+  const a = restoreSessionMentionTokens(`@[周报](${encodeSessionReferenceUri('id-1')})`, bindings)
+  assert.equal(a, '@周报')
+  const b = restoreSessionMentionTokens(`@[周报](${encodeSessionReferenceUri('id-2')})`, bindings)
+  assert.equal(b, '@周报 (2)')
+  // 已绑定过的 canonical 用原 token 不重排（Map 大小不变）
+  const c = restoreSessionMentionTokens(`@[周报](${encodeSessionReferenceUri('id-1')}) 和 @[周报](${encodeSessionReferenceUri('id-2')})`, bindings)
+  assert.equal(c, '@周报 和 @周报 (2)')
+  assert.equal(bindings.size, 2)
+})
+
+test('restoreSessionMentionTokens：裸 URI 还原为 @sessionId，坏 URI 原样保留', () => {
+  const bindings = new Map<string, string>()
+  const bare = encodeSessionReferenceUri('s-bare')
+  const restored = restoreSessionMentionTokens(`引用 ${bare} 和坏 @[x](dsh-session:%%%)`, bindings)
+  assert.equal(restored, '引用 @s-bare 和坏 @[x](dsh-session:%%%)')
+  assert.equal(bindings.get('@s-bare'), formatSessionMention('s-bare', 's-bare'))
+})
+
+test('restoreSessionMentionTokens：转义 label（\\ 与 ]）还原后可再编码往返', () => {
+  const bindings = new Map<string, string>()
+  const mention = formatSessionMention('a]b\\c', 's1')
+  const restored = restoreSessionMentionTokens(mention, bindings)
+  assert.equal(restored, '@a]b\\c')
+  assert.equal(bindings.get('@a]b\\c'), formatSessionMention('a]b\\c', 's1'))
 })

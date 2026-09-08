@@ -450,9 +450,16 @@ const chatHandlers: ChatTabMessageHandler[] = [
       const controller = host.controller
       if (!controller) return
       const restored = await controller.stop()
-      if (restored.length > 0) {
-        host.postMessage({ type: 'restoreDraft', text: restored.join('\n') })
-      }
+      // 抽干队列的排队长消息回填 composer：文本拆分附件行、文件还原 chips、
+      // 图片按 attachmentId 拉字节（与 unsteer/发送失败同款语义，不再吐原始
+      // editText）。全部为空时无需回填。
+      if (!restored.text && restored.images.length === 0 && restored.files.length === 0) return
+      host.postMessage({
+        type: 'restoreDraft',
+        text: restored.text,
+        ...(restored.images.length > 0 ? { images: restored.images } : {}),
+        ...(restored.files.length > 0 ? { files: restored.files } : {}),
+      })
     },
   },
   {
