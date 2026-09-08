@@ -1293,7 +1293,7 @@
   .goal-bar-glyph { flex: none; display: inline-flex; color: var(--vscode-descriptionForeground, #888); }
   .goal-bar-label { flex: none; font-size: 13px; font-weight: 500; }
   .goal-bar-objective {
-    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1; min-width: 0; overflow-wrap: anywhere; word-break: break-word; white-space: normal;
     font-size: 13px; opacity: 0.75;
   }
   .goal-bar-actions { flex: none; display: flex; align-items: center; gap: 2px; }
