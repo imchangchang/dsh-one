@@ -49,6 +49,27 @@ export function tagDisplayName(tag: SessionTagDef, t: L10nFn): string {
   return t(PRESET_TAG_L10N[tag.id] ?? tag.id)
 }
 
+/**
+ * 为「面板/基线里已存在但尚无标签桶」的 workspace（含未分组虚拟组）补出三个预设组
+ * 的快照基础项，保证任何会话右键「Move to group…」恒能看到 Todo/Doing/Done，
+ * 不依赖该 workspace 是否真存过标签（方案 A：不预先把空桶落盘，真正归组时才建桶）。
+ * 只回 name/color（preset 恒 true）；count 由调用方按已存桶补（无桶恒 0）。
+ */
+export function presetTagSnapshots(
+  presentWorkspaceIds: ReadonlySet<string>,
+  workspaceIds: readonly string[],
+  t: L10nFn,
+): Array<{ workspaceId: string; id: string; name: string; color: TagColor; preset: true }> {
+  const out: Array<{ workspaceId: string; id: string; name: string; color: TagColor; preset: true }> = []
+  for (const wsId of new Set(workspaceIds)) {
+    if (presentWorkspaceIds.has(wsId)) continue
+    for (const def of PRESET_TAGS) {
+      out.push({ workspaceId: wsId, id: def.id, name: tagDisplayName(def, t), color: def.color, preset: true })
+    }
+  }
+  return out
+}
+
 function sanitizeColor(raw: unknown): TagColor {
   return (TAG_COLORS as readonly unknown[]).includes(raw) ? (raw as TagColor) : 'orange'
 }

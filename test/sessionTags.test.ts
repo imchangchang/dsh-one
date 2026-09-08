@@ -6,6 +6,7 @@ import {
   nextCustomColor,
   PRESET_TAGS,
   PRESET_TAG_IDS,
+  presetTagSnapshots,
   removeTagFromAll,
   reorderTags,
   sanitizeSessionTagIds,
@@ -17,6 +18,8 @@ import {
 } from '../src/pure/sessionTags.ts'
 
 const en = (k: string): string => k
+
+const UNGROUPED = '__ungrouped__'
 
 const custom = (id: string, name: string, color: SessionTagDef['color'] = 'orange'): SessionTagDef => ({
   id,
@@ -154,4 +157,33 @@ test('tagNameError checks non-empty unique names against custom tags only', () =
   assert.equal(tagNameError('Todo', tags), null)
   // excludeId 排除自身（重命名不改名）。
   assert.equal(tagNameError('探索', tags, 't-1'), null)
+})
+
+test('presetTagSnapshots emits the three presets for workspaces without a bucket', () => {
+  // 无桶 workspace → 补齐 todo/doing/done（按 PRESET_TAGS 序、名字走 l10n、preset 恒 true）。
+  const snap = presetTagSnapshots(new Set<string>([]), ['ws-a', UNGROUPED], en)
+  assert.deepEqual(
+    snap.map((x) => [x.workspaceId, x.id, x.name, x.color, x.preset]),
+    [
+      ['ws-a', 'preset-todo', 'Todo', 'yellow', true],
+      ['ws-a', 'preset-doing', 'Doing', 'blue', true],
+      ['ws-a', 'preset-done', 'Done', 'green', true],
+      [UNGROUPED, 'preset-todo', 'Todo', 'yellow', true],
+      [UNGROUPED, 'preset-doing', 'Doing', 'blue', true],
+      [UNGROUPED, 'preset-done', 'Done', 'green', true],
+    ],
+  )
+  // 有桶的 workspace 不再重复补（去除已存在的）。
+  const withBucket = presetTagSnapshots(new Set(['ws-a']), ['ws-a', 'ws-b'], en)
+  assert.deepEqual(
+    withBucket.map((x) => x.workspaceId),
+    ['ws-b', 'ws-b', 'ws-b'],
+  )
+  // 空 workspace 集 → 空输出；重复 workspace 也去重（Set 逐 id 一次）。
+  assert.deepEqual(presetTagSnapshots(new Set<string>([]), [], en), [])
+  assert.deepEqual(presetTagSnapshots(new Set<string>([]), ['ws-a', 'ws-a'], en).map((x) => [x.workspaceId, x.id]), [
+    ['ws-a', 'preset-todo'],
+    ['ws-a', 'preset-doing'],
+    ['ws-a', 'preset-done'],
+  ])
 })

@@ -35,6 +35,7 @@ import {
   invertSessionTagIds,
   isPresetTag,
   nextCustomColor,
+  presetTagSnapshots,
   removeTagFromAll,
   reorderTags as reorderTagsPure,
   sanitizeTags as sanitizeTagsPure,
@@ -637,18 +638,44 @@ export class SessionsStore implements vscode.Disposable {
         .filter((w) => w.workspaceId !== UNGROUPED_WORKSPACE_ID)
         .map((w) => ({ workspaceId: w.workspaceId, label: w.label })),
       // 标签组：per-workspace 平铺（每项带 workspaceId，webview 在组内按 ws 解析）；
-      // count 只认当前基线里真实存在的会话（成员残留旧 id 不计）。
-      tags: collectTagSnapshots(this.wsTags, (t, wsId) => ({
-        workspaceId: wsId,
-        id: t.id,
-        name: tagDisplayName(t, vscode.l10n.t),
-        color: t.color,
-        preset: isPresetTag(t),
-        count: this.tagSessionCount(wsId, t.id),
-      })),
+      // count 只认当前基线里真实存在的会话（成员残留旧 id 不计）。额外为「当前基线里
+      // 尚无桶」的 workspace（含未分组虚拟组）补出三个预设组——保证任何会话右键
+      // 「Move to group…」恒能看到 Todo/Doing/Done（不依赖该 workspace 是否真存过标签）。
+      tags: this.tagSnapshots(),
       tagSessionIds: invertSessionTagIds(collectAllSessionTags(this.wsTags)),
       tagCollapsed: collectCollapsed(this.wsTags),
     }
+  }
+
+  /**
+   * 会话标签组快照：先输出已存桶的组（per-workspace 平铺，count 只认当前基线里
+   * 的真实会话）；再为「当前基线里尚无桶」的 workspace（含未分组虚拟组）补出三个
+   * 预设组（Todo/Doing/Done）。这样任何会话右键「Move to group…」恒能看到预设组，
+   * 不依赖该 workspace 是否真存过标签。方案 A：不预先把空桶落盘——真正归组时才由
+   * setSessionTag → ensureBucket 当场建桶（seed 预设组）。
+   */
+  private tagSnapshots(): Array<{ workspaceId: string; id: string; name: string; color: TagColor; preset: boolean; count: number }> {
+    const out = collectTagSnapshots(this.wsTags, (t, wsId) => ({
+      workspaceId: wsId,
+      id: t.id,
+      name: tagDisplayName(t, vscode.l10n.t),
+      color: t.color,
+      preset: isPresetTag(t),
+      count: this.tagSessionCount(wsId, t.id),
+    }))
+    // 为无桶的当前基线 workspace + 未分组补三个预设组（方案 A 纯函数判定）。
+    const present = new Set(Object.keys(this.wsTags))
+    for (const p of presetTagSnapshots(present, [...this.visibleWorkspaceIds()], vscode.l10n.t)) {
+      out.push({ ...p, count: this.tagSessionCount(p.workspaceId, p.id) })
+    }
+    return out
+  }
+
+  /** 快照标签组需要覆盖的 workspace 集合：当前基线全部 workspace + 未分组虚拟组。 */
+  private visibleWorkspaceIds(): Set<string> {
+    const ids = new Set(this.rawWorkspaces.map((w) => w.workspaceId))
+    ids.add(UNGROUPED_WORKSPACE_ID)
+    return ids
   }
 
   /** 某 ws 某个组的会话计数（只数当前基线里的非归档会话；残留/已删 id 不计）。 */
