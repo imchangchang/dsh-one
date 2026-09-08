@@ -1601,55 +1601,33 @@
   @media (pointer: coarse) { .attach-thumb .thumb-remove, .file-chip .thumb-remove { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .attach-thumb .thumb-remove, .file-chip .thumb-remove { transition: none; } }
   #input {
-    flex: 1; resize: none; box-sizing: border-box; padding: 6px 8px;
-    /* 文字透明：@ 引用 token 由 .ref-token-layer 高亮层绘制（同一字体流），
-       hover 联动对应附件 chip 高亮；光标颜色单独保可见。 */
-    color: transparent; caret-color: var(--vscode-input-foreground);
+    flex: 1; box-sizing: border-box; padding: 6px 8px;
+    /* 文字统一用输入前景色：@ 引用 token 由 Lexical 的 .ref-token 在真实文本流里
+       高亮（不再是透明文字 + 叠加层），光标颜色同前景色。 */
+    color: var(--vscode-input-foreground); caret-color: var(--vscode-input-foreground);
     background: var(--vscode-input-background);
     border: 1px solid var(--vscode-input-border, transparent); border-radius: 6px;
-    font-family: inherit; font-size: inherit; max-height: 160px;
-    /* 原生按内容定高（Chromium 123+，VS Code ≥1.96 内嵌 Chromium 128）：
-       取代 JS autoGrow 的 height:auto 塌缩测量——塌缩瞬态会 clamp 兄弟滚动
-       容器的 scrollTop（回归 composer-input-jitter-pinned-scroll）。
-       不支持的旧环境走 webview.ts autoGrow 的塌缩+修复兜底。 */
-    field-sizing: content;
+    font-family: inherit; font-size: inherit; line-height: inherit;
+    /* 空内容时块级 contenteditable 高度塌陷到 padding+border，暂用 min-height 保
+       住单行高度；有内容时随文本自然增高（max-height 钳上限，超长内部滚动）。 */
+    min-height: 1.5em;
+    max-height: 160px; overflow-y: auto;
+    white-space: pre-wrap; overflow-wrap: break-word; outline: none; cursor: text;
   }
-  /* autoGrow 回退路径的隐藏测量镜像（无 field-sizing 的旧环境用，JS 在
-     composer-frame 里动态创建）：与 #input 同宽同盒模型同字体，脱离流
-     （position:absolute）不碍布局，value 同步后读 scrollHeight 得到目标高度——
-     全程不对存活 textarea 做塌缩。 */
-  .grow-mirror {
-    position: absolute; top: 0; left: 0; right: 0; height: auto;
-    visibility: hidden; pointer-events: none;
-    box-sizing: border-box; padding: 6px 8px; border: 1px solid transparent;
-    font: inherit; line-height: inherit;
-    resize: none; overflow: hidden; white-space: pre-wrap;
-  }
-  #input::placeholder { color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground, #9d9d9d)); }
-  /* 透明文字下选区仍要有底色（否则选中无视觉反馈）；文字保持透明由叠层绘制。 */
-  #input::selection {
-    background: var(--vscode-editor-selectionBackground, rgba(101, 158, 254, .35));
-    color: transparent;
-  }
+  #input::selection { background: var(--vscode-editor-selectionBackground, rgba(101, 158, 254, .35)); }
   #input:focus { outline: 1px solid var(--vscode-focusBorder); }
-  /* 输入框文本高亮层：与 #input 同字体流叠加，@ 引用 token 有底色；
-     鼠标悬停 token 时 .active 加深并联动附件 chip 高亮。盒子用
-     inset+overflow:hidden 锚死在 textarea 上；textarea 内部滚动时只平移
-     内部 .ref-token-scroll（内容），盒子本身不动——否则长文本 scrollTop
-     会把整个层顶出输入框（回归 composer-long-text-overflow）。 */
+  /* 占位符层：绝对定位在 composer-frame 内（与编辑器的文字原点对齐：border 1px +
+     padding 6px/8px），内容为空时由 composerEditor 控制显隐。 */
   .composer-frame { position: relative; flex: 1; min-width: 0; display: flex; }
   .composer-frame #input { flex: 1; width: 100%; min-width: 0; }
-  .ref-token-layer {
-    position: absolute; inset: 1px; padding: 6px 8px;
-    pointer-events: none; overflow: hidden;
-    white-space: pre-wrap; overflow-wrap: break-word;
+  .lexical-placeholder {
+    position: absolute; left: 9px; top: 7px; right: 9px;
+    color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground, #9d9d9d));
+    pointer-events: none; white-space: pre-wrap; overflow-wrap: break-word;
     font-family: inherit; font-size: inherit; line-height: inherit;
-    color: var(--vscode-input-foreground);
-    border-radius: 6px;
   }
-  /* 滚动同步的内容层：文本/token 挂这里，translateY(-scrollTop) 只作用于此层，
-     由 .ref-token-layer 的 overflow:hidden 裁出与 textarea 一致的可见窗口。
-     块级 div 默认撑满内容盒，无需额外布局规则。 */
+  /* @ 引用 token 高亮：RefTokenNode 在编辑文本流里的天然底色，hover 加深并联动
+     对应附件 chip 高亮（网页层 .active 由 webview 的 hover 联动切换）。 */
   .ref-token { background: rgba(101, 158, 254, .22); border-radius: 3px; }
   .ref-token.active { background: rgba(101, 158, 254, .5); }
   /* 气泡行内 @ 引用 chip 的 hover 态：与附件 chip 的 hovered 描述联动。 */
