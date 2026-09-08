@@ -4225,6 +4225,125 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     expect: '两张分步截图对照——① <scenario>-expanded.png：三个块都展开——思考块正文多行（左引用竖线）、工具卡展开出 IN/OUT 卡片、命令输出多行 pre；每个展开块的**内容底端**都有一行小灰字「收起」按钮（思考块正下方、工具卡 OUT 卡片下方、命令输出下方），按钮不带边框、与正文同色系半透明；顶部摘要行仍可点（未改动）。② <scenario>-collapsed-reasoning.png：点思考块底部「收起」后思考块收回单行摘要（Thoughts · 首行），其「收起」按钮随正文一起消失；工具卡与命令输出**仍保持展开**（各自收起按钮仍在原位）；无红色断言横幅（断言：思考块已折叠且工具卡仍展开）。',
   }
 
+  // ---- #5 ESC 中断 / ↑ 召回后 composer 还原（@标签/附件不再显示成路径原文）----
+
+  // ESC 停止抽干队列：宿主回填 restoreDraft。webview 端必须把回填文本里的
+  // <attachment> 行拆成文件 chip、canonical @[标签](uri) 还原成 @标签、图片 staging。
+  catalog['restore-draft-stop'] = {
+    png: PNG_RED,
+    state: base({ running: true }),
+    interact: `(() => {
+      const s = window.SCENARIOS['restore-draft-stop']
+      window.postMessage({ type: 'restoreDraft',
+        text: '等等，先停下，看看 @[旧会话](dsh-session:InNlc3MtMyI) 的状态。\\n<attachment>/Users/cgeng/Workspaces/dsh-one/README.md</attachment>',
+        images: [{ mediaType: 'image/png', data: s.png, name: 'chart.png' }],
+      }, '*')
+      setTimeout(() => {
+        const input = document.getElementById('input')
+        window.__restoreDraftStop = {
+          input: input ? input.value : null,
+          chips: Array.from(document.querySelectorAll('#app .image-chips .file-chip')).map((c) => (c.querySelector('.chip-name') || c).textContent.trim()),
+          refTokens: Array.from(document.querySelectorAll('#app .ref-token')).map((sp) => sp.textContent),
+          thumbs: document.querySelectorAll('#app .image-chips .attach-thumb').length,
+        }
+      }, 250)
+    })()`,
+    title: 'ESC 停止抽干队列回填：附件行拆 chip、canonical 引用还原、图片 staging',
+    expect: '运行中对话（消息流在下、composer 在上）：composer 输入框文本为「等等，先停下，看看 @旧会话 的状态。」——@ 会话标签从 canonical @[旧会话](dsh-session:…) 还原成 @旧会话（高亮层一个 .ref-token），正文里**看不到** <attachment>…</attachment> 路径行；composer 附件区一个文档图标文件 chip（短名 README.md，无长路径）；一个红色方形图片缩略图（chart.png）。DOM 断言 window.__restoreDraftStop = {input: "等等，先停下，看看 @旧会话 的状态。", chips: ["README.md"], refTokens: ["@旧会话"], thumbs: 1}。',
+  }
+
+  // ↑ 召回排队消息：排队项 editText 里的 <attachment> 行拆成文件 chip，canonical
+  // 引用还原；回写（Enter）时 round-trip 重拼 attachment 行（脚本不测回写，只测召回态）。
+  catalog['recall-queue-row'] = {
+    state: base({
+      running: false,
+      queue: [
+        { id: 'q-1', placement: 'queued',
+          text: '[图片 ×1] [文件 ×1] 等等，先停下，看看 main 分支状态。',
+          editText: '等等，先停下，看看 @[旧会话](dsh-session:InNlc3MtMyI) 的状态。\n<attachment>/Users/cgeng/Workspaces/dsh-one/README.md</attachment>',
+          images: [{ attachmentId: 'q-img-1', mediaType: 'image/png', name: 'chart.png' }],
+          files: [{ name: 'README.md', path: '/Users/cgeng/Workspaces/dsh-one/README.md' }] },
+      ],
+    }),
+    interact: `(() => {
+      const input = document.getElementById('input')
+      if (!input) return
+      input.focus()
+      input.setSelectionRange(0, 0)
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }))
+      window.__recallQueueRow = {
+        input: input.value,
+        chips: Array.from(document.querySelectorAll('#app .image-chips .file-chip')).map((c) => (c.querySelector('.chip-name') || c).textContent.trim()),
+        refTokens: Array.from(document.querySelectorAll('#app .ref-token')).map((sp) => sp.textContent),
+      }
+    })()`,
+    title: '↑ 召回排队消息：附件行拆 chip、canonical 引用还原',
+    expect: 'composer 输入框文本为「等等，先停下，看看 @旧会话 的状态。」——排队项里的 @[旧会话](dsh-session:…) 还原成 @旧会话（高亮层一个 .ref-token），**看不到** <attachment>…</attachment> 行；composer 附件区一个文档图标文件 chip（README.md，无长路径）；输入区上方出现排队召回条（recall 态，Esc 可取消）。DOM 断言 window.__recallQueueRow = {input: "等等，先停下，看看 @旧会话 的状态。", chips: ["README.md"], refTokens: ["@旧会话"]}。',
+  }
+
+  // ↑ 召回历史消息：历史里存的是 canonical @长路径 与 @[标签](uri)，一并还原成
+  // 显示 token；原消息的图片（attachmentId 引用）与文件 chip 一并恢复进 composer。
+  catalog['recall-history-images'] = {
+    png: PNG_RED,
+    state: base({
+      messages: [
+        {
+          kind: 'user', id: rid('u'), seq: 1,
+          text: '等等，@[旧会话](dsh-session:InNlc3MtMyI) 的状态也看下。',
+          images: [{ attachmentId: 'hist-img-1', mediaType: 'image/png', name: 'chart.png' }],
+          files: [{ name: 'README.md', path: '/Users/cgeng/Workspaces/dsh-one/README.md' }],
+        },
+        at('好，我看一下。'),
+      ],
+    }),
+    interact: `(() => {
+      const s = window.SCENARIOS['recall-history-images']
+      // 先喂图片字节（模拟宿主懒取回执），让召回 staging 同步拿到缓存。
+      window.postMessage({ type: 'attachmentData', attachmentId: 'hist-img-1', mediaType: 'image/png', data: s.png }, '*')
+      setTimeout(() => {
+        const input = document.getElementById('input')
+        if (!input) return
+        input.focus()
+        input.setSelectionRange(0, 0)
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }))
+        window.__recallHistoryImages = {
+          input: input.value,
+          chips: Array.from(document.querySelectorAll('#app .image-chips .file-chip')).map((c) => (c.querySelector('.chip-name') || c).textContent.trim()),
+          refTokens: Array.from(document.querySelectorAll('#app .ref-token')).map((sp) => sp.textContent),
+          thumbs: document.querySelectorAll('#app .image-chips .attach-thumb').length,
+        }
+      }, 250)
+    })()`,
+    title: '↑ 召回历史消息：会话标签还原 + 图片/文件一并恢复',
+    expect: 'composer 输入框文本为「等等，@旧会话 的状态也看下。」——历史消息里的 @[旧会话](dsh-session:…) 还原成 @旧会话（高亮层一个 .ref-token）；composer 附件区一个文档图标文件 chip（README.md，无长路径）+ 一个红色方形图片缩略图（chart.png，即历史消息的粘贴图被重新 staging 进 composer）。消息流里那条用户气泡本身也各带一个 README.md chip 和 chart.png 缩略图（属消息渲染，不是 composer 重复）。DOM 断言 window.__recallHistoryImages = {input: "等等，@旧会话 的状态也看下。", chips: ["README.md"], refTokens: ["@旧会话"], thumbs: 1}。',
+  }
+
+  // ↑ 撤销插话（unsteer）：宿主回填 split 后的文本（附件行已拆）+ 图片 + 文件。
+  // webview 端把 canonical 会话标签还原成 @标签（unsteer 此前唯一缺的还原）。
+  catalog['recall-unsteer-session'] = {
+    png: PNG_RED,
+    state: base({ running: true }),
+    interact: `(() => {
+      const s = window.SCENARIOS['recall-unsteer-session']
+      window.postMessage({ type: 'restoreDraft',
+        text: '等等，先停下，看看 @[旧会话](dsh-session:InNlc3MtMyI) 的状态。',
+        images: [{ mediaType: 'image/png', data: s.png, name: 'chart.png' }],
+        files: [{ name: 'README.md', path: '/Users/cgeng/Workspaces/dsh-one/README.md' }],
+      }, '*')
+      setTimeout(() => {
+        const input = document.getElementById('input')
+        window.__recallUnsteerSession = {
+          input: input ? input.value : null,
+          chips: Array.from(document.querySelectorAll('#app .image-chips .file-chip')).map((c) => (c.querySelector('.chip-name') || c).textContent.trim()),
+          refTokens: Array.from(document.querySelectorAll('#app .ref-token')).map((sp) => sp.textContent),
+          thumbs: document.querySelectorAll('#app .image-chips .attach-thumb').length,
+        }
+      }, 250)
+    })()`,
+    title: '↑ 撤销插话回填：canonical 会话标签还原、图片/文件 chips',
+    expect: '运行中对话：composer 输入框文本为「等等，先停下，看看 @旧会话 的状态。」——canonical @[旧会话](dsh-session:…) 还原成 @旧会话（高亮层一个 .ref-token）；composer 附件区一个文档图标文件 chip（README.md）+ 一个红色方形图片缩略图（chart.png）。DOM 断言 window.__recallUnsteerSession = {input: "等等，先停下，看看 @旧会话 的状态。", chips: ["README.md"], refTokens: ["@旧会话"], thumbs: 1}。',
+  }
+
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"
   // 的存量状态，就把它的名字加进 BASELINE_SCENARIOS —— 随合入并入主线基线。
@@ -4264,6 +4383,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'model-pill-error-fallback',
     'inline-code-interact',
     'draft-restore-blank-hero', 'draft-restore-with-files', 'draft-restore-question',
+    'restore-draft-stop', 'recall-queue-row', 'recall-history-images', 'recall-unsteer-session',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()
