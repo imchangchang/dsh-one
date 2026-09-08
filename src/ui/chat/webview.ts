@@ -5,7 +5,7 @@
  * dompurify inlined) to dist/chatWebview.js. Rendering is a full rebuild per
  * snapshot — the host throttles pushes, so this stays cheap for a skeleton.
  */
-import { ACCOUNT_ICON, ALARM_CLOCK_ICON, CHECK_ICON, CONTEXT_BROWSE_ICON, COPY_ICON, CODE_ICON, DSH_ONE_MARK, GIT_COMMIT_ICON, GITHUB_ICON, GOAL_ICONS, HISTORY_ICON, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, SKILL_ICON, STOP_ICON, STOP_PRIMARY_ICON, THINK_ICON, TRASH_ICON, type IconDef } from './icons.ts'
+import { ACCOUNT_ICON, ALARM_CLOCK_ICON, CHECK_ICON, CONTEXT_BROWSE_ICON, COPY_ICON, DSH_ONE_MARK, GIT_COMMIT_ICON, GITHUB_ICON, GOAL_ICONS, HISTORY_ICON, MESSAGE_ACTION_ICONS, PANEL_ICONS, SEND_ICON, STOP_PRIMARY_ICON, THINK_ICON, type IconDef } from './icons.ts'
 import { el, buttonEl, iconButton, iconSvg, strokeSvg, presetIconSvg } from './dom.ts'
 import { md, createMarkdownTools, SESSION_REF_ICON, type MarkdownCtx } from './markdown.ts'
 import type {
@@ -49,8 +49,6 @@ import { steerModifierLabel } from '../../pure/steerShortcut.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { isFilePathHref } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
-import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../pure/toolLine.ts'
-import { cordisActionCardModel, cordisDefineCardModel, cordisRunCardModel, skillCardModel } from '../../pure/toolCards.ts'
 import {
   isScheduleOverdue,
   orderScheduleRecords,
@@ -59,21 +57,11 @@ import {
   type ScheduleTimeUnit,
 } from '../../pure/schedule.ts'
 import {
-  JSON_TREE_ROOT_KEY,
-  flattenJsonTree,
-  jsonPathKey,
-  jsonTreeCopyText,
   jsonTreeThresholdExceeded,
-  jsonValueAtPath,
   tryParseJsonTree,
   type JsonContainer,
-  type JsonPath,
-  type JsonPrimitiveKind,
-  type JsonTreeRow,
 } from '../../pure/jsonTree.ts'
-import { subagentInTree, subagentIdFromOutput } from '../../pure/subagentCard.ts'
 import { codeBlockPreview } from '../../pure/codeBlock.ts'
-import { alignDiffLines } from '../../pure/diffAlign.ts'
 import { producedBasename } from '../../pure/producedFiles.ts'
 import {
   formatJobDuration,
@@ -5986,310 +5974,14 @@ function renderBlock(block: ChatBlock, key: string): HTMLElement {
       attachCollapseFooter(det)
       return det
     }
-    case 'tool':
-      return renderTool(block, key)
     case 'retry':
       // 模型重试行（对齐官方 ModelRetryItem）：倒计时 + 失败原因 + 最大次数。
       return renderRetryRow(block, key)
-  }
-}
-
-/**
- * 「快照副本」标注：当一条 `subagent` 工具调用卡对应的子代理不在本会话的
- * 血缘树里（该次调用是 fork 快照复制来的历史，子代理仍挂在原父会话下），
- * 在卡片上追加一行醒目但克制的说明——提示点击不会跳到仍在跑的子代理。
- * 已完结（非 running）才算：快照里的调用是占位结果；运行中的调用等它先
- * 落血缘，避免把 in-flight 误标。后台 job / 前台结果不产出 lineage id，
- * 解析不到就不标。
- */
-function subagentSnapshotNote(block: ChatToolBlock): HTMLElement | null {
-  if (block.name !== 'subagent' || block.status === 'running') return null
-  const id = subagentIdFromOutput(block.output)
-  if (!id) return null
-  if (subagentInTree(state?.subagents, id)) return null
-  return el('div', 'tool-snapshot-note', t('Snapshot copy: the subagent is no longer in this session'))
-}
-
-/**
- * 专用工具卡的行首状态位（对齐 dsh web 各专用卡 leadingFor）：running →
- * spinner（dsh-one 惯例），error → StateDot 红点，其余 → 专用图标。
- */
-function toolLeading(icon: IconDef, status: ChatToolBlock['status']): HTMLElement {
-  if (status === 'running') return spinnerEl()
-  if (status === 'error') {
-    const dot = el('span', 'tool-state-dot')
-    dot.setAttribute('data-state', 'error')
-    return dot
-  }
-  const ic = el('span', 'tool-leading')
-  ic.appendChild(iconSvg(icon, 14))
-  return ic
-}
-
-/** 专用卡行内的分隔点 + 摘要（errorSummary 红字，其余普通灰字）。 */
-function toolCardSummary(errorSummary: string | null, fallback: string): HTMLElement {
-  const summary = el('span', errorSummary ? 'tool-title tool-title-error' : 'tool-title', errorSummary ?? fallback)
-  return summary
-}
-
-/**
- * skill 工具专用卡（对齐 dsh web SkillRow）：行首 Skill 图标（running 时
- * spinner、error 时红点）+ 「Skill」+ 分隔点 + skill 名（error 时输出首行）；
- * 有指令全文（result 输出）才可展开，展开出「说明」指令卡（max-height 260
- * 内滚动）。dsh web 的 Inspect 按钮依赖轨迹面板，dsh-one 没有，省略。
- */
-function renderSkillRow(block: ChatToolBlock, key: string): HTMLElement {
-  const card = skillCardModel(block)
-  const row = el('div', `tool tool-skill tool-${block.status}`)
-  const line = el('div', 'tool-line')
-  line.appendChild(toolLeading(SKILL_ICON, block.status))
-  line.appendChild(el('span', 'tool-action', 'Skill'))
-  line.appendChild(el('span', 'tool-sep'))
-  line.appendChild(toolCardSummary(card.errorSummary, card.name))
-  if (!card.output) {
-    // 无指令全文：静态行（running 或 result 无文本）。
-    row.appendChild(line)
-    return row
-  }
-  const det = el('details', 'tool-disclosure') as HTMLDetailsElement
-  det.open = detailsOpen.get(`${key}:tool`) ?? false
-  det.addEventListener('toggle', () => detailsOpen.set(`${key}:tool`, det.open))
-  const summary = el('summary')
-  const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
-  chev.classList.add('tool-chevron')
-  line.appendChild(chev)
-  summary.appendChild(line)
-  det.appendChild(summary)
-  const instructions = el('div', 'skill-instructions-card')
-  instructions.appendChild(el('div', 'skill-instructions-header', t('Instructions')))
-  instructions.appendChild(markScrollable(el('pre', 'skill-instructions', card.output), `${key}:instructions`))
-  det.appendChild(instructions)
-  attachCollapseFooter(det)
-  row.appendChild(det)
-  return row
-}
-
-/**
- * cordis_define 专用卡（对齐 dsh web CordisDefineRow）：行首 Code 图标 +
- * 「注册 Cordis 插件」+ 分隔点 + 插件名 + 用途（灰字，缺省「(未填写用途)」）；
- * 有 Host/Client 源码或输出才可展开，展开出两段源码（Host/Client，各
- * max-height 260 内滚动）+ 结果段。dsh web 的插件运行状态 readout 依赖
- * cordis inventory 数据链路，dsh-one 没有，省略（静态版）。
- */
-function renderCordisDefineRow(block: ChatToolBlock, key: string): HTMLElement {
-  const card = cordisDefineCardModel(block)
-  const row = el('div', `tool tool-cordis tool-cordis-define tool-${block.status}`)
-  const line = el('div', 'tool-line')
-  line.appendChild(toolLeading(CODE_ICON, block.status))
-  line.appendChild(el('span', 'tool-action', t('Register Cordis plugin')))
-  line.appendChild(el('span', 'tool-sep'))
-  line.appendChild(toolCardSummary(card.errorSummary, card.name))
-  // error 时只显示错误摘要，purpose 让位（web 同款：purpose 仅在无错误时展示）。
-  if (card.errorSummary === null) {
-    line.appendChild(el('span', 'tool-purpose', card.purpose ?? t('(no purpose given)')))
-  }
-  const expandable = card.hostCode !== null || card.clientCode !== null || card.output !== null
-  if (!expandable) {
-    row.appendChild(line)
-    return row
-  }
-  const det = el('details', 'tool-disclosure') as HTMLDetailsElement
-  det.open = detailsOpen.get(`${key}:tool`) ?? false
-  det.addEventListener('toggle', () => detailsOpen.set(`${key}:tool`, det.open))
-  const summary = el('summary')
-  const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
-  chev.classList.add('tool-chevron')
-  line.appendChild(chev)
-  summary.appendChild(line)
-  det.appendChild(summary)
-  const body = el('div', 'tool-disclosure-body')
-  for (const [label, code] of [
-    ['Host', card.hostCode],
-    ['Client', card.clientCode],
-  ] as const) {
-    if (code === null) continue
-    const section = el('div', 'cordis-source')
-    section.appendChild(el('div', 'cordis-source-label', label))
-    section.appendChild(markScrollable(el('pre', 'cordis-source-code', code), `${key}:cordis:${label.toLowerCase()}`))
-    body.appendChild(section)
-  }
-  if (card.output !== null) {
-    const section = el('div', 'cordis-source')
-    section.appendChild(el('div', 'cordis-source-label', t('Result')))
-    section.appendChild(markScrollable(el('pre', 'cordis-source-code', card.output), `${key}:cordis:output`))
-    body.appendChild(section)
-  }
-  det.appendChild(body)
-  attachCollapseFooter(det)
-  row.appendChild(det)
-  return row
-}
-
-/**
- * cordis_run 专用卡（对齐 web CordisRunRow 的静态版）：行首 Code 图标 +
- * 「运行/更新 Cordis 插件」（args.mode） + 分隔点 + pluginId · packageId
- * （error 时输出首行）；输出直接平铺在行下（web 同款，非 disclosure）。
- * dsh web 的 inventory 运行状态、awaiting-approval/superseded 提示与
- * 插件自注册业务视图都依赖 cordis 面板数据链路，dsh-one 没有，省略。
- */
-function renderCordisRunRow(block: ChatToolBlock, key: string): HTMLElement {
-  const card = cordisRunCardModel(block)
-  const row = el('div', `tool tool-cordis tool-cordis-run tool-${block.status}`)
-  const line = el('div', 'tool-line')
-  line.appendChild(toolLeading(CODE_ICON, block.status))
-  line.appendChild(el('span', 'tool-action', card.mode === 'update' ? t('Update Cordis plugin') : t('Run Cordis plugin')))
-  line.appendChild(el('span', 'tool-sep'))
-  const identity = card.pluginId ? `${card.pluginId}${card.packageId ? ` · ${card.packageId}` : ''}` : block.callId
-  line.appendChild(toolCardSummary(card.errorSummary, identity))
-  row.appendChild(line)
-  if (card.output !== null) row.appendChild(renderToolOutput(card.output, `${key}:out`))
-  return row
-}
-
-/**
- * cordis_stop / cordis_undefine 专用卡（对齐 web CordisActionRow）：行首
- * Stop/Trash 图标 + 「停止/移除 Cordis 插件」 + 分隔点 + pluginId（error 时
- * 输出首行）；输出直接平铺。与 cordis_run 一样无 inventory 依赖，静态版。
- */
-function renderCordisActionRow(block: ChatToolBlock, key: string): HTMLElement {
-  const card = cordisActionCardModel(block)
-  const remove = block.name === 'cordis_undefine'
-  const row = el('div', `tool tool-cordis tool-cordis-action tool-${block.status}`)
-  const line = el('div', 'tool-line')
-  line.appendChild(toolLeading(remove ? TRASH_ICON : STOP_ICON, block.status))
-  line.appendChild(el('span', 'tool-action', remove ? t('Remove Cordis plugin') : t('Stop Cordis plugin')))
-  line.appendChild(el('span', 'tool-sep'))
-  line.appendChild(toolCardSummary(card.errorSummary, card.pluginId ?? block.callId))
-  row.appendChild(line)
-  if (card.output !== null) row.appendChild(renderToolOutput(card.output, `${key}:out`))
-  return row
-}
-
-/**
- * 工具调用行（kimi-cli / dsh web 行式排版）：状态图标 + 英文动作短语 +
- * host 计算的标题（如文件路径），命令类工具另起一行等宽预览（$ 前缀、
- * 截断省略）。不再是带边框的卡片容器。
- * todo_write 调用带 planSummary 时换成任务卡（对齐 web TodoRow）：动作短语
- * 用「更新任务清单」，摘要 =「0/4 已完成 · 首个进行中项」，+N 挂尾部。
- * 其他工具带输入参数（args）或输出（output）时整行可点展开（对齐 dsh web
- * DisclosureRow）：折叠态保留摘要，展开出 IN（参数 JSON）+ OUT（结果）卡片，
- * 各 150px 内滚动。
- * skill / cordis_* 走专用卡分流（按工具名，对齐 dsh web tool.call.toolview
- * 插槽的 entryKey 分发）。
- */
-function renderTool(block: ChatToolBlock, key: string): HTMLElement {
-  switch (block.name) {
-    case 'skill':
-      return renderSkillRow(block, key)
-    case 'cordis_define':
-      return renderCordisDefineRow(block, key)
-    case 'cordis_run':
-      return renderCordisRunRow(block, key)
-    case 'cordis_stop':
-    case 'cordis_undefine':
-      return renderCordisActionRow(block, key)
     default:
-      break
+      // tool 块由 Block 直接渲染 <ToolCard>（#43），命令式 renderBlock 不再处理；
+      // 走到这里是防御兜底（BlockShell 只接 text/reasoning/retry）。
+      return el('div')
   }
-  const row = el('div', `tool tool-${block.status}`)
-  const line = el('div', 'tool-line')
-  const snapshotNote = subagentSnapshotNote(block)
-  if (block.status === 'running') {
-    line.appendChild(spinnerEl())
-  } else if (block.status === 'error') {
-    // 失败用 dsh web 的 StateDot（error 红点）；done 不挂状态标（dsh web 里
-    // settled 工具行只显示工具自身图标，无额外状态覆盖）。
-    const dot = el('span', 'tool-state-dot')
-    dot.setAttribute('data-state', 'error')
-    line.appendChild(dot)
-  }
-  if (block.todos) {
-    // 数字来自该次调用 args 快照，不是当前投影；被拒绝/失败同样照实展示
-    // （web 注释：被取消的调用没写 todo/write，不能读成一次成功的清单更新）。
-    const s = block.todos
-    const head = t('{0}/{1} done', s.done, s.total)
-    line.appendChild(el('span', 'tool-action', t('Update task list')))
-    line.appendChild(el('span', 'tool-title', s.activeContent ? `${head} · ${s.activeContent}` : head))
-    if (s.activeExtra > 0) line.appendChild(el('span', 'tool-todo-extra', `+${s.activeExtra}`))
-    row.appendChild(line)
-    if (block.output) row.appendChild(renderToolOutput(block.output, `${key}:out`))
-    if (snapshotNote) row.appendChild(snapshotNote)
-    return row
-  }
-  line.appendChild(el('span', 'tool-action', toolAction(block.name)))
-  if (block.title) line.appendChild(el('span', 'tool-title', block.title))
-
-  const hasArgs = typeof block.args === 'string' && block.args.length > 0
-  const hasOutput = typeof block.output === 'string' && block.output.length > 0
-  if (!hasArgs && !hasOutput) {
-    // 无 IN 也无 OUT：保持原单行，不套展开容器。
-    row.appendChild(line)
-    if (block.detail) {
-      row.appendChild(
-        el('div', 'tool-detail', isCommandTool(block.name) ? `$ ${block.detail}` : block.detail),
-      )
-    }
-    if (block.diff) row.appendChild(renderDiff(block.diff, `${key}:diff`))
-    if (snapshotNote) row.appendChild(snapshotNote)
-    return row
-  }
-
-  // 可展开：整行（含 chevron）即摘要，点击展开出 IN/OUT；展开态持久化在
-  // detailsOpen（key 按消息/块位置），流式重建不冲掉。
-  const det = el('details', 'tool-disclosure') as HTMLDetailsElement
-  det.open = detailsOpen.get(`${key}:tool`) ?? false
-  det.addEventListener('toggle', () => detailsOpen.set(`${key}:tool`, det.open))
-  const summary = el('summary')
-  const chev = iconSvg(PANEL_ICONS.chevronDown, 14)
-  chev.classList.add('tool-chevron')
-  line.appendChild(chev)
-  summary.appendChild(line)
-  if (block.detail) {
-    summary.appendChild(
-      el('div', 'tool-detail', isCommandTool(block.name) ? `$ ${block.detail}` : block.detail),
-    )
-  }
-  // IN/OUT 收进展开区（对齐 dsh web DisclosureRow）；diff 卡保持折叠态直接可见，
-  // 用带行折叠的 renderDiff（前 8 行 + 展开其余，对齐 dsh web DiffBlock）。
-  det.appendChild(summary)
-  const body = el('div', 'tool-disclosure-body')
-  // IN（输入参数）保持现有 prettyJson 纯文本展示；OUT（结果文本）检测为 JSON 时
-  // 渲染 JsonTree（对齐 dsh web）。
-  if (hasArgs) body.appendChild(toolInOut('IN', prettyJson(block.args as string), `${key}:in`, false))
-  if (hasOutput) body.appendChild(toolInOut('OUT', block.output as string, `${key}:out`, true))
-  det.appendChild(body)
-  attachCollapseFooter(det)
-  row.appendChild(det)
-  if (block.diff) row.appendChild(renderDiff(block.diff, `${key}:diff`))
-  if (snapshotNote) row.appendChild(snapshotNote)
-  return row
-}
-
-/**
- * 工具卡展开区的一张 IN/OUT 卡片：小标签 + 内容。`asJson` 为 true 时（OUT）内容
- * 是 JSON 对象/数组字面量则渲染 JsonTree（对齐 dsh web），否则回退 150px 内滚动的
- * 等宽 <pre>；`asJson` 为 false 时（IN）恒用 prettyJson 的 <pre>。与 dsh web
- * DisclosureRow 的展开形态一致。
- */
-function toolInOut(label: string, text: string, key: string, asJson: boolean): HTMLElement {
-  const box = el('div', 'tool-inout')
-  box.appendChild(el('div', 'tool-inout-label', label))
-  const body = asJson ? renderJsonOrText(text, key) : el('pre', '', text)
-  // 非 JSON 路径才是单个滚动 <pre>；JSON 路径的树由 renderJsonTree 自己打标。
-  if (!body.classList.contains('json-tree-shell')) markScrollable(body as HTMLElement, key)
-  box.appendChild(body)
-  return box
-}
-
-/**
- * 一段工具文本的渲染入口：JSON 对象/数组字面量且不超过行数阈值 → JsonTree；否则纯文本
- * <pre>。检测保守（见 jsonTree.ts）——只有整段文本恰为合法 JSON 字面量才建树，误判
- * 会破坏普通文本展示。
- */
-function renderJsonOrText(text: string, key: string): HTMLElement {
-  const value = tryParseJsonTree(text)
-  if (value && !jsonTreeThresholdExceeded(value)) return renderJsonTree(value, key)
-  return el('pre', '', text)
 }
 
 /**
@@ -6310,37 +6002,6 @@ function renderJsonCodeBlock(text: string, key: string): HTMLElement {
   return holder.firstChild as HTMLElement
 }
 
-/**
- * 工具输出：JSON 先走 JsonTree；否则默认只渲染前 OUTPUT_PREVIEW_LINES 行 +
- * 「… 共 N 行，点击展开」提示（kimi-cli 的 "… (N more lines)" 对应物），点击展开
- * 全部、再次点击收起。展开状态记在 detailsOpen（key 按消息/块位置），流式重建
- * 不冲掉——同 detailsEl 的持久化机制。
- */
-function renderToolOutput(output: string, key: string): HTMLElement {
-  const value = tryParseJsonTree(output)
-  if (value && !jsonTreeThresholdExceeded(value)) {
-    // JSON → 树；套一层 tool-output 保持与非 JSON 输出一致的 20px 左缩进（树容器
-    // 自身无左缩进，缩进由上下文提供）。超阈值回退非 JSON 折叠路径（兜底）。
-    const box = el('div', 'tool-output')
-    box.appendChild(renderJsonTree(value, key))
-    return box
-  }
-  const box = el('div', 'tool-output')
-  const { preview, totalLines, truncated } = truncateLines(output)
-  const open = detailsOpen.get(key) ?? false
-  box.appendChild(markScrollable(el('pre', '', open ? output : preview), key))
-  if (truncated) {
-    const toggle = el('div', 'tool-output-toggle', open ? t('Collapse output') : t('… {0} lines, click to expand', totalLines))
-    toggle.addEventListener('click', () => {
-      detailsOpen.set(key, !open)
-      render()
-    })
-    box.appendChild(toggle)
-  }
-  return box
-}
-
-/** JsonTree Preact 组件所需的宿主工具（t/iconSvg，来自 webview 作用域）。 */
 const treeTools: TreeTools = { t, iconSvg }
 
 /**
@@ -6357,44 +6018,6 @@ function renderJsonTree(value: JsonContainer, outputKey: string): HTMLElement {
   const host = el('div')
   renderPreact(h(JsonTree, { value, outputKey, tools: treeTools }), host)
   return host
-}
-
-/** diff 块行折叠上限（对齐 dsh web DiffBlock 的 maxLines: 8）。 */
-const DIFF_PREVIEW_LINES = 8
-
-/**
- * diff 块（左右分栏）：左栏 oldText、右栏 newText，行对逐行对齐（LCS，见
- * diffAlign.ts）。默认只渲染前 DIFF_PREVIEW_LINES 行对，其余折叠成「展开其余
- * N 行差异」toggle（对齐 dsh web DiffBlock 的行折叠）。展开状态记在
- * detailsOpen（key 按消息/块位置），流式重建不冲掉。
- */
-function renderDiff(diff: { oldText: string; newText: string }, key: string): HTMLElement {
-  const box = el('div', 'diff')
-  const pairs = alignDiffLines(diff.oldText, diff.newText)
-  const grid = el('div', 'diff-grid')
-  const open = detailsOpen.get(key) ?? false
-  const shown = open ? pairs : pairs.slice(0, DIFF_PREVIEW_LINES)
-  for (const p of shown) {
-    const row = el('div', 'diff-row')
-    const oldCell = el('div', `diff-cell old${p.oldLine === null ? ' empty' : ''}`, p.oldLine ?? '')
-    const newCell = el('div', `diff-cell new${p.newLine === null ? ' empty' : ''}`, p.newLine ?? '')
-    if (p.kind === 'del' || p.kind === 'modify') oldCell.classList.add('del')
-    if (p.kind === 'add' || p.kind === 'modify') newCell.classList.add('add')
-    row.appendChild(oldCell)
-    row.appendChild(newCell)
-    grid.appendChild(row)
-  }
-  box.appendChild(grid)
-  if (pairs.length > DIFF_PREVIEW_LINES) {
-    const hidden = pairs.length - DIFF_PREVIEW_LINES
-    const toggle = el('div', 'diff-toggle', open ? t('Collapse diff') : t('… show {0} more diff lines', hidden))
-    toggle.addEventListener('click', () => {
-      detailsOpen.set(key, !open)
-      render()
-    })
-    box.appendChild(toggle)
-  }
-  return box
 }
 
 /**
@@ -7489,3 +7112,4 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     wrap.appendChild(statsRow(state?.statsLine, state?.contextUsage))
   return wrap
 }
+

@@ -156,8 +156,16 @@ function DiffBlock({ diff, scopeKey, t }: { diff: { oldText: string; newText: st
       <div className="diff-grid">
         {shown.map((p: DiffPair, i) => (
           <div className="diff-row" key={i}>
-            <div className={`diff-cell old${p.oldLine === null ? ' empty' : ''}`}>{p.oldLine ?? ''}</div>
-            <div className={`diff-cell new${p.newLine === null ? ' empty' : ''}`}>{p.newLine ?? ''}</div>
+            <div
+              className={`diff-cell old${p.oldLine === null ? ' empty' : ''}${p.kind === 'del' || p.kind === 'modify' ? ' del' : ''}`}
+            >
+              {p.oldLine ?? ''}
+            </div>
+            <div
+              className={`diff-cell new${p.newLine === null ? ' empty' : ''}${p.kind === 'add' || p.kind === 'modify' ? ' add' : ''}`}
+            >
+              {p.newLine ?? ''}
+            </div>
           </div>
         ))}
       </div>
