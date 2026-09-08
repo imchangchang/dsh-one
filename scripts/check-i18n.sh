@@ -322,6 +322,11 @@ for (const [file, lines] of Object.entries(added)) {
   for (const { no, text, stripped } of lines) {
     const probe = stripped ?? text
     if (hasCJK(probe)) {
+      // stripFileComments 状态机对 .tsx(JSX) 注释有零星漏判（JSX 语法把它带偏，
+      // 后续 /* */ 或 // 注释未被剥掉）。原行若本就是注释行（剥前导空白后以
+      // // / /* / * 开头），其中文是注释文案、非用户可见硬编码，跳过；真实硬编码
+      // 中文（字符串里）不以注释标记开头，仍会被拦（安全）。
+      if (/^(\/\/|\/\*|\*)/.test(text.trim())) continue
       push(`[src-chinese] ${file}: 疑似硬编码中文字符串字面量（漏翻）: ${text.trim()}`)
     }
   }
