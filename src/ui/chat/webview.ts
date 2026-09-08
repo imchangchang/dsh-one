@@ -7164,7 +7164,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     hoverTokenMention = mention
     const plain = mention === null ? null : plainPath(mention)
     for (const span of Array.from(frame.querySelectorAll<HTMLElement>('.ref-token'))) {
-      span.classList.toggle('active', mention !== null && span.dataset.mention === mention)
+      span.classList.toggle('active', mention !== null && span.dataset.path === mention)
     }
     // hover 用独立 class（hovered），不碰点击选中态的 referenced；查询收窄到
     // composer 输入区（避免点亮历史消息里同路径的附件 chip）。
@@ -7439,6 +7439,14 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     bindings: mentionBindings,
   })
   composer.root.id = 'input'
+  // .value 存取 shim：让 harness/场景与残留的 getElementById('input').value 读法
+  // 能继续以编程方式读写编辑器文本（写走 setText 会重建 @token 节点，读走 getText，
+  // 与旧 textarea 的块间 \n 语义一致）。无生产副作用（真实 webview 不改 #input.value）。
+  Object.defineProperty(composer.root, 'value', {
+    get: () => composer.getText(),
+    set: (v: string) => composer.setText(String(v ?? '')),
+    configurable: true,
+  })
   frame.appendChild(composer.root)
   frame.appendChild(composer.placeholder)
   row.appendChild(frame)

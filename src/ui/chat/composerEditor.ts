@@ -123,14 +123,14 @@ export class RefTokenNode extends TextNode {
   createDOM(config: EditorConfig): HTMLElement {
     const dom = super.createDOM(config)
     dom.classList.add('ref-token')
-    if (this.__mention) dom.setAttribute('data-mention', this.__mention)
+    if (this.__mention) dom.setAttribute('data-path', this.__mention)
     return dom
   }
 
   updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
     const changed = super.updateDOM(prevNode, dom, config)
-    if (this.__mention) dom.setAttribute('data-mention', this.__mention)
-    else dom.removeAttribute('data-mention')
+    if (this.__mention) dom.setAttribute('data-path', this.__mention)
+    else dom.removeAttribute('data-path')
     return changed
   }
 }
@@ -233,7 +233,7 @@ function plainOffsetToPoint(offset: number): { key: NodeKey; offset: number; typ
 function mentionFromDom(target: EventTarget | null): string | null {
   if (!(target instanceof Element)) return null
   const span = target.closest<HTMLElement>('.ref-token')
-  if (span) return span.getAttribute('data-mention')
+  if (span) return span.getAttribute('data-path')
   return null
 }
 
