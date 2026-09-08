@@ -106,6 +106,7 @@ import {
   formatSessionMention,
   mentionDisplayToken,
   parseSessionMentions,
+  restoreSessionMentionTokens,
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { splitUserBubble, type UserBubbleSegment } from '../../pure/userBubble.ts'
@@ -367,6 +368,9 @@ let modelCatalogFailed = false
 const attachmentCache = new Map<string, string>()
 /** Attachment ids already requested, so re-renders don't repost while a fetch is in flight. */
 const attachmentRequested = new Set<string>()
+/** 召回历史消息时待重装进 composer 的图片：attachmentId → 显示名。bytes 经既有
+ * requestAttachment 懒取，回执后 staging 进 pendingImages。 */
+const recallStagingImages = new Map<string, string>()
 /** File-path → data URL for image-file chips (message history), filled by fileThumb replies. */
 const fileThumbCache = new Map<string, string>()
 /**
@@ -1689,6 +1693,12 @@ window.addEventListener('message', (event) => {
   } else if (msg?.type === 'attachmentData' && typeof msg.attachmentId === 'string') {
     const dataUrl = `data:${msg.mediaType};base64,${msg.data}`
     attachmentCache.set(msg.attachmentId, dataUrl)
+    // 历史消息召回正在等这张图 staging 进 composer：命中就装 pendingImages。
+    const stageName = recallStagingImages.get(msg.attachmentId)
+    if (stageName !== undefined) {
+      recallStagingImages.delete(msg.attachmentId)
+      pendingImages.push({ mediaType: msg.mediaType, data: msg.data, name: stageName })
+    }
     if (pendingPreview === msg.attachmentId) {
       pendingPreview = null
       openLightbox(dataUrl)
@@ -1697,9 +1707,12 @@ window.addEventListener('message', (event) => {
     render()
   } else if (msg?.type === 'restoreDraft' && typeof msg.text === 'string') {
     // 还原回 composer：stop 抽干队列的草稿文本，或发送失败的消息（图片/文件
-    // chips 一并恢复，不让输入被吞）。回填文本里的 canonical @长路径还原为
-    // 显示 token（与第一次输入形态一致；发送时 expand 展开回 canonical）。
-    const restoredText = restoreFileMentionTokens(msg.text, mentionBindings)
+    // chips 一并恢复，不让输入被吞）。回填文本里可能还带未拆的 <attachment> 行
+    // （stop 早期只吐 raw editText），这里统一拆附件行 + 还原 canonical @ 长路径
+    // 与 @[标签](uri) 为显示 token（与第一次输入形态一致；发送时 expand 展开回
+    // canonical）。
+    const { text: splitText, files: splitFiles } = splitAttachmentLines(msg.text)
+    const restoredText = restoreRecallMentions(splitText)
     const input = document.getElementById('input') as HTMLTextAreaElement | null
     if (input) {
       input.value = input.value.trim() ? `${input.value.trimEnd()}\n${restoredText}` : restoredText
@@ -1713,10 +1726,17 @@ window.addEventListener('message', (event) => {
       pendingImages = [...pendingImages, ...msg.images]
       stagedRestore = true
     }
-    if (Array.isArray(msg.files) && msg.files.length > 0) {
-      pendingFiles = [...pendingFiles, ...msg.files]
-      stagedRestore = true
+    // 附件行拆出的文件与宿主结构化 files 都回填成 chips（按 path 去重：宿主已拆时
+    // splitFiles 为空，直接并入文件列表）。
+    const stagedFiles = [...splitFiles, ...(Array.isArray(msg.files) ? msg.files : [])]
+    const existingFiles = new Set(pendingFiles.map((f) => f.path))
+    for (const f of stagedFiles) {
+      if (!existingFiles.has(f.path)) {
+        pendingFiles.push(f)
+        existingFiles.add(f.path)
+      }
     }
+    if (stagedFiles.length > 0) stagedRestore = true
     if (stagedRestore && input) render()
     // 附件恢复不经 input 事件：与 filesPicked 同款，作废清空暂存。
     if (stagedRestore) clearedStash = null
@@ -4481,6 +4501,45 @@ let clearConfirmHint: HTMLElement | null = null
  * 不动绑定，verbatim 灌回文本即可让 @ 引用 token 正确渲染/展开。
  */
 let clearedStash: { text: string; images: OutgoingImage[]; files: StagedFile[] } | null = null
+
+/** 从 data URL 拆出 {mediaType, data}（composer 图片 staging 用；无逗号整体当 data）。 */
+function outgoingImageFromDataUrl(dataUrl: string): Pick<OutgoingImage, 'mediaType' | 'data'> {
+  const comma = dataUrl.indexOf(',')
+  const header = comma >= 0 ? dataUrl.slice(0, comma) : ''
+  const mediaType = header.startsWith('data:') ? header.slice(5).split(';')[0] : ''
+  const data = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
+  return { mediaType, data }
+}
+
+/**
+ * 把 recalled / restoreDraft 文本里的内部形态（canonical `@长路径`、`@[标签](uri)`）
+ * 统一还原为 composer 显示形态：短 token + 登记绑定，与第一次输入一致。会话标签先
+ * 还原（避免其 label 里含分隔符时被文件还原按路径处理），再还原路径引用。
+ */
+function restoreRecallMentions(text: string): string {
+  return restoreFileMentionTokens(restoreSessionMentionTokens(text, mentionBindings), mentionBindings)
+}
+
+/**
+ * 把历史消息的图片重装进 composer（pendingImages）：已缓存就直接 staging，未缓存
+ * 发 requestAttachment 等回执（回执处理里按 attachmentId 命中 staging）。单张
+ * 缺失/失败静默跳过，不阻塞其余恢复。
+ */
+function stageRecallImages(images: readonly ChatImage[] | undefined): void {
+  if (!images || images.length === 0) return
+  for (const image of images) {
+    if (!image.attachmentId) continue
+    recallStagingImages.set(image.attachmentId, image.name ?? t('Image'))
+    const dataUrl = attachmentCache.get(image.attachmentId)
+    if (dataUrl) {
+      pendingImages.push({ ...outgoingImageFromDataUrl(dataUrl), name: image.name })
+      recallStagingImages.delete(image.attachmentId)
+    } else if (!attachmentRequested.has(image.attachmentId)) {
+      attachmentRequested.add(image.attachmentId)
+      post({ type: 'requestAttachment', attachmentId: image.attachmentId })
+    }
+  }
+}
 
 /** 双击清空的武装超时时长。 */
 const CLEAR_CONFIRM_TIMEOUT_MS = 3000
@@ -7753,13 +7812,18 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       recallDraft = input.value
       if (lastQueued) {
         recall = { kind: 'queue', itemId: lastQueued.id }
-        // canonical @长路径还原为显示 token（排队项往返自洽：回写时 expand 展开回 canonical）
-        input.value = restoreFileMentionTokens(lastQueued.editText, mentionBindings)
+        // 排队项往返自洽：拆附件行 → chips，canonical @长路径/@[标签](uri) 还原为
+        // 显示 token（回写时重拼附件行并 expand 展开回 canonical）。
+        const { text: queueText, files: queueFiles } = splitAttachmentLines(lastQueued.editText)
+        input.value = restoreRecallMentions(queueText)
+        const existingQ = new Set(pendingFiles.map((f) => f.path))
+        const restoredQFiles = queueFiles.filter((f) => !existingQ.has(f.path))
+        if (restoredQFiles.length > 0) pendingFiles = [...pendingFiles, ...restoredQFiles]
       } else if (lastUser && lastUser.kind === 'user') {
         recall = { kind: 'history' }
         // 历史里存的是 canonical @长路径（发送时展开的结果）；还原成显示 token，
-        // 与第一次输入时的形态一致。
-        input.value = restoreFileMentionTokens(lastUser.text, mentionBindings)
+        // 与第一次输入时的形态一致（会话标签同样还原成 @标签）。
+        input.value = restoreRecallMentions(lastUser.text)
         // 原附件一并恢复（文件形式后可直接再编辑重发）：按 path 去重，
         // 图片带 image 标记（缩略图需磁盘数据，恢复为图标 chip 可接受）。
         const existing = new Set(pendingFiles.map((f) => f.path))
@@ -7767,6 +7831,8 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
           .filter((f) => !existing.has(f.path))
           .map((f) => ({ name: f.name, path: f.path, ...(f.image ? { image: true } : {}) }))
         if (restoredFiles.length > 0) pendingFiles = [...pendingFiles, ...restoredFiles]
+        // 历史消息的粘贴图（attachmentId 引用）重拉字节 staging 进 composer。
+        stageRecallImages(lastUser.images)
       }
       render()
     }
