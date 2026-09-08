@@ -25,14 +25,18 @@
  */
 import { useLayoutEffect, useRef } from 'preact/hooks'
 import type { ChatBlock, ChatRetryBlock, ChatToolBlock } from '../../../pure/chatContract.ts'
+import { ToolCard, type ToolTools } from './tool.tsx'
 
 /** BlockList 渲染所需的宿主注入（来自 webview.ts 的命令式渲染工具）。 */
 export interface BlockTools {
   /**
-   * 渲染一个 assistant block（text/reasoning/tool/retry 的分派在 webview 的
+   * 渲染一个 assistant block（text/reasoning/retry 的分派在 webview 的
    * renderBlock 内；shell 只负责「什么时候重建/保活」，构建细节全权交给它）。
+   * tool 块已完全 Preact 化（#43），不再走 renderBlock。
    */
   renderBlock: (block: ChatBlock, key: string) => HTMLElement
+  /** tool 卡（ToolCard）渲染所需的宿主注入（t/iconSvg/subagents）。 */
+  toolTools: ToolTools
 }
 
 interface BlockShellProps {
@@ -67,9 +71,10 @@ export interface BlockProps {
 }
 
 /**
- * 单个 assistant block（text / reasoning / tool / retry）。类型分派交给
- * `tools.renderBlock`（webview 的 renderBlock），这里只按类型选择渲染壳；
- * 四种类型共用同一个 shell —— shell 的保活/重建语义与类型无关。
+ * 单个 assistant block（text / reasoning / tool / retry）。text/reasoning/retry
+ * 用命令式 shell（renderBlock 产物挂 shell 容器，按块签名保活/重建）；tool 块
+ * 完全 Preact 化（#43）：直接渲染 <ToolCard>，其内部 useState（展开/JSON 树/复制
+ * 反馈/滚动位置）跨父级重渲染存活 —— 流式重建不销毁 tool 卡自身状态（治 #29）。
  */
 export function Block({ block, keyId, tools }: BlockProps) {
   switch (block.type) {
@@ -78,7 +83,7 @@ export function Block({ block, keyId, tools }: BlockProps) {
     case 'reasoning':
       return <BlockShell block={block} keyId={keyId} tools={tools} />
     case 'tool':
-      return <BlockShell block={block} keyId={keyId} tools={tools} />
+      return <ToolCard block={block} keyId={keyId} tools={tools.toolTools} />
     case 'retry':
       return <BlockShell block={block} keyId={keyId} tools={tools} />
   }

@@ -129,6 +129,8 @@ import { composingInside, initComposeGuard } from '../shared/composeGuard.ts'
 import { h, render as renderPreact } from 'preact'
 import { BlockList, type BlockTools } from './preact/blocks.tsx'
 import { createComposerEditor, type ComposerEditor, type MentionBindings } from './composerEditor.ts'
+import { JsonTree, type TreeTools } from './preact/json-tree.tsx'
+import type { ToolTools } from './preact/tool.tsx'
 
 interface VsCodeApi {
   postMessage(message: FromWebviewMessage): void
@@ -2847,7 +2849,6 @@ function render(): void {
     detailsOpen.clear()
     detailsSession = detailsSid
     workflowDisclosure.clear()
-    jsonTreeOpen.clear()
     innerScrollPositions.clear()
     producedOpen.clear()
     copyConfirmedAt.clear()
@@ -4449,7 +4450,20 @@ const {
 // #42：消息流 block 层 Preact 承载（治 #29）注入给 BlockList 的命令式渲染工具。
 // renderBlock 是函数声明（hoisted），在此绑定的引用在模块加载期即已完成初始化。
 // shell（preact/blocks.tsx）按 block 内容签名决定「重建/保活」，构建全权交给它。
-const blockTools: BlockTools = { renderBlock }
+// tool 块已完全 Preact 化（#43）：ToolCard 的局部 state（展开/JSON 树/复制反馈/滚动）
+// 由组件实例自持，替代 webview 全局 Map，流式重建不再销毁 tool 卡自身状态。
+const blockTools: BlockTools = {
+  renderBlock,
+  toolTools: {
+    t,
+    iconSvg,
+    // subagents 是每帧解析的（state 会在 render 时更新）：用 getter 保证 ToolCard
+    // 读到当前会话的血缘树，而不是模块加载时的旧引用。
+    get subagents() {
+      return state?.subagents
+    },
+  },
+}
 
 /**
  * 消息流里内部滚动容器（工具卡 IN/OUT、skill 指令卡、JSON 树等）的滚动位置
@@ -4489,14 +4503,6 @@ function restoreInnerScroll(root: HTMLElement | null): void {
   }
 }
 let detailsSession: string | null = null
-
-/**
- * JSON tree node expand state. Key = `${outputKey}:${jsonPathKey}` (the output
- * key disambiguates colliding path spaces across tool blocks). Absent = the
- * default (root open, nested closed); present = the user's toggle. Cleared with
- * the other per-session disclosure state on session switch.
- */
-const jsonTreeOpen = new Map<string, boolean>()
 
 /**
  * 产物行「+N 个文件」的展开态（key = 消息 id，同 detailsOpen 约定）：
@@ -6334,169 +6340,23 @@ function renderToolOutput(output: string, key: string): HTMLElement {
   return box
 }
 
+/** JsonTree Preact 组件所需的宿主工具（t/iconSvg，来自 webview 作用域）。 */
+const treeTools: TreeTools = { t, iconSvg }
+
 /**
  * 一段 JSON 输出渲染成 JsonTree（对齐 dsh web JsonTree：对象/数组逐节点展开、
- * 箭头点击 toggle、逐级缩进、暗色 token 配色）。节点 open 状态记在 jsonTreeOpen
- * （key = `${outputKey}:${pathKey}`），缺省用「根展开、嵌套收起」的策略（root 缺省
- * open），流式重建不冲掉——其它 disclosure 状态同款持久化。
+ * 箭头点击 toggle、逐级缩进、暗色 token 配色）。
  *
- * 树上/右上角给一个不喧宾夺主的「复制」按钮（对齐官方 JsonTree 的 copyPrettyJson）：
- * 复制整棵树的 2 空格 pretty JSON。复制用 navigator.clipboard，成功短暂显示
- * 「已复制」，失败改 title（与 md-code 复制按钮同款反馈）。
+ * #43：渲染已迁到 preact/json-tree.tsx 的 <JsonTree> 组件，节点展开集（旧
+ * jsonTreeOpen）与复制反馈（旧 copyConfirmedAt）收进组件 useState —— 本函数只是
+ * 给命令式调用方（markdown enhanceCodeBlocks / 整段正文恰为 JSON 的文本块）的薄
+ * 适配：把组件 render 进一个宿主 div 返回。tool 卡的 OUT 树不经过这里，ToolCard
+ * 直接以 vnode 形式渲染 <JsonTree>，组件实例保活、useState 跨流式重建存活（治 #29）。
  */
 function renderJsonTree(value: JsonContainer, outputKey: string): HTMLElement {
-  const shell = el('div', 'json-tree-shell')
-  const bar = el('div', 'json-tree-bar')
-  const copy = buttonEl('json-tree-copy', t('Copy'))
-  copy.title = t('Copy JSON')
-  const copyKey = `${outputKey}:tree-copy`
-  const showCopied = () => {
-    copy.textContent = t('Copied')
-    copy.title = t('Copied')
-  }
-  const restore = () => {
-    copy.textContent = t('Copy')
-    copy.title = t('Copy JSON')
-  }
-  copy.addEventListener('click', () => {
-    const text = jsonTreeCopyText(value)
-    void navigator.clipboard.writeText(text).then(
-      () => showCopyFeedback(copyKey, showCopied, restore),
-      () => {
-        copy.title = t('Copy failed')
-      },
-    )
-  })
-  initCopyFeedback(copyKey, showCopied, restore)
-  bar.appendChild(copy)
-  shell.appendChild(bar)
-
-  const tree = el('div', 'json-tree')
-  markScrollable(tree, `${outputKey}:tree`)
-  const isOpen = (pathKey: string) => jsonTreeOpen.get(`${outputKey}:${pathKey}`) ?? pathKey === JSON_TREE_ROOT_KEY
-  const rows = flattenJsonTree(value, isOpen)
-  for (const row of rows) tree.appendChild(renderJsonTreeRow(row, outputKey, value))
-  shell.appendChild(tree)
-  return shell
-}
-
-/** 点击某容器节点：翻转它的 open 状态并重建。 */
-function toggleJsonTree(outputKey: string, rowPathKey: string, currentOpen: boolean): void {
-  jsonTreeOpen.set(`${outputKey}:${rowPathKey}`, !currentOpen)
-  render()
-}
-
-/** 渲染一行 JSON 树节点（container/primitive/close），缩进按 depth。 */
-function renderJsonTreeRow(row: JsonTreeRow, outputKey: string, rootValue: JsonContainer): HTMLElement {
-  const line = el('div', 'json-tree-row')
-  line.style.paddingLeft = `${row.depth * 14}px`
-  if (row.type === 'close') {
-    line.appendChild(jsonPunct(row.kind === 'array' ? ']' : '}'))
-    return line
-  }
-  // data-path 供场景脚本 / 测试定位具体节点。
-  line.setAttribute('data-path', jsonPathKey(row.path))
-  // 非空容器：最左画箭头，点击 toggle；根不显示 key。
-  const expandable = row.type === 'container' && row.entryCount > 0
-  if (row.type === 'container' && expandable) {
-    const arrow = el('span', `json-tree-arrow ${row.open ? 'open' : ''}`)
-    arrow.setAttribute('role', 'button')
-    arrow.setAttribute('aria-expanded', row.open ? 'true' : 'false')
-    arrow.setAttribute('aria-label', row.open ? 'collapse' : 'expand')
-    const pathKey = jsonPathKey(row.path)
-    arrow.addEventListener('click', (e) => {
-      e.stopPropagation()
-      toggleJsonTree(outputKey, pathKey, row.open)
-    })
-    line.appendChild(arrow)
-  }
-  // key 标签（对象 key / 数组下标，根不显示；容器 key 可点击展开/收起）。
-  if (row.key !== null && row.key.length > 0) {
-    const keySpan = el('span', 'json-tree-key', row.key)
-    if (row.type === 'container' && expandable) {
-      keySpan.classList.add('json-tree-label-clickable')
-      keySpan.addEventListener('click', () => toggleJsonTree(outputKey, jsonPathKey(row.path), row.open))
-    }
-    line.appendChild(keySpan)
-    line.appendChild(jsonPunct(':'))
-    line.appendChild(el('span', 'json-tree-gap'))
-  }
-  if (row.type === 'primitive') {
-    line.appendChild(jsonPrimitiveSpan(row.primitive))
-    // 节点级复制：非根行尾部放 hover 出现的复制图标（复制该标量）。
-    if (row.key !== null) line.appendChild(renderJsonNodeCopy(outputKey, rootValue, row.path))
-    return line
-  }
-  // container：展开显示开括号（子行 + 关闭行随后）；收起显示 `{…}` 预览；
-  // 空容器显示 `{}`（无箭头、不可点）。
-  const open = row.kind === 'array' ? '[' : '{'
-  const close = row.kind === 'array' ? ']' : '}'
-  if (expandable && row.open) {
-    line.appendChild(jsonPunct(open))
-  } else if (row.entryCount > 0) {
-    line.appendChild(jsonPunct(open))
-    line.appendChild(el('span', 'json-tree-ellipsis', '…'))
-    line.appendChild(jsonPunct(close))
-  } else {
-    line.appendChild(jsonPunct(open))
-    line.appendChild(jsonPunct(close))
-  }
-  // 节点级复制：容器行尾部放 hover 出现的复制图标（复制整个容器的值；根行
-  // key===null 不放——整树复制已由右上角按钮承担，避免同一值两个复制入口）。
-  if (row.key !== null) line.appendChild(renderJsonNodeCopy(outputKey, rootValue, row.path))
-  return line
-}
-
-/**
- * 一行树节点的尾部复制图标（hover 出现，克制样式与容器级按钮一致）：点击复制
- * 该节点（路径解析出的子值）的 pretty JSON。反馈与容器按钮同款——成功把图标短暂
- * 换成勾、title「已复制」1s 后还原，失败改 title；行级空间小，用图标变化而非文案。
- */
-function renderJsonNodeCopy(outputKey: string, rootValue: JsonContainer, path: JsonPath): HTMLElement {
-  const btn = el('button', 'json-tree-copy-icon') as HTMLButtonElement
-  btn.type = 'button'
-  btn.title = t('Copy')
-  const copyIcon = iconSvg(MESSAGE_ACTION_ICONS.copy, 12)
-  const checkIcon = iconSvg(MESSAGE_ACTION_ICONS.check, 12)
-  btn.appendChild(copyIcon)
-  const copyKey = `${outputKey}:node-copy:${jsonPathKey(path)}`
-  const showCopied = () => {
-    btn.replaceChild(checkIcon, copyIcon)
-    btn.title = t('Copied')
-  }
-  const restore = () => {
-    btn.replaceChild(copyIcon, checkIcon)
-    btn.title = t('Copy')
-  }
-  // 路径解析在 click 时做（流式重建后行可能已失效）；解析不到就不复制。
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation()
-    const subValue = jsonValueAtPath(rootValue, path)
-    if (subValue === undefined) return
-    const text = jsonTreeCopyText(subValue)
-    void navigator.clipboard.writeText(text).then(
-      () => showCopyFeedback(copyKey, showCopied, restore),
-      () => {
-        btn.title = t('Copy failed')
-      },
-    )
-  })
-  initCopyFeedback(copyKey, showCopied, restore)
-  return btn
-}
-
-function jsonPunct(text: string): HTMLElement {
-  return el('span', 'json-tree-punct', text)
-}
-
-function jsonPrimitiveSpan(p: JsonPrimitiveKind): HTMLElement {
-  const cls =
-    p.type === 'string'
-      ? 'json-tree-string'
-      : p.type === 'number'
-        ? 'json-tree-number'
-        : 'json-tree-keyword'
-  return el('span', cls, p.display)
+  const host = el('div')
+  renderPreact(h(JsonTree, { value, outputKey, tools: treeTools }), host)
+  return host
 }
 
 /** diff 块行折叠上限（对齐 dsh web DiffBlock 的 maxLines: 8）。 */
