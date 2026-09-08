@@ -105,5 +105,5 @@ export function BlockList({ blocks, rowKey, tools }: BlockListProps) {
   )
 }
 
-// 类型显式导出（供 webview.ts 用类型推导 BlockTools；避免未使用告警）。
+// Type-only re-export so webview.ts derives BlockTools types (avoids unused warning).
 export type { ChatRetryBlock, ChatToolBlock }
