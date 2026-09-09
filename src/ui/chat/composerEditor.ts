@@ -46,7 +46,7 @@ import {
 } from 'lexical'
 import { createEmptyHistoryState, registerHistory } from '@lexical/history'
 import { registerPlainText } from '@lexical/plain-text'
-import { boundTokenRanges } from '../../pure/tokenScan.ts'
+import { boundTokenRanges, scanAtTokens } from '../../pure/tokenScan.ts'
 
 /** @token 显示文本（如 `@img.png` / `@标题`）→ canonical mention。 */
 export type MentionBindings = Map<string, string>
@@ -337,6 +337,47 @@ function $createRefTokenNode(text: string, mention?: string): RefTokenNode {
   return node
 }
 
+function $isRefTokenNode(node: unknown): node is RefTokenNode {
+  return node instanceof RefTokenNode
+}
+
+/**
+ * 两段式的「第一段」：把文本流里匹配 @token 边界的词着色为可编辑 TextRefNode，
+ * 让「输入中未选定的 @name / @dir/」与「粘贴含 @ 的文本」呈现纯文本着色（无图标）。
+ *
+ * 仅当片段确实是普通可编辑文本（isSimpleText = 非目标节点、非组合中）时处理——组合
+ * 中的 TextNode 会被 registerPlainText 切到分段模式，isSimpleText 为 false，天然跳过。
+ * 已着色的 RefTokenNode 的 type 是 'ref-token'（≠'text'），isSimpleText 也为 false，
+ * 不会被这里重复处理（官方的 Transform B 语义：已着色的留原地）。
+ *
+ * 不改文本内容、不产生 chip：chip 只来自菜单选中（replaceTokenRange/insertTokenAtCaret）。
+ */
+function registerTextRefDecoration(editor: LexicalEditor): () => void {
+  return editor.registerNodeTransform(TextNode, (node) => {
+    if (!node.isSimpleText()) return
+    const text = node.getTextContent()
+    const ranges = scanAtTokens(text)
+    if (ranges.length === 0) return
+    // 从后往前拆，避免前面 splitText 使后续 offset 失效。每个命中段单独变成
+    // TextRefNode（可编辑着色），其余保持普通文本。
+    for (let i = ranges.length - 1; i >= 0; i -= 1) {
+      const { start, end } = ranges[i]
+      // 每次变换后 `node` 可能已失效（splitText 会返回新节点），必须重新取当前
+      // 最新节点。这里用 getLatest() 保证指向同一逻辑节点在后文中的最新实例。
+      const current = node.getLatest()
+      const textNow = current.getTextContent()
+      if (start >= end || start >= textNow.length) continue
+      const split: TextNode[] = current.splitText(start, end)
+      const tokenSegment = split[1]
+      if (!tokenSegment) continue
+      const ref = $createRefTokenNode(tokenSegment.getTextContent())
+      tokenSegment.replace(ref)
+      // 本轮只处理一个节点的一个命中段；余下命中由下一趟 dirty 驱动处理。
+      break
+    }
+  })
+}
+
 /** 把一行拆成「普通文本 / @token」片段（用于 setText 还原）。 */
 function splitLineByTokens(
   line: string,
@@ -453,6 +494,7 @@ export function createComposerEditor(opts: {
   registerPlainText(editor)
   const historyState = createEmptyHistoryState()
   const unregisterHistory = registerHistory(editor, historyState, 1000)
+  const unregisterTextRef = registerTextRefDecoration(editor)
 
   const root = document.createElement('div')
   root.className = 'lexical-input'
@@ -700,6 +742,7 @@ export function createComposerEditor(opts: {
       unregisterKeys()
       unregisterPaste()
       unregisterHistory()
+      unregisterTextRef()
       root.removeEventListener('mousemove', onMouseMove)
       root.removeEventListener('mouseleave', onMouseLeave)
     },
