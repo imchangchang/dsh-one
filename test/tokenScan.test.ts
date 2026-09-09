@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { atTokenRangeAt, boundTokenRanges, scanAtTokens, shouldColorAtToken } from '../src/pure/tokenScan.ts'
+import { atTokenRangeAt, boundTokenRanges, scanAtTokens, scanCommandTokens, shouldColorAtToken, shouldColorSlashToken } from '../src/pure/tokenScan.ts'
 
 const range = (start: number, end: number, quoted = false) => ({ start, end, quoted })
 const labels = (text: string) => scanAtTokens(text).map((r) => text.slice(r.start, r.end))
@@ -122,13 +122,17 @@ test('boundTokenRanges：无绑定/无 @ token 时为空', () => {
   assert.deepEqual(boundTokenRanges('普通文本', new Map([['@x', 'm']])), [])
 })
 
-test('shouldColorAtToken：引号/尾斜杠文件夹按语法着色，@name 走词库门控', () => {
+test('shouldColorAtToken：引号收紧尾/ + @name 词库门控', () => {
   const names = new Set(['img1.png', '旧会话', 'src'])
-  // 引号 token：不看词库，永远着色
-  assert.equal(shouldColorAtToken('@"my file.txt"', true, names), true)
+  // 引号无尾/：不着色（官方 FOLDER_REF_RE 引号分支须尾 / 才着色）
+  assert.equal(shouldColorAtToken('@"my file.txt"', true, names), false)
+  assert.equal(shouldColorAtToken('@"非目录"', true, names), false)
+  // 引号带尾/（文件夹）与无引号尾/：按语法着色
   assert.equal(shouldColorAtToken('@"src/', true, names), true)
-  // 尾斜杠文件夹：不看词库，按语法着色
   assert.equal(shouldColorAtToken('@src/', false, names), true)
+  // 引号闭合且尾/在引号内（`@"dir/"`）：dsh 目录引用引号保持敞开（`@"path/`），
+  // 尾/ 不在 token 末位，按引号无尾/ 处理——不着色
+  assert.equal(shouldColorAtToken('@"dir/"', true, names), false)
   // 已知 name：在候选里 → 着色
   assert.equal(shouldColorAtToken('@img1.png', false, names), true)
   assert.equal(shouldColorAtToken('@旧会话', false, names), true)
@@ -136,9 +140,41 @@ test('shouldColorAtToken：引号/尾斜杠文件夹按语法着色，@name 走�
   assert.equal(shouldColorAtToken('@img', false, names), false)
   assert.equal(shouldColorAtToken('@nonexistent', false, names), false)
   assert.equal(shouldColorAtToken('@img1', false, names), false)
-  // 无候选时所有 @name 都不着色（引号/文件夹仍按语法着色）
+  // 无候选时所有 @name 与无尾/引号都不着色（尾/文件夹仍按语法着色）
   const empty = new Set<string>()
   assert.equal(shouldColorAtToken('@img1.png', false, empty), false)
   assert.equal(shouldColorAtToken('@src/', false, empty), true)
-  assert.equal(shouldColorAtToken('@"x"', true, empty), true)
+  assert.equal(shouldColorAtToken('@"x"', true, empty), false)
+})
+
+test('scanCommandTokens：/command 触发（行首/常见标点），区间含 /', () => {
+  const labels = (text: string) => scanCommandTokens(text).map((r) => text.slice(r.start, r.end))
+  // 行首触发
+  assert.deepEqual(labels('/plan'), ['/plan'])
+  assert.deepEqual(labels('/compact 看'), ['/compact'])
+  // 边界字符后触发（空白/中文标点/ASCII 标点）
+  assert.deepEqual(labels('看 /compact'), ['/compact'])
+  assert.deepEqual(labels('啊，/goal'), ['/goal'])
+  assert.deepEqual(labels('等一下;/model'), ['/model'])
+  // 词中的 / 不触发（汉字/字母直接前导——不是边界字符）
+  assert.deepEqual(labels('看/plan'), [])
+  assert.deepEqual(labels('x/plan'), [])
+  assert.deepEqual(labels('a^/plan'), []); // `^` 不在边界集
+  // 多个命中按出现顺序，不重叠
+  assert.deepEqual(labels('/plan /compact'), ['/plan', '/compact'])
+  // 纯数据：start/end 精确
+  assert.deepEqual(scanCommandTokens('看 /compact'), [{ start: 2, end: 10 }])
+})
+
+test('shouldColorSlashToken：/command 按 skill 名门控', () => {
+  const skills = new Set(['plan', 'compact', 'model'])
+  // 已知 skill/slash 命令名 → 着色
+  assert.equal(shouldColorSlashToken('/plan', skills), true)
+  assert.equal(shouldColorSlashToken('/compact', skills), true)
+  assert.equal(shouldColorSlashToken('/model', skills), true)
+  // 未知名/URL 路径 → 不着色（保持纯文本）
+  assert.equal(shouldColorSlashToken('/foo', skills), false)
+  assert.equal(shouldColorSlashToken('/Users', skills), false)
+  // 无候选时全不着色
+  assert.equal(shouldColorSlashToken('/plan', new Set<string>()), false)
 })
