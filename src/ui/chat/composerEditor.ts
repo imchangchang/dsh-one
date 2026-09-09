@@ -143,6 +143,17 @@ export class ReferenceChipNode extends DecoratorNode<HTMLElement> {
     return this.config(CHIP_TYPE, { extends: DecoratorNode })
   }
 
+  static clone(node: ReferenceChipNode): ReferenceChipNode {
+    return new ReferenceChipNode(
+      node.__source,
+      node.__ref,
+      node.__label,
+      node.__clipboardText,
+      node.__appearance,
+      node.__key,
+    )
+  }
+
   __source: string
   __ref: string
   __label: string
@@ -204,20 +215,30 @@ export class ReferenceChipNode extends DecoratorNode<HTMLElement> {
     dom.contentEditable = 'false'
     dom.setAttribute('data-composer-chip', this.__source)
     dom.setAttribute('data-ref', this.__ref)
-    // 长路径截断 + tooltip 显示完整 label（原生 title，非展开面板）。
+    // 长路径截断 + tooltip 显示完整 label（原生 title，非展开面板）。官方同款：
+    // label 是完整显示文本、纯靠 CSS ellipsis 截断，title=label。
     dom.title = this.__label
-    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    icon.setAttribute('width', '12')
-    icon.setAttribute('height', '12')
-    icon.setAttribute('viewBox', '0 0 12 14')
-    icon.setAttribute('aria-hidden', 'true')
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    path.setAttribute('d', FILE_ICON_PATH)
-    icon.appendChild(path)
-    dom.appendChild(icon)
+    if (this.__appearance === 'file' || this.__appearance === 'folder') {
+      const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      icon.setAttribute('width', '12')
+      icon.setAttribute('height', '12')
+      icon.setAttribute('viewBox', '0 0 12 14')
+      icon.setAttribute('aria-hidden', 'true')
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      path.setAttribute('d', FILE_ICON_PATH)
+      icon.appendChild(path)
+      dom.appendChild(icon)
+    } else {
+      // appearance 未设 → `@` marker（官方 ReferenceChip 的 marker 兜底）。
+      const marker = document.createElement('span')
+      marker.className = 'ref-chip-marker'
+      marker.textContent = '@'
+      marker.setAttribute('aria-hidden', 'true')
+      dom.appendChild(marker)
+    }
     const textSpan = document.createElement('span')
-    // 显示 label：去掉 `@` / 引号后的最末路径段（与消息流 referenceChip 的短名一致）。
-    textSpan.textContent = this.__appearance === 'plain' ? this.__label : chipDisplayLabel(this.__label)
+    textSpan.className = 'ref-chip-label'
+    textSpan.textContent = this.__label
     dom.appendChild(textSpan)
     return dom
   }
@@ -228,8 +249,8 @@ export class ReferenceChipNode extends DecoratorNode<HTMLElement> {
     if (this.__label !== prevNode.__label || this.__ref !== prevNode.__ref) {
       dom.setAttribute('data-ref', this.__ref)
       dom.title = this.__label
-      const textSpan = dom.querySelector('span')
-      if (textSpan) textSpan.textContent = this.__appearance === 'plain' ? this.__label : chipDisplayLabel(this.__label)
+      const textSpan = dom.querySelector('.ref-chip-label')
+      if (textSpan) textSpan.textContent = this.__label
       return true
     }
     return changed
@@ -253,14 +274,7 @@ export class ReferenceChipNode extends DecoratorNode<HTMLElement> {
   }
 }
 
-/** 展示短名：去 `@` + 引号，取最末路径段（空则回退原 label）。 */
-function chipDisplayLabel(label: string): string {
-  const cleaned = label.replace(/^@/, '').replace(/^"|"$/g, '')
-  const base = cleaned.split(/[\\/]/u).filter(Boolean).at(-1)
-  return base ?? cleaned ?? label
-}
-
-function $createRefChipNode(
+export function $createRefChipNode(
   source: string,
   ref: string,
   label: string,

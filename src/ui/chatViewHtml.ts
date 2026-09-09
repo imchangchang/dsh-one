@@ -1675,10 +1675,28 @@ const STYLE = `
     pointer-events: none; white-space: pre-wrap; overflow-wrap: break-word;
     font-family: inherit; font-size: inherit; line-height: inherit;
   }
-  /* @ 引用 token 高亮：RefTokenNode 在编辑文本流里的天然底色，hover 加深并联动
-     对应附件 chip 高亮（网页层 .active 由 webview 的 hover 联动切换）。 */
+  /* @ 引用 token 高亮：TextRefNode（词内可改着色）在编辑文本流里的天然底色，hover 加深并
+     联动对应附件 chip 高亮（网页层 .active 由 webview 的 hover 联动切换）。 */
   .ref-token { background: rgba(101, 158, 254, .22); border-radius: 3px; }
   .ref-token.active { background: rgba(101, 158, 254, .5); }
+  /* 两段式的「落定 chip」：菜单选中后由 ReferenceChipNode（DecoratorNode）渲染的原子 chip。
+     只读、整块不可编辑、hover 用原生 title 显完整路径；底色/圆角区别于消息流里的链接色
+     ref-chip（消息流在 .bubble 内、composer 的在 #input 内）。 */
+  #input .ref-chip, .lexical-input .ref-chip {
+    display: inline-flex; align-items: center; gap: 3px;
+    margin: 0 2px; padding: 0 6px; border-radius: 6px;
+    background: rgba(101, 158, 254, .18); color: inherit;
+    font: inherit; font-weight: 500; white-space: nowrap;
+    vertical-align: baseline; user-select: none; cursor: default;
+    max-width: 100%; height: 22px;
+  }
+  #input .ref-chip::before, .lexical-input .ref-chip::before { content: none; }
+  #input .ref-chip.active, .lexical-input .ref-chip.active { background: rgba(101, 158, 254, .4); }
+  #input .ref-chip svg, .lexical-input .ref-chip svg { flex: none; }
+  #input .ref-chip .ref-chip-label, .lexical-input .ref-chip .ref-chip-label {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+    line-height: 22px;
+  }
   /* 气泡行内 @ 引用 chip 的 hover 态：与附件 chip 的 hovered 描述联动。 */
   .ref-chip.ref-hover { background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, .18)); }
   /* 主发送/停止按钮（对齐官方 InputBar primary，uV2eYG_primary）：34×34 圆形
