@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { atTokenRangeAt, boundTokenRanges, scanAtTokens } from '../src/pure/tokenScan.ts'
+import { atTokenRangeAt, boundTokenRanges, scanAtTokens, shouldColorAtToken } from '../src/pure/tokenScan.ts'
 
 const range = (start: number, end: number, quoted = false) => ({ start, end, quoted })
 const labels = (text: string) => scanAtTokens(text).map((r) => text.slice(r.start, r.end))
@@ -120,4 +120,25 @@ test('boundTokenRanges：含空格显示 token 与引号 token 命中', () => {
 test('boundTokenRanges：无绑定/无 @ token 时为空', () => {
   assert.deepEqual(boundTokenRanges('@x', new Map()), [])
   assert.deepEqual(boundTokenRanges('普通文本', new Map([['@x', 'm']])), [])
+})
+
+test('shouldColorAtToken：引号/尾斜杠文件夹按语法着色，@name 走词库门控', () => {
+  const names = new Set(['img1.png', '旧会话', 'src'])
+  // 引号 token：不看词库，永远着色
+  assert.equal(shouldColorAtToken('@"my file.txt"', true, names), true)
+  assert.equal(shouldColorAtToken('@"src/', true, names), true)
+  // 尾斜杠文件夹：不看词库，按语法着色
+  assert.equal(shouldColorAtToken('@src/', false, names), true)
+  // 已知 name：在候选里 → 着色
+  assert.equal(shouldColorAtToken('@img1.png', false, names), true)
+  assert.equal(shouldColorAtToken('@旧会话', false, names), true)
+  // 未知名/半截名：不在候选里 → 不着色（保持纯文本，官方 TEXT_REF_RE 词库门控）
+  assert.equal(shouldColorAtToken('@img', false, names), false)
+  assert.equal(shouldColorAtToken('@nonexistent', false, names), false)
+  assert.equal(shouldColorAtToken('@img1', false, names), false)
+  // 无候选时所有 @name 都不着色（引号/文件夹仍按语法着色）
+  const empty = new Set<string>()
+  assert.equal(shouldColorAtToken('@img1.png', false, empty), false)
+  assert.equal(shouldColorAtToken('@src/', false, empty), true)
+  assert.equal(shouldColorAtToken('@"x"', true, empty), true)
 })
