@@ -4432,6 +4432,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'composer-long-scrolled',
     'composer-keyboard-clear-undo', 'composer-esc-clear-disarm',
     'composer-clear-running-guard', 'composer-clear-idle-guards',
+    'ref-token-word-boundary', 'ref-token-lexicon-gate',
     'attachment-uniform',
     'session-open-failure',
     'model-pill-loading',
