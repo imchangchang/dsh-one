@@ -19,7 +19,7 @@
  */
 
 import { sessionMentionRanges } from './sessionMention.ts'
-import { scanAtTokens } from './tokenScan.ts'
+import { scanAtTokens, scanCommandTokens } from './tokenScan.ts'
 
 export type UserBubbleSegment =
   | { kind: 'text'; text: string }
@@ -30,9 +30,9 @@ export type UserBubbleSegment =
 
 /**
  * `/command`（skill 形态）沿用旧边界集（行首 + 常见中英文标点，不含新加的
- * 中文开括号）——@ token 的边界扩展不扩到命令上，减少行为面。
+ * 中文开括号）——见 tokenScan.scanCommandTokens；@ token 的边界扩展不扩到
+ * 命令上，减少行为面。
  */
-const COMMAND_PATTERN = /(^|[\s，。；：！？、,;!?])(\/[\w-]+)/g
 
 interface BubbleRange {
   start: number
@@ -112,12 +112,11 @@ export function splitUserBubble(
     if (label.length <= 1) continue // 裸 `@`/单个字符不成 chip
     ranges.push({ ...range, kind: 'plain', label })
   }
-  for (const match of text.matchAll(COMMAND_PATTERN)) {
-    const start = match.index + (match[1]?.length ?? 0)
-    if (reserved.has(start)) continue
-    const label = match[2] ?? ''
-    if (label.length <= 1) continue
-    ranges.push({ start, end: start + label.length, kind: 'plain', label })
+  for (const range of scanCommandTokens(text)) {
+    if (reserved.has(range.start)) continue
+    const label = text.slice(range.start, range.end)
+    if (label.length <= 1) continue // 裸 `/` 不成 chip
+    ranges.push({ start: range.start, end: range.end, kind: 'plain', label })
   }
   // 按位置排序；同起点会话引用优先（`@label` 同时会被普通扫描命中），
   // 再按更长的 end 优先（与官方排序一致）。
