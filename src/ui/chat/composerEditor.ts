@@ -46,7 +46,7 @@ import {
 } from 'lexical'
 import { createEmptyHistoryState, registerHistory } from '@lexical/history'
 import { registerPlainText } from '@lexical/plain-text'
-import { boundTokenRanges, scanAtTokens } from '../../pure/tokenScan.ts'
+import { boundTokenRanges, scanAtTokens, shouldColorAtToken } from '../../pure/tokenScan.ts'
 
 /** @token 显示文本（如 `@img.png` / `@标题`）→ canonical mention。 */
 export type MentionBindings = Map<string, string>
@@ -107,6 +107,9 @@ export interface ComposerEditor {
 
 const REF_TYPE = 'ref-token'
 const CHIP_TYPE = 'ref-chip'
+
+/** 空候选名集合（atTokenNames 缺省用；不共享可变实例，读到即返回同一个空集）。 */
+const EMPTY_NAME_SET: ReadonlySet<string> = new Set<string>()
 
 /** @token 显示文本 → canonical mention（如 `@img.png` → `@/abs/img.png`）。 */
 export type ChipAppearance = 'file' | 'folder' | 'session' | 'plain'
@@ -352,18 +355,27 @@ function $isRefTokenNode(node: unknown): node is RefTokenNode {
  *
  * 不改文本内容、不产生 chip：chip 只来自菜单选中（replaceTokenRange/insertTokenAtCaret）。
  */
-function registerTextRefDecoration(editor: LexicalEditor): () => void {
+function registerTextRefDecoration(
+  editor: LexicalEditor,
+  atTokenNames: () => ReadonlySet<string>,
+): () => void {
   return editor.registerNodeTransform(TextNode, (node) => {
     if (!node.isSimpleText()) return
     const text = node.getTextContent()
     const ranges = scanAtTokens(text)
     if (ranges.length === 0) return
+    const names = atTokenNames()
     // 从后往前拆，避免前面 splitText 使后续 offset 失效。每个命中段单独变成
     // TextRefNode（可编辑着色），其余保持普通文本。跳过只有触发符（`@` 无名）的段——
     // 裸 `@` 是补全触发输入中，不着色（官方 TEXT_REF_RE 要求 `@` 后至少一个 \w-）。
     for (let i = ranges.length - 1; i >= 0; i -= 1) {
-      const { start, end } = ranges[i]
+      const { start, end, quoted } = ranges[i]
       if (end <= start + 1) continue
+      // 词库门控（对齐官方 scanTextRefs）：`@"…"`/`@dir/` 按语法着色，其余
+      // `@name` 仅当 name 在 live 候选（@ 补全能触发/能展开的那类引用——附件/
+      // 工作区文件/会话短名 + 已登记绑定）里才着色；未知名/半截名（@img、
+      // @nonexistent）保持纯文本。名取 `@` 后的整段显示名。
+      if (!shouldColorAtToken(text.slice(start, end), quoted, names)) continue
       // 每次变换后 `node` 可能已失效（splitText 会返回新节点），必须重新取当前
       // 最新节点。这里用 getLatest() 保证指向同一逻辑节点在后文中的最新实例。
       const current = node.getLatest()
@@ -482,9 +494,16 @@ export function createComposerEditor(opts: {
   placeholderText: string
   editable?: boolean
   bindings?: MentionBindings
+  /**
+   * 当前 live 的 @ 候选名集合（@ 补全数据：附件/工作区文件/会话短名 + 已登记
+   * 绑定的显示名）。每次文本节点变换时调用，返回当前该叫什么名才算「已认识」的
+   * @name——词库门控用（对齐官方 scanTextRefs）。缺省为空集（无候选名，@name 不着色）。
+   */
+  atTokenNames?: () => ReadonlySet<string>
 }): ComposerEditor {
   const { handlers, placeholderText, editable = true } = opts
   let bindings = opts.bindings ?? new Map<string, string>()
+  const atTokenNames = opts.atTokenNames ?? ((): ReadonlySet<string> => EMPTY_NAME_SET)
 
   const editor = createEditor({
     namespace: 'dsh-composer',
@@ -496,7 +515,7 @@ export function createComposerEditor(opts: {
   registerPlainText(editor)
   const historyState = createEmptyHistoryState()
   const unregisterHistory = registerHistory(editor, historyState, 1000)
-  const unregisterTextRef = registerTextRefDecoration(editor)
+  const unregisterTextRef = registerTextRefDecoration(editor, atTokenNames)
 
   const root = document.createElement('div')
   root.className = 'lexical-input'

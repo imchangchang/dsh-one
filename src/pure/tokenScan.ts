@@ -151,6 +151,23 @@ export function scanAtTokens(text: string): AtTokenRange[] {
 }
 
 /**
+ * 词库门控（对齐官方 client.js scanTextRefs 的 lexicon gate）：某个 @token（已按
+ * 语法扫描出的区间）是否应着色。
+ * - 引号 token（`@"…"`）与尾斜杠文件夹（`@dir/`）按语法着色，不看词库；
+ * - 其余 `@name` 仅当 name（`@` 后的整段显示名）在 live 候选名集合里才着色——
+ *   未知名/半截名（`@img`、`@nonexistent`）保持纯文本。
+ *
+ * @param token 完整 token 文本（含 `@`/引号）。
+ * @param quoted 是否为引号 token（scanAtTokens 返回的 `quoted`）。
+ * @param names live 候选名集合（@ 补全数据：附件/工作区文件/会话短名 + 已登记绑定）。
+ */
+export function shouldColorAtToken(token: string, quoted: boolean, names: ReadonlySet<string>): boolean {
+  if (quoted) return true
+  if (token.endsWith('/')) return true
+  return names.has(token.slice(1))
+}
+
+/**
  * 输入侧 @token 区间：在扫描起点（边界校验通过的 @）处按 mentionBindings
  * 做 key 最长匹配——兼容含空格的显示 token（`@with space.txt`），词中命中
  * （`a@img b`）由边界校验自然排除，无需另写 indexOf 扫描，也避免了长短 key

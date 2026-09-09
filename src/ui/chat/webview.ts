@@ -1862,6 +1862,32 @@ function sessionRows(editor: ComposerEditor, at: ActiveAtToken): SlashRow[] {
 }
 
 /**
+ * 当前 composer 能「认识」的 @ 显示名集合（词库门控的候选集，对齐官方 scanTextRefs
+ * 的词库 gate）。来源 = @ 补全数据：附件（pendingFiles，本地即时）、工作区文件
+ * （宿主异步返回的 fileRefResult，尽力而为）、当前会话所属工作区的会话短名
+ * （sessionRows 同一作用域），再加已登记绑定的显示名（@ 补全选中/粘贴/召回时
+ * 登记过、发送时能展开的那类引用——即使已不在当前补全候选里也保持着色）。
+ * @dir/、@"…" 不走这个词库（按语法着色，见 composerEditor registerTextRefDecoration）。
+ */
+function composerAtTokenNames(): Set<string> {
+  const names = new Set<string>()
+  for (const f of pendingFiles) names.add(attachmentBaseName(f.path))
+  for (const c of fileRefResult?.items ?? []) names.add(attachmentBaseName(c.path))
+  const snap = sessionsSnapshot
+  if (snap) {
+    const own =
+      snap.workspaces.find((w) => w.sessions.some((s) => s.sessionId === state?.sessionId)) ??
+      snap.workspaces.find((w) => state?.workspaceLabel !== undefined && w.label === state.workspaceLabel)
+    for (const s of own?.sessions ?? []) names.add(s.label)
+  }
+  for (const token of mentionBindings.keys()) {
+    // 绑定 key 是显示 token（@标题 / @img1.png (2)）：取掉 @ 与序号后缀得词库名。
+    names.add(token.slice(1).replace(/\s*\(\d+\)$/, ''))
+  }
+  return names
+}
+
+/**
  * 粘贴板文本含 canonical 会话 mention（"复制引用"的产物 `@[标题](dsh-session:...)`）
  * 时接管粘贴：mention 换成 @ 补全同款的显示 token 并登记 mentionBindings
  * （发送时才展开）；光标前正在输入的 @query 触发词一并吃掉，先打 @ 再粘贴
@@ -6974,6 +7000,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     placeholderText,
     editable,
     bindings: mentionBindings,
+    atTokenNames: composerAtTokenNames,
   })
   composer.root.id = 'input'
   // .value/selectionStart/selectionEnd/setSelectionRange 存取 shim：让 harness/场景

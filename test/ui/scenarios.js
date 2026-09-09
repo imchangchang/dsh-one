@@ -325,6 +325,33 @@
       expect: 'composer 输入「a@img1.png b @img1.png c」：文本高亮层只绘制一处 .ref-token（浅蓝底 @img1.png，落在第二处——边界命中）；第一处词中 a@img1.png 保持普通文本、无高亮背景（DOM 断言 window.__refTokenCheck = {count: 1, texts: ["@img1.png"]}）；两处文本都清晰可见、无长路径、无补全弹窗。',
     },
 
+    'ref-token-lexicon-gate': {
+      // #41 重开：@token 着色谓词对齐官方——@name 仅当命中 live 候选（附件/工作区
+      // 文件/会话短名）才着色，未知名/半截名保持纯文本；@dir/（尾斜杠）与 @"…"
+      // 按语法着色。此场景不经补全绑定，纯打字路径验证词库门控。
+      png: PNG_RED,
+      state: base({ messages: [] }),
+      interact: `(() => {
+        const s = window.SCENARIOS['ref-token-lexicon-gate']
+        window.postMessage({ type: 'filesPicked', files: [
+          { name: 'img1.png', path: '/var/folders/x/T/dsh-one-attachments/sess-1/img1.png', image: true, mediaType: 'image/png', previewData: s.png },
+        ] }, '*')
+        setTimeout(() => {
+          const input = document.getElementById('input')
+          input.focus()
+          input.value = '看 @img1.png 和 @nonexistent，目录 @src/ 也看看'
+          input.setSelectionRange(input.value.length, input.value.length)
+          input.dispatchEvent(new Event('input'))
+          setTimeout(() => {
+            const spans = Array.from(document.querySelectorAll('.input-area .ref-token'))
+            window.__lexiconGateCheck = { count: spans.length, texts: spans.map((s2) => s2.textContent) }
+          }, 240)
+        }, 160)
+      })()`,
+      title: '@ 词库门控：已知名着色、未知名/半截名不着色、@dir/ 按语法着色',
+      expect: 'composer 输入「看 @img1.png 和 @nonexistent，目录 @src/ 也看看」——img1.png 是附件候选 → @img1.png 着色（.ref-token，浅蓝底）；@nonexistent 未知名 → 保持纯文本（无高亮）；@src/ 尾斜杠文件夹 → 按语法着色（不依赖候选）。DOM 断言 window.__lexiconGateCheck = {count:2, texts:["@img1.png","@src/"]}；无补全弹窗。',
+    },
+
     'composer-long-ref-token-drift': {
       // 复现「长文本 + @ 引用 token，叠层高亮与 textarea 文字/光标逐渐偏移」：
       // 绑定 @img1.png 后把输入改成一段很长的中文（滚到超过 max-height），
@@ -4405,6 +4432,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'composer-long-scrolled',
     'composer-keyboard-clear-undo', 'composer-esc-clear-disarm',
     'composer-clear-running-guard', 'composer-clear-idle-guards',
+    'ref-token-word-boundary', 'ref-token-lexicon-gate',
     'attachment-uniform',
     'session-open-failure',
     'model-pill-loading',
