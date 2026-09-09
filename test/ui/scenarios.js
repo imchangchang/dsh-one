@@ -3490,6 +3490,23 @@
       expect: '消息流里出现三张压缩行：① 独立压缩卡（标题「上下文已压缩」+ 分隔点 + 摘要「已压缩 42 条历史记录（约 12340 tokens）」，行首 chevron 向右、整行可点展开摘要全文 markdown）；② 手动 /compact 卡同样形态但标题是「/compact」；③ 无摘要的退化卡是纯展示行（无 chevron、无点击态，摘要文字「压缩摘要不可用」）。三行都不渲染成用户气泡、不出现 checkpoint 原文。版式：三张卡与上下消息行同属居中内容列——左右缘与消息列对齐；不当出现：卡贴面板左缘而消息列居中（a0c0d17 回归形态）。',
     },
 
+    'command-goal-long-args': {
+      state: base({
+        messages: [
+          u('帮我立一个长期目标。'),
+          {
+            // #42：/goal 长参数溢出回归态——连续无空格的纯字母长串，min-content 撑宽
+            // .command-row .command-line（默认 flex 项不可断），一旦无 min-width:0 +
+            // overflow-wrap 就被 max-content 撑出消息列右缘横向溢出。
+            kind: 'command', id: 'cmd-goal-1', name: 'goal', status: 'success',
+            args: 'A'.repeat(300),
+          },
+        ],
+      }),
+      title: '命令长参数（/goal 连续长串）在消息列内换行、不横向溢出',
+      expect: '消息流里一条命令卡（.command-row）：行首等宽灰字 /goal 命令名，其后接一长串**连续无空格**的纯字母长串参数；整行在消息列内容宽内换行——长串折成多行、卡片撑高而不撑宽，不超出内容列右缘、不被裁切、页面无横向滚动条；命令卡右缘与上下行（用户消息）右缘对齐；不做成一整行横穿超宽被截断。',
+    },
+
     // ---- 「回到最新」浮标可见态（a0c0d17 把它撑成 748 通栏的回归位）----
     'jump-latest-visible': {
       state: base({
@@ -4382,7 +4399,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'queue-preview-mention',
     'steering-pending',
     'thumb-ack-after-incremental',
-    'compaction-cards', 'turn-navigator', 'jump-latest-visible',
+    'compaction-cards', 'command-goal-long-args', 'turn-navigator', 'jump-latest-visible',
     'collapse-footer',
     'composer-clear-after-send',
     'composer-long-scrolled',
