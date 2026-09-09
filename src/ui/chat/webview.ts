@@ -1867,7 +1867,9 @@ function sessionRows(editor: ComposerEditor, at: ActiveAtToken): SlashRow[] {
  * （宿主异步返回的 fileRefResult，尽力而为）、当前会话所属工作区的会话短名
  * （sessionRows 同一作用域），再加已登记绑定的显示名（@ 补全选中/粘贴/召回时
  * 登记过、发送时能展开的那类引用——即使已不在当前补全候选里也保持着色）。
- * @dir/、@"…" 不走这个词库（按语法着色，见 composerEditor registerTextRefDecoration）。
+ * @dir/、尾 / 的 @"…"（目录、引号敞开）不走这个词库（按语法着色，见 composerEditor
+ * registerTextRefDecoration）；无尾 / 的 @"…"（闭合引号、非目录）不着色（官方
+ * FOLDER_REF_RE 引号分支须尾 /）。
  */
 function composerAtTokenNames(): Set<string> {
   const names = new Set<string>()
