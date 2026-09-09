@@ -1888,6 +1888,15 @@ function composerAtTokenNames(): Set<string> {
 }
 
 /**
+ * 当前 composer 能「认识」的 /command（skill 形态）名称集合（对齐官方 TEXT_REF_RE
+ * 的 `[/@]` 触发符词库门控）。来源 = 宿主指令名录（state.slashCommands 或静态回退）
+ * + 客户端 /model——`/plan`、`/compact` 命中着色，未知名 `/foo` 保持纯文本。
+ */
+function composerSlashTokenNames(): Set<string> {
+  return new Set(slashCommands().map((c) => c.name))
+}
+
+/**
  * 粘贴板文本含 canonical 会话 mention（"复制引用"的产物 `@[标题](dsh-session:...)`）
  * 时接管粘贴：mention 换成 @ 补全同款的显示 token 并登记 mentionBindings
  * （发送时才展开）；光标前正在输入的 @query 触发词一并吃掉，先打 @ 再粘贴
@@ -7001,6 +7010,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     editable,
     bindings: mentionBindings,
     atTokenNames: composerAtTokenNames,
+    slashTokenNames: composerSlashTokenNames,
   })
   composer.root.id = 'input'
   // .value/selectionStart/selectionEnd/setSelectionRange 存取 shim：让 harness/场景
