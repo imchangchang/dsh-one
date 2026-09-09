@@ -1,7 +1,7 @@
 {
   "title": "composer-lexical 两段式 @token：TextRef 着色 + ReferenceChip 原子 chip（#41 对齐官方）",
   "branch": "agent/composer-lexical",
-  "commit": "",
+  "commit": "3977b9c（fix） + 603d8f1（test/scenario）",
   "environment": {
     "method": "browser harness (test/ui/harness.html) + WebBridge 截图 + mock 宿主驱动",
     "webview": "dist/chatWebview.js（worktree 构建）",
