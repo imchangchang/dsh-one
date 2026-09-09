@@ -62,6 +62,9 @@ test('流式消息（无 seq）是生长尾部：steering 不插到它前面', (
 })
 
 test('空 messages + steering：steering 全走 tailSteers', () => {
-  const out = interleaveSteering([], [{ id: 's1', seq: 101 }])
+  const out = interleaveSteering<{ id: string; seq?: number }, { id: string; seq?: number }>(
+    [],
+    [{ id: 's1', seq: 101 }],
+  )
   assert.deepEqual(out.map((e) => e.kind === 'message' ? e.message.id : e.steer.id), ['s1'])
 })
