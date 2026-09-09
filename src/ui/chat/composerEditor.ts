@@ -359,9 +359,11 @@ function registerTextRefDecoration(editor: LexicalEditor): () => void {
     const ranges = scanAtTokens(text)
     if (ranges.length === 0) return
     // 从后往前拆，避免前面 splitText 使后续 offset 失效。每个命中段单独变成
-    // TextRefNode（可编辑着色），其余保持普通文本。
+    // TextRefNode（可编辑着色），其余保持普通文本。跳过只有触发符（`@` 无名）的段——
+    // 裸 `@` 是补全触发输入中，不着色（官方 TEXT_REF_RE 要求 `@` 后至少一个 \w-）。
     for (let i = ranges.length - 1; i >= 0; i -= 1) {
       const { start, end } = ranges[i]
+      if (end <= start + 1) continue
       // 每次变换后 `node` 可能已失效（splitText 会返回新节点），必须重新取当前
       // 最新节点。这里用 getLatest() 保证指向同一逻辑节点在后文中的最新实例。
       const current = node.getLatest()
