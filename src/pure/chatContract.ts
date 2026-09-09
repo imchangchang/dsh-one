@@ -940,7 +940,16 @@ export type ToWebviewMessage =
    * 时原样还回的消息（图片/文件 chips 一并恢复，不让输入被吞）。
    */
   | { type: 'restoreDraft'; text: string; images?: OutgoingImage[]; files?: StagedFile[] }
-  | { type: 'commandResult'; text: string }
+  | {
+      type: 'commandResult'
+      text: string
+      /** Host-minted pairing id (same as command/run + command/done); absent for unmatched commands. */
+      commandId?: string
+      /** Slash-command name (first token, no `/`); present for unmatched commands. */
+      commandName?: string
+      /** Admission outcome; unmatched commands are 'error'. */
+      kind?: 'success' | 'error'
+    }
   /** commit hash 查询结果回传（见 webview commitInfo 请求）：按 sha 点亮/灰显 chip 并填悬浮 title。 */
   | { type: 'commitInfo'; results: CommitInfoResult[] }
   /** @ 补全的文件/文件夹候选响应；requestId 回声，过期的响应由 webview 丢弃。 */
