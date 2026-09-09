@@ -2,53 +2,31 @@
  * 聊天消息列表的贴底跟随（scroll pinning）判定。
  * webview 侧据此区分"用户主动滚动"与"内容增长/程序贴底"，
  * 只在前者发生时重估跟随态，避免流式输出把视图钉在原处。
+ *
+ * 判定模型对齐官方 dsh web（dsh-client-ui-chat/lib/client.js）：一条
+ * movedByReader 位移比对区分用户/程序滚动，宽松 25px 阈值判贴底，
+ * 跟随与否只看「自上次程序写/读位置起用户有没有动过」。相比旧实现
+ * 删去了 200ms 意图窗、回声剔除与双向/单向 reconcile 三层防御——
+ * 官方用一条位移比对就同时区分用户/程序滚动，且程序写后同步该位，
+ * 自回声自然为 false，无需剔除锁。
  */
 
 /**
- * 「贴底」的精确阈值：距底 ≤ 该值才认为在底部。
- * 用户手势滚动用它替代旧 40px 近底容差——距底超过它即视为用户已滚离，
- * 立即停跟随并显示「回到最新」，避免下一帧流式渲染把视图从「离底 20px」
- * 拽回绝对底部（视觉抖动）。2px 的余量抵消浏览器对 scrollTop 的取整：把
- * scrollTop 设为 scrollHeight 后，clamp 落点距底可能残留 0~1px 的取整差。
+ * 「贴底」的宽松阈值：距底 ≤ 该值即认为在底部。对齐官方 dsh web 的
+ * 25px 阈值——流式输出很难把视口一次性推出这条带，只要还在带内就继续
+ * 跟随，几乎不出现「顶出去→吸回→再顶」的来回跳动。25px 的余量同时
+ * 抵消浏览器对 scrollTop 的取整与瞬态布局误差。
  */
-export const AT_BOTTOM_PX = 2
-
-/** wheel/touch/键盘手势后，scroll 事件在该窗口内仍算作用户滚动。 */
-export const USER_SCROLL_INTENT_MS = 200
+export const AT_BOTTOM_PX = 25
 
 /**
  * 滚动空闲 debounce 窗口：最后一次滚动活动（wheel/scroll/pointer 等）距今 ≤ 该值
  * 就认为滚动还在动（含原生弹性回归动画——回归期间 scroll 事件持续到达），此时不写
  * scrollTop；超过该值才认为滚动真正停，允许 settle 补 pin。回归动画通常发生在最后一个
- * wheel 事件 200ms 之后（意图窗口已过期），以「滚动空闲」而非「意图过期」作为写时机，
+ * wheel 事件之后（意图窗口已过期），以「滚动空闲」而非「意图过期」作为写时机，
  * 避免在回归动画中途写 scrollTop 打断动画（迭代 2 的碰撞主犯）。
  */
 export const SETTLE_IDLE_MS = 120
-
-/**
- * 程序 pin 的 scroll 事件回声判定。程序写 `messages.scrollTop` 后，浏览器会派发
- * 一次异步 scroll 事件；若无此判定，该事件会被当作「滚动还在动」记入滚动活动锁，
- * 锁掉后续 SETTLE_IDLE_MS 内的下次补 pin（视口脱底 → 120ms 后 settle 吸回，周期
- * 脉冲）。此函数把这类「自己写出来的回声」从锁里剔除：距上次程序写 ≤ windowMs、
- * 当前无用户滚动意图、且实际位置与程序写后的目标位置一致（±1 抵消浏览器取整）即
- * 判为回声。用户在滚动时意图窗口（wheel/touch/键盘意图）内为真，绝不会被误判。
- */
-export function isProgramScrollEcho(
-  now: number,
-  programPinAt: number,
-  pinnedScrollTop: number | null,
-  scrollTop: number,
-  intentActive: boolean,
-  windowMs: number,
-): boolean {
-  return (
-    programPinAt > 0 &&
-    now - programPinAt <= windowMs &&
-    !intentActive &&
-    pinnedScrollTop !== null &&
-    Math.abs(scrollTop - pinnedScrollTop) <= 1
-  )
-}
 
 /** 距底距离；内容不足一屏（scrollHeight <= clientHeight）时为 0。 */
 export function distanceFromBottom(scrollHeight: number, scrollTop: number, clientHeight: number): number {
@@ -61,17 +39,36 @@ export function isAtBottom(scrollHeight: number, scrollTop: number, clientHeight
 }
 
 /**
+ * 「用户滚动」位移判定（对齐官方 movedByReader）：实时位置与上次程序写/读位置之差
+ * > 0.5px 即认为用户动了。observedTop 是上次程序写后读回的 clamp 落点
+ * （pinnedScrollTop），floor 是内容当前最底可滚位置（max(0, scrollHeight-clientHeight)）。
+ * - 内容增长只增大 scrollHeight、不动 scrollTop，不会产生位移；
+ * - 程序 pin 后浏览器 clamp 到 floor 内，实时位置与该位一致（≤ 0.5）→ 不判用户滚动；
+ * - 内容收缩把 scrollTop clamp 到新 floor，min(observedTop, floor) 同步到 floor，
+ *   位移为 0 → 不误判；只有真实用户手势才会让实时位置偏离 up to floor 的比对基。
+ */
+export function isReaderMoved(scrollTop: number, observedTop: number, floor: number): boolean {
+  return Math.abs(scrollTop - Math.min(observedTop, floor)) > 0.5
+}
+
+/**
+ * scroll 事件重估跟随态（对齐官方 movedByReader ? floor-scrollTop<=25 : atBottomRef.current）：
+ * 用户动了则按「是否仍在 25px 贴底带」重判；用户没动（程序 pin 的自我回声 / 内容增长
+ * 的 clamp）则维持现态，绝不因程序滚动误把跟随态置 false。
+ */
+export function nextStickToBottom(stickToBottom: boolean, movedByReader: boolean, atBottomNow: boolean): boolean {
+  return movedByReader ? atBottomNow : stickToBottom
+}
+
+/**
  * 渲染后重滚底的决策：是否该把视口写回底部（程序 pin）。
- * 三条件同时满足才写：
+ * 两条件同时满足才写：
  * - stickToBottom：跟随态（用户未主动滚离，视口应留在尾部）。
- * - !intentActive：无用户手势/动量（wheel/touch 事件仍持续到达 = 意图仍在）。
- *   此时写 scrollTop 会打断浏览器原生惯性动画（WebKit bug 255193 承认设
- *   scrollTop 终止惯性），正是「贴底惯性下滑反复回弹抖动」的碰撞源，跳过。
  * - !atBottom：实际已贴底（距底 ≤ AT_BOTTOM_PX）则无需再写（幂等），避免
  *   内容不足一屏/已贴底时的无谓写。
  */
-export function shouldPinNow(stickToBottom: boolean, intentActive: boolean, atBottom: boolean): boolean {
-  return stickToBottom && !intentActive && !atBottom
+export function shouldPinNow(stickToBottom: boolean, atBottom: boolean): boolean {
+  return stickToBottom && !atBottom
 }
 
 /**
@@ -82,13 +79,8 @@ export function shouldPinNow(stickToBottom: boolean, intentActive: boolean, atBo
  * 滚动停后如果视口已贴底（atBottom）则 shouldPinNow 为假、不写（零打扰）；脱底漂移
  * （内容增长）的情况写一次吸回。
  */
-export function shouldSettlePinNow(
-  stickToBottom: boolean,
-  intentActive: boolean,
-  atBottom: boolean,
-  scrollActive: boolean,
-): boolean {
-  return shouldPinNow(stickToBottom, intentActive, atBottom) && !scrollActive
+export function shouldSettlePinNow(stickToBottom: boolean, atBottom: boolean, scrollActive: boolean): boolean {
+  return shouldPinNow(stickToBottom, atBottom) && !scrollActive
 }
 
 /**
@@ -106,17 +98,6 @@ export interface ScrollArchive {
  * scrollTop、直接贴底。内容在切走期间变长/收缩，恢复后靠 clamp 落点同步。 */
 export function archiveScrollPosition(scrollTop: number, stickToBottom: boolean): ScrollArchive {
   return { scrollTop, atBottom: stickToBottom }
-}
-
-/**
- * scroll 事件重估跟随态：手势窗口内双向调整（按实际是否贴底）；非手势
- * scroll（clamp/内容变化/程序滚动）只做单向修正——实测已贴底且当前没在跟随时
- * 进入跟随（修「回到最新」误显），但绝不主动置 false（防程序滚动被误判为
- * 用户滚离）。
- */
-export function reconcileScrollPinning(stickToBottom: boolean, gestureActive: boolean, atBottom: boolean): boolean {
-  if (gestureActive) return atBottom
-  return stickToBottom || atBottom
 }
 
 /**
