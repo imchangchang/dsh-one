@@ -1450,7 +1450,13 @@
   .slash-popup .menu-item.hint-row { cursor: default; opacity: .75; }
   .slash-popup .menu-item.hint-row:hover { background: none; color: inherit; }
   .command-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 2px 10px; font-size: 12px; opacity: .85; }
-  .command-row .command-line { font-family: var(--vscode-editor-font-family, monospace); }
+  .command-row .command-line {
+    font-family: var(--vscode-editor-font-family, monospace);
+    /* #42：命令名 + 长 args 若超过容器宽（如 /goal 连续长串一行塞进 command-line
+       span），默认 min-width:auto（flex 项）= 内容 min-content 宽（不可断），把
+       .command-row 撑出横向溢出。min-width:0 允许收缩 + 任意断行让其在容器内换行。 */
+    min-width: 0; overflow-wrap: anywhere; word-break: break-word;
+  }
   .command-row .command-text { opacity: .75; white-space: pre-wrap; word-break: break-word; }
   .command-row.error .command-text { color: var(--vscode-errorForeground, #f66); opacity: 1; }
   .command-row .spinner { align-self: center; }
@@ -1462,7 +1468,11 @@
     cursor: pointer; list-style: none; user-select: none;
   }
   .command-detail summary::-webkit-details-marker { display: none; }
-  .command-detail summary .command-line { flex: none; }
+  .command-detail summary .command-line {
+    /* flex:none（0 0 auto）固定为内容宽，长 args 时同 .command-row 一样被 min-content
+       撑宽横向溢出；0 1 auto 允许收缩，配合下方断行在 summary 内换行。 */
+    flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; word-break: break-word;
+  }
   .command-detail summary .command-text {
     min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
