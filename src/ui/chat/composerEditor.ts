@@ -46,7 +46,7 @@ import {
 } from 'lexical'
 import { createEmptyHistoryState, registerHistory } from '@lexical/history'
 import { registerPlainText } from '@lexical/plain-text'
-import { boundTokenRanges, scanAtTokens, shouldColorAtToken } from '../../pure/tokenScan.ts'
+import { boundTokenRanges, scanAtTokens, scanCommandTokens, shouldColorAtToken, shouldColorSlashToken } from '../../pure/tokenScan.ts'
 
 /** @token 显示文本（如 `@img.png` / `@标题`）→ canonical mention。 */
 export type MentionBindings = Map<string, string>
@@ -345,8 +345,9 @@ function $isRefTokenNode(node: unknown): node is RefTokenNode {
 }
 
 /**
- * 两段式的「第一段」：把文本流里匹配 @token 边界的词着色为可编辑 TextRefNode，
- * 让「输入中未选定的 @name / @dir/」与「粘贴含 @ 的文本」呈现纯文本着色（无图标）。
+ * 两段式的「第一段」：把文本流里匹配 @token / /command 边界的词着色为可编辑
+ * TextRefNode，让「输入中未选定的 @name / @dir/ / /command」与「粘贴含 @ 或 /
+ * 的文本」呈现纯文本着色（无图标）。
  *
  * 仅当片段确实是普通可编辑文本（isSimpleText = 非目标节点、非组合中）时处理——组合
  * 中的 TextNode 会被 registerPlainText 切到分段模式，isSimpleText 为 false，天然跳过。
@@ -358,24 +359,35 @@ function $isRefTokenNode(node: unknown): node is RefTokenNode {
 function registerTextRefDecoration(
   editor: LexicalEditor,
   atTokenNames: () => ReadonlySet<string>,
+  slashTokenNames: () => ReadonlySet<string>,
 ): () => void {
   return editor.registerNodeTransform(TextNode, (node) => {
     if (!node.isSimpleText()) return
     const text = node.getTextContent()
-    const ranges = scanAtTokens(text)
-    if (ranges.length === 0) return
+    const atRanges = scanAtTokens(text)
+    const slashRanges = scanCommandTokens(text)
+    if (atRanges.length === 0 && slashRanges.length === 0) return
     const names = atTokenNames()
+    const skillNames = slashTokenNames()
     // 从后往前拆，避免前面 splitText 使后续 offset 失效。每个命中段单独变成
-    // TextRefNode（可编辑着色），其余保持普通文本。跳过只有触发符（`@` 无名）的段——
-    // 裸 `@` 是补全触发输入中，不着色（官方 TEXT_REF_RE 要求 `@` 后至少一个 \w-）。
-    for (let i = ranges.length - 1; i >= 0; i -= 1) {
-      const { start, end, quoted } = ranges[i]
+    // TextRefNode（可编辑着色），其余保持普通文本。跳过只有触发符（`@` 无名 /
+    // 裸 `/`）的段——裸 `@` 是补全触发输入中，不着色（官方 TEXT_REF_RE 要求
+    // 触发符后至少一个 \w-）。合并 @ 与 / 两套区间（触发符不同不重叠），先拆
+    // 最右的命中段，左侧其余命中留在前段节点里，由下一趟 dirty 驱动处理。
+    const candidates: Array<{ start: number; end: number; quoted: boolean; slash: boolean }> = [
+      ...atRanges.map((r) => ({ start: r.start, end: r.end, quoted: r.quoted, slash: false })),
+      ...slashRanges.map((r) => ({ start: r.start, end: r.end, quoted: false, slash: true })),
+    ]
+    candidates.sort((a, b) => b.start - a.start || b.end - a.end)
+    for (const { start, end, quoted, slash } of candidates) {
       if (end <= start + 1) continue
       // 词库门控（对齐官方 scanTextRefs）：`@"…"`/`@dir/` 按语法着色，其余
       // `@name` 仅当 name 在 live 候选（@ 补全能触发/能展开的那类引用——附件/
-      // 工作区文件/会话短名 + 已登记绑定）里才着色；未知名/半截名（@img、
-      // @nonexistent）保持纯文本。名取 `@` 后的整段显示名。
-      if (!shouldColorAtToken(text.slice(start, end), quoted, names)) continue
+      // 工作区文件/会话短名 + 已登记绑定）里才着色；`/command` 仅当命令名在
+      // skill 候选（宿主指令名录 + 客户端 /model）里才着色。未知名/半截名
+      // （@img、@nonexistent、/foo、\/Users/…）保持纯文本。名取触发符后的整段。
+      const tokenText = text.slice(start, end)
+      if (slash ? !shouldColorSlashToken(tokenText, skillNames) : !shouldColorAtToken(tokenText, quoted, names)) continue
       // 每次变换后 `node` 可能已失效（splitText 会返回新节点），必须重新取当前
       // 最新节点。这里用 getLatest() 保证指向同一逻辑节点在后文中的最新实例。
       const current = node.getLatest()
@@ -500,10 +512,17 @@ export function createComposerEditor(opts: {
    * @name——词库门控用（对齐官方 scanTextRefs）。缺省为空集（无候选名，@name 不着色）。
    */
   atTokenNames?: () => ReadonlySet<string>
+  /**
+   * 当前 live 的 skill/slash 命令名集合（宿主指令名录 + 客户端 /model）。每次文本
+   * 节点变换时调用，`/command`（skill 形态）命中才着色——对齐官方 TEXT_REF_RE
+   * 的 `[/@]` 触发符词库门控。缺省为空集（无候选名，/command 不着色）。
+   */
+  slashTokenNames?: () => ReadonlySet<string>
 }): ComposerEditor {
   const { handlers, placeholderText, editable = true } = opts
   let bindings = opts.bindings ?? new Map<string, string>()
   const atTokenNames = opts.atTokenNames ?? ((): ReadonlySet<string> => EMPTY_NAME_SET)
+  const slashTokenNames = opts.slashTokenNames ?? ((): ReadonlySet<string> => EMPTY_NAME_SET)
 
   const editor = createEditor({
     namespace: 'dsh-composer',
@@ -515,7 +534,7 @@ export function createComposerEditor(opts: {
   registerPlainText(editor)
   const historyState = createEmptyHistoryState()
   const unregisterHistory = registerHistory(editor, historyState, 1000)
-  const unregisterTextRef = registerTextRefDecoration(editor, atTokenNames)
+  const unregisterTextRef = registerTextRefDecoration(editor, atTokenNames, slashTokenNames)
 
   const root = document.createElement('div')
   root.className = 'lexical-input'

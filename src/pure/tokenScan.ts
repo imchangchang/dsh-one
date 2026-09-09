@@ -10,6 +10,10 @@
  * `（「『《〔【`。ASCII `(` 不入边界——避免代码/装饰器 `func(@arg)`、
  * `@Component(` 新增误渲染。
  *
+ * `/command`（skill 形态）由 scanCommandTokens 独立扫描：触发边界为行首 +
+ * 常见中英文句读（不含中文开括号），区间含 `/`，着色经 shouldColorSlashToken
+ * 的 skill 名门控（对齐官方 TEXT_REF_RE 的 `[/@]` 触发符）。
+ *
  * plain token 逐字符终止规则：
  *  - 无条件终止：空白、中文/全角标点（`\u3000-\u303f` + `，！？；：．･`）、
  *    `\p{So}`（emoji/符号）、ASCII `; ! ? :`；
@@ -153,7 +157,8 @@ export function scanAtTokens(text: string): AtTokenRange[] {
 /**
  * 词库门控（对齐官方 client.js scanTextRefs 的 lexicon gate）：某个 @token（已按
  * 语法扫描出的区间）是否应着色。
- * - 引号 token（`@"…"`）与尾斜杠文件夹（`@dir/`）按语法着色，不看词库；
+ * - 尾斜杠文件夹（`@dir/` 与官方 FOLDER_REF_RE 的引号分支 `@"dir/"`）按语法着色，
+ *   不看词库——引号分支须尾 `/` 才着色（`@"非目录"` 无尾 `/` 不着色，对齐官方）；
  * - 其余 `@name` 仅当 name（`@` 后的整段显示名）在 live 候选名集合里才着色——
  *   未知名/半截名（`@img`、`@nonexistent`）保持纯文本。
  *
@@ -162,9 +167,50 @@ export function scanAtTokens(text: string): AtTokenRange[] {
  * @param names live 候选名集合（@ 补全数据：附件/工作区文件/会话短名 + 已登记绑定）。
  */
 export function shouldColorAtToken(token: string, quoted: boolean, names: ReadonlySet<string>): boolean {
-  if (quoted) return true
   if (token.endsWith('/')) return true
+  if (quoted) return false
   return names.has(token.slice(1))
+}
+
+/** `/command`（skill 形态）区间：`/` 触发点与整段结束下标（含 `/`）。 */
+export interface SlashTokenRange {
+  /** `/` 的下标（触发点）。 */
+  start: number
+  /** `/command` 结束下标（不含，含 `/`）。 */
+  end: number
+}
+
+/** `/command` 触发边界字符集（行首 + 常见中英文句读；与 userBubble 的 COMMAND_PATTERN
+ *  一致，不引入 @ token 新加的中文开括号——命令形态沿用旧边界，减少行为面）。 */
+const SLASH_BOUNDARY_CHARS = '\\s，。；：！？、,;!?'
+const SLASH_BOUNDARY_RE = new RegExp(`(^|[${SLASH_BOUNDARY_CHARS}])(\\/[\\w-]+)`, 'gu')
+
+/**
+ * 扫描文本里的全部 `/command` 区间（含 `/`，如 `/plan`、`/compact`）：官方
+ * TEXT_REF_RE 触发符 `[/@]` 亦扫 `/name`，这里对应 `/` 一侧。触发边界与
+ * userBubble 的 COMMAND_PATTERN 同一套；返回区间含 `/`，供渲染（skill chip）
+ * 与输入侧着色（shouldColorSlashToken 门控）共用。
+ */
+export function scanCommandTokens(text: string): SlashTokenRange[] {
+  const ranges: SlashTokenRange[] = []
+  for (const match of text.matchAll(SLASH_BOUNDARY_RE)) {
+    const start = match.index + (match[1]?.length ?? 0)
+    // match[2] 含 `/`，其长即整段 token 长（`/name`）。
+    ranges.push({ start, end: start + match[2].length })
+  }
+  return ranges
+}
+
+/**
+ * `/command`（skill 形态）是否着色：`/` 之后的命令名命中 skill 候选集才着色
+ * （对齐官方 TEXT_REF_RE 词库门控；未知名/半截名 `/foo`、URL 路径 `/Users/…`
+ * 保持纯文本）。名取 `token` 去掉首 `/`。
+ *
+ * @param token 完整 token 文本（含 `/`）。
+ * @param skillNames live skill/slash 命令名集合（宿主指令名录 + 客户端 `/model`）。
+ */
+export function shouldColorSlashToken(token: string, skillNames: ReadonlySet<string>): boolean {
+  return skillNames.has(token.startsWith('/') ? token.slice(1) : token)
 }
 
 /**
