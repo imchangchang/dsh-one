@@ -1219,6 +1219,34 @@
       expect: '对话流末尾（turn-status 行之后）显示气泡「比如说remote ssh这个插件」完整一行（不提前换行），气泡左侧同一行紧贴处理中圆圈（spinner），整体右对齐；气泡宽度≈内容自然宽，与插话落地后的正式用户消息一致。',
     },
 
+    // ---- 插话落地：durable 保留插话身份 + 原位切换 ----
+    'steering-landed': {
+      // durable 用户消息（id=msg-steer-1）应与 queue 里 placement:'steering' 且
+      // messageId=msg-steer-1 的项对上号：pending 气泡被隐藏，落地消息渲染成
+      // 与 pending 气泡共享 steer:<item.id> key 的节点（原位切换、不折成普通 user）。
+      state: base({
+        running: true,
+        messages: [
+          u('你帮我看看这个插件的架构。'),
+          at('这个插件是 **dsh 与 VSCode 的桥接**：定位本机 dsh，从 VSCode 启动。'),
+          { kind: 'user', id: 'msg-steer-1', text: '等等，先停下，看看 main 分支状态。', seq: 6 },
+        ],
+        queue: [
+          { id: 'q-steer-1', placement: 'steering', messageId: 'msg-steer-1', text: '等等，先停下，看看 main 分支状态。', editText: '等等，先停下，看看 main 分支状态。' },
+        ],
+      }),
+      title: '插话落地保留插话身份（原位切换，无 pending 气泡）',
+      expect: '对话流末尾（turn-status 行之后）显示一条与正常用户消息一致的插话气泡「等等，先停下，看看 main 分支状态。」，右侧对齐、气泡左侧无处理中圆圈（spinner）；末尾不再出现重复的 pending 插话气泡或「等待插话」圆圈——durable 已落地、pending 被隐藏（不渲染双份）；消息保持 user 用户气泡形态（不折成其它类型）。',
+    },
+
+    // ---- 命令回执按生命周期节点 ----
+    'command-result-receipt': {
+      state: base({}),
+      interact: `postMessage({ type:'commandResult', commandId:'cmd-unknown-1', commandName:'compact', kind:'error', text:'The /compact command is not provided by this dsh host (check the session agent preset or the dsh version)' }, '*');`,
+      title: '命令回执按生命周期节点（commandId key + 标题/状态/正文）',
+      expect: '消息流末尾出现一条命令生命周期节点（.command-row.error）：行首 /compact 命令名（灰字），其后是回执正文「The /compact command is not provided by this dsh host…」；节点为命令卡形态，而非纯文本 .command-notice 行；颜色/状态为 error。',
+    },
+
     'composer-clear-after-send': {
       // 运行中 Enter 排队发送后，高亮层不得残留发送前的文字（「鬼影」叠在
       // 占位符上）——输入框 value 与 ref-token-layer 必须同步清空。keepComposer
