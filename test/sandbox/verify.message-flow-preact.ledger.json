@@ -1,13 +1,13 @@
 {
   "title": "message-flow-preact：消息流 block 层 Preact 化（治 #29）",
   "branch": "agent/message-flow-preact",
-  "commit": "e7912c9",
+  "commit": "b4f3a5f",
   "environment": {
     "mode": "harness（WebBridge 驱动 test/ui harness + mutation-driver）",
     "webview": "dist/chatWebview.js（preact 已 bundle）",
     "theme": "dark",
     "verifier": "ui-visual.sh --mode baseline（81 场景）+ mutation-driver.html（流式 15 帧 DOM 变更统计）+ happy-dom 机制级验证",
-    "date": "2026-09-09T00:00:00Z"
+    "date": "2026-09-09T14:25:28Z"
   },
   "coverageNote": "真桌面 VS Code、真 dsh/真模型输出、mock-llm 沙盒 e2e 不在本报告范围——本任务为纯 webview 前端渲染改动，用 harness 浏览器独立渲染 + 流式 DOM 变更探针做验证。宿主激活/协议层未改动。",
   "items": [
@@ -49,6 +49,30 @@
         "/tmp/dsh-ui-shots-t2/diff-side-by-side.png"
       ],
       "notes": "block 构建仍走 webview.ts 既有 renderBlock（内部 renderTool/renderJsonTree/renderDiff 原样），仅外层包 .block-shell 与 .msg-blocks；scenarios.js 断言（.tool-disclosure summary、.json-tree-row[data-path=...] .json-tree-copy-icon、.tool-skill details summary 等）均为后代选择器，命中不受影响。gen-ui-harness 重抽 style.css 同步 .msg-blocks/.block-shell。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "/goal 命令长参数（连续长串）在消息列内换行、不横向溢出",
+      "expect": "新增 command-goal-long-args 场景：单行 command（/goal + 连续无空格的纯字母长串）渲染为 .command-row，命令名+长串在消息列内容宽内换行（长串折多行、卡撑高不撑宽），不超出内容列右缘、不被裁切、页面无横向滚动条；命令卡右缘与上下行（用户消息）右缘对齐；不做成一整行横穿超宽被截断。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/command-goal-long-args.png"
+      ],
+      "notes": "fix 前该状态把 /goal + 长串整行塞进 .command-row .command-line（flex 项 min-width:auto = 内容 min-content 宽，连续长串不可断），被 max-content 撑出消息列右缘横向溢出；fix（min-width:0 + overflow-wrap:anywhere + word-break:break-word）后走 webview.ts 非多行路径渲染同串：截图见 /goal 行首、长串在消息列内折成多行，右缘与用户消息「帮我立一个长期目标。」右缘对齐，无横向滚动条、无裁切。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "命令卡既有排版无回归（compaction-cards / command-result-receipt / collapse-footer）",
+      "expect": "既有命令卡排版不受本次改动影响：compaction-cards（/compact 压缩摘要卡）、command-result-receipt（.command-row.error 错误回执）、collapse-footer（command-detail 多行命令 summary）各命令名/命令行仍按原宽与层级渲染、不因 command-line 断行规则改变而错位或溢出。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/compaction-cards.png",
+        "/tmp/dsh-ui-shots/command-result-receipt.png",
+        "/tmp/dsh-ui-shots/collapse-footer.png"
+      ],
+      "notes": "逐张核对：compaction-cards 三张压缩卡（含 /compact）左右缘与消息列对齐、无溢出；command-result-receipt /compact 行首 + 红色回执正文正常分行；collapse-footer command-detail summary 的 /compact 命令行按自然宽渲染、正文展开正常——command-line 断行/收缩规则（.command-row .command-line 与 .command-detail summary .command-line 的 min-width/overflow-wrap/word-break，summary 那条由 flex:none 改 0 1 auto）对短命令名（/compact）无副作用。"
     }
   ]
 }
