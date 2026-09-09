@@ -352,6 +352,46 @@
       expect: 'composer 输入「看 @img1.png 和 @nonexistent，目录 @src/ 也看看」——img1.png 是附件候选 → @img1.png 着色（.ref-token，浅蓝底）；@nonexistent 未知名 → 保持纯文本（无高亮）；@src/ 尾斜杠文件夹 → 按语法着色（不依赖候选）。DOM 断言 window.__lexiconGateCheck = {count:2, texts:["@img1.png","@src/"]}；无补全弹窗。',
     },
 
+    'ref-token-quoted-tail-slash': {
+      // #41 第五轮：引号分支收紧尾 /。官方 FOLDER_REF_RE 引号分支须尾 / 才着色；
+      // 闭合引号（@"…"）无尾 /（文件/非目录）不着色，引号敞开的目录（@"src/ 尾 /
+      // 保持敞开）按语法着色。纯打字路径，不经补全绑定。
+      state: base({ messages: [] }),
+      interact: `(() => {
+        const input = document.getElementById('input')
+        input.focus()
+        input.value = '看 @"file with space.txt" 和 @"src/'
+        input.setSelectionRange(input.value.length, input.value.length)
+        input.dispatchEvent(new Event('input'))
+        setTimeout(() => {
+          const spans = Array.from(document.querySelectorAll('.input-area .ref-token'))
+          window.__quotedGateCheck = { count: spans.length, texts: spans.map((s2) => s2.textContent) }
+        }, 240)
+      })()`,
+      title: '@ 引号分支收紧尾 /：闭合引号无尾 / 不着色，引号敞开目录（尾 /）按语法着色',
+      expect: 'composer 输入「看 @"file with space.txt" 和 @"src/」——@"file with space.txt"（闭合引号、非目录、无尾 /）保持纯文本（无高亮，官方 FOLDER_REF_RE 引号分支须尾 / 才着色）；@"src/（引号敞开、目录、尾 /）按语法着色（.ref-token，浅蓝底）。DOM 断言 window.__quotedGateCheck = {count:1, texts:["@\\"src/"]}；无补全弹窗。',
+    },
+
+    'ref-token-slash-command': {
+      // #41 第五轮：官方 TEXT_REF_RE 触发符 [/@] 也扫 /name；输入侧 /command（skill
+      // 形态）按 skill 名门控着色——/plan（宿主指令名录命中）着色，/foo（未知名）、
+      // /Users（URL 路径）不着色。
+      state: base({ messages: [] }),
+      interact: `(() => {
+        const input = document.getElementById('input')
+        input.focus()
+        input.value = '看 /plan 和 /foo，路径 /Users/a'
+        input.setSelectionRange(input.value.length, input.value.length)
+        input.dispatchEvent(new Event('input'))
+        setTimeout(() => {
+          const spans = Array.from(document.querySelectorAll('.input-area .ref-token'))
+          window.__slashGateCheck = { count: spans.length, texts: spans.map((s2) => s2.textContent) }
+        }, 240)
+      })()`,
+      title: '/command（skill 形态）着色：/plan 命中着色，/foo、/Users URL 路径不着色',
+      expect: 'composer 输入「看 /plan 和 /foo，路径 /Users/a」——/plan（宿主指令名录命中）着色（.ref-token，浅蓝底）；/foo（未知名）保持纯文本；/Users（URL/绝对路径）保持纯文本（skill 门控，官方 TEXT_REF_RE 词库门控）。DOM 断言 window.__slashGateCheck = {count:1, texts:["/plan"]}；（/plan 会同时触发斜杠补全弹窗，属预期，不影响着色断言）。',
+    },
+
     'composer-long-ref-token-drift': {
       // 复现「长文本 + @ 引用 token，叠层高亮与 textarea 文字/光标逐渐偏移」：
       // 绑定 @img1.png 后把输入改成一段很长的中文（滚到超过 max-height），
