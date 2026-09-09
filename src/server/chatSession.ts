@@ -75,6 +75,9 @@ interface QuestionItem {
 interface QueuedInboxItemLike {
   id: string
   placement: 'queued' | 'steering' | 'context'
+  /** 落盘后的 durable message id（= user/message 的 data.id）；用于把 pending
+   *  steering 气泡与已渲染的 durable 用户消息对上号（官方 observedRpcIds 语义）。 */
+  messageId?: string
   message?: { content?: Array<{ type: string; text?: unknown }> }
 }
 
@@ -303,6 +306,16 @@ export class ChatSessionController implements vscode.Disposable {
   private queue: QueuedItem[] = []
   /** Raw queued items by id, kept so queue edits can preserve non-text content. */
   private queueRaw = new Map<string, QueuedInboxItemLike>()
+  /**
+   * 给 queue 项派发的合成排序键（见 QueuedItem.seq）。宿主 queue 快照是整表替换、
+   * 且不携带事件级 seq；为了把 pending steering 气泡按发送时间插排进消息流（匹配
+   * 官方 durable 节点按 anchorSeq 排序的语义），在「首次出现」的 queue 项上派发
+   * 一个与消息 seq 同序空间的递增序号：以当前日志水位 maxSeqFolded 为下限，
+   * 保证新项落在所有已折叠消息之后、且跨快照单调递增（重连/换会话后会随
+   * maxSeqFolded 一起走）。项从快照消失时清理，再出现会重新派发。
+   */
+  private queueSeqs = new Map<string, number>()
+  private queueSeqCounter = 0
   /** Latest session/jobs snapshot, live jobs only. */
   private jobs: JobItem[] = []
   private sessionTitle: string | undefined
@@ -1868,6 +1881,10 @@ export class ChatSessionController implements vscode.Disposable {
         // so this frame is the only place they are visible until claimed.
         const items = Array.isArray(payload.items) ? (payload.items as QueuedInboxItemLike[]) : []
         this.queueRaw.clear()
+        const keptIds = new Set<string>()
+        // 新项以当前日志水位为下限派发单调 seq：保证相对消息流「按发送时间插排」。
+        // 水位下限取 maxSeqFolded，新项全部落在已折叠消息之后；跨快照单调递增。
+        this.queueSeqCounter = Math.max(this.queueSeqCounter, this.maxSeqFolded)
         this.queue = items
           .filter((item): item is QueuedInboxItemLike & { placement: 'queued' | 'steering' } =>
             item.placement === 'queued' || item.placement === 'steering',
@@ -1875,8 +1892,23 @@ export class ChatSessionController implements vscode.Disposable {
           .map((item) => {
             const id = String(item.id)
             this.queueRaw.set(id, item)
-            return { id, placement: item.placement, ...queueItemOf(item) }
+            keptIds.add(id)
+            // 已出现的项保持原 seq（内容编辑不改发送顺序）；首次出现才派发。
+            if (this.queueSeqs.get(id) === undefined) {
+              this.queueSeqCounter += 1
+              this.queueSeqs.set(id, this.queueSeqCounter)
+            }
+            const out: QueuedItem & { seq: number } = {
+              id,
+              placement: item.placement,
+              messageId: typeof item.messageId === 'string' && item.messageId ? item.messageId : undefined,
+              ...queueItemOf(item),
+              seq: this.queueSeqs.get(id) ?? this.queueSeqCounter,
+            }
+            return out
           })
+        // 清理已从快照消失的项的 seq 簿记（再出现会重新派发）。
+        for (const id of [...this.queueSeqs.keys()]) if (!keptIds.has(id)) this.queueSeqs.delete(id)
         this.push(true)
         return
       }

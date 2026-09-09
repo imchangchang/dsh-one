@@ -46,6 +46,7 @@ import {
   type HostOs,
 } from '../../pure/installScript.ts'
 import { steerModifierLabel } from '../../pure/steerShortcut.ts'
+import { interleaveSteering } from '../../pure/steeringOrder.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { isFilePathHref } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
@@ -3443,6 +3444,12 @@ function render(): void {
         return
       }
       if (!stickToBottom) return
+      // 幂等守卫（与下方 messages RO 同款）：高度变化后若视口已贴底（seat 收缩被
+      // 浏览器 clamp 回底部 / 上一帧已 pin 到最新，实际距底 0）就不必再写——重
+      // 复写 scrollTop 会触发回声 scroll 事件并重排 settle debounce，跟「queue dock
+      // 高度一边流式一边增又减」叠加会让输出区高频率微抖。非贴底（内容增长顶出）
+      // 才写一次吸回。
+      if (isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight)) return
       writeMessagesScrollTop(messages, messages.scrollHeight)
       const jump = messages.querySelector<HTMLElement>('.jump-latest')
       if (jump) jump.style.display = 'none'
@@ -5302,7 +5309,41 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
     }
   }
   const seenMsgIds = new Set<string>()
-  state.messages.forEach((m) => {
+  // Pending steering bubbles: interleave by send-time seq into the message flow
+  // (aligns official orderedVisibleChatNodes' anchorSeq ordering + observedRpcIds
+  // duplicate suppression). Snapshot order is not guaranteed to be send order, so
+  // sort by the synthetic seq (QueuedItem.seq); a steering item whose durable user
+  // message is already rendered is hidden (no duplicate trailing bubble). Items
+  // without a seq (legacy/harness snapshots) sort to the tail.
+  const durableUserIds = new Set<string>()
+  for (const m of state.messages) if (m.kind === 'user' && m.id) durableUserIds.add(m.id)
+  const seenSteerIds = new Set<string>()
+  const steerItems = (state.queue ?? [])
+    .filter((item) => item.placement === 'steering')
+    .filter((item) => !(typeof item.messageId === 'string' && durableUserIds.has(item.messageId)))
+  const emitSteering = (item: QueuedItem): void => {
+    const sig = JSON.stringify(item) + `|${steerLazyThumbSig(item)}`
+    const same = flowSteerSigs.get(item.id) === sig
+    flowSteerSigs.set(item.id, sig)
+    seenSteerIds.add(item.id)
+    items.push({ key: `steer:${item.id}`, same, create: () => renderSteeringItem(item) })
+  }
+  // 插排结果：messages 已按 seq 升序，pseudo-steers 按其 seq 插到「应落位」处。
+  const flowEntries = interleaveSteering(state.messages, steerItems)
+  // 切分：最后一条消息之后的 entries 全是「最新（或无可比 seq）」的 steers——它们放
+  // turn-status 之后（对齐官方 pendingSteering 尾置；插话总在「当前运行回合」之后）；
+  // 之前/中间的（早发、确实晚于某条已渲染消息的）插排进消息流，治「先发插话却排到
+  // 后发消息之后」。
+  let lastMsgIdx = -1
+  for (let i = 0; i < flowEntries.length; i++) if (flowEntries[i].kind === 'message') lastMsgIdx = i
+  const inFlow = lastMsgIdx >= 0 ? flowEntries.slice(0, lastMsgIdx + 1) : []
+  const tailSteers = lastMsgIdx >= 0 ? flowEntries.slice(lastMsgIdx + 1) : flowEntries
+  for (const entry of inFlow) {
+    if (entry.kind === 'steer') {
+      emitSteering(entry.steer)
+      continue
+    }
+    const m = entry.message
     const sig =
       JSON.stringify(m) +
       (m.kind === 'user' && !m.context ? `|${lazyThumbSig(m.images, m.text ?? '', m.references, m.files)}` : '')
@@ -5321,7 +5362,7 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
       dispose: clearRetryTimersFor,
     })
     emitThrough(m.kind === 'assistant' ? m.seq : undefined)
-  })
+  }
   emitThrough(Number.POSITIVE_INFINITY)
   // 换会话/窗口收缩后清掉不再出现的签名，防 Map 跨会话累积。
   if (flowMsgSigs.size > seenMsgIds.size) {
@@ -5356,18 +5397,8 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
       dispose: () => clearTurnStatusTimer(),
     })
   }
-  // Pending steering bubbles sit at the tail of the transcript, after the
-  // turn status — the spot their durable user message lands once claimed
-  // (official PendingSteeringBubble). Snapshot order = send order.
-  const steeringItems = (state.queue ?? []).filter((item) => item.placement === 'steering')
-  const seenSteerIds = new Set<string>()
-  for (const item of steeringItems) {
-    const sig = JSON.stringify(item) + `|${steerLazyThumbSig(item)}`
-    const same = flowSteerSigs.get(item.id) === sig
-    flowSteerSigs.set(item.id, sig)
-    seenSteerIds.add(item.id)
-    items.push({ key: `steer:${item.id}`, same, create: () => renderSteeringItem(item) })
-  }
+  // 最新（或无可比 seq）的 pending steering 气泡留在 turn-status 之后（对齐官方）。
+  for (const entry of tailSteers) if (entry.kind === 'steer') emitSteering(entry.steer)
   for (const id of [...flowSteerSigs.keys()]) if (!seenSteerIds.has(id)) flowSteerSigs.delete(id)
   // "Back to latest" 浮标不入流：元素随 messages 创建时一次性挂在列外
   // .jump-slot（见 messages 创建块），render 尾部只按跟随态切 display。
