@@ -1288,7 +1288,7 @@
   .goal-bar-dock + .queue { border-top: 0; }
   .goal-bar {
     display: flex; align-items: center; gap: 10px;
-    box-sizing: border-box; height: 36px; padding: 4px 6px 4px 12px;
+    box-sizing: border-box; min-height: 36px; padding: 4px 6px 4px 12px;
   }
   .goal-bar-glyph { flex: none; display: inline-flex; color: var(--vscode-descriptionForeground, #888); }
   .goal-bar-label { flex: none; font-size: 13px; font-weight: 500; }
