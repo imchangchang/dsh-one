@@ -1068,14 +1068,16 @@ async function setPermission(host: ChatTabHost, value: string): Promise<void> {
 async function runCommand(host: ChatTabHost, line: string, images?: OutgoingImage[]): Promise<void> {
   const controller = host.controller
   if (!controller) return
+  const name = slashCommandName(line)
   const outcome = await executeCommand(controller.url, controller.sessionId, line, images)
   if (!outcome.matched) {
     // 面板广告了但宿主不认的命令：不是拼写问题，是宿主组合（dsh 版本 / 会话
     // agent preset）没提供该命令——给定向提示（如自定义 preset 没装载
     // command-goal 时 /goal 即落这里）；其余（拼写错等）保留官方同款文案。
-    const name = slashCommandName(line)
     host.postMessage({
       type: 'commandResult',
+      commandName: name,
+      kind: 'error',
       text:
         name !== undefined && isHostSlashCommand(name)
           ? vscode.l10n.t(
@@ -1086,10 +1088,22 @@ async function runCommand(host: ChatTabHost, line: string, images?: OutgoingImag
     })
     return
   }
+  // Matched command: 除 protocol 的 command/run+command/done 生命周期节点外，
+  // 回执一份 commandResult（携带宿主的 commandId + 成败 + 正文）。webview 在
+  // protocol 节点缺席时兜底渲染成同款生命周期节点（mock/旧 dsh 无 command/run
+  // 事件也能回执，成败都回执、对齐官方 CommandNode）。
+  if (typeof outcome.commandId === 'string' && outcome.commandId) {
+    host.postMessage({
+      type: 'commandResult',
+      commandId: outcome.commandId,
+      commandName: name,
+      kind: outcome.kind === 'error' ? 'error' : 'success',
+      text: outcome.text ?? '',
+    })
+  }
   // `/export` only marks the request host-side ("Session log download
   // requested."); the bytes come from /api/session.export, which the
   // browser client hands to its download manager. Here we save via dialog.
-  const name = line.trim().slice(1).split(/\s/, 1)[0]
   if (name === 'export' && outcome.kind === 'success') {
     await saveSessionLog(host, controller.url, controller.sessionId)
   }

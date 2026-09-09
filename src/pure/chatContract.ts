@@ -750,6 +750,22 @@ export interface JobItem {
 export interface QueuedItem {
   id: string
   placement: 'queued' | 'steering'
+  /**
+   * 落盘后的 durable user message id（= user/message 的 data.id）。pending
+   * steering 气泡据此与 state.messages 里已渲染的那条用户消息对上号：消息已
+   * 落地则不再渲染 pending 气泡（官方 observedRpcIds 语义，防「durable 已渲染
+   * + pending 仍拖尾」的双份/乱序）。queued 项无此字段（渲染在 queue dock）。
+   */
+  messageId?: string
+  /**
+   * 合成排序键：宿主不再下发事件级 seq（queue 项只有 id/placement/content），
+   * 插件在收到 session/queue 快照时按「出现时刻的日志水位 maxSeqFolded」派生出
+   * 一个与消息 seq 同序空间的递增序号。webview 据此把 pending steering 气泡按
+   * 发送时间插排进消息流（而非无条件尾置），对齐官方 PendingSteeringBubble 的
+   * durable 节点按 anchorSeq 排序语义。queued 项不参与插排（渲染在 composer 上方
+   * 的 queue dock），可缺省。
+   */
+  seq?: number
   /** Short preview: attachment lines stripped, image/file counts prefixed. */
   text: string
   /** Full original text (attachment lines included) for the inline editor. */
@@ -924,7 +940,16 @@ export type ToWebviewMessage =
    * 时原样还回的消息（图片/文件 chips 一并恢复，不让输入被吞）。
    */
   | { type: 'restoreDraft'; text: string; images?: OutgoingImage[]; files?: StagedFile[] }
-  | { type: 'commandResult'; text: string }
+  | {
+      type: 'commandResult'
+      text: string
+      /** Host-minted pairing id (same as command/run + command/done); absent for unmatched commands. */
+      commandId?: string
+      /** Slash-command name (first token, no `/`); present for unmatched commands. */
+      commandName?: string
+      /** Admission outcome; unmatched commands are 'error'. */
+      kind?: 'success' | 'error'
+    }
   /** commit hash 查询结果回传（见 webview commitInfo 请求）：按 sha 点亮/灰显 chip 并填悬浮 title。 */
   | { type: 'commitInfo'; results: CommitInfoResult[] }
   /** @ 补全的文件/文件夹候选响应；requestId 回声，过期的响应由 webview 丢弃。 */

@@ -46,6 +46,7 @@ import {
   type HostOs,
 } from '../../pure/installScript.ts'
 import { steerModifierLabel } from '../../pure/steerShortcut.ts'
+import { interleaveSteering } from '../../pure/steeringOrder.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { isFilePathHref } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
@@ -1216,6 +1217,7 @@ window.addEventListener('message', (event) => {
       mentionBindings = mentionBindingsPerSession.get(state.sessionId ?? EMPTY_SESSION_KEY) ?? new Map()
       modelCatalog = null
       commandNotices = []
+      commandReceipts = []
       recall = null
       recallDraft = ''
       earlierAnchor = null
@@ -1234,7 +1236,14 @@ window.addEventListener('message', (event) => {
     // 拆分后侧栏为原生 tree；这里只更新 @ 提及补全的会话数据源。
     sessionsSnapshot = msg.snapshot
   } else if (msg?.type === 'commandResult' && typeof msg.text === 'string' && msg.text.trim()) {
-    commandNotices = [...commandNotices, msg.text]
+    // 命令回执：合成/对齐一条生命周期节点（commandId key + 标题/状态/正文），
+    // 与 matched 命令的 command/run+done 节点同款形态（官方 CommandNode）。
+    // matched 命令用宿主的 commandId 作 key（与 protocol 节点同 id，避免重复）；
+    // 未匹配命令（无 commandId）用合成 id 兜底在流尾回执。
+    const name = typeof msg.commandName === 'string' && msg.commandName ? msg.commandName : 'command'
+    const id = typeof msg.commandId === 'string' && msg.commandId ? msg.commandId : `cmd-unknown-${++commandReceiptSeq}`
+    const status = msg.kind === 'error' ? 'error' : 'success'
+    commandReceipts = [...commandReceipts.filter((r) => r.id !== id), { id, name, status, text: msg.text }]
     render()
   } else if (msg?.type === 'commitInfo' && Array.isArray(msg.results)) {
     // commit hash 查询回传：落地缓存（清 in-flight），就地更新 chip 样式与悬浮 title。
@@ -3443,6 +3452,12 @@ function render(): void {
         return
       }
       if (!stickToBottom) return
+      // 幂等守卫（与下方 messages RO 同款）：高度变化后若视口已贴底（seat 收缩被
+      // 浏览器 clamp 回底部 / 上一帧已 pin 到最新，实际距底 0）就不必再写——重
+      // 复写 scrollTop 会触发回声 scroll 事件并重排 settle debounce，跟「queue dock
+      // 高度一边流式一边增又减」叠加会让输出区高频率微抖。非贴底（内容增长顶出）
+      // 才写一次吸回。
+      if (isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight)) return
       writeMessagesScrollTop(messages, messages.scrollHeight)
       const jump = messages.querySelector<HTMLElement>('.jump-latest')
       if (jump) jump.style.display = 'none'
@@ -4163,6 +4178,16 @@ let pendingStash:
   | null = null
 /** Slash-command receipt texts shown at the message tail; cleared on session switch. */
 let commandNotices: string[] = []
+/**
+ * 未匹配斜杠命令的生命周期回执节点（宿主 commandResult，本面板合成 commandId）。
+ * 与 commandNotices（纯文本、数组下标 key）不同，这里按官方把命令回执做成
+ * 「按锚插排 + commandId 作 key + 标题/状态/正文」的生命周期节点，成败都回执。
+ * matched 命令走 protocol 的 command/run + command/done（conversation.ts 折叠成
+ * kind:'command'）；本列表只承载宿主不认识的命令（无 command/run 事件、无 seq），
+ * 渲染在流尾，用合成 commandId 作稳定 key。
+ */
+let commandReceipts: Array<{ id: string; name: string; status: 'running' | 'success' | 'error'; text: string }> = []
+let commandReceiptSeq = 0
 /** 消息区 ref chip 的 hover 高亮缓存（跨渲染帧）：消息行重建后按它恢复高亮
  *  （否则鼠标不动就永久丢失）；msgKey 定位行（renderMessage 的 key = 消息 id），
  *  path 为 ref chip 的 data-ref-path。mouseleave / 命中无对应行时清空。 */
@@ -5240,6 +5265,8 @@ const flowMsgSigs = new Map<string, string>()
 const flowRunSigs = new Map<string, string>()
 /** steering 气泡签名（item.id → sig）。 */
 const flowSteerSigs = new Map<string, string>()
+/** 未匹配命令生命周期节点签名（合成 commandId → sig）。 */
+const flowReceiptSigs = new Map<string, string>()
 /** 上一帧的命令通知列表（逐条按位置比对）。 */
 let flowLastNotices: string[] = []
 
@@ -5302,7 +5329,76 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
     }
   }
   const seenMsgIds = new Set<string>()
-  state.messages.forEach((m) => {
+  // Pending steering bubbles: interleave by send-time seq into the message flow
+  // (aligns official orderedVisibleChatNodes' anchorSeq ordering + observedRpcIds
+  // duplicate suppression). Snapshot order is not guaranteed to be send order, so
+  // sort by the synthetic seq (QueuedItem.seq); a steering item whose durable user
+  // message is already rendered is hidden (no duplicate trailing bubble). Items
+  // without a seq (legacy/harness snapshots) sort to the tail.
+  const durableUserIds = new Set<string>()
+  for (const m of state.messages) if (m.kind === 'user' && m.id) durableUserIds.add(m.id)
+  // durable 用户消息 id → 它对应的 steering queue 项。插话落地（claim）后，pending
+  // 气泡被隐藏、durable 以 kind:'user' 进 state.messages；这里把它**认回插话身份**，
+  // 渲染成与 pending 气泡共享同一 key（steer:<item.id>）的落地节点——reconcile 按
+  // 相同 key 就地切换（原位切换），而不是删 pending 气泡再尾置重插一条普通 user 消息。
+  // （对齐官方 SteeringMessageNode：durable 阶段保留插话身份 + 与 inbox occurrence
+  //  共用的 messageId 作为稳定 key，claim 落地原位替换。）
+  const steerLanding = new Map<string, QueuedItem>()
+  for (const item of state.queue ?? []) {
+    if (item.placement === 'steering' && typeof item.messageId === 'string' && item.messageId) {
+      steerLanding.set(item.messageId, item)
+    }
+  }
+  const seenSteerIds = new Set<string>()
+  const steerItems = (state.queue ?? [])
+    .filter((item) => item.placement === 'steering')
+    .filter((item) => !(typeof item.messageId === 'string' && durableUserIds.has(item.messageId)))
+  const emitSteering = (item: QueuedItem): void => {
+    const sig = JSON.stringify(item) + `|${steerLazyThumbSig(item)}`
+    const same = flowSteerSigs.get(item.id) === sig
+    flowSteerSigs.set(item.id, sig)
+    seenSteerIds.add(item.id)
+    items.push({ key: `steer:${item.id}`, same, create: () => renderSteeringItem(item) })
+  }
+  // 插排结果：messages 已按 seq 升序，pseudo-steers 按其 seq 插到「应落位」处。
+  const flowEntries = interleaveSteering(state.messages, steerItems)
+  // 切分：最后一条消息之后的 entries 全是「最新（或无可比 seq）」的 steers——它们放
+  // turn-status 之后（对齐官方 pendingSteering 尾置；插话总在「当前运行回合」之后）；
+  // 之前/中间的（早发、确实晚于某条已渲染消息的）插排进消息流，治「先发插话却排到
+  // 后发消息之后」。
+  let lastMsgIdx = -1
+  for (let i = 0; i < flowEntries.length; i++) if (flowEntries[i].kind === 'message') lastMsgIdx = i
+  const inFlow = lastMsgIdx >= 0 ? flowEntries.slice(0, lastMsgIdx + 1) : []
+  const tailSteers = lastMsgIdx >= 0 ? flowEntries.slice(lastMsgIdx + 1) : flowEntries
+  for (const entry of inFlow) {
+    if (entry.kind === 'steer') {
+      emitSteering(entry.steer)
+      continue
+    }
+    const m = entry.message
+    // 插话落地：durable 用户消息认回插话身份，渲染成与 pending 气泡共享
+    // steer:<item.id> key 的落地节点（原位切换，保留插话身份 + seq 锚）。
+    if (m.kind === 'user' && !m.context) {
+      const landing = steerLanding.get(m.id)
+      if (landing) {
+        const key = `steer:${landing.id}`
+        const sig = JSON.stringify(m) + `|${lazyThumbSig(m.images, m.text ?? '', m.references, m.files)}`
+        const same = flowSteerSigs.get(landing.id) === sig
+        flowSteerSigs.set(landing.id, sig)
+        seenSteerIds.add(landing.id)
+        // 该消息此刻以 steer 槽位渲染，不再以 msg:<id> 槽位签名；清掉旧的 msg 签名
+        // 防残留。落地节点元素由 reconcile 按相同 key 原地保留（pending 气泡不删除）。
+        flowMsgSigs.delete(m.id)
+        items.push({
+          key,
+          same,
+          create: () => renderMessage(m, m.id),
+          dispose: clearRetryTimersFor,
+        })
+        emitThrough(undefined)
+        continue
+      }
+    }
     const sig =
       JSON.stringify(m) +
       (m.kind === 'user' && !m.context ? `|${lazyThumbSig(m.images, m.text ?? '', m.references, m.files)}` : '')
@@ -5321,13 +5417,34 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
       dispose: clearRetryTimersFor,
     })
     emitThrough(m.kind === 'assistant' ? m.seq : undefined)
-  })
+  }
   emitThrough(Number.POSITIVE_INFINITY)
   // 换会话/窗口收缩后清掉不再出现的签名，防 Map 跨会话累积。
   if (flowMsgSigs.size > seenMsgIds.size) {
     for (const id of [...flowMsgSigs.keys()]) if (!seenMsgIds.has(id)) flowMsgSigs.delete(id)
   }
-  // 命令通知（host 回执的文本消息，按位置比对）。
+  // 未匹配/兜底命令的生命周期回执节点（与 matched 命令的 command/run+done 节点
+  // 同款形态）：标题/状态 running→error/可展开正文，成败都回执（对齐官方
+  // CommandNode）。protocol 节点已存在（matched 命令在 state.messages 里）时
+  // 跳过对应回执，避免与 protocol 生命周期节点重复渲染。
+  const protocolCmdIds = new Set<string>()
+  for (const m of state.messages) if (m.kind === 'command' && m.id) protocolCmdIds.add(m.id)
+  const seenReceiptIds = new Set<string>()
+  commandReceipts.forEach((receipt) => {
+    if (protocolCmdIds.has(receipt.id)) return
+    const sig = JSON.stringify(receipt)
+    const same = flowReceiptSigs.get(receipt.id) === sig
+    flowReceiptSigs.set(receipt.id, sig)
+    seenReceiptIds.add(receipt.id)
+    items.push({
+      key: `cmd:${receipt.id}`,
+      same,
+      create: () => renderMessage({ kind: 'command', id: receipt.id, name: receipt.name, status: receipt.status, text: receipt.text }, receipt.id),
+      dispose: clearRetryTimersFor,
+    })
+  })
+  for (const id of [...flowReceiptSigs.keys()]) if (!seenReceiptIds.has(id)) flowReceiptSigs.delete(id)
+  // 命令通知（宿主回执的文本消息，按位置比对）。
   commandNotices.forEach((notice, i) => {
     items.push({
       key: `notice:${i}`,
@@ -5356,18 +5473,8 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
       dispose: () => clearTurnStatusTimer(),
     })
   }
-  // Pending steering bubbles sit at the tail of the transcript, after the
-  // turn status — the spot their durable user message lands once claimed
-  // (official PendingSteeringBubble). Snapshot order = send order.
-  const steeringItems = (state.queue ?? []).filter((item) => item.placement === 'steering')
-  const seenSteerIds = new Set<string>()
-  for (const item of steeringItems) {
-    const sig = JSON.stringify(item) + `|${steerLazyThumbSig(item)}`
-    const same = flowSteerSigs.get(item.id) === sig
-    flowSteerSigs.set(item.id, sig)
-    seenSteerIds.add(item.id)
-    items.push({ key: `steer:${item.id}`, same, create: () => renderSteeringItem(item) })
-  }
+  // 最新（或无可比 seq）的 pending steering 气泡留在 turn-status 之后（对齐官方）。
+  for (const entry of tailSteers) if (entry.kind === 'steer') emitSteering(entry.steer)
   for (const id of [...flowSteerSigs.keys()]) if (!seenSteerIds.has(id)) flowSteerSigs.delete(id)
   // "Back to latest" 浮标不入流：元素随 messages 创建时一次性挂在列外
   // .jump-slot（见 messages 创建块），render 尾部只按跟随态切 display。

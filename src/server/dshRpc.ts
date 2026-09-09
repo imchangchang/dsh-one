@@ -397,6 +397,8 @@ export async function promptSession(
 export interface CommandOutcome {
   /** False when the host did not recognize the line as a command at all. */
   matched: boolean
+  /** Host-minted pairing id (same as the command/run + command/done events). */
+  commandId?: string
   kind?: 'success' | 'error'
   text?: string
 }
@@ -438,7 +440,12 @@ export async function executeCommand(
     null,
   )
   if (value === undefined) return { matched: false }
-  return { matched: true, kind: value.result.kind, text: value.result.text }
+  return {
+    matched: true,
+    commandId: typeof value.commandId === 'string' && value.commandId ? value.commandId : undefined,
+    kind: value.result.kind,
+    text: value.result.text,
+  }
 }
 
 /**
