@@ -8,7 +8,7 @@
     "node": "20",
     "date": "2026-09-09"
   },
-  "coverageNote": "本条目把 composer 的 @token 从单段式改成官方两段式（#11 官方对照第4项）：① 输入中未选定的 @name/@dir/ 与粘贴含 @ 的文本 = 纯文本着色（TextRefNode，可编辑、词内可改、无图标）；② 从补全菜单选中后才变原子 chip（ReferenceChipNode，DecoratorNode：图标 + 只读 + 长路径截断 label + hover 原生 title 显完整路径 + 整块删，光标不落进 chip）；③ 敲 @ 不自动出 chip，chip 只来自菜单选中。视觉验证用 harness 确定性场景 + 截图逐项核对。宿主逻辑（激活/命令注册/dsh 对话）不在改动面，走既有回归。",
+  "coverageNote": "本条目把 composer 的 @token 从单段式改成官方两段式（#11 官方对照第4项）：① 输入中未选定的 @name/@dir/ 与粘贴含 @ 的文本 = 纯文本着色（TextRefNode，可编辑、词内可改、无图标）；② 从补全菜单选中后才变原子 chip（ReferenceChipNode，DecoratorNode：图标 + 只读 + 长路径截断 label + hover 原生 title 显完整路径 + 整块删，光标不落进 chip）；③ 敲 @ 不自动出 chip，chip 只来自菜单选中。\n\nF41 第四轮（#11）官方对比发现 1 处行为偏差——着色谓词比官方激进：官方 `@name` 仅当 name 命中 live 候选（附件/工作区文件/会话短名）才着色（TextRefNode），`@dir/`、`@\"…\"` 按语法着色；未知名/半截名（@img、@nonexistent）官方不着色（保持纯文本）。本次对齐：registerTextRefDecoration 加词库门控（shouldColorAtToken），@name 需在 live 候选（@ 补全数据 + 已登记绑定）内才着色；未知名/半截名不着色。视觉验证用 harness 确定性场景 + 截图逐项核对。宿主逻辑（激活/命令注册/dsh 对话）不在改动面，走既有回归。",
   "items": [
     {
       "id": "F-01",
@@ -32,19 +32,19 @@
       "id": "F-03",
       "phase": "new-feature",
       "name": "text-ref 实时着色：输入/粘贴含多个 @token 保持纯文本着色（不折叠成 chip）",
-      "expect": "composer 插入文本「帮我看看 @img1.png 再 @旧会话」——两处 @token 都呈现为**可编辑着色文本**（.ref-token，无图标、无截断），不折叠成 chip；文本内容与发送语义不变。",
+      "expect": "composer 插入文本「帮我看看 @img1.png 再 @旧会话」——已知（附件/会话候选）的两处 @token 都呈现为**可编辑着色文本**（.ref-token，无图标、无截断），不折叠成 chip；文本内容与发送语义不变。未知名 @token 保持纯文本（词库门控，见 F-04）。",
       "result": "pass",
       "screenshots": [],
-      "notes": "原生 probe（insertTextAtCaret 模拟打字/粘贴）：refTokens=2、chips=0、文本原样。与官方「粘贴含 @ 的文本保持纯文本（靠 text-ref 装饰染色，不折叠成 chip）」一致。"
+      "notes": "原生 probe（insertTextAtCaret 模拟打字/粘贴）：refTokens=2、chips=0、文本原样（@img1.png/@旧会话 均为 live 候选或已登记绑定，命中词库门控）。与官方「粘贴含 @ 的文本保持纯文本（靠 text-ref 装饰染色，不折叠成 chip）」一致；未知名不着色由 F-04 词库门控场景单独验证。"
     },
     {
       "id": "F-04",
       "phase": "new-feature",
-      "name": "裸 @ 触发符不着色（用户刚敲 @ 不出着色，@ 后跟名字才着色）",
-      "expect": "composer 输入单独「@」——不着色（扫面区间 end<=start+1 被跳过）；输入「@img」——@img 着色。",
+      "name": "@name 词库门控：已知名着色、未知名/半截名不着色；@dir/ 与 @\"…\" 按语法着色（未选中态）",
+      "expect": "composer 输入「看 @img1.png 和 @nonexistent，目录 @src/ 也看看」——@img1.png（附件候选，未绑定）着色（.ref-token 浅蓝底）；@nonexistent（未知名）保持纯文本（无高亮，官方不着色）；@src/（尾斜杠文件夹）按语法着色；无补全弹窗。DOM 断言 window.__lexiconGateCheck = {count:2, texts:[\"@img1.png\",\"@src/\"]}。",
       "result": "pass",
-      "screenshots": [],
-      "notes": "逻辑验证：scanAtTokens 把孤立 '@' 标成 end=start+1 区间，registerTextRefDecoration 跳过 end<=start+1，避免补全触发中的裸 @ 被误着色；@ 后跟名字才着色。"
+      "screenshots": ["/tmp/dsh-composer-two-stage/ref-token-lexicon-gate.png"],
+      "notes": "harness 场景 ref-token-lexicon-gate + WebBridge 截图：@img1.png 浅蓝底、@nonexistent 纯文本、@src/ 浅蓝底；DOM 断言 count=2 texts=[\"@img1.png\",\"@src/\"]；0 运行期错误。对照官方 client.js scanTextRefs 词库门控（TEXT_REF_RE/FOLDER_REF_RE）——@name 仅命中 live 候选（附件/工作区文件/会话短名 + 已登记绑定）才着色，未知名/半截名（@img、@nonexistent）不着色，@dir/、@\"…\" 按语法着色。"
     },
     {
       "id": "R-01",
@@ -77,10 +77,10 @@
       "id": "R-04",
       "phase": "regression",
       "name": "typecheck / 单测 / build 绿",
-      "expect": "npm run typecheck 无报错；npm test 695 全绿；npm run build 产出 dist。",
+      "expect": "npm run typecheck 无报错；npm test 全绿；npm run build 产出 dist。",
       "result": "pass",
       "screenshots": [],
-      "notes": "typecheck 0 error；test 695 pass 0 fail；build 成功产出 dist/extension.js + dist/chatWebview.js + dist/sessionsWebview.js + dist/spawnDsh.js。"
+      "notes": "typecheck 0 error；test 697 pass 0 fail（新增 shouldColorAtToken 词库门控单测；此前 695）；build 成功产出 dist/extension.js + dist/chatWebview.js + dist/sessionsWebview.js + dist/spawnDsh.js。"
     }
   ]
 }
