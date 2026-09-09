@@ -1,0 +1,86 @@
+{
+  "title": "composer-lexical 两段式 @token：TextRef 着色 + ReferenceChip 原子 chip（#41 对齐官方）",
+  "branch": "agent/composer-lexical",
+  "commit": "",
+  "environment": {
+    "method": "browser harness (test/ui/harness.html) + WebBridge 截图 + mock 宿主驱动",
+    "webview": "dist/chatWebview.js（worktree 构建）",
+    "node": "20",
+    "date": "2026-09-09"
+  },
+  "coverageNote": "本条目把 composer 的 @token 从单段式改成官方两段式（#11 官方对照第4项）：① 输入中未选定的 @name/@dir/ 与粘贴含 @ 的文本 = 纯文本着色（TextRefNode，可编辑、词内可改、无图标）；② 从补全菜单选中后才变原子 chip（ReferenceChipNode，DecoratorNode：图标 + 只读 + 长路径截断 label + hover 原生 title 显完整路径 + 整块删，光标不落进 chip）；③ 敲 @ 不自动出 chip，chip 只来自菜单选中。视觉验证用 harness 确定性场景 + 截图逐项核对。宿主逻辑（激活/命令注册/dsh 对话）不在改动面，走既有回归。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "菜单选中后变原子 chip（ReferenceChipNode：图标 + 短名截断 + 只读 + 整块删）",
+      "expect": "harness 场景 file-ref-token：@ 补全弹窗出现 Attachments 候选（@img1.png + 路径），点选后 composer 输入框出现**原子 chip**（.ref-chip——文件图标 + 浅蓝底圆角「@img1.png」，整块只读、光标不落进、hover 原生 title 显完整路径，无长路径文本）；输入框 value 仍为「@img1.png 」（chip 文本投影保持显示 token，发送展开语义不变）。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-composer-two-stage/file-ref-token.png"],
+      "notes": "DOM 断言：chips=1、refTokens=0、val='@img1.png '。截图见 composer 输入框内原子 chip（文件图标 + 浅蓝底「@img1.png」），无长路径文本；0 运行期错误。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "未选定 @name 纯文本着色（TextRefNode，词内可改，无图标）——边界命中着色、词中命中不着色",
+      "expect": "harness 场景 ref-token-word-boundary：composer 输入「a@img1.png b @img1.png c」——区域着色仅一处（边界处第二个 @img1.png，浅蓝底）；第一处词中 a@img1.png 保持普通文本、无高亮背景；两处文本清晰（DOM 断言 window.__refTokenCheck = {count:1, texts:['@img1.png']}）。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-composer-two-stage/ref-token-word-boundary.png"],
+      "notes": "DOM 断言：refTokens=['@img1.png']、chips=0、val='a@img1.png b @img1.png c'。截图见词中 a@img1.png 无高亮、边界 @img1.png 浅蓝高亮。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "text-ref 实时着色：输入/粘贴含多个 @token 保持纯文本着色（不折叠成 chip）",
+      "expect": "composer 插入文本「帮我看看 @img1.png 再 @旧会话」——两处 @token 都呈现为**可编辑着色文本**（.ref-token，无图标、无截断），不折叠成 chip；文本内容与发送语义不变。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "原生 probe（insertTextAtCaret 模拟打字/粘贴）：refTokens=2、chips=0、文本原样。与官方「粘贴含 @ 的文本保持纯文本（靠 text-ref 装饰染色，不折叠成 chip）」一致。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "裸 @ 触发符不着色（用户刚敲 @ 不出着色，@ 后跟名字才着色）",
+      "expect": "composer 输入单独「@」——不着色（扫面区间 end<=start+1 被跳过）；输入「@img」——@img 着色。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逻辑验证：scanAtTokens 把孤立 '@' 标成 end=start+1 区间，registerTextRefDecoration 跳过 end<=start+1，避免补全触发中的裸 @ 被误着色；@ 后跟名字才着色。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "召回/停止回填后 @会话 还原为着色（既有 recall 场景无回归）",
+      "expect": "harness 场景 restore-draft-stop / recall-queue-row：composer 输入「等等，先停下，看看 @旧会话 的状态。」——@旧会话 由 canonical @[旧会话](dsh-session:…) 还原为**可编辑着色 .ref-token**（文本着色，非 chip）；附件 chip（chart.png 缩略图 + README.md 图标）正常。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-composer-two-stage/restore-draft-stop.png"],
+      "notes": "DOM 断言 refTokens=['@旧会话']、chips=0。截图见 @旧会话 浅蓝着色 + 文件 chip；消息流正常。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "双击清空 + Ctrl+Z 反悔恢复后 @token 仍可编辑着色（既有 clear-undo 场景无回归）",
+      "expect": "harness 场景 composer-keyboard-clear-undo：清空恢复后 composer 文本完整回来、@长文本输入时对话刷新问题 以可编辑着色 .ref-token 渲染（非裸文字）、图片与文件 chip 都回来、光标在文末。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-composer-two-stage/composer-keyboard-clear-undo.png"],
+      "notes": "DOM 断言 refTokens=['@长文本输入时对话刷新问题']。截图见恢复文本中 @长文本输入时对话刷新问题 浅蓝着色 + 附件 chip；消息流正常。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "正常对话渲染无回归（composer 外观/交互整体）",
+      "expect": "harness 场景 conversation：用户/助手气泡、markdown、工具卡、操作栏、composer + 模型 pill 与改动前一致；无运行期错误。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-composer-two-stage/conversation.png"],
+      "notes": "截图见对话气泡/工具卡/composer 正常；0 运行期错误。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "typecheck / 单测 / build 绿",
+      "expect": "npm run typecheck 无报错；npm test 695 全绿；npm run build 产出 dist。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "typecheck 0 error；test 695 pass 0 fail；build 成功产出 dist/extension.js + dist/chatWebview.js + dist/sessionsWebview.js + dist/spawnDsh.js。"
+    }
+  ]
+}

@@ -1746,7 +1746,7 @@ function insertMentionToken(name: string, path: string): void {
   const token = fileMentionToken(name, mention, mentionBindings)
   mentionBindings.set(token, mention)
   const { start: cursor, end } = editor.selection()
-  editor.replaceTokenRange(cursor, end, token, mention)
+  editor.replaceTokenRange(cursor, end, token, mention, 'file')
 }
 
 /**
@@ -1800,7 +1800,7 @@ function fileRows(editor: ComposerEditor, at: ActiveAtToken): { attachments: Sla
       apply: () => {
         const token = fileMentionToken(name, mention, mentionBindings)
         mentionBindings.set(token, mention)
-        editor.replaceTokenRange(tokenStart, cursor, token, mention)
+        editor.replaceTokenRange(tokenStart, cursor, token, mention, c.kind === 'directory' ? 'folder' : 'file')
         // 重建 chips 让「已被 @ 引用」的高亮生效；焦点/光标由 render 恢复。
         render()
       },
@@ -1856,7 +1856,7 @@ function sessionRows(editor: ComposerEditor, at: ActiveAtToken): SlashRow[] {
         const token = mentionDisplayToken(s.label, s.sessionId, mentionBindings)
         const mention = formatSessionMention(s.label, s.sessionId)
         mentionBindings.set(token, mention)
-        editor.replaceTokenRange(tokenStart, cursor, token, mention)
+        editor.replaceTokenRange(tokenStart, cursor, token, mention, 'session')
       },
     }))
 }
@@ -6695,8 +6695,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     if (mention === hoverTokenMention) return
     hoverTokenMention = mention
     const plain = mention === null ? null : plainPath(mention)
+    // 两段式：选定的引用是原子 chip（.ref-chip 存 data-ref），未选定的是着色文本
+    // （.ref-token 存 data-path）。两者都参与「hover 高亮加深」。
     for (const span of Array.from(frame.querySelectorAll<HTMLElement>('.ref-token'))) {
       span.classList.toggle('active', mention !== null && span.dataset.path === mention)
+    }
+    for (const chip of Array.from(frame.querySelectorAll<HTMLElement>('.ref-chip[data-ref]'))) {
+      chip.classList.toggle('active', mention !== null && chip.dataset.ref === mention)
     }
     // hover 用独立 class（hovered），不碰点击选中态的 referenced；查询收窄到
     // composer 输入区（避免点亮历史消息里同路径的附件 chip）。
