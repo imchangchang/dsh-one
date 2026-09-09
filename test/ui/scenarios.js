@@ -198,7 +198,7 @@
         }, 100)
       })()`,
       title: '@ 附件：选中后原子 chip + 对应图片 chip 高亮',
-      expect: '@ 补全弹窗顶部出现「Attachments」组标题（分割线），其下是 img1.png 附件候选（@img1.png 短名 + 右侧路径）；选中后输入框出现原子 chip（.ref-chip——文件图标 + 浅蓝底圆角「@img1.png」，整块只读、不可逐字符编辑，hover 原生 title 显完整路径），无长路径文本；composer 的截图缩略图 chip 底部名称横幅清晰显示「img1.png」（小字号、不截断）；点选后弹窗关闭——chip 无常驻高亮。
+      expect: '@ 补全弹窗顶部出现「Attachments」组标题（分割线），其下是 img1.png 附件候选（@img1.png 短名 + 右侧路径）；选中后输入框出现原子 chip（.ref-chip——文件图标 + 浅蓝底圆角「@img1.png」，整块只读、不可逐字符编辑，hover 原生 title 显完整路径），无长路径文本；composer 的截图缩略图 chip 底部名称横幅清晰显示「img1.png」（小字号、不截断）；点选后弹窗关闭——chip 无常驻高亮。',
     },
 
     'mention-bindings-per-session': {
