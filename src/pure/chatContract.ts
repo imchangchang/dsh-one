@@ -226,6 +226,19 @@ export interface ChatAssistantMessage {
   /** false while the turn is still streaming. */
   complete: boolean
   /**
+   * 本条消息所属的**步号**（官方 assistant-step 节点身份：`${turn}:${step}`）。
+   * 官方按 step 出节点、我们按 step 出消息（F2）：一个多步回合折出多条 assistant
+   * 消息，回合过程折叠（turn-process）按它区分「过程成员」与「答案步」。
+   * 缺省 = 没有步号的合成消息（窗口边界兜底 / turn-error 承载消息）。
+   */
+  step?: number
+  /**
+   * 本条消息的**锚**（官方 anchorSeq）：创建它的第一条事件的 seq。与 `seq`
+   * （最后折进来的事件 seq，供 fork / 回合跳转定位）语义不同——过程窗口
+   * `[processStartSeq, answerAnchorSeq)` 的成员判定读这个。
+   */
+  anchorSeq?: number
+  /**
    * 本消息所属回合号。同一个 turn 可以折出多段 assistant 消息（窗口头切在
    * 回合中间、turn 中途注入 user/message 切断 current），补页时按它把同回合的
    * 两段并成一段。窗口头落在 turn/start 之前（该 turn 号仍由事件 data.turn
@@ -454,6 +467,43 @@ export interface PendingQuestion {
 }
 
 export type PendingRequest = PendingApproval | PendingQuestion
+
+export interface ChatTurnProcess {
+  /** 回合号（turn/start 的 data.turn）。 */
+  turn: number
+  /**
+   * 折叠行在消息流里的排序锚（官方 presentationPosition 的 anchor）：有首条
+   * 人类输入时 = 那条 user/steering 的 anchorSeq（折叠行排在它之后、过程成员
+   * 之前）；没有时退到过程窗内最早的非独立节点。
+   */
+  anchorSeq: number
+  /** 折叠行要排在「seq = afterSeq」那条消息之后（官方 openingHumanAnchor）；null = 没有首条人类输入，按 anchorSeq 插在过程成员之前。 */
+  afterSeq: number | null
+  /** 过程窗口起点（官方 processStartSeq）。 */
+  processStartSeq: number
+  /** 答案步的锚（官方 answerAnchorSeq）；折叠行的插入位置也参考它。 */
+  answerAnchorSeq: number
+  /** 答案步的步号（展开态按 {turn, answerStep} 存，对齐官方 storedTurnProcessEntry）。 */
+  answerStep: number
+  /**
+   * 答案步带内联 reasoning（官方 inlineReasoning）：折叠态下答案步自己的
+   * 推理块也要藏起来（官方 AssistantStep 的 reasoningHidden）。
+   */
+  inlineReasoning: boolean
+  /** 过程窗内除答案步之外还有别的节点（官方 hasExternalProcess）：没有就整个回合不折。 */
+  hasExternalProcess: boolean
+  /**
+   * 答案步能跟着一起折（官方 compactAnswer）：过程窗内没有额外的 user/steering
+   * 就算 true。有插话时不折答案步的推理。
+   */
+  compactAnswer: boolean
+  /** 过程成员里的 assistant/message 条数（折叠行文案「N 条消息」）。 */
+  messageCount: number
+  /** subagent 之外的 tool/call 次数（折叠行文案「N 次工具调用」）。 */
+  toolCallCount: number
+  /** subagent 委派工具调用次数（折叠行文案「N 个 subagent」）。 */
+  subagentCount: number
+}
 
 /** 会话列表行首的待交互状态（官方 dsh web PendingInteractionStatus 同款三态）。 */
 export type PendingInteraction = 'approval' | 'question' | 'plan-review'
@@ -754,6 +804,14 @@ export interface ChatState {
    * session/projection（key=turnOutline）推送，整体替换。
    */
   turnOutline?: ChatTurnOutlineEntry[]
+  /**
+   * 已收尾回合的「过程折叠」规格（F1，官方 turn-process 的 wire 视图）：
+   * 每个可折的回合一条，webview 在首条人类输入之后插一行可点的折叠行
+   * （「5 次工具调用 · 4 条消息」），折叠态把过程成员藏起来、只留答案步。
+   * 只对**已收尾**的回合给出（官方 foldable 也要求 turn 已关闭）；进行中的
+   * 回合平铺渲染。空数组 = 没有可折的回合。
+   */
+  turnProcess?: ChatTurnProcess[]
   /**
    * 定时计划（官方 `schedule` 投影 wire 视图：活动提醒记录数组，只暴露
    * state.active）：webview 在头部 chips（子代理/后台任务同排）渲染 AlarmClock

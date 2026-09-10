@@ -25,14 +25,14 @@ function userEv(id: string, text: string): SessionEventLike {
   })
 }
 
-function toolCallEv(callId: string, name: string, args: string): SessionEventLike {
-  return ev('tool/call', { turn: 1, step: 1, callId, name, arguments: args })
+function toolCallEv(callId: string, name: string, args: string, turn = 1, step = 1): SessionEventLike {
+  return ev('tool/call', { turn, step, callId, name, arguments: args })
 }
 
-function toolResultEv(callId: string, text: string, isError = false): SessionEventLike {
+function toolResultEv(callId: string, text: string, isError = false, turn = 1, step = 1): SessionEventLike {
   return ev('tool/result', {
-    turn: 1,
-    step: 1,
+    turn,
+    step,
     message: {
       id: `tr-${callId}`,
       role: 'user',
@@ -211,13 +211,17 @@ test('块带稳定 id：tool 块 = callId、文本块 = 创建它的事件 seq�
     }),
   )
 
-  const ids = lastAssistant(f).blocks.map((b) => b.id)
-  assert.equal(ids.length, 4)
-  assert.equal(ids[1], 'c1', 'tool 块 id = callId（官方 tool 节点 id 同款）')
+  // F2：assistant/message 落在 step 2，与 step 1 的流式内容分属两条消息。
+  const assistants = f.messages().filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.deepEqual(assistants.map((m) => m.step), [1, 2])
+  const ids = assistants[0].blocks.map((b) => b.id)
+  assert.equal(ids.length, 2)
   assert.match(ids[0] ?? '', /^s\d+$/, '流式文本块 id = 创建它的 chunk 事件 seq')
-  assert.match(ids[2] ?? '', /^s\d+\.0$/, '同一条 assistant/message 折出的多块带事件内序号')
-  assert.match(ids[3] ?? '', /^s\d+\.1$/)
-  assert.equal(new Set(ids).size, ids.length, '同一条消息内块 id 互不相同')
+  assert.equal(ids[1], 'c1', 'tool 块 id = callId（官方 tool 节点 id 同款）')
+  const folded = assistants[1].blocks.map((b) => b.id)
+  assert.match(folded[0] ?? '', /^s\d+\.0$/, '同一条 assistant/message 折出的多块带事件内序号')
+  assert.match(folded[1] ?? '', /^s\d+\.1$/)
+  assert.equal(new Set([...ids, ...folded]).size, 4, '块 id 互不相同')
 })
 
 test('窗口外 result 兜底新推卡也带 callId 作块 id', () => {
@@ -1154,8 +1158,8 @@ test('prependHistory 页边界切在回合中间：同回合两段并成一段�
     userEv('u7', '问题'),
     chunkEv(7, 1, { type: 'block-start', index: 0, blockType: 'text' }),
     chunkEv(7, 1, { type: 'text-delta', index: 0, text: '第一步 ' }),
-    toolCallEv('c7', 'read', '{}'),
-    toolResultEv('c7', '文件内容'),
+    toolCallEv('c7', 'read', '{}', 7, 1),
+    toolResultEv('c7', '文件内容', false, 7, 1),
     chunkEv(7, 2, { type: 'block-start', index: 0, blockType: 'text' }),
     chunkEv(7, 2, { type: 'text-delta', index: 0, text: '第二步前半' }),
     chunkEv(7, 2, { type: 'text-delta', index: 0, text: '，第二步后半' }),
@@ -1170,23 +1174,31 @@ test('prependHistory 页边界切在回合中间：同回合两段并成一段�
   const ids = msgs.map((m) => m.id)
   assert.equal(new Set(ids).size, ids.length, `消息 id 必须唯一：${ids.join(', ')}`)
   const assistants = msgs.filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
-  assert.equal(assistants.length, 1, '同一回合只留一条 assistant 消息')
+  // F2：一个回合按 step 出消息——step 1（文本 + 工具卡）与 step 2（正文）各一条。
+  assert.deepEqual(
+    assistants.map((m) => m.step),
+    [1, 2],
+  )
   // 边界两侧的文本块拼回一块（正文不被断成两段独立段落），工具卡保持原位。
   assert.deepEqual(
     assistants[0].blocks.map((b) => b.type),
-    ['text', 'tool', 'text'],
+    ['text', 'tool'],
   )
   assert.equal((assistants[0].blocks[0] as { text: string }).text, '第一步 ')
-  assert.equal((assistants[0].blocks[2] as { text: string }).text, '第二步前半，第二步后半')
-  assert.equal(assistants[0].complete, true)
-  assert.equal(assistants[0].turnEnd, true)
+  assert.deepEqual(
+    assistants[1].blocks.map((b) => b.type),
+    ['text'],
+  )
+  assert.equal((assistants[1].blocks[0] as { text: string }).text, '第二步前半，第二步后半')
+  assert.equal(assistants[1].complete, true)
+  assert.equal(assistants[1].turnEnd, true)
   // 块 id 稳定（tool 块 = callId、文本块 = 创建它的事件 seq）：并段不换 key——
   // webview 侧那些 tool 卡的展开态 / JSON 树 / 内滚位置随之存活（#49 R4/C2）。
   const blockIds = assistants[0].blocks.map((b) => b.id)
   assert.equal(blockIds[1], 'c7')
   assert.match(blockIds[0] ?? '', /^s\d+$/)
-  assert.match(blockIds[2] ?? '', /^s\d+$/)
-  assert.equal(new Set(blockIds).size, 3, '同一条消息内块 id 互不相同')
+  assert.equal(new Set(blockIds).size, 2, '同一条消息内块 id 互不相同')
+  assert.match(assistants[1].blocks[0]?.id ?? '', /^s\d+$/)
 })
 
 test('页边界切在 tool/call 与 tool/result 之间：并段后同 callId 的卡合成一张', () => {
