@@ -80,7 +80,7 @@ interface QueuedInboxItemLike {
   /** 落盘后的 durable message id（= user/message 的 data.id）；用于把 pending
    *  steering 气泡与已渲染的 durable 用户消息对上号（官方 observedRpcIds 语义）。 */
   messageId?: string
-  message?: { content?: Array<{ type: string; text?: unknown }> }
+  message?: { id?: string; content?: Array<{ type: string; text?: unknown }> }
 }
 
 /** Loose mirror of JobView (apiproxy jobs.d.ts). */
@@ -107,6 +107,17 @@ function errorText(error: unknown): string {
  * them, plus the structured images/files the steering bubble renders like a
  * real user message (thumbnails + chips instead of the `[图片 ×N]` counts).
  */
+/**
+ * pending 项落盘后的 durable message id：wire 的 SessionQueuedItem 只在
+ * message.id 里带（顶层没有 messageId 字段），旧版/兜底时退回项自身的 id
+ * （dsh-api-session-controller 的 queueItems 里两者同源）。
+ */
+function messageIdOf(item: QueuedInboxItemLike): string {
+  if (typeof item.message?.id === 'string' && item.message.id) return item.message.id
+  if (typeof item.messageId === 'string' && item.messageId) return item.messageId
+  return item.id
+}
+
 function queueItemOf(item: QueuedInboxItemLike): { text: string; editText: string; images: ChatImage[]; files: ChatFile[] } {
   const content = item.message?.content
   if (!Array.isArray(content)) return { text: '', editText: '', images: [], files: [] }
@@ -2086,7 +2097,10 @@ export class ChatSessionController implements vscode.Disposable {
             const out: QueuedItem & { seq: number } = {
               id,
               placement: item.placement,
-              messageId: typeof item.messageId === 'string' && item.messageId ? item.messageId : undefined,
+              // durable 身份：wire 上的 SessionQueuedItem 只在 message.id 里带这个
+              // id（没有顶层 messageId 字段，dsh-api-session-controller 的
+              // queueItems 两者同源），所以按 message.id → id 兜底读。
+              messageId: messageIdOf(item),
               ...queueItemOf(item),
               seq: this.queueSeqs.get(id) ?? this.queueSeqCounter,
             }

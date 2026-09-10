@@ -6197,15 +6197,23 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
     }
     const m = entry.message
     // 插话落地：durable 用户消息认回插话身份，渲染成与 pending 气泡共享
-    // steer:<item.id> key 的落地节点（原位切换，保留插话身份 + seq 锚）。
+    // steer:<id> key 的落地节点（原位切换，保留插话身份 + seq 锚）。
+    // 身份有两个来源（F5）：
+    // ① 折叠层给的 m.steering（重放 agent/inbox/spliced 得出，durable 侧自己就
+    //    知道这是插话）——queue 项落地后立刻被移除，只看 queue 的话那一帧 key
+    //    会从 steer:<id> 掉回 msg:<id>，行被整个重建；
+    // ② 还在队列里的 pending 项（steerLanding，按 durable 认回）——它带着编辑/
+    //    撤销入口，key 用 queue 项 id（与 pending 气泡同 key，保证原位切换）。
+    // 两者 id 同源（inbox 项 id = 落盘 user/message 的 data.id），所以 key 一致。
     if (m.kind === 'user' && !m.context) {
       const landing = steerLanding.get(m.id)
-      if (landing) {
-        const key = `steer:${landing.id}`
+      const steerId = landing ? landing.id : m.steering === true ? m.id : null
+      if (steerId !== null) {
+        const key = `steer:${steerId}`
         const sig = JSON.stringify(m) + `|${lazyThumbSig(m.images, m.text ?? '', m.references, m.files)}`
-        const same = flowSteerSigs.get(landing.id) === sig
-        flowSteerSigs.set(landing.id, sig)
-        seenSteerIds.add(landing.id)
+        const same = flowSteerSigs.get(steerId) === sig
+        flowSteerSigs.set(steerId, sig)
+        seenSteerIds.add(steerId)
         // 该消息此刻以 steer 槽位渲染，不再以 msg:<id> 槽位签名；清掉旧的 msg 签名
         // 防残留。落地节点元素由 reconcile 按相同 key 原地保留（pending 气泡不删除）。
         flowMsgSigs.delete(m.id)

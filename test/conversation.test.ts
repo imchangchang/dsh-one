@@ -624,6 +624,69 @@ test('host-injected context user messages are flagged, human input is not', () =
   assert.deepEqual((snapshot as { context?: unknown }).context, { kind: 'plugin' })
 })
 
+/** 一次 next-step 收件箱变更（agent/inbox/spliced）。 */
+function inboxSplicedEv(data: Record<string, unknown>): SessionEventLike {
+  return ev('agent/inbox/spliced', { target: 'next-step', ...data })
+}
+
+test('F5：被 next-step 收件箱取走的 user/message 标成 steering', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(userEv('u1', 'keep going'))
+  // 用户插话：先进 next-step 收件箱（insert），下一步开始时被取走（removedCount）。
+  f.applyEvent(inboxSplicedEv({ start: 0, inserted: [{ id: 's1' }] }))
+  f.applyEvent(inboxSplicedEv({ start: 0, removedCount: 1, inserted: [] }))
+  f.applyEvent(userEv('s1', 'stop, do X instead'))
+  f.applyEvent(userEv('u2', 'plain follow-up'))
+
+  const [human, steering, plain] = f.messages() as Array<{ id: string; steering?: unknown }>
+  assert.equal(human.id, 'u1')
+  assert.equal(human.steering, undefined)
+  assert.equal(steering.id, 's1')
+  assert.equal(steering.steering, true)
+  assert.equal(plain.id, 'u2')
+  assert.equal(plain.steering, undefined)
+})
+
+test('F5：注入上下文不算插话；取消型 splice 不产生 claim', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(inboxSplicedEv({ start: 0, inserted: [{ id: 'c1' }] }))
+  // 用户撤销：outcome=canceled 的那次移除不把 id 记成 claimed。
+  f.applyEvent(inboxSplicedEv({ start: 0, removedCount: 1, inserted: [], outcome: 'canceled' }))
+  f.applyEvent(
+    ev('user/message', {
+      id: 'c1',
+      role: 'user',
+      content: [{ type: 'text', text: 'runtime snapshot' }],
+      source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
+    }),
+  )
+
+  const [msg] = f.messages() as Array<{ context?: unknown; steering?: unknown }>
+  assert.deepEqual(msg.context, { kind: 'plugin' })
+  assert.equal(msg.steering, undefined)
+})
+
+test('F5：next-turn 的收件箱变更不参与插话分类', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [{ id: 'q1' }] }))
+  f.applyEvent(userEv('q1', 'plain'))
+
+  const [msg] = f.messages() as Array<{ steering?: unknown }>
+  assert.equal(msg.steering, undefined)
+})
+
+test('F5：重放新一次插入会把已 claim 的 id 从 claimed 里摘掉', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(inboxSplicedEv({ start: 0, inserted: [{ id: 's1' }] }))
+  f.applyEvent(inboxSplicedEv({ start: 0, removedCount: 1, inserted: [] }))
+  // 同一个 id 又被插回收件箱（未落盘）→ 不再是 claimed。
+  f.applyEvent(inboxSplicedEv({ start: 0, inserted: [{ id: 's1' }] }))
+  f.applyEvent(userEv('s1', 'landed later'))
+
+  const [msg] = f.messages() as Array<{ steering?: unknown }>
+  assert.equal(msg.steering, undefined)
+})
+
 test('user message without source falls back to the system-reminder prefix', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('user/message', { id: 'l1', role: 'user', content: [{ type: 'text', text: '<system-reminder>\nold style' }] }))

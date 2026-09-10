@@ -583,6 +583,17 @@ export class ConversationFolder {
    * turn/end 时取结果并删除。
    */
   private turnUsage = new Map<number, TurnUsageFold>()
+  /**
+   * next-step inbox 的 claim 重放（F5）：官方 chat 折叠层注册一条 next-step 的
+   * inbox 状态，把 `agent/inbox/spliced` 按序重放（client.js 5675-5726），据此把
+   * `user/message` 分成 context / steering / user 三类。我们照搬同一套重放：
+   * `inboxPending` = 当前 next-step 收件箱里待插的 id 列表，`inboxClaimed` =
+   * 上一次 splice「取走」的 id 集合（取走的那些就是被插进对话的插话）。
+   * 分类只看折叠层自己的日志，不再依赖 webview 侧的 queue 快照——queue 项一消失
+   * 身份就翻转。
+   */
+  private inboxPending: string[] = []
+  private inboxClaimed = new Set<string>()
 
   /** Reset and fold a full history window (initial load / re-baseline). */
   applyHistory(entries: readonly HistoryEntryLike[]): void {
@@ -606,6 +617,8 @@ export class ConversationFolder {
     this.firstToken.clear()
     this.stepCompleted.clear()
     this.turnUsage.clear()
+    this.inboxPending = []
+    this.inboxClaimed.clear()
     for (const entry of orderEntriesBySeq(entries)) this.applyEvent(entry.event, entry.view)
   }
 
@@ -828,12 +841,19 @@ export class ConversationFolder {
           }
         }
         const context = injectedContextOf(source, text)
+        // F5：被 next-step inbox 取走并插进对话的这条是**插话**（steering），与
+        // 人类直发（user）、宿主注入（context）是三种节点身份。身份由折叠层从
+        // agent/inbox/spliced 的重放里给出（官方 client.js 5754 的
+        // currentClaimed.has(event.data.id) 判定），不看 webview 侧的 queue 快照
+        // ——queue 项落地后就被移除，身份跟着翻转会让那一行被重建。
+        const steering = context === undefined && this.inboxClaimed.has(id)
         this.msgs.push({
           kind: 'user',
           id,
           text,
           seq: event.seq,
           ...(context ? { context } : {}),
+          ...(steering ? { steering: true } : {}),
           ...(images.length > 0 ? { images } : {}),
           ...(files.length > 0 ? { files } : {}),
         })
@@ -952,6 +972,33 @@ export class ConversationFolder {
           entry.block.retryState = 'started'
           return true
         }
+        return false
+      }
+      case 'agent/inbox/spliced': {
+        // F5：next-step 收件箱的一次变更。重放官方 applySplice（client.js
+        // 5675-5700）：带 removedCount 且非 canceled 的一次 splice 把 start 处
+        // 的 removedCount 条**取走**（这些 id 就是接下来要插进对话的插话），
+        // 取走的成为 currentClaimed；其余情况只把 inserted 从 claimed 里摘掉并
+        // 把这次 splice 应用到 pending 上。分类在 user/message 时读 claimed。
+        // 只认 next-step：next-turn（排队等待，未插话）不参与 user 消息分类。
+        if (data.target !== 'next-step') return false
+        const inserted = Array.isArray(data.inserted)
+          ? data.inserted.flatMap((raw) => {
+              const identity = raw as { id?: unknown }
+              return typeof identity?.id === 'string' && identity.id ? [identity.id] : []
+            })
+          : []
+        const removedCount = Math.max(0, Math.trunc(Number(data.removedCount)) || 0)
+        const offset = Math.trunc(Number(data.start))
+        const start = Number.isNaN(offset) ? 0 : offset < 0 ? Math.max(this.inboxPending.length + offset, 0) : Math.min(offset, this.inboxPending.length)
+        if (removedCount > 0 && data.outcome !== 'canceled') {
+          this.inboxClaimed = new Set(this.inboxPending.splice(start, removedCount, ...inserted))
+        } else {
+          for (const id of inserted) this.inboxClaimed.delete(id)
+          this.inboxPending.splice(start, removedCount, ...inserted)
+        }
+        // 这条事件本身不改消息（分类在随后的 user/message 上生效），但折叠层
+        // 的状态变了：返回 false 让调用方按「消息未变」跳过重推。
         return false
       }
       case 'compaction/summary': {

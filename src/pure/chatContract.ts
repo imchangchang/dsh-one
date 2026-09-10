@@ -201,6 +201,16 @@ export interface ChatUserMessage {
    */
   context?: ChatContext | string
   /**
+   * 插话（steering）：这条 user/message 是被 next-step 收件箱取走并插进对话的
+   * 插话，而不是人类直发。官方把它当独立节点 kind（client.js 5735-5767 的
+   * context/steering/user 三分），节点 id 取 durable 的 data.id。
+   *
+   * 身份由折叠层重放 `agent/inbox/spliced` 得出（不再靠 webview 侧的 queue 快照
+   * ——queue 项落地后即被移除，身份跟着翻转会让那一行被重建）。webview 据此把
+   * 落地后的插话行与 pending 气泡归到同一个 key（steer:<id>）。
+   */
+  steering?: boolean
+  /**
    * 本消息引用的会话（{sessionId, label}，按 mention 出现顺序）。host 解析
    * 引用后落盘的是可读 @label 文本，URI 信息只留在紧随其后的
    * session-reference 注入上下文 source.references 里，fold 时回挂到这条
