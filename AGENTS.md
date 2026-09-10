@@ -27,7 +27,7 @@
 
 **worktree 开发 session 只开发、不合入**：dev-finish（自测 + 生成测试报告 + done 标记）通过后即止，合入由主线 agent 跑 `dev-merge.sh`。**合入门禁 = 测试报告审查**：报告由 `test/sandbox/` 的 ledger + `report.mjs` 产出（新增功能项在前、现有功能回归在后，每项带期望/截图/通过或失败结论），人工审查通过再合入；对功能有疑问才人工开窗 `dev-ui-test.sh` 验收。
 
-**集成线**：默认 `main`。`#11` 系列（Preact 迁移 + 对齐官方 dsh web）单独走 `develop/dsh-web-alignment`——该分支由 `.worktrees/develop` 检出，主工作区留在 `main`；合入用它当目标：`MERGE_TARGET=develop/dsh-web-alignment scripts/dev-merge.sh <slug>`（脚本在集成线所在 worktree 里 rebase、复测、重建 dist）。这批改动不放 `main`，**`main` 也不 push**。
+**集成线**：默认 `main`。`#11` 系列（Preact 迁移 + 对齐官方 dsh web）已于 2026-09-10 归档关闭：改动整线保留在 `develop/dsh-web-alignment`（远端同名分支），**仅作参考代码，不再开发、不再合入**；该系列 issue（#2/#11/#29/#40-#58 中相关条目）已关闭，真实问题重新梳理顶层结构后另立新 issue。`scripts/dev-merge.sh` 的 `MERGE_TARGET=<分支>` 能力保留（默认 `main`），`check-i18n.sh` 的合并基点跟随目标分支。
 
 ## CHANGELOG 写法
 
