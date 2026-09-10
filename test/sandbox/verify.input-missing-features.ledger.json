@@ -1,0 +1,297 @@
+{
+  "title": "input-missing-features：输入维度批次2 A 类缺 feature（拖拽入站/图片闸//补全/slash claim/@ 目录下钻/空草稿 ⌘Enter）",
+  "branch": "agent/input-missing-features",
+  "commit": "f58662a",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2（沙盒 pin）",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-input-missing:latest",
+    "driver": "verify-driver.mjs（本任务新增原语：dropFiles / dropFilesDragOnly / keys / keysUntil / extraPrompts / expectQueuedBeforeKeys / expectSelector / absentSelector / seedSessionCwd）",
+    "date": "2026-09-10T09:20:00+0800"
+  },
+  "coverageNote": "真桌面 VS Code、真模型输出、平台专项不在本报告范围。沙盒 pin 的 dsh 是 0.1.1-rc.2，宿主 RPC 用容器内探针实测（POST /api/<method>）：fileReferences/list **存在**（args 只认 agentId+query，返回相对会话 cwd 的候选数组）——A-05 的候选源在沙盒里走的是真 RPC，F-09 直接断它给出的相对路径；skills/list 不存在（404），所以 A-03 的 / 补全在沙盒里只走「命令名录」这条路径，skill 名录那段只有宿主代码路径核对、无沙盒证据。另外：未分组会话的 cwd 是 dsh 现开的空临时目录（/home/coder/tmp/dsh-ungrouped-<日期>-<sessionId>），@ 候选/下钻类场景必须先在 cwd 里铺样例文件（driver.seedSessionCwd，见 F-07/F-09）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "A-01 拖文件入站：合成 drop → 附件 chip 落上",
+      "expect": "往聊天 webview 派发一次真实文件拖拽（dragenter + drop，dataTransfer.types 含 Files）后，输入区上方出现附件 chip「note.txt」——此前 drop 完全没有处理，拖进来什么都没发生。",
+      "driver": {
+        "dropFiles": [
+          {
+            "name": "note.txt",
+            "type": "text/plain",
+            "size": 32
+          }
+        ],
+        "expectSelector": {
+          "selector": ".image-chips",
+          "text": "note.txt"
+        }
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-01.png"
+      ],
+      "notes": "驱动断言：新建会话 ✓；往 webview document 合成文件拖拽（dragenter+drop，note.txt/32B 真 File）✓；.image-chips 命中且含「note.txt」✓。截图核对：①输入区上方出现附件 chip「note.txt」（文件图标 + 文件名 + 右上角 × 移除钮）✓；②chip 与下方权限/模型行、发送钮布局未错位 ✓；③会话仍是空态、未误发 ✓；④面板其余区域无拖拽遮罩残留 ✓。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "A-01 拖拽遮罩：dragenter 即出「松开即加附件」全视口遮罩",
+      "expect": "只派发 dragenter（不 drop）时，面板上出现全视口拖拽遮罩，文案「Drop files here to attach」+ 上限说明「Up to 20 images, 20 MB each」（数字取自宿主 imageLimits 投影，本沙盒实测 20MB/20 张）；遮罩不吃鼠标事件（pointer-events:none）。",
+      "driver": {
+        "dropFiles": [
+          {
+            "name": "a.png",
+            "type": "image/png",
+            "size": 16
+          }
+        ],
+        "dropFilesDragOnly": true,
+        "expectSelector": ".drop-overlay",
+        "expectText": [
+          "Drop files here to attach",
+          "Up to 20 images, 20 MB each"
+        ]
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-02.png"
+      ],
+      "notes": "驱动断言：只派发 dragenter（不 drop）✓；.drop-overlay 出现 ✓；标题「Drop files here to attach」与上限说明「Up to 20 images, 20 MB each」同帧命中 ✓（上限数字取自宿主 imageLimits 投影，本沙盒实测 20 张 / 单张 20MB）。截图核对：①聊天面板出现全视口遮罩、居中卡片含标题+上限说明 ✓；②遮罩透明不吃事件（下方消息区与输入框内容仍可见）✓；③该项截图后驱动补发 dragleave 收尾，未残到后续项的截图里 ✓。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "A-02 图片入站上限闸：超单张字节上限被拦并出提示",
+      "expect": "拖入一张 25 MB 的 png（> 宿主 imageLimits.maxImageBytes；本沙盒实测 20 MB）→ 不入站成 chip，流尾出提示「Each image must be smaller than 20 MB」；此前无任何上限闸，多大都直接进。",
+      "driver": {
+        "dropFiles": [
+          {
+            "name": "huge.png",
+            "type": "image/png",
+            "size": 26214400
+          }
+        ],
+        "expectText": "Each image must be smaller than 20 MB"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-03.png"
+      ],
+      "notes": "驱动断言：合成拖入 25MB 的 png（假对象，只带 size/type/name；超单张 20MB 上限）✓；流尾出提示「Each image must be smaller than 20 MB」✓。截图核对：①提示行在消息流上方、文案与上限值一致 ✓；②输入区没有任何附件 chip（被闸拦下，未入站）✓；③composer 仍空、未误发 ✓。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "A-03 / 补全改用官方模糊匹配：/pm 命中 /permission",
+      "expect": "输入「/pm」时补全弹窗列出 /permission——「pm」是 permission 的有序子序列但**不是**前缀，旧的 startsWith 过滤下这里一行都不会有。",
+      "driver": {
+        "fillSlash": "/pm",
+        "expectPopup": [
+          "/permission"
+        ]
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-04.png"
+      ],
+      "notes": "驱动断言：填入「/pm」（不发送）✓；弹窗第一行「/permission」命中 ✓——「pm」是 permission 的有序子序列但不是前缀，旧 startsWith 过滤下一行都不会有。截图核对：①弹窗只列一行且为选中态（高亮蓝底）✓；②描述列「Switch permission preset」在位 ✓；③composer 保持「/pm」未发送 ✓。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "A-04 slash claim：取参命令按空格进参数模式，占位符换成参数提示",
+      "expect": "输入「/goal」后按一次空格 → 输入框进入该命令的参数模式：占位符变成参数提示「describe the objective for a long-running task」（官方 hint.goal），而不是通用的「输入消息…」文案。",
+      "driver": {
+        "fillSlash": "/goal",
+        "keys": [
+          "Space"
+        ],
+        "expectPlaceholder": "describe the objective for a long-running task"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-05.png"
+      ],
+      "notes": "驱动断言：填入「/goal」+ 按一次空格 ✓；占位符变「describe the objective for a long-running task」（官方 hint.goal）✓。截图核对：①占位符层显示该参数提示、下方是已认领的 token「/goal」✓；②输入区其余元素（清空钮、发送钮、权限与模型行）布局正常 ✓。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "A-04 claim 撤销：草稿不再以 token 开头即释放，占位符回落",
+      "expect": "claim 生效后按一次退格删掉 token 尾部的空格（草稿变成「/goal」，不再以 `/goal ` 开头）→ claim 释放，占位符回落到该 composer 的常规文案。本条是空会话 hero 布局，常规文案是「Describe what you want to build」——判据是「不再是 /goal 的参数提示」（没释放的话这里仍是 describe the objective for a long-running task）。",
+      "driver": {
+        "fillSlash": "/goal",
+        "keys": [
+          "Space",
+          "Backspace"
+        ],
+        "expectPlaceholder": "Describe what you want to build"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-06.png"
+      ],
+      "notes": "驱动断言：空格认领后按退格删掉 token 尾空格 ✓；占位符回落到「Describe what you want to build」（空会话 hero 底文案）✓——claim 未释放时会停在 /goal 的参数提示上，两者可区分。截图核对：①草稿只剩「/goal」、补全弹窗回到该命令行 ✓；②占位符不再是参数提示 ✓（draft 非空时占位符层隐藏，判据是驱动读到的 textContent）。"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "A-06 @ 目录候选下钻：Tab 进目录 + 顶部面包屑",
+      "expect": "会话 cwd 里先铺出唯一一个目录 docs/（未分组会话的 cwd 是 dsh 现开的空临时目录，不铺就没有目录候选可下钻）。输入「@」后候选出目录行（带尾随 `/` 与下钻提示），按方向键把选中行挪到它、再按 Tab：token 变成 `@docs/`（下钻把整段 token 换成 `@<目录>/`），弹窗不关、下一层候选（docs/guide.md）重查上屏，弹窗顶部出面包屑「Ungrouped / docs」——根段是工作区名（未分组会话即 Ungrouped）。断言钉在 .slash-popup .crumbs + 草稿 @docs/ 上：面包屑是「下钻」独有的产物，token 变 @docs/ 证明确实换了查询层级（只断页面上出现的「Workspace」会撞上 composer 常驻的工作区 chip，是假绿）。",
+      "driver": {
+        "seedSessionCwd": {
+          "container": "dsh-sandbox-input-missing",
+          "files": [
+            "docs/guide.md"
+          ]
+        },
+        "fillSlash": "@",
+        "keysUntil": {
+          "key": "ArrowDown",
+          "selector": ".menu-item.selected .drill-hint",
+          "max": 12
+        },
+        "keys": [
+          "Tab"
+        ],
+        "expectDraft": "@docs/",
+        "expectSelector": {
+          "selector": ".slash-popup .crumbs",
+          "text": "Ungrouped"
+        }
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-07.png"
+      ],
+      "notes": "驱动断言：往会话 cwd 铺样例 docs/guide.md ✓；填入「@」✓；方向键把选中行挪到带 .drill-hint 的目录行 ✓；Tab ✓；面包屑 .slash-popup .crumbs 含工作区名「Ungrouped」✓；草稿变「@docs/」✓。截图核对：①弹窗顶部面包屑「Ungrouped / docs」✓；②composer 里 token 已换成 @docs/ ✓；③下一层候选重查上屏（guide.md，右列 docs/guide.md）✓；④弹窗未关 ✓。"
+    },
+    {
+      "id": "F-08",
+      "phase": "new-feature",
+      "name": "A-07 空草稿 ⌘/Ctrl+Enter：把排队消息一次全部插话",
+      "expect": "运行中的回合里用 Enter 发第二条消息（进队列，先在 .queue-item 里断到它）后按住 Ctrl+Enter：排队的消息全部转成等待插话气泡（.msg.user.steering-pending 含该文本），排队区不再有该行；此前这个手势在空草稿下什么都不做。容器宿主是 Linux，占位符那句写的是 Ctrl+Enter（webview 按键侧 metaKey||ctrlKey 两平台都收，这里按平台取 Ctrl）。",
+      "driver": {
+        "prompt": "慢命令",
+        "extraPrompts": [
+          "排队插话测试"
+        ],
+        "extraPromptDelayMs": 1200,
+        "expectQueuedBeforeKeys": "排队插话测试",
+        "keys": [
+          "Control+Enter"
+        ],
+        "expectSelector": {
+          "selector": ".msg.user.steering-pending",
+          "text": "排队插话测试"
+        },
+        "absentSelector": ".queue-item"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-08.png"
+      ],
+      "notes": "驱动断言：慢命令回合运行中 ✓；用 Enter 追加「排队插话测试」并先在 .queue-item 里断到它（前置条件成立）✓；按 Ctrl+Enter ✓；.msg.user.steering-pending 含该文本 ✓；.queue-item 消失 ✓。截图核对：①被插话的消息以等待插话气泡出现在消息流中 ✓；②第一回合仍在跑（Deep diving 状态行 + 停止方块按钮，不是回合结束后才发）✓；③排队区已空、无残留行 ✓；④composer 空态，占位符为「Ctrl+Enter steers all queued messages」✓。"
+    },
+    {
+      "id": "F-09",
+      "phase": "new-feature",
+      "name": "A-05 候选源实测：fileReferences/list 的候选（相对 cwd 路径）真上屏",
+      "expect": "输入 `@docs/` 后候选行由 fileReferences/list 的返回填充：行尾路径列是**相对 cwd** 的 `docs/guide.md`（此前本地浅层扫描给的是绝对路径，一整行都是 /home/coder/tmp/... 前缀）。这一项把 A-05 的候选源钉在沙盒真宿主上——沙盒 dsh 0.1.1-rc.2 确实带 fileReferences/list（宿主探针实测：POST /api/fileReferences/list 返回 ok，args 只认 agentId+query；skills/list 在该版本上不存在，A-03 的 skill 名录因此走「只有命令」的降级路径）。",
+      "driver": {
+        "seedSessionCwd": {
+          "container": "dsh-sandbox-input-missing",
+          "files": [
+            "docs/guide.md"
+          ]
+        },
+        "fillSlash": "@docs/",
+        "expectPopup": [
+          "guide.md",
+          "docs/guide.md"
+        ]
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-09.png"
+      ],
+      "notes": "驱动断言：往会话 cwd 铺样例 ✓；填入「@docs/」✓；候选行「guide.md」✓ 且路径列「docs/guide.md」✓（相对 cwd，不是 /home/coder/tmp/... 绝对路径）。截图核对：①候选行为「Files」分组下的 guide.md ✓；②右侧路径列是相对路径 docs/guide.md ✓；③composer 保持 @docs/ 未发送 ✓。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "基础链路回归：普通消息 mock 回显",
+      "expect": "发送「测试一下」后新会话内出现助手回显「收到：测试一下」（mock-LLM 兜底规则），composer 清空。",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/R-01.png"
+      ],
+      "notes": "驱动断言：发「测试一下」✓；助手回显「收到：测试一下」命中 ✓。截图核对：①用户消息与助手回显按序在位 ✓；②运行信息行（1 turns / Duration 等）正常渲染 ✓；③composer 已清空并回到空闲占位符 ✓。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "回归：/ 补全弹窗仍是全部命令 + 客户端 /model",
+      "expect": "输入「/」时补全弹窗列出 /compact /export /feedback /goal /permission /plan /model 七行，描述列用面板翻译文案（「Compact older session history」）。",
+      "driver": {
+        "fillSlash": "/",
+        "expectPopup": [
+          "/compact",
+          "/export",
+          "/feedback",
+          "/goal",
+          "/permission",
+          "/plan",
+          "/model",
+          "Compact older session history"
+        ]
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/R-02.png"
+      ],
+      "notes": "驱动断言：填入「/」✓；七行命令（/compact /export /feedback /goal /permission /plan /model）逐项命中 ✓；描述列「Compact older session history」命中 ✓。截图核对：①弹窗七行齐、首行选中态 ✓；②描述列英文文案与面板翻译一致 ✓；③composer 保持「/」未发送 ✓。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "回归：/goal 参数 hint 行仍用宿主 input.hint",
+      "expect": "输入「/goal 」（带空格）时弹窗出现参数 hint 行「Arguments: [<objective>|clear|edit <objective>|pause|resume]」——空格是「填」进去的（不是按键），所以不触发 claim，hint 行照旧出现。",
+      "driver": {
+        "fillSlash": "/goal ",
+        "expectPopup": [
+          "Arguments:",
+          "[<objective>|clear|edit <objective>|pause|resume]"
+        ]
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/R-03.png"
+      ],
+      "notes": "驱动断言：填入「/goal 」（空格是 fill 进去的、不是按键）✓；hint 行「Arguments: [<objective>|clear|edit <objective>|pause|resume]」命中 ✓。截图核对：①hint 行在弹窗底部完整显示 ✓；②未被 claim 吃掉（非按键空格不触发认领）✓；③composer 里 token 与空格原样保留 ✓。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "回归：草稿 + 清空按钮",
+      "expect": "在 composer 填「草稿文本」后点清空按钮，输入框回到空（占位符重新出现）。",
+      "driver": {
+        "fillAndClear": "草稿文本"
+      },
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/R-04.png"
+      ],
+      "notes": "驱动断言：填入「草稿文本」后点 .clear-all-button ✓；输入框回到空 ✓。截图核对：①composer 空态、占位符重新出现 ✓；②清空按钮随内容为空而隐藏 ✓；③会话既有内容未被清空操作影响 ✓。"
+    }
+  ]
+}

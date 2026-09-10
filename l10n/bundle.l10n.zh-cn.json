@@ -531,5 +531,18 @@
   "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\\n- id: session-query-sqlite\\n  config:\\n    path: !!js dshHomePath(\"session-query.sqlite\")\\n    openAt: first-search": "dsh 全文搜索默认 opt-in：session-query 索引 openAt: \"never\"（未启用），session.search 被禁用。\n启用：编辑 ~/.dsh/profiles/web/cordis.patch.yml，追加以下配置后重启 dsh 服务：\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath('session-query.sqlite')\n    openAt: first-search",
   "Loading image…": "图片加载中…",
   "Open image in editor": "在编辑器中打开图片",
-  "Cancel this review and reply in natural language in the input box": "取消本次审核，改在输入框用自然语言回复"
+  "Cancel this review and reply in natural language in the input box": "取消本次审核，改在输入框用自然语言回复",
+  "Drop files here to attach": "松开即作为附件加入",
+  "Up to {0} images, {1} each": "最多 {0} 张图片，单张不超过 {1}",
+  "A message can include up to {0} images": "一条消息最多 {0} 张图片",
+  "Each image must be smaller than {0}": "每张图片必须小于 {0}",
+  "Images exceed {0} in total; remove some and try again": "图片总量超过 {0}，请删减后重试",
+  "user-only": "仅用户",
+  "describe the objective for a long-running task": "描述这个长任务的目标",
+  "goal active — edit / modify / pause / resume / clear": "目标进行中——可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除",
+  "Workspace": "工作区",
+  "Drill into this folder (Tab)": "进入这个目录（Tab）",
+  "⌘Enter steers all queued messages": "⌘Enter 把排队的消息全部插话",
+  "Ctrl+Enter steers all queued messages": "Ctrl+Enter 把排队的消息全部插话",
+  "Steering failed. Try again.": "插话发送失败，请重试。"
 }

@@ -47,7 +47,13 @@ import {
 } from '../../pure/installScript.ts'
 import { isComposerClearChord, steerModifierLabel, undoChordLabel } from '../../pure/steerShortcut.ts'
 import { interleaveSteering, orderBySeq } from '../../pure/steeringOrder.ts'
-import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
+import {
+  claimableSlashCommand,
+  fuzzyCandidates,
+  looksLikeSlashCommand,
+  slashClaimHolds,
+  slashClaimToken,
+} from '../../pure/slashCommand.ts'
 import { isFilePathHref } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import {
@@ -77,6 +83,12 @@ import {
 import { attachmentBaseName, attachmentDataUrl, fileAttachmentLine, isImageMediaType, isImagePath, shouldFoldPastText, splitAttachmentLines } from '../../pure/composerAttachment.ts'
 import { atTokenName } from '../../pure/tokenScan.ts'
 import {
+  base64Bytes,
+  formatBytes,
+  imageIntakeRejection,
+  type ImageIntakeRejection,
+} from '../../pure/imageIntake.ts'
+import {
   SETTLE_IDLE_MS,
   anchoredScrollTop,
   archiveScrollPosition,
@@ -100,7 +112,16 @@ import {
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { splitUserBubble, type UserBubbleSegment } from '../../pure/userBubble.ts'
-import { activeAtToken, fileMentionToken, formatFileMention, restoreFileMentionTokens, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
+import {
+  activeAtToken,
+  directoryCrumbs,
+  fileMentionToken,
+  formatFileMention,
+  restoreFileMentionTokens,
+  type ActiveAtToken,
+  type FileCrumb,
+  type FileRefCandidate,
+} from '../../pure/fileReference.ts'
 import {
   WORKFLOW_STATUS_TEXT,
   advanceWorkflowDisclosure,
@@ -533,6 +554,19 @@ function slashCommands(): Array<{ name: string; description: string; hint?: stri
       return known ? { ...c, description: known.description } : c
     }) ?? KNOWN_HOST_COMMANDS
   return [...host, MODEL_COMMAND]
+}
+
+/**
+ * 会话可用的 skill（宿主 skills/list，官方 `/` 补全的第二路候选源）。与命令
+ * 同一条 `/name ` 插入格式、同一名字空间；`modelInvocable === false` 的条目
+ * 在描述前加「仅用户」标注（对齐官方 menu.userOnly）。skill 只进 `/` 补全，
+ * 不进 ⋯ 命令菜单（官方那个入口只开 command 源）。
+ */
+function sessionSkills(): Array<{ name: string; description: string }> {
+  return (state?.skills ?? []).map((s) => ({
+    name: s.name,
+    description: s.modelInvocable ? s.description : `${t('user-only')} · ${s.description}`,
+  }))
 }
 
 /** Shield glyphs copied verbatim from dsh-client-ui-conversation's PermissionSelect. */
@@ -1314,6 +1348,9 @@ window.addEventListener('message', (event) => {
       // 文本从还挂在 DOM 里的旧输入框读；面板被 pending 接管（无输入框、
       // restoreDraft 暂存进 stashedDraft、接管帧快照进 pendingStash）时把
       // 暂存一并归档。空态（无附着会话）同样存档，占位 key 为 EMPTY_SESSION_KEY。
+      // claim 是输入框内的瞬时态，跟着旧会话一起丢弃（新会话的草稿会有自己的
+      // 判定：草稿不以旧 token 开头就自然不成立）。
+      releaseSlashClaim()
       const oldKey = stagedForSession ?? EMPTY_SESSION_KEY
       // 首个 state 帧（此前无附着会话，oldKey 为空态占位）时保留 stashedDraft：
       // 它只可能来自「composer 尚未渲染时到达的 restoreDraft」回填（发送失败/
@@ -1383,6 +1420,10 @@ window.addEventListener('message', (event) => {
     const id = typeof msg.commandId === 'string' && msg.commandId ? msg.commandId : `cmd-unknown-${++commandReceiptSeq}`
     const status = msg.kind === 'error' ? 'error' : 'success'
     commandReceipts = [...commandReceipts.filter((r) => r.id !== id), { id, name, status, text: msg.text }]
+    render()
+  } else if (msg?.type === 'notice' && typeof msg.text === 'string') {
+    // 宿主侧提示（插话失败一类）：与本地闸的提示同一个出口——流尾提示行。
+    commandNotices = [...commandNotices, msg.text]
     render()
   } else if (msg?.type === 'commitInfo' && Array.isArray(msg.results)) {
     // commit hash 查询回传：落地缓存（清 in-flight），就地更新 chip 样式与悬浮 title。
@@ -1805,6 +1846,66 @@ interface SlashRow {
 let slashPopupEl: HTMLElement | null = null
 let slashRows: SlashRow[] = []
 let slashIndex = 0
+/** 当前弹窗顶部的面包屑（只有 @ 下钻过才有；官方 MenuView 的 crumbs 头）。 */
+let slashCrumbs: FileCrumb[] | null = null
+
+/**
+ * 取参命令的 claim 状态（对齐官方 dsh-client-ui-commands 的 leadingClaim +
+ * dsh-client-ui-conversation 的 claimed 相位）：非 null 时整段输入被这条
+ * 命令「认领」——草稿固定以 `${token}` 开头，其后文本都算参数，占位符换成
+ * 该命令的参数提示，Enter 依旧整行发出去（宿主按 `/name args` 解析）。
+ * 草稿不再以 token 开头即撤 claim（官方 onDraftChanged 的撤销条件）。
+ */
+let slashClaim: { name: string; token: string } | null = null
+
+/** 参数提示文案：官方 `hint.<name>` 的本地化覆盖优先，其次宿主 commands/list 的 input.hint。 */
+function slashCommandHintText(name: string): string | undefined {
+  if (name === 'goal') {
+    // 官方 hint.goal / hint.goal.active（进行中的目标换一套说法）。
+    return state?.goal && state.goal.phase !== 'complete'
+      ? t('goal active — edit / modify / pause / resume / clear')
+      : t('describe the objective for a long-running task')
+  }
+  return slashCommands().find((c) => c.name === name)?.hint
+}
+
+/** 草稿正是 claim token（还没打参数）时显示参数提示，打了参数就让位给正文。 */
+function syncSlashClaimPlaceholder(): void {
+  const editor = activeComposer
+  if (!editor) return
+  if (slashClaim === null) {
+    editor.setPlaceholderOverride(undefined)
+    return
+  }
+  const args = editor.getText().slice(slashClaim.token.length)
+  const hint = args.trim() === '' ? slashCommandHintText(slashClaim.name) : undefined
+  editor.setPlaceholderOverride(hint === undefined ? '' : hint)
+}
+
+/**
+ * 认领输入框：草稿换成 `/${name} `（官方 beginCommand 把 [0, span.end)
+ * 替换成 token），光标落到末尾继续打参数。Skill 与无参命令不 claim——
+ * 它们没有 input，输入框没什么可进入的「参数模式」。
+ */
+function claimSlashCommand(name: string): void {
+  const editor = activeComposer
+  if (!editor) return
+  const spec = slashCommands().find((c) => c.name === name)
+  if (!claimableSlashCommand(spec)) {
+    editor.replaceRange(0, editor.getText().length, `/${name} `)
+    return
+  }
+  slashClaim = { name, token: slashClaimToken(name) }
+  editor.replaceRange(0, editor.getText().length, slashClaim.token)
+  syncSlashClaimPlaceholder()
+}
+
+/** 撤 claim：草稿不再以 token 开头（或整段被清/换会话）时调用。 */
+function releaseSlashClaim(): void {
+  if (slashClaim === null) return
+  slashClaim = null
+  activeComposer?.setPlaceholderOverride(undefined)
+}
 
 /**
  * @ 文件候选的请求/响应状态：requestId 递增防乱序，key 是触发时的完整
@@ -1817,6 +1918,12 @@ let slashIndex = 0
 let fileRefSeq = 0
 let fileRefRequestKey = ''
 let fileRefResult: { key: string; items: FileRefCandidate[] } | null = null
+/**
+ * 这次列目录是「下钻」来的还是「手打路径」来的（官方 controller.drilled）：
+ * 只有下钻才出面包屑——手打的路径自带上下文，下钻换掉了用户正在读的文本，
+ * 欠他一条回程。随菜单关闭一起清。
+ */
+let fileRefDrilled = false
 /** 最近一次落定的候选（key 是当时的 token）；pending 期拿它当「旧候选」。 */
 let fileRefSettled: { key: string; items: FileRefCandidate[] } | null = null
 /** 工作区候选是否有请求在途（从发起防抖起算，到该 requestId 的回执为止）。 */
@@ -1841,6 +1948,32 @@ let mentionBindings = new Map<string, string>()
  *  全局唯一的 live 编辑器——composer 保活时旧编辑器在 DOM 里存活，此引用同步。 */
 let activeComposer: ComposerEditor | null = null
 
+/**
+ * ⌘/Ctrl+Enter「全部插话」手势的运行侧前提（对齐官方 canSteerQueue 里与快照有关
+ * 的那半）：可发送、模型可用、回合在跑、队列里还有排队消息。等待插话中的
+ * （placement='steering'）不算——它们已经在等落地，没有可「插」的。
+ * 「草稿是不是空的」那半由调用点按各自手上的内容判：发送路径看 live 编辑器，
+ * 渲染路径看这一帧的草稿（见 renderInput）。
+ */
+function steerQueueArmed(): boolean {
+  return (
+    state?.canSend === true &&
+    state.modelAvailable !== false &&
+    state.running === true &&
+    (state.queue ?? []).some((item) => item.placement === 'queued')
+  )
+}
+
+/** 按下 Enter 那一刻的完整判定：手势就绪且输入区确实空（无文本、无附件）。 */
+function canSteerQueue(): boolean {
+  return (
+    steerQueueArmed() &&
+    composerText().trim().length === 0 &&
+    pendingFiles.length === 0 &&
+    pendingImages.length === 0
+  )
+}
+
 /** 当前 live composer 的纯文本；无 composer（pending 接管/未渲染）回退暂存。 */
 function composerText(): string {
   return activeComposer ? activeComposer.getText() : (stashedDraft ?? pendingStash?.text ?? '')
@@ -1856,10 +1989,26 @@ function hideSlashPopup(): void {
   slashPopupEl = null
   slashRows = []
   slashIndex = 0
+  slashCrumbs = null
   // 下次再触发 @ 时重新取文件候选，避免上屏陈旧目录。
   fileRefResult = null
+  // 下钻标记同样只属于这一次打开的菜单（官方 dismissed 时清 drilled）：
+  // 关掉再打开就是新的浏览，不该还挂着上一轮的面包屑。
+  fileRefDrilled = false
   fileRefSettled = null
   fileRefPending = false
+}
+
+/**
+ * 点面包屑 = 退回那一层（官方 pickCrumb 走的是与下钻同一条路径）：把当前
+ * @token 整段换成那一层的目录 mention（根段是裸 `@`），菜单不关——token 变了
+ * 自然重查该层候选，面包屑也跟着重算。
+ */
+function crumbNodeApply(editor: ComposerEditor, crumb: FileCrumb): void {
+  const at = activeAtToken(editor.beforeCaret())
+  if (!at) return
+  const cursor = editor.selection().start
+  editor.replaceRange(cursor - at.prefix.length, cursor, crumb.mention)
 }
 
 function positionSlashPopup(editor: ComposerEditor): void {
@@ -1909,6 +2058,27 @@ function updateSlashPopup(editor: ComposerEditor): void {
     document.body.appendChild(slashPopupEl)
   }
   slashPopupEl.textContent = ''
+  // 面包屑头（下钻过才有）：钉在滚动区上方，点一段就退回那一层（官方 pickCrumb
+  // 与下钻共用同一条路径，所以这里也是「换 token + 保持菜单打开」）。
+  if (slashCrumbs && slashCrumbs.length > 0) {
+    const trail = el('div', 'crumbs')
+    trail.setAttribute('role', 'navigation')
+    slashCrumbs.forEach((crumb, i) => {
+      if (i > 0) trail.appendChild(el('span', 'crumb-sep', '/'))
+      const btn = buttonEl(crumb.current ? 'crumb current' : 'crumb', crumb.label)
+      btn.type = 'button'
+      if (crumb.current) btn.disabled = true
+      else
+        btn.addEventListener('mousedown', (e) => {
+          e.preventDefault()
+          crumbNodeApply(editor, crumb)
+        })
+      trail.appendChild(btn)
+    })
+    slashPopupEl.appendChild(trail)
+    // 末段滚进可视区（深层路径默认看不到自己那一段）。
+    trail.scrollLeft = trail.scrollWidth
+  }
   slashRows.forEach((row, i) => {
     if (row.header) {
       // 每行恰好一个子元素，moveSlashSelection 按子下标对齐 slashRows。
@@ -1925,9 +2095,21 @@ function updateSlashPopup(editor: ComposerEditor): void {
     item.appendChild(el('span', undefined, row.label))
     if (row.right) item.appendChild(el('span', 'menu-right', row.right))
     if (row.drill) {
-      // 目录候选的 Tab 下钻提示（官方 drill.hint + drill.key）。
-      item.appendChild(el('span', 'menu-hint', t('Browse folder')))
-      item.appendChild(el('kbd', 'menu-key', 'Tab'))
+      // 目录候选的下钻提示：文案与键帽用官方 drill.hint + drill.key 的形态
+      // （menu-hint / menu-key，选中或 hover 该行才显形）；点这行提示也能下钻
+      // ——#53 的 .drill-hint 契约（沙盒驱动按它定位目录行）。
+      const onDrill = (e: MouseEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        row.drill?.(editor)
+      }
+      const hint = el('span', 'menu-hint drill-hint', t('Browse folder'))
+      hint.title = t('Drill into this folder (Tab)')
+      hint.addEventListener('mousedown', onDrill)
+      item.appendChild(hint)
+      const key = el('kbd', 'menu-key', 'Tab')
+      key.addEventListener('mousedown', onDrill)
+      item.appendChild(key)
     }
     if (row.apply) {
       // mousedown + preventDefault: completing must not blur the editor.
@@ -1975,11 +2157,22 @@ function computeSlashRows(editor: ComposerEditor): SlashRow[] {
   if (sp === -1) {
     const filter = value.slice(1).toLowerCase()
     if (filter.includes(' ')) return []
-    return slashCommands().filter((c) => c.name.startsWith(filter)).map((c) => ({
-      label: `/${c.name}`,
-      right: c.description,
-      apply: complete(`/${c.name} `),
-    }))
+    // 命令与 skill 同一个候选池（官方 `/` 的两个源同为 `/name ` 插入格式）：
+    // 命令在前、skill 在后，各自按官方 fuzzyScore 子序列过滤（前缀命中整体优先）。
+    return [
+      ...fuzzyCandidates(slashCommands(), filter).map((c) => ({
+        label: `/${c.name}`,
+        right: c.description,
+        // 取参命令选中即 claim（官方 dispatch → leadingClaim）：token 落定、
+        // 输入框进参数模式、占位符换成参数提示。
+        apply: claimableSlashCommand(c) ? () => claimSlashCommand(c.name) : complete(`/${c.name} `),
+      })),
+      ...fuzzyCandidates(sessionSkills(), filter).map((s) => ({
+        label: `/${s.name}`,
+        right: s.description,
+        apply: complete(`/${s.name} `),
+      })),
+    ]
   }
   const name = value.slice(1, sp)
   const argPrefix = value.slice(sp + 1)
@@ -1990,7 +2183,13 @@ function computeSlashRows(editor: ComposerEditor): SlashRow[] {
       .map((o) => ({ label: o.label, right: o.value, apply: complete(`/permission ${o.value}`) }))
   }
   const cmd = slashCommands().find((c) => c.name === name)
-  if (cmd?.hint) return [{ label: t('Arguments: {0}', cmd.hint) }]
+  // claim 生效且还没打参数时，占位符已经在显示同一条参数提示——不再重复出提示行
+  // （官方 claimed 档直接抑制 `/` 触发；这里只压提示行，保住 /permission 的
+  // 预设候选，那是本面板自己的参数补全）。
+  if (cmd?.hint) {
+    if (slashClaim !== null && slashClaim.name === name && argPrefix.trim() === '') return []
+    return [{ label: t('Arguments: {0}', cmd.hint) }]
+  }
   return []
 }
 
@@ -2043,8 +2242,12 @@ function insertMentionToken(name: string, path: string): void {
 /**
  * @ 补全（对齐 dsh web）：光标前的 `@query`（或未闭合 `@"query`）触发，
  * 候选分三组（各有小标题 + 分割线）：附件（当前 composer 已附加的）、
- * 工作区文件（宿主 fileReferences/list 异步返回，cwd 浅层）、当前会话所属
+ * 工作区文件与文件夹（宿主 fileReferences/list 异步返回）、当前会话所属
  * 工作区的会话。引号 token 只出文件。
+ *
+ * 下钻：目录候选可下钻（Tab / 行内提示钮），下钻后 token 变成 `@dir/`、菜单
+ * 不关、下一层候选随即重查；此时弹窗顶部出一条面包屑（官方 crumbsFor），
+ * 点某一段退回那一层。
  * 引用其它会话主要靠会话面板的"复制引用"，这里只补本工作区的会话。
  */
 function computeRefRows(editor: ComposerEditor): SlashRow[] {
@@ -2066,12 +2269,20 @@ function computeRefRows(editor: ComposerEditor): SlashRow[] {
   }
   const { attachments, workspace, pending } = fileRows(editor, at)
   const sessions = at.quoted ? [] : sessionRows(editor, at)
-  return [
+  // 面包屑：只有下钻过的这一层才出（官方 crumb.root 用工作区名）。
+  slashCrumbs = directoryCrumbs(at.query, at.quoted, fileRefDrilled, state?.workspaceLabel ?? t('Workspace')) ?? null
+  const rows: SlashRow[] = [
     ...(attachments.length > 0 ? [{ label: t('Attachments'), header: true } as SlashRow, ...attachments] : []),
     ...(workspace.length > 0 ? [{ label: t('Files'), header: true } as SlashRow, ...workspace] : []),
     ...(pending && workspace.length === 0 ? [{ label: `${t('Files')} · ${t('Loading…')}`, loading: true } as SlashRow] : []),
     ...(sessions.length > 0 ? [{ label: t('Sessions'), header: true } as SlashRow, ...sessions] : []),
   ]
+  // 工作区候选在途（防抖窗口 + 宿主往返）时给一行加载占位：没有它，下钻/继续
+  // 打字的一瞬间行数为 0 会让 updateSlashPopup 直接关菜单，下钻就断了。
+  if (workspace.length === 0 && fileRefResult?.key !== at.prefix) {
+    return [...rows, { label: t('Loading…') }]
+  }
+  return rows
 }
 
 /**
@@ -2079,6 +2290,8 @@ function computeRefRows(editor: ComposerEditor): SlashRow[] {
  * **工作区组**（宿主异步返回）分开返回。选中后输入框插入 `@短名` 显示 token，
  * canonical 路径引用（`@/abs/path` 或 `@"..."`）记入 mentionBindings、发送时
  * 才展开——textarea 里看不到长路径；选中的若正是已附加的图片，对应 chip 高亮。
+ * 目录候选项名带尾随 `/`（一眼分清文件与文件夹），并额外带 drill：下钻不落
+ * token，而是把 token 换成 `@dir/` 继续挑下一层。
  *
  * 工作区组的三态（对齐官方 menu 的 pending/ready 组）：当前 token 已有落定结果
  * 就出真候选；请求在途且自己没有候选时，出**上一次落定的候选**顶着（官方
@@ -2099,6 +2312,8 @@ function fileRows(editor: ComposerEditor, at: ActiveAtToken): { attachments: Sla
       // 下钻：目录 mention（尾 `/`，引号按当前 token 状态保持敞开）作为**纯文本**
       // 插入并继续补全——不落 chip、不关菜单，尾 `/` 让 activeAtToken 立刻重新
       // 触发下一层候选（官方 onPick 的 `{ text, continue: true }`）。
+      // 同时标记「这次换层来自下钻」：面包屑只对下钻出来的层级显示。
+      fileRefDrilled = true
       editor.replaceRange(start, end, mention)
       return
     }
@@ -2112,12 +2327,14 @@ function fileRows(editor: ComposerEditor, at: ActiveAtToken): { attachments: Sla
     const mention = formatFileMention(c, at.quoted)
     if (mention === undefined) return [] // 编辑器语法无法安全表示的路径不出候选
     const name = attachmentBaseName(c.path)
+    const directory = c.kind === 'directory'
     const row: SlashRow = {
-      label: `@${name}`,
+      // 目录候选项名带尾随 `/`（官方 fileCandidate 同款），一眼能分清文件与文件夹。
+      label: `@${name}${directory ? '/' : ''}`,
       right: c.path,
-      apply: guarded(mention, name, c.kind === 'directory' ? 'folder' : 'file', 'pick'),
+      apply: guarded(mention, name, directory ? 'folder' : 'file', 'pick'),
     }
-    if (c.kind === 'directory') row.drill = guarded(mention, name, 'folder', 'drill')
+    if (directory) row.drill = guarded(mention, name, 'folder', 'drill')
     return [row]
   }
   // 当前 token 的落定结果优先；在途时退回上一次落定的候选（官方 pending 组保留旧条目）。
@@ -2239,10 +2456,11 @@ function syncAtLexiconRescan(): void {
 /**
  * 当前 composer 能「认识」的 /command（skill 形态）名称集合（对齐官方 TEXT_REF_RE
  * 的 `[/@]` 触发符词库门控）。来源 = 宿主指令名录（state.slashCommands 或静态回退）
- * + 客户端 /model——`/plan`、`/compact` 命中着色，未知名 `/foo` 保持纯文本。
+ * + 宿主 skill 名录（state.skills）+ 客户端 /model——`/plan`、`/compact`、skill 名
+ * 命中着色，未知名 `/foo` 保持纯文本。
  */
 function composerSlashTokenNames(): Set<string> {
-  return new Set(slashCommands().map((c) => c.name))
+  return new Set([...slashCommands().map((c) => c.name), ...sessionSkills().map((s) => s.name)])
 }
 
 /**
@@ -3033,11 +3251,9 @@ function openCommandMenu(anchor: HTMLElement): void {  const body = el('div')
 }
 
 function insertSlashCommand(name: string): void {
-  const editor = activeComposer
-  if (!editor) return
   // Slash commands must lead the prompt; prepend ahead of any draft (its args).
-  const prefix = `/${name} `
-  editor.replaceRange(0, editor.getText().length, prefix)
+  // 取参命令走 claim 路径（进参数模式 + 参数提示），与补全菜单选中一致。
+  claimSlashCommand(name)
 }
 
 /**
@@ -7362,6 +7578,172 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
   return chip
 }
 
+/* ------------------------------------------------------------------ *
+ * 附件入站（粘贴 / 拖拽）：一条闸 + 一条落盘链路。
+ * ------------------------------------------------------------------ */
+
+/** composer 里已 staged 的图片张数与字节数（闸的「本条消息已有量」一侧）。 */
+function stagedImageStats(): { count: number; bytes: number } {
+  let count = 0
+  let bytes = 0
+  for (const f of pendingFiles) {
+    if (!f.image) continue
+    count += 1
+    if (f.previewData) bytes += base64Bytes(f.previewData)
+  }
+  for (const img of pendingImages) {
+    count += 1
+    bytes += base64Bytes(img.data)
+  }
+  return { count, bytes }
+}
+
+/** 闸的拒绝原因 → 用户可读文案（对齐官方 image.tooMany / fileTooLarge / totalTooLarge）。 */
+function imageIntakeNotice(rejection: ImageIntakeRejection): string {
+  switch (rejection.reason) {
+    case 'tooMany':
+      return t('A message can include up to {0} images', rejection.max)
+    case 'fileTooLarge':
+      return t('Each image must be smaller than {0}', formatBytes(rejection.maxBytes))
+    case 'totalTooLarge':
+      return t('Images exceed {0} in total; remove some and try again', formatBytes(rejection.maxBytes))
+  }
+}
+
+/** 入站批次里 0 字节且无类型的项（拖文件夹的典型形态，读不出内容也无从附加）。 */
+function unreadableIntakeEntry(file: File): boolean {
+  return file.size === 0 && file.type === ''
+}
+
+/**
+ * 粘贴 / 拖拽文件统一入站：先过图片闸（张数 / 单张字节 / 本条总字节），
+ * 再把每个文件读成 base64 交宿主落盘，宿主回投 `filesPicked` 后变成附件
+ * chip。与官方 dsh web 的 `intakeImages` 同一判定顺序，但闸只拦图片
+ * ——非图片文件在我们管线里落成 path chip，不进模型图像部分。
+ */
+function intakeAttachmentFiles(files: readonly File[]): void {
+  const usable = files.filter((file) => !unreadableIntakeEntry(file))
+  if (usable.length === 0) return
+  const staged = stagedImageStats()
+  const rejection = imageIntakeRejection(
+    usable.map((file) => ({ name: file.name, mediaType: file.type, bytes: file.size })),
+    staged.count,
+    staged.bytes,
+    state?.imageLimits,
+  )
+  if (rejection) {
+    // 拒绝时不动 composer：已 staged 的附件保留，用户按提示自行删减后重试。
+    commandNotices = [...commandNotices, imageIntakeNotice(rejection)]
+    render()
+    return
+  }
+  void (async () => {
+    const outgoing: OutgoingImage[] = []
+    for (const [i, file] of usable.entries()) {
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(file)
+        })
+        const comma = dataUrl.indexOf(',')
+        outgoing.push({
+          mediaType: file.type,
+          data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
+          name: file.name || `pasted-${Date.now()}-${i + 1}`,
+        })
+      } catch {
+        // Unreadable clipboard/dropped item: skip it, keep the rest.
+      }
+    }
+    if (outgoing.length > 0) post({ type: 'filesPasted', files: outgoing })
+  })()
+}
+
+/**
+ * 附件拖拽入站（对齐官方 dsh-client-ui-attachment）：监听挂在 document 上
+ * ——拖到面板任何位置都收，与输入框是否聚焦无关。认文件拖拽靠
+ * `dataTransfer.types.includes('Files')`；纯文本拖拽不拦（不 preventDefault），
+ * 交浏览器默认行为（拖进编辑器即插文本）。dragenter/dragleave 用深度计数，
+ * 子元素间穿梭不会闪断遮罩；drop 必须 preventDefault，否则 Chromium 会把
+ * 文件当导航打开。
+ */
+let dragDepth = 0
+let dropOverlayEl: HTMLElement | null = null
+
+function fileDragOf(event: DragEvent): DataTransfer | null {
+  const dt = event.dataTransfer
+  if (!dt || !Array.from(dt.types).includes('Files')) return null
+  return dt
+}
+
+/** 拖拽可接收位：会话可发送且模型可用（与粘贴/选择同一条门控）。 */
+function canAcceptDrop(): boolean {
+  return state?.canSend === true && state?.modelAvailable !== false
+}
+
+function showDropOverlay(): void {
+  const accepting = canAcceptDrop()
+  if (!dropOverlayEl) {
+    const overlay = el('div', 'drop-overlay')
+    overlay.setAttribute('role', 'status')
+    const box = el('div', 'drop-box')
+    box.appendChild(el('div', 'drop-title', t('Drop files here to attach')))
+    box.appendChild(el('div', 'drop-desc', ''))
+    overlay.appendChild(box)
+    document.body.appendChild(overlay)
+    dropOverlayEl = overlay
+  }
+  dropOverlayEl.classList.toggle('disabled', !accepting)
+  const desc = dropOverlayEl.querySelector('.drop-desc')
+  const limits = state?.imageLimits
+  if (desc) {
+    desc.textContent = accepting
+      ? limits
+        ? t('Up to {0} images, {1} each', limits.maxImagesPerMessage, formatBytes(limits.maxImageBytes))
+        : ''
+      : t('Service is not ready; cannot send right now')
+  }
+}
+
+function hideDropOverlay(): void {
+  dragDepth = 0
+  dropOverlayEl?.remove()
+  dropOverlayEl = null
+}
+
+document.addEventListener('dragenter', (event) => {
+  if (!fileDragOf(event)) return
+  event.preventDefault()
+  dragDepth += 1
+  showDropOverlay()
+})
+document.addEventListener('dragover', (event) => {
+  const dt = fileDragOf(event)
+  if (!dt) return
+  event.preventDefault()
+  dt.dropEffect = canAcceptDrop() ? 'copy' : 'none'
+})
+document.addEventListener('dragleave', (event) => {
+  if (!fileDragOf(event)) return
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) hideDropOverlay()
+})
+document.addEventListener('drop', (event) => {
+  const dt = fileDragOf(event)
+  if (!dt) return
+  event.preventDefault()
+  const files = Array.from(dt.files)
+  hideDropOverlay()
+  if (!canAcceptDrop()) return
+  intakeAttachmentFiles(files)
+  // 拖入后光标落到输入框：接上「拖完继续说」的手感（与粘贴一致）。
+  activeComposer?.focus(true)
+})
+// 拖出窗口（未落点）时 dragleave 可能收不到：window 的 dragend 兜底复位。
+window.addEventListener('dragend', hideDropOverlay)
+
 /**
  * 把输入框内的光标/选区滚进可视区（对齐官方 dsh-client-ui-conversation 的
  * revealSelection）：草稿超过输入区限高（#input max-height 160px）后内部滚动，
@@ -7407,6 +7789,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   // 输入框外包 frame：@ 引用 token 由 Lexical 的 RefTokenNode 在真实文本流里高亮
   // （不再靠叠加层画点），hover token → 联动对应附件 chip 高亮。
   const frame = el('div', 'composer-frame')
+  // 草稿合并（stashedDraft 优先在尾部追加），与旧 textarea 行为一致。占位符要
+  // 按「这一帧输入框是不是空的」选文案，所以在算占位符之前先合。
+  let draftContent = draft ?? ''
+  if (stashedDraft) {
+    draftContent = draftContent.trim() ? `${draftContent.trimEnd()}\n${stashedDraft}` : stashedDraft
+    stashedDraft = undefined
+  }
   // 模型不可用（routable=false）时输入区整体阻塞，文案对齐 dsh web 的
   // 「当前模型不可用，请先选择模型」；与「服务未就绪」是两个独立维度。
   const modelAvailable = state?.modelAvailable !== false
@@ -7416,7 +7805,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       ? t('Current model is unavailable; choose a model first')
       : recall?.kind === 'queue'
         ? t('Editing queued message; Enter saves, Esc cancels')
-        : state?.running
+        : steerQueueArmed() && draftContent.trim() === '' && pendingFiles.length === 0 && pendingImages.length === 0
+          ? // 空草稿 + 运行中 + 有排队消息：这个手势此刻能把排队的一次插完（官方
+            // placeholder.steerQueue），比「Enter 排队」那句更贴当前能做的事。
+            steerModifierLabel(state?.hostOs) === 'Ctrl'
+            ? t('Ctrl+Enter steers all queued messages')
+            : t('⌘Enter steers all queued messages')
+          : state?.running
           ? // 插话快捷键按宿主平台出文案：mac ⌘Enter，win/linux Ctrl+Enter
             // （hostOs 未知回退 ⌘ 版，与修复前一致）。Esc/Ctrl+C 在运行中是
             // 两层：composer 有内容先双击清空，空了再按才是打断 turn。
@@ -7427,13 +7822,6 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
             ? t('Describe what you want to build')
             : t('Type a message; Enter sends, Shift+Enter for newline, paste images/files, ↑ recalls the previous one')
   const editable = canSend && modelAvailable
-
-  // 草稿合并（stashedDraft 优先在尾部追加），与旧 textarea 行为一致。
-  let draftContent = draft ?? ''
-  if (stashedDraft) {
-    draftContent = draftContent.trim() ? `${draftContent.trimEnd()}\n${stashedDraft}` : stashedDraft
-    stashedDraft = undefined
-  }
 
   // 主按钮（对齐官方 InputBar primary）：无文字图标按钮——非运行显示发送
   // 箭头，运行中同一按钮切换为停止方块（primaryStops），点击即 stop；排队
@@ -7528,6 +7916,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     hideSlashPopup()
     // 双击清空：发送即「内容有了归宿」，武装态不再保留（提示小框一并摘除）。
     disarmClearConfirm()
+    // 空草稿的加速 Enter（⌘/Ctrl+Enter）= 「把排队的消息全部插话」（官方
+    // canSteerQueue + steerQueue）：没有内容可发，但队列里有等待的排队消息时，
+    // 这个手势一次把它们都推进当前回合，不必逐行点「插话」。
+    if (steer && canSteerQueue()) {
+      post({ type: 'queueSteerAll' })
+      return
+    }
     // 发送后的输入区就地收尾：keepComposer 保活（签名未变的帧——运行中 Enter
     // 排队、⌘Enter 插话、/model 打开菜单）时 render() 只 patch 不重建输入区，
     // 这里在 setText('') 后同步按钮态。
@@ -7767,30 +8162,16 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     if (items.length === 0 && text === '') return false
     event.preventDefault()
     if (items.length > 0) {
-      // getAsFile() 必须同步调（异步回调里 clipboardData 已失效）。
-      const picked = items.map((item) => ({ file: item.getAsFile(), type: item.type })).filter((p): p is { file: File; type: string } => p.file !== null)
-      void (async () => {
-        const files: OutgoingImage[] = []
-        for (const [i, { file, type }] of picked.entries()) {
-          try {
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader()
-              reader.onload = () => resolve(String(reader.result))
-              reader.onerror = () => reject(reader.error)
-              reader.readAsDataURL(file)
-            })
-            const comma = dataUrl.indexOf(',')
-            files.push({
-              mediaType: file.type || type,
-              data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
-              name: file.name || `pasted-${Date.now()}-${i + 1}`,
-            })
-          } catch {
-            // Unreadable clipboard item: skip it, keep the rest.
-          }
-        }
-        if (files.length > 0) post({ type: 'filesPasted', files })
-      })()
+      // getAsFile() 必须同步调（异步回调里 clipboardData 已失效）。macOS file
+      // promise 的 File.type 可能为空，退回落剪贴板项声明的 MIME——入站闸按
+      // type 判图片，缺了会把图片当普通文件放行。文件统一交给
+      // intakeAttachmentFiles：图片过闸（张数 / 单张字节 / 本条总字节），
+      // 非图片文件不受图片闸管，照旧落成文件附件。
+      const files = items
+        .map((item) => ({ file: item.getAsFile(), type: item.type }))
+        .filter((p): p is { file: File; type: string } => p.file !== null)
+        .map(({ file, type }) => (file.type === '' && type !== '' ? new File([file], file.name, { type }) : file))
+      intakeAttachmentFiles(files)
     }
     if (text === '') return true
     // 会话 mention 粘贴优先（canonical 转显示 token）；长文本折叠为文件附件；
@@ -7812,6 +8193,10 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       onTextChange: (text, meta) => {
         updateButton()
         updateClearAll()
+        // claim 撤销：草稿不再以 token 开头（整段删掉/改成别的命令）即释放，
+        // 占位符回落到常规文案。在 token 后继续打参数则保持不变。
+        if (slashClaim !== null && !slashClaimHolds(text, slashClaim.token)) releaseSlashClaim()
+        else syncSlashClaimPlaceholder()
         updateSlashPopup(composer)
         // 双击清空：任何内容变化都解除武装（提示小框只对「刚武装时的那份内容」
         // 有意义；清空/召回/恢复这些程序化重写各自也会显式解除，这里是兜底）；
@@ -7893,13 +8278,41 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   activeComposer = composer
   if (previous && previous !== composer) previous.dispose()
   if (draftContent) composer.setText(draftContent, mentionBindings)
+  // 重建后的占位符层是新的：claim 还成立时把参数提示重新压上（overrides 不跨实例）。
+  syncSlashClaimPlaceholder()
 
   // 双击清空（本地增强，与 × 按钮同一 clearComposer）：composer 有内容时第一次
   // Esc/Ctrl+C 亮提示小框并武装，第二次执行清空。运行中同样先走这层「清输入」。
   // 优先级低于斜杠补全/召回（编辑器内已路由到 onEscape/onArrowUp）。Ctrl+C 有
   // 选区时保持复制语义；IME 组合中不响应。斜杠补全弹出时导航键交给编辑器（其
   // 命令在 keydown 里消费），这里只处理 clear-chord。
+  // 空格认领（官方 matchSpace）：行首刚打完的 `/name` 一按空格、且这条命令取参，
+  // 就进参数模式——空格本身照常插入，文本结果与直接敲空格一样（`/name `）。
   composer.root.addEventListener('keydown', (e) => {
+    if (
+      e.key === ' ' &&
+      !e.isComposing &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      slashClaim === null &&
+      !e.defaultPrevented
+    ) {
+      const bare = /^\/([^\s/]+)$/.exec(composer.getText())
+      const sel = composer.selection()
+      if (
+        bare &&
+        sel.start === sel.end &&
+        sel.start === composer.getText().length &&
+        claimableSlashCommand(slashCommands().find((c) => c.name === bare[1]))
+      ) {
+        // token 自带尾随空格，这一次空格键吃掉即可（官方 matchSpace 也是
+        // 返回 true 让调用方 preventDefault），否则会多出一个空格。
+        e.preventDefault()
+        claimSlashCommand(bare[1])
+        return
+      }
+    }
     const isClearChord = e.key === 'Escape' || isComposerClearChord(e)
     if (
       isClearChord &&

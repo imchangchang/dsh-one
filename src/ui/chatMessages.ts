@@ -35,6 +35,8 @@ import { inlineImageMediaType, inlineImageTooLarge } from '../pure/inlineImage.t
 import { DEFAULT_THUMB_FETCH, runAttempts, ThrottledQueue } from '../pure/thumbQueue.ts'
 import { attachmentDir, nextSequenceIndex } from './attachmentDir.ts'
 import { workspaceFileCandidates } from './workspaceScan.ts'
+import { listFileReferences } from '../server/dshRpc.ts'
+import type { FileRefCandidate } from '../pure/fileReference.ts'
 import type { ChatSessionController } from '../server/chatSession.ts'
 import type { ChatTabHost } from './chatTab.ts'
 
@@ -603,17 +605,26 @@ const chatHandlers: ChatTabMessageHandler[] = [
       if (m.type !== 'fileRefList') return
       const controller = host.controller
       if (!controller) return
-      // @ 范围收窄：候选只有「当前附件（webview 本地合成）+ 会话工作区文件」，
-      // 不再走 DSH 的 fileReferences/list（它扫 cwd 全树、量太大）。工作区候选
-      // 这里列：cwd 下浅层文件（排除构建物），绝对路径形式（模型 @path 允许
-      // 任意路径，无需 DSH 改动）；列表为空静默（弹窗只剩本地附件行）。
-      const cwd = host.actions.store.rawList().find((s) => s.sessionId === controller.sessionId)?.cwd
-      const items = await workspaceFileCandidates(cwd, m.query)
+      // @ 补全候选 = 官方的 fileReferences/list：host 侧 WorkspaceFileSearch 的
+      // 有界索引（候选上限 20、排除 node_modules/dist 一类构建物、带 mtime 失效
+      // 重扫），query 带 `/` 时是「列这一层目录」（下钻靠它），否则是全局模糊
+      // 排名。返回的是**相对 cwd** 的路径 + kind（文件/目录）——目录候选是下钻
+      // 与面包屑的前提，也是这里不能再退回本地扫描的原因。
+      let items: FileRefCandidate[]
+      try {
+        items = await listFileReferences(controller.url, controller.sessionId, m.query)
+      } catch (error: unknown) {
+        // 老宿主（0.1.1）没有这个 Remote：退回本地浅层扫描（绝对路径、只有
+        // 文件、无目录候选）——补全照常可用，只是少了目录下钻。
+        host.actions.logger.warn(`chat: fileReferences/list failed — ${errorText(error)}`)
+        const cwd = host.actions.store.rawList().find((s) => s.sessionId === controller.sessionId)?.cwd
+        items = await workspaceFileCandidates(cwd, m.query)
+      }
       host.postMessage({ type: 'fileRefList', requestId: m.requestId, items })
     },
   },
   {
-    types: ['queueEdit', 'queueSteer', 'queueRemove'],
+    types: ['queueEdit', 'queueSteer', 'queueSteerAll', 'queueRemove'],
     async handle(host, m) {
       const controller = host.controller
       if (!controller) return
@@ -623,6 +634,16 @@ const chatHandlers: ChatTabMessageHandler[] = [
           return
         case 'queueSteer':
           await controller.steerQueued(m.itemId)
+          return
+        case 'queueSteerAll':
+          // 空草稿 ⌘/Ctrl+Enter：把排队的消息全部插话（官方 steerQueue）。
+          // 正常竞态（回合已关/该行已被领走）在 controller 里静默收敛；真失败
+          // 上抛到这里出提示——消息留在队列里，用户可以直接重试。
+          try {
+            await controller.steerAllQueued()
+          } catch (error: unknown) {
+            host.postMessage({ type: 'notice', text: vscode.l10n.t('Steering failed. Try again.') + ` (${errorText(error)})` })
+          }
           return
         case 'queueRemove':
           await controller.removeQueued(m.itemId)

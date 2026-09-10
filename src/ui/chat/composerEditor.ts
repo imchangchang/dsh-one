@@ -89,6 +89,12 @@ export interface ComposerEditor {
   editor: LexicalEditor
   /** 占位符层（内容为空时显示）。 */
   placeholder: HTMLElement
+  /**
+   * 占位符覆盖（命令参数模式用，对齐官方 InputBar 的 claimActive 分支）：
+   * 传文案 + force=true 时，占位符显示该文案并强制可见（即便编辑器里已有
+   * claim token 这类非空内容）；传 undefined 恢复「仅空内容时显示原文案」。
+   */
+  setPlaceholderOverride: (text: string | undefined) => void
   /** 纯文本（块间以 \n 分隔；@token 为其显示文本）。 */
   getText: () => string
   /**
@@ -1007,7 +1013,8 @@ export function createComposerEditor(opts: {
     if (text !== lastText) {
       lastText = text
       rev += 1
-      placeholder.style.display = text.length === 0 ? '' : 'none'
+      // 覆盖生效时显隐归覆盖方管（claim 参数提示要压在非空草稿上）。
+      if (placeholderOverride === null) placeholder.style.display = text.length === 0 ? '' : 'none'
       handlers.onTextChange(text, { programmatic: tags.has(SET_TAG) })
     }
     const sel = selection()
@@ -1017,10 +1024,25 @@ export function createComposerEditor(opts: {
     }
   })
 
+  // 占位符覆盖（claim 参数模式）：设置后 forceVisible 由它接管显隐；清除时
+  // 回落「内容为空才显示」的默认规则（下次文本变化由下面的监听重算）。
+  let placeholderOverride: string | null = null
+  const setPlaceholderOverride = (text: string | undefined): void => {
+    placeholderOverride = text ?? null
+    if (text !== undefined) {
+      placeholder.textContent = text
+      placeholder.style.display = ''
+      return
+    }
+    placeholder.textContent = placeholderText
+    placeholder.style.display = getText().length === 0 ? '' : 'none'
+  }
+
   return {
     root,
     editor,
     placeholder,
+    setPlaceholderOverride,
     getText,
     textWithMentions,
     setText,

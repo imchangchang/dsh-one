@@ -3,8 +3,8 @@ import type { HistoryEntryLike } from '../pure/conversation.ts'
 import { historyWindowRequest } from '../pure/historyWindow.ts'
 import type { OutgoingImage } from '../pure/chatContract.ts'
 import type { AgentPresetLike } from '../pure/agentPreset.ts'
-import { asSlashCommandSpec } from '../pure/slashCommand.ts'
-import type { SlashCommandSpecLike } from '../pure/slashCommand.ts'
+import { asSkillList, asSlashCommandSpec } from '../pure/slashCommand.ts'
+import type { SkillSpecLike, SlashCommandSpecLike } from '../pure/slashCommand.ts'
 import type { FileRefCandidate } from '../pure/fileReference.ts'
 import { cookieHeader, isModern, is013Wire } from './serverAuth.ts'
 
@@ -456,10 +456,25 @@ export async function executeCommand(
  */
 export type SlashCommandSpec = SlashCommandSpecLike
 
+/** One skills/list catalog entry (dsh-api-session-controller `SkillEntry`). */
+export type SkillSpec = SkillSpecLike
+
 /** Fetch the session's slash-command roster; throws when the host lacks the endpoint. */
 export async function listCommands(baseUrl: string, sessionId: string): Promise<SlashCommandSpec[]> {
   const value = await callRpc<unknown[] | undefined>(baseUrl, 'commands/list', { args: { agentId: sessionId } })
   return (value ?? []).map(asSlashCommandSpec).filter((c): c is SlashCommandSpec => c !== undefined)
+}
+
+/**
+ * 会话可用的（人类可调用的）skill 名录，dsh-api-session-controller 的
+ * `skills/list`。与 commands/list 的取参方式不同：这个端点收
+ * `request: {sessionId}`（不是 agentId scope），结果是 `{skills: SkillEntry[]}`
+ * ——没有第二层 {ok,value} envelope；asSkillList 对两种形状都容错。
+ * 老 dsh（0.1.1）没有该端点，调用方按「没有 skill」处理。
+ */
+export async function listSkills(baseUrl: string, sessionId: string): Promise<SkillSpec[]> {
+  const value = await callRpc<unknown>(baseUrl, 'skills/list', { args: { request: { sessionId } } })
+  return asSkillList(value)
 }
 
 /** Loose mirror of dsh-goal's GoalRef: the CAS token every goals/* mutation echoes. */

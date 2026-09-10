@@ -1577,6 +1577,45 @@ const STYLE = `
   }
   .menu-hint { padding: 8px; opacity: .7; }
   .slash-popup { max-height: 40vh; }
+  /* @ 补全下钻后的面包屑头（官方 MenuView 的 crumbs 行）：钉在弹窗顶部，
+     横向可滚（深层路径不换行撑高菜单），当前段不可点。 */
+  .slash-popup .crumbs {
+    display: flex; flex-wrap: nowrap; align-items: center; gap: 2px;
+    flex: none; overflow-x: auto; padding: 4px 4px 6px;
+    border-bottom: .5px solid var(--vscode-menu-border, var(--vscode-dropdown-border));
+  }
+  .slash-popup .crumb {
+    flex: 0 0 auto; max-width: 40%; padding: 1px 6px; border: none; border-radius: 6px;
+    background: none; color: inherit; opacity: .7; font: inherit; font-size: .85em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+  }
+  .slash-popup .crumb:hover { background: var(--vscode-menu-selectionBackground); opacity: 1; }
+  .slash-popup .crumb.current { color: inherit; opacity: 1; cursor: default; }
+  .slash-popup .crumb.current:hover { background: none; }
+  .slash-popup .crumb-sep { flex: 0 0 auto; opacity: .45; font-size: .8em; }
+  /* 目录候选行的下钻提示：只在选中行显示（官方 drillHint 同款）。 */
+  .slash-popup .menu-item .drill-hint {
+    margin-left: auto; padding: 0 5px; border-radius: 4px; font-size: .8em; opacity: .6;
+    background: var(--vscode-menu-selectionBackground, rgba(127,127,127,.2)); display: none;
+  }
+  .slash-popup .menu-item.selected .drill-hint { display: inline-flex; }
+  /* 附件拖拽遮罩（官方 DropOverlay）：全视口、不吃鼠标事件，拖拽期盖住面板。 */
+  .drop-overlay {
+    position: fixed; inset: 0; z-index: 1000; pointer-events: none;
+    display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--vscode-editor-background, #fff) 82%, transparent);
+  }
+  .drop-overlay .drop-box {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 18px 26px; border-radius: 10px; text-align: center;
+    border: 2px dashed var(--vscode-focusBorder, #4a9eff);
+    background: var(--vscode-menu-background, var(--vscode-editor-background));
+    color: var(--vscode-foreground);
+  }
+  .drop-overlay .drop-title { font-size: 1.05em; font-weight: 600; }
+  .drop-overlay .drop-desc { font-size: .9em; opacity: .75; }
+  .drop-overlay .drop-desc:empty { display: none; }
+  .drop-overlay.disabled .drop-box { border-color: var(--vscode-panel-border, rgba(127,127,127,.4)); opacity: .75; }
   .slash-popup .menu-item.selected { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
   .slash-popup .menu-item.hint-row { cursor: default; opacity: .75; }
   .slash-popup .menu-item.hint-row:hover { background: none; color: inherit; }

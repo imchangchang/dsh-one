@@ -7,13 +7,14 @@
 //
 // driver 字段（除 prompt 外都可选，缺省走原有行为，向后兼容）：
 //   prompt        发送给新会话的消息
-//   expectText    等待 webview 中出现该文本（超时 120s）
+//   expectText    等待 webview 中出现该文本（超时 120s；数组=逐项都要出现，
+//                 失败时 notes 里点名缺哪几条）
 //   afterSendFill 点发送后立刻把这段文本填进 composer（模拟发送后、pending 接管前
 //                 正在输入：pending 帧接管时应把草稿暂存，应答后恢复）
 //   approve       等待 pending 面板并点击按钮文本：字符串=单次（如审批 Allow once），
 //                 数组=按序点击（如问答面板先选选项再点 Submit）
-//   expectDraft   断言 composer textarea#input.value 包含该文本（草稿恢复检查）
-//   expectPlaceholder 断言 composer textarea#input 的 placeholder 包含该文本
+//   expectDraft   断言 composer #input.value 包含该文本（草稿恢复检查）
+//   expectPlaceholder 断言 composer 占位符文案包含该文本
 //                 （占位符文案检查，如运行中的插话快捷键提示）
 //   fillAndClear  在新会话里填充这段文本并点击 .clear-all-button，断言输入框为空
 //   fillSlash     填充该文本但不发送（触发 slash 补全弹窗/参数 hint 行等纯输入态）
@@ -25,6 +26,24 @@
 //   expectTextAfterReload 重载后断言 webview 中出现该文本（历史消息随状态重推仍在）
 //   expectPopup   断言 webview 里出现这些文本（数组逐项断言，配 fillSlash 用；
 //                 弹窗行文本/描述/hint 各算一条，超时 15s/条）
+//   extraPrompts  第一条 prompt 之后的追加发送（数组；走 Enter 填发，运行中即进
+//                 队列，用于排队/插话场景）
+//   extraPromptDelayMs 追加发送前的等待（默认 400ms；慢命令场景用来卡进运行态窗口）
+//   expectQueuedBeforeKeys 前置断言：追加的消息已出现在 .queue-item 里（含该文本），
+//                 在 keys 之前判定——没有它，「队列被清空」类断言会在压根没排队时假绿
+//   expectSelector  断言任意 frame 里存在该元素（字符串=选择器；对象={selector,text} 再要求文本包含）
+//   absentSelector  断言任意 frame 里都没有该选择器（如插话落地后排队行消失）
+//   keys          在 composer 里按下的按键序列（如 ["Space"]、["Meta+Enter"]、["Tab"]），
+//                 在 fillSlash 填入之后执行——用于空格认领、下钻、⌘/Ctrl+Enter 全插话等手势
+//   keysUntil     在 keys 之前「按某键直到某选择器出现」：{ key, selector, max }
+//                 （键盘菜单里先把选中行挪到目标行，如 @ 候选挪到目录行再 Tab 下钻）
+//   seedSessionCwd 往本项会话的 cwd 里铺样例文件：{ container, files }——@ 补全的
+//                 候选来自 cwd，空目录没有目录候选可下钻（未分组会话的 cwd 是
+//                 dsh 现开的空临时目录）
+//   dropFiles     往聊天 webview 里合成一次文件拖拽（dragenter + drop，模拟真实拖放）：
+//                 [{ name, type, size }]。size ≤ 65536 造**真** File（FileReader 读得到字节，
+//                 附件能真落盘成 chip）；size 更大时造只带 size/type/name 的**假**对象
+//                 （闸在读字节之前就按元数据拒绝，不需要真分配几 MB）
 //   hoverText     悬停含该文本的元素（如 commit chip），让悬浮卡弹出再截图
 //   hoverSustainMs hoverText 之后继续轮询该时长（ms）：弹层 commit 卡必须全程在位
 //                 （慢速流式回归——消息行每帧重建会摘掉 chip 锚点，卡片闪关=失败）
@@ -178,9 +197,9 @@ async function findFrame(page, predicate, timeoutMs = 10_000) {
   return f.evaluate(() => !!document.querySelector('.sessions-panel')).catch(() => false)
 }
 
-/** 聊天 panel webview 帧（含 composer textarea#input）。 */
+/** 聊天 panel webview 帧（含 composer #input）。 */
 function isChatFrame(f) {
-  return f.evaluate(() => !!document.querySelector('textarea#input')).catch(() => false)
+  return f.evaluate(() => !!document.querySelector('#input')).catch(() => false)
 }
 
 /**
@@ -239,7 +258,7 @@ async function newChatAndGetFrame(page) {
 async function sendPrompt(page, text) {
   const chat = await findFrame(page, isChatFrame, 30_000)
   if (!chat) throw new Error('composer 帧未出现')
-  const ta = chat.locator('textarea#input')
+  const ta = chat.locator('#input')
   await ta.waitFor({ state: 'visible', timeout: 30_000 })
   await ta.click()
   await ta.fill(text)
@@ -247,11 +266,71 @@ async function sendPrompt(page, text) {
   await chat.locator('.send-button').click({ timeout: 15_000 })
 }
 
+/** 在聊天帧里填充 composer 后按 Enter 发送——运行中的回合里 Enter 是「排队」路径。
+ *  追加消息不能用 sendPrompt：运行中 .send-button 已经切成停止按钮，点它是打断
+ *  当前回合，消息根本进不了队列（F-08 第一版就栽在这）。 */
+async function sendPromptByEnter(page, text) {
+  const chat = await findFrame(page, isChatFrame, 30_000)
+  if (!chat) throw new Error('composer 帧未出现')
+  const ta = chat.locator('#input')
+  await ta.waitFor({ state: 'visible', timeout: 30_000 })
+  await ta.click()
+  await ta.fill(text)
+  await sleep(200)
+  await page.keyboard.press('Enter')
+  await sleep(300)
+}
+
+/**
+ * 往**本项新建会话**的 cwd 里铺一层样例文件/目录（driver.seedSessionCwd）。
+ *
+ * 未分组会话的 cwd 是 dsh 现开的空临时目录（/home/coder/tmp/dsh-ungrouped-<日期>-<sessionId>），
+ * @ 补全的候选来自它——空目录里没有目录候选，A-06 的下钻/面包屑根本无从触发。
+ * 取最新的那个 dsh-ungrouped-* 目录（本项刚建的会话即最新），铺完把路径回报给
+ * notes，方便人核对铺到哪去了。
+ */
+async function seedSessionCwd(cfg) {
+  const container = typeof cfg.container === 'string' && cfg.container ? cfg.container : 'dsh-sandbox'
+  const files = [].concat(cfg.files ?? [])
+  for (const f of files) {
+    if (!/^[\w][\w./-]*$/.test(String(f))) throw new Error(`seedSessionCwd: 文件名不合法 ${f}`)
+  }
+  const lines = files
+    .map((f) => `mkdir -p "$dir/$(dirname '${f}')"\nprintf 'seeded\\n' > "$dir/${f}"`)
+    .join('\n')
+  const script = `set -e
+dir=$(ls -dt /home/coder/tmp/dsh-ungrouped-* 2>/dev/null | head -1)
+if [ -z "$dir" ]; then echo "seedSessionCwd: 找不到会话 cwd" >&2; exit 1; fi
+${lines}
+echo "$dir"`
+  const out = await dockerExec(container, ['sh', '-c', script], 20_000)
+  return String(out).trim().split('\n').pop() ?? ''
+}
+
+/**
+ * 按某个键直到某选择器出现（driver.keysUntil）：键盘菜单里要把选中行挪到目标行
+ * 才好按键——@ 候选的第一行可能是文件或会话（Tab 会直接落定并关菜单），只有挪到
+ * 目录行（选中行带 .drill-hint）Tab 才是下钻。返回是否等到。
+ */
+async function pressUntilSelector(page, key, selector, max) {
+  const chat = await findFrame(page, isChatFrame, 30_000)
+  if (!chat) return false
+  const ta = chat.locator('#input')
+  await ta.waitFor({ state: 'visible', timeout: 30_000 })
+  await ta.click()
+  for (let i = 0; i < max; i++) {
+    if (await waitForSelectorAnywhere(page, selector, null, 400)) return true
+    await page.keyboard.press(key)
+    await sleep(250)
+  }
+  return waitForSelectorAnywhere(page, selector, null, 400)
+}
+
 /** 填 composer 不发送（fillSlash 驱动字段）：触发 slash 补全弹窗/参数 hint 行等纯输入态。 */
 async function fillComposer(page, text) {
   const chat = await findFrame(page, isChatFrame, 30_000)
   if (!chat) throw new Error('composer 帧未出现')
-  const ta = chat.locator('textarea#input')
+  const ta = chat.locator('#input')
   await ta.waitFor({ state: 'visible', timeout: 30_000 })
   await ta.click()
   await ta.fill(text)
@@ -259,24 +338,92 @@ async function fillComposer(page, text) {
   await sleep(400)
 }
 
+/** 在 composer 里按一串键（keys 驱动字段）。先点输入框聚焦，再逐键 press。
+ *  按键要落在 webview 的 #input 上才能被 composer 的键盘路径消费（capture 阶段的
+ *  补全导航、Space 认领、⌘/Ctrl+Enter 手势都挂在它上面）。 */
+async function pressComposerKeys(page, keys) {
+  const chat = await findFrame(page, isChatFrame, 30_000)
+  if (!chat) throw new Error('composer 帧未出现')
+  const ta = chat.locator('#input')
+  await ta.waitFor({ state: 'visible', timeout: 30_000 })
+  await ta.click()
+  for (const key of keys) {
+    await page.keyboard.press(key)
+    await sleep(250)
+  }
+  await sleep(300)
+}
+
+/**
+ * 往聊天 webview 里合成一次文件拖拽（dropFiles 驱动字段）。
+ *
+ * 事件直接派发在 webview 自己的 document 上（我们的拖拽监听就挂在那里），
+ * DataTransfer 由页面内构造：小文件造真 File（FileReader 读得到字节、附件能真
+ * 落盘），大文件只造带 size 的假对象——闸在读字节之前就按元数据拒绝，没必要
+ * 真的分配几 MB。返回实际派发的条目摘要，写进 notes 供人核对。
+ */
+async function dropFilesOnChat(page, entries, dragOnly) {
+  const chat = await findFrame(page, isChatFrame, 30_000)
+  if (!chat) throw new Error('composer 帧未出现')
+  return bounded(
+    chat.evaluate(({ list, dragOnly }) => {
+      const real = []
+      const fake = []
+      for (const f of list) {
+        const size = Number(f.size ?? 0)
+        if (size > 65536) fake.push({ name: f.name, type: f.type ?? '', size })
+        else real.push(new File([new Uint8Array(size)], f.name, { type: f.type ?? '' }))
+      }
+      // dataTransfer 是 DragEvent 原型上的只读访问器：实例上 defineProperty 一层
+      // 自有属性即可换成我们自己的对象（假条目只能这样塞进去）。
+      const synthetic = { types: ['Files'], files: [...real, ...fake], dropEffect: '' }
+      window.__dshSyntheticDrag = synthetic
+      for (const type of dragOnly === true ? ['dragenter'] : ['dragenter', 'drop']) {
+        const ev = new DragEvent(type, { bubbles: true, cancelable: true })
+        Object.defineProperty(ev, 'dataTransfer', { value: synthetic })
+        document.dispatchEvent(ev)
+      }
+      return list.map((f) => `${f.name}(${f.size}B)`)
+    }, { list: entries, dragOnly: dragOnly === true }),
+    'dropFiles evaluate',
+  )
+}
+
+/** 上一次 waitForText 没等到的文本（多个 needle 时用来指出究竟缺哪几条）。 */
+let lastTextMiss = []
+/** 上一次 waitForPlaceholder 实际看到的占位符文案（失败诊断：断言文本对不上时看它）。 */
+let lastPlaceholderSeen = null
+
+/** 文本比对前归一：折叠空白 + 忽略大小写（对齐 Playwright hasText 的宽松度）。 */
+function normalizeNeedle(s) {
+  return String(s).replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
 /** 扫描全部 frame 等待 expectText 出现（每轮重扫，容忍宿主重建）。
- *  提问/审批面板会替换 composer（textarea#input 消失），不能用 isChatFrame 定位，
- *  直接全文搜索所有 frame。 */
+ *  提问/审批面板会替换 composer（#input 消失），不能用 isChatFrame 定位，
+ *  直接全文搜索所有 frame。expectText 给数组时逐项都要命中（同一帧内）。 */
 async function waitForText(page, expectText, timeoutMs) {
+  const needles = [].concat(expectText ?? []).map((s) => ({ raw: String(s), norm: normalizeNeedle(s) }))
+  const missing = new Map(needles.map((n) => [n.raw, n.norm]))
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     for (const f of page.frames()) {
       if (!isLiveFrame(f)) continue
       try {
-        const n = await bounded(f.locator('body').filter({ hasText: expectText }).count(), `waitForText count（${expectText}）`)
-        if (n > 0) return true
+        const text = normalizeNeedle(await bounded(f.evaluate(() => document.body?.textContent ?? ''), 'waitForText evaluate'))
+        for (const [raw, norm] of [...missing]) if (text.includes(norm)) missing.delete(raw)
       } catch (e) {
         rethrowWatchdog(e)
         // 帧重建瞬间忽略
       }
     }
+    if (missing.size === 0) {
+      lastTextMiss = []
+      return true
+    }
     await sleep(500)
   }
+  lastTextMiss = [...missing.keys()]
   return false
 }
 
@@ -322,7 +469,7 @@ async function fillAfterSend(page, text) {
   const chat = await findFrame(page, isChatFrame, 10_000)
   if (!chat) return false
   try {
-    const ta = chat.locator('textarea#input')
+    const ta = chat.locator('#input')
     await ta.waitFor({ state: 'visible', timeout: 5_000 })
     await ta.fill(text)
     return true
@@ -368,7 +515,7 @@ async function fillAndClickClear(page, text) {
   const chat = await findFrame(page, isChatFrame, 30_000)
   if (!chat) return false
   try {
-    const ta = chat.locator('textarea#input')
+    const ta = chat.locator('#input')
     await ta.waitFor({ state: 'visible', timeout: 30_000 })
     await ta.fill(text)
     const clear = chat.locator('.clear-all-button')
@@ -391,7 +538,7 @@ async function keyClearUndo(page, text, key = 'Control+c') {
   const chat = await findFrame(page, isChatFrame, 30_000)
   if (!chat) return false
   try {
-    const ta = chat.locator('textarea#input')
+    const ta = chat.locator('#input')
     await ta.waitFor({ state: 'visible', timeout: 30_000 })
     await ta.click()
     await ta.fill(text)
@@ -420,7 +567,69 @@ async function keyClearUndo(page, text, key = 'Control+c') {
   }
 }
 
-/** 扫描全部 frame，断言 composer textarea#input.value 包含 expectDraft。 */
+/** 拖拽遮罩场景收尾：补一次 dragleave 把遮罩摘掉，免得残留到后面几项的截图里。 */
+async function dragLeaveOnChat(page) {
+  const chat = await findFrame(page, isChatFrame, 30_000)
+  if (!chat) return
+  await chat
+    .evaluate(() => {
+      const dt = window.__dshSyntheticDrag ?? { types: ['Files'], files: [] }
+      const ev = new DragEvent('dragleave', { bubbles: true, cancelable: true })
+      Object.defineProperty(ev, 'dataTransfer', { value: dt })
+      document.dispatchEvent(ev)
+    })
+    .catch(() => {})
+}
+
+/** 扫描全部 frame 等待某个选择器出现（可选要求其文本包含 needle）。宿主重建帧
+ *  期间查询会瞬时落空，所以是轮询式等待而不是一次性断言。 */
+async function waitForSelectorAnywhere(page, selector, needle, timeoutMs) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    for (const f of page.frames()) {
+      if (!isLiveFrame(f)) continue
+      try {
+        const found = await bounded(
+          f.evaluate(
+            ([sel, text]) => {
+              for (const el of document.querySelectorAll(sel)) {
+                if (text === null || (el.textContent ?? '').includes(text)) return true
+              }
+              return false
+            },
+            [selector, needle ?? null],
+          ),
+          'waitForSelectorAnywhere evaluate',
+        )
+        if (found) return true
+      } catch (e) {
+        rethrowWatchdog(e)
+      }
+    }
+    await sleep(300)
+  }
+  return false
+}
+
+/** 选择器在全部 frame 里都不存在（断言消失：如插话落地后排队行不再有）。 */
+async function selectorAbsentEverywhere(page, selector) {
+  for (const f of page.frames()) {
+    if (!isLiveFrame(f)) continue
+    try {
+      const any = await bounded(
+        f.evaluate((sel) => document.querySelectorAll(sel).length > 0, selector),
+        'selectorAbsentEverywhere evaluate',
+      )
+      if (any) return false
+    } catch (e) {
+      rethrowWatchdog(e)
+      return false
+    }
+  }
+  return true
+}
+
+/** 扫描全部 frame，断言 composer #input.value 包含 expectDraft。 */
 async function waitForDraft(page, expectDraft, timeoutMs) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
@@ -506,17 +715,24 @@ async function reloadWorkbench(page) {
   await sleep(6000)
 }
 
-/** 扫描全部 frame，断言 composer textarea#input 的 placeholder 包含 expectPlaceholder。 */
+/** 扫描全部 frame，断言 composer 占位符文案包含 expectPlaceholder。 */
 async function waitForPlaceholder(page, expectPlaceholder, timeoutMs) {
   const start = Date.now()
+  lastPlaceholderSeen = null
   while (Date.now() - start < timeoutMs) {
     for (const f of page.frames()) {
       if (!isLiveFrame(f)) continue
       try {
         const v = await bounded(
-          f.evaluate(() => document.getElementById('input')?.getAttribute('placeholder') ?? null),
+          f.evaluate(
+            () =>
+              document.querySelector('#input ~ .lexical-placeholder, .lexical-placeholder')?.textContent ??
+              document.getElementById('input')?.getAttribute('placeholder') ??
+              null,
+          ),
           'waitForPlaceholder evaluate',
         )
+        if (typeof v === 'string' && v !== '') lastPlaceholderSeen = v
         if (typeof v === 'string' && v.includes(expectPlaceholder)) return true
       } catch (e) {
         rethrowWatchdog(e)
@@ -934,6 +1150,9 @@ try {
     console.warn(frameSnapshot(page))
   }
 
+  /** 上一项是「只 dragenter」的遮罩场景：截图后补一次 dragleave 收尾。 */
+  let dragLeavePending = false
+
   // 单轮重试：有项 fail 时把 fail 项整轮自动重跑一次（冷启动/时序竞速类失败重跑即过）。
   let round = run
   for (let attempt = 1; attempt <= 2 && round.length; attempt++) {
@@ -951,6 +1170,15 @@ try {
         await bounded((async () => {
           const { chat, source } = await newChatAndGetFrame(page)
           notes.push(`新建会话：${source}`)
+          if (driver.seedSessionCwd) {
+            try {
+              const dir = await seedSessionCwd(driver.seedSessionCwd)
+              notes.push(`已铺会话 cwd 样例：${[].concat(driver.seedSessionCwd.files ?? []).join('、')}（${dir}）`)
+            } catch (e) {
+              result = 'fail'
+              notes.push(`seedSessionCwd 失败：${e.message}`)
+            }
+          }
           if (driver.fillSlash !== undefined) {
             // 填入但不发送：触发 slash 补全弹窗，供 expectPopup 断言弹窗内容。
             await fillComposer(page, driver.fillSlash)
@@ -986,11 +1214,76 @@ try {
               notes.push(`等待 ${PENDING_TIMEOUT / 1000}s 面板按钮未出现`)
             }
           }
+          // 追加发送（extraPrompts）：第一条 prompt 之后接着发的消息——走 Enter
+          // （运行中即进队列；点发送按钮在运行中是打断，见 sendPromptByEnter）。
+          for (const extra of [].concat(driver.extraPrompts ?? [])) {
+            await sleep(Number(driver.extraPromptDelayMs ?? 400))
+            await sendPromptByEnter(page, extra)
+            notes.push(`追加发送（Enter，运行中进队列）：${JSON.stringify(extra)}`)
+          }
+          // 前置条件：追加的消息确实进了队列——没有它，后面「队列被清空」的断言
+          // 在什么都没排队时也会通过（假绿）。
+          if (driver.expectQueuedBeforeKeys) {
+            const needle = String(driver.expectQueuedBeforeKeys)
+            const ok = await waitForSelectorAnywhere(page, '.queue-item', needle, 30_000)
+            notes.push(ok ? `前置：追加消息已进队列（.queue-item 含「${needle}」）` : `前置不成立：.queue-item 里没有「${needle}」`)
+            if (!ok) {
+              result = 'fail'
+              notes.push('expectQueuedBeforeKeys：追加消息没进队列，后续「清空队列」断言无意义')
+            }
+          }
+          // 手势键（keys）与合成拖拽（dropFiles）都放在发送之后：这样它们既能在
+          // 「只填不发」的场景里作用于 composer，也能落在「跑起来之后」的时机上。
+          if (driver.keysUntil) {
+            const ku = driver.keysUntil
+            const ok = await pressUntilSelector(page, String(ku.key), String(ku.selector), Number(ku.max ?? 20))
+            notes.push(ok ? `按键导航到目标行：${ku.selector}（${ku.key} × N）` : `按键导航失败：${ku.max ?? 20} 次 ${ku.key} 后仍无 ${ku.selector}`)
+            if (!ok) {
+              result = 'fail'
+              notes.push(`keysUntil：按 ${ku.key} 到不了 ${ku.selector}`)
+            }
+          }
+          if (driver.keys) {
+            await pressComposerKeys(page, [].concat(driver.keys))
+            notes.push(`composer 按键：${[].concat(driver.keys).join(' + ')}`)
+          }
+          if (driver.dropFiles) {
+            const dropped = await dropFilesOnChat(page, driver.dropFiles, driver.dropFilesDragOnly)
+            notes.push(`合成拖拽${driver.dropFilesDragOnly ? '（只 dragenter，不 drop）' : ''}：${dropped.join('、')}`)
+            // 附件链路是 webview → 宿主落盘 → 回投 chips，等一拍再断言。
+            await sleep(1500)
+          }
+          if (driver.expectSelector) {
+            const spec = driver.expectSelector
+            const selector = typeof spec === 'string' ? spec : spec.selector
+            const needle = typeof spec === 'string' ? null : (spec.text ?? null)
+            const ok = await waitForSelectorAnywhere(page, selector, needle, 30_000)
+            notes.push(
+              ok
+                ? `选择器命中：${selector}${needle === null ? '' : `（含「${needle}」）`}`
+                : `选择器未命中：${selector}${needle === null ? '' : `（含「${needle}」）`}`,
+            )
+            if (!ok) {
+              result = 'fail'
+              notes.push(`expectSelector 断言失败：${selector}`)
+            }
+          }
+          if (driver.absentSelector) {
+            const ok = await selectorAbsentEverywhere(page, driver.absentSelector)
+            notes.push(ok ? `选择器已消失：${driver.absentSelector}` : `选择器仍在：${driver.absentSelector}`)
+            if (!ok) {
+              result = 'fail'
+              notes.push(`absentSelector 断言失败：${driver.absentSelector}`)
+            }
+          }
           if (driver.expectText) {
             const ok = await waitForText(page, driver.expectText, EXPECT_TEXT_TIMEOUT)
             if (!ok) {
               result = 'fail'
-              notes.push(`断言超时（${EXPECT_TEXT_TIMEOUT / 1000}s）：预期文本「${driver.expectText}」未出现`)
+              notes.push(
+                `断言超时（${EXPECT_TEXT_TIMEOUT / 1000}s）：预期文本「${[].concat(driver.expectText).join('、')}」未出现` +
+                  (lastTextMiss.length ? `（缺：${lastTextMiss.join('、')}）` : ''),
+              )
             }
           }
           if (driver.fillDraft) {
@@ -1084,7 +1377,7 @@ try {
           }
           if (driver.expectPlaceholder) {
             const ok = await waitForPlaceholder(page, driver.expectPlaceholder, 30_000)
-            notes.push(ok ? `占位符命中：${driver.expectPlaceholder}` : `占位符不含：${driver.expectPlaceholder}`)
+            notes.push(ok ? `占位符命中：${driver.expectPlaceholder}` : `占位符不含：${driver.expectPlaceholder}（实际：${lastPlaceholderSeen ?? '（读不到占位符）'}）`)
             if (!ok) {
               result = 'fail'
               notes.push('expectPlaceholder：composer 占位符断言失败')
@@ -1098,6 +1391,9 @@ try {
             extraShots.push(...rc.shots)
             if (!rc.ok) result = 'fail'
           }
+          // 拖拽遮罩项收尾：断言都在遮罩还在时做完，截图也留在遮罩态；截完这一项
+          // 由调用方补一次 dragleave，免得遮罩残到后面几项的画面里。
+          if (driver.dropFiles && driver.dropFilesDragOnly) dragLeavePending = true
         })(), `条目 ${id} 整体执行`, ITEM_HARD_TIMEOUT)
       } catch (err) {
         result = 'fail'
@@ -1112,6 +1408,11 @@ try {
         await page.screenshot({ path: shotPath })
       } catch (e) {
         notes.push(`截图失败：${e.message}`)
+      }
+
+      if (dragLeavePending) {
+        await dragLeaveOnChat(page)
+        dragLeavePending = false
       }
 
       // 写回 ledger

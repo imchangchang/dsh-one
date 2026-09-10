@@ -675,6 +675,23 @@ export interface ChatState {
    * webview 回退到内置静态表（0.1.1 时代行为）。
    */
   slashCommands?: Array<{ name: string; description: string; hint?: string }>
+  /**
+   * 会话的 skill 名录（宿主 skills/list）：官方 `/` 补全的第二路候选源
+   * （dsh-client-ui-skill），与命令同名空间、同一条 `/name ` 插入格式。
+   * 缺省 = 宿主没有该端点（0.1.1）或拉取失败，补全退到只有命令。
+   */
+  skills?: Array<{ name: string; description: string; modelInvocable: boolean }>
+  /**
+   * 会话的图片入站上限（宿主 `imageLimits` 投影）：webview 在粘贴/拖拽入站前
+   * 用它过闸（张数 / 单张字节 / 本条总字节），与官方 dsh web 的 intakeImages
+   * 同一顺序。缺省 = 投影未到达（legacy 会话），入站不过闸。
+   */
+  imageLimits?: {
+    maxImageBytes: number
+    maxImagesPerMessage: number
+    maxMessageImageBytes: number
+    mediaTypes: string[]
+  }
   /** Footer session-stats line, host-formatted (src/pure/sessionStats.ts); rendered verbatim. */
   statsLine?: string
   /**
@@ -978,6 +995,11 @@ export type ToWebviewMessage =
       /** Admission outcome; unmatched commands are 'error'. */
       kind?: 'success' | 'error'
     }
+  /**
+   * 宿主侧一次性提示（插话失败一类宿主才发现的问题）：webview 追加成流尾
+   * 提示行，与图片闸、粘贴超限那些本地提示同一个出口。
+   */
+  | { type: 'notice'; text: string }
   /** commit hash 查询结果回传（见 webview commitInfo 请求）：按 sha 点亮/灰显 chip 并填悬浮 title。 */
   | { type: 'commitInfo'; results: CommitInfoResult[] }
   /** @ 补全的文件/文件夹候选响应；requestId 回声，过期的响应由 webview 丢弃。 */
@@ -1072,6 +1094,11 @@ export type FromWebviewMessage =
   | { type: 'renameSession'; title: string }
   | { type: 'queueEdit'; itemId: string; text: string }
   | { type: 'queueSteer'; itemId: string }
+  /**
+   * 把当前所有排队消息一次插话进运行中的回合：空草稿按 ⌘/Ctrl+Enter 的手势
+   * （对齐官方 steerQueue）。逐条 FIFO 严格插话，正常竞态静默收敛。
+   */
+  | { type: 'queueSteerAll' }
   | { type: 'queueRemove'; itemId: string }
   /**
    * 撤销一条等待插话的 steering 消息（↑ 键首选动作）：宿主从 inbox 移除该项，
