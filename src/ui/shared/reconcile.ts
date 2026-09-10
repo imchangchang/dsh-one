@@ -9,7 +9,8 @@
  *
  * key 语义由各调用方自定（chat 用 `msg:${id}` / `wf:${runId}` / `steer:${id}`，
  * 侧栏用 `ws:${workspaceId}` / `tag:${tagId}` / `s:${sessionId}`），稳定即可：
- * 不能用位置下标（补页/重排会错位）。
+ * 不能用位置下标（补页/重排会错位）。期望项之间 key 必须互不相同——重复 key
+ * 由本模块去重兜底（按出现序加 `#n` 后缀），不再让后来的项被静默丢掉。
  */
 export interface ReconcileItem {
   key: string
@@ -28,16 +29,37 @@ export interface ReconcileItem {
   dispose?: (el: HTMLElement) => void
 }
 
+/**
+ * 期望项 → 「实际使用的 key」：重复 key 按出现序加后缀（第一个不带、第 n 个
+ * `#n`）。key 撞车（上游给了重复的消息 id）时若照旧把所有项映射到同一个
+ * `data-flow-key`，DOM 里只会留一个孩子、另一项的内容被尾部清理静默删掉
+ * （#11 R1 的丢行机制）。加后缀后每项各占一行：重复 key 不再吞内容，且同一
+ * 期望序列每帧解析结果一致 → 元素跨帧仍被复用。
+ */
+function resolveKeys(items: readonly ReconcileItem[]): Array<{ item: ReconcileItem; key: string }> {
+  const seen = new Map<string, number>()
+  return items.map((item) => {
+    const n = seen.get(item.key)
+    if (n === undefined) {
+      seen.set(item.key, 1)
+      return { item, key: item.key }
+    }
+    seen.set(item.key, n + 1)
+    return { item, key: `${item.key}#${n}` }
+  })
+}
+
 export function reconcileChildren(container: HTMLElement, items: ReconcileItem[]): void {
+  const resolved = resolveKeys(items)
   const byKey = new Map<string, Element>()
   for (const child of Array.from(container.children)) {
     const k = child.getAttribute('data-flow-key')
     if (k && !byKey.has(k)) byKey.set(k, child)
   }
   const itemByKey = new Map<string, ReconcileItem>()
-  for (const item of items) itemByKey.set(item.key, item)
+  for (const { item, key } of resolved) itemByKey.set(key, item)
   let next: Element | null = container.firstElementChild
-  for (const item of items) {
+  for (const { item, key } of resolved) {
     // 跳过（并移除）指针位置上的残留行——不在期望流里（older 关闭、turn-status
     // 结束、steering 落地等）。不清掉它们，后续每个留在原位之后的元素都会被
     // 「挪一位」处理成 move（低效且制造大量 childList 变更）。
@@ -49,7 +71,7 @@ export function reconcileChildren(container: HTMLElement, items: ReconcileItem[]
       victim.remove()
       if (k !== null) itemByKey.get(k)?.dispose?.(victim)
     }
-    const el = byKey.get(item.key)
+    const el = byKey.get(key)
     if (el) {
       if (item.same) {
         // 顺序修正（罕见）：元素在但位置不对 → 挪到正确位置。
@@ -62,7 +84,7 @@ export function reconcileChildren(container: HTMLElement, items: ReconcileItem[]
         next = el.nextElementSibling
       } else {
         const fresh = item.create()
-        fresh.setAttribute('data-flow-key', item.key)
+        fresh.setAttribute('data-flow-key', key)
         container.insertBefore(fresh, next)
         el.remove()
         item.dispose?.(el as HTMLElement)
@@ -70,7 +92,7 @@ export function reconcileChildren(container: HTMLElement, items: ReconcileItem[]
       }
     } else {
       const fresh = item.create()
-      fresh.setAttribute('data-flow-key', item.key)
+      fresh.setAttribute('data-flow-key', key)
       container.insertBefore(fresh, next)
       next = fresh.nextElementSibling
     }
