@@ -647,6 +647,17 @@ export interface ChatState {
    * webview 回退到内置静态表（0.1.1 时代行为）。
    */
   slashCommands?: Array<{ name: string; description: string; hint?: string }>
+  /**
+   * 会话的图片入站上限（宿主 `imageLimits` 投影）：webview 在粘贴/拖拽入站前
+   * 用它过闸（张数 / 单张字节 / 本条总字节），与官方 dsh web 的 intakeImages
+   * 同一顺序。缺省 = 投影未到达（legacy 会话），入站不过闸。
+   */
+  imageLimits?: {
+    maxImageBytes: number
+    maxImagesPerMessage: number
+    maxMessageImageBytes: number
+    mediaTypes: string[]
+  }
   /** Footer session-stats line, host-formatted (src/pure/sessionStats.ts); rendered verbatim. */
   statsLine?: string
   /**

@@ -75,6 +75,12 @@ import {
 } from '../../pure/activityTree.ts'
 import { attachmentBaseName, attachmentDataUrl, isImageMediaType, isImagePath, shouldFoldPastText, splitAttachmentLines } from '../../pure/composerAttachment.ts'
 import {
+  base64Bytes,
+  formatBytes,
+  imageIntakeRejection,
+  type ImageIntakeRejection,
+} from '../../pure/imageIntake.ts'
+import {
   SETTLE_IDLE_MS,
   archiveScrollPosition,
   isAtBottom,
@@ -6650,6 +6656,172 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
   return chip
 }
 
+/* ------------------------------------------------------------------ *
+ * 附件入站（粘贴 / 拖拽）：一条闸 + 一条落盘链路。
+ * ------------------------------------------------------------------ */
+
+/** composer 里已 staged 的图片张数与字节数（闸的「本条消息已有量」一侧）。 */
+function stagedImageStats(): { count: number; bytes: number } {
+  let count = 0
+  let bytes = 0
+  for (const f of pendingFiles) {
+    if (!f.image) continue
+    count += 1
+    if (f.previewData) bytes += base64Bytes(f.previewData)
+  }
+  for (const img of pendingImages) {
+    count += 1
+    bytes += base64Bytes(img.data)
+  }
+  return { count, bytes }
+}
+
+/** 闸的拒绝原因 → 用户可读文案（对齐官方 image.tooMany / fileTooLarge / totalTooLarge）。 */
+function imageIntakeNotice(rejection: ImageIntakeRejection): string {
+  switch (rejection.reason) {
+    case 'tooMany':
+      return t('A message can include up to {0} images', rejection.max)
+    case 'fileTooLarge':
+      return t('Each image must be smaller than {0}', formatBytes(rejection.maxBytes))
+    case 'totalTooLarge':
+      return t('Images exceed {0} in total; remove some and try again', formatBytes(rejection.maxBytes))
+  }
+}
+
+/** 入站批次里 0 字节且无类型的项（拖文件夹的典型形态，读不出内容也无从附加）。 */
+function unreadableIntakeEntry(file: File): boolean {
+  return file.size === 0 && file.type === ''
+}
+
+/**
+ * 粘贴 / 拖拽文件统一入站：先过图片闸（张数 / 单张字节 / 本条总字节），
+ * 再把每个文件读成 base64 交宿主落盘，宿主回投 `filesPicked` 后变成附件
+ * chip。与官方 dsh web 的 `intakeImages` 同一判定顺序，但闸只拦图片
+ * ——非图片文件在我们管线里落成 path chip，不进模型图像部分。
+ */
+function intakeAttachmentFiles(files: readonly File[]): void {
+  const usable = files.filter((file) => !unreadableIntakeEntry(file))
+  if (usable.length === 0) return
+  const staged = stagedImageStats()
+  const rejection = imageIntakeRejection(
+    usable.map((file) => ({ name: file.name, mediaType: file.type, bytes: file.size })),
+    staged.count,
+    staged.bytes,
+    state?.imageLimits,
+  )
+  if (rejection) {
+    // 拒绝时不动 composer：已 staged 的附件保留，用户按提示自行删减后重试。
+    commandNotices = [...commandNotices, imageIntakeNotice(rejection)]
+    render()
+    return
+  }
+  void (async () => {
+    const outgoing: OutgoingImage[] = []
+    for (const [i, file] of usable.entries()) {
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(file)
+        })
+        const comma = dataUrl.indexOf(',')
+        outgoing.push({
+          mediaType: file.type,
+          data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
+          name: file.name || `pasted-${Date.now()}-${i + 1}`,
+        })
+      } catch {
+        // Unreadable clipboard/dropped item: skip it, keep the rest.
+      }
+    }
+    if (outgoing.length > 0) post({ type: 'filesPasted', files: outgoing })
+  })()
+}
+
+/**
+ * 附件拖拽入站（对齐官方 dsh-client-ui-attachment）：监听挂在 document 上
+ * ——拖到面板任何位置都收，与输入框是否聚焦无关。认文件拖拽靠
+ * `dataTransfer.types.includes('Files')`；纯文本拖拽不拦（不 preventDefault），
+ * 交浏览器默认行为（拖进编辑器即插文本）。dragenter/dragleave 用深度计数，
+ * 子元素间穿梭不会闪断遮罩；drop 必须 preventDefault，否则 Chromium 会把
+ * 文件当导航打开。
+ */
+let dragDepth = 0
+let dropOverlayEl: HTMLElement | null = null
+
+function fileDragOf(event: DragEvent): DataTransfer | null {
+  const dt = event.dataTransfer
+  if (!dt || !Array.from(dt.types).includes('Files')) return null
+  return dt
+}
+
+/** 拖拽可接收位：会话可发送且模型可用（与粘贴/选择同一条门控）。 */
+function canAcceptDrop(): boolean {
+  return state?.canSend === true && state?.modelAvailable !== false
+}
+
+function showDropOverlay(): void {
+  const accepting = canAcceptDrop()
+  if (!dropOverlayEl) {
+    const overlay = el('div', 'drop-overlay')
+    overlay.setAttribute('role', 'status')
+    const box = el('div', 'drop-box')
+    box.appendChild(el('div', 'drop-title', t('Drop files here to attach')))
+    box.appendChild(el('div', 'drop-desc', ''))
+    overlay.appendChild(box)
+    document.body.appendChild(overlay)
+    dropOverlayEl = overlay
+  }
+  dropOverlayEl.classList.toggle('disabled', !accepting)
+  const desc = dropOverlayEl.querySelector('.drop-desc')
+  const limits = state?.imageLimits
+  if (desc) {
+    desc.textContent = accepting
+      ? limits
+        ? t('Up to {0} images, {1} each', limits.maxImagesPerMessage, formatBytes(limits.maxImageBytes))
+        : ''
+      : t('Service is not ready; cannot send right now')
+  }
+}
+
+function hideDropOverlay(): void {
+  dragDepth = 0
+  dropOverlayEl?.remove()
+  dropOverlayEl = null
+}
+
+document.addEventListener('dragenter', (event) => {
+  if (!fileDragOf(event)) return
+  event.preventDefault()
+  dragDepth += 1
+  showDropOverlay()
+})
+document.addEventListener('dragover', (event) => {
+  const dt = fileDragOf(event)
+  if (!dt) return
+  event.preventDefault()
+  dt.dropEffect = canAcceptDrop() ? 'copy' : 'none'
+})
+document.addEventListener('dragleave', (event) => {
+  if (!fileDragOf(event)) return
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) hideDropOverlay()
+})
+document.addEventListener('drop', (event) => {
+  const dt = fileDragOf(event)
+  if (!dt) return
+  event.preventDefault()
+  const files = Array.from(dt.files)
+  hideDropOverlay()
+  if (!canAcceptDrop()) return
+  intakeAttachmentFiles(files)
+  // 拖入后光标落到输入框：接上「拖完继续说」的手感（与粘贴一致）。
+  activeComposer?.focus(true)
+})
+// 拖出窗口（未落点）时 dragleave 可能收不到：window 的 dragend 兜底复位。
+window.addEventListener('dragend', hideDropOverlay)
+
 function renderInput(draft: string | undefined, hero = false): HTMLElement {
   const wrap = el('div', 'input-area')
   const canSend = !!state?.canSend
@@ -6951,8 +7123,12 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   const onPaste = (event: ClipboardEvent): boolean => {
     // Every clipboard file becomes an attachment, images or not — the host
     // sniffs the bytes, so a missing declared type (macOS file promises) is fine.
-    const items = Array.from(event.clipboardData?.items ?? []).filter((item) => item.kind === 'file')
-    if (items.length === 0) {
+    // 图片先过入站闸（intakeAttachmentFiles），非图片文件不受图片闸管。
+    const files = Array.from(event.clipboardData?.items ?? [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null)
+    if (files.length === 0) {
       // 会话 mention 粘贴优先（canonical 转显示 token）；长文本折叠为文件附件；
       // 都未命中时默认插入（registerPlainText）。
       if (pasteSessionMentions(composer, event)) return true
@@ -6960,30 +7136,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       return false
     }
     event.preventDefault()
-    void (async () => {
-      const files: OutgoingImage[] = []
-      for (const [i, item] of items.entries()) {
-        const file = item.getAsFile()
-        if (!file) continue
-        try {
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve(String(reader.result))
-            reader.onerror = () => reject(reader.error)
-            reader.readAsDataURL(file)
-          })
-          const comma = dataUrl.indexOf(',')
-          files.push({
-            mediaType: file.type || item.type,
-            data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
-            name: file.name || `pasted-${Date.now()}-${i + 1}`,
-          })
-        } catch {
-          // Unreadable clipboard item: skip it, keep the rest.
-        }
-      }
-      if (files.length > 0) post({ type: 'filesPasted', files })
-    })()
+    intakeAttachmentFiles(files)
     return true
   }
 

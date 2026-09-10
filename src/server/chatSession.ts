@@ -497,6 +497,10 @@ export class ChatSessionController implements vscode.Disposable {
         ? { agentPreset: { options: this.agentPresetOptions, current: this.agentPresetCurrent } }
         : {}),
       ...(this.slashCommands !== undefined ? { slashCommands: this.slashCommands } : {}),
+      // 图片入站上限（imageLimits 投影值）：webview 靠它在粘贴/拖拽入站前过闸。
+      ...(this.imageLimits !== undefined
+        ? { imageLimits: { ...this.imageLimits, mediaTypes: [...this.imageLimits.mediaTypes] } }
+        : {}),
     }
   }
 
@@ -1762,7 +1766,11 @@ export class ChatSessionController implements vscode.Disposable {
           }
           case 'imageLimits': {
             const limits = asImageLimits(payload.value)
-            if (limits) this.imageLimits = limits
+            if (limits) {
+              this.imageLimits = limits
+              // 首次到达/变化都要推一帧：webview 的入站闸读的是快照里的 imageLimits。
+              this.push(true)
+            }
             return
           }
           case 'contextPressure': {

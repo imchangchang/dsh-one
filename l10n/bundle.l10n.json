@@ -528,5 +528,10 @@
   "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath(\"session-query.sqlite\")\n    openAt: first-search": "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath(\"session-query.sqlite\")\n    openAt: first-search",
   "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\\n- id: session-query-sqlite\\n  config:\\n    path: !!js dshHomePath(\"session-query.sqlite\")\\n    openAt: first-search": "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath(\"session-query.sqlite\")\n    openAt: first-search",
   "Loading image…": "Loading image…",
-  "Open image in editor": "Open image in editor"
+  "Open image in editor": "Open image in editor",
+  "Drop files here to attach": "Drop files here to attach",
+  "Up to {0} images, {1} each": "Up to {0} images, {1} each",
+  "A message can include up to {0} images": "A message can include up to {0} images",
+  "Each image must be smaller than {0}": "Each image must be smaller than {0}",
+  "Images exceed {0} in total; remove some and try again": "Images exceed {0} in total; remove some and try again"
 }
