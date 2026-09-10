@@ -1367,6 +1367,119 @@
       expect: '输入框（编辑器）文本为空，仅显示浅灰占位符「Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc clears input first, then interrupts」；文本流里没有任何 @token 高亮节点残留发送前的「等等，先停下，看看状态。」；主按钮显示停止图标（运行中）；无消息流之外的异常浮层。',
     },
 
+    // #52 S1 本地乐观占位：mock 宿主不响应 post，第一步的占位会一直挂着（正是
+    // 要截的状态）；第二步人工推一帧含真身的 state 模拟宿主回流，占位应原位消失、
+    // 只剩真身（不重复、不残留）。三步场景各截一张 <scenario>-<step>.png。
+    'optimistic-echo-queued': {
+      state: base({ running: true }),
+      interactSteps: [
+        {
+          name: 'sent',
+          script: `(() => {
+            const i = document.getElementById('input')
+            if (!i) return
+            i.focus()
+            i.value = '先别动，等我把日志贴完。'
+            i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+          })()`,
+        },
+        {
+          name: 'landed',
+          script: `(() => {
+            const base = window.SCENARIOS['optimistic-echo-queued'].state
+            window.postMessage({
+              type: 'state',
+              state: { ...base, queue: [{ id: 'q-landed', placement: 'queued', text: '先别动，等我把日志贴完。', editText: '先别动，等我把日志贴完。', seq: 1 }] },
+            }, '*')
+          })()`,
+        },
+      ],
+      title: '乐观占位：运行中回车排队（sent）/ 宿主回流后（landed）',
+      expect: '第一张（sent）：输入框已清空；输入区上方出现一条排队行，内容为「Queued + 先别动，等我把日志贴完。」，行内右侧是转圈、**没有** Steer/Edit/Delete 操作入口（本地占位还没有宿主 itemId）；消息流里没有这条文本的重复气泡；主按钮是停止图标（运行中）。第二张（landed）：真排队项到达后仍只有**一条**排队行（占位已原位撤掉、没重复），操作入口变成 Steer/Edit/Delete 且转圈消失；输入框保持空。',
+    },
+
+    'optimistic-echo-steering': {
+      state: base({ running: true }),
+      interactSteps: [
+        {
+          name: 'sent',
+          script: `(() => {
+            const i = document.getElementById('input')
+            if (!i) return
+            i.focus()
+            i.value = '停一下，先回答我这个问题。'
+            i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }))
+          })()`,
+        },
+        {
+          name: 'landed',
+          script: `(() => {
+            const base = window.SCENARIOS['optimistic-echo-steering'].state
+            window.postMessage({
+              type: 'state',
+              state: { ...base, queue: [{ id: 's-landed', placement: 'steering', text: '停一下，先回答我这个问题。', editText: '停一下，先回答我这个问题。', seq: 1 }] },
+            }, '*')
+          })()`,
+        },
+      ],
+      title: '乐观占位：⌘Enter 插话（sent）/ 宿主回流后（landed）',
+      expect: '第一张（sent）：输入框已清空；消息流末尾（turn-status 转圈行之后）出现一条插话等待气泡——内容「停一下，先回答我这个问题。」，气泡左侧是处理中圆圈；没有第二条重复气泡；输入区上方**不出现**排队行（插话不排队）。第二张（landed）：宿主回流的真插话气泡接管同一位置，仍是**一条**气泡（不重复）；消息流其余部分未变。',
+    },
+
+    'optimistic-echo-turn': {
+      state: base({ running: false }),
+      interactSteps: [
+        {
+          name: 'sent',
+          script: `(() => {
+            const i = document.getElementById('input')
+            if (!i) return
+            i.focus()
+            i.value = '接着刚才的架构，再补充一段。'
+            i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+          })()`,
+        },
+        {
+          name: 'failed',
+          script: `window.postMessage({ type: 'restoreDraft', text: '接着刚才的架构，再补充一段。' }, '*')`,
+        },
+      ],
+      title: '乐观占位：空闲发送（sent）/ 发送失败回填草稿（failed）',
+      expect: '第一张（sent）：输入框已清空；消息流末尾出现一条用户气泡「接着刚才的架构，再补充一段。」+ 气泡左侧处理中圆圈（本地占位）；输入区上方不出现排队行；不可出现第二条相同文本的气泡。第二张（failed）：发送失败宿主回填草稿后，本地占位气泡**消失**（消息流里不再有这条文本的占位气泡），文本回到输入框里、光标在输入框内。',
+    },
+
+    // #52 W3 展开态按会话隔离：工具卡展开后切到别的会话（内容整列重建、组件
+    // 卸载），再切回来必须还是展开的。三步各截一张。
+    'expand-state-survives-switch': {
+      state: base({
+        messages: [
+          u('查一下这几个服务的健康状态。'),
+          at('开始健康检查。', [
+            toolBlock({
+              name: 'bash', title: 'bash', detail: 'curl /health',
+              output: 'gateway ok (12ms)\nauth ok (31ms)\nbilling timeout (88ms)',
+            }),
+          ]),
+        ],
+      }),
+      interactSteps: [
+        { name: 'expanded', script: `document.querySelector('.tool-disclosure summary')?.click()` },
+        {
+          name: 'away',
+          script: `window.postMessage({
+            type: 'state',
+            state: { ...window.SCENARIOS['expand-state-survives-switch'].state, sessionId: 'sess-2', sessionTitle: '另一个会话', messages: [] },
+          }, '*')`,
+        },
+        {
+          name: 'back',
+          script: `window.postMessage({ type: 'state', state: window.SCENARIOS['expand-state-survives-switch'].state }, '*')`,
+        },
+      ],
+      title: '展开态跨会话保留：展开工具卡 → 切走 → 切回',
+      expect: '第一张（expanded）：工具卡（Ran a command bash / curl /health）展开，OUT 区显示三行输出文本，summary 右侧 chevron 朝上。第二张（away）：已切到 sess-2——渲染空会话 hero（居中「Describe what you want to build」输入占位），**不出现** sess-1 的消息与那条工具卡。第三张（back）：切回 sess-1 后那条工具卡**仍然是展开的**（OUT 区三行输出可见、chevron 朝上），不是折叠态；消息内容与第一张一致。',
+    },
+
     subagents: {
       state: base({ subagents: [{ sessionId: 'sub-1', title: '子代理 A', running: true, updatedAt: Date.now(), children: [{ sessionId: 'sub-1-1', title: '孙代理', running: false, updatedAt: Date.now() }] }] }),
       title: '子代理下拉',
@@ -4879,6 +4992,8 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'draft-restore-blank-hero', 'draft-restore-with-files', 'draft-restore-question',
     'restore-draft-stop', 'recall-queue-row', 'recall-history-images', 'recall-unsteer-session',
     'at-menu-pending-and-drill',
+    'optimistic-echo-queued', 'optimistic-echo-steering', 'optimistic-echo-turn',
+    'expand-state-survives-switch',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()

@@ -1248,6 +1248,9 @@ window.addEventListener('message', (event) => {
       stagedForSession = state.sessionId
       draftRestoreFor = state.sessionId
     }
+    // 宿主回流后的占位对账（命中即撤；换会话/超时同样作废）——必须在 render 前，
+    // 否则这一帧会同时画出占位与真身。
+    reconcilePendingEchoes(state)
     render()
     // 切换帧强制重报脏位（host 替换 tab 时会把脏位归零，同值比较会漏报）。
     if (switched) reportComposerDirty(true)
@@ -1345,12 +1348,17 @@ window.addEventListener('message', (event) => {
     // 提交后用户又打了字就不当场覆盖，等输入框空下来再按提交顺序拼回；多次失败
     // 之间用空行分隔，形态与当初输入的一致（B-21）。
     const { text: splitText, files: splitFiles } = splitAttachmentLines(msg.text)
+    const restoredText = restoreRecallMentions(splitText)
+    // 发送失败 / stop 抽干队列会把文本回填 composer：对应的本地占位就此作废
+    // （否则「正在发送」的占位与回填的草稿会同时挂着——#52 S1）。
+    const echoDropped = dropPendingEcho(echoBasis(msg.text))
     detachedDrafts.push({
-      text: restoreRecallMentions(splitText),
+      text: restoredText,
       images: Array.isArray(msg.images) ? msg.images : [],
       files: [...splitFiles, ...(Array.isArray(msg.files) ? msg.files : [])],
     })
     flushFailedDrafts()
+    if (echoDropped) render()
     // 发送失败的回填不一定经过 render（stashedDraft 路径），这里兜一次落盘调度（#14）。
     scheduleDraftSave()
   } else if (msg?.type === 'fileRefList') {
@@ -3287,9 +3295,12 @@ function render(): void {
   const oldQueue = chatCol.querySelector<HTMLElement>('.composer-seat > .queue')
   const queueFocusInside =
     oldQueue !== null && oldQueue.contains(document.activeElement)
+  // 本地占位（#52 S1）也算队列内容：占位出现/消失必须驱动 queue 容器重建，
+  // 否则 keepQueue 会把不含占位的旧容器原样留下。
+  const queuedEchoIds = state ? sessionEchoes(state.sessionId).filter((e) => e.placement === 'queued').map((e) => e.id) : []
   const queueSig =
-    state && (state.queue?.length ?? 0) > 0
-      ? JSON.stringify([state.sessionId, editingQueueItem, state.queue ?? []])
+    state && ((state.queue?.length ?? 0) > 0 || queuedEchoIds.length > 0)
+      ? JSON.stringify([state.sessionId, editingQueueItem, state.queue ?? [], queuedEchoIds])
       : null
   const keepQueue =
     oldQueue !== null &&
@@ -3766,7 +3777,9 @@ function render(): void {
     }
   }
 
-  if (queuedItems.length > 0) {
+  // 已回流（?）未回流的本地占位排在真排队项之后——发送顺序恒在已排队者之后。
+  const queuedEchoes = sessionEchoes(state.sessionId).filter((echo) => echo.placement === 'queued')
+  if (queuedItems.length > 0 || queuedEchoes.length > 0) {
     if (editingQueueItem && !queuedItems.some((item) => item.id === editingQueueItem)) editingQueueItem = null
     // keepQueue 时 queue 容器原位保留（编辑器输入不被流式快照打断）。
     if (keepQueue && oldQueue !== null) {
@@ -3775,8 +3788,8 @@ function render(): void {
       const queue = el('div', 'queue')
       // 多条排队折叠成计数 header（对齐 dsh web QueueDock：>1 条才出现折叠 header）：
       // 编辑/插话/删除等操作入口随列表一起藏进展开态；单条保持一行内联。
-      if (queuedItems.length === 1) {
-        queue.appendChild(renderQueueItem(queuedItems[0]))
+      if (queuedItems.length + queuedEchoes.length === 1) {
+        queue.appendChild(queuedItems.length === 1 ? renderQueueItem(queuedItems[0]) : renderEchoQueueItem(queuedEchoes[0]))
       } else {
         const det = detailsEl('queue', 'queue-dock', '')
         // 编辑态（编辑器在列表里）必须展开，否则保存/取消入口被折叠藏掉。
@@ -3785,9 +3798,12 @@ function render(): void {
         const chev = iconSvg(PANEL_ICONS.chevronUp, 14)
         chev.classList.add('queue-chevron')
         summary.appendChild(chev)
-        summary.appendChild(el('span', 'queue-dock-count', t('{0} queued messages', queuedItems.length)))
+        summary.appendChild(
+          el('span', 'queue-dock-count', t('{0} queued messages', queuedItems.length + queuedEchoes.length)),
+        )
         const list = el('div', 'queue-dock-list')
         for (const item of queuedItems) list.appendChild(renderQueueItem(item))
+        for (const echo of queuedEchoes) list.appendChild(renderEchoQueueItem(echo))
         det.appendChild(list)
         queue.appendChild(det)
       }
@@ -4407,6 +4423,157 @@ let commandReceiptSeq = 0
  *  （否则鼠标不动就永久丢失）；msgKey 定位行（renderMessage 的 key = 消息 id），
  *  path 为 ref chip 的 data-ref-path。mouseleave / 命中无对应行时清空。 */
 let refHoverCache: { msgKey: string; path: string } | null = null
+
+/**
+ * 本地乐观占位（#52 S1）：发送/排队/插话都要等宿主往返（几百 ms ~ 秒级）才会
+ * 以排队项或用户消息的形式回流，此前界面毫无反应。这里在 post({type:'send'})
+ * 的同一帧先插一条本地占位（形态与回流后的真身一致），宿主快照一到就撤掉——
+ * 观感就是「回车立即出现、随后原位替换」。
+ *
+ * placement 按宿主落点定：运行中回车 = 排队（输入区上方的 queue dock）、
+ * ⌘Enter = 插话（对话流尾部）、空闲发送 = 直接进对话流。
+ */
+interface PendingEcho {
+  id: string
+  /** 发送时所在会话；会话切走即作废（宿主回流按会话路由，占位不该跟过去）。 */
+  sessionId: string | null
+  /** 发送时展开 mention 后的完整文本（含 <attachment> 行），与宿主回流的同一份。 */
+  text: string
+  /** 刚发出去的图片（composer 原件，字节还在内存里；还没有 attachmentId）。 */
+  images?: OutgoingImage[]
+  files?: StagedFile[]
+  placement: 'queued' | 'steering' | 'turn'
+  /** 入队时刻（兜底超时用）。 */
+  at: number
+}
+
+let pendingEchoes: PendingEcho[] = []
+let pendingEchoSeq = 0
+
+/**
+ * 占位兜底存活上限：宿主既回流也不回 restoreDraft（RPC 挂住/面板已拆）时，
+ * 不让「正在发送」的转圈永久滞留。正常往返远快于此。
+ */
+const PENDING_ECHO_TTL_MS = 30_000
+
+/**
+ * 占位与回流文本的比对基：剥掉 <attachment> 文件行后去首尾空白。队列项的
+ * editText 是全文（带附件行）、预览 text 已剥附件行，durable 用户消息是发送时
+ * 的全文——统一到这个基才能两边对上。
+ */
+function echoBasis(text: string | undefined): string {
+  return typeof text === 'string' ? splitAttachmentLines(text).text.trim() : ''
+}
+
+/** 当前会话的占位（其他会话的占位不参与渲染）。 */
+function sessionEchoes(sessionId: string | null): PendingEcho[] {
+  return pendingEchoes.filter((echo) => echo.sessionId === sessionId)
+}
+
+/** 记一条本地占位（发送时调用，早于宿主回流）。 */
+function addPendingEcho(echo: Omit<PendingEcho, 'id' | 'at'>): void {
+  pendingEchoSeq += 1
+  pendingEchoes = [...pendingEchoes, { ...echo, id: `echo-${pendingEchoSeq}`, at: Date.now() }]
+}
+
+/** 撤掉一条文本基命中的占位（发送失败回填草稿时调用）；返回是否真撤掉了。 */
+function dropPendingEcho(basis: string): boolean {
+  if (!basis) return false
+  let dropped = false
+  pendingEchoes = pendingEchoes.filter((echo) => {
+    if (dropped || echoBasis(echo.text) !== basis) return true
+    dropped = true
+    return false
+  })
+  return dropped
+}
+
+/**
+ * 宿主快照到达后撤占位：排队项（全文或预览）或 durable 用户消息的文本基与占位
+ * 相同即命中，一条命中只撤一条占位（连发相同文本时按顺序一一对应）。会话切走
+ * 的占位直接作废；超过 TTL 的占位兜底撤掉。
+ */
+function reconcilePendingEchoes(next: ChatState): void {
+  if (pendingEchoes.length === 0) return
+  const now = Date.now()
+  const hostBasis = new Map<string, number>()
+  const bump = (text: string | undefined): void => {
+    const key = echoBasis(text)
+    if (!key) return
+    hostBasis.set(key, (hostBasis.get(key) ?? 0) + 1)
+  }
+  for (const m of next.messages) {
+    if (m.kind === 'user' && !m.context) bump(m.text)
+  }
+  for (const item of next.queue ?? []) bump(item.editText || item.text)
+  const kept: PendingEcho[] = []
+  for (const echo of pendingEchoes) {
+    if (echo.sessionId !== next.sessionId) continue
+    const key = echoBasis(echo.text)
+    const left = key ? (hostBasis.get(key) ?? 0) : 0
+    if (left > 0) {
+      hostBasis.set(key, left - 1)
+      continue
+    }
+    if (now - echo.at > PENDING_ECHO_TTL_MS) continue
+    kept.push(echo)
+  }
+  pendingEchoes = kept
+}
+
+/** 占位气泡里的图片缩略图：与待发送缩略图同款，但没有移除入口（已经发出去了）。 */
+function echoImageThumb(img: OutgoingImage): HTMLElement {
+  const name = img.name ?? t('Image')
+  const dataUrl = isImageMediaType(img.mediaType) ? attachmentDataUrl(img.mediaType, img.data) : null
+  if (dataUrl === null) return el('span', 'image-chip', name)
+  const item = el('span', 'attach-thumb')
+  item.title = t('{0} (click to preview)', name)
+  const image = document.createElement('img')
+  image.src = dataUrl
+  image.alt = name
+  item.addEventListener('click', () => openLightbox(dataUrl))
+  item.appendChild(image)
+  return item
+}
+
+/**
+ * 占位气泡（与等待插话的 pending 气泡同款：用户气泡 + 处理中圆圈）。本地占位
+ * 还没有宿主 itemId，交互入口（转向/编辑/删除）一概不给；附件用内存里的原件
+ * 渲染（图片缩略图 / 文件名 chip）。
+ */
+function renderEchoBubble(echo: PendingEcho): HTMLElement {
+  const row = el('div', 'msg user steering-pending')
+  const attachments = el('div', 'msg-images')
+  for (const image of echo.images ?? []) attachments.appendChild(echoImageThumb(image))
+  for (const file of echo.files ?? []) attachments.appendChild(fileChip(file))
+  if (attachments.childElementCount > 0) row.appendChild(attachments)
+  const { text: readable, references } = parseSessionMentions(echoBasis(echo.text))
+  const parts = readable.length > 0 ? renderUserBubbleParts(readable, references) : null
+  const line = el('div', 'steering-line')
+  const spin = el('span', 'spinner')
+  spin.style.animationDelay = `${-(performance.now() % 900)}ms`
+  line.appendChild(spin)
+  if (parts) line.appendChild(parts.bubble)
+  else if (attachments.childElementCount === 0) line.appendChild(el('div', 'bubble', t('(empty message)')))
+  row.appendChild(line)
+  if (parts?.summary) row.appendChild(parts.summary)
+  return row
+}
+
+/** 占位的排队行（样式与真排队行一致，只是无操作按钮、右侧转圈）。 */
+function renderEchoQueueItem(echo: PendingEcho): HTMLElement {
+  const row = el('div', 'queue-item')
+  row.appendChild(el('span', 'queue-tag', t('Queued')))
+  const preview = el('span', 'queue-text')
+  const { text: readable, references } = parseSessionMentions(echoBasis(echo.text))
+  if (readable.length > 0) preview.appendChild(renderUserBubbleParts(readable, references).bubble)
+  else preview.textContent = t('(empty message)')
+  row.appendChild(preview)
+  const spin = el('span', 'spinner')
+  spin.style.animationDelay = `${-(performance.now() % 900)}ms`
+  row.appendChild(spin)
+  return row
+}
 
 /** One queued inbox row: tag + preview, plus steer/edit/remove actions. */
 function renderQueueItem(item: QueuedItem): HTMLElement {
@@ -5662,9 +5829,18 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
     })
   })
   flowLastNotices = [...commandNotices]
-  // 空态提示（无消息且无等待插话时）。
+  // 本地乐观占位（#52 S1）：还没回流的发送先在这条流里占位——直接进对话流的
+  // （空闲发送）排在 turn-status 之前，就是新消息该在的位置；插话占位与
+  // tailSteers 一样留在 turn-status 之后（见流尾）。
+  const echoItems = sessionEchoes(state.sessionId)
+  for (const echo of echoItems) {
+    if (echo.placement !== 'turn') continue
+    items.push({ key: `echo:${echo.id}`, same: true, create: () => renderEchoBubble(echo) })
+  }
+  // 空态提示（无消息且无等待插话时；本地占位也算有内容）。
   if (
     state.messages.length === 0 &&
+    echoItems.length === 0 &&
     !(state.queue ?? []).some((item) => item.placement === 'steering')
   ) {
     items.push({
@@ -5684,6 +5860,11 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
   }
   // 最新（或无可比 seq）的 pending steering 气泡留在 turn-status 之后（对齐官方）。
   for (const entry of tailSteers) if (entry.kind === 'steer') emitSteering(entry.steer)
+  // 本地插话占位同款尾置：宿主回流后由真 steering 气泡 / durable 用户消息接管。
+  for (const echo of echoItems) {
+    if (echo.placement !== 'steering') continue
+    items.push({ key: `echo:${echo.id}`, same: true, create: () => renderEchoBubble(echo) })
+  }
   for (const id of [...flowSteerSigs.keys()]) if (!seenSteerIds.has(id)) flowSteerSigs.delete(id)
   // "Back to latest" 浮标不入流：元素随 messages 创建时一次性挂在列外
   // .jump-slot（见 messages 创建块），render 尾部只按跟随态切 display。
@@ -7076,6 +7257,14 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     const files = pendingFiles
     pendingImages = []
     pendingFiles = []
+    // 本地乐观占位（#52 S1）：先落占位再发，宿主回流前界面就有反应。
+    addPendingEcho({
+      sessionId: state?.sessionId ?? null,
+      text: expanded,
+      ...(images.length > 0 ? { images } : {}),
+      ...(files.length > 0 ? { files } : {}),
+      placement: steer ? 'steering' : state?.running ? 'queued' : 'turn',
+    })
     post({
       type: 'send',
       text: expanded,
