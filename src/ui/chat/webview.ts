@@ -699,6 +699,7 @@ function clearAnswerDraft(rpcId: string): void {
   post({ type: 'answerDraftSave', rpcId, answers: null })
 }
 
+
 /**
  * 外部链接拦截（捕获阶段）：裸 `<a href="http…">` 的默认行为会让 webview
  * 自身导航到目标页，面板内容被顶掉——表现为「点对话里的链接，原来的 tab 就
@@ -6764,6 +6765,14 @@ function renderPendingPanel(pending: PendingRequest[]): HTMLElement {
   for (const rpcId of panelState.keys()) {
     if (!live.has(rpcId)) panelState.delete(rpcId)
   }
+  // 只清内存副本：落盘的那份由宿主在 pending 解除时 prune
+  // （chatTab.pruneResolvedAnswerDrafts），webview 不必重复上报。
+  for (const rpcId of [...answerDrafts.keys()]) {
+    if (!live.has(rpcId)) answerDrafts.delete(rpcId)
+  }
+}
+
+function renderPendingPanel(pending: PendingRequest[]): HTMLElement {
   const panel = el('div', 'pending-panel')
   for (const p of pending) {
     panel.appendChild(p.kind === 'approval' ? renderApprovalPanel(p) : renderQuestionPanel(p))
