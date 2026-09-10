@@ -112,6 +112,7 @@ import {
   type WorkflowRunView,
 } from '../../pure/workflowRun.ts'
 import { reconcileChildren, type ReconcileItem } from '../shared/reconcile.ts'
+import { activateSession, disclosureFrame } from './disclosure.ts'
 import { syncAnimPhase, spinnerEl, spinSvg } from '../shared/animPhase.ts'
 import { composingInside, initComposeGuard } from '../shared/composeGuard.ts'
 import { h, render as renderPreact } from 'preact'
@@ -2974,16 +2975,16 @@ function render(): void {
   // 行级定时器（turn-status clock / 重试行倒计时）归各自行所有：增量更新下
   // 未变行整体保活，定时器继续走；行被替换/移除时由 flow dispose 清理
   // （clearTurnStatusTimer / clearRetryTimersFor），不再在 render 头全局清。
-  // <details> 展开状态按会话隔离：换会话时清空（key 是消息 id，跨 loadEarlier
-  // 补页稳定但跨会话无意义，换会话仍要防泄漏）。
-  // workflow 卡片状态同样按会话隔离（runId 全局唯一但换会话仍清空，防泄漏）。
+  // <details> 展开态按会话隔离：换会话整体换帧（不是清空）——切走再切回，
+  // 思考/工具卡/代码块/JSON 树/产物行的展开态与卡内滚动位置原样保留（#52 W3）。
+  // 换帧前先把旧会话的卡内滚动位置存进它的帧（此刻 DOM 还是旧会话内容）。
+  // workflow 卡片状态同样按会话隔离。
   const detailsSid = state?.sessionId ?? null
-  if (detailsSid !== detailsSession) {
-    detailsOpen.clear()
+  const switchingDisclosure = detailsSid !== detailsSession
+  if (switchingDisclosure) {
+    saveInnerScroll(chatCol)
+    activateSession(detailsSid)
     detailsSession = detailsSid
-    workflowDisclosure.clear()
-    innerScrollPositions.clear()
-    producedOpen.clear()
     copyConfirmedAt.clear()
     assistantTailSigs.clear()
     // 双击清空武装态与清空暂存同样按会话隔离：切走后旧会话的「再按一次清空」
@@ -3039,8 +3040,10 @@ function render(): void {
   const oldMessages = document.getElementById('messages')
   // 内部滚动容器（IN/OUT、指令卡、JSON 树、todo 清单）要在重建前存档位置：
   // 流式每帧 textContent='' 会销毁它们，不恢复的话展开着的卡内滚动直接回到顶部。
-  // 根节点用 chatCol（todo 卡在输入区上方，不在 messages 容器里）。
-  saveInnerScroll(chatCol)
+  // 根节点用 chatCol（todo 卡在输入区上方，不在 messages 容器里）。换会话帧
+  // 已在 render 头部存过（那时 DOM 还是旧会话内容），这里不能再存一次——此刻
+  // 活跃帧已经换成新会话的，会把旧会话的键写进去。
+  if (!switchingDisclosure) saveInnerScroll(chatCol)
   const prevScrollTop = oldMessages?.scrollTop ?? null
   const prevScrollHeight = oldMessages?.scrollHeight ?? null
   if (oldMessages && pinnedScrollTop !== null) {
@@ -3803,8 +3806,9 @@ function render(): void {
     writeMessagesScrollTop(messages, prevScrollTop)
   }
   // 内部滚动容器（展开的 IN/OUT、指令卡、JSON 树、todo 清单）在新 DOM 上恢复位置。
-  // 换会话时不恢复：存档已随 detailsOpen 一起清空，旧会话位置对新内容无意义。
-  if (!switchingSession) restoreInnerScroll(chatCol)
+  // 换会话帧同样恢复：位置存档随展开态帧按会话隔离（已切到新会话的帧），键都是
+  // 新会话自己的渲染键，恢复的正是切走前那个会话的卡内位置（#52 W2/W3）。
+  restoreInnerScroll(chatCol)
   if (landed !== null) earlierAnchor = null
   // Read back the clamped value: this is the position the next render compares
   // against to tell user scrolls apart from content growth. 若恢复的 scrollTop
@@ -4602,11 +4606,11 @@ function openLightbox(dataUrl: string): void {
 }
 
 /**
- * Expanded state of <details> blocks, keyed by message/block position so
- * streaming snapshot rebuilds don't collapse what the user opened.
- * Cleared on session switch (keys are positional, only valid per session).
+ * 展开态容器全部来自「按会话隔离的展开态帧」（见 chat/disclosure.ts）：换会话
+ * 时整帧换出/换入，切回来展开态照旧（#52 W3）。容器对象身份恒定，模块初始化
+ * 就把它注入 markdown 工具链（mdTools）——所以这里只能原地改内容，不能换引用。
  */
-const detailsOpen = new Map<string, boolean>()
+const { detailsOpen, producedOpen, workflowDisclosure, innerScrollPositions } = disclosureFrame()
 
 // 共享 md 渲染/装饰工具（#40）：webview 状态（t/post/缓存/popover/整页 render）
 // 经 MarkdownCtx 注入，调用点签名保持不变。
@@ -4655,11 +4659,11 @@ const blockTools: BlockTools = {
 
 /**
  * 消息流里内部滚动容器（工具卡 IN/OUT、skill 指令卡、JSON 树等）的滚动位置
- * 存档（key 按渲染 key，同 detailsOpen 机制）：消息行重建（流式变化行 / 行替换）
- * 时这些容器是新建元素、scrollTop 归零——用户正在滚动读内容会被顶回起点。
- * 重建前扫描 [data-scroll-key] 存下，重建后按 key 恢复。
+ * 存档（key 按渲染 key，同 detailsOpen 机制，随会话帧隔离）：消息行重建（流式
+ * 变化行 / 行替换）时这些容器是新建元素、scrollTop 归零——用户正在滚动读内容
+ * 会被顶回起点。重建前扫描 [data-scroll-key] 存下，重建后按 key 恢复。
+ * 容器本身取自 disclosureFrame() 解构。
  */
-const innerScrollPositions = new Map<string, number>()
 
 /** 给内部滚动容器打上重建后恢复滚动位置的锚（key 必须跨帧稳定）。 */
 function markScrollable(el: HTMLElement, key: string): HTMLElement {
@@ -4691,19 +4695,6 @@ function restoreInnerScroll(root: HTMLElement | null): void {
   }
 }
 let detailsSession: string | null = null
-
-/**
- * 产物行「+N 个文件」的展开态（key = 消息 id，同 detailsOpen 约定）：
- * 命中 = 展开显示全部 chip；换会话清空。
- */
-const producedOpen = new Set<string>()
-
-/**
- * workflow 运行卡片的展开/折叠状态，按 runId（run 级）/ `${runId}:${phase.key}`
- * （phase 级）持久化——runId 跨分页稳定，loadEarlier 补页不会错位；与 detailsOpen
- * 一样在换会话时清空。
- */
-const workflowDisclosure = new Map<string, WorkflowDisclosureState>()
 
 const COPY_FEEDBACK_MS = 1000
 

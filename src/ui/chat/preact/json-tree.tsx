@@ -9,8 +9,9 @@
  * 为什么能替代全局 Map：JsonTree 作为 BlockList/Block 树里的稳定 vnode（key =
  * `${rowKey}:b${bi}`），只要组件实例不卸载，useState 就跨父级重渲染存活——流式
  * 重建（text 增量、tool running→done、行骨架 update 分支）不再销毁树的展开态与
- * 「已复制」反馈。组件卸载的极少数场合（会话切换清空、流整体重建）本来就要重置，
- * 与旧 Map 的 clear() 语义一致。
+ * 「已复制」反馈。组件卸载的场合（**会话切换**、流整体重建）不再丢展开态：节点
+ * 展开集同步写进按会话隔离的展开态帧（见 ../disclosure.ts），重挂载时按帧里的
+ * 值初始化，切回原会话照旧展开（#52 W3）。「已复制」反馈仍是瞬态、随卸载丢弃。
  *
  * copy 用 navigator.clipboard，成功短暂显示「已复制」、失败改 title，与 md-code
  * 复制按钮同款反馈。节点级复制在 click 时按当前 value 解析路径（流式后行可能已
@@ -18,6 +19,7 @@
  */
 import { Fragment } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { disclosureFrame } from '../disclosure.ts'
 import { MESSAGE_ACTION_ICONS } from '../icons.ts'
 import { iconSvg } from '../dom.ts'
 import {
@@ -64,7 +66,9 @@ function primitiveCls(p: JsonPrimitiveKind): string {
  * 记在局部 copied 状态。树上/右上角给一个不喧宾夺主的「复制」按钮。
  */
 export function JsonTree({ value, outputKey, tools }: JsonTreeProps) {
-  const [openPaths, setOpenPaths] = useState<Set<string>>(() => defaultJsonTreeExpanded(value))
+  const [openPaths, setOpenPaths] = useState<Set<string>>(
+    () => disclosureFrame().jsonOpenPaths.get(outputKey) ?? defaultJsonTreeExpanded(value),
+  )
   const [treeCopied, setTreeCopied] = useState(false)
   const [treeFailed, setTreeFailed] = useState(false)
   const [nodeCopied, setNodeCopied] = useState<Set<string>>(() => new Set())
@@ -80,12 +84,12 @@ export function JsonTree({ value, outputKey, tools }: JsonTreeProps) {
   const isOpen = (pathKey: string): boolean => openPaths.has(pathKey)
 
   const toggle = (pathKey: string): void => {
-    setOpenPaths((prev) => {
-      const next = new Set(prev)
-      if (next.has(pathKey)) next.delete(pathKey)
-      else next.add(pathKey)
-      return next
-    })
+    const next = new Set(openPaths)
+    if (next.has(pathKey)) next.delete(pathKey)
+    else next.add(pathKey)
+    // 写进展开态帧：会话切走再切回时按它还原（#52 W3）。
+    disclosureFrame().jsonOpenPaths.set(outputKey, next)
+    setOpenPaths(next)
   }
 
   const copyTree = (): void => {
