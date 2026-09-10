@@ -34,17 +34,42 @@ export function attachmentDataUrl(mediaType: string, base64: string): string {
 }
 
 /**
- * 拆分发送消息文本里 composer 拼入的 `<attachment>…</attachment>` 文件行
- * （发送失败还原用）：完整行按 / 与 \\ 两种分隔符取 basename 还原成文件
- * chips，行内容是自己打的就不动。webview 打包进浏览器环境，不引 node:path。
+ * 待发文件在提示词里的引用行（**官方可见的形态**，B-18）：`@/abs/path`，含空白
+ * 的路径用 `@"path"`。原来发的是 dsh-one 私有的 `<attachment>PATH</attachment>`
+ * 行——官方 dsh web 前端不认这个协议，会把整行当普通文本显示出来；`@路径` 是
+ * 双方都渲染成文件 chip 的既有语法（与 @ 补全落定的引用同款）。
+ */
+export function fileAttachmentLine(path: string): string {
+  return /\s/u.test(path) ? `@"${path}"` : `@${path}`
+}
+
+/**
+ * 一行是否是附件行，是则返回路径。两种形态都认：新形态 `@/abs/path`（含引号
+ * 变体）与旧形态 `<attachment>path</attachment>`——后者是历史会话与排队项里
+ * 已经落盘的形态，解析侧必须继续吃得下。
+ */
+export function parseAttachmentLine(lineRaw: string): string | null {
+  const line = lineRaw.trim()
+  const legacy = /^<attachment>(.+)<\/attachment>$/.exec(line)
+  if (legacy) return legacy[1]
+  const quoted = /^@"(.+)"$/.exec(line)
+  if (quoted && /[\\/]/.test(quoted[1])) return quoted[1]
+  const bare = /^@(\S+)$/.exec(line)
+  if (bare && /[\\/]/.test(bare[1])) return bare[1]
+  return null
+}
+
+/**
+ * 拆分发送消息文本里 composer 拼入的附件行（发送失败还原、排队项预览用）：
+ * 完整行按 / 与 \ 两种分隔符取 basename 还原成文件 chips，行内容是自己打的
+ * 就不动。webview 打包进浏览器环境，不引 node:path。
  */
 export function splitAttachmentLines(text: string): { text: string; files: StagedFile[] } {
   const files: StagedFile[] = []
   const lines: string[] = []
   for (const line of text.split('\n')) {
-    const m = /^<attachment>(.+)<\/attachment>$/.exec(line.trim())
-    if (m) {
-      const path = m[1]
+    const path = parseAttachmentLine(line)
+    if (path !== null) {
       files.push({ name: attachmentBaseName(path), path })
       if (isImagePath(path)) files[files.length - 1].image = true
     } else lines.push(line)

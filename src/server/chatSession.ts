@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
 import type { ChatState, ChatGoal, ChatTodoItem, ChatFile, ChatImage, ChatTurnOutlineEntry, ChatScheduleEntry, JobItem, OutgoingImage, PendingRequest, QuestionAnswerInput, QueuedItem, StagedFile } from '../pure/chatContract.ts'
 import { ConversationFolder, applyFeedbackRatings, imagesOfBlocks, navigateAnchorOf } from '../pure/conversation.ts'
-import { splitAttachmentLines } from '../pure/composerAttachment.ts'
+import { parseAttachmentLine, splitAttachmentLines } from '../pure/composerAttachment.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { WorkflowRunFolder } from '../pure/workflowRun.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
@@ -115,8 +115,9 @@ function queueItemOf(item: QueuedInboxItemLike): { text: string; editText: strin
     if (!b || b.type !== 'text' || typeof b.text !== 'string') continue
     for (const line of b.text.split('\n')) {
       editLines.push(line)
-      // Attachment lines the composer appended ride this text block too.
-      if (/^<attachment>.+<\/attachment>$/.test(line.trim())) continue
+      // Attachment lines the composer appended ride this text block too
+      // (`@path` since #54 B-18; legacy `<attachment>…</attachment>` still parses).
+      if (parseAttachmentLine(line) !== null) continue
       previewLines.push(line)
     }
   }

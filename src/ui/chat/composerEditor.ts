@@ -91,6 +91,16 @@ export interface ComposerEditor {
   placeholder: HTMLElement
   /** 纯文本（块间以 \n 分隔；@token 为其显示文本）。 */
   getText: () => string
+  /**
+   * 发送用的文本投影：纯文本形态，但**真正的引用节点**投影成 canonical
+   * mention——参考 chip 给它的 `ref`，带绑定的 ref-token（补全落定/召回还原）
+   * 给它的 `mention`。手打的 `@name` 是普通文本节点，原样保留。
+   *
+   * 这是「手打 token 不被历史绑定静默改写」的分界：文本级的
+   * expandMentionBindings 只看字符串，分不出「选中的引用」和「碰巧同名的手打
+   * 文本」；节点级能分（官方同样是 chip 节点 serialize、纯文本不碰）。
+   */
+  textWithMentions: () => string
   /** 用纯文本 + mentionBindings 重建内容（@token 还原为高亮节点）。 */
   setText: (text: string, bindings?: MentionBindings) => void
   /** 在光标处插入普通文本（含 \n 拆行为换行）。 */
@@ -99,10 +109,29 @@ export interface ComposerEditor {
   insertTokenAtCaret: (text: string, mention: string, appearance?: ChipAppearance) => void
   /** 把纯文本区间 [start, end] 替换为给定文本（光标落到末尾）。 */
   replaceRange: (start: number, end: number, text: string) => void
+  /**
+   * 把纯文本区间 [start, end] 替换为「文本 / 带 mention 的引用」片段序列。
+   * 粘会话 mention 用：mention 片段落成 RefTokenNode（带 canonical mention，
+   * 发送投影能展开），普通片段走 insertText（含 \n 时照常拆段）。
+   */
+  replaceRangeWithParts: (start: number, end: number, parts: Array<{ text: string; mention?: string }>) => void
   /** 把纯文本区间 [start, end] 替换为一个 @token 高亮节点（光标落到末尾）。 */
   replaceTokenRange: (start: number, end: number, text: string, mention: string, appearance?: ChipAppearance) => void
   /** 当前光标/选区（纯文本偏移）。 */
   selection: () => { start: number; end: number }
+  /**
+   * 草稿版本号：每次文本内容变化 +1（对齐官方 shell 的 `rev`）。补全候选在
+   * 构建时记下当时的版本，落定时做 CAS——期间草稿被改过就丢弃这次插入，
+   * 而不是按过期区间改写文本。
+   */
+  draftRev: () => number
+  /**
+   * 是否处于输入法组合期（对齐官方 isComposingEvent）：`event.isComposing`
+   * 或 `keyCode === 229`（Safari/旧 WebKit 组合期 keydown 只有 229），
+   * 或 `compositionend` 之后 10ms 内（end 与 keydown 同帧到达时 isComposing
+   * 已翻假，直接放行会把「确认候选的 Enter」当成发送）。
+   */
+  blockedByComposition: (event: KeyboardEvent | null) => boolean
   /** 设置光标/选区到纯文本偏移（end 缺省 = start），并聚焦编辑器。 */
   setSelection: (start: number, end?: number) => void
   /** 光标前的纯文本（@ 补全触发词用）。 */
@@ -111,6 +140,12 @@ export interface ComposerEditor {
   afterCaret: () => string
   /** 聚焦编辑器；可选把光标放到末尾。 */
   focus: (atEnd?: boolean) => void
+  /**
+   * 全量重扫着色（对齐官方 rescanTextRefs）：Lexical 的节点变换只跑在 dirty
+   * 节点上，而「词库变了」本身不会弄脏任何节点——新附件/新候选到位时已输入
+   * 的 @token 不会自己变亮。调用方在词库集合变化时调它把所有文本节点标脏。
+   */
+  rescanTextRefs: () => void
   /** 释放编辑器。 */
   dispose: () => void
 }
@@ -327,14 +362,15 @@ export class RefTokenNode extends TextNode {
   createDOM(config: EditorConfig): HTMLElement {
     const dom = super.createDOM(config)
     dom.classList.add('ref-token')
-    if (this.__mention) dom.setAttribute('data-path', this.__mention)
+    // data-path 一律写：有绑定时是 canonical mention，否则就是显示 token——
+    // 外层 hover 联动拿它反查 mentionBindings（手打的 token 也能对上附件 chip）。
+    dom.setAttribute('data-path', this.__mention ?? this.getTextContent())
     return dom
   }
 
   updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
     const changed = super.updateDOM(prevNode, dom, config)
-    if (this.__mention) dom.setAttribute('data-path', this.__mention)
-    else dom.removeAttribute('data-path')
+    dom.setAttribute('data-path', this.__mention ?? this.getTextContent())
     return changed
   }
 
@@ -407,11 +443,14 @@ function registerTextRefDecoration(
       const current = node.getLatest()
       const textNow = current.getTextContent()
       if (start >= end || start >= textNow.length) continue
-      const split: TextNode[] = current.splitText(start, end)
-      const tokenSegment = split[1]
-      if (!tokenSegment) continue
-      const ref = $createRefTokenNode(tokenSegment.getTextContent())
-      tokenSegment.replace(ref)
+      // 整节点命中（start=0 且 end=节点全文长度）时 Lexical 的 splitText 返回
+      // `[self]`（没有可切的第二段），必须整节点替换——否则「输入框里只有这个
+      // token」这一最常见的形态（刚打完 `@dir/`、`@"a b/`）永远不着色。
+      const tokens = current.splitText(start, end)
+      const tokenSegment = tokens[1]
+      if (tokenSegment) tokenSegment.replace($createRefTokenNode(tokenSegment.getTextContent()))
+      else if (end === textNow.length) current.replace($createRefTokenNode(textNow))
+      else continue
       // 本轮只处理一个节点的一个命中段；余下命中由下一趟 dirty 驱动处理。
       break
     }
@@ -515,6 +554,39 @@ function readPlainText(editor: LexicalEditor): string {
     const parts: string[] = []
     for (const block of $getRoot().getChildren()) {
       parts.push(block.getTextContent())
+    }
+    out = parts.join('\n')
+  })
+  return out
+}
+
+/**
+ * 读取编辑器的「发送投影」：引用节点（chip / 带 mention 的 ref-token）出
+ * canonical mention，其余出原始文本。见 ComposerEditor.textWithMentions。
+ */
+function readMentionText(editor: LexicalEditor): string {
+  let out = ''
+  editor.getEditorState().read(() => {
+    const parts: string[] = []
+    for (const block of $getRoot().getChildren()) {
+      if (!(block instanceof ElementNode)) {
+        parts.push(block.getTextContent())
+        continue
+      }
+      let line = ''
+      let hasRef = false
+      for (const child of block.getChildren()) {
+        if ($isRefChipNode(child)) {
+          line += child.__ref
+          hasRef = true
+        } else if ($isRefTokenNode(child) && child.__mention) {
+          line += child.__mention
+          hasRef = true
+        } else {
+          line += child.getTextContent()
+        }
+      }
+      parts.push(hasRef ? line : block.getTextContent())
     }
     out = parts.join('\n')
   })
@@ -632,6 +704,23 @@ export function createComposerEditor(opts: {
   placeholder.textContent = placeholderText
 
   const getText = (): string => readPlainText(editor)
+  const textWithMentions = (): string => readMentionText(editor)
+
+  /** 草稿版本号（见 ComposerEditor.draftRev）：由更新监听在文本变化时 +1。 */
+  let rev = 0
+
+  /** 输入法组合期判定（对齐官方 registerComposerKeymap 的 isComposingEvent）。 */
+  let composing = false
+  let composingUntil = 0
+  const onCompositionStart = (): void => {
+    composing = true
+  }
+  const onCompositionEnd = (): void => {
+    composing = false
+    composingUntil = Date.now() + 10
+  }
+  const blockedByComposition = (event: KeyboardEvent | null): boolean =>
+    event?.isComposing === true || event?.keyCode === 229 || composing || Date.now() < composingUntil
 
   const selection = (): { start: number; end: number } => {
     let start = 0
@@ -693,6 +782,12 @@ export function createComposerEditor(opts: {
     }
   }
 
+  const rescanTextRefs = (): void => {
+    editor.update(() => {
+      for (const node of $getRoot().getAllTextNodes()) node.markDirty()
+    })
+  }
+
   const insertTextAtCaret = (text: string): void => {
     editor.update(() => {
       const sel = $getSelection()
@@ -707,6 +802,9 @@ export function createComposerEditor(opts: {
   }
 
   const insertTokenAtCaret = (text: string, mention: string, appearance: ChipAppearance = 'file'): void => {
+    // 分隔空格只在后一位不是空格时补（官方 insertReference 的 tail 判定）：
+    // 否则「@ 引用后面已经有空格」被再补一次会出双空格。
+    const pad = afterCaret().startsWith(' ') ? '' : ' '
     editor.update(() => {
       const sel = $getSelection()
       // 第 4 个参数是文本投影（clipboardText）：传 mention（可解析引用）而不是
@@ -714,7 +812,7 @@ export function createComposerEditor(opts: {
       const token = $createRefChipNode(appearance, mention, text, mention, appearance)
       if ($isRangeSelection(sel)) {
         sel.insertNodes([token])
-        sel.insertText(' ')
+        if (pad) sel.insertText(pad)
       } else {
         let last = $getRoot().getLastChild()
         if (!(last instanceof ElementNode)) {
@@ -738,7 +836,22 @@ export function createComposerEditor(opts: {
     }, { discrete: true })
   }
 
+  const replaceRangeWithParts = (start: number, end: number, parts: Array<{ text: string; mention?: string }>): void => {
+    const { s, e } = resolveTextOffsets(start, end)
+    editor.update(() => {
+      const sel = $createRangeSelection()
+      sel.anchor.set(s.key, s.offset, s.type)
+      sel.focus.set(e.key, e.offset, e.type)
+      $setSelection(sel)
+      for (const part of parts) {
+        if (part.mention) sel.insertNodes([$createRefTokenNode(part.text, part.mention)])
+        else if (part.text) sel.insertText(part.text)
+      }
+    }, { discrete: true })
+  }
+
   const replaceTokenRange = (start: number, end: number, text: string, mention: string, appearance: ChipAppearance = 'file'): void => {
+    const pad = getText().slice(end, end + 1) === ' ' ? '' : ' '
     const { s, e } = resolveTextOffsets(start, end)
     editor.update(() => {
       const sel = $createRangeSelection()
@@ -747,7 +860,7 @@ export function createComposerEditor(opts: {
       $setSelection(sel)
       const token = $createRefChipNode(appearance, mention, text, mention, appearance)
       sel.insertNodes([token])
-      sel.insertText(' ')
+      if (pad) sel.insertText(pad)
     }, { discrete: true })
   }
 
@@ -799,8 +912,9 @@ export function createComposerEditor(opts: {
     editor.registerCommand<KeyboardEvent | null>(
       KEY_ENTER_COMMAND,
       (event) => {
-        // Shift+Enter / IME 组合中确认候选：不发送，交回 registerPlainText（换行/组合）。
-        if (event?.shiftKey || event?.isComposing) return false
+        // Shift+Enter 换行；组合期（isComposing / keyCode 229 / compositionend 后
+        // 10ms）确认候选的 Enter：不发送，交回 registerPlainText。
+        if (event?.shiftKey || blockedByComposition(event)) return false
         const steer = !!(event && (event.metaKey || event.ctrlKey))
         const consumed = handlers.onEnter(steer)
         if (consumed) event?.preventDefault()
@@ -811,7 +925,7 @@ export function createComposerEditor(opts: {
     editor.registerCommand<KeyboardEvent>(
       KEY_ARROW_UP_COMMAND,
       (event) => {
-        if (event.isComposing) return false
+        if (blockedByComposition(event)) return false
         const consumed = handlers.onArrowUp()
         if (consumed) event?.preventDefault()
         return consumed
@@ -822,7 +936,7 @@ export function createComposerEditor(opts: {
       KEY_ESCAPE_COMMAND,
       (event) => {
         // IME 组合中的 Esc 关候选窗，不触发 recall-cancel/清空。
-        if (event.isComposing) return false
+        if (blockedByComposition(event)) return false
         const consumed = handlers.onEscape()
         if (consumed) event?.preventDefault()
         return consumed
@@ -831,6 +945,22 @@ export function createComposerEditor(opts: {
     ),
     editor.registerCommand<void>(UNDO_COMMAND, () => handlers.onUndoRestore(), COMMAND_PRIORITY_HIGH),
   )
+
+  // 撤销/反悔（B-06）：Lexical 只把**平台**撤销键派发成 UNDO_COMMAND
+  // （macOS 只认 ⌘Z，Windows/Linux 只认 Ctrl+Z），所以「清空后按 Ctrl+Z 找回」
+  // 这条写进文案、也照此验收的能力在 macOS 上按不出来。这里在捕获阶段自己收
+  // 复合键：Ctrl+Z 与 ⌘Z 都算，有内容可反悔就消费（preventDefault +
+  // stopPropagation，不让 Lexical/浏览器再走一遍）；没得反悔就放行，回落
+  // Lexical 的平台撤销语义。
+  const onUndoKey = (event: KeyboardEvent): void => {
+    if (blockedByComposition(event)) return
+    if (event.key.toLowerCase() !== 'z' || event.altKey || event.shiftKey) return
+    if (!event.ctrlKey && !event.metaKey) return
+    if (!handlers.onUndoRestore()) return
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  root.addEventListener('keydown', onUndoKey, true)
 
   // paste：先给外层（sessions/图片/折叠）机会，未消费回落到 registerPlainText。
   const unregisterPaste = editor.registerCommand<PasteCommandType>(
@@ -862,6 +992,12 @@ export function createComposerEditor(opts: {
   root.addEventListener('mousemove', onMouseMove)
   root.addEventListener('mouseleave', onMouseLeave)
 
+  // 组合期跟踪（对齐官方 registerComposerKeymap 的 registerRootListener）：
+  // keydown 上的 isComposing 在 compositionend 同帧的 Enter 上已经翻假，
+  // 靠 compositionend 后 10ms 的窗口兜住「确认候选」那一下。
+  root.addEventListener('compositionstart', onCompositionStart)
+  root.addEventListener('compositionend', onCompositionEnd)
+
   editor.setRootElement(root)
 
   // 挂载完成后再挂更新监听：首帧（setRootElement 内触发的 update）不让 onTextChange
@@ -870,6 +1006,7 @@ export function createComposerEditor(opts: {
     const text = getText()
     if (text !== lastText) {
       lastText = text
+      rev += 1
       placeholder.style.display = text.length === 0 ? '' : 'none'
       handlers.onTextChange(text, { programmatic: tags.has(SET_TAG) })
     }
@@ -885,16 +1022,21 @@ export function createComposerEditor(opts: {
     editor,
     placeholder,
     getText,
+    textWithMentions,
     setText,
     insertTextAtCaret,
     insertTokenAtCaret,
     replaceRange,
+    replaceRangeWithParts,
     replaceTokenRange,
     selection,
+    draftRev: () => rev,
+    blockedByComposition,
     setSelection,
     beforeCaret,
     afterCaret,
     focus,
+    rescanTextRefs,
     dispose: () => {
       editor.setRootElement(null)
       unregisterUpdate()
@@ -905,6 +1047,9 @@ export function createComposerEditor(opts: {
       unregisterTextRef()
       root.removeEventListener('mousemove', onMouseMove)
       root.removeEventListener('mouseleave', onMouseLeave)
+      root.removeEventListener('keydown', onUndoKey, true)
+      root.removeEventListener('compositionstart', onCompositionStart)
+      root.removeEventListener('compositionend', onCompositionEnd)
     },
   }
 }

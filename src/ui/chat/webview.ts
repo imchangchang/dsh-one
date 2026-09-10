@@ -45,7 +45,7 @@ import {
   installCommandFor,
   type HostOs,
 } from '../../pure/installScript.ts'
-import { steerModifierLabel } from '../../pure/steerShortcut.ts'
+import { isComposerClearChord, steerModifierLabel, undoChordLabel } from '../../pure/steerShortcut.ts'
 import { interleaveSteering, orderBySeq } from '../../pure/steeringOrder.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { isFilePathHref } from '../../pure/linkPath.ts'
@@ -73,7 +73,8 @@ import {
   orderJobs,
   type ActivityJob,
 } from '../../pure/activityTree.ts'
-import { attachmentBaseName, attachmentDataUrl, isImageMediaType, isImagePath, shouldFoldPastText, splitAttachmentLines } from '../../pure/composerAttachment.ts'
+import { attachmentBaseName, attachmentDataUrl, fileAttachmentLine, isImageMediaType, isImagePath, shouldFoldPastText, splitAttachmentLines } from '../../pure/composerAttachment.ts'
+import { atTokenName } from '../../pure/tokenScan.ts'
 import {
   SETTLE_IDLE_MS,
   archiveScrollPosition,
@@ -88,7 +89,6 @@ import {
 import { formatCacheHitPercent, formatCompactTokens, formatDuration } from '../../pure/sessionStats.ts'
 import {
   SESSION_REFERENCE_SCHEME,
-  expandMentionBindings,
   formatSessionMention,
   mentionDisplayToken,
   parseSessionMentions,
@@ -457,13 +457,15 @@ function persistKeyFor(archiveKey: string): string {
  * 当前 composer 内容快照（落盘用）：文本从 live 编辑器/暂存读（与
  * reportComposerDirty 同源），附件读模块级暂存。
  *
- * 文本落盘前先展开成 canonical（与发送同款 expandMentionBindings）：显示 token
+ * 文本落盘前先展开成 canonical（与发送同款：节点级投影 textWithMentions）：显示 token
  * 靠内存里的 mentionBindings 才解析得出，而绑定不跨窗口/不跨重启——直接存显示
  * token 的话，重启后 `@短名` 就是一段无主的普通文字。存展开后的引用，恢复端
- * 一律能解析（setText 把 canonical 引用重建回 chip）。
+ * 一律能解析（setText 把 canonical 引用重建回 chip）。无 live 编辑器时（pending
+ * 暂存期）退回原始文本。
  */
 function composerDraftSnapshot(): { text: string; images: OutgoingImage[]; files: StagedFile[] } {
-  return { text: expandMentionBindings(composerText(), mentionBindings), images: pendingImages, files: pendingFiles }
+  const text = activeComposer ? activeComposer.textWithMentions() : composerText()
+  return { text, images: pendingImages, files: pendingFiles }
 }
 
 /** 变更判定签名：文本 + 图片（大小:名字）+ 文件路径。内容没变就不发（流式渲染每帧都会调度到）。 */
@@ -476,6 +478,16 @@ function draftSignature(d: { text: string; images: OutgoingImage[]; files: Stage
 }
 
 /** 立即上报一份草稿；空内容发 null 让宿主删条目（发送/一键清空/全删都收敛到这里）。 */
+/**
+ * 草稿落盘的图片预算（base64 字符数）：草稿存的是**全尺寸字节**，一张图片就是
+ * 几 MB，几张就把 drafts.json 撑成几十 MB（进程重启读回还得全部解回内存）。
+ * 官方把草稿图片放在宿主的附件库里、前端只留 id + 缩略图；dsh-one 还没有这条
+ * 通道（宿主侧 draft 存储是纯 JSON），所以先按预算落盘：预算内的图片照旧随草稿
+ * 持久化，超出的留在内存里（本次会话仍能发送/预览），重启后自然丢失——比把
+ * 磁盘写爆或让 readFile 拖慢启动更可控（B-19）。
+ */
+const DRAFT_IMAGE_BUDGET_BYTES = 4 * 1024 * 1024
+
 function flushDraftSave(key: string, d: { text: string; images: OutgoingImage[]; files: StagedFile[] }): void {
   const sig = draftSignature(d)
   if (draftSaveSignatures.get(key) === sig) return
@@ -483,6 +495,14 @@ function flushDraftSave(key: string, d: { text: string; images: OutgoingImage[];
   // 从未上报过的空内容不发（新 webview 首帧恒空，避免每个 tab 白发一条 null）。
   if (empty && !draftSaveSignatures.has(key)) return
   draftSaveSignatures.set(key, sig)
+  // 预算内按顺序收，超预算的图片不落盘（见 DRAFT_IMAGE_BUDGET_BYTES）。
+  const persistedImages: OutgoingImage[] = []
+  let used = 0
+  for (const img of d.images) {
+    if (used + img.data.length > DRAFT_IMAGE_BUDGET_BYTES) continue
+    used += img.data.length
+    persistedImages.push(img)
+  }
   post({
     type: 'composerDraftSave',
     key,
@@ -491,8 +511,8 @@ function flushDraftSave(key: string, d: { text: string; images: OutgoingImage[];
       : {
           text: d.text,
           // previewData/mediaType 是内存态（缩略图恢复后经 fileThumb 重取），只存 name/path/image。
-          ...(d.images.length > 0
-            ? { images: d.images.map((i) => ({ mediaType: i.mediaType, data: i.data, ...(i.name ? { name: i.name } : {}) })) }
+          ...(persistedImages.length > 0
+            ? { images: persistedImages.map((i) => ({ mediaType: i.mediaType, data: i.data, ...(i.name ? { name: i.name } : {}) })) }
             : {}),
           ...(d.files.length > 0
             ? { files: d.files.map((f) => ({ name: f.name, path: f.path, ...(f.image ? { image: true } : {}) })) }
@@ -1284,45 +1304,31 @@ window.addEventListener('message', (event) => {
     render()
   } else if (msg?.type === 'restoreDraft' && typeof msg.text === 'string') {
     // 还原回 composer：stop 抽干队列的草稿文本，或发送失败的消息（图片/文件
-    // chips 一并恢复，不让输入被吞）。回填文本里可能还带未拆的 <attachment> 行
-    // （stop 早期只吐 raw editText），这里统一拆附件行 + 还原 canonical @ 长路径
-    // 与 @[标签](uri) 为显示 token（与第一次输入形态一致；发送时 expand 展开回
-    // canonical）。
+    // chips 一并恢复，不让输入被吞）。回填文本里可能还带未拆的附件行
+    // （stop 早期只吐 raw editText，历史项是 <attachment> 形态），这里统一拆附件行
+    // + 还原 canonical @ 长路径与 @[标签](uri) 为显示 token（与第一次输入形态一致；
+    // 发送时按节点投影展开回 canonical）。
+    //
+    // 排到队列里由 flushFailedDrafts 落地（对齐官方 detachedDraft 的还原规则）：
+    // 提交后用户又打了字就不当场覆盖，等输入框空下来再按提交顺序拼回；多次失败
+    // 之间用空行分隔，形态与当初输入的一致（B-21）。
     const { text: splitText, files: splitFiles } = splitAttachmentLines(msg.text)
-    const restoredText = restoreRecallMentions(splitText)
-    if (activeComposer) {
-      const cur = activeComposer.getText()
-      activeComposer.setText(cur.trim() ? `${cur.trimEnd()}\n${restoredText}` : restoredText, mentionBindings)
-      activeComposer.focus(true)
-    } else {
-      stashedDraft = stashedDraft ? `${stashedDraft}\n${restoredText}` : restoredText
-    }
-    let stagedRestore = false
-    if (Array.isArray(msg.images) && msg.images.length > 0) {
-      pendingImages = [...pendingImages, ...msg.images]
-      stagedRestore = true
-    }
-    // 附件行拆出的文件与宿主结构化 files 都回填成 chips（按 path 去重：宿主已拆时
-    // splitFiles 为空，直接并入文件列表）。
-    const stagedFiles = [...splitFiles, ...(Array.isArray(msg.files) ? msg.files : [])]
-    const existingFiles = new Set(pendingFiles.map((f) => f.path))
-    for (const f of stagedFiles) {
-      if (!existingFiles.has(f.path)) {
-        pendingFiles.push(f)
-        existingFiles.add(f.path)
-      }
-    }
-    if (stagedFiles.length > 0) stagedRestore = true
-    if (stagedRestore && activeComposer) render()
-    // 附件恢复不经 input 事件：与 filesPicked 同款，作废清空暂存。
-    if (stagedRestore) clearedStash = null
+    detachedDrafts.push({
+      text: restoreRecallMentions(splitText),
+      images: Array.isArray(msg.images) ? msg.images : [],
+      files: [...splitFiles, ...(Array.isArray(msg.files) ? msg.files : [])],
+    })
+    flushFailedDrafts()
     // 发送失败的回填不一定经过 render（stashedDraft 路径），这里兜一次落盘调度（#14）。
     scheduleDraftSave()
   } else if (msg?.type === 'fileRefList') {
     // 乱序/过期响应丢弃；token 没变才存结果并重算弹窗（token 已消失时
     // updateSlashPopup 自己算不出行，弹窗保持关闭）。
     if (msg.requestId !== fileRefSeq) return
-    fileRefResult = { key: fileRefRequestKey, items: Array.isArray(msg.items) ? msg.items : [] }
+    fileRefPending = false
+    const settled = { key: fileRefRequestKey, items: Array.isArray(msg.items) ? msg.items : [] }
+    fileRefResult = settled
+    fileRefSettled = settled
     if (activeComposer) updateSlashPopup(activeComposer)
   } else if (msg?.type === 'turnJumped') {
     // 回合跳转回执：宿主已翻页覆盖目标 seq，滚动定位到目标回合首行。
@@ -1351,18 +1357,24 @@ document.addEventListener('keydown', (e) => {
     post({ type: 'stop' })
     return
   }
-  if (e.key === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+  if (isComposerClearChord(e)) {
     // composer 双击清空武装/执行时已 preventDefault，这里让路（运行中也是
     // 「先清输入、再停 turn」两层语义）。
     if (e.defaultPrevented) return
     const active = document.activeElement
+    // 输入框本体是 Lexical 的 contentEditable（不是 textarea/input）：光看元素
+    // 类型会漏掉「输入框里选中一段再按 Ctrl+C」——那是要复制，不是打断。composer
+    // 的选区走编辑器自己的 selection()（DOM Selection 在 contentEditable 里
+    // 未必同步给出）。
     const fieldSelection =
       (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) &&
       active.selectionStart !== null &&
       active.selectionStart !== active.selectionEnd
+    const composerSelRange = composerSel()
+    const composerSelection = composerSelRange.start !== composerSelRange.end
     const sel = window.getSelection()
     const pageSelection = !!sel && !sel.isCollapsed && sel.toString() !== ''
-    if (fieldSelection || pageSelection) return
+    if (fieldSelection || composerSelection || pageSelection) return
     post({ type: 'stop' })
   }
 })
@@ -1569,8 +1581,16 @@ interface SlashRow {
   right?: string
   /** Complete the line; absent on pure hint rows. */
   apply?: (composer: ComposerEditor) => void
+  /**
+   * Tab 下钻（目录候选）：官方 onPick 的 `action === 'drill'` 分支——把目录
+   * mention（尾 `/`、引号保持敞开）作为**纯文本**插入并继续补全，而不是落定
+   * 成 chip 关掉菜单。缺省（无 drill）时 Tab 与 Enter 同义。
+   */
+  drill?: (composer: ComposerEditor) => void
   /** 分组小标题行（不可选、无 hover），行间带分割线，如 @ 补全的「文件」「会话」。 */
   header?: true
+  /** 异步候选在途的占位行（不可选），对齐官方 pending 组的骨架行语义。 */
+  loading?: true
 }
 
 let slashPopupEl: HTMLElement | null = null
@@ -1580,10 +1600,18 @@ let slashIndex = 0
 /**
  * @ 文件候选的请求/响应状态：requestId 递增防乱序，key 是触发时的完整
  * token（`@sub/que`），响应只在 token 没变时上屏。host 端失败回空列表。
+ *
+ * `pending` 是三态里的「在途」：官方 menu 的组状态是 pending/ready，pending
+ * 且无候选时出骨架行、有候选时继续显示旧候选（query 细化不闪回空菜单）。
+ * 对应到这里——`settled` 保留最近一次落定的候选，pending 期间拿它顶着。
  */
 let fileRefSeq = 0
 let fileRefRequestKey = ''
 let fileRefResult: { key: string; items: FileRefCandidate[] } | null = null
+/** 最近一次落定的候选（key 是当时的 token）；pending 期拿它当「旧候选」。 */
+let fileRefSettled: { key: string; items: FileRefCandidate[] } | null = null
+/** 工作区候选是否有请求在途（从发起防抖起算，到该 requestId 的回执为止）。 */
+let fileRefPending = false
 /** @ 补全请求防抖（宿主工作区扫描有目录 stat 开销，防每键一次全量扫描）。 */
 let fileRefDebounce: ReturnType<typeof setTimeout> | null = null
 
@@ -1621,6 +1649,8 @@ function hideSlashPopup(): void {
   slashIndex = 0
   // 下次再触发 @ 时重新取文件候选，避免上屏陈旧目录。
   fileRefResult = null
+  fileRefSettled = null
+  fileRefPending = false
 }
 
 function positionSlashPopup(editor: ComposerEditor): void {
@@ -1629,6 +1659,28 @@ function positionSlashPopup(editor: ComposerEditor): void {
   slashPopupEl.style.left = `${Math.max(4, rect.left)}px`
   slashPopupEl.style.width = `${rect.width}px`
   slashPopupEl.style.bottom = `${window.innerHeight - rect.top + 6}px`
+}
+
+/** 把选中态画到弹窗子元素上（子下标与 slashRows 一一对齐，含 header/loading 行）。 */
+function paintSlashSelection(scroll = false): void {
+  if (!slashPopupEl) return
+  const children = Array.from(slashPopupEl.querySelectorAll(':scope > *'))
+  children.forEach((item, i) => {
+    item.classList.toggle('selected', i === slashIndex)
+  })
+  if (scroll) children[slashIndex]?.scrollIntoView({ block: 'nearest' })
+}
+
+/**
+ * 指针 hover 驱动选中（对齐官方 MenuView 的 onHover → controller.hover：
+ * 键盘与指针共用同一个 highlight，谁后动听谁的）。只有可选行（带 apply 的
+ * 候选行）能承接 hover，header/loading 行不改变选中。
+ */
+function setSlashIndex(i: number): void {
+  if (!slashPopupEl || i === slashIndex) return
+  if (slashRows[i]?.apply === undefined) return
+  slashIndex = i
+  paintSlashSelection()
 }
 
 /** Recompute the rows from the current value; hide when nothing applies. */
@@ -1640,6 +1692,8 @@ function updateSlashPopup(editor: ComposerEditor): void {
     hideSlashPopup()
     return
   }
+  const previousIndex = slashIndex
+  const previousLabel = slashRows[previousIndex]?.label
   slashIndex = slashRows.findIndex((r) => r.apply !== undefined)
   if (!slashPopupEl) {
     slashPopupEl = el('div', 'popover slash-popup')
@@ -1652,20 +1706,41 @@ function updateSlashPopup(editor: ComposerEditor): void {
       slashPopupEl?.appendChild(el('div', 'menu-group', row.label))
       return
     }
-    const item = el('div', i === slashIndex ? 'menu-item selected' : 'menu-item')
+    if (row.loading) {
+      // 异步候选在途：留着菜单并显示加载行（官方 pending 组的骨架行）。
+      // 原来的做法是整组为空就 hideSlashPopup——打 @ 的瞬间菜单闪一下没了。
+      slashPopupEl?.appendChild(el('div', 'menu-item hint-row loading-row', row.label))
+      return
+    }
+    const item = el('div', 'menu-item')
     item.appendChild(el('span', undefined, row.label))
     if (row.right) item.appendChild(el('span', 'menu-right', row.right))
+    if (row.drill) {
+      // 目录候选的 Tab 下钻提示（官方 drill.hint + drill.key）。
+      item.appendChild(el('span', 'menu-hint', t('Browse folder')))
+      item.appendChild(el('kbd', 'menu-key', 'Tab'))
+    }
     if (row.apply) {
       // mousedown + preventDefault: completing must not blur the editor.
       item.addEventListener('mousedown', (e) => {
         e.preventDefault()
         row.apply?.(editor)
       })
+      item.addEventListener('mousemove', () => setSlashIndex(i))
     } else {
       item.classList.add('hint-row')
     }
     slashPopupEl?.appendChild(item)
   })
+  paintSlashSelection()
+  // 打字使候选表重排时尽量把选中停在原来那一项上（找不到退回首个可选行）。
+  if (previousLabel !== undefined) {
+    const kept = slashRows.findIndex((r) => r.label === previousLabel && r.apply !== undefined)
+    if (kept >= 0) {
+      slashIndex = kept
+      paintSlashSelection()
+    }
+  }
   positionSlashPopup(editor)
 }
 
@@ -1675,13 +1750,8 @@ function moveSlashSelection(dir: number): void {
   if (selectable.length === 0) return
   const at = selectable.indexOf(slashIndex)
   slashIndex = selectable[(at + dir + selectable.length) % selectable.length]
-  // header 行也是子元素，按子下标（而非 .menu-item 过滤后的下标）对齐 slashRows。
-  const children = Array.from(slashPopupEl.querySelectorAll(':scope > *'))
-  children.forEach((item, i) => {
-    item.classList.toggle('selected', i === slashIndex)
-  })
-  // 键盘翻动时让选中项滚进可视区（弹窗 overflow-y 是独立的滚动容器）。
-  children[slashIndex]?.scrollIntoView({ block: 'nearest' })
+  // header/loading 行也是子元素，按子下标（而非 .menu-item 过滤后的下标）对齐 slashRows。
+  paintSlashSelection(true)
 }
 
 /** Rows for the current composer value: command names, preset args, or one hint row. */
@@ -1721,18 +1791,17 @@ function computeSlashRows(editor: ComposerEditor): SlashRow[] {
 const PASTE_FOLD_TIMEOUT_MS = 3000
 /** 折叠上限：超过该长度的粘贴既不折叠也不塞进 textarea（两者都兜不住），提示另存文件。 */
 const PASTE_FOLD_MAX_BYTES = 2 * 1024 * 1024
-function foldLongTextPaste(e: ClipboardEvent): boolean {
+function foldLongTextPaste(event: ClipboardEvent, text: string): boolean {
   if (state?.canSend !== true) return false
-  const text = e.clipboardData?.getData('text/plain') ?? ''
   if (!shouldFoldPastText(text)) return false
   if (text.length > PASTE_FOLD_MAX_BYTES) {
     // 巨量粘贴：不折叠也不塞进 textarea（两者都兜不住），提示用户另存文件。
-    e.preventDefault()
+    event.preventDefault()
     commandNotices = [...commandNotices, t('Pasted content exceeds {0} MB; save it as a file and attach instead', Math.round(PASTE_FOLD_MAX_BYTES / 1024 / 1024))]
     render()
     return true
   }
-  e.preventDefault()
+  event.preventDefault()
   pendingTextPaste = {
     text,
     timer: setTimeout(() => {
@@ -1779,17 +1848,19 @@ function computeRefRows(editor: ComposerEditor): SlashRow[] {
     fileRefSeq += 1
     fileRefRequestKey = at.prefix
     fileRefResult = null
+    fileRefPending = true
     if (fileRefDebounce !== null) clearTimeout(fileRefDebounce)
     fileRefDebounce = setTimeout(() => {
       fileRefDebounce = null
       post({ type: 'fileRefList', requestId: fileRefSeq, query: at.query })
     }, 250)
   }
-  const { attachments, workspace } = fileRows(editor, at)
+  const { attachments, workspace, pending } = fileRows(editor, at)
   const sessions = at.quoted ? [] : sessionRows(editor, at)
   return [
     ...(attachments.length > 0 ? [{ label: t('Attachments'), header: true } as SlashRow, ...attachments] : []),
     ...(workspace.length > 0 ? [{ label: t('Files'), header: true } as SlashRow, ...workspace] : []),
+    ...(pending && workspace.length === 0 ? [{ label: `${t('Files')} · ${t('Loading…')}`, loading: true } as SlashRow] : []),
     ...(sessions.length > 0 ? [{ label: t('Sessions'), header: true } as SlashRow, ...sessions] : []),
   ]
 }
@@ -1799,30 +1870,53 @@ function computeRefRows(editor: ComposerEditor): SlashRow[] {
  * **工作区组**（宿主异步返回）分开返回。选中后输入框插入 `@短名` 显示 token，
  * canonical 路径引用（`@/abs/path` 或 `@"..."`）记入 mentionBindings、发送时
  * 才展开——textarea 里看不到长路径；选中的若正是已附加的图片，对应 chip 高亮。
+ *
+ * 工作区组的三态（对齐官方 menu 的 pending/ready 组）：当前 token 已有落定结果
+ * 就出真候选；请求在途且自己没有候选时，出**上一次落定的候选**顶着（官方
+ * 「pending 组保留已有条目」），一个都没有才由调用方出加载行。
  */
-function fileRows(editor: ComposerEditor, at: ActiveAtToken): { attachments: SlashRow[]; workspace: SlashRow[] } {
-  const cursor = editor.selection().start
-  const tokenStart = cursor - at.prefix.length
+function fileRows(editor: ComposerEditor, at: ActiveAtToken): { attachments: SlashRow[]; workspace: SlashRow[]; pending: boolean } {
+  // 落定时的 CAS 依据（官方 insertReference 的 `span.draftRev !== this.rev`）：
+  // 候选是异步/防抖期间构建的，落定那一刻草稿必须还是构建时的版本、token 也
+  // 还是原样，否则这次插入丢弃——按过期区间改写文本会吃掉用户后打的字。
+  const rev = editor.draftRev()
+  const guarded = (mention: string, label: string, kind: 'file' | 'folder', action: 'pick' | 'drill') => (): void => {
+    if (editor.draftRev() !== rev) return
+    const now = activeAtToken(editor.beforeCaret())
+    if (!now || now.prefix !== at.prefix) return
+    const end = editor.selection().start
+    const start = end - now.prefix.length
+    if (action === 'drill') {
+      // 下钻：目录 mention（尾 `/`，引号按当前 token 状态保持敞开）作为**纯文本**
+      // 插入并继续补全——不落 chip、不关菜单，尾 `/` 让 activeAtToken 立刻重新
+      // 触发下一层候选（官方 onPick 的 `{ text, continue: true }`）。
+      editor.replaceRange(start, end, mention)
+      return
+    }
+    const token = fileMentionToken(label, mention, mentionBindings)
+    mentionBindings.set(token, mention)
+    editor.replaceTokenRange(start, end, token, mention, kind)
+    // 重建 chips 让「已被 @ 引用」的高亮生效；焦点/光标由 render 恢复。
+    render()
+  }
   const rowOf = (c: FileRefCandidate): SlashRow[] => {
     const mention = formatFileMention(c, at.quoted)
     if (mention === undefined) return [] // 编辑器语法无法安全表示的路径不出候选
     const name = attachmentBaseName(c.path)
-    return [{
+    const row: SlashRow = {
       label: `@${name}`,
       right: c.path,
-      apply: () => {
-        const token = fileMentionToken(name, mention, mentionBindings)
-        mentionBindings.set(token, mention)
-        editor.replaceTokenRange(tokenStart, cursor, token, mention, c.kind === 'directory' ? 'folder' : 'file')
-        // 重建 chips 让「已被 @ 引用」的高亮生效；焦点/光标由 render 恢复。
-        render()
-      },
-    }]
+      apply: guarded(mention, name, c.kind === 'directory' ? 'folder' : 'file', 'pick'),
+    }
+    if (c.kind === 'directory') row.drill = guarded(mention, name, 'folder', 'drill')
+    return [row]
   }
+  // 当前 token 的落定结果优先；在途时退回上一次落定的候选（官方 pending 组保留旧条目）。
+  const settled = fileRefResult !== null && fileRefResult.key === at.prefix ? fileRefResult : fileRefSettled
   return {
     attachments: attachedFileCandidates(at.query).flatMap(rowOf),
-    // 宿主工作区候选（异步）：响应未到达或已过期时为空（附件组先顶着）。
-    workspace: fileRefResult !== null && fileRefResult.key === at.prefix ? fileRefResult.items.flatMap(rowOf) : [],
+    workspace: settled !== null ? settled.items.flatMap(rowOf) : [],
+    pending: fileRefPending,
   }
 }
 
@@ -1852,8 +1946,9 @@ function sessionRows(editor: ComposerEditor, at: ActiveAtToken): SlashRow[] {
   const snap = sessionsSnapshot
   if (!snap) return []
   const query = at.query.toLowerCase()
-  const tokenStart = editor.selection().start - at.prefix.length
-  const cursor = editor.selection().start
+  // 同 fileRows：落定前做 draftRev + token 双重 CAS，过期区间不改写文本。
+  const rev = editor.draftRev()
+  if (!snap) return []
   const own =
     snap.workspaces.find((w) => w.sessions.some((s) => s.sessionId === state?.sessionId)) ??
     snap.workspaces.find((w) => state?.workspaceLabel !== undefined && w.label === state.workspaceLabel)
@@ -1866,10 +1961,14 @@ function sessionRows(editor: ComposerEditor, at: ActiveAtToken): SlashRow[] {
       label: `@${s.label}`,
       right: own.label,
       apply: () => {
+        if (editor.draftRev() !== rev) return
+        const now = activeAtToken(editor.beforeCaret())
+        if (!now || now.prefix !== at.prefix) return
+        const cursor = editor.selection().start
         const token = mentionDisplayToken(s.label, s.sessionId, mentionBindings)
         const mention = formatSessionMention(s.label, s.sessionId)
         mentionBindings.set(token, mention)
-        editor.replaceTokenRange(tokenStart, cursor, token, mention, 'session')
+        editor.replaceTokenRange(cursor - now.prefix.length, cursor, token, mention, 'session')
       },
     }))
 }
@@ -1886,20 +1985,46 @@ function sessionRows(editor: ComposerEditor, at: ActiveAtToken): SlashRow[] {
  */
 function composerAtTokenNames(): Set<string> {
   const names = new Set<string>()
-  for (const f of pendingFiles) names.add(attachmentBaseName(f.path))
-  for (const c of fileRefResult?.items ?? []) names.add(attachmentBaseName(c.path))
+  // dsh-one 的 `@` 名录来自补全候选（附件 basename / 工作区文件 / 会话短名），
+  // 这些名字带扩展名与空格；官方的 name 口径是触发符后的 `[\w-]+`。两条都登记：
+  // 整名（dsh-one 适配，`@img1.png` 这种带 `.` 的名字官方匹配不到）与官方
+  // name 段（`@img1` 也能命中，对齐官方 scanTextRefs 的名录语义）。
+  const add = (name: string): void => {
+    if (name.length === 0) return
+    names.add(name)
+    const official = atTokenName(`@${name}`)
+    if (official.length > 0) names.add(official)
+  }
+  for (const f of pendingFiles) add(attachmentBaseName(f.path))
+  for (const c of fileRefResult?.items ?? []) add(attachmentBaseName(c.path))
   const snap = sessionsSnapshot
   if (snap) {
     const own =
       snap.workspaces.find((w) => w.sessions.some((s) => s.sessionId === state?.sessionId)) ??
       snap.workspaces.find((w) => state?.workspaceLabel !== undefined && w.label === state.workspaceLabel)
-    for (const s of own?.sessions ?? []) names.add(s.label)
+    for (const s of own?.sessions ?? []) add(s.label)
   }
   for (const token of mentionBindings.keys()) {
     // 绑定 key 是显示 token（@标题 / @img1.png (2)）：取掉 @ 与序号后缀得词库名。
-    names.add(token.slice(1).replace(/\s*\(\d+\)$/, ''))
+    add(token.slice(1).replace(/\s*\(\d+\)$/, ''))
   }
   return names
+}
+
+/** `@` 词库的稳定签名：集合内容变了才触发重扫（render 很频繁，不能每次都扫）。 */
+let lastAtLexiconSignature = ''
+
+/**
+ * 词库变化 → 全量重扫已输入的 @token（对齐官方 lexicon.subscribe → rescanTextRefs）。
+ * Lexical 的着色变换只跑 dirty 节点，词库变了不弄脏任何节点——不主动重扫的话
+ * 「先打 @img1.png 再附加该文件」这类顺序永远不变亮（B-08）。
+ */
+function syncAtLexiconRescan(): void {
+  if (!activeComposer) return
+  const signature = [...composerAtTokenNames()].sort().join('\u0000')
+  if (signature === lastAtLexiconSignature) return
+  lastAtLexiconSignature = signature
+  activeComposer.rescanTextRefs()
 }
 
 /**
@@ -1918,20 +2043,21 @@ function composerSlashTokenNames(): Set<string> {
  * 不会变成 `@@标题`。末尾是 mention 时补一个空格，与接着输入的文字隔开。
  * 返回是否已处理；普通文本粘贴返回 false，走默认行为。
  */
-function pasteSessionMentions(editor: ComposerEditor, e: ClipboardEvent): boolean {
-  const pasted = e.clipboardData?.getData('text/plain')
-  if (!pasted || !pasted.includes(SESSION_REFERENCE_SCHEME)) return false
+function pasteSessionMentions(editor: ComposerEditor, pasted: string): boolean {
+  if (!pasted.includes(SESSION_REFERENCE_SCHEME)) return false
   const segments = splitSessionMentions(pasted)
   if (!segments.some((seg) => typeof seg !== 'string')) return false
-  e.preventDefault()
-  const inserted = segments
-    .map((seg) => {
-      if (typeof seg === 'string') return seg
-      const token = mentionDisplayToken(seg.label, seg.sessionId, mentionBindings)
-      mentionBindings.set(token, formatSessionMention(seg.label, seg.sessionId))
-      return token
-    })
-    .join('')
+  const parts = segments.map((seg) => {
+    if (typeof seg === 'string') return { text: seg }
+    const token = mentionDisplayToken(seg.label, seg.sessionId, mentionBindings)
+    const mention = formatSessionMention(seg.label, seg.sessionId)
+    mentionBindings.set(token, mention)
+    // 带 mention 的引用节点：显示形态与原来一致（着色 token），但发送投影能
+    // 展开成 canonical——文本级的绑定展开已经改成节点级（B-16），粘进来的
+    // 会话引用必须自己带上 mention，否则发送时不会展开。
+    return { text: token, mention }
+  })
+  const inserted = parts.map((p) => p.text).join('')
   const { start: selStart, end: selEnd } = editor.selection()
   const before = editor.getText().slice(0, selStart)
   const after = editor.getText().slice(selEnd)
@@ -1943,7 +2069,8 @@ function pasteSessionMentions(editor: ComposerEditor, e: ClipboardEvent): boolea
     const trigger = /(^|\s)@[^\s@]{0,30}$/.exec(before)
     if (trigger) insertStart = selStart - trigger[0].length + (trigger[1]?.length ?? 0)
   }
-  editor.replaceRange(insertStart, selEnd, inserted + pad)
+  if (pad) parts.push({ text: pad })
+  editor.replaceRangeWithParts(insertStart, selEnd, parts)
   return true
 }
 
@@ -3751,6 +3878,9 @@ function render(): void {
   } else if (slashPopupEl && activeComposer) {
     positionSlashPopup(activeComposer)
   }
+  // 词库（@ 候选/绑定名）变了就把已输入的 @token 全量重扫一遍：Lexical 的
+  // 着色变换只跑 dirty 节点，附件/候选到位本身不弄脏文本（B-08）。
+  syncAtLexiconRescan()
   // 脏位跟随渲染结果上报：切换会话恢复草稿、发送清空、附件增删都经这里。
   reportComposerDirty()
   // 草稿落盘同款（#14）：发送清空/附件增删/restoreDraft 回填等经 render 的变化在此收口。
@@ -4075,6 +4205,12 @@ let clearConfirmHint: HTMLElement | null = null
  * 不动绑定，verbatim 灌回文本即可让 @ 引用 token 正确渲染/展开。
  */
 let clearedStash: { text: string; images: OutgoingImage[]; files: StagedFile[] } | null = null
+/**
+ * 正在执行清空动作（clearComposer 里的程序化 setText('')）。onTextChange 的
+ * 「有输入就作废清空暂存」必须跳过这一次——否则刚存下的暂存被清空自身抹掉，
+ * Ctrl+Z 永远恢复不了（B-06）。
+ */
+let clearingComposer = false
 
 /** 从 data URL 拆出 {mediaType, data}（composer 图片 staging 用；无逗号整体当 data）。 */
 function outgoingImageFromDataUrl(dataUrl: string): Pick<OutgoingImage, 'mediaType' | 'data'> {
@@ -4083,6 +4219,48 @@ function outgoingImageFromDataUrl(dataUrl: string): Pick<OutgoingImage, 'mediaTy
   const mediaType = header.startsWith('data:') ? header.slice(5).split(';')[0] : ''
   const data = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
   return { mediaType, data }
+}
+
+/**
+ * 发送失败/被 stop 抽干而回填的稿子（对齐官方 detachedDraft）：提交那一刻的
+ * 文本 + 附件被摘下来排在这里，输入框空下来时按提交顺序拼回；用户已经在输入框
+ * 里打了新内容就不当场覆盖（B-21）。多条之间用空行分隔，与官方 restoreFailedDrafts
+ * 同款。
+ */
+const detachedDrafts: Array<{ text: string; images: OutgoingImage[]; files: StagedFile[] }> = []
+
+/** 输入框空着（无文本、无待发附件）时把排队的回填稿落地；否则等下一次变空。 */
+function flushFailedDrafts(): void {
+  if (detachedDrafts.length === 0) return
+  const hasComposer = activeComposer !== null
+  const busy = hasComposer
+    ? activeComposer!.getText().trim().length > 0 || pendingImages.length > 0 || pendingFiles.length > 0
+    : (stashedDraft ?? '').trim().length > 0
+  if (busy) return
+  const records = detachedDrafts.splice(0, detachedDrafts.length)
+  const text = records.map((r) => r.text).filter((t) => t.length > 0).join('\n\n')
+  if (hasComposer) {
+    activeComposer!.setText(text, mentionBindings)
+    activeComposer!.focus(true)
+  } else {
+    stashedDraft = text
+  }
+  let staged = false
+  for (const record of records) {
+    if (record.images.length > 0) {
+      pendingImages = [...pendingImages, ...record.images]
+      staged = true
+    }
+    const existing = new Set(pendingFiles.map((f) => f.path))
+    for (const f of record.files) {
+      if (existing.has(f.path)) continue
+      pendingFiles.push(f)
+      existing.add(f.path)
+      staged = true
+    }
+  }
+  if (staged) clearedStash = null
+  if (staged && hasComposer) render()
 }
 
 /**
@@ -4134,6 +4312,10 @@ function armClearConfirm(anchor: HTMLElement): void {
   disarmClearConfirm()
   clearConfirmArmed = true
   const hint = el('div', 'clear-confirm-hint', t('Press Esc or Ctrl+C again to clear the input'))
+  // 撤销键的文案与平台同源（清空那一键两平台都是 Ctrl+C，见 isComposerClearChord；
+  // 撤销走 Lexical history，mac 惯例 ⌘Z、Windows/Linux Ctrl+Z）。提示里原本完全
+  // 没提撤销键，验收场景却又按 Ctrl+Z 验收——文案补上，键值由纯函数出。
+  hint.title = t('{0} restores the cleared input', undoChordLabel(state?.hostOs))
   document.body.appendChild(hint)
   clearConfirmHint = hint
   const rect = anchor.getBoundingClientRect()
@@ -6671,6 +6853,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     const chips = el('div', 'image-chips')
     pendingImages.forEach((img, i) => chips.appendChild(pendingImageThumb(img, i)))
     pendingFiles.forEach((file, i) => chips.appendChild(pendingFileChip(file, i)))
+    // 附件 chip → 文本 @ 引用 的反向 hover（applyHover 的对称入口）。挂容器上
+    // 用事件委托：chip 每次 render 都重建，逐个绑定会漏。
+    chips.addEventListener('mouseover', (e) => {
+      const target = (e.target as HTMLElement | null)?.closest<HTMLElement>('[data-attach-path]')
+      hoverAttachment(target?.dataset.attachPath ?? null)
+    })
+    chips.addEventListener('mouseleave', () => hoverAttachment(null))
     wrap.appendChild(chips)
   }
 
@@ -6741,28 +6930,57 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     clearAll.hidden = !(composer.getText().length > 0 || pendingImages.length > 0 || pendingFiles.length > 0)
   }
 
-  /** hover 联动：token 高亮加深 + 对应附件 chip 高亮（直接 DOM 操作，不整页重渲染）。
-   *  Lexical 的 RefTokenNode span 上存 canonical 引用（`@/abs/path` 或 `@"..."`），chip
-   *  上存纯路径——匹配前归一化（去 @ 与引号），否则永远对不上。 */
+  /**
+   * hover 联动（**双向**，B-17）：文本里的 @ 引用 ↔ 附件 chip 互相点亮。
+   *  - 文本侧两个形态都算引用：落定的原子 chip（`.ref-chip[data-ref]` 存 canonical）
+   *    与着色文本（`.ref-token[data-path]`，有绑定存 canonical、手打的存显示 token）。
+   *  - 附件侧是 `.input-area [data-attach-path]`（文件 chip 与图片缩略图）。
+   *  - 两侧一律归一到「纯路径」再比：剥掉 `@`/引号，显示 token 经 mentionBindings
+   *    反查 canonical——不然手打的 `@img1.png` 永远对不上 `/abs/img1.png` 那张 chip。
+   *  - 反向入口是附件 chip 的 mousemove（见 hoverAttachment）。
+   *  - 粘贴进来的裸图片没有路径（只有字节），没有可对上的引用，天然不参与。
+   */
   let hoverTokenMention: string | null = null
   const plainPath = (p: string): string => p.replace(/^@/, '').replace(/^"|"$/g, '')
+  /** 文本侧节点的 data 属性值 → 纯路径（先反查绑定，再归一化）。 */
+  const plainOfTokenAttr = (raw: string): string => plainPath(mentionBindings.get(raw) ?? raw)
   const applyHover = (mention: string | null): void => {
     if (mention === hoverTokenMention) return
     hoverTokenMention = mention
-    const plain = mention === null ? null : plainPath(mention)
-    // 两段式：选定的引用是原子 chip（.ref-chip 存 data-ref），未选定的是着色文本
-    // （.ref-token 存 data-path）。两者都参与「hover 高亮加深」。
+    const plain = mention === null ? null : plainOfTokenAttr(mention)
     for (const span of Array.from(frame.querySelectorAll<HTMLElement>('.ref-token'))) {
-      span.classList.toggle('active', mention !== null && span.dataset.path === mention)
+      span.classList.toggle('active', plain !== null && plainOfTokenAttr(span.dataset.path ?? '') === plain)
     }
     for (const chip of Array.from(frame.querySelectorAll<HTMLElement>('.ref-chip[data-ref]'))) {
-      chip.classList.toggle('active', mention !== null && chip.dataset.ref === mention)
+      chip.classList.toggle('active', plain !== null && plainOfTokenAttr(chip.dataset.ref ?? '') === plain)
     }
     // hover 用独立 class（hovered），不碰点击选中态的 referenced；查询收窄到
     // composer 输入区（避免点亮历史消息里同路径的附件 chip）。
     for (const chip of Array.from(document.querySelectorAll<HTMLElement>('.input-area [data-attach-path]'))) {
       chip.classList.toggle('hovered', plain !== null && chip.dataset.attachPath === plain)
     }
+  }
+
+  /** 附件 chip → 文本 @ 引用（applyHover 的反向入口）：按路径找同路径的引用节点。 */
+  const hoverAttachment = (path: string | null): void => {
+    let matched: string | null = null
+    if (path !== null) {
+      for (const span of Array.from(frame.querySelectorAll<HTMLElement>('.ref-token'))) {
+        if (plainOfTokenAttr(span.dataset.path ?? '') === path) {
+          matched = span.dataset.path ?? null
+          break
+        }
+      }
+      if (matched === null) {
+        for (const chip of Array.from(frame.querySelectorAll<HTMLElement>('.ref-chip[data-ref]'))) {
+          if (plainOfTokenAttr(chip.dataset.ref ?? '') === path) {
+            matched = chip.dataset.ref ?? null
+            break
+          }
+        }
+      }
+    }
+    applyHover(matched)
   }
 
   const sendCurrent = (steer = false): void => {
@@ -6787,16 +7005,20 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       const live = composer.root.isConnected ? composer : activeComposer
       if (live && live !== composer) live.setText('')
     }
-    // Staged file chips travel as <attachment> path lines appended to the
-    // prompt text (dsh has no file content part); the folder parses them
-    // back into chips for history rendering.
-    const text = [composer.getText().trim(), ...pendingFiles.map((f) => `<attachment>${f.path}</attachment>`)]
+    // Staged file chips travel as `@path` reference lines appended to the prompt
+    // text (dsh's PromptContentPart has no file part); both dsh-one and the
+    // official web front-end render such a token as a file chip. 旧的私有
+    // `<attachment>` 行官方前端不认、会显示成裸文本（B-18），解析侧仍兼容它。
+    //
+    // 引用展开走**节点级**投影（composer.textWithMentions）：补全落定的 chip /
+    // 召唤还原的 ref-token 出 canonical mention；手打的 `@img1.png` 是普通文本
+    // 节点，原样发出。原来的文本级 expandMentionBindings 只看字符串，会把
+    // 「碰巧和某个历史绑定同名的手打 token」也改写成那条长路径（B-16）。
+    const text = [composer.textWithMentions().trim(), ...pendingFiles.map((f) => fileAttachmentLine(f.path))]
       .filter(Boolean)
       .join('\n')
     if (!text && pendingImages.length === 0) return
-    // @ 补全插入的显示 token 在这里展开成 canonical mention（host 按 mention
-    // 注入被引用会话的只读快照）；用户手动删改过的 token 不匹配，原样发送。
-    const expanded = expandMentionBindings(text, mentionBindings)
+    const expanded = text
     // `/model` is a client-side command (dsh-client-ui-model-selection): the
     // host has no such command, so open the model menu instead of sending.
     if (text === '/model' && !recall) {
@@ -6913,27 +7135,35 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   // 清空动作（× 按钮点击与「双击 Ctrl+C/ESC」共用）：清空文本（含 recall 态与
   // 召回草稿）+ 全部待发附件，清空前暂存进 clearedStash 供 Ctrl+Z 反悔。
   const clearComposer = (): void => {
-    const text = composer.getText()
-    clearedStash =
-      text.length > 0 || pendingImages.length > 0 || pendingFiles.length > 0
-        ? { text, images: pendingImages, files: pendingFiles }
-        : null
-    composer.setText('')
-    recall = null
-    recallDraft = ''
-    pendingImages = []
-    pendingFiles = []
-    disarmClearConfirm()
-    // 保活态（如 model 菜单开着）下 render() 不重建 composer：旧 × 就地隐藏，
-    // 重建态则由新渲染的按钮自然带出正确可见性。
-    updateClearAll()
-    render()
-    // render() 重建了 composer（新编辑器），焦点回到 live 输入框（光标默认在末尾）；
-    // 保活态下 composer 未被重建，仍用当前 live。
-    const live = composer.root.isConnected ? composer : activeComposer
-    live?.focus(true)
-    // keepComposer 保活时 render() 只 patch 不动输入区：清空后发送按钮态就地更新。
-    if (composer.root.isConnected) updateButton()
+    // 整个清空动作（含随后的 render 重建 composer）都算「程序化」：新编辑器的
+    // 首帧 onTextChange('') 同样不该把刚存下的暂存抹掉（B-06）。清空暂存的语义
+    // 是「这一下清掉的内容可反悔」，只有用户真的又输入了才作废。
+    clearingComposer = true
+    try {
+      const text = composer.getText()
+      clearedStash =
+        text.length > 0 || pendingImages.length > 0 || pendingFiles.length > 0
+          ? { text, images: pendingImages, files: pendingFiles }
+          : null
+      composer.setText('')
+      recall = null
+      recallDraft = ''
+      pendingImages = []
+      pendingFiles = []
+      disarmClearConfirm()
+      // 保活态（如 model 菜单开着）下 render() 不重建 composer：旧 × 就地隐藏，
+      // 重建态则由新渲染的按钮自然带出正确可见性。
+      updateClearAll()
+      render()
+      // render() 重建了 composer（新编辑器），焦点回到 live 输入框（光标默认在末尾）；
+      // 保活态下 composer 未被重建，仍用当前 live。
+      const live = composer.root.isConnected ? composer : activeComposer
+      live?.focus(true)
+      // keepComposer 保活时 render() 只 patch 不动输入区：清空后发送按钮态就地更新。
+      if (composer.root.isConnected) updateButton()
+    } finally {
+      clearingComposer = false
+    }
   }
 
   // 清空反悔恢复：附件在 composer 签名里（pendingImages/pendingFiles），恢复后
@@ -6974,43 +7204,53 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     return false
   }
 
-  // paste：外层（会话 mention / 长文本折叠 / 图片）优先，未消费回落 registerPlainText。
+  // paste：文件与文本**都要处理**（官方 registerComposerKeymap 的 PASTE_COMMAND）：
+  // 剪贴板同时含文件与文本时（从 Finder/资源管理器复制一个文件、或编辑器里
+  // 复制一段带图的富文本），原来是「有文件就只收文件」，文本被静默丢掉（B-15）。
+  // 所以：先把 file 项同步取出来（clipboardData 只在事件里有效），再走文本
+  // 三条分支（会话 mention / 长文本折叠 / 默认插入）。
   const onPaste = (event: ClipboardEvent): boolean => {
+    const clipboardData = event.clipboardData
+    if (!clipboardData) return false
     // Every clipboard file becomes an attachment, images or not — the host
     // sniffs the bytes, so a missing declared type (macOS file promises) is fine.
-    const items = Array.from(event.clipboardData?.items ?? []).filter((item) => item.kind === 'file')
-    if (items.length === 0) {
-      // 会话 mention 粘贴优先（canonical 转显示 token）；长文本折叠为文件附件；
-      // 都未命中时默认插入（registerPlainText）。
-      if (pasteSessionMentions(composer, event)) return true
-      if (foldLongTextPaste(event)) return true
-      return false
-    }
+    const items = Array.from(clipboardData.items ?? []).filter((item) => item.kind === 'file')
+    const text = clipboardData.getData('text/plain') ?? ''
+    if (items.length === 0 && text === '') return false
     event.preventDefault()
-    void (async () => {
-      const files: OutgoingImage[] = []
-      for (const [i, item] of items.entries()) {
-        const file = item.getAsFile()
-        if (!file) continue
-        try {
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve(String(reader.result))
-            reader.onerror = () => reject(reader.error)
-            reader.readAsDataURL(file)
-          })
-          const comma = dataUrl.indexOf(',')
-          files.push({
-            mediaType: file.type || item.type,
-            data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
-            name: file.name || `pasted-${Date.now()}-${i + 1}`,
-          })
-        } catch {
-          // Unreadable clipboard item: skip it, keep the rest.
+    if (items.length > 0) {
+      // getAsFile() 必须同步调（异步回调里 clipboardData 已失效）。
+      const picked = items.map((item) => ({ file: item.getAsFile(), type: item.type })).filter((p): p is { file: File; type: string } => p.file !== null)
+      void (async () => {
+        const files: OutgoingImage[] = []
+        for (const [i, { file, type }] of picked.entries()) {
+          try {
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve(String(reader.result))
+              reader.onerror = () => reject(reader.error)
+              reader.readAsDataURL(file)
+            })
+            const comma = dataUrl.indexOf(',')
+            files.push({
+              mediaType: file.type || type,
+              data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
+              name: file.name || `pasted-${Date.now()}-${i + 1}`,
+            })
+          } catch {
+            // Unreadable clipboard item: skip it, keep the rest.
+          }
         }
-      }
-      if (files.length > 0) post({ type: 'filesPasted', files })
-    })()
+        if (files.length > 0) post({ type: 'filesPasted', files })
+      })()
+    }
+    if (text === '') return true
+    // 会话 mention 粘贴优先（canonical 转显示 token）；长文本折叠为文件附件；
+    // 都未命中时原文插到光标处（与 registerPlainText 的默认插入同义）。
+    if (pasteSessionMentions(composer, text)) return true
+    if (foldLongTextPaste(event, text)) return true
+    const { start, end } = composer.selection()
+    composer.replaceRange(start, end, text)
     return true
   }
 
@@ -7026,7 +7266,9 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         // 自己设置的暂存之后同步触发本回调，一并作废的话 Ctrl+Z 反悔就成了永远
         // 走不到的死代码。
         disarmClearConfirm()
-        if (!meta.programmatic) clearedStash = null
+        if (!clearingComposer) clearedStash = null
+        // 输入框重新空下来：排队中的失败回填稿这时才落地（B-21）。
+        if (!clearingComposer && text.trim().length === 0) flushFailedDrafts()
         // 纯输入不触发 render，脏位上报单独跟一次（宿主的 dirty 保护决策读它）。
         reportComposerDirty()
         // 草稿落盘同款（不经 render 的输入事件独立挂钩，#14）。
@@ -7077,8 +7319,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   // 选区时保持复制语义；IME 组合中不响应。斜杠补全弹出时导航键交给编辑器（其
   // 命令在 keydown 里消费），这里只处理 clear-chord。
   composer.root.addEventListener('keydown', (e) => {
-    const isClearChord =
-      e.key === 'Escape' || (e.key === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)
+    const isClearChord = e.key === 'Escape' || isComposerClearChord(e)
     if (
       isClearChord &&
       !e.defaultPrevented &&
@@ -7107,7 +7348,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   composer.root.addEventListener(
     'keydown',
     (e) => {
-      if (!slashPopupEl || e.isComposing) return
+      if (!slashPopupEl || composer.blockedByComposition(e)) return
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         e.stopPropagation()
@@ -7123,7 +7364,14 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       if (e.key === 'Tab') {
         e.preventDefault()
         e.stopPropagation()
-        slashRows[slashIndex]?.apply?.(composer)
+        // Tab 的 drill 语义（官方 arbitrate('tab')）：高亮项可下钻就下钻
+        // （目录进一层、菜单不关），否则与 Enter 同义落定。
+        const row = slashRows[slashIndex]
+        if (row?.drill) {
+          row.drill(composer)
+          return
+        }
+        row?.apply?.(composer)
         return
       }
       if (e.key === 'Escape' && !e.defaultPrevented) {

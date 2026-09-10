@@ -58,6 +58,41 @@ const STYLE = `
     --dsh-content-font-delta: calc(var(--dsh-content-font-size, 14px) - 14px);
     --dsh-content-font-size-secondary: min(calc(var(--dsh-content-font-size, 14px) - 1px), max(13px, calc(var(--dsh-content-font-size, 14px) - 2px)));
     --dsh-content-font-delta-secondary: calc(var(--dsh-content-font-size-secondary) - 13px);
+    /* @ 引用高亮（.ref-token / composer 的 .ref-chip）的底色来源：从主题的
+       charts-blue / 链接色取，缺省才回落到品牌蓝——浅色与高对比度主题下跟着
+       主题走，不再钉死 rgba(101,158,254)（B-20）。 */
+    --dsh-ref-tint: var(--vscode-charts-blue, var(--vscode-textLink-foreground, #659efe));
+  }
+  /* 高对比度主题：半透明底色在这类主题里对比度不足（HC 也不鼓励 alpha 混色）。
+     改成主题的选区底色（不透明）并给引用画一圈主题描边。 */
+  body.vscode-high-contrast,
+  body.vscode-high-contrast-light {
+    --dsh-ref-tint: var(--vscode-editor-selectionBackground, var(--vscode-list-activeSelectionBackground, Highlight));
+  }
+  body.vscode-high-contrast .ref-token,
+  body.vscode-high-contrast-light .ref-token,
+  body.vscode-high-contrast #input .ref-chip,
+  body.vscode-high-contrast-light #input .ref-chip {
+    background: var(--dsh-ref-tint);
+    color: var(--vscode-editor-selectionForeground, var(--vscode-list-activeSelectionForeground, inherit));
+    outline: 1px solid var(--vscode-contrastBorder, var(--vscode-contrastActiveBorder, transparent));
+  }
+  /* 高对比度下渐变文字（background-clip: text）会被强制颜色模式抹掉，退回纯前景色。 */
+  body.vscode-high-contrast .turn-status-text,
+  body.vscode-high-contrast-light .turn-status-text {
+    background: none; color: var(--vscode-foreground); animation: none;
+  }
+  /* JSON 树在高对比度主题里改走主题色，固定调色板对比度不够。 */
+  body.vscode-high-contrast .json-tree,
+  body.vscode-high-contrast-light .json-tree {
+    --jt-property: var(--vscode-symbolIcon-propertyForeground, var(--vscode-foreground));
+    --jt-string: var(--vscode-symbolIcon-stringForeground, var(--vscode-foreground));
+    --jt-number: var(--vscode-symbolIcon-numberForeground, var(--vscode-foreground));
+    --jt-keyword: var(--vscode-symbolIcon-keywordForeground, var(--vscode-foreground));
+    --jt-punct: var(--vscode-foreground);
+    --jt-icon: var(--vscode-foreground);
+    --jt-ellipsis: var(--vscode-foreground);
+    --jt-hover: var(--vscode-list-hoverBackground, transparent);
   }
   /* 聊天内容区（消息流 + 用户气泡 + markdown/表格 + 流内说明）正文字号随
      --dsh-content-font-size；头部 chips/composer/计时行等面板 chrome 不随动。
@@ -1462,6 +1497,25 @@ const STYLE = `
   .menu-item .check { margin-left: auto; flex: none; }
   .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
+  /* @ 补全的 Tab 下钻提示（目录候选）：hover/选中该行才显形（官方 MenuView
+     的 drillHintText + drillHint 同一套显隐规则）。 */
+  .menu-item .menu-hint {
+    margin-left: auto; padding-left: 12px; font-size: 11px; opacity: 0;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .menu-item .menu-key {
+    flex: none; font-family: inherit; font-size: 11px; line-height: 16px;
+    padding: 0 5px; border-radius: 4px; opacity: 0;
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.2));
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .menu-item:hover .menu-hint,
+  .menu-item:hover .menu-key,
+  .menu-item.selected .menu-hint,
+  .menu-item.selected .menu-key { opacity: 1; }
+  /* 异步候选在途的加载行（@ 补全的「Files · Loading…」）：不可选、不抢 hover。 */
+  .menu-item.loading-row { opacity: .6; cursor: default; }
+  .menu-item.loading-row:hover { background: none; color: inherit; }
   /* 带描述两行的菜单项（模型菜单等）：名称 + 描述小字，行高自适应。 */
   .menu-item.has-desc { align-items: flex-start; white-space: normal; }
   .menu-item.has-desc .check { align-self: center; }
@@ -1704,22 +1758,29 @@ const STYLE = `
     font-family: inherit; font-size: inherit; line-height: inherit;
   }
   /* @ 引用 token 高亮：TextRefNode（词内可改着色）在编辑文本流里的天然底色，hover 加深并
-     联动对应附件 chip 高亮（网页层 .active 由 webview 的 hover 联动切换）。 */
-  .ref-token { background: rgba(101, 158, 254, .22); border-radius: 3px; }
-  .ref-token.active { background: rgba(101, 158, 254, .5); }
+     联动对应附件 chip 高亮（网页层 .active 由 webview 的 hover 联动切换）。
+     色调从主题取（--vscode-charts-blue / textLink），不再钉死 #659efe——
+     浅色主题、高对比度主题下都要跟着走（B-20）。 */
+  .ref-token {
+    background: color-mix(in srgb, var(--dsh-ref-tint) 22%, transparent);
+    border-radius: 3px;
+  }
+  .ref-token.active { background: color-mix(in srgb, var(--dsh-ref-tint) 50%, transparent); }
   /* 两段式的「落定 chip」：菜单选中后由 ReferenceChipNode（DecoratorNode）渲染的原子 chip。
      只读、整块不可编辑、hover 用原生 title 显完整路径；底色/圆角区别于消息流里的链接色
      ref-chip（消息流在 .bubble 内、composer 的在 #input 内）。 */
   #input .ref-chip, .lexical-input .ref-chip {
     display: inline-flex; align-items: center; gap: 3px;
     margin: 0 2px; padding: 0 6px; border-radius: 6px;
-    background: rgba(101, 158, 254, .18); color: inherit;
+    background: color-mix(in srgb, var(--dsh-ref-tint) 18%, transparent); color: inherit;
     font: inherit; font-weight: 500; white-space: nowrap;
     vertical-align: baseline; user-select: none; cursor: default;
     max-width: 100%; height: 22px;
   }
   #input .ref-chip::before, .lexical-input .ref-chip::before { content: none; }
-  #input .ref-chip.active, .lexical-input .ref-chip.active { background: rgba(101, 158, 254, .4); }
+  #input .ref-chip.active, .lexical-input .ref-chip.active {
+    background: color-mix(in srgb, var(--dsh-ref-tint) 40%, transparent);
+  }
   #input .ref-chip svg, .lexical-input .ref-chip svg { flex: none; }
   #input .ref-chip .ref-chip-label, .lexical-input .ref-chip .ref-chip-label {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
@@ -1895,7 +1956,9 @@ const STYLE = `
      prefers-reduced-motion 下静止。 */
   .hero-fish {
     align-self: center;
-    color: #2563eb;
+    /* 品牌蓝从主题取（charts-blue / 链接色），缺省回落品牌蓝——浅色与高对比度
+       主题下不跟着走的话，鲸鱼在高对比度背景上会糊掉（B-20）。 */
+    color: var(--dsh-ref-tint);
     animation: hero-fish-swim 4.8s ease-in-out infinite;
   }
   .hero-brand {

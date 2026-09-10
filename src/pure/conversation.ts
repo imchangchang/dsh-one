@@ -22,7 +22,7 @@ import type {
   ChatTurnTiming,
   ContextForm,
 } from './chatContract.ts'
-import { attachmentBaseName, isImagePath } from './composerAttachment.ts'
+import { attachmentBaseName, isImagePath, parseAttachmentLine } from './composerAttachment.ts'
 import { TurnUsageFold } from './turnUsage.ts'
 
 /** Subset of dsh-llm's StreamChunk the folder folds. */
@@ -205,20 +205,18 @@ export function imagesOfBlocks(content: unknown): ChatImage[] {
 }
 
 /**
- * File attachments ride the prompt text as `<attachment>PATH</attachment>`
- * lines (dsh's PromptContentPart only has text and image parts). Split them
- * back out so the UI renders chips instead of raw paths; the wrapper stays
- * model-legible for the agent and in dsh's own web UI.
+ * File attachments ride the prompt text as `@PATH` reference lines (dsh's
+ * PromptContentPart only has text and image parts). Split them back out so the
+ * UI renders chips instead of raw paths — `@path` is the shape both dsh-one and
+ * the official web front-end already render as a file chip (历史里的私有
+ * `<attachment>PATH</attachment>` 形态由 parseAttachmentLine 一并兼容).
  */
-const ATTACHMENT_LINE = /^<attachment>(.+)<\/attachment>$/
-
 function splitAttachments(text: string): { text: string; files: ChatFile[] } {
   const files: ChatFile[] = []
   const kept: string[] = []
   for (const line of text.split('\n')) {
-    const match = ATTACHMENT_LINE.exec(line.trim())
-    if (match) {
-      const p = match[1]
+    const p = parseAttachmentLine(line)
+    if (p !== null) {
       files.push({ name: attachmentBaseName(p), path: p, ...(isImagePath(p) ? { image: true } : {}) })
     } else {
       kept.push(line)

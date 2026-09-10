@@ -155,21 +155,62 @@ export function scanAtTokens(text: string): AtTokenRange[] {
 }
 
 /**
+ * 官方 `TEXT_REF_RE` 的 name 形态：触发符后紧跟的 `[\w-]+`（JS 里 `\w` =
+ * `[A-Za-z0-9_]`，另加 `-`）。词库门控按这个 name 查名录，而不是整个 token——
+ * `@img1.png` 的官方 name 是 `img1`（`.` 不属于 `[\w-]`）。
+ */
+const AT_NAME_RE = /^[A-Za-z0-9_-]+/
+
+/**
+ * 取 @token 的官方门控名（`[\w-]+` 段）：剥掉 `@` 与可能的开引号，再取头部
+ * `[\w-]+`。取不到（CJK 名、纯符号）时返回空串——调用方此时只能靠整段显示名
+ * 兜底。
+ */
+export function atTokenName(token: string): string {
+  const body = token.startsWith('@') ? token.slice(1) : token
+  const unquoted = body.startsWith('"') ? body.slice(1) : body
+  return AT_NAME_RE.exec(unquoted)?.[0] ?? ''
+}
+
+/**
+ * 官方 `FOLDER_REF_RE` = `/(^|\s)(@(?:"[^"\n]*\/|[^\s"]+\/))/g` 的形态判定：
+ * 两个分支——
+ *  - `@"…/`：引号分支，`[^"\n]*` 不跨闭引号，所以「开引号后到闭引号（或行尾）
+ *    之间的那段」须以 `/` 收尾（`@"a b/"` 与未闭合的 `@"src/` 都算，`@"a.txt"`
+ *    不算）；
+ *  - `@…/`：无空白无引号且以 `/` 收尾。
+ * 命中即按语法着色，与词库无关（官方 folder 分支不过 lexicon gate）。
+ */
+export function isFolderAtToken(token: string): boolean {
+  const body = token.startsWith('@') ? token.slice(1) : token
+  if (body.startsWith('"')) {
+    const inner = body.slice(1)
+    const close = inner.indexOf('"')
+    return (close >= 0 ? inner.slice(0, close) : inner).endsWith('/')
+  }
+  return body.endsWith('/') && !/[\s"]/u.test(body)
+}
+
+/**
  * 词库门控（对齐官方 client.js scanTextRefs 的 lexicon gate）：某个 @token（已按
  * 语法扫描出的区间）是否应着色。
- * - 尾斜杠文件夹（`@dir/` 与官方 FOLDER_REF_RE 的引号分支 `@"dir/"`）按语法着色，
- *   不看词库——引号分支须尾 `/` 才着色（`@"非目录"` 无尾 `/` 不着色，对齐官方）；
- * - 其余 `@name` 仅当 name（`@` 后的整段显示名）在 live 候选名集合里才着色——
- *   未知名/半截名（`@img`、`@nonexistent`）保持纯文本。
+ * - 文件夹形态（官方 FOLDER_REF_RE 的引号分支与普通分支，见 isFolderAtToken）
+ *   按语法着色，不看词库；
+ * - 其余 `@name` 走两类名匹配：
+ *     a) 官方口径——token 头部的 `[\w-]+` name 命中名录（`@img1.png` 查 `img1`）；
+ *     b) dsh-one 适配——整段显示名命中名录。dsh-one 的 `@` 名录来自补全候选
+ *        （附件 basename 带扩展名、会话标题可含空格），这些名字天然带 `.`/空格，
+ *        官方那种「`[\w-]+` 精确成员」匹配不到，故保留整名这条。
+ *   两条都未命中（`@nonexistent`）保持纯文本。
  *
  * @param token 完整 token 文本（含 `@`/引号）。
  * @param quoted 是否为引号 token（scanAtTokens 返回的 `quoted`）。
  * @param names live 候选名集合（@ 补全数据：附件/工作区文件/会话短名 + 已登记绑定）。
  */
 export function shouldColorAtToken(token: string, quoted: boolean, names: ReadonlySet<string>): boolean {
-  if (token.endsWith('/')) return true
+  if (isFolderAtToken(token)) return true
   if (quoted) return false
-  return names.has(token.slice(1))
+  return names.has(atTokenName(token)) || names.has(token.slice(1))
 }
 
 /** `/command`（skill 形态）区间：`/` 触发点与整段结束下标（含 `/`）。 */
