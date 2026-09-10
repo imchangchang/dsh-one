@@ -476,6 +476,16 @@ function draftSignature(d: { text: string; images: OutgoingImage[]; files: Stage
 }
 
 /** 立即上报一份草稿；空内容发 null 让宿主删条目（发送/一键清空/全删都收敛到这里）。 */
+/**
+ * 草稿落盘的图片预算（base64 字符数）：草稿存的是**全尺寸字节**，一张图片就是
+ * 几 MB，几张就把 drafts.json 撑成几十 MB（进程重启读回还得全部解回内存）。
+ * 官方把草稿图片放在宿主的附件库里、前端只留 id + 缩略图；dsh-one 还没有这条
+ * 通道（宿主侧 draft 存储是纯 JSON），所以先按预算落盘：预算内的图片照旧随草稿
+ * 持久化，超出的留在内存里（本次会话仍能发送/预览），重启后自然丢失——比把
+ * 磁盘写爆或让 readFile 拖慢启动更可控（B-19）。
+ */
+const DRAFT_IMAGE_BUDGET_BYTES = 4 * 1024 * 1024
+
 function flushDraftSave(key: string, d: { text: string; images: OutgoingImage[]; files: StagedFile[] }): void {
   const sig = draftSignature(d)
   if (draftSaveSignatures.get(key) === sig) return
@@ -483,6 +493,14 @@ function flushDraftSave(key: string, d: { text: string; images: OutgoingImage[];
   // 从未上报过的空内容不发（新 webview 首帧恒空，避免每个 tab 白发一条 null）。
   if (empty && !draftSaveSignatures.has(key)) return
   draftSaveSignatures.set(key, sig)
+  // 预算内按顺序收，超预算的图片不落盘（见 DRAFT_IMAGE_BUDGET_BYTES）。
+  const persistedImages: OutgoingImage[] = []
+  let used = 0
+  for (const img of d.images) {
+    if (used + img.data.length > DRAFT_IMAGE_BUDGET_BYTES) continue
+    used += img.data.length
+    persistedImages.push(img)
+  }
   post({
     type: 'composerDraftSave',
     key,
@@ -491,8 +509,8 @@ function flushDraftSave(key: string, d: { text: string; images: OutgoingImage[];
       : {
           text: d.text,
           // previewData/mediaType 是内存态（缩略图恢复后经 fileThumb 重取），只存 name/path/image。
-          ...(d.images.length > 0
-            ? { images: d.images.map((i) => ({ mediaType: i.mediaType, data: i.data, ...(i.name ? { name: i.name } : {}) })) }
+          ...(persistedImages.length > 0
+            ? { images: persistedImages.map((i) => ({ mediaType: i.mediaType, data: i.data, ...(i.name ? { name: i.name } : {}) })) }
             : {}),
           ...(d.files.length > 0
             ? { files: d.files.map((f) => ({ name: f.name, path: f.path, ...(f.image ? { image: true } : {}) })) }
@@ -1284,38 +1302,21 @@ window.addEventListener('message', (event) => {
     render()
   } else if (msg?.type === 'restoreDraft' && typeof msg.text === 'string') {
     // 还原回 composer：stop 抽干队列的草稿文本，或发送失败的消息（图片/文件
-    // chips 一并恢复，不让输入被吞）。回填文本里可能还带未拆的 <attachment> 行
-    // （stop 早期只吐 raw editText），这里统一拆附件行 + 还原 canonical @ 长路径
-    // 与 @[标签](uri) 为显示 token（与第一次输入形态一致；发送时 expand 展开回
-    // canonical）。
+    // chips 一并恢复，不让输入被吞）。回填文本里可能还带未拆的附件行
+    // （stop 早期只吐 raw editText，历史项是 <attachment> 形态），这里统一拆附件行
+    // + 还原 canonical @ 长路径与 @[标签](uri) 为显示 token（与第一次输入形态一致；
+    // 发送时按节点投影展开回 canonical）。
+    //
+    // 排到队列里由 flushFailedDrafts 落地（对齐官方 detachedDraft 的还原规则）：
+    // 提交后用户又打了字就不当场覆盖，等输入框空下来再按提交顺序拼回；多次失败
+    // 之间用空行分隔，形态与当初输入的一致（B-21）。
     const { text: splitText, files: splitFiles } = splitAttachmentLines(msg.text)
-    const restoredText = restoreRecallMentions(splitText)
-    if (activeComposer) {
-      const cur = activeComposer.getText()
-      activeComposer.setText(cur.trim() ? `${cur.trimEnd()}\n${restoredText}` : restoredText, mentionBindings)
-      activeComposer.focus(true)
-    } else {
-      stashedDraft = stashedDraft ? `${stashedDraft}\n${restoredText}` : restoredText
-    }
-    let stagedRestore = false
-    if (Array.isArray(msg.images) && msg.images.length > 0) {
-      pendingImages = [...pendingImages, ...msg.images]
-      stagedRestore = true
-    }
-    // 附件行拆出的文件与宿主结构化 files 都回填成 chips（按 path 去重：宿主已拆时
-    // splitFiles 为空，直接并入文件列表）。
-    const stagedFiles = [...splitFiles, ...(Array.isArray(msg.files) ? msg.files : [])]
-    const existingFiles = new Set(pendingFiles.map((f) => f.path))
-    for (const f of stagedFiles) {
-      if (!existingFiles.has(f.path)) {
-        pendingFiles.push(f)
-        existingFiles.add(f.path)
-      }
-    }
-    if (stagedFiles.length > 0) stagedRestore = true
-    if (stagedRestore && activeComposer) render()
-    // 附件恢复不经 input 事件：与 filesPicked 同款，作废清空暂存。
-    if (stagedRestore) clearedStash = null
+    detachedDrafts.push({
+      text: restoreRecallMentions(splitText),
+      images: Array.isArray(msg.images) ? msg.images : [],
+      files: [...splitFiles, ...(Array.isArray(msg.files) ? msg.files : [])],
+    })
+    flushFailedDrafts()
     // 发送失败的回填不一定经过 render（stashedDraft 路径），这里兜一次落盘调度（#14）。
     scheduleDraftSave()
   } else if (msg?.type === 'fileRefList') {
@@ -4216,6 +4217,48 @@ function outgoingImageFromDataUrl(dataUrl: string): Pick<OutgoingImage, 'mediaTy
   const mediaType = header.startsWith('data:') ? header.slice(5).split(';')[0] : ''
   const data = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
   return { mediaType, data }
+}
+
+/**
+ * 发送失败/被 stop 抽干而回填的稿子（对齐官方 detachedDraft）：提交那一刻的
+ * 文本 + 附件被摘下来排在这里，输入框空下来时按提交顺序拼回；用户已经在输入框
+ * 里打了新内容就不当场覆盖（B-21）。多条之间用空行分隔，与官方 restoreFailedDrafts
+ * 同款。
+ */
+const detachedDrafts: Array<{ text: string; images: OutgoingImage[]; files: StagedFile[] }> = []
+
+/** 输入框空着（无文本、无待发附件）时把排队的回填稿落地；否则等下一次变空。 */
+function flushFailedDrafts(): void {
+  if (detachedDrafts.length === 0) return
+  const hasComposer = activeComposer !== null
+  const busy = hasComposer
+    ? activeComposer!.getText().trim().length > 0 || pendingImages.length > 0 || pendingFiles.length > 0
+    : (stashedDraft ?? '').trim().length > 0
+  if (busy) return
+  const records = detachedDrafts.splice(0, detachedDrafts.length)
+  const text = records.map((r) => r.text).filter((t) => t.length > 0).join('\n\n')
+  if (hasComposer) {
+    activeComposer!.setText(text, mentionBindings)
+    activeComposer!.focus(true)
+  } else {
+    stashedDraft = text
+  }
+  let staged = false
+  for (const record of records) {
+    if (record.images.length > 0) {
+      pendingImages = [...pendingImages, ...record.images]
+      staged = true
+    }
+    const existing = new Set(pendingFiles.map((f) => f.path))
+    for (const f of record.files) {
+      if (existing.has(f.path)) continue
+      pendingFiles.push(f)
+      existing.add(f.path)
+      staged = true
+    }
+  }
+  if (staged) clearedStash = null
+  if (staged && hasComposer) render()
 }
 
 /**
@@ -7222,6 +7265,8 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         // 走不到的死代码。
         disarmClearConfirm()
         if (!clearingComposer) clearedStash = null
+        // 输入框重新空下来：排队中的失败回填稿这时才落地（B-21）。
+        if (!clearingComposer && text.trim().length === 0) flushFailedDrafts()
         // 纯输入不触发 render，脏位上报单独跟一次（宿主的 dirty 保护决策读它）。
         reportComposerDirty()
         // 草稿落盘同款（不经 render 的输入事件独立挂钩，#14）。
