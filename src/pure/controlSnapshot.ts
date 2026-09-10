@@ -5,9 +5,12 @@
  * 共享流单例里缓存「baseline 各域 + 后续增量帧」合并后的完整视图，晚订阅者
  * 注册时用它合成 baseline 帧重放。
  *
- * 合并语义与消费端（chatSession.ts / jobsStore.ts）一致：
- * - baseline 帧：只替换帧里**存在**的域（缺失域保留原值——消费端对缺失域
- *   本来就跳过，语义对齐）；
+ * 合并语义与消费端（chatSession.ts / jobsStore.ts）一致，并按**缺席键清空**
+ * 收敛（对齐官方 web 客户端 dsh-client-connection 的 replaceControlBaseline：
+ * 先 queues.clear() / jobsBySession.clear()，再按 baseline 重建）：
+ * - baseline 帧：整域替换。baseline 是全域快照（官方 host 的 baseline() 逐会话
+ *   给 queues/jobs/projections），域缺失 = 该域为空、会话键缺失 = 该会话无内容
+ *   ——旧实现只替换「存在的域」，缺席的排队消息/后台任务/投影键会永久滞留成幽灵；
  * - queue / jobs 帧：按会话整体替换（消费端 whole-snapshot replacement）；
  * - projection 帧：按 key 合并（seq 取 max，消费端以 seq 守卫）。
  *
@@ -27,27 +30,34 @@ export function createControlSnapshot(): ControlSnapshot {
   return { queues: {}, jobs: {}, projections: {} }
 }
 
+/** 域值收敛成记录；非对象（缺失/畸形）按空域——baseline 缺席即无内容。 */
+function asDomain(value: unknown): Record<string, unknown[]> {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown[]>) : {}
+}
+
+/** projections 域收敛：逐会话归一 asOfSeq/values，数值缺失按 -1。 */
+function asProjections(value: unknown): ControlSnapshot['projections'] {
+  const out: ControlSnapshot['projections'] = {}
+  if (typeof value !== 'object' || value === null) return out
+  for (const [sessionId, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const e = entry as { asOfSeq?: unknown; values?: unknown }
+    out[sessionId] = {
+      asOfSeq: typeof e.asOfSeq === 'number' ? e.asOfSeq : -1,
+      values: (typeof e.values === 'object' && e.values !== null ? e.values : {}) as Record<string, unknown>,
+    }
+  }
+  return out
+}
+
 /** 把一帧合并进快照（原地修改并返回，便于链式/单测）。 */
 export function applyControlFrame(snapshot: ControlSnapshot, frame: ControlStreamFrame): ControlSnapshot {
   if (frame.type === 'baseline') {
     const value = frame.value
-    if (typeof value.queues === 'object' && value.queues !== null) {
-      snapshot.queues = value.queues as Record<string, unknown[]>
-    }
-    if (typeof value.jobs === 'object' && value.jobs !== null) {
-      snapshot.jobs = value.jobs as Record<string, unknown[]>
-    }
-    if (typeof value.projections === 'object' && value.projections !== null) {
-      const raw = value.projections as Record<string, { asOfSeq?: number; values?: Record<string, unknown> }>
-      const projections: ControlSnapshot['projections'] = {}
-      for (const [sessionId, entry] of Object.entries(raw)) {
-        projections[sessionId] = {
-          asOfSeq: typeof entry.asOfSeq === 'number' ? entry.asOfSeq : -1,
-          values: (entry.values ?? {}) as Record<string, unknown>,
-        }
-      }
-      snapshot.projections = projections
-    }
+    // 整域替换：baseline 是权威全域快照，缺席键必须清掉（见文件头注释）。
+    snapshot.queues = asDomain(value.queues)
+    snapshot.jobs = asDomain(value.jobs)
+    snapshot.projections = asProjections(value.projections)
     return snapshot
   }
   if (frame.type === 'queue') {
@@ -68,14 +78,23 @@ export function applyControlFrame(snapshot: ControlSnapshot, frame: ControlStrea
 }
 
 /**
- * 把合并快照重放成合成 baseline 帧；快照为空（尚未收到任何帧）时返回 null。
- * 只带**非空**域——消费端对缺失域本就跳过，不传空对象也不丢语义。
+ * 把合并快照重放成合成 baseline 帧；快照全空（尚未收到任何帧）时返回 null。
+ * 非空时**域一定带全**（空域传空对象）：消费端按「缺席=无内容」清空，缺域
+ * 与空域必须同义，否则晚订阅者拿到的重放帧会被当成「无信息」而留下幽灵旧值。
  * 浅拷贝：重放帧与单例快照解耦，消费端改写不会污染共享缓存。
  */
 export function replayControlSnapshot(snapshot: ControlSnapshot): ControlStreamFrame | null {
-  const value: Record<string, unknown> = {}
-  if (Object.keys(snapshot.queues).length > 0) value.queues = { ...snapshot.queues }
-  if (Object.keys(snapshot.jobs).length > 0) value.jobs = { ...snapshot.jobs }
-  if (Object.keys(snapshot.projections).length > 0) value.projections = { ...snapshot.projections }
-  return Object.keys(value).length === 0 ? null : { type: 'baseline', value }
+  const empty =
+    Object.keys(snapshot.queues).length === 0 &&
+    Object.keys(snapshot.jobs).length === 0 &&
+    Object.keys(snapshot.projections).length === 0
+  if (empty) return null
+  return {
+    type: 'baseline',
+    value: {
+      queues: { ...snapshot.queues },
+      jobs: { ...snapshot.jobs },
+      projections: { ...snapshot.projections },
+    },
+  }
 }
