@@ -91,6 +91,16 @@ export interface ComposerEditor {
   placeholder: HTMLElement
   /** 纯文本（块间以 \n 分隔；@token 为其显示文本）。 */
   getText: () => string
+  /**
+   * 发送用的文本投影：纯文本形态，但**真正的引用节点**投影成 canonical
+   * mention——参考 chip 给它的 `ref`，带绑定的 ref-token（补全落定/召回还原）
+   * 给它的 `mention`。手打的 `@name` 是普通文本节点，原样保留。
+   *
+   * 这是「手打 token 不被历史绑定静默改写」的分界：文本级的
+   * expandMentionBindings 只看字符串，分不出「选中的引用」和「碰巧同名的手打
+   * 文本」；节点级能分（官方同样是 chip 节点 serialize、纯文本不碰）。
+   */
+  textWithMentions: () => string
   /** 用纯文本 + mentionBindings 重建内容（@token 还原为高亮节点）。 */
   setText: (text: string, bindings?: MentionBindings) => void
   /** 在光标处插入普通文本（含 \n 拆行为换行）。 */
@@ -99,6 +109,12 @@ export interface ComposerEditor {
   insertTokenAtCaret: (text: string, mention: string, appearance?: ChipAppearance) => void
   /** 把纯文本区间 [start, end] 替换为给定文本（光标落到末尾）。 */
   replaceRange: (start: number, end: number, text: string) => void
+  /**
+   * 把纯文本区间 [start, end] 替换为「文本 / 带 mention 的引用」片段序列。
+   * 粘会话 mention 用：mention 片段落成 RefTokenNode（带 canonical mention，
+   * 发送投影能展开），普通片段走 insertText（含 \n 时照常拆段）。
+   */
+  replaceRangeWithParts: (start: number, end: number, parts: Array<{ text: string; mention?: string }>) => void
   /** 把纯文本区间 [start, end] 替换为一个 @token 高亮节点（光标落到末尾）。 */
   replaceTokenRange: (start: number, end: number, text: string, mention: string, appearance?: ChipAppearance) => void
   /** 当前光标/选区（纯文本偏移）。 */
@@ -346,14 +362,15 @@ export class RefTokenNode extends TextNode {
   createDOM(config: EditorConfig): HTMLElement {
     const dom = super.createDOM(config)
     dom.classList.add('ref-token')
-    if (this.__mention) dom.setAttribute('data-path', this.__mention)
+    // data-path 一律写：有绑定时是 canonical mention，否则就是显示 token——
+    // 外层 hover 联动拿它反查 mentionBindings（手打的 token 也能对上附件 chip）。
+    dom.setAttribute('data-path', this.__mention ?? this.getTextContent())
     return dom
   }
 
   updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
     const changed = super.updateDOM(prevNode, dom, config)
-    if (this.__mention) dom.setAttribute('data-path', this.__mention)
-    else dom.removeAttribute('data-path')
+    dom.setAttribute('data-path', this.__mention ?? this.getTextContent())
     return changed
   }
 
@@ -543,6 +560,39 @@ function readPlainText(editor: LexicalEditor): string {
   return out
 }
 
+/**
+ * 读取编辑器的「发送投影」：引用节点（chip / 带 mention 的 ref-token）出
+ * canonical mention，其余出原始文本。见 ComposerEditor.textWithMentions。
+ */
+function readMentionText(editor: LexicalEditor): string {
+  let out = ''
+  editor.getEditorState().read(() => {
+    const parts: string[] = []
+    for (const block of $getRoot().getChildren()) {
+      if (!(block instanceof ElementNode)) {
+        parts.push(block.getTextContent())
+        continue
+      }
+      let line = ''
+      let hasRef = false
+      for (const child of block.getChildren()) {
+        if ($isRefChipNode(child)) {
+          line += child.__ref
+          hasRef = true
+        } else if ($isRefTokenNode(child) && child.__mention) {
+          line += child.__mention
+          hasRef = true
+        } else {
+          line += child.getTextContent()
+        }
+      }
+      parts.push(hasRef ? line : block.getTextContent())
+    }
+    out = parts.join('\n')
+  })
+  return out
+}
+
 /** 把 point（{key,offset,type}）映射为纯文本偏移（块间 `\n`，与 readPlainText 同源）。 */
 function pointToPlainOffset(point: { key: NodeKey; offset: number; type: 'text' | 'element' }): number {
   const node = $getNodeByKey(point.key)
@@ -654,6 +704,7 @@ export function createComposerEditor(opts: {
   placeholder.textContent = placeholderText
 
   const getText = (): string => readPlainText(editor)
+  const textWithMentions = (): string => readMentionText(editor)
 
   /** 草稿版本号（见 ComposerEditor.draftRev）：由更新监听在文本变化时 +1。 */
   let rev = 0
@@ -785,8 +836,21 @@ export function createComposerEditor(opts: {
     }, { discrete: true })
   }
 
+  const replaceRangeWithParts = (start: number, end: number, parts: Array<{ text: string; mention?: string }>): void => {
+    const { s, e } = resolveTextOffsets(start, end)
+    editor.update(() => {
+      const sel = $createRangeSelection()
+      sel.anchor.set(s.key, s.offset, s.type)
+      sel.focus.set(e.key, e.offset, e.type)
+      $setSelection(sel)
+      for (const part of parts) {
+        if (part.mention) sel.insertNodes([$createRefTokenNode(part.text, part.mention)])
+        else if (part.text) sel.insertText(part.text)
+      }
+    }, { discrete: true })
+  }
+
   const replaceTokenRange = (start: number, end: number, text: string, mention: string, appearance: ChipAppearance = 'file'): void => {
-    // 同上：落定后一位已是空格就不再补，避免双空格（官方 insertReference）。
     const pad = getText().slice(end, end + 1) === ' ' ? '' : ' '
     const { s, e } = resolveTextOffsets(start, end)
     editor.update(() => {
@@ -882,6 +946,22 @@ export function createComposerEditor(opts: {
     editor.registerCommand<void>(UNDO_COMMAND, () => handlers.onUndoRestore(), COMMAND_PRIORITY_HIGH),
   )
 
+  // 撤销/反悔（B-06）：Lexical 只把**平台**撤销键派发成 UNDO_COMMAND
+  // （macOS 只认 ⌘Z，Windows/Linux 只认 Ctrl+Z），所以「清空后按 Ctrl+Z 找回」
+  // 这条写进文案、也照此验收的能力在 macOS 上按不出来。这里在捕获阶段自己收
+  // 复合键：Ctrl+Z 与 ⌘Z 都算，有内容可反悔就消费（preventDefault +
+  // stopPropagation，不让 Lexical/浏览器再走一遍）；没得反悔就放行，回落
+  // Lexical 的平台撤销语义。
+  const onUndoKey = (event: KeyboardEvent): void => {
+    if (blockedByComposition(event)) return
+    if (event.key.toLowerCase() !== 'z' || event.altKey || event.shiftKey) return
+    if (!event.ctrlKey && !event.metaKey) return
+    if (!handlers.onUndoRestore()) return
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  root.addEventListener('keydown', onUndoKey, true)
+
   // paste：先给外层（sessions/图片/折叠）机会，未消费回落到 registerPlainText。
   const unregisterPaste = editor.registerCommand<PasteCommandType>(
     PASTE_COMMAND,
@@ -942,10 +1022,12 @@ export function createComposerEditor(opts: {
     editor,
     placeholder,
     getText,
+    textWithMentions,
     setText,
     insertTextAtCaret,
     insertTokenAtCaret,
     replaceRange,
+    replaceRangeWithParts,
     replaceTokenRange,
     selection,
     draftRev: () => rev,
@@ -965,6 +1047,7 @@ export function createComposerEditor(opts: {
       unregisterTextRef()
       root.removeEventListener('mousemove', onMouseMove)
       root.removeEventListener('mouseleave', onMouseLeave)
+      root.removeEventListener('keydown', onUndoKey, true)
       root.removeEventListener('compositionstart', onCompositionStart)
       root.removeEventListener('compositionend', onCompositionEnd)
     },
