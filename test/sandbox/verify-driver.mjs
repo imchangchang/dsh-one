@@ -26,12 +26,20 @@
 //   expectTextAfterReload 重载后断言 webview 中出现该文本（历史消息随状态重推仍在）
 //   expectPopup   断言 webview 里出现这些文本（数组逐项断言，配 fillSlash 用；
 //                 弹窗行文本/描述/hint 各算一条，超时 15s/条）
-//   extraPrompts  第一条 prompt 之后的追加发送（数组；运行中第二条进队列，用于排队/插话场景）
+//   extraPrompts  第一条 prompt 之后的追加发送（数组；走 Enter 填发，运行中即进
+//                 队列，用于排队/插话场景）
 //   extraPromptDelayMs 追加发送前的等待（默认 400ms；慢命令场景用来卡进运行态窗口）
+//   expectQueuedBeforeKeys 前置断言：追加的消息已出现在 .queue-item 里（含该文本），
+//                 在 keys 之前判定——没有它，「队列被清空」类断言会在压根没排队时假绿
 //   expectSelector  断言任意 frame 里存在该元素（字符串=选择器；对象={selector,text} 再要求文本包含）
 //   absentSelector  断言任意 frame 里都没有该选择器（如插话落地后排队行消失）
 //   keys          在 composer 里按下的按键序列（如 ["Space"]、["Meta+Enter"]、["Tab"]），
 //                 在 fillSlash 填入之后执行——用于空格认领、下钻、⌘/Ctrl+Enter 全插话等手势
+//   keysUntil     在 keys 之前「按某键直到某选择器出现」：{ key, selector, max }
+//                 （键盘菜单里先把选中行挪到目标行，如 @ 候选挪到目录行再 Tab 下钻）
+//   seedSessionCwd 往本项会话的 cwd 里铺样例文件：{ container, files }——@ 补全的
+//                 候选来自 cwd，空目录没有目录候选可下钻（未分组会话的 cwd 是
+//                 dsh 现开的空临时目录）
 //   dropFiles     往聊天 webview 里合成一次文件拖拽（dragenter + drop，模拟真实拖放）：
 //                 [{ name, type, size }]。size ≤ 65536 造**真** File（FileReader 读得到字节，
 //                 附件能真落盘成 chip）；size 更大时造只带 size/type/name 的**假**对象
@@ -256,6 +264,66 @@ async function sendPrompt(page, text) {
   await ta.fill(text)
   await sleep(200)
   await chat.locator('.send-button').click({ timeout: 15_000 })
+}
+
+/** 在聊天帧里填充 composer 后按 Enter 发送——运行中的回合里 Enter 是「排队」路径。
+ *  追加消息不能用 sendPrompt：运行中 .send-button 已经切成停止按钮，点它是打断
+ *  当前回合，消息根本进不了队列（F-08 第一版就栽在这）。 */
+async function sendPromptByEnter(page, text) {
+  const chat = await findFrame(page, isChatFrame, 30_000)
+  if (!chat) throw new Error('composer 帧未出现')
+  const ta = chat.locator('#input')
+  await ta.waitFor({ state: 'visible', timeout: 30_000 })
+  await ta.click()
+  await ta.fill(text)
+  await sleep(200)
+  await page.keyboard.press('Enter')
+  await sleep(300)
+}
+
+/**
+ * 往**本项新建会话**的 cwd 里铺一层样例文件/目录（driver.seedSessionCwd）。
+ *
+ * 未分组会话的 cwd 是 dsh 现开的空临时目录（/home/coder/tmp/dsh-ungrouped-<日期>-<sessionId>），
+ * @ 补全的候选来自它——空目录里没有目录候选，A-06 的下钻/面包屑根本无从触发。
+ * 取最新的那个 dsh-ungrouped-* 目录（本项刚建的会话即最新），铺完把路径回报给
+ * notes，方便人核对铺到哪去了。
+ */
+async function seedSessionCwd(cfg) {
+  const container = typeof cfg.container === 'string' && cfg.container ? cfg.container : 'dsh-sandbox'
+  const files = [].concat(cfg.files ?? [])
+  for (const f of files) {
+    if (!/^[\w][\w./-]*$/.test(String(f))) throw new Error(`seedSessionCwd: 文件名不合法 ${f}`)
+  }
+  const lines = files
+    .map((f) => `mkdir -p "$dir/$(dirname '${f}')"\nprintf 'seeded\\n' > "$dir/${f}"`)
+    .join('\n')
+  const script = `set -e
+dir=$(ls -dt /home/coder/tmp/dsh-ungrouped-* 2>/dev/null | head -1)
+if [ -z "$dir" ]; then echo "seedSessionCwd: 找不到会话 cwd" >&2; exit 1; fi
+${lines}
+echo "$dir"`
+  const out = await dockerExec(container, ['sh', '-c', script], 20_000)
+  return String(out).trim().split('\n').pop() ?? ''
+}
+
+/**
+ * 按某个键直到某选择器出现（driver.keysUntil）：键盘菜单里要把选中行挪到目标行
+ * 才好按键——@ 候选的第一行可能是文件或会话（Tab 会直接落定并关菜单），只有挪到
+ * 目录行（选中行带 .drill-hint）Tab 才是下钻。返回是否等到。
+ */
+async function pressUntilSelector(page, key, selector, max) {
+  const chat = await findFrame(page, isChatFrame, 30_000)
+  if (!chat) return false
+  const ta = chat.locator('#input')
+  await ta.waitFor({ state: 'visible', timeout: 30_000 })
+  await ta.click()
+  for (let i = 0; i < max; i++) {
+    if (await waitForSelectorAnywhere(page, selector, null, 400)) return true
+    await page.keyboard.press(key)
+    await sleep(250)
+  }
+  return waitForSelectorAnywhere(page, selector, null, 400)
 }
 
 /** 填 composer 不发送（fillSlash 驱动字段）：触发 slash 补全弹窗/参数 hint 行等纯输入态。 */
@@ -1102,6 +1170,15 @@ try {
         await bounded((async () => {
           const { chat, source } = await newChatAndGetFrame(page)
           notes.push(`新建会话：${source}`)
+          if (driver.seedSessionCwd) {
+            try {
+              const dir = await seedSessionCwd(driver.seedSessionCwd)
+              notes.push(`已铺会话 cwd 样例：${[].concat(driver.seedSessionCwd.files ?? []).join('、')}（${dir}）`)
+            } catch (e) {
+              result = 'fail'
+              notes.push(`seedSessionCwd 失败：${e.message}`)
+            }
+          }
           if (driver.fillSlash !== undefined) {
             // 填入但不发送：触发 slash 补全弹窗，供 expectPopup 断言弹窗内容。
             await fillComposer(page, driver.fillSlash)
@@ -1137,15 +1214,35 @@ try {
               notes.push(`等待 ${PENDING_TIMEOUT / 1000}s 面板按钮未出现`)
             }
           }
-          // 追加发送（extraPrompts）：第一条 prompt 之后接着发的消息——运行中的
-          // 回合里第二条会进队列，用于排队/插话类场景。
+          // 追加发送（extraPrompts）：第一条 prompt 之后接着发的消息——走 Enter
+          // （运行中即进队列；点发送按钮在运行中是打断，见 sendPromptByEnter）。
           for (const extra of [].concat(driver.extraPrompts ?? [])) {
             await sleep(Number(driver.extraPromptDelayMs ?? 400))
-            await sendPrompt(page, extra)
-            notes.push(`追加发送：${JSON.stringify(extra)}`)
+            await sendPromptByEnter(page, extra)
+            notes.push(`追加发送（Enter，运行中进队列）：${JSON.stringify(extra)}`)
+          }
+          // 前置条件：追加的消息确实进了队列——没有它，后面「队列被清空」的断言
+          // 在什么都没排队时也会通过（假绿）。
+          if (driver.expectQueuedBeforeKeys) {
+            const needle = String(driver.expectQueuedBeforeKeys)
+            const ok = await waitForSelectorAnywhere(page, '.queue-item', needle, 30_000)
+            notes.push(ok ? `前置：追加消息已进队列（.queue-item 含「${needle}」）` : `前置不成立：.queue-item 里没有「${needle}」`)
+            if (!ok) {
+              result = 'fail'
+              notes.push('expectQueuedBeforeKeys：追加消息没进队列，后续「清空队列」断言无意义')
+            }
           }
           // 手势键（keys）与合成拖拽（dropFiles）都放在发送之后：这样它们既能在
           // 「只填不发」的场景里作用于 composer，也能落在「跑起来之后」的时机上。
+          if (driver.keysUntil) {
+            const ku = driver.keysUntil
+            const ok = await pressUntilSelector(page, String(ku.key), String(ku.selector), Number(ku.max ?? 20))
+            notes.push(ok ? `按键导航到目标行：${ku.selector}（${ku.key} × N）` : `按键导航失败：${ku.max ?? 20} 次 ${ku.key} 后仍无 ${ku.selector}`)
+            if (!ok) {
+              result = 'fail'
+              notes.push(`keysUntil：按 ${ku.key} 到不了 ${ku.selector}`)
+            }
+          }
           if (driver.keys) {
             await pressComposerKeys(page, [].concat(driver.keys))
             notes.push(`composer 按键：${[].concat(driver.keys).join(' + ')}`)

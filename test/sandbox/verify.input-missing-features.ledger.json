@@ -142,36 +142,79 @@
       "id": "F-07",
       "phase": "new-feature",
       "name": "A-06 @ 目录候选下钻：Tab 进目录 + 顶部面包屑",
-      "expect": "输入「@」后候选含目录行（项名带尾随 `/`），按 Tab 下钻进第一层目录：token 变成 `@<dir>/`、菜单不关、下一层候选重查，弹窗顶部出现面包屑（根段是工作区名）。",
+      "expect": "会话 cwd 里先铺出唯一一个目录 docs/（未分组会话的 cwd 是 dsh 现开的空临时目录，不铺就没有目录候选可下钻）。输入「@」后候选出目录行（带尾随 `/` 与下钻提示），按方向键把选中行挪到它、再按 Tab：token 变成 `@docs/`（下钻把整段 token 换成 `@<目录>/`），弹窗不关、下一层候选（docs/guide.md）重查上屏，弹窗顶部出面包屑「Ungrouped / docs」——根段是工作区名（未分组会话即 Ungrouped）。断言钉在 .slash-popup .crumbs + 草稿 @docs/ 上：面包屑是「下钻」独有的产物，token 变 @docs/ 证明确实换了查询层级（只断页面上出现的「Workspace」会撞上 composer 常驻的工作区 chip，是假绿）。",
       "driver": {
+        "seedSessionCwd": {
+          "container": "dsh-sandbox-input-missing",
+          "files": [
+            "docs/guide.md"
+          ]
+        },
         "fillSlash": "@",
+        "keysUntil": {
+          "key": "ArrowDown",
+          "selector": ".menu-item.selected .drill-hint",
+          "max": 12
+        },
         "keys": [
           "Tab"
         ],
-        "expectText": "Workspace"
+        "expectDraft": "@docs/",
+        "expectSelector": {
+          "selector": ".slash-popup .crumbs",
+          "text": "Ungrouped"
+        }
       },
-      "result": "pending",
-      "screenshots": []
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-07.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；已铺会话 cwd 样例：docs/guide.md（/home/coder/tmp/dsh-ungrouped-20260910-session-e280950a-c6fc-4d78-a73f-e3655b4d0deb）；composer 已填入（未发送）：\"@\"；按键导航到目标行：.menu-item.selected .drill-hint（ArrowDown × N）；composer 按键：Tab；选择器命中：.slash-popup .crumbs（含「Ungrouped」）；草稿恢复：@docs/"
     },
     {
       "id": "F-08",
       "phase": "new-feature",
       "name": "A-07 空草稿 ⌘/Ctrl+Enter：把排队消息一次全部插话",
-      "expect": "运行中的回合里发第二条消息（进队列）后按住 ⌘+Enter：排队的消息全部转成等待插话气泡（.msg.user.steering-pending 含该文本），排队区不再有该行；此前这个手势在空草稿下什么都不做。",
+      "expect": "运行中的回合里用 Enter 发第二条消息（进队列，先在 .queue-item 里断到它）后按住 Ctrl+Enter：排队的消息全部转成等待插话气泡（.msg.user.steering-pending 含该文本），排队区不再有该行；此前这个手势在空草稿下什么都不做。容器宿主是 Linux，占位符那句写的是 Ctrl+Enter（webview 按键侧 metaKey||ctrlKey 两平台都收，这里按平台取 Ctrl）。",
       "driver": {
         "prompt": "慢命令",
         "extraPrompts": [
           "排队插话测试"
         ],
         "extraPromptDelayMs": 1200,
+        "expectQueuedBeforeKeys": "排队插话测试",
         "keys": [
-          "Meta+Enter"
+          "Control+Enter"
         ],
         "expectSelector": {
           "selector": ".msg.user.steering-pending",
           "text": "排队插话测试"
         },
         "absentSelector": ".queue-item"
+      },
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-08.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；追加发送（Enter，运行中进队列）：\"排队插话测试\"；前置：追加消息已进队列（.queue-item 含「排队插话测试」）；composer 按键：Control+Enter；选择器命中：.msg.user.steering-pending（含「排队插话测试」）；选择器已消失：.queue-item"
+    },
+    {
+      "id": "F-09",
+      "phase": "new-feature",
+      "name": "A-05 候选源实测：fileReferences/list 的候选（相对 cwd 路径）真上屏",
+      "expect": "输入 `@docs/` 后候选行由 fileReferences/list 的返回填充：行尾路径列是**相对 cwd** 的 `docs/guide.md`（此前本地浅层扫描给的是绝对路径，一整行都是 /home/coder/tmp/... 前缀）。这一项把 A-05 的候选源钉在沙盒真宿主上——沙盒 dsh 0.1.1-rc.2 确实带 fileReferences/list（宿主探针实测：POST /api/fileReferences/list 返回 ok，args 只认 agentId+query；skills/list 在该版本上不存在，A-03 的 skill 名录因此走「只有命令」的降级路径）。",
+      "driver": {
+        "seedSessionCwd": {
+          "container": "dsh-sandbox-input-missing",
+          "files": [
+            "docs/guide.md"
+          ]
+        },
+        "fillSlash": "@docs/",
+        "expectPopup": [
+          "guide.md",
+          "docs/guide.md"
+        ]
       },
       "result": "pending",
       "screenshots": []
@@ -185,8 +228,11 @@
         "prompt": "测试一下",
         "expectText": "收到：测试一下"
       },
-      "result": "pending",
-      "screenshots": []
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/R-01.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped"
     },
     {
       "id": "R-02",
@@ -224,8 +270,11 @@
           "[<objective>|clear|edit <objective>|pause|resume]"
         ]
       },
-      "result": "pending",
-      "screenshots": []
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/R-03.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；composer 已填入（未发送）：\"/goal \"；弹窗文本命中：Arguments:；弹窗文本命中：[<objective>|clear|edit <objective>|pause|resume]"
     },
     {
       "id": "R-04",
@@ -235,8 +284,11 @@
       "driver": {
         "fillAndClear": "草稿文本"
       },
-      "result": "pending",
-      "screenshots": []
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/R-04.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；已点击清空按钮，输入框为空"
     }
   ]
 }
