@@ -73,7 +73,7 @@ import {
   orderJobs,
   type ActivityJob,
 } from '../../pure/activityTree.ts'
-import { attachmentBaseName, attachmentDataUrl, isImageMediaType, isImagePath, shouldFoldPastText, splitAttachmentLines } from '../../pure/composerAttachment.ts'
+import { attachmentBaseName, attachmentDataUrl, fileAttachmentLine, isImageMediaType, isImagePath, shouldFoldPastText, splitAttachmentLines } from '../../pure/composerAttachment.ts'
 import { atTokenName } from '../../pure/tokenScan.ts'
 import {
   SETTLE_IDLE_MS,
@@ -6960,15 +6960,16 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       const live = composer.root.isConnected ? composer : activeComposer
       if (live && live !== composer) live.setText('')
     }
-    // Staged file chips travel as <attachment> path lines appended to the
-    // prompt text (dsh has no file content part); the folder parses them
-    // back into chips for history rendering.
+    // Staged file chips travel as `@path` reference lines appended to the prompt
+    // text (dsh's PromptContentPart has no file part); both dsh-one and the
+    // official web front-end render such a token as a file chip. 旧的私有
+    // `<attachment>` 行官方前端不认、会显示成裸文本（B-18），解析侧仍兼容它。
     //
     // 引用展开走**节点级**投影（composer.textWithMentions）：补全落定的 chip /
     // 召唤还原的 ref-token 出 canonical mention；手打的 `@img1.png` 是普通文本
     // 节点，原样发出。原来的文本级 expandMentionBindings 只看字符串，会把
     // 「碰巧和某个历史绑定同名的手打 token」也改写成那条长路径（B-16）。
-    const text = [composer.textWithMentions().trim(), ...pendingFiles.map((f) => `<attachment>${f.path}</attachment>`)]
+    const text = [composer.textWithMentions().trim(), ...pendingFiles.map((f) => fileAttachmentLine(f.path))]
       .filter(Boolean)
       .join('\n')
     if (!text && pendingImages.length === 0) return
