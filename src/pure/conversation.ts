@@ -470,7 +470,40 @@ function absorbAssistantSegment(older: ChatAssistantMessage, newer: ChatAssistan
     target.text += (right as { text: string }).text
     absorbed = absorbed.slice(1)
   }
-  newer.blocks = [...older.blocks, ...absorbed]
+  // 两段可能各有一份同一个块：页边界切在 tool/call 与 tool/result 之间时，旧段
+  // 折出那张卡，新段的 scratch folder 里没有 call 记录、按 result 兜底又建一张
+  // 同 callId 的卡（F4 的同源现象）。并段后它们落在同一条消息里，块 key 相同
+  // （tool 块 key = callId）→ 必须合一：留旧段的位置（调用发生处），状态/结果以
+  // 后者为准，调用侧快照（工具名/标题/args）补回兜底卡缺的那部分。
+  const merged: ChatBlock[] = []
+  const at = new Map<string, number>()
+  for (const block of [...older.blocks, ...absorbed]) {
+    const id = block.id
+    const index = id === undefined ? undefined : at.get(id)
+    if (index !== undefined) {
+      merged[index] = mergeSameBlock(merged[index], block)
+      continue
+    }
+    if (id !== undefined) at.set(id, merged.length)
+    merged.push(block)
+  }
+  newer.blocks = merged
+}
+
+/**
+ * 同一块的两份合一（id 相同：页边界把它切在了两个 fold 里）。后者（新段）带状态
+ * 与结果，优先；工具卡的 name/title 若后者只是「callId 兜底」（result 先到、call
+ * 不在窗口），用前者的真实工具名/标题，避免卡上显示原始 callId。
+ */
+function mergeSameBlock(older: ChatBlock, newer: ChatBlock): ChatBlock {
+  const merged: ChatBlock = { ...older, ...newer }
+  if (merged.type === 'tool' && older.type === 'tool' && newer.type === 'tool') {
+    if (newer.name === newer.callId && older.name !== older.callId) merged.name = older.name
+    if (newer.title === newer.callId && older.title !== undefined && older.title !== older.callId) {
+      merged.title = older.title
+    }
+  }
+  return merged
 }
 
 /**
@@ -857,6 +890,7 @@ export class ConversationFolder {
         const msg = this.ensureAssistant(Number(data.turn), event.seq)
         const block: ChatRetryBlock = {
           type: 'retry',
+          id: `retry:${r}`,
           retry: Number(data.retry) || 1,
           mode: (data as { mode?: unknown }).mode === 'always' ? 'always' : 'normal',
           delayMs: Number(data.delayMs) || 0,
@@ -1035,7 +1069,7 @@ export class ConversationFolder {
         if (chunk.blockType !== 'text' && chunk.blockType !== 'reasoning') return false
         this.stepStreamed = true
         this.blockPos.set(chunk.index, msg.blocks.length)
-        msg.blocks.push({ type: chunk.blockType, text: '' } as ChatBlock)
+        msg.blocks.push({ type: chunk.blockType, text: '', id: `s${seq}` } as ChatBlock)
         msg.complete = false
         return true
       }
@@ -1048,7 +1082,7 @@ export class ConversationFolder {
           // Tolerate a delta whose block-start fell outside the history window.
           pos = msg.blocks.length
           this.blockPos.set(chunk.index, pos)
-          msg.blocks.push({ type, text: '' } as ChatBlock)
+          msg.blocks.push({ type, text: '', id: `s${seq}` } as ChatBlock)
         }
         msg.complete = false
         if (!chunk.text) return false
@@ -1062,7 +1096,7 @@ export class ConversationFolder {
         const text = typeof chunk.block?.text === 'string' ? chunk.block.text : undefined
         const pos = this.blockPos.get(chunk.index)
         if (pos === undefined) {
-          msg.blocks.push({ type, text: text ?? '' } as ChatBlock)
+          msg.blocks.push({ type, text: text ?? '', id: `s${seq}` } as ChatBlock)
           return true
         }
         // The assembled block is authoritative; adopt it when it disagrees.
@@ -1096,9 +1130,12 @@ export class ConversationFolder {
     }
     if (!this.stepStreamed) {
       // No chunk stream seen for this step (e.g. a compacted log): fold content.
+      let index = 0
       for (const block of data?.message?.content ?? []) {
         if ((block.type === 'text' || block.type === 'reasoning') && typeof block.text === 'string') {
-          msg.blocks.push({ type: block.type, text: block.text } as ChatBlock)
+          // 同一条 assistant/message 可能折出多块：用事件内序号前缀区分。
+          msg.blocks.push({ type: block.type, text: block.text, id: `s${seq}.${index}` } as ChatBlock)
+          index += 1
         }
       }
       this.stepStreamed = true
@@ -1113,6 +1150,7 @@ export class ConversationFolder {
     const msg = this.ensureAssistant(Number(data.turn), seq)
     const block: ChatToolBlock = {
       type: 'tool',
+      id: data.callId,
       callId: data.callId,
       name: data.name,
       status: 'running',
@@ -1146,7 +1184,7 @@ export class ConversationFolder {
     if (!block) {
       // Result whose call fell outside the window: materialize a generic card.
       const msg = this.ensureAssistant(Number(data.turn), seq)
-      block = { type: 'tool', callId, name: callId, status: 'running', title: callId }
+      block = { type: 'tool', id: callId, callId, name: callId, status: 'running', title: callId }
       msg.blocks.push(block)
       this.tools.set(callId, block)
       this.toolScope.set(callId, { turn: Number(data.turn), step: Number(data.step) })

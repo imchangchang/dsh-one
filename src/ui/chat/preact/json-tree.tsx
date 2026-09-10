@@ -7,7 +7,8 @@
  * `copyConfirmedAt`（复制反馈）不再是 webview 全局 Map，而是这个组件实例内部状态。
  *
  * 为什么能替代全局 Map：JsonTree 作为 BlockList/Block 树里的稳定 vnode（key =
- * `${rowKey}:b${bi}`），只要组件实例不卸载，useState 就跨父级重渲染存活——流式
+ * `${rowKey}:${block.id}`，无 id 时回落位置下标），只要组件实例不卸载，useState
+ * 就跨父级重渲染存活——流式
  * 重建（text 增量、tool running→done、行骨架 update 分支）不再销毁树的展开态与
  * 「已复制」反馈。组件卸载的场合（**会话切换**、流整体重建）不再丢展开态：节点
  * 展开集同步写进按会话隔离的展开态帧（见 ../disclosure.ts），重挂载时按帧里的
