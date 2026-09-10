@@ -9,7 +9,8 @@
  * 都不再是 webview 全局 Map。
  *
  * 为什么能替代全局 Map：ToolCard 作为 BlockList/Block 树里的稳定 vnode（key =
- * `${rowKey}:b${bi}`），只要组件实例不卸载，其内部 useState 跨父级重渲染存活——
+ * `${rowKey}:${block.id}`，tool 块 id 就是 callId），只要组件实例不卸载，其内部
+ * useState 跨父级重渲染存活——
  * 流式重建（tool running→done、行骨架 update 分支）不再销毁卡片自身的展开态与内
  * 滚动条位置（滚动容器是持久 DOM 元素，scrollTop 由浏览器保留）。
  *

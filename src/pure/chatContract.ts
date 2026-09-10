@@ -12,18 +12,33 @@ import type { HostOs } from './installScript.ts'
 import type { TagColor } from './sessionTags.ts'
 import type { AnswerDraftEntry, ComposerDraftEntry } from './dshStateFile.ts'
 
+/**
+ * 块的稳定身份：同一条消息里跨帧、跨块序变化保持不变的 key（webview 的 Preact
+ * key、展开态 / JSON 树 / 内滚位置 / 复制反馈的持久化 key 都由它派生）。tool 块
+ * 用 callId（官方 tool 节点 id 同款）；text/reasoning/retry 等按「创建它的事件
+ * seq（+ 同事件内序号）」命名：`s{seq}` / `s{seq}.{i}` / `retry:{retryId}`。
+ *
+ * 没有它时 webview 回落到位置下标（`b{n}`）：块序一变（窗口外 result 兜底新推
+ * 一张卡、delta 早于 block-start 的补偿分支新起一块）后面所有块换 key，Preact
+ * 卸载重建，那些 tool 卡的展开态与内滚位置全丢（#11 R4 / C2）。缺省 = 该块由
+ * 测试 harness 直接构造，按下标兜底。
+ */
+export interface ChatBlockIdentity {
+  id?: string
+}
+
 /** One renderable block inside an assistant message. */
-export interface ChatTextBlock {
+export interface ChatTextBlock extends ChatBlockIdentity {
   type: 'text'
   text: string
 }
 
-export interface ChatReasoningBlock {
+export interface ChatReasoningBlock extends ChatBlockIdentity {
   type: 'reasoning'
   text: string
 }
 
-export interface ChatToolBlock {
+export interface ChatToolBlock extends ChatBlockIdentity {
   type: 'tool'
   callId: string
   name: string
@@ -63,7 +78,7 @@ export interface ChatToolBlock {
  * 同一 retryId 的多次尝试原地更新（retry 计数递增、回到 scheduled）；所属
  * turn/end 到达时仍未 started 的尝试标记 cancelled（对齐官方 isClosed 语义）。
  */
-export interface ChatRetryBlock {
+export interface ChatRetryBlock extends ChatBlockIdentity {
   type: 'retry'
   /** 第几次重试（从 1 起）。 */
   retry: number
@@ -200,6 +215,13 @@ export interface ChatAssistantMessage {
   blocks: ChatBlock[]
   /** false while the turn is still streaming. */
   complete: boolean
+  /**
+   * 本消息所属回合号。同一个 turn 可以折出多段 assistant 消息（窗口头切在
+   * 回合中间、turn 中途注入 user/message 切断 current），补页时按它把同回合的
+   * 两段并成一段。窗口头落在 turn/start 之前（该 turn 号仍由事件 data.turn
+   * 携带）或缺 turn 号的合成消息上缺省。
+   */
+  turn?: number
   /**
    * 本 turn 的最后一条 assistant 消息（turn/end 时标记）。turn 中途注入的
    * user/message 会把一个 turn 切成多条消息，操作栏（复制/反馈/分支）只挂

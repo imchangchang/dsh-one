@@ -5471,26 +5471,39 @@ function updateMessageBlocks(row: HTMLElement, m: ChatAssistantMessage, key: str
 const TURN_RAIL_SPACING = 10
 const TURN_RAIL_INSET = 6
 
-function renderTurnRail(entries: ChatTurnOutlineEntry[], messages: ChatMessage[]): HTMLElement {
-  const slot = el('div', 'turn-rail-slot')
-  const frame = el('nav', 'turn-rail-frame')
-  frame.setAttribute('aria-label', t('Turn navigation'))
-  const marks = el('div', 'turn-rail-marks')
-  marks.style.height = `${(entries.length - 1) * TURN_RAIL_SPACING + 2 * TURN_RAIL_INSET}px`
-  // 已载入判定：存在消息 seq 落在本回合区间 [S_k, S_{k+1})（最后一个回合
-  // 无上界）——回合内容（或它的尾部）在窗口里才算载入；窗口头切在回合中间
-  // 时该回合按其尾部消息正确标为已载入。
+/**
+ * 每个回合刻度是否「已载入」：存在消息 seq 落在本回合区间 [S_k, S_{k+1})（最后
+ * 一个回合无上界）——回合内容（或它的尾部）在窗口里才算载入；窗口头切在回合中间
+ * 时该回合按其尾部消息正确标为已载入。buildFlowItems 用它算轨道栏签名（窗口变了
+ * 刻度态要跟着变）。
+ */
+function turnRailLoadedFlags(entries: readonly ChatTurnOutlineEntry[], messages: ChatMessage[]): boolean[] {
   const msgSeqs: number[] = []
   for (const m of messages) {
     const s = (m as { seq?: unknown }).seq
     if (typeof s === 'number') msgSeqs.push(s)
   }
   msgSeqs.sort((a, b) => a - b)
-  const loadedAt = (index: number): boolean => {
-    const lo = entries[index].seq
+  return entries.map((entry, index) => {
+    const lo = entry.seq
     const hi = index + 1 < entries.length ? entries[index + 1].seq : Number.POSITIVE_INFINITY
     return msgSeqs.some((s) => s >= lo && s < hi)
-  }
+  })
+}
+
+/**
+ * 最近一帧的回合大纲：hover 预览的实时数据源。轨道栏只在结构/刻度态变化时重建
+ * （签名不带流式 response 预览，见 buildFlowItems），预览文案因此不能烘焙进
+ * 重建时的快照——鼠标悬停时现读最新一帧。
+ */
+let latestTurnOutline: readonly ChatTurnOutlineEntry[] = []
+
+function renderTurnRail(entries: ChatTurnOutlineEntry[], loadedFlags: readonly boolean[]): HTMLElement {
+  const slot = el('div', 'turn-rail-slot')
+  const frame = el('nav', 'turn-rail-frame')
+  frame.setAttribute('aria-label', t('Turn navigation'))
+  const marks = el('div', 'turn-rail-marks')
+  marks.style.height = `${(entries.length - 1) * TURN_RAIL_SPACING + 2 * TURN_RAIL_INSET}px`
   const preview = el('div', 'turn-rail-preview')
   const previewPrompt = el('div', 'turn-rail-preview-prompt')
   const previewResponse = el('div', 'turn-rail-preview-response')
@@ -5501,7 +5514,7 @@ function renderTurnRail(entries: ChatTurnOutlineEntry[], messages: ChatMessage[]
     position.style.top = `${index * TURN_RAIL_SPACING + TURN_RAIL_INSET}px`
     const mark = el('button', 'turn-rail-mark') as HTMLButtonElement
     mark.type = 'button'
-    const loaded = loadedAt(index)
+    const loaded = loadedFlags[index] === true
     if (!loaded) mark.classList.add('mark-unloaded')
     // active = 最新回合（新近锚点；官方按视口阅读位跟随，此处取最新简化）。
     if (index === entries.length - 1) mark.classList.add('mark-active')
@@ -5510,6 +5523,8 @@ function renderTurnRail(entries: ChatTurnOutlineEntry[], messages: ChatMessage[]
     mark.setAttribute('aria-label', jumpLabel)
     mark.addEventListener('click', () => post({ type: 'turnJump', seq: entry.seq }))
     mark.addEventListener('mouseenter', () => {
+      // 预览读最新一帧的同一回合（重建时的快照可能已过期；见 latestTurnOutline）。
+      const live = latestTurnOutline.find((e) => e.turn === entry.turn) ?? entry
       const scroller = frame.querySelector<HTMLElement>('.turn-rail-scroller')
       const scrollTop = scroller?.scrollTop ?? 0
       const top = index * TURN_RAIL_SPACING + TURN_RAIL_INSET - scrollTop
@@ -5663,10 +5678,20 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
   const outline = state.turnOutline
   let rail: FlowItem | null = null
   if (outline !== undefined && outline.length >= 2) {
-    const sig = JSON.stringify(outline)
+    // 签名只取「结构 + 已载入刻度」：outline 里带当前回合的流式 response 预览，
+    // 每个 delta 都变——把它算进签名会让轨道栏每个 token 整栏重建（气泡被打断、
+    // 轨道滚位弹回，见 #11 R3）。预览改由 hover 时读最新 outline（见
+    // renderTurnRail），所以内容不进签名；已载入刻度随窗口变化，必须进签名，
+    // 否则补页后刻度还是旧的「未载入」态。
+    const loaded = turnRailLoadedFlags(outline, state.messages)
+    const sig = JSON.stringify([outline.map((e) => [e.turn, e.seq, e.prompt]), loaded])
     const same = flowRailSig === sig
+    // hover 预览的实时数据源：轨道栏重建是低频事件，预览文案要跟最新一帧。
+    latestTurnOutline = outline
     flowRailSig = sig
-    rail = { key: 'turn-rail', same, create: () => renderTurnRail(outline, state.messages) }
+    rail = { key: 'turn-rail', same, create: () => renderTurnRail(outline, loaded) }
+  } else {
+    latestTurnOutline = outline ?? []
   }
   // 「加载更早」入口（对齐官方 dsh web ChatView 的分页按钮）：还有更早历史
   // 或一页正在加载时显示在消息流顶部。
@@ -5908,10 +5933,15 @@ function syncTurnRail(messages: HTMLElement, item: FlowItem | null): void {
     return
   }
   if (existing !== null && item.same) return
+  // 重建时保留轨道自身的滚动位置：长会话里用户滚到轨道中段看某几个回合，若因
+  // 结构变化（新回合开始、补页后刻度态翻转）整栏重建，滚位不该被弹回顶部。
+  const keptScrollTop = existing?.querySelector<HTMLElement>('.turn-rail-scroller')?.scrollTop ?? 0
   const fresh = item.create()
   fresh.setAttribute('data-flow-key', item.key)
   existing?.remove()
   messages.insertBefore(fresh, flowColOf(messages))
+  const scroller = fresh.querySelector<HTMLElement>('.turn-rail-scroller')
+  if (scroller && keptScrollTop > 0) scroller.scrollTop = keptScrollTop
 }
 
 /** 消息流对账的承载（通用实现已抽到共享模块 ui/shared/reconcile）。 */

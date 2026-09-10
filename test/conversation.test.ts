@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ConversationFolder, applyFeedbackRatings } from '../src/pure/conversation.ts'
 import type { HistoryEntryLike, SessionEventLike, StreamChunkData, ToolEventViewLike } from '../src/pure/conversation.ts'
-import type { ChatAssistantMessage, ChatRetryBlock, ChatToolBlock } from '../src/pure/chatContract.ts'
+import type { ChatAssistantMessage, ChatBlock, ChatRetryBlock, ChatToolBlock } from '../src/pure/chatContract.ts'
 
 let seq = 0
 
@@ -42,6 +42,15 @@ function toolResultEv(callId: string, text: string, isError = false): SessionEve
   })
 }
 
+/** 块的内容投影：丢掉折叠层新加的稳定 id（内容/结构断言用它，id 的语义由专门用例覆盖）。 */
+function blockContent(blocks: readonly ChatBlock[]): unknown[] {
+  return blocks.map((block) => {
+    const copy: Record<string, unknown> = { ...block }
+    delete copy.id
+    return copy
+  })
+}
+
 function lastAssistant(folder: ConversationFolder): ChatAssistantMessage {
   const msg = folder.messages().at(-1)
   assert.equal(msg?.kind, 'assistant')
@@ -58,7 +67,7 @@ test('text deltas across chunks append into one block', () => {
   f.applyEvent(chunkEv(1, 1, { type: 'block-end', index: 0, block: { type: 'text', text: 'Hello, world' } }))
 
   const msg = lastAssistant(f)
-  assert.deepEqual(msg.blocks, [{ type: 'text', text: 'Hello, world' }])
+  assert.deepEqual(blockContent(msg.blocks), [{ type: 'text', text: 'Hello, world' }])
   assert.equal(msg.complete, false)
   assert.equal(f.hasOpenTurn(), true)
 })
@@ -73,7 +82,7 @@ test('reasoning and text stream as separate blocks', () => {
   f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 1, text: 'answer' }))
   f.applyEvent(chunkEv(1, 1, { type: 'block-end', index: 1, block: { type: 'text', text: 'answer' } }))
 
-  assert.deepEqual(lastAssistant(f).blocks, [
+  assert.deepEqual(blockContent(lastAssistant(f).blocks), [
     { type: 'reasoning', text: 'think' },
     { type: 'text', text: 'answer' },
   ])
@@ -89,7 +98,7 @@ test('interleaved block indexes fold into their own blocks', () => {
   f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: 'b' }))
   f.applyEvent(chunkEv(1, 1, { type: 'reasoning-delta', index: 1, text: 'r2' }))
 
-  assert.deepEqual(lastAssistant(f).blocks, [
+  assert.deepEqual(blockContent(lastAssistant(f).blocks), [
     { type: 'text', text: 'ab' },
     { type: 'reasoning', text: 'r1r2' },
   ])
@@ -102,7 +111,7 @@ test('block-end reconciles divergent assembled text', () => {
   f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: 'partial' }))
   f.applyEvent(chunkEv(1, 1, { type: 'block-end', index: 0, block: { type: 'text', text: 'full text' } }))
 
-  assert.deepEqual(lastAssistant(f).blocks, [{ type: 'text', text: 'full text' }])
+  assert.deepEqual(blockContent(lastAssistant(f).blocks), [{ type: 'text', text: 'full text' }])
 })
 
 test('tool call/result pair through running, done and error', () => {
@@ -128,6 +137,96 @@ test('tool call/result pair through running, done and error', () => {
   assert.equal(blocks[0].output, 'file1\nfile2')
   assert.equal(blocks[1].status, 'error')
   assert.equal(blocks[1].output, 'boom')
+})
+
+/** 按 callId 找折叠出的 tool 块（跨消息搜索）。 */
+function toolBlockOf(f: ConversationFolder, callId: string): ChatToolBlock {
+  for (const m of f.messages()) {
+    if (m.kind !== 'assistant') continue
+    for (const b of m.blocks) if (b.type === 'tool' && b.callId === callId) return b
+  }
+  throw new Error(`tool block ${callId} not found`)
+}
+
+test('step/end 关闭时把该步未结算的 tool 卡置错误态（不再永远转圈）', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(ev('step/start', { turn: 1, step: 1 }))
+  f.applyEvent(toolCallEv('c1', 'bash', '{}'))
+  assert.equal(toolBlockOf(f, 'c1').status, 'running')
+
+  f.applyEvent(ev('step/end', { turn: 1, step: 1 }))
+  assert.equal(toolBlockOf(f, 'c1').status, 'error')
+})
+
+test('中断回合（turn/end aborted）把仍未结算的 tool 卡置错误态', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(toolCallEv('c1', 'bash', '{}'))
+  f.applyEvent(toolCallEv('c2', 'read', '{}'))
+  f.applyEvent(toolResultEv('c2', '文件内容'))
+
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }))
+  assert.equal(toolBlockOf(f, 'c1').status, 'error', '未结算的卡收边置错误态')
+  assert.equal(toolBlockOf(f, 'c2').status, 'done', '已结算的卡保持原状态')
+})
+
+test('新 step 开始即认为上一步已关闭（step/end 缺失时兜底），不误伤新步的卡', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(ev('step/start', { turn: 1, step: 1 }))
+  f.applyEvent(toolCallEv('c1', 'bash', '{}'))
+  // 窗口/中断导致 step/end 缺失：下一步开始就是上一步关闭的信号。
+  f.applyEvent(ev('step/start', { turn: 1, step: 2 }))
+  f.applyEvent(ev('tool/call', { turn: 1, step: 2, callId: 'c2', name: 'read', arguments: '{}' }))
+
+  assert.equal(toolBlockOf(f, 'c1').status, 'error')
+  assert.equal(toolBlockOf(f, 'c2').status, 'running')
+})
+
+test('迟到的 tool/result 仍覆盖收边后的错误态（收边可自愈）', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(ev('step/start', { turn: 1, step: 1 }))
+  f.applyEvent(toolCallEv('c1', 'bash', '{}'))
+  f.applyEvent(ev('step/end', { turn: 1, step: 1 }))
+  assert.equal(toolBlockOf(f, 'c1').status, 'error')
+
+  f.applyEvent(toolResultEv('c1', '迟到的输出'))
+  assert.equal(toolBlockOf(f, 'c1').status, 'done')
+  assert.equal(toolBlockOf(f, 'c1').output, '迟到的输出')
+})
+
+test('块带稳定 id：tool 块 = callId、文本块 = 创建它的事件 seq（#49 R4/C2）', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: '正文' }))
+  f.applyEvent(toolCallEv('c1', 'bash', '{}'))
+  f.applyEvent(
+    ev('assistant/message', {
+      turn: 1,
+      step: 2,
+      message: { id: 'a1', content: [{ type: 'text', text: '折叠一' }, { type: 'reasoning', text: '折叠二' }] },
+    }),
+  )
+
+  const ids = lastAssistant(f).blocks.map((b) => b.id)
+  assert.equal(ids.length, 4)
+  assert.equal(ids[1], 'c1', 'tool 块 id = callId（官方 tool 节点 id 同款）')
+  assert.match(ids[0] ?? '', /^s\d+$/, '流式文本块 id = 创建它的 chunk 事件 seq')
+  assert.match(ids[2] ?? '', /^s\d+\.0$/, '同一条 assistant/message 折出的多块带事件内序号')
+  assert.match(ids[3] ?? '', /^s\d+\.1$/)
+  assert.equal(new Set(ids).size, ids.length, '同一条消息内块 id 互不相同')
+})
+
+test('窗口外 result 兜底新推卡也带 callId 作块 id', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(toolResultEv('c5', '结果先到'))
+  const card = lastAssistant(f).blocks[0] as ChatToolBlock
+  assert.equal(card.id, 'c5')
+  assert.equal(card.status, 'done')
 })
 
 test('tool/call folds raw arguments onto the block for IN display', () => {
@@ -224,7 +323,7 @@ test('history baseline folds a complete turn, then live chunks extend it', () =>
 
   assert.equal(f.messages().length, 2)
   const first = f.messages()[1] as ChatAssistantMessage
-  assert.deepEqual(first.blocks, [{ type: 'text', text: 'answer' }])
+  assert.deepEqual(blockContent(first.blocks), [{ type: 'text', text: 'answer' }])
   assert.equal(first.complete, true)
   assert.equal(first.interrupted, undefined)
   assert.equal(f.hasOpenTurn(), false)
@@ -237,7 +336,7 @@ test('history baseline folds a complete turn, then live chunks extend it', () =>
 
   assert.equal(f.messages().length, 4)
   const live = lastAssistant(f)
-  assert.deepEqual(live.blocks, [{ type: 'text', text: 'more' }])
+  assert.deepEqual(blockContent(live.blocks), [{ type: 'text', text: 'more' }])
   assert.equal(live.complete, false)
   assert.equal(f.hasOpenTurn(), true)
 })
@@ -264,7 +363,7 @@ test('assistant/message folds content when no chunks were seen', () => {
   ])
 
   // tool-call content blocks stay invisible; tool/call events own the cards.
-  assert.deepEqual(lastAssistant(f).blocks, [
+  assert.deepEqual(blockContent(lastAssistant(f).blocks), [
     { type: 'reasoning', text: 'thought' },
     { type: 'text', text: 'visible' },
   ])
@@ -312,7 +411,7 @@ test('turn/end with an aborted reason and no content yields an empty assistant m
   f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }))
 
   const msg = lastAssistant(f)
-  assert.deepEqual(msg.blocks, [])
+  assert.deepEqual(blockContent(msg.blocks), [])
   assert.equal(msg.complete, true)
   assert.equal(msg.interrupted, true)
   assert.equal(msg.turnError, undefined)
@@ -331,7 +430,7 @@ test('turn/end with an error reason and no content yields an empty assistant mes
   )
 
   const msg = lastAssistant(f)
-  assert.deepEqual(msg.blocks, [])
+  assert.deepEqual(blockContent(msg.blocks), [])
   assert.equal(msg.complete, true)
   assert.deepEqual(msg.turnError, { message: '401 unauthorized', code: 'AUTH' })
   assert.equal(msg.interrupted, undefined)
@@ -348,7 +447,7 @@ test('turn/end with an error reason keeps partial content and marks turnError, n
   )
 
   const msg = lastAssistant(f)
-  assert.deepEqual(msg.blocks, [{ type: 'text', text: 'partial' }])
+  assert.deepEqual(blockContent(msg.blocks), [{ type: 'text', text: 'partial' }])
   assert.equal(msg.complete, true)
   assert.deepEqual(msg.turnError, { message: 'context length exceeded' })
   assert.equal(msg.interrupted, undefined)
@@ -889,12 +988,12 @@ test('prependHistory does not disturb an open streaming turn', () => {
   // 旧消息在前，进行中的 turn 仍在尾部且保持未完成。
   assert.equal(f.messages().length, 3)
   const tail = lastAssistant(f)
-  assert.deepEqual(tail.blocks, [{ type: 'text', text: '流式中' }])
+  assert.deepEqual(blockContent(tail.blocks), [{ type: 'text', text: '流式中' }])
   assert.equal(tail.complete, false)
   assert.equal(f.hasOpenTurn(), true)
   //  prepend 后仍能继续折叠进行中的流式增量。
   f.applyEvent(chunkEv(2, 1, { type: 'text-delta', index: 0, text: '……继续' }))
-  assert.deepEqual(tail.blocks, [{ type: 'text', text: '流式中……继续' }])
+  assert.deepEqual(blockContent(tail.blocks), [{ type: 'text', text: '流式中……继续' }])
 })
 
 test('prependHistory with an empty page is a no-op', () => {
@@ -939,6 +1038,152 @@ test('prependHistory 乱序翻页同样按 seq 折叠（旧页内消息不被数
     ),
     ['第一问', '第一答', '第二问', '第二答', '当前问', '当前答'],
   )
+})
+
+test('prependHistory 页边界切在回合中间：同回合两段并成一段、不留重复 id', () => {
+  // 官方分页按 step 消息对齐，我们的 fold 按 turn 出一条消息——边界落在回合
+  // 内部（甚至落在一步的流式文本中间）是常态：旧页尾段与本窗口首段同 turn，
+  // 按 turn 命名会撞 id（webview 行 key = `msg:${id}`，重复 key 只留第一个 → 另
+  // 一段整行消失）。
+  const events: SessionEventLike[] = [
+    ev('turn/start', { turn: 7 }),
+    userEv('u7', '问题'),
+    chunkEv(7, 1, { type: 'block-start', index: 0, blockType: 'text' }),
+    chunkEv(7, 1, { type: 'text-delta', index: 0, text: '第一步 ' }),
+    toolCallEv('c7', 'read', '{}'),
+    toolResultEv('c7', '文件内容'),
+    chunkEv(7, 2, { type: 'block-start', index: 0, blockType: 'text' }),
+    chunkEv(7, 2, { type: 'text-delta', index: 0, text: '第二步前半' }),
+    chunkEv(7, 2, { type: 'text-delta', index: 0, text: '，第二步后半' }),
+    ev('turn/end', { turn: 7, reason: { kind: 'completed' } }),
+  ]
+  const cut = 8 // 切在两个 delta 之间：页边界落在同一段文本中间
+  const f = new ConversationFolder()
+  f.applyHistory(events.slice(cut).map((event) => ({ event })))
+  f.prependHistory(events.slice(0, cut).map((event) => ({ event })))
+
+  const msgs = f.messages()
+  const ids = msgs.map((m) => m.id)
+  assert.equal(new Set(ids).size, ids.length, `消息 id 必须唯一：${ids.join(', ')}`)
+  const assistants = msgs.filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.equal(assistants.length, 1, '同一回合只留一条 assistant 消息')
+  // 边界两侧的文本块拼回一块（正文不被断成两段独立段落），工具卡保持原位。
+  assert.deepEqual(
+    assistants[0].blocks.map((b) => b.type),
+    ['text', 'tool', 'text'],
+  )
+  assert.equal((assistants[0].blocks[0] as { text: string }).text, '第一步 ')
+  assert.equal((assistants[0].blocks[2] as { text: string }).text, '第二步前半，第二步后半')
+  assert.equal(assistants[0].complete, true)
+  assert.equal(assistants[0].turnEnd, true)
+  // 块 id 稳定（tool 块 = callId、文本块 = 创建它的事件 seq）：并段不换 key——
+  // webview 侧那些 tool 卡的展开态 / JSON 树 / 内滚位置随之存活（#49 R4/C2）。
+  const blockIds = assistants[0].blocks.map((b) => b.id)
+  assert.equal(blockIds[1], 'c7')
+  assert.match(blockIds[0] ?? '', /^s\d+$/)
+  assert.match(blockIds[2] ?? '', /^s\d+$/)
+  assert.equal(new Set(blockIds).size, 3, '同一条消息内块 id 互不相同')
+})
+
+test('页边界切在 tool/call 与 tool/result 之间：并段后同 callId 的卡合成一张', () => {
+  const events: SessionEventLike[] = [
+    ev('turn/start', { turn: 9 }),
+    chunkEv(9, 1, { type: 'block-start', index: 0, blockType: 'text' }),
+    chunkEv(9, 1, { type: 'text-delta', index: 0, text: '先读文件 ' }),
+    ev('tool/call', { turn: 9, step: 1, callId: 'c9', name: 'read', arguments: '{"path":"a.ts"}' }),
+    // ← 页边界：调用在旧页、结果在新窗口（result 侧没有 call 记录 → 兜底卡）
+    ev('tool/result', {
+      turn: 9,
+      step: 1,
+      message: {
+        id: 'tr-c9',
+        role: 'user',
+        content: [{ type: 'tool-result', toolCallId: 'c9', content: [{ type: 'text', text: '文件内容' }], isError: false }],
+        source: { kind: 'tool', callId: 'c9' },
+      },
+    }),
+    ev('turn/end', { turn: 9, reason: { kind: 'completed' } }),
+  ]
+  const cut = 4
+  const f = new ConversationFolder()
+  f.applyHistory(events.slice(cut).map((event) => ({ event })))
+  f.prependHistory(events.slice(0, cut).map((event) => ({ event })))
+
+  const msg = f.messages().find((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  const blocks = msg?.blocks ?? []
+  assert.deepEqual(
+    blocks.map((b) => b.type),
+    ['text', 'tool'],
+  )
+  const card = blocks[1] as ChatToolBlock
+  assert.equal(card.id, 'c9')
+  assert.equal(card.status, 'done', '结果侧状态为准')
+  assert.equal(card.output, '文件内容')
+  assert.equal(card.args, '{"path":"a.ts"}', '调用侧 args 从旧段带过来')
+  assert.equal(card.name, 'read', '工具名不被兜底卡的 callId 覆盖')
+  assert.equal(card.title, 'read')
+})
+
+test('prependHistory 不并不同回合的两段（中间隔着注入上下文时各留各的）', () => {
+  const f = new ConversationFolder()
+  f.applyHistory([{ event: userEv('ctx0', '注入上下文') }])
+  // 旧页尾段属于 turn 6，窗口首段属于 turn 7：不合并。
+  f.prependHistory(turnEntries(6, '旧问', '旧答').map((e) => ({ ...e })))
+  const assistants = f.messages().filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.equal(assistants.length, 1)
+  assert.equal(assistants[0].blocks[0].type, 'text')
+  assert.equal(f.messages()[0].kind, 'user')
+})
+
+test('turn 中途注入 user/message 切断的两段 assistant 消息 id 不撞车', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 3 }))
+  f.applyEvent(chunkEv(3, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(3, 1, { type: 'text-delta', index: 0, text: '前一段' }))
+  // 子代理完成通知等注入上下文（source.kind !== 'user'）切断当前 assistant 消息。
+  f.applyEvent(
+    ev('user/message', {
+      id: 'ctx1',
+      role: 'user',
+      content: [{ type: 'text', text: '注入上下文' }],
+      source: { kind: 'snapshot' },
+    }),
+  )
+  f.applyEvent(chunkEv(3, 2, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(3, 2, { type: 'text-delta', index: 0, text: '后一段' }))
+
+  const assistants = f.messages().filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.equal(assistants.length, 2)
+  assert.notEqual(assistants[0].id, assistants[1].id)
+  assert.deepEqual(
+    assistants.map((m) => (m.blocks[0] as { text: string }).text),
+    ['前一段', '后一段'],
+  )
+  assert.deepEqual(
+    assistants.map((m) => m.turn),
+    [3, 3],
+  )
+})
+
+test('turn/end 落在注入上下文之后时按 turn 找回承载消息', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 4 }))
+  f.applyEvent(chunkEv(4, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(4, 1, { type: 'text-delta', index: 0, text: '答案' }))
+  // 回合尾部又插一条注入上下文：current 被切断，turn/end 拿不到 current。
+  f.applyEvent(
+    ev('user/message', {
+      id: 'ctx2',
+      role: 'user',
+      content: [{ type: 'text', text: '注入' }],
+      source: { kind: 'snapshot' },
+    }),
+  )
+  f.applyEvent(ev('turn/end', { turn: 4, reason: { kind: 'aborted' } }))
+
+  const msg = f.messages().find((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.equal(msg?.turnEnd, true)
+  assert.equal(msg?.interrupted, true)
 })
 
 test('tail window without turn/start still reports the unclosed turn as running', () => {
@@ -1286,7 +1531,7 @@ test('turn/end max-tokens with no content yields an empty assistant message mark
   f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }))
 
   const msg = lastAssistant(f)
-  assert.deepEqual(msg.blocks, [])
+  assert.deepEqual(blockContent(msg.blocks), [])
   assert.equal(msg.complete, true)
   assert.equal(msg.maxTokens, true)
   assert.equal(f.hasOpenTurn(), false)
