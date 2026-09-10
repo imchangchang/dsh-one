@@ -1561,6 +1561,29 @@ let menuOpenRow: HTMLElement | null = null
 let jobsTick: ReturnType<typeof setInterval> | null = null
 /** 定时计划菜单打开期间的 1s tick（刷新相对时间/逾期态；closePopover 统一清理）。 */
 let scheduleTick: ReturnType<typeof setInterval> | null = null
+/** 弹层重定位的 rAF 去重句柄（scroll capture 每帧多次触发，几何量只需每帧一次）。 */
+let popoverRepositionFrame: number | null = null
+/** 弹层自身尺寸变化的观察者（内容撑高/换行后重定位；closePopover 统一清理）。 */
+let popoverSizeObserver: ResizeObserver | null = null
+
+/**
+ * 弹层跟随视口/锚点变化重定位（对齐官方 useAnchoredPosition：window 的
+ * scroll(capture) + resize + 面板自身 ResizeObserver）。scroll 用捕获阶段因为
+ * 消息流的滚动不冒泡到 window；合帧到 rAF 再做几何计算（滚动期间每帧多次触发）。
+ * 面板尺寸变化也重定位：内容换行/撑高后弹层可能溢出视口被裁。
+ */
+function schedulePopoverReposition(): void {
+  if (popover === null) return
+  if (typeof requestAnimationFrame !== 'function') {
+    positionPopover()
+    return
+  }
+  if (popoverRepositionFrame !== null) return
+  popoverRepositionFrame = requestAnimationFrame(() => {
+    popoverRepositionFrame = null
+    positionPopover()
+  })
+}
 
 function markMenuRow(row: HTMLElement | null): void {
   menuOpenRow?.classList.remove('menu-open')
@@ -1610,9 +1633,17 @@ function closePopover(): void {
     clearInterval(scheduleTick)
     scheduleTick = null
   }
+  if (popoverRepositionFrame !== null && typeof cancelAnimationFrame === 'function') {
+    cancelAnimationFrame(popoverRepositionFrame)
+  }
+  popoverRepositionFrame = null
+  popoverSizeObserver?.disconnect()
+  popoverSizeObserver = null
   document.removeEventListener('mousedown', onPopoverOutside, true)
   document.removeEventListener('keydown', onPopoverKey, true)
   window.removeEventListener('blur', onPopoverBlur)
+  window.removeEventListener('scroll', schedulePopoverReposition, true)
+  window.removeEventListener('resize', schedulePopoverReposition)
 }
 
 /** (Re)position the open popover from its anchor's live rect. */
@@ -1661,6 +1692,14 @@ function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' 
   document.addEventListener('mousedown', onPopoverOutside, true)
   document.addEventListener('keydown', onPopoverKey, true)
   window.addEventListener('blur', onPopoverBlur)
+  // 打开期间跟随视口/锚点：滚动消息流或缩放面板/窗口后弹层与锚点不再脱开
+  // （#50 R8，官方 useAnchoredPosition 同款）。
+  window.addEventListener('scroll', schedulePopoverReposition, true)
+  window.addEventListener('resize', schedulePopoverReposition)
+  if (typeof ResizeObserver !== 'undefined') {
+    popoverSizeObserver = new ResizeObserver(() => schedulePopoverReposition())
+    popoverSizeObserver.observe(p)
+  }
 }
 
 /**
