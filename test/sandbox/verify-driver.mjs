@@ -7,7 +7,8 @@
 //
 // driver 字段（除 prompt 外都可选，缺省走原有行为，向后兼容）：
 //   prompt        发送给新会话的消息
-//   expectText    等待 webview 中出现该文本（超时 120s）
+//   expectText    等待 webview 中出现该文本（超时 120s；数组=逐项都要出现，
+//                 失败时 notes 里点名缺哪几条）
 //   afterSendFill 点发送后立刻把这段文本填进 composer（模拟发送后、pending 接管前
 //                 正在输入：pending 帧接管时应把草稿暂存，应答后恢复）
 //   approve       等待 pending 面板并点击按钮文本：字符串=单次（如审批 Allow once），
@@ -320,24 +321,41 @@ async function dropFilesOnChat(page, entries, dragOnly) {
   )
 }
 
+/** 上一次 waitForText 没等到的文本（多个 needle 时用来指出究竟缺哪几条）。 */
+let lastTextMiss = []
+/** 上一次 waitForPlaceholder 实际看到的占位符文案（失败诊断：断言文本对不上时看它）。 */
+let lastPlaceholderSeen = null
+
+/** 文本比对前归一：折叠空白 + 忽略大小写（对齐 Playwright hasText 的宽松度）。 */
+function normalizeNeedle(s) {
+  return String(s).replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
 /** 扫描全部 frame 等待 expectText 出现（每轮重扫，容忍宿主重建）。
  *  提问/审批面板会替换 composer（#input 消失），不能用 isChatFrame 定位，
- *  直接全文搜索所有 frame。 */
+ *  直接全文搜索所有 frame。expectText 给数组时逐项都要命中（同一帧内）。 */
 async function waitForText(page, expectText, timeoutMs) {
+  const needles = [].concat(expectText ?? []).map((s) => ({ raw: String(s), norm: normalizeNeedle(s) }))
+  const missing = new Map(needles.map((n) => [n.raw, n.norm]))
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     for (const f of page.frames()) {
       if (!isLiveFrame(f)) continue
       try {
-        const n = await bounded(f.locator('body').filter({ hasText: expectText }).count(), `waitForText count（${expectText}）`)
-        if (n > 0) return true
+        const text = normalizeNeedle(await bounded(f.evaluate(() => document.body?.textContent ?? ''), 'waitForText evaluate'))
+        for (const [raw, norm] of [...missing]) if (text.includes(norm)) missing.delete(raw)
       } catch (e) {
         rethrowWatchdog(e)
         // 帧重建瞬间忽略
       }
     }
+    if (missing.size === 0) {
+      lastTextMiss = []
+      return true
+    }
     await sleep(500)
   }
+  lastTextMiss = [...missing.keys()]
   return false
 }
 
@@ -632,6 +650,7 @@ async function reloadWorkbench(page) {
 /** 扫描全部 frame，断言 composer 占位符文案包含 expectPlaceholder。 */
 async function waitForPlaceholder(page, expectPlaceholder, timeoutMs) {
   const start = Date.now()
+  lastPlaceholderSeen = null
   while (Date.now() - start < timeoutMs) {
     for (const f of page.frames()) {
       if (!isLiveFrame(f)) continue
@@ -645,6 +664,7 @@ async function waitForPlaceholder(page, expectPlaceholder, timeoutMs) {
           ),
           'waitForPlaceholder evaluate',
         )
+        if (typeof v === 'string' && v !== '') lastPlaceholderSeen = v
         if (typeof v === 'string' && v.includes(expectPlaceholder)) return true
       } catch (e) {
         rethrowWatchdog(e)
@@ -1163,7 +1183,10 @@ try {
             const ok = await waitForText(page, driver.expectText, EXPECT_TEXT_TIMEOUT)
             if (!ok) {
               result = 'fail'
-              notes.push(`断言超时（${EXPECT_TEXT_TIMEOUT / 1000}s）：预期文本「${driver.expectText}」未出现`)
+              notes.push(
+                `断言超时（${EXPECT_TEXT_TIMEOUT / 1000}s）：预期文本「${[].concat(driver.expectText).join('、')}」未出现` +
+                  (lastTextMiss.length ? `（缺：${lastTextMiss.join('、')}）` : ''),
+              )
             }
           }
           if (driver.fillDraft) {
@@ -1257,7 +1280,7 @@ try {
           }
           if (driver.expectPlaceholder) {
             const ok = await waitForPlaceholder(page, driver.expectPlaceholder, 30_000)
-            notes.push(ok ? `占位符命中：${driver.expectPlaceholder}` : `占位符不含：${driver.expectPlaceholder}`)
+            notes.push(ok ? `占位符命中：${driver.expectPlaceholder}` : `占位符不含：${driver.expectPlaceholder}（实际：${lastPlaceholderSeen ?? '（读不到占位符）'}）`)
             if (!ok) {
               result = 'fail'
               notes.push('expectPlaceholder：composer 占位符断言失败')
