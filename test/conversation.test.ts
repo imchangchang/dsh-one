@@ -130,6 +130,64 @@ test('tool call/result pair through running, done and error', () => {
   assert.equal(blocks[1].output, 'boom')
 })
 
+/** 按 callId 找折叠出的 tool 块（跨消息搜索）。 */
+function toolBlockOf(f: ConversationFolder, callId: string): ChatToolBlock {
+  for (const m of f.messages()) {
+    if (m.kind !== 'assistant') continue
+    for (const b of m.blocks) if (b.type === 'tool' && b.callId === callId) return b
+  }
+  throw new Error(`tool block ${callId} not found`)
+}
+
+test('step/end 关闭时把该步未结算的 tool 卡置错误态（不再永远转圈）', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(ev('step/start', { turn: 1, step: 1 }))
+  f.applyEvent(toolCallEv('c1', 'bash', '{}'))
+  assert.equal(toolBlockOf(f, 'c1').status, 'running')
+
+  f.applyEvent(ev('step/end', { turn: 1, step: 1 }))
+  assert.equal(toolBlockOf(f, 'c1').status, 'error')
+})
+
+test('中断回合（turn/end aborted）把仍未结算的 tool 卡置错误态', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(toolCallEv('c1', 'bash', '{}'))
+  f.applyEvent(toolCallEv('c2', 'read', '{}'))
+  f.applyEvent(toolResultEv('c2', '文件内容'))
+
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }))
+  assert.equal(toolBlockOf(f, 'c1').status, 'error', '未结算的卡收边置错误态')
+  assert.equal(toolBlockOf(f, 'c2').status, 'done', '已结算的卡保持原状态')
+})
+
+test('新 step 开始即认为上一步已关闭（step/end 缺失时兜底），不误伤新步的卡', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(ev('step/start', { turn: 1, step: 1 }))
+  f.applyEvent(toolCallEv('c1', 'bash', '{}'))
+  // 窗口/中断导致 step/end 缺失：下一步开始就是上一步关闭的信号。
+  f.applyEvent(ev('step/start', { turn: 1, step: 2 }))
+  f.applyEvent(ev('tool/call', { turn: 1, step: 2, callId: 'c2', name: 'read', arguments: '{}' }))
+
+  assert.equal(toolBlockOf(f, 'c1').status, 'error')
+  assert.equal(toolBlockOf(f, 'c2').status, 'running')
+})
+
+test('迟到的 tool/result 仍覆盖收边后的错误态（收边可自愈）', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(ev('step/start', { turn: 1, step: 1 }))
+  f.applyEvent(toolCallEv('c1', 'bash', '{}'))
+  f.applyEvent(ev('step/end', { turn: 1, step: 1 }))
+  assert.equal(toolBlockOf(f, 'c1').status, 'error')
+
+  f.applyEvent(toolResultEv('c1', '迟到的输出'))
+  assert.equal(toolBlockOf(f, 'c1').status, 'done')
+  assert.equal(toolBlockOf(f, 'c1').output, '迟到的输出')
+})
+
 test('tool/call folds raw arguments onto the block for IN display', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('turn/start', { turn: 1 }))

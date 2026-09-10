@@ -499,6 +499,10 @@ export class ConversationFolder {
   private stepStreamed = false
   private openTurns = new Set<number>()
   private tools = new Map<string, ChatToolBlock>()
+  /** callId → 该次调用所属的 (turn, step)。step/turn 关闭时据此把未结算的卡收边。 */
+  private toolScope = new Map<string, { turn: number; step: number }>()
+  /** turn → 当前打开的 step（step/start 推进；新 step 开始即认为上一个已关闭）。 */
+  private openStep = new Map<number, number>()
   /** tool/call 时的 call view（按 callId；无 view 存 undefined 占位，结果不再补）。 */
   private callViews = new Map<string, ToolEventViewLike['view'] | undefined>()
   /** 按 turn 累积的产物条目（{seq, path}，path 首次出现去重），turn/end 时挂到消息。 */
@@ -541,6 +545,8 @@ export class ConversationFolder {
     this.stepStreamed = false
     this.openTurns.clear()
     this.tools.clear()
+    this.toolScope.clear()
+    this.openStep.clear()
     this.callViews.clear()
     this.produced.clear()
     this.producedSeen.clear()
@@ -634,6 +640,11 @@ export class ConversationFolder {
           for (const entry of this.retries.values()) {
             if (entry.turn === turn && entry.block.retryState === 'scheduled') entry.block.retryState = 'cancelled'
           }
+          // 回合关闭：本 turn 仍未结算的 tool 卡不会再有 result（用户中断 / result
+          // 落在窗口外 / 日志缺尾）——收边置错误态。官方同款语义：step/turn 关闭
+          // 时把未结算的 tool 投影成 Interrupted 错误结果；不收边就永远转圈。
+          this.closeToolScope(turn)
+          this.openStep.delete(turn)
         }
         let msg = this.current
         if (!msg) {
@@ -773,13 +784,31 @@ export class ConversationFolder {
           this.stepStart.set(`${data.turn}:${data.step}`, event.time)
         }
         this.feedUsageFold(event)
-        return false
+        // 上一步已关闭（step/end 可能因窗口/中断缺失）：它还没拿到结果的 tool
+        // 调用不会再有 result 了，先收边。
+        const turn = Number(data.turn)
+        const step = Number(data.step)
+        let closed = false
+        if (Number.isFinite(turn) && Number.isFinite(step)) {
+          const prev = this.openStep.get(turn)
+          if (prev !== undefined && prev !== step) closed = this.closeToolScope(turn, prev)
+          this.openStep.set(turn, step)
+        }
+        return closed
       }
       // step/end 不进对话流（无用消息副作用），但用量 fold 的尝试生命周期
       // 依赖它（官方 step/end 关闭 open attempt）。
-      case 'step/end':
+      case 'step/end': {
         this.feedUsageFold(event)
-        return false
+        const turn = Number(data.turn)
+        const step = Number(data.step)
+        let closed = false
+        if (Number.isFinite(turn)) {
+          closed = this.closeToolScope(turn, Number.isFinite(step) ? step : undefined)
+          if (Number.isFinite(step) && this.openStep.get(turn) === step) this.openStep.delete(turn)
+        }
+        return closed
+      }
       case 'assistant/chunk':
         this.feedUsageFold(event)
         return this.applyChunk(event.data as ChunkEventData, event.seq, event.time)
@@ -937,6 +966,27 @@ export class ConversationFolder {
     return timing
   }
 
+  /**
+   * 把一个 (turn[, step]) 作用域内仍未结算（status='running'）的 tool 卡置成
+   * 错误态。tool/result 是唯一能把卡从 running 翻走的路径，而调用它的 step/turn
+   * 关闭后再也不会有 result 到达（用户 ESC 中断、result 落在加载窗口外、日志缺
+   * 尾）——不收边那张卡就永远转圈（官方按 interruption 边界投影成 Interrupted
+   * 错误结果）。返回是否真的改了状态。迟到的 result 仍会按 callId 找回这张卡并
+   * 覆盖状态，所以误收边是可自愈的。
+   */
+  private closeToolScope(turn: number, step?: number): boolean {
+    let changed = false
+    for (const [callId, block] of this.tools) {
+      if (block.status !== 'running') continue
+      const scope = this.toolScope.get(callId)
+      if (!scope || scope.turn !== turn) continue
+      if (step !== undefined && scope.step !== step) continue
+      block.status = 'error'
+      changed = true
+    }
+    return changed
+  }
+
   private ensureAssistant(turn: number, seq: number): ChatAssistantMessage {
     // 窗口分页下 turn/start 可能落在窗口外（长 turn 的工具事件就能把页填满）；
     // 窗口是日志的连续后缀，内容事件的 turn 没有配对的 turn/end 就是还在跑。
@@ -1083,6 +1133,7 @@ export class ConversationFolder {
     }
     msg.blocks.push(block)
     this.tools.set(data.callId, block)
+    this.toolScope.set(data.callId, { turn: Number(data.turn), step: Number(data.step) })
     msg.complete = false
     return true
   }
@@ -1098,6 +1149,7 @@ export class ConversationFolder {
       block = { type: 'tool', callId, name: callId, status: 'running', title: callId }
       msg.blocks.push(block)
       this.tools.set(callId, block)
+      this.toolScope.set(callId, { turn: Number(data.turn), step: Number(data.step) })
     }
     block.status = data.error || result?.isError === true ? 'error' : 'done'
     const text = textOfBlocks(result?.content)
