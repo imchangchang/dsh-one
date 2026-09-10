@@ -3763,7 +3763,10 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
         {
           name: 'restored',
           script: `(() => {
-            document.getElementById('input').dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
+            // 撤销键按平台取（macOS 的 Lexical 只认 Meta+Z，其他平台 Ctrl+Z）：
+            // 场景说的是「按撤销键反悔」，写死 Ctrl 会让整个场景在 macOS 上跑不了。
+            const mod = navigator.userAgent.includes('Mac') ? { metaKey: true } : { ctrlKey: true }
+            document.getElementById('input').dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: 'z', bubbles: true, cancelable: true }, mod)))
             const input = document.getElementById('input')
             const token = document.querySelector('.input-area .ref-token')
             const chips = document.querySelectorAll('.input-area .image-chips > *').length
@@ -4810,6 +4813,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'composer-keyboard-clear-undo', 'composer-esc-clear-disarm',
     'composer-clear-running-guard', 'composer-clear-idle-guards',
     'composer-ime-esc-guard', 'composer-undo-guards', 'composer-chip-projection',
+    'code-block-highlight',
     'ref-token-word-boundary', 'ref-token-lexicon-gate',
     'attachment-uniform',
     'session-open-failure',
