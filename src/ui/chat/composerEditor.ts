@@ -15,7 +15,9 @@
  * 消息流渲染。
  */
 import {
+  CLEAR_HISTORY_COMMAND,
   COMMAND_PRIORITY_HIGH,
+  HISTORIC_TAG,
   KEY_ARROW_UP_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
@@ -53,8 +55,13 @@ export type MentionBindings = Map<string, string>
 
 /** composer 编辑器会触发、交给外层处理的事件回调。 */
 export interface ComposerHandlers {
-  /** 文本内容变化（含程序化 setText）——外层据此同步按钮/清空/draft。 */
-  onTextChange: (text: string) => void
+  /**
+   * 文本内容变化——外层据此同步按钮/清空/draft。
+   * `programmatic` = 这次变化来自 {@link ComposerEditor.setText}（清空/召回/草稿
+   * 恢复等程序化重写），不是用户敲进来的新内容；外层据此区分「内容入场」与
+   * 「程序自己重写」（清空暂存只被前者作废）。
+   */
+  onTextChange: (text: string, meta: { programmatic: boolean }) => void
   /** 光标/选区变化——外层据此刷新 @ / slash 补全弹层。 */
   onSelectionChange: () => void
   /** Enter（非 shift、非组合）：返回是否消费（发送）。steer = ⌘/Ctrl。 */
@@ -107,6 +114,8 @@ export interface ComposerEditor {
 
 const REF_TYPE = 'ref-token'
 const CHIP_TYPE = 'ref-chip'
+/** setText 的程序化写入标签：外层据此区分「用户编辑」与「程序化重写」，历史栈据此忽略。 */
+const SET_TAG = 'dsh-composer-set'
 
 /** 空候选名集合（atTokenNames 缺省用；不共享可变实例，读到即返回同一个空集）。 */
 const EMPTY_NAME_SET: ReadonlySet<string> = new Set<string>()
@@ -681,8 +690,15 @@ export function createComposerEditor(opts: {
         }
         $getRoot().selectEnd()
       },
-      { tag: 'dsh-composer-set', discrete: true },
+      // HISTORIC_TAG：程序化写入不进 undo 栈（registerHistory 对 historic 更新一律
+      // 丢弃候选）。否则「发送后清空」会作为一条可撤销记录留在栈里，Cmd+Z 把已经
+      // 发出去的内容复活回输入框。
+      { tag: [SET_TAG, HISTORIC_TAG], discrete: true },
     )
+    // 整体重写等于换了一条内容基线：把既有的 undo/redo 栈一起清掉。只靠上面的
+    // historic 标签会让 historyState.current 停在重写前的状态，之后用户一打字
+    // （新历史条目以旧状态为底）Cmd+Z 仍能撤回被程序化替换掉的旧内容。
+    editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined)
   }
 
   // 编辑器更新 → 同步文本/选区变化（占位符显隐 + 外层自动跟随）。
@@ -747,12 +763,12 @@ export function createComposerEditor(opts: {
 
   // 挂载完成后再挂更新监听：首帧（setRootElement 内触发的 update）不让 onTextChange
   // 提前触发，后续文本/选区变化才通知外层。
-  const unregisterUpdate = editor.registerUpdateListener(() => {
+  const unregisterUpdate = editor.registerUpdateListener(({ tags }) => {
     const text = getText()
     if (text !== lastText) {
       lastText = text
       placeholder.style.display = text.length === 0 ? '' : 'none'
-      handlers.onTextChange(text)
+      handlers.onTextChange(text, { programmatic: tags.has(SET_TAG) })
     }
     const sel = selection()
     if (sel.start !== lastSel.start || sel.end !== lastSel.end) {

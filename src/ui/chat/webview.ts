@@ -6994,14 +6994,19 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
 
   composer = createComposerEditor({
     handlers: {
-      onTextChange: (text) => {
+      onTextChange: (text, meta) => {
         updateButton()
         updateClearAll()
         updateSlashPopup(composer)
-        // 双击清空：任何输入都解除武装；清空暂存同步作废（新内容入场，旧暂存
+        // 双击清空：任何用户输入都解除武装；清空暂存同步作废（新内容入场，旧暂存
         // 再还回来只会迷惑——一次性反悔，不多级）。
-        disarmClearConfirm()
-        clearedStash = null
+        // 程序化重写（setText：清空/召回/草稿恢复）不算「新内容入场」：clearComposer
+        // 的 setText('') 会在它自己设置的暂存之后同步触发本回调，若一并作废，
+        // Ctrl+Z 反悔就成了永远走不到的死代码。
+        if (!meta.programmatic) {
+          disarmClearConfirm()
+          clearedStash = null
+        }
         // 纯输入不触发 render，脏位上报单独跟一次（宿主的 dirty 保护决策读它）。
         reportComposerDirty()
         // 草稿落盘同款（不经 render 的输入事件独立挂钩，#14）。
