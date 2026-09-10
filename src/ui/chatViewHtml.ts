@@ -1462,6 +1462,25 @@ const STYLE = `
   .menu-item .check { margin-left: auto; flex: none; }
   .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
+  /* @ 补全的 Tab 下钻提示（目录候选）：hover/选中该行才显形（官方 MenuView
+     的 drillHintText + drillHint 同一套显隐规则）。 */
+  .menu-item .menu-hint {
+    margin-left: auto; padding-left: 12px; font-size: 11px; opacity: 0;
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .menu-item .menu-key {
+    flex: none; font-family: inherit; font-size: 11px; line-height: 16px;
+    padding: 0 5px; border-radius: 4px; opacity: 0;
+    background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.2));
+    color: var(--vscode-descriptionForeground, #888);
+  }
+  .menu-item:hover .menu-hint,
+  .menu-item:hover .menu-key,
+  .menu-item.selected .menu-hint,
+  .menu-item.selected .menu-key { opacity: 1; }
+  /* 异步候选在途的加载行（@ 补全的「Files · Loading…」）：不可选、不抢 hover。 */
+  .menu-item.loading-row { opacity: .6; cursor: default; }
+  .menu-item.loading-row:hover { background: none; color: inherit; }
   /* 带描述两行的菜单项（模型菜单等）：名称 + 描述小字，行高自适应。 */
   .menu-item.has-desc { align-items: flex-start; white-space: normal; }
   .menu-item.has-desc .check { align-self: center; }

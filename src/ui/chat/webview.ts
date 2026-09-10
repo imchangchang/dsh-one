@@ -45,7 +45,7 @@ import {
   installCommandFor,
   type HostOs,
 } from '../../pure/installScript.ts'
-import { steerModifierLabel } from '../../pure/steerShortcut.ts'
+import { isComposerClearChord, steerModifierLabel, undoChordLabel } from '../../pure/steerShortcut.ts'
 import { interleaveSteering, orderBySeq } from '../../pure/steeringOrder.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { isFilePathHref } from '../../pure/linkPath.ts'
@@ -1323,7 +1323,10 @@ window.addEventListener('message', (event) => {
     // 乱序/过期响应丢弃；token 没变才存结果并重算弹窗（token 已消失时
     // updateSlashPopup 自己算不出行，弹窗保持关闭）。
     if (msg.requestId !== fileRefSeq) return
-    fileRefResult = { key: fileRefRequestKey, items: Array.isArray(msg.items) ? msg.items : [] }
+    fileRefPending = false
+    const settled = { key: fileRefRequestKey, items: Array.isArray(msg.items) ? msg.items : [] }
+    fileRefResult = settled
+    fileRefSettled = settled
     if (activeComposer) updateSlashPopup(activeComposer)
   } else if (msg?.type === 'turnJumped') {
     // 回合跳转回执：宿主已翻页覆盖目标 seq，滚动定位到目标回合首行。
@@ -1352,18 +1355,24 @@ document.addEventListener('keydown', (e) => {
     post({ type: 'stop' })
     return
   }
-  if (e.key === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+  if (isComposerClearChord(e)) {
     // composer 双击清空武装/执行时已 preventDefault，这里让路（运行中也是
     // 「先清输入、再停 turn」两层语义）。
     if (e.defaultPrevented) return
     const active = document.activeElement
+    // 输入框本体是 Lexical 的 contentEditable（不是 textarea/input）：光看元素
+    // 类型会漏掉「输入框里选中一段再按 Ctrl+C」——那是要复制，不是打断。composer
+    // 的选区走编辑器自己的 selection()（DOM Selection 在 contentEditable 里
+    // 未必同步给出）。
     const fieldSelection =
       (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) &&
       active.selectionStart !== null &&
       active.selectionStart !== active.selectionEnd
+    const composerSelRange = composerSel()
+    const composerSelection = composerSelRange.start !== composerSelRange.end
     const sel = window.getSelection()
     const pageSelection = !!sel && !sel.isCollapsed && sel.toString() !== ''
-    if (fieldSelection || pageSelection) return
+    if (fieldSelection || composerSelection || pageSelection) return
     post({ type: 'stop' })
   }
 })
@@ -1570,8 +1579,16 @@ interface SlashRow {
   right?: string
   /** Complete the line; absent on pure hint rows. */
   apply?: (composer: ComposerEditor) => void
+  /**
+   * Tab 下钻（目录候选）：官方 onPick 的 `action === 'drill'` 分支——把目录
+   * mention（尾 `/`、引号保持敞开）作为**纯文本**插入并继续补全，而不是落定
+   * 成 chip 关掉菜单。缺省（无 drill）时 Tab 与 Enter 同义。
+   */
+  drill?: (composer: ComposerEditor) => void
   /** 分组小标题行（不可选、无 hover），行间带分割线，如 @ 补全的「文件」「会话」。 */
   header?: true
+  /** 异步候选在途的占位行（不可选），对齐官方 pending 组的骨架行语义。 */
+  loading?: true
 }
 
 let slashPopupEl: HTMLElement | null = null
@@ -1581,10 +1598,18 @@ let slashIndex = 0
 /**
  * @ 文件候选的请求/响应状态：requestId 递增防乱序，key 是触发时的完整
  * token（`@sub/que`），响应只在 token 没变时上屏。host 端失败回空列表。
+ *
+ * `pending` 是三态里的「在途」：官方 menu 的组状态是 pending/ready，pending
+ * 且无候选时出骨架行、有候选时继续显示旧候选（query 细化不闪回空菜单）。
+ * 对应到这里——`settled` 保留最近一次落定的候选，pending 期间拿它顶着。
  */
 let fileRefSeq = 0
 let fileRefRequestKey = ''
 let fileRefResult: { key: string; items: FileRefCandidate[] } | null = null
+/** 最近一次落定的候选（key 是当时的 token）；pending 期拿它当「旧候选」。 */
+let fileRefSettled: { key: string; items: FileRefCandidate[] } | null = null
+/** 工作区候选是否有请求在途（从发起防抖起算，到该 requestId 的回执为止）。 */
+let fileRefPending = false
 /** @ 补全请求防抖（宿主工作区扫描有目录 stat 开销，防每键一次全量扫描）。 */
 let fileRefDebounce: ReturnType<typeof setTimeout> | null = null
 
@@ -1622,6 +1647,8 @@ function hideSlashPopup(): void {
   slashIndex = 0
   // 下次再触发 @ 时重新取文件候选，避免上屏陈旧目录。
   fileRefResult = null
+  fileRefSettled = null
+  fileRefPending = false
 }
 
 function positionSlashPopup(editor: ComposerEditor): void {
@@ -1630,6 +1657,28 @@ function positionSlashPopup(editor: ComposerEditor): void {
   slashPopupEl.style.left = `${Math.max(4, rect.left)}px`
   slashPopupEl.style.width = `${rect.width}px`
   slashPopupEl.style.bottom = `${window.innerHeight - rect.top + 6}px`
+}
+
+/** 把选中态画到弹窗子元素上（子下标与 slashRows 一一对齐，含 header/loading 行）。 */
+function paintSlashSelection(scroll = false): void {
+  if (!slashPopupEl) return
+  const children = Array.from(slashPopupEl.querySelectorAll(':scope > *'))
+  children.forEach((item, i) => {
+    item.classList.toggle('selected', i === slashIndex)
+  })
+  if (scroll) children[slashIndex]?.scrollIntoView({ block: 'nearest' })
+}
+
+/**
+ * 指针 hover 驱动选中（对齐官方 MenuView 的 onHover → controller.hover：
+ * 键盘与指针共用同一个 highlight，谁后动听谁的）。只有可选行（带 apply 的
+ * 候选行）能承接 hover，header/loading 行不改变选中。
+ */
+function setSlashIndex(i: number): void {
+  if (!slashPopupEl || i === slashIndex) return
+  if (slashRows[i]?.apply === undefined) return
+  slashIndex = i
+  paintSlashSelection()
 }
 
 /** Recompute the rows from the current value; hide when nothing applies. */
@@ -1641,6 +1690,8 @@ function updateSlashPopup(editor: ComposerEditor): void {
     hideSlashPopup()
     return
   }
+  const previousIndex = slashIndex
+  const previousLabel = slashRows[previousIndex]?.label
   slashIndex = slashRows.findIndex((r) => r.apply !== undefined)
   if (!slashPopupEl) {
     slashPopupEl = el('div', 'popover slash-popup')
@@ -1653,20 +1704,41 @@ function updateSlashPopup(editor: ComposerEditor): void {
       slashPopupEl?.appendChild(el('div', 'menu-group', row.label))
       return
     }
-    const item = el('div', i === slashIndex ? 'menu-item selected' : 'menu-item')
+    if (row.loading) {
+      // 异步候选在途：留着菜单并显示加载行（官方 pending 组的骨架行）。
+      // 原来的做法是整组为空就 hideSlashPopup——打 @ 的瞬间菜单闪一下没了。
+      slashPopupEl?.appendChild(el('div', 'menu-item hint-row loading-row', row.label))
+      return
+    }
+    const item = el('div', 'menu-item')
     item.appendChild(el('span', undefined, row.label))
     if (row.right) item.appendChild(el('span', 'menu-right', row.right))
+    if (row.drill) {
+      // 目录候选的 Tab 下钻提示（官方 drill.hint + drill.key）。
+      item.appendChild(el('span', 'menu-hint', t('Browse folder')))
+      item.appendChild(el('kbd', 'menu-key', 'Tab'))
+    }
     if (row.apply) {
       // mousedown + preventDefault: completing must not blur the editor.
       item.addEventListener('mousedown', (e) => {
         e.preventDefault()
         row.apply?.(editor)
       })
+      item.addEventListener('mousemove', () => setSlashIndex(i))
     } else {
       item.classList.add('hint-row')
     }
     slashPopupEl?.appendChild(item)
   })
+  paintSlashSelection()
+  // 打字使候选表重排时尽量把选中停在原来那一项上（找不到退回首个可选行）。
+  if (previousLabel !== undefined) {
+    const kept = slashRows.findIndex((r) => r.label === previousLabel && r.apply !== undefined)
+    if (kept >= 0) {
+      slashIndex = kept
+      paintSlashSelection()
+    }
+  }
   positionSlashPopup(editor)
 }
 
@@ -1676,13 +1748,8 @@ function moveSlashSelection(dir: number): void {
   if (selectable.length === 0) return
   const at = selectable.indexOf(slashIndex)
   slashIndex = selectable[(at + dir + selectable.length) % selectable.length]
-  // header 行也是子元素，按子下标（而非 .menu-item 过滤后的下标）对齐 slashRows。
-  const children = Array.from(slashPopupEl.querySelectorAll(':scope > *'))
-  children.forEach((item, i) => {
-    item.classList.toggle('selected', i === slashIndex)
-  })
-  // 键盘翻动时让选中项滚进可视区（弹窗 overflow-y 是独立的滚动容器）。
-  children[slashIndex]?.scrollIntoView({ block: 'nearest' })
+  // header/loading 行也是子元素，按子下标（而非 .menu-item 过滤后的下标）对齐 slashRows。
+  paintSlashSelection(true)
 }
 
 /** Rows for the current composer value: command names, preset args, or one hint row. */
@@ -1780,17 +1847,19 @@ function computeRefRows(editor: ComposerEditor): SlashRow[] {
     fileRefSeq += 1
     fileRefRequestKey = at.prefix
     fileRefResult = null
+    fileRefPending = true
     if (fileRefDebounce !== null) clearTimeout(fileRefDebounce)
     fileRefDebounce = setTimeout(() => {
       fileRefDebounce = null
       post({ type: 'fileRefList', requestId: fileRefSeq, query: at.query })
     }, 250)
   }
-  const { attachments, workspace } = fileRows(editor, at)
+  const { attachments, workspace, pending } = fileRows(editor, at)
   const sessions = at.quoted ? [] : sessionRows(editor, at)
   return [
     ...(attachments.length > 0 ? [{ label: t('Attachments'), header: true } as SlashRow, ...attachments] : []),
     ...(workspace.length > 0 ? [{ label: t('Files'), header: true } as SlashRow, ...workspace] : []),
+    ...(pending && workspace.length === 0 ? [{ label: `${t('Files')} · ${t('Loading…')}`, loading: true } as SlashRow] : []),
     ...(sessions.length > 0 ? [{ label: t('Sessions'), header: true } as SlashRow, ...sessions] : []),
   ]
 }
@@ -1800,30 +1869,53 @@ function computeRefRows(editor: ComposerEditor): SlashRow[] {
  * **工作区组**（宿主异步返回）分开返回。选中后输入框插入 `@短名` 显示 token，
  * canonical 路径引用（`@/abs/path` 或 `@"..."`）记入 mentionBindings、发送时
  * 才展开——textarea 里看不到长路径；选中的若正是已附加的图片，对应 chip 高亮。
+ *
+ * 工作区组的三态（对齐官方 menu 的 pending/ready 组）：当前 token 已有落定结果
+ * 就出真候选；请求在途且自己没有候选时，出**上一次落定的候选**顶着（官方
+ * 「pending 组保留已有条目」），一个都没有才由调用方出加载行。
  */
-function fileRows(editor: ComposerEditor, at: ActiveAtToken): { attachments: SlashRow[]; workspace: SlashRow[] } {
-  const cursor = editor.selection().start
-  const tokenStart = cursor - at.prefix.length
+function fileRows(editor: ComposerEditor, at: ActiveAtToken): { attachments: SlashRow[]; workspace: SlashRow[]; pending: boolean } {
+  // 落定时的 CAS 依据（官方 insertReference 的 `span.draftRev !== this.rev`）：
+  // 候选是异步/防抖期间构建的，落定那一刻草稿必须还是构建时的版本、token 也
+  // 还是原样，否则这次插入丢弃——按过期区间改写文本会吃掉用户后打的字。
+  const rev = editor.draftRev()
+  const guarded = (mention: string, label: string, kind: 'file' | 'folder', action: 'pick' | 'drill') => (): void => {
+    if (editor.draftRev() !== rev) return
+    const now = activeAtToken(editor.beforeCaret())
+    if (!now || now.prefix !== at.prefix) return
+    const end = editor.selection().start
+    const start = end - now.prefix.length
+    if (action === 'drill') {
+      // 下钻：目录 mention（尾 `/`，引号按当前 token 状态保持敞开）作为**纯文本**
+      // 插入并继续补全——不落 chip、不关菜单，尾 `/` 让 activeAtToken 立刻重新
+      // 触发下一层候选（官方 onPick 的 `{ text, continue: true }`）。
+      editor.replaceRange(start, end, mention)
+      return
+    }
+    const token = fileMentionToken(label, mention, mentionBindings)
+    mentionBindings.set(token, mention)
+    editor.replaceTokenRange(start, end, token, mention, kind)
+    // 重建 chips 让「已被 @ 引用」的高亮生效；焦点/光标由 render 恢复。
+    render()
+  }
   const rowOf = (c: FileRefCandidate): SlashRow[] => {
     const mention = formatFileMention(c, at.quoted)
     if (mention === undefined) return [] // 编辑器语法无法安全表示的路径不出候选
     const name = attachmentBaseName(c.path)
-    return [{
+    const row: SlashRow = {
       label: `@${name}`,
       right: c.path,
-      apply: () => {
-        const token = fileMentionToken(name, mention, mentionBindings)
-        mentionBindings.set(token, mention)
-        editor.replaceTokenRange(tokenStart, cursor, token, mention, c.kind === 'directory' ? 'folder' : 'file')
-        // 重建 chips 让「已被 @ 引用」的高亮生效；焦点/光标由 render 恢复。
-        render()
-      },
-    }]
+      apply: guarded(mention, name, c.kind === 'directory' ? 'folder' : 'file', 'pick'),
+    }
+    if (c.kind === 'directory') row.drill = guarded(mention, name, 'folder', 'drill')
+    return [row]
   }
+  // 当前 token 的落定结果优先；在途时退回上一次落定的候选（官方 pending 组保留旧条目）。
+  const settled = fileRefResult !== null && fileRefResult.key === at.prefix ? fileRefResult : fileRefSettled
   return {
     attachments: attachedFileCandidates(at.query).flatMap(rowOf),
-    // 宿主工作区候选（异步）：响应未到达或已过期时为空（附件组先顶着）。
-    workspace: fileRefResult !== null && fileRefResult.key === at.prefix ? fileRefResult.items.flatMap(rowOf) : [],
+    workspace: settled !== null ? settled.items.flatMap(rowOf) : [],
+    pending: fileRefPending,
   }
 }
 
@@ -1853,8 +1945,9 @@ function sessionRows(editor: ComposerEditor, at: ActiveAtToken): SlashRow[] {
   const snap = sessionsSnapshot
   if (!snap) return []
   const query = at.query.toLowerCase()
-  const tokenStart = editor.selection().start - at.prefix.length
-  const cursor = editor.selection().start
+  // 同 fileRows：落定前做 draftRev + token 双重 CAS，过期区间不改写文本。
+  const rev = editor.draftRev()
+  if (!snap) return []
   const own =
     snap.workspaces.find((w) => w.sessions.some((s) => s.sessionId === state?.sessionId)) ??
     snap.workspaces.find((w) => state?.workspaceLabel !== undefined && w.label === state.workspaceLabel)
@@ -1867,10 +1960,14 @@ function sessionRows(editor: ComposerEditor, at: ActiveAtToken): SlashRow[] {
       label: `@${s.label}`,
       right: own.label,
       apply: () => {
+        if (editor.draftRev() !== rev) return
+        const now = activeAtToken(editor.beforeCaret())
+        if (!now || now.prefix !== at.prefix) return
+        const cursor = editor.selection().start
         const token = mentionDisplayToken(s.label, s.sessionId, mentionBindings)
         const mention = formatSessionMention(s.label, s.sessionId)
         mentionBindings.set(token, mention)
-        editor.replaceTokenRange(tokenStart, cursor, token, mention, 'session')
+        editor.replaceTokenRange(cursor - now.prefix.length, cursor, token, mention, 'session')
       },
     }))
 }
@@ -4164,6 +4261,10 @@ function armClearConfirm(anchor: HTMLElement): void {
   disarmClearConfirm()
   clearConfirmArmed = true
   const hint = el('div', 'clear-confirm-hint', t('Press Esc or Ctrl+C again to clear the input'))
+  // 撤销键的文案与平台同源（清空那一键两平台都是 Ctrl+C，见 isComposerClearChord；
+  // 撤销走 Lexical history，mac 惯例 ⌘Z、Windows/Linux Ctrl+Z）。提示里原本完全
+  // 没提撤销键，验收场景却又按 Ctrl+Z 验收——文案补上，键值由纯函数出。
+  hint.title = t('{0} restores the cleared input', undoChordLabel(state?.hostOs))
   document.body.appendChild(hint)
   clearConfirmHint = hint
   const rect = anchor.getBoundingClientRect()
@@ -7107,8 +7208,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   // 选区时保持复制语义；IME 组合中不响应。斜杠补全弹出时导航键交给编辑器（其
   // 命令在 keydown 里消费），这里只处理 clear-chord。
   composer.root.addEventListener('keydown', (e) => {
-    const isClearChord =
-      e.key === 'Escape' || (e.key === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)
+    const isClearChord = e.key === 'Escape' || isComposerClearChord(e)
     if (
       isClearChord &&
       !e.defaultPrevented &&
@@ -7137,7 +7237,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   composer.root.addEventListener(
     'keydown',
     (e) => {
-      if (!slashPopupEl || e.isComposing) return
+      if (!slashPopupEl || composer.blockedByComposition(e)) return
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         e.stopPropagation()
@@ -7153,7 +7253,14 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       if (e.key === 'Tab') {
         e.preventDefault()
         e.stopPropagation()
-        slashRows[slashIndex]?.apply?.(composer)
+        // Tab 的 drill 语义（官方 arbitrate('tab')）：高亮项可下钻就下钻
+        // （目录进一层、菜单不关），否则与 Enter 同义落定。
+        const row = slashRows[slashIndex]
+        if (row?.drill) {
+          row.drill(composer)
+          return
+        }
+        row?.apply?.(composer)
         return
       }
       if (e.key === 'Escape' && !e.defaultPrevented) {

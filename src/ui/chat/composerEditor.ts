@@ -103,6 +103,19 @@ export interface ComposerEditor {
   replaceTokenRange: (start: number, end: number, text: string, mention: string, appearance?: ChipAppearance) => void
   /** 当前光标/选区（纯文本偏移）。 */
   selection: () => { start: number; end: number }
+  /**
+   * 草稿版本号：每次文本内容变化 +1（对齐官方 shell 的 `rev`）。补全候选在
+   * 构建时记下当时的版本，落定时做 CAS——期间草稿被改过就丢弃这次插入，
+   * 而不是按过期区间改写文本。
+   */
+  draftRev: () => number
+  /**
+   * 是否处于输入法组合期（对齐官方 isComposingEvent）：`event.isComposing`
+   * 或 `keyCode === 229`（Safari/旧 WebKit 组合期 keydown 只有 229），
+   * 或 `compositionend` 之后 10ms 内（end 与 keydown 同帧到达时 isComposing
+   * 已翻假，直接放行会把「确认候选的 Enter」当成发送）。
+   */
+  blockedByComposition: (event: KeyboardEvent | null) => boolean
   /** 设置光标/选区到纯文本偏移（end 缺省 = start），并聚焦编辑器。 */
   setSelection: (start: number, end?: number) => void
   /** 光标前的纯文本（@ 补全触发词用）。 */
@@ -642,6 +655,22 @@ export function createComposerEditor(opts: {
 
   const getText = (): string => readPlainText(editor)
 
+  /** 草稿版本号（见 ComposerEditor.draftRev）：由更新监听在文本变化时 +1。 */
+  let rev = 0
+
+  /** 输入法组合期判定（对齐官方 registerComposerKeymap 的 isComposingEvent）。 */
+  let composing = false
+  let composingUntil = 0
+  const onCompositionStart = (): void => {
+    composing = true
+  }
+  const onCompositionEnd = (): void => {
+    composing = false
+    composingUntil = Date.now() + 10
+  }
+  const blockedByComposition = (event: KeyboardEvent | null): boolean =>
+    event?.isComposing === true || event?.keyCode === 229 || composing || Date.now() < composingUntil
+
   const selection = (): { start: number; end: number } => {
     let start = 0
     let end = 0
@@ -722,6 +751,9 @@ export function createComposerEditor(opts: {
   }
 
   const insertTokenAtCaret = (text: string, mention: string, appearance: ChipAppearance = 'file'): void => {
+    // 分隔空格只在后一位不是空格时补（官方 insertReference 的 tail 判定）：
+    // 否则「@ 引用后面已经有空格」被再补一次会出双空格。
+    const pad = afterCaret().startsWith(' ') ? '' : ' '
     editor.update(() => {
       const sel = $getSelection()
       // 第 4 个参数是文本投影（clipboardText）：传 mention（可解析引用）而不是
@@ -729,7 +761,7 @@ export function createComposerEditor(opts: {
       const token = $createRefChipNode(appearance, mention, text, mention, appearance)
       if ($isRangeSelection(sel)) {
         sel.insertNodes([token])
-        sel.insertText(' ')
+        if (pad) sel.insertText(pad)
       } else {
         let last = $getRoot().getLastChild()
         if (!(last instanceof ElementNode)) {
@@ -754,6 +786,8 @@ export function createComposerEditor(opts: {
   }
 
   const replaceTokenRange = (start: number, end: number, text: string, mention: string, appearance: ChipAppearance = 'file'): void => {
+    // 同上：落定后一位已是空格就不再补，避免双空格（官方 insertReference）。
+    const pad = getText().slice(end, end + 1) === ' ' ? '' : ' '
     const { s, e } = resolveTextOffsets(start, end)
     editor.update(() => {
       const sel = $createRangeSelection()
@@ -762,7 +796,7 @@ export function createComposerEditor(opts: {
       $setSelection(sel)
       const token = $createRefChipNode(appearance, mention, text, mention, appearance)
       sel.insertNodes([token])
-      sel.insertText(' ')
+      if (pad) sel.insertText(pad)
     }, { discrete: true })
   }
 
@@ -814,8 +848,9 @@ export function createComposerEditor(opts: {
     editor.registerCommand<KeyboardEvent | null>(
       KEY_ENTER_COMMAND,
       (event) => {
-        // Shift+Enter / IME 组合中确认候选：不发送，交回 registerPlainText（换行/组合）。
-        if (event?.shiftKey || event?.isComposing) return false
+        // Shift+Enter 换行；组合期（isComposing / keyCode 229 / compositionend 后
+        // 10ms）确认候选的 Enter：不发送，交回 registerPlainText。
+        if (event?.shiftKey || blockedByComposition(event)) return false
         const steer = !!(event && (event.metaKey || event.ctrlKey))
         const consumed = handlers.onEnter(steer)
         if (consumed) event?.preventDefault()
@@ -826,7 +861,7 @@ export function createComposerEditor(opts: {
     editor.registerCommand<KeyboardEvent>(
       KEY_ARROW_UP_COMMAND,
       (event) => {
-        if (event.isComposing) return false
+        if (blockedByComposition(event)) return false
         const consumed = handlers.onArrowUp()
         if (consumed) event?.preventDefault()
         return consumed
@@ -837,7 +872,7 @@ export function createComposerEditor(opts: {
       KEY_ESCAPE_COMMAND,
       (event) => {
         // IME 组合中的 Esc 关候选窗，不触发 recall-cancel/清空。
-        if (event.isComposing) return false
+        if (blockedByComposition(event)) return false
         const consumed = handlers.onEscape()
         if (consumed) event?.preventDefault()
         return consumed
@@ -877,6 +912,12 @@ export function createComposerEditor(opts: {
   root.addEventListener('mousemove', onMouseMove)
   root.addEventListener('mouseleave', onMouseLeave)
 
+  // 组合期跟踪（对齐官方 registerComposerKeymap 的 registerRootListener）：
+  // keydown 上的 isComposing 在 compositionend 同帧的 Enter 上已经翻假，
+  // 靠 compositionend 后 10ms 的窗口兜住「确认候选」那一下。
+  root.addEventListener('compositionstart', onCompositionStart)
+  root.addEventListener('compositionend', onCompositionEnd)
+
   editor.setRootElement(root)
 
   // 挂载完成后再挂更新监听：首帧（setRootElement 内触发的 update）不让 onTextChange
@@ -885,6 +926,7 @@ export function createComposerEditor(opts: {
     const text = getText()
     if (text !== lastText) {
       lastText = text
+      rev += 1
       placeholder.style.display = text.length === 0 ? '' : 'none'
       handlers.onTextChange(text, { programmatic: tags.has(SET_TAG) })
     }
@@ -906,6 +948,8 @@ export function createComposerEditor(opts: {
     replaceRange,
     replaceTokenRange,
     selection,
+    draftRev: () => rev,
+    blockedByComposition,
     setSelection,
     beforeCaret,
     afterCaret,
@@ -921,6 +965,8 @@ export function createComposerEditor(opts: {
       unregisterTextRef()
       root.removeEventListener('mousemove', onMouseMove)
       root.removeEventListener('mouseleave', onMouseLeave)
+      root.removeEventListener('compositionstart', onCompositionStart)
+      root.removeEventListener('compositionend', onCompositionEnd)
     },
   }
 }
