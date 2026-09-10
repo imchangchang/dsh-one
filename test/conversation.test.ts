@@ -1502,6 +1502,30 @@ test('a still-scheduled retry is cancelled when the turn ends', () => {
   assert.equal(block.retryState, 'cancelled')
 })
 
+test('回合收尾只翻最后一次 scheduled retry（官方只翻末个 attempt）', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(retryEv('r2'))
+  f.applyEvent(retryEv('r3'))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }))
+
+  const states = (lastAssistant(f).blocks as ChatRetryBlock[]).map((b) => b.retryState)
+  assert.deepEqual(states, ['scheduled', 'scheduled', 'cancelled'])
+})
+
+test('末个 attempt 已 started 时收尾不翻任何一条', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(retryEv('r2'))
+  f.applyEvent(retryStartedEv('r2'))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }))
+
+  const states = (lastAssistant(f).blocks as ChatRetryBlock[]).map((b) => b.retryState)
+  assert.deepEqual(states, ['scheduled', 'started'])
+})
+
 test('a started retry keeps its started state when the turn ends', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('turn/start', { turn: 1 }))

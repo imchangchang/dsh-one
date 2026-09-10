@@ -684,11 +684,16 @@ export class ConversationFolder {
         const maxTokens = kind === 'max-tokens'
         // 所属 turn 关闭时，仍未 llm/retry-started 的重试等待被取消（对齐官方
         // isClosed 语义：scheduled attempt cancelled once the boundary closes）。
+        // 只翻**最后一次**：官方 model-retry 节点只把末个 attempt 从 scheduled 翻
+        // cancelled（client.js 5905-5918），多 attempt 链上把整串都翻会多出几条
+        // 「已取消」行。
         const turn = Number(data.turn)
         if (Number.isFinite(turn)) {
+          let last: { block: ChatRetryBlock } | undefined
           for (const entry of this.retries.values()) {
-            if (entry.turn === turn && entry.block.retryState === 'scheduled') entry.block.retryState = 'cancelled'
+            if (entry.turn === turn) last = entry
           }
+          if (last?.block.retryState === 'scheduled') last.block.retryState = 'cancelled'
           // 回合关闭：本 turn 仍未结算的 tool 卡不会再有 result（用户中断 / result
           // 落在窗口外 / 日志缺尾）——收边置错误态。官方同款语义：step/turn 关闭
           // 时把未结算的 tool 投影成 Interrupted 错误结果；不收边就永远转圈。
