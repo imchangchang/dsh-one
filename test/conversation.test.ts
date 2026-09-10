@@ -402,20 +402,61 @@ test('turn/end with an aborted reason marks an unfinished message interrupted', 
   assert.equal(msg.interrupted, true)
 })
 
-test('turn/end with an aborted reason and no content yields an empty assistant message marked interrupted', () => {
+test('turn/end with an aborted reason and no content yields no node at all (官方 interruption evidence 规则)', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('turn/start', { turn: 1 }))
   f.applyEvent(userEv('u1', 'hi'))
-  // 用户刚发完就取消：turn/end 到达时还没有任何 assistant 内容，
-  // 标记不能丢——补一条空 assistant 消息承载「已中断」。
+  // 用户刚发完就取消：turn/end 到达时没有任何 assistant 内容。官方要
+  // interruption evidence 才建中断节点，这里就不该多出一条空壳消息
+  // （否则渲染成空行 + 「已中断」）。
   f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }))
 
-  const msg = lastAssistant(f)
-  assert.deepEqual(blockContent(msg.blocks), [])
-  assert.equal(msg.complete, true)
-  assert.equal(msg.interrupted, true)
-  assert.equal(msg.turnError, undefined)
+  assert.deepEqual(f.messages().map((m) => m.kind), ['user'])
   assert.equal(f.hasOpenTurn(), false)
+})
+
+test('中断回合只有空文本块时同样不出节点（空块不算 evidence）', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }))
+
+  assert.deepEqual(f.messages(), [])
+  assert.equal(f.hasOpenTurn(), false)
+})
+
+test('中断回合有内容/有工具卡时保留节点并标 interrupted', () => {
+  const withText = new ConversationFolder()
+  withText.applyEvent(ev('turn/start', { turn: 1 }))
+  withText.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  withText.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: 'half a sentence' }))
+  withText.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }))
+  const textMsg = lastAssistant(withText)
+  assert.equal(textMsg.interrupted, true)
+  assert.equal(textMsg.turnEnd, true)
+
+  const withTool = new ConversationFolder()
+  withTool.applyEvent(ev('turn/start', { turn: 1 }))
+  withTool.applyEvent(toolCallEv('call-1', 'bash', '{}'))
+  withTool.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }))
+  assert.equal(lastAssistant(withTool).interrupted, true)
+})
+
+test('只调工具没流式文本的回合收尾不被当成空壳（assistant/message 落盘 id 算 evidence）', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(
+    ev('assistant/message', {
+      turn: 1,
+      step: 0,
+      message: { id: 'am-1', content: [{ type: 'tool-call', toolCallId: 'call-x' }] },
+    }),
+  )
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }))
+
+  const msg = lastAssistant(f)
+  assert.equal(msg.messageId, 'am-1')
+  assert.equal(msg.interrupted, true)
 })
 
 test('turn/end with an error reason and no content yields an empty assistant message with turnError', () => {

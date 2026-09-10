@@ -455,6 +455,22 @@ function orderEntriesBySeq(entries: readonly HistoryEntryLike[]): HistoryEntryLi
 }
 
 /**
+ * 回合收尾时这条 assistant 消息算不算「有节点」——官方 hasInterruptionEvidence
+ * 同款判定（client.js 4209-4214）：文本/推理块要去掉空白后非空，其余块（tool、
+ * retry 等）一律算证据。
+ *
+ * 另外把 `messageId` 也算证据：它是 assistant/message 事件的落盘 id，说明这一步
+ * 有真实的 assistant/message（其 content 即使只有 tool-call 块，在官方那边也是
+ * 非文本证据）。少了这一条，只调工具、没流式文本的回合会在收尾时被误判成空壳。
+ */
+function hasAssistantEvidence(msg: ChatAssistantMessage): boolean {
+  if (msg.messageId !== undefined) return true
+  return msg.blocks.some((block) =>
+    block.type === 'text' || block.type === 'reasoning' ? (block as { text: string }).text.trim() !== '' : true,
+  )
+}
+
+/**
  * 同一回合被页边界切开的旧段并入新段：`newer.blocks` = 旧段块 + 新段块（保持
  * 事件序）。边界恰好落在同一段流式文本中间（step 还没结束就被切开）时两段各留
  * 了半个文本块，拼回一块——否则一个回合的正文在流里断成两段独立段落。
@@ -686,10 +702,24 @@ export class ConversationFolder {
           // 记 turnEnd）。
           if (Number.isFinite(turn)) msg = this.turnAssistant.get(turn) ?? null
         }
-        if (!msg && (turnError || interrupted || maxTokens)) {
-          // The turn failed / was cancelled / hit the token cap before any
-          // assistant content: still surface an (empty) assistant message so
-          // the error row / 已中断 marker / maxTokens notice has a home.
+        // F7：官方只在「有 interruption evidence」时才投影中断的 assistant 节点
+        // （client.js hasInterruptionEvidence，4209-4214）——文本/推理块全空、
+        // 又没有别的块的回合直接**不出节点**（此时可见的 turn-tail 也因
+        // closing === null 渲染成空）。我们原来无条件留一条空 assistant 消息，
+        // 渲染成一条空行 + 「已中断」。这里对齐：无证据的空壳从消息流里摘掉。
+        // turn-error / turn-max-tokens 是官方那套里的**独立节点**（
+        // TURN_PROCESS_INDEPENDENT_KINDS，1336-1345），不受 evidence 约束，
+        // 它们的承载消息仍然要建。
+        if (msg && !hasAssistantEvidence(msg) && !turnError && !maxTokens) {
+          const at = this.msgs.indexOf(msg)
+          if (at >= 0) this.msgs.splice(at, 1)
+          if (Number.isFinite(turn) && this.turnAssistant.get(turn) === msg) this.turnAssistant.delete(turn)
+          msg = null
+        }
+        if (!msg && (turnError || maxTokens)) {
+          // The turn failed / hit the token cap before any assistant content:
+          // still surface an (empty) assistant message so the error row /
+          // maxTokens notice has a home.
           msg = {
             kind: 'assistant',
             id: `assistant-s${event.seq}`,
