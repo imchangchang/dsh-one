@@ -159,3 +159,43 @@ export function restoreFileMentionTokens(text: string, bindings: Map<string, str
   }
   return out + text.slice(cursor)
 }
+
+/** 目录面包屑的一段（官方 ui-reference crumbsFor 的 crumb）。 */
+export interface FileCrumb {
+  /** 显示文本（根段是工作区标签，其余是路径段）。 */
+  label: string
+  /** 点它要把 token 换成什么（目录 mention；根段是裸 `@` / `@"`）。 */
+  mention: string
+  /** 当前所在段：不可点。 */
+  current?: boolean
+}
+
+/**
+ * 下钻后的目录面包屑，逐行移植官方 dsh-client-ui-reference 的 `crumbsFor`。
+ *
+ * 只有下钻（而不是手打路径）才给面包屑：手打的路径自带上下文，下钻则把用户
+ * 正在读的那段文本换成了更深的一层，欠他一条回程。根段的 mention 是裸 `@`
+ * （quoted 时 `@"`）——点它等于把 token 清成空查询、回到工作区根。
+ * query 里没有 `/`（还没进任何目录）或路径段无法安全表示时返回 undefined。
+ */
+export function directoryCrumbs(
+  query: string,
+  quoted: boolean,
+  drilled: boolean,
+  rootLabel: string,
+): FileCrumb[] | undefined {
+  if (!drilled) return undefined
+  const slash = query.lastIndexOf('/')
+  if (slash < 0) return undefined
+  const segments = query.slice(0, slash).split('/').filter((segment) => segment !== '')
+  const crumbs: FileCrumb[] = [{ label: rootLabel, mention: quoted ? '@"' : '@' }]
+  for (const [index, segment] of segments.entries()) {
+    const mention = formatFileMention(
+      { path: segments.slice(0, index + 1).join('/'), kind: 'directory' },
+      quoted,
+    )
+    if (mention === undefined) return undefined
+    crumbs.push({ label: segment, mention, ...(index === segments.length - 1 ? { current: true } : {}) })
+  }
+  return crumbs
+}

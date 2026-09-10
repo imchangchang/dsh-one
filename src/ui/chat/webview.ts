@@ -108,7 +108,16 @@ import {
   splitSessionMentions,
 } from '../../pure/sessionMention.ts'
 import { splitUserBubble, type UserBubbleSegment } from '../../pure/userBubble.ts'
-import { activeAtToken, fileMentionToken, formatFileMention, restoreFileMentionTokens, type ActiveAtToken, type FileRefCandidate } from '../../pure/fileReference.ts'
+import {
+  activeAtToken,
+  directoryCrumbs,
+  fileMentionToken,
+  formatFileMention,
+  restoreFileMentionTokens,
+  type ActiveAtToken,
+  type FileCrumb,
+  type FileRefCandidate,
+} from '../../pure/fileReference.ts'
 import {
   WORKFLOW_STATUS_TEXT,
   advanceWorkflowDisclosure,
@@ -1586,11 +1595,19 @@ interface SlashRow {
   apply?: (composer: ComposerEditor) => void
   /** 分组小标题行（不可选、无 hover），行间带分割线，如 @ 补全的「文件」「会话」。 */
   header?: true
+  /**
+   * 目录候选的下钻动作（官方 candidate.drill）：Tab 或行内下钻钮触发——把 token
+   * 换成这个目录（`@dir/`）并**保持菜单打开**，下一层候选随即重查（官方
+   * `{text: mention, continue: true}` 的等价物）。
+   */
+  drill?: () => void
 }
 
 let slashPopupEl: HTMLElement | null = null
 let slashRows: SlashRow[] = []
 let slashIndex = 0
+/** 当前弹窗顶部的面包屑（只有 @ 下钻过才有；官方 MenuView 的 crumbs 头）。 */
+let slashCrumbs: FileCrumb[] | null = null
 
 /**
  * 取参命令的 claim 状态（对齐官方 dsh-client-ui-commands 的 leadingClaim +
@@ -1657,6 +1674,12 @@ function releaseSlashClaim(): void {
 let fileRefSeq = 0
 let fileRefRequestKey = ''
 let fileRefResult: { key: string; items: FileRefCandidate[] } | null = null
+/**
+ * 这次列目录是「下钻」来的还是「手打路径」来的（官方 controller.drilled）：
+ * 只有下钻才出面包屑——手打的路径自带上下文，下钻换掉了用户正在读的文本，
+ * 欠他一条回程。随菜单关闭一起清。
+ */
+let fileRefDrilled = false
 /** @ 补全请求防抖（宿主工作区扫描有目录 stat 开销，防每键一次全量扫描）。 */
 let fileRefDebounce: ReturnType<typeof setTimeout> | null = null
 
@@ -1692,8 +1715,24 @@ function hideSlashPopup(): void {
   slashPopupEl = null
   slashRows = []
   slashIndex = 0
+  slashCrumbs = null
   // 下次再触发 @ 时重新取文件候选，避免上屏陈旧目录。
   fileRefResult = null
+  // 下钻标记同样只属于这一次打开的菜单（官方 dismissed 时清 drilled）：
+  // 关掉再打开就是新的浏览，不该还挂着上一轮的面包屑。
+  fileRefDrilled = false
+}
+
+/**
+ * 点面包屑 = 退回那一层（官方 pickCrumb 走的是与下钻同一条路径）：把当前
+ * @token 整段换成那一层的目录 mention（根段是裸 `@`），菜单不关——token 变了
+ * 自然重查该层候选，面包屑也跟着重算。
+ */
+function crumbNodeApply(editor: ComposerEditor, crumb: FileCrumb): void {
+  const at = activeAtToken(editor.beforeCaret())
+  if (!at) return
+  const cursor = editor.selection().start
+  editor.replaceRange(cursor - at.prefix.length, cursor, crumb.mention)
 }
 
 function positionSlashPopup(editor: ComposerEditor): void {
@@ -1719,6 +1758,27 @@ function updateSlashPopup(editor: ComposerEditor): void {
     document.body.appendChild(slashPopupEl)
   }
   slashPopupEl.textContent = ''
+  // 面包屑头（下钻过才有）：钉在滚动区上方，点一段就退回那一层（官方 pickCrumb
+  // 与下钻共用同一条路径，所以这里也是「换 token + 保持菜单打开」）。
+  if (slashCrumbs && slashCrumbs.length > 0) {
+    const trail = el('div', 'crumbs')
+    trail.setAttribute('role', 'navigation')
+    slashCrumbs.forEach((crumb, i) => {
+      if (i > 0) trail.appendChild(el('span', 'crumb-sep', '/'))
+      const btn = buttonEl(crumb.current ? 'crumb current' : 'crumb', crumb.label)
+      btn.type = 'button'
+      if (crumb.current) btn.disabled = true
+      else
+        btn.addEventListener('mousedown', (e) => {
+          e.preventDefault()
+          crumbNodeApply(editor, crumb)
+        })
+      trail.appendChild(btn)
+    })
+    slashPopupEl.appendChild(trail)
+    // 末段滚进可视区（深层路径默认看不到自己那一段）。
+    trail.scrollLeft = trail.scrollWidth
+  }
   slashRows.forEach((row, i) => {
     if (row.header) {
       // 每行恰好一个子元素，moveSlashSelection 按子下标对齐 slashRows。
@@ -1728,6 +1788,17 @@ function updateSlashPopup(editor: ComposerEditor): void {
     const item = el('div', i === slashIndex ? 'menu-item selected' : 'menu-item')
     item.appendChild(el('span', undefined, row.label))
     if (row.right) item.appendChild(el('span', 'menu-right', row.right))
+    if (row.drill) {
+      // 选中行才显示的下钻提示（官方 drillHint）：Tab 下钻，点它也下钻。
+      const drill = el('span', 'drill-hint', 'Tab ↵')
+      drill.title = t('Drill into this folder (Tab)')
+      drill.addEventListener('mousedown', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        row.drill?.()
+      })
+      item.appendChild(drill)
+    }
     if (row.apply) {
       // mousedown + preventDefault: completing must not blur the editor.
       item.addEventListener('mousedown', (e) => {
@@ -1855,8 +1926,12 @@ function insertMentionToken(name: string, path: string): void {
 /**
  * @ 补全（对齐 dsh web）：光标前的 `@query`（或未闭合 `@"query`）触发，
  * 候选分三组（各有小标题 + 分割线）：附件（当前 composer 已附加的）、
- * 工作区文件（宿主 fileReferences/list 异步返回，cwd 浅层）、当前会话所属
+ * 工作区文件与文件夹（宿主 fileReferences/list 异步返回）、当前会话所属
  * 工作区的会话。引号 token 只出文件。
+ *
+ * 下钻：目录候选可下钻（Tab / 行内提示钮），下钻后 token 变成 `@dir/`、菜单
+ * 不关、下一层候选随即重查；此时弹窗顶部出一条面包屑（官方 crumbsFor），
+ * 点某一段退回那一层。
  * 引用其它会话主要靠会话面板的"复制引用"，这里只补本工作区的会话。
  */
 function computeRefRows(editor: ComposerEditor): SlashRow[] {
@@ -1877,18 +1952,27 @@ function computeRefRows(editor: ComposerEditor): SlashRow[] {
   }
   const { attachments, workspace } = fileRows(editor, at)
   const sessions = at.quoted ? [] : sessionRows(editor, at)
-  return [
+  // 面包屑：只有下钻过的这一层才出（官方 crumb.root 用工作区名）。
+  slashCrumbs = directoryCrumbs(at.query, at.quoted, fileRefDrilled, state?.workspaceLabel ?? t('Workspace')) ?? null
+  const rows: SlashRow[] = [
     ...(attachments.length > 0 ? [{ label: t('Attachments'), header: true } as SlashRow, ...attachments] : []),
     ...(workspace.length > 0 ? [{ label: t('Files'), header: true } as SlashRow, ...workspace] : []),
     ...(sessions.length > 0 ? [{ label: t('Sessions'), header: true } as SlashRow, ...sessions] : []),
   ]
+  // 工作区候选在途（防抖窗口 + 宿主往返）时给一行加载占位：没有它，下钻/继续
+  // 打字的一瞬间行数为 0 会让 updateSlashPopup 直接关菜单，下钻就断了。
+  if (workspace.length === 0 && fileRefResult?.key !== at.prefix) {
+    return [...rows, { label: t('Loading…') }]
+  }
+  return rows
 }
 
 /**
  * 文件/文件夹候选行：**附件组**（本地即时，当前 composer 已附加的）与
- * **工作区组**（宿主异步返回）分开返回。选中后输入框插入 `@短名` 显示 token，
- * canonical 路径引用（`@/abs/path` 或 `@"..."`）记入 mentionBindings、发送时
- * 才展开——textarea 里看不到长路径；选中的若正是已附加的图片，对应 chip 高亮。
+ * **工作区组**（宿主异步返回）分开返回。选中（Enter/点击）后输入框插入
+ * `@短名` 显示 token，canonical 路径引用（`@相对路径` 或 `@"..."`）记入
+ * mentionBindings、发送时才展开；选中的若正是已附加的图片，对应 chip 高亮。
+ * 目录候选额外带 drill：下钻不落 token，而是把 token 换成 `@dir/` 继续挑下一层。
  */
 function fileRows(editor: ComposerEditor, at: ActiveAtToken): { attachments: SlashRow[]; workspace: SlashRow[] } {
   const cursor = editor.selection().start
@@ -1897,13 +1981,26 @@ function fileRows(editor: ComposerEditor, at: ActiveAtToken): { attachments: Sla
     const mention = formatFileMention(c, at.quoted)
     if (mention === undefined) return [] // 编辑器语法无法安全表示的路径不出候选
     const name = attachmentBaseName(c.path)
+    const directory = c.kind === 'directory'
     return [{
-      label: `@${name}`,
+      // 目录候选项名带尾随 `/`（官方 fileCandidate 同款），一眼能分清文件与文件夹。
+      label: `@${name}${directory ? '/' : ''}`,
       right: c.path,
+      // 下钻：把整段 token 换成这个目录的 mention（`@dir/`），菜单不关——
+      // token 一变 updateSlashPopup 就带着新 query 重查下一层，与官方
+      // `{text: mention, continue: true}` 等价。
+      ...(directory
+        ? {
+            drill: () => {
+              fileRefDrilled = true
+              editor.replaceRange(tokenStart, cursor, mention)
+            },
+          }
+        : {}),
       apply: () => {
         const token = fileMentionToken(name, mention, mentionBindings)
         mentionBindings.set(token, mention)
-        editor.replaceTokenRange(tokenStart, cursor, token, mention, c.kind === 'directory' ? 'folder' : 'file')
+        editor.replaceTokenRange(tokenStart, cursor, token, mention, directory ? 'folder' : 'file')
         // 重建 chips 让「已被 @ 引用」的高亮生效；焦点/光标由 render 恢复。
         render()
       },
@@ -7374,7 +7471,11 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       if (e.key === 'Tab') {
         e.preventDefault()
         e.stopPropagation()
-        slashRows[slashIndex]?.apply?.(composer)
+        const row = slashRows[slashIndex]
+        // Tab 优先下钻（官方 arbitrate：候选 drill=true 走 pick(...,'drill')，
+        // 否则才是普通 pick），没有下钻动作的行照旧落定。
+        if (row?.drill) row.drill()
+        else row?.apply?.(composer)
         return
       }
       if (e.key === 'Escape' && !e.defaultPrevented) {

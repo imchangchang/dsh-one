@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { activeAtToken, arrowNavPosition, fileMentionToken, formatFileMention, restoreFileMentionTokens, tokenDeletion } from '../src/pure/fileReference.ts'
+import { activeAtToken, arrowNavPosition, directoryCrumbs, fileMentionToken, formatFileMention, restoreFileMentionTokens, tokenDeletion } from '../src/pure/fileReference.ts'
 
 test('activeAtToken：行首与空白后的 @query 触发，query 允许 / 与 @', () => {
   assert.deepEqual(activeAtToken('@rea'), { prefix: '@rea', query: 'rea', quoted: false })
@@ -191,4 +191,38 @@ test('restoreFileMentionTokens：反查优先——绑定里已有的 canonical 
   assert.equal(bindings.get('@截图.png (3)'), '@/c/截图.png')
   // 同一 canonical 在文本里多次出现，每次都用同一个原 token
   assert.equal(restoreFileMentionTokens('@/b/截图.png 再看 @/b/截图.png', bindings), '@截图.png (2) 再看 @截图.png (2)')
+})
+
+test('directoryCrumbs：只有下钻才出面包屑，根段是裸 @', () => {
+  assert.equal(directoryCrumbs('src/', false, false, '工作区'), undefined)
+  assert.deepEqual(directoryCrumbs('src/', false, true, '工作区'), [
+    { label: '工作区', mention: '@' },
+    { label: 'src', mention: '@src/', current: true },
+  ])
+  assert.deepEqual(directoryCrumbs('src/ui/chat/', false, true, '工作区'), [
+    { label: '工作区', mention: '@' },
+    { label: 'src', mention: '@src/' },
+    { label: 'ui', mention: '@src/ui/' },
+    { label: 'chat', mention: '@src/ui/chat/', current: true },
+  ])
+})
+
+test('directoryCrumbs：引号 token 的根段与各段都保持引号敞开；没进目录时无面包屑', () => {
+  assert.deepEqual(directoryCrumbs('my dir/', true, true, '工作区'), [
+    { label: '工作区', mention: '@"' },
+    { label: 'my dir', mention: '@"my dir/', current: true },
+  ])
+  // query 里还没有 `/`：还没进任何目录，没有回程可给。
+  assert.equal(directoryCrumbs('src', false, true, '工作区'), undefined)
+  // 空查询：同上。
+  assert.equal(directoryCrumbs('', false, true, '工作区'), undefined)
+})
+
+test('formatFileMention：目录补尾 / 且含空白时用引号语法', () => {
+  assert.equal(formatFileMention({ path: 'src/ui', kind: 'directory' }), '@src/ui/')
+  assert.equal(formatFileMention({ path: 'src/ui/chat.ts', kind: 'file' }), '@src/ui/chat.ts')
+  assert.equal(formatFileMention({ path: 'my dir/a.ts', kind: 'file' }), '@"my dir/a.ts"')
+  assert.equal(formatFileMention({ path: 'my dir/sub', kind: 'directory' }), '@"my dir/sub/')
+  // 编辑器语法无法安全表示的路径（内嵌引号/控制字符）不出候选。
+  assert.equal(formatFileMention({ path: 'a\u0000b', kind: 'file' }), undefined)
 })
