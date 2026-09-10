@@ -422,6 +422,8 @@ export class ChatSessionController implements vscode.Disposable {
   private followCursor = -1
   /** 0.1.2: 水瀑布答复句柄（approval/question → $events/result）。 */
   private waterfallAnswers = new Map<string, (value: unknown) => Promise<void>>()
+  /** 0.1.2: 水瀑布拒绝句柄（面板取消 → 以 ASK_CANCELLED 拒绝，见 cancelQuestion）。 */
+  private waterfallRejects = new Map<string, (error: { name: string; message: string; code?: string }) => Promise<void>>()
   private flushTimer: ReturnType<typeof setTimeout> | undefined
   private lastFlush = 0
   private disposed = false
@@ -889,6 +891,7 @@ export class ChatSessionController implements vscode.Disposable {
       if (!answer) throw new Error(`approval ${rpcId} is not pending`)
       await answer(outcome)
       this.waterfallAnswers.delete(rpcId)
+      this.waterfallRejects.delete(rpcId)
       this.pending = this.pending.filter((p) => !(p.kind === 'approval' && p.rpcId === rpcId))
       this.push(true)
       return
@@ -920,12 +923,46 @@ export class ChatSessionController implements vscode.Disposable {
       if (!answer) throw new Error(`question ${rpcId} is not pending`)
       await answer(value.answer)
       this.waterfallAnswers.delete(rpcId)
+      this.waterfallRejects.delete(rpcId)
       this.questionItems.delete(rpcId)
       this.pending = this.pending.filter((p) => !(p.kind === 'question' && p.rpcId === rpcId))
       this.push(true)
       return
     }
     await respond(this.url, rpcId, value)
+  }
+
+  /**
+   * 取消一个挂起的提问/计划审核（面板头部的 × 与「去聊天里说」）：以
+   * `UserQuestionError` / `ASK_CANCELLED` 拒绝水瀑布——官方 QuestionComposer
+   * 的 pending.cancel() 就是这条（dsh-user-questions 用 name+message+code
+   * 还原错误），ask_user_question 调用随之失败，对话继续。
+   *
+   * 老协议（mux + /api/respond）没有「拒绝」这一路，只能本地清掉挂起卡
+   * （水瀑布仍在宿主侧挂着，等 turn 结束/取消时由宿主自身收尾）。
+   */
+  async cancelQuestion(rpcId: string): Promise<void> {
+    const entry = this.pending.find((p) => p.kind === 'question' && p.rpcId === rpcId)
+    if (!entry || entry.kind !== 'question') throw new Error(`question ${rpcId} is not pending`)
+    if (isModern(this.url)) {
+      const reject = this.waterfallRejects.get(rpcId)
+      if (!reject) throw new Error(`question ${rpcId} is not pending`)
+      await reject({
+        name: 'UserQuestionError',
+        message: 'the user cancelled ask_user_question',
+        code: 'ASK_CANCELLED',
+      })
+      this.waterfallAnswers.delete(rpcId)
+      this.waterfallRejects.delete(rpcId)
+      this.questionItems.delete(rpcId)
+      this.pending = this.pending.filter((p) => !(p.kind === 'question' && p.rpcId === rpcId))
+      this.push(true)
+      return
+    }
+    this.waterfallRejects.delete(rpcId)
+    this.questionItems.delete(rpcId)
+    this.pending = this.pending.filter((p) => !(p.kind === 'question' && p.rpcId === rpcId))
+    this.push(true)
   }
 
   dispose(): void {
@@ -1314,10 +1351,12 @@ export class ChatSessionController implements vscode.Disposable {
     event: string
     req: Record<string, unknown>
     answer: (value: unknown) => Promise<void>
+    reject: (error: { name: string; message: string; code?: string }) => Promise<void>
   }): void {
     if (this.disposed || request.agentId !== this.sessionId) return
     if (request.event === 'approval/request') {
       this.waterfallAnswers.set(request.eventId, request.answer)
+      this.waterfallRejects.set(request.eventId, request.reject)
       this.onFrame({
         method: 'approval/requested',
         rpcId: request.eventId,
@@ -1325,6 +1364,9 @@ export class ChatSessionController implements vscode.Disposable {
           sessionId: this.sessionId,
           approvalId: request.eventId,
           toolName: typeof request.req.toolName === 'string' ? request.req.toolName : '',
+          // dsh 的 approval 请求带 callId（被审批的那次调用）：面板靠它回查输入、
+          // 把待执行命令显示出来，用户才知道自己在批准什么（#50 I1）。
+          ...(typeof request.req.callId === 'string' ? { callId: request.req.callId } : {}),
           ...(typeof request.req.reason === 'string' ? { reason: request.req.reason } : {}),
         },
       })
@@ -1333,6 +1375,7 @@ export class ChatSessionController implements vscode.Disposable {
     if (request.event === 'user-questions/request') {
       const items = Array.isArray(request.req.questions) ? (request.req.questions as QuestionItem[]) : []
       this.waterfallAnswers.set(request.eventId, request.answer)
+      this.waterfallRejects.set(request.eventId, request.reject)
       this.onFrame({
         method: 'question/requested',
         rpcId: request.eventId,
@@ -1345,6 +1388,7 @@ export class ChatSessionController implements vscode.Disposable {
   private onModernCancel(eventId: string): void {
     if (this.disposed) return
     if (this.waterfallAnswers.delete(eventId)) {
+      this.waterfallRejects.delete(eventId)
       const before = this.pending.length
       this.pending = this.pending.filter((p) => !(p.rpcId === eventId || (p.kind === 'approval' && p.approvalId === eventId)))
       this.questionItems.delete(eventId)
@@ -1917,6 +1961,9 @@ export class ChatSessionController implements vscode.Disposable {
           sessionId: this.sessionId,
           approvalId: String(payload.approvalId),
           toolName: typeof payload.toolName === 'string' ? payload.toolName : '',
+          // 老协议帧带 callId 时同样透传（现代 $events 水瀑布路径见
+          // onModernRequest）；面板靠它显示待执行命令。
+          ...(typeof payload.callId === 'string' ? { callId: payload.callId } : {}),
           reason: typeof payload.reason === 'string' ? payload.reason : undefined,
         })
         this.push(true)

@@ -63,6 +63,7 @@ import {
   type JsonContainer,
 } from '../../pure/jsonTree.ts'
 import { codeBlockPreview } from '../../pure/codeBlock.ts'
+import { commandOfToolArgs } from '../../pure/toolCards.ts'
 import { producedBasename } from '../../pure/producedFiles.ts'
 import {
   formatJobDuration,
@@ -383,14 +384,35 @@ function requestInlineImageIfNeeded(src: string): void {
 }
 /** Half-answered pending questions: rpcId → question index → draft. */
 const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
-/** Composer-takeover panel per pending rpcId: current page (question index), minimized state, skipped pages and a transient notice. */
-const panelState = new Map<string, { page: number; minimized: boolean; skipped: Set<number>; notice: string }>()
+/**
+ * Composer-takeover panel per pending rpcId: current page (question index),
+ * minimized state, skipped pages, a transient notice (local validation) and the
+ * host-reported failure of the last answer attempt. `notice`/`failure` both
+ * render in the panel's feedback row (`.panel-feedback`), matching the official
+ * composer's single error/status slot.
+ */
+interface PendingPanelState {
+  page: number
+  minimized: boolean
+  skipped: Set<number>
+  notice: string
+  /** 上一次应答失败的原因（宿主 pendingFailed 回推）：面板显示它并复位按钮，
+   *  用户可以再次提交（#50 I2）。提交动作或成功应答时清掉。 */
+  failure: string
+  /**
+   * 失败次数（单调递增）：进 pendingSig，保证「重试后又失败（原因文案可能
+   * 相同）」也打破面板保活、按钮重新可用——否则焦点在面板内时保活帧会把
+   * 新的失败吞掉，按钮永久置灰。
+   */
+  failureSeq: number
+}
+const panelState = new Map<string, PendingPanelState>()
 
-/** Lazy panel-state accessor: defaults page 0 / expanded. */
-function panelStateFor(rpcId: string): { page: number; minimized: boolean; skipped: Set<number>; notice: string } {
+/** Lazy panel-state accessor: defaults page 0 / expanded / no feedback. */
+function panelStateFor(rpcId: string): PendingPanelState {
   let s = panelState.get(rpcId)
   if (!s) {
-    s = { page: 0, minimized: false, skipped: new Set(), notice: '' }
+    s = { page: 0, minimized: false, skipped: new Set(), notice: '', failure: '', failureSeq: 0 }
     panelState.set(rpcId, s)
   }
   return s
@@ -1301,6 +1323,19 @@ window.addEventListener('message', (event) => {
     fileThumbRequested.set(msg.path, { at: 0, failed: true })
     swapInlineImagePlaceholders(msg.path)
     render()
+  } else if (msg?.type === 'pendingFailed' && typeof msg.rpcId === 'string') {
+    // 应答失败回推（#50 I2）：记下原因并重渲染——面板按钮不再永久置灰，
+    // 错误显示在面板内的反馈行，用户可以直接重试（官方 catch 复位 busy +
+    // setError 同款）。
+    const st = panelState.get(msg.rpcId)
+    if (st) {
+      st.failure = typeof msg.message === 'string' ? msg.message : ''
+      st.failureSeq += 1
+      // 取消失败（面板还在）：作废「去聊天里说」的延迟聚焦，别让下一次
+      // composer 重建莫名其妙抢焦点。
+      focusComposerAfterPending = false
+      render()
+    }
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
     modelCatalogFailed = false
@@ -3136,8 +3171,9 @@ function render(): void {
   const pendingFocus = oldPending !== null && oldPending.contains(document.activeElement)
   // 签名带 sessionId：换会话时旧会话的 pending 卡必须移除，不能因内容
   // 恰好相同（rpcId 全局唯一，理论不会，但防御起见）被保活成跨会话残留。
-  // 签名含面板本地状态（分页/最小化）：翻页、收起、去聊天里说等就地状态
-  // 变化必须打破保活触发重建，否则焦点在面板内时新状态不会上屏。
+  // 签名含面板本地状态（分页/最小化/反馈行）：翻页、收起、去聊天里说、提交
+  // 失败提示等就地状态变化必须打破保活触发重建，否则焦点在面板内时新状态不会
+  // 上屏（「请先完成本题」/失败原因被保活帧吞掉）。
   const pendingSig =
     state && state.pending.length > 0
       ? JSON.stringify([
@@ -3145,10 +3181,13 @@ function render(): void {
           state.pending,
           state.pending.map((p) => {
             const s = panelState.get(p.rpcId)
-            return [p.rpcId, s?.page ?? 0, s?.minimized ?? false]
+            return [p.rpcId, s?.page ?? 0, s?.minimized ?? false, s?.notice ?? '', s?.failure ?? '', s?.failureSeq ?? 0]
           }),
         ])
       : null
+  // 本帧 pending 刚解除（上一帧还有挂起交互、这一帧没有了）：计划审核
+  // 「去聊天里说」的延迟聚焦据此判定（见 render 尾部 composer 收尾）。
+  const pendingCleared = lastPendingSig !== null && (state?.pending.length ?? 0) === 0
   // 签名相同时焦点在内即保活（输入不被打断）；签名变化但 IME 组合中同样
   // 保活，推迟到 compositionend 补帧重建（见 composingEl）。
   const keepPending =
@@ -3941,6 +3980,13 @@ function render(): void {
   // 词库（@ 候选/绑定名）变了就把已输入的 @token 全量重扫一遍：Lexical 的
   // 着色变换只跑 dirty 节点，附件/候选到位本身不弄脏文本（B-08）。
   syncAtLexiconRescan()
+  // 计划审核「去聊天里说」：pending 解除、普通 composer 回到输入区的那一帧把
+  // 焦点交给它（用户接着用自然语言说；#50 I4）。取消失败（面板还在）时不消费，
+  // 由 pendingFailed 清掉标志。
+  if (focusComposerAfterPending && pendingCleared && activeComposer) {
+    focusComposerAfterPending = false
+    activeComposer.focus(true)
+  }
   // 脏位跟随渲染结果上报：切换会话恢复草稿、发送清空、附件增删都经这里。
   reportComposerDirty()
   // 草稿落盘同款（#14）：发送清空/附件增删/restoreDraft 回填等经 render 的变化在此收口。
@@ -4407,6 +4453,11 @@ let pendingStash:
       selEnd: number
     }
   | null = null
+/**
+ * 计划审核「去聊天里说」请求：取消挂起的审核后，普通 composer 回到输入区时
+ * 自动聚焦它（用户接着用自然语言说）。只在 pending 解除的那一帧消费。
+ */
+let focusComposerAfterPending = false
 /** Slash-command receipt texts shown at the message tail; cleared on session switch. */
 let commandNotices: string[] = []
 /**
@@ -6568,26 +6619,32 @@ function renderPendingPanel(pending: PendingRequest[]): HTMLElement {
 }
 
 function renderApprovalPanel(p: PendingApproval): HTMLElement {
+  const st = panelStateFor(p.rpcId)
   const panel = el('div', 'pending-block')
   panel.appendChild(panelHeader(p.rpcId, t('Permission request')))
-  if (panelStateFor(p.rpcId).minimized) return panel
+  if (st.minimized) return panel
   const body = el('div', 'panel-body')
   body.appendChild(el('div', 'pending-title', p.toolName))
   if (p.reason) body.appendChild(el('div', 'pending-reason', p.reason))
+  // 待执行命令（对齐官方 conversation.approval.detail → ApprovalCommand）：
+  // 审批请求带 callId 时回查那次 tool call 的输入参数，把 command 原文显示
+  // 出来——用户看得见要跑什么才谈得上「允许」（#50 I1）。窗口里找不到该调用
+  // （被翻页切走 / 老协议无 callId）时静默不显示，与官方一致。
+  const command = approvalCommandOf(p)
+  if (command !== null) body.appendChild(el('div', 'pending-command', command))
+  if (st.failure) body.appendChild(el('div', 'panel-feedback', st.failure))
   const actions = el('div', 'pending-actions')
   const allow = buttonEl('', t('Allow once'))
   const deny = buttonEl('secondary', t('Reject'))
-  // Disable both on click so a slow host can't be answered twice.
-  allow.addEventListener('click', () => {
+  // Disable both on click so a slow host can't be answered twice. 宿主应答失败
+  // 时回推 pendingFailed：面板重建、按钮复位、原因显示在反馈行，可直接重试。
+  const answer = (outcome: 'allowed-once' | 'rejected'): void => {
     allow.disabled = true
     deny.disabled = true
-    post({ type: 'approval', rpcId: p.rpcId, outcome: 'allowed-once' })
-  })
-  deny.addEventListener('click', () => {
-    allow.disabled = true
-    deny.disabled = true
-    post({ type: 'approval', rpcId: p.rpcId, outcome: 'rejected' })
-  })
+    post({ type: 'approval', rpcId: p.rpcId, outcome })
+  }
+  allow.addEventListener('click', () => answer('allowed-once'))
+  deny.addEventListener('click', () => answer('rejected'))
   actions.appendChild(allow)
   actions.appendChild(deny)
   body.appendChild(actions)
@@ -6596,24 +6653,71 @@ function renderApprovalPanel(p: PendingApproval): HTMLElement {
 }
 
 /**
- * Pending 面板头部：标题 + 分页器（多题时）+ 最小化/最大化按钮。最小化后
- * 只留这一行，正文隐藏（对齐 dsh web QuestionFlow 的 header 最小化）。
+ * 审批请求关联的那次 tool call 的命令文本：审批带 callId 时在当前窗口的消息
+ * 流里按 callId 找该 tool 块，从它的 args（原始 JSON）里取 `command`
+ * （官方 ApprovalCommand：JSON.parse(argsRaw).command）。找不到返回 null。
  */
-function panelHeader(rpcId: string, title: string, pager: HTMLElement | null = null): HTMLElement {
+function approvalCommandOf(p: PendingApproval): string | null {
+  const callId = p.callId
+  if (!callId) return null
+  for (const m of state?.messages ?? []) {
+    if (m.kind !== 'assistant') continue
+    for (const b of m.blocks) {
+      if (b.type === 'tool' && b.callId === callId) return commandOfToolArgs(b.args)
+    }
+  }
+  return null
+}
+
+/**
+ * Pending 面板头部：标题 + 分页器（多题时）+ 最小化/取消按钮。最小化后
+ * 只留这一行，正文隐藏（对齐 dsh web QuestionFlow 的 header 最小化）；取消
+ * 以「用户取消」拒绝挂起请求，面板消失、对话继续（对齐官方 QuestionComposer
+ * 的 nav.cancel → pending.cancel()，见 #50 I3）。计划审核面板两个按钮都不给
+ * （官方 PlanReviewPanel 只有底部的讨论/拒绝/确认三个动作）。
+ */
+function panelHeader(
+  rpcId: string,
+  title: string,
+  pager: HTMLElement | null = null,
+  actions: { minimize?: boolean; cancel?: boolean } = {},
+): HTMLElement {
   const st = panelStateFor(rpcId)
   const header = el('div', 'panel-header')
   header.appendChild(el('span', 'panel-title', title))
   if (pager) header.appendChild(pager)
-  const toggle = buttonEl('panel-toggle', '')
-  toggle.title = st.minimized ? t('Expand') : t('Minimize')
-  toggle.appendChild(iconSvg(PANEL_ICONS.chevronUp, 14))
-  toggle.classList.toggle('minimized', st.minimized)
-  toggle.addEventListener('click', () => {
-    st.minimized = !st.minimized
-    render()
-  })
-  header.appendChild(toggle)
+  if (actions.minimize ?? true) {
+    const toggle = buttonEl('panel-toggle', '')
+    toggle.title = st.minimized ? t('Expand') : t('Minimize')
+    toggle.setAttribute('aria-label', toggle.title)
+    toggle.appendChild(iconSvg(PANEL_ICONS.chevronUp, 14))
+    toggle.classList.toggle('minimized', st.minimized)
+    toggle.addEventListener('click', () => {
+      st.minimized = !st.minimized
+      render()
+    })
+    header.appendChild(toggle)
+  }
+  if (actions.cancel ?? false) header.appendChild(panelCancelButton(rpcId))
   return header
+}
+
+/**
+ * 面板取消按钮（×）：拒绝挂起的提问/计划审核（宿主侧 ASK_CANCELLED），面板
+ * 随 pending 解除消失，用户回到普通输入（对齐官方 QuestionComposer 的
+ * nav.cancel）。失败（请求其实已过期/别处已答）由 pendingFailed 回推，原因
+ * 显示在面板反馈行，可再点一次。
+ */
+function panelCancelButton(rpcId: string): HTMLElement {
+  const cancel = buttonEl('panel-toggle panel-cancel', '')
+  cancel.title = t('Cancel')
+  cancel.setAttribute('aria-label', t('Cancel'))
+  cancel.appendChild(iconSvg(GOAL_ICONS.close, 14))
+  cancel.addEventListener('click', () => {
+    cancel.disabled = true
+    post({ type: 'cancelPending', rpcId })
+  })
+  return cancel
 }
 
 /** 分页器「1/N」+ 上一题/下一题（对齐 dsh web QuestionFlow 分页）。 */
@@ -6630,6 +6734,7 @@ function questionPager(p: PendingQuestion): HTMLElement | null {
   prev.addEventListener('click', () => {
     st.page = Math.max(0, st.page - 1)
     st.notice = ''
+    st.failure = ''
     render()
   })
   pager.appendChild(prev)
@@ -6639,6 +6744,7 @@ function questionPager(p: PendingQuestion): HTMLElement | null {
   next.addEventListener('click', () => {
     st.page = Math.min(n - 1, st.page + 1)
     st.notice = ''
+    st.failure = ''
     render()
   })
   pager.appendChild(next)
@@ -6660,8 +6766,7 @@ function renderPanelAnswer(p: PendingQuestion, index: number): HTMLElement {
   const submit = (): void => {
     const text = input.value.trim()
     if (!text) return
-    if (questionInteractionStatus(p.questions) === 'plan-review') submitPlanReview(p, [], text)
-    else submitAnswer(p, { index, text })
+    submitAnswer(p, { index, text })
   }
   input.addEventListener('input', () => {
     draft.custom = input.value
@@ -6769,13 +6874,18 @@ function renderQuestionPanel(p: PendingQuestion): HTMLElement {
   const n = p.questions.length
   const page = Math.min(st.page, n - 1)
   const panel = el('div', 'pending-block')
-  panel.appendChild(panelHeader(p.rpcId, t('Waiting for your answer'), questionPager(p)))
+  // 头部：最小化 + 取消（×）。取消 = 拒绝本次提问，面板消失、对话继续
+  // （官方 QuestionComposer 的 nav.cancel；#50 I3）。
+  panel.appendChild(panelHeader(p.rpcId, t('Waiting for your answer'), questionPager(p), { cancel: true }))
   if (st.minimized) {
     panel.appendChild(renderPanelAnswer(p, page))
     return panel
   }
   const body = el('div', 'panel-body')
-  if (st.notice) body.appendChild(el('div', 'panel-feedback', st.notice))
+  // 反馈行：本地校验提示（请先完成本题）与宿主应答失败原因共用一处
+  // （官方 QuestionComposer 的 feedback 单槽位）。
+  const feedback = st.failure || st.notice
+  if (feedback) body.appendChild(el('div', 'panel-feedback', feedback))
   const actions = el('div', 'pending-actions')
   // 主按钮随当前页切换（对齐 dsh web QuestionFlow）：非最后一页只翻页不发送，
   // 最后一页才提交整组；当前页未作答时不可点。
@@ -6792,10 +6902,14 @@ function renderQuestionPanel(p: PendingQuestion): HTMLElement {
     if (page < n - 1) {
       st.page = page + 1
       st.notice = ''
+      st.failure = ''
       render()
       return
     }
+    // 提交期置灰防重复应答；宿主失败时回推 pendingFailed，面板重建后按钮
+    // 重新可用（#50 I2：过去置灰是永久的，只能换会话重开）。
     ok.disabled = true
+    st.failure = ''
     submitAnswer(p)
   })
   body.appendChild(renderQuestionItem(p, page, updateOkState))
@@ -6808,6 +6922,7 @@ function renderQuestionPanel(p: PendingQuestion): HTMLElement {
       st.skipped.add(page)
       st.page = page + 1
       st.notice = ''
+      st.failure = ''
       render()
     })
     actions.appendChild(skip)
@@ -6927,16 +7042,15 @@ function renderQuestionItem(
   return wrap
 }
 
-/** PlanReviewPanel：warn strip「计划待审」+ 计划 Markdown + 确认/拒绝/去聊天里说。 */
+/**
+ * PlanReviewPanel：warn strip「计划待审」+ 计划 Markdown + 确认/拒绝/去聊天里说。
+ * 头部不给最小化/取消（官方 PlanReviewPanel 只有底部三个动作）。
+ */
 function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
   const st = panelStateFor(p.rpcId)
   const q = p.questions[0]
   const panel = el('div', 'pending-block')
-  panel.appendChild(panelHeader(p.rpcId, t('Plan review')))
-  if (st.minimized) {
-    panel.appendChild(renderPanelAnswer(p, 0))
-    return panel
-  }
+  panel.appendChild(panelHeader(p.rpcId, t('Plan review'), null, { minimize: false }))
   const body = el('div', 'panel-body')
   // Warn strip：计划待审（对齐 dsh web PlanReviewPanel 的警示条）。
   const warn = el('div', 'plan-warn')
@@ -6952,6 +7066,7 @@ function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
     decorateInlineCodes(plan)
     body.appendChild(plan)
   }
+  if (st.failure) body.appendChild(el('div', 'panel-feedback', st.failure))
   // 三分结构：确认执行（approve 选项，主按钮）/ 拒绝（另一选项）/ 去聊天里说。
   const approve = q.intent?.approve
   const reject = q.options?.find((o) => o.label !== approve)?.label
@@ -6959,21 +7074,24 @@ function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
   const ok = buttonEl('option-btn', approve ?? t('Confirm and run'))
   ok.addEventListener('click', () => {
     ok.disabled = true
+    st.failure = ''
     submitPlanReview(p, approve ? [approve] : [])
   })
   const no = buttonEl('secondary option-btn', reject ?? t('Reject'))
   no.addEventListener('click', () => {
     no.disabled = true
+    st.failure = ''
     submitPlanReview(p, reject ? [reject] : [])
   })
+  // 「去聊天里说」= 取消这个挂起的审核（不是把它当答案提交），面板收起、输入区
+  // 交回普通 composer，用户说的是普通聊天消息（对齐官方 PlanReviewPanel 的
+  // discuss → pending.cancel()；#50 I4）。
   const chat = buttonEl('secondary option-btn', t('Reply in chat'))
-  chat.title = t('Collapse the panel and reply in natural language in the input box')
+  chat.title = t('Cancel this review and reply in natural language in the input box')
   chat.addEventListener('click', () => {
-    st.minimized = true
-    render()
-    // 收起后聚焦回答输入行（panel-answer 的首个输入框）。
-    const input = chatCol.querySelector<HTMLInputElement>('.pending-panel .panel-answer input')
-    input?.focus()
+    chat.disabled = true
+    focusComposerAfterPending = true
+    post({ type: 'cancelPending', rpcId: p.rpcId })
   })
   actions.appendChild(ok)
   actions.appendChild(no)

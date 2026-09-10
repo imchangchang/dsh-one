@@ -418,6 +418,12 @@ export interface PendingApproval {
   approvalId: string
   toolName: string
   reason?: string
+  /**
+   * 请求审批的那次 tool call 的 id（dsh 的 approval 请求带 `callId` 时透传；
+   * 老协议 mux 帧没有该字段）。审批面板用它回查该次调用的输入，把「要执行的
+   * 命令」显示出来（官方 conversation.approval.detail 同款语义）。
+   */
+  callId?: string
 }
 
 /** A tool-initiated question (AskUser) awaiting an answer. */
@@ -1008,6 +1014,12 @@ export type ToWebviewMessage =
    * reload 前的输入内容由此恢复（#14）。
    */
   | { type: 'draftRestore'; composer: Record<string, ComposerDraftEntry>; answers: Record<string, Record<string, AnswerDraftEntry>> }
+  /**
+   * Pending 交互（审批/提问/计划审核）应答失败的回推：宿主把 rpcId + 失败原因
+   * 发回，webview 复位面板按钮（不再永久置灰）、把原因显示在面板内的反馈行，
+   * 用户可以重试（对齐官方 pending.answer(...).catch(setBusy(null); setError)）。
+   */
+  | { type: 'pendingFailed'; rpcId: string; message: string }
 
 export type FromWebviewMessage =
   /** Webview 脚本加载完成（含 tab 切走后 VSCode 重载的场合）；宿主据此重推当前状态。 */
@@ -1033,6 +1045,13 @@ export type FromWebviewMessage =
   | { type: 'stop' }
   | { type: 'approval'; rpcId: string; outcome: 'allowed-once' | 'rejected' }
   | { type: 'answer'; rpcId: string; answers: QuestionAnswerInput[] }
+  /**
+   * 取消挂起的提问/计划审核（面板头部的 ×）：宿主以「用户取消」拒绝水瀑布
+   * （ASK_CANCELLED），面板随之消失、对话继续（对齐官方 QuestionComposer
+   * 的 nav.cancel → pending.cancel()）。审批卡不提供取消（官方同样只有
+   * 允许一次/拒绝两个动作）。
+   */
+  | { type: 'cancelPending'; rpcId: string }
   | { type: 'pickFiles' }
   | { type: 'filesPasted'; files: OutgoingImage[] }
   /** 长文本粘贴被折叠为文件附件：宿主落盘后经 filesPicked 回投（webview 自动插 @ token）。 */
