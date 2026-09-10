@@ -453,9 +453,17 @@ function persistKeyFor(archiveKey: string): string {
   return archiveKey === EMPTY_SESSION_KEY ? `tab:${tabId ?? 'unknown'}` : archiveKey
 }
 
-/** 当前 composer 内容快照：文本从 live 编辑器/暂存读（与 reportComposerDirty 同源），附件读模块级暂存。 */
+/**
+ * 当前 composer 内容快照（落盘用）：文本从 live 编辑器/暂存读（与
+ * reportComposerDirty 同源），附件读模块级暂存。
+ *
+ * 文本落盘前先展开成 canonical（与发送同款 expandMentionBindings）：显示 token
+ * 靠内存里的 mentionBindings 才解析得出，而绑定不跨窗口/不跨重启——直接存显示
+ * token 的话，重启后 `@短名` 就是一段无主的普通文字。存展开后的引用，恢复端
+ * 一律能解析（setText 把 canonical 引用重建回 chip）。
+ */
 function composerDraftSnapshot(): { text: string; images: OutgoingImage[]; files: StagedFile[] } {
-  return { text: composerText(), images: pendingImages, files: pendingFiles }
+  return { text: expandMentionBindings(composerText(), mentionBindings), images: pendingImages, files: pendingFiles }
 }
 
 /** 变更判定签名：文本 + 图片（大小:名字）+ 文件路径。内容没变就不发（流式渲染每帧都会调度到）。 */
@@ -6768,6 +6776,17 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     const syncAfterClear = (): void => {
       if (composer.root.isConnected) updateButton()
     }
+    // 清空 + 重建输入区。Enter 走的是 Lexical 的 KEY_ENTER_COMMAND，命令上下文里
+    // setText 的更新不会立刻落地——紧跟的 render() 读到的是清空前的文本，重建出来
+    // 的 composer 就会把已经发出去的内容留在输入框（发送带附件时必现：附件清空
+    // 触发重建）。这里在重建后补清一次：这次 setText 落在新编辑器上，排队落地也
+    // 落在同一个（还在 DOM 里的）编辑器上。
+    const clearAndRender = (): void => {
+      composer.setText('')
+      render()
+      const live = composer.root.isConnected ? composer : activeComposer
+      if (live && live !== composer) live.setText('')
+    }
     // Staged file chips travel as <attachment> path lines appended to the
     // prompt text (dsh has no file content part); the folder parses them
     // back into chips for history rendering.
@@ -6781,8 +6800,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     // `/model` is a client-side command (dsh-client-ui-model-selection): the
     // host has no such command, so open the model menu instead of sending.
     if (text === '/model' && !recall) {
-      composer.setText('')
-      render()
+      clearAndRender()
       syncAfterClear()
       const pill = document.querySelector<HTMLElement>('.input-footer .pill[data-role="model"]')
       if (pill) openModelMenu(pill)
@@ -6796,8 +6814,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       recallDraft = ''
       pendingFiles = []
       post({ type: 'queueEdit', itemId, text: expanded })
-      composer.setText('')
-      render()
+      clearAndRender()
       return
     }
     recall = null
@@ -6813,8 +6830,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       ...(files.length > 0 ? { files } : {}),
       ...(steer ? { steer } : {}),
     })
-    composer.setText('')
-    render()
+    clearAndRender()
     syncAfterClear()
     // 发送是"看最新"信号：本轮 render 之后无条件滚到底并复位跟随态，
     // 后续流式输出继续贴底（host 快照回来后 render 会按跟随态钉住）。
@@ -6920,9 +6936,15 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     if (composer.root.isConnected) updateButton()
   }
 
-  // 清空反悔恢复：附件在 composer 签名里（pendingImages/pendingFiles），带附件
-  // 恢复必重建 composer（chips 由新渲染带出，草稿经 activeComposer 进入新编辑
-  // 器）；纯文本且焦点在输入框时保活，render() 只 patch。恢复后光标落在文末。
+  // 清空反悔恢复：附件在 composer 签名里（pendingImages/pendingFiles），恢复后
+  // 由 render() 带出 chips，文本经 stashedDraft 交给这一帧的输入区渲染。
+  //
+  // 文本不在这里 composer.setText：撤销是从 Lexical 的 UNDO_COMMAND 命令里进来
+  // 的，命令上下文里发起的 editor.update 不会立刻落地（实测 setText 返回时编辑器
+  // 仍是空的），紧跟的 render() 会读到空文本、把重建出来的 composer 也建成空的
+  // ——带附件的清空反悔恢复就会只回来附件、文本丢失。走 stashedDraft 由渲染直接
+  // 喂给新编辑器，不依赖 update 的落地时机（stashedDraft 非 undefined 时
+  // keepComposer 恒 false，本帧必定重建，不会把暂存漏给后面的帧）。
   const restoreCleared = (): void => {
     const stash = clearedStash
     if (!stash) return
@@ -6930,7 +6952,7 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     disarmClearConfirm()
     pendingImages = stash.images
     pendingFiles = stash.files
-    composer.setText(stash.text, mentionBindings)
+    stashedDraft = stash.text || undefined
     render()
     const live = composer.root.isConnected ? composer : activeComposer
     if (!live) return
@@ -6998,15 +7020,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         updateButton()
         updateClearAll()
         updateSlashPopup(composer)
-        // 双击清空：任何用户输入都解除武装；清空暂存同步作废（新内容入场，旧暂存
-        // 再还回来只会迷惑——一次性反悔，不多级）。
-        // 程序化重写（setText：清空/召回/草稿恢复）不算「新内容入场」：clearComposer
-        // 的 setText('') 会在它自己设置的暂存之后同步触发本回调，若一并作废，
-        // Ctrl+Z 反悔就成了永远走不到的死代码。
-        if (!meta.programmatic) {
-          disarmClearConfirm()
-          clearedStash = null
-        }
+        // 双击清空：任何内容变化都解除武装（提示小框只对「刚武装时的那份内容」
+        // 有意义；清空/召回/恢复这些程序化重写各自也会显式解除，这里是兜底）；
+        // 清空暂存则只被真实的用户输入作废——clearComposer 的 setText('') 会在它
+        // 自己设置的暂存之后同步触发本回调，一并作废的话 Ctrl+Z 反悔就成了永远
+        // 走不到的死代码。
+        disarmClearConfirm()
+        if (!meta.programmatic) clearedStash = null
         // 纯输入不触发 render，脏位上报单独跟一次（宿主的 dirty 保护决策读它）。
         reportComposerDirty()
         // 草稿落盘同款（不经 render 的输入事件独立挂钩，#14）。
