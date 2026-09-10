@@ -47,7 +47,7 @@ git rev-parse --verify --quiet "refs/tags/done/$SLUG" >/dev/null || {
 [ "$(git rev-parse "$BRANCH")" = "$(git rev-parse "done/$SLUG^{commit}")" ] || {
   echo "done/$SLUG 不在分支最新提交上（rebase 或新提交后没重跑 dev-finish）。" >&2; exit 1; }
 [ -z "$(git -C "$TARGET_WT" status --porcelain)" ] || {
-  echo "$TARGET_WT（$TARGET）有未提交改动，先收尾再合并：" >&2; git -C "$TARGET_WT" status --short; exit 1; }
+  echo "${TARGET_WT}（${TARGET}）有未提交改动，先收尾再合并：" >&2; git -C "$TARGET_WT" status --short; exit 1; }
 
 WT=$(git worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '
   /^worktree /{p=$2} /^branch /{if ($2==b) print p}')
@@ -81,12 +81,12 @@ $SUMMARY"
 
 git worktree remove "$WT"
 # -d 的「已合并」判定看的是当前 HEAD：必须在检出 $TARGET 的 worktree 里删，
-# 否则分支只合进了 $TARGET、没合进 main 时会被误判成未合并。
+# 否则分支只合进了 ${TARGET}、没合进 main 时会被误判成未合并。
 git -C "$TARGET_WT" branch -d "$BRANCH" >/dev/null
 git tag -d "done/$SLUG" >/dev/null
 
 # 扩展运行时装载的是集成线的 dist/；合并只带了源码，不重建则 reload 后还是旧代码。
-echo "== 重建 $TARGET 的 dist（$TARGET_WT）=="
+echo "== 重建 ${TARGET} 的 dist（${TARGET_WT}）=="
 npm --prefix "$TARGET_WT" run build
 
 echo

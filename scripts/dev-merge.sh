@@ -48,7 +48,7 @@ git rev-parse --verify --quiet "refs/tags/done/$SLUG" >/dev/null || {
 [ "$(git rev-parse "$BRANCH")" = "$(git rev-parse "done/$SLUG^{commit}")" ] || {
   echo "done/$SLUG 不在分支最新提交上（rebase 或新提交后没重跑 dev-finish）。" >&2; exit 1; }
 [ -z "$(git -C "$TARGET_WT" status --porcelain)" ] || {
-  echo "$TARGET_WT（$TARGET）有未提交改动，先收尾再合并：" >&2; git -C "$TARGET_WT" status --short; exit 1; }
+  echo "${TARGET_WT}（${TARGET}）有未提交改动，先收尾再合并：" >&2; git -C "$TARGET_WT" status --short; exit 1; }
 
 WT=$(git worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '
   /^worktree /{p=$2} /^branch /{if ($2==b) print p}')
@@ -58,7 +58,7 @@ WT=$(git worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '
 # README / 硬编码中文），在这里拦下，避免合入后在集成线再开修复 worktree。
 # 基点必须跟着 MERGE_TARGET 走（I18N_BASE）：基点若仍按 main 算，整条分支与 main
 # 之间的历史改动都会被当成「新增行」来扫。
-echo "== i18n 合入门禁自检（基点 $TARGET）=="
+echo "== i18n 合入门禁自检（基点 ${TARGET}）=="
 if ! I18N_BASE="$TARGET" bash "$SCRIPT_DIR/check-i18n.sh" "$BRANCH"; then
   echo "i18n 检查未通过，拒绝合入。" >&2
   exit 1
@@ -95,12 +95,12 @@ $SUMMARY"
 
 git worktree remove "$WT"
 # -d 的「已合并」判定看的是当前 HEAD：必须在检出 $TARGET 的 worktree 里删，
-# 否则分支只合进了 $TARGET、没合进 main 时会被误判成未合并。
+# 否则分支只合进了 ${TARGET}、没合进 main 时会被误判成未合并。
 git -C "$TARGET_WT" branch -d "$BRANCH" >/dev/null
 git tag -d "done/$SLUG" >/dev/null
 
 # 扩展运行时装载的是集成线的 dist/；合并只带了源码，不重建则 reload 后还是旧代码。
-echo "== 重建 $TARGET 的 dist（$TARGET_WT）=="
+echo "== 重建 ${TARGET} 的 dist（${TARGET_WT}）=="
 npm --prefix "$TARGET_WT" run build
 
 echo
