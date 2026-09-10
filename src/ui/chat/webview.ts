@@ -1332,6 +1332,11 @@ window.addEventListener('message', (event) => {
  */
 document.addEventListener('keydown', (e) => {
   if (!state?.running) return
+  // IME 组合中的按键不算打断意图：中文/日文输入法里 Esc 是「关掉候选窗」（组合
+  // 取消），把它当作停止会让用户只是想取消候选就打断了正在跑的 turn。组合态的
+  // 事件由输入法消费，composer 自身的 clear-chord 已按 isComposing 让路，这里
+  // 同样整体让路（对齐官方 composer 的 isComposing 门控）。
+  if (e.isComposing) return
   if (e.key === 'Escape') {
     if (e.defaultPrevented) return
     e.preventDefault()
