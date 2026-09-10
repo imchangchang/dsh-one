@@ -111,6 +111,12 @@ export interface ComposerEditor {
   afterCaret: () => string
   /** 聚焦编辑器；可选把光标放到末尾。 */
   focus: (atEnd?: boolean) => void
+  /**
+   * 全量重扫着色（对齐官方 rescanTextRefs）：Lexical 的节点变换只跑在 dirty
+   * 节点上，而「词库变了」本身不会弄脏任何节点——新附件/新候选到位时已输入
+   * 的 @token 不会自己变亮。调用方在词库集合变化时调它把所有文本节点标脏。
+   */
+  rescanTextRefs: () => void
   /** 释放编辑器。 */
   dispose: () => void
 }
@@ -407,11 +413,14 @@ function registerTextRefDecoration(
       const current = node.getLatest()
       const textNow = current.getTextContent()
       if (start >= end || start >= textNow.length) continue
-      const split: TextNode[] = current.splitText(start, end)
-      const tokenSegment = split[1]
-      if (!tokenSegment) continue
-      const ref = $createRefTokenNode(tokenSegment.getTextContent())
-      tokenSegment.replace(ref)
+      // 整节点命中（start=0 且 end=节点全文长度）时 Lexical 的 splitText 返回
+      // `[self]`（没有可切的第二段），必须整节点替换——否则「输入框里只有这个
+      // token」这一最常见的形态（刚打完 `@dir/`、`@"a b/`）永远不着色。
+      const tokens = current.splitText(start, end)
+      const tokenSegment = tokens[1]
+      if (tokenSegment) tokenSegment.replace($createRefTokenNode(tokenSegment.getTextContent()))
+      else if (end === textNow.length) current.replace($createRefTokenNode(textNow))
+      else continue
       // 本轮只处理一个节点的一个命中段；余下命中由下一趟 dirty 驱动处理。
       break
     }
@@ -693,6 +702,12 @@ export function createComposerEditor(opts: {
     }
   }
 
+  const rescanTextRefs = (): void => {
+    editor.update(() => {
+      for (const node of $getRoot().getAllTextNodes()) node.markDirty()
+    })
+  }
+
   const insertTextAtCaret = (text: string): void => {
     editor.update(() => {
       const sel = $getSelection()
@@ -895,6 +910,7 @@ export function createComposerEditor(opts: {
     beforeCaret,
     afterCaret,
     focus,
+    rescanTextRefs,
     dispose: () => {
       editor.setRootElement(null)
       unregisterUpdate()

@@ -74,6 +74,7 @@ import {
   type ActivityJob,
 } from '../../pure/activityTree.ts'
 import { attachmentBaseName, attachmentDataUrl, isImageMediaType, isImagePath, shouldFoldPastText, splitAttachmentLines } from '../../pure/composerAttachment.ts'
+import { atTokenName } from '../../pure/tokenScan.ts'
 import {
   SETTLE_IDLE_MS,
   archiveScrollPosition,
@@ -1886,20 +1887,46 @@ function sessionRows(editor: ComposerEditor, at: ActiveAtToken): SlashRow[] {
  */
 function composerAtTokenNames(): Set<string> {
   const names = new Set<string>()
-  for (const f of pendingFiles) names.add(attachmentBaseName(f.path))
-  for (const c of fileRefResult?.items ?? []) names.add(attachmentBaseName(c.path))
+  // dsh-one 的 `@` 名录来自补全候选（附件 basename / 工作区文件 / 会话短名），
+  // 这些名字带扩展名与空格；官方的 name 口径是触发符后的 `[\w-]+`。两条都登记：
+  // 整名（dsh-one 适配，`@img1.png` 这种带 `.` 的名字官方匹配不到）与官方
+  // name 段（`@img1` 也能命中，对齐官方 scanTextRefs 的名录语义）。
+  const add = (name: string): void => {
+    if (name.length === 0) return
+    names.add(name)
+    const official = atTokenName(`@${name}`)
+    if (official.length > 0) names.add(official)
+  }
+  for (const f of pendingFiles) add(attachmentBaseName(f.path))
+  for (const c of fileRefResult?.items ?? []) add(attachmentBaseName(c.path))
   const snap = sessionsSnapshot
   if (snap) {
     const own =
       snap.workspaces.find((w) => w.sessions.some((s) => s.sessionId === state?.sessionId)) ??
       snap.workspaces.find((w) => state?.workspaceLabel !== undefined && w.label === state.workspaceLabel)
-    for (const s of own?.sessions ?? []) names.add(s.label)
+    for (const s of own?.sessions ?? []) add(s.label)
   }
   for (const token of mentionBindings.keys()) {
     // 绑定 key 是显示 token（@标题 / @img1.png (2)）：取掉 @ 与序号后缀得词库名。
-    names.add(token.slice(1).replace(/\s*\(\d+\)$/, ''))
+    add(token.slice(1).replace(/\s*\(\d+\)$/, ''))
   }
   return names
+}
+
+/** `@` 词库的稳定签名：集合内容变了才触发重扫（render 很频繁，不能每次都扫）。 */
+let lastAtLexiconSignature = ''
+
+/**
+ * 词库变化 → 全量重扫已输入的 @token（对齐官方 lexicon.subscribe → rescanTextRefs）。
+ * Lexical 的着色变换只跑 dirty 节点，词库变了不弄脏任何节点——不主动重扫的话
+ * 「先打 @img1.png 再附加该文件」这类顺序永远不变亮（B-08）。
+ */
+function syncAtLexiconRescan(): void {
+  if (!activeComposer) return
+  const signature = [...composerAtTokenNames()].sort().join('\u0000')
+  if (signature === lastAtLexiconSignature) return
+  lastAtLexiconSignature = signature
+  activeComposer.rescanTextRefs()
 }
 
 /**
@@ -3751,6 +3778,9 @@ function render(): void {
   } else if (slashPopupEl && activeComposer) {
     positionSlashPopup(activeComposer)
   }
+  // 词库（@ 候选/绑定名）变了就把已输入的 @token 全量重扫一遍：Lexical 的
+  // 着色变换只跑 dirty 节点，附件/候选到位本身不弄脏文本（B-08）。
+  syncAtLexiconRescan()
   // 脏位跟随渲染结果上报：切换会话恢复草稿、发送清空、附件增删都经这里。
   reportComposerDirty()
   // 草稿落盘同款（#14）：发送清空/附件增删/restoreDraft 回填等经 render 的变化在此收口。
