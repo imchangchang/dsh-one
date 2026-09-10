@@ -47,7 +47,7 @@ import {
 } from '../../pure/installScript.ts'
 import { steerModifierLabel } from '../../pure/steerShortcut.ts'
 import { interleaveSteering, orderBySeq } from '../../pure/steeringOrder.ts'
-import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
+import { fuzzyCandidates, looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { isFilePathHref } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import {
@@ -402,6 +402,19 @@ function slashCommands(): Array<{ name: string; description: string; hint?: stri
       return known ? { ...c, description: known.description } : c
     }) ?? KNOWN_HOST_COMMANDS
   return [...host, MODEL_COMMAND]
+}
+
+/**
+ * 会话可用的 skill（宿主 skills/list，官方 `/` 补全的第二路候选源）。与命令
+ * 同一条 `/name ` 插入格式、同一名字空间；`modelInvocable === false` 的条目
+ * 在描述前加「仅用户」标注（对齐官方 menu.userOnly）。skill 只进 `/` 补全，
+ * 不进 ⋯ 命令菜单（官方那个入口只开 command 源）。
+ */
+function sessionSkills(): Array<{ name: string; description: string }> {
+  return (state?.skills ?? []).map((s) => ({
+    name: s.name,
+    description: s.modelInvocable ? s.description : `${t('user-only')} · ${s.description}`,
+  }))
 }
 
 /** Shield glyphs copied verbatim from dsh-client-ui-conversation's PermissionSelect. */
@@ -1689,11 +1702,20 @@ function computeSlashRows(editor: ComposerEditor): SlashRow[] {
   if (sp === -1) {
     const filter = value.slice(1).toLowerCase()
     if (filter.includes(' ')) return []
-    return slashCommands().filter((c) => c.name.startsWith(filter)).map((c) => ({
-      label: `/${c.name}`,
-      right: c.description,
-      apply: complete(`/${c.name} `),
-    }))
+    // 命令与 skill 同一个候选池（官方 `/` 的两个源同为 `/name ` 插入格式）：
+    // 命令在前、skill 在后，各自按官方 fuzzyScore 子序列过滤（前缀命中整体优先）。
+    return [
+      ...fuzzyCandidates(slashCommands(), filter).map((c) => ({
+        label: `/${c.name}`,
+        right: c.description,
+        apply: complete(`/${c.name} `),
+      })),
+      ...fuzzyCandidates(sessionSkills(), filter).map((s) => ({
+        label: `/${s.name}`,
+        right: s.description,
+        apply: complete(`/${s.name} `),
+      })),
+    ]
   }
   const name = value.slice(1, sp)
   const argPrefix = value.slice(sp + 1)
@@ -1898,10 +1920,11 @@ function composerAtTokenNames(): Set<string> {
 /**
  * 当前 composer 能「认识」的 /command（skill 形态）名称集合（对齐官方 TEXT_REF_RE
  * 的 `[/@]` 触发符词库门控）。来源 = 宿主指令名录（state.slashCommands 或静态回退）
- * + 客户端 /model——`/plan`、`/compact` 命中着色，未知名 `/foo` 保持纯文本。
+ * + 宿主 skill 名录（state.skills）+ 客户端 /model——`/plan`、`/compact`、skill 名
+ * 命中着色，未知名 `/foo` 保持纯文本。
  */
 function composerSlashTokenNames(): Set<string> {
-  return new Set(slashCommands().map((c) => c.name))
+  return new Set([...slashCommands().map((c) => c.name), ...sessionSkills().map((s) => s.name)])
 }
 
 /**

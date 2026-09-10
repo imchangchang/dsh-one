@@ -648,6 +648,12 @@ export interface ChatState {
    */
   slashCommands?: Array<{ name: string; description: string; hint?: string }>
   /**
+   * 会话的 skill 名录（宿主 skills/list）：官方 `/` 补全的第二路候选源
+   * （dsh-client-ui-skill），与命令同名空间、同一条 `/name ` 插入格式。
+   * 缺省 = 宿主没有该端点（0.1.1）或拉取失败，补全退到只有命令。
+   */
+  skills?: Array<{ name: string; description: string; modelInvocable: boolean }>
+  /**
    * 会话的图片入站上限（宿主 `imageLimits` 投影）：webview 在粘贴/拖拽入站前
    * 用它过闸（张数 / 单张字节 / 本条总字节），与官方 dsh web 的 intakeImages
    * 同一顺序。缺省 = 投影未到达（legacy 会话），入站不过闸。

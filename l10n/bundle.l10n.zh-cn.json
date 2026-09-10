@@ -533,5 +533,6 @@
   "Up to {0} images, {1} each": "最多 {0} 张图片，单张不超过 {1}",
   "A message can include up to {0} images": "一条消息最多 {0} 张图片",
   "Each image must be smaller than {0}": "每张图片必须小于 {0}",
-  "Images exceed {0} in total; remove some and try again": "图片总量超过 {0}，请删减后重试"
+  "Images exceed {0} in total; remove some and try again": "图片总量超过 {0}，请删减后重试",
+  "user-only": "仅用户"
 }

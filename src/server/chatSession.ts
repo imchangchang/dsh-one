@@ -31,6 +31,7 @@ import {
   forkSession,
   listAgentPresets,
   listCommands,
+  listSkills,
   listMessageFeedback,
   pauseGoal,
   promptSession,
@@ -44,7 +45,7 @@ import {
   sessionModels,
   updateQueue,
 } from './dshRpc.ts'
-import type { GoalRef, ImageLimits, SessionModelSelection, SessionModels, SlashCommandSpec } from './dshRpc.ts'
+import type { GoalRef, ImageLimits, SessionModelSelection, SessionModels, SkillSpec, SlashCommandSpec } from './dshRpc.ts'
 import { agentPresetDescription, agentPresetLabel, defaultAgentPresetId, resolveAgentPresets } from '../pure/agentPreset.ts'
 import type { AgentPresetOption } from '../pure/agentPreset.ts'
 import { extendWindowCursor, pageMeetsWindow, windowCursorOf, HISTORY_WINDOW_MESSAGES } from '../pure/historyWindow.ts'
@@ -326,6 +327,8 @@ export class ChatSessionController implements vscode.Disposable {
   private agentPresetCurrent: string | undefined
   /** 宿主 commands/list 拉到的会话命令清单；undefined = 未拉到（端点缺失/失败），webview 走静态 fallback。 */
   private slashCommands: SlashCommandSpec[] | undefined
+  /** 宿主 skills/list 拉到的会话 skill 名录；undefined = 未拉到（0.1.1 无此端点），补全退到只有命令。 */
+  private skills: SkillSpec[] | undefined
   /** Seq watermark of agentPresetCurrent：窗口分页下更早的页后到，旧选择不得覆盖新值。 */
   private agentPresetSeq = -1
   /** 历史窗口游标（窗口分页）：earliestSeq 之前的更早历史可按需 loadEarlier。 */
@@ -497,6 +500,7 @@ export class ChatSessionController implements vscode.Disposable {
         ? { agentPreset: { options: this.agentPresetOptions, current: this.agentPresetCurrent } }
         : {}),
       ...(this.slashCommands !== undefined ? { slashCommands: this.slashCommands } : {}),
+      ...(this.skills !== undefined ? { skills: this.skills } : {}),
       // 图片入站上限（imageLimits 投影值）：webview 靠它在粘贴/拖拽入站前过闸。
       ...(this.imageLimits !== undefined
         ? { imageLimits: { ...this.imageLimits, mediaTypes: [...this.imageLimits.mediaTypes] } }
@@ -1063,6 +1067,11 @@ export class ChatSessionController implements vscode.Disposable {
     this.refreshSlashCommands().catch((error: unknown) => {
       this.logger.warn(`chat: commands/list failed for ${this.sessionId}: ${errorText(error)}`)
     })
+    // skill 名录（skills/list）：与命令清单一样随 preset 组合，附着即拉。
+    // 0.1.1 没有该端点——失败只记日志，补全保持「只有命令」。
+    this.refreshSkills().catch((error: unknown) => {
+      this.logger.warn(`chat: skills/list failed for ${this.sessionId}: ${errorText(error)}`)
+    })
   }
 
   /**
@@ -1438,6 +1447,18 @@ export class ChatSessionController implements vscode.Disposable {
   }
 
   /**
+   * Fetch the session's skill catalog (`skills/list`). Failed/unavailable
+   * endpoint keeps the previous list (or stays undefined) — the composer's
+   * `/` completion then offers host commands only, exactly as before.
+   */
+  private async refreshSkills(): Promise<void> {
+    const specs = await listSkills(this.url, this.sessionId)
+    if (this.disposed) return
+    this.skills = specs
+    this.push(true)
+  }
+
+  /**
    * Preset id → 头部标签的显示名（官方 AgentPresetLabel 的映射：roster 里有
    * 的用 roster name —— user preset 由此显示中文名而非裸 id；roster 未就绪
    * 或未知 id 回退 agentPresetLabel：已知 system id 中文名，否则原样 id）。
@@ -1470,6 +1491,9 @@ export class ChatSessionController implements vscode.Disposable {
     // 失败保留旧表，只记日志。
     this.refreshSlashCommands().catch((error: unknown) => {
       this.logger.warn(`chat: commands/list after preset switch failed for ${this.sessionId}: ${errorText(error)}`)
+    })
+    this.refreshSkills().catch((error: unknown) => {
+      this.logger.warn(`chat: skills/list after preset switch failed for ${this.sessionId}: ${errorText(error)}`)
     })
   }
 
