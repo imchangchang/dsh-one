@@ -105,7 +105,19 @@ function observeOnce(el: Element, run: () => void): void {
     return
   }
   observer ??= new IntersectionObserver((entries) => {
-    for (const entry of entries) if (entry.isIntersecting) activate(entry.target)
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        activate(entry.target)
+        continue
+      }
+      // 已从 DOM 摘除的登记项（渲染换掉了整块）就地清掉，别一直占着闭包。
+      // 只在观察器回调里判摘除：渲染中新建的元素在被 append 之前是「暂时
+      // 游离」的，那时候清会把还没上屏的块一并清掉、永远等不到 intersecting。
+      if (!entry.target.isConnected) {
+        activators.delete(entry.target)
+        observer?.unobserve(entry.target)
+      }
+    }
   })
   activators.set(el, run)
   observer.observe(el)
