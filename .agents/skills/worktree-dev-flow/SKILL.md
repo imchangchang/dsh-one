@@ -61,9 +61,10 @@ cd <repo-root>/.worktrees/<slug> && bash <repo-root>/scripts/dev-ui-test.sh
 
 **到此为止**：不跑 dev-merge、不合入主线，那是主线 agent 的活。
 
-**主线 agent**（main 上）：
+**主线 agent**（集成线上）：
 
-1. `scripts/dev-merge.sh <slug>`——校验 → rebase 到最新 main → 复测 → --no-ff 合入 → 清理。合入串行进行，一次一个任务。
+1. `scripts/dev-merge.sh <slug>`——校验 → rebase 到最新集成线 → 复测 → --no-ff 合入 → 清理。合入串行进行，一次一个任务。
+   集成线默认 `main`，用 `MERGE_TARGET=<branch>` 可改成别的长期分支（如 `develop/*`）。目标分支**必须已被某个 worktree 检出**：rebase 目标、合并执行位置、复测、dist 重建都在那个 worktree 里做，主工作区（通常是 `main`）不受影响，`main` 上也不会沾到这些提交。
 2. 合入前 gate 已过（测试报告已人工审查通过，见流程 5；有疑问的功能已按流程 6 人工开窗验收），合入后只做回归：复测（typecheck/test/build）+ 已验功能抽查，通过 → issue 流转 `b:done → b:closed`（换 label + comment + `gh issue close <n>`）；测试有问题 → `b:done → b:open`（换 label + 移除 assignee + comment 写明问题，对应 agent 重新认领再走一遍），代码层面怎么处理见下面「合入后测试发现问题」。
 3. `scripts/dev-merge.sh` 不带参数：列出所有待合并任务（`done/*` git 标记，与 `gh issue list --label b:done` 互相对照）。
 
@@ -86,13 +87,13 @@ rebase 有冲突时：进 worktree 解决 → 重跑 `dev-finish.sh`（issue 状
    - `dev-merge.sh` 末尾的「重建主线 dist」是可选步骤，主线的构建产物需要随合并更新才保留
 3. `.gitignore` 加 `.worktrees/`。
 4. 把「核心规则」和「流程」两节写进工程的 `AGENTS.md`，让所有 session（人或 AI）都能看到。
-5. 脚本假设主分支叫 `main`，不是的话全局替换脚本里的 `main`。
+5. 默认集成线叫 `main`；叫别的名字就改脚本里的默认值。要多条并行集成线（一条 `main` + 若干长期分支）时用 `MERGE_TARGET=<branch>` 指定合入目标，别去全局替换脚本里的 `main`。
 6. 流程 5 的测试报告约定（ledger + `test/sandbox/report.mjs`）是本仓库 dsh-one 的落地细节；其他工程没有对应工具时，把该步换成各自可执行的报告/验收方式。
 
 ## 注意
 
 - **非交互场景跑 git 一律带 `GIT_EDITOR=true`**：会话/脚本里执行 `git rebase --continue`（冲突解决后内部带 `-e` 会强制编辑）、裸 `git commit`、任何可能调起 editor 的 git 命令，都必须显式 `GIT_EDITOR=true git ...`（或 `--no-edit`）。否则 git 会用 `core.editor`（常见配置 `code --wait`）拉起外部编辑器窗口、阻塞等编辑——窗口在用户桌面上"莫名其妙"弹出，命令挂死。真实终端里用户自己跑 git 时则不必加（编辑器是给用户的）。
-- `dev-merge.sh` 的校验会拒绝：缺 done 标记、done 标记不在分支最新提交上（rebase/新提交后没重跑 dev-finish）、主线有未提交改动。遇到拒绝按提示处理，不要绕过校验手动 merge。
+- `dev-merge.sh` 的校验会拒绝：缺 done 标记、done 标记不在分支最新提交上（rebase/新提交后没重跑 dev-finish）、集成线所在的 worktree 有未提交改动。遇到拒绝按提示处理，不要绕过校验手动 merge。
 - **主线写锁**：`main-lock.sh` 用原子 `mkdir` 实现，锁在 `<git-common-dir>/main-write.lock`（`.git/` 下，不会污染 `git status` 校验）。`dev-merge.sh` 从校验到合入全程持锁、EXIT trap 释放；拿不到锁说明已有进程在写 main，直接退出等它结束。自己写会碰 main 的脚本时 source 它，别绕过——`dev-merge.sh` 的串行保证全靠这把锁。
 - `dev-ui-test.sh` 的窗口闪退/起不来：先查 `--user-data-dir` 路径长度——VSCode 的 IPC socket（`<user-data-dir>/1.x-main.sock`）超 103 字符会 `listen EINVAL`、主进程启动即退（表现是 Dock 图标出现又消失）。脚本已把隔离目录放在短路径 `/tmp/dsh-uidev/<slug>/`；长 slug 更容易踩这个，别把 user-data-dir 放回 worktree 里的长路径。
 - **worktree 里的 `scripts/` 是建分支那个时间点的快照**：skill 后来新增或改过的脚本（如 `dev-ui-test.sh`）不会自动出现在既有 worktree 里，worktree 自带的 `dev-merge.sh` 也可能是旧版。跑新版脚本时**用主线的路径、cwd 留在 worktree 内**：`bash <main>/scripts/dev-ui-test.sh`（脚本靠 `git rev-parse --show-toplevel` 定位当前 worktree，脚本路径可以和 cwd 分离）。别在 worktree 里直接 `scripts/dev-ui-test.sh` 而期望它是新版。

@@ -27,6 +27,8 @@
 
 **worktree 开发 session 只开发、不合入**：dev-finish（自测 + 生成测试报告 + done 标记）通过后即止，合入由主线 agent 跑 `dev-merge.sh`。**合入门禁 = 测试报告审查**：报告由 `test/sandbox/` 的 ledger + `report.mjs` 产出（新增功能项在前、现有功能回归在后，每项带期望/截图/通过或失败结论），人工审查通过再合入；对功能有疑问才人工开窗 `dev-ui-test.sh` 验收。
 
+**集成线**：默认 `main`。`#11` 系列（Preact 迁移 + 对齐官方 dsh web）单独走 `develop/dsh-web-alignment`——该分支由 `.worktrees/develop` 检出，主工作区留在 `main`；合入用它当目标：`MERGE_TARGET=develop/dsh-web-alignment scripts/dev-merge.sh <slug>`（脚本在集成线所在 worktree 里 rebase、复测、重建 dist）。这批改动不放 `main`，**`main` 也不 push**。
+
 ## CHANGELOG 写法
 
 CHANGELOG 写法见 skill **`changelog-conventions`**（正本在 `.agents/skills/changelog-conventions/`）：面向用户结果、一条一句、不写函数名/行号/内部术语。

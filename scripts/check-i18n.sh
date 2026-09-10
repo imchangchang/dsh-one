@@ -35,8 +35,11 @@ fi
 git rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null || {
   echo "分支 $BRANCH 不存在。" >&2; exit 2; }
 
-# 合并基点：分支 fork 出 main 的那个点。diff 只看这一基点到分支之间的改动。
-BASE=$(git merge-base main "$BRANCH")
+# 合并基点：分支 fork 出集成线的那个点。diff 只看这一基点到分支之间的改动。
+# 集成线默认 main，用 I18N_BASE 覆盖（合入 develop/* 这类长期分支时由 dev-merge 传入）：
+# 基点若仍按 main 算，整条分支与 main 之间的历史改动都会被当成「新增行」来扫。
+BASE_REF="${I18N_BASE:-main}"
+BASE=$(git merge-base "$BASE_REF" "$BRANCH")
 
 # 相对 merge-base 的 diff（只看新增行，+ 内容）。
 DIFF_FILE=$(mktemp)
@@ -52,6 +55,7 @@ const cp = require('child_process')
 
 const BRANCH = process.env.CHECK_I18N_BRANCH
 const BASE = process.env.CHECK_I18N_BASE
+const BASE_REF = process.env.CHECK_I18N_BASE_REF || 'main' // 仅用于输出提示，说明基点算在哪个分支上
 const REF = `refs/heads/${BRANCH}`
 const DIFF = fs.readFileSync(process.env.CHECK_I18N_DIFF, 'utf8')
 
@@ -359,12 +363,12 @@ for (const file of SRC_TREE) {
 
 // ---------- 输出 ----------
 if (problems.length) {
-  console.log(`[i18n] 拒绝合入：分支 ${BRANCH} 相对 main 的新增行存在 i18n 漏同步：`)
+  console.log(`[i18n] 拒绝合入：分支 ${BRANCH} 相对 ${BASE_REF} 的新增行存在 i18n 漏同步：`)
   for (const p of problems) console.log(`  ${p}`)
   console.log(`[i18n] 共 ${problems.length} 处，请补齐对应 i18n 文件后再合并。`)
   process.exit(1)
 } else {
-  console.log(`[i18n] OK：分支 ${BRANCH} 相对 main 的新增行无 i18n 漏同步。`)
+  console.log(`[i18n] OK：分支 ${BRANCH} 相对 ${BASE_REF} 的新增行无 i18n 漏同步。`)
   process.exit(0)
 }
 NODE
@@ -373,6 +377,7 @@ set +e
 OUTPUT=$(
   CHECK_I18N_BRANCH="$BRANCH" \
   CHECK_I18N_BASE="$BASE" \
+  CHECK_I18N_BASE_REF="$BASE_REF" \
   CHECK_I18N_DIFF="$DIFF_FILE" \
   node "$NODE_FILE"
 )
