@@ -1,6 +1,20 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { interleaveSteering } from '../src/pure/steeringOrder.ts'
+import { interleaveSteering, orderBySeq } from '../src/pure/steeringOrder.ts'
+
+test('orderBySeq：按 seq 升序排，无 seq 排尾，稳定保持相对顺序', () => {
+  const items = [
+    { id: 'c', seq: 103 },
+    { id: 'no-seq-1' },
+    { id: 'a', seq: 100 },
+    { id: 'no-seq-2' },
+    { id: 'b', seq: 100 }, // 与 a 同 seq：稳定排序保持 a 在前
+  ]
+  const out = orderBySeq(items)
+  assert.deepEqual(out.map((i) => i.id), ['a', 'b', 'c', 'no-seq-1', 'no-seq-2'])
+  // 不原地改调用方数组（消费侧保活对账依赖原序）。
+  assert.deepEqual(items.map((i) => i.id), ['c', 'no-seq-1', 'a', 'no-seq-2', 'b'])
+})
 
 test('互斥插排：早发 steering（低 seq）插到后发消息（高 seq）之前，治乱序', () => {
   const messages = [
