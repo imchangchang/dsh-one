@@ -1,19 +1,22 @@
 /**
- * 集成验证 shareControlStream 的晚订阅者重放（queue-lost-after-session-switch）：
- * 用最小 remote.mux WS 服务端模拟 dsh 0.1.2 gateway——`session/control` 流在
- * open 时推 baseline + 增量，之后新建的逻辑流不复推。
+ * 集成验证共享 0.1.2 逻辑流的生命周期（用最小 remote.mux WS 服务端模拟 dsh
+ * 0.1.2 gateway）：
  *
- * 场景：JobsStore 先订阅（占住单例流）→ 服务端推 baseline + queue 增量 →
- * 晚到的 ChatSessionController 再订阅 → 必须立即收到合成的 baseline 帧
- * （含合并后的队列），否则排队消息在会话切换后丢失。
+ * 1. `session/control` 晚订阅者重放（queue-lost-after-session-switch）——流在
+ *    open 时推 baseline + 增量，之后新建的逻辑流不复推；晚到的
+ *    ChatSessionController 必须立即收到合成的 baseline 帧（含合并后的队列），
+ *    否则排队消息在会话切换后丢失。
+ * 2. `workspace/follow` 断流重开的代际识别——同 URL 断流后订阅方自行重开流、
+ *    host 再发一次 baseline；第二次 baseline 必须触发 onReconnect（消费端据此
+ *    重拉会话列表与 running 位，#52 S5），首次 baseline 与增量不得误报。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
 import type { Socket } from 'node:net'
 import { encodeFrame, decodeFrame, wsAccept } from './mock-dsh/server.ts'
-import { subscribeControlStream } from '../src/server/modernStreams.ts'
-import type { ControlStreamFrame } from '../src/pure/remoteFrames.ts'
+import { subscribeControlStream, subscribeWorkspaceStream } from '../src/server/modernStreams.ts'
+import type { ControlStreamFrame, WorkspaceStreamFrame } from '../src/pure/remoteFrames.ts'
 import type { Logger } from '../src/log.ts'
 
 /** 最小 remote.mux 服务端：只实现 open/cancel + 按 streamId 推 item 帧。 */
@@ -128,6 +131,21 @@ class MockMuxServer {
     }
     return this.streams.keys().next().value as string
   }
+
+  /** 掐断全部 WS 连接（模拟同 URL 断流；重连由订阅方自己的退避驱动）。 */
+  dropSockets(): void {
+    for (const socket of this.sockets) socket.destroy()
+  }
+
+  /** 等待一条**新**的逻辑流打开（返回其 streamId；断流重连后的代际）。 */
+  async waitNewStream(seen: Set<string>, timeoutMs = 5000): Promise<string> {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      for (const id of this.streams.keys()) if (!seen.has(id)) return id
+      if (Date.now() > deadline) throw new Error('mock mux: no new stream opened')
+      await new Promise((r) => setTimeout(r, 10))
+    }
+  }
 }
 
 /** 把 open/final 事件排进 handler（晚到者会收到同步重放，先后顺序可断）。 */
@@ -233,5 +251,46 @@ test('control 流：晚订阅者注册时无已知状态则收到空的（不误
     }
   } finally {
     await mux2.close()
+  }
+})
+
+test('workspace 流：断流重开后第二次 baseline 触发 onReconnect（同 URL 代际）', async () => {
+  const mux3 = new MockMuxServer()
+  const port3 = await mux3.listen()
+  const origin3 = `http://127.0.0.1:${port3}`
+  try {
+    const frames: WorkspaceStreamFrame[] = []
+    let reconnects = 0
+    const sub = subscribeWorkspaceStream(
+      origin3,
+      silence,
+      (frame) => frames.push(frame),
+      () => {
+        reconnects += 1
+      },
+    )
+    try {
+      const firstId = await mux3.waitAnyStream()
+      mux3.push(firstId, { type: 'baseline', value: { items: [{ workspaceId: 'w1' }], archivedSessionIds: [] } })
+      // 首次 baseline 不算重连；后续增量也不许误报。
+      mux3.push(firstId, { type: 'upsert', workspace: { workspaceId: 'w2' } })
+      const deadline = Date.now() + 2000
+      while (frames.length < 2 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10))
+      assert.equal(frames.length, 2)
+      assert.equal(reconnects, 0)
+
+      // 掐断 socket：订阅方按自己的退避重开流，host 再发一次 baseline。
+      const seen = new Set([firstId])
+      mux3.dropSockets()
+      const secondId = await mux3.waitNewStream(seen)
+      mux3.push(secondId, { type: 'baseline', value: { items: [{ workspaceId: 'w1' }], archivedSessionIds: [] } })
+      const d2 = Date.now() + 2000
+      while (reconnects === 0 && Date.now() < d2) await new Promise((r) => setTimeout(r, 10))
+      assert.equal(reconnects, 1)
+    } finally {
+      sub.dispose()
+    }
+  } finally {
+    await mux3.close()
   }
 })

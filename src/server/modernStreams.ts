@@ -294,16 +294,28 @@ export function purgeModernStreams(origin: string): void {
   getMux(origin, state?.logger ?? control?.logger ?? ({} as Logger)).close()
 }
 
-/** `workspace/follow` stream subscription (self-reconnecting). */
+/**
+ * `workspace/follow` stream subscription (self-reconnecting).
+ *
+ * `onReconnect` fires when a **second** baseline arrives on the same
+ * subscription: the host sends exactly one baseline per stream creation, so a
+ * repeat means the stream was re-opened after a transport loss (same URL — a
+ * server restart goes through purge/url change instead). Consumers use it to
+ * refetch what the baseline does not carry (e.g. session summaries with the
+ * running flag), which the blind window may have changed unseen.
+ */
 export function subscribeWorkspaceStream(
   origin: string,
   logger: Logger,
   onFrame: (frame: WorkspaceStreamFrame) => void,
+  onReconnect?: () => void,
 ): Disposable {
   let closed = false
   let subscription: (Disposable & { retry: () => void }) | null = null
   let timer: NodeJS.Timeout | null = null
   let attempts = 0
+  /** 已收过一次 baseline：再收到就是从断流里重开的代际。 */
+  let baselined = false
   const start = (): void => {
     if (closed || subscription !== null) return
     subscription = openStream(
@@ -314,7 +326,15 @@ export function subscribeWorkspaceStream(
       {
         onItem(value: unknown) {
           const frame = parseWorkspaceStreamFrame(value)
-          if (frame !== null) onFrame(frame)
+          if (frame === null) return
+          if (frame.type === 'baseline') {
+            const reopened = baselined
+            baselined = true
+            onFrame(frame)
+            if (reopened) onReconnect?.()
+            return
+          }
+          onFrame(frame)
         },
         onError() {
           subscription = null

@@ -1200,28 +1200,111 @@ export class ChatSessionController implements vscode.Disposable {
     }
   }
 
-  /** 0.1.2 control 基线：queues/jobs/projections 按会话的整体快照。 */
+  /**
+   * 0.1.2 control 基线：queues/jobs/projections 按会话的整体快照。基线是权威
+   * 全域快照（host 的 baseline() 逐会话给三域，projections 来自
+   * sessionProjections.snapshot 的整表读），所以**缺席即无内容**：缺席的会话键
+   * 按空快照清掉、缺席的投影键清空对应本地投影——否则断流重连或晚订阅者拿到
+   * 重放基线之后，幽灵排队消息、已结束的后台任务、过期投影 chip 会永久滞留
+   * （#52 S2；对齐官方 web 客户端 replaceControlBaseline 的整表重建语义）。
+   */
   private applyModernControlBaseline(value: Record<string, unknown>): void {
     const queues = value.queues as Record<string, unknown> | undefined
     const jobs = value.jobs as Record<string, unknown> | undefined
-    const projections = value.projections as Record<string, { asOfSeq?: number; values?: Record<string, unknown> }> | undefined
+    const projections = value.projections as
+      | Record<string, { asOfSeq?: number; values?: Record<string, unknown> }>
+      | undefined
     const queuesFor = queues?.[this.sessionId]
-    if (Array.isArray(queuesFor)) {
-      this.onFrame({ method: 'session/queue', payload: { sessionId: this.sessionId, items: queuesFor } })
-    }
+    // 缺席会话键同样走一次整表替换（空数组=清空），不等价于「跳过」。
+    this.onFrame({
+      method: 'session/queue',
+      payload: { sessionId: this.sessionId, items: Array.isArray(queuesFor) ? queuesFor : [] },
+    })
     const jobsFor = jobs?.[this.sessionId]
-    if (Array.isArray(jobsFor)) {
-      this.onFrame({ method: 'session/jobs', payload: { sessionId: this.sessionId, jobs: jobsFor } })
-    }
+    this.onFrame({
+      method: 'session/jobs',
+      payload: { sessionId: this.sessionId, jobs: Array.isArray(jobsFor) ? jobsFor : [] },
+    })
     const projectionFor = projections?.[this.sessionId]
-    if (projectionFor && typeof projectionFor.asOfSeq === 'number' && projectionFor.values) {
-      for (const [key, val] of Object.entries(projectionFor.values)) {
+    const values = projectionFor?.values
+    const asOfSeq = typeof projectionFor?.asOfSeq === 'number' ? projectionFor.asOfSeq : undefined
+    if (values !== undefined && asOfSeq !== undefined) {
+      for (const [key, val] of Object.entries(values)) {
         this.onFrame({
           method: 'session/projection',
-          payload: { sessionId: this.sessionId, key, value: val, seq: projectionFor.asOfSeq },
+          payload: { sessionId: this.sessionId, key, value: val, seq: asOfSeq },
         })
       }
     }
+    this.clearAbsentProjections(values ?? {}, asOfSeq)
+  }
+
+  /**
+   * 基线缺席的投影键 → 清空对应本地投影（本地水位抬到基线 asOfSeq，之后只认
+   * 更新的增量）。基线不新于本地水位（asOfSeq 缺失/更小）的键跳过：本地握着
+   * 更新的值，拿旧基线倒灌清掉是倒退。任一键真被清才推一次快照。
+   */
+  private clearAbsentProjections(values: Record<string, unknown>, asOfSeq: number | undefined): void {
+    /** 该键在基线里缺席，且基线不旧于本地水位（asOfSeq 未知时按缺席即清处理）。 */
+    const gone = (key: string, watermark: number): boolean =>
+      !Object.hasOwn(values, key) && (asOfSeq === undefined || asOfSeq >= watermark)
+    let changed = false
+    if (gone('title', this.titleSeq) && this.sessionTitle !== undefined) {
+      this.sessionTitle = undefined
+      changed = true
+    }
+    if (gone('permissions', this.permissionsSeq) && this.permissions !== undefined) {
+      this.permissions = undefined
+      changed = true
+    }
+    if (gone('sessionStats', this.statsSeq) && this.statsLike !== undefined) {
+      this.statsLike = undefined
+      this.statsTurns = undefined
+      this.refreshStatsLine()
+      changed = true
+    }
+    if (gone('tokenUsage', this.tokenUsageSeq) && this.tokenUsage !== undefined) {
+      this.tokenUsage = undefined
+      this.refreshStatsLine()
+      changed = true
+    }
+    if (gone('modelSelection', this.modelSelectionSeq) && this.modelSelection !== undefined) {
+      this.modelSelection = undefined
+      changed = true
+    }
+    if (gone('imageLimits', -1) && this.imageLimits !== undefined) {
+      this.imageLimits = undefined
+      changed = true
+    }
+    if (gone('contextPressure', this.pressureSeq) && this.contextPressure !== undefined) {
+      this.contextPressure = undefined
+      changed = true
+    }
+    if (gone('contextBreakdown', this.breakdownSeq) && this.contextBreakdown !== undefined) {
+      this.contextBreakdown = undefined
+      changed = true
+    }
+    if (gone('todos', this.todosSeq) && this.todos !== undefined) {
+      this.todos = undefined
+      changed = true
+    }
+    if (gone('plan', this.planSeq) && this.plan !== undefined) {
+      this.plan = undefined
+      changed = true
+    }
+    if (gone('goal', this.goalSeq) && this.goal !== undefined) {
+      this.goal = undefined
+      changed = true
+    }
+    if (gone('turnOutline', this.turnOutlineSeq) && this.turnOutline !== undefined) {
+      this.turnOutline = undefined
+      changed = true
+    }
+    if (gone('schedule', this.scheduleSeq) && this.schedule !== undefined) {
+      this.schedule = undefined
+      changed = true
+    }
+    if (changed) this.push(true)
   }
 
   /** 0.1.2 $events 水瀑布请求 → 进 pending（与旧 mux 帧同形状）。 */
