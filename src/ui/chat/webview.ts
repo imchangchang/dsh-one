@@ -4047,8 +4047,6 @@ function render(): void {
   } else if (!switchingSession && reanchorEarlier(messages)) {
     // 补页按锚行重锚生效（#50 R2）：本帧 scrollTop 已按锚行校正（可能是补页落地
     // 后的第一帧，也可能是之后图片撑高的任意一帧），不再用上一帧的位置覆盖它。
-  } else if (!switchingSession && prevScrollTop !== null && prepended && prevScrollHeight !== null) {
-    writeMessagesScrollTop(messages, prevScrollTop + (messages.scrollHeight - prevScrollHeight))
   } else if (!switchingSession && prevScrollTop !== null) {
     writeMessagesScrollTop(messages, prevScrollTop)
   }
@@ -6770,9 +6768,6 @@ function renderPendingPanel(pending: PendingRequest[]): HTMLElement {
   for (const rpcId of [...answerDrafts.keys()]) {
     if (!live.has(rpcId)) answerDrafts.delete(rpcId)
   }
-}
-
-function renderPendingPanel(pending: PendingRequest[]): HTMLElement {
   const panel = el('div', 'pending-panel')
   for (const p of pending) {
     panel.appendChild(p.kind === 'approval' ? renderApprovalPanel(p) : renderQuestionPanel(p))
