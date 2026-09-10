@@ -286,11 +286,93 @@ function pinToLatest(): void {
 }
 
 /**
- * 「加载更早」请求挂起时的锚点：发请求时的首条消息 id 与条数。响应落地
- * （loadingEarlier 由 true 翻回 false）那一帧若消息从顶部插入，渲染后按
- * 新增高度补偿 scrollTop，保住用户正在读的位置。
+ * 「加载更早」的阅读锚（对齐官方 dsh-client-ui-chat 的 anchorRef）：锚定一
+ * 条已渲染的内容行（flow key）+ 该行在滚动口内的期望偏移。补页每落一帧就按
+ * 锚行重算一次 scrollTop——一页分多帧到达、或页内图片/懒加载缩略图稍后才撑高
+ * 时同样跟着校正，而不是只在落地那一帧补一次。请求期间用户自己滚动会重取锚
+ * （跟随新的阅读位，不与手势较劲）。
  */
-let earlierAnchor: { firstId: string | undefined; count: number; seenLoading: boolean } | null = null
+let earlierAnchor: { key: string; top: number; until: number; height: number } | null = null
+
+/**
+ * 锚的稳定窗口：每次观察到内容高度变化（补页/图片撑高）或真的校正了位置就
+ * 续期；窗口到期（内容不再变）即解除，避免锚无限长驻。
+ */
+const EARLIER_ANCHOR_SETTLE_MS = 1000
+
+/**
+ * 最近一次「加载更早」请求的时间戳（0 = 无挂起请求）。宿主接单后会推
+ * loadingEarlier=true；兜底 500ms 后也放行——重入判定不能依赖某一帧的
+ * loadingEarlier 一定被观测到。锚在落地后还会活一段（见上），不能拿它当
+ * 防重入位，否则上翻连续补页会被挡住。
+ */
+let earlierRequestAt = 0
+const EARLIER_REQUEST_GUARD_MS = 500
+
+/** 内容行（消息/插话/工作流/命令卡）的 flow key：轨道与加载更早入口不是内容。 */
+function isContentFlowKey(key: string): boolean {
+  return key.startsWith('msg:') || key.startsWith('steer:') || key.startsWith('wf:') || key.startsWith('cmd:')
+}
+
+/** 取「滚动口顶边往下第一条内容行」作锚（官方 pagingAnchor 的可见行语义）。 */
+function captureEarlierAnchor(messages: HTMLElement): { key: string; top: number } | null {
+  const box = messages.getBoundingClientRect()
+  for (const row of Array.from(messages.querySelectorAll<HTMLElement>('[data-flow-key]'))) {
+    const key = row.getAttribute('data-flow-key') ?? ''
+    if (!isContentFlowKey(key)) continue
+    const rect = row.getBoundingClientRect()
+    if (rect.bottom <= box.top) continue
+    return { key, top: rect.top - box.top }
+  }
+  return null
+}
+
+/**
+ * 按锚行校正滚动位置（渲染后/异步撑高后调用）。返回 true = 锚生效并已写好
+ * scrollTop（本帧的位置归它管，调用方不要再用旧值覆盖）；锚行不在新窗口里
+ * 返回 false，由调用方走原有回写路径。
+ */
+function reanchorEarlier(messages: HTMLElement): boolean {
+  const anchor = earlierAnchor
+  if (anchor === null) return false
+  const row = messages.querySelector<HTMLElement>(`[data-flow-key="${CSS.escape(anchor.key)}"]`)
+  if (row === null) {
+    // 锚行不在新窗口里（窗口收缩/换页把它挤出去了）：无法校正，解除锚避免
+    // 每帧空转，位置交回原有回写路径。
+    earlierAnchor = null
+    return false
+  }
+  const now = performance.now()
+  // 内容高度变了（补页落地、页内图片/缩略图撑高）就续期：这些变化之后还要
+  // 按锚行校正，窗口不能在它们之前到期。
+  if (messages.scrollHeight !== anchor.height) {
+    anchor.height = messages.scrollHeight
+    anchor.until = now + EARLIER_ANCHOR_SETTLE_MS
+  }
+  const top = row.getBoundingClientRect().top - messages.getBoundingClientRect().top
+  const delta = top - anchor.top
+  if (Math.abs(delta) > 0.5) {
+    writeMessagesScrollTop(messages, messages.scrollTop + delta)
+    anchor.until = now + EARLIER_ANCHOR_SETTLE_MS
+  }
+  return true
+}
+
+/**
+ * 锚的生命周期收尾：用户回到最新（贴底）立即解除；加载已结束且内容过了
+ * settle 稳定窗口也解除——否则锚会长驻，此后每帧都按锚行校正，跟程序滚动
+ * （回合跳转等）打架。
+ */
+function releaseEarlierAnchorWhenSettled(): void {
+  const anchor = earlierAnchor
+  if (anchor === null) return
+  if (stickToBottom) {
+    earlierAnchor = null
+    return
+  }
+  if (state?.loadingEarlier !== true && performance.now() > anchor.until) earlierAnchor = null
+}
+
 /** Signature of the composer-relevant state at the last render; see render(). */
 let lastComposerSig: string | null = null
 /** Signature of the header-relevant state at the last render; see render(). */
@@ -758,10 +840,20 @@ document.addEventListener(
   true,
 )
 
-/** 请求加载更早的一页历史（按钮点击与上翻到顶共用）；挂起期间防重入。 */
+/**
+ * 请求加载更早的一页历史（按钮点击与上翻到顶共用）。发请求时取阅读锚
+ * （滚动口顶边的内容行 + 它当时的偏移），补页落地后逐帧按它校正滚动位置。
+ * 防重入靠 `earlierRequestAt`（0 = 无挂起请求）：锚在落地后还活着一段时间，
+ * 不能用锚当防重入位——那样上翻连续补页会被挡住。
+ */
 function maybeLoadEarlier(): void {
-  if (!state?.hasEarlierHistory || state.loadingEarlier === true || earlierAnchor !== null) return
-  earlierAnchor = { firstId: state.messages[0]?.id, count: state.messages.length, seenLoading: false }
+  if (!state?.hasEarlierHistory || state.loadingEarlier === true || earlierRequestAt !== 0) return
+  const messages = document.getElementById('messages')
+  if (messages === null) return
+  const captured = captureEarlierAnchor(messages)
+  if (captured === null) return
+  earlierAnchor = { ...captured, until: performance.now() + EARLIER_ANCHOR_SETTLE_MS, height: messages.scrollHeight }
+  earlierRequestAt = performance.now()
   post({ type: 'loadEarlier' })
 }
 
@@ -1262,6 +1354,7 @@ window.addEventListener('message', (event) => {
       recall = null
       recallDraft = ''
       earlierAnchor = null
+      earlierRequestAt = 0
       // commit hash 查询缓存按会话隔离：同一短 hash 在不同仓库可能指向不同提交，
       // 换会话后旧缓存里的 title 会误导，需重查（先查后亮保证点击行为仍准确）。
       commitInfoCache.clear()
@@ -3119,7 +3212,6 @@ function render(): void {
   // 活跃帧已经换成新会话的，会把旧会话的键写进去。
   if (!switchingDisclosure) saveInnerScroll(chatCol)
   const prevScrollTop = oldMessages?.scrollTop ?? null
-  const prevScrollHeight = oldMessages?.scrollHeight ?? null
   if (oldMessages && pinnedScrollTop !== null) {
     const floor = Math.max(0, oldMessages.scrollHeight - oldMessages.clientHeight)
     if (isReaderMoved(oldMessages.scrollTop, pinnedScrollTop, floor)) {
@@ -3703,6 +3795,12 @@ function render(): void {
         movedByReader,
         isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight),
       )
+      // 用户自己滚动时重取「加载更早」的阅读锚（官方同款：onScroll 里用新位置
+      // 刷新 anchorRef）——否则补页落地后逐帧重锚会跟手势较劲，把用户按回去。
+      if (movedByReader && earlierAnchor !== null && !stickToBottom) {
+        const captured = captureEarlierAnchor(messages)
+        if (captured !== null) earlierAnchor = { ...captured, until: earlierAnchor.until, height: messages.scrollHeight }
+      }
       const jump = messages.querySelector<HTMLElement>('.jump-latest')
       if (jump) jump.style.display = stickToBottom ? 'none' : ''
       // 上翻到顶部附近时按需加载更早一页（按钮之外的第二触发路径）。
@@ -3726,17 +3824,29 @@ function render(): void {
       // 停、仍跟随、已脱底时才补 pin（幂等：已贴底/非跟随/滚动活动中都不写）。
       maybeSettlePin()
     }
+    // 补页的异步撑高（页内图片/懒加载缩略图 load、details 展开）不经过 render：
+    // 「加载更早」的锚还活着时这里就地按锚行校正一次，用户读的那行不回跳
+    // （#50 R2 的后半段）。
+    const reanchorIfAnchored = (): void => {
+      if (earlierAnchor === null) return
+      reanchorEarlier(messages)
+      releaseEarlierAnchorWhenSettled()
+    }
     messages.addEventListener(
       'load',
       (e) => {
-        if (e.target instanceof HTMLImageElement) repinIfFollowing()
+        if (!(e.target instanceof HTMLImageElement)) return
+        repinIfFollowing()
+        reanchorIfAnchored()
       },
       true,
     )
     messages.addEventListener(
       'toggle',
       (e) => {
-        if (e.target instanceof HTMLDetailsElement) repinIfFollowing()
+        if (!(e.target instanceof HTMLDetailsElement)) return
+        repinIfFollowing()
+        reanchorIfAnchored()
       },
       true,
     )
@@ -3881,20 +3991,21 @@ function render(): void {
   lastTodosSig = composingInside(oldTodoPanel) ? lastTodosSig : todosSig
   lastQueueSig = composingInside(oldQueue) ? lastQueueSig : queueSig
   lastGoalSig = composingInside(oldGoalBar) ? lastGoalSig : goalSig
-  // 「加载更早」的锚定配对：先记下 loadingEarlier 曾为 true（请求确实被
-  // 接受），它翻回 false 的这一帧若消息从顶部插入（首条变了或条数多了），
-  // 按新增高度补偿 scrollTop；无论是否插入都解除锚点（空页/失败同样落地）。
-  const earlier = earlierAnchor
-  if (earlier !== null && state.loadingEarlier === true) earlier.seenLoading = true
-  const landed = earlier !== null && earlier.seenLoading && state.loadingEarlier !== true ? earlier : null
-  const prepended =
-    landed !== null && (state.messages.length > landed.count || state.messages[0]?.id !== landed.firstId)
+  // 「加载更早」的锚定（对齐官方 anchorRef）：宿主接单（loadingEarlier=true）
+  // 即清掉重入位；其后每一帧都按锚行重锚——补页分多帧到达、页内图片/缩略图
+  // 稍后撑高都能跟上，而不是只在落地那一帧补一次。锚在内容稳定（settle 窗口
+  // 到期）或用户回到最新（贴底）时解除。
+  if (state.loadingEarlier === true) earlierRequestAt = 0
+  if (earlierRequestAt !== 0 && performance.now() - earlierRequestAt > EARLIER_REQUEST_GUARD_MS) earlierRequestAt = 0
   // 恢复/补偿路径（换会话恢复历史位置、加载更早、非贴底跳转）同步写：它们是
   // 用户明确动作，不涉及「抢原生惯性动画」，也无需等布局 settle。
   if (restoreScrollTop !== null) {
     // 存档带视口锚就按锚换算（内容在切走期间增长/收缩时回到同一条消息的同一
     // 位置）；锚行已不在新内容里才回退原始 scrollTop（#52 W2）。
     writeMessagesScrollTop(messages, anchoredRestoreTop(messages, restoreAnchor) ?? restoreScrollTop)
+  } else if (!switchingSession && reanchorEarlier(messages)) {
+    // 补页按锚行重锚生效（#50 R2）：本帧 scrollTop 已按锚行校正（可能是补页落地
+    // 后的第一帧，也可能是之后图片撑高的任意一帧），不再用上一帧的位置覆盖它。
   } else if (!switchingSession && prevScrollTop !== null && prepended && prevScrollHeight !== null) {
     writeMessagesScrollTop(messages, prevScrollTop + (messages.scrollHeight - prevScrollHeight))
   } else if (!switchingSession && prevScrollTop !== null) {
@@ -3904,7 +4015,7 @@ function render(): void {
   // 换会话帧同样恢复：位置存档随展开态帧按会话隔离（已切到新会话的帧），键都是
   // 新会话自己的渲染键，恢复的正是切走前那个会话的卡内位置（#52 W2/W3）。
   restoreInnerScroll(chatCol)
-  if (landed !== null) earlierAnchor = null
+  releaseEarlierAnchorWhenSettled()
   // Read back the clamped value: this is the position the next render compares
   // against to tell user scrolls apart from content growth. 若恢复的 scrollTop
   // 被浏览器 clamp 到新的底部（切走期间内容收缩/变短到不足一屏），实际
@@ -5606,6 +5717,8 @@ function renderTurnRail(entries: ChatTurnOutlineEntry[], loadedFlags: readonly b
 function scrollToMessageId(messageId: string | null): void {
   if (!messageId) return
   stickToBottom = false
+  // 回合跳转是显式定位：作废「加载更早」的阅读锚，免得下一帧把它拽回原位。
+  earlierAnchor = null
   const messages = document.getElementById('messages')
   if (!messages) return
   const rowKey = `msg:${messageId}`
