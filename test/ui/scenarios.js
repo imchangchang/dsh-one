@@ -4475,8 +4475,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     expect: '运行中对话：composer 输入框文本为「等等，先停下，看看 @旧会话 的状态。」——canonical @[旧会话](dsh-session:…) 还原成 @旧会话（高亮层一个 .ref-token）；composer 附件区一个文档图标文件 chip（README.md）+ 一个红色方形图片缩略图（chart.png）。DOM 断言 window.__recallUnsteerSession = {input: "等等，先停下，看看 @旧会话 的状态。", chips: ["README.md"], refTokens: ["@旧会话"], thumbs: 1}。',
   }
 
-  // ---- 输入维度批次1（#51）：Esc/IME 门控、撤销链路、chip 文本投影 ----
-  // 共享断言助手：失败时顶部红色横幅（截图可见），明细写 window.__<ns>Asserts。
+  // 场景内断言助手（失败横幅 + window.__<ns>Asserts 明细）：本批的交互场景共用。
   const guardHelper = (ns) => `
     window.${ns}Asserts = []
     window.${ns}Fail = (step, detail) => {
@@ -4488,6 +4487,71 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     }
     window.${ns}Ok = (step, extra) => window.${ns}Asserts.push(Object.assign({ step, ok: true }, extra || {}))
   `
+
+  // ---- 代码块语法高亮（#51）----
+  catalog['code-block-highlight'] = {
+    state: base({
+      messages: [
+        u('把改法贴给我看看。'),
+        at(
+          '视口外的块不着色：\n\n```go\nfunc main() {\n\tprintln("viewport")\n}\n```\n\n' +
+            // 占位说明把下面的代码块推到下面（渲染后消息区贴底，上面这个 go 块就出了视口）
+            Array.from({ length: 40 }, (_, i) => `第 ${i + 1} 行占位说明，用来把上面的代码块推出视口。`).join('\n\n') +
+            '\n\n这样写：\n\n```ts\nconst answer: number = 42\n// 计数器\nfunction bump(n: number) {\n  return `n=${n}`\n}\n```\n\n换成 Python 是这样：\n\n```python\ndef bump(n):\n    return f"n={n}"\n```\n\n没登记的语言不着色：\n\n```unknownlang\n@@ 原样文本 @@\n```',
+        ),
+      ],
+    }),
+    title: '代码块语法高亮：shiki 懒加载 + 滚入视口才着色',
+    interactSteps: [
+      {
+        name: 'highlighted',
+        script: `(() => {
+          ${guardHelper('__hl')}
+          const pres = () => [...document.querySelectorAll('.md-code pre')]
+          const done = (pre) => pre.hasAttribute('data-hl')
+          window.__hlDiag = () => pres().map((p) => ({ hl: p.getAttribute('data-hl'), lines: p.querySelectorAll('code > span.line').length, text: (p.querySelector('code')?.textContent ?? '').slice(0, 24) }))
+          let waited = 0
+          const tick = () => {
+            const list = pres()
+            // 四块的 DOM 顺序：视口外的 go、视口内的 ts / python / unknownlang
+            const [offscreen, ts, py, unknown] = list
+            const tsText = ts?.querySelector('code')?.textContent ?? ''
+            const tsLines = tsText.split('\\n')
+            const tsOk = !!ts && done(ts) && ts.getAttribute('data-hl') === 'ts'
+              // 围栏内容带尾换行：5 行源码 + 1 个空行尾
+              && tsLines.length === 6
+              && tsLines[0] === 'const answer: number = 42'
+              && tsLines[1] === '// 计数器'
+              && tsLines[2] === 'function bump(n: number) {'
+              && tsLines[4] === '}'
+              && tsLines[5] === ''
+              && ts.querySelectorAll('code > span.line').length === 6
+              && (ts.querySelector('code')?.innerHTML ?? '').includes('var(--shiki-token-keyword)')
+            const pyOk = !!py && done(py) && py.getAttribute('data-hl') === 'python'
+              && py.querySelectorAll('code > span.line').length === 3
+            const unknownOk = !!unknown && !done(unknown) && (unknown.querySelector('code')?.textContent ?? '').includes('@@ 原样文本 @@')
+            const offOk = !!offscreen && !done(offscreen)
+            if (tsOk && pyOk && unknownOk && offOk) {
+              window.__hlOk('highlighted', { diag: window.__hlDiag() })
+              return
+            }
+            waited += 100
+            if (waited > 4000) {
+              window.__hlFail('highlighted', JSON.stringify({ tsOk, pyOk, unknownOk, offOk, tsText, diag: window.__hlDiag() }))
+              return
+            }
+            setTimeout(tick, 100)
+          }
+          tick()
+        })()`,
+        settle: 4600,
+      },
+    ],
+    expect: '助手消息里四段围栏代码——① ts 块：语言标签「ts」+ 逐行着色的 token（关键字/常量/注释/函数各一色，走 --shiki-token-* 变量），文本内容与源码逐字一致（着色不改内容）；② python 块：同样着色（语言包按需单独加载）；③ unknownlang 块：语言未登记，保持纯文本、无着色；④ 消息末尾被 40 行占位说明推到视口外的 go 块：**不着色**（只有滚进视口的代码块才拉起资源并着色）。DOM 断言 window.__hlAsserts 的 highlighted 步 ok=true（含四块的 data-hl/行数/文本明细）。',
+  }
+
+  // ---- 输入维度批次1（#51）：Esc/IME 门控、撤销链路、chip 文本投影 ----
+  // 共享断言助手：失败时顶部红色横幅（截图可见），明细写 window.__<ns>Asserts。
 
   catalog['composer-ime-esc-guard'] = {
     state: base({ running: true }),

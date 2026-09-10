@@ -464,6 +464,34 @@
   }
   .md-code-toggle:hover { opacity: 1; }
   .md-code pre { margin: 0; }
+  /* 语法高亮（shiki，css-variables 主题）：token 颜色不写死在 HTML 里，走
+     --shiki-token-* 变量。配色取自官方 dsh web 的 theme 包（浅色一套 + 深色
+     一套），背景/前景沿用 VS Code 的代码块底色与正文色。未着色的文本落在
+     --shiki-foreground。 */
+  body {
+    --shiki-foreground: var(--vscode-editor-foreground, #cccccc);
+    --shiki-token-comment: #868e96;
+    --shiki-token-constant: #1c7ed6;
+    --shiki-token-function: #6741d9;
+    --shiki-token-keyword: #d6336c;
+    --shiki-token-link: #1971c2;
+    --shiki-token-parameter: #e8590c;
+    --shiki-token-punctuation: #495057;
+    --shiki-token-string: #2f9e44;
+    --shiki-token-string-expression: #2b8a3e;
+  }
+  body.vscode-dark, body.vscode-high-contrast, body[data-theme='dark'] {
+    --shiki-token-comment: #adb5bd;
+    --shiki-token-constant: #4dabf7;
+    --shiki-token-function: #b197fc;
+    --shiki-token-keyword: #faa2c1;
+    --shiki-token-link: #74c0fc;
+    --shiki-token-parameter: #ffa94d;
+    --shiki-token-punctuation: #ced4da;
+    --shiki-token-string: #69db7c;
+    --shiki-token-string-expression: #8ce99a;
+  }
+  .md-code pre[data-hl] code { color: var(--shiki-foreground); }
   .reasoning {
     border-left: 2px solid var(--vscode-panel-border, rgba(127,127,127,.4));
     padding-left: 8px; color: var(--vscode-descriptionForeground, #888);
