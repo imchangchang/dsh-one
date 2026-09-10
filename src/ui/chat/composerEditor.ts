@@ -15,7 +15,10 @@
  * 消息流渲染。
  */
 import {
+  CLEAR_HISTORY_COMMAND,
   COMMAND_PRIORITY_HIGH,
+  COPY_COMMAND,
+  HISTORIC_TAG,
   KEY_ARROW_UP_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
@@ -47,14 +50,21 @@ import {
 import { createEmptyHistoryState, registerHistory } from '@lexical/history'
 import { registerPlainText } from '@lexical/plain-text'
 import { boundTokenRanges, scanAtTokens, scanCommandTokens, shouldColorAtToken, shouldColorSlashToken } from '../../pure/tokenScan.ts'
+import { restoreFileMentionTokens } from '../../pure/fileReference.ts'
+import { restoreSessionMentionTokens, sessionMentionRanges } from '../../pure/sessionMention.ts'
 
 /** @token 显示文本（如 `@img.png` / `@标题`）→ canonical mention。 */
 export type MentionBindings = Map<string, string>
 
 /** composer 编辑器会触发、交给外层处理的事件回调。 */
 export interface ComposerHandlers {
-  /** 文本内容变化（含程序化 setText）——外层据此同步按钮/清空/draft。 */
-  onTextChange: (text: string) => void
+  /**
+   * 文本内容变化——外层据此同步按钮/清空/draft。
+   * `programmatic` = 这次变化来自 {@link ComposerEditor.setText}（清空/召回/草稿
+   * 恢复等程序化重写），不是用户敲进来的新内容；外层据此区分「内容入场」与
+   * 「程序自己重写」（清空暂存只被前者作废）。
+   */
+  onTextChange: (text: string, meta: { programmatic: boolean }) => void
   /** 光标/选区变化——外层据此刷新 @ / slash 补全弹层。 */
   onSelectionChange: () => void
   /** Enter（非 shift、非组合）：返回是否消费（发送）。steer = ⌘/Ctrl。 */
@@ -107,6 +117,8 @@ export interface ComposerEditor {
 
 const REF_TYPE = 'ref-token'
 const CHIP_TYPE = 'ref-chip'
+/** setText 的程序化写入标签：外层据此区分「用户编辑」与「程序化重写」，历史栈据此忽略。 */
+const SET_TAG = 'dsh-composer-set'
 
 /** 空候选名集合（atTokenNames 缺省用；不共享可变实例，读到即返回同一个空集）。 */
 const EMPTY_NAME_SET: ReadonlySet<string> = new Set<string>()
@@ -135,9 +147,11 @@ const FILE_ICON_PATH = 'M4.2 2h4.6L12 5.2V14H4.2z M8.8 2v3.2H12'
  * 两段式的「落定态」：从补全菜单选中后才替换为它。它是 DecoratorNode：
  *  - {@link isInline}() = true（行内）。
  *  - {@link isKeyboardSelectable}() = false（整块删 + 箭头一步跨，光标不落进 chip）。
- *  - {@link getTextContent}() 返回「剪贴板/文本投影」=`clipboardText`——统一取
- *    「显示 token 文本」（如 `@img.png`），保证 `getText()`/`expandMentionBindings`
- *    的文本语义与单段式一致（chip 在纯文本流里投影为它的显示 token）。
+ *  - {@link getTextContent}() 返回「剪贴板/文本投影」=`clipboardText`——**可解析
+ *    引用**（`@/abs/foo.ts` / `@[标签](dsh-session:…)`），与官方 ReferenceChipNode
+ *    的 clipboardText 同语义（官方注释：clipboard / persistence projection）。
+ *    chip 显示的 {@link createDOM} label 只是显示名（`@foo.ts`），不进文本投影：
+ *    复制出去、落草稿、跨窗口、重启恢复拿到的都是能直接解析的引用。
  *  - 纯 DOM（composer 无 React）：visible 内容由 {@link createDOM} 画进宿主元素，
  *    {@link decorate}() 返回 null（基类默认），不再走 React portal。
  */
@@ -423,6 +437,77 @@ function splitLineByTokens(
   return out
 }
 
+/** setText 的片段：plain = 普通文本；chip = canonical 引用（文本投影即可解析路径）；token = 显示 token（着色文本节点）。 */
+interface LineSegment {
+  /** 片段在文本流里的字面内容（chip 这里是显示名，不是它的文本投影）。 */
+  text: string
+  kind: 'plain' | 'chip' | 'token'
+  /** chip/token 的 canonical mention（进编辑器后作为节点的文本投影）。 */
+  mention?: string
+}
+
+/**
+ * 文本里的 canonical 引用区间：会话 `@[标签](dsh-session:…)` 与路径形
+ * `@/abs/…`（含 `@"…"` 引号形）。文本里出现这两类说明内容来自 chip 的文本
+ * 投影（复制/落草稿/跨窗口/重启恢复），恢复时要重建回 chip；其余 `@短名` 是
+ * 手打/粘贴的显示 token，保持着色文本节点的形态（无分隔符的 @token 不是引用，
+ * 见 #36）。
+ */
+function canonicalMentionRanges(line: string): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = sessionMentionRanges(line).map((r) => ({
+    start: r.start,
+    end: r.end,
+  }))
+  for (const r of scanAtTokens(line)) {
+    const cleaned = line.slice(r.start + 1, r.end).replace(/^"|"$/g, '')
+    if (/[\\/]/.test(cleaned)) ranges.push({ start: r.start, end: r.end })
+  }
+  return ranges.sort((a, b) => a.start - b.start)
+}
+
+/**
+ * canonical mention → chip 显示 label：优先反查已有绑定（上次输入时的显示
+ * token 原样回来，含 ` (2)` 后缀），未命中再按短名派生并登记绑定。两个
+ * restore* 复用现成的反查/派生规则（与发送展开互逆），无法解析时原样返回。
+ */
+function displayTokenForMention(mention: string, bindings: MentionBindings): string {
+  const session = restoreSessionMentionTokens(mention, bindings)
+  if (session !== mention) return session
+  const file = restoreFileMentionTokens(mention, bindings)
+  if (file !== mention) return file
+  return mention
+}
+
+/** canonical mention 对应的 chip 外观：会话引用 / 目录（尾斜杠）/ 文件。 */
+function chipAppearanceForMention(mention: string): ChipAppearance {
+  if (mention.startsWith('@[')) return 'session'
+  return /\/"?$/.test(mention) ? 'folder' : 'file'
+}
+
+/**
+ * 把一行拆成 plain / chip / token 片段（setText 还原用）。canonical 引用先按
+ * {@link canonicalMentionRanges} 切出来（这些片段重建为 chip，文本投影保持
+ * 可解析），其余部分再按绑定键切显示 token（维持着色文本节点）。
+ */
+function splitLineByReferences(line: string, bindings: MentionBindings): LineSegment[] {
+  const out: LineSegment[] = []
+  const pushPlain = (chunk: string): void => {
+    for (const seg of splitLineByTokens(chunk, bindings)) {
+      out.push({ text: seg.text, kind: seg.token ? 'token' : 'plain', mention: seg.token ? bindings.get(seg.text) : undefined })
+    }
+  }
+  let cursor = 0
+  for (const range of canonicalMentionRanges(line)) {
+    if (range.start < cursor) continue
+    const mention = line.slice(range.start, range.end)
+    pushPlain(line.slice(cursor, range.start))
+    out.push({ text: displayTokenForMention(mention, bindings), kind: 'chip', mention })
+    cursor = range.end
+  }
+  pushPlain(line.slice(cursor))
+  return out
+}
+
 /** 读取编辑器当前纯文本。 */
 function readPlainText(editor: LexicalEditor): string {
   let out = ''
@@ -624,7 +709,9 @@ export function createComposerEditor(opts: {
   const insertTokenAtCaret = (text: string, mention: string, appearance: ChipAppearance = 'file'): void => {
     editor.update(() => {
       const sel = $getSelection()
-      const token = $createRefChipNode(appearance, mention, text, text, appearance)
+      // 第 4 个参数是文本投影（clipboardText）：传 mention（可解析引用）而不是
+      // display token——复制/落草稿/跨窗口/重启都靠它还原引用。
+      const token = $createRefChipNode(appearance, mention, text, mention, appearance)
       if ($isRangeSelection(sel)) {
         sel.insertNodes([token])
         sel.insertText(' ')
@@ -658,7 +745,7 @@ export function createComposerEditor(opts: {
       sel.anchor.set(s.key, s.offset, s.type)
       sel.focus.set(e.key, e.offset, e.type)
       $setSelection(sel)
-      const token = $createRefChipNode(appearance, mention, text, text, appearance)
+      const token = $createRefChipNode(appearance, mention, text, mention, appearance)
       sel.insertNodes([token])
       sel.insertText(' ')
     }, { discrete: true })
@@ -672,24 +759,39 @@ export function createComposerEditor(opts: {
         for (const child of [...rootNode.getChildren()]) child.remove()
         for (const line of text.split('\n')) {
           const p = $createParagraphNode()
-          for (const seg of splitLineByTokens(line, bindings)) {
+          for (const seg of splitLineByReferences(line, bindings)) {
             if (!seg.text) continue
-            if (seg.token) p.append($createRefTokenNode(seg.text, bindings.get(seg.text)))
-            else p.append($createTextNode(seg.text))
+            if (seg.kind === 'chip') {
+              const mention = seg.mention ?? seg.text
+              const appearance = chipAppearanceForMention(mention)
+              p.append($createRefChipNode(appearance, mention, seg.text, mention, appearance))
+            } else if (seg.kind === 'token') {
+              p.append($createRefTokenNode(seg.text, seg.mention))
+            } else {
+              p.append($createTextNode(seg.text))
+            }
           }
           rootNode.append(p)
         }
         $getRoot().selectEnd()
       },
-      { tag: 'dsh-composer-set', discrete: true },
+      // HISTORIC_TAG：程序化写入不进 undo 栈（registerHistory 对 historic 更新一律
+      // 丢弃候选）。否则「发送后清空」会作为一条可撤销记录留在栈里，Cmd+Z 把已经
+      // 发出去的内容复活回输入框。
+      { tag: [SET_TAG, HISTORIC_TAG], discrete: true },
     )
+    // 整体重写等于换了一条内容基线：把既有的 undo/redo 栈一起清掉。只靠上面的
+    // historic 标签会让 historyState.current 停在重写前的状态，之后用户一打字
+    // （新历史条目以旧状态为底）Cmd+Z 仍能撤回被程序化替换掉的旧内容。
+    editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined)
   }
 
-  // 编辑器更新 → 同步文本/选区变化（占位符显隐 + 外层自动跟随）。
-  // 注意：必须在 setRootElement(root) 之后注册——挂载首帧的 update 在 setRootElement
-  // 内部触发，此时调用方尚未拿到编辑器（外层 composer 未赋值），提前触发 onTextChange
-  // 会在调用方闭包里读到未初始化的编辑器（回归：composer 不渲染）。
-  let lastText: string | null = null
+  // 挂载完成后再挂更新监听（见下方注释）：lastText 以「挂载后的当前文本」起步，
+  // 而不是 null 哨兵——挂载后紧跟的无文本变化 update（focus(true) 的 selectEnd、
+  // 装饰变换等）不该被当成「用户敲了内容」。哨兵写法会让新编辑器把第一次空更新
+  // 报成一次空文本变化，外层据此作废清空暂存；清空带附件的内容会重建 composer，
+  // 于是「清空后 Ctrl+Z 反悔」又被这次假变化清掉。
+  let lastText: string = getText()
   let lastSel = { start: -1, end: -1 }
 
   // 键盘：Enter 发送 / ↑ 召回 / Esc 清空或停止 / ⌘Z 反悔。
@@ -737,6 +839,23 @@ export function createComposerEditor(opts: {
     COMMAND_PRIORITY_HIGH,
   )
 
+  // copy：写「文本投影」而不是 DOM 文本。chip 的 DOM 里只有显示名（`@foo.ts`），
+  // 原生复制会把它当纯文本复制出去，粘到别处/别的窗口就解析不出引用；文本投影
+  // （getTextContent = canonical mention）才是可解析的。选区里没有 chip 时写回的
+  // 内容与原生一致（同一个 getText 切片），不改变既有行为。
+  const unregisterCopy = editor.registerCommand<ClipboardEvent | KeyboardEvent | null>(
+    COPY_COMMAND,
+    (event) => {
+      const sel = selection()
+      if (sel.start === sel.end) return false
+      const clipboard = event as ClipboardEvent | null
+      clipboard?.preventDefault()
+      clipboard?.clipboardData?.setData('text/plain', getText().slice(sel.start, sel.end))
+      return true
+    },
+    COMMAND_PRIORITY_HIGH,
+  )
+
   // hover 联动。
   const onMouseMove = (e: MouseEvent): void => handlers.onTokenHover(mentionFromDom(e.target))
   const onMouseLeave = (): void => handlers.onTokenHover(null)
@@ -747,12 +866,12 @@ export function createComposerEditor(opts: {
 
   // 挂载完成后再挂更新监听：首帧（setRootElement 内触发的 update）不让 onTextChange
   // 提前触发，后续文本/选区变化才通知外层。
-  const unregisterUpdate = editor.registerUpdateListener(() => {
+  const unregisterUpdate = editor.registerUpdateListener(({ tags }) => {
     const text = getText()
     if (text !== lastText) {
       lastText = text
       placeholder.style.display = text.length === 0 ? '' : 'none'
-      handlers.onTextChange(text)
+      handlers.onTextChange(text, { programmatic: tags.has(SET_TAG) })
     }
     const sel = selection()
     if (sel.start !== lastSel.start || sel.end !== lastSel.end) {
@@ -781,6 +900,7 @@ export function createComposerEditor(opts: {
       unregisterUpdate()
       unregisterKeys()
       unregisterPaste()
+      unregisterCopy()
       unregisterHistory()
       unregisterTextRef()
       root.removeEventListener('mousemove', onMouseMove)

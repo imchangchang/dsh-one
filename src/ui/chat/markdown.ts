@@ -18,6 +18,7 @@ import { inlineImageMediaType } from '../../pure/inlineImage.ts'
 import { attachmentBaseName } from '../../pure/composerAttachment.ts'
 import { decodeSessionReferenceUri } from '../../pure/sessionMention.ts'
 import { codeBlockPreview } from '../../pure/codeBlock.ts'
+import { highlightCodeBlock } from './highlight.ts'
 import { jsonTreeThresholdExceeded, tryParseJsonTree, type JsonContainer } from '../../pure/jsonTree.ts'
 import type { FromWebviewMessage } from '../../pure/chatContract.ts'
 
@@ -143,12 +144,19 @@ export function createMarkdownTools(ctx: MarkdownCtx): MarkdownTools {
     return chip
   }
 
-  /** 一个代码块主体（<pre><code>，文本走 textContent 防注入）。 */
-  function mdCodeBody(text: string): HTMLPreElement {
+  /**
+   * 一个代码块主体（<pre><code>，文本走 textContent 防注入）。
+   *
+   * 语法高亮懒着来：这里只登记「语言 + 文本」，等这块滚进视口才去拉 shiki 资源
+   * 并着色（见 highlight.ts）——聊天里翻历史时大部分代码块根本不进视口。
+   */
+  function mdCodeBody(text: string, lang?: string): HTMLPreElement {
     const pre = el('pre') as HTMLPreElement
     const code = el('code')
     code.textContent = text
+    if (lang) code.classList.add(`language-${lang}`)
     pre.appendChild(code)
+    highlightCodeBlock(code, lang, text)
     return pre
   }
 
@@ -356,13 +364,15 @@ export function createMarkdownTools(ctx: MarkdownCtx): MarkdownTools {
 
       const wrap = el('div', 'md-code')
       wrap.appendChild(bar)
+      // 折叠态的头/尾各自是一个完整 <pre>，语法高亮按「每块各自着色」处理：边界
+      // 那一两行的分词可能与展开态略有出入，展开即回到整段着色。
       if (hidden === 0 || open) {
-        wrap.appendChild(mdCodeBody(text))
+        wrap.appendChild(mdCodeBody(text, lang))
         if (hidden > 0) wrap.appendChild(toggle(false, t('Collapse')))
       } else {
-        wrap.appendChild(mdCodeBody(head.join('\n')))
+        wrap.appendChild(mdCodeBody(head.join('\n'), lang))
         wrap.appendChild(toggle(true, t('… {0} more lines', hidden)))
-        wrap.appendChild(mdCodeBody(tail.join('\n')))
+        wrap.appendChild(mdCodeBody(tail.join('\n'), lang))
       }
       pre.replaceWith(wrap)
     })
