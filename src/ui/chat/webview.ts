@@ -46,7 +46,7 @@ import {
   type HostOs,
 } from '../../pure/installScript.ts'
 import { steerModifierLabel } from '../../pure/steerShortcut.ts'
-import { interleaveSteering } from '../../pure/steeringOrder.ts'
+import { interleaveSteering, orderBySeq } from '../../pure/steeringOrder.ts'
 import { looksLikeSlashCommand } from '../../pure/slashCommand.ts'
 import { isFilePathHref } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
@@ -3534,7 +3534,9 @@ function render(): void {
   // 进对话流末尾（用户气泡 + 「等待插话」标记），排队消息留在输入框上方。
   // 混在一个队列区里时，先插话再排队的快照顺序会让两条消息看起来颠倒。
   const steeringItems = (state.queue ?? []).filter((item) => item.placement === 'steering')
-  const queuedItems = (state.queue ?? []).filter((item) => item.placement === 'queued')
+  // queue dock 按合成 QueuedItem.seq 升序（无 seq 排尾）：宿主快照不保证发送序，
+  // 多条排队折叠列表按序渲染（对齐 steering 插排的排序语义）。
+  const queuedItems = orderBySeq((state.queue ?? []).filter((item) => item.placement === 'queued'))
   // 消息流增量更新（不再 textContent='' 全量重建）：按消息 id / workflow runId
   // 对账，未变行整体保活。turn-status 行的 clock interval 归行所有：行保活时
   // 不动 timer，turn 结束行被移除时由 dispose 统一清理；turnStatusStart 由
@@ -5338,8 +5340,11 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
     seenSteerIds.add(item.id)
     items.push({ key: `steer:${item.id}`, same, create: () => renderSteeringItem(item) })
   }
-  // 插排结果：messages 已按 seq 升序，pseudo-steers 按其 seq 插到「应落位」处。
-  const flowEntries = interleaveSteering(state.messages, steerItems)
+  // 插排结果：messages 按 seq 升序（消费前兜底稳排——折叠层正常情况已保证
+  // 升序，这里防御 host 快照/基线乱序时插排错位），pseudo-steers 按其 seq
+  // 插到「应落位」处。
+  const orderedMessages = orderBySeq(state.messages)
+  const flowEntries = interleaveSteering(orderedMessages, steerItems)
   // 切分：最后一条消息之后的 entries 全是「最新（或无可比 seq）」的 steers——它们放
   // turn-status 之后（对齐官方 pendingSteering 尾置；插话总在「当前运行回合」之后）；
   // 之前/中间的（早发、确实晚于某条已渲染消息的）插排进消息流，治「先发插话却排到

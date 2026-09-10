@@ -446,6 +446,17 @@ function injectedContextOf(source: LooseInjectSource | undefined, text: string):
 }
 
 /**
+ * 按 event.seq 稳定排序（升序）后再 fold：host 基线/翻页下发的事件不保证数组序
+ * == seq 序，而折叠层整条链（消息结构、tool 卡配对、steering 插排、回合定位
+ * navigateAnchorOf）信赖「消息按 seq 升序」——乱序数组直接按数组序 fold 会让
+ * 消息结构本身错。对齐官方 replaceWindow/prepend 的按 seq re-sort；稳定排序
+ * 保证同 seq 事件保持下发相对顺序。
+ */
+function orderEntriesBySeq(entries: readonly HistoryEntryLike[]): HistoryEntryLike[] {
+  return entries.slice().sort((a, b) => a.event.seq - b.event.seq)
+}
+
+/**
  * Stateful folder over one session's event log. Feed it a history window with
  * applyHistory (full reset — the reconnect baseline), then live events with
  * applyEvent. One turn folds into one assistant message whose blocks follow
@@ -515,7 +526,7 @@ export class ConversationFolder {
     this.firstToken.clear()
     this.stepCompleted.clear()
     this.turnUsage.clear()
-    for (const entry of entries) this.applyEvent(entry.event, entry.view)
+    for (const entry of orderEntriesBySeq(entries)) this.applyEvent(entry.event, entry.view)
   }
 
   /**
@@ -527,7 +538,7 @@ export class ConversationFolder {
   prependHistory(entries: readonly HistoryEntryLike[]): void {
     if (entries.length === 0) return
     const older = new ConversationFolder()
-    for (const entry of entries) older.applyEvent(entry.event, entry.view)
+    for (const entry of orderEntriesBySeq(entries)) older.applyEvent(entry.event, entry.view)
     this.msgs = [...older.messages(), ...this.msgs]
   }
 

@@ -1,78 +1,103 @@
 {
-  "title": "message-flow-preact：消息流 block 层 Preact 化（治 #29）",
-  "branch": "agent/message-flow-preact",
-  "commit": "b4f3a5f",
-  "environment": {
-    "mode": "harness（WebBridge 驱动 test/ui harness + mutation-driver）",
-    "webview": "dist/chatWebview.js（preact 已 bundle）",
-    "theme": "dark",
-    "verifier": "ui-visual.sh --mode baseline（81 场景）+ mutation-driver.html（流式 15 帧 DOM 变更统计）+ happy-dom 机制级验证",
-    "date": "2026-09-09T14:25:28Z"
+ "title": "message-flow-preact：消息流 block 层 Preact 化（治 #29）",
+ "branch": "agent/message-flow-preact",
+ "commit": "789c69d（本轮修复/验证提交 aa87442..789c69d；验证基线 = 此 HEAD 前）",
+ "environment": {
+  "mode": "harness（WebBridge 驱动 test/ui harness）",
+  "webview": "dist/chatWebview.js（preact 已 bundle）",
+  "theme": "dark",
+  "verifier": "ui-visual.sh --mode baseline（84 场景，115 张截图）+ 新增乱序场景 DOM 断言（evaluate __msgOrderCheck/__queueOrderCheck）+ npm test 703（含新增 4 项排序单测）",
+  "date": "2026-09-10T08:40:00Z"
+ },
+ "coverageNote": "真桌面 VS Code、真 dsh/真模型输出、mock-llm 沙盒 e2e 不在本报告范围——本任务为前端渲染/纯逻辑排序改动，用 harness 浏览器独立渲染 + DOM 断言 + 纯函数单测做验证。宿主激活/协议层未改动。乱序基线（折叠层 applyHistory/prependHistory 按 seq 稳排）由 conversation 单测覆盖（harness 喂 state 快照不经折叠层）；workflowRun 成员序由 workflowRun 单测覆盖；消费侧（queue dock / buildFlowItems）由 harness 乱序场景 DOM 断言覆盖。",
+ "items": [
+  {
+   "id": "F-01",
+   "phase": "new-feature",
+   "name": "流式时 tool 卡不被重建（治 #29）",
+   "expect": "assistant 消息流式追加 text 时，已完成工具卡（含内部 OUT 滚动容器 / expanded / 动画 / 复制反馈）的 DOM 节点保持同一实例存活，不被每帧替换；只有文本块随内容增长。用 mutation-driver.html 统计 #messages 子树流式全程 DOM 变更量，应远低于「整行全量重建」基线。",
+   "result": "pass",
+   "screenshots": [
+    "/tmp/dsh-ui-shots-t2/thumb-ack-after-incremental-re-snap-stable.png",
+    "/tmp/dsh-ui-shots-t2/tool-skill.png"
+   ],
+   "notes": "mutation-driver（流式重投 15 帧）：改动后 added=38/removed=30/records=60，对照整行全量重建基线 238/231/252（-84%/-87%/-76%），且流式帧不整行重建、仅变化行内块。happy-dom 机制级验证：流式只追加 text、tool 块 JSON 不变时，tool 卡 DOM 节点 + [data-scroll-key] OUT 滚动容器同一实例存活；tool 状态 running→done 才重建。终态 finalTextHash=226ade48、msgRows=16、workflowCards=2 与基线一致。"
   },
-  "coverageNote": "真桌面 VS Code、真 dsh/真模型输出、mock-llm 沙盒 e2e 不在本报告范围——本任务为纯 webview 前端渲染改动，用 harness 浏览器独立渲染 + 流式 DOM 变更探针做验证。宿主激活/协议层未改动。",
-  "items": [
-    {
-      "id": "F-01",
-      "phase": "new-feature",
-      "name": "流式时 tool 卡不被重建（治 #29）",
-      "expect": "assistant 消息流式追加 text 时，已完成工具卡（含内部 OUT 滚动容器 / expanded / 动画 / 复制反馈）的 DOM 节点保持同一实例存活，不被每帧替换；只有文本块随内容增长。用 mutation-driver.html 统计 #messages 子树流式全程 DOM 变更量，应远低于「整行全量重建」基线。",
-      "result": "pass",
-      "screenshots": [
-        "/tmp/dsh-ui-shots-t2/thumb-ack-after-incremental-re-snap-stable.png",
-        "/tmp/dsh-ui-shots-t2/tool-skill.png"
-      ],
-      "notes": "mutation-driver（流式重投 15 帧）：改动后 added=38/removed=30/records=60，对照整行全量重建基线 238/231/252（-84%/-87%/-76%），且流式帧不整行重建、仅变化行内块。happy-dom 机制级验证：流式只追加 text、tool 块 JSON 不变时，tool 卡 DOM 节点 + [data-scroll-key] OUT 滚动容器同一实例存活；tool 状态 running→done 才重建。终态 finalTextHash=226ade48、msgRows=16、workflowCards=2 与基线一致。"
-    },
-    {
-      "id": "R-01",
-      "phase": "regression",
-      "name": "test/ui 基线视觉回归（assistant 消息块布局）",
-      "expect": "scenarios.js BASELINE_SCENARIOS 全部场景浏览器独立渲染无报错；错 assistant 消息拆 .msg-blocks 后，text / tool 卡（skill/cordis） / diff / produced-files / markdown / reasoning 排版与层级与原实现一致（消息右、助手左、工具卡折叠、产物行在操作栏上方）。",
-      "result": "pass",
-      "screenshots": [
-        "/tmp/dsh-ui-shots-t2/conversation.png",
-        "/tmp/dsh-ui-shots-t2/tool-skill.png",
-        "/tmp/dsh-ui-shots-t2/diff-side-by-side.png",
-        "/tmp/dsh-ui-shots-t2/produced-files.png",
-        "/tmp/dsh-ui-shots-t2/markdown.png"
-      ],
-      "notes": "scripts/ui-visual.sh --mode baseline：81 场景全部渲染且退出码 0（无 webview JS 报错）。抽查 conversation（text+tool 卡+操作栏）、tool-skill（skill 指令卡+chevron+collapse footer）、diff-side-by-side（左右分栏 diff+更多行）、produced-files（Outputs label+chip+「+2 files」）、markdown、thumb-ack 均与期望布局一致。"
-    },
-    {
-      "id": "R-02",
-      "phase": "regression",
-      "name": "工具卡 / JSON 树 / diff 定位属性与 DOM 结构",
-      "expect": "data-path（JSON 树行）、.json-tree-*（树容器/箭头/复制/节点）、.tool-*（tool-line/title/disclosure/inout/output）、.tool-skill、data-flow-key（行）等测试断言依赖的定位属性保留；block 内容由既有 renderBlock 构建，属性原样。",
-      "result": "pass",
-      "screenshots": [
-        "/tmp/dsh-ui-shots-t2/tool-skill.png",
-        "/tmp/dsh-ui-shots-t2/diff-side-by-side.png"
-      ],
-      "notes": "block 构建仍走 webview.ts 既有 renderBlock（内部 renderTool/renderJsonTree/renderDiff 原样），仅外层包 .block-shell 与 .msg-blocks；scenarios.js 断言（.tool-disclosure summary、.json-tree-row[data-path=...] .json-tree-copy-icon、.tool-skill details summary 等）均为后代选择器，命中不受影响。gen-ui-harness 重抽 style.css 同步 .msg-blocks/.block-shell。"
-    },
-    {
-      "id": "F-02",
-      "phase": "new-feature",
-      "name": "/goal 命令长参数（连续长串）在消息列内换行、不横向溢出",
-      "expect": "新增 command-goal-long-args 场景：单行 command（/goal + 连续无空格的纯字母长串）渲染为 .command-row，命令名+长串在消息列内容宽内换行（长串折多行、卡撑高不撑宽），不超出内容列右缘、不被裁切、页面无横向滚动条；命令卡右缘与上下行（用户消息）右缘对齐；不做成一整行横穿超宽被截断。",
-      "result": "pass",
-      "screenshots": [
-        "/tmp/dsh-ui-shots/command-goal-long-args.png"
-      ],
-      "notes": "fix 前该状态把 /goal + 长串整行塞进 .command-row .command-line（flex 项 min-width:auto = 内容 min-content 宽，连续长串不可断），被 max-content 撑出消息列右缘横向溢出；fix（min-width:0 + overflow-wrap:anywhere + word-break:break-word）后走 webview.ts 非多行路径渲染同串：截图见 /goal 行首、长串在消息列内折成多行，右缘与用户消息「帮我立一个长期目标。」右缘对齐，无横向滚动条、无裁切。"
-    },
-    {
-      "id": "R-03",
-      "phase": "regression",
-      "name": "命令卡既有排版无回归（compaction-cards / command-result-receipt / collapse-footer）",
-      "expect": "既有命令卡排版不受本次改动影响：compaction-cards（/compact 压缩摘要卡）、command-result-receipt（.command-row.error 错误回执）、collapse-footer（command-detail 多行命令 summary）各命令名/命令行仍按原宽与层级渲染、不因 command-line 断行规则改变而错位或溢出。",
-      "result": "pass",
-      "screenshots": [
-        "/tmp/dsh-ui-shots/compaction-cards.png",
-        "/tmp/dsh-ui-shots/command-result-receipt.png",
-        "/tmp/dsh-ui-shots/collapse-footer.png"
-      ],
-      "notes": "逐张核对：compaction-cards 三张压缩卡（含 /compact）左右缘与消息列对齐、无溢出；command-result-receipt /compact 行首 + 红色回执正文正常分行；collapse-footer command-detail summary 的 /compact 命令行按自然宽渲染、正文展开正常——command-line 断行/收缩规则（.command-row .command-line 与 .command-detail summary .command-line 的 min-width/overflow-wrap/word-break，summary 那条由 flex:none 改 0 1 auto）对短命令名（/compact）无副作用。"
-    }
-  ]
+  {
+   "id": "F-02",
+   "phase": "new-feature",
+   "name": "/goal 命令长参数（连续长串）在消息列内换行、不横向溢出",
+   "expect": "新增 command-goal-long-args 场景：单行 command（/goal + 连续无空格的纯字母长串）渲染为 .command-row，命令名+长串在消息列内容宽内换行（长串折多行、卡撑高不撑宽），不超出内容列右缘、不被裁切、页面无横向滚动条；命令卡右缘与上下行（用户消息）右缘对齐；不做成一整行横穿超宽被截断。",
+   "result": "pass",
+   "screenshots": [
+    "/tmp/dsh-ui-shots/command-goal-long-args.png"
+   ],
+   "notes": "fix 前该状态把 /goal + 长串整行塞进 .command-row .command-line（flex 项 min-width:auto = 内容 min-content 宽，连续长串不可断），被 max-content 撑出消息列右缘横向溢出；fix（min-width:0 + overflow-wrap:anywhere + word-break:break-word）后走 webview.ts 非多行路径渲染同串：截图见 /goal 行首、长串在消息列内折成多行，右缘与用户消息「帮我立一个长期目标。」右缘对齐，无横向滚动条、无裁切。"
+  },
+  {
+   "id": "F-03",
+   "phase": "new-feature",
+   "name": "乱序基线快照：消息流按 seq 升序渲染（#42 消息乱序根因 4-消费侧兜底）",
+   "expect": "harness 场景 message-seq-out-of-order：state.messages 数组故意乱序（第二问 seq 200 在前、第一问 seq 100 在后），渲染后对话流从上到下按 seq 升序（第一问 → 第一问的答 → 第二问 → 第二问的答），而非按数组序（第二问先显示）。",
+   "result": "pass",
+   "screenshots": [
+    "/tmp/dsh-ui-shots/message-seq-out-of-order.png"
+   ],
+   "notes": "evaluate window.__msgOrderCheck（#app .flow-col 各行 textContent）返回 [第一问：消息流排序的根因是什么, 第一问的答：折叠层入口没按 seq 排序。, 第二问：queue dock 的排序修好了吗, 第二问的答：修好了。]——按 seq 升序；截图核对：用户/助手行、操作栏、composer 正常。正常（已升序）输入下该稳排为 no-op（基线 84 场景无变化）。"
+  },
+  {
+   "id": "F-04",
+   "phase": "new-feature",
+   "name": "排队 dock 乱序快照：按合成 QueuedItem.seq 升序渲染（#42 修复 2）",
+   "expect": "harness 场景 queue-dock-out-of-order：state.queue 数组故意乱序（后发排队 seq 200 在前、先发排队 seq 100 在后），composer 上方排队 dock 折叠 header「2 条排队消息」，展开后列表先发排队（seq 100）在上、后发排队（seq 200）在下。",
+   "result": "pass",
+   "screenshots": [
+    "/tmp/dsh-ui-shots/queue-dock-out-of-order.png"
+   ],
+   "notes": "evaluate window.__queueOrderCheck（.queue-dock-list .queue-item .queue-text）返回 [先发排队：看看 dev-finish 脚本, 后发排队：检查 backlog 挪动]——按 seq 升序；截图核对：Queued 徽章 + 预览 + Steer/Edit/Delete 各行完整、折叠 header 正常。"
+  },
+  {
+   "id": "R-01",
+   "phase": "regression",
+   "name": "test/ui 基线视觉回归（assistant 消息块布局）",
+   "expect": "scenarios.js BASELINE_SCENARIOS 全部场景浏览器独立渲染无报错；消息流渲染改动（折叠入口排序/queue dock 排序/messages 稳排——正常有序输入下均为 no-op）不改变既有场景排版。",
+   "result": "pass",
+   "screenshots": [
+    "/tmp/dsh-ui-shots/conversation.png",
+    "/tmp/dsh-ui-shots/steering-pending.png",
+    "/tmp/dsh-ui-shots/queue-preview-mention.png",
+    "/tmp/dsh-ui-shots/workflow-running.png",
+    "/tmp/dsh-ui-shots/turn-navigator.png",
+    "/tmp/dsh-ui-shots/command-goal-long-args.png",
+    "/tmp/dsh-ui-shots/tool-skill.png",
+    "/tmp/dsh-ui-shots/produced-files.png"
+   ],
+   "notes": "scripts/ui-visual.sh --mode baseline：84 场景全部渲染、退出码 0（日志无「步骤超时」、无报错）。抽查 8 张：conversation（用户/助手行+tool 卡+操作栏+composer）、steering-pending（spinner+附件行+@会话 chip+引用摘要）、queue-preview-mention（Queued 徽章+chip 化预览+Steer/Edit/Delete）、workflow-running（run 卡 phase 成员列表按序）、turn-navigator（回合刻度+Load earlier+10/11/12 轮问答按序）、command-goal-long-args（/goal 长串折行不溢出）、tool-skill、produced-files 均与期望一致。"
+  },
+  {
+   "id": "R-02",
+   "phase": "regression",
+   "name": "工具卡 / JSON 树 / diff 定位属性与 DOM 结构",
+   "expect": "data-path（JSON 树行）、.json-tree-*（树容器/箭头/复制/节点）、.tool-*（tool-line/title/disclosure/inout/output）、.tool-skill、data-flow-key（行）等测试断言依赖的定位属性保留；block 内容由既有 renderBlock 构建，属性原样。",
+   "result": "pass",
+   "screenshots": [
+    "/tmp/dsh-ui-shots-t2/tool-skill.png",
+    "/tmp/dsh-ui-shots-t2/diff-side-by-side.png"
+   ],
+   "notes": "block 构建仍走 webview.ts 既有 renderBlock（内部 renderTool/renderJsonTree/renderDiff 原样），仅外层包 .block-shell 与 .msg-blocks；scenarios.js 断言（.tool-disclosure summary、.json-tree-row[data-path=...] .json-tree-copy-icon、.tool-skill details summary 等）均为后代选择器，命中不受影响。gen-ui-harness 重抽 style.css 同步 .msg-blocks/.block-shell。"
+  },
+  {
+   "id": "R-03",
+   "phase": "regression",
+   "name": "命令卡既有排版无回归（compaction-cards / command-result-receipt / collapse-footer）",
+   "expect": "既有命令卡排版不受本次改动影响：compaction-cards（/compact 压缩摘要卡）、command-result-receipt（.command-row.error 错误回执）、collapse-footer（command-detail 多行命令 summary）各命令名/命令行仍按原宽与层级渲染、不因 command-line 断行规则改变而错位或溢出。",
+   "result": "pass",
+   "screenshots": [
+    "/tmp/dsh-ui-shots/compaction-cards.png",
+    "/tmp/dsh-ui-shots/command-result-receipt.png",
+    "/tmp/dsh-ui-shots/collapse-footer.png"
+   ],
+   "notes": "逐张核对：compaction-cards 三张压缩卡（含 /compact）左右缘与消息列对齐、无溢出；command-result-receipt /compact 行首 + 红色回执正文正常分行；collapse-footer command-detail summary 的 /compact 命令行按自然宽渲染、正文展开正常——command-line 断行/收缩规则（.command-row .command-line 与 .command-detail summary .command-line 的 min-width/overflow-wrap/word-break，summary 那条由 flex:none 改 0 1 auto）对短命令名（/compact）无副作用。"
+  }
+ ]
 }

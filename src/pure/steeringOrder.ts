@@ -31,6 +31,15 @@ export type FlowOrderEntry<M extends SteeringOrderMessage, S extends SteeringOrd
   | { kind: 'message'; message: M }
   | { kind: 'steer'; steer: S }
 
+/**
+ * 按 seq 稳定排序（升序；无 seq 排尾，保持相对顺序）。interleaveSteering 与
+ * queue dock 的消费前提是「数组按 seq 升序」，host 快照/基线下发不保证该序，
+ * 消费侧先过一次这里兜底（正常已升序输入下为 no-op）。
+ */
+export function orderBySeq<T extends { seq?: number }>(items: readonly T[]): T[] {
+  return items.slice().sort((a, b) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER))
+}
+
 /** 把 pending steering 按发送时间插排进已按 seq 升序的消息流。 */
 export function interleaveSteering<M extends SteeringOrderMessage, S extends SteeringOrderItem>(
   messages: readonly M[],

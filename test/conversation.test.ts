@@ -904,6 +904,43 @@ test('prependHistory with an empty page is a no-op', () => {
   assert.equal(f.messages().length, 2)
 })
 
+test('applyHistory 乱序基线按 seq 升序折叠（host 下发数组序不保证 = seq 序）', () => {
+  const f = new ConversationFolder()
+  // 先构造 turn1 再构造 turn2（seq 递增），数组故意反序传：下行 seq 的事件排在
+  // 前。修复前按数组序 fold 会得 [第二问, 第二答, 第一问, 第一答]。
+  const t1 = turnEntries(1, '第一问', '第一答')
+  const t2 = turnEntries(2, '第二问', '第二答')
+  f.applyHistory([...t2, ...t1])
+  const msgs = f.messages()
+  assert.deepEqual(
+    msgs.map((m) =>
+      m.kind === 'user' ? m.text : m.kind === 'assistant' ? (m.blocks[0] as { text: string }).text : '',
+    ),
+    ['第一问', '第一答', '第二问', '第二答'],
+  )
+  // seq 严格升序（turn/end 的 seq 逐条递增）。
+  for (let i = 1; i < msgs.length; i++) {
+    assert.ok((msgs[i].seq ?? 0) > (msgs[i - 1].seq ?? 0), `msgs[${i}] seq 应大于前一条`)
+  }
+})
+
+test('prependHistory 乱序翻页同样按 seq 折叠（旧页内消息不被数组序打乱）', () => {
+  const f = new ConversationFolder()
+  f.applyHistory(turnEntries(3, '当前问', '当前答'))
+  // 旧页两条消息：先构造 turn1（seq 小）再构造 turn2（seq 大），数组反序传——
+  // 修复前 older folder 按数组序 fold 会得 [第二问, 第二答, 第一问, 第一答]。
+  const t1 = turnEntries(1, '第一问', '第一答')
+  const t2 = turnEntries(2, '第二问', '第二答')
+  f.prependHistory([...t2, ...t1])
+  const msgs = f.messages()
+  assert.deepEqual(
+    msgs.map((m) =>
+      m.kind === 'user' ? m.text : m.kind === 'assistant' ? (m.blocks[0] as { text: string }).text : '',
+    ),
+    ['第一问', '第一答', '第二问', '第二答', '当前问', '当前答'],
+  )
+})
+
 test('tail window without turn/start still reports the unclosed turn as running', () => {
   // 窗口分页：长 turn 的 turn/start 落在窗口外，但窗口是连续后缀——内容事件
   // 的 turn 没有配对 turn/end 就是还在跑。

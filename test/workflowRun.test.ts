@@ -80,6 +80,28 @@ test('完整 run 折叠：phase 分组、成员序、状态推导', () => {
   )
 })
 
+test('成员按 seq 排序：agent-start 乱序下发不按数组序渲染', () => {
+  const folder = new WorkflowRunFolder()
+  // 乱序基线：seq 2 的 agent-start 先落到事件数组（Map 插入序 = 事件序），
+  // 投影时按成员 seq 排序，输出仍是 [1, 2]。
+  folder.applyHistory([
+    runStart('r-1', 'wf'),
+    agentStart('r-1', 2, 'member-b', 'sa-2', 'backlog'),
+    agentStart('r-1', 1, 'member-a', 'sa-1', 'backlog'),
+    agentEnd('r-1', 2, 'completed'),
+    agentEnd('r-1', 1, 'completed'),
+    runEnd('r-1', 'completed'),
+  ])
+  const [run] = folder.view()
+  assert.deepEqual(
+    run.phases[0].members.map((m) => [m.seq, m.label]),
+    [
+      [1, 'member-a'],
+      [2, 'member-b'],
+    ],
+  )
+})
+
 test('status 推导：run-end stopReason → completed/cancelled/error→failed；缺失 → running', () => {
   const cancelled = new WorkflowRunFolder()
   cancelled.applyHistory([

@@ -260,7 +260,9 @@ function projectRun(runId: string, events: readonly ToolWorkflowEvent[]): Workfl
   }
   if (!started) return null
   const byKey = new Map<string, WorkflowRunPhaseView>()
-  for (const m of members.values()) {
+  // 成员按 agent seq 排序（事件下发顺序不保证 = seq 序，而阶段分组遍历忠实于
+  // 插入序；成员 seq 是官方的排序键，乱序下发会打乱列表）。
+  for (const m of [...members.values()].sort((a, b) => a.seq - b.seq)) {
     const key = workflowPhaseKey(m.phase)
     let phase = byKey.get(key)
     if (!phase) {
