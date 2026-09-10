@@ -1249,6 +1249,42 @@
       expect: 'composer 上方一条排队卡片：左侧「Queued」徽章；预览区一行内依次为——纯文本计数「[图片 ×1]」；会话 chip（聊天气泡图标 + 链接色「长文本输入时对话刷新问题」）；正文「帮我看看这个会话里提到的输入抖动，看下」；文件 chip（文档图标 + 「webview.ts」）；正文「的渲染路径，还有」；文件夹 chip（文件夹图标 + 「pure」）；正文继续到第二行被省略号截断（总内容超两行，尾部出现「…」，第二行末尾由省略号收束；chips 不因截断半截消失）。任何位置都看不到 base64 URI 原文；右侧「Steer  Edit  Delete」三个链接按钮与预览同一行基线；卡片下方是输入区（英文占位符）。',
     },
 
+    // ---- 乱序基线/排队快照（#42 时序修复验收）：host 下发的消息/队列
+    // 数组序不保证 = seq 序；折叠层入口已按 seq 稳排，消费侧兜底后再渲染 ----
+    'message-seq-out-of-order': {
+      state: base({
+        messages: [
+          { ...u('第二问：queue dock 的排序修好了吗'), seq: 200 },
+          { ...at('第二问的答：修好了。'), seq: 201 },
+          { ...u('第一问：消息流排序的根因是什么'), seq: 100 },
+          { ...at('第一问的答：折叠层入口没按 seq 排序。'), seq: 101 },
+        ],
+      }),
+      interact: `(() => {
+        const rows = [...document.querySelectorAll('#app .flow-col > *')]
+          .map((el) => (el.textContent || '').replace(/\\s+/g, ' ').trim())
+        window.__msgOrderCheck = rows
+      })()`,
+      title: '乱序基线快照：消息流按 seq 升序渲染（#42）',
+      expect: '快照的 messages 数组是乱序的（第二问 seq 200 排在前、第一问 seq 100 排在后）：渲染后对话流从上到下是第一问 → 第一问的答 → 第二问 → 第二问的答（按 seq 升序，而非数组序）。DOM 断言 window.__msgOrderCheck（#app .flow-col 各行 textContent）里「第一问」行出现在「第二问」行之前。',
+    },
+
+    'queue-dock-out-of-order': {
+      state: base({
+        queue: [
+          { id: 'q-2', placement: 'queued', seq: 200, text: '后发排队：检查 backlog 挪动', editText: '后发排队：检查 backlog 挪动' },
+          { id: 'q-1', placement: 'queued', seq: 100, text: '先发排队：看看 dev-finish 脚本', editText: '先发排队：看看 dev-finish 脚本' },
+        ],
+      }),
+      interact: `(() => {
+        document.querySelector('.queue-dock summary')?.click()
+        window.__queueOrderCheck = [...document.querySelectorAll('.queue-dock-list .queue-item .queue-text')]
+          .map((el) => (el.textContent || '').trim())
+      })()`,
+      title: '排队 dock 乱序快照：按合成 seq 升序渲染（#42）',
+      expect: '输入框上方排队 dock 折叠 header「2 条排队消息」；展开后列表两条（各带 Queued 徽章 + 预览 + Steer/Edit/Delete）：先发排队（seq 100）在上、后发排队（seq 200）在下——不是按快照数组序（后发在前）。DOM 断言 window.__queueOrderCheck 顺序为 [先发排队…, 后发排队…]。',
+    },
+
     // ---- 等待插话（steering 待落地）----
     'steering-pending': {
       state: base({
