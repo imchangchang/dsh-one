@@ -571,6 +571,27 @@ const STYLE = `
     padding-left: 8px; color: var(--vscode-descriptionForeground, #888);
     font-size: var(--dsh-content-font-size-secondary);
   }
+  /* 回合过程折叠行（F1，对齐官方 TurnProcessNodeView）：一行可点的按钮，
+     紧凑、次要色，左右与消息列对齐。 */
+  .turn-process-row { display: flex; margin: 2px 0; }
+  .turn-process {
+    display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+    background: none; border: 1px solid transparent; border-radius: 6px;
+    padding: 2px 6px; margin: 0; cursor: pointer;
+    color: var(--vscode-descriptionForeground, #888);
+    font: inherit; font-size: var(--dsh-content-font-size-secondary);
+    text-align: left;
+  }
+  .turn-process:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.15)); }
+  .turn-process:focus-visible { outline: 1px solid var(--vscode-focusBorder, #007fd4); outline-offset: 1px; }
+  .turn-process-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .turn-process-chevron { flex: none; opacity: .8; transition: transform .12s ease; }
+  .turn-process-chevron.open { transform: rotate(180deg); }
+  /* 折叠态隐藏的过程成员（官方 data-turn-process-hidden）：元素留在 DOM 里
+     （展开态/内滚/已加载图片都跟着留存），只是不显示。!important 是必要的：
+     行自己的 .msg.assistant / .msg.user（display: flex）特异性更高，不加就
+     盖不住（F1 首轮验证时正是这个原因没生效）。 */
+  [data-turn-process-hidden] { display: none !important; }
   .msg.context {
     border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.25));
     border-radius: 6px; padding: 4px 10px; opacity: 0.8;

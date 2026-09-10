@@ -9,7 +9,8 @@
  * - `jsonOpenPaths`：JSON 树节点展开集；
  * - `producedOpen`：产物行「+N 个文件」；
  * - `workflowDisclosure`：workflow 运行卡片折叠；
- * - `innerScrollPositions`：卡内滚动容器的位置。
+ * - `innerScrollPositions`：卡内滚动容器的位置；
+ * - `turnProcessOpen`：回合过程折叠行的展开态。
  *
  * 实现要点：**活跃帧的容器对象身份恒定**——`detailsOpen` 在模块初始化时就被
  * markdown 工具链捕获（见 webview.ts 的 mdTools），换帧只能原地改内容
@@ -29,6 +30,12 @@ export interface DisclosureFrame {
   producedOpen: Set<string>
   workflowDisclosure: Map<string, WorkflowDisclosureState>
   innerScrollPositions: Map<string, number>
+  /**
+   * 回合过程折叠的展开态（F1）：key `${turn}:${answerStep}` → 是否展开（官方
+   * storedTurnProcessEntry 同款：按会话隔离，answerStep 变了（重新跑了一轮）
+   * 就不再复用旧展开态）。
+   */
+  turnProcessOpen: Map<string, boolean>
 }
 
 function createFrame(): DisclosureFrame {
@@ -40,6 +47,7 @@ function createFrame(): DisclosureFrame {
     producedOpen: new Set(),
     workflowDisclosure: new Map(),
     innerScrollPositions: new Map(),
+    turnProcessOpen: new Map(),
   }
 }
 
@@ -64,6 +72,7 @@ function snapshotFrame(): DisclosureFrame {
   frame.producedOpen = new Set(live.producedOpen)
   frame.workflowDisclosure = new Map(live.workflowDisclosure)
   frame.innerScrollPositions = new Map(live.innerScrollPositions)
+  frame.turnProcessOpen = new Map(live.turnProcessOpen)
   return frame
 }
 
@@ -84,6 +93,7 @@ function loadFrom(source: DisclosureFrame | undefined): void {
   restoreSet(live.producedOpen, source?.producedOpen)
   restore(live.workflowDisclosure, source?.workflowDisclosure)
   restore(live.innerScrollPositions, source?.innerScrollPositions)
+  restore(live.turnProcessOpen, source?.turnProcessOpen)
 }
 
 /**
