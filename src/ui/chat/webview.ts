@@ -457,13 +457,15 @@ function persistKeyFor(archiveKey: string): string {
  * 当前 composer 内容快照（落盘用）：文本从 live 编辑器/暂存读（与
  * reportComposerDirty 同源），附件读模块级暂存。
  *
- * 文本落盘前先展开成 canonical（与发送同款 expandMentionBindings）：显示 token
+ * 文本落盘前先展开成 canonical（与发送同款：节点级投影 textWithMentions）：显示 token
  * 靠内存里的 mentionBindings 才解析得出，而绑定不跨窗口/不跨重启——直接存显示
  * token 的话，重启后 `@短名` 就是一段无主的普通文字。存展开后的引用，恢复端
- * 一律能解析（setText 把 canonical 引用重建回 chip）。
+ * 一律能解析（setText 把 canonical 引用重建回 chip）。无 live 编辑器时（pending
+ * 暂存期）退回原始文本。
  */
 function composerDraftSnapshot(): { text: string; images: OutgoingImage[]; files: StagedFile[] } {
-  return { text: expandMentionBindings(composerText(), mentionBindings), images: pendingImages, files: pendingFiles }
+  const text = activeComposer ? activeComposer.textWithMentions() : composerText()
+  return { text, images: pendingImages, files: pendingFiles }
 }
 
 /** 变更判定签名：文本 + 图片（大小:名字）+ 文件路径。内容没变就不发（流式渲染每帧都会调度到）。 */
