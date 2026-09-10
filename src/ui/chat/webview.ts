@@ -80,6 +80,7 @@ import {
   SETTLE_IDLE_MS,
   anchoredScrollTop,
   archiveScrollPosition,
+  forwardedWheelDelta,
   isAtBottom,
   isReaderMoved,
   isScrollKey,
@@ -7318,6 +7319,29 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
   return chip
 }
 
+/**
+ * 把输入框内的光标/选区滚进可视区（对齐官方 dsh-client-ui-conversation 的
+ * revealSelection）：草稿超过输入区限高（#input max-height 160px）后内部滚动，
+ * 光标会被滚到看不见的位置——聚焦与「草稿从空变非空」时按选区 rect 校正输入框
+ * 自身的 scrollTop。内层本来就滚不动（内容不超限高）时不动。
+ */
+function revealComposerCaret(root: HTMLElement): void {
+  if (root.scrollHeight <= root.clientHeight) return
+  const selection = window.getSelection()
+  if (selection === null || selection.rangeCount === 0) return
+  let rect = selection.getRangeAt(0).getBoundingClientRect()
+  if (rect.height === 0 && rect.width === 0) {
+    // 空选区的 rect 可能全 0（折叠光标）：退回光标所在元素的 rect。
+    const anchor = selection.anchorNode
+    const node = anchor instanceof HTMLElement ? anchor : (anchor?.parentElement ?? null)
+    if (node === null) return
+    rect = node.getBoundingClientRect()
+  }
+  const box = root.getBoundingClientRect()
+  if (rect.bottom > box.bottom) root.scrollTop += rect.bottom - box.bottom
+  else if (rect.top < box.top) root.scrollTop -= box.top - rect.top
+}
+
 function renderInput(draft: string | undefined, hero = false): HTMLElement {
   const wrap = el('div', 'input-area')
   const canSend = !!state?.canSend
@@ -7735,6 +7759,11 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     return true
   }
 
+  // 本帧新建的编辑器实例（handler 在 createComposerEditor 返回前就要引用它，
+  // 用局部引用而不是模块级 composer：保活/重建期间模块级变量可能已指向新实例）。
+  let editorRef: ComposerEditor | null = null
+  /** 上一帧输入框是否已有内容（空 → 非空那一帧把光标露出，官方 revealSelection 同款）。 */
+  let hadText = false
   composer = createComposerEditor({
     handlers: {
       onTextChange: (text, meta) => {
@@ -7754,6 +7783,10 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         reportComposerDirty()
         // 草稿落盘同款（不经 render 的输入事件独立挂钩，#14）。
         scheduleDraftSave()
+        // 草稿从空变非空：草稿超过输入区限高时把光标带进可视区（官方
+        // useEffect(..., [draft !== ""]) → revealSelection；#50 R7）。
+        if (text !== '' && !hadText && editorRef !== null) revealComposerCaret(editorRef.root)
+        hadText = text !== ''
       },
       onSelectionChange: () => updateSlashPopup(composer),
       onEnter: (steer) => {
@@ -7772,7 +7805,31 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     atTokenNames: composerAtTokenNames,
     slashTokenNames: composerSlashTokenNames,
   })
+  editorRef = composer
   composer.root.id = 'input'
+  // 聚焦时把光标露出可视区（官方 editor.focus(() => revealSelection())）。
+  composer.root.addEventListener('focus', () => revealComposerCaret(composer.root))
+  // 滚轮停在输入框上、输入框内部已到顶/底时把这次滚动转给消息流（官方
+  // onWheel：内部还能滚就自己滚，到边界才 preventDefault + 转发；#50 R7）。
+  composer.root.addEventListener(
+    'wheel',
+    (e) => {
+      const messages = document.getElementById('messages')
+      if (messages === null) return
+      const delta = forwardedWheelDelta(
+        e.deltaY,
+        composer.root.scrollTop,
+        composer.root.clientHeight,
+        composer.root.scrollHeight,
+      )
+      if (delta === null) return
+      e.preventDefault()
+      // 直接写外层 scrollTop（不经 writeMessagesScrollTop）：位移比对会把它
+      // 当成用户滚动，跟随态与「回到最新」浮标随之重估，与真人滚轮同效。
+      messages.scrollTop += delta
+    },
+    { passive: false },
+  )
   // .value/selectionStart/selectionEnd/setSelectionRange 存取 shim：让 harness/场景
   // 与残留的 textarea 式读法能继续以编程方式读写编辑器（写走 setText 重建 @token 节点，
   // 读走 getText/selection，与旧 textarea 的块间 \n 语义一致）。无生产副作用。

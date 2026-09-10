@@ -6,6 +6,7 @@ import {
   SETTLE_IDLE_MS,
   archiveScrollPosition,
   distanceFromBottom,
+  forwardedWheelDelta,
   isAtBottom,
   isReaderMoved,
   isScrollKey,
@@ -172,4 +173,27 @@ test('shouldSettlePinNow 滚动活动优先于其它条件（无论贴底）', (
 
 test('shouldSettlePinNow 非跟随态（读历史）即使滚动停也不写', () => {
   assert.equal(shouldSettlePinNow(false, false, false), false)
+})
+
+test('forwarded wheel: inner scroller keeps its own scroll until an end is reached', () => {
+  // 内层还能向上滚（不在顶）：不转发
+  assert.equal(forwardedWheelDelta(-100, 40, 160, 900), null)
+  // 内层还能向下滚（不在底）：不转发
+  assert.equal(forwardedWheelDelta(100, 40, 160, 900), null)
+})
+
+test('forwarded wheel: at the top/bottom the delta goes to the outer scroller', () => {
+  assert.equal(forwardedWheelDelta(-100, 0, 160, 900), -100)
+  assert.equal(forwardedWheelDelta(100, 740, 160, 900), 100)
+  // 1px 容差内的「贴底」同样算到底
+  assert.equal(forwardedWheelDelta(100, 739, 160, 900), 100)
+})
+
+test('forwarded wheel: a non-scrolling composer forwards both directions', () => {
+  assert.equal(forwardedWheelDelta(-50, 0, 160, 160), -50)
+  assert.equal(forwardedWheelDelta(50, 0, 160, 160), 50)
+})
+
+test('forwarded wheel: zero delta is never forwarded', () => {
+  assert.equal(forwardedWheelDelta(0, 0, 160, 900), null)
 })

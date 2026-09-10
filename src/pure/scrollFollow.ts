@@ -155,3 +155,24 @@ export function isScrollKey(key: string): boolean {
     key === ' '
   )
 }
+
+/**
+ * 内层滚动容器（composer 输入框）里的滚轮是否该转给外层消息流（对齐官方
+ * dsh-client-ui-conversation 的 onWheel）：
+ * - 内层还能朝该方向滚（向上且不在顶 / 向下且不在底）→ null，交给内层自己滚；
+ * - 已经到顶/到顶边（1px 容差）→ 返回该次滚动的外层 scrollTop 增量（= deltaY），
+ *   由调用方 preventDefault 后转给消息流——鼠标停在输入框上也能继续翻对话。
+ * deltaY === 0 一律不转。
+ */
+export function forwardedWheelDelta(
+  deltaY: number,
+  scrollTop: number,
+  clientHeight: number,
+  scrollHeight: number,
+): number | null {
+  if (deltaY === 0) return null
+  const atTop = scrollTop <= 0
+  const atEnd = scrollTop + clientHeight >= scrollHeight - 1
+  if ((deltaY < 0 && !atTop) || (deltaY > 0 && !atEnd)) return null
+  return deltaY
+}
