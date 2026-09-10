@@ -19,11 +19,14 @@ import type {
   ChatMessage,
   ChatRetryBlock,
   ChatToolBlock,
+  ChatTurnProcess,
   ChatTurnTiming,
   ContextForm,
 } from './chatContract.ts'
 import { attachmentBaseName, isImagePath, parseAttachmentLine } from './composerAttachment.ts'
 import { TurnUsageFold } from './turnUsage.ts'
+import { hasAssistantReplyContent, TurnProcessFold, turnProcessPresentation } from './turnProcess.ts'
+import type { TurnProcessAnswer, TurnProcessNode } from './turnProcess.ts'
 
 /** Subset of dsh-llm's StreamChunk the folder folds. */
 export type StreamChunkData =
@@ -576,6 +579,12 @@ export class ConversationFolder {
   private retries = new Map<string, { block: ChatRetryBlock; turn: number }>()
   /** Turn → turn/start event time (epoch ms); only window-covered turns present. */
   private turnStart = new Map<number, number>()
+  /** Turn → turn/start event **seq**（过程窗口起点，官方 processSpec.processStartSeq）。 */
+  private turnStartSeq = new Map<number, number>()
+  /** Turn → 过程折叠状态（F1，官方 turn-process 的 state）。 */
+  private process = new Map<number, TurnProcessFold>()
+  /** 已收尾回合的过程折叠规格（F1）：按 turn 升序，webview 据此插折叠行。 */
+  private turnProcess: ChatTurnProcess[] = []
   /** `${turn}:${step}` → step/start event time. */
   private stepStart = new Map<string, number>()
   /** `${turn}:${step}` → time of the first non-empty token delta (isTokenDeltaLike). */
@@ -619,6 +628,9 @@ export class ConversationFolder {
     this.compactions.clear()
     this.retries.clear()
     this.turnStart.clear()
+    this.turnStartSeq.clear()
+    this.process.clear()
+    this.turnProcess = []
     this.stepStart.clear()
     this.firstToken.clear()
     this.stepCompleted.clear()
@@ -656,6 +668,12 @@ export class ConversationFolder {
       olderMsgs.pop()
     }
     this.msgs = [...olderMsgs, ...this.msgs]
+    // 旧页里已收尾回合的过程折叠规格一并补进来（本窗口已有的同 turn 条目优先，
+    // 窗口头那个被切开的回合由本窗口自己的收尾事件算过）。
+    const olderViews = older.turnProcessViews().filter((view) => !this.turnProcess.some((entry) => entry.turn === view.turn))
+    if (olderViews.length > 0) {
+      this.turnProcess = [...olderViews, ...this.turnProcess].sort((a, b) => a.turn - b.turn)
+    }
   }
 
   /** Fold one event; returns true when the rendered messages changed. */
@@ -676,6 +694,9 @@ export class ConversationFolder {
           const fold = new TurnUsageFold()
           fold.fold(event)
           this.turnUsage.set(data.turn, fold)
+          // 过程折叠（F1）：turn/start 在窗口内才知道过程窗口的起点 seq。
+          this.turnStartSeq.set(data.turn, event.seq)
+          this.process.set(data.turn, new TurnProcessFold(data.turn))
         }
         return true
       }
@@ -787,6 +808,11 @@ export class ConversationFolder {
             }
           }
         }
+        // 回合过程折叠（F1）：回合收尾时算 spec + presentation（官方只在 turn 已
+        // 关闭时才 foldable）。答案步 = 本回合最后一步里「有落盘 assistant/message、
+        // 有回复内容、且不含工具调用」的那条（官方 latestAnswer）；不满足就整项
+        // 缺省（control 节点 answerAnchorSeq 为 null → 官方 foldable 恒 false）。
+        if (Number.isFinite(turn)) this.foldTurnProcess(turn, event.seq)
         this.current = null
         this.stepKey = null
         return true
@@ -904,13 +930,17 @@ export class ConversationFolder {
       }
       case 'assistant/chunk':
         this.feedUsageFold(event)
+        this.feedProcess(event)
         return this.applyChunk(event.data as ChunkEventData, event.seq, event.time)
       case 'assistant/message':
         this.feedUsageFold(event)
+        this.feedProcess(event)
         return this.applyAssistantMessage(event.data as AssistantMessageEventData, event.seq, event.time)
       case 'tool/call':
+        this.feedProcess(event)
         return this.applyToolCall(event.data as ToolCallEventData, view, event.seq)
       case 'tool/result':
+        this.feedProcess(event)
         return this.applyToolResult(event.data as ToolResultEventData, view, event.seq)
       case 'command/run': {
         const commandId = typeof data.commandId === 'string' && data.commandId ? data.commandId : `command-${event.seq}`
@@ -929,6 +959,7 @@ export class ConversationFolder {
         return true
       }
       case 'llm/retry': {
+        this.feedProcess(event)
         // Durable record of one provider-routed retry scheduled after a failed
         // request attempt. 折叠成承载 turn 的消息里的重试行（对齐官方
         // ModelRetryItem）；同 retryId 的后续尝试原地更新（保持首次位置）。
@@ -1024,6 +1055,11 @@ export class ConversationFolder {
     return this.msgs
   }
 
+  /** 已收尾回合的「过程折叠」规格（F1），按 turn 升序。 */
+  turnProcessViews(): ChatTurnProcess[] {
+    return this.turnProcess
+  }
+
   /** Feed a turn-scoped event to the open usage fold of the matching turn (if any). */
   private feedUsageFold(event: SessionEventLike): void {
     const data = (event.data ?? {}) as Record<string, unknown>
@@ -1031,6 +1067,24 @@ export class ConversationFolder {
     if (!Number.isFinite(turn)) return
     const fold = this.turnUsage.get(turn)
     if (fold) fold.fold(event)
+  }
+
+  /**
+   * Feed one turn-scoped event to the open process fold of the matching turn
+   * (官方 turn-process definition 的 match 集合：assistant/chunk、
+   * assistant/message、tool/call、tool/result、llm/retry)。turn/start 不在窗口内
+   * 时 fold 是按需建的（官方 fallbackState 语义：仍然按事件累计）。
+   */
+  private feedProcess(event: SessionEventLike): void {
+    const data = (event.data ?? {}) as { turn?: unknown }
+    const turn = Number(data.turn)
+    if (!Number.isFinite(turn)) return
+    let fold = this.process.get(turn)
+    if (!fold) {
+      fold = new TurnProcessFold(turn)
+      this.process.set(turn, fold)
+    }
+    fold.fold(event)
   }
 
   /** A turn without its turn/end: the session is mid-turn. */
@@ -1123,6 +1177,70 @@ export class ConversationFolder {
       const scope = `${msg.turn}:${msg.step}`
       if (this.stepMessages.get(scope) === msg) this.stepMessages.delete(scope)
     }
+  }
+
+  /**
+   * 回合收尾时算这条回合的「过程折叠」规格（F1）：答案步 → spec → presentation，
+   * 结果按 turn 升序存进 `turnProcess`（webview 据此在首条人类输入之后插折叠行）。
+   * 不可折的回合（没有外部过程、没有答案步、过程窗不完整）直接不出条目。
+   */
+  private foldTurnProcess(turn: number, endSeq: number): void {
+    const fold = this.process.get(turn)
+    const answerMsg = this.turnAssistant.get(turn)
+    this.process.delete(turn)
+    const startSeq = this.turnStartSeq.get(turn)
+    this.turnStartSeq.delete(turn)
+    if (!fold) return
+    let answer: TurnProcessAnswer | null = null
+    if (
+      answerMsg !== undefined &&
+      answerMsg.messageId !== undefined &&
+      answerMsg.step !== undefined &&
+      answerMsg.blocks.every((block) => block.type !== 'tool') &&
+      hasAssistantReplyContent(answerMsg.blocks)
+    ) {
+      answer = {
+        step: answerMsg.step,
+        seq: answerMsg.seq ?? endSeq,
+        inlineReasoning: answerMsg.blocks.some((block) => block.type === 'reasoning' && block.text.trim() !== ''),
+      }
+    }
+    const spec = fold.spec(startSeq, answer)
+    if (!spec) return
+    const view = turnProcessPresentation(turn, spec, this.turnProcessNodes(turn, startSeq, endSeq))
+    if (!view) return
+    this.turnProcess = [...this.turnProcess.filter((entry) => entry.turn !== turn), view].sort((a, b) => a.turn - b.turn)
+  }
+
+  /**
+   * 一个回合的节点投影（presentation 只看 kind / anchorSeq / step）：assistant
+   * 消息按 turn 归属，其余消息按 seq 落在 (turn/start, turn/end) 区间内归属。
+   * 注入上下文归 'context'（官方那套里 context **不是**独立节点，会跟着一起折），
+   * 命令卡 / 压缩卡同理。
+   */
+  private turnProcessNodes(turn: number, startSeq: number | undefined, endSeq: number): TurnProcessNode[] {
+    const nodes: TurnProcessNode[] = []
+    for (const m of this.msgs) {
+      if (m.kind === 'assistant') {
+        if (m.turn !== turn) continue
+        nodes.push({
+          kind: 'assistant',
+          anchorSeq: m.anchorSeq ?? m.seq ?? endSeq,
+          ...(m.step !== undefined ? { step: m.step } : {}),
+        })
+        continue
+      }
+      const seq = m.seq
+      if (typeof seq !== 'number') continue
+      if (startSeq !== undefined && seq <= startSeq) continue
+      if (seq >= endSeq) continue
+      if (m.kind === 'user') {
+        nodes.push({ kind: m.context !== undefined ? 'context' : m.steering === true ? 'steering' : 'user', anchorSeq: seq })
+      } else {
+        nodes.push({ kind: 'context', anchorSeq: seq })
+      }
+    }
+    return nodes
   }
 
   private ensureAssistant(turn: number, seq: number, step?: number): ChatAssistantMessage {

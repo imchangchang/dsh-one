@@ -483,6 +483,7 @@ export class ChatSessionController implements vscode.Disposable {
 
   getState(): ChatState {
     const workflowRuns = this.workflowRuns.view()
+    const turnProcess = this.folder.turnProcessViews()
     return {
       sessionId: this.sessionId,
       sessionTitle: this.sessionTitle,
@@ -505,6 +506,7 @@ export class ChatSessionController implements vscode.Disposable {
       permissions: this.permissions,
       plan: this.plan,
       ...(this.turnOutline !== undefined ? { turnOutline: this.turnOutline } : {}),
+      ...(turnProcess.length > 0 ? { turnProcess } : {}),
       ...(this.schedule !== undefined ? { schedule: this.schedule } : {}),
       statsLine: this.statsLine,
       todos: this.todos,
