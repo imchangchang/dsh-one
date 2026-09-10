@@ -455,6 +455,25 @@ function orderEntriesBySeq(entries: readonly HistoryEntryLike[]): HistoryEntryLi
 }
 
 /**
+ * 同一回合被页边界切开的旧段并入新段：`newer.blocks` = 旧段块 + 新段块（保持
+ * 事件序）。边界恰好落在同一段流式文本中间（step 还没结束就被切开）时两段各留
+ * 了半个文本块，拼回一块——否则一个回合的正文在流里断成两段独立段落。
+ * 旧段自身的收尾标记（complete/turnEnd/messageId/用量）不动：那些属于新段
+ * （turn/end、最后一步的 assistant/message 都落在新段一侧）。
+ */
+function absorbAssistantSegment(older: ChatAssistantMessage, newer: ChatAssistantMessage): void {
+  let absorbed = newer.blocks
+  const left = older.blocks[older.blocks.length - 1]
+  const right = newer.blocks[0]
+  if (left && right && (left.type === 'text' || left.type === 'reasoning') && right.type === left.type) {
+    const target = left as { text: string }
+    target.text += (right as { text: string }).text
+    absorbed = absorbed.slice(1)
+  }
+  newer.blocks = [...older.blocks, ...absorbed]
+}
+
+/**
  * Stateful folder over one session's event log. Feed it a history window with
  * applyHistory (full reset — the reconnect baseline), then live events with
  * applyEvent. One turn folds into one assistant message whose blocks follow
@@ -465,6 +484,13 @@ export class ConversationFolder {
   private msgs: ChatMessage[] = []
   /** The open assistant message of the current turn, null between turns. */
   private current: ChatAssistantMessage | null = null
+  /**
+   * turn → 本 fold 里该 turn 最后一条 assistant 消息。turn/end 要靠它找回
+   * 「承载消息」——不能用 id 反查：一个 turn 可能折出多段 assistant 消息
+   * （窗口头切在回合中间 / turn 中途注入 user/message 切断 current），id 按
+   * 「turn + 段首 seq」命名后不再是 `assistant-t{turn}` 一条。
+   */
+  private turnAssistant = new Map<number, ChatAssistantMessage>()
   /** Chunk block index → position in current.blocks (per step). */
   private blockPos = new Map<number, number>()
   /** `${turn}:${step}` of the step that streamed chunks, for dedupe. */
@@ -509,6 +535,7 @@ export class ConversationFolder {
   applyHistory(entries: readonly HistoryEntryLike[]): void {
     this.msgs = []
     this.current = null
+    this.turnAssistant.clear()
     this.blockPos.clear()
     this.stepKey = null
     this.stepStreamed = false
@@ -532,12 +559,29 @@ export class ConversationFolder {
    * boundaries to message boundaries, so the older page folds in a scratch
    * folder and its (complete) messages go in front of the current ones;
    * existing fold state (the open streaming turn, tool pairing) is untouched.
+   *
+   * 页边界切在回合中间时（官方按 step 出节点、我们按 turn 出一条消息，边界
+   * 落在回合内部是常态），旧页尾段与本窗口首段同属一个 turn：两段并成一段
+   * （旧段内容接在新段前面），一个回合不会裂成两条 assistant 消息。
    */
   prependHistory(entries: readonly HistoryEntryLike[]): void {
     if (entries.length === 0) return
     const older = new ConversationFolder()
     for (const entry of orderEntriesBySeq(entries)) older.applyEvent(entry.event, entry.view)
-    this.msgs = [...older.messages(), ...this.msgs]
+    const olderMsgs = older.messages()
+    const tail = olderMsgs[olderMsgs.length - 1]
+    const head = this.msgs[0]
+    if (
+      tail?.kind === 'assistant' &&
+      head?.kind === 'assistant' &&
+      head !== this.current &&
+      tail.turn !== undefined &&
+      tail.turn === head.turn
+    ) {
+      absorbAssistantSegment(tail, head)
+      olderMsgs.pop()
+    }
+    this.msgs = [...olderMsgs, ...this.msgs]
   }
 
   /** Fold one event; returns true when the rendered messages changed. */
@@ -593,19 +637,10 @@ export class ConversationFolder {
         }
         let msg = this.current
         if (!msg) {
-          // current 可能已被 turn 中途注入的 user/message 切断为 null：按
-          // ensureAssistant 的 id 规则从尾部找回本 turn 最后一条 assistant
-          // 消息（turn/end 落在历史窗口外时找不到，不标记 turnEnd）。
-          if (Number.isFinite(turn)) {
-            const id = `assistant-t${turn}`
-            for (let i = this.msgs.length - 1; i >= 0; i--) {
-              const m = this.msgs[i]
-              if (m.kind === 'assistant' && m.id === id) {
-                msg = m
-                break
-              }
-            }
-          }
+          // current 可能已被 turn 中途注入的 user/message 切断为 null：找回本
+          // turn 最后一条 assistant 消息（turn/end 落在历史窗口外时找不到，不标
+          // 记 turnEnd）。
+          if (Number.isFinite(turn)) msg = this.turnAssistant.get(turn) ?? null
         }
         if (!msg && (turnError || interrupted || maxTokens)) {
           // The turn failed / was cancelled / hit the token cap before any
@@ -617,8 +652,10 @@ export class ConversationFolder {
             blocks: [],
             complete: true,
             seq: event.seq,
+            ...(Number.isFinite(turn) ? { turn } : {}),
           }
           this.msgs.push(msg)
+          if (Number.isFinite(turn)) this.turnAssistant.set(turn, msg)
         }
         if (msg) {
           msg.complete = true
@@ -908,15 +945,24 @@ export class ConversationFolder {
       this.current.seq = seq
       return this.current
     }
+    // id 必须唯一且跨帧稳定：同一个 turn 会折出多段 assistant 消息（① 窗口头
+    // 切在回合中间——补页后旧页尾段与本窗口首段同 turn；② turn 中途注入
+    // user/message 切断 current）。按 turn 命名（旧的 `assistant-t{turn}`）会撞车：
+    // webview 的行 key 是 `msg:${id}`，重复 key 在 reconcileChildren 里只保留
+    // 第一个 → 另一段整行静默消失。改为「turn + 段首事件 seq」：段首事件唯一
+    // ⇒ id 唯一；同一段日志的折叠结果确定 ⇒ id 跨帧稳定（对齐官方节点身份带
+    // sourceEventSeq 的做法）。
     const msg: ChatAssistantMessage = {
       kind: 'assistant',
-      id: Number.isFinite(turn) ? `assistant-t${turn}` : `assistant-s${seq}`,
+      id: Number.isFinite(turn) ? `assistant-t${turn}-s${seq}` : `assistant-s${seq}`,
       blocks: [],
       complete: false,
       seq,
+      ...(Number.isFinite(turn) ? { turn } : {}),
     }
     this.msgs.push(msg)
     this.current = msg
+    if (Number.isFinite(turn)) this.turnAssistant.set(turn, msg)
     return msg
   }
 

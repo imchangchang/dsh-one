@@ -201,6 +201,13 @@ export interface ChatAssistantMessage {
   /** false while the turn is still streaming. */
   complete: boolean
   /**
+   * 本消息所属回合号。同一个 turn 可以折出多段 assistant 消息（窗口头切在
+   * 回合中间、turn 中途注入 user/message 切断 current），补页时按它把同回合的
+   * 两段并成一段。窗口头落在 turn/start 之前（该 turn 号仍由事件 data.turn
+   * 携带）或缺 turn 号的合成消息上缺省。
+   */
+  turn?: number
+  /**
    * 本 turn 的最后一条 assistant 消息（turn/end 时标记）。turn 中途注入的
    * user/message 会把一个 turn 切成多条消息，操作栏（复制/反馈/分支）只挂
    * 在 turnEnd 消息上，不再每条 complete 消息各出现一次。turn/end 落在

@@ -941,6 +941,106 @@ test('prependHistory 乱序翻页同样按 seq 折叠（旧页内消息不被数
   )
 })
 
+test('prependHistory 页边界切在回合中间：同回合两段并成一段、不留重复 id', () => {
+  // 官方分页按 step 消息对齐，我们的 fold 按 turn 出一条消息——边界落在回合
+  // 内部（甚至落在一步的流式文本中间）是常态：旧页尾段与本窗口首段同 turn，
+  // 按 turn 命名会撞 id（webview 行 key = `msg:${id}`，重复 key 只留第一个 → 另
+  // 一段整行消失）。
+  const events: SessionEventLike[] = [
+    ev('turn/start', { turn: 7 }),
+    userEv('u7', '问题'),
+    chunkEv(7, 1, { type: 'block-start', index: 0, blockType: 'text' }),
+    chunkEv(7, 1, { type: 'text-delta', index: 0, text: '第一步 ' }),
+    toolCallEv('c7', 'read', '{}'),
+    toolResultEv('c7', '文件内容'),
+    chunkEv(7, 2, { type: 'block-start', index: 0, blockType: 'text' }),
+    chunkEv(7, 2, { type: 'text-delta', index: 0, text: '第二步前半' }),
+    chunkEv(7, 2, { type: 'text-delta', index: 0, text: '，第二步后半' }),
+    ev('turn/end', { turn: 7, reason: { kind: 'completed' } }),
+  ]
+  const cut = 8 // 切在两个 delta 之间：页边界落在同一段文本中间
+  const f = new ConversationFolder()
+  f.applyHistory(events.slice(cut).map((event) => ({ event })))
+  f.prependHistory(events.slice(0, cut).map((event) => ({ event })))
+
+  const msgs = f.messages()
+  const ids = msgs.map((m) => m.id)
+  assert.equal(new Set(ids).size, ids.length, `消息 id 必须唯一：${ids.join(', ')}`)
+  const assistants = msgs.filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.equal(assistants.length, 1, '同一回合只留一条 assistant 消息')
+  // 边界两侧的文本块拼回一块（正文不被断成两段独立段落），工具卡保持原位。
+  assert.deepEqual(
+    assistants[0].blocks.map((b) => b.type),
+    ['text', 'tool', 'text'],
+  )
+  assert.equal((assistants[0].blocks[0] as { text: string }).text, '第一步 ')
+  assert.equal((assistants[0].blocks[2] as { text: string }).text, '第二步前半，第二步后半')
+  assert.equal(assistants[0].complete, true)
+  assert.equal(assistants[0].turnEnd, true)
+})
+
+test('prependHistory 不并不同回合的两段（中间隔着注入上下文时各留各的）', () => {
+  const f = new ConversationFolder()
+  f.applyHistory([{ event: userEv('ctx0', '注入上下文') }])
+  // 旧页尾段属于 turn 6，窗口首段属于 turn 7：不合并。
+  f.prependHistory(turnEntries(6, '旧问', '旧答').map((e) => ({ ...e })))
+  const assistants = f.messages().filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.equal(assistants.length, 1)
+  assert.equal(assistants[0].blocks[0].type, 'text')
+  assert.equal(f.messages()[0].kind, 'user')
+})
+
+test('turn 中途注入 user/message 切断的两段 assistant 消息 id 不撞车', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 3 }))
+  f.applyEvent(chunkEv(3, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(3, 1, { type: 'text-delta', index: 0, text: '前一段' }))
+  // 子代理完成通知等注入上下文（source.kind !== 'user'）切断当前 assistant 消息。
+  f.applyEvent(
+    ev('user/message', {
+      id: 'ctx1',
+      role: 'user',
+      content: [{ type: 'text', text: '注入上下文' }],
+      source: { kind: 'snapshot' },
+    }),
+  )
+  f.applyEvent(chunkEv(3, 2, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(3, 2, { type: 'text-delta', index: 0, text: '后一段' }))
+
+  const assistants = f.messages().filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.equal(assistants.length, 2)
+  assert.notEqual(assistants[0].id, assistants[1].id)
+  assert.deepEqual(
+    assistants.map((m) => (m.blocks[0] as { text: string }).text),
+    ['前一段', '后一段'],
+  )
+  assert.deepEqual(
+    assistants.map((m) => m.turn),
+    [3, 3],
+  )
+})
+
+test('turn/end 落在注入上下文之后时按 turn 找回承载消息', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 4 }))
+  f.applyEvent(chunkEv(4, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(chunkEv(4, 1, { type: 'text-delta', index: 0, text: '答案' }))
+  // 回合尾部又插一条注入上下文：current 被切断，turn/end 拿不到 current。
+  f.applyEvent(
+    ev('user/message', {
+      id: 'ctx2',
+      role: 'user',
+      content: [{ type: 'text', text: '注入' }],
+      source: { kind: 'snapshot' },
+    }),
+  )
+  f.applyEvent(ev('turn/end', { turn: 4, reason: { kind: 'aborted' } }))
+
+  const msg = f.messages().find((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.equal(msg?.turnEnd, true)
+  assert.equal(msg?.interrupted, true)
+})
+
 test('tail window without turn/start still reports the unclosed turn as running', () => {
   // 窗口分页：长 turn 的 turn/start 落在窗口外，但窗口是连续后缀——内容事件
   // 的 turn 没有配对 turn/end 就是还在跑。
