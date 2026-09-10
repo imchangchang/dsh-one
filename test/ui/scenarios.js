@@ -4475,6 +4475,243 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     expect: '运行中对话：composer 输入框文本为「等等，先停下，看看 @旧会话 的状态。」——canonical @[旧会话](dsh-session:…) 还原成 @旧会话（高亮层一个 .ref-token）；composer 附件区一个文档图标文件 chip（README.md）+ 一个红色方形图片缩略图（chart.png）。DOM 断言 window.__recallUnsteerSession = {input: "等等，先停下，看看 @旧会话 的状态。", chips: ["README.md"], refTokens: ["@旧会话"], thumbs: 1}。',
   }
 
+  // ---- 输入维度批次1（#51）：Esc/IME 门控、撤销链路、chip 文本投影 ----
+  // 共享断言助手：失败时顶部红色横幅（截图可见），明细写 window.__<ns>Asserts。
+  const guardHelper = (ns) => `
+    window.${ns}Asserts = []
+    window.${ns}Fail = (step, detail) => {
+      window.${ns}Asserts.push({ step, ok: false, detail })
+      const d = document.createElement('div')
+      d.textContent = 'ASSERT FAILED [' + step + ']: ' + detail
+      d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+      document.body.appendChild(d)
+    }
+    window.${ns}Ok = (step, extra) => window.${ns}Asserts.push(Object.assign({ step, ok: true }, extra || {}))
+  `
+
+  catalog['composer-ime-esc-guard'] = {
+    state: base({ running: true }),
+    title: 'EAC-01 IME 组合中的 Esc 不打断正在跑的 turn',
+    interactSteps: [
+      {
+        name: 'ime-esc-keeps-draft',
+        script: `(() => {
+          ${guardHelper('__imeEsc')}
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.value = '组合中按 Esc 只关候选窗'
+          ta.dispatchEvent(new Event('input'))
+          window.__posted = []
+          // isComposing:true = 输入法组合中（中文输入法里 Esc 是关候选窗）
+          ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }))
+          const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+          const ok = !stopped && ta.value === '组合中按 Esc 只关候选窗' && !document.querySelector('.clear-confirm-hint')
+          if (!ok) window.__imeEscFail('ime-esc-keeps-draft', JSON.stringify({ stopped, value: ta.value }))
+          else window.__imeEscOk('ime-esc-keeps-draft')
+        })()`,
+      },
+      {
+        name: 'ime-esc-empty-no-stop',
+        script: `(() => {
+          const input = document.getElementById('input')
+          input.value = ''
+          input.focus()
+          window.__posted = []
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }))
+          const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+          if (stopped) window.__imeEscFail('ime-esc-empty-no-stop', JSON.stringify({ stopped }))
+          else window.__imeEscOk('ime-esc-empty-no-stop')
+        })()`,
+      },
+      {
+        name: 'esc-empty-stops',
+        script: `(() => {
+          const input = document.getElementById('input')
+          input.focus()
+          window.__posted = []
+          // 非组合态的空输入框 Esc：仍应发 stop（组合门控不吞掉正常停止）
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+          const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+          if (!stopped) window.__imeEscFail('esc-empty-stops', JSON.stringify({ stopped }))
+          else window.__imeEscOk('esc-empty-stops')
+        })()`,
+      },
+    ],
+    expect: '运行中（running:true）三张分步截图对照——① ime-esc-keeps-draft：草稿「组合中按 Esc 只关候选窗」原样保留、无提示小框、**无** stop（组合中的 Esc 只关候选窗）；② ime-esc-empty-no-stop：空输入框下组合中的 Esc 同样**不发** stop；③ esc-empty-stops：非组合态空输入框按 Esc 才发 stop（画面与 ② 同为空输入框 + 运行中占位文案）。任何一步断言失败会有顶部红色横幅（本场景应无横幅）。',
+  }
+
+  catalog['composer-undo-guards'] = {
+    state: base({}),
+    title: 'EAC-02 撤销链路：清空后可反悔、发送后不复活',
+    interactSteps: [
+      {
+        name: 'cleared',
+        script: `(() => {
+          ${guardHelper('__undo')}
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.value = '清空后 Ctrl+Z 应该能整体反悔'
+          ta.dispatchEvent(new Event('input'))
+          document.querySelector('.clear-all-button')?.click()
+          const ok = ta.value === ''
+          if (!ok) window.__undoFail('cleared', JSON.stringify({ value: ta.value }))
+          else window.__undoOk('cleared')
+        })()`,
+      },
+      {
+        name: 'undo-restores',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          // 平台无关的撤销键（macOS 的 Lexical 只认 Meta+Z，其他平台 Ctrl+Z）
+          const mod = navigator.userAgent.includes('Mac') ? { metaKey: true } : { ctrlKey: true }
+          ta.focus()
+          ta.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: 'z', bubbles: true, cancelable: true }, mod)))
+          // 反悔恢复会重建输入区：断言必须重新取当前 #input（旧引用是已摘除的节点）
+          const input = document.getElementById('input')
+          const ok = input.value === '清空后 Ctrl+Z 应该能整体反悔' && document.activeElement === input
+          if (!ok) window.__undoFail('undo-restores', JSON.stringify({ value: input.value, focused: document.activeElement === input }))
+          else window.__undoOk('undo-restores')
+        })()`,
+      },
+      {
+        name: 'sent',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.value = '这条发出去之后不该被 Cmd+Z 复活'
+          ta.dispatchEvent(new Event('input'))
+          window.__posted = []
+          ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+          const sent = (window.__posted || []).some((m) => m && m.type === 'send')
+          const ok = sent && ta.value === ''
+          if (!ok) window.__undoFail('sent', JSON.stringify({ sent, value: ta.value }))
+          else window.__undoOk('sent')
+        })()`,
+      },
+      {
+        name: 'undo-after-send-empty',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          const mod = navigator.userAgent.includes('Mac') ? { metaKey: true } : { ctrlKey: true }
+          ta.focus()
+          ta.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: 'z', bubbles: true, cancelable: true }, mod)))
+          const ok = ta.value === ''
+          if (!ok) window.__undoFail('undo-after-send-empty', JSON.stringify({ value: ta.value }))
+          else window.__undoOk('undo-after-send-empty')
+        })()`,
+      },
+      {
+        name: 'send-with-attachment-clears',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.value = '带附件发送后输入框要干净'
+          ta.dispatchEvent(new Event('input'))
+          window.postMessage({ type: 'filesPicked', files: [{ name: 'notes.md', path: '/tmp/notes.md' }] }, '*')
+          setTimeout(() => {
+            const input = document.getElementById('input')
+            const before = { value: input.value, chips: document.querySelectorAll('.input-area .image-chips > *').length }
+            window.__posted = []
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+            setTimeout(() => {
+              const after = { value: document.getElementById('input').value, chips: document.querySelectorAll('.input-area .image-chips > *').length }
+              const sent = (window.__posted || []).some((m) => m && m.type === 'send')
+              const ok = before.chips === 1 && before.value.includes('带附件发送') && sent && after.value === '' && after.chips === 0
+              if (!ok) window.__undoFail('send-with-attachment-clears', JSON.stringify({ before, after, sent }))
+              else window.__undoOk('send-with-attachment-clears', { after })
+            }, 250)
+          }, 300)
+        })()`,
+        settle: 900,
+      },
+    ],
+    expect: '五张分步截图对照——① cleared：填入文本后点 × 清空，输入框为空、× 隐藏；② undo-restores：空输入框按撤销键（macOS Meta+Z / 其他 Ctrl+Z）后文本「清空后 Ctrl+Z 应该能整体反悔」整体回来、× 重新可见、焦点在输入框；③ sent：重新填入「这条发出去之后不该被 Cmd+Z 复活」按 Enter，握手记录到 send、输入框清空；④ undo-after-send-empty：紧接着按撤销键，输入框**仍然为空**（已发出去的内容不被撤销复活）；⑤ send-with-attachment-clears：填入「带附件发送后输入框要干净」并挂一个 notes.md 附件（附件行 1 个 chip）后按 Enter——握手记录到 send、输入框清空、附件 chip 消失（清空触发输入区重建，重建出来的输入框不能带回已发送的文本）。任何一步断言失败会有顶部红色横幅（本场景应无横幅）。',
+  }
+
+  catalog['composer-chip-projection'] = {
+    state: base({}),
+    title: 'EAC-03 chip 文本投影 = 可解析路径（复制/落草稿/恢复）',
+    interactSteps: [
+      {
+        name: 'chip-projected',
+        script: `(() => {
+          ${guardHelper('__chipProj')}
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.value = '看看 '
+          ta.dispatchEvent(new Event('input'))
+          // 长文本粘贴 → 宿主折叠成文件 → 客户端在光标处插入 @ 引用 chip
+          const long = Array.from({ length: 20 }, (_, i) => 'line ' + i).join('\\n')
+          const dt = new DataTransfer()
+          dt.setData('text/plain', long)
+          ta.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+          window.postMessage({ type: 'filesPicked', files: [{ name: 'pasted-abc.txt', path: '/tmp/dsh-fold/pasted-abc.txt' }] }, '*')
+          setTimeout(() => {
+            const chip = document.querySelector('.input-area .ref-chip')
+            const value = document.getElementById('input').value
+            const ok = !!chip
+              && chip.querySelector('.ref-chip-label')?.textContent === '@pasted-abc.txt'
+              && chip.getAttribute('data-ref') === '@/tmp/dsh-fold/pasted-abc.txt'
+              && value === '看看 @/tmp/dsh-fold/pasted-abc.txt '
+            window.__chipProjSnapshot = { value, label: chip?.querySelector('.ref-chip-label')?.textContent, ref: chip?.getAttribute('data-ref') }
+            if (!ok) window.__chipProjFail('chip-projected', JSON.stringify(window.__chipProjSnapshot))
+            else window.__chipProjOk('chip-projected', window.__chipProjSnapshot)
+          }, 300)
+        })()`,
+        settle: 900,
+      },
+      {
+        name: 'copied-resolvable',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.setSelectionRange(0, ta.value.length)
+          const dt = new DataTransfer()
+          const ev = new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true })
+          ta.dispatchEvent(ev)
+          const copied = dt.getData('text/plain')
+          // 复制出去的是文本投影（canonical 路径），不是 DOM 里的显示名 @pasted-abc.txt
+          const ok = ev.defaultPrevented && copied === ta.value && copied.includes('@/tmp/dsh-fold/pasted-abc.txt')
+          if (!ok) window.__chipProjFail('copied-resolvable', JSON.stringify({ copied, prevented: ev.defaultPrevented, value: ta.value }))
+          else window.__chipProjOk('copied-resolvable', { copied })
+        })()`,
+      },
+      {
+        name: 'draft-resolvable',
+        script: `(() => {
+          const saves = (window.__posted || []).filter((m) => m && m.type === 'composerDraftSave')
+          const last = saves[saves.length - 1]
+          const text = last?.draft?.text ?? ''
+          const ok = text.includes('@/tmp/dsh-fold/pasted-abc.txt')
+          if (!ok) window.__chipProjFail('draft-resolvable', JSON.stringify({ text, saves: saves.length }))
+          else window.__chipProjOk('draft-resolvable', { text })
+        })()`,
+      },
+      {
+        name: 'restored-as-chip',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          // 模拟重启/跨窗口：只剩 canonical 文本、没有内存绑定
+          ta.value = ''
+          ta.value = '看看 @/tmp/another/dir/notes.md 这个文件'
+          setTimeout(() => {
+            const input = document.getElementById('input')
+            const chips = [...document.querySelectorAll('.input-area .ref-chip')].map((c) => ({
+              label: c.querySelector('.ref-chip-label')?.textContent,
+              ref: c.getAttribute('data-ref'),
+            }))
+            const ok = chips.length === 1 && chips[0].label === '@notes.md' && chips[0].ref === '@/tmp/another/dir/notes.md'
+              && input.value === '看看 @/tmp/another/dir/notes.md 这个文件'
+            if (!ok) window.__chipProjFail('restored-as-chip', JSON.stringify({ chips, value: input.value }))
+            else window.__chipProjOk('restored-as-chip', { value: input.value, chips })
+          }, 200)
+        })()`,
+        settle: 700,
+      },
+    ],
+    expect: '四张分步截图对照——① chip-projected：composer 里「看看 」后面是一个文件引用 chip：chip 显示短名 @pasted-abc.txt（带文件图标），而输入框文本（文本投影）是完整路径 @/tmp/dsh-fold/pasted-abc.txt；② copied-resolvable：全选复制（断言层用合成 copy 事件读 clipboardData）拿到的整段文本与文本投影一致、含完整路径（不是显示名）；③ draft-resolvable：落盘草稿文本同样含完整路径；④ restored-as-chip：把输入框文本置成「看看 @/tmp/another/dir/notes.md 这个文件」（模拟重启/跨窗口后只剩 canonical 文本、无内存绑定），输入区重建出 1 个 chip——显示名 @notes.md、data-ref 是完整路径，输入框文本仍是完整路径。任何一步断言失败会有顶部红色横幅（本场景应无横幅）。',
+  }
+
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"
   // 的存量状态，就把它的名字加进 BASELINE_SCENARIOS —— 随合入并入主线基线。
@@ -4508,6 +4745,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'composer-long-scrolled',
     'composer-keyboard-clear-undo', 'composer-esc-clear-disarm',
     'composer-clear-running-guard', 'composer-clear-idle-guards',
+    'composer-ime-esc-guard', 'composer-undo-guards', 'composer-chip-projection',
     'ref-token-word-boundary', 'ref-token-lexicon-gate',
     'attachment-uniform',
     'session-open-failure',
