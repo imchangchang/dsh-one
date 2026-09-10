@@ -1,0 +1,116 @@
+{
+  "title": "渲染结构级修复（#57）：回合过程折叠 F1/F2 + 节点身份 F5/F6/F7 + R2 测量",
+  "branch": "agent/render-structure",
+  "commit": "f43fcb8",
+  "environment": {
+    "mode": "mock-llm（真 dsh 0.1.2 走全部真实逻辑，只有模型响应是编排的）+ harness.html 独立渲染（Chromium/Playwright）",
+    "locale": "zh-cn",
+    "theme": "dark",
+    "image": "dsh-sandbox-renderstructure:latest（instance=renderstructure，端口 8135）",
+    "date": "2026-09-10T00:00:00Z"
+  },
+  "coverageNote": "覆盖：折叠层节点身份（F5/F6/F7）、回合过程折叠的折叠/展开两态（F1/F2）、长会话渲染回归。不覆盖：真模型输出的多工具长回合（mock 的续拍一律走兜底回显，一个回合最多一次工具调用）、真桌面 VS Code 窗口、Windows/Linux 平台差异。R2（每帧 JSON.stringify 签名）本轮结论是「测量后不改」，证据在 issue #57 评论，不进本 ledger。 另注：test/sandbox/verify-driver.mjs 本轮**用不了**——它的聊天帧判定还在找 `textarea#input`（composer 已迁 Lexical contenteditable），在 main 上就已经无法定位 chat 帧（表现为「未能打开聊天 composer」）。本轮用任务专属脚本 .dev-host/sandbox-drive.mjs 驱动同一套沙盒（侧边栏 Un grouped → New ungrouped session → contenteditable 输入 → Enter → 断言文本 → 截图），F-03/R-03 两项的通过/失败结论与截图由它产出。driver 的帧判定修复属于沙盒基建，不在 #57 范围内，建议单独开条目。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "回合过程折叠（折叠态）：多工具回合收成一行，过程内容不渲染",
+      "expect": "一个 5 次工具调用的回合渲染成：用户消息 → 一行可点的折叠行「4 次工具调用 · 3 条消息 · 1 个 subagent」（次要色小字 + 朝下 chevron）→ 最终答案（带复制/反馈/分叉操作栏）。两条过程消息的正文与全部 5 张工具卡都不可见（data-turn-process-hidden + display:none）；答案步自己的推理块在折叠态也不显示。下面一问一答的回合照常平铺、没有折叠行。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/tp-folded.png"
+      ],
+      "notes": "harness 独立渲染 turn-process-folded 场景。逐条核对：① 折叠行在首条用户消息**之后**、答案之前（首轮曾排到用户消息前面，已修 rank 顺序）；② 文案与计数正确（4 工具 + 1 subagent 分列，3 条过程消息）；③ 过程成员两条消息 DOM 上带 data-turn-process-hidden=true 且视觉上不出现——首轮这里没生效（.msg.assistant 的 display:flex 特异性更高盖住了隐藏规则），改成 !important 后截图确认消失；④ 答案步 reasoning 不显示（折叠态藏内联推理）；⑤ 第二个回合（一问一答）没有折叠行；⑥ 答案行尾保留操作栏。确定性 DOM 断言：flow keys = [msg:u…, proc:0, msg:a…(hidden), msg:a…(hidden), msg:a…, msg:u…, msg:a…]。",
+      "screenshotsNote": "harness 不带 l10n 注入，折叠行文案显示英文键（4 tool calls · 3 messages · 1 subagent）；真机中文文案见 F-03 沙盒截图。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "回合过程折叠（展开态）：点开折叠行，过程全显",
+      "expect": "点折叠行后 chevron 翻转为朝上（aria-expanded=true），原本隐藏的过程全部出现且顺序为「用户消息 → 折叠行 → 过程消息（step0 正文 + read/grep 卡；step1 正文 + subagent/edit 卡）→ 答案（含推理块）→ 操作栏」。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/tp-expanded.png"
+      ],
+      "notes": "harness turn-process-expanded 场景（interact 点击 .turn-process）。逐条核对：① chevron 朝上、aria-expanded=true；② 两条过程消息的 data-turn-process-hidden 已清除、正文与 4 张工具卡全部出现；③ 答案步的推理块出现（「Thoughts · 两个调用点都改完了…」蓝色左竖线样式）；④ 展开没有重建行元素（reconcile 的 hidden 每帧按键值设置/清除，same=true 的行元素保活——元素保活由 test/reconcile.test.ts 的 hidden 用例断言）；⑤ 顺序仍为 用户 → 折叠行 → 过程 → 答案。",
+      "screenshotsNote": "同上：harness 无 l10n，折叠行文案是英文键。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "真 dsh 端到端：多步回合在真机折成一行「N 次工具调用」",
+      "expect": "沙盒（真 dsh + mock LLM）里发送「查天气」：该回合先调 get_weather 工具、再做答；渲染成 用户消息 → 折叠行「1 tool call · 1 message」（中文 locale 为「1 次工具调用 · 1 条消息」）→ 回答，工具卡与两条注入上下文都不再平铺在回复上方。折叠行由宿主下发的 turnProcess 规格驱动（不是 webview 自己猜的）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/F-03.png"
+      ],
+      "notes": "真机实测（真 dsh 0.1.2 + mock LLM，lang=zh-cn 容器但 code-server 界面语言仍是 en，故文案是英文键）。确定性 DOM 断言（chat webview 的 [data-flow-key] 序列）：msg:<用户消息『查天气』> → proc:1『1 tool call · 1 message』 → msg:<Runtime context…>(hidden) → msg:<Context injection…>(hidden) → msg:assistant-t1s1『get_weather IN/OUT Error: unknown tool』(hidden) → msg:assistant-t1s2『收到：查天气』+ 计时行 + 复制/反馈/分叉操作栏。逐条核对：① 折叠行排在用户消息之后、答案之前；② 两条注入上下文（Runtime context / Context injection）在折叠态一起被折掉——与官方一致（context 不属于独立节点）；③ 工具卡（含 Unknown tool 报错）隐藏；④ 答案与操作栏、计时（10:53 · Duration 0s · First token 0s · 0 tok/s）正常；⑤ 会话统计行 1 turns · 2 steps 正常。截图见 render-structure-01-turn-process.png。",
+      "screenshotsNote": "截图是 code-server 里的真 VS Code 窗口（左侧会话栏 + 中间 chat panel），折叠行在用户气泡下方、答案上方。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "F7：无内容的中断回合不再出空壳节点",
+      "expect": "turn/end 收到 aborted/interrupted 且该回合没有任何可见内容（正文/推理块去空白后为空、也没有别的块）时，折叠层不产出任何 assistant 消息——聊天里不再出现一条空行 + 「已中断」。有内容、有工具卡或带 turnError/maxTokens 的回合仍照常出节点并标状态。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "无独立 UI 状态可截图（正确行为就是「什么都不出现」），证据是单测与修复前后的对照实测。修复前：`turn/start → turn/end{aborted}` 折出 [{id:assistant-s2, blocks:[], interrupted:true}]；`block-start → turn/end{aborted}` 折出 [{blocks:[{type:text,text:\"\"}], interrupted:true}]。修复后两者都是 []。覆盖用例（test/conversation.test.ts）：① aborted 无内容 → messages 只有 user；② 只有空文本块 → messages 为空；③ 有内容/有工具卡 → 保留且 interrupted=true；④ 只调工具靠 assistant/message 落盘的回合不被误判空壳（messageId 也算 evidence）。判定口径照官方 hasInterruptionEvidence（chat client.js 4209-4214）。",
+      "screenshotsNote": "截图不适用：本项的通过判据是「不渲染」。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "F5：插话身份由折叠层给出（落地后不再整行重建）",
+      "expect": "被 next-step 收件箱取走并插进对话的 user/message 在折叠层就带 steering 身份；webview 的落地行 key 恒为 steer:<id>，与 pending 气泡同 key——queue 快照里那条项消失的那一刻不再发生 key 翻转（原来是 steer:<id> → msg:<id>，整行被替换重建）。注入上下文仍归 context，人类直发仍归 user。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "证据：折叠层重放 agent/inbox/spliced 的单测（test/conversation.test.ts 四条：claim 后打 steering 标、注入上下文不算插话且 canceled 型 splice 不 claim、next-turn 不参与分类、重新 insert 会把 id 从 claimed 摘掉）+ webview 落地 key 逻辑（steerLanding ?? m.steering ? steer:<id>）。另修一处宿主映射：wire 的 SessionQueuedItem 只有 message.id、没有顶层 messageId，原来读 item.messageId 恒为 undefined，导致 #42 加的 pending→durable 认回分支（steerLanding）与重复气泡抑制实际从未生效——现在按 message.id 读。落地后的行不重建这一点需要真机插话才能直接观察，本轮由 key 恒定性保证（harness 的 steering-pending 场景回归无变化）。",
+      "screenshotsNote": "无独立截图：通过判据是「同一行元素跨帧复用」，由 key 恒定性 + reconcile 保活机制保证。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "F6：回合收尾只取消最后一次重试",
+      "expect": "一个回合里排了多条 scheduled 重试时，收尾（turn/end）只把**最后一条**从「等待重试」翻成「已取消」；末条已 started 时一条都不翻。对齐官方 model-retry 只翻末个 attempt。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "证据：test/conversation.test.ts 三条用例（单条 scheduled 收尾转 cancelled；三条 scheduled 收尾后状态为 ['scheduled','scheduled','cancelled']；末条 started 时为 ['scheduled','started']）。修复前三条 scheduled 会被全部翻成 cancelled，多 attempt 链上多出两行「已取消」。",
+      "screenshotsNote": "截图不适用：多 attempt 链在 mock LLM 下无法稳定编排，用单测覆盖。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "类型检查与全量单测",
+      "expect": "npm run typecheck 无错；npm test 全绿（含新增的 turnProcess 13 条、conversation 与 reconcile 的新增用例）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck：tsc --noEmit 无输出。npm test：752 项通过、0 失败（修 F2 时同步改了三条断言旧「一回合一条 assistant 消息」结构的用例：块稳定 id、页边界并段，改成 step 粒度断言）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "test/ui 基线场景全量渲染无回归",
+      "expect": "95 个基线场景逐个在 Chromium 里渲染：无 pageerror；既有场景里不会有折叠行混进来（只有新加的两个场景有）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/reg-conversation.png",
+        "/tmp/dsh-ui-shots/reg-turn-navigator.png",
+        "/tmp/dsh-ui-shots/reg-tool-cordis-run.png",
+        "/tmp/dsh-ui-shots/reg-compaction-cards.png",
+        "/tmp/dsh-ui-shots/reg-steering-pending.png"
+      ],
+      "notes": "sweep 全量结果：95 个场景 0 个 pageerror；除 turn-process-folded / turn-process-expanded 外所有场景 .turn-process 计数为 0（没有意外折出折叠行）。逐张核对抽查的 5 个场景：① conversation 正常对话版式不变（用户气泡右、助手左、操作栏在）；② turn-navigator 轨道栏 12 刻度、未载入半透明、最新高亮；③ tool-cordis-run 工具卡展开/状态正常；④ compaction-cards 压缩卡正常；⑤ steering-pending 插话气泡位置正常。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "真机（沙盒）基础对话与工具路径不受折叠改动影响",
+      "expect": "同一次沙盒会话里，mock 回显回复与工具调用回合都正常渲染，统计行/composer 不受影响。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/R-03.png"
+      ],
+      "notes": "同一次真机会话里继续发「测试一下」：mock 兜底回显正常渲染（用户气泡 + 回答 + 计时/操作栏），统计行涨到 2 turns · 3 steps。断言文本「收到：测试一下」命中；第二条回合没有多出折叠行（一问一答不折）。截图 render-structure-02-echo.png。"
+    }
+  ]
+}

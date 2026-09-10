@@ -19,11 +19,14 @@ import type {
   ChatMessage,
   ChatRetryBlock,
   ChatToolBlock,
+  ChatTurnProcess,
   ChatTurnTiming,
   ContextForm,
 } from './chatContract.ts'
 import { attachmentBaseName, isImagePath, parseAttachmentLine } from './composerAttachment.ts'
 import { TurnUsageFold } from './turnUsage.ts'
+import { hasAssistantReplyContent, TurnProcessFold, turnProcessPresentation } from './turnProcess.ts'
+import type { TurnProcessAnswer, TurnProcessNode } from './turnProcess.ts'
 
 /** Subset of dsh-llm's StreamChunk the folder folds. */
 export type StreamChunkData =
@@ -455,6 +458,22 @@ function orderEntriesBySeq(entries: readonly HistoryEntryLike[]): HistoryEntryLi
 }
 
 /**
+ * 回合收尾时这条 assistant 消息算不算「有节点」——官方 hasInterruptionEvidence
+ * 同款判定（client.js 4209-4214）：文本/推理块要去掉空白后非空，其余块（tool、
+ * retry 等）一律算证据。
+ *
+ * 另外把 `messageId` 也算证据：它是 assistant/message 事件的落盘 id，说明这一步
+ * 有真实的 assistant/message（其 content 即使只有 tool-call 块，在官方那边也是
+ * 非文本证据）。少了这一条，只调工具、没流式文本的回合会在收尾时被误判成空壳。
+ */
+function hasAssistantEvidence(msg: ChatAssistantMessage): boolean {
+  if (msg.messageId !== undefined) return true
+  return msg.blocks.some((block) =>
+    block.type === 'text' || block.type === 'reasoning' ? (block as { text: string }).text.trim() !== '' : true,
+  )
+}
+
+/**
  * 同一回合被页边界切开的旧段并入新段：`newer.blocks` = 旧段块 + 新段块（保持
  * 事件序）。边界恰好落在同一段流式文本中间（step 还没结束就被切开）时两段各留
  * 了半个文本块，拼回一块——否则一个回合的正文在流里断成两段独立段落。
@@ -526,6 +545,11 @@ export class ConversationFolder {
   private turnAssistant = new Map<number, ChatAssistantMessage>()
   /** Chunk block index → position in current.blocks (per step). */
   private blockPos = new Map<number, number>()
+  /**
+   * `${turn}:${step}` → 本步的 assistant 消息（F2：官方 assistant-step 节点粒度）。
+   * 同一步被 user/message 切开时，这条映射会被删掉——后续事件另起一段消息。
+   */
+  private stepMessages = new Map<string, ChatAssistantMessage>()
   /** `${turn}:${step}` of the step that streamed chunks, for dedupe. */
   private stepKey: string | null = null
   /** Whether the current step already contributed streamed/folded content. */
@@ -555,6 +579,12 @@ export class ConversationFolder {
   private retries = new Map<string, { block: ChatRetryBlock; turn: number }>()
   /** Turn → turn/start event time (epoch ms); only window-covered turns present. */
   private turnStart = new Map<number, number>()
+  /** Turn → turn/start event **seq**（过程窗口起点，官方 processSpec.processStartSeq）。 */
+  private turnStartSeq = new Map<number, number>()
+  /** Turn → 过程折叠状态（F1，官方 turn-process 的 state）。 */
+  private process = new Map<number, TurnProcessFold>()
+  /** 已收尾回合的过程折叠规格（F1）：按 turn 升序，webview 据此插折叠行。 */
+  private turnProcess: ChatTurnProcess[] = []
   /** `${turn}:${step}` → step/start event time. */
   private stepStart = new Map<string, number>()
   /** `${turn}:${step}` → time of the first non-empty token delta (isTokenDeltaLike). */
@@ -567,12 +597,24 @@ export class ConversationFolder {
    * turn/end 时取结果并删除。
    */
   private turnUsage = new Map<number, TurnUsageFold>()
+  /**
+   * next-step inbox 的 claim 重放（F5）：官方 chat 折叠层注册一条 next-step 的
+   * inbox 状态，把 `agent/inbox/spliced` 按序重放（client.js 5675-5726），据此把
+   * `user/message` 分成 context / steering / user 三类。我们照搬同一套重放：
+   * `inboxPending` = 当前 next-step 收件箱里待插的 id 列表，`inboxClaimed` =
+   * 上一次 splice「取走」的 id 集合（取走的那些就是被插进对话的插话）。
+   * 分类只看折叠层自己的日志，不再依赖 webview 侧的 queue 快照——queue 项一消失
+   * 身份就翻转。
+   */
+  private inboxPending: string[] = []
+  private inboxClaimed = new Set<string>()
 
   /** Reset and fold a full history window (initial load / re-baseline). */
   applyHistory(entries: readonly HistoryEntryLike[]): void {
     this.msgs = []
     this.current = null
     this.turnAssistant.clear()
+    this.stepMessages.clear()
     this.blockPos.clear()
     this.stepKey = null
     this.stepStreamed = false
@@ -586,10 +628,15 @@ export class ConversationFolder {
     this.compactions.clear()
     this.retries.clear()
     this.turnStart.clear()
+    this.turnStartSeq.clear()
+    this.process.clear()
+    this.turnProcess = []
     this.stepStart.clear()
     this.firstToken.clear()
     this.stepCompleted.clear()
     this.turnUsage.clear()
+    this.inboxPending = []
+    this.inboxClaimed.clear()
     for (const entry of orderEntriesBySeq(entries)) this.applyEvent(entry.event, entry.view)
   }
 
@@ -621,6 +668,12 @@ export class ConversationFolder {
       olderMsgs.pop()
     }
     this.msgs = [...olderMsgs, ...this.msgs]
+    // 旧页里已收尾回合的过程折叠规格一并补进来（本窗口已有的同 turn 条目优先，
+    // 窗口头那个被切开的回合由本窗口自己的收尾事件算过）。
+    const olderViews = older.turnProcessViews().filter((view) => !this.turnProcess.some((entry) => entry.turn === view.turn))
+    if (olderViews.length > 0) {
+      this.turnProcess = [...olderViews, ...this.turnProcess].sort((a, b) => a.turn - b.turn)
+    }
   }
 
   /** Fold one event; returns true when the rendered messages changed. */
@@ -641,6 +694,9 @@ export class ConversationFolder {
           const fold = new TurnUsageFold()
           fold.fold(event)
           this.turnUsage.set(data.turn, fold)
+          // 过程折叠（F1）：turn/start 在窗口内才知道过程窗口的起点 seq。
+          this.turnStartSeq.set(data.turn, event.seq)
+          this.process.set(data.turn, new TurnProcessFold(data.turn))
         }
         return true
       }
@@ -668,11 +724,16 @@ export class ConversationFolder {
         const maxTokens = kind === 'max-tokens'
         // 所属 turn 关闭时，仍未 llm/retry-started 的重试等待被取消（对齐官方
         // isClosed 语义：scheduled attempt cancelled once the boundary closes）。
+        // 只翻**最后一次**：官方 model-retry 节点只把末个 attempt 从 scheduled 翻
+        // cancelled（client.js 5905-5918），多 attempt 链上把整串都翻会多出几条
+        // 「已取消」行。
         const turn = Number(data.turn)
         if (Number.isFinite(turn)) {
+          let last: { block: ChatRetryBlock } | undefined
           for (const entry of this.retries.values()) {
-            if (entry.turn === turn && entry.block.retryState === 'scheduled') entry.block.retryState = 'cancelled'
+            if (entry.turn === turn) last = entry
           }
+          if (last?.block.retryState === 'scheduled') last.block.retryState = 'cancelled'
           // 回合关闭：本 turn 仍未结算的 tool 卡不会再有 result（用户中断 / result
           // 落在窗口外 / 日志缺尾）——收边置错误态。官方同款语义：step/turn 关闭
           // 时把未结算的 tool 投影成 Interrupted 错误结果；不收边就永远转圈。
@@ -686,10 +747,24 @@ export class ConversationFolder {
           // 记 turnEnd）。
           if (Number.isFinite(turn)) msg = this.turnAssistant.get(turn) ?? null
         }
-        if (!msg && (turnError || interrupted || maxTokens)) {
-          // The turn failed / was cancelled / hit the token cap before any
-          // assistant content: still surface an (empty) assistant message so
-          // the error row / 已中断 marker / maxTokens notice has a home.
+        // F7：官方只在「有 interruption evidence」时才投影中断的 assistant 节点
+        // （client.js hasInterruptionEvidence，4209-4214）——文本/推理块全空、
+        // 又没有别的块的回合直接**不出节点**（此时可见的 turn-tail 也因
+        // closing === null 渲染成空）。我们原来无条件留一条空 assistant 消息，
+        // 渲染成一条空行 + 「已中断」。这里对齐：无证据的空壳从消息流里摘掉。
+        // turn-error / turn-max-tokens 是官方那套里的**独立节点**（
+        // TURN_PROCESS_INDEPENDENT_KINDS，1336-1345），不受 evidence 约束，
+        // 它们的承载消息仍然要建。
+        if (msg && !hasAssistantEvidence(msg) && !turnError && !maxTokens) {
+          const at = this.msgs.indexOf(msg)
+          if (at >= 0) this.msgs.splice(at, 1)
+          if (Number.isFinite(turn) && this.turnAssistant.get(turn) === msg) this.turnAssistant.delete(turn)
+          msg = null
+        }
+        if (!msg && (turnError || maxTokens)) {
+          // The turn failed / hit the token cap before any assistant content:
+          // still surface an (empty) assistant message so the error row /
+          // maxTokens notice has a home.
           msg = {
             kind: 'assistant',
             id: `assistant-s${event.seq}`,
@@ -733,6 +808,11 @@ export class ConversationFolder {
             }
           }
         }
+        // 回合过程折叠（F1）：回合收尾时算 spec + presentation（官方只在 turn 已
+        // 关闭时才 foldable）。答案步 = 本回合最后一步里「有落盘 assistant/message、
+        // 有回复内容、且不含工具调用」的那条（官方 latestAnswer）；不满足就整项
+        // 缺省（control 节点 answerAnchorSeq 为 null → 官方 foldable 恒 false）。
+        if (Number.isFinite(turn)) this.foldTurnProcess(turn, event.seq)
         this.current = null
         this.stepKey = null
         return true
@@ -761,8 +841,7 @@ export class ConversationFolder {
           }
           // 与普通 user/message 一样切断当前 assistant 消息：checkpoint 之后
           // 的内容另起一条（官方按 seq 位置渲染成独立节点）。
-          if (this.current) this.current.complete = true
-          this.current = null
+          this.cutCurrent()
           this.stepKey = null
           return true
         }
@@ -793,21 +872,28 @@ export class ConversationFolder {
           }
         }
         const context = injectedContextOf(source, text)
+        // F5：被 next-step inbox 取走并插进对话的这条是**插话**（steering），与
+        // 人类直发（user）、宿主注入（context）是三种节点身份。身份由折叠层从
+        // agent/inbox/spliced 的重放里给出（官方 client.js 5754 的
+        // currentClaimed.has(event.data.id) 判定），不看 webview 侧的 queue 快照
+        // ——queue 项落地后就被移除，身份跟着翻转会让那一行被重建。
+        const steering = context === undefined && this.inboxClaimed.has(id)
         this.msgs.push({
           kind: 'user',
           id,
           text,
           seq: event.seq,
           ...(context ? { context } : {}),
+          ...(steering ? { steering: true } : {}),
           ...(images.length > 0 ? { images } : {}),
           ...(files.length > 0 ? { files } : {}),
         })
         // turn 中途插入的 user/message（子代理完成通知等注入上下文）会切断
-        // 当前 assistant 消息：下一步的 chunk 会另起一条，被丢下的这条再也
-        // 等不到 assistant/message 或 turn/end 来标 complete（tool/call 刚把
-        // 它标回 false），不补一下 webview 会在它尾巴上永久挂流式光标。
-        if (this.current) this.current.complete = true
-        this.current = null
+        // 当前 assistant 消息：之后的内容另起一条（官方按 seq 位置渲染成独立
+        // 节点，注入上下文永远排在它后面）。被丢下的这条再也等不到
+        // assistant/message 或 turn/end 来标 complete（tool/call 刚把它标回
+        // false），不补一下 webview 会在它尾巴上永久挂流式光标。
+        this.cutCurrent()
         this.stepKey = null
         return true
       }
@@ -844,13 +930,17 @@ export class ConversationFolder {
       }
       case 'assistant/chunk':
         this.feedUsageFold(event)
+        this.feedProcess(event)
         return this.applyChunk(event.data as ChunkEventData, event.seq, event.time)
       case 'assistant/message':
         this.feedUsageFold(event)
+        this.feedProcess(event)
         return this.applyAssistantMessage(event.data as AssistantMessageEventData, event.seq, event.time)
       case 'tool/call':
+        this.feedProcess(event)
         return this.applyToolCall(event.data as ToolCallEventData, view, event.seq)
       case 'tool/result':
+        this.feedProcess(event)
         return this.applyToolResult(event.data as ToolResultEventData, view, event.seq)
       case 'command/run': {
         const commandId = typeof data.commandId === 'string' && data.commandId ? data.commandId : `command-${event.seq}`
@@ -869,6 +959,7 @@ export class ConversationFolder {
         return true
       }
       case 'llm/retry': {
+        this.feedProcess(event)
         // Durable record of one provider-routed retry scheduled after a failed
         // request attempt. 折叠成承载 turn 的消息里的重试行（对齐官方
         // ModelRetryItem）；同 retryId 的后续尝试原地更新（保持首次位置）。
@@ -887,7 +978,7 @@ export class ConversationFolder {
           return true
         }
         // 只在新建链时确保承载消息；后续尝试原地更新，不再动消息结构。
-        const msg = this.ensureAssistant(Number(data.turn), event.seq)
+        const msg = this.ensureAssistant(Number(data.turn), event.seq, Number(data.step))
         const block: ChatRetryBlock = {
           type: 'retry',
           id: `retry:${r}`,
@@ -919,6 +1010,33 @@ export class ConversationFolder {
         }
         return false
       }
+      case 'agent/inbox/spliced': {
+        // F5：next-step 收件箱的一次变更。重放官方 applySplice（client.js
+        // 5675-5700）：带 removedCount 且非 canceled 的一次 splice 把 start 处
+        // 的 removedCount 条**取走**（这些 id 就是接下来要插进对话的插话），
+        // 取走的成为 currentClaimed；其余情况只把 inserted 从 claimed 里摘掉并
+        // 把这次 splice 应用到 pending 上。分类在 user/message 时读 claimed。
+        // 只认 next-step：next-turn（排队等待，未插话）不参与 user 消息分类。
+        if (data.target !== 'next-step') return false
+        const inserted = Array.isArray(data.inserted)
+          ? data.inserted.flatMap((raw) => {
+              const identity = raw as { id?: unknown }
+              return typeof identity?.id === 'string' && identity.id ? [identity.id] : []
+            })
+          : []
+        const removedCount = Math.max(0, Math.trunc(Number(data.removedCount)) || 0)
+        const offset = Math.trunc(Number(data.start))
+        const start = Number.isNaN(offset) ? 0 : offset < 0 ? Math.max(this.inboxPending.length + offset, 0) : Math.min(offset, this.inboxPending.length)
+        if (removedCount > 0 && data.outcome !== 'canceled') {
+          this.inboxClaimed = new Set(this.inboxPending.splice(start, removedCount, ...inserted))
+        } else {
+          for (const id of inserted) this.inboxClaimed.delete(id)
+          this.inboxPending.splice(start, removedCount, ...inserted)
+        }
+        // 这条事件本身不改消息（分类在随后的 user/message 上生效），但折叠层
+        // 的状态变了：返回 false 让调用方按「消息未变」跳过重推。
+        return false
+      }
       case 'compaction/summary': {
         // Log-only metering event: the summary content + shadow price of one
         // compaction. 不直接进消息流，交给随后紧邻的 checkpoint user/message。
@@ -937,6 +1055,11 @@ export class ConversationFolder {
     return this.msgs
   }
 
+  /** 已收尾回合的「过程折叠」规格（F1），按 turn 升序。 */
+  turnProcessViews(): ChatTurnProcess[] {
+    return this.turnProcess
+  }
+
   /** Feed a turn-scoped event to the open usage fold of the matching turn (if any). */
   private feedUsageFold(event: SessionEventLike): void {
     const data = (event.data ?? {}) as Record<string, unknown>
@@ -944,6 +1067,24 @@ export class ConversationFolder {
     if (!Number.isFinite(turn)) return
     const fold = this.turnUsage.get(turn)
     if (fold) fold.fold(event)
+  }
+
+  /**
+   * Feed one turn-scoped event to the open process fold of the matching turn
+   * (官方 turn-process definition 的 match 集合：assistant/chunk、
+   * assistant/message、tool/call、tool/result、llm/retry)。turn/start 不在窗口内
+   * 时 fold 是按需建的（官方 fallbackState 语义：仍然按事件累计）。
+   */
+  private feedProcess(event: SessionEventLike): void {
+    const data = (event.data ?? {}) as { turn?: unknown }
+    const turn = Number(data.turn)
+    if (!Number.isFinite(turn)) return
+    let fold = this.process.get(turn)
+    if (!fold) {
+      fold = new TurnProcessFold(turn)
+      this.process.set(turn, fold)
+    }
+    fold.fold(event)
   }
 
   /** A turn without its turn/end: the session is mid-turn. */
@@ -1021,31 +1162,127 @@ export class ConversationFolder {
     return changed
   }
 
-  private ensureAssistant(turn: number, seq: number): ChatAssistantMessage {
+  /**
+   * 注入上下文（user/message、压缩 checkpoint）把当前正在长的那条 assistant
+   * 消息切断：补 complete（它等不到 assistant/message 或 turn/end 了），并把
+   * 本步的段映射删掉——同一步后续的事件会另起一段（id 带 seq 后缀），从而仍
+   * 按 seq 排在注入上下文之后。
+   */
+  private cutCurrent(): void {
+    const msg = this.current
+    this.current = null
+    if (!msg) return
+    msg.complete = true
+    if (msg.step !== undefined && Number.isFinite(msg.turn)) {
+      const scope = `${msg.turn}:${msg.step}`
+      if (this.stepMessages.get(scope) === msg) this.stepMessages.delete(scope)
+    }
+  }
+
+  /**
+   * 回合收尾时算这条回合的「过程折叠」规格（F1）：答案步 → spec → presentation，
+   * 结果按 turn 升序存进 `turnProcess`（webview 据此在首条人类输入之后插折叠行）。
+   * 不可折的回合（没有外部过程、没有答案步、过程窗不完整）直接不出条目。
+   */
+  private foldTurnProcess(turn: number, endSeq: number): void {
+    const fold = this.process.get(turn)
+    const answerMsg = this.turnAssistant.get(turn)
+    this.process.delete(turn)
+    const startSeq = this.turnStartSeq.get(turn)
+    this.turnStartSeq.delete(turn)
+    if (!fold) return
+    let answer: TurnProcessAnswer | null = null
+    if (
+      answerMsg !== undefined &&
+      answerMsg.messageId !== undefined &&
+      answerMsg.step !== undefined &&
+      answerMsg.blocks.every((block) => block.type !== 'tool') &&
+      hasAssistantReplyContent(answerMsg.blocks)
+    ) {
+      answer = {
+        step: answerMsg.step,
+        seq: answerMsg.seq ?? endSeq,
+        inlineReasoning: answerMsg.blocks.some((block) => block.type === 'reasoning' && block.text.trim() !== ''),
+      }
+    }
+    const spec = fold.spec(startSeq, answer)
+    if (!spec) return
+    const view = turnProcessPresentation(turn, spec, this.turnProcessNodes(turn, startSeq, endSeq))
+    if (!view) return
+    this.turnProcess = [...this.turnProcess.filter((entry) => entry.turn !== turn), view].sort((a, b) => a.turn - b.turn)
+  }
+
+  /**
+   * 一个回合的节点投影（presentation 只看 kind / anchorSeq / step）：assistant
+   * 消息按 turn 归属，其余消息按 seq 落在 (turn/start, turn/end) 区间内归属。
+   * 注入上下文归 'context'（官方那套里 context **不是**独立节点，会跟着一起折），
+   * 命令卡 / 压缩卡同理。
+   */
+  private turnProcessNodes(turn: number, startSeq: number | undefined, endSeq: number): TurnProcessNode[] {
+    const nodes: TurnProcessNode[] = []
+    for (const m of this.msgs) {
+      if (m.kind === 'assistant') {
+        if (m.turn !== turn) continue
+        nodes.push({
+          kind: 'assistant',
+          anchorSeq: m.anchorSeq ?? m.seq ?? endSeq,
+          ...(m.step !== undefined ? { step: m.step } : {}),
+        })
+        continue
+      }
+      const seq = m.seq
+      if (typeof seq !== 'number') continue
+      if (startSeq !== undefined && seq <= startSeq) continue
+      if (seq >= endSeq) continue
+      if (m.kind === 'user') {
+        nodes.push({ kind: m.context !== undefined ? 'context' : m.steering === true ? 'steering' : 'user', anchorSeq: seq })
+      } else {
+        nodes.push({ kind: 'context', anchorSeq: seq })
+      }
+    }
+    return nodes
+  }
+
+  private ensureAssistant(turn: number, seq: number, step?: number): ChatAssistantMessage {
     // 窗口分页下 turn/start 可能落在窗口外（长 turn 的工具事件就能把页填满）；
     // 窗口是日志的连续后缀，内容事件的 turn 没有配对的 turn/end 就是还在跑。
     if (Number.isFinite(turn)) this.openTurns.add(turn)
-    if (this.current) {
+    // F2：官方按 step 出 assistant 节点（id `${turn}:${step}`），我们按 step 出
+    // 消息——同一个 turn 的每个 step 是一条独立消息，「回合过程折叠」（turn-process）
+    // 才有「过程成员 / 答案步」的边界。step 缺省（窗口外 result 兜底、llm/retry
+    // 缺 step）时退回挂到本 turn 的兜底消息上。
+    const finiteStep = step !== undefined && Number.isFinite(step)
+    const stepScope = Number.isFinite(turn) && finiteStep ? `${turn}:${step}` : null
+    if (stepScope !== null) {
+      const existing = this.stepMessages.get(stepScope)
+      if (existing) {
+        existing.seq = seq
+        this.current = existing
+        return existing
+      }
+    } else if (this.current && this.current.step === undefined) {
       this.current.seq = seq
       return this.current
     }
-    // id 必须唯一且跨帧稳定：同一个 turn 会折出多段 assistant 消息（① 窗口头
-    // 切在回合中间——补页后旧页尾段与本窗口首段同 turn；② turn 中途注入
-    // user/message 切断 current）。按 turn 命名（旧的 `assistant-t{turn}`）会撞车：
-    // webview 的行 key 是 `msg:${id}`，重复 key 在 reconcileChildren 里只保留
-    // 第一个 → 另一段整行静默消失。改为「turn + 段首事件 seq」：段首事件唯一
-    // ⇒ id 唯一；同一段日志的折叠结果确定 ⇒ id 跨帧稳定（对齐官方节点身份带
-    // sourceEventSeq 的做法）。
+    // id 必须唯一且跨帧稳定：同一个 (turn, step) 可能折出多段消息（页边界切在
+    // 步中间，或 turn 中途注入的 user/message 把一段切开）。按 (turn, step) 命名
+    // 已能区分不同步；同一 (turn, step) 被切开后的第二段再带段首 seq 后缀——
+    // 段首事件唯一 ⇒ id 唯一；同一段日志的折叠结果确定 ⇒ id 跨帧稳定（对齐官方
+    // 节点身份带 sourceEventSeq 的做法）。
+    const base = Number.isFinite(turn) ? (finiteStep ? `assistant-t${turn}s${step}` : `assistant-t${turn}`) : 'assistant'
     const msg: ChatAssistantMessage = {
       kind: 'assistant',
-      id: Number.isFinite(turn) ? `assistant-t${turn}-s${seq}` : `assistant-s${seq}`,
+      id: stepScope !== null && this.stepMessages.has(stepScope) ? `${base}-x${seq}` : stepScope === null ? `${base}-x${seq}` : base,
       blocks: [],
       complete: false,
       seq,
+      anchorSeq: seq,
       ...(Number.isFinite(turn) ? { turn } : {}),
+      ...(finiteStep ? { step: Number(step) } : {}),
     }
     this.msgs.push(msg)
     this.current = msg
+    if (stepScope !== null) this.stepMessages.set(stepScope, msg)
     if (Number.isFinite(turn)) this.turnAssistant.set(turn, msg)
     return msg
   }
@@ -1053,7 +1290,7 @@ export class ConversationFolder {
   private applyChunk(data: ChunkEventData, seq: number, time?: number): boolean {
     const chunk = data?.chunk
     if (!chunk || typeof chunk.type !== 'string') return false
-    const msg = this.ensureAssistant(Number(data.turn), seq)
+    const msg = this.ensureAssistant(Number(data.turn), seq, Number(data.step))
     const key = `${Number(data.turn)}:${Number(data.step)}`
     if (key !== this.stepKey) {
       this.stepKey = key
@@ -1114,7 +1351,7 @@ export class ConversationFolder {
   }
 
   private applyAssistantMessage(data: AssistantMessageEventData, seq: number, time?: number): boolean {
-    const msg = this.ensureAssistant(Number(data?.turn), seq)
+    const msg = this.ensureAssistant(Number(data?.turn), seq, Number(data?.step))
     // The host-persisted id powers messageFeedback; on a multi-step turn the
     // last step's message is the one the web client's fork rule refers to.
     const messageId = data?.message?.id
@@ -1147,7 +1384,7 @@ export class ConversationFolder {
 
   private applyToolCall(data: ToolCallEventData, view: ToolEventViewLike | undefined, seq: number): boolean {
     if (!data || typeof data.callId !== 'string') return false
-    const msg = this.ensureAssistant(Number(data.turn), seq)
+    const msg = this.ensureAssistant(Number(data.turn), seq, Number(data.step))
     const block: ChatToolBlock = {
       type: 'tool',
       id: data.callId,
@@ -1183,7 +1420,7 @@ export class ConversationFolder {
     let block = this.tools.get(callId)
     if (!block) {
       // Result whose call fell outside the window: materialize a generic card.
-      const msg = this.ensureAssistant(Number(data.turn), seq)
+      const msg = this.ensureAssistant(Number(data.turn), seq, Number(data.step))
       block = { type: 'tool', id: callId, callId, name: callId, status: 'running', title: callId }
       msg.blocks.push(block)
       this.tools.set(callId, block)

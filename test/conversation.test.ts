@@ -25,14 +25,14 @@ function userEv(id: string, text: string): SessionEventLike {
   })
 }
 
-function toolCallEv(callId: string, name: string, args: string): SessionEventLike {
-  return ev('tool/call', { turn: 1, step: 1, callId, name, arguments: args })
+function toolCallEv(callId: string, name: string, args: string, turn = 1, step = 1): SessionEventLike {
+  return ev('tool/call', { turn, step, callId, name, arguments: args })
 }
 
-function toolResultEv(callId: string, text: string, isError = false): SessionEventLike {
+function toolResultEv(callId: string, text: string, isError = false, turn = 1, step = 1): SessionEventLike {
   return ev('tool/result', {
-    turn: 1,
-    step: 1,
+    turn,
+    step,
     message: {
       id: `tr-${callId}`,
       role: 'user',
@@ -211,13 +211,17 @@ test('块带稳定 id：tool 块 = callId、文本块 = 创建它的事件 seq�
     }),
   )
 
-  const ids = lastAssistant(f).blocks.map((b) => b.id)
-  assert.equal(ids.length, 4)
-  assert.equal(ids[1], 'c1', 'tool 块 id = callId（官方 tool 节点 id 同款）')
+  // F2：assistant/message 落在 step 2，与 step 1 的流式内容分属两条消息。
+  const assistants = f.messages().filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
+  assert.deepEqual(assistants.map((m) => m.step), [1, 2])
+  const ids = assistants[0].blocks.map((b) => b.id)
+  assert.equal(ids.length, 2)
   assert.match(ids[0] ?? '', /^s\d+$/, '流式文本块 id = 创建它的 chunk 事件 seq')
-  assert.match(ids[2] ?? '', /^s\d+\.0$/, '同一条 assistant/message 折出的多块带事件内序号')
-  assert.match(ids[3] ?? '', /^s\d+\.1$/)
-  assert.equal(new Set(ids).size, ids.length, '同一条消息内块 id 互不相同')
+  assert.equal(ids[1], 'c1', 'tool 块 id = callId（官方 tool 节点 id 同款）')
+  const folded = assistants[1].blocks.map((b) => b.id)
+  assert.match(folded[0] ?? '', /^s\d+\.0$/, '同一条 assistant/message 折出的多块带事件内序号')
+  assert.match(folded[1] ?? '', /^s\d+\.1$/)
+  assert.equal(new Set([...ids, ...folded]).size, 4, '块 id 互不相同')
 })
 
 test('窗口外 result 兜底新推卡也带 callId 作块 id', () => {
@@ -402,20 +406,61 @@ test('turn/end with an aborted reason marks an unfinished message interrupted', 
   assert.equal(msg.interrupted, true)
 })
 
-test('turn/end with an aborted reason and no content yields an empty assistant message marked interrupted', () => {
+test('turn/end with an aborted reason and no content yields no node at all (官方 interruption evidence 规则)', () => {
   const f = new ConversationFolder()
   f.applyEvent(ev('turn/start', { turn: 1 }))
   f.applyEvent(userEv('u1', 'hi'))
-  // 用户刚发完就取消：turn/end 到达时还没有任何 assistant 内容，
-  // 标记不能丢——补一条空 assistant 消息承载「已中断」。
+  // 用户刚发完就取消：turn/end 到达时没有任何 assistant 内容。官方要
+  // interruption evidence 才建中断节点，这里就不该多出一条空壳消息
+  // （否则渲染成空行 + 「已中断」）。
   f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }))
 
-  const msg = lastAssistant(f)
-  assert.deepEqual(blockContent(msg.blocks), [])
-  assert.equal(msg.complete, true)
-  assert.equal(msg.interrupted, true)
-  assert.equal(msg.turnError, undefined)
+  assert.deepEqual(f.messages().map((m) => m.kind), ['user'])
   assert.equal(f.hasOpenTurn(), false)
+})
+
+test('中断回合只有空文本块时同样不出节点（空块不算 evidence）', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }))
+
+  assert.deepEqual(f.messages(), [])
+  assert.equal(f.hasOpenTurn(), false)
+})
+
+test('中断回合有内容/有工具卡时保留节点并标 interrupted', () => {
+  const withText = new ConversationFolder()
+  withText.applyEvent(ev('turn/start', { turn: 1 }))
+  withText.applyEvent(chunkEv(1, 1, { type: 'block-start', index: 0, blockType: 'text' }))
+  withText.applyEvent(chunkEv(1, 1, { type: 'text-delta', index: 0, text: 'half a sentence' }))
+  withText.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }))
+  const textMsg = lastAssistant(withText)
+  assert.equal(textMsg.interrupted, true)
+  assert.equal(textMsg.turnEnd, true)
+
+  const withTool = new ConversationFolder()
+  withTool.applyEvent(ev('turn/start', { turn: 1 }))
+  withTool.applyEvent(toolCallEv('call-1', 'bash', '{}'))
+  withTool.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }))
+  assert.equal(lastAssistant(withTool).interrupted, true)
+})
+
+test('只调工具没流式文本的回合收尾不被当成空壳（assistant/message 落盘 id 算 evidence）', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(
+    ev('assistant/message', {
+      turn: 1,
+      step: 0,
+      message: { id: 'am-1', content: [{ type: 'tool-call', toolCallId: 'call-x' }] },
+    }),
+  )
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }))
+
+  const msg = lastAssistant(f)
+  assert.equal(msg.messageId, 'am-1')
+  assert.equal(msg.interrupted, true)
 })
 
 test('turn/end with an error reason and no content yields an empty assistant message with turnError', () => {
@@ -581,6 +626,69 @@ test('host-injected context user messages are flagged, human input is not', () =
   assert.equal(snapshot.kind, 'user')
   assert.equal((snapshot as { seq?: number }).seq, before + 3)
   assert.deepEqual((snapshot as { context?: unknown }).context, { kind: 'plugin' })
+})
+
+/** 一次 next-step 收件箱变更（agent/inbox/spliced）。 */
+function inboxSplicedEv(data: Record<string, unknown>): SessionEventLike {
+  return ev('agent/inbox/spliced', { target: 'next-step', ...data })
+}
+
+test('F5：被 next-step 收件箱取走的 user/message 标成 steering', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(userEv('u1', 'keep going'))
+  // 用户插话：先进 next-step 收件箱（insert），下一步开始时被取走（removedCount）。
+  f.applyEvent(inboxSplicedEv({ start: 0, inserted: [{ id: 's1' }] }))
+  f.applyEvent(inboxSplicedEv({ start: 0, removedCount: 1, inserted: [] }))
+  f.applyEvent(userEv('s1', 'stop, do X instead'))
+  f.applyEvent(userEv('u2', 'plain follow-up'))
+
+  const [human, steering, plain] = f.messages() as Array<{ id: string; steering?: unknown }>
+  assert.equal(human.id, 'u1')
+  assert.equal(human.steering, undefined)
+  assert.equal(steering.id, 's1')
+  assert.equal(steering.steering, true)
+  assert.equal(plain.id, 'u2')
+  assert.equal(plain.steering, undefined)
+})
+
+test('F5：注入上下文不算插话；取消型 splice 不产生 claim', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(inboxSplicedEv({ start: 0, inserted: [{ id: 'c1' }] }))
+  // 用户撤销：outcome=canceled 的那次移除不把 id 记成 claimed。
+  f.applyEvent(inboxSplicedEv({ start: 0, removedCount: 1, inserted: [], outcome: 'canceled' }))
+  f.applyEvent(
+    ev('user/message', {
+      id: 'c1',
+      role: 'user',
+      content: [{ type: 'text', text: 'runtime snapshot' }],
+      source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
+    }),
+  )
+
+  const [msg] = f.messages() as Array<{ context?: unknown; steering?: unknown }>
+  assert.deepEqual(msg.context, { kind: 'plugin' })
+  assert.equal(msg.steering, undefined)
+})
+
+test('F5：next-turn 的收件箱变更不参与插话分类', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [{ id: 'q1' }] }))
+  f.applyEvent(userEv('q1', 'plain'))
+
+  const [msg] = f.messages() as Array<{ steering?: unknown }>
+  assert.equal(msg.steering, undefined)
+})
+
+test('F5：重放新一次插入会把已 claim 的 id 从 claimed 里摘掉', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(inboxSplicedEv({ start: 0, inserted: [{ id: 's1' }] }))
+  f.applyEvent(inboxSplicedEv({ start: 0, removedCount: 1, inserted: [] }))
+  // 同一个 id 又被插回收件箱（未落盘）→ 不再是 claimed。
+  f.applyEvent(inboxSplicedEv({ start: 0, inserted: [{ id: 's1' }] }))
+  f.applyEvent(userEv('s1', 'landed later'))
+
+  const [msg] = f.messages() as Array<{ steering?: unknown }>
+  assert.equal(msg.steering, undefined)
 })
 
 test('user message without source falls back to the system-reminder prefix', () => {
@@ -1050,8 +1158,8 @@ test('prependHistory 页边界切在回合中间：同回合两段并成一段�
     userEv('u7', '问题'),
     chunkEv(7, 1, { type: 'block-start', index: 0, blockType: 'text' }),
     chunkEv(7, 1, { type: 'text-delta', index: 0, text: '第一步 ' }),
-    toolCallEv('c7', 'read', '{}'),
-    toolResultEv('c7', '文件内容'),
+    toolCallEv('c7', 'read', '{}', 7, 1),
+    toolResultEv('c7', '文件内容', false, 7, 1),
     chunkEv(7, 2, { type: 'block-start', index: 0, blockType: 'text' }),
     chunkEv(7, 2, { type: 'text-delta', index: 0, text: '第二步前半' }),
     chunkEv(7, 2, { type: 'text-delta', index: 0, text: '，第二步后半' }),
@@ -1066,23 +1174,31 @@ test('prependHistory 页边界切在回合中间：同回合两段并成一段�
   const ids = msgs.map((m) => m.id)
   assert.equal(new Set(ids).size, ids.length, `消息 id 必须唯一：${ids.join(', ')}`)
   const assistants = msgs.filter((m): m is ChatAssistantMessage => m.kind === 'assistant')
-  assert.equal(assistants.length, 1, '同一回合只留一条 assistant 消息')
+  // F2：一个回合按 step 出消息——step 1（文本 + 工具卡）与 step 2（正文）各一条。
+  assert.deepEqual(
+    assistants.map((m) => m.step),
+    [1, 2],
+  )
   // 边界两侧的文本块拼回一块（正文不被断成两段独立段落），工具卡保持原位。
   assert.deepEqual(
     assistants[0].blocks.map((b) => b.type),
-    ['text', 'tool', 'text'],
+    ['text', 'tool'],
   )
   assert.equal((assistants[0].blocks[0] as { text: string }).text, '第一步 ')
-  assert.equal((assistants[0].blocks[2] as { text: string }).text, '第二步前半，第二步后半')
-  assert.equal(assistants[0].complete, true)
-  assert.equal(assistants[0].turnEnd, true)
+  assert.deepEqual(
+    assistants[1].blocks.map((b) => b.type),
+    ['text'],
+  )
+  assert.equal((assistants[1].blocks[0] as { text: string }).text, '第二步前半，第二步后半')
+  assert.equal(assistants[1].complete, true)
+  assert.equal(assistants[1].turnEnd, true)
   // 块 id 稳定（tool 块 = callId、文本块 = 创建它的事件 seq）：并段不换 key——
   // webview 侧那些 tool 卡的展开态 / JSON 树 / 内滚位置随之存活（#49 R4/C2）。
   const blockIds = assistants[0].blocks.map((b) => b.id)
   assert.equal(blockIds[1], 'c7')
   assert.match(blockIds[0] ?? '', /^s\d+$/)
-  assert.match(blockIds[2] ?? '', /^s\d+$/)
-  assert.equal(new Set(blockIds).size, 3, '同一条消息内块 id 互不相同')
+  assert.equal(new Set(blockIds).size, 2, '同一条消息内块 id 互不相同')
+  assert.match(assistants[1].blocks[0]?.id ?? '', /^s\d+$/)
 })
 
 test('页边界切在 tool/call 与 tool/result 之间：并段后同 callId 的卡合成一张', () => {
@@ -1459,6 +1575,30 @@ test('a still-scheduled retry is cancelled when the turn ends', () => {
 
   const block = lastAssistant(f).blocks[0] as ChatRetryBlock
   assert.equal(block.retryState, 'cancelled')
+})
+
+test('回合收尾只翻最后一次 scheduled retry（官方只翻末个 attempt）', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(retryEv('r2'))
+  f.applyEvent(retryEv('r3'))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }))
+
+  const states = (lastAssistant(f).blocks as ChatRetryBlock[]).map((b) => b.retryState)
+  assert.deepEqual(states, ['scheduled', 'scheduled', 'cancelled'])
+})
+
+test('末个 attempt 已 started 时收尾不翻任何一条', () => {
+  const f = new ConversationFolder()
+  f.applyEvent(ev('turn/start', { turn: 1 }))
+  f.applyEvent(retryEv('r1'))
+  f.applyEvent(retryEv('r2'))
+  f.applyEvent(retryStartedEv('r2'))
+  f.applyEvent(ev('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }))
+
+  const states = (lastAssistant(f).blocks as ChatRetryBlock[]).map((b) => b.retryState)
+  assert.deepEqual(states, ['scheduled', 'started'])
 })
 
 test('a started retry keeps its started state when the turn ends', () => {

@@ -21,6 +21,7 @@ import type {
   ChatTodoItem,
   ChatToolBlock,
   ChatTurnOutlineEntry,
+  ChatTurnProcess,
   ChatTurnUsage,
   ChatUserMessage,
   ChatScheduleEntry,
@@ -5234,7 +5235,7 @@ function openLightbox(dataUrl: string): void {
  * 时整帧换出/换入，切回来展开态照旧（#52 W3）。容器对象身份恒定，模块初始化
  * 就把它注入 markdown 工具链（mdTools）——所以这里只能原地改内容，不能换引用。
  */
-const { detailsOpen, producedOpen, workflowDisclosure, innerScrollPositions } = disclosureFrame()
+const { detailsOpen, producedOpen, workflowDisclosure, innerScrollPositions, turnProcessOpen } = disclosureFrame()
 
 // 共享 md 渲染/装饰工具（#40）：webview 状态（t/post/缓存/popover/整页 render）
 // 经 MarkdownCtx 注入，调用点签名保持不变。
@@ -5697,7 +5698,16 @@ function mergedAttachments(fileRefs: ChatFile[], existing: readonly ChatFile[] |
   return [...byPath.values()]
 }
 
-function renderMessage(m: ChatMessage, key: string): HTMLElement {
+/**
+ * 折叠态下答案步要藏掉的内联推理块（官方 AssistantStep 的 reasoningHidden：
+ * turn-process 可折 + 答案步带内联推理 + 未展开）。块带稳定 id，过滤不换 key。
+ */
+function visibleAssistantBlocks(m: ChatAssistantMessage, hideReasoning: boolean | undefined): readonly ChatBlock[] {
+  if (hideReasoning !== true) return m.blocks
+  return m.blocks.filter((block) => block.type !== 'reasoning')
+}
+
+function renderMessage(m: ChatMessage, key: string, hideReasoning?: boolean): HTMLElement {
   if (m.kind === 'user') {
     // Host-injected context renders collapsed; only real human input bubbles.
     if (m.context) {
@@ -5803,7 +5813,7 @@ function renderMessage(m: ChatMessage, key: string): HTMLElement {
   // 的持久化键一致）。
   const blocksContainer = el('div', 'msg-blocks')
   row.appendChild(blocksContainer)
-  renderPreact(h(BlockList, { blocks: m.blocks, rowKey: key, tools: blockTools }), blocksContainer)
+  renderPreact(h(BlockList, { blocks: visibleAssistantBlocks(m, hideReasoning), rowKey: key, tools: blockTools }), blocksContainer)
   if (!m.complete) row.appendChild(el('div', 'streaming', '▍'))
   if (m.interrupted) row.appendChild(el('div', 'interrupted', t('Interrupted')))
   if (m.turnError) row.appendChild(renderTurnError(m.turnError))
@@ -5868,9 +5878,9 @@ const assistantTailSigs = new Map<string, string>()
  *
  * `.msg-blocks` 容器自身保活（Preact 的 reconcile 依赖稳定的挂载点）。
  */
-function updateMessageBlocks(row: HTMLElement, m: ChatAssistantMessage, key: string): void {
+function updateMessageBlocks(row: HTMLElement, m: ChatAssistantMessage, key: string, hideReasoning?: boolean): void {
   const blocks = row.querySelector<HTMLElement>('.msg-blocks')
-  if (blocks) renderPreact(h(BlockList, { blocks: m.blocks, rowKey: key, tools: blockTools }), blocks)
+  if (blocks) renderPreact(h(BlockList, { blocks: visibleAssistantBlocks(m, hideReasoning), rowKey: key, tools: blockTools }), blocks)
   const tailSig = assistantTailSig(m)
   if (assistantTailSigs.get(key) !== tailSig) {
     assistantTailSigs.set(key, tailSig)
@@ -6074,6 +6084,8 @@ const flowRunSigs = new Map<string, string>()
 const flowSteerSigs = new Map<string, string>()
 /** 未匹配命令生命周期节点签名（合成 commandId → sig）。 */
 const flowReceiptSigs = new Map<string, string>()
+/** 回合过程折叠行签名（turn → sig：规格 + 展开态）。 */
+const flowProcessSigs = new Map<number, string>()
 /** 上一帧的命令通知列表（逐条按位置比对）。 */
 let flowLastNotices: string[] = []
 
@@ -6089,6 +6101,103 @@ let flowLastNotices: string[] = []
  * .messages 顶层（sticky 贴滚动面板右缘，不随列限宽），jump 的元素在
  * messages 创建时一次性挂在列外的 .jump-slot 里，这里不再重复创建。
  */
+/**
+ * 一个回合的「过程折叠」运行时视图（F1）：官方 ChatNodeSeat 的判定按回合算一次
+ * ——成员（过程窗内的节点）在折叠态隐藏，答案步自己可见（它的 reasoning 在
+ * `inlineReasoning` 时也藏起来），折叠行在 `afterSeq` 那条人类输入之后。
+ *
+ * `foldable` 与官方同款：过程窗就绪（有答案步）+ 有外部过程或答案步带内联推理
+ * 才折——一问一答的简单回合照常平铺。
+ */
+interface TurnProcessRuntime {
+  view: ChatTurnProcess
+  open: boolean
+  foldable: boolean
+}
+
+/**
+ * 本消息在所属回合过程里的位置。判定用 step 归属而不是官方的 anchor 区间：
+ * 官方 tool 是独立节点、有自己的 anchorSeq；我们的 tool 块挂在所属 step 的
+ * assistant 消息里，所以「step < 答案步」就是过程成员、「step = 答案步」就是
+ * 答案步（顺序执行的回合里两者等价）。注入上下文/命令卡/压缩卡这些非独立节点
+ * 按 seq 落在过程窗内即成员（官方那套里它们同样会被折掉）。
+ */
+function isProcessMemberMessage(m: ChatMessage, runtime: TurnProcessRuntime): boolean {
+  const view = runtime.view
+  if (m.kind === 'assistant') return m.turn === view.turn && m.step !== undefined && m.step < view.answerStep
+  if (typeof m.seq !== 'number') return false
+  if (m.kind === 'user') return m.context !== undefined && m.seq > view.processStartSeq && m.seq < view.answerAnchorSeq
+  return m.kind === 'command' || m.kind === 'compaction'
+    ? m.seq > view.processStartSeq && m.seq < view.answerAnchorSeq
+    : false
+}
+
+/** 折叠态下本行该怎么渲染；null = 与过程折叠无关（照常渲染）。 */
+function processFoldStateOf(m: ChatMessage, runtime: TurnProcessRuntime | null): { hidden: boolean; hideReasoning: boolean } | null {
+  if (!runtime || !runtime.foldable || runtime.open) return null
+  const member = isProcessMemberMessage(m, runtime)
+  const answer = m.kind === 'assistant' && m.turn === runtime.view.turn && m.step === runtime.view.answerStep
+  if (!member && !answer) return null
+  // 答案步：官方 AssistantStep 在折叠态也藏掉自己的推理块（inlineReasoning）。
+  return { hidden: member, hideReasoning: answer && runtime.view.inlineReasoning }
+}
+
+/** 折叠行的展开态键（官方 storedTurnProcessEntry 的 {turn, answerStep}）。 */
+function turnProcessKeyOf(view: ChatTurnProcess): string {
+  return `${view.turn}:${view.answerStep}`
+}
+
+/** 折叠行文案（官方 TurnProcessNodeView）：有计数就列计数，没有显示「已思考」。 */
+function turnProcessLabel(view: ChatTurnProcess): string {
+  const labels: string[] = []
+  if (view.toolCallCount > 0) labels.push(t(view.toolCallCount === 1 ? '{0} tool call' : '{0} tool calls', view.toolCallCount))
+  if (view.messageCount > 0) labels.push(t(view.messageCount === 1 ? '{0} message' : '{0} messages', view.messageCount))
+  if (view.subagentCount > 0) labels.push(t(view.subagentCount === 1 ? '{0} subagent' : '{0} subagents', view.subagentCount))
+  return labels.length === 0 ? t('Thought for a while') : labels.join(' · ')
+}
+
+/** 折叠行：一个可点的 button（标签 + chevron），整行参与 flow 对账。 */
+function renderTurnProcessRow(view: ChatTurnProcess, open: boolean): HTMLElement {
+  const row = el('div', 'turn-process-row')
+  if (open) row.dataset.open = 'true'
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'turn-process'
+  button.dataset.turnProcess = String(view.turn)
+  button.dataset.turnProcessMessages = String(view.messageCount)
+  button.dataset.turnProcessToolCalls = String(view.toolCallCount)
+  button.dataset.turnProcessSubagents = String(view.subagentCount)
+  button.setAttribute('aria-expanded', String(open))
+  button.appendChild(el('span', 'turn-process-label', turnProcessLabel(view)))
+  button.appendChild(chevronEl(open))
+  button.addEventListener('click', () => {
+    button.focus()
+    turnProcessOpen.set(turnProcessKeyOf(view), !open)
+    render()
+  })
+  row.appendChild(button)
+  return row
+}
+
+/** 折叠行尾部的 chevron：展开朝上、折叠朝下（与官方 IconChevronDown 的旋转一致）。 */
+function chevronEl(open: boolean): SVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('width', '14')
+  svg.setAttribute('height', '14')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.setAttribute('class', open ? 'turn-process-chevron open' : 'turn-process-chevron')
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', 'M4 6l4 4 4-4')
+  path.setAttribute('fill', 'none')
+  path.setAttribute('stroke', 'currentColor')
+  path.setAttribute('stroke-width', '1.4')
+  path.setAttribute('stroke-linecap', 'round')
+  path.setAttribute('stroke-linejoin', 'round')
+  svg.appendChild(path)
+  return svg
+}
+
 function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: FlowItem[] } {
   const items: FlowItem[] = []
   // 回合轨道栏（web parity: TurnNavigator）：整份日志的回合刻度，未载入回合
@@ -6146,6 +6255,7 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
     }
   }
   const seenMsgIds = new Set<string>()
+  const seenProcessTurns = new Set<number>()
   // Pending steering bubbles: interleave by send-time seq into the message flow
   // (aligns official orderedVisibleChatNodes' anchorSeq ordering + observedRpcIds
   // duplicate suppression). Snapshot order is not guaranteed to be send order, so
@@ -6190,22 +6300,78 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
   for (let i = 0; i < flowEntries.length; i++) if (flowEntries[i].kind === 'message') lastMsgIdx = i
   const inFlow = lastMsgIdx >= 0 ? flowEntries.slice(0, lastMsgIdx + 1) : []
   const tailSteers = lastMsgIdx >= 0 ? flowEntries.slice(lastMsgIdx + 1) : flowEntries
+  // 回合过程折叠（F1）：每个回合一份运行时视图（展开态 + foldable 判定），
+  // 折叠行在「首条人类输入之后」或（那条没在窗口里时）「第一个过程成员之前」插入。
+  const processRuntime = new Map<number, TurnProcessRuntime>()
+  for (const view of state.turnProcess ?? []) {
+    processRuntime.set(view.turn, {
+      view,
+      open: turnProcessOpen.get(turnProcessKeyOf(view)) === true,
+      foldable: view.hasExternalProcess || view.inlineReasoning,
+    })
+  }
+  // 非 assistant 消息（注入上下文 / 命令卡 / 压缩卡）按 seq 找它落在哪个回合的
+  // 过程窗里：消息按 seq 升序处理，所以游标单调前进即可（O(N+T) 不是 O(N*T)）。
+  const procList = [...processRuntime.values()].sort((a, b) => a.view.processStartSeq - b.view.processStartSeq)
+  let procIdx = 0
+  const runtimeForSeq = (seq: number): TurnProcessRuntime | null => {
+    while (procIdx < procList.length && procList[procIdx].view.answerAnchorSeq < seq) procIdx += 1
+    const candidate = procList[procIdx]
+    if (!candidate) return null
+    return seq > candidate.view.processStartSeq && seq < candidate.view.answerAnchorSeq ? candidate : null
+  }
+  const emittedProcessRows = new Set<number>()
+  const emitProcessRow = (runtime: TurnProcessRuntime): void => {
+    const turn = runtime.view.turn
+    if (emittedProcessRows.has(turn) || !runtime.foldable) return
+    emittedProcessRows.add(turn)
+    seenProcessTurns.add(turn)
+    const sig = `${JSON.stringify(runtime.view)}|${runtime.open ? 1 : 0}`
+    const same = flowProcessSigs.get(turn) === sig
+    flowProcessSigs.set(turn, sig)
+    items.push({
+      key: `proc:${turn}`,
+      same,
+      create: () => renderTurnProcessRow(runtime.view, runtime.open),
+    })
+  }
   for (const entry of inFlow) {
     if (entry.kind === 'steer') {
       emitSteering(entry.steer)
       continue
     }
     const m = entry.message
+    // 本消息在所属回合过程里的角色：成员（折叠态隐藏）/ 答案步（折叠态藏
+    // 内联推理）/ 无关。折叠行要抢在第一个成员之前、或在首条人类输入之后。
+    const runtime =
+      m.kind === 'assistant'
+        ? (m.turn !== undefined ? processRuntime.get(m.turn) ?? null : null)
+        : typeof m.seq === 'number'
+          ? runtimeForSeq(m.seq)
+          : null
+    // 折叠行的插位：首条人类输入那条要排在本行**之后**（官方 rank：user 0 →
+    // 折叠行 1 → 成员 2）；首条人类输入不在窗口里时退回「排在本回合第一个过程
+    // 成员之前」。两条路径各自在本行入列后调用 emitProcessRowAfter。
+    const isProcessAnchorMsg = runtime !== null && typeof m.seq === 'number' && m.seq === runtime.view.afterSeq
+    if (runtime && !isProcessAnchorMsg && isProcessMemberMessage(m, runtime)) emitProcessRow(runtime)
     // 插话落地：durable 用户消息认回插话身份，渲染成与 pending 气泡共享
-    // steer:<item.id> key 的落地节点（原位切换，保留插话身份 + seq 锚）。
+    // steer:<id> key 的落地节点（原位切换，保留插话身份 + seq 锚）。
+    // 身份有两个来源（F5）：
+    // ① 折叠层给的 m.steering（重放 agent/inbox/spliced 得出，durable 侧自己就
+    //    知道这是插话）——queue 项落地后立刻被移除，只看 queue 的话那一帧 key
+    //    会从 steer:<id> 掉回 msg:<id>，行被整个重建；
+    // ② 还在队列里的 pending 项（steerLanding，按 durable 认回）——它带着编辑/
+    //    撤销入口，key 用 queue 项 id（与 pending 气泡同 key，保证原位切换）。
+    // 两者 id 同源（inbox 项 id = 落盘 user/message 的 data.id），所以 key 一致。
     if (m.kind === 'user' && !m.context) {
       const landing = steerLanding.get(m.id)
-      if (landing) {
-        const key = `steer:${landing.id}`
+      const steerId = landing ? landing.id : m.steering === true ? m.id : null
+      if (steerId !== null) {
+        const key = `steer:${steerId}`
         const sig = JSON.stringify(m) + `|${lazyThumbSig(m.images, m.text ?? '', m.references, m.files)}`
-        const same = flowSteerSigs.get(landing.id) === sig
-        flowSteerSigs.set(landing.id, sig)
-        seenSteerIds.add(landing.id)
+        const same = flowSteerSigs.get(steerId) === sig
+        flowSteerSigs.set(steerId, sig)
+        seenSteerIds.add(steerId)
         // 该消息此刻以 steer 槽位渲染，不再以 msg:<id> 槽位签名；清掉旧的 msg 签名
         // 防残留。落地节点元素由 reconcile 按相同 key 原地保留（pending 气泡不删除）。
         flowMsgSigs.delete(m.id)
@@ -6215,33 +6381,47 @@ function buildFlowItems(state: ChatState): { rail: FlowItem | null; colItems: Fl
           create: () => renderMessage(m, m.id),
           dispose: clearRetryTimersFor,
         })
+        if (runtime && isProcessAnchorMsg) emitProcessRow(runtime)
         emitThrough(undefined)
         continue
       }
     }
+    const foldState = processFoldStateOf(m, runtime)
+    const hidden = foldState?.hidden === true
+    const hideReasoning = foldState?.hideReasoning === true
+    // 折叠态影响本行渲染（可见性 / 答案步推理块是否渲染）→ 并入签名，让展开
+    // 折叠那一下精确地只重建受影响的行（内容没变、只有折叠态变的行走 same=false
+    // 的 update 分支，行骨架仍保活）。
+    const processSig = foldState ? `|p${hidden ? 1 : 0}${hideReasoning ? 1 : 0}` : ''
     const sig =
       JSON.stringify(m) +
-      (m.kind === 'user' && !m.context ? `|${lazyThumbSig(m.images, m.text ?? '', m.references, m.files)}` : '')
+      (m.kind === 'user' && !m.context ? `|${lazyThumbSig(m.images, m.text ?? '', m.references, m.files)}` : '') +
+      processSig
     const same = flowMsgSigs.get(m.id) === sig
     flowMsgSigs.set(m.id, sig)
     seenMsgIds.add(m.id)
     items.push({
       key: `msg:${m.id}`,
       same,
-      create: () => renderMessage(m, m.id),
+      hidden,
+      create: () => renderMessage(m, m.id, hideReasoning),
       // #42：assistant 行内容变化时走「行骨架保活」的 update 路径——只对行内
       // .msg-blocks 做 Preact diff（块层 block 由 Preact 对账，text 流式增量、
       // tool 卡按签名保活），不整行重建（治 #29）。`same` 仍按整条消息内容签名：
       // 内容变化（流式追加/状态翻转）时 same=false 才触发 update 分支。
-      update: m.kind === 'assistant' ? (el) => updateMessageBlocks(el, m, m.id) : undefined,
+      update: m.kind === 'assistant' ? (el) => updateMessageBlocks(el, m, m.id, hideReasoning) : undefined,
       dispose: clearRetryTimersFor,
     })
+    if (runtime && isProcessAnchorMsg) emitProcessRow(runtime)
     emitThrough(m.kind === 'assistant' ? m.seq : undefined)
   }
   emitThrough(Number.POSITIVE_INFINITY)
   // 换会话/窗口收缩后清掉不再出现的签名，防 Map 跨会话累积。
   if (flowMsgSigs.size > seenMsgIds.size) {
     for (const id of [...flowMsgSigs.keys()]) if (!seenMsgIds.has(id)) flowMsgSigs.delete(id)
+  }
+  if (flowProcessSigs.size > seenProcessTurns.size) {
+    for (const turn of [...flowProcessSigs.keys()]) if (!seenProcessTurns.has(turn)) flowProcessSigs.delete(turn)
   }
   // 未匹配/兜底命令的生命周期回执节点（与 matched 命令的 command/run+done 节点
   // 同款形态）：标题/状态 running→error/可展开正文，成败都回执（对齐官方

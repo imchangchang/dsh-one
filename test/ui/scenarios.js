@@ -4232,6 +4232,88 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     expect: '已结束回答的操作栏只有计时行（时钟 + 用时 5秒），没有「Usage」药丸；无任何弹窗触发入口。',
   }
 
+  // ---- 回合过程折叠（F1）场景 ----
+
+  // 一个 5 次工具调用的回合：官方折成「用户消息 → 一行可点的折叠行 → 最终答案」，
+  // 过程成员（前面几步的文本/工具卡）折叠态隐藏，答案步的内联推理也藏起来。
+  const turnProcessMessages = (turn, seqBase) => {
+    const call = (step, i, name) => toolBlock({
+      callId: `tp-${turn}-${step}-${i}`, name, title: name, detail: undefined,
+      args: JSON.stringify({ command: 'ls -la' }), output: `output of ${name} #${i}`,
+    })
+    return [
+      { kind: 'user', id: rid('u'), text: '帮我把这个模块重构一下，顺便补测试。', turn, seq: seqBase + 2 },
+      {
+        kind: 'assistant', id: rid('a'), complete: true, turn, step: 0, anchorSeq: seqBase + 4, seq: seqBase + 9,
+        blocks: [
+          { type: 'text', text: '先看看现有实现，找一下调用点。', id: 'p0' },
+          call(0, 0, 'read'), call(0, 1, 'grep'),
+        ],
+      },
+      {
+        kind: 'assistant', id: rid('a'), complete: true, turn, step: 1, anchorSeq: seqBase + 10, seq: seqBase + 16,
+        blocks: [
+          { type: 'text', text: '调用点有两个，交给子代理并行改。', id: 'p1' },
+          call(1, 0, 'subagent'), call(1, 1, 'edit'),
+        ],
+      },
+      {
+        kind: 'assistant', id: rid('a'), complete: true, turnEnd: true, turn, step: 2, anchorSeq: seqBase + 17, seq: seqBase + 30,
+        messageId: `am-${turn}-2`,
+        blocks: [
+          { type: 'reasoning', text: '两个调用点都改完了，跑一遍测试确认没有回归。', id: 'p2r' },
+          { type: 'text', text: '重构完成：两个调用点都改了，测试全绿（12 passed）。', id: 'p2' },
+        ],
+      },
+    ]
+  }
+
+  const turnProcessView = (turn) => ({
+    turn, anchorSeq: 2, afterSeq: 2, processStartSeq: 1, answerAnchorSeq: 30, answerStep: 2,
+    inlineReasoning: true, hasExternalProcess: true, compactAnswer: true,
+    messageCount: 3, toolCallCount: 4, subagentCount: 1,
+  })
+
+  catalog['turn-process-folded'] = {
+    state: base({
+      messages: [
+        ...turnProcessMessages(0, 0),
+        { kind: 'user', id: rid('u'), text: '谢谢，顺便看下 changelog。', turn: 1, seq: 102 },
+        {
+          kind: 'assistant', id: rid('a'), complete: true, turnEnd: true, turn: 1, step: 0,
+          anchorSeq: 104, seq: 130,
+          blocks: [{ type: 'text', text: 'changelog 已按约定补了一条。', id: 'q' }],
+        },
+      ],
+      turnProcess: [
+        turnProcessView(0),
+        {
+          turn: 1, anchorSeq: 102, afterSeq: 102, processStartSeq: 101, answerAnchorSeq: 120, answerStep: 0,
+          inlineReasoning: false, hasExternalProcess: false, compactAnswer: true,
+          messageCount: 0, toolCallCount: 0, subagentCount: 0,
+        },
+      ],
+    }),
+    title: '回合过程折叠（折叠态）：多工具回合折成一行',
+    expect:
+      '第一条用户消息下面是一行可点的折叠行「4 次工具调用 · 3 条消息 · 1 个 subagent」（次要色小字 + 右侧朝下 chevron），紧随其后直接是最终答案「重构完成：两个调用点都改了，测试全绿（12 passed）。」——' +
+      '过程内容全部不可见：两条过程消息里的正文（「先看看现有实现…」「调用点有两个…」）与全部 5 张工具卡（read/grep/subagent/edit）都没有渲染出来；答案步自己的推理块（「两个调用点都改完了…」）也不显示（答案步带内联 reasoning，折叠态藏起来）。' +
+      '第二条用户消息 + 它的回答（「changelog 已按约定补了一条。」）按普通方式平铺渲染，上面**没有**折叠行（一问一答的回合不折）。答案行尾保留「复制/反馈/分叉」操作栏。',
+  }
+
+  catalog['turn-process-expanded'] = {
+    state: base({
+      messages: turnProcessMessages(0, 0),
+      turnProcess: [turnProcessView(0)],
+    }),
+    interact: `document.querySelector('.turn-process').click()`,
+    title: '回合过程折叠（展开态）：点开后过程全显',
+    expect:
+      '折叠行变成「4 次工具调用 · 3 条消息 · 1 个 subagent」+ 朝上 chevron（aria-expanded=true）。原本隐藏的过程全部出现：' +
+      'step 0 的正文「先看看现有实现，找一下调用点。」+ read/grep 两张工具卡、step 1 的正文「调用点有两个，交给子代理并行改。」+ subagent/edit 两张工具卡，以及答案步的推理块（折叠态是「Thoughts · 两个调用点都改完了…」样式的收起行，展开后可点开看全文）。' +
+      '顺序为：用户消息 → 折叠行 → 过程消息 → 答案 → 操作栏。',
+  }
+
   // ---- 回合导航（轨道栏）场景 ----
 
   catalog['turn-navigator'] = {
@@ -4994,6 +5076,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'at-menu-pending-and-drill',
     'optimistic-echo-queued', 'optimistic-echo-steering', 'optimistic-echo-turn',
     'expand-state-survives-switch',
+    'turn-process-folded', 'turn-process-expanded',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()

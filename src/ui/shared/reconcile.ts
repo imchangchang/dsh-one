@@ -27,6 +27,13 @@ export interface ReconcileItem {
   update?: (el: HTMLElement) => void
   /** 元素被移除/替换时的清理（行级定时器等）。 */
   dispose?: (el: HTMLElement) => void
+  /**
+   * 折叠隐藏（chat 的 turn-process 过程成员）：元素**保活**但打上
+   * `data-turn-process-hidden`，由 CSS 隐藏——与官方同款语义（成员节点留在
+   * DOM 里，展开时连展开态/内滚/已加载图片一起回来，不重建）。缺省 = 不隐藏；
+   * 每帧无条件按当前值设置/清除，所以 same=true 的保活行也能正确翻转可见性。
+   */
+  hidden?: boolean
 }
 
 /**
@@ -58,6 +65,11 @@ export function reconcileChildren(container: HTMLElement, items: ReconcileItem[]
   }
   const itemByKey = new Map<string, ReconcileItem>()
   for (const { item, key } of resolved) itemByKey.set(key, item)
+  /** 折叠隐藏标记：每帧按期望值设置/清除（保活行也要跟着翻）。 */
+  const applyHidden = (el: Element, item: ReconcileItem): void => {
+    if (item.hidden === true) el.setAttribute('data-turn-process-hidden', '')
+    else el.removeAttribute('data-turn-process-hidden')
+  }
   let next: Element | null = container.firstElementChild
   for (const { item, key } of resolved) {
     // 跳过（并移除）指针位置上的残留行——不在期望流里（older 关闭、turn-status
@@ -76,15 +88,18 @@ export function reconcileChildren(container: HTMLElement, items: ReconcileItem[]
       if (item.same) {
         // 顺序修正（罕见）：元素在但位置不对 → 挪到正确位置。
         if (el !== next) container.insertBefore(el, next)
+        applyHidden(el, item)
         next = el.nextElementSibling
       } else if (item.update) {
         // 就地更新：行骨架（元素本身）保活，只刷新内容区。元素仍在 DOM，
         // next 指针推进到其后继。（行内 Preact diff 用的更新入口，见 #29。）
         item.update(el as HTMLElement)
+        applyHidden(el, item)
         next = el.nextElementSibling
       } else {
         const fresh = item.create()
         fresh.setAttribute('data-flow-key', key)
+        applyHidden(fresh, item)
         container.insertBefore(fresh, next)
         el.remove()
         item.dispose?.(el as HTMLElement)
@@ -93,6 +108,7 @@ export function reconcileChildren(container: HTMLElement, items: ReconcileItem[]
     } else {
       const fresh = item.create()
       fresh.setAttribute('data-flow-key', key)
+      applyHidden(fresh, item)
       container.insertBefore(fresh, next)
       next = fresh.nextElementSibling
     }

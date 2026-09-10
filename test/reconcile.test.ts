@@ -5,7 +5,7 @@ import { reconcileChildren, type ReconcileItem } from '../src/ui/shared/reconcil
 /**
  * reconcileChildren 的最小 DOM 替身：只实现该函数用到的 API（children /
  * firstElementChild / nextElementSibling / getAttribute / setAttribute /
- * insertBefore / remove），跑在 node --test 里不需要浏览器。
+ * removeAttribute / insertBefore / remove），跑在 node --test 里不需要浏览器。
  */
 class FakeElement {
   readonly tag: string
@@ -33,6 +33,10 @@ class FakeElement {
 
   setAttribute(name: string, value: string): void {
     this.attrs.set(name, value)
+  }
+
+  removeAttribute(name: string): void {
+    this.attrs.delete(name)
   }
 
   insertBefore(node: FakeElement, ref: FakeElement | null): FakeElement {
@@ -140,4 +144,20 @@ test('reconcileChildren 三元重复 key 各自留行且后缀稳定', () => {
   reconcileChildren(asContainer(container), [row('k'), row('k'), row('k')])
   assert.deepEqual(snapshot(container), ['k:k', 'k#1:k', 'k#2:k'])
   for (const [index, el] of before.entries()) assert.equal(container.children[index], el)
+})
+
+test('reconcileChildren hidden：保活行也翻转 data-turn-process-hidden，不重建元素', () => {
+  const container = new FakeElement('div')
+  reconcileChildren(asContainer(container), [row('a'), row('b', true, { hidden: true })])
+  assert.equal(container.children[0].getAttribute('data-turn-process-hidden'), null)
+  assert.equal(container.children[1].getAttribute('data-turn-process-hidden'), '')
+  const firstA = container.children[0]
+  const firstB = container.children[1]
+
+  // 第二帧：折叠态翻转（隐藏 → 显示），两行都是 same → 元素保活，只改属性。
+  reconcileChildren(asContainer(container), [row('a', true, { hidden: true }), row('b')])
+  assert.equal(container.children[0], firstA, 'same 行元素不变')
+  assert.equal(container.children[1], firstB)
+  assert.equal(container.children[0].getAttribute('data-turn-process-hidden'), '')
+  assert.equal(container.children[1].getAttribute('data-turn-process-hidden'), null)
 })
