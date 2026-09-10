@@ -534,5 +534,7 @@
   "A message can include up to {0} images": "一条消息最多 {0} 张图片",
   "Each image must be smaller than {0}": "每张图片必须小于 {0}",
   "Images exceed {0} in total; remove some and try again": "图片总量超过 {0}，请删减后重试",
-  "user-only": "仅用户"
+  "user-only": "仅用户",
+  "describe the objective for a long-running task": "描述这个长任务的目标",
+  "goal active — edit / modify / pause / resume / clear": "目标进行中——可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除"
 }

@@ -2,6 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   asSkillList,
+  claimableSlashCommand,
+  slashClaimHolds,
+  slashClaimToken,
   asSkillSpec,
   asSlashCommandSpec,
   fuzzyCandidates,
@@ -144,4 +147,20 @@ test('asSkillList tolerates both the bare {skills} value and an {ok,value} envel
   assert.deepEqual(asSkillList({ ok: false }), [])
   assert.deepEqual(asSkillList(undefined), [])
   assert.deepEqual(asSkillList({ skills: 'nope' }), [])
+})
+
+test('slashClaimToken carries the trailing space the claimed draft must start with', () => {
+  assert.equal(slashClaimToken('goal'), '/goal ')
+  assert.equal(slashClaimHolds('/goal ', slashClaimToken('goal')), true)
+  assert.equal(slashClaimHolds('/goal 打补丁', slashClaimToken('goal')), true)
+  assert.equal(slashClaimHolds('/goal', slashClaimToken('goal')), false)
+  assert.equal(slashClaimHolds('/goals ', slashClaimToken('goal')), false)
+  assert.equal(slashClaimHolds('', slashClaimToken('goal')), false)
+})
+
+test('claimableSlashCommand admits only arg-taking commands', () => {
+  assert.equal(claimableSlashCommand({ name: 'goal', description: 'd', hint: '[<objective>|clear]' }), true)
+  assert.equal(claimableSlashCommand({ name: 'compact', description: 'd' }), false)
+  assert.equal(claimableSlashCommand({ name: 'compact', description: 'd', hint: '' }), false)
+  assert.equal(claimableSlashCommand(undefined), false)
 })

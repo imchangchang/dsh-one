@@ -47,7 +47,13 @@ import {
 } from '../../pure/installScript.ts'
 import { steerModifierLabel } from '../../pure/steerShortcut.ts'
 import { interleaveSteering, orderBySeq } from '../../pure/steeringOrder.ts'
-import { fuzzyCandidates, looksLikeSlashCommand } from '../../pure/slashCommand.ts'
+import {
+  claimableSlashCommand,
+  fuzzyCandidates,
+  looksLikeSlashCommand,
+  slashClaimHolds,
+  slashClaimToken,
+} from '../../pure/slashCommand.ts'
 import { isFilePathHref } from '../../pure/linkPath.ts'
 import { meterLevel } from '../../pure/contextMeter.ts'
 import {
@@ -1157,6 +1163,9 @@ window.addEventListener('message', (event) => {
       // 文本从还挂在 DOM 里的旧输入框读；面板被 pending 接管（无输入框、
       // restoreDraft 暂存进 stashedDraft、接管帧快照进 pendingStash）时把
       // 暂存一并归档。空态（无附着会话）同样存档，占位 key 为 EMPTY_SESSION_KEY。
+      // claim 是输入框内的瞬时态，跟着旧会话一起丢弃（新会话的草稿会有自己的
+      // 判定：草稿不以旧 token 开头就自然不成立）。
+      releaseSlashClaim()
       const oldKey = stagedForSession ?? EMPTY_SESSION_KEY
       // 首个 state 帧（此前无附着会话，oldKey 为空态占位）时保留 stashedDraft：
       // 它只可能来自「composer 尚未渲染时到达的 restoreDraft」回填（发送失败/
@@ -1584,6 +1593,64 @@ let slashRows: SlashRow[] = []
 let slashIndex = 0
 
 /**
+ * 取参命令的 claim 状态（对齐官方 dsh-client-ui-commands 的 leadingClaim +
+ * dsh-client-ui-conversation 的 claimed 相位）：非 null 时整段输入被这条
+ * 命令「认领」——草稿固定以 `${token}` 开头，其后文本都算参数，占位符换成
+ * 该命令的参数提示，Enter 依旧整行发出去（宿主按 `/name args` 解析）。
+ * 草稿不再以 token 开头即撤 claim（官方 onDraftChanged 的撤销条件）。
+ */
+let slashClaim: { name: string; token: string } | null = null
+
+/** 参数提示文案：官方 `hint.<name>` 的本地化覆盖优先，其次宿主 commands/list 的 input.hint。 */
+function slashCommandHintText(name: string): string | undefined {
+  if (name === 'goal') {
+    // 官方 hint.goal / hint.goal.active（进行中的目标换一套说法）。
+    return state?.goal && state.goal.phase !== 'complete'
+      ? t('goal active — edit / modify / pause / resume / clear')
+      : t('describe the objective for a long-running task')
+  }
+  return slashCommands().find((c) => c.name === name)?.hint
+}
+
+/** 草稿正是 claim token（还没打参数）时显示参数提示，打了参数就让位给正文。 */
+function syncSlashClaimPlaceholder(): void {
+  const editor = activeComposer
+  if (!editor) return
+  if (slashClaim === null) {
+    editor.setPlaceholderOverride(undefined)
+    return
+  }
+  const args = editor.getText().slice(slashClaim.token.length)
+  const hint = args.trim() === '' ? slashCommandHintText(slashClaim.name) : undefined
+  editor.setPlaceholderOverride(hint === undefined ? '' : hint)
+}
+
+/**
+ * 认领输入框：草稿换成 `/${name} `（官方 beginCommand 把 [0, span.end)
+ * 替换成 token），光标落到末尾继续打参数。Skill 与无参命令不 claim——
+ * 它们没有 input，输入框没什么可进入的「参数模式」。
+ */
+function claimSlashCommand(name: string): void {
+  const editor = activeComposer
+  if (!editor) return
+  const spec = slashCommands().find((c) => c.name === name)
+  if (!claimableSlashCommand(spec)) {
+    editor.replaceRange(0, editor.getText().length, `/${name} `)
+    return
+  }
+  slashClaim = { name, token: slashClaimToken(name) }
+  editor.replaceRange(0, editor.getText().length, slashClaim.token)
+  syncSlashClaimPlaceholder()
+}
+
+/** 撤 claim：草稿不再以 token 开头（或整段被清/换会话）时调用。 */
+function releaseSlashClaim(): void {
+  if (slashClaim === null) return
+  slashClaim = null
+  activeComposer?.setPlaceholderOverride(undefined)
+}
+
+/**
  * @ 文件候选的请求/响应状态：requestId 递增防乱序，key 是触发时的完整
  * token（`@sub/que`），响应只在 token 没变时上屏。host 端失败回空列表。
  */
@@ -1708,7 +1775,9 @@ function computeSlashRows(editor: ComposerEditor): SlashRow[] {
       ...fuzzyCandidates(slashCommands(), filter).map((c) => ({
         label: `/${c.name}`,
         right: c.description,
-        apply: complete(`/${c.name} `),
+        // 取参命令选中即 claim（官方 dispatch → leadingClaim）：token 落定、
+        // 输入框进参数模式、占位符换成参数提示。
+        apply: claimableSlashCommand(c) ? () => claimSlashCommand(c.name) : complete(`/${c.name} `),
       })),
       ...fuzzyCandidates(sessionSkills(), filter).map((s) => ({
         label: `/${s.name}`,
@@ -1726,7 +1795,13 @@ function computeSlashRows(editor: ComposerEditor): SlashRow[] {
       .map((o) => ({ label: o.label, right: o.value, apply: complete(`/permission ${o.value}`) }))
   }
   const cmd = slashCommands().find((c) => c.name === name)
-  if (cmd?.hint) return [{ label: t('Arguments: {0}', cmd.hint) }]
+  // claim 生效且还没打参数时，占位符已经在显示同一条参数提示——不再重复出提示行
+  // （官方 claimed 档直接抑制 `/` 触发；这里只压提示行，保住 /permission 的
+  // 预设候选，那是本面板自己的参数补全）。
+  if (cmd?.hint) {
+    if (slashClaim !== null && slashClaim.name === name && argPrefix.trim() === '') return []
+    return [{ label: t('Arguments: {0}', cmd.hint) }]
+  }
   return []
 }
 
@@ -2713,11 +2788,9 @@ function openCommandMenu(anchor: HTMLElement): void {  const body = el('div')
 }
 
 function insertSlashCommand(name: string): void {
-  const editor = activeComposer
-  if (!editor) return
   // Slash commands must lead the prompt; prepend ahead of any draft (its args).
-  const prefix = `/${name} `
-  editor.replaceRange(0, editor.getText().length, prefix)
+  // 取参命令走 claim 路径（进参数模式 + 参数提示），与补全菜单选中一致。
+  claimSlashCommand(name)
 }
 
 /**
@@ -7168,6 +7241,10 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       onTextChange: (text) => {
         updateButton()
         updateClearAll()
+        // claim 撤销：草稿不再以 token 开头（整段删掉/改成别的命令）即释放，
+        // 占位符回落到常规文案。在 token 后继续打参数则保持不变。
+        if (slashClaim !== null && !slashClaimHolds(text, slashClaim.token)) releaseSlashClaim()
+        else syncSlashClaimPlaceholder()
         updateSlashPopup(composer)
         // 双击清空：任何输入都解除武装；清空暂存同步作废（新内容入场，旧暂存
         // 再还回来只会迷惑——一次性反悔，不多级）。
@@ -7216,13 +7293,41 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   activeComposer = composer
   if (previous && previous !== composer) previous.dispose()
   if (draftContent) composer.setText(draftContent, mentionBindings)
+  // 重建后的占位符层是新的：claim 还成立时把参数提示重新压上（overrides 不跨实例）。
+  syncSlashClaimPlaceholder()
 
   // 双击清空（本地增强，与 × 按钮同一 clearComposer）：composer 有内容时第一次
   // Esc/Ctrl+C 亮提示小框并武装，第二次执行清空。运行中同样先走这层「清输入」。
   // 优先级低于斜杠补全/召回（编辑器内已路由到 onEscape/onArrowUp）。Ctrl+C 有
   // 选区时保持复制语义；IME 组合中不响应。斜杠补全弹出时导航键交给编辑器（其
   // 命令在 keydown 里消费），这里只处理 clear-chord。
+  // 空格认领（官方 matchSpace）：行首刚打完的 `/name` 一按空格、且这条命令取参，
+  // 就进参数模式——空格本身照常插入，文本结果与直接敲空格一样（`/name `）。
   composer.root.addEventListener('keydown', (e) => {
+    if (
+      e.key === ' ' &&
+      !e.isComposing &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      slashClaim === null &&
+      !e.defaultPrevented
+    ) {
+      const bare = /^\/([^\s/]+)$/.exec(composer.getText())
+      const sel = composer.selection()
+      if (
+        bare &&
+        sel.start === sel.end &&
+        sel.start === composer.getText().length &&
+        claimableSlashCommand(slashCommands().find((c) => c.name === bare[1]))
+      ) {
+        // token 自带尾随空格，这一次空格键吃掉即可（官方 matchSpace 也是
+        // 返回 true 让调用方 preventDefault），否则会多出一个空格。
+        e.preventDefault()
+        claimSlashCommand(bare[1])
+        return
+      }
+    }
     const isClearChord =
       e.key === 'Escape' || (e.key === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)
     if (

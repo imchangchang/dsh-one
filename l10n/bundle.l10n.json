@@ -534,5 +534,7 @@
   "A message can include up to {0} images": "A message can include up to {0} images",
   "Each image must be smaller than {0}": "Each image must be smaller than {0}",
   "Images exceed {0} in total; remove some and try again": "Images exceed {0} in total; remove some and try again",
-  "user-only": "user-only"
+  "user-only": "user-only",
+  "describe the objective for a long-running task": "describe the objective for a long-running task",
+  "goal active — edit / modify / pause / resume / clear": "goal active — edit / modify / pause / resume / clear"
 }

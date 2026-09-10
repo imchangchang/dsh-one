@@ -167,3 +167,28 @@ export function fuzzyCandidates<T extends { name: string }>(candidates: readonly
   )
   return ranked.map((match) => match.candidate)
 }
+
+/**
+ * 官方 dsh-client-ui-commands 的 leadingCommand token：`` `/${name} ` ``（带
+ * 尾随空格）。claim 生效时 composer 的整段输入被换成它，其后文本都算这条
+ * 命令的参数（ui-commands `leadingClaim`）。
+ */
+export function slashClaimToken(name: string): string {
+  return `/${name} `
+}
+
+/**
+ * 取参命令（宿主 `input` 非空 → 我们的 roster 里带 `hint`）才能被 claim：
+ * 有参数要填，输入框才有「参数模式」可言。裸命令（无 hint）不作 claim。
+ */
+export function claimableSlashCommand(spec: SlashCommandSpecLike | undefined): boolean {
+  return spec !== undefined && typeof spec.hint === 'string' && spec.hint.length > 0
+}
+
+/**
+ * claim 还在不在：官方 onDraftChanged 的撤销条件——草稿不再以 token 开头就
+ * 撤 claim（其余情况（含在 token 后继续打字）保持）。
+ */
+export function slashClaimHolds(text: string, token: string): boolean {
+  return text.startsWith(token)
+}
