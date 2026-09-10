@@ -1,0 +1,242 @@
+{
+  "title": "input-missing-features：输入维度批次2 A 类缺 feature（拖拽入站/图片闸//补全/slash claim/@ 目录下钻/空草稿 ⌘Enter）",
+  "branch": "agent/input-missing-features",
+  "commit": "",
+  "environment": {
+    "mode": "mock-llm",
+    "dsh": "0.1.1-rc.2（沙盒 pin）",
+    "locale": "en",
+    "theme": "dark",
+    "image": "dsh-sandbox-input-missing:latest",
+    "driver": "verify-driver.mjs（本任务新增原语：dropFiles / dropFilesDragOnly / keys / extraPrompts / expectSelector / absentSelector）",
+    "date": "2026-09-10T09:20:00+0800"
+  },
+  "coverageNote": "真桌面 VS Code、真模型输出、平台专项不在本报告范围。沙盒 pin 的 dsh 是 0.1.1-rc.2：fileReferences/list 与 skills/list 两个 0.1.2+ 端点不在该版本上，A-05/A-06 的 RPC 候选源与 A-03 的 skill 名录在沙盒里走的是各自降级路径（本地浅层扫描 / 只有命令），RPC 本体另用宿主探针实测（见 F-09）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "A-01 拖文件入站：合成 drop → 附件 chip 落上",
+      "expect": "往聊天 webview 派发一次真实文件拖拽（dragenter + drop，dataTransfer.types 含 Files）后，输入区上方出现附件 chip「note.txt」——此前 drop 完全没有处理，拖进来什么都没发生。",
+      "driver": {
+        "dropFiles": [
+          {
+            "name": "note.txt",
+            "type": "text/plain",
+            "size": 32
+          }
+        ],
+        "expectSelector": {
+          "selector": ".image-chips",
+          "text": "note.txt"
+        }
+      },
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-01.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；合成拖拽：note.txt(32B)；选择器命中：.image-chips（含「note.txt」）"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "A-01 拖拽遮罩：dragenter 即出「松开即加附件」全视口遮罩",
+      "expect": "只派发 dragenter（不 drop）时，面板上出现全视口拖拽遮罩，文案「Drop files here to attach」+ 上限说明「Up to 20 images, 20 MB each」（数字取自宿主 imageLimits 投影，本沙盒实测 20MB/20 张）；遮罩不吃鼠标事件（pointer-events:none）。",
+      "driver": {
+        "dropFiles": [
+          {
+            "name": "a.png",
+            "type": "image/png",
+            "size": 16
+          }
+        ],
+        "dropFilesDragOnly": true,
+        "expectSelector": ".drop-overlay",
+        "expectText": [
+          "Drop files here to attach",
+          "Up to 20 images, 20 MB each"
+        ]
+      },
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-02.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；合成拖拽（只 dragenter，不 drop）：a.png(16B)；选择器命中：.drop-overlay"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "A-02 图片入站上限闸：超单张字节上限被拦并出提示",
+      "expect": "拖入一张 25 MB 的 png（> 宿主 imageLimits.maxImageBytes；本沙盒实测 20 MB）→ 不入站成 chip，流尾出提示「Each image must be smaller than 20 MB」；此前无任何上限闸，多大都直接进。",
+      "driver": {
+        "dropFiles": [
+          {
+            "name": "huge.png",
+            "type": "image/png",
+            "size": 26214400
+          }
+        ],
+        "expectText": "Each image must be smaller than 20 MB"
+      },
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-03.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；合成拖拽：huge.png(26214400B)"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "A-03 / 补全改用官方模糊匹配：/pm 命中 /permission",
+      "expect": "输入「/pm」时补全弹窗列出 /permission——「pm」是 permission 的有序子序列但**不是**前缀，旧的 startsWith 过滤下这里一行都不会有。",
+      "driver": {
+        "fillSlash": "/pm",
+        "expectPopup": [
+          "/permission"
+        ]
+      },
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-04.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；composer 已填入（未发送）：\"/pm\"；弹窗文本命中：/permission"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "A-04 slash claim：取参命令按空格进参数模式，占位符换成参数提示",
+      "expect": "输入「/goal」后按一次空格 → 输入框进入该命令的参数模式：占位符变成参数提示「describe the objective for a long-running task」（官方 hint.goal），而不是通用的「输入消息…」文案。",
+      "driver": {
+        "fillSlash": "/goal",
+        "keys": [
+          "Space"
+        ],
+        "expectPlaceholder": "describe the objective for a long-running task"
+      },
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-05.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；composer 已填入（未发送）：\"/goal\"；composer 按键：Space；占位符命中：describe the objective for a long-running task"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "A-04 claim 撤销：草稿不再以 token 开头即释放，占位符回落",
+      "expect": "claim 生效后按一次退格删掉 token 尾部的空格（草稿变成「/goal」，不再以 `/goal ` 开头）→ claim 释放，占位符回落到该 composer 的常规文案。本条是空会话 hero 布局，常规文案是「Describe what you want to build」——判据是「不再是 /goal 的参数提示」（没释放的话这里仍是 describe the objective for a long-running task）。",
+      "driver": {
+        "fillSlash": "/goal",
+        "keys": [
+          "Space",
+          "Backspace"
+        ],
+        "expectPlaceholder": "Describe what you want to build"
+      },
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/F-06.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；composer 已填入（未发送）：\"/goal\"；composer 按键：Space + Backspace；占位符命中：Describe what you want to build"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "A-06 @ 目录候选下钻：Tab 进目录 + 顶部面包屑",
+      "expect": "输入「@」后候选含目录行（项名带尾随 `/`），按 Tab 下钻进第一层目录：token 变成 `@<dir>/`、菜单不关、下一层候选重查，弹窗顶部出现面包屑（根段是工作区名）。",
+      "driver": {
+        "fillSlash": "@",
+        "keys": [
+          "Tab"
+        ],
+        "expectText": "Workspace"
+      },
+      "result": "pending",
+      "screenshots": []
+    },
+    {
+      "id": "F-08",
+      "phase": "new-feature",
+      "name": "A-07 空草稿 ⌘/Ctrl+Enter：把排队消息一次全部插话",
+      "expect": "运行中的回合里发第二条消息（进队列）后按住 ⌘+Enter：排队的消息全部转成等待插话气泡（.msg.user.steering-pending 含该文本），排队区不再有该行；此前这个手势在空草稿下什么都不做。",
+      "driver": {
+        "prompt": "慢命令",
+        "extraPrompts": [
+          "排队插话测试"
+        ],
+        "extraPromptDelayMs": 1200,
+        "keys": [
+          "Meta+Enter"
+        ],
+        "expectSelector": {
+          "selector": ".msg.user.steering-pending",
+          "text": "排队插话测试"
+        },
+        "absentSelector": ".queue-item"
+      },
+      "result": "pending",
+      "screenshots": []
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "基础链路回归：普通消息 mock 回显",
+      "expect": "发送「测试一下」后新会话内出现助手回显「收到：测试一下」（mock-LLM 兜底规则），composer 清空。",
+      "driver": {
+        "prompt": "测试一下",
+        "expectText": "收到：测试一下"
+      },
+      "result": "pending",
+      "screenshots": []
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "回归：/ 补全弹窗仍是全部命令 + 客户端 /model",
+      "expect": "输入「/」时补全弹窗列出 /compact /export /feedback /goal /permission /plan /model 七行，描述列用面板翻译文案（「Compact older session history」）。",
+      "driver": {
+        "fillSlash": "/",
+        "expectPopup": [
+          "/compact",
+          "/export",
+          "/feedback",
+          "/goal",
+          "/permission",
+          "/plan",
+          "/model",
+          "Compact older session history"
+        ]
+      },
+      "result": "done",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-input-missing/R-02.png"
+      ],
+      "notes": "新建会话：sidebar-ungrouped；composer 已填入（未发送）：\"/\"；弹窗文本命中：/compact；弹窗文本命中：/export；弹窗文本命中：/feedback；弹窗文本命中：/goal；弹窗文本命中：/permission；弹窗文本命中：/plan；弹窗文本命中：/model；弹窗文本命中：Compact older session history"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "回归：/goal 参数 hint 行仍用宿主 input.hint",
+      "expect": "输入「/goal 」（带空格）时弹窗出现参数 hint 行「Arguments: [<objective>|clear|edit <objective>|pause|resume]」——空格是「填」进去的（不是按键），所以不触发 claim，hint 行照旧出现。",
+      "driver": {
+        "fillSlash": "/goal ",
+        "expectPopup": [
+          "Arguments:",
+          "[<objective>|clear|edit <objective>|pause|resume]"
+        ]
+      },
+      "result": "pending",
+      "screenshots": []
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "回归：草稿 + 清空按钮",
+      "expect": "在 composer 填「草稿文本」后点清空按钮，输入框回到空（占位符重新出现）。",
+      "driver": {
+        "fillAndClear": "草稿文本"
+      },
+      "result": "pending",
+      "screenshots": []
+    }
+  ]
+}
