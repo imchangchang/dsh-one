@@ -167,6 +167,20 @@
       "result": "pass",
       "screenshots": [],
       "notes": "`npm run typecheck` 绿；`npm run build` 绿（dist/extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js）；`npm test` **707 项全通过、0 失败 0 跳过**（基线 703 项 + 本次新增 4 项：controlSnapshot 6→7、controlStreamReplay 2→3、scrollFollow 21→23——分别为整域替换/重放带全域、workspace 流断流重开触发 onReconnect、滚动锚点换算与存档）。"
+    },
+    {
+      "id": "R-06",
+      "phase": "regression",
+      "name": "test/ui 基线场景全量（88 个场景渲染无异常）",
+      "expect": "BASELINE_SCENARIOS 全部场景在 harness 里正常渲染、无 JS 异常；其中与本次改动爆炸半径重叠的场景（排队/插话/展开折叠/滚动/草稿回填/工具卡）逐张核对期望。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/queue-preview-mention.png",
+        "/tmp/dsh-ui-shots/tool-skill.png",
+        "/tmp/dsh-ui-shots/restore-draft-stop.png",
+        "/tmp/dsh-ui-shots/compaction-cards.png"
+      ],
+      "notes": "88 个基线场景逐个用 Playwright(chromium) 打开 harness 截图：**全程无 pageerror/console error**。逐张核对与本次改动重叠的场景——queue-preview-mention ✓（Queued 徽章 + [图片 ×1] + 会话/文件/文件夹 chip + 两行截断省略号 + Steer/Edit/Delete 同基线，且只有一条排队行、无占位重复）；tool-skill ✓（Skill 卡展开说明块 + Collapse 收起，未受 detailsOpen 换成会话帧的影响）；compaction-cards ✓（三张压缩行形态与消息列对齐，chevron 只在前两张）；restore-draft-stop ✓（composer 还原「等等，先停下，看看 @旧会话 的状态。」+ README.md chip + 红色缩略图，无 <attachment> 原文行、无残留占位气泡——这条正好覆盖本次在 restoreDraft 里新增的撤占位分支）；另核对了 conversation / steering-pending / produced-files-expanded / json-output / diff-side-by-side 等场景均与各自 expect 一致。截图目录 /tmp/dsh-ui-shots/（88 张）。"
     }
   ]
 }
