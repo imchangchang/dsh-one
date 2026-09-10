@@ -63,6 +63,7 @@ import {
   type JsonContainer,
 } from '../../pure/jsonTree.ts'
 import { codeBlockPreview } from '../../pure/codeBlock.ts'
+import { commandOfToolArgs } from '../../pure/toolCards.ts'
 import { producedBasename } from '../../pure/producedFiles.ts'
 import {
   formatJobDuration,
@@ -79,6 +80,7 @@ import {
   SETTLE_IDLE_MS,
   anchoredScrollTop,
   archiveScrollPosition,
+  forwardedWheelDelta,
   isAtBottom,
   isReaderMoved,
   isScrollKey,
@@ -285,11 +287,93 @@ function pinToLatest(): void {
 }
 
 /**
- * 「加载更早」请求挂起时的锚点：发请求时的首条消息 id 与条数。响应落地
- * （loadingEarlier 由 true 翻回 false）那一帧若消息从顶部插入，渲染后按
- * 新增高度补偿 scrollTop，保住用户正在读的位置。
+ * 「加载更早」的阅读锚（对齐官方 dsh-client-ui-chat 的 anchorRef）：锚定一
+ * 条已渲染的内容行（flow key）+ 该行在滚动口内的期望偏移。补页每落一帧就按
+ * 锚行重算一次 scrollTop——一页分多帧到达、或页内图片/懒加载缩略图稍后才撑高
+ * 时同样跟着校正，而不是只在落地那一帧补一次。请求期间用户自己滚动会重取锚
+ * （跟随新的阅读位，不与手势较劲）。
  */
-let earlierAnchor: { firstId: string | undefined; count: number; seenLoading: boolean } | null = null
+let earlierAnchor: { key: string; top: number; until: number; height: number } | null = null
+
+/**
+ * 锚的稳定窗口：每次观察到内容高度变化（补页/图片撑高）或真的校正了位置就
+ * 续期；窗口到期（内容不再变）即解除，避免锚无限长驻。
+ */
+const EARLIER_ANCHOR_SETTLE_MS = 1000
+
+/**
+ * 最近一次「加载更早」请求的时间戳（0 = 无挂起请求）。宿主接单后会推
+ * loadingEarlier=true；兜底 500ms 后也放行——重入判定不能依赖某一帧的
+ * loadingEarlier 一定被观测到。锚在落地后还会活一段（见上），不能拿它当
+ * 防重入位，否则上翻连续补页会被挡住。
+ */
+let earlierRequestAt = 0
+const EARLIER_REQUEST_GUARD_MS = 500
+
+/** 内容行（消息/插话/工作流/命令卡）的 flow key：轨道与加载更早入口不是内容。 */
+function isContentFlowKey(key: string): boolean {
+  return key.startsWith('msg:') || key.startsWith('steer:') || key.startsWith('wf:') || key.startsWith('cmd:')
+}
+
+/** 取「滚动口顶边往下第一条内容行」作锚（官方 pagingAnchor 的可见行语义）。 */
+function captureEarlierAnchor(messages: HTMLElement): { key: string; top: number } | null {
+  const box = messages.getBoundingClientRect()
+  for (const row of Array.from(messages.querySelectorAll<HTMLElement>('[data-flow-key]'))) {
+    const key = row.getAttribute('data-flow-key') ?? ''
+    if (!isContentFlowKey(key)) continue
+    const rect = row.getBoundingClientRect()
+    if (rect.bottom <= box.top) continue
+    return { key, top: rect.top - box.top }
+  }
+  return null
+}
+
+/**
+ * 按锚行校正滚动位置（渲染后/异步撑高后调用）。返回 true = 锚生效并已写好
+ * scrollTop（本帧的位置归它管，调用方不要再用旧值覆盖）；锚行不在新窗口里
+ * 返回 false，由调用方走原有回写路径。
+ */
+function reanchorEarlier(messages: HTMLElement): boolean {
+  const anchor = earlierAnchor
+  if (anchor === null) return false
+  const row = messages.querySelector<HTMLElement>(`[data-flow-key="${CSS.escape(anchor.key)}"]`)
+  if (row === null) {
+    // 锚行不在新窗口里（窗口收缩/换页把它挤出去了）：无法校正，解除锚避免
+    // 每帧空转，位置交回原有回写路径。
+    earlierAnchor = null
+    return false
+  }
+  const now = performance.now()
+  // 内容高度变了（补页落地、页内图片/缩略图撑高）就续期：这些变化之后还要
+  // 按锚行校正，窗口不能在它们之前到期。
+  if (messages.scrollHeight !== anchor.height) {
+    anchor.height = messages.scrollHeight
+    anchor.until = now + EARLIER_ANCHOR_SETTLE_MS
+  }
+  const top = row.getBoundingClientRect().top - messages.getBoundingClientRect().top
+  const delta = top - anchor.top
+  if (Math.abs(delta) > 0.5) {
+    writeMessagesScrollTop(messages, messages.scrollTop + delta)
+    anchor.until = now + EARLIER_ANCHOR_SETTLE_MS
+  }
+  return true
+}
+
+/**
+ * 锚的生命周期收尾：用户回到最新（贴底）立即解除；加载已结束且内容过了
+ * settle 稳定窗口也解除——否则锚会长驻，此后每帧都按锚行校正，跟程序滚动
+ * （回合跳转等）打架。
+ */
+function releaseEarlierAnchorWhenSettled(): void {
+  const anchor = earlierAnchor
+  if (anchor === null) return
+  if (stickToBottom) {
+    earlierAnchor = null
+    return
+  }
+  if (state?.loadingEarlier !== true && performance.now() > anchor.until) earlierAnchor = null
+}
+
 /** Signature of the composer-relevant state at the last render; see render(). */
 let lastComposerSig: string | null = null
 /** Signature of the header-relevant state at the last render; see render(). */
@@ -383,14 +467,35 @@ function requestInlineImageIfNeeded(src: string): void {
 }
 /** Half-answered pending questions: rpcId → question index → draft. */
 const answerDrafts = new Map<string, Map<number, QuestionDraft>>()
-/** Composer-takeover panel per pending rpcId: current page (question index), minimized state, skipped pages and a transient notice. */
-const panelState = new Map<string, { page: number; minimized: boolean; skipped: Set<number>; notice: string }>()
+/**
+ * Composer-takeover panel per pending rpcId: current page (question index),
+ * minimized state, skipped pages, a transient notice (local validation) and the
+ * host-reported failure of the last answer attempt. `notice`/`failure` both
+ * render in the panel's feedback row (`.panel-feedback`), matching the official
+ * composer's single error/status slot.
+ */
+interface PendingPanelState {
+  page: number
+  minimized: boolean
+  skipped: Set<number>
+  notice: string
+  /** 上一次应答失败的原因（宿主 pendingFailed 回推）：面板显示它并复位按钮，
+   *  用户可以再次提交（#50 I2）。提交动作或成功应答时清掉。 */
+  failure: string
+  /**
+   * 失败次数（单调递增）：进 pendingSig，保证「重试后又失败（原因文案可能
+   * 相同）」也打破面板保活、按钮重新可用——否则焦点在面板内时保活帧会把
+   * 新的失败吞掉，按钮永久置灰。
+   */
+  failureSeq: number
+}
+const panelState = new Map<string, PendingPanelState>()
 
-/** Lazy panel-state accessor: defaults page 0 / expanded. */
-function panelStateFor(rpcId: string): { page: number; minimized: boolean; skipped: Set<number>; notice: string } {
+/** Lazy panel-state accessor: defaults page 0 / expanded / no feedback. */
+function panelStateFor(rpcId: string): PendingPanelState {
   let s = panelState.get(rpcId)
   if (!s) {
-    s = { page: 0, minimized: false, skipped: new Set(), notice: '' }
+    s = { page: 0, minimized: false, skipped: new Set(), notice: '', failure: '', failureSeq: 0 }
     panelState.set(rpcId, s)
   }
   return s
@@ -594,6 +699,7 @@ function clearAnswerDraft(rpcId: string): void {
   post({ type: 'answerDraftSave', rpcId, answers: null })
 }
 
+
 /**
  * 外部链接拦截（捕获阶段）：裸 `<a href="http…">` 的默认行为会让 webview
  * 自身导航到目标页，面板内容被顶掉——表现为「点对话里的链接，原来的 tab 就
@@ -736,10 +842,20 @@ document.addEventListener(
   true,
 )
 
-/** 请求加载更早的一页历史（按钮点击与上翻到顶共用）；挂起期间防重入。 */
+/**
+ * 请求加载更早的一页历史（按钮点击与上翻到顶共用）。发请求时取阅读锚
+ * （滚动口顶边的内容行 + 它当时的偏移），补页落地后逐帧按它校正滚动位置。
+ * 防重入靠 `earlierRequestAt`（0 = 无挂起请求）：锚在落地后还活着一段时间，
+ * 不能用锚当防重入位——那样上翻连续补页会被挡住。
+ */
 function maybeLoadEarlier(): void {
-  if (!state?.hasEarlierHistory || state.loadingEarlier === true || earlierAnchor !== null) return
-  earlierAnchor = { firstId: state.messages[0]?.id, count: state.messages.length, seenLoading: false }
+  if (!state?.hasEarlierHistory || state.loadingEarlier === true || earlierRequestAt !== 0) return
+  const messages = document.getElementById('messages')
+  if (messages === null) return
+  const captured = captureEarlierAnchor(messages)
+  if (captured === null) return
+  earlierAnchor = { ...captured, until: performance.now() + EARLIER_ANCHOR_SETTLE_MS, height: messages.scrollHeight }
+  earlierRequestAt = performance.now()
   post({ type: 'loadEarlier' })
 }
 
@@ -1240,6 +1356,7 @@ window.addEventListener('message', (event) => {
       recall = null
       recallDraft = ''
       earlierAnchor = null
+      earlierRequestAt = 0
       // commit hash 查询缓存按会话隔离：同一短 hash 在不同仓库可能指向不同提交，
       // 换会话后旧缓存里的 title 会误导，需重查（先查后亮保证点击行为仍准确）。
       commitInfoCache.clear()
@@ -1301,6 +1418,19 @@ window.addEventListener('message', (event) => {
     fileThumbRequested.set(msg.path, { at: 0, failed: true })
     swapInlineImagePlaceholders(msg.path)
     render()
+  } else if (msg?.type === 'pendingFailed' && typeof msg.rpcId === 'string') {
+    // 应答失败回推（#50 I2）：记下原因并重渲染——面板按钮不再永久置灰，
+    // 错误显示在面板内的反馈行，用户可以直接重试（官方 catch 复位 busy +
+    // setError 同款）。
+    const st = panelState.get(msg.rpcId)
+    if (st) {
+      st.failure = typeof msg.message === 'string' ? msg.message : ''
+      st.failureSeq += 1
+      // 取消失败（面板还在）：作废「去聊天里说」的延迟聚焦，别让下一次
+      // composer 重建莫名其妙抢焦点。
+      focusComposerAfterPending = false
+      render()
+    }
   } else if (msg?.type === 'modelCatalog' && msg.catalog) {
     modelCatalog = msg.catalog
     modelCatalogFailed = false
@@ -1432,6 +1562,29 @@ let menuOpenRow: HTMLElement | null = null
 let jobsTick: ReturnType<typeof setInterval> | null = null
 /** 定时计划菜单打开期间的 1s tick（刷新相对时间/逾期态；closePopover 统一清理）。 */
 let scheduleTick: ReturnType<typeof setInterval> | null = null
+/** 弹层重定位的 rAF 去重句柄（scroll capture 每帧多次触发，几何量只需每帧一次）。 */
+let popoverRepositionFrame: number | null = null
+/** 弹层自身尺寸变化的观察者（内容撑高/换行后重定位；closePopover 统一清理）。 */
+let popoverSizeObserver: ResizeObserver | null = null
+
+/**
+ * 弹层跟随视口/锚点变化重定位（对齐官方 useAnchoredPosition：window 的
+ * scroll(capture) + resize + 面板自身 ResizeObserver）。scroll 用捕获阶段因为
+ * 消息流的滚动不冒泡到 window；合帧到 rAF 再做几何计算（滚动期间每帧多次触发）。
+ * 面板尺寸变化也重定位：内容换行/撑高后弹层可能溢出视口被裁。
+ */
+function schedulePopoverReposition(): void {
+  if (popover === null) return
+  if (typeof requestAnimationFrame !== 'function') {
+    positionPopover()
+    return
+  }
+  if (popoverRepositionFrame !== null) return
+  popoverRepositionFrame = requestAnimationFrame(() => {
+    popoverRepositionFrame = null
+    positionPopover()
+  })
+}
 
 function markMenuRow(row: HTMLElement | null): void {
   menuOpenRow?.classList.remove('menu-open')
@@ -1481,9 +1634,17 @@ function closePopover(): void {
     clearInterval(scheduleTick)
     scheduleTick = null
   }
+  if (popoverRepositionFrame !== null && typeof cancelAnimationFrame === 'function') {
+    cancelAnimationFrame(popoverRepositionFrame)
+  }
+  popoverRepositionFrame = null
+  popoverSizeObserver?.disconnect()
+  popoverSizeObserver = null
   document.removeEventListener('mousedown', onPopoverOutside, true)
   document.removeEventListener('keydown', onPopoverKey, true)
   window.removeEventListener('blur', onPopoverBlur)
+  window.removeEventListener('scroll', schedulePopoverReposition, true)
+  window.removeEventListener('resize', schedulePopoverReposition)
 }
 
 /** (Re)position the open popover from its anchor's live rect. */
@@ -1532,6 +1693,14 @@ function showPopover(anchor: HTMLElement, body: HTMLElement, placement: 'above' 
   document.addEventListener('mousedown', onPopoverOutside, true)
   document.addEventListener('keydown', onPopoverKey, true)
   window.addEventListener('blur', onPopoverBlur)
+  // 打开期间跟随视口/锚点：滚动消息流或缩放面板/窗口后弹层与锚点不再脱开
+  // （#50 R8，官方 useAnchoredPosition 同款）。
+  window.addEventListener('scroll', schedulePopoverReposition, true)
+  window.addEventListener('resize', schedulePopoverReposition)
+  if (typeof ResizeObserver !== 'undefined') {
+    popoverSizeObserver = new ResizeObserver(() => schedulePopoverReposition())
+    popoverSizeObserver.observe(p)
+  }
 }
 
 /**
@@ -3084,7 +3253,6 @@ function render(): void {
   // 活跃帧已经换成新会话的，会把旧会话的键写进去。
   if (!switchingDisclosure) saveInnerScroll(chatCol)
   const prevScrollTop = oldMessages?.scrollTop ?? null
-  const prevScrollHeight = oldMessages?.scrollHeight ?? null
   if (oldMessages && pinnedScrollTop !== null) {
     const floor = Math.max(0, oldMessages.scrollHeight - oldMessages.clientHeight)
     if (isReaderMoved(oldMessages.scrollTop, pinnedScrollTop, floor)) {
@@ -3136,8 +3304,9 @@ function render(): void {
   const pendingFocus = oldPending !== null && oldPending.contains(document.activeElement)
   // 签名带 sessionId：换会话时旧会话的 pending 卡必须移除，不能因内容
   // 恰好相同（rpcId 全局唯一，理论不会，但防御起见）被保活成跨会话残留。
-  // 签名含面板本地状态（分页/最小化）：翻页、收起、去聊天里说等就地状态
-  // 变化必须打破保活触发重建，否则焦点在面板内时新状态不会上屏。
+  // 签名含面板本地状态（分页/最小化/反馈行）：翻页、收起、去聊天里说、提交
+  // 失败提示等就地状态变化必须打破保活触发重建，否则焦点在面板内时新状态不会
+  // 上屏（「请先完成本题」/失败原因被保活帧吞掉）。
   const pendingSig =
     state && state.pending.length > 0
       ? JSON.stringify([
@@ -3145,10 +3314,13 @@ function render(): void {
           state.pending,
           state.pending.map((p) => {
             const s = panelState.get(p.rpcId)
-            return [p.rpcId, s?.page ?? 0, s?.minimized ?? false]
+            return [p.rpcId, s?.page ?? 0, s?.minimized ?? false, s?.notice ?? '', s?.failure ?? '', s?.failureSeq ?? 0]
           }),
         ])
       : null
+  // 本帧 pending 刚解除（上一帧还有挂起交互、这一帧没有了）：计划审核
+  // 「去聊天里说」的延迟聚焦据此判定（见 render 尾部 composer 收尾）。
+  const pendingCleared = lastPendingSig !== null && (state?.pending.length ?? 0) === 0
   // 签名相同时焦点在内即保活（输入不被打断）；签名变化但 IME 组合中同样
   // 保活，推迟到 compositionend 补帧重建（见 composingEl）。
   const keepPending =
@@ -3664,6 +3836,12 @@ function render(): void {
         movedByReader,
         isAtBottom(messages.scrollHeight, messages.scrollTop, messages.clientHeight),
       )
+      // 用户自己滚动时重取「加载更早」的阅读锚（官方同款：onScroll 里用新位置
+      // 刷新 anchorRef）——否则补页落地后逐帧重锚会跟手势较劲，把用户按回去。
+      if (movedByReader && earlierAnchor !== null && !stickToBottom) {
+        const captured = captureEarlierAnchor(messages)
+        if (captured !== null) earlierAnchor = { ...captured, until: earlierAnchor.until, height: messages.scrollHeight }
+      }
       const jump = messages.querySelector<HTMLElement>('.jump-latest')
       if (jump) jump.style.display = stickToBottom ? 'none' : ''
       // 上翻到顶部附近时按需加载更早一页（按钮之外的第二触发路径）。
@@ -3687,17 +3865,29 @@ function render(): void {
       // 停、仍跟随、已脱底时才补 pin（幂等：已贴底/非跟随/滚动活动中都不写）。
       maybeSettlePin()
     }
+    // 补页的异步撑高（页内图片/懒加载缩略图 load、details 展开）不经过 render：
+    // 「加载更早」的锚还活着时这里就地按锚行校正一次，用户读的那行不回跳
+    // （#50 R2 的后半段）。
+    const reanchorIfAnchored = (): void => {
+      if (earlierAnchor === null) return
+      reanchorEarlier(messages)
+      releaseEarlierAnchorWhenSettled()
+    }
     messages.addEventListener(
       'load',
       (e) => {
-        if (e.target instanceof HTMLImageElement) repinIfFollowing()
+        if (!(e.target instanceof HTMLImageElement)) return
+        repinIfFollowing()
+        reanchorIfAnchored()
       },
       true,
     )
     messages.addEventListener(
       'toggle',
       (e) => {
-        if (e.target instanceof HTMLDetailsElement) repinIfFollowing()
+        if (!(e.target instanceof HTMLDetailsElement)) return
+        repinIfFollowing()
+        reanchorIfAnchored()
       },
       true,
     )
@@ -3842,22 +4032,21 @@ function render(): void {
   lastTodosSig = composingInside(oldTodoPanel) ? lastTodosSig : todosSig
   lastQueueSig = composingInside(oldQueue) ? lastQueueSig : queueSig
   lastGoalSig = composingInside(oldGoalBar) ? lastGoalSig : goalSig
-  // 「加载更早」的锚定配对：先记下 loadingEarlier 曾为 true（请求确实被
-  // 接受），它翻回 false 的这一帧若消息从顶部插入（首条变了或条数多了），
-  // 按新增高度补偿 scrollTop；无论是否插入都解除锚点（空页/失败同样落地）。
-  const earlier = earlierAnchor
-  if (earlier !== null && state.loadingEarlier === true) earlier.seenLoading = true
-  const landed = earlier !== null && earlier.seenLoading && state.loadingEarlier !== true ? earlier : null
-  const prepended =
-    landed !== null && (state.messages.length > landed.count || state.messages[0]?.id !== landed.firstId)
+  // 「加载更早」的锚定（对齐官方 anchorRef）：宿主接单（loadingEarlier=true）
+  // 即清掉重入位；其后每一帧都按锚行重锚——补页分多帧到达、页内图片/缩略图
+  // 稍后撑高都能跟上，而不是只在落地那一帧补一次。锚在内容稳定（settle 窗口
+  // 到期）或用户回到最新（贴底）时解除。
+  if (state.loadingEarlier === true) earlierRequestAt = 0
+  if (earlierRequestAt !== 0 && performance.now() - earlierRequestAt > EARLIER_REQUEST_GUARD_MS) earlierRequestAt = 0
   // 恢复/补偿路径（换会话恢复历史位置、加载更早、非贴底跳转）同步写：它们是
   // 用户明确动作，不涉及「抢原生惯性动画」，也无需等布局 settle。
   if (restoreScrollTop !== null) {
     // 存档带视口锚就按锚换算（内容在切走期间增长/收缩时回到同一条消息的同一
     // 位置）；锚行已不在新内容里才回退原始 scrollTop（#52 W2）。
     writeMessagesScrollTop(messages, anchoredRestoreTop(messages, restoreAnchor) ?? restoreScrollTop)
-  } else if (!switchingSession && prevScrollTop !== null && prepended && prevScrollHeight !== null) {
-    writeMessagesScrollTop(messages, prevScrollTop + (messages.scrollHeight - prevScrollHeight))
+  } else if (!switchingSession && reanchorEarlier(messages)) {
+    // 补页按锚行重锚生效（#50 R2）：本帧 scrollTop 已按锚行校正（可能是补页落地
+    // 后的第一帧，也可能是之后图片撑高的任意一帧），不再用上一帧的位置覆盖它。
   } else if (!switchingSession && prevScrollTop !== null) {
     writeMessagesScrollTop(messages, prevScrollTop)
   }
@@ -3865,7 +4054,7 @@ function render(): void {
   // 换会话帧同样恢复：位置存档随展开态帧按会话隔离（已切到新会话的帧），键都是
   // 新会话自己的渲染键，恢复的正是切走前那个会话的卡内位置（#52 W2/W3）。
   restoreInnerScroll(chatCol)
-  if (landed !== null) earlierAnchor = null
+  releaseEarlierAnchorWhenSettled()
   // Read back the clamped value: this is the position the next render compares
   // against to tell user scrolls apart from content growth. 若恢复的 scrollTop
   // 被浏览器 clamp 到新的底部（切走期间内容收缩/变短到不足一屏），实际
@@ -3941,6 +4130,13 @@ function render(): void {
   // 词库（@ 候选/绑定名）变了就把已输入的 @token 全量重扫一遍：Lexical 的
   // 着色变换只跑 dirty 节点，附件/候选到位本身不弄脏文本（B-08）。
   syncAtLexiconRescan()
+  // 计划审核「去聊天里说」：pending 解除、普通 composer 回到输入区的那一帧把
+  // 焦点交给它（用户接着用自然语言说；#50 I4）。取消失败（面板还在）时不消费，
+  // 由 pendingFailed 清掉标志。
+  if (focusComposerAfterPending && pendingCleared && activeComposer) {
+    focusComposerAfterPending = false
+    activeComposer.focus(true)
+  }
   // 脏位跟随渲染结果上报：切换会话恢复草稿、发送清空、附件增删都经这里。
   reportComposerDirty()
   // 草稿落盘同款（#14）：发送清空/附件增删/restoreDraft 回填等经 render 的变化在此收口。
@@ -4407,6 +4603,11 @@ let pendingStash:
       selEnd: number
     }
   | null = null
+/**
+ * 计划审核「去聊天里说」请求：取消挂起的审核后，普通 composer 回到输入区时
+ * 自动聚焦它（用户接着用自然语言说）。只在 pending 解除的那一帧消费。
+ */
+let focusComposerAfterPending = false
 /** Slash-command receipt texts shown at the message tail; cleared on session switch. */
 let commandNotices: string[] = []
 /**
@@ -5555,6 +5756,8 @@ function renderTurnRail(entries: ChatTurnOutlineEntry[], loadedFlags: readonly b
 function scrollToMessageId(messageId: string | null): void {
   if (!messageId) return
   stickToBottom = false
+  // 回合跳转是显式定位：作废「加载更早」的阅读锚，免得下一帧把它拽回原位。
+  earlierAnchor = null
   const messages = document.getElementById('messages')
   if (!messages) return
   const rowKey = `msg:${messageId}`
@@ -6560,6 +6763,11 @@ function renderPendingPanel(pending: PendingRequest[]): HTMLElement {
   for (const rpcId of panelState.keys()) {
     if (!live.has(rpcId)) panelState.delete(rpcId)
   }
+  // 只清内存副本：落盘的那份由宿主在 pending 解除时 prune
+  // （chatTab.pruneResolvedAnswerDrafts），webview 不必重复上报。
+  for (const rpcId of [...answerDrafts.keys()]) {
+    if (!live.has(rpcId)) answerDrafts.delete(rpcId)
+  }
   const panel = el('div', 'pending-panel')
   for (const p of pending) {
     panel.appendChild(p.kind === 'approval' ? renderApprovalPanel(p) : renderQuestionPanel(p))
@@ -6568,26 +6776,32 @@ function renderPendingPanel(pending: PendingRequest[]): HTMLElement {
 }
 
 function renderApprovalPanel(p: PendingApproval): HTMLElement {
+  const st = panelStateFor(p.rpcId)
   const panel = el('div', 'pending-block')
   panel.appendChild(panelHeader(p.rpcId, t('Permission request')))
-  if (panelStateFor(p.rpcId).minimized) return panel
+  if (st.minimized) return panel
   const body = el('div', 'panel-body')
   body.appendChild(el('div', 'pending-title', p.toolName))
   if (p.reason) body.appendChild(el('div', 'pending-reason', p.reason))
+  // 待执行命令（对齐官方 conversation.approval.detail → ApprovalCommand）：
+  // 审批请求带 callId 时回查那次 tool call 的输入参数，把 command 原文显示
+  // 出来——用户看得见要跑什么才谈得上「允许」（#50 I1）。窗口里找不到该调用
+  // （被翻页切走 / 老协议无 callId）时静默不显示，与官方一致。
+  const command = approvalCommandOf(p)
+  if (command !== null) body.appendChild(el('div', 'pending-command', command))
+  if (st.failure) body.appendChild(el('div', 'panel-feedback', st.failure))
   const actions = el('div', 'pending-actions')
   const allow = buttonEl('', t('Allow once'))
   const deny = buttonEl('secondary', t('Reject'))
-  // Disable both on click so a slow host can't be answered twice.
-  allow.addEventListener('click', () => {
+  // Disable both on click so a slow host can't be answered twice. 宿主应答失败
+  // 时回推 pendingFailed：面板重建、按钮复位、原因显示在反馈行，可直接重试。
+  const answer = (outcome: 'allowed-once' | 'rejected'): void => {
     allow.disabled = true
     deny.disabled = true
-    post({ type: 'approval', rpcId: p.rpcId, outcome: 'allowed-once' })
-  })
-  deny.addEventListener('click', () => {
-    allow.disabled = true
-    deny.disabled = true
-    post({ type: 'approval', rpcId: p.rpcId, outcome: 'rejected' })
-  })
+    post({ type: 'approval', rpcId: p.rpcId, outcome })
+  }
+  allow.addEventListener('click', () => answer('allowed-once'))
+  deny.addEventListener('click', () => answer('rejected'))
   actions.appendChild(allow)
   actions.appendChild(deny)
   body.appendChild(actions)
@@ -6596,24 +6810,71 @@ function renderApprovalPanel(p: PendingApproval): HTMLElement {
 }
 
 /**
- * Pending 面板头部：标题 + 分页器（多题时）+ 最小化/最大化按钮。最小化后
- * 只留这一行，正文隐藏（对齐 dsh web QuestionFlow 的 header 最小化）。
+ * 审批请求关联的那次 tool call 的命令文本：审批带 callId 时在当前窗口的消息
+ * 流里按 callId 找该 tool 块，从它的 args（原始 JSON）里取 `command`
+ * （官方 ApprovalCommand：JSON.parse(argsRaw).command）。找不到返回 null。
  */
-function panelHeader(rpcId: string, title: string, pager: HTMLElement | null = null): HTMLElement {
+function approvalCommandOf(p: PendingApproval): string | null {
+  const callId = p.callId
+  if (!callId) return null
+  for (const m of state?.messages ?? []) {
+    if (m.kind !== 'assistant') continue
+    for (const b of m.blocks) {
+      if (b.type === 'tool' && b.callId === callId) return commandOfToolArgs(b.args)
+    }
+  }
+  return null
+}
+
+/**
+ * Pending 面板头部：标题 + 分页器（多题时）+ 最小化/取消按钮。最小化后
+ * 只留这一行，正文隐藏（对齐 dsh web QuestionFlow 的 header 最小化）；取消
+ * 以「用户取消」拒绝挂起请求，面板消失、对话继续（对齐官方 QuestionComposer
+ * 的 nav.cancel → pending.cancel()，见 #50 I3）。计划审核面板两个按钮都不给
+ * （官方 PlanReviewPanel 只有底部的讨论/拒绝/确认三个动作）。
+ */
+function panelHeader(
+  rpcId: string,
+  title: string,
+  pager: HTMLElement | null = null,
+  actions: { minimize?: boolean; cancel?: boolean } = {},
+): HTMLElement {
   const st = panelStateFor(rpcId)
   const header = el('div', 'panel-header')
   header.appendChild(el('span', 'panel-title', title))
   if (pager) header.appendChild(pager)
-  const toggle = buttonEl('panel-toggle', '')
-  toggle.title = st.minimized ? t('Expand') : t('Minimize')
-  toggle.appendChild(iconSvg(PANEL_ICONS.chevronUp, 14))
-  toggle.classList.toggle('minimized', st.minimized)
-  toggle.addEventListener('click', () => {
-    st.minimized = !st.minimized
-    render()
-  })
-  header.appendChild(toggle)
+  if (actions.minimize ?? true) {
+    const toggle = buttonEl('panel-toggle', '')
+    toggle.title = st.minimized ? t('Expand') : t('Minimize')
+    toggle.setAttribute('aria-label', toggle.title)
+    toggle.appendChild(iconSvg(PANEL_ICONS.chevronUp, 14))
+    toggle.classList.toggle('minimized', st.minimized)
+    toggle.addEventListener('click', () => {
+      st.minimized = !st.minimized
+      render()
+    })
+    header.appendChild(toggle)
+  }
+  if (actions.cancel ?? false) header.appendChild(panelCancelButton(rpcId))
   return header
+}
+
+/**
+ * 面板取消按钮（×）：拒绝挂起的提问/计划审核（宿主侧 ASK_CANCELLED），面板
+ * 随 pending 解除消失，用户回到普通输入（对齐官方 QuestionComposer 的
+ * nav.cancel）。失败（请求其实已过期/别处已答）由 pendingFailed 回推，原因
+ * 显示在面板反馈行，可再点一次。
+ */
+function panelCancelButton(rpcId: string): HTMLElement {
+  const cancel = buttonEl('panel-toggle panel-cancel', '')
+  cancel.title = t('Cancel')
+  cancel.setAttribute('aria-label', t('Cancel'))
+  cancel.appendChild(iconSvg(GOAL_ICONS.close, 14))
+  cancel.addEventListener('click', () => {
+    cancel.disabled = true
+    post({ type: 'cancelPending', rpcId })
+  })
+  return cancel
 }
 
 /** 分页器「1/N」+ 上一题/下一题（对齐 dsh web QuestionFlow 分页）。 */
@@ -6630,6 +6891,7 @@ function questionPager(p: PendingQuestion): HTMLElement | null {
   prev.addEventListener('click', () => {
     st.page = Math.max(0, st.page - 1)
     st.notice = ''
+    st.failure = ''
     render()
   })
   pager.appendChild(prev)
@@ -6639,6 +6901,7 @@ function questionPager(p: PendingQuestion): HTMLElement | null {
   next.addEventListener('click', () => {
     st.page = Math.min(n - 1, st.page + 1)
     st.notice = ''
+    st.failure = ''
     render()
   })
   pager.appendChild(next)
@@ -6660,8 +6923,7 @@ function renderPanelAnswer(p: PendingQuestion, index: number): HTMLElement {
   const submit = (): void => {
     const text = input.value.trim()
     if (!text) return
-    if (questionInteractionStatus(p.questions) === 'plan-review') submitPlanReview(p, [], text)
-    else submitAnswer(p, { index, text })
+    submitAnswer(p, { index, text })
   }
   input.addEventListener('input', () => {
     draft.custom = input.value
@@ -6769,13 +7031,18 @@ function renderQuestionPanel(p: PendingQuestion): HTMLElement {
   const n = p.questions.length
   const page = Math.min(st.page, n - 1)
   const panel = el('div', 'pending-block')
-  panel.appendChild(panelHeader(p.rpcId, t('Waiting for your answer'), questionPager(p)))
+  // 头部：最小化 + 取消（×）。取消 = 拒绝本次提问，面板消失、对话继续
+  // （官方 QuestionComposer 的 nav.cancel；#50 I3）。
+  panel.appendChild(panelHeader(p.rpcId, t('Waiting for your answer'), questionPager(p), { cancel: true }))
   if (st.minimized) {
     panel.appendChild(renderPanelAnswer(p, page))
     return panel
   }
   const body = el('div', 'panel-body')
-  if (st.notice) body.appendChild(el('div', 'panel-feedback', st.notice))
+  // 反馈行：本地校验提示（请先完成本题）与宿主应答失败原因共用一处
+  // （官方 QuestionComposer 的 feedback 单槽位）。
+  const feedback = st.failure || st.notice
+  if (feedback) body.appendChild(el('div', 'panel-feedback', feedback))
   const actions = el('div', 'pending-actions')
   // 主按钮随当前页切换（对齐 dsh web QuestionFlow）：非最后一页只翻页不发送，
   // 最后一页才提交整组；当前页未作答时不可点。
@@ -6792,10 +7059,14 @@ function renderQuestionPanel(p: PendingQuestion): HTMLElement {
     if (page < n - 1) {
       st.page = page + 1
       st.notice = ''
+      st.failure = ''
       render()
       return
     }
+    // 提交期置灰防重复应答；宿主失败时回推 pendingFailed，面板重建后按钮
+    // 重新可用（#50 I2：过去置灰是永久的，只能换会话重开）。
     ok.disabled = true
+    st.failure = ''
     submitAnswer(p)
   })
   body.appendChild(renderQuestionItem(p, page, updateOkState))
@@ -6808,6 +7079,7 @@ function renderQuestionPanel(p: PendingQuestion): HTMLElement {
       st.skipped.add(page)
       st.page = page + 1
       st.notice = ''
+      st.failure = ''
       render()
     })
     actions.appendChild(skip)
@@ -6927,16 +7199,15 @@ function renderQuestionItem(
   return wrap
 }
 
-/** PlanReviewPanel：warn strip「计划待审」+ 计划 Markdown + 确认/拒绝/去聊天里说。 */
+/**
+ * PlanReviewPanel：warn strip「计划待审」+ 计划 Markdown + 确认/拒绝/去聊天里说。
+ * 头部不给最小化/取消（官方 PlanReviewPanel 只有底部三个动作）。
+ */
 function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
   const st = panelStateFor(p.rpcId)
   const q = p.questions[0]
   const panel = el('div', 'pending-block')
-  panel.appendChild(panelHeader(p.rpcId, t('Plan review')))
-  if (st.minimized) {
-    panel.appendChild(renderPanelAnswer(p, 0))
-    return panel
-  }
+  panel.appendChild(panelHeader(p.rpcId, t('Plan review'), null, { minimize: false }))
   const body = el('div', 'panel-body')
   // Warn strip：计划待审（对齐 dsh web PlanReviewPanel 的警示条）。
   const warn = el('div', 'plan-warn')
@@ -6952,6 +7223,7 @@ function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
     decorateInlineCodes(plan)
     body.appendChild(plan)
   }
+  if (st.failure) body.appendChild(el('div', 'panel-feedback', st.failure))
   // 三分结构：确认执行（approve 选项，主按钮）/ 拒绝（另一选项）/ 去聊天里说。
   const approve = q.intent?.approve
   const reject = q.options?.find((o) => o.label !== approve)?.label
@@ -6959,21 +7231,24 @@ function renderPlanReviewPanel(p: PendingQuestion): HTMLElement {
   const ok = buttonEl('option-btn', approve ?? t('Confirm and run'))
   ok.addEventListener('click', () => {
     ok.disabled = true
+    st.failure = ''
     submitPlanReview(p, approve ? [approve] : [])
   })
   const no = buttonEl('secondary option-btn', reject ?? t('Reject'))
   no.addEventListener('click', () => {
     no.disabled = true
+    st.failure = ''
     submitPlanReview(p, reject ? [reject] : [])
   })
+  // 「去聊天里说」= 取消这个挂起的审核（不是把它当答案提交），面板收起、输入区
+  // 交回普通 composer，用户说的是普通聊天消息（对齐官方 PlanReviewPanel 的
+  // discuss → pending.cancel()；#50 I4）。
   const chat = buttonEl('secondary option-btn', t('Reply in chat'))
-  chat.title = t('Collapse the panel and reply in natural language in the input box')
+  chat.title = t('Cancel this review and reply in natural language in the input box')
   chat.addEventListener('click', () => {
-    st.minimized = true
-    render()
-    // 收起后聚焦回答输入行（panel-answer 的首个输入框）。
-    const input = chatCol.querySelector<HTMLInputElement>('.pending-panel .panel-answer input')
-    input?.focus()
+    chat.disabled = true
+    focusComposerAfterPending = true
+    post({ type: 'cancelPending', rpcId: p.rpcId })
   })
   actions.appendChild(ok)
   actions.appendChild(no)
@@ -7085,6 +7360,29 @@ function pendingFileChip(file: StagedFile, index: number): HTMLElement {
   })
   chip.appendChild(remove)
   return chip
+}
+
+/**
+ * 把输入框内的光标/选区滚进可视区（对齐官方 dsh-client-ui-conversation 的
+ * revealSelection）：草稿超过输入区限高（#input max-height 160px）后内部滚动，
+ * 光标会被滚到看不见的位置——聚焦与「草稿从空变非空」时按选区 rect 校正输入框
+ * 自身的 scrollTop。内层本来就滚不动（内容不超限高）时不动。
+ */
+function revealComposerCaret(root: HTMLElement): void {
+  if (root.scrollHeight <= root.clientHeight) return
+  const selection = window.getSelection()
+  if (selection === null || selection.rangeCount === 0) return
+  let rect = selection.getRangeAt(0).getBoundingClientRect()
+  if (rect.height === 0 && rect.width === 0) {
+    // 空选区的 rect 可能全 0（折叠光标）：退回光标所在元素的 rect。
+    const anchor = selection.anchorNode
+    const node = anchor instanceof HTMLElement ? anchor : (anchor?.parentElement ?? null)
+    if (node === null) return
+    rect = node.getBoundingClientRect()
+  }
+  const box = root.getBoundingClientRect()
+  if (rect.bottom > box.bottom) root.scrollTop += rect.bottom - box.bottom
+  else if (rect.top < box.top) root.scrollTop -= box.top - rect.top
 }
 
 function renderInput(draft: string | undefined, hero = false): HTMLElement {
@@ -7504,6 +7802,11 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     return true
   }
 
+  // 本帧新建的编辑器实例（handler 在 createComposerEditor 返回前就要引用它，
+  // 用局部引用而不是模块级 composer：保活/重建期间模块级变量可能已指向新实例）。
+  let editorRef: ComposerEditor | null = null
+  /** 上一帧输入框是否已有内容（空 → 非空那一帧把光标露出，官方 revealSelection 同款）。 */
+  let hadText = false
   composer = createComposerEditor({
     handlers: {
       onTextChange: (text, meta) => {
@@ -7523,6 +7826,10 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
         reportComposerDirty()
         // 草稿落盘同款（不经 render 的输入事件独立挂钩，#14）。
         scheduleDraftSave()
+        // 草稿从空变非空：草稿超过输入区限高时把光标带进可视区（官方
+        // useEffect(..., [draft !== ""]) → revealSelection；#50 R7）。
+        if (text !== '' && !hadText && editorRef !== null) revealComposerCaret(editorRef.root)
+        hadText = text !== ''
       },
       onSelectionChange: () => updateSlashPopup(composer),
       onEnter: (steer) => {
@@ -7541,7 +7848,31 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     atTokenNames: composerAtTokenNames,
     slashTokenNames: composerSlashTokenNames,
   })
+  editorRef = composer
   composer.root.id = 'input'
+  // 聚焦时把光标露出可视区（官方 editor.focus(() => revealSelection())）。
+  composer.root.addEventListener('focus', () => revealComposerCaret(composer.root))
+  // 滚轮停在输入框上、输入框内部已到顶/底时把这次滚动转给消息流（官方
+  // onWheel：内部还能滚就自己滚，到边界才 preventDefault + 转发；#50 R7）。
+  composer.root.addEventListener(
+    'wheel',
+    (e) => {
+      const messages = document.getElementById('messages')
+      if (messages === null) return
+      const delta = forwardedWheelDelta(
+        e.deltaY,
+        composer.root.scrollTop,
+        composer.root.clientHeight,
+        composer.root.scrollHeight,
+      )
+      if (delta === null) return
+      e.preventDefault()
+      // 直接写外层 scrollTop（不经 writeMessagesScrollTop）：位移比对会把它
+      // 当成用户滚动，跟随态与「回到最新」浮标随之重估，与真人滚轮同效。
+      messages.scrollTop += delta
+    },
+    { passive: false },
+  )
   // .value/selectionStart/selectionEnd/setSelectionRange 存取 shim：让 harness/场景
   // 与残留的 textarea 式读法能继续以编程方式读写编辑器（写走 setText 重建 @token 节点，
   // 读走 getText/selection，与旧 textarea 的块间 \n 语义一致）。无生产副作用。

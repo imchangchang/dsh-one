@@ -282,6 +282,26 @@ async function openCommit(host: ChatTabHost, sha: string): Promise<boolean> {
 }
 
 /**
+ * Pending 交互（审批/提问/计划审核）的一次应答：失败时把原因回推给 webview，
+ * 面板据此复位按钮并在面板内显示错误（对齐官方 pending.answer(...).catch(
+ * setBusy(null) + setError)）——不再像过去只弹 VS Code 通知栏、面板按钮永久
+ * 置灰无法重试（#50 I2）。错误已由面板承接，这里不再向通知栏重复抛。
+ */
+async function respondPending(
+  host: ChatTabHost,
+  rpcId: string,
+  call: () => Promise<void> | undefined,
+): Promise<void> {
+  try {
+    await call()
+  } catch (err) {
+    const message = errorText(err)
+    host.actions.logger.warn(`chat: pending ${rpcId} response failed — ${message}`)
+    host.postMessage({ type: 'pendingFailed', rpcId, message })
+  }
+}
+
+/**
  * 全局动作域：不依赖会话 controller 的消息（安装引导/外链/打开另一个会话）。
  * webview 重载的 ready 报到由 ChatTabHost 自己处理（需要推自己的 state）。
  */
@@ -474,14 +494,23 @@ const chatHandlers: ChatTabMessageHandler[] = [
     types: ['approval'],
     async handle(host, m) {
       if (m.type !== 'approval') return
-      await host.controller?.respondApproval(m.rpcId, m.outcome)
+      await respondPending(host, m.rpcId, () => host.controller?.respondApproval(m.rpcId, m.outcome))
     },
   },
   {
     types: ['answer'],
     async handle(host, m) {
       if (m.type !== 'answer') return
-      await host.controller?.answerQuestion(m.rpcId, m.answers)
+      await respondPending(host, m.rpcId, () => host.controller?.answerQuestion(m.rpcId, m.answers))
+    },
+  },
+  {
+    // 面板取消（提问/计划审核头部的 ×、「去聊天里说」）：以 ASK_CANCELLED 拒绝
+    // 挂起的水瀑布，面板随之消失、对话继续（对齐官方 pending.cancel()）。
+    types: ['cancelPending'],
+    async handle(host, m) {
+      if (m.type !== 'cancelPending') return
+      await respondPending(host, m.rpcId, () => host.controller?.cancelQuestion(m.rpcId))
     },
   },
   {

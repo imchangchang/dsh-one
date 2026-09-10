@@ -1224,7 +1224,17 @@ const STYLE = `
   .panel-toggle svg { transition: transform .15s ease; }
   .panel-toggle.minimized svg { transform: rotate(180deg); }
   .panel-body { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 10px; }
-  /* 问题卡提示行（提交时存在未完成题）：颜色对齐 dsh web 的错误反馈。 */
+  /* 待执行命令（审批卡，对齐官方 ApprovalPanel 的 .command）：等宽字体 +
+     任意位置断行，长命令不撑破面板。 */
+  .pending-command {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.92em; line-height: 1.45; white-space: pre-wrap;
+    word-break: break-all; overflow-wrap: anywhere;
+    padding: 6px 8px; border-radius: 4px;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.12));
+  }
+  /* 问题卡提示行（提交时存在未完成题）与宿主应答失败原因共用；颜色对齐
+     dsh web 的错误反馈。 */
   .panel-feedback {
     color: var(--vscode-inputValidation-errorBorder, #f14c4c);
     font-size: 12px; line-height: 16px; padding: 0 2px;

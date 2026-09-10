@@ -16,7 +16,7 @@ import {
   replayControlSnapshot,
   type ControlSnapshot,
 } from '../pure/controlSnapshot.ts'
-import { sendWaterfallResult } from './dshRpc.ts'
+import { rejectWaterfallResult, sendWaterfallResult } from './dshRpc.ts'
 import { is013Wire } from './serverAuth.ts'
 
 /**
@@ -30,8 +30,19 @@ import { is013Wire } from './serverAuth.ts'
 export interface ModernEventsHandler {
   /** One emitted forwarded event (`event` + Cordis args array). */
   onEvent?: (event: string, args: unknown[]) => void
-  /** One waterfall request (approval/question); `answer` settles it. */
-  onRequest?: (request: { eventId: string; agentId: string; event: string; req: Record<string, unknown>; answer: (value: unknown) => Promise<void> }) => void
+  /**
+   * One waterfall request (approval/question). `answer` settles it with the
+   * listener's value; `reject` settles it as a listener throw instead (the user
+   * cancelled the request — the host restores the error by name/code).
+   */
+  onRequest?: (request: {
+    eventId: string
+    agentId: string
+    event: string
+    req: Record<string, unknown>
+    answer: (value: unknown) => Promise<void>
+    reject: (error: { name: string; message: string; code?: string }) => Promise<void>
+  }) => void
   /** The host cancelled a pending waterfall (settled elsewhere / aborted turn). */
   onCancel?: (eventId: string) => void
   /** Stream dropped; pending state should be treated as gone. */
@@ -106,7 +117,7 @@ export function subscribeModernEvents(origin: string, logger: Logger, handler: M
   }
 }
 
-/** Deliver one waterfall frame to one handler; `answer` settles it locally. */
+/** Deliver one waterfall frame to one handler; `answer`/`reject` settle it locally. */
 function dispatchWaterfall(
   origin: string,
   state: EventStreamState,
@@ -120,6 +131,10 @@ function dispatchWaterfall(
     req: frame.request,
     answer: async (value: unknown) => {
       await sendWaterfallResult(origin, state.clientId as string, frame.eventId, value)
+      settlePendingLocally(state, frame.eventId)
+    },
+    reject: async (error: { name: string; message: string; code?: string }) => {
+      await rejectWaterfallResult(origin, state.clientId as string, frame.eventId, error)
       settlePendingLocally(state, frame.eventId)
     },
   })
