@@ -4783,6 +4783,62 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"
   // 的存量状态，就把它的名字加进 BASELINE_SCENARIOS —— 随合入并入主线基线。
   window.SCENARIOS = catalog
+  // #54 B-07/B-13：@ 补全菜单的三态与 Tab 下钻 / hover 选中。mock 宿主不回
+  // fileRefList，正好停在「工作区候选在途」这一态——原来这里整组为空就收掉菜单
+  // （打 @ 的瞬间闪没），现在留菜单出加载行；随后注入一条目录候选 + 一条文件
+  // 候选：hover 第二行应把选中从首行移过去，Tab 落在目录行应下钻（文本变
+  // `@src/` 且菜单继续开着）。
+  Object.assign(window.SCENARIOS, {
+    'at-menu-pending-and-drill': {
+      state: base({ messages: [] }),
+      interactSteps: [
+        {
+          name: 'loading',
+          script: `(() => {
+            const input = document.getElementById('input')
+            input.focus()
+            input.value = '@sr'
+            input.setSelectionRange(3, 3)
+            input.dispatchEvent(new Event('input'))
+            setTimeout(() => {
+              const rows = Array.from(document.querySelectorAll('.slash-popup > *')).map((e) => e.textContent)
+              window.__atMenuCheck = { loading: rows }
+            }, 500)
+          })()`,
+          settle: 900,
+        },
+        {
+          name: 'hover-and-drill',
+          script: `(() => {
+            const req = (window.__posted || []).filter((m) => m.type === 'fileRefList').at(-1)
+            window.postMessage({ type: 'fileRefList', requestId: req.requestId, items: [
+              { path: 'src', kind: 'directory' }, { path: 'src/a.ts', kind: 'file' } ] }, '*')
+            setTimeout(() => {
+              const items = document.querySelectorAll('.slash-popup .menu-item')
+              items[1]?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))
+              const hoverSelected = Array.from(items).map((e) => e.classList.contains('selected'))
+              items[0]?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))
+              document.getElementById('input').dispatchEvent(
+                new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+              setTimeout(() => {
+                window.__atMenuCheck = {
+                  ...window.__atMenuCheck,
+                  hoverSelected,
+                  afterDrill: document.getElementById('input').value,
+                  menuOpen: !!document.querySelector('.slash-popup'),
+                  hint: document.querySelector('.slash-popup .menu-key')?.textContent ?? null,
+                }
+              }, 300)
+            }, 400)
+          })()`,
+          settle: 900,
+        },
+      ],
+      title: '@ 补全菜单：候选在途出加载行（不再闪没）+ hover 驱动选中 + 目录行 Tab 下钻',
+      expect: '@composer 输入「@sr」——工作区候选在途时菜单**仍开着**，显示一行「Files · Loading…」（不可选，不是空菜单闪一下）；mock 宿主回目录候选（src，directory）与文件候选（src/a.ts）后菜单出两组候选：鼠标移到文件行，该行选中（.selected 从首行移过去）；移回目录行后按 Tab——输入框变成「@src/」（下钻，不落定 chip）、菜单继续开着列出下一层，目录行右侧显示「Browse folder」+「Tab」提示。DOM 断言 window.__atMenuCheck = {loading:["Files · Loading…"], hoverSelected:[false,true], afterDrill:"@src/", menuOpen:true, hint:"Tab"}。',
+    },
+  })
+
   window.BASELINE_SCENARIOS = [
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'model-picker-effort-default', 'sessions',
@@ -4822,6 +4878,7 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'inline-code-interact',
     'draft-restore-blank-hero', 'draft-restore-with-files', 'draft-restore-question',
     'restore-draft-stop', 'recall-queue-row', 'recall-history-images', 'recall-unsteer-session',
+    'at-menu-pending-and-drill',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()
