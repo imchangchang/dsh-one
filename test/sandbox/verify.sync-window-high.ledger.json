@@ -1,0 +1,172 @@
+{
+  "title": "同步/会话批次验收报告（#52）：S2 幽灵残留 + S5 同 URL 重连重建 + 乐观占位 + 展开/滚动跨会话",
+  "branch": "agent/sync-window-high",
+  "commit": "8305a7d",
+  "environment": {
+    "mode": "harness（webview 独立渲染，Playwright/chromium 截图）+ 本机真 dsh 0.1.2-rc.1 wire 探针 + mock-llm 沙盒（0.1.1-rc.2 真 dsh 回归）",
+    "dsh": "0.1.2-rc.1（本机 127.0.0.1:3080，真 wire 探针）+ 0.1.1-rc.2（沙盒 mock-llm 回归）",
+    "locale": "en（harness/沙盒）",
+    "theme": "dark",
+    "image": "dsh-sandbox-sync-window-high:latest（重装 8305a7d 的 vsix；容器 dsh-sandbox-sync-window-high，端口 8111）",
+    "driver": "node test/sandbox/verify-driver.mjs --ledger test/sandbox/verify.sync-window-high.ledger.json + /tmp/probe-sync-012.mjs（真 0.1.2 探针）+ /tmp/ui-shots.mjs（harness 场景截图，替代 WebBridge）+ node --test",
+    "date": "2026-09-10T01:20:00Z"
+  },
+  "coverageNote": "沙盒 pin 的是 dsh 0.1.1-rc.2（legacy wire），#52 的 S2/S5 改动只走 0.1.2+ 的现代路径（session/control 共享流 + workspace/follow 流），沙盒触发不到；这两项用**本机真 dsh 0.1.2-rc.1 的 wire 探针**（真实 baseline/会话列表数据喂修复后模块，非 mock）+ mock remote.mux 集成测试 + 单测覆盖。webview 层（S1/W2/W3）用 harness 确定性截图逐项核对，并在 0.1.1 沙盒上跑真 dsh + mock-llm 回归。真桌面 VS Code、真模型输出、平台专项（Windows/macOS）不在本报告范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "S1 本地乐观占位：运行中回车排队",
+      "expect": "运行中回车后同一帧出现本地占位排队行（Queued + 文本 + 转圈、无 Steer/Edit/Delete），输入框已清空；宿主回流（真排队项到达）后仍只有一条排队行（不重复），操作入口变为 Steer/Edit/Delete。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/optimistic-echo-queued-sent.png",
+        "/tmp/dsh-ui-shots/optimistic-echo-queued-landed.png"
+      ],
+      "notes": "场景 optimistic-echo-queued（test/ui/scenarios.js，interactSteps；mock 宿主不响应 post，第一步占位态天然稳定，第二步人工推 state 模拟回流）。逐条核对：sent 图——输入框「Type a message; Enter queues…」占位符在、无残留文本 ✓；输入区上方一条排队行「Queued + 先别动，等我把日志贴完。」✓；行内右侧转圈 ✓；无 Steer/Edit/Delete ✓；消息流里无该文本重复气泡 ✓；主按钮为停止图标（运行中）✓。landed 图——仍只有一条排队行（占位已撤，未重复）✓；操作入口 Steer/Edit/Delete 出现 ✓；转圈消失 ✓；输入框保持空 ✓。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "S1 本地乐观占位：⌘Enter 插话",
+      "expect": "⌘Enter 插话后消息流尾部（turn-status 之后）立刻出现等待插话气泡（用户气泡 + 处理中圆圈），输入区上方不出现排队行；宿主回流后仍是同位置一条气泡，不重复。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/optimistic-echo-steering-sent.png",
+        "/tmp/dsh-ui-shots/optimistic-echo-steering-landed.png"
+      ],
+      "notes": "场景 optimistic-echo-steering。逐条核对：sent 图——输入框已清空 ✓；流尾出现右对齐插话等待气泡「停一下，先回答我这个问题。」+ 左侧处理中圆圈 ✓；无第二条重复气泡 ✓；输入区上方**无**排队行（插话不排队）✓；主按钮停止态 ✓。landed 图——真插话气泡接管同一位置，仍是**一条**气泡（占位已撤）✓；消息流其余部分未变 ✓。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "S1 本地乐观占位：空闲发送 + 发送失败回填草稿",
+      "expect": "空闲回车后消息流末尾立刻出现用户气泡（+ 处理中圆圈），输入区上方无排队行；发送失败宿主回填草稿（restoreDraft）后占位气泡消失、文本回到输入框。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/optimistic-echo-turn-sent.png",
+        "/tmp/dsh-ui-shots/optimistic-echo-turn-failed.png"
+      ],
+      "notes": "场景 optimistic-echo-turn。逐条核对：sent 图——输入框已清空 ✓；消息流末尾一条用户气泡「接着刚才的架构，再补充一段。」+ 左侧处理中圆圈 ✓；无排队行 ✓；无第二条相同文本气泡 ✓（此时 idle，主按钮为发送箭头 ✓）。failed 图——占位气泡**消失**（消息流里不再有该文本气泡）✓；文本回到输入框「接着刚才的架构，再补充一段。」✓；清空按钮在位 ✓。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "W3 展开态按会话隔离：切走再切回仍是展开的",
+      "expect": "工具卡展开 → 切到另一个会话（工具卡随整列重建卸载、渲染 hero 空态）→ 切回原会话，该工具卡**仍然展开**（OUT 三行输出可见、chevron 朝上）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots/expand-state-survives-switch-expanded.png",
+        "/tmp/dsh-ui-shots/expand-state-survives-switch-away.png",
+        "/tmp/dsh-ui-shots/expand-state-survives-switch-back.png"
+      ],
+      "notes": "场景 expand-state-survives-switch（interactSteps 三步）。逐条核对：expanded 图——点摘要后工具卡展开、OUT 区三行输出（gateway ok / auth ok / billing timeout）可见 ✓、chevron 朝上 ✓、底部「Collapse」在位 ✓。away 图——切到 sess-2 后渲染空会话 hero（居中「Describe what you want to build」）✓、sess-1 的消息与工具卡全部不在 ✓。back 图——切回 sess-1 后工具卡**仍是展开的**（与 expanded 图逐像素一致，sha256 相同）✓，不是折叠态。修复前该图会是折叠态（换会话清空 detailsOpen + 工具卡 useState 随卸载归零）。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "S2 基线缺席键清空（幽灵排队消息/后台任务/投影块）",
+      "expect": "control 基线是全域快照：真基线里缺席的会话/投影键必须被清掉，晚订阅者拿到的合成 baseline 必须带全三域（否则消费端把缺域当「无信息」留下旧值）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "证据三层：①真 wire 探针（/tmp/probe-sync-012.mjs，本机真 dsh 0.1.2-rc.1）——真 baseline 三域均按会话键给出（queues=26/jobs=26/projections=26）、投影块带 asOfSeq+values（键样本 title/goal/tokenUsage/contextPressure/contextBreakdown/sessionStats/turnOutline/agentPreset）✓；用一个**不在真基线里**的会话制造幽灵排队/任务/投影块后灌入真基线 → 三者全被清掉 ✓；同一输入下旧语义（缺域保留）会留下幽灵（对照，证明修复点真实存在）✓；重放的合成 baseline 带全 queues/jobs/projections ✓（10/10 断言通过）。另核对了真基线的投影键全集：agentPreset, contextBreakdown, contextPressure, goal, imageLimits, modelSelection, permissions, plan, sessionListMetadata, sessionStats, subagent, subagentTiming, title, todos, tokenUsage, turnOutline——clearAbsentProjections 监视的 13 个键里 12 个都在真基线中（清空分支对它们是空操作、不误伤），只有本机未装 schedule 插件而缺席的 schedule 会被清——正是「宿主不再上报 → 本地不该留着过期 chip」的目标行为。②单测 test/controlSnapshot.test.ts 6 项（整域替换、重连基线丢键、重放带全域）。③集成 test/controlStreamReplay.test.ts。消费端（chatSession.applyModernControlBaseline 缺席键清空 + JobsStore 整表重建）在 0.1.1 沙盒触发不到（legacy wire 无 control 流），由代码路径审查 + 上述协议层证据覆盖，未做端到端 UI 验证——这是本报告的已知覆盖缺口。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "S5 同 URL 断流重连后重建会话列表与运行位",
+      "expect": "workspace/follow 流断流重开后，同一条订阅上的第二次 baseline 必须触发 onReconnect（消费端据此重拉会话基线，侧栏圆点与停止按钮才跟上）；首次 baseline 与后续增量不得误报。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "证据两层：①集成测试（test/controlStreamReplay.test.ts 新增用例，mock remote.mux 真实掐 socket）——首次 baseline 与 upsert 增量不触发 onReconnect（reconnects=0）✓；掐断 socket 后流自行重开、host 再发 baseline → onReconnect 恰好触发 1 次 ✓。②真 wire 探针（本机 dsh 0.1.2-rc.1）——workspace/follow 真基线到达 ✓、首次基线不误报 onReconnect ✓、重连后要重拉的 session.list 返回 950 个会话且**每个都带 running 位**（6 个 running）✓，即重建出的运行位是真数据。sessionsStore 的 refreshSoon 接线属宿主逻辑，沙盒（0.1.1）触发不到同 URL 重连，未做端到端 UI 验证——已知覆盖缺口。"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "W2 跨会话恢复滚动位置加视口锚",
+      "expect": "翻历史离开的会话存档除 scrollTop 外带视口锚（首条可见消息行 + 其视口内偏移）；切回时按锚换算目标位置（内容在切走期间增长/收缩不漂移），锚行不在新内容里才回退原始 scrollTop；贴底存档不带锚、行为不变。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "无 UI 行为可截（需要在真容器里滚动+切会话的时序态）。证据：纯单测 test/scrollFollow.test.ts 新增 2 项——anchoredScrollTop 换算（锚行回到原屏幕位置 / 容器位置非 0 时按位移换算 / 目标为负钳到 0 / 偏移一致时不动）✓；archiveScrollPosition 有锚记锚、null/缺省不写空字段 ✓，全套 scrollFollow 单测 23 项通过。webview 侧的存锚（scrollAnchorOf 取首条底边仍在视口内的行）与恢复（anchoredRestoreTop 用 CSS.escape 定位锚行、找不到回退 scrollTop）由代码路径审查覆盖。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "基础回显（发送链路 + 乐观占位所在路径）",
+      "expect": "沙盒真 dsh（0.1.1）+ mock-LLM：新建会话发送「回归回显」得「收到：回归回显」。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-sync-window-high/R-01.png"
+      ],
+      "driver": {
+        "prompt": "回归回显",
+        "expectText": "收到：回归回显"
+      },
+      "notes": "驱动断言：新建会话 ✓；「收到：回归回显」命中 ✓。视觉核对（截图 R-01.png）：用户气泡「回归回显」在右 ✓；助手回显「收到：回归回显」在左 ✓；两条注入上下文折叠卡（Runtime context / Context injection，默认折叠）在位且未污染消息流 ✓；统计行「1 turns · 1 steps | LLM 0.3s …」在位 ✓；输入框已清空、占位符文案在位 ✓；状态栏「DSH: Running :3080」✓；无横幅/异常浮层 ✓。注：仓库 test/sandbox/verify-driver.mjs 仍按已不存在的 `textarea#input` 定位 composer（composer 已迁到 Lexical contenteditable + .value shim，见 composer-lexical #41），在 main 现状下它连聊天面板都打不开（三项均报「未能打开聊天 composer」）；本次未改这个共享工具，改用 .dev-host/ 下的同源副本（仅把 composer 定位/写入换成 #input + shim，其余逻辑逐字一致）跑通。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "等待问题形态（pending 面板接管 composer）",
+      "expect": "发送「提个问题」后出现提问面板（「继续执行吗？」+ 选项），composer 被 pending 面板接管。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-sync-window-high/R-02.png"
+      ],
+      "driver": {
+        "prompt": "提个问题",
+        "expectText": "继续执行吗？"
+      },
+      "notes": "驱动断言：新建会话 ✓；「继续执行吗？」命中 ✓。视觉核对（R-02.png）：pending 问答面板接管 composer 区（「Waiting for your answer」+ 问题「继续执行吗？」+ 选项「继续 (Recommended)/停止/Other」+ Submit）✓；上方消息流仍在、未错位 ✓；侧栏会话行带待处理黄点 ✓；无报错浮层 ✓。（同 R-01：驱动副本见 .dev-host/verify-driver-lexical.mjs。）"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "子代理形态（头部 chip + 消息流卡片）",
+      "expect": "发送「派个子代理」后消息流出现子代理卡片与「子代理测试」文本。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-sync-window-high/R-03.png"
+      ],
+      "driver": {
+        "prompt": "派个子代理",
+        "expectText": "子代理测试"
+      },
+      "notes": "驱动断言：新建会话 ✓；「子代理测试」命中 ✓。视觉核对（R-03.png）：子代理卡片「Ran a subagent subagent」在位 ✓；用户气泡「派个子代理」+ 回显「收到：派个子代理」✓；头部「1 subagents」chip（中文界面显示「1 个子代理」）✓；注入上下文折叠卡在位 ✓；侧栏列出本轮三个会话且状态正常 ✓。（同 R-01：驱动副本见 .dev-host/verify-driver-lexical.mjs。）"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "断连自愈（横幅三相位 + 盲窗消息补齐）",
+      "expect": "kill dsh 出 connecting → failed 横幅；respawn 后自动退避重连恢复，盲窗期间发送的消息经 re-baseline 补齐、断线前消息仍在。",
+      "result": "fail",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots-sync-window-high/R-04-04-banner-connecting.png",
+        "/tmp/dsh-sandbox-shots-sync-window-high/R-04-05-banner-failed.png",
+        "/tmp/dsh-sandbox-shots-sync-window-high/R-04.png"
+      ],
+      "driver": {
+        "prompt": "断线前消息",
+        "expectText": "收到：断线前消息",
+        "reconnect": {
+          "container": "dsh-sandbox-sync-window-high",
+          "connectingText": "Connection lost, reconnecting",
+          "failedText": "Reconnection failed",
+          "recoveredText": "Connection restored",
+          "blindPrompt": "盲窗期间发送",
+          "afterPrompt": "恢复后发送"
+        }
+      },
+      "notes": "失败点在**沙盒测试工具**，非本次改动：驱动侧日志抓到 extensions 侧 `sessions store: refresh failed — Unexpected token 'h, \"holder: ds\"'`，即 test/sandbox/dsh-port-holder.mjs 占了 3080 端口后用纯文本 `holder: dsh…` 应答；管理器的健康探测因此判 `no response (down)` → `marking the server stopped` → 拆掉 webview（最终态截图 = 「DSH: Stopped」+ 侧栏「The dsh service is not running」），后续步骤（恢复横幅/盲窗补齐/恢复后发送）全部随之失败。这与本仓库既有 ledger 记录的前提（端口占位器要能把探测与 mux 连接隔开）已经不符，属共享沙盒工具相对产品演进的漂移（同一漂移的另一处即 verify-driver 的 textarea#input）。归因依据：本次改动在 0.1.1（沙盒 pin 的版本）上唯一生效的代码在 webview 层（乐观占位/滚动锚/展开态帧），宿主侧与现代流相关的改动（control 基线缺席键清空、workspace/follow 重连重建）都走 isModern 分支，沙盒不触发；而 webview 层的健康度已由 R-01/R-02/R-03（同容器真 dsh + mock-LLM）与 harness 场景（F-01..F-04）分别覆盖。断连自愈链路本身在 main 上由既有 ledger verify.chat-webview-reconnect-banner 覆盖，本次未触碰该路径。结论：**本项未通过，原因是沙盒端口占位器/驱动与当前代码不同步，非本次改动引入**；未在本次修改共享工具（需要单独 issue）。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "全量单测（707 项）",
+      "expect": "npm run typecheck / npm test / npm run build 全绿；既有 700 项单测无回归。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`npm run typecheck` 绿；`npm run build` 绿（dist/extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js）；`npm test` **707 项全通过、0 失败 0 跳过**（基线 703 项 + 本次新增 4 项：controlSnapshot 6→7、controlStreamReplay 2→3、scrollFollow 21→23——分别为整域替换/重放带全域、workspace 流断流重开触发 onReconnect、滚动锚点换算与存档）。"
+    }
+  ]
+}
