@@ -77,6 +77,7 @@ import { attachmentBaseName, attachmentDataUrl, fileAttachmentLine, isImageMedia
 import { atTokenName } from '../../pure/tokenScan.ts'
 import {
   SETTLE_IDLE_MS,
+  anchoredScrollTop,
   archiveScrollPosition,
   isAtBottom,
   isReaderMoved,
@@ -84,6 +85,7 @@ import {
   nextStickToBottom,
   restoreScrollTarget,
   shouldSettlePinNow,
+  type ScrollAnchor,
   type ScrollArchive,
 } from '../../pure/scrollFollow.ts'
 import { formatCacheHitPercent, formatCompactTokens, formatDuration } from '../../pure/sessionStats.ts'
@@ -186,10 +188,39 @@ function writeMessagesScrollTop(m: HTMLElement, target: number): void {
 }
 /**
  * Per-session 滚动存档：每个会话记住自己最后的位置（贴底记 atBottom，
- * 翻历史记 scrollTop），换会话时先存档旧会话、再按新会话存档恢复——
- * 不再把上个会话容器的 scrollTop 套到新内容上。
+ * 翻历史记 scrollTop + 视口锚），换会话时先存档旧会话、再按新会话存档恢复——
+ * 不再把上个会话容器的 scrollTop 套到新内容上（#52 W2）。
  */
 const scrollPositions = new Map<string, ScrollArchive>()
+
+/**
+ * 取滚动容器的视口锚：DOM 顺序上第一条「底边还在视口内」的消息行，外加它在
+ * 视口内的偏移（行顶部滚出视口时为负）。切走期间内容增长/收缩后，按它回到
+ * 同一条消息的同一位置；空会话（没有行）返回 null，恢复回退原始 scrollTop。
+ */
+function scrollAnchorOf(scroller: HTMLElement): ScrollAnchor | null {
+  const containerTop = scroller.getBoundingClientRect().top
+  const rows = scroller.querySelectorAll<HTMLElement>('[data-flow-key]')
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    const key = row.getAttribute('data-flow-key')
+    if (!key) continue
+    const offset = row.getBoundingClientRect().top - containerTop
+    // 已完全滚出视口顶的行不是首条可见行，继续往下找。
+    if (offset + row.offsetHeight <= 0) continue
+    return { key, offset }
+  }
+  return null
+}
+
+/** 按存档锚换算恢复位置；锚行不在新 DOM 里（已删除/还没渲染）时返回 null。 */
+function anchoredRestoreTop(messages: HTMLElement, anchor: ScrollAnchor | null): number | null {
+  if (anchor === null) return null
+  const row = messages.querySelector<HTMLElement>(`[data-flow-key="${CSS.escape(anchor.key)}"]`)
+  if (row === null) return null
+  const rowOffset = row.getBoundingClientRect().top - messages.getBoundingClientRect().top
+  return anchoredScrollTop(messages.scrollTop, rowOffset, anchor)
+}
 /**
  * messages 容器当前内容所属的会话 id；与快照的 state.sessionId 不同即
  * 处于换会话过程（loading 帧容器里还是旧会话内容）。无容器内容时为 null。
@@ -3057,15 +3088,22 @@ function render(): void {
   // 换会话帧再取新会话的存档定恢复目标：无存档默认贴底；prevScrollTop 是
   // 旧会话的位置，跨会话绝不复用（落地分支见 render 尾）。
   if (oldMessages && scrollSession !== null) {
-    scrollPositions.set(scrollSession, archiveScrollPosition(oldMessages.scrollTop, stickToBottom))
+    scrollPositions.set(
+      scrollSession,
+      archiveScrollPosition(oldMessages.scrollTop, stickToBottom, scrollAnchorOf(oldMessages)),
+    )
   }
   const newSid = state?.sessionId ?? null
   const switchingSession = newSid !== scrollSession
   let restoreScrollTop: number | null = null
+  let restoreAnchor: ScrollAnchor | null = null
   if (switchingSession) {
-    const target = restoreScrollTarget(newSid !== null ? scrollPositions.get(newSid) : undefined)
+    const saved = newSid !== null ? scrollPositions.get(newSid) : undefined
+    const target = restoreScrollTarget(saved)
     stickToBottom = target.stickToBottom
     restoreScrollTop = target.scrollTop
+    // 翻历史的存档才要锚（贴底存档直接回底部，锚无意义）。
+    restoreAnchor = target.stickToBottom ? null : (saved?.anchor ?? null)
   }
   // Same for the inline queue editor: it is rebuilt per snapshot, so keep
   // its focus and cursor across re-renders.
@@ -3799,7 +3837,9 @@ function render(): void {
   // 恢复/补偿路径（换会话恢复历史位置、加载更早、非贴底跳转）同步写：它们是
   // 用户明确动作，不涉及「抢原生惯性动画」，也无需等布局 settle。
   if (restoreScrollTop !== null) {
-    writeMessagesScrollTop(messages, restoreScrollTop)
+    // 存档带视口锚就按锚换算（内容在切走期间增长/收缩时回到同一条消息的同一
+    // 位置）；锚行已不在新内容里才回退原始 scrollTop（#52 W2）。
+    writeMessagesScrollTop(messages, anchoredRestoreTop(messages, restoreAnchor) ?? restoreScrollTop)
   } else if (!switchingSession && prevScrollTop !== null && prepended && prevScrollHeight !== null) {
     writeMessagesScrollTop(messages, prevScrollTop + (messages.scrollHeight - prevScrollHeight))
   } else if (!switchingSession && prevScrollTop !== null) {

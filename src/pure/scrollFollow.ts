@@ -84,20 +84,37 @@ export function shouldSettlePinNow(stickToBottom: boolean, atBottom: boolean, sc
 }
 
 /**
+ * 视口锚：切走时视口顶部那条消息行的渲染键 + 它在视口内的偏移（行在视口上方
+ * 时为负）。跨会话恢复靠它回到「同一条消息的同一位置」——内容在切走期间增长
+ * 或收缩（后台流式、补页、行高变化）时，光有 scrollTop 会落到别的内容上。
+ */
+export interface ScrollAnchor {
+  key: string
+  offset: number
+}
+
+/**
  * 一个会话的滚动存档（对齐官方 dsh web 的 chatScrollPositions 语义）：
- * 贴底只记 atBottom，翻历史记当时的 scrollTop。
+ * 贴底只记 atBottom，翻历史记当时的 scrollTop（外加视口锚）。
  */
 export interface ScrollArchive {
   scrollTop: number
   atBottom: boolean
+  /** 视口锚；存档时拿不到可见行（空会话）则为 undefined，恢复回退 scrollTop。 */
+  anchor?: ScrollAnchor
 }
 
 /** 从"离开时是否跟随中"生成存档：贴底与否取决于离开时的跟随态（而非重测
  * 40px 距离）。用户滚离底部时跟随态已被手势重估置为 false，存档即记
  * atBottom=false + 当时的 scrollTop；正在跟随则记 atBottom=true，恢复时忽略
- * scrollTop、直接贴底。内容在切走期间变长/收缩，恢复后靠 clamp 落点同步。 */
-export function archiveScrollPosition(scrollTop: number, stickToBottom: boolean): ScrollArchive {
-  return { scrollTop, atBottom: stickToBottom }
+ * scrollTop、直接贴底。内容在切走期间变长/收缩，恢复后靠 clamp 落点同步。
+ * anchor 见 ScrollAnchor（目标会话回填后由调用方给出）。 */
+export function archiveScrollPosition(
+  scrollTop: number,
+  stickToBottom: boolean,
+  anchor?: ScrollAnchor | null,
+): ScrollArchive {
+  return { scrollTop, atBottom: stickToBottom, ...(anchor ? { anchor } : {}) }
 }
 
 /**
@@ -110,6 +127,20 @@ export function restoreScrollTarget(saved: ScrollArchive | undefined): {
 } {
   if (!saved || saved.atBottom) return { stickToBottom: true, scrollTop: null }
   return { stickToBottom: false, scrollTop: saved.scrollTop }
+}
+
+/**
+ * 按视口锚换算恢复目标：锚行在**恢复时**的位置减去它在存档时的视口内偏移，
+ * 即「让锚行回到原来的屏幕高度」所需的 scrollTop。
+ * currentScrollTop 是重建容器当下的位置（重建后通常为 0），rowOffset 是锚行
+ * 相对滚动容器视口顶部的当前位置。负值钳到 0（滚过头的边界）。
+ */
+export function anchoredScrollTop(
+  currentScrollTop: number,
+  rowOffset: number,
+  anchor: ScrollAnchor,
+): number {
+  return Math.max(0, currentScrollTop + (rowOffset - anchor.offset))
 }
 
 /** 会滚动容器的按键（焦点落在消息列表内时）。Space 同时可能是按钮激活，但无害：不滚动就不产生 scroll 事件。 */
