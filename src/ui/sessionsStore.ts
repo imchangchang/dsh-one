@@ -1479,7 +1479,15 @@ export class SessionsStore implements vscode.Disposable {
             this.onDidChangeEmitter.fire()
           },
         })
-        this.mux = subscribeWorkspaceStream(url, this.logger, (frame) => this.onWorkspaceFrame(frame))
+        // 断流后同 URL 重开的代际：workspace/follow 的基线只带工作区与归档，
+        // 不含会话摘要——盲窗里 running 位可能已经翻转却没人通知，侧栏圆点与
+        // 停止按钮会一直停在旧值。重连即重拉一次会话基线（#52 S5）。
+        this.mux = subscribeWorkspaceStream(
+          url,
+          this.logger,
+          (frame) => this.onWorkspaceFrame(frame),
+          () => this.refreshSoon(),
+        )
       } else {
         this.hostEvents = subscribeHostEvents(
           url,
