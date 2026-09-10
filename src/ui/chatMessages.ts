@@ -595,7 +595,7 @@ const chatHandlers: ChatTabMessageHandler[] = [
     },
   },
   {
-    types: ['queueEdit', 'queueSteer', 'queueRemove'],
+    types: ['queueEdit', 'queueSteer', 'queueSteerAll', 'queueRemove'],
     async handle(host, m) {
       const controller = host.controller
       if (!controller) return
@@ -605,6 +605,16 @@ const chatHandlers: ChatTabMessageHandler[] = [
           return
         case 'queueSteer':
           await controller.steerQueued(m.itemId)
+          return
+        case 'queueSteerAll':
+          // 空草稿 ⌘/Ctrl+Enter：把排队的消息全部插话（官方 steerQueue）。
+          // 正常竞态（回合已关/该行已被领走）在 controller 里静默收敛；真失败
+          // 上抛到这里出提示——消息留在队列里，用户可以直接重试。
+          try {
+            await controller.steerAllQueued()
+          } catch (error: unknown) {
+            host.postMessage({ type: 'notice', text: vscode.l10n.t('Steering failed. Try again.') + ` (${errorText(error)})` })
+          }
           return
         case 'queueRemove':
           await controller.removeQueued(m.itemId)

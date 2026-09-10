@@ -967,6 +967,11 @@ export type ToWebviewMessage =
       /** Admission outcome; unmatched commands are 'error'. */
       kind?: 'success' | 'error'
     }
+  /**
+   * 宿主侧一次性提示（插话失败一类宿主才发现的问题）：webview 追加成流尾
+   * 提示行，与图片闸、粘贴超限那些本地提示同一个出口。
+   */
+  | { type: 'notice'; text: string }
   /** commit hash 查询结果回传（见 webview commitInfo 请求）：按 sha 点亮/灰显 chip 并填悬浮 title。 */
   | { type: 'commitInfo'; results: CommitInfoResult[] }
   /** @ 补全的文件/文件夹候选响应；requestId 回声，过期的响应由 webview 丢弃。 */
@@ -1048,6 +1053,11 @@ export type FromWebviewMessage =
   | { type: 'renameSession'; title: string }
   | { type: 'queueEdit'; itemId: string; text: string }
   | { type: 'queueSteer'; itemId: string }
+  /**
+   * 把当前所有排队消息一次插话进运行中的回合：空草稿按 ⌘/Ctrl+Enter 的手势
+   * （对齐官方 steerQueue）。逐条 FIFO 严格插话，正常竞态静默收敛。
+   */
+  | { type: 'queueSteerAll' }
   | { type: 'queueRemove'; itemId: string }
   /**
    * 撤销一条等待插话的 steering 消息（↑ 键首选动作）：宿主从 inbox 移除该项，

@@ -1241,6 +1241,10 @@ window.addEventListener('message', (event) => {
     const status = msg.kind === 'error' ? 'error' : 'success'
     commandReceipts = [...commandReceipts.filter((r) => r.id !== id), { id, name, status, text: msg.text }]
     render()
+  } else if (msg?.type === 'notice' && typeof msg.text === 'string') {
+    // 宿主侧提示（插话失败一类）：与本地闸的提示同一个出口——流尾提示行。
+    commandNotices = [...commandNotices, msg.text]
+    render()
   } else if (msg?.type === 'commitInfo' && Array.isArray(msg.results)) {
     // commit hash 查询回传：落地缓存（清 in-flight），就地更新 chip 样式与悬浮 title。
     const shas: string[] = []
@@ -1699,6 +1703,32 @@ let mentionBindings = new Map<string, string>()
 /** 活跃的 composer 编辑器（renderInput 每帧创建/挂载时赋值，dispose 时清空）。
  *  全局唯一的 live 编辑器——composer 保活时旧编辑器在 DOM 里存活，此引用同步。 */
 let activeComposer: ComposerEditor | null = null
+
+/**
+ * ⌘/Ctrl+Enter「全部插话」手势的运行侧前提（对齐官方 canSteerQueue 里与快照有关
+ * 的那半）：可发送、模型可用、回合在跑、队列里还有排队消息。等待插话中的
+ * （placement='steering'）不算——它们已经在等落地，没有可「插」的。
+ * 「草稿是不是空的」那半由调用点按各自手上的内容判：发送路径看 live 编辑器，
+ * 渲染路径看这一帧的草稿（见 renderInput）。
+ */
+function steerQueueArmed(): boolean {
+  return (
+    state?.canSend === true &&
+    state.modelAvailable !== false &&
+    state.running === true &&
+    (state.queue ?? []).some((item) => item.placement === 'queued')
+  )
+}
+
+/** 按下 Enter 那一刻的完整判定：手势就绪且输入区确实空（无文本、无附件）。 */
+function canSteerQueue(): boolean {
+  return (
+    steerQueueArmed() &&
+    composerText().trim().length === 0 &&
+    pendingFiles.length === 0 &&
+    pendingImages.length === 0
+  )
+}
 
 /** 当前 live composer 的纯文本；无 composer（pending 接管/未渲染）回退暂存。 */
 function composerText(): string {
@@ -7030,6 +7060,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
   // 输入框外包 frame：@ 引用 token 由 Lexical 的 RefTokenNode 在真实文本流里高亮
   // （不再靠叠加层画点），hover token → 联动对应附件 chip 高亮。
   const frame = el('div', 'composer-frame')
+  // 草稿合并（stashedDraft 优先在尾部追加），与旧 textarea 行为一致。占位符要
+  // 按「这一帧输入框是不是空的」选文案，所以在算占位符之前先合。
+  let draftContent = draft ?? ''
+  if (stashedDraft) {
+    draftContent = draftContent.trim() ? `${draftContent.trimEnd()}\n${stashedDraft}` : stashedDraft
+    stashedDraft = undefined
+  }
   // 模型不可用（routable=false）时输入区整体阻塞，文案对齐 dsh web 的
   // 「当前模型不可用，请先选择模型」；与「服务未就绪」是两个独立维度。
   const modelAvailable = state?.modelAvailable !== false
@@ -7039,7 +7076,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
       ? t('Current model is unavailable; choose a model first')
       : recall?.kind === 'queue'
         ? t('Editing queued message; Enter saves, Esc cancels')
-        : state?.running
+        : steerQueueArmed() && draftContent.trim() === '' && pendingFiles.length === 0 && pendingImages.length === 0
+          ? // 空草稿 + 运行中 + 有排队消息：这个手势此刻能把排队的一次插完（官方
+            // placeholder.steerQueue），比「Enter 排队」那句更贴当前能做的事。
+            steerModifierLabel(state?.hostOs) === 'Ctrl'
+            ? t('Ctrl+Enter steers all queued messages')
+            : t('⌘Enter steers all queued messages')
+          : state?.running
           ? // 插话快捷键按宿主平台出文案：mac ⌘Enter，win/linux Ctrl+Enter
             // （hostOs 未知回退 ⌘ 版，与修复前一致）。Esc/Ctrl+C 在运行中是
             // 两层：composer 有内容先双击清空，空了再按才是打断 turn。
@@ -7050,13 +7093,6 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
             ? t('Describe what you want to build')
             : t('Type a message; Enter sends, Shift+Enter for newline, paste images/files, ↑ recalls the previous one')
   const editable = canSend && modelAvailable
-
-  // 草稿合并（stashedDraft 优先在尾部追加），与旧 textarea 行为一致。
-  let draftContent = draft ?? ''
-  if (stashedDraft) {
-    draftContent = draftContent.trim() ? `${draftContent.trimEnd()}\n${stashedDraft}` : stashedDraft
-    stashedDraft = undefined
-  }
 
   // 主按钮（对齐官方 InputBar primary）：无文字图标按钮——非运行显示发送
   // 箭头，运行中同一按钮切换为停止方块（primaryStops），点击即 stop；排队
@@ -7122,6 +7158,13 @@ function renderInput(draft: string | undefined, hero = false): HTMLElement {
     hideSlashPopup()
     // 双击清空：发送即「内容有了归宿」，武装态不再保留（提示小框一并摘除）。
     disarmClearConfirm()
+    // 空草稿的加速 Enter（⌘/Ctrl+Enter）= 「把排队的消息全部插话」（官方
+    // canSteerQueue + steerQueue）：没有内容可发，但队列里有等待的排队消息时，
+    // 这个手势一次把它们都推进当前回合，不必逐行点「插话」。
+    if (steer && canSteerQueue()) {
+      post({ type: 'queueSteerAll' })
+      return
+    }
     // 发送后的输入区就地收尾：keepComposer 保活（签名未变的帧——运行中 Enter
     // 排队、⌘Enter 插话、/model 打开菜单）时 render() 只 patch 不重建输入区，
     // 这里在 setText('') 后同步按钮态。

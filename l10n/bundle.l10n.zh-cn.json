@@ -538,5 +538,8 @@
   "describe the objective for a long-running task": "描述这个长任务的目标",
   "goal active — edit / modify / pause / resume / clear": "目标进行中——可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除",
   "Workspace": "工作区",
-  "Drill into this folder (Tab)": "进入这个目录（Tab）"
+  "Drill into this folder (Tab)": "进入这个目录（Tab）",
+  "⌘Enter steers all queued messages": "⌘Enter 把排队的消息全部插话",
+  "Ctrl+Enter steers all queued messages": "Ctrl+Enter 把排队的消息全部插话",
+  "Steering failed. Try again.": "插话发送失败，请重试。"
 }

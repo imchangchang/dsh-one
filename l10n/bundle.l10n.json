@@ -538,5 +538,8 @@
   "describe the objective for a long-running task": "describe the objective for a long-running task",
   "goal active — edit / modify / pause / resume / clear": "goal active — edit / modify / pause / resume / clear",
   "Workspace": "Workspace",
-  "Drill into this folder (Tab)": "Drill into this folder (Tab)"
+  "Drill into this folder (Tab)": "Drill into this folder (Tab)",
+  "⌘Enter steers all queued messages": "⌘Enter steers all queued messages",
+  "Ctrl+Enter steers all queued messages": "Ctrl+Enter steers all queued messages",
+  "Steering failed. Try again.": "Steering failed. Try again."
 }

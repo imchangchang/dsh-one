@@ -5,6 +5,7 @@ import { ConversationFolder, applyFeedbackRatings, imagesOfBlocks, navigateAncho
 import { splitAttachmentLines } from '../pure/composerAttachment.ts'
 import type { HistoryEntryLike, SessionEventLike, ToolEventViewLike } from '../pure/conversation.ts'
 import { WorkflowRunFolder } from '../pure/workflowRun.ts'
+import { steerConverged } from '../pure/steeringOrder.ts'
 import { formatStatsLine } from '../pure/sessionStats.ts'
 import type { SessionStatsLike, TokenUsageLike } from '../pure/sessionStats.ts'
 import { contextUsageUnknown, pressureWithContextWindow } from '../pure/contextMeter.ts'
@@ -684,6 +685,27 @@ export class ChatSessionController implements vscode.Disposable {
   /** Turn one queued prompt into an immediate steer. */
   async steerQueued(itemId: string): Promise<void> {
     await updateQueue(this.url, this.sessionId, itemId, { kind: 'steer' })
+  }
+
+  /**
+   * 把所有仍排队的消息一次插话进当前回合（官方 steerQueue，空草稿的
+   * ⌘/Ctrl+Enter 手势）。逐条 FIFO 严格插话：回合中途关掉
+   * （session/steer-unavailable）或那一行已被 agent 领走
+   * （session/queue-item-not-found）就收手——两种都是正常竞态，静默返回；
+   * 其余错误原样上抛，由调用方出一条提示。重复按也安全：第二次的严格插话
+   * 对已领走的行是无害空操作。
+   */
+  async steerAllQueued(): Promise<void> {
+    const queued = [...this.queue].filter((item) => item.placement === 'queued')
+    if (queued.length === 0) return
+    for (const item of queued) {
+      try {
+        await this.steerQueued(item.id)
+      } catch (error: unknown) {
+        if (steerConverged(error)) return
+        throw error
+      }
+    }
   }
 
   /** Drop one queued prompt. */

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { interleaveSteering, orderBySeq } from '../src/pure/steeringOrder.ts'
+import { interleaveSteering, orderBySeq, steerConverged } from '../src/pure/steeringOrder.ts'
 
 test('orderBySeq：按 seq 升序排，无 seq 排尾，稳定保持相对顺序', () => {
   const items = [
@@ -81,4 +81,12 @@ test('空 messages + steering：steering 全走 tailSteers', () => {
     [{ id: 's1', seq: 101 }],
   )
   assert.deepEqual(out.map((e) => e.kind === 'message' ? e.message.id : e.steer.id), ['s1'])
+})
+
+test('steerConverged：只认「回合已关 / 该行已被领走」这两个正常竞态', () => {
+  assert.equal(steerConverged(new Error('session/updateQueue failed: session/steer-unavailable 当前回合已结束')), true)
+  assert.equal(steerConverged(new Error('session/updateQueue failed: session/queue-item-not-found 行不存在')), true)
+  assert.equal(steerConverged(new Error('session/updateQueue failed: gateway/internal 挂了')), false)
+  assert.equal(steerConverged('some other failure'), false)
+  assert.equal(steerConverged(undefined), false)
 })

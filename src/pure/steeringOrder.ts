@@ -64,3 +64,18 @@ export function interleaveSteering<M extends SteeringOrderMessage, S extends Ste
   }
   return out
 }
+
+/** 一次插话（steer）的收敛态错误码：官方 steerQueue 遇到它们就地收手、静默。 */
+export const STEER_CONVERGED_CODES = ['session/steer-unavailable', 'session/queue-item-not-found'] as const
+
+/**
+ * 逐条插话遇到的错误是不是「正常竞态」而非真失败：
+ * - `session/steer-unavailable`：回合在这次批量插话中途关掉了（后面的行无处可插）；
+ * - `session/queue-item-not-found`：那一行已被 agent 领走（排队消息落地成真消息）。
+ * 两者都只说明「不用再插了」，不是错误（官方 steerQueue 同款判定，重复按
+ * ⌘/Ctrl+Enter 也靠它收敛）。
+ */
+export function steerConverged(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error)
+  return STEER_CONVERGED_CODES.some((code) => text.includes(code))
+}
