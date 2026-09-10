@@ -7,16 +7,39 @@ import {
 } from '../src/pure/controlSnapshot.ts'
 import type { ControlStreamFrame } from '../src/pure/remoteFrames.ts'
 
-test('snapshot: baseline replaces the domains present, keeps absent ones', () => {
+test('snapshot: baseline replaces every domain wholesale (absent domain = empty)', () => {
   const snap = createControlSnapshot()
   applyControlFrame(snap, {
     type: 'baseline',
-    value: { queues: { s1: [{ id: 'q1', placement: 'queued', text: 'a' }] } },
+    value: { queues: { s1: [{ id: 'q1', placement: 'queued', text: 'a' }] }, jobs: { s1: [{ id: 'j1' }] } },
   })
-  // baseline 未带 jobs/projections：不创建空域（消费端对缺失域本就跳过）。
   assert.deepEqual(snap.queues, { s1: [{ id: 'q1', placement: 'queued', text: 'a' }] })
-  assert.deepEqual(snap.jobs, {})
+  assert.deepEqual(snap.jobs, { s1: [{ id: 'j1' }] })
   assert.deepEqual(snap.projections, {})
+})
+
+test('snapshot: reconnect baseline drops keys it no longer carries', () => {
+  const snap = createControlSnapshot()
+  applyControlFrame(snap, {
+    type: 'baseline',
+    value: {
+      queues: { s1: [{ id: 'q1' }], s2: [{ id: 'q2' }] },
+      jobs: { s1: [{ id: 'j1' }] },
+      projections: { s1: { asOfSeq: 3, values: { todos: [{ content: 'x' }], goal: { objective: 'g' } } } },
+    },
+  })
+  // 重连后的新 baseline 只带 s2 的队列、没有 jobs、s2 的投影里只有 title：
+  // 缺席的 s1 队列/jobs、s1 的投影块、s2 的 todos/goal 键都必须清掉（幽灵源）。
+  applyControlFrame(snap, {
+    type: 'baseline',
+    value: {
+      queues: { s2: [{ id: 'q2' }] },
+      projections: { s2: { asOfSeq: 5, values: { title: 'T' } } },
+    },
+  })
+  assert.deepEqual(snap.queues, { s2: [{ id: 'q2' }] })
+  assert.deepEqual(snap.jobs, {})
+  assert.deepEqual(snap.projections, { s2: { asOfSeq: 5, values: { title: 'T' } } })
 })
 
 test('snapshot: queue/jobs increments replace per session', () => {
@@ -54,7 +77,7 @@ test('snapshot: projection increments merge per key, asOfSeq takes max', () => {
   assert.equal(snap.projections.s1.values.title, '再新')
 })
 
-test('snapshot: replay emits baseline frame with non-empty domains only', () => {
+test('snapshot: replay emits all three domains so absent keys can be cleared', () => {
   const snap = createControlSnapshot()
   applyControlFrame(snap, {
     type: 'baseline',
@@ -66,12 +89,17 @@ test('snapshot: replay emits baseline frame with non-empty domains only', () => 
   assert.equal(frame!.type, 'baseline')
   const value = (frame as Extract<ControlStreamFrame, { type: 'baseline' }>).value
   assert.deepEqual(value.queues, { s1: [{ id: 'q1' }] })
-  assert.equal(Object.hasOwn(value, 'jobs'), false)
+  // jobs 域为空也必须显式带上（缺席与空同义，消费端据此清空幽灵任务）。
+  assert.deepEqual(value.jobs, {})
   assert.deepEqual(value.projections, { s1: { asOfSeq: 5, values: { title: 'T' } } })
 })
 
-test('snapshot: empty snapshot replays null', () => {
+test('snapshot: only an all-empty snapshot replays null', () => {
   assert.equal(replayControlSnapshot(createControlSnapshot()), null)
+  // 只有投影、没有排队/任务：仍要重放（消费端要靠它恢复 chip）。
+  const projectionsOnly = createControlSnapshot()
+  applyControlFrame(projectionsOnly, { type: 'projection', sessionId: 's1', key: 'title', value: 'T', seq: 1 })
+  assert.notEqual(replayControlSnapshot(projectionsOnly), null)
 })
 
 test('snapshot: replay is decoupled from shared cache (mutation-safe)', () => {

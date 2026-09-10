@@ -12,18 +12,33 @@ import type { HostOs } from './installScript.ts'
 import type { TagColor } from './sessionTags.ts'
 import type { AnswerDraftEntry, ComposerDraftEntry } from './dshStateFile.ts'
 
+/**
+ * 块的稳定身份：同一条消息里跨帧、跨块序变化保持不变的 key（webview 的 Preact
+ * key、展开态 / JSON 树 / 内滚位置 / 复制反馈的持久化 key 都由它派生）。tool 块
+ * 用 callId（官方 tool 节点 id 同款）；text/reasoning/retry 等按「创建它的事件
+ * seq（+ 同事件内序号）」命名：`s{seq}` / `s{seq}.{i}` / `retry:{retryId}`。
+ *
+ * 没有它时 webview 回落到位置下标（`b{n}`）：块序一变（窗口外 result 兜底新推
+ * 一张卡、delta 早于 block-start 的补偿分支新起一块）后面所有块换 key，Preact
+ * 卸载重建，那些 tool 卡的展开态与内滚位置全丢（#11 R4 / C2）。缺省 = 该块由
+ * 测试 harness 直接构造，按下标兜底。
+ */
+export interface ChatBlockIdentity {
+  id?: string
+}
+
 /** One renderable block inside an assistant message. */
-export interface ChatTextBlock {
+export interface ChatTextBlock extends ChatBlockIdentity {
   type: 'text'
   text: string
 }
 
-export interface ChatReasoningBlock {
+export interface ChatReasoningBlock extends ChatBlockIdentity {
   type: 'reasoning'
   text: string
 }
 
-export interface ChatToolBlock {
+export interface ChatToolBlock extends ChatBlockIdentity {
   type: 'tool'
   callId: string
   name: string
@@ -63,7 +78,7 @@ export interface ChatToolBlock {
  * 同一 retryId 的多次尝试原地更新（retry 计数递增、回到 scheduled）；所属
  * turn/end 到达时仍未 started 的尝试标记 cancelled（对齐官方 isClosed 语义）。
  */
-export interface ChatRetryBlock {
+export interface ChatRetryBlock extends ChatBlockIdentity {
   type: 'retry'
   /** 第几次重试（从 1 起）。 */
   retry: number
@@ -200,6 +215,13 @@ export interface ChatAssistantMessage {
   blocks: ChatBlock[]
   /** false while the turn is still streaming. */
   complete: boolean
+  /**
+   * 本消息所属回合号。同一个 turn 可以折出多段 assistant 消息（窗口头切在
+   * 回合中间、turn 中途注入 user/message 切断 current），补页时按它把同回合的
+   * 两段并成一段。窗口头落在 turn/start 之前（该 turn 号仍由事件 data.turn
+   * 携带）或缺 turn 号的合成消息上缺省。
+   */
+  turn?: number
   /**
    * 本 turn 的最后一条 assistant 消息（turn/end 时标记）。turn 中途注入的
    * user/message 会把一个 turn 切成多条消息，操作栏（复制/反馈/分支）只挂
@@ -396,6 +418,12 @@ export interface PendingApproval {
   approvalId: string
   toolName: string
   reason?: string
+  /**
+   * 请求审批的那次 tool call 的 id（dsh 的 approval 请求带 `callId` 时透传；
+   * 老协议 mux 帧没有该字段）。审批面板用它回查该次调用的输入，把「要执行的
+   * 命令」显示出来（官方 conversation.approval.detail 同款语义）。
+   */
+  callId?: string
 }
 
 /** A tool-initiated question (AskUser) awaiting an answer. */
@@ -1008,6 +1036,12 @@ export type ToWebviewMessage =
    * reload 前的输入内容由此恢复（#14）。
    */
   | { type: 'draftRestore'; composer: Record<string, ComposerDraftEntry>; answers: Record<string, Record<string, AnswerDraftEntry>> }
+  /**
+   * Pending 交互（审批/提问/计划审核）应答失败的回推：宿主把 rpcId + 失败原因
+   * 发回，webview 复位面板按钮（不再永久置灰）、把原因显示在面板内的反馈行，
+   * 用户可以重试（对齐官方 pending.answer(...).catch(setBusy(null); setError)）。
+   */
+  | { type: 'pendingFailed'; rpcId: string; message: string }
 
 export type FromWebviewMessage =
   /** Webview 脚本加载完成（含 tab 切走后 VSCode 重载的场合）；宿主据此重推当前状态。 */
@@ -1033,6 +1067,13 @@ export type FromWebviewMessage =
   | { type: 'stop' }
   | { type: 'approval'; rpcId: string; outcome: 'allowed-once' | 'rejected' }
   | { type: 'answer'; rpcId: string; answers: QuestionAnswerInput[] }
+  /**
+   * 取消挂起的提问/计划审核（面板头部的 ×）：宿主以「用户取消」拒绝水瀑布
+   * （ASK_CANCELLED），面板随之消失、对话继续（对齐官方 QuestionComposer
+   * 的 nav.cancel → pending.cancel()）。审批卡不提供取消（官方同样只有
+   * 允许一次/拒绝两个动作）。
+   */
+  | { type: 'cancelPending'; rpcId: string }
   | { type: 'pickFiles' }
   | { type: 'filesPasted'; files: OutgoingImage[] }
   /** 长文本粘贴被折叠为文件附件：宿主落盘后经 filesPicked 回投（webview 自动插 @ token）。 */

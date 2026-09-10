@@ -846,16 +846,21 @@ export async function sessionPage(
 }
 
 /**
- * dsh >= 0.1.2 waterfall answer (`$events/result`): one approval/question
- * request delivered on the $events stream is answered by correlating the
- * stream's clientId with the frame eventId. `outcome.value` is the raw
- * listener result ('allowed-once'/'rejected', the question answer object…).
+ * Wire outcome of one waterfall answer: the listener's value, or the rejection
+ * the answering client wants the host to see (`{kind:'rejected', error}` is the
+ * gateway's projection of a thrown listener — see dsh-api-gateway's
+ * projectRemoteEventRejection).
  */
-export async function sendWaterfallResult(
+type WaterfallOutcome =
+  | { kind: 'result'; value?: unknown }
+  | { kind: 'rejected'; error: { name: string; message: string; code?: string } }
+
+/** POST one waterfall outcome for a $events request correlated by eventId. */
+async function postWaterfallOutcome(
   baseUrl: string,
   clientId: string,
   eventId: string,
-  value: unknown,
+  outcome: WaterfallOutcome,
 ): Promise<void> {
   const cookie = cookieHeader(baseUrl)
   const res = await fetch(`${baseUrl}/api/$events/result`, {
@@ -868,7 +873,7 @@ export async function sendWaterfallResult(
       type: 'client-request',
       rpcId: crypto.randomUUID(),
       method: '$events/result',
-      payload: { args: { clientId, eventId, outcome: { kind: 'result', value } } },
+      payload: { args: { clientId, eventId, outcome } },
     }),
     signal: AbortSignal.timeout(15_000),
   })
@@ -876,4 +881,35 @@ export async function sendWaterfallResult(
   if (!res.ok || body?.result?.ok !== true) {
     throw new Error(`$events/result rejected: ${body?.result?.error?.message ?? `HTTP ${res.status}`}`)
   }
+}
+
+/**
+ * dsh >= 0.1.2 waterfall answer (`$events/result`): one approval/question
+ * request delivered on the $events stream is answered by correlating the
+ * stream's clientId with the frame eventId. `outcome.value` is the raw
+ * listener result ('allowed-once'/'rejected', the question answer object…).
+ */
+export async function sendWaterfallResult(
+  baseUrl: string,
+  clientId: string,
+  eventId: string,
+  value: unknown,
+): Promise<void> {
+  await postWaterfallOutcome(baseUrl, clientId, eventId, value === undefined ? { kind: 'result' } : { kind: 'result', value })
+}
+
+/**
+ * Reject one pending waterfall as a client-side listener throw would: the host
+ * service restores the error by name/message/code (dsh-user-questions'
+ * restoreUserQuestionError), so the waiting `ask_user_question` call fails with
+ * it and the conversation continues. Used by the panel's cancel button and by
+ * the plan review's "discuss in chat" (official: pending.cancel()).
+ */
+export async function rejectWaterfallResult(
+  baseUrl: string,
+  clientId: string,
+  eventId: string,
+  error: { name: string; message: string; code?: string },
+): Promise<void> {
+  await postWaterfallOutcome(baseUrl, clientId, eventId, { kind: 'rejected', error })
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { atTokenRangeAt, boundTokenRanges, scanAtTokens, scanCommandTokens, shouldColorAtToken, shouldColorSlashToken } from '../src/pure/tokenScan.ts'
+import { atTokenName, atTokenRangeAt, boundTokenRanges, isFolderAtToken, scanAtTokens, scanCommandTokens, shouldColorAtToken, shouldColorSlashToken } from '../src/pure/tokenScan.ts'
 
 const range = (start: number, end: number, quoted = false) => ({ start, end, quoted })
 const labels = (text: string) => scanAtTokens(text).map((r) => text.slice(r.start, r.end))
@@ -130,21 +130,41 @@ test('shouldColorAtToken：引号收紧尾/ + @name 词库门控', () => {
   // 引号带尾/（文件夹）与无引号尾/：按语法着色
   assert.equal(shouldColorAtToken('@"src/', true, names), true)
   assert.equal(shouldColorAtToken('@src/', false, names), true)
-  // 引号闭合且尾/在引号内（`@"dir/"`）：dsh 目录引用引号保持敞开（`@"path/`），
-  // 尾/ 不在 token 末位，按引号无尾/ 处理——不着色
-  assert.equal(shouldColorAtToken('@"dir/"', true, names), false)
+  // 引号闭合但尾/在引号内（`@"dir/"`）：官方 FOLDER_REF_RE 的 `@"[^"\n]*\/` 分支
+  // 吃到的正是闭引号前的那个 `/`，所以同样按语法着色（#54 B-09/B-10）。
+  assert.equal(shouldColorAtToken('@"dir/"', true, names), true)
   // 已知 name：在候选里 → 着色
   assert.equal(shouldColorAtToken('@img1.png', false, names), true)
   assert.equal(shouldColorAtToken('@旧会话', false, names), true)
-  // 未知名/半截名：不在候选里 → 不着色（保持纯文本，官方 TEXT_REF_RE 词库门控）
-  assert.equal(shouldColorAtToken('@img', false, names), false)
+  // 未知名：不在候选里 → 不着色（保持纯文本，官方 TEXT_REF_RE 词库门控）
   assert.equal(shouldColorAtToken('@nonexistent', false, names), false)
   assert.equal(shouldColorAtToken('@img1', false, names), false)
+  // 官方 name 口径：门控名取 `[\w-]+` 段（`@img1.png` 查 `img1`）——名录里只有
+  // `img1` 时 `@img1.png` 也命中（对齐官方 scanTextRefs 的 name 提取）。
+  assert.equal(shouldColorAtToken('@img1.png', false, new Set(['img1'])), true)
+  assert.equal(shouldColorAtToken('@img1', false, new Set(['img1'])), true)
   // 无候选时所有 @name 与无尾/引号都不着色（尾/文件夹仍按语法着色）
   const empty = new Set<string>()
   assert.equal(shouldColorAtToken('@img1.png', false, empty), false)
   assert.equal(shouldColorAtToken('@src/', false, empty), true)
   assert.equal(shouldColorAtToken('@"x"', true, empty), false)
+})
+
+test('atTokenName / isFolderAtToken：官方 TEXT_REF_RE 与 FOLDER_REF_RE 的形态口径', () => {
+  // name = 触发符后的 `[\w-]+` 段（`.`/`/`/空格/引号都不属于 name）
+  assert.equal(atTokenName('@img1.png'), 'img1')
+  assert.equal(atTokenName('@src/'), 'src')
+  assert.equal(atTokenName('@"带空格目录/'), '')
+  assert.equal(atTokenName('@my-file_v2.txt'), 'my-file_v2')
+  assert.equal(atTokenName('@非ASCII'), '')
+  // 文件夹形态：无引号须无空白无引号且以 / 收尾；引号分支看闭引号前的最后一段
+  assert.equal(isFolderAtToken('@src/'), true)
+  assert.equal(isFolderAtToken('@a/b/'), true)
+  assert.equal(isFolderAtToken('@a b/'), false)
+  assert.equal(isFolderAtToken('@img1.png'), false)
+  assert.equal(isFolderAtToken('@"my dir/'), true)
+  assert.equal(isFolderAtToken('@"my dir/"'), true)
+  assert.equal(isFolderAtToken('@"my file.txt"'), false)
 })
 
 test('scanCommandTokens：/command 触发（行首/常见标点），区间含 /', () => {

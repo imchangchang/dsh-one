@@ -23,9 +23,16 @@ test('completeTurnHistory：折叠成 1 条用户消息 + 1 条完成态助手�
   assert.equal(assistant.seq, 15)
   assert.equal(assistant.messageId, 'msg-1')
   assert.equal(assistant.blocks.length, 3)
-  assert.deepEqual(assistant.blocks[0], { type: 'reasoning', text: '用户想要一个新的斜杠命令。我先找到指令注册入口。' })
-  assert.deepEqual(assistant.blocks[1], { type: 'text', text: '好的，我先看一下指令注册入口。注册入口在 src/pure/slashCommand.ts。' })
+  // 块内容断言忽略折叠层给的稳定 id（tool 块 = callId、文本块 = 事件 seq；语义
+  // 由 test/conversation.test.ts 的专测覆盖），但 id 必须存在。
+  const { id: reasoningId, ...reasoning } = assistant.blocks[0]
+  const { id: textId, ...text } = assistant.blocks[1]
+  assert.ok(reasoningId)
+  assert.ok(textId)
+  assert.deepEqual(reasoning, { type: 'reasoning', text: '用户想要一个新的斜杠命令。我先找到指令注册入口。' })
+  assert.deepEqual(text, { type: 'text', text: '好的，我先看一下指令注册入口。注册入口在 src/pure/slashCommand.ts。' })
   assert.equal(assistant.blocks[2].type, 'tool')
+  assert.equal(assistant.blocks[2].id, 'call-1')
   assert.equal(assistant.blocks[2].callId, 'call-1')
   assert.equal(assistant.blocks[2].name, 'bash')
   assert.equal(assistant.blocks[2].status, 'done')

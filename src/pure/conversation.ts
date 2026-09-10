@@ -22,7 +22,7 @@ import type {
   ChatTurnTiming,
   ContextForm,
 } from './chatContract.ts'
-import { attachmentBaseName, isImagePath } from './composerAttachment.ts'
+import { attachmentBaseName, isImagePath, parseAttachmentLine } from './composerAttachment.ts'
 import { TurnUsageFold } from './turnUsage.ts'
 
 /** Subset of dsh-llm's StreamChunk the folder folds. */
@@ -205,20 +205,18 @@ export function imagesOfBlocks(content: unknown): ChatImage[] {
 }
 
 /**
- * File attachments ride the prompt text as `<attachment>PATH</attachment>`
- * lines (dsh's PromptContentPart only has text and image parts). Split them
- * back out so the UI renders chips instead of raw paths; the wrapper stays
- * model-legible for the agent and in dsh's own web UI.
+ * File attachments ride the prompt text as `@PATH` reference lines (dsh's
+ * PromptContentPart only has text and image parts). Split them back out so the
+ * UI renders chips instead of raw paths — `@path` is the shape both dsh-one and
+ * the official web front-end already render as a file chip (历史里的私有
+ * `<attachment>PATH</attachment>` 形态由 parseAttachmentLine 一并兼容).
  */
-const ATTACHMENT_LINE = /^<attachment>(.+)<\/attachment>$/
-
 function splitAttachments(text: string): { text: string; files: ChatFile[] } {
   const files: ChatFile[] = []
   const kept: string[] = []
   for (const line of text.split('\n')) {
-    const match = ATTACHMENT_LINE.exec(line.trim())
-    if (match) {
-      const p = match[1]
+    const p = parseAttachmentLine(line)
+    if (p !== null) {
       files.push({ name: attachmentBaseName(p), path: p, ...(isImagePath(p) ? { image: true } : {}) })
     } else {
       kept.push(line)
@@ -457,6 +455,58 @@ function orderEntriesBySeq(entries: readonly HistoryEntryLike[]): HistoryEntryLi
 }
 
 /**
+ * 同一回合被页边界切开的旧段并入新段：`newer.blocks` = 旧段块 + 新段块（保持
+ * 事件序）。边界恰好落在同一段流式文本中间（step 还没结束就被切开）时两段各留
+ * 了半个文本块，拼回一块——否则一个回合的正文在流里断成两段独立段落。
+ * 旧段自身的收尾标记（complete/turnEnd/messageId/用量）不动：那些属于新段
+ * （turn/end、最后一步的 assistant/message 都落在新段一侧）。
+ */
+function absorbAssistantSegment(older: ChatAssistantMessage, newer: ChatAssistantMessage): void {
+  let absorbed = newer.blocks
+  const left = older.blocks[older.blocks.length - 1]
+  const right = newer.blocks[0]
+  if (left && right && (left.type === 'text' || left.type === 'reasoning') && right.type === left.type) {
+    const target = left as { text: string }
+    target.text += (right as { text: string }).text
+    absorbed = absorbed.slice(1)
+  }
+  // 两段可能各有一份同一个块：页边界切在 tool/call 与 tool/result 之间时，旧段
+  // 折出那张卡，新段的 scratch folder 里没有 call 记录、按 result 兜底又建一张
+  // 同 callId 的卡（F4 的同源现象）。并段后它们落在同一条消息里，块 key 相同
+  // （tool 块 key = callId）→ 必须合一：留旧段的位置（调用发生处），状态/结果以
+  // 后者为准，调用侧快照（工具名/标题/args）补回兜底卡缺的那部分。
+  const merged: ChatBlock[] = []
+  const at = new Map<string, number>()
+  for (const block of [...older.blocks, ...absorbed]) {
+    const id = block.id
+    const index = id === undefined ? undefined : at.get(id)
+    if (index !== undefined) {
+      merged[index] = mergeSameBlock(merged[index], block)
+      continue
+    }
+    if (id !== undefined) at.set(id, merged.length)
+    merged.push(block)
+  }
+  newer.blocks = merged
+}
+
+/**
+ * 同一块的两份合一（id 相同：页边界把它切在了两个 fold 里）。后者（新段）带状态
+ * 与结果，优先；工具卡的 name/title 若后者只是「callId 兜底」（result 先到、call
+ * 不在窗口），用前者的真实工具名/标题，避免卡上显示原始 callId。
+ */
+function mergeSameBlock(older: ChatBlock, newer: ChatBlock): ChatBlock {
+  const merged: ChatBlock = { ...older, ...newer }
+  if (merged.type === 'tool' && older.type === 'tool' && newer.type === 'tool') {
+    if (newer.name === newer.callId && older.name !== older.callId) merged.name = older.name
+    if (newer.title === newer.callId && older.title !== undefined && older.title !== older.callId) {
+      merged.title = older.title
+    }
+  }
+  return merged
+}
+
+/**
  * Stateful folder over one session's event log. Feed it a history window with
  * applyHistory (full reset — the reconnect baseline), then live events with
  * applyEvent. One turn folds into one assistant message whose blocks follow
@@ -467,6 +517,13 @@ export class ConversationFolder {
   private msgs: ChatMessage[] = []
   /** The open assistant message of the current turn, null between turns. */
   private current: ChatAssistantMessage | null = null
+  /**
+   * turn → 本 fold 里该 turn 最后一条 assistant 消息。turn/end 要靠它找回
+   * 「承载消息」——不能用 id 反查：一个 turn 可能折出多段 assistant 消息
+   * （窗口头切在回合中间 / turn 中途注入 user/message 切断 current），id 按
+   * 「turn + 段首 seq」命名后不再是 `assistant-t{turn}` 一条。
+   */
+  private turnAssistant = new Map<number, ChatAssistantMessage>()
   /** Chunk block index → position in current.blocks (per step). */
   private blockPos = new Map<number, number>()
   /** `${turn}:${step}` of the step that streamed chunks, for dedupe. */
@@ -475,6 +532,10 @@ export class ConversationFolder {
   private stepStreamed = false
   private openTurns = new Set<number>()
   private tools = new Map<string, ChatToolBlock>()
+  /** callId → 该次调用所属的 (turn, step)。step/turn 关闭时据此把未结算的卡收边。 */
+  private toolScope = new Map<string, { turn: number; step: number }>()
+  /** turn → 当前打开的 step（step/start 推进；新 step 开始即认为上一个已关闭）。 */
+  private openStep = new Map<number, number>()
   /** tool/call 时的 call view（按 callId；无 view 存 undefined 占位，结果不再补）。 */
   private callViews = new Map<string, ToolEventViewLike['view'] | undefined>()
   /** 按 turn 累积的产物条目（{seq, path}，path 首次出现去重），turn/end 时挂到消息。 */
@@ -511,11 +572,14 @@ export class ConversationFolder {
   applyHistory(entries: readonly HistoryEntryLike[]): void {
     this.msgs = []
     this.current = null
+    this.turnAssistant.clear()
     this.blockPos.clear()
     this.stepKey = null
     this.stepStreamed = false
     this.openTurns.clear()
     this.tools.clear()
+    this.toolScope.clear()
+    this.openStep.clear()
     this.callViews.clear()
     this.produced.clear()
     this.producedSeen.clear()
@@ -534,12 +598,29 @@ export class ConversationFolder {
    * boundaries to message boundaries, so the older page folds in a scratch
    * folder and its (complete) messages go in front of the current ones;
    * existing fold state (the open streaming turn, tool pairing) is untouched.
+   *
+   * 页边界切在回合中间时（官方按 step 出节点、我们按 turn 出一条消息，边界
+   * 落在回合内部是常态），旧页尾段与本窗口首段同属一个 turn：两段并成一段
+   * （旧段内容接在新段前面），一个回合不会裂成两条 assistant 消息。
    */
   prependHistory(entries: readonly HistoryEntryLike[]): void {
     if (entries.length === 0) return
     const older = new ConversationFolder()
     for (const entry of orderEntriesBySeq(entries)) older.applyEvent(entry.event, entry.view)
-    this.msgs = [...older.messages(), ...this.msgs]
+    const olderMsgs = older.messages()
+    const tail = olderMsgs[olderMsgs.length - 1]
+    const head = this.msgs[0]
+    if (
+      tail?.kind === 'assistant' &&
+      head?.kind === 'assistant' &&
+      head !== this.current &&
+      tail.turn !== undefined &&
+      tail.turn === head.turn
+    ) {
+      absorbAssistantSegment(tail, head)
+      olderMsgs.pop()
+    }
+    this.msgs = [...olderMsgs, ...this.msgs]
   }
 
   /** Fold one event; returns true when the rendered messages changed. */
@@ -592,22 +673,18 @@ export class ConversationFolder {
           for (const entry of this.retries.values()) {
             if (entry.turn === turn && entry.block.retryState === 'scheduled') entry.block.retryState = 'cancelled'
           }
+          // 回合关闭：本 turn 仍未结算的 tool 卡不会再有 result（用户中断 / result
+          // 落在窗口外 / 日志缺尾）——收边置错误态。官方同款语义：step/turn 关闭
+          // 时把未结算的 tool 投影成 Interrupted 错误结果；不收边就永远转圈。
+          this.closeToolScope(turn)
+          this.openStep.delete(turn)
         }
         let msg = this.current
         if (!msg) {
-          // current 可能已被 turn 中途注入的 user/message 切断为 null：按
-          // ensureAssistant 的 id 规则从尾部找回本 turn 最后一条 assistant
-          // 消息（turn/end 落在历史窗口外时找不到，不标记 turnEnd）。
-          if (Number.isFinite(turn)) {
-            const id = `assistant-t${turn}`
-            for (let i = this.msgs.length - 1; i >= 0; i--) {
-              const m = this.msgs[i]
-              if (m.kind === 'assistant' && m.id === id) {
-                msg = m
-                break
-              }
-            }
-          }
+          // current 可能已被 turn 中途注入的 user/message 切断为 null：找回本
+          // turn 最后一条 assistant 消息（turn/end 落在历史窗口外时找不到，不标
+          // 记 turnEnd）。
+          if (Number.isFinite(turn)) msg = this.turnAssistant.get(turn) ?? null
         }
         if (!msg && (turnError || interrupted || maxTokens)) {
           // The turn failed / was cancelled / hit the token cap before any
@@ -619,8 +696,10 @@ export class ConversationFolder {
             blocks: [],
             complete: true,
             seq: event.seq,
+            ...(Number.isFinite(turn) ? { turn } : {}),
           }
           this.msgs.push(msg)
+          if (Number.isFinite(turn)) this.turnAssistant.set(turn, msg)
         }
         if (msg) {
           msg.complete = true
@@ -738,13 +817,31 @@ export class ConversationFolder {
           this.stepStart.set(`${data.turn}:${data.step}`, event.time)
         }
         this.feedUsageFold(event)
-        return false
+        // 上一步已关闭（step/end 可能因窗口/中断缺失）：它还没拿到结果的 tool
+        // 调用不会再有 result 了，先收边。
+        const turn = Number(data.turn)
+        const step = Number(data.step)
+        let closed = false
+        if (Number.isFinite(turn) && Number.isFinite(step)) {
+          const prev = this.openStep.get(turn)
+          if (prev !== undefined && prev !== step) closed = this.closeToolScope(turn, prev)
+          this.openStep.set(turn, step)
+        }
+        return closed
       }
       // step/end 不进对话流（无用消息副作用），但用量 fold 的尝试生命周期
       // 依赖它（官方 step/end 关闭 open attempt）。
-      case 'step/end':
+      case 'step/end': {
         this.feedUsageFold(event)
-        return false
+        const turn = Number(data.turn)
+        const step = Number(data.step)
+        let closed = false
+        if (Number.isFinite(turn)) {
+          closed = this.closeToolScope(turn, Number.isFinite(step) ? step : undefined)
+          if (Number.isFinite(step) && this.openStep.get(turn) === step) this.openStep.delete(turn)
+        }
+        return closed
+      }
       case 'assistant/chunk':
         this.feedUsageFold(event)
         return this.applyChunk(event.data as ChunkEventData, event.seq, event.time)
@@ -793,6 +890,7 @@ export class ConversationFolder {
         const msg = this.ensureAssistant(Number(data.turn), event.seq)
         const block: ChatRetryBlock = {
           type: 'retry',
+          id: `retry:${r}`,
           retry: Number(data.retry) || 1,
           mode: (data as { mode?: unknown }).mode === 'always' ? 'always' : 'normal',
           delayMs: Number(data.delayMs) || 0,
@@ -902,6 +1000,27 @@ export class ConversationFolder {
     return timing
   }
 
+  /**
+   * 把一个 (turn[, step]) 作用域内仍未结算（status='running'）的 tool 卡置成
+   * 错误态。tool/result 是唯一能把卡从 running 翻走的路径，而调用它的 step/turn
+   * 关闭后再也不会有 result 到达（用户 ESC 中断、result 落在加载窗口外、日志缺
+   * 尾）——不收边那张卡就永远转圈（官方按 interruption 边界投影成 Interrupted
+   * 错误结果）。返回是否真的改了状态。迟到的 result 仍会按 callId 找回这张卡并
+   * 覆盖状态，所以误收边是可自愈的。
+   */
+  private closeToolScope(turn: number, step?: number): boolean {
+    let changed = false
+    for (const [callId, block] of this.tools) {
+      if (block.status !== 'running') continue
+      const scope = this.toolScope.get(callId)
+      if (!scope || scope.turn !== turn) continue
+      if (step !== undefined && scope.step !== step) continue
+      block.status = 'error'
+      changed = true
+    }
+    return changed
+  }
+
   private ensureAssistant(turn: number, seq: number): ChatAssistantMessage {
     // 窗口分页下 turn/start 可能落在窗口外（长 turn 的工具事件就能把页填满）；
     // 窗口是日志的连续后缀，内容事件的 turn 没有配对的 turn/end 就是还在跑。
@@ -910,15 +1029,24 @@ export class ConversationFolder {
       this.current.seq = seq
       return this.current
     }
+    // id 必须唯一且跨帧稳定：同一个 turn 会折出多段 assistant 消息（① 窗口头
+    // 切在回合中间——补页后旧页尾段与本窗口首段同 turn；② turn 中途注入
+    // user/message 切断 current）。按 turn 命名（旧的 `assistant-t{turn}`）会撞车：
+    // webview 的行 key 是 `msg:${id}`，重复 key 在 reconcileChildren 里只保留
+    // 第一个 → 另一段整行静默消失。改为「turn + 段首事件 seq」：段首事件唯一
+    // ⇒ id 唯一；同一段日志的折叠结果确定 ⇒ id 跨帧稳定（对齐官方节点身份带
+    // sourceEventSeq 的做法）。
     const msg: ChatAssistantMessage = {
       kind: 'assistant',
-      id: Number.isFinite(turn) ? `assistant-t${turn}` : `assistant-s${seq}`,
+      id: Number.isFinite(turn) ? `assistant-t${turn}-s${seq}` : `assistant-s${seq}`,
       blocks: [],
       complete: false,
       seq,
+      ...(Number.isFinite(turn) ? { turn } : {}),
     }
     this.msgs.push(msg)
     this.current = msg
+    if (Number.isFinite(turn)) this.turnAssistant.set(turn, msg)
     return msg
   }
 
@@ -941,7 +1069,7 @@ export class ConversationFolder {
         if (chunk.blockType !== 'text' && chunk.blockType !== 'reasoning') return false
         this.stepStreamed = true
         this.blockPos.set(chunk.index, msg.blocks.length)
-        msg.blocks.push({ type: chunk.blockType, text: '' } as ChatBlock)
+        msg.blocks.push({ type: chunk.blockType, text: '', id: `s${seq}` } as ChatBlock)
         msg.complete = false
         return true
       }
@@ -954,7 +1082,7 @@ export class ConversationFolder {
           // Tolerate a delta whose block-start fell outside the history window.
           pos = msg.blocks.length
           this.blockPos.set(chunk.index, pos)
-          msg.blocks.push({ type, text: '' } as ChatBlock)
+          msg.blocks.push({ type, text: '', id: `s${seq}` } as ChatBlock)
         }
         msg.complete = false
         if (!chunk.text) return false
@@ -968,7 +1096,7 @@ export class ConversationFolder {
         const text = typeof chunk.block?.text === 'string' ? chunk.block.text : undefined
         const pos = this.blockPos.get(chunk.index)
         if (pos === undefined) {
-          msg.blocks.push({ type, text: text ?? '' } as ChatBlock)
+          msg.blocks.push({ type, text: text ?? '', id: `s${seq}` } as ChatBlock)
           return true
         }
         // The assembled block is authoritative; adopt it when it disagrees.
@@ -1002,9 +1130,12 @@ export class ConversationFolder {
     }
     if (!this.stepStreamed) {
       // No chunk stream seen for this step (e.g. a compacted log): fold content.
+      let index = 0
       for (const block of data?.message?.content ?? []) {
         if ((block.type === 'text' || block.type === 'reasoning') && typeof block.text === 'string') {
-          msg.blocks.push({ type: block.type, text: block.text } as ChatBlock)
+          // 同一条 assistant/message 可能折出多块：用事件内序号前缀区分。
+          msg.blocks.push({ type: block.type, text: block.text, id: `s${seq}.${index}` } as ChatBlock)
+          index += 1
         }
       }
       this.stepStreamed = true
@@ -1019,6 +1150,7 @@ export class ConversationFolder {
     const msg = this.ensureAssistant(Number(data.turn), seq)
     const block: ChatToolBlock = {
       type: 'tool',
+      id: data.callId,
       callId: data.callId,
       name: data.name,
       status: 'running',
@@ -1039,6 +1171,7 @@ export class ConversationFolder {
     }
     msg.blocks.push(block)
     this.tools.set(data.callId, block)
+    this.toolScope.set(data.callId, { turn: Number(data.turn), step: Number(data.step) })
     msg.complete = false
     return true
   }
@@ -1051,9 +1184,10 @@ export class ConversationFolder {
     if (!block) {
       // Result whose call fell outside the window: materialize a generic card.
       const msg = this.ensureAssistant(Number(data.turn), seq)
-      block = { type: 'tool', callId, name: callId, status: 'running', title: callId }
+      block = { type: 'tool', id: callId, callId, name: callId, status: 'running', title: callId }
       msg.blocks.push(block)
       this.tools.set(callId, block)
+      this.toolScope.set(callId, { turn: Number(data.turn), step: Number(data.step) })
     }
     block.status = data.error || result?.isError === true ? 'error' : 'done'
     const text = textOfBlocks(result?.content)

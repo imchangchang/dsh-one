@@ -2,9 +2,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   AT_BOTTOM_PX,
+  anchoredScrollTop,
   SETTLE_IDLE_MS,
   archiveScrollPosition,
   distanceFromBottom,
+  forwardedWheelDelta,
   isAtBottom,
   isReaderMoved,
   isScrollKey,
@@ -63,6 +65,29 @@ test('restoreScrollTarget 翻历史存档恢复位置（含 scrollTop 0）', () 
     stickToBottom: false,
     scrollTop: 0,
   })
+})
+
+test('archiveScrollPosition 带视口锚：有锚记锚、无锚不写空字段', () => {
+  assert.deepEqual(archiveScrollPosition(761, false, { key: 'msg:m3', offset: -12 }), {
+    scrollTop: 761,
+    atBottom: false,
+    anchor: { key: 'msg:m3', offset: -12 },
+  })
+  // null/缺省都不写 anchor 键（贴底存档与空会话存档保持原形）。
+  assert.deepEqual(archiveScrollPosition(761, false, null), { scrollTop: 761, atBottom: false })
+})
+
+test('anchoredScrollTop 让锚行回到原来的屏幕位置（内容增长后不漂移）', () => {
+  // 存档：msg:m3 行顶在视口上方 12px 处（负偏移），当时 scrollTop=500。
+  const anchor = { key: 'msg:m3', offset: -12 }
+  // 切回后重建容器 scrollTop=0，该行落在视口下方 900px → 要滚到 912 才回到原位。
+  assert.equal(anchoredScrollTop(0, 900, anchor), 912)
+  // 换会话保留的容器位置非 0 时同样按位移换算（不只是「行位置」）。
+  assert.equal(anchoredScrollTop(100, 900, anchor), 1012)
+  // 内容收缩到锚行在视口上方了：目标为负 → 钳到 0（滚过头的边界）。
+  assert.equal(anchoredScrollTop(0, -40, anchor), 0)
+  // 锚行正好与当时位置一致（offset 相同）：目标不动。
+  assert.equal(anchoredScrollTop(300, -12, anchor), 300)
 })
 
 test('isScrollKey 识别会滚动容器的按键', () => {
@@ -148,4 +173,27 @@ test('shouldSettlePinNow 滚动活动优先于其它条件（无论贴底）', (
 
 test('shouldSettlePinNow 非跟随态（读历史）即使滚动停也不写', () => {
   assert.equal(shouldSettlePinNow(false, false, false), false)
+})
+
+test('forwarded wheel: inner scroller keeps its own scroll until an end is reached', () => {
+  // 内层还能向上滚（不在顶）：不转发
+  assert.equal(forwardedWheelDelta(-100, 40, 160, 900), null)
+  // 内层还能向下滚（不在底）：不转发
+  assert.equal(forwardedWheelDelta(100, 40, 160, 900), null)
+})
+
+test('forwarded wheel: at the top/bottom the delta goes to the outer scroller', () => {
+  assert.equal(forwardedWheelDelta(-100, 0, 160, 900), -100)
+  assert.equal(forwardedWheelDelta(100, 740, 160, 900), 100)
+  // 1px 容差内的「贴底」同样算到底
+  assert.equal(forwardedWheelDelta(100, 739, 160, 900), 100)
+})
+
+test('forwarded wheel: a non-scrolling composer forwards both directions', () => {
+  assert.equal(forwardedWheelDelta(-50, 0, 160, 160), -50)
+  assert.equal(forwardedWheelDelta(50, 0, 160, 160), 50)
+})
+
+test('forwarded wheel: zero delta is never forwarded', () => {
+  assert.equal(forwardedWheelDelta(0, 0, 160, 900), null)
 })

@@ -168,3 +168,13 @@ export function cordisActionCardModel(
     state,
   }
 }
+
+/**
+ * 一次 tool call 的输入里要执行的命令（对齐官方 dsh-client-ui-chat 的
+ * commandOf）：`arguments` 解析成对象且 `command` 是字符串时返回它，其余
+ * （无参数、非法 JSON、command 非字符串/为空）返回 null。审批面板用它把
+ * 「即将执行的命令」显示给用户。
+ */
+export function commandOfToolArgs(argsRaw: string | undefined): string | null {
+  return stringAt(parseArgs(argsRaw), 'command')
+}

@@ -1,0 +1,136 @@
+{
+  "title": "#49 渲染/对账批次 1：消息 id 稳定唯一 / 中断工具卡收边 / 块稳定 id / 轨道栏重建 / 滚动行锚",
+  "branch": "agent/render-reconcile-high",
+  "commit": "760fcde",
+  "environment": {
+    "mode": "harness（Playwright headless 驱动 test/ui harness 逐场景 + 页内 DOM 断言）+ 纯逻辑单测；另跑 mutation-driver 定量与基点对照",
+    "webview": "dist/chatWebview.js（本轮 npm run build 产物）",
+    "baseline": "分支基点 32d6bed 的同源 build（/tmp/dsh49-base，git archive 导出后 node build.mjs）",
+    "viewport": "1280x860（harness 默认布局；主会话 WebBridge 截图链路因后台 tab 通信抖动，改用 Playwright 直连同一批 harness 页面）",
+    "verifier": "自建 .dev-host/pw-harness.mjs（逐场景渲染 + 步骤握手 + 断言采集）、.dev-host/pw-mutation.mjs、scripts/ui-visual-diff.sh（像素对照）",
+    "date": "2026-09-10"
+  },
+  "coverageNote": "本轮改动集中在折叠层（src/pure/conversation.ts）与 chat webview 渲染（key/滚动/轨道栏），验证走「harness 场景 + 单测」两条；未覆盖：真桌面 VS Code 开窗、真 dsh/真模型 e2e、docker 沙盒（run-sandbox.sh）——折叠层「补页并段」harness 喂的是 state 快照、不经折叠层，由 conversation 单测覆盖；宿主协议层未改动。基线回归用「基点 vs 本分支」全量截图逐张像素对照 + mutation-driver 定量对照作为依据。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "重复消息 id 不再静默丢行（长会话补页后两段内容都在）",
+      "expect": "快照里两条 assistant 消息共用 id `assistant-t7`（id 撞车形态）：用户气泡下面渲染出**两条** assistant 行——先「前半段：先读了 config.ts，确认默认端口。」（含流式光标）后「后半段：改完端口并跑了回归。」，都不带「已中断」标记；旧实现对重复 key 只保留第一个孩子，第二段整行消失。DOM 断言 window.__dupIdCheck = {rows:3, keys:[\"msg:u-dup\",\"msg:assistant-t7\",\"msg:assistant-t7#1\"], texts:[三条文本]}。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-render49-pw/dup-message-id-rows.png"
+      ],
+      "notes": "场景 dup-message-id-rows（已并入基线）：断言实测 {\"rows\":3,\"keys\":[\"msg:u-dup\",\"msg:assistant-t7\",\"msg:assistant-t7#1\"],\"texts\":[\"这一轮的答案分两页到达。\",\"前半段：先读了 config.ts，确认默认端口。 ▍\",\"后半段：改完端口并跑了回归。\"]}——逐条核对：① 两行都在（rows=3）✓；② 第二个 key 带 `#1` 后缀（重复 key 防御生效）✓；③ 两段文本都出现在 DOM（内容未丢）✓；④ 截图上半段行尾有流式光标、下半段行尾是操作栏 ✓。机制层由 test/reconcile.test.ts 覆盖（重复 key 加后缀 / 三元重复 / 复用不重建 / 替换 dispose）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "折叠层：assistant 消息 id 稳定唯一 + 补页同回合两段并段（R1 根因）",
+      "expect": "① 页边界切在同一段流式文本中间：旧页尾段与本窗口首段并成**一条** assistant 消息，blocks = [text, tool, text]，边界两侧文本拼回一块（正文不被断成两段独立段落），complete/turnEnd 落在并段后的消息上；② 全列表消息 id 互不相同；③ turn 中途注入 user/message 切断出的两段 assistant 消息 id 不同（不再撞车）；④ turn/end 落在注入上下文之后时，仍能按 turn 找回承载消息并标 turnEnd/interrupted；⑤ 页边界切在 tool/call 与 tool/result 之间时，同 callId 的两张卡并成一张（状态取结果侧、args/工具名取调用侧）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "纯折叠层改动，harness 喂的是 state 快照、不经折叠层，故无独立截图；由 test/conversation.test.ts 新增 11 个用例覆盖（含「页边界切在回合中间：同回合两段并成一段、不留重复 id」「不并不同回合的两段」「注入切断的两段 id 不撞车」「turn/end 按 turn 找回承载消息」「页边界切在 tool/call 与 tool/result 之间：同 callId 两卡合一」）+ harness 侧 F-01 的重复 id 双行场景联合验证。id 命名规则：`assistant-t{turn}-s{段首事件 seq}`（段首事件唯一 ⇒ id 唯一；折叠确定 ⇒ 跨帧稳定）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "中断 / 未结算的工具卡不再永远转圈",
+      "expect": "中断回合里没拿到结果的工具卡渲染成错误态：红色错误点（**不是**转圈 spinner），行尾一行「Interrupted」；DOM 断言 window.__interruptedToolCheck = {dot:true, spinner:false, interrupted:\"Interrupted\"}。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-render49-pw/interrupted-tool-card-error.png"
+      ],
+      "notes": "场景 interrupted-tool-card-error：断言实测 {dot:true, spinner:false, interrupted:\"Interrupted\"} ✓；截图核对：正文「开始跑：」下的 bash 卡左侧红点、$ npm test 详情行、红色「Interrupted」、行尾操作栏——无 spinner、无「一直转圈」形态 ✓。折叠层收边逻辑由 test/conversation.test.ts 4 个用例覆盖：step/end 收边、turn/end（aborted）收边且不碰已结算的卡、新 step 开始即认为上一步关闭（step/end 缺失兜底）且不误伤本步的卡、迟到的 tool/result 覆盖错误态（可自愈）。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "块稳定 id：块序变化后工具卡展开态 / 内滚位置存活",
+      "expect": "① 展开 bash 工具卡（IN/OUT 可见）；② 同一回合前面插入一个新块后（等价于窗口外 result 兜底新推卡 / 补偿分支新起块，旧实现按下标 key 会让后面的块全部换 key 重建），工具卡**仍是同一个 DOM 实例且仍展开**；DOM 断言 window.__blockIdCheck = {kept:true, open:true, blocks:3}。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-render49-pw/block-id-keeps-expanded-expanded.png",
+        "/tmp/dsh-ui-shots-render49-pw/block-id-keeps-expanded-block-inserted.png",
+        "/tmp/dsh-ui-shots-render49-pw/block-id-keeps-expanded-checked.png"
+      ],
+      "notes": "场景 block-id-keeps-expanded 三步：断言实测 {kept:true, open:true, blocks:3} ✓——逐条核对：① 工具卡 DOM 实例未变（kept）✓；② details 仍 open ✓；③ 块数 3（新文本 + 原文本 + 工具卡）✓；④ 截图①-IN/OUT 展开可见、② 前面多了「（新块）这一步的文字后到…」且卡片仍展开、③ 与②同态无红色断言横幅 ✓。块 id 语义（tool=callId、text=s{seq}、assistant/message 多块=s{seq}.{i}、retry=retry:{id}）由 test/conversation.test.ts 覆盖（id 语义 / 并段后 id 稳定唯一 / 兜底卡 id / 同 callId 合一）。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "流式正文增长时轨道栏不整栏重建、悬停预览读最新一帧",
+      "expect": "轨道栏签名去掉流式 response 预览后：① hover 第 1 条刻度弹出预览（response=旧文本）；② 投递「这一轮 response 变长」的同结构快照，轨道栏 nav 仍是**同一个 DOM 实例**；③ 再次 hover，预览显示**最新**文本；DOM 断言 window.__railCheck = {kept:true, preview:含「流式还在继续」, marks:2}。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-render49-pw/turn-rail-stream-node-kept-before-stream.png",
+        "/tmp/dsh-ui-shots-render49-pw/turn-rail-stream-node-kept-streamed.png",
+        "/tmp/dsh-ui-shots-render49-pw/turn-rail-stream-node-kept-hovered-again.png",
+        "/tmp/dsh-ui-shots-render49-pw/turn-rail-stream-node-kept-checked.png"
+      ],
+      "notes": "场景 turn-rail-stream-node-kept 四步：断言实测 {kept:true, preview:\"第 1 轮回答：先写到这里，流式还在继续，这一段变长了。\", marks:2} ✓——逐条核对：① 轨道栏 nav 实例未变（旧实现每个 delta 整栏替换）✓；② 刻度数仍 2 ✓；③ 预览文本是最新一帧（不是重建时的旧快照）✓；④ 四张截图无红色断言横幅 ✓。签名改为「结构(turn/seq/prompt) + 各刻度已载入态」，重建时保留轨道自身 scrollTop。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "补页时阅读位锚行停在原高度（滚动存档行锚）",
+      "expect": "上滚到「当前回答一」贴视口顶（scrollTop>0）→ 点「Load earlier」→ 投递补页快照（旧页插到上方，同时视口下方那段还在流式变长）：补页落地后「当前回答一」仍贴在视口同一高度；DOM 断言 window.__prependAnchorCheck.drift = 0（|drift| ≤ 8px）。同一场景在分支基点 build 上 drift = -299px（按 scrollHeight 差值补偿把视口下方的增长也算进去）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-render49-pw/prepend-scroll-anchor-scrolled.png",
+        "/tmp/dsh-ui-shots-render49-pw/prepend-scroll-anchor-load-earlier.png",
+        "/tmp/dsh-ui-shots-render49-pw/prepend-scroll-anchor-prepended.png",
+        "/tmp/dsh-ui-shots-render49-pw/prepend-scroll-anchor-checked.png"
+      ],
+      "notes": "场景 prepend-scroll-anchor 四步：断言实测 {before:0, after:0, drift:0, scrollBefore:84, posts:[ready,composerDirty,composerDirty,loadEarlier], rows:14} ✓——逐条核对：① 步骤①锚行贴顶（before=0）且确实在上滚态（scrollBefore=84>0）✓；② 点击真的发出了 loadEarlier ✓；③ 补页后锚行仍在贴顶位置（after=0，drift=0）✓；④ 截图 checked 顶部就是「当前回答一：这就是阅读位锚行…」、无红色断言横幅 ✓。判别性对照：同场景同 fixture 在基点 build（32d6bed）上 drift=-299（截图 /tmp/dsh-ui-shots-base-pw/prepend-scroll-anchor-checked.png 顶部有红条 + 视口漂到「当前回答 3」），本分支 drift=0 ✓。恢复路径（切会话）的锚行纠偏与跨会话校验由 test/scrollFollow.test.ts 覆盖（存档带锚 / anchoredScrollTop 反算 / 锚不属于目标会话时丢弃）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "test/ui 基线全量渲染（89 场景，含 5 个新场景）",
+      "expect": "84 个基线场景 + 5 个新场景全部渲染，无页面报错、无步骤握手超时。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-render49-pw/conversation.png",
+        "/tmp/dsh-ui-shots-render49-pw/approval.png",
+        "/tmp/dsh-ui-shots-render49-pw/question.png",
+        "/tmp/dsh-ui-shots-render49-pw/tool-skill.png",
+        "/tmp/dsh-ui-shots-render49-pw/workflow-running.png",
+        "/tmp/dsh-ui-shots-render49-pw/turn-navigator.png"
+      ],
+      "notes": "Playwright 直连 harness.html 逐场景跑（.dev-host/pw-harness.mjs，--mode baseline）：89/89 渲染、0 个 pageerror/console error、0 个步骤超时。抽查 6 张逐条核对：conversation（用户/助手气泡 + 折叠工具卡 + 操作栏 + composer/模型 pill/统计行；居中内容列对齐）✓、approval（composer 位置接管面板 + 允许一次/拒绝，消息流尾部无 pending 卡）✓、question（问题面板 + 单选 + 「其他」+ 提交禁用态、无普通 composer）✓、tool-skill（skill 卡形态）✓、workflow-running（workflow 卡 phase 列表）✓、turn-navigator（12 刻度、已载入实心/未载入半透明、最新高亮）✓。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "基点 vs 本分支 全量截图像素对照（改动面之外零像素差异）",
+      "expect": "基线基点（32d6bed）与本分支用同一批场景、同一视口各截一套：除本任务修复本身的可见差异外，其余场景像素一致（或仅有动画相位级噪声）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-render49-pw/steering-pending.png",
+        "/tmp/dsh-ui-shots-render49-pw/tool-skill-running.png"
+      ],
+      "notes": "scripts/ui-visual-diff.sh /tmp/dsh-ui-shots-base-pw /tmp/dsh-ui-shots-render49-pw：共 119 对，完全一致 110；有差异 9 张——其中 prepend-scroll-anchor-prepended/-checked 各 ~24% 是 F-06 修复本身的可见差异（基点视口漂到「当前回答 3」+ 红色断言横幅，本分支锚行贴顶），其余 7 张（ref-token-lexicon-gate / ref-token-word-boundary / thumb-ack-after-incremental-×3 / steering-pending / tool-skill-running / composer-long-scrolled）差异 0.00%~0.01%，逐张定位差异区域为转圈 spinner / shimmer 文字的**动画相位**（如 tool-skill-running 差异框 13x14px 恰为 spinner；thumb-ack 差异框落在「Deep diving…」shimmer 行），非布局/逻辑差异。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "mutation-driver 增量渲染定量对照（流式 15 帧）",
+      "expect": "流式重投 15 帧的 DOM 变更量与终态语义与基点一致：added/removed/records 不上升、finalTextHash/行数/滚动位置相同。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-ui-shots-render49-pw/mutation-driver-final.png"
+      ],
+      "notes": "同驱动页同视口跑基点与本分支：基点 added=44 / removed=37 / attr=19 / records=93 / finalTextLength=699 / finalTextHash=dc6950ce / msgRows=16 / scrollTop=250；本分支**完全相同**（44/37/19/93/699/dc6950ce/16/250），页面错误 0 ✓。结论：稳定 id 与行锚改动没有引入额外重建或滚动抖动。（驱动页自身的「点击加载更早」子场景在基点上也未触发 loadEarlier——预存在，与本任务无关；补页滚动由 F-06 场景覆盖。）"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "typecheck / 单测 / 构建",
+      "expect": "npm run typecheck 无错；npm test 全绿（本分支 719 项，基点 703 项，新增 16 项）；npm run build 产出 dist。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck ✓（tsc --noEmit 无输出）；npm test → tests 719 / pass 719 / fail 0（基点 main 32d6bed 为 703；新增 16 项：conversation +11（71→82）、reconcile 新文件 +3（0→3）、scrollFollow +2（21→23））；npm run build → dist/extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js ✓；脚本 check-i18n.sh ✓（分支新增行无 i18n 漏同步）。"
+    }
+  ]
+}

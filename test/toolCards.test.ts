@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  commandOfToolArgs,
   cordisActionCardModel,
   cordisDefineCardModel,
   cordisRunCardModel,
@@ -124,4 +125,23 @@ test('cordis action card: output and error summary flow through', () => {
   )
   assert.equal(card.output, 'undefine failed\nx')
   assert.equal(card.errorSummary, 'undefine failed')
+})
+
+test('command of tool args: shell command from the call arguments', () => {
+  assert.equal(commandOfToolArgs('{"command":"echo approved"}'), 'echo approved')
+  assert.equal(
+    commandOfToolArgs('{"command":"rm -rf ./tmp","sandbox_permissions":"danger-full-access"}'),
+    'rm -rf ./tmp',
+  )
+})
+
+test('command of tool args: absent for unrelated, malformed or empty arguments', () => {
+  assert.equal(commandOfToolArgs(undefined), null)
+  assert.equal(commandOfToolArgs(''), null)
+  assert.equal(commandOfToolArgs('not json'), null)
+  assert.equal(commandOfToolArgs('null'), null)
+  assert.equal(commandOfToolArgs('{}'), null)
+  assert.equal(commandOfToolArgs('{"command":42}'), null)
+  assert.equal(commandOfToolArgs('{"command":""}'), null)
+  assert.equal(commandOfToolArgs('{"path":"src/ui/chat/webview.ts"}'), null)
 })

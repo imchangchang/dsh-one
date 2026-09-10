@@ -10,7 +10,8 @@
  * 用稳定 key 让 Preact 决定「哪些 block 需要重渲染」。
  *
  * 核心机制（#29 根治）：
- * - BlockList 按稳定 key（`${rowKey}:b${bi}`）渲染 Block；每个 Block 的 DOM 由
+ * - BlockList 按稳定块 key（`${rowKey}:${block.id}`，无 id 时回落位置下标）渲染
+ *   Block；每个 Block 的 DOM 由
  *   既有 `renderBlock` 命令式构建，挂在一个 shell 容器里。
  * - BlockShell 以 `JSON.stringify(block)` 做变更签名：签名不变（流式只追加 text、
  *   tool 卡保持原样）→ useLayoutEffect 不重跑 → shell 容器里已挂的 tool 卡 DOM
@@ -89,23 +90,32 @@ export function Block({ block, keyId, tools }: BlockProps) {
   }
 }
 
+/**
+ * 一个 block 的稳定 key（Preact key = keyId = 展开态/JSON 树/内滚/复制反馈的
+ * 持久化键前缀）：优先用折叠层给的 `block.id`（tool 块 = callId，文本/推理/重试
+ * = 创建它的事件 seq），没有时回落到位置下标（测试 harness 直接构造的 state 不带
+ * id）。用下标做 key 时块序一变（窗口外 result 兜底新推一张卡、delta 早于
+ * block-start 的补偿分支新起一块）后面所有块换 key、组件卸载重建，那些 tool 卡的
+ * 展开态与内滚位置全丢（#11 R4/C2）——稳定 id 让「同一个块始终是同一个 key」。
+ */
+function blockKeyOf(rowKey: string, block: ChatBlock, index: number): string {
+  return `${rowKey}:${block.id ?? `b${index}`}`
+}
+
 export interface BlockListProps {
   blocks: readonly ChatBlock[]
   rowKey: string
   tools: BlockTools
 }
 
-/**
- * 一条 assistant 消息的 block 列表。key 用 `${rowKey}:b${bi}` —— 与既有命令式
- * renderMessage 的 block 位置键一致（detailsOpen/jsonTreeOpen/copy 反馈等状态按
- * 这个 key 持久化），流式追加/稳定时各 block 的 shell 实例保持不变。
- */
+/** 一条 assistant 消息的 block 列表，按稳定块 key 渲染（见 blockKeyOf）。 */
 export function BlockList({ blocks, rowKey, tools }: BlockListProps) {
   return (
     <>
-      {blocks.map((block, bi) => (
-        <Block key={`${rowKey}:b${bi}`} block={block} keyId={`${rowKey}:b${bi}`} tools={tools} />
-      ))}
+      {blocks.map((block, bi) => {
+        const keyId = blockKeyOf(rowKey, block, bi)
+        return <Block key={keyId} block={block} keyId={keyId} tools={tools} />
+      })}
     </>
   )
 }

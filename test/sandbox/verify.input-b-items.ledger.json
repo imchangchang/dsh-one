@@ -1,0 +1,88 @@
+{
+  "title": "输入维度批次3：B 类行为差异（#54）验收报告",
+  "branch": "agent/input-b-items",
+  "commit": "e900509",
+  "environment": {
+    "mode": "harness+unit",
+    "dsh": "n/a（本轮不涉及宿主协议改动）",
+    "locale": "zh-cn",
+    "theme": "dark",
+    "driver": "test/ui/harness.html + Playwright（.dev-host/run-scenario.mjs）+ node --test",
+    "date": "2026-09-10T00:00:00Z"
+  },
+  "coverageNote": "本轮 16 项全部是 webview 输入层行为（composer / 补全菜单 / 剪贴板 / 附件 chip / 主题色），不涉及宿主协议与 dsh 版本适配，故用 test/ui harness 场景（确定性 DOM 断言 + 截图）+ node --test 单测取证；真桌面 VS Code、真模型输出、Windows/macOS 平台专项不在本报告范围。B-18 的「官方前端显示成裸文本行」属跨前端互操作，harness 看不到官方前端，结论来自官方源码核对（官方只认图片附件，文件引用走 @path 渲染成 chip）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "B-07 @ 候选在途：菜单留在位并出加载行（不再整组闪没）",
+      "expect": "composer 输入「@sr」：工作区候选在途时菜单仍然开着，显示「Files · Loading…」加载行（不可选）；宿主回候选后才换成真候选。原来这里是整组为空 → hideSlashPopup，菜单在打 @ 的瞬间闪一下就没。DOM 断言 window.__atMenuCheck.loading = [\"Files · Loading…\"]。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-sandbox-shots/#54-at-menu-loading.png"],
+      "notes": "harness 场景 at-menu-pending-and-drill 第 1 步：断言命中（loading:[\"Files · Loading…\"]）；截图核对：菜单在输入框上方，一行灰字「Files · Loading…」，无选中态、无候选行，输入框文本 @sr 原样在。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "B-13 补全菜单：hover 驱动选中 + 目录行 Tab 下钻",
+      "expect": "候选到位后：鼠标移到文件候选行 → 该行选中（选中态从首行移过去）；移到目录候选行按 Tab → 输入框变「@src/」（下钻，纯文本、不落 chip）、菜单继续开着列下一层、目录行右侧显示「Browse folder」+「Tab」提示。DOM 断言 window.__atMenuCheck = {hoverSelected:[false,true], afterDrill:\"@src/\", menuOpen:true, hint:\"Tab\"}。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-sandbox-shots/#54-at-menu-drill.png"],
+      "notes": "harness 场景 at-menu-pending-and-drill 第 2 步：四条断言全命中——hoverSelected [false,true]（选中态确实从目录行移到文件行）；afterDrill \"@src/\"（下钻插入的是纯文本目录 token，尾斜杠保持，没有变成 chip）；menuOpen true（下钻不关菜单，并重新发起 src/ 的候选请求）；hint \"Tab\"。截图核对：菜单仍开、输入框为 @src/ 且该 token 有高亮底色。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "B-08/B-09/B-10 @token 着色：整节点命中、官方 name 口径、词库变化重扫",
+      "expect": "①输入框里只有这一个 token（`@src/`、`@\"带空格目录/`）也要着色（原来 Lexical splitText 对整节点命中返回 [self]，代码直接 continue）；②门控名按官方 [\\w-]+ 段取，「@img1.png」「@src/」命中候选或按文件夹语法着色，「@nonexistent」保持纯文本；③附件/候选到位后已输入的 @token 自己变亮。DOM 断言 window.__lexiconGateCheck = {count:2, texts:[\"@img1.png\",\"@src/\"]}。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-sandbox-shots/54-ref-token-lexicon-gate.png"],
+      "notes": "harness 场景 ref-token-lexicon-gate：count 2、texts 与期望逐字一致（img1.png 命中附件候选、src/ 走文件夹语法；nonexistent 不着色）。另用同一 runner 逐条核对整节点命中：输入 `@src/`、`@\"带空格目录/`、`@\"abc/` 三种单 token 文本，.ref-token 都出现（修复前全为空）。单测 test/tokenScan.test.ts 16 项全绿，含新增 atTokenName / isFolderAtToken 口径用例与 `@\"dir/\"` 按语法着色。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "B-06 撤销键：清空后 Ctrl+Z 真的能找回（文案/行为/验收场景三者一致）",
+      "expect": "composer 填入文本 + @会话引用 + 图片/文件 chip：第一次 Ctrl+C 亮提示小框且内容不动；第二次 Ctrl+C 清空（文本/引用/chips/×都收）；空输入框按 Ctrl+Z 恢复原文，@引用以高亮 token 重渲染、chips 都回来、光标在文末。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-sandbox-shots/54-composer-keyboard-clear-undo.png"],
+      "notes": "harness 场景 composer-keyboard-clear-undo 四步断言全绿（此前 restored 步一直失败）：filled ok（文本+@会话引用+2 个 chip 原样）；armed ok（提示小框「Press Esc or Ctrl+C again to clear the input」、内容未动）；cleared ok（value 空、chips 行消失、提示摘除、× 隐藏、焦点在输入框）；restored ok（文本整体恢复、@旧会话 以 .ref-token 高亮重渲染、chips 回来）。修复两处：Lexical 只认平台撤销键（mac ⌘Z / 其他 Ctrl+Z），Ctrl+Z 在 mac 上到不了处理器 → 捕获阶段自收 Ctrl+Z/⌘Z 复合键；清空动作自身的 setText('') 与随后的编辑器重建首帧 onTextChange('') 会把刚存下的 clearedStash 抹掉 → 清空全程置 clearingComposer。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "B-15/B-16/B-17 剪贴板与引用同步（文件+文本都收、手打 token 不被改写、chip 双向 hover）",
+      "expect": "①剪贴板同时含文件与文本：文本必须插进输入框且文件照旧进附件管道（原来有文件就丢文本）；②手打的 @token 不被历史绑定静默改写，补全落定/粘贴的引用照旧展开成 canonical；③附件 chip 与文本 @ 引用双向 hover 点亮。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "harness 逐条确定性核对（runner 内联脚本）：混合粘贴后输入框文本为「看这个 @[旧会话](dsh-session:…) 的结论带文字的粘贴」（文本留下了）且 __posted 里有 filesPasted（文件也收了）；会话 mention 粘贴显示形态仍还原成 @旧会话、发送时文本为 canonical @[旧会话](dsh-session:InNlc3MtOSI)（节点级投影没丢引用）；补全落定后发送文本为 @/abs/sess-1/img1.png（chip 的 ref 展开正确）；hover 附件 chip → .ref-chip.active=true，hover 引用 chip → 附件 chip .hovered=true（两个方向都通）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "现有 @token 着色场景不回归（引号尾斜杠 / 词中边界 / 斜杠命令）",
+      "expect": "ref-token-quoted-tail-slash：闭合引号无尾 / 不着色、引号敞开目录（尾 /）按语法着色（count 1，texts [\"@\\\"src/\"]）；ref-token-word-boundary：词中命中不高亮、边界命中照常（count 1）；ref-token-slash-command：/plan 着色、/foo 与 /Users 路径不着色（count 1）。",
+      "result": "pass",
+      "screenshots": ["/tmp/dsh-sandbox-shots/54-ref-token-quoted-tail-slash.png"],
+      "notes": "三个场景逐个跑：quoted-tail-slash 断言 {count:1, text:\"@\\\"src/\"} 命中；word-boundary {count:1, texts:[\"@img1.png\"]} 命中；slash-command {count:1, texts:[\"/plan\"]} 命中。截图核对：@\"src/ 有高亮底、其余文本无底色。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "现有草稿/召回场景不回归（restore-draft-stop / draft-restore-* / mention-bindings-recall）",
+      "expect": "restore-draft-stop：stop 回填后输入框为「等等，先停下，看看 @旧会话 的状态。」、附件区 1 个文件 chip + 1 张缩略图、@旧会话 是 .ref-token、正文看不到附件路径行；draft-restore-blank-hero / draft-restore-with-files / mention-bindings-recall：草稿与绑定照旧恢复。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "四个场景逐个跑并读断言：restore-draft-stop 命中 window.__restoreDraftStop = {input:\"等等，先停下，看看 @旧会话 的状态。\", chips:[\"README.md\"], refTokens:[\"@旧会话\"], thumbs:1}；draft-restore-blank-hero 值「重启前没发出去的草稿」；draft-restore-with-files 值「顺带把 main.ts 也带上」；mention-bindings-recall 值「@img1.png 」。B-21 把回填改成排队落地后，这四个场景的即时回填行为未变（输入框空着时当场落地）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "单测与构建回归",
+      "expect": "npm run typecheck 绿；npm test 706 项全绿（含 tokenScan / composerAttachment / conversation / fileReference / userBubble）；npm run build 产出 4 个 bundle。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "typecheck 无错；npm test 706 pass / 0 fail；npm run build 产出 extension.js + chatWebview.js + sessionsWebview.js + spawnDsh.js。唯一改动的既有断言是 tokenScan.test.ts 里 `@\"dir/\"` 那条：官方 FOLDER_REF_RE 的 `@\"[^\"\\n]*\\/` 分支吃到的正是闭引号前那个 `/`，所以它该着色（原断言写的是不着色，属 B-09/B-10 的口径修正）。"
+    }
+  ]
+}

@@ -26,6 +26,22 @@ interface JobViewLike {
 }
 
 /**
+ * JobView 行 → ActivityJob（缺省 startedAt 按到达时刻填，避免排序/时长显示为
+ * undefined）。基线整表重建与增量帧共用一份映射。
+ */
+function toActivityJobs(jobs: readonly JobViewLike[]): ActivityJob[] {
+  return jobs.map((j) => ({
+    id: String(j.id),
+    kind: String(j.kind),
+    label: String(j.label),
+    status: String(j.status),
+    startedAt: typeof j.startedAt === 'number' ? j.startedAt : Date.now(),
+    ...(j.detail ? { detail: String(j.detail) } : {}),
+    ...(typeof j.finishedAt === 'number' ? { finishedAt: j.finishedAt } : {}),
+  }))
+}
+
+/**
  * 后台任务数据层（头部「N 个后台任务」chip 的下拉数据源）：WS /api/events.mux
  * 是全局广播——连接时 host 重放所有会话的 session/jobs 基线（含已 settled 的
  * job），之后增量推送；这里不过滤 sessionId，把帧按 owner 会话折叠成
@@ -88,10 +104,18 @@ export class JobsStore implements vscode.Disposable {
           if (frame.type === 'jobs') {
             this.onFrame('session/jobs', { sessionId: frame.sessionId, jobs: frame.jobs })
           } else if (frame.type === 'baseline') {
+            // 基线是全域快照：缺席的会话键=该会话没有任务，整表重建而不是
+            // 只覆盖存在的条目——否则断流重连/晚订阅重放后，已经结束的后台
+            // 任务会一直挂在「N 个后台任务」下拉里（#52 S2）。对齐官方 web
+            // 客户端 replaceControlBaseline 的 jobsBySession.clear() + 重建。
             const jobs = (frame.value.jobs ?? {}) as Record<string, unknown>
+            const next = new Map<string, ActivityJob[]>()
             for (const [sessionId, rows] of Object.entries(jobs)) {
-              this.onFrame('session/jobs', { sessionId, jobs: rows })
+              const mapped = toActivityJobs(Array.isArray(rows) ? (rows as JobViewLike[]) : [])
+              if (mapped.length > 0) next.set(sessionId, mapped)
             }
+            this.jobsBySession = next
+            this.scheduleFire()
           }
         })
       } else {
@@ -117,21 +141,11 @@ export class JobsStore implements vscode.Disposable {
     if (!sessionId) return
     // Whole-snapshot replacement per session; an empty array clears the key.
     const jobs = Array.isArray(p.jobs) ? (p.jobs as JobViewLike[]) : []
-    if (jobs.length === 0) {
+    const mapped = toActivityJobs(jobs)
+    if (mapped.length === 0) {
       if (!this.jobsBySession.delete(sessionId)) return
     } else {
-      this.jobsBySession.set(
-        sessionId,
-        jobs.map((j) => ({
-          id: String(j.id),
-          kind: String(j.kind),
-          label: String(j.label),
-          status: String(j.status),
-          startedAt: typeof j.startedAt === 'number' ? j.startedAt : Date.now(),
-          ...(j.detail ? { detail: String(j.detail) } : {}),
-          ...(typeof j.finishedAt === 'number' ? { finishedAt: j.finishedAt } : {}),
-        })),
-      )
+      this.jobsBySession.set(sessionId, mapped)
     }
     this.scheduleFire()
   }

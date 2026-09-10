@@ -16,7 +16,7 @@ import {
   replayControlSnapshot,
   type ControlSnapshot,
 } from '../pure/controlSnapshot.ts'
-import { sendWaterfallResult } from './dshRpc.ts'
+import { rejectWaterfallResult, sendWaterfallResult } from './dshRpc.ts'
 import { is013Wire } from './serverAuth.ts'
 
 /**
@@ -30,8 +30,19 @@ import { is013Wire } from './serverAuth.ts'
 export interface ModernEventsHandler {
   /** One emitted forwarded event (`event` + Cordis args array). */
   onEvent?: (event: string, args: unknown[]) => void
-  /** One waterfall request (approval/question); `answer` settles it. */
-  onRequest?: (request: { eventId: string; agentId: string; event: string; req: Record<string, unknown>; answer: (value: unknown) => Promise<void> }) => void
+  /**
+   * One waterfall request (approval/question). `answer` settles it with the
+   * listener's value; `reject` settles it as a listener throw instead (the user
+   * cancelled the request — the host restores the error by name/code).
+   */
+  onRequest?: (request: {
+    eventId: string
+    agentId: string
+    event: string
+    req: Record<string, unknown>
+    answer: (value: unknown) => Promise<void>
+    reject: (error: { name: string; message: string; code?: string }) => Promise<void>
+  }) => void
   /** The host cancelled a pending waterfall (settled elsewhere / aborted turn). */
   onCancel?: (eventId: string) => void
   /** Stream dropped; pending state should be treated as gone. */
@@ -106,7 +117,7 @@ export function subscribeModernEvents(origin: string, logger: Logger, handler: M
   }
 }
 
-/** Deliver one waterfall frame to one handler; `answer` settles it locally. */
+/** Deliver one waterfall frame to one handler; `answer`/`reject` settle it locally. */
 function dispatchWaterfall(
   origin: string,
   state: EventStreamState,
@@ -120,6 +131,10 @@ function dispatchWaterfall(
     req: frame.request,
     answer: async (value: unknown) => {
       await sendWaterfallResult(origin, state.clientId as string, frame.eventId, value)
+      settlePendingLocally(state, frame.eventId)
+    },
+    reject: async (error: { name: string; message: string; code?: string }) => {
+      await rejectWaterfallResult(origin, state.clientId as string, frame.eventId, error)
       settlePendingLocally(state, frame.eventId)
     },
   })
@@ -294,16 +309,28 @@ export function purgeModernStreams(origin: string): void {
   getMux(origin, state?.logger ?? control?.logger ?? ({} as Logger)).close()
 }
 
-/** `workspace/follow` stream subscription (self-reconnecting). */
+/**
+ * `workspace/follow` stream subscription (self-reconnecting).
+ *
+ * `onReconnect` fires when a **second** baseline arrives on the same
+ * subscription: the host sends exactly one baseline per stream creation, so a
+ * repeat means the stream was re-opened after a transport loss (same URL — a
+ * server restart goes through purge/url change instead). Consumers use it to
+ * refetch what the baseline does not carry (e.g. session summaries with the
+ * running flag), which the blind window may have changed unseen.
+ */
 export function subscribeWorkspaceStream(
   origin: string,
   logger: Logger,
   onFrame: (frame: WorkspaceStreamFrame) => void,
+  onReconnect?: () => void,
 ): Disposable {
   let closed = false
   let subscription: (Disposable & { retry: () => void }) | null = null
   let timer: NodeJS.Timeout | null = null
   let attempts = 0
+  /** 已收过一次 baseline：再收到就是从断流里重开的代际。 */
+  let baselined = false
   const start = (): void => {
     if (closed || subscription !== null) return
     subscription = openStream(
@@ -314,7 +341,15 @@ export function subscribeWorkspaceStream(
       {
         onItem(value: unknown) {
           const frame = parseWorkspaceStreamFrame(value)
-          if (frame !== null) onFrame(frame)
+          if (frame === null) return
+          if (frame.type === 'baseline') {
+            const reopened = baselined
+            baselined = true
+            onFrame(frame)
+            if (reopened) onReconnect?.()
+            return
+          }
+          onFrame(frame)
         },
         onError() {
           subscription = null

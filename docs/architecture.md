@@ -9,7 +9,7 @@
 ```
 dsh-one/
 ├── package.json            # 清单：命令、配置项、侧边栏 view、extensionKind
-├── build.mjs               # esbuild 打包脚本，双入口：dist/extension.js（宿主）+ dist/chatWebview.js（聊天前端）
+├── build.mjs               # esbuild 打包脚本：dist/extension.js（宿主）+ dist/chatWebview.js（聊天前端）+ dist/sessionsWebview.js + dist/spawnDsh.js + dist/shiki/*（语法高亮内核与 23 个语言包，懒加载资源）
 ├── src/
 │   ├── extension.ts        # activate/deactivate 入口，注册命令与 view
 │   ├── log.ts              # 输出通道日志，写入前对 URL query 值脱敏
@@ -114,7 +114,7 @@ dsh-one/
 5. **dsh 与窗口生命周期解绑（2026-10 反转原决策）。** 原设计在 `deactivate()` 里同步 SIGTERM + detached reaper 补 SIGKILL，导致 reload window 就中断进行中的 session（开发期一天十余次）。现改为「父死子存」，且必须**双层 spawn**：单层 `detached + unref + stdio 进日志文件`只解决进程组与 EPIPE，实测 VS Code reload 时会对扩展宿主进程树做 SIGTERM 树杀（`pgrep -P` 递归），ppid 链不断就逃不掉；短命启动器（`src/server/spawnDsh.ts`）拉起 dsh 后立即退出，dsh 被 launchd 收养才彻底脱离。身份写 globalStorage pidfile，下个宿主 re-own；dsh 只在用户显式 `dshOne.stop` / `dshOne.restart` 时被杀（POSIX 整组 SIGTERM→SIGKILL，Windows `taskkill /T /F`）。副作用：终端升级 dsh 后需手动 restart 生效（已拍板暂不做版本提示）；扩展不再持有 dsh 进程句柄，意外退出由 30s 健康检查发现（不弹窗）。
 6. **就绪轮询 + 身份确认。** dsh 端口被占直接启动失败（不换端口），固定端口轮询 probeDsh 即可；port=0 例外，从日志文件解析就绪行拿实际端口后再 RPC 确认。实现：`src/server/manager.ts`（`waitReady`）。
 7. **iframe 嵌入官方 UI（现阶段）。** 调研的 28 个竞品里，重写派每家都在追官方协议叫苦；iframe 嵌入零 UI 同步成本。官方未提供嵌入隐藏侧栏的能力，预留参数 `dsh_embed` 已删除（0.1.1-rc.2/0.1.2-rc.1 均未消费）；如需跟进见 `docs/roadmap.md` 上游 issue/PR 路线。长期方向是原生前端，见 `docs/roadmap.md`。实现：`src/ui/webview.ts:95`。
-8. **零运行时依赖（扩展宿主）。** 扩展宿主只用 Node 22 内置模块 + vscode API，esbuild 打单文件 bundle。**修订（阶段二）**：聊天 webview 前端（`src/ui/chat/`）允许打包依赖——marked + dompurify 由 esbuild 内联进 `dist/chatWebview.js`，无运行时外部加载；宿主 bundle（`dist/extension.js`）仍零依赖。依据：`package.json` 的 `dependencies` 仅被 webview entry 引用；`build.mjs` 双入口打包。
+8. **零运行时依赖（扩展宿主）。** 扩展宿主只用 Node 22 内置模块 + vscode API，esbuild 打单文件 bundle。**修订（阶段二）**：聊天 webview 前端（`src/ui/chat/`）允许打包依赖——marked + dompurify 由 esbuild 内联进 `dist/chatWebview.js`，无运行时外部加载；宿主 bundle（`dist/extension.js`）仍零依赖。依据：`package.json` 的 `dependencies` 仅被 webview entry 引用；`build.mjs` 按入口打包。**修订（语法高亮）**：shiki（内核 + 23 个语言包）不作内联——打包成 `dist/shiki/*.js` 独立资源，出现「滚入视口且语言可识别」的代码块时由 webview 用带 nonce 的 <script> 现场拉起（webview 的 CSP 是 nonce 制，动态 import 不带 nonce 会被拦），加载失败静默降级成纯文本。
 9. **外部启动的认证 dsh：防护 + 显式接管（2026-09-06，external-dsh-manage-012）。** 0.1.2 起 dsh 每次启动 mint 随机 token（只随其 URL/stdout 出现），外部实例的 token 扩展拿不到——认证 dsh 会拒绝无凭证的 host.describe（401+`unauthorized`，`src/server/portProbe.ts`）。默认动作（用户已拍板）：探测到认证 dsh 无 token → **报错不另起**（不再换端口 spawn 双实例），状态栏 tooltip 给出管理入口。B 档：用户粘贴终端 URL 的 token（`GET /?token=` 换票验证）→ 连接并把 token 存入共享记录（`source:'external'`、`owned:false`、不写 owner——任一窗口可重连，但 kill 权不归任何窗口）。A 档：外部实例可停止/重启，但杀前必须确认弹窗（外部实例可能在用户终端跑）+ 命令行含 dsh 特征才杀 + **只向单 pid 发 SIGTERM**（外部实例进程组是 shell 的，进程组杀法会把用户的 shell 一起杀掉）；Windows 无优雅路径，`taskkill /T /F`。pid 探测三平台：macOS `lsof -tiTCP:<port> -sTCP:LISTEN`、Linux `/proc/net/tcp`+`/proc/<pid>/fd` inode 对照、Windows `netstat -ano`+PowerShell（`src/server/externalDsh.ts`）。
 
 ## 日志与安全细节

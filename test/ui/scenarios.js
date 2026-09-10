@@ -1367,6 +1367,119 @@
       expect: '输入框（编辑器）文本为空，仅显示浅灰占位符「Type a message; Enter queues, ⌘Enter steers now, ↑ edits the queued message, Esc clears input first, then interrupts」；文本流里没有任何 @token 高亮节点残留发送前的「等等，先停下，看看状态。」；主按钮显示停止图标（运行中）；无消息流之外的异常浮层。',
     },
 
+    // #52 S1 本地乐观占位：mock 宿主不响应 post，第一步的占位会一直挂着（正是
+    // 要截的状态）；第二步人工推一帧含真身的 state 模拟宿主回流，占位应原位消失、
+    // 只剩真身（不重复、不残留）。三步场景各截一张 <scenario>-<step>.png。
+    'optimistic-echo-queued': {
+      state: base({ running: true }),
+      interactSteps: [
+        {
+          name: 'sent',
+          script: `(() => {
+            const i = document.getElementById('input')
+            if (!i) return
+            i.focus()
+            i.value = '先别动，等我把日志贴完。'
+            i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+          })()`,
+        },
+        {
+          name: 'landed',
+          script: `(() => {
+            const base = window.SCENARIOS['optimistic-echo-queued'].state
+            window.postMessage({
+              type: 'state',
+              state: { ...base, queue: [{ id: 'q-landed', placement: 'queued', text: '先别动，等我把日志贴完。', editText: '先别动，等我把日志贴完。', seq: 1 }] },
+            }, '*')
+          })()`,
+        },
+      ],
+      title: '乐观占位：运行中回车排队（sent）/ 宿主回流后（landed）',
+      expect: '第一张（sent）：输入框已清空；输入区上方出现一条排队行，内容为「Queued + 先别动，等我把日志贴完。」，行内右侧是转圈、**没有** Steer/Edit/Delete 操作入口（本地占位还没有宿主 itemId）；消息流里没有这条文本的重复气泡；主按钮是停止图标（运行中）。第二张（landed）：真排队项到达后仍只有**一条**排队行（占位已原位撤掉、没重复），操作入口变成 Steer/Edit/Delete 且转圈消失；输入框保持空。',
+    },
+
+    'optimistic-echo-steering': {
+      state: base({ running: true }),
+      interactSteps: [
+        {
+          name: 'sent',
+          script: `(() => {
+            const i = document.getElementById('input')
+            if (!i) return
+            i.focus()
+            i.value = '停一下，先回答我这个问题。'
+            i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }))
+          })()`,
+        },
+        {
+          name: 'landed',
+          script: `(() => {
+            const base = window.SCENARIOS['optimistic-echo-steering'].state
+            window.postMessage({
+              type: 'state',
+              state: { ...base, queue: [{ id: 's-landed', placement: 'steering', text: '停一下，先回答我这个问题。', editText: '停一下，先回答我这个问题。', seq: 1 }] },
+            }, '*')
+          })()`,
+        },
+      ],
+      title: '乐观占位：⌘Enter 插话（sent）/ 宿主回流后（landed）',
+      expect: '第一张（sent）：输入框已清空；消息流末尾（turn-status 转圈行之后）出现一条插话等待气泡——内容「停一下，先回答我这个问题。」，气泡左侧是处理中圆圈；没有第二条重复气泡；输入区上方**不出现**排队行（插话不排队）。第二张（landed）：宿主回流的真插话气泡接管同一位置，仍是**一条**气泡（不重复）；消息流其余部分未变。',
+    },
+
+    'optimistic-echo-turn': {
+      state: base({ running: false }),
+      interactSteps: [
+        {
+          name: 'sent',
+          script: `(() => {
+            const i = document.getElementById('input')
+            if (!i) return
+            i.focus()
+            i.value = '接着刚才的架构，再补充一段。'
+            i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+          })()`,
+        },
+        {
+          name: 'failed',
+          script: `window.postMessage({ type: 'restoreDraft', text: '接着刚才的架构，再补充一段。' }, '*')`,
+        },
+      ],
+      title: '乐观占位：空闲发送（sent）/ 发送失败回填草稿（failed）',
+      expect: '第一张（sent）：输入框已清空；消息流末尾出现一条用户气泡「接着刚才的架构，再补充一段。」+ 气泡左侧处理中圆圈（本地占位）；输入区上方不出现排队行；不可出现第二条相同文本的气泡。第二张（failed）：发送失败宿主回填草稿后，本地占位气泡**消失**（消息流里不再有这条文本的占位气泡），文本回到输入框里、光标在输入框内。',
+    },
+
+    // #52 W3 展开态按会话隔离：工具卡展开后切到别的会话（内容整列重建、组件
+    // 卸载），再切回来必须还是展开的。三步各截一张。
+    'expand-state-survives-switch': {
+      state: base({
+        messages: [
+          u('查一下这几个服务的健康状态。'),
+          at('开始健康检查。', [
+            toolBlock({
+              name: 'bash', title: 'bash', detail: 'curl /health',
+              output: 'gateway ok (12ms)\nauth ok (31ms)\nbilling timeout (88ms)',
+            }),
+          ]),
+        ],
+      }),
+      interactSteps: [
+        { name: 'expanded', script: `document.querySelector('.tool-disclosure summary')?.click()` },
+        {
+          name: 'away',
+          script: `window.postMessage({
+            type: 'state',
+            state: { ...window.SCENARIOS['expand-state-survives-switch'].state, sessionId: 'sess-2', sessionTitle: '另一个会话', messages: [] },
+          }, '*')`,
+        },
+        {
+          name: 'back',
+          script: `window.postMessage({ type: 'state', state: window.SCENARIOS['expand-state-survives-switch'].state }, '*')`,
+        },
+      ],
+      title: '展开态跨会话保留：展开工具卡 → 切走 → 切回',
+      expect: '第一张（expanded）：工具卡（Ran a command bash / curl /health）展开，OUT 区显示三行输出文本，summary 右侧 chevron 朝上。第二张（away）：已切到 sess-2——渲染空会话 hero（居中「Describe what you want to build」输入占位），**不出现** sess-1 的消息与那条工具卡。第三张（back）：切回 sess-1 后那条工具卡**仍然是展开的**（OUT 区三行输出可见、chevron 朝上），不是折叠态；消息内容与第一张一致。',
+    },
+
     subagents: {
       state: base({ subagents: [{ sessionId: 'sub-1', title: '子代理 A', running: true, updatedAt: Date.now(), children: [{ sessionId: 'sub-1-1', title: '孙代理', running: false, updatedAt: Date.now() }] }] }),
       title: '子代理下拉',
@@ -3763,7 +3876,10 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
         {
           name: 'restored',
           script: `(() => {
-            document.getElementById('input').dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
+            // 撤销键按平台取（macOS 的 Lexical 只认 Meta+Z，其他平台 Ctrl+Z）：
+            // 场景说的是「按撤销键反悔」，写死 Ctrl 会让整个场景在 macOS 上跑不了。
+            const mod = navigator.userAgent.includes('Mac') ? { metaKey: true } : { ctrlKey: true }
+            document.getElementById('input').dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: 'z', bubbles: true, cancelable: true }, mod)))
             const input = document.getElementById('input')
             const token = document.querySelector('.input-area .ref-token')
             const chips = document.querySelectorAll('.input-area .image-chips > *').length
@@ -4475,10 +4591,367 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     expect: '运行中对话：composer 输入框文本为「等等，先停下，看看 @旧会话 的状态。」——canonical @[旧会话](dsh-session:…) 还原成 @旧会话（高亮层一个 .ref-token）；composer 附件区一个文档图标文件 chip（README.md）+ 一个红色方形图片缩略图（chart.png）。DOM 断言 window.__recallUnsteerSession = {input: "等等，先停下，看看 @旧会话 的状态。", chips: ["README.md"], refTokens: ["@旧会话"], thumbs: 1}。',
   }
 
+  // 场景内断言助手（失败横幅 + window.__<ns>Asserts 明细）：本批的交互场景共用。
+  const guardHelper = (ns) => `
+    window.${ns}Asserts = []
+    window.${ns}Fail = (step, detail) => {
+      window.${ns}Asserts.push({ step, ok: false, detail })
+      const d = document.createElement('div')
+      d.textContent = 'ASSERT FAILED [' + step + ']: ' + detail
+      d.style.cssText = 'position:fixed;top:0;left:0;background:red;color:#fff;z-index:99;padding:4px'
+      document.body.appendChild(d)
+    }
+    window.${ns}Ok = (step, extra) => window.${ns}Asserts.push(Object.assign({ step, ok: true }, extra || {}))
+  `
+
+  // ---- 代码块语法高亮（#51）----
+  catalog['code-block-highlight'] = {
+    state: base({
+      messages: [
+        u('把改法贴给我看看。'),
+        at(
+          '视口外的块不着色：\n\n```go\nfunc main() {\n\tprintln("viewport")\n}\n```\n\n' +
+            // 占位说明把下面的代码块推到下面（渲染后消息区贴底，上面这个 go 块就出了视口）
+            Array.from({ length: 40 }, (_, i) => `第 ${i + 1} 行占位说明，用来把上面的代码块推出视口。`).join('\n\n') +
+            '\n\n这样写：\n\n```ts\nconst answer: number = 42\n// 计数器\nfunction bump(n: number) {\n  return `n=${n}`\n}\n```\n\n换成 Python 是这样：\n\n```python\ndef bump(n):\n    return f"n={n}"\n```\n\n没登记的语言不着色：\n\n```unknownlang\n@@ 原样文本 @@\n```',
+        ),
+      ],
+    }),
+    title: '代码块语法高亮：shiki 懒加载 + 滚入视口才着色',
+    interactSteps: [
+      {
+        name: 'highlighted',
+        script: `(() => {
+          ${guardHelper('__hl')}
+          const pres = () => [...document.querySelectorAll('.md-code pre')]
+          const done = (pre) => pre.hasAttribute('data-hl')
+          window.__hlDiag = () => pres().map((p) => ({ hl: p.getAttribute('data-hl'), lines: p.querySelectorAll('code > span.line').length, text: (p.querySelector('code')?.textContent ?? '').slice(0, 24) }))
+          let waited = 0
+          const tick = () => {
+            const list = pres()
+            // 四块的 DOM 顺序：视口外的 go、视口内的 ts / python / unknownlang
+            const [offscreen, ts, py, unknown] = list
+            const tsText = ts?.querySelector('code')?.textContent ?? ''
+            const tsLines = tsText.split('\\n')
+            const tsOk = !!ts && done(ts) && ts.getAttribute('data-hl') === 'ts'
+              // 围栏内容带尾换行：5 行源码 + 1 个空行尾
+              && tsLines.length === 6
+              && tsLines[0] === 'const answer: number = 42'
+              && tsLines[1] === '// 计数器'
+              && tsLines[2] === 'function bump(n: number) {'
+              && tsLines[4] === '}'
+              && tsLines[5] === ''
+              && ts.querySelectorAll('code > span.line').length === 6
+              && (ts.querySelector('code')?.innerHTML ?? '').includes('var(--shiki-token-keyword)')
+            const pyOk = !!py && done(py) && py.getAttribute('data-hl') === 'python'
+              && py.querySelectorAll('code > span.line').length === 3
+            const unknownOk = !!unknown && !done(unknown) && (unknown.querySelector('code')?.textContent ?? '').includes('@@ 原样文本 @@')
+            const offOk = !!offscreen && !done(offscreen)
+            if (tsOk && pyOk && unknownOk && offOk) {
+              window.__hlOk('highlighted', { diag: window.__hlDiag() })
+              return
+            }
+            waited += 100
+            if (waited > 4000) {
+              window.__hlFail('highlighted', JSON.stringify({ tsOk, pyOk, unknownOk, offOk, tsText, diag: window.__hlDiag() }))
+              return
+            }
+            setTimeout(tick, 100)
+          }
+          tick()
+        })()`,
+        settle: 4600,
+      },
+    ],
+    expect: '助手消息里四段围栏代码——① ts 块：语言标签「ts」+ 逐行着色的 token（关键字/常量/注释/函数各一色，走 --shiki-token-* 变量），文本内容与源码逐字一致（着色不改内容）；② python 块：同样着色（语言包按需单独加载）；③ unknownlang 块：语言未登记，保持纯文本、无着色；④ 消息末尾被 40 行占位说明推到视口外的 go 块：**不着色**（只有滚进视口的代码块才拉起资源并着色）。DOM 断言 window.__hlAsserts 的 highlighted 步 ok=true（含四块的 data-hl/行数/文本明细）。',
+  }
+
+  // ---- 输入维度批次1（#51）：Esc/IME 门控、撤销链路、chip 文本投影 ----
+  // 共享断言助手：失败时顶部红色横幅（截图可见），明细写 window.__<ns>Asserts。
+
+  catalog['composer-ime-esc-guard'] = {
+    state: base({ running: true }),
+    title: 'EAC-01 IME 组合中的 Esc 不打断正在跑的 turn',
+    interactSteps: [
+      {
+        name: 'ime-esc-keeps-draft',
+        script: `(() => {
+          ${guardHelper('__imeEsc')}
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.value = '组合中按 Esc 只关候选窗'
+          ta.dispatchEvent(new Event('input'))
+          window.__posted = []
+          // isComposing:true = 输入法组合中（中文输入法里 Esc 是关候选窗）
+          ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }))
+          const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+          const ok = !stopped && ta.value === '组合中按 Esc 只关候选窗' && !document.querySelector('.clear-confirm-hint')
+          if (!ok) window.__imeEscFail('ime-esc-keeps-draft', JSON.stringify({ stopped, value: ta.value }))
+          else window.__imeEscOk('ime-esc-keeps-draft')
+        })()`,
+      },
+      {
+        name: 'ime-esc-empty-no-stop',
+        script: `(() => {
+          const input = document.getElementById('input')
+          input.value = ''
+          input.focus()
+          window.__posted = []
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }))
+          const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+          if (stopped) window.__imeEscFail('ime-esc-empty-no-stop', JSON.stringify({ stopped }))
+          else window.__imeEscOk('ime-esc-empty-no-stop')
+        })()`,
+      },
+      {
+        name: 'esc-empty-stops',
+        script: `(() => {
+          const input = document.getElementById('input')
+          input.focus()
+          window.__posted = []
+          // 非组合态的空输入框 Esc：仍应发 stop（组合门控不吞掉正常停止）
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+          const stopped = (window.__posted || []).some((m) => m && m.type === 'stop')
+          if (!stopped) window.__imeEscFail('esc-empty-stops', JSON.stringify({ stopped }))
+          else window.__imeEscOk('esc-empty-stops')
+        })()`,
+      },
+    ],
+    expect: '运行中（running:true）三张分步截图对照——① ime-esc-keeps-draft：草稿「组合中按 Esc 只关候选窗」原样保留、无提示小框、**无** stop（组合中的 Esc 只关候选窗）；② ime-esc-empty-no-stop：空输入框下组合中的 Esc 同样**不发** stop；③ esc-empty-stops：非组合态空输入框按 Esc 才发 stop（画面与 ② 同为空输入框 + 运行中占位文案）。任何一步断言失败会有顶部红色横幅（本场景应无横幅）。',
+  }
+
+  catalog['composer-undo-guards'] = {
+    state: base({}),
+    title: 'EAC-02 撤销链路：清空后可反悔、发送后不复活',
+    interactSteps: [
+      {
+        name: 'cleared',
+        script: `(() => {
+          ${guardHelper('__undo')}
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.value = '清空后 Ctrl+Z 应该能整体反悔'
+          ta.dispatchEvent(new Event('input'))
+          document.querySelector('.clear-all-button')?.click()
+          const ok = ta.value === ''
+          if (!ok) window.__undoFail('cleared', JSON.stringify({ value: ta.value }))
+          else window.__undoOk('cleared')
+        })()`,
+      },
+      {
+        name: 'undo-restores',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          // 平台无关的撤销键（macOS 的 Lexical 只认 Meta+Z，其他平台 Ctrl+Z）
+          const mod = navigator.userAgent.includes('Mac') ? { metaKey: true } : { ctrlKey: true }
+          ta.focus()
+          ta.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: 'z', bubbles: true, cancelable: true }, mod)))
+          // 反悔恢复会重建输入区：断言必须重新取当前 #input（旧引用是已摘除的节点）
+          const input = document.getElementById('input')
+          const ok = input.value === '清空后 Ctrl+Z 应该能整体反悔' && document.activeElement === input
+          if (!ok) window.__undoFail('undo-restores', JSON.stringify({ value: input.value, focused: document.activeElement === input }))
+          else window.__undoOk('undo-restores')
+        })()`,
+      },
+      {
+        name: 'sent',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.value = '这条发出去之后不该被 Cmd+Z 复活'
+          ta.dispatchEvent(new Event('input'))
+          window.__posted = []
+          ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+          const sent = (window.__posted || []).some((m) => m && m.type === 'send')
+          const ok = sent && ta.value === ''
+          if (!ok) window.__undoFail('sent', JSON.stringify({ sent, value: ta.value }))
+          else window.__undoOk('sent')
+        })()`,
+      },
+      {
+        name: 'undo-after-send-empty',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          const mod = navigator.userAgent.includes('Mac') ? { metaKey: true } : { ctrlKey: true }
+          ta.focus()
+          ta.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: 'z', bubbles: true, cancelable: true }, mod)))
+          const ok = ta.value === ''
+          if (!ok) window.__undoFail('undo-after-send-empty', JSON.stringify({ value: ta.value }))
+          else window.__undoOk('undo-after-send-empty')
+        })()`,
+      },
+      {
+        name: 'send-with-attachment-clears',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.value = '带附件发送后输入框要干净'
+          ta.dispatchEvent(new Event('input'))
+          window.postMessage({ type: 'filesPicked', files: [{ name: 'notes.md', path: '/tmp/notes.md' }] }, '*')
+          setTimeout(() => {
+            const input = document.getElementById('input')
+            const before = { value: input.value, chips: document.querySelectorAll('.input-area .image-chips > *').length }
+            window.__posted = []
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+            setTimeout(() => {
+              const after = { value: document.getElementById('input').value, chips: document.querySelectorAll('.input-area .image-chips > *').length }
+              const sent = (window.__posted || []).some((m) => m && m.type === 'send')
+              const ok = before.chips === 1 && before.value.includes('带附件发送') && sent && after.value === '' && after.chips === 0
+              if (!ok) window.__undoFail('send-with-attachment-clears', JSON.stringify({ before, after, sent }))
+              else window.__undoOk('send-with-attachment-clears', { after })
+            }, 250)
+          }, 300)
+        })()`,
+        settle: 900,
+      },
+    ],
+    expect: '五张分步截图对照——① cleared：填入文本后点 × 清空，输入框为空、× 隐藏；② undo-restores：空输入框按撤销键（macOS Meta+Z / 其他 Ctrl+Z）后文本「清空后 Ctrl+Z 应该能整体反悔」整体回来、× 重新可见、焦点在输入框；③ sent：重新填入「这条发出去之后不该被 Cmd+Z 复活」按 Enter，握手记录到 send、输入框清空；④ undo-after-send-empty：紧接着按撤销键，输入框**仍然为空**（已发出去的内容不被撤销复活）；⑤ send-with-attachment-clears：填入「带附件发送后输入框要干净」并挂一个 notes.md 附件（附件行 1 个 chip）后按 Enter——握手记录到 send、输入框清空、附件 chip 消失（清空触发输入区重建，重建出来的输入框不能带回已发送的文本）。任何一步断言失败会有顶部红色横幅（本场景应无横幅）。',
+  }
+
+  catalog['composer-chip-projection'] = {
+    state: base({}),
+    title: 'EAC-03 chip 文本投影 = 可解析路径（复制/落草稿/恢复）',
+    interactSteps: [
+      {
+        name: 'chip-projected',
+        script: `(() => {
+          ${guardHelper('__chipProj')}
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.value = '看看 '
+          ta.dispatchEvent(new Event('input'))
+          // 长文本粘贴 → 宿主折叠成文件 → 客户端在光标处插入 @ 引用 chip
+          const long = Array.from({ length: 20 }, (_, i) => 'line ' + i).join('\\n')
+          const dt = new DataTransfer()
+          dt.setData('text/plain', long)
+          ta.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+          window.postMessage({ type: 'filesPicked', files: [{ name: 'pasted-abc.txt', path: '/tmp/dsh-fold/pasted-abc.txt' }] }, '*')
+          setTimeout(() => {
+            const chip = document.querySelector('.input-area .ref-chip')
+            const value = document.getElementById('input').value
+            const ok = !!chip
+              && chip.querySelector('.ref-chip-label')?.textContent === '@pasted-abc.txt'
+              && chip.getAttribute('data-ref') === '@/tmp/dsh-fold/pasted-abc.txt'
+              && value === '看看 @/tmp/dsh-fold/pasted-abc.txt '
+            window.__chipProjSnapshot = { value, label: chip?.querySelector('.ref-chip-label')?.textContent, ref: chip?.getAttribute('data-ref') }
+            if (!ok) window.__chipProjFail('chip-projected', JSON.stringify(window.__chipProjSnapshot))
+            else window.__chipProjOk('chip-projected', window.__chipProjSnapshot)
+          }, 300)
+        })()`,
+        settle: 900,
+      },
+      {
+        name: 'copied-resolvable',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          ta.focus()
+          ta.setSelectionRange(0, ta.value.length)
+          const dt = new DataTransfer()
+          const ev = new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true })
+          ta.dispatchEvent(ev)
+          const copied = dt.getData('text/plain')
+          // 复制出去的是文本投影（canonical 路径），不是 DOM 里的显示名 @pasted-abc.txt
+          const ok = ev.defaultPrevented && copied === ta.value && copied.includes('@/tmp/dsh-fold/pasted-abc.txt')
+          if (!ok) window.__chipProjFail('copied-resolvable', JSON.stringify({ copied, prevented: ev.defaultPrevented, value: ta.value }))
+          else window.__chipProjOk('copied-resolvable', { copied })
+        })()`,
+      },
+      {
+        name: 'draft-resolvable',
+        script: `(() => {
+          const saves = (window.__posted || []).filter((m) => m && m.type === 'composerDraftSave')
+          const last = saves[saves.length - 1]
+          const text = last?.draft?.text ?? ''
+          const ok = text.includes('@/tmp/dsh-fold/pasted-abc.txt')
+          if (!ok) window.__chipProjFail('draft-resolvable', JSON.stringify({ text, saves: saves.length }))
+          else window.__chipProjOk('draft-resolvable', { text })
+        })()`,
+      },
+      {
+        name: 'restored-as-chip',
+        script: `(() => {
+          const ta = document.getElementById('input')
+          // 模拟重启/跨窗口：只剩 canonical 文本、没有内存绑定
+          ta.value = ''
+          ta.value = '看看 @/tmp/another/dir/notes.md 这个文件'
+          setTimeout(() => {
+            const input = document.getElementById('input')
+            const chips = [...document.querySelectorAll('.input-area .ref-chip')].map((c) => ({
+              label: c.querySelector('.ref-chip-label')?.textContent,
+              ref: c.getAttribute('data-ref'),
+            }))
+            const ok = chips.length === 1 && chips[0].label === '@notes.md' && chips[0].ref === '@/tmp/another/dir/notes.md'
+              && input.value === '看看 @/tmp/another/dir/notes.md 这个文件'
+            if (!ok) window.__chipProjFail('restored-as-chip', JSON.stringify({ chips, value: input.value }))
+            else window.__chipProjOk('restored-as-chip', { value: input.value, chips })
+          }, 200)
+        })()`,
+        settle: 700,
+      },
+    ],
+    expect: '四张分步截图对照——① chip-projected：composer 里「看看 」后面是一个文件引用 chip：chip 显示短名 @pasted-abc.txt（带文件图标），而输入框文本（文本投影）是完整路径 @/tmp/dsh-fold/pasted-abc.txt；② copied-resolvable：全选复制（断言层用合成 copy 事件读 clipboardData）拿到的整段文本与文本投影一致、含完整路径（不是显示名）；③ draft-resolvable：落盘草稿文本同样含完整路径；④ restored-as-chip：把输入框文本置成「看看 @/tmp/another/dir/notes.md 这个文件」（模拟重启/跨窗口后只剩 canonical 文本、无内存绑定），输入区重建出 1 个 chip——显示名 @notes.md、data-ref 是完整路径，输入框文本仍是完整路径。任何一步断言失败会有顶部红色横幅（本场景应无横幅）。',
+  }
+
   // 基线冒烟集：主线合入后跑这批稳定场景做回归（ui-visual.sh --mode baseline）。
   // 新增功能的场景先加进 window.SCENARIOS 做 worktree 验收；要让它成为"以后谁都不能弄坏"
   // 的存量状态，就把它的名字加进 BASELINE_SCENARIOS —— 随合入并入主线基线。
   window.SCENARIOS = catalog
+  // #54 B-07/B-13：@ 补全菜单的三态与 Tab 下钻 / hover 选中。mock 宿主不回
+  // fileRefList，正好停在「工作区候选在途」这一态——原来这里整组为空就收掉菜单
+  // （打 @ 的瞬间闪没），现在留菜单出加载行；随后注入一条目录候选 + 一条文件
+  // 候选：hover 第二行应把选中从首行移过去，Tab 落在目录行应下钻（文本变
+  // `@src/` 且菜单继续开着）。
+  Object.assign(window.SCENARIOS, {
+    'at-menu-pending-and-drill': {
+      state: base({ messages: [] }),
+      interactSteps: [
+        {
+          name: 'loading',
+          script: `(() => {
+            const input = document.getElementById('input')
+            input.focus()
+            input.value = '@sr'
+            input.setSelectionRange(3, 3)
+            input.dispatchEvent(new Event('input'))
+            setTimeout(() => {
+              const rows = Array.from(document.querySelectorAll('.slash-popup > *')).map((e) => e.textContent)
+              window.__atMenuCheck = { loading: rows }
+            }, 500)
+          })()`,
+          settle: 900,
+        },
+        {
+          name: 'hover-and-drill',
+          script: `(() => {
+            const req = (window.__posted || []).filter((m) => m.type === 'fileRefList').at(-1)
+            window.postMessage({ type: 'fileRefList', requestId: req.requestId, items: [
+              { path: 'src', kind: 'directory' }, { path: 'src/a.ts', kind: 'file' } ] }, '*')
+            setTimeout(() => {
+              const items = document.querySelectorAll('.slash-popup .menu-item')
+              items[1]?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))
+              const hoverSelected = Array.from(items).map((e) => e.classList.contains('selected'))
+              items[0]?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))
+              document.getElementById('input').dispatchEvent(
+                new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+              setTimeout(() => {
+                window.__atMenuCheck = {
+                  ...window.__atMenuCheck,
+                  hoverSelected,
+                  afterDrill: document.getElementById('input').value,
+                  menuOpen: !!document.querySelector('.slash-popup'),
+                  hint: document.querySelector('.slash-popup .menu-key')?.textContent ?? null,
+                }
+              }, 300)
+            }, 400)
+          })()`,
+          settle: 900,
+        },
+      ],
+      title: '@ 补全菜单：候选在途出加载行（不再闪没）+ hover 驱动选中 + 目录行 Tab 下钻',
+      expect: '@composer 输入「@sr」——工作区候选在途时菜单**仍开着**，显示一行「Files · Loading…」（不可选，不是空菜单闪一下）；mock 宿主回目录候选（src，directory）与文件候选（src/a.ts）后菜单出两组候选：鼠标移到文件行，该行选中（.selected 从首行移过去）；移回目录行后按 Tab——输入框变成「@src/」（下钻，不落定 chip）、菜单继续开着列出下一层，目录行右侧显示「Browse folder」+「Tab」提示。DOM 断言 window.__atMenuCheck = {loading:["Files · Loading…"], hoverSelected:[false,true], afterDrill:"@src/", menuOpen:true, hint:"Tab"}。',
+    },
+  })
+
   window.BASELINE_SCENARIOS = [
     'conversation', 'markdown', 'empty', 'dsh-not-found', 'approval', 'question',
     'plan-review', 'todos', 'subagents', 'history', 'model-picker', 'model-picker-effort-default', 'sessions',
@@ -4508,6 +4981,8 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'composer-long-scrolled',
     'composer-keyboard-clear-undo', 'composer-esc-clear-disarm',
     'composer-clear-running-guard', 'composer-clear-idle-guards',
+    'composer-ime-esc-guard', 'composer-undo-guards', 'composer-chip-projection',
+    'code-block-highlight',
     'ref-token-word-boundary', 'ref-token-lexicon-gate',
     'attachment-uniform',
     'session-open-failure',
@@ -4516,6 +4991,9 @@ postMessage({ type:'filesPicked', files:[{ name:'README.md', path:'/Users/cgeng/
     'inline-code-interact',
     'draft-restore-blank-hero', 'draft-restore-with-files', 'draft-restore-question',
     'restore-draft-stop', 'recall-queue-row', 'recall-history-images', 'recall-unsteer-session',
+    'at-menu-pending-and-drill',
+    'optimistic-echo-queued', 'optimistic-echo-steering', 'optimistic-echo-turn',
+    'expand-state-survives-switch',
   ]
   window.DEFAULT_SCENARIO = 'conversation'
 })()

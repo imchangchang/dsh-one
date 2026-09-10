@@ -9,10 +9,14 @@
  * 都不再是 webview 全局 Map。
  *
  * 为什么能替代全局 Map：ToolCard 作为 BlockList/Block 树里的稳定 vnode（key =
- * `${rowKey}:b${bi}`），只要组件实例不卸载，其内部 useState 跨父级重渲染存活——
+ * `${rowKey}:${block.id}`，tool 块 id 就是 callId），只要组件实例不卸载，其内部
+ * useState 跨父级重渲染存活——
  * 流式重建（tool running→done、行骨架 update 分支）不再销毁卡片自身的展开态与内
- * 滚动条位置（滚动容器是持久 DOM 元素，scrollTop 由浏览器保留）。组件卸载的极少
- * 数场合（会话切换、流整体重建）本来就要重置，与旧 Map 的 clear() 语义一致。
+ * 滚动条位置（滚动容器是持久 DOM 元素，scrollTop 由浏览器保留）。
+ *
+ * 组件卸载的场合（**会话切换**、流整体重建）不再重置展开态：展开值同步写进按
+ * 会话隔离的展开态帧（见 ../disclosure.ts），重挂载时按帧里的值初始化，切回原
+ * 会话照旧展开（#52 W3）；帧随会话整帧换出/换入，不跨会话串味。
  *
  * 内部滚动容器保留 data-scroll-key，供既有 saveInnerScroll/restoreInnerScroll
  * 在「整列重建」这类极端场合兜底；常规流式下容器不重建，位置自然存活。
@@ -20,6 +24,7 @@
 import { useMemo, useState } from 'preact/hooks'
 import { CODE_ICON, PANEL_ICONS, SKILL_ICON, STOP_ICON, TRASH_ICON, type IconDef } from '../icons.ts'
 import { iconSvg } from '../dom.ts'
+import { disclosureFrame } from '../disclosure.ts'
 import type { ChatToolBlock, SubagentNode } from '../../../pure/chatContract.ts'
 import { isCommandTool, prettyJson, toolAction, truncateLines } from '../../../pure/toolLine.ts'
 import { cordisActionCardModel, cordisDefineCardModel, cordisRunCardModel, skillCardModel } from '../../../pure/toolCards.ts'
@@ -41,6 +46,23 @@ export interface ToolCardProps {
 }
 
 const DIFF_PREVIEW_LINES = 8
+
+/**
+ * 展开态布尔：值落在按会话隔离的展开态帧里（见 ../disclosure.ts），组件重挂载
+ * （会话切走再切回）时按帧里的值初始化，不再是每次挂载都折叠。
+ */
+function useFrameFlag(
+  map: Map<string, boolean>,
+  key: string,
+): [boolean, (value: boolean | ((prev: boolean) => boolean)) => void] {
+  const [open, setOpen] = useState(() => map.get(key) ?? false)
+  const update = (value: boolean | ((prev: boolean) => boolean)): void => {
+    const next = typeof value === 'function' ? value(map.get(key) ?? false) : value
+    map.set(key, next)
+    setOpen(next)
+  }
+  return [open, update]
+}
 
 /** 运行中 spinner（对齐 animPhase.spinnerEl：负 animation-delay 对齐相位）。 */
 function Spinner() {
@@ -123,7 +145,7 @@ function ToolOutput({
   t: ToolTools['t']
   treeTools: TreeTools
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useFrameFlag(disclosureFrame().outputOpen, scopeKey)
   const value = tryParseJsonTree(output)
   if (value && !jsonTreeThresholdExceeded(value)) {
     // JSON → 树，套一层 tool-output 保持与非 JSON 输出一致的 20px 左缩进。
@@ -148,7 +170,7 @@ function ToolOutput({
 
 /** diff 块（左右分栏）：默认渲染前 DIFF_PREVIEW_LINES 行对，其余折叠成展开 toggle。 */
 function DiffBlock({ diff, scopeKey, t }: { diff: { oldText: string; newText: string }; scopeKey: string; t: ToolTools['t'] }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useFrameFlag(disclosureFrame().outputOpen, scopeKey)
   const pairs = alignDiffLines(diff.oldText, diff.newText)
   const shown = open ? pairs : pairs.slice(0, DIFF_PREVIEW_LINES)
   return (
@@ -188,7 +210,7 @@ function subagentSnapshotNote(block: ChatToolBlock, subagents: readonly Subagent
 
 function SkillCard({ block, keyId, t, treeTools }: { block: ChatToolBlock; keyId: string; t: ToolTools['t']; treeTools: TreeTools }) {
   const card = skillCardModel(block)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useFrameFlag(disclosureFrame().toolOpen, keyId)
   const lineBody = (
     <>
       {toolLeading(SKILL_ICON, block.status)}
@@ -239,7 +261,7 @@ function cordisDefineLine(card: ReturnType<typeof cordisDefineCardModel>, block:
 
 function CordisDefineCard({ block, keyId, t, treeTools }: { block: ChatToolBlock; keyId: string; t: ToolTools['t']; treeTools: TreeTools }) {
   const card = cordisDefineCardModel(block)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useFrameFlag(disclosureFrame().toolOpen, keyId)
   const expandable = card.hostCode !== null || card.clientCode !== null || card.output !== null
   const lineBody = cordisDefineLine(card, block, t)
   if (!expandable) {
@@ -327,7 +349,7 @@ function CordisActionCard({ block, keyId, t, treeTools }: { block: ChatToolBlock
  * （args）或输出（output）时整行可点展开（对齐 dsh web DisclosureRow）。
  */
 function GenericToolCard({ block, keyId, t, treeTools, subagents }: { block: ChatToolBlock; keyId: string; t: ToolTools['t']; treeTools: TreeTools; subagents: readonly SubagentNode[] | undefined }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useFrameFlag(disclosureFrame().toolOpen, keyId)
   const snapshotNote = subagentSnapshotNote(block, subagents)
   const snapshotEl = snapshotNote !== null ? <div className="tool-snapshot-note">{t(snapshotNote)}</div> : null
   const detailText = block.detail ? (isCommandTool(block.name) ? `$ ${block.detail}` : block.detail) : null
