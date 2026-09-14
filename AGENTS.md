@@ -31,6 +31,16 @@
 
 **验证线 `develop/cordis-chat`**（2026-09-14 起）：对话区官方 cordis 组件装配的验证线（#60 v1 整壳嵌入验收失败退回 `b:open` 后另立），条目 = #63（spike）→ #64（goal 1：对话区官方组件装配、侧栏保持自研）→ #65（goal 2：特有功能插件化）→ #66（goal 3：通用组件上游化）。该线任务合入用 `MERGE_TARGET=develop/cordis-chat`；`main` 保持自研 vanilla 前端不动，发布仍从 `main`。
 
+**本线统一用词（不造缩略词）**：
+
+- **装配**：用官方 dsh web 前端组件在自有 shell 里组装 VS Code 对话区（代码在 `src/ui/assembly/`、`src/server/assemblyMirror.ts`）。
+- **loopback 代理**：扩展在 127.0.0.1 起的转发服务器，替 webview 把请求转给 dsh 网关并附带登录 cookie（鉴权在代理侧完成，页面不接触 cookie）。
+- **插件整包（combo）**：网关把全部前端插件的代码拼成一个大文件、一个网址一次性下发；网校对文件内容做校验，改名单重新申请会 404。
+- **插件整包过滤**：loopback 代理把整包按每个插件代码段的起始标记切开后，删掉 block list 中的插件段、再拼好转发给 webview——只发生在 dsh-one 自己的转发管道里，网关服务端零改动。
+- **block list**：不进 VS Code 前端的官方插件清单（当前 2 个：`dsh-client-ui-layout` 官方外框、`dsh-client-ui-sidebar` 官方侧栏；新增须注释理由）。
+- **shell 插件**：`@dsh-one/vscode-shell`（自有），接管根外框、提供 layout 服务桩、负责主题着色（ThemePresenter 复刻）；没有它官方前端组件起不来。
+- **双前端**：同一网关实例上，官方 dsh web 拿全量清单正常使用，dsh-one 前端自己过滤——不给 dsh 加 profile、不改服务端。
+
 ## CHANGELOG 写法
 
 CHANGELOG 写法见 skill **`changelog-conventions`**（正本在 `.agents/skills/changelog-conventions/`）：面向用户结果、一条一句、不写函数名/行号/内部术语。
