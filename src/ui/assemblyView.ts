@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
 import * as path from 'node:path'
 import type { ServerManager } from '../server/manager.ts'
-import type { Logger } from '../log.ts'
+import { sanitize, type Logger } from '../log.ts'
 import { startAssemblyMirror, type AssemblyMirror } from '../server/assemblyMirror.ts'
 import { cookieHeader, dshVersion } from '../server/serverAuth.ts'
 import { parse as parseSemver, compare as compareSemver } from '../pure/semver.ts'
@@ -114,7 +114,20 @@ export function registerAssembledChat(
     )
     active = { panel, mirror }
     logger.info(`assembled chat: ${mirror.origin}`)
+    // 装配页诊断探针（仅 webview 激活，见 assembly/probe.ts）回传日志：
+    // [assembly] 前缀写入输出面板「DSH One」频道；只认 assembly:log，其余消息
+    // 类型忽略。面板关闭即随 dispose 停收。文本过 sanitize 脱敏（URL 掩码）。
+    const probeSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
+      if (typeof msg !== 'object' || msg === null) return
+      const m = msg as { type?: unknown; level?: unknown; text?: unknown }
+      if (m.type !== 'assembly:log') return
+      const line = `[assembly] ${sanitize(typeof m.text === 'string' ? m.text : String(m.text ?? ''))}`
+      if (m.level === 'error') logger.error(line)
+      else if (m.level === 'warn') logger.warn(line)
+      else logger.info(line)
+    })
     panel.onDidDispose(() => {
+      probeSub.dispose()
       if (active?.panel === panel) active = undefined
       mirror.dispose()
     })

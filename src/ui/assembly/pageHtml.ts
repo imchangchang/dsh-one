@@ -5,9 +5,10 @@
  * 普通浏览器可开」的验收口径。
  *
  * 页面结构照抄网关 `/` 的注入形态（spike #63 从真实网关 HTML 提取的契约）：
- *   <head>：base href（一切相对 URL 落回 mirror）→ CSP → 队列 facade（内联，
- *   nonce）→ modulepreload/CSS → __DSH_BOOT__ wire → 阻塞 bootstrap script →
- *   主 bundle（type=module）→ __DSH_TRANSPORT__ 接缝（内联，nonce）
+ *   <head>：base href（一切相对 URL 落回 mirror）→ CSP → 诊断探针（内联，
+ *   nonce，仅 webview 激活）→ 队列 facade（内联，nonce）→ modulepreload/CSS →
+ *   __DSH_BOOT__ wire → 阻塞 bootstrap script → 主 bundle（type=module）→
+ *   __DSH_TRANSPORT__ 接缝（内联，nonce）
  *   <body>：主题预置 → __DSH_BOOT_READY__ resolve → 版本门信息条（可选）→ #root
  *
  * __DSH_TRANSPORT__ 是 webview 形态独有的接缝：页面源是 vscode-webview://，
@@ -51,6 +52,8 @@ export interface AssemblyPageOptions {
   /** 实验开关：false 时去掉 __DSH_TRANSPORT__ 桥（A/C 变体对照）。生产恒缺省。 */
   transport?: boolean
 }
+
+import { assemblyProbeJs } from './probe.ts'
 
 const CSP = [
   "default-src 'none'",
@@ -120,9 +123,18 @@ function transportJs(mirrorOrigin: string): string {
   return `(() => {
   const MIRROR = ${JSON.stringify(mirrorOrigin)}
   const WS_ORIGIN = MIRROR.replace(/^http/, "ws")
+  // 诊断探针埋点：探针（probe.ts）只在 webview 挂 __DSH_ONE_PROBE__；浏览器静默。
+  const probe = (level, text) => { if (globalThis.__DSH_ONE_PROBE__) globalThis.__DSH_ONE_PROBE__.log(level, text) }
   const apiFetch = (input, init) => {
     const parsed = new URL(String(input), globalThis.location ? globalThis.location.href : MIRROR + "/")
-    return fetch(new URL(parsed.pathname + parsed.search, MIRROR).href, init)
+    const url = new URL(parsed.pathname + parsed.search, MIRROR).href
+    return fetch(url, init).then((res) => {
+      if (!res.ok) probe("warn", "transport fetch " + parsed.pathname + " -> HTTP " + res.status)
+      return res
+    }, (err) => {
+      probe("error", "transport fetch " + parsed.pathname + " failed: " + err)
+      throw err
+    })
   }
   const openStream = (endpoint, payload, signal) => (async function* () {
     signal && signal.throwIfAborted()
@@ -131,8 +143,10 @@ function transportJs(mirrorOrigin: string): string {
     const inbox = []
     const waiters = []
     let failure = null
+    let firstFrame = false
     const deliver = (frame) => {
       if (failure !== null) return
+      if (!firstFrame) { firstFrame = true; probe("info", "openStream first frame " + endpoint) }
       const waiter = waiters.shift()
       if (waiter !== undefined) waiter.resolve(frame)
       else inbox.push(frame)
@@ -140,6 +154,7 @@ function transportJs(mirrorOrigin: string): string {
     const carrierFail = (error) => {
       if (failure !== null) return
       failure = error
+      probe("error", "openStream carrier fail " + endpoint + ": " + error.message)
       for (const waiter of waiters.splice(0)) waiter.reject(error)
     }
     const take = () => {
@@ -169,6 +184,7 @@ function transportJs(mirrorOrigin: string): string {
         ws.onopen = resolve
         ws.addEventListener("error", () => reject(new Error("remote stream websocket error")), { once: true })
       })
+      probe("info", "openStream open " + endpoint)
       signal && signal.throwIfAborted()
       ws.send(JSON.stringify({ type: "open", streamId, endpoint, payload }))
       while (true) {
@@ -183,6 +199,10 @@ function transportJs(mirrorOrigin: string): string {
         return
       }
     } finally {
+      // 正常收尾（拿到终帧/消费方关闭）不走 carrierFail：置 finished 再关，
+      // 否则每次正常关流都会被探针记成 carrier 失败。
+      failure = failure || new Error("stream finished")
+      probe("info", "openStream close " + endpoint)
       if (signal) signal.removeEventListener("abort", abortError)
       try { if (ws.readyState === 1) ws.send(JSON.stringify({ type: "cancel", streamId })) } catch (ignored) {}
       ws.close()
@@ -225,6 +245,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
     <base href="${escapeAttr(mirrorOrigin)}/">
     <meta charset="utf-8" />
 ${cspMeta}    <title>DeepSeek Harness (assembled)</title>
+    <script nonce="${cspNonce}">${assemblyProbeJs()}</script>
     <script nonce="${cspNonce}">${QUEUE_FACADE_JS}</script>
 ${preload}
 ${styles}
