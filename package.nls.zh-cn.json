@@ -5,6 +5,7 @@
 	"dshOne.openExternal.title": "在浏览器中打开 dsh 页面",
 	"dshOne.start.title": "启动服务",
 	"dshOne.openInTab.title": "打开 dsh 页面",
+	"dshOne.assembledChat.title": "打开装配对话区",
 	"dshOne.restart.title": "重启服务",
 	"dshOne.stop.title": "停止服务",
 	"dshOne.external.pasteToken.title": "粘贴 dsh 启动 Token",

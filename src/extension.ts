@@ -11,6 +11,7 @@ import { archiveSession, createSession, ensureWorkspace, forkSession, renameSess
 import { isChatPanelTabArg } from './pure/contextResource.ts'
 import { formatSessionMention } from './pure/sessionMention.ts'
 import { DSH_TAB_VIEW_TYPE, openInTab, restoreDshWebTab } from './ui/webview.ts'
+import { registerAssembledChat } from './ui/assemblyView.ts'
 import { ChatViewProvider } from './ui/chatView.ts'
 import { CHAT_PANEL_VIEW_TYPE } from './ui/chatTab.ts'
 import { SessionsStore } from './ui/sessionsStore.ts'
@@ -166,6 +167,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.openInTab', () => {
       openInTab(manager)
     }),
+    // cordis 装配对话区（#64 goal 1）：官方组件装配页 + 自研外壳，命令面板进。
+    registerAssembledChat(context, manager, logger),
     vscode.commands.registerCommand('dshOne.restart', async () => {
       await manager.restart()
     }),
