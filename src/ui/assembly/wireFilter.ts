@@ -1,8 +1,8 @@
 /**
- * blocklist 模式的运行时装配清单（#64)：面板打开时扩展宿主（node 侧，无
- * CORS)用 serverAuth 的 cookie GET 网关 `/`，从注入 HTML 提取官方
- * __DSH_BOOT__ wire 与前端资产名，按 BLOCK_LIST 过滤后内联进装配页——
- * 插件集 = 网关启动的全量插件 − blocklist + 自有 shell 插件。
+ * blocklist 模式的运行时装配清单（#64，#70 起按树参数化）：面板打开时扩展宿主
+ * （node 侧，无 CORS）用 serverAuth 的 cookie GET 网关 `/`，从注入 HTML 提取官方
+ * __DSH_BOOT__ wire 与前端资产名，按该树的 block list 过滤后内联进装配页——
+ * 插件集 = 网关启动的全量插件 − block list + 自有 shell 插件。
  * （替代原静态 allowlist：18 包 pin + 构建期 manifest.json 已删除。)
  *
  * 关键事实（探针结论，见 #64 汇报)：
@@ -11,6 +11,11 @@
  *   application 批 URL 改指 mirror 的 /plugins-local（mirror 拉官方原 combo
  *   按 __ModuleLoader__.load 边界剥掉 blocked 段后伺服，见 assemblyMirror)。
  * - bootstrap 批只有 client-modules，永不过滤。
+ *
+ * 两棵树两份 block list（#70）：
+ * - chat 树（装配对话区）：官方外框 + 官方侧栏都下线（#64 行为不变）
+ * - sidebar 树（侧栏位装配）：只下官方外框，官方侧栏（品牌位/工作区树/
+ *   设置入口/底部动作）原样进侧栏位，设置面板 = 官方 SettingsRoot modal
  */
 
 /** 前端资产清单（从网关 / 注入 HTML 解析，哈希文件名不硬编码)。 */
@@ -42,27 +47,55 @@ export interface BootWire {
   batches: BootWireBatch[]
 }
 
+/** 被下线官方插件条目：id + 理由（新增须注释理由）。 */
+export interface BlockedPlugin {
+  id: string
+  reason: string
+}
+
+/** 官方外框条目（两棵树共用）：与 VS Code 外壳冲突，由自有 frame 插件接管根组合。 */
+const UI_LAYOUT: BlockedPlugin = {
+  id: '@deepseek-ai/dsh-client-ui-layout',
+  // 官方应用外框，与 VS Code 外壳冲突；由 @dsh-one/vscode-shell（chat 树）/
+  // @dsh-one/vscode-sidebar-shell（sidebar 树）接管根组合并提供 layout 服务
+  reason: 'official app frame conflicts with the VS Code shell; the @dsh-one frame plugin takes over root composition and provides the layout service',
+}
+
 /**
- * blocklist：从网关全量清单剔除的官方插件（checked-in 常量，一条一理由)。
- * 追加标准：加载全量后因缺服务 loud throw 或功能硬损坏的插件，按同格式记录。
+ * chat 树 block list（#64）：装配对话区下官方外框 + 官方侧栏（侧栏由
+ * dsh-one 侧栏位承担）。filterWire 的默认参数 = 本清单，#64 行为不变。
  */
-export const BLOCK_LIST: ReadonlyArray<{ id: string; reason: string }> = [
-  {
-    id: '@deepseek-ai/dsh-client-ui-layout',
-    // 官方应用外框，与 VS Code 外壳冲突；由 @dsh-one/vscode-shell 接管根组合并提供 layout 服务
-    reason: 'official app frame conflicts with the VS Code shell; @dsh-one/vscode-shell takes over root composition and provides the layout service',
-  },
+export const CHAT_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
+  UI_LAYOUT,
   {
     id: '@deepseek-ai/dsh-client-ui-sidebar',
-    // 官方侧栏，VS Code 侧栏由自研面板承担
-    reason: 'official sidebar; the VS Code sidebar is served by dsh-one\'s own panel',
+    // chat 树无侧栏：官方侧栏壳在对话区里无处渲染（#70 起侧栏位装配用
+    // sidebar 树，官方侧栏在那里上线）
+    reason: 'official sidebar shell has no seat in the chat tree; the sidebar seat is served by the sidebar tree assembly (#70)',
   },
 ]
 
-export const BLOCKED_IDS: Readonly<string[]> = BLOCK_LIST.map((b) => b.id)
+/**
+ * sidebar 树 block list（#70）：侧栏位装配只下官方外框。官方侧栏插件
+ * （品牌位/工作区树/设置入口/底部动作条）与设置四件套原样保留——设置
+ * 面板即官方 SettingsRoot modal（spike #69 题3 结论：零替换）。
+ */
+export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT]
 
-/** 自有 shell 插件 id（root 外框/layout 桩/ThemePresenter，经 mirror /plugins-local 伺服)。 */
+/** block list → id 列表。 */
+export const blockedIdsOf = (list: ReadonlyArray<BlockedPlugin>): string[] => list.map((b) => b.id)
+
+/** chat 树 blocked id（assemblyMirror 默认过滤集；#64 口径不变）。 */
+export const CHAT_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(CHAT_BLOCK_LIST)
+
+/** sidebar 树 blocked id。 */
+export const SIDEBAR_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(SIDEBAR_BLOCK_LIST)
+
+/** chat 树自有 shell 插件 id（root 外框/layout 桩/ThemePresenter，经 mirror /plugins-local 伺服)。 */
 export const SHELL_PLUGIN_ID = '@dsh-one/vscode-shell'
+
+/** sidebar 树自有 frame 插件 id（root 只声明 sidebar + shell.overlay 子槽）。 */
+export const SIDEBAR_SHELL_PLUGIN_ID = '@dsh-one/vscode-sidebar-shell'
 
 /** 从网关 `/` 注入 HTML 提取 __DSH_BOOT__ JSON（官方把 `<` 转义成 \u003c，JSON.parse 直接还原)。 */
 export function extractBootWire(html: string): BootWire {
@@ -88,16 +121,22 @@ export function extractFrontendAssets(html: string): GatewayAssets {
 }
 
 /**
- * 过滤 wire：剔除 BLOCK_LIST 条目；application 批 combo URL 改指 mirror 的
- * /plugins-local（mirror 伺服剥掉 blocked 段的官方原 combo，rev 沿用原值)；
- * 追加自有 shell entry 并入 application 批；bootstrap 批原样不动。
+ * 过滤 wire：按 blockList 剔除条目（默认 chat 树）；application 批 combo URL
+ * 改指 mirror 的 /plugins-local（mirror 伺服剥掉 blocked 段的官方原 combo，
+ * rev 沿用原值)；追加自有 shell entry（默认 chat 树 @dsh-one/vscode-shell）
+ * 并入 application 批；bootstrap 批原样不动。
  */
-export function filterWire(wire: BootWire): BootWire {
-  const blocked = new Set(BLOCKED_IDS)
+export function filterWire(
+  wire: BootWire,
+  blockList: ReadonlyArray<BlockedPlugin> = CHAT_BLOCK_LIST,
+  shellPluginId: string = SHELL_PLUGIN_ID,
+): BootWire {
+  const blockedIds = blockedIdsOf(blockList)
+  const blocked = new Set(blockedIds)
   const entries = wire.entries.filter((e) => !blocked.has(e.id))
   const dropped = wire.entries.filter((e) => blocked.has(e.id))
-  if (dropped.length !== BLOCKED_IDS.length) {
-    const missing = BLOCKED_IDS.filter((id) => !dropped.some((e) => e.id === id))
+  if (dropped.length !== blockedIds.length) {
+    const missing = blockedIds.filter((id) => !dropped.some((e) => e.id === id))
     throw new Error(`assembly wire: gateway wire is missing expected blocklist entries: ${missing.join(', ')}`)
   }
   const app = wire.batches.find((b) => b.phase === 'application')
@@ -106,16 +145,16 @@ export function filterWire(wire: BootWire): BootWire {
     throw new Error('assembly wire: missing bootstrap/application batch')
   }
   const keptIds = app.entries.filter((id) => !blocked.has(id))
-  if (keptIds.length !== app.entries.length - BLOCKED_IDS.length) {
+  if (keptIds.length !== app.entries.length - blockedIds.length) {
     throw new Error('assembly wire: application batch blocklist entries inconsistent with wire entries')
   }
   const shellEntry: BootWireEntry = {
-    id: SHELL_PLUGIN_ID,
-    url: `/plugins-local/??${SHELL_PLUGIN_ID}/client.js&rev=${app.rev}`,
+    id: shellPluginId,
+    url: `/plugins-local/??${shellPluginId}/client.js&rev=${app.rev}`,
     rev: app.rev,
   }
   entries.push(shellEntry)
-  const comboIds = [...keptIds, SHELL_PLUGIN_ID]
+  const comboIds = [...keptIds, shellPluginId]
   return {
     rev: wire.rev,
     entries,

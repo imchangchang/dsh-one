@@ -90,12 +90,6 @@
         "category": "DSH One"
       },
       {
-        "command": "dshOne.sessions.refresh",
-        "title": "%dshOne.sessions.refresh.title%",
-        "category": "DSH One",
-        "icon": "$(refresh)"
-      },
-      {
         "command": "dshOne.session.new",
         "title": "%dshOne.session.new.title%",
         "category": "DSH One",
@@ -115,31 +109,6 @@
       {
         "command": "dshOne.openInstallPage",
         "title": "%dshOne.openInstallPage.title%",
-        "category": "DSH One"
-      },
-      {
-        "command": "dshOne.session.rename",
-        "title": "%dshOne.session.rename.title%",
-        "category": "DSH One"
-      },
-      {
-        "command": "dshOne.session.archive",
-        "title": "%dshOne.session.archive.title%",
-        "category": "DSH One"
-      },
-      {
-        "command": "dshOne.session.fork",
-        "title": "%dshOne.session.fork.title%",
-        "category": "DSH One"
-      },
-      {
-        "command": "dshOne.session.copyReference",
-        "title": "%dshOne.session.copyReference.title%",
-        "category": "DSH One"
-      },
-      {
-        "command": "dshOne.workspace.openFolder",
-        "title": "%dshOne.workspace.openFolder.title%",
         "category": "DSH One"
       }
     ],

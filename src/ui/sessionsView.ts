@@ -1,3 +1,10 @@
+/**
+ * ⚠️ #70 摘钩保留：自研 vanilla 侧栏（SessionsViewProvider）已不在
+ * extension.ts 注册——dshOne.chat view 的内容换成官方侧栏装配
+ * （src/ui/assemblyView.ts 的 registerAssembledSidebar）。本文件与
+ * sessionsWebview.ts 是 #65 迁移参照物（特有功能叠加时的交互/数据形态
+ * 参照），暂不使用，勿删。
+ */
 import { loadWebviewL10n } from './shared/webviewL10n.ts'
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'

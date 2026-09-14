@@ -11,11 +11,11 @@ import { formatSessionMention } from './pure/sessionMention.ts'
 import {
   hasAssembledChatPanel,
   registerAssembledChat,
+  registerAssembledSidebar,
   revealAssembledChat,
   wasAssembledChatClosedByUser,
 } from './ui/assemblyView.ts'
 import { SessionsStore } from './ui/sessionsStore.ts'
-import { SessionsViewProvider } from './ui/sessionsView.ts'
 import { StatusBar } from './ui/statusbar.ts'
 import { TagBridge } from './server/tagBridge.ts'
 
@@ -106,17 +106,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (hasAssembledChatPanel()) await context.workspaceState.update(ASSEMBLY_AUTO_OPENED_KEY, true)
   }
 
-  // 侧栏 sessions 面板（webview view）：只渲染会话列表，高亮读「最近打开的会话」。
-  const sessionsView = new SessionsViewProvider(
-    manager,
-    logger,
-    context.extensionUri,
-    sessions,
-    () => lastOpenedSessionId,
-    () => lastOpenedSessionId,
-    activeSessionChanged.event,
-    () => void autoOpenAssembledChat(),
-  )
+  // 侧栏 sessions 面板（#70）：dshOne.chat view 的内容换成官方侧栏装配
+  // （第二棵 cordis 树，assemblyView.ts），自研 vanilla 侧栏（sessionsView/
+  // sessionsWebview）摘钩保留——#65 迁移参照物，暂不使用。可见性钩子沿用
+  // #68 语义：侧栏 view 展示时自动开一次装配对话区。
+  context.subscriptions.push(registerAssembledSidebar(context, manager, logger, {
+    onDidBecomeVisible: () => void autoOpenAssembledChat(),
+  }))
 
   context.subscriptions.push(
     logger,
@@ -124,14 +120,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     statusBar,
     sessions,
     tagBridge,
-    sessionsView,
     activeSessionChanged,
     // 窗口失焦期间侧栏可能被覆盖，回到聚焦时列表可能过期——刷新一次（失焦不刷）。
     vscode.window.onDidChangeWindowState((state) => {
       if (state.focused) void sessions.refreshSoon()
-    }),
-    vscode.window.registerWebviewViewProvider('dshOne.chat', sessionsView, {
-      webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.commands.registerCommand('dshOne.start', async () => {
       await manager.ensureStarted()
@@ -238,6 +230,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.showLogs', () => {
       logger.show()
     }),
+    // #70 摘钩标注：以下会话/工作区命令原为自研侧栏 webview 消息驱动（行内
+    // 菜单/右键菜单转发）。侧栏位换成官方侧栏装配后失去调用方，注册保留作
+    // #65 迁移参照物（特有功能叠加时由桥/postMessage 重新接线），暂不使用。
+    // dshOne.session.new / workspace.add / workspace.create 无参从命令面板
+    // 调用仍有效，不在此列。
     vscode.commands.registerCommand('dshOne.sessions.refresh', async () => {
       await sessions.refresh()
     }),

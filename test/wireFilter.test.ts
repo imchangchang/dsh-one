@@ -1,8 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  BLOCKED_IDS,
+  CHAT_BLOCKED_IDS,
   SHELL_PLUGIN_ID,
+  SIDEBAR_BLOCKED_IDS,
+  SIDEBAR_BLOCK_LIST,
+  SIDEBAR_SHELL_PLUGIN_ID,
   extractBootWire,
   extractFrontendAssets,
   filterWire,
@@ -49,7 +52,7 @@ test('filterWire：剥 blocklist、application 批重指 /plugins-local、追加
   const ids = filtered.entries.map((e) => e.id)
   // blocklist 全被剔除（含保留包对它们的 inject 边——wire 元数据照抄网关原值，
   // cordis 服务改由 shell 提供；运行期不读条目的 inject 做加载校验）。
-  for (const blocked of BLOCKED_IDS) assert.ok(!ids.includes(blocked), `${blocked} 应被剔除`)
+  for (const blocked of CHAT_BLOCKED_IDS) assert.ok(!ids.includes(blocked), `${blocked} 应被剔除`)
   // shell 恰好一个，url 指 /plugins-local。
   const shell = filtered.entries.filter((e) => e.id === SHELL_PLUGIN_ID)
   assert.equal(shell.length, 1)
@@ -77,4 +80,32 @@ test('filterWire：网关清单缺预期 blocklist 项即抛错（网关改版�
   wire.entries = wire.entries.filter((e) => e.id !== '@deepseek-ai/dsh-client-ui-sidebar')
   wire.batches[1].entries = wire.batches[1].entries.filter((id) => id !== '@deepseek-ai/dsh-client-ui-sidebar')
   assert.throws(() => filterWire(wire), /blocklist/)
+})
+
+test('filterWire（sidebar 树）：只剥官方外框，官方侧栏保留进侧栏位（#70）', () => {
+  const wire = extractBootWire(FIXTURE_HTML)
+  const filtered = filterWire(wire, SIDEBAR_BLOCK_LIST, SIDEBAR_SHELL_PLUGIN_ID)
+  const ids = filtered.entries.map((e) => e.id)
+  // 只有 ui-layout 被剔除；官方侧栏壳/工作区树必须保留。
+  assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-layout'), 'ui-layout 应被剔除')
+  assert.ok(ids.includes('@deepseek-ai/dsh-client-ui-sidebar'), '官方侧栏壳应保留')
+  assert.ok(ids.includes('@deepseek-ai/dsh-client-ui-workspace'), '官方工作区树应保留')
+  assert.deepEqual(SIDEBAR_BLOCKED_IDS, ['@deepseek-ai/dsh-client-ui-layout'])
+  // sidebar frame 插件替换 shell 位。
+  const shell = filtered.entries.filter((e) => e.id === SIDEBAR_SHELL_PLUGIN_ID)
+  assert.equal(shell.length, 1)
+  assert.match(
+    shell[0].url,
+    new RegExp(`^/plugins-local/\\?\\?${SIDEBAR_SHELL_PLUGIN_ID.replaceAll('/', '\\/')}/client\\.js&rev=rev-app$`),
+  )
+  const app = filtered.batches[1]
+  assert.deepEqual(app.entries, [
+    '@deepseek-ai/dsh-typert-registry',
+    '@deepseek-ai/dsh-client-ui-chat',
+    '@deepseek-ai/dsh-client-ui-sidebar',
+    '@deepseek-ai/dsh-client-ui-workspace',
+    SIDEBAR_SHELL_PLUGIN_ID,
+  ])
+  assert.ok(!app.url.includes('ui-layout'), 'application combo 不得含 ui-layout')
+  assert.ok(app.url.includes('ui-sidebar'), 'sidebar 树 combo 必须含官方侧栏段')
 })
