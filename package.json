@@ -55,6 +55,11 @@
         "category": "DSH One"
       },
       {
+        "command": "dshOne.assembledSettings",
+        "title": "%dshOne.assembledSettings.title%",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.restart",
         "title": "%dshOne.restart.title%",
         "category": "DSH One"

@@ -97,6 +97,26 @@ export const SHELL_PLUGIN_ID = '@dsh-one/vscode-shell'
 /** sidebar 树自有 frame 插件 id（root 只声明 sidebar + shell.overlay 子槽）。 */
 export const SIDEBAR_SHELL_PLUGIN_ID = '@dsh-one/vscode-sidebar-shell'
 
+/**
+ * settings 树自有 frame 插件 id（#70 设置独立成页：block list 同 chat 树 =
+ * layout + sidebar，官方 SettingsRoot 不进页，设置座位由整页宿主直渲）。
+ */
+export const SETTINGS_SHELL_PLUGIN_ID = '@dsh-one/vscode-settings-shell'
+
+/**
+ * 主题跟随小插件 id（三棵树共用，#70 VS Code 验收）：收到宿主
+ * dshOne.setTheme 消息后走官方 theme 服务的注册+setTheme 口覆写方案
+ * （非内建 id 不写网关 settings，双前端边界不破）。
+ */
+export const THEME_FOLLOW_PLUGIN_ID = '@dsh-one/vscode-theme-follow'
+
+/**
+ * 侧栏树设置入口影子插件 id（#70 设置独立成页）：single 槽
+ * sidebar.settings 以 priority -1 顶掉官方 SettingsRoot，齿轮点击
+ * postMessage 宿主开设置面板。
+ */
+export const SETTINGS_GEAR_PLUGIN_ID = '@dsh-one/vscode-settings-gear'
+
 /** 从网关 `/` 注入 HTML 提取 __DSH_BOOT__ JSON（官方把 `<` 转义成 \u003c，JSON.parse 直接还原)。 */
 export function extractBootWire(html: string): BootWire {
   const m = /globalThis\["__DSH_BOOT__"\] = (\{[\s\S]*?\})<\/script>/.exec(html)
@@ -123,13 +143,14 @@ export function extractFrontendAssets(html: string): GatewayAssets {
 /**
  * 过滤 wire：按 blockList 剔除条目（默认 chat 树）；application 批 combo URL
  * 改指 mirror 的 /plugins-local（mirror 伺服剥掉 blocked 段的官方原 combo，
- * rev 沿用原值)；追加自有 shell entry（默认 chat 树 @dsh-one/vscode-shell）
- * 并入 application 批；bootstrap 批原样不动。
+ * rev 沿用原值)；追加自有 shell entry 与共用插件（默认追加主题跟随插件，
+ * 三棵树都装），并入 application 批；bootstrap 批原样不动。
  */
 export function filterWire(
   wire: BootWire,
   blockList: ReadonlyArray<BlockedPlugin> = CHAT_BLOCK_LIST,
   shellPluginId: string = SHELL_PLUGIN_ID,
+  extraPluginIds: readonly string[] = [THEME_FOLLOW_PLUGIN_ID],
 ): BootWire {
   const blockedIds = blockedIdsOf(blockList)
   const blocked = new Set(blockedIds)
@@ -148,13 +169,11 @@ export function filterWire(
   if (keptIds.length !== app.entries.length - blockedIds.length) {
     throw new Error('assembly wire: application batch blocklist entries inconsistent with wire entries')
   }
-  const shellEntry: BootWireEntry = {
-    id: shellPluginId,
-    url: `/plugins-local/??${shellPluginId}/client.js&rev=${app.rev}`,
-    rev: app.rev,
+  const localIds = [shellPluginId, ...extraPluginIds]
+  for (const id of localIds) {
+    entries.push({ id, url: `/plugins-local/??${id}/client.js&rev=${app.rev}`, rev: app.rev })
   }
-  entries.push(shellEntry)
-  const comboIds = [...keptIds, shellPluginId]
+  const comboIds = [...keptIds, ...localIds]
   return {
     rev: wire.rev,
     entries,
@@ -162,8 +181,8 @@ export function filterWire(
       bootstrap,
       {
         phase: 'application',
-        // mirror 的 /plugins-local：combo 含 kept + shell；mirror 拉官方原 combo
-        // 剥 blocked 段、拼上本地 shell bundle 后伺服；rev 沿用网关原值（缓存键)。
+        // mirror 的 /plugins-local：combo 含 kept + 本地插件；mirror 拉官方原
+        // combo 剥 blocked 段、拼上本地 bundle 后伺服；rev 沿用网关原值（缓存键)。
         url: `/plugins-local/??${comboIds.map((id) => `${id}/client.js`).join(',')}&rev=${app.rev}`,
         rev: app.rev,
         entries: comboIds,

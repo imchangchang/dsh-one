@@ -1,0 +1,100 @@
+/**
+ * @dsh-one/vscode-settings-gear——侧栏树的设置入口影子插件（#70 设置独立成页）：
+ * single 槽 sidebar.settings 以 priority -1 顶掉官方 SettingsRoot（lowest
+ * renders），外观逐字复刻官方触发行（齿轮 + t('trigger') 文案，宽/轨两态），
+ * 点击不再开 modal——postMessage {type:'dshOne.openSettings'} 给宿主，宿主
+ * 开/聚焦设置面板（registerAssembledSettings）。
+ *
+ * 复刻来源（ui-settings-general client.js 实测）：TriggerContent =
+ * IconSettingsOutline16（宽）/ IconSettingsOutline14（轨）+ t("trigger")；
+ * 触发行 CSS 参照官方 chrome 模块（.VOzbGW_trigger 尺寸语义本地重写）。
+ * 官方 SettingsRoot 注册仍在（priority 0），被本影子压制不渲染；其 modal
+ * 行为随设置独立成页整体退役。
+ */
+import { createElement as h } from 'react'
+import { IconSettingsOutline14, IconSettingsOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+
+// 官方触发行/轨按钮的语义复刻（尺寸逐字来自 ui-settings-general chrome CSS）。
+const CSS = '.dshOneGear_row{flex:none;align-items:center;gap:8px;width:calc(100% + 4px);margin:4px -2px;display:flex}.dshOneGear_row[data-rail]{width:36px;margin:8px 0 10px;justify-content:center}.dshOneGear_button{box-sizing:border-box;cursor:pointer;width:auto;min-width:0;height:42px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:12px;flex:1;align-items:center;gap:8px;margin:0;padding:0 10px 0 8px;font-family:inherit;font-size:14px;line-height:22px;display:flex;overflow:hidden}.dshOneGear_button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneGear_button[data-rail]{corner-shape:round;border-radius:50%;flex:none;justify-content:center;gap:0;width:36px;height:36px;margin:0;padding:0}.dshOneGear_label{white-space:nowrap;overflow:hidden}'
+const CSS_TAG_ID = '@dsh-one/vscode-settings-gear/Gear.css'
+if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
+  const tag = document.createElement('style')
+  tag.dataset.plugin = '@dsh-one/vscode-settings-gear'
+  tag.dataset.pluginCss = CSS_TAG_ID
+  tag.textContent = CSS
+  document.head.appendChild(tag)
+}
+
+interface GearProps {
+  /** 官方侧栏壳传来的形态（宽行 / 收起轨）。 */
+  wide?: boolean
+  t: (key: string) => string
+  onOpen: () => void
+}
+
+function SettingsGear({ wide = true, t, onOpen }: GearProps) {
+  return h(
+    'div',
+    { className: 'dshOneGear_row', 'data-rail': wide ? undefined : '' },
+    h(
+      'button',
+      {
+        type: 'button',
+        className: 'dshOneGear_button',
+        'data-rail': wide ? undefined : '',
+        'aria-label': t('trigger'),
+        onClick: onOpen,
+      },
+      wide ? h(IconSettingsOutline16, { size: 16 }) : h(IconSettingsOutline14, { size: 18 }),
+      wide ? h('span', { className: 'dshOneGear_label' }, t('trigger')) : null,
+    ),
+  )
+}
+
+/** 宿主消息：webview 里 postMessage 给外壳；普通浏览器退化为全局计数（实验室断言用）。 */
+const postOpenSettings = (): void => {
+  const g = globalThis as { __DSH_ONE_OPEN_SETTINGS_CLICKS__?: number; acquireVsCodeApi?: unknown }
+  g.__DSH_ONE_OPEN_SETTINGS_CLICKS__ = (g.__DSH_ONE_OPEN_SETTINGS_CLICKS__ ?? 0) + 1
+  if (typeof g.acquireVsCodeApi === 'function') {
+    try {
+      ;(g.acquireVsCodeApi as () => { postMessage(msg: unknown): void })().postMessage({ type: 'dshOne.openSettings' })
+    } catch {
+      /* 宿主不在（实验室），计数已落 */
+    }
+  }
+}
+
+interface GearContext {
+  effect(body: () => (() => void) | void, label?: string): void
+  locale: { register(ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): () => void }
+  slots: {
+    register(entry: unknown, component: unknown): () => void
+  }
+}
+
+export const inject = ['slots', 'locale']
+
+export function apply(ctx: GearContext): void {
+  ctx.effect(() => {
+    // 自有词典（trigger 文案与 ui-settings-general 的 settings 命名空间同值），
+    // 不跨插件借命名空间——locale 服务对未注册命名空间的入口组合不做保证。
+    const disposeLocale = ctx.locale.register('dshOneGear', {
+      zh: { trigger: '设置' },
+      en: { trigger: 'Settings' },
+    })
+    // single 槽影子：priority -1 < 官方 SettingsRoot 的默认 0 → 本件渲染。
+    const dispose = ctx.slots.register(
+      {
+        name: 'sidebar.settings',
+        priority: -1,
+        locale: 'dshOneGear',
+        inject: () => ({ onOpen: postOpenSettings }),
+      },
+      SettingsGear,
+    )
+    return () => {
+      dispose()
+      disposeLocale()
+    }
+  }, 'dsh-one settings gear: shadow sidebar.settings')
+}

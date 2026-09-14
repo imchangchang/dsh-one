@@ -216,6 +216,9 @@ function transportJs(mirrorOrigin: string): string {
 function themePresetJs(theme: 'dark' | 'light'): string {
   return `(() => {
   const preference = ${JSON.stringify(theme)}
+  // 宿主主题（#70 主题跟随）：theme-follow 插件首帧同步官方 theme 服务的
+  // preference，之后靠宿主 dshOne.setTheme 广播切换。
+  globalThis.__DSH_ONE_HOST_THEME__ = preference
   const systemDark = preference === 'system'
     && typeof matchMedia !== 'undefined'
     && matchMedia('(prefers-color-scheme: dark)').matches

@@ -5,23 +5,27 @@
  *
  * - root 槽注册：children 只声明 sidebar + shell.overlay（conversation/details
  *   等 chat 树槽位不声明，对应贡献静默缺席——chat 树有独立 frame）。
- * - SidebarFrame：单列布局——侧栏槽（官方 SidebarRoot）+ shell.overlay 层；
- *   收起态跟官方 AppFrame 语义（store.sidebar 0 = 收起到 56px 轨，侧栏壳的
- *   收起按钮经 ctx.layout.toggleSidebar 打到 store）。
- * - 设置面板 = 官方 SettingsRoot modal（住在 sidebar.settings 槽内，零替换）。
+ * - 宽度形态（#70 VS Code 验收项 2）：WebviewView 宽度由 VS Code 拖拽决定
+ *   （240~560+px 都可能），frame 不做固定 280/56 轨——侧栏列 100% 流体，
+ *   ResizeObserver 量出容器实际宽度传给官方 SidebarRoot（官方壳按
+ *   renderSlot 的 width 参数定列宽），恒展开；收起钮在此形态下隐藏（折叠
+ *   归 VS Code chrome 管），frame CSS 按 aria-label 覆盖（官方便携类名是
+ *   哈希的，aria-label 文案随官方词典稳定）。
+ * - 设置入口 = 齿轮影子（@dsh-one/vscode-settings-gear，priority -1），
+ *   点击 postMessage 宿主开设置面板（设置独立成页，见
+ *   @dsh-one/vscode-settings-shell）。
  *
  * 构建与打包约束同 clientEntry.ts（esbuild banner/footer 包自注册 IIFE，
  * externals 种子表满足）。
  */
-import { createElement as h } from 'react'
-import { createLayoutStore, LayoutController, ThemePresenter, type PanelActions, type ShellLayoutState, type ThemeSnapshot } from './frameShared'
+import { createElement as h, useEffect, useRef, useState } from 'react'
+import { createLayoutStore, LayoutController, ThemePresenter, type ThemeSnapshot } from './frameShared'
 
 // ---------------------------------------------------------------------------
 // 类型（本地最小面）
 // ---------------------------------------------------------------------------
 
 interface SidebarFrameProps {
-  useStore: <R>(selector: (state: ShellLayoutState) => R) => R
   renderSlot: (name: string, params: Record<string, unknown>) => unknown
 }
 
@@ -29,22 +33,24 @@ interface RootSlotEntry {
   name: 'root'
   children: Record<string, { kind: 'single' | 'list'; scope: 'root' | 'session' | 'session-maybe' }>
   store: () => unknown
-  inject: (actions: PanelActions) => Record<string, never>
+  inject: (actions: { openDetails(): void; closeDetails(): void; toggleSidebar(): void }) => Record<string, never>
 }
 
 interface ShellContext {
   effect(body: () => (() => void) | void, label?: string): void
   on(event: 'theme/change', listener: (snapshot: ThemeSnapshot) => void): () => void
   reflect: { provide(name: string, service: unknown): () => void }
-  slots: { register(entry: RootSlotEntry, component: unknown): () => void }
+  slots: { register(entry: unknown, component: unknown): () => void }
   theme: { getTheme(): ThemeSnapshot }
 }
 
 // ---------------------------------------------------------------------------
-// 样式（官方 AppFrame 三列的侧栏列语义：独立列 + 右边线；overlay 同 shell 插件）
+// 样式：侧栏列 100% 流体（右边线保留，与官方 sidebarCol 视觉一致）；收起钮/
+// 收起轨隐藏——VS Code WebviewView 形态无「内页收起」概念，折叠由 VS Code
+// chrome 负责。aria-label 选择器覆盖官方便携类（哈希类名不可依赖）。
 // ---------------------------------------------------------------------------
 
-const CSS = '.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:none;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
+const CSS = '.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="收起侧栏"]{display:none}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
 const CSS_TAG_ID = '@dsh-one/vscode-sidebar-shell/SidebarFrame.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
@@ -54,22 +60,30 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin
   document.head.appendChild(tag)
 }
 
-/** 收起后的轨宽（官方 AppFrame：sidebar 收起恒留 56px 轨）。 */
-const RAIL_WIDTH = 56
-
 /**
- * 侧栏位 frame：整列渲染官方侧栏槽。收起/展开经 store.sidebar（官方
- * AppFrame 语义：0 = 收起，值 = 展开宽度）；侧栏壳的收起按钮走
- * ctx.layout.toggleSidebar → store.toggleSidebar → 这里重渲染。
+ * 侧栏位 frame：整列渲染官方侧栏槽。宽度 = 容器实测宽（ResizeObserver），
+ * 恒展开传 collapsed:false——官方 SidebarRoot 按 width 参数定列宽，240px
+ * 窄宽也完整（内容区自适应，不闪现收起轨）。
  */
-function SidebarFrame({ useStore, renderSlot }: SidebarFrameProps) {
-  const panels = useStore((s) => s)
-  const collapsed = panels.sidebar === 0
-  const width = collapsed ? RAIL_WIDTH : panels.sidebar
+function SidebarFrame({ renderSlot }: SidebarFrameProps) {
+  const sideRef = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(320)
+  useEffect(() => {
+    const el = sideRef.current
+    if (el === null) return
+    const measure = (): void => {
+      const next = el.clientWidth
+      if (next > 0) setWidth(next)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
   return h(
     'div',
     { className: 'dshOneSidebarShell_frame', 'data-shell': 'dsh-one-sidebar' },
-    h('div', { className: 'dshOneSidebarShell_side', style: { width } }, renderSlot('sidebar', { collapsed, width })),
+    h('div', { className: 'dshOneSidebarShell_side', ref: sideRef }, renderSlot('sidebar', { collapsed: false, width })),
     h('div', { className: 'dshOneSidebarShell_overlay', 'data-shell-overlay': true }, renderSlot('shell.overlay', {})),
   )
 }
@@ -93,7 +107,7 @@ export function apply(ctx: ShellContext): void {
           'shell.overlay': { kind: 'list', scope: 'root' },
         },
         store: createLayoutStore,
-        inject: (actions: PanelActions) => {
+        inject: (actions: { openDetails(): void; closeDetails(): void; toggleSidebar(): void }) => {
           layout.attachPanels(actions)
           return {}
         },

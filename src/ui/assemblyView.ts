@@ -10,8 +10,11 @@ import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import {
   CHAT_BLOCK_LIST,
   SIDEBAR_BLOCK_LIST,
+  SETTINGS_GEAR_PLUGIN_ID,
+  SETTINGS_SHELL_PLUGIN_ID,
   SHELL_PLUGIN_ID,
   SIDEBAR_SHELL_PLUGIN_ID,
+  THEME_FOLLOW_PLUGIN_ID,
   extractBootWire,
   extractFrontendAssets,
   filterWire,
@@ -74,15 +77,34 @@ interface GatewayAssembly {
   assets: GatewayAssets
 }
 
-/** 一棵树 = 一份 block list + 一个自有 frame 插件 id（见 wireFilter.ts）。 */
+/** 一棵树 = 一份 block list + 一个自有 frame 插件 id + 追加的共用插件（见 wireFilter.ts）。 */
 interface AssemblyTree {
   blockList: ReadonlyArray<BlockedPlugin>
   shellPluginId: string
+  extraPluginIds: readonly string[]
 }
 
-/** chat 树（装配对话区，#64 行为）与 sidebar 树（侧栏位，#70）。 */
-const CHAT_TREE: AssemblyTree = { blockList: CHAT_BLOCK_LIST, shellPluginId: SHELL_PLUGIN_ID }
-const SIDEBAR_TREE: AssemblyTree = { blockList: SIDEBAR_BLOCK_LIST, shellPluginId: SIDEBAR_SHELL_PLUGIN_ID }
+/**
+ * 三棵树（#64 chat / #70 sidebar + settings）：
+ * - chat 树：装配对话区
+ * - sidebar 树：侧栏位（追加设置齿轮影子）
+ * - settings 树：设置独立成页（block list 同 chat 树，官方侧栏壳不进页）
+ */
+const CHAT_TREE: AssemblyTree = {
+  blockList: CHAT_BLOCK_LIST,
+  shellPluginId: SHELL_PLUGIN_ID,
+  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID],
+}
+const SIDEBAR_TREE: AssemblyTree = {
+  blockList: SIDEBAR_BLOCK_LIST,
+  shellPluginId: SIDEBAR_SHELL_PLUGIN_ID,
+  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SETTINGS_GEAR_PLUGIN_ID],
+}
+const SETTINGS_TREE: AssemblyTree = {
+  blockList: CHAT_BLOCK_LIST,
+  shellPluginId: SETTINGS_SHELL_PLUGIN_ID,
+  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID],
+}
 
 /** 版本门区间（低于下限缺 browser-session 认证/装载协议，高于上限行为无保证）。 */
 const PREREQ_MIN = '0.1.2-rc.1'
@@ -97,7 +119,10 @@ async function loadGatewayAssembly(gateway: string, tree: AssemblyTree): Promise
   })
   if (!res.ok) throw new Error(`GET /: HTTP ${res.status}`)
   const html = await res.text()
-  return { wire: filterWire(extractBootWire(html), tree.blockList, tree.shellPluginId), assets: extractFrontendAssets(html) }
+  return {
+    wire: filterWire(extractBootWire(html), tree.blockList, tree.shellPluginId, tree.extraPluginIds),
+    assets: extractFrontendAssets(html),
+  }
 }
 
 /** 版本门：区间内/无法取得版本来源时返回信息条文本（undefined = 放行不显示）。 */
@@ -119,6 +144,32 @@ function currentTheme(): 'dark' | 'light' {
     vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrastLight
     ? 'light'
     : 'dark'
+}
+
+/**
+ * 主题跟随广播（#70 VS Code 验收项 1）：所有装配 webview（chat 面板/侧栏
+ * view/设置面板）登记在册，VS Code 颜色主题变化时广播 {type:'dshOne.setTheme'}
+ * ——树内 @dsh-one/vscode-theme-follow 插件走官方 theme 服务的注册+setTheme
+ * 口覆写（不写网关 settings，双前端边界不破，见 themeFollowPlugin.ts）。
+ * 首帧主题由装配页 theme 参数烘焙（pageHtml.ts），广播只管后续切换。
+ */
+const assemblyWebviews = new Set<vscode.Webview>()
+let themeBroadcastSub: vscode.Disposable | undefined
+
+/** 登记一个装配 webview 进主题广播（面板/view 的 onDidDispose 里对应 delete）。 */
+function trackAssemblyWebview(context: vscode.ExtensionContext, webview: vscode.Webview): void {
+  assemblyWebviews.add(webview)
+  themeBroadcastSub ??= vscode.window.onDidChangeActiveColorTheme(() => {
+    const theme = currentTheme()
+    for (const target of assemblyWebviews) void target.postMessage({ type: 'dshOne.setTheme', theme })
+  })
+  // 同一订阅重复 push 无害（dispose 幂等）。
+  context.subscriptions.push(themeBroadcastSub)
+}
+
+/** 停收一个装配 webview 的主题广播。 */
+function untrackAssemblyWebview(webview: vscode.Webview): void {
+  assemblyWebviews.delete(webview)
 }
 
 /**
@@ -192,8 +243,10 @@ export function registerAssembledChat(
     active = { panel, mirror }
     logger.info(`assembled chat: ${mirror.origin}`)
     const probeSub = subscribeAssemblyProbe(panel.webview, logger)
+    trackAssemblyWebview(context, panel.webview)
     panel.onDidDispose(() => {
       probeSub.dispose()
+      untrackAssemblyWebview(panel.webview)
       if (active?.panel === panel) active = undefined
       if (!replacing) closedByUser = true
       mirror.dispose()
@@ -261,15 +314,19 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
     private readonly logger: Logger,
     /** 视图可见性钩子：每次变得可见时回调（装配对话区默认打开逻辑挂这里，#68）。 */
     private readonly onDidBecomeVisible?: () => void,
+    /** 齿轮点击（dshOne.openSettings）：宿主开/聚焦设置面板。 */
+    private readonly onOpenSettings?: () => void,
   ) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
     view.webview.options = { enableScripts: true }
     const probeSub = subscribeAssemblyProbe(view.webview, this.logger)
+    trackAssemblyWebview(this.context, view.webview)
     const retrySub = view.webview.onDidReceiveMessage((msg: unknown) => {
-      if (typeof msg === 'object' && msg !== null && (msg as { type?: unknown }).type === 'assembly:retry') {
-        void this.assemble(view)
-      }
+      if (typeof msg !== 'object' || msg === null) return
+      const type = (msg as { type?: unknown }).type
+      if (type === 'assembly:retry') void this.assemble(view)
+      else if (type === 'dshOne.openSettings') this.onOpenSettings?.()
     })
     const visibilitySub = view.onDidChangeVisibility(() => {
       if (view.visible) this.onDidBecomeVisible?.()
@@ -278,6 +335,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
       probeSub.dispose()
       retrySub.dispose()
       visibilitySub.dispose()
+      untrackAssemblyWebview(view.webview)
       this.mirror?.dispose()
       this.mirror = undefined
     })
@@ -335,13 +393,94 @@ export function registerAssembledSidebar(
   context: vscode.ExtensionContext,
   manager: ServerManager,
   logger: Logger,
-  options: { onDidBecomeVisible?: () => void } = {},
+  options: { onDidBecomeVisible?: () => void; onOpenSettings?: () => void } = {},
 ): vscode.Disposable {
-  const provider = new AssembledSidebarProvider(context, manager, logger, options.onDidBecomeVisible)
+  const provider = new AssembledSidebarProvider(context, manager, logger, options.onDidBecomeVisible, options.onOpenSettings)
   return vscode.Disposable.from(
     vscode.window.registerWebviewViewProvider(ASSEMBLED_SIDEBAR_VIEW_ID, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     provider,
   )
+}
+
+/** 当前打开的设置面板（单例：后开替换先开，与 chat 面板一致）。 */
+let activeSettings: { panel: vscode.WebviewPanel; mirror: AssemblyMirror } | undefined
+
+/** 已开则聚焦并返回 true：侧栏齿轮点击复用，避免重复装配。 */
+export function revealAssembledSettings(): boolean {
+  if (!activeSettings) return false
+  activeSettings.panel.reveal()
+  return true
+}
+
+/** 注册设置面板命令（#70 设置独立成页）：dshOne.assembledSettings。 */
+export function registerAssembledSettings(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+): vscode.Disposable {
+  return vscode.commands.registerCommand('dshOne.assembledSettings', async () => {
+    const status = await manager.ensureStarted()
+    if (status.state !== 'running' || !status.url) {
+      void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
+      return
+    }
+    let assembly: GatewayAssembly
+    try {
+      assembly = await loadGatewayAssembly(status.url, SETTINGS_TREE)
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
+      )
+      return
+    }
+    let mirror: AssemblyMirror
+    try {
+      mirror = await startAssemblyMirror(
+        () => manager.getStatus().url,
+        logger,
+        {
+          pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
+          blockList: SETTINGS_TREE.blockList,
+        },
+      )
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        vscode.l10n.t('Failed to start the assembly mirror: {0}', err instanceof Error ? err.message : String(err)),
+      )
+      return
+    }
+    replacing = true
+    try {
+      activeSettings?.panel.dispose()
+    } finally {
+      replacing = false
+    }
+    const panel = vscode.window.createWebviewPanel(
+      'dshOne.assembledSettings',
+      vscode.l10n.t('dsh Settings (assembled)'),
+      vscode.ViewColumn.Active,
+      { enableScripts: true, retainContextWhenHidden: true },
+    )
+    activeSettings = { panel, mirror }
+    logger.info(`assembled settings: ${mirror.origin}`)
+    const probeSub = subscribeAssemblyProbe(panel.webview, logger)
+    trackAssemblyWebview(context, panel.webview)
+    panel.onDidDispose(() => {
+      probeSub.dispose()
+      untrackAssemblyWebview(panel.webview)
+      if (activeSettings?.panel === panel) activeSettings = undefined
+      mirror.dispose()
+    })
+    panel.webview.html = assemblyPageHtml({
+      mirrorOrigin: mirror.origin,
+      cspNonce: crypto.randomBytes(16).toString('base64'),
+      assets: assembly.assets,
+      bootWire: assembly.wire,
+      bootstrapUrl: assembly.wire.batches[0].url,
+      theme: currentTheme(),
+      banner: versionBanner(dshVersion(status.url) ?? status.version),
+    })
+  })
 }

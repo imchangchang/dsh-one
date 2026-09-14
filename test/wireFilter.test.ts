@@ -2,10 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CHAT_BLOCKED_IDS,
+  SETTINGS_SHELL_PLUGIN_ID,
   SHELL_PLUGIN_ID,
   SIDEBAR_BLOCKED_IDS,
   SIDEBAR_BLOCK_LIST,
   SIDEBAR_SHELL_PLUGIN_ID,
+  THEME_FOLLOW_PLUGIN_ID,
   extractBootWire,
   extractFrontendAssets,
   filterWire,
@@ -67,10 +69,11 @@ test('filterWire：剥 blocklist、application 批重指 /plugins-local、追加
     '@deepseek-ai/dsh-client-ui-chat',
     '@deepseek-ai/dsh-client-ui-workspace',
     SHELL_PLUGIN_ID,
+    THEME_FOLLOW_PLUGIN_ID,
   ])
   assert.match(
     app.url,
-    /^\/plugins-local\/\?\?@deepseek-ai\/dsh-typert-registry\/client\.js,@deepseek-ai\/dsh-client-ui-chat\/client\.js,@deepseek-ai\/dsh-client-ui-workspace\/client\.js,@dsh-one\/vscode-shell\/client\.js&rev=rev-app$/,
+    /^\/plugins-local\/\?\?@deepseek-ai\/dsh-typert-registry\/client\.js,@deepseek-ai\/dsh-client-ui-chat\/client\.js,@deepseek-ai\/dsh-client-ui-workspace\/client\.js,@dsh-one\/vscode-shell\/client\.js,@dsh-one\/vscode-theme-follow\/client\.js&rev=rev-app$/,
   )
   assert.ok(!app.url.includes('ui-layout') && !app.url.includes('ui-sidebar'), 'application combo 不得含 blocked id')
 })
@@ -105,7 +108,27 @@ test('filterWire（sidebar 树）：只剥官方外框，官方侧栏保留进�
     '@deepseek-ai/dsh-client-ui-sidebar',
     '@deepseek-ai/dsh-client-ui-workspace',
     SIDEBAR_SHELL_PLUGIN_ID,
+    THEME_FOLLOW_PLUGIN_ID,
   ])
   assert.ok(!app.url.includes('ui-layout'), 'application combo 不得含 ui-layout')
   assert.ok(app.url.includes('ui-sidebar'), 'sidebar 树 combo 必须含官方侧栏段')
+})
+
+test('filterWire（settings 树）：block list 同 chat 树（layout+sidebar），frame 换成 settings-shell（#70 设置独立成页）', () => {
+  const wire = extractBootWire(FIXTURE_HTML)
+  // settings 树清单 = CHAT_BLOCK_LIST（默认参数），只换 shell 插件 id。
+  const filtered = filterWire(wire, undefined, SETTINGS_SHELL_PLUGIN_ID)
+  const ids = filtered.entries.map((e) => e.id)
+  assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-layout'))
+  assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-sidebar'), 'settings 树官方侧栏壳不进页')
+  assert.ok(ids.includes(SETTINGS_SHELL_PLUGIN_ID))
+  assert.ok(ids.includes(THEME_FOLLOW_PLUGIN_ID))
+  const app = filtered.batches[1]
+  assert.deepEqual(app.entries, [
+    '@deepseek-ai/dsh-typert-registry',
+    '@deepseek-ai/dsh-client-ui-chat',
+    '@deepseek-ai/dsh-client-ui-workspace',
+    SETTINGS_SHELL_PLUGIN_ID,
+    THEME_FOLLOW_PLUGIN_ID,
+  ])
 })

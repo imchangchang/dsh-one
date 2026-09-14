@@ -11,8 +11,10 @@ import { formatSessionMention } from './pure/sessionMention.ts'
 import {
   hasAssembledChatPanel,
   registerAssembledChat,
+  registerAssembledSettings,
   registerAssembledSidebar,
   revealAssembledChat,
+  revealAssembledSettings,
   wasAssembledChatClosedByUser,
 } from './ui/assemblyView.ts'
 import { SessionsStore } from './ui/sessionsStore.ts'
@@ -106,12 +108,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (hasAssembledChatPanel()) await context.workspaceState.update(ASSEMBLY_AUTO_OPENED_KEY, true)
   }
 
+  // 打开/聚焦设置面板（#70 设置独立成页）：侧栏齿轮点击与命令面板共用。
+  const openAssembledSettings = async (): Promise<void> => {
+    if (!revealAssembledSettings()) await vscode.commands.executeCommand('dshOne.assembledSettings')
+  }
+
   // 侧栏 sessions 面板（#70）：dshOne.chat view 的内容换成官方侧栏装配
   // （第二棵 cordis 树，assemblyView.ts），自研 vanilla 侧栏（sessionsView/
   // sessionsWebview）摘钩保留——#65 迁移参照物，暂不使用。可见性钩子沿用
-  // #68 语义：侧栏 view 展示时自动开一次装配对话区。
+  // #68 语义：侧栏 view 展示时自动开一次装配对话区；齿轮点击开设置面板。
   context.subscriptions.push(registerAssembledSidebar(context, manager, logger, {
     onDidBecomeVisible: () => void autoOpenAssembledChat(),
+    onOpenSettings: () => void openAssembledSettings(),
   }))
 
   context.subscriptions.push(
@@ -149,6 +157,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // 自研外壳，命令面板进；点活动栏 DSH One 图标也会自动打开（见
     // autoOpenAssembledChat）。
     registerAssembledChat(context, manager, logger),
+    // 装配设置面板（#70 设置独立成页）：官方 settings.* 座位整页渲染。
+    registerAssembledSettings(context, manager, logger),
     vscode.commands.registerCommand('dshOne.restart', async () => {
       await manager.restart()
     }),
