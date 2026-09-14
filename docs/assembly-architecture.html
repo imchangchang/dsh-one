@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dsh-one 装配架构：从顶向下</title>
+<style>
+  :root { --ink:#1a1a1a; --dim:#666; --line:#e3e3e3; --bg:#fafafa; --chip:#eef2f6;
+    --host:#2563eb; --page:#7c3aed; --proxy:#0891b2; --gw:#16a34a; --blk:#b42318; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:32px 40px 80px; font:14px/1.65 -apple-system,"PingFang SC","Helvetica Neue",Arial,sans-serif; color:var(--ink); background:#fff; max-width:1180px; }
+  h1 { font-size:24px; margin:0 0 6px; }
+  h2 { font-size:18px; margin:36px 0 10px; padding-bottom:6px; border-bottom:2px solid var(--line); }
+  h3 { font-size:15px; margin:20px 0 8px; }
+  p { margin:8px 0; } code { background:var(--chip); padding:1px 5px; border-radius:4px; font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .meta { color:var(--dim); font-size:12.5px; margin:0 0 18px; }
+  .layer { border:1.5px solid var(--line); border-left-width:6px; border-radius:8px; padding:14px 16px; margin:12px 0; background:var(--bg); }
+  .layer.host { border-left-color:var(--host); }
+  .layer.page { border-left-color:var(--page); }
+  .layer.proxy { border-left-color:var(--proxy); }
+  .layer.gw { border-left-color:var(--gw); }
+  .layer b.tag { font-size:12px; color:#fff; border-radius:4px; padding:1px 7px; margin-right:8px; }
+  .host b.tag { background:var(--host); } .page b.tag { background:var(--page); }
+  .proxy b.tag { background:var(--proxy); } .gw b.tag { background:var(--gw); }
+  .flow { display:flex; align-items:stretch; gap:0; margin:14px 0; flex-wrap:wrap; }
+  .flow .node { border:1.5px solid var(--line); border-radius:8px; background:var(--bg); padding:8px 12px; font-size:12.5px; max-width:220px; }
+  .flow .node b { display:block; font-size:12.5px; margin-bottom:2px; }
+  .flow .arr { align-self:center; padding:0 8px; color:var(--dim); font-size:12px; text-align:center; min-width:70px; }
+  .flow .arr span { display:block; font-size:16px; color:var(--ink); }
+  ol.seq { margin:8px 0 8px 20px; padding:0; }
+  ol.seq li { margin:5px 0; }
+  table { border-collapse:collapse; width:100%; margin:10px 0 6px; font-size:13px; }
+  th,td { border:1px solid var(--line); padding:7px 9px; text-align:left; vertical-align:top; }
+  th { background:var(--bg); white-space:nowrap; }
+  .note { border-left:3px solid #d0d7de; background:var(--bg); padding:10px 14px; margin:12px 0; font-size:13px; }
+  .warn { border-left:3px solid var(--blk); }
+  .pill { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11.5px; background:var(--chip); margin:1px 2px; }
+  footer { margin-top:40px; color:var(--dim); font-size:12px; border-top:1px solid var(--line); padding-top:12px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:800px){ .grid2{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<h1>dsh-one 装配架构：从顶向下</h1>
+<p class="meta">
+  面向接手开发的人 · 生成于 2026-09-14 · 对应验证线 <code>develop/cordis-chat</code> 的 #64 M1 合入态 ·
+  用词遵循 AGENTS.md 词表（装配 / loopback 代理 / 插件整包过滤 / block list / shell 插件 / 双前端 / 浏览器验证 / VS Code 验证）
+</p>
+
+<div class="note">
+<b>一句话架构（双前端）</b>：同一个 dsh 网关实例、服务端零改动——官方 dsh web 拿全量插件清单正常使用；
+dsh-one 在 VS Code webview 里用<b>自有 shell 插件 + 官方对话区组件</b>组装出<b>无侧栏聊天窗口</b>，
+不要的插件（官方外框、官方侧栏）由 loopback 代理在转发插件整包时过滤掉。
+</div>
+
+<h2>0. 四层总览</h2>
+
+<div class="layer host"><b class="tag">第 1 层</b><b>VS Code 扩展宿主（Node）</b> — 装配的发起方与代理方
+  <table>
+    <tr><th>模块</th><th>职责</th></tr>
+    <tr><td><code>src/ui/assemblyView.ts</code></td><td>命令 <code>dshOne.assembledChat</code> 入口：ensureStarted → 换票取 cookie → 拉网关清单 → 过滤 → 起 loopback 代理 + WebviewPanel（retainContextWhenHidden，单例后开替换先开）</td></tr>
+    <tr><td><code>src/ui/assembly/wireFilter.ts</code></td><td>清单过滤（纯函数）：从网关 <code>__DSH_BOOT__</code> 剥除 block list 条目，追加 shell 插件条目；含单测</td></tr>
+    <tr><td><code>src/ui/assembly/pageHtml.ts</code></td><td>生成装配页 HTML：四个全局注入 + CSP + 传输桥 + 探针（纯函数，webview / 浏览器通用）</td></tr>
+    <tr><td><code>src/server/assemblyMirror.ts</code></td><td>loopback 代理本体（见第 2 层）</td></tr>
+    <tr><td><code>src/server/serverAuth.ts</code></td><td>token 换 cookie（从 dsh 就绪行/owned record 取 token，<code>GET /?token=</code> 换票）</td></tr>
+  </table>
+</div>
+
+<div class="layer proxy"><b class="tag">第 2 层</b><b>loopback 代理（127.0.0.1 随机端口，宿主内）</b> — webview 与网关之间的受信中转
+  <table>
+    <tr><th>路由</th><th>行为</th></tr>
+    <tr><td><code>/api/*</code></td><td>反代网关：<b>服务端附 cookie</b>；<b>Origin/Referer 改写为网关权威</b>；<b>剥除 sec-fetch-* 头</b>（否则网关信任栅栏按 Origin 403）</td></tr>
+    <tr><td><code>/api/remote.mux</code></td><td>WS 升级转发，握手后双向裸管道（流式通道）</td></tr>
+    <tr><td><code>/plugins/*</code></td><td>反代网关的插件整包（带 cookie）</td></tr>
+    <tr><td>插件整包过滤</td><td>拉官方原始整包 → 按 <code>__ModuleLoader__.load({</code> 起始标记切段 → 删掉 block list 段 → 拼回调养给 webview（网关对整包内容做校验，改名单重拼会 404，只能整包取回后过滤）</td></tr>
+    <tr><td><code>/plugins-local</code></td><td>伺服自有的 shell 插件 bundle（读盘 <code>dist/assembly/plugins/@dsh-one/vscode-shell/</code>）</td></tr>
+    <tr><td>默认</td><td>其余路径透传网关（带 cookie）</td></tr>
+  </table>
+  <p>安全边界：仅绑 127.0.0.1 随机端口、随面板关闭；页面全程不接触 cookie。</p>
+</div>
+
+<div class="layer page"><b class="tag">第 3 层</b><b>webview 页面（Chromium 顶层文档，非 iframe）</b> — 官方前端组件的运行地
+  <div class="flow">
+    <div class="node"><b>页面载入</b>pageHtml 产出的 HTML：CSP meta + 四个全局 + 主题预置 + <code>#root</code></div>
+    <div class="arr"><span>→</span>bootstrap 阻塞脚本<br>(client-modules)</div>
+    <div class="node"><b>WebBoot（官方主 bundle）</b>cordis 根 Context + 8 词种子表 + 逐插件装载 + mount uiRenderer</div>
+    <div class="arr"><span>→</span>渲染</div>
+    <div class="node"><b>React 树</b>shell 插件的根外框 → 官方对话区组件（44 − 2 插件提供）</div>
+  </div>
+  <table>
+    <tr><th>四个全局</th><th>作用</th></tr>
+    <tr><td><code>__ModuleLoader__</code></td><td>queue 形态门面：先收插件注册，再由 client-modules 切换 live</td></tr>
+    <tr><td><code>__DSH_BOOT__</code></td><td>过滤后的插件清单（wireFilter 产物 + shell entry）</td></tr>
+    <tr><td><code>__DSH_TRANSPORT__</code></td><td>传输桥：fetch 换源到代理、openStream 自建 WS 说 remote.mux 协议（webview 源下必配）</td></tr>
+    <tr><td>主题预置脚本</td><td>第一帧暗/亮（应用起来后由 ThemePresenter 接管）</td></tr>
+  </table>
+  <p><b>插件组成</b>：44 个官方插件（dsh web 全量清单，仅减 2 个）＋ 1 个自有 <b>shell 插件</b> <code>@dsh-one/vscode-shell</code>：</p>
+  <div class="grid2">
+    <div class="note"><b>shell 插件的三件套</b><br>① 注册 <code>root</code> 槽（子槽：conversation / details / shell.overlay——<b>没有 sidebar</b>）<br>② 提供 <code>layout</code> 服务桩（attachPanels / toggleSidebar / openDetails / closeDetails）<br>③ ThemePresenter：把主题 tokens 写到 body（删掉官方 ui-layout 后无人做这事，缺了全站无主题色）</div>
+    <div class="note"><b>block list（当前 2 条）</b><br><code>dsh-client-ui-layout</code>：官方应用外框，与 VS Code 外壳冲突，由 shell 插件接管<br><code>dsh-client-ui-sidebar</code>：官方侧栏，VS Code 侧栏由自研面板承担<br>新增须注释理由。</div>
+  </div>
+  <p><b>诊断探针</b>（<code>probe.ts</code>）：仅 webview 激活（<code>acquireVsCodeApi</code> 存在才挂载）；console 包装 + 键盘/点击 capture + 传输桥埋点 → postMessage → 输出面板「DSH One」频道 <code>[assembly]</code> 前缀。浏览器环境静默、零影响。</p>
+</div>
+
+<div class="layer gw"><b class="tag">第 4 层</b><b>dsh 网关（用户日常实例，零改动）</b>
+  <p><code>/</code>（index + 清单注入）· <code>/plugins/??…</code>（插件整包，内容校验）· <code>/api/*</code>（REST）· <code>/api/remote.mux</code>（WS 流）· 浏览器信任栅栏（Origin/Referer + Fetch Metadata）· cookie 鉴权（token 换票）。</p>
+  <p><b>双前端的另一半</b>：同一实例上，浏览器打开官方 dsh web → 拿原始全量清单 → 完整官方界面照常使用。</p>
+</div>
+
+<h2>1. 启动序列（打开面板时发生什么）</h2>
+<ol class="seq">
+  <li>用户执行 <code>DSH One: Open Assembled Chat</code> → <code>assemblyView</code> 调 <code>manager.ensureStarted()</code>（复用/拉起网关，绝不动外部实例的进程）</li>
+  <li><code>serverAuth</code> 用 token 向网关换 cookie（token 取自 dsh 就绪行或 owned record）</li>
+  <li>宿主带 cookie <code>GET 网关 /</code> → 从注入 HTML 提取官方 <code>__DSH_BOOT__</code> 清单原文</li>
+  <li><code>wireFilter</code>：剥除 block list 条目 → 追加 shell 插件条目 → 校验（id 唯一 / 批完整）</li>
+  <li>起 loopback 代理（127.0.0.1 随机端口）；创建 WebviewPanel，<code>pageHtml</code> 生成 HTML 注入（过滤后清单 + 传输桥 + 探针 + CSP）</li>
+  <li>页面加载：queue 门面收编 → 阻塞 bootstrap（client-modules）→ 官方主 bundle 的 WebBoot 接管</li>
+  <li>WebBoot：建 cordis 根 Context → 种子表（react/cordis/store/slots/primitives，编译进主 bundle）→ 逐插件装载（插件代码经代理：官方段走插件整包过滤，shell 段走 /plugins-local）</li>
+  <li>全部插件 active 后 <code>uiRenderer.mount(#root)</code> → React 树：shell 根外框渲染 <code>conversation</code> 槽 → 官方对话区组件接管</li>
+  <li>官方启动导航（watchNavigation）：恢复最近会话/连最近工作区 → composer 可用</li>
+</ol>
+
+<h2>2. 数据流（发一条消息的旅程）</h2>
+<div class="flow">
+  <div class="node"><b>composer（官方组件）</b>Lexical 输入，回车发送</div>
+  <div class="arr"><span>→</span>fetch /api/session/prompt<br>（传输桥换源）</div>
+  <div class="node"><b>loopback 代理</b>附 cookie · 改写 Origin · 剥 sec-fetch-*</div>
+  <div class="arr"><span>→</span>REST</div>
+  <div class="node"><b>dsh 网关</b>入队并执行回合</div>
+</div>
+<div class="flow">
+  <div class="node"><b>回合事件流</b>chunk / tool 卡 / 审批</div>
+  <div class="arr"><span>←</span>WS /api/remote.mux<br>（openStream 自建）</div>
+  <div class="node"><b>loopback 代理</b>WS 升级转发，双向裸管道</div>
+  <div class="arr"><span>←</span>流帧</div>
+  <div class="node"><b>官方消息流组件</b>渲染增量 · 工具卡 · 审批卡</div>
+</div>
+
+<h2>3. 验证体系（两道验证 + 探针）</h2>
+<table>
+  <tr><th>验证</th><th>工具</th><th>覆盖</th><th>定位</th></tr>
+  <tr><td><b>浏览器验证</b></td><td>Playwright 开普通浏览器加载同一装配页</td><td>渲染 / 零错误 / 无侧栏 / 辅助贡献 / 交互（输入、发送）</td><td>第一道，快、自动化</td></tr>
+  <tr><td><b>VS Code 验证</b></td><td><code>dev-ui-test.sh</code> 隔离窗口</td><td>webview 特有：CSP 执行 / 跨源 fetch+WS / 焦点 / 探针遥测</td><td>最终准绳（跨源差异已两次教训）</td></tr>
+</table>
+<div class="note warn"><b>两次翻车都是跨源差异</b>：① 同源实验室下 fetch 走相对路径，跨源 webview 才暴露传输桥问题（最终定位为 sec-fetch-* 头被网关信任栅栏 403，已在代理剥除并加 cross-site 等价回归断言）；②「浏览器验证全过 ≠ VS Code 能用」已写进词表与回归断言。</div>
+
+<h2>4. 文件地图</h2>
+<table>
+  <tr><th>路径</th><th>层</th><th>说明</th></tr>
+  <tr><td><code>src/ui/assemblyView.ts</code></td><td>宿主</td><td>命令 / 面板生命周期 / 清单获取与过滤编排</td></tr>
+  <tr><td><code>src/ui/assembly/pageHtml.ts</code></td><td>宿主（产页面）</td><td>装配页 HTML：四全局 / CSP / 传输桥 / 探针注入</td></tr>
+  <tr><td><code>src/ui/assembly/wireFilter.ts</code></td><td>宿主（纯函数）</td><td>block list 过滤 + shell entry 追加 + 校验（有单测）</td></tr>
+  <tr><td><code>src/ui/assembly/probe.ts</code></td><td>页面</td><td>诊断探针（仅 webview 激活）</td></tr>
+  <tr><td><code>src/ui/assembly/shell/shellPlugin.ts</code></td><td>页面（自有插件）</td><td>root 注册 / layout 桩 / ThemePresenter / ShellFrame</td></tr>
+  <tr><td><code>src/server/assemblyMirror.ts</code></td><td>代理</td><td>loopback 代理：反代 / WS / 插件整包过滤 / 本地 shell 伺服</td></tr>
+  <tr><td><code>src/server/serverAuth.ts</code></td><td>宿主</td><td>token 换票 cookie</td></tr>
+  <tr><td><code>dist/assembly/plugins/@dsh-one/vscode-shell/</code></td><td>构建产物</td><td>shell 插件的 esbuild 产物（external 种子词，由页面种子表满足）</td></tr>
+</table>
+
+<h2>5. 边界与路线图</h2>
+<ul>
+  <li><b>未做（M2，#64 后续）</b>：dsh-one 自研侧栏点会话 → 装配面板打开对应会话（经官方恢复键接缝）；主题实时跟随；面板 reload 恢复。</li>
+  <li><b>未做（#65）</b>：dsh-one 特有功能插件化（git 卡片、会话引用等注册官方槽位）。</li>
+  <li><b>未做（#66）</b>：通用组件上游化梳理。</li>
+  <li><b>未做（#67）</b>：上游伺服面探针（清单可解析 / 整包端点 / 信任栅栏行为）进每日 upstream-watch。</li>
+  <li><b>体积</b>：装配相关净增 ≈ 4KB（shell 插件）+ 代理代码；官方前端代码全部直引网关，不进 vsix。</li>
+  <li><b>版本门</b>：网关 dsh 版本不在 [0.1.2-rc.1, 0.2.0) 时页面顶部信息条提示、不阻断。</li>
+</ul>
+
+<footer>
+  数据来源：<code>src/ui/assembly*/</code>、<code>src/server/assemblyMirror.ts</code>、#63 spike 结论、#64 各轮验证记录。
+  相关文档：<code>docs/upstream-dependency-audit.html</code>（上游依赖总表）、AGENTS.md 词表。
+</footer>
+
+</body>
+</html>
