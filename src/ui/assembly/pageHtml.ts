@@ -123,7 +123,7 @@ function transportJs(mirrorOrigin: string): string {
   return `(() => {
   const MIRROR = ${JSON.stringify(mirrorOrigin)}
   const WS_ORIGIN = MIRROR.replace(/^http/, "ws")
-  // 诊断探针埋点：探针（probe.ts）只在 webview 挂 __DSH_ONE_PROBE__；浏览器静默。
+  // Diagnostic probe hook: probe.ts installs __DSH_ONE_PROBE__ in webview only; silent in browsers.
   const probe = (level, text) => { if (globalThis.__DSH_ONE_PROBE__) globalThis.__DSH_ONE_PROBE__.log(level, text) }
   const apiFetch = (input, init) => {
     const parsed = new URL(String(input), globalThis.location ? globalThis.location.href : MIRROR + "/")
@@ -199,8 +199,8 @@ function transportJs(mirrorOrigin: string): string {
         return
       }
     } finally {
-      // 正常收尾（拿到终帧/消费方关闭）不走 carrierFail：置 finished 再关，
-      // 否则每次正常关流都会被探针记成 carrier 失败。
+      // Clean close (final frame / consumer close) must not go through carrierFail:
+      // mark finished before closing, or every normal close would be logged as a carrier failure.
       failure = failure || new Error("stream finished")
       probe("info", "openStream close " + endpoint)
       if (signal) signal.removeEventListener("abort", abortError)
