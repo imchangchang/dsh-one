@@ -331,14 +331,14 @@ class Gateway {
   private onMuxConnect(conn: WsConnection): void {
     this.muxSockets.add(conn)
     // 订阅基线：补发每个已注册会话的 session/subscribed（lastSeq 带 gap 检查信息）。
-    // 扩展侧的每个消费者（chatSession/jobsStore/sessionsStore）各有一条独立 WS，
+    // 扩展侧的消费者（sessionsStore）各有一条独立 WS，
     // 按 payload.sessionId 过滤帧；补发全部会话的基线没有副作用。
     for (const sessionId of this.sessions.keys()) {
       this.pushMux({ method: 'session/subscribed', payload: { sessionId, lastSeq: this.seqBySession.get(sessionId) ?? 0 } })
     }
     // 状态重放：把尚未应答的服务器请求（approval/question）随每个新连接重新下发。
     // 这是真实 dsh 的行为——pending 是会话状态不是一次性事件，扩展的消费者按
-    // sessionId 过滤，只有对应会话的 chatSession 会折叠进 pending 面板。
+    // sessionId 过滤，消费端把对应会话的 pending 折叠进交互状态。
     for (const [sessionId, pendings] of this.pendingBySession) {
       for (const p of pendings) {
         this.pushMux({ method: p.method, payload: { ...p.payload, sessionId }, rpcId: p.rpcId })

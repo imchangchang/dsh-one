@@ -14,6 +14,8 @@ import { extractBootWire, extractFrontendAssets, filterWire, type BootWire, type
  * 后起 assemblyMirror（loopback 反代），webview.html = 装配页
  * （ui/assembly/pageHtml.ts，普通浏览器同页可开，零 acquireVsCodeApi）。
  * 生命周期照官方嵌入面板模式（#60）：单例、后开替换先开、关面板即 dispose mirror。
+ * #68 起它是唯一对话区：点侧栏会话/新建/fork 经 revealAssembledChat 聚焦复用，
+ * 点活动栏 DSH One 图标经 autoOpen（extension.ts）自动开一次。
  *
  * blocklist 模式：面板打开时（扩展宿主侧，node 无 CORS）用 cookie GET 网关
  * `/` 的注入 HTML，提取官方 __DSH_BOOT__ wire + 前端资产名，按 BLOCK_LIST
@@ -25,6 +27,32 @@ import { extractBootWire, extractFrontendAssets, filterWire, type BootWire, type
 
 export const ASSEMBLED_CHAT_VIEW_TYPE = 'dshOne.assembledChat'
 
+/** 当前打开的面板（单例：后开替换先开，与官方嵌入面板一致）。 */
+let active: { panel: vscode.WebviewPanel; mirror: AssemblyMirror } | undefined
+
+/** 面板是否被用户手动关过：「后开替换先开」的内部 dispose 不算（见 replacing）。 */
+let closedByUser = false
+
+/** 「后开替换先开」dispose 旧面板期间置 true，屏蔽其 dispose 产生的用户关闭信号。 */
+let replacing = false
+
+/** 已开则聚焦并返回 true：侧栏点开会话/新建/fork/默认打开复用，避免整页重复装配。 */
+export function revealAssembledChat(): boolean {
+  if (!active) return false
+  active.panel.reveal()
+  return true
+}
+
+/** 装配面板当前是否打开（默认打开成功后落 workspaceState 标记前判定用）。 */
+export function hasAssembledChatPanel(): boolean {
+  return active !== undefined
+}
+
+/** 用户是否手动关过装配面板：默认打开尊重这个选择，关过不再强开。 */
+export function wasAssembledChatClosedByUser(): boolean {
+  return closedByUser
+}
+
 /** 装配页数据源：网关 / 注入 HTML 的运行时提取 + blocklist 过滤结果。 */
 interface GatewayAssembly {
   wire: BootWire
@@ -34,9 +62,6 @@ interface GatewayAssembly {
 /** 版本门区间（低于下限缺 browser-session 认证/装载协议，高于上限行为无保证）。 */
 const PREREQ_MIN = '0.1.2-rc.1'
 const PREREQ_MAX = '0.2.0'
-
-/** 当前打开的面板（单例：后开替换先开，与官方嵌入面板一致）。 */
-let active: { panel: vscode.WebviewPanel; mirror: AssemblyMirror } | undefined
 
 /** 用 serverAuth 的 cookie GET 网关 /，提取 wire 并按 BLOCK_LIST 过滤（见 wireFilter.ts）。 */
 async function loadGatewayAssembly(gateway: string): Promise<GatewayAssembly> {
@@ -99,8 +124,14 @@ export function registerAssembledChat(
       )
       return
     }
-    // 后开替换先开：只保留一个装配面板与其 mirror。
-    active?.panel.dispose()
+    // 后开替换先开：只保留一个装配面板与其 mirror。replace 期间的 dispose 是
+    // 我们自己触发的，不算用户手动关闭。
+    replacing = true
+    try {
+      active?.panel.dispose()
+    } finally {
+      replacing = false
+    }
     const theme =
       vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Light ||
       vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrastLight
@@ -129,6 +160,7 @@ export function registerAssembledChat(
     panel.onDidDispose(() => {
       probeSub.dispose()
       if (active?.panel === panel) active = undefined
+      if (!replacing) closedByUser = true
       mirror.dispose()
     })
     panel.webview.html = assemblyPageHtml({

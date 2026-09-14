@@ -1,4 +1,4 @@
-import { loadWebviewL10n } from './chatViewHtml.ts'
+import { loadWebviewL10n } from './shared/webviewL10n.ts'
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
 import type { Logger } from '../log.ts'
@@ -729,12 +729,11 @@ ${
 
 /**
  * Sidebar sessions view (`dshOne.chat`): a WebviewViewProvider that renders
- * the sessions list only (no chat). Split in from the original combined
- * webview. Owns the SessionsStore snapshot push（含 activeSessionId，供高亮），
- * routes sessions-panel actions back. Session/workspace actions that touch the
- * editor panel or do RPC are forwarded to extension.ts commands (which open
- * the editor chat panel); pure store ops (search/sort/pin/unread/collapse/
- * refresh) fall directly on the store.
+ * the sessions list only (no chat). Owns the SessionsStore snapshot push
+ * （含 activeSessionId，供高亮），routes sessions-panel actions back.
+ * Session/workspace actions that do RPC or open the assembled chat panel are
+ * forwarded to extension.ts commands; pure store ops (search/sort/pin/unread/
+ * collapse/refresh) fall directly on the store.
  */
 export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | null = null
@@ -747,11 +746,13 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
     private readonly logger: Logger,
     private readonly extensionUri: vscode.Uri,
     private readonly store: SessionsStore,
-    /** 高亮会话 id（当前活动 chat tab 的会话，无活动 tab 为 null），来自 editor tabs。 */
+    /** 高亮会话 id（最近从扩展侧打开的会话，无则为 null），来自 extension.ts。 */
     private readonly getActiveSessionId: () => string | null,
-    /** 当前活动 chat tab 真实附着的会话 id（活动 tab 未开为 null），行内重命名判定用。 */
+    /** 行内重命名判定用的附着会话 id；旧聊天 tab 下线后与 activeSessionId 同值。 */
     private readonly getAttachedSessionId: () => string | null,
     activeChanged: vscode.Event<string | null>,
+    /** 视图可见性钩子：每次变得可见时回调（装配面板默认打开逻辑挂这里，#68）。 */
+    private readonly onDidBecomeVisible?: () => void,
   ) {
     this.managerSub = manager.onDidChangeState(() => this.pushSessions())
     this.storeSub = store.onDidChange(() => this.pushSessions())
@@ -768,7 +769,9 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
     const msg = view.webview.onDidReceiveMessage((m: FromWebviewMessage) => void this.onMessage(m))
     // 侧栏从不可见回到可见（展开/折叠、切到别的 view group）：列表可能已过期。
     const visibilitySub = view.onDidChangeVisibility(() => {
-      if (view.visible) void this.store.refreshSoon()
+      if (!view.visible) return
+      void this.store.refreshSoon()
+      this.onDidBecomeVisible?.()
     })
     view.onDidDispose(() => {
       msg.dispose()
@@ -778,6 +781,7 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
     this.pushSessions()
     // 视图首次变得可见、或被隐藏后重新显示（webview 重建）时刷新基线；pushSessions 保留。
     void this.store.refreshSoon()
+    this.onDidBecomeVisible?.()
   }
 
   /** Store 快照 + 服务状态 + 当前高亮会话，合成面板用的 SessionsSnapshot。 */
@@ -799,14 +803,9 @@ export class SessionsViewProvider implements vscode.WebviewViewProvider, vscode.
   private async onMessage(m: FromWebviewMessage): Promise<void> {
     if (!m || typeof m.type !== 'string') return
     switch (m.type) {
-      // 打开/更新 editor 面板并附着（复用 extension 命令，其内部 openSession：
-      // 默认在当前活动 chat tab 打开）。
+      // 点击会话：打开装配对话区并记为最近打开（高亮，见 extension.ts）。
       case 'sessionOpen':
         void vscode.commands.executeCommand('dshOne.session.open', m.sessionId)
-        return
-      // 右键菜单「在新 tab 中打开」：显式新开一个会话 tab。
-      case 'sessionOpenInNewTab':
-        void vscode.commands.executeCommand('dshOne.session.openInNewTab', m.sessionId)
         return
       case 'sessionNew':
         void vscode.commands.executeCommand('dshOne.session.new', m.workspaceId, m.tagId)

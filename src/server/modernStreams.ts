@@ -22,8 +22,8 @@ import { is013Wire } from './serverAuth.ts'
 /**
  * Shared logical streams for the 0.1.2 transport, refcounted per origin:
  * one `$events` stream and one `session/control` stream serve every consumer
- * (sessionsStore sidebar, jobsStore, chat sessions). The singleton owns
- * reconnect+backoff; subscribers just register handlers, which keeps the
+ * (the sessionsStore sidebar and, formerly, the chat sessions). The singleton
+ * owns reconnect+backoff; subscribers just register handlers, which keeps the
  * per-consumer code the same shape as the legacy mux subscriptions.
  */
 

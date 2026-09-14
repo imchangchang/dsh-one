@@ -40,11 +40,6 @@
     },
     "commands": [
       {
-        "command": "dshOne.open",
-        "title": "%dshOne.open.title%",
-        "category": "DSH One"
-      },
-      {
         "command": "dshOne.openExternal",
         "title": "%dshOne.openExternal.title%",
         "category": "DSH One"
@@ -53,12 +48,6 @@
         "command": "dshOne.start",
         "title": "%dshOne.start.title%",
         "category": "DSH One"
-      },
-      {
-        "command": "dshOne.openInTab",
-        "title": "%dshOne.openInTab.title%",
-        "category": "DSH One",
-        "icon": "$(globe)"
       },
       {
         "command": "dshOne.assembledChat",
@@ -149,53 +138,11 @@
         "category": "DSH One"
       },
       {
-        "command": "dshOne.session.attachFile",
-        "title": "%dshOne.session.attachFile.title%"
-      },
-      {
         "command": "dshOne.workspace.openFolder",
         "title": "%dshOne.workspace.openFolder.title%",
         "category": "DSH One"
       }
     ],
-    "menus": {
-      "editor/context": [
-        {
-          "command": "dshOne.session.attachFile",
-          "when": "editorIsOpen",
-          "group": "2_dshOne@1"
-        }
-      ],
-      "explorer/context": [
-        {
-          "command": "dshOne.session.attachFile",
-          "when": "resourceScheme == file && !explorerResourceIsFolder",
-          "group": "2_dshOne@1"
-        }
-      ],
-      "editor/title/context": [
-        {
-          "command": "dshOne.session.rename",
-          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
-          "group": "2_dshOne@1"
-        },
-        {
-          "command": "dshOne.session.fork",
-          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
-          "group": "2_dshOne@1"
-        },
-        {
-          "command": "dshOne.session.copyReference",
-          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
-          "group": "2_dshOne@1"
-        },
-        {
-          "command": "dshOne.session.archive",
-          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
-          "group": "2_dshOne@1"
-        }
-      ]
-    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -232,13 +179,6 @@
           "default": 3080,
           "minimum": 0,
           "description": "%dshOne.port.description%"
-        },
-        "dshOne.chatFontSize": {
-          "type": "number",
-          "default": 14,
-          "minimum": 12,
-          "maximum": 17,
-          "description": "%dshOne.chatFontSize.description%"
         }
       }
     }
@@ -256,9 +196,5 @@
     "esbuild": "^0.24.2",
     "playwright": "^1.62.1",
     "typescript": "^5.7.2"
-  },
-  "dependencies": {
-    "dompurify": "^3.4.14",
-    "marked": "^18.0.11"
   }
 }

@@ -1,14 +1,14 @@
 /**
- * Sessions 面板 webview 前端（侧栏 dshOne.chat 视图）：拆分后只渲染会话
- * 列表，不含 chat。交互与原合并 webview 的 sessions 面板逐项一致——头部
- * 工具栏（搜索框/排序/刷新/折叠全部/新建会话/新建 workspace）、workspace 行
- * hover 操作、会话行状态槽与 ⋯/右键菜单、未分组虚拟组、vscode/当前标签、
- * 空态引导。宿主（src/ui/sessionsView.ts 的 SessionsViewProvider）把
- * SessionsStore 快照推来，动作经 post() 回 host。
- * 会话高亮（active/has-active）由快照的 activeSessionId 驱动；@ 提及补全
- * 仍属 chat webview，与这里的 sessions 快照无关。
+ * Sessions 面板 webview 前端（侧栏 dshOne.chat 视图）：只渲染会话列表，不含
+ * 对话区（对话区 = 装配面板，见 src/ui/assembly/）。交互项：头部工具栏（搜索框/
+ * 排序/刷新/折叠全部/新建会话/新建 workspace）、workspace 行 hover 操作、会话行
+ * 状态槽与 ⋯/右键菜单、未分组虚拟组、vscode/当前标签、空态引导。宿主
+ * （src/ui/sessionsView.ts 的 SessionsViewProvider）把 SessionsStore 快照推来，
+ * 动作经 post() 回 host。
+ * 会话高亮（active/has-active）由快照的 activeSessionId 驱动（最近从扩展侧
+ * 打开的会话，见 extension.ts）。
  */
-import { COPY_ICON, PANEL_ICONS, MESSAGE_ACTION_ICONS, type IconDef } from './chat/icons.ts'
+import { COPY_ICON, PANEL_ICONS, MESSAGE_ACTION_ICONS, type IconDef } from './shared/icons.ts'
 import type { FromWebviewMessage, SessionsSnapshot, ToWebviewMessage } from '../pure/chatContract.ts'
 import type { SessionNodeModel, WorkspaceNodeModel } from '../pure/sessionTree.ts'
 import { UNGROUPED_WORKSPACE_ID } from '../pure/sessionTree.ts'
@@ -32,7 +32,7 @@ const app = document.getElementById('app') as HTMLElement
 
 // i18n：宿主把当前 locale 的译文 map 经 HTML 注入为 window.__DSH_L10N__
 // （key = 英文默认串）。英文 locale 不注入，直接用 key 本身；缺 key 时同样
-// 回退 key 本身。与 chat webview 同款机制（见 chat/chatViewHtml.ts）。
+// 回退 key 本身（与装配页探针的注入形态一致，见 ui/assembly/pageHtml.ts）。
 const L10N: Readonly<Record<string, string>> = (globalThis as { __DSH_L10N__?: Record<string, string> }).__DSH_L10N__ ?? {}
 
 /** 取当前 locale 的文案；支持 vscode.l10n 同款 {0}/{name} 占位。 */
@@ -2455,8 +2455,8 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
     actions.appendChild(more)
     row.appendChild(actions)
   }
-  // 情境化点击：editor 面板真实附着（attachedSessionId，非仅高亮的待附着
-  // 目标）的会话 → 行内重命名；其他 → 打开会话。编辑中忽略行点击。
+  // 情境化点击：最近打开的会话（attachedSessionId，装配对话区当前承载的会话）
+  // → 行内重命名；其他 → 打开会话。编辑中忽略行点击。
   // 多选模式：点行 = 勾选/取消勾选（复选框单独接管了点击，不冒泡到行）。
   row.addEventListener('click', () => {
     if (selectionMode) {
@@ -3296,16 +3296,6 @@ function buildSessionMenuBody(s: SessionNodeModel): HTMLElement {
     menuItem(t('Select multiple'), {
       icon: iconSvg(MESSAGE_ACTION_ICONS.check),
       onClick: () => enterSelectionMode(),
-    }),
-  )
-  // 默认点击会话行 = 在当前活动 chat tab 打开；这里显式提供「新开 tab」。
-  body.appendChild(
-    menuItem(t('Open in a new tab'), {
-      icon: iconSvg(PANEL_ICONS.boxedPlus),
-      onClick: () => {
-        closePopover()
-        post({ type: 'sessionOpenInNewTab', sessionId: s.sessionId })
-      },
     }),
   )
   body.appendChild(

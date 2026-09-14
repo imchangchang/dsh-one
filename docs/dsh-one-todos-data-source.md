@@ -1,5 +1,7 @@
 # dsh-one 获取 todos 数据可行性研究报告
 
+> 归档注（2026-09-14，#68）：本文写于自研聊天区时代，文中的 `chatSession.ts`/`chatView`/`chat/webview.ts` 等文件引用是历史状态——旧聊天区已于 #68 下线，对话区改为官方组件装配。数据链路结论（host 推 `todos` 投影 + `todo/write` 事件）仍然成立，但「dsh-one 侧接入点」一节需按装配形态重新评估（特有功能走插件化，见 #65）。
+
 纯研究，未改任何文件。结论先行：**host 完整推送 todos（history 基线 + `session/projection` 帧），`todo/write` 事件与 `todo_write` tool-call 事件都出现在 dsh-one 已订阅的 mux 流里——两种界面（TodoPanel 任务清单卡、TodoRow 消息内任务卡）都可做，dsh-one 侧只是"没读、没解析"，不是"拿不到"。**
 
 ## 1. `session.history` 基线（loadBaseline）里 projections.values 有没有 `todos`？

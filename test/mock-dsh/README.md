@@ -64,8 +64,9 @@ rpcId（`pendingRpcIds` 去重登记），返回 `{"accepted":true}`；未知/�
 
 ### WebSocket
 
-- `/api/events.mux`：最重要的流。扩展侧 `ChatSessionController` 用它 fold 出
-  `ChatState`（`src/server/chatSession.ts`）。mock 下推帧
+- `/api/events.mux`：最重要的流。扩展侧的旧聊天 controller 曾用它 fold 出
+  ChatState（已随 #68 下线，折叠纯逻辑保留在 `src/pure/conversation.ts`）；
+  侧栏 SessionsStore 仍订阅 host 事件流。mock 下推帧
   `{"type":"server-request",["rpcId"],"method","payload"}`，method 覆盖
   `session/subscribed`、`session/event`、`session/projection`、`session/queue`、
   `session/jobs`、`approval/requested`、`approval/resolved`、`question/requested`、
@@ -161,5 +162,5 @@ rpcId（`pendingRpcIds` 去重登记），返回 `{"accepted":true}`；未知/�
 - `pendingRequests`（approval/question 待批准）是**会话状态**而非一次性事件：任何 mux
   连接进来都会随订阅基线一起下发、rpcId 稳定不变、`/api/respond` 应答后移除并广播
   `*-resolved` 帧——对齐真实 dsh 的行为（pending 是状态不是事件，不做任何时序猜测，
-  扩展的消费者按 `payload.sessionId` 过滤帧，只有对应会话的 chatSession 折叠进面板）。
+  扩展的消费者按 `payload.sessionId` 过滤帧、折叠进对应会话的交互状态）。
 - 手写 WS 不支持分片/超大帧/部分控制帧的完整语义（见「简化边界」）。

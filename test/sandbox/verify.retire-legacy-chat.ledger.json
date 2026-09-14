@@ -1,0 +1,65 @@
+{
+  "title": "DSH One 沙盒验收报告（retire-legacy-chat：下线旧自研聊天区，#68）",
+  "branch": "agent/retire-legacy-chat",
+  "commit": "",
+  "environment": {
+    "mode": "装配浏览器验证（Playwright 直开装配页，.dev-host/assembly-harness.mjs）+ 静态核对 + 单测",
+    "dsh": "0.1.2-rc.1（真 dsh 网关，loopback mirror 反代）",
+    "locale": "en",
+    "theme": "dark",
+    "date": "2026-09-14T00:00:00Z"
+  },
+  "coverageNote": "对话区验收证据 = 装配的浏览器验证（本报告 F-01）。默认打开行为与命令面板实开属 VS Code 窗口内行为（F-04），本 session 无 GUI 自动化覆盖，现象清单写入 expect 待人窗验收（合入门禁）；其余静态核对（F-02/F-03）与单测回归（R-01）全自动。真桌面窗口 chrome、真模型输出（除 F-01 外）、平台专项不在范围。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "装配对话区浏览器验证 9/9（旧聊天下线后对话区仍完整可用）",
+      "expect": "普通浏览器直开装配页（与 mirror 同源）：①mirror 伺服的插件整包含 @dsh-one/vscode-shell、44 段官方插件段里无 dsh-client-ui-layout/dsh-client-ui-sidebar；②官方 hero + composer 渲染；③官方侧栏/外框不在 DOM；④选 workspace 后 chip 替换、composer 解锁可输入；⑤输入发送后用户消息上屏；⑥无 console 错误、无 page error。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-assembly-shots/assembly-1-initial.png",
+        "/tmp/dsh-assembly-shots/assembly-2-workspace-menu.png",
+        "/tmp/dsh-assembly-shots/assembly-3-composer.png",
+        "/tmp/dsh-assembly-shots/assembly-4-after-send.png"
+      ],
+      "notes": "9/9 断言全过；发送链路真实走通（GLM 应答「Deep diving…」截图 assembly-4）；combo 段级断言与 mirror 过滤日志一致（kept 44, dropped 2 blocklist）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "失效命令撤下，contributes ↔ 注册双向一致",
+      "expect": "package.json contributes.commands 的 20 条命令全部有注册（dshOne.assembledChat 注册在 assemblyView.ts）；extension.ts 注册但不在命令面板的 5 条侧栏内部命令（session.open/newUngrouped/archiveMany、workspace.openTerminal、openSessions）保持不 contribute；dshOne.open / dshOne.openInTab / dshOne.session.attachFile / session.openInNewTab 在 src、package.json、l10n、nls 零残留；编辑器/资源管理器右键与 chatPanel tab 右键菜单整组移除。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "静态核对脚本：contributed=20 registered=24，差集均为上述已知侧栏内部命令；banned 命令全仓 grep 零命中；menus 节仅剩（本任务后为空，已整体移除）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "失效 i18n 键清理过门禁",
+      "expect": "l10n 两个 bundle 各删 312 个只被旧聊天引用的键（535→223，保留键与现存 src 的 t()/vscode.l10n.t() 引用一一核对，无动态 key）；package.nls 删 4 个失效标题/描述键；check-i18n.sh（I18N_BASE=develop/cordis-chat）通过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "check-i18n 输出 OK；存量完整性检查（全 src t() key 双 bundle 在位）同过。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "默认打开装配对话区（点活动栏 DSH One 图标自动开）",
+      "expect": "VS Code 验证现象清单（人窗验收）：①全新窗口点活动栏 DSH One 图标 → 侧栏展示，装配对话区面板随即自动打开（标题 dsh Chat (assembled)）；②再点图标收起/展开侧栏，面板不重复自动开（单窗口只自动开一次）；③手动关掉装配面板后再点图标 → 不再强开；④命令面板仍有「DSH One: Open Assembled Chat」可显式打开；⑤服务未就绪时首次点击不报错、服务起来后下次展示侧栏时自动开。",
+      "result": "done",
+      "screenshots": [],
+      "notes": "实现：sessionsView 可见性钩子 → extension.ts autoOpenAssembledChat（workspaceState 记 dshOne.assemblyAutoOpened；assemblyView 暴露 revealAssembledChat/hasAssembledChatPanel/wasAssembledChatClosedByUser，用户手动关闭置 closedByUser、后开替换先开不误置）。GUI 行为本 session 无法自动验，待人窗按清单验收（合入门禁）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "侧栏回归：数据层/视图/前端零行为改动 + pure 单测全绿",
+      "expect": "侧栏（sessionsStore/sessionsView/sessionsWebview）diff 为零行为改动：仅图标迁移（ui/shared/icons.ts）、loadWebviewL10n 迁移（ui/shared/webviewL10n.ts）、撤「在新 tab 中打开」菜单项与 sessionOpenInNewTab 消息、高亮语义改「最近打开的会话」；会话树/标签/回收站/分组/置顶/未读相关 pure 单测全部保留且通过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "单测 509/509（下线前 699，随旧聊天删 190 条旧聊天用例，侧栏用例零删减）；历史侧栏回归 ledger（session-tag-groups/recycle-bin-*/workspace-*/tag-*/multi-select 等 35 个）保留在 test/sandbox 作回归基线。"
+    }
+  ]
+}

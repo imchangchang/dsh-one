@@ -1700,7 +1700,7 @@ export class SessionsStore implements vscode.Disposable {
    * 全局 mux 帧入口：approval/question 的 requested/resolved 喂
    * pendingInteractions，session/projection 的 title 帧实时更新基线标题
    * （子代理自动命名不再等下一次基线重拉——host 事件流没有标题帧，标题
-   * 只走这条投影推送）。与 chatSession 的单会话过滤不同，这里按帧自带
+   * 只走这条投影推送）。与旧聊天 controller 的单会话过滤不同，这里按帧自带
    * sessionId 分桶跟踪所有会话——官方侧栏黄点对未实例化的会话也要亮，
    * 靠的就是这条全局流。
    */
