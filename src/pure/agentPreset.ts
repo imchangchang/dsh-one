@@ -1,7 +1,8 @@
 /**
  * Agent preset 选择器的纯逻辑：roster 行到选项的映射与本地化。无 vscode
  * 依赖，node --test 可测。只有空会话（没有任何 turn/start）可选择 preset
- * ——"是否已启动"的判定在 src/server/chatSession.ts，这里只管展示文案。
+ * ——"是否已启动"的判定在消费端（dshRpc 的会话摘要/历史装配处），这里只管
+ * 展示文案。
  */
 
 /** Loose mirror of one agentPreset.list roster entry. */

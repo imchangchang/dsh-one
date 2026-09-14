@@ -6,14 +6,14 @@ import { randomUUID } from 'node:crypto'
 import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
 import { browserUrl } from './server/serverAuth.ts'
-import { loadModelWindowCache, setModelWindowCachePersist } from './server/chatSession.ts'
 import { archiveSession, createSession, ensureWorkspace, forkSession, renameSession } from './server/dshRpc.ts'
-import { isChatPanelTabArg } from './pure/contextResource.ts'
 import { formatSessionMention } from './pure/sessionMention.ts'
-import { DSH_TAB_VIEW_TYPE, openInTab, restoreDshWebTab } from './ui/webview.ts'
-import { registerAssembledChat } from './ui/assemblyView.ts'
-import { ChatViewProvider } from './ui/chatView.ts'
-import { CHAT_PANEL_VIEW_TYPE } from './ui/chatTab.ts'
+import {
+  hasAssembledChatPanel,
+  registerAssembledChat,
+  revealAssembledChat,
+  wasAssembledChatClosedByUser,
+} from './ui/assemblyView.ts'
 import { SessionsStore } from './ui/sessionsStore.ts'
 import { SessionsViewProvider } from './ui/sessionsView.ts'
 import { StatusBar } from './ui/statusbar.ts'
@@ -22,36 +22,24 @@ import { TagBridge } from './server/tagBridge.ts'
 /** Official dsh product page with the "Get started" install instructions. */
 const DSH_INSTALL_URL = 'https://www.deepseek.com/harness/'
 
-/** globalState key for the learned provider/model → contextWindow map (见 chatSession.ts）。 */
-const MODEL_WINDOW_CACHE_KEY = 'chat.modelWindowCache'
+/** workspaceState key：装配对话区是否已完成过一次自动打开（见 autoOpenAssembledChat）。 */
+const ASSEMBLY_AUTO_OPENED_KEY = 'dshOne.assemblyAutoOpened'
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
 /**
- * 会话动作命令的参数解析（侧栏菜单与编辑器 tab 右键共用）。侧栏直接传
- * sessionId 字符串；编辑器 tab 右键（editor/title/context）传的是被右键 tab
- * 的资源 URI，其中只有编辑器内部 id，API 层无法反查会话（见
- * contextResource.isChatPanelTabArg）——只能回退到当前活动 chat tab（右键的
- * 通常就是活动 tab；这是已知限制）。
+ * 会话动作命令的参数解析（侧栏菜单传 sessionId 字符串）。旧聊天 tab 的
+ * 编辑器右键入口已随旧聊天区下线，这里不再解析 tab 资源参数。
  */
-function resolveSessionArg(arg: unknown, chatView: ChatViewProvider): string | undefined {
-  if (typeof arg === 'string' && arg) return arg
-  if (isChatPanelTabArg(arg)) return chatView.currentSessionId ?? undefined
-  return undefined
+function resolveSessionArg(arg: unknown): string | undefined {
+  return typeof arg === 'string' && arg ? arg : undefined
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const logger = new Logger()
   logger.info(`dsh-one activating (platform=${process.platform}/${process.arch})`)
-
-  // 模型→窗口学习映射跨进程持久化：不持久化则扩展重启后映射为空，切回此前
-  // 用过的模型也进「窗口未知」占位。加载必须在任何会话 controller 附着之前。
-  loadModelWindowCache(context.globalState.get(MODEL_WINDOW_CACHE_KEY))
-  setModelWindowCachePersist((record) => {
-    void context.globalState.update(MODEL_WINDOW_CACHE_KEY, record)
-  })
 
   const manager = new ServerManager(context, logger)
 
@@ -84,33 +72,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger,
   })
   await tagBridge.start().catch((err) => logger.warn(`tag-bridge start failed (--tag unavailable): ${errorText(err)}`))
-  const chatView = new ChatViewProvider(manager, logger, context.extensionUri, sessions, context.workspaceState, () =>
-    void sessions.refresh(),
-  )
 
-  // 侧栏 sessions 面板（webview view）：只渲染会话列表，高亮读 chatView 的
-  // activeSessionId（附着的、或懒加载待附着目标），附着变化时重推快照。
+  // 「最近打开的会话」：旧聊天 tab 下线后，侧栏高亮/行内改名的附着语义由它
+  // 承接——从扩展侧打开会话（侧栏点击/新建/fork）即记为最近打开。装配页内部
+  // 切会话不经过扩展，高亮以最后一次从扩展侧打开的会话为准。
+  let lastOpenedSessionId: string | null = null
+  const activeSessionChanged = new vscode.EventEmitter<string | null>()
+  const setLastOpenedSession = (id: string | null): void => {
+    if (lastOpenedSessionId === id) return
+    lastOpenedSessionId = id
+    activeSessionChanged.fire(id)
+  }
+
+  // 打开/聚焦装配对话区：已开则聚焦（不重复装配），未开走命令全量打开
+  // （ensureStarted + 清单装配 + 起 mirror）。侧栏点开会话、新建会话、
+  // fork 与默认打开都复用这个入口。
+  const openAssembledChat = async (): Promise<void> => {
+    if (!revealAssembledChat()) await vscode.commands.executeCommand('dshOne.assembledChat')
+  }
+
+  // 默认打开装配对话区（#68）：侧栏 view 展示时，若装配面板没开就自动开一次。
+  // 「只自动开一次」落在 workspaceState；用户手动关过面板也不再强开（尊重选择）；
+  // 服务还没就绪时不落标记，等侧栏下次展示且服务在跑时再开（首次点击可能撞上
+  // 服务启动中，不给用户报错弹窗）。
+  const autoOpenAssembledChat = async (): Promise<void> => {
+    if (context.workspaceState.get<boolean>(ASSEMBLY_AUTO_OPENED_KEY)) return
+    if (revealAssembledChat() || wasAssembledChatClosedByUser()) {
+      await context.workspaceState.update(ASSEMBLY_AUTO_OPENED_KEY, true)
+      return
+    }
+    if (manager.getStatus().state !== 'running') return
+    await vscode.commands.executeCommand('dshOne.assembledChat')
+    if (hasAssembledChatPanel()) await context.workspaceState.update(ASSEMBLY_AUTO_OPENED_KEY, true)
+  }
+
+  // 侧栏 sessions 面板（webview view）：只渲染会话列表，高亮读「最近打开的会话」。
   const sessionsView = new SessionsViewProvider(
     manager,
     logger,
     context.extensionUri,
     sessions,
-    () => chatView.activeSessionId,
-    () => chatView.attachedSessionId,
-    chatView.onActiveSessionChanged,
+    () => lastOpenedSessionId,
+    () => lastOpenedSessionId,
+    activeSessionChanged.event,
+    () => void autoOpenAssembledChat(),
   )
-
-  // Chat/session reconciliation after every store rebuild: close the tab of
-  // any opened session that vanished host-side (archived/deleted elsewhere).
-  // 服务重启后的活动会话恢复在 chatView 内部做（store 基线刷新确认后自动
-  // 重新打开最近活动的会话 tab，只恢复活动的）。
-  const reconcileChat = sessions.onDidChange(() => {
-    const url = sessions.runningUrl
-    if (!url) return
-    for (const sessionId of chatView.openSessionIds()) {
-      if (!sessions.hasSession(sessionId)) chatView.closeSession(sessionId)
-    }
-  })
 
   context.subscriptions.push(
     logger,
@@ -118,9 +124,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     statusBar,
     sessions,
     tagBridge,
-    chatView,
     sessionsView,
-    reconcileChat,
+    activeSessionChanged,
     // 窗口失焦期间侧栏可能被覆盖，回到聚焦时列表可能过期——刷新一次（失焦不刷）。
     vscode.window.onDidChangeWindowState((state) => {
       if (state.focused) void sessions.refreshSoon()
@@ -128,22 +133,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerWebviewViewProvider('dshOne.chat', sessionsView, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
-    // 窗口 reload 恢复打开的 tab：chat 面板按面板 state 里的 tabId 查
-    // workspaceState 映射重建会话 tab；dsh web 面板重新 bind（内容随状态刷新）。
-    vscode.window.registerWebviewPanelSerializer(CHAT_PANEL_VIEW_TYPE, {
-      deserializeWebviewPanel: (panel, state) => chatView.restoreChatPanel(panel, state),
-    }),
-    vscode.window.registerWebviewPanelSerializer(DSH_TAB_VIEW_TYPE, {
-      deserializeWebviewPanel: (panel) => restoreDshWebTab(panel, manager),
-    }),
-    vscode.commands.registerCommand('dshOne.open', () => {
-      void manager.ensureStarted()
-      chatView.openPanel()
-    }),
-    // Status bar "Retry Starting / Start Service": start (or retry) the
-    // service only, without opening the system browser. Opening the browser
-    // stays reserved for "Open in Browser" and the status bar click
-    // (dshOne.openExternal).
     vscode.commands.registerCommand('dshOne.start', async () => {
       await manager.ensureStarted()
     }),
@@ -164,10 +153,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logger.info(`opening dsh web: ${externalUrl.toString()}`)
       await vscode.env.openExternal(external)
     }),
-    vscode.commands.registerCommand('dshOne.openInTab', () => {
-      openInTab(manager)
-    }),
-    // cordis 装配对话区（#64 goal 1）：官方组件装配页 + 自研外壳，命令面板进。
+    // cordis 装配对话区（#64 goal 1，#68 起为唯一对话区）：官方组件装配页 +
+    // 自研外壳，命令面板进；点活动栏 DSH One 图标也会自动打开（见
+    // autoOpenAssembledChat）。
     registerAssembledChat(context, manager, logger),
     vscode.commands.registerCommand('dshOne.restart', async () => {
       await manager.restart()
@@ -253,14 +241,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.sessions.refresh', async () => {
       await sessions.refresh()
     }),
-    // Click a session in the sidebar panel: open in the current chat tab by
-    // default (reused by the sessions webview via the command).
+    // Click a session in the sidebar panel: open the assembled chat with it
+    // remembered as the last opened session (highlight in the sidebar).
     vscode.commands.registerCommand('dshOne.session.open', (sessionId?: string) => {
-      if (typeof sessionId === 'string') chatView.openSession(sessionId)
-    }),
-    // 侧栏菜单「在新 tab 中打开」：显式新开一个会话 tab。
-    vscode.commands.registerCommand('dshOne.session.openInNewTab', (sessionId?: string) => {
-      if (typeof sessionId === 'string') chatView.openSessionInNewTab(sessionId)
+      if (typeof sessionId !== 'string') return
+      setLastOpenedSession(sessionId)
+      void openAssembledChat()
     }),
     vscode.commands.registerCommand('dshOne.session.new', async (workspaceId?: string, tagId?: string) => {
       const url = sessions.runningUrl
@@ -284,7 +270,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         sessions.setSessionTag(sessionId, tagId, targetWorkspaceId)
       }
       await sessions.refresh()
-      chatView.openSession(sessionId)
+      setLastOpenedSession(sessionId)
+      void openAssembledChat()
     }),
     // 新建「未分组」对话：不挂任何 workspace 的会话。预分配会话 id，临时
     // 目录（os.tmpdir()，跨平台等价于 /tmp）以 日期+会话id 命名作为会话
@@ -303,11 +290,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return
       }
       await sessions.refresh()
-      chatView.openSession(createdId)
+      setLastOpenedSession(createdId)
+      void openAssembledChat()
     }),
     vscode.commands.registerCommand('dshOne.session.rename', async (arg?: unknown, currentTitle?: string) => {
       const url = sessions.runningUrl
-      const sessionId = resolveSessionArg(arg, chatView)
+      const sessionId = resolveSessionArg(arg)
       if (!url || !sessionId) return
       const title = await vscode.window.showInputBox({
         title: vscode.l10n.t('Rename Session'),
@@ -325,7 +313,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('dshOne.session.archive', async (arg?: unknown, currentTitle?: string) => {
       const url = sessions.runningUrl
-      const sessionId = resolveSessionArg(arg, chatView)
+      const sessionId = resolveSessionArg(arg)
       if (!url || !sessionId) return
       // 置顶防线（pinned-not-archivable）：UI 已置灰，这层兜底防命令被绕过。
       if (sessions.snapshot().pinned.includes(sessionId)) {
@@ -349,8 +337,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await sessions.refresh()
       // 归档即终点：从回收站本地集合移除（会话在回收站里的情形）。
       sessions.clearRecycleBinIds([sessionId])
-      // Archiving an opened chat session closes its tab (per-session).
-      chatView.closeSession(sessionId)
     }),
     // 批量归档（多选模式）：确认框已在 sessions webview 内展示，这里不再弹
     // 确认，直接循环归档；返回失败 id 列表供面板保留勾选重试。
@@ -379,7 +365,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await sessions.refresh()
         // 归档即终点：成功项从回收站本地集合移除（清空回收站/单个归档的情形）。
         sessions.clearRecycleBinIds(succeeded)
-        for (const sessionId of succeeded) chatView.closeSession(sessionId)
       }
       if (failed.length > 0) {
         const sample = failed.slice(0, 3).map((id) => id.slice(0, 8)).join(', ')
@@ -391,7 +376,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('dshOne.session.fork', async (arg?: unknown) => {
       const url = sessions.runningUrl
-      const sessionId = resolveSessionArg(arg, chatView)
+      const sessionId = resolveSessionArg(arg)
       if (!url || !sessionId) return
       let newSessionId: string
       try {
@@ -401,24 +386,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return
       }
       await sessions.refresh()
-      // fork 后的子会话在新 tab 打开（用户决策：fork 后新开 tab，原 tab 保留）。
-      chatView.openSessionInNewTab(newSessionId)
+      // fork 后的子会话成为最近打开并聚焦装配对话区（旧聊天 tab 下线后无
+      // 「新 tab」概念，装配面板是唯一对话区）。
+      setLastOpenedSession(newSessionId)
+      void openAssembledChat()
     }),
-    // 复制会话引用 mention（侧栏菜单与 chat 头部 ⋯ 菜单、编辑器 tab 右键共用）。
+    // 复制会话引用 mention（侧栏菜单）。装配对话区接管聊天后，mention 粘贴
+    // 落点由官方输入框承接。
     vscode.commands.registerCommand('dshOne.session.copyReference', async (arg?: unknown, currentTitle?: string) => {
-      const sessionId = resolveSessionArg(arg, chatView)
+      const sessionId = resolveSessionArg(arg)
       if (!sessionId) return
       const label =
-        typeof currentTitle === 'string' && currentTitle
-          ? currentTitle
-          : chatView.activeSessionTitle ?? vscode.l10n.t('Session {0}', sessionId.slice(0, 8))
+        typeof currentTitle === 'string' && currentTitle ? currentTitle : vscode.l10n.t('Session {0}', sessionId.slice(0, 8))
       await vscode.env.clipboard.writeText(formatSessionMention(label, sessionId))
-      void vscode.window.showInformationMessage(vscode.l10n.t('Session reference copied. Paste it into the input box to mention this session'))
-    }),
-    // Editor/explorer 右键「发送到当前会话」：把当前文件作为附件暂存到当前
-    // 活跃会话的 composer（等同点「添加附件」）。
-    vscode.commands.registerCommand('dshOne.session.attachFile', (arg?: unknown) => {
-      void chatView.attachFileToSession(arg)
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t('Session reference copied. Paste it into the input box to mention this session'),
+      )
     }),
     vscode.commands.registerCommand('dshOne.workspace.openFolder', async (path?: string) => {
       if (typeof path !== 'string' || !path) return
@@ -442,7 +425,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     // Title-area "+": register a picked folder as a new dsh workspace.
     // Returns the registered workspace (or undefined when cancelled/failed) so
-    // the chat hero picker's「添加已有文件夹…」can switch to it afterwards;
+    // the sessions panel's「添加已有文件夹…」can switch to it afterwards;
     // the sidebar entry ignores the return value.
     vscode.commands.registerCommand('dshOne.workspace.add', async () => {
       const url = sessions.runningUrl
@@ -467,7 +450,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     // Create a brand-new workspace: make a folder under the dsh global
     // directory (~/.dsh/workspaces/<name>) and register it in one step.
-    // Same return contract as dshOne.workspace.add (used by the hero picker).
+    // Same return contract as dshOne.workspace.add (used by the sessions panel).
     vscode.commands.registerCommand('dshOne.workspace.create', async () => {
       const url = sessions.runningUrl
       if (!url) return undefined

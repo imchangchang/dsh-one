@@ -647,7 +647,7 @@ export interface ChatState {
    * webview 回退到内置静态表（0.1.1 时代行为）。
    */
   slashCommands?: Array<{ name: string; description: string; hint?: string }>
-  /** Footer session-stats line, host-formatted (src/pure/sessionStats.ts); rendered verbatim. */
+  /** Footer session-stats line, host-formatted; rendered verbatim. */
   statsLine?: string
   /**
    * Still-pending queued/steering inbox items (session/queue frames). These
@@ -730,9 +730,9 @@ export type ContextUsage =
       /** Heuristic composition (system prompt / tools / conversation). */
       breakdown?: { systemTokens: number; toolsTokens: number; messageTokens: number }
       /**
-       * Closed-turn count from the `sessionStats` projection; the webview's
-       * context meter (src/pure/contextMeter.ts) uses it for the per-turn
-       * growth estimate. Absent until the first closed turn.
+       * Closed-turn count from the session-stats projection; the chat UI's
+       * context meter uses it for the per-turn growth estimate. Absent until
+       * the first closed turn.
        */
       turns?: number
     }
@@ -1051,10 +1051,8 @@ export type FromWebviewMessage =
   | { type: 'openExternal'; url: string }
   /** 外链右键菜单选了「VS Code 内置浏览器打开」（Simple Browser）。 */
   | { type: 'openInBuiltinBrowser'; url: string }
-  /** Sessions 面板：附着一个会话（点击会话行，默认在当前活动 chat tab 打开）。 */
+  /** Sessions 面板：附着一个会话（点击会话行：打开装配对话区并记为最近打开）。 */
   | { type: 'sessionOpen'; sessionId: string }
-  /** Sessions 面板：在新 tab 中打开一个会话（右键菜单，显式新开 tab）。 */
-  | { type: 'sessionOpenInNewTab'; sessionId: string }
   /** Sessions 面板：在指定 workspace 新建会话（缺省由宿主选默认 workspace）。
    *  tagId 可选：创建后把新会话挂到该标签组（组头右键「创建对话」入口）。 */
   | { type: 'sessionNew'; workspaceId?: string; tagId?: string }
