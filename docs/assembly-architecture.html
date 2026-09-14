@@ -54,6 +54,9 @@ dsh-one 在 VS Code webview 里用<b>自有 shell 插件 + 官方对话区组件
 不要的插件（官方外框、官方侧栏）由 loopback 代理在转发插件整包时过滤掉。
 </div>
 
+<h2>架构总图</h2>
+<p><img src="assembly-architecture-diagram.png" alt="装配架构总图" style="width:100%;border:1px solid var(--line);border-radius:8px"></p>
+
 <h2>0. 四层总览</h2>
 
 <div class="layer host"><b class="tag">第 1 层</b><b>VS Code 扩展宿主（Node）</b> — 装配的发起方与代理方
@@ -158,7 +161,18 @@ dsh-one 在 VS Code webview 里用<b>自有 shell 插件 + 官方对话区组件
   <tr><td><code>dist/assembly/plugins/@dsh-one/vscode-shell/</code></td><td>构建产物</td><td>shell 插件的 esbuild 产物（external 种子词，由页面种子表满足）</td></tr>
 </table>
 
-<h2>5. 边界与路线图</h2>
+<h2>5. 审阅要点（关键决策与备选方案）</h2>
+<table>
+  <tr><th>决策</th><th>理由</th><th>被否掉的备选</th></tr>
+  <tr><td><b>block list（减法）而非白名单（交集）</b></td><td>dsh 升级/profile 带来新插件时自动跟随；只维护与 VS Code 界面冲突的小清单</td><td>静态 allowlist（18 包 pin）：dsh 一变就滞后，且 21 个 npm pin 维护成本高（spike 阶段用过，已废）</td></tr>
+  <tr><td><b>插件整包过滤</b></td><td>网关对整包内容做校验、改名单重拼会 404（实测）；只能整包取回后删段</td><td>重拼 combo URL / 单包 URL：404（rev 是内容指纹）；dsh profile 禁用：会让同实例官方 web 起不来，违背双前端前提（用户裁定）</td></tr>
+  <tr><td><b>shell 插件接管根外框</b></td><td>官方槽位机制原生支持替换（root 槽注册）；没它官方组件起不来（ui-chat 硬依赖 layout 服务，fail-loud 实证）</td><td>CSS 遮蔽侧栏（#60 v1）：逆向接缝打地鼠，已废弃</td></tr>
+  <tr><td><b>代理剥 sec-fetch-* 头</b></td><td>网关信任栅栏把浏览器 Fetch Metadata 断言当成对网关自身的声明 → 403（VS Code 验证实锤）；代理是受信方，剥除正确</td><td>页面侧改 fetch 头：浏览器禁止改 sec-fetch-*；放行更多 CSP：治不了本</td></tr>
+  <tr><td><b>官方代码全部直引网关</b></td><td>版本天然一致；vsix 净增 ≈4KB；dsh 升级自动跟随（API 不破时）</td><td>打包进扩展：+7MB、版本错配风险、升级要发新版</td></tr>
+  <tr><td><b>传输桥双通道</b></td><td>webview 源下官方客户端按 location 寻址会失效；fetch 换源到代理 + openStream 自建 WS 说 remote.mux 协议</td><td>同源伺服页面（实验室形态）：webview 里不可行</td></tr>
+</table>
+
+<h2>6. 边界与路线图</h2>
 <ul>
   <li><b>未做（M2，#64 后续）</b>：dsh-one 自研侧栏点会话 → 装配面板打开对应会话（经官方恢复键接缝）；主题实时跟随；面板 reload 恢复。</li>
   <li><b>未做（#65）</b>：dsh-one 特有功能插件化（git 卡片、会话引用等注册官方槽位）。</li>
