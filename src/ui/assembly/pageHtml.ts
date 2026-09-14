@@ -43,6 +43,13 @@ export interface AssemblyPageOptions {
   theme: 'dark' | 'light'
   /** 版本门信息条文本；undefined = 网关在 [0.1.2-rc.1, 0.2.0) 区间内，不显示。 */
   banner?: string
+  /**
+   * 实验开关（lab 排查矩阵用）：false 时去掉 CSP meta（A/B 变体对照）。
+   * 生产（webview）恒为 true/缺省。
+   */
+  csp?: boolean
+  /** 实验开关：false 时去掉 __DSH_TRANSPORT__ 桥（A/C 变体对照）。生产恒缺省。 */
+  transport?: boolean
 }
 
 const CSP = [
@@ -201,6 +208,8 @@ function themePresetJs(theme: 'dark' | 'light'): string {
 
 export function assemblyPageHtml(options: AssemblyPageOptions): string {
   const { mirrorOrigin, cspNonce, assets, bootWire, bootstrapUrl, theme, banner } = options
+  const cspOn = options.csp !== false
+  const transportOn = options.transport !== false
   const csp = CSP.replace('NONCE', cspNonce)
   const preload = assets.preloadJs.map((href) => `    <link rel="modulepreload" crossorigin href="./${escapeAttr(href)}">`).join('\n')
   const styles = assets.css.map((href) => `    <link rel="stylesheet" crossorigin href="./${escapeAttr(href)}">`).join('\n')
@@ -208,20 +217,20 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
     banner === undefined
       ? ''
       : `<div style="position:sticky;top:0;z-index:100;padding:6px 12px;background:#8a6d1d;color:#fff;font:12px/1.5 var(--vscode-font-family,system-ui,sans-serif);">${escapeHtml(banner)}</div>`
+  const cspMeta = cspOn ? `    <meta http-equiv="Content-Security-Policy" content="${csp}" />\n` : ''
+  const transportScript = transportOn ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin)}</script>\n` : ''
   return `<!doctype html>
 <html lang="en">
   <head>
     <base href="${escapeAttr(mirrorOrigin)}/">
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="${csp}" />
-    <title>DeepSeek Harness (assembled)</title>
+${cspMeta}    <title>DeepSeek Harness (assembled)</title>
     <script nonce="${cspNonce}">${QUEUE_FACADE_JS}</script>
 ${preload}
 ${styles}
     <script nonce="${cspNonce}">globalThis["__DSH_BOOT__"] = ${jsonForScript(bootWire)}</script>
     <script src="${escapeAttr(bootstrapUrl)}"></script>
-    <script nonce="${cspNonce}">${transportJs(mirrorOrigin)}</script>
-    <script type="module" crossorigin src="./${escapeAttr(assets.moduleJs)}"></script>
+${transportScript}    <script type="module" crossorigin src="./${escapeAttr(assets.moduleJs)}"></script>
   </head>
   <body>
     <script nonce="${cspNonce}">${themePresetJs(theme)}</script>

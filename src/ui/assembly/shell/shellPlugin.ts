@@ -73,7 +73,11 @@ interface ShellContext {
 // 样式（官方 css-module 注入形态的本地版：data-plugin-css 防重）
 // ---------------------------------------------------------------------------
 
-const CSS = '.dshOneShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative}.dshOneShell_row{flex:1;min-height:0;display:flex}.dshOneShell_main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}.dshOneShell_details{border-left:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden;background:var(--dsw-alias-bg-base)}.dshOneShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}.dshOneShell_overlay>*{pointer-events:auto}'
+const CSS = '.dshOneShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative}.dshOneShell_row{flex:1;min-height:0;display:flex}.dshOneShell_main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}.dshOneShell_details{border-left:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden;background:var(--dsw-alias-bg-base)}.dshOneShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
+// 注意：overlay 层语义逐字对齐官方 AppFrame.overlayLayer（pointer-events:none、
+// 无子元素指针事件豁免）——官方 CSS 没有 `>*{pointer-events:auto}`；加豁免会让
+// 任何渲染了尺寸内容的 overlay 贡献（portal 进该层的全屏容器）吃掉全页输入。
+// 需要交互的 overlay 贡献应自行声明 pointer-events（与官方一致）。
 const CSS_TAG_ID = '@dsh-one/vscode-shell/ShellFrame.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
