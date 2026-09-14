@@ -203,13 +203,13 @@ export function defaultScenario(): MockLlmScenario {
       // 行内码交互演示：回复带路径形状行内码 + 命令/变量行内码（验证路径可点、
       // 非路径带复制图标——chat-inline-code-path-interact 任务）。
       // ~/.dsh/settings.yaml 是容器内确定存在的文件（entrypoint mock 分支生成），
-      // 供「点击打开真实文件」E2E 断言；相对路径 src/ui/chat/webview.ts 只验证
+      // 供「点击打开真实文件」E2E 断言；相对路径 src/ui/sessionsWebview.ts 只验证
       // 判定与消息（harness 层），点击在宿主侧报文件不存在属预期。
       {
         match: { contains: '行内码路径' },
         respond: {
           content: [
-            '主要文件是 `~/.dsh/settings.yaml` 与 `src/ui/chat/webview.ts`；检查命令 `npm run build`；变量 `DSH_PORT`。',
+            '主要文件是 `~/.dsh/settings.yaml` 与 `src/ui/sessionsWebview.ts`；检查命令 `npm run build`；变量 `DSH_PORT`。',
             ' 绝对路径 `/home/coder/.dsh/settings.yaml` 是同一文件。',
           ],
         },
