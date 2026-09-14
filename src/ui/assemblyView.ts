@@ -1,45 +1,53 @@
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
-import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import type { ServerManager } from '../server/manager.ts'
 import type { Logger } from '../log.ts'
 import { startAssemblyMirror, type AssemblyMirror } from '../server/assemblyMirror.ts'
-import { dshVersion } from '../server/serverAuth.ts'
+import { cookieHeader, dshVersion } from '../server/serverAuth.ts'
 import { parse as parseSemver, compare as compareSemver } from '../pure/semver.ts'
-import { assemblyPageHtml, type AssemblyBootWire } from './assembly/pageHtml.ts'
+import { assemblyPageHtml } from './assembly/pageHtml.ts'
+import { extractBootWire, extractFrontendAssets, filterWire, type BootWire, type GatewayAssets } from './assembly/wireFilter.ts'
 
 /**
- * cordis 装配对话区面板（#64 M1）：命令 dshOne.assembledChat → ensureStarted
- * 后起 assemblyMirror（loopback 反代 + 自托管资产），webview.html = 装配页
+ * cordis 装配对话区面板（#64）：命令 dshOne.assembledChat → ensureStarted
+ * 后起 assemblyMirror（loopback 反代），webview.html = 装配页
  * （ui/assembly/pageHtml.ts，普通浏览器同页可开，零 acquireVsCodeApi）。
  * 生命周期照官方嵌入面板模式（#60）：单例、后开替换先开、关面板即 dispose mirror。
  *
- * 版本门：网关 dsh 版本不在 [0.1.2-rc.1, 0.2.0)（自托管 20 包 pin 区间）时页面
- * 顶部加信息条，不阻断——cordis wire 纯数据不验来源，但包/网关跨大版本行为
- * 无保证，提示用户自担风险。
+ * blocklist 模式：面板打开时（扩展宿主侧，node 无 CORS）用 cookie GET 网关
+ * `/` 的注入 HTML，提取官方 __DSH_BOOT__ wire + 前端资产名，按 BLOCK_LIST
+ * 过滤（application 批重指 mirror /plugins-local，mirror 拉官方原 combo 剥
+ * blocked 段后伺服），追加 @dsh-one/vscode-shell，内联进装配页。
+ *
+ * 版本门：网关 dsh 版本不在 [0.1.2-rc.1, 0.2.0) 时页面顶部加信息条，不阻断。
  */
 
 export const ASSEMBLED_CHAT_VIEW_TYPE = 'dshOne.assembledChat'
 
-/** 装配清单（scripts/gen-assembly-manifest.mjs 产物，build.mjs 拷进 dist/assembly/）。 */
-interface AssemblyManifest {
-  version: string
-  frontend: { moduleJs: string; preloadJs: string[]; css: string[] }
-  bootstrapUrl: string
-  boot: AssemblyBootWire
+/** 装配页数据源：网关 / 注入 HTML 的运行时提取 + blocklist 过滤结果。 */
+interface GatewayAssembly {
+  wire: BootWire
+  assets: GatewayAssets
 }
 
-/** 自托管 20 包 pin 区间（低于下限时缺 browser-session 认证/装载协议，高于上限行为无保证）。 */
+/** 版本门区间（低于下限缺 browser-session 认证/装载协议，高于上限行为无保证）。 */
 const PREREQ_MIN = '0.1.2-rc.1'
 const PREREQ_MAX = '0.2.0'
 
 /** 当前打开的面板（单例：后开替换先开，与官方嵌入面板一致）。 */
 let active: { panel: vscode.WebviewPanel; mirror: AssemblyMirror } | undefined
 
-async function loadManifest(extensionUri: vscode.Uri): Promise<AssemblyManifest> {
-  const file = path.join(extensionUri.fsPath, 'dist', 'assembly', 'manifest.json')
-  return JSON.parse(await fsp.readFile(file, 'utf8')) as AssemblyManifest
+/** 用 serverAuth 的 cookie GET 网关 /，提取 wire 并按 BLOCK_LIST 过滤（见 wireFilter.ts）。 */
+async function loadGatewayAssembly(gateway: string): Promise<GatewayAssembly> {
+  const cookie = cookieHeader(gateway)
+  const res = await fetch(`${gateway}/`, {
+    headers: cookie !== undefined ? { cookie } : {},
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!res.ok) throw new Error(`GET /: HTTP ${res.status}`)
+  const html = await res.text()
+  return { wire: filterWire(extractBootWire(html)), assets: extractFrontendAssets(html) }
 }
 
 /** 版本门：区间内/无法取得版本来源时返回信息条文本（undefined = 放行不显示）。 */
@@ -67,12 +75,12 @@ export function registerAssembledChat(
       void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
       return
     }
-    let manifest: AssemblyManifest
+    let assembly: GatewayAssembly
     try {
-      manifest = await loadManifest(context.extensionUri)
+      assembly = await loadGatewayAssembly(status.url)
     } catch (err) {
       void vscode.window.showErrorMessage(
-        vscode.l10n.t('Failed to load the assembly manifest; rebuild the extension. ({0})', String(err)),
+        vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
       )
       return
     }
@@ -82,7 +90,6 @@ export function registerAssembledChat(
         () => manager.getStatus().url,
         logger,
         {
-          assetsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'frontend', 'assets'),
           pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
         },
       )
@@ -114,9 +121,9 @@ export function registerAssembledChat(
     panel.webview.html = assemblyPageHtml({
       mirrorOrigin: mirror.origin,
       cspNonce: crypto.randomBytes(16).toString('base64'),
-      assets: manifest.frontend,
-      bootWire: manifest.boot,
-      bootstrapUrl: manifest.bootstrapUrl,
+      assets: assembly.assets,
+      bootWire: assembly.wire,
+      bootstrapUrl: assembly.wire.batches[0].url,
       theme,
       banner: versionBanner(dshVersion(status.url) ?? status.version),
     })

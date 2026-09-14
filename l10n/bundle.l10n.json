@@ -530,7 +530,7 @@
   "Loading image…": "Loading image…",
   "Open image in editor": "Open image in editor",
   "dsh Chat (assembled)": "dsh Chat (assembled)",
-  "Failed to load the assembly manifest; rebuild the extension. ({0})": "Failed to load the assembly manifest; rebuild the extension. ({0})",
+  "Failed to load the assembly wire from the dsh gateway: {0}": "Failed to load the assembly wire from the dsh gateway: {0}",
   "Failed to start the assembly mirror: {0}": "Failed to start the assembly mirror: {0}",
   "The dsh version is unknown; this chat assembly expects {0}.": "The dsh version is unknown; this chat assembly expects {0}.",
   "The connected dsh is {0}, which may not match this chat assembly (expects {1}).": "The connected dsh is {0}, which may not match this chat assembly (expects {1})."

@@ -35,7 +35,7 @@ export interface AssemblyPageOptions {
   /** CSP nonce：webview 内联脚本用；lab 里任意随机值。 */
   cspNonce: string
   assets: AssemblyPageAssets
-  /** __DSH_BOOT__ wire（scripts/gen-assembly-manifest.mjs 产物）。 */
+  /** __DSH_BOOT__ wire（blocklist 过滤后的运行时产物，见 ui/assembly/wireFilter.ts）。 */
   bootWire: AssemblyBootWire
   /** bootstrap 批 URL（阻塞 script src，相对 base）。 */
   bootstrapUrl: string

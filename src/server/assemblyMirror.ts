@@ -5,61 +5,44 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Logger } from '../log.ts'
 import { cookieHeader } from './serverAuth.ts'
+import { BLOCKED_IDS, extractBootWire } from '../ui/assembly/wireFilter.ts'
 
 // serverAuth 的 per-origin 状态是模块级 Map：harness/测试若另起 bundle 实例
-// 会读写不到同一份（probe 时踩过）。统一从这里再导出，保证消费方与 mirror
-// 共用同一模块实例（扩展宿主单 bundle 本无此问题）。
+// 会读写不到同一份（probe 时踩过)。统一从这里再导出，保证消费方与 mirror
+// 共用同一模块实例（扩展宿主单 bundle 本无此问题)。
 export { cookieHeader, registerAuth, exchangeToken, probeToken, dshVersion } from './serverAuth.ts'
 
 /**
- * cordis 装配 mirror（#64 M1）：loopback 反向代理 + 自托管静态资产的组合体，
- * 仅绑 127.0.0.1 随机端口，随面板关闭。沿用 #60/#63 已验证的三件套：
- * - /api 反代：Origin/Referer 改写为网关权威，鉴权 cookie 服务侧附加
- *   （cookieHeader，见 serverAuth.ts），/api/remote.mux WS 升级转裸管道；
- * - /assets/*：伺服打包进来的官方前端 dist（dist/assembly/frontend/assets）；
- * - /plugins-local/??ids：20 个自托管包的 lib/client.js 按官方 combo 形态拼接
- *   （dist/assembly/plugins/<name>/client.js）。
+ * cordis 装配 mirror（#64，blocklist 模式)：loopback 反向代理，仅绑
+ * 127.0.0.1 随机端口，随面板关闭。路由全解析：
+ * - /api/*：反代网关（Origin/Referer 改写为网关权威、cookie 服务侧附加，
+ *   /api/remote.mux WS 升级转裸管道)——#60/#63 已验证三件套；
+ * - /assets/*、/plugins/*：反代网关静态资产与插件包（带 cookie)——blocklist
+ *   模式直引网关，不再伺服本地拷贝（vsce 不再打包前端 dist/插件包)；
+ * - /plugins-local/??ids：本地 combo。shell 插件（@dsh-one/vscode-shell)
+ *   直接读盘；**含官方 id 时**= 过滤版 application 批——拉网关原 combo
+ *   （探针证实 rev 是内容校验：重拼/错 rev 一律 404，只能拉原 combo)，按
+ *   `window.__ModuleLoader__.load({` 边界剥掉 BLOCK_LIST 段后伺服；
+ * - /（可选)：装配页 HTML（lab harness 用；webview 形态由外壳生成)。
  *
- * 与 officialMirror 的差异：不做任何 index.html 注入（装配页由外壳生成，
- * 见 ui/assembly/pageHtml.ts）；全部响应带 ACAO:*（webview 源是
- * vscode-webview://，跨源 fetch/module preload 需要 CORS）并应答 OPTIONS
- * 预检；可选 / 装配页路由（webview 不需要，lab harness 用它在普通浏览器
- * 里开同一页）。
+ * 全响应 ACAO:* + OPTIONS 预检（webview 源是 vscode-webview://，跨源
+ * fetch/module preload 需要 CORS)。
  */
 
 export interface AssemblyMirror {
-  /** loopback 源（http://127.0.0.1:<port>），装配页 base href / transport 目标。 */
+  /** loopback 源（http://127.0.0.1:<port>)，装配页 base href / transport 目标。 */
   readonly origin: string
   dispose(): void
 }
 
 export interface AssemblyMirrorOptions {
-  /** 前端资产目录（.../frontend/assets，含哈希 js/css/fonts/langs）。 */
-  assetsDir: string
-  /** 插件目录：`<pluginsDir>/<name>/client.js`（name = 包 id 去 @deepseek-ai/ 前缀）。 */
+  /**
+   * 本地插件根目录：`<pluginsDir>/@dsh-one/vscode-shell/client.js`（自有 shell
+   * bundle，构建期落盘)。官方插件不再落盘——全部经 /plugins 代理直引网关。
+   */
   pluginsDir: string
-  /** 可选：GET / 返回的装配页 HTML（lab harness 传；webview 形态不需要）。 */
+  /** 可选：GET / 返回的装配页 HTML（lab harness 传；webview 形态不需要)。 */
   assemblyPage?: () => string | undefined
-}
-
-/** 自托管包 id 白名单（也是路径穿越防线）：官方 @deepseek-ai/dsh-<kebab> + 自有 shell。 */
-const PLUGIN_ID_RE = /^(?:@deepseek-ai\/dsh-[a-z0-9-]+|@dsh-one\/vscode-shell)$/
-/** 插件目录名：官方包去 scope；其余 id（@dsh-one/vscode-shell）整个作目录名。 */
-const pluginDirName = (id: string): string => (id.startsWith('@deepseek-ai/') ? id.slice('@deepseek-ai/'.length) : id)
-const CLIENT_SUFFIX = '/client.js'
-
-const CONTENT_TYPES: Record<string, string> = {
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.map': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-  '.ttf': 'font/ttf',
-  '.webmanifest': 'application/manifest+json',
 }
 
 export function startAssemblyMirror(
@@ -67,21 +50,22 @@ export function startAssemblyMirror(
   logger: Logger,
   options: AssemblyMirrorOptions,
 ): Promise<AssemblyMirror> {
-  const fileCache = new Map<string, Promise<Buffer>>()
-  const readCached = (file: string): Promise<Buffer> => {
-    let cached = fileCache.get(file)
-    if (cached === undefined) {
-      cached = fsp.readFile(file)
-      fileCache.set(file, cached)
-      cached.catch(() => fileCache.delete(file))
-    }
-    return cached
+  // 过滤版官方 combo 缓存：mirror 生命周期（= 面板生命周期)内网关插件集
+  // 不变；首次 /plugins-local 带官方 id 的请求触发拉取。
+  let filteredComboPromise: Promise<string> | null = null
+  const filteredGatewayCombo = (): Promise<string> => {
+    filteredComboPromise ??= fetchFilteredGatewayCombo(target, logger)
+    // 失败不缓存（下次重试)。
+    filteredComboPromise.catch(() => {
+      filteredComboPromise = null
+    })
+    return filteredComboPromise
   }
 
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       try {
-        // 跨源预检：webview 的 fetch（content-type: application/json）会先发 OPTIONS。
+        // 跨源预检：webview 的 fetch（content-type: application/json)会先发 OPTIONS。
         if (req.method === 'OPTIONS') {
           res.writeHead(204, {
             'access-control-allow-origin': '*',
@@ -100,12 +84,14 @@ export function startAssemblyMirror(
             return
           }
         }
-        if (url.pathname.startsWith('/assets/')) {
-          void serveAssets(req, res, url, options, readCached, logger)
+        if (url.pathname === '/plugins-local/') {
+          void serveCombo(req, res, url, options, filteredGatewayCombo, logger)
           return
         }
-        if (url.pathname === '/plugins-local/') {
-          void serveCombo(req, res, url, options, readCached, logger)
+        // 网关静态资产与插件包：原样反代（entry.url/bootstrap 批都是网关
+        // /plugins URL，base href 下落到本 mirror 同源)。带 cookie。
+        if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/plugins/')) {
+          proxyRequest(req, res, target, logger)
           return
         }
         if (url.pathname.startsWith('/api/')) {
@@ -139,50 +125,67 @@ export function startAssemblyMirror(
   })
 }
 
-/** /assets/<file>：前端 dist 资产，路径穿越拦截（不解析 ..、只允许白名单扩展名）。 */
-async function serveAssets(
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-  options: AssemblyMirrorOptions,
-  readCached: (file: string) => Promise<Buffer>,
+/** 本地插件 id（路径穿越白名单的另一半；官方 id 永不落盘、不经此分支)。 */
+const LOCAL_PLUGIN_RE = /^@dsh-one\/[a-z0-9-]+$/
+const CLIENT_SUFFIX = '/client.js'
+
+/**
+ * 拉官方原 application combo 并剥掉 BLOCK_LIST 段（探针结论：网关 rev 是
+ * 内容校验，重拼/单包错 rev 一律 404，唯一可靠来源是原 combo URL)。
+ * 按 `window.__ModuleLoader__.load({` 边界切段、读段首 id 判定、拼接保留段。
+ */
+async function fetchFilteredGatewayCombo(
+  target: () => string | undefined,
   logger: Logger,
-): Promise<void> {
-  const rel = url.pathname.slice('/assets/'.length)
-  if (req.method !== 'GET' || rel === '' || rel.includes('..') || rel.startsWith('/')) {
-    res.writeHead(404, { 'access-control-allow-origin': '*' })
-    res.end('not found')
-    return
+): Promise<string> {
+  const gateway = target()
+  if (gateway === undefined) throw new Error('assembly mirror: dsh service is not running')
+  const cookie = cookieHeader(gateway)
+  const headers: Record<string, string> = cookie !== undefined ? { cookie } : {}
+  const indexRes = await fetch(`${gateway}/`, { headers })
+  if (!indexRes.ok) throw new Error(`assembly mirror: GET / HTTP ${indexRes.status}`)
+  const wire = extractBootWire(await indexRes.text())
+  const app = wire.batches.find((b) => b.phase === 'application')
+  if (app === undefined) throw new Error('assembly mirror: gateway wire has no application batch')
+  const comboRes = await fetch(`${gateway}${app.url}`, { headers })
+  if (!comboRes.ok) throw new Error(`assembly mirror: official combo HTTP ${comboRes.status}`)
+  const text = await comboRes.text()
+  const segmentRe = /window\.__ModuleLoader__\.load\(\{/g
+  const marks = [...text.matchAll(segmentRe)]
+  const kept: string[] = []
+  const dropped: string[] = []
+  for (let i = 0; i < marks.length; i++) {
+    const start = marks[i].index
+    const end = i + 1 < marks.length ? marks[i + 1].index : text.length
+    const segment = text.slice(start, end)
+    const id = /\bid:\s*"([^"]+)"/.exec(segment.slice(0, 300))?.[1]
+    if (id !== undefined && BLOCKED_IDS.includes(id)) {
+      dropped.push(id)
+      continue
+    }
+    kept.push(segment)
   }
-  const ext = path.extname(rel).toLowerCase()
-  const type = CONTENT_TYPES[ext]
-  if (type === undefined) {
-    res.writeHead(404, { 'access-control-allow-origin': '*' })
-    res.end('not found')
-    return
+  if (kept.length + dropped.length !== marks.length || dropped.length !== BLOCKED_IDS.length) {
+    logger.warn(
+      `assembly mirror: combo segment strip anomaly (segments ${marks.length}, kept ${kept.length}, dropped ${dropped.length}, expected ${BLOCKED_IDS.length})`,
+    )
+  } else {
+    logger.info(`assembly mirror: filtered combo ready (kept ${kept.length} segments, dropped ${dropped.join(', ')})`)
   }
-  try {
-    const body = await readCached(path.join(options.assetsDir, rel))
-    res.writeHead(200, { 'content-type': type, 'access-control-allow-origin': '*', 'cache-control': 'no-cache' })
-    res.end(body)
-  } catch {
-    logger.warn(`assembly mirror: missing asset ${rel}`)
-    res.writeHead(404, { 'access-control-allow-origin': '*' })
-    res.end('not found')
-  }
+  return kept.join('')
 }
 
 /**
- * /plugins-local/??<id1>/client.js,<id2>/client.js&rev=…：官方 combo 形态的本地
- * 版——按序拼接各包 client.js（每段都是 `__ModuleLoader__.load({id,factory})`
- * 自注册 IIFE，纯拼接即正确）。
+ * /plugins-local/??ids&rev=…：本地 combo。官方 id → 过滤版 application combo
+ * （整段前置)；本地 id（shell)→ 读盘拼尾。纯拼接即正确（每段都是自注册
+ * IIFE，注册顺序无关物化)。
  */
 async function serveCombo(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
   options: AssemblyMirrorOptions,
-  readCached: (file: string) => Promise<Buffer>,
+  filteredGatewayCombo: () => Promise<string>,
   logger: Logger,
 ): Promise<void> {
   // search = "?<list…>&rev=…"：第一个 '?' 起 query，第二个 '?' 起 combo 列表。
@@ -201,26 +204,34 @@ async function serveCombo(
     return
   }
   const ids = items.map((item) => item.slice(0, -CLIENT_SUFFIX.length))
-  if (ids.some((id) => !PLUGIN_ID_RE.test(id))) {
-    logger.warn(`assembly mirror: rejected combo ids ${ids.join(',')}`)
+  const gatewayIds = ids.filter((id) => !id.startsWith('@dsh-one/'))
+  const localIds = ids.filter((id) => id.startsWith('@dsh-one/'))
+  if (localIds.some((id) => !LOCAL_PLUGIN_RE.test(id))) {
+    logger.warn(`assembly mirror: rejected local combo ids ${localIds.join(',')}`)
     res.writeHead(404, { 'access-control-allow-origin': '*' })
     res.end('not found')
     return
   }
   try {
-    const parts = await Promise.all(
-      ids.map((id) => readCached(path.join(options.pluginsDir, pluginDirName(id), 'client.js'))),
-    )
+    const parts: Buffer[] = []
+    if (gatewayIds.length > 0) {
+      const filtered = await filteredGatewayCombo()
+      parts.push(Buffer.from(filtered, 'utf8'))
+    }
+    for (const id of localIds) {
+      const file = await fsp.readFile(path.join(options.pluginsDir, id, 'client.js'))
+      parts.push(Buffer.concat([Buffer.from('\n'), file]))
+    }
     res.writeHead(200, {
       'content-type': 'text/javascript; charset=utf-8',
       'access-control-allow-origin': '*',
       'cache-control': 'no-cache',
     })
-    res.end(Buffer.concat(parts.map((part, i) => (i === 0 ? part : Buffer.concat([Buffer.from('\n'), part])))))
-  } catch {
-    logger.warn(`assembly mirror: missing plugin in combo ${ids.join(',')}`)
-    res.writeHead(404, { 'access-control-allow-origin': '*' })
-    res.end('not found')
+    res.end(Buffer.concat(parts))
+  } catch (err) {
+    logger.warn(`assembly mirror: combo serving failed: ${err instanceof Error ? err.message : String(err)}`)
+    res.writeHead(502, { 'access-control-allow-origin': '*' })
+    res.end('assembly mirror combo error')
   }
 }
 
@@ -232,7 +243,7 @@ function proxyHeaders(req: IncomingMessage, target: string): Record<string, stri
     headers[key] = value
   }
   headers.host = authority
-  // 浏览器信任栅栏：Origin/Referer 改写为网关自己的权威（#60 已验证）。
+  // 浏览器信任栅栏：Origin/Referer 改写为网关自己的权威（#60 已验证)。
   headers.origin = target
   if (req.headers.referer !== undefined) headers.referer = target
   const cookie = cookieHeader(target)

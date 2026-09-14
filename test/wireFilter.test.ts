@@ -67,7 +67,7 @@ test('filterWire：剥 blocklist、application 批重指 /plugins-local、追加
   ])
   assert.match(
     app.url,
-    /^\/plugins-local\/\?\?@deepseek-ai\/dsh-typert-registry\/client\.js,@deepseek-ai\/dsh-client-ui-chat\/client\.js,@deepseek-ai\/dsh-client-ui-workspace\/client\.js&rev=rev-app$/,
+    /^\/plugins-local\/\?\?@deepseek-ai\/dsh-typert-registry\/client\.js,@deepseek-ai\/dsh-client-ui-chat\/client\.js,@deepseek-ai\/dsh-client-ui-workspace\/client\.js,@dsh-one\/vscode-shell\/client\.js&rev=rev-app$/,
   )
   assert.ok(!app.url.includes('ui-layout') && !app.url.includes('ui-sidebar'), 'application combo 不得含 blocked id')
 })

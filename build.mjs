@@ -1,6 +1,5 @@
 import esbuild from 'esbuild'
 import * as fsp from 'node:fs/promises'
-import { ASSEMBLY_PACKAGE_NAMES, generateAssemblyManifest, SHELL_PLUGIN_ID } from './scripts/gen-assembly-manifest.mjs'
 import path from 'node:path'
 
 const results = await Promise.all([
@@ -59,34 +58,14 @@ if (results.some((r) => r.warnings.length > 0)) {
   console.log('built dist/extension.js + dist/chatWebview.js + dist/sessionsWebview.js + dist/spawnDsh.js')
 }
 
-// cordis 装配资产（#64）：vsce 不打包 devDependencies，官方前端 dist 与 18 个
-// 自托管插件 bundle 必须在构建期落进 dist/assembly（assemblyMirror 伺服、
-// assemblyView 读 manifest）。manifest 重新生成并与提交进 src/ui/assembly 的
-// 清单比对——漂移直接构建失败（防「改了包忘了再生清单」）。
-const manifest = await generateAssemblyManifest()
-const manifestJson = JSON.stringify(manifest, null, 2) + '\n'
-const committedManifest = await fsp.readFile('src/ui/assembly/manifest.json', 'utf8')
-if (committedManifest !== manifestJson) {
-  console.error('src/ui/assembly/manifest.json 与 node_modules 现状不一致，请运行 node scripts/gen-assembly-manifest.mjs')
-  process.exit(1)
-}
-const FRONTEND_DIST = 'node_modules/@deepseek-ai/dsh-web-frontend/dist'
+// cordis 装配（#64，blocklist 模式）：面板打开时运行时才从网关取 wire/资产，
+// 官方前端 dist 与插件包全部经 mirror 反代直引网关——构建期只剩自有 shell
+// 插件落盘（vsce 体积回落）。shell 打成与官方包同格式的自注册 IIFE
+// （banner/footer 包出 __ModuleLoader__.load({id, factory})）；externals 必须
+// 列全（运行时由主 bundle 种子表满足，打进包会双重实例化）。
+const SHELL_PLUGIN_ID = '@dsh-one/vscode-shell' // 与 src/ui/assembly/wireFilter.ts 保持一致
+const SHELL_PLUGIN_DIR = path.join('dist', 'assembly', 'plugins', SHELL_PLUGIN_ID)
 await fsp.rm('dist/assembly', { recursive: true, force: true })
-await fsp.mkdir('dist/assembly/plugins', { recursive: true })
-// 前端 dist 整体拷贝，index.html 除外（装配页由外壳生成，不伺服官方入口页）。
-await fsp.cp(FRONTEND_DIST, 'dist/assembly/frontend', {
-  recursive: true,
-  filter: (src) => path.basename(src) !== 'index.html',
-})
-for (const name of ASSEMBLY_PACKAGE_NAMES) {
-  const to = path.join('dist/assembly/plugins', name)
-  await fsp.mkdir(to, { recursive: true })
-  await fsp.copyFile(path.join('node_modules/@deepseek-ai', name, 'lib', 'client.js'), path.join(to, 'client.js'))
-}
-// 自有 shell 插件（方案 A′：顶替 ui-layout 的 root 外框）：打成与官方包同格式
-// 的自注册 IIFE（banner/footer 包出 __ModuleLoader__.load({id, factory})）。
-// externals 必须列全——打进包会跟种子表双重实例化（调研结论）。
-const SHELL_PLUGIN_DIR = 'dist/assembly/plugins/@dsh-one/vscode-shell'
 await fsp.mkdir(SHELL_PLUGIN_DIR, { recursive: true })
 await esbuild.build({
   entryPoints: ['src/ui/assembly/shell/clientEntry.ts'],
@@ -102,7 +81,4 @@ await esbuild.build({
   footer: { js: '\n\t\treturn module.exports;\n\t}\n});\n' },
   logLevel: 'warning',
 })
-await fsp.writeFile('dist/assembly/manifest.json', manifestJson)
-console.log(
-  `assembled dist/assembly/ (pin=${manifest.version}, plugins=${ASSEMBLY_PACKAGE_NAMES.length} + @dsh-one/vscode-shell)`,
-)
+console.log(`assembled shell plugin -> ${SHELL_PLUGIN_DIR}/client.js`)
