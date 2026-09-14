@@ -6,6 +6,11 @@ import type { Duplex } from 'node:stream'
 import type { Logger } from '../log.ts'
 import { cookieHeader } from './serverAuth.ts'
 
+// serverAuth 的 per-origin 状态是模块级 Map：harness/测试若另起 bundle 实例
+// 会读写不到同一份（probe 时踩过）。统一从这里再导出，保证消费方与 mirror
+// 共用同一模块实例（扩展宿主单 bundle 本无此问题）。
+export { cookieHeader, registerAuth, exchangeToken, probeToken, dshVersion } from './serverAuth.ts'
+
 /**
  * cordis 装配 mirror（#64 M1）：loopback 反向代理 + 自托管静态资产的组合体，
  * 仅绑 127.0.0.1 随机端口，随面板关闭。沿用 #60/#63 已验证的三件套：
@@ -93,7 +98,7 @@ export function startAssemblyMirror(
             return
           }
         }
-        if (url.pathname === '/assets') {
+        if (url.pathname.startsWith('/assets/')) {
           void serveAssets(req, res, url, options, readCached, logger)
           return
         }

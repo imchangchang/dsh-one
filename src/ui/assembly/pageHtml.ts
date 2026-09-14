@@ -47,11 +47,14 @@ export interface AssemblyPageOptions {
 
 const CSP = [
   "default-src 'none'",
-  // nonce 给四个内联脚本；loopback 源给 mirror 伺服的 bootstrap/主 bundle。
-  "script-src 'nonce-NONCE' http://127.0.0.1:* http://localhost:*",
+  // nonce 给四个内联脚本；loopback 源给 mirror 伺服的 bootstrap/主 bundle；
+  // unsafe-eval：cordis 配置文档的 __jsExpr（!!js dshHomePath(...) 这类）在客户端
+  // 用 new Function+with 求值（主 bundle lu/Ol），不放行则装载即 CSP 违规。
+  "script-src 'nonce-NONCE' http://127.0.0.1:* http://localhost:* 'unsafe-eval'",
   "style-src http://127.0.0.1:* http://localhost:* 'unsafe-inline'",
   'img-src http://127.0.0.1:* http://localhost:* data:',
-  'font-src http://127.0.0.1:* http://localhost:*',
+  // data:：官方把图标字体以 data:font/woff2 内联 FontFace 加载（CSP 拦则一条 font 违规）。
+  'font-src http://127.0.0.1:* http://localhost:* data:',
   // fetch（transport 改写后落 mirror）+ WS（openStream 的 remote.mux）。
   'connect-src http://127.0.0.1:* http://localhost:* ws: ws://127.0.0.1:* ws://localhost:*',
 ].join('; ')
