@@ -42,6 +42,8 @@
 | **block list** | 不进 VS Code 前端的官方插件清单（当前 2 个：`dsh-client-ui-layout` 官方外框、`dsh-client-ui-sidebar` 官方侧栏；新增须注释理由） |
 | **shell 插件** | `@dsh-one/vscode-shell`（自有），接管根外框、提供 layout 服务桩、负责主题着色（ThemePresenter 复刻）；没有它官方前端组件起不来 |
 | **双前端** | 同一网关实例上，官方 dsh web 拿全量清单正常使用，dsh-one 前端自己过滤——不给 dsh 加 profile、不改服务端 |
+| **浏览器验证** | 用 Playwright 开普通浏览器页面跑装配断言（快、自动化，是第一道验证） |
+| **VS Code 验证** | 用 `dev-ui-test.sh` 起隔离 VS Code 窗口加载扩展实测（慢、是最终准绳）；此前口语所称「真窗」「实验室」一律改用这两个词 |
 
 ## CHANGELOG 写法
 
