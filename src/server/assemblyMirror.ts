@@ -42,8 +42,10 @@ export interface AssemblyMirrorOptions {
   assemblyPage?: () => string | undefined
 }
 
-/** 自托管包 id 白名单（也是路径穿越防线：id 只许 @deepseek-ai/dsh-<kebab>）。 */
-const PLUGIN_ID_RE = /^@deepseek-ai\/dsh-[a-z0-9-]+$/
+/** 自托管包 id 白名单（也是路径穿越防线）：官方 @deepseek-ai/dsh-<kebab> + 自有 shell。 */
+const PLUGIN_ID_RE = /^(?:@deepseek-ai\/dsh-[a-z0-9-]+|@dsh-one\/vscode-shell)$/
+/** 插件目录名：官方包去 scope；其余 id（@dsh-one/vscode-shell）整个作目录名。 */
+const pluginDirName = (id: string): string => (id.startsWith('@deepseek-ai/') ? id.slice('@deepseek-ai/'.length) : id)
 const CLIENT_SUFFIX = '/client.js'
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -207,7 +209,7 @@ async function serveCombo(
   }
   try {
     const parts = await Promise.all(
-      ids.map((id) => readCached(path.join(options.pluginsDir, id.slice('@deepseek-ai/'.length), 'client.js'))),
+      ids.map((id) => readCached(path.join(options.pluginsDir, pluginDirName(id), 'client.js'))),
     )
     res.writeHead(200, {
       'content-type': 'text/javascript; charset=utf-8',

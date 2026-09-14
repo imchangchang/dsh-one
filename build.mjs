@@ -1,6 +1,6 @@
 import esbuild from 'esbuild'
 import * as fsp from 'node:fs/promises'
-import { ASSEMBLY_PACKAGE_NAMES, generateAssemblyManifest } from './scripts/gen-assembly-manifest.mjs'
+import { ASSEMBLY_PACKAGE_NAMES, generateAssemblyManifest, SHELL_PLUGIN_ID } from './scripts/gen-assembly-manifest.mjs'
 import path from 'node:path'
 
 const results = await Promise.all([
@@ -59,7 +59,7 @@ if (results.some((r) => r.warnings.length > 0)) {
   console.log('built dist/extension.js + dist/chatWebview.js + dist/sessionsWebview.js + dist/spawnDsh.js')
 }
 
-// cordis 装配资产（#64）：vsce 不打包 devDependencies，官方前端 dist 与 20 个
+// cordis 装配资产（#64）：vsce 不打包 devDependencies，官方前端 dist 与 18 个
 // 自托管插件 bundle 必须在构建期落进 dist/assembly（assemblyMirror 伺服、
 // assemblyView 读 manifest）。manifest 重新生成并与提交进 src/ui/assembly 的
 // 清单比对——漂移直接构建失败（防「改了包忘了再生清单」）。
@@ -83,5 +83,26 @@ for (const name of ASSEMBLY_PACKAGE_NAMES) {
   await fsp.mkdir(to, { recursive: true })
   await fsp.copyFile(path.join('node_modules/@deepseek-ai', name, 'lib', 'client.js'), path.join(to, 'client.js'))
 }
+// 自有 shell 插件（方案 A′：顶替 ui-layout 的 root 外框）：打成与官方包同格式
+// 的自注册 IIFE（banner/footer 包出 __ModuleLoader__.load({id, factory})）。
+// externals 必须列全——打进包会跟种子表双重实例化（调研结论）。
+const SHELL_PLUGIN_DIR = 'dist/assembly/plugins/@dsh-one/vscode-shell'
+await fsp.mkdir(SHELL_PLUGIN_DIR, { recursive: true })
+await esbuild.build({
+  entryPoints: ['src/ui/assembly/shell/clientEntry.ts'],
+  outfile: path.join(SHELL_PLUGIN_DIR, 'client.js'),
+  bundle: true,
+  format: 'cjs',
+  platform: 'browser',
+  target: 'es2022',
+  external: ['react', 'react/jsx-runtime', '@deepseek-ai/cordis', '@deepseek-ai/dsh-client-store'],
+  banner: {
+    js: `window.__ModuleLoader__.load({\n\tid: ${JSON.stringify(SHELL_PLUGIN_ID)},\n\tfactory: (require) => {\n\t\tvar module = { exports: {} };\n\t\tvar exports = module.exports;`,
+  },
+  footer: { js: '\n\t\treturn module.exports;\n\t}\n});\n' },
+  logLevel: 'warning',
+})
 await fsp.writeFile('dist/assembly/manifest.json', manifestJson)
-console.log(`assembled dist/assembly/ (pin=${manifest.version}, plugins=${ASSEMBLY_PACKAGE_NAMES.length})`)
+console.log(
+  `assembled dist/assembly/ (pin=${manifest.version}, plugins=${ASSEMBLY_PACKAGE_NAMES.length} + @dsh-one/vscode-shell)`,
+)
