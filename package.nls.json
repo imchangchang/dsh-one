@@ -5,6 +5,7 @@
 	"dshOne.openExternal.title": "Open dsh Page in Browser",
 	"dshOne.start.title": "Start Service",
 	"dshOne.openInTab.title": "Open dsh Page",
+	"dshOne.assembledChat.title": "Open Assembled Chat",
 	"dshOne.restart.title": "Restart Service",
 	"dshOne.stop.title": "Stop Service",
 	"dshOne.external.pasteToken.title": "Paste dsh Launch Token",

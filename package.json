@@ -61,6 +61,11 @@
         "icon": "$(globe)"
       },
       {
+        "command": "dshOne.assembledChat",
+        "title": "%dshOne.assembledChat.title%",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.restart",
         "title": "%dshOne.restart.title%",
         "category": "DSH One"

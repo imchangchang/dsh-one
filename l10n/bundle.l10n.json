@@ -528,5 +528,10 @@
   "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath(\"session-query.sqlite\")\n    openAt: first-search": "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath(\"session-query.sqlite\")\n    openAt: first-search",
   "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\\n- id: session-query-sqlite\\n  config:\\n    path: !!js dshHomePath(\"session-query.sqlite\")\\n    openAt: first-search": "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath(\"session-query.sqlite\")\n    openAt: first-search",
   "Loading image…": "Loading image…",
-  "Open image in editor": "Open image in editor"
+  "Open image in editor": "Open image in editor",
+  "dsh Chat (assembled)": "dsh Chat (assembled)",
+  "Failed to load the assembly manifest; rebuild the extension. ({0})": "Failed to load the assembly manifest; rebuild the extension. ({0})",
+  "Failed to start the assembly mirror: {0}": "Failed to start the assembly mirror: {0}",
+  "The dsh version is unknown; this chat assembly expects {0}.": "The dsh version is unknown; this chat assembly expects {0}.",
+  "The connected dsh is {0}, which may not match this chat assembly (expects {1}).": "The connected dsh is {0}, which may not match this chat assembly (expects {1})."
 }
