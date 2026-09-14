@@ -15,15 +15,16 @@ export { cookieHeader, registerAuth, exchangeToken, probeToken, dshVersion } fro
 /**
  * cordis 装配 mirror（#64，blocklist 模式)：loopback 反向代理，仅绑
  * 127.0.0.1 随机端口，随面板关闭。路由全解析：
- * - /api/*：反代网关（Origin/Referer 改写为网关权威、cookie 服务侧附加，
- *   /api/remote.mux WS 升级转裸管道)——#60/#63 已验证三件套；
- * - /assets/*、/plugins/*：反代网关静态资产与插件包（带 cookie)——blocklist
- *   模式直引网关，不再伺服本地拷贝（vsce 不再打包前端 dist/插件包)；
  * - /plugins-local/??ids：本地 combo。shell 插件（@dsh-one/vscode-shell)
- *   直接读盘；**含官方 id 时**= 过滤版 application 批——拉网关原 combo
+ *   直接读盘；**含官方 id 时** = 过滤版 application 批——拉网关原 combo
  *   （探针证实 rev 是内容校验：重拼/错 rev 一律 404，只能拉原 combo)，按
  *   `window.__ModuleLoader__.load({` 边界剥掉 BLOCK_LIST 段后伺服；
- * - /（可选)：装配页 HTML（lab harness 用；webview 形态由外壳生成)。
+ * - /（可选)：装配页 HTML（lab harness 传 assemblyPage 时；webview 形态由
+ *   外壳生成 HTML，不走 mirror)；
+ * - 其余一切路径（/api、/assets、/plugins、/provider/status、/plan/status……)
+ *   原样反代网关：Origin/Referer 改写为网关权威、cookie 服务侧附加，
+ *   /api/remote.mux WS 升级转裸管道——#60/#63 已验证三件套。blocklist 模式
+ *   直引网关，不再伺服本地拷贝（vsce 不再打包前端 dist/插件包)。
  *
  * 全响应 ACAO:* + OPTIONS 预检（webview 源是 vscode-webview://，跨源
  * fetch/module preload 需要 CORS)。
@@ -88,18 +89,10 @@ export function startAssemblyMirror(
           void serveCombo(req, res, url, options, filteredGatewayCombo, logger)
           return
         }
-        // 网关静态资产与插件包：原样反代（entry.url/bootstrap 批都是网关
-        // /plugins URL，base href 下落到本 mirror 同源)。带 cookie。
-        if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/plugins/')) {
-          proxyRequest(req, res, target, logger)
-          return
-        }
-        if (url.pathname.startsWith('/api/')) {
-          proxyRequest(req, res, target, logger)
-          return
-        }
-        res.writeHead(404, { 'access-control-allow-origin': '*' })
-        res.end('not found')
+        // 其余一切路径原样反代网关（/api、/assets、/plugins、/provider/status、
+        // /plan/status……网关顶层路由不止 /api：mirror 是网关的 loopback 镜像，
+        // 未知路径照 officialMirror 语义默认透传，带 cookie）。
+        proxyRequest(req, res, target, logger)
       } catch (err) {
         logger.error(`assembly mirror handler error: ${String(err)}`)
         res.writeHead(500)
