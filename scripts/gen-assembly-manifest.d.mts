@@ -21,6 +21,7 @@ export interface AssemblyManifest {
 }
 
 export const ASSEMBLY_PACKAGE_NAMES: string[]
+export const SHELL_PLUGIN_ID: string
 
 export function generateAssemblyManifest(options?: {
   nodeModulesDir?: string

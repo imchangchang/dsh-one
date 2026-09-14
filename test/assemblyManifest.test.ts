@@ -6,6 +6,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   ASSEMBLY_PACKAGE_NAMES,
+  SHELL_PLUGIN_ID,
   generateAssemblyManifest,
 } from '../scripts/gen-assembly-manifest.mjs'
 
@@ -13,8 +14,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const NODE_MODULES = path.join(REPO_ROOT, 'node_modules')
 const FRONTEND_DIST = path.join(NODE_MODULES, '@deepseek-ai', 'dsh-web-frontend', 'dist')
 const BOOTSTRAP_ID = '@deepseek-ai/dsh-client-modules'
+const REMOVED_IDS = ['@deepseek-ai/dsh-client-ui-layout', '@deepseek-ai/dsh-client-ui-sidebar']
 
-test('生成器对真实 node_modules 产出完整自洽的装配清单', async () => {
+test('生成器对真实 node_modules 产出完整自洽的装配清单（18 官方包 + shell）', async () => {
   const manifest = await generateAssemblyManifest({ nodeModulesDir: NODE_MODULES, frontendDistDir: FRONTEND_DIST })
 
   // pin 单一、区间语义由装配页版本门消费。
@@ -26,34 +28,47 @@ test('生成器对真实 node_modules 产出完整自洽的装配清单', async 
     await fsp.access(path.join(FRONTEND_DIST, href))
   }
 
-  // wire：20 条目 id 唯一，inject 闭包自洽于 20 包。
+  // wire：19 条目（18 官方 + shell）id 唯一，inject 闭包自洽且不含被删包。
   const entries = manifest.boot.entries
-  assert.equal(entries.length, 20)
+  assert.equal(entries.length, 19)
   const ids = entries.map((e: { id: string }) => e.id)
-  assert.equal(new Set(ids).size, 20)
+  assert.equal(new Set(ids).size, 19)
   const idSet = new Set(ids)
   for (const entry of entries) {
     for (const dep of entry.inject ?? []) {
       assert.ok(idSet.has(dep), `${entry.id} inject ${dep} 越出闭包`)
+      assert.ok(!REMOVED_IDS.includes(dep), `${entry.id} inject 仍引用下线包 ${dep}`)
     }
-    assert.match(entry.url, new RegExp(`^/plugins-local/\\?\\?${entry.id.replace('/', '\\/')}/client\\.js&rev=0\\.1\\.2-rc\\.1$`))
+    const escaped = entry.id.replaceAll('/', '\\/')
+    assert.match(entry.url, new RegExp(`^/plugins-local/\\?\\?${escaped}/client\\.js&rev=0\\.1\\.2-rc\\.1$`))
   }
 
-  // 批：bootstrap 恰为 client-modules；application 恰为其余 19 包且 combo 全量点名。
+  // shell 合成 entry：恰一个，wire 层无 inject/immediately（插件面 inject 在 bundle 内）。
+  const shellEntries = entries.filter((e) => e.id === SHELL_PLUGIN_ID)
+  assert.equal(shellEntries.length, 1)
+  assert.equal(shellEntries[0].inject, undefined)
+  assert.equal(shellEntries[0].immediately, undefined)
+
+  // 批：bootstrap 恰为 client-modules；application = 17 官方 + shell。
   const [bootstrap, application] = manifest.boot.batches
   assert.equal(bootstrap.phase, 'bootstrap')
   assert.deepEqual(bootstrap.entries, [BOOTSTRAP_ID])
   assert.equal(application.phase, 'application')
-  assert.equal(application.entries.length, 19)
+  assert.equal(application.entries.length, 18)
   assert.ok(!application.entries.includes(BOOTSTRAP_ID))
+  assert.equal(application.entries.filter((id) => id === SHELL_PLUGIN_ID).length, 1)
   for (const id of application.entries) {
     assert.ok(application.url.includes(`${id}/client.js`), `application combo 缺 ${id}`)
   }
   assert.equal(manifest.bootstrapUrl, bootstrap.url)
   assert.ok(ids.includes(BOOTSTRAP_ID))
+  // 下线包不再出现在任何条目里。
+  for (const removed of REMOVED_IDS) {
+    assert.ok(!ids.includes(removed), `下线包 ${removed} 仍在 wire 中`)
+  }
 })
 
-test('生成器校验：inject 依赖越出 20 包闭包即拒绝', async () => {
+test('生成器校验：inject 依赖越出 18 包闭包即拒绝', async () => {
   const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'assembly-manifest-'))
   try {
     const fixtureNm = path.join(tmp, 'node_modules', '@deepseek-ai')
@@ -87,7 +102,7 @@ test('生成器校验：inject 依赖越出 20 包闭包即拒绝', async () => 
     }
     await assert.rejects(
       generateAssemblyManifest({ nodeModulesDir: path.join(tmp, 'node_modules'), frontendDistDir: frontendDist }),
-      /不在 20 包闭包内/,
+      /不在 18 包闭包内/,
     )
   } finally {
     await fsp.rm(tmp, { recursive: true, force: true })
