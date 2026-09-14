@@ -1,5 +1,7 @@
 # dsh-one 获取 workflow run→member 数据：数据源与集成方向
 
+> 归档注（2026-09-14，#68）：本文写于自研聊天区时代，`chatSession.ts`/`chatView.ts`/`chat/webview.ts` 等文件引用是历史状态——旧聊天区已于 #68 下线（workflowRun 折叠纯逻辑保留在 `src/pure/workflowRun.ts` 并有单测）。事件/投影数据结论仍成立；接入点需按装配形态重新评估（#65 插件化）。
+
 > 研究目标：确认 dsh-one（VS Code 扩展）能否拿到「workflow/后台任务展开显示多个成员」的 run→member 数据，确定数据来源与集成方向。纯研究，未改任何代码。
 >
 > 结论先行：**可行**。四类 `tool-workflow/*` 事件是 durable SessionEvent，dsh-one 现有两条通道都覆盖（mux 流 `session/event` 帧 = live；`session.history` = 基线/回放），只是目前事件到达后被静默忽略。`session/jobs` 扁平数据不含 workflow，不能分组复用，必须走 tool-workflow 事件折叠。

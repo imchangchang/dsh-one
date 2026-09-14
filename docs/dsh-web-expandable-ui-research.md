@@ -2,6 +2,8 @@
 
 调研时间：2026-09。纯研究，未改任何代码。
 
+> 归档注（2026-09-14，#68）：本文写于自研聊天区时代，「dsh-one 现状」一节引用的 `src/ui/chat/webview.ts` 等文件已随旧聊天区下线；调研对象（官方 `dsh-client-ui-*` 包）正是现在装配对话区的组件来源，组件结论仍有效。
+
 研究对象：
 - **dsh web 前端**：`node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-*` 各包的 `lib/client.js`（未压缩，带 `//#region` 源码路径），以及 `dsh-web-frontend/dist/assets/index-*.js`（压缩 bundle，含 `dsh-client-ui-primitives` 的 `DisclosureRow` / `CodeBlock` / `JsonTree` 等原始组件定义）。
 - **dsh-one**：`src/ui/chat/webview.ts`（渲染）、`src/pure/conversation.ts`（折叠）、`src/pure/chatContract.ts`（块契约）。
