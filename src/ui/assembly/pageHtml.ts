@@ -129,10 +129,10 @@ function transportJs(mirrorOrigin: string): string {
     const parsed = new URL(String(input), globalThis.location ? globalThis.location.href : MIRROR + "/")
     const url = new URL(parsed.pathname + parsed.search, MIRROR).href
     return fetch(url, init).then((res) => {
-      if (!res.ok) probe("warn", "transport fetch " + parsed.pathname + " -> HTTP " + res.status)
+      if (!res.ok) probe("warn", "transport fetch " + url + " -> HTTP " + res.status)
       return res
     }, (err) => {
-      probe("error", "transport fetch " + parsed.pathname + " failed: " + err)
+      probe("error", "transport fetch " + url + " failed: " + err)
       throw err
     })
   }

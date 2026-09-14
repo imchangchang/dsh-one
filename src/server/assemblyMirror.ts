@@ -233,6 +233,12 @@ function proxyHeaders(req: IncomingMessage, target: string): Record<string, stri
   const headers: Record<string, string | string[]> = {}
   for (const [key, value] of Object.entries(req.headers)) {
     if (value === undefined || key === 'origin' || key === 'referer' || key === 'host') continue
+    // Fetch Metadata（sec-fetch-*）必须剥掉：它们是浏览器对**页面源→代理**这
+    // 一跳的真实断言（Sec-Fetch-Site: cross-site），而代理转发后网关的栅栏
+    // 会把它们当成对网关自身的断言 → 403（WS 升级不带这些头，所以流通道一直
+    // 正常；浏览器实验室页面与代理同 site 也测不出来——真窗 vscode-webview://
+    // → 127.0.0.1 即 cross-site，全部 REST 被栅栏打死，见 #64 定案）。
+    if (key.startsWith('sec-fetch-')) continue
     headers[key] = value
   }
   headers.host = authority
