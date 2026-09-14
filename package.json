@@ -245,6 +245,7 @@
     "package": "npm run build && vsce package"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-web-frontend": "0.1.2-rc.1",
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.96.0",
     "@vscode/vsce": "^3.2.1",
