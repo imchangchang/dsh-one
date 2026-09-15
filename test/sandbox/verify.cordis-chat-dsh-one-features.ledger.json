@@ -1,14 +1,14 @@
 {
   "title": "DSH One 装配线测试报告：对话区功能插件化批 1（#65）",
   "branch": "agent/cordis-chat-dsh-one-features",
-  "commit": "377b1b95ff7c87201508af72ee56056f5b886e67",
+  "commit": "508462762d79532fb9c33ce3f10764970f34d079",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
     "dsh": "0.1.2-rc.1",
     "locale": "zh-cn",
     "theme": "dark（含 light 切换断言）",
     "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（75 条断言）",
-    "date": "2026-09-15T09:33:50.135Z"
+    "date": "2026-09-15T09:35:05.704Z"
   },
   "coverageNote": "本报告是浏览器验证（第一道验证）：装配页 + 真实网关只读 + 假宿主（能力桥的宿主侧在假宿主里按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/内置浏览器命令）、运行中回合的停止路径（需要真回合）、真模型输出。这些见 VS Code 验证清单。",
   "items": [
@@ -21,7 +21,7 @@
       "screenshots": [
         "/tmp/dsh65-batch1/bridge.png"
       ],
-      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-ovinl9p6\",\"hc2-rtf42xfe\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-ovinl9p6,hc2-rtf42xfe；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-cl1al2q4\"}"
+      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-q298gc44\",\"hc2-sb3fd385\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-q298gc44,hc2-sb3fd385；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-ai3zyxow\"}"
     },
     {
       "id": "F-02",
@@ -117,7 +117,7 @@
       "expect": "整包走 /plugins-local（分树过滤版），二次请求命中缓存（耗时 < 500ms）；一次注入 200 个 hash 文本节点，装饰在 3s 内收敛（实测 62ms）且不自激。",
       "result": "pass",
       "screenshots": [],
-      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:58248/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3456255,\"decode\":3455955,\"elapsed\":3.800000011920929}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:58248/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3456255,\"decode\":3455955,\"elapsed\":3.800000011920929}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":61.19999998807907,\"settled\":200,\"after\":200}"
+      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:58657/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3456115,\"decode\":3455815,\"elapsed\":3.300000011920929}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:58657/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3456115,\"decode\":3455815,\"elapsed\":3.300000011920929}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":62,\"settled\":200,\"after\":200}"
     }
   ]
 }
