@@ -1,14 +1,14 @@
 {
   "title": "DSH One 装配线测试报告：对话区功能插件化批 1（#65）",
   "branch": "agent/cordis-chat-dsh-one-features",
-  "commit": "69c98e9f92cc4d99aba0286ad5876120c32f4e82",
+  "commit": "98277b8d5a8b6df025f4f7c10c5a738a7fb67928",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
     "dsh": "0.1.2-rc.1",
     "locale": "zh-cn",
     "theme": "dark（含 light 切换断言）",
-    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（88 条断言）",
-    "date": "2026-09-15T10:18:13.326Z"
+    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（92 条断言）",
+    "date": "2026-09-15T10:52:24.451Z"
   },
   "coverageNote": "本报告是浏览器验证（第一道验证）：装配页 + 真实网关只读 + 假宿主（能力桥的宿主侧在假宿主里按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/内置浏览器命令）、运行中回合的停止路径（需要真回合）、真模型输出。这些见 VS Code 验证清单。",
   "items": [
@@ -21,7 +21,7 @@
       "screenshots": [
         "/tmp/dsh65-batch1/bridge.png"
       ],
-      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-85jol2tc\",\"hc2-j6i0v6fa\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-85jol2tc,hc2-j6i0v6fa；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-7xhw1j1a\"}"
+      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-l72isdl4\",\"hc2-l3la5zhk\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-l72isdl4,hc2-l3la5zhk；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-syzrnkqv\"}"
     },
     {
       "id": "F-02",
@@ -33,12 +33,12 @@
         "/tmp/dsh65-batch1/gitcard-1-decorated.png",
         "/tmp/dsh65-batch1/gitcard-2-hover-card.png"
       ],
-      "notes": "注入测试文本到官方消息行：{\"rowKind\":\"assistant-step\"}；正文里的 hash 被包成可点标记（注入的那条）：{\"count\":1,\"sha\":\"abc1234def5678901234567890abcdef12345678\",\"inPre\":false,\"anywhere\":2}；代码块（pre）内的 hash 不联动：inPre=false；悬停发出 git.show（带 hash）：[{\"hash\":\"abc1234def5678901234567890abcdef12345678\",\"cwd\":\"/Users/cgeng/Workspaces/POV\"}]；git.show 以「当前会话工作区路径」查询（不是 VS Code 工作区）：expected=/Users/cgeng/Workspaces/POV got=/Users/cgeng/Workspaces/POV；卡片渲染出假提交的作者/标题/统计：Fake Author14 天前 (2026-09-01 10:00)feat: 假提交标题正文一行。3 个文件变更, +12, -4仓库aibrain-app提交 abc1234在 GitHub 打开；卡片展示解析到的仓库路径（相对工作区根）：假提交标题正文一行。3 个文件变更, +12, -4仓库aibrain-app提交 abc1234在 GitHub 打开；卡片在视口内且可交互（pointer-events 非 none）：{\"rect\":{\"x\":248.1875,\"y\":489,\"width\":311.375,\"height\":187,\"top\":489,\"right\":559.5625,\"bottom\":676,\"left\":248.1875},\"pe\":\"auto\"}；同一 hash 命中缓存不重复请求：calls=1；第二个 hash 也被装饰（含 deadbeef 形状）：{\"sha\":\"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\"}；未找到的提交显示「未找到」（不显示作者行）：未找到该提交"
+      "notes": "注入测试文本到官方消息行：{\"rowKind\":\"assistant-step\"}；正文里的 hash 被包成可点标记（注入的那条）：{\"count\":1,\"sha\":\"abc1234def5678901234567890abcdef12345678\",\"inPre\":false,\"anywhere\":3}；代码块（pre）内的 hash 不联动：inPre=false；悬停发出 git.show（带 hash）：[{\"hash\":\"abc1234def5678901234567890abcdef12345678\",\"cwd\":\"/Users/cgeng/Workspaces/POV\"}]；git.show 以「当前会话工作区路径」查询（不是 VS Code 工作区）：expected=/Users/cgeng/Workspaces/POV got=/Users/cgeng/Workspaces/POV；卡片渲染出假提交的作者/标题/统计：Fake Author14 天前 (2026-09-01 10:00)feat: 假提交标题正文一行。3 个文件变更, +12, -4仓库aibrain-app提交 abc1234在 GitHub 打开；卡片展示解析到的仓库路径（相对工作区根）：假提交标题正文一行。3 个文件变更, +12, -4仓库aibrain-app提交 abc1234在 GitHub 打开；卡片在视口内且可交互（pointer-events 非 none）：{\"rect\":{\"x\":248.1875,\"y\":489,\"width\":311.375,\"height\":187,\"top\":489,\"right\":559.5625,\"bottom\":676,\"left\":248.1875},\"pe\":\"auto\"}；同一 hash 命中缓存不重复请求：calls=1；第二个 hash 也被装饰（含 deadbeef 形状）：{\"sha\":\"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\"}；未找到的提交显示「未找到」（不显示作者行）：未找到该提交"
     },
     {
       "id": "F-03",
       "phase": "new-feature",
-      "name": "行内码右键「复制这段」（目标高亮 + 官方菜单观感对齐）（MENU 套件，19 条断言）",
+      "name": "行内码右键「复制这段」（目标高亮 + 官方菜单观感对齐）（MENU 套件，23 条断言）",
       "expect": "右键行内码 → 菜单「复制这段」，点后剪贴板拿到行内码原文；**被点的行内码在菜单开着期间高亮**（颜色取官方 token --dsw-alias-interactive-bg-active，实测 rgba(255,255,255,0.14)），执行动作 / Esc 取消 / 点别处都会撤掉且无残留（重复开关仍是 1 个标记）；**菜单项几何与官方标准菜单逐项相等**（侧栏会话行「⋯」菜单实测：项 min-height 40px、padding 8px 10px、font-size 14px、line-height 22px、gap 8px、border-radius 10px，图标位 16×16，列表 4px/20px/218px/#353638，hover rgba(255,255,255,0.08)），composer 模型选择下拉的通用观感（字号/行距/间距/圆角/列表盒）亦一致；**其余目标一律让路**：消息行内普通文本、外链、对话区空白处都不弹自有菜单、不 preventDefault、不误标高亮。对照 menu-compare.png（左=自有右键菜单含高亮，右=官方侧栏会话行「⋯」菜单，同尺度并排）与 menu-1-inline-code.png / menu-2-official-standard.png。",
       "result": "pass",
       "screenshots": [
@@ -46,7 +46,7 @@
         "/tmp/dsh65-batch1/menu-1-inline-code.png",
         "/tmp/dsh65-batch1/menu-2-official-standard.png"
       ],
-      "notes": "官方菜单样本可测（composer 模型选择下拉）：{\"list\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\"240px\",\"background\":\"rgb(53, 54, 56)\"},\"item\":{\"minHeight\":\"auto\",\"height\":40,\"padding\":\"0px 10px\",\"f；行内码右键弹出菜单（复制这段）：复制这段；右键目标被高亮（且只标这一个）：{\"marked\":1,\"total\":1,\"background\":\"rgba(255, 255, 255, 0.14)\",\"token\":\"#ffffff24\"}；高亮配色取自官方 token（--dsw-alias-interactive-bg-active）：bg=rgba(255, 255, 255, 0.14) token=#ffffff24；自有菜单通用观感与官方下拉一致（字号/行距/间距/圆角/列表盒）：{\"ours\":{\"fontSize\":\"14px\",\"lineHeight\":\"22px\",\"gap\":\"8px\",\"borderRadius\":\"10px\",\"list\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"background\":\"rgb(53, 54, 56)\"}},；自有菜单 hover 配色与官方一致：ours=rgba(255, 255, 255, 0.08) official=rgba(255, 255, 255, 0.08)；复制行动作写入剪贴板（行内码原文）：[\"npm run typecheck\"]；执行动作后菜单关闭且高亮撤掉（无残留）：{\"menus\":0,\"marks\":0}；重复开关不留残留（再开仍是 1 个标记）：marks=1；Esc 取消后菜单关闭且高亮撤掉（无残留）：{\"menus\":0,\"marks\":0}；消息行内普通文本：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；外链（官方 target=_blank 交给系统浏览器）：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；对话区空白处：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；自有菜单项几何 = 官方标准菜单（行高/内边距/字号/行距/间距/圆角）：{\"ours\":{\"minHeight\":\"40px\",\"height\":40,\"padding\":\"8px 10px\",\"fontSize\":\"14px\",\"lineHeight\":\"22px\",\"gap\":\"8px\",\"borderRadius\":\"10px\"},\"official\":{\"minHeight\":\"4；自有菜单图标位 = 官方标准菜单（16×16）：{\"ours\":{\"width\":16,\"height\":16},\"official\":{\"width\":16,\"height\":16}}；自有菜单列表盒 = 官方标准菜单（内边距/圆角/最小宽/底色）：{\"ours\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\"218px\",\"background\":\"rgb(53, 54, 56)\"},\"official\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\""
+      "notes": "官方菜单样本可测（composer 模型选择下拉）：{\"list\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\"240px\",\"background\":\"rgb(53, 54, 56)\"},\"item\":{\"minHeight\":\"auto\",\"height\":40,\"padding\":\"0px 10px\",\"f；菜单只有一个「无可见文字」的图标项：{\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":44,\"listMinWidth\":\"0px\",\"itemWidth\":36,\"itemHeight\":40}；图标项无障碍名走自有 locale（复制这段）：aria-label=复制这段；菜单盒收敛到图标项自然宽度（列表 = 项 + 官方列表内边距，不再占 218px 档）：{\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":44,\"listMinWidth\":\"0px\",\"itemWidth\":36,\"itemHeight\":40}；图标项仍是官方标准行高（40px）：height=40；按 role+名字能查到该菜单项（AccName 正确）：count=1；右键目标被高亮（且只标这一个）：{\"marked\":1,\"total\":1,\"background\":\"rgba(255, 255, 255, 0.14)\",\"token\":\"#ffffff24\"}；高亮配色取自官方 token（--dsw-alias-interactive-bg-active）：bg=rgba(255, 255, 255, 0.14) token=#ffffff24；自有菜单通用观感与官方下拉一致（字号/行距/间距/圆角/列表盒）：{\"ours\":{\"fontSize\":\"14px\",\"lineHeight\":\"22px\",\"gap\":\"8px\",\"borderRadius\":\"10px\",\"list\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"background\":\"rgb(53, 54, 56)\"}},；自有菜单 hover 配色与官方一致：ours=rgba(255, 255, 255, 0.08) official=rgba(255, 255, 255, 0.08)；复制行动作写入剪贴板（行内码原文）：[\"npm run typecheck\"]；执行动作后菜单关闭、高亮与菜单标记都撤掉（无残留）：{\"menus\":0,\"marks\":0,\"menuMarks\":0}；重复开关不留残留（再开仍是 1 个高亮 + 1 个菜单标记）：marks=1 menuMarks=1；Esc 取消后菜单关闭且高亮撤掉（无残留）：{\"menus\":0,\"marks\":0}；消息行内普通文本：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；外链（官方 target=_blank 交给系统浏览器）：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；对话区空白处：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；自有菜单项几何 = 官方标准菜单（行高/内边距/字号/行距/间距/圆角）：{\"ours\":{\"minHeight\":\"40px\",\"height\":40,\"padding\":\"8px 10px\",\"fontSize\":\"14px\",\"lineHeight\":\"22px\",\"gap\":\"8px\",\"borderRadius\":\"10px\"},\"official\":{\"minHeight\":\"4；自有菜单图标尺寸 = 官方标准菜单（16×16）：{\"ours\":{\"width\":16,\"height\":16},\"official\":{\"width\":16,\"height\":16}}；自有菜单列表盒与官方一致（内边距/圆角/底色；min-width 按图标项收窄）：{\"ours\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\"0px\",\"background\":\"rgb(53, 54, 56)\"},\"official\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\"21"
     },
     {
       "id": "F-04",
@@ -115,7 +115,7 @@
       "expect": "整包走 /plugins-local（分树过滤版），二次请求命中缓存（耗时 < 500ms）；一次注入 200 个 hash 文本节点，装饰在 3s 内收敛（实测 62ms）且不自激。",
       "result": "pass",
       "screenshots": [],
-      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:62412/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3456156,\"decode\":3455856,\"elapsed\":26.399999976158142}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:62412/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3456156,\"decode\":3455856,\"elapsed\":26.399999976158142}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":60.19999998807907,\"settled\":200,\"after\":200}"
+      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:64122/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3457615,\"decode\":3457315,\"elapsed\":6.800000011920929}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:64122/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3457615,\"decode\":3457315,\"elapsed\":6.800000011920929}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":120.89999997615814,\"settled\":200,\"after\":200}"
     }
   ]
 }
