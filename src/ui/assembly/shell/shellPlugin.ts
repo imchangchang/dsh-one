@@ -138,6 +138,13 @@ function ShellFrame({ useStore, useSessions, actions, renderSlot, SessionProvide
   const bootId = bootSessionId()
   const currentSession = useSessions((s) => s.current)
   const [revealedByTimeout, setRevealedByTimeout] = useState(false)
+  // 冷启动遮罩只服务「首次到达目标会话」：到位即永久揭幕（#65 批 1 回归套件
+  // 抓出——原先只比 current !== bootId，运行时切到别的会话会让遮罩**重新罩上**
+  // 直到 5s 兜底，表现为「切会话被白屏挡一下」）。
+  const [bootReached, setBootReached] = useState(false)
+  useEffect(() => {
+    if (bootId !== undefined && currentSession === bootId) setBootReached(true)
+  }, [bootId, currentSession])
   useEffect(() => {
     // 超时只按 bootId 起一次：活网关列表持续更新会反复触发 current 变化，
     // 若随 current 重置定时器，兜底永不降临（NO-FLASH 实测抓出）。
@@ -149,7 +156,7 @@ function ShellFrame({ useStore, useSessions, actions, renderSlot, SessionProvide
     return () => clearTimeout(timer)
   }, [bootId])
   const tr = t
-  const opening = bootId !== undefined && currentSession !== bootId && !revealedByTimeout
+  const opening = bootId !== undefined && !bootReached && !revealedByTimeout && currentSession !== bootId
   return h(
     'div',
     { className: 'dshOneShell_frame', 'data-shell': 'dsh-one' },
