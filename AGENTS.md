@@ -44,6 +44,8 @@
 
 动手前先读官方源码确认机制存在与否；每个改动在提交信息或注释里注明走的是第几层机制。反例（禁止）：DOM 遍历模拟点击、改官方产物字符串、把 localStorage 恢复键当协调通道、无依据的 CSS 哈希类名硬盖。
 
+**自有插件命名（用户铁律）**：dsh-one 自有 cordis 插件一律命名在 **`@dsh-one` 作用域**下，形式为 **`@dsh-one/xxxxx`**（如 `@dsh-one/vscode-shell`）——模块 id、bundle 目录名、清单 entry id、注释与文档引用全部一致；新增插件照此办理，不得使用其它作用域或裸名。
+
 | 标准词 | 含义 |
 | --- | --- |
 | **装配** | 用官方 dsh web 前端组件在自有 shell 里组装 VS Code 对话区（代码在 `src/ui/assembly/`、`src/server/assemblyMirror.ts`） |
