@@ -284,7 +284,8 @@ function sidebarFallbackHtml(reason: string): string {
     <meta http-equiv="Content-Security-Policy" content="${csp}" />
     <title>DSH One sidebar</title>
     <script nonce="${nonce}">
-      const vscode = acquireVsCodeApi()
+      // 占位页无 probe：先读统一获取点全局（不应有），没有再 acquire（本页唯一调用点）。
+      const vscode = globalThis.__DSH_ONE_VSCODE__ || acquireVsCodeApi()
       document.addEventListener('click', (e) => {
         if (e.target && e.target.id === 'dsh-retry') vscode.postMessage({ type: 'assembly:retry' })
       })

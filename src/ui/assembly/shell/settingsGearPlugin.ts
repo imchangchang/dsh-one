@@ -53,17 +53,27 @@ function SettingsGear({ wide = true, t, onOpen }: GearProps) {
   )
 }
 
-/** 宿主消息：webview 里 postMessage 给外壳；普通浏览器退化为全局计数（实验室断言用）。 */
+/** 宿主消息：统一获取点——VS Code 的 acquireVsCodeApi 全页只允许调一次
+ * （probe.ts 启动时已调并挂 globalThis.__DSH_ONE_VSCODE__），这里先读全局
+ * 实例复用；没有再 try acquire（无宿主的实验室环境天然没有，走计数退化）。
+ * 真实失败语义：二次 acquire throw（实例已被持有且全局缺失，不应发生）。 */
 const postOpenSettings = (): void => {
-  const g = globalThis as { __DSH_ONE_OPEN_SETTINGS_CLICKS__?: number; acquireVsCodeApi?: unknown }
+  const g = globalThis as {
+    __DSH_ONE_OPEN_SETTINGS_CLICKS__?: number
+    __DSH_ONE_VSCODE__?: { postMessage(msg: unknown): void }
+    acquireVsCodeApi?: () => { postMessage(msg: unknown): void }
+  }
   g.__DSH_ONE_OPEN_SETTINGS_CLICKS__ = (g.__DSH_ONE_OPEN_SETTINGS_CLICKS__ ?? 0) + 1
-  if (typeof g.acquireVsCodeApi === 'function') {
+  let vscode = g.__DSH_ONE_VSCODE__
+  if (vscode === undefined && typeof g.acquireVsCodeApi === 'function') {
     try {
-      ;(g.acquireVsCodeApi as () => { postMessage(msg: unknown): void })().postMessage({ type: 'dshOne.openSettings' })
+      vscode = g.acquireVsCodeApi()
+      g.__DSH_ONE_VSCODE__ = vscode
     } catch {
-      /* 宿主不在（实验室），计数已落 */
+      /* 二次 acquire throw：宿主在但实例归属异常，消息放弃、计数已落 */
     }
   }
+  vscode?.postMessage({ type: 'dshOne.openSettings' })
 }
 
 interface GearContext {

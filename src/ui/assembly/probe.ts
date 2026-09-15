@@ -20,6 +20,10 @@ export function assemblyProbeJs(): string {
   return `(() => {
   if (typeof window.acquireVsCodeApi !== "function") return
   var vscode = window.acquireVsCodeApi()
+  // 统一获取点：VS Code 的 acquireVsCodeApi 全页只允许调一次——实例挂到
+  // 共享全局，自有插件（设置齿轮等 postMessage 方）一律经
+  // globalThis.__DSH_ONE_VSCODE__ 复用，不得自行再 acquire（二次调用 throw）。
+  globalThis.__DSH_ONE_VSCODE__ = vscode
   var send = function (level, text) {
     try {
       vscode.postMessage({ type: "assembly:log", level: level, text: String(text).slice(0, 500) })
