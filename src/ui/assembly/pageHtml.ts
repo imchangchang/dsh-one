@@ -51,6 +51,8 @@ export interface AssemblyPageOptions {
   csp?: boolean
   /** 实验开关：false 时去掉 __DSH_TRANSPORT__ 桥（A/C 变体对照）。生产恒缺省。 */
   transport?: boolean
+  /** #71 tab 启动注入：宿主给的会话 id；缺省无注入（官方恢复行为）。 */
+  bootSessionId?: string
 }
 
 import { assemblyProbeJs } from './probe.ts'
@@ -62,7 +64,10 @@ const CSP = [
   // 用 new Function+with 求值（主 bundle lu/Ol），不放行则装载即 CSP 违规。
   "script-src 'nonce-NONCE' http://127.0.0.1:* http://localhost:* 'unsafe-eval'",
   "style-src http://127.0.0.1:* http://localhost:* 'unsafe-inline'",
-  'img-src http://127.0.0.1:* http://localhost:* data:',
+  // blob:：官方 composer 附件缩略图用 URL.createObjectURL（blob:）——#71 验收
+  // 实锤裂图（CSP 违规日志 + naturalWidth=0）。本 CSP 是装配页自有配置（非
+  // 官方机制层）；media-src/font-src 按实测不动（无 blob 消费者，font 已 data:）。
+  'img-src http://127.0.0.1:* http://localhost:* data: blob:',
   // data:：官方把图标字体以 data:font/woff2 内联 FontFace 加载（CSP 拦则一条 font 违规）。
   'font-src http://127.0.0.1:* http://localhost:* data:',
   // fetch（transport 改写后落 mirror）+ WS（openStream 的 remote.mux）。
@@ -239,6 +244,7 @@ function themePresetJs(theme: 'dark' | 'light'): string {
 
 export function assemblyPageHtml(options: AssemblyPageOptions): string {
   const { mirrorOrigin, cspNonce, assets, bootWire, bootstrapUrl, theme, banner } = options
+  const bootGlobals = `    <script nonce="${cspNonce}">globalThis.__DSH_ONE_BOOT__ = ${JSON.stringify({ sessionId: options.bootSessionId ?? null })}</script>\n`
   const cspOn = options.csp !== false
   const transportOn = options.transport !== false
   const csp = CSP.replace('NONCE', cspNonce)
@@ -265,7 +271,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
 ${cspMeta}    <title>DeepSeek Harness (assembled)</title>
     <script nonce="${cspNonce}">${assemblyProbeJs()}</script>
     <script nonce="${cspNonce}">${QUEUE_FACADE_JS}</script>
-${bodyReset}${preload}
+${bodyReset}${bootGlobals}${preload}
 ${styles}
     <script nonce="${cspNonce}">globalThis["__DSH_BOOT__"] = ${jsonForScript(bootWire)}</script>
     <script src="${escapeAttr(bootstrapUrl)}"></script>

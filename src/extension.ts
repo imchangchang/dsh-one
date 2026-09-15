@@ -10,6 +10,7 @@ import { archiveSession, createSession, ensureWorkspace, forkSession, renameSess
 import { formatSessionMention } from './pure/sessionMention.ts'
 import {
   hasAssembledChatPanel,
+  preheatAssembly,
   registerAssembledChat,
   registerAssembledSettings,
   registerAssembledSidebar,
@@ -52,6 +53,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const statusBar = new StatusBar(manager)
+
+  // #71 预热：激活后网关一旦 running，后台暖共享代理 + 三树过滤整包缓存
+  // （静默，失败不挡激活）。首个侧栏揭面/首个 tab 不再付 mirror 启动与
+  // 网关往返的冷启动成本。
+  let preheated = false
+  const tryPreheat = (): void => {
+    if (preheated || manager.getStatus().state !== 'running') return
+    preheated = true
+    void preheatAssembly(context, manager, logger)
+  }
+  context.subscriptions.push(manager.onDidChangeState(tryPreheat))
+  tryPreheat()
   // 五组客户端状态（回收站/分组/标签组/置顶/未读）落在 ~/.dsh/dsh-one/ 文件
   // （跨窗口/重启共享，create 里完成旧 Memento 一次性迁移并接管文件监视）；
   // 排序/折叠等 UI 偏好仍走 Memento。

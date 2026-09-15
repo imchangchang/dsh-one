@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
+import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { ServerManager } from '../server/manager.ts'
@@ -10,11 +11,15 @@ import { parse as parseSemver, compare as compareSemver } from '../pure/semver.t
 import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import {
   CHAT_BLOCK_LIST,
+  SETTINGS_BLOCK_LIST,
   SIDEBAR_BLOCK_LIST,
   SETTINGS_GEAR_PLUGIN_ID,
   SETTINGS_SHELL_PLUGIN_ID,
   SHELL_PLUGIN_ID,
   SIDEBAR_SHELL_PLUGIN_ID,
+  SESSION_BOOT_PLUGIN_ID,
+  SESSION_BRIDGE_PLUGIN_ID,
+  SESSION_EXPORT_PLUGIN_ID,
   THEME_FOLLOW_PLUGIN_ID,
   extractBootWire,
   extractFrontendAssets,
@@ -89,20 +94,20 @@ interface AssemblyTree {
  * 三棵树（#64 chat / #70 sidebar + settings）：
  * - chat 树：装配对话区
  * - sidebar 树：侧栏位（追加设置齿轮影子）
- * - settings 树：设置独立成页（block list 同 chat 树，官方侧栏壳不进页）
+ * - settings 树：设置独立成页（block list = 外框 + 对话流卡片组）
  */
 const CHAT_TREE: AssemblyTree = {
   blockList: CHAT_BLOCK_LIST,
   shellPluginId: SHELL_PLUGIN_ID,
-  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID],
+  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SESSION_BOOT_PLUGIN_ID, SESSION_EXPORT_PLUGIN_ID],
 }
 const SIDEBAR_TREE: AssemblyTree = {
   blockList: SIDEBAR_BLOCK_LIST,
   shellPluginId: SIDEBAR_SHELL_PLUGIN_ID,
-  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SETTINGS_GEAR_PLUGIN_ID],
+  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SETTINGS_GEAR_PLUGIN_ID, SESSION_BRIDGE_PLUGIN_ID],
 }
 const SETTINGS_TREE: AssemblyTree = {
-  blockList: CHAT_BLOCK_LIST,
+  blockList: SETTINGS_BLOCK_LIST,
   shellPluginId: SETTINGS_SHELL_PLUGIN_ID,
   extraPluginIds: [THEME_FOLLOW_PLUGIN_ID],
 }
@@ -190,78 +195,239 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
   })
 }
 
-/** 注册「装配对话区」命令：打开 mirror 伺服的 cordis 装配页 webview 面板。 */
+/**
+ * #71 chat 面板 = 单例（用户拍板：与官方一致单 tab、点侧栏就地切换；
+ * tab-per-session 多开降级 #72）。sessionTabs/panelSessionId 映射保留为
+ * #72 复活形态（标题跟随仍在用 panelSessionId），路由不再按 sessionId
+ * 开新 tab：有单例则聚焦 + 转发就地切换消息，无则创建（冷启动注入）。
+ */
+const sessionTabs = new Map<string, vscode.WebviewPanel>()
+const panelSessionId = new WeakMap<vscode.WebviewPanel, string>()
+let chatSingleton: { panel: vscode.WebviewPanel } | undefined
+let chatDeps: { context: vscode.ExtensionContext; manager: ServerManager; logger: Logger } | undefined
+
+/** 会话 tab 的装配（命令路径的复用体）：opts.sessionId 有值 = 会话 tab（注入启动）。 */
+async function openChatPanel(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+  options: { sessionId?: string } = {},
+): Promise<void> {
+  const status = await manager.ensureStarted()
+  if (status.state !== 'running' || !status.url) {
+    void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
+    return
+  }
+  const sessionId = options.sessionId
+  let assembly: GatewayAssembly
+  try {
+    assembly = await loadGatewayAssembly(status.url, CHAT_TREE)
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
+    )
+    return
+  }
+  let mirror: AssemblyMirror
+  try {
+    mirror = await acquireSharedMirror(context, manager, logger)
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      vscode.l10n.t('Failed to start the assembly mirror: {0}', err instanceof Error ? err.message : String(err)),
+    )
+    return
+  }
+  // 单例语义（#71 终态）：任何创建都顶替旧单例（replace 期间的 dispose
+  // 是我们自己触发的，不算用户手动关闭）。
+  replacing = true
+  try {
+    active?.panel.dispose()
+  } finally {
+    replacing = false
+  }
+  const panel = vscode.window.createWebviewPanel(
+    ASSEMBLED_CHAT_VIEW_TYPE,
+    sessionId === undefined ? vscode.l10n.t('dsh Chat (assembled)') : `dsh: ${sessionId.slice(0, 13)}`,
+    vscode.ViewColumn.Active,
+    { enableScripts: true, retainContextWhenHidden: true },
+  )
+  active = { panel, mirror }
+  if (sessionId !== undefined) {
+    sessionTabs.set(sessionId, panel)
+    panelSessionId.set(panel, sessionId)
+  }
+  chatSingleton = { panel }
+  logger.info(`assembled chat: ${mirror.origin}${sessionId === undefined ? '' : ` session=${sessionId.slice(0, 13)}`}`)
+  const probeSub = subscribeAssemblyProbe(panel.webview, logger)
+  // 会话日志导出（session-export 插件，#71）：官方导出走裸 fetch + a[download]
+  // 在 webview 双杀（非 http 源 + 禁下载）——点击 postMessage 过来，宿主经
+  // mirror 拉 ZIP（读操作）→ showSaveDialog → 写盘。
+  const exportSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
+    if (typeof msg !== 'object' || msg === null) return
+    const m = msg as { type?: unknown; sessionId?: unknown }
+    if (m.type !== 'dshOne.exportSessionLog' || typeof m.sessionId !== 'string' || m.sessionId === '') return
+    void exportSessionLog(mirror, m.sessionId)
+  })
+  // 活跃/标题上报（session-boot 插件）：维护映射 + 面板标题跟随会话标题。
+  const metaSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
+    if (typeof msg !== 'object' || msg === null) return
+    const m = msg as { type?: unknown; sessionId?: unknown; title?: unknown }
+    if (m.type !== 'dshOne.sessionMeta' || typeof m.sessionId !== 'string') return
+    const old = panelSessionId.get(panel)
+    if (old !== undefined && old !== m.sessionId) sessionTabs.delete(old)
+    sessionTabs.set(m.sessionId, panel)
+    panelSessionId.set(panel, m.sessionId)
+    if (typeof m.title === 'string' && m.title !== '') panel.title = `dsh: ${m.title}`
+  })
+  trackAssemblyWebview(context, panel.webview)
+  panel.onDidDispose(() => {
+    probeSub.dispose()
+    exportSub.dispose()
+    metaSub.dispose()
+    untrackAssemblyWebview(panel.webview)
+    const mapped = panelSessionId.get(panel)
+    if (mapped !== undefined && sessionTabs.get(mapped) === panel) sessionTabs.delete(mapped)
+    if (active?.panel === panel) active = undefined
+    if (chatSingleton?.panel === panel) chatSingleton = undefined
+    if (!replacing) closedByUser = true
+    releaseSharedMirror(mirror)
+  })
+  panel.webview.html = assemblyPageHtml({
+    mirrorOrigin: mirror.origin,
+    cspNonce: crypto.randomBytes(16).toString('base64'),
+    assets: assembly.assets,
+    bootWire: assembly.wire,
+    bootstrapUrl: assembly.wire.batches[0].url,
+    theme: currentTheme(),
+    banner: versionBanner(dshVersion(status.url) ?? status.version),
+    bootSessionId: sessionId,
+  })
+}
+
+/** 会话日志导出落盘：经 mirror 拉 ZIP（读）→ VS Code 保存对话框 → 写盘。 */
+async function exportSessionLog(mirror: AssemblyMirror, sessionId: string): Promise<void> {
+  const url = `${mirror.origin}/api/session.export?sessionId=${encodeURIComponent(sessionId)}&includeDescendants=true`
+  const head = await fetch(url, { method: 'HEAD' })
+  if (!head.ok) {
+    void vscode.window.showErrorMessage(vscode.l10n.t('Session export failed: HTTP {0}', head.status))
+    return
+  }
+  const filename = `dsh-session-${sessionId.replace(/[^A-Za-z0-9_-]/g, '_')}.zip`
+  const target = await vscode.window.showSaveDialog({
+    defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Downloads', filename)),
+    saveLabel: vscode.l10n.t('Export session log'),
+  })
+  if (target === undefined) return
+  try {
+    const res = await fetch(url)
+    if (!res.ok || res.body === null) throw new Error(`HTTP ${res.status}`)
+    const buffer = Buffer.from(await res.arrayBuffer())
+    await fs.writeFile(target.fsPath, buffer)
+    void vscode.window.showInformationMessage(vscode.l10n.t('Session log exported to {0}', target.fsPath))
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      vscode.l10n.t('Session export failed: {0}', err instanceof Error ? err.message : String(err)),
+    )
+  }
+}
+
+/**
+ * 侧栏桥消息落点（单例路由）：有单例 → 揭示 + 转发就地切换消息（不 reload、
+ * 不遮罩——运行时切换走官方 sessions.open，加载态官方自带）；无单例 → 创建
+ * （冷启动注入 bootSessionId，防闪帧遮罩此刻生效一次）。
+ */
+async function openSessionChat(sessionId: string): Promise<void> {
+  const singleton = chatSingleton ?? active
+  if (singleton !== undefined) {
+    singleton.panel.reveal()
+    void singleton.panel.webview.postMessage({ type: 'dshOne.switchSession', sessionId })
+    return
+  }
+  const deps = chatDeps
+  if (deps === undefined) return
+  await openChatPanel(deps.context, deps.manager, deps.logger, { sessionId })
+}
+
+/**
+ * #71 性能——共享 loopback mirror 池：同一窗口同一网关地址一个 mirror 实例
+ * （稳定端口 = webview 源稳定 → 跨 tab HTTP 缓存生效，44 插件整包不再每 tab
+ * 全量重下）。引用计数：每个面板 acquire，关 dispose 随最后一个回收。
+ * 多树伺服：单 mirror 按树（shellPluginId 键）各缓存一份过滤版整包。
+ */
+const sharedMirrors = new Map<string, { mirror: AssemblyMirror; refs: number; key: string }>()
+
+async function acquireSharedMirror(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+): Promise<AssemblyMirror> {
+  const gateway = manager.getStatus().url ?? 'pending'
+  const existing = sharedMirrors.get(gateway)
+  if (existing !== undefined) {
+    existing.refs += 1
+    return existing.mirror
+  }
+  const mirror = await startAssemblyMirror(
+    () => manager.getStatus().url,
+    logger,
+    {
+      pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
+      treeCombos: [
+        { shellPluginId: SHELL_PLUGIN_ID, blockList: CHAT_TREE.blockList },
+        { shellPluginId: SIDEBAR_SHELL_PLUGIN_ID, blockList: SIDEBAR_TREE.blockList },
+        { shellPluginId: SETTINGS_SHELL_PLUGIN_ID, blockList: SETTINGS_TREE.blockList },
+      ],
+    },
+  )
+  sharedMirrors.set(gateway, { mirror, refs: 1, key: gateway })
+  return mirror
+}
+
+/** 面板关闭即释放；最后一个引用回收 mirror（关 loopback 端口）。 */
+function releaseSharedMirror(mirror: AssemblyMirror): void {
+  for (const [key, entry] of sharedMirrors) {
+    if (entry.mirror === mirror) {
+      entry.refs -= 1
+      if (entry.refs <= 0) {
+        sharedMirrors.delete(key)
+        mirror.dispose()
+      }
+      return
+    }
+  }
+}
+
+/**
+ * #71 预热：扩展激活且网关 running 即后台暖共享代理 + 三树过滤整包缓存
+ * （mirror 起 loopback + 每树 filtered combo 预取——省首个面板的网关往返
+ * 与装配初始化）。静默：失败只落日志，绝不挡激活、不弹窗。webview 磁盘
+ * 缓存与宿主不同分区，无法也不需从宿主预热（共享 mirror 已让整包 URL
+ * 稳定，首个 webview 自己会缓存）。
+ */
+export async function preheatAssembly(context: vscode.ExtensionContext, manager: ServerManager, logger: Logger): Promise<void> {
+  try {
+    if (manager.getStatus().state !== 'running') return
+    const mirror = await acquireSharedMirror(context, manager, logger)
+    // 每树预取一次 combo：请求里带一个保留段官方 id（触发该树过滤整包的
+    // 拉取与伺服缓存）+ 该树 shell id（缓存路由键）。rev 任意值即可（缓存键）。
+    for (const shellId of [SHELL_PLUGIN_ID, SIDEBAR_SHELL_PLUGIN_ID, SETTINGS_SHELL_PLUGIN_ID]) {
+      await fetch(`${mirror.origin}/plugins-local/??@deepseek-ai/dsh-client-ui-theme/client.js,${shellId}/client.js&rev=preheat`)
+    }
+    releaseSharedMirror(mirror)
+    logger.info('assembly preheat: shared mirror + tree combos warmed')
+  } catch (err) {
+    logger.warn(`assembly preheat skipped: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/** 注册「装配对话区」命令：默认 tab（无会话注入，官方恢复行为）。 */
 export function registerAssembledChat(
   context: vscode.ExtensionContext,
   manager: ServerManager,
   logger: Logger,
 ): vscode.Disposable {
-  return vscode.commands.registerCommand('dshOne.assembledChat', async () => {
-    const status = await manager.ensureStarted()
-    if (status.state !== 'running' || !status.url) {
-      void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
-      return
-    }
-    let assembly: GatewayAssembly
-    try {
-      assembly = await loadGatewayAssembly(status.url, CHAT_TREE)
-    } catch (err) {
-      void vscode.window.showErrorMessage(
-        vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
-      )
-      return
-    }
-    let mirror: AssemblyMirror
-    try {
-      mirror = await startAssemblyMirror(
-        () => manager.getStatus().url,
-        logger,
-        {
-          pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
-          blockList: CHAT_TREE.blockList,
-        },
-      )
-    } catch (err) {
-      void vscode.window.showErrorMessage(
-        vscode.l10n.t('Failed to start the assembly mirror: {0}', err instanceof Error ? err.message : String(err)),
-      )
-      return
-    }
-    // 后开替换先开：只保留一个装配面板与其 mirror。replace 期间的 dispose 是
-    // 我们自己触发的，不算用户手动关闭。
-    replacing = true
-    try {
-      active?.panel.dispose()
-    } finally {
-      replacing = false
-    }
-    const panel = vscode.window.createWebviewPanel(
-      ASSEMBLED_CHAT_VIEW_TYPE,
-      vscode.l10n.t('dsh Chat (assembled)'),
-      vscode.ViewColumn.Active,
-      { enableScripts: true, retainContextWhenHidden: true },
-    )
-    active = { panel, mirror }
-    logger.info(`assembled chat: ${mirror.origin}`)
-    const probeSub = subscribeAssemblyProbe(panel.webview, logger)
-    trackAssemblyWebview(context, panel.webview)
-    panel.onDidDispose(() => {
-      probeSub.dispose()
-      untrackAssemblyWebview(panel.webview)
-      if (active?.panel === panel) active = undefined
-      if (!replacing) closedByUser = true
-      mirror.dispose()
-    })
-    panel.webview.html = assemblyPageHtml({
-      mirrorOrigin: mirror.origin,
-      cspNonce: crypto.randomBytes(16).toString('base64'),
-      assets: assembly.assets,
-      bootWire: assembly.wire,
-      bootstrapUrl: assembly.wire.batches[0].url,
-      theme: currentTheme(),
-      banner: versionBanner(dshVersion(status.url) ?? status.version),
-    })
-  })
+  chatDeps = { context, manager, logger }
+  return vscode.commands.registerCommand('dshOne.assembledChat', () => openChatPanel(context, manager, logger))
 }
 
 /**
@@ -328,6 +494,10 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
       const type = (msg as { type?: unknown }).type
       if (type === 'assembly:retry') void this.assemble(view)
       else if (type === 'dshOne.openSettings') this.onOpenSettings?.()
+      else if (type === 'dshOne.sessionSelected') {
+        const sessionId = (msg as { sessionId?: unknown }).sessionId
+        if (typeof sessionId === 'string' && sessionId !== '') void openSessionChat(sessionId)
+      }
     })
     const visibilitySub = view.onDidChangeVisibility(() => {
       if (view.visible) this.onDidBecomeVisible?.()
@@ -337,7 +507,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
       retrySub.dispose()
       visibilitySub.dispose()
       untrackAssemblyWebview(view.webview)
-      this.mirror?.dispose()
+      if (this.mirror !== undefined) releaseSharedMirror(this.mirror)
       this.mirror = undefined
     })
     void this.assemble(view)
@@ -352,15 +522,8 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
         if (status.state !== 'running' || !status.url) throw new Error(vscode.l10n.t('DSH service is not running'))
         const assembly = await loadGatewayAssembly(status.url, SIDEBAR_TREE)
         // 重试路径：先释放旧 mirror（插件集可能已变）。
-        this.mirror?.dispose()
-        this.mirror = await startAssemblyMirror(
-          () => this.manager.getStatus().url,
-          this.logger,
-          {
-            pluginsDir: path.join(this.context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
-            blockList: SIDEBAR_TREE.blockList,
-          },
-        )
+        if (this.mirror !== undefined) releaseSharedMirror(this.mirror)
+        this.mirror = await acquireSharedMirror(this.context, this.manager, this.logger)
         this.logger.info(`assembled sidebar: ${this.mirror.origin}`)
         view.webview.html = assemblyPageHtml({
           mirrorOrigin: this.mirror.origin,
@@ -384,7 +547,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
   }
 
   dispose(): void {
-    this.mirror?.dispose()
+    if (this.mirror !== undefined) releaseSharedMirror(this.mirror)
     this.mirror = undefined
   }
 }
@@ -449,14 +612,7 @@ export function registerAssembledSettings(
     }
     let mirror: AssemblyMirror
     try {
-      mirror = await startAssemblyMirror(
-        () => manager.getStatus().url,
-        logger,
-        {
-          pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
-          blockList: SETTINGS_TREE.blockList,
-        },
-      )
+      mirror = await acquireSharedMirror(context, manager, logger)
     } catch (err) {
       void vscode.window.showErrorMessage(
         vscode.l10n.t('Failed to start the assembly mirror: {0}', err instanceof Error ? err.message : String(err)),
@@ -491,7 +647,7 @@ export function registerAssembledSettings(
       docSub.dispose()
       untrackAssemblyWebview(panel.webview)
       if (activeSettings?.panel === panel) activeSettings = undefined
-      mirror.dispose()
+      releaseSharedMirror(mirror)
     })
     panel.webview.html = assemblyPageHtml({
       mirrorOrigin: mirror.origin,

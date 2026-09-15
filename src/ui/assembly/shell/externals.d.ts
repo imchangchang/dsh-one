@@ -33,4 +33,6 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export function IconSettingsOutline14(props: { size?: number }): unknown
   /** 官方按钮件（设置行动，ui-settings-general SettingsDocumentAction 同款）。 */
   export function Button(props: { variant?: string; size?: string; disabled?: boolean; onClick?: () => void; children?: unknown }): unknown
+  /** 官方下载图标（session-log-export HeaderAction 同款）。 */
+  export function IconDownloadOutline16(props: { size?: number }): unknown
 }

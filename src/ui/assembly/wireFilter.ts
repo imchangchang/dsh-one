@@ -65,31 +65,101 @@ const UI_LAYOUT: BlockedPlugin = {
  * chat 树 block list（#64）：装配对话区下官方外框 + 官方侧栏（侧栏由
  * dsh-one 侧栏位承担）。filterWire 的默认参数 = 本清单，#64 行为不变。
  */
+
+
+/**
+ * 对话流卡片组（#71 瘦身）：chat 树无关区（会话页卡片/工具/工作流/设置
+ * 子页等）。一条一理由；inject 闭包硬约束——保留 ui-input-trigger（ui-cordis
+ * 的 inputTriggers 服务依赖，已核实其 inject 列表）。
+ */
+const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
+  { id: '@deepseek-ai/dsh-client-ui-tool', reason: 'tool-call cards; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-workflow-run', reason: 'workflow-run cards; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-deliverables', reason: 'deliverables cards; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-trajectory', reason: 'trajectory panel (390KB); no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-approval', reason: 'approval cards; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-attachment', reason: 'message attachment gallery; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-subagent', reason: 'subagent cards; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-jobs', reason: 'background-jobs cards; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-goal', reason: 'goal cards; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-plan', reason: 'plan cards; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-message-feedback', reason: 'message feedback; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-model-selection', reason: 'model-selection surface (inside composer); no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-skill', reason: 'skill cards; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-reference', reason: 'reference cards; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-session-log-export', reason: 'session-log export (routed through the host save-dialog action, #71)' },
+  { id: '@deepseek-ai/dsh-client-ui-user-questions', reason: 'user-question cards; no conversation area in the sidebar/settings trees' },
+  { id: '@deepseek-ai/dsh-client-ui-directory-picker-native', reason: 'native directory picker (VS Code host provides its own picker)' },
+]
+
+/** 设置子页组（#71 瘦身）：设置独立成页后 chat/sidebar 树不再载设置子页。 */
+const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
+  { id: '@deepseek-ai/dsh-client-ui-settings-general', reason: 'General section (owns SettingsRoot/modal); only the settings tree needs it after settings became a page' },
+  { id: '@deepseek-ai/dsh-client-ui-settings-models', reason: 'Models section; only the settings tree needs it after settings became a page' },
+  { id: '@deepseek-ai/dsh-client-ui-settings-plugins', reason: 'Plugins section; only the settings tree needs it after settings became a page' },
+  { id: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory', reason: 'plugin-inventory section; only the settings tree needs it after settings became a page' },
+]
+
+/**
+ * sidebar 树 block list（#70，#71 瘦身）：官方外框 + 对话流卡片组 + 设置
+ * 子页组。保留闭包：ui-settings（settingsScope 服务提供方，theme 依赖）、
+ * ui-input-trigger（ui-cordis 的 inputTriggers 依赖）、ui-cordis（底部动作条）。
+ */
+// 侧栏树专属追加：permission-presets 依赖 ui-commands 的 commandUi 服务
+//（boot 门「pending (waiting for service: commandUi)」实锤），agent-preset
+// 的会话级 seat 挂在对话区——两棵对话树才需要。
+const SIDEBAR_ONLY: ReadonlyArray<BlockedPlugin> = [
+  { id: '@deepseek-ai/dsh-client-ui-chat', reason: 'chat flow cards (large segment); the settings tree needs its Conversation-display settings row; the sidebar tree does not' },
+  { id: '@deepseek-ai/dsh-client-ui-conversation', reason: 'conversation card host; the settings tree needs its composer settings rows (Conversation display / Enter behavior); the sidebar tree does not' },
+  { id: '@deepseek-ai/dsh-client-ui-commands', reason: 'slash-command panel; the settings tree needs its commandUi service (permission-presets depends on it); the sidebar tree does not' },
+  { id: '@deepseek-ai/dsh-client-ui-permission-presets', reason: 'depends on commandUi (ui-commands service); no conversation area in the sidebar tree; the composer permission picker stays with the chat tree' },
+  { id: '@deepseek-ai/dsh-client-ui-agent-preset', reason: 'session-scoped seat mounted in the conversation hero; nowhere to render in the sidebar tree' },
+]
+
+export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT, ...CHAT_FLOW, ...SETTINGS_PAGES, ...SIDEBAR_ONLY]
+
+/**
+ * chat 树 block list（#64 行为 + #71 瘦身）：官方外框、官方侧栏、设置子页组。
+ * 对话流卡片全保留（本树渲染它们）；composer hero 的 agent preset 与权限
+ * 选择保留（新会话功能）。
+ */
 export const CHAT_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
   UI_LAYOUT,
   {
     id: '@deepseek-ai/dsh-client-ui-sidebar',
-    // chat 树无侧栏：官方侧栏壳在对话区里无处渲染（#70 起侧栏位装配用
-    // sidebar 树，官方侧栏在那里上线）
-    reason: 'official sidebar shell has no seat in the chat tree; the sidebar seat is served by the sidebar tree assembly (#70)',
+    reason: 'no sidebar seat in the chat tree; the sidebar seat is served by the sidebar tree (#70)',
   },
+  ...SETTINGS_PAGES,
 ]
 
 /**
- * sidebar 树 block list（#70）：侧栏位装配只下官方外框。官方侧栏插件
- * （品牌位/工作区树/设置入口/底部动作条）与设置四件套原样保留——设置
- * 面板即官方 SettingsRoot modal（spike #69 题3 结论：零替换）。
+ * settings 树 block list（#70 设置独立成页 + #71 瘦身）：官方外框、官方
+ * 侧栏、对话流卡片组。设置四件套/主题/权限/预设全保留（设置页内容）。
  */
-export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT]
+export const SETTINGS_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
+  UI_LAYOUT,
+  {
+    id: '@deepseek-ai/dsh-client-ui-sidebar',
+    // 设置页 frame 只声明侧栏壳子槽、不渲染 sidebar——ui-sidebar 的槽注册
+    // 在无人声明 'sidebar' 时 loud throw（spike #69 题3 实锤），必须下线
+    reason: 'settings tree declares the sidebar shell children but not the sidebar slot; ui-sidebar registration loud-throws when undeclared (#69)',
+  },
+  ...CHAT_FLOW,
+]
 
 /** block list → id 列表。 */
 export const blockedIdsOf = (list: ReadonlyArray<BlockedPlugin>): string[] => list.map((b) => b.id)
 
-/** chat 树 blocked id（assemblyMirror 默认过滤集；#64 口径不变）。 */
-export const CHAT_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(CHAT_BLOCK_LIST)
+
 
 /** sidebar 树 blocked id。 */
 export const SIDEBAR_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(SIDEBAR_BLOCK_LIST)
+
+/** chat 树 blocked id。 */
+export const CHAT_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(CHAT_BLOCK_LIST)
+
+/** settings 树 blocked id。 */
+export const SETTINGS_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(SETTINGS_BLOCK_LIST)
 
 /** chat 树自有 shell 插件 id（root 外框/layout 桩/ThemePresenter，经 mirror /plugins-local 伺服)。 */
 export const SHELL_PLUGIN_ID = '@dsh-one/vscode-shell'
@@ -116,6 +186,25 @@ export const THEME_FOLLOW_PLUGIN_ID = '@dsh-one/vscode-theme-follow'
  * postMessage 宿主开设置面板。
  */
 export const SETTINGS_GEAR_PLUGIN_ID = '@dsh-one/vscode-settings-gear'
+
+/**
+ * 侧栏树会话桥插件 id（#71）：订阅官方 sessions 服务选中变化，postMessage
+ * dshOne.sessionSelected 给宿主（机制层 2 官方服务 API，spike #69 题2 实证）。
+ */
+export const SESSION_BRIDGE_PLUGIN_ID = '@dsh-one/vscode-session-bridge'
+
+/**
+ * chat 树会话启动注入插件 id（#71）：读 __DSH_ONE_BOOT__.sessionId →
+ * sessions.open(id)（spike #69 题4 机制实证）+ 活跃/标题上报。
+ */
+export const SESSION_BOOT_PLUGIN_ID = '@dsh-one/vscode-session-boot'
+
+/**
+ * chat 树会话日志导出自有行动 id（#71 验收返修）：官方导出走裸 fetch +
+ * a[download]，在 VS Code webview 双杀（非 http 源 fetch 失败 + 禁下载）——
+ * 自有贡献点击 postMessage，宿主 showSaveDialog + 经 mirror 拉 ZIP 写盘。
+ */
+export const SESSION_EXPORT_PLUGIN_ID = '@dsh-one/vscode-session-export'
 
 /** 从网关 `/` 注入 HTML 提取 __DSH_BOOT__ JSON（官方把 `<` 转义成 \u003c，JSON.parse 直接还原)。 */
 export function extractBootWire(html: string): BootWire {
