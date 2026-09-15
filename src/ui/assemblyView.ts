@@ -12,6 +12,9 @@ import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import { subscribeHostCalls } from './assembly/hostBridge.ts'
 import {
   CHAT_BLOCK_LIST,
+  COMPOSER_CLEAR_PLUGIN_ID,
+  CONTEXT_MENU_PLUGIN_ID,
+  GIT_CARD_PLUGIN_ID,
   SETTINGS_BLOCK_LIST,
   SIDEBAR_BLOCK_LIST,
   SETTINGS_GEAR_PLUGIN_ID,
@@ -100,7 +103,15 @@ interface AssemblyTree {
 const CHAT_TREE: AssemblyTree = {
   blockList: CHAT_BLOCK_LIST,
   shellPluginId: SHELL_PLUGIN_ID,
-  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SESSION_BOOT_PLUGIN_ID, SESSION_EXPORT_PLUGIN_ID],
+  extraPluginIds: [
+    THEME_FOLLOW_PLUGIN_ID,
+    SESSION_BOOT_PLUGIN_ID,
+    SESSION_EXPORT_PLUGIN_ID,
+    // #65 批 1：Git 卡片 / 右键菜单家族 / 清空三件套（均 chat 树）。
+    GIT_CARD_PLUGIN_ID,
+    CONTEXT_MENU_PLUGIN_ID,
+    COMPOSER_CLEAR_PLUGIN_ID,
+  ],
 }
 const SIDEBAR_TREE: AssemblyTree = {
   blockList: SIDEBAR_BLOCK_LIST,

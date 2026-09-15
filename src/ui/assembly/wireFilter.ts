@@ -200,6 +200,25 @@ export const SESSION_BRIDGE_PLUGIN_ID = '@dsh-one/vscode-session-bridge'
 export const SESSION_BOOT_PLUGIN_ID = '@dsh-one/vscode-session-boot'
 
 /**
+ * chat 树 git 卡片插件 id（#65 批 1）：消息正文 commit hash 可点 + 悬停卡片
+ * （数据走宿主能力桥 git.show，见 gitCardPlugin.ts 的机制分层举证）。
+ */
+export const GIT_CARD_PLUGIN_ID = '@dsh-one/vscode-git-card'
+
+/**
+ * chat 树右键菜单插件 id（#65 批 1）：行内码「复制这段」/ 消息「复制」/
+ * 外链「系统浏览器 or VS Code 内置浏览器」（外链动作走能力桥）。
+ */
+export const CONTEXT_MENU_PLUGIN_ID = '@dsh-one/vscode-context-menu'
+
+/**
+ * chat 树清空三件套插件 id（#65 批 1）：一键清空 / 双击确认 + Ctrl+Z 反悔 /
+ * 运行中「先清输入再停」（全部走官方 composer 的 InputActions 与 conversation
+ * 服务的 cancel，见 composerClearPlugin.ts 的机制分层）。
+ */
+export const COMPOSER_CLEAR_PLUGIN_ID = '@dsh-one/vscode-composer-clear'
+
+/**
  * chat 树会话日志导出自有行动 id（#71 验收返修）：官方导出走裸 fetch +
  * a[download]，在 VS Code webview 双杀（非 http 源 fetch 失败 + 禁下载）——
  * 自有贡献点击 postMessage，宿主 showSaveDialog + 经 mirror 拉 ZIP 写盘。

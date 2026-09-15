@@ -24,15 +24,8 @@
 import * as vscode from 'vscode'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { execFile } from 'node:child_process'
 import type { Logger } from '../../log.ts'
-import {
-  GIT_INFO_FORMAT,
-  commitInfoFromShowRecord,
-  commitNotFound,
-  githubUrlFromRemoteUrl,
-  parseGitShowOutput,
-} from '../../pure/gitShow.ts'
+import { runGitShow } from '../../pure/gitShowCommand.ts'
 import {
   asRecord,
   isHostCallError,
@@ -84,30 +77,7 @@ export interface HostBridgeDeps {
   timeoutMs?: number
 }
 
-const DEFAULT_GIT_TIMEOUT_MS = 10_000
-
-/** execFile 的 Promise 包装（不回显命令行；失败只回 code/spawnFailed 摘要）。 */
-interface ExecResult {
-  /** 子进程退出码（0 = 成功）。 */
-  code: number
-  /** git 二进制本身起不来（ENOENT 等）——与「命令跑了但报错」区分开。 */
-  spawnFailed: boolean
-  stdout: string
-  stderr: string
-}
-
-function runGit(gitPath: string, args: readonly string[], cwd: string, timeoutMs: number): Promise<ExecResult> {
-  return new Promise((resolve) => {
-    execFile(gitPath, [...args], { cwd, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
-      const rawCode = (error as { code?: unknown } | null)?.code
-      const spawnFailed = error !== null && typeof rawCode === 'string'
-      const code = error === null ? 0 : typeof rawCode === 'number' ? rawCode : 1
-      resolve({ code, spawnFailed, stdout: String(stdout), stderr: String(stderr) })
-    })
-  })
-}
-
-/** git.show 的实现：git log --no-walk 一条提交 + remote origin 推导 GitHub 链接。 */
+/** git.show 的实现：路径限域 → git CLI 查提交（实现体见 pure/gitShowCommand.ts）。 */
 async function gitShow(args: { hash: string; cwd?: string }, deps: HostBridgeDeps): Promise<CommitInfoResult | HostCallError> {
   const folders = deps.workspaceFolders()
   const wanted = args.cwd ?? folders[0]
@@ -116,24 +86,12 @@ async function gitShow(args: { hash: string; cwd?: string }, deps: HostBridgeDep
   if (dir === null) {
     return { code: 'invalid-args', message: 'cwd is outside the workspace folders and ~/.dsh' }
   }
-  const gitPath = deps.gitPath ?? 'git'
-  const timeoutMs = deps.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS
-  // 提交号已由 parseGitShowArgs 限成 7-40 位 hex，hex 不可能以 `-` 开头，因此
-  // 不会被 git 当成选项（不用 `--`：那会把提交号变成路径）。
-  const log = await runGit(
-    gitPath,
-    ['log', '--no-walk', `--format=${GIT_INFO_FORMAT}`, '--shortstat', `${args.hash}^{commit}`],
-    dir,
-    timeoutMs,
-  )
-  if (log.spawnFailed) return { code: 'failed', message: 'the git executable could not be started' }
-  if (log.code !== 0) return commitNotFound(args.hash)
-  const records = parseGitShowOutput(log.stdout)
-  const record = records[0]
-  if (record === undefined) return commitNotFound(args.hash)
-  const remote = await runGit(gitPath, ['config', '--get', 'remote.origin.url'], dir, timeoutMs)
-  const githubUrl = remote.code === 0 ? githubUrlFromRemoteUrl(remote.stdout.trim(), record.hash) : undefined
-  return commitInfoFromShowRecord(args.hash, record, githubUrl)
+  const info = await runGitShow(args.hash, dir, {
+    ...(deps.gitPath === undefined ? {} : { gitPath: deps.gitPath }),
+    ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
+  })
+  if (info === undefined) return { code: 'failed', message: 'the git executable could not be started' }
+  return info
 }
 
 /**

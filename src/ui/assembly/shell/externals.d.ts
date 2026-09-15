@@ -11,7 +11,7 @@ declare module 'react' {
   export function useEffect(effect: () => void | (() => void), deps?: readonly unknown[]): void
   export function useLayoutEffect(effect: () => (() => void) | void, deps?: readonly unknown[]): void
   export function useRef<T>(initial: T): { current: T }
-  export function useState<T>(initial: T): [T, (next: T) => void]
+  export function useState<T>(initial: T): [T, (next: T | ((prev: T) => T)) => void]
   export const Fragment: unique symbol
 }
 
@@ -35,4 +35,28 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export function Button(props: { variant?: string; size?: string; disabled?: boolean; onClick?: () => void; children?: unknown }): unknown
   /** 官方下载图标（session-log-export HeaderAction 同款）。 */
   export function IconDownloadOutline16(props: { size?: number }): unknown
+  /** 官方剪贴板写入（带 execCommand 回退；webview 里比裸 navigator.clipboard 稳）。 */
+  export function writeClipboard(text: string): Promise<boolean>
+  /** 官方图标件（git 卡片/右键菜单用，名取自官方 primitives 导出表）。 */
+  export function IconUserOutline16(props: { size?: number }): unknown
+  export function IconClockOutline16(props: { size?: number }): unknown
+  export function IconCopyOutline16(props: { size?: number }): unknown
+  export function IconCheckOutline16(props: { size?: number }): unknown
+  export function IconRightUpOutline16(props: { size?: number }): unknown
+  export function IconGlobeOutline14(props: { size?: number }): unknown
+  export function IconCodeOutline16(props: { size?: number }): unknown
+  /** 官方菜单件（右键菜单家族复用官方观感与定位/外点关闭语义）。 */
+  export function Menu(props: {
+    open: boolean
+    anchor?: unknown
+    items: readonly unknown[]
+    onSelect: (id: string) => void
+    onClose: () => void
+    getAnchorRect?: () => DOMRect | null
+    portal?: boolean
+    dense?: boolean
+    compact?: boolean
+    align?: 'start' | 'end'
+    side?: 'top' | 'bottom'
+  }): unknown
 }

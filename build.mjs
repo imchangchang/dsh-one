@@ -82,6 +82,12 @@ const SHELL_PLUGINS = [
     // 齿轮图标件走官方种子表（ui-settings-general 同款 require 源）。
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
   },
+  {
+    // #65 批 1：消息正文的 commit hash 卡片（图标件 + 官方 writeClipboard）。
+    id: '@dsh-one/vscode-git-card',
+    entry: 'src/ui/assembly/shell/gitCardPlugin.ts',
+    externals: ['@deepseek-ai/dsh-client-ui-primitives'],
+  },
 ]
 await fsp.rm('dist/assembly', { recursive: true, force: true })
 for (const plugin of SHELL_PLUGINS) {
