@@ -1,54 +1,55 @@
 /**
- * @dsh-one/vscode-composer-clear——清空三件套（#65 批 1，issue #16 的装配版）：
- * 一键清空 / 双击确认 + Ctrl+Z 反悔 / 运行中「先清输入再停」。
+ * @dsh-one/vscode-composer-clear——清空（Esc / Ctrl+C 两路）+ Ctrl+Z 反悔
+ * （#65 批 1，issue #16 的装配版；#65 收尾改版：去掉按钮，改键位触发）。
  *
- * 机制层：**全部走官方 composer 的公开口，零 DOM 操作**。
+ * ## 走第几层机制
  *
- * ① 机制层 1（官方槽位）：控件本体登记进 `conversation.input.left`——官方
- *    ComposerBar 声明的 list 座位（"Compact controls at the left of the
- *    composer tool row"，源码 renderSlot 调用点逐字确认），session 作用域，
- *    组件自动获得框架提供的标准座位：`useInput`（InputState 快照：draft /
- *    imageIds / occurrences / phase）与 `inputActions`（InputActions 公开面）。
- * ② 机制层 2（官方服务 API）：清空与还原都只调官方动作，不碰输入框 DOM——
- *    - 清空正文：`inputActions.setDraft('')`（facade 文档原文："Replace the
- *      whole draft (persisted-draft seed and programmatic writes)"）；
- *    - 清空附件：`inputActions.removeImage(id)`（逐个 id，官方唯一删图口）；
- *    - 停止回合：`sessions.scope(id).get('conversation').cancel()`——官方
- *      **作用域寻址**服务（ui-conversation 的 `scopedConversation(sessions, id)`
- *      就是这两步）；停止按钮在官方 composer 上走的也是它（源码 `stop: () =>
- *      scopedConversation(...).cancel()`）；
- *    - 还原引用 chip：`conversation.input.for(scopeCtx).insertReference(ref, span)`
- *      （SessionInputResolver → SessionInput 的公开方法）。
- * ③ 机制层 3：无（装载/传输接缝与此无关）。
- * ④ 不需要第 4 层：官方有程序化写入口，绝不用 DOM 硬改输入框。
+ * **写入/还原 = 机制层 2（官方服务 API）**，零 DOM 操作：
+ * - 清空正文 `inputActions.setDraft('')`、清待发附件 `inputActions.removeImage(id)`；
+ * - 撤销正文 `setDraft(快照)`，撤销引用 chip `conversation.input.for(scopeCtx).insertReference(...)`
+ *   （倒序插 + 每次现读 draftRev 做 span CAS），附件 `addImages(快照)`。
  *
- * Ctrl+Z 反悔为什么必须自己做（而不是靠输入框自带的撤销）：
- * 官方 `setDraft` 的编辑带 `history-merge` 标记（facade 源码逐字：Lexical
- * update 的 tag 是 "history-merge"），Lexical 的历史合并语义是「并进上一条
- * 撤销记录」——清空后再按 Ctrl+Z 撤销的是「上一条（打字）记录合并后的状态」，
- * 官方输入框**拿不回被清空的正文**（#16 的自研版是靠自有快照还原的，这里沿用
- * 同一思路，只是还原动作全部换成官方口）。所以：清空前把 draft + 引用
- * occurrences + 图片 id 存快照，撤销窗口内按 Ctrl/Cmd+Z（或点「撤销」）时
- * 先用 setDraft 还原正文，再用 insertReference 逐个把引用 chip 插回去
- * （倒序插、每次读最新 draftRev 做 span CAS；单次失败只降级该 chip 为纯文本，
- * 不影响其余还原）。
+ * **提示 UI = 机制层 1（官方槽位）**：登记进 `conversation.input.overlay`（官方
+ * ComposerBar 声明的 list 座位，"Floating entries rendered inside the resident
+ * composer card"——官方 @ 候选菜单与斜杠 popupSelect 都渲染在这个锚点里）。
+ *
+ * **键位 = 第 4 层（自有容器捕获监听）**，官方无键位接缝，查证如下：
+ * ① 官方客户端**没有任何键位/快捷键服务**：把 48 个官方插件 bundle 的 `ctx.provide`
+ *    全量扫过一遍，服务只有 connection/cordisInspect/dynamicCordisRunner/layout/
+ *    locale/modules/sessionLogDownload/sessions/theme/uiRenderer/chatFileMentions
+ *    （外加 cordis Service 基类注册的 conversation/workspaces），**没有一个键位面**；
+ * ② 官方 composer 的键位是**包内私有**的：ui-conversation 的 `registerComposerKeymap`
+ *    （`lib/types/client/input/editor/keymap.d.ts`）由 InputBar 自己注册在 Lexical
+ *    命令层（CRITICAL 优先级），其句柄（arbitrate/space/paste/canSubmit…）按
+ *    contract/input.d.ts 的明文规定 **"stay InputBar-private and never ride this
+ *    face"**——公开输入面 `InputActions` / `SessionInput` 都不暴露键位注册；
+ * ③ Lexical 命令层也接不上：`lexical` 不在主 bundle 的种子表（8 词：react/
+ *    react-dom/cordis/store/slots/primitives 等），自有插件 `require('lexical')`
+ *    只会失败，无法 `registerCommand`；
+ * ④ 官方对 Esc 的用法全是**关闭浮层**（ui-attachment 灯箱、ui-chat 用量面板、
+ *    ui-conversation popupSelect、ui-message-feedback 批注、ui-settings-general
+ *    弹窗），**没有一处是中断回合**（全量扫 addEventListener("keydown") 与主 bundle
+ *    的 Escape 用法确认）——所以「空内容放行」不会漏掉官方的中断键，官方的回合
+ *    中断入口是 composer 上的停止/中断控件（`interruptible` 那个按钮）。
+ * 风险与对策：监听挂在**自有** frame 根（`[data-shell="dsh-one"]`）的捕获阶段，
+ * 只在事件目标位于官方 composer 卡（`[data-slot="conversation.composer.bar"]`）
+ * 之内时才考虑接管；放行条件（IME 组字、官方浮层打开、Ctrl+C 有选区）一律
+ * `return`，不 preventDefault、不改草稿。官方 DOM 侧只依赖座位属性与
+ * `role`/`aria-modal` 语义标记（非 css-module 哈希）。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { clearButtonView, decideClearAction } from '../../../pure/composerClearState.ts'
+import { clearHintKind, decideKeyAction } from '../../../pure/composerClearState.ts'
 
 /** 撤销窗口时长（毫秒）：窗口内 Ctrl/Cmd+Z 或点「撤销」都能反悔。 */
 const UNDO_WINDOW_MS = 8000
-/** 双击确认的武装时长：超时自动解除，防误触。 */
+/** 武装窗口时长：超时自动解除，防误触。 */
 const ARM_WINDOW_MS = 4000
 
 const CSS = [
-  '.dshOneClear_btn{box-sizing:border-box;display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 8px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:pointer;white-space:nowrap}',
-  '.dshOneClear_btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
-  '.dshOneClear_btn:disabled{opacity:.4;cursor:default}',
-  '.dshOneClear_btn[data-armed]{color:var(--dsw-alias-status-danger,#d1242f);background:var(--dsw-alias-interactive-bg-hover)}',
-  '.dshOneClear_btn[data-undo]{color:var(--dsw-alias-status-success,#2ea043)}',
+  '.dshOneClear_hint{display:flex;align-items:center;gap:6px;margin:0 0 6px;padding:2px 8px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;width:max-content}',
+  '.dshOneClear_undo{cursor:pointer;border:none;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;padding:0 2px;text-decoration:underline}',
 ].join('')
-const CSS_TAG_ID = '@dsh-one/vscode-composer-clear/Clear.css'
+const CSS_TAG_ID = '@dsh-one/vscode-composer-clear/Hint.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
   tag.dataset.plugin = '@dsh-one/vscode-composer-clear'
@@ -62,7 +63,6 @@ interface InputStateView {
   draft: string
   imageIds: readonly string[]
   draftRev: number
-  phase: string
   occurrences: readonly OccurrenceView[]
 }
 
@@ -91,31 +91,11 @@ interface ClearSnapshot {
   imageIds: readonly string[]
 }
 
-/** 会话作用域 ctx（cordis 服务跟踪器的 scope 面）。 */
-interface ScopedContext {
-  get(name: 'conversation'): ConversationFace | undefined
-}
-
-/** cordis ctx 面（本插件用到的最小集合）。 */
-interface ClearContext {
-  effect(body: () => (() => void) | void, label?: string): void
-  get(name: 'sessions'): {
-    scope(id: string): ScopedContext | undefined
-  }
-  locale: {
-    register(ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): () => void
-  }
-  slots: {
-    register(entry: unknown, component: unknown): () => void
-    inject(name: string, factory: () => unknown): () => void
-  }
-}
-
-/** 官方作用域寻址的 conversation 面（cancel 停回合；input 还原引用 chip）。 */
+/** 官方作用域寻址的 conversation 面（撤销引用 chip 用）。 */
 interface ConversationFace {
-  cancel(): Promise<void>
   input: {
     for(actx: unknown): {
+      /** 输入修订号（insertReference 的 span CAS 用，每次插之前现读）。 */
       state: { getSnapshot(): { draftRev: number } }
       insertReference(
         ref: { source: string; ref: string; label: string; appearance?: string; clipboardText: string },
@@ -125,55 +105,61 @@ interface ConversationFace {
   }
 }
 
-/** 本插件注入给组件的面：把「按会话 id 取服务」收成两个动作。 */
+/** 本插件注入给组件的面：按会话 id 取作用域寻址的 conversation 面。 */
 interface SessionFace {
-  cancel(): Promise<void>
-  /** 还原一个引用 chip（官方 insertReference，span CAS）。 */
   insertReference(
     ref: { source: string; ref: string; label: string; appearance?: string; clipboardText: string },
     span: { start: number; end: number; draftRev: number },
   ): boolean
-  /** 当前输入修订号（insertReference 的 span CAS 用，每次插之前现读）。 */
   draftRev(): number
 }
 
 interface ClearProps {
   useInput: <R>(selector: (state: InputStateView) => R) => R
   inputActions: InputActionsView
-  useSession: <R>(selector: (state: { running?: boolean }) => R) => R
   sessionId: string
   /** 框架注入的 locale 座位（函数内别名为 tr 避开 i18n 门禁的裸 t() 扫描）。 */
   t: (key: string) => string
-  /** 插件 apply 注入：按会话 id 取作用域寻址的 conversation 面。 */
   sessionFaceOf: (sessionId: string) => SessionFace | undefined
 }
 
-function ComposerClear({ useInput, inputActions, useSession, sessionId, t, sessionFaceOf }: ClearProps) {
+/** 自有容器：装配 frame 根（我们自己的 data 属性）。 */
+const frameRoot = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-shell="dsh-one"]')
+
+/** 官方 composer 卡座位（判断按键目标是否落在输入区内）。 */
+const COMPOSER_SEAT = '[data-slot="conversation.composer.bar"]'
+
+/** 官方浮层/模态是否开着（开着就不接管 Esc——那是它们的关闭语义）。 */
+function overlayOpen(): boolean {
+  for (const el of Array.from(document.querySelectorAll('[role="listbox"], [role="option"], [role="menu"], [role="dialog"], [aria-modal="true"]'))) {
+    if (el.getClientRects().length > 0) return true
+  }
+  return false
+}
+
+/** 编辑器里是否有非折叠选区（Win/Linux 的 Ctrl+C 复制要放行）。 */
+function hasSelection(): boolean {
+  const selection = window.getSelection()
+  if (selection === null || selection.isCollapsed) return false
+  return (selection.toString() ?? '') !== ''
+}
+
+function ComposerClear({ useInput, inputActions, sessionId, t, sessionFaceOf }: ClearProps) {
   const tr = t
   const draft = useInput((s) => s.draft)
   const imageIds = useInput((s) => s.imageIds)
-  const running = useSession((s) => s.running) ?? false
-  const [armed, setArmed] = useState(false)
+  const occurrences = useInput((s) => s.occurrences)
+  const [armedKey, setArmedKey] = useState<'escape' | 'ctrl-c' | null>(null)
   const [snapshot, setSnapshot] = useState<ClearSnapshot | null>(null)
   const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // 快照与最新输入状态都要在事件回调里读到当前值：用 ref 影子跟随（闭包陷阱）
+  // 事件回调要读最新值：用 ref 影子跟随（闭包陷阱）
+  const live = useRef({ draft, imageIds, occurrences })
+  live.current = { draft, imageIds, occurrences }
   const snapshotRef = useRef<ClearSnapshot | null>(null)
-  const inputRef = useRef<{ draft: string; imageIds: readonly string[]; occurrences: readonly OccurrenceView[] }>({
-    draft: '',
-    imageIds: [],
-    occurrences: [],
-  })
+  const armedRef = useRef<'escape' | 'ctrl-c' | null>(null)
+  armedRef.current = armedKey
 
-  const occurrences = useInput((s) => s.occurrences)
-  inputRef.current = { draft, imageIds, occurrences }
-
-  const clearArmTimer = (): void => {
-    if (armTimer.current !== null) {
-      clearTimeout(armTimer.current)
-      armTimer.current = null
-    }
-  }
   const closeUndoWindow = (): void => {
     if (undoTimer.current !== null) {
       clearTimeout(undoTimer.current)
@@ -182,16 +168,22 @@ function ComposerClear({ useInput, inputActions, useSession, sessionId, t, sessi
     snapshotRef.current = null
     setSnapshot(null)
   }
+  const clearArmTimer = (): void => {
+    if (armTimer.current !== null) {
+      clearTimeout(armTimer.current)
+      armTimer.current = null
+    }
+  }
 
-  /** 执行清空：官方 setDraft('') + 逐个 removeImage（先存快照供撤销）。 */
+  /** 清空：官方 setDraft('') + 逐个 removeImage（先存快照供撤销）。 */
   const clearNow = (): void => {
-    const current = inputRef.current
+    const current = live.current
     const taken: ClearSnapshot = { draft: current.draft, occurrences: current.occurrences, imageIds: current.imageIds }
     snapshotRef.current = taken
     setSnapshot(taken)
     inputActions.setDraft('')
     for (const id of current.imageIds) inputActions.removeImage(id)
-    setArmed(false)
+    setArmedKey(null)
     clearArmTimer()
     if (undoTimer.current !== null) clearTimeout(undoTimer.current)
     undoTimer.current = setTimeout(closeUndoWindow, UNDO_WINDOW_MS)
@@ -200,8 +192,7 @@ function ComposerClear({ useInput, inputActions, useSession, sessionId, t, sessi
   /**
    * 撤销清空：正文走官方 setDraft，引用 chip 走官方 insertReference
    * （倒序插 + 每次现读 draftRev 做 span CAS，见文件头说明）。
-   * chip 还原失败只降级该 chip（正文已还原），不影响其余部分——所以整体包一层
-   * try：撤销是「尽量还原」，不是事务。
+   * chip 还原失败只降级该 chip（正文已还原）——撤销是「尽量还原」，不是事务。
    */
   const undoClear = (): void => {
     const taken = snapshotRef.current
@@ -232,82 +223,85 @@ function ComposerClear({ useInput, inputActions, useSession, sessionId, t, sessi
     closeUndoWindow()
   }
 
-  const stopTurn = (): void => {
-    const face = sessionFaceOf(sessionId)
-    void face?.cancel().catch(() => {
-      /* 取消失败（会话已跑完等）：静默，官方 composer 的停止按钮同样是吞错语义 */
-    })
-  }
-
-  // 撤销窗口开着时，Ctrl/Cmd+Z 归我们处理（捕获阶段先于官方编辑器的撤销，
-  // preventDefault + stopPropagation 让官方那一步不发生）。
+  // 键位监听（第 4 层，见文件头举证）：挂自有 frame 根捕获阶段，只考虑
+  // composer 卡之内的按键，放行条件一律不拦。
   useEffect(() => {
-    if (snapshot === null) return undefined
+    const root = frameRoot()
+    if (root === null) return undefined
     const onKeyDown = (event: KeyboardEvent): void => {
-      const key = event.key.toLowerCase()
-      if (key !== 'z' || !(event.metaKey || event.ctrlKey) || event.shiftKey) return
+      const target = event.target as HTMLElement | null
+      if (target === null || target.closest(COMPOSER_SEAT) === null) return
+      const isEscape = event.key === 'Escape'
+      // Ctrl+C（不带 Shift/Alt）；macOS 的复制是 Cmd+C，不受此影响
+      const isCtrlC = event.key.toLowerCase() === 'c' && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
+      if (!isEscape && !isCtrlC) return
+      const undoOpen = snapshotRef.current !== null
+      // 撤销窗口里的 Ctrl/Cmd+Z 由下面单独处理；Esc 在撤销窗口里不做事（放行）
+      if (undoOpen && isEscape) return
+      const action = decideKeyAction({
+        key: isCtrlC ? 'ctrl-c' : 'escape',
+        hasContent: live.current.draft !== '' || live.current.imageIds.length > 0,
+        armed: armedRef.current !== null,
+        hasSelection: hasSelection(),
+        blocked: overlayOpen(),
+        composing: event.isComposing,
+      })
+      if (action === 'pass') return
       event.preventDefault()
-      event.stopPropagation()
-      undoClear()
-    }
-    document.addEventListener('keydown', onKeyDown, true)
-    return () => document.removeEventListener('keydown', onKeyDown, true)
-  }, [snapshot, sessionId])
-
-  useEffect(
-    () => () => {
-      clearArmTimer()
-      if (undoTimer.current !== null) clearTimeout(undoTimer.current)
-    },
-    [],
-  )
-
-  const hasContent = draft !== '' || imageIds.length > 0
-  const undoOpen = snapshot !== null
-  const view = clearButtonView({ armed, undoOpen, hasContent, running })
-  const label = tr(view.labelKey)
-
-  // 行为矩阵见 src/pure/composerClearState.ts（撤销 > 清空双击确认 > 停止回合）。
-  const onClick = (): void => {
-    switch (decideClearAction({ armed, undoOpen, hasContent, running })) {
-      case 'undo':
-        undoClear()
-        return
-      case 'arm':
-        setArmed(true)
-        clearArmTimer()
-        armTimer.current = setTimeout(() => {
-          armTimer.current = null
-          setArmed(false)
-        }, ARM_WINDOW_MS)
-        return
-      case 'clear':
+      if (action === 'clear') {
         clearNow()
         return
-      case 'stop':
-        stopTurn()
-        return
-      default:
-        return
+      }
+      setArmedKey(isCtrlC ? 'ctrl-c' : 'escape')
+      clearArmTimer()
+      armTimer.current = setTimeout(() => {
+        armTimer.current = null
+        setArmedKey(null)
+      }, ARM_WINDOW_MS)
     }
-  }
+    const onUndoKey = (event: KeyboardEvent): void => {
+      const key = event.key.toLowerCase()
+      if (key !== 'z' || !(event.metaKey || event.ctrlKey) || event.shiftKey) return
+      if (snapshotRef.current === null) return
+      const target = event.target as HTMLElement | null
+      if (target === null || target.closest(COMPOSER_SEAT) === null) return
+      event.preventDefault()
+      undoClear()
+    }
+    root.addEventListener('keydown', onKeyDown, true)
+    root.addEventListener('keydown', onUndoKey, true)
+    return () => {
+      root.removeEventListener('keydown', onKeyDown, true)
+      root.removeEventListener('keydown', onUndoKey, true)
+      clearArmTimer()
+      if (undoTimer.current !== null) clearTimeout(undoTimer.current)
+    }
+  }, [sessionId])
 
+  const hintKind = clearHintKind({ armed: armedKey !== null, undoOpen: snapshot !== null, armedKey: armedKey ?? 'escape' })
+  if (hintKind === null) return null
+  const text =
+    hintKind === 'undo' ? tr('undoAvailable') : hintKind === 'arm-escape' ? tr('armEscape') : tr('armCtrlC')
   return h(
-    'button',
-    {
-      type: 'button',
-      className: 'dshOneClear_btn',
-      'data-armed': armed ? '' : undefined,
-      'data-undo': undoOpen ? '' : undefined,
-      'data-dshone-clear': '',
-      'data-mode': undoOpen ? 'undo' : hasContent ? (armed ? 'arm' : 'clear') : running ? 'stop' : 'idle',
-      title: tr(view.hintKey),
-      'aria-label': label,
-      disabled: view.disabled,
-      onClick,
-    },
-    label,
+    'div',
+    { className: 'dshOneClear_hint', 'data-dshone-clear-hint': hintKind },
+    h('span', null, text),
+    hintKind === 'undo' && h('button', { type: 'button', className: 'dshOneClear_undo', onClick: undoClear }, tr('undoAction')),
   )
+}
+
+interface ClearContext {
+  effect(body: () => (() => void) | void, label?: string): void
+  get(name: 'sessions'): {
+    scope(id: string): { get(name: 'conversation'): ConversationFace | undefined } | undefined
+  }
+  locale: {
+    register(ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): () => void
+  }
+  slots: {
+    register(entry: unknown, component: unknown): () => void
+    inject(name: string, factory: () => unknown): () => void
+  }
 }
 
 export const inject = ['slots', 'locale', 'sessions']
@@ -316,8 +310,7 @@ export function apply(ctx: ClearContext): void {
   /**
    * 作用域寻址的 conversation 面（官方 ui-conversation 的斜梯逐字：
    * `sessions.scope(id)` 拿会话作用域 ctx，再 `scope.get('conversation')`）。
-   * 注意 `input.for(actx)` 必须喂**会话作用域 ctx**，喂 undefined 会在服务
-   * 跟踪器里炸（浏览器验证实测：reading 'Symbol(dsh.client.scope)'）。
+   * 注意 `input.for(actx)` 必须喂**会话作用域 ctx**。
    */
   const sessionFaceOf = (sessionId: string): SessionFace | undefined => {
     const scoped = ctx.get('sessions').scope(sessionId)
@@ -325,7 +318,6 @@ export function apply(ctx: ClearContext): void {
     const conversation = scoped.get('conversation')
     if (conversation === undefined) return undefined
     return {
-      cancel: () => conversation.cancel(),
       insertReference: (ref, span) => conversation.input.for(scoped).insertReference(ref, span),
       draftRev: () => conversation.input.for(scoped).state.getSnapshot().draftRev,
     }
@@ -335,30 +327,23 @@ export function apply(ctx: ClearContext): void {
     // 自有词典（zh 用 unicode 转义过 i18n 门禁的字面量扫描）。
     const disposeLocale = ctx.locale.register('dshOneClear', {
       zh: {
-        clear: '\u6e05\u7a7a',
-        armHint: '\u518d\u6309\u4e00\u6b21\u6e05\u7a7a',
-        cleared: '\u5df2\u6e05\u7a7a \u00b7 \u64a4\u9500',
-        stop: '\u505c\u6b62',
-        clearHint: '\u6e05\u7a7a\u8f93\u5165\u5185\u5bb9\uff08\u518d\u6309\u4e00\u6b21\u786e\u8ba4\uff09',
-        undoHint: '\u64a4\u9500\u672c\u6b21\u6e05\u7a7a\uff08Ctrl/Cmd+Z\uff09',
-        stopHint: '\u8f93\u5165\u5df2\u7a7a\uff0c\u518d\u6309\u505c\u6b62\u672c\u8f6e',
+        armEscape: '\u518d\u6309\u4e00\u6b21 Esc \u6e05\u7a7a',
+        armCtrlC: '\u518d\u6309\u4e00\u6b21 Ctrl+C \u6e05\u7a7a',
+        undoAvailable: '\u5df2\u6e05\u7a7a',
+        undoAction: '\u64a4\u9500',
       },
       en: {
-        clear: 'Clear',
-        armHint: 'Press again to clear',
-        cleared: 'Cleared · Undo',
-        stop: 'Stop',
-        clearHint: 'Clear the composer content (press again to confirm)',
-        undoHint: 'Undo this clear (Ctrl/Cmd+Z)',
-        stopHint: 'The composer is empty; press again to stop the turn',
+        armEscape: 'Press Esc again to clear',
+        armCtrlC: 'Press Ctrl+C again to clear',
+        undoAvailable: 'Cleared',
+        undoAction: 'Undo',
       },
     })
-    const disposeInject = ctx.slots.inject('conversation.input.left', () =>
+    const disposeInject = ctx.slots.inject('conversation.input.overlay', () =>
       ctx.slots.register(
         {
-          name: 'conversation.input.left',
+          name: 'conversation.input.overlay',
           id: 'dsh-one-composer-clear',
-          order: 50,
           locale: 'dshOneClear',
           inject: () => ({ sessionFaceOf }),
         },
@@ -369,5 +354,5 @@ export function apply(ctx: ClearContext): void {
       disposeInject()
       disposeLocale()
     }
-  }, 'dsh-one composer clear: clear / double-confirm / undo / stop')
+  }, 'dsh-one composer clear: Esc / Ctrl+C clear with undo hint')
 }

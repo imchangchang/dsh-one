@@ -1,50 +1,52 @@
 /**
- * 清空三件套的状态判定（纯函数，便于单测）：把「这一刻按下去该做什么」从
- * React 组件里抽出来，行为矩阵与 issue #16 定稿的语义一一对应——
+ * 清空（Esc / Ctrl+C 两路）的键位分流与提示形态（纯函数，便于单测）。
  *
- * 1. 撤销窗口开着 → 按下去是撤销（反悔）；
- * 2. 有内容（正文或附件）→ 第一次按 = 武装（提示「再按一次」），第二次 = 清空；
- *    运行中有内容时**只清空、不打断回合**（先清输入）；
- * 3. 内容为空且在运行 → 按下去是停止回合（清完了才轮到停，即「先清输入再停」）；
- * 4. 内容为空且不在运行 → 无事可做（按钮禁用）。
+ * 语义（issue #16 定稿，装配版）：**有内容才接管，空内容一律放行**——
+ * - 有内容：第一次按 = 武装（提示「再按一次…清空」，草稿原样不动），第二次按 = 清空
+ *   （正文 + 待发附件）；清空后进入撤销窗口，Ctrl/Cmd+Z 可反悔。
+ * - 空内容：直接放行（不 preventDefault、不改草稿）——官方键盘逻辑（弹层关闭、
+ *   回合的中断入口）照常生效，我们绝不吞键。
+ * - 运行中双语义保留：有内容只清不打断；空内容交给官方。
+ *
+ * 放行条件（任一命中即 pass，绝不接管）：
+ * - IME 组字中（composing）；
+ * - 有官方浮层/模态打开（菜单、@ 候选、斜杠候选、设置/灯箱等）——Esc 在那里是关闭语义；
+ * - **有非折叠选区**（Win/Linux 的 Ctrl+C 复制必须不被拦；Esc 不受此限）。
  */
-export interface ClearButtonState {
-  /** 武装态（第一次按过，等第二次确认）。 */
-  armed: boolean
-  /** 撤销窗口开着（刚清空，可反悔）。 */
-  undoOpen: boolean
-  /** 输入里还有东西（正文或附件）。 */
+export interface ClearKeyState {
+  /** 按下的键：Esc 或Ctrl+C（macOS 复制是 Cmd+C，Ctrl+C 不被占用）。 */
+  key: 'escape' | 'ctrl-c'
+  /** 草稿有内容（正文或待发附件）。 */
   hasContent: boolean
-  /** 当前会话在跑回合。 */
-  running: boolean
+  /** 已在武装态（提示过「再按一次」）。 */
+  armed: boolean
+  /** 编辑器里有非折叠选区。 */
+  hasSelection: boolean
+  /** 有官方浮层/模态打开。 */
+  blocked: boolean
+  /** IME 组字中。 */
+  composing: boolean
 }
 
-/** 按下去要执行的动作。 */
-export type ClearAction = 'undo' | 'arm' | 'clear' | 'stop' | 'none'
+/** 接管后的动作（pass = 放行给官方）。 */
+export type ClearKeyAction = 'pass' | 'arm' | 'clear'
 
-/** 零散值（按钮的形态：文案 key + 是否禁用）。 */
-export interface ClearButtonView {
-  labelKey: 'cleared' | 'armHint' | 'clear' | 'stop'
-  hintKey: 'undoHint' | 'armHint' | 'clearHint' | 'stopHint'
-  disabled: boolean
+/** 判定一次按键该走哪条路。 */
+export function decideKeyAction(state: ClearKeyState): ClearKeyAction {
+  if (state.composing) return 'pass'
+  if (state.blocked) return 'pass'
+  // 选区只在 Ctrl+C 上豁免（复制优先）；Esc 与选区无关
+  if (state.key === 'ctrl-c' && state.hasSelection) return 'pass'
+  if (!state.hasContent) return 'pass'
+  return state.armed ? 'clear' : 'arm'
 }
 
-/** 判定本次点击的动作。 */
-export function decideClearAction(state: ClearButtonState): ClearAction {
+/** 提示的两种形态（无提示 = null）。 */
+export type ClearHintKind = 'arm-escape' | 'arm-ctrl-c' | 'undo' | null
+
+/** 当前该显示哪条提示：撤销窗口优先，其次武装提示（按触发的键给对应文案）。 */
+export function clearHintKind(state: { armed: boolean; undoOpen: boolean; armedKey: 'escape' | 'ctrl-c' }): ClearHintKind {
   if (state.undoOpen) return 'undo'
-  if (state.hasContent) return state.armed ? 'clear' : 'arm'
-  if (state.running) return 'stop'
-  return 'none'
-}
-
-/** 按钮当前该长什么样（文案 key + 禁用态）。 */
-export function clearButtonView(state: ClearButtonState): ClearButtonView {
-  if (state.undoOpen) return { labelKey: 'cleared', hintKey: 'undoHint', disabled: false }
-  if (state.hasContent) {
-    return state.armed
-      ? { labelKey: 'armHint', hintKey: 'armHint', disabled: false }
-      : { labelKey: 'clear', hintKey: 'clearHint', disabled: false }
-  }
-  if (state.running) return { labelKey: 'stop', hintKey: 'stopHint', disabled: false }
-  return { labelKey: 'clear', hintKey: 'clearHint', disabled: true }
+  if (state.armed) return state.armedKey === 'escape' ? 'arm-escape' : 'arm-ctrl-c'
+  return null
 }
