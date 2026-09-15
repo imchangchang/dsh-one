@@ -1,14 +1,14 @@
 {
   "title": "DSH One 装配线测试报告：对话区功能插件化批 1（#65）",
   "branch": "agent/cordis-chat-dsh-one-features",
-  "commit": "98277b8d5a8b6df025f4f7c10c5a738a7fb67928",
+  "commit": "4fa03721d781b5a3b18f299bf93dc2d684527955",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
     "dsh": "0.1.2-rc.1",
     "locale": "zh-cn",
     "theme": "dark（含 light 切换断言）",
     "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（92 条断言）",
-    "date": "2026-09-15T10:52:24.451Z"
+    "date": "2026-09-15T10:52:37.914Z"
   },
   "coverageNote": "本报告是浏览器验证（第一道验证）：装配页 + 真实网关只读 + 假宿主（能力桥的宿主侧在假宿主里按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/内置浏览器命令）、运行中回合的停止路径（需要真回合）、真模型输出。这些见 VS Code 验证清单。",
   "items": [
@@ -27,7 +27,7 @@
       "id": "F-02",
       "phase": "new-feature",
       "name": "消息正文 commit hash 可点 + 悬停提交卡片（GITCARD 套件，14 条断言）",
-      "expect": "消息行正文里的 7–40 位 hex 变成可点标记（虚线下划线）；悬停发出 git.show 并弹出卡片（作者/相对时间/标题/正文/变更统计/短 hash/命中仓库路径）；**git.show 带 cwd 且等于当前会话所属 dsh 工作区路径**（不是 VS Code 打开的仓库）；**工作区根非 git 仓库时，宿主在工作区内有界发现子目录仓库并逐个查询**（限深 ≤3、跳过依赖/构建目录、仓库数 ≤24、总预算 2s），命中后卡片展示仓库相对路径；代码块 pre 内的 hash 不联动；同一 hash 命中缓存不重复请求；点击钉住、点别处收起；查不到的提交显示「未找到」。对照 gitcard-1-decorated.png（装饰）与 gitcard-2-hover-card.png（卡片，含「仓库 aibrain-app」一行）。",
+      "expect": "消息行正文里的 7–40 位 hex 变成可点标记（虚线下划线）；悬停发出 git.show 并弹出卡片（作者/相对时间/标题/正文/变更统计/短 hash/命中仓库路径）；**git.show 带 cwd 且等于当前会话所属 dsh 工作区路径**（不是 VS Code 打开的仓库；宿主侧允许根取自网关 session/list 的 cwd 集合——真实 POV 树只读复验：5c8630a found=true、repoRelative=aibrain-app、42ms）；**工作区根非 git 仓库时，宿主在工作区内有界发现子目录仓库并逐个查询**（限深 ≤3、跳过依赖/构建目录、仓库数 ≤24、总预算 2s），命中后卡片展示仓库相对路径；代码块 pre 内的 hash 不联动；同一 hash 命中缓存不重复请求；点击钉住、点别处收起；查不到的提交显示「未找到」。对照 gitcard-1-decorated.png（装饰）与 gitcard-2-hover-card.png（卡片，含「仓库 aibrain-app」一行）。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh65-batch1/gitcard-1-decorated.png",
@@ -38,8 +38,8 @@
     {
       "id": "F-03",
       "phase": "new-feature",
-      "name": "行内码右键「复制这段」（目标高亮 + 官方菜单观感对齐）（MENU 套件，23 条断言）",
-      "expect": "右键行内码 → 菜单「复制这段」，点后剪贴板拿到行内码原文；**被点的行内码在菜单开着期间高亮**（颜色取官方 token --dsw-alias-interactive-bg-active，实测 rgba(255,255,255,0.14)），执行动作 / Esc 取消 / 点别处都会撤掉且无残留（重复开关仍是 1 个标记）；**菜单项几何与官方标准菜单逐项相等**（侧栏会话行「⋯」菜单实测：项 min-height 40px、padding 8px 10px、font-size 14px、line-height 22px、gap 8px、border-radius 10px，图标位 16×16，列表 4px/20px/218px/#353638，hover rgba(255,255,255,0.08)），composer 模型选择下拉的通用观感（字号/行距/间距/圆角/列表盒）亦一致；**其余目标一律让路**：消息行内普通文本、外链、对话区空白处都不弹自有菜单、不 preventDefault、不误标高亮。对照 menu-compare.png（左=自有右键菜单含高亮，右=官方侧栏会话行「⋯」菜单，同尺度并排）与 menu-1-inline-code.png / menu-2-official-standard.png。",
+      "name": "行内码右键（单图标项 + 目标高亮 + 官方菜单观感对齐）（MENU 套件，23 条断言）",
+      "expect": "右键行内码 → 菜单**只有一个无可见文字的官方复制图标项**（无障碍名「复制这段」走自有 locale，按 role+名字可查到；项仍是官方标准 40px 行高），菜单盒收敛到图标项自然宽（列表 44px ＝ 项 36px + 官方列表内边距 8px，不再占 218px 档）；点它后剪贴板拿到行内码原文；**被点的行内码在菜单开着期间高亮**（颜色取官方 token --dsw-alias-interactive-bg-active，实测 rgba(255,255,255,0.14)），执行动作 / Esc 取消 / 点别处都会撤掉且高亮与菜单标记都无残留（重复开关仍是各 1 个）；**项几何与官方标准菜单逐项相等**（侧栏会话行「⋯」菜单实测：项 min-height 40px、padding 8px 10px、font-size 14px、line-height 22px、gap 8px、border-radius 10px，图标 16×16，hover rgba(255,255,255,0.08)；列表内边距/圆角/底色同官方，min-width 按图标项有意收窄），composer 模型选择下拉的通用观感亦一致；**其余目标一律让路**：消息行内普通文本、外链、对话区空白处都不弹自有菜单、不 preventDefault、不误标高亮。对照 menu-compare.png（左=自有右键菜单含高亮，右=官方侧栏会话行「⋯」菜单，同尺度并排）与 menu-1-inline-code.png / menu-2-official-standard.png。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh65-batch1/menu-compare.png",
