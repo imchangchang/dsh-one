@@ -27,12 +27,30 @@
  * - 菜单本体用官方 `Menu` 原语（portal + getAnchorRect 定位到右键坐标、外点
  *   关闭、Escape 关闭都是官方行为）。
  *
- * 观感对齐（#65 收尾 2）：项结构与排版**不写一行布局 CSS**，全部走官方 `Menu`
- * 的默认档——读官方在用的两处菜单（侧栏会话行「⋯」、composer 模型选择）实测都是
+ * 观感对齐（#65 收尾 2/8）：项结构与排版**不写一行布局 CSS**，全部走官方 `Menu`
+ * 的档位——读官方在用的两处菜单（侧栏会话行「⋯」、composer 模型选择）实测都是
  * 默认档：项 `min-height:40px / padding:8px 10px / font-size:14px / line-height:22px
  * / gap:8px / border-radius:10px`，图标位 16×16、hover 背景
- * `--dsw-alias-interactive-bg-hover`；官方没有任何调用点传 `dense`/`compact`，
- * items 的形状是 `{id, label, icon: <IconXxx16 />}`（不传 size）。
+ * `--dsw-alias-interactive-bg-hover`；items 的形状是 `{id, label, icon: <IconXxx16 />}`。
+ *
+ * **定稿取官方紧凑档 `compact: true`**（用户拍板）：官方 CSS 里存在该变体
+ * （`._compactList_1aoad_128`：列表 `min-width:164px;padding:2px;border-radius:7px`，
+ * 项 `min-height:26px;gap:6px;padding:3px 7px;border-radius:5px;font-size:12px;
+ * line-height:18px`，图标位 14×14）——**属「官方支持但官方未用」的变体**：48 个官方
+ * bundle 的 Menu 调用点全量扫过，**没有一处传 compact**（默认与 dense 之外无人用）。
+ * 选择理由：单图标动作项配 14 档图标时，官方紧凑档正是「小图标 + 小行高」的搭配，
+ * 比 40px 标准档 + 14 图标更贴合官方设计语言；代价是与官方现有调用点的观感不同，
+ * 故此处显式记录该事实。
+ *
+ * 悬浮提示走**官方 Tooltip 组件**（primitives 导出，`cloneElement` 把
+ * onMouseEnter/Leave/Focus/Blur 与 ref 挂到子元素上，渲染 `role="tooltip"` 气泡），
+ * 不用 `title` 属性——官方有组件就用官方（机制层 1/2，避免浏览器原生 tooltip 的
+ * 延迟与样式不一致）。
+ *
+ * 「已复制」反馈：**官方 Menu 点选后不会自己关闭**（源码：item 的 onClick 只调
+ * `onSelect(id)`，关不关由调用方决定；官方各调用点都在 onSelect 里自己 setOpen(false)）
+ * ——所以按「官方支持保持打开」这条走**项内状态切换**：点击后项内换成对勾图标 +
+ * 「已复制」文字，`COPIED_FEEDBACK_MS` 后我们在 onSelect 侧关菜单。
  *
  * 右键目标高亮（#65 收尾 2）：命中行内码时给那个 `code` 加自有属性
  * `data-dshone-menu-target`，本插件样式用它上色（颜色取官方 token
@@ -40,7 +58,7 @@
  * 菜单关闭 / 取消 / 执行动作后移除。清理按「全量扫属性再删」实现，重复开关不留残留。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { IconCopyOutline16, Menu, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCheckOutline16, IconCopyOutline16, Menu, Tooltip, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 
 /** 右键目标高亮用的自有属性（只加属性，不改官方 DOM 结构）。 */
 const TARGET_ATTR = 'data-dshone-menu-target'
@@ -50,6 +68,8 @@ const MENU_ICON_MARK = 'icon'
 /** 图标项的标记属性与容器类（本插件自有，用来只命中我们自己那一项）。 */
 const ICON_ITEM_ATTR = 'data-dshone-icon-item'
 const ICON_ITEM_CLASS = 'dshOneMenu_iconItem'
+/** 「已复制」状态在项内停留的时长（官方 Menu 点选后由调用方决定何时关，见下）。 */
+const COPIED_FEEDBACK_MS = 700
 
 const CSS = [
   // 右键目标高亮：以**官方侧栏当前会话行（选中态）**为基准。官方那条规则逐字是
@@ -62,15 +82,17 @@ const CSS = [
   // 单图标项：官方**没有纯图标菜单项的先例**（48 个插件 bundle 全量扫 items 条目：
   // 19 条都有 label，没有一条是「有 icon 无 label」；官方的纯图标控件是 Button
   // 工具条档，不是 Menu 项），所以按第 4 层兜底：只对**本图标项**改成对称内边距、
-  // 方盒。数值按图标档位推：(40px 官方行高 − 14px 图标) / 2 = 13px，上下左右等值、
-  // 盒子仍 40×40（官方标准行高不变）。
+  // 方盒。数值按图标档位推：(26px 官方紧凑行高 − 14px 图标) / 2 = 6px，上下左右等值、
+  // 盒子 26×26（官方紧凑档行高不变）。
   // 判定用 :has(自有标记) —— 只命中我们自己那一项，不动官方任一项；:has 在本仓库
   // 已有多处使用（导出胶囊、设置行动），目标运行环境（VS Code Electron / Chromium）
   // 原生支持。风险：若官方未来给菜单项加同名 slot 结构，:has 仍只看我们自己的属性。
-  `[${MENU_ATTR}="${MENU_ICON_MARK}"] button[role="menuitem"]:has([${ICON_ITEM_ATTR}]){padding:13px;justify-content:center}`,
+  `[${MENU_ATTR}="${MENU_ICON_MARK}"] button[role="menuitem"]:has([${ICON_ITEM_ATTR}]){padding:6px;justify-content:center}`,
   // 图标容器：flex 居中（消掉行内盒的基线偏移——实测改前图标上方 9px、下方 15px，
   // 因为官方 itemLabel 是 22px 行盒、内联 svg 坐在基线上）。
   `.${ICON_ITEM_CLASS}{display:flex;align-items:center;justify-content:center}`,
+  `.dshOneMenu_copied{gap:4px;justify-content:flex-start}`,
+  `.dshOneMenu_copiedText{white-space:nowrap}`,
   // 单图标项：官方列表默认 min-width:218px（文字菜单的档位），图标项只需要图标
   // 的自然宽度，所以把列表收到内容宽。机制层 4 举证：官方 Menu 没有列表宽度属性口
   // （props 只有 open/anchor/items/onSelect/onClose/align/side/portal/
@@ -78,7 +100,9 @@ const CSS = [
   // 且 className 落在 root span 上、不是列表元素）；这里给**列表元素**加一个自有
   // 属性再按属性选择器上样式，不依赖任何 css-module 哈希；定位靠 role="menu"
   // 语义属性（仅在我们自己的菜单开着时）。
-  `[${MENU_ATTR}="${MENU_ICON_MARK}"]{min-width:0;width:max-content}`,
+  // !important：官方紧凑档的规则是双类选择器（`._list_x._compactList_y{min-width:164px}`），
+  // 单属性选择器的特异性压不过它——这里是我们自己给自己加的标记属性，代价可控。
+  `[${MENU_ATTR}="${MENU_ICON_MARK}"]{min-width:0!important;width:max-content}`,
 ].join('')
 const CSS_TAG_ID = '@dsh-one/vscode-context-menu/Target.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
@@ -133,6 +157,9 @@ function inlineCodeOf(target: HTMLElement): HTMLElement | null {
 function ContextMenuLayer({ t }: LayerProps) {
   const tr = t
   const [state, setState] = useState<MenuState>(CLOSED)
+  /** 点击后的「已复制」瞬时状态（官方 Menu 点选不自动关闭，由调用方决定何时关）。 */
+  const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 菜单开着期间被高亮的那个行内码（关闭时按属性全量清，不依赖这个引用）
   const targetRef = useRef<HTMLElement | null>(null)
 
@@ -182,14 +209,28 @@ function ContextMenuLayer({ t }: LayerProps) {
 
   /** 关闭菜单：先撤高亮与菜单标记再落状态（取消 / 执行动作 / 点别处都走这里）。 */
   const closeMenu = (): void => {
+    if (copiedTimer.current !== null) {
+      clearTimeout(copiedTimer.current)
+      copiedTimer.current = null
+    }
     clearHighlight()
     clearMenuMark()
+    setCopied(false)
     setState(CLOSED)
   }
 
+  /**
+   * 复制 + 反馈：写完剪贴板先切成「已复制」态（项内对勾 + 文字），停留
+   * COPIED_FEEDBACK_MS 后再关菜单并撤高亮（官方点选不自动关，节奏由这里定）。
+   */
   const copy = (): void => {
     void writeClipboard(state.text)
-    closeMenu()
+    setCopied(true)
+    if (copiedTimer.current !== null) clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => {
+      copiedTimer.current = null
+      closeMenu()
+    }, COPIED_FEEDBACK_MS)
   }
 
   // 单图标项：可见内容只有一个官方复制图标（不显示文字），无障碍名用 aria-label
@@ -206,11 +247,24 @@ function ContextMenuLayer({ t }: LayerProps) {
   const items = [
     {
       id: 'copy-inline-code',
-      label: h(
-        'span',
-        { className: ICON_ITEM_CLASS, 'aria-label': tr('copyInlineCode'), [ICON_ITEM_ATTR]: '' },
-        h(IconCopyOutline16, { size: 14 }),
-      ),
+      label: copied
+        ? // 「已复制」瞬时态：对勾 + 文字（自有 locale），随后关闭
+          h(
+            'span',
+            { className: `${ICON_ITEM_CLASS} dshOneMenu_copied`, 'aria-label': tr('copied'), [ICON_ITEM_ATTR]: '' },
+            h(IconCheckOutline16, { size: 14 }),
+            h('span', { className: 'dshOneMenu_copiedText' }, tr('copied')),
+          )
+        : // 常态：只有一个官方复制图标，悬浮由官方 Tooltip 给「复制」提示
+          h(
+            Tooltip,
+            { label: tr('copyInlineCode'), side: 'top', delayMs: 300 },
+            h(
+              'span',
+              { className: ICON_ITEM_CLASS, 'aria-label': tr('copyInlineCode'), [ICON_ITEM_ATTR]: '' },
+              h(IconCopyOutline16, { size: 14 }),
+            ),
+          ),
     },
   ]
 
@@ -221,6 +275,9 @@ function ContextMenuLayer({ t }: LayerProps) {
     // （越界时官方自己夹进视口）。
     getAnchorRect: () => new DOMRect(state.x, state.y, 0, 0),
     portal: true,
+    // 官方紧凑档（26px 项 / 12px 字号 / 14px 图标位）——官方支持但未使用的变体，
+    // 取它与 14 档图标搭配（见文件头说明）。
+    compact: true,
     onClose: closeMenu,
     onSelect: (id: string) => {
       if (id === 'copy-inline-code') copy()
@@ -246,7 +303,7 @@ export function apply(ctx: MenuContext): void {
     // 自有词典（zh 文案与旧自研聊天区同口径，用 unicode 转义过 i18n 门禁）。
     const disposeLocale = ctx.locale.register('dshOneMenu', {
       zh: { copyInlineCode: '\u590d\u5236\u8fd9\u6bb5' },
-      en: { copyInlineCode: 'Copy inline code' },
+      en: { copyInlineCode: 'Copy inline code', copied: 'Copied' },
     })
     const disposeInject = ctx.slots.inject('shell.overlay', () =>
       ctx.slots.register(
