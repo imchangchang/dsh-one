@@ -223,6 +223,12 @@ function ComposerClear({ useInput, inputActions, sessionId, t, sessionFaceOf }: 
     closeUndoWindow()
   }
 
+  // 清空后用户又开始打字 → 关掉撤销窗口（快照丢掉）：否则此时的 Ctrl+Z 会把
+  // 新输入整段替换回旧内容，等于吞掉用户刚敲的字（#16 的「打字解除武装」同理）。
+  useEffect(() => {
+    if (snapshotRef.current !== null && (draft !== '' || imageIds.length > 0)) closeUndoWindow()
+  }, [draft, imageIds])
+
   // 键位监听（第 4 层，见文件头举证）：挂自有 frame 根捕获阶段，只考虑
   // composer 卡之内的按键，放行条件一律不拦。
   useEffect(() => {
