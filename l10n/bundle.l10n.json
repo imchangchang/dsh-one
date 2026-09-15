@@ -221,5 +221,9 @@
   "Failed to load the assembly wire from the dsh gateway: {0}": "Failed to load the assembly wire from the dsh gateway: {0}",
   "Failed to start the assembly mirror: {0}": "Failed to start the assembly mirror: {0}",
   "The dsh version is unknown; this chat assembly expects {0}.": "The dsh version is unknown; this chat assembly expects {0}.",
-  "The connected dsh is {0}, which may not match this chat assembly (expects {1}).": "The connected dsh is {0}, which may not match this chat assembly (expects {1})."
+  "The connected dsh is {0}, which may not match this chat assembly (expects {1}).": "The connected dsh is {0}, which may not match this chat assembly (expects {1}).",
+  "DSH sidebar failed to load: {0}": "DSH sidebar failed to load: {0}",
+  "Retry": "Retry",
+  "dsh Settings (assembled)": "dsh Settings (assembled)",
+  "The dsh settings file was not found at ~/.dsh/settings.yaml": "The dsh settings file was not found at ~/.dsh/settings.yaml"
 }

@@ -118,6 +118,14 @@ const QUEUE_FACADE_JS = `(() => {
  *   标记（remote → 归一化成 RemoteError；carrier → 可重试的载体失败）。
  * 提供了 openStream 后 connection.rpc.open 存在，api-gateway 不会自起按
  * location.origin 寻址的 WS mux（见 dsh-api-gateway ClientRemoteService）。
+ * ownsHost（官方机制第 3 层：__DSH_TRANSPORT__ 官方预留接缝的既有字段，
+ * client-connection 源码 4755 行 isLoopback 判定消费）：传输接缝拥有
+ * loopback 宿主权威——页面一切 RPC 经 loopback 代理带 cookie 到网关，
+ * 网关视角即 127.0.0.1。isLoopback 判定 = transport.ownsHost || location
+ * 是 loopback 主机名；VS Code webview 的 vscode-webview:// 主机名不是
+ * loopback，缺这个标记会被官方判非 loopback：设置文档走 memory 不持久、
+ * Models 提供方目录降级「settings are unavailable in this browser」、
+ * Open configuration file 缺席。声明后三树等价官方 loopback 形态（#70）。
  */
 function transportJs(mirrorOrigin: string): string {
   return `(() => {
@@ -208,14 +216,17 @@ function transportJs(mirrorOrigin: string): string {
       ws.close()
     }
   })()
-  globalThis.__DSH_TRANSPORT__ = { fetch: apiFetch, openStream }
+  globalThis.__DSH_TRANSPORT__ = { fetch: apiFetch, openStream, ownsHost: true }
 })()`
 }
 
-/** 主题预置：逐字来自官方 body 注入（preference 由外壳烘焙；官方 settings 起来后会覆盖）。 */
+/** 主题预置：逐字来自官方 body 注入（preference 由外壳烘焙；官方 settings 起来后会覆盖）。
+ * 宿主主题（#70 主题跟随）：theme-follow 插件首帧同步官方 theme 服务的
+ * preference，之后靠宿主 dshOne.setTheme 广播切换（__DSH_ONE_HOST_THEME__）。 */
 function themePresetJs(theme: 'dark' | 'light'): string {
   return `(() => {
   const preference = ${JSON.stringify(theme)}
+  globalThis.__DSH_ONE_HOST_THEME__ = preference
   const systemDark = preference === 'system'
     && typeof matchMedia !== 'undefined'
     && matchMedia('(prefers-color-scheme: dark)').matches
@@ -239,6 +250,13 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
       : `<div style="position:sticky;top:0;z-index:100;padding:6px 12px;background:#8a6d1d;color:#fff;font:12px/1.5 var(--vscode-font-family,system-ui,sans-serif);">${escapeHtml(banner)}</div>`
   const cspMeta = cspOn ? `    <meta http-equiv="Content-Security-Policy" content="${csp}" />\n` : ''
   const transportScript = transportOn ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin)}</script>\n` : ''
+  // body 归零（#70）：VS Code 给每条 webview 注入 @layer vscode-default
+  // { body { padding: 0 20px } }（pre/index.html defaultStyles）——层内规则
+  // 输给任何非层样式，但页面没人设置 body padding 时它就生效（实验室普通
+  // 浏览器无此层所以贴 0，webview 里左右各空 20px + 侧栏底色边界成「细竖
+  // 线」）。非层 reset 直接压掉它，三树统一对齐官方 web 的 body{margin:0;
+  // padding:0}（chat 内容列自居中不受影响，settings 整页表单受益）。
+  const bodyReset = `    <style nonce="${cspNonce}">body{margin:0;padding:0}</style>\n`
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -247,7 +265,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
 ${cspMeta}    <title>DeepSeek Harness (assembled)</title>
     <script nonce="${cspNonce}">${assemblyProbeJs()}</script>
     <script nonce="${cspNonce}">${QUEUE_FACADE_JS}</script>
-${preload}
+${bodyReset}${preload}
 ${styles}
     <script nonce="${cspNonce}">globalThis["__DSH_BOOT__"] = ${jsonForScript(bootWire)}</script>
     <script src="${escapeAttr(bootstrapUrl)}"></script>

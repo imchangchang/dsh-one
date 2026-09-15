@@ -221,5 +221,9 @@
   "Failed to load the assembly wire from the dsh gateway: {0}": "从 dsh 网关加载装配清单失败：{0}",
   "Failed to start the assembly mirror: {0}": "装配 mirror 启动失败：{0}",
   "The dsh version is unknown; this chat assembly expects {0}.": "无法确定 dsh 版本；本装配对话区要求 {0}。",
-  "The connected dsh is {0}, which may not match this chat assembly (expects {1}).": "当前连接的 dsh 是 {0}，可能与本装配对话区不匹配（要求 {1}）。"
+  "The connected dsh is {0}, which may not match this chat assembly (expects {1}).": "当前连接的 dsh 是 {0}，可能与本装配对话区不匹配（要求 {1}）。",
+  "DSH sidebar failed to load: {0}": "DSH 侧栏加载失败：{0}",
+  "Retry": "重试",
+  "dsh Settings (assembled)": "dsh 设置（装配）",
+  "The dsh settings file was not found at ~/.dsh/settings.yaml": "未找到 dsh 设置文件 ~/.dsh/settings.yaml"
 }

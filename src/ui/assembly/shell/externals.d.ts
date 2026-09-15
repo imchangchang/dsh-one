@@ -11,6 +11,7 @@ declare module 'react' {
   export function useEffect(effect: () => void | (() => void), deps?: readonly unknown[]): void
   export function useLayoutEffect(effect: () => (() => void) | void, deps?: readonly unknown[]): void
   export function useRef<T>(initial: T): { current: T }
+  export function useState<T>(initial: T): [T, (next: T) => void]
   export const Fragment: unique symbol
 }
 
@@ -24,4 +25,12 @@ declare module '@deepseek-ai/dsh-client-store' {
     init: () => S
     actions: Record<string, (draft: S, ...args: any[]) => void>
   }): unknown
+}
+
+declare module '@deepseek-ai/dsh-client-ui-primitives' {
+  /** 官方图标件（设置齿轮，ui-settings-general TriggerContent 同款）。 */
+  export function IconSettingsOutline16(props: { size?: number }): unknown
+  export function IconSettingsOutline14(props: { size?: number }): unknown
+  /** 官方按钮件（设置行动，ui-settings-general SettingsDocumentAction 同款）。 */
+  export function Button(props: { variant?: string; size?: string; disabled?: boolean; onClick?: () => void; children?: unknown }): unknown
 }

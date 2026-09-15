@@ -1,4 +1,8 @@
 /**
+ * ⚠️ #70 摘钩保留：本前端随自研侧栏（src/ui/sessionsView.ts）一并摘钩——
+ * dshOne.chat view 的内容已换成官方侧栏装配。保留作 #65 迁移参照物，暂不
+ * 使用，勿删。
+ *
  * Sessions 面板 webview 前端（侧栏 dshOne.chat 视图）：只渲染会话列表，不含
  * 对话区（对话区 = 装配面板，见 src/ui/assembly/）。交互项：头部工具栏（搜索框/
  * 排序/刷新/折叠全部/新建会话/新建 workspace）、workspace 行 hover 操作、会话行

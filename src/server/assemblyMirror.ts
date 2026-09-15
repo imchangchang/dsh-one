@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Logger } from '../log.ts'
 import { cookieHeader } from './serverAuth.ts'
-import { BLOCKED_IDS, extractBootWire } from '../ui/assembly/wireFilter.ts'
+import { blockedIdsOf, extractBootWire, CHAT_BLOCK_LIST, type BlockedPlugin } from '../ui/assembly/wireFilter.ts'
 
 // serverAuth 的 per-origin 状态是模块级 Map：harness/测试若另起 bundle 实例
 // 会读写不到同一份（probe 时踩过)。统一从这里再导出，保证消费方与 mirror
@@ -42,7 +42,13 @@ export interface AssemblyMirrorOptions {
    * bundle，构建期落盘)。官方插件不再落盘——全部经 /plugins 代理直引网关。
    */
   pluginsDir: string
-  /** 可选：GET / 返回的装配页 HTML（lab harness 传；webview 形态不需要)。 */
+  /**
+   * 本 mirror 伺服哪棵树：block list 决定剥哪些官方段（chat 树默认
+   * CHAT_BLOCK_LIST；sidebar 树传 SIDEBAR_BLOCK_LIST，见 wireFilter.ts）。
+   * 每 mirror 一份过滤版 combo 缓存。
+   */
+  blockList?: ReadonlyArray<BlockedPlugin>
+  /** 可选：GET / 返回的装配页 HTML（lab harness 传；webview 形态由外壳生成）。 */
   assemblyPage?: () => string | undefined
 }
 
@@ -51,11 +57,13 @@ export function startAssemblyMirror(
   logger: Logger,
   options: AssemblyMirrorOptions,
 ): Promise<AssemblyMirror> {
-  // 过滤版官方 combo 缓存：mirror 生命周期（= 面板生命周期)内网关插件集
-  // 不变；首次 /plugins-local 带官方 id 的请求触发拉取。
+  // 过滤版官方 combo 缓存：mirror 生命周期（= 面板/侧栏 view 生命周期）内
+  // 网关插件集不变；首次 /plugins-local 带官方 id 的请求触发拉取。每棵树
+  // 一份 block list（#70），组合过滤在此烘焙。
+  const blockIds = blockedIdsOf(options.blockList ?? CHAT_BLOCK_LIST)
   let filteredComboPromise: Promise<string> | null = null
   const filteredGatewayCombo = (): Promise<string> => {
-    filteredComboPromise ??= fetchFilteredGatewayCombo(target, logger)
+    filteredComboPromise ??= fetchFilteredGatewayCombo(target, blockIds, logger)
     // 失败不缓存（下次重试)。
     filteredComboPromise.catch(() => {
       filteredComboPromise = null
@@ -123,12 +131,13 @@ const LOCAL_PLUGIN_RE = /^@dsh-one\/[a-z0-9-]+$/
 const CLIENT_SUFFIX = '/client.js'
 
 /**
- * 拉官方原 application combo 并剥掉 BLOCK_LIST 段（探针结论：网关 rev 是
+ * 拉官方原 application combo 并剥掉 blockList 段（探针结论：网关 rev 是
  * 内容校验，重拼/单包错 rev 一律 404，唯一可靠来源是原 combo URL)。
  * 按 `window.__ModuleLoader__.load({` 边界切段、读段首 id 判定、拼接保留段。
  */
 async function fetchFilteredGatewayCombo(
   target: () => string | undefined,
+  blockIds: readonly string[],
   logger: Logger,
 ): Promise<string> {
   const gateway = target()
@@ -152,15 +161,15 @@ async function fetchFilteredGatewayCombo(
     const end = i + 1 < marks.length ? marks[i + 1].index : text.length
     const segment = text.slice(start, end)
     const id = /\bid:\s*"([^"]+)"/.exec(segment.slice(0, 300))?.[1]
-    if (id !== undefined && BLOCKED_IDS.includes(id)) {
+    if (id !== undefined && blockIds.includes(id)) {
       dropped.push(id)
       continue
     }
     kept.push(segment)
   }
-  if (kept.length + dropped.length !== marks.length || dropped.length !== BLOCKED_IDS.length) {
+  if (kept.length + dropped.length !== marks.length || dropped.length !== blockIds.length) {
     logger.warn(
-      `assembly mirror: combo segment strip anomaly (segments ${marks.length}, kept ${kept.length}, dropped ${dropped.length}, expected ${BLOCKED_IDS.length})`,
+      `assembly mirror: combo segment strip anomaly (segments ${marks.length}, kept ${kept.length}, dropped ${dropped.length}, expected ${blockIds.length})`,
     )
   } else {
     logger.info(`assembly mirror: filtered combo ready (kept ${kept.length} segments, dropped ${dropped.join(', ')})`)
