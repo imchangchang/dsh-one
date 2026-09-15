@@ -51,6 +51,7 @@ import {
   IconCheckOutline16,
   IconClockOutline16,
   IconCopyOutline16,
+  IconFolderOpenOutline16,
   IconRightUpOutline16,
   IconUserOutline16,
   writeClipboard,
@@ -76,6 +77,8 @@ const CSS = [
   `.dshOneGitCard_stat{color:var(--dsw-alias-label-secondary)}`,
   `.dshOneGitCard_add{color:var(--dsw-alias-status-success,#2ea043)}`,
   `.dshOneGitCard_del{color:var(--dsw-alias-status-danger,#d1242f)}`,
+  `.dshOneGitCard_repo{display:flex;align-items:center;gap:4px;margin-top:6px;color:var(--dsw-alias-label-secondary)}`,
+  `.dshOneGitCard_repoPath{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}`,
   `.dshOneGitCard_footer{display:flex;align-items:center;gap:8px;margin-top:8px}`,
   `.dshOneGitCard_cmd{display:inline-flex;align-items:center;gap:4px;cursor:pointer;border:none;border-radius:6px;padding:2px 6px;background:transparent;color:inherit;font:inherit}`,
   `.dshOneGitCard_cmd:hover{background:var(--dsw-alias-interactive-bg-hover)}`,
@@ -104,6 +107,10 @@ interface CommitInfo {
   insertions?: number
   deletions?: number
   githubUrl?: string
+  /** 命中提交的仓库绝对路径（宿主侧在工作区里发现后回传）。 */
+  repoPath?: string
+  /** 仓库相对会话工作区根（就是根本身时缺省）。 */
+  repoRelative?: string
 }
 
 /** 一次查询的状态（undefined = 还没查；'pending' = 查询中）。 */
@@ -431,6 +438,18 @@ function GitCardLayer({ t, sessionWorkspacePath }: LayerProps) {
         ),
       )
     }
+    // 命中仓库上下文（#65 返修 2）：仓库在子目录时用户才知道这条提交出自哪儿
+    if (info.repoRelative !== undefined) {
+      body.push(
+        h(
+          'div',
+          { key: 'repo', className: 'dshOneGitCard_repo' },
+          h(IconFolderOpenOutline16, { size: 14 }),
+          h('span', null, tr('repoLabel')),
+          h('span', { className: 'dshOneGitCard_repoPath', title: info.repoPath ?? info.repoRelative }, info.repoRelative),
+        ),
+      )
+    }
     const shortHash = (info.commitHash ?? info.sha).slice(0, 7)
     body.push(
       h(
@@ -543,6 +562,7 @@ export function apply(ctx: GitCardContext): void {
         lookupFailed: '\u63d0\u4ea4\u4fe1\u606f\u67e5\u8be2\u5931\u8d25',
         gitMissing: '\u5f53\u524d\u672a\u5b89\u88c5 git',
         commit: '\u63d0\u4ea4',
+        repoLabel: '\u4ed3\u5e93',
         copyHash: '\u590d\u5236\u5b8c\u6574 hash',
         openOnGithub: '\u5728 GitHub \u6253\u5f00',
         justNow: '\u521a\u521a',
@@ -557,6 +577,7 @@ export function apply(ctx: GitCardContext): void {
         lookupFailed: 'Commit lookup failed',
         gitMissing: 'Git is not installed',
         commit: 'Commit',
+        repoLabel: 'Repo',
         copyHash: 'Copy full hash',
         openOnGithub: 'Open on GitHub',
         justNow: 'just now',

@@ -28,7 +28,7 @@ import * as vscode from 'vscode'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { Logger } from '../../log.ts'
-import { runGitShow } from '../../pure/gitShowCommand.ts'
+import { queryCommitInWorkspace } from '../../pure/gitWorkspaceQuery.ts'
 import {
   asRecord,
   isHostCallError,
@@ -38,6 +38,7 @@ import {
   type HostCallError,
 } from '../../pure/hostCalls.ts'
 import type { CommitInfoResult } from '../../pure/chatContract.ts'
+import type { GitWorkspaceQueryResult } from '../../pure/gitWorkspaceQuery.ts'
 
 export { isHostCallError } from '../../pure/hostCalls.ts'
 export type { HostCallErrorCode, HostCallError } from '../../pure/hostCalls.ts'
@@ -85,13 +86,19 @@ export interface HostBridgeDeps {
   gitPath?: string
   /** 命令超时（毫秒）。 */
   timeoutMs?: number
+  /** 诊断日志（写输出面板；git 查询的扫描/超时留痕用）。 */
+  log?: (line: string) => void
 }
 
 /**
- * git.show 的实现：路径限域 → git CLI 查提交（实现体见 pure/gitShowCommand.ts）。
- * 查询目录优先用会话工作区路径（args.cwd），越界/缺失时回落 VS Code 工作区目录。
+ * git.show 的实现：路径限域 → 在工作区里找这条提交。
+ *
+ * 「找」包含两级候选根：先查会话工作区根（快路径），落空再**有界发现**工作区内的
+ * 子目录仓库逐个查（工作区根不是 git 仓库、仓库在子目录里时是唯一能命中的路径，
+ * 见 pure/gitWorkspaceQuery.ts）。子目录天然落在允许根之内，realpath 包含判定
+ * 已在 resolveQueryDir 里做过，所以发现动作不需要新的授权。
  */
-async function gitShow(args: { hash: string; cwd?: string }, deps: HostBridgeDeps): Promise<CommitInfoResult | HostCallError> {
+async function gitShow(args: { hash: string; cwd?: string }, deps: HostBridgeDeps): Promise<GitWorkspaceQueryResult | HostCallError> {
   const folders = deps.workspaceFolders()
   const extra = deps.extraAllowedRoots === undefined ? [] : await deps.extraAllowedRoots()
   const allowedRoots = [...folders, deps.dshHome, ...extra]
@@ -99,9 +106,10 @@ async function gitShow(args: { hash: string; cwd?: string }, deps: HostBridgeDep
   if (dir === null) {
     return { code: 'no-workspace', message: 'no usable directory: the session workspace and the VS Code workspace folders are both unavailable' }
   }
-  const info = await runGitShow(args.hash, dir, {
+  const info = await queryCommitInWorkspace(args.hash, dir, {
     ...(deps.gitPath === undefined ? {} : { gitPath: deps.gitPath }),
     ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
+    ...(deps.log === undefined ? {} : { log: deps.log }),
   })
   if (info === undefined) return { code: 'git-missing', message: 'the git executable could not be started' }
   return info

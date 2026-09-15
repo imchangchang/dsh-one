@@ -1,14 +1,14 @@
 {
   "title": "DSH One 装配线测试报告：对话区功能插件化批 1（#65）",
   "branch": "agent/cordis-chat-dsh-one-features",
-  "commit": "a677cf1bb67ad617c2f4c0ee9b4b93e51c7ece05",
+  "commit": "3bc87c610ed21eadef65880ba6728a8af14f2a94",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
     "dsh": "0.1.2-rc.1",
     "locale": "zh-cn",
     "theme": "dark（含 light 切换断言）",
-    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（75 条断言）",
-    "date": "2026-09-15T09:55:07.188Z"
+    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（76 条断言）",
+    "date": "2026-09-15T10:12:26.223Z"
   },
   "coverageNote": "本报告是浏览器验证（第一道验证）：装配页 + 真实网关只读 + 假宿主（能力桥的宿主侧在假宿主里按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/内置浏览器命令）、运行中回合的停止路径（需要真回合）、真模型输出。这些见 VS Code 验证清单。",
   "items": [
@@ -21,19 +21,19 @@
       "screenshots": [
         "/tmp/dsh65-batch1/bridge.png"
       ],
-      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-6eukozl9\",\"hc2-er7rlufg\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-6eukozl9,hc2-er7rlufg；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-x1c8eotg\"}"
+      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-s4xx28ve\",\"hc2-4i2csuwv\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-s4xx28ve,hc2-4i2csuwv；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-sud3hko9\"}"
     },
     {
       "id": "F-02",
       "phase": "new-feature",
-      "name": "消息正文 commit hash 可点 + 悬停提交卡片（GITCARD 套件，13 条断言）",
-      "expect": "消息行正文里的 7–40 位 hex 变成可点标记（虚线下划线）；悬停发出 git.show 并弹出卡片（作者/相对时间/标题/正文/变更统计/短 hash）；**git.show 带 cwd 且等于当前会话所属 dsh 工作区路径**（不是 VS Code 打开的仓库——返修点）；代码块 pre 内的 hash 不联动；同一 hash 命中缓存不重复请求；点击钉住、点别处收起；查不到的提交显示「未找到」。对照 gitcard-1-decorated.png（装饰）与 gitcard-2-hover-card.png（卡片）。",
+      "name": "消息正文 commit hash 可点 + 悬停提交卡片（GITCARD 套件，14 条断言）",
+      "expect": "消息行正文里的 7–40 位 hex 变成可点标记（虚线下划线）；悬停发出 git.show 并弹出卡片（作者/相对时间/标题/正文/变更统计/短 hash/命中仓库路径）；**git.show 带 cwd 且等于当前会话所属 dsh 工作区路径**（不是 VS Code 打开的仓库）；**工作区根非 git 仓库时，宿主在工作区内有界发现子目录仓库并逐个查询**（限深 ≤3、跳过依赖/构建目录、仓库数 ≤24、总预算 2s），命中后卡片展示仓库相对路径；代码块 pre 内的 hash 不联动；同一 hash 命中缓存不重复请求；点击钉住、点别处收起；查不到的提交显示「未找到」。对照 gitcard-1-decorated.png（装饰）与 gitcard-2-hover-card.png（卡片，含「仓库 aibrain-app」一行）。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh65-batch1/gitcard-1-decorated.png",
         "/tmp/dsh65-batch1/gitcard-2-hover-card.png"
       ],
-      "notes": "注入测试文本到官方消息行：{\"rowKind\":\"assistant-step\"}；正文里的 hash 被包成可点标记：{\"count\":4,\"sha\":\"abc1234def5678901234567890abcdef12345678\",\"inPre\":false,\"codeDecorate\":1}；代码块（pre）内的 hash 不联动：inPre=false；悬停发出 git.show（带 hash）：[{\"hash\":\"abc1234def5678901234567890abcdef12345678\",\"cwd\":\"/Users/cgeng/Workspaces/dsh-plan\"}]；git.show 以「当前会话工作区路径」查询（不是 VS Code 工作区）：expected=/Users/cgeng/Workspaces/dsh-plan got=/Users/cgeng/Workspaces/dsh-plan；卡片渲染出假提交的作者/标题/统计：Fake Author14 天前 (2026-09-01 10:00)feat: 假提交标题正文一行。3 个文件变更, +12, -4提交 abc1234在 GitHub 打开；卡片在视口内且可交互（pointer-events 非 none）：{\"rect\":{\"x\":248.1875,\"y\":183,\"width\":311.375,\"height\":161,\"top\":183,\"right\":559.5625,\"bottom\":344,\"left\":248.1875},\"pe\":\"auto\"}；同一 hash 命中缓存不重复请求：calls=1；第二个 hash 也被装饰（含 deadbeef 形状）：{\"sha\":\"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\"}；未找到的提交显示「未找到」（不显示作者行）：未找到该提交"
+      "notes": "注入测试文本到官方消息行：{\"rowKind\":\"assistant-step\"}；正文里的 hash 被包成可点标记（注入的那条）：{\"count\":1,\"sha\":\"abc1234def5678901234567890abcdef12345678\",\"inPre\":false,\"anywhere\":2}；代码块（pre）内的 hash 不联动：inPre=false；悬停发出 git.show（带 hash）：[{\"hash\":\"abc1234def5678901234567890abcdef12345678\",\"cwd\":\"/Users/cgeng/Workspaces/POV\"}]；git.show 以「当前会话工作区路径」查询（不是 VS Code 工作区）：expected=/Users/cgeng/Workspaces/POV got=/Users/cgeng/Workspaces/POV；卡片渲染出假提交的作者/标题/统计：Fake Author14 天前 (2026-09-01 10:00)feat: 假提交标题正文一行。3 个文件变更, +12, -4仓库aibrain-app提交 abc1234在 GitHub 打开；卡片展示解析到的仓库路径（相对工作区根）：假提交标题正文一行。3 个文件变更, +12, -4仓库aibrain-app提交 abc1234在 GitHub 打开；卡片在视口内且可交互（pointer-events 非 none）：{\"rect\":{\"x\":248.1875,\"y\":489,\"width\":311.375,\"height\":187,\"top\":489,\"right\":559.5625,\"bottom\":676,\"left\":248.1875},\"pe\":\"auto\"}；同一 hash 命中缓存不重复请求：calls=1；第二个 hash 也被装饰（含 deadbeef 形状）：{\"sha\":\"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\"}；未找到的提交显示「未找到」（不显示作者行）：未找到该提交"
     },
     {
       "id": "F-03",
@@ -58,7 +58,7 @@
         "/tmp/dsh65-batch1/clear-3-undone.png",
         "/tmp/dsh65-batch1/clear-4-chip-undone.png"
       ],
-      "notes": "不再渲染清空按钮（input.left 无自有贡献）：{\"button\":0,\"inputLeft\":\"\"}；空内容 + Esc：放行（defaultPrevented=false、无提示、草稿仍空）：{\"prevented\":false,\"text\":\"\"}；有内容 + Esc：第一次只武装（提示 + 草稿不动）：{\"hint\":\"arm-escape\",\"text\":\"dsh one clear harness\"}；第二次 Esc 清空官方输入框（走 InputActions.setDraft）：{\"hint\":\"undo\",\"text\":\"\"}；撤销窗口内 Ctrl+Z 还原被清空的正文：{\"text\":\"dsh one clear harness\",\"hint\":null}；撤销窗口过期后 Ctrl+Z 不再还原清空内容（交还官方撤销语义）：expired=null text=\"\"；清空后重新打字：撤销窗口关闭，Ctrl+Z 不吞掉新输入：{\"hint\":null,\"text\":\"brand new text\",\"afterUndoAttempt\":\"brand new text\"}；有选中文本 + Ctrl+C：放行（复制不受影响）：{\"prevented\":false,\"selected\":true}；无选中 + Ctrl+C：接管（提示按 Ctrl+C 文案）：{\"prevented\":true}；官方浮层打开时 Esc 放行（我们不接管、官方照常关浮层）：{\"options\":0,\"hint\":null,\"text\":\"看看 @\",\"beforePopupEsc\":\"看看 @\"}；@ 引用插成真 chip（官方 data-composer-chip）：{\"chips\":1,\"text\":\"看看 @看看 lib/ \"}；清空连引用 chip 一起清（编辑器空、无残留 chip）：{\"chips\":0,\"text\":\"\"}；撤销把引用还原成真 chip（insertReference，不是纯文本）：{\"chips\":1,\"text\":\"看看 @看看 lib/ \"}"
+      "notes": "不再渲染清空按钮（input.left 无自有贡献）：{\"button\":0,\"inputLeft\":\"\"}；空内容 + Esc：放行（defaultPrevented=false、无提示、草稿仍空）：{\"prevented\":false,\"text\":\"\"}；有内容 + Esc：第一次只武装（提示 + 草稿不动）：{\"hint\":\"arm-escape\",\"text\":\"dsh one clear harness\"}；第二次 Esc 清空官方输入框（走 InputActions.setDraft）：{\"hint\":\"undo\",\"text\":\"\"}；撤销窗口内 Ctrl+Z 还原被清空的正文：{\"text\":\"dsh one clear harness\",\"hint\":null}；撤销窗口过期后 Ctrl+Z 不再还原清空内容（交还官方撤销语义）：expired=null text=\"\"；清空后重新打字：撤销窗口关闭，Ctrl+Z 不吞掉新输入：{\"hint\":null,\"text\":\"brand new text\",\"afterUndoAttempt\":\"brand new text\"}；有选中文本 + Ctrl+C：放行（复制不受影响）：{\"prevented\":false,\"selected\":true}；无选中 + Ctrl+C：接管（提示按 Ctrl+C 文案）：{\"prevented\":true}；官方浮层打开时 Esc 放行（我们不接管、官方照常关浮层）：{\"options\":0,\"hint\":null,\"text\":\"看看 @\",\"beforePopupEsc\":\"看看 @\"}；@ 引用插成真 chip（官方 data-composer-chip）：{\"chips\":1,\"text\":\"看看 @看看 aibrain-app/ \"}；清空连引用 chip 一起清（编辑器空、无残留 chip）：{\"chips\":0,\"text\":\"\"}；撤销把引用还原成真 chip（insertReference，不是纯文本）：{\"chips\":1,\"text\":\"看看 @看看 aibrain-app/ \"}"
     },
     {
       "id": "R-05",
@@ -104,7 +104,7 @@
       "screenshots": [
         "/tmp/dsh65-batch1/wiring-switched.png"
       ],
-      "notes": "侧栏树：工作区树渲染出会话行：rows=3；侧栏点会话 → 桥消息 dshOne.sessionSelected：[\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\"]；WIRING：运行时切会话就地生效（composer 在、无遮罩）：{\"masks\":0,\"composer\":1,\"headerShowsTarget\":true,\"flowRows\":8}；WIRING：对话区切到目标会话（头部标题跟随 + 有消息行）：{\"masks\":0,\"composer\":1,\"headerShowsTarget\":true,\"flowRows\":8,\"flowLoaded\":true}"
+      "notes": "侧栏树：工作区树渲染出会话行：rows=6；侧栏点会话 → 桥消息 dshOne.sessionSelected：[\"session-28280c2a-e5b0-4862-9b7c-dfa8b48eeb5f\"]；WIRING：运行时切会话就地生效（composer 在、无遮罩）：{\"masks\":0,\"composer\":1,\"headerShowsTarget\":true,\"flowRows\":74}；WIRING：对话区切到目标会话（头部标题跟随 + 有消息行）：{\"masks\":0,\"composer\":1,\"headerShowsTarget\":true,\"flowRows\":74,\"flowLoaded\":true}"
     },
     {
       "id": "R-09",
@@ -113,7 +113,7 @@
       "expect": "整包走 /plugins-local（分树过滤版），二次请求命中缓存（耗时 < 500ms）；一次注入 200 个 hash 文本节点，装饰在 3s 内收敛（实测 62ms）且不自激。",
       "result": "pass",
       "screenshots": [],
-      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:60595/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3454188,\"decode\":3453888,\"elapsed\":3.5999999940395355}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:60595/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3454188,\"decode\":3453888,\"elapsed\":3.5999999940395355}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":60.70000001788139,\"settled\":200,\"after\":200}"
+      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:61544/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3454999,\"decode\":3454699,\"elapsed\":4.9000000059604645}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:61544/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3454999,\"decode\":3454699,\"elapsed\":4.9000000059604645}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":60.900000005960464,\"settled\":200,\"after\":200}"
     }
   ]
 }

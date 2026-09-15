@@ -218,7 +218,7 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
  */
 const gatewayRootsByManager = new WeakMap<ServerManager, () => Promise<readonly string[]>>()
 
-function hostBridgeDeps(manager: ServerManager): HostBridgeDeps {
+function hostBridgeDeps(manager: ServerManager, logger: Logger): HostBridgeDeps {
   let roots = gatewayRootsByManager.get(manager)
   if (roots === undefined) {
     roots = createGatewayWorkspaceRoots({
@@ -231,7 +231,13 @@ function hostBridgeDeps(manager: ServerManager): HostBridgeDeps {
     })
     gatewayRootsByManager.set(manager, roots)
   }
-  return { ...defaultHostBridgeDeps(), extraAllowedRoots: roots }
+  return {
+    ...defaultHostBridgeDeps(),
+    extraAllowedRoots: roots,
+    // git 查询的扫描/命中/超时留痕走输出面板「DSH One」频道（probe 同一条通道），
+    // 页面侧不感知、UI 不阻塞。
+    log: (line: string) => logger.info(line),
+  }
 }
 
 /**
@@ -320,7 +326,7 @@ async function openChatPanel(
   })
   // 宿主能力桥（#65 批 1）：页面插件（git 卡片/右键菜单等）经它取 git 数据与
   // VS Code 动作；白名单 + 参数校核在 hostBridge 内收口。
-  const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager))
+  const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger))
   trackAssemblyWebview(context, panel.webview)
   panel.onDidDispose(() => {
     probeSub.dispose()
@@ -531,7 +537,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
   resolveWebviewView(view: vscode.WebviewView): void {
     view.webview.options = { enableScripts: true }
     const probeSub = subscribeAssemblyProbe(view.webview, this.logger)
-    const hostSub = subscribeHostCalls(view.webview, this.logger, hostBridgeDeps(this.manager))
+    const hostSub = subscribeHostCalls(view.webview, this.logger, hostBridgeDeps(this.manager, this.logger))
     trackAssemblyWebview(this.context, view.webview)
     const retrySub = view.webview.onDidReceiveMessage((msg: unknown) => {
       if (typeof msg !== 'object' || msg === null) return
@@ -686,7 +692,7 @@ export function registerAssembledSettings(
       if (typeof msg !== 'object' || msg === null || (msg as { type?: unknown }).type !== 'dshOne.openSettingsDocument') return
       void openSettingsDocumentInEditor()
     })
-    const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager))
+    const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger))
     trackAssemblyWebview(context, panel.webview)
     panel.onDidDispose(() => {
       probeSub.dispose()

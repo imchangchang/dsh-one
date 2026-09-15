@@ -44,6 +44,7 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export function IconCheckOutline16(props: { size?: number }): unknown
   export function IconRightUpOutline16(props: { size?: number }): unknown
   export function IconCodeOutline16(props: { size?: number }): unknown
+  export function IconFolderOpenOutline16(props: { size?: number }): unknown
   /** 官方菜单件（右键菜单家族复用官方观感与定位/外点关闭语义）。 */
   export function Menu(props: {
     open: boolean
