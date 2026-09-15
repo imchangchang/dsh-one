@@ -227,14 +227,7 @@ async function openChatPanel(
   }
   let mirror: AssemblyMirror
   try {
-    mirror = await startAssemblyMirror(
-      () => manager.getStatus().url,
-      logger,
-      {
-        pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
-        blockList: CHAT_TREE.blockList,
-      },
-    )
+    mirror = await acquireSharedMirror(context, manager, logger)
   } catch (err) {
     void vscode.window.showErrorMessage(
       vscode.l10n.t('Failed to start the assembly mirror: {0}', err instanceof Error ? err.message : String(err)),
@@ -348,6 +341,55 @@ async function openSessionChat(sessionId: string): Promise<void> {
   await openChatPanel(deps.context, deps.manager, deps.logger, { sessionId })
 }
 
+/**
+ * #71 性能——共享 loopback mirror 池：同一窗口同一网关地址一个 mirror 实例
+ * （稳定端口 = webview 源稳定 → 跨 tab HTTP 缓存生效，44 插件整包不再每 tab
+ * 全量重下）。引用计数：每个面板 acquire，关 dispose 随最后一个回收。
+ * 多树伺服：单 mirror 按树（shellPluginId 键）各缓存一份过滤版整包。
+ */
+const sharedMirrors = new Map<string, { mirror: AssemblyMirror; refs: number; key: string }>()
+
+async function acquireSharedMirror(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+): Promise<AssemblyMirror> {
+  const gateway = manager.getStatus().url ?? 'pending'
+  const existing = sharedMirrors.get(gateway)
+  if (existing !== undefined) {
+    existing.refs += 1
+    return existing.mirror
+  }
+  const mirror = await startAssemblyMirror(
+    () => manager.getStatus().url,
+    logger,
+    {
+      pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
+      treeCombos: [
+        { shellPluginId: SHELL_PLUGIN_ID, blockList: CHAT_TREE.blockList },
+        { shellPluginId: SIDEBAR_SHELL_PLUGIN_ID, blockList: SIDEBAR_TREE.blockList },
+        { shellPluginId: SETTINGS_SHELL_PLUGIN_ID, blockList: SETTINGS_TREE.blockList },
+      ],
+    },
+  )
+  sharedMirrors.set(gateway, { mirror, refs: 1, key: gateway })
+  return mirror
+}
+
+/** 面板关闭即释放；最后一个引用回收 mirror（关 loopback 端口）。 */
+function releaseSharedMirror(mirror: AssemblyMirror): void {
+  for (const [key, entry] of sharedMirrors) {
+    if (entry.mirror === mirror) {
+      entry.refs -= 1
+      if (entry.refs <= 0) {
+        sharedMirrors.delete(key)
+        mirror.dispose()
+      }
+      return
+    }
+  }
+}
+
 /** 注册「装配对话区」命令：默认 tab（无会话注入，官方恢复行为）。 */
 export function registerAssembledChat(
   context: vscode.ExtensionContext,
@@ -435,7 +477,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
       retrySub.dispose()
       visibilitySub.dispose()
       untrackAssemblyWebview(view.webview)
-      this.mirror?.dispose()
+      if (this.mirror !== undefined) releaseSharedMirror(this.mirror)
       this.mirror = undefined
     })
     void this.assemble(view)
@@ -450,15 +492,8 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
         if (status.state !== 'running' || !status.url) throw new Error(vscode.l10n.t('DSH service is not running'))
         const assembly = await loadGatewayAssembly(status.url, SIDEBAR_TREE)
         // 重试路径：先释放旧 mirror（插件集可能已变）。
-        this.mirror?.dispose()
-        this.mirror = await startAssemblyMirror(
-          () => this.manager.getStatus().url,
-          this.logger,
-          {
-            pluginsDir: path.join(this.context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
-            blockList: SIDEBAR_TREE.blockList,
-          },
-        )
+        if (this.mirror !== undefined) releaseSharedMirror(this.mirror)
+        this.mirror = await acquireSharedMirror(this.context, this.manager, this.logger)
         this.logger.info(`assembled sidebar: ${this.mirror.origin}`)
         view.webview.html = assemblyPageHtml({
           mirrorOrigin: this.mirror.origin,
@@ -482,7 +517,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
   }
 
   dispose(): void {
-    this.mirror?.dispose()
+    if (this.mirror !== undefined) releaseSharedMirror(this.mirror)
     this.mirror = undefined
   }
 }
@@ -547,14 +582,7 @@ export function registerAssembledSettings(
     }
     let mirror: AssemblyMirror
     try {
-      mirror = await startAssemblyMirror(
-        () => manager.getStatus().url,
-        logger,
-        {
-          pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
-          blockList: SETTINGS_TREE.blockList,
-        },
-      )
+      mirror = await acquireSharedMirror(context, manager, logger)
     } catch (err) {
       void vscode.window.showErrorMessage(
         vscode.l10n.t('Failed to start the assembly mirror: {0}', err instanceof Error ? err.message : String(err)),
@@ -589,7 +617,7 @@ export function registerAssembledSettings(
       docSub.dispose()
       untrackAssemblyWebview(panel.webview)
       if (activeSettings?.panel === panel) activeSettings = undefined
-      mirror.dispose()
+      releaseSharedMirror(mirror)
     })
     panel.webview.html = assemblyPageHtml({
       mirrorOrigin: mirror.origin,

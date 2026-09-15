@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Logger } from '../log.ts'
 import { cookieHeader } from './serverAuth.ts'
-import { blockedIdsOf, extractBootWire, CHAT_BLOCK_LIST, type BlockedPlugin } from '../ui/assembly/wireFilter.ts'
+import { blockedIdsOf, extractBootWire, CHAT_BLOCK_LIST, SHELL_PLUGIN_ID, type BlockedPlugin } from '../ui/assembly/wireFilter.ts'
 
 // serverAuth 的 per-origin 状态是模块级 Map：harness/测试若另起 bundle 实例
 // 会读写不到同一份（probe 时踩过)。统一从这里再导出，保证消费方与 mirror
@@ -36,6 +36,14 @@ export interface AssemblyMirror {
   dispose(): void
 }
 
+/** 一棵树 = 自有 shell 插件 id + 该树 block list（过滤版整包的缓存键）。 */
+export interface AssemblyTreeCombo {
+  /** 该树自有 frame 插件 id（请求 combo 的 id 列表里带着它——路由与缓存键都靠它）。 */
+  shellPluginId: string
+  /** 该树 block list（决定从官方整包剥哪些段）。 */
+  blockList: ReadonlyArray<BlockedPlugin>
+}
+
 export interface AssemblyMirrorOptions {
   /**
    * 本地插件根目录：`<pluginsDir>/@dsh-one/vscode-shell/client.js`（自有 shell
@@ -43,11 +51,13 @@ export interface AssemblyMirrorOptions {
    */
   pluginsDir: string
   /**
-   * 本 mirror 伺服哪棵树：block list 决定剥哪些官方段（chat 树默认
-   * CHAT_BLOCK_LIST；sidebar 树传 SIDEBAR_BLOCK_LIST，见 wireFilter.ts）。
-   * 每 mirror 一份过滤版 combo 缓存。
+   * 本 mirror 伺服哪几棵树：共享 mirror（#71 性能——同窗口同网关地址一个
+   * loopback 端口，webview 源稳定，跨 tab HTTP 缓存生效）同时伺服 chat/
+   * sidebar/settings 三树。每棵树一份过滤版 combo，按 shellPluginId 分别
+   * 缓存（各树 block list 不同，缓存键互异）。缺省 = 只伺服 chat 树
+   * （CHAT_BLOCK_LIST 兼容行为）。
    */
-  blockList?: ReadonlyArray<BlockedPlugin>
+  treeCombos?: ReadonlyArray<AssemblyTreeCombo>
   /** 可选：GET / 返回的装配页 HTML（lab harness 传；webview 形态由外壳生成）。 */
   assemblyPage?: () => string | undefined
 }
@@ -57,18 +67,26 @@ export function startAssemblyMirror(
   logger: Logger,
   options: AssemblyMirrorOptions,
 ): Promise<AssemblyMirror> {
-  // 过滤版官方 combo 缓存：mirror 生命周期（= 面板/侧栏 view 生命周期）内
-  // 网关插件集不变；首次 /plugins-local 带官方 id 的请求触发拉取。每棵树
-  // 一份 block list（#70），组合过滤在此烘焙。
-  const blockIds = blockedIdsOf(options.blockList ?? CHAT_BLOCK_LIST)
-  let filteredComboPromise: Promise<string> | null = null
-  const filteredGatewayCombo = (): Promise<string> => {
-    filteredComboPromise ??= fetchFilteredGatewayCombo(target, blockIds, logger)
-    // 失败不缓存（下次重试)。
-    filteredComboPromise.catch(() => {
-      filteredComboPromise = null
-    })
-    return filteredComboPromise
+  // 过滤版官方 combo 缓存：按树缓存（key = 该树 shellPluginId，#71 共享
+  // mirror 多树伺服）。mirror 生命周期内网关插件集不变；失败不缓存（重试）。
+  const treeCombos = new Map<string, readonly string[]>(
+    (options.treeCombos ?? [{ shellPluginId: SHELL_PLUGIN_ID, blockList: CHAT_BLOCK_LIST }]).map((tree) => [
+      tree.shellPluginId,
+      blockedIdsOf(tree.blockList),
+    ]),
+  )
+  const treeCombosKeys = new Set(treeCombos.keys())
+  const comboCache = new Map<string, Promise<string>>()
+  const filteredGatewayCombo = (shellPluginId: string): Promise<string> => {
+    let pending = comboCache.get(shellPluginId)
+    if (pending === undefined) {
+      pending = fetchFilteredGatewayCombo(target, treeCombos.get(shellPluginId) ?? [], logger)
+      comboCache.set(shellPluginId, pending)
+      pending.catch(() => {
+        if (comboCache.get(shellPluginId) === pending) comboCache.delete(shellPluginId)
+      })
+    }
+    return pending
   }
 
   return new Promise((resolve, reject) => {
@@ -94,7 +112,7 @@ export function startAssemblyMirror(
           }
         }
         if (url.pathname === '/plugins-local/') {
-          void serveCombo(req, res, url, options, filteredGatewayCombo, logger)
+          void serveCombo(req, res, url, options, filteredGatewayCombo, treeCombosKeys, logger)
           return
         }
         // 其余一切路径原样反代网关（/api、/assets、/plugins、/provider/status、
@@ -187,7 +205,8 @@ async function serveCombo(
   res: ServerResponse,
   url: URL,
   options: AssemblyMirrorOptions,
-  filteredGatewayCombo: () => Promise<string>,
+  filteredGatewayCombo: (shellPluginId: string) => Promise<string>,
+  treeComboKeys: ReadonlySet<string>,
   logger: Logger,
 ): Promise<void> {
   // search = "?<list…>&rev=…"：第一个 '?' 起 query，第二个 '?' 起 combo 列表。
@@ -214,10 +233,13 @@ async function serveCombo(
     res.end('not found')
     return
   }
+  // 树路由 + 缓存键：请求 combo 里的自有 shell id 决定用哪份过滤整包。
+  const shellId = ids.find((id) => treeComboKeys.has(id)) ?? ''
+  const rev = url.searchParams.get('rev') ?? 'noversion'
   try {
     const parts: Buffer[] = []
     if (gatewayIds.length > 0) {
-      const filtered = await filteredGatewayCombo()
+      const filtered = await filteredGatewayCombo(shellId)
       parts.push(Buffer.from(filtered, 'utf8'))
     }
     for (const id of localIds) {
@@ -227,7 +249,10 @@ async function serveCombo(
     res.writeHead(200, {
       'content-type': 'text/javascript; charset=utf-8',
       'access-control-allow-origin': '*',
-      'cache-control': 'no-cache',
+      // rev = 网关内容校验哈希：同 rev 内容恒定，长缓存（#71——共享 mirror
+      // 源稳定后跨 tab 命中 HTTP 缓存，整包网络字节≈0）。
+      'cache-control': 'max-age=86400, immutable',
+      etag: `"dsh-combo-${rev}-${shellId}"`,
     })
     res.end(Buffer.concat(parts))
   } catch (err) {
@@ -259,6 +284,11 @@ function proxyHeaders(req: IncomingMessage, target: string): Record<string, stri
   return headers
 }
 
+/** 网关资产带内容哈希文件名（index-XXXX.js）——immutable 长缓存（#71）。 */
+function withAssetCache(out: Record<string, string | string[]>, pathname: string): void {
+  if (pathname.startsWith('/assets/')) out['cache-control'] = 'max-age=604800, immutable'
+}
+
 function proxyRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -281,6 +311,7 @@ function proxyRequest(
         if (key === 'set-cookie' || key === 'content-length' || key === 'transfer-encoding' || value === undefined) continue
         out[key] = value
       }
+      withAssetCache(out, url.pathname)
       res.writeHead(pres.statusCode ?? 502, out)
       pres.pipe(res)
     },

@@ -56,17 +56,31 @@ const postMeta = (sessionId: string, title: string | undefined): void => {
   vscode?.postMessage({ type: 'dshOne.sessionMeta', sessionId, title })
 }
 
+const timingLog = (phase: string, detail = ''): void => {
+  const line = `[assembly] boot-timing ${phase} ${Math.round(performance.now())}ms ${detail}`.trim()
+  console.log(line)
+  const probe = (globalThis as { __DSH_ONE_PROBE__?: { log(level: string, text: string): void } }).__DSH_ONE_PROBE__
+  if (probe) probe.log('info', line)
+}
+
 export const inject = ['sessions']
 
 export function apply(ctx: BootContext): void {
   const target = bootSessionId()
+  // 整包网络字节（transferSize=0 = 命中 HTTP 缓存，#71 性能对照指标）。
+  const comboEntry = performance
+    .getEntriesByType('resource')
+    .find((entry) => entry.name.includes('/plugins-local/')) as PerformanceResourceTiming | undefined
+  timingLog('combo', `bytes=${comboEntry?.transferSize ?? '?'} dur=${Math.round(comboEntry?.duration ?? 0)}ms`)
   let injected = false
+  let reportedFirstMeta = false
   ctx.get('sessions').list.subscribe(() => {
     const list = ctx.get('sessions').list.getSnapshot()
     if (list.phase !== 'ready') return
     // 启动注入：一次、幂等（open 对已是 current 的 id 早退）。
     if (!injected) {
       injected = true
+      timingLog('list-ready', `target=${target ?? 'none'}`)
       if (target !== undefined && list.current !== target) {
         try {
           ctx.get('sessions').open(target)
@@ -78,6 +92,10 @@ export function apply(ctx: BootContext): void {
     // 活跃上报：current 与标题（变化即报，宿主去重）。
     const current = list.current
     if (current !== undefined) {
+      if (!reportedFirstMeta) {
+        reportedFirstMeta = true
+        timingLog('first-meta', current.slice(0, 13))
+      }
       postMeta(current, list.byId[current]?.displayTitle ?? list.byId[current]?.title)
     }
   })
