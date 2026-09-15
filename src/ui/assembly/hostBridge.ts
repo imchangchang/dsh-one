@@ -102,11 +102,16 @@ async function gitShow(args: { hash: string; cwd?: string }, deps: HostBridgeDep
   const folders = deps.workspaceFolders()
   const extra = deps.extraAllowedRoots === undefined ? [] : await deps.extraAllowedRoots()
   const allowedRoots = [...folders, deps.dshHome, ...extra]
-  const dir = await resolveQueryDir(args.cwd, folders[0], allowedRoots)
-  if (dir === null) {
+  const resolved = await resolveQueryDir(args.cwd, folders[0], allowedRoots)
+  if (resolved === null) {
     return { code: 'no-workspace', message: 'no usable directory: the session workspace and the VS Code workspace folders are both unavailable' }
   }
-  const info = await queryCommitInWorkspace(args.hash, dir, {
+  // 会话工作区被拒/缺失时回落 VS Code 工作区：写一条日志（真窗里靠它定位「为什么
+  // 查的是别的目录」——#65 返修 3 的现场就是这么被埋住的）。
+  if (!resolved.usedRequested && args.cwd !== undefined && args.cwd !== '') {
+    deps.log?.(`[assembly] git.show: session workspace ${args.cwd} not in the allowed roots; falling back to ${resolved.dir}`)
+  }
+  const info = await queryCommitInWorkspace(args.hash, resolved.dir, {
     ...(deps.gitPath === undefined ? {} : { gitPath: deps.gitPath }),
     ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
     ...(deps.log === undefined ? {} : { log: deps.log }),

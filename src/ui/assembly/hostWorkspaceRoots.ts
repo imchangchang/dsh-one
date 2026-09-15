@@ -3,8 +3,9 @@
  * 现在可以带**当前会话所属的 dsh 工作区路径**，而那个路径未必是 VS Code 打开的
  * 目录，所以宿主侧的允许根要再加上网关 `workspace/list` 注册的工作区路径。
  *
- * 取值链路是宿主已有的 RPC 通道（dshRpc.listWorkspaces → gateway /api/workspace/list，
- * 带 serverAuth 的 cookie），因此不需要页面参与、也不给页面新增任何能力。
+ * 取值链路是宿主已有的 RPC 通道（dshRpc.listSessions → gateway /api/session/list，
+ * 带 serverAuth 的 cookie；取每行的 cwd 当工作区目录），因此不需要页面参与、也不
+ * 给页面新增任何能力。
  *
  * 缓存策略：
  * - 成功结果按 `ttlMs`（缺省 5 分钟）缓存；期间每个 git.show 只读内存；

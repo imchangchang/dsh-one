@@ -11,7 +11,8 @@ import { parse as parseSemver, compare as compareSemver } from '../pure/semver.t
 import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import { defaultHostBridgeDeps, subscribeHostCalls, type HostBridgeDeps } from './assembly/hostBridge.ts'
 import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
-import { listWorkspaces } from '../server/dshRpc.ts'
+import { listSessions } from '../server/dshRpc.ts'
+import { workspaceRootsOfSessionRows } from '../pure/workspaceRoots.ts'
 import {
   CHAT_BLOCK_LIST,
   COMPOSER_CLEAR_PLUGIN_ID,
@@ -210,11 +211,16 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
 }
 
 /**
- * 宿主能力桥的依赖（三棵树共用）：VS Code 工作区目录 + ~/.dsh + **网关注册的
- * dsh 工作区路径**。后者是因为 git.show 的 cwd 现在按「当前会话所属工作区」
- * 传（页面侧从官方 sessions/workspaces 服务取，见 gitCardPlugin），那个目录
- * 未必是 VS Code 打开的目录。网关路径取一次缓存 5 分钟（hostWorkspaceRoots），
- * 每个按 manager 一个实例（同窗口同网关）。
+ * 宿主能力桥的依赖（三棵树共用）：VS Code 工作区目录 + ~/.dsh + **网关上各会话的
+ * 工作目录集合**。后者是因为 git.show 的 cwd 按「当前会话所属工作区」传（页面侧从
+ * 官方 sessions 服务取，见 gitCardPlugin），那个目录未必是 VS Code 打开的目录，
+ * 但它一定出现在网关的会话清单里——用这份服务端数据当允许根，页面伪造不了。
+ *
+ * 为什么不是 workspace.list：现代 dsh（0.1.2）没有这个端点（实测 POST
+ * /api/workspace/list 返回 not found，与编造方法名同响应；官方客户端走
+ * `workspace/follow` 流式方法，宿主一次性调用取不到）。详见
+ * src/pure/workspaceRoots.ts 的头注。
+ * 会话清单取一次缓存 5 分钟（hostWorkspaceRoots），每个 manager 一个实例。
  */
 const gatewayRootsByManager = new WeakMap<ServerManager, () => Promise<readonly string[]>>()
 
@@ -225,8 +231,7 @@ function hostBridgeDeps(manager: ServerManager, logger: Logger): HostBridgeDeps 
       fetchPaths: async () => {
         const status = manager.getStatus()
         if (status.state !== 'running' || !status.url) return []
-        const { items } = await listWorkspaces(status.url)
-        return items.map((w) => w.path).filter((p) => typeof p === 'string' && p !== '')
+        return workspaceRootsOfSessionRows(await listSessions(status.url))
       },
     })
     gatewayRootsByManager.set(manager, roots)

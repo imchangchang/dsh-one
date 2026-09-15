@@ -90,19 +90,22 @@ export async function resolveAllowedDir(dir: string, allowedRoots: readonly stri
  * 2. 不合法/缺失时回落 `fallback`（宿主自己的 VS Code 工作区目录，它本身就是
  *    允许根）——回落是为了「拿不到会话工作区也能查」，不是放宽信任：越界路径
  *    一律不会被采用。
- * @returns 可用的绝对目录；连回落都不可用（目录不存在/没开工作区）时 null。
+ * @returns `{dir, usedRequested}`；连回落都不可用（目录不存在/没开工作区）时 null。
+ *          `usedRequested=false` 表示会话工作区被拒/缺失，调用方据此写一条诊断日志
+ *          （否则「为什么查的是别的目录」在真窗里无从下手）。
  */
 export async function resolveQueryDir(
   requested: string | undefined,
   fallback: string | undefined,
   allowedRoots: readonly string[],
-): Promise<string | null> {
+): Promise<{ dir: string; usedRequested: boolean } | null> {
   if (requested !== undefined) {
     const resolved = await resolveAllowedDir(requested, allowedRoots)
-    if (resolved !== null) return resolved
+    if (resolved !== null) return { dir: resolved, usedRequested: true }
   }
   if (fallback === undefined) return null
-  return await resolveAllowedDir(fallback, allowedRoots)
+  const fallbackDir = await resolveAllowedDir(fallback, allowedRoots)
+  return fallbackDir === null ? null : { dir: fallbackDir, usedRequested: false }
 }
 
 /** 校核 URL：能被 URL 解析且协议在白名单内。 */

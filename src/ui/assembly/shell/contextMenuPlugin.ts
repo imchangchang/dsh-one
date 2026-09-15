@@ -40,15 +40,26 @@
  * 菜单关闭 / 取消 / 执行动作后移除。清理按「全量扫属性再删」实现，重复开关不留残留。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { IconCodeOutline16, Menu, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCopyOutline16, Menu, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 
 /** 右键目标高亮用的自有属性（只加属性，不改官方 DOM 结构）。 */
 const TARGET_ATTR = 'data-dshone-menu-target'
+/** 菜单盒标记属性（只在菜单开着时加在官方 Menu 的列表元素上）。 */
+const MENU_ATTR = 'data-dshone-menu'
+const MENU_ICON_MARK = 'icon'
 
 const CSS = [
   // 官方 token：--dsw-alias-interactive-bg-active 是官方「按下/选中」档的底色
   // （暗色主题实测 #ffffff24），比行内码自身底色亮一档，做高亮可见且随主题走。
   `code[${TARGET_ATTR}]{background-color:var(--dsw-alias-interactive-bg-active);box-shadow:0 0 0 2px var(--dsw-alias-interactive-bg-active)}`,
+  // 单图标项：官方列表默认 min-width:218px（文字菜单的档位），图标项只需要图标
+  // 的自然宽度，所以把列表收到内容宽。机制层 4 举证：官方 Menu 没有列表宽度属性口
+  // （props 只有 open/anchor/items/onSelect/onClose/align/side/portal/
+  // closeOnPointerLeave/dense/compact/getAnchorRect/footer/className，源码逐字确认；
+  // 且 className 落在 root span 上、不是列表元素）；这里给**列表元素**加一个自有
+  // 属性再按属性选择器上样式，不依赖任何 css-module 哈希；定位靠 role="menu"
+  // 语义属性（仅在我们自己的菜单开着时）。
+  `[${MENU_ATTR}="${MENU_ICON_MARK}"]{min-width:0;width:max-content}`,
 ].join('')
 const CSS_TAG_ID = '@dsh-one/vscode-context-menu/Target.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
@@ -62,6 +73,11 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin
 /** 移除全文档的高亮属性（幂等：重复调用、无残留都安全）。 */
 function clearHighlight(): void {
   for (const el of Array.from(document.querySelectorAll(`[${TARGET_ATTR}]`))) el.removeAttribute(TARGET_ATTR)
+}
+
+/** 移除菜单盒标记（幂等）。 */
+function clearMenuMark(): void {
+  for (const el of Array.from(document.querySelectorAll(`[${MENU_ATTR}]`))) el.removeAttribute(MENU_ATTR)
 }
 
 interface LayerProps {
@@ -113,8 +129,9 @@ function ContextMenuLayer({ t }: LayerProps) {
       if (text === '') return
       event.preventDefault()
       event.stopPropagation()
-      // 先清旧高亮再标新的（幂等），保证任何时刻最多一个目标被标
+      // 先清旧的高亮/菜单标记再标新的（幂等），保证任何时刻最多一个目标被标
       clearHighlight()
+      clearMenuMark()
       code.setAttribute(TARGET_ATTR, '')
       targetRef.current = code
       setState({ open: true, x: event.clientX, y: event.clientY, text })
@@ -123,14 +140,31 @@ function ContextMenuLayer({ t }: LayerProps) {
     return () => {
       root.removeEventListener('contextmenu', onContextMenu, true)
       clearHighlight()
+      clearMenuMark()
     }
   }, [])
 
+  // 菜单开着时给官方 Menu 的列表元素加自有标记，把盒子收成图标项的自然宽度
+  //（关闭即撤；清理幂等）。
+  useEffect(() => {
+    if (!state.open) {
+      clearMenuMark()
+      return undefined
+    }
+    const lists = Array.from(document.querySelectorAll('[role="menu"]'))
+    const list = lists[lists.length - 1] // 我们自己刚开的那一个（最近挂载）
+    list?.setAttribute(MENU_ATTR, MENU_ICON_MARK)
+    return () => {
+      clearMenuMark()
+    }
+  }, [state.open])
+
   if (!state.open) return null
 
-  /** 关闭菜单：先撤高亮再落状态（取消 / 执行动作 / 点别处都走这里）。 */
+  /** 关闭菜单：先撤高亮与菜单标记再落状态（取消 / 执行动作 / 点别处都走这里）。 */
   const closeMenu = (): void => {
     clearHighlight()
+    clearMenuMark()
     setState(CLOSED)
   }
 
@@ -139,8 +173,17 @@ function ContextMenuLayer({ t }: LayerProps) {
     closeMenu()
   }
 
-  // 项形状照官方写法：{id, label, icon}，图标件不传 size（官方各调用点同样不传）
-  const items = [{ id: 'copy-inline-code', label: tr('copyInlineCode'), icon: h(IconCodeOutline16, {}) }]
+  // 单图标项：可见内容只有一个官方复制图标（不显示文字），无障碍名用 aria-label
+  // 承载「复制这段」语义（走自有 locale）。项形状仍是官方 Menu 的 {id, label}
+  // 写法——label 传节点是官方允许的（ui-agent-preset 等调用点同样传节点）；
+  // 图标放进 label 槽（不是 icon 槽）才能拿到 label-primary 前景色，icon 槽是
+  // 官方的次级色（--dsw-alias-label-tertiary），单图标项用次级色会发灰。
+  const items = [
+    {
+      id: 'copy-inline-code',
+      label: h('span', { 'aria-label': tr('copyInlineCode'), 'data-dshone-icon-item': '' }, h(IconCopyOutline16, {})),
+    },
+  ]
 
   return h(Menu, {
     open: true,

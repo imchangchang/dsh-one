@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createGatewayWorkspaceRoots } from '../src/ui/assembly/hostWorkspaceRoots.ts'
 import { pickSessionWorkspacePath } from '../src/pure/sessionWorkspace.ts'
+import { workspaceRootsOfSessionRows } from '../src/pure/workspaceRoots.ts'
 
 /** 可控时钟 + 可控取数器。 */
 function harness(paths: readonly string[] = ['/ws/a'], ttlMs = 1000) {
@@ -90,4 +91,19 @@ test('pickSessionWorkspacePath：cwd 优先，其次工作区注册路径，都�
   assert.equal(pickSessionWorkspacePath({ workspacePath: '/b' }), '/b')
   assert.equal(pickSessionWorkspacePath({ sessionCwd: '', workspacePath: '/b' }), '/b')
   assert.equal(pickSessionWorkspacePath({}), undefined)
+})
+
+test('workspaceRootsOfSessionRows：取会话 cwd 去重、剔空值、保序', () => {
+  assert.deepEqual(
+    workspaceRootsOfSessionRows([
+      { cwd: '/ws/a' },
+      { cwd: '/ws/b' },
+      { cwd: '/ws/a' },
+      {},
+      { cwd: '' },
+      { cwd: undefined },
+    ]),
+    ['/ws/a', '/ws/b'],
+  )
+  assert.deepEqual(workspaceRootsOfSessionRows([]), [])
 })

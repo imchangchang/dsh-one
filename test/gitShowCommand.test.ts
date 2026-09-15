@@ -115,8 +115,10 @@ test('会话属 B 工作区时以 B 路径查询（不是宿主自己的 A 目�
   try {
     // 宿主的「VS Code 工作区」是 A；当前会话的工作区路径是 B（两者都在允许根里）
     const allowedRoots = [repoA.dir, repoB.dir]
-    const dir = await resolveQueryDir(repoB.dir, repoA.dir, allowedRoots)
+    const resolved = await resolveQueryDir(repoB.dir, repoA.dir, allowedRoots)
+    const dir = resolved?.dir
     assert.equal(dir, await fs.realpath(repoB.dir))
+    assert.equal(resolved?.usedRequested, true)
     // B 里的提交在 B 查得到
     const inB = await runGitShow(repoB.hash.slice(0, 7), dir ?? repoB.dir)
     assert.equal(inB?.found, true)
@@ -127,8 +129,10 @@ test('会话属 B 工作区时以 B 路径查询（不是宿主自己的 A 目�
     // 会话工作区路径不在允许根里（域外）→ 回落到宿主的 A，不报错
     const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'dshone-outside-'))
     try {
-      const fallback = await resolveQueryDir(outside, repoA.dir, allowedRoots)
+      const fallbackResolved = await resolveQueryDir(outside, repoA.dir, allowedRoots)
+      const fallback = fallbackResolved?.dir
       assert.equal(fallback, await fs.realpath(repoA.dir))
+      assert.equal(fallbackResolved?.usedRequested, false)
       const inA = await runGitShow(repoA.hash.slice(0, 7), fallback ?? repoA.dir)
       assert.equal(inA?.found, true)
     } finally {
