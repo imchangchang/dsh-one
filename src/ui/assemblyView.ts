@@ -196,12 +196,14 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
 }
 
 /**
- * #71 tab 管理：sessionId → chat 面板映射。命令开的默认 tab 无会话注入
- * （官方恢复行为，#68 语义），它启动后由 sessionMeta 上报把恢复值挂进映射；
- * 会话 tab 由映射聚焦复用，关 tab 即清映射。
+ * #71 chat 面板 = 单例（用户拍板：与官方一致单 tab、点侧栏就地切换；
+ * tab-per-session 多开降级 #72）。sessionTabs/panelSessionId 映射保留为
+ * #72 复活形态（标题跟随仍在用 panelSessionId），路由不再按 sessionId
+ * 开新 tab：有单例则聚焦 + 转发就地切换消息，无则创建（冷启动注入）。
  */
 const sessionTabs = new Map<string, vscode.WebviewPanel>()
 const panelSessionId = new WeakMap<vscode.WebviewPanel, string>()
+let chatSingleton: { panel: vscode.WebviewPanel } | undefined
 let chatDeps: { context: vscode.ExtensionContext; manager: ServerManager; logger: Logger } | undefined
 
 /** 会话 tab 的装配（命令路径的复用体）：opts.sessionId 有值 = 会话 tab（注入启动）。 */
@@ -235,15 +237,13 @@ async function openChatPanel(
     )
     return
   }
-  if (sessionId === undefined) {
-    // 默认 tab：后开替换先开。replace 期间的 dispose 是我们自己触发的，不算
-    // 用户手动关闭。
-    replacing = true
-    try {
-      active?.panel.dispose()
-    } finally {
-      replacing = false
-    }
+  // 单例语义（#71 终态）：任何创建都顶替旧单例（replace 期间的 dispose
+  // 是我们自己触发的，不算用户手动关闭）。
+  replacing = true
+  try {
+    active?.panel.dispose()
+  } finally {
+    replacing = false
   }
   const panel = vscode.window.createWebviewPanel(
     ASSEMBLED_CHAT_VIEW_TYPE,
@@ -251,12 +251,12 @@ async function openChatPanel(
     vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true },
   )
+  active = { panel, mirror }
   if (sessionId !== undefined) {
     sessionTabs.set(sessionId, panel)
     panelSessionId.set(panel, sessionId)
-  } else {
-    active = { panel, mirror }
   }
+  chatSingleton = { panel }
   logger.info(`assembled chat: ${mirror.origin}${sessionId === undefined ? '' : ` session=${sessionId.slice(0, 13)}`}`)
   const probeSub = subscribeAssemblyProbe(panel.webview, logger)
   // 会话日志导出（session-export 插件，#71）：官方导出走裸 fetch + a[download]
@@ -288,8 +288,9 @@ async function openChatPanel(
     const mapped = panelSessionId.get(panel)
     if (mapped !== undefined && sessionTabs.get(mapped) === panel) sessionTabs.delete(mapped)
     if (active?.panel === panel) active = undefined
-    if (sessionId === undefined && !replacing) closedByUser = true
-    mirror.dispose()
+    if (chatSingleton?.panel === panel) chatSingleton = undefined
+    if (!replacing) closedByUser = true
+    releaseSharedMirror(mirror)
   })
   panel.webview.html = assemblyPageHtml({
     mirrorOrigin: mirror.origin,
@@ -330,11 +331,16 @@ async function exportSessionLog(mirror: AssemblyMirror, sessionId: string): Prom
   }
 }
 
-/** 侧栏桥消息落点：有 tab 聚焦，无 tab 新建（页面注入 bootSessionId）。 */
+/**
+ * 侧栏桥消息落点（单例路由）：有单例 → 揭示 + 转发就地切换消息（不 reload、
+ * 不遮罩——运行时切换走官方 sessions.open，加载态官方自带）；无单例 → 创建
+ * （冷启动注入 bootSessionId，防闪帧遮罩此刻生效一次）。
+ */
 async function openSessionChat(sessionId: string): Promise<void> {
-  const existing = sessionTabs.get(sessionId)
-  if (existing !== undefined) {
-    existing.reveal()
+  const singleton = chatSingleton ?? active
+  if (singleton !== undefined) {
+    singleton.panel.reveal()
+    void singleton.panel.webview.postMessage({ type: 'dshOne.switchSession', sessionId })
     return
   }
   const deps = chatDeps

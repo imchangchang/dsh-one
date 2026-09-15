@@ -29,6 +29,7 @@ interface SessionsService {
 
 interface BootContext {
   get(name: 'sessions'): SessionsService
+  effect(body: () => (() => void) | void, label?: string): void
 }
 
 interface BootGlobals {
@@ -68,6 +69,22 @@ export const inject = ['sessions']
 export function apply(ctx: BootContext): void {
   // apply 时刻 ≈ 整树插件装载完（本插件在 application 批末位）。
   timingLog('apply')
+  // 运行时就地切换（#71 单例终态）：宿主转发的 dshOne.switchSession → 官方
+  // sessions.open(id)（机制层 2 官方服务 API）——不 reload、不遮罩（遮罩只
+  // 服务冷启动注入），官方切换自带加载态。
+  const onSwitchMessage = (event: MessageEvent): void => {
+    const data = event.data as { type?: unknown; sessionId?: unknown } | undefined
+    if (data?.type !== 'dshOne.switchSession' || typeof data.sessionId !== 'string' || data.sessionId === '') return
+    const list = ctx.get('sessions').list.getSnapshot()
+    if (list.current === data.sessionId) return
+    try {
+      ctx.get('sessions').open(data.sessionId)
+      timingLog('switch', data.sessionId.slice(0, 13))
+    } catch {
+      /* 目标不在列表（被归档等）：保持现状 */
+    }
+  }
+  window.addEventListener('message', onSwitchMessage)
   const target = bootSessionId()
   // 整包网络字节（transferSize=0 = 命中 HTTP 缓存，#71 性能对照指标）。
   const comboEntry = performance
@@ -76,6 +93,9 @@ export function apply(ctx: BootContext): void {
   timingLog('combo', `bytes=${comboEntry?.transferSize ?? '?'} dur=${Math.round(comboEntry?.duration ?? 0)}ms`)
   let injected = false
   let reportedFirstMeta = false
+  ctx.effect(() => {
+    return () => window.removeEventListener('message', onSwitchMessage)
+  }, 'dsh-one session boot: dispose switch listener')
   ctx.get('sessions').list.subscribe(() => {
     const list = ctx.get('sessions').list.getSnapshot()
     if (list.phase !== 'ready') return
