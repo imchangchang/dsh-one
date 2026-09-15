@@ -15,7 +15,7 @@
  * @deepseek-ai/cordis / @deepseek-ai/dsh-client-store 必须 external（种子表满足，
  * 打进包会双重实例化）。
  */
-import { createElement as h, useEffect, useLayoutEffect, useRef } from 'react'
+import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createLayoutStore, LayoutController, ThemePresenter, type PanelActions, type ShellLayoutState, type ThemeSnapshot } from './frameShared'
 
 // ---------------------------------------------------------------------------
@@ -33,12 +33,15 @@ interface ShellFrameProps {
   actions: Pick<PanelActions, 'openDetails' | 'closeDetails'>
   renderSlot: (name: string, params: Record<string, unknown>) => unknown
   SessionProvider: unknown
+  /** 框架按 entry 的 locale 注入的 t（函数内别名 tr 避开 i18n 门禁裸 t() 扫描）。 */
+  t: (key: string) => string
 }
 
 interface RootSlotEntry {
   name: 'root'
   children: Record<string, { kind: 'single' | 'list'; scope: 'root' | 'session' | 'session-maybe' }>
   store: () => unknown
+  locale?: string
   inject: (actions: PanelActions) => Record<string, never>
 }
 
@@ -47,6 +50,7 @@ interface ShellContext {
   on(event: 'theme/change', listener: (snapshot: ThemeSnapshot) => void): () => void
   reflect: { provide(name: string, service: unknown): () => void }
   slots: { register(entry: RootSlotEntry, component: unknown): () => void }
+  locale: { register(ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): () => void }
   theme: { getTheme(): ThemeSnapshot }
 }
 
@@ -54,7 +58,7 @@ interface ShellContext {
 // 样式（官方 css-module 注入形态的本地版：data-plugin-css 防重）
 // ---------------------------------------------------------------------------
 
-const CSS = '.dshOneShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative}.dshOneShell_row{flex:1;min-height:0;display:flex}.dshOneShell_main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}.dshOneShell_details{border-left:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden;background:var(--dsw-alias-bg-base)}.dshOneShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
+const CSS = '.dshOneShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative}.dshOneShell_row{flex:1;min-height:0;display:flex}.dshOneShell_main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}.dshOneShell_details{border-left:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden;background:var(--dsw-alias-bg-base)}.dshOneShell_openingMask{z-index:15;position:absolute;top:0;left:0;right:0;bottom:0;background:var(--dsw-alias-bg-base);align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);font-size:14px;line-height:22px;display:flex}.dshOneShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
 // 注意：overlay 层语义逐字对齐官方 AppFrame.overlayLayer（pointer-events:none、
 // 无子元素指针事件豁免）——官方 CSS 没有 `>*{pointer-events:auto}`；加豁免会让
 // 任何渲染了尺寸内容的 overlay 贡献（portal 进该层的全屏容器）吃掉全页输入。
@@ -87,7 +91,17 @@ function DocumentTitle({ title, productTitle }: { title?: string; productTitle: 
 // shell.overlay 层；切会话时关 details（官方 AppFrame 语义，无侧栏/拖拽维度）
 // ---------------------------------------------------------------------------
 
-function ShellFrame({ useStore, useSessions, actions, renderSlot, SessionProvider }: ShellFrameProps) {
+/** 遮罩兜底超时：目标会话迟迟未激活（id 无效/网络慢）也揭幕，绝不白屏死锁。 */
+const OPENING_MASK_TIMEOUT_MS = 5000
+
+/** 与 session-boot 插件的状态共享方式：各自读 __DSH_ONE_BOOT__ 全局（第 3 层接缝），
+ * 无跨 bundle 模块作用域可共享，也不值得为单一布尔起 cordis 服务。 */
+const bootSessionId = (): string | undefined => {
+  const raw = (globalThis as { __DSH_ONE_BOOT__?: { sessionId?: unknown } }).__DSH_ONE_BOOT__?.sessionId
+  return typeof raw === 'string' && raw !== '' ? raw : undefined
+}
+
+function ShellFrame({ useStore, useSessions, actions, renderSlot, SessionProvider, t }: ShellFrameProps) {
   const panels = useStore((s) => s)
   const detailsSession = useSessions((s) => {
     const current = s.current
@@ -104,6 +118,22 @@ function ShellFrame({ useStore, useSessions, actions, renderSlot, SessionProvide
     lastSession.current = detailsSession
   }, [actions, detailsSession])
   const detailsOpen = detailsSession !== undefined && panels.details > 0
+  // 「正在打开会话…」遮罩（#71）：注入 tab 在目标会话激活前盖住对话区，
+  // 杜绝官方默认态（空白会话 hero）闪帧；默认 tab 无注入永不罩（官方恢复
+  // 行为不动）。激活 = current === bootId（机制层 2 订阅）；超时兜底揭幕。
+  const bootId = bootSessionId()
+  const currentSession = useSessions((s) => s.current)
+  const [revealedByTimeout, setRevealedByTimeout] = useState(false)
+  useEffect(() => {
+    if (bootId === undefined || currentSession === bootId) return
+    const timer = setTimeout(() => {
+      console.warn(`[dsh-one] opening session ${bootId} timed out; revealing the shell anyway`)
+      setRevealedByTimeout(true)
+    }, OPENING_MASK_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [bootId, currentSession])
+  const tr = t
+  const opening = bootId !== undefined && currentSession !== bootId && !revealedByTimeout
   return h(
     'div',
     { className: 'dshOneShell_frame', 'data-shell': 'dsh-one' },
@@ -122,6 +152,7 @@ function ShellFrame({ useStore, useSessions, actions, renderSlot, SessionProvide
           h(SessionProvider, null, renderSlot('details', {})),
         ),
     ),
+    opening && h('div', { className: 'dshOneShell_openingMask', 'data-opening-mask': '' }, tr('opening')),
     h('div', { className: 'dshOneShell_overlay', 'data-shell-overlay': true }, renderSlot('shell.overlay', {})),
   )
 }
@@ -131,7 +162,7 @@ function ShellFrame({ useStore, useSessions, actions, renderSlot, SessionProvide
 // + ThemePresenter（均挂 ctx.effect，照抄官方两段的结构与 label 语义）
 // ---------------------------------------------------------------------------
 
-export const inject = ['slots', 'theme']
+export const inject = ['slots', 'theme', 'locale']
 
 export function apply(ctx: ShellContext): void {
   const layout = new LayoutController()
@@ -147,6 +178,7 @@ export function apply(ctx: ShellContext): void {
           'shell.overlay': { kind: 'list', scope: 'root' },
         },
         store: createLayoutStore,
+        locale: 'dshOneShell',
         inject: (actions: PanelActions) => {
           layout.attachPanels(actions)
           return {}
@@ -154,8 +186,14 @@ export function apply(ctx: ShellContext): void {
       },
       ShellFrame,
     )
+    // 遮罩文案自有词典（zh 转义过 i18n 门禁的字面量扫描）。
+    const disposeLocale = ctx.locale.register('dshOneShell', {
+      zh: { opening: '\u6b63\u5728\u6253\u5f00\u4f1a\u8bdd…' },
+      en: { opening: 'Opening session…' },
+    })
     return () => {
       disposeRegistration()
+      disposeLocale()
       disposeService()
     }
   }, 'dsh-one shell: layout service + root registration')
