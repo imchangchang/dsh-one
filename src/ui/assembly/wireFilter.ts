@@ -129,6 +129,13 @@ export const SESSION_BRIDGE_PLUGIN_ID = '@dsh-one/vscode-session-bridge'
  */
 export const SESSION_BOOT_PLUGIN_ID = '@dsh-one/vscode-session-boot'
 
+/**
+ * chat 树会话日志导出自有行动 id（#71 验收返修）：官方导出走裸 fetch +
+ * a[download]，在 VS Code webview 双杀（非 http 源 fetch 失败 + 禁下载）——
+ * 自有贡献点击 postMessage，宿主 showSaveDialog + 经 mirror 拉 ZIP 写盘。
+ */
+export const SESSION_EXPORT_PLUGIN_ID = '@dsh-one/vscode-session-export'
+
 /** 从网关 `/` 注入 HTML 提取 __DSH_BOOT__ JSON（官方把 `<` 转义成 \u003c，JSON.parse 直接还原)。 */
 export function extractBootWire(html: string): BootWire {
   const m = /globalThis\["__DSH_BOOT__"\] = (\{[\s\S]*?\})<\/script>/.exec(html)

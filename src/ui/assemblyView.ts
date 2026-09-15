@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
+import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { ServerManager } from '../server/manager.ts'
@@ -17,6 +18,7 @@ import {
   SIDEBAR_SHELL_PLUGIN_ID,
   SESSION_BOOT_PLUGIN_ID,
   SESSION_BRIDGE_PLUGIN_ID,
+  SESSION_EXPORT_PLUGIN_ID,
   THEME_FOLLOW_PLUGIN_ID,
   extractBootWire,
   extractFrontendAssets,
@@ -96,7 +98,7 @@ interface AssemblyTree {
 const CHAT_TREE: AssemblyTree = {
   blockList: CHAT_BLOCK_LIST,
   shellPluginId: SHELL_PLUGIN_ID,
-  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SESSION_BOOT_PLUGIN_ID],
+  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SESSION_BOOT_PLUGIN_ID, SESSION_EXPORT_PLUGIN_ID],
 }
 const SIDEBAR_TREE: AssemblyTree = {
   blockList: SIDEBAR_BLOCK_LIST,
@@ -263,6 +265,15 @@ async function openChatPanel(
   }
   logger.info(`assembled chat: ${mirror.origin}${sessionId === undefined ? '' : ` session=${sessionId.slice(0, 13)}`}`)
   const probeSub = subscribeAssemblyProbe(panel.webview, logger)
+  // 会话日志导出（session-export 插件，#71）：官方导出走裸 fetch + a[download]
+  // 在 webview 双杀（非 http 源 + 禁下载）——点击 postMessage 过来，宿主经
+  // mirror 拉 ZIP（读操作）→ showSaveDialog → 写盘。
+  const exportSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
+    if (typeof msg !== 'object' || msg === null) return
+    const m = msg as { type?: unknown; sessionId?: unknown }
+    if (m.type !== 'dshOne.exportSessionLog' || typeof m.sessionId !== 'string' || m.sessionId === '') return
+    void exportSessionLog(mirror, m.sessionId)
+  })
   // 活跃/标题上报（session-boot 插件）：维护映射 + 面板标题跟随会话标题。
   const metaSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
     if (typeof msg !== 'object' || msg === null) return
@@ -277,6 +288,7 @@ async function openChatPanel(
   trackAssemblyWebview(context, panel.webview)
   panel.onDidDispose(() => {
     probeSub.dispose()
+    exportSub.dispose()
     metaSub.dispose()
     untrackAssemblyWebview(panel.webview)
     const mapped = panelSessionId.get(panel)
@@ -295,6 +307,33 @@ async function openChatPanel(
     banner: versionBanner(dshVersion(status.url) ?? status.version),
     bootSessionId: sessionId,
   })
+}
+
+/** 会话日志导出落盘：经 mirror 拉 ZIP（读）→ VS Code 保存对话框 → 写盘。 */
+async function exportSessionLog(mirror: AssemblyMirror, sessionId: string): Promise<void> {
+  const url = `${mirror.origin}/api/session.export?sessionId=${encodeURIComponent(sessionId)}&includeDescendants=true`
+  const head = await fetch(url, { method: 'HEAD' })
+  if (!head.ok) {
+    void vscode.window.showErrorMessage(vscode.l10n.t('Session export failed: HTTP {0}', head.status))
+    return
+  }
+  const filename = `dsh-session-${sessionId.replace(/[^A-Za-z0-9_-]/g, '_')}.zip`
+  const target = await vscode.window.showSaveDialog({
+    defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Downloads', filename)),
+    saveLabel: vscode.l10n.t('Export session log'),
+  })
+  if (target === undefined) return
+  try {
+    const res = await fetch(url)
+    if (!res.ok || res.body === null) throw new Error(`HTTP ${res.status}`)
+    const buffer = Buffer.from(await res.arrayBuffer())
+    await fs.writeFile(target.fsPath, buffer)
+    void vscode.window.showInformationMessage(vscode.l10n.t('Session log exported to {0}', target.fsPath))
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      vscode.l10n.t('Session export failed: {0}', err instanceof Error ? err.message : String(err)),
+    )
+  }
 }
 
 /** 侧栏桥消息落点：有 tab 聚焦，无 tab 新建（页面注入 bootSessionId）。 */

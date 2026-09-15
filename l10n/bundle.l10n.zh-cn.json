@@ -225,5 +225,9 @@
   "DSH sidebar failed to load: {0}": "DSH 侧栏加载失败：{0}",
   "Retry": "重试",
   "dsh Settings (assembled)": "dsh 设置（装配）",
-  "The dsh settings file was not found at ~/.dsh/settings.yaml": "未找到 dsh 设置文件 ~/.dsh/settings.yaml"
+  "The dsh settings file was not found at ~/.dsh/settings.yaml": "未找到 dsh 设置文件 ~/.dsh/settings.yaml",
+  "Session export failed: HTTP {0}": "会话导出失败：HTTP {0}",
+  "Session export failed: {0}": "会话导出失败：{0}",
+  "Session log exported to {0}": "会话日志已导出到 {0}",
+  "Export session log": "导出会话日志"
 }
