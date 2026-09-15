@@ -223,5 +223,6 @@
   "The dsh version is unknown; this chat assembly expects {0}.": "The dsh version is unknown; this chat assembly expects {0}.",
   "The connected dsh is {0}, which may not match this chat assembly (expects {1}).": "The connected dsh is {0}, which may not match this chat assembly (expects {1}).",
   "DSH sidebar failed to load: {0}": "DSH sidebar failed to load: {0}",
-  "Retry": "Retry"
+  "Retry": "Retry",
+  "dsh Settings (assembled)": "dsh Settings (assembled)"
 }

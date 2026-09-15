@@ -3,12 +3,16 @@
  * VS Code 验收项 3）。设置页 = 第三棵装配树：
  * - block list 同 chat 树（layout + sidebar 都下线）：官方外框与官方侧栏壳
  *   不进页（ui-sidebar 的槽注册在无人声明 'sidebar' 时 loud throw，必须下线）。
- * - root 声明侧栏壳的 5 个子槽（品牌位/工作区树/设置入口/底部动作）——对应
+ * - root 声明侧栏壳 4 个子槽（品牌位/工作区树/品牌名/底部动作）——对应
  *   贡献照常注册但不渲染；另声明自有 'dshOne.settings.page' 座位并只渲染它。
- * - 整页宿主直接渲染官方 settings.* 座位（header/action/close/section 列表），
- *   官方 SettingsRoot（触发行 + modal）不进页——它经 settings-general 的
- *   inject("sidebar.settings") 注册，而 sidebar.settings 声明在 root children
- *   里、本页只渲染 dshOne.settings.page，官方 modal 壳自然缺席。
+ *   有意不声明 sidebar.settings：声明该名会同步触发 settings-general 的
+ *   inject("sidebar.settings")，官方 SettingsRoot 注册时先声明 settings.*
+ *   children，与本页座位的 children 表撞 registry 的「already declared」。
+ *   不声明则该 inject 永远 pending（同 chat 树 parked 贡献语义），官方
+ *   modal 壳整体缺席。
+ * - 整页宿主直接渲染官方 settings.* 座位（header/action/section 列表），
+ *   settings.* 由本页座位独家声明，settings-general/models/plugins 的
+ *   section 与行贡献照常挂上来。
  *
  * 为什么不是「priority -1 影子 SettingsRoot」：单槽影子可行，但官方
  * SettingsRoot 的 children 表（settings.trigger/section/…）与本件重复声明
@@ -101,16 +105,20 @@ export function apply(ctx: ShellContext): void {
     const disposeService = ctx.reflect.provide('layout', layout)
     // 先注册 root（children 声明同步落 ledger），同 effect 内紧接着注册
     // settings page 座位（root 已声明该名，register 的声明检查通过）。
+    // 注意：root children **不声明 sidebar.settings**——声明该名会同步触发
+    // settings-general 的 inject("sidebar.settings")，官方 SettingsRoot 注册
+    // 时先声明 settings.* children，与本页座位的 children 撞「already
+    // declared」。让它永远 pending（同 chat 树 parked 贡献语义），官方
+    // modal 壳整体缺席，settings.* 由本页座位独家声明。
     const disposeRoot = ctx.slots.register(
       {
         name: 'root',
         children: {
-          // 侧栏壳 5 子槽：贡献照常注册（ui-brand-official/ui-workspace/
-          // ui-settings-general/ui-cordis 的 inject 挂上来），本页不渲染。
+          // 侧栏壳其余 4 子槽：贡献照常注册（ui-brand-official/ui-workspace/
+          // ui-cordis 的 inject 挂上来），本页不渲染。
           'sidebar.brand.mark': { kind: 'single', scope: 'root' },
           'sidebar.brand.name': { kind: 'single', scope: 'root' },
           'sidebar.workspaces': { kind: 'single', scope: 'root' },
-          'sidebar.settings': { kind: 'single', scope: 'root' },
           'sidebar.footer.action': { kind: 'list', scope: 'root' },
           // 自有整页座位：本页唯一渲染对象。
           'dshOne.settings.page': { kind: 'single', scope: 'root' },

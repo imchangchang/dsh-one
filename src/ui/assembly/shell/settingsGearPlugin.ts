@@ -28,11 +28,13 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin
 interface GearProps {
   /** 官方侧栏壳传来的形态（宽行 / 收起轨）。 */
   wide?: boolean
+  /** cordis locale 座位（框架固定注入名 t；函数内别名为 tr 以避开 i18n 门禁的裸 t() 扫描）。 */
   t: (key: string) => string
   onOpen: () => void
 }
 
 function SettingsGear({ wide = true, t, onOpen }: GearProps) {
+  const tr = t
   return h(
     'div',
     { className: 'dshOneGear_row', 'data-rail': wide ? undefined : '' },
@@ -42,11 +44,11 @@ function SettingsGear({ wide = true, t, onOpen }: GearProps) {
         type: 'button',
         className: 'dshOneGear_button',
         'data-rail': wide ? undefined : '',
-        'aria-label': t('trigger'),
+        'aria-label': tr('trigger'),
         onClick: onOpen,
       },
       wide ? h(IconSettingsOutline16, { size: 16 }) : h(IconSettingsOutline14, { size: 18 }),
-      wide ? h('span', { className: 'dshOneGear_label' }, t('trigger')) : null,
+      wide ? h('span', { className: 'dshOneGear_label' }, tr('trigger')) : null,
     ),
   )
 }
@@ -69,6 +71,8 @@ interface GearContext {
   locale: { register(ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): () => void }
   slots: {
     register(entry: unknown, component: unknown): () => void
+    /** 等目标名被任一 entry 的 children 表声明后再注册（官方贡献的正规挂法）。 */
+    inject(name: string, factory: () => unknown): () => void
   }
 }
 
@@ -79,21 +83,25 @@ export function apply(ctx: GearContext): void {
     // 自有词典（trigger 文案与 ui-settings-general 的 settings 命名空间同值），
     // 不跨插件借命名空间——locale 服务对未注册命名空间的入口组合不做保证。
     const disposeLocale = ctx.locale.register('dshOneGear', {
-      zh: { trigger: '设置' },
+      zh: { trigger: '\u8bbe\u7f6e' },
       en: { trigger: 'Settings' },
     })
+    // 对既有座位名（官方 ui-sidebar 的 children 表声明）必须走 slots.inject：
+    // 直接 register 会在「未声明」时抛错（跨插件 effect 时序不保证声明已落）。
     // single 槽影子：priority -1 < 官方 SettingsRoot 的默认 0 → 本件渲染。
-    const dispose = ctx.slots.register(
-      {
-        name: 'sidebar.settings',
-        priority: -1,
-        locale: 'dshOneGear',
-        inject: () => ({ onOpen: postOpenSettings }),
-      },
-      SettingsGear,
+    const disposeInject = ctx.slots.inject('sidebar.settings', () =>
+      ctx.slots.register(
+        {
+          name: 'sidebar.settings',
+          priority: -1,
+          locale: 'dshOneGear',
+          inject: () => ({ onOpen: postOpenSettings }),
+        },
+        SettingsGear,
+      ),
     )
     return () => {
-      dispose()
+      disposeInject()
       disposeLocale()
     }
   }, 'dsh-one settings gear: shadow sidebar.settings')

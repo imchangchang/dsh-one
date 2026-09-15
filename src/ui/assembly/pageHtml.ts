@@ -212,12 +212,12 @@ function transportJs(mirrorOrigin: string): string {
 })()`
 }
 
-/** 主题预置：逐字来自官方 body 注入（preference 由外壳烘焙；官方 settings 起来后会覆盖）。 */
+/** 主题预置：逐字来自官方 body 注入（preference 由外壳烘焙；官方 settings 起来后会覆盖）。
+ * 宿主主题（#70 主题跟随）：theme-follow 插件首帧同步官方 theme 服务的
+ * preference，之后靠宿主 dshOne.setTheme 广播切换（__DSH_ONE_HOST_THEME__）。 */
 function themePresetJs(theme: 'dark' | 'light'): string {
   return `(() => {
   const preference = ${JSON.stringify(theme)}
-  // 宿主主题（#70 主题跟随）：theme-follow 插件首帧同步官方 theme 服务的
-  // preference，之后靠宿主 dshOne.setTheme 广播切换。
   globalThis.__DSH_ONE_HOST_THEME__ = preference
   const systemDark = preference === 'system'
     && typeof matchMedia !== 'undefined'
