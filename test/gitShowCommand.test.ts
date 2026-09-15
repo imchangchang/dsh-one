@@ -10,7 +10,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
-import { runGitShow } from '../src/pure/gitShowCommand.ts'
+import { remoteContainsCommit, runGitShow } from '../src/pure/gitShowCommand.ts'
 import { resolveQueryDir } from '../src/pure/hostCalls.ts'
 
 /** git 可用性探测（不可用则跳过整组）。 */
@@ -141,5 +141,88 @@ test('会话属 B 工作区时以 B 路径查询（不是宿主自己的 A 目�
   } finally {
     await repoA.cleanup()
     await repoB.cleanup()
+  }
+})
+
+/** 造一个「有真远端」的仓库：bare 远端 + 已推送的提交 + 一个本地独有提交。 */
+async function makeRepoWithRemote(): Promise<{
+  dir: string
+  pushed: string
+  localOnly: string
+  cleanup: () => Promise<void>
+}> {
+  const remoteDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dshone-remote-'))
+  execFileSync('git', ['init', '-q', '--bare', remoteDir], { stdio: 'ignore' })
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dshone-gitremote-'))
+  const git = (...args: string[]): string =>
+    execFileSync('git', args, {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'Ada',
+        GIT_AUTHOR_EMAIL: 'ada@example.com',
+        GIT_COMMITTER_NAME: 'Ada',
+        GIT_COMMITTER_EMAIL: 'ada@example.com',
+      },
+    })
+  git('init', '-q', '-b', 'main')
+  git('remote', 'add', 'origin', remoteDir)
+  await fs.writeFile(path.join(dir, 'a.txt'), 'one\n')
+  git('add', '.')
+  git('commit', '-q', '-m', 'feat: pushed commit')
+  const pushed = git('rev-parse', 'HEAD').trim()
+  git('push', '-q', '-u', 'origin', 'main')
+  await fs.writeFile(path.join(dir, 'b.txt'), 'two\n')
+  git('add', '.')
+  git('commit', '-q', '-m', 'feat: local only')
+  const localOnly = git('rev-parse', 'HEAD').trim()
+  const cleanup = async (): Promise<void> => {
+    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(remoteDir, { recursive: true, force: true })
+  }
+  return { dir, pushed, localOnly, cleanup }
+}
+
+test('remoteContainsCommit：已推送 true、本地独有 false', { skip: !hasGit }, async () => {
+  const repo = await makeRepoWithRemote()
+  try {
+    assert.equal(await remoteContainsCommit(repo.dir, repo.pushed), true)
+    assert.equal(await remoteContainsCommit(repo.dir, repo.localOnly), false)
+    // 短 hash 也能判（git 自己解析）
+    assert.equal(await remoteContainsCommit(repo.dir, repo.pushed.slice(0, 7)), true)
+  } finally {
+    await repo.cleanup()
+  }
+})
+
+test('runGitShow 带 pushedToRemote：已推送 true、本地独有 false；链接用完整 40 位 hash', { skip: !hasGit }, async () => {
+  const repo = await makeRepoWithRemote()
+  try {
+    const pushed = await runGitShow(repo.pushed.slice(0, 7), repo.dir)
+    assert.equal(pushed?.found, true)
+    assert.equal(pushed?.pushedToRemote, true)
+    // GitHub 链接（非 GitHub 远端时为 undefined，这里远端是本地裸库 → undefined）
+    assert.equal(pushed?.githubUrl, undefined)
+    assert.equal(pushed?.commitHash, repo.pushed)
+
+    const local = await runGitShow(repo.localOnly.slice(0, 7), repo.dir)
+    assert.equal(local?.found, true)
+    assert.equal(local?.pushedToRemote, false)
+  } finally {
+    await repo.cleanup()
+  }
+})
+
+test('GitHub 远端：链接一律用完整 40 位 hash（短 hash 会 404）', { skip: !hasGit }, async () => {
+  const repo = await makeRepoWithRemote()
+  try {
+    execFileSync('git', ['remote', 'set-url', 'origin', 'git@github.com:example/repo.git'], { cwd: repo.dir })
+    const info = await runGitShow(repo.pushed.slice(0, 7), repo.dir)
+    assert.equal(info?.githubUrl, `https://github.com/example/repo/commit/${repo.pushed}`)
+    assert.equal(info?.githubUrl?.endsWith(repo.pushed.slice(0, 7)), false)
+    assert.equal(info?.githubUrl?.length, `https://github.com/example/repo/commit/`.length + 40)
+  } finally {
+    await repo.cleanup()
   }
 })

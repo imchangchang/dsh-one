@@ -78,6 +78,7 @@ const CSS = [
   `.dshOneGitCard_add{color:var(--dsw-alias-status-success,#2ea043)}`,
   `.dshOneGitCard_del{color:var(--dsw-alias-status-danger,#d1242f)}`,
   `.dshOneGitCard_repo{display:flex;align-items:center;gap:4px;margin-top:6px;color:var(--dsw-alias-label-secondary)}`,
+  `.dshOneGitCard_notPushed{margin-top:6px;color:var(--dsw-alias-label-tertiary)}`,
   `.dshOneGitCard_repoPath{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}`,
   `.dshOneGitCard_footer{display:flex;align-items:center;gap:8px;margin-top:8px}`,
   `.dshOneGitCard_cmd{display:inline-flex;align-items:center;gap:4px;cursor:pointer;border:none;border-radius:6px;padding:2px 6px;background:transparent;color:inherit;font:inherit}`,
@@ -111,6 +112,8 @@ interface CommitInfo {
   repoPath?: string
   /** 仓库相对会话工作区根（就是根本身时缺省）。 */
   repoRelative?: string
+  /** 远端是否包含该提交（false = 未推送，卡片不给 GitHub 按钮、改提示一行）。 */
+  pushedToRemote?: boolean
 }
 
 /** 一次查询的状态（undefined = 还没查；'pending' = 查询中）。 */
@@ -450,6 +453,12 @@ function GitCardLayer({ t, sessionWorkspacePath }: LayerProps) {
         ),
       )
     }
+    // 未推送（远端不含该提交）→ 不给 GitHub 按钮（链接是远端地址，点开必 404），
+    // 改一行轻提示说明为什么没有按钮。
+    if (info.pushedToRemote === false) {
+      body.push(h('div', { key: 'not-pushed', className: 'dshOneGitCard_notPushed' }, tr('notPushed')))
+    }
+    const canOpenOnGithub = info.githubUrl !== undefined && info.pushedToRemote !== false
     const shortHash = (info.commitHash ?? info.sha).slice(0, 7)
     body.push(
       h(
@@ -467,7 +476,7 @@ function GitCardLayer({ t, sessionWorkspacePath }: LayerProps) {
           },
           h(copied ? IconCheckOutline16 : IconCopyOutline16, { size: 14 }),
         ),
-        info.githubUrl !== undefined &&
+        canOpenOnGithub &&
           h(
             'button',
             {
@@ -563,6 +572,7 @@ export function apply(ctx: GitCardContext): void {
         gitMissing: '\u5f53\u524d\u672a\u5b89\u88c5 git',
         commit: '\u63d0\u4ea4',
         repoLabel: '\u4ed3\u5e93',
+        notPushed: '\u5c1a\u672a\u63a8\u9001\u5230\u8fdc\u7aef',
         copyHash: '\u590d\u5236\u5b8c\u6574 hash',
         openOnGithub: '\u5728 GitHub \u6253\u5f00',
         justNow: '\u521a\u521a',
@@ -578,6 +588,7 @@ export function apply(ctx: GitCardContext): void {
         gitMissing: 'Git is not installed',
         commit: 'Commit',
         repoLabel: 'Repo',
+        notPushed: 'Not pushed to the remote yet',
         copyHash: 'Copy full hash',
         openOnGithub: 'Open on GitHub',
         justNow: 'just now',

@@ -19,7 +19,7 @@
 import * as path from 'node:path'
 import type { CommitInfoResult } from './chatContract.ts'
 import { commitNotFound } from './gitShow.ts'
-import { runGitShow, type GitShowOptions } from './gitShowCommand.ts'
+import { runGitShow, type GitCommitInfo, type GitShowOptions } from './gitShowCommand.ts'
 import { discoverGitRepos, type RepoDiscoveryOptions, type RepoDiscoveryResult } from './gitRepoDiscovery.ts'
 import { createTtlCache, type TtlCache } from './ttlCache.ts'
 
@@ -28,8 +28,8 @@ export const DEFAULT_QUERY_BUDGET_MS = 2000
 /** 缓存 TTL（与 hostWorkspaceRoots 的 5 分钟同口径）。 */
 export const QUERY_CACHE_TTL_MS = 5 * 60 * 1000
 
-/** 查询结果 = 提交信息 + 命中仓库（供卡片展示上下文）。 */
-export interface GitWorkspaceQueryResult extends CommitInfoResult {
+/** 查询结果 = 提交信息（含远端推送状态）+ 命中仓库（供卡片展示上下文）。 */
+export interface GitWorkspaceQueryResult extends GitCommitInfo {
   /** 命中提交的仓库绝对路径。 */
   repoPath?: string
   /** 仓库相对查询根的路径（仓库就是查询根时为 undefined，不展示）。 */
