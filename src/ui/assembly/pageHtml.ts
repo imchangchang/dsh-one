@@ -118,6 +118,14 @@ const QUEUE_FACADE_JS = `(() => {
  *   标记（remote → 归一化成 RemoteError；carrier → 可重试的载体失败）。
  * 提供了 openStream 后 connection.rpc.open 存在，api-gateway 不会自起按
  * location.origin 寻址的 WS mux（见 dsh-api-gateway ClientRemoteService）。
+ * ownsHost（官方机制第 3 层：__DSH_TRANSPORT__ 官方预留接缝的既有字段，
+ * client-connection 源码 4755 行 isLoopback 判定消费）：传输接缝拥有
+ * loopback 宿主权威——页面一切 RPC 经 loopback 代理带 cookie 到网关，
+ * 网关视角即 127.0.0.1。isLoopback 判定 = transport.ownsHost || location
+ * 是 loopback 主机名；VS Code webview 的 vscode-webview:// 主机名不是
+ * loopback，缺这个标记会被官方判非 loopback：设置文档走 memory 不持久、
+ * Models 提供方目录降级「settings are unavailable in this browser」、
+ * Open configuration file 缺席。声明后三树等价官方 loopback 形态（#70）。
  */
 function transportJs(mirrorOrigin: string): string {
   return `(() => {
@@ -208,15 +216,6 @@ function transportJs(mirrorOrigin: string): string {
       ws.close()
     }
   })()
-  // ownsHost（官方机制第 3 层：__DSH_TRANSPORT__ 官方预留接缝的既有字段，
-  // client-connection 源码 4755 行 isLoopback 判定消费）：
-  // 传输接缝拥有 loopback 宿主权威（页面一切 RPC 经 loopback 代理
-  // 带 cookie 到网关，网关视角即 127.0.0.1）。client-connection 的
-  // isLoopback 判定 = transport.ownsHost || location 是 loopback 主机名——
-  // VS Code webview 的 vscode-webview:// 主机名不是 loopback，缺这个标记
-  // 会被官方判非 loopback：设置文档走 memory 不持久、Models 提供方目录降级
-  // 「settings are unavailable in this browser」、Open configuration file
-  // 缺席。声明后三树等价官方 loopback 形态（#70）。
   globalThis.__DSH_TRANSPORT__ = { fetch: apiFetch, openStream, ownsHost: true }
 })()`
 }
