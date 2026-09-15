@@ -94,6 +94,11 @@ const SHELL_PLUGINS = [
     entry: 'src/ui/assembly/shell/contextMenuPlugin.ts',
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
   },
+  {
+    // #65 批 1：清空三件套（官方 composer 座位 + InputActions + conversation.cancel）。
+    id: '@dsh-one/vscode-composer-clear',
+    entry: 'src/ui/assembly/shell/composerClearPlugin.ts',
+  },
 ]
 await fsp.rm('dist/assembly', { recursive: true, force: true })
 for (const plugin of SHELL_PLUGINS) {
