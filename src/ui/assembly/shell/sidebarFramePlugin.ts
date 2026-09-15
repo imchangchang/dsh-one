@@ -14,6 +14,12 @@
  * - 设置入口 = 齿轮影子（@dsh-one/vscode-settings-gear，priority -1），
  *   点击 postMessage 宿主开设置面板（设置独立成页，见
  *   @dsh-one/vscode-settings-shell）。
+ * - 头部抛光（#70 VS Code 验收「很生硬」返修）：品牌位影子（brand.mark/name
+ *   渲染空件 priority -1）+ logoRow 整行隐藏——VS Code 原生视图头已自报
+ *   家门，官方 DeepSeek 品牌块重复且占 60px；折叠钮 aria-label 隐藏与
+ *   logoRow 隐藏双保险；头部密度只微调（root 上内边距 12→8px、顶 padding
+ *   6→4px），官方其余默认不动。品牌块想换 DSH One 鲸鱼 logo 时，把两个
+ *   空件换成渲染件即可（座位贡献点不变）。
  *
  * 构建与打包约束同 clientEntry.ts（esbuild banner/footer 包自注册 IIFE，
  * externals 种子表满足）。
@@ -40,8 +46,17 @@ interface ShellContext {
   effect(body: () => (() => void) | void, label?: string): void
   on(event: 'theme/change', listener: (snapshot: ThemeSnapshot) => void): () => void
   reflect: { provide(name: string, service: unknown): () => void }
-  slots: { register(entry: unknown, component: unknown): () => void }
+  slots: {
+    register(entry: unknown, component: unknown): () => void
+    /** 等目标名被任一 entry 的 children 表声明后再注册（官方贡献的正规挂法）。 */
+    inject(name: string, factory: () => unknown): () => void
+  }
   theme: { getTheme(): ThemeSnapshot }
+}
+
+/** 品牌位空件：single 槽最低优先级（-1 < 官方默认 0）顶掉 ui-brand-official。 */
+function Nothing(): null {
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -50,7 +65,9 @@ interface ShellContext {
 // chrome 负责。aria-label 选择器覆盖官方便携类（哈希类名不可依赖）。
 // ---------------------------------------------------------------------------
 
-const CSS = '.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
+// logoRow 隐藏用 [class*="logoRow"]（css-module 名后缀稳定、哈希前缀随版本变）；
+// 折叠钮 aria-label 规则保留作双保险（zh/en 双词典，CSS 转义写中文）。
+const CSS = '.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_side>[class*="root"]{--dsh-sidebar-inline-padding:8px;padding-top:4px}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
 const CSS_TAG_ID = '@dsh-one/vscode-sidebar-shell/SidebarFrame.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
@@ -114,11 +131,21 @@ export function apply(ctx: ShellContext): void {
       },
       SidebarFrame,
     )
+    // 品牌位影子：藏掉官方 DeepSeek 品牌块（VS Code 原生视图头已自报家门，
+    // 双重品牌头「很生硬」#70 验收返修）。想换自有品牌时把 Nothing 换成渲染件。
+    const disposeBrandMark = ctx.slots.inject('sidebar.brand.mark', () =>
+      ctx.slots.register({ name: 'sidebar.brand.mark', priority: -1 }, Nothing),
+    )
+    const disposeBrandName = ctx.slots.inject('sidebar.brand.name', () =>
+      ctx.slots.register({ name: 'sidebar.brand.name', priority: -1 }, Nothing),
+    )
     return () => {
+      disposeBrandMark()
+      disposeBrandName()
       disposeRegistration()
       disposeService()
     }
-  }, 'dsh-one sidebar shell: layout service + root registration')
+  }, 'dsh-one sidebar shell: layout service + root registration + brand shadow')
   ctx.effect(() => {
     const presenter = new ThemePresenter()
     presenter.apply(ctx.theme.getTheme())
