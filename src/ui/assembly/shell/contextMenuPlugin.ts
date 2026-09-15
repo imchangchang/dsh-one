@@ -302,7 +302,7 @@ export function apply(ctx: MenuContext): void {
   ctx.effect(() => {
     // 自有词典（zh 文案与旧自研聊天区同口径，用 unicode 转义过 i18n 门禁）。
     const disposeLocale = ctx.locale.register('dshOneMenu', {
-      zh: { copyInlineCode: '\u590d\u5236\u8fd9\u6bb5' },
+      zh: { copyInlineCode: '\u590d\u5236\u8fd9\u6bb5', copied: '\u5df2\u590d\u5236' },
       en: { copyInlineCode: 'Copy inline code', copied: 'Copied' },
     })
     const disposeInject = ctx.slots.inject('shell.overlay', () =>

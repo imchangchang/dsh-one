@@ -1,14 +1,14 @@
 {
   "title": "DSH One 装配线测试报告：对话区功能插件化批 1（#65）",
   "branch": "agent/cordis-chat-dsh-one-features",
-  "commit": "3fb82a55d7d46b6fc539848039fe7228ea6c932f",
+  "commit": "8c348267b075a782514f49e063c103e908cba268",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
     "dsh": "0.1.2-rc.1",
     "locale": "zh-cn",
     "theme": "dark（含 light 切换断言）",
-    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（115 条断言）",
-    "date": "2026-09-15T12:54:01.369Z"
+    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（119 条断言）",
+    "date": "2026-09-15T14:31:34.907Z"
   },
   "coverageNote": "本报告是浏览器验证（第一道验证）：装配页 + 真实网关只读 + 假宿主（能力桥的宿主侧在假宿主里按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/内置浏览器命令）、运行中回合的停止路径（需要真回合）、真模型输出。这些见 VS Code 验证清单。",
   "items": [
@@ -21,7 +21,7 @@
       "screenshots": [
         "/tmp/dsh65-batch1/bridge.png"
       ],
-      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-q8wdqq6h\",\"hc2-vx5kid99\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-q8wdqq6h,hc2-vx5kid99；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-qpcm23bt\"}"
+      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-lxi95q19\",\"hc2-dz8qfvzf\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-lxi95q19,hc2-dz8qfvzf；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-agbthi1e\"}"
     },
     {
       "id": "F-02",
@@ -39,7 +39,7 @@
     {
       "id": "F-03",
       "phase": "new-feature",
-      "name": "行内码右键（定稿：官方紧凑档 + 单图标 + 悬浮/已复制反馈 + 目标高亮）（MENU 套件，30 条断言）",
+      "name": "行内码右键（定稿：官方紧凑档 + 单图标 + 悬浮/已复制反馈 + 目标高亮）（MENU 套件，31 条断言）",
       "expect": "右键行内码 → 菜单**只有一个无可见文字的官方复制图标项**（无障碍名「复制这段」走自有 locale，按 role+名字可查到），图标 **14×14**、居中（上下左右留白相等 6/6，改前 9/15 偏上）；**几何取官方紧凑档**（项 26×26、字号 12px、行距 18px、间距 6px、圆角 5px；列表内边距 2px、圆角 7px、底色 `--dsw-specific-menu`），菜单盒收敛到 30px（＝项 26 + 列表内边距 2×2，不再占 164/218px 档）；**悬浮出官方 Tooltip 气泡「复制」**；**点击后项内先显示「已复制」（对勾 + 文字，官方 Menu 点选不自动关、由调用方定时关闭）**，随后菜单关闭、高亮与菜单标记都撤掉、无残留（重复开关仍是各 1 个）；**被点的行内码高亮到官方「选中行」强度**（底色 `--dsw-alias-interactive-bg-hover`：暗 rgba(255,255,255,0.08) / 浅 rgba(38,49,72,0.06)，与 token 等比校验，两档主题都验；外加官方细描边 `--dsw-alias-border-l2` 一圈）；**其余目标一律让路**：消息行内普通文本、外链、对话区空白处都不弹自有菜单、不 preventDefault、不误标高亮。对照 menu-final.png / menu-copied-state.png / menu-1-inline-code.png / menu-2-official-standard.png（官方标准档 40 项对照）/ menu-3-light-highlight.png。",
       "result": "pass",
       "screenshots": [
@@ -50,7 +50,7 @@
         "/tmp/dsh65-batch1/menu-2-official-standard.png",
         "/tmp/dsh65-batch1/menu-3-light-highlight.png"
       ],
-      "notes": "官方菜单样本可测（composer 的官方下拉）：from=[aria-label^=\"访问模式\"] ；菜单只有一个「无可见文字」的图标项：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标项无障碍名走自有 locale（复制这段）：aria-label=复制这段；菜单盒收敛到图标项自然宽度（列表 = 项 + 紧凑档列表内边距 2px×2）：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标项走官方紧凑档几何（26×26 方盒）：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标为官方 14 档尺寸（16 档图标件 + 官方 size 参数）：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标项内边距对称、图标居中（上下左右相等；(26−14)/2 = 6px）：{\"above\":6,\"below\":6,\"left\":6,\"right\":6,\"padding\":\"6px\"}；按 role+名字能查到该菜单项（AccName 正确）：count=1；右键目标被高亮（且只标这一个）：{\"marked\":1,\"total\":1,\"background\":\"rgba(255, 255, 255, 0.08)\",\"boxShadow\":\"rgba(255, 255, 255, 0.12) 0px 0px 0px 1px, rgba(255, 255, 255, 0.08) 0px 0px 0px 3px；高亮底色 = 官方选中行 token（--dsw-alias-interactive-bg-hover）：bg=rgba(255, 255, 255, 0.08) token=#ffffff14；高亮描边 = 官方细描边 token（--dsw-alias-border-l2）：shadow=rgba(255, 255, 255, 0.12) 0px 0px 0px 1px, rgba(255, 255, 255, 0.08) 0px 0px 0px borderToken=#ffffff1f；自有菜单几何 = 官方紧凑档 CSS 值（项 26 / 字号 12 / 行距 18 / 间距 6 / 圆角 5；列表 2px / 7px）：{\"fontSize\":\"12px\",\"lineHeight\":\"18px\",\"gap\":\"6px\",\"borderRadius\":\"5px\",\"list\":{\"padding\":\"2px\",\"borderRadius\":\"7px\",\"background\":\"rgb(53, 54, 56)\"}}；自有菜单 hover 配色与官方一致：ours=rgba(255, 255, 255, 0.08) official=rgba(255, 255, 255, 0.08)；悬停菜单项出官方 tooltip（文案「复制」）：\"复制这段\"；复制行动作写入剪贴板（行内码原文）：[\"npm run typecheck\"]；点击后项内显示「已复制」（菜单尚未关，官方点选不自动关）：{\"menus\":1,\"text\":\"Copied\",\"aria\":\"Copied\"}；反馈结束后菜单关闭、高亮与菜单标记都撤掉（无残留）：{\"menus\":0,\"marks\":0,\"menuMarks\":0}；重复开关不留残留（再开仍是 1 个高亮 + 1 个菜单标记）：marks=1 menuMarks=1；Esc 取消后菜单关闭且高亮撤掉（无残留）：{\"menus\":0,\"marks\":0}；消息行内普通文本：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；外链（官方 target=_blank 交给系统浏览器）：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；对话区空白处：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；官方标准菜单为 40 档（对照：我们有意取紧凑 26 档）：{\"official\":{\"minHeight\":\"40px\",\"height\":40,\"padding\":\"8px 10px\",\"fontSize\":\"14px\",\"lineHeight\":\"22px\",\"gap\":\"8px\",\"borderRadius\":\"10px\"},\"ours\":{\"minHeight\":\"2；图标尺寸 14 与项盒 26 自洽（官方标准档为 16 图标 / 40 项，此处有意取紧凑）：{\"ours\":{\"icon\":{\"width\":14,\"height\":14},\"item\":{\"minHeight\":\"26px\",\"height\":26,\"padding\":\"6px\",\"fontSize\":\"12px\",\"lineHeight\":\"18px\",\"gap\":\"6px\",\"borderRadius\"；列表盒：底色同为官方 --dsw-specific-menu，紧凑档内边距/圆角 2px/7px，min-width 按图标项收窄：{\"ours\":{\"padding\":\"2px\",\"borderRadius\":\"7px\",\"minWidth\":\"0px\",\"background\":\"rgb(53, 54, 56)\"},\"official\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\"218；浅色主题：高亮底色仍等于官方选中行 token：{\"background\":\"rgba(38, 49, 72, 0.06)\",\"token\":\"#2631480f\",\"darkAttr\":false,\"tokenRgb\":\"rgba(38, 49, 72, 0.06)\"}"
+      "notes": "官方菜单样本可测（composer 的官方下拉）：from=[aria-label^=\"访问模式\"] ；菜单只有一个「无可见文字」的图标项：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标项无障碍名走自有 locale（复制这段）：aria-label=复制这段；菜单盒收敛到图标项自然宽度（列表 = 项 + 紧凑档列表内边距 2px×2）：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标项走官方紧凑档几何（26×26 方盒）：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标为官方 14 档尺寸（16 档图标件 + 官方 size 参数）：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标项内边距对称、图标居中（上下左右相等；(26−14)/2 = 6px）：{\"above\":6,\"below\":6,\"left\":6,\"right\":6,\"padding\":\"6px\"}；按 role+名字能查到该菜单项（AccName 正确）：count=1；右键目标被高亮（且只标这一个）：{\"marked\":1,\"total\":1,\"background\":\"rgba(255, 255, 255, 0.08)\",\"boxShadow\":\"rgba(255, 255, 255, 0.12) 0px 0px 0px 1px, rgba(255, 255, 255, 0.08) 0px 0px 0px 3px；高亮底色 = 官方选中行 token（--dsw-alias-interactive-bg-hover）：bg=rgba(255, 255, 255, 0.08) token=#ffffff14；高亮描边 = 官方细描边 token（--dsw-alias-border-l2）：shadow=rgba(255, 255, 255, 0.12) 0px 0px 0px 1px, rgba(255, 255, 255, 0.08) 0px 0px 0px borderToken=#ffffff1f；自有菜单几何 = 官方紧凑档 CSS 值（项 26 / 字号 12 / 行距 18 / 间距 6 / 圆角 5；列表 2px / 7px）：{\"fontSize\":\"12px\",\"lineHeight\":\"18px\",\"gap\":\"6px\",\"borderRadius\":\"5px\",\"list\":{\"padding\":\"2px\",\"borderRadius\":\"7px\",\"background\":\"rgb(53, 54, 56)\"}}；自有菜单 hover 配色与官方一致：ours=rgba(255, 255, 255, 0.08) official=rgba(255, 255, 255, 0.08)；悬停菜单项出官方 tooltip（zh 文案「复制这段」）：\"复制这段\"；复制行动作写入剪贴板（行内码原文）：[\"npm run typecheck\"]；点击后项内显示「已复制」（zh 取词；菜单尚未关——官方点选不自动关）：{\"menus\":1,\"text\":\"已复制\",\"aria\":\"已复制\"}；「已复制」态的 aria-label 同步走 locale（不是硬编码英文）：{\"menus\":1,\"text\":\"已复制\",\"aria\":\"已复制\"}；反馈结束后菜单关闭、高亮与菜单标记都撤掉（无残留）：{\"menus\":0,\"marks\":0,\"menuMarks\":0}；重复开关不留残留（再开仍是 1 个高亮 + 1 个菜单标记）：marks=1 menuMarks=1；Esc 取消后菜单关闭且高亮撤掉（无残留）：{\"menus\":0,\"marks\":0}；消息行内普通文本：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；外链（官方 target=_blank 交给系统浏览器）：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；对话区空白处：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；官方标准菜单为 40 档（对照：我们有意取紧凑 26 档）：{\"official\":{\"minHeight\":\"40px\",\"height\":40,\"padding\":\"8px 10px\",\"fontSize\":\"14px\",\"lineHeight\":\"22px\",\"gap\":\"8px\",\"borderRadius\":\"10px\"},\"ours\":{\"minHeight\":\"2；图标尺寸 14 与项盒 26 自洽（官方标准档为 16 图标 / 40 项，此处有意取紧凑）：{\"ours\":{\"icon\":{\"width\":14,\"height\":14},\"item\":{\"minHeight\":\"26px\",\"height\":26,\"padding\":\"6px\",\"fontSize\":\"12px\",\"lineHeight\":\"18px\",\"gap\":\"6px\",\"borderRadius\"；列表盒：底色同为官方 --dsw-specific-menu，紧凑档内边距/圆角 2px/7px，min-width 按图标项收窄：{\"ours\":{\"padding\":\"2px\",\"borderRadius\":\"7px\",\"minWidth\":\"0px\",\"background\":\"rgb(53, 54, 56)\"},\"official\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\"218；浅色主题：高亮底色仍等于官方选中行 token：{\"background\":\"rgba(38, 49, 72, 0.06)\",\"token\":\"#2631480f\",\"darkAttr\":false,\"tokenRgb\":\"rgba(38, 49, 72, 0.06)\"}"
     },
     {
       "id": "F-04",
@@ -104,13 +104,13 @@
     {
       "id": "R-08",
       "phase": "regression",
-      "name": "侧栏桥 + 单例就地切换（WIRING 套件，18 条断言）",
-      "expect": "**启动竞态三档**（恢复键失效 / 恢复键有效 / 全新 profile）：侧栏会话行一出现就点，**首次点击必立即上报**（改前被「首个非空选中」抑制吞掉）；启动期官方恢复值/自动选择**不误报**（面板仍走官方恢复 + #68 自动开一次）；重复点同一会话不重复上报（宿主另按面板当前会话去重）。侧栏点会话行 → 桥消息 dshOne.sessionSelected 带正确 id；chat 树收到 dshOne.switchSession 后就地切换（composer 在、无遮罩、头部标题跟随目标会话、消息行落地加载）。对照 wiring-switched.png。",
+      "name": "侧栏桥 + 单例就地切换（WIRING 套件，21 条断言）",
+      "expect": "**首揭时序**：侧栏首揭时工作区行先出现、会话行随后出现——经对照为**官方原生行为**（同一网关下官方 web 实测 工作区 225ms / 会话 835ms，我方装配 200ms / 800ms；根因是会话清单 RPC 对 1107 条会话的延迟），断言只钉「会话行最终一定出现（不会一直空着）」这条底线。**启动竞态三档**（恢复键失效 / 恢复键有效 / 全新 profile）：侧栏会话行一出现就点，**首次点击必立即上报**（改前被「首个非空选中」抑制吞掉）；启动期官方恢复值/自动选择**不误报**（面板仍走官方恢复 + #68 自动开一次）；重复点同一会话不重复上报（宿主另按面板当前会话去重）。侧栏点会话行 → 桥消息 dshOne.sessionSelected 带正确 id；chat 树收到 dshOne.switchSession 后就地切换（composer 在、无遮罩、头部标题跟随目标会话、消息行落地加载）。对照 wiring-switched.png。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh65-batch1/wiring-switched.png"
       ],
-      "notes": "WIRING 启动竞态 A（恢复键失效 → current 起始为空）：启动期不误报（官方恢复/自动选择被抑制）：[]；WIRING 启动竞态 A（恢复键失效 → current 起始为空）：首次点击立即上报（不再被吞）：[\"session-cb76d36d-23b5-4ffc-a1c7-fa5eec06f531\"]；WIRING 启动竞态 A（恢复键失效 → current 起始为空）：重复点同一行不重复上报：1 → 1；WIRING 启动竞态 B（恢复键有效）：启动期不误报（官方恢复/自动选择被抑制）：[]；WIRING 启动竞态 B（恢复键有效）：首次点击立即上报（不再被吞）：[\"session-cb76d36d-23b5-4ffc-a1c7-fa5eec06f531\"]；WIRING 启动竞态 B（恢复键有效）：重复点同一行不重复上报：1 → 1；WIRING 启动竞态 C（无恢复键，全新 profile）：启动期不误报（官方恢复/自动选择被抑制）：[]；WIRING 启动竞态 C（无恢复键，全新 profile）：首次点击立即上报（不再被吞）：[\"session-cb76d36d-23b5-4ffc-a1c7-fa5eec06f531\"]；WIRING 启动竞态 C（无恢复键，全新 profile）：重复点同一行不重复上报：1 → 1；侧栏树：工作区树渲染出会话行：rows=3；侧栏点会话 → 桥消息 dshOne.sessionSelected：[\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\"]；WIRING：运行时切会话就地生效（composer 在、无遮罩）：{\"masks\":0,\"composer\":1,\"headerShowsTarget\":true,\"flowRows\":123}；WIRING：对话区切到目标会话（头部标题跟随 + 有消息行）：{\"masks\":0,\"composer\":1,\"headerShowsTarget\":true,\"flowRows\":123,\"flowLoaded\":true}"
+      "notes": "侧栏首揭：工作区行先出现（≤3s）：projects@2ms；侧栏首揭：会话行随后出现（≤8s，不会一直空着）：sessions@638ms（工作区@2ms；官方同网关实测 225/835ms）；WIRING 启动竞态 A（恢复键失效 → current 起始为空）：启动期不误报（官方恢复/自动选择被抑制）：[]；WIRING 启动竞态 A（恢复键失效 → current 起始为空）：首次点击立即上报（不再被吞）：[\"session-cb76d36d-23b5-4ffc-a1c7-fa5eec06f531\"]；WIRING 启动竞态 A（恢复键失效 → current 起始为空）：重复点同一行不重复上报：1 → 1；WIRING 启动竞态 B（恢复键有效）：启动期不误报（官方恢复/自动选择被抑制）：[]；WIRING 启动竞态 B（恢复键有效）：首次点击立即上报（不再被吞）：[\"session-cb76d36d-23b5-4ffc-a1c7-fa5eec06f531\"]；WIRING 启动竞态 B（恢复键有效）：重复点同一行不重复上报：1 → 1；WIRING 启动竞态 C（无恢复键，全新 profile）：启动期不误报（官方恢复/自动选择被抑制）：[]；WIRING 启动竞态 C（无恢复键，全新 profile）：首次点击立即上报（不再被吞）：[\"session-cb76d36d-23b5-4ffc-a1c7-fa5eec06f531\"]；WIRING 启动竞态 C（无恢复键，全新 profile）：重复点同一行不重复上报：1 → 1；侧栏树：工作区树渲染出会话行：rows=3；侧栏点会话 → 桥消息 dshOne.sessionSelected：[\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\"]；WIRING：运行时切会话就地生效（composer 在、无遮罩）：{\"masks\":0,\"composer\":1,\"headerShowsTarget\":true,\"flowRows\":123}；WIRING：对话区切到目标会话（头部标题跟随 + 有消息行）：{\"masks\":0,\"composer\":1,\"headerShowsTarget\":true,\"flowRows\":123,\"flowLoaded\":true}"
     },
     {
       "id": "R-09",
@@ -119,7 +119,7 @@
       "expect": "整包走 /plugins-local（分树过滤版），二次请求命中缓存（耗时 < 500ms）；一次注入 200 个 hash 文本节点，装饰在 3s 内收敛（实测 62ms）且不自激。",
       "result": "pass",
       "screenshots": [],
-      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:58433/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3546479,\"decode\":3546179,\"elapsed\":9.599999994039536}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:58433/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3546479,\"decode\":3546179,\"elapsed\":9.599999994039536}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":62.79999998211861,\"settled\":200,\"after\":200}"
+      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:52471/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3546509,\"decode\":3546209,\"elapsed\":8.900000005960464}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:52471/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3546509,\"decode\":3546209,\"elapsed\":8.900000005960464}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":60.599999994039536,\"settled\":200,\"after\":200}"
     }
   ]
 }
