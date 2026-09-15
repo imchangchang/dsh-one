@@ -54,6 +54,7 @@
 | **插件整包过滤** | loopback 代理把整包按每个插件代码段的起始标记切开后，删掉 block list 中的插件段、再拼好转发给 webview——只发生在 dsh-one 自己的转发管道里，网关服务端零改动 |
 | **block list** | 不进 VS Code 前端的官方插件清单（当前 2 个：`dsh-client-ui-layout` 官方外框、`dsh-client-ui-sidebar` 官方侧栏；新增须注释理由） |
 | **shell 插件** | `@dsh-one/vscode-shell`（自有），接管根外框、提供 layout 服务桩、负责主题着色（ThemePresenter 复刻）；没有它官方前端组件起不来 |
+| **影子替换** | 官方槽位机制：同名座位再注册一个**更小优先号**的条目，官方条目仍在注册表但不再渲染（号最小者上位）。出处为官方注册表报错原文「register at a different priority to shadow it (lowest renders)」与官方 `registry.d.ts` 注释；spike #69 浏览器实测过（官方树消失、自有件上位） |
 | **双前端** | 同一网关实例上，官方 dsh web 拿全量清单正常使用，dsh-one 前端自己过滤——不给 dsh 加 profile、不改服务端 |
 | **浏览器验证** | 用 Playwright 开普通浏览器页面跑装配断言（快、自动化，是第一道验证） |
 | **VS Code 验证** | 用 `dev-ui-test.sh` 起隔离 VS Code 窗口加载扩展实测（慢、是最终准绳）；此前口语所称「真窗」「实验室」一律改用这两个词 |
