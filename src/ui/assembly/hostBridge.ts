@@ -42,11 +42,13 @@ import type { CommitInfoResult } from '../../pure/chatContract.ts'
 export { isHostCallError } from '../../pure/hostCalls.ts'
 export type { HostCallErrorCode, HostCallError } from '../../pure/hostCalls.ts'
 
-/** 调用名白名单（新增能力必须同时登记参数校核与实现）。 */
+/**
+ * 调用名白名单（新增能力必须同时登记参数校核与实现；**失去全部消费者的调用
+ * 就地删除**——`vscode.openInBuiltinBrowser` 随右键菜单收缩一并移除，见 #65）。
+ */
 export const HOST_CALLS = {
   'git.show': 'One commit (hash + author + message + shortstat + GitHub link) from the git CLI.',
-  'vscode.openExternal': 'Open a http/https/mailto URL with the system browser.',
-  'vscode.openInBuiltinBrowser': 'Open a http/https URL in the VS Code built-in Simple Browser.',
+  'vscode.openExternal': 'Open a http/https/mailto URL with the system browser (git card "Open on GitHub").',
 } as const
 
 export type HostCallName = keyof typeof HOST_CALLS
@@ -125,16 +127,8 @@ export async function runHostCall(
   if (url === null) {
     return { code: 'invalid-args', message: 'expected a http/https/mailto url' }
   }
-  if (call === 'vscode.openExternal') {
-    await vscode.env.openExternal(vscode.Uri.parse(url))
-    return null
-  }
-  // vscode.openInBuiltinBrowser：VS Code 内置 Simple Browser（命令面板同款命令）。
-  try {
-    await vscode.commands.executeCommand('simpleBrowser.show', url)
-  } catch {
-    return { code: 'unsupported', message: 'the VS Code built-in browser is unavailable' }
-  }
+  // 只剩 vscode.openExternal 一项（url 已在上面校核过协议）
+  await vscode.env.openExternal(vscode.Uri.parse(url))
   return null
 }
 
