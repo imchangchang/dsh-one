@@ -17,9 +17,17 @@
  * - 头部抛光（#70 VS Code 验收「很生硬」返修）：品牌位影子（brand.mark/name
  *   渲染空件 priority -1）+ logoRow 整行隐藏——VS Code 原生视图头已自报
  *   家门，官方 DeepSeek 品牌块重复且占 60px；折叠钮 aria-label 隐藏与
- *   logoRow 隐藏双保险；头部密度只微调（root 上内边距 12→8px、顶 padding
- *   6→4px），官方其余默认不动。品牌块想换 DSH One 鲸鱼 logo 时，把两个
+ *   logoRow 隐藏双保险；头部密度只微调（root 顶 padding 6→4px），官方
+ *   其余默认不动。品牌块想换 DSH One 鲸鱼 logo 时，把两个
  *   空件换成渲染件即可（座位贡献点不变）。
+ * - 边缘贴齐（#70 验收「左右空条」返修）：官方根水平内边距 12px×2 是
+ *   唯一布局级空条（左条 56–70px 实为树层级缩进：顶层行 28px、子代理行
+ *   56–68px，是信息不是浪费）——root 选择器必须经插槽 wrapper（display:
+ *   contents 的 div）下一级（> 直连选择器上一轮未命中即此因），把
+ *   --dsh-sidebar-inline-padding 置 0：内容从左缘铺到右缘，滚动条贴右缘
+ *   （Chrome 覆盖式滚动条，正常形态）。折叠钮/收起轨不是座位贡献（钮是
+ *   SidebarRoot 内部按钮、轨是 collapsed 态渲染，我们恒传 collapsed:false
+ *   轨从不出现），CSS 隐藏即布局摘除，无列空间残留。
  *
  * 构建与打包约束同 clientEntry.ts（esbuild banner/footer 包自注册 IIFE，
  * externals 种子表满足）。
@@ -67,7 +75,7 @@ function Nothing(): null {
 
 // logoRow 隐藏用 [class*="logoRow"]（css-module 名后缀稳定、哈希前缀随版本变）；
 // 折叠钮 aria-label 规则保留作双保险（zh/en 双词典，CSS 转义写中文）。
-const CSS = '.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_side>[class*="root"]{--dsh-sidebar-inline-padding:8px;padding-top:4px}.dshOneSidebarShell_frame [class*="_card_"],[class*="_card_"]{position:fixed!important;left:auto!important;right:8px!important;max-width:calc(100vw - 16px)!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
+const CSS = '.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]{--dsh-sidebar-inline-padding:0px;padding-top:4px}.dshOneSidebarShell_frame [class*="_card_"],[class*="_card_"]{position:fixed!important;left:auto!important;right:8px!important;max-width:calc(100vw - 16px)!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
 const CSS_TAG_ID = '@dsh-one/vscode-sidebar-shell/SidebarFrame.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
