@@ -259,14 +259,23 @@ export function filterWire(
   blockList: ReadonlyArray<BlockedPlugin> = CHAT_BLOCK_LIST,
   shellPluginId: string = SHELL_PLUGIN_ID,
   extraPluginIds: readonly string[] = [THEME_FOLLOW_PLUGIN_ID],
+  /** 诊断回调（block list 与实际清单对不上时报告，不阻断）——宿主传 logger。 */
+  onWarn?: (line: string) => void,
 ): BootWire {
   const blockedIds = blockedIdsOf(blockList)
   const blocked = new Set(blockedIds)
   const entries = wire.entries.filter((e) => !blocked.has(e.id))
-  const dropped = wire.entries.filter((e) => blocked.has(e.id))
-  if (dropped.length !== blockedIds.length) {
-    const missing = blockedIds.filter((id) => !dropped.some((e) => e.id === id))
-    throw new Error(`assembly wire: gateway wire is missing expected blocklist entries: ${missing.join(', ')}`)
+  // block list 里的条目在网关清单里**不存在**是正常演进（官方把插件合并/下线，
+  // 例如 0.1.2 开发期把 ui-settings-models 合走）——此时没有段要剥，不该阻断装配。
+  // 只报告（宿主日志可见「网关改版」），不再抛错：抛错会让面板整个打不开。
+  // 代价（已知）：若官方把某个被拉黑的插件**改名**，新 id 不会被剥掉，官方件会
+  // 混进树里——那条 warn 是唯一线索，报错文案里带上缺失 id 便于定位。
+  const presentBlocked = blockedIds.filter((id) => wire.entries.some((e) => e.id === id))
+  if (presentBlocked.length !== blockedIds.length) {
+    const missing = blockedIds.filter((id) => !presentBlocked.includes(id))
+    onWarn?.(
+      `assembly wire: blocklist entries absent from the gateway wire (not filtered, harmless unless renamed upstream): ${missing.join(', ')}`,
+    )
   }
   const app = wire.batches.find((b) => b.phase === 'application')
   const bootstrap = wire.batches.find((b) => b.phase === 'bootstrap')
@@ -274,7 +283,7 @@ export function filterWire(
     throw new Error('assembly wire: missing bootstrap/application batch')
   }
   const keptIds = app.entries.filter((id) => !blocked.has(id))
-  if (keptIds.length !== app.entries.length - blockedIds.length) {
+  if (keptIds.length !== app.entries.length - presentBlocked.length) {
     throw new Error('assembly wire: application batch blocklist entries inconsistent with wire entries')
   }
   const localIds = [shellPluginId, ...extraPluginIds]
