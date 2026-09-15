@@ -47,11 +47,29 @@ const TARGET_ATTR = 'data-dshone-menu-target'
 /** 菜单盒标记属性（只在菜单开着时加在官方 Menu 的列表元素上）。 */
 const MENU_ATTR = 'data-dshone-menu'
 const MENU_ICON_MARK = 'icon'
+/** 图标项的标记属性与容器类（本插件自有，用来只命中我们自己那一项）。 */
+const ICON_ITEM_ATTR = 'data-dshone-icon-item'
+const ICON_ITEM_CLASS = 'dshOneMenu_iconItem'
 
 const CSS = [
-  // 官方 token：--dsw-alias-interactive-bg-active 是官方「按下/选中」档的底色
-  // （暗色主题实测 #ffffff24），比行内码自身底色亮一档，做高亮可见且随主题走。
-  `code[${TARGET_ATTR}]{background-color:var(--dsw-alias-interactive-bg-active);box-shadow:0 0 0 2px var(--dsw-alias-interactive-bg-active)}`,
+  // 右键目标高亮：以**官方侧栏当前会话行（选中态）**为基准。官方那条规则逐字是
+  // `.YDXeBa_sessionRow:hover, .YDXeBa_sessionRow.YDXeBa_selected { background:
+  // var(--dsw-alias-interactive-bg-hover) }`（无描边），所以底色取同一个 token；
+  // 行内码自身有底色、单靠底色不够显眼，再叠一圈官方细描边 token
+  // `--dsw-alias-border-l2`（官方菜单/卡片的描边同族）与同色外扩，形成明确轮廓。
+  // 全部官方 token，浅/暗主题自动跟随。
+  `code[${TARGET_ATTR}]{background-color:var(--dsw-alias-interactive-bg-hover);box-shadow:0 0 0 1px var(--dsw-alias-border-l2),0 0 0 3px var(--dsw-alias-interactive-bg-hover)}`,
+  // 单图标项：官方**没有纯图标菜单项的先例**（48 个插件 bundle 全量扫 items 条目：
+  // 19 条都有 label，没有一条是「有 icon 无 label」；官方的纯图标控件是 Button
+  // 工具条档，不是 Menu 项），所以按第 4 层兜底：只对**本图标项**改成对称内边距、
+  // 方盒（上下左右等值 12px，16px 图标 + 24px = 40px，仍与官方标准行高一致）。
+  // 判定用 :has(自有标记) —— 只命中我们自己那一项，不动官方任一项；:has 在本仓库
+  // 已有多处使用（导出胶囊、设置行动），目标运行环境（VS Code Electron / Chromium）
+  // 原生支持。风险：若官方未来给菜单项加同名 slot 结构，:has 仍只看我们自己的属性。
+  `[${MENU_ATTR}="${MENU_ICON_MARK}"] button[role="menuitem"]:has([${ICON_ITEM_ATTR}]){padding:12px;justify-content:center}`,
+  // 图标容器：flex 居中（消掉行内盒的基线偏移——实测改前图标上方 9px、下方 15px，
+  // 因为官方 itemLabel 是 22px 行盒、内联 svg 坐在基线上）。
+  `.${ICON_ITEM_CLASS}{display:flex;align-items:center;justify-content:center}`,
   // 单图标项：官方列表默认 min-width:218px（文字菜单的档位），图标项只需要图标
   // 的自然宽度，所以把列表收到内容宽。机制层 4 举证：官方 Menu 没有列表宽度属性口
   // （props 只有 open/anchor/items/onSelect/onClose/align/side/portal/
@@ -181,7 +199,11 @@ function ContextMenuLayer({ t }: LayerProps) {
   const items = [
     {
       id: 'copy-inline-code',
-      label: h('span', { 'aria-label': tr('copyInlineCode'), 'data-dshone-icon-item': '' }, h(IconCopyOutline16, {})),
+      label: h(
+        'span',
+        { className: ICON_ITEM_CLASS, 'aria-label': tr('copyInlineCode'), [ICON_ITEM_ATTR]: '' },
+        h(IconCopyOutline16, {}),
+      ),
     },
   ]
 
