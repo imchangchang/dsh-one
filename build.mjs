@@ -88,6 +88,12 @@ const SHELL_PLUGINS = [
     entry: 'src/ui/assembly/shell/gitCardPlugin.ts',
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
   },
+  {
+    // #65 批 1：右键菜单家族（官方 Menu 原语 + 官方 writeClipboard）。
+    id: '@dsh-one/vscode-context-menu',
+    entry: 'src/ui/assembly/shell/contextMenuPlugin.ts',
+    externals: ['@deepseek-ai/dsh-client-ui-primitives'],
+  },
 ]
 await fsp.rm('dist/assembly', { recursive: true, force: true })
 for (const plugin of SHELL_PLUGINS) {
