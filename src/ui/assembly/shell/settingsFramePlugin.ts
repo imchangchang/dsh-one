@@ -291,7 +291,7 @@ export function apply(ctx: ShellContext): void {
       ),
     )
     const disposeLocale = ctx.locale.register('dshOneSettings', {
-      zh: { openDocument: '打开配置文件' },
+      zh: { openDocument: '\u6253\u5f00\u914d\u7f6e\u6587\u4ef6' },
       en: { openDocument: 'Open configuration file' },
     })
     const disposePage = ctx.slots.register(

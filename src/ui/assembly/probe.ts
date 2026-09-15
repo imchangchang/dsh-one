@@ -15,14 +15,14 @@
  * 500 字符，绝不携带 cookie/token；外壳侧再过 Logger.sanitize 脱敏。
  */
 
-/** 探针内联脚本：pageHtml 以普通 <script nonce> 注入（head 最前，包住早期错误）。 */
+/** 探针内联脚本：pageHtml 以普通 <script nonce> 注入（head 最前，包住早期错误）。
+ * 统一获取点：VS Code 的 acquireVsCodeApi 全页只允许调一次——实例挂到
+ * 共享全局，自有插件（设置齿轮等 postMessage 方）一律经
+ * globalThis.__DSH_ONE_VSCODE__ 复用，不得自行再 acquire（二次调用 throw）。 */
 export function assemblyProbeJs(): string {
   return `(() => {
   if (typeof window.acquireVsCodeApi !== "function") return
   var vscode = window.acquireVsCodeApi()
-  // 统一获取点：VS Code 的 acquireVsCodeApi 全页只允许调一次——实例挂到
-  // 共享全局，自有插件（设置齿轮等 postMessage 方）一律经
-  // globalThis.__DSH_ONE_VSCODE__ 复用，不得自行再 acquire（二次调用 throw）。
   globalThis.__DSH_ONE_VSCODE__ = vscode
   var send = function (level, text) {
     try {
