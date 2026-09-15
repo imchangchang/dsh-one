@@ -65,31 +65,101 @@ const UI_LAYOUT: BlockedPlugin = {
  * chat 树 block list（#64）：装配对话区下官方外框 + 官方侧栏（侧栏由
  * dsh-one 侧栏位承担）。filterWire 的默认参数 = 本清单，#64 行为不变。
  */
+
+
+/**
+ * 对话流卡片组（#71 瘦身）：chat 树无关区（会话页卡片/工具/工作流/设置
+ * 子页等）。一条一理由；inject 闭包硬约束——保留 ui-input-trigger（ui-cordis
+ * 的 inputTriggers 服务依赖，已核实其 inject 列表）。
+ */
+const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
+  { id: '@deepseek-ai/dsh-client-ui-tool', reason: '工具调用卡片；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-workflow-run', reason: 'workflow 卡片；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-deliverables', reason: '产物卡片；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-trajectory', reason: '轨迹面板（390KB）；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-approval', reason: '审批卡片；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-attachment', reason: '消息附件画廊；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-subagent', reason: '子代理卡片；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-jobs', reason: '后台任务卡片；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-goal', reason: '目标卡片；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-plan', reason: '计划卡片；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-message-feedback', reason: '消息反馈；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-model-selection', reason: '模型选择浮层（composer 内）；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-skill', reason: '技能卡片；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-reference', reason: '引用解析卡片；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-session-log-export', reason: '会话日志导出（导出走宿主通道，#71 自有行动）' },
+  { id: '@deepseek-ai/dsh-client-ui-user-questions', reason: '用户提问卡片；sidebar/settings 树无对话区' },
+  { id: '@deepseek-ai/dsh-client-ui-directory-picker-native', reason: '原生目录选择器（VS Code 侧走宿主选择器）' },
+]
+
+/** 设置子页组（#71 瘦身）：设置独立成页后 chat/sidebar 树不再载设置子页。 */
+const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
+  { id: '@deepseek-ai/dsh-client-ui-settings-general', reason: 'General 节（含 SettingsRoot/modal）；设置独立成页后仅 settings 树需要' },
+  { id: '@deepseek-ai/dsh-client-ui-settings-models', reason: 'Models 节；设置独立成页后仅 settings 树需要' },
+  { id: '@deepseek-ai/dsh-client-ui-settings-plugins', reason: 'Plugins 节；设置独立成页后仅 settings 树需要' },
+  { id: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory', reason: '插件清单节；设置独立成页后仅 settings 树需要' },
+]
+
+/**
+ * sidebar 树 block list（#70，#71 瘦身）：官方外框 + 对话流卡片组 + 设置
+ * 子页组。保留闭包：ui-settings（settingsScope 服务提供方，theme 依赖）、
+ * ui-input-trigger（ui-cordis 的 inputTriggers 依赖）、ui-cordis（底部动作条）。
+ */
+// 侧栏树专属追加：permission-presets 依赖 ui-commands 的 commandUi 服务
+//（boot 门「pending (waiting for service: commandUi)」实锤），agent-preset
+// 的会话级 seat 挂在对话区——两棵对话树才需要。
+const SIDEBAR_ONLY: ReadonlyArray<BlockedPlugin> = [
+  { id: '@deepseek-ai/dsh-client-ui-chat', reason: 'chat 流卡片（大段）；settings 树需其「对话显示」设置行，侧栏不需要' },
+  { id: '@deepseek-ai/dsh-client-ui-conversation', reason: '对话流卡片宿主；设置树需其 composer 设置行（对话显示/Enter 行为），侧栏两不需要' },
+  { id: '@deepseek-ai/dsh-client-ui-commands', reason: '斜杠指令面板；settings 树需其 commandUi 服务（permission-presets 依赖），侧栏两不需要' },
+  { id: '@deepseek-ai/dsh-client-ui-permission-presets', reason: '依赖 commandUi（ui-commands 服务），侧栏树无对话区；composer 权限选择随对话树保留' },
+  { id: '@deepseek-ai/dsh-client-ui-agent-preset', reason: '会话级 seat 挂对话区 hero，侧栏树无处渲染' },
+]
+
+export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT, ...CHAT_FLOW, ...SETTINGS_PAGES, ...SIDEBAR_ONLY]
+
+/**
+ * chat 树 block list（#64 行为 + #71 瘦身）：官方外框、官方侧栏、设置子页组。
+ * 对话流卡片全保留（本树渲染它们）；composer hero 的 agent preset 与权限
+ * 选择保留（新会话功能）。
+ */
 export const CHAT_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
   UI_LAYOUT,
   {
     id: '@deepseek-ai/dsh-client-ui-sidebar',
-    // chat 树无侧栏：官方侧栏壳在对话区里无处渲染（#70 起侧栏位装配用
-    // sidebar 树，官方侧栏在那里上线）
-    reason: 'official sidebar shell has no seat in the chat tree; the sidebar seat is served by the sidebar tree assembly (#70)',
+    reason: 'chat 树无侧栏：官方侧栏壳在对话区里无处渲染（侧栏位由 sidebar 树承担，#70）',
   },
+  ...SETTINGS_PAGES,
 ]
 
 /**
- * sidebar 树 block list（#70）：侧栏位装配只下官方外框。官方侧栏插件
- * （品牌位/工作区树/设置入口/底部动作条）与设置四件套原样保留——设置
- * 面板即官方 SettingsRoot modal（spike #69 题3 结论：零替换）。
+ * settings 树 block list（#70 设置独立成页 + #71 瘦身）：官方外框、官方
+ * 侧栏、对话流卡片组。设置四件套/主题/权限/预设全保留（设置页内容）。
  */
-export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT]
+export const SETTINGS_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
+  UI_LAYOUT,
+  {
+    id: '@deepseek-ai/dsh-client-ui-sidebar',
+    // 设置页 frame 只声明侧栏壳子槽、不渲染 sidebar——ui-sidebar 的槽注册
+    // 在无人声明 'sidebar' 时 loud throw（spike #69 题3 实锤），必须下线
+    reason: 'settings tree declares the sidebar shell children but not the sidebar slot; ui-sidebar registration loud-throws when undeclared (#69)',
+  },
+  ...CHAT_FLOW,
+]
 
 /** block list → id 列表。 */
 export const blockedIdsOf = (list: ReadonlyArray<BlockedPlugin>): string[] => list.map((b) => b.id)
 
-/** chat 树 blocked id（assemblyMirror 默认过滤集；#64 口径不变）。 */
-export const CHAT_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(CHAT_BLOCK_LIST)
+
 
 /** sidebar 树 blocked id。 */
 export const SIDEBAR_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(SIDEBAR_BLOCK_LIST)
+
+/** chat 树 blocked id。 */
+export const CHAT_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(CHAT_BLOCK_LIST)
+
+/** settings 树 blocked id。 */
+export const SETTINGS_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(SETTINGS_BLOCK_LIST)
 
 /** chat 树自有 shell 插件 id（root 外框/layout 桩/ThemePresenter，经 mirror /plugins-local 伺服)。 */
 export const SHELL_PLUGIN_ID = '@dsh-one/vscode-shell'

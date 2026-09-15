@@ -139,13 +139,15 @@ function ShellFrame({ useStore, useSessions, actions, renderSlot, SessionProvide
   const currentSession = useSessions((s) => s.current)
   const [revealedByTimeout, setRevealedByTimeout] = useState(false)
   useEffect(() => {
-    if (bootId === undefined || currentSession === bootId) return
+    // 超时只按 bootId 起一次：活网关列表持续更新会反复触发 current 变化，
+    // 若随 current 重置定时器，兜底永不降临（NO-FLASH 实测抓出）。
+    if (bootId === undefined) return
     const timer = setTimeout(() => {
       console.warn(`[dsh-one] opening session ${bootId} timed out; revealing the shell anyway`)
       setRevealedByTimeout(true)
     }, OPENING_MASK_TIMEOUT_MS)
     return () => clearTimeout(timer)
-  }, [bootId, currentSession])
+  }, [bootId])
   const tr = t
   const opening = bootId !== undefined && currentSession !== bootId && !revealedByTimeout
   return h(

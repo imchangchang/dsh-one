@@ -11,6 +11,7 @@ import { parse as parseSemver, compare as compareSemver } from '../pure/semver.t
 import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import {
   CHAT_BLOCK_LIST,
+  SETTINGS_BLOCK_LIST,
   SIDEBAR_BLOCK_LIST,
   SETTINGS_GEAR_PLUGIN_ID,
   SETTINGS_SHELL_PLUGIN_ID,
@@ -93,7 +94,7 @@ interface AssemblyTree {
  * 三棵树（#64 chat / #70 sidebar + settings）：
  * - chat 树：装配对话区
  * - sidebar 树：侧栏位（追加设置齿轮影子）
- * - settings 树：设置独立成页（block list 同 chat 树，官方侧栏壳不进页）
+ * - settings 树：设置独立成页（block list = 外框 + 对话流卡片组）
  */
 const CHAT_TREE: AssemblyTree = {
   blockList: CHAT_BLOCK_LIST,
@@ -106,7 +107,7 @@ const SIDEBAR_TREE: AssemblyTree = {
   extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SETTINGS_GEAR_PLUGIN_ID, SESSION_BRIDGE_PLUGIN_ID],
 }
 const SETTINGS_TREE: AssemblyTree = {
-  blockList: CHAT_BLOCK_LIST,
+  blockList: SETTINGS_BLOCK_LIST,
   shellPluginId: SETTINGS_SHELL_PLUGIN_ID,
   extraPluginIds: [THEME_FOLLOW_PLUGIN_ID],
 }
@@ -387,6 +388,29 @@ function releaseSharedMirror(mirror: AssemblyMirror): void {
       }
       return
     }
+  }
+}
+
+/**
+ * #71 预热：扩展激活且网关 running 即后台暖共享代理 + 三树过滤整包缓存
+ * （mirror 起 loopback + 每树 filtered combo 预取——省首个面板的网关往返
+ * 与装配初始化）。静默：失败只落日志，绝不挡激活、不弹窗。webview 磁盘
+ * 缓存与宿主不同分区，无法也不需从宿主预热（共享 mirror 已让整包 URL
+ * 稳定，首个 webview 自己会缓存）。
+ */
+export async function preheatAssembly(context: vscode.ExtensionContext, manager: ServerManager, logger: Logger): Promise<void> {
+  try {
+    if (manager.getStatus().state !== 'running') return
+    const mirror = await acquireSharedMirror(context, manager, logger)
+    // 每树预取一次 combo：请求里带一个保留段官方 id（触发该树过滤整包的
+    // 拉取与伺服缓存）+ 该树 shell id（缓存路由键）。rev 任意值即可（缓存键）。
+    for (const shellId of [SHELL_PLUGIN_ID, SIDEBAR_SHELL_PLUGIN_ID, SETTINGS_SHELL_PLUGIN_ID]) {
+      await fetch(`${mirror.origin}/plugins-local/??@deepseek-ai/dsh-client-ui-theme/client.js,${shellId}/client.js&rev=preheat`)
+    }
+    releaseSharedMirror(mirror)
+    logger.info('assembly preheat: shared mirror + tree combos warmed')
+  } catch (err) {
+    logger.warn(`assembly preheat skipped: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 

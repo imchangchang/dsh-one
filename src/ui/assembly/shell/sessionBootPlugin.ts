@@ -66,6 +66,8 @@ const timingLog = (phase: string, detail = ''): void => {
 export const inject = ['sessions']
 
 export function apply(ctx: BootContext): void {
+  // apply 时刻 ≈ 整树插件装载完（本插件在 application 批末位）。
+  timingLog('apply')
   const target = bootSessionId()
   // 整包网络字节（transferSize=0 = 命中 HTTP 缓存，#71 性能对照指标）。
   const comboEntry = performance
