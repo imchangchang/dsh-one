@@ -15,6 +15,8 @@ import {
   SETTINGS_SHELL_PLUGIN_ID,
   SHELL_PLUGIN_ID,
   SIDEBAR_SHELL_PLUGIN_ID,
+  SESSION_BOOT_PLUGIN_ID,
+  SESSION_BRIDGE_PLUGIN_ID,
   THEME_FOLLOW_PLUGIN_ID,
   extractBootWire,
   extractFrontendAssets,
@@ -94,12 +96,12 @@ interface AssemblyTree {
 const CHAT_TREE: AssemblyTree = {
   blockList: CHAT_BLOCK_LIST,
   shellPluginId: SHELL_PLUGIN_ID,
-  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID],
+  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SESSION_BOOT_PLUGIN_ID],
 }
 const SIDEBAR_TREE: AssemblyTree = {
   blockList: SIDEBAR_BLOCK_LIST,
   shellPluginId: SIDEBAR_SHELL_PLUGIN_ID,
-  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SETTINGS_GEAR_PLUGIN_ID],
+  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SETTINGS_GEAR_PLUGIN_ID, SESSION_BRIDGE_PLUGIN_ID],
 }
 const SETTINGS_TREE: AssemblyTree = {
   blockList: CHAT_BLOCK_LIST,
@@ -190,78 +192,131 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
   })
 }
 
-/** 注册「装配对话区」命令：打开 mirror 伺服的 cordis 装配页 webview 面板。 */
-export function registerAssembledChat(
+/**
+ * #71 tab 管理：sessionId → chat 面板映射。命令开的默认 tab 无会话注入
+ * （官方恢复行为，#68 语义），它启动后由 sessionMeta 上报把恢复值挂进映射；
+ * 会话 tab 由映射聚焦复用，关 tab 即清映射。
+ */
+const sessionTabs = new Map<string, vscode.WebviewPanel>()
+const panelSessionId = new WeakMap<vscode.WebviewPanel, string>()
+let chatDeps: { context: vscode.ExtensionContext; manager: ServerManager; logger: Logger } | undefined
+
+/** 会话 tab 的装配（命令路径的复用体）：opts.sessionId 有值 = 会话 tab（注入启动）。 */
+async function openChatPanel(
   context: vscode.ExtensionContext,
   manager: ServerManager,
   logger: Logger,
-): vscode.Disposable {
-  return vscode.commands.registerCommand('dshOne.assembledChat', async () => {
-    const status = await manager.ensureStarted()
-    if (status.state !== 'running' || !status.url) {
-      void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
-      return
-    }
-    let assembly: GatewayAssembly
-    try {
-      assembly = await loadGatewayAssembly(status.url, CHAT_TREE)
-    } catch (err) {
-      void vscode.window.showErrorMessage(
-        vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
-      )
-      return
-    }
-    let mirror: AssemblyMirror
-    try {
-      mirror = await startAssemblyMirror(
-        () => manager.getStatus().url,
-        logger,
-        {
-          pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
-          blockList: CHAT_TREE.blockList,
-        },
-      )
-    } catch (err) {
-      void vscode.window.showErrorMessage(
-        vscode.l10n.t('Failed to start the assembly mirror: {0}', err instanceof Error ? err.message : String(err)),
-      )
-      return
-    }
-    // 后开替换先开：只保留一个装配面板与其 mirror。replace 期间的 dispose 是
-    // 我们自己触发的，不算用户手动关闭。
+  options: { sessionId?: string } = {},
+): Promise<void> {
+  const status = await manager.ensureStarted()
+  if (status.state !== 'running' || !status.url) {
+    void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
+    return
+  }
+  const sessionId = options.sessionId
+  let assembly: GatewayAssembly
+  try {
+    assembly = await loadGatewayAssembly(status.url, CHAT_TREE)
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
+    )
+    return
+  }
+  let mirror: AssemblyMirror
+  try {
+    mirror = await startAssemblyMirror(
+      () => manager.getStatus().url,
+      logger,
+      {
+        pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
+        blockList: CHAT_TREE.blockList,
+      },
+    )
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      vscode.l10n.t('Failed to start the assembly mirror: {0}', err instanceof Error ? err.message : String(err)),
+    )
+    return
+  }
+  if (sessionId === undefined) {
+    // 默认 tab：后开替换先开。replace 期间的 dispose 是我们自己触发的，不算
+    // 用户手动关闭。
     replacing = true
     try {
       active?.panel.dispose()
     } finally {
       replacing = false
     }
-    const panel = vscode.window.createWebviewPanel(
-      ASSEMBLED_CHAT_VIEW_TYPE,
-      vscode.l10n.t('dsh Chat (assembled)'),
-      vscode.ViewColumn.Active,
-      { enableScripts: true, retainContextWhenHidden: true },
-    )
+  }
+  const panel = vscode.window.createWebviewPanel(
+    ASSEMBLED_CHAT_VIEW_TYPE,
+    sessionId === undefined ? vscode.l10n.t('dsh Chat (assembled)') : `dsh: ${sessionId.slice(0, 13)}`,
+    vscode.ViewColumn.Active,
+    { enableScripts: true, retainContextWhenHidden: true },
+  )
+  if (sessionId !== undefined) {
+    sessionTabs.set(sessionId, panel)
+    panelSessionId.set(panel, sessionId)
+  } else {
     active = { panel, mirror }
-    logger.info(`assembled chat: ${mirror.origin}`)
-    const probeSub = subscribeAssemblyProbe(panel.webview, logger)
-    trackAssemblyWebview(context, panel.webview)
-    panel.onDidDispose(() => {
-      probeSub.dispose()
-      untrackAssemblyWebview(panel.webview)
-      if (active?.panel === panel) active = undefined
-      if (!replacing) closedByUser = true
-      mirror.dispose()
-    })
-    panel.webview.html = assemblyPageHtml({
-      mirrorOrigin: mirror.origin,
-      cspNonce: crypto.randomBytes(16).toString('base64'),
-      assets: assembly.assets,
-      bootWire: assembly.wire,
-      bootstrapUrl: assembly.wire.batches[0].url,
-      theme: currentTheme(),
-      banner: versionBanner(dshVersion(status.url) ?? status.version),
-    })
+  }
+  logger.info(`assembled chat: ${mirror.origin}${sessionId === undefined ? '' : ` session=${sessionId.slice(0, 13)}`}`)
+  const probeSub = subscribeAssemblyProbe(panel.webview, logger)
+  // 活跃/标题上报（session-boot 插件）：维护映射 + 面板标题跟随会话标题。
+  const metaSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
+    if (typeof msg !== 'object' || msg === null) return
+    const m = msg as { type?: unknown; sessionId?: unknown; title?: unknown }
+    if (m.type !== 'dshOne.sessionMeta' || typeof m.sessionId !== 'string') return
+    const old = panelSessionId.get(panel)
+    if (old !== undefined && old !== m.sessionId) sessionTabs.delete(old)
+    sessionTabs.set(m.sessionId, panel)
+    panelSessionId.set(panel, m.sessionId)
+    if (typeof m.title === 'string' && m.title !== '') panel.title = `dsh: ${m.title}`
   })
+  trackAssemblyWebview(context, panel.webview)
+  panel.onDidDispose(() => {
+    probeSub.dispose()
+    metaSub.dispose()
+    untrackAssemblyWebview(panel.webview)
+    const mapped = panelSessionId.get(panel)
+    if (mapped !== undefined && sessionTabs.get(mapped) === panel) sessionTabs.delete(mapped)
+    if (active?.panel === panel) active = undefined
+    if (sessionId === undefined && !replacing) closedByUser = true
+    mirror.dispose()
+  })
+  panel.webview.html = assemblyPageHtml({
+    mirrorOrigin: mirror.origin,
+    cspNonce: crypto.randomBytes(16).toString('base64'),
+    assets: assembly.assets,
+    bootWire: assembly.wire,
+    bootstrapUrl: assembly.wire.batches[0].url,
+    theme: currentTheme(),
+    banner: versionBanner(dshVersion(status.url) ?? status.version),
+    bootSessionId: sessionId,
+  })
+}
+
+/** 侧栏桥消息落点：有 tab 聚焦，无 tab 新建（页面注入 bootSessionId）。 */
+async function openSessionChat(sessionId: string): Promise<void> {
+  const existing = sessionTabs.get(sessionId)
+  if (existing !== undefined) {
+    existing.reveal()
+    return
+  }
+  const deps = chatDeps
+  if (deps === undefined) return
+  await openChatPanel(deps.context, deps.manager, deps.logger, { sessionId })
+}
+
+/** 注册「装配对话区」命令：默认 tab（无会话注入，官方恢复行为）。 */
+export function registerAssembledChat(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+): vscode.Disposable {
+  chatDeps = { context, manager, logger }
+  return vscode.commands.registerCommand('dshOne.assembledChat', () => openChatPanel(context, manager, logger))
 }
 
 /**
@@ -328,6 +383,10 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
       const type = (msg as { type?: unknown }).type
       if (type === 'assembly:retry') void this.assemble(view)
       else if (type === 'dshOne.openSettings') this.onOpenSettings?.()
+      else if (type === 'dshOne.sessionSelected') {
+        const sessionId = (msg as { sessionId?: unknown }).sessionId
+        if (typeof sessionId === 'string' && sessionId !== '') void openSessionChat(sessionId)
+      }
     })
     const visibilitySub = view.onDidChangeVisibility(() => {
       if (view.visible) this.onDidBecomeVisible?.()

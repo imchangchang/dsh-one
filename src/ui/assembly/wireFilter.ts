@@ -117,6 +117,18 @@ export const THEME_FOLLOW_PLUGIN_ID = '@dsh-one/vscode-theme-follow'
  */
 export const SETTINGS_GEAR_PLUGIN_ID = '@dsh-one/vscode-settings-gear'
 
+/**
+ * 侧栏树会话桥插件 id（#71）：订阅官方 sessions 服务选中变化，postMessage
+ * dshOne.sessionSelected 给宿主（机制层 2 官方服务 API，spike #69 题2 实证）。
+ */
+export const SESSION_BRIDGE_PLUGIN_ID = '@dsh-one/vscode-session-bridge'
+
+/**
+ * chat 树会话启动注入插件 id（#71）：读 __DSH_ONE_BOOT__.sessionId →
+ * sessions.open(id)（spike #69 题4 机制实证）+ 活跃/标题上报。
+ */
+export const SESSION_BOOT_PLUGIN_ID = '@dsh-one/vscode-session-boot'
+
 /** 从网关 `/` 注入 HTML 提取 __DSH_BOOT__ JSON（官方把 `<` 转义成 \u003c，JSON.parse 直接还原)。 */
 export function extractBootWire(html: string): BootWire {
   const m = /globalThis\["__DSH_BOOT__"\] = (\{[\s\S]*?\})<\/script>/.exec(html)

@@ -51,6 +51,8 @@ export interface AssemblyPageOptions {
   csp?: boolean
   /** 实验开关：false 时去掉 __DSH_TRANSPORT__ 桥（A/C 变体对照）。生产恒缺省。 */
   transport?: boolean
+  /** #71 tab 启动注入：宿主给的会话 id；缺省无注入（官方恢复行为）。 */
+  bootSessionId?: string
 }
 
 import { assemblyProbeJs } from './probe.ts'
@@ -239,6 +241,7 @@ function themePresetJs(theme: 'dark' | 'light'): string {
 
 export function assemblyPageHtml(options: AssemblyPageOptions): string {
   const { mirrorOrigin, cspNonce, assets, bootWire, bootstrapUrl, theme, banner } = options
+  const bootGlobals = `    <script nonce="${cspNonce}">globalThis.__DSH_ONE_BOOT__ = ${JSON.stringify({ sessionId: options.bootSessionId ?? null })}</script>\n`
   const cspOn = options.csp !== false
   const transportOn = options.transport !== false
   const csp = CSP.replace('NONCE', cspNonce)
@@ -265,7 +268,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
 ${cspMeta}    <title>DeepSeek Harness (assembled)</title>
     <script nonce="${cspNonce}">${assemblyProbeJs()}</script>
     <script nonce="${cspNonce}">${QUEUE_FACADE_JS}</script>
-${bodyReset}${preload}
+${bodyReset}${bootGlobals}${preload}
 ${styles}
     <script nonce="${cspNonce}">globalThis["__DSH_BOOT__"] = ${jsonForScript(bootWire)}</script>
     <script src="${escapeAttr(bootstrapUrl)}"></script>

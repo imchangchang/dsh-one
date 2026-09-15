@@ -68,6 +68,8 @@ const SHELL_PLUGINS = [
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
   },
   { id: '@dsh-one/vscode-theme-follow', entry: 'src/ui/assembly/shell/themeFollowPlugin.ts' },
+  { id: '@dsh-one/vscode-session-bridge', entry: 'src/ui/assembly/shell/sessionBridgePlugin.ts' },
+  { id: '@dsh-one/vscode-session-boot', entry: 'src/ui/assembly/shell/sessionBootPlugin.ts' },
   {
     id: '@dsh-one/vscode-settings-gear',
     entry: 'src/ui/assembly/shell/settingsGearPlugin.ts',
