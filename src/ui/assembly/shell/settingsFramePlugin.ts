@@ -17,6 +17,7 @@
  *   __DSH_TRANSPORT__.ownsHost（client-connection isLoopback 判定），此处消费。
  */
 import { createElement as h, useEffect, useState } from 'react'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createLayoutStore, LayoutController, ThemePresenter, type ThemeSnapshot } from './frameShared'
 
 // ---------------------------------------------------------------------------
@@ -61,6 +62,8 @@ interface SlotsService {
 interface LocaleService {
   getSnapshot(): { revision: number }
   subscribe(listener: () => void): () => void
+  /** 注册自有命名空间词典（ui-settings-general 同款 API，机制层 2）。 */
+  register(ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): () => void
 }
 
 interface ShellContext {
@@ -77,7 +80,7 @@ interface ShellContext {
 // 188px、内容区滚动；窄视口整列自适应。
 // ---------------------------------------------------------------------------
 
-const CSS = '.dshOneSettingsShell_page{background:var(--dsw-alias-bg-base);height:100%;display:flex;justify-content:center;overflow:hidden}.dshOneSettingsShell_column{box-sizing:border-box;width:800px;max-width:calc(100vw - 32px);height:100%;display:flex;overflow:hidden}.dshOneSettingsShell_nav{flex:none;box-sizing:border-box;width:188px;flex-direction:column;gap:4px;border-right:.5px solid var(--dsw-alias-border-l3);padding:22px 12px 12px;display:flex}.dshOneSettingsShell_navTitle{padding:0 12px 14px;font-size:16px;font-weight:500;line-height:24px;color:var(--dsw-alias-label-primary)}.dshOneSettingsShell_navCell{box-sizing:border-box;cursor:pointer;height:40px;color:var(--dsw-alias-label-primary);text-align:left;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:9px 16px 9px 12px;font-family:inherit;font-size:14px;line-height:22px;display:flex}.dshOneSettingsShell_navCell:hover{background:var(--dsw-specific-sidebar-nav-item-hover)}.dshOneSettingsShell_navCell[data-active]{background:var(--dsw-specific-sidebar-nav-item-active)}.dshOneSettingsShell_navLabel{white-space:nowrap;text-overflow:ellipsis;flex:1;min-width:0;overflow:hidden}.dshOneSettingsShell_content{flex:1;min-width:0;flex-direction:column;display:flex;overflow:hidden}.dshOneSettingsShell_actions{flex:none;box-sizing:border-box;height:54px;display:flex;justify-content:flex-end;align-items:flex-start;gap:8px;padding:20px 14px 8px 10px}.dshOneSettingsShell_sections{flex:1;min-height:0;overflow-y:auto;padding:0 24px 24px}.dshOneSettingsShell_sections [data-slot="settings.general.item"]>*:has(button[aria-pressed]){display:none}'
+const CSS = '.dshOneSettingsShell_page{background:var(--dsw-alias-bg-base);height:100%;display:flex;justify-content:center;overflow:hidden}.dshOneSettingsShell_column{box-sizing:border-box;width:800px;max-width:calc(100vw - 32px);height:100%;display:flex;overflow:hidden}.dshOneSettingsShell_nav{flex:none;box-sizing:border-box;width:188px;flex-direction:column;gap:4px;border-right:.5px solid var(--dsw-alias-border-l3);padding:22px 12px 12px;display:flex}.dshOneSettingsShell_navTitle{padding:0 12px 14px;font-size:16px;font-weight:500;line-height:24px;color:var(--dsw-alias-label-primary)}.dshOneSettingsShell_navCell{box-sizing:border-box;cursor:pointer;height:40px;color:var(--dsw-alias-label-primary);text-align:left;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:9px 16px 9px 12px;font-family:inherit;font-size:14px;line-height:22px;display:flex}.dshOneSettingsShell_navCell:hover{background:var(--dsw-specific-sidebar-nav-item-hover)}.dshOneSettingsShell_navCell[data-active]{background:var(--dsw-specific-sidebar-nav-item-active)}.dshOneSettingsShell_navLabel{white-space:nowrap;text-overflow:ellipsis;flex:1;min-width:0;overflow:hidden}.dshOneSettingsShell_content{flex:1;min-width:0;flex-direction:column;display:flex;overflow:hidden}.dshOneSettingsShell_actions{flex:none;box-sizing:border-box;height:54px;display:flex;justify-content:flex-end;align-items:flex-start;gap:8px;padding:20px 14px 8px 10px}.dshOneSettingsShell_sections{flex:1;min-height:0;overflow-y:auto;padding:0 24px 24px}.dshOneSettingsShell_sections [data-slot="settings.general.item"]>*:has(button[aria-pressed]){display:none}.dshOneSettingsShell_actions [data-slot="settings.action"]>*:not(:has([data-dshone-doc-action])){display:none}'
 const CSS_TAG_ID = '@dsh-one/vscode-settings-shell/SettingsPage.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
@@ -179,6 +182,37 @@ function SettingsPage({ renderSlot, sections }: SettingsFrameProps) {
   )
 }
 
+/** 「打开配置文件」自有行动（机制层 1：settings.action 是 list 座位，追加
+ * id 'open-document-vscode' 贡献；外观用官方 Button 原语与官方
+ * SettingsDocumentAction 同款，点击 postMessage 宿主走 VS Code 编辑器——
+ * 官方实现是 remote.settings.openSettingsDocument RPC 由网关宿主打开，无
+ * 客户端改道钩子（机制层 3 不存在：SettingsDocumentStore.open 直调 RPC）。 */
+function OpenDocAction({ t }: { t: (key: string) => string }) {
+  const tr = t
+  return h(
+    'div',
+    { 'data-dshone-doc-action': '', style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+    h(Button, { variant: 'outline', size: 'sm', onClick: postOpenDocument }, tr('openDocument')),
+  )
+}
+
+const postOpenDocument = (): void => {
+  const g = globalThis as {
+    __DSH_ONE_VSCODE__?: { postMessage(msg: unknown): void }
+    acquireVsCodeApi?: () => { postMessage(msg: unknown): void }
+  }
+  let vscode = g.__DSH_ONE_VSCODE__
+  if (vscode === undefined && typeof g.acquireVsCodeApi === 'function') {
+    try {
+      vscode = g.acquireVsCodeApi()
+      g.__DSH_ONE_VSCODE__ = vscode
+    } catch {
+      /* 二次 acquire throw（probe 已持有且全局缺失，不应发生） */
+    }
+  }
+  vscode?.postMessage({ type: 'dshOne.openSettingsDocument' })
+}
+
 /** 根组件：整页只渲染 settings page 座位。 */
 function SettingsFrame({ renderSlot }: { renderSlot: SettingsFrameProps['renderSlot'] }) {
   return h('div', { className: 'dshOneSettingsShell_root', style: { height: '100%' } }, renderSlot('dshOne.settings.page', {}))
@@ -243,6 +277,23 @@ export function apply(ctx: ShellContext): void {
       },
       SettingsFrame,
     )
+    // 自有「打开配置文件」行动（list 座位追加贡献，机制层 1）。
+    const disposeDocAction = ctx.slots.inject('settings.action', () =>
+      ctx.slots.register(
+        {
+          name: 'settings.action',
+          id: 'open-document-vscode',
+          order: 1,
+          locale: 'dshOneSettings',
+          inject: () => ({}),
+        },
+        OpenDocAction,
+      ),
+    )
+    const disposeLocale = ctx.locale.register('dshOneSettings', {
+      zh: { openDocument: '打开配置文件' },
+      en: { openDocument: 'Open configuration file' },
+    })
     const disposePage = ctx.slots.register(
       {
         name: 'dshOne.settings.page',
@@ -261,10 +312,12 @@ export function apply(ctx: ShellContext): void {
     )
     return () => {
       disposePage()
+      disposeDocAction()
+      disposeLocale()
       disposeRoot()
       disposeService()
     }
-  }, 'dsh-one settings shell: layout service + root + settings page seat')
+  }, 'dsh-one settings shell: layout service + root + settings page seat + doc action')
   ctx.effect(() => {
     const presenter = new ThemePresenter()
     presenter.apply(ctx.theme.getTheme())

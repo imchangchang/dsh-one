@@ -61,7 +61,12 @@ if (results.some((r) => r.warnings.length > 0)) {
 const SHELL_PLUGINS = [
   { id: '@dsh-one/vscode-shell', entry: 'src/ui/assembly/shell/clientEntry.ts' },
   { id: '@dsh-one/vscode-sidebar-shell', entry: 'src/ui/assembly/shell/sidebarFrameEntry.ts' },
-  { id: '@dsh-one/vscode-settings-shell', entry: 'src/ui/assembly/shell/settingsFramePlugin.ts' },
+  {
+    id: '@dsh-one/vscode-settings-shell',
+    entry: 'src/ui/assembly/shell/settingsFramePlugin.ts',
+    // 设置行动用官方 Button 原语（与齿轮同款 require 源，种子表满足）。
+    externals: ['@deepseek-ai/dsh-client-ui-primitives'],
+  },
   { id: '@dsh-one/vscode-theme-follow', entry: 'src/ui/assembly/shell/themeFollowPlugin.ts' },
   {
     id: '@dsh-one/vscode-settings-gear',

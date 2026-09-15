@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import type { ServerManager } from '../server/manager.ts'
 import { sanitize, type Logger } from '../log.ts'
@@ -415,6 +416,17 @@ export function revealAssembledSettings(): boolean {
   return true
 }
 
+/** 用 VS Code 编辑器打开 dsh 设置文档（~/.dsh/settings.yaml）。 */
+async function openSettingsDocumentInEditor(): Promise<void> {
+  const doc = vscode.Uri.file(path.join(os.homedir(), '.dsh', 'settings.yaml'))
+  try {
+    const textDoc = await vscode.workspace.openTextDocument(doc)
+    await vscode.window.showTextDocument(textDoc, { preview: false })
+  } catch {
+    void vscode.window.showErrorMessage(vscode.l10n.t('The dsh settings file was not found at ~/.dsh/settings.yaml'))
+  }
+}
+
 /** 注册设置面板命令（#70 设置独立成页）：dshOne.assembledSettings。 */
 export function registerAssembledSettings(
   context: vscode.ExtensionContext,
@@ -467,9 +479,17 @@ export function registerAssembledSettings(
     activeSettings = { panel, mirror }
     logger.info(`assembled settings: ${mirror.origin}`)
     const probeSub = subscribeAssemblyProbe(panel.webview, logger)
+    // 「打开配置文件」行动（自有 settings.action 贡献 postMessage）：用 VS Code
+    // 编辑器打开 dsh 设置文档（官方实现是网关宿主侧打开，无客户端改道钩子；
+    // 路径 = DSH home 的 settings.yaml，与 ~/.dsh 布局一致，见 ownedRecord）。
+    const docSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
+      if (typeof msg !== 'object' || msg === null || (msg as { type?: unknown }).type !== 'dshOne.openSettingsDocument') return
+      void openSettingsDocumentInEditor()
+    })
     trackAssemblyWebview(context, panel.webview)
     panel.onDidDispose(() => {
       probeSub.dispose()
+      docSub.dispose()
       untrackAssemblyWebview(panel.webview)
       if (activeSettings?.panel === panel) activeSettings = undefined
       mirror.dispose()

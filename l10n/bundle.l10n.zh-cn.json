@@ -224,5 +224,6 @@
   "The connected dsh is {0}, which may not match this chat assembly (expects {1}).": "当前连接的 dsh 是 {0}，可能与本装配对话区不匹配（要求 {1}）。",
   "DSH sidebar failed to load: {0}": "DSH 侧栏加载失败：{0}",
   "Retry": "重试",
-  "dsh Settings (assembled)": "dsh 设置（装配）"
+  "dsh Settings (assembled)": "dsh 设置（装配）",
+  "The dsh settings file was not found at ~/.dsh/settings.yaml": "未找到 dsh 设置文件 ~/.dsh/settings.yaml"
 }
