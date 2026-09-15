@@ -56,6 +56,7 @@ export interface AssemblyPageOptions {
 }
 
 import { assemblyProbeJs } from './probe.ts'
+import { hostSdkJs } from './hostSdk.ts'
 
 const CSP = [
   "default-src 'none'",
@@ -271,7 +272,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
 ${cspMeta}    <title>DeepSeek Harness (assembled)</title>
     <script nonce="${cspNonce}">${assemblyProbeJs()}</script>
     <script nonce="${cspNonce}">${QUEUE_FACADE_JS}</script>
-${bodyReset}${bootGlobals}${preload}
+    <script nonce="${cspNonce}">${hostSdkJs()}</script>${bodyReset}${bootGlobals}${preload}
 ${styles}
     <script nonce="${cspNonce}">globalThis["__DSH_BOOT__"] = ${jsonForScript(bootWire)}</script>
     <script src="${escapeAttr(bootstrapUrl)}"></script>

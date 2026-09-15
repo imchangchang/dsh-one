@@ -9,6 +9,7 @@ import { startAssemblyMirror, type AssemblyMirror } from '../server/assemblyMirr
 import { cookieHeader, dshVersion } from '../server/serverAuth.ts'
 import { parse as parseSemver, compare as compareSemver } from '../pure/semver.ts'
 import { assemblyPageHtml } from './assembly/pageHtml.ts'
+import { subscribeHostCalls } from './assembly/hostBridge.ts'
 import {
   CHAT_BLOCK_LIST,
   SETTINGS_BLOCK_LIST,
@@ -279,11 +280,15 @@ async function openChatPanel(
     panelSessionId.set(panel, m.sessionId)
     if (typeof m.title === 'string' && m.title !== '') panel.title = `dsh: ${m.title}`
   })
+  // 宿主能力桥（#65 批 1）：页面插件（git 卡片/右键菜单等）经它取 git 数据与
+  // VS Code 动作；白名单 + 参数校核在 hostBridge 内收口。
+  const hostSub = subscribeHostCalls(panel.webview, logger)
   trackAssemblyWebview(context, panel.webview)
   panel.onDidDispose(() => {
     probeSub.dispose()
     exportSub.dispose()
     metaSub.dispose()
+    hostSub.dispose()
     untrackAssemblyWebview(panel.webview)
     const mapped = panelSessionId.get(panel)
     if (mapped !== undefined && sessionTabs.get(mapped) === panel) sessionTabs.delete(mapped)
@@ -488,6 +493,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
   resolveWebviewView(view: vscode.WebviewView): void {
     view.webview.options = { enableScripts: true }
     const probeSub = subscribeAssemblyProbe(view.webview, this.logger)
+    const hostSub = subscribeHostCalls(view.webview, this.logger)
     trackAssemblyWebview(this.context, view.webview)
     const retrySub = view.webview.onDidReceiveMessage((msg: unknown) => {
       if (typeof msg !== 'object' || msg === null) return
@@ -504,6 +510,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
     })
     view.onDidDispose(() => {
       probeSub.dispose()
+      hostSub.dispose()
       retrySub.dispose()
       visibilitySub.dispose()
       untrackAssemblyWebview(view.webview)
@@ -641,10 +648,12 @@ export function registerAssembledSettings(
       if (typeof msg !== 'object' || msg === null || (msg as { type?: unknown }).type !== 'dshOne.openSettingsDocument') return
       void openSettingsDocumentInEditor()
     })
+    const hostSub = subscribeHostCalls(panel.webview, logger)
     trackAssemblyWebview(context, panel.webview)
     panel.onDidDispose(() => {
       probeSub.dispose()
       docSub.dispose()
+      hostSub.dispose()
       untrackAssemblyWebview(panel.webview)
       if (activeSettings?.panel === panel) activeSettings = undefined
       releaseSharedMirror(mirror)
