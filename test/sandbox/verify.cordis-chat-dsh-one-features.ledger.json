@@ -1,14 +1,14 @@
 {
   "title": "DSH One 装配线测试报告：对话区功能插件化批 1（#65）",
   "branch": "agent/cordis-chat-dsh-one-features",
-  "commit": "508462762d79532fb9c33ce3f10764970f34d079",
+  "commit": "938a27912a3d29315504c656d03f39e9a1156f46",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
     "dsh": "0.1.2-rc.1",
     "locale": "zh-cn",
     "theme": "dark（含 light 切换断言）",
-    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（75 条断言）",
-    "date": "2026-09-15T09:35:05.704Z"
+    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（76 条断言）",
+    "date": "2026-09-15T09:47:34.061Z"
   },
   "coverageNote": "本报告是浏览器验证（第一道验证）：装配页 + 真实网关只读 + 假宿主（能力桥的宿主侧在假宿主里按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/内置浏览器命令）、运行中回合的停止路径（需要真回合）、真模型输出。这些见 VS Code 验证清单。",
   "items": [
@@ -21,19 +21,19 @@
       "screenshots": [
         "/tmp/dsh65-batch1/bridge.png"
       ],
-      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-q298gc44\",\"hc2-sb3fd385\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-q298gc44,hc2-sb3fd385；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-ai3zyxow\"}"
+      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-h7utdr14\",\"hc2-7q3asxjx\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-h7utdr14,hc2-7q3asxjx；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-o9ehz62l\"}"
     },
     {
       "id": "F-02",
       "phase": "new-feature",
-      "name": "消息正文 commit hash 可点 + 悬停提交卡片（GITCARD 套件，12 条断言）",
-      "expect": "消息行正文里的 7–40 位 hex 变成可点标记（虚线下划线）；悬停发出 git.show 并弹出卡片（作者/相对时间/标题/正文/变更统计/短 hash）；代码块 pre 内的 hash 不联动；同一 hash 命中缓存不重复请求；点击钉住、点别处收起；查不到的提交显示「未找到」。对照 gitcard-1-decorated.png（装饰）与 gitcard-2-hover-card.png（卡片）。",
+      "name": "消息正文 commit hash 可点 + 悬停提交卡片（GITCARD 套件，13 条断言）",
+      "expect": "消息行正文里的 7–40 位 hex 变成可点标记（虚线下划线）；悬停发出 git.show 并弹出卡片（作者/相对时间/标题/正文/变更统计/短 hash）；**git.show 带 cwd 且等于当前会话所属 dsh 工作区路径**（不是 VS Code 打开的仓库——返修点）；代码块 pre 内的 hash 不联动；同一 hash 命中缓存不重复请求；点击钉住、点别处收起；查不到的提交显示「未找到」。对照 gitcard-1-decorated.png（装饰）与 gitcard-2-hover-card.png（卡片）。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh65-batch1/gitcard-1-decorated.png",
         "/tmp/dsh65-batch1/gitcard-2-hover-card.png"
       ],
-      "notes": "注入测试文本到官方消息行：{\"rowKind\":\"assistant-step\"}；正文里的 hash 被包成可点标记：{\"count\":4,\"sha\":\"abc1234def5678901234567890abcdef12345678\",\"inPre\":false,\"codeDecorate\":1}；代码块（pre）内的 hash 不联动：inPre=false；悬停发出 git.show（带 hash）：[{\"hash\":\"abc1234def5678901234567890abcdef12345678\"}]；卡片渲染出假提交的作者/标题/统计：Fake Author14 天前 (2026-09-01 10:00)feat: 假提交标题正文一行。3 个文件变更, +12, -4提交 abc1234在 GitHub 打开；卡片在视口内且可交互（pointer-events 非 none）：{\"rect\":{\"x\":248.1875,\"y\":183,\"width\":311.375,\"height\":161,\"top\":183,\"right\":559.5625,\"bottom\":344,\"left\":248.1875},\"pe\":\"auto\"}；同一 hash 命中缓存不重复请求：calls=1；第二个 hash 也被装饰（含 deadbeef 形状）：{\"sha\":\"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\"}；未找到的提交显示「未找到」（不显示作者行）：未找到该提交"
+      "notes": "注入测试文本到官方消息行：{\"rowKind\":\"assistant-step\"}；正文里的 hash 被包成可点标记：{\"count\":4,\"sha\":\"abc1234def5678901234567890abcdef12345678\",\"inPre\":false,\"codeDecorate\":1}；代码块（pre）内的 hash 不联动：inPre=false；悬停发出 git.show（带 hash）：[{\"hash\":\"abc1234def5678901234567890abcdef12345678\",\"cwd\":\"/Users/cgeng/Workspaces/dsh-plan\"}]；git.show 以「当前会话工作区路径」查询（不是 VS Code 工作区）：expected=/Users/cgeng/Workspaces/dsh-plan got=/Users/cgeng/Workspaces/dsh-plan；卡片渲染出假提交的作者/标题/统计：Fake Author14 天前 (2026-09-01 10:00)feat: 假提交标题正文一行。3 个文件变更, +12, -4提交 abc1234在 GitHub 打开；卡片在视口内且可交互（pointer-events 非 none）：{\"rect\":{\"x\":248.1875,\"y\":183,\"width\":311.375,\"height\":161,\"top\":183,\"right\":559.5625,\"bottom\":344,\"left\":248.1875},\"pe\":\"auto\"}；同一 hash 命中缓存不重复请求：calls=1；第二个 hash 也被装饰（含 deadbeef 形状）：{\"sha\":\"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\"}；未找到的提交显示「未找到」（不显示作者行）：未找到该提交"
     },
     {
       "id": "F-03",
@@ -117,7 +117,7 @@
       "expect": "整包走 /plugins-local（分树过滤版），二次请求命中缓存（耗时 < 500ms）；一次注入 200 个 hash 文本节点，装饰在 3s 内收敛（实测 62ms）且不自激。",
       "result": "pass",
       "screenshots": [],
-      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:58657/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3456115,\"decode\":3455815,\"elapsed\":3.300000011920929}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:58657/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3456115,\"decode\":3455815,\"elapsed\":3.300000011920929}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":62,\"settled\":200,\"after\":200}"
+      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:59595/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3457225,\"decode\":3456925,\"elapsed\":3.9000000059604645}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:59595/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3457225,\"decode\":3456925,\"elapsed\":3.9000000059604645}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":61.79999998211861,\"settled\":200,\"after\":200}"
     }
   ]
 }
