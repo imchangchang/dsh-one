@@ -75,7 +75,7 @@ function Nothing(): null {
 
 // logoRow 隐藏用 [class*="logoRow"]（css-module 名后缀稳定、哈希前缀随版本变）；
 // 折叠钮 aria-label 规则保留作双保险（zh/en 双词典，CSS 转义写中文）。
-const CSS = '.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]{--dsh-sidebar-inline-padding:0px;padding-top:4px;max-width:none!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame [class*="_card_"],[class*="_card_"]{position:fixed!important;left:auto!important;right:8px!important;max-width:calc(100vw - 16px)!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
+const CSS = '.dshOneSidebarShell_frame,.dshOneSidebarShell_side,.dshOneSidebarShell_side>div{padding-left:0!important;padding-right:0!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]{--dsh-sidebar-inline-padding:0px;padding-top:4px;max-width:none!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame [class*="_card_"],[class*="_card_"]{position:fixed!important;left:auto!important;right:8px!important;max-width:calc(100vw - 16px)!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
 const CSS_TAG_ID = '@dsh-one/vscode-sidebar-shell/SidebarFrame.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
@@ -83,6 +83,60 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin
   tag.dataset.pluginCss = CSS_TAG_ID
   tag.textContent = CSS
   document.head.appendChild(tag)
+}
+
+// ---------------------------------------------------------------------------
+// 骨架链几何快照（#70 自诊断构建）：实验室与真实 webview 出现「同文档不同
+// 结果」（用户侧左侧 ~15-20px 空条 + 细竖线，实验室任何宽度 padL/R=0 贴缘）——
+// 停止猜测，把 body→frame→side→wrapper→官方根 每层的 left/right/padding/
+// margin/border 打出来：浏览器直接 console.log，webview 经诊断探针
+// __DSH_ONE_PROBE__ 转给宿主输出面板（[assembly] 前缀频道）。只打一次，
+// 首拍等不到骨架（官方根挂载晚）就再试两拍。
+// ---------------------------------------------------------------------------
+
+const GEOMETRY_LAYERS = [
+  { label: 'body', selector: 'body' },
+  { label: 'frame', selector: '.dshOneSidebarShell_frame' },
+  { label: 'side', selector: '.dshOneSidebarShell_side' },
+  { label: 'wrapper', selector: '.dshOneSidebarShell_side>div' },
+  { label: 'official-root', selector: '.dshOneSidebarShell_side>div>[class*="root"]' },
+] as const
+
+function reportGeometry(): void {
+  const emit = (line: string): void => {
+    console.log(line)
+    const probe = (globalThis as { __DSH_ONE_PROBE__?: { log(level: string, text: string): void } }).__DSH_ONE_PROBE__
+    if (probe) probe.log('info', line)
+  }
+  const vw = document.documentElement.clientWidth
+  emit(`[assembly] geometry viewport width=${vw}`)
+  for (const layer of GEOMETRY_LAYERS) {
+    const el = document.querySelector(layer.selector)
+    if (el === null) {
+      emit(`[assembly] geometry ${layer.label} MISSING (selector ${layer.selector})`)
+      continue
+    }
+    const r = el.getBoundingClientRect()
+    const cs = getComputedStyle(el)
+    emit(
+      `[assembly] geometry ${layer.selector} l=${Math.round(r.left)} r=${Math.round(r.right)} w=${Math.round(r.width)}` +
+        ` padL=${cs.paddingLeft} padR=${cs.paddingRight} mL=${cs.marginLeft} mR=${cs.marginRight}` +
+        ` bL=${cs.borderLeftWidth} bR=${cs.borderRightWidth} disp=${cs.display}`,
+    )
+  }
+}
+
+function scheduleGeometrySnapshot(): void {
+  let tries = 0
+  const attempt = (): void => {
+    tries += 1
+    if (document.querySelector('.dshOneSidebarShell_side>div>[class*="root"]') !== null || tries >= 3) {
+      reportGeometry()
+      return
+    }
+    setTimeout(attempt, 900)
+  }
+  setTimeout(attempt, 1800)
 }
 
 /**
@@ -121,6 +175,7 @@ function SidebarFrame({ renderSlot }: SidebarFrameProps) {
 export const inject = ['slots', 'theme']
 
 export function apply(ctx: ShellContext): void {
+  scheduleGeometrySnapshot()
   const layout = new LayoutController()
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
