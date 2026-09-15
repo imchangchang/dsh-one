@@ -17,8 +17,11 @@
  *   cwd 归属），不合法即 invalid-args 且不执行任何外部命令；
  * - **不拼 shell**：git 一律 execFile（argv 数组），不做字符串拼接——参数校核
  *   是第一道防线，argv 传递本身也杜绝了 shell 注入；
- * - **路径限域**：调用方给的 cwd 只允许落在 VS Code 工作区目录或 ~/.dsh 内
- *   （realpath 后的包含判定，防 ../ 逃逸与符号链接逃逸）；
+ * - **路径限域**：调用方给的 cwd 只允许落在三类允许根内——VS Code 工作区目录、
+ *   ~/.dsh、以及网关 `workspace/list` 注册的 dsh 工作区路径（宿主取一次并缓存，
+ *   见 hostWorkspaceRoots.ts）；判定一律走 realpath 后的包含关系，防 ../ 逃逸与
+ *   符号链接逃逸。cwd 越界时**回落** VS Code 工作区目录（拿不到会话工作区也要能
+ *   查，不是放宽信任：越界路径绝不被采用）；
  * - **结构化错误**：回执只有 { code, message }，message 不含命令行原文。
  */
 import * as vscode from 'vscode'
@@ -31,7 +34,7 @@ import {
   isHostCallError,
   parseAllowedUrl,
   parseGitShowArgs,
-  resolveAllowedDir,
+  resolveQueryDir,
   type HostCallError,
 } from '../../pure/hostCalls.ts'
 import type { CommitInfoResult } from '../../pure/chatContract.ts'
@@ -71,20 +74,28 @@ export interface HostBridgeDeps {
   workspaceFolders: () => readonly string[]
   /** dsh 配置目录（~/.dsh）——路径限域的另一半。 */
   dshHome: string
+  /**
+   * 追加的允许根（网关注册的 dsh 工作区路径，见 hostWorkspaceRoots.ts）。
+   * 缺省无追加；取不到时实现方返回空表，不影响其余允许根。
+   */
+  extraAllowedRoots?: () => Promise<readonly string[]>
   /** git 可执行文件（测试可注入假路径）。 */
   gitPath?: string
   /** 命令超时（毫秒）。 */
   timeoutMs?: number
 }
 
-/** git.show 的实现：路径限域 → git CLI 查提交（实现体见 pure/gitShowCommand.ts）。 */
+/**
+ * git.show 的实现：路径限域 → git CLI 查提交（实现体见 pure/gitShowCommand.ts）。
+ * 查询目录优先用会话工作区路径（args.cwd），越界/缺失时回落 VS Code 工作区目录。
+ */
 async function gitShow(args: { hash: string; cwd?: string }, deps: HostBridgeDeps): Promise<CommitInfoResult | HostCallError> {
   const folders = deps.workspaceFolders()
-  const wanted = args.cwd ?? folders[0]
-  if (wanted === undefined) return { code: 'no-workspace', message: 'no workspace folder is open' }
-  const dir = await resolveAllowedDir(wanted, [...folders, deps.dshHome])
+  const extra = deps.extraAllowedRoots === undefined ? [] : await deps.extraAllowedRoots()
+  const allowedRoots = [...folders, deps.dshHome, ...extra]
+  const dir = await resolveQueryDir(args.cwd, folders[0], allowedRoots)
   if (dir === null) {
-    return { code: 'invalid-args', message: 'cwd is outside the workspace folders and ~/.dsh' }
+    return { code: 'no-workspace', message: 'no usable directory: the session workspace and the VS Code workspace folders are both unavailable' }
   }
   const info = await runGitShow(args.hash, dir, {
     ...(deps.gitPath === undefined ? {} : { gitPath: deps.gitPath }),
@@ -127,7 +138,7 @@ export async function runHostCall(
   return null
 }
 
-/** 默认依赖（生产）：工作区目录 + ~/.dsh。 */
+/** 默认依赖（生产）：工作区目录 + ~/.dsh（追加允许根由调用方给，见 assemblyView）。 */
 export function defaultHostBridgeDeps(): HostBridgeDeps {
   return {
     workspaceFolders: () => (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),

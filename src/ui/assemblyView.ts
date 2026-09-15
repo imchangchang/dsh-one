@@ -9,7 +9,9 @@ import { startAssemblyMirror, type AssemblyMirror } from '../server/assemblyMirr
 import { cookieHeader, dshVersion } from '../server/serverAuth.ts'
 import { parse as parseSemver, compare as compareSemver } from '../pure/semver.ts'
 import { assemblyPageHtml } from './assembly/pageHtml.ts'
-import { subscribeHostCalls } from './assembly/hostBridge.ts'
+import { defaultHostBridgeDeps, subscribeHostCalls, type HostBridgeDeps } from './assembly/hostBridge.ts'
+import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
+import { listWorkspaces } from '../server/dshRpc.ts'
 import {
   CHAT_BLOCK_LIST,
   COMPOSER_CLEAR_PLUGIN_ID,
@@ -208,6 +210,31 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
 }
 
 /**
+ * 宿主能力桥的依赖（三棵树共用）：VS Code 工作区目录 + ~/.dsh + **网关注册的
+ * dsh 工作区路径**。后者是因为 git.show 的 cwd 现在按「当前会话所属工作区」
+ * 传（页面侧从官方 sessions/workspaces 服务取，见 gitCardPlugin），那个目录
+ * 未必是 VS Code 打开的目录。网关路径取一次缓存 5 分钟（hostWorkspaceRoots），
+ * 每个按 manager 一个实例（同窗口同网关）。
+ */
+const gatewayRootsByManager = new WeakMap<ServerManager, () => Promise<readonly string[]>>()
+
+function hostBridgeDeps(manager: ServerManager): HostBridgeDeps {
+  let roots = gatewayRootsByManager.get(manager)
+  if (roots === undefined) {
+    roots = createGatewayWorkspaceRoots({
+      fetchPaths: async () => {
+        const status = manager.getStatus()
+        if (status.state !== 'running' || !status.url) return []
+        const { items } = await listWorkspaces(status.url)
+        return items.map((w) => w.path).filter((p) => typeof p === 'string' && p !== '')
+      },
+    })
+    gatewayRootsByManager.set(manager, roots)
+  }
+  return { ...defaultHostBridgeDeps(), extraAllowedRoots: roots }
+}
+
+/**
  * #71 chat 面板 = 单例（用户拍板：与官方一致单 tab、点侧栏就地切换；
  * tab-per-session 多开降级 #72）。sessionTabs/panelSessionId 映射保留为
  * #72 复活形态（标题跟随仍在用 panelSessionId），路由不再按 sessionId
@@ -293,7 +320,7 @@ async function openChatPanel(
   })
   // 宿主能力桥（#65 批 1）：页面插件（git 卡片/右键菜单等）经它取 git 数据与
   // VS Code 动作；白名单 + 参数校核在 hostBridge 内收口。
-  const hostSub = subscribeHostCalls(panel.webview, logger)
+  const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager))
   trackAssemblyWebview(context, panel.webview)
   panel.onDidDispose(() => {
     probeSub.dispose()
@@ -504,7 +531,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
   resolveWebviewView(view: vscode.WebviewView): void {
     view.webview.options = { enableScripts: true }
     const probeSub = subscribeAssemblyProbe(view.webview, this.logger)
-    const hostSub = subscribeHostCalls(view.webview, this.logger)
+    const hostSub = subscribeHostCalls(view.webview, this.logger, hostBridgeDeps(this.manager))
     trackAssemblyWebview(this.context, view.webview)
     const retrySub = view.webview.onDidReceiveMessage((msg: unknown) => {
       if (typeof msg !== 'object' || msg === null) return
@@ -659,7 +686,7 @@ export function registerAssembledSettings(
       if (typeof msg !== 'object' || msg === null || (msg as { type?: unknown }).type !== 'dshOne.openSettingsDocument') return
       void openSettingsDocumentInEditor()
     })
-    const hostSub = subscribeHostCalls(panel.webview, logger)
+    const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager))
     trackAssemblyWebview(context, panel.webview)
     panel.onDidDispose(() => {
       probeSub.dispose()

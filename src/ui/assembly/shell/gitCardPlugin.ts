@@ -35,6 +35,16 @@
  *   （官方 EvIC1a_flowItem 上的 data 属性，语言无关、非 css-module 哈希）；
  *   扫描时跳过 `pre/a/button`（代码块、链接、按钮不联动）。
  * - 数据全部走宿主能力桥（git.show），页面不直接碰 git。
+ *
+ * 查询目录（#65 批 1 返修）：git.show 的 cwd 按**当前会话所属的 dsh 工作区路径**
+ * 传，不再让宿主用「VS Code 打开的仓库」猜（否则开着 A 项目点开 B 项目的会话时，
+ * B 里的提交号全变「未找到」）。取值走官方服务（机制层 2，两处兜底，优先序见
+ * src/pure/sessionWorkspace.ts）：
+ *   ① `ctx.sessions.list.getSnapshot().byId[current].cwd`——官方 SessionSummary.cwd
+ *      （ui-chat 解析会话路径用的同一处）；②兜底读 `ctx.workspaces.list`
+ *      注册表里 sessionIds 含当前会话那一行的 path。两处都取不到（空白会话/数据
+ *      未就绪）就不传 cwd，交宿主回落到 VS Code 工作区（不报错）。
+ *   `workspaces` 是**可选**服务，故不进 inject（缺了会让整插件 park），按需取。
  */
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
@@ -46,6 +56,7 @@ import {
   writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { hostCall } from './hostClient.ts'
+import { pickSessionWorkspacePath } from '../../../pure/sessionWorkspace.ts'
 
 /** hash 标记属性（自有契约：扫描时据此跳过已包过的节点）。 */
 const HASH_ATTR = 'data-dshone-commit'
@@ -105,6 +116,8 @@ type CardState =
 interface LayerProps {
   /** 框架注入的 locale 座位（函数内别名为 tr 避开 i18n 门禁的裸 t() 扫描）。 */
   t: (key: string) => string
+  /** 插件 apply 注入：当前会话所属的 dsh 工作区路径（取不到 undefined）。 */
+  sessionWorkspacePath: () => string | undefined
 }
 
 /** 自有容器：装配 frame 根（我们自己的 data 属性，不是官方 css-module 类名）。 */
@@ -170,7 +183,7 @@ interface CardAnchor {
   above: number
 }
 
-function GitCardLayer({ t }: LayerProps) {
+function GitCardLayer({ t, sessionWorkspacePath }: LayerProps) {
   const tr = t as (key: string, args?: Record<string, unknown>) => string
   const [state, setState] = useState<CardState>({ kind: 'idle' })
   const [anchor, setAnchor] = useState<CardAnchor | null>(null)
@@ -183,28 +196,31 @@ function GitCardLayer({ t }: LayerProps) {
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const currentSha = useRef<string | null>(null)
 
-  /** 查一次提交（缓存 + in-flight 去重，避免同一 hash 反复打宿主）。 */
+  /**
+   * 查一次提交（缓存 + in-flight 去重，避免同一 hash 反复打宿主）。
+   * 缓存键含工作区路径：同一 hash 串出现在不同工作区的会话里时不会串结果。
+   * 会话工作区路径取不到就不传 cwd（宿主回落 VS Code 工作区）。
+   */
   const lookup = (sha: string): Promise<CommitInfo> => {
-    const cached = cache.current.get(sha)
+    const cwd = sessionWorkspacePath()
+    const key = `${cwd ?? ''}\u0000${sha}`
+    const cached = cache.current.get(key)
     if (cached !== undefined) return Promise.resolve(cached)
-    const pending = inflight.current.get(sha)
+    const pending = inflight.current.get(key)
     if (pending !== undefined) return pending
-    // 不传 cwd：宿主按「VS Code 打开的仓库」查提交（cwd 限域只认工作区与
-    // ~/.dsh，会话 cwd 常在别的目录，传了反而会被拒）。跨仓库会话里的 hash
-    // 查不到时卡片显示「未找到」——后续批次若要按会话 cwd 查，需要先定一条
-    // 会话 cwd 的允许策略（见 #65 汇报的遗留项）。
-    const asked = hostCall<CommitInfo>('git.show', { hash: sha }).then(
+    const args = cwd === undefined ? { hash: sha } : { hash: sha, cwd }
+    const asked = hostCall<CommitInfo>('git.show', args).then(
       (info) => {
-        cache.current.set(sha, info)
-        inflight.current.delete(sha)
+        cache.current.set(key, info)
+        inflight.current.delete(key)
         return info
       },
       (err: unknown) => {
-        inflight.current.delete(sha)
+        inflight.current.delete(key)
         throw err
       },
     )
-    inflight.current.set(sha, asked)
+    inflight.current.set(key, asked)
     return asked
   }
 
@@ -470,7 +486,22 @@ function GitCardLayer({ t }: LayerProps) {
   )
 }
 
+interface SessionsListRow {
+  cwd?: string
+}
+
+interface SessionsService {
+  list: { getSnapshot(): { current?: string; byId: Record<string, SessionsListRow | undefined> } }
+}
+
+interface WorkspacesService {
+  list: { getSnapshot(): { items: readonly { path?: string; sessionIds?: readonly string[] }[] } }
+}
+
 interface GitCardContext {
+  get(name: 'sessions'): SessionsService
+  /** 可选服务：某些树可能没装（缺了也不该让 git 卡片停摆，故不进 inject）。 */
+  get(name: 'workspaces'): WorkspacesService
   effect(body: () => (() => void) | void, label?: string): void
   locale: {
     register(ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): () => void
@@ -481,9 +512,28 @@ interface GitCardContext {
   }
 }
 
-export const inject = ['slots', 'locale']
+export const inject = ['slots', 'locale', 'sessions']
 
 export function apply(ctx: GitCardContext): void {
+  /**
+   * 当前会话所属的 dsh 工作区路径（机制层 2 官方服务）：
+   * ① sessions list 当前行的 cwd；②兜底 workspaces 注册表里含该会话那一行的
+   * path；都取不到返回 undefined（调用方不传 cwd，交宿主回落）。
+   */
+  const sessionWorkspacePath = (): string | undefined => {
+    const list = ctx.get('sessions').list.getSnapshot()
+    const current = list.current
+    if (current === undefined) return undefined
+    let workspacePath: string | undefined
+    try {
+      const items = ctx.get('workspaces').list.getSnapshot().items
+      workspacePath = items.find((w) => (w.sessionIds ?? []).includes(current))?.path
+    } catch {
+      /* workspaces 服务缺席（该树未装工作区控制器）：只用 cwd 一路 */
+    }
+    return pickSessionWorkspacePath({ sessionCwd: list.byId[current]?.cwd, workspacePath })
+  }
+
   ctx.effect(() => {
     // 自有词典：与旧自研聊天区同口径的中文文案（zh 用 unicode 转义过 i18n 门禁的字面量扫描）。
     const disposeLocale = ctx.locale.register('dshOneGitCard', {
@@ -522,7 +572,7 @@ export function apply(ctx: GitCardContext): void {
           name: 'shell.overlay',
           id: 'dsh-one-git-card',
           locale: 'dshOneGitCard',
-          inject: () => ({}),
+          inject: () => ({ sessionWorkspacePath }),
         },
         GitCardLayer,
       ),

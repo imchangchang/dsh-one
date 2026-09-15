@@ -83,6 +83,28 @@ export async function resolveAllowedDir(dir: string, allowedRoots: readonly stri
   return null
 }
 
+/**
+ * 解析 git 的查询目录，分两级：
+ * 1. 调用方给的 cwd（会话工作区路径）——**必须**落在允许根之内（realpath 后
+ *    包含判定）才采用；
+ * 2. 不合法/缺失时回落 `fallback`（宿主自己的 VS Code 工作区目录，它本身就是
+ *    允许根）——回落是为了「拿不到会话工作区也能查」，不是放宽信任：越界路径
+ *    一律不会被采用。
+ * @returns 可用的绝对目录；连回落都不可用（目录不存在/没开工作区）时 null。
+ */
+export async function resolveQueryDir(
+  requested: string | undefined,
+  fallback: string | undefined,
+  allowedRoots: readonly string[],
+): Promise<string | null> {
+  if (requested !== undefined) {
+    const resolved = await resolveAllowedDir(requested, allowedRoots)
+    if (resolved !== null) return resolved
+  }
+  if (fallback === undefined) return null
+  return await resolveAllowedDir(fallback, allowedRoots)
+}
+
 /** 校核 URL：能被 URL 解析且协议在白名单内。 */
 export function parseAllowedUrl(value: unknown): string | null {
   if (typeof value !== 'string' || value === '') return null

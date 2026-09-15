@@ -11,6 +11,7 @@ import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { runGitShow } from '../src/pure/gitShowCommand.ts'
+import { resolveQueryDir } from '../src/pure/hostCalls.ts'
 
 /** git 可用性探测（不可用则跳过整组）。 */
 function gitAvailable(): boolean {
@@ -23,8 +24,11 @@ function gitAvailable(): boolean {
 }
 const hasGit = gitAvailable()
 
-/** 造一个临时仓库：一次提交（2 个文件、含 body），remote 指向 GitHub。 */
-async function makeRepo(): Promise<{ dir: string; hash: string; cleanup: () => Promise<void> }> {
+/**
+ * 造一个临时仓库：一次提交（2 个文件、含 body），remote 指向 GitHub。
+ * @param label - 写进文件与提交信息（两个仓库要拿到不同哈希就必须内容不同）。
+ */
+async function makeRepo(label = 'a'): Promise<{ dir: string; hash: string; cleanup: () => Promise<void> }> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dshone-git-'))
   const git = (...args: string[]): string =>
     execFileSync('git', args, {
@@ -42,10 +46,10 @@ async function makeRepo(): Promise<{ dir: string; hash: string; cleanup: () => P
     })
   git('init', '-q')
   git('remote', 'add', 'origin', 'git@github.com:example/repo.git')
-  await fs.writeFile(path.join(dir, 'a.txt'), 'one\n')
-  await fs.writeFile(path.join(dir, 'b.txt'), 'two\nthree\n')
+  await fs.writeFile(path.join(dir, 'a.txt'), `one ${label}\n`)
+  await fs.writeFile(path.join(dir, 'b.txt'), `two ${label}\nthree\n`)
   git('add', '.')
-  git('commit', '-q', '-m', 'feat: add two files', '-m', 'body line')
+  git('commit', '-q', '-m', `feat: add two files (${label})`, '-m', 'body line')
   const hash = git('rev-parse', 'HEAD').trim()
   return { dir, hash, cleanup: async () => fs.rm(dir, { recursive: true, force: true }) }
 }
@@ -58,8 +62,8 @@ test('runGitShow 查得到提交：作者/日期/message/变更统计/完整 has
     assert.equal(info.found, true)
     assert.equal(info.sha, repo.hash.slice(0, 7))
     assert.equal(info.commitHash, repo.hash)
-    assert.equal(info.message, 'feat: add two files')
-    assert.equal(info.fullMessage, 'feat: add two files\nbody line')
+    assert.equal(info.message, 'feat: add two files (a)')
+    assert.equal(info.fullMessage, 'feat: add two files (a)\nbody line')
     assert.equal(info.authorName, 'Ada Lovelace')
     assert.equal(info.authorEmail, 'ada@example.com')
     assert.equal(info.files, 2)
@@ -102,5 +106,36 @@ test('runGitShow 在非仓库目录回 found=false；git 缺席回 undefined', {
     assert.equal(missing, undefined)
   } finally {
     await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('会话属 B 工作区时以 B 路径查询（不是宿主自己的 A 目录）', { skip: !hasGit }, async () => {
+  const repoA = await makeRepo('alpha')
+  const repoB = await makeRepo('beta')
+  try {
+    // 宿主的「VS Code 工作区」是 A；当前会话的工作区路径是 B（两者都在允许根里）
+    const allowedRoots = [repoA.dir, repoB.dir]
+    const dir = await resolveQueryDir(repoB.dir, repoA.dir, allowedRoots)
+    assert.equal(dir, await fs.realpath(repoB.dir))
+    // B 里的提交在 B 查得到
+    const inB = await runGitShow(repoB.hash.slice(0, 7), dir ?? repoB.dir)
+    assert.equal(inB?.found, true)
+    assert.equal(inB?.commitHash, repoB.hash)
+    // A 的提交拿去 B 查 → 查不到（证明确实走的是 B，而不是宿主自己的 A）
+    const crossRepo = await runGitShow(repoA.hash.slice(0, 7), dir ?? repoB.dir)
+    assert.equal(crossRepo?.found, false)
+    // 会话工作区路径不在允许根里（域外）→ 回落到宿主的 A，不报错
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'dshone-outside-'))
+    try {
+      const fallback = await resolveQueryDir(outside, repoA.dir, allowedRoots)
+      assert.equal(fallback, await fs.realpath(repoA.dir))
+      const inA = await runGitShow(repoA.hash.slice(0, 7), fallback ?? repoA.dir)
+      assert.equal(inA?.found, true)
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true })
+    }
+  } finally {
+    await repoA.cleanup()
+    await repoB.cleanup()
   }
 })

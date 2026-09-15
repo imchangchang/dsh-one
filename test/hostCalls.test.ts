@@ -14,6 +14,7 @@ import {
   parseAllowedUrl,
   parseGitShowArgs,
   resolveAllowedDir,
+  resolveQueryDir,
 } from '../src/pure/hostCalls.ts'
 
 test('COMMIT_SHA_ARG_RE 只认 7–40 位 hex', () => {
@@ -80,5 +81,30 @@ test('resolveAllowedDir 解符号链接后判定（链接指到根外即拒绝�
   } finally {
     await fs.rm(root, { recursive: true, force: true })
     await fs.rm(outside, { recursive: true, force: true })
+  }
+})
+
+test('resolveQueryDir：会话工作区路径在允许根内时优先用它', async () => {
+  const vscodeFolder = mkdtempSync(path.join(os.tmpdir(), 'dshone-qdir-vscode-'))
+  const gatewayWorkspace = mkdtempSync(path.join(os.tmpdir(), 'dshone-qdir-gateway-'))
+  const outside = mkdtempSync(path.join(os.tmpdir(), 'dshone-qdir-out-'))
+  try {
+    // 「VS Code 工作区 + 网关注册工作区」两类根都算允许根
+    const roots = [vscodeFolder, gatewayWorkspace]
+    assert.equal(await resolveQueryDir(gatewayWorkspace, vscodeFolder, roots), await fs.realpath(gatewayWorkspace))
+    // 会话工作区越界（不在任何允许根里）→ 回落到 VS Code 工作区，不报错
+    assert.equal(await resolveQueryDir(outside, vscodeFolder, roots), await fs.realpath(vscodeFolder))
+    // 越界且没有回落目录 → null（调用方给 no-workspace）
+    assert.equal(await resolveQueryDir(outside, undefined, roots), null)
+    // 没给会话工作区（空白会话/数据未就绪）→ 直接用回落目录
+    assert.equal(await resolveQueryDir(undefined, vscodeFolder, roots), await fs.realpath(vscodeFolder))
+    // 回落目录本身也不可用（没开工作区）→ null
+    assert.equal(await resolveQueryDir(undefined, undefined, roots), null)
+    // 子目录：落在网关注册工作区之内即可用
+    const sub = path.join(gatewayWorkspace, 'pkg')
+    await fs.mkdir(sub)
+    assert.equal(await resolveQueryDir(sub, vscodeFolder, roots), await fs.realpath(sub))
+  } finally {
+    for (const dir of [vscodeFolder, gatewayWorkspace, outside]) await fs.rm(dir, { recursive: true, force: true })
   }
 })
