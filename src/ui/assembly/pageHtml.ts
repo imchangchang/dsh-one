@@ -242,6 +242,13 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
       : `<div style="position:sticky;top:0;z-index:100;padding:6px 12px;background:#8a6d1d;color:#fff;font:12px/1.5 var(--vscode-font-family,system-ui,sans-serif);">${escapeHtml(banner)}</div>`
   const cspMeta = cspOn ? `    <meta http-equiv="Content-Security-Policy" content="${csp}" />\n` : ''
   const transportScript = transportOn ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin)}</script>\n` : ''
+  // body 归零（#70）：VS Code 给每条 webview 注入 @layer vscode-default
+  // { body { padding: 0 20px } }（pre/index.html defaultStyles）——层内规则
+  // 输给任何非层样式，但页面没人设置 body padding 时它就生效（实验室普通
+  // 浏览器无此层所以贴 0，webview 里左右各空 20px + 侧栏底色边界成「细竖
+  // 线」）。非层 reset 直接压掉它，三树统一对齐官方 web 的 body{margin:0;
+  // padding:0}（chat 内容列自居中不受影响，settings 整页表单受益）。
+  const bodyReset = `    <style nonce="${cspNonce}">body{margin:0;padding:0}</style>\n`
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -250,7 +257,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
 ${cspMeta}    <title>DeepSeek Harness (assembled)</title>
     <script nonce="${cspNonce}">${assemblyProbeJs()}</script>
     <script nonce="${cspNonce}">${QUEUE_FACADE_JS}</script>
-${preload}
+${bodyReset}${preload}
 ${styles}
     <script nonce="${cspNonce}">globalThis["__DSH_BOOT__"] = ${jsonForScript(bootWire)}</script>
     <script src="${escapeAttr(bootstrapUrl)}"></script>
