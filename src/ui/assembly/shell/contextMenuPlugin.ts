@@ -62,11 +62,12 @@ const CSS = [
   // 单图标项：官方**没有纯图标菜单项的先例**（48 个插件 bundle 全量扫 items 条目：
   // 19 条都有 label，没有一条是「有 icon 无 label」；官方的纯图标控件是 Button
   // 工具条档，不是 Menu 项），所以按第 4 层兜底：只对**本图标项**改成对称内边距、
-  // 方盒（上下左右等值 12px，16px 图标 + 24px = 40px，仍与官方标准行高一致）。
+  // 方盒。数值按图标档位推：(40px 官方行高 − 14px 图标) / 2 = 13px，上下左右等值、
+  // 盒子仍 40×40（官方标准行高不变）。
   // 判定用 :has(自有标记) —— 只命中我们自己那一项，不动官方任一项；:has 在本仓库
   // 已有多处使用（导出胶囊、设置行动），目标运行环境（VS Code Electron / Chromium）
   // 原生支持。风险：若官方未来给菜单项加同名 slot 结构，:has 仍只看我们自己的属性。
-  `[${MENU_ATTR}="${MENU_ICON_MARK}"] button[role="menuitem"]:has([${ICON_ITEM_ATTR}]){padding:12px;justify-content:center}`,
+  `[${MENU_ATTR}="${MENU_ICON_MARK}"] button[role="menuitem"]:has([${ICON_ITEM_ATTR}]){padding:13px;justify-content:center}`,
   // 图标容器：flex 居中（消掉行内盒的基线偏移——实测改前图标上方 9px、下方 15px，
   // 因为官方 itemLabel 是 22px 行盒、内联 svg 坐在基线上）。
   `.${ICON_ITEM_CLASS}{display:flex;align-items:center;justify-content:center}`,
@@ -196,13 +197,19 @@ function ContextMenuLayer({ t }: LayerProps) {
   // 写法——label 传节点是官方允许的（ui-agent-preset 等调用点同样传节点）；
   // 图标放进 label 槽（不是 icon 槽）才能拿到 label-primary 前景色，icon 槽是
   // 官方的次级色（--dsw-alias-label-tertiary），单图标项用次级色会发灰。
+  //
+  // 尺寸 14：官方图标集里**没有 IconCopyOutline14**（导出表实测：含 Copy 的只有
+  // IconCopyOutline16；14 档只覆盖 check/chevron/close/globe/link/queue/refresh/
+  // send/settings/think 等一部分），所以用官方图标件自己支持的显式尺寸参数
+  // `{ size: 14 }`——官方同样这么用（ui-workspace 的 `IconArchiveOutline20, { size: 16 }`），
+  // 属于用官方组件、不是自绘。14 在 40px 项里约占 35%（16 时是 40%）。
   const items = [
     {
       id: 'copy-inline-code',
       label: h(
         'span',
         { className: ICON_ITEM_CLASS, 'aria-label': tr('copyInlineCode'), [ICON_ITEM_ATTR]: '' },
-        h(IconCopyOutline16, {}),
+        h(IconCopyOutline16, { size: 14 }),
       ),
     },
   ]
