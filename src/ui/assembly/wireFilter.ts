@@ -87,7 +87,7 @@ const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-model-selection', reason: 'model-selection surface (inside composer); no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-skill', reason: 'skill cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-reference', reason: 'reference cards; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-session-log-export', reason: '会话日志导出（导出走宿主通道，#71 自有行动）' },
+  { id: '@deepseek-ai/dsh-session-log-export', reason: 'session-log export (routed through the host save-dialog action, #71)' },
   { id: '@deepseek-ai/dsh-client-ui-user-questions', reason: 'user-question cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-directory-picker-native', reason: 'native directory picker (VS Code host provides its own picker)' },
 ]
