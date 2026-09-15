@@ -1,14 +1,14 @@
 {
   "title": "DSH One 装配线测试报告：对话区功能插件化批 1（#65）",
   "branch": "agent/cordis-chat-dsh-one-features",
-  "commit": "3bc87c610ed21eadef65880ba6728a8af14f2a94",
+  "commit": "69c98e9f92cc4d99aba0286ad5876120c32f4e82",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
     "dsh": "0.1.2-rc.1",
     "locale": "zh-cn",
     "theme": "dark（含 light 切换断言）",
-    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（76 条断言）",
-    "date": "2026-09-15T10:12:26.223Z"
+    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（88 条断言）",
+    "date": "2026-09-15T10:18:13.326Z"
   },
   "coverageNote": "本报告是浏览器验证（第一道验证）：装配页 + 真实网关只读 + 假宿主（能力桥的宿主侧在假宿主里按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/内置浏览器命令）、运行中回合的停止路径（需要真回合）、真模型输出。这些见 VS Code 验证清单。",
   "items": [
@@ -21,7 +21,7 @@
       "screenshots": [
         "/tmp/dsh65-batch1/bridge.png"
       ],
-      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-s4xx28ve\",\"hc2-4i2csuwv\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-s4xx28ve,hc2-4i2csuwv；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-sud3hko9\"}"
+      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-85jol2tc\",\"hc2-j6i0v6fa\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-85jol2tc,hc2-j6i0v6fa；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-7xhw1j1a\"}"
     },
     {
       "id": "F-02",
@@ -38,13 +38,15 @@
     {
       "id": "F-03",
       "phase": "new-feature",
-      "name": "行内码右键「复制这段」（收尾后只保留这一项）（MENU 套件，7 条断言）",
-      "expect": "右键行内码 → 官方观感菜单「复制这段」，点后剪贴板拿到行内码原文、菜单关闭；**其余目标一律让路**：右键消息行内普通文本、外链（官方 target=_blank 交给系统浏览器）、对话区空白处都不弹自有菜单、也不 preventDefault（原生菜单保留）。对照 menu-1-inline-code.png。",
+      "name": "行内码右键「复制这段」（目标高亮 + 官方菜单观感对齐）（MENU 套件，19 条断言）",
+      "expect": "右键行内码 → 菜单「复制这段」，点后剪贴板拿到行内码原文；**被点的行内码在菜单开着期间高亮**（颜色取官方 token --dsw-alias-interactive-bg-active，实测 rgba(255,255,255,0.14)），执行动作 / Esc 取消 / 点别处都会撤掉且无残留（重复开关仍是 1 个标记）；**菜单项几何与官方标准菜单逐项相等**（侧栏会话行「⋯」菜单实测：项 min-height 40px、padding 8px 10px、font-size 14px、line-height 22px、gap 8px、border-radius 10px，图标位 16×16，列表 4px/20px/218px/#353638，hover rgba(255,255,255,0.08)），composer 模型选择下拉的通用观感（字号/行距/间距/圆角/列表盒）亦一致；**其余目标一律让路**：消息行内普通文本、外链、对话区空白处都不弹自有菜单、不 preventDefault、不误标高亮。对照 menu-compare.png（左=自有右键菜单含高亮，右=官方侧栏会话行「⋯」菜单，同尺度并排）与 menu-1-inline-code.png / menu-2-official-standard.png。",
       "result": "pass",
       "screenshots": [
-        "/tmp/dsh65-batch1/menu-1-inline-code.png"
+        "/tmp/dsh65-batch1/menu-compare.png",
+        "/tmp/dsh65-batch1/menu-1-inline-code.png",
+        "/tmp/dsh65-batch1/menu-2-official-standard.png"
       ],
-      "notes": "行内码右键弹出菜单（复制这段）：复制这段；复制行动作写入剪贴板（行内码原文）：[\"npm run typecheck\"]；消息行内普通文本：不弹自有菜单且不拦截原生右键：{\"prevented\":false,\"menu\":false}；外链（官方 target=_blank 交给系统浏览器）：不弹自有菜单且不拦截原生右键：{\"prevented\":false,\"menu\":false}；对话区空白处：不弹自有菜单且不拦截原生右键：{\"prevented\":false,\"menu\":false}"
+      "notes": "官方菜单样本可测（composer 模型选择下拉）：{\"list\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\"240px\",\"background\":\"rgb(53, 54, 56)\"},\"item\":{\"minHeight\":\"auto\",\"height\":40,\"padding\":\"0px 10px\",\"f；行内码右键弹出菜单（复制这段）：复制这段；右键目标被高亮（且只标这一个）：{\"marked\":1,\"total\":1,\"background\":\"rgba(255, 255, 255, 0.14)\",\"token\":\"#ffffff24\"}；高亮配色取自官方 token（--dsw-alias-interactive-bg-active）：bg=rgba(255, 255, 255, 0.14) token=#ffffff24；自有菜单通用观感与官方下拉一致（字号/行距/间距/圆角/列表盒）：{\"ours\":{\"fontSize\":\"14px\",\"lineHeight\":\"22px\",\"gap\":\"8px\",\"borderRadius\":\"10px\",\"list\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"background\":\"rgb(53, 54, 56)\"}},；自有菜单 hover 配色与官方一致：ours=rgba(255, 255, 255, 0.08) official=rgba(255, 255, 255, 0.08)；复制行动作写入剪贴板（行内码原文）：[\"npm run typecheck\"]；执行动作后菜单关闭且高亮撤掉（无残留）：{\"menus\":0,\"marks\":0}；重复开关不留残留（再开仍是 1 个标记）：marks=1；Esc 取消后菜单关闭且高亮撤掉（无残留）：{\"menus\":0,\"marks\":0}；消息行内普通文本：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；外链（官方 target=_blank 交给系统浏览器）：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；对话区空白处：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；自有菜单项几何 = 官方标准菜单（行高/内边距/字号/行距/间距/圆角）：{\"ours\":{\"minHeight\":\"40px\",\"height\":40,\"padding\":\"8px 10px\",\"fontSize\":\"14px\",\"lineHeight\":\"22px\",\"gap\":\"8px\",\"borderRadius\":\"10px\"},\"official\":{\"minHeight\":\"4；自有菜单图标位 = 官方标准菜单（16×16）：{\"ours\":{\"width\":16,\"height\":16},\"official\":{\"width\":16,\"height\":16}}；自有菜单列表盒 = 官方标准菜单（内边距/圆角/最小宽/底色）：{\"ours\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\"218px\",\"background\":\"rgb(53, 54, 56)\"},\"official\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\""
     },
     {
       "id": "F-04",
@@ -82,7 +84,7 @@
       "screenshots": [
         "/tmp/dsh65-batch1/noflash-settled.png"
       ],
-      "notes": "注入会话：早期帧没有空白会话 hero 闪帧：heroFrames=0；注入会话：遮罩在早期帧出现：maskFrames=7；目标会话落定后遮罩揭开：{\"mask\":0,\"title\":true}；默认 tab：无注入时永不遮罩：mask=0"
+      "notes": "注入会话：早期帧没有空白会话 hero 闪帧：heroFrames=0；注入会话：遮罩在早期帧出现：maskFrames=6；目标会话落定后遮罩揭开：{\"mask\":0,\"title\":true}；默认 tab：无注入时永不遮罩：mask=0"
     },
     {
       "id": "R-07",
@@ -113,7 +115,7 @@
       "expect": "整包走 /plugins-local（分树过滤版），二次请求命中缓存（耗时 < 500ms）；一次注入 200 个 hash 文本节点，装饰在 3s 内收敛（实测 62ms）且不自激。",
       "result": "pass",
       "screenshots": [],
-      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:61544/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3454999,\"decode\":3454699,\"elapsed\":4.9000000059604645}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:61544/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3454999,\"decode\":3454699,\"elapsed\":4.9000000059604645}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":60.900000005960464,\"settled\":200,\"after\":200}"
+      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:62412/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3456156,\"decode\":3455856,\"elapsed\":26.399999976158142}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:62412/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3456156,\"decode\":3455856,\"elapsed\":26.399999976158142}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":60.19999998807907,\"settled\":200,\"after\":200}"
     }
   ]
 }

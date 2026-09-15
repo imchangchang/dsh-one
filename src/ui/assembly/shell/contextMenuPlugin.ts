@@ -25,10 +25,44 @@
  *   `pre`/`a` 内、不含 button——官方 file-mention 会渲染 `<code><button>`，
  *   那种交给官方自己）；
  * - 菜单本体用官方 `Menu` 原语（portal + getAnchorRect 定位到右键坐标、外点
- *   关闭、Escape 关闭都是官方行为），观感与官方菜单一致。
+ *   关闭、Escape 关闭都是官方行为）。
+ *
+ * 观感对齐（#65 收尾 2）：项结构与排版**不写一行布局 CSS**，全部走官方 `Menu`
+ * 的默认档——读官方在用的两处菜单（侧栏会话行「⋯」、composer 模型选择）实测都是
+ * 默认档：项 `min-height:40px / padding:8px 10px / font-size:14px / line-height:22px
+ * / gap:8px / border-radius:10px`，图标位 16×16、hover 背景
+ * `--dsw-alias-interactive-bg-hover`；官方没有任何调用点传 `dense`/`compact`，
+ * items 的形状是 `{id, label, icon: <IconXxx16 />}`（不传 size）。
+ *
+ * 右键目标高亮（#65 收尾 2）：命中行内码时给那个 `code` 加自有属性
+ * `data-dshone-menu-target`，本插件样式用它上色（颜色取官方 token
+ * `--dsw-alias-interactive-bg-active`，即官方「按下/选中」档，不新增颜色）；
+ * 菜单关闭 / 取消 / 执行动作后移除。清理按「全量扫属性再删」实现，重复开关不留残留。
  */
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { IconCodeOutline16, Menu, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+
+/** 右键目标高亮用的自有属性（只加属性，不改官方 DOM 结构）。 */
+const TARGET_ATTR = 'data-dshone-menu-target'
+
+const CSS = [
+  // 官方 token：--dsw-alias-interactive-bg-active 是官方「按下/选中」档的底色
+  // （暗色主题实测 #ffffff24），比行内码自身底色亮一档，做高亮可见且随主题走。
+  `code[${TARGET_ATTR}]{background-color:var(--dsw-alias-interactive-bg-active);box-shadow:0 0 0 2px var(--dsw-alias-interactive-bg-active)}`,
+].join('')
+const CSS_TAG_ID = '@dsh-one/vscode-context-menu/Target.css'
+if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
+  const tag = document.createElement('style')
+  tag.dataset.plugin = '@dsh-one/vscode-context-menu'
+  tag.dataset.pluginCss = CSS_TAG_ID
+  tag.textContent = CSS
+  document.head.appendChild(tag)
+}
+
+/** 移除全文档的高亮属性（幂等：重复调用、无残留都安全）。 */
+function clearHighlight(): void {
+  for (const el of Array.from(document.querySelectorAll(`[${TARGET_ATTR}]`))) el.removeAttribute(TARGET_ATTR)
+}
 
 interface LayerProps {
   /** 框架注入的 locale 座位（函数内别名为 tr 避开 i18n 门禁的裸 t() 扫描）。 */
@@ -64,6 +98,8 @@ function inlineCodeOf(target: HTMLElement): HTMLElement | null {
 function ContextMenuLayer({ t }: LayerProps) {
   const tr = t
   const [state, setState] = useState<MenuState>(CLOSED)
+  // 菜单开着期间被高亮的那个行内码（关闭时按属性全量清，不依赖这个引用）
+  const targetRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     const root = frameRoot()
@@ -77,20 +113,34 @@ function ContextMenuLayer({ t }: LayerProps) {
       if (text === '') return
       event.preventDefault()
       event.stopPropagation()
+      // 先清旧高亮再标新的（幂等），保证任何时刻最多一个目标被标
+      clearHighlight()
+      code.setAttribute(TARGET_ATTR, '')
+      targetRef.current = code
       setState({ open: true, x: event.clientX, y: event.clientY, text })
     }
     root.addEventListener('contextmenu', onContextMenu, true)
-    return () => root.removeEventListener('contextmenu', onContextMenu, true)
+    return () => {
+      root.removeEventListener('contextmenu', onContextMenu, true)
+      clearHighlight()
+    }
   }, [])
 
   if (!state.open) return null
 
-  const copy = (): void => {
-    void writeClipboard(state.text)
+  /** 关闭菜单：先撤高亮再落状态（取消 / 执行动作 / 点别处都走这里）。 */
+  const closeMenu = (): void => {
+    clearHighlight()
     setState(CLOSED)
   }
 
-  const items = [{ id: 'copy-inline-code', label: tr('copyInlineCode'), icon: h(IconCodeOutline16, { size: 14 }) }]
+  const copy = (): void => {
+    void writeClipboard(state.text)
+    closeMenu()
+  }
+
+  // 项形状照官方写法：{id, label, icon}，图标件不传 size（官方各调用点同样不传）
+  const items = [{ id: 'copy-inline-code', label: tr('copyInlineCode'), icon: h(IconCodeOutline16, {}) }]
 
   return h(Menu, {
     open: true,
@@ -99,8 +149,7 @@ function ContextMenuLayer({ t }: LayerProps) {
     // （越界时官方自己夹进视口）。
     getAnchorRect: () => new DOMRect(state.x, state.y, 0, 0),
     portal: true,
-    dense: true,
-    onClose: () => setState(CLOSED),
+    onClose: closeMenu,
     onSelect: (id: string) => {
       if (id === 'copy-inline-code') copy()
     },
