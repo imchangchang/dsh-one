@@ -1,14 +1,14 @@
 {
   "title": "DSH One 装配线测试报告：对话区功能插件化批 1（#65）",
   "branch": "agent/cordis-chat-dsh-one-features",
-  "commit": "938a27912a3d29315504c656d03f39e9a1156f46",
+  "commit": "f7e04758582fd26a0bf8c937f8a58be4834bf4ee",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
     "dsh": "0.1.2-rc.1",
     "locale": "zh-cn",
     "theme": "dark（含 light 切换断言）",
-    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（76 条断言）",
-    "date": "2026-09-15T09:47:34.061Z"
+    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（74 条断言）",
+    "date": "2026-09-15T09:53:17.503Z"
   },
   "coverageNote": "本报告是浏览器验证（第一道验证）：装配页 + 真实网关只读 + 假宿主（能力桥的宿主侧在假宿主里按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/内置浏览器命令）、运行中回合的停止路径（需要真回合）、真模型输出。这些见 VS Code 验证清单。",
   "items": [
@@ -21,7 +21,7 @@
       "screenshots": [
         "/tmp/dsh65-batch1/bridge.png"
       ],
-      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-h7utdr14\",\"hc2-7q3asxjx\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-h7utdr14,hc2-7q3asxjx；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-o9ehz62l\"}"
+      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-fw75t75i\",\"hc2-tfr6l7an\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-fw75t75i,hc2-tfr6l7an；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-5pna9r40\"}"
     },
     {
       "id": "F-02",
@@ -38,31 +38,27 @@
     {
       "id": "F-03",
       "phase": "new-feature",
-      "name": "右键菜单家族（行内码 / 消息 / 外链）（MENU 套件，10 条断言）",
-      "expect": "右键行内码 → 官方观感菜单「复制这段」，点后剪贴板拿到行内码原文；右键消息行 → 「复制」，写进剪贴板的正文不含按钮文字与尾部时刻；右键外链 → 两项「在系统浏览器打开 / 在 VS Code 内置浏览器打开」，两个动作分别发出 vscode.openExternal 与 vscode.openInBuiltinBrowser。对照 menu-1/2/3 三张截图。",
+      "name": "行内码右键「复制这段」（收尾后只保留这一项）（MENU 套件，7 条断言）",
+      "expect": "右键行内码 → 官方观感菜单「复制这段」，点后剪贴板拿到行内码原文、菜单关闭；**其余目标一律让路**：右键消息行内普通文本、外链（官方 target=_blank 交给系统浏览器）、对话区空白处都不弹自有菜单、也不 preventDefault（原生菜单保留）。对照 menu-1-inline-code.png。",
       "result": "pass",
       "screenshots": [
-        "/tmp/dsh65-batch1/menu-1-inline-code.png",
-        "/tmp/dsh65-batch1/menu-2-message.png",
-        "/tmp/dsh65-batch1/menu-3-link.png"
+        "/tmp/dsh65-batch1/menu-1-inline-code.png"
       ],
-      "notes": "行内码右键弹出菜单（复制这段）：复制这段；复制行动作写入剪贴板（行内码原文）：[\"npm run typecheck\"]；找到消息行内的安全右键点：{\"x\":224,\"y\":145,\"kind\":\"assistant-step\"}；消息行右键弹出菜单（复制）：复制；消息复制写入正文（剥掉按钮/时刻等 chrome，无尾部时钟）：\"npm run typecheckexample doc\"；外链右键两项：系统浏览器 / VS Code 内置浏览器：{\"text\":\"在系统浏览器打开在 VS Code 内置浏览器打开\",\"items\":2}；系统浏览器动作走能力桥 vscode.openExternal：[\"vscode.openExternal\"]；内置浏览器行动作走能力桥 vscode.openInBuiltinBrowser：[\"vscode.openExternal\",\"vscode.openInBuiltinBrowser\"]"
+      "notes": "行内码右键弹出菜单（复制这段）：复制这段；复制行动作写入剪贴板（行内码原文）：[\"npm run typecheck\"]；消息行内普通文本：不弹自有菜单且不拦截原生右键：{\"prevented\":false,\"menu\":false}；外链（官方 target=_blank 交给系统浏览器）：不弹自有菜单且不拦截原生右键：{\"prevented\":false,\"menu\":false}；对话区空白处：不弹自有菜单且不拦截原生右键：{\"prevented\":false,\"menu\":false}"
     },
     {
       "id": "F-04",
       "phase": "new-feature",
-      "name": "清空三件套（一键清空 / 双击确认 + Ctrl+Z 反悔 / 运行中先清输入再停）（CLEAR 套件，12 条断言）",
-      "expect": "官方 composer 工具行出现「清空」按钮：空输入且非运行时禁用；有内容时第一次点只是武装（文案变「再按一次清空」、内容还在）；第二次点清空官方输入框；撤销窗口内按 Ctrl+Z 还原正文；@ 引用 chip 连清带还原（还原出来的是真 chip，官方 data-composer-chip）；窗口过期后 Ctrl+Z 不再被吞（交还官方撤销语义）。对照 clear-1 到 clear-6 六张截图。",
+      "name": "清空改版（Esc / Ctrl+C 键位 + Ctrl+Z 反悔，无按钮）（CLEAR 套件，13 条断言）",
+      "expect": "不再渲染清空按钮（composer 工具行无自有贡献）；有内容时按 Esc 第一次只武装（提示「再按一次 Esc 清空」、草稿不动），第二次清空官方输入框并显示「已清空 · 撤销」；撤销窗口内 Ctrl+Z 还原正文；@ 引用 chip 连清带还原（还原出来是真 chip，官方 data-composer-chip）；窗口过期后 Ctrl+Z 交还官方语义；**空内容 + Esc 放行**（defaultPrevented=false、无提示、草稿仍空）；**有选中文本 + Ctrl+C 放行**（复制优先），无选中 + Ctrl+C 才接管（提示按 Ctrl+C 文案）；官方 @ 候选浮层打开时 Esc 放行（我们不接管、官方照常关浮层）。对照 clear-1-armed.png（武装提示）、clear-2-cleared.png（已清空 · 撤销）、clear-3-undone.png（撤销后）、clear-4-chip-undone.png（chip 还原）。",
       "result": "pass",
       "screenshots": [
-        "/tmp/dsh65-batch1/clear-1-typed.png",
-        "/tmp/dsh65-batch1/clear-2-armed.png",
-        "/tmp/dsh65-batch1/clear-3-cleared.png",
-        "/tmp/dsh65-batch1/clear-4-undone.png",
-        "/tmp/dsh65-batch1/clear-5-chip-typed.png",
-        "/tmp/dsh65-batch1/clear-6-chip-undone.png"
+        "/tmp/dsh65-batch1/clear-1-armed.png",
+        "/tmp/dsh65-batch1/clear-2-cleared.png",
+        "/tmp/dsh65-batch1/clear-3-undone.png",
+        "/tmp/dsh65-batch1/clear-4-chip-undone.png"
       ],
-      "notes": "空输入且非运行：按钮禁用（无事可做）：mode=idle disabled=true；有内容后按钮进入清空态：mode=clear；第一次点击只武装、不清空：mode=arm kept=true；第二次点击清空官方输入框（走 InputActions.setDraft）：empty=true mode=undo；撤销窗口内 Ctrl+Z 还原被清空的正文：{\"text\":\"dsh one clear harness\",\"mode\":\"clear\"}；撤销窗口过期后 Ctrl+Z 不再还原清空内容（交还官方撤销语义）：mode=idle text=\"\"；@ 引用插成真 chip（官方 data-composer-chip）：{\"chips\":1,\"text\":\"看看 lib/ \"}；清空连引用 chip 一起清（编辑器空、无残留 chip）：{\"chips\":0,\"text\":\"\"}；撤销把引用还原成真 chip（insertReference，不是纯文本）：{\"chips\":1,\"text\":\"看看 lib/ \"}"
+      "notes": "不再渲染清空按钮（input.left 无自有贡献）：{\"button\":0,\"inputLeft\":\"\"}；空内容 + Esc：放行（defaultPrevented=false、无提示、草稿仍空）：{\"prevented\":false,\"text\":\"\"}；有内容 + Esc：第一次只武装（提示 + 草稿不动）：{\"hint\":\"arm-escape\",\"text\":\"dsh one clear harness\"}；第二次 Esc 清空官方输入框（走 InputActions.setDraft）：{\"hint\":\"undo\",\"text\":\"\"}；撤销窗口内 Ctrl+Z 还原被清空的正文：{\"text\":\"dsh one clear harness\",\"hint\":null}；撤销窗口过期后 Ctrl+Z 不再还原清空内容（交还官方撤销语义）：expired=null text=\"\"；有选中文本 + Ctrl+C：放行（复制不受影响）：{\"prevented\":false,\"selected\":true}；无选中 + Ctrl+C：接管（提示按 Ctrl+C 文案）：{\"prevented\":true}；官方浮层打开时 Esc 放行（我们不接管、官方照常关浮层）：{\"options\":0,\"hint\":null,\"text\":\"看看 @\",\"beforePopupEsc\":\"看看 @\"}；@ 引用插成真 chip（官方 data-composer-chip）：{\"chips\":1,\"text\":\"看看 @看看 lib/ \"}；清空连引用 chip 一起清（编辑器空、无残留 chip）：{\"chips\":0,\"text\":\"\"}；撤销把引用还原成真 chip（insertReference，不是纯文本）：{\"chips\":1,\"text\":\"看看 @看看 lib/ \"}"
     },
     {
       "id": "R-05",
@@ -75,7 +71,7 @@
         "/tmp/dsh65-batch1/regression-sidebar-380.png",
         "/tmp/dsh65-batch1/regression-settings.png"
       ],
-      "notes": "chat 树：自有外框 + 官方对话区 + composer 都在：{\"frame\":1,\"composer\":1,\"contentEditable\":1,\"officialSidebarPluginAbsent\":true,\"exportBtn\":0,\"clearBtn\":1}；主题跟随：宿主下发 light 后 body 翻到浅色：{\"dark\":false,\"scheme\":\"light\"}；sidebar 树：内容铺满视图宽、贴左缘、body 无宿主注入内边距：{\"width\":380,\"left\":0,\"viewport\":380,\"bodyPadL\":\"0px\",\"gear\":1}；sidebar 树：设置齿轮（影子）在：gear=1；齿轮点击发出 dshOne.openSettings：[\"assembly:log\",\"assembly:log\",\"dshOne.openSettings\"]；settings 树：导航四节（通用/模型/插件/Agent 预设）：[\"通用设置\",\"模型\",\"插件\",\"Agent 预设\"]；settings 树：当前节渲染出内容：{\"nav\":[\"通用设置\",\"模型\",\"插件\",\"Agent 预设\"],\"rendered\":1,\"appearanceDisplay\":\"none\",\"contentWidth\":612}；settings 树：外观行被屏蔽（computed display 为 none）：display=none；settings 树：内容列限宽在页内（不溢出视口）：w=612"
+      "notes": "chat 树：自有外框 + 官方对话区 + composer 都在：{\"frame\":1,\"composer\":1,\"contentEditable\":1,\"officialSidebarPluginAbsent\":true,\"exportBtn\":0,\"clearBtn\":0}；主题跟随：宿主下发 light 后 body 翻到浅色：{\"dark\":false,\"scheme\":\"light\"}；sidebar 树：内容铺满视图宽、贴左缘、body 无宿主注入内边距：{\"width\":380,\"left\":0,\"viewport\":380,\"bodyPadL\":\"0px\",\"gear\":1}；sidebar 树：设置齿轮（影子）在：gear=1；齿轮点击发出 dshOne.openSettings：[\"assembly:log\",\"assembly:log\",\"dshOne.openSettings\"]；settings 树：导航四节（通用/模型/插件/Agent 预设）：[\"通用设置\",\"模型\",\"插件\",\"Agent 预设\"]；settings 树：当前节渲染出内容：{\"nav\":[\"通用设置\",\"模型\",\"插件\",\"Agent 预设\"],\"rendered\":1,\"appearanceDisplay\":\"none\",\"contentWidth\":612}；settings 树：外观行被屏蔽（computed display 为 none）：display=none；settings 树：内容列限宽在页内（不溢出视口）：w=612"
     },
     {
       "id": "R-06",
@@ -117,7 +113,7 @@
       "expect": "整包走 /plugins-local（分树过滤版），二次请求命中缓存（耗时 < 500ms）；一次注入 200 个 hash 文本节点，装饰在 3s 内收敛（实测 62ms）且不自激。",
       "result": "pass",
       "screenshots": [],
-      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:59595/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3457225,\"decode\":3456925,\"elapsed\":3.9000000059604645}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:59595/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3457225,\"decode\":3456925,\"elapsed\":3.9000000059604645}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":61.79999998211861,\"settled\":200,\"after\":200}"
+      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:60164/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3454027,\"decode\":3453727,\"elapsed\":3.9000000059604645}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:60164/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3454027,\"decode\":3453727,\"elapsed\":3.9000000059604645}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":61.5,\"settled\":200,\"after\":200}"
     }
   ]
 }
