@@ -7,6 +7,8 @@ import assert from 'node:assert/strict'
 import { createGatewayWorkspaceRoots } from '../src/ui/assembly/hostWorkspaceRoots.ts'
 import { pickSessionWorkspacePath } from '../src/pure/sessionWorkspace.ts'
 import { workspaceRootsOfSessionRows } from '../src/pure/workspaceRoots.ts'
+import { routeSelection, drainAfterCreate } from '../src/pure/sessionPanelRouting.ts'
+import { decideSelectionReport, restoreSessionIdOf } from '../src/pure/sidebarSelectionGate.ts'
 
 /** 可控时钟 + 可控取数器。 */
 function harness(paths: readonly string[] = ['/ws/a'], ttlMs = 1000) {
@@ -106,4 +108,40 @@ test('workspaceRootsOfSessionRows：取会话 cwd 去重、剔空值、保序', 
     ['/ws/a', '/ws/b'],
   )
   assert.deepEqual(workspaceRootsOfSessionRows([]), [])
+})
+
+test('routeSelection：无面板 → create；同 id → reveal（宿主去重）；不同 id → switch', () => {
+  assert.equal(routeSelection({ hasPanel: false }, 's1'), 'create')
+  assert.equal(routeSelection({ hasPanel: true, panelSessionId: 's1' }, 's1'), 'reveal')
+  assert.equal(routeSelection({ hasPanel: true, panelSessionId: 's1' }, 's2'), 'switch')
+  assert.equal(routeSelection({ hasPanel: true, panelSessionId: undefined }, 's1'), 'switch')
+})
+
+test('drainAfterCreate：等待期间同 id 不切（去重）、不同 id 要切、没等待不切', () => {
+  assert.equal(drainAfterCreate('s1', undefined), undefined)
+  assert.equal(drainAfterCreate('s1', 's1'), undefined)
+  assert.equal(drainAfterCreate('s1', 's2'), 's2')
+  assert.equal(drainAfterCreate(undefined, 's2'), 's2')
+})
+
+test('decideSelectionReport：启动期官方值不上报、用户点过后一律上报、同值去重', () => {
+  // 启动期：官方恢复值（无交互）
+  const boot = decideSelectionReport({ started: false }, 's1', { restoreId: 's1', userInteracted: false })
+  assert.deepEqual(boot, { report: false, next: { started: true, lastReported: 's1' } })
+  // 启动期：用户已经点过（值等于恢复键也放行——补「恢复值恰好等于用户点的那一行」的洞）
+  const clicked = decideSelectionReport({ started: false }, 's1', { restoreId: 's1', userInteracted: true })
+  assert.equal(clicked.report, true)
+  // 之后：换会话要上报
+  const next = decideSelectionReport({ started: true, lastReported: 's1' }, 's2', { userInteracted: true })
+  assert.deepEqual(next, { report: true, next: { started: true, lastReported: 's2' } })
+  // 同值（重复选择）不上报
+  assert.equal(decideSelectionReport({ started: true, lastReported: 's2' }, 's2', { userInteracted: true }).report, false)
+})
+
+test('restoreSessionIdOf：解析官方恢复键（JSON），坏值/空值返回 undefined', () => {
+  assert.equal(restoreSessionIdOf('{"sessionId":"session-abc"}'), 'session-abc')
+  assert.equal(restoreSessionIdOf('{}'), undefined)
+  assert.equal(restoreSessionIdOf('not json'), undefined)
+  assert.equal(restoreSessionIdOf(null), undefined)
+  assert.equal(restoreSessionIdOf('{"sessionId":123}'), undefined)
 })
