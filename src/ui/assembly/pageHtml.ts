@@ -64,7 +64,10 @@ const CSP = [
   // 用 new Function+with 求值（主 bundle lu/Ol），不放行则装载即 CSP 违规。
   "script-src 'nonce-NONCE' http://127.0.0.1:* http://localhost:* 'unsafe-eval'",
   "style-src http://127.0.0.1:* http://localhost:* 'unsafe-inline'",
-  'img-src http://127.0.0.1:* http://localhost:* data:',
+  // blob:：官方 composer 附件缩略图用 URL.createObjectURL（blob:）——#71 验收
+  // 实锤裂图（CSP 违规日志 + naturalWidth=0）。本 CSP 是装配页自有配置（非
+  // 官方机制层）；media-src/font-src 按实测不动（无 blob 消费者，font 已 data:）。
+  'img-src http://127.0.0.1:* http://localhost:* data: blob:',
   // data:：官方把图标字体以 data:font/woff2 内联 FontFace 加载（CSP 拦则一条 font 违规）。
   'font-src http://127.0.0.1:* http://localhost:* data:',
   // fetch（transport 改写后落 mirror）+ WS（openStream 的 remote.mux）。
