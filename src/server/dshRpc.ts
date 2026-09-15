@@ -196,7 +196,14 @@ export function sessionTotalTokens(s: SessionSummary): number | undefined {
   return seen ? total : undefined
 }
 
-/** All workspaces in display order, plus the global archived-session set. */
+/**
+ * All workspaces in display order, plus the global archived-session set.
+ *
+ * Legacy（0.1.1）专用：现代 dsh（0.1.2）**没有 `workspace/list` 端点**（实测返回
+ * not found，与编造方法名同响应），服务端改用 `workspace/follow` 流式方法给清单。
+ * 装配线（#65）因此不再用它取允许根，改从 `session/list` 的 cwd 集合推导
+ * （见 src/pure/workspaceRoots.ts）；本函数保留给 legacy 路径与旧自研侧栏。
+ */
 export async function listWorkspaces(
   baseUrl: string,
 ): Promise<{ items: WorkspaceView[]; archivedSessionIds: string[] }> {

@@ -82,11 +82,18 @@ test('filterWire：剥 blocklist、application 批重指 /plugins-local、追加
   assert.ok(!app.url.includes('ui-layout') && !app.url.includes('ui-sidebar'), 'application combo 不得含 blocked id')
 })
 
-test('filterWire：网关清单缺预期 blocklist 项即抛错（网关改版可见）', () => {
+test('filterWire：网关清单缺 blocklist 项时**不阻断**、只报告（官方插件合并/下线是正常演进）', () => {
   const wire = extractBootWire(FIXTURE_HTML)
   wire.entries = wire.entries.filter((e) => e.id !== '@deepseek-ai/dsh-client-ui-sidebar')
   wire.batches[1].entries = wire.batches[1].entries.filter((id) => id !== '@deepseek-ai/dsh-client-ui-sidebar')
-  assert.throws(() => filterWire(wire), /blocklist/)
+  const warnings: string[] = []
+  const filtered = filterWire(wire, undefined, undefined, undefined, (line) => warnings.push(line))
+  // 不抛错、正常出清单；缺失的那条只在 warn 里报告
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0], /ui-sidebar/)
+  assert.equal(filtered.entries.some((e) => e.id === '@deepseek-ai/dsh-client-ui-sidebar'), false)
+  // 其余 blocklist 项照常剥掉
+  assert.equal(filtered.entries.some((e) => e.id === '@deepseek-ai/dsh-client-ui-layout'), false)
 })
 
 test('filterWire（sidebar 树）：外框+对话流+设置子页剥除，官方侧栏/工作区树保留（#70/#71）', () => {

@@ -9,8 +9,16 @@ import { startAssemblyMirror, type AssemblyMirror } from '../server/assemblyMirr
 import { cookieHeader, dshVersion } from '../server/serverAuth.ts'
 import { parse as parseSemver, compare as compareSemver } from '../pure/semver.ts'
 import { assemblyPageHtml } from './assembly/pageHtml.ts'
+import { defaultHostBridgeDeps, subscribeHostCalls, type HostBridgeDeps } from './assembly/hostBridge.ts'
+import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
+import { drainAfterCreate, routeSelection } from '../pure/sessionPanelRouting.ts'
+import { listSessions } from '../server/dshRpc.ts'
+import { workspaceRootsOfSessionRows } from '../pure/workspaceRoots.ts'
 import {
   CHAT_BLOCK_LIST,
+  COMPOSER_CLEAR_PLUGIN_ID,
+  CONTEXT_MENU_PLUGIN_ID,
+  GIT_CARD_PLUGIN_ID,
   SETTINGS_BLOCK_LIST,
   SIDEBAR_BLOCK_LIST,
   SETTINGS_GEAR_PLUGIN_ID,
@@ -99,7 +107,15 @@ interface AssemblyTree {
 const CHAT_TREE: AssemblyTree = {
   blockList: CHAT_BLOCK_LIST,
   shellPluginId: SHELL_PLUGIN_ID,
-  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SESSION_BOOT_PLUGIN_ID, SESSION_EXPORT_PLUGIN_ID],
+  extraPluginIds: [
+    THEME_FOLLOW_PLUGIN_ID,
+    SESSION_BOOT_PLUGIN_ID,
+    SESSION_EXPORT_PLUGIN_ID,
+    // #65 批 1：Git 卡片 / 右键菜单家族 / 清空三件套（均 chat 树）。
+    GIT_CARD_PLUGIN_ID,
+    CONTEXT_MENU_PLUGIN_ID,
+    COMPOSER_CLEAR_PLUGIN_ID,
+  ],
 }
 const SIDEBAR_TREE: AssemblyTree = {
   blockList: SIDEBAR_BLOCK_LIST,
@@ -117,7 +133,7 @@ const PREREQ_MIN = '0.1.2-rc.1'
 const PREREQ_MAX = '0.2.0'
 
 /** 用 serverAuth 的 cookie GET 网关 /，提取 wire 并按该树 block list 过滤。 */
-async function loadGatewayAssembly(gateway: string, tree: AssemblyTree): Promise<GatewayAssembly> {
+async function loadGatewayAssembly(gateway: string, tree: AssemblyTree, logger: Logger): Promise<GatewayAssembly> {
   const cookie = cookieHeader(gateway)
   const res = await fetch(`${gateway}/`, {
     headers: cookie !== undefined ? { cookie } : {},
@@ -126,7 +142,10 @@ async function loadGatewayAssembly(gateway: string, tree: AssemblyTree): Promise
   if (!res.ok) throw new Error(`GET /: HTTP ${res.status}`)
   const html = await res.text()
   return {
-    wire: filterWire(extractBootWire(html), tree.blockList, tree.shellPluginId, tree.extraPluginIds),
+    // block list 里缺失的官方插件条目只报告不阻断（官方合并/下线插件是正常演进）
+    wire: filterWire(extractBootWire(html), tree.blockList, tree.shellPluginId, tree.extraPluginIds, (line) =>
+      logger.warn(line),
+    ),
     assets: extractFrontendAssets(html),
   }
 }
@@ -196,6 +215,41 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
 }
 
 /**
+ * 宿主能力桥的依赖（三棵树共用）：VS Code 工作区目录 + ~/.dsh + **网关上各会话的
+ * 工作目录集合**。后者是因为 git.show 的 cwd 按「当前会话所属工作区」传（页面侧从
+ * 官方 sessions 服务取，见 gitCardPlugin），那个目录未必是 VS Code 打开的目录，
+ * 但它一定出现在网关的会话清单里——用这份服务端数据当允许根，页面伪造不了。
+ *
+ * 为什么不是 workspace.list：现代 dsh（0.1.2）没有这个端点（实测 POST
+ * /api/workspace/list 返回 not found，与编造方法名同响应；官方客户端走
+ * `workspace/follow` 流式方法，宿主一次性调用取不到）。详见
+ * src/pure/workspaceRoots.ts 的头注。
+ * 会话清单取一次缓存 5 分钟（hostWorkspaceRoots），每个 manager 一个实例。
+ */
+const gatewayRootsByManager = new WeakMap<ServerManager, () => Promise<readonly string[]>>()
+
+function hostBridgeDeps(manager: ServerManager, logger: Logger): HostBridgeDeps {
+  let roots = gatewayRootsByManager.get(manager)
+  if (roots === undefined) {
+    roots = createGatewayWorkspaceRoots({
+      fetchPaths: async () => {
+        const status = manager.getStatus()
+        if (status.state !== 'running' || !status.url) return []
+        return workspaceRootsOfSessionRows(await listSessions(status.url))
+      },
+    })
+    gatewayRootsByManager.set(manager, roots)
+  }
+  return {
+    ...defaultHostBridgeDeps(),
+    extraAllowedRoots: roots,
+    // git 查询的扫描/命中/超时留痕走输出面板「DSH One」频道（probe 同一条通道），
+    // 页面侧不感知、UI 不阻塞。
+    log: (line: string) => logger.info(line),
+  }
+}
+
+/**
  * #71 chat 面板 = 单例（用户拍板：与官方一致单 tab、点侧栏就地切换；
  * tab-per-session 多开降级 #72）。sessionTabs/panelSessionId 映射保留为
  * #72 复活形态（标题跟随仍在用 panelSessionId），路由不再按 sessionId
@@ -206,12 +260,69 @@ const panelSessionId = new WeakMap<vscode.WebviewPanel, string>()
 let chatSingleton: { panel: vscode.WebviewPanel } | undefined
 let chatDeps: { context: vscode.ExtensionContext; manager: ServerManager; logger: Logger } | undefined
 
+/**
+ * 在途的面板创建（#65 返修 7）：默认开一次（#68）与用户点击可能同时要建面板，
+ * 两个创建互相顶替是「启动后第一次点击不生效」的宿主根因。这里把创建串行化：
+ * 后来的请求**等前一个建完**，再按路由判定落到既有面板上（切换/去重），不再重复建。
+ */
+let creatingPanel: Promise<void> | undefined
+/** 创建期间（或服务未就绪时）累积的待开会话；后来者覆盖先来者。 */
+let pendingSessionOpen: string | undefined
+
+/** 面板当前会话 id（无面板 = undefined）。 */
+function panelSession(): string | undefined {
+  const panel = chatSingleton?.panel ?? active?.panel
+  return panel === undefined ? undefined : panelSessionId.get(panel)
+}
+
+/** 把待开会话兑现到既有面板：同 id 只 reveal（宿主去重），不同才就地切换。 */
+function drainPendingSession(logger: Logger): void {
+  const requested = pendingSessionOpen
+  if (requested === undefined) return
+  const panel = chatSingleton?.panel ?? active?.panel
+  if (panel === undefined) return
+  pendingSessionOpen = undefined
+  if (routeSelection({ hasPanel: true, panelSessionId: panelSessionId.get(panel) }, requested) === 'reveal') {
+    panel.reveal()
+    return
+  }
+  panel.reveal()
+  logger.info(`assembled chat: switching to ${requested.slice(0, 13)} (pending request)`)
+  void panel.webview.postMessage({ type: 'dshOne.switchSession', sessionId: requested })
+}
+
 /** 会话 tab 的装配（命令路径的复用体）：opts.sessionId 有值 = 会话 tab（注入启动）。 */
 async function openChatPanel(
   context: vscode.ExtensionContext,
   manager: ServerManager,
   logger: Logger,
   options: { sessionId?: string } = {},
+): Promise<void> {
+  // 已有在途创建：等它建完，再按路由把这次请求落到那个面板上（不重复建）
+  if (creatingPanel !== undefined) {
+    await creatingPanel
+    if (options.sessionId !== undefined) {
+      pendingSessionOpen = options.sessionId
+      drainPendingSession(logger)
+    }
+    return
+  }
+  creatingPanel = createChatPanel(context, manager, logger, options)
+  try {
+    await creatingPanel
+  } finally {
+    creatingPanel = undefined
+    // 创建期间来的请求（例如用户在建默认面板时点了会话）：建完立即兑现
+    drainPendingSession(logger)
+  }
+}
+
+/** 真正的建面板流程（由 openChatPanel 串行化调用）。 */
+async function createChatPanel(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+  options: { sessionId?: string },
 ): Promise<void> {
   const status = await manager.ensureStarted()
   if (status.state !== 'running' || !status.url) {
@@ -221,7 +332,7 @@ async function openChatPanel(
   const sessionId = options.sessionId
   let assembly: GatewayAssembly
   try {
-    assembly = await loadGatewayAssembly(status.url, CHAT_TREE)
+    assembly = await loadGatewayAssembly(status.url, CHAT_TREE, logger)
   } catch (err) {
     void vscode.window.showErrorMessage(
       vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
@@ -255,6 +366,7 @@ async function openChatPanel(
   if (sessionId !== undefined) {
     sessionTabs.set(sessionId, panel)
     panelSessionId.set(panel, sessionId)
+    if (pendingSessionOpen === sessionId) pendingSessionOpen = undefined
   }
   chatSingleton = { panel }
   logger.info(`assembled chat: ${mirror.origin}${sessionId === undefined ? '' : ` session=${sessionId.slice(0, 13)}`}`)
@@ -279,11 +391,15 @@ async function openChatPanel(
     panelSessionId.set(panel, m.sessionId)
     if (typeof m.title === 'string' && m.title !== '') panel.title = `dsh: ${m.title}`
   })
+  // 宿主能力桥（#65 批 1）：页面插件（git 卡片/右键菜单等）经它取 git 数据与
+  // VS Code 动作；白名单 + 参数校核在 hostBridge 内收口。
+  const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger))
   trackAssemblyWebview(context, panel.webview)
   panel.onDidDispose(() => {
     probeSub.dispose()
     exportSub.dispose()
     metaSub.dispose()
+    hostSub.dispose()
     untrackAssemblyWebview(panel.webview)
     const mapped = panelSessionId.get(panel)
     if (mapped !== undefined && sessionTabs.get(mapped) === panel) sessionTabs.delete(mapped)
@@ -337,14 +453,27 @@ async function exportSessionLog(mirror: AssemblyMirror, sessionId: string): Prom
  * （冷启动注入 bootSessionId，防闪帧遮罩此刻生效一次）。
  */
 async function openSessionChat(sessionId: string): Promise<void> {
-  const singleton = chatSingleton ?? active
-  if (singleton !== undefined) {
-    singleton.panel.reveal()
-    void singleton.panel.webview.postMessage({ type: 'dshOne.switchSession', sessionId })
+  const panel = chatSingleton?.panel ?? active?.panel
+  if (panel !== undefined) {
+    // 有面板：同 id 只聚焦（宿主去重），不同才就地切换
+    if (routeSelection({ hasPanel: true, panelSessionId: panelSessionId.get(panel) }, sessionId) === 'reveal') {
+      panel.reveal()
+      return
+    }
+    panel.reveal()
+    void panel.webview.postMessage({ type: 'dshOne.switchSession', sessionId })
+    return
+  }
+  // 没面板：记下请求，冷启动以该会话创建（创建在途时等它建完再兑现，不重复建面板）
+  pendingSessionOpen = sessionId
+  if (creatingPanel !== undefined) {
+    const deps = chatDeps
+    await creatingPanel
+    if (deps !== undefined) drainPendingSession(deps.logger)
     return
   }
   const deps = chatDeps
-  if (deps === undefined) return
+  if (deps === undefined) return // 注册还没发生：留在 pending，注册后由 attemptPendingSession 兜
   await openChatPanel(deps.context, deps.manager, deps.logger, { sessionId })
 }
 
@@ -427,6 +556,8 @@ export function registerAssembledChat(
   logger: Logger,
 ): vscode.Disposable {
   chatDeps = { context, manager, logger }
+  // 注册之前到达的点击（理论上不该有，防御）：注册后立刻兑现
+  if (pendingSessionOpen !== undefined) void openSessionChat(pendingSessionOpen)
   return vscode.commands.registerCommand('dshOne.assembledChat', () => openChatPanel(context, manager, logger))
 }
 
@@ -488,6 +619,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
   resolveWebviewView(view: vscode.WebviewView): void {
     view.webview.options = { enableScripts: true }
     const probeSub = subscribeAssemblyProbe(view.webview, this.logger)
+    const hostSub = subscribeHostCalls(view.webview, this.logger, hostBridgeDeps(this.manager, this.logger))
     trackAssemblyWebview(this.context, view.webview)
     const retrySub = view.webview.onDidReceiveMessage((msg: unknown) => {
       if (typeof msg !== 'object' || msg === null) return
@@ -504,6 +636,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
     })
     view.onDidDispose(() => {
       probeSub.dispose()
+      hostSub.dispose()
       retrySub.dispose()
       visibilitySub.dispose()
       untrackAssemblyWebview(view.webview)
@@ -520,7 +653,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
       try {
         const status = await this.manager.ensureStarted()
         if (status.state !== 'running' || !status.url) throw new Error(vscode.l10n.t('DSH service is not running'))
-        const assembly = await loadGatewayAssembly(status.url, SIDEBAR_TREE)
+        const assembly = await loadGatewayAssembly(status.url, SIDEBAR_TREE, this.logger)
         // 重试路径：先释放旧 mirror（插件集可能已变）。
         if (this.mirror !== undefined) releaseSharedMirror(this.mirror)
         this.mirror = await acquireSharedMirror(this.context, this.manager, this.logger)
@@ -603,7 +736,7 @@ export function registerAssembledSettings(
     }
     let assembly: GatewayAssembly
     try {
-      assembly = await loadGatewayAssembly(status.url, SETTINGS_TREE)
+      assembly = await loadGatewayAssembly(status.url, SETTINGS_TREE, logger)
     } catch (err) {
       void vscode.window.showErrorMessage(
         vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
@@ -641,10 +774,12 @@ export function registerAssembledSettings(
       if (typeof msg !== 'object' || msg === null || (msg as { type?: unknown }).type !== 'dshOne.openSettingsDocument') return
       void openSettingsDocumentInEditor()
     })
+    const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger))
     trackAssemblyWebview(context, panel.webview)
     panel.onDidDispose(() => {
       probeSub.dispose()
       docSub.dispose()
+      hostSub.dispose()
       untrackAssemblyWebview(panel.webview)
       if (activeSettings?.panel === panel) activeSettings = undefined
       releaseSharedMirror(mirror)

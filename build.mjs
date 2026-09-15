@@ -82,6 +82,23 @@ const SHELL_PLUGINS = [
     // 齿轮图标件走官方种子表（ui-settings-general 同款 require 源）。
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
   },
+  {
+    // #65 批 1：消息正文的 commit hash 卡片（图标件 + 官方 writeClipboard）。
+    id: '@dsh-one/vscode-git-card',
+    entry: 'src/ui/assembly/shell/gitCardPlugin.ts',
+    externals: ['@deepseek-ai/dsh-client-ui-primitives'],
+  },
+  {
+    // #65 批 1：右键菜单家族（官方 Menu 原语 + 官方 writeClipboard）。
+    id: '@dsh-one/vscode-context-menu',
+    entry: 'src/ui/assembly/shell/contextMenuPlugin.ts',
+    externals: ['@deepseek-ai/dsh-client-ui-primitives'],
+  },
+  {
+    // #65 批 1：清空三件套（官方 composer 座位 + InputActions + conversation.cancel）。
+    id: '@dsh-one/vscode-composer-clear',
+    entry: 'src/ui/assembly/shell/composerClearPlugin.ts',
+  },
 ]
 await fsp.rm('dist/assembly', { recursive: true, force: true })
 for (const plugin of SHELL_PLUGINS) {

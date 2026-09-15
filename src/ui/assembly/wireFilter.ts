@@ -200,6 +200,25 @@ export const SESSION_BRIDGE_PLUGIN_ID = '@dsh-one/vscode-session-bridge'
 export const SESSION_BOOT_PLUGIN_ID = '@dsh-one/vscode-session-boot'
 
 /**
+ * chat 树 git 卡片插件 id（#65 批 1）：消息正文 commit hash 可点 + 悬停卡片
+ * （数据走宿主能力桥 git.show，见 gitCardPlugin.ts 的机制分层举证）。
+ */
+export const GIT_CARD_PLUGIN_ID = '@dsh-one/vscode-git-card'
+
+/**
+ * chat 树右键菜单插件 id（#65 批 1）：行内码「复制这段」/ 消息「复制」/
+ * 外链「系统浏览器 or VS Code 内置浏览器」（外链动作走能力桥）。
+ */
+export const CONTEXT_MENU_PLUGIN_ID = '@dsh-one/vscode-context-menu'
+
+/**
+ * chat 树清空三件套插件 id（#65 批 1）：一键清空 / 双击确认 + Ctrl+Z 反悔 /
+ * 运行中「先清输入再停」（全部走官方 composer 的 InputActions 与 conversation
+ * 服务的 cancel，见 composerClearPlugin.ts 的机制分层）。
+ */
+export const COMPOSER_CLEAR_PLUGIN_ID = '@dsh-one/vscode-composer-clear'
+
+/**
  * chat 树会话日志导出自有行动 id（#71 验收返修）：官方导出走裸 fetch +
  * a[download]，在 VS Code webview 双杀（非 http 源 fetch 失败 + 禁下载）——
  * 自有贡献点击 postMessage，宿主 showSaveDialog + 经 mirror 拉 ZIP 写盘。
@@ -240,14 +259,23 @@ export function filterWire(
   blockList: ReadonlyArray<BlockedPlugin> = CHAT_BLOCK_LIST,
   shellPluginId: string = SHELL_PLUGIN_ID,
   extraPluginIds: readonly string[] = [THEME_FOLLOW_PLUGIN_ID],
+  /** 诊断回调（block list 与实际清单对不上时报告，不阻断）——宿主传 logger。 */
+  onWarn?: (line: string) => void,
 ): BootWire {
   const blockedIds = blockedIdsOf(blockList)
   const blocked = new Set(blockedIds)
   const entries = wire.entries.filter((e) => !blocked.has(e.id))
-  const dropped = wire.entries.filter((e) => blocked.has(e.id))
-  if (dropped.length !== blockedIds.length) {
-    const missing = blockedIds.filter((id) => !dropped.some((e) => e.id === id))
-    throw new Error(`assembly wire: gateway wire is missing expected blocklist entries: ${missing.join(', ')}`)
+  // block list 里的条目在网关清单里**不存在**是正常演进（官方把插件合并/下线，
+  // 例如 0.1.2 开发期把 ui-settings-models 合走）——此时没有段要剥，不该阻断装配。
+  // 只报告（宿主日志可见「网关改版」），不再抛错：抛错会让面板整个打不开。
+  // 代价（已知）：若官方把某个被拉黑的插件**改名**，新 id 不会被剥掉，官方件会
+  // 混进树里——那条 warn 是唯一线索，报错文案里带上缺失 id 便于定位。
+  const presentBlocked = blockedIds.filter((id) => wire.entries.some((e) => e.id === id))
+  if (presentBlocked.length !== blockedIds.length) {
+    const missing = blockedIds.filter((id) => !presentBlocked.includes(id))
+    onWarn?.(
+      `assembly wire: blocklist entries absent from the gateway wire (not filtered, harmless unless renamed upstream): ${missing.join(', ')}`,
+    )
   }
   const app = wire.batches.find((b) => b.phase === 'application')
   const bootstrap = wire.batches.find((b) => b.phase === 'bootstrap')
@@ -255,7 +283,7 @@ export function filterWire(
     throw new Error('assembly wire: missing bootstrap/application batch')
   }
   const keptIds = app.entries.filter((id) => !blocked.has(id))
-  if (keptIds.length !== app.entries.length - blockedIds.length) {
+  if (keptIds.length !== app.entries.length - presentBlocked.length) {
     throw new Error('assembly wire: application batch blocklist entries inconsistent with wire entries')
   }
   const localIds = [shellPluginId, ...extraPluginIds]

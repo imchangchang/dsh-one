@@ -1,0 +1,125 @@
+{
+  "title": "DSH One 装配线测试报告：对话区功能插件化批 1（#65）",
+  "branch": "agent/cordis-chat-dsh-one-features",
+  "commit": "8c348267b075a782514f49e063c103e908cba268",
+  "environment": {
+    "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
+    "dsh": "0.1.2-rc.1",
+    "locale": "zh-cn",
+    "theme": "dark（含 light 切换断言）",
+    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（119 条断言）",
+    "date": "2026-09-15T14:31:34.907Z"
+  },
+  "coverageNote": "本报告是浏览器验证（第一道验证）：装配页 + 真实网关只读 + 假宿主（能力桥的宿主侧在假宿主里按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/内置浏览器命令）、运行中回合的停止路径（需要真回合）、真模型输出。这些见 VS Code 验证清单。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "宿主能力桥（#65 批 1 基础设施）（BRIDGE 套件，7 条断言）",
+      "expect": "装配页注入页面侧 SDK（__DSH_ONE_HOST__）；一次调用 = 一条 {type:dshOne.hostCall,call,args,id} 上行，并发调用按 id 各归各的 Promise；宿主拒绝时抛带 code 的结构化错误；全页 acquireVsCodeApi 只调一次（统一获取点复用）。对照截图 bridge.png。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh65-batch1/bridge.png"
+      ],
+      "notes": "页面侧 SDK 已注入（__DSH_ONE_HOST__.call）：typeof=function；并发调用按 id 各归各的 Promise：{\"a\":\"m-aaaaaaa\",\"b\":\"m-bbbbbbb\",\"ids\":[\"hc1-lxi95q19\",\"hc2-dz8qfvzf\"],\"distinct\":2}；每次调用生成唯一 id：ids=hc1-lxi95q19,hc2-dz8qfvzf；宿主拒绝时抛结构化错误（带 code）：{\"threw\":true,\"code\":\"fake/failed\",\"message\":\"bad args\"}；acquireVsCodeApi 只调一次且无二次失败：{\"calls\":1,\"failures\":0}；上行消息形状 {type,call,args,id}：{\"type\":\"dshOne.hostCall\",\"call\":\"git.show\",\"args\":{\"hash\":\"ccccccc\"},\"id\":\"hc4-agbthi1e\"}"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "消息正文 commit hash 可点 + 悬停提交卡片（含未推送态）（GITCARD 套件，18 条断言）",
+      "expect": "消息行正文里的 7–40 位 hex 变成可点标记（虚线下划线）；悬停发出 git.show 并弹出卡片（作者/相对时间/标题/正文/变更统计/短 hash/命中仓库路径）；**git.show 带 cwd 且等于当前会话所属 dsh 工作区路径**（不是 VS Code 打开的仓库；宿主侧允许根取自网关 session/list 的 cwd 集合——真实 POV 树只读复验：5c8630a found=true、repoRelative=aibrain-app、42ms）；**工作区根非 git 仓库时，宿主在工作区内有界发现子目录仓库并逐个查询**（限深 ≤3、跳过依赖/构建目录、仓库数 ≤24、总预算 2s），命中后卡片展示仓库相对路径；**未推送到远端（git branch -r --contains 无输出）时不给「在 GitHub 打开」按钮，改一行「尚未推送到远端」提示**（已推送才显示按钮；链接一律用完整 40 位 hash，单测覆盖两种远端状态）；代码块 pre 内的 hash 不联动；同一 hash 命中缓存不重复请求；点击钉住、点别处收起；查不到的提交显示「未找到」。对照 gitcard-1-decorated.png（装饰）、gitcard-2-hover-card.png（卡片含「仓库 aibrain-app」）、gitcard-3-not-pushed.png（未推送态）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh65-batch1/gitcard-1-decorated.png",
+        "/tmp/dsh65-batch1/gitcard-2-hover-card.png",
+        "/tmp/dsh65-batch1/gitcard-3-not-pushed.png"
+      ],
+      "notes": "注入测试文本到官方消息行：{\"rowKind\":\"assistant-step\"}；正文里的 hash 被包成可点标记（注入的那条）：{\"count\":1,\"sha\":\"abc1234def5678901234567890abcdef12345678\",\"inPre\":false,\"anywhere\":4}；代码块（pre）内的 hash 不联动：inPre=false；悬停发出 git.show（带 hash）：[{\"hash\":\"abc1234def5678901234567890abcdef12345678\",\"cwd\":\"/Users/cgeng/Workspaces/dsh-plan\"}]；git.show 以「当前会话工作区路径」查询（不是 VS Code 工作区）：expected=/Users/cgeng/Workspaces/dsh-plan got=/Users/cgeng/Workspaces/dsh-plan；卡片渲染出假提交的作者/标题/统计：Fake Author14 天前 (2026-09-01 10:00)feat: 假提交标题正文一行。3 个文件变更, +12, -4仓库aibrain-app提交 abc1234在 GitHub 打开；卡片展示解析到的仓库路径（相对工作区根）：假提交标题正文一行。3 个文件变更, +12, -4仓库aibrain-app提交 abc1234在 GitHub 打开；已推送：卡片保留「在 GitHub 打开」按钮：buttons=1；卡片在视口内且可交互（pointer-events 非 none）：{\"rect\":{\"x\":248.1875,\"y\":183,\"width\":311.375,\"height\":187,\"top\":183,\"right\":559.5625,\"bottom\":370,\"left\":248.1875},\"pe\":\"auto\"}；同一 hash 命中缓存不重复请求：calls=1；第二个 hash 也被装饰（含 deadbeef 形状）：{\"sha\":\"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\"}；未找到的提交显示「未找到」（不显示作者行）：未找到该提交；第三个 hash（未推送态）被装饰：feed1234abcdef0123456789abcdef01234567；未推送：卡片不给「在 GitHub 打开」按钮：[\"复制完整 hash\"]；未推送：卡片给出「尚未推送到远端」提示：at: 假提交标题正文一行。3 个文件变更, +12, -4仓库aibrain-app尚未推送到远端提交 abc1234"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "行内码右键（定稿：官方紧凑档 + 单图标 + 悬浮/已复制反馈 + 目标高亮）（MENU 套件，31 条断言）",
+      "expect": "右键行内码 → 菜单**只有一个无可见文字的官方复制图标项**（无障碍名「复制这段」走自有 locale，按 role+名字可查到），图标 **14×14**、居中（上下左右留白相等 6/6，改前 9/15 偏上）；**几何取官方紧凑档**（项 26×26、字号 12px、行距 18px、间距 6px、圆角 5px；列表内边距 2px、圆角 7px、底色 `--dsw-specific-menu`），菜单盒收敛到 30px（＝项 26 + 列表内边距 2×2，不再占 164/218px 档）；**悬浮出官方 Tooltip 气泡「复制」**；**点击后项内先显示「已复制」（对勾 + 文字，官方 Menu 点选不自动关、由调用方定时关闭）**，随后菜单关闭、高亮与菜单标记都撤掉、无残留（重复开关仍是各 1 个）；**被点的行内码高亮到官方「选中行」强度**（底色 `--dsw-alias-interactive-bg-hover`：暗 rgba(255,255,255,0.08) / 浅 rgba(38,49,72,0.06)，与 token 等比校验，两档主题都验；外加官方细描边 `--dsw-alias-border-l2` 一圈）；**其余目标一律让路**：消息行内普通文本、外链、对话区空白处都不弹自有菜单、不 preventDefault、不误标高亮。对照 menu-final.png / menu-copied-state.png / menu-1-inline-code.png / menu-2-official-standard.png（官方标准档 40 项对照）/ menu-3-light-highlight.png。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh65-batch1/menu-final.png",
+        "/tmp/dsh65-batch1/menu-copied-state.png",
+        "/tmp/dsh65-batch1/icon-14vs16.png",
+        "/tmp/dsh65-batch1/menu-1-inline-code.png",
+        "/tmp/dsh65-batch1/menu-2-official-standard.png",
+        "/tmp/dsh65-batch1/menu-3-light-highlight.png"
+      ],
+      "notes": "官方菜单样本可测（composer 的官方下拉）：from=[aria-label^=\"访问模式\"] ；菜单只有一个「无可见文字」的图标项：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标项无障碍名走自有 locale（复制这段）：aria-label=复制这段；菜单盒收敛到图标项自然宽度（列表 = 项 + 紧凑档列表内边距 2px×2）：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标项走官方紧凑档几何（26×26 方盒）：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标为官方 14 档尺寸（16 档图标件 + 官方 size 参数）：{\"svgWidth\":14,\"svgHeight\":14,\"itemCount\":1,\"visibleText\":\"\",\"svgCount\":1,\"ariaLabel\":\"复制这段\",\"listWidth\":30,\"listMinWidth\":\"0px\",\"itemWidth\":26,\"itemHeight\":26}；图标项内边距对称、图标居中（上下左右相等；(26−14)/2 = 6px）：{\"above\":6,\"below\":6,\"left\":6,\"right\":6,\"padding\":\"6px\"}；按 role+名字能查到该菜单项（AccName 正确）：count=1；右键目标被高亮（且只标这一个）：{\"marked\":1,\"total\":1,\"background\":\"rgba(255, 255, 255, 0.08)\",\"boxShadow\":\"rgba(255, 255, 255, 0.12) 0px 0px 0px 1px, rgba(255, 255, 255, 0.08) 0px 0px 0px 3px；高亮底色 = 官方选中行 token（--dsw-alias-interactive-bg-hover）：bg=rgba(255, 255, 255, 0.08) token=#ffffff14；高亮描边 = 官方细描边 token（--dsw-alias-border-l2）：shadow=rgba(255, 255, 255, 0.12) 0px 0px 0px 1px, rgba(255, 255, 255, 0.08) 0px 0px 0px borderToken=#ffffff1f；自有菜单几何 = 官方紧凑档 CSS 值（项 26 / 字号 12 / 行距 18 / 间距 6 / 圆角 5；列表 2px / 7px）：{\"fontSize\":\"12px\",\"lineHeight\":\"18px\",\"gap\":\"6px\",\"borderRadius\":\"5px\",\"list\":{\"padding\":\"2px\",\"borderRadius\":\"7px\",\"background\":\"rgb(53, 54, 56)\"}}；自有菜单 hover 配色与官方一致：ours=rgba(255, 255, 255, 0.08) official=rgba(255, 255, 255, 0.08)；悬停菜单项出官方 tooltip（zh 文案「复制这段」）：\"复制这段\"；复制行动作写入剪贴板（行内码原文）：[\"npm run typecheck\"]；点击后项内显示「已复制」（zh 取词；菜单尚未关——官方点选不自动关）：{\"menus\":1,\"text\":\"已复制\",\"aria\":\"已复制\"}；「已复制」态的 aria-label 同步走 locale（不是硬编码英文）：{\"menus\":1,\"text\":\"已复制\",\"aria\":\"已复制\"}；反馈结束后菜单关闭、高亮与菜单标记都撤掉（无残留）：{\"menus\":0,\"marks\":0,\"menuMarks\":0}；重复开关不留残留（再开仍是 1 个高亮 + 1 个菜单标记）：marks=1 menuMarks=1；Esc 取消后菜单关闭且高亮撤掉（无残留）：{\"menus\":0,\"marks\":0}；消息行内普通文本：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；外链（官方 target=_blank 交给系统浏览器）：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；对话区空白处：不弹自有菜单、不拦截原生右键、不误标高亮：{\"prevented\":false,\"menu\":false,\"marks\":0}；官方标准菜单为 40 档（对照：我们有意取紧凑 26 档）：{\"official\":{\"minHeight\":\"40px\",\"height\":40,\"padding\":\"8px 10px\",\"fontSize\":\"14px\",\"lineHeight\":\"22px\",\"gap\":\"8px\",\"borderRadius\":\"10px\"},\"ours\":{\"minHeight\":\"2；图标尺寸 14 与项盒 26 自洽（官方标准档为 16 图标 / 40 项，此处有意取紧凑）：{\"ours\":{\"icon\":{\"width\":14,\"height\":14},\"item\":{\"minHeight\":\"26px\",\"height\":26,\"padding\":\"6px\",\"fontSize\":\"12px\",\"lineHeight\":\"18px\",\"gap\":\"6px\",\"borderRadius\"；列表盒：底色同为官方 --dsw-specific-menu，紧凑档内边距/圆角 2px/7px，min-width 按图标项收窄：{\"ours\":{\"padding\":\"2px\",\"borderRadius\":\"7px\",\"minWidth\":\"0px\",\"background\":\"rgb(53, 54, 56)\"},\"official\":{\"padding\":\"4px\",\"borderRadius\":\"20px\",\"minWidth\":\"218；浅色主题：高亮底色仍等于官方选中行 token：{\"background\":\"rgba(38, 49, 72, 0.06)\",\"token\":\"#2631480f\",\"darkAttr\":false,\"tokenRgb\":\"rgba(38, 49, 72, 0.06)\"}"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "清空改版（Esc / Ctrl+C 键位 + Ctrl+Z 反悔，无按钮）（CLEAR 套件，14 条断言）",
+      "expect": "不再渲染清空按钮（composer 工具行无自有贡献）；有内容时按 Esc 第一次只武装（提示「再按一次 Esc 清空」、草稿不动），第二次清空官方输入框并显示「已清空 · 撤销」；撤销窗口内 Ctrl+Z 还原正文；@ 引用 chip 连清带还原（还原出来是真 chip，官方 data-composer-chip）；窗口过期后 Ctrl+Z 交还官方语义；**空内容 + Esc 放行**（defaultPrevented=false、无提示、草稿仍空）；**有选中文本 + Ctrl+C 放行**（复制优先），无选中 + Ctrl+C 才接管（提示按 Ctrl+C 文案）；官方 @ 候选浮层打开时 Esc 放行（我们不接管、官方照常关浮层）。对照 clear-1-armed.png（武装提示）、clear-2-cleared.png（已清空 · 撤销）、clear-3-undone.png（撤销后）、clear-4-chip-undone.png（chip 还原）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh65-batch1/clear-1-armed.png",
+        "/tmp/dsh65-batch1/clear-2-cleared.png",
+        "/tmp/dsh65-batch1/clear-3-undone.png",
+        "/tmp/dsh65-batch1/clear-4-chip-undone.png"
+      ],
+      "notes": "不再渲染清空按钮（input.left 无自有贡献）：{\"button\":0,\"inputLeft\":\"\"}；空内容 + Esc：放行（defaultPrevented=false、无提示、草稿仍空）：{\"prevented\":false,\"text\":\"\"}；有内容 + Esc：第一次只武装（提示 + 草稿不动）：{\"hint\":\"arm-escape\",\"text\":\"dsh one clear harness\"}；第二次 Esc 清空官方输入框（走 InputActions.setDraft）：{\"hint\":\"undo\",\"text\":\"\"}；撤销窗口内 Ctrl+Z 还原被清空的正文：{\"text\":\"dsh one clear harness\",\"hint\":null}；撤销窗口过期后 Ctrl+Z 不再还原清空内容（交还官方撤销语义）：expired=null text=\"\"；清空后重新打字：撤销窗口关闭，Ctrl+Z 不吞掉新输入：{\"hint\":null,\"text\":\"brand new text\",\"afterUndoAttempt\":\"brand new text\"}；有选中文本 + Ctrl+C：放行（复制不受影响）：{\"prevented\":false,\"selected\":true}；无选中 + Ctrl+C：接管（提示按 Ctrl+C 文案）：{\"prevented\":true}；官方浮层打开时 Esc 放行（我们不接管、官方照常关浮层）：{\"options\":0,\"hint\":null,\"text\":\"看看 @\",\"beforePopupEsc\":\"看看 @\"}；@ 引用插成真 chip（官方 data-composer-chip）：{\"chips\":1,\"text\":\"看看 @看看 lib/ \"}；清空连引用 chip 一起清（编辑器空、无残留 chip）：{\"chips\":0,\"text\":\"\"}；撤销把引用还原成真 chip（insertReference，不是纯文本）：{\"chips\":1,\"text\":\"看看 @看看 lib/ \"}"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "既有功能回归（三棵树）（REGRESSION 套件，14 条断言）",
+      "expect": "chat 树：自有外框 + 官方对话区 + composer 齐、官方侧栏不在（block list 生效）、主题跟随（宿主下发 light/dark 即切）；sidebar 树：内容铺满视图宽且贴左缘、body 无宿主注入内边距、齿轮在且点击发出 dshOne.openSettings；settings 树：导航四节、当前节内容渲染、外观行 computed display=none（屏蔽规则生效）、内容列不溢出视口。对照 regression-*.png。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh65-batch1/regression-chat-light-dark.png",
+        "/tmp/dsh65-batch1/regression-sidebar-380.png",
+        "/tmp/dsh65-batch1/regression-settings.png"
+      ],
+      "notes": "chat 树：自有外框 + 官方对话区 + composer 都在：{\"frame\":1,\"composer\":1,\"contentEditable\":1,\"officialSidebarPluginAbsent\":true,\"exportBtn\":0,\"clearBtn\":0}；主题跟随：宿主下发 light 后 body 翻到浅色：{\"dark\":false,\"scheme\":\"light\"}；sidebar 树：内容铺满视图宽、贴左缘、body 无宿主注入内边距：{\"width\":380,\"left\":0,\"viewport\":380,\"bodyPadL\":\"0px\",\"gear\":1}；sidebar 树：设置齿轮（影子）在：gear=1；齿轮点击发出 dshOne.openSettings：[\"assembly:log\",\"assembly:log\",\"dshOne.openSettings\"]；settings 树：导航列出各设置节（≥3）：[\"通用设置\",\"插件\",\"模型服务\",\"Agent 预设\"]；settings 树：当前节渲染出内容：{\"nav\":[\"通用设置\",\"插件\",\"模型服务\",\"Agent 预设\"],\"rendered\":1,\"appearanceDisplay\":\"none\",\"contentWidth\":612}；settings 树：外观行被屏蔽（computed display 为 none）：display=none；settings 树：内容列限宽在页内（不溢出视口）：w=612"
+    },
+    {
+      "id": "R-06",
+      "phase": "regression",
+      "name": "注入会话防闪帧遮罩（NOFLASH 套件，6 条断言）",
+      "expect": "注入会话启动：早期帧看不到空白会话 hero（heroFrames=0），遮罩在早期帧出现，目标会话落定后遮罩消失；默认 tab（无注入）全程不遮罩。对照 noflash-settled.png。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh65-batch1/noflash-settled.png"
+      ],
+      "notes": "注入会话：早期帧没有空白会话 hero 闪帧：heroFrames=0；注入会话：遮罩在早期帧出现：maskFrames=6；目标会话落定后遮罩揭开：{\"mask\":0,\"title\":true}；默认 tab：无注入时永不遮罩：mask=0"
+    },
+    {
+      "id": "R-07",
+      "phase": "regression",
+      "name": "会话日志导出自有行动（EXPORT 套件，4 条断言）",
+      "expect": "header utilities 座位里自有「Session 日志」行动在、官方胶囊被隐藏；点击发出 dshOne.exportSessionLog。对照 export-header.png。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh65-batch1/export-header.png"
+      ],
+      "notes": "导出：自有「Session 日志」行动在 header utilities 座位里：{\"ours\":true,\"items\":2,\"hidden\":1}；导出：官方胶囊被隐藏（机制层 4 举证）：{\"ours\":true,\"items\":2,\"hidden\":1}；导出：点击发出 dshOne.exportSessionLog：[\"assembly:log\",\"dshOne.exportSessionLog\",\"dshOne.sessionMeta\"]"
+    },
+    {
+      "id": "R-08",
+      "phase": "regression",
+      "name": "侧栏桥 + 单例就地切换（WIRING 套件，21 条断言）",
+      "expect": "**首揭时序**：侧栏首揭时工作区行先出现、会话行随后出现——经对照为**官方原生行为**（同一网关下官方 web 实测 工作区 225ms / 会话 835ms，我方装配 200ms / 800ms；根因是会话清单 RPC 对 1107 条会话的延迟），断言只钉「会话行最终一定出现（不会一直空着）」这条底线。**启动竞态三档**（恢复键失效 / 恢复键有效 / 全新 profile）：侧栏会话行一出现就点，**首次点击必立即上报**（改前被「首个非空选中」抑制吞掉）；启动期官方恢复值/自动选择**不误报**（面板仍走官方恢复 + #68 自动开一次）；重复点同一会话不重复上报（宿主另按面板当前会话去重）。侧栏点会话行 → 桥消息 dshOne.sessionSelected 带正确 id；chat 树收到 dshOne.switchSession 后就地切换（composer 在、无遮罩、头部标题跟随目标会话、消息行落地加载）。对照 wiring-switched.png。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh65-batch1/wiring-switched.png"
+      ],
+      "notes": "侧栏首揭：工作区行先出现（≤3s）：projects@2ms；侧栏首揭：会话行随后出现（≤8s，不会一直空着）：sessions@638ms（工作区@2ms；官方同网关实测 225/835ms）；WIRING 启动竞态 A（恢复键失效 → current 起始为空）：启动期不误报（官方恢复/自动选择被抑制）：[]；WIRING 启动竞态 A（恢复键失效 → current 起始为空）：首次点击立即上报（不再被吞）：[\"session-cb76d36d-23b5-4ffc-a1c7-fa5eec06f531\"]；WIRING 启动竞态 A（恢复键失效 → current 起始为空）：重复点同一行不重复上报：1 → 1；WIRING 启动竞态 B（恢复键有效）：启动期不误报（官方恢复/自动选择被抑制）：[]；WIRING 启动竞态 B（恢复键有效）：首次点击立即上报（不再被吞）：[\"session-cb76d36d-23b5-4ffc-a1c7-fa5eec06f531\"]；WIRING 启动竞态 B（恢复键有效）：重复点同一行不重复上报：1 → 1；WIRING 启动竞态 C（无恢复键，全新 profile）：启动期不误报（官方恢复/自动选择被抑制）：[]；WIRING 启动竞态 C（无恢复键，全新 profile）：首次点击立即上报（不再被吞）：[\"session-cb76d36d-23b5-4ffc-a1c7-fa5eec06f531\"]；WIRING 启动竞态 C（无恢复键，全新 profile）：重复点同一行不重复上报：1 → 1；侧栏树：工作区树渲染出会话行：rows=3；侧栏点会话 → 桥消息 dshOne.sessionSelected：[\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\"]；WIRING：运行时切会话就地生效（composer 在、无遮罩）：{\"masks\":0,\"composer\":1,\"headerShowsTarget\":true,\"flowRows\":123}；WIRING：对话区切到目标会话（头部标题跟随 + 有消息行）：{\"masks\":0,\"composer\":1,\"headerShowsTarget\":true,\"flowRows\":123,\"flowLoaded\":true}"
+    },
+    {
+      "id": "R-09",
+      "phase": "regression",
+      "name": "整包缓存 + Git 卡片扫描开销（PERF 套件，4 条断言）",
+      "expect": "整包走 /plugins-local（分树过滤版），二次请求命中缓存（耗时 < 500ms）；一次注入 200 个 hash 文本节点，装饰在 3s 内收敛（实测 62ms）且不自激。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "PERF：整包走 /plugins-local（分树过滤版）：{\"url\":\"http://127.0.0.1:52471/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3546509,\"decode\":3546209,\"elapsed\":8.900000005960464}；PERF：二次请求命中缓存（耗时 < 500ms）：{\"url\":\"http://127.0.0.1:52471/plugins-local/??@deepseek-ai/dsh-type\",\"transferSize\":3546509,\"decode\":3546209,\"elapsed\":8.900000005960464}；PERF：200 个 hash 的扫描装饰在 3s 内收敛且不自激：{\"elapsed\":60.599999994039536,\"settled\":200,\"after\":200}"
+    }
+  ]
+}

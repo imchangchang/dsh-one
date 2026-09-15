@@ -76,8 +76,8 @@ export function startAssemblyMirror(
     ]),
   )
   const treeCombosKeys = new Set(treeCombos.keys())
-  const comboCache = new Map<string, Promise<string>>()
-  const filteredGatewayCombo = (shellPluginId: string): Promise<string> => {
+  const comboCache = new Map<string, Promise<{ text: string; ids: ReadonlySet<string> }>>()
+  const filteredGatewayCombo = (shellPluginId: string): Promise<{ text: string; ids: ReadonlySet<string> }> => {
     let pending = comboCache.get(shellPluginId)
     if (pending === undefined) {
       pending = fetchFilteredGatewayCombo(target, treeCombos.get(shellPluginId) ?? [], logger)
@@ -157,7 +157,7 @@ async function fetchFilteredGatewayCombo(
   target: () => string | undefined,
   blockIds: readonly string[],
   logger: Logger,
-): Promise<string> {
+): Promise<{ text: string; ids: ReadonlySet<string> }> {
   const gateway = target()
   if (gateway === undefined) throw new Error('assembly mirror: dsh service is not running')
   const cookie = cookieHeader(gateway)
@@ -174,25 +174,33 @@ async function fetchFilteredGatewayCombo(
   const marks = [...text.matchAll(segmentRe)]
   const kept: string[] = []
   const dropped: string[] = []
+  // 官方整包里实际存在的 id：调用方用它区分「官方插件」与「本地自有插件」——
+  // 不能按 `@dsh-one/` 前缀猜：网关里也可能装了同组织的第三方/用户插件
+  // （实测：用户自研的 @dsh-one/dsh-llm-provider 出现在网关清单里，按前缀会被
+  // 误当本地件去读盘 → ENOENT → 502）。
+  const ids = new Set<string>()
   for (let i = 0; i < marks.length; i++) {
     const start = marks[i].index
     const end = i + 1 < marks.length ? marks[i + 1].index : text.length
     const segment = text.slice(start, end)
     const id = /\bid:\s*"([^"]+)"/.exec(segment.slice(0, 300))?.[1]
+    if (id !== undefined) ids.add(id)
     if (id !== undefined && blockIds.includes(id)) {
       dropped.push(id)
       continue
     }
     kept.push(segment)
   }
-  if (kept.length + dropped.length !== marks.length || dropped.length !== blockIds.length) {
+  if (kept.length + dropped.length !== marks.length) {
     logger.warn(
-      `assembly mirror: combo segment strip anomaly (segments ${marks.length}, kept ${kept.length}, dropped ${dropped.length}, expected ${blockIds.length})`,
+      `assembly mirror: combo segment strip anomaly (segments ${marks.length}, kept ${kept.length}, dropped ${dropped.length})`,
     )
   } else {
-    logger.info(`assembly mirror: filtered combo ready (kept ${kept.length} segments, dropped ${dropped.join(', ')})`)
+    logger.info(
+      `assembly mirror: filtered combo ready (kept ${kept.length} segments, dropped ${dropped.join(', ') || 'none'})`,
+    )
   }
-  return kept.join('')
+  return { text: kept.join(''), ids }
 }
 
 /**
@@ -205,7 +213,7 @@ async function serveCombo(
   res: ServerResponse,
   url: URL,
   options: AssemblyMirrorOptions,
-  filteredGatewayCombo: (shellPluginId: string) => Promise<string>,
+  filteredGatewayCombo: (shellPluginId: string) => Promise<{ text: string; ids: ReadonlySet<string> }>,
   treeComboKeys: ReadonlySet<string>,
   logger: Logger,
 ): Promise<void> {
@@ -225,23 +233,23 @@ async function serveCombo(
     return
   }
   const ids = items.map((item) => item.slice(0, -CLIENT_SUFFIX.length))
-  const gatewayIds = ids.filter((id) => !id.startsWith('@dsh-one/'))
-  const localIds = ids.filter((id) => id.startsWith('@dsh-one/'))
-  if (localIds.some((id) => !LOCAL_PLUGIN_RE.test(id))) {
-    logger.warn(`assembly mirror: rejected local combo ids ${localIds.join(',')}`)
-    res.writeHead(404, { 'access-control-allow-origin': '*' })
-    res.end('not found')
-    return
-  }
   // 树路由 + 缓存键：请求 combo 里的自有 shell id 决定用哪份过滤整包。
   const shellId = ids.find((id) => treeComboKeys.has(id)) ?? ''
   const rev = url.searchParams.get('rev') ?? 'noversion'
   try {
-    const parts: Buffer[] = []
-    if (gatewayIds.length > 0) {
-      const filtered = await filteredGatewayCombo(shellId)
-      parts.push(Buffer.from(filtered, 'utf8'))
+    // 分类按**来源**而不是名字前缀（见 fetchFilteredGatewayCombo 的说明）：
+    // 官方整包里存在的 id → 由过滤版整包覆盖；不存在的 → 读本地插件目录。
+    const official = await filteredGatewayCombo(shellId)
+    const gatewayIds = ids.filter((id) => official.ids.has(id))
+    const localIds = ids.filter((id) => !official.ids.has(id))
+    if (localIds.some((id) => !LOCAL_PLUGIN_RE.test(id))) {
+      logger.warn(`assembly mirror: rejected local combo ids ${localIds.join(',')}`)
+      res.writeHead(404, { 'access-control-allow-origin': '*' })
+      res.end('not found')
+      return
     }
+    const parts: Buffer[] = []
+    if (gatewayIds.length > 0) parts.push(Buffer.from(official.text, 'utf8'))
     for (const id of localIds) {
       const file = await fsp.readFile(path.join(options.pluginsDir, id, 'client.js'))
       parts.push(Buffer.concat([Buffer.from('\n'), file]))
