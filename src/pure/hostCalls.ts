@@ -17,6 +17,8 @@ export type HostCallErrorCode =
   | 'invalid-args'
   | 'no-workspace'
   | 'not-found'
+  /** 目标能力的外部程序起不来（目前仅 git：未安装或不可执行）。 */
+  | 'git-missing'
   | 'failed'
   | 'unsupported'
 

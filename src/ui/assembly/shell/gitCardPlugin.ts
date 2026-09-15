@@ -373,7 +373,9 @@ function GitCardLayer({ t }: LayerProps) {
   if (state.kind === 'pending') {
     body.push(h('div', { key: 'pending', className: 'dshOneGitCard_meta' }, tr('checking')))
   } else if (state.kind === 'error') {
-    body.push(h('div', { key: 'error', className: 'dshOneGitCard_meta' }, tr('lookupFailed')))
+    // git 二进制起不来时单独成句（其余失败保持通用文案）：悬停提示要能让用户
+    // 一眼分清「没装 git」和「查不到/查询失败」。
+    body.push(h('div', { key: 'error', className: 'dshOneGitCard_meta' }, tr(state.code === 'git-missing' ? 'gitMissing' : 'lookupFailed')))
   } else if (state.kind === 'info' && !state.info.found) {
     body.push(h('div', { key: 'missing', className: 'dshOneGitCard_meta' }, tr('notFound')))
   } else if (state.kind === 'info') {
@@ -489,6 +491,7 @@ export function apply(ctx: GitCardContext): void {
         checking: '\u6b63\u5728\u67e5\u8be2\u63d0\u4ea4\u4fe1\u606f\u2026',
         notFound: '\u672a\u627e\u5230\u8be5\u63d0\u4ea4',
         lookupFailed: '\u63d0\u4ea4\u4fe1\u606f\u67e5\u8be2\u5931\u8d25',
+        gitMissing: '\u5f53\u524d\u672a\u5b89\u88c5 git',
         commit: '\u63d0\u4ea4',
         copyHash: '\u590d\u5236\u5b8c\u6574 hash',
         openOnGithub: '\u5728 GitHub \u6253\u5f00',
@@ -502,6 +505,7 @@ export function apply(ctx: GitCardContext): void {
         checking: 'Checking commit info…',
         notFound: 'Commit not found',
         lookupFailed: 'Commit lookup failed',
+        gitMissing: 'Git is not installed',
         commit: 'Commit',
         copyHash: 'Copy full hash',
         openOnGithub: 'Open on GitHub',

@@ -8,7 +8,7 @@
  * 的实现，不值得为它单起一个 cordis 服务。
  */
 export interface HostCallFailure extends Error {
-  /** 宿主回执的结构化错误码（unknown-call/invalid-args/not-found/no-host/timeout…）。 */
+  /** 宿主回执的结构化错误码（unknown-call/invalid-args/not-found/git-missing/no-host/timeout…）。 */
   code?: string
 }
 

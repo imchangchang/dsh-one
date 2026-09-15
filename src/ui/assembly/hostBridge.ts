@@ -90,7 +90,7 @@ async function gitShow(args: { hash: string; cwd?: string }, deps: HostBridgeDep
     ...(deps.gitPath === undefined ? {} : { gitPath: deps.gitPath }),
     ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
   })
-  if (info === undefined) return { code: 'failed', message: 'the git executable could not be started' }
+  if (info === undefined) return { code: 'git-missing', message: 'the git executable could not be started' }
   return info
 }
 
