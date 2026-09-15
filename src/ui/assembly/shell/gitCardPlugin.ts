@@ -189,6 +189,10 @@ function GitCardLayer({ t }: LayerProps) {
     if (cached !== undefined) return Promise.resolve(cached)
     const pending = inflight.current.get(sha)
     if (pending !== undefined) return pending
+    // 不传 cwd：宿主按「VS Code 打开的仓库」查提交（cwd 限域只认工作区与
+    // ~/.dsh，会话 cwd 常在别的目录，传了反而会被拒）。跨仓库会话里的 hash
+    // 查不到时卡片显示「未找到」——后续批次若要按会话 cwd 查，需要先定一条
+    // 会话 cwd 的允许策略（见 #65 汇报的遗留项）。
     const asked = hostCall<CommitInfo>('git.show', { hash: sha }).then(
       (info) => {
         cache.current.set(sha, info)

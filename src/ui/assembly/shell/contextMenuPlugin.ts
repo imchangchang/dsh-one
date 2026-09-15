@@ -25,7 +25,7 @@
  * - 菜单本体用官方 `Menu` 原语（portal + getAnchorRect 定位到右键坐标、外点
  *   关闭、Escape 关闭都是官方行为），观感与官方菜单一致。
  */
-import { createElement as h, useEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useState } from 'react'
 import {
   IconBrowseOutline16,
   IconCodeOutline16,
@@ -107,7 +107,6 @@ function messageTextOf(row: HTMLElement): string {
 function ContextMenuLayer({ t }: LayerProps) {
   const tr = t
   const [state, setState] = useState<MenuState>(CLOSED)
-  const anchorRect = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
 
   useEffect(() => {
     const root = frameRoot()
@@ -147,7 +146,6 @@ function ContextMenuLayer({ t }: LayerProps) {
   }, [])
 
   if (!state.open) return null
-  anchorRect.current = { x: state.x, y: state.y }
 
   const copy = (text: string): void => {
     void writeClipboard(text)
@@ -173,7 +171,7 @@ function ContextMenuLayer({ t }: LayerProps) {
     items,
     // 右键坐标当作零尺寸锚点：官方 Menu 的定位算法据此把菜单挂到指针下方 4px
     // （越界时官方自己夹进视口）。
-    getAnchorRect: () => new DOMRect(anchorRect.current.x, anchorRect.current.y, 0, 0),
+    getAnchorRect: () => new DOMRect(state.x, state.y, 0, 0),
     portal: true,
     dense: true,
     onClose: () => setState(CLOSED),
