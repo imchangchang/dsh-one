@@ -30,6 +30,13 @@
  *   （Chrome 覆盖式滚动条，正常形态）。折叠钮/收起轨不是槽位贡献（钮是
  *   SidebarRoot 内部按钮、轨是 collapsed 态渲染，我们恒传 collapsed:false
  *   轨从不出现），CSS 隐藏即布局摘除，无列空间残留。
+ * - 去掉官方「新会话」胶囊（#85 追加项，用户验收拍板）：官方把 New Session
+ *   画在品牌行下面、工作区树上面，是**官方侧栏壳自己的按钮、不是槽位贡献**，
+ *   我们只能按机制层 4 用 CSS 摘（官方无槽位/服务/seam 的举证写在 CSS 那条
+ *   规则上方）。VS Code 形态下建会话由工作区行 hover 出的「+」与命令面板
+ *   `dshOne.session.new` 承担，与 dsh-one 旧侧栏一致。**只在我们的 shell 里
+ *   摘**：官方 web 形态（官方外框）胶囊照旧——这条差异是用户拍板的形态差异，
+ *   不是对齐缺陷（护栏见 test/assemblyShellContract.test.ts）。
  *
  * 构建与打包约束同 clientEntry.ts（esbuild banner/footer 包自注册 IIFE，
  * externals 种子表满足）。
@@ -126,8 +133,26 @@ export const DENSITY_CSS =
 
 // logoRow 隐藏用 [class*="logoRow"]（css-module 名后缀稳定、哈希前缀随版本变）；
 // 折叠钮 aria-label 规则保留作双保险（zh/en 双词典，CSS 转义写中文）。
+//
+// 官方「新会话」胶囊的摘除（#85 追加项）为什么走机制层 4（CSS），逐层举证：
+// - **层 1（官方槽位机制）没有这个槽**：读官方 `@deepseek-ai/dsh-client-ui-sidebar`
+//   0.1.6-alpha.1 的 `lib/types/client/contract/slots.d.ts`——SlotMap 只声明六个
+//   空位（sidebar.brand.mark / sidebar.brand.name / sidebar.panellist /
+//   sidebar.workspaces / sidebar.settings / sidebar.footer.action），没有 New
+//   Session；该文件原文也写明「The shell owns column geometry, the brand row,
+//   New Session, and global panel rows」，即它归侧栏壳自己。同一包的
+//   `lib/client.js` 里该按钮是 SidebarRoot 的无条件 JSX（紧跟 logoRow、className
+//   取自 css-module 的 `newSession`），没有任何 prop 开关。
+//   层 1 的「同名槽位遮蔽」在这里等于顶替官方侧栏壳的角色——品牌位、全局面板行、
+//   工作区与设置两个座位、底部动作条、收起轨都得我们自己渲染，与 AGENTS.md 铁律
+//   「优先与官方插件共存，不顶替其角色」相抵；为摘一个按钮不值得。
+// - **层 2/3 没有对应服务 API 与 seam**：官方没有「隐藏 New Session」这类入口。
+// - 于是只剩层 4：按 css-module 名后缀定位、display:none。稳定性风险与 logoRow
+//   那条同源——哈希前缀（hHd-Xa_）随官方构建变，后缀 `newSession` 是源码里的
+//   名字，上游改名时这条规则会静默失效（届时官方胶囊会重新出现），随官方版本
+//   核对；规则只摘呈现，不碰官方组件与它注入的 startSession。
 const CSS =
-  '.dshOneSidebarShell_frame,.dshOneSidebarShell_side,.dshOneSidebarShell_side>div{padding-left:0!important;padding-right:0!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]{--dsh-sidebar-inline-padding:0px;padding-top:4px;max-width:none!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}' +
+  '.dshOneSidebarShell_frame,.dshOneSidebarShell_side,.dshOneSidebarShell_side>div{padding-left:0!important;padding-right:0!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]>[class*="newSession"]{display:none}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]{--dsh-sidebar-inline-padding:0px;padding-top:4px;max-width:none!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}' +
   DENSITY_CSS
 const CSS_TAG_ID = '@dsh-one/vscode-sidebar-shell/SidebarFrame.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {

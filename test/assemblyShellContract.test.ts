@@ -125,3 +125,21 @@ test('悬停卡：官方卡几何常数取自官方实现，且 shell 不再用 
   assert.ok(!/_card_/.test(shell), 'shell 不得再用 CSS 钉住官方悬停卡（遮挡的成因）')
 })
 
+// #85 追加项（用户验收拍板去掉顶部「新会话」胶囊）：官方把 New Session 画在侧栏壳
+// （ui-sidebar 的 SidebarRoot）自己身上——不是槽位贡献（官方 0.1.6-alpha.1 的
+// slots.d.ts 里没有它的槽，举证写在 sidebarFramePlugin.ts 的 CSS 上方），只能按
+// 机制层 4 用 CSS 摘。这条测试守住边界：规则在 shell 且作用域限官方侧栏壳，树插件
+// 不掺和——官方 web 形态（无我们的 shell）胶囊照旧，dsh-* 树插件保持可移植。
+test('官方「新会话」胶囊：只在 shell 的 CSS 里摘，树插件不掺和（可移植边界）', () => {
+  const shell = read('sidebarFramePlugin.ts')
+  assert.match(
+    shell,
+    /\.dshOneSidebarShell_side>div>\[class\*="root"\]>\[class\*="newSession"\]\{display:none\}/,
+    'shell 必须有摘掉官方新会话胶囊的 CSS 规则，且作用域限在官方侧栏壳（.dshOneSidebarShell_side>div>[class*="root"]）',
+  )
+  assert.match(shell, /dsh-client-ui-sidebar/, '规则上方必须点明举证来源（查过的官方包与文件）')
+  assert.match(shell, /哈希前缀/, '注释要写明类名稳定性风险：css-module 后缀稳定、哈希前缀随版本变')
+  const tree = read('workspaceTreePlugin.ts')
+  assert.ok(!/class\*="newSession"/.test(tree), '树插件不得掺和官方胶囊的摘除（同一份插件还要在官方 web 形态里跑）')
+})
+
