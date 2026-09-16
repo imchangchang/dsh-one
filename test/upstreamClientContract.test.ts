@@ -58,7 +58,9 @@ interface ClientContractModule {
   IDENTIFIER_DEPENDENCIES: IdentifierDep[]
   splitComboSegments(text: string): { id: string | null; start: number; end: number }[]
   extractSlotCatalog(text: string): Map<string, { kind: string; scope: string; source: string | null }>
+  extractSlotMentions(text: string, segments: unknown): Map<string, { count: number; kinds: Set<string>; plugins: Set<string> }>
   extractRootHooks(text: string, segments: unknown): { hook: string; channel: string; plugin: string | null }[]
+  observeCombo(opts: { comboText: string }): { segments: number; catalogSlots: string[]; rootHooks: string[] }
   checkClientContract(opts: { comboText: string | null; version?: string; unavailableReason?: string }): CheckRow[]
 }
 
@@ -105,6 +107,7 @@ function buildCombo(o: BreakOptions = {}): string {
     const name = dep.names[0]
     if (name === o.dropSlot) continue
     push(FILLER_PLUGINS[0], catalogEntry(name, dep.expect))
+    push(FILLER_PLUGINS[0], `ctx.slots.inject("${name}", () => ({ props: {} }));`)
   }
   for (const dep of contract.ROOT_HOOK_DEPENDENCIES) {
     if (dep.name !== o.dropHook) {
@@ -158,6 +161,21 @@ test('provideRoot 只取 hooks/keyedHooks 的顶层键，嵌套键不误取', ()
     ['hooks:panelInfo', 'keyedHooks:resource'],
   )
   assert.equal(hooks[0].plugin, '@deepseek-ai/dsh-client-ui-layout', '要带出下发这个 hook 的插件包名')
+})
+
+test('slot 在场证据按用途归类（含注入点与所属插件），观测口给出整段契约概貌', () => {
+  const combo = buildCombo()
+  const segments = contract.splitComboSegments(combo)
+  const mentions = contract.extractSlotMentions(combo, segments)
+  const hit = mentions.get('sidebar.workspaces')
+  assert.ok(hit !== undefined && hit.count >= 1, '注入点要能查到')
+  assert.ok(hit.kinds.has('inject'), `要记下凭哪种调用点查到（实际 ${[...hit.kinds].join(',')}）`)
+  assert.ok(hit.plugins.has(FILLER_PLUGINS[0]), '要记下出现在哪个插件段')
+
+  const obs = contract.observeCombo({ comboText: combo })
+  assert.ok(obs.segments >= 45, `观测口要给出段数（实际 ${obs.segments}）`)
+  assert.ok(obs.catalogSlots.includes('sidebar.workspaces'), '观测口要给出契约目录里的 slot 名')
+  assert.ok(obs.rootHooks.some((h) => h.startsWith('hooks:panelInfo@')), `观测口要给出 root hook 与下发插件（实际 ${obs.rootHooks.join(', ')}）`)
 })
 
 // ---------------------------------------------------------------------------
