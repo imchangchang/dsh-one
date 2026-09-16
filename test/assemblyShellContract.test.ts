@@ -258,3 +258,29 @@ test('layout 服务：右栏呈现上报落进布局状态（官方 ILayout.open
   assert.match(store, /RIGHTBAR_DEFAULT_RATIO = 0\.45/, '右列首开比例要对齐官方 columns.ts')
   assert.match(store, /CENTER_MIN_WIDTH = 400/, '中列底线要对齐官方 columns.ts')
 })
+
+/**
+ * #109：未分组会话桶那一行的「＋」真的会建会话。
+ *
+ * 为什么是源码级断言而不是运行期断言：未分组桶只有在「网关注册表里已经没有、但有会话
+ * 还挂在它名下」时才出现，而实验室的网关数据里没有这种会话——造一条就要往**真实网关**
+ * 写数据（R-06 明令只读），所以运行期那一条（F-17）只按「有就断言、没有就记事实」写。
+ * 这里钉的是那次修复本身：未分组（`workspaceId === undefined`）落到
+ * `sessions.create({})`（散会话不进任何工作区），**不再直接 return**——修的就是「点了
+ * 没反应」。
+ */
+test('#109：未分组桶的 ＋ 走 sessions.create({})，不再对 undefined 直接 return', () => {
+  const plugin = read('workspaceTreePlugin.ts')
+  const start = plugin.indexOf('startSession: (workspaceId?: string)')
+  assert.ok(start >= 0, 'workspaceTreePlugin 里要有 startSession 注入面')
+  const block = plugin.slice(start)
+  const body = block.slice(0, block.indexOf('\n      },'))
+  assert.ok(
+    body.includes('sessions.create({})'),
+    '未分组（workspaceId 缺省）要落到 sessions.create({})：官方 create 的 workspaceId 可选，省略即散会话',
+  )
+  assert.ok(
+    !/if \(workspaceId === undefined\) return/.test(body),
+    '不得再对未分组直接 return（那正是 #109 要修的「＋ 点了没反应」）',
+  )
+})

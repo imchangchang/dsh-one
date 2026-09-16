@@ -650,6 +650,29 @@ function hostCapabilities(ctx) {
         return;
       }
       throw fail("unavailable", "this shell cannot create a workspace directory; the official directory flow owns creation here");
+    },
+    // #109：工作区行的两个宿主动作（在编辑器里打开文件夹 / 开集成终端）。与
+    // editorTabs 同一形态——两侧语义不同，没有的那一端少的就是入口本身。
+    get workspaceOpen() {
+      return viaBridge();
+    },
+    async openWorkspaceFolder(path, options) {
+      if (!viaBridge()) {
+        throw fail("unavailable", "this shell has no editor window; the official web page opens folders elsewhere");
+      }
+      await bridgeCall("vscode.openFolder", { path, newWindow: options?.newWindow === true });
+    },
+    get workspaceTerminal() {
+      return viaBridge();
+    },
+    async openWorkspaceTerminal(path) {
+      if (!viaBridge()) {
+        throw fail("unavailable", "this shell has no integrated terminal; dsh web owns its own terminal panel");
+      }
+      await bridgeCall("vscode.openTerminal", { path });
+    },
+    get shellName() {
+      return viaBridge() ? "vscode" : "web";
     }
   };
 }
@@ -755,6 +778,31 @@ var ZH = {
   "menu.openInNewTab": "\u5728\u65B0\u6807\u7B7E\u9875\u6253\u5F00",
   "openInNewTab.failed": "\u5728\u65B0\u6807\u7B7E\u9875\u6253\u5F00\u5931\u8D25\uFF1A{message}",
   "menu.archiveSession": "\u5F52\u6863\u4F1A\u8BDD",
+  // #109 会话行菜单补齐（10 项，顺序按用户给的截图）
+  "menu.sessionTitle": "\u4F1A\u8BDD: {name}",
+  "menu.workspaceTitle": "\u5DE5\u4F5C\u533A: {name}",
+  "menu.selectMultiple": "\u9009\u62E9\u591A\u4E2A",
+  "menu.moveToGroup": "\u79FB\u5230\u5206\u7EC4\u2026",
+  "menu.groups": "\u5206\u7EC4\u2026",
+  "menu.copyReference": "\u590D\u5236\u5F15\u7528",
+  "menu.copyFolderReference": "\u590D\u5236\u6587\u4EF6\u5939\u5F15\u7528",
+  "menu.copyPath": "\u590D\u5236\u8DEF\u5F84",
+  "menu.archiveWorkspace": "\u5F52\u6863\u8BE5\u5DE5\u4F5C\u533A\u5168\u90E8\u4F1A\u8BDD",
+  "menu.archiveUngrouped": "\u5F52\u6863\u5168\u90E8\u672A\u5206\u7EC4\u4F1A\u8BDD",
+  "menu.openFolderInNewWindow": "\u5728\u65B0\u7A97\u53E3\u6253\u5F00\u6587\u4EF6\u5939",
+  "menu.renameWorkspace": "\u91CD\u547D\u540D\u5DE5\u4F5C\u533A",
+  "menu.removeWorkspace": "\u4ECE\u5217\u8868\u79FB\u9664",
+  "menu.newSession": "\u65B0\u5EFA\u4F1A\u8BDD",
+  "menu.archiveBlocked": "\u8FD9\u4E2A\u5DE5\u4F5C\u533A\u91CC\u6CA1\u6709\u53EF\u5F52\u6863\u7684\u4F1A\u8BDD",
+  "menu.forkBlocked": "\u7A7A\u767D\u4F1A\u8BDD\u8FD8\u6CA1\u6709\u5B8C\u6210\u8FC7\u4E00\u8F6E\uFF0C\u4E0D\u80FD\u5206\u53C9",
+  "actions.workspace.terminal": "\u5728\u201C{name}\u201D\u4E2D\u6253\u5F00\u7EC8\u7AEF",
+  "actions.workspace.open": "\u5728 VS Code \u4E2D\u6253\u5F00\u201C{name}\u201D",
+  "actions.workspace.remove": "\u628A\u201C{name}\u201D\u4ECE\u5217\u8868\u79FB\u9664",
+  "badge.current": "\u5F53\u524D\u5DE5\u4F5C\u533A",
+  "copied.sessionRef": "\u5DF2\u590D\u5236\u4F1A\u8BDD\u5F15\u7528",
+  "copied.folderRef": "\u5DF2\u590D\u5236\u6587\u4EF6\u5939\u5F15\u7528",
+  "copied.path": "\u5DF2\u590D\u5236\u8DEF\u5F84",
+  "copy.failed": "\u590D\u5236\u5931\u8D25",
   "menu.pin": "\u7F6E\u9876",
   "menu.unpin": "\u53D6\u6D88\u7F6E\u9876",
   "menu.markUnread": "\u6807\u4E3A\u672A\u8BFB",
@@ -929,6 +977,30 @@ var EN = {
   "menu.openInNewTab": "Open in New Tab",
   "openInNewTab.failed": "Could not open the session in a new tab: {message}",
   "menu.archiveSession": "Archive session",
+  "menu.sessionTitle": "Session: {name}",
+  "menu.workspaceTitle": "Workspace: {name}",
+  "menu.selectMultiple": "Select multiple",
+  "menu.moveToGroup": "Move to group\u2026",
+  "menu.groups": "Groups\u2026",
+  "menu.copyReference": "Copy reference",
+  "menu.copyFolderReference": "Copy folder reference",
+  "menu.copyPath": "Copy path",
+  "menu.archiveWorkspace": "Archive all sessions in this workspace",
+  "menu.archiveUngrouped": "Archive all ungrouped sessions",
+  "menu.openFolderInNewWindow": "Open folder in a new window",
+  "menu.renameWorkspace": "Rename workspace",
+  "menu.removeWorkspace": "Remove from list",
+  "menu.newSession": "New session",
+  "menu.archiveBlocked": "No archivable sessions in this workspace",
+  "menu.forkBlocked": "A blank session has no completed turn; cannot fork",
+  "actions.workspace.terminal": "Open a terminal in \u201C{name}\u201D",
+  "actions.workspace.open": "Open \u201C{name}\u201D in VS Code",
+  "actions.workspace.remove": "Remove \u201C{name}\u201D from the list",
+  "badge.current": "Current workspace",
+  "copied.sessionRef": "Session reference copied",
+  "copied.folderRef": "Folder reference copied",
+  "copied.path": "Path copied",
+  "copy.failed": "Copy failed",
   "menu.pin": "Pin",
   "menu.unpin": "Unpin",
   "menu.markUnread": "Mark as unread",
@@ -1309,6 +1381,12 @@ function deriveGroups(list, workspaces, archivedSessionIds, pending, view) {
   }
   return groups;
 }
+function currentWorkspaceFirst(groups) {
+  const isCurrent = (group) => group.containsCurrent && group.workspaceId !== void 0;
+  const current = groups.filter(isCurrent);
+  if (current.length === 0) return [...groups];
+  return [...current, ...groups.filter((group) => !isCurrent(group))];
+}
 function deriveFlat(list, archivedSessionIds, pending, recycled) {
   const archived = new Set(archivedSessionIds);
   const descendants = indexSubagentDescendants(list.byId);
@@ -1508,6 +1586,39 @@ function RecycleEntry({ wide = true, t, useSessions, useWorkspaces }) {
 
 // src/ui/assembly/shell/workspaceTree/tree.ts
 var import_react12 = require("react");
+var import_dsh_client_ui_primitives10 = require("@deepseek-ai/dsh-client-ui-primitives");
+
+// src/pure/tokenScan.ts
+var AT_BOUNDARY_CHARS = "\\s\uFF0C\u3002\uFF1B\uFF1A\uFF01\uFF1F\u3001,;!?\uFF08\u300C\u300E\u300A\u3014\u3010";
+var BOUNDARY_RE = new RegExp(`[${AT_BOUNDARY_CHARS}]`, "u");
+
+// src/pure/fileReference.ts
+var QUOTED_AT_END = new RegExp(`(?:^|[${AT_BOUNDARY_CHARS}])(@"([^"]*))$`);
+function formatFileMention(candidate, preserveQuote = false) {
+  const path = candidate.kind === "directory" ? `${candidate.path}/` : candidate.path;
+  if (/["\u0000-\u001f\u007f-\u009f"]/u.test(path)) return void 0;
+  if (!(preserveQuote || /\s/.test(path))) return `@${path}`;
+  if (candidate.kind === "directory") return `@"${path}`;
+  return `@"${path}"`;
+}
+
+// src/pure/sessionMention.ts
+var SESSION_REFERENCE_SCHEME = "dsh-session:";
+function b64urlEncode(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function encodeSessionReferenceUri(sessionId) {
+  return SESSION_REFERENCE_SCHEME + b64urlEncode(JSON.stringify(sessionId));
+}
+function escapeLabel(label) {
+  return label.replace(/[\\\]]/g, (m) => `\\${m}`);
+}
+function formatSessionMention(label, sessionId) {
+  return `@[${escapeLabel(label)}](${encodeSessionReferenceUri(sessionId)})`;
+}
 
 // src/pure/workspaceTreePrefs.ts
 var TREE_VIEW_PREF_KEY = "dsh.workspaceTree.view";
@@ -1602,9 +1713,30 @@ function FlashHost() {
   );
 }
 
+// src/ui/assembly/shell/workspaceTree/format.ts
+var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
+function timeLabel(updatedAt, now, tr) {
+  const { unit, n } = (0, import_dsh_client_ui_primitives2.relativeTime)(updatedAt, now);
+  return unit === "now" ? tr("time.now") : tr(`time.${unit}`, { n });
+}
+function hoverTimeLabel(updatedAt, now, tr) {
+  const { unit, n } = (0, import_dsh_client_ui_primitives2.relativeTime)(updatedAt, now);
+  return unit === "now" ? tr("time.now") : tr("time.ago", { t: tr(`time.${unit}`, { n }) });
+}
+function createdLabel(createdAt, tr) {
+  const d = new Date(createdAt);
+  const pad2 = (v) => String(v).padStart(2, "0");
+  return tr("hover.created", {
+    time: `${tr("date.ymd", { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() })} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  });
+}
+function displayTitle(node, tr) {
+  return node.blank ? tr("session.new") : node.title;
+}
+
 // src/ui/assembly/shell/workspaceTree/groupFilterBar.ts
 var import_react4 = require("react");
-var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
+var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 function menuRow(name, count) {
   return (0, import_react4.createElement)(
     "span",
@@ -1635,7 +1767,7 @@ function GroupFilterBar({
       role: "group",
       "aria-label": tr("group.filter.aria")
     },
-    (0, import_react4.createElement)(import_dsh_client_ui_primitives2.Menu, {
+    (0, import_react4.createElement)(import_dsh_client_ui_primitives3.Menu, {
       open,
       onClose: () => setOpen(false),
       items: [
@@ -1659,12 +1791,12 @@ function GroupFilterBar({
         {
           id: "new",
           label: (0, import_react4.createElement)("span", { "data-dshone-tree-action": "group-new" }, tr("group.new")),
-          icon: (0, import_react4.createElement)(import_dsh_client_ui_primitives2.IconPlusOutline16, {})
+          icon: (0, import_react4.createElement)(import_dsh_client_ui_primitives3.IconPlusOutline16, {})
         },
         {
           id: "manage",
           label: (0, import_react4.createElement)("span", { "data-dshone-tree-action": "group-manage" }, tr("group.manage")),
-          icon: (0, import_react4.createElement)(import_dsh_client_ui_primitives2.IconSettingsOutline16, {})
+          icon: (0, import_react4.createElement)(import_dsh_client_ui_primitives3.IconSettingsOutline16, {})
         }
       ],
       selectedIds: [activeGroupId ?? "all"],
@@ -1691,10 +1823,10 @@ function GroupFilterBar({
           "data-dshone-tree-group-count": count,
           onClick: () => setOpen((value) => !value)
         },
-        (0, import_react4.createElement)("span", { className: "dshOneTree_pillTag" }, (0, import_react4.createElement)(import_dsh_client_ui_primitives2.IconFolderOpenOutline16, { size: 12 })),
+        (0, import_react4.createElement)("span", { className: "dshOneTree_pillTag" }, (0, import_react4.createElement)(import_dsh_client_ui_primitives3.IconFolderOpenOutline16, { size: 12 })),
         (0, import_react4.createElement)("span", { className: "dshOneTree_pillLabel" }, label),
         (0, import_react4.createElement)("span", { className: "dshOneTree_pillCount" }, String(count)),
-        (0, import_react4.createElement)("span", { className: "dshOneTree_pillChevron" }, (0, import_react4.createElement)(import_dsh_client_ui_primitives2.IconChevronDownOutline14, {}))
+        (0, import_react4.createElement)("span", { className: "dshOneTree_pillChevron" }, (0, import_react4.createElement)(import_dsh_client_ui_primitives3.IconChevronDownOutline14, {}))
       )
     })
   );
@@ -1742,27 +1874,6 @@ function useHoverCardRoom(rootRef) {
 // src/ui/assembly/shell/workspaceTree/modals.ts
 var import_react7 = require("react");
 var import_dsh_client_ui_primitives5 = require("@deepseek-ai/dsh-client-ui-primitives");
-
-// src/ui/assembly/shell/workspaceTree/format.ts
-var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
-function timeLabel(updatedAt, now, tr) {
-  const { unit, n } = (0, import_dsh_client_ui_primitives3.relativeTime)(updatedAt, now);
-  return unit === "now" ? tr("time.now") : tr(`time.${unit}`, { n });
-}
-function hoverTimeLabel(updatedAt, now, tr) {
-  const { unit, n } = (0, import_dsh_client_ui_primitives3.relativeTime)(updatedAt, now);
-  return unit === "now" ? tr("time.now") : tr("time.ago", { t: tr(`time.${unit}`, { n }) });
-}
-function createdLabel(createdAt, tr) {
-  const d = new Date(createdAt);
-  const pad2 = (v) => String(v).padStart(2, "0");
-  return tr("hover.created", {
-    time: `${tr("date.ymd", { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() })} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
-  });
-}
-function displayTitle(node, tr) {
-  return node.blank ? tr("session.new") : node.title;
-}
 
 // src/ui/assembly/shell/workspaceTree/tagGroups.ts
 var import_react6 = require("react");
@@ -2915,6 +3026,50 @@ function strokeIcon(paths) {
 function PinMark({ sessionId }) {
   return (0, import_react10.createElement)("span", { className: "dshOneTree_pin", "data-dshone-tree-pin": sessionId, "aria-hidden": true }, strokeIcon(PIN_PATHS));
 }
+var TERMINAL_PATHS = [
+  "M2 1.5h12A1.5 1.5 0 0 1 15.5 3v10A1.5 1.5 0 0 1 14 14.5H2A1.5 1.5 0 0 1 .5 13V3A1.5 1.5 0 0 1 2 1.5zm0 1.3a.2.2 0 0 0-.2.2v10c0 .11.09.2.2.2h12a.2.2 0 0 0 .2-.2V3a.2.2 0 0 0-.2-.2H2z",
+  "M3.6 4.9l2.6 2.6-2.6 2.6.9.9 3.5-3.5L4.5 4z",
+  "M7.2 10.6h4.6v1.3H7.2z"
+];
+function TerminalIcon() {
+  return (0, import_react10.createElement)(
+    "svg",
+    { viewBox: "0 0 16 16", width: 16, height: 16, fill: "currentColor", "fill-rule": "evenodd", "aria-hidden": true },
+    ...TERMINAL_PATHS.map((d, index) => (0, import_react10.createElement)("path", { key: String(index), d }))
+  );
+}
+function submenuChild(options) {
+  return {
+    id: options.id,
+    label: (0, import_react10.createElement)(
+      "span",
+      {
+        "data-dshone-tree-item": options.marker,
+        "data-dshone-group-target": options.target,
+        "data-dshone-group-checked": options.checked ? "true" : "false"
+      },
+      options.name
+    ),
+    ...options.checked ? { icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconCheckOutline16, { size: 12 }) } : {}
+  };
+}
+function indentSubmenuItem(item) {
+  if (typeof item !== "object" || item === null) return item;
+  const record = item;
+  return { ...record, label: (0, import_react10.createElement)("span", { className: "dshOneTree_submenuItem" }, record.label ?? null) };
+}
+function submenuParent(options) {
+  return {
+    id: options.id,
+    label: (0, import_react10.createElement)(
+      "span",
+      { "data-dshone-tree-item": options.id },
+      options.label,
+      (0, import_react10.createElement)("span", { className: "dshOneTree_submenuArrow", "aria-hidden": true }, options.open ? "\u25BE" : "\u25B8")
+    ),
+    icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconFolderOpenOutline16, {})
+  };
+}
 function UnreadIcon() {
   return strokeIcon(UNREAD_PATHS);
 }
@@ -2998,8 +3153,15 @@ function ProjectRow({
   counts,
   groups,
   memberOf,
+  shellName,
+  canArchiveAll,
   onToggle,
   onCreate,
+  onOpenTerminal,
+  onOpenFolder,
+  onArchiveAll,
+  onCopyFolderRef,
+  onCopyPath,
   onRename,
   onDelete,
   onToggleGroup,
@@ -3010,34 +3172,144 @@ function ProjectRow({
   onToggleSelect
 }) {
   const [menuOpen, setMenuOpen] = (0, import_react10.useState)(false);
+  const [submenuOpen, setSubmenuOpen] = (0, import_react10.useState)(false);
+  const [menuAt, setMenuAt] = (0, import_react10.useState)(null);
   const label = group.workspaceId === void 0 ? tr("group.ungrouped") : group.label;
   const active = expanded && group.containsCurrent;
   const state = checkState ?? "none";
   const checkLabel = state === "all" ? tr("select.group.all", { name: label }) : state === "some" ? tr("select.group.some", { name: label }) : tr("select.group.none", { name: label });
-  const groupItems = groups.length === 0 || onRename === void 0 ? [] : [
-    { type: "separator", id: "group-separator" },
-    { type: "label", id: "group-label", text: tr("group.membership") },
-    ...groups.map((entry) => ({ id: `${GROUP_MENU_PREFIX}${entry.id}`, label: entry.name }))
+  const ungrouped = group.workspaceId === void 0;
+  const hasPath = group.cwd !== void 0;
+  const groupChildren = groups.map(
+    (entry) => submenuChild({
+      id: `${GROUP_MENU_PREFIX}${entry.id}`,
+      target: entry.id,
+      name: entry.name,
+      checked: memberOf.includes(entry.id),
+      marker: "workspace-group-item"
+    })
+  );
+  const menuItems = [
+    // 标题行：操作对象显式化（瞄错行时点下去之前就能发现）。
+    {
+      type: "label",
+      id: "workspace-title",
+      text: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "menu-title" }, tr("menu.workspaceTitle", { name: label }))
+    },
+    // 未分组桶没有路径与工作区身份，能做的只有它自己那两件（新建会话 / 整桶归档）。
+    ...ungrouped ? [{ id: "new-session", label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "new-session" }, tr("menu.newSession")), icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, {}) }] : [],
+    ...hasPath ? [
+      {
+        id: "copy-folder-ref",
+        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "copy-folder-ref" }, tr("menu.copyFolderReference")),
+        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, {})
+      }
+    ] : [],
+    // 「分组…」二级菜单：父项点一下就地展开，子项紧跟在它后面（勾选态走 selectedIds 的 ✓）。
+    ...groupChildren.length > 0 && !ungrouped ? [
+      submenuParent({ id: "groups", label: tr("menu.groups"), open: submenuOpen }),
+      ...submenuOpen ? groupChildren.map((item) => indentSubmenuItem(item)) : []
+    ] : [],
+    {
+      id: "archive-all",
+      label: (0, import_react10.createElement)(
+        "span",
+        {
+          "data-dshone-tree-item": "archive-all",
+          "data-dshone-disabled-reason": canArchiveAll ? "" : "no-eligible",
+          ...canArchiveAll ? {} : { title: tr("menu.archiveBlocked") }
+        },
+        ungrouped ? tr("menu.archiveUngrouped") : tr("menu.archiveWorkspace")
+      ),
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconArchiveOutline20, { size: 16 }),
+      disabled: !canArchiveAll
+    },
+    ...hasPath && onOpenFolder !== void 0 ? [
+      {
+        id: "open-new-window",
+        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "open-new-window" }, tr("menu.openFolderInNewWindow")),
+        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconRightUpOutline16, {})
+      }
+    ] : [],
+    ...hasPath ? [
+      {
+        id: "copy-path",
+        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "copy-path" }, tr("menu.copyPath")),
+        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, {})
+      }
+    ] : [],
+    ...onRename === void 0 ? [] : [
+      {
+        id: "rename",
+        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "rename" }, tr("menu.renameWorkspace")),
+        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconEditOutline16, {})
+      }
+    ],
+    ...onDelete === void 0 ? [] : [
+      {
+        id: "remove",
+        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "remove" }, tr("menu.removeWorkspace")),
+        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, {}),
+        danger: true
+      }
+    ]
   ];
-  const menuItems = onRename === void 0 || onDelete === void 0 ? null : [
-    { id: "rename", label: tr("rename"), icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconEditOutline16, {}) },
-    { id: "delete", label: tr("delete.workspace"), icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, {}), danger: true },
-    ...groupItems
-  ];
-  const anchor = (0, import_react10.createElement)(
+  const iconButton = (options) => (0, import_react10.createElement)(
     "button",
     {
+      key: options.key,
       type: "button",
       className: "dshOneTree_rowIconButton",
-      "aria-label": tr("actions.workspace.aria", { name: label }),
-      "data-dshone-tree-action": "workspace-menu",
+      "aria-label": options.aria,
+      "data-dshone-tree-action": options.action,
+      ...options.marker === void 0 ? {} : { "data-dshone-tree-item": options.marker },
       onClick: (event) => {
         event.stopPropagation();
-        setMenuOpen((open) => !open);
+        options.onClick();
       }
     },
-    (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconEllipsisOutline16, {})
+    options.children
   );
+  const actions = [
+    iconButton({
+      key: "new",
+      action: "workspace-new-session",
+      aria: tr("actions.newSession.aria", { name: label }),
+      onClick: onCreate,
+      marker: "new-session-button",
+      children: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, {})
+    }),
+    ...hasPath && onOpenTerminal !== void 0 ? [
+      iconButton({
+        key: "terminal",
+        action: "workspace-terminal",
+        aria: tr("actions.workspace.terminal", { name: label }),
+        onClick: onOpenTerminal,
+        children: (0, import_react10.createElement)(TerminalIcon, {})
+      })
+    ] : [],
+    // 「在 VS Code 打开」只在**非当前工作区**时出现（E1）：当前工作区本来就在编辑器里，
+    // 再给一个「打开它」的按钮没有意义。
+    ...hasPath && onOpenFolder !== void 0 && !group.containsCurrent ? [
+      iconButton({
+        key: "open",
+        action: "workspace-open",
+        aria: tr("actions.workspace.open", { name: label }),
+        onClick: () => onOpenFolder({ newWindow: false }),
+        children: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconFolderOpenOutline16, {})
+      })
+    ] : [],
+    ...onDelete === void 0 ? [] : [
+      iconButton({
+        key: "remove",
+        action: "workspace-remove",
+        aria: tr("actions.workspace.remove", { name: label }),
+        onClick: onDelete,
+        children: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, {})
+      })
+    ]
+  ];
+  const anchor = (0, import_react10.createElement)("span", { className: "dshOneTree_menuAnchor", "aria-hidden": true });
   const row = (0, import_react10.createElement)(
     "div",
     {
@@ -3049,7 +3321,16 @@ function ProjectRow({
       "data-dshone-tree-count": group.sessionCount,
       // #108：组头三态的当前值写在行上（验证套件按行读，不认官方哈希类名）。
       ...selectMode === true ? { "data-dshone-tree-check": state } : {},
+      ...group.containsCurrent ? { "data-dshone-tree-current": "true" } : {},
       onClick: onToggle,
+      // 行右键开工作区菜单（#109 起工作区行有右键菜单；选择态由行本身的 onClick 接管，
+      // 会话行的处置同此）。
+      onContextMenu: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setMenuAt({ x: event.clientX, y: event.clientY });
+        setMenuOpen(true);
+      },
       children: [
         // #108：三态全选框（旧侧栏的处置：框在最前，文件夹与折叠箭头照常保留）。
         // 点框只勾选、不折叠（stopPropagation），所以我们自己做一枚可点元素而不是
@@ -3098,44 +3379,52 @@ function ProjectRow({
           className: "dshOneTree_projectText",
           children: (0, import_react10.createElement)("span", { className: "dshOneTree_title" }, label)
         }),
-        counts === void 0 ? null : (0, import_react10.createElement)(ActivityBadge, { key: "activity", counts, tr }),
+        // 行尾的绝对定位层（#109）：当前工作区那枚胶囊 + 活状态计数。**不能进正常流**：
+        // 官方这一行没有它们，进流会把标题挤窄，而 F-04 PARITY 逐项比对标题的几何矩形
+        // （同一处置见 ActivityBadge 的说明）。悬停时整层让位给四枚动作按钮。
+        (0, import_react10.createElement)(
+          "span",
+          { key: "end", className: "dshOneTree_rowEnd" },
+          group.containsCurrent ? (0, import_react10.createElement)("span", { className: "dshOneTree_workspaceBadge", "data-dshone-tree-badge": shellName, title: tr("badge.current") }, shellName) : null,
+          counts === void 0 ? null : (0, import_react10.createElement)(ActivityBadge, { counts, tr })
+        ),
         (0, import_react10.createElement)("span", {
           key: "actions",
           className: "dshOneTree_rowActions",
           children: [
-            menuItems === null ? null : (0, import_react10.createElement)(import_dsh_client_ui_primitives8.Menu, {
+            (0, import_react10.createElement)(import_dsh_client_ui_primitives8.Menu, {
               key: "menu",
               open: menuOpen,
-              onClose: () => setMenuOpen(false),
+              onClose: () => {
+                setMenuAt(null);
+                setMenuOpen(false);
+              },
               items: menuItems,
-              selectedIds: memberOf.map((id) => `${GROUP_MENU_PREFIX}${id}`),
               onSelect: (id) => {
+                if (id === "groups") {
+                  setSubmenuOpen((open) => !open);
+                  return;
+                }
                 if (id.startsWith(GROUP_MENU_PREFIX)) {
                   onToggleGroup(id.slice(GROUP_MENU_PREFIX.length));
                   return;
                 }
+                setMenuAt(null);
                 setMenuOpen(false);
+                if (id === "new-session") onCreate();
+                if (id === "copy-folder-ref") onCopyFolderRef();
+                if (id === "archive-all") onArchiveAll();
+                if (id === "open-new-window") onOpenFolder?.({ newWindow: true });
+                if (id === "copy-path") onCopyPath();
                 if (id === "rename") onRename?.();
-                if (id === "delete") onDelete?.();
+                if (id === "remove") onDelete?.();
               },
               portal: true,
               closeOnPointerLeave: true,
-              anchor
+              anchor,
+              ...menuAt === null ? {} : { getAnchorRect: () => new DOMRect(menuAt.x, menuAt.y, 0, 0) }
             }),
-            (0, import_react10.createElement)(
-              "button",
-              {
-                key: "new",
-                type: "button",
-                className: "dshOneTree_rowIconButton",
-                "aria-label": tr("actions.newSession.aria", { name: label }),
-                onClick: (event) => {
-                  event.stopPropagation();
-                  onCreate();
-                }
-              },
-              (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, {})
-            )
+            ...actions
           ]
         })
       ]
@@ -3170,6 +3459,8 @@ function SessionRow({
   onArchive,
   onTogglePin,
   onToggleUnread,
+  onSelectMultiple,
+  onCopyReference,
   onOpenInNewTab,
   tagItems,
   tagSelectedIds,
@@ -3177,6 +3468,7 @@ function SessionRow({
   dragProps
 }) {
   const [menuOpen, setMenuOpen] = (0, import_react10.useState)(false);
+  const [submenuOpen, setSubmenuOpen] = (0, import_react10.useState)(false);
   const [menuAt, setMenuAt] = (0, import_react10.useState)(null);
   const title = displayTitle(node, tr);
   const isCurrent = node.id === currentId;
@@ -3198,12 +3490,26 @@ function SessionRow({
     }
   ];
   const recycleBlocked = cannotRecycleReason(facts);
+  const groupChildren = tagItems ?? [];
   const menuItems = [
-    { id: "rename", label: tr("rename"), icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconEditOutline16, {}) },
+    {
+      type: "label",
+      id: "session-title",
+      text: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "menu-title" }, tr("menu.sessionTitle", { name: title }))
+    },
+    {
+      id: "selectMultiple",
+      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "selectMultiple" }, tr("menu.selectMultiple")),
+      // 图标取顶栏那个多选入口的同一枚（IconChecklistOutline14），两处是同一个动作。
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconChecklistOutline14, {})
+    },
+    ...openInNewTabItem,
+    {
+      id: "rename",
+      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "rename" }, tr("rename")),
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconEditOutline16, {})
+    },
     // #102 两项标记动作：文案随状态翻转，勾选态走官方 Menu 的 selectedIds（✓）。
-    // 禁用时的原因写在 label 节点的 title 上：官方 Menu 的项只有 label / icon /
-    // disabled / danger / submenu 几个槽，没有独立的提示槽（项渲染见官方 primitives
-    // 的 `Menu`），所以提示只能挂在 label 元素上。
     {
       id: "pin",
       label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "pin" }, pinned ? tr("menu.unpin") : tr("menu.pin")),
@@ -3222,8 +3528,33 @@ function SessionRow({
       icon: (0, import_react10.createElement)(UnreadIcon, {}),
       disabled: unreadBlocked
     },
-    { id: "fork", label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "fork" }, tr("menu.fork")), icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconBranchOutline16, {}) },
-    ...openInNewTabItem,
+    ...groupChildren.length === 0 || onTagSelect === void 0 ? [] : [
+      submenuParent({ id: "moveToGroup", label: tr("menu.moveToGroup"), open: submenuOpen }),
+      // 子项就是树层拼好的那一份（组 / 不归入 / 新建），只加一层缩进。
+      ...submenuOpen ? groupChildren.map((item) => indentSubmenuItem(item)) : []
+    ],
+    {
+      id: "fork",
+      // 空白的「新会话」占位没有一个完成的轮次，官方 `sessions.fork` 在那种会话上必然
+      // 失败（服务端回退到最后一个 turn/end 切点）——按旧侧栏的处置禁用。**只能按
+      // `blank` 判**：会话快照里没有「有没有完成过轮次」这个事实（`SessionSummaryLike`
+      // 没有对应字段，旧侧栏吃的 `sessionStatsTurns` 是它自己 store 里的统计）。
+      label: (0, import_react10.createElement)(
+        "span",
+        {
+          "data-dshone-tree-item": "fork",
+          ...node.blank ? { title: tr("menu.forkBlocked") } : {}
+        },
+        tr("menu.fork")
+      ),
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconBranchOutline16, {}),
+      disabled: node.blank
+    },
+    {
+      id: "copyReference",
+      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "copyReference" }, tr("menu.copyReference")),
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, {})
+    },
     // 「移入回收站」= 本地可逆的一层（#103）：只有置顶被拦；运行中 / 未读 / 待交互都能移进去
     // （进去还能还原），所以它的判定结果与下面「归档」分开算。
     {
@@ -3254,11 +3585,7 @@ function SessionRow({
       ),
       icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconArchiveOutline20, { size: 16 }),
       disabled: archiveBlocked !== null
-    },
-    // #107 标签组一节：列在本工作区的那几个组 + 「不归入标签组」+「新建标签组…」。
-    // 与工作区行的「所属分组」一节同一形态（官方 Menu 的 separator + label + 勾选项），
-    // 只是项 id 走另一个前缀（`TAG_MENU_PREFIX`）。
-    ...tagItems ?? []
+    }
   ];
   const anchor = (0, import_react10.createElement)(
     "button",
@@ -3297,12 +3624,12 @@ function SessionRow({
       ...selectMode ? {} : dragProps ?? {},
       onClick: selectMode ? selectable ? onToggleSelect : () => {
       } : onOpen,
-      // 行右键开出同一份菜单（指针位置锚定）。三条不接管的线：
-      // - 多开不可用的宿主（官方 web）：那里没有这一项可给，抢掉原生右键菜单只是添乱；
-      // - 空白会话行（`node.blank`）：官方对这类行整个不给行菜单（见下面 actions 的
-      //   `node.blank ? null`），接了右键却没有菜单可弹，只会白白吃掉原生菜单；
-      // - 选择态：整行只有「勾选」一个动作（同上面 onClick 的处置）。
-      onContextMenu: node.blank || onOpenInNewTab === void 0 || selectMode ? void 0 : (event) => {
+      // 行右键开出同一份菜单（指针位置锚定）。**接管条件只剩「非选择态」**（#109）：
+      // 以前还要「非空白会话 + 宿主有编辑器标签页」，于是多开不可用的宿主、空白会话行
+      // 上右键都直接弹浏览器原生菜单——而这两类行**本来就有行菜单可给**（空白会话行
+      // 只是官方不给显式的 ⋯ 按钮，菜单内容一样成立）。旧侧栏同样只按选择态让路。
+      // 选择态下整行只有「勾选」一个动作（同上面 onClick 的处置）。
+      onContextMenu: selectMode ? void 0 : (event) => {
         event.preventDefault();
         event.stopPropagation();
         setMenuAt({ x: event.clientX, y: event.clientY });
@@ -3330,41 +3657,62 @@ function SessionRow({
           className: "dshOneTree_time",
           children: timeLabel(node.updatedAt, now, tr)
         }),
-        node.blank || selectMode ? null : (0, import_react10.createElement)("span", {
+        // 行菜单挂在 actions 里（选择态下整行让位）。**空白会话行也挂**（#109）：它的
+        // ⋯ 按钮照官方不渲染（`node.blank` 那一支），但右键要能开出菜单——所以这里渲染
+        // 的是一层「可能有按钮、一定有菜单」的容器，锚点按有没有按钮二选一。
+        selectMode ? null : (0, import_react10.createElement)("span", {
           key: "actions",
           className: "dshOneTree_rowActions",
-          children: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.Menu, {
-            open: menuOpen,
-            onClose: () => {
-              setMenuAt(null);
-              setMenuOpen(false);
-            },
-            items: menuItems,
-            // 勾选态（官方 Menu 的 selectedIds：✓ 由官方渲染）：两项标记动作 +
-            // 本行的标签组归属（#107）。
-            selectedIds: [...pinned ? ["pin"] : [], ...unread ? ["unread"] : [], ...tagSelectedIds ?? []],
-            onSelect: (id) => {
-              setMenuAt(null);
-              setMenuOpen(false);
-              if (id.startsWith(TAG_MENU_PREFIX)) {
-                onTagSelect?.(id.slice(TAG_MENU_PREFIX.length));
-                return;
-              }
-              if (id === "rename") onRename(node.title);
-              if (id === "pin") onTogglePin();
-              if (id === "unread") onToggleUnread();
-              if (id === "fork") onFork();
-              if (id === "openInNewTab") onOpenInNewTab?.();
-              if (id === "move-to-recycle-bin") onMoveToRecycleBin();
-              if (id === "archive") onArchive();
-            },
-            portal: true,
-            closeOnPointerLeave: true,
-            anchor,
-            // 行右键开的那一份：菜单锚在指针处（官方 Menu 的 getAnchorRect
-            // 优先于 anchor 的矩形，官方自己的右键菜单也是这么用的）。
-            ...menuAt === null ? {} : { getAnchorRect: () => new DOMRect(menuAt.x, menuAt.y, 0, 0) }
-          })
+          children: [
+            (0, import_react10.createElement)(import_dsh_client_ui_primitives8.Menu, {
+              key: "menu",
+              open: menuOpen,
+              onClose: () => {
+                setMenuAt(null);
+                setMenuOpen(false);
+                setSubmenuOpen(false);
+              },
+              items: menuItems,
+              // 勾选态（官方 Menu 的 selectedIds：✓ 由官方渲染）：两项标记动作 +
+              // 本行的标签组归属（#107，现在住在「移到分组…」的就地展开里）。
+              selectedIds: [...pinned ? ["pin"] : [], ...unread ? ["unread"] : [], ...tagSelectedIds ?? []],
+              onSelect: (id) => {
+                if (id === "moveToGroup") {
+                  setSubmenuOpen((open) => !open);
+                  return;
+                }
+                if (id.startsWith(TAG_MENU_PREFIX)) {
+                  if (id.endsWith("__new")) {
+                    setMenuAt(null);
+                    setMenuOpen(false);
+                    setSubmenuOpen(false);
+                  }
+                  onTagSelect?.(id.slice(TAG_MENU_PREFIX.length));
+                  return;
+                }
+                setMenuAt(null);
+                setMenuOpen(false);
+                if (id === "selectMultiple") onSelectMultiple();
+                if (id === "rename") onRename(node.title);
+                if (id === "pin") onTogglePin();
+                if (id === "unread") onToggleUnread();
+                if (id === "fork") onFork();
+                if (id === "openInNewTab") onOpenInNewTab?.();
+                if (id === "copyReference") onCopyReference();
+                if (id === "move-to-recycle-bin") onMoveToRecycleBin();
+                if (id === "archive") onArchive();
+              },
+              portal: true,
+              closeOnPointerLeave: true,
+              // 锚点：非空白行是那一枚 ⋯ 按钮（Menu 自己会把它渲染在自己的根节点里，
+              // 所以这里**只**传给 Menu、不再另渲染一份）；空白行没有按钮，给一个零尺寸
+              // 占位（右键那一份用指针坐标，锚点只是在别的打开方式下当兜底）。
+              anchor: node.blank ? (0, import_react10.createElement)("span", { className: "dshOneTree_menuAnchor", "aria-hidden": true }) : anchor,
+              // 行右键开的那一份：菜单锚在指针处（官方 Menu 的 getAnchorRect
+              // 优先于 anchor 的矩形，官方自己的右键菜单也是这么用的）。
+              ...menuAt === null ? {} : { getAnchorRect: () => new DOMRect(menuAt.x, menuAt.y, 0, 0) }
+            })
+          ]
         })
       ]
     }
@@ -3483,7 +3831,7 @@ var CSS = (
   // 容器外，让侧栏外层（官方 hHd-Xa_regionArea）的 scrollWidth 比 clientWidth 大 4px
   // ——平时看不见，但官方在「单列表」视图里对选中行 scrollIntoView 时会被横滚 4px，
   // 整棵树跟着左移 4px（#85 回归断言实测到的既有缺陷）。列表自己的滚动在 .dshOneTree_list。
-  '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex;position:relative}.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:0}.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:none;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);display:flex}.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}.dshOneTree_searchButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_searchExpanded .dshOneTree_searchButton{width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-search-expanded-height,30px)}.dshOneTree_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchExpanded .dshOneTree_searchButton:hover{background:0 0}.dshOneTree_searchInput{opacity:0;pointer-events:none;width:0;min-width:0;color:var(--dsw-alias-label-primary);transition:opacity .12s var(--ds-ease-in-out);background:0 0;border:none;outline:none;flex:1;font-size:13px;line-height:18px}.dshOneTree_searchExpanded .dshOneTree_searchInput{opacity:1;pointer-events:auto;margin-left:-2px}.dshOneTree_searchInput::placeholder{color:var(--dsw-alias-label-tertiary)}.dshOneTree_clearButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}.dshOneTree_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:var(--dsh-one-density-list-padding-bottom,16px);overflow-y:auto}.dshOneTree_flatList>*+*,.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_groupSection{position:relative}.dshOneTree_groupSection+.dshOneTree_groupSection{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_searchStatus,.dshOneTree_searchWarning{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}.dshOneTree_searchWarning{color:var(--dsw-alias-label-secondary)}.dshOneTree_empty{color:var(--dsw-alias-label-tertiary);padding:16px 12px;font-size:13px}.dshOneTree_emptyLine+.dshOneTree_emptyLine{margin-top:2px}.dshOneTree_emptyAction{cursor:pointer;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:6px;flex:none;align-items:center;margin-top:8px;padding:0 10px;font-family:inherit;font-size:12px;display:inline-flex}.dshOneTree_emptyAction:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sessionOverflowButton{cursor:pointer;text-align:left;width:100%;height:var(--dsh-one-density-overflow-row-height,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:8px;padding:0 12px 0 28px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_sessionOverflowButton:hover{color:var(--dsw-alias-label-secondary);background:0 0}.dshOneTree_projectRow,.dshOneTree_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_projectRow:hover,.dshOneTree_sessionRow:hover,.dshOneTree_sessionRow.dshOneTree_selected,.dshOneTree_projectRow.dshOneTree_menuOpen,.dshOneTree_sessionRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:var(--dsh-one-density-row-height,34px)}.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}.dshOneTree_flatRowWithoutStatus .dshOneTree_title{margin-left:0}.dshOneTree_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.dshOneTree_folderActive{color:var(--dsw-alias-state-business-primary)}.dshOneTree_projectRow .dshOneTree_chevron{display:none}.dshOneTree_projectRow:hover .dshOneTree_chevron{display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_folder{display:none}.dshOneTree_arrow{transition:transform .15s var(--ds-ease-in-out)}.dshOneTree_arrowOpen{transform:rotate(90deg)}.dshOneTree_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.dshOneTree_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}.dshOneTree_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}.dshOneTree_scheduleIndicator{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;margin-right:6px;display:inline-flex}.dshOneTree_searchScheduleIndicator{margin-left:4px;margin-right:0}.dshOneTree_dot{flex:none}.dshOneTree_rowActions{flex:none;align-items:center;gap:12px;display:none}.dshOneTree_projectRow:hover .dshOneTree_rowActions,.dshOneTree_sessionRow:hover .dshOneTree_rowActions,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowActions,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_sessionRow:hover .dshOneTree_time,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_rowIconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_rowIconButton:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_chevron{color:var(--dsw-alias-label-caption)}.dshOneTree_searchRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:var(--dsh-one-density-search-row-min-height,48px);color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}.dshOneTree_searchRow:hover,.dshOneTree_searchRow.dshOneTree_selected{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchRowHeading{align-items:center;min-width:0;display:flex}.dshOneTree_searchRowTitle{text-overflow:ellipsis;white-space:nowrap;flex:0 auto;min-width:0;margin-left:4px;font-size:14px;line-height:20px;overflow:hidden}.dshOneTree_searchRowMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.dshOneTree_searchRowWorkspace,.dshOneTree_searchRowSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.dshOneTree_searchRowWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_searchRowSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.dshOneTree_hoverContent{flex-direction:column;gap:8px;display:flex}.dshOneTree_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.dshOneTree_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.dshOneTree_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.dshOneTree_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.dshOneTree_renameInput{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:44px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:22px;outline:none;padding:7px 14px;font-size:14px;font-weight:400;line-height:22px}.dshOneTree_renameError{color:var(--dsw-alias-state-error-primary);margin-top:8px;font-size:12px;line-height:18px}.dshOneTree_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.dshOneTree_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_filterBar{align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex}.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-pill-height,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);max-width:100%;padding:0 var(--dsh-one-density-pill-padding-end,4px) 0 var(--dsh-one-density-pill-padding-start,8px);font-size:var(--dsh-one-density-pill-font-size,13px);display:inline-flex;overflow:hidden}.dshOneTree_pill:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillActive{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillTag{flex:none;align-items:center;color:var(--dsw-alias-label-tertiary);display:inline-flex}.dshOneTree_pillLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.dshOneTree_pillCount{color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_pillChevron{color:var(--dsw-alias-label-tertiary);flex:none;align-items:center;display:inline-flex}.dshOneTree_menuRow{align-items:center;gap:12px;min-width:0;width:100%;display:flex}.dshOneTree_menuRowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_menuRowCount{color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_footerRow{align-items:center;gap:2px;padding:0 var(--dsh-one-density-section-padding-inline,4px);display:flex}.dshOneTree_footerRowEmpty{color:var(--dsw-alias-label-tertiary)}.dshOneTree_footerMain{cursor:pointer;min-width:0;height:var(--dsh-one-density-footer-row-height,42px);color:inherit;background:0 0;border:none;border-radius:8px;flex:1;align-items:center;gap:8px;padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}.dshOneTree_footerMain:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_footerIcon{flex:none;align-items:center;display:inline-flex}.dshOneTree_footerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_footerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_footerIconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_footerIconButton:disabled{cursor:default;opacity:.45}.dshOneTree_footerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_manageList{max-height:240px;margin-bottom:12px;overflow-y:auto}.dshOneTree_manageRow{align-items:center;gap:8px;height:var(--dsh-one-density-row-height,34px);padding:0 4px;display:flex}.dshOneTree_manageName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_manageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_manageEmpty{color:var(--dsw-alias-label-tertiary);padding:8px 4px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_manageCreate{align-items:center;gap:8px;display:flex}.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}.dshOneTree_manageCreate button{white-space:nowrap;flex:none}.dshOneTree_activity{pointer-events:none;position:absolute;right:var(--dsh-one-density-row-padding-inline,8px);align-items:center;gap:6px;display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_activity,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_activity{display:none}.dshOneTree_activityItem{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px);align-items:center;gap:4px;display:inline-flex}.dshOneTree_check{cursor:pointer;width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkBox{box-sizing:border-box;width:14px;height:14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkOn{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.dshOneTree_checkOff{opacity:.35;cursor:default}.dshOneTree_checkDash{width:8px;height:2px;background:currentColor;border-radius:1px}.dshOneTree_groupCheck{flex:none;cursor:pointer}.dshOneTree_pin{flex:none;width:14px;height:14px;margin-right:4px;color:var(--dsw-alias-label-tertiary);align-items:center;display:inline-flex}.dshOneTree_unread{font-weight:600}.dshOneTree_selectionBarWrap{flex:none}.dshOneTree_selectionBar{gap:8px;box-sizing:border-box;padding:4px 8px;align-items:center;display:flex}.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 8px 4px}.dshOneTree_drawer{z-index:10;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-top:.5px solid var(--dsw-alias-border-l3);position:absolute;left:0;right:0;bottom:0;transform:translateY(100%);transition:transform .2s var(--ds-ease-in-out);flex-direction:column;display:flex;overflow:hidden}.dshOneTree_drawerOpen{transform:none}.dshOneTree_drawerHandle{cursor:grab;height:12px;flex:none;justify-content:center;align-items:center;display:flex;touch-action:none}.dshOneTree_drawerHandle:active{cursor:grabbing}.dshOneTree_drawerGrip{width:32px;height:3px;background:var(--dsw-alias-border-l3);border-radius:2px}.dshOneTree_drawerHandle:hover .dshOneTree_drawerGrip{background:var(--dsw-alias-label-tertiary)}.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshOneTree_drawerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_drawerList{min-height:0;padding:0 var(--dsh-one-density-section-padding-inline,4px) var(--dsh-one-density-list-padding-bottom,16px);flex:1;overflow-y:auto}.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_drawerGroupLabel{cursor:pointer;width:100%;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:6px;height:var(--dsh-one-density-drawer-block-header-height,26px);align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}.dshOneTree_drawerGroupLabel:hover{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerGroupArrow{width:14px;flex:none;align-items:center;display:inline-flex}.dshOneTree_drawerGroupLabelText{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_drawerGroupCount{flex:none}.dshOneTree_drawerRow{cursor:pointer;height:var(--dsh-one-density-session-row-height,32px);color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerRow:hover,.dshOneTree_drawerRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerRow .dshOneTree_title{flex:1;margin:0}.dshOneTree_drawerActions{flex:none;align-items:center;gap:2px;display:inline-flex}.dshOneTree_drawerRow:hover .dshOneTree_time,.dshOneTree_drawerRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_drawerRestore{cursor:pointer;height:20px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;align-items:center;gap:4px;padding:0 4px;font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}.dshOneTree_drawerRestore:hover:not(:disabled){color:var(--dsw-alias-label-primary)}.dshOneTree_drawerRestore:disabled{cursor:default;opacity:.45}.dshOneTree_drawerStatus{color:var(--dsw-alias-label-tertiary);padding:10px 8px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_modalBlocks{max-height:240px;margin-top:8px;overflow-y:auto}.dshOneTree_modalBlock+.dshOneTree_modalBlock{margin-top:6px}.dshOneTree_modalBlockLabel{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 4px}.dshOneTree_modalRow{color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;font-size:var(--dsh-one-density-meta-font-size,12px);padding:2px 4px 2px 16px;overflow:hidden}.dshOneTree_flash{z-index:20;max-width:90%;background:var(--dsw-alias-bg-elevated,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;padding:6px 10px;font-size:var(--dsh-one-density-meta-font-size,12px);position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}.dshOneTree_footerIconDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_tagBlock{position:relative;border-radius:6px}.dshOneTree_tagHead{align-items:center;height:22px;padding-left:var(--dsh-one-density-row-padding-inline,8px);padding-right:var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_tagPill{cursor:grab;color:var(--dshone-tag-color);background:color-mix(in srgb,var(--dshone-tag-color) 22%,transparent);border:1px solid color-mix(in srgb,var(--dshone-tag-color) 45%,transparent);border-radius:4px;align-items:center;gap:4px;height:16px;padding:0 7px;font-size:10px;font-weight:600;line-height:1;white-space:nowrap;display:inline-flex}.dshOneTree_tagPill:active{cursor:grabbing}.dshOneTree_tagDot{width:6px;height:6px;background:var(--dshone-tag-color);border-radius:2px;flex:none}.dshOneTree_tagName{text-overflow:ellipsis;white-space:nowrap;max-width:120px;overflow:hidden}.dshOneTree_tagPill[data-dshone-tag-drop="before"]{box-shadow:0 -2px 0 0 var(--dshone-tag-color)}.dshOneTree_tagPill[data-dshone-tag-drop="after"]{box-shadow:0 2px 0 0 var(--dshone-tag-color)}.dshOneTree_tagToggle{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;margin-left:2px;padding:0;display:inline-flex}.dshOneTree_tagToggle:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_tagArrow{transition:transform .15s ease}.dshOneTree_tagArrowOpen{transform:rotate(90deg)}.dshOneTree_tagBlock:hover .dshOneTree_rowActions,.dshOneTree_tagBlock.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_tagCounts{align-items:center;gap:6px;margin-left:auto;padding-right:2px;display:inline-flex}.dshOneTree_tagCount{color:var(--dsw-alias-label-tertiary);align-items:center;gap:4px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}.dshOneTree_tagRows{border-left:2px solid color-mix(in srgb,var(--dshone-tag-color) 55%,transparent);margin-left:calc(var(--dsh-one-density-row-padding-inline,8px) + 8px);padding-left:8px}.dshOneTree_tagRows>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_tagRows .dshOneTree_sessionRow{padding-left:12px}.dshOneTree_tagDropActive{background:color-mix(in srgb,var(--dshone-tag-color) 14%,transparent)}.dshOneTree_tagSwatch{width:10px;height:10px;border-radius:3px;flex:none;display:block}.dshOneTree_tagColorPick{gap:8px;margin-top:10px;display:flex}.dshOneTree_tagColorPickItem{cursor:pointer;width:20px;height:20px;color:var(--dsw-alias-label-inverse,#fff);border:.5px solid var(--dsw-alias-border-l4);border-radius:5px;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_tagColorPickOn{box-shadow:0 0 0 2px var(--dsw-alias-label-secondary)}'
+  '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex;position:relative}.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:0}.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:none;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);display:flex}.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}.dshOneTree_searchButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_searchExpanded .dshOneTree_searchButton{width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-search-expanded-height,30px)}.dshOneTree_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchExpanded .dshOneTree_searchButton:hover{background:0 0}.dshOneTree_searchInput{opacity:0;pointer-events:none;width:0;min-width:0;color:var(--dsw-alias-label-primary);transition:opacity .12s var(--ds-ease-in-out);background:0 0;border:none;outline:none;flex:1;font-size:13px;line-height:18px}.dshOneTree_searchExpanded .dshOneTree_searchInput{opacity:1;pointer-events:auto;margin-left:-2px}.dshOneTree_searchInput::placeholder{color:var(--dsw-alias-label-tertiary)}.dshOneTree_clearButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}.dshOneTree_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:var(--dsh-one-density-list-padding-bottom,16px);overflow-y:auto}.dshOneTree_flatList>*+*,.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_groupSection{position:relative}.dshOneTree_groupSection+.dshOneTree_groupSection{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_searchStatus,.dshOneTree_searchWarning{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}.dshOneTree_searchWarning{color:var(--dsw-alias-label-secondary)}.dshOneTree_empty{color:var(--dsw-alias-label-tertiary);padding:16px 12px;font-size:13px}.dshOneTree_emptyLine+.dshOneTree_emptyLine{margin-top:2px}.dshOneTree_emptyAction{cursor:pointer;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:6px;flex:none;align-items:center;margin-top:8px;padding:0 10px;font-family:inherit;font-size:12px;display:inline-flex}.dshOneTree_emptyAction:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sessionOverflowButton{cursor:pointer;text-align:left;width:100%;height:var(--dsh-one-density-overflow-row-height,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:8px;padding:0 12px 0 28px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_sessionOverflowButton:hover{color:var(--dsw-alias-label-secondary);background:0 0}.dshOneTree_projectRow,.dshOneTree_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_projectRow:hover,.dshOneTree_sessionRow:hover,.dshOneTree_sessionRow.dshOneTree_selected,.dshOneTree_projectRow.dshOneTree_menuOpen,.dshOneTree_sessionRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:var(--dsh-one-density-row-height,34px)}.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}.dshOneTree_flatRowWithoutStatus .dshOneTree_title{margin-left:0}.dshOneTree_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.dshOneTree_folderActive{color:var(--dsw-alias-state-business-primary)}.dshOneTree_projectRow .dshOneTree_chevron{display:none}.dshOneTree_projectRow:hover .dshOneTree_chevron{display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_folder{display:none}.dshOneTree_arrow{transition:transform .15s var(--ds-ease-in-out)}.dshOneTree_arrowOpen{transform:rotate(90deg)}.dshOneTree_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.dshOneTree_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}.dshOneTree_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}.dshOneTree_scheduleIndicator{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;margin-right:6px;display:inline-flex}.dshOneTree_searchScheduleIndicator{margin-left:4px;margin-right:0}.dshOneTree_dot{flex:none}.dshOneTree_rowActions{flex:none;align-items:center;gap:12px;display:none}.dshOneTree_projectRow:hover .dshOneTree_rowActions,.dshOneTree_sessionRow:hover .dshOneTree_rowActions,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowActions,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_sessionRow:hover .dshOneTree_time,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_rowIconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_rowIconButton:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_chevron{color:var(--dsw-alias-label-caption)}.dshOneTree_searchRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:var(--dsh-one-density-search-row-min-height,48px);color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}.dshOneTree_searchRow:hover,.dshOneTree_searchRow.dshOneTree_selected{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchRowHeading{align-items:center;min-width:0;display:flex}.dshOneTree_searchRowTitle{text-overflow:ellipsis;white-space:nowrap;flex:0 auto;min-width:0;margin-left:4px;font-size:14px;line-height:20px;overflow:hidden}.dshOneTree_searchRowMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.dshOneTree_searchRowWorkspace,.dshOneTree_searchRowSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.dshOneTree_searchRowWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_searchRowSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.dshOneTree_hoverContent{flex-direction:column;gap:8px;display:flex}.dshOneTree_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.dshOneTree_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.dshOneTree_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.dshOneTree_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.dshOneTree_renameInput{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:44px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:22px;outline:none;padding:7px 14px;font-size:14px;font-weight:400;line-height:22px}.dshOneTree_renameError{color:var(--dsw-alias-state-error-primary);margin-top:8px;font-size:12px;line-height:18px}.dshOneTree_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.dshOneTree_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_filterBar{align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex}.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-pill-height,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);max-width:100%;padding:0 var(--dsh-one-density-pill-padding-end,4px) 0 var(--dsh-one-density-pill-padding-start,8px);font-size:var(--dsh-one-density-pill-font-size,13px);display:inline-flex;overflow:hidden}.dshOneTree_pill:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillActive{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillTag{flex:none;align-items:center;color:var(--dsw-alias-label-tertiary);display:inline-flex}.dshOneTree_pillLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.dshOneTree_pillCount{color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_pillChevron{color:var(--dsw-alias-label-tertiary);flex:none;align-items:center;display:inline-flex}.dshOneTree_menuRow{align-items:center;gap:12px;min-width:0;width:100%;display:flex}.dshOneTree_menuRowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_menuRowCount{color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_footerRow{align-items:center;gap:2px;padding:0 var(--dsh-one-density-section-padding-inline,4px);display:flex}.dshOneTree_footerRowEmpty{color:var(--dsw-alias-label-tertiary)}.dshOneTree_footerMain{cursor:pointer;min-width:0;height:var(--dsh-one-density-footer-row-height,42px);color:inherit;background:0 0;border:none;border-radius:8px;flex:1;align-items:center;gap:8px;padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}.dshOneTree_footerMain:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_footerIcon{flex:none;align-items:center;display:inline-flex}.dshOneTree_footerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_footerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_footerIconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_footerIconButton:disabled{cursor:default;opacity:.45}.dshOneTree_footerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_manageList{max-height:240px;margin-bottom:12px;overflow-y:auto}.dshOneTree_manageRow{align-items:center;gap:8px;height:var(--dsh-one-density-row-height,34px);padding:0 4px;display:flex}.dshOneTree_manageName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_manageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_manageEmpty{color:var(--dsw-alias-label-tertiary);padding:8px 4px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_manageCreate{align-items:center;gap:8px;display:flex}.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}.dshOneTree_manageCreate button{white-space:nowrap;flex:none}.dshOneTree_rowEnd{pointer-events:none;position:absolute;right:var(--dsh-one-density-row-padding-inline,8px);align-items:center;gap:6px;display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_rowEnd,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowEnd{display:none}.dshOneTree_workspaceBadge{flex:none;height:16px;color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent);border:.5px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 40%,transparent);border-radius:999px;align-items:center;padding:0 6px;font-size:10px;line-height:1;display:inline-flex}.dshOneTree_menuAnchor{display:none}.dshOneTree_activity{align-items:center;gap:6px;display:inline-flex}.dshOneTree_activityItem{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px);align-items:center;gap:4px;display:inline-flex}.dshOneTree_check{cursor:pointer;width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkBox{box-sizing:border-box;width:14px;height:14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkOn{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.dshOneTree_checkOff{opacity:.35;cursor:default}.dshOneTree_checkDash{width:8px;height:2px;background:currentColor;border-radius:1px}.dshOneTree_groupCheck{flex:none;cursor:pointer}.dshOneTree_pin{flex:none;width:14px;height:14px;margin-right:4px;color:var(--dsw-alias-label-tertiary);align-items:center;display:inline-flex}.dshOneTree_unread{font-weight:600}.dshOneTree_selectionBarWrap{flex:none}.dshOneTree_selectionBar{gap:8px;box-sizing:border-box;padding:4px 8px;align-items:center;display:flex}.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 8px 4px}.dshOneTree_drawer{z-index:10;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-top:.5px solid var(--dsw-alias-border-l3);position:absolute;left:0;right:0;bottom:0;transform:translateY(100%);transition:transform .2s var(--ds-ease-in-out);flex-direction:column;display:flex;overflow:hidden}.dshOneTree_drawerOpen{transform:none}.dshOneTree_drawerHandle{cursor:grab;height:12px;flex:none;justify-content:center;align-items:center;display:flex;touch-action:none}.dshOneTree_drawerHandle:active{cursor:grabbing}.dshOneTree_drawerGrip{width:32px;height:3px;background:var(--dsw-alias-border-l3);border-radius:2px}.dshOneTree_drawerHandle:hover .dshOneTree_drawerGrip{background:var(--dsw-alias-label-tertiary)}.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshOneTree_drawerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_drawerList{min-height:0;padding:0 var(--dsh-one-density-section-padding-inline,4px) var(--dsh-one-density-list-padding-bottom,16px);flex:1;overflow-y:auto}.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_drawerGroupLabel{cursor:pointer;width:100%;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:6px;height:var(--dsh-one-density-drawer-block-header-height,26px);align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}.dshOneTree_drawerGroupLabel:hover{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerGroupArrow{width:14px;flex:none;align-items:center;display:inline-flex}.dshOneTree_drawerGroupLabelText{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_drawerGroupCount{flex:none}.dshOneTree_drawerRow{cursor:pointer;height:var(--dsh-one-density-session-row-height,32px);color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerRow:hover,.dshOneTree_drawerRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerRow .dshOneTree_title{flex:1;margin:0}.dshOneTree_drawerActions{flex:none;align-items:center;gap:2px;display:inline-flex}.dshOneTree_drawerRow:hover .dshOneTree_time,.dshOneTree_drawerRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_drawerRestore{cursor:pointer;height:20px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;align-items:center;gap:4px;padding:0 4px;font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}.dshOneTree_drawerRestore:hover:not(:disabled){color:var(--dsw-alias-label-primary)}.dshOneTree_drawerRestore:disabled{cursor:default;opacity:.45}.dshOneTree_drawerStatus{color:var(--dsw-alias-label-tertiary);padding:10px 8px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_modalBlocks{max-height:240px;margin-top:8px;overflow-y:auto}.dshOneTree_modalBlock+.dshOneTree_modalBlock{margin-top:6px}.dshOneTree_modalBlockLabel{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 4px}.dshOneTree_modalRow{color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;font-size:var(--dsh-one-density-meta-font-size,12px);padding:2px 4px 2px 16px;overflow:hidden}.dshOneTree_flash{z-index:20;max-width:90%;background:var(--dsw-alias-bg-elevated,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;padding:6px 10px;font-size:var(--dsh-one-density-meta-font-size,12px);position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}.dshOneTree_footerIconDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_tagBlock{position:relative;border-radius:6px}.dshOneTree_tagHead{align-items:center;height:22px;padding-left:var(--dsh-one-density-row-padding-inline,8px);padding-right:var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_tagPill{cursor:grab;color:var(--dshone-tag-color);background:color-mix(in srgb,var(--dshone-tag-color) 22%,transparent);border:1px solid color-mix(in srgb,var(--dshone-tag-color) 45%,transparent);border-radius:4px;align-items:center;gap:4px;height:16px;padding:0 7px;font-size:10px;font-weight:600;line-height:1;white-space:nowrap;display:inline-flex}.dshOneTree_tagPill:active{cursor:grabbing}.dshOneTree_tagDot{width:6px;height:6px;background:var(--dshone-tag-color);border-radius:2px;flex:none}.dshOneTree_tagName{text-overflow:ellipsis;white-space:nowrap;max-width:120px;overflow:hidden}.dshOneTree_tagPill[data-dshone-tag-drop="before"]{box-shadow:0 -2px 0 0 var(--dshone-tag-color)}.dshOneTree_tagPill[data-dshone-tag-drop="after"]{box-shadow:0 2px 0 0 var(--dshone-tag-color)}.dshOneTree_tagToggle{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;margin-left:2px;padding:0;display:inline-flex}.dshOneTree_tagToggle:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_tagArrow{transition:transform .15s ease}.dshOneTree_tagArrowOpen{transform:rotate(90deg)}.dshOneTree_tagBlock:hover .dshOneTree_rowActions,.dshOneTree_tagBlock.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_tagCounts{align-items:center;gap:6px;margin-left:auto;padding-right:2px;display:inline-flex}.dshOneTree_tagCount{color:var(--dsw-alias-label-tertiary);align-items:center;gap:4px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}.dshOneTree_tagRows{border-left:2px solid color-mix(in srgb,var(--dshone-tag-color) 55%,transparent);margin-left:calc(var(--dsh-one-density-row-padding-inline,8px) + 8px);padding-left:8px}.dshOneTree_tagRows>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_tagRows .dshOneTree_sessionRow{padding-left:12px}.dshOneTree_tagDropActive{background:color-mix(in srgb,var(--dshone-tag-color) 14%,transparent)}.dshOneTree_tagSwatch{width:10px;height:10px;border-radius:3px;flex:none;display:block}.dshOneTree_tagColorPick{gap:8px;margin-top:10px;display:flex}.dshOneTree_tagColorPickItem{cursor:pointer;width:20px;height:20px;color:var(--dsw-alias-label-inverse,#fff);border:.5px solid var(--dsw-alias-border-l4);border-radius:5px;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_tagColorPickOn{box-shadow:0 0 0 2px var(--dsw-alias-label-secondary)}'
 );
 var CSS_TAG_ID = "@dsh-one/dsh-workspace-tree/Tree.css";
 if (typeof document !== "undefined" && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
@@ -3747,7 +4095,10 @@ function WorkspaceTree(props) {
     saveUnread,
     loadTagGroups,
     saveTagGroups,
-    openInNewTab
+    openInNewTab,
+    openWorkspaceFolder,
+    openWorkspaceTerminal,
+    shellName
   } = props;
   const tr = t;
   const now = Date.now();
@@ -3950,11 +4301,14 @@ function WorkspaceTree(props) {
   const flatRows = withOrder(visibleNodes);
   const recycleGroups = deriveRecycleGroups(list, workspaces, recycledIds);
   const selectedSet = new Set(selection);
+  const orderedGroups = currentWorkspaceFirst(groups);
   const flatGroups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
-    expandedGroups: [...workspaces.map((workspace) => workspace.workspaceId), UNGROUPED_KEY]
+    expandedGroups: [...workspaces.map((workspace) => workspace.workspaceId), UNGROUPED_KEY],
+    recycled
   });
   const expandableKeys = flatGroups.filter((group) => group.sessionCount > 0).map((group) => group.key);
   const groupMembers = new Map(flatGroups.map((group) => [group.key, group.sessions]));
+  const sessionsOfGroup = (key) => groupMembers.get(key) ?? [];
   const allCollapsed = expandableKeys.length > 0 && expandableKeys.every((key) => !groupExpansion.includes(key));
   const toggleCollapseAll = () => {
     setPrefs((prev) => ({
@@ -4009,6 +4363,33 @@ function WorkspaceTree(props) {
   };
   const openRowInNewTab = openInNewTab === void 0 ? void 0 : (sessionId) => {
     void openInNewTab(sessionId).catch((reason) => reportFailure("openInNewTab.failed", reason));
+  };
+  const copyText = (text, done) => {
+    (0, import_dsh_client_ui_primitives10.writeClipboard)(text).then(
+      (ok) => flashTip(ok ? done : tr("copy.failed")),
+      () => flashTip(tr("copy.failed"))
+    );
+  };
+  const copySessionReference = (node) => {
+    copyText(formatSessionMention(displayTitle(node, tr), node.id), tr("copied.sessionRef"));
+  };
+  const copyWorkspacePath = (group) => {
+    if (group.cwd === void 0) return;
+    copyText(group.cwd, tr("copied.path"));
+  };
+  const copyWorkspaceFolderReference = (group) => {
+    if (group.cwd === void 0) return;
+    const text = formatFileMention({ path: group.cwd, kind: "directory" });
+    if (text === void 0) return;
+    copyText(text, tr("copied.folderRef"));
+  };
+  const openWorkspaceInEditor = (group, newWindow) => {
+    if (group.cwd === void 0) return;
+    openWorkspaceFolder?.(group.cwd, { newWindow });
+  };
+  const openWorkspaceInTerminal = (group) => {
+    if (group.cwd === void 0) return;
+    openWorkspaceTerminal?.(group.cwd);
   };
   const eligibilityOf2 = (node) => ({
     pinned: pinnedIds.has(node.id),
@@ -4125,6 +4506,17 @@ function WorkspaceTree(props) {
   const requestArchiveFromBin = (sessionId) => {
     openArchive({ blocks: groupSessionNodes(list, workspaces, [sessionId]), skipped: 0, kind: "archive" });
   };
+  const requestArchiveGroup = (key) => {
+    const nodes = sessionsOfGroup(key);
+    const partition = partitionArchivable(nodes.map((node) => ({ node, ...eligibilityOf2(node) })));
+    if (partition.ready.length === 0) return;
+    openArchive({
+      blocks: groupSessionNodes(list, workspaces, partition.ready.map((entry) => entry.node.id)),
+      skipped: partition.skipped.length,
+      kind: "archive"
+    });
+  };
+  const hasArchivable = (key) => sessionsOfGroup(key).some((node) => cannotArchiveReason(eligibilityOf2(node)) === null);
   const requestEmptyBin = () => {
     if (recycledIds.length === 0) return;
     openArchive({ blocks: recycleGroups, skipped: 0, kind: "emptyBin" });
@@ -4218,15 +4610,12 @@ function WorkspaceTree(props) {
     const label = (suffix, text) => (0, import_react12.createElement)("span", { "data-dshone-tree-item": `${TAG_MENU_PREFIX}${suffix}` }, text);
     return {
       items: [
-        { type: "separator", id: "tag-separator" },
-        { type: "label", id: "tag-label", text: tr("tag.membership") },
         ...bucket.tags.map((tag) => ({
           id: `${TAG_MENU_PREFIX}${tag.id}`,
           label: label(tag.id, tag.name),
           icon: (0, import_react12.createElement)(TagColorSwatch, { color: tag.color })
         })),
         { id: `${TAG_MENU_PREFIX}__none`, label: label("__none", tr("tag.none")) },
-        { type: "separator", id: "tag-new-separator" },
         { id: `${TAG_MENU_PREFIX}__new`, label: label("__new", tr("tag.new")) }
       ],
       selectedIds: [current === void 0 ? `${TAG_MENU_PREFIX}__none` : `${TAG_MENU_PREFIX}${current}`]
@@ -4353,6 +4742,9 @@ function WorkspaceTree(props) {
       onArchive: () => requestArchiveSession(row),
       onTogglePin: () => togglePin(row.id),
       onToggleUnread: () => toggleUnread(row.id),
+      // #109：菜单里的「选择多个」与「复制引用」（两枚都只在这一层接线，动作本体在树层）。
+      onSelectMultiple: enterSelection,
+      onCopyReference: () => copySessionReference(row),
       onOpenInNewTab: openRowInNewTab === void 0 ? void 0 : () => openRowInNewTab(row.id)
     };
   };
@@ -4404,13 +4796,15 @@ function WorkspaceTree(props) {
         onArchive: () => requestArchiveSession(row),
         onTogglePin: () => togglePin(row.id),
         onToggleUnread: () => toggleUnread(row.id),
+        onSelectMultiple: enterSelection,
+        onCopyReference: () => copySessionReference(row),
         onOpenInNewTab: openRowInNewTab === void 0 ? void 0 : () => openRowInNewTab(row.id)
       })
     )
   ) : (0, import_react12.createElement)(
     "div",
     { role: "tree", "data-dshone-tree": "groups" },
-    groups.map((group) => {
+    orderedGroups.map((group) => {
       const split = splitByTagGroups(
         baseOrder(group.sessions),
         tagBucket(group.key),
@@ -4439,11 +4833,19 @@ function WorkspaceTree(props) {
           ...check.tip === void 0 ? {} : { checkTip: check.tip },
           checkDisabled: check.disabled,
           onToggleSelect: check.onToggleSelect,
+          shellName,
+          canArchiveAll: hasArchivable(group.key),
           onToggle: () => setPrefs((prev) => ({
             ...prev,
             expandedGroups: prev.expandedGroups.includes(group.key) ? prev.expandedGroups.filter((key) => key !== group.key) : [...prev.expandedGroups, group.key]
           })),
           onCreate: () => startSession(group.workspaceId),
+          // #109 工作区行的三个宿主动作（能力口缺哪条哪枚按钮/菜单项就不出现）。
+          onOpenTerminal: openWorkspaceTerminal === void 0 ? void 0 : () => openWorkspaceInTerminal(group),
+          onOpenFolder: openWorkspaceFolder === void 0 ? void 0 : (options) => openWorkspaceInEditor(group, options.newWindow),
+          onArchiveAll: () => requestArchiveGroup(group.key),
+          onCopyFolderRef: () => copyWorkspaceFolderReference(group),
+          onCopyPath: () => copyWorkspacePath(group),
           onToggleGroup: (groupId) => {
             if (group.workspaceId === void 0) return;
             writeGroups(toggleWorkspaceGroup(groupsFile, group.workspaceId, groupId));
@@ -4773,6 +5175,27 @@ function apply(ctx) {
           });
         }
       } : {},
+      // #109 工作区行的工作区动作（hover 的「在 VS Code 打开」与右键的「在新窗口打开
+      // 文件夹」共用这一条）：能力口如实上报，官方 web 形态没有编辑器窗口 → 不注入 =
+      // 两个入口都不出现。
+      ...caps.workspaceOpen ? {
+        openWorkspaceFolder: (path, options) => {
+          caps.openWorkspaceFolder(path, { newWindow: options.newWindow }).catch((reason) => {
+            console.warn("[dsh-one] open workspace folder failed:", reason);
+          });
+        }
+      } : {},
+      // #109 hover 的「终端打开」：同样是宿主能力（VS Code 侧是集成终端），官方 web 形态
+      // 没有 → 不注入 = 那一枚按钮不渲染。
+      ...caps.workspaceTerminal ? {
+        openWorkspaceTerminal: (path) => {
+          caps.openWorkspaceTerminal(path).catch((reason) => {
+            console.warn("[dsh-one] open workspace terminal failed:", reason);
+          });
+        }
+      } : {},
+      // #109 当前工作区那枚胶囊上的容器名（读时判定，与 editorTabs 同一形态）。
+      shellName: caps.shellName,
       // 官方 sessions 服务：选中会话（镜像官方 ui-workspace 的 openSession，
       // 不调 layout.selectPanel——自有侧栏树没有主面板概念）。
       open: (sessionId) => {
@@ -4781,9 +5204,11 @@ function apply(ctx) {
       // 工作区行的「+」：官方 uiWorkspace.startSession 的语义（它依赖 layout 服务的
       // beginNavigation/selectPanel，自有 layout 桩没有这两件，故按同一语义直接
       // 用 sessions 服务实现）。
+      // #109：未分组桶的 ＋ 也走这里（`workspaceId === undefined`）——建一条**不属于
+      // 任何工作区**的会话。旧侧栏的 `sessionNewUngrouped` 就是这条语义；官方
+      // `sessions.create` 的 workspaceId 是可选的，省略即散会话（它会落在未分组桶里）。
       startSession: (workspaceId) => {
-        if (workspaceId === void 0) return;
-        void startSessionIn(workspaceId).then((id) => sessions.open(id)).catch((reason) => console.warn("[dsh-one] new session failed:", reason));
+        void (workspaceId === void 0 ? sessions.create({}) : startSessionIn(workspaceId)).then((id) => sessions.open(id)).catch((reason) => console.warn("[dsh-one] new session failed:", reason));
       },
       // 官方 ui-workspace 的 renameSession：binding → session.rename。
       renameSession: async (sessionId, title) => {

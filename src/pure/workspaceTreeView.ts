@@ -290,6 +290,24 @@ export function deriveGroups(
 }
 
 /**
+ * #109 E7：把**当前会话所在的工作区**那一组排到最前（其余保持 `deriveGroups` 给出的
+ * 官方顺序）。这是 #98 定稿里「排序全按官方、唯一例外是置顶项在它所在的那一层排最前」
+ * 的同一条规则落在工作区层上的形态。
+ *
+ * **未分组桶即使装着当前会话也不前移**：它没有工作区身份（`workspaceId` 缺席），
+ * 恒留在最后——旧侧栏就是这条口径（`sessionTree.test.ts` 的「ungrouped group stays
+ * last even against the current folder」钉着它），两个前端在这一点上不能有两种看法。
+ */
+export function currentWorkspaceFirst<T extends { readonly containsCurrent: boolean; readonly workspaceId?: string }>(
+  groups: readonly T[],
+): T[] {
+  const isCurrent = (group: T): boolean => group.containsCurrent && group.workspaceId !== undefined
+  const current = groups.filter(isCurrent)
+  if (current.length === 0) return [...groups]
+  return [...current, ...groups.filter((group) => !isCurrent(group))]
+}
+
+/**
  * 官方 `deriveFlat`：单列表模式——所有可见会话按最近更新倒序。
  * `recycled` 见 {@link sessionVisible}（#103 的本地回收站集合，缺省空集）。
  */
