@@ -15,25 +15,31 @@
  * `dsh-*`（AGENTS.md 铁律「自有插件命名分两类」）。
  *
  * ## 机制分层（按 AGENTS.md 的优先序逐层举证）
- * - **层 1（官方槽位机制）**：`conversation.session.header.utilities` 是 list 槽位
- *   （官方贡献 id 'session-log-download'）——追加自有贡献 id
- *   'session-log-download-dsh'（list additive，不冲突），外观复刻官方胶囊
- *   （Button outline sm + IconDownloadOutline16）。
+ * - **层 1（官方槽位机制）——遮蔽（shadow）**：`conversation.session.header.utilities`
+ *   是 list 槽位；官方 `@deepseek-ai/dsh-session-log-export` 在这个槽位注册的条目
+ *   id 是 'session-log-download'（0.1.6-alpha.1 源码逐字）。list 槽位的条目按
+ *   (priority, order) 排序、按 id 归入同一个 cell，**每个 cell 只有优先号最小的
+ *   那条进渲染位**——官方注册表的原文是「the first live (non-abdicated) entry of
+ *   each cell in priority order — what outlets render」（SlotCore.entriesOfSlot）。
+ *   所以本插件用**同一个 id + priority -1** 注册自己的按钮：官方那条仍在注册表里
+ *   （它的 `sessionLogDownload` 服务、locale 词典、`command/executed` 钩子照常存活），
+ *   只是不再渲染。外观复刻官方胶囊（Button outline sm + IconDownloadOutline16）。
  * - **层 2（官方服务 API）**：导出路径用官方既有的 `/api/session.export` 路由（同一
  *   条官方路由，不改网关、不加接口）；下载动作走宿主能力口。
- * - **层 4（CSS）**：官方胶囊隐藏——`[data-slot='conversation.session.header.utilities']>*:
- *   not(:has([data-dshone-export]))`，不依赖 css-module 哈希。举证：官方注册表没有
- *   unregister-by-id 的口（与设置行动同一处境），list 槽位无法只取官方那一条下来。
+ * - **不再用 CSS 兜**（#87 的教训）：这条遮蔽曾经是「该 slot 内一切非自有条目
+ *   display:none」的层 4 样式（理由是注册表没有 unregister-by-id 的口）。它按
+ *   **位置**而不是按 **id** 生效，于是 0.1.6 新加进同一 slot 的官方 open-in-app
+ *   菜单被一起摘掉（#87 的缺席根因）。list 槽位的遮蔽按 id 走注册表——同一条原则
+ *   也写在 AGENTS.md 的「官方机制优先，禁 hack」里。
  */
 import { createElement as h, useState } from 'react'
 import { Button, IconDownloadOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { hostCapabilities, type CapabilityContext } from './hostCapabilities.ts'
 import { sessionExportFileName, sessionExportPath, shouldReportExportFailure } from '../../../pure/sessionExport.ts'
 
-// 官方胶囊隐藏（机制层 4，举证见文件头）：框架按项给 display:contents 包装，
-// :has 命中含自有标记的包装；不依赖 css-module 哈希。
-// :has 只查后代不含自身——seat 项直接挂标记时须 :not([attr]) 兜自身。
-const REAL_CSS = '[data-slot="conversation.session.header.utilities"]>*:not([data-dshone-export]):not(:has([data-dshone-export])){display:none!important}.dshOneExport_btn{display:inline-flex;align-items:center;gap:4px}.dshOneExport_error{color:var(--dsw-alias-state-error-primary);font-size:12px;margin-left:6px}'
+// 自有按钮自身的样式（层 4，仅作用于自有标记）：官方胶囊的呈现由层 1 的遮蔽处理，
+// 这里没有一条规则瞄准别人的元素。
+const REAL_CSS = '.dshOneExport_btn{display:inline-flex;align-items:center;gap:4px}.dshOneExport_error{color:var(--dsw-alias-state-error-primary);font-size:12px;margin-left:6px}'
 const CSS_TAG_ID = '@dsh-one/dsh-session-export/Export.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
@@ -89,6 +95,13 @@ interface ExportContext extends CapabilityContext {
   }
 }
 
+/**
+ * 官方同槽位条目的 id：本插件以同一个 id + priority -1 注册（层 1 遮蔽，见文件头）。
+ * 出处：`@deepseek-ai/dsh-session-log-export` 0.1.6-alpha.1 的 client.js
+ * `ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'session-log-download', ... })`。
+ */
+const OFFICIAL_ENTRY_ID = 'session-log-download'
+
 export const inject = ['slots', 'locale']
 
 export function apply(ctx: ExportContext): void {
@@ -102,7 +115,10 @@ export function apply(ctx: ExportContext): void {
       ctx.slots.register(
         {
           name: 'conversation.session.header.utilities',
-          id: 'session-log-download-dsh',
+          id: OFFICIAL_ENTRY_ID,
+          // 优先号 −1 < 官方条目的默认 0 → 同一个 cell 里本件上位、官方那条不渲染
+          // （官方条目仍在注册表里，服务与钩子照常存活）。
+          priority: -1,
           order: 1,
           locale: 'dshOneExport',
           inject: () => ({ capabilities }),

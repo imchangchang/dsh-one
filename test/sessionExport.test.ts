@@ -43,10 +43,18 @@ test('用户取消失败不弹提示，其余失败要弹', () => {
   }
 })
 
-test('插件 id 与槽位贡献 id 已按命名铁律改名（dsh-*）', () => {
+test('插件 id 按命名铁律用 dsh-*；槽位贡献用官方同 id + priority −1 遮蔽（#87）', () => {
   const source = fs.readFileSync(PLUGIN_SOURCE, 'utf8')
   assert.match(source, /@dsh-one\/dsh-session-export/, '插件自述与 CSS 标记要用新 id')
-  assert.match(source, /id: 'session-log-download-dsh'/, '槽位贡献 id 要跟着改')
+  // 遮蔽走机制层 1（官方槽位机制）：list 槽位里同一个 id 的条目按 priority 竞争，
+  // 优先号最小的那条进渲染位。
+  assert.match(source, /const OFFICIAL_ENTRY_ID = 'session-log-download'/, '遮蔽要认官方条目的 id')
+  assert.match(source, /priority: -1/, '优先号要低于官方条目的默认 0')
+  // #87：遮蔽按 id 走注册表，不许再用「该 slot 内一切非自有条目 display:none」那类按
+  // 位置的 CSS——它会把官方后来加进同一 slot 的条目（open-in-app）一起摘掉。
+  const css = /const REAL_CSS = '([^']*)'/.exec(source)?.[1] ?? ''
+  assert.ok(!css.includes('data-slot'), '自有 CSS 不得按 slot 选择器决定别人的条目呈现')
+  assert.ok(!/display\s*:\s*none/.test(css), '自有 CSS 不得隐藏座位里的任何条目')
   assert.doesNotMatch(source, /@dsh-one\/vscode-session-export/, '不许残留旧 id')
   // 可移植的判据：插件自己不再碰 VS Code 通道（能力口在两侧各配一个实现）。
   assert.doesNotMatch(source, /acquireVsCodeApi/, '插件不得直接碰 VS Code API')
