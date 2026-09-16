@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 /**
- * 安装引导页的浏览器冒烟（#105）：`npm run verify:install-guide`。
+ * 宿主侧页面的浏览器冒烟（#105 起，`npm run verify:install-guide`）。
  *
- * 验的是**宿主侧那一页**（`src/ui/installGuide.ts` + `src/pure/installGuidePage.ts`）：
+ * 验的是**不参与装配树的那两页**（dsh 没装时网关起不来，装配页组装不了，它们由宿主
+ * 直接出 HTML）：
+ * - 安装引导 tab（`src/ui/installGuide.ts` + `src/pure/installGuidePage.ts`，#105 改版）；
+ * - 侧栏状态页（`src/ui/sidebarStatusPage.ts` + `src/pure/sidebarStatus.ts`，#101 纳入覆盖）。
+ *
  * 页面由真实宿主代码渲染（`vscode` 模块由 `vscodeStub.mjs` 顶上），宿主侧则用页内
  * 的假桥（`__DSH_ONE_VSCODE__`，与 #100 同一口径）记录消息、回复制结果——于是
  * 「按钮 / 下拉（含选中态与外链）/ 命令随平台更换 / 复制成功与失败反馈 / 分段切换 /
- * 明暗两态」都能自动断言，并留一组截图给人工看。
+ * 状态页三态与装配失败 / 明暗两态」都能自动断言，并留一组截图给人工看。
  *
- * 这一页不参与装配树（dsh 未安装时网关起不来），所以它不在装配实验室（`test/assembly-lab/`）
- * 里，用本目录这组轻量 harness 单跑；跑前不需要网关。
+ * 这两页都不参与装配树，所以它们不在装配实验室（`test/assembly-lab/`）里，用本目录这组
+ * 轻量 harness 跑；跑前不需要网关。
  *
  * 用法：
  *   npm run verify:install-guide                     # 英文基线，light + dark
@@ -24,6 +28,8 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { installGuideHtml } from '../../src/ui/installGuide.ts'
+import { sidebarStatusHtml } from '../../src/ui/sidebarStatusPage.ts'
+import { decideSidebarStatus, assemblyFailureView } from '../../src/pure/sidebarStatus.ts'
 import { installCommandFor } from '../../src/pure/installScript.ts'
 import { installPlatformItems } from '../../src/pure/installGuidePage.ts'
 import { l10n } from './vscodeStub.mjs'
@@ -35,7 +41,7 @@ const LOCALE = process.env.SMOKE_LOCALE ?? 'en'
 const HOST_OS = 'macos'
 
 /** 文案一律按当前 locale 取（en 是基线，zh-cn 是译文）——断言不写死中文或英文。 */
-const T = (key) => l10n.t(key)
+const T = (key, ...args) => l10n.t(key, ...args)
 
 /* ---------- 断言与观测收集 ---------- */
 
@@ -160,7 +166,14 @@ function contrast(fg, bg) {
 const pageFile = path.join(OUT, `page.${LOCALE}.html`)
 const pageUrl = `file://${pageFile}`
 
-async function openPage(browser, theme, viewport) {
+/**
+ * VS Code 给 webview 的默认样式（内置 defaultStyles 里的那一条）：状态页自己不设
+ * 背景色，靠宿主给的那块底——冒烟里补上，页面才跟真 webview 里长得一样。
+ */
+const WEBVIEW_BASE_CSS = 'body { background-color: var(--vscode-editor-background); }'
+
+async function openPage(browser, theme, viewport, options = {}) {
+  const { url = pageUrl, webviewBase = false } = options
   const context = await browser.newContext({ viewport, deviceScaleFactor: 2 })
   await context.addInitScript({ content: BRIDGE })
   const page = await context.newPage()
@@ -169,8 +182,9 @@ async function openPage(browser, theme, viewport) {
     if (message.type() === 'error') errors.push(message.text())
   })
   page.on('pageerror', (error) => errors.push(String(error)))
-  await page.goto(pageUrl)
+  await page.goto(url)
   await page.addStyleTag({ content: themeCss(theme) })
+  if (webviewBase) await page.addStyleTag({ content: WEBVIEW_BASE_CSS })
   return { context, page, errors }
 }
 
@@ -373,14 +387,216 @@ async function runNarrow(browser, theme) {
   await context.close()
 }
 
+/* ---------- 侧栏状态页（#101 起纳入常驻覆盖）：三态各自画一遍 ---------- */
+
+/** 详情样本：真实启动错误里可能出现尖括号与 &，页面必须当文本显示而不是当标签渲染。 */
+const RAW_ERROR = 'Failed to launch dsh: <stdout> & <stderr> unreadable'
+
+/** 装配失败的样本（拉清单失败）：它出现在那句说明里，不再单独一块。 */
+const ASSEMBLY_ERROR = 'GET /: HTTP 500'
+
+/**
+ * 状态页要渲染的几态。前四条走真实的分流判定（`decideSidebarStatus`）——于是
+ * 「三态分流没变」也跟着一起被钉住；最后一条「装配失败」不是分流判定的产物，
+ * 是装配流程失败后的落点（`assemblyFailureView`），另给一条。
+ *
+ * 每条只写「当时宿主侧是什么状态」和「页面上该出现什么」；页面的 HTML 由
+ * `sidebarStatusHtml()` 现出（真实宿主代码，文案走 `l10n.t`）。
+ */
+const STATUS_CASES = [
+  {
+    id: 'not-installed',
+    name: '未安装',
+    host: { state: 'error', reason: 'dshNotFound', error: 'dsh not found' },
+    decision: { kind: 'notInstalled' },
+    title: T('dsh is not installed'),
+    hint: T('Install it and come back here to start automatically.'),
+    button: { label: T('View install guide'), message: 'assembly:openInstallGuide' },
+  },
+  {
+    id: 'starting',
+    name: '服务启动中',
+    host: { state: 'starting' },
+    decision: { kind: 'serviceDown', starting: true },
+    hint: T('Starting the dsh service…'),
+    note: T('The first start may take a while (preparing profiles and dependencies).'),
+  },
+  {
+    id: 'not-running',
+    name: '服务未运行',
+    host: { state: 'stopped' },
+    decision: { kind: 'serviceDown', starting: false },
+    hint: T('The dsh service is not running. Start it to load this sidebar.'),
+    button: { label: T('Start the dsh service'), message: 'assembly:start' },
+  },
+  {
+    id: 'start-failed',
+    name: '服务启动失败（带详情）',
+    host: { state: 'error', error: RAW_ERROR },
+    decision: { kind: 'serviceDown', starting: false, detail: RAW_ERROR },
+    hint: T('The dsh service is not running. Start it to load this sidebar.'),
+    detail: RAW_ERROR,
+    button: { label: T('Start the dsh service'), message: 'assembly:start' },
+  },
+  {
+    id: 'assembly-failed',
+    name: '装配失败',
+    // 服务在跑却装不起来（清单拉取失败 / mirror 起不来）：不是分流判定的产物。
+    view: () => assemblyFailureView({ state: 'running', url: 'http://127.0.0.1:3080' }, ASSEMBLY_ERROR),
+    hint: T('DSH sidebar failed to load: {0}', ASSEMBLY_ERROR),
+    button: { label: T('Retry'), message: 'assembly:retry' },
+  },
+]
+
+const statusPageFile = (id) => path.join(OUT, `status.${LOCALE}.${id}.html`)
+const statusPageUrl = (id) => `file://${statusPageFile(id)}`
+
+/** 这一态要渲染的页面内容（装配失败那条直接给 `assemblyFailureView` 的产物）。 */
+const statusViewOf = (entry) => (entry.view !== undefined ? entry.view() : decideSidebarStatus(entry.host))
+
+/** 分流断言（与浏览器无关，跑一次）：每条宿主状态判到它该落的那一态。 */
+function checkStatusDecisions() {
+  for (const entry of STATUS_CASES) {
+    if (entry.decision === undefined) continue
+    eq(`状态页分流：${entry.name}`, decideSidebarStatus(entry.host), entry.decision)
+  }
+}
+
+/** 一档主题下把一个状态画出来、逐项看它长什么样。 */
+async function runStatusCase(browser, theme, entry) {
+  const { context, page, errors } = await openPage(browser, theme, { width: 360, height: 420 }, {
+    url: statusPageUrl(entry.id),
+    webviewBase: true,
+  })
+  const palette = THEMES[theme]
+  const label = `状态页 ${theme} ${entry.name}`
+  const text = async (selector) => (await page.locator(selector).textContent()).trim()
+  const count = (selector) => page.locator(selector).count()
+
+  /* 文案：标题只有「未安装」有，说明每态都有，次要提示与详情各按该态给。 */
+  check(`${label}：${entry.title === undefined ? '不出现标题' : `标题「${entry.title}」`}`, (await count('.title')) === (entry.title === undefined ? 0 : 1) && (entry.title === undefined || (await text('.title')) === entry.title))
+  eq(`${label}：说明文案`, await text('.hint'), entry.hint)
+  check(`${label}：${entry.note === undefined ? '没有多余的次要提示' : '次要提示是「首次启动较慢」那一句'}`, (await count('.note')) === (entry.note === undefined ? 0 : 1) && (entry.note === undefined || (await text('.note')) === entry.note))
+  if (entry.detail === undefined) {
+    check(`${label}：没有详情块`, (await count('.detail')) === 0)
+  } else {
+    // 详情来自错误字符串：原样显示（不是被吃掉的富文本），且只能当文本——注入不得生效。
+    check(
+      `${label}：详情原样显示且当文本渲染（尖括号与 & 不被当成标签）`,
+      (await text('.detail')) === entry.detail && (await count('.detail *')) === 0,
+      `text=${await text('.detail')}`,
+    )
+    check(`${label}：详情是等宽字体的独立块（眼能分辨出这是诊断输出）`, /mono/i.test(await page.locator('.detail').evaluate((el) => getComputedStyle(el).fontFamily)) && (await page.locator('.detail').evaluate((el) => getComputedStyle(el).borderLeftWidth)) === '2px')
+  }
+
+  /* 动作：能点的只有该态那一个（启动中/未安装等按内容给），消息回宿主。 */
+  if (entry.button === undefined) {
+    check(`${label}：不给动作按钮（这一态没有可点的下一步）`, (await count('#dsh-action')) === 0)
+  } else {
+    eq(`${label}：动作按钮文案`, await text('#dsh-action'), entry.button.label)
+    await page.locator('#dsh-action').click()
+    eq(`${label}：动作按钮把 ${entry.button.message} 发回宿主`, await page.evaluate(() => globalThis.__smoke.messages), [{ type: entry.button.message }])
+  }
+
+  /* 明暗两态：背景是编辑器主题色（页面自己不设背景，靠宿主那块底），文字看得清。 */
+  const bg = await page.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor)
+  eq(`状态页 ${theme} [${entry.id}]：整页背景＝编辑器主题背景`, rgb(bg), rgb(palette['--vscode-editor-background']))
+  const pairs = [
+    ['说明文字', '.hint', 4.5],
+    ...(entry.title === undefined ? [] : [['标题', '.title', 4.5]]),
+    ...(entry.note === undefined ? [] : [['次要提示（小字）', '.note', 3]]),
+  ]
+  for (const [name, selector, min] of pairs) {
+    const color = await page.locator(selector).evaluate((el) => getComputedStyle(el).color)
+    const ratio = contrast(rgb(color), rgb(bg))
+    check(`状态页 ${theme} [${entry.id}]：${name}与背景的明暗差 >= ${min}`, ratio >= min, `${ratio.toFixed(2)}:1（${color} on ${bg}）`)
+    fact(`状态页 ${theme} [${entry.id}] ${name} 明暗差 ${ratio.toFixed(2)}:1`)
+  }
+  if (entry.button !== undefined) {
+    const surface = await page.locator('#dsh-action').evaluate((el) => getComputedStyle(el).backgroundColor)
+    const color = await page.locator('#dsh-action').evaluate((el) => getComputedStyle(el).color)
+    const ratio = contrast(rgb(color), rgb(surface))
+    check(`状态页 ${theme} [${entry.id}]：动作按钮文字与按钮底色的明暗差 >= 4.5`, ratio >= 4.5, `${ratio.toFixed(2)}:1（${color} on ${surface}）`)
+    fact(`状态页 ${theme} [${entry.id}] 动作按钮文字 明暗差 ${ratio.toFixed(2)}:1`)
+  }
+
+  check(`状态页 ${theme} [${entry.id}]：控制台干净（没有 error）`, errors.length === 0, errors.join(' | '))
+  await screenshot(page, `${theme}-status-${entry.id}`)
+  await context.close()
+}
+
 /* ---------- 报告条目：把逐条断言折成「人看截图能逐条对照」的几项 ---------- */
 
 /**
  * 报告条目（合入门禁那份报告用的形状，见 `test/sandbox/report.mjs`）：每项给一段
  * 「看到什么」的期望 + 相关截图，人在报告里逐项对照。断言按标签里的关键词归到条目，
  * 归不掉的断言会单独列成一项并判失败——归类漏了不会静默。
+ *
+ * **顺序有讲究**：按序取第一个模式命中的条目，所以状态页那几项（SP-*，标签里一律
+ * 带「状态页」）放在安装引导页（IG-*）前面——否则 IG 的通用模式（`/对比度/`、
+ * `/主按钮/` 之类）会把状态页的断言抢走。报告里仍按阶段排序（新增在前，回归在后）。
  */
 const ITEM_SPECS = [
+  {
+    id: 'SP-01',
+    phase: 'regression',
+    name: '状态页「未安装」：标题 + 说明 + 查看安装指南',
+    expect:
+      'dsh 没装时侧栏位上是这一态：一行标题「dsh 尚未安装」，下面一行灰色说明（装完回来自动开始），再下面一个「查看安装指南」按钮；按钮回宿主的是打开安装引导 tab 的动作。',
+    patterns: [/未安装/],
+    shots: ['-status-not-installed'],
+  },
+  {
+    id: 'SP-02',
+    phase: 'regression',
+    name: '状态页「服务启动中」：进度文案 + 首次启动提示，不给按钮',
+    expect:
+      '服务正在启动时是这一态：说明「正在启动 dsh 服务…」，下面一行小字说明第一次启动要准备 profile 与依赖、会慢一些；这一态没有可点的按钮（再点一次没有意义）。',
+    patterns: [/启动中/],
+    shots: ['-status-starting'],
+  },
+  {
+    id: 'SP-03',
+    phase: 'regression',
+    name: '状态页「服务未运行」：说明 + 启动按钮',
+    expect:
+      '服务没在跑时是这一态：说明「dsh 服务没有运行，启动它才能加载这个侧栏」，下面一个「启动 dsh 服务」按钮；按钮回宿主的是启动动作。',
+    patterns: [/未运行/],
+    shots: ['-status-not-running'],
+  },
+  {
+    id: 'SP-04',
+    phase: 'regression',
+    name: '状态页「服务启动失败」：错误详情原样显示且只当文本',
+    expect:
+      '启动失败（例如端口上是一个需要 token 的认证实例）时，除了启动按钮还给一段等宽的详情块，里面是原样的错误文字——错误里带尖括号或 & 也照原样显示成文字，不会被当成标签渲染。',
+    patterns: [/启动失败/, /详情/],
+    shots: ['-status-start-failed'],
+  },
+  {
+    id: 'SP-05',
+    phase: 'regression',
+    name: '状态页「装配失败」：服务在跑却装不起来 + 重试',
+    expect:
+      '服务在跑但装配失败（拉清单/代理起不来）时是这一态：说明里带上失败原因，下面一个「重试」按钮；按钮回宿主的是重跑装配的动作。',
+    patterns: [/装配失败/],
+    shots: ['-status-assembly-failed'],
+  },
+  {
+    id: 'SP-06',
+    phase: 'regression',
+    name: '状态页明暗两态：背景＝编辑器主题色、文字看得清',
+    expect:
+      '浅色与深色主题下各看一遍每个状态：整页背景是编辑器主题背景（状态页自己不设背景色，靠宿主那块底），说明文字/标题/小字/按钮在这块底上都看得清（正文 >=4.5:1，小字 >=3:1）。',
+    patterns: [/主题背景/, /明暗差/, /控制台干净/],
+    shots: [
+      '-status-not-installed',
+      '-status-starting',
+      '-status-not-running',
+      '-status-start-failed',
+      '-status-assembly-failed',
+    ],
+  },
   {
     id: 'IG-01',
     phase: 'new-feature',
@@ -497,7 +713,8 @@ function reportItems() {
       notes: orphans.map((entry) => `- ${entry.label}`).join('\n'),
     })
   }
-  return items
+  // 报告里按阶段排（新增功能在前、现有功能回归在后）；ITEM_SPECS 的顺序另有讲究，见其注释。
+  return items.sort((a, b) => (a.phase === b.phase ? 0 : a.phase === 'new-feature' ? -1 : 1))
 }
 
 /* ---------- 主流程 ---------- */
@@ -505,11 +722,16 @@ function reportItems() {
 async function main() {
   await fsp.mkdir(OUT, { recursive: true })
   await fsp.writeFile(pageFile, installGuideHtml(HOST_OS), 'utf8')
+  for (const entry of STATUS_CASES) {
+    await fsp.writeFile(statusPageFile(entry.id), sidebarStatusHtml(statusViewOf(entry)), 'utf8')
+  }
+  checkStatusDecisions()
   const browser = await chromium.launch({ headless: process.env.SMOKE_HEADED !== '1' })
   try {
     for (const theme of ['light', 'dark']) {
       await runTheme(browser, theme)
       await runNarrow(browser, theme)
+      for (const entry of STATUS_CASES) await runStatusCase(browser, theme, entry)
     }
   } finally {
     await browser.close()
@@ -518,7 +740,7 @@ async function main() {
   const passed = checks.filter((c) => c.ok).length
   const shots = (await fsp.readdir(OUT)).filter((f) => f.startsWith(`${LOCALE}-`) && f.endsWith('.png')).sort()
   const ledger = {
-    suite: 'INSTALL-GUIDE-SMOKE',
+    suite: 'HOST-PAGES-SMOKE',
     locale: LOCALE,
     hostOs: HOST_OS,
     at: new Date().toISOString(),
@@ -531,22 +753,23 @@ async function main() {
 
   // 合入门禁那份报告：按 `test/sandbox/report.mjs` 的形状产出条目（新增功能项在前）。
   const report = {
-    title: `安装引导页浏览器冒烟（#105，locale=${LOCALE}）`,
+    title: `宿主侧页面浏览器冒烟（安装引导页 #105 + 侧栏状态页 #101，locale=${LOCALE}）`,
     branch: git(['rev-parse', '--abbrev-ref', 'HEAD']),
     commit: git(['rev-parse', '--short', 'HEAD']),
     command: `npm run verify:install-guide${LOCALE === 'en' ? '' : `（SMOKE_LOCALE=${LOCALE}）`}`,
     environment: {
       mode: '浏览器（Playwright chromium，页面由真实宿主代码渲染，宿主侧是页内假桥）',
-      网关: '不需要（这一页不参与装配树）',
+      网关: '不需要（这两页都不参与装配树）',
       locale: LOCALE,
       'theme 档': 'light + dark（VS Code 默认浅色/深色主题的 token 取值）',
-      viewport: '900×780（窄面板档 420×780）',
+      viewport: '安装引导页 900×780（窄面板档 420×780）、状态页 360×420（侧栏宽度）',
       date: new Date().toISOString(),
       断言: `${String(passed)}/${String(checks.length)} 通过`,
     },
     coverageNote:
       '不覆盖：真 VS Code webview 宿主层（CSP 实际执行、真剪贴板、原生菜单、主题跟随）、真 dsh 安装过程本身。' +
-      '这一页不参与装配树，装配侧回归看 `npm run verify:lab` 的报告；侧栏状态页与引导 tab 单例行为看 npm test 的 sidebarStatusPage.test.ts。',
+      '状态页跟随服务状态变化（#101）是宿主侧逻辑，不在浏览器里验——订阅的起停与重绘看 npm test 的 sidebarStatusPage.test.ts。' +
+      '这两页都不参与装配树，装配侧回归看 `npm run verify:lab` 的报告。',
     items: reportItems(),
   }
   await fsp.writeFile(path.join(OUT, 'verify.install-guide.ledger.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8')
@@ -554,7 +777,7 @@ async function main() {
   for (const line of facts) console.log(`  · ${line}`)
   for (const failed of checks.filter((c) => !c.ok)) console.log(`  ✗ ${failed.label}${failed.detail === '' ? '' : `（${failed.detail}）`}`)
   console.log(
-    `\n[install-guide-smoke] locale=${LOCALE} 断言 ${String(checks.length)} 条，通过 ${String(passed)} 条；` +
+    `\n[host-pages-smoke] locale=${LOCALE} 断言 ${String(checks.length)} 条，通过 ${String(passed)} 条；` +
       `条目 ${String(report.items.length)} 项（失败 ${String(report.items.filter((i) => i.result === 'fail').length)} 项）；` +
       `产物 ${path.relative(process.cwd(), OUT)}/{smoke.${LOCALE}.json, verify.install-guide.ledger.json, *.png}`,
   )

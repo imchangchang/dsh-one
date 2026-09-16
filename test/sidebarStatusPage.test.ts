@@ -3,13 +3,17 @@
  * - 三态分流判定（未安装 / 服务未运行或启动中 / 装配失败）——判错会让用户去查一
  *   个他解决不了的错误（dsh 没装却报「装配失败」），所以每条分流都得钉住；
  * - 引导 tab 的单例行为（再打开一次只聚焦，不新开第二个 tab）；
- * - 安装命令生成（现有 pure/installScript.ts 的逻辑补断言）。
+ * - 安装命令生成（现有 pure/installScript.ts 的逻辑补断言）；
+ * - 状态页跟随服务状态变化的订阅生命周期（#101：重绘 / 退订 / 不重复订阅）。
  *
- * 页面 HTML 本身由宿主侧渲染（`vscode.l10n.t`），单测只覆盖判定与数据。
+ * 页面 HTML 本身由宿主侧渲染（`vscode.l10n.t`），单测只覆盖判定与数据；
+ * 三态各自画成什么样（文案、按钮、明暗两态）由浏览器冒烟覆盖
+ * （`test/install-guide/`，`npm run verify:install-guide`）。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { decideSidebarStatus, assemblyFailureView, type SidebarHostStatus } from '../src/pure/sidebarStatus.ts'
+import { createStatusFollow, type StatusChangeSource } from '../src/pure/sidebarStatusFollow.ts'
 import { createPanelSlot } from '../src/pure/panelSlot.ts'
 import {
   DSH_INSTALL_SCRIPT_BASE,
@@ -128,6 +132,100 @@ test('误导性关闭不动新面板：先开的面板关晚了，不清掉替�
   const second = slot.open(fakePanel)
   slot.close(first)
   assert.equal(slot.current(), second, '关的是旧句柄，当前面板不该被清掉')
+})
+
+/* ---------- 状态页跟随服务状态变化（#101） ---------- */
+
+/** 状态替身：这里只验「转发了哪一次状态」，取值够用即可。 */
+type FakeStatus = { state: string }
+
+/** 假的事件源：手工 fire，并记下登记了几份监听（用来钉「不泄漏监听」）。 */
+function fakeStatusSource(): {
+  source: StatusChangeSource<FakeStatus>
+  fire(status: FakeStatus): void
+  listeners(): number
+} {
+  const registered = new Set<(status: FakeStatus) => void>()
+  return {
+    source: {
+      onDidChangeState(listener) {
+        registered.add(listener)
+        return { dispose: () => registered.delete(listener) }
+      },
+    },
+    fire(status) {
+      // 照事件源的真实语义：一份监听被退订后不该再收到。
+      for (const listener of [...registered]) listener(status)
+    },
+    listeners: () => registered.size,
+  }
+}
+
+test('状态页跟随：服务状态一变就按新状态重画，位置与次数都对', () => {
+  const events = fakeStatusSource()
+  const seen: FakeStatus[] = []
+  const follow = createStatusFollow<FakeStatus>({
+    source: events.source,
+    isStatusShown: () => true,
+    onStatusChanged: (status) => seen.push(status),
+  })
+
+  events.fire({ state: 'running' })
+  assert.deepEqual(seen, [], '还没开始跟随，状态变化不该动页面')
+
+  follow.start()
+  events.fire({ state: 'starting' })
+  events.fire({ state: 'stopped' })
+  assert.deepEqual(seen, [{ state: 'starting' }, { state: 'stopped' }], '每次变化都跟着重画一次')
+
+  follow.stop()
+  events.fire({ state: 'running' })
+  assert.equal(seen.length, 2, '退订之后不再重画')
+  follow.stop() // 重复退订不该炸
+})
+
+test('状态页跟随：装配页在位时不抢它的刷新', () => {
+  const events = fakeStatusSource()
+  let statusShown = false
+  let redrawn = 0
+  const follow = createStatusFollow<FakeStatus>({
+    source: events.source,
+    isStatusShown: () => statusShown,
+    onStatusChanged: () => (redrawn += 1),
+  })
+  follow.start()
+
+  events.fire({ state: 'stopped' })
+  assert.equal(redrawn, 0, '画的是装配页：状态变化不该把页面换掉')
+
+  statusShown = true
+  events.fire({ state: 'stopped' })
+  assert.equal(redrawn, 1, '状态页回到视图里之后就跟着画')
+})
+
+test('状态页跟随：重复开始不会挂出第二份监听（每多一份就多重画一次）', () => {
+  const events = fakeStatusSource()
+  let redrawn = 0
+  const follow = createStatusFollow<FakeStatus>({
+    source: events.source,
+    isStatusShown: () => true,
+    onStatusChanged: () => (redrawn += 1),
+  })
+
+  follow.start()
+  follow.start()
+  assert.equal(events.listeners(), 1)
+  events.fire({ state: 'stopped' })
+  assert.equal(redrawn, 1)
+
+  // 视图重新可见（收起又展开）走的就是 stop → start：监听数仍是一份。
+  follow.stop()
+  assert.equal(events.listeners(), 0)
+  follow.start()
+  assert.equal(events.listeners(), 1)
+  assert.equal(follow.started(), true)
+  events.fire({ state: 'running' })
+  assert.equal(redrawn, 2)
 })
 
 /* ---------- 安装命令生成 ---------- */

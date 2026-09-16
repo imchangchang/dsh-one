@@ -18,7 +18,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 | `npm run typecheck` | `tsc --noEmit`。注意 import 都带 `.ts` 后缀（`allowImportingTsExtensions` + `verbatimModuleSyntax`），新增 import 要遵守。 |
 | `npm test` | `node --test test/*.test.ts`，只覆盖 `src/pure/`。改 pure 模块必须跑。 |
 | `npm run verify:lab` | 先 `npm run build`，再用 Playwright 跑装配的**浏览器验证**（harness 在 `test/assembly-lab/`）：四棵树在真实 dsh 网关（只读）上零槽位崩溃/零缺失契约、三树冒烟渲染、关键交互、侧栏树与官方外观逐项对齐、宿主能力口语义。需要本机有在跑的 dsh 网关（缺省 3080，token 读 `~/.dsh/dsh-owned.json`）；产物在 `test/assembly-lab/out/`（gitignored）。改装配相关代码后必跑，细节见 `test/assembly-lab/README.md`。 |
-| `npm run verify:install-guide` | 用 Playwright 跑**安装引导 tab 那一页**的冒烟（harness 在 `test/install-guide/`）：页面由真实宿主代码渲染（`vscode` 顶上假实现），断言按钮/下拉（选中态与外链）/命令随平台更换/复制成功与失败反馈/分段切换/明暗两态，并留截图。不需要网关（这一页不参与装配树）；`SMOKE_LOCALE=zh-cn` 用真中文译文渲染，产物在 `test/install-guide/out/`（gitignored），细节见 `test/install-guide/README.md`。 |
+| `npm run verify:install-guide` | 用 Playwright 跑**宿主侧那两页**的冒烟（harness 在 `test/install-guide/`）：安装引导 tab（按钮/下拉含选中态与外链/命令随平台更换/复制成功与失败反馈/分段切换）与侧栏状态页（未安装/启动中/未运行/启动失败/装配失败各自画成什么样、按钮发什么消息），页面都由真实宿主代码渲染（`vscode` 顶上假实现），明暗两态各跑一遍并留截图。不需要网关（这两页都不参与装配树）；`SMOKE_LOCALE=zh-cn` 用真中文译文渲染，产物在 `test/install-guide/out/`（gitignored），细节见 `test/install-guide/README.md`。状态页跟随服务状态变化（宿主侧订阅）由 `npm test` 的 `test/sidebarStatusPage.test.ts` 覆盖。 |
 | `npm run package` | 先 build，再 `vsce package` 打出 `.vsix`（`.vscodeignore` 排除了 src/test/node_modules 等，VSIX 里只有 dist + 清单 + 图标等）。 |
 
 ## 调试（F5 Extension Development Host）
@@ -43,7 +43,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 `src/pure/` 里的 bug 修法：先在 `test/` 用 `node --test` 复现成一条**失败**测试，修码期间**不许碰测试文件**，修完让测试转绿。这样 bug 固化进回归，治标也治本。
 
 - 这条**只对 `src/pure/`（可被 `node --test` 覆盖的那层）成立**。
-- **UI bug 不适用**：渲染/布局/交互单测测不到。改为：**装配相关的 UI 断言写进浏览器验证套件**（`test/assembly-lab/`，跑 `npm run verify:lab`——页面由仓库真实模块构建、数据面是真实网关只读、宿主是假宿主，快且可复跑，是常驻防线）；宿主行为（webview CSP/剪贴板/原生菜单等）与需要人眼的观感核对走 VS Code 验证（`scripts/dev-ui-test.sh`）或 `test/sandbox/` 沙盒（见 `test/sandbox/README.md` 的「验收口径」）。合入验收 = dev-finish 产出的测试报告（人审，见 `worktree-dev-flow` skill 流程 5），对功能有疑问才人工开窗 `dev-ui-test`。
+- **UI bug 不适用**：渲染/布局/交互单测测不到。改为：**装配相关的 UI 断言写进浏览器验证套件**（`test/assembly-lab/`，跑 `npm run verify:lab`——页面由仓库真实模块构建、数据面是真实网关只读、宿主是假宿主，快且可复跑，是常驻防线）；**宿主侧普通页面**（安装引导 tab、侧栏状态页）的 UI 断言写进 `test/install-guide/`（跑 `npm run verify:install-guide`，同样用 Playwright，不需要网关）；宿主行为（webview CSP/剪贴板/原生菜单等）与需要人眼的观感核对走 VS Code 验证（`scripts/dev-ui-test.sh`）或 `test/sandbox/` 沙盒（见 `test/sandbox/README.md` 的「验收口径」）。合入验收 = dev-finish 产出的测试报告（人审，见 `worktree-dev-flow` skill 流程 5），对功能有疑问才人工开窗 `dev-ui-test`。
 
 ## 手动模拟异常场景
 
