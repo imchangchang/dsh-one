@@ -102,26 +102,29 @@ export function tagGroupMenuItems(opts: {
   const { tr, name, total, archivable, recyclable } = opts
   // 每项的文案包一层带 `data-dshone-tree-item` 的 span：菜单项的类名是官方哈希，
   // 验证套件与样式都不该认它（与行菜单同一做法，见 rows.ts 的 sessionMenuItem）。
+  // #113：菜单项图标按官方紧凑档的图标位给尺寸——14×14 是官方该档的项内图标盒
+  // （`._compactList_1nxmc_128 ._itemIcon_1nxmc_144{width:14px;height:14px}`），
+  // 官方 16 档图标塞进去会溢出一圈，所以用官方图标件自己的显式尺寸参数打 14。
   const label = (id: string, text: string): unknown => h('span', { 'data-dshone-tree-item': id }, text)
   return [
     { type: 'label', id: 'tag-menu-title', text: tr('tag.menu.title', { name }) },
-    { id: 'tag-new-session', label: label('tag-new-session', tr('tag.newSession')), icon: h(IconPlusOutline16, {}) },
+    { id: 'tag-new-session', label: label('tag-new-session', tr('tag.newSession')), icon: h(IconPlusOutline16, { size: 14 }) },
     {
       id: 'tag-archive',
       label: label('tag-archive', tr('tag.archive', { n: total })),
-      icon: h(IconArchiveOutline20, { size: 16 }),
+      icon: h(IconArchiveOutline20, { size: 14 }),
       disabled: archivable === 0,
       ...(archivable === 0 ? { title: tr('tag.archive.none') } : {}),
     },
     {
       id: 'tag-recycle',
       label: label('tag-recycle', tr('tag.recycle', { n: total })),
-      icon: h(IconTrashOutline16, {}),
+      icon: h(IconTrashOutline16, { size: 14 }),
       disabled: recyclable === 0,
       ...(recyclable === 0 ? { title: tr('tag.recycle.blocked') } : {}),
     },
     { id: 'tag-ungroup', label: label('tag-ungroup', tr('tag.ungroup')) },
-    { id: 'tag-rename', label: label('tag-rename', tr('tag.rename')), icon: h(IconEditOutline16, {}) },
+    { id: 'tag-rename', label: label('tag-rename', tr('tag.rename')), icon: h(IconEditOutline16, { size: 14 }) },
     { type: 'separator', id: 'tag-color-separator' },
     { type: 'label', id: 'tag-color-label', text: tr('tag.color') },
     ...TAG_COLORS.map((candidate) => ({
@@ -133,7 +136,7 @@ export function tagGroupMenuItems(opts: {
     {
       id: 'tag-delete',
       label: label('tag-delete', tr('tag.delete')),
-      icon: h(IconTrashOutline16, {}),
+      icon: h(IconTrashOutline16, { size: 14 }),
       danger: true,
     },
   ]
@@ -377,6 +380,10 @@ export function TagGroupBlock({
         },
         portal: true,
         closeOnPointerLeave: true,
+        // #113：官方紧凑档（与行菜单、行内码右键菜单同一档）——分组菜单带 `separator`
+        // 与两条分组标题，紧凑档下它们的间距由官方该档给（`._separator{margin:2px}`、
+        // `._label{padding:4px 7px;font-size:11px;line-height:16px}`），我们不加样式。
+        compact: true,
         anchor,
       }),
     ),
