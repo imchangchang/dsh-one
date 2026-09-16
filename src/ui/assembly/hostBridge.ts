@@ -41,6 +41,7 @@ import {
   isHostCallError,
   parseAllowedUrl,
   parseGitShowArgs,
+  parseSessionTabArgs,
   resolveQueryDir,
   type HostCallError,
 } from '../../pure/hostCalls.ts'
@@ -66,6 +67,7 @@ export const HOST_CALLS = {
   'state.read': 'Read one plugin state value (the host half\'s own state store, ~/.dsh/dsh-one/<key>.json).',
   'state.write': 'Write one plugin state value (same store, atomic write).',
   'state.delete': 'Delete one plugin state value (same store).',
+  'session.openInNewTab': 'Open one session in its own editor tab (explicit multi-open; the chat panel stays a singleton).',
 } as const
 
 export type HostCallName = keyof typeof HOST_CALLS
@@ -117,6 +119,12 @@ export interface HostBridgeDeps {
   notify?: (level: 'info' | 'error', message: string) => void
   /** 取网关内容（缺省 fetch；测试注入假件）。 */
   fetchGateway?: (url: string, init?: { method: string }) => Promise<Response>
+  /**
+   * 「在新标签页打开」（#72 多开通道）：为某会话开一个独立面板。装配视图提供
+   * 实现（面板与共享 mirror 的生命周期都在那里）；缺省无实现 = `unsupported`
+   * ——官方 web 形态的侧栏树本来也不会显示这个菜单项（见能力口的 `editorTabs`）。
+   */
+  openSessionInNewTab?: (sessionId: string) => void
 }
 
 /**
@@ -238,6 +246,15 @@ export async function runHostCall(
   }
   if (call === 'state.read' || call === 'state.write' || call === 'state.delete') {
     return await stateCall(call, args, deps)
+  }
+  if (call === 'session.openInNewTab') {
+    const parsed = parseSessionTabArgs(args)
+    if (isHostCallError(parsed)) return parsed
+    if (deps.openSessionInNewTab === undefined) {
+      return { code: 'unsupported', message: 'this host has no editor tabs to open a session in' }
+    }
+    deps.openSessionInNewTab(parsed.sessionId)
+    return null
   }
   const url = parseAllowedUrl(asRecord(args)?.url)
   if (url === null) {
