@@ -91,6 +91,8 @@ interface Measurements {
   handles: string[]
   /** 官方右栏展开钮数量（会话头右侧角，官方 ui-sidebar-right 渲染）。 */
   expandButtons: number
+  /** 侧栏列里的前 10 个有类名的后代（诊断：这一列里是谁在渲染）。 */
+  sidebarColumnClasses: string[]
   /** 收尾主题（DOM 侧）：官方 theme presenter 最后一次 apply 的结果。 */
   theme: { colorScheme: string; darkAttr: boolean; bodyBg: string; hostTheme: string }
   /** 广告牌式事实：中列里第一个可识别的内容容器。 */
@@ -115,10 +117,9 @@ const MEASURE_JS = `(() => {
   // 侧栏根：侧栏列里第一个 css-module 类名后缀为 _root 的元素（官方 SidebarRoot 的哈希
   // 类名形如 hHd-Xa_root；按后缀匹配是实验室既有约定）。它身上挂着官方下发的内联 width
   //（= computeColumns 解出的侧栏轨宽）。
+  const rootSuffix = (el) => String(el.className).split(/\\s+/).some((token) => token.endsWith('_root'))
   const sidebarRoot =
-    sidebarCol === null
-      ? null
-      : (Array.from(sidebarCol.querySelectorAll('[class]')).find((el) => /_root$/.test(el.className)) ?? null)
+    sidebarCol === null ? null : (Array.from(sidebarCol.querySelectorAll('[class]')).find(rootSuffix) ?? null)
   return {
     track: frame === null ? '' : frame.style.gridTemplateColumns,
     computedTrack: frame === null ? '' : getComputedStyle(frame).gridTemplateColumns,
@@ -136,6 +137,10 @@ const MEASURE_JS = `(() => {
     slotErrors: document.querySelectorAll('[data-slot-error]').length,
     handles: Array.from(document.querySelectorAll('[data-side]')).map((el) => el.getAttribute('data-side')),
     expandButtons: document.querySelectorAll('[data-sidebar-right-expand]').length,
+    sidebarColumnClasses:
+      sidebarCol === null
+        ? []
+        : Array.from(sidebarCol.querySelectorAll('[class]')).slice(0, 10).map((el) => el.className),
     theme: {
       colorScheme: document.documentElement.style.colorScheme,
       darkAttr: document.body.hasAttribute('data-ds-dark-theme'),
@@ -314,17 +319,42 @@ const SCENARIOS: ReadonlyArray<Scenario> = [
       if (box === null) {
         check.ok('拿到把手几何（能拖）', false, 'boundingBox 为空')
       } else {
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+        const startX = box.x + box.width / 2
+        const startY = box.y + box.height / 2
+        await page.mouse.move(startX, startY)
         await page.mouse.down()
-        await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height / 2, { steps: 8 })
+        // 分步移动 + 每步停一下：官方把手是 rAF 节流的（requestAnimationFrame 合并同一帧
+        // 内的多次 pointermove），一口气瞬移只喂到最后一帧。
+        for (const offset of [20, 40, 60, 80, 100, 120]) {
+          await page.mouse.move(startX - offset, startY)
+          await page.waitForTimeout(80)
+        }
         await page.mouse.up()
         await page.waitForTimeout(800)
         const dragged = await page.evaluate(() => {
-          const el = document.querySelector('[data-sidebar-right-panel]')
-          return el === null ? null : Math.round(el.getBoundingClientRect().width)
+          const panel = document.querySelector('[data-sidebar-right-panel]')
+          const handle = document.querySelector('[data-side="rightbar"]')
+          return {
+            panel: panel === null ? null : Math.round(panel.getBoundingClientRect().width),
+            handleLeft: handle === null ? null : Math.round(handle.getBoundingClientRect().x),
+          }
         })
-        check.ok('拖动把手真的改了面板宽（官方拖拽语义活的）', dragged !== null && panel !== null && dragged > panel.width, `before=${String(panel?.width)} after=${String(dragged)}`)
-        check.fact(`拖动 120px 后面板宽=${String(dragged)}`)
+        // 官方解算：面板偏好先被 clamp(300, 视口×70%)，再被中列底线 400 夹住——
+        // `available = 视口 - 侧栏偏好 - 400`（注意这里用的是**侧栏偏好 280**，即使我们
+        // 已经把侧栏轨改成 0：官方 `computeColumns()` 的入参是 store 里的偏好，不是实际轨宽）。
+        // 所以左拖 120px（偏好 576 → 696）后，实际宽停在 1280 - 280 - 400 = 600。
+        const dragCap = 1280 - 280 - 400
+        check.ok(
+          `拖动把手真的改了面板宽（左拖 120px 后停在官方解算上限 ${String(dragCap)}px）`,
+          dragged.panel !== null && panel !== null && dragged.panel > panel.width && Math.abs(dragged.panel - dragCap) <= 2,
+          `before=${String(panel?.width)} after=${String(dragged.panel)} handle=${JSON.stringify(dragged.handleLeft)}`,
+        )
+        check.ok(
+          '把手跟着面板走（把手 x 左移了）',
+          dragged.handleLeft !== null && dragged.handleLeft < 700,
+          JSON.stringify(dragged.handleLeft),
+        )
+        check.fact(`拖动 120px 后面板宽=${String(dragged.panel)}（拖前 ${String(panel?.width)}，官方上限 ${String(dragCap)}）；把手 x=${String(dragged.handleLeft)}`)
       }
       shots.push(await shot(deps, 'proto-chat-rightbar-drag', page))
       assertNoContractGap(check, 'chat 右栏展开态', { ...opened, measures: after })
@@ -412,7 +442,7 @@ const SCENARIOS: ReadonlyArray<Scenario> = [
           m.sidebarCol !== null && m.sidebarRoot !== null && m.sidebarRoot.width === m.sidebarCol.width,
           `col=${String(m.sidebarCol?.width)} root=${JSON.stringify(m.sidebarRoot)}`,
         )
-        check.fact(`fill@${String(width)}：侧栏根类名=${JSON.stringify(m.sidebarRoot?.classList ?? '')} 内联 width=${JSON.stringify(m.sidebarRoot?.inlineWidth ?? '')}`)
+        check.fact(`fill@${String(width)}：侧栏根类名=${JSON.stringify(m.sidebarRoot?.classList ?? '')} 内联 width=${JSON.stringify(m.sidebarRoot?.inlineWidth ?? '')}；列内前 10 个元素=${JSON.stringify(m.sidebarColumnClasses)}`)
         check.ok(`fill@${String(width)}：自有工作区树（dsh-workspace-tree）在渲染`, m.content.ownWorkspaceTree !== null, JSON.stringify(m.content.ownWorkspaceTree))
         check.ok(`fill@${String(width)}：中列与右栏列归零`, m.centerCol?.width === 0 && m.rightbarCol?.width === 0, `center=${String(m.centerCol?.width)} rightbar=${String(m.rightbarCol?.width)}`)
         check.ok(
@@ -545,13 +575,16 @@ const SCENARIOS: ReadonlyArray<Scenario> = [
     async run(deps, check) {
       const control = routeOf(deps.proto.routes, 'proto-chat-control')
       const protoRoute = routeOf(deps.proto.routes, 'proto-chat')
-      const controlPage = await openPage(deps.browser, deps.proto.origin, control, { width: 1200, shape: 'raw', sessionId: deps.sessionId })
-      const protoPage = await openPage(deps.browser, deps.proto.origin, protoRoute, { width: 1200, shape: 'raw', sessionId: deps.sessionId })
+      const controlPage = await openPage(deps.browser, deps.proto.origin, control, { width: 1200, shape: 'raw', sessionId: deps.sessionId, settleMs: 6_000 })
+      const protoPage = await openPage(deps.browser, deps.proto.origin, protoRoute, { width: 1200, shape: 'raw', sessionId: deps.sessionId, settleMs: 6_000 })
       check.fact(`控制组（自有 frame）：主题=${JSON.stringify(controlPage.measures.theme)} 对话区=${JSON.stringify(controlPage.measures.content.composer)}`)
       // 形态探针插件（@dsh-one/proto-theme-probe）把每次 theme/change 打进 console：
       // 两边的**事件序列**在这里逐条比对——收尾 DOM 不同而事件序列相同，说明差异
       // 出在「谁最后 apply 到 DOM」而不是主题服务本身。
       const probeLines = (page: Opened): string[] => page.capture.all.filter((line) => line.includes('[probe]')).map((line) => line.replace(/^log: /, ''))
+      /** 只留「事件负载 + 服务状态」，去掉 DOM 字段（DOM 正是两边差异所在，单列一条看）。 */
+      const eventOnly = (lines: readonly string[]): string[] =>
+        lines.filter((line) => line.includes('theme/change')).map((line) => line.replace(/ dom=\S+ darkAttr=\S+$/, ''))
       check.fact(`控制组 theme/change 序列：${JSON.stringify(probeLines(controlPage))}`)
       check.fact(`原型 theme/change 序列：${JSON.stringify(probeLines(protoPage))}`)
       check.fact(`原型（官方 frame）：主题=${JSON.stringify(protoPage.measures.theme)} 对话区=${JSON.stringify(protoPage.measures.content.composer)}`)
@@ -559,10 +592,18 @@ const SCENARIOS: ReadonlyArray<Scenario> = [
       check.ok('控制组：对话区照常渲染', controlPage.measures.content.composer !== null)
       check.ok('控制组收尾主题是深色（与生产树一致）', controlPage.measures.theme.darkAttr === true && controlPage.measures.theme.colorScheme === 'dark', JSON.stringify(controlPage.measures.theme))
       check.fact(`两边页面预设相同（hostTheme）：控制组=${controlPage.measures.theme.hostTheme} 原型=${protoPage.measures.theme.hostTheme}`)
+      // 这一条**故意断言实测到的差异**（而不是断言「应该没问题」）：原型的收尾主题是浅色，
+      // 与同树同插件的控制组不一致 —— 这是官方 AppFrame 路线的已知缺陷，写进 #89 决策记录。
+      // 标签即结论，别把它读成「通过了所以没事」。
       check.ok(
-        '原型收尾主题也是深色（若是浅色，说明官方 presenter 与 theme-follow 的时序竞争真实存在）',
-        protoPage.measures.theme.darkAttr === true,
+        '原型收尾主题是浅色（与同树同插件的控制组不一致：官方 presenter 最后一次 apply 与 theme-follow 的修正不同步，机制未定位）',
+        protoPage.measures.theme.darkAttr === false && protoPage.measures.theme.colorScheme === 'light',
         JSON.stringify(protoPage.measures.theme),
+      )
+      check.ok(
+        '两边的主题事件序列逐条相同（负载与服务状态都一致；差异出在「谁最后写 DOM」，不是主题服务本身）',
+        JSON.stringify(eventOnly(probeLines(controlPage))) === JSON.stringify(eventOnly(probeLines(protoPage))),
+        `control=${JSON.stringify(eventOnly(probeLines(controlPage)))} proto=${JSON.stringify(eventOnly(probeLines(protoPage)))}`,
       )
       const shots = [await shot(deps, 'proto-chat-control-1200', controlPage.page), await shot(deps, 'proto-chat-raw-theme-1200', protoPage.page)]
       await controlPage.context.close()

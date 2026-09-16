@@ -28,7 +28,9 @@ const SIDEBAR_AUTO_COLLAPSE = 1024
 const CSS_FILL =
   `div:has(> [data-shell-overlay]){grid-template-columns:minmax(0,1fr) 0px 0px!important}\n` +
   `div:has(> [data-shell-overlay]) > [class*="_sidebarCol"]{border-right:0!important}\n` +
-  `div:has(> [data-shell-overlay]) > [class*="_sidebarCol"] > *{width:100%!important}`
+  // 侧栏根不是侧栏列的直接子元素（中间隔着官方槽位锚点 div[data-slot="sidebar"]），
+  // 所以这条要按「官方语义属性 + css-module 类名后缀」两跳定位。
+  `div:has(> [data-shell-overlay]) > [class*="_sidebarCol"] > [data-slot="sidebar"] > [class*="_root"]{width:100%!important}`
 
 interface ShellContext {
   layout: { toggleSidebar(): void }
