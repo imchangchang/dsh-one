@@ -2397,7 +2397,8 @@ export const PIN_UNREAD_SUITE: LabSuite = {
     return screenshots
   },
 }
-// F-13 RECYCLE-TWO-LAYER：回收站两层语义（#103）
+// ---------------------------------------------------------------------------
+// F-15 RECYCLE-TWO-LAYER：回收站两层语义（#103）
 // ---------------------------------------------------------------------------
 
 /** 假宿主状态存储里当前的回收站状态（未写过时为 null）。 */
@@ -2436,7 +2437,7 @@ async function expandAllWorkspaces(page: OpenedPage['page']): Promise<void> {
 
 /** 把某一行（按会话 id 认）通过 ⋯ 菜单移入回收站。 */
 async function moveRowToRecycleBin(page: OpenedPage['page'], sessionId: string): Promise<void> {
-  const row = page.locator(`[data-dshone-session="${sessionId}"]`)
+  const row = page.locator(`[data-dshone-tree-session="${sessionId}"]`)
   await row.hover()
   await row.locator('.dshOneTree_rowIconButton').click()
   await page.waitForTimeout(250)
@@ -2445,7 +2446,7 @@ async function moveRowToRecycleBin(page: OpenedPage['page'], sessionId: string):
 }
 
 export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
-  id: 'F-13',
+  id: 'F-15',
   phase: 'new-feature',
   name: '回收站两层语义（#103）：移入/还原是本地可逆、归档=删除带确认（RECYCLE-TWO-LAYER 套件）',
   expect:
@@ -2467,7 +2468,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
           if (rows.length >= 2) {
             return {
               key: section.getAttribute('data-dshone-group-key') ?? '',
-              ids: rows.slice(0, 2).map((row) => row.getAttribute('data-dshone-session') ?? ''),
+              ids: rows.slice(0, 2).map((row) => row.getAttribute('data-dshone-tree-session') ?? ''),
               titles: rows.slice(0, 2).map((row) => row.querySelector('.dshOneTree_title')?.textContent ?? ''),
               siblingRows: rows.length,
             }
@@ -2507,7 +2508,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
 
       // ---- ① 移入回收站：本地可逆层 ----
       await (async (): Promise<void> => {
-        const row = page.locator(`[data-dshone-session="${first}"]`)
+        const row = page.locator(`[data-dshone-tree-session="${first}"]`)
         await row.hover()
         await row.locator('.dshOneTree_rowIconButton').click()
         await page.waitForTimeout(250)
@@ -2545,7 +2546,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       })()
       const flashText = await page.textContent('[data-dshone-tree="flash"]')
       check.ok('移入后飘一条回执提示', (flashText ?? '').includes('回收站'), String(flashText))
-      check.eq('移入的会话从我们树里消失', await contentCount(page, `[data-dshone-session="${first}"]`), 0)
+      check.eq('移入的会话从我们树里消失', await contentCount(page, `[data-dshone-tree-session="${first}"]`), 0)
       const entryCount = async (): Promise<string | null> => page.getAttribute('[data-dshone-tree-action="recycle-open"]', 'data-dshone-tree-recycle-count')
       const afterFirstMoveState = (await hostRecycleBin(page)) as { version?: number; sessionIds?: string[] } | null
       check.fact(`移入一条后：入口角标=${String(await entryCount())} 宿主状态=${JSON.stringify(afterFirstMoveState)}`)
@@ -2697,7 +2698,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       check.eq('还原只把这一条移出本地集合', afterRestore?.sessionIds ?? [], [second])
       await page.click('[data-dshone-tree-action="recycle-close"]')
       await page.waitForTimeout(250)
-      check.eq('还原后会话回到我们树里', await contentCount(page, `[data-dshone-session="${first}"]`), 1)
+      check.eq('还原后会话回到我们树里', await contentCount(page, `[data-dshone-tree-session="${first}"]`), 1)
       await page.waitForTimeout(1_000)
       check.eq('还原也不动 dsh 侧（官方浏览区同样没变）', await officialRows(), officialBefore)
 
@@ -2742,7 +2743,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
         }),
       )
       check.eq('计数 0 时两枚动作图标禁用（灰态）', disabledActions, ['recycle-empty-all=true', 'recycle-restore-all=true'])
-      check.eq('全部还原后第二条也回到树里', await contentCount(page, `[data-dshone-session="${second}"]`), 1)
+      check.eq('全部还原后第二条也回到树里', await contentCount(page, `[data-dshone-tree-session="${second}"]`), 1)
       await page.waitForTimeout(1_000)
       check.eq('全部还原不动 dsh 侧（官方浏览区会话数不变）', await officialRows(), officialBefore)
       screenshots.push(await shot(ctx, page, 'recycle-restored-all'))
@@ -2755,11 +2756,11 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
         Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
           .filter((row) => row.querySelector('.dshOneTree_rowActions') !== null)
           .slice(0, 6)
-          .map((row) => row.getAttribute('data-dshone-session') ?? ''),
+          .map((row) => row.getAttribute('data-dshone-tree-session') ?? ''),
       )
       const archiveFacts: Array<{ id: string; reason: string; hint: string; disabled: boolean }> = []
       for (const id of probeRows) {
-        const row = page.locator(`[data-dshone-session="${id}"]`)
+        const row = page.locator(`[data-dshone-tree-session="${id}"]`)
         await row.hover()
         await row.locator('.dshOneTree_rowIconButton').click()
         await page.waitForTimeout(200)
@@ -2810,17 +2811,17 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
         )
         const status = (row: Element): string => row.getAttribute('data-dshone-tree-status') ?? ''
         const chosen = [...rows.filter((row) => status(row) !== 'idle').slice(0, 2), ...rows.filter((row) => status(row) === 'idle').slice(0, 2)]
-        return chosen.map((row) => ({ id: row.getAttribute('data-dshone-session') ?? '', status: status(row) }))
+        return chosen.map((row) => ({ id: row.getAttribute('data-dshone-tree-session') ?? '', status: status(row) }))
       })
       await page.click('[data-dshone-tree-action="select-mode"]')
       await page.waitForTimeout(300)
       for (const entry of picked) {
-        await page.locator(`[data-dshone-session="${entry.id}"]`).click()
+        await page.locator(`[data-dshone-tree-session="${entry.id}"]`).click()
         await page.waitForTimeout(80)
       }
       const selected = await page.evaluate((ids: string[]) => {
         const marks = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
-          .filter((row) => ids.includes(row.getAttribute('data-dshone-session') ?? ''))
+          .filter((row) => ids.includes(row.getAttribute('data-dshone-tree-session') ?? ''))
           .map((row) => row.getAttribute('data-dshone-tree-checked') ?? '')
         return marks
       }, picked.map((entry) => entry.id))
