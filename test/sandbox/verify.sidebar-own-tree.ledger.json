@@ -1,28 +1,28 @@
 {
   "title": "DSH One 装配线测试报告：侧栏自有工作区树（#65 批 2 第一步）",
   "branch": "agent/sidebar-own-tree",
-  "commit": "048772621b6d210189a18c7cc569433380ab082c",
+  "commit": "6284b340b78b2edd63e7c7aab21eabe15bedc999",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
     "dsh": "0.1.6-alpha.1",
     "locale": "zh-cn",
     "theme": "dark（含浅色切换断言）",
-    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（79 条断言）",
-    "date": "2026-09-16T00:43:35.168Z"
+    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（90 条断言）",
+    "date": "2026-09-16T00:51:56.108Z"
   },
-  "coverageNote": "本报告是浏览器验证（第一道验证）：装配页由仓库真实模块（pageHtml / wireFilter / assemblyMirror）构建，数据面是本机真实 dsh 网关（只读），宿主通道是假宿主。外观断言的口径 = 同一 frame、同一网关数据、同一宽度下，自有树与「同一 frame 里由官方组件渲染的浏览区」逐项比对 computed style（只差装不装自有树插件这一个变量），不硬编码数值。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/原生菜单）、真模型输出、以及「点会话 → 对话面板跟随」的宿主侧行为（那是既有 #71 桥的语义，见 VS Code 验证清单）。已知环境阻塞（与本批改动无关）：本机 dsh 已升到 0.1.6-alpha.1，chat 树的对话区在 0.1.6 上另有兼容缺口（官方 ui-conversation 改为注册进 ui-layout 的 main 座位，自有 chat frame 尚未声明该座位），基线提交 8d1ad4d 上同样空；本报告因此不含 chat 树断言。",
+  "coverageNote": "本报告是浏览器验证（第一道验证）：装配页由仓库真实模块（pageHtml / wireFilter / assemblyMirror）构建，数据面是本机真实 dsh 网关（只读），宿主通道是假宿主。外观断言的口径 = 同一 frame、同一网关数据、同一宽度下，自有树与「同一 frame 里由官方组件渲染的浏览区」逐项比对 computed style（只差装不装自有树插件这一个变量），不硬编码数值。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/原生菜单）、真模型输出、以及「点会话 → 对话面板跟随」的宿主侧行为（那是既有 #71 桥的语义，见 VS Code 验证清单）。本轮的基线已对齐 develop/cordis-chat（含 #76 的 0.1.6 兼容修复）：0.1.6 上四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）全部零 slot entry crashed、零缺失契约，chat 树的对话区由官方 keyed `main` 槽位渲染出来（对齐前这里是空的）。本轮另含改名生效断言（#83）：侧栏树插件 id 由 @dsh-one/vscode-workspace-tree 改为 @dsh-one/dsh-workspace-tree，断言页面请求的 combo、插件注入的 css/plugin 标记三处同 id，且旧 id 全页无残留。",
   "items": [
     {
       "id": "F-01",
       "phase": "new-feature",
       "name": "自有工作区树遮蔽官方浏览区（TREE 套件）",
-      "expect": "自有插件在官方 sidebar.workspaces 座位上渲染整块浏览区，官方 WorkspaceBrowser 不再渲染；分节标题、树行数、整页文本（分组名/会话标题/相对时间/状态文案）与官方档逐字一致；侧栏壳的新建会话按钮与设置入口不受影响；页面零 console/pageerror（不设白名单）。",
+      "expect": "自有插件在官方 sidebar.workspaces 座位上渲染整块浏览区，官方 WorkspaceBrowser 不再渲染；分节标题、树行数、整页文本（分组名/会话标题/相对时间/状态文案）与官方档逐字一致；侧栏壳的新建会话按钮与设置入口不受影响；页面零 console/pageerror（不设白名单）。另含改名生效断言（#83）：bundle 以 @dsh-one/dsh-workspace-tree 装载（页面 combo 请求 + css 标记 + plugin 标记三处同 id），旧 id @dsh-one/vscode-workspace-tree 在整页与全部资源请求里无残留。",
       "screenshots": [
         "/tmp/dsh65-batch2/01-tree-own-340.png",
         "/tmp/dsh65-batch2/02-tree-official-340.png"
       ],
       "result": "pass",
-      "notes": "本套件断言 7 条，通过 7。"
+      "notes": "本套件断言 8 条，通过 8。"
     },
     {
       "id": "F-02",
@@ -62,9 +62,9 @@
       "id": "F-04",
       "phase": "new-feature",
       "name": "底座契约完备性实测（CONTRACT 套件，四棵/四档页面）",
-      "expect": "每棵树在真实网关上零 `slot entry crashed`、零缺失钩子或服务（AGENTS.md 铁律「底座契约完备性」要求的验证集断言）。sidebar 树为断言项；chat / settings / 官方对照档为实测记录项。",
+      "expect": "每棵树在真实网关上零 `slot entry crashed`、零缺失钩子或服务（AGENTS.md 铁律「底座契约完备性」要求的验证集断言），且各自钉一个内容断言：sidebar 树（sidebar.workspaces + sidebar.settings 均有内容）、chat 树（对话区槽位有内容）、settings 树（设置内容区有内容）、官方浏览区对照档（零 crash / 零缺失）。",
       "screenshots": [],
-      "notes": "逐树实测（真实网关）：sidebar（自有树） → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=-1 main=-1 sidebar.workspaces=1；sidebar-official（官方浏览区对照档） → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=-1 main=-1 sidebar.workspaces=1；chat → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=0 main=-1 sidebar.workspaces=-1；settings → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=-1 main=-1 sidebar.workspaces=-1。**chat 树的对话区在 0.1.6 上静默缺席**（conversation 槽位 0 个子项、不报错）：官方 ui-conversation 改为注册进框架插件 ui-layout 的 keyed `main` 槽位，而自有 chat 外框插件尚未声明该槽位——属底座契约缺口（AGENTS.md 铁律「底座的契约完备性」的典型场景），已由 #76（agent/dsh-016-sidebar-compat）在另一分支修复，与本批改动无关（基线 8d1ad4d 上同现象）。 本套件断言 2 条，通过 2。",
+      "notes": "逐树实测（真实网关）：sidebar（自有树） → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=-1 main=-1 sidebar.workspaces=1；sidebar-official（官方浏览区对照档） → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=-1 main=-1 sidebar.workspaces=1；chat → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=-1 main=1 sidebar.workspaces=-1；settings → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=-1 main=-1 sidebar.workspaces=-1。四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）全部零 crash、零缺失契约，且各自的关键座位都有内容：chat 树的对话区在 0.1.6 上由官方 ui-conversation 注册进 keyed `main` 槽位渲染（本分支已随 #76 的对齐合并拿到该契约，改名前的基线分支上这里静默为空）。 本套件断言 7 条，通过 7。",
       "result": "pass"
     },
     {
