@@ -18,6 +18,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 | `npm run typecheck` | `tsc --noEmit`。注意 import 都带 `.ts` 后缀（`allowImportingTsExtensions` + `verbatimModuleSyntax`），新增 import 要遵守。 |
 | `npm test` | `node --test test/*.test.ts`，只覆盖 `src/pure/`。改 pure 模块必须跑。 |
 | `npm run verify:lab` | 先 `npm run build`，再用 Playwright 跑装配的**浏览器验证**（harness 在 `test/assembly-lab/`）：四棵树在真实 dsh 网关（只读）上零槽位崩溃/零缺失契约、三树冒烟渲染、关键交互、侧栏树与官方外观逐项对齐、宿主能力口语义。需要本机有在跑的 dsh 网关（缺省 3080，token 读 `~/.dsh/dsh-owned.json`）；产物在 `test/assembly-lab/out/`（gitignored）。改装配相关代码后必跑，细节见 `test/assembly-lab/README.md`。 |
+| `npm run verify:install-guide` | 用 Playwright 跑**安装引导 tab 那一页**的冒烟（harness 在 `test/install-guide/`）：页面由真实宿主代码渲染（`vscode` 顶上假实现），断言按钮/下拉（选中态与外链）/命令随平台更换/复制成功与失败反馈/分段切换/明暗两态，并留截图。不需要网关（这一页不参与装配树）；`SMOKE_LOCALE=zh-cn` 用真中文译文渲染，产物在 `test/install-guide/out/`（gitignored），细节见 `test/install-guide/README.md`。 |
 | `npm run package` | 先 build，再 `vsce package` 打出 `.vsix`（`.vscodeignore` 排除了 src/test/node_modules 等，VSIX 里只有 dist + 清单 + 图标等）。 |
 
 ## 调试（F5 Extension Development Host）
