@@ -29,6 +29,12 @@
 
 **验证三层与跑法**（2026-09-16 起，浏览器验证 harness 已入库）：**浏览器验证**（`npm run verify:lab`，harness 在 `test/assembly-lab/`）用 Playwright 打开装配页跑断言——页面由仓库真实模块构建、数据面是本机真实 dsh 网关（只读）、宿主侧是假宿主，约 50 秒，是**第一道**，改装配相关代码（block list / 树定义 / 自有插件 / mirror / pageHtml）后必跑；**VS Code 验证**（`scripts/dev-ui-test.sh`）起隔离 VS Code 窗口实测 webview 宿主层（CSP/剪贴板/原生菜单/多 webview 生命周期），慢，是**最终准绳**；**沙盒**（`test/sandbox/run-sandbox.sh`）在 code-server 里装真插件 vsix 做宣发截图与人工核对。三者不互相替代。跑法与套件清单见 `test/assembly-lab/README.md`。
 
+**起真 VS Code 窗口只有人跑（agent 一律不许自己起）**：`scripts/dev-ui-test.sh` 或任何 `code --extensionDevelopmentPath …` 都会在用户桌面上真的弹出一个窗口、抢走焦点，而 agent 自己既看不见也点不了它；用户上一轮已经被弹窗打扰过（2026-09-16）。规则：
+- agent 一律先用**浏览器验证**；改完装配相关代码跑 `npm run verify:lab` 就够，不要为了「看一眼」起窗口；
+- **唯一例外**：问题落在浏览器验证覆盖不到的 webview 宿主层（CSP / 剪贴板 / 原生菜单 / 多 webview 生命周期），且**先告诉用户「接下来会弹一个窗口」**再起；
+- 起了就**一次跑完立刻收掉**：`pkill -f "user-data-dir=/tmp/dsh-uidev/<slug>"`，不许反复起停（用户看到的是「一直弹出来」）；
+- 隔离实例只写 `/tmp/dsh-uidev/<slug>/`，不碰用户的日常 VS Code 设置与扩展。
+
 **上游契约面由每日探针覆盖（2026-09-16）**：`scripts/dsh-upstream-watch/` 的探针现含 18 项，其中**客户端契约面 4 项**（关键 slot 名、root 级 hooks 及其 `use*` props、我们取用过的官方标识符）——失败信息带版本、缺失名、期望出处与我方使用点。每次上游发版另跑 `npm run verify:lab` 与 `npm run verify:host-half`。结论：**契约漂移由探针在 CI 发现，而不是由用户日常使用撞见**。已实测版本见 README「dsh 版本兼容跟踪」（0.1.2-rc.1 / 0.1.6-alpha.1）。
 
 **集成线**：默认 `main`。`#11` 系列（Preact 迁移 + 对齐官方 dsh web）已于 2026-09-10 归档关闭：改动整线保留在 `develop/dsh-web-alignment`（远端同名分支），**仅作参考代码，不再开发、不再合入**；该系列 issue（#2/#11/#29/#40-#58 中相关条目）已关闭，真实问题重新梳理顶层结构后另立新 issue。`scripts/dev-merge.sh` 的 `MERGE_TARGET=<分支>` 能力保留（默认 `main`），`check-i18n.sh` 的合并基点跟随目标分支。
