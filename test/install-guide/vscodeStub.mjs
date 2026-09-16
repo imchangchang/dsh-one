@@ -33,6 +33,6 @@ export const l10n = {
 /** 下面几件只是让模块能加载：冒烟只渲染 `installGuideHtml`，不创建面板。 */
 export const ViewColumn = { Active: -1 }
 export const window = {}
-export const env = {}
+export const env = { language: process.env.SMOKE_LOCALE === 'zh-cn' ? 'zh-cn' : 'en' }
 export const commands = {}
 export const Uri = {}

@@ -172,6 +172,11 @@ test('命令只出现在注入的命令表里：页面结构本身不写死任�
 
 /* ---------- 转义与 CSP ---------- */
 
+test('页面语言跟着界面语言（字体回退与读屏用），缺省英文', () => {
+  assert.match(page('macos'), /<html lang="en">/)
+  assert.match(installGuidePageHtml('macos', TEXTS, 'zh-cn'), /<html lang="zh-cn">/)
+})
+
 test('文案过 HTML 转义：配置里带着尖括号也进不了页面结构', () => {
   const html = page('macos', { ...TEXTS, heroLead: '<img src=x onerror=alert(1)>&', copy: '"quoted"' })
   assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;&amp;'))

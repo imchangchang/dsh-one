@@ -317,8 +317,15 @@ const SCRIPT = String.raw`
       })
       applyCommand()`
 
-/** 组装整页 HTML。`hostOs` 认不出来时默认第一项（与 #100 一致）。 */
-export function installGuidePageHtml(hostOs: HostOs | undefined, texts: InstallGuideTexts): string {
+/**
+ * 组装整页 HTML。`hostOs` 认不出来时默认第一项（与 #100 一致）；`lang` 是 VS Code 的
+ * 界面语言（`vscode.env.language`），写进 `<html lang>` 供字体回退与读屏使用。
+ */
+export function installGuidePageHtml(
+  hostOs: HostOs | undefined,
+  texts: InstallGuideTexts,
+  lang = 'en',
+): string {
   const nonce = randomNonce()
   const csp = ["default-src 'none'", `script-src 'nonce-${nonce}'`, "style-src 'unsafe-inline'"].join('; ')
   const defaultOs = installOsOrDefault(hostOs)
@@ -339,7 +346,7 @@ export function installGuidePageHtml(hostOs: HostOs | undefined, texts: InstallG
     .replaceAll('__COPY_FAILED__', jsonForScript(texts.copyFailed))
 
   return `<!doctype html>
-<html lang="en">
+<html lang="${escapeHtml(lang)}">
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="Content-Security-Policy" content="${csp}" />

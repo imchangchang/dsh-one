@@ -105,5 +105,5 @@ function guideTexts(): InstallGuideTexts {
 }
 
 export function installGuideHtml(hostOs: HostOs | undefined): string {
-  return installGuidePageHtml(hostOs, guideTexts())
+  return installGuidePageHtml(hostOs, guideTexts(), vscode.env.language)
 }

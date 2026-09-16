@@ -208,6 +208,7 @@ async function runTheme(browser, theme) {
   )
   check(`${theme}：有副标题一行`, (await page.locator('.hero-lead').textContent()).trim().length > 0)
   check(`${theme}：没有网站式顶部导航`, (await page.locator('nav').count()) === 0)
+  eq(`${theme}：<html lang> 跟界面语言一致（字体回退与读屏用）`, await page.evaluate(() => document.documentElement.lang), LOCALE)
 
   /* 安装一行：主按钮 + 下拉箭头（收起）+ 同行命令胶囊 */
   check(`${theme}：主按钮文案「${T('Install dsh')}」且带下拉箭头`, (await picker.locator('svg').count()) === 1 && (await picker.textContent()).includes(T('Install dsh')))
