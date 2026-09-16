@@ -168,7 +168,7 @@ function probeResultsMarkdown(probe) {
   // header 里标注安装途径（npm 包 / 源码构建）
   const rows = probe.results.results.map((r) => {
     const mark = { pass: '✅', fail: '❌', skip: '⏭️' }[r.status]
-    return `| ${mark} | \`${r.id}\` | ${r.name} | ${String(r.detail).replaceAll('|', '\\|').slice(0, 200)} |`
+    return `| ${mark} | \`${r.id}\` | ${r.name} | ${String(r.detail).replaceAll('|', '\\|').slice(0, 600)} |`
   })
   return [
     `探针结果：**${probe.results.passed} pass / ${probe.results.failed} fail / ${probe.results.skipped} skip**（dsh ${probe.results.expectVersion}，${probe.via ?? 'npm'}，ubuntu-latest + Node 24）`,
@@ -191,7 +191,7 @@ function issueBody({ rel, version, npmVersion, probe }) {
     probeResultsMarkdown(probe),
     '## 人工完整测试',
     '',
-    '探针只覆盖 wire 面（启动/认证/unary/WS 帧形状），**不含真模型行为**（流式渲染、工具执行、会话迁移等）。完整测试清单见 [docs/dsh-compat-checklist.md](../blob/main/docs/dsh-compat-checklist.md) 的「人工/补充项」一节。',
+    '探针只查**名字还在不在**（wire 面：启动/认证/unary RPC/WS 帧形状；客户端契约面：combo 里的 slot 名 / root 级 hook / 我们取用过的字段名），**不含真模型行为**（流式渲染、工具执行、会话迁移等），也不查「装起来崩不崩」。人工项见 [docs/dsh-compat-checklist.md](../blob/main/docs/dsh-compat-checklist.md) 的「人工/补充项」一节；装配形态的两道机器验证（`npm run verify:lab`、`npm run verify:host-half`）与前置条件见同文件「上游发版时该跑的三件事」。',
     '',
     '## Release notes',
     '',

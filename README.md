@@ -111,14 +111,37 @@ flowchart LR
 
 ### dsh version tracking
 
-A scheduled GitHub Action ([dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)) checks for new [dsh releases](https://github.com/deepseek-ai/deepseek-harness/releases) daily; for each new version it runs an automated wire-protocol probe suite (14 checks covering the startup/auth/unary-RPC/WebSocket surface DSH One depends on) and files an `upstream-watch` issue with the results. The last two badges above show the latest upstream release and the latest probe outcome; the full test list (automated + manual items) lives in [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md). DSH One targets dsh **0.1.2-rc.1** and the GitHub-only **0.1.3-alpha.1** wire (`commands/execute` `submittedAttachments` + `session/follow` `assistantStream` opt-in), while still serving the 0.1.1 legacy wire — version-detection isolates each so older versions are untouched.
+A scheduled GitHub Action ([dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)) checks for new [dsh releases](https://github.com/deepseek-ai/deepseek-harness/releases) daily; for each new version it runs the automated probe suite (18 checks: the wire protocol plus the client contract surface the assembled UI depends on) and files an `upstream-watch` issue with the results. The last two badges above show the latest upstream release and the latest probe outcome; the full test list (automated + manual items) lives in [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md).
+
+**Tested versions.** Two dsh versions have been verified end to end:
+
+| dsh version | Status |
+|---|---|
+| `0.1.2-rc.1` | tested — the baseline every verification lane was built against |
+| `0.1.6-alpha.1` | tested — three drifts were found and fixed here: the `details` slot was renamed to `rightbar`, new root-level hooks appeared, and the composer's `imageIds` / `addImages` were renamed to `attachmentIds` / `addAttachments` |
+| any other version in `[0.1.2-rc.1, 0.2.0)` | **not tested** — see the gate note below |
+
+**Version gate.** The assembled chat expects dsh `[0.1.2-rc.1, 0.2.0)`: older builds lack the browser-session auth and loader protocol the assembly uses, newer ones are unverified. The gate never blocks — a version outside the range gets an info banner at the top of the panel. Because it is a whole-range check, a 0.1.6 release passes silently even though drift inside the range is proven (the row above).
+
+**On every upstream release, run three checks** (prerequisites and details in the checklist):
+
+| Check | Command | Covers |
+|---|---|---|
+| upstream probe | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <version>` | wire surface + client contract surface: are the slot names, root-level hooks and field/method names we depend on still there |
+| browser verification | `npm run verify:lab` | the four assembled trees boot on a real gateway with no crashed slot and no missing contract |
+| host-half verification | `npm run verify:host-half` | the gateway-side plugin half against official dsh |
+
+Who finds what: the probe runs daily in CI and catches renamed slots, hooks and fields before users hit them; the browser lab is the first check for any change to the assembly; VS Code verification (`scripts/dev-ui-test.sh`) is the final authority for host-layer behavior (CSP, clipboard, native menus, webview lifecycle).
 
 | Item | Coverage |
 |---|---|
 | Startup & auth (ready line, `?token=` cookie exchange, 401 fingerprint) | probe |
 | Unary RPC (`session/*`, `workspace/*`, `agentPresets/*`, `commands/*` args shapes) | probe |
 | WebSocket streams (`session/follow` snapshot, `session/control` baseline) | probe |
-| Live-streaming rendering, approvals/questions through the assembled chat (official UI) | manual (per-version issue) |
+| Client contract surface (slot names, root hooks, field names the assembly depends on) | probe |
+| Assembled trees on a real gateway (boot, slots filled, no crashed entry) | browser verification |
+| Host-half plugin against official dsh | `verify:host-half` |
+| Live-streaming rendering, approvals/questions through the assembled chat | manual (per-version issue) |
 | Session-format migration & rollback, sandbox container regression | manual (per-version issue) |
 
 ### Known limitations
