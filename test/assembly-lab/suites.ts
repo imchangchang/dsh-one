@@ -3718,6 +3718,578 @@ export const MULTI_SELECT_SUITE: LabSuite = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// F-18 SIDEBAR-EMPTY-FEEDBACK：空态、加载态与失败可见（#110）
+// ---------------------------------------------------------------------------
+
+/**
+ * 假据开关（#110）：**一条都不写网关**，只改「页面收到的东西」——
+ * - `session/list` 回执里给每条会话补一个 `schedule` 投影（真网关的 list 回执里
+ *   根本没有 `schedule` 键，见下面 expect 的说明），用来验行上那枚定时任务标记；
+ * - `session/search` 回执换成一条命中 + `hasMore: true`（真网关的内容搜索索引在
+ *   本机是坏的，返回 `ok:false`，走不出「结果上限」那一支），验搜索上限提示；
+ * - `session/fork` 与 `workspace/archiveSession` 回执换成失败，验两条动作失败路径的
+ *   可见反馈——**回执在页面侧就被换掉，请求不落到网关**，所以既跑到了真失败路径，
+ *   也仍然只读；
+ * - `workspace/follow` 是流：把它的工作区清单改成空（并可选延时），验零工作区空态
+ *   与加载态。
+ */
+interface EmptyStateFixtures {
+  injectSchedule: boolean
+  searchHasMore: boolean
+  failFork: boolean
+  failArchive: boolean
+  emptyWorkspaces: boolean
+  /** 把 `workspace/follow` 的帧推迟这么久再转给页面（验加载态用）。 */
+  delayWorkspaceFollowMs: number
+}
+
+/** 夹具回执里给每条会话补的定时任务（只求 `schedule` 非空，形状与官方投影同形）。 */
+const SCHEDULE_FIXTURE = [{ id: 'lab-schedule-fixture', kind: 'reminder', prompt: 'lab fixture', scheduledAt: 4_102_444_800_000 }]
+
+interface EmptyStateStats {
+  /** 被夹具换过的 `session/search` 请求数。 */
+  searchCalls: number
+  /** 被夹具换过的 `session/fork` 请求数（>0 = 真的走到了那条 RPC）。 */
+  forkCalls: number
+  /** 被夹具换过的 `workspace/archiveSession` 请求数。 */
+  archiveCalls: number
+  /** 被补了 `schedule` 投影的会话数（夹具实际改了谁：list 回执一处、控制流基线一处）。 */
+  scheduledSessions: number
+  /** 夹具在 `session/list` 回执里见过的会话 id（后面的「谁该有标记」判据）。 */
+  listIds: Set<string>
+  /** 控制流基线里被补了 `schedule` 的会话数（0 = 那份帧里没有 projections 一节）。 */
+  controlScheduledSessions: number
+  /** 会话级 follow 流的快照里被补了 `schedule` 的帧数（当前会话那条）。 */
+  followScheduledSessions: number
+  /** 被改空的工作区清单帧数（baseline + 增量）。 */
+  emptiedFollowFrames: number
+  /** 搜索夹具要用的那条真会话 id（从页面上真行的 id 取，见套件里怎么挑）。 */
+  fixtureSessionId: string
+}
+
+/** 装 HTTP 侧夹具：只改回执，不写网关。 */
+async function installApiFixtures(
+  page: OpenedPage['page'],
+  fixtures: EmptyStateFixtures,
+  stats: EmptyStateStats,
+): Promise<void> {
+  await page.route('**/api/**', async (route) => {
+    const request = route.request()
+    const method = decodeURIComponent(request.url()).split('/api/')[1] ?? ''
+    let rpcId = ''
+    try {
+      rpcId = (JSON.parse(request.postData() ?? '{}') as { rpcId?: string }).rpcId ?? ''
+    } catch {
+      /* 形状不对就空 rpcId——下面 reply 只在夹具分支用，正常请求走 route.fetch 原样透传 */
+    }
+    const reply = async (result: unknown): Promise<void> => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ type: 'server-response', rpcId, result }),
+      })
+    }
+    if (fixtures.searchHasMore && method.startsWith('session/search')) {
+      stats.searchCalls += 1
+      await reply({
+        ok: true,
+        value: { items: [{ id: stats.fixtureSessionId, snippet: 'lab fixture snippet' }], hasMore: true },
+      })
+      return
+    }
+    if (fixtures.failFork && method.startsWith('session/fork')) {
+      stats.forkCalls += 1
+      // `details` 是官方信封校验的必填字段（缺它客户端会报 invalid server-response failure）。
+      await reply({ ok: false, error: { code: 'lab/forced', message: 'lab: fork rejected (fixture)', details: {} } })
+      return
+    }
+    if (fixtures.failArchive && method.startsWith('workspace/archiveSession')) {
+      stats.archiveCalls += 1
+      await reply({ ok: false, error: { code: 'lab/forced', message: 'lab: archive rejected (fixture)', details: {} } })
+      return
+    }
+    const response = await route.fetch()
+    const text = await response.text()
+    if (!fixtures.injectSchedule || !method.startsWith('session/list')) {
+      await route.fulfill({ response, body: text })
+      return
+    }
+    const parsed = JSON.parse(text) as {
+      result?: { value?: { items?: { sessionId?: string; id?: string; projections?: { values?: Record<string, unknown> } }[] } }
+    }
+    for (const item of parsed.result?.value?.items ?? []) {
+      const values = item.projections?.values
+      // 没有 projections 一节的条目无处可补（宿主还没给它投影），不算夹具覆盖到的会话。
+      if (values === undefined) continue
+      values.schedule = SCHEDULE_FIXTURE
+      stats.scheduledSessions += 1
+      const id = item.sessionId ?? item.id
+      if (typeof id === 'string' && id !== '') stats.listIds.add(id)
+    }
+    await route.fulfill({ response, body: JSON.stringify(parsed) })
+  })
+}
+
+/** mux 帧的最小面（夹具只读这几层，形状变了就不再改、原样透传）。 */
+type MuxFrame = { streamId?: string; type?: string; value?: { value?: Record<string, unknown> } }
+
+/** 装流侧夹具：`workspace/follow` 的工作区清单改成空（可选延时），控制流基线补 schedule。 */
+async function installFollowFixtures(
+  page: OpenedPage['page'],
+  fixtures: EmptyStateFixtures,
+  stats: EmptyStateStats,
+): Promise<void> {
+  await page.routeWebSocket(/remote\.mux/, (socket) => {
+    const upstream = socket.connectToServer()
+    const endpoints = new Map<string, string>()
+    socket.onMessage((message) => {
+      try {
+        const frame = JSON.parse(String(message)) as { type?: string; streamId?: string; endpoint?: string }
+        if (frame.type === 'open' && frame.streamId !== undefined && frame.endpoint !== undefined) {
+          endpoints.set(frame.streamId, frame.endpoint)
+        }
+      } catch {
+        /* 客户端帧形状变了就原样转发，夹具自身不参与协议解读 */
+      }
+      upstream.send(message)
+    })
+    upstream.onMessage((message) => {
+      const text = String(message)
+      let frame: MuxFrame | undefined
+      try {
+        frame = JSON.parse(text) as MuxFrame
+      } catch {
+        frame = undefined
+      }
+      const endpoint = frame?.streamId === undefined ? undefined : endpoints.get(frame.streamId)
+      // 控制流基线也带 projections（键为会话 id）：`replaceControlBaseline` 会
+      // truncate + seed 投影存储，晚到就把 list 回执里补的 schedule 抹掉。两处一起补，
+      // 夹具结果与两个流的到达顺序无关。
+      if (fixtures.injectSchedule && endpoint === 'session/control') {
+        const blocks = frame?.value?.value?.projections as Record<string, { values?: Record<string, unknown> }> | undefined
+        if (blocks === undefined) {
+          socket.send(message)
+          return
+        }
+        for (const block of Object.values(blocks)) {
+          // 控制流基线的 seed 会把该会话的投影存储重置回这份 values，所以这里必须
+          // **每一块都补上** schedule（缺 values 的块也要建出来，否则那条会话的标记
+          // 会被这次种子化抹掉）。
+          block.values = { ...(block.values ?? {}), schedule: SCHEDULE_FIXTURE }
+          stats.controlScheduledSessions += 1
+        }
+        socket.send(JSON.stringify(frame))
+        return
+      }
+      // 会话级 follow 流也带 projections 一节（当前会话就是这条流喂的）：它到的时候
+      // `seed` 会把该会话的投影存储整块换掉，所以同一处也得补上 schedule，否则当前
+      // 会话那一行会掉标记。
+      if (fixtures.injectSchedule && endpoint === 'session/follow') {
+        const snapshot = frame?.value?.value as { projections?: { values?: Record<string, unknown> } } | undefined
+        if (snapshot?.projections?.values !== undefined) {
+          snapshot.projections.values.schedule = SCHEDULE_FIXTURE
+          stats.followScheduledSessions += 1
+          socket.send(JSON.stringify(frame))
+          return
+        }
+      }
+      if (endpoint !== 'workspace/follow' || !fixtures.emptyWorkspaces) {
+        socket.send(message)
+        return
+      }
+      stats.emptiedFollowFrames += 1
+      // 夹具期间工作区清单恒空：baseline 的 items 清掉；其余帧（都是「又加了谁」这类
+      // 增量）一律不转发——两种处置合起来保证页面上冒不出工作区。解析不了的帧同样丢掉。
+      const items = frame?.value?.value?.items
+      if (frame === undefined || frame.type !== 'item' || !Array.isArray(items)) return
+      ;(frame.value?.value as { items: unknown[] }).items = []
+      const out = JSON.stringify(frame)
+      if (fixtures.delayWorkspaceFollowMs > 0) setTimeout(() => socket.send(out), fixtures.delayWorkspaceFollowMs)
+      else socket.send(out)
+    })
+  })
+}
+
+export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
+  id: 'F-18',
+  phase: 'new-feature',
+  name: '侧栏空态、加载态与失败可见（#110）：零工作区 / 分组无成员 / 加载中 / 三类失败 / 定时任务标记 / 搜索上限',
+  expect:
+    '#110 的空态与反馈在真实装配页上成立（真网关**只读** + 假宿主 + 页内夹具）：① **分组无成员空态**——选中一个没有成员工作区的分组时，列表出专属文案与「管理分组…」入口按钮（点它真的打开管理分组对话框），分组块一个不渲染；切回「全部工作区」分组块照常回来；② **加载态**——工作区快照还（被夹具推迟）没到时，列表区出「加载中…」而不是整块空白，快照到了就换成正常内容；③ **零工作区空态**——工作区清单为空时出「还没有工作区…用上方的 ＋…」文案，且上方的 ＋ 入口在场（文案指的是它）；④ **三类失败都有可见反馈**——分叉（`session/fork` 回执被换成失败）、归档（`workspace/archiveSession` 回执被换成失败，弹窗内联红字 + 飘提示各一条）、多开（宿主能力口回 `lab/forced` 失败）：三条都飘出一行说明，不再静默吞掉或只写日志；⑤ **官方自带但此前没渲染的两项**（#98 L6）——活跃定时任务标记按官方位置（标题后、时间前）与官方件（`role=img` + `schedule.active` 文案 + 闹钟图标）渲染，搜索结果行同样带上它；搜索回执带 `hasMore` 时出官方那套「仅显示前 N 条结果」上限提示。夹具只改**页面收到的回执**（HTTP 回执与 `workspace/follow` 流的帧），请求不落到网关，所以全程仍然只读。全程零 pageerror。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+    const groupsState = {
+      version: 1,
+      groups: [
+        { id: 'g-lab-empty', name: 'Lab Empty' },
+        { id: 'g-lab-other', name: 'Lab Other' },
+      ],
+      membership: {},
+      activeGroupId: null,
+    }
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), {
+      width: 380,
+      height: 900,
+      state: { groups: groupsState },
+      // #110：宿主能力口点名失败的那条（多开）。失败回执是真回执，界面照常收到错误。
+      failCalls: ['session.openInNewTab'],
+    })
+    const { page } = opened
+    const fixtures: EmptyStateFixtures = {
+      injectSchedule: false,
+      searchHasMore: false,
+      failFork: false,
+      failArchive: false,
+      emptyWorkspaces: false,
+      delayWorkspaceFollowMs: 0,
+    }
+    const stats: EmptyStateStats = {
+      searchCalls: 0,
+      forkCalls: 0,
+      archiveCalls: 0,
+      scheduledSessions: 0,
+      listIds: new Set<string>(),
+      controlScheduledSessions: 0,
+      followScheduledSessions: 0,
+      emptiedFollowFrames: 0,
+      fixtureSessionId: '',
+    }
+    try {
+      await expandAllWorkspaces(page)
+
+      // ---- ① 分组无成员空态（真数据，不装任何夹具） ----
+      await page.click('[data-dshone-tree-action="group-pill"]')
+      await page.waitForTimeout(250)
+      await page.click('[data-dshone-tree-pill-item="g-lab-empty"]')
+      await page.waitForTimeout(400)
+      const groupEmpty = await page.evaluate(() => {
+        const notice = document.querySelector('[data-dshone-tree-empty="group-members"]')
+        const action = notice?.querySelector('[data-dshone-tree-action="group-manage-empty"]')
+        return {
+          found: notice !== null,
+          text: notice?.textContent ?? '',
+          lines: notice?.querySelectorAll('.dshOneTree_emptyLine').length ?? 0,
+          action: action?.textContent ?? '',
+          sections: document.querySelectorAll('[data-dshone-group-key]').length,
+        }
+      })
+      check.fact(`分组空态：${JSON.stringify(groupEmpty)}`)
+      check.ok('选中没有成员工作区的分组 → 出专属空态', groupEmpty.found, JSON.stringify(groupEmpty))
+      check.ok(
+        '空态文案写明「这个分组里还没有工作区」与下一步去哪',
+        groupEmpty.text.includes('该分组还没有工作区') && groupEmpty.text.includes('管理分组'),
+        groupEmpty.text,
+      )
+      check.ok('空态带「管理分组…」入口按钮', groupEmpty.action.includes('管理分组'), groupEmpty.action)
+      check.eq('分组空态下不渲染任何分组块（不是「找不到就显示全部」）', groupEmpty.sections, 0)
+      screenshots.push(await shot(ctx, page, 'empty-group-members'))
+      await page.click('[data-dshone-tree-action="group-manage-empty"]')
+      await page.waitForTimeout(350)
+      const manageOpened = await page.evaluate(() => ({
+        rows: Array.from(document.querySelectorAll('[data-dshone-manage-group]')).map((el) => el.getAttribute('data-dshone-manage-group') ?? ''),
+        input: document.querySelector('[data-dshone-tree="group-manage-input"]') !== null,
+      }))
+      check.ok(
+        '空态的入口按钮真的打开「管理分组…」对话框（列出全部分组）',
+        manageOpened.rows.length === 2 && manageOpened.input,
+        JSON.stringify(manageOpened),
+      )
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(250)
+      // 切回「全部工作区」：分组块照常渲染（空态只在选中空分组时出现）。
+      await page.click('[data-dshone-tree-action="group-pill"]')
+      await page.waitForTimeout(250)
+      await page.click('[data-dshone-tree-pill-item="all"]')
+      await page.waitForTimeout(500)
+      const sectionsBack = await contentCount(page, '[data-dshone-group-key]')
+      check.ok('切回「全部工作区」→ 分组块照常渲染（空态不是常驻）', sectionsBack > 0, `sections=${String(sectionsBack)}`)
+
+      // ---- ①b 分组名错误提示（#110 第 6 条：与旧侧栏核对一致） ----
+      // 旧侧栏的两条文案就地判定、就地提示（不落盘才报错）：空名「分组名称不能为空」、
+      // 重名「已存在同名分组」。这里按同一份判定逐态核对。
+      await page.click('[data-dshone-tree-action="group-pill"]')
+      await page.waitForTimeout(250)
+      await page.click('[data-dshone-tree-action="group-new"]')
+      await page.waitForTimeout(350)
+      const groupName = async (draft: string): Promise<{ error: string; disabled: boolean }> => {
+        await page.fill('.dshOneTree_renameInput', draft)
+        await page.waitForTimeout(200)
+        return await page.evaluate(() => {
+          const input = document.querySelector('.dshOneTree_renameInput')
+          const dialog = input?.closest('[role="dialog"]') ?? document.body
+          const buttons = Array.from(dialog.querySelectorAll('button'))
+          const submit = buttons[buttons.length - 1] as HTMLButtonElement | undefined
+          return { error: dialog.querySelector('[role="alert"]')?.textContent ?? '', disabled: submit?.disabled ?? false }
+        })
+      }
+      const emptyName = await groupName('')
+      const duplicateName = await groupName('Lab Empty')
+      const freshName = await groupName('Lab Fresh')
+      check.fact(`分组名校验：空名=${JSON.stringify(emptyName)} 重名=${JSON.stringify(duplicateName)} 新名=${JSON.stringify(freshName)}`)
+      check.ok('空名就地提示「分组名称不能为空」且提交禁用', emptyName.error === '分组名称不能为空' && emptyName.disabled, JSON.stringify(emptyName))
+      check.ok('重名就地提示「已存在同名分组」且提交禁用', duplicateName.error === '已存在同名分组' && duplicateName.disabled, JSON.stringify(duplicateName))
+      check.ok('换个没被占用的名字 → 提示消失、提交可用', freshName.error === '' && !freshName.disabled, JSON.stringify(freshName))
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(250)
+
+      // 挑一条真会话当搜索夹具的目标（非空白行才有行菜单，也才会被搜索用到内容片段）。
+      const probe = await page.evaluate(() => {
+        const row = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]')).find(
+          (candidate) => candidate.querySelector('.dshOneTree_rowActions') !== null && candidate.getAttribute('data-dshone-tree-status') === 'idle',
+        )
+        return {
+          id: row?.getAttribute('data-dshone-tree-session') ?? '',
+          title: row?.querySelector('.dshOneTree_title')?.textContent ?? '',
+        }
+      })
+      stats.fixtureSessionId = probe.id
+      check.fact(`夹具目标会话：${probe.id}（${probe.title}）`)
+      check.ok('找得到一条可操作的真会话（后面的搜索/失败断言都要点它）', probe.id !== '')
+
+      // ---- ② 装上页内夹具后重载：定时任务标记 + 搜索上限 + 三类失败 ----
+      await installApiFixtures(page, fixtures, stats)
+      await installFollowFixtures(page, fixtures, stats)
+      fixtures.injectSchedule = true
+      fixtures.searchHasMore = true
+      fixtures.failFork = true
+      fixtures.failArchive = true
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
+      await page.waitForTimeout(2_500)
+      await expandAllWorkspaces(page)
+      const fixtureRow = await contentCount(page, `[data-dshone-tree-session="${stats.fixtureSessionId}"]`)
+      check.fact(`夹具目标会话在重载后的树里：行数=${String(fixtureRow)}（id=${stats.fixtureSessionId}）`)
+
+      // L6 之一：活跃定时任务标记（官方的行内呈现：标题后、时间前）。
+      const schedule = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+        const marks = Array.from(document.querySelectorAll('[data-dshone-tree-schedule]'))
+        const first = marks[0]
+        const row = first?.closest('[data-dshone-tree-row="session"]')
+        const children = row === undefined || row === null ? [] : Array.from(row.children).map((child) => child.getAttribute('class') ?? '')
+        const style = first === undefined ? null : getComputedStyle(first)
+        return {
+          rows: rows.length,
+          marks: marks.length,
+          unmarked: rows
+            .filter((candidate) => candidate.querySelector('[data-dshone-tree-schedule]') === null)
+            .map((candidate) => ({
+              id: candidate.getAttribute('data-dshone-tree-session') ?? '',
+              status: candidate.getAttribute('data-dshone-tree-status') ?? '',
+              hasActions: candidate.querySelector('.dshOneTree_rowActions') !== null,
+              // 空白会话行（当前那条临时「新会话」占位）既没有行菜单也没有相对时间。
+              blankLike: candidate.querySelector('.dshOneTree_rowActions') === null && candidate.querySelector('.dshOneTree_time') === null,
+              group: candidate.closest('[data-dshone-group-key]')?.getAttribute('data-dshone-group-key') ?? '(none)',
+            })),
+          role: first?.getAttribute('role') ?? '',
+          label: first?.getAttribute('aria-label') ?? '',
+          title: first?.getAttribute('title') ?? '',
+          width: style?.width ?? '',
+          height: style?.height ?? '',
+          marginRight: style?.marginRight ?? '',
+          titleIndex: children.findIndex((name) => name.includes('dshOneTree_title')),
+          markIndex: children.findIndex((name) => name.includes('dshOneTree_scheduleIndicator')),
+          svg: first?.querySelector('svg') !== null,
+        }
+      })
+      check.fact(
+        `定时任务标记：会话行=${String(schedule.rows)} 标记=${String(schedule.marks)} 未标记的行=${JSON.stringify(schedule.unmarked)}（夹具补了 ${String(stats.scheduledSessions)} 条 list 投影 + ${String(stats.controlScheduledSessions)} 条控制流投影）role=${schedule.role} 文案=${JSON.stringify(schedule.label)} 几何=${schedule.width}×${schedule.height} margin-right=${schedule.marginRight}`,
+      )
+      check.ok('夹具真的给会话补了 schedule 投影（否则下面这条是空的）', stats.scheduledSessions > 0, String(stats.scheduledSessions))
+      // 「谁该有标记」的判据 = 夹具在 list 回执里补过 schedule 的那些会话（它们全都会
+      // 进投影存储）。回执之外新到的会话（宿主经 `$on` 事件补发、我们没给它们造数据）
+      // 不算在内——这也是「标记跟着数据走、不是常亮」的那一半证据。
+      const missedMarks = schedule.unmarked.filter((row) => stats.listIds.has(row.id) && !row.blankLike)
+      check.ok(
+        '夹具覆盖到的会话行（当前那条空白占位行除外）全都渲染出活跃定时任务标记',
+        schedule.marks > 0 && missedMarks.length === 0,
+        JSON.stringify(missedMarks),
+      )
+      check.fact(
+        `标记覆盖：list 回执里的会话 ${String(stats.listIds.size)} 条，行 ${String(schedule.rows)} 枚标记 ${String(schedule.marks)}`,
+      )
+      check.ok(
+        '标记是官方件的形状（role=img + schedule.active 文案 + 图标）',
+        schedule.role === 'img' && schedule.label === '有活动定时任务' && schedule.title === '有活动定时任务' && schedule.svg,
+        JSON.stringify(schedule),
+      )
+      check.ok(
+        '标记几何取自官方那条规则（16×20、右外边距 6px）',
+        schedule.width === '16px' && schedule.height === '20px' && schedule.marginRight === '6px',
+        `${schedule.width}×${schedule.height} margin-right=${schedule.marginRight}`,
+      )
+      check.ok(
+        '位置与官方一致（标题之后、相对时间之前）',
+        schedule.titleIndex >= 0 && schedule.markIndex === schedule.titleIndex + 1,
+        JSON.stringify({ title: schedule.titleIndex, mark: schedule.markIndex, children: schedule.marks }),
+      )
+      screenshots.push(await shot(ctx, page, 'empty-schedule-mark'))
+
+      // L6 之二：搜索上限提示（官方 search.hasMore 键，此前没有使用点）。
+      await page.fill('[data-dshone-tree="search-input"]', 'lab-has-more-fixture')
+      await page.waitForSelector('[data-dshone-tree="search-more"]', { timeout: 8_000 }).catch(() => undefined)
+      const search = await page.evaluate(() => {
+        const more = document.querySelector('[data-dshone-tree="search-more"]')
+        const rows = Array.from(document.querySelectorAll('[data-dshone-tree="search"] [data-dshone-tree-row]'))
+        return {
+          more: more?.textContent ?? '',
+          results: rows.length,
+          rowSchedule: rows[0]?.querySelector('[data-dshone-tree-schedule]') !== null,
+          status: Array.from(document.querySelectorAll('.dshOneTree_searchStatus')).map((el) => el.textContent ?? ''),
+        }
+      })
+      check.fact(
+        `搜索夹具：结果行=${String(search.results)} 上限提示=${JSON.stringify(search.more)} 状态行=${JSON.stringify(search.status)}（夹具回执调用 ${String(stats.searchCalls)} 次）`,
+      )
+      check.ok('搜索回执带 hasMore 时出上限提示（官方 search.hasMore 键）', search.more.includes('仅显示前') && search.more.includes('条结果'), search.more)
+      check.ok(
+        '提示里带上限条数（数值来自官方 searchResultLimit）',
+        /仅显示前 (\d+) 条结果/.test(search.more) && Number(/仅显示前 (\d+) 条结果/.exec(search.more)?.[1] ?? '0') > 0,
+        search.more,
+      )
+      check.ok('夹具那条结果按真会话渲染（行在）', search.results >= 1, String(search.results))
+      check.ok('搜索结果行也带上定时任务标记（官方 search 变体）', search.rowSchedule, JSON.stringify(search))
+      screenshots.push(await shot(ctx, page, 'empty-search-has-more'))
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+
+      // ---- ③ 三类失败的可见反馈 ----
+      const rowMenu = async (id: string, item: string): Promise<void> => {
+        const row = page.locator(`[data-dshone-tree-session="${id}"]`)
+        await row.hover()
+        await row.locator('.dshOneTree_rowIconButton').click()
+        await page.waitForTimeout(250)
+        await page.click(`[data-dshone-tree-item="${item}"]`)
+      }
+      const flashText = async (): Promise<string> => (await page.textContent('[data-dshone-tree="flash"]')) ?? ''
+
+      // (a) 分叉失败：`session/fork` 的回执被夹具换成失败（请求不落到网关）。
+      await rowMenu(probe.id, 'fork')
+      await page.waitForTimeout(900)
+      const forkFlash = await flashText()
+      check.fact(`分叉失败：夹具拦到的 fork 请求=${String(stats.forkCalls)} 飘提示=${JSON.stringify(forkFlash)}`)
+      check.ok('分叉失败真的走过了那条 RPC（夹具拦到请求 = 没落到网关）', stats.forkCalls === 1, String(stats.forkCalls))
+      check.ok(
+        '分叉失败有一行可见反馈（原来静默吞掉）',
+        forkFlash.includes('分叉会话失败') && forkFlash.includes('fork rejected'),
+        forkFlash,
+      )
+      screenshots.push(await shot(ctx, page, 'empty-fork-failed'))
+
+      // (b) 多开失败：宿主能力口回 `lab/forced`（见 openTreePage 的 failCalls）。
+      await rowMenu(probe.id, 'openInNewTab')
+      await page.waitForTimeout(900)
+      const tabFlash = await flashText()
+      const forcedCalls = await page.evaluate(
+        () => (globalThis as unknown as { __LAB_HOST__?: { hostCalls: { call: string }[] } }).__LAB_HOST__?.hostCalls.filter((entry) => entry.call === 'session.openInNewTab').length ?? -1,
+      )
+      check.fact(`多开失败：宿主收到的调用=${String(forcedCalls)} 飘提示=${JSON.stringify(tabFlash)}`)
+      check.ok('多开真的走过了宿主能力口', forcedCalls === 1, String(forcedCalls))
+      check.ok(
+        '多开失败有一行可见反馈（原来只往控制台写一行）',
+        tabFlash.includes('在新标签页打开失败'),
+        tabFlash,
+      )
+      screenshots.push(await shot(ctx, page, 'empty-multitab-failed'))
+
+      // (c) 归档失败：`workspace/archiveSession` 的回执被夹具换成失败。
+      // 挑一条归档项可用的行（资格判定见 pure/sessionEligibility.ts）：逐行开菜单读判定，
+      // 与 F-15 同一做法——菜单走 portal，打开后要等它渲染出来才读得到。
+      const archiveCandidates = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+          .filter((row) => row.querySelector('.dshOneTree_rowActions') !== null)
+          .slice(0, 8)
+          .map((row) => row.getAttribute('data-dshone-tree-session') ?? ''),
+      )
+      let archivable = ''
+      for (const id of archiveCandidates) {
+        const row = page.locator(`[data-dshone-tree-session="${id}"]`)
+        await row.hover()
+        await row.locator('.dshOneTree_rowIconButton').click()
+        await page.waitForTimeout(200)
+        const reason = await page
+          .getAttribute('[data-dshone-tree-item="archive"]', 'data-dshone-disabled-reason')
+          .catch(() => null)
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(150)
+        if (reason === '') {
+          archivable = id
+          break
+        }
+      }
+      check.fact(`归档夹具：候选 ${String(archiveCandidates.length)} 行，可归档的那一行=${archivable === '' ? '(没有可归档的行)' : archivable}`)
+      await page.waitForTimeout(300)
+      if (archivable !== '') {
+        await rowMenu(archivable, 'archive')
+        await page.waitForTimeout(400)
+        const confirmOpen = await contentCount(page, '[data-dshone-tree-action="archive-confirm"]')
+        check.ok('归档仍先开确认弹窗（失败反馈不改变这条语义）', confirmOpen === 1, String(confirmOpen))
+        await page.click('[data-dshone-tree-action="archive-confirm"]')
+        await page.waitForTimeout(1_200)
+        const archive = await page.evaluate(() => ({
+          alert: document.querySelector('[role="alert"]')?.textContent ?? '',
+          flash: document.querySelector('[data-dshone-tree="flash"]')?.textContent ?? '',
+        }))
+        check.fact(`归档失败：夹具拦到的归档请求=${String(stats.archiveCalls)} 弹窗内联=${JSON.stringify(archive.alert)} 飘提示=${JSON.stringify(archive.flash)}`)
+        check.ok('归档失败真的走过了那条 RPC（夹具拦到请求 = 没落到网关）', stats.archiveCalls === 1, String(stats.archiveCalls))
+        check.ok('归档失败在弹窗里有一行红字（原本只有这一处）', archive.alert.includes('归档失败'), archive.alert)
+        check.ok('归档失败另外飘一条可见反馈（关掉弹窗也看得到）', archive.flash.includes('归档失败'), archive.flash)
+        screenshots.push(await shot(ctx, page, 'empty-archive-failed'))
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(300)
+      }
+
+      // ---- ④ 加载态 + 零工作区空态（夹具把工作区清单改成空并推迟 2.5 秒） ----
+      fixtures.emptyWorkspaces = true
+      fixtures.delayWorkspaceFollowMs = 2_500
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      const loadingSeen = await page
+        .waitForSelector('[data-dshone-tree-empty="loading"]', { timeout: 10_000 })
+        .then(() => true)
+        .catch(() => false)
+      const loadingText = await page.textContent('[data-dshone-tree-empty="loading"]').catch(() => null)
+      check.fact(`加载态：出现=${String(loadingSeen)} 文案=${JSON.stringify(loadingText)}`)
+      check.ok('工作区快照没到时列表区出加载文案（原来整块空白）', loadingSeen && (loadingText ?? '').includes('加载中'), String(loadingText))
+      if (loadingSeen) screenshots.push(await shot(ctx, page, 'empty-loading'))
+      await page.waitForSelector('[data-dshone-tree-empty="no-workspaces"]', { timeout: 15_000 })
+      await page.waitForTimeout(600)
+      const zero = await page.evaluate(() => {
+        const notice = document.querySelector('[data-dshone-tree-empty="no-workspaces"]')
+        return {
+          text: notice?.textContent ?? '',
+          loadingGone: document.querySelector('[data-dshone-tree-empty="loading"]') === null,
+          addButton: document.querySelector('[data-dshone-tree-action="add-workspace"]') !== null,
+          sections: Array.from(document.querySelectorAll('[data-dshone-group-key]')).map((el) => el.getAttribute('data-dshone-group-key') ?? ''),
+          emptiedFrames: 0,
+        }
+      })
+      check.fact(
+        `零工作区：文案=${JSON.stringify(zero.text)} 分组块键=${JSON.stringify(zero.sections)} 夹具改空的 follow 帧=${String(stats.emptiedFollowFrames)}`,
+      )
+      check.ok('夹具真的改空了工作区清单的帧（否则这条空态无从谈起）', stats.emptiedFollowFrames > 0, String(stats.emptiedFollowFrames))
+      check.ok(
+        '零工作区空态文案写明用上方的 ＋（旧侧栏同款说法）',
+        zero.text.includes('还没有工作区') && zero.text.includes('＋'),
+        zero.text,
+      )
+      check.ok('文案指的入口真在场（顶栏的添加工作区）', zero.addButton)
+      check.ok('加载态已被零工作区空态取代（不是一直转圈）', zero.loadingGone)
+      check.ok(
+        '真没有工作区块了（剩下的分组块只有「未分组」那一桶）',
+        zero.sections.every((key) => key === ''),
+        JSON.stringify(zero.sections),
+      )
+      screenshots.push(await shot(ctx, page, 'empty-no-workspaces'))
+
+      check.eq('空态与反馈套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
+    } finally {
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -3744,4 +4316,6 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   TAG_GROUPS_SUITE,
   // #108 侧栏多选与批量（F-17：F-16 已被 #107 的标签组套件占用）。
   MULTI_SELECT_SUITE,
+  // #110 空态、加载态与失败可见（F-18：F-16 已被 #107 的标签组套件、F-17 已被 #108 的多选套件占用）。
+  SIDEBAR_EMPTY_FEEDBACK_SUITE,
 ]

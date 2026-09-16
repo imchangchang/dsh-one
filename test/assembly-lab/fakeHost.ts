@@ -19,6 +19,9 @@
  *   与「写回的键名/形状对得上」，而不去动用户真实的 `~/.dsh`。
  * - `__LAB_HOST__.send(msg)`：模拟宿主→页面方向的消息（`dshOne.setTheme` /
  *   `dshOne.switchSession` 等），供后续套件驱动。
+ * - `__LAB_HOST__.failCalls`（套件给的开关，#110）：列进来的宿主调用一律回
+ *   `{code:'lab/forced'}` 失败回执——验「动作失败时界面给不给可见反馈」要用**真的
+ *   失败回执**，而不是去造假界面（归档/分叉那两条另有 HTTP 层的失败夹具，见套件）。
  *
  * 走 addInitScript 而不是往装配页里插 <script>：装配页 HTML 由仓库真实模块
  * （pageHtml.ts）产出、页面 CSP 只放行自己带 nonce 的内联脚本——实验室不该为
@@ -29,9 +32,10 @@
 /** 假提交的 40 位 hash 底座（git.show 回执里 commitHash 用）。 */
 const FULL_HASH = '0123456789abcdef0123456789abcdef01234567'
 
-export function fakeHostScript(stateScope: Record<string, unknown> = {}): string {
+export function fakeHostScript(stateScope: Record<string, unknown> = {}, failCalls: readonly string[] = []): string {
   return `(() => {
   var FULL_HASH = ${JSON.stringify(FULL_HASH)}
+  var FAIL_CALLS = ${JSON.stringify([...failCalls])}
   var host = {
     acquireCalls: 0,
     sent: [],
@@ -48,6 +52,7 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}): string
     settingsOpened: [],
     workspaceCreateCalls: []
   }
+  host.failCalls = FAIL_CALLS.slice()
   var scope = ${JSON.stringify(stateScope)}
   Object.keys(scope).forEach(function (key) { host.stateStore[key] = scope[key] })
   globalThis.__LAB_HOST__ = host
@@ -89,6 +94,11 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}): string
   }
   var handle = function (message) {
     host.hostCalls.push({ call: message.call, args: message.args, id: message.id })
+    // 套件点名的调用一律失败回执（#110）：验「失败可见」要用真失败，而不是假界面。
+    if (FAIL_CALLS.indexOf(message.call) >= 0) {
+      result(message.id, false, { code: "lab/forced", message: "lab host: forced failure for " + String(message.call) })
+      return
+    }
     if (message.call === "git.show") {
       host.gitShows.push(message.args)
       result(message.id, true, gitShow(message.args))

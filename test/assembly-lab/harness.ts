@@ -139,6 +139,12 @@ export interface OpenOptions {
   fiberProbe?: boolean
   /** 假宿主的状态存储初值（键 → 值；#82 的迁移/读写断言用）。 */
   state?: Record<string, unknown>
+  /**
+   * 点名让哪些宿主调用失败（#110）：假宿主对这些调用一律回
+   * `{code:'lab/forced'}` 失败回执——验「动作失败时界面给不给可见反馈」要用真的
+   * 失败回执，而不是去造假界面。只作用于 {@link openTreePage} 新建的上下文。
+   */
+  failCalls?: readonly string[]
 }
 
 export interface OpenedPage {
@@ -371,7 +377,7 @@ export async function openTreePage(
     viewport: { width: options.width ?? 1200, height: options.height ?? 900 },
     deviceScaleFactor: 2,
   })
-  await context.addInitScript({ content: fakeHostScript(options.state ?? {}) })
+  await context.addInitScript({ content: fakeHostScript(options.state ?? {}, options.failCalls ?? []) })
   return await openPageIn(lab, route, context, options)
 }
 
