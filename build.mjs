@@ -84,20 +84,23 @@ const SHELL_PLUGINS = [
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
   },
   {
-    // #65 批 1：消息正文的 commit hash 卡片（图标件 + 官方 writeClipboard）。
-    id: '@dsh-one/vscode-git-card',
+    // #65 批 1 / #83：消息正文的 commit hash 卡片——数据走宿主能力口、扫描与
+    // 委托挂官方对话区容器，零 VS Code 耦合 → dsh-*（图标件 + 官方 writeClipboard）。
+    id: '@dsh-one/dsh-git-card',
     entry: 'src/ui/assembly/shell/gitCardPlugin.ts',
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
   },
   {
-    // #65 批 1：右键菜单家族（官方 Menu 原语 + 官方 writeClipboard）。
-    id: '@dsh-one/vscode-context-menu',
+    // #65 批 1 / #83：行内码右键「复制这段」（官方 Menu 原语 + 官方 writeClipboard；
+    // 委托挂官方对话区容器）→ dsh-*。
+    id: '@dsh-one/dsh-context-menu',
     entry: 'src/ui/assembly/shell/contextMenuPlugin.ts',
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
   },
   {
-    // #65 批 1：清空三件套（官方 composer 座位 + InputActions + conversation.cancel）。
-    id: '@dsh-one/vscode-composer-clear',
+    // #65 批 1 / #83：清空件（官方 composer 座位 + InputActions + 键位监听挂
+    // 官方对话区容器）→ dsh-*。
+    id: '@dsh-one/dsh-composer-clear',
     entry: 'src/ui/assembly/shell/composerClearPlugin.ts',
   },
   {

@@ -1,9 +1,22 @@
 /**
- * @dsh-one/vscode-git-card——消息正文里短 commit hash 的可点 + 悬停详情卡
- * （#65 批 1，旧自研聊天区同款功能的装配版）。
+ * `@dsh-one/dsh-git-card`——消息正文里短 commit hash 的可点 + 悬停详情卡
+ * （#65 批 1，旧自研聊天区同款功能的装配版；#83 迁移到宿主能力口与可移植挂载点，
+ * 命名从 `vscode-*` 改为 `dsh-*`）。
  *
- * 为什么落到第 4 层（CSS/DOM），前 3 层的举证（都读过官方源码/类型，逐条给出）：
+ * ## 为什么是 dsh-*（可移植）
+ * 本件原先有两处 VS Code 耦合，都已拆掉：
+ * - **数据**：`hostCall('git.show')` → **宿主能力口** `capabilities.gitShow(...)`
+ *   （VS Code 侧 = 扩展宿主的能力桥；官方 web 侧 = 宿主半插件的网关 RPC，同一份
+ *   安全口径代码，见 `./hostCapabilities.ts` 的能力表）；
+ * - **外链**：`hostCall('vscode.openExternal')` → `capabilities.openExternal(...)`
+ *   （VS Code 侧 = `vscode.env.openExternal`；官方 web 侧 = 页面原生 `window.open`）；
+ * - **挂载点**：扫描与事件委托原先挂在自有 frame 根（`[data-shell="dsh-one"]`），
+ *   取不到就整个不工作——现在挂**官方对话区容器**（`[data-conversation-scroll]`，
+ *   官方 ui-conversation 的会话滚动体），见 `./mountPoints.ts` 的出处。
+ * 卡片本身渲染进 `shell.overlay` 座位、定位按 CSS 的坐标系算（`positioningContext`），
+ * 也不认任何自有标记。三处都通用，故命名 `dsh-*`。
  *
+ * ## 机制分层（按 AGENTS.md 的优先序逐层举证，前 3 层都读过官方源码/类型）
  * ① 机制层 1（官方槽位）没有「正文 token 级」的座位：装配线可用的座位里
  *    - `conversation.chat.node`（ui-chat/lib/types/client/contract/slots.d.ts）是
  *      **keyed 座位**，key = ChatNodeKind（assistant-step/tool/turn-tail/turn-process…）
@@ -11,7 +24,7 @@
  *      没有「在官方 markdown 里加一个可点 token」的粒度；
  *    - `conversation.chat.turnTail`（chain）、`conversation.chat.assistant-actions`
  *      （list）都挂在回合/消息层级，拿不到正文文本；
- *    - `shell.overlay` 是我们的**悬浮层**座位（自有 shell frame 声明，list additive、
+ *    - `shell.overlay` 是悬浮层座位（自有 shell frame 声明，list additive、
  *      默认 pointer-events:none）——本插件的卡片就渲染在这里（见下）。
  * ② 机制层 2（官方服务）有一条**接近但不成立**的路：`chatFileMentions` 服务
  *    （ui-deliverables 的 `ctx.provide("chatFileMentions", …)`；ui-chat 经
@@ -27,16 +40,15 @@
  * ③ 机制层 3（官方预留接缝 __DSH_TRANSPORT__ / __DSH_BOOT__ / 种子表 / dsh.client 声明）
  *    管的是装载与传输，与「正文怎么渲染」无关。
  *
- * 所以走第 4 层：在自有 shell 容器上做事件委托 + 自己把正文文本节点里的 hash
- * 包成可点 span，卡片渲染进自有 `shell.overlay` 座位。稳定性风险与对策：
- * - 扫描/委托范围钉在**自有**容器（`[data-shell="dsh-one"]` 内、对话区
- *   `.dshOneShell_main`），不进官方组件内部做结构假设；容器类名是我们自己的 CSS；
- * - 官方 DOM 侧只依赖一条**语义属性契约**：消息行 `[data-chat-flow-kind]`
- *   （官方 EvIC1a_flowItem 上的 data 属性，语言无关、非 css-module 哈希）；
- *   扫描时跳过 `pre/a/button`（代码块、链接、按钮不联动）。
- * - 数据全部走宿主能力桥（git.show），页面不直接碰 git。
+ * 所以走第 4 层：在**官方对话区容器**上做事件委托 + 自己把正文文本节点里的 hash
+ * 包成可点 span，卡片渲染进 `shell.overlay` 座位。稳定性风险与对策：
+ * - 扫描/委托范围钉在官方语义容器（`[data-conversation-scroll]`）之内，不进官方
+ *   组件内部做结构假设；
+ * - 官方 DOM 侧只依赖两条**语义属性契约**：对话区容器 `[data-conversation-scroll]`
+ *   （官方 ui-conversation 写、官方 ui-chat 也按它取滚动体）；扫描时跳过
+ *   `pre/a/button`（代码块、链接、按钮不联动）。
  *
- * 查询目录（#65 批 1 返修）：git.show 的 cwd 按**当前会话所属的 dsh 工作区路径**
+ * 查询目录（#65 批 1 返修）：gitShow 的 cwd 按**当前会话所属的 dsh 工作区路径**
  * 传，不再让宿主用「VS Code 打开的仓库」猜（否则开着 A 项目点开 B 项目的会话时，
  * B 里的提交号全变「未找到」）。取值走官方服务（机制层 2，两处兜底，优先序见
  * src/pure/sessionWorkspace.ts）：
@@ -56,8 +68,10 @@ import {
   IconUserOutline16,
   writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { hostCall } from './hostClient.ts'
+import { hostCapabilities, type CapabilityContext } from './hostCapabilities.ts'
+import { mountOnConversation, positioningContext } from './mountPoints.ts'
 import { pickSessionWorkspacePath } from '../../../pure/sessionWorkspace.ts'
+import type { CommitInfoResult } from '../../../pure/chatContract.ts'
 
 /** hash 标记属性（自有契约：扫描时据此跳过已包过的节点）。 */
 const HASH_ATTR = 'data-dshone-commit'
@@ -85,29 +99,20 @@ const CSS = [
   `.dshOneGitCard_cmd:hover{background:var(--dsw-alias-interactive-bg-hover)}`,
   `.dshOneGitCard_meta{color:var(--dsw-alias-label-secondary)}`,
 ].join('')
-const CSS_TAG_ID = '@dsh-one/vscode-git-card/Card.css'
+const CSS_TAG_ID = '@dsh-one/dsh-git-card/Card.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
-  tag.dataset.plugin = '@dsh-one/vscode-git-card'
+  tag.dataset.plugin = '@dsh-one/dsh-git-card'
   tag.dataset.pluginCss = CSS_TAG_ID
   tag.textContent = CSS
   document.head.appendChild(tag)
 }
 
-/** 宿主 git.show 的回执形状（与 src/pure/gitShow.ts 的投影一致）。 */
-interface CommitInfo {
-  sha: string
-  found: boolean
-  commitHash?: string
-  message?: string
-  fullMessage?: string
-  authorName?: string
-  authorEmail?: string
-  commitDate?: string
-  files?: number
-  insertions?: number
-  deletions?: number
-  githubUrl?: string
+/**
+ * 宿主 git 查询的回执：能力口契约（`CommitInfoResult`，见 pure/chatContract.ts）
+ * 加上宿主侧在会话工作区里命中后回传的仓库上下文（能力桥与宿主半都带这几项）。
+ */
+interface CommitInfo extends CommitInfoResult {
   /** 命中提交的仓库绝对路径（宿主侧在工作区里发现后回传）。 */
   repoPath?: string
   /** 仓库相对会话工作区根（就是根本身时缺省）。 */
@@ -128,11 +133,9 @@ interface LayerProps {
   t: (key: string) => string
   /** 插件 apply 注入：当前会话所属的 dsh 工作区路径（取不到 undefined）。 */
   sessionWorkspacePath: () => string | undefined
+  /** 插件 apply 注入的宿主能力口（git 查询与开外链都走它）。 */
+  capabilities: ReturnType<typeof hostCapabilities>
 }
-
-/** 自有容器：装配 frame 根（我们自己的 data 属性，不是官方 css-module 类名）。 */
-const frameRoot = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-shell="dsh-one"]')
-const conversationRoot = (): HTMLElement | null => document.querySelector<HTMLElement>('.dshOneShell_main')
 
 /** 该文本节点是否值得扫描（跳过代码块/链接/按钮/已包过的标记）。 */
 function scannableTextNode(node: Text): boolean {
@@ -184,19 +187,11 @@ function relativeLabel(info: CommitInfo, tr: (key: string, args?: Record<string,
   return tr('daysAgo', { count: Math.floor(diff / DAY) })
 }
 
-/** 锚点（hash span）在 overlay 坐标系里的位置。 */
-interface CardAnchor {
-  left: number
-  /** 锚点下缘（卡片默认挂在下面）。 */
-  below: number
-  /** 锚点上缘（下面放不下时翻到上面）。 */
-  above: number
-}
-
-function GitCardLayer({ t, sessionWorkspacePath }: LayerProps) {
+function GitCardLayer({ t, sessionWorkspacePath, capabilities }: LayerProps) {
   const tr = t as (key: string, args?: Record<string, unknown>) => string
   const [state, setState] = useState<CardState>({ kind: 'idle' })
-  const [anchor, setAnchor] = useState<CardAnchor | null>(null)
+  /** 触发卡片的 hash 标记元素（卡片位置的锚点）。 */
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
   const [pinned, setPinned] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -209,7 +204,7 @@ function GitCardLayer({ t, sessionWorkspacePath }: LayerProps) {
   /**
    * 查一次提交（缓存 + in-flight 去重，避免同一 hash 反复打宿主）。
    * 缓存键含工作区路径：同一 hash 串出现在不同工作区的会话里时不会串结果。
-   * 会话工作区路径取不到就不传 cwd（宿主回落 VS Code 工作区）。
+   * 会话工作区路径取不到就不传 cwd（宿主回落 VS Code 工作区；官方侧回落 dsh 家目录）。
    */
   const lookup = (sha: string): Promise<CommitInfo> => {
     const cwd = sessionWorkspacePath()
@@ -219,11 +214,12 @@ function GitCardLayer({ t, sessionWorkspacePath }: LayerProps) {
     const pending = inflight.current.get(key)
     if (pending !== undefined) return pending
     const args = cwd === undefined ? { hash: sha } : { hash: sha, cwd }
-    const asked = hostCall<CommitInfo>('git.show', args).then(
+    const asked = capabilities.gitShow(args).then(
       (info) => {
-        cache.current.set(key, info)
+        const resolved = info as CommitInfo
+        cache.current.set(key, resolved)
         inflight.current.delete(key)
-        return info
+        return resolved
       },
       (err: unknown) => {
         inflight.current.delete(key)
@@ -234,34 +230,28 @@ function GitCardLayer({ t, sessionWorkspacePath }: LayerProps) {
     return asked
   }
 
-  /** 定位：以 hash span 为锚，换算到 overlay 层坐标（overlay 与 frame 同尺寸）。 */
-  const positionFor = (span: HTMLElement): CardAnchor | null => {
-    const root = frameRoot()
-    if (root === null) return null
-    const frame = root.getBoundingClientRect()
-    const rect = span.getBoundingClientRect()
-    const left = Math.min(Math.max(rect.left - frame.left, 8), Math.max(8, frame.width - 296))
-    return { left, below: rect.bottom - frame.top + 6, above: rect.top - frame.top - 6 }
-  }
-
-  // 卡片高度要渲染后才知道：默认挂锚点下方，越出 frame 下缘就翻到上方（再夹到可视区内）。
+  // 卡片高度/宽度要渲染后才知道：按 CSS 的坐标系（最近的可定位祖先盒，官方的
+  // 槽位包装层会被跳过）把卡片摆到锚点下方，越出下缘就翻到上方，再夹进可视范围。
+  // 布局副作用在绘制前跑完，所以不会闪一帧错位置。
   useLayoutEffect(() => {
-    if (state.kind === 'idle' || anchor === null) return
-    const root = frameRoot()
     const card = cardRef.current
-    if (root === null || card === null) return
-    const frameHeight = root.getBoundingClientRect().height
-    const height = card.offsetHeight
-    const below = anchor.below + height > frameHeight - 8 ? null : anchor.below
-    const top = below ?? Math.max(8, anchor.above - height)
-    setPosition((prev) => (prev !== null && prev.left === anchor.left && prev.top === top ? prev : { left: anchor.left, top }))
+    if (state.kind === 'idle' || anchor === null || card === null) return
+    const space = positioningContext(card).getBoundingClientRect()
+    const rect = anchor.getBoundingClientRect()
+    const left = Math.min(
+      Math.max(rect.left - space.left, 8),
+      Math.max(8, space.width - card.offsetWidth - 8),
+    )
+    const below = rect.bottom - space.top + 6
+    const above = rect.top - space.top - 6
+    const top = below + card.offsetHeight > space.height - 8 ? Math.max(8, above - card.offsetHeight) : below
+    setPosition((prev) => (prev !== null && prev.left === left && prev.top === top ? prev : { left, top }))
   }, [state, anchor])
 
-  /** 展示某个 hash 的卡片（查数据 + 定位）。 */
+  /** 展示某个 hash 的卡片（锚点是那个已装饰的 span）。 */
   const show = (span: HTMLElement, sha: string): void => {
     currentSha.current = sha
-    const at = positionFor(span)
-    if (at !== null) setAnchor(at)
+    setAnchor(span)
     const cached = cache.current.get(sha)
     if (cached !== undefined) {
       setState({ kind: 'info', sha, info: cached })
@@ -297,92 +287,95 @@ function GitCardLayer({ t, sessionWorkspacePath }: LayerProps) {
     }
   }
 
-  // 扫描 + 事件委托：装一次，卸载时整体拆除（含观察器与定时器）。
+  // 扫描 + 事件委托：挂到**官方对话区容器**（`[data-conversation-scroll]`，见
+  // mountPoints.ts 的出处；容器晚出现会等、被换掉会重装）。卸载时整体拆除
+  //（含观察器与去抖定时器）。
   useEffect(() => {
-    const root = frameRoot()
-    const conversation = conversationRoot()
-    if (root === null || conversation === null) return undefined
-
-    let scheduled = false
-    const scan = (): void => {
-      const walker = document.createTreeWalker(conversation, NodeFilter.SHOW_TEXT, {
-        acceptNode: (node) => (scannableTextNode(node as Text) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
-      })
-      const textNodes: Text[] = []
-      let node = walker.nextNode()
-      while (node !== null) {
-        textNodes.push(node as Text)
-        node = walker.nextNode()
+    return mountOnConversation((conversation) => {
+      let scheduled = false
+      let timer: number | null = null
+      const scan = (): void => {
+        const walker = document.createTreeWalker(conversation, NodeFilter.SHOW_TEXT, {
+          acceptNode: (node) => (scannableTextNode(node as Text) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+        })
+        const textNodes: Text[] = []
+        let node = walker.nextNode()
+        while (node !== null) {
+          textNodes.push(node as Text)
+          node = walker.nextNode()
+        }
+        for (const textNode of textNodes) decorateTextNode(textNode)
+        // 丢弃我们自己刚产生的变更记录：否则观察器会被自己的包装动作反复唤醒。
+        observer.takeRecords()
       }
-      for (const textNode of textNodes) decorateTextNode(textNode)
-      // 丢弃我们自己刚产生的变更记录：否则观察器会被自己的包装动作反复唤醒。
-      observer.takeRecords()
-    }
-    const schedule = (): void => {
-      if (scheduled) return
-      scheduled = true
-      window.setTimeout(() => {
-        scheduled = false
-        scan()
-      }, 120)
-    }
-    const observer = new MutationObserver(schedule)
-    observer.observe(conversation, { childList: true, subtree: true, characterData: true })
-    scan()
+      const schedule = (): void => {
+        if (scheduled) return
+        scheduled = true
+        timer = window.setTimeout(() => {
+          scheduled = false
+          timer = null
+          scan()
+        }, 120)
+      }
+      const observer = new MutationObserver(schedule)
+      observer.observe(conversation, { childList: true, subtree: true, characterData: true })
+      scan()
 
-    const onPointerOver = (event: Event): void => {
-      const target = event.target as HTMLElement | null
-      const span = target?.closest?.(`[${HASH_ATTR}]`)
-      if (span === null || span === undefined) return
-      cancelClose()
-      const sha = span.getAttribute(HASH_ATTR)
-      if (sha !== null && sha !== '') show(span as HTMLElement, sha)
-    }
-    const onPointerOut = (event: Event): void => {
-      const target = event.target as HTMLElement | null
-      if (target?.closest?.(`[${HASH_ATTR}]`) == null) return
-      if (pinned) return
-      close()
-    }
-    // 点击 hash：钉住卡片（再点同一个 hash 或点别处收起）。
-    const onClick = (event: Event): void => {
-      const target = event.target as HTMLElement | null
-      const span = target?.closest?.(`[${HASH_ATTR}]`)
-      if (span === null || span === undefined) return
-      const sha = span.getAttribute(HASH_ATTR)
-      if (sha === null || sha === '') return
-      cancelClose()
-      if (pinned && currentSha.current === sha) {
+      const onPointerOver = (event: Event): void => {
+        const target = event.target as HTMLElement | null
+        const span = target?.closest?.(`[${HASH_ATTR}]`)
+        if (span === null || span === undefined) return
+        cancelClose()
+        const sha = span.getAttribute(HASH_ATTR)
+        if (sha !== null && sha !== '') show(span as HTMLElement, sha)
+      }
+      const onPointerOut = (event: Event): void => {
+        const target = event.target as HTMLElement | null
+        if (target?.closest?.(`[${HASH_ATTR}]`) == null) return
+        if (pinned) return
+        close()
+      }
+      // 点击 hash：钉住卡片（再点同一个 hash 或点别处收起）。
+      const onClick = (event: Event): void => {
+        const target = event.target as HTMLElement | null
+        const span = target?.closest?.(`[${HASH_ATTR}]`)
+        if (span === null || span === undefined) return
+        const sha = span.getAttribute(HASH_ATTR)
+        if (sha === null || sha === '') return
+        cancelClose()
+        if (pinned && currentSha.current === sha) {
+          setPinned(false)
+          currentSha.current = null
+          setState({ kind: 'idle' })
+          return
+        }
+        setPinned(true)
+        show(span as HTMLElement, sha)
+      }
+      const onPointerDownOutside = (event: Event): void => {
+        const target = event.target as HTMLElement | null
+        if (target === null) return
+        if (cardRef.current?.contains(target) === true) return
+        if (target.closest?.(`[${HASH_ATTR}]`) != null) return
+        cancelClose()
         setPinned(false)
         currentSha.current = null
         setState({ kind: 'idle' })
-        return
       }
-      setPinned(true)
-      show(span as HTMLElement, sha)
-    }
-    const onPointerDownOutside = (event: Event): void => {
-      const target = event.target as HTMLElement | null
-      if (target === null) return
-      if (cardRef.current?.contains(target) === true) return
-      if (target.closest?.(`[${HASH_ATTR}]`) != null) return
-      cancelClose()
-      setPinned(false)
-      currentSha.current = null
-      setState({ kind: 'idle' })
-    }
-    root.addEventListener('pointerover', onPointerOver, true)
-    root.addEventListener('pointerout', onPointerOut, true)
-    root.addEventListener('click', onClick, true)
-    document.addEventListener('pointerdown', onPointerDownOutside, true)
-    return () => {
-      observer.disconnect()
-      root.removeEventListener('pointerover', onPointerOver, true)
-      root.removeEventListener('pointerout', onPointerOut, true)
-      root.removeEventListener('click', onClick, true)
-      document.removeEventListener('pointerdown', onPointerDownOutside, true)
-      if (closeTimer.current !== null) clearTimeout(closeTimer.current)
-    }
+      conversation.addEventListener('pointerover', onPointerOver, true)
+      conversation.addEventListener('pointerout', onPointerOut, true)
+      conversation.addEventListener('click', onClick, true)
+      document.addEventListener('pointerdown', onPointerDownOutside, true)
+      return () => {
+        observer.disconnect()
+        if (timer !== null) clearTimeout(timer)
+        conversation.removeEventListener('pointerover', onPointerOver, true)
+        conversation.removeEventListener('pointerout', onPointerOut, true)
+        conversation.removeEventListener('click', onClick, true)
+        document.removeEventListener('pointerdown', onPointerDownOutside, true)
+        if (closeTimer.current !== null) clearTimeout(closeTimer.current)
+      }
+    })
   }, [pinned])
 
   if (state.kind === 'idle' || anchor === null) return null
@@ -484,7 +477,7 @@ function GitCardLayer({ t, sessionWorkspacePath }: LayerProps) {
               className: 'dshOneGitCard_cmd',
               title: tr('openOnGithub'),
               onClick: () => {
-                void hostCall('vscode.openExternal', { url: info.githubUrl })
+                void capabilities.openExternal(info.githubUrl ?? '')
               },
             },
             h(IconRightUpOutline16, { size: 14 }),
@@ -500,10 +493,10 @@ function GitCardLayer({ t, sessionWorkspacePath }: LayerProps) {
       ref: cardRef,
       className: 'dshOneGitCard_card',
       'data-dshone-git-card': '',
-      // 首帧（还没量到高度）先挂在锚点下方，量完由 useLayoutEffect 校正
+      // 首帧（还没算位置）先放坐标系原点，绘制前由 useLayoutEffect 摆正
       style: {
-        left: `${String(anchor.left)}px`,
-        top: `${String(position?.top ?? anchor.below)}px`,
+        left: `${String(position?.left ?? 0)}px`,
+        top: `${String(position?.top ?? 0)}px`,
       },
       onPointerEnter: cancelClose,
       onPointerLeave: () => {
@@ -526,7 +519,7 @@ interface WorkspacesService {
   list: { getSnapshot(): { items: readonly { path?: string; sessionIds?: readonly string[] }[] } }
 }
 
-interface GitCardContext {
+interface GitCardContext extends CapabilityContext {
   get(name: 'sessions'): SessionsService
   /** 可选服务：某些树可能没装（缺了也不该让 git 卡片停摆，故不进 inject）。 */
   get(name: 'workspaces'): WorkspacesService
@@ -543,6 +536,8 @@ interface GitCardContext {
 export const inject = ['slots', 'locale', 'sessions']
 
 export function apply(ctx: GitCardContext): void {
+  const capabilities = hostCapabilities(ctx)
+
   /**
    * 当前会话所属的 dsh 工作区路径（机制层 2 官方服务）：
    * ① sessions list 当前行的 cwd；②兜底 workspaces 注册表里含该会话那一行的
@@ -604,7 +599,7 @@ export function apply(ctx: GitCardContext): void {
           name: 'shell.overlay',
           id: 'dsh-one-git-card',
           locale: 'dshOneGitCard',
-          inject: () => ({ sessionWorkspacePath }),
+          inject: () => ({ sessionWorkspacePath, capabilities }),
         },
         GitCardLayer,
       ),
