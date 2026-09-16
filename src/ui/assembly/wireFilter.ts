@@ -219,11 +219,14 @@ export const CONTEXT_MENU_PLUGIN_ID = '@dsh-one/vscode-context-menu'
 export const COMPOSER_CLEAR_PLUGIN_ID = '@dsh-one/vscode-composer-clear'
 
 /**
- * chat 树会话日志导出自有行动 id（#71 验收返修）：官方导出走裸 fetch +
- * a[download]，在 VS Code webview 双杀（非 http 源 fetch 失败 + 禁下载）——
- * 自有贡献点击 postMessage，宿主 showSaveDialog + 经 mirror 拉 ZIP 写盘。
+ * chat 树会话日志导出自有行动 id（#71 验收返修；#84 迁移到宿主能力口）。
+ *
+ * 命名是 `dsh-*` 而非 `vscode-*`：#84 把「下载这份导出」交给宿主能力口
+ * （VS Code 侧 = 扩展宿主弹保存框写盘；官方 web 侧 = 浏览器原生下载），
+ * 插件本身不再碰 VS Code 通道，因此官方 web 侧也能直接用（见
+ * sessionExportPlugin.ts 的机制分层）。
  */
-export const SESSION_EXPORT_PLUGIN_ID = '@dsh-one/vscode-session-export'
+export const SESSION_EXPORT_PLUGIN_ID = '@dsh-one/dsh-session-export'
 
 /**
  * 侧栏树工作区/会话树 shadow 插件 id（#65 批 2）：single 槽 sidebar.workspaces

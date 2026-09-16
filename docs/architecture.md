@@ -9,7 +9,10 @@
 ```
 dsh-one/
 ├── package.json            # 清单：命令、配置项、侧边栏 view、extensionKind
-├── build.mjs               # esbuild 打包脚本：dist/extension.js（宿主）+ dist/sessionsWebview.js（侧栏前端）+ dist/spawnDsh.js + 装配 shell 插件
+├── build.mjs               # esbuild 打包脚本：dist/extension.js（宿主）+ dist/sessionsWebview.js（侧栏前端）+ dist/spawnDsh.js + 装配 shell 插件 + 宿主半包（packages/）
+├── packages/               # 以「官方 dsh 插件包」形态分发的自有件（每个子目录是一个可安装的 npm 包，见各包 src 的文件头说明）
+│   └── dsh-host-capabilities/ # 宿主半：跑在 dsh 宿主进程里提供能力与持久状态（状态落 ~/.dsh/dsh-one/、只读 git、内容落盘），
+│                              # 经官方 api-gateway 暴露成 Remote 端点；前端插件经宿主能力口调用（#84）
 ├── src/
 │   ├── extension.ts        # activate/deactivate 入口：装配（命令注册、侧栏 view 注册、默认打开装配面板）
 │   ├── log.ts              # 输出通道日志，写入前对 URL query 值脱敏
@@ -44,7 +47,8 @@ dsh-one/
 │       ├── readyLine.ts    # 解析就绪行 `dsh web: http://127.0.0.1:<port>`
 │       ├── semver.ts       # 最小 semver 实现（支持 prerelease），零依赖
 │       └── …               # 其余 pure 模块按文件名自解释（tokenScan/composerAttachment 等）
-└── test/                   # src/pure 的单测（node:test）+ mock-dsh 协议夹具 + sandbox 验收基线
+├── test/                   # src/pure 的单测（node:test）+ mock-dsh 协议夹具 + sandbox 验收基线
+└── scripts/                # 开发流程脚本（dev-start/finish/merge、i18n 门禁）+ verify-host-half-official.mjs（临时 HOME/profile 里验宿主半）
 ```
 
 各模块职责要点：
@@ -101,6 +105,8 @@ dsh-one/
 
 扩展在 globalStorage 写两份运行时文件：dsh 的 stdout/stderr 日志 `dsh-web.log`（每次 spawn 截断）与 pidfile `dsh-owned.json`（reload 后 re-own 用）。dsh 的数据（会话日志、workspace 元数据）在 `~/.dsh`，由 dsh 自己管理，扩展不读写；侧栏的客户端状态（回收站/分组/标签组/置顶/未读 + tag-bridge 记录）落在 `~/.dsh/dsh-one/`，跨窗口共享。
 
+**去向（#84 起）**：`~/.dsh/dsh-one/` 下这批插件状态的**新主人是宿主半插件**（`packages/dsh-host-capabilities`），前端插件经宿主能力口读写，扩展侧那套 `dshStateStore` / `tagBridge` 是待退役的存量（迁移见 #82）——理由是同一份用户数据不能有两个家，且官方 web 侧拿不到扩展的存储。
+
 ## 设计决策及出处
 
 以下结论来自对 marketplace 上 28 个 dsh 相关插件的逐一源码调研，完整报告在父仓库 `../docs/05-vscode插件调研.md`（不在本仓库内）。
@@ -113,7 +119,8 @@ dsh-one/
 6. **就绪轮询 + 身份确认。** 固定端口轮询 probeDsh；port=0 从就绪行解析实际端口后再 RPC 确认。
 7. **对话区 = 官方组件装配，不自研聊天 UI（#60/#64/#68）。** 调研的 28 个竞品里，重写派每家都在追官方协议叫苦；自研聊天区（#11 系列，曾做到 537 单测）在 #68 整体下线，原因是长期维护成本：每个 dsh 版本升级都要追协议 + 追 UI 对齐。现方案（装配）：官方 dsh web 前端组件原样下发（插件整包过滤只删官方外框/侧栏两个插件，网关服务端零改动），自有 shell 插件接管根外框与主题，loopback 代理解决登录 cookie 与跨来源。装配架构详见 `docs/assembly-architecture.html`；验证两道关：浏览器验证（Playwright 直开装配页）+ VS Code 验证（`scripts/dev-ui-test.sh`）。
 8. **零运行时依赖（#68 起全扩展）。** 宿主与两个 webview 前端全部只用 Node 内置模块 + vscode API；旧聊天 webview 时代的 marked/dompurify 依赖随 #68 移除，`dependencies` 字段为空。
-9. **外部启动的认证 dsh：防护 + 显式接管（2026-09-06，external-dsh-manage-012）。** 0.1.2 起 dsh 每次启动 mint 随机 token，外部实例的 token 扩展拿不到——认证 dsh 会拒绝无凭证的 host.describe（401+`unauthorized`）。默认动作：探测到认证 dsh 无 token → **报错不另起**，状态栏 tooltip 给出管理入口。B 档：粘贴 token 连接（`GET /?token=` 换票验证）→ 连接并存共享记录。A 档：停止/重启走确认弹窗 + 命令行特征确认 + **只向单 pid 发 SIGTERM**；Windows `taskkill /T /F`。pid 探测三平台：macOS `lsof`、Linux `/proc`、Windows `netstat -ano`+PowerShell（`src/server/externalDsh.ts`）。
+9. **宿主能力口：插件不碰宿主，只调抽象口（#84）。** 插件要的宿主能力（跑 git、落盘、持久状态）统一经 `src/ui/assembly/shell/hostCapabilities.ts` 这层薄 SDK 调用，两侧各有一个实现：VS Code 侧 = 扩展宿主的能力桥（`hostCall` 白名单，`src/ui/assembly/hostBridge.ts`）；官方 web 侧 = **宿主半插件**（`packages/dsh-host-capabilities`，跑在 dsh 宿主进程里，经官方 api-gateway 暴露 Remote 端点，前端用官方 Connection 的 `rpc.call('/api', '<ns>/<方法>', { args })` 调）。这样同一份插件代码两端都能用（AGENTS.md 铁律「能移植的必须移植」），插件的可移植性不再取决于我们改了多少平台分支。通路与线形态的实测记录见 #84 的 issue comment。
+10. **外部启动的认证 dsh：防护 + 显式接管（2026-09-06，external-dsh-manage-012）。** 0.1.2 起 dsh 每次启动 mint 随机 token，外部实例的 token 扩展拿不到——认证 dsh 会拒绝无凭证的 host.describe（401+`unauthorized`）。默认动作：探测到认证 dsh 无 token → **报错不另起**，状态栏 tooltip 给出管理入口。B 档：粘贴 token 连接（`GET /?token=` 换票验证）→ 连接并存共享记录。A 档：停止/重启走确认弹窗 + 命令行特征确认 + **只向单 pid 发 SIGTERM**；Windows `taskkill /T /F`。pid 探测三平台：macOS `lsof`、Linux `/proc`、Windows `netstat -ano`+PowerShell（`src/server/externalDsh.ts`）。
 
 ## 日志与安全细节
 

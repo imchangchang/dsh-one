@@ -71,7 +71,8 @@ const SHELL_PLUGINS = [
   { id: '@dsh-one/vscode-session-bridge', entry: 'src/ui/assembly/shell/sessionBridgePlugin.ts' },
   { id: '@dsh-one/vscode-session-boot', entry: 'src/ui/assembly/shell/sessionBootPlugin.ts' },
   {
-    id: '@dsh-one/vscode-session-export',
+    // #84：导出动作走宿主能力口（+ 官方网关 RPC），零 VS Code 耦合 → dsh-*。
+    id: '@dsh-one/dsh-session-export',
     entry: 'src/ui/assembly/shell/sessionExportPlugin.ts',
     // 导出胶囊用官方 Button/下载图标原语（种子表满足）。
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
@@ -128,3 +129,22 @@ for (const plugin of SHELL_PLUGINS) {
   })
   console.log(`assembled shell plugin -> ${pluginDir}/client.js`)
 }
+
+// 宿主半插件（#84）：`packages/dsh-host-capabilities` 是**可安装的官方格式包**
+// （`dsh.bundle.patch` + 包主入口即宿主半），所以它的 lib/index.js 必须是与官方包
+// 同形的 **ESM 单文件**，由 esbuild 打成自包含（官方包留 external，运行时从 dsh
+// 安装目录/profile 解析）。**不压缩**：官方网关按方法形参名取值（SRC 回退），压
+// 缩改了形参名端点就认不出（test/hostCapabilities.test.ts 有断言盯着）。
+// 这条构建与上面三棵树的客户端 bundle 是两回事：那些跑在页面里，这条跑在 dsh
+// 宿主进程里。
+await esbuild.build({
+  entryPoints: ['packages/dsh-host-capabilities/src/index.ts'],
+  outfile: 'packages/dsh-host-capabilities/lib/index.js',
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'node22',
+  external: ['@deepseek-ai/cordis', '@deepseek-ai/dsh-typert-protocol'],
+  logLevel: 'warning',
+})
+console.log('built host half -> packages/dsh-host-capabilities/lib/index.js')

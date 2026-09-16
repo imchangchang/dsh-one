@@ -1,11 +1,14 @@
 /**
- * 宿主能力桥的插件侧薄封装（#65 批 1）：自有插件 bundle 里 import 本模块，
- * 调 hostCall(call, args) 即可；底层是 pageHtml 注入的页面侧 SDK
- * （globalThis.__DSH_ONE_HOST__，见 ui/assembly/hostSdk.ts），本模块只做
- * 类型投影与「SDK 缺席」的兜底拒绝。
+ * 宿主能力桥的页面侧薄封装（#65 批 1）：底层是 pageHtml 注入的页面侧 SDK
+ * （globalThis.__DSH_ONE_HOST__，见 ui/assembly/hostSdk.ts），本模块只做类型投影与
+ * 「SDK 缺席」的兜底拒绝。
  *
- * 每个插件各自打包一份（各插件是独立 bundle，没有共享模块作用域）——几十字节
- * 的实现，不值得为它单起一个 cordis 服务。
+ * **插件不直接用本模块**（#84 起）：插件调的是宿主能力口
+ * （`./hostCapabilities.ts`），由它决定这次调用落在这条桥上（VS Code 侧）还是落在
+ * 宿主半的网关 RPC 上（官方 web 侧）。本模块是那条桥的页面侧门面，留给能力口与
+ * 尚未迁移的存量调用点（git-card 的开外链）用。
+ *
+ * 每个用到它的插件各自打包一份（各插件是独立 bundle，没有共享模块作用域）。
  */
 export interface HostCallFailure extends Error {
   /** 宿主回执的结构化错误码（unknown-call/invalid-args/not-found/git-missing/no-host/timeout…）。 */

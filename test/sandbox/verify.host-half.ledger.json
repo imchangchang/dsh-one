@@ -1,0 +1,106 @@
+{
+  "title": "宿主半插件（@dsh-one/dsh-host-capabilities）+ 宿主能力口 + 会话导出迁移（host-half-plugin 任务 #84）",
+  "branch": "agent/host-half",
+  "commit": "31d4e98",
+  "environment": {
+    "mode": "real-dsh（隔离临时 HOME + 临时 profile，脚本 scripts/verify-host-half-official.mjs）+ node 单测",
+    "dsh": "0.1.6-alpha.1",
+    "locale": "en",
+    "theme": "dark",
+    "image": "不适用（无容器）",
+    "date": "2026-09-16T00:00:00Z"
+  },
+  "coverageNote": "本报告覆盖的是「机制通路 + 纯逻辑 + 真 dsh 宿主上的能力调用」。真桌面 VS Code 窗口里的导出点击（浏览器 harness 假宿主 / 隔离窗口人工点按钮）不在本次自动化范围——那条路径的行为逐字沿用改前的「mirror 取 ZIP + 保存框 + 写盘」，并且它依赖的纯逻辑（hostDownload）与路由（hostCapabilitySdk）都有单测；合入前如对功能有疑问，按 AGENTS.md 用 dev-ui-test.sh 开窗人工验收。官方 web 侧只验到「能力端点可用」（真 dsh 宿主 + 鉴权 RPC），未开浏览器页面点按钮。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "宿主半包装进 profile 并挂在插件树上（fiber active）",
+      "expect": "临时 HOME 里 `dsh plugin --profile web add file:<包路径>` 装上后，profile 的 dsh.profile.bundles 含该包，包依赖（@deepseek-ai/dsh-typert-protocol）被一并安装；启动 `dsh web` 后官方 pluginInventory/list 快照里该行 enabled=true、fiberPhase=active。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run verify:host-half 前 5 项断言通过；快照行：{\"entryId\":\"include:dsh-one-host-capabilities\",\"moduleName\":\"@dsh-one/dsh-host-capabilities\",\"enabled\":true,\"fiberPhase\":\"active\"}。bundle 列表：[\"@deepseek-ai/dsh-base\",\"@deepseek-ai/dsh-web-app\",\"@dsh-one/dsh-host-capabilities\"]。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "键值型持久状态：写 → 落盘 → 读 → 删",
+      "expect": "远程调用 stateWrite 后，值以 JSON 落在宿主 ~/.dsh/dsh-one/<键>.json；stateRead 读回同一份；stateDelete 返回 deleted=true 且文件消失。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "验证输出：stateWrite {\"ok\":true,\"value\":{\"ok\":true}}；文件 /<临时HOME>/.dsh/dsh-one/verify-host-half.json = {\"version\":1,\"sessionIds\":[\"s1\"]}；stateRead 读回一致；stateDelete {\"ok\":true,\"deleted\":true}，删除后文件不存在。落点与扩展侧 dshStateStore 同目录（#82 迁移时用户数据不用搬家）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "状态键的参数校核（路径穿越闸门）",
+      "expect": "键 `../evil` 被拒，回执 { ok:false, error.code: 'invalid-args' }，且不产生任何文件。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "验证输出：{\"ok\":false,\"error\":{\"code\":\"invalid-args\",\"message\":\"expected a state key matching [a-z0-9][a-z0-9._-]{0,63}\"}}；单测另覆盖分隔符/空/大小写/超长键与 stateFilePath 的二次兜底。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "内容落盘能力（saveContent）",
+      "expect": "把 base64 内容交给宿主半后写到宿主磁盘并可读回；~/Downloads 不存在时回落到 ~/.dsh/exports。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "验证输出：/<临时HOME>/.dsh/exports/dsh-one-verify.txt 内容 = `dsh-one host capability verify`（临时 HOME 无 ~/Downloads，走的是兜底目录 = 回落路径同时也被测到）。单测另覆盖「首选目录存在就用它」「重名不覆盖（-1 后缀）」「文件名含分隔符被拒」。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "只读 git 查询（沿用能力桥安全口径）",
+      "expect": "在允许根（dsh 注册工作区 + ~/.dsh）内查到提交并回 found=true 与完整信息；非法提交号（`abc1234; rm -rf /`）被拒为 invalid-args。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "验证输出：gitShow 命中临时仓库提交（sha/author/message/files/insertions 齐全）；非法 hash 回 {\"ok\":false,\"error\":{\"code\":\"invalid-args\"}}。校核与查询复用扩展侧同一份代码（src/pure/hostCalls.ts + gitWorkspaceQuery.ts），不是复制。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "官方线形态：端点认领按方法粒度、参数键不匹配由网关拒",
+      "expect": "未声明的方法返回 HTTP 404；参数键与描述符不符时官方网关回 gateway/arguments-invalid。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "验证输出：`dshOneHostCapabilities/nope` → HTTP 404；`stateRead` 传 {unexpected:1} → {\"code\":\"gateway/arguments-invalid\",\"message\":\"typert gateway: dshOneHostCapabilities/stateRead: args fields do not match the descriptor: unexpected \\\"unexpected\\\"\"}。单测另断言宿主半 bundle 保留方法形参名（SRC 取值依赖它，构建不许压缩）。"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "前端 SDK 两端路由（同一份插件代码）",
+      "expect": "有 VS Code 能力桥时 git/落盘/下载落到桥的白名单调用（git.show / file.save / file.download）；没有桥时落到官方网关 RPC（端点 dshOneHostCapabilities/<方法>、载荷 {args}、参数键与宿主半形参一致）；宿主半没装（HTTP 404）归类 unavailable 供消费方降级。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "test/hostCapabilitySdk.test.ts 5 项断言（假桥 / 假 Connection 两种 ctx）。"
+    },
+    {
+      "id": "F-08",
+      "phase": "new-feature",
+      "name": "会话导出迁到能力口并改名 @dsh-one/dsh-session-export",
+      "expect": "插件不再直接碰 acquireVsCodeApi / postMessage / 宿主调用通道；导出走官方路由 /api/session.export（会话 id 转义），落地方式由能力口挑（VS Code = 扩展宿主取 ZIP + 保存框 + 写盘；官方 web = 浏览器原生下载）；用户取消不提示，其余失败提示。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "test/sessionExport.test.ts（路径/文件名/失败口径/源码不得出现 VS Code 通道/构建产物里只经能力口调宿主）。改前 VS Code 侧的取数写盘逻辑逐字搬进 hostBridge 的 file.download（经 src/pure/hostDownload.ts 纯化后单测 9 项覆盖：只取本站内容、HTTP 失败不弹框、取消不写盘、写盘失败带原因）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "全量单测",
+      "expect": "npm test 全绿（含三树装配契约、wireFilter、locales、台账相关既有断言）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "623 项通过 / 0 失败（改前 618 + 本次新增 22 项中的非跳过项）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "typecheck + build + i18n 门禁",
+      "expect": "npm run typecheck 无错；npm run build 产出三棵树插件 + 宿主半包；scripts/check-i18n.sh 通过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "typecheck 通过（tsconfig 已纳入 packages/*/src）；build 输出 12 个客户端 bundle + packages/dsh-host-capabilities/lib/index.js；i18n：'OK：分支 agent/host-half 相对 main 的新增行无 i18n 漏同步'。"
+    }
+  ]
+}

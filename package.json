@@ -161,6 +161,7 @@
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.ts test/mock-dsh/*.test.ts test/mock-llm/*.test.ts",
+    "verify:host-half": "node scripts/verify-host-half-official.mjs",
     "package": "npm run build && vsce package"
   },
   "devDependencies": {

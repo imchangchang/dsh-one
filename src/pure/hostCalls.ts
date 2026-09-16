@@ -7,49 +7,22 @@
  * - 提交号：严格 7–40 位 hex（形状不对直接被拒，不进入 git 命令行）；
  * - URL：能被 URL 解析且协议限 http/https/mailto；
  * - 目录：绝对路径 + 真实存在 + realpath 后落在允许根（工作区目录 / ~/.dsh）内。
+ *
+ * 错误码与判定住在 hostCallError.ts（#84 拆出：能力口的前端 SDK 要用同一套码，
+ * 但不能被这里的 node:fs 依赖拖进浏览器 bundle）；本模块 re-export 它们，宿主侧
+ * 的消费方（hostBridge）仍只认这一个 import 源。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
+import { asRecord, isHostCallError, type HostCallError, type HostCallErrorCode } from './hostCallError.ts'
 
-/** 结构化错误码（页面按 code 决定提示文案，不解析 message）。 */
-export type HostCallErrorCode =
-  | 'unknown-call'
-  | 'invalid-args'
-  | 'no-workspace'
-  | 'not-found'
-  /** 目标能力的外部程序起不来（目前仅 git：未安装或不可执行）。 */
-  | 'git-missing'
-  | 'failed'
-  | 'unsupported'
-
-/** 宿主回执的错误体。 */
-export interface HostCallError {
-  code: HostCallErrorCode
-  message: string
-}
+export { asRecord, isHostCallError, type HostCallError, type HostCallErrorCode }
 
 /** OPEN_URL 允许的协议白名单（外链动作只认这三种）。 */
 export const ALLOWED_URL_PROTOCOLS: ReadonlySet<string> = new Set(['http:', 'https:', 'mailto:'])
 
 /** 提交号的严格形状（比正文扫描的 COMMIT_SHA_RE 严：不认两端邻接字符）。 */
 export const COMMIT_SHA_ARG_RE = /^[0-9a-fA-F]{7,40}$/
-
-/** 参数读取辅助：只接受普通对象。 */
-export function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
-}
-
-/** 结构化错误判定（区分「回执数据」与「回执错误」）。 */
-export function isHostCallError(value: unknown): value is HostCallError {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as HostCallError).code === 'string' &&
-    typeof (value as HostCallError).message === 'string'
-  )
-}
 
 /** 真实路径（不存在时返回 null）——包含判定前先解符号链接，防链接逃逸。 */
 async function realPathOrNull(target: string): Promise<string | null> {
