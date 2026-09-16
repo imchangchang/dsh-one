@@ -87,9 +87,9 @@
 //   `.dshOneTree_rowIconButton`）→ **标准档的 16×20 / 16×16**，不取紧凑档的 14×14：
 //   紧凑档那个 14×14 是官方 **14 档图标**的盒子，而本插件的行图标是官方 **16 档**
 //   （`IconXxx16`）——换 14 盒子得把全部行图标同时换成 14 档，属另一件事。
-// - **标签组**（`.dshOneTree_tag*`，#107）与**自绘标记件**（勾选框里的短横线、a11y 用的
-//   1×1 裁剪盒）**不进本表**：前者逐字沿用旧侧栏的取值（理由写在各自规则上方），后者
-//   不是几何档位能表达的；三条例外列在下面的 `SCALE_EXEMPT` 里。
+// - **标签组**（`.dshOneTree_tag*`，#107）与**自绘件**（勾选框里的短横线、a11y 用的 1×1
+//   裁剪盒、抽屉把手）**不进本表**：标签组逐字沿用旧侧栏的取值（理由写在各自规则上方），
+//   自绘件不是几何档位能表达的形态；这些例外逐条列在下面的 `SCALE_EXEMPT` 里，每条都写了理由。
 // ---------------------------------------------------------------------------
 
 /**
@@ -151,7 +151,6 @@ export const SCALE_TIERS = {
     listGroupGap: '4px', // .bhn1Oq_groupSection+.bhn1Oq_groupSection{margin-top:4px}
     listPaddingBottom: '16px', // .bhn1Oq_list{padding-bottom:16px}
     emptyFontSize: '13px', // .bhn1Oq_empty{font-size:13px}
-    emptyLineGap: '2px', // .dshOneTree_emptyLine 沿用列表行间空隙
     overflowRowHeight: '28px', // .bhn1Oq_sessionOverflowButton{height:28px}
     searchRowMinHeight: '48px', // .YDXeBa_searchResultRow{min-height:48px}
     searchRowTitleFontSize: '14px', // .YDXeBa_searchResultTitle{font-size:14px}
