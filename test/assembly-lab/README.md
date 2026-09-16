@@ -16,10 +16,21 @@
 
 三者不互相替代：本目录跑绿的改动仍可能需要 VS Code 验证（尤其碰宿主行为时），反之亦然。
 
+## 和每日上游探针（`clientContract.mjs`）的分工
+
+两个面都在管「官方变了」，但一个离线、一个在运行期，红了要去做的事也不一样：
+
+| 谁 | 跑法 | 查什么 | 红了说明 |
+| --- | --- | --- | --- |
+| 每日上游探针 | CI 每天 04:00 跑 `node scripts/dsh-upstream-watch/probe.mjs`，客户端契约面在 `scripts/dsh-upstream-watch/clientContract.mjs` | **离线扫官方 bundle**：官方前端段还能不能切开、slot / root hook / 我们取用过的字段名**还在不在**（名字层面） | 官方动了名字——先按失败信息里的期望出处去核对官方源码，再改我们的取用路径 |
+| 本目录的 F-10 / F-11 | `npm run verify:lab`（本机，需要跑着的网关） | **运行期**：F-10 看 cordis scope 的**状态**（四棵树零 FAILED，靠页面里的 fiber 探针），F-11 看**我们自己的 block list 与当天官方清单对不对得上** | 名字还在但**装起来不活**（F-10），或清单漂移导致过滤静默失效（F-11）——这两种探针都看不见：探针不跑页面，也读不到我们的 block list |
+
+一句话：**探针管名字在不在（离线、每天、不需要网关），实验室管装起来活不活、清单还对不对得上（运行期、真网关、改装配必跑）。**
+
 ## 跑法
 
 ```bash
-npm run verify:lab                 # 全量：build + 五套件 + ledger + HTML 报告
+npm run verify:lab                 # 全量：build + 全部套件 + ledger + HTML 报告
 npm run verify:lab -- --suite F-01 # 只跑契约完备性
 npm run verify:lab -- --headed --keep   # 开有界面的浏览器，跑完留服务器，人工点页面
 ```
@@ -78,6 +89,8 @@ chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（
 | **F-07 SIDEBAR** | 侧栏六项核心功能（#81）与状态读写（#82）：分组过滤（旧 `groups.json` 形状注进宿主状态存储即用、界面新建按同一形状写回、旧字段不被动）、活状态计数与行同源、工作区内会话不折叠、回收站抽屉按工作区组织、批量选择动作条、视图态走官方 localStorage 惯例并在重载后生效 |
 | **F-08 MULTIOPEN** | 会话多开（#72）：会话行菜单与行右键都带「在新标签页打开」（右键菜单锚在指针处）、点了发出的会话 id 是那一行的真会话；多开 tab 的启动注入（`__DSH_ONE_BOOT__.sessionId`）真的开到目标会话，同源（共 localStorage）两页各开各自会话、零交叉；注入不存在的 id 时防闪帧遮罩在场 |
 | **F-09 HEADER-UTILITIES** | 对话区会话头 `conversation.session.header.utilities` 座位的**条目集合**（#87）：官方 open-in-app 与自有导出的条目都在且都可见、没有任何条目被自有 CSS 摘掉、官方同 id 的导入条目被 shadow；外加官方宿主路由（`/open-in-app/apps`）按 `location.origin` 与官方内部基址 `http://dsh.internal` 两条寻址方式都可达（页面传输接缝改写落到 loopback） |
+| **F-10 FIBER** | fiber 级契约（#91）：四棵树里**没有任何 cordis scope 进 FAILED**。cordis 插件 fiber 失败**不进浏览器控制台**（官方 client logger 没有 console exporter，#74 首屏实测 console 0 行），所以页面里装一个 fiber 探针（包 `__ModuleLoader__.load` 的 factory、只包 `@deepseek-ai/dsh-client-modules` 的 apply 拿 ctx、监听 `internal/plugin` + `internal/status`，见 `harness.ts` 的 `fiberProbeScript`），按 uid 归账到插件 id。另外钉住探针自己没瞎：接上了事件总线、登记到该树的自有 frame 插件、真观察到状态变化、探针零异常——否则「零失败」是空的 |
+| **F-11 WIRE-LIVENESS** | block list 存活性（#91）：`chat` / `sidebar` / `settings` 三棵树 block list 里**每一项**都要能在当天网关下发的官方 wire 里找到。官方把被 block 的插件改名或并进别的插件时，新 id 不会被剥掉、官方件静默混进树里（`filterWire` 只打 warn 不阻断），这条先红并报出「哪棵树 + 哪个 id + 当天 wire 里含同名词的邻近 id」 |
 | **R-06 只读守卫** | 整轮跑前跑后数一遍网关会话数：必须一模一样。「真实网关只读」的可执行定义——喂 prompt、点新建会话都会改变这个数 |
 
 **密度档（#85）与 PARITY 的关系**：VS Code 侧的 frame 会在容器上下发更紧的一组
@@ -87,9 +100,9 @@ chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（
 官方基准」两条。另有两条显式例外写在套件的 `expect` 里：列表容器只比宽度（自有树多一条
 分组过滤条，矮一行是功能带来的），两侧都没产生某元素时该组跳过（一侧有则仍判失败）。
 
-首版 6 项合计 245 条断言；#83 加 F-06、#81 加 F-07、#77 加座位锚点、#87 加 F-09、#72 加 F-08 之后共
-**10 项 336 条断言**（F-01 43 / F-02 13 / F-03 14 / F-04 181 / F-05 7 / F-06 11 / F-07 27 / F-08 26 / F-09 13 / R-06 1），
-本机全绿约 80 秒。
+首版 6 项合计 245 条断言；#83 加 F-06、#81 加 F-07、#77 加座位锚点、#87 加 F-09、#72 加 F-08、#91 加 F-10/F-11 之后共
+**12 项 360 条断言**（F-01 43 / F-02 13 / F-03 14 / F-04 181 / F-05 7 / F-06 11 / F-07 27 / F-08 26 / F-09 13 / F-10 20 / F-11 4 / R-06 1），
+本机全绿约 1 分半（套件本身约 90 秒；F-10 的四棵树靠「fiber 状态静下来」判定，约 10 秒）。
 
 ## 页面是怎么造出来的（为什么可信）
 

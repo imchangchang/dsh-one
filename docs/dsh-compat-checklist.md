@@ -9,7 +9,7 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 
 探针分两类：**伺服面**（wire——网关对外的 HTTP/WS 接口，上游改了交互方式在这一面现形）与**客户端契约面**（combo——装配线直引官方前端插件代码，官方的 slot 名、hook 名、字段名就是我们的 ABI）。两类都由 `.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑。
 
-两者的分工：探针只查「名字还在不在」，不查「装起来崩不崩」——后者归 `npm run verify:lab` 的 F-01 CONTRACT 套件（四棵树零崩溃、零缺失契约）。
+两者的分工：探针只查「名字还在不在」，不查「装起来崩不崩」——后者归 `npm run verify:lab`：F-01 CONTRACT 套件（四棵树零崩溃、零缺失契约），外加 #91 加的两条漂移断言 **F-10 FIBER**（四棵树零 cordis scope 进 FAILED——fiber 失败不进控制台，只能运行期看）与 **F-11 WIRE-LIVENESS**（三棵树 block list 的每个 id 都要在当天 wire 里找得到——官方改名会让过滤静默失效）。
 
 ### 伺服面（14 项）
 
