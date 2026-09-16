@@ -13,18 +13,107 @@
  *   --headed          开有界面的浏览器（人工看现场用）
  *   --keep            跑完不关实验室服务器（配合 --headed 人工点页面）
  *   --no-report       只写 ledger，不渲染 HTML 报告
+ *
+ * 收尾（#88）：无论跑完、有断言失败，还是被 Ctrl-C / SIGTERM 打断，都会回收
+ * chromium 与实验室服务器，并以真实结果作为退出码——0 = 全过，1 = 有断言失败，
+ * 2 = 起不来或未预期失败，130 / 143 = 被 Ctrl-C / SIGTERM 打断。
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { Browser } from 'playwright'
 import { Check, launchBrowser } from './harness.ts'
-import { consoleLogger, defaultGateway, defaultPluginsDir, defaultPort, startLabServer } from './labServer.ts'
+import {
+  consoleLogger,
+  defaultGateway,
+  defaultPluginsDir,
+  defaultPort,
+  startLabServer,
+  type LabServer,
+} from './labServer.ts'
 import { SUITES } from './suites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 
 const LAB_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.join(LAB_DIR, '..', '..')
+
+/**
+ * 本次运行起过的东西（chromium、实验室服务器）。放在模块级，是为了让信号
+ * 处理也能看见它们——SIGINT / SIGTERM 时要把它们收干净，不能像 #88 之前那样
+ * 一按 Ctrl-C 就留下挂着不动的孤儿进程（现场实测一台机器上堆了 38 个）。
+ */
+const resources: { browser?: Browser; lab?: LabServer } = {}
+/** `--keep`：故意把实验室服务器留着给人点页面，此时跑完不强制退出。 */
+let keepServer = false
+let shuttingDown = false
+
+/**
+ * 带超时的收尾：收尾本身也不许把进程卡住。#88 的现场就是「断言跑完、报告
+ * 写完，进程还挂着」，所以宁可放弃等待也要退出去。
+ */
+async function withTimeout(step: string, work: Promise<unknown>, ms: number): Promise<void> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    await Promise.race([
+      work.then(
+        () => undefined,
+        (err: unknown) => {
+          // 收尾失败不该改写验证结论，但也不能默默吞掉——打到 stderr 让人看得见。
+          process.stderr.write(`test/assembly-lab: ${step} 失败：${err instanceof Error ? err.message : String(err)}\n`)
+        },
+      ),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          process.stderr.write(`test/assembly-lab: ${step} 超过 ${String(ms / 1000)} 秒没结束，不再等它。\n`)
+          resolve()
+        }, ms)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+/** 回收本次运行起的 chromium 与实验室服务器（重复调用安全）。 */
+async function disposeResources(keepLab: boolean): Promise<void> {
+  const browser = resources.browser
+  resources.browser = undefined
+  if (browser !== undefined) await withTimeout('关闭 chromium', browser.close(), 15_000)
+  // `--keep` 时保留引用不销毁：之后若收到信号，还能从信号处理里收掉它。
+  if (!keepLab && resources.lab !== undefined) {
+    const lab = resources.lab
+    resources.lab = undefined
+    lab.dispose()
+  }
+}
+
+/** 被 Ctrl-C / SIGTERM 打断：收干净，再用约定俗成的退出码退（130 / 143）。 */
+async function onSignal(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) return
+  shuttingDown = true
+  process.stderr.write(`\ntest/assembly-lab: 收到 ${signal}，正在回收 chromium 与实验室服务器…\n`)
+  await disposeResources(false)
+  process.exit(signal === 'SIGINT' ? 130 : 143)
+}
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => void onSignal(signal))
+
+/**
+ * 跑完就退，退出码就是真实结果（#88）：不再指望「事件循环恰好没有悬挂句柄」
+ * ——只要还剩一条没关的连接，Node 就不会自己退（现场抓到的是 mirror 转发的
+ * 网关 `/plugins/events` 流）。先把已排队的 stdout 落盘（写一个空串，它的回调
+ * 排在前面所有输出之后），再退；万一 stdout 卡住，5 秒后照样退。
+ */
+function finish(code: number): void {
+  process.exitCode = code
+  if (keepServer || shuttingDown) return
+  const safety = setTimeout(() => process.exit(code), 5_000)
+  process.stdout.write('', () => {
+    clearTimeout(safety)
+    process.exit(code)
+  })
+}
 
 interface Args {
   gateway: string
@@ -82,6 +171,7 @@ async function main(): Promise<number> {
   if (process.argv.includes('--help') || process.argv.includes('-h')) return printUsage()
   const args = parseArgs(process.argv.slice(2))
   const log = consoleLogger(args.quiet)
+  keepServer = args.keep
 
   const pluginsDir = defaultPluginsDir()
   const plugins = await fsp.readdir(pluginsDir).catch(() => null)
@@ -114,8 +204,10 @@ async function main(): Promise<number> {
     process.stderr.write(`test/assembly-lab: 实验室起不来：${err instanceof Error ? err.message : String(err)}\n`)
     return 2
   }
+  resources.lab = lab
 
   const browser = await launchBrowser(!args.headed)
+  resources.browser = browser
   const items: unknown[] = []
   let failed = 0
   // 只读守卫（报告里的 R-06）：整轮跑前跑后数一遍网关上的会话数——实验室的任何
@@ -191,8 +283,7 @@ async function main(): Promise<number> {
       notes: readonly.notes(),
     })
   } finally {
-    await browser.close()
-    if (!args.keep) lab.dispose()
+    await disposeResources(args.keep)
   }
 
   const { branch, commit } = gitInfo()
@@ -237,11 +328,10 @@ async function main(): Promise<number> {
 }
 
 main().then(
-  (code) => {
-    process.exitCode = code
-  },
-  (err: unknown) => {
+  (code) => finish(code),
+  async (err: unknown) => {
     process.stderr.write(`test/assembly-lab: 未预期失败：${err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err)}\n`)
-    process.exitCode = 2
+    await disposeResources(keepServer)
+    finish(2)
   },
 )
