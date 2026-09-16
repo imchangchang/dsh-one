@@ -1,23 +1,28 @@
 /**
- * 底部回收站入口行（#99 B 段）：**搬进官方 `sidebar.footer.action` 座位**。
+ * 底部回收站入口行（#99 B 段立的形态，#103 接上语义）：**在官方 `sidebar.footer.action`
+ * 座位里**。
  *
  * ## 为什么在这里、长什么样
  * #98 的布局规范把回收站入口从顶栏挪到侧栏底部，座位用官方侧栏壳声明的
  * `sidebar.footer.action`（list 槽，owner share = `{ wide }`，与官方 ui-cordis 的
  * `cordis-panel` 那条**并存**——它同样是这个槽的注册者，谁也不顶掉谁）。形态按旧侧栏的
- * 那一行：🗑 + 文案 + 计数 + 右侧两枚动作图标，计数 0 时整体灰态；点主区开抽屉。
+ * 那一行：🗑 + 文案 + 计数 + 右侧两枚动作图标；**计数 0 时整体灰态、两枚图标禁用**；
+ * 点主区开抽屉。
  *
- * ## 两枚动作图标为什么是「不可用」
- * 「清空」与「恢复全部」的语义属回收站两层语义（#98 的 H1：清空 = 永久归档、全部
- * 还原、都要确认弹窗），本条（#99）明确不碰那层语义，只把入口行的**形态**立起来、
- * 保证点得开现有抽屉。所以两枚图标渲染为不可用（`disabled` + 说明性 title），
- * 免得给出一个与最终语义不符的动作；H1 条目接手时把它们接上真实动作即可。
+ * ## 计数从哪来（#103）
+ * 本地回收站集合（宿主能力口键 `recycle-bin`）∩ 今天还认得出来的会话——见
+ * `visibleRecycleIds`。抽屉里的行数用的是同一个函数，所以角标与拉开抽屉看到的永远一致。
  *
- * ## 抽屉怎么被这行打开（同一 bundle 内的模块级订阅）
+ * ## 两枚动作图标：清空 / 全部还原
+ * 「清空」是**不可逆**的（= 把回收站里每一条都永久归档），所以它不在这里直接执行，而是
+ * 把请求发给树主组件去开确认弹窗；「全部还原」是本地可逆动作，同样交给树主组件统一执行
+ *（动作只有一个执行处，界面各处不会各写一套）。入口行只发请求。
+ *
+ * ## 抽屉怎么被这行打开（同一 bundle 内的模块级信号）
  * 抽屉与它的状态住在树主组件里（`sidebar.workspaces` 座位那条渲染），入口行在另一个
  * 座位（`sidebar.footer.action`）——两条 entry 属于**同一个插件、同一份 bundle**，
- * 于是用本模块里一个极小的订阅点（{@link recycleEntrySignal}）把「请求开抽屉」传过去：
- * 入口行发信号，树主组件收到就开抽屉。不碰 DOM 查询、不新增槽位名、不跨插件借状态。
+ * 于是用本模块里一个极小的订阅点（{@link recycleEntrySignal}）把请求传过去。
+ * 不碰 DOM 查询、不新增槽位名、不跨插件借状态。
  */
 import { createElement as h } from 'react'
 import {
@@ -26,26 +31,22 @@ import {
   IconTrashOutline16,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import {
-  deriveRecycleGroups,
-  recycleCount,
-  type SessionListLike,
-} from '../../../../pure/workspaceTreeView.ts'
+import { visibleRecycleIds, type SessionListLike } from '../../../../pure/workspaceTreeView.ts'
+import { useRecycleBin } from './recycleBinStore.ts'
 import type { Translate } from './types.ts'
 
-/**
- * 「请求打开回收站抽屉」的模块级信号（同一插件 bundle 内共享，见文件头）。
- * 树主组件订阅它；入口行触发它。信号只表达「请求」，抽屉由树主组件自己开关。
- */
-const listeners = new Set<() => void>()
+/** 入口行向树主组件发的请求。 */
+export type RecycleRequest = 'open' | 'empty' | 'restoreAll'
+
+const listeners = new Set<(request: RecycleRequest) => void>()
 
 export const recycleEntrySignal = {
-  /** 入口行点了主区：请求开抽屉。 */
-  requestOpen(): void {
-    for (const listener of [...listeners]) listener()
+  /** 入口行发请求（开抽屉 / 清空 / 全部还原）。 */
+  request(request: RecycleRequest): void {
+    for (const listener of [...listeners]) listener(request)
   },
   /** 树主组件挂载时订阅（返回退订）。 */
-  subscribe(listener: () => void): () => void {
+  subscribe(listener: (request: RecycleRequest) => void): () => void {
     listeners.add(listener)
     return () => {
       listeners.delete(listener)
@@ -73,14 +74,15 @@ interface RecycleEntryProps {
   ) => R
 }
 
-/** 底部那行：主区（开抽屉）+ 两枚动作图标（形态占位，见文件头）。 */
+/** 底部那行：主区（开抽屉）+ 两枚动作图标（清空 / 全部还原）。 */
 export function RecycleEntry({ wide = true, t, useSessions, useWorkspaces }: RecycleEntryProps): unknown {
   const tr = t
   const list = useSessions((state) => state)
-  const workspaces = useWorkspaces((state) => state.items)
   const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds)
-  const total = recycleCount(deriveRecycleGroups(list, workspaces, archivedSessionIds))
-  const action = (kind: 'empty' | 'restore'): unknown => {
+  // 本地回收站集合（#103 的两层语义第一层）+ 今天还认得出来的那些。
+  const bin = useRecycleBin()
+  const total = visibleRecycleIds(bin.ids, list, archivedSessionIds).length
+  const action = (kind: 'empty' | 'restoreAll'): unknown => {
     const label = kind === 'empty' ? tr('recycle.emptyAll') : tr('recycle.restoreAll')
     return h(Tooltip, {
       label,
@@ -93,8 +95,9 @@ export function RecycleEntry({ wide = true, t, useSessions, useWorkspaces }: Rec
           className: `dshOneTree_footerIconButton${kind === 'empty' ? ' dshOneTree_footerIconDanger' : ''}`,
           'aria-label': label,
           'data-dshone-tree-action': kind === 'empty' ? 'recycle-empty-all' : 'recycle-restore-all',
-          // 形态占位：动作语义属 #98 的 H1（回收站两层语义），本条只立入口行。
-          disabled: true,
+          // 计数 0（回收站空着）：两枚动作都禁用——没有东西可清、也没有东西可还原。
+          disabled: total === 0,
+          onClick: () => recycleEntrySignal.request(kind === 'empty' ? 'empty' : 'restoreAll'),
         },
         kind === 'empty' ? h(IconTrashOutline16, { size: 14 }) : h(IconRefreshOutline16, { size: 14 }),
       ),
@@ -116,13 +119,13 @@ export function RecycleEntry({ wide = true, t, useSessions, useWorkspaces }: Rec
         'aria-label': `${tr('recycle.open')} (${String(total)})`,
         'data-dshone-tree-action': 'recycle-open',
         'data-dshone-tree-recycle-count': total,
-        onClick: () => recycleEntrySignal.requestOpen(),
+        onClick: () => recycleEntrySignal.request('open'),
       },
       h('span', { className: 'dshOneTree_footerIcon' }, h(IconArchiveOutline20, { size: 16 })),
       h('span', { className: 'dshOneTree_footerLabel' }, tr('recycle.open')),
       h('span', { className: 'dshOneTree_footerCount' }, String(total)),
     ),
     action('empty'),
-    action('restore'),
+    action('restoreAll'),
   )
 }

@@ -9,6 +9,7 @@ import {
   sessionStatuses,
   sessionVisible,
   showsStatusDot,
+  workspaceActivityCounts,
   type PendingInteractions,
   type SessionListLike,
   type SessionSummaryLike,
@@ -62,6 +63,35 @@ test('owningGroupKey：被工作区记账的会话归该工作区，其余落未
   const workspaces = [workspace('w1', ['a']), workspace('w2', ['b'])]
   assert.equal(owningGroupKey(workspaces, 'b'), 'w2')
   assert.equal(owningGroupKey(workspaces, 'z'), UNGROUPED_KEY)
+})
+
+// ---------------------------------------------------------------------------
+// #103 本地回收站：移进去的会话不进树（但 dsh 侧仍在，可还原）
+// ---------------------------------------------------------------------------
+
+test('sessionVisible：本地回收站集合里的会话不进树（第四参缺省时官方判据原样）', () => {
+  assert.equal(sessionVisible(summary('a'), undefined, new Set(), new Set(['a'])), false)
+  assert.equal(sessionVisible(summary('b'), undefined, new Set(), new Set(['a'])), true)
+  assert.equal(sessionVisible(summary('a'), undefined, new Set()), true, '不传回收站集合 = 没有本地挪走任何东西')
+})
+
+test('deriveGroups / deriveFlat：移进回收站的会话从分组、计数与单列表里都消失', () => {
+  const ws = [workspace('w1', ['a', 'b'])]
+  const sessions = list([summary('a'), summary('b')])
+  const recycled = new Set(['a'])
+  const grouped = deriveGroups(sessions, ws, [], noPending, { expandedGroups: ['w1'], recycled })
+  assert.equal(grouped[0]?.sessionCount, 1)
+  assert.deepEqual(grouped[0]?.sessions.map((s) => s.id), ['b'])
+  assert.deepEqual(deriveFlat(sessions, [], noPending, recycled).map((s) => s.id), ['b'])
+  assert.deepEqual(deriveFlat(sessions, [], noPending).map((s) => s.id), ['a', 'b'], '不传回收站集合时两条都在')
+})
+
+test('workspaceActivityCounts：回收站里的会话不被数进行尾计数（计数与看得见的行同源）', () => {
+  const ws = [workspace('w1', ['a', 'b'])]
+  const sessions = list([summary('a', { running: true }), summary('b')])
+  const counts = workspaceActivityCounts(sessions, ws, [], noPending, new Set(['a']))
+  assert.equal(counts.get('w1'), undefined, '唯一在跑的那条被挪走了 → 该工作区没有角标')
+  assert.equal(workspaceActivityCounts(sessions, ws, [], noPending).get('w1')?.running, 1)
 })
 
 // ---------------------------------------------------------------------------

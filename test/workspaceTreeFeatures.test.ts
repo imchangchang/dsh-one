@@ -12,6 +12,7 @@ import {
   deriveGroups,
   deriveRecycleGroups,
   recycleCount,
+  visibleRecycleIds,
   workspaceActivityCounts,
   type PendingInteractions,
   type SessionListLike,
@@ -222,11 +223,12 @@ test('计数：散会话归未分组桶，空闲工作区没有条目（不给�
 })
 
 // ---------------------------------------------------------------------------
-// #81 功能 3/5：回收站（官方归档集合）的抽屉数据
+// #103 回收站（本地可逆那一层）：抽屉数据 = 我们自己的集合，块内按移入顺序倒序
 // ---------------------------------------------------------------------------
 
-test('回收站：按工作区组织、组内按最近更新倒序、无归档的工作区不出现', () => {
+test('回收站：按工作区组织、块内按移入顺序倒序（最近移入的在最上）、没内容的块不出现', () => {
   const ws = [workspace('w1', ['a1', 'a2']), workspace('w2', ['b1']), workspace('w3', ['c1'])]
+  // 移入顺序：a1 → a2 → b1（越靠后 = 越晚移入，越该排在前面）
   const sessions = list([
     summary('a1', { updatedAt: NOW - 10 }),
     summary('a2', { updatedAt: NOW }),
@@ -234,12 +236,20 @@ test('回收站：按工作区组织、组内按最近更新倒序、无归档�
     summary('c1'),
   ])
   const groups = deriveRecycleGroups(sessions, ws, ['a1', 'a2', 'b1'])
-  assert.deepEqual(groups.map((g) => g.key), ['w1', 'w2'], 'w3 没有归档会话 → 不出现')
-  assert.deepEqual(groups[0]?.sessions.map((s) => s.id), ['a2', 'a1'], '组内最近更新在前')
+  assert.deepEqual(groups.map((g) => g.key), ['w1', 'w2'], 'w3 里没有回收站会话 → 不出现')
+  assert.deepEqual(groups[0]?.sessions.map((s) => s.id), ['a2', 'a1'], 'a2 比 a1 晚移入 → 排在前面')
   assert.equal(recycleCount(groups), 3)
 })
 
-test('回收站：认不出的归档 id（会话日志已清）跳过不占位；子代理不进抽屉', () => {
+test('回收站：顺序由移入顺序决定，与最近更新时间无关', () => {
+  const ws = [workspace('w1', ['old', 'new'])]
+  // `new` 的更新时间更新，但它更早移入——块内顺序仍按移入顺序倒序。
+  const sessions = list([summary('old', { updatedAt: NOW }), summary('new', { updatedAt: NOW - 100_000 })])
+  const groups = deriveRecycleGroups(sessions, ws, ['new', 'old'])
+  assert.deepEqual(groups[0]?.sessions.map((s) => s.id), ['old', 'new'])
+})
+
+test('回收站：认不出的 id（会话被归档/删掉）跳过不占位；子代理不进抽屉', () => {
   const ws = [workspace('w1', ['a1'])]
   const sessions = list([summary('a1'), summary('sub', { origin: 'subagent' })])
   const groups = deriveRecycleGroups(sessions, ws, ['a1', 'gone', 'sub'])
@@ -248,7 +258,7 @@ test('回收站：认不出的归档 id（会话日志已清）跳过不占位�
   assert.equal(recycleCount(groups), 1)
 })
 
-test('回收站：不属于任何工作区的归档会话落未分组块（排在最后）', () => {
+test('回收站：不属于任何工作区的会话落未分组块（排在最后）', () => {
   const ws = [workspace('w1', ['a1'])]
   const sessions = list([summary('a1'), summary('stray')])
   const groups = deriveRecycleGroups(sessions, ws, ['a1', 'stray'])
@@ -256,8 +266,15 @@ test('回收站：不属于任何工作区的归档会话落未分组块（排�
   assert.deepEqual(groups[1]?.sessions.map((s) => s.id), ['stray'])
 })
 
-test('回收站：没有归档会话时抽屉是空的（入口显示 0，不渲染任何块）', () => {
+test('回收站：集合为空时抽屉是空的（入口显示 0，不渲染任何块）', () => {
   assert.deepEqual(deriveRecycleGroups(list([summary('a')]), [workspace('w1', ['a'])], []), [])
+})
+
+test('回收站：visibleRecycleIds 过滤掉认不出的与已归档的，并保留移入顺序', () => {
+  const sessions = list([summary('a'), summary('b'), summary('c', { origin: 'subagent' })])
+  assert.deepEqual(visibleRecycleIds(['a', 'gone', 'b', 'c'], sessions, []), ['a', 'b'])
+  assert.deepEqual(visibleRecycleIds(['a', 'b'], sessions, ['a']), ['b'])
+  assert.deepEqual(visibleRecycleIds([], sessions, []), [])
 })
 
 // ---------------------------------------------------------------------------
@@ -279,9 +296,15 @@ test('视图态：键名沿用官方惯例 dsh.<区>.<名>', () => {
   assert.equal(TREE_VIEW_PREF_KEY, 'dsh.workspaceTree.view')
 })
 
-test('视图态：写出去能读回来（分组方式/排序/当前分组/展开集合）', () => {
+test('视图态：写出去能读回来（分组方式/排序/当前分组/展开集合/抽屉折叠集合）', () => {
   const storage = memoryStorage()
-  const prefs = { groupBy: 'flat' as const, orderBy: 'updated' as const, activeGroupId: 'g-1', expandedGroups: ['w1', ''] }
+  const prefs = {
+    groupBy: 'flat' as const,
+    orderBy: 'updated' as const,
+    activeGroupId: 'g-1',
+    expandedGroups: ['w1', ''],
+    recycleCollapsed: ['w2'],
+  }
   writeTreeViewPrefs(storage, prefs)
   assert.deepEqual(readTreeViewPrefs(storage), prefs)
   assert.deepEqual(JSON.parse(storage.data[TREE_VIEW_PREF_KEY] as string), prefs)
@@ -294,8 +317,10 @@ test('视图态：无键/坏 JSON/未知取值一律回落默认（坏值不该�
   assert.deepEqual(readTreeViewPrefs(undefined), defaultTreeViewPrefs())
   assert.deepEqual(
     parseTreeViewPrefs({ groupBy: 'nope', orderBy: 'nope', activeGroupId: '', expandedGroups: ['a', 'a', 7] }),
-    { groupBy: 'workspace', orderBy: 'manual', activeGroupId: null, expandedGroups: ['a'] },
+    { groupBy: 'workspace', orderBy: 'manual', activeGroupId: null, expandedGroups: ['a'], recycleCollapsed: [] },
   )
+  // 旧版本的偏好里没有 recycleCollapsed：缺字段按空集合（旧数据不该让抽屉乱收）
+  assert.deepEqual(parseTreeViewPrefs({ expandedGroups: ['w1'], recycleCollapsed: 'nope' }).recycleCollapsed, [])
 })
 
 test('视图态：存储不可用（隐私模式/配额满）不抛，静默降级', () => {

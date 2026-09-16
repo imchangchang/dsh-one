@@ -162,20 +162,46 @@ const CSS =
   '.dshOneTree_selectionBar{gap:8px;box-sizing:border-box;padding:4px 8px;align-items:center;display:flex}' +
   '.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
   '.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 8px 4px}' +
-  '.dshOneTree_drawer{z-index:10;background:var(--dsw-alias-bg-base);position:absolute;inset:0;flex-direction:column;display:flex}' +
+  // 回收站抽屉（#103）：从底部半高滑出（高度由组件按档位给，默认 50%、上拉到 90%）。
+  '.dshOneTree_drawer{z-index:10;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-top:.5px solid var(--dsw-alias-border-l3);position:absolute;left:0;right:0;bottom:0;transform:translateY(100%);transition:transform .2s var(--ds-ease-in-out);flex-direction:column;display:flex;overflow:hidden}' +
+  '.dshOneTree_drawerOpen{transform:none}' +
+  '.dshOneTree_drawerHandle{cursor:grab;height:12px;flex:none;justify-content:center;align-items:center;display:flex;touch-action:none}' +
+  '.dshOneTree_drawerHandle:active{cursor:grabbing}' +
+  '.dshOneTree_drawerGrip{width:32px;height:3px;background:var(--dsw-alias-border-l3);border-radius:2px}' +
+  '.dshOneTree_drawerHandle:hover .dshOneTree_drawerGrip{background:var(--dsw-alias-label-tertiary)}' +
   '.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   '.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+  '.dshOneTree_drawerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
   '.dshOneTree_drawerList{min-height:0;padding:0 var(--dsh-one-density-section-padding-inline,4px) var(--dsh-one-density-list-padding-bottom,16px);flex:1;overflow-y:auto}' +
   '.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}' +
-  // 抽屉里的分块块头：官方列表的分组块头是 ui-model-selection 的 `_7KE1Ra_groupTitle`
-  // （5px + 18px 行高 + 3px = 26px 总高、行内边距 8px、12px 字号），这里取同一套。
-  '.dshOneTree_drawerGroupLabel{color:var(--dsw-alias-label-tertiary);height:var(--dsh-one-density-drawer-block-header-height,26px);align-items:center;padding:0 var(--dsh-one-density-row-padding-inline,8px);font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}' +
+  // 抽屉里的分块块头**就是那一枚可点折叠的按钮**：几何沿用 #104 的密度键（官方列表的
+  // 分组块头是 ui-model-selection 的 `_7KE1Ra_groupTitle`：26px 总高、行内边距 8px、
+  // 12px 字号），另加可点性（cursor / 圆角 / hover 底色）。
+  '.dshOneTree_drawerGroupLabel{cursor:pointer;width:100%;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:6px;height:var(--dsh-one-density-drawer-block-header-height,26px);align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}' +
+  '.dshOneTree_drawerGroupLabel:hover{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}' +
+  '.dshOneTree_drawerGroupArrow{width:14px;flex:none;align-items:center;display:inline-flex}' +
+  '.dshOneTree_drawerGroupLabelText{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}' +
+  '.dshOneTree_drawerGroupCount{flex:none}' +
   '.dshOneTree_drawerRow{cursor:pointer;height:var(--dsh-one-density-session-row-height,32px);color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
-  '.dshOneTree_drawerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
-  '.dshOneTree_drawerRow .dshOneTree_title{flex:1}' +
-  '.dshOneTree_drawerRestore{cursor:pointer;height:20px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;align-items:center;gap:4px;padding:0 4px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}' +
-  '.dshOneTree_drawerRestore:hover{color:var(--dsw-alias-label-primary)}' +
-  '.dshOneTree_drawerStatus{color:var(--dsw-alias-label-tertiary);padding:10px 8px;font-size:var(--dsh-one-density-meta-font-size,12px)}'
+  '.dshOneTree_drawerRow:hover,.dshOneTree_drawerRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}' +
+  '.dshOneTree_drawerRow .dshOneTree_title{flex:1;margin:0}' +
+  // 抽屉行的动作**常显**（不像主树那样悬停才出）：抽屉里本来就只有两个动作，藏起来
+  // 反而要多一步悬停；行悬停时时间让位给动作。
+  '.dshOneTree_drawerActions{flex:none;align-items:center;gap:2px;display:inline-flex}' +
+  '.dshOneTree_drawerRow:hover .dshOneTree_time,.dshOneTree_drawerRow.dshOneTree_menuOpen .dshOneTree_time{display:none}' +
+  '.dshOneTree_drawerRestore{cursor:pointer;height:20px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;align-items:center;gap:4px;padding:0 4px;font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}' +
+  '.dshOneTree_drawerRestore:hover:not(:disabled){color:var(--dsw-alias-label-primary)}' +
+  '.dshOneTree_drawerRestore:disabled{cursor:default;opacity:.45}' +
+  '.dshOneTree_drawerStatus{color:var(--dsw-alias-label-tertiary);padding:10px 8px;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
+  // 归档确认弹窗的明细（按工作区树形列）：块头 + 行。
+  '.dshOneTree_modalBlocks{max-height:240px;margin-top:8px;overflow-y:auto}' +
+  '.dshOneTree_modalBlock+.dshOneTree_modalBlock{margin-top:6px}' +
+  '.dshOneTree_modalBlockLabel{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 4px}' +
+  '.dshOneTree_modalRow{color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;font-size:var(--dsh-one-density-meta-font-size,12px);padding:2px 4px 2px 16px;overflow:hidden}' +
+  // 飘提示（移入/还原/归档的回执）：贴树区域底部，几秒后自己消失。
+  '.dshOneTree_flash{z-index:20;max-width:90%;background:var(--dsw-alias-bg-elevated,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;padding:6px 10px;font-size:var(--dsh-one-density-meta-font-size,12px);position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}' +
+  // 入口行两枚动作里的「清空」是危险动作（= 永久归档），按错误色标出来。
+  '.dshOneTree_footerIconDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}'
 export const CSS_TAG_ID = '@dsh-one/dsh-workspace-tree/Tree.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')

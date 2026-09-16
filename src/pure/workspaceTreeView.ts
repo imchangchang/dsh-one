@@ -110,6 +110,11 @@ export interface TreeViewLike {
    * 任何分组，跟着一起收起才符合直觉（理由写在 treeGroups.workspaceMatchesGroup）。
    */
   readonly workspaceFilter?: (workspaceId: string) => boolean
+  /**
+   * 本地回收站集合（#103 的两层语义第一层）：这些会话**不进主树**，但仍活在 dsh
+   * 侧（可随时还原）。缺省 = 空集（没有本地挪走任何东西）。
+   */
+  readonly recycled?: ReadonlySet<string>
 }
 
 /** 分组键：未分组桶。 */
@@ -148,13 +153,25 @@ export function owningGroupKey(workspaces: readonly WorkspaceViewLike[], session
   return workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.workspaceId ?? UNGROUPED_KEY
 }
 
-/** 官方 `sessionVisible`：子代理/归档不进树；空白会话只在它就是当前选中时进树。 */
+/**
+ * 官方 `sessionVisible`：子代理/归档不进树；空白会话只在它就是当前选中时进树。
+ *
+ * #103 起多一条**本地**可见性：被移进回收站的会话也不进树（`recycled` 缺省空集，
+ * 官方那条判据原样成立）。注意这一条与 `archived` 的区别正是两层语义：归档在 dsh
+ * 侧（终点、不可逆），回收站在本地（可逆、还原即在树里重新出现）。
+ */
 export function sessionVisible(
   session: SessionSummaryLike,
   current: string | undefined,
   archived: ReadonlySet<string>,
+  recycled?: ReadonlySet<string>,
 ): boolean {
-  return session.origin !== 'subagent' && !archived.has(session.id) && (!session.blank || session.id === current)
+  return (
+    session.origin !== 'subagent' &&
+    !archived.has(session.id) &&
+    !(recycled?.has(session.id) ?? false) &&
+    (!session.blank || session.id === current)
+  )
 }
 
 /** 官方 `sessionTitle`：空白会话标题为空串（渲染层替换成「新会话」）。 */
@@ -216,6 +233,7 @@ export function deriveGroups(
   view: TreeViewLike,
 ): GroupNode[] {
   const archived = new Set(archivedSessionIds)
+  const recycled = view.recycled ?? EMPTY_IDS
   const expanded = new Set(view.expandedGroups)
   const descendants = indexSubagentDescendants(list.byId)
   const currentGroup = list.current === undefined ? undefined : owningGroupKey(workspaces, list.current)
@@ -227,7 +245,7 @@ export function deriveGroups(
       const summary = list.byId[id]
       if (summary === undefined) continue
       accounted.add(id)
-      if (!sessionVisible(summary, list.current, archived)) continue
+      if (!sessionVisible(summary, list.current, archived, recycled)) continue
       members.push(summary)
     }
     if (view.workspaceFilter !== undefined && !view.workspaceFilter(workspace.workspaceId)) continue
@@ -245,7 +263,10 @@ export function deriveGroups(
   }
   const stray = list.ids
     .map((id) => list.byId[id])
-    .filter((s): s is SessionSummaryLike => s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
+    .filter(
+      (s): s is SessionSummaryLike =>
+        s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived, recycled),
+    )
   if (stray.length > 0 && view.workspaceFilter === undefined) {
     const strayIds = new Set(stray.map((s) => s.id))
     const ordered = orderByRecency(
@@ -268,17 +289,24 @@ export function deriveGroups(
   return groups
 }
 
-/** 官方 `deriveFlat`：单列表模式——所有可见会话按最近更新倒序。 */
+/**
+ * 官方 `deriveFlat`：单列表模式——所有可见会话按最近更新倒序。
+ * `recycled` 见 {@link sessionVisible}（#103 的本地回收站集合，缺省空集）。
+ */
 export function deriveFlat(
   list: SessionListLike,
   archivedSessionIds: readonly string[],
   pending: PendingInteractions,
+  recycled?: ReadonlySet<string>,
 ): SessionNode[] {
   const archived = new Set(archivedSessionIds)
   const descendants = indexSubagentDescendants(list.byId)
   const visible = list.ids
     .map((id) => list.byId[id])
-    .filter((s): s is SessionSummaryLike => s !== undefined && sessionVisible(s, list.current, archived))
+    .filter(
+      (s): s is SessionSummaryLike =>
+        s !== undefined && sessionVisible(s, list.current, archived, recycled ?? EMPTY_IDS),
+    )
   return orderByRecency(
     visible.map((s) => s.id),
     list.byId,
@@ -369,12 +397,17 @@ export interface ActivityCounts {
   readonly waiting: number
 }
 
-/** 每个分组键的活状态计数（键与 `GroupNode.key` 同域：工作区 id / UNGROUPED_KEY）。 */
+/**
+ * 每个分组键的活状态计数（键与 `GroupNode.key` 同域：工作区 id / UNGROUPED_KEY）。
+ * `recycled` = 本地回收站集合（#103）：挪进回收站的会话在树里看不见，也就不该被
+ * 数进行尾计数——计数与「树里看得见的行」永远同源。缺省空集。
+ */
 export function workspaceActivityCounts(
   list: SessionListLike,
   workspaces: readonly WorkspaceViewLike[],
   archivedSessionIds: readonly string[],
   pending: PendingInteractions,
+  recycled: ReadonlySet<string> = EMPTY_IDS,
 ): Map<string, ActivityCounts> {
   const archived = new Set(archivedSessionIds)
   const counts = new Map<string, { running: number; waiting: number }>()
@@ -391,7 +424,7 @@ export function workspaceActivityCounts(
       const summary = list.byId[id]
       if (summary === undefined) continue
       accounted.add(id)
-      if (!sessionVisible(summary, list.current, archived)) continue
+      if (!sessionVisible(summary, list.current, archived, recycled)) continue
       const waiting = visiblePendingKind(pending.get(id)?.kind) !== undefined
       bump(workspace.workspaceId, summary.running, waiting)
     }
@@ -399,7 +432,7 @@ export function workspaceActivityCounts(
   for (const id of list.ids) {
     const summary = list.byId[id]
     if (summary === undefined || accounted.has(id)) continue
-    if (!sessionVisible(summary, list.current, archived)) continue
+    if (!sessionVisible(summary, list.current, archived, recycled)) continue
     const waiting = visiblePendingKind(pending.get(id)?.kind) !== undefined
     bump(UNGROUPED_KEY, summary.running, waiting)
   }
@@ -407,21 +440,23 @@ export function workspaceActivityCounts(
 }
 
 // ---------------------------------------------------------------------------
-// #81 功能 3/5：回收站（= 官方归档集合）按工作区组织
+// #103：回收站抽屉数据——本地那一层（#98 A1 的两层语义）
 //
-// 数据面是官方 `WorkspaceSnapshot.archivedSessionIds`（**不重复造**）：进回收站 =
-// 官方 `uiWorkspace.archiveSession`，还原 = 官方 `uiWorkspace.unarchiveSession`
-// （官方 navigation.d.ts 两条都在）。本模块只把那份 id 集合摊成抽屉要的形状：
-// 按归属工作区分组、组内按最近更新倒序。
-// 官方归档集合里可能有本项目已经不认识的 id（会话被删/日志清掉）：那种渲染不出
-// 行，直接跳过，不占位。
+// 数据面是**我们自己的本地集合**（键 `recycle-bin`，见 pure/recycleBinState.ts）：
+// 移入/还原都只动这个集合，dsh 侧一个字节不动；归档才是终点动作（走官方
+// `archiveSession`，与这里无关）。本模块只把那份 id 列表摊成抽屉要的形状：
+// 按归属工作区分组、**块内按移入顺序倒序**（最近移入的在最上）。
+//
+// 集合里可能有本项目已经不认识的 id（会话在 dsh 侧被归档/删除）：那种渲染不出行，
+// 直接跳过、不占位（{@link visibleRecycleIds} 会先过滤一遍，抽屉与入口角标用的是
+// 同一份口径，所以角标与大开抽屉后看到行数永远一致）。
 // ---------------------------------------------------------------------------
 
 /** 回收站抽屉里的一条会话。 */
 export interface RecycleNode extends SessionNode {}
 
-/** 回收站抽屉里的一个工作区块。 */
-export interface RecycleGroup {
+/** 一组会话按归属工作区分好的块（回收站抽屉与归档确认弹窗共用这个形状）。 */
+export interface SessionBlock {
   /** 与树里的分组键同域（工作区 id / UNGROUPED_KEY）。 */
   readonly key: string
   readonly workspaceId?: string
@@ -429,64 +464,85 @@ export interface RecycleGroup {
   readonly sessions: readonly RecycleNode[]
 }
 
-/** 把官方归档集合摊成「按工作区组织」的抽屉数据（空工作区不出现在结果里）。 */
-export function deriveRecycleGroups(
+/** 回收站抽屉里的一个工作区块（与 {@link SessionBlock} 同形）。 */
+export type RecycleGroup = SessionBlock
+
+/**
+ * 把一组会话 id 按归属工作区分块：块序 = 工作区注册顺序 + 未分组桶收尾，**块内保持
+ * 传入顺序**，认不出的 id（会话没了）与子代理会话跳过不占位，空块不出现。
+ */
+export function groupSessionNodes(
   list: SessionListLike,
   workspaces: readonly WorkspaceViewLike[],
-  archivedSessionIds: readonly string[],
-): RecycleGroup[] {
-  const archived = new Set(archivedSessionIds)
+  sessionIds: readonly string[],
+): SessionBlock[] {
   const descendants = indexSubagentDescendants(list.byId)
-  const seen = new Set<string>()
   const byKey = new Map<string, SessionSummaryLike[]>()
-  const push = (key: string, summary: SessionSummaryLike): void => {
-    if (seen.has(summary.id)) return
-    seen.add(summary.id)
+  const seen = new Set<string>()
+  for (const id of sessionIds) {
+    if (seen.has(id)) continue
+    const summary = list.byId[id]
+    if (summary === undefined || summary.origin === 'subagent') continue
+    seen.add(id)
+    const key = owningGroupKey(workspaces, id)
     const bucket = byKey.get(key)
     if (bucket === undefined) byKey.set(key, [summary])
     else bucket.push(summary)
   }
-  // 归属按官方工作区记账（`owningGroupKey`）判定，与树里的分组一致。
-  for (const workspace of workspaces) {
-    for (const id of workspace.sessionIds) {
-      const summary = list.byId[id]
-      if (summary === undefined || !archived.has(id)) continue
-      if (summary.origin === 'subagent') continue
-      push(workspace.workspaceId, summary)
-    }
-  }
-  for (const id of list.ids) {
-    const summary = list.byId[id]
-    if (summary === undefined || !archived.has(id) || seen.has(id)) continue
-    if (summary.origin === 'subagent') continue
-    push(UNGROUPED_KEY, summary)
-  }
-  const groups: RecycleGroup[] = []
+  const blocks: SessionBlock[] = []
   for (const workspace of workspaces) {
     const members = byKey.get(workspace.workspaceId)
     if (members === undefined || members.length === 0) continue
-    groups.push({
+    blocks.push({
       key: workspace.workspaceId,
       workspaceId: workspace.workspaceId,
       label: workspace.title,
-      sessions: orderByRecency(members.map((m) => m.id), list.byId).flatMap((id) => {
-        const summary = list.byId[id]
-        return summary === undefined ? [] : [sessionNode(summary, descendants, EMPTY_PENDING)]
-      }),
+      sessions: members.map((member) => sessionNode(member, descendants, EMPTY_PENDING)),
     })
   }
   const stray = byKey.get(UNGROUPED_KEY)
   if (stray !== undefined && stray.length > 0) {
-    groups.push({
+    blocks.push({
       key: UNGROUPED_KEY,
       label: '',
-      sessions: orderByRecency(stray.map((s) => s.id), list.byId).flatMap((id) => {
-        const summary = list.byId[id]
-        return summary === undefined ? [] : [sessionNode(summary, descendants, EMPTY_PENDING)]
-      }),
+      sessions: stray.map((member) => sessionNode(member, descendants, EMPTY_PENDING)),
     })
   }
-  return groups
+  return blocks
+}
+
+/**
+ * 本地回收站里「还认得出来」的会话 id：dsh 侧还在（会话列表里查得到）、且**没有**
+ * 在别处被归档，保留原传入顺序（移入顺序）。子代理会话不进回收站（它们在树里
+ * 本来就不可选），与 `sessionVisible` 同一口径。
+ *
+ * 入口角标、主树过滤、抽屉内容都用这一个函数，所以「角标数字 = 抽屉里的行数」
+ * 是构造出来的，不靠三处各自数一遍。
+ */
+export function visibleRecycleIds(
+  recycleIds: readonly string[],
+  list: SessionListLike,
+  archivedSessionIds: readonly string[],
+): string[] {
+  const archived = new Set(archivedSessionIds)
+  return recycleIds.filter((id) => {
+    const summary = list.byId[id]
+    return summary !== undefined && summary.origin !== 'subagent' && !archived.has(id)
+  })
+}
+
+/**
+ * 把本地回收站集合摊成「按工作区组织」的抽屉数据。
+ * @param recycleIds - 本地回收站 id，**移入顺序**（最早移入的在最前，与
+ *   `recycle-bin.json` 里的顺序一致）；传 `visibleRecycleIds(...)` 的结果即可。
+ */
+export function deriveRecycleGroups(
+  list: SessionListLike,
+  workspaces: readonly WorkspaceViewLike[],
+  recycleIds: readonly string[],
+): SessionBlock[] {
+  // 块内顺序 = 移入顺序倒序（最近挪进来的在最上）：倒着喂给分组器即得。
+  return groupSessionNodes(list, workspaces, [...recycleIds].reverse())
 }
 
 /** 回收站里的会话总数（抽屉入口的角标用）。 */
@@ -495,3 +551,4 @@ export function recycleCount(groups: readonly RecycleGroup[]): number {
 }
 
 const EMPTY_PENDING: PendingInteractions = new Map()
+const EMPTY_IDS: ReadonlySet<string> = new Set()

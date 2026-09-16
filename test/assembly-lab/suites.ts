@@ -1433,12 +1433,16 @@ export const MULTIOPEN_SUITE: LabSuite = {
       const menu = await menuFacts(sidebar.page)
       check.fact(`⋯ 菜单：${JSON.stringify(menu)}`)
       check.ok('⋯ 菜单弹出且带「在新标签页打开」项', menu.menus === 1 && menu.item.trim() !== '', JSON.stringify(menu))
+      // #103 起行菜单多一项「移入回收站」（与「归档会话」分开的两层语义）：五项都有
+      // 文案才算原三项没被挤掉。
       check.ok(
-        // #102 起菜单里多了「置顶」「标为未读」两项，所以这里不再钉死项数，改成
-        // 「原有四项都还在且每一项都有文案」——钉死会让共享热点上每加一项都要改这里。
-        '原有四项都还在且每项都有文案（重命名 / 分叉 / 在新标签页打开 / 归档）',
+        // #102/#103 起菜单里多了「置顶」「标为未读」「移入回收站」几项，所以这里不再钉死项数，
+        // 改成「原有几项都还在且每一项都有文案」——钉死会让共享热点上每加一项都要改这里。
+        '原有五项都还在且每项都有文案（重命名 / 分叉 / 在新标签页打开 / 移入回收站 / 归档）',
         menu.allItems.every((label) => label.trim() !== '') &&
-          ['重命名', '分叉会话', '在新标签页打开', '归档会话'].every((label) => menu.allItems.some((text) => text.includes(label))),
+          ['重命名', '分叉会话', '在新标签页打开', '移入回收站', '归档会话'].every((label) =>
+            menu.allItems.some((text) => text.includes(label)),
+          ),
         JSON.stringify(menu.allItems),
       )
       screenshots.push(await shot(ctx, sidebar.page, 'multiopen-menu'))
@@ -2393,6 +2397,485 @@ export const PIN_UNREAD_SUITE: LabSuite = {
     return screenshots
   },
 }
+// ---------------------------------------------------------------------------
+// F-15 RECYCLE-TWO-LAYER：回收站两层语义（#103）
+// ---------------------------------------------------------------------------
+
+/** 假宿主状态存储里当前的回收站状态（未写过时为 null）。 */
+async function hostRecycleBin(page: OpenedPage['page']): Promise<unknown> {
+  return page.evaluate(() => {
+    const host = (globalThis as unknown as { __LAB_HOST__?: { stateStore?: Record<string, unknown> } }).__LAB_HOST__
+    return host?.stateStore?.['recycle-bin'] ?? null
+  })
+}
+
+/**
+ * 把官方浏览区（对照档）的所有工作区展开：官方那棵树默认只展开当前会话所在分组，
+ * 其余收起时它的会话行根本不渲染——「会话数变没变」就量不准。展开只改它自己的视图，
+ * 不写网关。
+ */
+async function expandOfficialWorkspaces(page: OpenedPage['page']): Promise<void> {
+  await page.evaluate(() => {
+    for (const row of Array.from(document.querySelectorAll('[class*="_projectRow"]'))) {
+      if (row.getAttribute('aria-expanded') !== 'true') (row as HTMLElement).click()
+    }
+  })
+  await page.waitForTimeout(800)
+}
+
+/** 把整棵树展开（顶栏那个按钮是开关：点一次若变成「已全收起」再点一次）。 */
+async function expandAllWorkspaces(page: OpenedPage['page']): Promise<void> {
+  const state = async (): Promise<string | null> =>
+    page.getAttribute('[data-dshone-tree-action="collapse-all"]', 'data-dshone-tree-collapsed')
+  await page.click('[data-dshone-tree-action="collapse-all"]')
+  await page.waitForTimeout(250)
+  if ((await state()) === 'true') {
+    await page.click('[data-dshone-tree-action="collapse-all"]')
+    await page.waitForTimeout(250)
+  }
+}
+
+/** 把某一行（按会话 id 认）通过 ⋯ 菜单移入回收站。 */
+async function moveRowToRecycleBin(page: OpenedPage['page'], sessionId: string): Promise<void> {
+  const row = page.locator(`[data-dshone-tree-session="${sessionId}"]`)
+  await row.hover()
+  await row.locator('.dshOneTree_rowIconButton').click()
+  await page.waitForTimeout(250)
+  await page.click('[data-dshone-tree-item="move-to-recycle-bin"]')
+  await page.waitForTimeout(350)
+}
+
+export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
+  id: 'F-15',
+  phase: 'new-feature',
+  name: '回收站两层语义（#103）：移入/还原是本地可逆、归档=删除带确认（RECYCLE-TWO-LAYER 套件）',
+  expect:
+    '#103 定的两层语义在真实装配页上成立（真网关**只读** + 假宿主 + 同一上下文里并排开官方浏览区对照档）：① **移入回收站只写本地状态**——行菜单「移入回收站」后会话从我们树里消失、入口角标 +1、假宿主状态存储里出现 `recycle-bin`（形状 `{version:1, sessionIds:[按移入顺序]}`），而**官方浏览区里的会话一条都没少**（同时刻对照，证明 dsh 侧一个字节没动）；② **抽屉形态**：点入口行从底部半高滑出（高度档 50）、提手上拉吸附到 90、按原工作区分块、块内按移入顺序倒序、块头可折叠且折叠态落 `dsh.workspaceTree.view`（重载后仍收起）；③ 状态按旧侧栏那份文件的键名与形状读回（**旧 recycle-bin.json 原样迁入**），并在基线就绪时**清账**——集合里 dsh 侧已不存在的 id 被剔掉、真的那几条原样保留；④ **还原**（行尾按钮与入口「全部还原」）同样只动本地状态，会话回到树里；⑤ **归档 = 删除**：入口「清空」与多选操作条的「归档」都先开同一个确认弹窗（写明不可恢复、按工作区列出将归档的会话、写明跳过数），取消则什么都不发生；⑥ 多选操作条的「移入回收站」复用同一套本地动作（立即执行 + 飘提示 + 退出选择态）；⑦ 回收站空时入口两枚动作图标禁用。全程零 pageerror，且本套件**从不点归档确认**（那会写真实网关）。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
+    const { page } = opened
+    let official: OpenedPage | null = null
+    try {
+      await expandAllWorkspaces(page)
+      // 夹具：**同一个工作区块里**两条带行菜单的会话（空白会话行没有行菜单）。挑同一块
+      // 是为了让「块内按移入顺序倒序」这条断言真的有两行可比（跨块的各一条看不出顺序）。
+      const fixture = await page.evaluate(() => {
+        for (const section of Array.from(document.querySelectorAll('[data-dshone-group-key]'))) {
+          const rows = Array.from(section.querySelectorAll('[data-dshone-tree-row="session"]')).filter(
+            (row) => row.querySelector('.dshOneTree_rowActions') !== null,
+          )
+          if (rows.length >= 2) {
+            return {
+              key: section.getAttribute('data-dshone-group-key') ?? '',
+              ids: rows.slice(0, 2).map((row) => row.getAttribute('data-dshone-tree-session') ?? ''),
+              titles: rows.slice(0, 2).map((row) => row.querySelector('.dshOneTree_title')?.textContent ?? ''),
+              siblingRows: rows.length,
+            }
+          }
+        }
+        return null
+      })
+      check.fact(`夹具：同一工作区块里带行菜单的会话行=${JSON.stringify(fixture)}`)
+      check.ok('找到一个有 ≥2 条可操作会话行的工作区块（移入/还原要有对象）', fixture !== null && fixture.ids.every((id) => id !== ''))
+      if (fixture === null || !fixture.ids.every((id) => id !== '')) return screenshots
+      const first = fixture.ids[0] ?? ''
+      const second = fixture.ids[1] ?? ''
+      const firstTitle = fixture.titles[0] ?? ''
+      const secondTitle = fixture.titles[1] ?? ''
+      check.fact(`夹具会话：${first}（${firstTitle}）与 ${second}（同在 ${fixture.key} 块）`)
+
+      // 官方浏览区对照档：同一上下文（同一 localStorage、同一个假宿主），只读地看
+      // 「dsh 侧到底有没有变」——归档会让官方那边少一行，本地挪走不会。
+      official = await openTreePageAlongside(opened, ctx.lab, route('sidebar-official'), { width: 380, height: 900 })
+      const officialPage = official
+      const officialRows = async (): Promise<number> => contentCount(officialPage.page, '[class*="_sessionRow"]')
+      const officialHasTitles = async (titles: readonly string[]): Promise<boolean> =>
+        officialPage.page.evaluate(
+          (needles: string[]) => {
+            const text = Array.from(document.querySelectorAll('[class*="_sessionRow"]'))
+              .map((row) => row.textContent ?? '')
+              .join(' ')
+            return needles.every((needle) => needle !== '' && text.includes(needle))
+          },
+          [...titles],
+        )
+      await expandOfficialWorkspaces(officialPage.page)
+      const officialBefore = await officialRows()
+      const officialHasFirst = await officialHasTitles([firstTitle])
+      check.fact(`官方浏览区对照档（工作区全展开）：会话行=${String(officialBefore)} 含首条夹具标题=${String(officialHasFirst)}`)
+      check.ok('对照档里能看到首条夹具（后面用它证明我们没动 dsh 侧）', officialBefore > 0 && officialHasFirst)
+
+      // ---- ① 移入回收站：本地可逆层 ----
+      await (async (): Promise<void> => {
+        const row = page.locator(`[data-dshone-tree-session="${first}"]`)
+        await row.hover()
+        await row.locator('.dshOneTree_rowIconButton').click()
+        await page.waitForTimeout(250)
+        const facts = await page.evaluate(() => {
+          const pick = (id: string): HTMLElement | null => document.querySelector(`[data-dshone-tree-item="${id}"]`)
+          const item = (id: string): { text: string; reason: string; hint: string; disabled: boolean } => {
+            const mark = pick(id)
+            const button = mark?.closest('button') as HTMLButtonElement | null
+            return {
+              text: mark?.textContent ?? '',
+              reason: mark?.getAttribute('data-dshone-disabled-reason') ?? 'missing',
+              hint: mark?.getAttribute('title') ?? '',
+              disabled: button?.disabled ?? false,
+            }
+          }
+          return { recycle: item('move-to-recycle-bin'), archive: item('archive'), items: document.querySelectorAll('[data-dshone-tree-item]').length }
+        })
+        check.fact(
+          `行菜单两项：移入回收站=${JSON.stringify(facts.recycle.text)}（原因 ${facts.recycle.reason} 禁用 ${String(facts.recycle.disabled)}）` +
+            ` 归档会话=${JSON.stringify(facts.archive.text)}（原因 ${facts.archive.reason} 禁用 ${String(facts.archive.disabled)} 提示 ${JSON.stringify(facts.archive.hint)}）`,
+        )
+        check.ok(
+          '行菜单里「移入回收站」与「归档会话」是两项分开的（各自一份文案、各自一条判定结果）',
+          facts.recycle.text.includes('移入回收站') && facts.archive.text.includes('归档会话') && facts.recycle.text !== facts.archive.text,
+        )
+        check.ok(
+          '两枚菜单项各自的禁用态与判定原因一致（有原因 = 禁用且带原因提示；没原因 = 可选）',
+          (facts.recycle.reason === '' ? !facts.recycle.disabled : facts.recycle.disabled && facts.recycle.hint !== '') &&
+            (facts.archive.reason === '' ? !facts.archive.disabled : facts.archive.disabled && facts.archive.hint !== ''),
+          JSON.stringify({ recycle: facts.recycle, archive: facts.archive }),
+        )
+        check.eq('移入回收站这一枚按「只拦置顶」判（本条没置顶 → 可选）', facts.recycle.reason, '')
+        await page.click('[data-dshone-tree-item="move-to-recycle-bin"]')
+        await page.waitForTimeout(400)
+      })()
+      const flashText = await page.textContent('[data-dshone-tree="flash"]')
+      check.ok('移入后飘一条回执提示', (flashText ?? '').includes('回收站'), String(flashText))
+      check.eq('移入的会话从我们树里消失', await contentCount(page, `[data-dshone-tree-session="${first}"]`), 0)
+      const entryCount = async (): Promise<string | null> => page.getAttribute('[data-dshone-tree-action="recycle-open"]', 'data-dshone-tree-recycle-count')
+      const afterFirstMoveState = (await hostRecycleBin(page)) as { version?: number; sessionIds?: string[] } | null
+      check.fact(`移入一条后：入口角标=${String(await entryCount())} 宿主状态=${JSON.stringify(afterFirstMoveState)}`)
+      check.eq('入口角标 +1（本地集合的计数）', await entryCount(), '1')
+      check.ok('宿主状态存储里的 `recycle-bin` 是旧文件那份形状（version 1 + sessionIds）', afterFirstMoveState?.version === 1 && Array.isArray(afterFirstMoveState.sessionIds))
+      check.eq('本地集合里恰好是那一条（移入顺序）', afterFirstMoveState?.sessionIds ?? [], [first])
+      screenshots.push(await shot(ctx, page, 'recycle-moved-first'))
+
+      // 第二条同样移入：移入顺序 = [first, second]（抽屉里倒序展示的第二条在前）。
+      await moveRowToRecycleBin(page, second)
+      const afterSecondMove = (await hostRecycleBin(page)) as { sessionIds?: string[] } | null
+      check.eq('第二条接在移入顺序尾部（越晚移入越靠后）', afterSecondMove?.sessionIds ?? [], [first, second])
+      check.eq('入口角标 = 本地集合的条数', await entryCount(), '2')
+
+      // ---- ② 不动 dsh：官方浏览区一条都没少 ----
+      await page.waitForTimeout(1_500)
+      const officialAfter = await officialRows()
+      const officialStillHasFirst = await officialHasTitles([firstTitle, secondTitle])
+      check.fact(`移入两条后官方浏览区：会话行=${String(officialAfter)}（移入前 ${String(officialBefore)}）含首条夹具=${String(officialStillHasFirst)}`)
+      check.eq('移入回收站不动 dsh 侧：官方浏览区会话数不变', officialAfter, officialBefore)
+      check.ok('移入回收站不动 dsh 侧：那条会话在官方浏览区还在', officialStillHasFirst)
+
+      // ---- ③ 抽屉：半高滑出 + 分块 + 块内移入顺序倒序 ----
+      await page.click('[data-dshone-tree-action="recycle-open"]')
+      await page.waitForTimeout(400)
+      const drawer = await page.evaluate(() => {
+        const root = document.querySelector('[data-dshone-tree="recycle-drawer"]')
+        if (root === null) return null
+        const blocks = Array.from(root.querySelectorAll('[data-dshone-recycle-group]')).map((block) => ({
+          key: block.getAttribute('data-dshone-recycle-group') ?? '',
+          rows: Array.from(block.querySelectorAll('[data-dshone-recycle-row]')).map((row) => row.getAttribute('data-dshone-recycle-row') ?? ''),
+        }))
+        const parent = root.parentElement
+        return {
+          height: Number(root.getAttribute('data-dshone-recycle-height')),
+          ratio: parent === null ? 0 : root.getBoundingClientRect().height / parent.getBoundingClientRect().height,
+          blocks,
+          rows: blocks.reduce((total, block) => total + block.rows.length, 0),
+          restoreButtons: root.querySelectorAll('[data-dshone-recycle-restore]').length,
+        }
+      })
+      check.fact(`抽屉：高度档=${String(drawer?.height)} 实测比例=${String(drawer?.ratio.toFixed(2))} 块=${JSON.stringify(drawer?.blocks)}`)
+      check.ok('点入口行从底部滑出抽屉', drawer !== null)
+      check.ok('默认半高（高度档 50，实测比例在 0.45~0.55）', drawer?.height === 50 && (drawer?.ratio ?? 0) > 0.45 && (drawer?.ratio ?? 0) < 0.55, JSON.stringify(drawer))
+      check.eq('抽屉里的行数 = 本地集合的条数', drawer?.rows, 2)
+      check.eq('每行行尾一枚「还原」', drawer?.restoreButtons, 2)
+      const fixtureBlock = (drawer?.blocks ?? []).find((block) => block.rows.includes(second))
+      check.fact(`夹具两条所在块：${JSON.stringify(fixtureBlock)}（工作区块键 ${fixture.key}）`)
+      check.eq('按原工作区分块：两条同工作区的会话落在同一个块里', fixtureBlock?.key, fixture.key)
+      check.eq(
+        '块内按移入顺序倒序（先移入的在下面）：后移入的那条排在前',
+        fixtureBlock?.rows ?? [],
+        [second, first],
+      )
+      check.eq('本地集合的顺序与展示顺序互为倒序（集合按移入顺序记）', afterSecondMove?.sessionIds ?? [], [first, second])
+      screenshots.push(await shot(ctx, page, 'recycle-drawer-half'))
+
+      // ---- ④ 提手：上拉吸附到 90% ----
+      const handle = page.locator('[data-dshone-tree-action="recycle-handle"]')
+      const handleBox = await handle.boundingBox()
+      check.ok('提手在（可拖）', handleBox !== null, JSON.stringify(handleBox))
+      if (handleBox !== null) {
+        await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2)
+        await page.mouse.down()
+        await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y - 220, { steps: 12 })
+        await page.mouse.up()
+        await page.waitForTimeout(300)
+        const dragged = await page.getAttribute('[data-dshone-tree="recycle-drawer"]', 'data-dshone-recycle-height')
+        check.eq('上拉松手后吸附到 90% 档', dragged, '90')
+        screenshots.push(await shot(ctx, page, 'recycle-drawer-expanded'))
+      }
+
+      // ---- ⑤ 块头折叠 + 折叠态持久化（客户端存储） ----
+      const blockKeys = (drawer?.blocks ?? []).map((block) => block.key)
+      const collapsedKey = blockKeys[0] ?? ''
+      const rowsInBlock = (drawer?.blocks.find((block) => block.key === collapsedKey)?.rows.length ?? 0)
+      await page.click(`[data-dshone-recycle-group-toggle="${collapsedKey}"]`)
+      await page.waitForTimeout(250)
+      const collapsedFacts = await page.evaluate((key: string) => {
+        const toggle = document.querySelector(`[data-dshone-recycle-group-toggle="${key}"]`)
+        const block = document.querySelector(`[data-dshone-recycle-group="${key}"]`)
+        const prefs = localStorage.getItem('dsh.workspaceTree.view') ?? ''
+        return {
+          flag: toggle?.getAttribute('data-dshone-recycle-collapsed') ?? '',
+          rows: block?.querySelectorAll('[data-dshone-recycle-row]').length ?? -1,
+          prefs,
+        }
+      }, collapsedKey)
+      check.fact(`折叠块 ${collapsedKey}：flag=${collapsedFacts.flag} 行数=${String(collapsedFacts.rows)} prefs=${collapsedFacts.prefs}`)
+      check.eq('块头点一下收起（标记翻成 true）', collapsedFacts.flag, 'true')
+      check.eq('收起后该块的行不再渲染', collapsedFacts.rows, 0)
+      check.ok('折叠态落进官方惯例的客户端存储键（recycleCollapsed）', collapsedFacts.prefs.includes('recycleCollapsed') && collapsedFacts.prefs.includes(collapsedKey))
+      check.ok('收起的块里本来是有行的（不是空块的自欺欺人）', rowsInBlock > 0, `rows=${String(rowsInBlock)}`)
+
+      // 关掉再开：折叠态还在（视图态住在树组件里，随 prefs 走）。
+      await page.click('[data-dshone-tree-action="recycle-close"]')
+      await page.waitForTimeout(250)
+      check.eq('点关闭按钮收起抽屉', await contentCount(page, '[data-dshone-tree="recycle-drawer"]'), 0)
+      await page.click('[data-dshone-tree-action="recycle-open"]')
+      await page.waitForTimeout(350)
+      check.eq('重新打开后折叠态仍在', await page.getAttribute(`[data-dshone-recycle-group-toggle="${collapsedKey}"]`, 'data-dshone-recycle-collapsed'), 'true')
+
+      // ---- ⑥ 重载后仍生效（本地集合从宿主状态存储读回、折叠态从客户端存储读回） ----
+      // 注入的就是旧侧栏那份文件的形状（`{version:1, sessionIds:[...]}`），并且故意多带
+      // 一条 dsh 侧早已不存在的 id：清账（基线就绪时剔除认不出的 id）应当把它剔掉。
+      const GHOST = 'session-lab-not-in-dsh'
+      await page.addInitScript({
+        content: `(() => { globalThis.__LAB_HOST__.stateStore['recycle-bin'] = ${JSON.stringify({ version: 1, sessionIds: [first, second, 'session-lab-not-in-dsh'] }) } })()`,
+      })
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
+      await page.waitForTimeout(2_500)
+      const afterReload = (await hostRecycleBin(page)) as { sessionIds?: string[] } | null
+      check.eq('重载后本地集合仍是那两条（旧文件形状读回来原样保留移入顺序）', afterReload?.sessionIds ?? [], [first, second])
+      // 页面打开时原样读回 = 「旧 recycle-bin.json 一次性迁入」这件事的可执行口径
+      //（键名与文件形状都是同一份，没有搬运步骤，见 pure/recycleBinState.ts 的说明）。
+      check.eq('重载后入口角标 ≤2 且不含认不出的那条（角标与抽屉同源）', await entryCount(), '2')
+      await page.waitForTimeout(1_200)
+      const pruned = ((await hostRecycleBin(page)) as { sessionIds?: string[] } | null)?.sessionIds ?? []
+      check.fact(`清账后宿主状态=${JSON.stringify(pruned)}（注入时多带了一条 ${GHOST}）`)
+      check.eq('清账：dsh 侧已不存在的 id 被剔出本地集合，其余原样保留', pruned, [first, second])
+      check.eq('清账不误伤：两条真的还在集合里（角标 2、抽屉里也有两行）', pruned.length, 2)
+      await page.click('[data-dshone-tree-action="recycle-open"]')
+      await page.waitForTimeout(350)
+      const reloadedDrawer = await page.evaluate(() => {
+        const root = document.querySelector('[data-dshone-tree="recycle-drawer"]')
+        return {
+          rows: root?.querySelectorAll('[data-dshone-recycle-row]').length ?? -1,
+          collapsed: Array.from(root?.querySelectorAll('[data-dshone-recycle-group-toggle]') ?? []).map(
+            (el) => `${el.getAttribute('data-dshone-recycle-group-toggle') ?? ''}=${el.getAttribute('data-dshone-recycle-collapsed') ?? ''}`,
+          ),
+        }
+      })
+      check.fact(`重载后抽屉：${JSON.stringify(reloadedDrawer)}`)
+      check.ok(
+        '重载后折叠态从客户端存储读回（那个块仍是收起）',
+        reloadedDrawer.collapsed.includes(`${collapsedKey}=true`),
+        JSON.stringify(reloadedDrawer.collapsed),
+      )
+
+      // ---- ⑦ 还原：只动本地状态，会话回到树里 ----
+      // 先把上一步收起的块展开（被收起的块里没有行可点——这正是折叠生效的证据）。
+      await page.click(`[data-dshone-recycle-group-toggle="${collapsedKey}"]`)
+      await page.waitForTimeout(250)
+      check.eq('再点一下块头 = 展开回来', await page.getAttribute(`[data-dshone-recycle-group-toggle="${collapsedKey}"]`, 'data-dshone-recycle-collapsed'), 'false')
+      await page.click(`[data-dshone-recycle-restore="${first}"]`)
+      await page.waitForTimeout(500)
+      const afterRestore = (await hostRecycleBin(page)) as { sessionIds?: string[] } | null
+      check.eq('还原只把这一条移出本地集合', afterRestore?.sessionIds ?? [], [second])
+      await page.click('[data-dshone-tree-action="recycle-close"]')
+      await page.waitForTimeout(250)
+      check.eq('还原后会话回到我们树里', await contentCount(page, `[data-dshone-tree-session="${first}"]`), 1)
+      await page.waitForTimeout(1_000)
+      check.eq('还原也不动 dsh 侧（官方浏览区同样没变）', await officialRows(), officialBefore)
+
+      // ---- ⑧ 清空 = 归档（= 删除）：先确认弹窗，取消则什么都不发生 ----
+      await page.click('[data-dshone-tree-action="recycle-empty-all"]')
+      await page.waitForTimeout(400)
+      const confirm = await page.evaluate(() => {
+        const root = document.querySelector('[data-dshone-tree-action="archive-confirm"]')?.closest('[role="dialog"], .dshOneTree_root, body')
+        return {
+          button: document.querySelector('[data-dshone-tree-action="archive-confirm"]') !== null,
+          blocks: document.querySelectorAll('[data-dshone-archive-block]').length,
+          rows: document.querySelectorAll('[data-dshone-archive-row]').length,
+          text: root?.textContent ?? '',
+        }
+      })
+      check.fact(`清空确认弹窗：按钮=${String(confirm.button)} 工作区块=${String(confirm.blocks)} 明细行=${String(confirm.rows)} 文案=${JSON.stringify(confirm.text.slice(0, 120))}`)
+      check.ok('清空先开确认弹窗（不是直接执行）', confirm.button)
+      check.ok('弹窗按工作区树形列明细（块 + 行都在）', confirm.blocks >= 1 && confirm.rows === 1)
+      check.ok('弹窗写明不可恢复（归档 = 删除）', confirm.text.includes('不能在这里恢复') || confirm.text.includes('删除'), confirm.text.slice(0, 120))
+      screenshots.push(await shot(ctx, page, 'recycle-empty-confirm'))
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      const afterCancel = (await hostRecycleBin(page)) as { sessionIds?: string[] } | null
+      check.eq('取消确认 → 本地集合一条不少', afterCancel?.sessionIds ?? [], [second])
+      check.eq('取消确认 → 弹窗关掉', await contentCount(page, '[data-dshone-tree-action="archive-confirm"]'), 0)
+
+      // ---- ⑨ 全部还原：入口行那一枚，同样只动本地状态 ----
+      const restoreAllDisabled = await page.evaluate(
+        () =>
+          (document.querySelector('[data-dshone-tree-action="recycle-restore-all"]') as HTMLButtonElement | null)?.disabled ?? null,
+      )
+      check.eq('清空前「全部还原」可用', restoreAllDisabled, false)
+      await page.click('[data-dshone-tree-action="recycle-restore-all"]')
+      await page.waitForTimeout(500)
+      const afterRestoreAll = (await hostRecycleBin(page)) as { sessionIds?: string[] } | null
+      check.eq('全部还原后本地集合清空', afterRestoreAll?.sessionIds ?? [], [])
+      check.eq('全部还原后入口角标归零', await entryCount(), '0')
+      const disabledActions = await page.evaluate(() =>
+        ['recycle-empty-all', 'recycle-restore-all'].map((action) => {
+          const button = document.querySelector(`[data-dshone-tree-action="${action}"]`) as HTMLButtonElement | null
+          return `${action}=${String(button?.disabled)}`
+        }),
+      )
+      check.eq('计数 0 时两枚动作图标禁用（灰态）', disabledActions, ['recycle-empty-all=true', 'recycle-restore-all=true'])
+      check.eq('全部还原后第二条也回到树里', await contentCount(page, `[data-dshone-tree-session="${second}"]`), 1)
+      await page.waitForTimeout(1_000)
+      check.eq('全部还原不动 dsh 侧（官方浏览区会话数不变）', await officialRows(), officialBefore)
+      screenshots.push(await shot(ctx, page, 'recycle-restored-all'))
+
+      // ---- ⑩ 归档项的资格判定接在真实会话状态上（禁用 = 有原因 + 有原因提示） ----
+      // 一条会话一个事实：把前若干行逐个开菜单读「归档项」的判定结果，验
+      // 「原因 ↔ 禁用 ↔ 提示」三者一致（四种原因分别是哪条，取决于当天网关上的会话状态，
+      // 所以这里钉的是接线与一致性，纯判定的四态在单测 test/sessionActions.test.ts 里）。
+      const probeRows = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+          .filter((row) => row.querySelector('.dshOneTree_rowActions') !== null)
+          .slice(0, 6)
+          .map((row) => row.getAttribute('data-dshone-tree-session') ?? ''),
+      )
+      const archiveFacts: Array<{ id: string; reason: string; hint: string; disabled: boolean }> = []
+      for (const id of probeRows) {
+        const row = page.locator(`[data-dshone-tree-session="${id}"]`)
+        await row.hover()
+        await row.locator('.dshOneTree_rowIconButton').click()
+        await page.waitForTimeout(200)
+        archiveFacts.push(
+          await page.evaluate((sessionId: string) => {
+            const mark = document.querySelector('[data-dshone-tree-item="archive"]')
+            const button = mark?.closest('button') as HTMLButtonElement | null
+            return {
+              id: sessionId,
+              reason: mark?.getAttribute('data-dshone-disabled-reason') ?? 'missing',
+              hint: mark?.getAttribute('title') ?? '',
+              disabled: button?.disabled ?? false,
+            }
+          }, id),
+        )
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(150)
+      }
+      check.fact(
+        `归档项判定逐行实测：${archiveFacts.map((entry) => `${entry.reason || 'ok'}(禁用${String(entry.disabled)})`).join(' ')}`,
+      )
+      check.ok('每一条会话的归档项都带着判定结果（原因字段在场）', archiveFacts.length > 0 && archiveFacts.every((entry) => entry.reason !== 'missing'))
+      check.ok(
+        '判定结果与禁用态一致：有原因就禁用且给原因提示，没原因就可选',
+        archiveFacts.every((entry) =>
+          entry.reason === '' ? !entry.disabled && entry.hint === '' : entry.disabled && entry.hint !== '',
+        ),
+        JSON.stringify(archiveFacts),
+      )
+      check.ok(
+        '原因取值只可能是判定里那几种（pinned / pending / running / descendantRunning / unread / 空）',
+        archiveFacts.every((entry) => ['', 'pinned', 'pending', 'running', 'descendantRunning', 'unread'].includes(entry.reason)),
+        archiveFacts.map((entry) => entry.reason).join(','),
+      )
+      const blocked = archiveFacts.filter((entry) => entry.reason !== '')
+      if (blocked.length > 0) {
+        screenshots.push(await shot(ctx, page, 'recycle-archive-blocked-hint'))
+        check.fact(`被拦住的会话示例：${JSON.stringify(blocked[0])}`)
+      }
+
+      // ---- ⑪ 多选语境复用同一套动作与同一个弹窗（#103 第 6 条） ----
+      // 先挑行（选择态下行内操作区不渲染，得在进入选择态之前挑），再进选择态点它们。
+      // 挑法：优先带上状态不是 idle 的那些（它们按判定不能归档 → 才是「写明跳过数」
+      // 那条断言的观察对象），再补几条空闲的。
+      const picked = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]')).filter(
+          (row) => row.querySelector('.dshOneTree_rowActions') !== null,
+        )
+        const status = (row: Element): string => row.getAttribute('data-dshone-tree-status') ?? ''
+        const chosen = [...rows.filter((row) => status(row) !== 'idle').slice(0, 2), ...rows.filter((row) => status(row) === 'idle').slice(0, 2)]
+        return chosen.map((row) => ({ id: row.getAttribute('data-dshone-tree-session') ?? '', status: status(row) }))
+      })
+      await page.click('[data-dshone-tree-action="select-mode"]')
+      await page.waitForTimeout(300)
+      for (const entry of picked) {
+        await page.locator(`[data-dshone-tree-session="${entry.id}"]`).click()
+        await page.waitForTimeout(80)
+      }
+      const selected = await page.evaluate((ids: string[]) => {
+        const marks = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+          .filter((row) => ids.includes(row.getAttribute('data-dshone-tree-session') ?? ''))
+          .map((row) => row.getAttribute('data-dshone-tree-checked') ?? '')
+        return marks
+      }, picked.map((entry) => entry.id))
+      // 归档资格：状态不是 idle 的（运行中 / 等待交互）按判定会被跳过——这正是
+      // 弹窗要「写明跳过数」的原因（置顶/未读那两个事实还没落地，见 sessionActions 说明）。
+      const expectedSkipped = picked.filter((entry) => entry.status !== 'idle').length
+      check.fact(`选择态选中 ${String(selected.length)} 行：${picked.map((entry) => `${entry.status || '?'}`).join(',')}（预期跳过 ${String(expectedSkipped)}）`)
+      check.ok('进入选择态后点行 = 勾选（选中标记带上）', selected.length === picked.length && selected.every((value) => value === 'true'))
+      check.ok('挑到的行里有可归档的（否则归档按钮本来就该禁用）', picked.length > expectedSkipped, JSON.stringify(picked))
+      if (picked.length === 0 || picked.length === expectedSkipped) return screenshots
+      await page.click('[data-dshone-tree-action="selection-archive"]')
+      await page.waitForTimeout(400)
+      const batchModal = await page.evaluate(() => ({
+        button: document.querySelector('[data-dshone-tree-action="archive-confirm"]') !== null,
+        rows: document.querySelectorAll('[data-dshone-archive-row]').length,
+        blocks: document.querySelectorAll('[data-dshone-archive-block]').length,
+        skipped: document.querySelector('[data-dshone-archive-skipped]')?.textContent ?? '',
+      }))
+      check.fact(`批量归档弹窗：${JSON.stringify(batchModal)}`)
+      check.ok('多选操作条「归档」复用同一个确认弹窗（按工作区树形列明细）', batchModal.button && batchModal.blocks >= 1 && batchModal.rows >= 1)
+      check.ok(
+        '弹窗写明跳过数（与资格判定算出来的一致：有跳过就写明条数，没有就不出现这行）',
+        expectedSkipped === 0 ? batchModal.skipped === '' : batchModal.skipped.includes(`另有 ${String(expectedSkipped)} 个`),
+        `skipped=${JSON.stringify(batchModal.skipped)} expected=${String(expectedSkipped)}`,
+      )
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      check.eq('取消批量归档 → 弹窗关掉、本地集合没变（还是空）', (await hostRecycleBin(page) as { sessionIds?: string[] } | null)?.sessionIds ?? [], [])
+      screenshots.push(await shot(ctx, page, 'recycle-batch-archive'))
+
+      // 多选操作条「移入回收站」：立即执行 + 飘提示 + 退出选择态（本地可逆，无确认）。
+      await page.click('[data-dshone-tree-action="selection-recycle"]')
+      await page.waitForTimeout(600)
+      const batchMoveFlash = await page.textContent('[data-dshone-tree="flash"]')
+      const batchMoveState = (await hostRecycleBin(page)) as { sessionIds?: string[] } | null
+      check.ok('批量移入回收站：飘一条回执', (batchMoveFlash ?? '').includes('回收站'), String(batchMoveFlash))
+      check.eq('批量移入回收站：选中的都进了本地集合（按勾选顺序）', batchMoveState?.sessionIds ?? [], picked.map((entry) => entry.id))
+      check.eq('批量移入回收站：动作完退出选择态（动作条消失）', await contentCount(page, '[data-dshone-tree="selection-bar"]'), 0)
+      await page.waitForTimeout(1_200)
+      check.eq('批量移入同样不动 dsh 侧（官方浏览区会话数不变）', await officialRows(), officialBefore)
+
+      // 收尾：全部还原（本地可逆），让页面回到干净状态。
+      await page.click('[data-dshone-tree-action="recycle-restore-all"]')
+      await page.waitForTimeout(500)
+      check.eq('批量移入的那些也能一次全部还原', (await hostRecycleBin(page) as { sessionIds?: string[] } | null)?.sessionIds ?? [], [])
+
+      check.eq('两层语义套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
+    } finally {
+      await official?.context.close()
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
 
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
@@ -2414,4 +2897,6 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   DENSITY_SPREAD_SUITE,
   // #102 置顶与手动未读（F-14：F-13 已被 #104 的密度套件占用）。
   PIN_UNREAD_SUITE,
+  // #103 回收站两层语义（F-15：F-13/F-14 已被 #104/#102 占用）。
+  RECYCLE_TWO_LAYER_SUITE,
 ]
