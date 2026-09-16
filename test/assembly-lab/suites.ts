@@ -24,6 +24,7 @@ import {
   type OpenedPage,
 } from './harness.ts'
 import { LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
+import { listSessions } from '../../src/server/dshRpc.ts'
 
 export interface SuiteContext {
   browser: Browser
@@ -149,8 +150,53 @@ export const CONTRACT_SUITE: LabSuite = {
         await opened.context.close()
       }
     }
+    screenshots.push(...(await rightbarOpenChecks(ctx, check)))
     return screenshots
   },
+}
+
+/**
+ * chat 树官方右栏的**用户路径**：官方把展开钮放在会话头右侧角
+ * （`conversation.session.header.corner` 的 ExpandButton，只有非空白会话才有会话头），
+ * 点它 → 官方座位经 `ctx.layout.openRightbar(track, fullscreen)` 上报 → 我们的外框
+ * 让出轨道。这条链路跨「官方座位 → 我们的 layout 服务 → 我们的外框几何」三层，
+ * 静态断言看不出来，所以这里真点一次。
+ *
+ * 网关上一个非空白会话都没有时（全新网关）只记观测、不断言——这不是底座缺陷。
+ */
+async function rightbarOpenChecks(ctx: SuiteContext, check: Check): Promise<string[]> {
+  const sessions = await listSessions(ctx.lab.gateway).catch(() => [])
+  const candidate = sessions.find((session) => session.blank === false && session.running !== true)
+  if (candidate === undefined) {
+    check.fact('chat：网关上没有非空白会话可用来试官方右栏展开路径（跳过该段断言）')
+    return []
+  }
+  const opened = await openTreePage(ctx.browser, ctx.lab, route('chat'), { sessionId: candidate.sessionId, width: 1280, height: 860 })
+  try {
+    const before = await rightbarFacts(opened.page)
+    const cornerButtons = await opened.page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-slot="conversation.session.header.corner"] button')).map((button) => button.getAttribute('aria-label') ?? ''),
+    )
+    check.fact(`chat（会话 ${candidate.sessionId.slice(0, 16)}）：会话头右侧角按钮=${JSON.stringify(cornerButtons)} 展开前轨道宽=${String(before.trackWidth)}`)
+    if (cornerButtons.length === 0) {
+      check.ok('chat：非空白会话的会话头出现官方右栏展开钮（ExpandButton 座位）', false, '会话头右侧角没有按钮')
+      return [await shot(ctx, opened.page, 'contract-chat-rightbar')]
+    }
+    await opened.page.click('[data-slot="conversation.session.header.corner"] button')
+    await opened.page.waitForTimeout(2000)
+    const after = await rightbarFacts(opened.page)
+    const tabs = await opened.page.evaluate(() =>
+      Array.from(document.querySelectorAll('[role="tab"]')).map((tab) => (tab.textContent ?? '').trim().slice(0, 12)),
+    )
+    check.fact(`chat：点开后 面板开=${String(after.panelOpen)} 轨道宽=${String(after.trackWidth)} 面板宽=${String(after.panelWidth)} 面板左缘=${String(after.panelLeft)} 页签=${JSON.stringify(tabs)}`)
+    check.ok('chat：点官方展开钮后面板打开', after.panelOpen)
+    check.ok('chat：面板贴右缘（左缘 + 面板宽 ≈ 外框宽）', Math.abs(after.panelLeft + after.panelWidth - after.frameWidth) <= 2, `${String(after.panelLeft)}+${String(after.panelWidth)} vs ${String(after.frameWidth)}`)
+    check.ok('chat：外框为展开的面板让出同宽轨道', after.trackWidth > 0 && Math.abs(after.trackWidth - after.panelWidth) <= 1, `track=${String(after.trackWidth)} panel=${String(after.panelWidth)}`)
+    check.ok('chat：展开前没有轨道（默认收起）', before.trackWidth === 0, `track=${String(before.trackWidth)}`)
+    return [await shot(ctx, opened.page, 'contract-chat-rightbar')]
+  } finally {
+    await opened.context.close()
+  }
 }
 
 /** 本次页面里出现过的 /plugins-local/ 请求（combo 装载证据）。 */
@@ -178,21 +224,26 @@ async function seatFacts(page: OpenedPage['page'], names: readonly string[]): Pr
   }, [...names])
 }
 
-/** chat 树官方右栏的观测：面板元素、面板宽（官方座位自己写的 inline width）、外框宽、会话座位数。 */
+/** chat 树官方右栏的观测：面板元素、面板宽（官方座位自己写的 inline width）、外框宽、轨道宽、会话座位数。 */
 async function rightbarFacts(
   page: OpenedPage['page'],
-): Promise<{ panel: boolean; panelWidth: number; frameWidth: number; sessionSeat: number }> {
+): Promise<{ panel: boolean; panelOpen: boolean; panelWidth: number; panelLeft: number; frameWidth: number; trackWidth: number; sessionSeat: number }> {
   return page.evaluate(() => {
     const panel = document.querySelector('[data-sidebar-right-panel]') as HTMLElement | null
     const frame = document.querySelector('.dshOneShell_frame') as HTMLElement | null
+    const column = document.querySelector('.dshOneShell_rightbarCol') as HTMLElement | null
     const px = (value: string | null | undefined): number => {
       const parsed = Number.parseFloat(value ?? '')
       return Number.isFinite(parsed) ? Math.round(parsed) : -1
     }
+    const rect = panel?.getBoundingClientRect()
     return {
       panel: panel !== null,
+      panelOpen: panel?.hasAttribute('data-sidebar-right-open') ?? false,
       panelWidth: panel === null ? -1 : px(panel.style.width),
+      panelLeft: rect === undefined ? -1 : Math.round(rect.left),
       frameWidth: frame === null ? -1 : Math.round(frame.getBoundingClientRect().width),
+      trackWidth: column === null ? -1 : Math.round(column.getBoundingClientRect().width),
       sessionSeat: document.querySelectorAll('[data-slot="rightbar.session"]').length,
     }
   })
