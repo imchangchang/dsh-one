@@ -3181,13 +3181,8 @@ export const TAG_GROUPS_SUITE: LabSuite = {
 
       // ---- ⑥ 折叠 + 折叠计数（用只有一个成员的乙组，计数好数） ----
       // 「标为未读」在运行中（或后代在跑）的会话上是禁用的（#102 的保护规则），而网关数据是
-<<<<<<< HEAD
       // 活的（别的 session 随时在跑回合）：先看这一行现在能不能标，不能就记事实跳过这一步；
       // 计数断言改成跟组内成员的真实状态对照，不赌数据。
-=======
-      // 活的（别的 session 随时在跑回合）：先看这一行现在能不能标，不能就记事实跳过这一步，
-      // 后面那条「计数与组内成员同源」的断言改成跟成员行的真实状态对照，不赌数据。
->>>>>>> 98dba31 (#109 验证与报告：F-17 套件（60 条断言）+ 三处套件适配 + 台账)
       await openRowMenu(page, spare)
       const unreadEnabled = await page.evaluate(() => {
         const button = document.querySelector('[data-dshone-tree-item="unread"]')?.closest('button') ?? null
