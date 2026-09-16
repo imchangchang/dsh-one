@@ -3,7 +3,7 @@ import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
-import type { Logger } from '../log.ts'
+import type { LogSink } from '../log.ts'
 import { cookieHeader } from './serverAuth.ts'
 import { blockedIdsOf, extractBootWire, CHAT_BLOCK_LIST, SHELL_PLUGIN_ID, type BlockedPlugin } from '../ui/assembly/wireFilter.ts'
 
@@ -64,7 +64,7 @@ export interface AssemblyMirrorOptions {
 
 export function startAssemblyMirror(
   target: () => string | undefined,
-  logger: Logger,
+  logger: LogSink,
   options: AssemblyMirrorOptions,
 ): Promise<AssemblyMirror> {
   // 过滤版官方 combo 缓存：按树缓存（key = 该树 shellPluginId，#71 共享
@@ -156,7 +156,7 @@ const CLIENT_SUFFIX = '/client.js'
 async function fetchFilteredGatewayCombo(
   target: () => string | undefined,
   blockIds: readonly string[],
-  logger: Logger,
+  logger: LogSink,
 ): Promise<{ text: string; ids: ReadonlySet<string> }> {
   const gateway = target()
   if (gateway === undefined) throw new Error('assembly mirror: dsh service is not running')
@@ -215,7 +215,7 @@ async function serveCombo(
   options: AssemblyMirrorOptions,
   filteredGatewayCombo: (shellPluginId: string) => Promise<{ text: string; ids: ReadonlySet<string> }>,
   treeComboKeys: ReadonlySet<string>,
-  logger: Logger,
+  logger: LogSink,
 ): Promise<void> {
   // search = "?<list…>&rev=…"：第一个 '?' 起 query，第二个 '?' 起 combo 列表。
   const query = url.search.slice(1)
@@ -301,7 +301,7 @@ function proxyRequest(
   req: IncomingMessage,
   res: ServerResponse,
   target: () => string | undefined,
-  logger: Logger,
+  logger: LogSink,
 ): void {
   const gateway = target()
   if (gateway === undefined) {
@@ -337,7 +337,7 @@ function proxyUpgrade(
   clientSocket: Duplex,
   head: Buffer,
   target: () => string | undefined,
-  logger: Logger,
+  logger: LogSink,
 ): void {
   const gateway = target()
   if (gateway === undefined || !new URL(req.url ?? '/', gateway).pathname.startsWith('/api/')) {
