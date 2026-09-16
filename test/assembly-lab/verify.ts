@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 import { Check, launchBrowser } from './harness.ts'
 import { consoleLogger, defaultGateway, defaultPluginsDir, defaultPort, startLabServer } from './labServer.ts'
 import { SUITES } from './suites.ts'
+import { listSessions } from '../../src/server/dshRpc.ts'
 
 const LAB_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.join(LAB_DIR, '..', '..')
@@ -117,6 +118,15 @@ async function main(): Promise<number> {
   const browser = await launchBrowser(!args.headed)
   const items: unknown[] = []
   let failed = 0
+  // 只读守卫（报告里的 R-06）：整轮跑前跑后数一遍网关上的会话数——实验室的任何
+  // 动作都不该创建/删除会话（喂 prompt、点「新建会话」都会改变这个数）。这是
+  // 「真实网关只读」的可执行定义，不是口头承诺。
+  let sessionsBefore: number | undefined
+  try {
+    sessionsBefore = (await listSessions(args.gateway)).length
+  } catch (err) {
+    log.warn(`lab: 跑前会话数取不到（${err instanceof Error ? err.message : String(err)}）`)
+  }
   try {
     for (const suite of suites) {
       const check = new Check()
@@ -148,6 +158,38 @@ async function main(): Promise<number> {
         notes: check.notes() + (crash === undefined ? '' : `\n套件异常：\n${crash}`),
       })
     }
+
+    const readonly = new Check()
+    let sessionsAfter: number | undefined
+    try {
+      sessionsAfter = (await listSessions(args.gateway)).length
+    } catch (err) {
+      readonly.ok('跑后仍能读到网关会话清单', false, err instanceof Error ? err.message : String(err))
+    }
+    if (sessionsBefore !== undefined && sessionsAfter !== undefined) {
+      readonly.fact(`网关会话数：跑前 ${String(sessionsBefore)}，跑后 ${String(sessionsAfter)}`)
+      readonly.eq('整轮验证没有创建/删除任何会话（网关只读）', sessionsAfter, sessionsBefore)
+    } else {
+      readonly.ok('网关会话数前/后都读到了（才能证明只读）', false, `before=${String(sessionsBefore)} after=${String(sessionsAfter)}`)
+    }
+    const readonlyPassed = readonly.failed.length === 0
+    if (!readonlyPassed) failed += 1
+    process.stdout.write(
+      `${readonlyPassed ? 'PASS' : 'FAIL'} R-06 实验室对真实网关只读 — 断言 ${String(readonly.passed)}/${String(readonly.total)}\n`,
+    )
+    for (const assertion of readonly.failed) {
+      process.stdout.write(`      ✗ ${assertion.label}（${assertion.detail}）\n`)
+    }
+    items.push({
+      id: 'R-06',
+      phase: 'regression',
+      name: '实验室对真实网关只读（跑前跑后会话数不变）',
+      expect:
+        '整轮浏览器验证跑完，网关上的会话数与跑前完全相同：实验室只渲染与做本地夹具交互，不创建会话、不发 prompt、不归档（唯一写类动作是 token 换票，与扩展自身连接路径相同）。',
+      result: readonlyPassed ? 'pass' : 'fail',
+      screenshots: [],
+      notes: readonly.notes(),
+    })
   } finally {
     await browser.close()
     if (!args.keep) lab.dispose()
