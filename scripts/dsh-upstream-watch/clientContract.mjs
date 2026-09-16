@@ -57,7 +57,8 @@ export const SLOT_DEPENDENCIES = [
   {
     names: ['main', 'conversation'],
     why: '会话面板座：0.1.2 线是 single `conversation`，0.1.6 线是 keyed `main`（key = `conversation`）',
-    where: 'src/ui/assembly/shell/shellPlugin.ts（root children + conversationSeat 镜像 + renderSlot）',
+    where:
+      'src/ui/assembly/shell/shellPlugin.ts（root children + conversationSeat 镜像 + renderSlot）、settingsFramePlugin.ts（root children 只声明不渲染——官方 ui-conversation 的子树注册挂在这个名字上，#74）',
     expect: 'packages/client/ui-layout/src/client/index.ts:66 / ui-conversation/src/client/contract/slots.ts',
   },
   {
