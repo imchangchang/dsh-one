@@ -64,6 +64,13 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   /** 官方图标件（#81：批量选择入口、回收站「还原」）。 */
   export function IconChecklistOutline14(props: { size?: number; className?: string }): unknown
   export function IconRefreshOutline16(props: { size?: number; className?: string }): unknown
+  /**
+   * 官方图标件（#99 侧栏顶栏：折叠/展开全部、添加工作区、回收站入口行）。
+   * 名与尺寸档同样取自官方 primitives 导出表（未新增自造图标）。
+   */
+  export function IconChevronDownOutline14(props: { size?: number; className?: string }): unknown
+  export function IconChevronUpOutline14(props: { size?: number; className?: string }): unknown
+  export function IconProjectAddOutline16(props: { size?: number; className?: string }): unknown
   /** 官方状态点（三档：ongoing / warning / done）。 */
   export function StateDot(props: { state: string; className?: string }): unknown
   /** 官方紧凑相对时间（单位 + 数值，文案由词典拼）。 */

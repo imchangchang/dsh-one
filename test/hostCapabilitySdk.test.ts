@@ -267,3 +267,51 @@ test('编辑器标签页（#72）：官方 web 侧如实上报缺席，调用被
   assert.deepEqual(calls, [], '缺席的能力不该往网关上打任何请求')
   resetGlobals()
 })
+
+test('#99 设置齿轮：桥在时上报有独立设置页，调用落到 bridge 的 vscode.openSettings', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, { 'vscode.openSettings': null })
+  const caps = hostCapabilities(undefined)
+  assert.equal(caps.settingsPage, true)
+  await caps.openSettings()
+  assert.deepEqual(bridgeCalls, [{ name: 'vscode.openSettings', args: {} }])
+  resetGlobals()
+})
+
+test('#99 设置齿轮：官方 web 侧如实上报缺席，调用被 unavailable 拒掉', async () => {
+  resetGlobals()
+  const calls: Call[] = []
+  const caps = hostCapabilities(gatewayCtx({}, calls))
+  assert.equal(caps.settingsPage, false, '没有宿主桥 = 没有独立设置页，齿轮据此不渲染')
+  await assert.rejects(
+    () => caps.openSettings(),
+    (err: unknown) => (err as CapabilityFailure).code === 'unavailable',
+  )
+  assert.deepEqual(calls, [], '缺席的能力不该往网关上打任何请求')
+  resetGlobals()
+})
+
+test('#99 创建新工作区目录：桥在时上报有能力，调用落到 bridge 的 vscode.workspaceCreate', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, { 'vscode.workspaceCreate': null })
+  const caps = hostCapabilities(undefined)
+  assert.equal(caps.workspaceCreate, true)
+  await caps.createWorkspaceDirectory()
+  assert.deepEqual(bridgeCalls, [{ name: 'vscode.workspaceCreate', args: {} }])
+  resetGlobals()
+})
+
+test('#99 创建新工作区目录：官方 web 侧如实上报缺席，调用被 unavailable 拒掉', async () => {
+  resetGlobals()
+  const calls: Call[] = []
+  const caps = hostCapabilities(gatewayCtx({}, calls))
+  assert.equal(caps.workspaceCreate, false, '没有宿主桥 = 建目录归官方目录流，那一项据此不出现')
+  await assert.rejects(
+    () => caps.createWorkspaceDirectory(),
+    (err: unknown) => (err as CapabilityFailure).code === 'unavailable',
+  )
+  assert.deepEqual(calls, [], '缺席的能力不该往网关上打任何请求')
+  resetGlobals()
+})

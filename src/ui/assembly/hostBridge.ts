@@ -68,6 +68,8 @@ export const HOST_CALLS = {
   'state.write': 'Write one plugin state value (same store, atomic write).',
   'state.delete': 'Delete one plugin state value (same store).',
   'session.openInNewTab': 'Open one session in its own editor tab (explicit multi-open; the chat panel stays a singleton).',
+  'vscode.openSettings': 'Open (or focus) the dsh-one settings editor page (the sidebar toolbar gear, #99).',
+  'vscode.workspaceCreate': 'Create a workspace directory (~/.dsh/workspaces/<name>) and register it (the sidebar + menu, #99).',
 } as const
 
 export type HostCallName = keyof typeof HOST_CALLS
@@ -125,6 +127,17 @@ export interface HostBridgeDeps {
    * ——官方 web 形态的侧栏树本来也不会显示这个菜单项（见能力口的 `editorTabs`）。
    */
   openSessionInNewTab?: (sessionId: string) => void
+  /**
+   * 打开（或聚焦）设置页（#99 顶栏齿轮）。装配视图提供实现（设置页的注册与
+   * 生命周期都在那里）；缺省无实现 = `unsupported`。
+   */
+  openSettings?: () => void
+  /**
+   * 建一个新工作区目录并注册（#99 顶栏 ＋ 菜单第二项）。装配视图提供实现
+   * （转发到既有 `dshOne.workspace.create` 命令，宿主原生输入框 + 建目录 + 注册）；
+   * 缺省无实现 = `unsupported`。
+   */
+  createWorkspaceDirectory?: () => Promise<unknown>
 }
 
 /**
@@ -254,6 +267,27 @@ export async function runHostCall(
       return { code: 'unsupported', message: 'this host has no editor tabs to open a session in' }
     }
     deps.openSessionInNewTab(parsed.sessionId)
+    return null
+  }
+  if (call === 'vscode.openSettings') {
+    // 无参调用：多带参数说明调用方与契约不同步，直接拒（同其余能力的口径）。
+    if (args !== undefined && asRecord(args) === undefined) {
+      return { code: 'invalid-args', message: 'vscode.openSettings takes no arguments' }
+    }
+    if (deps.openSettings === undefined) {
+      return { code: 'unsupported', message: 'this host serves no separate settings page' }
+    }
+    deps.openSettings()
+    return null
+  }
+  if (call === 'vscode.workspaceCreate') {
+    if (args !== undefined && asRecord(args) === undefined) {
+      return { code: 'invalid-args', message: 'vscode.workspaceCreate takes no arguments' }
+    }
+    if (deps.createWorkspaceDirectory === undefined) {
+      return { code: 'unsupported', message: 'this host cannot create a workspace directory' }
+    }
+    await deps.createWorkspaceDirectory()
     return null
   }
   const url = parseAllowedUrl(asRecord(args)?.url)

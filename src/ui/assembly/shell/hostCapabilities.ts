@@ -16,6 +16,8 @@
  * | `downloadGatewayFile` | 扩展宿主经 loopback 代理取内容 + 弹保存框 | 浏览器原生 `fetch` + `a[download]` |
  * | `openExternal` | 扩展宿主 `vscode.env.openExternal` | 页面原生 `window.open` |
  * | `openSessionInNewTab`（+ `editorTabs`） | 扩展宿主开一个 WebviewPanel（#72 多开） | **无**——官方 web 没有编辑器标签页，能力恒缺席 |
+ * | `openSettings`（+ `settingsPage`） | 扩展宿主开/聚焦设置页（设置独立成编辑器页，#70） | **无**——官方 web 的设置是官方底部那一行，没有独立设置页；能力恒缺席，侧栏齿轮在那一端不渲染 |
+ * | `createWorkspaceDirectory`（+ `workspaceCreate`） | 扩展宿主建目录并注册（`dshOne.workspace.create` 命令：`~/.dsh/workspaces/<名>`） | **无**——官方 web 的「新建目录」归官方 directory-flow 占用者（见 #99 的说明），能力恒缺席 |
  *
  * 四处刻意的取舍（写清楚免得后来人以为是漏配）：
  * 1. **状态两侧同一份实现与同一个家**（都是宿主半的状态存储模块，都落
@@ -120,6 +122,22 @@ export interface HostCapabilities {
    * 决定要不要给出这个入口，正常路径不会走到这里。
    */
   openSessionInNewTab(sessionId: string): Promise<void>
+  /**
+   * 这套宿主有没有「独立的设置页」（#99 侧栏顶栏齿轮）：**同步判定**，消费方按它
+   * 决定齿轮渲不渲染——VS Code 侧设置是我们自己的编辑器页（能力在），官方 web 侧
+   * 设置是官方侧栏底部那一行（能力缺席，那一行本来就在，齿轮不该出现）。
+   */
+  readonly settingsPage: boolean
+  /** 打开（或聚焦）设置页。宿主没有独立设置页时以 `unavailable` 拒绝。 */
+  openSettings(): Promise<void>
+  /**
+   * 这套宿主能不能「建一个新工作区目录」（#99 顶栏 ＋ 菜单第二项）：**同步判定**，
+   * 消费方按它决定该项出不出现。VS Code 侧由扩展宿主建目录并注册；官方 web 侧
+   * 建目录归官方 directory-flow 占用者，能力恒缺席（那一项就不出现）。
+   */
+  readonly workspaceCreate: boolean
+  /** 建一个新工作区目录并注册（VS Code 侧 = `dshOne.workspace.create` 命令）。 */
+  createWorkspaceDirectory(): Promise<void>
 }
 
 function fail(code: HostCapabilityErrorCode, message: string): CapabilityFailure {
@@ -289,6 +307,26 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
         return
       }
       throw fail('unavailable', 'this shell has no editor tabs; the host half serves no session tab action')
+    },
+    get settingsPage() {
+      return viaBridge()
+    },
+    async openSettings() {
+      if (viaBridge()) {
+        await bridgeCall('vscode.openSettings', {})
+        return
+      }
+      throw fail('unavailable', 'this shell has no separate settings page; the official settings row owns settings here')
+    },
+    get workspaceCreate() {
+      return viaBridge()
+    },
+    async createWorkspaceDirectory() {
+      if (viaBridge()) {
+        await bridgeCall('vscode.workspaceCreate', {})
+        return
+      }
+      throw fail('unavailable', 'this shell cannot create a workspace directory; the official directory flow owns creation here')
     },
   }
 }
