@@ -358,7 +358,7 @@ export const INTERACT_SUITE: LabSuite = {
  * `dshOneTree_<name>` vs 官方 `<hash>_<name>`，按类名**后缀**取）的 computed
  * style 与几何矩形逐项相等。数值不硬编码：官方改版后这边跟着变，不相等才报。
  */
-const PARITY_PAIRS: ReadonlyArray<{ suffix: string; props: readonly string[] }> = [
+const PARITY_PAIRS: ReadonlyArray<{ suffix: string; props: readonly string[]; geometry?: 'width' }> = [
   { suffix: 'sectionHeader', props: ['height', 'borderRadius', 'paddingLeft', 'marginTop', 'marginBottom', 'marginRight'] },
   { suffix: 'search', props: ['height', 'borderRadius'] },
   { suffix: 'searchButton', props: ['width', 'height', 'borderRadius'] },
@@ -368,7 +368,10 @@ const PARITY_PAIRS: ReadonlyArray<{ suffix: string; props: readonly string[] }> 
   { suffix: 'title', props: ['fontSize', 'lineHeight', 'marginLeft', 'marginRight', 'marginTop', 'marginBottom'] },
   { suffix: 'time', props: ['fontSize', 'lineHeight'] },
   { suffix: 'slot', props: ['width', 'height'] },
-  { suffix: 'list', props: ['paddingBottom', 'paddingLeft', 'marginLeft', 'marginRight', 'scrollbarGutter'] },
+  // 列表容器只比宽度：自有树在它上面多了一条分组过滤条（#81 功能 1），容器因此
+  // 矮一行——那是**功能带来的**差异，不是外观偏差；宽度、内边距、滚动条槽这些
+  // 样式契约仍逐项比对。
+  { suffix: 'list', props: ['paddingBottom', 'paddingLeft', 'marginLeft', 'marginRight', 'scrollbarGutter'], geometry: 'width' },
 ]
 
 interface ParitySample {
@@ -406,7 +409,7 @@ export const PARITY_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏树外观与几何对齐官方（PARITY 套件，260/340/500 三档宽度）',
   expect:
-    '同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索胶囊、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。',
+    '同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索胶囊、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。两组例外都写明了理由：**列表容器只比宽度**（自有树多一条分组过滤条，容器矮一行是功能带来的），**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const own = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -415,6 +418,45 @@ export const PARITY_SUITE: LabSuite = {
       check.fact(
         `对齐口径：自有树（.dshOneTree_*）对官方对照档（官方 hash 类名，按类名后缀配对），逐组比 computed style 各属性 + 几何矩形；共 ${String(PARITY_PAIRS.length)} 组元素 × 3 档宽度（260/340/500）`,
       )
+      await own.page.setViewportSize({ width: 340, height: 900 })
+      await official.page.setViewportSize({ width: 340, height: 900 })
+      await own.page.waitForTimeout(300)
+      await official.page.waitForTimeout(300)
+
+      // ---- 密度档：先量 VS Code 档（现况），再把它对齐到官方兜底值 ----
+      const vscodeDensity = await samplePair(own.page, 'projectRow', ['height'])
+      const officialDensity = await samplePair(official.page, 'projectRow', ['height'])
+      check.ok(
+        '#85 密度档：VS Code 侧的分组行比官方档紧（同一个 frame 上真的下发了密度变量）',
+        Number.parseFloat(vscodeDensity.styles.height ?? '0') < Number.parseFloat(officialDensity.styles.height ?? '0'),
+        `own=${vscodeDensity.styles.height} official=${officialDensity.styles.height}`,
+      )
+      const densityFix = await own.page.evaluate(() => {
+        // 从自有树的 CSS 里读出每项的官方兜底值（`var(--dsh-one-density-x, <官方原值>)`
+        // 的第二参数），把它们内联设到 frame 元素上（内联胜过样式表里的 VS Code 档）
+        // ——于是自有页回到「没人给偏好」的官方档，与官方基准可逐项比对。
+        const treeCss =
+          Array.from(document.querySelectorAll('style[data-plugin]'))
+            .find((element) => element.getAttribute('data-plugin') === '@dsh-one/dsh-workspace-tree')
+            ?.textContent ?? ''
+        const fallbacks = Array.from(treeCss.matchAll(/var\(--dsh-one-density-([a-z-]+),\s*([^)]+)\)/g)).map(
+          (match) => [match[1] ?? '', (match[2] ?? '').trim()] as const,
+        )
+        const frame = document.querySelector('[class*="dshOneSidebarShell_frame"]')
+        if (frame === null) return { applied: 0, officialFallbacks: [] as string[] }
+        for (const [key, value] of fallbacks) frame.setAttribute('style', `${frame.getAttribute('style') ?? ''};--dsh-one-density-${key}:${value}`)
+        return { applied: fallbacks.length, officialFallbacks: fallbacks.map(([key, value]) => `${key}=${value}`) }
+      })
+      check.fact(`密度档兜底值（自作树 CSS 读出并回填到 frame）：${densityFix.officialFallbacks.join(' ')}`)
+      check.ok('密度档变量组 ≥ 10 项（与契约测试同口径）', densityFix.applied >= 10, `applied=${String(densityFix.applied)}`)
+      await own.page.waitForTimeout(200)
+      const alignedDensity = await samplePair(own.page, 'projectRow', ['height'])
+      check.eq(
+        '密度档：把变量对齐到官方兜底值后，自有树与官方基准逐项一致（官方档是无人给偏好时的兜底）',
+        alignedDensity.styles.height,
+        officialDensity.styles.height,
+      )
+
       for (const width of [260, 340, 500]) {
         await own.page.setViewportSize({ width, height: 900 })
         await official.page.setViewportSize({ width, height: 900 })
@@ -424,14 +466,25 @@ export const PARITY_SUITE: LabSuite = {
           const a = await samplePair(own.page, pair.suffix, pair.props)
           const b = await samplePair(official.page, pair.suffix, pair.props)
           const label = `w=${String(width)} ${pair.suffix}`
+          // 两侧都没有这个元素 = 当前数据里没产生它（例如网关的当前会话是空白会话
+          // 时，会话行不渲染相对时间）——「没有可比的东西」不是外观不一致，记一笔
+          // 观测跳过；只有**一侧有、一侧没有**才是真的偏差，判失败。
+          if (!a.found && !b.found) {
+            check.fact(`${label}：两侧都没有该元素（当前数据没产生它）——该组跳过比较`)
+            continue
+          }
           if (!check.ok(`${label}：两侧都取到元素`, a.found && b.found, `own=${String(a.found)} official=${String(b.found)}`)) continue
           for (const prop of pair.props) {
             check.ok(`${label}：${prop} 一致`, a.styles[prop] === b.styles[prop], `own=${a.styles[prop]} official=${b.styles[prop]}`)
           }
           check.ok(
             `${label}：几何矩形一致`,
-            a.rect.width === b.rect.width && a.rect.height === b.rect.height,
-            `own=${JSON.stringify(a.rect)} official=${JSON.stringify(b.rect)}`,
+            pair.geometry === 'width'
+              ? a.rect.width === b.rect.width
+              : a.rect.width === b.rect.width && a.rect.height === b.rect.height,
+            pair.geometry === 'width'
+              ? `own=${{ w: a.rect.width, h: a.rect.height }} official=${{ w: b.rect.width, h: b.rect.height }}（本组只比宽度）`
+              : `own=${JSON.stringify(a.rect)} official=${JSON.stringify(b.rect)}`,
           )
         }
         if (width === 340) {
@@ -654,6 +707,281 @@ export const PORTABLE_SUITE: LabSuite = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// F-07 SIDEBAR：#81 六项侧栏核心功能 + #82 的状态读写与视图态持久化
+// ---------------------------------------------------------------------------
+
+/** 页面上所有工作区分组键（行的 `data-dshone-tree-key`）。 */
+async function workspaceKeys(page: OpenedPage['page']): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-dshone-tree-row="workspace"]')).map(
+      (element) => element.getAttribute('data-dshone-tree-key') ?? '',
+    ),
+  )
+}
+
+/** 假宿主状态存储里当前的分组状态（未写回时为注入的初值）。 */
+async function hostGroups(page: OpenedPage['page']): Promise<unknown> {
+  return page.evaluate(() => {
+    const host = (globalThis as unknown as { __LAB_HOST__?: { stateStore?: Record<string, unknown> } }).__LAB_HOST__
+    return host?.stateStore?.groups ?? null
+  })
+}
+
+export const SIDEBAR_SUITE: LabSuite = {
+  id: 'F-07',
+  phase: 'new-feature',
+  name: '侧栏六项核心功能（#81）：分组过滤、活状态计数、回收站抽屉、批量选择、不折叠、状态读写与视图态持久化',
+  expect:
+    '侧栏树（真实网关只读 + 假宿主）：**旧版 groups.json 的形状注进宿主状态存储就是可用数据**（分组 chip 按它渲染，过滤只留归属该分组的工作区）；分组由界面新建后按同一形状写回宿主状态存储（version 1、membership 在、旧字段 activeGroupId 不被抹掉）。**计数与行同源**：每个工作区行尾的「运行中/等待交互」角标数值 = 该工作区下会话行里 `data-dshone-tree-status` 的数（这同时证明工作区内会话没有被官方那 5 行截断，**不折叠**：不出现「显示更多」行，行数 = 该工作区的会话总数）。**回收站**：官方归档集合在抽屉里按工作区组织、每行有还原按钮；批量选择态出复选框与动作条，选中计数随点选变化，退出后动作条消失。**视图态**：当前过滤的分组写进官方惯例的 `dsh.workspaceTree.view`（localStorage），同上下文重载后仍然生效。全程零 pageerror（归档/还原**不被点击**——那会写真实网关）。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+
+    // 第一步：先开一次页面，取真实网关上的工作区键——分组归属要按真实 id 造夹具
+    // （夹具里的 id 必须是页面上真有的工作区，否则过滤断言无从观察）。
+    const probe = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
+    let keys: string[] = []
+    try {
+      keys = await workspaceKeys(probe.page)
+    } finally {
+      await probe.context.close()
+    }
+    check.fact(`真实网关上的工作区分组键：${keys.slice(0, 4).join(', ')}（共 ${String(keys.length)} 个）`)
+    check.ok('侧栏有 ≥ 2 个真实工作区分组（才能验证过滤）', keys.length >= 2, `keys=${String(keys.length)}`)
+    if (keys.length < 2) return []
+
+    // 夹具 = 旧侧栏 groups.json 的**原样形状**（version 1 + groups + membership +
+    // activeGroupId）。这正是 #82 要证明的一点：键名与格式沿用旧文件，所以没有
+    // 「迁移」这一步——旧数据直接就是新数据。
+    const legacyGroups = {
+      version: 1,
+      groups: [
+        { id: 'g-lab-one', name: 'Lab One' },
+        { id: 'g-lab-two', name: 'Lab Two' },
+      ],
+      membership: { [keys[0]]: ['g-lab-one'], [keys[1]]: ['g-lab-two'] },
+      activeGroupId: 'g-lab-one',
+    }
+
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), {
+      width: 380,
+      height: 900,
+      state: { groups: legacyGroups },
+    })
+    const { page, capture } = opened
+    try {
+      const chips = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-dshone-tree-chip]')).map((element) => element.getAttribute('data-dshone-tree-chip') ?? ''),
+      )
+      check.fact(`分组 chip：${chips.join(',')}`)
+      check.eq('分组 chip 按旧 groups.json 渲染（全部 + 两个分组）', chips, ['all', 'g-lab-one', 'g-lab-two'])
+      // 旧文件里的 activeGroupId 是**旧版**的「当前分组」；本版它是纯视图态（住
+      // localStorage），所以初值应当是「全部」——文件里那个字段原样保留不动。
+      const allVisible = await workspaceKeys(page)
+      check.eq('旧 activeGroupId 不被当作视图态（初始仍是「全部」）', allVisible.length, keys.length)
+
+      // ---- 功能 1：过滤 ----
+      await page.click('[data-dshone-tree-chip="g-lab-one"]')
+      await page.waitForTimeout(200)
+      check.eq('点分组 chip 后只留归属该分组的工作区', await workspaceKeys(page), [keys[0]])
+      const storedPrefs = await page.evaluate(() => localStorage.getItem('dsh.workspaceTree.view'))
+      check.ok('当前过滤的分组写进官方惯例的 localStorage 键', storedPrefs !== null && storedPrefs.includes('g-lab-one'), String(storedPrefs))
+      screenshots.push(await shot(ctx, page, 'sidebar-group-filter'))
+
+      // ---- 功能 6 + 功能 2：不折叠与计数 ----
+      await page.click('[data-dshone-tree-chip="all"]')
+      await page.waitForTimeout(200)
+      await page.evaluate(() => {
+        for (const row of Array.from(document.querySelectorAll('[data-dshone-tree-row="workspace"]'))) {
+          if (row.getAttribute('aria-expanded') !== 'true') (row as HTMLElement).click()
+        }
+      })
+      await page.waitForTimeout(400)
+      const sections = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-dshone-group-key]')).map((section) => {
+          const key = section.getAttribute('data-dshone-group-key') ?? ''
+          const row = section.querySelector('[data-dshone-tree-row="workspace"]')
+          const badge = row?.querySelector('[data-dshone-tree-activity]')?.getAttribute('data-dshone-tree-activity') ?? ''
+          const statuses = Array.from(section.querySelectorAll('[data-dshone-tree-row="session"]')).map(
+            (element) => element.getAttribute('data-dshone-tree-status') ?? '',
+          )
+          return {
+            key,
+            count: Number(row?.getAttribute('data-dshone-tree-count') ?? '-1'),
+            badge,
+            rows: statuses.length,
+            running: statuses.filter((status) => status === 'running').length,
+            waiting: statuses.filter((status) => status === 'waiting').length,
+            overflow: section.querySelectorAll('.dshOneTree_sessionOverflowButton').length,
+          }
+        }),
+      )
+      const withSessions = sections.filter((section) => section.rows > 0)
+      check.fact(
+        `展开了 ${String(sections.length)} 个分组：${withSessions
+          .slice(0, 5)
+          .map((section) => `${section.key.slice(0, 8)}=${String(section.count)}行(角标${section.badge === '' ? '无' : section.badge})`)
+          .join(' ')}`,
+      )
+      check.ok('展开后有工作区渲染出会话行（计数才有对照）', withSessions.length >= 1, `sections=${String(sections.length)}`)
+      check.eq(
+        '功能 6 不折叠：全树不出现「显示更多」行',
+        sections.reduce((total, section) => total + section.overflow, 0),
+        0,
+      )
+      check.ok(
+        '功能 6 不折叠：每个展开工作区的会话行数 = 它的会话总数（官方会截到 5 行）',
+        sections.every((section) => section.rows === section.count),
+        sections
+          .filter((section) => section.rows !== section.count)
+          .map((section) => `${section.key.slice(0, 8)} rows=${String(section.rows)} count=${String(section.count)}`)
+          .join(' '),
+      )
+      const badgeMismatch = sections.filter((section) => {
+        if (section.badge === '') return section.running > 0 || section.waiting > 0
+        const [running, waiting] = section.badge.split('/')
+        return Number(running) !== section.running || Number(waiting) !== section.waiting
+      })
+      check.ok(
+        '功能 2 计数：行尾角标（运行中/等待交互）= 该工作区会话行里的真实状态数',
+        badgeMismatch.length === 0,
+        badgeMismatch
+          .map((section) => `${section.key.slice(0, 8)} badge=${section.badge} running=${String(section.running)} waiting=${String(section.waiting)}`)
+          .join(' '),
+      )
+      screenshots.push(await shot(ctx, page, 'sidebar-activity-counts'))
+
+      // ---- 功能 3/5：回收站抽屉（数据 = 官方归档集合；只读，不点还原） ----
+      const recycleTotal = await page.getAttribute('[data-dshone-tree-action="recycle-open"]', 'data-dshone-tree-recycle-count')
+      await page.click('[data-dshone-tree-action="recycle-open"]')
+      await page.waitForTimeout(300)
+      const drawer = await page.evaluate(() => {
+        const root = document.querySelector('[data-dshone-tree="recycle-drawer"]')
+        if (root === null) return null
+        return {
+          groups: Array.from(root.querySelectorAll('[data-dshone-recycle-group]')).map(
+            (element) => element.getAttribute('data-dshone-recycle-group') ?? '',
+          ),
+          rows: root.querySelectorAll('[data-dshone-recycle-row]').length,
+          restores: root.querySelectorAll('[data-dshone-recycle-restore]').length,
+          empty: root.textContent?.includes('recycle') ?? false,
+          status: root.querySelector('.dshOneTree_drawerStatus') !== null,
+        }
+      })
+      check.fact(`回收站入口角标=${String(recycleTotal)} 抽屉=${JSON.stringify(drawer)}`)
+      check.ok('功能 5：点回收站入口开抽屉', drawer !== null)
+      check.ok('功能 3：抽屉内容与入口角标同源（角标 = 抽屉里的会话数）', drawer !== null && String(drawer.rows) === String(recycleTotal), `rows=${String(drawer?.rows)} badge=${String(recycleTotal)}`)
+      check.ok(
+        '功能 3/5：抽屉里的会话按工作区组织（每个块一条还原）',
+        drawer !== null && (drawer.rows === 0 ? drawer.status : drawer.restores === drawer.rows && drawer.groups.length >= 1),
+        JSON.stringify(drawer),
+      )
+      screenshots.push(await shot(ctx, page, 'sidebar-recycle-drawer'))
+      await page.click('[data-dshone-tree-action="recycle-close"]')
+      await page.waitForTimeout(200)
+      check.eq('功能 5：抽屉可以关掉', await contentCount(page, '[data-dshone-tree="recycle-drawer"]'), 0)
+
+      // ---- 功能 4：批量选择（只验选择与动作条，不点「移入回收站」——那会写真实网关） ----
+      await page.click('[data-dshone-tree-action="select-mode"]')
+      await page.waitForTimeout(300)
+      const marks = await contentCount(page, '.dshOneTree_check')
+      check.ok('功能 4：进入选择态后每行出勾选框', marks >= 1, `checks=${String(marks)}`)
+      const firstRows = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+        const first = rows[0]
+        const second = rows[1]
+        if (first instanceof HTMLElement) first.click()
+        if (second instanceof HTMLElement) second.click()
+        return rows.length
+      })
+      await page.waitForTimeout(200)
+      const selection = await page.evaluate(() => {
+        const host = (globalThis as unknown as { __LAB_HOST__?: { hostCalls: { call: string }[] } }).__LAB_HOST__
+        return {
+          checked: document.querySelectorAll('[data-dshone-tree-checked="true"]').length,
+          bar: document.querySelector('[data-dshone-tree="selection-bar"]')?.textContent ?? '',
+          archiveCalls: (host?.hostCalls ?? []).filter((entry) => entry.call === 'state.write').length,
+        }
+      })
+      check.fact(`可勾选会话行=${String(firstRows)} 已勾选=${String(selection.checked)} 动作条=${JSON.stringify(selection.bar)}`)
+      check.eq('功能 4：点两行即勾选两行', selection.checked, 2)
+      check.ok('功能 4：动作条显示已选计数', /\b2\b/.test(selection.bar), selection.bar)
+      check.ok('功能 4：动作条带「移入回收站」按钮（未被点击，零网关写入）', selection.bar.length > 0)
+      screenshots.push(await shot(ctx, page, 'sidebar-multi-select'))
+      await page.click('[data-dshone-tree-action="select-mode"]')
+      await page.waitForTimeout(200)
+      check.eq('功能 4：退出选择态后动作条消失', await contentCount(page, '[data-dshone-tree="selection-bar"]'), 0)
+
+      // ---- 功能 1 的写路径 + #82 的迁移/幂等：建组 → 归属 → 落盘形状 ----
+      await page.click('[data-dshone-tree-action="group-new"]')
+      await page.waitForTimeout(200)
+      await page.fill('.dshOneTree_renameInput', 'Lab New')
+      await page.keyboard.press('Enter')
+      await page.waitForTimeout(300)
+      const afterCreate = (await hostGroups(page)) as { version?: number; groups?: { id: string; name: string }[]; membership?: unknown; activeGroupId?: unknown } | null
+      const created = afterCreate?.groups?.find((group) => group.name === 'Lab New')
+      check.ok('功能 1：新建的分组按同一形状写回宿主状态存储（version 1 + groups + membership）',
+        afterCreate?.version === 1 && created !== undefined && typeof afterCreate.membership === 'object', JSON.stringify(afterCreate).slice(0, 200))
+      check.eq('#82：写回时旧字段 activeGroupId 原样保留（不抹掉别人的数据）', afterCreate?.activeGroupId, 'g-lab-one')
+      const chipsAfter = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-dshone-tree-chip]')).map((element) => element.getAttribute('data-dshone-tree-chip') ?? ''),
+      )
+      check.ok('功能 1：新分组立刻出现在过滤条里', chipsAfter.includes(created?.id ?? 'none'), chipsAfter.join(','))
+
+      // 归属：工作区行的「…」菜单 → 勾一个分组 → 归属写回状态存储。
+      // 行操作按钮平时是 display:none（悬停才出，官方同款），所以先 hover 行再点。
+      const workspaceRow = page.locator('[data-dshone-tree-row="workspace"]').first()
+      await workspaceRow.hover()
+      await workspaceRow.locator('[data-dshone-tree-action="workspace-menu"]').click()
+      await page.waitForTimeout(300)
+      const menuText = await bodyText(page)
+      check.ok('功能 1：工作区行菜单里有「所属分组」一节', created !== undefined && menuText.includes('Lab New'), menuText.slice(0, 160))
+      await page.click(`[role="menuitem"]:has-text("Lab New")`)
+      await page.waitForTimeout(300)
+      const afterAssign = (await hostGroups(page)) as { membership?: Record<string, string[]> } | null
+      const membership = afterAssign?.membership ?? {}
+      check.ok(
+        '功能 1：勾选后归属写回状态存储（该工作区记上新分组）',
+        Object.values(membership).some((ids) => Array.isArray(ids) && ids.includes(created?.id ?? 'none')),
+        JSON.stringify(membership).slice(0, 200),
+      )
+      // 再勾一次 = 移出（同一入口的开关语义）。
+      await page.click(`[role="menuitem"]:has-text("Lab New")`)
+      await page.waitForTimeout(300)
+      const afterUnassign = (await hostGroups(page)) as { membership?: Record<string, string[]> } | null
+      check.ok(
+        '功能 1：再勾一次即移出该分组',
+        !Object.values(afterUnassign?.membership ?? {}).some((ids) => Array.isArray(ids) && ids.includes(created?.id ?? 'none')),
+        JSON.stringify(afterUnassign?.membership ?? {}).slice(0, 200),
+      )
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(200)
+
+      // ---- #82 视图态持久化：同上下文重载后过滤仍然生效 ----
+      await page.click('[data-dshone-tree-chip="g-lab-two"]')
+      await page.waitForTimeout(200)
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.waitForSelector('.dshOneTree_projectRow', { timeout: 40_000 })
+      await page.waitForTimeout(1_500)
+      const afterReload = await page.evaluate(() => ({
+        keys: Array.from(document.querySelectorAll('[data-dshone-tree-row="workspace"]')).map((el) => el.getAttribute('data-dshone-tree-key')),
+        prefs: localStorage.getItem('dsh.workspaceTree.view'),
+      }))
+      check.ok(
+        '#82 视图态：重载后过滤分组仍然生效（localStorage 官方惯例）',
+        afterReload.keys.length === 1 && afterReload.keys[0] === keys[1],
+        JSON.stringify(afterReload),
+      )
+      check.ok('视图态只存我们自己的一个键（没另起第二套）', (afterReload.prefs ?? '').includes('g-lab-two'), String(afterReload.prefs))
+
+      check.eq('侧栏功能套件全程零 pageerror', withoutKnownNoise(capture.pageErrors).real, [])
+      return screenshots
+    } finally {
+      await opened.context.close()
+    }
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -661,4 +989,5 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   PARITY_SUITE,
   BRIDGE_SUITE,
   PORTABLE_SUITE,
+  SIDEBAR_SUITE,
 ]

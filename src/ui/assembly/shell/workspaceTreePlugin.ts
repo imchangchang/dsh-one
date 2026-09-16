@@ -344,7 +344,7 @@ const CSS =
   // 容器外，让侧栏外层（官方 hHd-Xa_regionArea）的 scrollWidth 比 clientWidth 大 4px
   // ——平时看不见，但官方在「单列表」视图里对选中行 scrollIntoView 时会被横滚 4px，
   // 整棵树跟着左移 4px（#85 回归断言实测到的既有缺陷）。列表自己的滚动在 .dshOneTree_list。
-  '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex}' +
+  '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex;position:relative}' +
   '.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:4px;margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:4px;display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}' +
@@ -773,6 +773,7 @@ function ProjectRow({
       type: 'button',
       className: 'dshOneTree_rowIconButton',
       'aria-label': tr('actions.workspace.aria', { name: label }),
+      'data-dshone-tree-action': 'workspace-menu',
       onClick: (event: { stopPropagation(): void }) => {
         event.stopPropagation()
         setMenuOpen((open: boolean) => !open)
@@ -787,6 +788,7 @@ function ProjectRow({
       role: 'treeitem',
       'aria-expanded': expanded,
       'data-dshone-tree-row': 'workspace',
+      'data-dshone-tree-key': group.key,
       'data-dshone-tree-count': group.sessionCount,
       onClick: onToggle,
       children: [
@@ -914,6 +916,7 @@ function SessionRow({
       type: 'button',
       className: 'dshOneTree_rowIconButton',
       'aria-label': tr('actions.session.aria', { name: title }),
+      'data-dshone-tree-action': 'session-menu',
       onClick: (event: { stopPropagation(): void }) => {
         event.stopPropagation()
         setMenuOpen((open: boolean) => !open)
@@ -1753,9 +1756,14 @@ function WorkspaceTree(props: TreeProps): unknown {
     writeTreeViewPrefs(pageStorage(), prefs)
   }, [prefs])
 
-  // 分组状态读（宿主能力口）。失败（能力口没实现/宿主半没装）时保持空状态并降级：
-  // 树照常可用，只是没有分组可过滤——不弹错、不白屏。
+  // 分组状态读（宿主能力口）。只读一次（ref 守门，不靠 loadGroups 的引用稳定——
+  // 注入的 props 每次渲染可能都是新函数，按依赖重跑会变成无限循环）。失败
+  // （能力口没实现/宿主半没装）时保持空状态并降级：树照常可用，只是没有分组可
+  // 过滤——不弹错、不白屏。
+  const groupsLoaded = useRef(false)
   useEffect(() => {
+    if (groupsLoaded.current) return
+    groupsLoaded.current = true
     let cancelled = false
     loadGroups().then(
       (file) => {
@@ -1979,7 +1987,7 @@ function WorkspaceTree(props: TreeProps): unknown {
             groups.map((group) =>
               h(
                 'div',
-                { className: 'dshOneTree_groupSection', key: group.key },
+                { className: 'dshOneTree_groupSection', key: group.key, 'data-dshone-group-key': group.key },
                 h(ProjectRow, {
                   group,
                   tr,
@@ -2276,8 +2284,9 @@ function WorkspaceTree(props: TreeProps): unknown {
             setGroupError(result.error === 'empty' ? tr('group.name.empty') : tr('group.name.duplicate'))
             return
           }
-          // 建完就把过滤切到新分组（用户建组的意图就是「分组看这些」）。
-          setPrefs((prev) => ({ ...prev, activeGroupId: result.id }))
+          // 刻意**不**把过滤切到新分组：刚建的分组还没有成员，切过去等于把树清空，
+          // 用户接下来要做的「把工作区归到这个组」反而没地方点了。新分组出现在
+          // 过滤条里，用户自己点它即可。
           writeGroups(result.file)
         } else if (dialog.kind === 'rename') {
           const next = renameTreeGroup(groupsFile, dialog.id, value)
