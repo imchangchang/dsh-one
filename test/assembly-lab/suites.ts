@@ -5296,6 +5296,441 @@ export const CURRENT_WORKSPACE_FOLDER_SUITE: LabSuite = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// F-22 SESSION-ROW-RENAME：会话行点击逻辑 + 行内改名（#115）
+// ---------------------------------------------------------------------------
+
+/** 一行的现状（标题 / 当前标记 / 行内改名输入框的取值、选区与焦点）。 */
+interface RowRenameFacts {
+  exists: boolean
+  title: string
+  /** 这一行是当前附着会话（`aria-selected`，非选择态下 = `list.current`）。 */
+  current: boolean
+  /** 这一行在编辑态（`data-dshone-tree-renaming`）。 */
+  renaming: boolean
+  hasInput: boolean
+  value: string
+  selStart: number
+  selEnd: number
+  focused: boolean
+  ariaLabel: string
+}
+
+async function rowRenameFacts(page: OpenedPage['page'], sessionId: string): Promise<RowRenameFacts> {
+  return page.evaluate((id: string) => {
+    const row = document.querySelector(`[data-dshone-tree-session="${id}"]`)
+    const input = row === null ? null : row.querySelector('[data-dshone-tree-rename="input"]')
+    const field = input as HTMLInputElement | null
+    return {
+      exists: row !== null,
+      title: (row?.querySelector('.dshOneTree_title')?.textContent ?? '').trim(),
+      current: row?.getAttribute('aria-selected') === 'true',
+      renaming: row?.getAttribute('data-dshone-tree-renaming') === 'true',
+      hasInput: field !== null,
+      value: field?.value ?? '',
+      selStart: field?.selectionStart ?? -1,
+      selEnd: field?.selectionEnd ?? -1,
+      focused: field !== null && document.activeElement === field,
+      ariaLabel: field?.getAttribute('aria-label') ?? '',
+    }
+  }, sessionId)
+}
+
+/**
+ * 会话行点击逻辑与行内改名（#115）：非当前会话点击 = 打开、当前已打开的会话点击 = 就地
+ * 改名，提交沿用既有改名通路。
+ *
+ * 数据面与其它套件一致（真实网关**只读** + 假宿主）。改会话名是写操作，所以本套件把
+ * `session/rename` 的**回执**在页面侧换掉（请求一个都不落网关）：回执按官方 remote 的
+ * 契约给 `{ok:true, value:{title, seq}}`，官方客户端拿到它会把标题落进 title 投影
+ * （出处：`dsh-api-session-controller` 的 `session.rename` 实现与 `buildListSnapshot`），
+ * 于是「标题更新」这一条能在页面上真的看到——行标题跟着变，且全程零写入。
+ */
+export const SESSION_ROW_RENAME_SUITE: LabSuite = {
+  id: 'F-22',
+  phase: 'new-feature',
+  name: '会话行点击逻辑与行内改名（#115）：非当前行点击=打开、当前行点击=就地改名（Enter 提交 / Esc·失焦取消 / 空与未改动不发请求 / IME 守护 / 重绘保焦点与选区）',
+  expect:
+    '侧栏树在真实装配页上（真网关只读 + 假宿主 + 页面侧换掉 `session/rename` 的回执）：① **非当前会话行点击 = 打开**——它变成当前会话行（`aria-selected` 移过来），且**不进编辑态**（树上没有任何行内改名输入框）；② **当前会话行再点一下 = 就地改名**——这一行的标题位换成输入框，prefill = 原标题、**整段全选**、焦点已经在输入框上（可以直接打字），输入框有 `aria-label`（词典里的「会话名称」）；③ **Enter 提交走既有通路**——恰好一条 `session/rename`（会话 id = 这一行、标题 = 输入框里的新标题，即官方 `sessions.binding(id).session.rename`），提交后退出编辑态，且回执里的标题落回这一行（**标题更新**在页面上可见）；④ **Esc 取消 / 失焦取消**都退出编辑态、标题不变、**零请求**；IME 组合期间的 Enter 不提交（`compositionstart/end` 与键盘事件自带的 `isComposing` 两条判据各验一次）；⑤ **空串 / 未改动（含全空白）不发请求**——都是直接退出编辑态；⑥ **多选态下点行仍只勾选**——当前行也一样（勾上/取消，不进改名）；⑦ **重绘后输入框的焦点与选区保持**——编辑中点两次合成点击把视图从「按工作区」切到「单列表」（那一行的 DOM 会被摘掉重挂，是最硬的一种重绘），焦点、`selectionStart/End` 与草稿都原样还在，且整段没有触发提交。全程零 pageerror。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
+    const { page } = opened
+    try {
+      await expandAllGroups(page)
+
+      // ---- 夹一：`session/rename` 的回执在页面侧换成功回执（请求不落网关）----
+      // seq 用安全整数上限：官方客户端的投影按 seq 比大小（`seq <= row.seq` 就丢），给上限
+      // 才能保证这条标题一定盖过页面上已有的那一版。实验室不写网关，这里就是唯一的标题来源。
+      const renameCalls: { sessionId: string; title: string }[] = []
+      await page.route('**/api/**', async (r) => {
+        const request = r.request()
+        const method = decodeURIComponent(request.url()).split('/api/')[1] ?? ''
+        if (!method.startsWith('session/rename')) {
+          await r.fulfill({ response: await r.fetch() })
+          return
+        }
+        const envelope = JSON.parse(request.postData() ?? '{}') as {
+          rpcId?: string
+          payload?: { args?: { request?: { sessionId?: string; title?: string } } }
+        }
+        const call = envelope.payload?.args?.request ?? {}
+        renameCalls.push({ sessionId: call.sessionId ?? '', title: call.title ?? '' })
+        await r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            type: 'server-response',
+            rpcId: envelope.rpcId ?? '',
+            result: { ok: true, value: { title: call.title ?? '', seq: Number.MAX_SAFE_INTEGER } },
+          }),
+        })
+      })
+
+      // ---- 夹二：一行拿来点的会话行（有标题、有 ⋯ 菜单）----
+      // 页面刚打开时这一页**可能还没有当前会话**（点开任意一行才会有），所以「当前会话行」
+      // 不当作前置条件——本条套件要验的正是「先点开、再点一下改名」这条真实路径。
+      const fixture = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+          .map((row) => ({
+            id: row.getAttribute('data-dshone-tree-session') ?? '',
+            title: (row.querySelector('.dshOneTree_title')?.textContent ?? '').trim(),
+            current: row.getAttribute('aria-selected') === 'true',
+            menu: row.querySelector('[data-dshone-tree-action="session-menu"]') !== null,
+          }))
+          .filter((row) => row.id !== '' && row.title !== '' && row.menu)
+        return {
+          current: rows.find((row) => row.current) ?? null,
+          other: rows.find((row) => !row.current) ?? null,
+          total: rows.length,
+        }
+      })
+      check.fact(
+        `夹具：有标题有 ⋯ 的会话行 ${String(fixture.total)} 条；打开时已有当前会话=${JSON.stringify(fixture.current?.id ?? null)}；拿来点的非当前会话行=${JSON.stringify(fixture.other?.id ?? null)}（${JSON.stringify(fixture.other?.title ?? null)}）`,
+      )
+      check.ok(
+        '页面上有一条**非当前**的会话行可点（有标题、有 ⋯ 菜单）',
+        fixture.total > 0 && fixture.other !== null,
+      )
+      if (fixture.other === null) return screenshots
+      const otherId = fixture.other.id
+      const otherTitle = fixture.other.title
+      const rowSel = `[data-dshone-tree-session="${otherId}"]`
+      const inputSel = `${rowSel} [data-dshone-tree-rename="input"]`
+
+      // ---- ① 非当前会话点击 → 打开（且不进编辑态）----
+      const currentBefore = fixture.current
+      await page.click(rowSel)
+      await page.waitForTimeout(500)
+      const afterOpen = await rowRenameFacts(page, otherId)
+      check.ok('① 非当前会话点击 → 打开：这一行变成当前会话行（当前标记落到它身上）', afterOpen.current)
+      check.eq(
+        '① 且不进编辑态：树上没有任何行内改名输入框',
+        await contentCount(page, '[data-dshone-tree-rename="input"]'),
+        0,
+      )
+      check.eq(
+        '① 全树当前标记恰好一行（打开 = 切当前会话，不是多标一行）',
+        await contentCount(page, '[data-dshone-tree-row="session"][aria-selected="true"]'),
+        1,
+      )
+      check.ok(
+        currentBefore === null
+          ? '① 点击前这一页还没有当前会话，点击后当前会话就是刚点的那条（打开真的生效）'
+          : '① 点击前已有一条当前会话，点击后原来那条不再标为当前（当前真的切了）',
+        currentBefore === null || (await rowRenameFacts(page, currentBefore.id)).current === false,
+      )
+      screenshots.push(await shot(ctx, page, 'rowrename-01-open'))
+
+      // ---- ② 当前会话行点击 → 就地改名（prefill + 全选 + 焦点）----
+      await page.click(rowSel)
+      await page.waitForTimeout(400)
+      const editing = await rowRenameFacts(page, otherId)
+      check.ok('② 当前会话行点击 → 这一行就地变成输入框（编辑态写在行上）', editing.hasInput && editing.renaming)
+      check.eq('② prefill = 这一行的原标题', editing.value, otherTitle)
+      check.ok(
+        `② 整段全选（selectionStart=0 / selectionEnd=${String(otherTitle.length)}）`,
+        editing.selStart === 0 && editing.selEnd === otherTitle.length,
+        JSON.stringify([editing.selStart, editing.selEnd]),
+      )
+      check.ok('② 输入框已经拿到焦点（点完就能直接打字）', editing.focused)
+      check.eq('⑤ 无障碍：输入框有 aria-label（词典里的「会话名称」）', editing.ariaLabel, '会话名称')
+      screenshots.push(await shot(ctx, page, 'rowrename-02-edit'))
+
+      // ---- IME 守护：组合期间的 Enter 不提交（两条判据各一次）----
+      const imeDraft = `${otherTitle} 组合中`
+      const imeProbe = await page.evaluate(
+        ({ id, draft }: { id: string; draft: string }) => {
+          const input = document.querySelector(`[data-dshone-tree-session="${id}"] [data-dshone-tree-rename="input"]`)
+          const field = input as HTMLInputElement | null
+          if (field === null) return null
+          field.focus()
+          field.value = draft
+          field.dispatchEvent(new Event('input', { bubbles: true }))
+          // 判据一：compositionstart 之后（官方 WorkspaceBrowser 的改名输入框记的就是这个）。
+          field.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+          const bareEnter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+          field.dispatchEvent(bareEnter)
+          // 判据二：键盘事件自带 isComposing（旧侧栏那条实现用它判）。
+          const composingEnter = new KeyboardEvent('keydown', {
+            key: 'Enter',
+            isComposing: true,
+            bubbles: true,
+            cancelable: true,
+          })
+          field.dispatchEvent(composingEnter)
+          field.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))
+          return {
+            edited: field.value,
+            barePrevented: bareEnter.defaultPrevented,
+            composingPrevented: composingEnter.defaultPrevented,
+            stillEditing: document.querySelector(`[data-dshone-tree-session="${id}"]`)?.getAttribute('data-dshone-tree-renaming') === 'true',
+          }
+        },
+        { id: otherId, draft: imeDraft },
+      )
+      check.fact(`IME 探测：${JSON.stringify(imeProbe)}`)
+      check.ok(
+        '④ IME 组合期间的 Enter 不提交（两下都没被 preventDefault 掉、编辑态还在）',
+        imeProbe !== null && !imeProbe.barePrevented && !imeProbe.composingPrevented && imeProbe.stillEditing,
+        JSON.stringify(imeProbe),
+      )
+      check.eq('④ IME 组合期间没有发出任何改名请求', renameCalls.length, 0)
+
+      // ---- ③ Enter 提交 → 既有改名通路 + 标题更新 ----
+      const newTitle = `实验室改名-${Date.now().toString(36)}`
+      await page.focus(inputSel)
+      await page.fill(inputSel, newTitle)
+      await page.keyboard.press('Enter')
+      await page.waitForTimeout(800)
+      check.eq(
+        '③ Enter 提交：恰好一条 session/rename，会话 id 是这一行（官方 sessions.binding(id).session.rename 那条通路）',
+        renameCalls.map((call) => call.sessionId),
+        [otherId],
+      )
+      check.eq('③ 请求里带的标题就是输入框里的新标题', renameCalls[0]?.title, newTitle)
+      const committed = await rowRenameFacts(page, otherId)
+      check.ok('③ 提交后退出编辑态（输入框收起、行回到标题渲染）', !committed.hasInput && !committed.renaming)
+      check.eq('③ 标题更新：回执里的标题落到这一行（行上的标题换成新标题）', committed.title, newTitle)
+      screenshots.push(await shot(ctx, page, 'rowrename-03-committed'))
+      const callsAfterCommit = renameCalls.length
+
+      // ---- ④ Esc 取消 / 失焦取消：都不发请求 ----
+      await page.click(rowSel)
+      await page.waitForTimeout(300)
+      await page.fill(inputSel, 'lab-esc-丢弃')
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      const afterEsc = await rowRenameFacts(page, otherId)
+      check.ok('④ Esc 取消：退出编辑态', !afterEsc.hasInput && !afterEsc.renaming)
+      check.eq('④ Esc 取消：标题没变（还是提交后的那个）', afterEsc.title, newTitle)
+      check.eq('④ Esc 取消：零请求', renameCalls.length, callsAfterCommit)
+
+      await page.click(rowSel)
+      await page.waitForTimeout(300)
+      await page.fill(inputSel, 'lab-blur-丢弃')
+      await page.click('[data-dshone-tree="search-input"]')
+      await page.waitForTimeout(400)
+      const afterBlur = await rowRenameFacts(page, otherId)
+      check.ok('④ 失焦（点到搜索框）取消：退出编辑态', !afterBlur.hasInput && !afterBlur.renaming)
+      check.eq('④ 失焦取消：标题没变', afterBlur.title, newTitle)
+      check.eq('④ 失焦取消：零请求', renameCalls.length, callsAfterCommit)
+
+      // ---- ⑤ 空串 / 未改动 → 不发请求 ----
+      // 未改动：进编辑态后直接 Enter（草稿还是原标题）。
+      await page.click(rowSel)
+      await page.waitForTimeout(300)
+      await page.keyboard.press('Enter')
+      await page.waitForTimeout(300)
+      check.ok('⑤ 未改动 + Enter：直接退出编辑态', !(await rowRenameFacts(page, otherId)).renaming)
+      check.eq('⑤ 未改动 + Enter：零请求', renameCalls.length, callsAfterCommit)
+
+      // 空串：清空输入框再 Enter。
+      await page.click(rowSel)
+      await page.waitForTimeout(300)
+      await page.fill(inputSel, '')
+      await page.keyboard.press('Enter')
+      await page.waitForTimeout(300)
+      check.ok('⑤ 空串 + Enter：直接退出编辑态', !(await rowRenameFacts(page, otherId)).renaming)
+      check.eq('⑤ 空串 + Enter：零请求', renameCalls.length, callsAfterCommit)
+
+      // 全空白：与空串同一条判据（提交前 trim）。
+      await page.click(rowSel)
+      await page.waitForTimeout(300)
+      await page.fill(inputSel, '   ')
+      await page.keyboard.press('Enter')
+      await page.waitForTimeout(300)
+      check.eq('⑤ 全空白 + Enter：零请求', renameCalls.length, callsAfterCommit)
+
+      // ---- ④ 的两条边界：行尾收纳件与拖拽窗口里的点击都不触发改名 ----
+      // 两次探测都在页内等一拍再读 DOM：行内编辑态是 React 状态，点完同步读会读早（还没重渲染）。
+      const boundaries = await page.evaluate(async (selector: string) => {
+        const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 150))
+        const hasInput = (): boolean => document.querySelector('[data-dshone-tree-rename="input"]') !== null
+        const row = document.querySelector(selector) as HTMLElement | null
+        if (row === null) return null
+        // ① 行尾状态点（会话状态那一格）不是「点行」：点在它上面不该把编辑态点出来。
+        //（行尾相对时间在 hover 时隐藏——悬停给四枚动作让位——所以这里点的是状态点。）
+        const slot = row.querySelector('.dshOneTree_slot')
+        if (slot === null) return null
+        ;(slot as HTMLElement).click()
+        await tick()
+        const statusTap = hasInput()
+        // ② 拖拽窗口里到达的点击不触发改名（HTML5 拖拽的收尾在部分浏览器/驱动上会补一个
+        // click）；dragend 之后正常的点击照旧进编辑态。
+        row.dispatchEvent(new DragEvent('dragstart', { bubbles: true }))
+        row.click()
+        await tick()
+        const duringDrag = hasInput()
+        row.dispatchEvent(new DragEvent('dragend', { bubbles: true }))
+        row.click()
+        await tick()
+        const afterDrag = hasInput()
+        return { statusTap, duringDrag, afterDrag }
+      }, rowSel)
+      check.fact(`④ 边界探测（点状态点 / 拖拽中点击 / 拖拽后点击）=${JSON.stringify(boundaries)}`)
+      check.ok(
+        '④ 点行尾状态点（当前会话行）不触发就地改名',
+        boundaries !== null && !boundaries.statusTap,
+        JSON.stringify(boundaries),
+      )
+      check.ok(
+        '④ 拖拽期间到达的点击不触发改名；dragend 之后正常的点击照旧进编辑态',
+        boundaries !== null && !boundaries.duringDrag && boundaries.afterDrag,
+        JSON.stringify(boundaries),
+      )
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      check.eq('④ 边界探测没留下编辑态、也没多发包', [
+        (await rowRenameFacts(page, otherId)).renaming,
+        renameCalls.length,
+      ], [false, callsAfterCommit])
+
+      // ---- ⑥ 多选态下点击 = 勾选（当前行也一样，不进改名）----
+      await page.click('[data-dshone-tree-action="select-mode"]')
+      await page.waitForTimeout(300)
+      const eligible = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+          .filter((row) => row.getAttribute('data-dshone-tree-check') === 'eligible')
+          .map((row) => row.getAttribute('data-dshone-tree-session') ?? '')
+          .filter((id) => id !== ''),
+      )
+      check.fact(`多选态下可勾选的会话行：${JSON.stringify(eligible.slice(0, 5))}（共 ${String(eligible.length)} 条）`)
+      await page.click(rowSel)
+      await page.waitForTimeout(300)
+      const selectedCurrent = await page.evaluate(() => ({
+        inputs: document.querySelectorAll('[data-dshone-tree-rename="input"]').length,
+        checked: Array.from(document.querySelectorAll('[data-dshone-tree-checked="true"]')).map(
+          (row) => row.getAttribute('data-dshone-tree-session') ?? '',
+        ),
+      }))
+      check.eq('⑥ 多选态下点「当前会话行」：没有出现行内改名输入框（不进改名）', selectedCurrent.inputs, 0)
+      check.eq(
+        '⑥ 多选态下点行 = 勾选（只有这一行被勾上）',
+        selectedCurrent.checked,
+        eligible.includes(otherId) ? [otherId] : [],
+      )
+      await page.click(rowSel)
+      await page.waitForTimeout(300)
+      check.eq(
+        '⑥ 再点一下取消勾选（点多选态下的行是勾选语义，不是改名）',
+        await contentCount(page, '[data-dshone-tree-checked="true"]'),
+        0,
+      )
+      await page.click('[data-dshone-tree-action="select-mode"]')
+      await page.waitForTimeout(300)
+      check.eq('⑥ 退出多选态后行内也没有输入框（整段没进过改名）', await contentCount(page, '[data-dshone-tree-rename="input"]'), 0)
+
+      // ---- ⑦ 重绘（行被摘掉重挂）后输入框的焦点与选区保持 ----
+      await page.click(rowSel)
+      await page.waitForTimeout(300)
+      const draft = `${newTitle} 续写`
+      const placed = await page.evaluate(
+        ({ id, next }: { id: string; next: string }) => {
+          const input = document.querySelector(`[data-dshone-tree-session="${id}"] [data-dshone-tree-rename="input"]`)
+          const field = input as HTMLInputElement | null
+          if (field === null) return null
+          field.focus()
+          field.value = next
+          field.dispatchEvent(new Event('input', { bubbles: true }))
+          // 造一个「只选后半段」的选区，并让树层记下它（真拖选同样会发 select）。
+          field.setSelectionRange(2, next.length)
+          field.dispatchEvent(new Event('select', { bubbles: true }))
+          ;(globalThis as { __LAB_EDIT_INPUT__?: HTMLInputElement }).__LAB_EDIT_INPUT__ = field
+          return { sel: [field.selectionStart, field.selectionEnd] }
+        },
+        { id: otherId, next: draft },
+      )
+      check.ok(
+        '⑦ 前置：编辑态里造好一个「2..N」的选区',
+        placed !== null && placed.sel[0] === 2 && placed.sel[1] === draft.length,
+        JSON.stringify(placed),
+      )
+      // 触发整棵树重绘：把视图从「按工作区」切到「单列表」（那一行的 DOM 会被摘掉重挂）。
+      // **用合成点击**（`element.click()`）而不是真实鼠标点击——真实点击会先把输入框 blur
+      // 掉，那是「失焦取消」那条正在验的语义，不是这里要造的现场。
+      await page.evaluate(() => {
+        ;(document.querySelector('[data-dshone-tree-action="view-options"]') as HTMLElement | null)?.click()
+      })
+      await page.waitForTimeout(300)
+      const picked = await page.evaluate(() => {
+        const item = Array.from(document.querySelectorAll('[role="menu"] button[role="menuitem"]')).find((button) =>
+          (button.textContent ?? '').includes('单列表'),
+        )
+        if (item === undefined) return false
+        ;(item as HTMLElement).click()
+        return true
+      })
+      check.ok('⑦ 前置：视图选项里点到了「单列表」（切视图 = 整棵树重绘）', picked)
+      await page.waitForTimeout(800)
+      const afterFlat = await rowRenameFacts(page, otherId)
+      const replaced = await page.evaluate(() => {
+        const previous = (globalThis as { __LAB_EDIT_INPUT__?: Element }).__LAB_EDIT_INPUT__
+        const now = document.querySelector('[data-dshone-tree-rename="input"]')
+        return now !== null && previous !== undefined && now !== previous
+      })
+      check.fact(`⑦ 这次重绘把输入框节点换掉了没有：${String(replaced)}（换掉 = 走的是「节点被摘掉重挂」这条最硬的路）`)
+      check.ok('⑦ 切到单列表后输入框还在（编辑态没跟着重绘丢）', afterFlat.hasInput && afterFlat.renaming)
+      check.ok('⑦ 重绘后焦点仍在输入框上', afterFlat.focused)
+      check.eq('⑦ 重绘后选区保持（2..N）', [afterFlat.selStart, afterFlat.selEnd], [2, draft.length])
+      check.eq('⑦ 重绘后草稿保持', afterFlat.value, draft)
+      screenshots.push(await shot(ctx, page, 'rowrename-04-after-repaint'))
+      // 切回「按工作区」，再核一遍同三项（回到分组树 = 又一次重挂）。
+      await page.evaluate(() => {
+        ;(document.querySelector('[data-dshone-tree-action="view-options"]') as HTMLElement | null)?.click()
+      })
+      await page.waitForTimeout(300)
+      await page.evaluate(() => {
+        const item = Array.from(document.querySelectorAll('[role="menu"] button[role="menuitem"]')).find((button) =>
+          (button.textContent ?? '').includes('按工作区'),
+        )
+        ;(item as HTMLElement | undefined)?.click()
+      })
+      await page.waitForTimeout(800)
+      const afterBack = await rowRenameFacts(page, otherId)
+      check.ok('⑦ 切回分组树后焦点与编辑器仍然在场', afterBack.focused && afterBack.hasInput)
+      check.eq('⑦ 切回分组树后选区与草稿同样没丢', [afterBack.selStart, afterBack.selEnd, afterBack.value], [
+        2,
+        draft.length,
+        draft,
+      ])
+      check.eq('⑦ 两次重绘都没有触发提交（零新增 session/rename）', renameCalls.length, callsAfterCommit)
+      // 收尾：Esc 退出编辑态（不留半开的输入框给后面的断言看）。
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      check.eq('⑦ 收尾：Esc 之后编辑态收掉、仍然零新增请求', [
+        (await rowRenameFacts(page, otherId)).renaming,
+        renameCalls.length,
+      ], [false, callsAfterCommit])
+
+      check.eq('行内改名套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
+    } finally {
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -5331,4 +5766,6 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   RECYCLE_ENTRY_TOGGLE_SUITE,
   // #112 当前工作区按 VS Code 打开的文件夹判定（F-21：#114 已占用 F-20）。
   CURRENT_WORKSPACE_FOLDER_SUITE,
+  // #115 会话行点击逻辑与行内改名（F-22：F-20 已被 #114 的回收站入口套件、F-21 已被 #112 的当前工作区套件占用）。
+  SESSION_ROW_RENAME_SUITE,
 ]

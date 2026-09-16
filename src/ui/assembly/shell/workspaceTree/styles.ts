@@ -75,6 +75,11 @@ const CSS =
   '.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}' +
   '.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}' +
   '.dshOneTree_flatRowWithoutStatus .dshOneTree_title{margin-left:0}' +
+  // #115 行内改名的输入框：占标题那一格（同一份外边距与字号，行几何不动），选区要高亮
+  // 所以 user-select 要显式放开（整行是 user-select:none）。高度走标题行高（密度档），
+  // 边框与圆角与行内其它小件同语言。
+  '.dshOneTree_inlineRenameInput{box-sizing:border-box;flex:1;min-width:0;height:var(--dsh-one-density-title-line-height,20px);margin:0 6px 0 4px;padding:0 4px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover);border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;outline:none;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);user-select:text}' +
+  '.dshOneTree_flatRowWithoutStatus .dshOneTree_inlineRenameInput{margin-left:0}' +
   '.dshOneTree_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}' +
   '.dshOneTree_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}' +
   '.dshOneTree_folderActive{color:var(--dsw-alias-state-business-primary)}' +
