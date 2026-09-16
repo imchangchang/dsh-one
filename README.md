@@ -84,7 +84,7 @@ flowchart LR
   | `DSH One: Open Assembled Chat` | Open the assembled chat area |
   | `DSH One: Restart Service` / `DSH One: Stop Service` | Restart / stop the dsh service |
   | `DSH One: Show Logs` | Show the extension log |
-  | `DSH One: View dsh Installation Guide` | Open the official dsh install page |
+  | `DSH One: View dsh Installation Guide` | Open the install guide tab (platform one-liner script + copy, plus a link to the official docs) |
 
 - **Status bar** — shows the service state; click to open the dsh page in your browser.
 

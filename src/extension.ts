@@ -20,10 +20,8 @@ import {
 } from './ui/assemblyView.ts'
 import { SessionsStore } from './ui/sessionsStore.ts'
 import { StatusBar } from './ui/statusbar.ts'
+import { openInstallGuide } from './ui/installGuide.ts'
 import { TagBridge } from './server/tagBridge.ts'
-
-/** Official dsh product page with the "Get started" install instructions. */
-const DSH_INSTALL_URL = 'https://www.deepseek.com/harness/'
 
 /**
  * workspaceState key：装配对话区是否已完成过一次自动打开（见 autoOpenAssembledChat）。
@@ -441,12 +439,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
       vscode.window.createTerminal({ name, cwd: path }).show()
     }),
-    vscode.commands.registerCommand('dshOne.openInstallPage', async () => {
-      await vscode.env.openExternal(vscode.Uri.parse(DSH_INSTALL_URL))
-    }),
-    // 未安装 dsh 时状态栏/「Install dsh」链接的落点：聚焦侧栏面板，那里是带
-    // 非官方一键脚本的安装引导空态（dshNotFound）；官方网址在面板空态里还有
-    // 「View install guide」入口。
+    // 安装引导：打开我们自己的引导 tab（#100，单例：已开则聚焦）——引导内容
+    // （平台下拉 + 一键命令 + 复制）窄侧栏放不下，独立成一个编辑器 tab；官方
+    // 安装文档作为 tab 里的一条入口保留。
+    vscode.commands.registerCommand('dshOne.openInstallPage', () => openInstallGuide(logger)),
+    // 未安装 dsh 时状态栏「Install dsh」链接的落点：聚焦侧栏面板，那里是
+    // 「未安装」状态页（`reason === 'dshNotFound'`），页面上的「查看安装指南」
+    // 再开上面的引导 tab。侧栏本身就是窄条，不在这里直接塞引导内容。
     vscode.commands.registerCommand('dshOne.openSessions', async () => {
       await vscode.commands.executeCommand('dshOne.chat.focus')
     }),
