@@ -14,8 +14,9 @@
  * | `stateRead/Write/Delete` | **宿主半插件** | **宿主半插件** |
  * | `saveContent` | 扩展宿主弹保存框写盘 | 宿主半插件写宿主磁盘 |
  * | `downloadGatewayFile` | 扩展宿主经 loopback 代理取内容 + 弹保存框 | 浏览器原生 `fetch` + `a[download]` |
+ * | `openExternal` | 扩展宿主 `vscode.env.openExternal` | 页面原生 `window.open` |
  *
- * 三处刻意的取舍（写清楚免得后来人以为是漏配）：
+ * 四处刻意的取舍（写清楚免得后来人以为是漏配）：
  * 1. **状态两侧同一实现**（都走宿主半）：AGENTS.md 铁律「插件状态按官方惯例存储」
  *    ——同一份用户数据不能有两个家，否则必然漂移（#82 要清的就是这个）。
  * 2. **git 在 VS Code 侧仍走扩展宿主**：行为与今天逐字一致（同一份安全口径代码），
@@ -23,6 +24,12 @@
  *    宿主侧（#83 表里 git-card 那一行的前置条件就是本件）。
  * 3. **`downloadGatewayFile` 官方侧走浏览器原生下载**：浏览器本来就能下载，走宿主
  *    反而绕远；宿主半的「写盘」能力（`saveContent`）管的是没有下载 UX 的场景。
+ * 4. **`openExternal` 没有宿主半端点**（同 3 的道理，且更硬）：官方 web 的页面就是
+ *    用户的浏览器，链接该在**用户眼前**打开；宿主半跑在 dsh 宿主进程里，远端/容器
+ *    部署下它开的仍然是服务器那台机器的浏览器（用户什么也看不见）。所以官方侧用
+ *    页面原生 `window.open`，协议白名单校核在下面这一处完成（两侧同一份
+ *    `parseAllowedUrl`），VS Code 侧再交宿主 `vscode.env.openExternal`（它由客户端
+ *    侧执行，远端场景同样正确）。
  *
  * ## 调用形态（走第几层机制）
  * 官方侧走**层 2（官方服务 API）**：`ctx.connection.rpc.call('/api', '<ns>/<方法>',
@@ -39,6 +46,7 @@
 import {
   capabilityEndpoint,
   isCapabilityFailure,
+  parseAllowedUrl,
   type HostCapabilityErrorCode,
   type HostCapabilityMethod,
 } from '../../../pure/hostCapabilities.ts'
@@ -80,6 +88,11 @@ export interface HostCapabilities {
   gitShow(args: { hash: string; cwd?: string }): Promise<CommitInfoResult>
   saveContent(args: { suggestedName: string; base64: string }): Promise<{ path: string }>
   downloadGatewayFile(args: { path: string; suggestedName: string }): Promise<DownloadResult>
+  /**
+   * 用系统浏览器（VS Code 侧）或当前浏览器（官方 web 侧）打开一个外链。
+   * URL 不合规（非 http/https/mailto）抛 `invalid-args`，两端同一处校核。
+   */
+  openExternal(url: string): Promise<void>
 }
 
 function fail(code: HostCapabilityErrorCode, message: string): CapabilityFailure {
@@ -209,6 +222,20 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
         return { path: String(data.path ?? '') }
       }
       return await browserDownload(args.path, args.suggestedName)
+    },
+    async openExternal(url) {
+      // 校核先做、只做一处：两侧都只可能拿到 http/https/mailto，错误码也一致。
+      const allowed = parseAllowedUrl(url)
+      if (allowed === null) throw fail('invalid-args', 'expected a http/https/mailto url')
+      if (viaBridge()) {
+        await bridgeCall('vscode.openExternal', { url: allowed })
+        return
+      }
+      if (typeof window === 'undefined' || typeof window.open !== 'function') {
+        throw fail('unavailable', 'this shell provides no way to open an external link')
+      }
+      // 官方 web 侧：页面就是用户的浏览器，直接开新标签（见文件头第 4 条取舍）。
+      window.open(allowed, '_blank', 'noopener,noreferrer')
     },
   }
 }

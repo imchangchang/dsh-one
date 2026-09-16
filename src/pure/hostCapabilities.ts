@@ -223,6 +223,27 @@ export function parseDownloadArgs(args: unknown): DownloadArgs | HostCallError {
   return { path, suggestedName }
 }
 
+/* ------------------------------------------------------------------ *
+ * 「开外链」能力的参数。这条能力**没有宿主半端点**（取舍见前端 SDK 的能力表）：
+ * 官方 web 侧由页面自己 `window.open`，校核只在前端 SDK 与 VS Code 能力桥两处用，
+ * 所以放这里（node 无关的契约模块），宿主桥照旧从 hostCalls.ts 取（转出口）。
+ * ------------------------------------------------------------------ */
+
+/** 外链允许的协议白名单（页面把它交给系统/浏览器打开，只认这三种）。 */
+export const ALLOWED_URL_PROTOCOLS: ReadonlySet<string> = new Set(['http:', 'https:', 'mailto:'])
+
+/** 校核一个「交给系统或浏览器打开」的 URL：能被 URL 解析且协议在白名单内。 */
+export function parseAllowedUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value === '') return null
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    return null
+  }
+  return ALLOWED_URL_PROTOCOLS.has(parsed.protocol) ? value : null
+}
+
 /** 校核 `file.save` 的参数。 */
 export function parseSaveFileArgs(args: unknown): SaveFileArgs | HostCallError {
   const record = asRecord(args)

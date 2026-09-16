@@ -17,9 +17,9 @@ import * as path from 'node:path'
 import { asRecord, isHostCallError, type HostCallError, type HostCallErrorCode } from './hostCallError.ts'
 
 export { asRecord, isHostCallError, type HostCallError, type HostCallErrorCode }
-
-/** OPEN_URL 允许的协议白名单（外链动作只认这三种）。 */
-export const ALLOWED_URL_PROTOCOLS: ReadonlySet<string> = new Set(['http:', 'https:', 'mailto:'])
+// 外链 URL 的校核与协议白名单挪到能力口的契约模块（#83「开外链」能力：前端 SDK 也要
+// 用它，而本模块带 node 依赖、进不了浏览器 bundle）；这里转出口，宿主侧调用点不变。
+export { ALLOWED_URL_PROTOCOLS, parseAllowedUrl } from './hostCapabilities.ts'
 
 /** 提交号的严格形状（比正文扫描的 COMMIT_SHA_RE 严：不认两端邻接字符）。 */
 export const COMMIT_SHA_ARG_RE = /^[0-9a-fA-F]{7,40}$/
@@ -79,18 +79,6 @@ export async function resolveQueryDir(
   if (fallback === undefined) return null
   const fallbackDir = await resolveAllowedDir(fallback, allowedRoots)
   return fallbackDir === null ? null : { dir: fallbackDir, usedRequested: false }
-}
-
-/** 校核 URL：能被 URL 解析且协议在白名单内。 */
-export function parseAllowedUrl(value: unknown): string | null {
-  if (typeof value !== 'string' || value === '') return null
-  let parsed: URL
-  try {
-    parsed = new URL(value)
-  } catch {
-    return null
-  }
-  return ALLOWED_URL_PROTOCOLS.has(parsed.protocol) ? value : null
 }
 
 /** git.show 的参数（hash 必填且形状严格；cwd 可选）。 */
