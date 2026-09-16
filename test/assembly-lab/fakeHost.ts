@@ -19,6 +19,9 @@
  *   与「写回的键名/形状对得上」，而不去动用户真实的 `~/.dsh`。
  * - `__LAB_HOST__.send(msg)`：模拟宿主→页面方向的消息（`dshOne.setTheme` /
  *   `dshOne.switchSession` 等），供后续套件驱动。
+ * - **VS Code 打开的文件夹**（`vscode.workspaceFolders`，#112）：假宿主没有「用户开了
+ *   哪个文件夹」这件真事，所以由套件喂（`openTreePage(..., { workspaceFolders })`）；
+ *   缺省空表 = 这个窗口没开任何文件夹，也就是「没有当前工作区」（不显示徽标、不置顶）。
  * - `__LAB_HOST__.failCalls`（套件给的开关，#110）：列进来的宿主调用一律回
  *   `{code:'lab/forced'}` 失败回执——验「动作失败时界面给不给可见反馈」要用**真的
  *   失败回执**，而不是去造假界面（归档/分叉那两条另有 HTTP 层的失败夹具，见套件）。
@@ -32,7 +35,11 @@
 /** 假提交的 40 位 hash 底座（git.show 回执里 commitHash 用）。 */
 const FULL_HASH = '0123456789abcdef0123456789abcdef01234567'
 
-export function fakeHostScript(stateScope: Record<string, unknown> = {}, failCalls: readonly string[] = []): string {
+export function fakeHostScript(
+  stateScope: Record<string, unknown> = {},
+  failCalls: readonly string[] = [],
+  workspaceFolders: readonly string[] = [],
+): string {
   return `(() => {
   var FULL_HASH = ${JSON.stringify(FULL_HASH)}
   var FAIL_CALLS = ${JSON.stringify([...failCalls])}
@@ -44,6 +51,10 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}, failCal
     openedByWindow: [],
     gitShows: [],
     stateStore: {},
+    // #112：这个「VS Code 窗口」打开的文件夹（侧栏树的当前工作区判定读它）。缺省空表
+    // = 一个都没开；套件也可以直接改它（见 harness 的 setLabWorkspaceFolders，改完
+    // 重载页面即生效——下一次导航会重新装这份初始化脚本，所以覆盖要另装一条脚本）。
+    workspaceFolders: ${JSON.stringify([...workspaceFolders])},
     // 套件可写的注入点：置成某个状态键名后，对该键的 state.write 一律失败
     //（#108 用它验「批量动作失败时失败项留在勾选里、红字报出来」——真宿主也可能
     // 因为磁盘/权限写不进去，这条就是那个情形的可复现版本）。
@@ -183,6 +194,12 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}, failCal
       }
       host.terminalsOpened.push({ path: terminalPath })
       result(message.id, true, null)
+      return
+    }
+    if (message.call === "vscode.workspaceFolders") {
+      // #112 当前工作区判定：VS Code 侧由扩展宿主回 vscode.workspace.workspaceFolders
+      // 的 fsPath 列表，这里回套件喂的那份。
+      result(message.id, true, { paths: host.workspaceFolders.slice() })
       return
     }
     if (message.call === "vscode.workspaceCreate") {
