@@ -135,6 +135,20 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const [content, setContent] = useState<SearchState>(EMPTY_SEARCH)
   const [renameTarget, setRenameTarget] = useState<{ workspaceId: string; title: string } | null>(null)
   const [sessionRenameTarget, setSessionRenameTarget] = useState<{ id: string; title: string } | null>(null)
+  /**
+   * #115 行内改名（当前会话行点一下就地变输入框）：正在改名的会话 id、草稿、进入编辑
+   * 时的原标题（「没改动就不发请求」按它判）。
+   *
+   * 为什么编辑态住在这里而不是行组件里：会话状态推送会让整棵树重画，行组件可能被重建
+   * ——状态住行里就会被一起丢掉（用户打到一半的标题没了）。住树层后行只是「按这份状态
+   * 渲染」，重画多少次都还是同一个编辑态。
+   */
+  const [sessionEdit, setSessionEdit] = useState<{ id: string; draft: string; title: string } | null>(null)
+  /**
+   * 编辑框的光标/选区（跨重绘恢复用）。放 ref 不放 state：每次移动光标都触发一次整棵树
+   * 重渲染没有意义，而重绘恢复只发生在「下一次渲染」那一刻，读到最新的值就够。
+   */
+  const editSelection = useRef<{ start: number; end: number }>({ start: 0, end: 0 })
   const [deleteTarget, setDeleteTarget] = useState<{ workspaceId: string; title: string } | null>(null)
   // 分组状态：持久态住宿主能力口（`stateRead/stateWrite('groups')`），读是异步的，
   // 读回前先按空状态渲染（不阻塞首屏）。
@@ -327,6 +341,52 @@ export function WorkspaceTree(props: TreeProps): unknown {
     openSession(sessionId)
   }
 
+  // ---- #115 行内改名：进入 / 改草稿 / 提交 / 取消 ----
+
+  /**
+   * 进入某一行的就地改名：草稿 = 这一行的原标题（`node.title`，与菜单那条 Modal 同一份
+   * 取值），选区 = 整段全选。**不用行上显示的标题**：空白会话显示的是「新会话」这个
+   * 占位词，拿它当草稿会把占位词真的提交成标题。
+   */
+  const startRowRename = (row: SessionNode): void => {
+    editSelection.current = { start: 0, end: row.title.length }
+    setSessionEdit({ id: row.id, draft: row.title, title: row.title })
+    // 编辑态与弹层互斥：行内编辑开始时，把可能开着的「重命名会话」Modal 收掉。
+    setSessionRenameTarget(null)
+  }
+
+  /** 草稿与光标位置（同值时短路，移动光标不会白重绘整棵树）。 */
+  const updateRowRenameDraft = (draft: string, selection: { start: number; end: number }): void => {
+    editSelection.current = selection
+    setSessionEdit((prev) => (prev === null || prev.draft === draft ? prev : { ...prev, draft }))
+  }
+
+  /**
+   * Enter 提交：**空串或没改动直接退出编辑态、不发请求**（与菜单 Modal 那条通路同一口径），
+   * 有改动才走现成的 `renameSession`（官方 `sessions.binding(id).session.rename`）。
+   * 失败按 #110 的口径飘一行可见反馈——行内这条路没有弹窗可以写红字。
+   */
+  const commitRowRename = (): void => {
+    const edit = sessionEdit
+    if (edit === null) return
+    setSessionEdit(null)
+    const title = edit.draft.trim()
+    if (title === '' || title === edit.title) return
+    void renameSession(edit.id, title).catch((reason: unknown) => reportFailure('rename.failed', reason))
+  }
+
+  /** Esc / 失焦取消：退出编辑态，什么都不发。 */
+  const cancelRowRename = (): void => {
+    setSessionEdit(null)
+  }
+
+  // 编辑态跟着那条会话走：它在 dsh 侧没了（归档/删除）就把编辑态收掉，免得列表稍后
+  // 渲染出这一行时带着一个没人要的输入框。列表为空（基线还没就绪）时不动。
+  useEffect(() => {
+    if (sessionEdit === null || list.ids.length === 0) return
+    if (!list.ids.includes(sessionEdit.id)) setSessionEdit(null)
+  }, [sessionEdit, list.ids])
+
   // 当前会话所在分组默认展开（官方同款：只在一条分组从未被显式收/展过时自动展开）。
   useEffect(() => {
     if (list.current === undefined || workspacePhase !== 'ready') return
@@ -499,6 +559,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
    * 时登记一次（见下面那个 effect）。
    */
   const enterSelection = (): void => {
+    // #115：多选态下点行 = 勾选（不进改名），所以进多选时把行内编辑态收掉——
+    // 两套「点行」语义不能同时挂着。
+    setSessionEdit(null)
     setSelectMode(true)
     setSelection([])
     setSelectionError(null)
@@ -1062,6 +1125,24 @@ export function WorkspaceTree(props: TreeProps): unknown {
   )
 
   /**
+   * #115 行内改名：这一行在编辑态时要多吃的 props（不在编辑态就一个都不给）。
+   *
+   * 编辑态是**一行的事**（`sessionEdit.id`），所以按 id 判；两个调用点（分组行 / 单列表
+   * 行）共用这一份，不留第二套接线。
+   */
+  const rowRenameProps = (row: SessionNode): Record<string, unknown> =>
+    sessionEdit !== null && sessionEdit.id === row.id
+      ? {
+          renaming: true,
+          renameDraft: sessionEdit.draft,
+          renameSelection: editSelection.current,
+          onRenameDraft: updateRowRenameDraft,
+          onRenameCommit: commitRowRename,
+          onRenameCancel: cancelRowRename,
+        }
+      : {}
+
+  /**
    * #107：按工作区视图里一条会话行的 props（组内行与未归组行共用同一份）。
    *
    * 与单列表那一份的差别只有两处，都是标签组带来的：行**可拖**（拖进组块入组、拖到
@@ -1090,6 +1171,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
       dragProps: sessionDragProps(row.id),
       onToggleSelect: () => toggleSelected(row.id),
       onOpen: () => openSessionClearingUnread(row.id),
+      // #115：点「当前会话」那一行 = 进就地改名（判定在行里按 currentId 做）。
+      onRenameStart: () => startRowRename(row),
+      ...rowRenameProps(row),
       onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
       onFork: () => forkRow(row.id),
       onMoveToRecycleBin: () => moveToRecycleBin([row.id]),
@@ -1153,6 +1237,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
                 unread: unreadIds.has(row.id),
                 onToggleSelect: () => toggleSelected(row.id),
                 onOpen: () => openSessionClearingUnread(row.id),
+                // #115：与分组行同一份情境化点击与行内改名（定义见 `rowRenameProps`）。
+                onRenameStart: () => startRowRename(row),
+                ...rowRenameProps(row),
                 onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
                 onFork: () => forkRow(row.id),
                 onMoveToRecycleBin: () => moveToRecycleBin([row.id]),

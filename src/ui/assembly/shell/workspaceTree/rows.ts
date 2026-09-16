@@ -1,5 +1,5 @@
 /** 列表行（分组头行 / 会话行 / 搜索结果行）与行内小件，官方 rows 组件的同构复刻。 */
-import { createElement as h, useState } from 'react'
+import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   HoverCard,
   IconAlarmClockOutline16,
@@ -689,6 +689,58 @@ export function ProjectRow({
   })
 }
 
+// ---------------------------------------------------------------------------
+// #115 行内改名（会话行就地变输入框）的行内件
+// ---------------------------------------------------------------------------
+
+/**
+ * 拖拽进行中（HTML5 拖拽的 dragstart → dragend 之间）。
+ *
+ * 为什么需要它：拖拽收尾那一下在部分浏览器/驱动上会补一个 `click`，而这一层的行点击
+ * 语义是「当前会话 → 改名」——拖完顺手就进了编辑态不是用户要的。拖拽属性由树层拼好
+ * 传进来（见 `dragProps` 的说明），所以这里在包一层的时候顺手记下拖拽窗口。
+ */
+let rowDragActive = false
+
+/** 给树层拼好的拖拽属性外面包一层（记录拖拽窗口；原处理函数照常调用）。 */
+function withDragGuard(dragProps: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (dragProps === undefined) return {}
+  const wrapped: Record<string, unknown> = { ...dragProps }
+  const start = wrapped.onDragStart
+  const end = wrapped.onDragEnd
+  wrapped.onDragStart = (event: unknown): void => {
+    rowDragActive = true
+    if (typeof start === 'function') (start as (e: unknown) => void)(event)
+  }
+  wrapped.onDragEnd = (event: unknown): void => {
+    rowDragActive = false
+    if (typeof end === 'function') (end as (e: unknown) => void)(event)
+  }
+  return wrapped
+}
+
+/**
+ * 点行时命中的是不是「行内互斥件」（行尾状态点 / 图钉 / 定时标记 / 相对时间 / ⋯ 那一层）。
+ *
+ * 这些位置各有自己的含义（状态、时间、行菜单），点在它们上面**不算点行**——尤其不能
+ * 把「当前会话 → 就地改名」触发了。判据用这些件自己的类名：它们都在本文件里渲染，
+ * 是自有类名而不是官方哈希类。
+ */
+const ROW_META_SELECTOR = '.dshOneTree_rowActions,.dshOneTree_time,.dshOneTree_slot,.dshOneTree_pin,.dshOneTree_schedule'
+
+/** 组件收到的行点击事件（只取用得到的那几个字段，与其它行内件的写法一致）。 */
+interface RowClickEvent {
+  target: unknown
+}
+
+/** 输入框事件（只取用得到的那几个字段）。 */
+interface RenameInputEvent {
+  target: { value: string; selectionStart: number | null; selectionEnd: number | null; isConnected: boolean }
+  key?: string
+  isComposing?: boolean
+  preventDefault(): void
+}
+
 /**
  * 会话行（官方 `SessionNodeItem`）：状态点 + 标题 + （定时标记）+ 相对时间 + 悬停操作。
  *
@@ -697,6 +749,11 @@ export function ProjectRow({
  * 资格判定在纯模块 `pure/sessionEligibility.ts` 里（与勾选框、组头三态、批量动作同一份），
  * 这里只把原因翻成文案；`data-dshone-disabled-reason` 把判定结果写在菜单项上，验证套件
  * 按它核对「原因 ↔ 禁用 ↔ 原因提示」三者一致。
+ *
+ * #115 起行点击是**情境化**的：非当前会话 = 打开（原样），当前会话 = 就地改名（这一行
+ * 变成输入框）。「已打开」的判据就是这一行是不是当前附着会话（`isCurrent`，与行可见性、
+ * 「当前」标记同一份状态），不另立概念。编辑态本身住在树层（`renaming` 进来、草稿与
+ * 选区进来、进出编辑态的回调出去），这样列表重绘（会话状态推送）不会把编辑态一起丢掉。
  */
 export function SessionRow({
   node,
@@ -724,6 +781,13 @@ export function SessionRow({
   tagSelectedIds,
   onTagSelect,
   dragProps,
+  renaming,
+  renameDraft,
+  renameSelection,
+  onRenameStart,
+  onRenameDraft,
+  onRenameCommit,
+  onRenameCancel,
 }: {
   node: SessionNode
   currentId?: string
@@ -782,6 +846,26 @@ export function SessionRow({
    * ——MIME 常量的正本在 `tagGroups.ts`，本件不认识它，避免 rows ↔ tagGroups 互相 import。
    */
   dragProps?: Record<string, unknown> | undefined
+  /** #115：这一行正在就地改名（标题位换成输入框）。 */
+  renaming?: boolean | undefined
+  /** #115：编辑框里的草稿（受控；住树层所以跨重绘不丢）。 */
+  renameDraft?: string | undefined
+  /**
+   * #115：编辑框的选区。**跨重绘恢复用**：列表重建把输入框换掉时（DOM 节点被重绘
+   * 摘掉重挂），浏览器只在焦点落回来之后才有选区，所以要我们自己把这一段还回去。
+   */
+  renameSelection?: { start: number; end: number } | undefined
+  /**
+   * #115：点「当前会话」那一行 = 进入就地改名。判定（哪一行算已打开）在树层——它才是
+   * 当前附着会话（`list.current`）的持有者，本件只用行上的 `currentId` 判 `isCurrent`。
+   */
+  onRenameStart?: (() => void) | undefined
+  /** #115：草稿（含光标位置）变了；树层存下来，重绘后据此恢复。 */
+  onRenameDraft?: ((draft: string, selection: { start: number; end: number }) => void) | undefined
+  /** #115：Enter 提交（非空且改动过才真的发请求，判定在树层）。 */
+  onRenameCommit?: (() => void) | undefined
+  /** #115：Esc / 失焦取消。 */
+  onRenameCancel?: (() => void) | undefined
 }): unknown {
   const [menuOpen, setMenuOpen] = useState(false)
   /** 「移到分组…」二级菜单展开着没有（就地展开，见 submenuParent 的说明；菜单关掉即收起）。 */
@@ -790,6 +874,104 @@ export function SessionRow({
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const title = displayTitle(node, tr)
   const isCurrent = node.id === currentId
+  // ---- #115 行内改名：输入框、跨重绘的焦点/选区恢复、事件语义 ----
+  const renameInput = useRef<HTMLInputElement | null>(null)
+  /**
+   * 列表重绘后把焦点与选区还给编辑框。
+   *
+   * 为什么要这一手：会话状态推送会让整棵树重画，输入框可能被重绘换掉（节点被摘掉
+   * 重挂）——焦点落回 body、选区归零，用户打到一半的输入就「跳」了。这里在**每次
+   * 渲染落定后**（`useLayoutEffect`，绘制之前）检查：焦点还在这一格就什么都不做
+   * （用户正在打字/选词，动它反而会把光标弹走）；焦点掉了才补回焦点并把树层存下的
+   * 选区还回去（进入编辑态时存的是「全选」）。
+   */
+  useLayoutEffect(() => {
+    const input = renameInput.current
+    if (input === null || document.activeElement === input) return
+    input.focus()
+    const selection = renameSelection ?? { start: 0, end: input.value.length }
+    input.setSelectionRange(selection.start, selection.end)
+  })
+  /**
+   * 编辑态与行菜单互斥：进入编辑态那一下，若这一行的菜单正开着就把它收掉（右键/⋯ 开
+   * 着菜单时点行体进的编辑态）。
+   */
+  useEffect(() => {
+    if (renaming !== true) return
+    setMenuAt(null)
+    setMenuOpen(false)
+    setSubmenuOpen(false)
+  }, [renaming])
+  /**
+   * IME 组合中：中文/日文输入法正在拼字。**两条判据都要看**——`compositionstart/end`
+   * 这对事件（官方 WorkspaceBrowser 的改名输入框就是用它记的）与键盘事件自带的
+   * `isComposing`（旧侧栏那条实现用它判）。任一说「正在组合」就不许把 Enter 当提交。
+   */
+  const composingRef = useRef(false)
+  /**
+   * 编辑期间持续把光标/选区报给树层：盯 `selectionchange`（在文档上，鼠标拖选、方向键
+   * 移光标、在中间点一下都算），只认**本输入框在焦点里**的时候。
+   *
+   * 为什么光有输入事件不够：打字那一下的选区当然能拿到，但用户把光标停在中间再遇上
+   * 一次列表重绘（会话状态推送），能还回去的就只有上一次打字时的位置——选区会跳。
+   */
+  useEffect(() => {
+    if (renaming !== true) return
+    const report = (): void => {
+      const input = renameInput.current
+      if (input === null || document.activeElement !== input) return
+      reportDraft(input)
+    }
+    document.addEventListener('selectionchange', report)
+    return () => document.removeEventListener('selectionchange', report)
+  }, [renaming])
+  /** 把草稿与光标位置报给树层（输入、移动光标、鼠标拖选都报）。 */
+  const reportDraft = (element: HTMLInputElement): void => {
+    onRenameDraft?.(element.value, {
+      start: element.selectionStart ?? element.value.length,
+      end: element.selectionEnd ?? element.value.length,
+    })
+  }
+  const renameInputEvents = {
+    value: renameDraft ?? '',
+    'aria-label': tr('field.sessionName'),
+    'data-dshone-tree-rename': 'input',
+    autoComplete: 'off',
+    // 两个事件接同一个处理函数：官方种子表里的 react 实现把 onChange 派到哪个原生
+    // 事件上不由我们决定，接全了才在两种实现下都对（重复到达时值相同，树层的
+    // setState 按同值短路，不会多渲染）。
+    onChange: (event: RenameInputEvent) => reportDraft(event.target as unknown as HTMLInputElement),
+    onInput: (event: RenameInputEvent) => reportDraft(event.target as unknown as HTMLInputElement),
+    // 鼠标拖选、Shift+方向键这类「选区变了但没打字」的动作用 select 事件补上（光标来回
+    // 移动那一路由上面那条 selectionchange 订阅兜着）。
+    onSelect: (event: RenameInputEvent) => reportDraft(event.target as unknown as HTMLInputElement),
+    onCompositionStart: () => {
+      composingRef.current = true
+    },
+    onCompositionEnd: () => {
+      composingRef.current = false
+    },
+    onKeyDown: (event: RenameInputEvent) => {
+      if (event.key === 'Enter') {
+        // IME 组合中的 Enter 确认的是候选词，不是改名——这一下必须让路。
+        if (event.isComposing === true || composingRef.current) return
+        event.preventDefault()
+        onRenameCommit?.()
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onRenameCancel?.()
+      }
+    },
+    onBlur: (event: RenameInputEvent) => {
+      // 失焦取消。**例外**：输入框自己已经不在文档里了（这次失焦是重绘把节点换掉
+      // 造成的，不是用户点到别处）——那不算取消，重绘落定后上面那个 effect 会把
+      // 焦点与选区还给新节点。
+      if (event.target.isConnected === false) return
+      onRenameCancel?.()
+    },
+  }
   // 资格判定（#102）：勾选 / 移入回收站 / 归档三条线的口径都在 pure 模块里，这里只取结果。
   const facts = eligibilityOf(node, pinned, unread)
   const selectable = canRecycle(facts)
@@ -937,6 +1119,7 @@ export function SessionRow({
   )
   // 选择态下整行只有「勾选」一个动作：打开会话、行菜单都先让位（与官方进入选择态
   // 后的处置一致——批量动作集中在分组过滤条下方那一条里给）。
+  const renamingNow = renaming === true
   const row = h(
     'div',
     {
@@ -959,16 +1142,40 @@ export function SessionRow({
       ...(selectMode
         ? { 'data-dshone-tree-checked': selected, 'data-dshone-tree-check': selectable ? 'eligible' : 'blocked' }
         : {}),
+      // 编辑态写在行上（验证套件与样式都按它认「这一行正在改名」）。
+      ...(renamingNow ? { 'data-dshone-tree-renaming': 'true' } : {}),
       // #107：把这一行拖进/拖出标签组（拖拽属性由树层拼，见 dragProps 的说明）。
-      // 选择态不给拖：那时候整行只有「勾选」一个动作。
-      ...(selectMode ? {} : (dragProps ?? {})),
-      onClick: selectMode ? (selectable ? onToggleSelect : () => {}) : onOpen,
+      // 选择态不给拖：那时候整行只有「勾选」一个动作；编辑态也不给拖（拖走正在改名的
+      // 行只会把编辑态连同输入框一起晃没）。
+      ...(selectMode || renamingNow ? {} : withDragGuard(dragProps)),
+      // #115 情境化点击：**非当前会话** = 打开（原样）；**当前会话** = 就地改名。
+      // 行内互斥件（行尾状态点/图钉/定时标记/时间/⋯ 那一层）点上去不算「点行」，
+      // 按原来的打开处置走——它们各有自己的含义，不该把改名触发了。拖拽窗口里到达的
+      // 点击同样吞掉（见 withDragGuard）。选择态照旧整行只有勾选。
+      onClick: selectMode
+        ? selectable
+          ? onToggleSelect
+          : () => {}
+        : renamingNow
+          ? // 编辑中：行内点哪儿都不再触发（点在输入框上是摆光标，由输入框自己处理）——
+            // 这里若再走一遍「进入改名」，用户刚敲的字会被原样打回。
+            () => {}
+          : (event: RowClickEvent) => {
+              // 读到就顺手复位：一份拖拽窗口只吞掉它收尾那一下；万一 dragend 没到（拖拽
+              // 被宿主中途掐掉），这里也不会让行内改名从此失效。
+              const dragging = rowDragActive
+              rowDragActive = false
+              const meta = event.target instanceof Element && event.target.closest(ROW_META_SELECTOR) !== null
+              if (!meta && !dragging && isCurrent) onRenameStart?.()
+              else onOpen()
+            },
       // 行右键开出同一份菜单（指针位置锚定）。**接管条件只剩「非选择态」**（#109）：
       // 以前还要「非空白会话 + 宿主有编辑器标签页」，于是多开不可用的宿主、空白会话行
       // 上右键都直接弹浏览器原生菜单——而这两类行**本来就有行菜单可给**（空白会话行
       // 只是官方不给显式的 ⋯ 按钮，菜单内容一样成立）。旧侧栏同样只按选择态让路。
-      // 选择态下整行只有「勾选」一个动作（同上面 onClick 的处置）。
-      onContextMenu: selectMode
+      // 选择态下整行只有「勾选」一个动作（同上面 onClick 的处置）；编辑态下右键也让位
+      //（同一份菜单，同一份互斥理由）。
+      onContextMenu: selectMode || renamingNow
         ? undefined
         : (event: { preventDefault(): void; stopPropagation(): void; clientX: number; clientY: number }) => {
             event.preventDefault()
@@ -996,7 +1203,11 @@ export function SessionRow({
               : h('span', { key: 'status', className: 'dshOneTree_slot' })
             : null,
         pinned ? h(PinMark, { key: 'pin', sessionId: node.id }) : null,
-        h('span', { key: 'title', className: `dshOneTree_title${unread ? ' dshOneTree_unread' : ''}` }, title),
+        // #115 编辑态：标题位就地换成输入框（prefill + 全选由树层给初值与选区），
+        // 行其余部分照旧——行结构与不编辑时完全一致，重绘才不会把输入框换掉。
+        renamingNow
+          ? h('input', { key: 'title', ref: renameInput, className: 'dshOneTree_inlineRenameInput', ...renameInputEvents })
+          : h('span', { key: 'title', className: `dshOneTree_title${unread ? ' dshOneTree_unread' : ''}` }, title),
         // 活跃定时任务标记（#110，官方 `row.hasActiveSchedule &&` 同位置：标题后、时间前）。
         node.hasActiveSchedule ? h(ActiveScheduleIndicator, { key: 'schedule', tr }) : null,
         node.blank || selectMode
@@ -1009,7 +1220,9 @@ export function SessionRow({
         // 行菜单挂在 actions 里（选择态下整行让位）。**空白会话行也挂**（#109）：它的
         // ⋯ 按钮照官方不渲染（`node.blank` 那一支），但右键要能开出菜单——所以这里渲染
         // 的是一层「可能有按钮、一定有菜单」的容器，锚点按有没有按钮二选一。
-        selectMode
+        // #115 编辑中同样让位：编辑态与菜单互斥（菜单里也有「重命名」，两条路同时开着
+        // 只会互相顶掉），要改名就先 Enter/Esc 收掉输入框。
+        selectMode || renamingNow
           ? null
           : h('span', {
               key: 'actions',
@@ -1076,7 +1289,10 @@ export function SessionRow({
   return h(HoverCard, {
     anchor: row,
     content: h(SessionHoverContent, { node, now, tr, unread }),
-    disabled: menuOpen,
+    // 改名编辑期间不出悬停卡（`disabled` 是官方 HoverCard 的既有口）：卡片会盖住输入框、
+    // 也会在指针移动时重排行。**保留这层包装**（不改成直接返回 row）——结构与不编辑时
+    // 一致，编辑态进出才不会把整行 DOM 换掉。
+    disabled: menuOpen || renamingNow,
     copyText: node.blank ? undefined : node.title,
     copyLabel: tr('copy'),
     copiedLabel: tr('hover.copied'),

@@ -99,6 +99,8 @@ export const ZH: Record<string, string> = {
   'search.noMatches': '\u65e0\u5339\u914d\u4f1a\u8bdd',
   'search.hasMore': '\u4ec5\u663e\u793a\u524d {n} \u6761\u7ed3\u679c\uff0c\u8bf7\u7f29\u5c0f\u641c\u7d22\u8303\u56f4\u3002',
   rename: '\u91cd\u547d\u540d',
+  // #115 行内改名失败：行内这条路没有弹窗可写红字，失败要飘一行（与 fork.failed 同一口径）。
+  'rename.failed': '\u91cd\u547d\u540d\u4f1a\u8bdd\u5931\u8d25\uff1a{message}',
   'rename.workspace.title': '\u91cd\u547d\u540d\u5de5\u4f5c\u533a',
   'rename.session.title': '\u91cd\u547d\u540d\u4f1a\u8bdd',
   'field.workspaceName': '\u5de5\u4f5c\u533a\u540d\u79f0',
@@ -301,6 +303,7 @@ export const EN: Record<string, string> = {
   'search.noMatches': 'No matching sessions',
   'search.hasMore': 'Showing the first {n} results. Narrow your search.',
   rename: 'Rename',
+  'rename.failed': 'Could not rename the session: {message}',
   'rename.workspace.title': 'Rename workspace',
   'rename.session.title': 'Rename session',
   'field.workspaceName': 'Workspace name',
