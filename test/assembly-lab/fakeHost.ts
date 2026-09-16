@@ -40,6 +40,10 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}): string
     openedByWindow: [],
     gitShows: [],
     stateStore: {},
+    // 套件可写的注入点：置成某个状态键名后，对该键的 state.write 一律失败
+    //（#108 用它验「批量动作失败时失败项留在勾选里、红字报出来」——真宿主也可能
+    // 因为磁盘/权限写不进去，这条就是那个情形的可复现版本）。
+    failStateWrite: null,
     sessionTabsOpened: [],
     settingsOpened: [],
     workspaceCreateCalls: []
@@ -103,6 +107,11 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}): string
       var writeKey = message.args && message.args.key
       if (typeof writeKey !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(writeKey)) {
         result(message.id, false, { code: "invalid-args", message: "expected a state key" })
+        return
+      }
+      // 注入的写失败（见 host.failStateWrite）：动作侧会如实报错，界面据此报红字。
+      if (host.failStateWrite === writeKey) {
+        result(message.id, false, { code: "lab-injected-write-failure", message: "lab host: injected state.write failure for " + writeKey })
         return
       }
       host.stateStore[writeKey] = message.args.value

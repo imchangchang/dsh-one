@@ -2,8 +2,12 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { UNGROUPED_KEY, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, owningGroupKey, visibleRecycleIds, workspaceActivityCounts, type ActivityCounts, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
 import {
+  canRecycle,
   cannotArchiveReason,
   cannotRecycleReason,
+  groupSelectionState,
+  groupSelectionToggle,
+  type GroupSelectionState,
   type SessionEligibilityFacts,
 } from '../../../../pure/sessionEligibility.ts'
 import {
@@ -61,7 +65,7 @@ import { RecycleDrawer } from './recycleDrawer.ts'
 import { recycleEntrySignal } from './recycleEntry.ts'
 import { ProjectRow, SearchResultRow, SessionRow } from './rows.ts'
 import { EMPTY_SEARCH, SEARCH_DEBOUNCE_MS, sanitizeQuery, type SearchState } from './search.ts'
-import { SelectionBar } from './selection.ts'
+import { SelectionBar, selectionEntrySignal } from './selection.ts'
 import './styles.ts'
 import {
   TagGroupBlock,
@@ -382,9 +386,16 @@ export function WorkspaceTree(props: TreeProps): unknown {
   // #99 顶栏「折叠/展开全部」：可展开的分组 = 有会话的分组（工作区 / 未分组桶）。
   // 键集取**不过滤**的那一份推导（过滤态下也要能一次收起/展开全部工作区，与旧侧栏
   // 「折叠所有工作区」同义）。
-  const expandableKeys = deriveGroups(list, workspaces, archivedSessionIds, pending, { expandedGroups: [] })
-    .filter((group) => group.sessionCount > 0)
-    .map((group) => group.key)
+  //
+  // #108：这一次推导同时给出**每个分组的全部成员**（`expandedGroups` 给全量 = 折叠态
+  // 不回灌进 `sessions`），组头三态全选要吃整组成员——收起着的工作区也得能一次勾满
+  //（那正是「快速清走一个工作区里没用的会话」的用法），所以不能拿渲染用的 `groups`
+  //（收起时 `sessions` 是空的）来数。
+  const flatGroups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
+    expandedGroups: [...workspaces.map((workspace) => workspace.workspaceId), UNGROUPED_KEY],
+  })
+  const expandableKeys = flatGroups.filter((group) => group.sessionCount > 0).map((group) => group.key)
+  const groupMembers = new Map(flatGroups.map((group) => [group.key, group.sessions]))
   const allCollapsed = expandableKeys.length > 0 && expandableKeys.every((key) => !groupExpansion.includes(key))
   /** 已全收起 → 展开全部；否则收起全部（图标与提示在顶栏里随 `allCollapsed` 翻转）。 */
   const toggleCollapseAll = (): void => {
@@ -433,12 +444,28 @@ export function WorkspaceTree(props: TreeProps): unknown {
     )
   }
 
+  /**
+   * 进入选择态（#108 的入口 API 的落地）：清空上一轮勾选与错误。
+   *
+   * 只碰三个 setter（引用恒定的），所以订阅回调里调它不会随渲染换身份——订阅只在挂载
+   * 时登记一次（见下面那个 effect）。
+   */
+  const enterSelection = (): void => {
+    setSelectMode(true)
+    setSelection([])
+    setSelectionError(null)
+  }
+
   /** 退出选择态：清空选择与错误（选择态本身是纯视图态，不落盘）。 */
   const exitSelection = (): void => {
     setSelectMode(false)
     setSelection([])
     setSelectionError(null)
   }
+
+  // 进入多选的入口 API（`selection.ts` 的 `selectionEntrySignal`）：顶部工具栏那一枚与
+  // 会话行菜单的「选择多个」（本体在「菜单补全」那条）都调它，选择态只有这一个入口。
+  useEffect(() => selectionEntrySignal.subscribe(() => enterSelection()), [])
 
   const errorText = (reason: unknown): string => (reason instanceof Error ? reason.message : String(reason))
 
@@ -450,6 +477,67 @@ export function WorkspaceTree(props: TreeProps): unknown {
     runningSubagentCount: node.runningSubagentCount,
     ...(node.pendingInteraction === undefined ? {} : { pendingInteraction: node.pendingInteraction }),
   })
+
+  // -------------------------------------------------------------------------
+  // 组头三态全选（#108）
+  //
+  // 判定与方向都在纯模块里（`groupSelectionState` / `groupSelectionToggle`），这里只把
+  // 「这一组是谁」和「勾/清」接上——行内勾选框、行菜单的两项动作、批量动作吃的是**同一份**
+  // 资格判定（`canRecycle`），所以组头勾上的那些正好是批量动作真会动的那些。
+  // -------------------------------------------------------------------------
+  /** 这一组能否被勾选（置顶的被挡住——它既不能进回收站也不能归档）。 */
+  const isSelectableNode = (node: SessionNode): boolean => canRecycle(eligibilityOf(node))
+  const isSelectedNode = (node: SessionNode): boolean => selectedSet.has(node.id)
+  /** 这一组的三态（`fallback` = 渲染用的那一份，折叠态下是空数组）。 */
+  const groupStateOf = (members: readonly SessionNode[]): GroupSelectionState =>
+    groupSelectionState(members, isSelectableNode, isSelectedNode)
+  /**
+   * 组头三态框的全部输入，一次算好（渲染里不再重复查表）。
+   *
+   * 成员取**整组**（`groupMembers`，不看折叠态）：收起着的工作区也得能一次勾满，那正是
+   * 「快速清走一个工作区里没用的会话」的用法。
+   */
+  const groupCheck = (
+    key: string,
+    fallback: readonly SessionNode[],
+  ): {
+    state: GroupSelectionState
+    tip: string | undefined
+    disabled: boolean
+    onToggleSelect: () => void
+  } => {
+    const members = groupMembers.get(key) ?? fallback
+    return {
+      state: groupStateOf(members),
+      tip: groupCheckTip(members),
+      // 一条都勾不上（整组都是置顶）：框画灰，点了也不动。
+      disabled: members.every((node) => !isSelectableNode(node)),
+      onToggleSelect: () => toggleGroupSelected(members),
+    }
+  }
+  /** 点组头三态框：`none` / `some` → 补齐到本组最大值；`all` → 取消全选本组。 */
+  const toggleGroupSelected = (members: readonly SessionNode[]): void => {
+    if (busy) return
+    const next = groupSelectionToggle(members, isSelectableNode, isSelectedNode, (node) => node.id)
+    if (next.ids.length === 0) return
+    setSelectionError(null)
+    setSelection((prev) => {
+      const chosen = new Set(prev)
+      for (const id of next.ids) {
+        if (next.select) chosen.add(id)
+        else chosen.delete(id)
+      }
+      return [...chosen]
+    })
+  }
+  /**
+   * 组头三态框的悬停原因：为什么这一组选不满（有置顶成员时最满只能 `some`）。
+   * 没有置顶成员时不给提示——框的行为与眼睛看到的一致，不需要解释。
+   */
+  const groupCheckTip = (members: readonly SessionNode[]): string | undefined => {
+    const blocked = members.filter((node) => !isSelectableNode(node)).length
+    return blocked === 0 ? undefined : tr('select.group.pinned', { n: blocked })
+  }
 
   /**
    * 移入回收站（#103）：**只写我们自己的集合**，不动 dsh 侧，所以立即执行 + 飘一条
@@ -513,6 +601,10 @@ export function WorkspaceTree(props: TreeProps): unknown {
     recycleBinActions.archive(sessionIds).then(
       (outcome) => {
         setArchiveBusy(false)
+        // #108：归档成功的那几条从勾选里划掉——弹窗后面留着的是**没做成的**那些，
+        // 用户直接再点一次「确认」就是重试失败项，不会把已归档的再送一遍。
+        const done = new Set(outcome.done)
+        if (done.size > 0) setSelection((prev) => prev.filter((id) => !done.has(id)))
         if (outcome.failed.length > 0) {
           setArchiveError(tr('archive.failed', { n: outcome.failed.length }))
           return
@@ -834,11 +926,15 @@ export function WorkspaceTree(props: TreeProps): unknown {
                 node: row,
                 workspaceLabel: workspaceLabelOf(row.id),
                 ...(snippetOf(row.id) === undefined ? {} : { snippet: snippetOf(row.id) }),
-                selected: row.id === list.current,
+                // #108（C8）：选择态下搜索结果行同样可勾选——`selected` 随态换义
+                //（非选择态 = 当前会话，选择态 = 已勾选），与树里的会话行同一口径。
+                selectMode,
+                selected: selectMode ? selectedSet.has(row.id) : row.id === list.current,
                 pinned: pinnedIds.has(row.id),
                 unread: unreadIds.has(row.id),
                 tr,
                 onOpen: () => openSessionClearingUnread(row.id),
+                onToggleSelect: () => toggleSelected(row.id),
               }),
             ),
           )
@@ -887,6 +983,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
                 tagBucket(group.key),
                 (node) => pinnedIds.has(node.id),
               )
+              // #108：组头三态全选（成员取整组，不看折叠态——收着的组也能一次勾满）。
+              const check = groupCheck(group.key, group.sessions)
               return h(
                 'div',
                 {
@@ -904,6 +1002,11 @@ export function WorkspaceTree(props: TreeProps): unknown {
                   ...(activity.get(group.key) === undefined ? {} : { counts: activity.get(group.key) as ActivityCounts }),
                   groups: treeGroupDefs(groupsFile),
                   memberOf: group.workspaceId === undefined ? [] : workspaceGroupIds(groupsFile, group.workspaceId),
+                  selectMode,
+                  checkState: check.state,
+                  ...(check.tip === undefined ? {} : { checkTip: check.tip }),
+                  checkDisabled: check.disabled,
+                  onToggleSelect: check.onToggleSelect,
                   onToggle: () =>
                     setPrefs((prev) => ({
                       ...prev,
@@ -977,14 +1080,16 @@ export function WorkspaceTree(props: TreeProps): unknown {
       onGroupPick: (mode: 'workspace' | 'flat') => setPrefs((prev) => ({ ...prev, groupBy: mode })),
       onOrderPick: (mode: 'manual' | 'updated') => setPrefs((prev) => ({ ...prev, orderBy: mode })),
       selectMode,
-      onToggleSelectMode: () => (selectMode ? exitSelection() : setSelectMode(true)),
+      onToggleSelectMode: () => (selectMode ? exitSelection() : selectionEntrySignal.enter()),
     }),
     h(
       'div',
       { className: 'dshOneTree_listArea' },
       // #81 功能 1 / #99 B 段：分组过滤条 = 单胶囊 + 成员计数 + ▾ 下拉
       //（只在「按工作区」下有意义；搜索态下让位给结果）。
-      groupBy === 'workspace' && trimmedQuery === '' && !selectMode
+      // #108：**选择态下不收起**——操作条要插在它下方（#98 的布局规范），收起它
+      // 一切换状态就跳一下，且「先按分组过滤、再整组勾选」正是常用路径。
+      groupBy === 'workspace' && trimmedQuery === ''
         ? h(GroupFilterBar, {
             groups: groupDefs,
             activeGroupId: filterActive ? activeGroupId : null,

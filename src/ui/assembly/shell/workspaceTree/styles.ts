@@ -154,6 +154,11 @@ const CSS =
   '.dshOneTree_checkOn{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}' +
   // #102：勾选框的灰态（置顶行不可勾选）。0.35 的透明度与旧侧栏的 disabled 复选框同值。
   '.dshOneTree_checkOff{opacity:.35;cursor:default}' +
+  // #108：部分选中（组头三态里的 some）——方框与全选同色，里面画一条短横线。
+  // 官方 primitives 没有减号类图标（按 0.1.6-alpha.1 的 combo 核实：IconMinus* /
+  // IconRemove* / IconSubtract* 零命中），所以这条横线用样式画。
+  '.dshOneTree_checkDash{width:8px;height:2px;background:currentColor;border-radius:1px}' +
+  '.dshOneTree_groupCheck{flex:none;cursor:pointer}' +
   // #102：置顶图钉（标题前常驻）与手动未读的加粗标题。颜色走官方 token（次级色，
   // 与行内其它标记同一档）；加粗值取自旧侧栏的 .session-title.unread（600）。
   '.dshOneTree_pin{flex:none;width:14px;height:14px;margin-right:4px;color:var(--dsw-alias-label-tertiary);align-items:center;display:inline-flex}' +

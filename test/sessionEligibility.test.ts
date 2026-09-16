@@ -13,6 +13,7 @@ import {
   cannotArchiveReason,
   cannotRecycleReason,
   groupSelectionState,
+  groupSelectionToggle,
   sessionBusy,
   type SessionEligibilityFacts,
 } from '../src/pure/sessionEligibility.ts'
@@ -107,4 +108,53 @@ test('groupSelectionState：一个都没选 = none；整个层都不够格 = non
 test('groupSelectionState：部分选中 = some', () => {
   const selected = new Set(['a'])
   assert.equal(groupSelectionState(['a', 'b', 'c'], () => true, (id) => selected.has(id)), 'some')
+})
+
+// ---------------------------------------------------------------------------
+// 组头三态全选：点一下之后勾哪些、清哪些（#108）
+// ---------------------------------------------------------------------------
+
+test('groupSelectionToggle：none / some → 勾上这一组够格的全部（方向 select）', () => {
+  const members = ['a', 'b', 'c']
+  assert.deepEqual(groupSelectionToggle(members, () => true, () => false, (id) => id), { select: true, ids: ['a', 'b', 'c'] })
+  const partial = new Set(['a'])
+  assert.deepEqual(groupSelectionToggle(members, () => true, (id) => partial.has(id), (id) => id), {
+    select: true,
+    ids: ['a', 'b', 'c'],
+  })
+})
+
+test('groupSelectionToggle：all → 取消全选（方向 clear）', () => {
+  const all = new Set(['a', 'b'])
+  assert.deepEqual(groupSelectionToggle(['a', 'b'], () => true, (id) => all.has(id), (id) => id), { select: false, ids: ['a', 'b'] })
+})
+
+test('groupSelectionToggle：置顶成员既不进 ids，也不挡方向（组内有置顶时 never all）', () => {
+  const members = ['pinned', 'a', 'b']
+  const selected = new Set(['pinned', 'a', 'b'])
+  const plan = groupSelectionToggle(
+    members,
+    (id) => id !== 'pinned',
+    (id) => selected.has(id),
+    (id) => id,
+  )
+  // 够格的那两条都被选上了 → 方向是「清」，而不是因为三态只能到 some 就永远勾。
+  assert.deepEqual(plan, { select: false, ids: ['a', 'b'] })
+  // 只选了一半 → 方向是「勾」（补齐）。
+  const half = new Set(['a'])
+  assert.deepEqual(groupSelectionToggle(members, (id) => id !== 'pinned', (id) => half.has(id), (id) => id), {
+    select: true,
+    ids: ['a', 'b'],
+  })
+  // 置顶那条即使被（不该发生的）选中，也不影响方向。
+  const pinnedOnly = new Set(['pinned'])
+  assert.deepEqual(
+    groupSelectionToggle(members, (id) => id !== 'pinned', (id) => pinnedOnly.has(id), (id) => id),
+    { select: true, ids: ['a', 'b'] },
+  )
+})
+
+test('groupSelectionToggle：全组都不够格 = 空清单（界面据此画灰、点了什么都不发生）', () => {
+  // 方向在这种情形下没有意义（没有 id 可勾可清），界面按 `ids.length === 0` 提前返回。
+  assert.deepEqual(groupSelectionToggle(['pinned'], () => false, () => false, (id) => id).ids, [])
 })

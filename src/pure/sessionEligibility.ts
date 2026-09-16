@@ -95,3 +95,34 @@ export function groupSelectionState<T>(
   if (selected === selectable.length && selectable.length === members.length) return 'all'
   return 'some'
 }
+
+/**
+ * 组头点一下之后要做的事：给出「这一组够格勾选的 id」以及**方向**
+ * （`select: true` = 勾上这些、`false` = 清掉这些）。
+ *
+ * 方向按「**够格的成员是否已经全被勾上**」定：全勾上了 → 取消全选；否则 → 补齐。
+ * 刻意**不用**三态里的 `all` 当判据——组内有置顶时三态最满只能到 `some`（见
+ * {@link groupSelectionState}），拿 `all` 当判据会让这种组点了永远取消不掉。
+ *
+ * **够格**的定义与组头三态、行内勾选框、批量动作是同一份（{@link canRecycle}），所以
+ * 点组头勾上的那些，正好是批量动作真正会动的那些——置顶的成员两条线都进不去，不会被
+ * 静静算进「已选 N 项」。
+ *
+ * 界面据此只做一件事：把 `ids` 按方向并进/移出选中集合。判定本身可单测。
+ *
+ * @param members 这一层的全部成员（顺序无关）
+ * @param isSelectable 该成员是否能被勾选
+ * @param isSelected 该成员当前是否被勾选
+ * @param idOf 取成员的会话 id
+ */
+export function groupSelectionToggle<T>(
+  members: readonly T[],
+  isSelectable: (member: T) => boolean,
+  isSelected: (member: T) => boolean,
+  idOf: (member: T) => string,
+): { readonly select: boolean; readonly ids: readonly string[] } {
+  const selectable = members.filter((member) => isSelectable(member))
+  const ids = selectable.map((member) => idOf(member))
+  const allSelectableSelected = selectable.length > 0 && selectable.every((member) => isSelected(member))
+  return { select: !allSelectableSelected, ids }
+}
