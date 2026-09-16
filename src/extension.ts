@@ -21,6 +21,9 @@ import {
 import { SessionsStore } from './ui/sessionsStore.ts'
 import { StatusBar } from './ui/statusbar.ts'
 import { openInstallGuide } from './ui/installGuide.ts'
+import { DshUpdate } from './server/dshUpdate.ts'
+import { locateDsh, type LocatedDsh } from './server/locateDsh.ts'
+import { decideUpdate } from './pure/dshUpdate.ts'
 import { TagBridge } from './server/tagBridge.ts'
 
 /**
@@ -70,7 +73,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void manager.ensureStarted()
   }
 
-  const statusBar = new StatusBar(manager)
+  const dshUpdate = new DshUpdate(logger)
+  const statusBar = new StatusBar(manager, dshUpdate)
+
+  // #86 更新检查：这里做一次静默检查（查到才影响 tooltip 里那行提示；失败只进日志，
+  // 不打扰用户）。只在拿到真实 dsh 版本之后查一次——版本未知时比不出结果，
+  // 「检查更新」命令随时可以再手动触发。
+  let updateChecked = false
+  const tryUpdateCheck = (): void => {
+    if (updateChecked) return
+    const status = manager.getStatus()
+    if (status.state !== 'running' || !status.version || status.version === 'unknown') return
+    updateChecked = true
+    void dshUpdate.check()
+  }
+  context.subscriptions.push(manager.onDidChangeState(tryUpdateCheck))
+  tryUpdateCheck()
 
   // #71 预热：激活后网关一旦 running，后台暖共享代理 + 三树过滤整包缓存
   // （静默，失败不挡激活）。首个侧栏揭面/首个 tab 不再付 mirror 启动与
@@ -144,6 +162,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!revealAssembledSettings()) await vscode.commands.executeCommand('dshOne.assembledSettings')
   }
 
+  // #86 检查更新用的「当前版本」：优先现在能不能定位到 dsh（那才是真实安装位置上的版本），
+  // 定位不到就退回状态里已经探到的版本（服务在跑时总是有）。
+  const installedDshVersion = async (): Promise<string | undefined> => {
+    try {
+      const located = await locateDsh(logger)
+      return located.version === 'unknown' ? undefined : located.version
+    } catch {
+      const version = manager.getStatus().version
+      return version && version !== 'unknown' ? version : undefined
+    }
+  }
+
+  // #86 升级要 dsh 的可执行文件路径（用来推导同目录的 npm）；定位不到就没法拼命令，
+  // 直接把 locate 的报错（含安装指引）给用户。
+  const locateForUpgrade = async (): Promise<LocatedDsh | undefined> => {
+    try {
+      return await locateDsh(logger)
+    } catch (err) {
+      void vscode.window.showErrorMessage(errorText(err))
+      return undefined
+    }
+  }
+
   // 侧栏 sessions 面板（#70）：dshOne.chat view 的内容换成官方侧栏装配
   // （第二棵 cordis 树，assemblyView.ts），自研 vanilla 侧栏（sessionsView/
   // sessionsWebview）摘钩保留——#65 迁移参照物，暂不使用。可见性钩子沿用
@@ -157,6 +198,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger,
     manager,
     statusBar,
+    dshUpdate,
     sessions,
     tagBridge,
     activeSessionChanged,
@@ -274,6 +316,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('dshOne.showLogs', () => {
       logger.show()
+    }),
+    // #86 检查更新：固定比 npm 的 latest dist-tag（口径与理由见 src/pure/dshUpdate.ts）。
+    // 有新版本时顺带给「升级」按钮；查不到就报检查失败——不冒充「已是最新」。
+    vscode.commands.registerCommand('dshOne.checkUpdate', async () => {
+      const installed = await installedDshVersion()
+      await dshUpdate.check()
+      const verdict = decideUpdate(installed, dshUpdate.latest())
+      if (verdict.state === 'update') {
+        const upgrade = vscode.l10n.t('Upgrade')
+        const pick = await vscode.window.showInformationMessage(
+          vscode.l10n.t('A newer dsh is available: v{0} (current v{1}).', verdict.latest!, verdict.installed!),
+          upgrade,
+        )
+        if (pick === upgrade) await vscode.commands.executeCommand('dshOne.upgrade')
+        return
+      }
+      if (verdict.state === 'current') {
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t('dsh is up to date (v{0}).', verdict.latest!),
+        )
+        return
+      }
+      if (verdict.state === 'ahead') {
+        // alpha/next 用户会落到这里：npm latest 比手上旧，没什么可升的。
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t(
+            'Installed dsh v{0} is newer than the npm latest v{1}; nothing to upgrade.',
+            verdict.installed!,
+            verdict.latest!,
+          ),
+        )
+        return
+      }
+      void vscode.window.showWarningMessage(
+        vscode.l10n.t('Update check failed: {0}', dshUpdate.lastError() ?? vscode.l10n.t('unknown reason')),
+      )
+    }),
+    // #86 升级：在集成终端里跑全局安装命令（命令可见、可中断）。装的版本比 latest 新时
+    // 先弹确认说明「继续等于降级」，避免 alpha 用户被无声地拉回正式通道。
+    vscode.commands.registerCommand('dshOne.upgrade', async () => {
+      const dsh = await locateForUpgrade()
+      if (!dsh) return
+      if (!dshUpdate.latest()) await dshUpdate.check()
+      const latest = dshUpdate.latest()
+      const verdict = decideUpdate(dsh.version, latest)
+      if (verdict.state === 'current') {
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t('dsh is up to date (v{0}).', latest!),
+        )
+        return
+      }
+      if (verdict.state === 'ahead') {
+        const proceed = vscode.l10n.t('Continue')
+        const answer = await vscode.window.showWarningMessage(
+          vscode.l10n.t(
+            'Installed dsh v{0} is newer than the npm latest v{1}; continuing installs the older version.',
+            verdict.installed!,
+            latest!,
+          ),
+          { modal: true },
+          proceed,
+        )
+        if (answer !== proceed) return
+      }
+      dshUpdate.runUpgradeInTerminal(dsh, latest)
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t('Installing dsh in the terminal; restart the dsh service when it finishes.'),
+      )
     }),
     // #70 摘钩标注：以下会话/工作区命令原为自研侧栏 webview 消息驱动（行内
     // 菜单/右键菜单转发）。侧栏位换成官方侧栏装配后失去调用方，注册保留作

@@ -1,6 +1,8 @@
 import * as vscode from 'vscode'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
+import type { DshUpdate } from '../server/dshUpdate.ts'
 import { tooltipMarkdown } from '../pure/statusTooltip.ts'
+import { decideUpdate } from '../pure/dshUpdate.ts'
 
 /**
  * 单块状态栏：$(dsh-fish) 图标 + 状态文字。动作全在悬停 tooltip 里
@@ -48,29 +50,42 @@ function color(status: ServerStatus): vscode.ThemeColor {
 /**
  * 悬停 tooltip：动作都在这里（command 链接可点击）。Markdown 文本由
  * src/pure/statusTooltip.ts 生成（纯函数，单测覆盖逐态内容）。
+ *
+ * 更新判定在这里现算：npm latest 由 DshUpdate 持有（后台检查一次 + 「检查更新」
+ * 命令刷新），当前版本取状态里的 `dsh --version` ——所以服务重启换版本后，
+ * tooltip 不用等下一次网络检查就能对上。
  */
-function tooltip(status: ServerStatus): vscode.MarkdownString {
+function tooltip(status: ServerStatus, update: DshUpdate): vscode.MarkdownString {
   const md = new vscode.MarkdownString(undefined, true)
   md.isTrusted = true
-  md.appendMarkdown(tooltipMarkdown(status, (message, ...args) => vscode.l10n.t(message, ...args)))
+  const verdict = decideUpdate(status.version, update.latest())
+  md.appendMarkdown(
+    tooltipMarkdown(status, (message, ...args) => vscode.l10n.t(message, ...args), verdict),
+  )
   return md
 }
 
 export class StatusBar implements vscode.Disposable {
   private readonly item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10)
   private readonly sub: vscode.Disposable
+  private readonly updateSub: vscode.Disposable
 
-  constructor(manager: ServerManager) {
+  constructor(
+    manager: ServerManager,
+    private readonly updateChecker: DshUpdate,
+  ) {
     this.item.command = 'dshOne.openExternal'
     this.item.name = 'DSH One'
-    this.sub = manager.onDidChangeState((s) => this.update(s))
-    this.update(manager.getStatus())
+    this.sub = manager.onDidChangeState((s) => this.render(s))
+    // 更新检查是异步的：查完（或失败）重画一次 tooltip。
+    this.updateSub = updateChecker.onDidChange(() => this.render(manager.getStatus()))
+    this.render(manager.getStatus())
     this.item.show()
   }
 
-  private update(status: ServerStatus): void {
+  private render(status: ServerStatus): void {
     this.item.text = text(status)
-    this.item.tooltip = tooltip(status)
+    this.item.tooltip = tooltip(status, this.updateChecker)
     this.item.color = color(status)
     // 未安装 dsh 时整块点击聚焦侧栏面板（安装引导空态，含非官方脚本）；
     // 点击「重试启动」本来就无意义（没装就是没装）。
@@ -79,6 +94,7 @@ export class StatusBar implements vscode.Disposable {
 
   dispose(): void {
     this.sub.dispose()
+    this.updateSub.dispose()
     this.item.dispose()
   }
 }

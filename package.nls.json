@@ -12,6 +12,8 @@
   "dshOne.external.stop.title": "Stop External Instance",
   "dshOne.external.restart.title": "Restart External Instance",
   "dshOne.showLogs.title": "Show Logs",
+  "dshOne.checkUpdate.title": "Check for dsh Updates",
+  "dshOne.upgrade.title": "Upgrade dsh",
   "dshOne.session.new.title": "New Session",
   "dshOne.workspace.add.title": "New Workspace",
   "dshOne.workspace.create.title": "Create Workspace",

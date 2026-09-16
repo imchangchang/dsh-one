@@ -2,6 +2,7 @@
  * 状态栏 tooltip 的 Markdown 文本（纯函数，无 vscode 依赖，可直接 `node --test`）。
  * 与 chatContract.ts 同一约定：pure 层不 import server 模块，Status 形状在此拷贝。
  */
+import type { UpdateVerdict } from './dshUpdate.ts'
 
 export interface TooltipStatus {
   state: 'stopped' | 'starting' | 'running' | 'error'
@@ -26,12 +27,22 @@ export type Translate = (message: string, ...args: Array<string | number | boole
  * `dsh --version`；adopted（另一窗口 spawn）/external（token 连接）实例的版本
  * 来自 shared 记录或「命令行解析真实入口 → 执行 --version」的探测，两者都不
  * 依赖扩展 PATH 近似（多安装会误导），探测不出才缺省不显示。
+ *
+ * 第三个参数是更新判定（#86）：只有判定为 `update`（npm latest 更新）时才多一行
+ * 版本提示，并把动作行末尾的「检查更新」换成「升级到 v{latest}」。`unknown`
+ * （版本缺失 / 网络失败）什么都不显示——检查失败不能变成「已是最新」的暗示。
  */
-export function tooltipMarkdown(status: TooltipStatus, t: Translate): string {
+export function tooltipMarkdown(
+  status: TooltipStatus,
+  t: Translate,
+  update?: UpdateVerdict,
+): string {
   switch (status.state) {
     case 'running': {
       let md = `**DSH One** — ${status.url}\n`
       if (status.version && status.version !== 'unknown') md += `dsh v${status.version}\n`
+      const upgradeTo = update?.state === 'update' ? update.latest : undefined
+      if (upgradeTo) md += `${t('A newer dsh is available: v{0}', upgradeTo)}\n`
       md += '\n'
       if (status.external) {
         // 外部启动的认证实例（B 档 token 已连接）：可管理（停止/重启），杀前确认弹窗。
@@ -51,6 +62,9 @@ export function tooltipMarkdown(status: TooltipStatus, t: Translate): string {
         md += `　[$(refresh) ${t('Restart Service')}](command:dshOne.restart)　[$(debug-stop) ${t('Stop Service')}](command:dshOne.stop)`
       }
       md += `　[$(output) ${t('Show Logs')}](command:dshOne.showLogs)`
+      md += upgradeTo
+        ? `　[$(arrow-up) ${t('Upgrade to v{0}', upgradeTo)}](command:dshOne.upgrade)`
+        : `　[$(cloud-download) ${t('Check for Updates')}](command:dshOne.checkUpdate)`
       return md
     }
     case 'starting':

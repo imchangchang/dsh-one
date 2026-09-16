@@ -12,6 +12,8 @@
   "dshOne.external.stop.title": "停止外部实例",
   "dshOne.external.restart.title": "重启外部实例",
   "dshOne.showLogs.title": "显示日志",
+  "dshOne.checkUpdate.title": "检查 dsh 更新",
+  "dshOne.upgrade.title": "升级 dsh",
   "dshOne.session.new.title": "新建会话",
   "dshOne.workspace.add.title": "新建 workspace",
   "dshOne.workspace.create.title": "创建工作区",

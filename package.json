@@ -99,6 +99,16 @@
         "category": "DSH One"
       },
       {
+        "command": "dshOne.checkUpdate",
+        "title": "%dshOne.checkUpdate.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.upgrade",
+        "title": "%dshOne.upgrade.title%",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.session.new",
         "title": "%dshOne.session.new.title%",
         "category": "DSH One",

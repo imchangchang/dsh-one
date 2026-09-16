@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { tooltipMarkdown, type TooltipStatus } from '../src/pure/statusTooltip.ts'
+import type { UpdateVerdict } from '../src/pure/dshUpdate.ts'
 
 /** 恒等翻译：键即文案（无占位符时等价于 l10n 兜底）；带 {N} 的做最小替换。 */
 const t = (message: string, ...args: Array<string | number | boolean>): string =>
@@ -15,8 +16,56 @@ test('running: version line after the title (dsh 0.1.2-rc.1)', () => {
       '[$(globe) Open in Browser](command:dshOne.openExternal)　' +
       '[$(refresh) Restart Service](command:dshOne.restart)　' +
       '[$(debug-stop) Stop Service](command:dshOne.stop)　' +
-      '[$(output) Show Logs](command:dshOne.showLogs)',
+      '[$(output) Show Logs](command:dshOne.showLogs)　' +
+      '[$(cloud-download) Check for Updates](command:dshOne.checkUpdate)',
   )
+})
+
+test('running: 有新版时多一行提示，动作行的「检查更新」换成「升级到 vX」', () => {
+  const status: TooltipStatus = { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1' }
+  const update: UpdateVerdict = { state: 'update', installed: '0.1.5-rc.1', latest: '0.1.5-rc.2' }
+  const md = tooltipMarkdown(status, t, update)
+  assert.ok(md.includes('dsh v0.1.5-rc.1\nA newer dsh is available: v0.1.5-rc.2\n\n'))
+  assert.ok(md.includes('[$(arrow-up) Upgrade to v0.1.5-rc.2](command:dshOne.upgrade)'))
+  assert.ok(!md.includes('Check for Updates'))
+})
+
+test('running: 已是最新时无一版本行，动作行仍是「检查更新」', () => {
+  const status: TooltipStatus = { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1' }
+  const md = tooltipMarkdown(status, t, { state: 'current', installed: '0.1.5-rc.1', latest: '0.1.5-rc.1' })
+  assert.ok(!md.includes('A newer dsh is available'))
+  assert.ok(md.includes('[$(cloud-download) Check for Updates](command:dshOne.checkUpdate)'))
+  assert.ok(!md.includes('Upgrade to v'))
+})
+
+test('running: 装的比 latest 新（ahead）不提示升级、也不留检查失败痕迹', () => {
+  const status: TooltipStatus = { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.6-alpha.1' }
+  const md = tooltipMarkdown(status, t, { state: 'ahead', installed: '0.1.6-alpha.1', latest: '0.1.5-rc.1' })
+  assert.ok(!md.includes('A newer dsh is available'))
+  assert.ok(!md.includes('Upgrade to v'))
+  assert.ok(md.includes('[$(cloud-download) Check for Updates](command:dshOne.checkUpdate)'))
+})
+
+test('running: 版本未知（检查失败/探测失败）时不显示任何更新行', () => {
+  const status: TooltipStatus = { state: 'running', url: 'http://127.0.0.1:3080' }
+  const md = tooltipMarkdown(status, t, { state: 'unknown', latest: '0.1.5-rc.1' })
+  assert.ok(!md.includes('A newer dsh is available'))
+  assert.ok(!md.includes('Upgrade to v'))
+  assert.ok(!md.includes('dsh v'))
+})
+
+test('running: adopted（有探测到的版本）时同样能提示更新', () => {
+  // adopted 实例的版本来自 shared 记录或命令行探测；有版本就能比，有新版照常提示。
+  const md = tooltipMarkdown(
+    { state: 'running', url: 'http://127.0.0.1:3080', adopted: true, version: '0.1.5-rc.1' },
+    t,
+    { state: 'update', installed: '0.1.5-rc.1', latest: '0.1.5-rc.2' },
+  )
+  assert.ok(md.includes('dsh v0.1.5-rc.1\nA newer dsh is available: v0.1.5-rc.2\n\n'))
+  assert.ok(md.includes('[$(arrow-up) Upgrade to v0.1.5-rc.2](command:dshOne.upgrade)'))
+  // 管理入口文案不变（adopted 不出现 Restart/Stop Service）。
+  assert.ok(!md.includes('Restart Service'))
+  assert.ok(!md.includes('Stop Service'))
 })
 
 test('running: 0.1.1 stable version renders the same line', () => {
