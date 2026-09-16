@@ -268,6 +268,42 @@ test('编辑器标签页（#72）：官方 web 侧如实上报缺席，调用被
   resetGlobals()
 })
 
+test('#121 宿主面板的会话：桥在时两条都落桥（查询回执照实读，动作发出会话 id）', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, { 'session.inPanel': { open: true }, 'session.openPanel': null })
+  const caps = hostCapabilities(undefined)
+  assert.equal(await caps.isSessionInPanel('session-1'), true)
+  assert.equal(await caps.isSessionInPanel('session-2'), true, '回执是宿主说了算（这里同一个假回执）')
+  await caps.openSessionPanel('session-1')
+  assert.deepEqual(bridgeCalls, [
+    { name: 'session.inPanel', args: { sessionId: 'session-1' } },
+    { name: 'session.inPanel', args: { sessionId: 'session-2' } },
+    { name: 'session.openPanel', args: { sessionId: 'session-1' } },
+  ])
+  resetGlobals()
+})
+
+test('#121 宿主面板的会话：桥在、但这条调用被拒（老宿主/没实现）→ 查询回 false，不把异常漏给调用方', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  // replies 里不登记 `session.inPanel` = 假桥抛 unsupported（见 installBridge）。
+  installBridge(bridgeCalls, {})
+  const caps = hostCapabilities(undefined)
+  assert.equal(await caps.isSessionInPanel('session-1'), false, '答不出来一律当「没开」= 按打开处理')
+  resetGlobals()
+})
+
+test('#121 宿主面板的会话：官方 web 侧（无桥）查询回 false、动作静默——那一端没有宿主面板概念，也不打网关', async () => {
+  resetGlobals()
+  const calls: Call[] = []
+  const caps = hostCapabilities(gatewayCtx({}, calls))
+  assert.equal(await caps.isSessionInPanel('session-1'), false, '没有宿主面板 = 一律按打开处理')
+  await caps.openSessionPanel('session-1')
+  assert.deepEqual(calls, [], '这条能力没有宿主半端点，不该往网关上打任何请求')
+  resetGlobals()
+})
+
 test('#99 设置齿轮：桥在时上报有独立设置页，调用落到 bridge 的 vscode.openSettings', async () => {
   resetGlobals()
   const bridgeCalls: Array<{ name: string; args: unknown }> = []
