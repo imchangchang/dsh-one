@@ -45,8 +45,7 @@ import {
   type HostCallError,
 } from '../../pure/hostCalls.ts'
 import type { DownloadArgs, HostCapabilityError, SaveFileArgs } from '../../pure/hostCapabilities.ts'
-import { parseStateKey, parseStateValue } from '../../pure/hostCapabilities.ts'
-import { deleteState, readState, writeState } from '../../../packages/dsh-host-capabilities/src/stateStore.ts'
+import { runStateCall } from '../../pure/hostStateCalls.ts'
 import { performGatewayDownload, performSaveContent } from '../../pure/hostDownload.ts'
 import type { CommitInfoResult } from '../../pure/chatContract.ts'
 import type { GitWorkspaceQueryResult } from '../../pure/gitWorkspaceQuery.ts'
@@ -252,42 +251,24 @@ export async function runHostCall(
 /**
  * `state.read` / `state.write` / `state.delete`（#82）：插件的持久状态。
  *
- * **实现就是宿主半那一份**：直接 import
- * `packages/dsh-host-capabilities/src/stateStore.ts`——官方 web 侧跑的是宿主半的
- * `stateRead/stateWrite/stateDelete`，VS Code 侧跑的是同一个模块的同一组函数，
- * 所以「同一份用户数据只有一个家、一套代码」（AGENTS.md 铁律「插件状态按官方惯例
- * 存储」）在两端都成立：家是 `~/.dsh/dsh-one/<键>.json`（宿主半定义的路径与原子写），
- * 代码是宿主半包里的那一份。
+ * **实现就是宿主半那一份**：逻辑在 `src/pure/hostStateCalls.ts`，它直接调用
+ * `packages/dsh-host-capabilities/src/stateStore.ts` 的函数——官方 web 侧跑的是宿主半
+ * 的同一组函数，所以「同一份用户数据只有一个家、一套代码」（AGENTS.md 铁律「插件状态
+ * 按官方惯例存储」）在两端都成立：家是 `~/.dsh/dsh-one/<键>.json`（宿主半定义的路径与
+ * 原子写），代码是宿主半包里的那一份。
  *
  * 为什么 VS Code 侧不干脆走网关 RPC 让宿主半自己处理（那样调用方只有一条路径）：
  * 宿主半目前还没进 VS Code 用的那个 profile（#84 的已知遗留①），走网关会在没装
  * 它的实例上直接 404，插件状态当场失效。这里让扩展宿主**代行同一个实现**，行为与
  * 官方侧逐字一致、且不依赖 profile 里有没有那个包；等宿主半随扩展分发落地后，
  * 这条分支可以退化成纯转发（或整个删掉），插件侧一行都不用改。
- *
- * 安全：键的形状由 `parseStateKey` 收口（只允许 `[a-z0-9._-]`，禁 `..`），
- * 那是唯一决定文件名的输入；值必须能 JSON 序列化（`parseStateValue`）。
  */
 async function stateCall(
   call: 'state.read' | 'state.write' | 'state.delete',
   args: unknown,
   deps: HostBridgeDeps,
 ): Promise<{ value?: unknown; deleted?: boolean } | HostCapabilityError> {
-  const record = asRecord(args)
-  if (record === undefined) return { code: 'invalid-args', message: 'expected an object argument' }
-  const key = parseStateKey(record.key)
-  if (typeof key !== 'string') return key
-  const home = deps.dshHome
-  try {
-    if (call === 'state.read') return { value: await readState(key, home) }
-    if (call === 'state.delete') return { deleted: await deleteState(key, home) }
-    const serialized = parseStateValue(record.value)
-    if (typeof serialized !== 'string') return serialized
-    await writeState(key, serialized, home)
-    return {}
-  } catch (err) {
-    return { code: 'failed', message: err instanceof Error ? err.message : String(err) }
-  }
+  return await runStateCall(call, args, deps.dshHome)
 }
 
 /**
