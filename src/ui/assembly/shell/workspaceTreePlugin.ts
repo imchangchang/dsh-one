@@ -2,11 +2,15 @@
  * @dsh-one/dsh-workspace-tree——侧栏工作区/会话树的 **shadow 件**（#65 批 2）。
  *
  * ## 命名（AGENTS.md 铁律「自有插件命名分两类」）
- * 本件命名 `dsh-*` 而非 `vscode-*`，因为**零宿主耦合**：不调 `hostCall`、
- * 不碰 `acquireVsCodeApi`、不 postMessage，只有自己写的 DOM 标记（`dshOneTree_*`
- * 类名与 `data-*`）；数据全取官方 hooks、动作全走官方服务、样式全用官方 token。
- * 因此它不依赖我们的 shell 实现，官方 web 侧同样能装（#83 收尾要做的是把挂载点
- * 挪出我们的 frame 并打成独立 npm 包，本步先把命名与 id 对齐）。
+ * 本件命名 `dsh-*` 而非 `vscode-*`，因为它不绑定 VS Code 宿主：只有自己写的 DOM
+ * 标记（`dshOneTree_*` 类名与 `data-*`），不碰 `acquireVsCodeApi`、不 postMessage；
+ * 数据全取官方 hooks、动作全走官方服务、样式全用官方 token。唯一一项与宿主有关的
+ * 动作是会话行菜单的「在新标签页打开」（#72）：它走**宿主能力口**这个抽象口
+ * （`./hostCapabilities.ts`，插件不直接碰宿主 API），并且按能力口如实上报的
+ * `editorTabs` 决定该项出不出现——官方 web 侧没有「编辑器标签页」这个概念，那一项
+ * 就不显示，插件其余行为一模一样。因此它不依赖我们的 shell 实现，官方 web 侧同样
+ * 能装（#83 收尾要做的是把挂载点挪出我们的 frame 并打成独立 npm 包，本步先把命名
+ * 与 id 对齐）。
  *
  * ## 机制分层（按 AGENTS.md 的优先序逐层举证）
  *
@@ -46,8 +50,22 @@
  *   `IconFolderClose16` / `IconTriangleRightFill14` / `IconEllipsisOutline16` /
  *   `IconPlusOutline16` / `IconSearchOutline16` / `IconCloseFill14` /
  *   `IconPersonalizationOutline16` / `IconEditOutline16` / `IconTrashOutline16` /
- *   `IconBranchOutline16` / `IconArchiveOutline20` / `StateDot` / `Menu` /
- *   `Tooltip` / `HoverCard` / `Modal` / `Button` / `relativeTime`。
+ *   `IconBranchOutline16` / `IconArchiveOutline20` / `IconRightUpOutline16` /
+ *   `StateDot` / `Menu` / `Tooltip` / `HoverCard` / `Modal` / `Button` /
+ *   `relativeTime`。
+ *
+ * **多开入口（#72）**：会话行菜单（仍是官方 `Menu` 原语，`items` 多一项
+ * `openInNewTab`）与**行右键**都能开出这个菜单，菜单项走宿主能力口。逐层举证：
+ * 官方侧没有「往官方行菜单里加一项」的口（官方 `SessionNodeItem` 的
+ * `sessionMenuItems` 是它自己的常量数组，无座位、无服务、无接缝），而本插件
+ * 已经**整槽遮蔽**了 `sidebar.workspaces`（层 1）——行由我们渲染，菜单项就是
+ * 我们自己的渲染内容，用的还是官方 `Menu` 原语（层 2 组件：`items` 形状、
+ * 定位、外点关闭、Esc 关闭全按官方行为）。行右键同样落在自有渲染上：行是我们
+ * 的元素，给它挂 `onContextMenu` 即我们自己的事件；官方 `Menu` 支持
+ * `getAnchorRect` 就为这类「菜单跟着指针走」的用法（官方自己在 assets bundle 的
+ * trajectory JSON 复制按钮上也是 `onContextMenu` + `getAnchorRect` 的组合），
+ * 所以不需要任何 DOM 层 hack。能力不存在（官方 web 形态）时：菜单项不出现，
+ * 行右键也不接管（不抢浏览器原生右键菜单）。
  *
  * **样式 = 官方 token + 官方默认几何**：本插件不写自造颜色/尺寸。下面 CSS 里的每个数值都逐字
  * 取自官方 css-module（`ui-workspace/src/client/rows/Rows.module.css` 与
@@ -90,6 +108,7 @@ import {
   IconPersonalizationOutline16,
   IconPlusOutline16,
   IconRefreshOutline16,
+  IconRightUpOutline16,
   IconSearchOutline16,
   IconTrashOutline16,
   IconTriangleRightFill14,
@@ -208,6 +227,7 @@ const ZH: Record<string, string> = {
   'delete.pending': '\u6b63\u5728\u5220\u9664\u5de5\u4f5c\u533a\u2026',
   'conflict.named': '\u5df2\u5b58\u5728\u540d\u4e3a\u201c{name}\u201d\u7684\u5de5\u4f5c\u533a\u3002',
   'menu.fork': '\u5206\u53c9\u4f1a\u8bdd',
+  'menu.openInNewTab': '\u5728\u65b0\u6807\u7b7e\u9875\u6253\u5f00',
   'menu.archiveSession': '\u5f52\u6863\u4f1a\u8bdd',
   'actions.workspace.aria': '\u5de5\u4f5c\u533a\u201c{name}\u201d\u7684\u64cd\u4f5c',
   'actions.session.aria': '\u4f1a\u8bdd\u201c{name}\u201d\u7684\u64cd\u4f5c',
@@ -294,6 +314,7 @@ const EN: Record<string, string> = {
   'delete.pending': 'Deleting workspace…',
   'conflict.named': 'A workspace named \u201c{name}\u201d already exists.',
   'menu.fork': 'Fork session',
+  'menu.openInNewTab': 'Open in New Tab',
   'menu.archiveSession': 'Archive session',
   'actions.workspace.aria': 'Workspace actions for {name}',
   'actions.session.aria': 'Session actions for {name}',
@@ -534,6 +555,11 @@ interface TreeProps {
   recycleSessions: (sessionIds: readonly string[]) => Promise<{ failed: readonly string[] }>
   /** #81 功能 3/5：从回收站还原——官方 `uiWorkspace.unarchiveSession`。 */
   restoreSession: (sessionId: string) => Promise<void>
+  /**
+   * 「在新标签页打开」（#72 多开通道）：宿主有编辑器标签页时由 apply 注入，
+   * 官方 web 形态（无此能力）不注入 = 菜单项与行右键都不出现。
+   */
+  openInNewTab?: (sessionId: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -883,6 +909,7 @@ function SessionRow({
   onRename,
   onFork,
   onArchive,
+  onOpenInNewTab,
 }: {
   node: SessionNode
   currentId?: string
@@ -899,15 +926,37 @@ function SessionRow({
   onRename: (title: string) => void
   onFork: () => void
   onArchive: () => void
+  /**
+   * 「在新标签页打开」（#72 多开通道）。**undefined = 这个宿主没有编辑器标签页**
+   * （官方 web 形态）：菜单项不出现、行右键也不接管（不抢浏览器原生右键菜单）。
+   */
+  onOpenInNewTab?: (() => void) | undefined
 }): unknown {
   const [menuOpen, setMenuOpen] = useState(false)
+  /** 行右键的指针位置：有值时菜单挂在指针处（官方 Menu 的 getAnchorRect 口）。 */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const title = displayTitle(node, tr)
   const isCurrent = node.id === currentId
   const statuses = sessionStatuses(node)
   const showStatus = showsStatusDot(statuses, node.completed)
+  const openInNewTabItem =
+    onOpenInNewTab === undefined
+      ? []
+      : [
+          {
+            id: 'openInNewTab',
+            // 标记属性（自有契约）：菜单项类名是官方哈希，验证套件与样式都不该认它，
+            // 按这个属性取「我们那一项」（与 contextMenuPlugin 的图标项同一做法）。
+            label: h('span', { 'data-dshone-tree-item': 'openInNewTab' }, tr('menu.openInNewTab')),
+            // 图标取官方 primitives 的 IconRightUpOutline16（向右上离开方框 = 到别处打开），
+            // 与官方行菜单项同为 16 档、同为 icon 槽位的次级色。
+            icon: h(IconRightUpOutline16, {}),
+          },
+        ]
   const menuItems = [
     { id: 'rename', label: tr('rename'), icon: h(IconEditOutline16, {}) },
     { id: 'fork', label: tr('menu.fork'), icon: h(IconBranchOutline16, {}) },
+    ...openInNewTabItem,
     { id: 'archive', label: tr('menu.archiveSession'), icon: h(IconArchiveOutline20, { size: 16 }) },
   ]
   const anchor = h(
@@ -919,6 +968,7 @@ function SessionRow({
       'data-dshone-tree-action': 'session-menu',
       onClick: (event: { stopPropagation(): void }) => {
         event.stopPropagation()
+        setMenuAt(null)
         setMenuOpen((open: boolean) => !open)
       },
     },
@@ -941,6 +991,20 @@ function SessionRow({
         node.pendingInteraction !== undefined ? 'waiting' : node.running ? 'running' : 'idle',
       ...(selectMode ? { 'data-dshone-tree-checked': selected } : {}),
       onClick: selectMode ? onToggleSelect : onOpen,
+      // 行右键开出同一份菜单（指针位置锚定）。三条不接管的线：
+      // - 多开不可用的宿主（官方 web）：那里没有这一项可给，抢掉原生右键菜单只是添乱；
+      // - 空白会话行（`node.blank`）：官方对这类行整个不给行菜单（见下面 actions 的
+      //   `node.blank ? null`），接了右键却没有菜单可弹，只会白白吃掉原生菜单；
+      // - 选择态：整行只有「勾选」一个动作（同上面 onClick 的处置）。
+      onContextMenu:
+        node.blank || onOpenInNewTab === undefined || selectMode
+          ? undefined
+          : (event: { preventDefault(): void; stopPropagation(): void; clientX: number; clientY: number }) => {
+              event.preventDefault()
+              event.stopPropagation()
+              setMenuAt({ x: event.clientX, y: event.clientY })
+              setMenuOpen(true)
+            },
       children: [
         selectMode
           ? h('span', { key: 'check', className: 'dshOneTree_check' }, h(SelectMark, { on: selected }))
@@ -964,17 +1028,25 @@ function SessionRow({
               className: 'dshOneTree_rowActions',
               children: h(Menu, {
                 open: menuOpen,
-                onClose: () => setMenuOpen(false),
+                onClose: () => {
+                  setMenuAt(null)
+                  setMenuOpen(false)
+                },
                 items: menuItems,
                 onSelect: (id: string) => {
+                  setMenuAt(null)
                   setMenuOpen(false)
                   if (id === 'rename') onRename(node.title)
                   if (id === 'fork') onFork()
+                  if (id === 'openInNewTab') onOpenInNewTab?.()
                   if (id === 'archive') onArchive()
                 },
                 portal: true,
                 closeOnPointerLeave: true,
                 anchor,
+                // 行右键开的那一份：菜单锚在指针处（官方 Menu 的 getAnchorRect
+                // 优先于 anchor 的矩形，官方自己的右键菜单也是这么用的）。
+                ...(menuAt === null ? {} : { getAnchorRect: () => new DOMRect(menuAt.x, menuAt.y, 0, 0) }),
               }),
             }),
       ],
@@ -1705,6 +1777,7 @@ function WorkspaceTree(props: TreeProps): unknown {
     saveGroups,
     recycleSessions,
     restoreSession,
+    openInNewTab,
   } = props
   const tr = t
   const now = Date.now()
@@ -1978,6 +2051,7 @@ function WorkspaceTree(props: TreeProps): unknown {
                 onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
                 onFork: () => forkSession(row.id),
                 onArchive: () => void archiveSession(row.id).catch(() => {}),
+                onOpenInNewTab: openInNewTab === undefined ? undefined : () => openInNewTab(row.id),
               }),
             ),
           )
@@ -2032,6 +2106,7 @@ function WorkspaceTree(props: TreeProps): unknown {
                     onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
                     onFork: () => forkSession(row.id),
                     onArchive: () => void archiveSession(row.id).catch(() => {}),
+                    onOpenInNewTab: openInNewTab === undefined ? undefined : () => openInNewTab(row.id),
                   }),
                 ),
               ),
@@ -2368,6 +2443,8 @@ export const inject = ['slots', 'locale', 'sessions', 'workspaces']
 export function apply(ctx: TreeContext): void {
   const sessions = ctx.get('sessions') as SessionsService
   const workspaces = ctx.get('workspaces') as WorkspacesService
+  // 宿主能力口（#72 多开入口用它；`editorTabs` 是读时判定，注入面按它决定动作给不给）。
+  const caps = hostCapabilities(ctx)
 
   /** 工作区里「复用空白会话，否则新建」再打开（官方 connectWorkspace + open 的语义）。 */
   const startSessionIn = async (workspaceId: string): Promise<string> => {
@@ -2400,6 +2477,20 @@ export function apply(ctx: TreeContext): void {
     }
     return {
       hooks: { directoryFlow },
+      // 「在新标签页打开」（#72 多开通道）：走宿主能力口（抽象口，插件不碰宿主 API）。
+      // 能力口如实上报 `editorTabs`：没有编辑器标签页的宿主（官方 web 形态）不注入
+      // 这个动作，菜单项与行右键都不出现——那是同一份插件在另一端的正确形态。
+      ...(caps.editorTabs
+        ? {
+            openInNewTab: (sessionId: string): void => {
+              caps.openSessionInNewTab(sessionId).catch((reason: unknown) => {
+                // 宿主侧失败已弹 VS Code 错误提示（服务没起/清单拉取失败）；
+                // 这里只留一条诊断，不重复打扰用户。
+                console.warn('[dsh-one] open session in new tab failed:', reason)
+              })
+            },
+          }
+        : {}),
       // 官方 sessions 服务：选中会话（镜像官方 ui-workspace 的 openSession，
       // 不调 layout.selectPanel——自有侧栏树没有主面板概念）。
       open: (sessionId: string): void => {

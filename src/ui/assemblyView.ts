@@ -11,6 +11,7 @@ import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import { defaultHostBridgeDeps, subscribeHostCalls, type HostBridgeDeps } from './assembly/hostBridge.ts'
 import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
 import { drainAfterCreate, routeSelection } from '../pure/sessionPanelRouting.ts'
+import { assignSessionTab, hasSessionTab, releaseSessionTab, sessionTabOf } from '../pure/sessionTabs.ts'
 import { listSessions } from '../server/dshRpc.ts'
 import { workspaceRootsOfSessionRows } from '../pure/workspaceRoots.ts'
 import {
@@ -194,6 +195,9 @@ function hostBridgeDeps(manager: ServerManager, logger: Logger, gatewayOrigin?: 
     // `file.download` 的取数源 = 该面板所用 mirror 的 loopback 源（鉴权 cookie 由
     // 代理侧附加；页面拿不到也不该拿到 cookie）。mirror 随面板释放，故传 getter。
     ...(gatewayOrigin === undefined ? {} : { gatewayOrigin }),
+    // 「在新标签页打开」（#72 多开通道）：页面侧只发会话 id，开面板的动作全在这里
+    // （面板与共享 mirror 的生命周期都归本模块）。
+    openSessionInNewTab: (sessionId) => void openSessionInNewTab(sessionId),
     // git 查询的扫描/命中/超时留痕走输出面板「DSH One」频道（probe 同一条通道），
     // 页面侧不感知、UI 不阻塞。
     log: (line: string) => logger.info(line),
@@ -201,12 +205,17 @@ function hostBridgeDeps(manager: ServerManager, logger: Logger, gatewayOrigin?: 
 }
 
 /**
- * #71 chat 面板 = 单例（用户拍板：与官方一致单 tab、点侧栏就地切换；
- * tab-per-session 多开降级 #72）。sessionTabs/panelSessionId 映射保留为
- * #72 复活形态（标题跟随仍在用 panelSessionId），路由不再按 sessionId
- * 开新 tab：有单例则聚焦 + 转发就地切换消息，无则创建（冷启动注入）。
+ * #71 chat 面板的两种形态（#72 起）：
+ * - **单例（默认）**：与官方一致单 tab、点侧栏就地切换。任何单例创建都顶替旧单例
+ *   （`chatSingleton`/`active`），侧栏点会话只聚焦 + 转发就地切换消息。
+ * - **多开（显式）**：会话行菜单「在新标签页打开」为那个会话单开一个面板，
+ *   登记在 `sessionTabPanels`（会话 id → 面板，规则见 pure/sessionTabs.ts）。
+ *   多开面板与单例互不影响：开多开不顶替单例，关多开不改单例行为，也不影响
+ *   「默认开一次（#68）」对用户关闭的判断（`closedByUser` 只认单例面板）。
  */
-const sessionTabs = new Map<string, vscode.WebviewPanel>()
+const sessionTabPanels = new Map<string, vscode.WebviewPanel>()
+/** 在途的多开创建（会话 id → 创建中任务）：连点两次不开两个面板。 */
+const creatingSessionTabs = new Map<string, Promise<void>>()
 const panelSessionId = new WeakMap<vscode.WebviewPanel, string>()
 let chatSingleton: { panel: vscode.WebviewPanel } | undefined
 let chatDeps: { context: vscode.ExtensionContext; manager: ServerManager; logger: Logger } | undefined
@@ -268,19 +277,24 @@ async function openChatPanel(
   }
 }
 
-/** 真正的建面板流程（由 openChatPanel 串行化调用）。 */
-async function createChatPanel(
+/** 面板的共用前置：服务就绪 + chat 树清单 + 共享 mirror（失败已弹窗，返回 undefined）。 */
+interface ChatPanelSetup {
+  mirror: AssemblyMirror
+  assembly: GatewayAssembly
+  /** 版本门信息条文本（undefined = 网关在区间内，不显示）。 */
+  banner: string | undefined
+}
+
+async function prepareChatPanel(
   context: vscode.ExtensionContext,
   manager: ServerManager,
   logger: Logger,
-  options: { sessionId?: string },
-): Promise<void> {
+): Promise<ChatPanelSetup | undefined> {
   const status = await manager.ensureStarted()
   if (status.state !== 'running' || !status.url) {
     void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
-    return
+    return undefined
   }
-  const sessionId = options.sessionId
   let assembly: GatewayAssembly
   try {
     assembly = await loadGatewayAssembly(status.url, CHAT_TREE, logger)
@@ -288,7 +302,7 @@ async function createChatPanel(
     void vscode.window.showErrorMessage(
       vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
     )
-    return
+    return undefined
   }
   let mirror: AssemblyMirror
   try {
@@ -297,8 +311,82 @@ async function createChatPanel(
     void vscode.window.showErrorMessage(
       vscode.l10n.t('Failed to start the assembly mirror: {0}', err instanceof Error ? err.message : String(err)),
     )
-    return
+    return undefined
   }
+  return { mirror, assembly, banner: versionBanner(dshVersion(status.url) ?? status.version) }
+}
+
+/**
+ * 面板的共用接线与首帧：探针、活跃上报（标题跟随）、宿主能力桥、主题广播登记，
+ * 以及 dispose 时按形态回收（多开面板释放自己那一格映射；单例面板才记
+ * 「用户关过」）。两种形态只差这些登记动作，页面本身是同一份装配页。
+ */
+function mountChatPanel(params: {
+  context: vscode.ExtensionContext
+  manager: ServerManager
+  logger: Logger
+  panel: vscode.WebviewPanel
+  setup: ChatPanelSetup
+  /** 启动注入的目标会话：写进页面 `__DSH_ONE_BOOT__.sessionId`（冷启动即该会话）。 */
+  sessionId: string | undefined
+  /** true = 多开标签页（登记进多开表、不碰单例）；false = 单例面板。 */
+  tab: boolean
+}): void {
+  const { context, manager, logger, panel, setup, sessionId, tab } = params
+  const { mirror, assembly, banner } = setup
+  if (sessionId !== undefined) panelSessionId.set(panel, sessionId)
+  if (tab && sessionId !== undefined) assignSessionTab(sessionTabPanels, panel, sessionId)
+  const probeSub = subscribeAssemblyProbe(panel.webview, logger)
+  // 活跃/标题上报（session-boot 插件）：维护映射 + 面板标题跟随会话标题。
+  const metaSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
+    if (typeof msg !== 'object' || msg === null) return
+    const m = msg as { type?: unknown; sessionId?: unknown; title?: unknown }
+    if (m.type !== 'dshOne.sessionMeta' || typeof m.sessionId !== 'string') return
+    panelSessionId.set(panel, m.sessionId)
+    // 页面内切会话（多开面板）：把**这个面板**的格子挪到新会话，别的面板的格子不碰
+    //（旧实现按会话 id 直接删，两面板映射交叉时会删错，见 pure/sessionTabs.ts）。
+    if (tab) assignSessionTab(sessionTabPanels, panel, m.sessionId)
+    if (typeof m.title === 'string' && m.title !== '') panel.title = `dsh: ${m.title}`
+  })
+  // 宿主能力桥（#65 批 1）：页面插件（git 卡片/右键菜单/多开入口等）经它取 git 数据、
+  // 开多开标签页与 VS Code 动作；白名单 + 参数校核在 hostBridge 内收口。
+  const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger, () => mirror.origin))
+  trackAssemblyWebview(context, panel.webview)
+  panel.onDidDispose(() => {
+    probeSub.dispose()
+    metaSub.dispose()
+    hostSub.dispose()
+    untrackAssemblyWebview(panel.webview)
+    if (tab) releaseSessionTab(sessionTabPanels, panel)
+    panelSessionId.delete(panel)
+    if (active?.panel === panel) active = undefined
+    if (chatSingleton?.panel === panel) chatSingleton = undefined
+    // 「用户关过」只记单例：关掉一个多开面板不该改变默认打开（#68）的行为。
+    if (!tab && !replacing) closedByUser = true
+    releaseSharedMirror(mirror)
+  })
+  panel.webview.html = assemblyPageHtml({
+    mirrorOrigin: mirror.origin,
+    cspNonce: crypto.randomBytes(16).toString('base64'),
+    assets: assembly.assets,
+    bootWire: assembly.wire,
+    bootstrapUrl: assembly.wire.batches[0].url,
+    theme: currentTheme(),
+    banner,
+    bootSessionId: sessionId,
+  })
+}
+
+/** 真正的建面板流程（由 openChatPanel 串行化调用）：单例语义，任何创建都顶替旧单例。 */
+async function createChatPanel(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+  options: { sessionId?: string },
+): Promise<void> {
+  const setup = await prepareChatPanel(context, manager, logger)
+  if (setup === undefined) return
+  const sessionId = options.sessionId
   // 单例语义（#71 终态）：任何创建都顶替旧单例（replace 期间的 dispose
   // 是我们自己触发的，不算用户手动关闭）。
   replacing = true
@@ -313,52 +401,54 @@ async function createChatPanel(
     vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true },
   )
-  active = { panel, mirror }
-  if (sessionId !== undefined) {
-    sessionTabs.set(sessionId, panel)
-    panelSessionId.set(panel, sessionId)
-    if (pendingSessionOpen === sessionId) pendingSessionOpen = undefined
-  }
+  active = { panel, mirror: setup.mirror }
   chatSingleton = { panel }
-  logger.info(`assembled chat: ${mirror.origin}${sessionId === undefined ? '' : ` session=${sessionId.slice(0, 13)}`}`)
-  const probeSub = subscribeAssemblyProbe(panel.webview, logger)
-  // 活跃/标题上报（session-boot 插件）：维护映射 + 面板标题跟随会话标题。
-  const metaSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
-    if (typeof msg !== 'object' || msg === null) return
-    const m = msg as { type?: unknown; sessionId?: unknown; title?: unknown }
-    if (m.type !== 'dshOne.sessionMeta' || typeof m.sessionId !== 'string') return
-    const old = panelSessionId.get(panel)
-    if (old !== undefined && old !== m.sessionId) sessionTabs.delete(old)
-    sessionTabs.set(m.sessionId, panel)
-    panelSessionId.set(panel, m.sessionId)
-    if (typeof m.title === 'string' && m.title !== '') panel.title = `dsh: ${m.title}`
-  })
-  // 宿主能力桥（#65 批 1）：页面插件（git 卡片/右键菜单等）经它取 git 数据与
-  // VS Code 动作；白名单 + 参数校核在 hostBridge 内收口。
-  const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger, () => mirror.origin))
-  trackAssemblyWebview(context, panel.webview)
-  panel.onDidDispose(() => {
-    probeSub.dispose()
-    metaSub.dispose()
-    hostSub.dispose()
-    untrackAssemblyWebview(panel.webview)
-    const mapped = panelSessionId.get(panel)
-    if (mapped !== undefined && sessionTabs.get(mapped) === panel) sessionTabs.delete(mapped)
-    if (active?.panel === panel) active = undefined
-    if (chatSingleton?.panel === panel) chatSingleton = undefined
-    if (!replacing) closedByUser = true
-    releaseSharedMirror(mirror)
-  })
-  panel.webview.html = assemblyPageHtml({
-    mirrorOrigin: mirror.origin,
-    cspNonce: crypto.randomBytes(16).toString('base64'),
-    assets: assembly.assets,
-    bootWire: assembly.wire,
-    bootstrapUrl: assembly.wire.batches[0].url,
-    theme: currentTheme(),
-    banner: versionBanner(dshVersion(status.url) ?? status.version),
-    bootSessionId: sessionId,
-  })
+  if (sessionId !== undefined && pendingSessionOpen === sessionId) pendingSessionOpen = undefined
+  logger.info(`assembled chat: ${setup.mirror.origin}${sessionId === undefined ? '' : ` session=${sessionId.slice(0, 13)}`}`)
+  mountChatPanel({ context, manager, logger, panel, setup, sessionId, tab: false })
+}
+
+/**
+ * 多开一个会话标签页（#72）——会话行菜单「在新标签页打开」的宿主落点。语义：
+ * **已开则聚焦**（宿主去重；在途创建算已开，连点不会开两个）、未开则新建。
+ * 全程不碰单例（`chatSingleton`/`active`）：多开与单 tab 各走各的，互不干扰。
+ */
+export async function openSessionInNewTab(sessionId: string): Promise<void> {
+  // 已开（或在途创建，见 pure/sessionTabs.ts 的「已有」判定）：等创建落地再聚焦，
+  // 绝不新建第二个面板。
+  if (hasSessionTab(sessionTabPanels, creatingSessionTabs, sessionId)) {
+    await creatingSessionTabs.get(sessionId)
+    sessionTabOf(sessionTabPanels, sessionId)?.reveal()
+    return
+  }
+  const deps = chatDeps
+  if (deps === undefined) return // 注册还没发生（页面入口也来自注册后的树）
+  const created = (async () => {
+    const setup = await prepareChatPanel(deps.context, deps.manager, deps.logger)
+    if (setup === undefined) return
+    const panel = vscode.window.createWebviewPanel(
+      ASSEMBLED_CHAT_VIEW_TYPE,
+      `dsh: ${sessionId.slice(0, 13)}`,
+      vscode.ViewColumn.Active,
+      { enableScripts: true, retainContextWhenHidden: true },
+    )
+    deps.logger.info(`assembled chat tab: ${setup.mirror.origin} session=${sessionId.slice(0, 13)}`)
+    mountChatPanel({
+      context: deps.context,
+      manager: deps.manager,
+      logger: deps.logger,
+      panel,
+      setup,
+      sessionId,
+      tab: true,
+    })
+  })()
+  creatingSessionTabs.set(sessionId, created)
+  try {
+    await created
+  } finally {
+    creatingSessionTabs.delete(sessionId)
+  }
 }
 
 /**

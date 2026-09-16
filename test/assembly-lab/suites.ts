@@ -18,6 +18,7 @@ import {
   contractGaps,
   knownNoise,
   openTreePage,
+  openTreePageAlongside,
   slotFacts,
   slotChildren,
   withoutKnownNoise,
@@ -1265,6 +1266,231 @@ export const HEADER_UTILITIES_SUITE: LabSuite = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// F-08 MULTIOPEN：会话多开通道（#72）——行菜单入口 + 多开 tab 的启动注入
+// ---------------------------------------------------------------------------
+
+/** 假宿主记录的多开请求（`session.openInNewTab` 带过来的会话 id）。 */
+async function sessionTabsOpened(page: OpenedPage['page']): Promise<string[]> {
+  return page.evaluate(() => {
+    const host = (globalThis as { __LAB_HOST__?: { sessionTabsOpened?: string[] } }).__LAB_HOST__
+    return host?.sessionTabsOpened ?? []
+  })
+}
+
+/**
+ * 菜单现状：我们自己那一项（按自有标记属性取，不认官方哈希类名）与整份菜单
+ * 的项文案（核对原有三项没被挤掉）。
+ */
+async function menuFacts(
+  page: OpenedPage['page'],
+): Promise<{ menus: number; item: string; allItems: string[]; anchored: { left: number; top: number } | null }> {
+  return page.evaluate(() => {
+    const lists = Array.from(document.querySelectorAll('[role="menu"]'))
+    const last = lists[lists.length - 1]
+    const marks = Array.from(document.querySelectorAll('[data-dshone-tree-item]'))
+    const mark = marks[marks.length - 1]
+    const rect = last?.getBoundingClientRect()
+    return {
+      menus: lists.length,
+      item: mark?.textContent ?? '',
+      allItems: last === undefined ? [] : Array.from(last.querySelectorAll('button[role="menuitem"]')).map((el) => el.textContent ?? ''),
+      anchored: rect === undefined ? null : { left: Math.round(rect.left), top: Math.round(rect.top) },
+    }
+  })
+}
+
+/** 等一条 boot-timing 日志（启动注入是异步的：等它出现，别用固定睡眠硬拍）。 */
+async function waitForLog(opened: OpenedPage, needle: string, timeoutMs = 20_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (opened.capture.all.some((line) => line.includes(needle))) return true
+    await opened.page.waitForTimeout(250)
+  }
+  return false
+}
+
+/** 页面注入的启动会话 id（`__DSH_ONE_BOOT__.sessionId`）。 */
+async function bootSessionIdOf(page: OpenedPage['page']): Promise<string | null> {
+  return page.evaluate(() => {
+    const value = (globalThis as { __DSH_ONE_BOOT__?: { sessionId?: unknown } }).__DSH_ONE_BOOT__
+    return typeof value?.sessionId === 'string' ? value.sessionId : null
+  })
+}
+
+export const MULTIOPEN_SUITE: LabSuite = {
+  id: 'F-08',
+  phase: 'new-feature',
+  name: '会话多开：会话行菜单「在新标签页打开」+ 多开 tab 的启动注入（MULTIOPEN 套件）',
+  expect:
+    '侧栏树：会话行的 ⋯ 菜单里有「在新标签页打开」项（原有三项都在，每项都有文案），**行右键**弹出同一份菜单且菜单锚在指针处，Esc 关掉；点该项 → 页面经宿主能力口发出一次 `session.openInNewTab`，带的是**那一行**的真会话 id；点第二行得到第二个不同 id。chat 树：`?session=<id>` 的页面把该 id 注入 `__DSH_ONE_BOOT__` 并真的把它开成当前会话（boot-timing first-meta 等于该 id）；**同一个浏览器上下文（同一源、同一 localStorage，即真 VS Code 里多条 webview 的现场）里开第二个多开会话页**，两页各自开自己的会话、互不串；注入一个不存在的 id 时防闪帧遮罩在场（不闪官方空白态）。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+    // 真网关的会话清单（只读）：核对「记录下来的 id 是真会话」，并挑注入用的 id。
+    const sessions = await listSessions(ctx.lab.gateway)
+    const knownIds = new Set(sessions.map((row) => row.sessionId))
+    const targets = sessions.slice(0, 2).map((row) => row.sessionId)
+    check.fact(`网关会话数=${String(sessions.length)}；注入用会话=${targets.map((id) => id.slice(0, 13)).join(', ')}`)
+    if (targets.length < 2) {
+      check.ok('网关至少有 2 个会话可供验证多开', false, `count=${String(sessions.length)}`)
+      return screenshots
+    }
+
+    // ---------------------------------------------------------------------
+    // 一、入口：⋯ 菜单与行右键
+    // ---------------------------------------------------------------------
+    const sidebar = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
+    try {
+      // 只有非空白会话行才带行菜单（官方 SessionNodeItem：`!row.blank && (...)` 才渲染
+      // 时间与行操作），多开入口同理——所以可点的行按「带行操作的会话行」挑。
+      const rows = sidebar.page.locator('.dshOneTree_sessionRow').filter({ has: sidebar.page.locator('.dshOneTree_rowActions') })
+      // 树默认只展开当前会话所在分组，其余分组收起、里面一条会话行都不渲染 —— 先展开
+      // 几个分组，凑出 ≥2 条带行菜单的会话行（点分组头只是本地展开，不写网关）。
+      const groupRows = sidebar.page.locator('.dshOneTree_projectRow')
+      const groupCount = await groupRows.count()
+      for (let index = 0; index < groupCount && (await rows.count()) < 2; index += 1) {
+        const overflow = sidebar.page.locator('.dshOneTree_sessionOverflowButton')
+        if ((await overflow.count()) > 0) {
+          await overflow.first().click()
+          await sidebar.page.waitForTimeout(200)
+          continue
+        }
+        await groupRows.nth(index).click()
+        await sidebar.page.waitForTimeout(250)
+      }
+      const rowCount = await rows.count()
+      check.fact(
+        `侧栏分组=${String(groupCount)} 会话行=${String(await contentCount(sidebar.page, '.dshOneTree_sessionRow'))}（其中带行菜单的=${String(rowCount)}）`,
+      )
+      check.ok('侧栏有 ≥2 条带行菜单的会话行', rowCount >= 2, `rows=${String(rowCount)}`)
+      const row0 = rows.nth(0)
+      const row1 = rows.nth(1)
+
+      await row0.hover()
+      await row0.locator('.dshOneTree_rowIconButton').click()
+      await sidebar.page.waitForTimeout(300)
+      const menu = await menuFacts(sidebar.page)
+      check.fact(`⋯ 菜单：${JSON.stringify(menu)}`)
+      check.ok('⋯ 菜单弹出且带「在新标签页打开」项', menu.menus === 1 && menu.item.trim() !== '', JSON.stringify(menu))
+      check.ok(
+        '菜单四项都有文案（原三项未被挤掉）',
+        menu.allItems.length === 4 && menu.allItems.every((label) => label.trim() !== ''),
+        JSON.stringify(menu.allItems),
+      )
+      screenshots.push(await shot(ctx, sidebar.page, 'multiopen-menu'))
+
+      await sidebar.page.click('[data-dshone-tree-item="openInNewTab"]')
+      await sidebar.page.waitForTimeout(500)
+      const openedFirst = await sessionTabsOpened(sidebar.page)
+      check.fact(`⋯ 菜单点「在新标签页打开」后宿主收到=${JSON.stringify(openedFirst)}`)
+      check.eq('点菜单项 → 宿主收到一次多开请求', openedFirst.length, 1)
+      check.ok('多开请求带的是真会话 id', openedFirst.length === 1 && knownIds.has(openedFirst[0] ?? ''), openedFirst.join(','))
+      check.eq('菜单收起（点完不留浮层）', (await menuFacts(sidebar.page)).menus, 0)
+
+      // --- 行右键：同一份菜单、锚在指针处 ---
+      const box = await row1.boundingBox()
+      check.ok('第二行取到几何（右键落点已知）', box !== null, JSON.stringify(box))
+      if (box !== null) {
+        const at = { x: 90, y: Math.round(box.height / 2) }
+        await row1.click({ button: 'right', position: at })
+        await sidebar.page.waitForTimeout(300)
+        const contextMenu = await menuFacts(sidebar.page)
+        const expected = { left: Math.round(box.x) + at.x, top: Math.round(box.y) + at.y + 4 }
+        check.fact(`行右键菜单：${JSON.stringify(contextMenu)} 期望锚点约 ${JSON.stringify(expected)}`)
+        check.ok('行右键弹出同一份菜单（带多开项）', contextMenu.menus === 1 && contextMenu.item.trim() !== '', JSON.stringify(contextMenu))
+        check.ok(
+          '右键菜单锚在指针处（官方 Menu 的 getAnchorRect）',
+          contextMenu.anchored !== null &&
+            Math.abs(contextMenu.anchored.left - expected.left) <= 3 &&
+            Math.abs(contextMenu.anchored.top - expected.top) <= 3,
+          `anchored=${JSON.stringify(contextMenu.anchored)} expected=${JSON.stringify(expected)}`,
+        )
+        screenshots.push(await shot(ctx, sidebar.page, 'multiopen-rightclick'))
+
+        await sidebar.page.keyboard.press('Escape')
+        await sidebar.page.waitForTimeout(300)
+        check.eq('Esc 关掉行右键菜单', (await menuFacts(sidebar.page)).menus, 0)
+
+        // 第二行右键 → 多开：得到第二个不同 id（每行认自己的会话）
+        await row1.click({ button: 'right', position: at })
+        await sidebar.page.waitForTimeout(250)
+        await sidebar.page.click('[data-dshone-tree-item="openInNewTab"]')
+        await sidebar.page.waitForTimeout(500)
+        const openedSecond = await sessionTabsOpened(sidebar.page)
+        check.fact(`两行各点多开后宿主收到的全部请求=${JSON.stringify(openedSecond)}`)
+        check.eq('两次操作共两次多开请求', openedSecond.length, 2)
+        check.ok('两次开的是两个不同会话', openedSecond.length === 2 && openedSecond[0] !== openedSecond[1], JSON.stringify(openedSecond))
+        check.ok('两次开的都是真会话', openedSecond.every((id) => knownIds.has(id)), JSON.stringify(openedSecond))
+      }
+      check.eq('多开入口全程零 console error', sidebar.capture.consoleErrors, [])
+    } finally {
+      await sidebar.context.close()
+    }
+
+    // ---------------------------------------------------------------------
+    // 二、多开 tab 的启动注入：同一源（共 localStorage）两页，各开自己的会话
+    // ---------------------------------------------------------------------
+    const first = await openTreePage(ctx.browser, ctx.lab, route('chat'), { width: 1200, sessionId: targets[0] })
+    let second: OpenedPage | undefined
+    try {
+      check.ok('第一个多开会话页起来了', first.ready)
+      await waitForLog(first, 'boot-timing first-meta')
+      check.eq('多开页 1：__DSH_ONE_BOOT__.sessionId = 目标会话', await bootSessionIdOf(first.page), targets[0])
+      check.ok(
+        '多开页 1：目标会话真被打开（boot-timing first-meta）',
+        first.capture.all.some((line) => line.includes('boot-timing first-meta') && line.includes(targets[0].slice(0, 13))),
+        first.capture.all.filter((line) => line.includes('boot-timing')).join(' | '),
+      )
+      screenshots.push(await shot(ctx, first.page, 'multiopen-tab-1'))
+
+      // 同一上下文（同源、同 localStorage）再开一个：真 VS Code 里多 webview 的现场。
+      second = await openTreePageAlongside(first, ctx.lab, route('chat'), { sessionId: targets[1] })
+      check.ok('第二个多开会话页起来了（与第一个同源）', second.ready)
+      await waitForLog(second, 'boot-timing first-meta')
+      check.eq('多开页 2：__DSH_ONE_BOOT__.sessionId = 另一个会话', await bootSessionIdOf(second.page), targets[1])
+      check.ok(
+        '多开页 2：在共享 localStorage 下仍落到自己的会话（注入胜过恢复键）',
+        second.capture.all.some((line) => line.includes('boot-timing first-meta') && line.includes(targets[1].slice(0, 13))),
+        second.capture.all.filter((line) => line.includes('boot-timing')).join(' | '),
+      )
+      // 互不串：任一侧的控制台都不该出现另一侧的会话 id
+      const firstLog = first.capture.all.filter((line) => line.includes(targets[1].slice(0, 13)))
+      const secondLog = second.capture.all.filter((line) => line.includes(targets[0].slice(0, 13)))
+      check.fact(`多开页 1 提到页 2 会话的日志=${JSON.stringify(firstLog)}；页 2 提到页 1 会话的日志=${JSON.stringify(secondLog)}`)
+      check.eq('多开页 1 没被第二个页带走（零交叉日志）', firstLog, [])
+      check.eq('多开页 2 没被恢复键带到第一个会话（零交叉日志）', secondLog, [])
+      check.eq('两个多开页各自零 pageerror', [...withoutKnownNoise(first.capture.pageErrors).real, ...withoutKnownNoise(second.capture.pageErrors).real], [])
+      const secondLogs = (second.capture.all.filter((line) => line.includes('boot-timing')).join(' | '))
+      check.ok(
+        '多开页 2 的启动轨迹是它自己的（first-meta = 它，页 1 的 id 只可能作为恢复值出现）',
+        secondLogs.includes(targets[1].slice(0, 13)),
+        secondLogs,
+      )
+      screenshots.push(await shot(ctx, second.page, 'multiopen-tab-2'))
+    } finally {
+      await second?.page.close()
+      await first.context.close()
+    }
+
+    // ---------------------------------------------------------------------
+    // 三、注入一个不存在的会话：防闪帧遮罩在场（不闪官方空白态）
+    // ---------------------------------------------------------------------
+    const ghost = 'session-lab-missing-000'
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('chat'), { width: 1200, sessionId: ghost })
+    try {
+      const mask = await contentCount(opened.page, '[data-opening-mask]')
+      check.fact(`不存在会话的注入：boot=${JSON.stringify(await bootSessionIdOf(opened.page))} 遮罩=${String(mask)} consoleError=${JSON.stringify(opened.capture.consoleErrors.slice(0, 2))}`)
+      check.eq('不存在的会话 id 照原样注入（注入通道不替页面判断存在性）', await bootSessionIdOf(opened.page), ghost)
+      check.ok('目标会话没到位时防闪帧遮罩在场', mask === 1, `mask=${String(mask)}`)
+      screenshots.push(await shot(ctx, opened.page, 'multiopen-opening-mask'))
+    } finally {
+      await opened.context.close()
+    }
+
+    return screenshots
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -1274,4 +1500,5 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   PORTABLE_SUITE,
   SIDEBAR_SUITE,
   HEADER_UTILITIES_SUITE,
+  MULTIOPEN_SUITE,
 ]

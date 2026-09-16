@@ -81,6 +81,32 @@ export async function resolveQueryDir(
   return fallbackDir === null ? null : { dir: fallbackDir, usedRequested: false }
 }
 
+/**
+ * 会话 id 的形状（#72）：gateway 生成的标识符（实际形态 `session-<uuid>`）。
+ * 只做「标识符」级校核——非空、限长、限字符集（字母数字与 `-._:`），不接受
+ * 路径分隔符、空白与控制字符：这个 id 会被宿主拿去查表、写进页面与面板标题，
+ * 不该带着任何「路径/换行」味道的东西过来（页面送来的参数一律当不可信输入）。
+ */
+export const SESSION_ID_ARG_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+
+/** `session.openInNewTab` 的参数（多开通道，见 hostBridge 的 HOST_CALLS）。 */
+export interface SessionTabArgs {
+  sessionId: string
+}
+
+/** 校核 `session.openInNewTab` 的参数；不合法返回结构化错误。 */
+export function parseSessionTabArgs(args: unknown): SessionTabArgs | HostCallError {
+  const record = asRecord(args)
+  if (record === undefined) {
+    return { code: 'invalid-args', message: 'session.openInNewTab expects an object argument' }
+  }
+  const sessionId = record.sessionId
+  if (typeof sessionId !== 'string' || !SESSION_ID_ARG_RE.test(sessionId)) {
+    return { code: 'invalid-args', message: 'session.openInNewTab expects a plain session id string' }
+  }
+  return { sessionId }
+}
+
 /** git.show 的参数（hash 必填且形状严格；cwd 可选）。 */
 export interface GitShowArgs {
   hash: string

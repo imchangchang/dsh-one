@@ -243,3 +243,27 @@ test('#82 有 VS Code 桥时：状态三件套也落桥（键与值原样过线�
   assert.deepEqual(gatewayCallLog, [], '有桥时状态不落网关（同一份数据的写路径只有一条）')
   resetGlobals()
 })
+
+test('编辑器标签页（#72）：桥在时上报有能力，调用落到 bridge 的 session.openInNewTab', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, { 'session.openInNewTab': null })
+  const caps = hostCapabilities(undefined)
+  assert.equal(caps.editorTabs, true)
+  await caps.openSessionInNewTab('session-1')
+  assert.deepEqual(bridgeCalls, [{ name: 'session.openInNewTab', args: { sessionId: 'session-1' } }])
+  resetGlobals()
+})
+
+test('编辑器标签页（#72）：官方 web 侧如实上报缺席，调用被 unavailable 拒掉', async () => {
+  resetGlobals()
+  const calls: Call[] = []
+  const caps = hostCapabilities(gatewayCtx({}, calls))
+  assert.equal(caps.editorTabs, false, '没有宿主桥 = 没有编辑器标签页，菜单项据此不出现')
+  await assert.rejects(
+    () => caps.openSessionInNewTab('session-1'),
+    (err: unknown) => (err as CapabilityFailure).code === 'unavailable',
+  )
+  assert.deepEqual(calls, [], '缺席的能力不该往网关上打任何请求')
+  resetGlobals()
+})

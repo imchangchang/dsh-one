@@ -15,6 +15,7 @@
  * | `saveContent` | 扩展宿主弹保存框写盘 | 宿主半插件写宿主磁盘 |
  * | `downloadGatewayFile` | 扩展宿主经 loopback 代理取内容 + 弹保存框 | 浏览器原生 `fetch` + `a[download]` |
  * | `openExternal` | 扩展宿主 `vscode.env.openExternal` | 页面原生 `window.open` |
+ * | `openSessionInNewTab`（+ `editorTabs`） | 扩展宿主开一个 WebviewPanel（#72 多开） | **无**——官方 web 没有编辑器标签页，能力恒缺席 |
  *
  * 四处刻意的取舍（写清楚免得后来人以为是漏配）：
  * 1. **状态两侧同一份实现与同一个家**（都是宿主半的状态存储模块，都落
@@ -35,6 +36,11 @@
  *    页面原生 `window.open`，协议白名单校核在下面这一处完成（两侧同一份
  *    `parseAllowedUrl`），VS Code 侧再交宿主 `vscode.env.openExternal`（它由客户端
  *    侧执行，远端场景同样正确）。
+ * 5. **`openSessionInNewTab` 只是 VS Code 侧能力**：它要的是「编辑器标签页」这个
+ *    容器，官方 web 是单页应用、没有对应的官方服务或接缝，宿主半也没有可暴露的
+ *    动作（浏览器里开新标签页＝丢掉 dsh 客户端自己的会话状态）。所以这条不登记进
+ *    `pure/hostCapabilities.ts` 的线协议契约：契约里的是「两端都该有」的能力，
+ *    这条只有一端有，本来该由 `editorTabs` 如实上报缺席。
  *
  * ## 调用形态（走第几层机制）
  * 官方侧走**层 2（官方服务 API）**：`ctx.connection.rpc.call('/api', '<ns>/<方法>',
@@ -98,6 +104,22 @@ export interface HostCapabilities {
    * URL 不合规（非 http/https/mailto）抛 `invalid-args`，两端同一处校核。
    */
   openExternal(url: string): Promise<void>
+  /**
+   * 这套宿主有没有「编辑器标签页」（#72）：**同步判定**，消费方按它决定入口出不
+   * 出现（菜单项不能等一次异步探测）。
+   *
+   * VS Code 侧 = 页面装了我们注入的宿主能力桥（后端真正是 VS Code 编辑器，有
+   * 标签页这个容器）；官方 web 侧恒为 false——官方 web 没有「编辑器标签页」这个
+   * 概念，宿主半插件也没有对应 RPC（这不是漏配：同一条能力两端语义不同，缺的
+   * 那一端少的就是入口本身，插件其余行为不变）。
+   */
+  readonly editorTabs: boolean
+  /**
+   * 在专属于该会话的标签页里打开它（#72 显式多开；单 tab 仍是默认形态）。
+   * 宿主没有标签页时一律以 code `unavailable` 拒绝——消费方按 {@link editorTabs}
+   * 决定要不要给出这个入口，正常路径不会走到这里。
+   */
+  openSessionInNewTab(sessionId: string): Promise<void>
 }
 
 function fail(code: HostCapabilityErrorCode, message: string): CapabilityFailure {
@@ -255,6 +277,18 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
       }
       // 官方 web 侧：页面就是用户的浏览器，直接开新标签（见文件头第 4 条取舍）。
       window.open(allowed, '_blank', 'noopener,noreferrer')
+    },
+    // 读时判定（不是构造时定值）：路由键在调用瞬间定生死，能力有没有也照同一
+    // 口径——页面侧 SDK 若在建好能力口之后才装，这里照样能如实上报。
+    get editorTabs() {
+      return viaBridge()
+    },
+    async openSessionInNewTab(sessionId) {
+      if (viaBridge()) {
+        await bridgeCall('session.openInNewTab', { sessionId })
+        return
+      }
+      throw fail('unavailable', 'this shell has no editor tabs; the host half serves no session tab action')
     },
   }
 }

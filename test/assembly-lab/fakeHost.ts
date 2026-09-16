@@ -8,7 +8,9 @@
  *   `__LAB_HOST__.acquireCalls`，验证套件用它断言「全页正好 acquire 一次」。
  * - `postMessage`：上行消息全部记进 `__LAB_HOST__.sent`；`dshOne.hostCall` 按
  *   `src/pure/hostCalls.ts` 的同一套协议应答（`dshOne.hostResult`），数据是固定
- *   的假提交——实验室要的是契约与配对语义，不是真 git。
+ *   的假提交——实验室要的是契约与配对语义，不是真 git。另按能力各自记录观测值：
+ *   `openedUrls`（VS Code 侧开外链的要求）、`sessionTabsOpened`（多开通道要求开的
+ *   会话 id，#72）。
  * - `window.open`：官方 web 侧的开外链出口（#83），调用记进
  *   `__LAB_HOST__.openedByWindow`（不真的开窗）。
  * - **状态三件套**（`state.read/write/delete`，#82）：宿主半的状态存储在实验室里由
@@ -37,7 +39,8 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}): string
     openedUrls: [],
     openedByWindow: [],
     gitShows: [],
-    stateStore: {}
+    stateStore: {},
+    sessionTabsOpened: []
   }
   var scope = ${JSON.stringify(stateScope)}
   Object.keys(scope).forEach(function (key) { host.stateStore[key] = scope[key] })
@@ -114,6 +117,18 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}): string
     if (message.call === "vscode.openExternal") {
       var url = message.args && typeof message.args.url === "string" ? message.args.url : ""
       host.openedUrls.push(url)
+      result(message.id, true, null)
+      return
+    }
+    if (message.call === "session.openInNewTab") {
+      // 多开通道（#72）：真宿主在这里开一个 WebviewPanel；假宿主只记录「为哪个会话
+      // 开」——实验室验的是页面→宿主这条链路的身份与次数，面板本身在真宿主里。
+      var sessionId = message.args && typeof message.args.sessionId === "string" ? message.args.sessionId : ""
+      if (sessionId === "") {
+        result(message.id, false, { code: "invalid-args", message: "lab host: empty session id" })
+        return
+      }
+      host.sessionTabsOpened.push(sessionId)
       result(message.id, true, null)
       return
     }

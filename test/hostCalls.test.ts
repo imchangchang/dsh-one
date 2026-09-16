@@ -10,9 +10,11 @@ import * as fs from 'node:fs/promises'
 import { mkdtempSync } from 'node:fs'
 import {
   COMMIT_SHA_ARG_RE,
+  SESSION_ID_ARG_RE,
   isHostCallError,
   parseAllowedUrl,
   parseGitShowArgs,
+  parseSessionTabArgs,
   resolveAllowedDir,
   resolveQueryDir,
 } from '../src/pure/hostCalls.ts'
@@ -37,6 +39,24 @@ test('parseGitShowArgs 拒绝非对象 / 缺 hash / hash 形状不对 / cwd 非�
 test('parseGitShowArgs 收下合法的 hash 与可选 cwd', () => {
   assert.deepEqual(parseGitShowArgs({ hash: 'abc1234' }), { hash: 'abc1234' })
   assert.deepEqual(parseGitShowArgs({ hash: 'abc1234', cwd: '/tmp' }), { hash: 'abc1234', cwd: '/tmp' })
+})
+
+test('parseSessionTabArgs：#72 多开请求只收标识符形状的会话 id', () => {
+  // 合法：gateway 生成的 `session-<uuid>` 形态
+  assert.deepEqual(parseSessionTabArgs({ sessionId: 'session-c390cf37-b999-4422-be2a-4b2d500f9ee3' }), {
+    sessionId: 'session-c390cf37-b999-4422-be2a-4b2d500f9ee3',
+  })
+  assert.equal(SESSION_ID_ARG_RE.test('session-1'), true)
+  // 非对象 / 缺字段 / 类型不对 / 空串
+  for (const bad of [undefined, null, 'session-1', [], {}, { sessionId: 7 }, { sessionId: '' }]) {
+    const result = parseSessionTabArgs(bad)
+    assert.ok(isHostCallError(result), `should reject ${JSON.stringify(bad)}`)
+    assert.equal((result as { code: string }).code, 'invalid-args')
+  }
+  // 带路径/空白/控制字符/超长一律拒（这个 id 会被宿主拿去查表与写标题）
+  for (const bad of ['../etc/passwd', 'session 1', 'session\n1', 'session-1/', 'a'.repeat(129), '-leading']) {
+    assert.ok(isHostCallError(parseSessionTabArgs({ sessionId: bad })), `should reject ${JSON.stringify(bad)}`)
+  }
 })
 
 test('parseAllowedUrl 只放行 http/https/mailto', () => {
