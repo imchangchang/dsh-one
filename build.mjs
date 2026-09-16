@@ -99,6 +99,12 @@ const SHELL_PLUGINS = [
     id: '@dsh-one/vscode-composer-clear',
     entry: 'src/ui/assembly/shell/composerClearPlugin.ts',
   },
+  {
+    // #65 批 2：侧栏工作区/会话树影子（官方 sidebar.workspaces 座位 + 官方服务）。
+    id: '@dsh-one/vscode-workspace-tree',
+    entry: 'src/ui/assembly/shell/workspaceTreeEntry.ts',
+    externals: ['@deepseek-ai/dsh-client-ui-primitives'],
+  },
 ]
 await fsp.rm('dist/assembly', { recursive: true, force: true })
 for (const plugin of SHELL_PLUGINS) {
