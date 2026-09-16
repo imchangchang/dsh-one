@@ -21,7 +21,6 @@ import {
   slotFacts,
   slotChildren,
   withoutKnownNoise,
-  type OpenOptions,
   type OpenedPage,
 } from './harness.ts'
 import { LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
@@ -407,6 +406,9 @@ export const PARITY_SUITE: LabSuite = {
     const own = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
     const official = await openTreePage(ctx.browser, ctx.lab, route('sidebar-official'), { width: 380, height: 900 })
     try {
+      check.fact(
+        `对齐口径：自有树（.dshOneTree_*）对官方对照档（官方 hash 类名，按类名后缀配对），逐组比 computed style 各属性 + 几何矩形；共 ${String(PARITY_PAIRS.length)} 组元素 × 3 档宽度（260/340/500）`,
+      )
       for (const width of [260, 340, 500]) {
         await own.page.setViewportSize({ width, height: 900 })
         await official.page.setViewportSize({ width, height: 900 })
@@ -519,6 +521,3 @@ export const BRIDGE_SUITE: LabSuite = {
 }
 
 export const SUITES: ReadonlyArray<LabSuite> = [CONTRACT_SUITE, SMOKE_SUITE, INTERACT_SUITE, PARITY_SUITE, BRIDGE_SUITE]
-
-/** 仅供诊断：某个宽度下的观测快照。 */
-export type { OpenOptions }

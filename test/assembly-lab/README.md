@@ -34,7 +34,12 @@ npm run verify:lab -- --headed --keep   # 开有界面的浏览器，跑完留�
    token 换票是唯一的写类动作（与扩展自身连接路径相同）。
 
 环境变量：`LAB_GATEWAY`（网关地址）、`LAB_TOKEN`（token）、`LAB_PORT`（实验室端口，
-缺省 3179，`0` = 随机）。参数见 `node test/assembly-lab/verify.ts --help` 的注释头。
+缺省 3179，`0` = 随机）。全部参数见 `node test/assembly-lab/verify.ts --help`。
+
+chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（例如装依赖时跳过
+了脚本），先跑一次 `npx playwright install chromium`。
+
+**CI 里不跑这个套件**（它需要本机跑着一个真网关），它是开发/合入前的本机第一道验证。
 
 产物（都已 gitignore，随时可重跑）：
 

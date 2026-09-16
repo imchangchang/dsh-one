@@ -57,6 +57,14 @@ function parseArgs(argv: readonly string[]): Args {
   }
 }
 
+/** `--help`：把文件头的说明打出来（参数与前置条件都在那里）。 */
+async function printUsage(): Promise<number> {
+  const source = await fsp.readFile(path.join(LAB_DIR, 'verify.ts'), 'utf8')
+  const header = /\/\*\*([\s\S]*?)\*\//.exec(source)?.[1] ?? ''
+  process.stdout.write(header.replace(/^ \* ?/gm, '').trim() + '\n')
+  return 0
+}
+
 /** git 信息（报告抬头用；取不到就留空，不阻断验证）。 */
 function gitInfo(): { branch: string; commit: string } {
   const read = (args: string[]): string => {
@@ -70,6 +78,7 @@ function gitInfo(): { branch: string; commit: string } {
 }
 
 async function main(): Promise<number> {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) return printUsage()
   const args = parseArgs(process.argv.slice(2))
   const log = consoleLogger(args.quiet)
 
