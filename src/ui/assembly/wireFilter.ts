@@ -88,7 +88,11 @@ const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-goal', reason: 'goal cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-plan', reason: 'plan cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-message-feedback', reason: 'message feedback; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-client-ui-model-selection', reason: 'model-selection surface (inside composer); no conversation area in the sidebar/settings trees' },
+  // ui-model-selection 曾在这条清单里（composer 里的模型选择面）。2026-09-16 摘除：
+  // dsh 0.1.6-alpha.1 的 wire 里已经没有这个条目（官方把它并进了 ui-conversation），
+  // 留着是一条永远不会命中的过滤，而「永远不命中」和「官方改名导致过滤失效」在
+  // 日志里长得一样——那正是 #91 要用断言区分开的两种情形。清单与实际 wire 对齐由
+  // 浏览器验证的 F-11 WIRE-LIVENESS 套件常驻把关。
   { id: '@deepseek-ai/dsh-client-ui-skill', reason: 'skill cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-reference', reason: 'reference cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-session-log-export', reason: 'session-log export (routed through the host save-dialog action, #71)' },
@@ -99,7 +103,9 @@ const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
 /** 设置子页组（#71 瘦身）：设置独立成页后 chat/sidebar 树不再载设置子页。 */
 const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-settings-general', reason: 'General section (owns SettingsRoot/modal); only the settings tree needs it after settings became a page' },
-  { id: '@deepseek-ai/dsh-client-ui-settings-models', reason: 'Models section; only the settings tree needs it after settings became a page' },
+  // ui-settings-models 曾在这条清单里（Models 设置节）。2026-09-16 摘除：dsh
+  // 0.1.6-alpha.1 的 wire 里已经没有这个条目（Models 节并进了 ui-settings），
+  // 理由同 CHAT_FLOW 里 ui-model-selection 那一段注释。
   { id: '@deepseek-ai/dsh-client-ui-settings-plugins', reason: 'Plugins section; only the settings tree needs it after settings became a page' },
   { id: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory', reason: 'plugin-inventory section; only the settings tree needs it after settings became a page' },
 ]
@@ -296,11 +302,12 @@ export function filterWire(
   const blockedIds = blockedIdsOf(blockList)
   const blocked = new Set(blockedIds)
   const entries = wire.entries.filter((e) => !blocked.has(e.id))
-  // block list 里的条目在网关清单里**不存在**是正常演进（官方把插件合并/下线，
-  // 例如 0.1.2 开发期把 ui-settings-models 合走）——此时没有段要剥，不该阻断装配。
-  // 只报告（宿主日志可见「网关改版」），不再抛错：抛错会让面板整个打不开。
-  // 代价（已知）：若官方把某个被拉黑的插件**改名**，新 id 不会被剥掉，官方件会
-  // 混进树里——那条 warn 是唯一线索，报错文案里带上缺失 id 便于定位。
+  // block list 里的条目在网关清单里**不存在**时不该阻断装配（官方把插件合并/
+  // 下线是正常演进，抛错会让面板整个打不开），所以线上这条只报告、不抛错。
+  // 但「不阻断」不等于「没人管」：清单与现实漂移（官方改名 → 我们的过滤静默
+  // 失效 → 官方件混进树里）由浏览器验证的 **F-11 WIRE-LIVENESS** 套件硬断言把关
+  // ——它拿当天网关的 wire 逐棵树核 block list 的每一项，红了就报「哪棵树 + 哪个
+  // id + 可能被改名/换装载方式」（#91）。这条 warn 保留，给人看现场日志用。
   const presentBlocked = blockedIds.filter((id) => wire.entries.some((e) => e.id === id))
   if (presentBlocked.length !== blockedIds.length) {
     const missing = blockedIds.filter((id) => !presentBlocked.includes(id))

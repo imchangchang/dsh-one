@@ -131,6 +131,13 @@ export interface LabServer {
   /** 网关 dsh 版本（来自 dsh-owned.json，取不到 undefined）。 */
   readonly dshVersion?: string
   readonly trees: ReadonlyArray<LabTreeRoute>
+  /**
+   * 当天网关下发的官方 wire 里的插件 id 集合——**实验室各页面的装配来源**
+   * （每棵树按它做 block list 过滤，见 `pageFor`），所以「我们 block 的 id 在不在
+   * 官方清单里」这条断言拿它当事实源，而不是另起一次抓取。取一次后缓存。
+   * 用途：F-11 WIRE-LIVENESS（#91）。
+   */
+  gatewayPluginIds(): Promise<ReadonlySet<string>>
   dispose(): void
 }
 
@@ -190,6 +197,13 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
       return res.text()
     })()
     return gatewayHtml
+  }
+
+  /** 官方 wire 的插件 id（见 LabServer.gatewayPluginIds 的说明）。 */
+  let gatewayIds: Promise<ReadonlySet<string>> | undefined
+  const gatewayPluginIds = (): Promise<ReadonlySet<string>> => {
+    gatewayIds ??= gatewayIndex().then((html) => new Set(extractBootWire(html).entries.map((entry) => entry.id)))
+    return gatewayIds
   }
 
   const mirror: AssemblyMirror = await startAssemblyMirror(() => gateway, log, {
@@ -329,6 +343,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     gateway,
     ...(dshVersion === undefined ? {} : { dshVersion }),
     trees: LAB_TREES,
+    gatewayPluginIds,
     dispose: () => {
       server.close()
       // 同 assemblyMirror：`close()` 不管已建立的连接，显式断掉，别把端口和

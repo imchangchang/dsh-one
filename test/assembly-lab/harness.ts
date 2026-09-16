@@ -135,6 +135,8 @@ export interface OpenOptions {
    * 页面上不存在任何 `data-shell*` 标记，用来实测「插件不靠自有 frame 也工作」。
    */
   stripFrameMarkers?: boolean
+  /** 装上 fiber 探针（#91，见 `fiberProbeScript`）：FIBER 套件读它的记录做断言。 */
+  fiberProbe?: boolean
   /** 假宿主的状态存储初值（键 → 值；#82 的迁移/读写断言用）。 */
   state?: Record<string, unknown>
 }
@@ -165,6 +167,198 @@ export function stripFrameMarkersScript(): string {
     return write.call(this, name, value)
   }
 })()`
+}
+
+/**
+ * 页面侧 fiber 探针（#91）：把每个 cordis scope（fiber）的状态变化记进
+ * `globalThis.__LAB_FIBER__`，供套件读出来断言。
+ *
+ * 为什么必须有它：cordis 插件 fiber 失败（例如 `slot "X" is not declared`）
+ * **不进浏览器控制台**——官方 client logger 没有 console exporter（#74 实测首屏
+ * console 0 行），整个 scope 静默失败，只能靠派生症状（服务在已失活上下文里被读）
+ * 暴露。这类「官方改了座位名/父子声明就整块不活」的漂移要有自己的断言。
+ *
+ * 机制（三层，全部走官方既有接口，不改官方代码；@see AGENTS.md 的机制优先序）：
+ * 1. 包 `__ModuleLoader__` 的 `load`：每个注册的 factory 包一层，模块 materialize
+ *    （factory 执行）时记下 `插件 id → 其 apply 函数` 的映射。用 Proxy 而不是
+ *    直接赋值——官方模块系统启动时会**把 facade 的 load 换成自己那份**，只包最初
+ *    那个 facade 收不到后续注册。
+ * 2. 只给 `@deepseek-ai/dsh-client-modules` 的 apply 包一层，拿它的 ctx：它是页面
+ *    第一个跑起来的插件（装配页 facade 自己就按这个 id 找它，见 pageHtml.ts 的
+ *    QUEUE_FACADE_JS），所以在**别的 fiber 还没创建之前**就接上事件总线。
+ *    **不包别的插件的 apply**：替换 apply 会改掉插件对象的函数身份，官方 loader
+ *    认得那个身份——实测（#91 取证）包 `@deepseek-ai/dsh-api-remotes` 的 apply 会让
+ *    它挂载的 remote.* 服务全体消失、34 个条目停在 pending。
+ * 3. 监听 cordis 事件总线的两个内部事件：`internal/plugin`（fiber 创建时发出，
+ *    参数是 fiber，`fiber.runtime.callback` 就是它的插件回调）与 `internal/status`
+ *    （状态变化时发出，参数是 fiber + 旧状态）。状态值来自官方 Fiber 的状态枚举：
+ *    0 pending / 1 loading / 2 active / 3 FAILED / 4 disposed / 5 unloading。
+ *    子 scope（会话级等）的 fiber 回调不在映射里，就沿 `fiber.parent` 往上找有主的
+ *    那一层——#74 那条失败正是 ui-agent-preset 的**会话级** scope。
+ */
+export function fiberProbeScript(): string {
+  return `(() => {
+  const MODULES_ID = "@deepseek-ai/dsh-client-modules"
+  const STATE = { 0: "pending", 1: "loading", 2: "active", 3: "failed", 4: "disposed", 5: "unloading" }
+  const record = { plugins: {}, attached: 0, events: 0, scopes: [], failed: [], errors: [] }
+  globalThis.__LAB_FIBER__ = record
+  const idsByCallback = new WeakMap()
+  const idsByFiber = new Map()
+  const seenBuses = new WeakSet()
+  const stateOf = (value) => STATE[value] ?? String(value)
+  const attach = (ctx) => {
+    const service = ctx === undefined || ctx === null ? undefined : ctx.events
+    const bus = service !== undefined && typeof service.on === "function" ? service : ctx
+    if (bus === undefined || bus === null || typeof bus.on !== "function" || seenBuses.has(bus)) return
+    seenBuses.add(bus)
+    record.attached += 1
+    bus.on("internal/plugin", (fiber) => {
+      try {
+        const callback = fiber && fiber.runtime ? fiber.runtime.callback : undefined
+        const plugin = callback === undefined ? undefined : idsByCallback.get(callback)
+        if (plugin !== undefined) idsByFiber.set(fiber.uid, plugin)
+      } catch (err) {
+        if (record.errors.length < 20) record.errors.push("plugin: " + String(err))
+      }
+    })
+    bus.on("internal/status", (fiber, previous) => {
+      try {
+        if (fiber === undefined || fiber === null) return
+        record.events += 1
+        let plugin
+        let owner = fiber
+        while (owner !== undefined && owner !== null && plugin === undefined) {
+          plugin = idsByFiber.get(owner.uid)
+          const parentCtx = owner.parent
+          const parentFiber = parentCtx === undefined || parentCtx === null ? undefined : parentCtx.fiber
+          if (parentFiber === undefined || parentFiber === null || parentFiber === owner) break
+          owner = parentFiber
+        }
+        let name = ""
+        try { if (typeof fiber.name === "string") name = fiber.name } catch (ignored) {}
+        const entry = {
+          uid: fiber.uid,
+          plugin: plugin ?? null,
+          name,
+          state: stateOf(fiber.state),
+          prev: stateOf(previous),
+          error: String((fiber._error && fiber._error.message) || ""),
+        }
+        if (record.scopes.length < 4000) record.scopes.push(entry)
+        if (entry.state === "failed" && record.failed.length < 40) record.failed.push(entry)
+      } catch (err) {
+        if (record.errors.length < 20) record.errors.push("status: " + String(err))
+      }
+    })
+  }
+  const register = (exports, id) => {
+    record.plugins[id] = true
+    if (typeof exports === "function") idsByCallback.set(exports, id)
+    else if (exports !== null && typeof exports === "object") {
+      if (typeof exports.apply === "function") idsByCallback.set(exports.apply, id)
+      const fallback = exports.default
+      if (fallback !== undefined && fallback !== null && typeof fallback.apply === "function") idsByCallback.set(fallback.apply, id)
+    }
+  }
+  const wrapLoad = (entry) => {
+    if (typeof entry !== "function" || entry.__labWrapped === true) return entry
+    const original = entry
+    const wrapped = function (registration) {
+      if (registration !== null && typeof registration === "object" && typeof registration.factory === "function") {
+        const id = registration.id ?? registration.name ?? "?"
+        const factory = registration.factory
+        registration.factory = function () {
+          const exports = factory.apply(this, arguments)
+          try {
+            register(exports, id)
+            if (id === MODULES_ID && exports !== null && typeof exports === "object" && typeof exports.apply === "function") {
+              const apply = exports.apply
+              exports.apply = function (ctx) {
+                attach(ctx)
+                return apply.apply(this, arguments)
+              }
+            }
+          } catch (err) {
+            if (record.errors.length < 20) record.errors.push("register " + id + ": " + String(err))
+          }
+          return exports
+        }
+      }
+      return original.apply(this, arguments)
+    }
+    wrapped.__labWrapped = true
+    return wrapped
+  }
+  const proxies = new WeakMap()
+  const proxyFor = (target) => {
+    if (target === null || typeof target !== "object") return target
+    const cached = proxies.get(target)
+    if (cached !== undefined) return cached
+    const proxy = new Proxy(target, {
+      get(t, prop) {
+        const value = Reflect.get(t, prop, t)
+        return prop === "load" && typeof value === "function" ? wrapLoad(value) : value
+      },
+      set(t, prop, value) {
+        return Reflect.set(t, prop, prop === "load" && typeof value === "function" ? wrapLoad(value) : value, t)
+      },
+      defineProperty(t, prop, descriptor) {
+        if (prop === "load" && typeof descriptor.value === "function") descriptor.value = wrapLoad(descriptor.value)
+        return Reflect.defineProperty(t, prop, descriptor)
+      },
+    })
+    proxies.set(target, proxy)
+    return proxy
+  }
+  let current
+  Object.defineProperty(globalThis, "__ModuleLoader__", {
+    configurable: true,
+    get() { return current === undefined ? undefined : proxyFor(current) },
+    set(value) { current = value },
+  })
+})()`
+}
+
+/** fiber 探针记下的一处状态变化（`state`/`prev` 是官方 Fiber 状态枚举的名字）。 */
+export interface FiberScopeFact {
+  uid: number
+  /** 这个 scope 属于哪个插件 id（子 scope 沿 parent 找到有主的那层；找不到为 null）。 */
+  plugin: string | null
+  name: string
+  state: string
+  prev: string
+  error: string
+}
+
+export interface FiberProbeFacts {
+  /** 探针登记到的插件 id（模块 materialize 时记下）。 */
+  plugins: string[]
+  /** 接上的 cordis 事件总线条数（0 = 探针没生效，断言会是空的）。 */
+  attached: number
+  /** 收到的 `internal/status` 事件数。 */
+  events: number
+  scopes: FiberScopeFact[]
+  failed: FiberScopeFact[]
+  /** 探针自身抛过的异常（非空说明记录可能不全，别把「零失败」当结论）。 */
+  errors: string[]
+}
+
+/** 读出页面上的 fiber 探针记录（没装探针时返回 null）。 */
+export async function fiberFacts(page: Page): Promise<FiberProbeFacts | null> {
+  const raw = await page.evaluate(() => {
+    const record = (globalThis as { __LAB_FIBER__?: unknown }).__LAB_FIBER__
+    if (record === undefined) return null
+    const typed = record as {
+      plugins: Record<string, boolean>
+      attached: number
+      events: number
+      scopes: FiberScopeFact[]
+      failed: FiberScopeFact[]
+      errors: string[]
+    }
+    return { ...typed, plugins: Object.keys(typed.plugins) }
+  })
+  return raw
 }
 
 export async function openTreePage(
@@ -212,6 +406,9 @@ async function openPageIn(
   // 页面任何脚本执行前生效，属性才从来没进过 DOM。（假宿主由上下文持有者
   // 在 `newContext` 之后统一装，同源的后续页面自然继承，不重复装。）
   if (options.stripFrameMarkers === true) await context.addInitScript({ content: stripFrameMarkersScript() })
+  // fiber 探针（#91）同理：必须早于页面任何脚本，才包得住 `__ModuleLoader__`
+  // 的第一次赋值（facade）。
+  if (options.fiberProbe === true) await context.addInitScript({ content: fiberProbeScript() })
   const page = await context.newPage()
   const capture = capturePage(page)
   const query = new URLSearchParams()
