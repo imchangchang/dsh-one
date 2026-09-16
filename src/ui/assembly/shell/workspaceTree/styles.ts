@@ -411,8 +411,20 @@ export const CSS =
   '.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
   '.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 8px 4px}' +
   // 回收站抽屉（#103）：从底部半高滑出（高度由组件按档位给，默认 50%、上拉到 90%）。
-  '.dshOneTree_drawer{z-index:10;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-top:.5px solid var(--dsw-alias-border-l3);position:absolute;left:0;right:0;bottom:0;transform:translateY(100%);transition:transform .2s var(--ds-ease-in-out);flex-direction:column;display:flex;overflow:hidden}' +
+  // 滑入与滑出共用这一条过渡（同一个 `transform`，开态只是把它还原成 none），所以两边
+  // 天然对称（#117）。时长与缓动都取官方 token，不写自造数字：官方 ui-theme 的 base.css
+  // 里 `--ds-ease-in-out:cubic-bezier(.4, 0, .2, 1)`、`--ds-transition-duration:.2s`
+  // （出处：官方包 `packages/client/ui-theme/src/styles/base.css`，本机从网关下发的 combo
+  // 里量到同值；官方右侧栏面板 `.P3OORG_panel` 用的就是这一对）。
+  '.dshOneTree_drawer{z-index:10;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-top:.5px solid var(--dsw-alias-border-l3);position:absolute;left:0;right:0;bottom:0;transform:translateY(100%);transition:transform var(--ds-transition-duration) var(--ds-ease-in-out);flex-direction:column;display:flex;overflow:hidden}' +
   '.dshOneTree_drawerOpen{transform:none}' +
+  // 退场期（#117）：抽屉还留在 DOM 里把滑出演完，但开合态已经是「关」——这一趟只为动画，
+  // 所以不再接收指针，免得这 200ms 里点到它上面的「还原」还算数。
+  '.dshOneTree_drawerLeaving{pointer-events:none}' +
+  // 跟随官方的 reduced-motion 写法（官方 ui-sidebar-right 的 `.P3OORG_panel` 同款：整条
+  // 过渡关掉）。组件侧的退场期兜底定时器读的是元素上真实的过渡时长，这里关掉之后会读到
+  // 0s，于是抽屉立刻消失、不做动画。
+  '@media (prefers-reduced-motion:reduce){.dshOneTree_drawer{transition:none}}' +
   '.dshOneTree_drawerHandle{cursor:grab;height:12px;flex:none;justify-content:center;align-items:center;display:flex;touch-action:none}' +
   '.dshOneTree_drawerHandle:active{cursor:grabbing}' +
   '.dshOneTree_drawerGrip{width:32px;height:3px;background:var(--dsw-alias-border-l3);border-radius:2px}' +
