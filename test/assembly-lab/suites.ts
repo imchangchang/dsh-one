@@ -30,6 +30,7 @@ import { FIBER_SUITE, WIRE_LIVENESS_SUITE } from './driftSuites.ts'
 import { RECYCLE_ENTRY_TOGGLE_SUITE } from './recycleEntrySuites.ts'
 import { SCALE_SUITE } from './scaleSuites.ts'
 import { COLLAPSE_ALL_ICON_SUITE } from './collapseAllIconSuites.ts'
+import { TAG_GROUP_RAIL_SUITE } from './tagRailSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -5777,4 +5778,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #118 顶栏折叠/展开全部的方框加减号图标（F-25：F-20…F-23 已被 #114/#112/#115/#113
   // 占用，F-24 归 #117 的抽屉收起动效；套件本体在 collapseAllIconSuites.ts，同为独立文件）。
   COLLAPSE_ALL_ICON_SUITE,
+  // #122 标签组竖线与组内缩进回到旧侧栏规格（F-27：F-24 归 #117 的抽屉收起动效、
+  // F-25 已被 #118 的折叠全部图标占用、F-26 在另一条分支上归 #119 的顶栏纵向节奏；
+  // 套件本体在 tagRailSuites.ts，同为独立文件，少一处合入热点）。
+  TAG_GROUP_RAIL_SUITE,
 ]
