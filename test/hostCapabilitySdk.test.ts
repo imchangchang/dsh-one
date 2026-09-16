@@ -137,6 +137,10 @@ test('有 VS Code 桥时：git / 落盘 / 下载落到桥的白名单调用上',
     'git.show': { sha: 'abc1234', found: true },
     'file.save': { path: '/Users/x/a.zip' },
     'file.download': { path: '/Users/x/b.zip' },
+    // #82：状态三件套（桥的实现 = 宿主半包里的同一份状态存储模块）。
+    'state.read': { value: { version: 1, groups: [], membership: {}, activeGroupId: null } },
+    'state.write': {},
+    'state.delete': { deleted: true },
   })
   const caps = hostCapabilities(undefined)
   assert.deepEqual(await caps.gitShow({ hash: 'abc1234', cwd: '/repo' }), { sha: 'abc1234', found: true })
@@ -211,5 +215,31 @@ test('#83 开外链：非 http/https/mailto 一律 invalid-args，两端都不�
   assert.deepEqual(bridgeCalls, [], '校核在 SDK 这一处做完，桥不该收到非法 URL')
   assert.deepEqual(window.opened, [], '校核在 SDK 这一处做完，页面不该被开窗')
   resetWindow()
+  resetGlobals()
+})
+
+test('#82 有 VS Code 桥时：状态三件套也落桥（键与值原样过线，不落网关）', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  const groups = { version: 1, groups: [{ id: 'g-1', name: '工作' }], membership: {}, activeGroupId: null }
+  installBridge(bridgeCalls, {
+    'state.read': { value: groups },
+    'state.write': {},
+    'state.delete': { deleted: true },
+  })
+  // 给一个**能用的**网关 ctx：若状态被误路由到网关，下面的断言会看到端点调用而失败。
+  const gatewayCallLog: Call[] = []
+  const ctx = gatewayCtx({ 'dshOneHostCapabilities/stateRead': { ok: true, value: null } }, gatewayCallLog)
+  const caps = hostCapabilities(ctx)
+  assert.deepEqual(await caps.stateRead('groups'), groups)
+  await caps.stateWrite('groups', groups)
+  assert.equal(await caps.stateDelete('groups'), true)
+  assert.deepEqual(
+    bridgeCalls.map((c) => c.name),
+    ['state.read', 'state.write', 'state.delete'],
+  )
+  assert.deepEqual(bridgeCalls[0].args, { key: 'groups' })
+  assert.deepEqual(bridgeCalls[1].args, { key: 'groups', value: groups })
+  assert.deepEqual(gatewayCallLog, [], '有桥时状态不落网关（同一份数据的写路径只有一条）')
   resetGlobals()
 })

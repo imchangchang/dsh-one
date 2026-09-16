@@ -11,6 +11,10 @@
  *   的假提交——实验室要的是契约与配对语义，不是真 git。
  * - `window.open`：官方 web 侧的开外链出口（#83），调用记进
  *   `__LAB_HOST__.openedByWindow`（不真的开窗）。
+ * - **状态三件套**（`state.read/write/delete`，#82）：宿主半的状态存储在实验室里由
+ *   一张页内内存表代行（`__LAB_HOST__.stateStore`），初值可由套件注入
+ *   （`openTreePage(..., { state })`）——套件据此验「旧 groups.json 能被读进来」
+ *   与「写回的键名/形状对得上」，而不去动用户真实的 `~/.dsh`。
  * - `__LAB_HOST__.send(msg)`：模拟宿主→页面方向的消息（`dshOne.setTheme` /
  *   `dshOne.switchSession` 等），供后续套件驱动。
  *
@@ -23,7 +27,7 @@
 /** 假提交的 40 位 hash 底座（git.show 回执里 commitHash 用）。 */
 const FULL_HASH = '0123456789abcdef0123456789abcdef01234567'
 
-export function fakeHostScript(): string {
+export function fakeHostScript(stateScope: Record<string, unknown> = {}): string {
   return `(() => {
   var FULL_HASH = ${JSON.stringify(FULL_HASH)}
   var host = {
@@ -32,8 +36,11 @@ export function fakeHostScript(): string {
     hostCalls: [],
     openedUrls: [],
     openedByWindow: [],
-    gitShows: []
+    gitShows: [],
+    stateStore: {}
   }
+  var scope = ${JSON.stringify(stateScope)}
+  Object.keys(scope).forEach(function (key) { host.stateStore[key] = scope[key] })
   globalThis.__LAB_HOST__ = host
   // 官方 web 侧的开外链出口（#83）：没有宿主桥时能力口用页面 window.open。记下调用
   // （不真的开窗）——F-06 套件据此断言官方侧那条路走通。官方客户端自己不调
@@ -76,6 +83,32 @@ export function fakeHostScript(): string {
     if (message.call === "git.show") {
       host.gitShows.push(message.args)
       result(message.id, true, gitShow(message.args))
+      return
+    }
+    // 宿主能力口的状态三件套（#82）：实验室里用一个**页内内存表**代行宿主半的
+    // 状态存储——套件要验的是「插件把状态读对了、写对了、键名与形状对得上」，
+    // 而不是真去动用户的 ~/.dsh（那是 verify:host-half 的事，它跑在临时 HOME 里）。
+    if (message.call === "state.read") {
+      var readKey = message.args && message.args.key
+      var stored = Object.prototype.hasOwnProperty.call(host.stateStore, readKey)
+      result(message.id, true, { value: stored ? host.stateStore[readKey] : null })
+      return
+    }
+    if (message.call === "state.write") {
+      var writeKey = message.args && message.args.key
+      if (typeof writeKey !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(writeKey)) {
+        result(message.id, false, { code: "invalid-args", message: "expected a state key" })
+        return
+      }
+      host.stateStore[writeKey] = message.args.value
+      result(message.id, true, {})
+      return
+    }
+    if (message.call === "state.delete") {
+      var deleteKey = message.args && message.args.key
+      var existed = Object.prototype.hasOwnProperty.call(host.stateStore, deleteKey)
+      delete host.stateStore[deleteKey]
+      result(message.id, true, { deleted: existed })
       return
     }
     if (message.call === "vscode.openExternal") {

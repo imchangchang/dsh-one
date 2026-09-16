@@ -136,6 +136,8 @@ export interface OpenOptions {
    * 页面上不存在任何 `data-shell*` 标记，用来实测「插件不靠自有 frame 也工作」。
    */
   stripFrameMarkers?: boolean
+  /** 假宿主的状态存储初值（键 → 值；#82 的迁移/读写断言用）。 */
+  state?: Record<string, unknown>
 }
 
 export interface OpenedPage {
@@ -176,7 +178,7 @@ export async function openTreePage(
     viewport: { width: options.width ?? 1200, height: options.height ?? 900 },
     deviceScaleFactor: 2,
   })
-  await context.addInitScript({ content: fakeHostScript() })
+  await context.addInitScript({ content: fakeHostScript(options.state ?? {}) })
   if (options.stripFrameMarkers === true) await context.addInitScript({ content: stripFrameMarkersScript() })
   const page = await context.newPage()
   const capture = capturePage(page)

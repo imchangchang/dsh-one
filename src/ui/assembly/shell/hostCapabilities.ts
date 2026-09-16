@@ -11,14 +11,19 @@
  * | 能力 | VS Code 侧 | 官方 web 侧 |
  * | --- | --- | --- |
  * | `gitShow` | 扩展宿主能力桥（`hostCall('git.show')`，安全口径在宿主侧） | 宿主半插件（网关 RPC） |
- * | `stateRead/Write/Delete` | **宿主半插件** | **宿主半插件** |
+ * | `stateRead/Write/Delete` | 扩展宿主能力桥（**代行宿主半的同一份状态存储模块**） | **宿主半插件** |
  * | `saveContent` | 扩展宿主弹保存框写盘 | 宿主半插件写宿主磁盘 |
  * | `downloadGatewayFile` | 扩展宿主经 loopback 代理取内容 + 弹保存框 | 浏览器原生 `fetch` + `a[download]` |
  * | `openExternal` | 扩展宿主 `vscode.env.openExternal` | 页面原生 `window.open` |
  *
  * 四处刻意的取舍（写清楚免得后来人以为是漏配）：
- * 1. **状态两侧同一实现**（都走宿主半）：AGENTS.md 铁律「插件状态按官方惯例存储」
+ * 1. **状态两侧同一份实现与同一个家**（都是宿主半的状态存储模块，都落
+ *    `~/.dsh/dsh-one/<键>.json`）：AGENTS.md 铁律「插件状态按官方惯例存储」
  *    ——同一份用户数据不能有两个家，否则必然漂移（#82 要清的就是这个）。
+ *    VS Code 侧的桥调用**不是第二份实现**：扩展宿主 import 的是宿主半包里的
+ *    `stateStore` 模块本体（见 `src/ui/assembly/hostBridge.ts` 的 `stateCall`），
+ *    这么做的原因是宿主半还没进 VS Code 用的那个 profile（#84 的已知遗留①），
+ *    走网关会在没装它的实例上 404、插件状态当场失效。
  * 2. **git 在 VS Code 侧仍走扩展宿主**：行为与今天逐字一致（同一份安全口径代码），
  *    官方侧由宿主半同一份安全口径实现，插件看不到差别；迁移 git-card 时不用动
  *    宿主侧（#83 表里 git-card 那一行的前置条件就是本件）。
@@ -192,13 +197,27 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
   const viaBridge = (): boolean => hostCallAvailable()
   return {
     async stateRead(key) {
+      // 两侧同一份实现（宿主半的状态存储模块）：VS Code 侧走能力桥（扩展宿主代行
+      // 同一个 store 模块，见 hostBridge 的 stateCall 说明），官方侧走宿主半的 RPC。
+      if (viaBridge()) {
+        const data = await bridgeCall('state.read', { key })
+        return data.value ?? null
+      }
       const payload = await capabilityCall(ctx, 'stateRead', { key })
       return payload.value ?? null
     },
     async stateWrite(key, value) {
+      if (viaBridge()) {
+        await bridgeCall('state.write', { key, value })
+        return
+      }
       await capabilityCall(ctx, 'stateWrite', { key, value })
     },
     async stateDelete(key) {
+      if (viaBridge()) {
+        const data = await bridgeCall('state.delete', { key })
+        return data.deleted === true
+      }
       const payload = await capabilityCall(ctx, 'stateDelete', { key })
       return payload.deleted === true
     },

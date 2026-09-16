@@ -45,6 +45,7 @@ import {
   type HostCallError,
 } from '../../pure/hostCalls.ts'
 import type { DownloadArgs, HostCapabilityError, SaveFileArgs } from '../../pure/hostCapabilities.ts'
+import { runStateCall } from '../../pure/hostStateCalls.ts'
 import { performGatewayDownload, performSaveContent } from '../../pure/hostDownload.ts'
 import type { CommitInfoResult } from '../../pure/chatContract.ts'
 import type { GitWorkspaceQueryResult } from '../../pure/gitWorkspaceQuery.ts'
@@ -62,6 +63,9 @@ export const HOST_CALLS = {
   'vscode.openExternal': 'Open a http/https/mailto URL with the system browser (git card "Open on GitHub").',
   'file.download': 'Fetch content from the connected dsh gateway by path and save it where the user chooses.',
   'file.save': 'Write base64 content to a file where the user chooses.',
+  'state.read': 'Read one plugin state value (the host half\'s own state store, ~/.dsh/dsh-one/<key>.json).',
+  'state.write': 'Write one plugin state value (same store, atomic write).',
+  'state.delete': 'Delete one plugin state value (same store).',
 } as const
 
 export type HostCallName = keyof typeof HOST_CALLS
@@ -218,7 +222,7 @@ export async function runHostCall(
   call: string,
   args: unknown,
   deps: HostBridgeDeps,
-): Promise<CommitInfoResult | { path: string } | null | HostCapabilityError> {
+): Promise<CommitInfoResult | { path: string } | { value?: unknown; deleted?: boolean } | null | HostCapabilityError> {
   if (!(call in HOST_CALLS)) {
     return { code: 'unknown-call', message: `unknown host call: ${call}` }
   }
@@ -232,6 +236,9 @@ export async function runHostCall(
   if (call === 'file.save') {
     return await fileSave(args as SaveFileArgs, deps)
   }
+  if (call === 'state.read' || call === 'state.write' || call === 'state.delete') {
+    return await stateCall(call, args, deps)
+  }
   const url = parseAllowedUrl(asRecord(args)?.url)
   if (url === null) {
     return { code: 'invalid-args', message: 'expected a http/https/mailto url' }
@@ -241,7 +248,32 @@ export async function runHostCall(
   return null
 }
 
-/** 默认依赖（生产）：工作区目录 + ~/.dsh（追加允许根由调用方给，见 assemblyView）。 */
+/**
+ * `state.read` / `state.write` / `state.delete`（#82）：插件的持久状态。
+ *
+ * **实现就是宿主半那一份**：逻辑在 `src/pure/hostStateCalls.ts`，它直接调用
+ * `packages/dsh-host-capabilities/src/stateStore.ts` 的函数——官方 web 侧跑的是宿主半
+ * 的同一组函数，所以「同一份用户数据只有一个家、一套代码」（AGENTS.md 铁律「插件状态
+ * 按官方惯例存储」）在两端都成立：家是 `~/.dsh/dsh-one/<键>.json`（宿主半定义的路径与
+ * 原子写），代码是宿主半包里的那一份。
+ *
+ * 为什么 VS Code 侧不干脆走网关 RPC 让宿主半自己处理（那样调用方只有一条路径）：
+ * 宿主半目前还没进 VS Code 用的那个 profile（#84 的已知遗留①），走网关会在没装
+ * 它的实例上直接 404，插件状态当场失效。这里让扩展宿主**代行同一个实现**，行为与
+ * 官方侧逐字一致、且不依赖 profile 里有没有那个包；等宿主半随扩展分发落地后，
+ * 这条分支可以退化成纯转发（或整个删掉），插件侧一行都不用改。
+ */
+async function stateCall(
+  call: 'state.read' | 'state.write' | 'state.delete',
+  args: unknown,
+  deps: HostBridgeDeps,
+): Promise<{ value?: unknown; deleted?: boolean } | HostCapabilityError> {
+  return await runStateCall(call, args, deps.dshHome)
+}
+
+/**
+ * 默认依赖（生产）：工作区目录 + ~/.dsh（追加允许根由调用方给，见 assemblyView）。
+ */
 export function defaultHostBridgeDeps(): HostBridgeDeps {
   return {
     workspaceFolders: () => (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),

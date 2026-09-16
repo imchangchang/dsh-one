@@ -134,7 +134,12 @@ function parseJson(raw: string): Record<string, unknown> | null {
   } catch {
     return null
   }
-  if (typeof obj !== 'object' || obj === null) return null
+  return parseJsonValue(obj)
+}
+
+/** 已解析值 → 记录（非对象/数组给的都给 null）。 */
+function parseJsonValue(obj: unknown): Record<string, unknown> | null {
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return null
   return obj as Record<string, unknown>
 }
 
@@ -149,7 +154,18 @@ export function parseIdListFile(raw: string): IdListFile | null {
 }
 
 export function parseGroupFile(raw: string): GroupFile | null {
-  const rec = parseJson(raw)
+  return sanitizeGroupFile(parseJson(raw))
+}
+
+/**
+ * 分组文件的清洗（不明形状/版本 → null），入参已是解析后的值。
+ *
+ * 两处共用：文件读路径（`parseGroupFile`）与**宿主能力口的读回值**
+ * （`stateRead('groups')` 返回的是解析后的对象，不是文本；#81 的树插件走这条）。
+ * 共用同一份校核，两条路径的口径不会漂。
+ */
+export function sanitizeGroupFile(parsed: unknown): GroupFile | null {
+  const rec = parseJsonValue(parsed)
   if (
     rec === null ||
     rec.version !== 1 ||

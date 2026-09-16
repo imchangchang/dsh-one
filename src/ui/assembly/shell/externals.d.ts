@@ -61,6 +61,9 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export function IconTrashOutline16(props: { size?: number; className?: string }): unknown
   export function IconBranchOutline16(props: { size?: number; className?: string }): unknown
   export function IconArchiveOutline20(props: { size?: number; className?: string }): unknown
+  /** 官方图标件（#81：批量选择入口、回收站「还原」）。 */
+  export function IconChecklistOutline14(props: { size?: number; className?: string }): unknown
+  export function IconRefreshOutline16(props: { size?: number; className?: string }): unknown
   /** 官方状态点（三档：ongoing / warning / done）。 */
   export function StateDot(props: { state: string; className?: string }): unknown
   /** 官方紧凑相对时间（单位 + 数值，文案由词典拼）。 */
