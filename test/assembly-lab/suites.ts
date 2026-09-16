@@ -231,7 +231,7 @@ export const INTERACT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '关键交互：行内码右键菜单、清空（Esc ×2）+ 反悔（Ctrl+Z）、commit 卡片（INTERACT 套件）',
   expect:
-    'chat 树：给消息正文里的行内码点右键 → 弹出官方 Menu（role=menu）承载的单图标项，行内码被高亮标记，Esc 后菜单与高亮都撤掉。正文里的 7 位 hash → 悬停出提交卡片，卡片内容来自宿主能力桥（假宿主回执），点卡片上的 GitHub 按钮 → 页面发出一次 vscode.openExternal。composer 里输入文字后按 Esc → 出「再按一次」提示；再按 Esc → 草稿清空且出撤销入口；Ctrl+Z → 草稿复原。',
+    'chat 树：给消息正文里的行内码点右键 → 弹出官方 Menu（role=menu）承载的单图标项，行内码被高亮标记，Esc 后菜单与高亮都撤掉。正文里的 7 位 hash → 悬停出提交卡片，卡片内容来自宿主能力口（假宿主回执），点卡片上的 GitHub 按钮 → 页面发出一次 vscode.openExternal。composer 里输入文字后按 Esc → 出「再按一次」提示；再按 Esc → 草稿清空且出撤销入口；Ctrl+Z → 草稿复原。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('chat'), { width: 1200 })
@@ -270,7 +270,7 @@ export const INTERACT_SUITE: LabSuite = {
         JSON.stringify(afterClose),
       )
 
-      // --- commit 卡片（走宿主能力桥） ---
+      // --- commit 卡片（走宿主能力口） ---
       await page.hover(`[data-dshone-commit="${FIXTURE_SHA}"]`)
       await page.waitForTimeout(400)
       const card = await page.evaluate(() => {
@@ -443,13 +443,13 @@ export const PARITY_SUITE: LabSuite = {
 }
 
 // ---------------------------------------------------------------------------
-// F-05 BRIDGE：宿主能力桥的页面侧语义
+// F-05 BRIDGE：宿主能力口的页面侧语义
 // ---------------------------------------------------------------------------
 
 export const BRIDGE_SUITE: LabSuite = {
   id: 'F-05',
   phase: 'new-feature',
-  name: '宿主能力桥页面侧：统一获取点、id 配对、结构化错误（BRIDGE 套件）',
+  name: '宿主能力口页面侧：统一获取点、id 配对、结构化错误（BRIDGE 套件）',
   expect:
     '装配页注入的 `__DSH_ONE_HOST__.call` 是函数；全页 `acquireVsCodeApi` **只被调用一次**（统一获取点约束，第二次会 throw）；并发调用按各自 id 兑现自己的回执；宿主拒绝时抛带 code 的结构化错误；上行消息形状是 {type:dshOne.hostCall,call,args,id} 且 id 各不相同。',
   run: async (ctx, check) => {

@@ -17,7 +17,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 | `npm run build` | `node build.mjs`：esbuild 把 `src/extension.ts` 打成单文件 `dist/extension.js`（cjs、target node22、`vscode` external、带 sourcemap）。有 warning 会以非零码退出。 |
 | `npm run typecheck` | `tsc --noEmit`。注意 import 都带 `.ts` 后缀（`allowImportingTsExtensions` + `verbatimModuleSyntax`），新增 import 要遵守。 |
 | `npm test` | `node --test test/*.test.ts`，只覆盖 `src/pure/`。改 pure 模块必须跑。 |
-| `npm run verify:lab` | 先 `npm run build`，再用 Playwright 跑装配的**浏览器验证**（harness 在 `test/assembly-lab/`）：四棵树在真实 dsh 网关（只读）上零槽位崩溃/零缺失契约、三树冒烟渲染、关键交互、侧栏树与官方外观逐项对齐、宿主能力桥语义。需要本机有在跑的 dsh 网关（缺省 3080，token 读 `~/.dsh/dsh-owned.json`）；产物在 `test/assembly-lab/out/`（gitignored）。改装配相关代码后必跑，细节见 `test/assembly-lab/README.md`。 |
+| `npm run verify:lab` | 先 `npm run build`，再用 Playwright 跑装配的**浏览器验证**（harness 在 `test/assembly-lab/`）：四棵树在真实 dsh 网关（只读）上零槽位崩溃/零缺失契约、三树冒烟渲染、关键交互、侧栏树与官方外观逐项对齐、宿主能力口语义。需要本机有在跑的 dsh 网关（缺省 3080，token 读 `~/.dsh/dsh-owned.json`）；产物在 `test/assembly-lab/out/`（gitignored）。改装配相关代码后必跑，细节见 `test/assembly-lab/README.md`。 |
 | `npm run package` | 先 build，再 `vsce package` 打出 `.vsix`（`.vscodeignore` 排除了 src/test/node_modules 等，VSIX 里只有 dist + 清单 + 图标等）。 |
 
 ## 调试（F5 Extension Development Host）
