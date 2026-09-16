@@ -8,7 +8,9 @@
  *   逐字取自官方 css-module 的几何（30px 高、10px 圆角、.5px 边框）。**折叠态的
  *   放大镜胶囊退役**：点一下才展开的那一态不再存在（#98「搜索」条），搜索框常显。
  * - **右 = 折叠/展开全部 · 添加工作区（＋）· 设置齿轮**：#99 新增的三件。折叠/展开全部
- *   按「全部工作区是否已折叠」显示对应图标（旧侧栏同款语义）；添加工作区是两项菜单
+ *   按「全部工作区是否已折叠」显示对应图标——**方框加减号**（#118 起：还有展开着的
+ *   就显示方框横杠 = 折叠全部，全折叠了就显示方框十字 = 展开全部；图标出处与官方
+ *   为何没有这一枚见 `collapseAllGlyph.ts`）；添加工作区是两项菜单
  *   （选已有文件夹 / 创建新工作区目录）；设置齿轮打开我们的设置页（宿主能力口
  *   `openSettings`，宿主没有独立设置页时不渲染——官方 web 侧设置归官方底部那一行）。
  * - 同一行末尾保留 #81 已有的**视图选项**与**多选入口**：本条不动它们的位置。#108 起
@@ -24,8 +26,6 @@
  */
 import { createElement as h, useRef, useState } from 'react'
 import {
-  IconChevronDownOutline14,
-  IconChevronUpOutline14,
   IconChecklistOutline14,
   IconCloseFill14,
   IconFolderOpenOutline16,
@@ -37,6 +37,7 @@ import {
   Menu,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { COLLAPSE_ALL_GLYPHS, type CollapseAllGlyph } from './collapseAllGlyph.ts'
 import { SEARCH_QUERY_MAX } from './search.ts'
 import type { Translate } from './types.ts'
 
@@ -96,6 +97,47 @@ export function ViewOptionsMenu({
       ),
     }),
   })
+}
+
+/**
+ * 「折叠 / 展开全部」那枚图标（#118）：方框加减号，自绘 SVG。
+ *
+ * 路径数据与官方为何没有这一枚，见 `collapseAllGlyph.ts`（那边是不引任何模块的纯数据
+ * 文件，装配实验室的套件直接 import 它拿期望值）。这里只负责渲染，**逐字复用旧侧栏
+ * `sessionsWebview.ts` 的 `iconSvg` 画法**：`svg fill="none"` + 每条 path
+ * `fill="currentColor"`、`fill-rule`/`clip-rule` = evenodd，颜色跟着按钮的 currentColor
+ *（hover / 禁用态由样式表统一控制，与官方图标件同一套）。
+ *
+ * 尺寸 16：与同一行其它图标按钮一致（添加工作区 / 设置齿轮 / 视图选项都是 16 档），
+ * 26×26 的按钮用 flex 居中。旧侧栏这枚也是 16。
+ *
+ * 两条 `data-*` 是自有契约，与回收站入口行的 `data-dshone-tree-icon` 同一做法
+ *（官方渲染出来的 DOM 里没有图标名，验证套件要认「是哪一态」只能靠标记，配合渲染出的
+ * `path@d` 一起核）：`data-dshone-tree-icon="collapse-all"` 认这一枚是哪个按钮，
+ * `data-dshone-tree-icon-value` 认当前是哪一态。
+ */
+function CollapseAllIcon({ glyph }: { glyph: CollapseAllGlyph }): unknown {
+  return h(
+    'svg',
+    {
+      viewBox: '0 0 16 16',
+      width: 16,
+      height: 16,
+      fill: 'none',
+      'aria-hidden': true,
+      'data-dshone-tree-icon': 'collapse-all',
+      'data-dshone-tree-icon-value': glyph,
+    },
+    ...COLLAPSE_ALL_GLYPHS[glyph].map((d, index) =>
+      h('path', {
+        key: String(index),
+        d,
+        fill: 'currentColor',
+        'fill-rule': 'evenodd',
+        'clip-rule': 'evenodd',
+      }),
+    ),
+  )
 }
 
 export interface TopBarProps {
@@ -211,7 +253,9 @@ export function TopBar(props: TopBarProps): unknown {
     h(
       'div',
       { className: 'dshOneTree_headerActions', 'data-dshone-tree': 'top-bar-actions' },
-      // 折叠 / 展开全部（#99）：图标与提示随当前态翻转，语义同旧侧栏。
+      // 折叠 / 展开全部（#99；图标 #118 起换成方框加减号）：图标与提示随当前态翻转，
+      // 语义同旧侧栏——「还有展开着的」显示方框横杠（点了折叠全部），「全折叠了」
+      // 显示方框十字（点了展开全部）。
       h(Tooltip, {
         label: allCollapsed ? tr('toolbar.expandAll') : tr('toolbar.collapseAll'),
         side: 'bottom',
@@ -226,7 +270,7 @@ export function TopBar(props: TopBarProps): unknown {
             'data-dshone-tree-collapsed': allCollapsed,
             onClick: props.onToggleCollapseAll,
           },
-          allCollapsed ? h(IconChevronDownOutline14, {}) : h(IconChevronUpOutline14, {}),
+          h(CollapseAllIcon, { glyph: allCollapsed ? 'plus' : 'minus' }),
         ),
       }),
       // 添加工作区（＋）：两项菜单（选已有文件夹 / 创建新工作区目录）。
