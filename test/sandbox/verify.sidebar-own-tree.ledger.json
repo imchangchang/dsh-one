@@ -1,14 +1,14 @@
 {
   "title": "DSH One 装配线测试报告：侧栏自有工作区树（#65 批 2 第一步）",
   "branch": "agent/sidebar-own-tree",
-  "commit": "d5e3b79d22e8c661ce55cc08e90560bd00e49da1",
+  "commit": "048772621b6d210189a18c7cc569433380ab082c",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
     "dsh": "0.1.6-alpha.1",
     "locale": "zh-cn",
     "theme": "dark（含浅色切换断言）",
     "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（79 条断言）",
-    "date": "2026-09-16T00:40:02.187Z"
+    "date": "2026-09-16T00:43:35.168Z"
   },
   "coverageNote": "本报告是浏览器验证（第一道验证）：装配页由仓库真实模块（pageHtml / wireFilter / assemblyMirror）构建，数据面是本机真实 dsh 网关（只读），宿主通道是假宿主。外观断言的口径 = 同一 frame、同一网关数据、同一宽度下，自有树与「同一 frame 里由官方组件渲染的浏览区」逐项比对 computed style（只差装不装自有树插件这一个变量），不硬编码数值。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/原生菜单）、真模型输出、以及「点会话 → 对话面板跟随」的宿主侧行为（那是既有 #71 桥的语义，见 VS Code 验证清单）。已知环境阻塞（与本批改动无关）：本机 dsh 已升到 0.1.6-alpha.1，chat 树的对话区在 0.1.6 上另有兼容缺口（官方 ui-conversation 改为注册进 ui-layout 的 main 座位，自有 chat frame 尚未声明该座位），基线提交 8d1ad4d 上同样空；本报告因此不含 chat 树断言。",
   "items": [
