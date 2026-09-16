@@ -1,6 +1,9 @@
 /** 树主组件（官方 WorkspaceBrowser 的同构复刻）：组合上面各件 + 状态与订阅。 */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { UNGROUPED_KEY, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, owningGroupKey, visibleRecycleIds, workspaceActivityCounts, type ActivityCounts, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, owningGroupKey, UNGROUPED_KEY, visibleRecycleIds, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
+import { formatFileMention } from '../../../../pure/fileReference.ts'
+import { formatSessionMention } from '../../../../pure/sessionMention.ts'
 import {
   canRecycle,
   cannotArchiveReason,
@@ -46,6 +49,7 @@ import {
 import type { TagColor } from '../../../../pure/sessionTags.ts'
 import type { GroupFile } from '../../../../pure/dshStateFile.ts'
 import { FlashHost, flashTip } from './flash.ts'
+import { displayTitle } from './format.ts'
 import { GroupFilterBar } from './groupFilterBar.ts'
 import { TAG_MENU_PREFIX, newGroupId, newTagGroupId } from './groups.ts'
 import { useHoverCardRoom } from './hoverCard.ts'
@@ -106,6 +110,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
     loadTagGroups,
     saveTagGroups,
     openInNewTab,
+    openWorkspaceFolder,
+    openWorkspaceTerminal,
+    shellName,
   } = props
   const tr = t
   const now = Date.now()
@@ -382,6 +389,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const flatRows = withOrder(visibleNodes)
   const recycleGroups = deriveRecycleGroups(list, workspaces, recycledIds)
   const selectedSet = new Set(selection)
+  // #109 E7：当前工作区那一组排最前（其余保持官方顺序；未分组桶恒在最后）。
+  const orderedGroups = currentWorkspaceFirst(groups)
 
   // #99 顶栏「折叠/展开全部」：可展开的分组 = 有会话的分组（工作区 / 未分组桶）。
   // 键集取**不过滤**的那一份推导（过滤态下也要能一次收起/展开全部工作区，与旧侧栏
@@ -391,11 +400,16 @@ export function WorkspaceTree(props: TreeProps): unknown {
   // 不回灌进 `sessions`），组头三态全选要吃整组成员——收起着的工作区也得能一次勾满
   //（那正是「快速清走一个工作区里没用的会话」的用法），所以不能拿渲染用的 `groups`
   //（收起时 `sessions` 是空的）来数。
+  // #109 复用同一份：菜单里的「归档该工作区全部会话」也要这个工作区的**全部**可见会话
+  //（收起的分组照样能整块归档），所以 `recycled` 一并在这一份里给出来。
   const flatGroups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
     expandedGroups: [...workspaces.map((workspace) => workspace.workspaceId), UNGROUPED_KEY],
+    recycled,
   })
   const expandableKeys = flatGroups.filter((group) => group.sessionCount > 0).map((group) => group.key)
   const groupMembers = new Map(flatGroups.map((group) => [group.key, group.sessions]))
+  /** #109：某个分组（按树里的键）的全部可见会话——归档入口按它算资格与明细。 */
+  const sessionsOfGroup = (key: string): readonly SessionNode[] => groupMembers.get(key) ?? []
   const allCollapsed = expandableKeys.length > 0 && expandableKeys.every((key) => !groupExpansion.includes(key))
   /** 已全收起 → 展开全部；否则收起全部（图标与提示在顶栏里随 `allCollapsed` 翻转）。 */
   const toggleCollapseAll = (): void => {
@@ -489,6 +503,58 @@ export function WorkspaceTree(props: TreeProps): unknown {
       : (sessionId: string): void => {
           void openInNewTab(sessionId).catch((reason: unknown) => reportFailure('openInNewTab.failed', reason))
         }
+
+  /**
+   * #109：把一段文本写进剪贴板 + 飘一条回执。
+   *
+   * 剪贴板用**官方 primitives 的 `writeClipboard`**（带 execCommand 回退，webview 里比裸
+   * `navigator.clipboard` 稳），不走宿主能力口——两端（VS Code 侧与官方 web 侧）浏览器
+   * 本来就能写剪贴板，绕一趟宿主反而多一条会失败的路；回执用我们自己的飘提示，两端一致
+   * （旧侧栏用的是宿主消息框，官方 web 侧没有那种消息框）。
+   */
+  const copyText = (text: string, done: string): void => {
+    writeClipboard(text).then(
+      (ok) => flashTip(ok ? done : tr('copy.failed')),
+      () => flashTip(tr('copy.failed')),
+    )
+  }
+
+  /** 「复制引用」：会话 mention 文本（`pure/sessionMention` 的官方语法，粘贴进输入框即成为引用）。 */
+  const copySessionReference = (node: SessionNode): void => {
+    copyText(formatSessionMention(displayTitle(node, tr), node.id), tr('copied.sessionRef'))
+  }
+
+  /** 「复制路径」：目录路径原样。 */
+  const copyWorkspacePath = (group: GroupNode): void => {
+    if (group.cwd === undefined) return
+    copyText(group.cwd, tr('copied.path'))
+  }
+
+  /**
+   * 「复制文件夹引用」：`@路径` 的提示词语法。格式化走 `pure/fileReference` 的
+   * `formatFileMention`（官方 dsh-file-reference grammar 的移植件，含空格时自动加引号），
+   * 不另写一份拼接；返回 undefined = 这个路径没法安全表示成引用（内嵌引号/控制字符），
+   * 那就什么都不复制（旧侧栏的 inline 版本在那种路径上会产出坏 token）。
+   */
+  const copyWorkspaceFolderReference = (group: GroupNode): void => {
+    if (group.cwd === undefined) return
+    const text = formatFileMention({ path: group.cwd, kind: 'directory' })
+    if (text === undefined) return
+    copyText(text, tr('copied.folderRef'))
+  }
+
+  /** #109：在宿主编辑器窗口里打开这个工作区（hover 的「在 VS Code 打开」/ 右键的「在新窗口打开」）。 */
+  const openWorkspaceInEditor = (group: GroupNode, newWindow: boolean): void => {
+    if (group.cwd === undefined) return
+    openWorkspaceFolder?.(group.cwd, { newWindow })
+  }
+
+  /** #109：在这个工作区目录上开一个集成终端。 */
+  const openWorkspaceInTerminal = (group: GroupNode): void => {
+    if (group.cwd === undefined) return
+    openWorkspaceTerminal?.(group.cwd)
+  }
+
 
   /** 一条会话的资格事实（会话快照 + 置顶/未读两份 id 集合，见 pure/sessionEligibility.ts）。 */
   const eligibilityOf = (node: SessionNode): SessionEligibilityFacts => ({
@@ -656,6 +722,29 @@ export function WorkspaceTree(props: TreeProps): unknown {
     openArchive({ blocks: groupSessionNodes(list, workspaces, [sessionId]), skipped: 0, kind: 'archive' })
   }
 
+  /**
+   * #109：归档**一整个工作区**（或未分组桶）的全部会话。
+   *
+   * 复用 #103 那份资格判定与确认弹窗（`partitionArchivable` + `ArchiveSessionsModal`）：
+   * 置顶 / 运行中 / 未读 / 待交互的那些进 `skipped`（弹窗里写明跳过数），一条都不可归档
+   * 时不开弹窗（菜单项本身按同一个数禁用）。会话列表取**全部展开**的那一份推导——分组
+   * 收起时 `sessions` 是空的，用收起态那份会让收起的工作区「一条都归档不了」。
+   */
+  const requestArchiveGroup = (key: string): void => {
+    const nodes = sessionsOfGroup(key)
+    const partition = partitionArchivable(nodes.map((node) => ({ node, ...eligibilityOf(node) })))
+    if (partition.ready.length === 0) return
+    openArchive({
+      blocks: groupSessionNodes(list, workspaces, partition.ready.map((entry) => entry.node.id)),
+      skipped: partition.skipped.length,
+      kind: 'archive',
+    })
+  }
+
+  /** 某个分组里有没有够格归档的会话（工作区行菜单那一项的禁用态）。 */
+  const hasArchivable = (key: string): boolean =>
+    sessionsOfGroup(key).some((node) => cannotArchiveReason(eligibilityOf(node)) === null)
+
   /** 清空回收站 = 把里面每一条都永久归档（不可逆，先过确认弹窗）。 */
   const requestEmptyBin = (): void => {
     if (recycledIds.length === 0) return
@@ -791,19 +880,19 @@ export function WorkspaceTree(props: TreeProps): unknown {
     const current = bucket.sessionTags[sessionId]
     // 文案包一层带标记的 span：菜单项的类名是官方哈希，验证套件与样式都不该认它
     //（与行菜单其它项同一做法，见 rows.ts 的 sessionMenuItem）。
+    // #109：这一节的项住在会话行菜单「移到分组…」的**就地展开**里（不再是菜单末尾的一节），
+    // 所以**不带分隔线与小标题**（#109 的会话行菜单没有分隔线）；缩进由 rows.ts 的
+    // `.dshOneTree_submenuItem` 承担。`data-dshone-tree-item` 标记照旧（验证套件按它认项）。
     const label = (suffix: string, text: string): unknown =>
       h('span', { 'data-dshone-tree-item': `${TAG_MENU_PREFIX}${suffix}` }, text)
     return {
       items: [
-        { type: 'separator', id: 'tag-separator' },
-        { type: 'label', id: 'tag-label', text: tr('tag.membership') },
         ...bucket.tags.map((tag) => ({
           id: `${TAG_MENU_PREFIX}${tag.id}`,
           label: label(tag.id, tag.name),
           icon: h(TagColorSwatch, { color: tag.color }),
         })),
         { id: `${TAG_MENU_PREFIX}__none`, label: label('__none', tr('tag.none')) },
-        { type: 'separator', id: 'tag-new-separator' },
         { id: `${TAG_MENU_PREFIX}__new`, label: label('__new', tr('tag.new')) },
       ],
       selectedIds: [current === undefined ? `${TAG_MENU_PREFIX}__none` : `${TAG_MENU_PREFIX}${current}`],
@@ -969,6 +1058,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
       onArchive: () => requestArchiveSession(row),
       onTogglePin: () => togglePin(row.id),
       onToggleUnread: () => toggleUnread(row.id),
+      // #109：菜单里的「选择多个」与「复制引用」（两枚都只在这一层接线，动作本体在树层）。
+      onSelectMultiple: enterSelection,
+      onCopyReference: () => copySessionReference(row),
       onOpenInNewTab: openRowInNewTab === undefined ? undefined : () => openRowInNewTab(row.id),
     }
   }
@@ -1029,6 +1121,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
                 onArchive: () => requestArchiveSession(row),
                 onTogglePin: () => togglePin(row.id),
                 onToggleUnread: () => toggleUnread(row.id),
+                onSelectMultiple: enterSelection,
+                onCopyReference: () => copySessionReference(row),
                 onOpenInNewTab: openRowInNewTab === undefined ? undefined : () => openRowInNewTab(row.id),
               }),
             ),
@@ -1036,7 +1130,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
         : h(
             'div',
             { role: 'tree', 'data-dshone-tree': 'groups' },
-            groups.map((group) => {
+            orderedGroups.map((group) => {
               const split = splitByTagGroups(
                 baseOrder(group.sessions),
                 tagBucket(group.key),
@@ -1066,6 +1160,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
                   ...(check.tip === undefined ? {} : { checkTip: check.tip }),
                   checkDisabled: check.disabled,
                   onToggleSelect: check.onToggleSelect,
+                  shellName,
+                  canArchiveAll: hasArchivable(group.key),
                   onToggle: () =>
                     setPrefs((prev) => ({
                       ...prev,
@@ -1074,6 +1170,12 @@ export function WorkspaceTree(props: TreeProps): unknown {
                         : [...prev.expandedGroups, group.key],
                     })),
                   onCreate: () => startSession(group.workspaceId),
+                  // #109 工作区行的三个宿主动作（能力口缺哪条哪枚按钮/菜单项就不出现）。
+                  onOpenTerminal: openWorkspaceTerminal === undefined ? undefined : () => openWorkspaceInTerminal(group),
+                  onOpenFolder: openWorkspaceFolder === undefined ? undefined : (options: { newWindow: boolean }) => openWorkspaceInEditor(group, options.newWindow),
+                  onArchiveAll: () => requestArchiveGroup(group.key),
+                  onCopyFolderRef: () => copyWorkspaceFolderReference(group),
+                  onCopyPath: () => copyWorkspacePath(group),
                   onToggleGroup: (groupId: string) => {
                     if (group.workspaceId === undefined) return
                     writeGroups(toggleWorkspaceGroup(groupsFile, group.workspaceId, groupId))

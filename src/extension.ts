@@ -428,10 +428,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.l10n.t('Session reference copied. Paste it into the input box to mention this session'),
       )
     }),
-    vscode.commands.registerCommand('dshOne.workspace.openFolder', async (path?: string) => {
+    // #109：第二个参数 `forceNewWindow` 供侧栏工作区右键的「在新窗口打开文件夹」用
+    // （缺省 false = 旧侧栏「在 VS Code 打开」的当前窗口语义，老调用点行为不变）。
+    vscode.commands.registerCommand('dshOne.workspace.openFolder', async (path?: string, forceNewWindow?: boolean) => {
       if (typeof path !== 'string' || !path) return
       await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(path), {
-        forceNewWindow: false,
+        forceNewWindow: forceNewWindow === true,
       })
     }),
     vscode.commands.registerCommand('dshOne.workspace.openTerminal', (path?: string) => {

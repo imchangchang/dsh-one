@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  currentWorkspaceFirst,
   UNGROUPED_KEY,
   deriveFlat,
   deriveGroups,
@@ -318,4 +319,30 @@ test('deriveGroups：命中子代理后代计数的会话状态带子代理文�
     sessionStatuses(root).map((s) => s.labelKey),
     ['status.running', 'status.subagentsRunning.one'],
   )
+})
+
+/* ------------------------------------------------------------------ *
+ * #109 E7：当前工作区那一组排最前
+ * ------------------------------------------------------------------ */
+
+/** 造一个够 `currentWorkspaceFirst` 用的分组（只带它读的两个字段）。 */
+function groupLike(key: string, containsCurrent: boolean, ungrouped = false): { key: string; containsCurrent: boolean; workspaceId?: string } {
+  return ungrouped ? { key, containsCurrent } : { key, containsCurrent, workspaceId: key }
+}
+
+test('currentWorkspaceFirst：当前工作区那组排最前，其余保持官方顺序', () => {
+  const groups = [groupLike('a', false), groupLike('b', true), groupLike('c', false)]
+  assert.deepEqual(currentWorkspaceFirst(groups).map((g) => g.key), ['b', 'a', 'c'])
+})
+
+test('currentWorkspaceFirst：没有当前工作区时顺序原样（返回新数组，不改入参）', () => {
+  const groups = [groupLike('a', false), groupLike('b', false)]
+  const ordered = currentWorkspaceFirst(groups)
+  assert.deepEqual(ordered.map((g) => g.key), ['a', 'b'])
+  assert.notEqual(ordered, groups)
+})
+
+test('currentWorkspaceFirst：未分组桶装着当前会话也不前移（它没有工作区身份，恒在最后）', () => {
+  const groups = [groupLike('a', false), groupLike('', true, true)]
+  assert.deepEqual(currentWorkspaceFirst(groups).map((g) => g.key), ['a', ''])
 })

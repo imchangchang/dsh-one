@@ -115,4 +115,20 @@ export interface TreeProps {
    * 失败由界面层如实报出来（#110），插件不再只写一行日志。
    */
   openInNewTab?: ((sessionId: string) => Promise<unknown>) | undefined
+  /**
+   * #109 工作区行：在编辑器窗口里打开这个工作区文件夹（`newWindow` = 另开一个窗口）。
+   * **undefined = 这个宿主没有编辑器窗口**（官方 web 形态）：hover 的「在 VS Code 打开」
+   * 与右键的「在新窗口打开文件夹」两项都不出现。
+   */
+  openWorkspaceFolder?: ((path: string, options: { newWindow: boolean }) => void) | undefined
+  /**
+   * #109 工作区行：在这个工作区目录上开一个集成终端。**undefined = 这个宿主没有集成
+   * 终端**（官方 web 形态）：hover 的「终端打开」不出现。
+   */
+  openWorkspaceTerminal?: ((path: string) => void) | undefined
+  /**
+   * #109 当前工作区标识：这套宿主是什么（VS Code 侧 `'vscode'`，官方 web 侧 `'web'`），
+   * 写在那枚胶囊上——旧侧栏把 `vscode` 写死在渲染里，官方 web 上会挂出一个不对的名字。
+   */
+  shellName: string
 }

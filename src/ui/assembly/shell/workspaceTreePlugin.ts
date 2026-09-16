@@ -61,13 +61,15 @@
  *   `uiWorkspace.forkSession` / `uiWorkspace.archiveSession` /
  *   `workspaces.rename` / `workspaces.delete`（出处逐个标在代码处）。
  * - 图标与原语：全部取官方 primitives 种子表——`IconFolderOpen16` /
- *   `IconFolderClose16` / `IconTriangleRightFill14` / `IconEllipsisOutline16` /
- *   `IconPlusOutline16` / `IconSearchOutline16` / `IconCloseFill14` /
- *   `IconPersonalizationOutline16` / `IconEditOutline16` / `IconTrashOutline16` /
- *   `IconBranchOutline16` / `IconArchiveOutline20` / `IconRightUpOutline16` /
- *   `IconAlarmClockOutline16`（#110 活跃定时任务标记）/
+ *   `IconFolderClose16` / `IconFolderOpenOutline16` / `IconTriangleRightFill14` /
+ *   `IconEllipsisOutline16` / `IconPlusOutline16` / `IconSearchOutline16` /
+ *   `IconCloseFill14` / `IconPersonalizationOutline16` / `IconEditOutline16` /
+ *   `IconTrashOutline16` / `IconBranchOutline16` / `IconArchiveOutline20` /
+ *   `IconRightUpOutline16` / `IconCheckOutline16` / `IconChecklistOutline14` /
+ *   `IconCopyOutline16` / `IconAlarmClockOutline16`（#110 活跃定时任务标记）/
  *   `StateDot` / `Menu` / `Tooltip` / `HoverCard` / `Modal` / `Button` /
- *   `relativeTime`。
+ *   `relativeTime`。**终端图标是自绘 SVG**（官方 79 个 `Icon*` 里没有终端件，
+ *   逐个看过导出表；出处与理由见 `workspaceTree/rows.ts`）。
  *
  * **多开入口（#72）**：会话行菜单（仍是官方 `Menu` 原语，`items` 多一项
  * `openInNewTab`）与**行右键**都能开出这个菜单，菜单项走宿主能力口。逐层举证：
@@ -79,8 +81,21 @@
  * 的元素，给它挂 `onContextMenu` 即我们自己的事件；官方 `Menu` 支持
  * `getAnchorRect` 就为这类「菜单跟着指针走」的用法（官方自己在 assets bundle 的
  * trajectory JSON 复制按钮上也是 `onContextMenu` + `getAnchorRect` 的组合），
- * 所以不需要任何 DOM 层 hack。能力不存在（官方 web 形态）时：菜单项不出现，
- * 行右键也不接管（不抢浏览器原生右键菜单）。
+ * 所以不需要任何 DOM 层 hack。**#109 起行右键的接管条件只剩「非选择态」**（多开
+ * 不可用的宿主、空白会话行也照样弹我们这份菜单——那两类行本来就有菜单内容，
+ * 抢掉原生右键菜单不再是添乱）；「在新标签页打开」这一项本身仍按能力口如实上报
+ * 决定出不出现。
+ *
+ * **菜单补全（#109）**：会话行菜单 10 项（顺序与用户给的截图一致，标题行
+ * 「会话: {label}」、无分隔线）、工作区行 hover 四按钮 + 右键七项、「移到分组…」与
+ * 「分组…」两个二级菜单（官方 `Menu` 的 `submenu` 槽 = 挂在父项那一格里的内联子树，
+ * 子项点击不关菜单 = 就地翻转 ✓）、当前工作区那枚蓝色胶囊。两个二级菜单的数据分别是
+ * 标签组（#107 提供，未落地时该项不出现）与工作区分组（#99 已有）。工作区行的三个
+ * 宿主动作（终端打开 / 在 VS Code 打开 / 在新窗口打开文件夹）走**宿主能力口**的
+ * `openWorkspaceTerminal` / `openWorkspaceFolder`（官方 web 形态没有编辑器窗口与集成
+ * 终端 → 能力缺席 → 那几枚入口不渲染）；「复制引用 / 复制路径 / 复制文件夹引用」用
+ * **官方 primitives 的 `writeClipboard`**（两端浏览器本来就能写剪贴板，绕一趟宿主只会
+ * 多一条会失败的路）。
  *
  * **样式 = 官方 token + 官方默认几何**：本插件不写自造颜色/尺寸。样式全在
  * `workspaceTree/styles.ts`，其中每个数值都逐字
@@ -313,6 +328,31 @@ export function apply(ctx: TreeContext): void {
             },
           }
         : {}),
+      // #109 工作区行的工作区动作（hover 的「在 VS Code 打开」与右键的「在新窗口打开
+      // 文件夹」共用这一条）：能力口如实上报，官方 web 形态没有编辑器窗口 → 不注入 =
+      // 两个入口都不出现。
+      ...(caps.workspaceOpen
+        ? {
+            openWorkspaceFolder: (path: string, options: { newWindow: boolean }): void => {
+              caps.openWorkspaceFolder(path, { newWindow: options.newWindow }).catch((reason: unknown) => {
+                console.warn('[dsh-one] open workspace folder failed:', reason)
+              })
+            },
+          }
+        : {}),
+      // #109 hover 的「终端打开」：同样是宿主能力（VS Code 侧是集成终端），官方 web 形态
+      // 没有 → 不注入 = 那一枚按钮不渲染。
+      ...(caps.workspaceTerminal
+        ? {
+            openWorkspaceTerminal: (path: string): void => {
+              caps.openWorkspaceTerminal(path).catch((reason: unknown) => {
+                console.warn('[dsh-one] open workspace terminal failed:', reason)
+              })
+            },
+          }
+        : {}),
+      // #109 当前工作区那枚胶囊上的容器名（读时判定，与 editorTabs 同一形态）。
+      shellName: caps.shellName,
       // 官方 sessions 服务：选中会话（镜像官方 ui-workspace 的 openSession，
       // 不调 layout.selectPanel——自有侧栏树没有主面板概念）。
       open: (sessionId: string): void => {
@@ -321,9 +361,14 @@ export function apply(ctx: TreeContext): void {
       // 工作区行的「+」：官方 uiWorkspace.startSession 的语义（它依赖 layout 服务的
       // beginNavigation/selectPanel，自有 layout 桩没有这两件，故按同一语义直接
       // 用 sessions 服务实现）。
+      // #109：未分组桶的 ＋ 也走这里（`workspaceId === undefined`）——建一条**不属于
+      // 任何工作区**的会话。旧侧栏的 `sessionNewUngrouped` 就是这条语义；官方
+      // `sessions.create` 的 workspaceId 是可选的，省略即散会话（它会落在未分组桶里）。
       startSession: (workspaceId?: string): void => {
-        if (workspaceId === undefined) return
-        void startSessionIn(workspaceId)
+        void (workspaceId === undefined
+          ? sessions.create({})
+          : startSessionIn(workspaceId)
+        )
           .then((id) => sessions.open(id))
           .catch((reason: unknown) => console.warn('[dsh-one] new session failed:', reason))
       },

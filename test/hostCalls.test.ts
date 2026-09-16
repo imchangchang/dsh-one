@@ -14,7 +14,11 @@ import {
   isHostCallError,
   parseAllowedUrl,
   parseGitShowArgs,
+  parseOpenFolderArgs,
+  parseOpenTerminalArgs,
   parseSessionTabArgs,
+  parseWorkspacePath,
+  WORKSPACE_PATH_MAX,
   resolveAllowedDir,
   resolveQueryDir,
 } from '../src/pure/hostCalls.ts'
@@ -131,4 +135,42 @@ test('resolveQueryDir：会话工作区路径在允许根内时优先用它', as
   } finally {
     for (const dir of [vscodeFolder, gatewayWorkspace, outside]) await fs.rm(dir, { recursive: true, force: true })
   }
+})
+
+/* ------------------------------------------------------------------ *
+ * #109：工作区目录的宿主动作（openFolder / openTerminal）的参数校核。
+ * 这一组只校形状（绝对路径、无控制字符、限长）——**不做限域**，理由写在
+ * `parseWorkspacePath` 的注释里（路径来自官方工作区注册表，动作是用户看得见的
+ * 开窗/开终端；与 git.show 那种读文件内容的能力不是一类）。
+ * ------------------------------------------------------------------ */
+
+test('parseWorkspacePath：只认绝对路径，相对路径与空值一律拒', () => {
+  assert.equal(parseWorkspacePath('/Users/someone/repo'), '/Users/someone/repo')
+  assert.equal(parseWorkspacePath('C:/Users/someone/repo'), 'C:/Users/someone/repo')
+  assert.equal(parseWorkspacePath('c:\\Users\\someone\\repo'), 'c:\\Users\\someone\\repo')
+  assert.equal(isHostCallError(parseWorkspacePath('relative/repo')), true)
+  assert.equal(isHostCallError(parseWorkspacePath('')), true)
+  assert.equal(isHostCallError(parseWorkspacePath(42)), true)
+  assert.equal(isHostCallError(parseWorkspacePath(undefined)), true)
+})
+
+test('parseWorkspacePath：换行/控制字符与超长路径拒掉（路径要进命令与日志）', () => {
+  assert.equal(isHostCallError(parseWorkspacePath('/repo\nrm -rf /')), true)
+  assert.equal(isHostCallError(parseWorkspacePath('/repo\u0000')), true)
+  assert.equal(isHostCallError(parseWorkspacePath(`/${'a'.repeat(WORKSPACE_PATH_MAX)}`)), true)
+})
+
+test('parseOpenFolderArgs：newWindow 缺省 false，非布尔拒掉', () => {
+  assert.deepEqual(parseOpenFolderArgs({ path: '/repo' }), { path: '/repo', newWindow: false })
+  assert.deepEqual(parseOpenFolderArgs({ path: '/repo', newWindow: true }), { path: '/repo', newWindow: true })
+  assert.deepEqual(parseOpenFolderArgs({ path: '/repo', newWindow: false }), { path: '/repo', newWindow: false })
+  assert.equal(isHostCallError(parseOpenFolderArgs({ path: '/repo', newWindow: 'yes' })), true)
+  assert.equal(isHostCallError(parseOpenFolderArgs({ path: 'relative' })), true)
+  assert.equal(isHostCallError(parseOpenFolderArgs(undefined)), true)
+})
+
+test('parseOpenTerminalArgs：只要一个合规路径', () => {
+  assert.deepEqual(parseOpenTerminalArgs({ path: '/repo' }), { path: '/repo' })
+  assert.equal(isHostCallError(parseOpenTerminalArgs({ path: '' })), true)
+  assert.equal(isHostCallError(parseOpenTerminalArgs({})), true)
 })

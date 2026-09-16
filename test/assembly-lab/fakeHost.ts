@@ -50,7 +50,9 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}, failCal
     failStateWrite: null,
     sessionTabsOpened: [],
     settingsOpened: [],
-    workspaceCreateCalls: []
+    workspaceCreateCalls: [],
+    openedFolders: [],
+    terminalsOpened: []
   }
   host.failCalls = FAIL_CALLS.slice()
   var scope = ${JSON.stringify(stateScope)}
@@ -157,6 +159,29 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}, failCal
       // #99 顶栏齿轮：真宿主在这里开/聚焦设置页（独立编辑器页）；假宿主只记录
       // 「页面确实经能力口要过这件事」——设置页本身在真宿主里。
       host.settingsOpened.push(true)
+      result(message.id, true, null)
+      return
+    }
+    if (message.call === "vscode.openFolder") {
+      // #109 工作区行「在 VS Code 打开」/「在新窗口打开文件夹」：真宿主执行
+      // vscode.openFolder；假宿主只记录路径与「要不要新窗口」，不真的开窗。
+      var folderPath = message.args && typeof message.args.path === "string" ? message.args.path : ""
+      if (folderPath === "") {
+        result(message.id, false, { code: "invalid-args", message: "lab host: empty workspace path" })
+        return
+      }
+      host.openedFolders.push({ path: folderPath, newWindow: message.args.newWindow === true })
+      result(message.id, true, null)
+      return
+    }
+    if (message.call === "vscode.openTerminal") {
+      // #109 工作区行「终端打开」：真宿主开集成终端（cwd = 该目录）；假宿主只记录。
+      var terminalPath = message.args && typeof message.args.path === "string" ? message.args.path : ""
+      if (terminalPath === "") {
+        result(message.id, false, { code: "invalid-args", message: "lab host: empty workspace path" })
+        return
+      }
+      host.terminalsOpened.push({ path: terminalPath })
       result(message.id, true, null)
       return
     }

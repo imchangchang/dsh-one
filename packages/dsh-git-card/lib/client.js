@@ -231,6 +231,29 @@ function hostCapabilities(ctx) {
         return;
       }
       throw fail("unavailable", "this shell cannot create a workspace directory; the official directory flow owns creation here");
+    },
+    // #109：工作区行的两个宿主动作（在编辑器里打开文件夹 / 开集成终端）。与
+    // editorTabs 同一形态——两侧语义不同，没有的那一端少的就是入口本身。
+    get workspaceOpen() {
+      return viaBridge();
+    },
+    async openWorkspaceFolder(path, options) {
+      if (!viaBridge()) {
+        throw fail("unavailable", "this shell has no editor window; the official web page opens folders elsewhere");
+      }
+      await bridgeCall("vscode.openFolder", { path, newWindow: options?.newWindow === true });
+    },
+    get workspaceTerminal() {
+      return viaBridge();
+    },
+    async openWorkspaceTerminal(path) {
+      if (!viaBridge()) {
+        throw fail("unavailable", "this shell has no integrated terminal; dsh web owns its own terminal panel");
+      }
+      await bridgeCall("vscode.openTerminal", { path });
+    },
+    get shellName() {
+      return viaBridge() ? "vscode" : "web";
     }
   };
 }
