@@ -183,26 +183,23 @@ export const SCALE_TIERS = {
 
 /**
  * 档位表管不到的规则（上面注释表里点名的例外）：键是规则选择器里的子串，值是理由。
- * 断言遇到这里列到的规则就跳过；要往里加，先在这里写清为什么。
+ * 断言遇到这里列到的规则就跳过；要往里加，先写清为什么。
+ *
+ * **理由串用英文**：i18n 合入门禁把 `src/**` 新增行里的中文字符串字面量当「漏翻」拦
+ * （`scripts/check-i18n.sh` 的兜底检查 5），而这里的串是给断言读的数据、不是界面文案；
+ * 中文说明写在每一条上方的注释里。
  */
 export const SCALE_EXEMPT: readonly { selector: string; reason: string }[] = [
-  {
-    selector: 'dshOneTree_tag',
-    reason: '标签组（#107）：形态与数值逐字沿用旧侧栏的 .tag-* 规则，不进档位表（要改另立条目）',
-  },
-  { selector: 'dshOneTree_visuallyHidden', reason: 'a11y 的 1×1 裁剪盒，不是几何档位' },
-  {
-    selector: 'dshOneTree_checkDash',
-    reason: '勾选框里的自绘短横线：官方图标集没有减号类图标，这条横线用样式画（出处见那条规则上方）',
-  },
-  {
-    selector: 'dshOneTree_drawerHandle',
-    reason: '抽屉把手（#103 自有件）：12px 是可抓区高度、32×3 是自绘把手条——官方没有这个形态，档位表里没有对应物',
-  },
-  {
-    selector: 'dshOneTree_drawerGrip',
-    reason: '同上：把手条本体（32×3、2px 圆角），与 .dshOneTree_drawerHandle 一起构成抽屉把手',
-  },
+  // 标签组（#107）：形态与数值逐字沿用旧侧栏的 .tag-* 规则，不进档位表（要改另立条目）。
+  { selector: 'dshOneTree_tag', reason: 'tag groups (#107): values kept verbatim from the old sidebar' },
+  // a11y 的 1×1 裁剪盒（视觉隐藏但仍在树里），不是几何档位能表达的形态。
+  { selector: 'dshOneTree_visuallyHidden', reason: 'a11y 1x1 clip box is not a geometric tier value' },
+  // 勾选框里的自绘短横线：官方图标集没有减号类图标，这条横线用样式画（举证见那条规则上方）。
+  { selector: 'dshOneTree_checkDash', reason: 'hand-drawn half-check dash: official icons have no minus glyph' },
+  // 抽屉把手（#103 自有件）：12px 是可抓区高度、32×3 是自绘把手条——官方没有这个形态。
+  { selector: 'dshOneTree_drawerHandle', reason: 'drawer handle (#103): hand-drawn shape, no official counterpart' },
+  // 同上：把手条本体（32×3、2px 圆角），与 .dshOneTree_drawerHandle 一起构成抽屉把手。
+  { selector: 'dshOneTree_drawerGrip', reason: 'drawer handle grip bar: same hand-drawn shape as above' },
 ]
 // 导出给断言用（test/sidebarStyleScale.test.ts 直接拿这段字符串做表驱动扫描：档位表与
 // 样式是同一份源码里的两个东西，读实体比扫源码文本稳）。
