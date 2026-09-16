@@ -1,14 +1,14 @@
 {
   "title": "DSH One 装配实验室报告：浏览器验证套件（#78）",
   "branch": "agent/sidebar-features",
-  "commit": "79d3626482d5af237e36ebe097fa6526a5caa79a",
+  "commit": "841e35e242a0b98b80d2d54f990f0d77854e524a",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
     "dsh": "0.1.6-alpha.1",
     "gateway": "http://127.0.0.1:3080",
-    "lab": "http://127.0.0.1:50293",
-    "driver": "playwright chromium + test/assembly-lab/verify.ts（7 个套件）",
-    "date": "2026-09-16T02:59:40.007Z"
+    "lab": "http://127.0.0.1:3311",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（8 个套件）",
+    "date": "2026-09-16T03:07:15.715Z"
   },
   "coverageNote": "本报告是浏览器验证（第一道验证）：装配页由仓库真实模块（pageHtml / wireFilter / trees / assemblyMirror）构建，数据面是本机真实 dsh 网关（只读），宿主通道是假宿主（按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP 差异、剪贴板、原生菜单、多 webview 生命周期）、运行中回合的停止路径、真模型输出、macOS 之外的平台。这些见 VS Code 验证（scripts/dev-ui-test.sh，最终准绳）与 test/sandbox 沙盒。",
   "items": [
@@ -24,7 +24,7 @@
         "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/contract-chat.png",
         "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/contract-settings.png"
       ],
-      "notes": "本套件断言 32 条，通过 32。\n观测：\n- sidebar：ready=true 槽位锚点=8 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 自有工作区树的会话行=2\n- sidebar-official：ready=true 槽位锚点=9 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 官方浏览区的会话行=2\n- chat：ready=true 槽位锚点=20 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 对话区 composer 座位=1\n- settings：ready=true 槽位锚点=6 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=6 设置内容区=1\n- settings：放行已知噪音 6 条（#74：设置树里官方 @deepseek-ai/dsh-client-ui-agent-preset 的槽位控制器在非活跃上下文读 sessions 服务（官方 web 同动作零报错），设置页照常渲染——与本仓库底座契约无关。）"
+      "notes": "本套件断言 32 条，通过 32。\n观测：\n- sidebar：ready=true 槽位锚点=8 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 自有工作区树的会话行=2\n- sidebar-official：ready=true 槽位锚点=9 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 官方浏览区的会话行=2\n- chat：ready=true 槽位锚点=20 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 对话区 composer 座位=1\n- settings：ready=true 槽位锚点=6 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=16 设置内容区=1\n- settings：放行已知噪音 16 条（#74：设置树里官方 @deepseek-ai/dsh-client-ui-agent-preset 的槽位控制器在非活跃上下文读 sessions 服务（官方 web 同动作零报错），设置页照常渲染——与本仓库底座契约无关。）"
     },
     {
       "id": "F-02",
@@ -52,7 +52,7 @@
         "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/interact-clear-done.png",
         "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/interact-clear-undo.png"
       ],
-      "notes": "本套件断言 14 条，通过 14。\n观测：\n- 右键菜单：{\"marked\":1,\"menuPresent\":true,\"role\":\"menu\",\"items\":1,\"iconItems\":1}\n- git 卡片：{\"present\":true,\"text\":\"Lab Bot18 小时前 (2026-09-15 08:00:00.000Z)lab: fake commit deadbeesecond line of the fake body3 个文件变更, +12, -4提交 0123456在 GitHub 打开\",\"buttons\":2}\n- GitHub 按钮发出的 openExternal：[\"https://github.com/example/repo/commit/deadbee\"]\n- 第一次 Esc 后的提示元素=1\n- 第二次 Esc 后的草稿=\"\" 撤销入口=1\n- Ctrl+Z 后的草稿=\"lab clear test\""
+      "notes": "本套件断言 14 条，通过 14。\n观测：\n- 右键菜单：{\"marked\":1,\"menuPresent\":true,\"role\":\"menu\",\"items\":1,\"iconItems\":1}\n- git 卡片：{\"present\":true,\"text\":\"Lab Bot19 小时前 (2026-09-15 08:00:00.000Z)lab: fake commit deadbeesecond line of the fake body3 个文件变更, +12, -4提交 0123456在 GitHub 打开\",\"buttons\":2}\n- GitHub 按钮发出的 openExternal：[\"https://github.com/example/repo/commit/deadbee\"]\n- 第一次 Esc 后的提示元素=1\n- 第二次 Esc 后的草稿=\"\" 撤销入口=1\n- Ctrl+Z 后的草稿=\"lab clear test\""
     },
     {
       "id": "F-04",
@@ -73,7 +73,21 @@
       "expect": "装配页注入的 `__DSH_ONE_HOST__.call` 是函数；全页 `acquireVsCodeApi` **只被调用一次**（统一获取点约束，第二次会 throw）；并发调用按各自 id 兑现自己的回执；宿主拒绝时抛带 code 的结构化错误；上行消息形状是 {type:dshOne.hostCall,call,args,id} 且 id 各不相同。",
       "result": "pass",
       "screenshots": [],
-      "notes": "本套件断言 7 条，通过 7。\n观测：\n- 桥：{\"missing\":false,\"callType\":\"function\",\"acquireCalls\":1,\"shas\":[\"aaaaaaa\",\"bbbbbbb\"],\"codes\":[\"lab: fake commit aaaaaaa\",\"lab: fake commit bbbbbbb\"],\"rejected\":{\"code\":\"unknown-call\",\"message\":\"lab host: unknown call lab.unknown\"},\"ids\":[\"hc1-3kpmcugp\",\"hc2-yyyqgod2\",\"hc3-o2lhaf97\",\"hc4-qjbq3fzy\"],\"shapeOk\":true}"
+      "notes": "本套件断言 7 条，通过 7。\n观测：\n- 桥：{\"missing\":false,\"callType\":\"function\",\"acquireCalls\":1,\"shas\":[\"aaaaaaa\",\"bbbbbbb\"],\"codes\":[\"lab: fake commit aaaaaaa\",\"lab: fake commit bbbbbbb\"],\"rejected\":{\"code\":\"unknown-call\",\"message\":\"lab host: unknown call lab.unknown\"},\"ids\":[\"hc1-2lkkbpth\",\"hc2-8nd2h6tu\",\"hc3-wydintcg\",\"hc4-y290ks0n\"],\"shapeOk\":true}"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "可移植性：页面上没有自有 frame 标记时，三个 dsh-* 插件照常工作（PORTABLE 套件）",
+      "expect": "chat 树在**抹掉自有 frame 标记**的页面上（`data-shell*` 属性一律不落进 DOM，等于官方 web 那种「没有我们的 shell frame」的处境）照常可用：官方对话区容器仍在；夹具正文被 git 卡片装饰、悬停出提交卡片；行内码右键出菜单、Esc 撤掉；GitHub 按钮有宿主桥时走 `vscode.openExternal`，把宿主桥撤掉后改走页面 `window.open`（官方 web 侧那条路）；composer 里 Esc ×2 清空、Ctrl+Z 复原。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/portable-menu.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/portable-gitcard.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/portable-clear-arm.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/portable-clear-undo.png"
+      ],
+      "notes": "本套件断言 11 条，通过 11。\n观测：\n- 抹掉 frame 标记后的页面：data-shell=0 data-shell-overlay=0 官方对话区容器=1\n- 无 frame 标记时的右键菜单：{\"menu\":true,\"items\":1,\"marked\":1}\n- 无 frame 标记时的提交卡片：{\"present\":true,\"text\":\"Lab Bot19 小时前 (2026-09-15 08:00:00.000Z)lab: fake commit deadbeesecond line of the fake body3 个文件变更, +12, -4提交 0123456在 GitHub 打开\",\"buttons\":2}\n- 有宿主桥时的外链出口：[\"https://github.com/example/repo/commit/deadbee\"]\n- 撤掉宿主桥后的外链出口：[\"https://github.com/example/repo/commit/deadbee\"]"
     },
     {
       "id": "F-07",
