@@ -478,9 +478,10 @@ export const INTERACT_SUITE: LabSuite = {
  * style 与几何矩形逐项相等。数值不硬编码：官方改版后这边跟着变，不相等才报。
  *
  * `geometry`：缺省 = 宽高都比；`'width'` = 只比宽度（矮一截是功能带来的差异）；
- * `'none'` = 不比矩形（宽度由两边的工具栏条目数决定，不是外观契约）。
+ * `'height'` = 只比高度（宽度由取到的那一行文本决定）；`'none'` = 不比矩形（宽度由两边
+ * 的工具栏条目数决定，不是外观契约）。
  */
-const PARITY_PAIRS: ReadonlyArray<{ suffix: string; props: readonly string[]; geometry?: 'width' | 'none' }> = [
+const PARITY_PAIRS: ReadonlyArray<{ suffix: string; props: readonly string[]; geometry?: 'width' | 'height' | 'none' }> = [
   { suffix: 'sectionHeader', props: ['height', 'borderRadius', 'paddingLeft', 'marginTop', 'marginBottom', 'marginRight'] },
   // 搜索栏（#99）：自有树常驻官方那套 UI 的**展开态**（30px 高、10px 圆角、.5px 边框），
   // 官方对照档默认折叠（28px 圆胶囊），所以套件先把官方那份点开（见下面 run 里的说明），
@@ -493,7 +494,10 @@ const PARITY_PAIRS: ReadonlyArray<{ suffix: string; props: readonly string[]; ge
   { suffix: 'projectRow', props: ['height', 'paddingLeft', 'paddingRight', 'gap', 'borderRadius'] },
   { suffix: 'sessionRow', props: ['height', 'paddingLeft', 'paddingRight', 'gap', 'borderRadius'] },
   { suffix: 'title', props: ['fontSize', 'lineHeight', 'marginLeft', 'marginRight', 'marginTop', 'marginBottom'] },
-  { suffix: 'time', props: ['fontSize', 'lineHeight'] },
+  // #109 起自有树把**当前工作区那一组排到最前**（E7），官方页仍按工作区注册顺序——两侧
+  // 取到的「第一个时间」因此可能是不同会话的相对时间（实测 own="1小时" vs official="11分钟"），
+  // 而宽度正是被文本撑出来的。所以这一组只比高度（20px 行高）与样式，不比宽度。
+  { suffix: 'time', props: ['fontSize', 'lineHeight'], geometry: 'height' },
   { suffix: 'slot', props: ['width', 'height'] },
   // 列表容器只比宽度：自有树在它上面多了一条分组过滤条（#81 功能 1），容器因此
   // 矮一行——那是**功能带来的**差异，不是外观偏差；宽度、内边距、滚动条槽这些
@@ -505,6 +509,8 @@ interface ParitySample {
   found: boolean
   styles: Record<string, string>
   rect: { width: number; height: number }
+  /** 取到的那个元素的文本（比较失败时能一眼看出「是不是同一行」）。 */
+  text: string
 }
 
 async function samplePair(page: OpenedPage['page'], suffix: string, props: readonly string[]): Promise<ParitySample> {
@@ -520,12 +526,17 @@ async function samplePair(page: OpenedPage['page'], suffix: string, props: reado
           break
         }
       }
-      if (element === null) return { found: false, styles: {}, rect: { width: 0, height: 0 } }
+      if (element === null) return { found: false, styles: {}, rect: { width: 0, height: 0 }, text: '' }
       const computed = getComputedStyle(element)
       const styles: Record<string, string> = {}
       for (const prop of styleProps) styles[prop] = computed.getPropertyValue(prop)
       const rect = element.getBoundingClientRect()
-      return { found: true, styles, rect: { width: Math.round(rect.width * 2) / 2, height: Math.round(rect.height * 2) / 2 } }
+      return {
+        found: true,
+        styles,
+        rect: { width: Math.round(rect.width * 2) / 2, height: Math.round(rect.height * 2) / 2 },
+        text: (element.textContent ?? '').slice(0, 40),
+      }
     },
     { suffix, props },
   )
@@ -536,7 +547,7 @@ export const PARITY_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏树外观与几何对齐官方（PARITY 套件，260/340/500 三档宽度）',
   expect:
-    '同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索胶囊、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。两组例外都写明了理由：**列表容器只比宽度**（自有树多一条分组过滤条，容器矮一行是功能带来的），**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。',
+    '同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索胶囊、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。四组例外都写明了理由：**列表容器只比宽度**（自有树多一条分组过滤条，容器矮一行是功能带来的）、**相对时间只比高度**（#109 的 E7 把当前工作区那一组排到最前，官方页仍按注册顺序，两侧取到的可能是不同会话的相对时间，而宽度正是被文本撑出来的）、**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const own = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -613,6 +624,9 @@ export const PARITY_SUITE: LabSuite = {
             continue
           }
           if (!check.ok(`${label}：两侧都取到元素`, a.found && b.found, `own=${String(a.found)} official=${String(b.found)}`)) continue
+          // 矩形与文本一起记：宽度差往往只是「两侧取到的是不同行」（例如 #109 起自有树把当前
+          // 工作区那一组排到最前，官方页仍按注册顺序），有文本才看得出一眼。
+          check.fact(`${label}：own=${JSON.stringify(a.text)} (${String(a.rect.width)}) official=${JSON.stringify(b.text)} (${String(b.rect.width)})`)
           for (const prop of pair.props) {
             check.ok(`${label}：${prop} 一致`, a.styles[prop] === b.styles[prop], `own=${a.styles[prop]} official=${b.styles[prop]}`)
           }
@@ -626,10 +640,14 @@ export const PARITY_SUITE: LabSuite = {
             `${label}：几何矩形一致`,
             pair.geometry === 'width'
               ? a.rect.width === b.rect.width
-              : a.rect.width === b.rect.width && a.rect.height === b.rect.height,
+              : pair.geometry === 'height'
+                ? a.rect.height === b.rect.height
+                : a.rect.width === b.rect.width && a.rect.height === b.rect.height,
             pair.geometry === 'width'
               ? `own=${{ w: a.rect.width, h: a.rect.height }} official=${{ w: b.rect.width, h: b.rect.height }}（本组只比宽度）`
-              : `own=${JSON.stringify(a.rect)} official=${JSON.stringify(b.rect)}`,
+              : pair.geometry === 'height'
+                ? `own=${{ w: a.rect.width, h: a.rect.height }} official=${{ w: b.rect.width, h: b.rect.height }}（本组只比高度：宽度由取到的那一行文本决定）`
+                : `own=${JSON.stringify(a.rect)} official=${JSON.stringify(b.rect)}`,
           )
         }
         if (width === 340) {
@@ -1108,14 +1126,18 @@ export const SIDEBAR_SUITE: LabSuite = {
       })()
       check.ok('功能 1：新分组立刻出现在胶囊的下拉里', pillAfter.includes(created?.id ?? 'none'), pillAfter.join(','))
 
-      // 归属：工作区行的「…」菜单 → 勾一个分组 → 归属写回状态存储。
-      // 行操作按钮平时是 display:none（悬停才出，官方同款），所以先 hover 行再点。
+      // 归属：工作区行的**右键**菜单 →（#109 起「所属分组」改成）「分组…」二级菜单 →
+      // 勾一个分组 → 归属写回状态存储。
+      // #109 起工作区行不再有「…」按钮（hover 是四枚动作：＋/终端/在 VS Code 打开/从列表
+      // 移除），菜单走右键；「分组…」是就地展开的二级菜单，点父项只展开、点子项才提交。
       const workspaceRow = page.locator('[data-dshone-tree-row="workspace"]').first()
-      await workspaceRow.hover()
-      await workspaceRow.locator('[data-dshone-tree-action="workspace-menu"]').click()
+      await workspaceRow.click({ button: 'right', position: { x: 60, y: 16 } })
       await page.waitForTimeout(300)
+      check.ok('功能 1：工作区行右键弹出菜单（带标题行）', (await bodyText(page)).includes('工作区:'), (await bodyText(page)).slice(0, 120))
+      await page.click('[data-dshone-tree-item="groups"]')
+      await page.waitForTimeout(250)
       const menuText = await bodyText(page)
-      check.ok('功能 1：工作区行菜单里有「所属分组」一节', created !== undefined && menuText.includes('Lab New'), menuText.slice(0, 160))
+      check.ok('功能 1：工作区行菜单的「分组…」二级菜单里能看到新建的分组', created !== undefined && menuText.includes('Lab New'), menuText.slice(0, 160))
       await page.click(`[role="menuitem"]:has-text("Lab New")`)
       await page.waitForTimeout(300)
       const afterAssign = (await hostGroups(page)) as { membership?: Record<string, string[]> } | null
@@ -1404,7 +1426,11 @@ export const MULTIOPEN_SUITE: LabSuite = {
     try {
       // 只有非空白会话行才带行菜单（官方 SessionNodeItem：`!row.blank && (...)` 才渲染
       // 时间与行操作），多开入口同理——所以可点的行按「带行操作的会话行」挑。
-      const rows = sidebar.page.locator('.dshOneTree_sessionRow').filter({ has: sidebar.page.locator('.dshOneTree_rowActions') })
+      // #109 起空白会话行也有行操作容器（只为挂菜单，官方不给显式 ⋯），所以多开入口这一档
+      // 按「有 ⋯ 按钮」挑行。
+      const rows = sidebar.page
+        .locator('.dshOneTree_sessionRow')
+        .filter({ has: sidebar.page.locator('[data-dshone-tree-action="session-menu"]') })
       // 树默认只展开当前会话所在分组，其余分组收起、里面一条会话行都不渲染 —— 先展开
       // 几个分组，凑出 ≥2 条带行菜单的会话行（点分组头只是本地展开，不写网关）。
       const groupRows = sidebar.page.locator('.dshOneTree_projectRow')
@@ -2462,8 +2488,10 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       // 是为了让「块内按移入顺序倒序」这条断言真的有两行可比（跨块的各一条看不出顺序）。
       const fixture = await page.evaluate(() => {
         for (const section of Array.from(document.querySelectorAll('[data-dshone-group-key]'))) {
+          // #109 起空白会话行也挂着菜单容器（右键要能开出菜单，见 rows.ts），所以夹具按
+          // 「有 ⋯ 按钮」认「带行菜单的会话行」——这一档要的是能用 ⋯ 走一遍菜单的行。
           const rows = Array.from(section.querySelectorAll('[data-dshone-tree-row="session"]')).filter(
-            (row) => row.querySelector('.dshOneTree_rowActions') !== null,
+            (row) => row.querySelector('[data-dshone-tree-action="session-menu"]') !== null,
           )
           if (rows.length >= 2) {
             return {
@@ -2752,9 +2780,11 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       // 一条会话一个事实：把前若干行逐个开菜单读「归档项」的判定结果，验
       // 「原因 ↔ 禁用 ↔ 提示」三者一致（四种原因分别是哪条，取决于当天网关上的会话状态，
       // 所以这里钉的是接线与一致性，纯判定的四态在单测 test/sessionActions.test.ts 里）。
+      // 这一圈要逐个开 ⋯ 菜单读归档项，所以按「有 ⋯ 按钮」挑行（#109 起空白会话行也有
+      // 行操作容器，只是没有按钮）。
       const probeRows = await page.evaluate(() =>
         Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
-          .filter((row) => row.querySelector('.dshOneTree_rowActions') !== null)
+          .filter((row) => row.querySelector('[data-dshone-tree-action="session-menu"]') !== null)
           .slice(0, 6)
           .map((row) => row.getAttribute('data-dshone-tree-session') ?? ''),
       )
@@ -3001,13 +3031,14 @@ export const TAG_GROUPS_SUITE: LabSuite = {
     const bucketOf = async (key: string): Promise<LabTagBucket> => (await tags())?.workspaces?.[key] ?? {}
     try {
       await expandAllWorkspaces(page)
-      // 夹具：同一工作区块里 ≥3 条带行菜单的会话（空白会话行没有行菜单）。
+      // 夹具：同一工作区块里 ≥3 条带行菜单的会话（按「有 ⋯ 按钮」认——#109 起空白会话行也
+      // 挂行操作容器，但它没有按钮可点）。
       // 三条各有去处：一条原本在旧内置组里（迁入后该回落未归组）、一条在自建组里、
       // 一条用来拖来拖去。
       const fixture = await page.evaluate(() => {
         for (const section of Array.from(document.querySelectorAll('[data-dshone-group-key]'))) {
           const rows = Array.from(section.querySelectorAll('[data-dshone-tree-row="session"]')).filter(
-            (row) => row.querySelector('.dshOneTree_rowActions') !== null,
+            (row) => row.querySelector('[data-dshone-tree-action="session-menu"]') !== null,
           )
           if (rows.length >= 3) {
             return {
@@ -3098,12 +3129,15 @@ export const TAG_GROUPS_SUITE: LabSuite = {
         !(await tagBlockFacts(page)).some((block) => block.rows.includes(spare)),
       )
 
-      // ---- ③ 新建第二个组（会话行 ⋯ → 标签组一节 → 新建标签组…）----
+      // ---- ③ 新建第二个组（会话行 ⋯ → 「移到分组…」二级菜单 → 新建标签组…）----
+      // #109 起这一节住在「移到分组…」的就地展开里（不再是菜单末尾的一节），先点开父项。
       await openRowMenu(page, spare)
+      await page.click('[data-dshone-tree-item="moveToGroup"]')
+      await page.waitForTimeout(250)
       const rowTagSection = await page.evaluate(() =>
         Array.from(document.querySelectorAll('[data-dshone-tree-item^="tag:"]')).map((el) => el.textContent ?? ''),
       )
-      check.fact(`行菜单的标签组一节：${JSON.stringify(rowTagSection)}`)
+      check.fact(`行菜单「移到分组…」里的项：${JSON.stringify(rowTagSection)}`)
       check.ok('会话行菜单里有「新建标签组…」与「不归入标签组」', rowTagSection.includes('新建标签组') && rowTagSection.includes('不归入标签组'))
       check.ok('菜单里列出了本工作区已有的组', rowTagSection.includes('实验室组'))
       await page.click('[data-dshone-tree-item="tag:__new"]')
@@ -3146,16 +3180,53 @@ export const TAG_GROUPS_SUITE: LabSuite = {
       screenshots.push(await shot(ctx, page, 'tag-groups-pin'))
 
       // ---- ⑥ 折叠 + 折叠计数（用只有一个成员的乙组，计数好数） ----
+      // 「标为未读」在运行中（或后代在跑）的会话上是禁用的（#102 的保护规则），而网关数据是
+<<<<<<< HEAD
+      // 活的（别的 session 随时在跑回合）：先看这一行现在能不能标，不能就记事实跳过这一步；
+      // 计数断言改成跟组内成员的真实状态对照，不赌数据。
+=======
+      // 活的（别的 session 随时在跑回合）：先看这一行现在能不能标，不能就记事实跳过这一步，
+      // 后面那条「计数与组内成员同源」的断言改成跟成员行的真实状态对照，不赌数据。
+>>>>>>> 98dba31 (#109 验证与报告：F-17 套件（60 条断言）+ 三处套件适配 + 台账)
       await openRowMenu(page, spare)
-      await page.click('[data-dshone-tree-item="unread"]')
-      await page.waitForTimeout(400)
+      const unreadEnabled = await page.evaluate(() => {
+        const button = document.querySelector('[data-dshone-tree-item="unread"]')?.closest('button') ?? null
+        return button !== null && !(button as HTMLButtonElement).disabled
+      })
+      if (unreadEnabled) {
+        await page.click('[data-dshone-tree-item="unread"]')
+        await page.waitForTimeout(400)
+      } else {
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(200)
+        check.fact('乙组那一条这会儿跑着（或后代在跑）→ 「标为未读」按 #102 的规则禁用，跳过「标未读」这一步')
+      }
+      // 折叠前记下组内每一条的真实状态（折叠后行就不渲染了，量不到）。
+      const memberStates = await page.evaluate(
+        (tag: string) =>
+          Array.from(document.querySelectorAll(`[data-dshone-tree-tag="${tag}"] [data-dshone-tree-row="session"]`)).map((row) => ({
+            status: row.getAttribute('data-dshone-tree-status') ?? '',
+            unread: (row.querySelector('.dshOneTree_title')?.className ?? '').includes('dshOneTree_unread'),
+          })),
+        createdId,
+      )
+      const expectedCounts = [
+        memberStates.filter((m) => m.status === 'waiting').length,
+        memberStates.filter((m) => m.status !== 'waiting' && m.status === 'running').length,
+        memberStates.filter((m) => m.status !== 'waiting' && m.status !== 'running' && m.unread).length,
+      ].join('/')
       await page.click(`[data-dshone-tree-tag="${createdId}"] [data-dshone-tree-action="tag-toggle"]`)
       await page.waitForTimeout(350)
       const collapsed = (await tagBlockFacts(page)).find((block) => block.tag === createdId)
-      check.fact(`折叠后的乙组=${JSON.stringify(collapsed)}`)
+      check.fact(`折叠后的乙组=${JSON.stringify(collapsed)}（折叠前成员状态=${JSON.stringify(memberStates)}）`)
       check.eq('点三角收起：组内行不再渲染', collapsed?.rows.length, 0)
       check.eq('折叠标记写在块上', collapsed?.collapsed, true)
-      check.eq('折叠时组头出「待交互/运行中/未读」计数（这一组是 1 条未读）', collapsed?.counts, '0/0/1')
+      check.eq('折叠时组头出「待交互/运行中/未读」计数，且与组内成员的真实状态同源', collapsed?.counts, expectedCounts)
+      check.eq(
+        '三个桶相加 = 组内成员数（每会话只进一个桶）',
+        (collapsed?.counts ?? '').split('/').reduce((sum, n) => sum + Number(n), 0),
+        memberStates.length,
+      )
       const prefsText = await page.evaluate(() => localStorage.getItem('dsh.workspaceTree.view') ?? '')
       check.ok('折叠态落客户端存储（官方惯例的 dsh.workspaceTree.view，不是 tags.json）', prefsText.includes('tagCollapsed'))
       check.ok('折叠态没写进持久状态（tags.json 里没有折叠字段）', JSON.stringify(await tags()).includes('collapsed') === false)
@@ -4033,10 +4104,13 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       await page.keyboard.press('Escape')
       await page.waitForTimeout(250)
 
-      // 挑一条真会话当搜索夹具的目标（非空白行才有行菜单，也才会被搜索用到内容片段）。
+      // 挑一条真会话当搜索夹具的目标（有 ⋯ 按钮的行才有完整行菜单；#109 起空白会话行也有
+      // 行操作容器，只是没有按钮，所以按「有 ⋯」认，别按容器认）。
       const probe = await page.evaluate(() => {
         const row = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]')).find(
-          (candidate) => candidate.querySelector('.dshOneTree_rowActions') !== null && candidate.getAttribute('data-dshone-tree-status') === 'idle',
+          (candidate) =>
+            candidate.querySelector('[data-dshone-tree-action="session-menu"]') !== null &&
+            candidate.getAttribute('data-dshone-tree-status') === 'idle',
         )
         return {
           id: row?.getAttribute('data-dshone-tree-session') ?? '',
@@ -4077,9 +4151,12 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
             .map((candidate) => ({
               id: candidate.getAttribute('data-dshone-tree-session') ?? '',
               status: candidate.getAttribute('data-dshone-tree-status') ?? '',
-              hasActions: candidate.querySelector('.dshOneTree_rowActions') !== null,
-              // 空白会话行（当前那条临时「新会话」占位）既没有行菜单也没有相对时间。
-              blankLike: candidate.querySelector('.dshOneTree_rowActions') === null && candidate.querySelector('.dshOneTree_time') === null,
+              hasActions: candidate.querySelector('[data-dshone-tree-action="session-menu"]') !== null,
+              // 空白会话行（当前那条临时「新会话」占位）没有 ⋯ 按钮、也没有相对时间。
+              // #109 起它**也挂行操作容器**（只为让右键能开出菜单），所以这里按「没有 ⋯ 按钮」判。
+              blankLike:
+                candidate.querySelector('[data-dshone-tree-action="session-menu"]') === null &&
+                candidate.querySelector('.dshOneTree_time') === null,
               group: candidate.closest('[data-dshone-group-key]')?.getAttribute('data-dshone-group-key') ?? '(none)',
             })),
           role: first?.getAttribute('role') ?? '',
@@ -4196,9 +4273,10 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       // (c) 归档失败：`workspace/archiveSession` 的回执被夹具换成失败。
       // 挑一条归档项可用的行（资格判定见 pure/sessionEligibility.ts）：逐行开菜单读判定，
       // 与 F-15 同一做法——菜单走 portal，打开后要等它渲染出来才读得到。
+      // 候选按「有 ⋯ 按钮」挑（#109 起空白会话行也挂行操作容器，但它没有按钮可点）。
       const archiveCandidates = await page.evaluate(() =>
         Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
-          .filter((row) => row.querySelector('.dshOneTree_rowActions') !== null)
+          .filter((row) => row.querySelector('[data-dshone-tree-action="session-menu"]') !== null)
           .slice(0, 8)
           .map((row) => row.getAttribute('data-dshone-tree-session') ?? ''),
       )
@@ -4290,6 +4368,648 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
   },
 }
 
+// F-19 SIDEBAR-MENUS：菜单补全（#109）
+// ---------------------------------------------------------------------------
+
+/** 当前菜单（DOM 里最后一个 `[role="menu"]`）的项：标记、文案、禁用态，按 DOM 顺序。 */
+interface SidebarMenuItem {
+  marker: string
+  text: string
+  disabled: boolean
+  reason: string
+  tip: string
+  /** 二级菜单的子项（就地展开出来的那些：标记以 `-group-item` 结尾）。 */
+  inSubmenu: boolean
+  checked: string | null
+}
+
+async function sidebarMenuItems(
+  page: OpenedPage['page'],
+): Promise<{ items: SidebarMenuItem[]; separators: number; title: string }> {
+  return page.evaluate(() => {
+    // 名字里的「当前菜单」= DOM 里最后一个 `[role="menu"]`：二级菜单也是 `role="menu"`
+    // （官方 Menu 的 submenu 内联子树），展开后它就是最后一个。
+    const menu = Array.from(document.querySelectorAll('[role="menu"]')).pop() ?? null
+    if (menu === null) return { items: [], separators: 0, title: '' }
+    const title = (menu.querySelector('[data-dshone-tree-item="menu-title"]')?.textContent ?? '').trim()
+    const items = Array.from(menu.querySelectorAll('button[role="menuitem"]')).map((node) => {
+      const button = node as HTMLButtonElement
+      const mark = button.querySelector('[data-dshone-tree-item]')
+      const marker = mark?.getAttribute('data-dshone-tree-item') ?? ''
+      return {
+        marker,
+        text: (mark?.textContent ?? button.textContent ?? '').trim(),
+        disabled: button.disabled === true,
+        reason: mark?.getAttribute('data-dshone-disabled-reason') ?? 'missing',
+        tip: mark?.getAttribute('title') ?? '',
+        // 二级菜单的子项就是同一份 items 里排在父项后面的普通项（就地展开，见 rows.ts 的
+        // submenuChild——官方 submenu 槽是右侧飞出的一层，窄侧栏里会被裁掉），按标记认。
+        inSubmenu: marker.endsWith('-group-item'),
+        checked: mark?.getAttribute('data-dshone-group-checked') ?? null,
+      }
+    })
+    return { items, separators: menu.querySelectorAll('[role="separator"]').length, title }
+  })
+}
+
+/** 菜单里顶层项的标记顺序（二级子项与标题行不算）。 */
+function topLevelMarkers(facts: { items: readonly SidebarMenuItem[] }): string[] {
+  return facts.items.filter((item) => !item.inSubmenu && item.marker !== 'menu-title').map((item) => item.marker)
+}
+
+/** 树里全部工作区行的键（`data-dshone-tree-key`，未分组桶是空串）。 */
+async function workspaceRowKeys(page: OpenedPage['page']): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-dshone-tree-row="workspace"]')).map(
+      (row) => row.getAttribute('data-dshone-tree-key') ?? '',
+    ),
+  )
+}
+
+/** hover 某个工作区行之后，行上那几枚动作按钮的 `data-dshone-tree-action`（按 DOM 顺序）。 */
+async function workspaceRowActions(page: OpenedPage['page'], key: string): Promise<string[]> {
+  const row = page.locator(`[data-dshone-tree-row="workspace"][data-dshone-tree-key="${key}"]`)
+  await row.hover()
+  await page.waitForTimeout(200)
+  return row
+    .locator('.dshOneTree_rowActions button')
+    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-dshone-tree-action') ?? ''))
+}
+
+/** 假宿主记下的工作区打开 / 终端动作（#109 的两条新能力）。 */
+async function hostWorkspaceActions(
+  page: OpenedPage['page'],
+): Promise<{ folders: { path: string; newWindow: boolean }[]; terminals: { path: string }[] }> {
+  return page.evaluate(() => {
+    const host = (globalThis as unknown as {
+      __LAB_HOST__?: { openedFolders?: { path: string; newWindow: boolean }[]; terminalsOpened?: { path: string }[] }
+    }).__LAB_HOST__
+    return { folders: host?.openedFolders ?? [], terminals: host?.terminalsOpened ?? [] }
+  })
+}
+
+/**
+ * 菜单补全（#109）：会话行十项、接管条件放宽为「仅非选择态」、工作区行 hover 四按钮与
+ * 右键七项、二级菜单就地翻转、当前工作区标识。
+ *
+ * 数据面与其它套件一致（真实网关**只读** + 假宿主 + 注入的分组状态）：本套件**不点**
+ * 任何会写网关的项（归档确认、从列表移除确认、新建会话），只验菜单的项序、禁用条件与
+ * 就地反馈；「复制」走官方 primitives 的 `writeClipboard`，只写浏览器剪贴板。
+ */
+export const SIDEBAR_MENUS_SUITE: LabSuite = {
+  id: 'F-19',
+  phase: 'new-feature',
+  name: '侧栏菜单补全（#109）：会话行十项 + 接管条件 + 工作区行 hover 四按钮与右键七项 + 二级菜单 + 当前工作区标识（SIDEBAR-MENUS 套件）',
+  expect:
+    '侧栏树在真实装配页上（真网关只读 + 假宿主 + 注入的分组状态与标签组状态）：① **会话行菜单**按截图顺序凑齐十项（选择多个 / 在新标签页打开 / 重命名 / 置顶·取消置顶 / 标为未读·已读 / 移到分组… / 分叉会话 / 复制引用 / 移入回收站 / 归档会话），标题行「会话: {label}」、**无分隔线**；「移到分组…」是二级菜单（**就地展开**，子项 = 本工作区的标签组 + 不归入 + 新建）：点一项就归组并写回 `tags`、重开菜单时该项带官方 ✓；两项危险动作的禁用态与其判定原因一致；「置顶」按状态就地翻转并写宿主状态；「复制引用」写剪贴板并给飘提示；「选择多个」进选择态。② **接管条件只剩「非选择态」**：行右键开出同一份菜单（横向锚在指针处——活数据页面上行会在测量与点击之间移动，纵向逐像素那一条由 F-08 钉），Esc 关掉；空白会话行也挂着菜单容器（官方不给显式 ⋯，右键仍接管）。③ **工作区行 hover 四按钮**＝＋ / 终端打开 / 在 VS Code 打开（**仅非当前工作区**）/ 从列表移除；终端与打开文件夹经能力口发出带该工作区路径的调用。④ **工作区行右键七项**（复制文件夹引用 / 分组… / 归档该工作区全部会话 / 在新窗口打开文件夹 / 复制路径 / 重命名工作区 / 从列表移除），「分组…」展开后子项就地翻转 ✓ 且**不关菜单**（归属写回宿主状态），「归档全部会话」开的是 #103 那个确认弹窗（本套件只取消、不确认）。⑤ **当前工作区标识**：蓝色胶囊写宿主名（`vscode`）、该组排在最前、文件夹图标染色。全程零 pageerror。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+    const groupsState = {
+      version: 1,
+      groups: [
+        { id: 'g-lab-one', name: 'Lab One' },
+        { id: 'g-lab-two', name: 'Lab Two' },
+      ],
+      membership: {},
+      activeGroupId: null,
+    }
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), {
+      width: 380,
+      height: 900,
+      state: { groups: groupsState },
+    })
+    const { page } = opened
+    try {
+      // 剪贴板要显式授权（否则 navigator.clipboard 会以权限拒绝收场）。
+      await opened.context.grantPermissions(['clipboard-read', 'clipboard-write'])
+      await expandAllGroups(page)
+
+      // ---- ① 会话行菜单：项序、标题行、分隔线 ----
+      // 夹具要三样东西：一条**没归组**的会话行（菜单断言都用它）、以及同一个工作区里
+      // 另外两条会话——标签组只与成员一起存在（#107 的空组会被清掉），所以要给两个组各
+      // 挂一条成员，注进去的组才留得住。
+      const fixture = await page.evaluate(() => {
+        for (const section of Array.from(document.querySelectorAll('[data-dshone-group-key]'))) {
+          const rows = Array.from(section.querySelectorAll('[data-dshone-tree-row="session"]')).filter(
+            (row) => row.querySelector('[data-dshone-tree-action="session-menu"]') !== null,
+          )
+          if (rows.length >= 3) {
+            const at = (index: number): string => rows[index]?.getAttribute('data-dshone-tree-session') ?? ''
+            return {
+              key: section.getAttribute('data-dshone-group-key') ?? '',
+              id: at(0),
+              title: rows[0]?.querySelector('.dshOneTree_title')?.textContent ?? '',
+              members: [at(1), at(2)],
+            }
+          }
+        }
+        return null
+      })
+      check.fact(`夹具会话：${JSON.stringify(fixture)}`)
+      check.ok('找到一条没归组的会话行（同区块另有两条可挂进标签组）', fixture !== null && fixture.id !== '' && fixture.members.every((id) => id !== ''))
+      if (fixture === null || fixture.id === '' || !fixture.members.every((id) => id !== '')) return screenshots
+      let sessionId = fixture.id
+      let sessionTitle = fixture.title
+
+      // 「移到分组…」这一项的数据来自 #107 的标签组（状态在假宿主里，键 `tags`）：给**每个**
+      // 工作区都注两个组（默认网关数据里一个组都没有），重载后那一项才有组可列。
+      // 注给每个工作区而不是只注夹具那一个：重载后树的分组顺序可能变（当前会话变了），
+      // 只注一个的话夹具那一行可能落在没注过的工作区里，断言就观察不到东西了。
+      const tagState = {
+        version: 2,
+        workspaces: {
+          [fixture.key]: {
+            tags: [
+              { id: 't-one', name: '组一', color: 'blue' },
+              { id: 't-two', name: '组二', color: 'green' },
+            ],
+            // 每个组挂一条成员（#107 的空组会被清掉，不挂成员这一组就留不住）。
+            sessionTags: { [fixture.members[0]]: 't-one', [fixture.members[1]]: 't-two' },
+          },
+        },
+      }
+      check.fact(`标签组夹具：在夹具那个工作区注两个组（各挂一条成员）${JSON.stringify(tagState.workspaces[fixture.key].sessionTags)}`)
+      await page.addInitScript({
+        content: `(() => { globalThis.__LAB_HOST__.stateStore['tags'] = ${JSON.stringify(tagState)} })()`,
+      })
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
+      await page.waitForTimeout(2_500)
+      await expandAllGroups(page)
+      check.fact(`注入后宿主里的 tags 键=${JSON.stringify(Object.keys(((await hostState(page, 'tags')) as { workspaces?: Record<string, unknown> } | null)?.workspaces ?? {}).length)}`)
+
+      // 重载后仍用那一条夹具（它是没归组的那一条）：行在不在、标题是什么都重新读一遍。
+      const afterReload = await page.evaluate((id: string) => {
+        const row = document.querySelector(`[data-dshone-tree-session="${id}"]`)
+        if (row === null) return null
+        return {
+          id,
+          title: row.querySelector('.dshOneTree_title')?.textContent ?? '',
+          hasMenu: row.querySelector('[data-dshone-tree-action="session-menu"]') !== null,
+        }
+      }, sessionId)
+      check.ok('重载后夹具那一行还在（带 ⋯ 可开菜单）', afterReload !== null && afterReload.hasMenu)
+      if (afterReload === null) return screenshots
+      sessionTitle = afterReload.title
+      check.fact(`重载后的夹具会话：${JSON.stringify(afterReload)}`)
+
+      await openSessionMenu(page, sessionId)
+      const sessionMenu = await sidebarMenuItems(page)
+      const sessionMarkers = topLevelMarkers(sessionMenu)
+      // #107 标签组未落地 → 没有分组 → 「移到分组…」整项不出现（#109 的口径）。
+      const tagGroupsAvailable = sessionMarkers.includes('moveToGroup')
+      const expectedSessionItems = [
+        'selectMultiple',
+        'openInNewTab',
+        'rename',
+        'pin',
+        'unread',
+        ...(tagGroupsAvailable ? ['moveToGroup'] : []),
+        'fork',
+        'copyReference',
+        'move-to-recycle-bin',
+        'archive',
+      ]
+      check.fact(
+        `会话行菜单项序：${JSON.stringify(sessionMarkers)}（文案：${JSON.stringify(sessionMenu.items.filter((i) => !i.inSubmenu && i.marker !== 'menu-title').map((i) => i.text))}）`,
+      )
+      check.fact(
+        tagGroupsAvailable
+          ? '标签组能力在场：菜单里含「移到分组…」二级项'
+          : '标签组能力缺席（#107 未落地）：按 #109 的口径「没有分组就不显示该项」，「移到分组…」不出现，其余九项齐备',
+      )
+      check.eq('会话行菜单的项序与截图一致（十项；标签组未落地时九项 + 缺的正是「移到分组…」）', sessionMarkers, expectedSessionItems)
+      check.eq('标题行是「会话: {label}」', sessionMenu.title, `会话: ${sessionTitle}`)
+      check.eq('菜单里没有分隔线', sessionMenu.separators, 0)
+      screenshots.push(await shot(ctx, page, 'menus-session'))
+
+      // 「移到分组…」二级菜单（#107 的标签组）：原地展开、子项就地翻转 ✓、不关菜单。
+      if (tagGroupsAvailable) {
+        check.eq('展开前没有子项（二级菜单要点了才展开）', sessionMenu.items.filter((item) => item.marker.startsWith('tag:')).length, 0)
+        await page.click('[data-dshone-tree-item="moveToGroup"]')
+        await page.waitForTimeout(250)
+        const expandedGroups = await sidebarMenuItems(page)
+        const tagChildren = expandedGroups.items.filter((item) => item.marker.startsWith('tag:'))
+        check.fact(`「移到分组…」展开后子项：${JSON.stringify(tagChildren.map((item) => ({ m: item.marker, t: item.text })))}`)
+        check.eq('展开出本工作区的两个标签组（+ 不归入 + 新建）', tagChildren.map((item) => item.text), [
+          '组一',
+          '组二',
+          '不归入标签组',
+          '新建标签组',
+        ])
+        check.eq('展开后菜单没关（子项追加在同一份菜单里，就地展开）', await contentCount(page, '[role="menu"]'), 1)
+        const indented = await page.evaluate(() =>
+          Array.from(document.querySelectorAll('[data-dshone-tree-item^="tag:"]')).every(
+            (mark) => mark.closest('.dshOneTree_submenuItem') !== null,
+          ),
+        )
+        check.ok('子项带缩进（与父项区隔，观感上是二级）', indented)
+        screenshots.push(await shot(ctx, page, 'menus-session-group-submenu'))
+        await page.click('[data-dshone-tree-item="tag:t-one"]')
+        await page.waitForTimeout(500)
+        const tagsState = (await hostState(page, 'tags')) as { workspaces?: Record<string, { sessionTags?: Record<string, string> }> } | null
+        check.fact(`点「组一」后：宿主 tags=${JSON.stringify(tagsState?.workspaces?.[fixture.key]?.sessionTags)}`)
+        check.eq(
+          '点标签组项 = 就地归组（写回宿主状态）',
+          tagsState?.workspaces?.[fixture.key]?.sessionTags?.[sessionId] ?? '',
+          't-one',
+        )
+        // 归组后这一行会被搬到「组一」的块里（#107 的块渲染）：行换了父节点 → React 重挂
+        // → 挂在行上的菜单跟着收起。所以「不关菜单」这一条对**会搬家**的会话项不成立，
+        // 这里改验它的等价结果：那一行确实进了「组一」的块，且重开菜单时 ✓ 已经落在组一上。
+        const blocks = await tagBlockFacts(page)
+        const inGroup = blocks.find((block) => block.tag === 't-one')
+        check.fact(`归组后页面上的标签组块：${JSON.stringify(blocks.map((b) => ({ t: b.tag, rows: b.rows.length })))}`)
+        check.ok('归组后那一行搬进了「组一」的块（行换了位置）', inGroup !== undefined && inGroup.rows.includes(sessionId), JSON.stringify(inGroup))
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(250)
+        await openSessionMenu(page, sessionId)
+        await page.click('[data-dshone-tree-item="moveToGroup"]')
+        await page.waitForTimeout(250)
+        const rechecked = await page.evaluate(
+          (marker: string) => {
+            const button = document.querySelector(`[data-dshone-tree-item="${marker}"]`)?.closest('button') ?? null
+            return {
+              children: button?.childElementCount ?? 0,
+              text: button?.textContent?.trim() ?? '',
+            }
+          },
+          `tag:t-one`,
+        )
+        check.fact(`重开菜单后「组一」项：${JSON.stringify(rechecked)}`)
+        check.eq('重开菜单时「组一」项带官方勾选态（selectedIds 的 ✓）', rechecked.children, 3)
+        await page.click('[data-dshone-tree-item="tag:__none"]')
+        await page.waitForTimeout(500)
+        const unassignedTags = (await hostState(page, 'tags')) as { workspaces?: Record<string, { sessionTags?: Record<string, string> }> } | null
+        check.fact(`点「不归入标签组」后宿主 tags=${JSON.stringify(unassignedTags?.workspaces?.[fixture.key]?.sessionTags)}`)
+        check.ok(
+          '「不归入标签组」即取消归组（同一入口的开关语义）',
+          (unassignedTags?.workspaces?.[fixture.key]?.sessionTags?.[sessionId] ?? '') === '',
+          JSON.stringify(unassignedTags?.workspaces?.[fixture.key]?.sessionTags),
+        )
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(250)
+        check.eq('Esc 关掉菜单', await contentCount(page, '[role="menu"]'), 0)
+      } else {
+        check.fact('标签组那一节不在这一行的菜单里（单列表形态或标签组能力缺席）—— 跳过二级菜单断言')
+      }
+
+      // 禁用条件：判定原因 ↔ 禁用 ↔ 原因提示三者一致（与 F-15 同一口径）。
+      const recycle = sessionMenu.items.find((item) => item.marker === 'move-to-recycle-bin')
+      const archive = sessionMenu.items.find((item) => item.marker === 'archive')
+      check.fact(`危险两项：移入回收站=${JSON.stringify(recycle)} 归档会话=${JSON.stringify(archive)}`)
+      check.ok(
+        '「移入回收站」的禁用态与判定原因一致（有原因 = 禁用 + 带提示）',
+        recycle !== undefined && (recycle.reason === '' ? !recycle.disabled : recycle.disabled && recycle.tip !== ''),
+        JSON.stringify(recycle),
+      )
+      check.ok(
+        '「归档会话」的禁用态与判定原因一致（有原因 = 禁用 + 带提示）',
+        archive !== undefined && (archive.reason === '' ? !archive.disabled : archive.disabled && archive.tip !== ''),
+        JSON.stringify(archive),
+      )
+
+      // ---- ② 复制引用：写剪贴板 + 飘提示 ----
+      // 上一节收尾把菜单关掉了（归组后那一行搬过家），这里重新开一次。
+      await openSessionMenu(page, sessionId)
+      await page.click('[data-dshone-tree-item="copyReference"]')
+      await page.waitForTimeout(400)
+      const clipboard = await page
+        .evaluate(() => navigator.clipboard.readText().catch(() => ''))
+        .catch(() => '')
+      const copyFlash = await page.textContent('[data-dshone-tree="flash"]').catch(() => '')
+      check.fact(`复制引用：剪贴板=${JSON.stringify(clipboard.slice(0, 80))} 飘提示=${JSON.stringify(copyFlash)}`)
+      // 会话引用的 id 段是 base64url 编码（`encodeSessionReferenceUri` 的 URI 形态），
+      // 所以断言按 mention 的形状认，不去比明文 id。
+      check.ok(
+        '「复制引用」写的是这条会话的 mention 文本（`@[标题](dsh-session:…)`）',
+        /^@\[[^\]]+\]\(dsh-session:[A-Za-z0-9_-]+\)$/.test(clipboard),
+        clipboard.slice(0, 120),
+      )
+      check.ok('「复制引用」给了一条飘提示', (copyFlash ?? '').includes('复制'), String(copyFlash))
+
+      // ---- ③ 置顶：就地翻转 + 写宿主状态（点两次回到原状） ----
+      await openSessionMenu(page, sessionId)
+      await page.click('[data-dshone-tree-item="pin"]')
+      await page.waitForTimeout(400)
+      const pinnedState = (await hostState(page, 'pinned')) as { sessionIds?: string[] } | null
+      check.ok('「置顶」写进宿主状态存储', (pinnedState?.sessionIds ?? []).includes(sessionId), JSON.stringify(pinnedState))
+      await openSessionMenu(page, sessionId)
+      const pinnedMenu = await sidebarMenuItems(page)
+      check.eq('已置顶时该项文案翻成「取消置顶」', pinnedMenu.items.find((item) => item.marker === 'pin')?.text ?? '', '取消置顶')
+      await page.click('[data-dshone-tree-item="pin"]')
+      await page.waitForTimeout(400)
+      check.eq(
+        '再点一次取消置顶（状态回到空集合）',
+        (await hostState(page, 'pinned')) as { sessionIds?: string[] } | null,
+        { version: 1, sessionIds: [] },
+      )
+
+      // ---- ④ 选择多个：菜单项把树带进选择态 ----
+      await openSessionMenu(page, sessionId)
+      await page.click('[data-dshone-tree-item="selectMultiple"]')
+      await page.waitForTimeout(400)
+      check.eq('「选择多个」进选择态（操作条出现）', await contentCount(page, '[data-dshone-tree="selection-bar"]'), 1)
+      await page.click('[data-dshone-tree-action="select-mode"]')
+      await page.waitForTimeout(300)
+      check.eq('再点顶栏那枚开关退出选择态', await contentCount(page, '[data-dshone-tree="selection-bar"]'), 0)
+
+      // ---- ⑤ 接管条件：行右键开出同一份菜单（锚在指针处），Esc 关掉 ----
+      const row = page.locator(`[data-dshone-tree-session="${sessionId}"]`)
+      const box = await row.boundingBox()
+      check.ok('会话行取到几何（右键落点已知）', box !== null, JSON.stringify(box))
+      if (box !== null) {
+        const at = { x: 80, y: Math.round(box.height / 2) }
+        // Playwright 的 click 会先把行滚进视野（行会动），所以点击**之后**再量一次几何，
+        // 拿它跟菜单锚点比。
+        await row.click({ button: 'right', position: at })
+        await page.waitForTimeout(300)
+        const boxAt = await row.boundingBox()
+        const contextMenu = await sidebarMenuItems(page)
+        check.fact(`行右键菜单：${JSON.stringify(topLevelMarkers(contextMenu))}`)
+        check.eq('行右键开出同一份菜单（非选择态就接管）', topLevelMarkers(contextMenu), expectedSessionItems)
+        const anchored = await page.evaluate(() => {
+          const menu = Array.from(document.querySelectorAll('[role="menu"]')).pop() ?? null
+          const rect = menu?.getBoundingClientRect() ?? null
+          return rect === null ? null : { left: Math.round(rect.left), top: Math.round(rect.top) }
+        })
+        // 横向偏移就是指针锚定的证据（`getAnchorRect` 给的是零尺寸锚点 = 指针位置）。
+        // **纵向只记事实不钉数值**：这是活数据页面（网关上的会话在别的 session 手里增删），
+        // 行会在点击与测量之间移动，绝对坐标天生不稳——逐像素的那一条在 F-08（专门的
+        // 多开套件，页面状态静止）里钉着。
+        check.fact(`右键菜单锚点：${JSON.stringify(anchored)} 行(点击后)=${JSON.stringify(boxAt)}`)
+        check.ok(
+          '右键菜单锚在指针的横坐标上（官方 Menu 的 getAnchorRect；纵坐标由 F-08 钉）',
+          anchored !== null && boxAt !== null && Math.abs(anchored.left - (Math.round(boxAt.x) + at.x)) <= 6,
+          `anchored=${JSON.stringify(anchored)} 行(点击后)=${JSON.stringify(boxAt)}`,
+        )
+        screenshots.push(await shot(ctx, page, 'menus-session-rightclick'))
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(250)
+        check.eq('Esc 关掉行右键菜单', await contentCount(page, '[role="menu"]'), 0)
+      }
+      // 空白会话行（官方不给显式 ⋯）也挂着菜单容器——右键接管的前提。这一条按 DOM 观察，
+      // 网关数据里没有空白行时按 0=0 通过（真网关只读，不造会话去凑它）。
+      const blankRows = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+        const blank = rows.filter((row) => row.querySelector('[data-dshone-tree-action="session-menu"]') === null)
+        return {
+          total: rows.length,
+          blank: blank.length,
+          blankWithMenuContainer: blank.filter((row) => row.querySelector('.dshOneTree_rowActions') !== null).length,
+        }
+      })
+      check.fact(
+        `会话行：共 ${String(blankRows.total)}，其中无 ⋯ 按钮（空白会话）=${String(blankRows.blank)}，它们里有菜单容器的=${String(blankRows.blankWithMenuContainer)}`,
+      )
+      check.ok(
+        '空白会话行也挂着菜单容器（右键能开出菜单）',
+        blankRows.blank === blankRows.blankWithMenuContainer,
+        JSON.stringify(blankRows),
+      )
+
+      // ---- ⑥ 工作区行：hover 四按钮 ----
+      const keys = await workspaceRowKeys(page)
+      check.fact(`工作区行键：${JSON.stringify(keys.slice(0, 4))}（共 ${String(keys.length)}）`)
+      const currentKey = await page.getAttribute('[data-dshone-tree-current="true"]', 'data-dshone-tree-key')
+      check.ok('当前工作区那一行带标识属性', currentKey !== null && currentKey !== '', String(currentKey))
+      check.eq('当前工作区那一组排在最前（E7 置顶）', keys[0] ?? '', currentKey ?? 'x')
+      if (currentKey !== null) {
+        const currentActions = await workspaceRowActions(page, currentKey)
+        check.fact(`当前工作区行的动作按钮：${JSON.stringify(currentActions)}`)
+        check.eq('当前工作区行没有「在 VS Code 打开」（它本来就在编辑器里）', currentActions, [
+          'workspace-new-session',
+          'workspace-terminal',
+          'workspace-remove',
+        ])
+      }
+      const otherKey = keys.find((key) => key !== '' && key !== currentKey) ?? ''
+      check.ok('网关上有另一个工作区行可比', otherKey !== '', otherKey)
+      if (otherKey !== '') {
+        const actions = await workspaceRowActions(page, otherKey)
+        check.fact(`非当前工作区行的动作按钮：${JSON.stringify(actions)}`)
+        check.eq('非当前工作区行是四枚（＋ / 终端 / 在 VS Code 打开 / 从列表移除）', actions, [
+          'workspace-new-session',
+          'workspace-terminal',
+          'workspace-open',
+          'workspace-remove',
+        ])
+        screenshots.push(await shot(ctx, page, 'menus-workspace-hover'))
+
+        // 终端与打开文件夹：经能力口发出，带的是这个工作区的路径。
+        await page.click(
+          `[data-dshone-tree-row="workspace"][data-dshone-tree-key="${otherKey}"] [data-dshone-tree-action="workspace-terminal"]`,
+        )
+        await page.waitForTimeout(400)
+        await page.click(
+          `[data-dshone-tree-row="workspace"][data-dshone-tree-key="${otherKey}"] [data-dshone-tree-action="workspace-open"]`,
+        )
+        await page.waitForTimeout(400)
+        const actionsSent = await hostWorkspaceActions(page)
+        check.fact(`宿主收到的动作：${JSON.stringify(actionsSent)}`)
+        check.ok(
+          '「终端打开」经能力口发出一次带路径的调用',
+          actionsSent.terminals.length === 1 && actionsSent.terminals[0].path !== '',
+          JSON.stringify(actionsSent.terminals),
+        )
+        check.ok(
+          '「在 VS Code 打开」经能力口发出一次当前窗口打开（newWindow=false）',
+          actionsSent.folders.length === 1 && actionsSent.folders[0].newWindow === false,
+          JSON.stringify(actionsSent.folders),
+        )
+        check.ok(
+          '两处用的是同一个工作区路径（页面只送路径，Uri 与终端名在宿主侧定）',
+          actionsSent.terminals[0]?.path === actionsSent.folders[0]?.path && (actionsSent.folders[0]?.path ?? '').startsWith('/'),
+          JSON.stringify(actionsSent),
+        )
+      }
+
+      // ---- ⑦ 工作区行右键：七项 + 二级菜单就地翻转 ----
+      const menuKey = otherKey === '' ? (keys[0] ?? '') : otherKey
+      const workspaceRow = page.locator(`[data-dshone-tree-row="workspace"][data-dshone-tree-key="${menuKey}"]`)
+      const wsBox = await workspaceRow.boundingBox()
+      check.ok('工作区行取到几何（右键落点已知）', wsBox !== null, JSON.stringify(wsBox))
+      if (wsBox !== null) {
+        // Playwright 的 click 会先把行滚进视野（行会动），所以在点击**之后**量它的几何，
+        // 再拿它跟菜单锚点比——比的是「菜单锚没锚在这次点击的指针处」。
+        await workspaceRow.click({ button: 'right', position: { x: 80, y: Math.round(wsBox.height / 2) } })
+        await page.waitForTimeout(300)
+        const wsBoxAt = await workspaceRow.boundingBox()
+        const wsMenu = await sidebarMenuItems(page)
+        check.fact(
+          `工作区行菜单：${JSON.stringify(topLevelMarkers(wsMenu))}（文案：${JSON.stringify(wsMenu.items.filter((i) => !i.inSubmenu && i.marker !== 'menu-title').map((i) => i.text))}）`,
+        )
+        check.eq('工作区行右键七项（顺序按截图 + 保留的「重命名工作区」）', topLevelMarkers(wsMenu), [
+          'copy-folder-ref',
+          'groups',
+          'archive-all',
+          'open-new-window',
+          'copy-path',
+          'rename',
+          'remove',
+        ])
+        check.eq(
+          '标题行是「工作区: {label}」',
+          wsMenu.title,
+          `工作区: ${(await workspaceRow.locator('.dshOneTree_title').textContent()) ?? ''}`,
+        )
+        const anchoredAt = await page.evaluate(() => {
+          const menu = Array.from(document.querySelectorAll('[role="menu"]')).pop() ?? null
+          const rect = menu?.getBoundingClientRect() ?? null
+          return rect === null ? null : { left: Math.round(rect.left), top: Math.round(rect.top) }
+        })
+        check.ok(
+          '右键菜单锚在这次点击的指针处（官方 Menu 的 getAnchorRect）',
+          anchoredAt !== null &&
+            wsBoxAt !== null &&
+            Math.abs(anchoredAt.left - (Math.round(wsBoxAt.x) + 80)) <= 3 &&
+            Math.abs(anchoredAt.top - (Math.round(wsBoxAt.y) + Math.round(wsBoxAt.height / 2) + 4)) <= 3,
+          `anchored=${JSON.stringify(anchoredAt)} 行(点击后)=${JSON.stringify(wsBoxAt)}`,
+        )
+        const archiveAll = wsMenu.items.find((item) => item.marker === 'archive-all')
+        check.ok(
+          '「归档该工作区全部会话」的禁用态与判定原因一致',
+          archiveAll !== undefined &&
+            (archiveAll.reason === '' ? !archiveAll.disabled : archiveAll.disabled && archiveAll.tip !== ''),
+          JSON.stringify(archiveAll),
+        )
+        screenshots.push(await shot(ctx, page, 'menus-workspace-rightclick'))
+
+        // 「分组…」二级菜单：原地展开、子项就地翻转 ✓、不关菜单。
+        check.eq('「分组…」展开前没有子项（二级菜单要点了才展开）', wsMenu.items.filter((item) => item.inSubmenu).length, 0)
+        await page.click('[data-dshone-tree-item="groups"]')
+        await page.waitForTimeout(300)
+        const expanded = await sidebarMenuItems(page)
+        const children = expanded.items.filter((item) => item.inSubmenu)
+        check.fact(`「分组…」展开后子项：${JSON.stringify(children)}`)
+        check.ok('「分组…」就地展开出分组列表（二级菜单挂在父项里）', children.length === 2, JSON.stringify(children.map((c) => c.text)))
+        check.eq('展开后菜单没关（子项追加在同一份菜单里，就地展开）', await contentCount(page, '[role="menu"]'), 1)
+        check.eq('子项初始都是未勾选', children.map((c) => c.checked), ['false', 'false'])
+        screenshots.push(await shot(ctx, page, 'menus-workspace-submenu'))
+        const firstChild = page.locator('[role="menuitem"]:has-text("Lab One")').first()
+        await firstChild.click()
+        await page.waitForTimeout(300)
+        const assigned = await sidebarMenuItems(page)
+        const assignedChild = assigned.items.filter((item) => item.inSubmenu).find((item) => item.text === 'Lab One')
+        const assignedState = (await hostState(page, 'groups')) as { membership?: Record<string, string[]> } | null
+        check.fact(`勾选一项后：子项=${JSON.stringify(assignedChild)} 宿主归属=${JSON.stringify(assignedState?.membership)}`)
+        check.eq('勾选后子项就地翻转 ✓（不重建菜单）', assignedChild?.checked, 'true')
+        check.eq('勾选后菜单仍然开着（连勾几个组不用重开）', await contentCount(page, '[role="menu"]'), 1)
+        check.ok(
+          '勾选写回宿主状态（该工作区记上这个分组）',
+          Object.values(assignedState?.membership ?? {}).some((ids) => Array.isArray(ids) && ids.includes('g-lab-one')),
+          JSON.stringify(assignedState?.membership),
+        )
+        await firstChild.click()
+        await page.waitForTimeout(300)
+        const unassigned = await sidebarMenuItems(page)
+        const unassignedState = (await hostState(page, 'groups')) as { membership?: Record<string, string[]> } | null
+        check.eq(
+          '再点一次就地取消勾选（同一入口的开关语义）',
+          unassigned.items.filter((item) => item.inSubmenu).find((item) => item.text === 'Lab One')?.checked,
+          'false',
+        )
+        check.ok(
+          '取消勾选同样写回宿主状态',
+          !Object.values(unassignedState?.membership ?? {}).some((ids) => Array.isArray(ids) && ids.includes('g-lab-one')),
+          JSON.stringify(unassignedState?.membership),
+        )
+
+        // 「归档该工作区全部会话」开的是 #103 那个确认弹窗（本套件只取消、从不确认）。
+        if (archiveAll !== undefined && !archiveAll.disabled) {
+          await page.click('[data-dshone-tree-item="archive-all"]')
+          await page.waitForTimeout(400)
+          const confirm = await page.evaluate(() => {
+            const root = document.querySelector('[data-dshone-tree-action="archive-confirm"]')?.closest('[role="dialog"], body')
+            return {
+              button: document.querySelector('[data-dshone-tree-action="archive-confirm"]') !== null,
+              blocks: document.querySelectorAll('[data-dshone-archive-block]').length,
+              text: root?.textContent ?? '',
+            }
+          })
+          check.fact(`工作区归档确认弹窗：${JSON.stringify({ button: confirm.button, blocks: confirm.blocks })}`)
+          check.ok('「归档该工作区全部会话」先开确认弹窗（不是直接执行）', confirm.button && confirm.blocks >= 1)
+          screenshots.push(await shot(ctx, page, 'menus-workspace-archive-confirm'))
+          await page.keyboard.press('Escape')
+          await page.waitForTimeout(300)
+          check.eq('取消确认 → 弹窗关掉（本套件不确认，绝不写网关）', await contentCount(page, '[data-dshone-tree-action="archive-confirm"]'), 0)
+        } else {
+          check.fact('这一个工作区里没有够格归档的会话 → 该项禁用，跳过弹窗断言（网关只读，不为此写数据）')
+        }
+
+        // 「从列表移除」是危险动作：只开到确认弹窗，然后取消。
+        await workspaceRow.hover()
+        await page.click(
+          `[data-dshone-tree-row="workspace"][data-dshone-tree-key="${menuKey}"] [data-dshone-tree-action="workspace-remove"]`,
+        )
+        await page.waitForTimeout(400)
+        const removeDialog = await page.evaluate(() => document.body.textContent?.includes('从工作区列表中移除') ?? false)
+        check.ok('「从列表移除」先过确认弹窗（与旧侧栏同一处置）', removeDialog)
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(300)
+      }
+
+      // ---- ⑧ 当前工作区标识（E7） ----
+      const badge = await page.evaluate(() => {
+        const row = document.querySelector('[data-dshone-tree-current="true"]')
+        if (row === null) return null
+        const pill = row.querySelector('[data-dshone-tree-badge]')
+        const folder = row.querySelector('.dshOneTree_folder')
+        return {
+          shell: pill?.getAttribute('data-dshone-tree-badge') ?? '',
+          text: (pill?.textContent ?? '').trim(),
+          folderActive: (folder?.className ?? '').includes('dshOneTree_folderActive'),
+          first: document.querySelector('[data-dshone-tree-row="workspace"]') === row,
+        }
+      })
+      check.fact(`当前工作区标识：${JSON.stringify(badge)}`)
+      check.ok(
+        '当前工作区行有那一枚胶囊，写的是宿主名（VS Code 侧 = vscode）',
+        badge?.shell === 'vscode' && badge.text === 'vscode',
+        JSON.stringify(badge),
+      )
+      check.ok('当前工作区的文件夹图标染色（与官方同款 folderActive）', badge?.folderActive === true, JSON.stringify(badge))
+      check.ok('当前工作区那一组排在最前', badge?.first === true, JSON.stringify(badge))
+
+      // ---- ⑨ 未分组桶：网关数据里有它才断言（只读，不造数据） ----
+      const ungroupedRow = await page.evaluate(() => {
+        const row = document.querySelector('[data-dshone-tree-row="workspace"][data-dshone-tree-key=""]')
+        if (row === null) return null
+        return {
+          actions: Array.from(row.querySelectorAll('.dshOneTree_rowActions button')).map(
+            (node) => node.getAttribute('data-dshone-tree-action') ?? '',
+          ),
+          hasMenuContainer: row.querySelector('.dshOneTree_rowActions') !== null,
+        }
+      })
+      check.fact(
+        `未分组行：${JSON.stringify(ungroupedRow)}（网关当前**没有**未分组桶时为空——真网关只读，不造会话去凑它；未分组行的 ＋ 走的是与工作区行同一个 startSession，源码契约测试 test/assemblyShellContract.test.ts 钉着它不再对 workspaceId === undefined 直接 return）`,
+      )
+      if (ungroupedRow !== null) {
+        check.eq('未分组行 hover 只有 ＋（它没有路径，终端/打开文件夹无从谈起）', ungroupedRow.actions, ['workspace-new-session'])
+        check.ok('未分组行也挂着菜单容器（右键能开出菜单）', ungroupedRow.hasMenuContainer)
+        await page
+          .locator('[data-dshone-tree-row="workspace"][data-dshone-tree-key=""]')
+          .click({ button: 'right', position: { x: 80, y: 16 } })
+        await page.waitForTimeout(300)
+        const ungroupedMenu = await sidebarMenuItems(page)
+        check.fact(`未分组行右键菜单：${JSON.stringify(topLevelMarkers(ungroupedMenu))}`)
+        check.eq('未分组行菜单 = 新建会话 + 整桶归档（其余项都要路径或工作区身份）', topLevelMarkers(ungroupedMenu), [
+          'new-session',
+          'archive-all',
+        ])
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(250)
+      }
+
+      check.eq('菜单补全套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
+    } finally {
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -4318,4 +5038,6 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   MULTI_SELECT_SUITE,
   // #110 空态、加载态与失败可见（F-18：F-16 已被 #107 的标签组套件、F-17 已被 #108 的多选套件占用）。
   SIDEBAR_EMPTY_FEEDBACK_SUITE,
+  // #109 侧栏菜单补全（F-19：F-01…F-18 与 R-06 已被占用）。
+  SIDEBAR_MENUS_SUITE,
 ]
