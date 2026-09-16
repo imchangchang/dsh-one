@@ -1,0 +1,123 @@
+{
+  "title": "DSH One 装配线测试报告：侧栏树密度适配 + 悬停卡遮挡修复 + 去掉顶部「新会话」胶囊（#85）",
+  "branch": "agent/sidebar-density",
+  "commit": "8832d89",
+  "environment": {
+    "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
+    "dsh": "0.1.6-alpha.1",
+    "locale": "zh-cn",
+    "theme": "dark",
+    "viewports": "260 / 340 / 500（VS Code 侧栏三档）+ 1200（官方 web 形态）",
+    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（128 条断言）",
+    "date": "2026-09-16T02:09:56Z"
+  },
+  "coverageNote": "浏览器验证是第一道验证。装配页由仓库真实模块（pageHtml / wireFilter / assemblyMirror）构建，数据面是本机真实 dsh 网关（只读），宿主通道是假宿主。密度断言口径：VS Code 档与官方档都从 src/ui/assembly/shell/sidebarFramePlugin.ts 的 DENSITY_PROFILE 真值读（不手抄），并与「同一 frame、同一宽度、由官方组件渲染的浏览区」逐项对比 computed style。本轮追加项（去掉顶部「新会话」胶囊）的两处未覆盖，逐条说明：①**工作区行的「+」只验到「可点」没验到「点了真建成会话」**——点它会向真网关建会话，与实验室「只读」边界冲突（装配页数据面就是本机真实 dsh 网关，全程只换票、不写业务数据），故断言存在/悬停出现/指针命中该按钮 + 可及名带工作区名；②**零工作区/树空态造不出来**——树的分组来自真网关的 workspace 列表，实验室不写数据就删不掉工作区，故该档没有真机断言：改动只摘掉壳层那颗胶囊（在树外面），树的空态分支与「+」的派生逻辑都没动（`deriveGroups` 空表 → 空态，已有纯模块单测 test/workspaceTreeView.test.ts 的「零工作区且零会话时出空分组表」），无工作区时的剩余入口 = 命令面板 `dshOne.session.new`（该命令在无 workspace 时给既有提示「No workspace available. Open a folder in VSCode first.」，断言落在清单与注册两处）。未覆盖：真 VS Code webview 宿主层（窗口拖拽、原生悬停、CSP/剪贴板）与真模型输出——VS Code 验证现象清单见 issue #85 comment，密度档观感由用户在三档宽度下拍板。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "密度按 shell 偏好取值（VS Code 侧栏三档宽度）",
+      "expect": "260/340/500 三档宽度下，自有树全部几何/间距取 VS Code 档：工作区行 26px、会话行 24px、行间空隙 1px、分组间空隙 3px、行内边距 6px、分节头 30px（下外边距 2px）、标题 13px/18px、相对时间 11px/16px、列表底部留白 12px、溢出按钮 24px、图标按钮 24px、搜索胶囊 24px（展开态 26px）、搜索结果行最小高 40px；三档取值一致（宽度不改变密度档）；搜索展开、清除回树都正常。",
+      "screenshots": [
+        "/tmp/dsh85-shots/01-density-tree-260.png",
+        "/tmp/dsh85-shots/01-density-tree-340.png",
+        "/tmp/dsh85-shots/01-density-tree-500.png",
+        "/tmp/dsh85-shots/01b-search-340-expanded.png",
+        "/tmp/dsh85-shots/01b-search-340-results.png",
+        "/tmp/dsh85-shots/14-vscode-260.png",
+        "/tmp/dsh85-shots/14-vscode-500.png"
+      ],
+      "result": "pass",
+      "notes": "本套件断言 56 条，通过 56。逐项核对（真值来自 shell 的 DENSITY_PROFILE.vscode，页面量 computed style）：260/340/500 各自 projectHeight=26 ✓ sessionHeight=24 ✓ rowGap=1 ✓ groupGap=3 ✓ rowPaddingLeft=6 ✓ sectionHeaderHeight=30 ✓ sectionHeaderGap=2 ✓ titleFont=13 ✓ titleLine=18 ✓ metaFont=11 ✓ metaLine=16 ✓ listPaddingBottom=12 ✓ overflowHeight=24 ✓（数据里没有真溢出按钮时用同 class 探针元素量规则取值）iconButton=24 ✓ searchHeight=24 ✓；每档 search-expanded-height=26 ✓ search-row-min-height=40 ✓ 清除搜索后回到分组树 ✓；340/500 与 260 的密度档取值完全一致 ✓。截图看：三档下行距、字号、图标按钮都比官方档紧一档，行内边距与分节头高随之收窄，260 窄栏下标题栏与树不再显松。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "缺省即官方档（官方 web 侧回归）+ 与官方浏览区逐项等值",
+      "expect": "官方外框（不 block 官方插件、无人给密度偏好）里同一份自有树插件呈官方档：工作区行 34px、会话行 32px、行间 2px、分组间 4px、行内边距 8px、分节头 36px（下 4px）、标题 14px/20px、相对时间 12px/20px、列表底部 16px、溢出 28px、图标按钮 28px、搜索胶囊 28px；且与同一 frame、同一宽度下官方 WorkspaceBrowser 的行逐项等值（同一网关数据，只差装不装自有树插件）。观感语言项两侧等值：分节头圆角 12px、行圆角 8px、标题颜色、相对时间颜色、图标格位 16×20、文件夹图标 16px；选中行底色 == 官方交互底色 token。",
+      "screenshots": [
+        "/tmp/dsh85-shots/02-density-fallback-official-frame.png",
+        "/tmp/dsh85-shots/03-parity-own-340.png",
+        "/tmp/dsh85-shots/04-parity-official-340.png"
+      ],
+      "result": "pass",
+      "notes": "DENSITY-FALLBACK 15 条 + PARITY-APPEARANCE 16 条，全部通过。官方外框档逐项等于 DENSITY_PROFILE.official：projectHeight=34 ✓ sessionHeight=32 ✓ rowGap=2（几何量相邻行距离）✓ groupGap=4 ✓ rowPaddingLeft=8 ✓ sectionHeaderHeight=36 ✓ sectionHeaderGap=4 ✓ titleFont=14 ✓ titleLine=20 ✓ metaFont=12 ✓ metaLine=20 ✓ listPaddingBottom=16 ✓ overflowHeight=28 ✓ iconButton=28 ✓ searchHeight=28 ✓。与官方浏览区同值项：官方 projectHeight=34 ✓ sessionHeight=32 ✓ sectionHeaderHeight=36 ✓ titleFont=14 ✓ titleLine=20 ✓ metaFont=12 ✓ metaLine=20 ✓ listPaddingBottom=16（官方行同值）✓；观感语言两侧一致：sectionHeaderRadius=12px ✓ rowRadius=8px ✓ titleColor 相同 ✓ metaColor 相同 ✓ 图标格位 16×20 相同 ✓；选中行底色 = --dsw-alias-interactive-bg-hover 解析值 ✓；文件夹图标 16px（沿用官方图标件）✓。截图 03/04 是同宽度下自有树与官方浏览区的并排对照（行高、字号差异即密度档差异，颜色/圆角/图标一致）。**PARITY 的第 16 条是**用户拍板的**有意差异**、从「两侧逐项等值」口径里单列出来的一条：官方顶部那颗「新会话」胶囊（归官方侧栏壳，不在我们树的元素集里）在 VS Code 形态两侧页面（自有树档 / 官方浏览区档）都**不渲染**（各量到 button 1 个、渲染 0 个、display 全 none），所以逐项对照仍成立；它相对官方 web 形态（官方外框）是「官方有、我们无」——理由与另一侧实测见 F-05。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "悬停卡不再遮挡内容（窄栏不出现，官方侧保留官方行为）",
+      "expect": "VS Code 侧栏三档宽度下，悬停会话行与工作区行都不出现浮层（不遮挡任何内容）；官方 web 形态（页面比侧栏宽）悬停仍出官方卡片：宽 244px、落在行道右缘外 8px、与任何树行矩形都不相交。",
+      "screenshots": [
+        "/tmp/dsh85-shots/05-hover-260.png",
+        "/tmp/dsh85-shots/05-hover-340.png",
+        "/tmp/dsh85-shots/05-hover-500.png",
+        "/tmp/dsh85-shots/06-hover-official-frame.png"
+      ],
+      "result": "pass",
+      "notes": "本套件断言 9 条，通过 9。260/340/500 各两条（悬停会话行、悬停工作区行）：页面里 `[class*=\"_card_\"]` 元素数 = 0（浮层根本不渲染）✓；截图 05-* 可见悬停时只有行的 hover 底色与行尾操作按钮，没有任何卡片压住树。官方外框档（1200 宽视口、侧栏列 268px）：悬停会话行出现卡片 1 个 ✓，left=276 = 行右缘 268 + 8 ✓、宽 244 ✓、与任何树行矩形相交数 = 0 ✓（截图 06：卡片落在侧栏右侧主区上，不压树）。修复前对照（同一实验室、改造前的构建）：340 宽时卡片被钉在容器内 left=88、与 3 个树行相交；500 宽时 left=248、仍与 3 个行相交——即用户反馈的遮挡。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "底座契约完备性（五档页面零 crash / 零缺失契约）",
+      "expect": "五个装配页面（VS Code 侧栏树 / 官方浏览区对照 / 官方外框+自有树 / chat 树 / settings 树）在真实网关上零 `slot entry crashed`、零缺失服务或装载失败；本次改动范围内的三档页面零页面错误。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "本套件断言 15 条，通过 15。五档页面均：正文无 `slot entry crashed` ✓、无 `waiting for service` / `is not a function` / `Failed to load plugins` ✓；tree / official-browser / tree-official-frame 三档无任何 console error 与 pageerror ✓。settings 档有一条**既有**噪声（与本次改动无关，已单独记录、不设白名单式掩盖）：官方 @deepseek-ai/dsh-api-terminal-controller 的未处理 rejection `cannot get required service \"sessions\" in inactive context`（按 combo 段偏移定位到该官方插件），设置页内容照常渲染；本分支未改设置树相关的任何文件。"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "去掉顶部官方「新会话」胶囊（VS Code 形态不渲染；官方 web 形态照旧）",
+      "expect": "VS Code 形态（我们的侧栏外框）里，官方侧栏壳那颗「⊕ 新会话」胶囊不渲染（DOM 里还在、display:none），侧栏第一块内容就是树的分节头（无 38+8px 的胶囊带）；官方 web 形态（官方外框、无我们的外框）照旧渲染它——这是用户拍板的**有意差异**（官方有、VS Code 形态无），不是对齐缺陷。",
+      "screenshots": [
+        "/tmp/dsh85-shots/15-new-session-removed-340.png",
+        "/tmp/dsh85-shots/16-official-frame-pill.png"
+      ],
+      "result": "pass",
+      "notes": "本项断言（SESSION-PATH 里 4 条）全过。VS Code 形态 340px：量到官方胶囊 button 1 个、**渲染 0 个**（display 全 none——官方按钮仍在 DOM，被我们 shell 的 CSS 摘掉呈现，不是把官方组件下线）；树根到壳顶 4px（= 我们给官方根的 padding-top）、分节头 6px（树根 + 它自己 2px margin-top）、高 30px（VS Code 密度档），即原先那颗 38px 胶囊 + 8px 下边距的带子没了。截图 15：侧栏顶部直接是「工作区 + 搜索 + 视图选项」，无胶囊。官方 web 形态 1200px（官方外框，不 block 任何官方插件）：量到同一颗胶囊**渲染 1 个**（display flex），截图 16 可见它照旧在位——有意差异的另一侧，官方 web 上它是主要入口，不去掉。机制口径：该按钮归官方侧栏壳（SidebarRoot）自己、**不是槽位贡献**（官方 0.1.6-alpha.1 的 slots.d.ts 没有它的槽，client.js 里是无条件 JSX、无 prop 开关），因此按机制层 4 用 CSS 摘，规则放在我们的 shell、作用域限官方侧栏壳（举证与稳定性风险写在 src/ui/assembly/shell/sidebarFramePlugin.ts 的 CSS 上方）；没有放进可移植的树插件，否则官方 web 形态也会被摘。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "既有树行为回归（分组折叠 / 选中 / 搜索 / 视图选项 / 溢出 / 壳层几何）",
+      "expect": "点工作区行展开/收起会话；点会话行出现选中态；搜索出结果行、清除后回分组树；视图选项菜单可切「单列表」并改分节标题；「展开其余 N 个会话」出更多行；侧栏内容贴左缘且铺满视图宽（单列表切回后仍贴缘）；回归页面仍是 VS Code 密度档（24px 行）。",
+      "screenshots": [
+        "/tmp/dsh85-shots/07-regression-group-toggle.png",
+        "/tmp/dsh85-shots/08-regression-selected.png",
+        "/tmp/dsh85-shots/09-regression-search.png",
+        "/tmp/dsh85-shots/10-regression-view-options.png",
+        "/tmp/dsh85-shots/11-regression-flat.png",
+        "/tmp/dsh85-shots/12-regression-overflow.png",
+        "/tmp/dsh85-shots/13-regression-sidebar-340.png"
+      ],
+      "result": "pass",
+      "notes": "本套件断言 8 条，通过 8。分组行点击：会话行数 6 → 11（展开生效）✓；点会话行出现 `dshOneTree_selected` 选中态 1 行 ✓；搜索 dsh 出结果行 20 ✓ 且清除后回到 `[data-dshone-tree=\"groups\"]` ✓；视图选项切「单列表」后 flat 容器出现、分节标题变「会话」✓；「展开其余 N 个会话」点后会话行 10 → 11 ✓；壳层几何 rootLeft=0、rootWidth=339 = 视口 340 ✓——**这条断言抓到一处既有缺陷**：单列表视图下整棵树被横滚 4px（分节头的官方 `margin-right:-4px` 在 shell 的 0 inline padding 下伸出容器，官方 chrome 对选中行 scrollIntoView 时横滚），本分支在树根加 `overflow:hidden` 收住（改前实测 rootLeft=-4，改后 0）；回归页面会话行高 24px = VS Code 密度档 ✓。"
+    },
+    {
+      "id": "R-06",
+      "phase": "regression",
+      "name": "三档宽度整屏截图（密度观感人工拍板用）",
+      "expect": "260/340/500 三档宽度下侧栏整屏截图，供用户按 VS Code 观感拍板密度档；无自动断言，结论由人眼定。",
+      "screenshots": [
+        "/tmp/dsh85-shots/14-vscode-260.png",
+        "/tmp/dsh85-shots/14-vscode-500.png",
+        "/tmp/dsh85-shots/01-density-tree-340.png"
+      ],
+      "result": "pass",
+      "notes": "VC Code 验证现象清单（含三档截图的观察点）写在 issue #85 的 comment 里交给用户。三档的共同现象：行距收紧一档、字号 13/11px、图标按钮与搜索胶囊 24px、分节头 30px；260 窄栏下不再出现行距浪费；500 宽栏下标题与行尾时间的间距更紧凑。观感语言（图标/颜色/圆角/字体族）未动。"
+    },
+    {
+      "id": "R-07",
+      "phase": "regression",
+      "name": "建会话入口回归（工作区行「+」+ 命令面板；树顶部无新会话入口）",
+      "expect": "胶囊去掉后建会话仍完整：工作区行的「+」默认藏、悬停出现、可点（可及名带该工作区名）；树自己的顶部动作标记里没有「新会话」入口（只剩搜索 / 视图选项）；命令面板仍贡献并注册 dshOne.session.new。",
+      "screenshots": [
+        "/tmp/dsh85-shots/15-new-session-removed-340.png"
+      ],
+      "result": "pass",
+      "notes": "本项断言（SESSION-PATH 里 5 条）全过。工作区行「+」：12 个工作区行各带一个「+」，默认矩形为 0（父容器 .dshOneTree_rowActions 是 display:none，悬停才出）；悬停首行后矩形非 0、`document.elementFromPoint` 落在该按钮上（可点性）、可及名 = 在“dsh-computer-use”中新建会话（带该行的工作区名）。**没真点它**：点它会向真网关建会话，与实验室只读边界冲突（口径见 coverageNote）。树顶部动作标记 = [\"search\",\"view-options\"]，无 new-session。命令面板：package.json 仍贡献 dshOne.session.new、extension.ts 仍注册该命令（清单 + 注册两处断言）。截图 15 里悬停行末尾的「+」就是剩下的入口。"
+    }
+  ]
+}
