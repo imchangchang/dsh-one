@@ -52,6 +52,11 @@ chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（
 
 **CI 里不跑这个套件**（它需要本机跑着一个真网关），它是开发/合入前的本机第一道验证。
 
+**不在本实验室覆盖内的两页**：安装引导 tab 与侧栏状态页（`src/ui/installGuide.ts`、
+`src/ui/sidebarStatusPage.ts`）是宿主侧普通 HTML——dsh 没装或服务没起来时网关不通，装配页组装不了，
+它们不参与装配树。这两页的冒烟在 `test/install-guide/`（`npm run verify:install-guide`，
+也是 Playwright 跑普通浏览器页面，不需要网关），跑法与断言清单见那个目录的 README。
+
 产物（都已 gitignore，随时可重跑）：
 
 - `test/assembly-lab/out/verify.lab.ledger.json`——台账（事实源，报告由它渲染）

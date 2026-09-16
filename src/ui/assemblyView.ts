@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import type { ServerManager } from '../server/manager.ts'
+import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { sanitize, type Logger } from '../log.ts'
 import { startAssemblyMirror, type AssemblyMirror } from '../server/assemblyMirror.ts'
 import { cookieHeader, dshVersion } from '../server/serverAuth.ts'
@@ -23,6 +23,7 @@ import {
 } from './assembly/wireFilter.ts'
 import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, type AssemblyTree } from './assembly/trees.ts'
 import { decideSidebarStatus, assemblyFailureView, type SidebarStatusDecision } from '../pure/sidebarStatus.ts'
+import { createStatusFollow } from '../pure/sidebarStatusFollow.ts'
 import { sidebarStatusHtml } from './sidebarStatusPage.ts'
 import { openInstallGuide } from './installGuide.ts'
 
@@ -581,28 +582,20 @@ export function registerAssembledChat(
 }
 
 /**
- * 侧栏状态页（#100）：三态各有自己的文案与按钮——
- * - 未安装：「查看安装指南」→ 开独立的安装引导 tab（窄侧栏放不下引导内容）；
- * - 服务未运行 / 启动中：「启动 dsh 服务」（启动中只显示进度文案）；
- * - 装配失败：说明原因 + 「重试装配」。
- *
- * 判定结果若是 `assemble`（服务在跑、交给装配页）就不动页面。
- * 页面的 HTML 由 `sidebarStatusPage.ts` 出（宿主侧普通 HTML，不参与装配树）。
- */
-function renderSidebarStatus(webview: vscode.Webview, decision: SidebarStatusDecision): void {
-  if (decision.kind === 'assemble') return
-  webview.html = sidebarStatusHtml(decision)
-}
-
-/**
  * 侧栏位装配 provider（#70）：dshOne.chat view 的内容从自研 vanilla 换成
  * 官方侧栏装配（第二棵 cordis 树）。生命周期：首次 resolve 装配一次，mirror
  * 随 view dispose 回收（retainContextWhenHidden 下折叠不触发 dispose）；
  * 装不起来（未安装 / 服务没起 / 装配失败）落状态页，各自的按钮重新走一遍。
+ *
+ * 状态页跟随服务状态变化（#101）：视图可见期间订着 `ServerManager.onDidChangeState`，
+ * 状态一变就按新状态重画（服务起来了则直接去装配），用户不必再等下一次动作。
  */
 class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private mirror: AssemblyMirror | undefined
   private running: Promise<void> | undefined
+
+  /** 当前画在视图里的是不是状态页（装配页在位时不抢它的刷新）。 */
+  private statusShown = false
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -645,14 +638,30 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
         if (typeof sessionId === 'string' && sessionId !== '') void openSessionChat(sessionId)
       }
     })
+    // 状态页跟随服务状态变化（#101）：服务被别处起停时，画出来的状态页跟着变。
+    const follow = createStatusFollow<ServerStatus>({
+      source: this.manager,
+      isStatusShown: () => this.statusShown,
+      onStatusChanged: (status) => this.followStatus(view, status),
+    })
+    follow.start()
     const visibilitySub = view.onDidChangeVisibility(() => {
-      if (view.visible) this.onDidBecomeVisible?.()
+      if (!view.visible) {
+        // 藏起来的页面不必跟着重画，也就不必留着这份监听。
+        follow.stop()
+        return
+      }
+      this.onDidBecomeVisible?.()
+      // 收起侧栏期间服务的起停没人听：回来时按当前状态补一次。
+      follow.start()
+      if (this.statusShown) this.followStatus(view, this.manager.getStatus())
     })
     view.onDidDispose(() => {
       probeSub.dispose()
       hostSub.dispose()
       retrySub.dispose()
       visibilitySub.dispose()
+      follow.stop()
       untrackAssemblyWebview(view.webview)
       if (this.mirror !== undefined) releaseSharedMirror(this.mirror)
       this.mirror = undefined
@@ -668,8 +677,36 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
    */
   private startFromStatusPage(view: vscode.WebviewView): void {
     const started = this.manager.ensureStarted()
-    renderSidebarStatus(view.webview, decideSidebarStatus(this.manager.getStatus()))
+    this.renderStatus(view.webview, decideSidebarStatus(this.manager.getStatus()))
     void started.then(() => this.assemble(view))
+  }
+
+  /**
+   * 落状态页（#100）：三态各有自己的文案与按钮——
+   * - 未安装：「查看安装指南」→ 开独立的安装引导 tab（窄侧栏放不下引导内容）；
+   * - 服务未运行 / 启动中：「启动 dsh 服务」（启动中只显示进度文案）；
+   * - 装配失败：说明原因 + 「重试装配」。
+   *
+   * 判定结果若是 `assemble`（服务在跑、交给装配页）就什么都不做。
+   * 页面的 HTML 由 `sidebarStatusPage.ts` 出（宿主侧普通 HTML，不参与装配树）。
+   */
+  private renderStatus(webview: vscode.Webview, decision: SidebarStatusDecision): void {
+    if (decision.kind === 'assemble') return
+    this.statusShown = true
+    webview.html = sidebarStatusHtml(decision)
+  }
+
+  /**
+   * 服务状态变了一次（#101）：能装配了就去装配（例如服务被别处起来了），
+   * 否则按新状态把状态页重画一遍。
+   */
+  private followStatus(view: vscode.WebviewView, status: ServerStatus): void {
+    const decision = decideSidebarStatus(status)
+    if (decision.kind !== 'assemble') {
+      this.renderStatus(view.webview, decision)
+      return
+    }
+    void this.assemble(view)
   }
 
   /** 装配一次：ensureStarted → 清单 → mirror → 装配页；装不起来落状态页。 */
@@ -678,11 +715,11 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
       // 首帧先落状态页（服务在跑时马上被装配页替换）：侧栏揭面到装配完成之间是
       // 网关往返，这段时间不该是白屏。已在装的服务不用重画（等结果就行）。
       const initial = decideSidebarStatus(this.manager.getStatus())
-      if (initial.kind !== 'assemble') renderSidebarStatus(view.webview, initial)
+      if (initial.kind !== 'assemble') this.renderStatus(view.webview, initial)
       const status = await this.manager.ensureStarted()
       const decision = decideSidebarStatus(status)
       if (decision.kind !== 'assemble') {
-        renderSidebarStatus(view.webview, decision)
+        this.renderStatus(view.webview, decision)
         return
       }
       try {
@@ -691,6 +728,8 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
         if (this.mirror !== undefined) releaseSharedMirror(this.mirror)
         this.mirror = await acquireSharedMirror(this.context, this.manager, this.logger)
         this.logger.info(`assembled sidebar: ${this.mirror.origin}`)
+        // 装配页在位：此后状态变化不再由状态页的跟随接管。
+        this.statusShown = false
         view.webview.html = assemblyPageHtml({
           mirrorOrigin: this.mirror.origin,
           cspNonce: crypto.randomBytes(16).toString('base64'),
@@ -705,7 +744,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
         this.logger.warn(`assembled sidebar failed: ${reason}`)
         this.mirror?.dispose()
         this.mirror = undefined
-        renderSidebarStatus(view.webview, assemblyFailureView(status, reason))
+        this.renderStatus(view.webview, assemblyFailureView(status, reason))
       } finally {
         this.running = undefined
       }
