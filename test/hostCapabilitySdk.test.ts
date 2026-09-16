@@ -152,3 +152,64 @@ test('有 VS Code 桥时：git / 落盘 / 下载落到桥的白名单调用上',
   assert.deepEqual(bridgeCalls[2].args, { path: '/api/session.export?sessionId=s1', suggestedName: 'b.zip' })
   resetGlobals()
 })
+
+/** 假页面窗口：官方 web 侧 `openExternal` 的出口（node 里没有 window，按需装上）。 */
+function installWindow(): { opened: string[]; args: unknown[][] } {
+  const opened: string[] = []
+  const args: unknown[][] = []
+  const global = globalThis as unknown as { window?: { open: (...callArgs: unknown[]) => unknown } }
+  global.window = {
+    open: (...callArgs: unknown[]) => {
+      opened.push(String(callArgs[0]))
+      args.push(callArgs)
+      return null
+    },
+  }
+  return { opened, args }
+}
+
+function resetWindow(): void {
+  delete (globalThis as unknown as { window?: unknown }).window
+}
+
+test('#83 开外链（VS Code 侧）：有桥时落到 vscode.openExternal，页面不开窗', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, { 'vscode.openExternal': null })
+  const window = installWindow()
+  const caps = hostCapabilities(undefined)
+  await caps.openExternal('https://github.com/example/repo/commit/deadbee')
+  assert.deepEqual(bridgeCalls, [{ name: 'vscode.openExternal', args: { url: 'https://github.com/example/repo/commit/deadbee' } }])
+  assert.deepEqual(window.opened, [], '有宿主桥时不该再让页面开窗（webview 里开不动）')
+  resetWindow()
+  resetGlobals()
+})
+
+test('#83 开外链（官方 web 侧）：没有桥时用页面 window.open', async () => {
+  resetGlobals()
+  const window = installWindow()
+  const caps = hostCapabilities(undefined)
+  await caps.openExternal('mailto:someone@example.com')
+  assert.deepEqual(window.opened, ['mailto:someone@example.com'])
+  // 新标签 + noopener/noreferrer：把不可信 URL 掌住，别把 opener 交出去。
+  assert.deepEqual(window.args[0]?.slice(1), ['_blank', 'noopener,noreferrer'])
+  resetWindow()
+})
+
+test('#83 开外链：非 http/https/mailto 一律 invalid-args，两端都不动作', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, { 'vscode.openExternal': null })
+  const window = installWindow()
+  const caps = hostCapabilities(undefined)
+  for (const bad of ['javascript:alert(1)', 'file:///etc/passwd', 'not a url', '']) {
+    await assert.rejects(
+      () => caps.openExternal(bad),
+      (err: unknown) => (err as CapabilityFailure).code === 'invalid-args',
+    )
+  }
+  assert.deepEqual(bridgeCalls, [], '校核在 SDK 这一处做完，桥不该收到非法 URL')
+  assert.deepEqual(window.opened, [], '校核在 SDK 这一处做完，页面不该被开窗')
+  resetWindow()
+  resetGlobals()
+})

@@ -131,6 +131,11 @@ export interface OpenOptions {
   readyTimeoutMs?: number
   /** 首屏就绪后再静置多久（让异步注册/首帧请求落定）。 */
   settleMs?: number
+  /**
+   * 抹掉自有 frame 标记（#83 可移植性证据，见 `stripFrameMarkersScript`）：
+   * 页面上不存在任何 `data-shell*` 标记，用来实测「插件不靠自有 frame 也工作」。
+   */
+  stripFrameMarkers?: boolean
 }
 
 export interface OpenedPage {
@@ -140,6 +145,25 @@ export interface OpenedPage {
   url: string
   /** 首屏就绪选择器是否出现（false 时页面很可能整块没起来）。 */
   ready: boolean
+}
+
+/**
+ * 「页面上没有自有 frame 标记」的页面侧脚本（#83）：把 `data-shell*` 属性的写入
+ * 全部拦掉（React 写属性走 `Element.prototype.setAttribute`），属性从来没进过
+ * DOM。样式与其余 DOM 一律不动，所以页面照常渲染。
+ *
+ * 为什么用这个做可移植性证据：官方 web 里本来就没有这个元素，插件若还按
+ * `[data-shell="dsh-one"]` 取挂载点，取不到就整块不工作——而这件事在「页面上有
+ * 标记」的实验室页面里永远看不出来。抹掉之后仍工作，才说明挂载点在官方语义容器上。
+ */
+export function stripFrameMarkersScript(): string {
+  return `(() => {
+  const write = Element.prototype.setAttribute
+  Element.prototype.setAttribute = function (name, value) {
+    if (String(name).toLowerCase().startsWith("data-shell")) return
+    return write.call(this, name, value)
+  }
+})()`
 }
 
 export async function openTreePage(
@@ -153,6 +177,7 @@ export async function openTreePage(
     deviceScaleFactor: 2,
   })
   await context.addInitScript({ content: fakeHostScript() })
+  if (options.stripFrameMarkers === true) await context.addInitScript({ content: stripFrameMarkersScript() })
   const page = await context.newPage()
   const capture = capturePage(page)
   const query = new URLSearchParams()

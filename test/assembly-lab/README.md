@@ -58,9 +58,10 @@ chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（
 | **F-03 INTERACT** | 关键交互：行内码右键菜单（官方 Menu 单图标项 + Esc 关闭 + 高亮撤销）、commit 卡片（走宿主能力口 + GitHub 按钮发出 `vscode.openExternal`）、清空（Esc ×2）与反悔（Ctrl+Z） |
 | **F-04 PARITY** | 侧栏自有树与官方浏览区在 260/340/500 三档宽度下逐项对齐：分节头、搜索胶囊、图标按钮、分组行、会话行、标题、时间、图标位、列表容器的 computed style 与几何矩形；**数值不硬编码**，两侧取到就直接比 |
 | **F-05 BRIDGE** | 宿主能力口页面侧：全页 `acquireVsCodeApi` 只调一次、并发调用按 id 配对、结构化错误带 code、上行消息形状 |
+| **F-06 PORTABLE** | 可移植性（#83）：**抹掉自有 frame 标记**的 chat 页（`data-shell*` 一律不落进 DOM，等于官方 web 那种「没有我们的 shell frame」的处境）上，三个 `dsh-*` 插件照常工作——正文装饰与提交卡片、行内码右键菜单、清空/反悔；外链在**有宿主桥**时走 `vscode.openExternal`、**撤掉桥**后改走页面 `window.open`（官方 web 侧那条路） |
 | **R-06 只读守卫** | 整轮跑前跑后数一遍网关会话数：必须一模一样。「真实网关只读」的可执行定义——喂 prompt、点新建会话都会改变这个数 |
 
-首版 6 项合计 245 条断言，全绿约 50 秒。
+首版 6 项合计 245 条断言；#83 加上 F-06 后共 7 项 256 条断言，全绿约 60 秒。
 
 ## 页面是怎么造出来的（为什么可信）
 
@@ -99,8 +100,10 @@ chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（
 
 以下条目在历史 ledger（`test/sandbox/verify.*.ledger.json`）里出现过，本目录尚未覆盖：
 
-- **TREE/RENAME**：整包以自有插件 id 装载的三处同 id 断言（combo 请求 / CSS 标记 / 插件标记）
-  与旧 id 无残留（现由 F-01 覆盖了 combo 请求与 CSS 标记两处，未查旧 id 残留）；
+- **TREE/RENAME**：整包以自有插件 id 装载的同 id 断言——F-01 覆盖了 combo 请求与
+  CSS 标记两处；**旧 id 无残留**自 #83 起由单测 `test/pluginPortability.test.ts`
+  覆盖（全仓扫旧 id，含 build.mjs 与注释之外的源码行），不再挂在浏览器套件里；
+  「页面上的插件标记」一处仍未覆盖；
 - **NOFLASH**：`?session=<id>` 注入会话时的防闪帧遮罩；
 - **EXPORT**：会话日志导出自有行动（需要一份真实会话数据）；
 - **PERF**：整包缓存命中与 git 卡片扫描开销；

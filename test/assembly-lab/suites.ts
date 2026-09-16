@@ -203,12 +203,18 @@ export const SMOKE_SUITE: LabSuite = {
 // F-03 INTERACT：关键交互（右键菜单 / 清空 / git 卡片）
 // ---------------------------------------------------------------------------
 
-/** 交互夹具：往对话区塞一段带行内码与 commit hash 的正文（真模型输出不可复现）。 */
+/**
+ * 交互夹具：往对话区塞一段带行内码与 commit hash 的正文（真模型输出不可复现）。
+ *
+ * 塞进**官方对话区容器**（`[data-conversation-scroll]`）而不是自有 frame 的
+ * `.dshOneShell_main`：三个 dsh-* 插件的挂载点就在那个容器上（#83），夹具必须落在
+ * 插件真正工作的范围里——否则这里测的是「夹具放错地方」而不是插件行为。
+ */
 const FIXTURE_SHA = 'deadbee'
 
 async function injectMessageFixture(page: OpenedPage['page']): Promise<void> {
   await page.evaluate((sha: string) => {
-    const host = document.querySelector('.dshOneShell_main')
+    const host = document.querySelector('[data-conversation-scroll]')
     if (host === null) return
     const box = document.createElement('div')
     box.setAttribute('data-lab-fixture', 'message')
@@ -520,4 +526,139 @@ export const BRIDGE_SUITE: LabSuite = {
   },
 }
 
-export const SUITES: ReadonlyArray<LabSuite> = [CONTRACT_SUITE, SMOKE_SUITE, INTERACT_SUITE, PARITY_SUITE, BRIDGE_SUITE]
+// ---------------------------------------------------------------------------
+// F-06 PORTABLE：可移植挂载点 / 官方侧外链（#83）
+// ---------------------------------------------------------------------------
+
+/** 假宿主在两个方向上的记录（VS Code 侧桥 / 官方 web 侧 window.open）。 */
+type LabHostRecorder = { openedUrls: string[]; openedByWindow: string[] }
+
+export const PORTABLE_SUITE: LabSuite = {
+  id: 'F-06',
+  phase: 'new-feature',
+  name: '可移植性：页面上没有自有 frame 标记时，三个 dsh-* 插件照常工作（PORTABLE 套件）',
+  expect:
+    'chat 树在**抹掉自有 frame 标记**的页面上（`data-shell*` 属性一律不落进 DOM，等于官方 web 那种「没有我们的 shell frame」的处境）照常可用：官方对话区容器仍在；夹具正文被 git 卡片装饰、悬停出提交卡片；行内码右键出菜单、Esc 撤掉；GitHub 按钮有宿主桥时走 `vscode.openExternal`，把宿主桥撤掉后改走页面 `window.open`（官方 web 侧那条路）；composer 里 Esc ×2 清空、Ctrl+Z 复原。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('chat'), { width: 1200, stripFrameMarkers: true })
+    const { page } = opened
+    try {
+      const markers = await page.evaluate(() => ({
+        shell: document.querySelectorAll('[data-shell]').length,
+        overlay: document.querySelectorAll('[data-shell-overlay]').length,
+        conversation: document.querySelectorAll('[data-conversation-scroll]').length,
+      }))
+      check.fact(
+        `抹掉 frame 标记后的页面：data-shell=${String(markers.shell)} data-shell-overlay=${String(markers.overlay)} 官方对话区容器=${String(markers.conversation)}`,
+      )
+      check.eq(
+        '页面上没有任何自有 frame 标记（data-shell / data-shell-overlay）',
+        [markers.shell, markers.overlay],
+        [0, 0],
+      )
+      check.ok('官方对话区容器在页面上（插件的挂载点就在它上面）', markers.conversation >= 1, `container=${String(markers.conversation)}`)
+
+      await injectMessageFixture(page)
+      check.ok(
+        '无 frame 标记：夹具正文仍被 git 卡片装饰（扫描挂官方容器）',
+        (await contentCount(page, `[data-dshone-commit="${FIXTURE_SHA}"]`)) === 1,
+      )
+
+      // --- 行内码右键菜单（委托挂官方容器）---
+      await page.click('[data-lab-fixture="message"] code', { button: 'right' })
+      await page.waitForTimeout(300)
+      const menu = await page.evaluate(() => ({
+        menu: document.querySelector('[data-dshone-menu]') !== null,
+        items: document.querySelectorAll('[data-dshone-menu] button[role="menuitem"]').length,
+        marked: document.querySelectorAll('code[data-dshone-menu-target]').length,
+      }))
+      check.fact(`无 frame 标记时的右键菜单：${JSON.stringify(menu)}`)
+      check.ok('无 frame 标记：行内码右键仍出菜单（1 项、目标高亮）', menu.menu && menu.items === 1 && menu.marked === 1, JSON.stringify(menu))
+      screenshots.push(await shot(ctx, page, 'portable-menu'))
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(250)
+
+      // --- 提交卡片（数据走宿主能力口）---
+      await page.hover(`[data-dshone-commit="${FIXTURE_SHA}"]`)
+      await page.waitForTimeout(400)
+      const card = await page.evaluate(() => {
+        const element = document.querySelector('[data-dshone-git-card]')
+        return {
+          present: element !== null,
+          text: element === null ? '' : (element.textContent ?? '').slice(0, 200),
+          buttons: element?.querySelectorAll('.dshOneGitCard_cmd').length ?? 0,
+        }
+      })
+      check.fact(`无 frame 标记时的提交卡片：${JSON.stringify(card)}`)
+      check.ok('无 frame 标记：悬停出提交卡片且内容来自宿主回执', card.present && card.text.includes('Lab Bot'), card.text)
+      screenshots.push(await shot(ctx, page, 'portable-gitcard'))
+
+      // --- 外链：VS Code 侧（有宿主桥）→ 官方 web 侧（撤掉桥）---
+      if (card.buttons === 2) {
+        await page.click('[data-dshone-git-card] .dshOneGitCard_cmd:last-of-type')
+        await page.waitForTimeout(300)
+      }
+      const viaBridge = await page.evaluate(
+        () => ((globalThis as { __LAB_HOST__?: LabHostRecorder }).__LAB_HOST__?.openedUrls ?? []),
+      )
+      check.fact(`有宿主桥时的外链出口：${JSON.stringify(viaBridge)}`)
+      check.ok(
+        '无 frame 标记：GitHub 按钮走 vscode.openExternal（VS Code 侧那条路）',
+        viaBridge.length === 1 && viaBridge[0].includes(FIXTURE_SHA),
+        JSON.stringify(viaBridge),
+      )
+
+      await page.evaluate(() => {
+        // 撤掉宿主桥 = 官方 web 那种「页面里没有宿主对象」的处境；能力口每次调用现判通路。
+        ;(globalThis as { __DSH_ONE_HOST__?: unknown }).__DSH_ONE_HOST__ = undefined
+      })
+      if ((await contentCount(page, '[data-dshone-git-card] .dshOneGitCard_cmd')) === 2) {
+        await page.click('[data-dshone-git-card] .dshOneGitCard_cmd:last-of-type')
+        await page.waitForTimeout(300)
+      }
+      const viaWindow = await page.evaluate(
+        () => ((globalThis as { __LAB_HOST__?: LabHostRecorder }).__LAB_HOST__?.openedByWindow ?? []),
+      )
+      check.fact(`撤掉宿主桥后的外链出口：${JSON.stringify(viaWindow)}`)
+      check.ok(
+        '撤掉宿主桥后：GitHub 按钮改走页面 window.open（官方 web 侧那条路）',
+        viaWindow.length === 1 && viaWindow[0].includes(FIXTURE_SHA),
+        JSON.stringify(viaWindow),
+      )
+
+      // --- 清空 / 反悔（键位监听挂官方容器）---
+      await page.click(editorSelector)
+      await page.keyboard.type('portable clear test')
+      await page.waitForTimeout(300)
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      const armed = await contentCount(page, '.dshOneClear_hint')
+      check.ok('无 frame 标记：第一次 Esc 进入武装态并出提示', armed >= 1, `hint=${String(armed)}`)
+      screenshots.push(await shot(ctx, page, 'portable-clear-arm'))
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      const cleared = await page.evaluate((sel: string) => document.querySelector(sel)?.textContent ?? '', editorSelector)
+      check.ok('无 frame 标记：第二次 Esc 草稿被清空', !cleared.includes('portable clear test'), cleared)
+      await page.keyboard.press('Control+z')
+      await page.waitForTimeout(400)
+      const restored = await page.evaluate((sel: string) => document.querySelector(sel)?.textContent ?? '', editorSelector)
+      check.ok('无 frame 标记：Ctrl+Z 草稿复原', restored.includes('portable clear test'), restored)
+      screenshots.push(await shot(ctx, page, 'portable-clear-undo'))
+
+      check.eq('可移植页面上零 pageerror', opened.capture.pageErrors, [])
+    } finally {
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
+
+export const SUITES: ReadonlyArray<LabSuite> = [
+  CONTRACT_SUITE,
+  SMOKE_SUITE,
+  INTERACT_SUITE,
+  PARITY_SUITE,
+  BRIDGE_SUITE,
+  PORTABLE_SUITE,
+]

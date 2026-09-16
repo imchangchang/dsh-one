@@ -200,23 +200,33 @@ export const SESSION_BRIDGE_PLUGIN_ID = '@dsh-one/vscode-session-bridge'
 export const SESSION_BOOT_PLUGIN_ID = '@dsh-one/vscode-session-boot'
 
 /**
- * chat 树 git 卡片插件 id（#65 批 1）：消息正文 commit hash 可点 + 悬停卡片
- * （数据走宿主能力桥 git.show，见 gitCardPlugin.ts 的机制分层举证）。
+ * chat 树 git 卡片插件 id（#65 批 1；#83 迁移到宿主能力口与可移植挂载点）。
+ *
+ * 命名是 `dsh-*` 而非 `vscode-*`（#83）：数据走宿主能力口（`capabilities.gitShow`）、
+ * 外链走 `capabilities.openExternal`、扫描与委托挂在**官方对话区容器**
+ * （`[data-conversation-scroll]`）上——插件不认任何自有 frame 标记，因此官方 web
+ * 侧也能直接用（见 gitCardPlugin.ts 的机制分层）。
  */
-export const GIT_CARD_PLUGIN_ID = '@dsh-one/vscode-git-card'
+export const GIT_CARD_PLUGIN_ID = '@dsh-one/dsh-git-card'
 
 /**
- * chat 树右键菜单插件 id（#65 批 1）：行内码「复制这段」/ 消息「复制」/
- * 外链「系统浏览器 or VS Code 内置浏览器」（外链动作走能力桥）。
+ * chat 树右键菜单插件 id（#65 批 1）：行内码「复制这段」（官方 Menu 原语 +
+ * 官方 writeClipboard）。
+ *
+ * 命名是 `dsh-*` 而非 `vscode-*`（#83）：委托挂在官方对话区容器上（原先挂自有
+ * frame 根，官方 web 里那条根不存在、插件整个不工作），本件没有别的宿主耦合。
  */
-export const CONTEXT_MENU_PLUGIN_ID = '@dsh-one/vscode-context-menu'
+export const CONTEXT_MENU_PLUGIN_ID = '@dsh-one/dsh-context-menu'
 
 /**
- * chat 树清空三件套插件 id（#65 批 1）：一键清空 / 双击确认 + Ctrl+Z 反悔 /
- * 运行中「先清输入再停」（全部走官方 composer 的 InputActions 与 conversation
- * 服务的 cancel，见 composerClearPlugin.ts 的机制分层）。
+ * chat 树清空件插件 id（#65 批 1）：Esc / Ctrl+C 两次清空 + Ctrl+Z 反悔（写入与
+ * 还原全部走官方 composer 的 InputActions 与 conversation 服务，见
+ * composerClearPlugin.ts 的机制分层）。
+ *
+ * 命名是 `dsh-*` 而非 `vscode-*`（#83）：键位监听挂在官方对话区容器上（composer
+ * 座位就在这棵子树里），只依赖官方座位属性。
  */
-export const COMPOSER_CLEAR_PLUGIN_ID = '@dsh-one/vscode-composer-clear'
+export const COMPOSER_CLEAR_PLUGIN_ID = '@dsh-one/dsh-composer-clear'
 
 /**
  * chat 树会话日志导出自有行动 id（#71 验收返修；#84 迁移到宿主能力口）。

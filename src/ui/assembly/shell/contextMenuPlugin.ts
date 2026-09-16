@@ -1,8 +1,9 @@
 /**
- * @dsh-one/vscode-context-menu——行内码右键「复制这段」（#65 批 1；收尾改版后
+ * `@dsh-one/dsh-context-menu`——行内码右键「复制这段」（#65 批 1；收尾改版后
  * 只保留这一项：消息右键「复制」官方消息操作栏自带，外链官方 MarkdownText 渲染
  * 的就是 `target="_blank" rel="noopener noreferrer"`、点击由 VS Code 交给系统
- * 浏览器，都不需要我们再补一份菜单）。
+ * 浏览器，都不需要我们再补一份菜单）。#83 起挂载点脱离自有 frame（见下），
+ * 官方 web 侧同样可用，故命名 `dsh-*`。
  *
  * 为什么落到第 4 层（CSS/DOM），前 3 层的举证：
  * ① 机制层 1（官方槽位）没有 context-menu 座位：把 48 个官方插件 bundle 全量
@@ -18,9 +19,10 @@
  * ③ 机制层 3（装载/传输接缝）与「右键交互」无关。
  *
  * 第 4 层做法与稳定性风险：
- * - 委托挂在**自有** frame 根（`[data-shell="dsh-one"]`）的捕获阶段，只认行内码
- *   一个目标，其余（消息行、外链、空白处……）一律让路——**不 preventDefault**，
- *   VS Code / 系统原生右键菜单照常弹出；
+ * - 委托挂在**官方对话区容器**（`[data-conversation-scroll]`，见 `./mountPoints.ts`
+ *   的出处与理由——原来是挂在自有 frame 根上，官方 web 里那条根不存在、插件整个
+ *   不工作，#83 已改）的捕获阶段，只认行内码一个目标，其余（消息行、外链、
+ *   空白处……）一律让路——**不 preventDefault**，VS Code / 系统原生右键菜单照常弹出；
  * - 官方侧只依赖标签语义：`code`（行内码 = 不带 class 的 code，且不在
  *   `pre`/`a` 内、不含 button——官方 file-mention 会渲染 `<code><button>`，
  *   那种交给官方自己）；
@@ -59,6 +61,7 @@
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { IconCheckOutline16, IconCopyOutline16, Menu, Tooltip, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { mountOnConversation } from './mountPoints.ts'
 
 /** 右键目标高亮用的自有属性（只加属性，不改官方 DOM 结构）。 */
 const TARGET_ATTR = 'data-dshone-menu-target'
@@ -104,10 +107,10 @@ const CSS = [
   // 单属性选择器的特异性压不过它——这里是我们自己给自己加的标记属性，代价可控。
   `[${MENU_ATTR}="${MENU_ICON_MARK}"]{min-width:0!important;width:max-content}`,
 ].join('')
-const CSS_TAG_ID = '@dsh-one/vscode-context-menu/Target.css'
+const CSS_TAG_ID = '@dsh-one/dsh-context-menu/Target.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
-  tag.dataset.plugin = '@dsh-one/vscode-context-menu'
+  tag.dataset.plugin = '@dsh-one/dsh-context-menu'
   tag.dataset.pluginCss = CSS_TAG_ID
   tag.textContent = CSS
   document.head.appendChild(tag)
@@ -139,9 +142,6 @@ interface MenuState {
 
 const CLOSED: MenuState = { open: false, x: 0, y: 0, text: '' }
 
-/** 自有容器：装配 frame 根（我们自己的 data 属性）。 */
-const frameRoot = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-shell="dsh-one"]')
-
 /**
  * 行内码：不带 class 的 `code`，不在 pre（代码块）与 a（链接）里，且不含 button
  * （官方 file-mention 渲染成 `<code><button>`，那种点击/复制由官方负责）。
@@ -164,30 +164,30 @@ function ContextMenuLayer({ t }: LayerProps) {
   const targetRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
-    const root = frameRoot()
-    if (root === null) return undefined
-    const onContextMenu = (event: MouseEvent): void => {
-      const target = event.target as HTMLElement | null
-      if (target === null) return
-      const code = inlineCodeOf(target)
-      if (code === null) return // 其余目标一律让路：原生右键菜单照常
-      const text = (code.textContent ?? '').trim()
-      if (text === '') return
-      event.preventDefault()
-      event.stopPropagation()
-      // 先清旧的高亮/菜单标记再标新的（幂等），保证任何时刻最多一个目标被标
-      clearHighlight()
-      clearMenuMark()
-      code.setAttribute(TARGET_ATTR, '')
-      targetRef.current = code
-      setState({ open: true, x: event.clientX, y: event.clientY, text })
-    }
-    root.addEventListener('contextmenu', onContextMenu, true)
-    return () => {
-      root.removeEventListener('contextmenu', onContextMenu, true)
-      clearHighlight()
-      clearMenuMark()
-    }
+    return mountOnConversation((container) => {
+      const onContextMenu = (event: MouseEvent): void => {
+        const target = event.target as HTMLElement | null
+        if (target === null) return
+        const code = inlineCodeOf(target)
+        if (code === null) return // 其余目标一律让路：原生右键菜单照常
+        const text = (code.textContent ?? '').trim()
+        if (text === '') return
+        event.preventDefault()
+        event.stopPropagation()
+        // 先清旧的高亮/菜单标记再标新的（幂等），保证任何时刻最多一个目标被标
+        clearHighlight()
+        clearMenuMark()
+        code.setAttribute(TARGET_ATTR, '')
+        targetRef.current = code
+        setState({ open: true, x: event.clientX, y: event.clientY, text })
+      }
+      container.addEventListener('contextmenu', onContextMenu, true)
+      return () => {
+        container.removeEventListener('contextmenu', onContextMenu, true)
+        clearHighlight()
+        clearMenuMark()
+      }
+    })
   }, [])
 
   // 菜单开着时给官方 Menu 的列表元素加自有标记，把盒子收成图标项的自然宽度

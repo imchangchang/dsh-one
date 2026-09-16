@@ -1,6 +1,7 @@
 /**
- * @dsh-one/vscode-composer-clear——清空（Esc / Ctrl+C 两路）+ Ctrl+Z 反悔
- * （#65 批 1，issue #16 的装配版；#65 收尾改版：去掉按钮，改键位触发）。
+ * `@dsh-one/dsh-composer-clear`——清空（Esc / Ctrl+C 两路）+ Ctrl+Z 反悔
+ * （#65 批 1，issue #16 的装配版；#65 收尾改版：去掉按钮，改键位触发；
+ * #83 起挂载点脱离自有 frame，官方 web 侧同样可用，故命名 `dsh-*`）。
  *
  * ## 走第几层机制
  *
@@ -32,7 +33,8 @@
  *    弹窗），**没有一处是中断回合**（全量扫 addEventListener("keydown") 与主 bundle
  *    的 Escape 用法确认）——所以「空内容放行」不会漏掉官方的中断键，官方的回合
  *    中断入口是 composer 上的停止/中断控件（`interruptible` 那个按钮）。
- * 风险与对策：监听挂在**自有** frame 根（`[data-shell="dsh-one"]`）的捕获阶段，
+ * 风险与对策：监听挂在**官方对话区容器**（`[data-conversation-scroll]`，见
+ * `./mountPoints.ts` 的出处与理由；composer 座位就在这棵子树里）的捕获阶段，
  * 只在事件目标位于官方 composer 卡（`[data-slot="conversation.composer.bar"]`）
  * 之内时才考虑接管；放行条件（IME 组字、官方浮层打开、Ctrl+C 有选区）一律
  * `return`，不 preventDefault、不改草稿。官方 DOM 侧只依赖座位属性与
@@ -40,6 +42,7 @@
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { clearHintKind, decideKeyAction } from '../../../pure/composerClearState.ts'
+import { COMPOSER_SEAT_SELECTOR, mountOnConversation } from './mountPoints.ts'
 
 /** 撤销窗口时长（毫秒）：窗口内 Ctrl/Cmd+Z 或点「撤销」都能反悔。 */
 const UNDO_WINDOW_MS = 8000
@@ -50,10 +53,10 @@ const CSS = [
   '.dshOneClear_hint{display:flex;align-items:center;gap:6px;margin:0 0 6px;padding:2px 8px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;width:max-content}',
   '.dshOneClear_undo{cursor:pointer;border:none;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;padding:0 2px;text-decoration:underline}',
 ].join('')
-const CSS_TAG_ID = '@dsh-one/vscode-composer-clear/Hint.css'
+const CSS_TAG_ID = '@dsh-one/dsh-composer-clear/Hint.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
-  tag.dataset.plugin = '@dsh-one/vscode-composer-clear'
+  tag.dataset.plugin = '@dsh-one/dsh-composer-clear'
   tag.dataset.pluginCss = CSS_TAG_ID
   tag.textContent = CSS
   document.head.appendChild(tag)
@@ -161,11 +164,8 @@ interface ClearProps {
   sessionFaceOf: (sessionId: string) => SessionFace | undefined
 }
 
-/** 自有容器：装配 frame 根（我们自己的 data 属性）。 */
-const frameRoot = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-shell="dsh-one"]')
-
 /** 官方 composer 卡座位（判断按键目标是否落在输入区内）。 */
-const COMPOSER_SEAT = '[data-slot="conversation.composer.bar"]'
+const COMPOSER_SEAT = COMPOSER_SEAT_SELECTOR
 
 /** 官方浮层/模态是否开着（开着就不接管 Esc——那是它们的关闭语义）。 */
 function overlayOpen(): boolean {
@@ -267,59 +267,59 @@ function ComposerClear({ useInput, inputActions, sessionId, t, sessionFaceOf }: 
     if (snapshotRef.current !== null && (draft !== '' || attachmentIds.length > 0)) closeUndoWindow()
   }, [draft, attachmentIds])
 
-  // 键位监听（第 4 层，见文件头举证）：挂自有 frame 根捕获阶段，只考虑
-  // composer 卡之内的按键，放行条件一律不拦。
+  // 键位监听（第 4 层，见文件头举证）：挂官方对话区容器（composer 座位在它之内）
+  // 的捕获阶段，只考虑 composer 卡之内的按键，放行条件一律不拦。
   useEffect(() => {
-    const root = frameRoot()
-    if (root === null) return undefined
-    const onKeyDown = (event: KeyboardEvent): void => {
-      const target = event.target as HTMLElement | null
-      if (target === null || target.closest(COMPOSER_SEAT) === null) return
-      const isEscape = event.key === 'Escape'
-      // Ctrl+C（不带 Shift/Alt）；macOS 的复制是 Cmd+C，不受此影响
-      const isCtrlC = event.key.toLowerCase() === 'c' && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
-      if (!isEscape && !isCtrlC) return
-      const undoOpen = snapshotRef.current !== null
-      // 撤销窗口里的 Ctrl/Cmd+Z 由下面单独处理；Esc 在撤销窗口里不做事（放行）
-      if (undoOpen && isEscape) return
-      const action = decideKeyAction({
-        key: isCtrlC ? 'ctrl-c' : 'escape',
-        hasContent: live.current.draft !== '' || live.current.attachmentIds.length > 0,
-        armed: armedRef.current !== null,
-        hasSelection: hasSelection(),
-        blocked: overlayOpen(),
-        composing: event.isComposing,
-      })
-      if (action === 'pass') return
-      event.preventDefault()
-      if (action === 'clear') {
-        clearNow()
-        return
+    return mountOnConversation((container) => {
+      const onKeyDown = (event: KeyboardEvent): void => {
+        const target = event.target as HTMLElement | null
+        if (target === null || target.closest(COMPOSER_SEAT) === null) return
+        const isEscape = event.key === 'Escape'
+        // Ctrl+C（不带 Shift/Alt）；macOS 的复制是 Cmd+C，不受此影响
+        const isCtrlC = event.key.toLowerCase() === 'c' && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
+        if (!isEscape && !isCtrlC) return
+        const undoOpen = snapshotRef.current !== null
+        // 撤销窗口里的 Ctrl/Cmd+Z 由下面单独处理；Esc 在撤销窗口里不做事（放行）
+        if (undoOpen && isEscape) return
+        const action = decideKeyAction({
+          key: isCtrlC ? 'ctrl-c' : 'escape',
+          hasContent: live.current.draft !== '' || live.current.attachmentIds.length > 0,
+          armed: armedRef.current !== null,
+          hasSelection: hasSelection(),
+          blocked: overlayOpen(),
+          composing: event.isComposing,
+        })
+        if (action === 'pass') return
+        event.preventDefault()
+        if (action === 'clear') {
+          clearNow()
+          return
+        }
+        setArmedKey(isCtrlC ? 'ctrl-c' : 'escape')
+        clearArmTimer()
+        armTimer.current = setTimeout(() => {
+          armTimer.current = null
+          setArmedKey(null)
+        }, ARM_WINDOW_MS)
       }
-      setArmedKey(isCtrlC ? 'ctrl-c' : 'escape')
-      clearArmTimer()
-      armTimer.current = setTimeout(() => {
-        armTimer.current = null
-        setArmedKey(null)
-      }, ARM_WINDOW_MS)
-    }
-    const onUndoKey = (event: KeyboardEvent): void => {
-      const key = event.key.toLowerCase()
-      if (key !== 'z' || !(event.metaKey || event.ctrlKey) || event.shiftKey) return
-      if (snapshotRef.current === null) return
-      const target = event.target as HTMLElement | null
-      if (target === null || target.closest(COMPOSER_SEAT) === null) return
-      event.preventDefault()
-      undoClear()
-    }
-    root.addEventListener('keydown', onKeyDown, true)
-    root.addEventListener('keydown', onUndoKey, true)
-    return () => {
-      root.removeEventListener('keydown', onKeyDown, true)
-      root.removeEventListener('keydown', onUndoKey, true)
-      clearArmTimer()
-      if (undoTimer.current !== null) clearTimeout(undoTimer.current)
-    }
+      const onUndoKey = (event: KeyboardEvent): void => {
+        const key = event.key.toLowerCase()
+        if (key !== 'z' || !(event.metaKey || event.ctrlKey) || event.shiftKey) return
+        if (snapshotRef.current === null) return
+        const target = event.target as HTMLElement | null
+        if (target === null || target.closest(COMPOSER_SEAT) === null) return
+        event.preventDefault()
+        undoClear()
+      }
+      container.addEventListener('keydown', onKeyDown, true)
+      container.addEventListener('keydown', onUndoKey, true)
+      return () => {
+        container.removeEventListener('keydown', onKeyDown, true)
+        container.removeEventListener('keydown', onUndoKey, true)
+        clearArmTimer()
+        if (undoTimer.current !== null) clearTimeout(undoTimer.current)
+      }
+    })
   }, [sessionId])
 
   const hintKind = clearHintKind({ armed: armedKey !== null, undoOpen: snapshot !== null, armedKey: armedKey ?? 'escape' })
