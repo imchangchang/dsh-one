@@ -91,10 +91,13 @@ function Nothing(): null {
 // 上，靠继承下发给容器内所有内容（树插件只读，不参与写入）。
 //
 // 数值口径：官方原值逐字取自官方 css-module（ui-workspace 的 Rows.module.css /
-// WorkspaceBrowser.module.css），VS Code 档按「VS Code 原生侧栏树观感」定
-// （原生树行高 22px、13px 字号、行间 0 空隙的紧凑感）——官方按自己 264–420px
-// 侧栏设计的松量在 VS Code 侧栏里偏松。每个键两边一致由 test/assemblyShellContract
-// 的契约测试守着（表里的 official 必须等于树插件 CSS 的兜底字面量）。
+// WorkspaceBrowser.module.css；#104 扩出来的几件另取同族组件——分组胶囊取自
+// ui-model-selection 的 ModelSelection.module.css、回收站入口行行高取自 ui-cordis 的
+// CordisPanel.module.css），每个键的出处写在它自己那一段上面；VS Code 档
+// 按「VS Code 原生侧栏树观感」定（原生树行高 22px、13px 字号、行间 0 空隙的紧凑感）
+// ——官方按自己 264–420px 侧栏设计的松量在 VS Code 侧栏里偏松。每个键两边一致由
+// test/assemblyShellContract 的契约测试守着（表里的 official 必须等于树插件 CSS 的
+// 兜底字面量、键集两边相等、VS Code 档比官方档紧）。
 // **观感语言（图标/颜色/圆角/字体族/动效）不在这张表里**——那些继续逐字沿用官方。
 // ---------------------------------------------------------------------------
 
@@ -117,6 +120,31 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   'search-height': { official: '28px', vscode: '24px' },
   'search-expanded-height': { official: '30px', vscode: '26px' },
   'search-row-min-height': { official: '48px', vscode: '40px' },
+  // ---- #104：从「列表行」扩到骨架其余四区（顶栏 / 分组过滤条 / 回收站入口行 / 抽屉）----
+  // 每项的官方原值都取自官方**同族组件**的规则，出处逐条写在下面。
+  //
+  // 顶栏（+ 抽屉头、过滤条、回收站入口行共用的两条骨架基线）：官方 ui-workspace 的
+  // WorkspaceBrowser.module.css——`bhn1Oq_sectionHeader{padding-left:4px}` 是分节头
+  // 的左侧基线（我们顶栏那一行就照官方分节头做的），`bhn1Oq_sectionHeader{gap:4px}`
+  // 与 `bhn1Oq_headerActions{gap:4px}` 是同一条行内间隙（官方模型选择菜单的胶囊触发
+  // 器 `_7KE1Ra_trigger{gap:4px}` 也是这个值）。
+  'section-padding-inline': { official: '4px', vscode: '2px' },
+  'section-gap': { official: '4px', vscode: '2px' },
+  // 分组过滤条的胶囊：官方同一形态的胶囊触发器在 ui-model-selection 的
+  // ModelSelection.module.css——`_7KE1Ra_trigger{height:28px;gap:4px;padding:0 4px 0
+  // 8px;font-size:13px}`（官方那个「模型名 + ▾」的圆角胶囊，与我们分组胶囊同形）。
+  'pill-height': { official: '28px', vscode: '24px' },
+  'pill-font-size': { official: '13px', vscode: '11px' },
+  'pill-padding-start': { official: '8px', vscode: '6px' },
+  'pill-padding-end': { official: '4px', vscode: '3px' },
+  // 回收站入口行的行高：官方 ui-cordis 的 CordisPanel.module.css `Nqubda_badge{height:
+  // 42px}`——那是官方在**同一个座位**（官方 `sidebar.footer.action`）里的条目，我们的
+  // 入口行与它并排，行高取同一个值。
+  'footer-row-height': { official: '42px', vscode: '26px' },
+  // 抽屉里「按工作区分块」的块头高度：官方列表里的分组块头是 ui-model-selection 的
+  // `_7KE1Ra_groupTitle{padding:5px 8px 3px;font-size:12px;line-height:18px}`，总高
+  // 5+18+3=26px（上下内边距 + 行高）；我们那行是定高一行的，取它的总高。
+  'drawer-block-header-height': { official: '26px', vscode: '20px' },
 }
 
 /** 密度档 → 一条 CSS 规则（挂在 frame 上，容器内所有插件经继承拿到）。 */

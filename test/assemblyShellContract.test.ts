@@ -148,6 +148,54 @@ test('密度偏好：shell 设的键集 = 树插件消费的键集，且树兜�
   }
 })
 
+// #104（密度档从「列表行」扩到骨架其余四区：顶栏 / 分组过滤条 / 回收站入口行 / 抽屉）：
+// 上面那条守「键集两边一致 + 兜底 = 官方原值」，这条补两件事——
+// ① 新键确实挂在**对应区域**的规则上（写在别处等于没扩散到那一区）；
+// ② 每项 VS Code 档**严格**小于官方原值（两边同值 = 这一项其实没紧凑）。
+test('密度档扩散（#104）：四区新键各挂各的规则，且每项 VS Code 档严格更紧', () => {
+  const tree = TREE_SOURCE
+  const shell = read('sidebarFramePlugin.ts')
+  const profile = new Map(
+    [...shell.matchAll(/'([a-z-]+)':\s*\{\s*official:\s*'([^']+)',\s*vscode:\s*'([^']+)'\s*\}/g)].map((m) => [
+      m[1],
+      { official: m[2] ?? '', vscode: m[3] ?? '' },
+    ]),
+  )
+  // 键 → 它必须出现（消费）在哪些规则里：区域专属键一条，跨区共用的骨架基线列出全部消费点。
+  const SPREAD: ReadonlyArray<{ key: string; rules: readonly string[] }> = [
+    {
+      key: 'section-padding-inline',
+      rules: ['dshOneTree_sectionHeader', 'dshOneTree_filterBar', 'dshOneTree_footerRow', 'dshOneTree_drawerHeader', 'dshOneTree_drawerList'],
+    },
+    {
+      key: 'section-gap',
+      rules: ['dshOneTree_sectionHeader', 'dshOneTree_headerActions', 'dshOneTree_filterBar', 'dshOneTree_pill', 'dshOneTree_drawerHeader'],
+    },
+    { key: 'pill-height', rules: ['dshOneTree_pill'] },
+    { key: 'pill-font-size', rules: ['dshOneTree_pill'] },
+    { key: 'pill-padding-start', rules: ['dshOneTree_pill'] },
+    { key: 'pill-padding-end', rules: ['dshOneTree_pill'] },
+    { key: 'footer-row-height', rules: ['dshOneTree_footerMain'] },
+    { key: 'drawer-block-header-height', rules: ['dshOneTree_drawerGroupLabel'] },
+  ]
+  const numeric = (v: string): number => Number.parseFloat(v)
+  for (const { key, rules } of SPREAD) {
+    const entry = profile.get(key)
+    assert.ok(entry !== undefined, `shell 的 DENSITY_PROFILE 要有 #104 新键 ${key}`)
+    for (const rule of rules) {
+      assert.match(
+        tree,
+        new RegExp(`\\.${rule}\\{[^}]*var\\(--dsh-one-density-${key},`),
+        `${key} 必须挂在 .${rule} 的规则上（树侧的消费点）`,
+      )
+    }
+    assert.ok(
+      numeric(entry?.vscode ?? '') < numeric(entry?.official ?? ''),
+      `${key} 的 VS Code 档必须严格小于官方原值（同值等于这一区没紧凑）`,
+    )
+  }
+})
+
 // #85 B 项（悬停卡遮挡）：树插件按「容器右侧有没有 244+8px 空处」决定渲不渲染
 // 官方悬停卡；shell 不得再用 CSS 把官方卡片钉进容器（上一版的做法，正是用户
 // 反馈的「遮挡内容」）。
