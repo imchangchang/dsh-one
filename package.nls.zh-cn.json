@@ -3,6 +3,7 @@
   "icon.dshFish.description": "dsh 像素鱼图标",
   "dshOne.openExternal.title": "在浏览器中打开 dsh 页面",
   "dshOne.start.title": "启动服务",
+  "dshOne.statusPanel.title": "显示状态面板",
   "dshOne.assembledChat.title": "打开装配对话区",
   "dshOne.assembledSettings.title": "dsh 设置（装配）",
   "dshOne.restart.title": "重启服务",

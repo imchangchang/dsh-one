@@ -24,6 +24,7 @@ import { openInstallGuide } from './ui/installGuide.ts'
 import { DshUpdate } from './server/dshUpdate.ts'
 import { locateDsh, type LocatedDsh } from './server/locateDsh.ts'
 import { decideUpdate } from './pure/dshUpdate.ts'
+import { statusActions, statusSummary } from './pure/statusActions.ts'
 import { TagBridge } from './server/tagBridge.ts'
 
 /**
@@ -572,10 +573,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // （平台下拉 + 一键命令 + 复制）窄侧栏放不下，独立成一个编辑器 tab；官方
     // 安装文档作为 tab 里的一条入口保留。
     vscode.commands.registerCommand('dshOne.openInstallPage', () => openInstallGuide(logger)),
+    // #90 状态栏点击 = 打开动作面板：动作清单与悬停气泡同一份表
+    // （src/pure/statusActions.ts），这里只负责把它渲染成原生 QuickPick 并转发命令。
+    vscode.commands.registerCommand('dshOne.statusPanel', async () => {
+      const status = manager.getStatus()
+      const verdict = decideUpdate(status.version, dshUpdate.latest())
+      const t = (message: string, ...args: Array<string | number | boolean>): string =>
+        vscode.l10n.t(message, ...args)
+      const actions = statusActions(status, t, verdict)
+      const picked = await vscode.window.showQuickPick(
+        actions.map((action) => ({ label: `$(${action.icon}) ${action.label}`, action })),
+        { title: 'DSH One', placeHolder: statusSummary(status, t, verdict) },
+      )
+      if (picked) await vscode.commands.executeCommand(picked.action.command)
+    }),
     // 未安装 dsh 时状态栏「Install dsh」链接的落点：聚焦侧栏面板，那里是
     // 「未安装」状态页（`reason === 'dshNotFound'`），页面上的「查看安装指南」
-    // 再开上面的引导 tab。侧栏本身就是窄条，不在这里直接塞引导内容。
-    vscode.commands.registerCommand('dshOne.openSessions', async () => {
+    // 再开上面的引导 tab。侧栏本身就是窄条，不在这里直接塞引导内容。    vscode.commands.registerCommand('dshOne.openSessions', async () => {
       await vscode.commands.executeCommand('dshOne.chat.focus')
     }),
     // Title-area "+": register a picked folder as a new dsh workspace.

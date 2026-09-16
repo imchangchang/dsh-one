@@ -13,12 +13,47 @@ test('running: version line after the title (dsh 0.1.2-rc.1)', () => {
     tooltipMarkdown(status, t),
     '**DSH One** — http://127.0.0.1:3080\n' +
       'dsh v0.1.2-rc.1\n\n' +
-      '[$(globe) Open in Browser](command:dshOne.openExternal)　' +
-      '[$(refresh) Restart Service](command:dshOne.restart)　' +
-      '[$(debug-stop) Stop Service](command:dshOne.stop)　' +
-      '[$(output) Show Logs](command:dshOne.showLogs)　' +
-      '[$(cloud-download) Check for Updates](command:dshOne.checkUpdate)',
+      '[$(globe) Open in Browser](command:dshOne.openExternal)\n\n' +
+      '[$(cloud-download) Check for Updates](command:dshOne.checkUpdate)\n\n' +
+      '[$(refresh) Restart Service](command:dshOne.restart)\n\n' +
+      '[$(debug-stop) Stop Service](command:dshOne.stop)\n\n' +
+      '[$(output) Show Logs](command:dshOne.showLogs)',
   )
+})
+
+/** 气泡动作必须一行一个：每个段落里最多一个链接（#90 修的「拦腰折行」问题）。 */
+test('动作布局：每段最多一个 command 链接（一行一个）', () => {
+  const statuses: TooltipStatus[] = [
+    { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1' },
+    { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1', adopted: true },
+    { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1', external: true },
+    { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1' },
+    { state: 'starting' },
+    { state: 'stopped' },
+    { state: 'error' },
+    { state: 'error', reason: 'dshNotFound' },
+    { state: 'error', reason: 'authDshNoToken', port: 3080 },
+  ]
+  for (const status of statuses) {
+    const md = tooltipMarkdown(status, t, { state: 'update', installed: '0.1.5-rc.1', latest: '0.1.5-rc.2' })
+    for (const paragraph of md.split('\n\n')) {
+      const links = paragraph.match(/\]\(command:/g) ?? []
+      assert.ok(links.length <= 1, `${status.state}/${status.reason ?? ''} 的段落里有 ${links.length} 个链接：${paragraph}`)
+    }
+  }
+})
+
+test('动作布局：动作行的数量与顺序 == statusActions 的清单', () => {
+  const status: TooltipStatus = { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1' }
+  const md = tooltipMarkdown(status, t)
+  const commands = [...md.matchAll(/\]\(command:([^)]+)\)/g)].map((m) => m[1])
+  assert.deepEqual(commands, [
+    'dshOne.openExternal',
+    'dshOne.checkUpdate',
+    'dshOne.restart',
+    'dshOne.stop',
+    'dshOne.showLogs',
+  ])
 })
 
 test('running: 有新版时多一行提示，动作行的「检查更新」换成「升级到 vX」', () => {

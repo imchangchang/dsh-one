@@ -5,9 +5,11 @@ import { tooltipMarkdown } from '../pure/statusTooltip.ts'
 import { decideUpdate } from '../pure/dshUpdate.ts'
 
 /**
- * 单块状态栏：$(dsh-fish) 图标 + 状态文字。动作全在悬停 tooltip 里
- * （command 链接，贴着状态栏弹出），文本里不再重复放动作图标；点击
- * 整块 = 打开浏览器（高频）。
+ * 单块状态栏：$(dsh-fish) 图标 + 状态文字。动作有两个面、同一份动作表
+ * （`src/pure/statusActions.ts`）：
+ * - 悬停 tooltip：贴着状态栏弹出，链接一行一个（被动查看）；
+ * - 点击整块：打开动作面板（QuickPick），一个动作一行（主动操作）。
+ * 点击不再直接跳浏览器——「打开浏览器」只是面板里的第一行（#90）。
  *
  * 注：git 状态栏那种「多段紧凑分组」是 VS Code 内部 addEntry 的
  * compact priority，扩展 API 的 priority 只接受 number（1.135 ext
@@ -74,7 +76,9 @@ export class StatusBar implements vscode.Disposable {
     manager: ServerManager,
     private readonly updateChecker: DshUpdate,
   ) {
-    this.item.command = 'dshOne.openExternal'
+    // 点击 = 打开动作面板（#90）。面板按当前状态给动作，所以所有状态都指向同一个命令
+    // （包括未安装 dsh——那时面板里的第一行是「安装 dsh」，点击语义反而更直白）。
+    this.item.command = 'dshOne.statusPanel'
     this.item.name = 'DSH One'
     this.sub = manager.onDidChangeState((s) => this.render(s))
     // 更新检查是异步的：查完（或失败）重画一次 tooltip。
@@ -87,9 +91,6 @@ export class StatusBar implements vscode.Disposable {
     this.item.text = text(status)
     this.item.tooltip = tooltip(status, this.updateChecker)
     this.item.color = color(status)
-    // 未安装 dsh 时整块点击聚焦侧栏面板（安装引导空态，含非官方脚本）；
-    // 点击「重试启动」本来就无意义（没装就是没装）。
-    this.item.command = isDshNotFound(status) ? 'dshOne.openSessions' : 'dshOne.openExternal'
   }
 
   dispose(): void {

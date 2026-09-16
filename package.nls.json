@@ -3,6 +3,7 @@
   "icon.dshFish.description": "dsh pixel fish icon",
   "dshOne.openExternal.title": "Open dsh Page in Browser",
   "dshOne.start.title": "Start Service",
+  "dshOne.statusPanel.title": "Show Status Panel",
   "dshOne.assembledChat.title": "Open Assembled Chat",
   "dshOne.assembledSettings.title": "dsh Settings (assembled)",
   "dshOne.restart.title": "Restart Service",

@@ -94,6 +94,11 @@
         "category": "DSH One"
       },
       {
+        "command": "dshOne.statusPanel",
+        "title": "%dshOne.statusPanel.title%",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.showLogs",
         "title": "%dshOne.showLogs.title%",
         "category": "DSH One"

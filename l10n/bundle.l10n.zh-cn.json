@@ -1,5 +1,7 @@
 {
   "Running": "运行中",
+  "Reused from another window": "复用自另一窗口",
+  "External instance": "外部实例",
   "Starting…": "启动中…",
   "Error": "错误",
   "Stopped": "已停止",
