@@ -4,9 +4,9 @@
  * - block list 同 chat 树（layout + sidebar 都下线）：官方外框与官方侧栏壳
  *   不进页（ui-sidebar 的槽注册在无人声明 'sidebar' 时 loud throw）。
  * - root 声明侧栏壳 4 子槽（品牌位/工作区树/品牌名/底部动作，贡献注册不渲染）
- *   + 自有 'dshOne.settings.page' 座位并只渲染它。**有意不声明 sidebar.settings**：
+ *   + 自有 'dshOne.settings.page' 槽位并只渲染它。**有意不声明 sidebar.settings**：
  *   声明会同步触发 settings-general 的 SettingsRoot inject，其 children 表与
- *   本页座位撞 registry「already declared」（绕行而非 priority 影子，同 v1）。
+ *   本页槽位撞 registry「already declared」（绕行而非 priority 影子，同 v1）。
  * - 整页宿主 = 官方 SettingsPanel 组合复刻：居中限宽内容列（官方 panel 宽
  *   800px，取同款 max-width:800px / calc(100vw - 32px)）+ 左侧分节导航
  *   （General/Models/Plugins/Agent presets，当前节高亮 aria-current，点击切节）
@@ -18,7 +18,7 @@
  */
 import { createElement as h, useEffect, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import { createLayoutStore, LayoutController, ThemePresenter, type ThemeSnapshot } from './frameShared'
+import { createLayoutStore, LayoutController, PANEL_INFO_SOURCE, ThemePresenter, type ThemeSnapshot } from './frameShared'
 
 // ---------------------------------------------------------------------------
 // 类型（本地最小面）
@@ -57,6 +57,8 @@ interface SlotsService {
   entries(name: string): SlotEntryLite[]
   getVersion(name: string): number
   subscribe(name: string, listener: () => void): () => void
+  /** 官方 root 槽位钩子/数据发布口（官方 ui-layout 的 panelInfo 同款调用点）。 */
+  provideRoot(contribution: { hooks: { panelInfo: typeof PANEL_INFO_SOURCE } }): () => void
 }
 
 interface LocaleService {
@@ -133,7 +135,7 @@ function resolveSlotLabel(label: unknown): string | undefined {
 
 /**
  * 整页宿主（官方 SettingsPanel 组合复刻；官方机制第 1/2 层：renderSlot 的
- * list 座位 only 过滤是框架原生选项，官方 SettingsPanel 同款）：
+ * list 槽位 only 过滤是框架原生选项，官方 SettingsPanel 同款）：
  * 左分节导航 + 右内容单节渲染（only:active），当前节高亮；
  * 导航行订阅槽/语言变化，节缺席自动回落首行。
  */
@@ -182,7 +184,7 @@ function SettingsPage({ renderSlot, sections }: SettingsFrameProps) {
   )
 }
 
-/** 「打开配置文件」自有行动（机制层 1：settings.action 是 list 座位，追加
+/** 「打开配置文件」自有行动（机制层 1：settings.action 是 list 槽位，追加
  * id 'open-document-vscode' 贡献；外观用官方 Button 原语与官方
  * SettingsDocumentAction 同款，点击 postMessage 宿主走 VS Code 编辑器——
  * 官方实现是 remote.settings.openSettingsDocument RPC 由网关宿主打开，无
@@ -213,14 +215,14 @@ const postOpenDocument = (): void => {
   vscode?.postMessage({ type: 'dshOne.openSettingsDocument' })
 }
 
-/** 根组件：整页只渲染 settings page 座位。 */
+/** 根组件：整页只渲染 settings page 槽位。 */
 function SettingsFrame({ renderSlot }: { renderSlot: SettingsFrameProps['renderSlot'] }) {
   return h('div', { className: 'dshOneSettingsShell_root', style: { height: '100%' } }, renderSlot('dshOne.settings.page', {}))
 }
 
 // ---------------------------------------------------------------------------
 // 外观行屏蔽（官方机制第 4 层 CSS——前 3 层经源码确认无机制，举证）：
-// ①第 1 层槽位：settings.general.item 是 list 座位（registry 对 list 只拒
+// ①第 1 层槽位：settings.general.item 是 list 槽位（registry 对 list 只拒
 //   同 id+同 priority 冲突，异 priority 并存渲染；client-runner 根槽文档明
 //   说 list 是 additive）——影子只叠加不移除，无法屏蔽（ui-theme client.js
 //   注册行实锤：id 'appearance' 的 list 贡献）；
@@ -230,7 +232,7 @@ function SettingsFrame({ renderSlot }: { renderSlot: SettingsFrameProps['renderS
 //   settings-models 的提供方路径操作，见 ui-settings-models createSettings-
 //   SchemaOperations 调用点）；
 // ③第 3 层接缝：__DSH_TRANSPORT__/__DSH_BOOT__ 与行级呈现无关。
-// 选择器稳定性：data-slot 是框架给 list 渲染容器的座位名属性（实测本
+// 选择器稳定性：data-slot 是框架给 list 渲染容器的槽位名属性（实测本
 // 框架把整组 list 项装进一个 display:contents 容器，故用 >* 逐行命中；
 // 官方 GeneralSection CSS 同款消费该属性）；:has(button[aria-pressed])
 // 结构伪类命中外观行三态方块（aria-pressed 是其选中态 a11y 契约，实测
@@ -243,7 +245,7 @@ function SettingsFrame({ renderSlot }: { renderSlot: SettingsFrameProps['renderS
 
 // ---------------------------------------------------------------------------
 // cordis 插件面：layout 服务 + root 注册（4 子槽 + settings page + overlay）
-// + SettingsPage 座位（inject 供 sections 镜像）+ ThemePresenter
+// + SettingsPage 槽位（inject 供 sections 镜像）+ ThemePresenter
 // ---------------------------------------------------------------------------
 
 export const inject = ['slots', 'theme', 'locale']
@@ -253,10 +255,14 @@ export function apply(ctx: ShellContext): void {
   const sections = createSectionsMirror(ctx)
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
+    // 官方 root 槽位钩子 panelInfo（机制层 1：官方槽位机制）：本页不渲染任何
+    // 会话树，但设置页里的官方件（如「已归档会话」）同样经槽位拿标准 props，
+    // 缺了这份钩子会在挂载时抛 `usePanelInfo is not a function`。见 frameShared。
+    const disposePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo: PANEL_INFO_SOURCE } })
     // 先注册 root（children 声明同步落 ledger），同 effect 内紧接着注册
-    // settings page 座位。注意 root children 不声明 sidebar.settings——
+    // settings page 槽位。注意 root children 不声明 sidebar.settings——
     // 声明该名会同步触发 settings-general 的 SettingsRoot inject，其
-    // children 表（settings.*）与本页座位撞「already declared」抛错；
+    // children 表（settings.*）与本页槽位撞「already declared」抛错；
     // 不声明则该贡献 pending（chat 树 parked 语义），官方 modal 壳缺席。
     const disposeRoot = ctx.slots.register(
       {
@@ -277,7 +283,7 @@ export function apply(ctx: ShellContext): void {
       },
       SettingsFrame,
     )
-    // 自有「打开配置文件」行动（list 座位追加贡献，机制层 1）。
+    // 自有「打开配置文件」行动（list 槽位追加贡献，机制层 1）。
     const disposeDocAction = ctx.slots.inject('settings.action', () =>
       ctx.slots.register(
         {
@@ -297,7 +303,7 @@ export function apply(ctx: ShellContext): void {
     const disposePage = ctx.slots.register(
       {
         name: 'dshOne.settings.page',
-        // 官方 settings.* 座位声明在这——settings-general/models/plugins
+        // 官方 settings.* 槽位声明在这——settings-general/models/plugins
         // 的 section 贡献与行注入都挂这些名字。
         children: {
           'settings.header': { kind: 'single', scope: 'root' },
@@ -315,9 +321,10 @@ export function apply(ctx: ShellContext): void {
       disposeDocAction()
       disposeLocale()
       disposeRoot()
+      disposePanelInfo()
       disposeService()
     }
-  }, 'dsh-one settings shell: layout service + root + settings page seat + doc action')
+  }, 'dsh-one settings shell: layout service + panel-info hook + root + settings page seat + doc action')
   ctx.effect(() => {
     const presenter = new ThemePresenter()
     presenter.apply(ctx.theme.getTheme())

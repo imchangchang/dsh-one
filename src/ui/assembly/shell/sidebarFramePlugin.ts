@@ -4,7 +4,9 @@
  * 侧栏 view。spike #69 题1 已验证裸 frame 里侧栏完整、数据正常。
  *
  * - root 槽注册：children 只声明 sidebar + shell.overlay（conversation/details
- *   等 chat 树槽位不声明，对应贡献静默缺席——chat 树有独立 frame）。
+ *   等 chat 树槽位不声明，对应贡献静默缺席——chat 树有独立 frame）；同时经
+ *   `ctx.slots.provideRoot` 提供官方 root 槽位钩子 panelInfo（接手官方外框
+ *   契约的清单见 frameShared.ts 文件头）。
  * - 宽度形态（#70 VS Code 验收项 2）：WebviewView 宽度由 VS Code 拖拽决定
  *   （240~560+px 都可能），frame 不做固定 280/56 轨——侧栏列 100% 流体，
  *   ResizeObserver 量出容器实际宽度传给官方 SidebarRoot（官方壳按
@@ -19,13 +21,13 @@
  *   家门，官方 DeepSeek 品牌块重复且占 60px；折叠钮 aria-label 隐藏与
  *   logoRow 隐藏双保险；头部密度只微调（root 顶 padding 6→4px），官方
  *   其余默认不动。品牌块想换 DSH One 鲸鱼 logo 时，把两个
- *   空件换成渲染件即可（座位贡献点不变）。
+ *   空件换成渲染件即可（槽位贡献点不变）。
  * - 边缘贴齐（#70 验收「左右空条」返修）：官方根水平内边距 12px×2 是
  *   唯一布局级空条（左条 56–70px 实为树层级缩进：顶层行 28px、子代理行
  *   56–68px，是信息不是浪费）——root 选择器必须经插槽 wrapper（display:
  *   contents 的 div）下一级（> 直连选择器上一轮未命中即此因），把
  *   --dsh-sidebar-inline-padding 置 0：内容从左缘铺到右缘，滚动条贴右缘
- *   （Chrome 覆盖式滚动条，正常形态）。折叠钮/收起轨不是座位贡献（钮是
+ *   （Chrome 覆盖式滚动条，正常形态）。折叠钮/收起轨不是槽位贡献（钮是
  *   SidebarRoot 内部按钮、轨是 collapsed 态渲染，我们恒传 collapsed:false
  *   轨从不出现），CSS 隐藏即布局摘除，无列空间残留。
  *
@@ -33,7 +35,7 @@
  * externals 种子表满足）。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { createLayoutStore, LayoutController, ThemePresenter, type ThemeSnapshot } from './frameShared'
+import { createLayoutStore, LayoutController, PANEL_INFO_SOURCE, ThemePresenter, type ThemeSnapshot } from './frameShared'
 
 // ---------------------------------------------------------------------------
 // 类型（本地最小面）
@@ -58,6 +60,8 @@ interface ShellContext {
     register(entry: unknown, component: unknown): () => void
     /** 等目标名被任一 entry 的 children 表声明后再注册（官方贡献的正规挂法）。 */
     inject(name: string, factory: () => unknown): () => void
+    /** 官方 root 槽位钩子/数据发布口（官方 ui-layout 的 panelInfo 同款调用点）。 */
+    provideRoot(contribution: { hooks: { panelInfo: typeof PANEL_INFO_SOURCE } }): () => void
   }
   theme: { getTheme(): ThemeSnapshot }
 }
@@ -179,6 +183,12 @@ export function apply(ctx: ShellContext): void {
   const layout = new LayoutController()
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
+    // 官方 root 槽位钩子 panelInfo（机制层 1：官方槽位机制）。0.1.6 的官方
+    // 会话树（ui-workspace 的 SessionTree/FlatList/SearchResults）以
+    // `usePanelInfo((info) => info.activePanelId !== null)` 判定当前会话行是否
+    // 高亮；官方框架插件 ui-layout 被下线后无人提供这份钩子，槽位挂载即抛
+    // `usePanelInfo is not a function`，会话列表整块消失（#76 现场实锤）。
+    const disposePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo: PANEL_INFO_SOURCE } })
     const disposeRegistration = ctx.slots.register(
       {
         name: 'root',
@@ -206,9 +216,10 @@ export function apply(ctx: ShellContext): void {
       disposeBrandMark()
       disposeBrandName()
       disposeRegistration()
+      disposePanelInfo()
       disposeService()
     }
-  }, 'dsh-one sidebar shell: layout service + root registration + brand shadow')
+  }, 'dsh-one sidebar shell: layout service + panel-info hook + root registration + brand shadow')
   ctx.effect(() => {
     const presenter = new ThemePresenter()
     presenter.apply(ctx.theme.getTheme())
