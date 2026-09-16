@@ -47,10 +47,10 @@ import type { Translate } from './types.ts'
 const PIN_PATHS = ['M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z', 'M8 9.5v4']
 const UNREAD_PATHS = ['M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8z']
 
-function strokeIcon(paths: readonly string[], className?: string): unknown {
+function strokeIcon(paths: readonly string[]): unknown {
   return h(
     'svg',
-    { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', 'aria-hidden': true, ...(className === undefined ? {} : { className }) },
+    { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', 'aria-hidden': true },
     ...paths.map((d, index) =>
       h('path', {
         key: String(index),
@@ -406,9 +406,10 @@ export function SessionRow({
         ]
   const menuItems = [
     { id: 'rename', label: tr('rename'), icon: h(IconEditOutline16, {}) },
-    // #102 两项标记动作：文案随状态翻转，勾选态走官方 Menu 的 selectedIds（✓），
-    // 禁用时的原因写在 label 节点的 title 上（官方 Menu 的项没有独立的提示槽，
-    // 见 workspaceTreePlugin 文件头对 Menu 项形状的说明）。
+    // #102 两项标记动作：文案随状态翻转，勾选态走官方 Menu 的 selectedIds（✓）。
+    // 禁用时的原因写在 label 节点的 title 上：官方 Menu 的项只有 label / icon /
+    // disabled / danger / submenu 几个槽，没有独立的提示槽（项渲染见官方 primitives
+    // 的 `Menu`），所以提示只能挂在 label 元素上。
     {
       id: 'pin',
       label: h('span', { 'data-dshone-tree-item': 'pin' }, pinned ? tr('menu.unpin') : tr('menu.pin')),
