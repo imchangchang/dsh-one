@@ -1,18 +1,18 @@
 {
   "title": "DSH One 测试报告：会话多开（会话行「在新标签页打开」，显式多 tab 对照通道）（#72）",
   "branch": "agent/session-multiopen",
-  "commit": "b9a6f4e",
+  "commit": "256f2a2",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）+ 纯模块单测",
     "dsh": "0.1.6-alpha.1",
     "locale": "zh-cn（帧内官方向典）",
     "theme": "dark",
     "viewports": "侧栏 380（树）/ 对话区 1200（多开页）",
-    "driver": "playwright chromium + test/assembly-lab/verify.ts（F-06 新套件 26 条断言）+ node --test（本次任务相关 3 个单测文件）",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（F-07 新套件 26 条断言）+ node --test（本次任务相关 3 个单测文件）",
     "date": "2026-09-16T02:43:44.588Z",
     "集成线": "develop/cordis-chat（#63–#66 验证线；#71 前置在本线上，main 保持自研 vanilla 前端不含本线）"
   },
-  "coverageNote": "本报告是浏览器验证（第一道验证）+ 纯模块单测。装配页由仓库真实模块构建，数据面是本机真实 dsh 网关（只读，R-06 守卫会话数跑前跑后一致），宿主通道是假宿主（按同一协议应答，本任务新加 session.openInNewTab 的记录）。\n\n**多开通道的两端**：页面端（菜单项、行右键、能力口发出的会话 id）由 F-06 真浏览器断言；宿主端（为该会话开独立面板、已开则聚焦、与单例互不影响）在 VS Code 宿主进程里，浏览器实验室造不出来 —— 这部分由 pure/sessionTabs.ts 的单测（映射规则：单射、只清自己的格子、单例不在表里）+ 代码边界（mountChatPanel 的 tab 标志：只有 tab 才登记多开表、只有单例才记「用户关过」）保证，真机现象见下方 VS Code 验证清单。\n\n**F-04 PARITY 的红不是本分支引入**（如实记录）：在本分支基点上复跑同一条命令，失败项与失败计数完全一致（见 notes 里的复跑证据）。成因是本分支基点（29f0c34 = develop/cordis-chat 线上已合入 #85 密度档的那个点）之后，F-04 的对照口径没跟着密度档更新：自有树在 VS Code 档下取 shell 下发的紧凑值（行高 24/26px、分节头 30px…），官方浏览区用的是它自己的 css-module 值（32/34/36px），两侧逐项相等这条期望在「同一 frame」里已经不再成立。修法（另立条目）：给 PARITY 一个「无人给密度偏好」（= 官方档）的对照页，或把几何期望改成按密度档真值比。本任务未改这条套件（不属于 #72 范围）。\n\n未覆盖：真 VS Code webview 宿主层的多面板生命周期（两个编辑器标签页并排/拖拽、面板标题跟随真会话标题、关闭多开页后单例行为）、真模型输出、macOS 之外的平台 —— 见 VS Code 验证现象清单与 issue #72 comment。\n\n被验提交 = b9a6f4e（本轮 verify:lab 与 npm test 就跑在它上面）；此后仓库里仅追加本台账文件（不含任何代码/套件改动）。",
+  "coverageNote": "本报告是浏览器验证（第一道验证）+ 纯模块单测。装配页由仓库真实模块构建，数据面是本机真实 dsh 网关（只读，R-06 守卫会话数跑前跑后一致），宿主通道是假宿主（按同一协议应答，本任务新加 session.openInNewTab 的记录）。\n\n**多开通道的两端**：页面端（菜单项、行右键、能力口发出的会话 id）由 F-07 真浏览器断言；宿主端（为该会话开独立面板、已开则聚焦、与单例互不影响）在 VS Code 宿主进程里，浏览器实验室造不出来 —— 这部分由 pure/sessionTabs.ts 的单测（映射规则：单射、只清自己的格子、单例不在表里）+ 代码边界（mountChatPanel 的 tab 标志：只有 tab 才登记多开表、只有单例才记「用户关过」）保证，真机现象见下方 VS Code 验证清单。\n\n**F-04 PARITY 的红不是本分支引入**（如实记录）：在本分支基点上复跑同一条命令，失败项与失败计数完全一致（见 notes 里的复跑证据）。成因是本分支基点（29f0c34 = develop/cordis-chat 线上已合入 #85 密度档的那个点）之后，F-04 的对照口径没跟着密度档更新：自有树在 VS Code 档下取 shell 下发的紧凑值（行高 24/26px、分节头 30px…），官方浏览区用的是它自己的 css-module 值（32/34/36px），两侧逐项相等这条期望在「同一 frame」里已经不再成立。修法（另立条目）：给 PARITY 一个「无人给密度偏好」（= 官方档）的对照页，或把几何期望改成按密度档真值比。本任务未改这条套件（不属于 #72 范围）。\n\n未覆盖：真 VS Code webview 宿主层的多面板生命周期（两个编辑器标签页并排/拖拽、面板标题跟随真会话标题、关闭多开页后单例行为）、真模型输出、macOS 之外的平台 —— 见 VS Code 验证现象清单与 issue #72 comment。\n\n被验提交 = 256f2a2（本分支 rebase 到 develop/cordis-chat 的合入点 f80543b 之后的 tip；本轮 verify:lab 与 npm test 就跑在它上面，F-04 仍是 136/178 且失败项逐条与 rebase 前一致）。套件编号说明：本任务的多开套件最初编号 F-06，rebase 后 F-06 已被 #83 的 PORTABLE 套件占用，故本套件改为 **F-07**（台账里的旧编号已同步改成本文）。此后仓库里仅追加本台账文件（不含任何代码/套件改动）。",
   "items": [
     {
       "id": "N-01",
@@ -24,7 +24,7 @@
         "/tmp/dsh72-shots/multiopen-rightclick.png"
       ],
       "result": "pass",
-      "notes": "F-06 断言（26 条全过，本项含前 12 条）：⋯ 菜单弹出 menus=1 且项文案「在新标签页打开」；四项文案 = [\"重命名\",\"分叉会话\",\"在新标签页打开\",\"归档会话\"]（原三项未被挤掉）；菜单点完自收（menus=0）。行右键菜单 menus=1 且锚点实测 {left:90, top:189} = 期望 {left:90, top:189}（±3px 内）；Esc 后 menus=0。截图 1：⋯ 菜单四项（第二项分叉会话、第三项即新项，带官方 IconRightUpOutline16）。截图 2：行右键同一份菜单。"
+      "notes": "F-07 断言（26 条全过，本项含前 12 条）：⋯ 菜单弹出 menus=1 且项文案「在新标签页打开」；四项文案 = [\"重命名\",\"分叉会话\",\"在新标签页打开\",\"归档会话\"]（原三项未被挤掉）；菜单点完自收（menus=0）。行右键菜单 menus=1 且锚点实测 {left:90, top:189} = 期望 {left:90, top:189}（±3px 内）；Esc 后 menus=0。截图 1：⋯ 菜单四项（第二项分叉会话、第三项即新项，带官方 IconRightUpOutline16）。截图 2：行右键同一份菜单。"
     },
     {
       "id": "N-02",
@@ -33,7 +33,7 @@
       "expect": "点菜单项后，页面经宿主能力口发出恰好一次 session.openInNewTab，带的会话 id 是那一行的真会话（能在网关会话清单里查到）；点第二行得到第二个不同 id（每行认自己的会话）。",
       "screenshots": [],
       "result": "pass",
-      "notes": "F-06：点第一行 → 假宿主记录 [\"session-a9e7c56d-…\"]（1 次，属于网关 1135 个会话之一）；再对第二行右键点多开 → 记录变成两个不同 id（[\"session-a9e7c56d-…\",\"session-6f5b18e7-…\"]），两次都是真会话。参数校核单测：session id 只收标识符形状（非对象/空串/带路径/带空白/控制字符/超长一律 invalid-args）。"
+      "notes": "F-07：点第一行 → 假宿主记录 [\"session-a9e7c56d-…\"]（1 次，属于网关 1135 个会话之一）；再对第二行右键点多开 → 记录变成两个不同 id（[\"session-a9e7c56d-…\",\"session-6f5b18e7-…\"]），两次都是真会话。参数校核单测：session id 只收标识符形状（非对象/空串/带路径/带空白/控制字符/超长一律 invalid-args）。"
     },
     {
       "id": "N-03",
@@ -45,7 +45,7 @@
         "/tmp/dsh72-shots/multiopen-tab-2.png"
       ],
       "result": "pass",
-      "notes": "F-06：页 1 注入 = session-6f5b18e7-…（first-meta 命中该前缀）；页 2 与页 1 同上下文、注入 session-c390cf37-…，first-meta 也是它自己 —— 共享 localStorage 的恢复键没有把它带走（#71 spike 实证的互相覆盖正是这条要挡的）；两页各自的控制台里都没有对方会话 id 的日志（交叉日志 [] / []），零 pageerror。"
+      "notes": "F-07：页 1 注入 = session-6f5b18e7-…（first-meta 命中该前缀）；页 2 与页 1 同上下文、注入 session-c390cf37-…，first-meta 也是它自己 —— 共享 localStorage 的恢复键没有把它带走（#71 spike 实证的互相覆盖正是这条要挡的）；两页各自的控制台里都没有对方会话 id 的日志（交叉日志 [] / []），零 pageerror。"
     },
     {
       "id": "N-04",
@@ -56,7 +56,7 @@
         "/tmp/dsh72-shots/multiopen-opening-mask.png"
       ],
       "result": "pass",
-      "notes": "F-06：注入 session-lab-missing-000 → boot 值原样注入，遮罩元素 [data-opening-mask] 实测 1 个，且该页零 console error（不存在会话被官方客户端安静处理）。遮罩本体（@dsh-one/vscode-shell 的 ShellFrame）与单例共用同一份实现，多开页经同一注入路径拿到它。"
+      "notes": "F-07：注入 session-lab-missing-000 → boot 值原样注入，遮罩元素 [data-opening-mask] 实测 1 个，且该页零 console error（不存在会话被官方客户端安静处理）。遮罩本体（@dsh-one/vscode-shell 的 ShellFrame）与单例共用同一份实现，多开页经同一注入路径拿到它。"
     },
     {
       "id": "N-05",
