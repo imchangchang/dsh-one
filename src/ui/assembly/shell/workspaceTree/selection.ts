@@ -74,6 +74,18 @@ export function SelectMark({
  *
  * 位置由树主组件决定（#108：插在**分组过滤条下方**，见 `tree.ts` 的渲染顺序）。
  * 失败时的红字也在这条里（`error`），与勾选一起留在屏幕上（不静默、不清空勾选）。
+ *
+ * 布局分**两组**（#120）：左边「已选计数」、右边「三枚动作」。计数那一组不参与收缩
+ * （`flex:none` + `white-space:nowrap`），所以任何宽度下都不会被压成一字一行；两组之间
+ * 放不下时**整组换行**（按钮不用图标化，中文标签原样保留——见 styles.ts 那条规则上方的
+ * 理由），组内也允许再换行，所以窄到极限也不会横向溢出。
+ *
+ * 三枚按钮都取**官方 Button 的 `sm` 档**（#120）：官方这个组件的默认档是 `md`
+ * （36px 高 / 14px 字 / 18px 圆角），放进这一列 26px 行高的侧栏里明显超尺寸。`sm` 是
+ * 官方组件自己的档（官方 bundle 里 `._sm_cfgyt_30{height:28px;font-size:12px;
+ * line-height:18px;padding:0 10px;border-radius:14px}`），28px 正好是这一列的官方控件档
+ * （顶栏图标按钮 / 搜索框那一档，见 styles.ts 档位表的标准档）。同仓先例见
+ * settingsFramePlugin.ts 的 `open-document-vscode` 行动（同一枚 Button + `size: 'sm'`）。
  */
 export function SelectionBar({
   count,
@@ -102,33 +114,34 @@ export function SelectionBar({
       { className: 'dshOneTree_selectionBar' },
       h('span', { className: 'dshOneTree_selectionCount' }, count === 0 ? tr('select.none') : tr('select.count', { n: count })),
       h(
-        Button,
-        {
+        'div',
+        { className: 'dshOneTree_selectionActions' },
+        h(Button, {
           variant: 'outline',
+          size: 'sm',
           disabled: busy || count === 0,
           onClick: onMoveToRecycleBin,
           className: 'dshOneTree_selectionArchive',
           'data-dshone-tree-action': 'selection-recycle',
           children: tr('select.moveToRecycleBin'),
-        },
-      ),
-      h(
-        Button,
-        {
+        }),
+        h(Button, {
           variant: 'outline',
+          size: 'sm',
           disabled: busy || count === 0,
           onClick: onArchive,
           'data-dshone-tree-action': 'selection-archive',
           children: tr('select.archivePermanent'),
-        },
+        }),
+        h(Button, {
+          variant: 'outline',
+          size: 'sm',
+          disabled: busy,
+          onClick: onExit,
+          'data-dshone-tree-action': 'selection-exit',
+          children: tr('select.exit'),
+        }),
       ),
-      h(Button, {
-        variant: 'outline',
-        disabled: busy,
-        onClick: onExit,
-        'data-dshone-tree-action': 'selection-exit',
-        children: tr('select.exit'),
-      }),
     ),
     error === null ? null : h('div', { className: 'dshOneTree_selectionError', role: 'alert' }, error),
   )
