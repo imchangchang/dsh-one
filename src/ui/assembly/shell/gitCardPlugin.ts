@@ -44,7 +44,7 @@
  * 包成可点 span，卡片渲染进 `shell.overlay` 座位。稳定性风险与对策：
  * - 扫描/委托范围钉在官方语义容器（`[data-conversation-scroll]`）之内，不进官方
  *   组件内部做结构假设；
- * - 官方 DOM 侧只依赖两条**语义属性契约**：对话区容器 `[data-conversation-scroll]`
+ * - 官方 DOM 侧只依赖一条**语义属性契约**：对话区容器 `[data-conversation-scroll]`
  *   （官方 ui-conversation 写、官方 ui-chat 也按它取滚动体）；扫描时跳过
  *   `pre/a/button`（代码块、链接、按钮不联动）。
  *
