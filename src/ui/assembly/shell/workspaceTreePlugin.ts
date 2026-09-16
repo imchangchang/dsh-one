@@ -1,5 +1,12 @@
 /**
- * @dsh-one/vscode-workspace-tree——侧栏工作区/会话树的**影子插件**（#65 批 2）。
+ * @dsh-one/dsh-workspace-tree——侧栏工作区/会话树的 **shadow 件**（#65 批 2）。
+ *
+ * ## 命名（AGENTS.md 铁律「自有插件命名分两类」）
+ * 本件命名 `dsh-*` 而非 `vscode-*`，因为**零宿主耦合**：不调 `hostCall`、
+ * 不碰 `acquireVsCodeApi`、不 postMessage，只有自己写的 DOM 标记（`dshOneTree_*`
+ * 类名与 `data-*`）；数据全取官方 hooks、动作全走官方服务、样式全用官方 token。
+ * 因此它不依赖我们的 shell 实现，官方 web 侧同样能装（#83 收尾要做的是把挂载点
+ * 挪出我们的 frame 并打成独立 npm 包，本步先把命名与 id 对齐）。
  *
  * ## 机制分层（按 AGENTS.md 的优先序逐层举证）
  *
@@ -303,10 +310,10 @@ const CSS =
   '.dshOneTree_renameError{color:var(--dsw-alias-state-error-primary);margin-top:8px;font-size:12px;line-height:18px}' +
   '.dshOneTree_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}' +
   '.dshOneTree_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}'
-const CSS_TAG_ID = '@dsh-one/vscode-workspace-tree/Tree.css'
+const CSS_TAG_ID = '@dsh-one/dsh-workspace-tree/Tree.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
-  tag.dataset.plugin = '@dsh-one/vscode-workspace-tree'
+  tag.dataset.plugin = '@dsh-one/dsh-workspace-tree'
   tag.dataset.pluginCss = CSS_TAG_ID
   tag.textContent = CSS
   document.head.append(tag)

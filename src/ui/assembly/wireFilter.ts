@@ -226,12 +226,16 @@ export const COMPOSER_CLEAR_PLUGIN_ID = '@dsh-one/vscode-composer-clear'
 export const SESSION_EXPORT_PLUGIN_ID = '@dsh-one/vscode-session-export'
 
 /**
- * 侧栏树工作区/会话树影子插件 id（#65 批 2）：single 槽 sidebar.workspaces
+ * 侧栏树工作区/会话树 shadow 插件 id（#65 批 2）：single 槽 sidebar.workspaces
  * 以 priority -1 顶掉官方 ui-workspace 的 WorkspaceBrowser，自有树整块接管
  * 浏览区（分节头 + 分组折叠树 + 会话行），数据全部经官方 sessions/workspaces
  * 服务（见 workspaceTreePlugin.ts 的机制分层）。
+ *
+ * 命名是 `dsh-*` 而非 `vscode-*`（#83）：本件零宿主耦合——不调 hostCall、
+ * 不碰 acquireVsCodeApi，数据全取官方 hooks、动作全走官方服务、样式全用官方
+ * token，因此官方 web 侧也能直接用（拆包/挂载点挪出我们 frame 的收尾工作见 #83）。
  */
-export const WORKSPACE_TREE_PLUGIN_ID = '@dsh-one/vscode-workspace-tree'
+export const WORKSPACE_TREE_PLUGIN_ID = '@dsh-one/dsh-workspace-tree'
 
 /** 从网关 `/` 注入 HTML 提取 __DSH_BOOT__ JSON（官方把 `<` 转义成 \u003c，JSON.parse 直接还原)。 */
 export function extractBootWire(html: string): BootWire {
