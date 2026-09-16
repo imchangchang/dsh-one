@@ -25,6 +25,7 @@ import {
   type OpenedPage,
 } from './harness.ts'
 import { LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
+import { FIBER_SUITE, WIRE_LIVENESS_SUITE } from './driftSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 
 export interface SuiteContext {
@@ -1501,4 +1502,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   SIDEBAR_SUITE,
   HEADER_UTILITIES_SUITE,
   MULTIOPEN_SUITE,
+  // #91 漂移断言（独立文件，见 driftSuites.ts 文件头的分工说明）。追加在末尾，
+  // 避免与本批其它新套件（F-07/F-08/F-09）争同一个热点区。
+  FIBER_SUITE,
+  WIRE_LIVENESS_SUITE,
 ]
