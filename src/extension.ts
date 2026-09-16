@@ -25,7 +25,14 @@ import { TagBridge } from './server/tagBridge.ts'
 /** Official dsh product page with the "Get started" install instructions. */
 const DSH_INSTALL_URL = 'https://www.deepseek.com/harness/'
 
-/** workspaceState key：装配对话区是否已完成过一次自动打开（见 autoOpenAssembledChat）。 */
+/**
+ * workspaceState key：装配对话区是否已完成过一次自动打开（见 autoOpenAssembledChat）。
+ *
+ * **shell 关注点，非插件状态**（#82 铁律的第三类）：这条记的是「本窗口已经把面板
+ * 自动打开过一次」这件事，属于面板生命周期，没有跨端语义（官方 web 没有面板、
+ * 也没有「自动打开」这回事）。插件自己的用户状态一律不在这里——见
+ * `src/pure/treeGroups.ts` 与 `src/ui/assembly/shell/hostCapabilities.ts`。
+ */
 const ASSEMBLY_AUTO_OPENED_KEY = 'dshOne.assemblyAutoOpened'
 
 function errorText(err: unknown): string {

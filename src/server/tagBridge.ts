@@ -24,6 +24,12 @@ import {
  * 早激活的失效（见 dispose 的「仅当仍是注册者才移除」）。
  *
  * IO-only（无 vscode import）——可用 node --test 离屏起真实 http 服务测协议与认证。
+ *
+ * ## 这份 bridge.json 是 shell 关注点，不是插件状态（#82）
+ * `bridge.json` 记的是「本窗口的 loopback 端点在哪个端口、token 是什么」——它存在
+ * 只为让**扩展自己的**派生脚本/第二窗口找到这个端点，是 shell 的基础设施（与
+ * dsh 进程管理、代理生命周期同一类），不是用户数据。插件状态一律不落这里
+ * （#82 铁律；见 `src/pure/treeGroups.ts` 的说明）。
  */
 
 /** 一个标签组的快照（get 返回）。预设组 name 为 null（显示名走 l10n）。 */

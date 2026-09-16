@@ -90,7 +90,16 @@ const RECONNECT_MAX_MS = 30_000
  *  基线重拉，避免同一动作打多组全量 RPC。 */
 const REFRESH_DEBOUNCE_MS = 500
 
-/* ---- UI 展示偏好：留在 Memento，不进 dsh 目录（条目拍板） ---- */
+/* ---- UI 展示偏好：留在 Memento，不进 dsh 目录（条目拍板）。
+ *
+ * #82 复核结论：这两条记的是**已退役的 vanilla 侧栏**的折叠状态（`sessions.collapsed`
+ * / `sessions.recycleCollapsed`），随该侧栏一起退役——装配树自己的视图态走官方客户端
+ * 惯例的 localStorage（`dsh.workspaceTree.view`，见 pure/workspaceTreePrefs.ts），
+ * 不读这里。之所以现在还没删：`sessionsStore` 仍服务于状态栏/标签桥等存量消费方，
+ * 摘掉整条链路不在本次范围内；但它们**不是**插件状态的合法去处，新代码不许再加。
+ *
+ * 这几条属于「历史遗留 + shell 侧存量」，而**不是** #82 说的「插件状态」。
+ */
 /** workspaceState key for collapsed workspaces（UI-only；dsh 无此概念）. */
 const COLLAPSED_STATE_KEY = 'sessions.collapsed'
 /** globalState key for recycle view collapsed workspaces（与主列表折叠互不影响；

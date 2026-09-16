@@ -116,3 +116,34 @@ export function groupNameError(
   if (groups.some((g) => g.id !== excludeId && g.name === trimmed)) return 'duplicate'
   return null
 }
+
+/* ---- 侧栏树（#81 功能 1）用的增删改：全是纯函数，界面只负责把新值落盘 ---- */
+
+/** 建组：追加到末尾（数组顺序即显示顺序）；不合法/重名返回 null（调用方给用户报错）。 */
+export function addGroup(
+  groups: readonly WorkspaceGroupDef[],
+  name: string,
+  id: string,
+): WorkspaceGroupDef[] | null {
+  if (id === '' || groupNameError(name, groups) !== null) return null
+  return [...groups, { id, name: name.trim() }]
+}
+
+/** 重命名：id 不在表里或名字不合法/重名返回 null；名字没变也返回 null（无变化）。 */
+export function renameGroup(
+  groups: readonly WorkspaceGroupDef[],
+  id: string,
+  name: string,
+): WorkspaceGroupDef[] | null {
+  const current = groups.find((g) => g.id === id)
+  if (current === undefined) return null
+  if (groupNameError(name, groups, id) !== null) return null
+  if (current.name === name.trim()) return null
+  return groups.map((g) => (g.id === id ? { ...g, name: name.trim() } : g))
+}
+
+/** 删组：定义去掉，返回新数组；id 不在表里返回 null（无变化）。 */
+export function deleteGroup(groups: readonly WorkspaceGroupDef[], id: string): WorkspaceGroupDef[] | null {
+  if (!groups.some((g) => g.id === id)) return null
+  return groups.filter((g) => g.id !== id)
+}

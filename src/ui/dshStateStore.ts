@@ -8,6 +8,15 @@
  * 与 Memento 的关系：文件是本方案的权威存储（跨窗口/重启共享），VSCode
  * Memento 只作为一次性迁移源，迁移成功后删除（见 sessionsStore.create）。
  * 原子写失败不阻断调用方（返回 false），下次写再试；坏文件按无文件降级。
+ *
+ * ## #82 之后谁拥有这些文件
+ * 这个类现在是**已退役的 vanilla 侧栏**的 IO 壳（会话标签/置顶/未读/草稿等存量
+ * 消费方还挂在 `sessionsStore` 上）。**装配树不再走这里**：它要的分组状态走宿主
+ * 能力口（`stateRead/stateWrite('groups')`，见 `src/pure/treeGroups.ts`），键名与
+ * 文件格式与这里完全一致——所以两边的数据是同一份，不存在「两个家」；差别只有
+ * 谁在写：装配树写经能力口（VS Code 侧由扩展宿主代行宿主半的状态存储模块，官方
+ * web 侧由宿主半自己写，见 `src/ui/assembly/hostBridge.ts` 的 stateCall）。
+ * 新增插件状态不要再接这个类，走能力口。
  */
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'

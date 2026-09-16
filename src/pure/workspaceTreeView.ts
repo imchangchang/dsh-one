@@ -104,6 +104,12 @@ export interface GroupNode {
 /** 树视图状态（展开集合由渲染层持有）。 */
 export interface TreeViewLike {
   readonly expandedGroups: readonly string[]
+  /**
+   * 分组过滤（#81 功能 1）：只看这些工作区。缺省 = 全部。
+   * 过滤生效时**未分组桶不出现在结果里**——散会话不属于任何工作区，也就无法归属
+   * 任何分组，跟着一起收起才符合直觉（理由写在 treeGroups.workspaceMatchesGroup）。
+   */
+  readonly workspaceFilter?: (workspaceId: string) => boolean
 }
 
 /** 分组键：未分组桶。 */
@@ -224,6 +230,7 @@ export function deriveGroups(
       if (!sessionVisible(summary, list.current, archived)) continue
       members.push(summary)
     }
+    if (view.workspaceFilter !== undefined && !view.workspaceFilter(workspace.workspaceId)) continue
     const createdAt = Date.parse(workspace.createdAt)
     groups.push({
       key: workspace.workspaceId,
@@ -239,7 +246,7 @@ export function deriveGroups(
   const stray = list.ids
     .map((id) => list.byId[id])
     .filter((s): s is SessionSummaryLike => s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
-  if (stray.length > 0) {
+  if (stray.length > 0 && view.workspaceFilter === undefined) {
     const strayIds = new Set(stray.map((s) => s.id))
     const ordered = orderByRecency(
       stray.map((s) => s.id),
@@ -324,3 +331,149 @@ export function sessionStatuses(node: {
 export function showsStatusDot(statuses: readonly SessionStatus[], completed: boolean): boolean {
   return statuses[0]?.state !== 'done' || completed
 }
+
+// ---------------------------------------------------------------------------
+// #81 功能 2：工作区行尾的「运行中 / 等待交互」计数
+//
+// 两档的划分口径（互斥、相加 = 该工作区里正占着用户的会话数）：
+// - **等待交互**：会话级 UI 正在等用户（approval / plan-review / question）——
+//   就是行上会亮警示点的那三种（`visiblePendingKind`）。
+// - **运行中**：会话在跑且**没有**在等用户。正在等用户批准的那条会话其实也
+//   「在跑」，但它对用户的意义是「等你」，两处都数会让用户以为有两件事要处理。
+// 计数覆盖的范围与树里看得见的会话**完全同源**（同一套 `sessionVisible`：
+// 子代理不算、已归档不算、非当前选中的空白会话不算），否则行尾的数字会与展开
+// 后看到的行数对不上。
+// ---------------------------------------------------------------------------
+
+/** 一个分组（工作区或未分组桶）的活状态计数。 */
+export interface ActivityCounts {
+  readonly running: number
+  readonly waiting: number
+}
+
+/** 每个分组键的活状态计数（键与 `GroupNode.key` 同域：工作区 id / UNGROUPED_KEY）。 */
+export function workspaceActivityCounts(
+  list: SessionListLike,
+  workspaces: readonly WorkspaceViewLike[],
+  archivedSessionIds: readonly string[],
+  pending: PendingInteractions,
+): Map<string, ActivityCounts> {
+  const archived = new Set(archivedSessionIds)
+  const counts = new Map<string, { running: number; waiting: number }>()
+  const bump = (key: string, running: boolean, waiting: boolean): void => {
+    if (!running && !waiting) return
+    const current = counts.get(key) ?? { running: 0, waiting: 0 }
+    if (waiting) current.waiting += 1
+    else current.running += 1
+    counts.set(key, current)
+  }
+  const accounted = new Set<string>()
+  for (const workspace of workspaces) {
+    for (const id of workspace.sessionIds) {
+      const summary = list.byId[id]
+      if (summary === undefined) continue
+      accounted.add(id)
+      if (!sessionVisible(summary, list.current, archived)) continue
+      const waiting = visiblePendingKind(pending.get(id)?.kind) !== undefined
+      bump(workspace.workspaceId, summary.running, waiting)
+    }
+  }
+  for (const id of list.ids) {
+    const summary = list.byId[id]
+    if (summary === undefined || accounted.has(id)) continue
+    if (!sessionVisible(summary, list.current, archived)) continue
+    const waiting = visiblePendingKind(pending.get(id)?.kind) !== undefined
+    bump(UNGROUPED_KEY, summary.running, waiting)
+  }
+  return counts
+}
+
+// ---------------------------------------------------------------------------
+// #81 功能 3/5：回收站（= 官方归档集合）按工作区组织
+//
+// 数据面是官方 `WorkspaceSnapshot.archivedSessionIds`（**不重复造**）：进回收站 =
+// 官方 `uiWorkspace.archiveSession`，还原 = 官方 `uiWorkspace.unarchiveSession`
+// （官方 navigation.d.ts 两条都在）。本模块只把那份 id 集合摊成抽屉要的形状：
+// 按归属工作区分组、组内按最近更新倒序。
+// 官方归档集合里可能有本项目已经不认识的 id（会话被删/日志清掉）：那种渲染不出
+// 行，直接跳过，不占位。
+// ---------------------------------------------------------------------------
+
+/** 回收站抽屉里的一条会话。 */
+export interface RecycleNode extends SessionNode {}
+
+/** 回收站抽屉里的一个工作区块。 */
+export interface RecycleGroup {
+  /** 与树里的分组键同域（工作区 id / UNGROUPED_KEY）。 */
+  readonly key: string
+  readonly workspaceId?: string
+  readonly label: string
+  readonly sessions: readonly RecycleNode[]
+}
+
+/** 把官方归档集合摊成「按工作区组织」的抽屉数据（空工作区不出现在结果里）。 */
+export function deriveRecycleGroups(
+  list: SessionListLike,
+  workspaces: readonly WorkspaceViewLike[],
+  archivedSessionIds: readonly string[],
+): RecycleGroup[] {
+  const archived = new Set(archivedSessionIds)
+  const descendants = indexSubagentDescendants(list.byId)
+  const seen = new Set<string>()
+  const byKey = new Map<string, SessionSummaryLike[]>()
+  const push = (key: string, summary: SessionSummaryLike): void => {
+    if (seen.has(summary.id)) return
+    seen.add(summary.id)
+    const bucket = byKey.get(key)
+    if (bucket === undefined) byKey.set(key, [summary])
+    else bucket.push(summary)
+  }
+  // 归属按官方工作区记账（`owningGroupKey`）判定，与树里的分组一致。
+  for (const workspace of workspaces) {
+    for (const id of workspace.sessionIds) {
+      const summary = list.byId[id]
+      if (summary === undefined || !archived.has(id)) continue
+      if (summary.origin === 'subagent') continue
+      push(workspace.workspaceId, summary)
+    }
+  }
+  for (const id of list.ids) {
+    const summary = list.byId[id]
+    if (summary === undefined || !archived.has(id) || seen.has(id)) continue
+    if (summary.origin === 'subagent') continue
+    push(UNGROUPED_KEY, summary)
+  }
+  const groups: RecycleGroup[] = []
+  for (const workspace of workspaces) {
+    const members = byKey.get(workspace.workspaceId)
+    if (members === undefined || members.length === 0) continue
+    groups.push({
+      key: workspace.workspaceId,
+      workspaceId: workspace.workspaceId,
+      label: workspace.title,
+      sessions: orderByRecency(members.map((m) => m.id), list.byId).flatMap((id) => {
+        const summary = list.byId[id]
+        return summary === undefined ? [] : [sessionNode(summary, descendants, EMPTY_PENDING)]
+      }),
+    })
+  }
+  const stray = byKey.get(UNGROUPED_KEY)
+  if (stray !== undefined && stray.length > 0) {
+    groups.push({
+      key: UNGROUPED_KEY,
+      label: '',
+      sessions: orderByRecency(stray.map((s) => s.id), list.byId).flatMap((id) => {
+        const summary = list.byId[id]
+        return summary === undefined ? [] : [sessionNode(summary, descendants, EMPTY_PENDING)]
+      }),
+    })
+  }
+  return groups
+}
+
+/** 回收站里的会话总数（抽屉入口的角标用）。 */
+export function recycleCount(groups: readonly RecycleGroup[]): number {
+  return groups.reduce((total, group) => total + group.sessions.length, 0)
+}
+
+const EMPTY_PENDING: PendingInteractions = new Map()
