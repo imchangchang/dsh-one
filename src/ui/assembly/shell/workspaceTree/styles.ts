@@ -32,12 +32,12 @@ const CSS =
   '.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:4px;margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:4px;display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}' +
-  '.dshOneTree_sectionLabel{white-space:nowrap;opacity:1;visibility:visible;min-width:0;max-width:45%;transition:max-width .18s var(--ds-ease-in-out),margin-right .18s var(--ds-ease-in-out),opacity .12s var(--ds-ease-in-out),transform .18s var(--ds-ease-in-out),visibility 0s linear;flex:none;line-height:20px;overflow:hidden}' +
-  '.dshOneTree_sectionLabelHidden{opacity:0;visibility:hidden;max-width:0;margin-right:-4px;transition-delay:0s,0s,0s,0s,.18s;transform:translate(-4px)}' +
+  // 搜索栏（#99：官方那套 UI 的**展开态**常驻，折叠态的放大镜胶囊退役）——
+  // search / searchSlot / searchButton / searchInput 四个类名与几何逐字对应官方
+  // css-module（含 Expanded 变体），所以两侧展开态可以直接逐项比对（F-04）。
   '.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}' +
   '.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:0}' +
-  '.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:60px;transition:max-width .18s var(--ds-ease-in-out),opacity .12s var(--ds-ease-in-out),transform .18s var(--ds-ease-in-out),visibility 0s linear;flex:none;align-items:center;gap:4px;display:flex;overflow:hidden}' +
-  '.dshOneTree_headerActionsHidden{opacity:0;visibility:hidden;pointer-events:none;max-width:0;transition-delay:0s,0s,0s,.18s;transform:translate(4px)}' +
+  '.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:none;flex:none;align-items:center;gap:4px;display:flex}' +
   '.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}' +
   '.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}' +
   '.dshOneTree_searchButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
@@ -105,11 +105,40 @@ const CSS =
   // ---- #81：分组过滤条 / 活状态计数 / 批量选择 / 回收站抽屉 ----
   // 数值全部沿用既有密度档变量（不新增键：assemblyShellContract 的契约测试要求
   // 「shell 设的键集 = 树消费的键集」，见该测试的说明）；颜色一律官方 token。
-  '.dshOneTree_filterBar{align-items:center;gap:4px;margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:4px;display:flex;flex-wrap:wrap}' +
-  '.dshOneTree_chip{cursor:pointer;height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:none;align-items:center;max-width:100%;padding:0 10px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
-  '.dshOneTree_chip:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
-  '.dshOneTree_chipActive{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}' +
-  '.dshOneTree_chipAdd{padding:0;width:var(--dsh-one-density-icon-button-size,28px);justify-content:center;color:var(--dsw-alias-label-tertiary)}' +
+  '.dshOneTree_filterBar{align-items:center;gap:4px;margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:4px;display:flex}' +
+  // 分组过滤条（#99：单胶囊 + 成员计数 + ▾）。外观语言沿用官方胶囊语言（官方 token、
+  // 999px 圆角、官方 iconButton 同档高度），尺寸走密度档。
+  '.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:none;align-items:center;gap:4px;max-width:100%;padding:0 6px 0 8px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex;overflow:hidden}' +
+  '.dshOneTree_pill:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
+  '.dshOneTree_pillActive{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}' +
+  '.dshOneTree_pillTag{flex:none;align-items:center;color:var(--dsw-alias-label-tertiary);display:inline-flex}' +
+  '.dshOneTree_pillLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}' +
+  '.dshOneTree_pillCount{color:var(--dsw-alias-label-tertiary);flex:none}' +
+  '.dshOneTree_pillChevron{color:var(--dsw-alias-label-tertiary);flex:none;align-items:center;display:inline-flex}' +
+  '.dshOneTree_menuRow{align-items:center;gap:12px;min-width:0;width:100%;display:flex}' +
+  '.dshOneTree_menuRowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}' +
+  '.dshOneTree_menuRowCount{color:var(--dsw-alias-label-tertiary);flex:none}' +
+  // 底部回收站入口行（#99：官方 sidebar.footer.action 座位）。形态按旧侧栏那一行：
+  // 主区（🗑 + 文案 + 计数）+ 右侧两枚动作图标；计数 0 整体灰态。
+  '.dshOneTree_footerRow{align-items:center;gap:2px;padding:0 4px;display:flex}' +
+  '.dshOneTree_footerRowEmpty{color:var(--dsw-alias-label-tertiary)}' +
+  '.dshOneTree_footerMain{cursor:pointer;min-width:0;height:var(--dsh-one-density-row-height,34px);color:inherit;background:0 0;border:none;border-radius:8px;flex:1;align-items:center;gap:8px;padding:0 8px;font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}' +
+  '.dshOneTree_footerMain:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
+  '.dshOneTree_footerIcon{flex:none;align-items:center;display:inline-flex}' +
+  '.dshOneTree_footerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}' +
+  '.dshOneTree_footerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
+  '.dshOneTree_footerIconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
+  '.dshOneTree_footerIconButton:disabled{cursor:default;opacity:.45}' +
+  '.dshOneTree_footerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}' +
+  // 「管理分组…」对话框（#99）：行 = 名字 + 计数 + ✎/🗑。
+  '.dshOneTree_manageList{max-height:240px;margin-bottom:12px;overflow-y:auto}' +
+  '.dshOneTree_manageRow{align-items:center;gap:8px;height:var(--dsh-one-density-row-height,34px);padding:0 4px;display:flex}' +
+  '.dshOneTree_manageName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}' +
+  '.dshOneTree_manageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
+  '.dshOneTree_manageEmpty{color:var(--dsw-alias-label-tertiary);padding:8px 4px;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
+  '.dshOneTree_manageCreate{align-items:center;gap:8px;display:flex}' +
+  '.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}' +
+  '.dshOneTree_manageCreate button{white-space:nowrap;flex:none}' +
   '.dshOneTree_activity{pointer-events:none;position:absolute;right:var(--dsh-one-density-row-padding-inline,8px);align-items:center;gap:6px;display:inline-flex}' +
   '.dshOneTree_projectRow:hover .dshOneTree_activity,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_activity{display:none}' +
   '.dshOneTree_activityItem{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px);align-items:center;gap:4px;display:inline-flex}' +

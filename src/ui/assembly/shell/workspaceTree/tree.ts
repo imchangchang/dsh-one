@@ -1,23 +1,6 @@
 /** 树主组件（官方 WorkspaceBrowser 的同构复刻）：组合上面各件 + 状态与订阅。 */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import {
-  IconArchiveOutline20,
-  IconChecklistOutline14,
-  IconCloseFill14,
-  IconPlusOutline16,
-  IconSearchOutline16,
-  Tooltip,
-} from '@deepseek-ai/dsh-client-ui-primitives'
-import {
-  deriveFlat,
-  deriveGroups,
-  deriveRecycleGroups,
-  owningGroupKey,
-  recycleCount,
-  workspaceActivityCounts,
-  type ActivityCounts,
-  type SessionNode,
-} from '../../../../pure/workspaceTreeView.ts'
+import { deriveFlat, deriveGroups, deriveRecycleGroups, owningGroupKey, workspaceActivityCounts, type ActivityCounts, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
 import {
   createTreeGroup,
   deleteTreeGroup,
@@ -34,13 +17,14 @@ import type { GroupFile } from '../../../../pure/dshStateFile.ts'
 import { GroupFilterBar } from './groupFilterBar.ts'
 import { newGroupId } from './groups.ts'
 import { useHoverCardRoom } from './hoverCard.ts'
-import { DeleteWorkspaceModal, GroupModal, RenameModal } from './modals.ts'
+import { DeleteWorkspaceModal, GroupModal, ManageGroupsModal, RenameModal } from './modals.ts'
 import { RecycleDrawer } from './recycleDrawer.ts'
+import { recycleEntrySignal } from './recycleEntry.ts'
 import { ProjectRow, SearchResultRow, SessionRow } from './rows.ts'
-import { EMPTY_SEARCH, SEARCH_DEBOUNCE_MS, SEARCH_QUERY_MAX, sanitizeQuery, type SearchState } from './search.ts'
+import { EMPTY_SEARCH, SEARCH_DEBOUNCE_MS, sanitizeQuery, type SearchState } from './search.ts'
 import { SelectionBar } from './selection.ts'
 import './styles.ts'
-import { ViewOptionsMenu } from './toolbar.ts'
+import { TopBar } from './toolbar.ts'
 import type { TreeProps } from './types.ts'
 
 // ---------------------------------------------------------------------------
@@ -52,7 +36,6 @@ export function WorkspaceTree(props: TreeProps): unknown {
     useSessions,
     useWorkspaces,
     useSessionPendingInteraction,
-    useDirectoryFlow,
     open: openSession,
     startSession,
     renameSession,
@@ -60,7 +43,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
     archiveSession,
     renameWorkspace,
     deleteWorkspace,
-    addWorkspace,
+    pickWorkspaceFolder,
+    createWorkspaceFolder,
+    openSettings,
     searchSessions,
     searchResultLimit,
     loadGroups,
@@ -76,7 +61,6 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const workspacePhase = useWorkspaces((state) => state.phase)
   const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds)
   const pending = useSessionPendingInteraction((state) => state)
-  const directoryFlowAvailable = useDirectoryFlow === undefined ? false : useDirectoryFlow((occupied: boolean) => occupied)
 
   // 视图态（分组方式/排序/当前过滤的分组/展开集合）住官方客户端惯例的 localStorage，
   // 初值在挂载时读一次；此后每次变更都写回（见下面的写回 effect）。
@@ -86,7 +70,6 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const activeGroupId = prefs.activeGroupId
   const groupExpansion = prefs.expandedGroups
   const [searchText, setSearchText] = useState('')
-  const [searchExpanded, setSearchExpanded] = useState(false)
   const [content, setContent] = useState<SearchState>(EMPTY_SEARCH)
   const [renameTarget, setRenameTarget] = useState<{ workspaceId: string; title: string } | null>(null)
   const [sessionRenameTarget, setSessionRenameTarget] = useState<{ id: string; title: string } | null>(null)
@@ -101,6 +84,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
     | null
   >(null)
   const [groupError, setGroupError] = useState<string | null>(null)
+  // 「管理分组…」对话框（#99 B 段，单胶囊下拉里的一项）。
+  const [manageGroupsOpen, setManageGroupsOpen] = useState(false)
   // 批量选择（纯视图态，不持久化）+ 回收站抽屉 + 还原中的会话 id。
   const [selectMode, setSelectMode] = useState(false)
   const [selection, setSelection] = useState<readonly string[]>([])
@@ -109,10 +94,17 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [restoringId, setRestoringId] = useState<string | null>(null)
   const [recycleError, setRecycleError] = useState<string | null>(null)
-  const searchInput = useRef<{ focus(): void } | null>(null)
-  const searchRoot = useRef<HTMLDivElement | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const hoverCard = useHoverCardRoom(rootRef)
+
+  // 底部回收站入口行（`sidebar.footer.action` 座位那条 entry）点了主区 → 开抽屉。
+  // 同一插件 bundle 内的模块级信号，见 recycleEntry.ts 的文件头。
+  useEffect(() => {
+    return recycleEntrySignal.subscribe(() => {
+      setDrawerOpen(true)
+      setRecycleError(null)
+    })
+  }, [])
 
   // 视图态写回（每次变更落一次；写失败静默——视图态不是数据）。
   useEffect(() => {
@@ -194,8 +186,54 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const activity = workspaceActivityCounts(list, workspaces, archivedSessionIds, pending)
   const flatRows = withOrder(deriveFlat(list, archivedSessionIds, pending))
   const recycleGroups = deriveRecycleGroups(list, workspaces, archivedSessionIds)
-  const recycleTotal = recycleCount(recycleGroups)
   const selectedSet = new Set(selection)
+
+  // #99 顶栏「折叠/展开全部」：可展开的分组 = 有会话的分组（工作区 / 未分组桶）。
+  // 键集取**不过滤**的那一份推导（过滤态下也要能一次收起/展开全部工作区，与旧侧栏
+  // 「折叠所有工作区」同义）。
+  const expandableKeys = deriveGroups(list, workspaces, archivedSessionIds, pending, { expandedGroups: [] })
+    .filter((group) => group.sessionCount > 0)
+    .map((group) => group.key)
+  const allCollapsed = expandableKeys.length > 0 && expandableKeys.every((key) => !groupExpansion.includes(key))
+  /** 已全收起 → 展开全部；否则收起全部（图标与提示在顶栏里随 `allCollapsed` 翻转）。 */
+  const toggleCollapseAll = (): void => {
+    setPrefs((prev) => ({
+      ...prev,
+      expandedGroups: allCollapsed ? [...new Set([...prev.expandedGroups, ...expandableKeys])] : [],
+    }))
+  }
+
+  // #99 单胶囊的计数口径 = **成员工作区数**（旧侧栏同款）：全部 = 工作区总数；
+  // 某组 = 归属该组的工作区数。
+  const groupDefs = treeGroupDefs(groupsFile)
+  const groupCounts = new Map(
+    groupDefs.map((def) => [def.id, workspaces.filter((workspace) => workspaceMatchesGroup(groupsFile, workspace.workspaceId, def.id)).length]),
+  )
+
+  // 建组 / 改名 / 删除的**唯一**落盘路径：两个入口（单胶囊下拉的「新建分组…」与
+  // 「管理分组…」对话框）都走这里，校核是同一份纯函数（`treeGroups`），不会出现
+  // 「界面放过、落盘被拒」的第二套判断。
+  const applyGroupCreate = (name: string): 'empty' | 'duplicate' | null => {
+    const result = createTreeGroup(groupsFile, name, newGroupId())
+    if (!result.ok) return result.error
+    // 刻意**不**把过滤切到新分组：刚建的分组还没有成员，切过去等于把树清空，
+    // 用户接下来要做的「把工作区归到这个组」反而没地方点了。新分组出现在
+    // 过滤条里，用户自己点它即可。
+    writeGroups(result.file)
+    return null
+  }
+  const applyGroupRename = (groupId: string, name: string): 'duplicate' | null => {
+    const next = renameTreeGroup(groupsFile, groupId, name)
+    if (next === null) return 'duplicate'
+    writeGroups(next)
+    return null
+  }
+  const applyGroupDelete = (groupId: string): void => {
+    const next = deleteTreeGroup(groupsFile, groupId)
+    if (next !== null) writeGroups(next)
+    // 删掉的正是当前过滤的分组 → 过滤回落「全部」。
+    setPrefs((prev) => (prev.activeGroupId === groupId ? { ...prev, activeGroupId: null } : prev))
+  }
 
   const toggleSelected = (sessionId: string): void => {
     setSelectionError(null)
@@ -295,7 +333,6 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const snippetOf = (sessionId: string): string | undefined =>
     content.items.find((item) => item.id === sessionId)?.snippet
 
-  const sectionLabelKey = groupBy === 'flat' ? 'section.sessions' : 'section.workspaces'
   const treeBody =
     trimmedQuery !== ''
       ? searchRows.length > 0
@@ -406,170 +443,43 @@ export function WorkspaceTree(props: TreeProps): unknown {
   return h(
     'div',
     { className: 'dshOneTree_root', ref: rootRef, 'data-shell': 'dsh-one-tree', 'data-dshone-tree': 'root' },
-    h(
-      'div',
-      { className: 'dshOneTree_sectionHeader' },
-      h(
-        'span',
-        {
-          className: `dshOneTree_sectionLabel${searchExpanded ? ' dshOneTree_sectionLabelHidden' : ''}`,
-          'data-dshone-tree': 'section-label',
-        },
-        tr(sectionLabelKey),
-      ),
-      h(
-        'div',
-        { className: `dshOneTree_searchSlot${searchExpanded ? ' dshOneTree_searchSlotExpanded' : ''}` },
-        h(
-          'div',
-          {
-            ref: searchRoot,
-            className: `dshOneTree_search${searchExpanded ? ' dshOneTree_searchExpanded' : ''}`,
-            'data-dshone-tree': 'search-pill',
-            onClick: () => {
-              setSearchExpanded(true)
-              searchInput.current?.focus()
-            },
-          },
-          h(Tooltip, {
-            label: tr('search'),
-            side: 'bottom',
-            delayMs: 500,
-            disabled: searchExpanded,
-            children: h(
-              'button',
-              {
-                type: 'button',
-                className: 'dshOneTree_searchButton',
-                'aria-label': tr('search.sessions.aria'),
-                'aria-expanded': searchExpanded,
-                'data-dshone-tree-action': 'search',
-                onClick: () => setSearchExpanded(true),
-              },
-              h(IconSearchOutline16, { size: searchExpanded ? 11 : 14 }),
-            ),
-          }),
-          h('input', {
-            ref: searchInput,
-            className: 'dshOneTree_searchInput',
-            'data-dshone-tree': 'search-input',
-            type: 'text',
-            placeholder: tr('search.placeholder'),
-            maxLength: SEARCH_QUERY_MAX,
-            value: searchText,
-            tabIndex: searchExpanded ? 0 : -1,
-            onChange: (event: { target: { value: string } }) => setSearchText(sanitizeQuery(event.target.value)),
-            onKeyDown: (event: { key: string }) => {
-              if (event.key !== 'Escape') return
-              setSearchText('')
-              setSearchExpanded(false)
-            },
-          }),
-          searchExpanded
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'dshOneTree_clearButton',
-                  'data-dshone-tree': 'search-clear',
-                  'aria-label': tr('search.clear'),
-                  onClick: (event: { stopPropagation(): void }) => {
-                    event.stopPropagation()
-                    setSearchText('')
-                    setSearchExpanded(false)
-                  },
-                },
-                h(IconCloseFill14, {}),
-              )
-            : null,
-        ),
-      ),
-      h(
-        'div',
-        { className: `dshOneTree_headerActions${searchExpanded ? ' dshOneTree_headerActionsHidden' : ''}` },
-        h(ViewOptionsMenu, {
-          groupBy,
-          orderBy,
-          tr,
-          onGroupPick: (mode: 'workspace' | 'flat') => setPrefs((prev) => ({ ...prev, groupBy: mode })),
-          onOrderPick: (mode: 'manual' | 'updated') => setPrefs((prev) => ({ ...prev, orderBy: mode })),
-        }),
-        h(Tooltip, {
-          label: selectMode ? tr('select.exit') : tr('select.enter'),
-          side: 'bottom',
-          delayMs: 500,
-          children: h(
-            'button',
-            {
-              type: 'button',
-              className: `dshOneTree_iconButton${selectMode ? ' dshOneTree_menuOpen' : ''}`,
-              'aria-label': selectMode ? tr('select.exit') : tr('select.enter'),
-              'aria-pressed': selectMode,
-              'data-dshone-tree-action': 'select-mode',
-              onClick: () => (selectMode ? exitSelection() : setSelectMode(true)),
-            },
-            h(IconChecklistOutline14, { size: 16 }),
-          ),
-        }),
-        h(Tooltip, {
-          label: tr('recycle.open'),
-          side: 'bottom',
-          delayMs: 500,
-          children: h(
-            'button',
-            {
-              type: 'button',
-              className: 'dshOneTree_iconButton',
-              'aria-label': tr('recycle.open'),
-              'data-dshone-tree-action': 'recycle-open',
-              'data-dshone-tree-recycle-count': recycleTotal,
-              onClick: () => setDrawerOpen(true),
-            },
-            h(IconArchiveOutline20, { size: 16 }),
-          ),
-        }),
-        directoryFlowAvailable
-          ? h(Tooltip, {
-              label: tr('workspace.add'),
-              side: 'bottom',
-              delayMs: 500,
-              children: h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'dshOneTree_iconButton',
-                  'aria-label': tr('workspace.add'),
-                  'data-dshone-tree-action': 'add-workspace',
-                  onClick: () => addWorkspace(),
-                },
-                h(IconPlusOutline16, { size: 16 }),
-              ),
-            })
-          : null,
-      ),
-    ),
+    // 顶部工具栏（#99 B 段）：官方搜索栏（展开态）+ 折叠/展开全部 + 添加工作区 + 设置齿轮，
+    // 末尾保留 #81 已有的视图选项与多选入口。见 toolbar.ts 的说明与机制举证。
+    h(TopBar, {
+      tr,
+      query: searchText,
+      onQueryChange: (value: string) => setSearchText(sanitizeQuery(value)),
+      onQueryClear: () => setSearchText(''),
+      allCollapsed,
+      onToggleCollapseAll: toggleCollapseAll,
+      onPickWorkspaceFolder: pickWorkspaceFolder,
+      ...(createWorkspaceFolder === undefined ? {} : { onCreateWorkspaceFolder: createWorkspaceFolder }),
+      ...(openSettings === undefined ? {} : { onOpenSettings: openSettings }),
+      groupBy,
+      orderBy,
+      onGroupPick: (mode: 'workspace' | 'flat') => setPrefs((prev) => ({ ...prev, groupBy: mode })),
+      onOrderPick: (mode: 'manual' | 'updated') => setPrefs((prev) => ({ ...prev, orderBy: mode })),
+      selectMode,
+      onToggleSelectMode: () => (selectMode ? exitSelection() : setSelectMode(true)),
+    }),
     h(
       'div',
       { className: 'dshOneTree_listArea' },
-      // #81 功能 1：分组过滤条（只在「按工作区」下有意义；搜索态下让位给结果）。
+      // #81 功能 1 / #99 B 段：分组过滤条 = 单胶囊 + 成员计数 + ▾ 下拉
+      //（只在「按工作区」下有意义；搜索态下让位给结果）。
       groupBy === 'workspace' && trimmedQuery === '' && !selectMode
         ? h(GroupFilterBar, {
-            groups: treeGroupDefs(groupsFile),
+            groups: groupDefs,
             activeGroupId: filterActive ? activeGroupId : null,
+            groupCounts,
+            totalCount: workspaces.length,
             tr,
             onPick: (groupId: string | null) => setPrefs((prev) => ({ ...prev, activeGroupId: groupId })),
             onCreate: () => {
               setGroupError(null)
               setGroupDialog({ kind: 'create' })
             },
-            onRename: (id: string, name: string) => {
-              setGroupError(null)
-              setGroupDialog({ kind: 'rename', id, name })
-            },
-            onDelete: (id: string, name: string) => {
-              setGroupError(null)
-              setGroupDialog({ kind: 'delete', id, name })
-            },
+            onManage: () => setManageGroupsOpen(true),
           })
         : null,
       // #81 功能 4：选择态的动作条（已选计数 + 批量移入回收站 + 退出）。
@@ -633,7 +543,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
     }),
     h(GroupModal, {
       dialog: groupDialog,
-      groups: treeGroupDefs(groupsFile),
+      groups: groupDefs,
       tr,
       error: groupError,
       onClose: () => {
@@ -644,31 +554,42 @@ export function WorkspaceTree(props: TreeProps): unknown {
         const dialog = groupDialog
         if (dialog === null) return
         if (dialog.kind === 'create') {
-          const result = createTreeGroup(groupsFile, value, newGroupId())
-          if (!result.ok) {
-            setGroupError(result.error === 'empty' ? tr('group.name.empty') : tr('group.name.duplicate'))
+          const failure = applyGroupCreate(value)
+          if (failure !== null) {
+            setGroupError(failure === 'empty' ? tr('group.name.empty') : tr('group.name.duplicate'))
             return
           }
-          // 刻意**不**把过滤切到新分组：刚建的分组还没有成员，切过去等于把树清空，
-          // 用户接下来要做的「把工作区归到这个组」反而没地方点了。新分组出现在
-          // 过滤条里，用户自己点它即可。
-          writeGroups(result.file)
         } else if (dialog.kind === 'rename') {
-          const next = renameTreeGroup(groupsFile, dialog.id, value)
-          if (next === null) {
+          if (applyGroupRename(dialog.id, value) !== null) {
             setGroupError(tr('group.name.duplicate'))
             return
           }
-          writeGroups(next)
         } else {
-          const next = deleteTreeGroup(groupsFile, dialog.id)
-          if (next !== null) writeGroups(next)
-          // 删掉的正是当前过滤的分组 → 过滤回落「全部」。
-          setPrefs((prev) => (prev.activeGroupId === dialog.id ? { ...prev, activeGroupId: null } : prev))
+          applyGroupDelete(dialog.id)
         }
         setGroupDialog(null)
         setGroupError(null)
       },
+    }),
+    // 「管理分组…」对话框（#99 B 段）：行内 ✎/🗑 关掉本框、开上面那套对话框去做
+    //（校核复用），建新组则内联走同一份 `applyGroupCreate`。
+    h(ManageGroupsModal, {
+      open: manageGroupsOpen,
+      groups: groupDefs,
+      counts: groupCounts,
+      tr,
+      onCreate: applyGroupCreate,
+      onRename: (groupId: string, name: string) => {
+        setManageGroupsOpen(false)
+        setGroupError(null)
+        setGroupDialog({ kind: 'rename', id: groupId, name })
+      },
+      onDelete: (groupId: string, name: string) => {
+        setManageGroupsOpen(false)
+        setGroupError(null)
+        setGroupDialog({ kind: 'delete', id: groupId, name })
+      },
+      onClose: () => setManageGroupsOpen(false),
     }),
     h(DeleteWorkspaceModal, {
       target: deleteTarget,

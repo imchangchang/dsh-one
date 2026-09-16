@@ -1,6 +1,6 @@
 /** 对话框（分组新建/重命名/删除、工作区与会话重命名、删除工作区）。 */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconEditOutline16, IconTrashOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceGroupDef } from '../../../../pure/treeGroups.ts'
 import type { Translate } from './types.ts'
 
@@ -234,6 +234,121 @@ export function DeleteWorkspaceModal({
     ),
     children: [
       busy ? h('div', { className: 'dshOneTree_deleteStatus', role: 'status' }, tr('delete.pending')) : null,
+      error === null ? null : h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error),
+    ],
+  })
+}
+
+/**
+ * 「管理分组…」对话框（#99 B 段，单胶囊下拉里的一项）：列出全部分组（名字 + 成员
+ * 工作区计数 + 改名 / 删除两枚行内图标），底部一行直接建新组。
+ *
+ * 为什么不就地做行内改名输入：改名与删除的校核（空名 / 重名）已经有一套就地判定的
+ * 对话框（{@link GroupModal}，与落盘走同一份纯函数）。管理对话框只负责「列出来 +
+ * 把动作转给那一套」，避免长出第二份校验——行内 ✎/🗑 因此是「关掉本框、开那个框」。
+ * 建新组则直接内联（只多一个名字输入，校核仍是同一份 `createTreeGroup`）。
+ */
+export function ManageGroupsModal({
+  open,
+  groups,
+  counts,
+  tr,
+  onCreate,
+  onRename,
+  onDelete,
+  onClose,
+}: {
+  open: boolean
+  groups: readonly WorkspaceGroupDef[]
+  /** 每个分组的成员工作区数（组 id → 计数）。 */
+  counts: ReadonlyMap<string, number>
+  tr: Translate
+  /** 建新组：成功回 null，失败回词典键（'group.name.empty' / 'group.name.duplicate'）。 */
+  onCreate: (name: string) => 'empty' | 'duplicate' | null
+  onRename: (groupId: string, name: string) => void
+  onDelete: (groupId: string, name: string) => void
+  onClose: () => void
+}): unknown {
+  const [draft, setDraft] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const lastOpen = useRef(false)
+  useEffect(() => {
+    if (open && !lastOpen.current) {
+      setDraft('')
+      setError(null)
+    }
+    lastOpen.current = open
+  }, [open])
+  const submit = (): void => {
+    const failure = onCreate(draft.trim())
+    if (failure === null) {
+      setDraft('')
+      setError(null)
+      return
+    }
+    setError(failure === 'empty' ? tr('group.name.empty') : tr('group.name.duplicate'))
+  }
+  const rowIcon = (groupId: string, name: string, action: 'rename' | 'delete'): unknown =>
+    h(
+      'button',
+      {
+        type: 'button',
+        className: 'dshOneTree_rowIconButton',
+        'aria-label': action === 'rename' ? tr('group.rename') : tr('group.delete'),
+        'data-dshone-tree-action': `group-${action}`,
+        'data-dshone-group-target': groupId,
+        onClick: () => (action === 'rename' ? onRename(groupId, name) : onDelete(groupId, name)),
+      },
+      action === 'rename' ? h(IconEditOutline16, {}) : h(IconTrashOutline16, {}),
+    )
+  return h(Modal, {
+    open,
+    onClose,
+    closeLabel: tr('close'),
+    title: tr('group.manage.title'),
+    footer: h(
+      'div',
+      { style: { display: 'flex', gap: '8px' } },
+      h(Button, { variant: 'outline', onClick: onClose }, tr('close')),
+    ),
+    children: [
+      h(
+        'div',
+        { className: 'dshOneTree_manageList', 'data-dshone-tree': 'group-manage-list' },
+        groups.length === 0
+          ? h('div', { className: 'dshOneTree_manageEmpty' }, tr('group.manage.none'))
+          : groups.map((group) =>
+              h(
+                'div',
+                { className: 'dshOneTree_manageRow', key: group.id, 'data-dshone-manage-group': group.id },
+                h('span', { className: 'dshOneTree_manageName' }, group.name),
+                h('span', { className: 'dshOneTree_manageCount' }, String(counts.get(group.id) ?? 0)),
+                rowIcon(group.id, group.name, 'rename'),
+                rowIcon(group.id, group.name, 'delete'),
+              ),
+            ),
+      ),
+      h(
+        'div',
+        { className: 'dshOneTree_manageCreate' },
+        h('input', {
+          className: 'dshOneTree_renameInput',
+          'data-dshone-tree': 'group-manage-input',
+          value: draft,
+          placeholder: tr('group.name.label'),
+          'aria-label': tr('group.name.label'),
+          onChange: (event: { target: { value: string } }) => {
+            setDraft(event.target.value)
+            setError(null)
+          },
+          onKeyDown: (event: { key: string; preventDefault(): void }) => {
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            submit()
+          },
+        }),
+        h(Button, { variant: 'primary', disabled: draft.trim() === '', onClick: submit }, tr('group.new')),
+      ),
       error === null ? null : h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error),
     ],
   })

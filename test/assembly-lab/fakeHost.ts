@@ -40,7 +40,9 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}): string
     openedByWindow: [],
     gitShows: [],
     stateStore: {},
-    sessionTabsOpened: []
+    sessionTabsOpened: [],
+    settingsOpened: [],
+    workspaceCreateCalls: []
   }
   var scope = ${JSON.stringify(stateScope)}
   Object.keys(scope).forEach(function (key) { host.stateStore[key] = scope[key] })
@@ -129,6 +131,20 @@ export function fakeHostScript(stateScope: Record<string, unknown> = {}): string
         return
       }
       host.sessionTabsOpened.push(sessionId)
+      result(message.id, true, null)
+      return
+    }
+    if (message.call === "vscode.openSettings") {
+      // #99 顶栏齿轮：真宿主在这里开/聚焦设置页（独立编辑器页）；假宿主只记录
+      // 「页面确实经能力口要过这件事」——设置页本身在真宿主里。
+      host.settingsOpened.push(true)
+      result(message.id, true, null)
+      return
+    }
+    if (message.call === "vscode.workspaceCreate") {
+      // #99 ＋ 菜单「创建新工作区目录」：真宿主跑 dshOne.workspace.create（原生输入框
+      // + 建目录 + 注册）；假宿主只计数，不去碰用户真实目录。
+      host.workspaceCreateCalls.push(true)
       result(message.id, true, null)
       return
     }

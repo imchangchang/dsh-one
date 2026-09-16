@@ -14,12 +14,15 @@
  *
  * ## 文件结构（#99 拆文件）
  * 本文件只留**插件本体**：服务面类型、\`inject\` 与 \`apply\`（注册 + 注入动作的组装）。
+ * 它注册两条 entry：`sidebar.workspaces` 的 shadow（浏览区，树主组件）与
+ * `sidebar.footer.action` 的 list 条目（底部回收站入口行，与官方 cordis-panel 并存）。
  * 组件与样式拆到同目录的 \`workspaceTree/\`，各自一份职责，改哪块找哪个文件：
  * \`tree.ts\`（主组件：组合各件 + 状态与订阅）、\`rows.ts\`（分组头行 / 会话行 /
  * 搜索结果行）、\`toolbar.ts\`（顶部工具栏）、\`groupFilterBar.ts\`（分组过滤条）、
- * \`selection.ts\`（批量选择）、\`recycleDrawer.ts\`（回收站抽屉）、\`modals.ts\`（对话框）、
- * \`search.ts\` / \`groups.ts\` / \`format.ts\` / \`hoverCard.ts\` / \`types.ts\`、
- * \`styles.ts\`（全部样式）、\`locale.ts\`（词典）。
+ * \`selection.ts\`（批量选择）、\`recycleDrawer.ts\`（回收站抽屉）、\`recycleEntry.ts\`
+ * （底部回收站入口行）、\`modals.ts\`（对话框）、\`search.ts\` / \`groups.ts\` /
+ * \`format.ts\` / \`hoverCard.ts\` / \`types.ts\`、\`styles.ts\`（全部样式）、
+ * \`locale.ts\`（词典）。
  *
  * ## 机制分层（按 AGENTS.md 的优先序逐层举证）
  *
@@ -112,6 +115,7 @@ import type { GroupFile } from '../../../pure/dshStateFile.ts'
 import type { SessionListLike } from '../../../pure/workspaceTreeView.ts'
 import { hostCapabilities, type CapabilityContext } from './hostCapabilities.ts'
 import { EN, LOCALE_NS, ZH } from './workspaceTree/locale.ts'
+import { RecycleEntry } from './workspaceTree/recycleEntry.ts'
 import { WorkspaceTree } from './workspaceTree/tree.ts'
 import type { SearchPage, WorkspaceSnapshotLike } from './workspaceTree/types.ts'
 
@@ -196,13 +200,7 @@ export function apply(ctx: TreeContext): void {
   const buildInjected = (): Record<string, unknown> => {
     const uiWorkspace = (): UiWorkspaceService | undefined =>
       (ctx as unknown as { uiWorkspace?: UiWorkspaceService }).uiWorkspace
-    const directoryFlow = {
-      getSnapshot: (): boolean => (ctx.slots.entries?.('sidebar.workspaces.directoryFlow').length ?? 0) > 0,
-      subscribe: (listener: () => void): (() => void) =>
-        ctx.slots.subscribe === undefined ? () => {} : ctx.slots.subscribe('sidebar.workspaces.directoryFlow', listener),
-    }
     return {
-      hooks: { directoryFlow },
       // 「在新标签页打开」（#72 多开通道）：走宿主能力口（抽象口，插件不碰宿主 API）。
       // 能力口如实上报 `editorTabs`：没有编辑器标签页的宿主（官方 web 形态）不注入
       // 这个动作，菜单项与行右键都不出现——那是同一份插件在另一端的正确形态。
@@ -213,6 +211,28 @@ export function apply(ctx: TreeContext): void {
                 // 宿主侧失败已弹 VS Code 错误提示（服务没起/清单拉取失败）；
                 // 这里只留一条诊断，不重复打扰用户。
                 console.warn('[dsh-one] open session in new tab failed:', reason)
+              })
+            },
+          }
+        : {}),
+      // #99 顶栏 ＋ 菜单第二项「创建新工作区目录…」：宿主能力口，宿主没有这条能力
+      // （官方 web 形态）时不注入 = 那一项不出现。
+      ...(caps.workspaceCreate
+        ? {
+            createWorkspaceFolder: (): void => {
+              caps.createWorkspaceDirectory().catch((reason: unknown) => {
+                console.warn('[dsh-one] create workspace directory failed:', reason)
+              })
+            },
+          }
+        : {}),
+      // #99 顶栏最右的设置齿轮：宿主能力口，宿主没有独立设置页（官方 web 形态）时
+      // 不注入 = 齿轮不渲染（那一端设置归官方侧栏底部那一行）。
+      ...(caps.settingsPage
+        ? {
+            openSettings: (): void => {
+              caps.openSettings().catch((reason: unknown) => {
+                console.warn('[dsh-one] open settings failed:', reason)
               })
             },
           }
@@ -248,10 +268,19 @@ export function apply(ctx: TreeContext): void {
       archiveSession: (sessionId: string): Promise<void> => workspaces.archiveSession(sessionId),
       renameWorkspace: (workspaceId: string, title: string): Promise<unknown> => workspaces.rename(workspaceId, title),
       deleteWorkspace: (workspaceId: string): Promise<void> => workspaces.delete(workspaceId),
-      // 官方 uiWorkspace.pickDirectory：宿主原生选择器（官方另经
-      // sidebar.workspaces.directoryFlow 槽位让可替换的选择器接管；我们的 entry
-      // 无法渲染该子槽，故直调服务）。
-      addWorkspace: (): void => {
+      // 官方 uiWorkspace.pickDirectory：宿主原生选择器。**为什么直调服务而不是渲染
+      // 官方 `sidebar.workspaces.directoryFlow` 子槽**（#99 B 段原本要求渲染子槽）：
+      // 那口子由官方 WorkspaceBrowser 条目在它自己的 `children` 里声明，而官方渲染器
+      // **只允许声明该槽的条目渲染它**——`dsh-client-ui-renderer/lib/client.js` 的
+      // boundRenderSlot 原文：
+      //   `const declared = entry.children?.[key]; if (declared === void 0) throw new
+      //    SlotOwnershipError("slot '<key>' is not declared by this entry's children")`
+      // 我们这条 shadow entry 声明不了同名槽（同名二次声明注册表直接报错，本文件头
+      // 已举证），所以「渲染官方子槽」在当前架构下不可达：官方那口的占用者（browse
+      // picker）也只在 ui-conversation 在场时才注册（它把 sidebar 那半嵌在 hero 那半的
+      // inject 里）。走官方服务是第 2 层机制、语义一致（同一个宿主原生选择器），
+      // 且不接手任何隐式契约。
+      pickWorkspaceFolder: (): void => {
         const service = uiWorkspace()
         if (service === undefined) return
         void service
@@ -325,7 +354,22 @@ export function apply(ctx: TreeContext): void {
         WorkspaceTree,
       ),
     )
+    // #99 B 段：底部回收站入口行——官方 `sidebar.footer.action`（list 槽，官方侧栏壳
+    // 声明；官方 ui-cordis 的 `cordis-panel` 那条**并存**，这里只是再注册一条自己的）。
+    // list 条目按 `id` 认领位置（官方那条的 id 是 'cordis-panel'），order 不给 =
+    // 排在它后面（官方侧栏壳按 order + 注册序渲染）。
+    const disposeFooterEntry = ctx.slots.inject('sidebar.footer.action', () =>
+      ctx.slots.register(
+        {
+          name: 'sidebar.footer.action',
+          id: 'dsh-one-recycle-bin',
+          locale: LOCALE_NS,
+        },
+        RecycleEntry,
+      ),
+    )
     return () => {
+      disposeFooterEntry()
       disposeInject()
       disposeLocale()
     }

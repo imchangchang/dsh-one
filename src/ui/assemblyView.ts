@@ -180,7 +180,17 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
  */
 const gatewayRootsByManager = new WeakMap<ServerManager, () => Promise<readonly string[]>>()
 
-function hostBridgeDeps(manager: ServerManager, logger: Logger, gatewayOrigin?: () => string | undefined): HostBridgeDeps {
+function hostBridgeDeps(
+  manager: ServerManager,
+  logger: Logger,
+  gatewayOrigin?: () => string | undefined,
+  /**
+   * 侧栏面板专属的两条能力（#99 顶栏齿轮 / ＋ 菜单「创建新工作区目录」）。其余
+   * 面板不给 = 那两枚入口在它们的页面里不出现（能力口按 `viaBridge` 如实上报，
+   * 但页面侧另有 `settingsPage` / `workspaceCreate` 判定，见 hostCapabilities）。
+   */
+  panelActions?: { openSettings?: () => void; createWorkspaceDirectory?: () => Promise<unknown> },
+): HostBridgeDeps {
   let roots = gatewayRootsByManager.get(manager)
   if (roots === undefined) {
     roots = createGatewayWorkspaceRoots({
@@ -204,6 +214,12 @@ function hostBridgeDeps(manager: ServerManager, logger: Logger, gatewayOrigin?: 
     // git 查询的扫描/命中/超时留痕走输出面板「DSH One」频道（probe 同一条通道），
     // 页面侧不感知、UI 不阻塞。
     log: (line: string) => logger.info(line),
+    // #99 侧栏顶栏：设置齿轮与 ＋ 菜单的「创建新工作区目录」。两项都是**该面板
+    // 专属**的能力，由调用方注入；缺省不给 = 那两个入口在别的页面里不出现。
+    ...(panelActions?.openSettings === undefined ? {} : { openSettings: panelActions.openSettings }),
+    ...(panelActions?.createWorkspaceDirectory === undefined
+      ? {}
+      : { createWorkspaceDirectory: panelActions.createWorkspaceDirectory }),
   }
 }
 
@@ -594,7 +610,10 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
     private readonly logger: Logger,
     /** 视图可见性钩子：每次变得可见时回调（装配对话区默认打开逻辑挂这里，#68）。 */
     private readonly onDidBecomeVisible?: () => void,
-    /** 齿轮点击（dshOne.openSettings）：宿主开/聚焦设置面板。 */
+    /**
+     * 开/聚焦设置页（#99 起由顶栏齿轮经宿主能力口 `openSettings` 触发；齿轮以前
+     * 在底部那一行、走 `dshOne.openSettings` 消息，那条路已随 #99 撤掉）。
+     */
     private readonly onOpenSettings?: () => void,
   ) {}
 
@@ -604,7 +623,15 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
     const hostSub = subscribeHostCalls(
       view.webview,
       this.logger,
-      hostBridgeDeps(this.manager, this.logger, () => this.mirror?.origin),
+      hostBridgeDeps(this.manager, this.logger, () => this.mirror?.origin, {
+        // #99：顶栏齿轮走能力口（不再要求页面自己 postMessage）；两条都复用既有动作
+        // ——设置页的注册/聚焦在马甲这一层（onOpenSettings），建目录复用
+        // `dshOne.workspace.create` 命令（宿主原生输入框 + 建目录 + 注册 + 刷新）。
+        openSettings: () => this.onOpenSettings?.(),
+        createWorkspaceDirectory: async () => {
+          await vscode.commands.executeCommand('dshOne.workspace.create')
+        },
+      }),
     )
     trackAssemblyWebview(this.context, view.webview)
     const retrySub = view.webview.onDidReceiveMessage((msg: unknown) => {
@@ -613,7 +640,6 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
       if (type === 'assembly:retry') void this.assemble(view)
       else if (type === 'assembly:start') this.startFromStatusPage(view)
       else if (type === 'assembly:openInstallGuide') openInstallGuide(this.logger)
-      else if (type === 'dshOne.openSettings') this.onOpenSettings?.()
       else if (type === 'dshOne.sessionSelected') {
         const sessionId = (msg as { sessionId?: unknown }).sessionId
         if (typeof sessionId === 'string' && sessionId !== '') void openSessionChat(sessionId)

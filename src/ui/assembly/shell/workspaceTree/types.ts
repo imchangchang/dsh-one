@@ -47,8 +47,6 @@ export interface TreeProps {
   useSessions: <R>(selector: (state: SessionListLike) => R) => R
   useWorkspaces: <R>(selector: (state: WorkspaceSnapshotLike) => R) => R
   useSessionPendingInteraction: <R>(selector: (state: PendingMap) => R) => R
-  /** 框架按 entry 的 hooks 槽位绑定的目录流占用探针（官方 WorkspaceBrowser 同款）。 */
-  useDirectoryFlow?: <R>(selector: (occupied: boolean) => R) => R
   /** 官方 sessions 服务：选中会话。 */
   open: (sessionId: string) => void
   /** 在工作区里开新会话（复用空白会话或新建），见 apply 处对官方语义的说明。 */
@@ -58,7 +56,25 @@ export interface TreeProps {
   archiveSession: (sessionId: string) => Promise<void>
   renameWorkspace: (workspaceId: string, title: string) => Promise<unknown>
   deleteWorkspace: (workspaceId: string) => Promise<void>
-  addWorkspace: () => void
+  /**
+   * 顶栏 ＋ 菜单第一项「选择已有文件夹…」：官方 `uiWorkspace.pickDirectory` 选目录
+   * 后按官方 `workspaces.create({path})` 注册。**为什么不是渲染官方
+   * `sidebar.workspaces.directoryFlow` 子槽**：那口子由官方 WorkspaceBrowser 条目在
+   * 它自己的 children 里声明，官方渲染器只允许声明者渲染（`boundRenderSlot` 对
+   * `entry.children?.[key] === undefined` 抛 SlotOwnershipError），我们这条 shadow
+   * entry 声明不了同名槽——举证与结论见 workspaceTreePlugin 的注入面注释。
+   */
+  pickWorkspaceFolder: () => void
+  /**
+   * ＋ 菜单第二项「创建新工作区目录…」：宿主能力口来的动作。**undefined = 这个宿主
+   * 没有这条能力**（官方 web 侧建目录归官方目录流占用者），那一项就不出现。
+   */
+  createWorkspaceFolder?: (() => void) | undefined
+  /**
+   * 顶栏设置齿轮：宿主能力口来的动作。**undefined = 这个宿主没有独立设置页**
+   * （官方 web 侧设置是官方侧栏底部那一行），齿轮就不渲染。
+   */
+  openSettings?: (() => void) | undefined
   searchSessions: (query: string, signal: AbortSignal) => Promise<SearchPage>
   searchResultLimit: number
   /**

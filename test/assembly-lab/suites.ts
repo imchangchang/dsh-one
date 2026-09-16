@@ -476,10 +476,18 @@ export const INTERACT_SUITE: LabSuite = {
  * 对齐断言 = 同一 frame、同一网关数据、同一宽度下，两侧同名元素（自有树
  * `dshOneTree_<name>` vs 官方 `<hash>_<name>`，按类名**后缀**取）的 computed
  * style 与几何矩形逐项相等。数值不硬编码：官方改版后这边跟着变，不相等才报。
+ *
+ * `geometry`：缺省 = 宽高都比；`'width'` = 只比宽度（矮一截是功能带来的差异）；
+ * `'none'` = 不比矩形（宽度由两边的工具栏条目数决定，不是外观契约）。
  */
-const PARITY_PAIRS: ReadonlyArray<{ suffix: string; props: readonly string[]; geometry?: 'width' }> = [
+const PARITY_PAIRS: ReadonlyArray<{ suffix: string; props: readonly string[]; geometry?: 'width' | 'none' }> = [
   { suffix: 'sectionHeader', props: ['height', 'borderRadius', 'paddingLeft', 'marginTop', 'marginBottom', 'marginRight'] },
-  { suffix: 'search', props: ['height', 'borderRadius'] },
+  // 搜索栏（#99）：自有树常驻官方那套 UI 的**展开态**（30px 高、10px 圆角、.5px 边框），
+  // 官方对照档默认折叠（28px 圆胶囊），所以套件先把官方那份点开（见下面 run 里的说明），
+  // 两侧同处展开态后逐项比样式。**矩形高度**可比（30px 对 30px），**宽度不可比**：
+  // 自有树顶栏比官方多三枚图标（折叠展开全部 / 添加工作区 / 设置齿轮，另保留 #81 的
+  // 视图选项与多选入口），搜索栏分到的可用宽度本来就不同——那是功能带来的差异。
+  { suffix: 'search', props: ['height', 'borderRadius'], geometry: 'none' },
   { suffix: 'searchButton', props: ['width', 'height', 'borderRadius'] },
   { suffix: 'iconButton', props: ['width', 'height', 'borderRadius'] },
   { suffix: 'projectRow', props: ['height', 'paddingLeft', 'paddingRight', 'gap', 'borderRadius'] },
@@ -534,6 +542,12 @@ export const PARITY_SUITE: LabSuite = {
     const own = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
     const official = await openTreePage(ctx.browser, ctx.lab, route('sidebar-official'), { width: 380, height: 900 })
     try {
+      // #99：自有树的搜索栏常驻**展开态**（折叠态的放大镜胶囊退役），官方对照档默认
+      // 是折叠态——两侧要逐项可比，先把官方页的搜索点开：官方那套 UI 的展开态与自有树
+      // 是同一份几何（30px 高、10px 圆角、放大镜按钮在展开态高 30px）。这一步只切官方
+      // 页的呈现状态，不碰任何数据。
+      await official.page.click('[class*="_searchButton"]')
+      await official.page.waitForTimeout(200)
       check.fact(
         `对齐口径：自有树（.dshOneTree_*）对官方对照档（官方 hash 类名，按类名后缀配对），逐组比 computed style 各属性 + 几何矩形；共 ${String(PARITY_PAIRS.length)} 组元素 × 3 档宽度（260/340/500）`,
       )
@@ -595,6 +609,12 @@ export const PARITY_SUITE: LabSuite = {
           if (!check.ok(`${label}：两侧都取到元素`, a.found && b.found, `own=${String(a.found)} official=${String(b.found)}`)) continue
           for (const prop of pair.props) {
             check.ok(`${label}：${prop} 一致`, a.styles[prop] === b.styles[prop], `own=${a.styles[prop]} official=${b.styles[prop]}`)
+          }
+          // 矩形：缺省宽高都比；'width' = 只比宽度（矮一截是功能带来的）；
+          // 'none' = 不比（宽度由两边工具栏条目数决定，不是外观契约）。
+          if (pair.geometry === 'none') {
+            check.fact(`${label}：本组只比样式，不比矩形（宽度由两边工具栏条目数决定）`)
+            continue
           }
           check.ok(
             `${label}：几何矩形一致`,
@@ -839,6 +859,21 @@ async function workspaceKeys(page: OpenedPage['page']): Promise<string[]> {
   )
 }
 
+/**
+ * 分组过滤条的单胶囊下拉（#99 起形态）：先点开胶囊再点其中一项。
+ * 下拉由官方 `Menu` 渲染（portal 到 body），所以项要等它挂出来再点。
+ */
+async function openPillMenu(page: OpenedPage['page']): Promise<void> {
+  await page.click('[data-dshone-tree-action="group-pill"]')
+  await page.waitForTimeout(150)
+}
+
+async function pickPillItem(page: OpenedPage['page'], id: string): Promise<void> {
+  await openPillMenu(page)
+  await page.click(`[data-dshone-tree-pill-item="${id}"]`)
+  await page.waitForTimeout(200)
+}
+
 /** 假宿主状态存储里当前的分组状态（未写回时为注入的初值）。 */
 async function hostGroups(page: OpenedPage['page']): Promise<unknown> {
   return page.evaluate(() => {
@@ -889,27 +924,39 @@ export const SIDEBAR_SUITE: LabSuite = {
     })
     const { page, capture } = opened
     try {
-      const chips = await page.evaluate(() =>
-        Array.from(document.querySelectorAll('[data-dshone-tree-chip]')).map((element) => element.getAttribute('data-dshone-tree-chip') ?? ''),
+      const initialPill = await (async () => {
+        await page.click('[data-dshone-tree-action="group-pill"]')
+        await page.waitForTimeout(150)
+        const items = await page.evaluate(() =>
+          Array.from(document.querySelectorAll('[data-dshone-tree-pill-item]')).map((element) => element.getAttribute('data-dshone-tree-pill-item') ?? ''),
+        )
+        const label = (await page.textContent('[data-dshone-tree-action="group-pill"]')) ?? ''
+        const count = await page.getAttribute('[data-dshone-tree-action="group-pill"]', 'data-dshone-tree-group-count')
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(150)
+        return { items, label, count }
+      })()
+      check.fact(`分组胶囊：label=${JSON.stringify(initialPill.label)} 计数=${String(initialPill.count)} 下拉项=${initialPill.items.join(',')}`)
+      check.eq('分组胶囊的下拉按旧 groups.json 渲染（全部 + 两个分组）', initialPill.items, ['all', 'g-lab-one', 'g-lab-two'])
+      check.ok(
+        '分组胶囊默认显示「全部工作区」+ 成员工作区数（#99 单胶囊口径：只数工作区，不含未分组桶）',
+        initialPill.label.includes('全部工作区') && initialPill.count === String(keys.filter((key) => key !== '').length),
+        `label=${initialPill.label} count=${String(initialPill.count)} 工作区行=${String(keys.filter((key) => key !== '').length)}`,
       )
-      check.fact(`分组 chip：${chips.join(',')}`)
-      check.eq('分组 chip 按旧 groups.json 渲染（全部 + 两个分组）', chips, ['all', 'g-lab-one', 'g-lab-two'])
       // 旧文件里的 activeGroupId 是**旧版**的「当前分组」；本版它是纯视图态（住
       // localStorage），所以初值应当是「全部」——文件里那个字段原样保留不动。
       const allVisible = await workspaceKeys(page)
       check.eq('旧 activeGroupId 不被当作视图态（初始仍是「全部」）', allVisible.length, keys.length)
 
-      // ---- 功能 1：过滤 ----
-      await page.click('[data-dshone-tree-chip="g-lab-one"]')
-      await page.waitForTimeout(200)
-      check.eq('点分组 chip 后只留归属该分组的工作区', await workspaceKeys(page), [keys[0]])
+      // ---- 功能 1：过滤（#99 起入口是单胶囊的下拉项，不再是那排 chip） ----
+      await pickPillItem(page, 'g-lab-one')
+      check.eq('在下拉里选分组后只留归属该分组的工作区', await workspaceKeys(page), [keys[0]])
       const storedPrefs = await page.evaluate(() => localStorage.getItem('dsh.workspaceTree.view'))
       check.ok('当前过滤的分组写进官方惯例的 localStorage 键', storedPrefs !== null && storedPrefs.includes('g-lab-one'), String(storedPrefs))
       screenshots.push(await shot(ctx, page, 'sidebar-group-filter'))
 
       // ---- 功能 6 + 功能 2：不折叠与计数 ----
-      await page.click('[data-dshone-tree-chip="all"]')
-      await page.waitForTimeout(200)
+      await pickPillItem(page, 'all')
       await page.evaluate(() => {
         for (const row of Array.from(document.querySelectorAll('[data-dshone-tree-row="workspace"]'))) {
           if (row.getAttribute('aria-expanded') !== 'true') (row as HTMLElement).click()
@@ -1032,6 +1079,8 @@ export const SIDEBAR_SUITE: LabSuite = {
       check.eq('功能 4：退出选择态后动作条消失', await contentCount(page, '[data-dshone-tree="selection-bar"]'), 0)
 
       // ---- 功能 1 的写路径 + #82 的迁移/幂等：建组 → 归属 → 落盘形状 ----
+      // #99：入口在单胶囊的下拉里（先开下拉再点「新建分组…」）。
+      await openPillMenu(page)
       await page.click('[data-dshone-tree-action="group-new"]')
       await page.waitForTimeout(200)
       await page.fill('.dshOneTree_renameInput', 'Lab New')
@@ -1042,10 +1091,16 @@ export const SIDEBAR_SUITE: LabSuite = {
       check.ok('功能 1：新建的分组按同一形状写回宿主状态存储（version 1 + groups + membership）',
         afterCreate?.version === 1 && created !== undefined && typeof afterCreate.membership === 'object', JSON.stringify(afterCreate).slice(0, 200))
       check.eq('#82：写回时旧字段 activeGroupId 原样保留（不抹掉别人的数据）', afterCreate?.activeGroupId, 'g-lab-one')
-      const chipsAfter = await page.evaluate(() =>
-        Array.from(document.querySelectorAll('[data-dshone-tree-chip]')).map((element) => element.getAttribute('data-dshone-tree-chip') ?? ''),
-      )
-      check.ok('功能 1：新分组立刻出现在过滤条里', chipsAfter.includes(created?.id ?? 'none'), chipsAfter.join(','))
+      const pillAfter = await (async () => {
+        await openPillMenu(page)
+        const items = await page.evaluate(() =>
+          Array.from(document.querySelectorAll('[data-dshone-tree-pill-item]')).map((element) => element.getAttribute('data-dshone-tree-pill-item') ?? ''),
+        )
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(150)
+        return items
+      })()
+      check.ok('功能 1：新分组立刻出现在胶囊的下拉里', pillAfter.includes(created?.id ?? 'none'), pillAfter.join(','))
 
       // 归属：工作区行的「…」菜单 → 勾一个分组 → 归属写回状态存储。
       // 行操作按钮平时是 display:none（悬停才出，官方同款），所以先 hover 行再点。
@@ -1077,8 +1132,7 @@ export const SIDEBAR_SUITE: LabSuite = {
       await page.waitForTimeout(200)
 
       // ---- #82 视图态持久化：同上下文重载后过滤仍然生效 ----
-      await page.click('[data-dshone-tree-chip="g-lab-two"]')
-      await page.waitForTimeout(200)
+      await pickPillItem(page, 'g-lab-two')
       await page.reload({ waitUntil: 'domcontentloaded' })
       await page.waitForSelector('.dshOneTree_projectRow', { timeout: 40_000 })
       await page.waitForTimeout(1_500)
@@ -1492,6 +1546,268 @@ export const MULTIOPEN_SUITE: LabSuite = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// F-12 SIDEBAR-SKELETON：侧栏骨架四区（#99）
+// ---------------------------------------------------------------------------
+
+/**
+ * 侧栏骨架（#99 B 段）的四区断言：自绘顶栏（官方搜索栏展开态 + 折叠展开全部 +
+ * 添加工作区两项菜单 + 设置齿轮）、单胶囊分组条、底部回收站入口行（官方
+ * `sidebar.footer.action` 座位，与官方 cordis-panel 并存）、底部设置行隐藏。
+ *
+ * 数据面仍旧是真实网关只读 + 假宿主；分组状态注入到假宿主的状态存储里（与 F-07 同
+ * 一套做法），这样单胶囊的下拉与管理对话框有确定的内容可断言。
+ */
+export const SKELETON_SUITE: LabSuite = {
+  id: 'F-12',
+  phase: 'new-feature',
+  name: '侧栏骨架四区（#99）：顶栏四项 + 官方搜索栏 + 单胶囊分组条 + 底部回收站入口行（SIDEBAR-SKELETON 套件）',
+  expect:
+    '#99 定的四区骨架在真实装配页上成立：① 顶栏一行里搜索栏（官方那套 UI 的展开态，30px 高 / 10px 圆角）、折叠展开全部、添加工作区、设置齿轮四件都在，且折叠全部真的收起整棵树；② 添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录），第二项经宿主能力口发出 `vscode.workspaceCreate`；③ 设置齿轮经宿主能力口发出 `vscode.openSettings`（假宿主只记录，真宿主开设置页），同时官方 `sidebar.settings` 那一行不再渲染；④ 分组过滤条是单胶囊 + 成员计数 + ▾，下拉含「全部工作区 / 各组 / 新建分组… / 管理分组…」，管理分组对话框列出全部组；⑤ 回收站入口行在官方 `sidebar.footer.action` 座位里、与官方 cordis-panel 条目并存、不在自有浏览区 DOM 内，点它开现有抽屉。全程零 pageerror。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+    const groupsState = {
+      version: 1,
+      groups: [
+        { id: 'g-lab-one', name: 'Lab One' },
+        { id: 'g-lab-two', name: 'Lab Two' },
+      ],
+      membership: {},
+      activeGroupId: null,
+    }
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), {
+      width: 380,
+      height: 900,
+      state: { groups: groupsState },
+    })
+    const { page } = opened
+    try {
+      // 密度档先对齐到官方兜底值（与 F-04 同一处置）：VS Code 档比官方档紧，而「搜索
+      // 栏是不是官方那套几何」要按官方档量——把树自己声明的官方兜底值内联回 frame，
+      // 页面就回到「没人给偏好」的状态。
+      const densityFix = await page.evaluate(() => {
+        const treeCss =
+          Array.from(document.querySelectorAll('style[data-plugin]'))
+            .find((element) => element.getAttribute('data-plugin') === '@dsh-one/dsh-workspace-tree')
+            ?.textContent ?? ''
+        const fallbacks = Array.from(treeCss.matchAll(/var\(--dsh-one-density-([a-z-]+),\s*([^)]+)\)/g))
+        const frame = document.querySelector('[class*="dshOneSidebarShell_frame"]')
+        if (frame === null) return 0
+        for (const match of fallbacks) frame.setAttribute('style', `${frame.getAttribute('style') ?? ''};--dsh-one-density-${match[1] ?? ''}:${(match[2] ?? '').trim()}`)
+        return fallbacks.length
+      })
+      check.fact(`密度档兜底值回填项数=${String(densityFix)}（与 F-04 同一口径：先把 VS Code 档对齐到官方档再量几何）`)
+      await page.waitForTimeout(200)
+
+      // ---- ① 顶栏一行四件 ----
+      const bar = await page.evaluate(() => {
+        const row = document.querySelector('[data-dshone-tree="top-bar"]')
+        if (row === null) return null
+        const action = (name: string): boolean => row.querySelector(`[data-dshone-tree-action="${name}"]`) !== null
+        const input = row.querySelector<HTMLInputElement>('[data-dshone-tree="search-input"]')
+        const searchBox = row.querySelector('[data-dshone-tree="search-box"]')
+        const searchStyle = searchBox === null ? null : getComputedStyle(searchBox)
+        const inputStyle = input === null ? null : getComputedStyle(input)
+        return {
+          actions: {
+            collapseAll: action('collapse-all'),
+            addWorkspace: action('add-workspace'),
+            settings: action('settings'),
+          },
+          search: {
+            found: searchBox !== null && input !== null,
+            height: searchStyle?.height ?? '',
+            radius: searchStyle?.borderRadius ?? '',
+            borderWidth: searchStyle?.borderTopWidth ?? '',
+            borderStyle: searchStyle?.borderTopStyle ?? '',
+            placeholder: input?.placeholder ?? '',
+            opacity: inputStyle?.opacity ?? '',
+            tabIndex: input?.tabIndex ?? -1,
+            /** #99：折叠态的放大镜胶囊退役——页面上不该再有那一枚。 */
+            retiredPill: document.querySelector('[data-dshone-tree="search-pill"]') !== null,
+          },
+        }
+      })
+      check.ok('顶栏一行在（自绘 .dshOneTree_sectionHeader）', bar !== null)
+      check.fact(`顶栏四件：${JSON.stringify(bar?.actions)} 搜索=${JSON.stringify(bar?.search)}`)
+      check.ok('顶栏：折叠/展开全部在', bar?.actions.collapseAll === true)
+      check.ok('顶栏：添加工作区（＋）在', bar?.actions.addWorkspace === true)
+      check.ok('顶栏：设置齿轮在', bar?.actions.settings === true)
+      check.ok(
+        '搜索栏 = 官方那套 UI 的展开态（30px 高 / 10px 圆角 / token 实线边框）',
+        bar?.search.height === '30px' &&
+          bar?.search.radius === '10px' &&
+          bar?.search.borderStyle === 'solid' &&
+          bar?.search.borderWidth !== '0px',
+        JSON.stringify(bar?.search),
+      )
+      check.ok(
+        '搜索框常显可输入（退役的折叠胶囊不在，输入框不再 tabIndex=-1）',
+        bar?.search.opacity === '1' && bar.search.tabIndex === 0 && bar.search.retiredPill === false,
+        JSON.stringify(bar?.search),
+      )
+      check.ok('搜索框用官方词典的占位文案', (bar?.search.placeholder ?? '').includes('搜索会话'), String(bar?.search.placeholder))
+
+      // 搜索走官方 `sessions.search`（结果区文案也是官方那套键）：敲一个几乎不可能
+      // 命中的串，官方路径必然给出「无匹配 / 内容搜索不可用」之一。
+      await page.fill('[data-dshone-tree="search-input"]', 'zzz-lab-no-such-session-zzz')
+      await page.waitForTimeout(900)
+      const searchState = await page.evaluate(() => ({
+        results: document.querySelectorAll('[data-dshone-tree="search"] [data-dshone-tree-row]').length,
+        status: document.querySelector('.dshOneTree_searchStatus')?.textContent ?? '',
+      }))
+      check.fact(`搜索态：结果行=${String(searchState.results)} 状态文案=${JSON.stringify(searchState.status)}`)
+      check.ok(
+        '搜索走官方那套结果/降级文案（无匹配 · 内容搜索不可用）',
+        searchState.results === 0 && (searchState.status.includes('无匹配') || searchState.status.includes('内容搜索')),
+        JSON.stringify(searchState),
+      )
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(200)
+      check.eq('Esc 清空搜索并回到树', await contentCount(page, '[data-dshone-group-key]') > 0, true)
+
+      // ---- ② 添加工作区：两项菜单 + 主动创建走宿主能力口 ----
+      await page.click('[data-dshone-tree-action="add-workspace"]')
+      await page.waitForTimeout(250)
+      const addItems = await page.evaluate(() => ({
+        pick: document.querySelector('[data-dshone-tree-item="workspace-pick"]') !== null,
+        create: document.querySelector('[data-dshone-tree-item="workspace-create"]') !== null,
+        text: document.querySelector('[data-dshone-tree-item="workspace-pick"]')?.textContent ?? '',
+      }))
+      check.ok('添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录）', addItems.pick && addItems.create, JSON.stringify(addItems))
+      check.ok('菜单项文案是「选择已有文件夹…」', addItems.text.includes('选择已有文件夹'), addItems.text)
+      await page.click('[data-dshone-tree-item="workspace-create"]')
+      await page.waitForTimeout(400)
+      const createCalls = await page.evaluate(() => {
+        const host = (globalThis as unknown as { __LAB_HOST__?: { workspaceCreateCalls: unknown[] } }).__LAB_HOST__
+        return host?.workspaceCreateCalls.length ?? -1
+      })
+      check.eq('「创建新工作区目录」经宿主能力口发出（vscode.workspaceCreate）', createCalls, 1)
+
+      // ---- ③ 设置齿轮经能力口开设置页；底部设置行不再渲染 ----
+      await page.click('[data-dshone-tree-action="settings"]')
+      await page.waitForTimeout(300)
+      const settingsFacts = await page.evaluate(() => {
+        const host = (globalThis as unknown as { __LAB_HOST__?: { settingsOpened: unknown[] } }).__LAB_HOST__
+        const row = document.querySelector('[data-slot="sidebar.settings"]')
+        const buttons = row === null ? 0 : row.querySelectorAll('button').length
+        const text = row?.textContent ?? ''
+        return { opened: host?.settingsOpened.length ?? -1, buttons, text }
+      })
+      check.eq('设置齿轮经宿主能力口开设置页（vscode.openSettings）', settingsFacts.opened, 1)
+      check.ok(
+        '底部设置行不再渲染（官方 sidebar.settings 里没有按钮/文案）',
+        settingsFacts.buttons === 0 && settingsFacts.text.trim() === '',
+        JSON.stringify(settingsFacts),
+      )
+
+      // ---- ④ 单胶囊分组条 ----
+      const pill = await page.evaluate(() => {
+        const anchor = document.querySelector('[data-dshone-tree-action="group-pill"]')
+        return {
+          found: anchor !== null,
+          label: anchor?.textContent ?? '',
+          count: anchor?.getAttribute('data-dshone-tree-group-count') ?? '',
+          active: anchor?.getAttribute('data-dshone-tree-group') ?? '',
+          chips: document.querySelectorAll('[data-dshone-tree-chip]').length,
+        }
+      })
+      check.ok('分组过滤条是一枚胶囊（旧的那排 chip 已不在）', pill.found && pill.chips === 0, JSON.stringify(pill))
+      check.ok('胶囊带成员计数与「全部工作区」初值', pill.label.includes('全部工作区') && Number(pill.count) > 0 && pill.active === 'all', JSON.stringify(pill))
+      await openPillMenu(page)
+      const pillItems = await page.evaluate(() => ({
+        all: document.querySelector('[data-dshone-tree-pill-item="all"]') !== null,
+        groups: Array.from(document.querySelectorAll('[data-dshone-tree-pill-item]')).filter((element) =>
+          (element.getAttribute('data-dshone-tree-pill-item') ?? '').startsWith('g-lab-'),
+        ).length,
+        newGroup: document.querySelector('[data-dshone-tree-action="group-new"]') !== null,
+        manage: document.querySelector('[data-dshone-tree-action="group-manage"]') !== null,
+        counts: Array.from(document.querySelectorAll('.dshOneTree_menuRowCount')).map((element) => element.textContent ?? ''),
+      }))
+      check.ok(
+        '胶囊下拉含「全部工作区 / 各组 / 新建分组… / 管理分组…」四类',
+        pillItems.all && pillItems.groups === 2 && pillItems.newGroup && pillItems.manage,
+        JSON.stringify(pillItems),
+      )
+      screenshots.push(await shot(ctx, page, 'skeleton-group-pill'))
+      // 管理分组对话框列出全部组（行上有 data-dshone-manage-group）。
+      await page.click('[data-dshone-tree-action="group-manage"]')
+      await page.waitForTimeout(300)
+      const manage = await page.evaluate(() => ({
+        rows: Array.from(document.querySelectorAll('[data-dshone-manage-group]')).map((element) => element.getAttribute('data-dshone-manage-group') ?? ''),
+        hasCreate: document.querySelector('[data-dshone-tree="group-manage-input"]') !== null,
+      }))
+      check.ok('「管理分组…」对话框列出全部组 + 一行建新组', manage.rows.length === 2 && manage.hasCreate, JSON.stringify(manage))
+      screenshots.push(await shot(ctx, page, 'skeleton-manage-groups'))
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(200)
+
+      // ---- ⑤ 折叠/展开全部 ----
+      const expandedCount = async (): Promise<number> =>
+        page.evaluate(() => document.querySelectorAll('[data-dshone-tree-row="workspace"][aria-expanded="true"]').length)
+      await page.click('[data-dshone-tree-action="collapse-all"]')
+      await page.waitForTimeout(300)
+      const collapsed = await expandedCount()
+      const collapseState = await page.getAttribute('[data-dshone-tree-action="collapse-all"]', 'data-dshone-tree-collapsed')
+      check.eq('折叠全部：所有工作区行都收起', collapsed, 0)
+      check.eq('折叠态下按钮翻成「展开全部」', collapseState, 'true')
+      await page.click('[data-dshone-tree-action="collapse-all"]')
+      await page.waitForTimeout(300)
+      const reExpanded = await expandedCount()
+      check.ok('再点一次 = 展开全部（所有有会话的工作区重新展开）', reExpanded > 0, `expanded=${String(reExpanded)}`)
+
+      // ---- ⑥ 底部回收站入口行（官方 sidebar.footer.action 座位） ----
+      const entry = await page.evaluate(() => {
+        const slot = document.querySelector('[data-slot="sidebar.footer.action"]')
+        const row = document.querySelector('[data-dshone-tree="recycle-entry"]')
+        return {
+          slotFound: slot !== null,
+          inSlot: slot !== null && row !== null && slot.contains(row),
+          insideBrowseArea: document.querySelector('[data-dshone-tree="root"] [data-dshone-tree="recycle-entry"]') !== null,
+          rowFound: row !== null,
+          label: row?.querySelector('.dshOneTree_footerLabel')?.textContent ?? '',
+          count: row?.querySelector('.dshOneTree_footerCount')?.textContent ?? '',
+          actions: Array.from(row?.querySelectorAll('[data-dshone-tree-action]') ?? []).map(
+            (element) => element.getAttribute('data-dshone-tree-action') ?? '',
+          ),
+        }
+      })
+      check.ok('底部回收站入口行在官方 sidebar.footer.action 座位里', entry.slotFound && entry.rowFound && entry.inSlot, JSON.stringify(entry))
+      check.ok('它不在自有浏览区 DOM 里（确实从顶栏搬走了）', entry.insideBrowseArea === false)
+      // 与官方条目并存：官方那条 `cordis-panel` 属于 ui-cordis 插件，它在**没有动态
+      // 插件时渲染 null**（官方 CordisPanel 的 `if (all.length === 0) return null`），
+      // 所以「槽里有几条 DOM」量不出并存——能实测的是「我们没有顶掉它的角色」：
+      // 官方 ui-cordis 仍在这棵树的 combo 里（它照常注册那个 list 条目），我们也只是
+      // 往同一个 list 槽再注册一条自有 id 的条目。
+      const combos = await combosRequested(page)
+      const sidebarCombo = combos.find((url) => url.includes('@dsh-one/vscode-sidebar-shell/client.js'))
+      check.ok(
+        '座位里与官方条目并存（官方 ui-cordis 仍在这棵树的清单里，我们只往 list 槽加了一条自有 id 的条目）',
+        sidebarCombo !== undefined && sidebarCombo.includes('@deepseek-ai/dsh-client-ui-cordis/client.js'),
+        `combo=${String(sidebarCombo?.slice(0, 120))}`,
+      )
+      check.ok('入口行形态：🗑 + 文案 + 计数', entry.label.includes('回收站') && Number(entry.count) >= 0, JSON.stringify(entry))
+      check.ok(
+        '入口行右侧两枚动作图标在（清空 / 恢复全部）',
+        entry.actions.includes('recycle-empty-all') && entry.actions.includes('recycle-restore-all'),
+        entry.actions.join(','),
+      )
+      screenshots.push(await shot(ctx, page, 'skeleton-footer-recycle-entry'))
+      await page.click('[data-dshone-tree-action="recycle-open"]')
+      await page.waitForTimeout(300)
+      const drawerOpened = await contentCount(page, '[data-dshone-tree="recycle-drawer"]')
+      check.eq('点入口行开现有抽屉', drawerOpened, 1)
+      await page.click('[data-dshone-tree-action="recycle-close"]')
+      await page.waitForTimeout(200)
+
+      check.eq('骨架套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
+    } finally {
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -1506,4 +1822,6 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 避免与本批其它新套件（F-07/F-08/F-09）争同一个热点区。
   FIBER_SUITE,
   WIRE_LIVENESS_SUITE,
+  // #99 侧栏骨架（F-12：F-10/F-11 已被 #91 的漂移断言占用）。
+  SKELETON_SUITE,
 ]

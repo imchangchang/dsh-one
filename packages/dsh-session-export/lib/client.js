@@ -211,6 +211,26 @@ function hostCapabilities(ctx) {
         return;
       }
       throw fail("unavailable", "this shell has no editor tabs; the host half serves no session tab action");
+    },
+    get settingsPage() {
+      return viaBridge();
+    },
+    async openSettings() {
+      if (viaBridge()) {
+        await bridgeCall("vscode.openSettings", {});
+        return;
+      }
+      throw fail("unavailable", "this shell has no separate settings page; the official settings row owns settings here");
+    },
+    get workspaceCreate() {
+      return viaBridge();
+    },
+    async createWorkspaceDirectory() {
+      if (viaBridge()) {
+        await bridgeCall("vscode.workspaceCreate", {});
+        return;
+      }
+      throw fail("unavailable", "this shell cannot create a workspace directory; the official directory flow owns creation here");
     }
   };
 }

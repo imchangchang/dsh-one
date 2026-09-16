@@ -13,9 +13,11 @@
  *   renderSlot 的 width 参数定列宽），恒展开；收起钮在此形态下隐藏（折叠
  *   归 VS Code chrome 管），frame CSS 按 aria-label 覆盖（官方便携类名是
  *   哈希的，aria-label 文案随官方词典稳定）。
- * - 设置入口 = 齿轮影子（@dsh-one/vscode-settings-gear，priority -1），
- *   点击 postMessage 宿主开设置面板（设置独立成页，见
- *   @dsh-one/vscode-settings-shell）。
+ * - 设置入口 = **顶栏最右的齿轮**（#99 起由 workspace tree 插件渲染，经宿主能力口
+ *   `openSettings` 触发——见 hostCapabilities.ts 的能力表与 settingsGearPlugin 的
+ *   说明）；官方底部那一行（`sidebar.settings`，官方 SettingsRoot）由
+ *   `@dsh-one/vscode-settings-gear` 影子渲染空件藏掉。设置页仍是独立编辑器页
+ *   （@dsh-one/vscode-settings-shell）。
  * - 头部抛光（#70 VS Code 验收「很生硬」返修）：品牌位影子（brand.mark/name
  *   渲染空件 priority -1）+ logoRow 整行隐藏——VS Code 原生视图头已自报
  *   家门，官方 DeepSeek 品牌块重复且占 60px；折叠钮 aria-label 隐藏与
