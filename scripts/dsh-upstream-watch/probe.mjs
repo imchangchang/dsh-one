@@ -7,12 +7,15 @@
  *        [--expect-version 0.1.3-alpha.1] [--json <结果输出路径>]
  *
  * 行为：用临时 DSH_HOME 起 `dsh web --host 127.0.0.1 --port <空闲端口> --no-open`，
- * 逐项核实 dsh-one 实际依赖的 wire 面（启动/认证/unary RPC/WS 流），输出结果表；
+ * 逐项核实 dsh-one 实际依赖的 **wire 面**（启动/认证/unary RPC/WS 流）与 **客户端
+ * 契约面**（网关下发的 combo 里我们必须存在的 slot 名 / root 级 hook 名 / 取用过的
+ * 字段与方法名，取法见 clientContract.mjs），输出结果表；
  * 有任何 fail 时退出码为 1（skip 不算失败）。探针全部只读/无副作用（创建的
  * workspace/session 在隔离 DSH_HOME 内，进程退出即弃）。
  *
  * 检查项清单与人工补充项见 docs/dsh-compat-checklist.md。
  */
+import { checkClientContract } from './clientContract.mjs'
 import { spawn } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -268,9 +271,43 @@ async function main() {
     record('ws-session-control', 'session/control baseline 帧', 'skip', '无 cookie')
   }
 
+  // 15-18. 客户端契约面（#79）：网关 combo 里的 slot 名 / root 级 hook 名 / 取用过的字段名
+  for (const r of await probeClientContract(baseUrl, cookie, version)) {
+    record(r.id, r.name, r.status, r.detail)
+  }
+
   await cleanup()
   const failed = results.filter((r) => r.status === 'fail').length
   return finish(opts, failed > 0 ? 1 : 0)
+}
+
+/**
+ * 客户端契约面四项（#79）：取网关 `/` 的 `__DSH_BOOT__` → application 批 combo →
+ * 交给 clientContract.mjs 查 slot / root hook / 字段名。combo 是官方发给浏览器的
+ * 原样产物（不经我们的 mirror/过滤），所以它反映的是**上游契约本身**。
+ * 取不到 combo 时四项全 fail（不能因为取不到就让这一面显示为「没问题」）。
+ */
+async function probeClientContract(baseUrl, cookie, version) {
+  let comboText = null
+  let failure = null
+  try {
+    const res = await fetch(`${baseUrl}/`, { headers: cookie ? { cookie } : {} })
+    if (!res.ok) throw new Error(`GET /: HTTP ${res.status}`)
+    const html = await res.text()
+    const m = /globalThis\["__DSH_BOOT__"\] = (\{[\s\S]*?\})<\/script>/.exec(html)
+    if (m === null) throw new Error('gateway HTML has no __DSH_BOOT__ injection')
+    const wire = JSON.parse(m[1])
+    const batch = (wire.batches ?? []).find((b) => b.phase === 'application') ?? (wire.batches ?? []).at(-1)
+    if (batch === undefined) throw new Error('__DSH_BOOT__ has no batch to fetch')
+    const comboRes = await fetch(new URL(batch.url, baseUrl), { headers: cookie ? { cookie } : {} })
+    if (!comboRes.ok) throw new Error(`GET combo (${batch.phase}): HTTP ${comboRes.status}`)
+    comboText = await comboRes.text()
+  } catch (e) {
+    failure = String(e?.message ?? e)
+  }
+
+  if (comboText === null) return checkClientContract({ comboText: null, version, unavailableReason: failure })
+  return checkClientContract({ comboText, version })
 }
 
 /** WS 三项：建连 + session/follow snapshot + session/control baseline。 */

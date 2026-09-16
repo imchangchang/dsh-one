@@ -111,14 +111,37 @@ flowchart LR
 
 ### dsh 版本兼容跟踪
 
-定时 GitHub Action（[dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)）每天检查 [dsh 上游 release](https://github.com/deepseek-ai/deepseek-harness/releases)：发现新版本即在 CI 上自动跑一轮 wire 协议兼容性探针（14 项，覆盖 dsh-one 依赖的启动/认证/unary RPC/WebSocket 接口面），并建 `upstream-watch` issue 记录结果。顶部最后两个徽章分别显示上游最新 release 与最近一次探针结论；完整测试清单（自动化 + 人工项）见 [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md)。DSH One 目标版本为 dsh **0.1.2-rc.1** 与 GitHub-only 的 **0.1.3-alpha.1** wire（`commands/execute` 的 `submittedAttachments`、`session/follow` 的 `assistantStream` opt-in），同时仍服务 0.1.1 legacy wire——按版本探测隔离，老版本零改动。
+定时 GitHub Action（[dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)）每天检查 [dsh 上游 release](https://github.com/deepseek-ai/deepseek-harness/releases)：发现新版本即在 CI 上自动跑一轮兼容性探针（18 项：wire 协议 + 装配界面依赖的客户端契约面），并建 `upstream-watch` issue 记录结果。顶部最后两个徽章分别显示上游最新 release 与最近一次探针结论；完整测试清单（自动化 + 人工项）见 [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md)。
+
+**已实测版本**。以下两个 dsh 版本做过端到端实测：
+
+| dsh 版本 | 状态 |
+|---|---|
+| `0.1.2-rc.1` | 已实测——各验证线建立时的基线 |
+| `0.1.6-alpha.1` | 已实测——在这里抓到并修掉三处漂移：`details` 槽位改名成 `rightbar`、新增 root 级 hook、composer 的 `imageIds` / `addImages` 改名成 `attachmentIds` / `addAttachments` |
+| `[0.1.2-rc.1, 0.2.0)` 区间内其余版本 | **未实测**——见下面的版本门说明 |
+
+**版本门**。装配界面要求 dsh 落在 `[0.1.2-rc.1, 0.2.0)`：低于下限的版本没有装配用到的 browser-session 认证与装载协议，高于上限的版本行为无保证。版本门**不阻断**——区间外只在面板顶部加一条信息条。注意它是整区间判断，所以 0.1.6 这种「区间内但有漂移」的版本会被静默放行（见上一行的实测记录）。
+
+**每次上游发版应跑的三件事**（前置条件与细节见清单文档）：
+
+| 跑什么 | 命令 | 覆盖什么 |
+|---|---|---|
+| 上游探针 | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <版本>` | wire 面 + 客户端契约面：我们依赖的 slot 名、root 级 hook、字段与方法名还在不在 |
+| 浏览器验证 | `npm run verify:lab` | 四棵树在真网关上装得起来、槽位有内容、零崩溃零缺失契约 |
+| 宿主半验证 | `npm run verify:host-half` | 网关侧插件半与官方 dsh 的兼容 |
+
+漂移由谁发现：探针每天在 CI 跑，负责在用户撞上之前抓到改名（slot / hook / 字段）；浏览器验证是改装配代码后的本机第一道；VS Code 验证（`scripts/dev-ui-test.sh`）是宿主层行为（CSP、剪贴板、原生菜单、webview 生命周期）的最终准绳。
 
 | 测试项 | 覆盖方式 |
 |---|---|
 | 启动与认证（就绪行、`?token=` 换 cookie、401 指纹） | 探针 |
 | unary RPC（`session/*`、`workspace/*`、`agentPresets/*`、`commands/*` 参数形状） | 探针 |
 | WebSocket 流（`session/follow` snapshot、`session/control` baseline） | 探针 |
-| 装配对话区（官方界面）的流式渲染、审批/提问卡 | 人工（按版本 issue） |
+| 客户端契约面（slot 名、root 级 hook、装配依赖的字段名） | 探针 |
+| 四棵树在真网关上装配（能装起来、槽位有内容、零崩溃） | 浏览器验证 |
+| 宿主半插件与官方 dsh 的兼容 | `verify:host-half` |
+| 装配对话区的流式渲染、审批/提问卡 | 人工（按版本 issue） |
 | 会话格式迁移与回滚、沙盒容器回归 | 人工（按版本 issue） |
 
 ### 已知限制
