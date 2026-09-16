@@ -2174,7 +2174,6 @@ function WorkspaceTree(props) {
   const [drawerOpen, setDrawerOpen] = (0, import_react9.useState)(false);
   const [restoringId, setRestoringId] = (0, import_react9.useState)(null);
   const [recycleError, setRecycleError] = (0, import_react9.useState)(null);
-  const searchRoot = (0, import_react9.useRef)(null);
   const rootRef = (0, import_react9.useRef)(null);
   const hoverCard = useHoverCardRoom(rootRef);
   (0, import_react9.useEffect)(() => {
