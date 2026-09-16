@@ -1657,11 +1657,21 @@ export const SKELETON_SUITE: LabSuite = {
       // 搜索走官方 `sessions.search`（结果区文案也是官方那套键）：敲一个几乎不可能
       // 命中的串，官方路径必然给出「无匹配 / 内容搜索不可用」之一。
       await page.fill('[data-dshone-tree="search-input"]', 'zzz-lab-no-such-session-zzz')
-      await page.waitForTimeout(900)
-      const searchState = await page.evaluate(() => ({
-        results: document.querySelectorAll('[data-dshone-tree="search"] [data-dshone-tree-row]').length,
-        status: document.querySelector('.dshOneTree_searchStatus')?.textContent ?? '',
-      }))
+      // 等的是**官方 RPC 的最终结论**，不是固定的一段时长：搜索打真实网关，延迟随语料
+      // 与机器负载变（整轮跑时前面十几套件刚把网关轮过一遍，实测有「等 900ms 仍停在
+      // 「正在搜索会话历史…」」的情况——那时读到的是中间态，断言会假红）。所以轮询到
+      // 中间态过去为止，6 秒兜底；判据仍是最终文案（超时也照旧判）。
+      const readSearchState = async (): Promise<{ results: number; status: string }> =>
+        page.evaluate(() => ({
+          results: document.querySelectorAll('[data-dshone-tree="search"] [data-dshone-tree-row]').length,
+          status: document.querySelector('.dshOneTree_searchStatus')?.textContent ?? '',
+        }))
+      const searchDeadline = Date.now() + 6000
+      let searchState = await readSearchState()
+      while (searchState.status.includes('正在搜索') && Date.now() < searchDeadline) {
+        await page.waitForTimeout(250)
+        searchState = await readSearchState()
+      }
       check.fact(`搜索态：结果行=${String(searchState.results)} 状态文案=${JSON.stringify(searchState.status)}`)
       check.ok(
         '搜索走官方那套结果/降级文案（无匹配 · 内容搜索不可用）',
