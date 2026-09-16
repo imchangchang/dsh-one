@@ -671,6 +671,18 @@ function hostCapabilities(ctx) {
       }
       await bridgeCall("vscode.openTerminal", { path });
     },
+    // #112：当前 VS Code 打开的文件夹。**没有桥 = 官方 web 一侧**（或页面还没装上桥）：
+    // 这一端没有「VS Code 打开的文件夹」这个概念，如实回空表——调用方（侧栏树）按
+    // 「没有当前工作区」渲染（不显示徽标、不置顶），与「VS Code 空窗口」同一个形态。
+    // 与上面几条 workspace* 能力不同，这里不抛 `unavailable`：文件夹表是个**只读查询**，
+    // 空表本身就是正确答案，抛错只会逼每个调用方再写一遍降级。
+    async currentWorkspaceFolders() {
+      if (!viaBridge()) return [];
+      const data = await bridgeCall("vscode.workspaceFolders", {});
+      const paths = data.paths;
+      if (!Array.isArray(paths)) return [];
+      return paths.filter((path) => typeof path === "string" && path !== "");
+    },
     get shellName() {
       return viaBridge() ? "vscode" : "web";
     }
@@ -1296,6 +1308,13 @@ function indexSubagentDescendants(byId) {
 function owningGroupKey(workspaces, sessionId) {
   return workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.workspaceId ?? UNGROUPED_KEY;
 }
+function workspacePathKey(value) {
+  const slashed = value.replace(/\\/g, "/").replace(/\/+$/, "");
+  return /^[A-Za-z]:\/|^\/\//.test(slashed) ? slashed.toLowerCase() : slashed;
+}
+function sameWorkspacePath(a, b) {
+  return workspacePathKey(a) === workspacePathKey(b);
+}
 function sessionVisible(session, current, archived, recycled) {
   return session.origin !== "subagent" && !archived.has(session.id) && !(recycled?.has(session.id) ?? false) && (!session.blank || session.id === current);
 }
@@ -1334,7 +1353,8 @@ function deriveGroups(list, workspaces, archivedSessionIds, pending, view) {
   const recycled = view.recycled ?? EMPTY_IDS;
   const expanded = new Set(view.expandedGroups);
   const descendants = indexSubagentDescendants(list.byId);
-  const currentGroup = list.current === void 0 ? void 0 : owningGroupKey(workspaces, list.current);
+  const currentFolders = (view.currentFolders ?? []).filter((folder) => folder !== "");
+  const isCurrentFolder = (path) => path !== "" && currentFolders.some((folder) => sameWorkspacePath(path, folder));
   const groups = [];
   const accounted = /* @__PURE__ */ new Set();
   for (const workspace of workspaces) {
@@ -1355,7 +1375,7 @@ function deriveGroups(list, workspaces, archivedSessionIds, pending, view) {
       createdAt: Number.isNaN(createdAt) ? void 0 : createdAt,
       label: workspace.title,
       sessionCount: members.length,
-      containsCurrent: workspace.workspaceId === currentGroup,
+      containsCurrent: isCurrentFolder(workspace.path),
       sessions: expanded.has(workspace.workspaceId) ? members.map((m) => sessionNode(m, descendants, pending)) : []
     });
   }
@@ -1372,7 +1392,9 @@ function deriveGroups(list, workspaces, archivedSessionIds, pending, view) {
       key: UNGROUPED_KEY,
       label: "",
       sessionCount: ordered.length,
-      containsCurrent: currentGroup === UNGROUPED_KEY && list.current !== void 0,
+      // 未分组桶恒不是当前工作区：它没有工作区身份，也就没有可比的 `path`
+      //（#112 之前这里跟着当前会话走，于是「当前会话是散会话」时整桶披上徽标）。
+      containsCurrent: false,
       sessions: expanded.has(UNGROUPED_KEY) ? ordered.flatMap((id) => {
         const summary = list.byId[id];
         return summary === void 0 ? [] : [sessionNode(summary, descendants, pending)];
@@ -4137,7 +4159,8 @@ function WorkspaceTree(props) {
     openInNewTab,
     openWorkspaceFolder,
     openWorkspaceTerminal,
-    shellName
+    shellName,
+    loadCurrentFolders
   } = props;
   const tr = t;
   const now = Date.now();
@@ -4171,6 +4194,7 @@ function WorkspaceTree(props) {
   const [archiveBusy, setArchiveBusy] = (0, import_react13.useState)(false);
   const [archiveError, setArchiveError] = (0, import_react13.useState)(null);
   const [tagFile, setTagFile] = (0, import_react13.useState)(emptyTagGroups());
+  const [currentFolders, setCurrentFolders] = (0, import_react13.useState)([]);
   const [tagCreate, setTagCreate] = (0, import_react13.useState)(null);
   const [tagRename, setTagRename] = (0, import_react13.useState)(null);
   const [tagDelete, setTagDelete] = (0, import_react13.useState)(null);
@@ -4240,6 +4264,23 @@ function WorkspaceTree(props) {
       cancelled = true;
     };
   }, [loadTagGroups]);
+  const foldersLoaded = (0, import_react13.useRef)(false);
+  (0, import_react13.useEffect)(() => {
+    if (foldersLoaded.current) return;
+    foldersLoaded.current = true;
+    let cancelled = false;
+    loadCurrentFolders().then(
+      (folders) => {
+        if (!cancelled) setCurrentFolders(folders);
+      },
+      (reason) => {
+        if (!cancelled) console.warn("[dsh-one] workspace folders unavailable:", reason);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [loadCurrentFolders]);
   const writeTags = (next) => {
     setTagFile(next);
     saveTagGroups(next);
@@ -4333,6 +4374,7 @@ function WorkspaceTree(props) {
   const groups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
     expandedGroups: groupExpansion,
     recycled,
+    currentFolders,
     ...filterActive && activeGroupId !== null ? { workspaceFilter: (workspaceId) => workspaceMatchesGroup(groupsFile, workspaceId, activeGroupId) } : {}
   });
   const activity = workspaceActivityCounts(list, workspaces, archivedSessionIds, pending, recycled);
@@ -4343,7 +4385,8 @@ function WorkspaceTree(props) {
   const orderedGroups = currentWorkspaceFirst(groups);
   const flatGroups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
     expandedGroups: [...workspaces.map((workspace) => workspace.workspaceId), UNGROUPED_KEY],
-    recycled
+    recycled,
+    currentFolders
   });
   const expandableKeys = flatGroups.filter((group) => group.sessionCount > 0).map((group) => group.key);
   const groupMembers = new Map(flatGroups.map((group) => [group.key, group.sessions]));
@@ -5239,6 +5282,10 @@ function apply(ctx) {
       } : {},
       // #109 当前工作区那枚胶囊上的容器名（读时判定，与 editorTabs 同一形态）。
       shellName: caps.shellName,
+      // #112「当前工作区」判定的输入：VS Code 当前打开的文件夹路径表（宿主能力口）。
+      // 官方 web 侧能力口如实回空表 → 树按「没有当前工作区」渲染（不显示徽标、不置顶），
+      // 插件不做任何宿主判断（可移植件：两端同一份代码）。
+      loadCurrentFolders: () => caps.currentWorkspaceFolders(),
       // 官方 sessions 服务：选中会话（镜像官方 ui-workspace 的 openSession，
       // 不调 layout.selectPanel——自有侧栏树没有主面板概念）。
       open: (sessionId) => {

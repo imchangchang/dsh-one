@@ -22,12 +22,15 @@ import {
   slotFacts,
   slotChildren,
   withoutKnownNoise,
+  setLabWorkspaceFolders,
   type OpenedPage,
 } from './harness.ts'
-import { LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
+import { consoleLogger, LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
 import { FIBER_SUITE, WIRE_LIVENESS_SUITE } from './driftSuites.ts'
 import { RECYCLE_ENTRY_TOGGLE_SUITE } from './recycleEntrySuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
+import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
+import type { Logger } from '../../src/log.ts'
 
 export interface SuiteContext {
   browser: Browser
@@ -2524,7 +2527,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
           (needles: string[]) => {
             const text = Array.from(document.querySelectorAll('[class*="_sessionRow"]'))
               .map((row) => row.textContent ?? '')
-              .join(' ')
+              .join('\u0000')
             return needles.every((needle) => needle !== '' && text.includes(needle))
           },
           [...titles],
@@ -4367,6 +4370,42 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
 // F-19 SIDEBAR-MENUS：菜单补全（#109）
 // ---------------------------------------------------------------------------
 
+/**
+ * 从网关取一份**工作区清单**（`workspace/follow` 的基线帧，只读订阅，取到即退订）。
+ *
+ * 为什么套件需要它：侧栏树的「当前工作区」按 **VS Code 当前打开的文件夹路径**判定
+ * （#112），而实验室的假宿主没有「用户开了哪个文件夹」这件真事——套件把网关上的真实
+ * 工作区路径喂给假宿主（`openTreePage(..., { workspaceFolders })`），等价于「VS Code
+ * 里正开着这个文件夹」。取不到（流打不开/超时）回空表，调用方据此记事实并跳过相关断言。
+ */
+async function gatewayWorkspaces(gateway: string): Promise<readonly { workspaceId: string; path: string }[]> {
+  let subscription: ReturnType<typeof subscribeWorkspaceStream> | undefined
+  let timer: NodeJS.Timeout | undefined
+  // 这条流的 `logger` 形参类型是扩展侧的 `Logger` 类（构造要 vscode，实验室里没有），
+  // 而它实际只用 `info/warn/error` 三件——`log.ts` 的 `LogSink` 注释就是这么写的，
+  // 所以这里用 `consoleLogger` 顶上（类型只做投影，不进运行期）。
+  const logger = consoleLogger(true) as unknown as Logger
+  return await new Promise<readonly { workspaceId: string; path: string }[]>((resolve) => {
+    const finish = (items: readonly { workspaceId: string; path: string }[]): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      subscription?.dispose()
+      resolve(items)
+    }
+    timer = setTimeout(() => finish([]), 10_000)
+    subscription = subscribeWorkspaceStream(gateway, logger, (frame) => {
+      if (frame.type !== 'baseline') return
+      finish(
+        frame.items.flatMap((item) => {
+          const record = item as { workspaceId?: unknown; path?: unknown }
+          return typeof record.workspaceId === 'string' && typeof record.path === 'string' && record.path !== ''
+            ? [{ workspaceId: record.workspaceId, path: record.path }]
+            : []
+        }),
+      )
+    })
+  })
+}
+
 /** 当前菜单（DOM 里最后一个 `[role="menu"]`）的项：标记、文案、禁用态，按 DOM 顺序。 */
 interface SidebarMenuItem {
   marker: string
@@ -4457,7 +4496,7 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏菜单补全（#109）：会话行十项 + 接管条件 + 工作区行 hover 四按钮与右键七项 + 二级菜单 + 当前工作区标识（SIDEBAR-MENUS 套件）',
   expect:
-    '侧栏树在真实装配页上（真网关只读 + 假宿主 + 注入的分组状态与标签组状态）：① **会话行菜单**按截图顺序凑齐十项（选择多个 / 在新标签页打开 / 重命名 / 置顶·取消置顶 / 标为未读·已读 / 移到分组… / 分叉会话 / 复制引用 / 移入回收站 / 归档会话），标题行「会话: {label}」、**无分隔线**；「移到分组…」是二级菜单（**就地展开**，子项 = 本工作区的标签组 + 不归入 + 新建）：点一项就归组并写回 `tags`、重开菜单时该项带官方 ✓；两项危险动作的禁用态与其判定原因一致；「置顶」按状态就地翻转并写宿主状态；「复制引用」写剪贴板并给飘提示；「选择多个」进选择态。② **接管条件只剩「非选择态」**：行右键开出同一份菜单（横向锚在指针处——活数据页面上行会在测量与点击之间移动，纵向逐像素那一条由 F-08 钉），Esc 关掉；空白会话行也挂着菜单容器（官方不给显式 ⋯，右键仍接管）。③ **工作区行 hover 四按钮**＝＋ / 终端打开 / 在 VS Code 打开（**仅非当前工作区**）/ 从列表移除；终端与打开文件夹经能力口发出带该工作区路径的调用。④ **工作区行右键七项**（复制文件夹引用 / 分组… / 归档该工作区全部会话 / 在新窗口打开文件夹 / 复制路径 / 重命名工作区 / 从列表移除），「分组…」展开后子项就地翻转 ✓ 且**不关菜单**（归属写回宿主状态），「归档全部会话」开的是 #103 那个确认弹窗（本套件只取消、不确认）。⑤ **当前工作区标识**：蓝色胶囊写宿主名（`vscode`）、该组排在最前、文件夹图标染色。全程零 pageerror。',
+    '侧栏树在真实装配页上（真网关只读 + 假宿主 + 注入的分组状态与标签组状态）：① **会话行菜单**按截图顺序凑齐十项（选择多个 / 在新标签页打开 / 重命名 / 置顶·取消置顶 / 标为未读·已读 / 移到分组… / 分叉会话 / 复制引用 / 移入回收站 / 归档会话），标题行「会话: {label}」、**无分隔线**；「移到分组…」是二级菜单（**就地展开**，子项 = 本工作区的标签组 + 不归入 + 新建）：点一项就归组并写回 `tags`、重开菜单时该项带官方 ✓；两项危险动作的禁用态与其判定原因一致；「置顶」按状态就地翻转并写宿主状态；「复制引用」写剪贴板并给飘提示；「选择多个」进选择态。② **接管条件只剩「非选择态」**：行右键开出同一份菜单（横向锚在指针处——活数据页面上行会在测量与点击之间移动，纵向逐像素那一条由 F-08 钉），Esc 关掉；空白会话行也挂着菜单容器（官方不给显式 ⋯，右键仍接管）。③ **工作区行 hover 四按钮**＝＋ / 终端打开 / 在 VS Code 打开（**仅非当前工作区**）/ 从列表移除；终端与打开文件夹经能力口发出带该工作区路径的调用。④ **工作区行右键七项**（复制文件夹引用 / 分组… / 归档该工作区全部会话 / 在新窗口打开文件夹 / 复制路径 / 重命名工作区 / 从列表移除），「分组…」展开后子项就地翻转 ✓ 且**不关菜单**（归属写回宿主状态），「归档全部会话」开的是 #103 那个确认弹窗（本套件只取消、不确认）。⑤ **当前工作区标识**：蓝色胶囊写宿主名（`vscode`）、该组排在最前、文件夹图标染色——假宿主上报的「打开的文件夹」= **网关上的第一个真实工作区路径**（#112 起判定按文件夹，不再按当前会话；这一条的口径细节与顺序稳定性由 F-21 钉）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const groupsState = {
@@ -4469,10 +4508,17 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
       membership: {},
       activeGroupId: null,
     }
+    // #112：当前工作区 = VS Code 打开的文件夹。实验室里由套件喂路径，取网关上第一个
+    // 真实工作区（它必然出现在树里，于是「这一组是当前工作区」有确定的目标）。
+    const gatewayPaths = await gatewayWorkspaces(ctx.lab.gateway)
+    const currentFolder = gatewayPaths[0]?.path ?? ''
+    check.fact(`网关工作区（假宿主「打开的文件夹」取第一个）：${JSON.stringify(gatewayPaths.map((w) => w.path))}`)
+    check.ok('网关上有工作区可当「当前工作区」', currentFolder !== '', JSON.stringify(gatewayPaths))
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), {
       width: 380,
       height: 900,
       state: { groups: groupsState },
+      ...(currentFolder === '' ? {} : { workspaceFolders: [currentFolder] }),
     })
     const { page } = opened
     try {
@@ -5006,6 +5052,250 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// F-21 CURRENT-WORKSPACE-FOLDER：当前工作区按 VS Code 打开的文件夹判定（#112）
+// ---------------------------------------------------------------------------
+
+/**
+ * 三棵**合成**工作区：为什么不用真网关上的工作区——多根、命中、没命中这几档要有
+ * **可控的路径**，而真网关有几棵、路径是什么都不由套件决定。会话 id 挂的是真会话
+ * （挑非空白、非子代理的），所以行是真的、点得动；只改页面收到的帧，网关仍只读。
+ */
+const LAB_WORKSPACES: ReadonlyArray<{ workspaceId: string; path: string; title: string }> = [
+  { workspaceId: 'lab-ws-one', path: '/lab/ws-one', title: 'Lab One' },
+  { workspaceId: 'lab-ws-two', path: '/lab/ws-two', title: 'Lab Two' },
+  { workspaceId: 'lab-ws-three', path: '/lab/ws-three', title: 'Lab Three' },
+]
+
+/** 把 `workspace/follow` 的基线帧换成 `synthesize(items)` 的产物，其余工作区帧一律丢掉。 */
+async function installWorkspaceFixture(
+  page: OpenedPage['page'],
+  synthesize: (items: readonly unknown[]) => readonly unknown[],
+): Promise<{ rewritten: number; dropped: number }> {
+  const stats = { rewritten: 0, dropped: 0 }
+  await page.routeWebSocket(/remote\.mux/, (socket) => {
+    const upstream = socket.connectToServer()
+    const endpoints = new Map<string, string>()
+    socket.onMessage((message) => {
+      try {
+        const frame = JSON.parse(String(message)) as { type?: string; streamId?: string; endpoint?: string }
+        if (frame.type === 'open' && frame.streamId !== undefined && frame.endpoint !== undefined) {
+          endpoints.set(frame.streamId, frame.endpoint)
+        }
+      } catch {
+        /* 客户端帧形状变了就原样转发（夹具不参与协议解读） */
+      }
+      upstream.send(message)
+    })
+    upstream.onMessage((message) => {
+      const text = String(message)
+      let frame: { streamId?: string; type?: string; value?: { type?: string; value?: { items?: unknown[]; archivedSessionIds?: unknown } } } | undefined
+      try {
+        frame = JSON.parse(text) as typeof frame
+      } catch {
+        frame = undefined
+      }
+      const endpoint = frame?.streamId === undefined ? undefined : endpoints.get(frame.streamId)
+      if (endpoint !== 'workspace/follow') {
+        socket.send(message)
+        return
+      }
+      const payload = frame?.value
+      if (frame?.type === 'item' && payload?.type === 'baseline' && payload.value !== undefined) {
+        payload.value.items = [...synthesize(Array.isArray(payload.value.items) ? payload.value.items : [])]
+        // 归档集合清空：合成工作区引用的都是套件挑的可见会话，留着真归档集合只会让
+        // 「哪个会话在树里」变得不确定（真网关只读，这里只改页面收到的帧）。
+        payload.value.archivedSessionIds = []
+        stats.rewritten += 1
+        socket.send(JSON.stringify(frame))
+        return
+      }
+      // 非基线帧（upsert / order / remove / archived）：夹具期间一律不转发——否则真工作区
+      // 会从增量里回到树里，合成的那三棵就不确定是唯一的三棵了。
+      stats.dropped += 1
+    })
+  })
+  return stats
+}
+
+/** 工作区行的面：键序（不含未分组桶）、哪些行是「当前工作区」、哪些行带胶囊。 */
+async function workspaceRowFacts(page: OpenedPage['page']): Promise<{
+  keys: string[]
+  current: string[]
+  badged: Array<{ key: string; shell: string; text: string; folderActive: boolean }>
+}> {
+  return page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('[data-dshone-tree-row="workspace"]'))
+    const keyOf = (row: Element): string => row.getAttribute('data-dshone-tree-key') ?? ''
+    return {
+      // 未分组桶（键空串）不参与「工作区顺序」——它恒在最后，见 currentWorkspaceFirst 的口径。
+      keys: rows.map(keyOf).filter((key) => key !== ''),
+      current: rows.filter((row) => row.getAttribute('data-dshone-tree-current') === 'true').map(keyOf),
+      badged: rows.flatMap((row) => {
+        const pill = row.querySelector('[data-dshone-tree-badge]')
+        if (pill === null) return []
+        return [
+          {
+            key: keyOf(row),
+            shell: pill.getAttribute('data-dshone-tree-badge') ?? '',
+            text: (pill.textContent ?? '').trim(),
+            folderActive: (row.querySelector('.dshOneTree_folder')?.className ?? '').includes('dshOneTree_folderActive'),
+          },
+        ]
+      }),
+    }
+  })
+}
+
+/** 假宿主收到的某条能力调用的次数（本套件用它钉「树确实问过宿主打开了哪些文件夹」）。 */
+async function workspaceFolderCalls(page: OpenedPage['page']): Promise<Array<{ args: unknown }>> {
+  return page.evaluate(() => {
+    const host = (globalThis as unknown as { __LAB_HOST__?: { hostCalls?: Array<{ call: string; args: unknown }> } })
+      .__LAB_HOST__
+    return (host?.hostCalls ?? []).filter((call) => call.call === 'vscode.workspaceFolders').map((call) => ({ args: call.args }))
+  })
+}
+
+export const CURRENT_WORKSPACE_FOLDER_SUITE: LabSuite = {
+  id: 'F-21',
+  phase: 'new-feature',
+  name: '当前工作区按 VS Code 打开的文件夹判定（#112）：命中置顶、切换会话不改顺序、空表不置顶、多根（CURRENT-WORKSPACE-FOLDER 套件）',
+  expect:
+    '侧栏树在真实装配页上（真网关**只读** + 假宿主 + 把 `workspace/follow` 的基线帧换成三棵**合成**工作区的页内夹具；合成工作区的成员是真会话行）：① **文件夹命中 → 徽标 + 置顶**：假宿主上报「打开的文件夹」= 某一棵工作区的路径时，**只有那一棵**带当前工作区标识与蓝色胶囊（写宿主名 `vscode`）、文件夹图标染色，并且**只有它**排到最前（其余保持官方工作区顺序）；② **切换会话不改变工作区顺序**（用户报的现象）：点开另一个工作区里的一条会话行之后，工作区顺序与徽标纹丝不动，新选中的会话所属工作区**不会**因此被标成当前；③ **文件夹表为空 → 无徽标、不置顶**（官方 web 侧没有「VS Code 打开的文件夹」这个概念，能力口在那里回的就是空表；VS Code 空窗口同形）：一个胶囊都没有、顺序 = 官方工作区顺序（同时断言树确实问过宿主这条能力，证明这是「问过、答案是空」而不是没调）；④ **多根**：假宿主上报两个文件夹（三棵合成工作区里命中两棵）时，命中的那两棵**都**是当前（都带徽标、都排到最前，两棵之间保持官方相对顺序），没命中的那棵留在后面；上报一个都不命中的路径时没有徽标、顺序回到官方顺序。全程零 pageerror。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+    // 合成工作区的成员：真会话里挑「非空白、非子代理」的（空白会话只在它是当前行时可见，
+    // 子代理不进树）。挑不满就按能断言的断言（真网关只读，不为凑夹具去建会话）。
+    const sessions = await listSessions(ctx.lab.gateway).catch(() => [])
+    const usable = sessions.filter((s) => s.blank !== true && s.origin !== 'subagent').map((s) => s.sessionId)
+    const members: readonly (readonly string[])[] = [usable.slice(0, 1), usable.slice(1, 2), usable.slice(2, 4)]
+    const sessionsOf = new Map(LAB_WORKSPACES.map((workspace, index) => [workspace.workspaceId, members[index] ?? []]))
+    const pathOf = new Map(LAB_WORKSPACES.map((workspace) => [workspace.workspaceId, workspace.path]))
+    check.fact(`网关可用会话（非空白、非子代理）：${String(usable.length)} 条；合成三棵工作区各挂 ${JSON.stringify(members.map((m) => m.length))} 条`)
+
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
+    const { page } = opened
+    try {
+      // ① 装夹具并重载：之后树里的工作区就固定是三棵合成的（路径可控）。
+      const stats = await installWorkspaceFixture(page, (items) => {
+        // 借真 item 的字段面（官方还可能带别的字段），只覆写套件要控制的四个 + 时间戳；
+        // 真网关一棵工作区都没有时退化成最小字面量。
+        const template = items.find((item) => typeof (item as { path?: unknown }).path === 'string')
+        const base = typeof template === 'object' && template !== null ? template : { createdAt: new Date(0).toISOString() }
+        return LAB_WORKSPACES.map((workspace, index) => ({
+          ...base,
+          workspaceId: workspace.workspaceId,
+          path: workspace.path,
+          title: workspace.title,
+          sessionIds: [...(members[index] ?? [])],
+          updatedAt: new Date(0).toISOString(),
+        }))
+      })
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
+      await page.waitForTimeout(2_500)
+      check.fact(`夹具：workspace/follow 基线帧已换 ${String(stats.rewritten)} 次，丢掉的非基线帧 ${String(stats.dropped)} 帧`)
+      check.ok('夹具生效（基线帧被换成合成工作区）', stats.rewritten > 0, JSON.stringify(stats))
+
+      // ---- ③ 文件夹表为空（默认：假宿主没打开任何文件夹）→ 无徽标、不置顶 ----
+      const empty = await workspaceRowFacts(page)
+      const officialOrder = empty.keys
+      check.fact(`官方工作区顺序（合成三棵）：${JSON.stringify(officialOrder)}；空表下面=${JSON.stringify(empty)}`)
+      check.eq('三棵合成工作区都在树里（夹具生效）', officialOrder.length, 3)
+      check.eq('假宿主上报空文件夹表 → 一个当前工作区都没有', empty.current, [])
+      check.eq('空表 → 一个蓝色胶囊都不显示', empty.badged, [])
+      check.eq('空表 → 一组都不前移（顺序 = 官方工作区顺序）', empty.keys, officialOrder)
+      const emptyCalls = await workspaceFolderCalls(page)
+      check.ok(
+        '树确实问了宿主「打开了哪些文件夹」（不是没调这条能力就跳过）',
+        emptyCalls.length > 0 && JSON.stringify(emptyCalls[0]?.args) === '{}',
+        JSON.stringify(emptyCalls),
+      )
+      screenshots.push(await shot(ctx, page, 'current-workspace-empty'))
+
+      // ---- ① 文件夹命中 → 徽标 + 置顶（拿官方顺序的**最后一棵**当当前，置顶才看得出来）----
+      const pinnedKey = officialOrder[officialOrder.length - 1] ?? ''
+      const pinnedPath = pathOf.get(pinnedKey) ?? ''
+      check.ok('合成工作区里有可当「当前文件夹」的路径', pinnedPath !== '', `${pinnedKey} → ${pinnedPath}`)
+      await setLabWorkspaceFolders(opened.context, [pinnedPath])
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
+      await page.waitForTimeout(2_000)
+      // 展开分组后再读：文件夹图标染色（`folderActive`）的前提是这一组是展开的——
+      // 那是官方行的呈现口径（`active = expanded && containsCurrent`，见 rows.ts）。
+      await expandAllGroups(page)
+      const hit = await workspaceRowFacts(page)
+      const expectedHitOrder = [pinnedKey, ...officialOrder.filter((key) => key !== pinnedKey)]
+      check.fact(`命中 ${pinnedPath} 时：顺序=${JSON.stringify(hit.keys)} 当前=${JSON.stringify(hit.current)} 胶囊=${JSON.stringify(hit.badged)}`)
+      check.eq('命中的那一棵是唯一的当前工作区', hit.current, [pinnedKey])
+      check.eq('命中的那一棵带蓝色胶囊（写宿主名 vscode）', hit.badged, [
+        { key: pinnedKey, shell: 'vscode', text: 'vscode', folderActive: true },
+      ])
+      check.eq('命中的那一棵排最前，其余保持官方顺序', hit.keys, expectedHitOrder)
+      screenshots.push(await shot(ctx, page, 'current-workspace-hit'))
+
+      // ---- ② 切换会话不改变工作区顺序（用户报的现象）----
+      const clickKey = officialOrder.find((key) => key !== pinnedKey && (sessionsOf.get(key) ?? []).length > 0) ?? ''
+      if (clickKey === '') {
+        check.fact('没有「非当前工作区 + 有可见会话行」的合成工作区可点（网关可用会话太少），跳过切换会话那一段')
+      } else {
+        const target = sessionsOf.get(clickKey)?.[0] ?? ''
+        const before = await workspaceRowFacts(page)
+        await page.locator(`[data-dshone-group-key="${clickKey}"] [data-dshone-tree-row="session"]`).first().click()
+        await page.waitForTimeout(600)
+        const after = await workspaceRowFacts(page)
+        const selected = await page.getAttribute(
+          `[data-dshone-tree-row="session"][data-dshone-tree-session="${target}"]`,
+          'aria-selected',
+        )
+        check.fact(
+          `点开 ${clickKey} 里的会话 ${target}：顺序 ${JSON.stringify(before.keys)} → ${JSON.stringify(after.keys)}；当前 ${JSON.stringify(before.current)} → ${JSON.stringify(after.current)}`,
+        )
+        check.eq('确实切到了那条会话（行上 aria-selected）', selected, 'true')
+        check.eq('切换会话后工作区顺序不变（用户报的「点开会话就被挪到最前」）', after.keys, before.keys)
+        check.eq('切换会话后徽标还留在原来那一棵（当前工作区不跟会话走）', after.current, before.current)
+        check.eq('切换会话后胶囊还留在原来那一棵', after.badged, before.badged)
+        screenshots.push(await shot(ctx, page, 'current-workspace-session-switch'))
+      }
+
+      // ---- ④ 多根的行为（三棵里命中两棵：命中的排最前、没命中的留在后面）----
+      const second = officialOrder.find((key) => key !== pinnedKey) ?? ''
+      const secondPath = pathOf.get(second) ?? ''
+      const hits = officialOrder.filter((key) => key === pinnedKey || key === second)
+      const misses = officialOrder.filter((key) => key !== pinnedKey && key !== second)
+      await setLabWorkspaceFolders(opened.context, [pinnedPath, secondPath])
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
+      await page.waitForTimeout(2_000)
+      const multiHit = await workspaceRowFacts(page)
+      check.fact(
+        `多根（${pinnedPath} + ${secondPath}）命中两棵时：顺序=${JSON.stringify(multiHit.keys)} 当前=${JSON.stringify(multiHit.current)}`,
+      )
+      check.eq('多根命中 → 命中的两棵都是当前工作区', multiHit.current, hits)
+      check.eq('多根命中 → 两棵都带胶囊', multiHit.badged.map((entry) => entry.key), hits)
+      check.eq('多根命中 → 命中的两棵排最前（彼此保持官方相对顺序），没命中的留在后面', multiHit.keys, [
+        ...hits,
+        ...misses,
+      ])
+
+      await setLabWorkspaceFolders(opened.context, ['/lab/not-a-workspace'])
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
+      await page.waitForTimeout(2_000)
+      const noHit = await workspaceRowFacts(page)
+      check.fact(`多根/单根都没命中时：顺序=${JSON.stringify(noHit.keys)} 当前=${JSON.stringify(noHit.current)}`)
+      check.eq('打开的文件夹一个都不命中 → 没有当前工作区（无徽标）', noHit.current, [])
+      check.eq('打开的文件夹一个都不命中 → 一组都不前移', noHit.keys, officialOrder)
+      screenshots.push(await shot(ctx, page, 'current-workspace-multiroot'))
+
+      check.eq('当前工作区套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
+    } finally {
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -5039,4 +5329,6 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #114 回收站入口行的图标与开合（F-20：F-01…F-19 与 R-06 已被占用）。
   // 独立文件，见 recycleEntrySuites.ts 文件头的理由。
   RECYCLE_ENTRY_TOGGLE_SUITE,
+  // #112 当前工作区按 VS Code 打开的文件夹判定（F-21：#114 已占用 F-20）。
+  CURRENT_WORKSPACE_FOLDER_SUITE,
 ]

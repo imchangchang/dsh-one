@@ -131,4 +131,13 @@ export interface TreeProps {
    * 写在那枚胶囊上——旧侧栏把 `vscode` 写死在渲染里，官方 web 上会挂出一个不对的名字。
    */
   shellName: string
+  /**
+   * #112：**VS Code 当前打开的文件夹**路径表（宿主能力口 `currentWorkspaceFolders`
+   * 的封装）。树的「当前工作区」判定按它：工作区 `path` 命中任一项 → 该组显示蓝色
+   * 徽标并排最前。空表（官方 web 侧没有这个概念、VS Code 空窗口）= 没有当前工作区。
+   *
+   * 读一次（挂载时）——VS Code 换文件夹会重载窗口、webview 随之重建并重新读一次；
+   * 同一窗口里多根目录的增删属罕见路径，本步不为它接宿主推送通道。
+   */
+  loadCurrentFolders: () => Promise<readonly string[]>
 }

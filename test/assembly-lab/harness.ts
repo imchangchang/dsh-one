@@ -145,6 +145,12 @@ export interface OpenOptions {
    * 失败回执，而不是去造假界面。只作用于 {@link openTreePage} 新建的上下文。
    */
   failCalls?: readonly string[]
+  /**
+   * 这个假宿主「打开的文件夹」（#112）：`vscode.workspaceFolders` 的回执，缺省空表
+   * = 没开任何文件夹（侧栏树按「没有当前工作区」渲染：不显示徽标、不置顶）。场景中途
+   * 要换成另一份，用 {@link setLabWorkspaceFolders} 再重载页面。
+   */
+  workspaceFolders?: readonly string[]
 }
 
 export interface OpenedPage {
@@ -377,8 +383,23 @@ export async function openTreePage(
     viewport: { width: options.width ?? 1200, height: options.height ?? 900 },
     deviceScaleFactor: 2,
   })
-  await context.addInitScript({ content: fakeHostScript(options.state ?? {}, options.failCalls ?? []) })
+  await context.addInitScript({
+    content: fakeHostScript(options.state ?? {}, options.failCalls ?? [], options.workspaceFolders ?? []),
+  })
   return await openPageIn(lab, route, context, options)
+}
+
+/**
+ * 把假宿主的「打开的文件夹」换成另一份（#112 的场景切换：空表 / 命中 / 多根 / 没命中）。
+ *
+ * 为什么必须重载页面才生效：这份表在页面挂载时经能力口读一次（读回前按「没有当前工作区」
+ * 渲染），而初始化脚本每次导航都会重跑、把值重置回当初注入的那份。所以套件写第二份时
+ * **另装一条初始化脚本**（后装的覆盖先装的），再重载页面——页面重挂载时读到的就是新的。
+ */
+export async function setLabWorkspaceFolders(context: BrowserContext, paths: readonly string[]): Promise<void> {
+  await context.addInitScript({
+    content: `(() => { globalThis.__LAB_HOST__.workspaceFolders = ${JSON.stringify([...paths])} })()`,
+  })
 }
 
 /**

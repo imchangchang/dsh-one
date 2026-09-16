@@ -8,9 +8,11 @@
  *
  * - `deriveGroups`：按工作区注册顺序出分组，成员取 `workspace.sessionIds`
  *   （官方的手动顺序）；未被任何工作区记账的会话落进「未分组」桶（按最近
- *   更新排序，官方在无浏览器本地顺序时同此）。
+ *   更新排序，官方在无浏览器本地顺序时同此）。`containsCurrent`（「当前工作区」
+ *   = VS Code 当前打开的文件夹，见 {@link TreeViewLike.currentFolders}）由**文件夹
+ *   路径**判定，与当前会话无关（#112）。
  * - 可见性 `sessionVisible`：子代理来源的会话不进树；已归档不进树；空白会话
- *   只在它就是当前选中那一行时进树（「新会话」占位）。
+ *   只在它就是当前选中那一行时进树（「新会话」占位）——**当前会话只在这条上起作用**。
  * - `deriveFlat`：单列表模式的平铺，所有可见会话按最近更新倒序。
  * - `sessionStatuses`：状态点的一条主状态 + 若干无障碍标签，优先级 =
  *   等待用户（批准/计划待审/等待回答）> 运行中 > 子代理运行中 > 完成提醒 >
@@ -97,6 +99,7 @@ export interface GroupNode {
   readonly createdAt?: number
   readonly label: string
   readonly sessionCount: number
+  /** 这一组就是「当前工作区」吗（判据 = 工作区 `path` 命中当前打开的文件夹表）。 */
   readonly containsCurrent: boolean
   readonly sessions: readonly SessionNode[]
 }
@@ -104,6 +107,19 @@ export interface GroupNode {
 /** 树视图状态（展开集合由渲染层持有）。 */
 export interface TreeViewLike {
   readonly expandedGroups: readonly string[]
+  /**
+   * 「当前工作区」判定用的文件夹表 = **VS Code 当前打开的文件夹**（宿主能力口
+   * `currentWorkspaceFolders` 取回的 fsPath 列表）。工作区的 `path` 命中其中任一项
+   * 即该组 `containsCurrent`（渲染出蓝色徽标、由 `currentWorkspaceFirst` 置顶）。
+   *
+   * 缺省/空表 = **没有当前工作区**：一个徽标都不显示、一组都不前移。两种情形都落这里：
+   * ① 宿主没开任何文件夹（VS Code 空窗口）；② 这一端根本没有「VS Code 打开的文件夹」
+   * 这个概念——官方 web 是浏览器里的一页，能力口对它的回答就是空表（#112）。
+   *
+   * **与 `list.current`（当前会话）是两件事**：那个只决定行的可见性（空白会话占位），
+   * 不再参与徽标与置顶（#112 修的正是把两者混为一谈）。
+   */
+  readonly currentFolders?: readonly string[]
   /**
    * 分组过滤（#81 功能 1）：只看这些工作区。缺省 = 全部。
    * 过滤生效时**未分组桶不出现在结果里**——散会话不属于任何工作区，也就无法归属
@@ -151,6 +167,29 @@ export function indexSubagentDescendants(
 /** 官方 `owningGroupKey`：会话被哪个工作区记账；没有则未分组桶。 */
 export function owningGroupKey(workspaces: readonly WorkspaceViewLike[], sessionId: string): string {
   return workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.workspaceId ?? UNGROUPED_KEY
+}
+
+/** 路径规范键：分隔符一律折成正斜杠、去掉尾部分隔符；Windows 形态的路径再折小写。 */
+function workspacePathKey(value: string): string {
+  const slashed = value.replace(/\\/g, '/').replace(/\/+$/, '')
+  return /^[A-Za-z]:\/|^\/\//.test(slashed) ? slashed.toLowerCase() : slashed
+}
+
+/**
+ * 两条路径是不是同一个文件夹（#112 的「当前工作区」判定用它）。
+ *
+ * 口径与旧侧栏逐条对齐（`pure/sessionTree.ts` 的 `pathEqual`，以及
+ * `ui/sessionsStore.ts` 在 Windows 上换给它的 `windowsPathEqual`）：分隔符与尾斜杠
+ * 不算差异；**Windows 形态的路径**（盘符 `C:` 或 UNC `//server/share`）另外不算大小写
+ * 差异——VS Code 的 `fsPath` 在 Windows 上返回小写盘符 + 反斜杠，而 dsh 侧注册的工作区
+ * 路径未必是同一个写法，严格全等会漏掉徽标；其余平台维持严格比较（旧侧栏就是这条口径，
+ * macOS/Linux 大小写敏感）。
+ *
+ * 平台靠**路径形状**判断而不是 `process.platform`：这条判定跑在 webview（浏览器）里，
+ * 那里没有 `process`；而「这是不是 Windows 形态的路径」从字符串本身就看得出。
+ */
+export function sameWorkspacePath(a: string, b: string): boolean {
+  return workspacePathKey(a) === workspacePathKey(b)
 }
 
 /**
@@ -236,7 +275,14 @@ export function deriveGroups(
   const recycled = view.recycled ?? EMPTY_IDS
   const expanded = new Set(view.expandedGroups)
   const descendants = indexSubagentDescendants(list.byId)
-  const currentGroup = list.current === undefined ? undefined : owningGroupKey(workspaces, list.current)
+  // 「当前工作区」= **VS Code 当前打开的那个文件夹**所对应的工作区（#112）：按工作区
+  // `path` 与文件夹表逐项比路径。旧实现拿 `list.current`（当前会话）反查它所属的工作区
+  // ——那会变成「点了哪个会话，哪个工作区就披徽标、跳最前」，用户实测报的就是它。
+  // 多根时「命中任一即为当前」：旧实现在的那一份数据只有一个路径（VS Code 单根时代的
+  // 单值），这里放宽到集合；多根下两个都开着，两个都是当前，没有理由只认其中一个。
+  const currentFolders = (view.currentFolders ?? []).filter((folder) => folder !== '')
+  const isCurrentFolder = (path: string): boolean =>
+    path !== '' && currentFolders.some((folder) => sameWorkspacePath(path, folder))
   const groups: GroupNode[] = []
   const accounted = new Set<string>()
   for (const workspace of workspaces) {
@@ -257,7 +303,7 @@ export function deriveGroups(
       createdAt: Number.isNaN(createdAt) ? undefined : createdAt,
       label: workspace.title,
       sessionCount: members.length,
-      containsCurrent: workspace.workspaceId === currentGroup,
+      containsCurrent: isCurrentFolder(workspace.path),
       sessions: expanded.has(workspace.workspaceId) ? members.map((m) => sessionNode(m, descendants, pending)) : [],
     })
   }
@@ -277,7 +323,9 @@ export function deriveGroups(
       key: UNGROUPED_KEY,
       label: '',
       sessionCount: ordered.length,
-      containsCurrent: currentGroup === UNGROUPED_KEY && list.current !== undefined,
+      // 未分组桶恒不是当前工作区：它没有工作区身份，也就没有可比的 `path`
+      //（#112 之前这里跟着当前会话走，于是「当前会话是散会话」时整桶披上徽标）。
+      containsCurrent: false,
       sessions: expanded.has(UNGROUPED_KEY)
         ? ordered.flatMap((id) => {
             const summary = list.byId[id]
@@ -290,9 +338,13 @@ export function deriveGroups(
 }
 
 /**
- * #109 E7：把**当前会话所在的工作区**那一组排到最前（其余保持 `deriveGroups` 给出的
- * 官方顺序）。这是 #98 定稿里「排序全按官方、唯一例外是置顶项在它所在的那一层排最前」
- * 的同一条规则落在工作区层上的形态。
+ * #109 E7：把**当前工作区那一组**排到最前（其余保持 `deriveGroups` 给出的官方顺序）。
+ * 这是 #98 定稿里「排序全按官方、唯一例外是置顶项在它所在的那一层排最前」的同一条规则
+ * 落在工作区层上的形态。
+ *
+ * 「当前工作区」= VS Code 当前打开的那个文件夹所对应的工作区（`GroupNode.containsCurrent`
+ * 的产出，判据见 {@link TreeViewLike.currentFolders}）。**它不随当前会话变**：打开/切换
+ * 会话不改变工作区顺序（#112 的回归口径）。
  *
  * **未分组桶即使装着当前会话也不前移**：它没有工作区身份（`workspaceId` 缺席），
  * 恒留在最后——旧侧栏就是这条口径（`sessionTree.test.ts` 的「ungrouped group stays

@@ -129,6 +129,22 @@ export function parseGitShowArgs(args: unknown): GitShowArgs | HostCallError {
 }
 
 /* ------------------------------------------------------------------ *
+ * 「无参数」的能力调用（`vscode.workspaceFolders` / `vscode.openSettings` 这类）：
+ * 页面多送参数说明调用方与契约不同步，直接拒——与其余能力的口径一致（#112 起
+ * 三处共用这一份判据，免得各写各的）。
+ * ------------------------------------------------------------------ */
+
+/** 校核「这个调用不接受参数」；合法返回 undefined，否则返回结构化错误。 */
+export function parseNoArgs(call: string, args: unknown): HostCallError | undefined {
+  if (args === undefined) return undefined
+  const record = asRecord(args)
+  if (record === undefined || Object.keys(record).length > 0) {
+    return { code: 'invalid-args', message: `${call} takes no arguments` }
+  }
+  return undefined
+}
+
+/* ------------------------------------------------------------------ *
  * 工作区目录的宿主动作（#109）：在编辑器里打开这个文件夹 / 在它上面开一个终端。
  * 页面送来的是**工作区注册表里的路径**，但仍然当不可信输入校核形状：这里只做
  * 「是不是一个规整的绝对路径」，不查它是否落在某个允许根之内——理由有两条：

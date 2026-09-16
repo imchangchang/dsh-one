@@ -252,6 +252,18 @@ function hostCapabilities(ctx) {
       }
       await bridgeCall("vscode.openTerminal", { path });
     },
+    // #112：当前 VS Code 打开的文件夹。**没有桥 = 官方 web 一侧**（或页面还没装上桥）：
+    // 这一端没有「VS Code 打开的文件夹」这个概念，如实回空表——调用方（侧栏树）按
+    // 「没有当前工作区」渲染（不显示徽标、不置顶），与「VS Code 空窗口」同一个形态。
+    // 与上面几条 workspace* 能力不同，这里不抛 `unavailable`：文件夹表是个**只读查询**，
+    // 空表本身就是正确答案，抛错只会逼每个调用方再写一遍降级。
+    async currentWorkspaceFolders() {
+      if (!viaBridge()) return [];
+      const data = await bridgeCall("vscode.workspaceFolders", {});
+      const paths = data.paths;
+      if (!Array.isArray(paths)) return [];
+      return paths.filter((path) => typeof path === "string" && path !== "");
+    },
     get shellName() {
       return viaBridge() ? "vscode" : "web";
     }

@@ -114,6 +114,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
     openWorkspaceFolder,
     openWorkspaceTerminal,
     shellName,
+    loadCurrentFolders,
   } = props
   const tr = t
   const now = Date.now()
@@ -165,6 +166,10 @@ export function WorkspaceTree(props: TreeProps): unknown {
   // #107 会话标签组：持久态（组定义 + 归属）住宿主能力口 `tags` 键；对话框与
   // 「刚开的新会话该归到哪个组」是纯界面状态。
   const [tagFile, setTagFile] = useState<TagGroupsFile>(emptyTagGroups())
+  // #112「当前工作区」判定用的文件夹表（VS Code 当前打开的文件夹）。挂载时从宿主
+  // 能力口读一次；读回前是空表 = 没有当前工作区（不显示徽标、不置顶），读回后按路径
+  // 命中重算——**当前会话（`list.current`）不参与这条判定**，它只管行的可见性。
+  const [currentFolders, setCurrentFolders] = useState<readonly string[]>([])
   const [tagCreate, setTagCreate] = useState<{ groupKey: string; sessionId: string } | null>(null)
   const [tagRename, setTagRename] = useState<{ groupKey: string; id: string; name: string } | null>(null)
   const [tagDelete, setTagDelete] = useState<{ groupKey: string; id: string; name: string } | null>(null)
@@ -254,6 +259,30 @@ export function WorkspaceTree(props: TreeProps): unknown {
       cancelled = true
     }
   }, [loadTagGroups])
+
+  // #112：当前打开的文件夹表（宿主能力口 `currentWorkspaceFolders`）。与上面三份持久
+  // 状态同一处置：读一次、ref 守门（注入的 props 每次渲染都可能是新函数）；读失败保持
+  // 空表——「没有当前工作区」是一个正常的呈现形态（不显示徽标、不置顶），不弹错、不白屏。
+  //
+  // 只读一次的理由：VS Code 里换一个文件夹会重载窗口、webview 跟着重建并重新读；同一
+  // 窗口内多根目录的增删（罕见路径）本步不为它接宿主推送通道——见 types.ts 的同名说明。
+  const foldersLoaded = useRef(false)
+  useEffect(() => {
+    if (foldersLoaded.current) return
+    foldersLoaded.current = true
+    let cancelled = false
+    loadCurrentFolders().then(
+      (folders) => {
+        if (!cancelled) setCurrentFolders(folders)
+      },
+      (reason: unknown) => {
+        if (!cancelled) console.warn('[dsh-one] workspace folders unavailable:', reason)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [loadCurrentFolders])
 
   /** 写回标签组状态（先落界面、再落宿主能力口；失败静默，与分组同一处置）。 */
   const writeTags = (next: TagGroupsFile): void => {
@@ -383,6 +412,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const groups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
     expandedGroups: groupExpansion,
     recycled,
+    currentFolders,
     ...(filterActive && activeGroupId !== null
       ? { workspaceFilter: (workspaceId: string) => workspaceMatchesGroup(groupsFile, workspaceId, activeGroupId) }
       : {}),
@@ -408,6 +438,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const flatGroups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
     expandedGroups: [...workspaces.map((workspace) => workspace.workspaceId), UNGROUPED_KEY],
     recycled,
+    currentFolders,
   })
   const expandableKeys = flatGroups.filter((group) => group.sessionCount > 0).map((group) => group.key)
   const groupMembers = new Map(flatGroups.map((group) => [group.key, group.sessions]))
