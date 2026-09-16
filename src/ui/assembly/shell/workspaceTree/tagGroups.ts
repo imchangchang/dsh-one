@@ -10,6 +10,12 @@
  * 24px 左缩进、折叠组头右侧的计数角标——数值与旧侧栏 `sessionsView.ts` 的
  * `.tag-*` 规则逐字一致，用户看到的是同一套东西。
  *
+ * **#122 把竖线改回旧侧栏那一版**：先前它是组内行容器（`tagRows`）的 `border-left`，
+ * 横向上又被外边距推到组内行外侧，于是同组只能靠缩进认出来；现在它是组块上一个
+ * **绝对定位的细线元素**（几何见 styles.ts 的 `.dshOneTree_tagLine`），颜色是组色
+ * **实色**，组内行的左内边距回到旧侧栏的 24px。组色变量因此挂在**组块**上：
+ * 竖线与组内行都是 pill 的兄弟节点，只有从组块继承才拿得到色值。
+ *
  * **颜色为什么是自造色板（本件唯一不引用官方 token 的地方）**：6 个标签色是用户
  * 自选的**标签色板**，官方 token 集里没有这一类（逐个看过
  * `dsh-client-ui-theme/lib/client.js` 导出的 `--dsw-*`：只有品牌 / 状态 / 文本 /
@@ -276,8 +282,6 @@ export function TagGroupBlock({
       'span',
       {
         className: 'dshOneTree_tagPill',
-        // 组色经 CSS 变量下发，颜色的用法（底/边/竖线）全在 styles.ts 里。
-        style: { '--dshone-tag-color': TAG_COLOR_CSS[def.color] },
         draggable: true,
         title: tr('tag.pill.aria', { name: def.name }),
         'data-dshone-tree-tag-pill': def.id,
@@ -395,6 +399,10 @@ export function TagGroupBlock({
       className:
         `dshOneTree_tagBlock${dropActive ? ' dshOneTree_tagDropActive' : ''}` +
         `${collapsed ? ' dshOneTree_tagCollapsed' : ''}${menuOpen ? ' dshOneTree_menuOpen' : ''}`,
+      // 组色经 CSS 变量下发到**组块**这一层，颜色的用法（pill 的底/边、竖线段、组内行缩进的
+      // 参照）全在 styles.ts 里。挂在组块而不是 pill 上：#122 的竖线与组内行都是 pill 的
+      // 兄弟节点，变量只有从共同的祖先把色值继承下去才到得了它们。
+      style: { '--dshone-tag-color': TAG_COLOR_CSS[def.color] },
       'data-dshone-tree': 'tag-block',
       'data-dshone-tree-tag': def.id,
       'data-dshone-tree-key': groupKey,
@@ -427,6 +435,10 @@ export function TagGroupBlock({
       },
     },
     head,
+    // 贯穿竖线（#122）：从 pill 下沿画到组块底部的一条组色细线，几何与颜色全在 styles.ts
+    // 的那条规则里（本件只放元素与自描述标记）。折叠态由 CSS 隐藏——所以这里不按折叠条件
+    // 决定渲染与否，态只有一处（`.dshOneTree_tagCollapsed .dshOneTree_tagLine`）。
+    h('div', { className: 'dshOneTree_tagLine', 'data-dshone-tree': 'tag-line' }),
     collapsed
       ? null
       : h('div', { className: 'dshOneTree_tagRows', 'data-dshone-tree-tag-rows': def.id }, children as never),
