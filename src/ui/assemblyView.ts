@@ -215,6 +215,15 @@ function hostBridgeDeps(
     // git 查询的扫描/命中/超时留痕走输出面板「DSH One」频道（probe 同一条通道），
     // 页面侧不感知、UI 不阻塞。
     log: (line: string) => logger.info(line),
+    // #109 工作区行：在编辑器窗口里打开文件夹（当前窗口 / 新窗口）与在目录上开集成
+    // 终端。两条都转发到既有命令（那一套动作旧侧栏就在用，宿主侧只有一份实现）：
+    // 页面只送路径与「要不要新窗口」，其余（Uri、终端名、cwd）在命令里定。
+    openFolder: async (args) => {
+      await vscode.commands.executeCommand('dshOne.workspace.openFolder', args.path, args.newWindow)
+    },
+    openTerminal: (args) => {
+      void vscode.commands.executeCommand('dshOne.workspace.openTerminal', args.path)
+    },
     // #99 侧栏顶栏：设置齿轮与 ＋ 菜单的「创建新工作区目录」。两项都是**该面板
     // 专属**的能力，由调用方注入；缺省不给 = 那两个入口在别的页面里不出现。
     ...(panelActions?.openSettings === undefined ? {} : { openSettings: panelActions.openSettings }),

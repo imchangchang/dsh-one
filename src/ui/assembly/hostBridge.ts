@@ -41,11 +41,14 @@ import {
   isHostCallError,
   parseAllowedUrl,
   parseGitShowArgs,
+  parseOpenFolderArgs,
+  parseOpenTerminalArgs,
   parseSessionTabArgs,
   resolveQueryDir,
   type HostCallError,
 } from '../../pure/hostCalls.ts'
 import type { DownloadArgs, HostCapabilityError, SaveFileArgs } from '../../pure/hostCapabilities.ts'
+import type { OpenFolderArgs, OpenTerminalArgs } from '../../pure/hostCalls.ts'
 import { runStateCall } from '../../pure/hostStateCalls.ts'
 import { performGatewayDownload, performSaveContent } from '../../pure/hostDownload.ts'
 import type { CommitInfoResult } from '../../pure/chatContract.ts'
@@ -70,6 +73,8 @@ export const HOST_CALLS = {
   'session.openInNewTab': 'Open one session in its own editor tab (explicit multi-open; the chat panel stays a singleton).',
   'vscode.openSettings': 'Open (or focus) the dsh-one settings editor page (the sidebar toolbar gear, #99).',
   'vscode.workspaceCreate': 'Create a workspace directory (~/.dsh/workspaces/<name>) and register it (the sidebar + menu, #99).',
+  'vscode.openFolder': 'Open one workspace folder in the editor window (the sidebar workspace row, #109; optionally in a new window).',
+  'vscode.openTerminal': 'Open an integrated terminal at one workspace folder (the sidebar workspace row, #109).',
 } as const
 
 export type HostCallName = keyof typeof HOST_CALLS
@@ -138,6 +143,19 @@ export interface HostBridgeDeps {
    * 缺省无实现 = `unsupported`。
    */
   createWorkspaceDirectory?: () => Promise<unknown>
+  /**
+   * 在编辑器窗口里打开一个工作区文件夹（#109 工作区行：hover 的「在 VS Code 打开」
+   * 用 `newWindow: false`，右键的「在新窗口打开文件夹」用 `true`）。装配视图提供
+   * 实现（转发到既有 `dshOne.workspace.openFolder` 命令）；缺省无实现 = `unsupported`
+   * ——官方 web 形态的侧栏树本来也不会显示这两个入口（见能力口的 `workspaceOpen`）。
+   */
+  openFolder?: (args: OpenFolderArgs) => Promise<unknown> | void
+  /**
+   * 在一个工作区目录上开集成终端（#109 工作区行 hover 的「终端打开」）。装配视图
+   * 提供实现（转发到既有 `dshOne.workspace.openTerminal` 命令）；缺省无实现 =
+   * `unsupported`。
+   */
+  openTerminal?: (args: OpenTerminalArgs) => void
 }
 
 /**
@@ -288,6 +306,26 @@ export async function runHostCall(
       return { code: 'unsupported', message: 'this host cannot create a workspace directory' }
     }
     await deps.createWorkspaceDirectory()
+    return null
+  }
+  // #109：工作区行的两个宿主动作。缺实现（官方 web 形态）回 `unsupported`——那一端
+  // 的侧栏树靠能力口的 `workspaceOpen` / `workspaceTerminal` 判定，入口本来就不渲染。
+  if (call === 'vscode.openFolder') {
+    const parsed = parseOpenFolderArgs(args)
+    if (isHostCallError(parsed)) return parsed
+    if (deps.openFolder === undefined) {
+      return { code: 'unsupported', message: 'this host has no editor window to open a folder in' }
+    }
+    await deps.openFolder(parsed)
+    return null
+  }
+  if (call === 'vscode.openTerminal') {
+    const parsed = parseOpenTerminalArgs(args)
+    if (isHostCallError(parsed)) return parsed
+    if (deps.openTerminal === undefined) {
+      return { code: 'unsupported', message: 'this host has no integrated terminal' }
+    }
+    deps.openTerminal(parsed)
     return null
   }
   const url = parseAllowedUrl(asRecord(args)?.url)

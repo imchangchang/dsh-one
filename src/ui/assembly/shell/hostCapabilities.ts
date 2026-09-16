@@ -18,6 +18,9 @@
  * | `openSessionInNewTab`（+ `editorTabs`） | 扩展宿主开一个 WebviewPanel（#72 多开） | **无**——官方 web 没有编辑器标签页，能力恒缺席 |
  * | `openSettings`（+ `settingsPage`） | 扩展宿主开/聚焦设置页（设置独立成编辑器页，#70） | **无**——官方 web 的设置是官方底部那一行，没有独立设置页；能力恒缺席，侧栏齿轮在那一端不渲染 |
  * | `createWorkspaceDirectory`（+ `workspaceCreate`） | 扩展宿主建目录并注册（`dshOne.workspace.create` 命令：`~/.dsh/workspaces/<名>`） | **无**——官方 web 的「新建目录」归官方 directory-flow 占用者（见 #99 的说明），能力恒缺席 |
+ * | `openWorkspaceFolder`（+ `workspaceOpen`） | 扩展宿主 `dshOne.workspace.openFolder` 命令（`vscode.openFolder`，可要求新窗口） | **无**——官方 web 是浏览器里的一页，没有「编辑器窗口」可以放这个文件夹，能力恒缺席 |
+ * | `openWorkspaceTerminal`（+ `workspaceTerminal`） | 扩展宿主 `dshOne.workspace.openTerminal` 命令（VS Code 集成终端，cwd = 该文件夹） | **无**——同上，浏览器页里没有集成终端 |
+ * | `shellName` | `'vscode'` | `'web'` |
  *
  * 四处刻意的取舍（写清楚免得后来人以为是漏配）：
  * 1. **状态两侧同一份实现与同一个家**（都是宿主半的状态存储模块，都落
@@ -138,6 +141,30 @@ export interface HostCapabilities {
   readonly workspaceCreate: boolean
   /** 建一个新工作区目录并注册（VS Code 侧 = `dshOne.workspace.create` 命令）。 */
   createWorkspaceDirectory(): Promise<void>
+  /**
+   * 这套宿主有没有「编辑器窗口」可以放一个工作区文件夹（#109 工作区行的 hover
+   * 「在 VS Code 打开」与右键「在新窗口打开文件夹」）：**同步判定**，消费方按它决定
+   * 这两个入口出不出现。VS Code 侧有；官方 web 侧恒无——**不是漏配**：官方 web 是
+   * 浏览器里的一页，它自己的「在外部应用里打开」走官方 open-in-app 插件（宿主上装的
+   * 应用），跟「把文件夹放进这个编辑器窗口」不是一回事，我们这条能力说的正是后者。
+   */
+  readonly workspaceOpen: boolean
+  /** 在编辑器窗口里打开一个工作区文件夹（`newWindow` 缺省 false = 当前窗口）。 */
+  openWorkspaceFolder(path: string, options?: { newWindow?: boolean }): Promise<void>
+  /**
+   * 这套宿主有没有集成终端（#109 工作区行 hover 的「终端打开」）：**同步判定**。
+   * VS Code 侧有；官方 web 侧恒无（浏览器页里没有集成终端，那一端的终端是 dsh 自己的
+   * 面板，不归我们这棵树管）。
+   */
+  readonly workspaceTerminal: boolean
+  /** 在一个工作区目录上开集成终端（cwd = 该目录）。 */
+  openWorkspaceTerminal(path: string): Promise<void>
+  /**
+   * 这套宿主是什么（#109 当前工作区行的标识胶囊）：VS Code 侧 `'vscode'`，其余
+   * （官方 web 等）`'web'`——用来给「当前工作区」那枚胶囊写它所在的容器名，不再像
+   * 旧侧栏那样把 `vscode` 写死在渲染里（那样官方 web 上会挂出一个不对的名字）。
+   */
+  readonly shellName: string
 }
 
 function fail(code: HostCapabilityErrorCode, message: string): CapabilityFailure {
@@ -327,6 +354,29 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
         return
       }
       throw fail('unavailable', 'this shell cannot create a workspace directory; the official directory flow owns creation here')
+    },
+    // #109：工作区行的两个宿主动作（在编辑器里打开文件夹 / 开集成终端）。与
+    // editorTabs 同一形态——两侧语义不同，没有的那一端少的就是入口本身。
+    get workspaceOpen() {
+      return viaBridge()
+    },
+    async openWorkspaceFolder(path, options) {
+      if (!viaBridge()) {
+        throw fail('unavailable', 'this shell has no editor window; the official web page opens folders elsewhere')
+      }
+      await bridgeCall('vscode.openFolder', { path, newWindow: options?.newWindow === true })
+    },
+    get workspaceTerminal() {
+      return viaBridge()
+    },
+    async openWorkspaceTerminal(path) {
+      if (!viaBridge()) {
+        throw fail('unavailable', 'this shell has no integrated terminal; dsh web owns its own terminal panel')
+      }
+      await bridgeCall('vscode.openTerminal', { path })
+    },
+    get shellName() {
+      return viaBridge() ? 'vscode' : 'web'
     },
   }
 }

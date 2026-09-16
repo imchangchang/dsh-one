@@ -127,3 +127,65 @@ export function parseGitShowArgs(args: unknown): GitShowArgs | HostCallError {
   }
   return cwd === undefined ? { hash } : { hash, cwd }
 }
+
+/* ------------------------------------------------------------------ *
+ * 工作区目录的宿主动作（#109）：在编辑器里打开这个文件夹 / 在它上面开一个终端。
+ * 页面送来的是**工作区注册表里的路径**，但仍然当不可信输入校核形状：这里只做
+ * 「是不是一个规整的绝对路径」，不查它是否落在某个允许根之内——理由有两条：
+ * ① 这个路径来自官方工作区列表，是用户自己的清单，不是页面随手编的字符串；旧侧栏
+ * 的同两条命令（`dshOne.workspace.openFolder` / `openTerminal`）也没有做过限域；
+ * ② 真正的动作是「开一个编辑器窗口/终端」，用户在屏幕上当场看得见，越权语义不成立
+ * （与 git.show 那种「读文件内容」的能力不同，那里才会把限域当成边界）。
+ * ------------------------------------------------------------------ */
+
+/** 工作区目录路径的长度上限（够放下常见系统的最长路径）。 */
+export const WORKSPACE_PATH_MAX = 4096
+
+/** 校核一个「交给宿主去打开」的工作区路径：绝对路径、无 NUL、无控制字符、限长。 */
+export function parseWorkspacePath(value: unknown): string | HostCallError {
+  if (typeof value !== 'string' || value === '' || value.length > WORKSPACE_PATH_MAX) {
+    return { code: 'invalid-args', message: 'expected a workspace directory path' }
+  }
+  // eslint-disable-next-line no-control-regex -- 控制字符必须拒（路径要进命令与日志）
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    return { code: 'invalid-args', message: 'the workspace path must not contain control characters' }
+  }
+  const normalized = value.replace(/\\/g, '/')
+  if (!(normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized))) {
+    return { code: 'invalid-args', message: 'the workspace path must be absolute' }
+  }
+  return value
+}
+
+/** `vscode.openFolder` 的参数（路径 + 要不要开新窗口）。 */
+export interface OpenFolderArgs {
+  path: string
+  newWindow: boolean
+}
+
+/** 校核 `vscode.openFolder` 的参数。 */
+export function parseOpenFolderArgs(args: unknown): OpenFolderArgs | HostCallError {
+  const record = asRecord(args)
+  if (record === undefined) return { code: 'invalid-args', message: 'vscode.openFolder expects an object argument' }
+  const path = parseWorkspacePath(record.path)
+  if (typeof path !== 'string') return path
+  const newWindow = record.newWindow
+  if (newWindow !== undefined && typeof newWindow !== 'boolean') {
+    return { code: 'invalid-args', message: 'vscode.openFolder expects newWindow to be a boolean when present' }
+  }
+  return { path, newWindow: newWindow === true }
+}
+
+/** `vscode.openTerminal` 的参数（路径）。 */
+export interface OpenTerminalArgs {
+  path: string
+}
+
+/** 校核 `vscode.openTerminal` 的参数。 */
+export function parseOpenTerminalArgs(args: unknown): OpenTerminalArgs | HostCallError {
+  const record = asRecord(args)
+  if (record === undefined) return { code: 'invalid-args', message: 'vscode.openTerminal expects an object argument' }
+  const path = parseWorkspacePath(record.path)
+  if (typeof path !== 'string') return path
+  return { path }
+}
