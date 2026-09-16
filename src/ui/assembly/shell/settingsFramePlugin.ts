@@ -4,9 +4,11 @@
  * - block list 同 chat 树（layout + sidebar 都下线）：官方外框与官方侧栏壳
  *   不进页（ui-sidebar 的槽注册在无人声明 'sidebar' 时 loud throw）。
  * - root 声明侧栏壳 4 子槽（品牌位/工作区树/品牌名/底部动作，贡献注册不渲染）
- *   + 自有 'dshOne.settings.page' 槽位并只渲染它。**有意不声明 sidebar.settings**：
- *   声明会同步触发 settings-general 的 SettingsRoot inject，其 children 表与
- *   本页槽位撞 registry「already declared」（绕行而非 priority 影子，同 v1）。
+ *   + 对话区座位 `main`（同样只为让官方件的槽子树注册成立、本页不渲染，见
+ *   apply 内注释）+ 自有 'dshOne.settings.page' 槽位并只渲染它。**有意不声明
+ *   sidebar.settings**：声明会同步触发 settings-general 的 SettingsRoot inject，
+ *   其 children 表与本页槽位撞 registry「already declared」（绕行而非 priority
+ *   影子，同 v1）。
  * - 整页宿主 = 官方 SettingsPanel 组合复刻：居中限宽内容列（官方 panel 宽
  *   800px，取同款 max-width:800px / calc(100vw - 32px)）+ 左侧分节导航
  *   （General/Models/Plugins/Agent presets，当前节高亮 aria-current，点击切节）
@@ -244,8 +246,9 @@ function SettingsFrame({ renderSlot }: { renderSlot: SettingsFrameProps['renderS
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// cordis 插件面：layout 服务 + root 注册（4 子槽 + settings page + overlay）
-// + SettingsPage 槽位（inject 供 sections 镜像）+ ThemePresenter
+// cordis 插件面：layout 服务 + root 注册（侧栏壳 4 子槽 + 对话区座位 main +
+// settings page + overlay）+ SettingsPage 槽位（inject 供 sections 镜像）
+// + ThemePresenter
 // ---------------------------------------------------------------------------
 
 export const inject = ['slots', 'theme', 'locale']
@@ -272,6 +275,24 @@ export function apply(ctx: ShellContext): void {
           'sidebar.brand.name': { kind: 'single', scope: 'root' },
           'sidebar.workspaces': { kind: 'single', scope: 'root' },
           'sidebar.footer.action': { kind: 'list', scope: 'root' },
+          // 对话区座位（keyed `main`）**本页不渲染**（本页只渲染
+          // dshOne.settings.page），但必须声明：官方 ui-conversation 的整棵
+          // 对话子树注册挂在 `slots.inject("main", …)` 上
+          //（dsh-client-ui-conversation/lib/client.js:16917，该子树里声明了
+          // conversation.hero.agentPreset 等座位名），本页不声明它，这些座位名
+          // 就没人声明。官方 dsh-client-ui-agent-preset 的会话级 scope
+          //（inject = slots/conversation/sessions/uiWorkspace，
+          // dsh-client-ui-agent-preset/lib/client.js:1613）随后注册 hero chip 时
+          // 撞官方的 `slot "conversation.hero.agentPreset" is not declared`
+          //（同文件 :1654 那条 register），整个 scope fiber 进 FAILED、它先前
+          // 注册的 sessions 订阅泄漏，于是会话列表每次更新都抛
+          // `cannot get required service "sessions" in inactive context`
+          //（#74 实测 6 条 pageerror）。
+          // 机制层 1（官方槽位机制）：只补官方 root 契约里本页缺的这一项——官方
+          // ui-layout 的 root children 表 = sidebar / main / rightbar /
+          // shell.overlay（dsh-client-ui-layout/lib/client.js:525），声明之后由
+          // 官方代码自己声明它的子树，无自有桩件、无 block list。
+          main: { kind: 'keyed', scope: 'root' },
           'dshOne.settings.page': { kind: 'single', scope: 'root' },
           'shell.overlay': { kind: 'list', scope: 'root' },
         },

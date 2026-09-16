@@ -1,0 +1,107 @@
+{
+  "title": "DSH One 验收报告：#74 settings 树官方 ui-agent-preset 控制台噪音修复",
+  "branch": "agent/settings-noise",
+  "commit": "87e415b",
+  "environment": {
+    "mode": "浏览器验证（test/assembly-lab：仓库真实模块 + 本机真 dsh 网关只读）",
+    "dsh": "0.1.6-alpha.1（网关 http://127.0.0.1:3080）",
+    "locale": "zh",
+    "theme": "dark",
+    "driver": "LAB_PORT=3343 npm run verify:lab（10 套件）+ 页面探针 /tmp/n74-capture.mjs",
+    "date": "2026-09-16T03:53:46Z"
+  },
+  "coverageNote": "真桌面 VS Code 窗口不在本报告范围（AGENTS 铁律：agent 不起真窗），沙盒 code-server 档也未做——本改动零视觉变化（修前/修后设置页截图逐字相同），浏览器验证是第一道且覆盖改动的全部行为；合入后要人工开窗按流程 6 交给用户。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "设置页首屏未处理错误归零（修前 6 条 → 修后 0 条）",
+      "expect": "打开设置页（真实网关只读）静置 3 秒：控制台与未处理 rejection 里 **0 条** `cannot get required service \"sessions\" in inactive context`，也没有 `slot entry crashed` / `did not activate`；同一次运行里实验室 F-01 套件的 settings 树事实行记 `真实 pageerror=0 已知噪音=0`。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-lab-shots-before/settings-general.png",
+        "/tmp/dsh-lab-shots/settings-general.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/settings-noise/test/assembly-lab/out/shots/contract-settings.png"
+      ],
+      "notes": "逐条核对：① 修前同页实测 6 条 pageerror（对主线旧 dist 跑同一个探针脚本，见 F-03）；② 修后同页实测 0 条（探针脚本 print 的 pageErrors 为空数组）；③ 实验室 F-01 套件 settings 树事实行 = `ready=true 槽位锚点=6 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0`（修前同一行是「已知噪音=6」并放行）；④ 已知噪音白名单已清空，这条断言不再是「放行」而是真断言。前两张截图 = 修前（主线旧 dist）/修后，同一页面、同一视口，观感逐字相同（改动无视觉影响）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "官方内容未丢：设置页五节导航与「Agent 预设」节照旧渲染",
+      "expect": "左导航 = 通用设置 / 插件 / 模型服务 / Agent 预设 / 已归档会话；点「Agent 预设」节渲染官方预设列表（允许切换 agent 模式、内置 标准模式 / PTC 模式 / 极简模式 / 创造模式 及各自说明文案）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-lab-shots/settings-agent-preset.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/settings-noise/test/assembly-lab/out/shots/smoke-settings.png"
+      ],
+      "notes": "逐条核对：导航五项齐全 ✓；点击「Agent 预设」后该节渲染出官方完整内容（正文含「预设即一个会话的 Agent 所运行的插件组装」「允许切换agent模式」「内置 标准模式 / PTC 模式 / 极简模式 / 创造模式」）✓；该节为官方 ui-agent-preset 自己的 settings.section 贡献——修复没有把它挡掉，也没有改变它的观感 ✓。修前/修后探针脚本各取一次该节正文，字符串一致。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "根因直证：agent-preset 会话级 scope fiber 从 FAILED 变 ACTIVE",
+      "expect": "页面探针（包 `__ModuleLoader__.load` 的 factory → 包 agent-preset 的 `apply`，监听 cordis `internal/status`）对该 scope（inject = `slots,conversation,sessions,uiWorkspace`）记录到 PENDING → LOADING → **ACTIVE**；修前应记到 PENDING → LOADING → UNLOADING → **FAILED** 且失败原因点名 `conversation.hero.agentPreset` 未声明。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/settings-noise/test/assembly-lab/out/shots/contract-settings.png"
+      ],
+      "notes": "逐条核对：修前（主线旧 dist，同脚本）probeLog = `scope(uid=40) PENDING → LOADING` / `scope(uid=40) LOADING → UNLOADING` / `scope(uid=40) UNLOADING → FAILED | 失败原因：slot \"conversation.hero.agentPreset\" is not declared (a parent entry's children table must declare it)` ✓；修后 probeLog = `scope(uid=40) PENDING → LOADING` / `scope(uid=40) LOADING → ACTIVE` ✓。即：噪音不是官方件的怪癖，是底座漏声明官方 root 子槽 `main` 让这棵 scope 整块失败；声明之后由官方 ui-conversation 自己把 `conversation.hero.agentPreset` 声明出来，scope 正常激活。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "四棵树契约完备性（实验室 F-01 CONTRACT 套件）",
+      "expect": "sidebar / sidebar-official / chat / settings 四棵树各自：零 `slot entry crashed`、零 pageerror、零 `did not activate`，关键座位有内容且预期座位锚点都在。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/settings-noise/test/assembly-lab/out/shots/contract-sidebar.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/settings-noise/test/assembly-lab/out/shots/contract-chat.png"
+      ],
+      "notes": "逐条核对：断言 43/43 全过 ✓；观测行四棵树均 `崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0` ✓；座位锚点 sidebar/sidebar-official/chat/settings 各自齐全 ✓。settings 树这一行的 `已知噪音` 由 6 变 0，是本任务的目标项。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "三棵树冒烟渲染 + 关键交互 + 会话头座位（F-02 / F-03 / F-09 套件）",
+      "expect": "侧栏会话树 / 对话区 / 设置页都出真内容；右键菜单、清空+反悔、commit 卡片照旧；会话头 utilities 座位里官方 open-in-app 与自有导出都在且可见。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/settings-noise/test/assembly-lab/out/shots/smoke-settings.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/settings-noise/test/assembly-lab/out/shots/header-utilities-chat.png"
+      ],
+      "notes": "逐条核对：F-02 冒烟 13/13（settings：通用设置行=1、行内容元素=6、内容区后代=69）✓；F-03 交互 14/14（右键菜单 1 项、git 卡片 2 按钮、Esc×2 清空与 Ctrl+Z 反悔）✓；F-09 会话头 utilities 13/13（官方 open-in-app 与自有导出各一条）✓。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "侧栏树外观对齐、可移植性、六项核心功能、会话多开（F-04 / F-06 / F-07 / F-08 套件）",
+      "expect": "侧栏自有树对官方对照档三档宽度逐组 computed style 与几何一致；抹掉自有 frame 标记后三个 dsh-* 插件照常工作；分组过滤/计数/回收站/多选/不折叠/视图态持久化照旧；多开 tab 与启动注入照旧。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/settings-noise/test/assembly-lab/out/shots/parity-own-340.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/settings-noise/test/assembly-lab/out/shots/sidebar-recycle-drawer.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/settings-noise/test/assembly-lab/out/shots/multiopen-tab-2.png"
+      ],
+      "notes": "逐条核对：F-04 对位 181/181（10 组元素 × 3 档宽度）✓；F-06 可移植 11/11（无 frame 标记时菜单/卡片/清空/外链都在）✓；F-07 侧栏六项 27/27（分组行 13、回收站抽屉 498 行、多选动作条文案）✓；F-08 多开 26/26（⋯ 菜单与行右键都发出「在新标签页打开」、多开页互不串会话、不存在会话的注入出遮罩）✓。本任务只改 settings frame，这几棵树不受影响——这几条是回归证据。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "宿主能力口页面侧 + 实验室对真实网关只读（F-05 / R-06 套件）",
+      "expect": "宿主调用走统一获取点、id 一一配对、未知调用给结构化错误；整轮跑完网关会话数不变。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：F-05 桥 7/7（acquireCalls=1、四个 hostCall id 配对、unknown-call 结构化错误）✓；R-06 只读 1/1（跑前跑后会话数 1137）✓。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "类型检查 / 单测 / 构建",
+      "expect": "`npm run typecheck`、`npm test`、`npm run build` 全过；新增的源码级断言「settings 树必须声明 keyed main」在单测里跑绿。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：tsc --noEmit 无输出（通过）✓；npm test 689 条、fail 0、skipped 1（含新增 `settings 树：root children 表按官方 ui-layout 补齐对话区座位 main（#74）`）✓；npm run build 产出 extension.js / 12 个自有插件 bundle / host half ✓。"
+    }
+  ]
+}

@@ -2,7 +2,8 @@
  * 装配骨架与官方外框契约的对照测试（#76）：
  * 三棵树的 block list 都下线了官方 `dsh-client-ui-layout`，官方外框原本下发给
  * root 槽位的契约就得由自有骨架提供。0.1.6 漏掉 `panelInfo` 钩子导致侧栏会话
- * 列表整块消失，所以这里把「接手的契约」写成可执行的清单——源码级核对（与
+ * 列表整块消失（#76），漏掉 root 子槽 `main` 又让官方对话子树整块注册失败（#74），
+ * 所以这里把「接手的契约」写成可执行的清单——源码级核对（与
  * pluginLocales.test.ts 同款做法：这些插件运行时依赖 react / 官方私有包，
  * 单测里 import 不进来，只能扫源码）。
  *
@@ -66,6 +67,17 @@ test('chat 树：会话面板两版槽位都声明（0.1.2 的 single conversati
   // 渲染取键方式与官方 AppFrame 的 MainPanel 一致：activePanelId ?? 'conversation'
   assert.match(text, /renderSlot\('main', \{\}, \{ entryKey: activePanelId \?\? 'conversation' \}\)/, 'main 槽位必须按官方取键渲染')
   assert.match(text, /renderSlot\('conversation', \{\}\)/, 'single conversation 槽位要保留渲染分支')
+})
+
+// #74 现场缺陷：settings 树漏声明 keyed `main`。官方大件把整棵子树挂在
+// `slots.inject('<槽位名>', …)` 上（ui-conversation 挂 `main`，
+// dsh-client-ui-conversation/lib/client.js:16917），它声明的子树里才有
+// `conversation.hero.agentPreset` 等座位名；声明表缺一项，挂在下面的官方子树
+// 整块注册失败（agent-preset 的会话级 scope 抛 `slot … is not declared`，
+// fiber 进 FAILED 并泄漏已注册的 sessions 订阅）。设置页不渲染对话区，但必须声明。
+test('settings 树：root children 表按官方 ui-layout 补齐对话区座位 main（#74）', () => {
+  const text = read('settingsFramePlugin.ts')
+  assert.match(text, /main:\s*\{\s*kind:\s*'keyed',\s*scope:\s*'root'\s*\}/, 'keyed main 槽位要声明（官方 ui-conversation 的子树注册等它）')
 })
 
 // #85 A 项（侧栏树密度适配）：shell 给偏好、树插件消费、缺省回落官方档。

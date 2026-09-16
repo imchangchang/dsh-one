@@ -79,14 +79,13 @@ export const BOOT_FAIL_RE = /did not activate|waiting for service/
  * 已知噪音白名单：**只**放行与底座契约无关、且另有 issue 跟踪的官方插件噪音。
  * 崩溃（`slot entry crashed`）与装载未激活（`did not activate`）永远不准进这里
  * ——它们就是本套件要抓的底座缺口。每条必须带理由与跟踪 issue，无跟踪的不许进。
+ *
+ * 现在为空（#74 修完）：唯一那条「设置树 agent-preset 在非活跃上下文读 sessions」
+ * 的真因是**我方 settings frame 少声明了官方 root 子槽 `main`**（根因与修法见
+ * src/ui/assembly/shell/settingsFramePlugin.ts 的 root 注册注释），不是官方件噪音。
+ * 留空机制不删：将来真要放行，仍按上面的规矩逐条带理由与 issue 进来。
  */
-export const KNOWN_NOISE: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
-  {
-    pattern: /cannot get required service "sessions" in inactive context/,
-    reason:
-      '#74：设置树里官方 @deepseek-ai/dsh-client-ui-agent-preset 的槽位控制器在非活跃上下文读 sessions 服务（官方 web 同动作零报错），设置页照常渲染——与本仓库底座契约无关。',
-  },
-]
+export const KNOWN_NOISE: ReadonlyArray<{ pattern: RegExp; reason: string }> = []
 
 /** 命中白名单则返回理由（用于报告里如实记录放行了什么）。 */
 export function knownNoise(line: string): string | undefined {

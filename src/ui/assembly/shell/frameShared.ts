@@ -15,7 +15,14 @@
  * 三棵树的 block list 都下线了官方框架插件 `dsh-client-ui-layout`（官方 AppFrame
  * 自己画三列外框与拖拽把手，与 VS Code 外壳形态冲突）。代价是官方 root 槽位对
  * 插件下发的契约要由我们的底座接手——目前接手的全部四项：
- * 1. root 槽位注册（含子槽位声明表）：自有 ShellFrame/SidebarFrame/SettingsFrame；
+ * 1. root 槽位注册（含子槽位声明表）：自有 ShellFrame/SidebarFrame/SettingsFrame。
+ *    官方的子槽位声明表（`ui-layout` 的 `children`：sidebar / main / rightbar /
+ *    shell.overlay，`dsh-client-ui-layout/lib/client.js:525`）不只是「官方外框画
+ *    哪几块」，它还是别的官方插件注册槽位时的前置——官方大件把整棵子树挂在
+ *    `slots.inject('<槽位名>', …)` 上（ui-conversation 挂 `main`、ui-sidebar-right
+ *    挂 `rightbar`…），我们漏声明一项，挂在它下面的官方子树就整块注册失败
+ *    （#74：settings 树漏 `main` → ui-agent-preset 的会话级 scope 注册 hero chip
+ *    抛 `slot "conversation.hero.agentPreset" is not declared`）；
  * 2. `ctx.layout` 服务（官方 LayoutController）：本文件的 LayoutController；
  * 3. 主题呈现（官方 ThemePresenter）：本文件的 ThemePresenter；
  * 4. root 槽位钩子 `panelInfo`（官方 `ctx.slots.provideRoot`）：本文件的
