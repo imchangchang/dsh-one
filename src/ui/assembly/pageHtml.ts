@@ -1,7 +1,7 @@
 /**
  * cordis 装配页（#64 M1）：把官方 web 前端装配进外壳的 HTML 构建器。
- * 纯函数、零依赖（不 import vscode）——VS Code webview 与 lab harness
- * （.dev-host，普通浏览器验证）共用同一份实现，保证「页面无 acquireVsCodeApi、
+ * 纯函数、零依赖（不 import vscode）——VS Code webview 与浏览器验证 harness
+ * （test/assembly-lab/，普通浏览器里跑）共用同一份实现，保证「页面无 acquireVsCodeApi、
  * 普通浏览器可开」的验收口径。
  *
  * 页面结构照抄网关 `/` 的注入形态（spike #63 从真实网关 HTML 提取的契约）：
