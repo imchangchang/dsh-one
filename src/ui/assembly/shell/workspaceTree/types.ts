@@ -1,6 +1,7 @@
 /** 本地最小类型面（官方私包的精确类型不在本仓库）。 */
 import type { SessionListLike } from '../../../../pure/workspaceTreeView.ts'
 import type { GroupFile } from '../../../../pure/dshStateFile.ts'
+import type { SessionMarksState } from '../../../../pure/sessionMarks.ts'
 
 export type Translate = (key: string, params?: Record<string, string | number>) => string
 
@@ -84,6 +85,17 @@ export interface TreeProps {
   loadGroups: () => Promise<GroupFile>
   /** 写回分组状态（宿主能力口 `stateWrite`；失败静默，界面按内存态继续可用）。 */
   saveGroups: (file: GroupFile) => void
+  /**
+   * #102：本插件的两份**用户标记**读回（宿主能力口 `stateRead('pinned')` /
+   * `stateRead('unread')` 的封装，见 `pure/sessionMarks.ts`）。读一次，此后只在
+   * 变更时写回——旧文件（`~/.dsh/dsh-one/pinned.json` / `unread.json`）就是这两个
+   * 键，没有任何第二份存储。
+   */
+  loadMarks: () => Promise<SessionMarksState>
+  /** 写回置顶 id 集合（宿主能力口 `stateWrite('pinned')`；失败静默）。 */
+  savePinned: (ids: readonly string[]) => void
+  /** 写回手动未读 id 集合（宿主能力口 `stateWrite('unread')`；失败静默）。 */
+  saveUnread: (ids: readonly string[]) => void
   /**
    * #81 功能 3/4：把会话移入回收站——官方 `uiWorkspace.archiveSession`（数据面就是
    * 官方归档集合，我们不自己记名单）。返回失败的那些 id（界面据此保留选中）。

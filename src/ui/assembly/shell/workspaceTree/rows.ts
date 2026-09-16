@@ -23,10 +23,75 @@ import {
   type SessionNode,
 } from '../../../../pure/workspaceTreeView.ts'
 import type { WorkspaceGroupDef } from '../../../../pure/treeGroups.ts'
+import {
+  canRecycle,
+  cannotArchiveReason,
+  sessionBusy,
+  type SessionBlockReason,
+  type SessionEligibilityFacts,
+} from '../../../../pure/sessionEligibility.ts'
 import { createdLabel, displayTitle, hoverTimeLabel, timeLabel } from './format.ts'
 import { GROUP_MENU_PREFIX } from './groups.ts'
 import { SelectMark } from './selection.ts'
 import type { Translate } from './types.ts'
+
+// ---------------------------------------------------------------------------
+// #102 两种用户标记的行内呈现：图钉（置顶）与未读圆点
+//
+// 图标为什么是自绘 SVG 而不是官方图标件：官方 primitives 0.1.6-alpha.1 的导出表
+// 里**没有图钉、也没有未读/已读**（逐个看过那一份 80 个 `Icon*` 名字），而 #98 的
+// 需求是「回放旧侧栏的两个标记」。所以这里沿用旧侧栏自己的两条描边路径
+// （`sessionsWebview.ts` 的 `PIN_ICON` / `UNREAD_ICON`，同 16 视框 / 1.3 描边 /
+// round 端点），观感与旧侧栏逐字一致。
+// ---------------------------------------------------------------------------
+const PIN_PATHS = ['M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z', 'M8 9.5v4']
+const UNREAD_PATHS = ['M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8z']
+
+function strokeIcon(paths: readonly string[]): unknown {
+  return h(
+    'svg',
+    { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', 'aria-hidden': true },
+    ...paths.map((d, index) =>
+      h('path', {
+        key: String(index),
+        d,
+        stroke: 'currentColor',
+        'stroke-width': '1.3',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+      }),
+    ),
+  )
+}
+
+/** 置顶标记（标题前的常驻图钉）。 */
+function PinMark({ sessionId }: { sessionId: string }): unknown {
+  return h('span', { className: 'dshOneTree_pin', 'data-dshone-tree-pin': sessionId, 'aria-hidden': true }, strokeIcon(PIN_PATHS))
+}
+
+/** 手动未读标记（行尾绿点已在状态点那一档，这里只管菜单项与搜索行的图标）。 */
+function UnreadIcon(): unknown {
+  return strokeIcon(UNREAD_PATHS)
+}
+
+/**
+ * 把行上看到的事实拼成资格判定要吃的那一份（置顶与未读住在插件状态里，不在官方
+ * 会话快照里，所以要由这里并进来，见 `pure/sessionEligibility.ts`）。
+ */
+function eligibilityOf(node: SessionNode, pinned: boolean, unread: boolean): SessionEligibilityFacts {
+  return {
+    pinned,
+    running: node.running,
+    runningSubagentCount: node.runningSubagentCount,
+    unread,
+    ...(node.pendingInteraction === undefined ? {} : { pendingInteraction: node.pendingInteraction }),
+  }
+}
+
+/** 归档被拦的原因 → 文案键（置顶 / 等用户 / 运行中 / 未读四种，旧侧栏同款文案）。 */
+function archiveBlockKey(reason: SessionBlockReason): string {
+  return `protect.archive.${reason}`
+}
 
 // ---------------------------------------------------------------------------
 // 树的行组件（官方 rows/Rows.js 与 rows/WorkspaceBrowser.js 的同构复刻：
@@ -57,8 +122,19 @@ function SessionStatusDots({ statuses, tr }: { statuses: ReturnType<typeof sessi
 }
 
 /** 会话行悬停卡（官方 `SessionHoverContent`）：标题 + 相对时间 + 每条活状态。 */
-function SessionHoverContent({ node, now, tr }: { node: SessionNode; now: number; tr: Translate }): unknown {
-  const statuses = sessionStatuses(node)
+function SessionHoverContent({
+  node,
+  now,
+  tr,
+  unread,
+}: {
+  node: SessionNode
+  now: number
+  tr: Translate
+  /** #102：与行上的状态点同口径（未读那条在悬停卡里也读作「未读」，不是「空闲」）。 */
+  unread: boolean
+}): unknown {
+  const statuses = sessionStatuses({ ...node, unread })
   return h(
     'div',
     { className: 'dshOneTree_hoverContent' },
@@ -261,11 +337,15 @@ export function SessionRow({
   tr,
   selectMode,
   selected,
+  pinned,
+  unread,
   onToggleSelect,
   onOpen,
   onRename,
   onFork,
   onArchive,
+  onTogglePin,
+  onToggleUnread,
   onOpenInNewTab,
 }: {
   node: SessionNode
@@ -278,11 +358,19 @@ export function SessionRow({
   /** #81 功能 4：批量选择态（点整行 = 勾选/取消，而不是打开会话）。 */
   selectMode: boolean
   selected: boolean
+  /** #102：这一行在置顶 id 集合里（标题前出常驻图钉、菜单项变「取消置顶」）。 */
+  pinned: boolean
+  /** #102：这一行在手动未读 id 集合里（绿点 + 标题加粗、菜单项变「标为已读」）。 */
+  unread: boolean
   onToggleSelect: () => void
   onOpen: () => void
   onRename: (title: string) => void
   onFork: () => void
   onArchive: () => void
+  /** #102：置顶 / 取消置顶（写宿主机能力口的 `pinned` 键）。 */
+  onTogglePin: () => void
+  /** #102：标为未读 / 标为已读（写宿主能力口的 `unread` 键）。 */
+  onToggleUnread: () => void
   /**
    * 「在新标签页打开」（#72 多开通道）。**undefined = 这个宿主没有编辑器标签页**
    * （官方 web 形态）：菜单项不出现、行右键也不接管（不抢浏览器原生右键菜单）。
@@ -294,8 +382,14 @@ export function SessionRow({
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const title = displayTitle(node, tr)
   const isCurrent = node.id === currentId
-  const statuses = sessionStatuses(node)
-  const showStatus = showsStatusDot(statuses, node.completed)
+  // 资格判定（#102）：勾选 / 移入回收站 / 归档三条线的口径都在 pure 模块里，这里只取结果。
+  const facts = eligibilityOf(node, pinned, unread)
+  const selectable = canRecycle(facts)
+  const archiveBlocked = cannotArchiveReason(facts)
+  // 运行中（或后代在跑）的会话不能手动改未读：读起来就矛盾（跑着跑着「标为未读」）。
+  const unreadBlocked = sessionBusy(facts)
+  const statuses = sessionStatuses({ ...node, unread })
+  const showStatus = showsStatusDot(statuses, node.completed || unread)
   const openInNewTabItem =
     onOpenInNewTab === undefined
       ? []
@@ -312,9 +406,43 @@ export function SessionRow({
         ]
   const menuItems = [
     { id: 'rename', label: tr('rename'), icon: h(IconEditOutline16, {}) },
+    // #102 两项标记动作：文案随状态翻转，勾选态走官方 Menu 的 selectedIds（✓）。
+    // 禁用时的原因写在 label 节点的 title 上：官方 Menu 的项只有 label / icon /
+    // disabled / danger / submenu 几个槽，没有独立的提示槽（项渲染见官方 primitives
+    // 的 `Menu`），所以提示只能挂在 label 元素上。
+    {
+      id: 'pin',
+      label: h('span', { 'data-dshone-tree-item': 'pin' }, pinned ? tr('menu.unpin') : tr('menu.pin')),
+      icon: strokeIcon(PIN_PATHS),
+    },
+    {
+      id: 'unread',
+      label: h(
+        'span',
+        {
+          'data-dshone-tree-item': 'unread',
+          ...(unreadBlocked ? { title: tr('menu.unreadBlocked') } : {}),
+        },
+        unread ? tr('menu.markRead') : tr('menu.markUnread'),
+      ),
+      icon: h(UnreadIcon, {}),
+      disabled: unreadBlocked,
+    },
     { id: 'fork', label: tr('menu.fork'), icon: h(IconBranchOutline16, {}) },
     ...openInNewTabItem,
-    { id: 'archive', label: tr('menu.archiveSession'), icon: h(IconArchiveOutline20, { size: 16 }) },
+    {
+      id: 'archive',
+      label: h(
+        'span',
+        {
+          'data-dshone-tree-item': 'archive',
+          ...(archiveBlocked === null ? {} : { title: tr(archiveBlockKey(archiveBlocked)) }),
+        },
+        tr('menu.archiveSession'),
+      ),
+      icon: h(IconArchiveOutline20, { size: 16 }),
+      disabled: archiveBlocked !== null,
+    },
   ]
   const anchor = h(
     'button',
@@ -342,12 +470,19 @@ export function SessionRow({
       role: 'treeitem',
       'aria-selected': selectMode ? selected : isCurrent,
       'data-dshone-tree-row': 'session',
+      // 行上带的会话 id（与工作区行的 `data-dshone-tree-key` 同一个用途：验证套件据此
+      // 认行，不用去猜 DOM 顺序）。
+      'data-dshone-tree-session': node.id,
       // 行上的活状态（供验证套件把「工作区行尾的计数」与「行内真实状态」对照）：
       // 等待交互 > 运行中 > 空闲，与状态点的优先级同源。
       'data-dshone-tree-status':
         node.pendingInteraction !== undefined ? 'waiting' : node.running ? 'running' : 'idle',
-      ...(selectMode ? { 'data-dshone-tree-checked': selected } : {}),
-      onClick: selectMode ? onToggleSelect : onOpen,
+      // 置顶行不可勾选（#102）：选择态下点它不切换勾选（勾选框本身也带提示）。
+      // `data-dshone-tree-check` 把资格写在行上（验证套件按行读），提示在勾选框上。
+      ...(selectMode
+        ? { 'data-dshone-tree-checked': selected, 'data-dshone-tree-check': selectable ? 'eligible' : 'blocked' }
+        : {}),
+      onClick: selectMode ? (selectable ? onToggleSelect : () => {}) : onOpen,
       // 行右键开出同一份菜单（指针位置锚定）。三条不接管的线：
       // - 多开不可用的宿主（官方 web）：那里没有这一项可给，抢掉原生右键菜单只是添乱；
       // - 空白会话行（`node.blank`）：官方对这类行整个不给行菜单（见下面 actions 的
@@ -364,13 +499,25 @@ export function SessionRow({
             },
       children: [
         selectMode
-          ? h('span', { key: 'check', className: 'dshOneTree_check' }, h(SelectMark, { on: selected }))
+          ? h(
+              'span',
+              {
+                key: 'check',
+                className: 'dshOneTree_check',
+                // 置顶会话不可勾选（#102 保护规则）：勾选是「批量移入回收站」的前置，
+                // 而置顶不允许进回收站也不允许归档——所以最满也只勾得上它以外的行。
+                // 原因提示挂在勾选框上（行上挂会让整行都冒出原生气泡）。
+                ...(selectable ? {} : { title: tr('protect.recycle.pinned') }),
+              },
+              h(SelectMark, { on: selected, disabled: !selectable }),
+            )
           : !flat || showStatus
             ? showStatus
               ? h(SessionStatusDots, { key: 'status', statuses, tr })
               : h('span', { key: 'status', className: 'dshOneTree_slot' })
             : null,
-        h('span', { key: 'title', className: 'dshOneTree_title' }, title),
+        pinned ? h(PinMark, { key: 'pin', sessionId: node.id }) : null,
+        h('span', { key: 'title', className: `dshOneTree_title${unread ? ' dshOneTree_unread' : ''}` }, title),
         node.blank || selectMode
           ? null
           : h('span', {
@@ -390,10 +537,14 @@ export function SessionRow({
                   setMenuOpen(false)
                 },
                 items: menuItems,
+                // 两项标记动作的勾选态（官方 Menu 的 selectedIds：✓ 由官方渲染）。
+                selectedIds: [...(pinned ? ['pin'] : []), ...(unread ? ['unread'] : [])],
                 onSelect: (id: string) => {
                   setMenuAt(null)
                   setMenuOpen(false)
                   if (id === 'rename') onRename(node.title)
+                  if (id === 'pin') onTogglePin()
+                  if (id === 'unread') onToggleUnread()
                   if (id === 'fork') onFork()
                   if (id === 'openInNewTab') onOpenInNewTab?.()
                   if (id === 'archive') onArchive()
@@ -412,7 +563,7 @@ export function SessionRow({
   if (!hoverCard || selectMode) return row
   return h(HoverCard, {
     anchor: row,
-    content: h(SessionHoverContent, { node, now, tr }),
+    content: h(SessionHoverContent, { node, now, tr, unread }),
     disabled: menuOpen,
     copyText: node.blank ? undefined : node.title,
     copyLabel: tr('copy'),
@@ -426,6 +577,8 @@ export function SearchResultRow({
   workspaceLabel,
   snippet,
   selected,
+  pinned,
+  unread,
   tr,
   onOpen,
 }: {
@@ -433,11 +586,14 @@ export function SearchResultRow({
   workspaceLabel: string
   snippet?: string
   selected: boolean
+  /** #102：与树里的会话行同一套标记呈现（图钉 + 未读绿点 + 加粗）。 */
+  pinned: boolean
+  unread: boolean
   tr: Translate
   onOpen: () => void
 }): unknown {
-  const statuses = sessionStatuses(node)
-  const showStatus = showsStatusDot(statuses, node.completed)
+  const statuses = sessionStatuses({ ...node, unread })
+  const showStatus = showsStatusDot(statuses, node.completed || unread)
   return h(
     'button',
     {
@@ -454,7 +610,12 @@ export function SearchResultRow({
             showStatus
               ? h(SessionStatusDots, { key: 'status', statuses, tr })
               : h('span', { key: 'status', className: 'dshOneTree_slot' }),
-            h('span', { key: 'title', className: 'dshOneTree_searchRowTitle' }, displayTitle(node, tr)),
+            pinned ? h(PinMark, { key: 'pin', sessionId: node.id }) : null,
+            h(
+              'span',
+              { key: 'title', className: `dshOneTree_searchRowTitle${unread ? ' dshOneTree_unread' : ''}` },
+              displayTitle(node, tr),
+            ),
           ],
         }),
         h('span', {

@@ -288,12 +288,22 @@ export function deriveFlat(
   })
 }
 
-/** 官方 `sessionStatuses`：主状态 + 全部无障碍标签（顺序即优先级）。 */
+/**
+ * 官方 `sessionStatuses`：主状态 + 全部无障碍标签（顺序即优先级）。
+ *
+ * `unread` 是**我们的**一项扩展（#102 手动未读）：官方没有手动未读，只有「跑完
+ * 还没被打开」的完成提醒（`completed`）。规则与旧侧栏一行一致——手动未读在**空闲
+ * 档**借官方 `done` 那颗绿点（旧侧栏就是复用「已完成」的绿点），标签换成「未读」；
+ * 会话在跑或在等用户时，状态点让位给那两类（它们更该先说）。调用方要把未读并进
+ * 第二参给 `showsStatusDot`（否则空闲档那颗点不渲染）。
+ */
 export function sessionStatuses(node: {
   running: boolean
   runningSubagentCount: number
   completed: boolean
   pendingInteraction?: string
+  /** 会话在手动未读 id 集合里（缺省 = 没有，行为与官方一致）。 */
+  unread?: boolean
 }): SessionStatus[] {
   const subagents: SessionStatus | undefined =
     node.runningSubagentCount === 0
@@ -324,10 +334,18 @@ export function sessionStatuses(node: {
   }
   if (subagents !== undefined) return [subagents]
   if (node.completed) return [{ state: 'done', labelKey: 'status.completed' }]
+  // 手动未读（我们的扩展，见函数头）：空闲档借官方 `done` 绿点，标签是「未读」。
+  if (node.unread === true) return [{ state: 'done', labelKey: 'status.unread' }]
   return [{ state: 'done', labelKey: 'status.idle' }]
 }
 
-/** 会话行是否需要渲染状态位（官方 `showStatus`）。 */
+/**
+ * 会话行是否需要渲染状态位（官方 `showStatus`）。
+ *
+ * 第二参官方给的是 `completed`（「跑完还没被打开」的绿点常显）；#102 起调用方要把
+ * **手动未读**一并并进来（`completed || unread`）——两者共用官方 `done` 那颗绿点，
+ * 空闲档没有这个并项就不会渲染。
+ */
 export function showsStatusDot(statuses: readonly SessionStatus[], completed: boolean): boolean {
   return statuses[0]?.state !== 'done' || completed
 }

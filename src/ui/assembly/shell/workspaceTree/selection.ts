@@ -7,11 +7,19 @@ import type { Translate } from './types.ts'
 // #81 功能 4：批量选择（选择态与批量动作条）
 // ---------------------------------------------------------------------------
 
-/** 选中标记（官方圆角方框 + 官方对勾图标；不引第三方复选框件）。 */
-export function SelectMark({ on }: { on: boolean }): unknown {
+/**
+ * 选中标记（官方圆角方框 + 官方对勾图标；不引第三方复选框件）。
+ *
+ * `disabled` = 这一行不够格勾选（#102：置顶会话不可勾选，因为它既不能进回收站、
+ * 也不能归档）。灰态照旧画在同一枚标记里，点它也不切换（调用方不给切换回调）。
+ */
+export function SelectMark({ on, disabled }: { on: boolean; disabled?: boolean }): unknown {
   return h(
     'span',
-    { className: `dshOneTree_checkBox${on ? ' dshOneTree_checkOn' : ''}` },
+    {
+      className:
+        `dshOneTree_checkBox${on ? ' dshOneTree_checkOn' : ''}${disabled === true ? ' dshOneTree_checkOff' : ''}`,
+    },
     on ? h(IconCheckOutline16, { size: 12 }) : null,
   )
 }
