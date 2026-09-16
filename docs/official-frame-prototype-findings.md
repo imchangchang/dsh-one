@@ -117,7 +117,7 @@ keyed `main` 全局面板**（`ctx.layout.selectPanel` + `renderSlot('main', {},
 | chat 树 | 中列 + 自有右列（#77 已声明官方 `rightbar` 座位并渲染官方右栏） | 中列 + 官方右栏列（几何同官方 GUI；拖拽把手由官方给） |
 | chat 树侧栏 | 不存在（block 官方 ui-sidebar） | 存在但宽 0（要 JS 改写内联轨或纯 CSS 覆盖；纯 CSS 档右栏不再让轨） |
 | sidebar 树 | 侧栏铺满视图（自有 frame 直接给） | 2 条 CSS + 1 次官方 API 才铺满；不打理时官方自动降级成 56px 图标列、自有树被压成碎条 |
-| settings 树 | 自有槽位 `dshOne.settings.page` 渲染整页（自造槽位名） | 官方 keyed `main` 渲染整页（官方机制，零 CSS）← **净收益** |
+| settings 树 | 自有槽位 `dshOne.settings.page` 渲染整页（自造槽位名；**#95 已改成官方 keyed `main`**） | 官方 keyed `main` 渲染整页（官方机制，零 CSS）← **净收益** |
 | 主题呈现 | 我们的 `ThemePresenter` 收尾深色 | 官方 `ThemePresenter`，实测收尾**浅色**（见下） |
 
 ![现状 chat 树（自有 frame，1200px）](official-frame-shots/current-chat.png)
@@ -169,11 +169,15 @@ AppFrame 路线的已知缺陷（要修得先搞清 cordis 事件投递顺序，
 
 1. **维持现状**：三棵树继续由自有 frame 插件渲染 root，继续 block 官方 `ui-layout`，
    AGENTS.md 铁律的例外说明保持有效（本文件是这次复评的证据）。
-2. **吸收一处净收益**（另立 issue，不在本任务里改）：settings 树把设置页从自造槽位
+2. **吸收一处净收益**（**已落地：见 #95**）：settings 树把设置页从自造槽位
    `dshOne.settings.page` 换成官方 keyed `main` —— chat 树 root 已经声明
    `main: { kind: 'keyed' }`，settings 树照做即可；配套把 `LayoutController.selectPanel` 从
    「只接受 null」改成官方语义（在槽注册表里查 key）。这样设置页用的是官方契约，`DocumentTitle`、
    `panelInfo`、全局面板语义都白拿，也让「自造槽位名」少一个。
+   实际落地的样子：设置页是 `main` 上 key = `dshOne.settings` 的 keyed 条目，注册点用官方
+   `slots.inject('main', …)`（等声明出来再注册），渲染按官方 `entryKey` 取键，选中走
+   `ctx.layout.selectPanel('dshOne.settings')`；`selectPanel` 的判据照官方查 keyed `main` 的
+   实时注册表。页面外观与交互零变化，本文件其余结论（维持自有 frame）不受影响。
 3. **不要为了「符合铁律首选路径」换 root 渲染者**：换来的是官方列几何与一波压在官方内联样式/
    哈希类名上的覆盖（第 3 节清单），代价高于收益，且失效方式从「验证集先炸」退化成「静默长歪」。
 4. 若将来官方给 AppFrame 加了**关掉侧栏列的官方手段**（例如 `computeColumns` 允许 `sidebar` 为

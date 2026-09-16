@@ -305,7 +305,10 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
 export const inject = ['slots', 'theme', 'locale']
 
 export function apply(ctx: ShellContext): void {
-  const layout = new LayoutController()
+  // selectPanel 的合法性判据照官方取 keyed `main` 的实时注册表（本树里官方
+  // ui-conversation 注册的 key 是 `conversation`；官方 ui-layout 同款构造点见
+  // frameShared.LayoutController）。
+  const layout = new LayoutController((panelId) => ctx.slots.entries('main').some((entry) => entry.options.key === panelId))
   const conversationSeat = createConversationSeatMirror(ctx)
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
