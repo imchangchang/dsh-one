@@ -3,7 +3,7 @@ import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
-import type { Logger } from '../log.ts'
+import type { LogSink } from '../log.ts'
 import { cookieHeader } from './serverAuth.ts'
 import { blockedIdsOf, extractBootWire, CHAT_BLOCK_LIST, SHELL_PLUGIN_ID, type BlockedPlugin } from '../ui/assembly/wireFilter.ts'
 
@@ -19,8 +19,8 @@ export { cookieHeader, registerAuth, exchangeToken, probeToken, dshVersion } fro
  *   直接读盘；**含官方 id 时** = 过滤版 application 批——拉网关原 combo
  *   （探针证实 rev 是内容校验：重拼/错 rev 一律 404，只能拉原 combo)，按
  *   `window.__ModuleLoader__.load({` 边界剥掉 BLOCK_LIST 段后伺服；
- * - /（可选)：装配页 HTML（lab harness 传 assemblyPage 时；webview 形态由
- *   外壳生成 HTML，不走 mirror)；
+ * - /（可选)：装配页 HTML（options.assemblyPage 提供时；生产由外壳生成 HTML，
+ *   实验室按树路由自己伺服页面，都不走这个口）；
  * - 其余一切路径（/api、/assets、/plugins、/provider/status、/plan/status……)
  *   原样反代网关：Origin/Referer 改写为网关权威、cookie 服务侧附加，
  *   /api/remote.mux WS 升级转裸管道——#60/#63 已验证三件套。blocklist 模式
@@ -58,13 +58,13 @@ export interface AssemblyMirrorOptions {
    * （CHAT_BLOCK_LIST 兼容行为）。
    */
   treeCombos?: ReadonlyArray<AssemblyTreeCombo>
-  /** 可选：GET / 返回的装配页 HTML（lab harness 传；webview 形态由外壳生成）。 */
+  /** 可选：GET / 返回的装配页 HTML（调试用的单页形态；生产与实验室都不传）。 */
   assemblyPage?: () => string | undefined
 }
 
 export function startAssemblyMirror(
   target: () => string | undefined,
-  logger: Logger,
+  logger: LogSink,
   options: AssemblyMirrorOptions,
 ): Promise<AssemblyMirror> {
   // 过滤版官方 combo 缓存：按树缓存（key = 该树 shellPluginId，#71 共享
@@ -156,7 +156,7 @@ const CLIENT_SUFFIX = '/client.js'
 async function fetchFilteredGatewayCombo(
   target: () => string | undefined,
   blockIds: readonly string[],
-  logger: Logger,
+  logger: LogSink,
 ): Promise<{ text: string; ids: ReadonlySet<string> }> {
   const gateway = target()
   if (gateway === undefined) throw new Error('assembly mirror: dsh service is not running')
@@ -215,7 +215,7 @@ async function serveCombo(
   options: AssemblyMirrorOptions,
   filteredGatewayCombo: (shellPluginId: string) => Promise<{ text: string; ids: ReadonlySet<string> }>,
   treeComboKeys: ReadonlySet<string>,
-  logger: Logger,
+  logger: LogSink,
 ): Promise<void> {
   // search = "?<list…>&rev=…"：第一个 '?' 起 query，第二个 '?' 起 combo 列表。
   const query = url.search.slice(1)
@@ -301,7 +301,7 @@ function proxyRequest(
   req: IncomingMessage,
   res: ServerResponse,
   target: () => string | undefined,
-  logger: Logger,
+  logger: LogSink,
 ): void {
   const gateway = target()
   if (gateway === undefined) {
@@ -337,7 +337,7 @@ function proxyUpgrade(
   clientSocket: Duplex,
   head: Buffer,
   target: () => string | undefined,
-  logger: Logger,
+  logger: LogSink,
 ): void {
   const gateway = target()
   if (gateway === undefined || !new URL(req.url ?? '/', gateway).pathname.startsWith('/api/')) {

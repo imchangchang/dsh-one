@@ -14,28 +14,13 @@ import { drainAfterCreate, routeSelection } from '../pure/sessionPanelRouting.ts
 import { listSessions } from '../server/dshRpc.ts'
 import { workspaceRootsOfSessionRows } from '../pure/workspaceRoots.ts'
 import {
-  CHAT_BLOCK_LIST,
-  COMPOSER_CLEAR_PLUGIN_ID,
-  CONTEXT_MENU_PLUGIN_ID,
-  GIT_CARD_PLUGIN_ID,
-  SETTINGS_BLOCK_LIST,
-  SIDEBAR_BLOCK_LIST,
-  SETTINGS_GEAR_PLUGIN_ID,
-  SETTINGS_SHELL_PLUGIN_ID,
-  SHELL_PLUGIN_ID,
-  SIDEBAR_SHELL_PLUGIN_ID,
-  SESSION_BOOT_PLUGIN_ID,
-  SESSION_BRIDGE_PLUGIN_ID,
-  SESSION_EXPORT_PLUGIN_ID,
-  THEME_FOLLOW_PLUGIN_ID,
-  WORKSPACE_TREE_PLUGIN_ID,
   extractBootWire,
   extractFrontendAssets,
   filterWire,
-  type BlockedPlugin,
   type BootWire,
   type GatewayAssets,
 } from './assembly/wireFilter.ts'
+import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, type AssemblyTree } from './assembly/trees.ts'
 
 /**
  * cordis 装配视图（#64 对话区面板，#70 起泛化为两棵树）：
@@ -89,44 +74,6 @@ export function wasAssembledChatClosedByUser(): boolean {
 interface GatewayAssembly {
   wire: BootWire
   assets: GatewayAssets
-}
-
-/** 一棵树 = 一份 block list + 一个自有 frame 插件 id + 追加的共用插件（见 wireFilter.ts）。 */
-interface AssemblyTree {
-  blockList: ReadonlyArray<BlockedPlugin>
-  shellPluginId: string
-  extraPluginIds: readonly string[]
-}
-
-/**
- * 三棵树（#64 chat / #70 sidebar + settings）：
- * - chat 树：装配对话区
- * - sidebar 树：侧栏位（追加设置齿轮影子）
- * - settings 树：设置独立成页（block list = 外框 + 对话流卡片组）
- */
-const CHAT_TREE: AssemblyTree = {
-  blockList: CHAT_BLOCK_LIST,
-  shellPluginId: SHELL_PLUGIN_ID,
-  extraPluginIds: [
-    THEME_FOLLOW_PLUGIN_ID,
-    SESSION_BOOT_PLUGIN_ID,
-    SESSION_EXPORT_PLUGIN_ID,
-    // #65 批 1：Git 卡片 / 右键菜单家族 / 清空三件套（均 chat 树）。
-    GIT_CARD_PLUGIN_ID,
-    CONTEXT_MENU_PLUGIN_ID,
-    COMPOSER_CLEAR_PLUGIN_ID,
-  ],
-}
-const SIDEBAR_TREE: AssemblyTree = {
-  blockList: SIDEBAR_BLOCK_LIST,
-  shellPluginId: SIDEBAR_SHELL_PLUGIN_ID,
-  // #65 批 2：工作区/会话树换成自有影子插件（官方 sidebar.workspaces 座位）。
-  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SETTINGS_GEAR_PLUGIN_ID, SESSION_BRIDGE_PLUGIN_ID, WORKSPACE_TREE_PLUGIN_ID],
-}
-const SETTINGS_TREE: AssemblyTree = {
-  blockList: SETTINGS_BLOCK_LIST,
-  shellPluginId: SETTINGS_SHELL_PLUGIN_ID,
-  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID],
 }
 
 /** 版本门区间（低于下限缺 browser-session 认证/装载协议，高于上限行为无保证）。 */
@@ -468,11 +415,7 @@ async function acquireSharedMirror(
     logger,
     {
       pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
-      treeCombos: [
-        { shellPluginId: SHELL_PLUGIN_ID, blockList: CHAT_TREE.blockList },
-        { shellPluginId: SIDEBAR_SHELL_PLUGIN_ID, blockList: SIDEBAR_TREE.blockList },
-        { shellPluginId: SETTINGS_SHELL_PLUGIN_ID, blockList: SETTINGS_TREE.blockList },
-      ],
+      treeCombos: ASSEMBLY_TREES.map((tree) => ({ shellPluginId: tree.shellPluginId, blockList: tree.blockList })),
     },
   )
   sharedMirrors.set(gateway, { mirror, refs: 1, key: gateway })
@@ -506,8 +449,8 @@ export async function preheatAssembly(context: vscode.ExtensionContext, manager:
     const mirror = await acquireSharedMirror(context, manager, logger)
     // 每树预取一次 combo：请求里带一个保留段官方 id（触发该树过滤整包的
     // 拉取与伺服缓存）+ 该树 shell id（缓存路由键）。rev 任意值即可（缓存键）。
-    for (const shellId of [SHELL_PLUGIN_ID, SIDEBAR_SHELL_PLUGIN_ID, SETTINGS_SHELL_PLUGIN_ID]) {
-      await fetch(`${mirror.origin}/plugins-local/??@deepseek-ai/dsh-client-ui-theme/client.js,${shellId}/client.js&rev=preheat`)
+    for (const tree of ASSEMBLY_TREES) {
+      await fetch(`${mirror.origin}/plugins-local/??@deepseek-ai/dsh-client-ui-theme/client.js,${tree.shellPluginId}/client.js&rev=preheat`)
     }
     releaseSharedMirror(mirror)
     logger.info('assembly preheat: shared mirror + tree combos warmed')

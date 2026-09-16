@@ -15,7 +15,18 @@ export function sanitize(text: string): string {
   return text.replace(/https?:\/\/[^\s"'<>]+/g, (u) => sanitizeUrl(u))
 }
 
-export class Logger implements vscode.Disposable {
+/**
+ * 日志接收面：`Logger` 实现它，只关心「记三条日志」的调用方按这个签名收参数
+ * （在 node 环境里跑的验证 harness / 单测没有 vscode，实现不了 Logger 类，
+ * 但完全满足这个接口）。
+ */
+export interface LogSink {
+  info(message: string): void
+  warn(message: string): void
+  error(message: string): void
+}
+
+export class Logger implements vscode.Disposable, LogSink {
   private readonly channel = vscode.window.createOutputChannel('DSH One')
 
   private write(level: string, message: string): void {

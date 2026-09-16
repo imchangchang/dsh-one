@@ -1,4 +1,4 @@
-import type { Logger } from '../log.ts'
+import type { LogSink } from '../log.ts'
 import { parse as parseSemver } from '../pure/semver.ts'
 
 /**
@@ -93,7 +93,7 @@ function parseSetCookie(value: string): string | null {
 }
 
 /** GET /?token=... and register the returned auth cookie. */
-export async function exchangeToken(origin: string, token: string, logger: Logger): Promise<ServerAuth> {
+export async function exchangeToken(origin: string, token: string, logger: LogSink): Promise<ServerAuth> {
   const res = await fetch(`${origin}/?token=${encodeURIComponent(token)}`, {
     redirect: 'manual',
     signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS),
@@ -126,7 +126,7 @@ export function browserUrl(origin: string): string {
  * Non-throwing probe used before adopting or re-owning: a 303 answers only
  * when the token was minted by the very process on that port.
  */
-export async function probeToken(origin: string, token: string, logger: Logger): Promise<ServerAuth | null> {
+export async function probeToken(origin: string, token: string, logger: LogSink): Promise<ServerAuth | null> {
   try {
     return await exchangeToken(origin, token, logger)
   } catch (err) {

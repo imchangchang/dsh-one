@@ -5,9 +5,10 @@
  * ## 走第几层机制
  *
  * **写入/还原 = 机制层 2（官方服务 API）**，零 DOM 操作：
- * - 清空正文 `inputActions.setDraft('')`、清待发附件 `inputActions.removeImage(id)`；
+ * - 清空正文 `inputActions.setDraft('')`、清待发附件 `inputActions.removeAttachment(id)`
+ *   （0.1.6 起的方法名；老版本仍是 `removeImage`，见下方跨版本取用）；
  * - 撤销正文 `setDraft(快照)`，撤销引用 chip `conversation.input.for(scopeCtx).insertReference(...)`
- *   （倒序插 + 每次现读 draftRev 做 span CAS），附件 `addImages(快照)`。
+ *   （倒序插 + 每次现读 draftRev 做 span CAS），附件 `addAttachments(快照)`。
  *
  * **提示 UI = 机制层 1（官方槽位）**：登记进 `conversation.input.overlay`（官方
  * ComposerBar 声明的 list 座位，"Floating entries rendered inside the resident
@@ -58,12 +59,24 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin
   document.head.appendChild(tag)
 }
 
-/** InputState 里本插件用到的字段（官方契约的子集）。 */
+/**
+ * InputState 里本插件用到的字段（官方契约的子集）。
+ *
+ * **跨版本取用**：dsh 0.1.6 把待发附件由 `imageIds` 改名成 `attachmentIds`
+ * （官方 `contract/input.d.ts` 的 `InputState`），动作由 `addImages` /
+ * `removeImage` 改名成 `addAttachments` / `removeAttachment`。dsh-one 同时服务
+ * 0.1.2~0.1.6，所以这里按「字段/方法在不在」取用，不按版本号分支。漏了这层的
+ * 症状（#78 装配实验室在 0.1.6 上抓到）：第二次 Esc 清空抛
+ * `current.imageIds is not iterable`，清空与撤销双双失效。
+ */
 interface InputStateView {
   draft: string
-  imageIds: readonly string[]
   draftRev: number
   occurrences: readonly OccurrenceView[]
+  /** 老版本（≤0.1.5）的待发附件字段。 */
+  imageIds?: readonly string[]
+  /** 0.1.6 起的待发附件字段。 */
+  attachmentIds?: readonly string[]
 }
 
 /** 引用 chip 的快照形态（官方 Occurrence 的子集，够 insertReference 用）。 */
@@ -77,18 +90,43 @@ interface OccurrenceView {
   appearance?: 'session' | 'file' | 'folder'
 }
 
-/** InputActions 公开面（官方契约的子集）。 */
+/** InputActions 公开面（官方契约的子集；附件两法按版本二选一存在）。 */
 interface InputActionsView {
   setDraft(text: string): void
-  addImages(ids: readonly string[]): boolean
-  removeImage(id: string): void
+  addImages?(ids: readonly string[]): boolean
+  removeImage?(id: string): void
+  addAttachments?(ids: readonly string[]): boolean
+  removeAttachment?(id: string): void
 }
 
-/** 清空前的快照（正文 + 引用 chip + 图片）。 */
+/** 无附件时的稳定空值：selector 每次返回新数组会让官方 useSyncExternalStore 无限重渲。 */
+const NO_ATTACHMENTS: readonly string[] = []
+
+/** 待发附件 id（0.1.6 = attachmentIds，老版本 = imageIds，都没有 = 空）。 */
+function attachmentIdsOf(state: InputStateView): readonly string[] {
+  return state.attachmentIds ?? state.imageIds ?? NO_ATTACHMENTS
+}
+
+/** 清空时移除待发附件（官方 0.1.6 = removeAttachment，老版本 = removeImage）。 */
+function removeAttachments(actions: InputActionsView, ids: readonly string[]): void {
+  for (const id of ids) {
+    if (typeof actions.removeAttachment === 'function') actions.removeAttachment(id)
+    else actions.removeImage?.(id)
+  }
+}
+
+/** 撤销时还回待发附件（官方 0.1.6 = addAttachments，老版本 = addImages）。 */
+function restoreAttachments(actions: InputActionsView, ids: readonly string[]): void {
+  if (ids.length === 0) return
+  if (typeof actions.addAttachments === 'function') actions.addAttachments(ids)
+  else actions.addImages?.(ids)
+}
+
+/** 清空前的快照（正文 + 引用 chip + 待发附件）。 */
 interface ClearSnapshot {
   draft: string
   occurrences: readonly OccurrenceView[]
-  imageIds: readonly string[]
+  attachmentIds: readonly string[]
 }
 
 /** 官方作用域寻址的 conversation 面（撤销引用 chip 用）。 */
@@ -147,15 +185,15 @@ function hasSelection(): boolean {
 function ComposerClear({ useInput, inputActions, sessionId, t, sessionFaceOf }: ClearProps) {
   const tr = t
   const draft = useInput((s) => s.draft)
-  const imageIds = useInput((s) => s.imageIds)
+  const attachmentIds = useInput((s) => attachmentIdsOf(s))
   const occurrences = useInput((s) => s.occurrences)
   const [armedKey, setArmedKey] = useState<'escape' | 'ctrl-c' | null>(null)
   const [snapshot, setSnapshot] = useState<ClearSnapshot | null>(null)
   const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 事件回调要读最新值：用 ref 影子跟随（闭包陷阱）
-  const live = useRef({ draft, imageIds, occurrences })
-  live.current = { draft, imageIds, occurrences }
+  const live = useRef({ draft, attachmentIds, occurrences })
+  live.current = { draft, attachmentIds, occurrences }
   const snapshotRef = useRef<ClearSnapshot | null>(null)
   const armedRef = useRef<'escape' | 'ctrl-c' | null>(null)
   armedRef.current = armedKey
@@ -175,14 +213,14 @@ function ComposerClear({ useInput, inputActions, sessionId, t, sessionFaceOf }: 
     }
   }
 
-  /** 清空：官方 setDraft('') + 逐个 removeImage（先存快照供撤销）。 */
+  /** 清空：官方 setDraft('') + 逐个移除待发附件（先存快照供撤销）。 */
   const clearNow = (): void => {
     const current = live.current
-    const taken: ClearSnapshot = { draft: current.draft, occurrences: current.occurrences, imageIds: current.imageIds }
+    const taken: ClearSnapshot = { draft: current.draft, occurrences: current.occurrences, attachmentIds: current.attachmentIds }
     snapshotRef.current = taken
     setSnapshot(taken)
     inputActions.setDraft('')
-    for (const id of current.imageIds) inputActions.removeImage(id)
+    removeAttachments(inputActions, current.attachmentIds)
     setArmedKey(null)
     clearArmTimer()
     if (undoTimer.current !== null) clearTimeout(undoTimer.current)
@@ -219,15 +257,15 @@ function ComposerClear({ useInput, inputActions, sessionId, t, sessionFaceOf }: 
         console.warn(`[dsh-one] composer clear: reference restore skipped: ${String(err)}`)
       }
     }
-    if (taken.imageIds.length > 0) inputActions.addImages(taken.imageIds)
+    restoreAttachments(inputActions, taken.attachmentIds)
     closeUndoWindow()
   }
 
   // 清空后用户又开始打字 → 关掉撤销窗口（快照丢掉）：否则此时的 Ctrl+Z 会把
   // 新输入整段替换回旧内容，等于吞掉用户刚敲的字（#16 的「打字解除武装」同理）。
   useEffect(() => {
-    if (snapshotRef.current !== null && (draft !== '' || imageIds.length > 0)) closeUndoWindow()
-  }, [draft, imageIds])
+    if (snapshotRef.current !== null && (draft !== '' || attachmentIds.length > 0)) closeUndoWindow()
+  }, [draft, attachmentIds])
 
   // 键位监听（第 4 层，见文件头举证）：挂自有 frame 根捕获阶段，只考虑
   // composer 卡之内的按键，放行条件一律不拦。
@@ -246,7 +284,7 @@ function ComposerClear({ useInput, inputActions, sessionId, t, sessionFaceOf }: 
       if (undoOpen && isEscape) return
       const action = decideKeyAction({
         key: isCtrlC ? 'ctrl-c' : 'escape',
-        hasContent: live.current.draft !== '' || live.current.imageIds.length > 0,
+        hasContent: live.current.draft !== '' || live.current.attachmentIds.length > 0,
         armed: armedRef.current !== null,
         hasSelection: hasSelection(),
         blocked: overlayOpen(),

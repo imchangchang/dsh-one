@@ -1,0 +1,234 @@
+/**
+ * 浏览器验证 harness 的公共件（#78）：开页、抓控制台、查槽位、收集断言。
+ *
+ * 验证套件（suites.ts）只用这里的两样东西：
+ * - `openTreePage`：按实验室某棵树的页面开一个干净上下文（新 localStorage、
+ *   装了假宿主），等首屏就绪并静置，返回该页的控制台/报错记录；
+ * - `Check`：断言收集器——一条断言一处观测，最后折成 ledger 条目。
+ */
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
+import { fakeHostScript } from './fakeHost.ts'
+import type { LabServer, LabTreeRoute } from './labServer.ts'
+
+/** 一条断言的结论。 */
+export interface Assertion {
+  label: string
+  ok: boolean
+  detail: string
+}
+
+/** 断言收集器：`ok/eq` 记一条，`fact` 记一个观测值（不计入通过数，写进报告说明）。 */
+export class Check {
+  private readonly assertions: Assertion[] = []
+  private readonly facts: string[] = []
+
+  ok(label: string, condition: boolean, detail?: unknown): boolean {
+    this.assertions.push({ label, ok: condition, detail: detail === undefined ? '' : String(detail) })
+    return condition
+  }
+
+  eq(label: string, actual: unknown, expected: unknown): boolean {
+    const same = JSON.stringify(actual) === JSON.stringify(expected)
+    return this.ok(label, same, same ? String(actual) : `actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`)
+  }
+
+  /** 只记录观测值（例如「treeitems=17」），不判定。 */
+  fact(line: string): void {
+    this.facts.push(line)
+  }
+
+  get passed(): number {
+    return this.assertions.filter((a) => a.ok).length
+  }
+
+  get failed(): Assertion[] {
+    return this.assertions.filter((a) => !a.ok)
+  }
+
+  get total(): number {
+    return this.assertions.length
+  }
+
+  /** 报告里的「说明」栏：先给结论计数，再给观测值，最后列失败明细。 */
+  notes(): string {
+    const head = `本套件断言 ${String(this.total)} 条，通过 ${String(this.passed)}。`
+    const facts = this.facts.length === 0 ? '' : `\n观测：\n${this.facts.map((f) => `- ${f}`).join('\n')}`
+    const failures =
+      this.failed.length === 0
+        ? ''
+        : `\n失败断言：\n${this.failed.map((f) => `- ${f.label}${f.detail === '' ? '' : `（${f.detail}）`}`).join('\n')}`
+    return head + facts + failures
+  }
+}
+
+/** 一页的控制台记录（分类靠文本，因为官方不会给错误打标记）。 */
+export interface PageCapture {
+  consoleErrors: string[]
+  consoleWarnings: string[]
+  pageErrors: string[]
+  /** 全部 console 文本（诊断用，仅在失败时进报告）。 */
+  all: string[]
+}
+
+/** 官方渲染层的崩溃信号：槽位条目抛错 / 链式选择器抛错。 */
+export const CRASH_RE = /slot entry crashed|chain selector crashed/
+/** 官方装载层的「契约没满足」信号：条目没激活（缺服务）——页面上会整块报错。 */
+export const BOOT_FAIL_RE = /did not activate|waiting for service/
+
+/**
+ * 已知噪音白名单：**只**放行与底座契约无关、且另有 issue 跟踪的官方插件噪音。
+ * 崩溃（`slot entry crashed`）与装载未激活（`did not activate`）永远不准进这里
+ * ——它们就是本套件要抓的底座缺口。每条必须带理由与跟踪 issue，无跟踪的不许进。
+ */
+export const KNOWN_NOISE: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
+  {
+    pattern: /cannot get required service "sessions" in inactive context/,
+    reason:
+      '#74：设置树里官方 @deepseek-ai/dsh-client-ui-agent-preset 的槽位控制器在非活跃上下文读 sessions 服务（官方 web 同动作零报错），设置页照常渲染——与本仓库底座契约无关。',
+  },
+]
+
+/** 命中白名单则返回理由（用于报告里如实记录放行了什么）。 */
+export function knownNoise(line: string): string | undefined {
+  return KNOWN_NOISE.find((entry) => entry.pattern.test(line))?.reason
+}
+
+/** 过滤掉已知噪音后的行（报告里同时保留「放行了什么」）。 */
+export function withoutKnownNoise(lines: readonly string[]): { real: string[]; noise: string[] } {
+  const real: string[] = []
+  const noise: string[] = []
+  for (const line of lines) {
+    if (knownNoise(line) === undefined) real.push(line)
+    else noise.push(line)
+  }
+  return { real, noise }
+}
+
+
+export function capturePage(page: Page): PageCapture {
+  const captured: PageCapture = { consoleErrors: [], consoleWarnings: [], pageErrors: [], all: [] }
+  page.on('console', (message) => {
+    const text = `${message.type()}: ${message.text()}`
+    captured.all.push(text)
+    if (message.type() === 'error') captured.consoleErrors.push(message.text())
+    if (message.type() === 'warning') captured.consoleWarnings.push(message.text())
+  })
+  page.on('pageerror', (error) => {
+    captured.pageErrors.push(error.message)
+    captured.all.push(`pageerror: ${error.message}`)
+  })
+  return captured
+}
+
+/** 打开一棵树的页面：干净上下文 + 假宿主 + 等首屏 + 静置。 */
+export interface OpenOptions {
+  width?: number
+  height?: number
+  theme?: 'dark' | 'light'
+  /** chat 树的启动注入会话 id。 */
+  sessionId?: string
+  /** 首屏就绪超时（毫秒）。 */
+  readyTimeoutMs?: number
+  /** 首屏就绪后再静置多久（让异步注册/首帧请求落定）。 */
+  settleMs?: number
+}
+
+export interface OpenedPage {
+  context: BrowserContext
+  page: Page
+  capture: PageCapture
+  url: string
+  /** 首屏就绪选择器是否出现（false 时页面很可能整块没起来）。 */
+  ready: boolean
+}
+
+export async function openTreePage(
+  browser: Browser,
+  lab: LabServer,
+  route: LabTreeRoute,
+  options: OpenOptions = {},
+): Promise<OpenedPage> {
+  const context = await browser.newContext({
+    viewport: { width: options.width ?? 1200, height: options.height ?? 900 },
+    deviceScaleFactor: 2,
+  })
+  await context.addInitScript({ content: fakeHostScript() })
+  const page = await context.newPage()
+  const capture = capturePage(page)
+  const query = new URLSearchParams()
+  if (options.theme === 'light') query.set('theme', 'light')
+  if (options.sessionId !== undefined && options.sessionId !== '') query.set('session', options.sessionId)
+  const suffix = query.toString() === '' ? '' : `?${query.toString()}`
+  const url = `${lab.origin}/${route.route}${suffix}`
+  await page.goto(url, { waitUntil: 'domcontentloaded' })
+  let ready = true
+  try {
+    await page.waitForSelector(route.readySelector, { timeout: options.readyTimeoutMs ?? 40_000 })
+  } catch {
+    ready = false
+  }
+  await page.waitForTimeout(options.settleMs ?? 2_500)
+  return { context, page, capture, url, ready }
+}
+
+export interface SlotFact {
+  key: string
+  children: number
+}
+
+/** 页面上所有槽位锚点的子元素数 + 崩溃标记（`data-slot-error`）。 */
+export async function slotFacts(page: Page): Promise<{ slots: SlotFact[]; errors: string[] }> {
+  return page.evaluate(() => {
+    const slots = Array.from(document.querySelectorAll('[data-slot]')).map((element) => ({
+      key: element.getAttribute('data-slot') ?? '',
+      children: element.children.length,
+    }))
+    const errors = Array.from(document.querySelectorAll('[data-slot-error]')).map(
+      (element) => element.getAttribute('data-slot-error') ?? '',
+    )
+    return { slots, errors }
+  })
+}
+
+/**
+ * 槽位锚点的子元素数：`key` 是**完整槽位名**（如 `main`、`main.conversation`、
+ * `conversation.composer.bar`）。给了 `outer` 就先定位外层锚点，再在外层之内找
+ * `key`——用来断言嵌套槽位的从属关系。找不到返回 -1。
+ */
+export async function slotChildren(page: Page, key: string, outer?: string): Promise<number> {
+  return page.evaluate(
+    ({ slotKey, outerKey }) => {
+      const scope: Element | null =
+        outerKey === null ? document.body : document.querySelector(`[data-slot="${outerKey}"]`)
+      const found: Element | null = scope === null ? null : scope.querySelector(`[data-slot="${slotKey}"]`)
+      return found === null ? -1 : found.children.length
+    },
+    { slotKey: key, outerKey: outer ?? null },
+  )
+}
+
+/** 页面可见文本（诊断/内容断言用，先压缩空白）。 */
+export async function bodyText(page: Page): Promise<string> {
+  const text = await page.evaluate(() => document.body.innerText)
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+/** 本次运行里页面上出现过的「契约缺口」文案（崩溃/未激活），失败时写进报告。 */
+export function contractGaps(
+  capture: PageCapture,
+  extraErrors: readonly string[] = [],
+): { crashes: string[]; bootFails: string[]; pageErrors: string[]; noise: string[] } {
+  const errors = withoutKnownNoise([...capture.pageErrors, ...extraErrors])
+  const lines = [...capture.consoleErrors, ...capture.consoleWarnings, ...capture.pageErrors, ...extraErrors]
+  return {
+    crashes: lines.filter((line) => CRASH_RE.test(line)),
+    bootFails: lines.filter((line) => BOOT_FAIL_RE.test(line)),
+    pageErrors: errors.real,
+    noise: errors.noise,
+  }
+}
+
+/** 造一个 headless（或带界面）的 chromium。 */
+export async function launchBrowser(headless = true): Promise<Browser> {
+  return chromium.launch({ headless })
+}

@@ -153,8 +153,8 @@ test/sandbox/run-sandbox.sh --help   # 全部参数
 
 ## 验收口径（#68 起）
 
-- **对话区验收 = 装配的浏览器验证**：旧自研聊天区已于 #68 下线，对话区是官方组件装配页。验收用 Playwright 直开装配页（harness 在仓库根的 `.dev-host/`，gitignored，随验证 session 重建）跑断言 + 截图，快且确定性高；这是对话区的第一道验收。
-- **侧栏与宿主行为验收 = VS Code 验证**：本沙盒（code-server + 真 dsh + 插件 vsix）配 Kimi WebBridge 截图与语义核对，或由人跑 `scripts/dev-ui-test.sh` 起隔离 VS Code 窗口实测（最终准绳）。
+- **对话区/装配验收 = 浏览器验证**：对话区、侧栏树、设置页都是官方组件装配页。验收用仓库常驻的 Playwright harness（`test/assembly-lab/`，一条命令 `npm run verify:lab`）直开装配页跑断言 + 截图，快且确定性高；**底座契约完备性**（四棵树零 `slot entry crashed`、零缺失服务/钩子）是其中 CONTRACT 套件的常驻断言。这是第一道验收，跑法与套件清单见 `test/assembly-lab/README.md`。
+- **宿主行为验收 = VS Code 验证**：本沙盒（code-server + 真 dsh + 插件 vsix）配 Kimi WebBridge 截图与语义核对，或由人跑 `scripts/dev-ui-test.sh` 起隔离 VS Code 窗口实测（最终准绳）。
 - 旧的 Playwright 自动驱动（`verify-driver.mjs`）只驱动旧聊天 webview 的 composer（`textarea#input` + `.send-button`），旧聊天区下线后没有可驱动对象，已随 #68 移除；CI 基线 `verify.ledger.json` 收缩为侧栏/宿主回归项。
 
 ## 远程驱动配方（WebBridge 实测记录，2026-09-04）
