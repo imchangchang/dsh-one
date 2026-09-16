@@ -1,0 +1,142 @@
+{
+  "title": "DSH One 装配线测试报告：官方 open-in-app 能力在 VS Code 对话区缺席（#87）",
+  "branch": "agent/open-in-app",
+  "commit": "a1489b5",
+  "environment": {
+    "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）；VS Code 侧证据沿用上一轮真窗（本轮未重开）",
+    "dsh": "0.1.6-alpha.1",
+    "locale": "zh-cn",
+    "theme": "dark",
+    "viewports": "1200（chat 树）；侧栏三档 260/340/500（回归）",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（9 个套件，LAB_PORT=3321）",
+    "date": "2026-09-16T03:15:56.451Z"
+  },
+  "coverageNote": "本分支已 rebase 到集成线 `develop/cordis-chat`（本轮基线 = 合入 #77 base-structural 后），套件编号按集成线占用顺延为 **F-09**（F-06 PORTABLE / F-07 SIDEBAR 是线的，F-08 预留给 #72）。两个根因都在验证集里钉住了：①官方 `dsh-session-log-export` 的遮蔽曾经用「该 slot 内一切非自有条目 display:none」的 CSS 实现，把 0.1.6 新加进同一 slot 的官方 open-in-app 条目一起摘掉——现在按官方槽位机制用同 id + priority −1 shadow，F-09 逐条断言座位里每个条目的可见性；②官方 open-in-app 用裸 fetch 打自己的宿主路由（基址取 location.origin，读不到时退回官方常量 http://dsh.internal），VS Code webview 里页面源是 vscode-webview://，读取失败被官方 `catch {}` 吞掉 → 应用清单为空 → 按钮不渲染——页面传输接缝现在接管全局 fetch、把这两类宿主寻址 URL 改写到 loopback，F-09 用两条寻址实测 + resource timing 证明改写落点。\n\n未覆盖，逐条说明：①**没真启动过任何本地应用**（访达 / iTerm2 / 终端）——那会在用户机器上开窗，属写类动作；只验到「菜单打开 + 四个应用项与图标到位」，即启动按钮发出的 POST 之前的一切（POST 本身走同一条已验的宿主路由改写）。②**官方 `/open-in-app/open` 的 HTTP 200 语义**没实测（需要真启动应用）。③**Windows/Linux** 的平台清单（explorer / filemanager / 各种终端）没验——本机网关只探到 macOS 的四个。④真模型输出、macOS 之外的 VS Code 宿主形态不在范围内。⑤**VS Code 侧本轮没有重开真窗**（新规：起真窗只有人跑），沿用上一轮同一份代码的真窗证据（见 R-07；rebase 没有触及这两个被改文件）。",
+  "items": [
+    {
+      "id": "F-09",
+      "phase": "new-feature",
+      "name": "对话区会话头 utilities 座位的条目集合：官方 open-in-app 与自有导出都在且都可见（HEADER-UTILITIES 套件）",
+      "expect": "chat 树在**真实会话**下打开：`conversation.session.header.utilities` 座位里官方 `@deepseek-ai/dsh-client-ui-open-in-app` 的贡献在（DOM 有它的 split button，取 /open-in-app/icon/* 的应用图标）且**可见**（该条目矩形非 0、没有被 display:none 摘掉呈现）；自有 `@dsh-one/dsh-session-export` 的导出按钮同样在且可见；座位里没有任何一个条目被自有 CSS 摘掉呈现（#87 的缺席就是「该座位上一切非自有条目一律 display:none」造成的，这里按条目逐个盯住）；官方 `dsh-session-log-export` 的同 id 条目被本插件的 shadow（priority −1）顶掉、不再渲染（防止两个导出入口并存）。另：官方宿主路由（应用清单 `/open-in-app/apps`）在页面里可达——一条取官方内部基址 `http://dsh.internal`、一条取页面自身源，两条都要 200 且带应用清单（webview 里页面源不是网关，这类按 location.origin 寻址的裸 fetch 由页面传输接缝改写到 loopback）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh87-shots/header-utilities-chat.png"
+      ],
+      "notes": "本套件断言 13 条，通过 13。\n观测：\n- 选中会话 session-6f5b18e7-35f3-4dc3-ab58-013e19c00257（cwd=/Users/cgeng/Workspaces/VoxKey，候选 1137 个）\n- 座位条目：[{\"tag\":\"span\",\"className\":\"_root_1nxmc_1\",\"display\":\"flex\",\"width\":52,\"height\":28,\"ariaLabel\":\"在 访达 中打开工作目录\",\"openInAppIcons\":1,\"exportMarkers\":0,\"officialExportButtons\":0},{\"tag\":\"span\",\"className\":\"dshOneExport_btn\",\"display\":\"flex\",\"width\":109,\"height\":28,\"ariaLabel\":\"\",\"openInAppIcons\":0,\"exportMarkers\":1,\"officialExportButtons\":0}]\n- 宿主路由观测：origin=http://127.0.0.1:3321 {\"internal\":{\"label\":\"internal\",\"url\":\"http://dsh.internal/open-in-app/apps\",\"status\":200,\"apps\":[\"finder\",\"vscode\",\"iterm\",\"terminal\"]},\"sameOrigin\":{\"label\":\"page-origin\",\"url\":\"http://127.0.0.1:3321/open-in-app/apps\",\"status\":200,\"apps\":[\"finder\",\"vscode\",\"iterm\",\"terminal\"]},\"requested\":[\"http://127.0.0.1:54931/open-in-app/apps\",\"http://127.0.0.1:54931/open-in-app/apps\",\"http://127.0.0.1:54931/open-in-app/apps\"]}"
+    },
+    {
+      "id": "F-01",
+      "phase": "regression",
+      "name": "底座契约完备性：四棵树在真实网关上零崩溃、零缺失契约（CONTRACT 套件）",
+      "expect": "实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）各自在真实网关只读下打开：**零 `slot entry crashed`**（官方渲染层崩溃 + 页面无 `data-slot-error` 元素）、**零 pageerror**、**零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`，即缺服务/缺钩子那类底座缺口）；该树自己的关键座位**有内容**（不是空壳）、**预期座位锚点都在**（官方改座位名/改归属时这里先红）、该树的 frame 插件 bundle 真的装进了页面（combo 请求里有它的 id、页面上有它的 CSS 标记）；chat 树额外核官方右栏座位（声明 + 官方 ui-sidebar-right 的座位已注册 + 面板几何在官方钳位区间内）。缺 hook 与缺服务在页面上的表现就是 `slot entry crashed` / `did not activate`，所以这两条断言即 hook/服务的完备性断言。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh87-shots/contract-sidebar.png",
+        "/tmp/dsh87-shots/contract-sidebar-official.png",
+        "/tmp/dsh87-shots/contract-chat.png",
+        "/tmp/dsh87-shots/contract-settings.png",
+        "/tmp/dsh87-shots/contract-chat-rightbar.png"
+      ],
+      "notes": "本套件断言 43 条，通过 43。\n观测：\n- sidebar：ready=true 槽位锚点=8 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 自有工作区树的会话行=2\n- sidebar：座位锚点 sidebar=1 sidebar.workspaces=1 sidebar.settings=1\n- sidebar-official：ready=true 槽位锚点=9 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 官方浏览区的会话行=2\n- sidebar-official：座位锚点 sidebar=1 sidebar.workspaces=1\n- chat：ready=true 槽位锚点=22 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 对话区 composer 座位=1\n- chat：座位锚点 main=1 conversation.composer.bar=1 rightbar=1\n- chat：官方右栏 面板元素=true 面板宽=540 外框宽=1200 会话座位=1\n- settings：ready=true 槽位锚点=6 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=6 设置内容区=1\n- settings：座位锚点 dshOne.settings.page=1 settings.section=1\n- settings：放行已知噪音 6 条（#74：设置树里官方 @deepseek-ai/dsh-client-ui-agent-preset 的槽位控制器在非活跃上下文读 sessions 服务（官方 web 同动作零报错），设置页照常渲染——与本仓库底座契约无关。）\n- chat（会话 session-6f5b18e7）：会话头右侧角按钮=[\"打开右侧边栏\"] 展开前轨道宽=0\n- chat：点开后 面板开=true 轨道宽=576 面板宽=576 面板左缘=703 页签=[\"对话\",\"轨迹\",\"开始\"]"
+    },
+    {
+      "id": "F-02",
+      "phase": "regression",
+      "name": "三棵树冒烟渲染：侧栏会话树 / 对话区 / 设置页都出真内容（SMOKE 套件）",
+      "expect": "侧栏树：真实网关的会话行（自有树插件渲染）与分组行都在，行上有标题文本，侧栏壳的新建会话按钮在。对话区：composer 座位里有可编辑输入框。设置页：设置内容区渲染出多行设置项。三棵树控制台零 error。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh87-shots/smoke-sidebar.png",
+        "/tmp/dsh87-shots/smoke-chat.png",
+        "/tmp/dsh87-shots/smoke-settings.png"
+      ],
+      "notes": "本套件断言 13 条，通过 13。\n观测：\n- sidebar：分组行=13 会话行=2 文本长度=152\n- chat：composer 可编辑元素=1 自有对话容器=1 main 槽位子项=1 main 下的会话面板=1 composer.bar 座位子项=1\n- settings：通用设置行=1 行内容元素=6 内容区后代=69"
+    },
+    {
+      "id": "F-03",
+      "phase": "regression",
+      "name": "关键交互：行内码右键菜单、清空（Esc ×2）+ 反悔（Ctrl+Z）、commit 卡片（INTERACT 套件）",
+      "expect": "chat 树：给消息正文里的行内码点右键 → 弹出官方 Menu（role=menu）承载的单图标项，行内码被高亮标记，Esc 后菜单与高亮都撤掉。正文里的 7 位 hash → 悬停出提交卡片，卡片内容来自宿主能力口（假宿主回执），点卡片上的 GitHub 按钮 → 页面发出一次 vscode.openExternal。composer 里输入文字后按 Esc → 出「再按一次」提示；再按 Esc → 草稿清空且出撤销入口；Ctrl+Z → 草稿复原。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh87-shots/interact-menu.png",
+        "/tmp/dsh87-shots/interact-gitcard.png",
+        "/tmp/dsh87-shots/interact-clear-arm.png",
+        "/tmp/dsh87-shots/interact-clear-done.png",
+        "/tmp/dsh87-shots/interact-clear-undo.png"
+      ],
+      "notes": "本套件断言 14 条，通过 14。\n观测：\n- 右键菜单：{\"marked\":1,\"menuPresent\":true,\"role\":\"menu\",\"items\":1,\"iconItems\":1}\n- git 卡片：{\"present\":true,\"text\":\"Lab Bot19 小时前 (2026-09-15 08:00:00.000Z)lab: fake commit deadbeesecond line of the fake body3 个文件变更, +12, -4提交 0123456在 GitHub 打开\",\"buttons\":2}\n- GitHub 按钮发出的 openExternal：[\"https://github.com/example/repo/commit/deadbee\"]\n- 第一次 Esc 后的提示元素=1\n- 第二次 Esc 后的草稿=\"\" 撤销入口=1\n- Ctrl+Z 后的草稿=\"lab clear test\""
+    },
+    {
+      "id": "F-05",
+      "phase": "regression",
+      "name": "宿主能力口页面侧：统一获取点、id 配对、结构化错误（BRIDGE 套件）",
+      "expect": "装配页注入的 `__DSH_ONE_HOST__.call` 是函数；全页 `acquireVsCodeApi` **只被调用一次**（统一获取点约束，第二次会 throw）；并发调用按各自 id 兑现自己的回执；宿主拒绝时抛带 code 的结构化错误；上行消息形状是 {type:dshOne.hostCall,call,args,id} 且 id 各不相同。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "本套件断言 7 条，通过 7。\n观测：\n- 桥：{\"missing\":false,\"callType\":\"function\",\"acquireCalls\":1,\"shas\":[\"aaaaaaa\",\"bbbbbbb\"],\"codes\":[\"lab: fake commit aaaaaaa\",\"lab: fake commit bbbbbbb\"],\"rejected\":{\"code\":\"unknown-call\",\"message\":\"lab host: unknown call lab.unknown\"},\"ids\":[\"hc1-s7631ozj\",\"hc2-hi3hkyjx\",\"hc3-g4ef7g4w\",\"hc4-td9ql39n\"],\"shapeOk\":true}"
+    },
+    {
+      "id": "F-06",
+      "phase": "regression",
+      "name": "可移植性：页面上没有自有 frame 标记时，三个 dsh-* 插件照常工作（PORTABLE 套件）",
+      "expect": "chat 树在**抹掉自有 frame 标记**的页面上（`data-shell*` 属性一律不落进 DOM，等于官方 web 那种「没有我们的 shell frame」的处境）照常可用：官方对话区容器仍在；夹具正文被 git 卡片装饰、悬停出提交卡片；行内码右键出菜单、Esc 撤掉；GitHub 按钮有宿主桥时走 `vscode.openExternal`，把宿主桥撤掉后改走页面 `window.open`（官方 web 侧那条路）；composer 里 Esc ×2 清空、Ctrl+Z 复原。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh87-shots/portable-menu.png",
+        "/tmp/dsh87-shots/portable-gitcard.png",
+        "/tmp/dsh87-shots/portable-clear-arm.png",
+        "/tmp/dsh87-shots/portable-clear-undo.png"
+      ],
+      "notes": "本套件断言 11 条，通过 11。\n观测：\n- 抹掉 frame 标记后的页面：data-shell=0 data-shell-overlay=0 官方对话区容器=1\n- 无 frame 标记时的右键菜单：{\"menu\":true,\"items\":1,\"marked\":1}\n- 无 frame 标记时的提交卡片：{\"present\":true,\"text\":\"Lab Bot19 小时前 (2026-09-15 08:00:00.000Z)lab: fake commit deadbeesecond line of the fake body3 个文件变更, +12, -4提交 0123456在 GitHub 打开\",\"buttons\":2}\n- 有宿主桥时的外链出口：[\"https://github.com/example/repo/commit/deadbee\"]\n- 撤掉宿主桥后的外链出口：[\"https://github.com/example/repo/commit/deadbee\"]"
+    },
+    {
+      "id": "F-07",
+      "phase": "regression",
+      "name": "侧栏六项核心功能（#81）：分组过滤、活状态计数、回收站抽屉、批量选择、不折叠、状态读写与视图态持久化",
+      "expect": "侧栏树（真实网关只读 + 假宿主）：**旧版 groups.json 的形状注进宿主状态存储就是可用数据**（分组 chip 按它渲染，过滤只留归属该分组的工作区）；分组由界面新建后按同一形状写回宿主状态存储（version 1、membership 在、旧字段 activeGroupId 不被抹掉）。**计数与行同源**：每个工作区行尾的「运行中/等待交互」角标数值 = 该工作区下会话行里 `data-dshone-tree-status` 的数（这同时证明工作区内会话没有被官方那 5 行截断，**不折叠**：不出现「显示更多」行，行数 = 该工作区的会话总数）。**回收站**：官方归档集合在抽屉里按工作区组织、每行有还原按钮；批量选择态出复选框与动作条，选中计数随点选变化，退出后动作条消失。**视图态**：当前过滤的分组写进官方惯例的 `dsh.workspaceTree.view`（localStorage），同上下文重载后仍然生效。全程零 pageerror（归档/还原**不被点击**——那会写真实网关）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh87-shots/sidebar-group-filter.png",
+        "/tmp/dsh87-shots/sidebar-activity-counts.png",
+        "/tmp/dsh87-shots/sidebar-recycle-drawer.png",
+        "/tmp/dsh87-shots/sidebar-multi-select.png"
+      ],
+      "notes": "本套件断言 27 条，通过 27。\n观测：\n- 真实网关上的工作区分组键：54b1f167-5db2-49f8-aa61-01828d446bf3, 1c035e6a-c954-46f5-b0fd-95de0d79789e, 8f908f22-a4f2-4f6c-aae4-f034fe4269e1, e7f1b064-6497-4860-bbc6-f03620e97933（共 13 个）\n- 分组 chip：all,g-lab-one,g-lab-two\n- 展开了 13 个分组：54b1f167=1行(角标无) 1c035e6a=1行(角标无) 8f908f22=1行(角标无) e7f1b064=2行(角标无) b09d7d32=10行(角标无)\n- 回收站入口角标=498 抽屉={\"groups\":[\"8f908f22-a4f2-4f6c-aae4-f034fe4269e1\",\"e7f1b064-6497-4860-bbc6-f03620e97933\",\"b09d7d32-d44f-4766-8aee-0d434f648207\",\"d7ecd7c7-4657-42a3-a4ac-c3b790240bfa\",\"09bd708b-367c-479a-a89b-88d26f3dcfa3\",\"f7e6042b-0b8d-4b92-ae47-19e5d2063118\",\"\"],\"rows\":498,\"restores\":498,\"empty\":true,\"status\":false}\n- 可勾选会话行=128 已勾选=2 动作条=\"已选 2 项移入回收站退出选择\""
+    },
+    {
+      "id": "R-07",
+      "phase": "regression",
+      "name": "VS Code 验证：隔离窗口真 webview 里 open-in-app 的条目、菜单与宿主路由（本轮未重跑，证据沿用上一轮）",
+      "expect": "隔离 VS Code 窗口（--extensionDevelopmentPath 加载本 worktree 的扩展）里打开一个真实会话：对话区右上角出现 open-in-app 的「图标 + 下拉」，下拉展开出网关探到的四个应用（访达 / VS Code / iTerm2 / 终端）且带真图标；同座位里自有的「Session 日志」按钮照旧在；页面源是 vscode-webview:// 而非 mirror（这条从探针日志读，是「裸 fetch 打不到宿主」这一根因的一手证据）。",
+      "screenshots": [
+        "/tmp/dsh87-shots/01-vscode-open-in-app-menu.png",
+        "/tmp/dsh87-shots/02-vscode-chat-header.png",
+        "/tmp/dsh87-shots/03-vscode-window.png"
+      ],
+      "result": "pass",
+      "notes": "**本轮（rebase 后）没有重开真窗**——按 2026-09-16 生效的新规「起真 VS Code 窗口只有人跑，agent 一次都不许」，本轮的验证止于浏览器验证；下面这份证据是上一轮（改动落地当天）在同一份代码上取到的，改动本身在这一轮没有变（`sessionExportPlugin.ts` 的 shadow 与 `pageHtml.ts` 的 fetch 改写都不是 rebase 冲突点：集成线没有动这两个文件，`git diff develop/cordis-chat HEAD -- src/ui/assembly/pageHtml.ts` 只有本分支自己的那 51 行）。\n\n隔离实例：`Code <worktree> --extensionDevelopmentPath=<worktree> --user-data-dir=/tmp/dsh-uidev/open-in-app/user-data --extensions-dir=/tmp/dsh-uidev/open-in-app/extensions --remote-debugging-port=9333`，会话由放在隔离 extensions 目录里的一次性诊断扩展（按环境变量 `DSH_ONE_DIAG_SESSION` 调 `dshOne.session.open`）打开；**仓库代码零改动**（诊断扩展与脚本都在 /tmp）。\n\n取 DOM 证据：CDP `/json/list` 里 webview 是 `type=iframe` 的 target，直连它的 WebSocket 在**内层 iframe**（`document.querySelector(\"iframe\").contentDocument`）里求值——实测座位 `conversation.session.header.utilities` 有两个条目：`_root_1nxmc_1`（open-in-app，display=flex、51×28、可及名「在 访达 中打开工作目录」、应用图标 1 个且 `iconLoaded=true`）与 `dshOneExport_btn`（自有导出，display=flex、108×28）。座位锚点自身矩形为 0 是正常的（官方 slot 锚点 `display: contents`，无盒）。\n\n点开菜单（只点下拉箭头，不点启动按钮——不启动任何本地应用）：`[role=menuitem]` 四项 = 访达 / VS Code / iTerm2 / 终端，与网关 `/open-in-app/apps` 返回的四项逐字一致，图标经 `/open-in-app/icon/<id>` 真加载——这一步同时证明应用清单读取在真 webview 里通过了页面传输接缝（否则官方控制器会 `catch {}` 成空清单、按钮根本不渲染）。截图 01 就是展开态的现场。\n\n一手根因证据（探针日志）：`[assembly] page origin vscode-webview://0f6bcesi… mirror http://127.0.0.1:49524` —— 真 webview 的页面源是 `vscode-webview://<uuid>`（不是 \"null\"），所以官方 `hostBase()` 会把它当宿主基址：改写的判定必须比 protocol + host 而不是 origin（不透明源的 origin 序列化成 \"null\"，会与 blob: 撞值），实现即按此写。截图那一轮的 webview 源是 `vscode-webview://024h0sj6jsqb4ee48tv8k43tahsas5bkteu7tgugeb8pjh432l66`（CDP 探针输出里的 `origin` 字段）。日志文件：`<user-data-dir>/logs/<时间>/window1/exthost/output_logging_*/1-DSH One.log`。\n\n没验的：真的启动某个应用（访达等）——那会在用户机器上开窗；菜单项点击后发出的是 POST `/open-in-app/open`，走的是与清单读取同一条已验的宿主路由改写。"
+    },
+    {
+      "id": "F-04",
+      "phase": "regression",
+      "name": "侧栏树外观与几何对齐官方（PARITY 套件，260/340/500 三档宽度）",
+      "expect": "同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索胶囊、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。两组例外都写明了理由：**列表容器只比宽度**（自有树多一条分组过滤条，容器矮一行是功能带来的），**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh87-shots/parity-own-340.png",
+        "/tmp/dsh87-shots/parity-official-340.png"
+      ],
+      "notes": "本套件 181/181 全绿（**新口径**）。与上一轮记录的差别要说明白：上一轮（rebase 前）这里记的是 `136/178 fail`，那是**旧口径**——F-04 直接拿自有树（VS Code 密度档）与官方浏览区（官方档）逐项比，尺寸天然不等。集成线已经把口径改成「比对前先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这组变量承诺的语义），再逐项比」，并多钉了「VS Code 档确实更紧」「对齐后 = 官方基准」两条，断言数 178 → 181。本轮实测：兜底值回填后两侧逐项相等（10 组元素 × 3 档宽度），全过。上一轮那段「既有失败」的记录不再适用，本次按实测结果记 pass。\n\n本套件断言 181 条，通过 181。\n观测：\n- 对齐口径：自有树（.dshOneTree_*）对官方对照档（官方 hash 类名，按类名后缀配对），逐组比 computed style 各属性 + 几何矩形；共 10 组元素 × 3 档宽度（260/340/500）\n- 密度档兜底值（自作树 CSS 读出并回填到 frame）：icon-button-size=28px icon-button-size=28px section-header-height=36px section-header-gap=4px icon-button-size=28px search-height=28px search-expanded-height=30px icon-button-size=28px icon-button-size=28px icon-button-size=28px search-expanded-height=30px list-padding-bottom=16px row-gap=2px group-gap=4px overflow-row-height=28px meta-font-size=12px row-padding-inline=8px row-height=34px session-row-height=32px title-font-size=14px title-line-height=20px meta-font-size=12px meta-line-height=20px search-row-min-height=48px group-gap=4px icon-button-size=28px meta-font-size=12px icon-button-size=28px row-padding-inline=8px meta-font-size=12px meta-line-height=20px meta-font-size=12px meta-font-size=12px section-header-height=36px title-font-size=14px list-padding-bottom=16px group-gap=4px meta-font-size=12px session-row-height=32px row-padding-inline=8px meta-font-size=12px meta-font-size=12px"
+    },
+    {
+      "id": "R-06",
+      "phase": "regression",
+      "name": "实验室对真实网关只读（跑前跑后会话数不变）",
+      "expect": "整轮浏览器验证跑完，网关上的会话数与跑前完全相同：实验室只渲染与做本地夹具交互，不创建会话、不发 prompt、不归档（唯一写类动作是 token 换票，与扩展自身连接路径相同）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "本套件断言 1 条，通过 1。\n观测：\n- 网关会话数：跑前 1137，跑后 1137"
+    }
+  ]
+}

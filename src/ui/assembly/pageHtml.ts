@@ -117,13 +117,28 @@ const QUEUE_FACADE_JS = `(() => {
 })()`
 
 /**
- * 传输接缝：把官方客户端按 location.origin 寻址的两条通道改写到 loopback mirror。
- * - fetch：connection RPC 的 POST（/api/<channel>/<endpoint>）换源到 mirror。
+ * 传输接缝：把官方客户端按 location.origin 寻址的宿主通道改写到 loopback mirror。
+ * - fetch（`__DSH_TRANSPORT__.fetch`）：connection RPC 的 POST
+ *   （/api/<channel>/<endpoint>）换源到 mirror。
  * - openStream：remote stream 走自建 WS 说 /api/remote.mux 协议（open/item/error/
  *   终帧/cancel 五行），返回 async iterable；错误帧带 dshRemoteStreamFailure
  *   标记（remote → 归一化成 RemoteError；carrier → 可重试的载体失败）。
  * 提供了 openStream 后 connection.rpc.open 存在，api-gateway 不会自起按
  * location.origin 寻址的 WS mux（见 dsh-api-gateway ClientRemoteService）。
+ * - 页面全局 fetch（`hostFetch`，见下）：不走 `__DSH_TRANSPORT__` 那条口、
+ *   自己裸 fetch 宿主路由的官方插件也要能到达网关。官方代码把「宿主」写成**页面
+ *   自己的源**（`location.origin`），源读不到时退回官方常量 `http://dsh.internal`
+ *   ——0.1.6-alpha.1 里用这个常量的有 `dsh-client-connection` / `dsh-api-gateway`
+ *   （INTERNAL_BASE）、`dsh-client-file-upload`、`dsh-client-ui-open-in-app`、
+ *   `dsh-session-log-export`（`hostBase()`）。官方 web 里页面源就是网关，所以它们
+ *   裸 fetch 天然可达；VS Code webview 里页面源是 `vscode-webview://<uuid>`（真窗
+ *   实测，探针日志里那一行「page origin …」），这类请求只会打空——open-in-app 的
+ *   清单读取被官方 `catch {}` 吞掉 → 应用清单为空 → 按钮整块不渲染（#87 的第二个
+ *   根因）。所以页面全局 fetch 只改写这两类「宿主寻址」URL，其余（Request 对象、
+ *   blob:/data:、真外部源）一律原样交给原生 fetch。
+ *   判定细节：webview 的 `vscode-webview://` 是**不透明源**（`origin` 序列化成
+ *   `"null"`，与 `blob:` / `data:` 撞值），所以那一支比 `protocol + host` 而不是
+ *   origin；比 origin 会把 blob: 一起改写掉。
  * ownsHost（官方机制第 3 层：__DSH_TRANSPORT__ 官方预留接缝的既有字段，
  * client-connection 源码 4755 行 isLoopback 判定消费）：传输接缝拥有
  * loopback 宿主权威——页面一切 RPC 经 loopback 代理带 cookie 到网关，
@@ -139,10 +154,15 @@ function transportJs(mirrorOrigin: string): string {
   const WS_ORIGIN = MIRROR.replace(/^http/, "ws")
   // Diagnostic probe hook: probe.ts installs __DSH_ONE_PROBE__ in webview only; silent in browsers.
   const probe = (level, text) => { if (globalThis.__DSH_ONE_PROBE__) globalThis.__DSH_ONE_PROBE__.log(level, text) }
+  // Page origin (first-hand evidence for host-routing defects such as #87): in the VS Code
+  // webview it is vscode-webview://<uuid>, not the mirror, so any official code that
+  // addresses the host via location.origin ends up off-target.
+  probe("info", "page origin " + String(globalThis.location && globalThis.location.origin) + " mirror " + MIRROR)
+  const NATIVE_FETCH = globalThis.fetch.bind(globalThis)
   const apiFetch = (input, init) => {
     const parsed = new URL(String(input), globalThis.location ? globalThis.location.href : MIRROR + "/")
     const url = new URL(parsed.pathname + parsed.search, MIRROR).href
-    return fetch(url, init).then((res) => {
+    return NATIVE_FETCH(url, init).then((res) => {
       if (!res.ok) probe("warn", "transport fetch " + url + " -> HTTP " + res.status)
       return res
     }, (err) => {
@@ -150,6 +170,31 @@ function transportJs(mirrorOrigin: string): string {
       throw err
     })
   }
+  // Host-addressed test (see the function comment above for the official call sites):
+  // the page's own origin, the official internal base, or the mirror itself.
+  const page = globalThis.location
+  const isHostAddressed = (url) => {
+    if (url.hostname === "dsh.internal") return true
+    if (url.origin === MIRROR) return true
+    if (page === undefined) return false
+    if (page.origin !== "null" && url.origin === page.origin) return true
+    // Opaque page origin (vscode-webview://): compare protocol + host, because origin
+    // serializes to "null" there and would also match blob:/data: URLs.
+    return url.protocol === page.protocol && url.host === page.host
+  }
+  const hostFetch = (input, init) => {
+    // Request objects keep native semantics untouched.
+    if (typeof input !== "string" && !(input instanceof URL)) return NATIVE_FETCH(input, init)
+    let url
+    try {
+      url = input instanceof URL ? input : new URL(input, document.baseURI)
+    } catch (ignored) {
+      return NATIVE_FETCH(input, init)
+    }
+    if (!isHostAddressed(url)) return NATIVE_FETCH(input, init)
+    return NATIVE_FETCH(new URL(url.pathname + url.search, MIRROR).href, init)
+  }
+  globalThis.fetch = hostFetch
   const openStream = (endpoint, payload, signal) => (async function* () {
     signal && signal.throwIfAborted()
     const ws = new WebSocket(WS_ORIGIN + "/api/remote.mux")

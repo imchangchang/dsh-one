@@ -1099,6 +1099,172 @@ export const SIDEBAR_SUITE: LabSuite = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// F-09 HEADER-UTILITIES：对话区会话头 utilities 座位的条目集合（#87）
+// ---------------------------------------------------------------------------
+
+/**
+ * 真实会话（页内要开一个会话，会话头与它的 utilities 座位才存在；数据来自真网关，
+ * 只读——只判读会话摘要，不做任何写动作）。
+ * 挑选口径：优先**没在跑、非空白**的最近一个带 cwd 的会话——跑着的会话会把整段
+ * 流式内容渲进页面，让这一套件慢且不稳；cwd 是 open-in-app 按钮的渲染前提之一
+ * （官方 `useSessions(state => state.byId[id]?.cwd)`）。
+ */
+async function pickSessionId(gateway: string): Promise<{ id: string; cwd: string; candidates: number } | null> {
+  const sessions = await listSessions(gateway)
+  const usable = sessions.filter((s) => typeof s.cwd === 'string' && s.cwd !== '')
+  const idle = usable.filter((s) => !s.running && !s.blank)
+  const picked = idle[0] ?? usable[0]
+  if (picked === undefined) return null
+  return { id: picked.sessionId, cwd: picked.cwd ?? '', candidates: usable.length }
+}
+
+export const HEADER_UTILITIES_SUITE: LabSuite = {
+  id: 'F-09',
+  phase: 'new-feature',
+  name: '对话区会话头 utilities 座位的条目集合：官方 open-in-app 与自有导出都在且都可见（HEADER-UTILITIES 套件）',
+  expect:
+    'chat 树在**真实会话**下打开：`conversation.session.header.utilities` 座位里官方 `@deepseek-ai/dsh-client-ui-open-in-app` 的贡献在（DOM 有它的 split button，取 /open-in-app/icon/* 的应用图标）且**可见**（该条目矩形非 0、没有被 display:none 摘掉呈现）；自有 `@dsh-one/dsh-session-export` 的导出按钮同样在且可见；座位里没有任何一个条目被自有 CSS 摘掉呈现（#87 的缺席就是「该座位上一切非自有条目一律 display:none」造成的，这里按条目逐个盯住）；官方 `dsh-session-log-export` 的同 id 条目被本插件的 shadow（priority −1）顶掉、不再渲染（防止两个导出入口并存）。另：官方宿主路由（应用清单 `/open-in-app/apps`）在页面里可达——一条取官方内部基址 `http://dsh.internal`、一条取页面自身源，两条都要 200 且带应用清单（webview 里页面源不是网关，这类按 location.origin 寻址的裸 fetch 由页面传输接缝改写到 loopback）。',
+  run: async (ctx, check) => {
+    const picked = await pickSessionId(ctx.lab.gateway)
+    if (picked === null) {
+      check.ok('网关上有带 cwd 的会话可供打开（会话头才有 utilities 座位）', false, '真网关上没有带 cwd 的会话')
+      return []
+    }
+    check.fact(`选中会话 ${picked.id}（cwd=${picked.cwd}，候选 ${String(picked.candidates)} 个）`)
+
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('chat'), {
+      width: 1200,
+      sessionId: picked.id,
+      settleMs: 6_000,
+    })
+    const { page } = opened
+    const screenshots: string[] = []
+    try {
+      const S = '[data-slot="conversation.session.header.utilities"]'
+      const probe = await page.evaluate((slotSel: string) => {
+        const slot = document.querySelector(slotSel)
+        if (slot === null) return { present: false, entries: [] as unknown[] }
+        // 一条贡献 = 座位的一个直属子元素（框架按条目挂载，见官方 outlet 的 renderSlot）。
+        // 「可见」按几何判定：display:none / 祖先被摘 → 矩形为 0（#87 就是 display:none）。
+        const entries = Array.from(slot.children).map((child) => {
+          const rect = child.getBoundingClientRect()
+          // 自有标记可能就挂在条目的根元素上（querySelectorAll 只查后代，故两个口径都算）。
+          const ownMarkers = (child.matches('[data-dshone-export]') ? 1 : 0) + child.querySelectorAll('[data-dshone-export]').length
+          return {
+            tag: child.tagName.toLowerCase(),
+            className: (child.getAttribute('class') ?? '').slice(0, 60),
+            display: getComputedStyle(child).display,
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            ariaLabel: child.querySelector('[aria-label]')?.getAttribute('aria-label') ?? '',
+            openInAppIcons: child.querySelectorAll('img[src*="/open-in-app/icon/"]').length,
+            exportMarkers: ownMarkers,
+            officialExportButtons: child.querySelectorAll('[class*="_moreButton"]').length,
+          }
+        })
+        const icon = slot.querySelector<HTMLImageElement>('img[src*="/open-in-app/icon/"]')
+        return {
+          present: true,
+          entries,
+          iconLoaded: icon !== null && icon.complete && icon.naturalWidth > 0,
+          splitButton: slot.querySelectorAll('[class*="_split"]').length,
+        }
+      }, S)
+
+      check.ok('chat 树会话头有 utilities 座位（真实会话下）', probe.present === true, S)
+      if (probe.present !== true) return screenshots
+      check.fact(`座位条目：${JSON.stringify(probe.entries)}`)
+
+      const entries = probe.entries as Array<{
+        display: string
+        width: number
+        height: number
+        ariaLabel: string
+        openInAppIcons: number
+        exportMarkers: number
+        officialExportButtons: number
+      }>
+      const openInApp = entries.filter((e) => e.openInAppIcons > 0)
+      const ownExport = entries.filter((e) => e.exportMarkers > 0)
+      const officialExport = entries.filter((e) => e.officialExportButtons > 0)
+      const visible = entries.filter((e) => e.display !== 'none' && e.width > 0)
+
+      check.eq('座位里官方 open-in-app 的贡献恰有一条（应用图标哨兵）', openInApp.length, 1)
+      check.ok(
+        'open-in-app 条目可见（矩形非 0，未被自有 CSS 摘掉）',
+        openInApp[0] !== undefined && openInApp[0].display !== 'none' && openInApp[0].width > 0,
+        JSON.stringify(openInApp[0] ?? null),
+      )
+      check.ok(
+        'open-in-app 的应用图标真的取到了（/open-in-app/icon/* 已加载）',
+        probe.iconLoaded === true,
+        `iconLoaded=${String(probe.iconLoaded)} splitButton=${String(probe.splitButton)}`,
+      )
+      check.eq('座位里自有导出按钮恰有一条', ownExport.length, 1)
+      check.ok(
+        '自有导出按钮可见',
+        ownExport[0] !== undefined && ownExport[0].display !== 'none' && ownExport[0].width > 0,
+        JSON.stringify(ownExport[0] ?? null),
+      )
+      check.eq(
+        '座位的每个条目都可见（没有任何条目被自有 CSS 摘掉——#87 的缺席形态）',
+        entries.length - visible.length,
+        0,
+      )
+      check.eq(
+        '官方同 id 的导出条目被 shadow 顶掉、不再渲染（不留两个导出入口）',
+        officialExport.length,
+        0,
+      )
+      check.eq('chat 树：零 console error', opened.capture.consoleErrors, [])
+
+      // 宿主路由可达（webview 形态的第二个根因）：官方 open-in-app 用裸 fetch 取
+      // 应用清单，按 location.origin / 官方内部基址 http://dsh.internal 寻址。
+      // 页面传输接缝把这两类「宿主寻址」URL 改写到 loopback —— 这里逐条实测。
+      const origin = await page.evaluate(() => globalThis.location.origin)
+      const routes = await page.evaluate(async () => {
+        const read = async (label: string, url: string): Promise<{ label: string; url: string; status: number; apps: string[]; error?: string }> => {
+          try {
+            const res = await fetch(url, { headers: { accept: 'application/json' } })
+            const payload = (await res.json()) as { apps?: unknown }
+            return { label, url, status: res.status, apps: Array.isArray(payload.apps) ? (payload.apps as string[]) : [] }
+          } catch (err) {
+            return { label, url, status: 0, apps: [], error: String(err) }
+          }
+        }
+        const internal = await read('internal', 'http://dsh.internal/open-in-app/apps')
+        const sameOrigin =
+          globalThis.location.origin.startsWith('http://') || globalThis.location.origin.startsWith('https://')
+            ? await read('page-origin', `${globalThis.location.origin}/open-in-app/apps`)
+            : undefined
+        const requested = performance
+          .getEntriesByType('resource')
+          .map((entry) => entry.name)
+          .filter((name) => name.includes('/open-in-app/apps'))
+        return { internal, sameOrigin, requested }
+      })
+      check.fact(`宿主路由观测：origin=${origin} ${JSON.stringify(routes)}`)
+      check.eq('官方内部基址（http://dsh.internal）读到应用清单：HTTP 200', routes.internal.status, 200)
+      check.ok('官方内部基址返回的应用清单非空', routes.internal.apps.length > 0, JSON.stringify(routes.internal))
+      if (routes.sameOrigin !== undefined) {
+        check.eq('页面自身源的宿主路由读到应用清单：HTTP 200', routes.sameOrigin.status, 200)
+      }
+      check.ok(
+        '两条宿主路由都落在 loopback（改写生效，不是打到页面自身的源）',
+        routes.requested.length >= 2 &&
+          routes.requested.every((url) => url.startsWith(`${ctx.lab.mirrorOrigin}/open-in-app/apps`)),
+        JSON.stringify(routes.requested),
+      )
+
+      screenshots.push(await shot(ctx, page, 'header-utilities-chat'))
+    } finally {
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -1107,4 +1273,5 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   BRIDGE_SUITE,
   PORTABLE_SUITE,
   SIDEBAR_SUITE,
+  HEADER_UTILITIES_SUITE,
 ]
