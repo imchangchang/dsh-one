@@ -8,7 +8,7 @@
   - 旧侧栏（vanilla，迁移参照物，只读勿改）：`src/ui/sessionsView.ts`（宿主侧 view provider + 消息处理 + 全部 CSS 的 `SESSIONS_STYLE`）、`src/ui/sessionsWebview.ts`（前端 HTML / CSS / 逻辑）、`src/ui/sessionsStore.ts`（数据与状态）、`src/pure/sessionTree.ts`（分组 / 排序 / 过滤）、`src/pure/sessionTags.ts`（标签色与内置组）。
   - 现装配侧栏：`src/ui/assembly/shell/workspaceTree/*.ts`（15 个文件）、`src/ui/assembly/shell/sidebarFramePlugin.ts`（密度档与侧栏外框）、`src/ui/assembly/shell/workspaceTreePlugin.ts`、`src/pure/{workspaceTreeView,workspaceTreePrefs,treeGroups,sessionMarks,sessionEligibility,sessionTags,sessionTagGroups,recycleActions,recycleBinState}.ts`、`packages/dsh-workspace-tree/`。
 - **判断只取四个值**：**一致** / **缺**（现在没有）/ **不同**（都有但不一致）/ **现在更好**。
-- **证据**：每条都写 `文件:行`。读不出来的写「未核实」，不臆断。
+- **证据**：每条都写 `文件:行`。只写文件名的那几种（`rows.ts` / `tree.ts` / `styles.ts` / `selection.ts` / `tagGroups.ts` / `modals.ts` / `toolbar.ts` / `groupFilterBar.ts` / `recycleDrawer.ts` / `recycleEntry.ts` / `hoverCard.ts` / `format.ts` / `search.ts` / `locale.ts`）都在 `src/ui/assembly/shell/workspaceTree/` 下；`sessionsView.ts` / `sessionsWebview.ts` / `sessionsStore.ts` 在 `src/ui/` 下；`pure/xxx.ts` 在 `src/pure/` 下。读不出来的写「未核实」，不臆断。
 - 语言按仓库铁律：官方机制名词用英文原词（`slot` / `shadow` / `seam` / `combo`），不造词。
 
 ---
@@ -28,7 +28,7 @@
 | 会话行结构（状态位 / 图钉 / 标题 / 时间 / ⋯） | `sessionsWebview.ts:2427-2461` | `workspaceTree/rows.ts:1197-1297` | 不同（状态位从**行尾**挪到**行首**，见 A4） |
 | 行尾相对时间 | `sessionsWebview.ts:2444`（`description`；**有状态标记就不显示时间**） | `workspaceTree/rows.ts:1224-1230` + `format.ts:11-14`（官方 `relativeTime`；与状态点**同时**显示，hover 时让位给 ⋯） | 不同 |
 | 空白会话显示占位名「新会话」 | `sessionsWebview.ts:2427-2438`（label 由 store 给） | `workspaceTree/format.ts:32-34`（`displayTitle` → `session.new`） | 一致 |
-| 工作区展开后列出**全部**会话（不截断到 5 条） | 旧版本就没有截断 | `workspaceTree/rows.ts:190-200`（明确不调用官方 `collapsedSessionRows`） | 一致 |
+| 工作区展开后列出**全部**会话（不截断到 5 条） | `pure/sessionTree.ts:307`：展开就把 `sessionIds` 全列出来，没有条数上限 | `workspaceTree/rows.ts:190-200`（明确不调用官方的 `collapsedSessionRows`） | 一致 |
 | 会话行 hover 只出 ⋯ | `sessionsWebview.ts:2452-2461` | `workspaceTree/rows.ts:1236-1247` | 一致 |
 
 ## A2. 多选与批量
