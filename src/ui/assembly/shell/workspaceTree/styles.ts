@@ -438,12 +438,12 @@ export const CSS =
   //    有「归档」这种不可逆动作（#103 明确要求它与可逆的「移入回收站」在界面上分得开），
   //    图标化会抹掉这层语义；而且这三枚都是常驻动作，图标化等于每次操作都要先悬停读提示。
   //    按钮自身 `flex:none` + `white-space:nowrap`：宁换行，不挤文字。
-  '.dshOneTree_selectionBarWrap{flex:none;background:var(--dsw-alias-interactive-bg-hover);border-top:.5px solid var(--dsw-alias-border-l3);border-bottom:.5px solid var(--dsw-alias-border-l3);margin:0 0 var(--dsh-one-density-group-gap,4px);padding:var(--dsh-one-density-group-gap,4px) 0}' +
+  '.dshOneTree_selectionBarWrap{flex:none;background:var(--dsw-alias-interactive-bg-hover);border-top:.5px solid var(--dsw-alias-border-l3);border-bottom:.5px solid var(--dsw-alias-border-l3);margin:var(--dsh-one-density-group-gap,4px) 0 var(--dsh-one-density-group-gap,4px)}' +
   '.dshOneTree_selectionBar{box-sizing:border-box;flex-wrap:wrap;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   '.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:none;white-space:nowrap;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}' +
   '.dshOneTree_selectionActions{flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-left:auto;display:flex}' +
   '.dshOneTree_selectionActions button{flex:none;white-space:nowrap}' +
-  '.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 var(--dsh-one-density-row-padding-inline,8px) var(--dsh-one-density-group-gap,4px)}' +
+  '.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 var(--dsh-one-density-row-padding-inline,8px) var(--dsh-one-density-section-gap,4px)}' +
   // 回收站抽屉（#103）：从底部半高滑出（高度由组件按档位给，默认 50%、上拉到 90%）。
   // 滑入与滑出共用这一条过渡（同一个 `transform`，开态只是把它还原成 none），所以两边
   // 天然对称（#117）。时长与缓动都取官方 token，不写自造数字：官方 ui-theme 的 base.css
