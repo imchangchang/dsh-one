@@ -24,8 +24,10 @@
  *      没有「在官方 markdown 里加一个可点 token」的粒度；
  *    - `conversation.chat.turnTail`（chain）、`conversation.chat.assistant-actions`
  *      （list）都挂在回合/消息层级，拿不到正文文本；
- *    - `shell.overlay` 是悬浮层座位（自有 shell frame 声明，list additive、
- *      默认 pointer-events:none）——本插件的卡片就渲染在这里（见下）。
+ *    - `shell.overlay` 是**官方 AppFrame（ui-layout）声明的** list 座位（`scope: root`，
+ *      「悬浮层」语义、默认 pointer-events:none）——本插件的卡片就渲染在这里（见下）；
+ *      我们的 VS Code 树 shadow 了 root，所以由自有 frame 插件声明同名子槽
+ *      （两侧都是同一个官方座位名，官方 web 里由官方外框提供）。
  * ② 机制层 2（官方服务）有一条**接近但不成立**的路：`chatFileMentions` 服务
  *    （ui-deliverables 的 `ctx.provide("chatFileMentions", …)`；ui-chat 经
  *    `ctx.get("chatFileMentions")?.forClosing(owner)` 消费，最终喂给官方
