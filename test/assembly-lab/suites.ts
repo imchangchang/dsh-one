@@ -34,6 +34,7 @@ import { TAG_GROUP_RAIL_SUITE } from './tagRailSuites.ts'
 import { RECYCLE_DRAWER_COLLAPSE_SUITE } from './recycleDrawerSuites.ts'
 import { TOPBAR_RHYTHM_SUITE } from './topbarRhythmSuites.ts'
 import { RENAME_OPEN_SYNC_SUITE } from './renameOpenSyncSuites.ts'
+import { SELECTION_BAR_SUITE } from './selectionBarSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -5797,4 +5798,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #121 会话行点击的「宿主真的开着它吗」（F-28：F-26 归 #119、F-27 归 #122；
   // 套件本体在 renameOpenSyncSuites.ts，同为独立文件）。
   RENAME_OPEN_SYNC_SUITE,
+  // #120 选择态动作条的布局与观感（F-29：F-24…F-28 已被 #117/#118/#119/#122/#121 占用；套件本体在
+  // selectionBarSuites.ts，同上为独立文件）。
+  SELECTION_BAR_SUITE,
 ]

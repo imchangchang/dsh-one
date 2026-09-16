@@ -90,6 +90,12 @@
 //   `.dshOneTree_rowIconButton`）→ **标准档的 16×20 / 16×16**，不取紧凑档的 14×14：
 //   紧凑档那个 14×14 是官方 **14 档图标**的盒子，而本插件的行图标是官方 **16 档**
 //   （`IconXxx16`）——换 14 盒子得把全部行图标同时换成 14 档，属另一件事。
+// - **选择态动作条**（`.dshOneTree_selectionBar*`，#120）→ 全部由密度档与官方 token 构成：
+//   条内按钮是**官方 Button 的 `sm` 档**（官方 `._sm_cfgyt_30{height:28px;font-size:12px;
+//   line-height:18px;padding:0 10px;border-radius:14px}`，28px 与标准档的顶栏图标按钮 /
+//   搜索框同高），不是自造尺寸；纵向留白走密度档的 `group-gap`（#119 口径：纵向取官方节奏），
+//   横向走 `row-padding-inline`（横向取紧凑档）；形态是通栏横带（上下发丝线 + 极淡底色，
+//   颜色只用官方 token），所以它自己不带圆角/高度字面量——理由写在它那条规则上方。
 // - **标签组**（`.dshOneTree_tag*`，#107）与**自绘件**（勾选框里的短横线、a11y 用的 1×1
 //   裁剪盒、抽屉把手）**不进本表**：标签组逐字沿用旧侧栏的取值（理由写在各自规则上方），
 //   自绘件不是几何档位能表达的形态；这些例外逐条列在下面的 `SCALE_EXEMPT` 里，每条都写了理由。
@@ -410,10 +416,34 @@ export const CSS =
   // 与行内其它标记同一档）；加粗值取自旧侧栏的 .session-title.unread（600）。
   '.dshOneTree_pin{flex:none;width:14px;height:14px;margin-right:4px;color:var(--dsw-alias-label-tertiary);align-items:center;display:inline-flex}' +
   '.dshOneTree_unread{font-weight:600}' +
-  '.dshOneTree_selectionBarWrap{flex:none}' +
-  '.dshOneTree_selectionBar{gap:8px;box-sizing:border-box;padding:4px 8px;align-items:center;display:flex}' +
-  '.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
-  '.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 8px 4px}' +
+  // ---- 选择态动作条（#120）----
+  // 用户实测报的是三件事：计数被压成一字一行、窄宽度排不下、与过滤条/列表行分不开。
+  //
+  // ① **形态**：一条**通栏横带**——上下各一条极细分隔线（`.5px solid
+  //    var(--dsw-alias-border-l3)`，就是侧栏里那条发丝线：我们分组胶囊的描边、抽屉顶边用的
+  //    都是它）+ 一片极淡的底色（`--dsw-alias-interactive-bg-hover`，官方给列表行悬停用的
+  //    同一枚 token），于是这条自己成一块面，按钮不再「浮」在树行上（用户报的第三点）。
+  //    **为什么不做成圆角描边框**（另一种常见容器形态）：列表内容区是从侧栏左缘再往外伸
+  //    4px 的（列表行按设计出血到边缘，见 `.dshOneTree_listArea` 的 `margin-left:-4px`），
+  //    x=-4 处那半像素描边整条落在可视区之外（实验室实测：条的左边框矩形 l=-4，`elementFromPoint`
+  //    在 x=1 处命中的已经是条内元素）；要让它可见就得给容器编一个 4px 的内缩，而那个 4px
+  //    在档位表里没有出处。通栏横带沿用列表行同一套出血模型，不需要任何自造数值。
+  // ② **留白**（按 #119 的口径：纵向取官方节奏、横向取紧凑档）：上下与向内的纵向留白
+  //    走 `--dsh-one-density-group-gap`（官方原值 4px，就是分块之间那一档；分组过滤条
+  //    的下边距用的是同一个键，两条基线同高），条内横向留白走
+  //    `--dsh-one-density-row-padding-inline`（紧凑档项内边距 7px，与列表行的文字左缘对齐）。
+  // ③ **分组**：计数与按钮两组；计数不收缩（`flex:none` + `white-space:nowrap`，任何宽度
+  //    下都是一行），按钮组 `margin-left:auto` 推到右边，放不下时**整组换行**（组内再
+  //    放不下就逐枚往下排，永不横向溢出）。**不走「收成图标 + tooltip」那条路**：这三枚里
+  //    有「归档」这种不可逆动作（#103 明确要求它与可逆的「移入回收站」在界面上分得开），
+  //    图标化会抹掉这层语义；而且这三枚都是常驻动作，图标化等于每次操作都要先悬停读提示。
+  //    按钮自身 `flex:none` + `white-space:nowrap`：宁换行，不挤文字。
+  '.dshOneTree_selectionBarWrap{flex:none;background:var(--dsw-alias-interactive-bg-hover);border-top:.5px solid var(--dsw-alias-border-l3);border-bottom:.5px solid var(--dsw-alias-border-l3);margin:0 0 var(--dsh-one-density-group-gap,4px);padding:var(--dsh-one-density-section-gap,4px) 0}' +
+  '.dshOneTree_selectionBar{box-sizing:border-box;flex-wrap:wrap;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
+  '.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:none;white-space:nowrap;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}' +
+  '.dshOneTree_selectionActions{flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-left:auto;display:flex}' +
+  '.dshOneTree_selectionActions button{flex:none;white-space:nowrap}' +
+  '.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 var(--dsh-one-density-row-padding-inline,8px) var(--dsh-one-density-section-gap,4px)}' +
   // 回收站抽屉（#103）：从底部半高滑出（高度由组件按档位给，默认 50%、上拉到 90%）。
   // 滑入与滑出共用这一条过渡（同一个 `transform`，开态只是把它还原成 none），所以两边
   // 天然对称（#117）。时长与缓动都取官方 token，不写自造数字：官方 ui-theme 的 base.css
