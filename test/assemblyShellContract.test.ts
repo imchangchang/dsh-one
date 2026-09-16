@@ -67,3 +67,61 @@ test('chat 树：会话面板两版槽位都声明（0.1.2 的 single conversati
   assert.match(text, /renderSlot\('main', \{\}, \{ entryKey: activePanelId \?\? 'conversation' \}\)/, 'main 槽位必须按官方取键渲染')
   assert.match(text, /renderSlot\('conversation', \{\}\)/, 'single conversation 槽位要保留渲染分支')
 })
+
+// #85 A 项（侧栏树密度适配）：shell 给偏好、树插件消费、缺省回落官方档。
+// 两边是两份源码，键集与官方原值靠这条测试对齐——shell 加的键没人消费、树消费的
+// 键 shell 没设、兜底值抄错（覆盖了官方档）都会在这里挂。
+test('密度偏好：shell 设的键集 = 树插件消费的键集，且树兜底逐项等于官方原值', () => {
+  const shell = read('sidebarFramePlugin.ts')
+  const profile = new Map(
+    [...shell.matchAll(/'([a-z-]+)':\s*\{\s*official:\s*'([^']+)',\s*vscode:\s*'([^']+)'\s*\}/g)].map((m) => [
+      m[1],
+      { official: m[2], vscode: m[3] },
+    ]),
+  )
+  assert.ok(profile.size >= 10, `shell 的 DENSITY_PROFILE 至少要有 10 项（实际 ${profile.size}）`)
+  const tree = read('workspaceTreePlugin.ts')
+  const consumed = new Map([...tree.matchAll(/var\(--dsh-one-density-([a-z-]+),\s*([^)]+)\)/g)].map((m) => [m[1], m[2]]))
+  assert.ok(consumed.size >= 10, `树插件消费的密度变量至少要有 10 项（实际 ${consumed.size}）`)
+  assert.deepEqual(
+    [...consumed.keys()].sort(),
+    [...profile.keys()].sort(),
+    'shell 设的键集必须与树插件消费的键集一致',
+  )
+  for (const [key, fallback] of consumed) {
+    assert.equal(fallback, profile.get(key)?.official, `--dsh-one-density-${key} 的兜底必须是官方原值（缺省即官方档）`)
+  }
+  // VS Code 档必须真的更紧，不是照抄官方值（照抄等于本次适配没生效）。
+  const numeric = (v: string): number => Number.parseFloat(v)
+  for (const [key, value] of profile) {
+    assert.ok(numeric(value.vscode) <= numeric(value.official), `${key} 的 VS Code 档不得大于官方档`)
+  }
+  assert.ok(
+    [...profile.values()].some((value) => numeric(value.vscode) < numeric(value.official)),
+    '至少有一项 VS Code 档比官方档紧',
+  )
+  // 变量挂在 frame 容器上（容器内所有插件经继承拿到），且只带尺寸、不带颜色观感。
+  assert.match(shell, /export const DENSITY_CSS =\s*'\.dshOneSidebarShell_frame\{'/, '密度变量必须挂在 frame 容器选择器上')
+  for (const [key, value] of profile) {
+    assert.ok(!/^#|rgb|var\(/.test(value.vscode), `密度值必须是长度字面量（${key}）`)
+  }
+})
+
+// #85 B 项（悬停卡遮挡）：树插件按「容器右侧有没有 244+8px 空处」决定渲不渲染
+// 官方悬停卡；shell 不得再用 CSS 把官方卡片钉进容器（上一版的做法，正是用户
+// 反馈的「遮挡内容」）。
+test('悬停卡：官方卡几何常数取自官方实现，且 shell 不再用 CSS 钉住卡片', () => {
+  const tree = read('workspaceTreePlugin.ts')
+  assert.match(tree, /const HOVER_CARD_WIDTH = 244/, '卡宽取官方 css-module 的固定 244px')
+  assert.match(tree, /const HOVER_CARD_GAP = 8/, '定位间隙取官方实现的 anchor.right + 8')
+  assert.match(tree, /available >= HOVER_CARD_WIDTH \+ HOVER_CARD_GAP/, '判据 = 容器到视口右缘的余量 ≥ 卡宽 + 间隙')
+  // 两个行组件的浮层包裹都要过这道闸（会话行、工作区行）。
+  assert.equal(
+    [...tree.matchAll(/if \([^)]*!hoverCard[^)]*\) return row/g)].length,
+    2,
+    '会话行与工作区行都必须按 hoverCard 闸门决定渲不渲染浮层',
+  )
+  const shell = read('sidebarFramePlugin.ts')
+  assert.ok(!/_card_/.test(shell), 'shell 不得再用 CSS 钉住官方悬停卡（遮挡的成因）')
+})
+

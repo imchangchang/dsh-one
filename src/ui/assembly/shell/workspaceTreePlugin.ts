@@ -49,12 +49,17 @@
  *   `IconBranchOutline16` / `IconArchiveOutline20` / `StateDot` / `Menu` /
  *   `Tooltip` / `HoverCard` / `Modal` / `Button` / `relativeTime`。
  *
- * **样式 = 官方 token**：本插件不写自造颜色/尺寸。下面 CSS 里的每个数值都逐字
+ * **样式 = 官方 token + 官方默认几何**：本插件不写自造颜色/尺寸。下面 CSS 里的每个数值都逐字
  * 取自官方 css-module（`ui-workspace/src/client/rows/Rows.module.css` 与
  * `WorkspaceBrowser.module.css`，0.1.6-alpha.1 的 `lib/client.js` 内联副本），
  * 颜色一律引用官方 token 变量（`--dsw-*`）。**不引用官方哈希类名**
  * （`YDXeBa_*` / `bhn1Oq_*` 随版本变），只用自有类名 + 官方 token：数值同源、
  * token 同源，只有类名是自己的。
+ * **密度/间距（#85 A 项）**：几何项写 `var(--dsh-one-density-<项>, <官方原值>)`
+ * ——宿主（我们的 VS Code 侧栏外框）在容器上设这组变量时自动变紧凑，没人设时
+ * 取官方原值，本件零宿主判断、保持可移植（见 CSS 上方的密度偏好说明）。
+ * **悬停卡（#85 B 项）**：官方 HoverCard 只在容器右侧放得下 244+8px 时渲染，
+ * 否则不渲染（官方定位会落到视口外；取舍见 useHoverCardRoom 上方的说明）。
  *
  * ## 已知取舍（下一步的差异化层处理）
  * - **分组展开态与视图偏好（分组方式/排序方式）目前只存在组件内存里，不跨重载
@@ -234,22 +239,40 @@ const LOCALE_NS = 'dshOneTree'
 // ---------------------------------------------------------------------------
 // 样式：数值逐字取自官方 css-module（Rows.module.css / WorkspaceBrowser.module.css），
 // 颜色只用官方 token 变量；类名前缀 dshOneTree_ 是本插件自有命名空间。
+//
+// ## 密度偏好（#85 A 项）：消费 shell 给的 CSS 变量，缺省即官方档
+// 几何/间距项（行高、行间空隙、分组空隙、行内边距、分节头高、字号、列表底部
+// 留白、图标按钮/搜索胶囊尺寸）写成 `var(--dsh-one-density-<项>, <官方原值>)`：
+// - **本插件不判断宿主**：没人给偏好时取官方字面量（官方 web 侧原样），宿主
+//   （我们的 VS Code 侧栏外框 @dsh-one/vscode-sidebar-shell）在容器上设这组
+//   变量时自动变紧凑——本件据此保持可移植（AGENTS.md 铁律「能移植的必须移植」）。
+// - 变量是**可选输入**、不是契约：官方 web 无人设 → 走兜底；任何宿主都可以只
+//   设其中几项（未设的项独立回落官方值）。
+// - 观感语言（图标/颜色/圆角/字体族/动效曲线）**不在这组变量里**：那些继续
+//   逐字沿用官方，本次只调密度（issue #85 范围）。
+// - 变量名与官方原值两栏一一对应，改动时两边同步（test/assemblyShellContract.test.ts
+//   有一条契约测试守着「shell 设的键集 = 树消费的键集」）。
 // ---------------------------------------------------------------------------
 const CSS =
-  '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);flex-direction:column;flex:1;display:flex}' +
-  '.dshOneTree_iconButton{cursor:pointer;width:28px;height:28px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
+  // overflow:hidden 是给分节头的 `margin-right:-4px`（官方原值，让标题栏贴到侧栏
+  // 右缘）兜住溢出：shell 把 `--dsh-sidebar-inline-padding` 置 0 之后，那 4px 会伸到
+  // 容器外，让侧栏外层（官方 hHd-Xa_regionArea）的 scrollWidth 比 clientWidth 大 4px
+  // ——平时看不见，但官方在「单列表」视图里对选中行 scrollIntoView 时会被横滚 4px，
+  // 整棵树跟着左移 4px（#85 回归断言实测到的既有缺陷）。列表自己的滚动在 .dshOneTree_list。
+  '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex}' +
+  '.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
-  '.dshOneTree_sectionHeader{box-sizing:border-box;height:36px;color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:4px;margin-bottom:4px;padding-left:4px;display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}' +
+  '.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:4px;margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:4px;display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}' +
   '.dshOneTree_sectionLabel{white-space:nowrap;opacity:1;visibility:visible;min-width:0;max-width:45%;transition:max-width .18s var(--ds-ease-in-out),margin-right .18s var(--ds-ease-in-out),opacity .12s var(--ds-ease-in-out),transform .18s var(--ds-ease-in-out),visibility 0s linear;flex:none;line-height:20px;overflow:hidden}' +
   '.dshOneTree_sectionLabelHidden{opacity:0;visibility:hidden;max-width:0;margin-right:-4px;transition-delay:0s,0s,0s,0s,.18s;transform:translate(-4px)}' +
-  '.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:28px;transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}' +
+  '.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}' +
   '.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:0}' +
   '.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:60px;transition:max-width .18s var(--ds-ease-in-out),opacity .12s var(--ds-ease-in-out),transform .18s var(--ds-ease-in-out),visibility 0s linear;flex:none;align-items:center;gap:4px;display:flex;overflow:hidden}' +
   '.dshOneTree_headerActionsHidden{opacity:0;visibility:hidden;pointer-events:none;max-width:0;transition-delay:0s,0s,0s,.18s;transform:translate(4px)}' +
-  '.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:28px;color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}' +
-  '.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:30px;color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}' +
-  '.dshOneTree_searchButton{cursor:pointer;width:28px;height:28px;color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
-  '.dshOneTree_searchExpanded .dshOneTree_searchButton{width:28px;height:30px}' +
+  '.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}' +
+  '.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}' +
+  '.dshOneTree_searchButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
+  '.dshOneTree_searchExpanded .dshOneTree_searchButton{width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-search-expanded-height,30px)}' +
   '.dshOneTree_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_searchExpanded .dshOneTree_searchButton:hover{background:0 0}' +
   '.dshOneTree_searchInput{opacity:0;pointer-events:none;width:0;min-width:0;color:var(--dsw-alias-label-primary);transition:opacity .12s var(--ds-ease-in-out);background:0 0;border:none;outline:none;flex:1;font-size:13px;line-height:18px}' +
@@ -258,20 +281,20 @@ const CSS =
   '.dshOneTree_clearButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}' +
-  '.dshOneTree_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:16px;overflow-y:auto}' +
-  '.dshOneTree_flatList>*+*,.dshOneTree_groupSection>*+*{margin-top:2px}' +
+  '.dshOneTree_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:var(--dsh-one-density-list-padding-bottom,16px);overflow-y:auto}' +
+  '.dshOneTree_flatList>*+*,.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}' +
   '.dshOneTree_groupSection{position:relative}' +
-  '.dshOneTree_groupSection+.dshOneTree_groupSection{margin-top:4px}' +
+  '.dshOneTree_groupSection+.dshOneTree_groupSection{margin-top:var(--dsh-one-density-group-gap,4px)}' +
   '.dshOneTree_searchStatus,.dshOneTree_searchWarning{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}' +
   '.dshOneTree_searchWarning{color:var(--dsw-alias-label-secondary)}' +
   '.dshOneTree_empty{color:var(--dsw-alias-label-tertiary);padding:16px 12px;font-size:13px}' +
-  '.dshOneTree_sessionOverflowButton{cursor:pointer;text-align:left;width:100%;height:28px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:8px;padding:0 12px 0 28px;font-size:12px}' +
+  '.dshOneTree_sessionOverflowButton{cursor:pointer;text-align:left;width:100%;height:var(--dsh-one-density-overflow-row-height,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:8px;padding:0 12px 0 28px;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
   '.dshOneTree_sessionOverflowButton:hover{color:var(--dsw-alias-label-secondary);background:0 0}' +
-  '.dshOneTree_projectRow,.dshOneTree_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}' +
+  '.dshOneTree_projectRow,.dshOneTree_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   '.dshOneTree_projectRow:hover,.dshOneTree_sessionRow:hover,.dshOneTree_sessionRow.dshOneTree_selected,.dshOneTree_projectRow.dshOneTree_menuOpen,.dshOneTree_sessionRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}' +
-  '.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:34px}' +
+  '.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:var(--dsh-one-density-row-height,34px)}' +
   '.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}' +
-  '.dshOneTree_sessionRow{height:32px;gap:0}' +
+  '.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}' +
   '.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}' +
   '.dshOneTree_flatRowWithoutStatus .dshOneTree_title{margin-left:0}' +
   '.dshOneTree_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}' +
@@ -283,8 +306,8 @@ const CSS =
   '.dshOneTree_arrow{transition:transform .15s var(--ds-ease-in-out)}' +
   '.dshOneTree_arrowOpen{transform:rotate(90deg)}' +
   '.dshOneTree_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}' +
-  '.dshOneTree_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:14px;line-height:20px;overflow:hidden}' +
-  '.dshOneTree_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:20px}' +
+  '.dshOneTree_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}' +
+  '.dshOneTree_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}' +
   '.dshOneTree_scheduleIndicator{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;margin-right:6px;display:inline-flex}' +
   '.dshOneTree_dot{flex:none}' +
   '.dshOneTree_rowActions{flex:none;align-items:center;gap:12px;display:none}' +
@@ -293,7 +316,7 @@ const CSS =
   '.dshOneTree_rowIconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_rowIconButton:hover{color:var(--dsw-alias-label-primary)}' +
   '.dshOneTree_chevron{color:var(--dsw-alias-label-caption)}' +
-  '.dshOneTree_searchRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:48px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}' +
+  '.dshOneTree_searchRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:var(--dsh-one-density-search-row-min-height,48px);color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}' +
   '.dshOneTree_searchRow:hover,.dshOneTree_searchRow.dshOneTree_selected{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_searchRowHeading{align-items:center;min-width:0;display:flex}' +
   '.dshOneTree_searchRowTitle{text-overflow:ellipsis;white-space:nowrap;flex:0 auto;min-width:0;margin-left:4px;font-size:14px;line-height:20px;overflow:hidden}' +
@@ -415,6 +438,60 @@ function displayTitle(node: SessionNode, tr: Translate): string {
 }
 
 // ---------------------------------------------------------------------------
+// 悬停卡（官方 HoverCard 原语）——#85 B 项：容器右侧真有空处时才渲染
+//
+// 官方几何（0.1.6-alpha.1 官方实现 + css-module，逐字核对）：
+// 卡片是 `position:fixed` 的浮层、**固定 244px 宽**，定位 = `left = anchor.right + 8`、
+// `top = anchor.top`（只在会超出视口底部时上移，水平方向不夹取、不翻转），
+// portal 到 `document.body`。也就是说官方语义是**卡片浮在侧栏右侧的空处**：
+// 官方 web 的页面比侧栏宽得多，卡片落在侧栏右边的主区上，压根不压树。
+//
+// VS Code 侧栏形态下容器**就是**视口（webview 宽度 = 侧栏宽度），行右缘到视口
+// 右缘没有 244+8px 的空处，官方定位会落到视口外（被 webview 边界裁掉）。三种
+// 处置里选「抑制」，理由：
+// - 官方 HoverCard 没有 placement / 翻转 / 夹取入参（只有 anchor / content /
+//   openDelayMs / disabled / copyText / copyLabel / copiedLabel），改不了它内部定位；
+// - 卡片 244px 宽、约 72px 高的不透明浮层放进侧栏内，就不存在「不压住树」的位置
+//   （官方 web 靠浮到侧栏外面避开树，侧栏本身宽度不够）；
+// - 用 CSS 把它钉进容器（本仓库 shell 上一版的做法）等于把卡片压在行上——用户
+//   验收反馈的「悬停卡遮挡内容」正是这个；
+// - 按 #85 给的「窄宽度下降级形态或抑制」走**抑制**：行内仍有标题（超长省略）与
+//   相对时间，卡片承载的补充信息（完整标题 / 工作区路径 / 创建时刻）在无空处的
+//   宿主里放弃，换「悬停不遮挡任何内容」。
+//
+// 判据取**容器右缘**（比行右缘保守：行右缘还要让出滚动条槽）——量出余量 ≥ 卡宽 +
+// 间隙才渲染浮层。两端同一份判据：官方 web 侧余量充足 → 官方行为原样；VS Code 侧栏
+// 恒不足 → 不渲染。
+// ---------------------------------------------------------------------------
+
+const HOVER_CARD_WIDTH = 244
+const HOVER_CARD_GAP = 8
+
+/** 容器右侧是否有放得下官方悬停卡的空处（随容器尺寸变化重算）。 */
+function useHoverCardRoom(rootRef: { current: HTMLDivElement | null }): boolean {
+  const [room, setRoom] = useState(false)
+  useEffect(() => {
+    const measure = (): void => {
+      const el = rootRef.current
+      if (el === null) return
+      const available = document.documentElement.clientWidth - el.getBoundingClientRect().right
+      setRoom(available >= HOVER_CARD_WIDTH + HOVER_CARD_GAP)
+    }
+    measure()
+    const el = rootRef.current
+    if (el === null) return
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(el)
+    window.addEventListener('resize', measure)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [])
+  return room
+}
+
+// ---------------------------------------------------------------------------
 // 树的行组件（官方 rows/Rows.js 与 rows/WorkspaceBrowser.js 的同构复刻：
 // DOM 结构与 class 语义一一对应，类名换成自有前缀）
 // ---------------------------------------------------------------------------
@@ -503,6 +580,7 @@ function ProjectRow({
   group,
   tr,
   expanded,
+  hoverCard,
   onToggle,
   onCreate,
   onRename,
@@ -511,6 +589,8 @@ function ProjectRow({
   group: GroupNode
   tr: Translate
   expanded: boolean
+  /** 容器右侧有空处才渲染官方悬停卡（见 useHoverCardRoom 的取舍说明）。 */
+  hoverCard: boolean
   onToggle: () => void
   onCreate: () => void
   onRename?: () => void
@@ -608,7 +688,7 @@ function ProjectRow({
       ],
     },
   )
-  if (group.createdAt === undefined) return row
+  if (group.createdAt === undefined || !hoverCard) return row
   return h(HoverCard, {
     anchor: row,
     content: h(WorkspaceHoverContent, { label: group.label, cwd: group.cwd, createdAt: group.createdAt, tr }),
@@ -625,6 +705,7 @@ function SessionRow({
   currentId,
   now,
   flat,
+  hoverCard,
   tr,
   onOpen,
   onRename,
@@ -635,6 +716,8 @@ function SessionRow({
   currentId?: string
   now: number
   flat: boolean
+  /** 容器右侧有空处才渲染官方悬停卡（见 useHoverCardRoom 的取舍说明）。 */
+  hoverCard: boolean
   tr: Translate
   onOpen: () => void
   onRename: (title: string) => void
@@ -707,6 +790,7 @@ function SessionRow({
       ],
     },
   )
+  if (!hoverCard) return row
   return h(HoverCard, {
     anchor: row,
     content: h(SessionHoverContent, { node, now, tr }),
@@ -1001,6 +1085,8 @@ function WorkspaceTree(props: TreeProps): unknown {
   const [deleteTarget, setDeleteTarget] = useState<{ workspaceId: string; title: string } | null>(null)
   const searchInput = useRef<{ focus(): void } | null>(null)
   const searchRoot = useRef<HTMLDivElement | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const hoverCard = useHoverCardRoom(rootRef)
 
   // 当前会话所在分组默认展开（官方同款：只在一条分组从未被显式收/展过时自动展开）。
   useEffect(() => {
@@ -1129,6 +1215,7 @@ function WorkspaceTree(props: TreeProps): unknown {
                 ...(list.current === undefined ? {} : { currentId: list.current }),
                 now,
                 flat: true,
+                hoverCard,
                 tr,
                 onOpen: () => openSession(row.id),
                 onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
@@ -1148,6 +1235,7 @@ function WorkspaceTree(props: TreeProps): unknown {
                   group,
                   tr,
                   expanded: groupExpansion[group.key] === true,
+                  hoverCard,
                   onToggle: () => setGroupExpansion((prev) => ({ ...prev, [group.key]: prev[group.key] !== true })),
                   onCreate: () => startSession(group.workspaceId),
                   ...(group.workspaceId === undefined
@@ -1168,6 +1256,7 @@ function WorkspaceTree(props: TreeProps): unknown {
                       ...(list.current === undefined ? {} : { currentId: list.current }),
                       now,
                       flat: false,
+                      hoverCard,
                       tr,
                       onOpen: () => openSession(row.id),
                       onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
@@ -1210,7 +1299,7 @@ function WorkspaceTree(props: TreeProps): unknown {
 
   return h(
     'div',
-    { className: 'dshOneTree_root', 'data-shell': 'dsh-one-tree', 'data-dshone-tree': 'root' },
+    { className: 'dshOneTree_root', ref: rootRef, 'data-shell': 'dsh-one-tree', 'data-dshone-tree': 'root' },
     h(
       'div',
       { className: 'dshOneTree_sectionHeader' },

@@ -72,6 +72,53 @@ function Nothing(): null {
 }
 
 // ---------------------------------------------------------------------------
+// 密度偏好（#85 A 项）：VS Code 侧栏外框给容器设一组 CSS 变量，树插件
+// （@dsh-one/dsh-workspace-tree）按 `var(--dsh-one-density-x, <官方原值>)` 消费。
+//
+// **为什么是 CSS 变量而不是 cordis 服务**：这是一份「宿主容器对内容的排版
+// 偏好」，值本身是 CSS 长度、消费点全在样式里；用变量则零 JS 契约、零注册
+// 时序、任何插件（含官方件）都能按需读，未设的项各自回落官方值；改用服务
+// 反而要发明一套跨插件 JS 接口和订阅生命周期，收益为负。变量挂在 frame 容器
+// 上，靠继承下发给容器内所有内容（树插件只读，不参与写入）。
+//
+// 数值口径：官方原值逐字取自官方 css-module（ui-workspace 的 Rows.module.css /
+// WorkspaceBrowser.module.css），VS Code 档按「VS Code 原生侧栏树观感」定
+// （原生树行高 22px、13px 字号、行间 0 空隙的紧凑感）——官方按自己 264–420px
+// 侧栏设计的松量在 VS Code 侧栏里偏松。每个键两边一致由 test/assemblyShellContract
+// 的契约测试守着（表里的 official 必须等于树插件 CSS 的兜底字面量）。
+// **观感语言（图标/颜色/圆角/字体族/动效）不在这张表里**——那些继续逐字沿用官方。
+// ---------------------------------------------------------------------------
+
+/** 密度档：键 = 变量后缀，official = 官方原值（与树插件 CSS 兜底同源），vscode = VS Code 档。 */
+export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode: string }>> = {
+  'row-height': { official: '34px', vscode: '26px' },
+  'session-row-height': { official: '32px', vscode: '24px' },
+  'row-gap': { official: '2px', vscode: '1px' },
+  'group-gap': { official: '4px', vscode: '3px' },
+  'row-padding-inline': { official: '8px', vscode: '6px' },
+  'section-header-height': { official: '36px', vscode: '30px' },
+  'section-header-gap': { official: '4px', vscode: '2px' },
+  'title-font-size': { official: '14px', vscode: '13px' },
+  'title-line-height': { official: '20px', vscode: '18px' },
+  'meta-font-size': { official: '12px', vscode: '11px' },
+  'meta-line-height': { official: '20px', vscode: '16px' },
+  'list-padding-bottom': { official: '16px', vscode: '12px' },
+  'overflow-row-height': { official: '28px', vscode: '24px' },
+  'icon-button-size': { official: '28px', vscode: '24px' },
+  'search-height': { official: '28px', vscode: '24px' },
+  'search-expanded-height': { official: '30px', vscode: '26px' },
+  'search-row-min-height': { official: '48px', vscode: '40px' },
+}
+
+/** 密度档 → 一条 CSS 规则（挂在 frame 上，容器内所有插件经继承拿到）。 */
+export const DENSITY_CSS =
+  '.dshOneSidebarShell_frame{' +
+  Object.entries(DENSITY_PROFILE)
+    .map(([key, value]) => `--dsh-one-density-${key}:${value.vscode}`)
+    .join(';') +
+  '}'
+
+// ---------------------------------------------------------------------------
 // 样式：侧栏列 100% 流体（右边线保留，与官方 sidebarCol 视觉一致）；收起钮/
 // 收起轨隐藏——VS Code WebviewView 形态无「内页收起」概念，折叠由 VS Code
 // chrome 负责。aria-label 选择器覆盖官方便携类（哈希类名不可依赖）。
@@ -79,7 +126,9 @@ function Nothing(): null {
 
 // logoRow 隐藏用 [class*="logoRow"]（css-module 名后缀稳定、哈希前缀随版本变）；
 // 折叠钮 aria-label 规则保留作双保险（zh/en 双词典，CSS 转义写中文）。
-const CSS = '.dshOneSidebarShell_frame,.dshOneSidebarShell_side,.dshOneSidebarShell_side>div{padding-left:0!important;padding-right:0!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]{--dsh-sidebar-inline-padding:0px;padding-top:4px;max-width:none!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame [class*="_card_"],[class*="_card_"]{position:fixed!important;left:auto!important;right:8px!important;max-width:calc(100vw - 16px)!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
+const CSS =
+  '.dshOneSidebarShell_frame,.dshOneSidebarShell_side,.dshOneSidebarShell_side>div{padding-left:0!important;padding-right:0!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]{--dsh-sidebar-inline-padding:0px;padding-top:4px;max-width:none!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}' +
+  DENSITY_CSS
 const CSS_TAG_ID = '@dsh-one/vscode-sidebar-shell/SidebarFrame.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
