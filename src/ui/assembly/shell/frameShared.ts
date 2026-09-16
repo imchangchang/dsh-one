@@ -80,8 +80,9 @@ export interface ThemeSnapshot {
 /**
  * root 条目 `inject` 面拿到的动作集 = 本 store 的 actions 绑定（框架按 entry
  * 实例化后注入），layout 服务与面板呈现上报都落到这里。官方 ILayout 的五个
- * 成员各有落点：toggleSidebar/openRightbar/closeRightbar 直接映到同名动作，
- * selectPanel 由 LayoutController 自己兜（三棵树没有 keyed `main` 全局面板）。
+ * 成员各有落点：toggleSidebar/openRightbar/closeRightbar 直接映到同名动作；
+ * selectPanel 的校验与导航作废由 LayoutController 自己兜——我们三棵树的 frame
+ * 都不按 `panelInfo.activePanelId` 取面板，而是按 key 显式取（见该类注释）。
  */
 export interface PanelActions {
   openDetails(): void
@@ -216,8 +217,8 @@ export function createLayoutStore() {
  * layout 服务面（ctx.layout，官方 `ILayout` 成员逐项对齐——官方
  * `dsh-client-ui-layout/lib/types/client/service.d.ts`）：
  * - `toggleSidebar`：官方侧栏壳（ui-sidebar）的收起钮调用；
- * - `selectPanel`：官方工作区树（ui-workspace.openSession 返回会话面板）与
- *   官方侧栏的面板清单（ui-sidebar.selectPanel）调用；
+ * - `selectPanel`：官方工作区树（ui-workspace.openSession 返回会话面板）、
+ *   官方侧栏的面板清单（ui-sidebar.selectPanel）与 settings 树选中设置页时调用；
  * - `beginNavigation`：官方工作区树开工作区/fork 时拿导航 signal，用于
  *   「上一次导航作废」的竞态判定；
  * - `openRightbar` / `closeRightbar`：官方右侧栏（ui-sidebar-right）上报呈现
@@ -229,7 +230,20 @@ export function createLayoutStore() {
  */
 export class LayoutController {
   #panels: PanelActions | undefined
+  #hasMainPanel: (panelId: string) => boolean
   #navigation = new AbortController()
+
+  /**
+   * @param hasMainPanel - 官方同款判据「这个 key 在 keyed `main` 槽位上有条目吗」。
+   * 官方 ui-layout 构造时就是这么给的（`dsh-client-ui-layout/lib/client.js:515`）：
+   * `new LayoutController(instance.actions, (id) => ctx.slots.entries("main")
+   * .some((entry) => entry.options.key === id))`。缺省 `() => false` = 本树没有
+   * keyed `main` 座位（sidebar 树的 root children 只有 sidebar / shell.overlay，
+   * 任何面板 key 都不成立）。
+   */
+  constructor(hasMainPanel: (panelId: string) => boolean = () => false) {
+    this.#hasMainPanel = hasMainPanel
+  }
 
   /** root 注册 inject 回调接线（官方 sanctioned side effect）。 */
   attachPanels(actions: PanelActions): void {
@@ -242,13 +256,21 @@ export class LayoutController {
   }
 
   /**
-   * 选中全局主面板（官方语义：null = 回到会话面板）。自有三棵树里没有任何
-   * keyed `main` 全局面板注册（chat 树只有会话面板、sidebar 树没有主区），
-   * 所以只有 null 是合法目标，非 null 照官方抛同一条错。
+   * 选中全局主面板（官方 `ILayout.selectPanel` 语义：null = 回到会话面板，
+   * 非 null = keyed `main` 上某个面板的 key）。官方实现两步（
+   * `dsh-client-ui-layout/lib/client.js:412`）：先查 keyed `main` 的实时注册表
+   * （key 不在就照原句抛错），再作废进行中的导航。
+   *
+   * 我们这里不落状态：官方把选中项写进 store 的 `panelInfo.activePanelId`，
+   * 由官方外框按 `entryKey: activePanelId ?? …` 决定中列渲染哪条 keyed 条目；
+   * 我们的 frame 直接按 key 取（settings 树的设置页就是那条 keyed 条目，
+   * chat 树的对话面板本来也是默认档），所以选中态没有第二个消费方。
    */
   selectPanel(panelId: string | null): void {
-    if (panelId === null) return
-    throw new Error(`layout.selectPanel: main panel "${panelId}" is not registered`)
+    if (panelId !== null && !this.#hasMainPanel(panelId)) {
+      throw new Error(`layout.selectPanel: main panel "${panelId}" is not registered`)
+    }
+    this.#navigation.abort()
   }
 
   /** 开始一次导航：作废上一次未完成的导航（官方语义，调用方拿 signal 判定）。 */
@@ -310,9 +332,12 @@ export interface PanelInfoSnapshot {
  * 官方框架插件 ui-layout 被下线后没人再提供这份钩子，树组件挂载即抛
  * `usePanelInfo is not a function`，会话行整块消失（#76 现场日志实锤）。
  *
- * 取舍：自有三棵树没有全局主面板（chat 树只有会话面板、sidebar 树只有侧栏、
- * settings 树只有设置页），所以 `activePanelId` 恒为 null——与官方默认态
- * （未选全局面板）语义一致，会话行照常高亮。快照对象必须引用稳定：官方把它
+ * 取舍：这份快照是**恒定 null** 的静默源。消费它的官方组件只在「侧栏会话树 /
+ * 右栏」这些座位里挂载（chat 树没有 sidebar 座位、sidebar 树没有会话面板、
+ * settings 树只渲染设置页），因此三棵树都不依赖选中态：settings 树虽然把设置页
+ * 注册成 keyed `main` 上的条目并选中它（#95），但那条条目的渲染是按 key 显式取的
+ * （见 settingsFramePlugin 的 renderSlot），不走 `activePanelId`。恒定 null 与官方
+ * 默认态（未选全局面板）语义一致，会话行照常高亮。快照对象必须引用稳定：官方把它
  * 交给 useSyncExternalStoreWithSelector，每次返回新对象会导致无限重渲。
  */
 const PANEL_INFO_SNAPSHOT: PanelInfoSnapshot = { activePanelId: null }

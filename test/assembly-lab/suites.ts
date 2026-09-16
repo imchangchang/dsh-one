@@ -77,7 +77,7 @@ const CONTRACT_TREES: ReadonlyArray<{
   { route: 'sidebar', content: { label: '自有工作区树的会话行', selector: '.dshOneTree_sessionRow' }, seats: ['sidebar', 'sidebar.workspaces', 'sidebar.settings'] },
   { route: 'sidebar-official', content: { label: '官方浏览区的会话行', selector: '[class*="_sessionRow"]' }, seats: ['sidebar', 'sidebar.workspaces'] },
   { route: 'chat', content: { label: '对话区 composer 座位', selector: '[data-slot="conversation.composer.bar"] > *' }, seats: ['main', 'conversation.composer.bar', 'rightbar'] },
-  { route: 'settings', content: { label: '设置内容区', selector: '[data-slot="settings.section"] > *' }, seats: ['dshOne.settings.page', 'settings.section'] },
+  { route: 'settings', content: { label: '设置内容区', selector: '[data-slot="settings.section"] > *' }, seats: ['main', 'settings.section'] },
 ]
 
 export const CONTRACT_SUITE: LabSuite = {

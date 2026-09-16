@@ -54,7 +54,11 @@ test('layout 服务面覆盖官方 ILayout 全成员（官方 service.d.ts 清�
       `LayoutController 必须实现官方 ILayout 成员 ${member}（）`,
     )
   }
-  // 官方语义：未注册的 keyed main 面板要照官方抛同一条错（不是静默吞掉）。
+  // 官方语义（#95）：非 null 的目标按 keyed `main` 的实时注册表判合法性——官方
+  // ui-layout 的构造点就是 `new LayoutController(instance.actions, (id) =>
+  // ctx.slots.entries("main").some((entry) => entry.options.key === id))`，只有
+  // 注册表里没有这个 key 才照官方原句抛错（不能一律拒绝非 null）。
+  assert.match(classBody, /#hasMainPanel\(panelId\)/, 'selectPanel 的合法性判据必须查 keyed main 注册表')
   assert.match(classBody, /layout\.selectPanel: main panel/, 'selectPanel 的非法目标要照官方文案抛错')
   // beginNavigation 必须作废上一次导航（AbortController 语义）。
   assert.match(classBody, /new AbortController\(\)/, 'beginNavigation 必须给出可作废的 AbortSignal')
@@ -75,9 +79,22 @@ test('chat 树：会话面板两版槽位都声明（0.1.2 的 single conversati
 // `conversation.hero.agentPreset` 等座位名；声明表缺一项，挂在下面的官方子树
 // 整块注册失败（agent-preset 的会话级 scope 抛 `slot … is not declared`，
 // fiber 进 FAILED 并泄漏已注册的 sessions 订阅）。设置页不渲染对话区，但必须声明。
-test('settings 树：root children 表按官方 ui-layout 补齐对话区座位 main（#74）', () => {
+// #95：这个座位同时成了设置页自己的座位——设置页是 `main` 上一条 key =
+// `dshOne.settings` 的 keyed 条目（此前是自造槽位 `dshOne.settings.page`）。
+test('settings 树：设置页 = 官方 keyed main 上 key `dshOne.settings` 的条目（#74 声明 + #95 座位）', () => {
   const text = read('settingsFramePlugin.ts')
   assert.match(text, /main:\s*\{\s*kind:\s*'keyed',\s*scope:\s*'root'\s*\}/, 'keyed main 槽位要声明（官方 ui-conversation 的子树注册等它）')
+  assert.match(text, /const SETTINGS_MAIN_KEY = 'dshOne\.settings'/, '设置页的面板 key 要显式声明成常量')
+  assert.match(
+    text,
+    /ctx\.slots\.inject\('main',[\s\S]{0,400}?name: 'main',\s*\n\s*key: SETTINGS_MAIN_KEY/,
+    "设置页要经官方 slots.inject('main', …) 等座位声明后注册 keyed 条目",
+  )
+  assert.match(text, /renderSlot\('main', \{\}, \{ entryKey: SETTINGS_MAIN_KEY \}\)/, 'main 槽位要按官方 entryKey 取键渲染')
+  assert.match(text, /layout\.selectPanel\(SETTINGS_MAIN_KEY\)/, '注册后要按官方 key 语义选中设置页')
+  // #95：自造槽位名撤掉——注册点与渲染点都不许再出现它。
+  assert.ok(!/name:\s*'dshOne\.settings\.page'/.test(text), '自造槽位 dshOne.settings.page 不得再注册')
+  assert.ok(!/renderSlot\('dshOne\.settings\.page'/.test(text), '自造槽位 dshOne.settings.page 不得再渲染')
 })
 
 // #85 A 项（侧栏树密度适配）：shell 给偏好、树插件消费、缺省回落官方档。

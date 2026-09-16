@@ -1,11 +1,14 @@
 /**
  * @dsh-one/vscode-settings-shell——settings 树 frame 插件（#70 设置独立成页，
- * VS Code 验收返修 v2：官方双栏观感 + 提供方目录修复）。设置页 = 第三棵装配树：
+ * VS Code 验收返修 v2：官方双栏观感 + 提供方目录修复；#95 设置页改用官方 keyed
+ * `main`）。设置页 = 第三棵装配树：
  * - block list 同 chat 树（layout + sidebar 都下线）：官方外框与官方侧栏壳
  *   不进页（ui-sidebar 的槽注册在无人声明 'sidebar' 时 loud throw）。
  * - root 声明侧栏壳 4 子槽（品牌位/工作区树/品牌名/底部动作，贡献注册不渲染）
- *   + 对话区座位 `main`（同样只为让官方件的槽子树注册成立、本页不渲染，见
- *   apply 内注释）+ 自有 'dshOne.settings.page' 槽位并只渲染它。**有意不声明
+ *   + keyed `main` + `shell.overlay`。`main` 既让官方 ui-conversation 的整棵
+ *   对话子树注册得成立（#74，见 apply 内注释），也是设置页自己的座位：设置页是
+ *   `main` 上一条 key = `dshOne.settings` 的 keyed 条目，本页只渲染它（#95 之前
+ *   这条座位是自造槽位 `dshOne.settings.page`，只有我们认识那个名）。**有意不声明
  *   sidebar.settings**：声明会同步触发 settings-general 的 SettingsRoot inject，
  *   其 children 表与本页槽位撞 registry「already declared」（绕行而非 priority
  *   影子，同 v1）。
@@ -37,20 +40,27 @@ interface SectionsMirror {
   subscribe(listener: () => void): () => void
 }
 
+/**
+ * 设置页在官方 keyed `main` 槽位上的 key（官方 `MainPanelId` 语义：条目注册时
+ * 声明 `key`，渲染时 `renderSlot('main', {}, { entryKey })` 按它取条目，
+ * `ctx.layout.selectPanel` 也用它选中）。
+ */
+const SETTINGS_MAIN_KEY = 'dshOne.settings'
+
 interface SettingsFrameProps {
-  renderSlot: (name: string, params: Record<string, unknown>, opts?: { only?: string }) => unknown
+  renderSlot: (name: string, params: Record<string, unknown>, opts?: { only?: string; entryKey?: string }) => unknown
   sections: SectionsMirror
 }
 
 interface RootSlotEntry {
   name: 'root'
-  children: Record<string, { kind: 'single' | 'list'; scope: 'root' | 'session' | 'session-maybe' }>
+  children: Record<string, { kind: 'single' | 'list' | 'keyed'; scope: 'root' | 'session' | 'session-maybe' }>
   store: () => unknown
   inject: (actions: PanelActions) => Record<string, never>
 }
 
 interface SlotEntryLite {
-  options: { id?: string; order?: number; label?: unknown }
+  options: { id?: string; order?: number; label?: unknown; key?: string }
 }
 
 interface SlotsService {
@@ -217,9 +227,10 @@ const postOpenDocument = (): void => {
   vscode?.postMessage({ type: 'dshOne.openSettingsDocument' })
 }
 
-/** 根组件：整页只渲染 settings page 槽位。 */
+/** 根组件：整页只渲染设置页那条 keyed `main` 条目（官方 AppFrame 的 MainPanel
+ * 同款取键方式：`renderSlot(<槽位名>, <props>, { entryKey: <面板 key> })`）。 */
 function SettingsFrame({ renderSlot }: { renderSlot: SettingsFrameProps['renderSlot'] }) {
-  return h('div', { className: 'dshOneSettingsShell_root', style: { height: '100%' } }, renderSlot('dshOne.settings.page', {}))
+  return h('div', { className: 'dshOneSettingsShell_root', style: { height: '100%' } }, renderSlot('main', {}, { entryKey: SETTINGS_MAIN_KEY }))
 }
 
 // ---------------------------------------------------------------------------
@@ -246,15 +257,16 @@ function SettingsFrame({ renderSlot }: { renderSlot: SettingsFrameProps['renderS
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// cordis 插件面：layout 服务 + root 注册（侧栏壳 4 子槽 + 对话区座位 main +
-// settings page + overlay）+ SettingsPage 槽位（inject 供 sections 镜像）
-// + ThemePresenter
+// cordis 插件面：layout 服务 + root 注册（侧栏壳 4 子槽 + keyed main + overlay）
+// + 设置页作为 keyed `main` 上的条目（inject 供 sections 镜像）+ ThemePresenter
 // ---------------------------------------------------------------------------
 
 export const inject = ['slots', 'theme', 'locale']
 
 export function apply(ctx: ShellContext): void {
-  const layout = new LayoutController()
+  // selectPanel 的合法性判据照官方取 keyed `main` 的实时注册表（官方 ui-layout
+  // 同款构造点，见 frameShared.LayoutController）。
+  const layout = new LayoutController((panelId) => ctx.slots.entries('main').some((entry) => entry.options.key === panelId))
   const sections = createSectionsMirror(ctx)
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
@@ -262,8 +274,8 @@ export function apply(ctx: ShellContext): void {
     // 会话树，但设置页里的官方件（如「已归档会话」）同样经槽位拿标准 props，
     // 缺了这份钩子会在挂载时抛 `usePanelInfo is not a function`。见 frameShared。
     const disposePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo: PANEL_INFO_SOURCE } })
-    // 先注册 root（children 声明同步落 ledger），同 effect 内紧接着注册
-    // settings page 槽位。注意 root children 不声明 sidebar.settings——
+    // 先注册 root（children 声明同步落 ledger），再经官方 `slots.inject('main', …)`
+    // 注册设置页那条 keyed 条目。注意 root children 不声明 sidebar.settings——
     // 声明该名会同步触发 settings-general 的 SettingsRoot inject，其
     // children 表（settings.*）与本页槽位撞「already declared」抛错；
     // 不声明则该贡献 pending（chat 树 parked 语义），官方 modal 壳缺席。
@@ -275,8 +287,9 @@ export function apply(ctx: ShellContext): void {
           'sidebar.brand.name': { kind: 'single', scope: 'root' },
           'sidebar.workspaces': { kind: 'single', scope: 'root' },
           'sidebar.footer.action': { kind: 'list', scope: 'root' },
-          // 对话区座位（keyed `main`）**本页不渲染**（本页只渲染
-          // dshOne.settings.page），但必须声明：官方 ui-conversation 的整棵
+          // keyed `main`（官方 root 契约里的对话区座位）**本页只渲染设置页那条
+          // keyed 条目**（key = dshOne.settings，见下方注册与 SettingsFrame），
+          // 但也必须声明：官方 ui-conversation 的整棵
           // 对话子树注册挂在 `slots.inject("main", …)` 上
           //（dsh-client-ui-conversation/lib/client.js:16917，该子树里声明了
           // conversation.hero.agentPreset 等座位名），本页不声明它，这些座位名
@@ -293,7 +306,6 @@ export function apply(ctx: ShellContext): void {
           // shell.overlay（dsh-client-ui-layout/lib/client.js:525），声明之后由
           // 官方代码自己声明它的子树，无自有桩件、无 block list。
           main: { kind: 'keyed', scope: 'root' },
-          'dshOne.settings.page': { kind: 'single', scope: 'root' },
           'shell.overlay': { kind: 'list', scope: 'root' },
         },
         store: createLayoutStore,
@@ -321,22 +333,32 @@ export function apply(ctx: ShellContext): void {
       zh: { openDocument: '\u6253\u5f00\u914d\u7f6e\u6587\u4ef6' },
       en: { openDocument: 'Open configuration file' },
     })
-    const disposePage = ctx.slots.register(
-      {
-        name: 'dshOne.settings.page',
-        // 官方 settings.* 槽位声明在这——settings-general/models/plugins
-        // 的 section 贡献与行注入都挂这些名字。
-        children: {
-          'settings.header': { kind: 'single', scope: 'root' },
-          'settings.action': { kind: 'list', scope: 'root' },
-          'settings.close': { kind: 'single', scope: 'root' },
-          'settings.section': { kind: 'list', scope: 'root' },
-          'settings.onboarding': { kind: 'list', scope: 'root' },
+    // 设置页 = 官方 keyed `main` 上的一条 keyed 条目（#95；机制层 1：官方槽位机制）。
+    // 用官方 `slots.inject('main', …)` 等 `main` 被声明出来再注册——`main` 由上面
+    // 我们自己的 root 条目声明，槽位已声明时官方 inject 会同步跑回调（官方
+    // dsh-client-ui-renderer 的 slots.inject 文档：槽位已声明时同步 setup）。注册后
+    // 用官方 ILayout 的 selectPanel 选中这个 key。
+    const disposePage = ctx.slots.inject('main', () => {
+      const disposeEntry = ctx.slots.register(
+        {
+          name: 'main',
+          key: SETTINGS_MAIN_KEY,
+          // 官方 settings.* 槽位声明在这——settings-general/models/plugins
+          // 的 section 贡献与行注入都挂这些名字。
+          children: {
+            'settings.header': { kind: 'single', scope: 'root' },
+            'settings.action': { kind: 'list', scope: 'root' },
+            'settings.close': { kind: 'single', scope: 'root' },
+            'settings.section': { kind: 'list', scope: 'root' },
+            'settings.onboarding': { kind: 'list', scope: 'root' },
+          },
+          inject: () => ({ sections }),
         },
-        inject: () => ({ sections }),
-      },
-      SettingsPage,
-    )
+        SettingsPage,
+      )
+      layout.selectPanel(SETTINGS_MAIN_KEY)
+      return disposeEntry
+    })
     return () => {
       disposePage()
       disposeDocAction()
@@ -345,7 +367,7 @@ export function apply(ctx: ShellContext): void {
       disposePanelInfo()
       disposeService()
     }
-  }, 'dsh-one settings shell: layout service + panel-info hook + root + settings page seat + doc action')
+  }, 'dsh-one settings shell: layout service + panel-info hook + root + settings page as keyed main + doc action')
   ctx.effect(() => {
     const presenter = new ThemePresenter()
     presenter.apply(ctx.theme.getTheme())
