@@ -1,0 +1,133 @@
+{
+  "title": "DSH One 测试报告：会话多开（会话行「在新标签页打开」，显式多 tab 对照通道）（#72）",
+  "branch": "agent/session-multiopen",
+  "commit": "b9a6f4e",
+  "environment": {
+    "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）+ 纯模块单测",
+    "dsh": "0.1.6-alpha.1",
+    "locale": "zh-cn（帧内官方向典）",
+    "theme": "dark",
+    "viewports": "侧栏 380（树）/ 对话区 1200（多开页）",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（F-06 新套件 26 条断言）+ node --test（本次任务相关 3 个单测文件）",
+    "date": "2026-09-16T02:43:44.588Z"
+  },
+  "coverageNote": "本报告是浏览器验证（第一道验证）+ 纯模块单测。装配页由仓库真实模块构建，数据面是本机真实 dsh 网关（只读，R-06 守卫会话数跑前跑后一致），宿主通道是假宿主（按同一协议应答，本任务新加 session.openInNewTab 的记录）。\n\n**多开通道的两端**：页面端（菜单项、行右键、能力口发出的会话 id）由 F-06 真浏览器断言；宿主端（为该会话开独立面板、已开则聚焦、与单例互不影响）在 VS Code 宿主进程里，浏览器实验室造不出来 —— 这部分由 pure/sessionTabs.ts 的单测（映射规则：单射、只清自己的格子、单例不在表里）+ 代码边界（mountChatPanel 的 tab 标志：只有 tab 才登记多开表、只有单例才记「用户关过」）保证，真机现象见下方 VS Code 验证清单。\n\n**F-04 PARITY 的红不是本分支引入**（如实记录）：在本分支基点上复跑同一条命令，失败项与失败计数完全一致（见 notes 里的复跑证据）。成因是本分支基点（29f0c34 = main 当前尖端，合入 #85 sidebar-density）之后，P-04 的对照口径没跟着密度档更新：自有树在 VS Code 档下取 shell 下发的紧凑值（行高 24/26px、分节头 30px…），官方浏览区用的是它自己的 css-module 值（32/34/36px），两侧逐项相等这条期望在「同一 frame」里已经不再成立。修法（另立条目）：给 PARITY 一个「无人给密度偏好」（= 官方档）的对照页，或把几何期望改成按密度档真值比。本任务未改这条套件（不属于 #72 范围）。\n\n未覆盖：真 VS Code webview 宿主层的多面板生命周期（两个编辑器标签页并排/拖拽、面板标题跟随真会话标题、关闭多开页后单例行为）、真模型输出、macOS 之外的平台 —— 见 VS Code 验证现象清单与 issue #72 comment。",
+  "items": [
+    {
+      "id": "N-01",
+      "phase": "new-feature",
+      "name": "会话行菜单里的「在新标签页打开」（⋯ 菜单 + 行右键，官方 Menu 原语）",
+      "expect": "侧栏会话行尾「⋯」菜单里出现「在新标签页打开」项，原有三项（重命名 / 分叉会话 / 归档会话）都在、每项都有文案；同一行右键也弹出同一份菜单，菜单锚在指针处（官方 Menu 的 getAnchorRect），Esc 后菜单收起。只有非空白会话行有行菜单（与官方 SessionNodeItem 一致）。",
+      "screenshots": [
+        "/tmp/dsh72-shots/multiopen-menu.png",
+        "/tmp/dsh72-shots/multiopen-rightclick.png"
+      ],
+      "result": "pass",
+      "notes": "F-06 断言（26 条全过，本项含前 12 条）：⋯ 菜单弹出 menus=1 且项文案「在新标签页打开」；四项文案 = [\"重命名\",\"分叉会话\",\"在新标签页打开\",\"归档会话\"]（原三项未被挤掉）；菜单点完自收（menus=0）。行右键菜单 menus=1 且锚点实测 {left:90, top:189} = 期望 {left:90, top:189}（±3px 内）；Esc 后 menus=0。截图 1：⋯ 菜单四项（第二项分叉会话、第三项即新项，带官方 IconRightUpOutline16）。截图 2：行右键同一份菜单。"
+    },
+    {
+      "id": "N-02",
+      "phase": "new-feature",
+      "name": "点这一项 → 宿主收到该行的真会话 id（能力口 → 能力桥）",
+      "expect": "点菜单项后，页面经宿主能力口发出恰好一次 session.openInNewTab，带的会话 id 是那一行的真会话（能在网关会话清单里查到）；点第二行得到第二个不同 id（每行认自己的会话）。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "F-06：点第一行 → 假宿主记录 [\"session-a9e7c56d-…\"]（1 次，属于网关 1135 个会话之一）；再对第二行右键点多开 → 记录变成两个不同 id（[\"session-a9e7c56d-…\",\"session-6f5b18e7-…\"]），两次都是真会话。参数校核单测：session id 只收标识符形状（非对象/空串/带路径/带空白/控制字符/超长一律 invalid-args）。"
+    },
+    {
+      "id": "N-03",
+      "phase": "new-feature",
+      "name": "多开 tab 的启动注入：注入什么就开什么；同源两页互不串",
+      "expect": "chat 页 `?session=<id>`（= 宿主给多开 tab 的注入）把该 id 写进 `__DSH_ONE_BOOT__.sessionId`，并且真的把该会话开成当前会话（boot-timing first-meta = 该 id）；在同一浏览器上下文（同源、同一 localStorage —— 真 VS Code 里多 webview 共享存储的现场）里开第二个多开会话页，两页各自落到自己的会话、日志里零交叉。",
+      "screenshots": [
+        "/tmp/dsh72-shots/multiopen-tab-1.png",
+        "/tmp/dsh72-shots/multiopen-tab-2.png"
+      ],
+      "result": "pass",
+      "notes": "F-06：页 1 注入 = session-6f5b18e7-…（first-meta 命中该前缀）；页 2 与页 1 同上下文、注入 session-c390cf37-…，first-meta 也是它自己 —— 共享 localStorage 的恢复键没有把它带走（#71 spike 实证的互相覆盖正是这条要挡的）；两页各自的控制台里都没有对方会话 id 的日志（交叉日志 [] / []），零 pageerror。"
+    },
+    {
+      "id": "N-04",
+      "phase": "new-feature",
+      "name": "防闪帧遮罩：注入的会话没到位时不闪官方空白态",
+      "expect": "注入一个不存在的会话 id 时，目标永远到不了 —— 遮罩必须在场（不白屏、不露出官方默认空白态）。",
+      "screenshots": [
+        "/tmp/dsh72-shots/multiopen-opening-mask.png"
+      ],
+      "result": "pass",
+      "notes": "F-06：注入 session-lab-missing-000 → boot 值原样注入，遮罩元素 [data-opening-mask] 实测 1 个，且该页零 console error（不存在会话被官方客户端安静处理）。遮罩本体（@dsh-one/vscode-shell 的 ShellFrame）与单例共用同一份实现，多开页经同一注入路径拿到它。"
+    },
+    {
+      "id": "N-05",
+      "phase": "new-feature",
+      "name": "多开与单例互不干扰的宿主规则（纯模块单测 + 代码边界）",
+      "expect": "同一会话不会开出第二个多开面板（在途创建也算已开）；面板换会话时只清自己那一格、关面板只清自己那一格（另一面板的映射不受影响）；单例不在多开表里，因此关掉多开面板不改单 tab 的行为（默认开一次 #68、就地切换 #71 的语义都不动）。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "① test/sessionTabs.test.ts 6 条全过：初次登记/查表、同一面板换会话旧格子被清（单射）、**两面板映射交叉后关掉一个不动另一个**（旧实现按会话 id 直接删，正是在这里删错，单测把现场钉死）、关面板幂等且不碰未登记面板（单例）、在途创建算「已有」（Set 与 Map 两种口径）。② 宿主侧代码边界：assemblyView 的 mountChatPanel 按 tab 标志分流 —— 只有多开面板登记 sessionTabPanels、只有单例面板写 chatSingleton/active 与 closedByUser；单例创建路径（含 creatingPanel 串行化、pendingSessionOpen 兑现）逐字保持 #71 的实现。真机现象见 VS Code 验证清单。"
+    },
+    {
+      "id": "N-06",
+      "phase": "new-feature",
+      "name": "能力口与参数校核：有标签页的宿主才给入口，官方 web 侧如实缺席",
+      "expect": "VS Code 侧：能力口 editorTabs = true，openSessionInNewTab 落到能力桥的白名单调用 session.openInNewTab（参数 {sessionId}）；官方 web 侧（无宿主桥）：editorTabs = false，调用以 code unavailable 拒绝且不向网关发任何请求 —— 侧栏树据此不显示菜单项、行右键也不接管。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "test/hostCapabilitySdk.test.ts 新增 2 条（桥在时的路由与参数、无桥时的上报与拒绝）全过；test/hostCalls.test.ts 新增 1 条参数校核全过；能力桥 HOST_CALLS 新增白名单项并在 runHostCall 里接上 deps.openSessionInNewTab。这条能力刻意不进 pure/hostCapabilities.ts 的两端契约：官方 web 没有编辑器标签页、宿主半也没有可暴露的动作。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "回归：底座契约完备性（四棵树零崩溃、零缺失契约）",
+      "expect": "四棵树在真实网关只读下零 slot entry crashed、零未激活、零 pageerror，自有插件全部进 combo 且真的执行。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "F-01 CONTRACT 32/32 通过（本轮改动触及侧栏树插件与能力口，这条是必跑的底座防线）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "回归：三棵树冒烟（侧栏树 / 对话区 / 设置页）",
+      "expect": "侧栏出真会话行与分组行、对话区 composer 可输入、设置页出设置项；三棵树零 console error。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "F-02 SMOKE 13/13 通过（树的行渲染被我改过——多了菜单项与右键处理，冒烟确认渲染仍正常）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "回归：对话区关键交互（行内码右键菜单 / commit 卡片 / 清空与反悔）",
+      "expect": "行内码右键仍出走官方 Menu 的单图标项、commit 卡片仍走能力口、清空与 Ctrl+Z 反悔照常。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "F-03 INTERACT 14/14 通过（本任务给官方 Menu 新增了一种用法，这条回来验没有影响既有菜单行为）。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "回归：宿主能力口页面侧（统一获取点 / id 配对 / 结构化错误）",
+      "expect": "全页 acquireVsCodeApi 只调一次、并发调用按 id 配对、未知调用抛带 code 的结构化错误、上行消息形状不变。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "F-05 BRIDGE 7/7 通过（本任务新增一条桥调用，回来验协议面没被改坏）。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "回归：单测全量 + 构建 + i18n 门禁 + 网关只读守卫",
+      "expect": "npm run typecheck / npm test / npm run build 全过；i18n 门禁（新增行不漏翻）通过；整轮验证跑前跑后网关会话数不变。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "typecheck 无错；npm test 636 条全过（含本次新增的 9 条：映射规则 6 + 能力口 2 + 参数校核 1）；build 产出扩展 + 12 个自有插件 bundle + 宿主半；scripts/check-i18n.sh agent/session-multiopen 输出「无 i18n 漏同步」（新增中文只在自有词典里，按惯例用 unicode 转义）；R-06 只读守卫 1/1（会话数 1135 → 1135）。"
+    },
+    {
+      "id": "R-06",
+      "phase": "regression",
+      "name": "已知既有红（非本分支引入）：F-04 PARITY 侧栏树与官方浏览区逐项对齐",
+      "expect": "本项如实记录一条**在本分支基点就已经红**的套件，避免它被误读成本次改动引入：F-04 比较自有树（VS Code 密度档）与官方浏览区（官方档）的 computed style 与几何，逐项相等这条期望在 #85 密度档落地后已不成立。",
+      "screenshots": [],
+      "result": "fail",
+      "notes": "证据（同一台机器、同一网关、同一条命令）：本分支 HEAD 跑 F-04 = 136/178 通过，失败 42 条全部是「自有树紧凑值 vs 官方原值」（如 sessionRow 24px vs 32px、sectionHeader 30px vs 36px、searchButton 24px vs 28px）；把 src/ 与 test/assembly-lab/ 退回基点 29f0c34（= main 当前尖端）重跑，F-04 = 136/178，失败项逐条一致（台账留在 /tmp/dsh72-base/verify.lab.ledger.json）。本分支没有改任何 CSS/几何代码（只加了菜单项与右键处理，两者都不参与首屏布局），所以这条红与本任务无关。建议另立条目：给 PARITY 一个「无人给密度偏好」的对照页（= 官方档），或把几何期望改成按 shell 的密度档真值比。"
+    }
+  ]
+}
