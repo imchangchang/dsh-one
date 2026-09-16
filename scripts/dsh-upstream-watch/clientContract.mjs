@@ -414,6 +414,12 @@ function fmtSet(set, limit = 4) {
   return `[${arr.slice(0, limit).join(', ')}${arr.length > limit ? `, +${arr.length - limit}` : ''}]`
 }
 
+/** 在场清单只列前几条：issue 表格里失败信息才是重点，全量清单会把单元格撑爆。 */
+function summarizeFound(found) {
+  if (found.length <= 8) return found.join(', ')
+  return `${found.slice(0, 8).join(', ')} …（共 ${found.length} 组全部在场）`
+}
+
 /** 名字在 combo 里的出现位置（限定插件作用域时只认作用域内的段）。 */
 function locate(text, segments, name, scope) {
   const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g')
@@ -481,7 +487,7 @@ export function checkClientContract({ comboText, version, unavailableReason }) {
       ...ROW.slots,
       status: missing.length === 0 ? 'pass' : 'fail',
       detail: missing.length === 0
-        ? `dsh ${versionLabel}：${found.join(', ')}`
+        ? `dsh ${versionLabel}：${summarizeFound(found)}`
         : `dsh ${versionLabel} 缺 ${missing.length} 组：${missing.join('；')}`,
     })
   }
@@ -512,7 +518,7 @@ export function checkClientContract({ comboText, version, unavailableReason }) {
       ...ROW.hooks,
       status: missing.length === 0 ? 'pass' : 'fail',
       detail: missing.length === 0
-        ? `dsh ${versionLabel}：${found.join(', ')}`
+        ? `dsh ${versionLabel}：${summarizeFound(found)}`
         : `dsh ${versionLabel} 缺 ${missing.length} 条：${missing.join('；')}`,
     })
   }
@@ -538,7 +544,7 @@ export function checkClientContract({ comboText, version, unavailableReason }) {
       ...ROW.identifiers,
       status: missing.length === 0 ? 'pass' : 'fail',
       detail: missing.length === 0
-        ? `dsh ${versionLabel}：${found.join(', ')}`
+        ? `dsh ${versionLabel}：${summarizeFound(found)}`
         : `dsh ${versionLabel} 缺 ${missing.length} 组：${missing.join('；')}（名字消失 = 我们按它取用的代码路径静默失效）`,
     })
   }
