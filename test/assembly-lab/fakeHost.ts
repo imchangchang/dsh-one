@@ -9,6 +9,8 @@
  * - `postMessage`：上行消息全部记进 `__LAB_HOST__.sent`；`dshOne.hostCall` 按
  *   `src/pure/hostCalls.ts` 的同一套协议应答（`dshOne.hostResult`），数据是固定
  *   的假提交——实验室要的是契约与配对语义，不是真 git。
+ * - `window.open`：官方 web 侧的开外链出口（#83），调用记进
+ *   `__LAB_HOST__.openedByWindow`（不真的开窗）。
  * - `__LAB_HOST__.send(msg)`：模拟宿主→页面方向的消息（`dshOne.setTheme` /
  *   `dshOne.switchSession` 等），供后续套件驱动。
  *
@@ -29,9 +31,17 @@ export function fakeHostScript(): string {
     sent: [],
     hostCalls: [],
     openedUrls: [],
+    openedByWindow: [],
     gitShows: []
   }
   globalThis.__LAB_HOST__ = host
+  // 官方 web 侧的开外链出口（#83）：没有宿主桥时能力口用页面 window.open。记下调用
+  // （不真的开窗）——F-06 套件据此断言官方侧那条路走通。官方客户端自己不调
+  // window.open（全量扫过，只有一处字符串黑名单里有这个词），所以覆盖它不影响页面。
+  globalThis.open = function (url) {
+    host.openedByWindow.push(String(url))
+    return null
+  }
   var resume = function (data) {
     window.dispatchEvent(new MessageEvent("message", { data: data }))
   }
