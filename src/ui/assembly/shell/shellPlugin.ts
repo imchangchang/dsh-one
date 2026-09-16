@@ -1,13 +1,15 @@
 /**
  * @dsh-one/vscode-shell——自有 root 外框插件（#64 方案 A′）：顶替下线的官方
- * ui-layout（root 槽注册 + layout 服务 + ThemePresenter），只装配对话区，
- * 无官方侧栏。契约逐字来自调研结论（ui-layout client.js 实测源码，共享件
- * 见 frameShared.ts）：
+ * ui-layout（root 槽注册 + layout 服务 + ThemePresenter + panelInfo 槽位钩子），
+ * 只装配对话区，无官方侧栏。接手官方框架插件 ui-layout 的契约清单与版本核对办法见
+ * frameShared.ts 文件头（「官方框架插件 ui-layout 的契约清单」）。
  *
- * - root 槽注册：children 只声明 conversation / details / shell.overlay
+ * - root 槽注册：children 声明 conversation / main / details / shell.overlay
  *   （不声明 sidebar——chat 树 block 了 ui-sidebar，其 sidebar.workspaces
- *   贡献不会注册；不带 locale 字段（不消费 t）。
- * - ShellFrame：主区 conversation + details 面板 + shell.overlay 层；切会话时
+ *   贡献不会注册；不带 locale 字段（不消费 t））。会话面板槽位两版都声明：
+ *   0.1.2 线登记 single `conversation`，0.1.6 线登记 keyed `main`（key =
+ *   `conversation`），渲染哪个由注册表实际有贡献的那个决定。
+ * - ShellFrame：主区会话面板 + details 面板 + shell.overlay 层；切会话时
  *   关 details（官方 AppFrame 语义，无侧栏/拖拽维度）。
  *
  * 构建：esbuild 打成官方同格式自注册 IIFE（clientEntry.ts + banner/footer
@@ -16,10 +18,19 @@
  * 打进包会双重实例化）。
  */
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { createLayoutStore, LayoutController, ThemePresenter, type PanelActions, type ShellLayoutState, type ThemeSnapshot } from './frameShared'
+import {
+  PANEL_INFO_SOURCE,
+  createLayoutStore,
+  LayoutController,
+  ThemePresenter,
+  type PanelActions,
+  type PanelInfoSnapshot,
+  type ShellLayoutState,
+  type ThemeSnapshot,
+} from './frameShared'
 
 // ---------------------------------------------------------------------------
-// 类型（本地最小面；cordis ctx / 框架座位的真实形态在私有包里，不跨包引用）
+// 类型（本地最小面；cordis ctx / 框架槽位的真实形态在私有包里，不跨包引用）
 // ---------------------------------------------------------------------------
 
 interface SessionsSnapshot {
@@ -27,32 +38,71 @@ interface SessionsSnapshot {
   byId: Record<string, { blank?: boolean; title?: string }>
 }
 
+/**
+ * 会话面板槽位名镜像：官方把「会话面板」这个槽位从 0.1.2 的 single `conversation`
+ * 改成了 0.1.6 的 keyed `main`（key = `conversation`，见 ui-conversation 两版
+ * client.js 的注册段）。两版都在版本门区间内，所以两版槽位都声明、按实际有贡献
+ * 的那个渲染（查 registry 有无 `main` 条目 + 订阅其变化）。
+ */
+interface SeatMirror {
+  getSnapshot(): 'main' | 'conversation'
+  subscribe(listener: () => void): () => void
+}
+
 interface ShellFrameProps {
   useStore: <R>(selector: (state: ShellLayoutState) => R) => R
   useSessions: <R>(selector: (state: SessionsSnapshot) => R) => R
+  /** 官方 root 槽位钩子（本插件经 ctx.slots.provideRoot 提供，见 frameShared）。 */
+  usePanelInfo: <R>(selector: (info: PanelInfoSnapshot) => R) => R
   actions: Pick<PanelActions, 'openDetails' | 'closeDetails'>
-  renderSlot: (name: string, params: Record<string, unknown>) => unknown
+  renderSlot: (name: string, params: Record<string, unknown>, opts?: { entryKey?: string }) => unknown
   SessionProvider: unknown
   /** 框架按 entry 的 locale 注入的 t（函数内别名 tr 避开 i18n 门禁裸 t() 扫描）。 */
   t: (key: string) => string
+  /** 会话面板槽位名（见 SeatMirror，root 注册的 inject 面注入）。 */
+  conversationSeat: SeatMirror
 }
 
 interface RootSlotEntry {
   name: 'root'
-  children: Record<string, { kind: 'single' | 'list'; scope: 'root' | 'session' | 'session-maybe' }>
+  children: Record<string, { kind: 'single' | 'list' | 'keyed'; scope: 'root' | 'session' | 'session-maybe' }>
   store: () => unknown
   locale?: string
-  inject: (actions: PanelActions) => Record<string, never>
+  inject: (actions: PanelActions) => { conversationSeat: SeatMirror }
+}
+
+interface SlotEntryLite {
+  options: { key?: string }
 }
 
 interface ShellContext {
   effect(body: () => (() => void) | void, label?: string): void
   on(event: 'theme/change', listener: (snapshot: ThemeSnapshot) => void): () => void
   reflect: { provide(name: string, service: unknown): () => void }
-  slots: { register(entry: RootSlotEntry, component: unknown): () => void }
+  slots: {
+    register(entry: RootSlotEntry, component: unknown): () => void
+    /** 官方 root 槽位钩子/数据发布口（ui-layout 的 panelInfo 同款调用点）。 */
+    provideRoot(contribution: { hooks: { panelInfo: typeof PANEL_INFO_SOURCE } }): () => void
+    /** 槽位条目快照（判会话面板用的是哪版槽位名）。 */
+    entries(name: string): readonly SlotEntryLite[]
+    /** 订阅某槽位的注册变化（官方 registry 同款）。 */
+    subscribe(name: string, listener: () => void): () => void
+  }
   locale: { register(ns: string, dicts: { zh: Record<string, string>; en: Record<string, string> }): () => void }
   theme: { getTheme(): ThemeSnapshot }
 }
+
+/** 槽位名镜像（注册表里 keyed `main` 有贡献 = 0.1.6 线，否则 0.1.2 线的 single 槽位）。 */
+function createConversationSeatMirror(ctx: ShellContext): SeatMirror {
+  const read = (): 'main' | 'conversation' => (ctx.slots.entries('main').length > 0 ? 'main' : 'conversation')
+  return {
+    getSnapshot: read,
+    subscribe(listener) {
+      return ctx.slots.subscribe('main', listener)
+    },
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // 样式（官方 css-module 注入形态的本地版：data-plugin-css 防重）
@@ -66,7 +116,7 @@ const CSS = '.dshOneShell_frame{background:var(--dsw-alias-bg-base);height:100%;
 // 改样式（registry 同前举证）；②官方无字号服务设置口（theme 服务只出快照，
 // 字号设置写网关 settings 不适用于本端 chrome 微调）；③__DSH_TRANSPORT__ 等
 // 接缝与呈现无关。故在 seat 容器上覆写官方变量（官方变量接缝 + data-slot
-// 座位名选择器，均不依赖 css-module 哈希）：仅 dock 内的 StatsLine 生效，
+// 槽位名选择器，均不依赖 css-module 哈希）：仅 dock 内的 StatsLine 生效，
 // 其余四处消费者不受影响。数值 11px = 比内容次级（13px）小两档，对齐
 // VS Code 面板 footer 惯例（11–12px）；line-height 同步 -2px 保视觉节奏。
 // 注意：seat 容器是 display:contents（无盒），自定义属性无法穿透继承——
@@ -101,7 +151,7 @@ function DocumentTitle({ title, productTitle }: { title?: string; productTitle: 
 }
 
 // ---------------------------------------------------------------------------
-// ShellFrame：框架注入座位的最小消费——主区 conversation + details 面板 +
+// ShellFrame：框架注入槽位的最小消费——主区 conversation + details 面板 +
 // shell.overlay 层；切会话时关 details（官方 AppFrame 语义，无侧栏/拖拽维度）
 // ---------------------------------------------------------------------------
 
@@ -115,8 +165,13 @@ const bootSessionId = (): string | undefined => {
   return typeof raw === 'string' && raw !== '' ? raw : undefined
 }
 
-function ShellFrame({ useStore, useSessions, actions, renderSlot, SessionProvider, t }: ShellFrameProps) {
+function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, SessionProvider, conversationSeat, t }: ShellFrameProps) {
   const panels = useStore((s) => s)
+  // 会话面板槽位名（0.1.2 线 = single `conversation`，0.1.6 线 = keyed `main`）：
+  // 注册在首渲之后，用订阅驱动重渲（官方槽位注册会 bump registry 版本）。
+  const [, setSeatTick] = useState(0)
+  useEffect(() => conversationSeat.subscribe(() => setSeatTick((n) => n + 1)), [conversationSeat])
+  const activePanelId = usePanelInfo((info) => info.activePanelId)
   const detailsSession = useSessions((s) => {
     const current = s.current
     return current !== undefined && s.byId[current]?.blank === false ? current : undefined
@@ -157,6 +212,14 @@ function ShellFrame({ useStore, useSessions, actions, renderSlot, SessionProvide
   }, [bootId])
   const tr = t
   const opening = bootId !== undefined && !bootReached && !revealedByTimeout && currentSession !== bootId
+  // 会话面板渲染：0.1.6 线登记的是 keyed `main` 的 `conversation` 键（官方
+  // AppFrame 的 MainPanel 同款取键方式：全局面板 id ?? 'conversation'）；
+  // 0.1.2 线登记的是 single `conversation`。两版槽位都声明，实际渲染哪个由
+  // 注册表里有贡献的那个决定（见 conversationSeat 镜像）。
+  const conversation =
+    conversationSeat.getSnapshot() === 'main'
+      ? renderSlot('main', {}, { entryKey: activePanelId ?? 'conversation' })
+      : renderSlot('conversation', {})
   return h(
     'div',
     { className: 'dshOneShell_frame', 'data-shell': 'dsh-one' },
@@ -167,7 +230,7 @@ function ShellFrame({ useStore, useSessions, actions, renderSlot, SessionProvide
     h(
       'div',
       { className: 'dshOneShell_row' },
-      h('div', { className: 'dshOneShell_main' }, renderSlot('conversation', {})),
+      h('div', { className: 'dshOneShell_main' }, conversation),
       detailsOpen &&
         h(
           'div',
@@ -189,14 +252,22 @@ export const inject = ['slots', 'theme', 'locale']
 
 export function apply(ctx: ShellContext): void {
   const layout = new LayoutController()
+  const conversationSeat = createConversationSeatMirror(ctx)
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
+    // 官方 root 槽位钩子 panelInfo（机制层 1：官方槽位机制，调用点逐字对齐
+    // 官方 ui-layout 的 `ctx.slots.provideRoot`）。官方框架插件 ui-layout 被下线后这份钩子
+    // 无人提供，0.1.6 的会话树/右侧栏挂载即崩（#76）。
+    const disposePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo: PANEL_INFO_SOURCE } })
     const disposeRegistration = ctx.slots.register(
       {
         name: 'root',
         // 不声明 sidebar 子槽：chat 树 block 了 ui-sidebar，侧栏贡献整树缺席。
+        // 会话面板两版槽位都声明（0.1.2 的 single `conversation` / 0.1.6 的
+        // keyed `main`），渲染哪个见 conversationSeat 镜像。
         children: {
           conversation: { kind: 'single', scope: 'session-maybe' },
+          main: { kind: 'keyed', scope: 'root' },
           details: { kind: 'single', scope: 'session' },
           'shell.overlay': { kind: 'list', scope: 'root' },
         },
@@ -204,7 +275,7 @@ export function apply(ctx: ShellContext): void {
         locale: 'dshOneShell',
         inject: (actions: PanelActions) => {
           layout.attachPanels(actions)
-          return {}
+          return { conversationSeat }
         },
       },
       ShellFrame,
@@ -217,9 +288,10 @@ export function apply(ctx: ShellContext): void {
     return () => {
       disposeRegistration()
       disposeLocale()
+      disposePanelInfo()
       disposeService()
     }
-  }, 'dsh-one shell: layout service + root registration')
+  }, 'dsh-one shell: layout service + panel-info hook + root registration')
   ctx.effect(() => {
     const presenter = new ThemePresenter()
     presenter.apply(ctx.theme.getTheme())
