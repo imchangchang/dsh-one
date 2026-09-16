@@ -52,6 +52,9 @@ interface ExportProps {
 }
 
 function SessionExportAction({ sessionId, t, capabilities }: ExportProps) {
+  // 词典是插件自有的（ctx.locale.register('dshOneExport')），不进宿主 l10n bundle；
+  // 别名一下也是仓库惯例——i18n 门禁把 src/** 里裸 t('key') 当宿主词条查。
+  const tr = t
   const [error, setError] = useState<string | null>(null)
   const onClick = (): void => {
     if (typeof sessionId !== 'string' || sessionId === '') return
@@ -70,10 +73,10 @@ function SessionExportAction({ sessionId, t, capabilities }: ExportProps) {
     h(
       Button,
       { variant: 'outline', size: 'sm', onClick },
-      t('export'),
+      tr('export'),
       h(IconDownloadOutline16, { size: 12 }),
     ),
-    error === null ? null : h('span', { className: 'dshOneExport_error' }, t('failed')),
+    error === null ? null : h('span', { className: 'dshOneExport_error', title: error }, tr('failed')),
   )
 }
 
