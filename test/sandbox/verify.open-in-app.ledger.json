@@ -1,7 +1,7 @@
 {
   "title": "DSH One 装配线测试报告：官方 open-in-app 能力在 VS Code 对话区缺席（#87）",
   "branch": "agent/open-in-app",
-  "commit": "045ee2e",
+  "commit": "a1489b5",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）；VS Code 侧证据沿用上一轮真窗（本轮未重开）",
     "dsh": "0.1.6-alpha.1",
