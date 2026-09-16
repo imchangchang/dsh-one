@@ -20,6 +20,7 @@
  * | `createWorkspaceDirectory`（+ `workspaceCreate`） | 扩展宿主建目录并注册（`dshOne.workspace.create` 命令：`~/.dsh/workspaces/<名>`） | **无**——官方 web 的「新建目录」归官方 directory-flow 占用者（见 #99 的说明），能力恒缺席 |
  * | `openWorkspaceFolder`（+ `workspaceOpen`） | 扩展宿主 `dshOne.workspace.openFolder` 命令（`vscode.openFolder`，可要求新窗口） | **无**——官方 web 是浏览器里的一页，没有「编辑器窗口」可以放这个文件夹，能力恒缺席 |
  * | `openWorkspaceTerminal`（+ `workspaceTerminal`） | 扩展宿主 `dshOne.workspace.openTerminal` 命令（VS Code 集成终端，cwd = 该文件夹） | **无**——同上，浏览器页里没有集成终端 |
+ * | `currentWorkspaceFolders`（+ `loadCurrentFolders`） | 扩展宿主能力桥（`vscode.workspaceFolders` = `vscode.workspace.workspaceFolders` 的 fsPath 列表） | **空表**——浏览器里那一页根本没有「VS Code 打开的文件夹」这个概念（侧栏树的「当前工作区」判定读它，空表 = 没有当前工作区） |
  * | `shellName` | `'vscode'` | `'web'` |
  *
  * 四处刻意的取舍（写清楚免得后来人以为是漏配）：
@@ -159,6 +160,15 @@ export interface HostCapabilities {
   readonly workspaceTerminal: boolean
   /** 在一个工作区目录上开集成终端（cwd = 该目录）。 */
   openWorkspaceTerminal(path: string): Promise<void>
+  /**
+   * **VS Code 当前打开的文件夹**路径表（#112）：侧栏树判定「当前工作区」用它——
+   * 工作区的 `path` 命中其中任一项，那一组就是当前（蓝色徽标 + 排最前）。
+   *
+   * VS Code 侧 = `vscode.workspace.workspaceFolders` 的 fsPath；**官方 web 侧空表**
+   * ——浏览器里那一页没有「VS Code 打开的文件夹」这个概念，空表就是如实回答；空表与
+   * 「这个窗口没开任何文件夹」在消费方是同一件事：没有当前工作区（不显示徽标、不置顶）。
+   */
+  currentWorkspaceFolders(): Promise<readonly string[]>
   /**
    * 这套宿主是什么（#109 当前工作区行的标识胶囊）：VS Code 侧 `'vscode'`，其余
    * （官方 web 等）`'web'`——用来给「当前工作区」那枚胶囊写它所在的容器名，不再像
@@ -374,6 +384,18 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
         throw fail('unavailable', 'this shell has no integrated terminal; dsh web owns its own terminal panel')
       }
       await bridgeCall('vscode.openTerminal', { path })
+    },
+    // #112：当前 VS Code 打开的文件夹。**没有桥 = 官方 web 一侧**（或页面还没装上桥）：
+    // 这一端没有「VS Code 打开的文件夹」这个概念，如实回空表——调用方（侧栏树）按
+    // 「没有当前工作区」渲染（不显示徽标、不置顶），与「VS Code 空窗口」同一个形态。
+    // 与上面几条 workspace* 能力不同，这里不抛 `unavailable`：文件夹表是个**只读查询**，
+    // 空表本身就是正确答案，抛错只会逼每个调用方再写一遍降级。
+    async currentWorkspaceFolders() {
+      if (!viaBridge()) return []
+      const data = await bridgeCall('vscode.workspaceFolders', {})
+      const paths = data.paths
+      if (!Array.isArray(paths)) return []
+      return paths.filter((path): path is string => typeof path === 'string' && path !== '')
     },
     get shellName() {
       return viaBridge() ? 'vscode' : 'web'

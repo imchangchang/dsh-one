@@ -7,6 +7,7 @@ import {
   deriveGroups,
   indexSubagentDescendants,
   owningGroupKey,
+  sameWorkspacePath,
   sessionStatuses,
   sessionVisible,
   showsStatusDot,
@@ -129,12 +130,23 @@ test('deriveGroups：未被任何工作区记账的会话进未分组桶，按�
   assert.equal(ungrouped?.workspaceId, undefined)
 })
 
-test('deriveGroups：containsCurrent 只落在当前会话所属分组上', () => {
+test('deriveGroups：containsCurrent 只落在「当前文件夹」命中的分组上（不跟当前会话走，#112）', () => {
   const sessions = list([summary('a'), summary('b')], { current: 'b' })
   const groups = deriveGroups(sessions, [workspace('w1', ['a']), workspace('w2', ['b'])], [], noPending, {
     expandedGroups: [],
+    currentFolders: ['/p/w2'],
   })
   assert.deepEqual(groups.map((g) => g.containsCurrent), [false, true])
+  // 同一个当前会话（b）但当前文件夹是别的：谁都不披徽标——当前会话不参与这条判定。
+  const elsewhere = deriveGroups(sessions, [workspace('w1', ['a']), workspace('w2', ['b'])], [], noPending, {
+    expandedGroups: [],
+    currentFolders: ['/p/w1'],
+  })
+  assert.deepEqual(elsewhere.map((g) => g.containsCurrent), [true, false])
+  const noFolders = deriveGroups(sessions, [workspace('w1', ['a']), workspace('w2', ['b'])], [], noPending, {
+    expandedGroups: [],
+  })
+  assert.deepEqual(noFolders.map((g) => g.containsCurrent), [false, false])
 })
 
 test('deriveGroups：空白会话只在它就是当前会话时出现在分组里', () => {
@@ -345,4 +357,103 @@ test('currentWorkspaceFirst：没有当前工作区时顺序原样（返回新�
 test('currentWorkspaceFirst：未分组桶装着当前会话也不前移（它没有工作区身份，恒在最后）', () => {
   const groups = [groupLike('a', false), groupLike('', true, true)]
   assert.deepEqual(currentWorkspaceFirst(groups).map((g) => g.key), ['a', ''])
+})
+
+/* ------------------------------------------------------------------ *
+ * #112：当前工作区 = VS Code 当前打开的文件夹（不是当前会话）
+ * ------------------------------------------------------------------ */
+
+test('sameWorkspacePath：分隔符与尾斜杠不算差异，Windows 形态的路径另不算大小写', () => {
+  assert.equal(sameWorkspacePath('/p/w1', '/p/w1'), true)
+  assert.equal(sameWorkspacePath('/p/w1/', '/p/w1'), true)
+  assert.equal(sameWorkspacePath('/p/w1', '/p/w2'), false)
+  // Windows：VS Code 的 fsPath 是小写盘符 + 反斜杠，dsh 侧注册路径未必同一写法。
+  assert.equal(sameWorkspacePath('c:\\Work\\Demo', 'C:/Work/Demo'), true)
+  assert.equal(sameWorkspacePath('\\\\srv\\share\\demo', '//srv/share/demo'), true)
+  // 非 Windows 形态：大小写是差异（旧侧栏在 macOS/Linux 上就是严格比较）。
+  assert.equal(sameWorkspacePath('/p/Demo', '/p/demo'), false)
+})
+
+test('#112：文件夹命中 → 那一组 containsCurrent（徽标的来源），其余不变', () => {
+  const sessions = list([summary('a'), summary('b')])
+  const workspaces = [workspace('w1', ['a']), workspace('w2', ['b'])]
+  const groups = deriveGroups(sessions, workspaces, [], noPending, {
+    expandedGroups: [],
+    currentFolders: ['/p/w2'],
+  })
+  assert.deepEqual(groups.map((g) => [g.key, g.containsCurrent]), [
+    ['w1', false],
+    ['w2', true],
+  ])
+  assert.deepEqual(currentWorkspaceFirst(groups).map((g) => g.key), ['w2', 'w1'])
+})
+
+test('#112：切换当前会话不改变 containsCurrent，也不改变工作区顺序（用户报的现象）', () => {
+  const sessions = list([summary('a'), summary('b'), summary('c')])
+  const workspaces = [workspace('w1', ['a']), workspace('w2', ['b']), workspace('w3', ['c'])]
+  const view = { expandedGroups: [], currentFolders: ['/p/w1'] }
+  const before = currentWorkspaceFirst(deriveGroups(sessions, workspaces, [], noPending, view))
+  // 打开 w3 里的会话（当前会话换了）、再切到 w2 里的会话：顺序与徽标都不许动。
+  for (const current of ['c', 'b', 'a']) {
+    const after = currentWorkspaceFirst(
+      deriveGroups({ ...sessions, current }, workspaces, [], noPending, view),
+    )
+    assert.deepEqual(after.map((g) => g.key), ['w1', 'w2', 'w3'], `当前会话 = ${current} 时顺序应不变`)
+    assert.deepEqual(after.map((g) => g.containsCurrent), [true, false, false])
+  }
+  assert.deepEqual(before.map((g) => g.key), ['w1', 'w2', 'w3'])
+})
+
+test('#112：文件夹表为空（官方 web 侧 / VS Code 空窗口）→ 无徽标、不置顶', () => {
+  const sessions = list([summary('a'), summary('b')], { current: 'b' })
+  const workspaces = [workspace('w1', ['a']), workspace('w2', ['b'])]
+  for (const view of [{ expandedGroups: [] }, { expandedGroups: [], currentFolders: [] }]) {
+    const groups = deriveGroups(sessions, workspaces, [], noPending, view)
+    assert.deepEqual(groups.map((g) => g.containsCurrent), [false, false])
+    assert.deepEqual(currentWorkspaceFirst(groups).map((g) => g.key), ['w1', 'w2'])
+  }
+})
+
+test('#112：多根——命中任一即为当前（两个都命中则两个都前移，组间顺序不变）', () => {
+  const sessions = list([summary('a'), summary('b'), summary('c')])
+  const workspaces = [workspace('w1', ['a']), workspace('w2', ['b']), workspace('w3', ['c'])]
+  const multi = deriveGroups(sessions, workspaces, [], noPending, {
+    expandedGroups: [],
+    currentFolders: ['/p/w3', '/p/w2'],
+  })
+  assert.deepEqual(multi.map((g) => [g.key, g.containsCurrent]), [
+    ['w1', false],
+    ['w2', true],
+    ['w3', true],
+  ])
+  // 前移的那两组保持官方顺序（w2 在 w3 前），没命中的留在后面原序。
+  assert.deepEqual(currentWorkspaceFirst(multi).map((g) => g.key), ['w2', 'w3', 'w1'])
+  const none = deriveGroups(sessions, workspaces, [], noPending, {
+    expandedGroups: [],
+    currentFolders: ['/p/nope'],
+  })
+  assert.deepEqual(none.map((g) => g.containsCurrent), [false, false, false])
+  assert.deepEqual(currentWorkspaceFirst(none).map((g) => g.key), ['w1', 'w2', 'w3'])
+})
+
+test('#112：未分组桶不因当前会话落在它里面而披徽标（它没有可比的路径）', () => {
+  const sessions = list([summary('a'), summary('stray')], { current: 'stray' })
+  const groups = deriveGroups(sessions, [workspace('w1', ['a'])], [], noPending, {
+    expandedGroups: [UNGROUPED_KEY],
+  })
+  assert.deepEqual(groups.map((g) => [g.key, g.containsCurrent]), [
+    ['w1', false],
+    [UNGROUPED_KEY, false],
+  ])
+  assert.deepEqual(currentWorkspaceFirst(groups).map((g) => g.key), ['w1', UNGROUPED_KEY])
+})
+
+test('#112：路径写法差异（尾斜杠 / Windows 大小写）不影响命中', () => {
+  const sessions = list([summary('a'), summary('b')])
+  const workspaces = [workspace('w1', ['a'], { path: '/p/w1/' }), workspace('w2', ['b'], { path: 'C:/Work/Demo' })]
+  const groups = deriveGroups(sessions, workspaces, [], noPending, {
+    expandedGroups: [],
+    currentFolders: ['/p/w1', 'c:\\Work\\Demo'],
+  })
+  assert.deepEqual(groups.map((g) => g.containsCurrent), [true, true])
 })

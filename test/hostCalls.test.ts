@@ -14,6 +14,7 @@ import {
   isHostCallError,
   parseAllowedUrl,
   parseGitShowArgs,
+  parseNoArgs,
   parseOpenFolderArgs,
   parseOpenTerminalArgs,
   parseSessionTabArgs,
@@ -173,4 +174,16 @@ test('parseOpenTerminalArgs：只要一个合规路径', () => {
   assert.deepEqual(parseOpenTerminalArgs({ path: '/repo' }), { path: '/repo' })
   assert.equal(isHostCallError(parseOpenTerminalArgs({ path: '' })), true)
   assert.equal(isHostCallError(parseOpenTerminalArgs({})), true)
+})
+
+test('#112 parseNoArgs：无参调用只接受「没有参数」或空对象，其余一律拒', () => {
+  for (const ok of [undefined, {}, Object.create(null) as unknown]) {
+    assert.equal(parseNoArgs('vscode.workspaceFolders', ok), undefined, `should accept ${JSON.stringify(ok)}`)
+  }
+  for (const bad of [null, 'x', 7, [], { paths: ['/repo'] }]) {
+    const result = parseNoArgs('vscode.workspaceFolders', bad)
+    assert.equal(isHostCallError(result), true, `should reject ${JSON.stringify(bad)}`)
+    assert.equal((result as { code: string }).code, 'invalid-args')
+    assert.match((result as { message: string }).message, /takes no arguments/)
+  }
 })

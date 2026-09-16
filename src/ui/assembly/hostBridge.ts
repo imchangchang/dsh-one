@@ -41,6 +41,7 @@ import {
   isHostCallError,
   parseAllowedUrl,
   parseGitShowArgs,
+  parseNoArgs,
   parseOpenFolderArgs,
   parseOpenTerminalArgs,
   parseSessionTabArgs,
@@ -73,6 +74,7 @@ export const HOST_CALLS = {
   'session.openInNewTab': 'Open one session in its own editor tab (explicit multi-open; the chat panel stays a singleton).',
   'vscode.openSettings': 'Open (or focus) the dsh-one settings editor page (the sidebar toolbar gear, #99).',
   'vscode.workspaceCreate': 'Create a workspace directory (~/.dsh/workspaces/<name>) and register it (the sidebar + menu, #99).',
+  'vscode.workspaceFolders': 'List the folders this VS Code window has open (the sidebar tree\'s current-workspace badge and pinning, #112).',
   'vscode.openFolder': 'Open one workspace folder in the editor window (the sidebar workspace row, #109; optionally in a new window).',
   'vscode.openTerminal': 'Open an integrated terminal at one workspace folder (the sidebar workspace row, #109).',
 } as const
@@ -98,7 +100,11 @@ export interface HostCallResult {
 
 /** 宿主能力桥依赖（工作区根、git 可执行文件路径、日志、落盘三件套）。 */
 export interface HostBridgeDeps {
-  /** 允许 git 执行的工作目录来源（VS Code 工作区目录）。 */
+  /**
+   * VS Code 当前打开的文件夹（`vscode.workspace.workspaceFolders` 的 fsPath 列表）。
+   * 两个用途：① 允许 git 执行的工作目录来源；② `vscode.workspaceFolders` 调用把它
+   * 原样回给页面（侧栏树的「当前工作区」判定，#112）。
+   */
   workspaceFolders: () => readonly string[]
   /** dsh 配置目录（~/.dsh）——路径限域的另一半。 */
   dshHome: string
@@ -261,7 +267,14 @@ export async function runHostCall(
   call: string,
   args: unknown,
   deps: HostBridgeDeps,
-): Promise<CommitInfoResult | { path: string } | { value?: unknown; deleted?: boolean } | null | HostCapabilityError> {
+): Promise<
+  | CommitInfoResult
+  | { path: string }
+  | { value?: unknown; deleted?: boolean }
+  | { paths: readonly string[] }
+  | null
+  | HostCapabilityError
+> {
   if (!(call in HOST_CALLS)) {
     return { code: 'unknown-call', message: `unknown host call: ${call}` }
   }
@@ -289,9 +302,8 @@ export async function runHostCall(
   }
   if (call === 'vscode.openSettings') {
     // 无参调用：多带参数说明调用方与契约不同步，直接拒（同其余能力的口径）。
-    if (args !== undefined && asRecord(args) === undefined) {
-      return { code: 'invalid-args', message: 'vscode.openSettings takes no arguments' }
-    }
+    const rejected = parseNoArgs(call, args)
+    if (rejected !== undefined) return rejected
     if (deps.openSettings === undefined) {
       return { code: 'unsupported', message: 'this host serves no separate settings page' }
     }
@@ -299,14 +311,22 @@ export async function runHostCall(
     return null
   }
   if (call === 'vscode.workspaceCreate') {
-    if (args !== undefined && asRecord(args) === undefined) {
-      return { code: 'invalid-args', message: 'vscode.workspaceCreate takes no arguments' }
-    }
+    const rejected = parseNoArgs(call, args)
+    if (rejected !== undefined) return rejected
     if (deps.createWorkspaceDirectory === undefined) {
       return { code: 'unsupported', message: 'this host cannot create a workspace directory' }
     }
     await deps.createWorkspaceDirectory()
     return null
+  }
+  // #112：VS Code 当前打开的文件夹路径表——侧栏树的「当前工作区」（蓝色徽标 + 置顶）
+  // 按它判定。无参调用，回执形状 `{ paths: string[] }`。
+  if (call === 'vscode.workspaceFolders') {
+    const rejected = parseNoArgs(call, args)
+    if (rejected !== undefined) return rejected
+    // 空表是**正常回执**（这个窗口没开任何文件夹），与「能力不存在」在页面侧同义：
+    // 都是「没有当前工作区」——页面不区分，也不必区分。
+    return { paths: deps.workspaceFolders().filter((folder) => folder !== '') }
   }
   // #109：工作区行的两个宿主动作。缺实现（官方 web 形态）回 `unsupported`——那一端
   // 的侧栏树靠能力口的 `workspaceOpen` / `workspaceTerminal` 判定，入口本来就不渲染。

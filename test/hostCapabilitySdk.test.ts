@@ -315,3 +315,36 @@ test('#99 创建新工作区目录：官方 web 侧如实上报缺席，调用�
   assert.deepEqual(calls, [], '缺席的能力不该往网关上打任何请求')
   resetGlobals()
 })
+
+// ---------------------------------------------------------------------------
+// #112：当前打开的文件夹表（侧栏树「当前工作区」判定的输入）
+// ---------------------------------------------------------------------------
+
+test('#112 当前打开的文件夹：桥在时落到 bridge 的 vscode.workspaceFolders，原样回表', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, { 'vscode.workspaceFolders': { paths: ['/repo/one', '/repo/two'] } })
+  const caps = hostCapabilities(undefined)
+  assert.deepEqual(await caps.currentWorkspaceFolders(), ['/repo/one', '/repo/two'])
+  assert.deepEqual(bridgeCalls, [{ name: 'vscode.workspaceFolders', args: {} }])
+  resetGlobals()
+})
+
+test('#112 当前打开的文件夹：官方 web 侧没有这个概念 → 空表（不是抛错），也不打网关', async () => {
+  resetGlobals()
+  const calls: Call[] = []
+  const caps = hostCapabilities(gatewayCtx({}, calls))
+  assert.deepEqual(await caps.currentWorkspaceFolders(), [], '空表 = 没有当前工作区（不显示徽标、不置顶）')
+  assert.deepEqual(calls, [], '这条能力没有宿主半端点，缺席端不该往网关上打请求')
+  resetGlobals()
+})
+
+test('#112 当前打开的文件夹：回执形状不对（没桥/坏载荷）一律收成空表，不把 undefined 漏给调用方', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, { 'vscode.workspaceFolders': { paths: [1, '', '/repo/ok'] } })
+  assert.deepEqual(await hostCapabilities(undefined).currentWorkspaceFolders(), ['/repo/ok'])
+  installBridge(bridgeCalls, { 'vscode.workspaceFolders': {} })
+  assert.deepEqual(await hostCapabilities(undefined).currentWorkspaceFolders(), [])
+  resetGlobals()
+})

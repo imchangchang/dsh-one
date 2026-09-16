@@ -354,6 +354,10 @@ export function apply(ctx: TreeContext): void {
         : {}),
       // #109 当前工作区那枚胶囊上的容器名（读时判定，与 editorTabs 同一形态）。
       shellName: caps.shellName,
+      // #112「当前工作区」判定的输入：VS Code 当前打开的文件夹路径表（宿主能力口）。
+      // 官方 web 侧能力口如实回空表 → 树按「没有当前工作区」渲染（不显示徽标、不置顶），
+      // 插件不做任何宿主判断（可移植件：两端同一份代码）。
+      loadCurrentFolders: (): Promise<readonly string[]> => caps.currentWorkspaceFolders(),
       // 官方 sessions 服务：选中会话（镜像官方 ui-workspace 的 openSession，
       // 不调 layout.selectPanel——自有侧栏树没有主面板概念）。
       open: (sessionId: string): void => {
