@@ -29,6 +29,7 @@ import { consoleLogger, LAB_TREES, type LabServer, type LabTreeRoute } from './l
 import { FIBER_SUITE, WIRE_LIVENESS_SUITE } from './driftSuites.ts'
 import { RECYCLE_ENTRY_TOGGLE_SUITE } from './recycleEntrySuites.ts'
 import { SCALE_SUITE } from './scaleSuites.ts'
+import { COLLAPSE_ALL_ICON_SUITE } from './collapseAllIconSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -5773,4 +5774,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #113 侧栏风格档位表（F-23：F-20/F-21/F-22 已被 #114/#112/#115 占用；套件本体在
   // scaleSuites.ts，与 driftSuites.ts 同为独立文件，少一处合入热点）。
   SCALE_SUITE,
+  // #118 顶栏折叠/展开全部的方框加减号图标（F-25：F-20…F-23 已被 #114/#112/#115/#113
+  // 占用，F-24 归 #117 的抽屉收起动效；套件本体在 collapseAllIconSuites.ts，同为独立文件）。
+  COLLAPSE_ALL_ICON_SUITE,
 ]

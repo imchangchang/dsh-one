@@ -504,7 +504,18 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const groupMembers = new Map(flatGroups.map((group) => [group.key, group.sessions]))
   /** #109：某个分组（按树里的键）的全部可见会话——归档入口按它算资格与明细。 */
   const sessionsOfGroup = (key: string): readonly SessionNode[] => groupMembers.get(key) ?? []
-  const allCollapsed = expandableKeys.length > 0 && expandableKeys.every((key) => !groupExpansion.includes(key))
+  /**
+   * 全部有会话的分组都收起了吗——决定顶栏那一枚显示方框横杠（折叠全部）还是方框十字
+   * （展开全部）。
+   *
+   * **搜索态恒为 false**（#118 补的一刀，与旧侧栏 `computeAllCollapsed` 同一口径）：
+   * 搜索把树体换成结果行、一个分组都不渲染，此刻分组各自的展开态既看不见、也不该由
+   * 那一枚代言——它这一刻能发的只有「折叠所有工作区」。搜索之前正好全收起时，若不认
+   * 这一条，按钮会显示方框十字（提示「展开所有工作区」），点下去却什么都没发生（结果
+   * 区不因展开而变化），是个说不通的态。
+   */
+  const allCollapsed =
+    trimmedQuery === '' && expandableKeys.length > 0 && expandableKeys.every((key) => !groupExpansion.includes(key))
   /** 已全收起 → 展开全部；否则收起全部（图标与提示在顶栏里随 `allCollapsed` 翻转）。 */
   const toggleCollapseAll = (): void => {
     setPrefs((prev) => ({
