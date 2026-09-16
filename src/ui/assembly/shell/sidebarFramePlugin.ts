@@ -99,9 +99,19 @@ function Nothing(): null {
 // 内边距，出处与举证见 workspaceTree/styles.ts 文件头的官方档位表）。此前那套按「VS Code
 // 原生侧栏树观感」手调的数值（24 / 30 / 11px…）是自造的中间值，已全部换掉：现在每一处
 // 几何要么是官方标准档（official 列）、要么是官方紧凑档（vscode 列），没有第三来源。
+//
+// **#119 起的一条分工：纵向留白取官方节奏、横向取紧凑档。** 表里**消费点全在 margin 上**的
+// 三项就是纵向留白（`section-header-gap` 用在顶栏那一行的下边距，`group-gap` 用在分组过滤条
+// 的下边距与块与块之间的上边距，`row-gap` 用在行与行之间——它本来就是两边同值的 2px），
+// 前两项这次从紧凑档的 2px 改回**官方原值 4px**。理由：官方紧凑档
+// 里并没有「块与块之间」的纵向刻度——那个 2px 是**菜单项彼此相接**的分隔线外边距
+// （`._compactList_1nxmc_128 ._separator_1nxmc_82{margin:2px}`，项自身没有独立底色，相接
+// 才对），照搬到有独立底色的行 / 块之间，会把顶栏那一行、分组过滤条、列表首行糊成一坨
+// （用户实测反馈）。横向（行内间隙、胶囊内间隙、行内边距）在 380px 侧栏里紧凑是对的，不动。
 // 每个键两边一致由 test/assemblyShellContract 的契约测试守着（表里的 official 必须等于树
-// 插件 CSS 的兜底字面量、键集两边相等、VS Code 档不得大于官方档），「vscode 列全部落在
-// 紧凑档、official 列全部落在标准档」由 test/sidebarStyleScale.test.ts 守着。
+// 插件 CSS 的兜底字面量、键集两边相等、VS Code 档不得大于官方档）；「vscode 列全部落在
+// 紧凑档、official 列全部落在标准档」与上面这条纵向分工，由 test/sidebarStyleScale.test.ts
+// 显式表达（纵向那两项按「vscode = official」判，其余键仍必须落紧凑档）。
 // **观感语言（图标/颜色/字体族/动效）不在这张表里**——那些继续逐字沿用官方；唯一的例外
 // 是行圆角 `row-radius`（#113）：它在两个档之间取值不同（标准档 8px / 紧凑档 5px）。
 // ---------------------------------------------------------------------------
@@ -117,15 +127,19 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   // 列表的 `gap:0`——那是菜单项彼此相接的形态（项自身没有独立底色），我们的行是独立可悬停
   // 的条目，官方侧栏给它们留的正是这 2px。
   'row-gap': { official: '2px', vscode: '2px' },
-  // 组间空隙：紧凑档的分隔线外边距 2px（官方 compact 档
-  // `._compactList_1nxmc_128 ._separator_1nxmc_82{margin:2px}`）——组与组之间就是菜单里两节的关系。
-  'group-gap': { official: '4px', vscode: '2px' },
+  // 块间纵向空隙（分组过滤条的下边距；工作区分块 / 抽屉分块之间的上边距）：官方
+  // `.bhn1Oq_groupSection+.bhn1Oq_groupSection{margin-top:4px}`——官方侧栏里一块与下一块之间
+  // 就是这 4px。**VS Code 档同样取 4px（纵向取官方节奏，见文件头 #119）**：这里此前跟横向一起
+  // 砍成紧凑档的 2px，用户实测顶栏 / 过滤条 / 首行一带太挤。
+  'group-gap': { official: '4px', vscode: '4px' },
   // 行内边距：紧凑档的项内边距 7px（官方 `._item_1nxmc_92{padding:3px 7px}`）。
   'row-padding-inline': { official: '8px', vscode: '7px' },
   // 行高（分节头 / 抽屉头）：紧凑档行高 26px——一列里只有这一种「一个控件的高度」，
   // 搜索框与图标按钮都按它对齐（比它高的东西会把这一行撑破）。
   'section-header-height': { official: '36px', vscode: '26px' },
-  'section-header-gap': { official: '4px', vscode: '2px' },
+  // 顶栏那一行（分节头）的下边距：官方 `.bhn1Oq_sectionHeader{…;margin-bottom:4px;…}`——官方
+  // 分节头与它下面那一段之间的纵向留白。**VS Code 档同样取 4px（纵向取官方节奏，见文件头 #119）**。
+  'section-header-gap': { official: '4px', vscode: '4px' },
   // 行字数：紧凑档字号 12px / 文字行高 18px（官方 `._item_1nxmc_92{font-size:12px;line-height:18px}`）；
   // 元信息（时间 / 计数）同档——官方原值本来就 12px，这一项两边同值（不再压到 11px）。
   'title-font-size': { official: '14px', vscode: '12px' },

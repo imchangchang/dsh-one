@@ -8,8 +8,9 @@
  * ① 扫 `styles.ts` 导出的 CSS 里每条规则的圆角/高度/字号/图标位（含文字行高），每个字面量
  *    都必须在档位表里**按属性对得上那一组量**（圆角对 *Radius 的量、高度对 *Height/*Size 的
  *    量、字号对 *FontSize、宽度对 *Width/*Size）——以后新控件随手写个 6px 圆角就会在这里红；
- * ② 密度表（sidebarFramePlugin.ts 的 `DENSITY_PROFILE`）的 **vscode 列全部落在紧凑档**、
- *    **official 列全部落在标准档**——「VS Code 档 = 官方紧凑档」这句话可执行；
+ * ② 密度表（sidebarFramePlugin.ts 的 `DENSITY_PROFILE`）的 **横向项 vscode 列全部落在紧凑档**、
+ *    **纵向留白项取官方原值**（#119 的分工：消费点全在 `margin` 上的那几项 = 块与块之间的
+ *    纵向空隙 → 取官方节奏；其余按横向口径取紧凑档）、**official 列全部落在标准档**；
  * ③ 紧凑档真的比标准档紧，且 VS Code 档不得大于官方原值（判据与 assemblyShellContract 同口径）；
  * ④ 例外清单里的选择器在样式里真的存在、每条都写了理由——防陈旧豁免。
  *
@@ -105,6 +106,49 @@ function geometryDeclarations(css: string): Declaration[] {
   }
   return out
 }
+
+/**
+ * 一个密度键在样式里的全部消费点（属性名 + 所在选择器）。写法与
+ * {@link geometryDeclarations} 同源：把样式字符串当成扁平的 `选择器{声明}` 序列读，
+ * 声明里出现 `var(--dsh-one-density-<键>,` 就算一处消费（带逗号，键名互为前缀也不会串）。
+ */
+function consumptionPoints(key: string): { selector: string; prop: string }[] {
+  const out: { selector: string; prop: string }[] = []
+  for (const rule of CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selector = (rule[1] ?? '').trim()
+    for (const decl of (rule[2] ?? '').split(';')) {
+      const at = decl.indexOf(':')
+      if (at < 0) continue
+      const prop = decl.slice(0, at).trim()
+      if (decl.includes(`var(--dsh-one-density-${key},`)) out.push({ selector, prop })
+    }
+  }
+  return out
+}
+
+/**
+ * 「纵向留白」的可执行定义（#119）：这个键的**每一个**消费点都落在外边距上（`margin` /
+ * `margin-top` / `margin-bottom`）——也就是「块与块之间的纵向空隙」。`padding-*` 不算：
+ * 那是控件内部的内边距，纵向档位对它的口径没变。
+ */
+const VERTICAL_MARGIN_PROPS: ReadonlySet<string> = new Set(['margin', 'margin-top', 'margin-bottom'])
+
+/** 一个键是不是「纵向留白项」：有消费点，且消费点全在 margin 上。 */
+function isVerticalRhythmKey(key: string): boolean {
+  const points = consumptionPoints(key)
+  return points.length > 0 && points.every((point) => VERTICAL_MARGIN_PROPS.has(point.prop))
+}
+
+/**
+ * 纵向留白项的名单（#119）。写成显式清单而不是「自动认就完了」，是因为这份名单本身
+ * 就是这次改动确立的口径的一部分——**新加一个纵向留白键时要在这里登记**，顺带读一遍
+ * 上面的规则：纵向取官方节奏（vscode = official），横向取紧凑档。
+ * 这一次的三项都是**块与块之间 / 分节头与下面那段之间**的空隙：
+ * - `row-gap`：行与行之间（官方 `.bhn1Oq_flatList>*+*{margin-top:2px}`，本来两边同值）；
+ * - `group-gap`：分组过滤条下边距、工作区分块 / 抽屉分块之间（官方 `.bhn1Oq_groupSection+.bhn1Oq_groupSection{margin-top:4px}`）；
+ * - `section-header-gap`：顶栏那一行（分节头）的下边距（官方 `.bhn1Oq_sectionHeader{margin-bottom:4px}`）。
+ */
+const VERTICAL_RHYTHM_KEYS: readonly string[] = ['row-gap', 'group-gap', 'section-header-gap']
 
 function exemptReason(selector: string): string | undefined {
   for (const entry of SCALE_EXEMPT) {
@@ -202,22 +246,59 @@ test('扫描器自检：档位表里没有的值必须被判红（这条守着�
   assert.equal(mixed.skipped, 1)
 })
 
-test('密度表：vscode 列全部落在紧凑档、official 列全部落在标准档（VS Code 档 = 官方紧凑档）', () => {
+test('密度表：#119 的分工——横向项取紧凑档、纵向留白项取官方节奏、official 列全在标准档', () => {
   const profile = densityProfile()
   const compact = new Set(metricEntries('compact').map(([, value]) => value))
   const standard = new Set(metricEntries('standard').map(([, value]) => value))
   const badCompact: string[] = []
   const badStandard: string[] = []
+  const badVertical: string[] = []
+
+  // ① 纵向留白项的名单必须与「样式里消费点全在 margin 上」的那些键**对得上**——
+  //    名单不会因为某项被悄悄砍半而失真（砍了就在下面红），也不会混进横向项。
+  const derivedVertical = [...profile.keys()].filter(isVerticalRhythmKey).sort()
+  assert.deepEqual(
+    derivedVertical,
+    [...VERTICAL_RHYTHM_KEYS].sort(),
+    '样式里「消费点全在 margin 上」的密度键与 VERTICAL_RHYTHM_KEYS 对不上：' +
+      '多出来的说明有一项纵向留白没登记（多半是又拿紧凑档的横向值去当纵向空隙了），' +
+      '少掉的说明名单把横向项也算进来了',
+  )
+
   for (const [key, value] of profile) {
-    if (!compact.has(value.vscode)) badCompact.push(`${key}=${value.vscode}`)
     if (!standard.has(value.official)) badStandard.push(`${key}=${value.official}`)
+    if (isVerticalRhythmKey(key)) {
+      // ② 纵向留白：**取官方节奏**（VS Code 档 = 官方原值），不是「≤ 官方」而是「= 官方」。
+      if (value.vscode !== value.official) badVertical.push(`${key}：vscode=${value.vscode} official=${value.official}`)
+      continue
+    }
+    // ③ 其余（横向的间隙 / 内边距，以及行高、字号、圆角）：仍必须落在紧凑档。
+    if (!compact.has(value.vscode)) badCompact.push(`${key}=${value.vscode}`)
   }
+
   assert.deepEqual(badCompact, [], '这些键的 VS Code 档不是紧凑档里的值（自造中间值）：\n' + badCompact.join('\n'))
   assert.deepEqual(badStandard, [], '这些键的官方原值不在标准档里（出处表漏登记了）：\n' + badStandard.join('\n'))
+  assert.deepEqual(
+    badVertical,
+    [],
+    '纵向留白项必须取官方原值（#119：砍半会让顶栏 / 过滤条 / 首行糊成一坨）：\n' + badVertical.join('\n'),
+  )
   for (const [key, value] of profile) {
     assert.ok(
       Number.parseFloat(value.vscode) <= Number.parseFloat(value.official),
       `${key} 的 VS Code 档（${value.vscode}）不得大于官方原值（${value.official}）`,
+    )
+  }
+  // ④ 「横向保持紧凑」的可执行形态：纵向那两项的横向邻居都得仍比官方原值紧
+  //    （这次只恢复纵向，横向没被顺带改宽）。
+  const horizontalNeighbours = ['section-gap', 'section-padding-inline', 'row-padding-inline', 'pill-padding-start']
+  for (const key of horizontalNeighbours) {
+    const entry = profile.get(key)
+    assert.ok(entry !== undefined, `横向邻居 ${key} 应当在密度表里`)
+    const horizontal = entry ?? { official: '', vscode: '' }
+    assert.ok(
+      Number.parseFloat(horizontal.vscode) < Number.parseFloat(horizontal.official),
+      `${key} 是横向项，VS Code 档必须仍比官方原值紧（#119 只恢复纵向）：${horizontal.vscode} vs ${horizontal.official}`,
     )
   }
 })
