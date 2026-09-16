@@ -157,3 +157,51 @@ test('statusSummary：状态 + 地址 + 版本，复用/外部实例有标注，
     'Authenticated dsh instance is already running on port 3080',
   )
 })
+
+test('动作面板转发的命令都在 package.json 里声明过', async () => {
+  // 面板点击后执行的是 action.command；命令名拼错会静默失败（VS Code 只在日志里报），
+  // 所以在这里把「动作表用到的命令」与清单声明对齐。
+  const { readFileSync } = await import('node:fs')
+  const path = await import('node:path')
+  const pkg = JSON.parse(
+    readFileSync(path.join(import.meta.dirname, '..', 'package.json'), 'utf8'),
+  ) as { contributes: { commands: Array<{ command: string }> } }
+  const declared = new Set(pkg.contributes.commands.map((c) => c.command))
+  const used = new Set<string>()
+  for (const status of [
+    { state: 'running', url: 'http://127.0.0.1:3080' },
+    { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1' },
+    { state: 'starting' },
+    { state: 'stopped' },
+    { state: 'error' },
+    { state: 'error', reason: 'dshNotFound' },
+    { state: 'error', reason: 'authDshNoToken', port: 3080 },
+  ] as TooltipStatus[]) {
+    for (const update of [
+      { state: 'update', installed: '0.1.5-rc.1', latest: '0.1.5-rc.2' } as UpdateVerdict,
+      undefined,
+    ]) {
+      for (const action of statusActions(status, t, update)) used.add(action.command)
+    }
+  }
+  // 例外：openSessions 是「安装引导落点」（聚焦侧栏，那里是空态安装脚本），只在扩展内部
+  // 被动作表调用，有意不进命令面板（面板里对应的是 openInstallPage）。豁免必须仍被注册，
+  // 否则豁免会掩盖「命令被删掉」。
+  const programmaticOnly = new Set(['dshOne.openSessions'])
+  const extensionSource = readFileSync(
+    path.join(import.meta.dirname, '..', 'src', 'extension.ts'),
+    'utf8',
+  )
+  for (const command of programmaticOnly) {
+    assert.ok(
+      extensionSource.includes(`registerCommand('${command}'`),
+      `豁免的命令 ${command} 在 src/extension.ts 里没有注册`,
+    )
+  }
+  for (const command of used) {
+    if (programmaticOnly.has(command)) continue
+    assert.ok(declared.has(command), `动作表用了未在 package.json 声明的命令：${command}`)
+  }
+  // 状态栏项的点击命令自身也要在清单里（面板入口）。
+  assert.ok(declared.has('dshOne.statusPanel'))
+})
