@@ -15,6 +15,12 @@ VS Code 装配与官方 dsh web 两端都跑起来、以及怎么**实测**它�
   官方 web 页面上全部加载并工作，零 pageerror、零 console error。跑法与逐条证据见
   `scripts/verify-plugins-official.mjs`（`npm run verify:plugins-official`）。
 
+![官方 dsh web 页面上的自有插件](official-web-shots/plugin-packages.png)
+
+上图是实测现场（**官方页面本身**，不是我们的装配页）：左侧栏是自有的工作区树（分组过滤
+胶囊、搜索、工作区行与会话行都是自定义组件），会话头右侧是自有的「Session log」按钮
+（官方同名图标条目已被 shadow，不在 DOM 里），对话区两轮来自仓库自带假模型的真回合。
+
 ## 官方是怎么找到并加载一个插件包的
 
 这条链路每一环都是官方的机制，我们的包只要满足它的前置条件即可（不要自己发明通路）：
