@@ -1,0 +1,13 @@
+# `@dsh-one/dsh-composer-clear` 的 profile 层补丁。
+#
+# profile 的 `dsh.profile.bundles` 里的每个包都要声明一个补丁文件，dsh 启动时按
+# 「包层 → 用户层」的顺序叠加；本行把包挂进 loader 树——挂进树的行，其包清单里的
+# `dsh.client` 才会被官方 client-modules 扫进 `__DSH_BOOT__`，浏览器侧才有东西加载。
+#
+# 刻意**只 insert 一行**：不覆盖任何官方行的 config、不 block 任何官方插件
+# （AGENTS.md 铁律「优先与官方插件共存」——自有插件只往树上加自己，不动别人的）。
+# 行 id 照官方惯例用短横线名（`dsh-one-*`），与 `packages/dsh-host-capabilities`
+# 的补丁行同一命名口径，便于在 loader 快照/插件清单里一眼认出是我们的件。
+- insert:
+    - id: dsh-one-composer-clear
+      name: '@dsh-one/dsh-composer-clear'
