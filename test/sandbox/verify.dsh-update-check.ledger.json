@@ -1,7 +1,7 @@
 {
-  "title": "DSH One 任务验收报告：状态栏 dsh 检查更新 / 升级（#86）",
+  "title": "DSH One 任务验收报告：状态栏 dsh 更新检查 / 升级（#86）+ 点击开动作面板（#90）",
   "branch": "agent/dsh-update-check",
-  "commit": "5fa6bd9",
+  "commit": "7dc3161",
   "environment": {
     "mode": "自动化证据（node --test 单测 + 真实 npm registry 网络查询 + 本机真实 npm dry-run）",
     "dsh": "0.1.6-alpha.1（本机 nvm 全局安装）",
@@ -10,7 +10,7 @@
     "platform": "darwin/arm64",
     "date": "2026-09-16T00:00:00Z"
   },
-  "coverageNote": "本报告覆盖「检查更新的网络与判定链路」「升级命令的拼装与被 npm 接受」「tooltip 文案渲染」「既有行为回归」。不在范围内：真桌面 VS Code 的原生交互（悬停气泡里点链接、系统通知、集成终端里真正执行安装）——本机 docker/OrbStack 守护进程未运行，code-server 沙盒起不来，这部分需起 OrbStack 跑沙盒，或人工开窗 dev-ui-test.sh 验收。真模型输出与 Windows/Linux 平台专项同样不在本报告范围。",
+  "coverageNote": "本报告覆盖：检查更新的网络与判定链路、升级命令的拼装与被真实 npm 接受、动作清单（面板与气泡同源）、气泡一行一个的布局、tooltip 文案渲染、既有行为回归。不在范围内（需人工开窗 dev-ui-test.sh 或沙盒实测）：VS Code 原生交互——点击状态栏弹出 QuickPick 后逐行点击、悬停气泡的实际观感与折行、系统通知文案、集成终端里真正执行安装；本机 docker/OrbStack 守护进程未运行，code-server 沙盒起不来。真模型输出与 Windows/Linux 平台专项同样不在本报告范围。",
   "items": [
     {
       "id": "F-01",
@@ -25,7 +25,7 @@
       "id": "F-02",
       "phase": "new-feature",
       "name": "真实 registry 查询 + 与本机 dsh 版本比对",
-      "expect": "用与生产同一条代码路径（registryLatestUrls + latestFromRegistryJson + decideUpdate）打真实 npm registry：官方源返回 HTTP 200 且解析出 0.1.5-rc.1；本机 dsh 0.1.6-alpha.1 判为 ahead —— 也就是说这台机器上「检查更新」会报「比 npm latest 新，没有可升级的版本」，而不是提示升级。",
+      "expect": "用与生产同一条代码路径（registryLatestUrls + latestFromRegistryJson + decideUpdate）打真实 npm registry：官方源返回 HTTP 200 且解析出 0.1.5-rc.1；本机 dsh 0.1.6-alpha.1 判为 ahead —— 这台机器上「检查更新」会报「比 npm latest 新，没有可升级的版本」，而不是提示升级。",
       "result": "pass",
       "screenshots": [],
       "notes": "实跑输出：registry https://registry.npmjs.org/@deepseek-ai/dsh/latest -> HTTP 200, latest=0.1.5-rc.1；installed dsh: ~/.nvm/.../bin/dsh -> 0.1.6-alpha.1；verdict: {\"state\":\"ahead\",\"installed\":\"0.1.6-alpha.1\",\"latest\":\"0.1.5-rc.1\"}。逐条核对：① 官方源可达且解析正确 ✓；② 未走 npmmirror 兜底（官方源成功即停）✓；③ verdict 为 ahead 而非 update（不被提示降级）✓。"
@@ -37,26 +37,61 @@
       "expect": "从 dsh 可执行文件推导出同目录 npm（nvm/便携布局），读出 npm 主版本；主版本 ≥ 11 时命令带 --allow-scripts（否则 koffi/node-pty 的原生二进制不会就位）；把拼出的命令交给真实 npm 以 --dry-run 试跑，应被正常解析、不报「未知参数」。",
       "result": "pass",
       "screenshots": [],
-      "notes": "实跑输出：npm: ~/.nvm/.../bin/npm (11.17.0 -> major=11)；升级命令 = `<npm> install -g @deepseek-ai/dsh@0.1.5-rc.1 --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs`；同参数加 --dry-run 交给真 npm：exit 0（输出停在 funding 提示，无参数错误）。逐条核对：① npm 取自 dsh 同目录 ✓（未退回 PATH）；② 主版本 11 → 带 --allow-scripts ✓；③ 命令里的包名/版本/旗标被 npm 接受 ✓。注：本机 ~/.npm 缓存目录权限异常（root 属主）会让不带 --cache 的 npm 直接失败，属环境问题，非本功能缺陷——dry-run 用 --cache /tmp/dsh-npm-cache 绕开。",
-      "screenshots": []
+      "notes": "实跑输出：npm: ~/.nvm/.../bin/npm (11.17.0 -> major=11)；升级命令 = `<npm> install -g @deepseek-ai/dsh@0.1.5-rc.1 --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs`；同参数加 --dry-run 交给真 npm：exit 0（输出停在 funding 提示，无参数错误）。逐条核对：① npm 取自 dsh 同目录 ✓（未退回 PATH）；② 主版本 11 → 带 --allow-scripts ✓；③ 命令里的包名/版本/旗标被 npm 接受 ✓。注：本机 ~/.npm 缓存目录权限异常（root 属主）会让不带 --cache 的 npm 直接失败，属环境问题，非本功能缺陷——dry-run 用 --cache /tmp/dsh-npm-cache 绕开。"
     },
     {
       "id": "F-04",
       "phase": "new-feature",
-      "name": "状态栏 tooltip 的更新提示渲染",
-      "expect": "`node --test test/statusTooltip.test.ts` 全绿：判定 update 时版本行下多一行「A newer dsh is available: vX」，动作行末尾的「检查更新」换成「升级到 vX」；current / ahead / unknown 都不出现更新行，仍保留「检查更新」链接；adopted（有探测到的版本）时同样能提示。",
+      "name": "更新提示在气泡里的渲染",
+      "expect": "判定 update 时版本行下多一行「A newer dsh is available: vX」且动作里出现「升级到 vX」；current / ahead / unknown 都不出现更新行、保留「检查更新」（不冒充升级入口）；adopted（有探测到的版本）时同样能提示。",
       "result": "pass",
       "screenshots": [],
       "notes": "逐条核对：① update → 含 'dsh v0.1.5-rc.1\\nA newer dsh is available: v0.1.5-rc.2' 且含 [$(arrow-up) Upgrade to v0.1.5-rc.2] ✓、不含 Check for Updates ✓；② current → 无更新行、保留检查链接、无 Upgrade ✓；③ ahead → 无更新行、无 Upgrade、保留检查链接 ✓；④ 版本未知 + unknown 判定 → 无更新行、无版本行 ✓；⑤ adopted 带版本 → 更新行与升级链接都在、管理入口文案不变 ✓。"
     },
     {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "动作清单（面板与气泡同一份表）：逐状态断言",
+      "expect": "`node --test test/statusActions.test.ts` 全绿：运行中（自管）= 打开浏览器 → 检查更新 → 重启服务 → 停止服务 → 显示日志；有新版时第二行换成「升级到 vX」；复用/外部实例的管理动作走 external.*（不出现 dshOne.restart/stop）；认证实例防护态 = 粘贴 token → 复制模板 → 停止外部实例 → 重启服务 → 显示日志；未安装 = 安装 dsh → 显示日志；出错 = 重试启动 → 显示日志；已停止 = 启动服务 → 显示日志。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① 运行中五行的 id/command 顺序断言通过 ✓；② update 判定下第二行为 upgrade + 'Upgrade to v0.1.5-rc.2' ✓；③ current/ahead/unknown/无判定四种情形都保留 checkUpdate、都不出现 upgrade ✓；④ adopted 与 external 两种标记下管理动作都是 external.restart/external.stop，且不含 dshOne.restart/dshOne.stop ✓；⑤ starting = openExternal + showLogs ✓；⑥ dshNotFound = openSessions（安装）+ showLogs ✓；⑦ authDshNoToken 五行的 id/command 顺序 ✓；⑧ 通用出错/已停止的 label 分别是 Retry Starting / Start Service ✓；⑨ 每个动作都有 icon 与非空 label、command 都形如 dshOne.* ✓。共 11 项断言，11 pass / 0 fail。"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "状态栏点击指向动作面板，且命令清单对齐",
+      "expect": "状态栏项（所有状态）的点击命令是 dshOne.statusPanel；该命令在 package.json 里声明、在 src/extension.ts 里注册，并把选中的动作原样转发（executeCommand）；动作表里用到的命令除「安装引导落点」openSessions 外都必须已在 package.json 声明，豁免项必须仍被注册（防止豁免掩盖命令被删）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① src/ui/statusbar.ts 的构造与 render 都写死 item.command = 'dshOne.statusPanel'（不再按状态切 openExternal/openSessions）✓；② package.json contributes.commands 含 dshOne.statusPanel（标题走 %dshOne.statusPanel.title%，两版 nls 都有）✓；③ extension.ts 注册 dshOne.statusPanel：showQuickPick(actions.map(...)) → picked.action.command 交给 executeCommand ✓；④ 单测断言「动作表用到的命令都在清单里」，唯一豁免 dshOne.openSessions（有意不进命令面板）并断言它在 extension.ts 里仍被注册 ✓。⑤ 该单测第一次跑就抓出 openSessions 未声明这一存量事实（不是本次引入），处理方式是把豁免写进测试注释而不是偷偷放过。"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "悬停气泡动作一行一个（修折行）",
+      "expect": "气泡里每个动作各自成段（段落之间空一行），任何一段里最多一个 command 链接；动作数量与顺序等于动作清单；运行中的精确文本为 标题 + 版本 + 空行 + 五个链接各占一段。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① 精确串比对（2 个动作链接之间是 '\\n\\n'）✓；② 对 9 种状态组合（运行中/复用/外部/启动中/已停止/出错/未安装/认证防护，且都叠加 update 判定）逐段扫描：每段链接数 ≤ 1 ✓——这正是「一个一行」的机器化断言；③ 运行的链接序列 == 清单序列（openExternal → checkUpdate → restart → stop → showLogs）✓。副作用记录：启动中态此前气泡里没有任何链接，现在给出「打开浏览器 + 显示日志」（与面板同源），属有意统一。"
+    },
+    {
+      "id": "F-08",
+      "phase": "new-feature",
+      "name": "面板顶部状态摘要",
+      "expect": "statusSummary 给出「状态 — 地址 · dsh 版本」，复用/外部实例带标注；版本为 unknown 时不写「dsh vunknown」；认证防护态写端口；出错/已停止/启动中各有对应文案。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① 运行中 = 'Running — http://127.0.0.1:3080 · dsh v0.1.5-rc.1' ✓；② adopted 追加 'Reused from another window' ✓；③ external + update 判定追加 'External instance · A newer dsh is available: v0.1.5-rc.2' ✓；④ version='unknown' 时摘要里没有 'dsh v' ✓；⑤ stopped/starting/dshNotFound/通用出错/认证防护五态文案逐一断言 ✓。新增两个短键（复用自另一窗口 / 外部实例）已进中英两份 bundle。"
+    },
+    {
       "id": "R-01",
       "phase": "regression",
       "name": "全量单测",
-      "expect": "`npm test` 全绿：既有 628 项用例（含状态栏 tooltip 逐态文案、semver、会话/侧栏逻辑等）不因本次改动失败。",
+      "expect": "`npm test` 全绿：既有用例（状态栏 tooltip 逐态文案、semver、会话/侧栏逻辑等）不因本次改动失败。",
       "result": "pass",
       "screenshots": [],
-      "notes": "npm test 输出：tests 643 / suites 0 / pass 642 / fail 0 / cancelled 0 / skipped 1 / todo 0。相对改动前的 628 项，新增 15 项 dshUpdate 断言；存量 statusTooltip 用例只改了一条（动作行末尾新增「检查更新」链接的精确串比对），其余全部原样通过。"
+      "notes": "npm test 输出：tests 655 / suites 0 / pass 655 / fail 0 / cancelled 0 / skipped 0。相对改动前 628 项，新增 27 项（dshUpdate 15 + statusActions 11 + tooltip 布局 2 - 调整 1）。存量 statusTooltip 用例中只有精确串比对那一条按新布局改写，其余（含 adopted/external/防护态的逐条 includes 断言）原样通过。"
     },
     {
       "id": "R-02",
@@ -71,19 +106,19 @@
       "id": "R-03",
       "phase": "regression",
       "name": "i18n 合入门禁",
-      "expect": "`scripts/check-i18n.sh agent/dsh-update-check` 通过：新增的 vscode.l10n.t / tooltip 文案键在英文基线与中文 bundle 都有，manifest 的 %KEY% 在两份 nls 都有，无硬编码中文漏翻。",
+      "expect": "`scripts/check-i18n.sh agent/dsh-update-check` 通过：新增的 l10n 键在英文基线与中文 bundle 都有，manifest 的 %KEY% 在两份 nls 都有，无硬编码中文漏翻。",
       "result": "pass",
       "screenshots": [],
-      "notes": "输出：[i18n] OK：分支 agent/dsh-update-check 相对 main 的新增行无 i18n 漏同步。新增 12 个 tooltip/通知键进 l10n/bundle.l10n.json 与 l10n/bundle.l10n.zh-cn.json；新增 2 个命令标题进 package.nls.json 与 package.nls.zh-cn.json。"
+      "notes": "输出：[i18n] OK：分支 agent/dsh-update-check 相对 main 的新增行无 i18n 漏同步。累计新增 14 个 bundle 键（更新检查 12 + 状态摘要 2）与 3 个命令标题（检查更新 / 升级 / 显示状态面板），中英两份都齐。"
     },
     {
       "id": "R-04",
       "phase": "regression",
       "name": "既有服务管理路径未被改动",
-      "expect": "本次改动不碰 dsh 进程管理、loopback 代理、装配树与 block list：新增/修改只落在状态栏 tooltip、命令注册、更新检查模块与文案。",
+      "expect": "本次改动不碰 dsh 进程管理、loopback 代理、装配树与 block list：新增/修改只落在状态栏交互（tooltip、动作表、面板命令）、更新检查模块与文案。",
       "result": "pass",
       "screenshots": [],
-      "notes": "核对改动清单：新增 src/pure/dshUpdate.ts、src/server/dshUpdate.ts、test/dshUpdate.test.ts；修改 src/pure/statusTooltip.ts（多一个可选入参与渲染分支）、src/ui/statusbar.ts（构造参数 + 更新通知重画）、src/extension.ts（实例化 + 两条命令 + 激活后一次静默检查）、package.json / nls / l10n / 两份 README / CHANGELOG。src/server/manager.ts、src/server/locateDsh.ts、src/ui/assembly/** 均未改动（locateDsh 只被调用，未修改）。既有状态栏五态（运行/启动中/已停止/错误/未安装）文案与动作行除末尾新增链接外不变——statusTooltip 存量用例全绿即此结论的证据。"
+      "notes": "核对改动清单：新增 src/pure/dshUpdate.ts、src/server/dshUpdate.ts、src/pure/statusActions.ts 与三个对应测试；修改 src/pure/statusTooltip.ts（动作行改由 statusActions 渲染）、src/ui/statusbar.ts（点击命令换成 statusPanel、构造传 DshUpdate）、src/extension.ts（两条更新命令 + statusPanel 命令 + 激活后一次静默检查）、package.json / nls / l10n / 两份 README / CHANGELOG。src/server/manager.ts、src/server/locateDsh.ts、src/ui/assembly/** 均未改动（locateDsh 只被调用）。既有状态栏五态文案不变；动作集合与顺序除「运行中新增更新入口」「启动中新增两个入口」外与原样一致，且 adopted/外部实例不出现自管重启/停止的既有约束仍由单测把住。"
     }
   ]
 }
