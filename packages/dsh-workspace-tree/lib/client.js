@@ -4044,6 +4044,17 @@ if (typeof document !== "undefined" && document.querySelector(`style[data-plugin
 // src/ui/assembly/shell/workspaceTree/toolbar.ts
 var import_react12 = require("react");
 var import_dsh_client_ui_primitives9 = require("@deepseek-ai/dsh-client-ui-primitives");
+
+// src/ui/assembly/shell/workspaceTree/collapseAllGlyph.ts
+var COLLAPSE_ALL_BOX = "M4.5 2.5H11.5A2 2 0 0 1 13.5 4.5V11.5A2 2 0 0 1 11.5 13.5H4.5A2 2 0 0 1 2.5 11.5V4.5A2 2 0 0 1 4.5 2.5ZM4.5 3.7H11.5A0.8 0.8 0 0 1 12.3 4.5V11.5A0.8 0.8 0 0 1 11.5 12.3H4.5A0.8 0.8 0 0 1 3.7 11.5V4.5A0.8 0.8 0 0 1 4.5 3.7Z";
+var COLLAPSE_ALL_MINUS = "M5.3 7.35H10.7V8.65H5.3Z";
+var COLLAPSE_ALL_PLUS = "M8.65 5.3V7.35H10.7V8.65H8.65V10.7H7.35V8.65H5.3V7.35H7.35V5.3Z";
+var COLLAPSE_ALL_GLYPHS = {
+  minus: [COLLAPSE_ALL_BOX, COLLAPSE_ALL_MINUS],
+  plus: [COLLAPSE_ALL_BOX, COLLAPSE_ALL_PLUS]
+};
+
+// src/ui/assembly/shell/workspaceTree/toolbar.ts
 function ViewOptionsMenu({
   groupBy,
   orderBy,
@@ -4093,6 +4104,29 @@ function ViewOptionsMenu({
       )
     })
   });
+}
+function CollapseAllIcon({ glyph }) {
+  return (0, import_react12.createElement)(
+    "svg",
+    {
+      viewBox: "0 0 16 16",
+      width: 16,
+      height: 16,
+      fill: "none",
+      "aria-hidden": true,
+      "data-dshone-tree-icon": "collapse-all",
+      "data-dshone-tree-icon-value": glyph
+    },
+    ...COLLAPSE_ALL_GLYPHS[glyph].map(
+      (d, index) => (0, import_react12.createElement)("path", {
+        key: String(index),
+        d,
+        fill: "currentColor",
+        "fill-rule": "evenodd",
+        "clip-rule": "evenodd"
+      })
+    )
+  );
 }
 function TopBar(props) {
   const { tr, query, allCollapsed, selectMode } = props;
@@ -4179,7 +4213,9 @@ function TopBar(props) {
     (0, import_react12.createElement)(
       "div",
       { className: "dshOneTree_headerActions", "data-dshone-tree": "top-bar-actions" },
-      // 折叠 / 展开全部（#99）：图标与提示随当前态翻转，语义同旧侧栏。
+      // 折叠 / 展开全部（#99；图标 #118 起换成方框加减号）：图标与提示随当前态翻转，
+      // 语义同旧侧栏——「还有展开着的」显示方框横杠（点了折叠全部），「全折叠了」
+      // 显示方框十字（点了展开全部）。
       (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
         label: allCollapsed ? tr("toolbar.expandAll") : tr("toolbar.collapseAll"),
         side: "bottom",
@@ -4194,7 +4230,7 @@ function TopBar(props) {
             "data-dshone-tree-collapsed": allCollapsed,
             onClick: props.onToggleCollapseAll
           },
-          allCollapsed ? (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconChevronDownOutline14, {}) : (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconChevronUpOutline14, {})
+          (0, import_react12.createElement)(CollapseAllIcon, { glyph: allCollapsed ? "plus" : "minus" })
         )
       }),
       // 添加工作区（＋）：两项菜单（选已有文件夹 / 创建新工作区目录）。
@@ -4561,7 +4597,7 @@ function WorkspaceTree(props) {
   const expandableKeys = flatGroups.filter((group) => group.sessionCount > 0).map((group) => group.key);
   const groupMembers = new Map(flatGroups.map((group) => [group.key, group.sessions]));
   const sessionsOfGroup = (key) => groupMembers.get(key) ?? [];
-  const allCollapsed = expandableKeys.length > 0 && expandableKeys.every((key) => !groupExpansion.includes(key));
+  const allCollapsed = trimmedQuery === "" && expandableKeys.length > 0 && expandableKeys.every((key) => !groupExpansion.includes(key));
   const toggleCollapseAll = () => {
     setPrefs((prev) => ({
       ...prev,
