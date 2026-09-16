@@ -280,7 +280,7 @@ const SCRIPT = String.raw`
           vscode.postMessage({ type: 'installGuide:openDocs' })
         }
       })
-      // 点下拉外部：关闭（点在页面其它地方不该留着菜单浮在上面）。
+      // Clicking outside the menu closes it (it must not stay floating over the page).
       document.addEventListener('click', (event) => {
         if (menu.hidden) return
         if (picker.contains(event.target) || menu.contains(event.target)) return
