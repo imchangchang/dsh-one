@@ -1,7 +1,7 @@
 {
  "title": "DSH One 装配线测试报告：会话行点击逻辑与行内改名（#115）",
  "branch": "agent/session-row-rename",
- "commit": "1dbd2827517de3847bfb1ac4351009f012b48ff0",
+ "commit": "c5ef04cdb870330f220069e83ce345a91dced9bf",
  "environment": {
   "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
   "dsh": "0.1.6-alpha.1",
