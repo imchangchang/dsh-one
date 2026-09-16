@@ -138,6 +138,7 @@ import type { GroupFile } from '../../../pure/dshStateFile.ts'
 import type { SessionListLike } from '../../../pure/workspaceTreeView.ts'
 import { hostCapabilities, type CapabilityContext } from './hostCapabilities.ts'
 import { EN, LOCALE_NS, ZH } from './workspaceTree/locale.ts'
+import { configureRecycleBin } from './workspaceTree/recycleBinStore.ts'
 import { RecycleEntry } from './workspaceTree/recycleEntry.ts'
 import { WorkspaceTree } from './workspaceTree/tree.ts'
 import type { SearchPage, WorkspaceSnapshotLike } from './workspaceTree/types.ts'
@@ -170,12 +171,15 @@ interface WorkspacesService {
 interface UiWorkspaceService {
   pickDirectory(): Promise<string | null>
   /**
-   * 官方归档/还原（官方 `dsh-client-ui-workspace` 的 navigation.d.ts：
-   * `archiveSession(sessionId)` / `unarchiveSession(sessionId)` 两条都在）。
-   * 走官方服务而不是自行记名单——「回收站 = 官方归档集合」正是 #81 的要求。
+   * 官方归档（官方 `dsh-client-ui-workspace` 的 navigation.d.ts 里就有这条）。
+   * #103 明确它的语义是**终点**（归档 = 删除），走官方服务执行。
+   *
+   * 官方那条 `unarchiveSession`（「取消归档」）**我们刻意不用**：它属于官方自己的
+   * 设置页（`dsh-client-ui-settings-unarchive-sessions`），是给误归档兜底的；我们的
+   * 回收站是**本地可逆的那一层**（还原只写我们自己的集合），两者不能混成一条路——
+   * 混了就会出现「点了还原，实际去动 dsh 侧」这样的两层语义错位。
    */
   archiveSession(sessionId: string): Promise<void>
-  unarchiveSession(sessionId: string): Promise<void>
 }
 
 interface TreeContext {
@@ -199,6 +203,25 @@ export function apply(ctx: TreeContext): void {
   // 宿主能力口（#72 多开入口用它；`editorTabs` 是读时判定，注入面按它决定动作给不给）。
   const caps = hostCapabilities(ctx)
 
+  /** 官方 uiWorkspace 服务（归档与选目录用它；缺席时退回官方 workspaces 服务）。 */
+  const uiWorkspace = (): UiWorkspaceService | undefined =>
+    (ctx as unknown as { uiWorkspace?: UiWorkspaceService }).uiWorkspace
+
+  /**
+   * #103：回收站（本地集合）与归档动作接进模块级 store——树主组件与底部入口行是
+   * **两个座位、同一份 bundle**，状态与动作必须只有一份（见 recycleBinStore.ts 的文件头）。
+   * 本地集合走宿主能力口（键 `recycle-bin`），归档走官方 `uiWorkspace.archiveSession`
+   *（缺席时退回 `workspaces.archiveSession`，与 #81 的处置一致）。
+   */
+  configureRecycleBin({
+    capabilities: caps,
+    archiveSession: async (sessionId: string): Promise<void> => {
+      const service = uiWorkspace()
+      if (service === undefined) await workspaces.archiveSession(sessionId)
+      else await service.archiveSession(sessionId)
+    },
+  })
+
   /** 工作区里「复用空白会话，否则新建」再打开（官方 connectWorkspace + open 的语义）。 */
   const startSessionIn = async (workspaceId: string): Promise<string> => {
     const snapshot = workspaces.list.getSnapshot()
@@ -221,8 +244,6 @@ export function apply(ctx: TreeContext): void {
   }
 
   const buildInjected = (): Record<string, unknown> => {
-    const uiWorkspace = (): UiWorkspaceService | undefined =>
-      (ctx as unknown as { uiWorkspace?: UiWorkspaceService }).uiWorkspace
     return {
       // 「在新标签页打开」（#72 多开通道）：走宿主能力口（抽象口，插件不碰宿主 API）。
       // 能力口如实上报 `editorTabs`：没有编辑器标签页的宿主（官方 web 形态）不注入
@@ -288,7 +309,6 @@ export function apply(ctx: TreeContext): void {
           .then((childId) => sessions.open(childId))
           .catch(() => {})
       },
-      archiveSession: (sessionId: string): Promise<void> => workspaces.archiveSession(sessionId),
       renameWorkspace: (workspaceId: string, title: string): Promise<unknown> => workspaces.rename(workspaceId, title),
       deleteWorkspace: (workspaceId: string): Promise<void> => workspaces.delete(workspaceId),
       // 官方 uiWorkspace.pickDirectory：宿主原生选择器。**为什么直调服务而不是渲染
@@ -372,27 +392,6 @@ export function apply(ctx: TreeContext): void {
           .catch((reason: unknown) => {
             console.warn('[dsh-one] unread sessions not persisted:', reason)
           })
-      },
-      // #81 功能 3/4：进回收站 = 官方归档（逐个走官方 uiWorkspace.archiveSession；
-      // 串行而不是并发：归档会更新官方工作区注册表，逐个落地便于精确报出失败项）。
-      recycleSessions: async (sessionIds: readonly string[]): Promise<{ failed: readonly string[] }> => {
-        const service = uiWorkspace()
-        const failed: string[] = []
-        for (const sessionId of sessionIds) {
-          try {
-            if (service === undefined) await workspaces.archiveSession(sessionId)
-            else await service.archiveSession(sessionId)
-          } catch {
-            failed.push(sessionId)
-          }
-        }
-        return { failed }
-      },
-      // #81 功能 5：还原 = 官方 uiWorkspace.unarchiveSession（官方有此接口，不自造）。
-      restoreSession: async (sessionId: string): Promise<void> => {
-        const service = uiWorkspace()
-        if (service === undefined) throw new Error('this shell provides no official uiWorkspace service')
-        await service.unarchiveSession(sessionId)
       },
     }
   }

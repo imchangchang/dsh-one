@@ -24,12 +24,20 @@ export function SelectMark({ on, disabled }: { on: boolean; disabled?: boolean }
   )
 }
 
-/** 选择态的动作条：已选计数 + 移入回收站 + 退出。 */
+/**
+ * 选择态的动作条：已选计数 + 两枚动作 + 退出。
+ *
+ * #103 把两枚动作按**两层语义分开**：移入回收站是本地可逆的（立即执行），归档是终点
+ * 动作（先过确认弹窗）。两枚按钮都只是「请求」，执行在树层——同一个动作只有一个执行处。
+ *
+ * 勾选资格、组头三态全选与操作条的其余形态属另一条并行条目，本件不碰。
+ */
 export function SelectionBar({
   count,
   busy,
   error,
   tr,
+  onMoveToRecycleBin,
   onArchive,
   onExit,
 }: {
@@ -37,6 +45,9 @@ export function SelectionBar({
   busy: boolean
   error: string | null
   tr: Translate
+  /** 批量移入回收站（本地可逆，立即执行 + 飘提示 + 结束选择态）。 */
+  onMoveToRecycleBin: () => void
+  /** 批量归档（不可逆）：开确认弹窗。 */
   onArchive: () => void
   onExit: () => void
 }): unknown {
@@ -52,15 +63,23 @@ export function SelectionBar({
         {
           variant: 'outline',
           disabled: busy || count === 0,
-          onClick: onArchive,
+          onClick: onMoveToRecycleBin,
           className: 'dshOneTree_selectionArchive',
-          children: busy ? tr('select.archivePending') : tr('select.archive'),
+          'data-dshone-tree-action': 'selection-recycle',
+          children: tr('select.moveToRecycleBin'),
         },
       ),
       h(
         Button,
-        { variant: 'outline', disabled: busy, onClick: onExit, children: tr('select.exit') },
+        {
+          variant: 'outline',
+          disabled: busy || count === 0,
+          onClick: onArchive,
+          'data-dshone-tree-action': 'selection-archive',
+          children: tr('select.archivePermanent'),
+        },
       ),
+      h(Button, { variant: 'outline', disabled: busy, onClick: onExit, children: tr('select.exit') }),
     ),
     error === null ? null : h('div', { className: 'dshOneTree_selectionError', role: 'alert' }, error),
   )

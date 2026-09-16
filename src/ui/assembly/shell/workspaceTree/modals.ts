@@ -1,7 +1,9 @@
 /** 对话框（分组新建/重命名/删除、工作区与会话重命名、删除工作区）。 */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { Button, IconEditOutline16, IconTrashOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SessionBlock } from '../../../../pure/workspaceTreeView.ts'
 import type { WorkspaceGroupDef } from '../../../../pure/treeGroups.ts'
+import { displayTitle } from './format.ts'
 import type { Translate } from './types.ts'
 
 /**
@@ -112,6 +114,107 @@ export function GroupModal({
         : h('div', { className: 'dshOneTree_renameError', role: 'alert' }, nameError ?? error),
     ],
   })
+}
+
+/**
+ * 归档确认弹窗（#103，**可复用**）：会话行菜单的「归档会话」、回收站行菜单的
+ * 「永久归档」、回收站入口的「清空」、多选操作条的「批量归档」都开这一个。
+ *
+ * 为什么必须确认：**归档 = 删除**（#98 A1 的两层语义）——走官方 `archiveSession` 后
+ * 会话从列表里消失，我们这边没有撤销入口（官方那条「取消归档」在设置页里，是给
+ * 误归档兜底的，不该被当成常规还原路径）。所以弹窗里写明不可恢复，并按**工作区树形**
+ * 列出到底会归档谁、有多少条会被跳过（资格不合格的那些，绝不静默放行）。
+ */
+export function ArchiveSessionsModal({
+  target,
+  tr,
+  busy,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  /** null = 关闭；非 null 时按它渲染明细（由树层按上下文组好）。 */
+  target: ArchiveRequest | null
+  tr: Translate
+  busy: boolean
+  error: string | null
+  onConfirm: () => void
+  onClose: () => void
+}): unknown {
+  const total = target === null ? 0 : target.blocks.reduce((sum, block) => sum + block.sessions.length, 0)
+  const title =
+    target === null
+      ? ''
+      : target.kind === 'emptyBin'
+        ? tr('archive.title.empty', { n: total })
+        : total === 1
+          ? tr('archive.title.one')
+          : tr('archive.title.many', { n: total })
+  return h(Modal, {
+    open: target !== null,
+    onClose,
+    closeLabel: tr('close'),
+    title,
+    description: tr('archive.desc'),
+    footer: h(
+      'div',
+      { style: { display: 'flex', gap: '8px' } },
+      h(Button, { variant: 'outline', disabled: busy, onClick: onClose }, tr('cancel')),
+      h(
+        Button,
+        {
+          variant: 'outline',
+          disabled: busy,
+          className: 'dshOneTree_deleteAction',
+          onClick: onConfirm,
+          // 验证套件按这个标记认「确认归档」这一枚（官方按钮类名是哈希）。
+          'data-dshone-tree-action': 'archive-confirm',
+        },
+        busy ? tr('archive.pending') : tr('archive.confirm'),
+      ),
+    ),
+    children: [
+      target === null || target.skipped === 0
+        ? null
+        : h('div', { className: 'dshOneTree_deleteStatus', 'data-dshone-archive-skipped': target.skipped },
+            tr('archive.skipped', { n: target.skipped })),
+      h(
+        'div',
+        { className: 'dshOneTree_modalBlocks', 'data-dshone-archive-blocks': total },
+        target === null
+          ? null
+          : target.blocks.map((block) =>
+              h(
+                'div',
+                { className: 'dshOneTree_modalBlock', key: block.key, 'data-dshone-archive-block': block.key },
+                h(
+                  'div',
+                  { className: 'dshOneTree_modalBlockLabel' },
+                  block.workspaceId === undefined ? tr('group.ungrouped') : block.label,
+                ),
+                block.sessions.map((node) =>
+                  h(
+                    'div',
+                    { className: 'dshOneTree_modalRow', key: node.id, 'data-dshone-archive-row': node.id },
+                    displayTitle(node, tr),
+                  ),
+                ),
+              ),
+            ),
+      ),
+      error === null ? null : h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error),
+    ],
+  })
+}
+
+/** 归档请求：弹窗要展示的全部信息（树层按上下文组好）。 */
+export interface ArchiveRequest {
+  /** 会被归档的会话，按工作区分块（`groupSessionNodes` / `deriveRecycleGroups` 的产物）。 */
+  readonly blocks: readonly SessionBlock[]
+  /** 资格不合格、会被跳过的会话数（>0 时弹窗里写明）。 */
+  readonly skipped: number
+  /** `emptyBin` = 从回收站入口「清空」进来的（标题按整仓口径）。 */
+  readonly kind: 'archive' | 'emptyBin'
 }
 
 /** 重命名对话框（官方同款 Modal + Button + 圆形输入框）。 */

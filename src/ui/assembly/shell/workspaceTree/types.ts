@@ -54,7 +54,6 @@ export interface TreeProps {
   startSession: (workspaceId?: string) => void
   renameSession: (sessionId: string, title: string) => Promise<void>
   forkSession: (sessionId: string) => void
-  archiveSession: (sessionId: string) => Promise<void>
   renameWorkspace: (workspaceId: string, title: string) => Promise<unknown>
   deleteWorkspace: (workspaceId: string) => Promise<void>
   /**
@@ -96,13 +95,6 @@ export interface TreeProps {
   savePinned: (ids: readonly string[]) => void
   /** 写回手动未读 id 集合（宿主能力口 `stateWrite('unread')`；失败静默）。 */
   saveUnread: (ids: readonly string[]) => void
-  /**
-   * #81 功能 3/4：把会话移入回收站——官方 `uiWorkspace.archiveSession`（数据面就是
-   * 官方归档集合，我们不自己记名单）。返回失败的那些 id（界面据此保留选中）。
-   */
-  recycleSessions: (sessionIds: readonly string[]) => Promise<{ failed: readonly string[] }>
-  /** #81 功能 3/5：从回收站还原——官方 `uiWorkspace.unarchiveSession`。 */
-  restoreSession: (sessionId: string) => Promise<void>
   /**
    * 「在新标签页打开」（#72 多开通道）：宿主有编辑器标签页时由 apply 注入，
    * 官方 web 形态（无此能力）不注入 = 菜单项与行右键都不出现。

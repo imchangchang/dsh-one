@@ -26,6 +26,7 @@ import type { WorkspaceGroupDef } from '../../../../pure/treeGroups.ts'
 import {
   canRecycle,
   cannotArchiveReason,
+  cannotRecycleReason,
   sessionBusy,
   type SessionBlockReason,
   type SessionEligibilityFacts,
@@ -327,7 +328,15 @@ export function ProjectRow({
   })
 }
 
-/** 会话行（官方 `SessionNodeItem`）：状态点 + 标题 + （定时标记）+ 相对时间 + 悬停操作。 */
+/**
+ * 会话行（官方 `SessionNodeItem`）：状态点 + 标题 + （定时标记）+ 相对时间 + 悬停操作。
+ *
+ * #103 起行菜单里**两项分开**：「移入回收站」（本地可逆，只有置顶禁用）与「归档会话」
+ * （走官方 `archiveSession`，**归档 = 删除**，置顶/运行中/有后代在跑/未读/待交互都禁用）。
+ * 资格判定在纯模块 `pure/sessionEligibility.ts` 里（与勾选框、组头三态、批量动作同一份），
+ * 这里只把原因翻成文案；`data-dshone-disabled-reason` 把判定结果写在菜单项上，验证套件
+ * 按它核对「原因 ↔ 禁用 ↔ 原因提示」三者一致。
+ */
 export function SessionRow({
   node,
   currentId,
@@ -343,6 +352,7 @@ export function SessionRow({
   onOpen,
   onRename,
   onFork,
+  onMoveToRecycleBin,
   onArchive,
   onTogglePin,
   onToggleUnread,
@@ -366,6 +376,9 @@ export function SessionRow({
   onOpen: () => void
   onRename: (title: string) => void
   onFork: () => void
+  /** 移入回收站（本地可逆，不动 dsh 侧）。 */
+  onMoveToRecycleBin: () => void
+  /** 归档会话（= 删除，不可逆）：树层据此开确认弹窗。 */
   onArchive: () => void
   /** #102：置顶 / 取消置顶（写宿主机能力口的 `pinned` 键）。 */
   onTogglePin: () => void
@@ -404,6 +417,8 @@ export function SessionRow({
             icon: h(IconRightUpOutline16, {}),
           },
         ]
+  // 「移入回收站」与「归档」是两层语义，各自一份判定结果（同吃上面那份 facts）。
+  const recycleBlocked = cannotRecycleReason(facts)
   const menuItems = [
     { id: 'rename', label: tr('rename'), icon: h(IconEditOutline16, {}) },
     // #102 两项标记动作：文案随状态翻转，勾选态走官方 Menu 的 selectedIds（✓）。
@@ -430,12 +445,30 @@ export function SessionRow({
     },
     { id: 'fork', label: tr('menu.fork'), icon: h(IconBranchOutline16, {}) },
     ...openInNewTabItem,
+    // 「移入回收站」= 本地可逆的一层（#103）：只有置顶被拦；运行中 / 未读 / 待交互都能移进去
+    // （进去还能还原），所以它的判定结果与下面「归档」分开算。
+    {
+      id: 'move-to-recycle-bin',
+      label: h(
+        'span',
+        {
+          'data-dshone-tree-item': 'move-to-recycle-bin',
+          'data-dshone-disabled-reason': recycleBlocked ?? '',
+          ...(recycleBlocked === null ? {} : { title: tr(`protect.recycle.${recycleBlocked}`) }),
+        },
+        tr('menu.moveToRecycleBin'),
+      ),
+      icon: h(IconTrashOutline16, {}),
+      disabled: recycleBlocked !== null,
+    },
+    // 「归档会话」= 终点动作（#103 的归档 = 删除）：置顶与「状态还在动」的都不许归档。
     {
       id: 'archive',
       label: h(
         'span',
         {
           'data-dshone-tree-item': 'archive',
+          'data-dshone-disabled-reason': archiveBlocked ?? '',
           ...(archiveBlocked === null ? {} : { title: tr(archiveBlockKey(archiveBlocked)) }),
         },
         tr('menu.archiveSession'),
@@ -471,7 +504,8 @@ export function SessionRow({
       'aria-selected': selectMode ? selected : isCurrent,
       'data-dshone-tree-row': 'session',
       // 行上带的会话 id（与工作区行的 `data-dshone-tree-key` 同一个用途：验证套件据此
-      // 认行，不用去猜 DOM 顺序）。
+      // 认行，不用去猜 DOM 顺序；#103 的回收站套件也用它把「挪走的那条」与抽屉里的
+      // 行、与宿主状态存储里的 id 对上）。
       'data-dshone-tree-session': node.id,
       // 行上的活状态（供验证套件把「工作区行尾的计数」与「行内真实状态」对照）：
       // 等待交互 > 运行中 > 空闲，与状态点的优先级同源。
@@ -547,6 +581,7 @@ export function SessionRow({
                   if (id === 'unread') onToggleUnread()
                   if (id === 'fork') onFork()
                   if (id === 'openInNewTab') onOpenInNewTab?.()
+                  if (id === 'move-to-recycle-bin') onMoveToRecycleBin()
                   if (id === 'archive') onArchive()
                 },
                 portal: true,

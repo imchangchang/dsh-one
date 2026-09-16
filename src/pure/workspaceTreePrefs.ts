@@ -30,6 +30,12 @@ export interface TreeViewPrefs {
   activeGroupId: string | null
   /** 显式展开/收起过的分组键（含未分组桶的空串）。 */
   expandedGroups: string[]
+  /**
+   * 回收站抽屉里**收起**了的工作区块（键与树里的分组键同域：工作区 id /
+   * UNGROUPED_KEY 的空串）。与主树的展开集合分开存：抽屉的折叠是它自己的看法，
+   * 收起一个块不该影响主树里那个工作区是展开还是收起（旧侧栏同此处置）。
+   */
+  recycleCollapsed: string[]
 }
 
 /** 官方客户端惯例的键名风格：`dsh.<区>.<名>`。 */
@@ -37,7 +43,7 @@ export const TREE_VIEW_PREF_KEY = 'dsh.workspaceTree.view'
 
 /** 默认偏好：与官方 WorkspaceBrowser 的初始态一致（按工作区 / 手动序 / 看全部）。 */
 export function defaultTreeViewPrefs(): TreeViewPrefs {
-  return { groupBy: 'workspace', orderBy: 'manual', activeGroupId: null, expandedGroups: [] }
+  return { groupBy: 'workspace', orderBy: 'manual', activeGroupId: null, expandedGroups: [], recycleCollapsed: [] }
 }
 
 /** 解析一条持久化记录（坏值/旧值一律回落默认，绝不抛）。 */
@@ -45,14 +51,14 @@ export function parseTreeViewPrefs(raw: unknown): TreeViewPrefs {
   const defaults = defaultTreeViewPrefs()
   if (typeof raw !== 'object' || raw === null) return defaults
   const record = raw as Record<string, unknown>
-  const expanded = Array.isArray(record.expandedGroups)
-    ? [...new Set(record.expandedGroups.filter((key): key is string => typeof key === 'string'))]
-    : []
+  const keyList = (value: unknown): string[] =>
+    Array.isArray(value) ? [...new Set(value.filter((key): key is string => typeof key === 'string'))] : []
   return {
     groupBy: record.groupBy === 'flat' ? 'flat' : 'workspace',
     orderBy: record.orderBy === 'updated' ? 'updated' : 'manual',
     activeGroupId: typeof record.activeGroupId === 'string' && record.activeGroupId !== '' ? record.activeGroupId : null,
-    expandedGroups: expanded,
+    expandedGroups: keyList(record.expandedGroups),
+    recycleCollapsed: keyList(record.recycleCollapsed),
   }
 }
 
