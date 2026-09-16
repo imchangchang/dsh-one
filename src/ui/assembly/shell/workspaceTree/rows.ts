@@ -154,7 +154,8 @@ function submenuParent(options: { id: string; label: string; open: boolean }): u
       options.label,
       h('span', { className: 'dshOneTree_submenuArrow', 'aria-hidden': true }, options.open ? '\u25be' : '\u25b8'),
     ),
-    icon: h(IconFolderOpenOutline16, {}),
+    // 图标位取紧凑档的 14×14（官方 `._itemIcon_1nxmc_144`），见文件里各菜单项的同一处置。
+    icon: h(IconFolderOpenOutline16, { size: 14 }),
   }
 }
 
@@ -411,14 +412,14 @@ export function ProjectRow({
     },
     // 未分组桶没有路径与工作区身份，能做的只有它自己那两件（新建会话 / 整桶归档）。
     ...(ungrouped
-      ? [{ id: 'new-session', label: h('span', { 'data-dshone-tree-item': 'new-session' }, tr('menu.newSession')), icon: h(IconPlusOutline16, {}) }]
+      ? [{ id: 'new-session', label: h('span', { 'data-dshone-tree-item': 'new-session' }, tr('menu.newSession')), icon: h(IconPlusOutline16, { size: 14 }) }]
       : []),
     ...(hasPath
       ? [
           {
             id: 'copy-folder-ref',
             label: h('span', { 'data-dshone-tree-item': 'copy-folder-ref' }, tr('menu.copyFolderReference')),
-            icon: h(IconCopyOutline16, {}),
+            icon: h(IconCopyOutline16, { size: 14 }),
           },
         ]
       : []),
@@ -440,7 +441,7 @@ export function ProjectRow({
         },
         ungrouped ? tr('menu.archiveUngrouped') : tr('menu.archiveWorkspace'),
       ),
-      icon: h(IconArchiveOutline20, { size: 16 }),
+      icon: h(IconArchiveOutline20, { size: 14 }),
       disabled: !canArchiveAll,
     },
     ...(hasPath && onOpenFolder !== undefined
@@ -448,7 +449,7 @@ export function ProjectRow({
           {
             id: 'open-new-window',
             label: h('span', { 'data-dshone-tree-item': 'open-new-window' }, tr('menu.openFolderInNewWindow')),
-            icon: h(IconRightUpOutline16, {}),
+            icon: h(IconRightUpOutline16, { size: 14 }),
           },
         ]
       : []),
@@ -457,7 +458,7 @@ export function ProjectRow({
           {
             id: 'copy-path',
             label: h('span', { 'data-dshone-tree-item': 'copy-path' }, tr('menu.copyPath')),
-            icon: h(IconCopyOutline16, {}),
+            icon: h(IconCopyOutline16, { size: 14 }),
           },
         ]
       : []),
@@ -467,7 +468,7 @@ export function ProjectRow({
           {
             id: 'rename',
             label: h('span', { 'data-dshone-tree-item': 'rename' }, tr('menu.renameWorkspace')),
-            icon: h(IconEditOutline16, {}),
+            icon: h(IconEditOutline16, { size: 14 }),
           },
         ]),
     ...(onDelete === undefined
@@ -476,7 +477,7 @@ export function ProjectRow({
           {
             id: 'remove',
             label: h('span', { 'data-dshone-tree-item': 'remove' }, tr('menu.removeWorkspace')),
-            icon: h(IconTrashOutline16, {}),
+            icon: h(IconTrashOutline16, { size: 14 }),
             danger: true,
           },
         ]),
@@ -667,6 +668,9 @@ export function ProjectRow({
                 if (id === 'rename') onRename?.()
                 if (id === 'remove') onDelete?.()
               },
+              // #113：官方紧凑档（项 26px 高 / 5px 圆角 / 12px 字号 / 14×14 图标位），
+              // 与行内码右键菜单（shell/contextMenuPlugin.ts）同一档——侧栏里的菜单密度一致。
+              compact: true,
               portal: true,
               closeOnPointerLeave: true,
               anchor,
@@ -990,8 +994,9 @@ export function SessionRow({
             // 按这个属性取「我们那一项」（与 contextMenuPlugin 的图标项同一做法）。
             label: h('span', { 'data-dshone-tree-item': 'openInNewTab' }, tr('menu.openInNewTab')),
             // 图标取官方 primitives 的 IconRightUpOutline16（向右上离开方框 = 到别处打开），
-            // 与官方行菜单项同为 16 档、同为 icon 槽位的次级色。
-            icon: h(IconRightUpOutline16, {}),
+            // 同为 icon 槽位的次级色；尺寸按紧凑档的 14×14 图标位给（`{ size: 14 }`，
+            // 官方 16 档图标塞进 14px 的盒子会溢出一圈）。
+            icon: h(IconRightUpOutline16, { size: 14 }),
           },
         ]
   // 「移入回收站」与「归档」是两层语义，各自一份判定结果（同吃上面那份 facts）。
@@ -1020,7 +1025,7 @@ export function SessionRow({
     {
       id: 'rename',
       label: h('span', { 'data-dshone-tree-item': 'rename' }, tr('rename')),
-      icon: h(IconEditOutline16, {}),
+      icon: h(IconEditOutline16, { size: 14 }),
     },
     // #102 两项标记动作：文案随状态翻转，勾选态走官方 Menu 的 selectedIds（✓）。
     {
@@ -1062,13 +1067,13 @@ export function SessionRow({
         },
         tr('menu.fork'),
       ),
-      icon: h(IconBranchOutline16, {}),
+      icon: h(IconBranchOutline16, { size: 14 }),
       disabled: node.blank,
     },
     {
       id: 'copyReference',
       label: h('span', { 'data-dshone-tree-item': 'copyReference' }, tr('menu.copyReference')),
-      icon: h(IconCopyOutline16, {}),
+      icon: h(IconCopyOutline16, { size: 14 }),
     },
     // 「移入回收站」= 本地可逆的一层（#103）：只有置顶被拦；运行中 / 未读 / 待交互都能移进去
     // （进去还能还原），所以它的判定结果与下面「归档」分开算。
@@ -1083,7 +1088,7 @@ export function SessionRow({
         },
         tr('menu.moveToRecycleBin'),
       ),
-      icon: h(IconTrashOutline16, {}),
+      icon: h(IconTrashOutline16, { size: 14 }),
       disabled: recycleBlocked !== null,
     },
     // 「归档会话」= 终点动作（#103 的归档 = 删除）：置顶与「状态还在动」的都不许归档。
@@ -1098,7 +1103,7 @@ export function SessionRow({
         },
         tr('menu.archiveSession'),
       ),
-      icon: h(IconArchiveOutline20, { size: 16 }),
+      icon: h(IconArchiveOutline20, { size: 14 }),
       disabled: archiveBlocked !== null,
     },
   ]
@@ -1270,6 +1275,8 @@ export function SessionRow({
                     if (id === 'move-to-recycle-bin') onMoveToRecycleBin()
                     if (id === 'archive') onArchive()
                   },
+                  // #113：官方紧凑档（与工作区行那一份、行内码右键菜单同一档）。
+                  compact: true,
                   portal: true,
                   closeOnPointerLeave: true,
                   // 锚点：非空白行是那一枚 ⋯ 按钮（Menu 自己会把它渲染在自己的根节点里，

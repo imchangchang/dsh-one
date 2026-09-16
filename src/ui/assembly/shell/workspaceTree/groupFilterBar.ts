@@ -89,12 +89,12 @@ export function GroupFilterBar({
         {
           id: 'new',
           label: h('span', { 'data-dshone-tree-action': 'group-new' }, tr('group.new')),
-          icon: h(IconPlusOutline16, {}),
+          icon: h(IconPlusOutline16, { size: 14 }),
         },
         {
           id: 'manage',
           label: h('span', { 'data-dshone-tree-action': 'group-manage' }, tr('group.manage')),
-          icon: h(IconSettingsOutline16, {}),
+          icon: h(IconSettingsOutline16, { size: 14 }),
         },
       ],
       selectedIds: [activeGroupId ?? 'all'],
@@ -105,7 +105,9 @@ export function GroupFilterBar({
         else onPick(id === 'all' ? null : id)
       },
       align: 'start',
-      dense: true,
+      // #113：官方紧凑档（菜单项 26px 高 / 12px 字号 / 图标位 14×14），与胶囊本身
+      // （26px 高 / 12px 字号）同档；`separator` 与分组标题的间距也由官方该档给。
+      compact: true,
       portal: true,
       closeOnPointerLeave: true,
       anchor: h(

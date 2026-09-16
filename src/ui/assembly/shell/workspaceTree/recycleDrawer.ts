@@ -345,13 +345,15 @@ function RecycleBlock({
                 open: menuOpen,
                 onClose: () => onMenuToggle(node.id),
                 items: [
-                  { id: 'restore', label: tr('recycle.restore'), icon: h(IconRefreshOutline16, { size: 16 }) },
+                  // #113：官方紧凑档的图标位是 14×14（官方 `._itemIcon_1nxmc_144`），
+                  // 项内图标按它给尺寸（官方 16 档塞进 14px 的盒子会溢出一圈）。
+                  { id: 'restore', label: tr('recycle.restore'), icon: h(IconRefreshOutline16, { size: 14 }) },
                   {
                     id: 'archive',
                     // 标记属性（自有契约，与 rows.ts 的菜单项同一做法）：官方菜单项的
                     // 类名是官方哈希，验证套件与样式都不该认它。
                     label: h('span', { 'data-dshone-recycle-item': 'archive' }, tr('menu.archiveForever')),
-                    icon: h(IconArchiveOutline20, { size: 16 }),
+                    icon: h(IconArchiveOutline20, { size: 14 }),
                     danger: true,
                   },
                 ],
@@ -360,6 +362,8 @@ function RecycleBlock({
                   if (id === 'restore') onRestore(node.id)
                   if (id === 'archive') onArchive(node.id)
                 },
+                // #113：官方紧凑档（与行菜单、行内码右键菜单同一档）。
+                compact: true,
                 portal: true,
                 closeOnPointerLeave: true,
                 align: 'end',

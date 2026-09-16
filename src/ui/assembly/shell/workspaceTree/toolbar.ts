@@ -74,7 +74,10 @@ export function ViewOptionsMenu({
       setOpen(false)
     },
     align: 'end',
-    dense: true,
+    // #113：菜单统一走官方紧凑档（`compact: true`），与右键菜单（shell/contextMenuPlugin.ts）
+    // 同一档，整个侧栏里的菜单密度一致。此前传的 `dense` 是官方另一档（项 34px），
+    // 已按紧凑档替换——两个都传会让重叠属性取决于官方样式表里的先后顺序，不这么用。
+    compact: true,
     portal: true,
     anchor: h(Tooltip, {
       label: tr('viewOptions.label'),
@@ -129,7 +132,9 @@ export function TopBar(props: TopBarProps): unknown {
     {
       id: 'pick-folder',
       label: h('span', { 'data-dshone-tree-item': 'workspace-pick' }, tr('workspace.pickFolder')),
-      icon: h(IconFolderOpenOutline16, {}),
+      // 图标位 14×14：紧凑档的项内图标盒就是 14×14（官方 `._itemIcon_1nxmc_144`），
+      // 官方 16 档图标塞进去会溢出一圈，所以按官方给的显式尺寸参数打 14（官方自己也这么用）。
+      icon: h(IconFolderOpenOutline16, { size: 14 }),
     },
     ...(props.onCreateWorkspaceFolder === undefined
       ? []
@@ -137,7 +142,7 @@ export function TopBar(props: TopBarProps): unknown {
           {
             id: 'create-folder',
             label: h('span', { 'data-dshone-tree-item': 'workspace-create' }, tr('workspace.create')),
-            icon: h(IconPlusOutline16, {}),
+            icon: h(IconPlusOutline16, { size: 14 }),
           },
         ]),
   ]
@@ -235,7 +240,8 @@ export function TopBar(props: TopBarProps): unknown {
           if (id === 'create-folder') props.onCreateWorkspaceFolder?.()
         },
         align: 'end',
-        dense: true,
+        // #113：官方紧凑档（与右键菜单、ViewOptionsMenu 同档，侧栏里菜单密度一致）。
+        compact: true,
         portal: true,
         closeOnPointerLeave: true,
         anchor: h(Tooltip, {
