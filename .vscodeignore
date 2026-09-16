@@ -16,3 +16,6 @@ scripts/**
 .prototype/**
 .dev-host/**
 AGENTS.md
+# 自有插件包（#73）：只用于构建。VS Code 侧运行时吃的是 dist/assembly/plugins/
+# 里那份产物，宿主半的代码由 esbuild 打进 dist/extension.js，都不需要这个目录。
+packages/**

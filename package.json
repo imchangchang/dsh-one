@@ -28,6 +28,9 @@
   ],
   "main": "./dist/extension.js",
   "l10n": "./l10n",
+  "workspaces": [
+    "packages/*"
+  ],
   "contributes": {
     "icons": {
       "dsh-fish": {
@@ -162,6 +165,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.ts test/mock-dsh/*.test.ts test/mock-llm/*.test.ts",
     "verify:host-half": "node scripts/verify-host-half-official.mjs",
+    "verify:plugins-official": "npm run build && node scripts/verify-plugins-official.mjs",
     "verify:lab": "npm run build && node test/assembly-lab/verify.ts",
     "package": "npm run build && vsce package"
   },

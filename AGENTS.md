@@ -27,7 +27,7 @@
 
 **worktree 开发 session 只开发、不合入**：dev-finish（自测 + 生成测试报告 + done 标记）通过后即止，合入由主线 agent 跑 `dev-merge.sh`。**合入门禁 = 测试报告审查**：报告由 `test/sandbox/` 的 ledger + `report.mjs` 产出（新增功能项在前、现有功能回归在后，每项带期望/截图/通过或失败结论），人工审查通过再合入；对功能有疑问才人工开窗 `dev-ui-test.sh` 验收。
 
-**验证三层与跑法**（2026-09-16 起，浏览器验证 harness 已入库）：**浏览器验证**（`npm run verify:lab`，harness 在 `test/assembly-lab/`）用 Playwright 打开装配页跑断言——页面由仓库真实模块构建、数据面是本机真实 dsh 网关（只读）、宿主侧是假宿主，约 50 秒，是**第一道**，改装配相关代码（block list / 树定义 / 自有插件 / mirror / pageHtml）后必跑；**VS Code 验证**（`scripts/dev-ui-test.sh`）起隔离 VS Code 窗口实测 webview 宿主层（CSP/剪贴板/原生菜单/多 webview 生命周期），慢，是**最终准绳**；**沙盒**（`test/sandbox/run-sandbox.sh`）在 code-server 里装真插件 vsix 做宣发截图与人工核对。三者不互相替代。跑法与套件清单见 `test/assembly-lab/README.md`。
+**验证三层与跑法**（2026-09-16 起，浏览器验证 harness 已入库）：**浏览器验证**（`npm run verify:lab`，harness 在 `test/assembly-lab/`）用 Playwright 打开装配页跑断言——页面由仓库真实模块构建、数据面是本机真实 dsh 网关（只读）、宿主侧是假宿主，约 50 秒，是**第一道**，改装配相关代码（block list / 树定义 / 自有插件 / mirror / pageHtml）后必跑；**官方 web 真机**（`npm run verify:plugins-official`，脚本 `scripts/verify-plugins-official.mjs`）在隔离的临时 HOME + 临时 profile 里把自有插件包装进 profile，用 Playwright 打开**官方页面本身**验加载与行为，约 2 分钟，改插件包（`packages/dsh-*` 的清单/产物/补丁）后必跑；**VS Code 验证**（`scripts/dev-ui-test.sh`）起隔离 VS Code 窗口实测 webview 宿主层（CSP/剪贴板/原生菜单/多 webview 生命周期），慢，是**最终准绳**；**沙盒**（`test/sandbox/run-sandbox.sh`）在 code-server 里装真插件 vsix 做宣发截图与人工核对。四者不互相替代（实验室验的是我们的装配页、真机验的是官方页面）。跑法与套件清单见 `test/assembly-lab/README.md` 与 `docs/plugin-packages.md`。
 
 **起真 VS Code 窗口只有人跑（agent 一律不许自己起）**：`scripts/dev-ui-test.sh` 或任何 `code --extensionDevelopmentPath …` 都会在用户桌面上真的弹出一个窗口、抢走焦点，而 agent 自己既看不见也点不了它；用户上一轮已经被弹窗打扰过（2026-09-16）。规则：
 - agent 一律先用**浏览器验证**；改完装配相关代码跑 `npm run verify:lab` 就够，不要为了「看一眼」起窗口；
@@ -70,6 +70,8 @@
 **能移植的必须移植（用户铁律，2026-09-16）**：不允许「技术上做得到却留着专属」。凡可移植的插件，必须按改造路径落地为 `dsh-*`——两条通用改造路径：① 需要宿主能力（跑 git、落盘、对话框等）的 → 交由**宿主半插件**提供，前端插件只走抽象口；② 依赖我们自有 frame 挂载点（如 `[data-shell="dsh-one"]`）做事件委托的 → 改为**官方稳定容器/官方语义属性**派生的挂载点，使其不依赖任何自有 frame。只有**存在意义本身就是适配 VS Code 容器**的插件（渲染外框、宿主主题跟随、宿主中转与注入、把设置开成编辑器页等）才允许保持 `vscode-*`，且必须在文件头写明「为何不可移植」。
 
 **自有插件命名（用户铁律）**：dsh-one 自有 cordis 插件一律命名在 **`@dsh-one` 作用域**下，形式为 **`@dsh-one/xxxxx`**（如 `@dsh-one/vscode-shell`）——模块 id、bundle 目录名、清单 entry id、注释与文档引用全部一致；新增插件照此办理，不得使用其它作用域或裸名。
+
+**可移植件必须是官方格式的 npm 包（用户铁律，2026-09-16，#73）**：可移植（`dsh-*`）的自有插件**必须**在 `packages/<名>/` 下有自己的包——包清单声明 `dsh.bundle.patch` + `dsh.client`（`platform: "web"` + `inject` + `external`）、`exports["./client"]` 指 `lib/client.js`，`cordis.patch.yml` 只 insert 自己一行；**包名 = 装配清单里的插件 id**（两处由 `test/pluginPackages.test.ts` 交叉核对）。`vscode-*` 那几件（渲染我们外框、调 VS Code 宿主、把设置开成编辑器页）不进 `packages/`，但文件头要写明为何不可移植。装包链路、字段作用与真机实测跑法见 `docs/plugin-packages.md`。新增可移植插件**必须**跑一次 `npm run verify:plugins-official`（官方页面真机），只跑装配实验室不算数——实验室验的是我们的装配页，不是官方页面。
 
 **插件状态按官方惯例存储（用户铁律，2026-09-16）**：我们所有插件的状态，一律按 dsh 官方插件的方式存放，不得依赖 VS Code 的存储机制——
 - **用户可感知的持久状态**（回收站名单、分组定义、标签、置顶等）→ 由**宿主半插件**拥有，落在 dsh 自己的目录（`~/.dsh`）下，经官方 RPC 机制暴露给前端插件；不允许放进扩展的 `globalStorage` / `workspaceState` / 扩展自建状态文件。

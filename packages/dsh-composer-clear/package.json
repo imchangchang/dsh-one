@@ -1,0 +1,45 @@
+{
+  "name": "@dsh-one/dsh-composer-clear",
+  "version": "0.1.0",
+  "description": "Composer clear for dsh web: Esc / Ctrl+C twice clears the draft, with an undo window.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-session"
+      ],
+      "external": [
+        "react",
+        "react/jsx-runtime",
+        "@deepseek-ai/cordis",
+        "@deepseek-ai/dsh-client-store"
+      ]
+    }
+  }
+}

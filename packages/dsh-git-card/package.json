@@ -1,0 +1,47 @@
+{
+  "name": "@dsh-one/dsh-git-card",
+  "version": "0.1.0",
+  "description": "Commit-hash cards in dsh web messages, resolved over the host capability port.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ],
+      "external": [
+        "react",
+        "react/jsx-runtime",
+        "@deepseek-ai/cordis",
+        "@deepseek-ai/dsh-client-store",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  }
+}

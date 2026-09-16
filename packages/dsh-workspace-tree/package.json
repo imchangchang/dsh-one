@@ -1,0 +1,47 @@
+{
+  "name": "@dsh-one/dsh-workspace-tree",
+  "version": "0.1.0",
+  "description": "dsh-one's workspace and session tree, shadowing the official sidebar workspaces slot.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ],
+      "external": [
+        "react",
+        "react/jsx-runtime",
+        "@deepseek-ai/cordis",
+        "@deepseek-ai/dsh-client-store",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  }
+}
