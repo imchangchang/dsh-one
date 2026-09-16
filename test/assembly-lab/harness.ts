@@ -179,6 +179,39 @@ export async function openTreePage(
     deviceScaleFactor: 2,
   })
   await context.addInitScript({ content: fakeHostScript(options.state ?? {}) })
+  return await openPageIn(lab, route, context, options)
+}
+
+/**
+ * 在同一浏览器上下文（= 同一源、同一 localStorage）里再开一个装配页。
+ *
+ * 为什么需要它：真 VS Code 里多条 webview 同源、localStorage 共享——#71 的 spike
+ * 实证多 tab 会互相覆盖官方恢复键（`dsh.sessions.current`），多开通道的启动注入
+ * 正是为这个现场设计的。分上下文的开页（{@link openTreePage}）造不出这个现场，
+ * 这一档断言（多开 tab 互不串）必须走这条。
+ *
+ * 注意：调用方关闭返回页时**只能关这个 page**，不能关 context（那会把先前那条
+ * 页面一起关掉）——`context.close()` 由上下文的首个页面持有者负责。
+ */
+export async function openTreePageAlongside(
+  existing: OpenedPage,
+  lab: LabServer,
+  route: LabTreeRoute,
+  options: OpenOptions = {},
+): Promise<OpenedPage> {
+  return await openPageIn(lab, route, existing.context, options)
+}
+
+/** 在一个给定上下文里开页并等就绪（两个入口的共用体）。 */
+async function openPageIn(
+  lab: LabServer,
+  route: LabTreeRoute,
+  context: BrowserContext,
+  options: OpenOptions,
+): Promise<OpenedPage> {
+  // 抹自有 frame 标记（#83）：两处入口都认这个开关，且必须在建页之前装——
+  // 页面任何脚本执行前生效，属性才从来没进过 DOM。（假宿主由上下文持有者
+  // 在 `newContext` 之后统一装，同源的后续页面自然继承，不重复装。）
   if (options.stripFrameMarkers === true) await context.addInitScript({ content: stripFrameMarkersScript() })
   const page = await context.newPage()
   const capture = capturePage(page)
