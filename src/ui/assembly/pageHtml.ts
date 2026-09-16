@@ -117,13 +117,17 @@ const QUEUE_FACADE_JS = `(() => {
 })()`
 
 /**
- * 传输接缝：把官方客户端按 location.origin 寻址的两条通道改写到 loopback mirror。
- * - fetch：connection RPC 的 POST（/api/<channel>/<endpoint>）换源到 mirror。
+ * 传输接缝：把官方客户端按 location.origin 寻址的宿主通道改写到 loopback mirror。
+ * - fetch（`__DSH_TRANSPORT__.fetch`）：connection RPC 的 POST
+ *   （/api/<channel>/<endpoint>）换源到 mirror。
  * - openStream：remote stream 走自建 WS 说 /api/remote.mux 协议（open/item/error/
  *   终帧/cancel 五行），返回 async iterable；错误帧带 dshRemoteStreamFailure
  *   标记（remote → 归一化成 RemoteError；carrier → 可重试的载体失败）。
  * 提供了 openStream 后 connection.rpc.open 存在，api-gateway 不会自起按
  * location.origin 寻址的 WS mux（见 dsh-api-gateway ClientRemoteService）。
+ * - 页面全局 fetch（`hostFetch`，见下）：不走 `__DSH_TRANSPORT__` 那条口、
+ *   自己裸 fetch 宿主路由的官方插件（open-in-app / session-log-export /
+ *   file-upload）也要能到达网关。
  * ownsHost（官方机制第 3 层：__DSH_TRANSPORT__ 官方预留接缝的既有字段，
  * client-connection 源码 4755 行 isLoopback 判定消费）：传输接缝拥有
  * loopback 宿主权威——页面一切 RPC 经 loopback 代理带 cookie 到网关，
@@ -139,10 +143,14 @@ function transportJs(mirrorOrigin: string): string {
   const WS_ORIGIN = MIRROR.replace(/^http/, "ws")
   // Diagnostic probe hook: probe.ts installs __DSH_ONE_PROBE__ in webview only; silent in browsers.
   const probe = (level, text) => { if (globalThis.__DSH_ONE_PROBE__) globalThis.__DSH_ONE_PROBE__.log(level, text) }
+  // 页面源（真窗遥测的第一手证据）：宿主路由类缺陷（#87）都先从这一行看起——
+  // webview 里它不是 mirror，任何按 location.origin 寻址的官方代码都会打空。
+  probe("info", "page origin " + String(globalThis.location && globalThis.location.origin) + " mirror " + MIRROR)
+  const NATIVE_FETCH = globalThis.fetch.bind(globalThis)
   const apiFetch = (input, init) => {
     const parsed = new URL(String(input), globalThis.location ? globalThis.location.href : MIRROR + "/")
     const url = new URL(parsed.pathname + parsed.search, MIRROR).href
-    return fetch(url, init).then((res) => {
+    return NATIVE_FETCH(url, init).then((res) => {
       if (!res.ok) probe("warn", "transport fetch " + url + " -> HTTP " + res.status)
       return res
     }, (err) => {
@@ -150,6 +158,34 @@ function transportJs(mirrorOrigin: string): string {
       throw err
     })
   }
+  // 宿主寻址的判定：官方代码把「宿主」写成页面自己的源（location.origin），源
+  // 读不到时退回官方常量 http://dsh.internal——这个常量见 0.1.6-alpha.1 的
+  // dsh-client-connection / dsh-api-gateway（INTERNAL_BASE）、dsh-client-file-upload、
+  // dsh-client-ui-open-in-app、dsh-session-log-export（hostBase()）。
+  const page = globalThis.location
+  const isHostAddressed = (url) => {
+    if (url.hostname === "dsh.internal") return true
+    if (url.origin === MIRROR) return true
+    if (page === undefined) return false
+    if (page.origin !== "null" && url.origin === page.origin) return true
+    // webview 的 vscode-webview:// 是不透明源（origin 序列化成 "null"，与 blob: 等
+    // 撞值，不能比 origin），所以这一支比 protocol + host——只命中页面自己的源，
+    // blob:/data: 一概落空。
+    return url.protocol === page.protocol && url.host === page.host
+  }
+  const hostFetch = (input, init) => {
+    // Request 对象不碰：原生语义原样保留。
+    if (typeof input !== "string" && !(input instanceof URL)) return NATIVE_FETCH(input, init)
+    let url
+    try {
+      url = input instanceof URL ? input : new URL(input, document.baseURI)
+    } catch (ignored) {
+      return NATIVE_FETCH(input, init)
+    }
+    if (!isHostAddressed(url)) return NATIVE_FETCH(input, init)
+    return NATIVE_FETCH(new URL(url.pathname + url.search, MIRROR).href, init)
+  }
+  globalThis.fetch = hostFetch
   const openStream = (endpoint, payload, signal) => (async function* () {
     signal && signal.throwIfAborted()
     const ws = new WebSocket(WS_ORIGIN + "/api/remote.mux")
