@@ -5562,6 +5562,50 @@ export const SESSION_ROW_RENAME_SUITE: LabSuite = {
       await page.waitForTimeout(300)
       check.eq('⑤ 全空白 + Enter：零请求', renameCalls.length, callsAfterCommit)
 
+      // ---- ④ 的两条边界：行尾收纳件与拖拽窗口里的点击都不触发改名 ----
+      // 两次探测都在页内等一拍再读 DOM：行内编辑态是 React 状态，点完同步读会读早（还没重渲染）。
+      const boundaries = await page.evaluate(async (selector: string) => {
+        const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 150))
+        const hasInput = (): boolean => document.querySelector('[data-dshone-tree-rename="input"]') !== null
+        const row = document.querySelector(selector) as HTMLElement | null
+        if (row === null) return null
+        // ① 行尾状态点（会话状态那一格）不是「点行」：点在它上面不该把编辑态点出来。
+        //（行尾相对时间在 hover 时隐藏——悬停给四枚动作让位——所以这里点的是状态点。）
+        const slot = row.querySelector('.dshOneTree_slot')
+        if (slot === null) return null
+        ;(slot as HTMLElement).click()
+        await tick()
+        const statusTap = hasInput()
+        // ② 拖拽窗口里到达的点击不触发改名（HTML5 拖拽的收尾在部分浏览器/驱动上会补一个
+        // click）；dragend 之后正常的点击照旧进编辑态。
+        row.dispatchEvent(new DragEvent('dragstart', { bubbles: true }))
+        row.click()
+        await tick()
+        const duringDrag = hasInput()
+        row.dispatchEvent(new DragEvent('dragend', { bubbles: true }))
+        row.click()
+        await tick()
+        const afterDrag = hasInput()
+        return { statusTap, duringDrag, afterDrag }
+      }, rowSel)
+      check.fact(`④ 边界探测（点状态点 / 拖拽中点击 / 拖拽后点击）=${JSON.stringify(boundaries)}`)
+      check.ok(
+        '④ 点行尾状态点（当前会话行）不触发就地改名',
+        boundaries !== null && !boundaries.statusTap,
+        JSON.stringify(boundaries),
+      )
+      check.ok(
+        '④ 拖拽期间到达的点击不触发改名；dragend 之后正常的点击照旧进编辑态',
+        boundaries !== null && !boundaries.duringDrag && boundaries.afterDrag,
+        JSON.stringify(boundaries),
+      )
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      check.eq('④ 边界探测没留下编辑态、也没多发包', [
+        (await rowRenameFacts(page, otherId)).renaming,
+        renameCalls.length,
+      ], [false, callsAfterCommit])
+
       // ---- ⑥ 多选态下点击 = 勾选（当前行也一样，不进改名）----
       await page.click('[data-dshone-tree-action="select-mode"]')
       await page.waitForTimeout(300)
