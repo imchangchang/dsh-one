@@ -201,7 +201,43 @@ const CSS =
   // 飘提示（移入/还原/归档的回执）：贴树区域底部，几秒后自己消失。
   '.dshOneTree_flash{z-index:20;max-width:90%;background:var(--dsw-alias-bg-elevated,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;padding:6px 10px;font-size:var(--dsh-one-density-meta-font-size,12px);position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}' +
   // 入口行两枚动作里的「清空」是危险动作（= 永久归档），按错误色标出来。
-  '.dshOneTree_footerIconDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}'
+  '.dshOneTree_footerIconDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}' +
+  // 会话标签组（#107）：形态与数值逐字沿用旧侧栏 sessionsView.ts 的 `.tag-*` 规则
+  //（小 pill、pill 下沿到组尾的 2px 贯穿竖线、组内行 24px 左缩进、折叠计数角标）。
+  // 组色由组件经 `--dshone-tag-color` 下发（色板在 tagGroups.ts，理由见那个文件头：
+  // 用户自选的标签色板，官方 token 里没有这一类）。
+  '.dshOneTree_tagBlock{position:relative;border-radius:6px}' +
+  // 组头：pill 左缘与竖线同列；右侧留出折叠三角与动作位。
+  '.dshOneTree_tagHead{align-items:center;height:22px;padding-left:var(--dsh-one-density-row-padding-inline,8px);padding-right:var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
+  '.dshOneTree_tagPill{cursor:grab;color:var(--dshone-tag-color);background:color-mix(in srgb,var(--dshone-tag-color) 22%,transparent);border:1px solid color-mix(in srgb,var(--dshone-tag-color) 45%,transparent);border-radius:4px;align-items:center;gap:4px;height:16px;padding:0 7px;font-size:10px;font-weight:600;line-height:1;white-space:nowrap;display:inline-flex}' +
+  '.dshOneTree_tagPill:active{cursor:grabbing}' +
+  '.dshOneTree_tagDot{width:6px;height:6px;background:var(--dshone-tag-color);border-radius:2px;flex:none}' +
+  '.dshOneTree_tagName{text-overflow:ellipsis;white-space:nowrap;max-width:120px;overflow:hidden}' +
+  // 拖 pill 换组序时的插入位置指示线（上下沿，box-shadow 不占布局）。
+  '.dshOneTree_tagPill[data-dshone-tag-drop="before"]{box-shadow:0 -2px 0 0 var(--dshone-tag-color)}' +
+  '.dshOneTree_tagPill[data-dshone-tag-drop="after"]{box-shadow:0 2px 0 0 var(--dshone-tag-color)}' +
+  // 折叠/展开三角：展开朝下、折叠朝右（与工作区行同款）。
+  '.dshOneTree_tagToggle{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;margin-left:2px;padding:0;display:inline-flex}' +
+  '.dshOneTree_tagToggle:hover{color:var(--dsw-alias-label-primary)}' +
+  '.dshOneTree_tagArrow{transition:transform .15s ease}' +
+  '.dshOneTree_tagArrowOpen{transform:rotate(90deg)}' +
+  // 组头右侧的 ⋯（组菜单）：与工作区行/会话行同一处置——悬停组块才出（组块很矮，
+  // 常显会一直在组名旁边晃）；菜单开着时也保持可见（不然菜单一开按钮就没了锚点）。
+  '.dshOneTree_tagBlock:hover .dshOneTree_rowActions,.dshOneTree_tagBlock.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}' +
+  // 折叠态才出计数（展开态每行自己带状态点）；靠右对齐到行尾动作列。
+  '.dshOneTree_tagCounts{align-items:center;gap:6px;margin-left:auto;padding-right:2px;display:inline-flex}' +
+  '.dshOneTree_tagCount{color:var(--dsw-alias-label-tertiary);align-items:center;gap:4px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}' +
+  // 组内行：贯穿竖线（从 pill 下沿到组尾）+ 仅给会话行加约 12px 左缩进，行内元素不动。
+  '.dshOneTree_tagRows{border-left:2px solid color-mix(in srgb,var(--dshone-tag-color) 55%,transparent);margin-left:calc(var(--dsh-one-density-row-padding-inline,8px) + 8px);padding-left:8px}' +
+  '.dshOneTree_tagRows>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}' +
+  '.dshOneTree_tagRows .dshOneTree_sessionRow{padding-left:12px}' +
+  // 拖会话入组时目标组块高亮（组色淡底，不遮行）。
+  '.dshOneTree_tagDropActive{background:color-mix(in srgb,var(--dshone-tag-color) 14%,transparent)}' +
+  // 组色小色块（选色菜单与新建弹窗的色板共用）。
+  '.dshOneTree_tagSwatch{width:10px;height:10px;border-radius:3px;flex:none;display:block}' +
+  '.dshOneTree_tagColorPick{gap:8px;margin-top:10px;display:flex}' +
+  '.dshOneTree_tagColorPickItem{cursor:pointer;width:20px;height:20px;color:var(--dsw-alias-label-inverse,#fff);border:.5px solid var(--dsw-alias-border-l4);border-radius:5px;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
+  '.dshOneTree_tagColorPickOn{box-shadow:0 0 0 2px var(--dsw-alias-label-secondary)}'
 export const CSS_TAG_ID = '@dsh-one/dsh-workspace-tree/Tree.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')

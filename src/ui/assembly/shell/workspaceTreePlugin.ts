@@ -21,9 +21,10 @@
  * 搜索结果行）、\`toolbar.ts\`（顶部工具栏）、\`groupFilterBar.ts\`（分组过滤条）、
  * \`selection.ts\`（批量选择）、\`recycleDrawer.ts\`（回收站抽屉）、\`recycleEntry.ts\`
  * （底部回收站入口行）、\`recycleBinStore.ts\`（回收站状态与动作：两个座位共享的
- * 模块级 store）、\`flash.ts\`（飘提示）、\`modals.ts\`（对话框，含归档确认弹窗）、
- * \`search.ts\` / \`groups.ts\` / \`format.ts\` / \`hoverCard.ts\` / \`types.ts\`、
- * \`styles.ts\`（全部样式）、\`locale.ts\`（词典）。
+ * 模块级 store）、\`tagGroups.ts\`（会话标签组的组头与拖拽：组 pill、折叠计数、
+ * 落点判定与自定义 MIME）、\`flash.ts\`（飘提示）、\`modals.ts\`（对话框，含归档
+ * 确认弹窗与新建标签组弹窗）、\`search.ts\` / \`groups.ts\` / \`format.ts\` /
+ * \`hoverCard.ts\` / \`types.ts\`、\`styles.ts\`（全部样式）、\`locale.ts\`（词典）。
  *
  * ## 机制分层（按 AGENTS.md 的优先序逐层举证）
  *
@@ -125,6 +126,18 @@
  * `pure/sessionEligibility.ts`（`canRecycle` / `canArchive` / 组头三态）。
  * 视觉：置顶图钉与未读绿点是**旧侧栏那两条描边路径**（官方 primitives 的导出表里
  * 没有图钉与未读图标，逐个看过 0.1.6-alpha.1 的 80 个 `Icon*` 名字）。
+ *
+ * ## 会话标签组（#107：每个工作区一套用户自建的组）
+ * 一个工作区里的会话可以归进一个**用户自建**的标签组（单组语义），组头是一枚可拖拽
+ * 排序的 pill，组内行缩进在一条贯穿竖线下；拖会话入组 / 拖出组改归属，拖 pill 改
+ * 组间顺序。**不预置任何内置组**（旧侧栏的 Todo/Doing/Done 不恢复），六色自选、
+ * 可改名可删。组内顺序 = 官方顺序，**组内置顶 = 在该组内靠前**（复用 #102 的
+ * `pinnedFirst`，与工作区那一层同一口径）。
+ *
+ * 状态与判定都在纯模块 `pure/sessionTagGroups.ts`（迁入、切块、空组清理、拖拽换序
+ * 的校核全在那里，`node --test` 直接测）；视觉与拖拽交互在 `workspaceTree/tagGroups.ts`。
+ * 持久态按铁律走宿主能力口（键 `tags`，= 旧侧栏那份 `tags.json`），折叠态是纯视图态、
+ * 随视图偏好走客户端存储（`dsh.workspaceTree.view` 的 `tagCollapsed`）。
  */
 import {
   TREE_GROUPS_STATE_KEY,
@@ -139,6 +152,13 @@ import {
   migrateSessionMarks,
   type SessionMarksState,
 } from '../../../pure/sessionMarks.ts'
+import {
+  TAG_GROUPS_STATE_KEY,
+  emptyTagGroups,
+  parseTagGroups,
+  serializeTagGroups,
+  type TagGroupsFile,
+} from '../../../pure/sessionTagGroups.ts'
 import type { GroupFile } from '../../../pure/dshStateFile.ts'
 import type { SessionListLike } from '../../../pure/workspaceTreeView.ts'
 import { hostCapabilities, type CapabilityContext } from './hostCapabilities.ts'
@@ -396,6 +416,21 @@ export function apply(ctx: TreeContext): void {
           .stateWrite(SESSION_UNREAD_STATE_KEY, markStateFile(ids))
           .catch((reason: unknown) => {
             console.warn('[dsh-one] unread sessions not persisted:', reason)
+          })
+      },
+      // #107：会话标签组——与分组、置顶/未读同一条路（宿主能力口的 `stateRead/stateWrite`），
+      // 键名 `tags` **就是旧侧栏的文件名**（`~/.dsh/dsh-one/tags.json`），所以旧数据
+      // 开箱即用；要「迁」的只有形状：不再算组的旧内置组（Todo/Doing/Done）与折叠字段
+      // 在 `parseTagGroups` 里读一次就丢掉（理由写在 pure/sessionTagGroups.ts 的文件头）。
+      loadTagGroups: async (): Promise<TagGroupsFile> => {
+        const value = await hostCapabilities(ctx as unknown as CapabilityContext).stateRead(TAG_GROUPS_STATE_KEY)
+        return parseTagGroups(value) ?? emptyTagGroups()
+      },
+      saveTagGroups: (file: TagGroupsFile): void => {
+        void hostCapabilities(ctx as unknown as CapabilityContext)
+          .stateWrite(TAG_GROUPS_STATE_KEY, JSON.parse(serializeTagGroups(file)) as unknown)
+          .catch((reason: unknown) => {
+            console.warn('[dsh-one] session tag groups not persisted:', reason)
           })
       },
     }

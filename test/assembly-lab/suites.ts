@@ -2877,6 +2877,391 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// F-16 TAG-GROUPS：会话标签组（#107）
+// ---------------------------------------------------------------------------
+
+/**
+ * 在页面里造一次 HTML5 拖拽：自定义 MIME + `DragEvent`（落点可按 target 的中轴或上沿）。
+ *
+ * 为什么用合成事件而不是 Playwright 的 `dragAndDrop`：本插件判「拖的是什么」靠
+ * `dataTransfer.types` 里的自定义 MIME（`text/dsh-session` / `text/dsh-tag`），
+ * 原生拖拽在 CDP 下是否带上自定义类型取决于浏览器实现；这里用真实 `DataTransfer`
+ * 造事件，走的仍是插件自己的那套判定（`dragstart` 写载荷 → `dragenter`/`dragover`
+ * 高亮 → `drop` 读载荷），不绕过被验的代码。
+ */
+async function labDrag(
+  page: OpenedPage['page'],
+  source: string,
+  target: string,
+  mime: string,
+  payload: string,
+  where: 'center' | 'top' = 'center',
+): Promise<void> {
+  await page.evaluate(
+    (args: { source: string; target: string; mime: string; payload: string; where: string }) => {
+      const from = document.querySelector(args.source)
+      const to = document.querySelector(args.target)
+      if (from === null) throw new Error(`drag source missing: ${args.source}`)
+      if (to === null) throw new Error(`drag target missing: ${args.target}`)
+      const dataTransfer = new DataTransfer()
+      dataTransfer.setData(args.mime, args.payload)
+      const rect = to.getBoundingClientRect()
+      const y = args.where === 'top' ? rect.top + 1 : rect.top + rect.height / 2
+      const fire = (node: Element, type: string, useY: boolean): void => {
+        node.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer, clientY: useY ? y : 0 }))
+      }
+      fire(from, 'dragstart', false)
+      fire(to, 'dragenter', true)
+      fire(to, 'dragover', true)
+      fire(to, 'drop', true)
+      fire(from, 'dragend', false)
+    },
+    { source, target, mime, payload, where },
+  )
+  await page.waitForTimeout(400)
+}
+
+/** 页面上所有标签组块的事实（块属于哪个分组键/哪个组、折叠标记、组内行、折叠计数）。 */
+async function tagBlockFacts(
+  page: OpenedPage['page'],
+): Promise<Array<{ key: string; tag: string; collapsed: boolean; rows: string[]; counts: string }>> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-dshone-tree="tag-block"]')).map((block) => ({
+      key: block.getAttribute('data-dshone-tree-key') ?? '',
+      tag: block.getAttribute('data-dshone-tree-tag') ?? '',
+      collapsed: block.getAttribute('data-dshone-tag-collapsed') === 'true',
+      rows: Array.from(block.querySelectorAll('[data-dshone-tree-row="session"]')).map(
+        (row) => row.getAttribute('data-dshone-tree-session') ?? '',
+      ),
+      counts: block.querySelector('[data-dshone-tree-tag-counts]')?.getAttribute('data-dshone-tree-tag-counts') ?? '',
+    })),
+  )
+}
+
+/** 打开某一行的 ⋯ 菜单（行菜单里的「标签组」一节与两项标记动作都从这里进）。 */
+async function openRowMenu(page: OpenedPage['page'], sessionId: string): Promise<void> {
+  const row = page.locator(`[data-dshone-tree-session="${sessionId}"]`)
+  await row.hover()
+  await row.locator('.dshOneTree_rowIconButton').click()
+  await page.waitForTimeout(250)
+}
+
+/**
+ * 打开某个标签组的 pill 菜单。
+ *
+ * 先 hover 组块再点：组头那枚 ⋯ 与工作区行/会话行的动作按钮同一处置——**悬停才显示**
+ *（常显会一直在组名旁边晃）。所以必须先让指针落到组块上，按钮才有几何可点。
+ */
+async function openTagMenu(page: OpenedPage['page'], tagId: string): Promise<void> {
+  const block = page.locator(`[data-dshone-tree-tag="${tagId}"]`)
+  await block.hover()
+  await page.waitForTimeout(150)
+  await block.locator('[data-dshone-tree-action="tag-menu"]').click()
+  await page.waitForTimeout(250)
+}
+
+/**
+ * 页面上的标签组菜单项文案（按 `data-dshone-tree-item` 认我们那一份），外加整份菜单的
+ * 文本。标题那一行是官方 Menu 的 `label` 类型项（只吃 text，挂不上标记属性），所以它
+ * 只在整份文本里读到。
+ */
+async function tagMenuFacts(page: OpenedPage['page']): Promise<{ items: string[]; text: string }> {
+  return page.evaluate(() => {
+    const menus = Array.from(document.querySelectorAll('[role="menu"]'))
+    const last = menus[menus.length - 1]
+    return {
+      items: Array.from(document.querySelectorAll('[data-dshone-tree-item^="tag-"]')).map((el) => el.textContent ?? ''),
+      text: (last?.textContent ?? '').replace(/\s+/g, ' '),
+    }
+  })
+}
+
+interface LabTagBucket {
+  tags?: Array<{ id: string; name: string; color: string }>
+  sessionTags?: Record<string, string>
+}
+
+interface LabTagFile {
+  version?: number
+  workspaces?: Record<string, LabTagBucket>
+}
+
+export const TAG_GROUPS_SUITE: LabSuite = {
+  id: 'F-16',
+  phase: 'new-feature',
+  name: '会话标签组（#107）：迁入 / 拖入拖出 / 组间拖拽换位 / 组内置顶 / 折叠计数 / 组菜单（TAG-GROUPS 套件）',
+  expect:
+    '#107 定的标签组语义在真实装配页上成立（真网关**只读** + 假宿主）：① **迁入**——把旧侧栏那份 `tags.json`（v2 形状，含内置组 Todo/Doing/Done 与一个从没成员的空气组）注进假宿主状态存储后，自建组与它的归属原样迁入，**旧内置组不再算组**（它们的会话回落「未归组」，会话说到底一条不动），空气组被清掉，写回的 `tags` 里**不再有 `collapsed` 字段**（折叠是纯视图态，走客户端存储）；② **拖入/拖出**——把一条会话拖到组块上就归进该组、拖到组外（工作区层）就移出分组，两次都只改我们自己的 `tags` 状态；③ **组间拖拽换位**——拖 pill 到另一个 pill 的上半 = 插到它前面，新顺序落回状态；④ **组内置顶**——菜单里置顶一条组内会话后，它排到**该组内**最前（组与组之间的相对位置不受影响）；⑤ **折叠 + 折叠计数**——点 pill 右侧三角收起组内行，组头右侧出现组内「待交互/运行中/未读」计数（每会话只进一个桶），折叠态落 `dsh.workspaceTree.view` 而不是 `tags.json`；⑥ **pill 菜单八项**（标题行 + 组内新建会话 / 整组归档 / 整组移入回收站 / 移出标签组 / 改名 / 颜色 / 删除组）全在，其中**两项危险动作走确认弹窗**（整组归档开 #103 那个归档确认弹窗并写明跳过数、删除组开删除确认弹窗），弹窗取消则什么都不发生；⑦ **整组移入回收站**是本地可逆那一层（立即执行 + 飘提示，不动 dsh 侧）；⑧ **空组处理**——组内成员走了、清了之后，组定义与归属一起被清掉（组只与成员一起出现，不留看不见也删不掉的空壳）。全程零 pageerror。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
+    const { page } = opened
+    const tags = async (): Promise<LabTagFile | null> => (await hostState(page, 'tags')) as LabTagFile | null
+    const bucketOf = async (key: string): Promise<LabTagBucket> => (await tags())?.workspaces?.[key] ?? {}
+    try {
+      await expandAllWorkspaces(page)
+      // 夹具：同一工作区块里 ≥3 条带行菜单的会话（空白会话行没有行菜单）。
+      // 三条各有去处：一条原本在旧内置组里（迁入后该回落未归组）、一条在自建组里、
+      // 一条用来拖来拖去。
+      const fixture = await page.evaluate(() => {
+        for (const section of Array.from(document.querySelectorAll('[data-dshone-group-key]'))) {
+          const rows = Array.from(section.querySelectorAll('[data-dshone-tree-row="session"]')).filter(
+            (row) => row.querySelector('.dshOneTree_rowActions') !== null,
+          )
+          if (rows.length >= 3) {
+            return {
+              key: section.getAttribute('data-dshone-group-key') ?? '',
+              ids: rows.slice(0, 3).map((row) => row.getAttribute('data-dshone-tree-session') ?? ''),
+            }
+          }
+        }
+        return null
+      })
+      check.fact(`夹具：${JSON.stringify(fixture)}`)
+      check.ok('找到一个有 ≥3 条可操作会话行的工作区块', fixture !== null && fixture.ids.every((id) => id !== ''))
+      if (fixture === null || !fixture.ids.every((id) => id !== '')) return screenshots
+      const inPreset = fixture.ids[0] as string
+      const inGroup = fixture.ids[1] as string
+      const spare = fixture.ids[2] as string
+      check.fact(`夹具会话：旧内置组里的 ${inPreset}、自建组里的 ${inGroup}、用来拖的 ${spare}（同在 ${fixture.key} 块）`)
+
+      // ---- ① 迁入：旧 tags.json（v2 形状）注进假宿主状态存储，重载后应由新树接手 ----
+      // 三样东西各验一条：自建组原样迁入、旧内置组不再算组、空气组被清掉。
+      const legacy = {
+        version: 2,
+        workspaces: {
+          [fixture.key]: {
+            tags: [
+              { id: 'preset-todo', name: null, color: 'yellow' },
+              { id: 't-lab', name: '实验室组', color: 'purple' },
+              { id: 't-empty', name: '空组', color: 'red' },
+            ],
+            sessionTags: { [inPreset]: 'preset-todo', [inGroup]: 't-lab' },
+            collapsed: ['preset-todo'],
+          },
+        },
+      }
+      await page.addInitScript({
+        content: `(() => { globalThis.__LAB_HOST__.stateStore['tags'] = ${JSON.stringify(legacy)} })()`,
+      })
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
+      await page.waitForTimeout(2_500)
+      await expandAllWorkspaces(page)
+      const migratedBlocks = await tagBlockFacts(page)
+      check.fact(`迁入后页面上的标签组块：${JSON.stringify(migratedBlocks)}`)
+      check.eq('旧内置组不再算组：一个块都不渲染', migratedBlocks.filter((block) => block.tag === 'preset-todo').length, 0)
+      check.eq('自建组原样迁入并渲染成块', migratedBlocks.filter((block) => block.tag === 't-lab').length, 1)
+      check.ok(
+        '块内就是原来归在那组的会话',
+        migratedBlocks.find((block) => block.tag === 't-lab')?.rows.includes(inGroup) === true,
+        JSON.stringify(migratedBlocks),
+      )
+      check.ok(
+        '旧内置组里的会话回落「未归组」（会话本身一条不动）',
+        !migratedBlocks.some((block) => block.rows.includes(inPreset)),
+        JSON.stringify(migratedBlocks),
+      )
+      check.eq('从没成员的空气组被清掉（空组处理）', migratedBlocks.filter((block) => block.tag === 't-empty').length, 0)
+      await page.waitForTimeout(1_200)
+      const migrated = await bucketOf(fixture.key)
+      check.fact(`迁入后宿主状态存储里的桶=${JSON.stringify(migrated)}`)
+      check.eq('写回的组只剩自建的那一个（旧内置组与空气组的定义都没了）', (migrated.tags ?? []).map((tag) => tag.id), ['t-lab'])
+      check.eq('归属只留指向已知组的（旧内置组的归属一并清掉）', migrated.sessionTags ?? {}, { [inGroup]: 't-lab' })
+      check.ok('折叠字段不再进 tags.json（纯视图态走客户端存储）', JSON.stringify(await tags()).includes('collapsed') === false)
+      screenshots.push(await shot(ctx, page, 'tag-groups-migrated'))
+
+      // ---- ② 拖入组 / 拖出组 ----
+      await labDrag(page, `[data-dshone-tree-session="${spare}"]`, `[data-dshone-tree-tag="t-lab"]`, 'text/dsh-session', spare)
+      check.eq('拖一条会话进组：归属写进宿主状态存储', (await bucketOf(fixture.key)).sessionTags?.[spare], 't-lab')
+      check.ok(
+        '块内的行跟着变多（渲染与状态同源）',
+        (await tagBlockFacts(page)).find((block) => block.tag === 't-lab')?.rows.includes(spare) === true,
+      )
+      screenshots.push(await shot(ctx, page, 'tag-groups-drag-in'))
+
+      await labDrag(
+        page,
+        `[data-dshone-tree-session="${spare}"]`,
+        `[data-dshone-group-key="${fixture.key}"][data-dshone-tree-drop="ungroup"]`,
+        'text/dsh-session',
+        spare,
+      )
+      check.ok(
+        '拖到组外 = 移出分组（归属被清掉）',
+        (await bucketOf(fixture.key)).sessionTags?.[spare] === undefined,
+        JSON.stringify((await bucketOf(fixture.key)).sessionTags),
+      )
+      check.ok(
+        '移出后这一行回到未归组（不再落在任何组块里）',
+        !(await tagBlockFacts(page)).some((block) => block.rows.includes(spare)),
+      )
+
+      // ---- ③ 新建第二个组（会话行 ⋯ → 标签组一节 → 新建标签组…）----
+      await openRowMenu(page, spare)
+      const rowTagSection = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-dshone-tree-item^="tag:"]')).map((el) => el.textContent ?? ''),
+      )
+      check.fact(`行菜单的标签组一节：${JSON.stringify(rowTagSection)}`)
+      check.ok('会话行菜单里有「新建标签组…」与「不归入标签组」', rowTagSection.includes('新建标签组') && rowTagSection.includes('不归入标签组'))
+      check.ok('菜单里列出了本工作区已有的组', rowTagSection.includes('实验室组'))
+      await page.click('[data-dshone-tree-item="tag:__new"]')
+      await page.waitForTimeout(300)
+      check.eq('「新建标签组…」开出新建弹窗（名字 + 6 色）', await contentCount(page, '[data-dshone-tree="tag-name-input"]'), 1)
+      await page.fill('[data-dshone-tree="tag-name-input"]', '乙组')
+      await page.click('[data-dshone-tag-color="green"]')
+      await page.click('[data-dshone-tree-action="tag-create-confirm"]')
+      await page.waitForTimeout(500)
+      const afterCreate = await bucketOf(fixture.key)
+      const createdTag = (afterCreate.tags ?? []).find((tag) => tag.name === '乙组')
+      check.fact(`新建后的桶：${JSON.stringify(afterCreate)}`)
+      check.ok('新建的组落进宿主状态存储（颜色取点的那一枚绿）', createdTag !== undefined && createdTag.color === 'green')
+      check.ok('新建组同时把触发它的那条会话归进去（组只与成员一起出现）', createdTag !== undefined && afterCreate.sessionTags?.[spare] === createdTag.id)
+      screenshots.push(await shot(ctx, page, 'tag-groups-created'))
+
+      // ---- ④ 组间拖拽换位：把新组拖到第一个 pill 的上半 = 插到它前面 ----
+      const createdId = createdTag?.id ?? ''
+      const orderBefore = (await tagBlockFacts(page)).filter((block) => block.key === fixture.key).map((block) => block.tag)
+      check.fact(`换位前组顺序=${JSON.stringify(orderBefore)}`)
+      await labDrag(page, `[data-dshone-tree-tag-pill="${createdId}"]`, '[data-dshone-tree-tag-pill="t-lab"]', 'text/dsh-tag', createdId, 'top')
+      const orderAfter = (await tagBlockFacts(page)).filter((block) => block.key === fixture.key).map((block) => block.tag)
+      check.fact(`换位后组顺序=${JSON.stringify(orderAfter)}`)
+      check.eq('拖 pill 到另一个 pill 的上半 = 插到它前面', orderAfter, [createdId, 't-lab'])
+      check.eq('新顺序落回宿主状态存储', (await bucketOf(fixture.key)).tags?.map((tag) => tag.id) ?? [], [createdId, 't-lab'])
+      screenshots.push(await shot(ctx, page, 'tag-groups-reorder'))
+
+      // ---- ⑤ 组内置顶：把一条会话拖回实验室组，再置顶组内另一条 ----
+      await labDrag(page, `[data-dshone-tree-session="${inPreset}"]`, `[data-dshone-tree-tag="t-lab"]`, 'text/dsh-session', inPreset)
+      const labBefore = (await tagBlockFacts(page)).find((block) => block.tag === 't-lab')
+      check.eq('实验室组里现在有两条会话', labBefore?.rows.length, 2)
+      const second = labBefore?.rows[1] ?? ''
+      check.fact(`置顶前实验室组内顺序=${JSON.stringify(labBefore?.rows)}`)
+      await openRowMenu(page, second)
+      await page.click('[data-dshone-tree-item="pin"]')
+      await page.waitForTimeout(500)
+      const labAfter = (await tagBlockFacts(page)).find((block) => block.tag === 't-lab')
+      check.eq('组内置顶：被置顶的那条排到该组最前（其余保持官方顺序）', labAfter?.rows ?? [], [second, labBefore?.rows[0] ?? ''])
+      check.eq('组与组之间的相对位置不受组内置顶影响', (await tagBlockFacts(page)).filter((block) => block.key === fixture.key).map((block) => block.tag), [createdId, 't-lab'])
+      screenshots.push(await shot(ctx, page, 'tag-groups-pin'))
+
+      // ---- ⑥ 折叠 + 折叠计数（用只有一个成员的乙组，计数好数） ----
+      await openRowMenu(page, spare)
+      await page.click('[data-dshone-tree-item="unread"]')
+      await page.waitForTimeout(400)
+      await page.click(`[data-dshone-tree-tag="${createdId}"] [data-dshone-tree-action="tag-toggle"]`)
+      await page.waitForTimeout(350)
+      const collapsed = (await tagBlockFacts(page)).find((block) => block.tag === createdId)
+      check.fact(`折叠后的乙组=${JSON.stringify(collapsed)}`)
+      check.eq('点三角收起：组内行不再渲染', collapsed?.rows.length, 0)
+      check.eq('折叠标记写在块上', collapsed?.collapsed, true)
+      check.eq('折叠时组头出「待交互/运行中/未读」计数（这一组是 1 条未读）', collapsed?.counts, '0/0/1')
+      const prefsText = await page.evaluate(() => localStorage.getItem('dsh.workspaceTree.view') ?? '')
+      check.ok('折叠态落客户端存储（官方惯例的 dsh.workspaceTree.view，不是 tags.json）', prefsText.includes('tagCollapsed'))
+      check.ok('折叠态没写进持久状态（tags.json 里没有折叠字段）', JSON.stringify(await tags()).includes('collapsed') === false)
+      await page.click(`[data-dshone-tree-tag="${createdId}"] [data-dshone-tree-action="tag-toggle"]`)
+      await page.waitForTimeout(350)
+      check.eq('再点一下 = 展开回来', (await tagBlockFacts(page)).find((block) => block.tag === createdId)?.rows.length, 1)
+
+      // ---- ⑦ pill 菜单八项 ----
+      await openTagMenu(page, 't-lab')
+      const menu = await tagMenuFacts(page)
+      check.fact(`标签组菜单：${JSON.stringify(menu)}`)
+      const menuHas = (needle: string): boolean =>
+        menu.items.some((text) => text.includes(needle)) || menu.text.includes(needle)
+      check.ok('八项之一：标题行（写着这是哪个组）', menuHas('标签组：实验室组'))
+      check.ok('八项之二：组内新建会话', menuHas('在此标签组中新建会话'))
+      check.ok('八项之三：整组归档（带条数）', menuHas('归档整组（2 个会话）'))
+      check.ok('八项之四：整组移入回收站（带条数）', menuHas('整组移入回收站（2 个会话）'))
+      check.ok('八项之五：移出标签组', menuHas('移出标签组'))
+      check.ok('八项之六：改名', menuHas('重命名标签组'))
+      check.ok('八项之七：颜色（6 色各一项）', ['黄色', '蓝色', '绿色', '橙色', '紫色', '红色'].every((name) => menuHas(name)))
+      check.ok('八项之八：删除组', menuHas('删除标签组'))
+      screenshots.push(await shot(ctx, page, 'tag-groups-menu'))
+
+      // ---- ⑧ 危险动作一：删除组 → 确认弹窗；取消则什么都不发生 ----
+      await page.click('[data-dshone-tree-item="tag-delete"]')
+      await page.waitForTimeout(300)
+      check.eq('「删除标签组」开出确认弹窗', await contentCount(page, '[data-dshone-tree-action="tag-delete-confirm"]'), 1)
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      check.eq('弹窗关掉', await contentCount(page, '[data-dshone-tree-action="tag-delete-confirm"]'), 0)
+      check.ok(
+        '取消删除后组还在（弹窗只是确认，不是删除动作本身）',
+        (await bucketOf(fixture.key)).tags?.some((tag) => tag.id === 't-lab') === true,
+      )
+
+      // ---- ⑨ 危险动作二：整组归档 → #103 那个归档确认弹窗（含跳过数）；取消则什么都不发生 ----
+      await openTagMenu(page, 't-lab')
+      await page.click('[data-dshone-tree-item="tag-archive"]')
+      await page.waitForTimeout(350)
+      check.eq('「整组归档」开的是 #103 的归档确认弹窗', await contentCount(page, '[data-dshone-tree-action="archive-confirm"]'), 1)
+      const archiveModal = await page.evaluate(() => {
+        const blocks = document.querySelector('[data-dshone-archive-blocks]')
+        return {
+          total: blocks?.getAttribute('data-dshone-archive-blocks') ?? '',
+          rows: blocks?.querySelectorAll('[data-dshone-archive-row]').length ?? 0,
+          skipped: document.querySelector('[data-dshone-archive-skipped]')?.getAttribute('data-dshone-archive-skipped') ?? '',
+        }
+      })
+      check.fact(`归档确认弹窗：${JSON.stringify(archiveModal)}`)
+      check.eq('弹窗列出整组里够格归档的那条', archiveModal.rows, 1)
+      check.eq('被置顶那条写明跳过了（资格判定不由整组动作绕过）', archiveModal.skipped, '1')
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      check.eq('取消后弹窗关掉', await contentCount(page, '[data-dshone-tree-action="archive-confirm"]'), 0)
+      check.eq('取消归档后组里还是两条（一个字节没动）', (await tagBlockFacts(page)).find((block) => block.tag === 't-lab')?.rows.length, 2)
+
+      // ---- ⑩ 整组移入回收站（本地可逆那一层）：立即执行，只动我们自己的集合 ----
+      await openTagMenu(page, createdId)
+      await page.click('[data-dshone-tree-item="tag-recycle"]')
+      await page.waitForTimeout(800)
+      check.eq('整组移入回收站：成员进了本地回收站集合', (await hostState(page, 'recycle-bin') as { sessionIds?: string[] } | null)?.sessionIds ?? [], [spare])
+      check.ok('挪走的会话不再在树里渲染（组块里也没有它）', !(await tagBlockFacts(page)).some((block) => block.rows.includes(spare)))
+      const afterRecycle = await bucketOf(fixture.key)
+      check.fact(`整组移入回收站后的桶=${JSON.stringify(afterRecycle)}`)
+      check.ok(
+        '回收站里的会话仍算组员：组与归属都留着（还原回来还在这个组里，不被顺手解散）',
+        afterRecycle.tags?.some((tag) => tag.id === createdId) === true && afterRecycle.sessionTags?.[spare] === createdId,
+        JSON.stringify(afterRecycle),
+      )
+      screenshots.push(await shot(ctx, page, 'tag-groups-recycle-keeps-group'))
+
+      // ---- ⑪ 移出标签组：整组成员一起离开 ----
+      await openTagMenu(page, 't-lab')
+      await page.click('[data-dshone-tree-item="tag-ungroup"]')
+      await page.waitForTimeout(800)
+      const afterUngroup = await bucketOf(fixture.key)
+      check.fact(`整组移出后宿主状态存储里的桶=${JSON.stringify(afterUngroup)}`)
+      check.ok(
+        '整组移出：这一组的归属全清掉了',
+        afterUngroup.sessionTags?.[inPreset] === undefined && afterUngroup.sessionTags?.[inGroup] === undefined,
+        JSON.stringify(afterUngroup.sessionTags),
+      )
+      check.eq('移出的会话仍留在树里（行还在，只是不归组）', await contentCount(page, `[data-dshone-tree-session="${inPreset}"]`), 1)
+
+      // ---- ⑫ 空组处理：成员走光的组，定义与归属一起清掉 ----
+      check.ok(
+        '空组处理：成员走光后组定义也没了（不留看不见也删不掉的空壳）',
+        afterUngroup.tags?.some((tag) => tag.id === 't-lab') !== true,
+        JSON.stringify(afterUngroup),
+      )
+      check.ok(
+        '清理只针对空掉的那个组（另一组原样保留）',
+        afterUngroup.tags?.some((tag) => tag.id === createdId) === true,
+        JSON.stringify(afterUngroup),
+      )
+      check.ok('那个组的块也不再渲染', !(await tagBlockFacts(page)).some((block) => block.tag === 't-lab'))
+      screenshots.push(await shot(ctx, page, 'tag-groups-empty-pruned'))
+
+      check.eq('标签组套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
+    } finally {
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -2899,4 +3284,6 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   PIN_UNREAD_SUITE,
   // #103 回收站两层语义（F-15：F-13/F-14 已被 #104/#102 占用）。
   RECYCLE_TWO_LAYER_SUITE,
+  // #107 会话标签组（F-16）。
+  TAG_GROUPS_SUITE,
 ]

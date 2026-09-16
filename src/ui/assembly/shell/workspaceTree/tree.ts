@@ -1,7 +1,11 @@
 /** 树主组件（官方 WorkspaceBrowser 的同构复刻）：组合上面各件 + 状态与订阅。 */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, owningGroupKey, visibleRecycleIds, workspaceActivityCounts, type ActivityCounts, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
-import { cannotArchiveReason, type SessionEligibilityFacts } from '../../../../pure/sessionEligibility.ts'
+import { UNGROUPED_KEY, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, owningGroupKey, visibleRecycleIds, workspaceActivityCounts, type ActivityCounts, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
+import {
+  cannotArchiveReason,
+  cannotRecycleReason,
+  type SessionEligibilityFacts,
+} from '../../../../pure/sessionEligibility.ts'
 import {
   createTreeGroup,
   deleteTreeGroup,
@@ -15,12 +19,42 @@ import {
 } from '../../../../pure/treeGroups.ts'
 import { pageStorage, readTreeViewPrefs, writeTreeViewPrefs, type TreeViewPrefs } from '../../../../pure/workspaceTreePrefs.ts'
 import { emptySessionMarks, pinnedFirst, toggleMarkId, type SessionMarksState } from '../../../../pure/sessionMarks.ts'
+import {
+  createTagGroup,
+  deleteTagGroup,
+  emptyTagBucket,
+  emptyTagGroups,
+  nextTagColor,
+  pruneTagGroups,
+  reorderTagGroups,
+  setSessionTagGroup,
+  setSessionsTagGroup,
+  splitByTagGroups,
+  tagBucketOf,
+  tagGroupNameError,
+  tagGroupSessionIds,
+  updateTagGroup,
+  withTagBucket,
+  type TagGroupBucket,
+  type TagGroupDef,
+  type TagGroupsFile,
+} from '../../../../pure/sessionTagGroups.ts'
+import type { TagColor } from '../../../../pure/sessionTags.ts'
 import type { GroupFile } from '../../../../pure/dshStateFile.ts'
 import { FlashHost, flashTip } from './flash.ts'
 import { GroupFilterBar } from './groupFilterBar.ts'
-import { newGroupId } from './groups.ts'
+import { TAG_MENU_PREFIX, newGroupId, newTagGroupId } from './groups.ts'
 import { useHoverCardRoom } from './hoverCard.ts'
-import { ArchiveSessionsModal, DeleteWorkspaceModal, GroupModal, ManageGroupsModal, RenameModal, type ArchiveRequest } from './modals.ts'
+import {
+  ArchiveSessionsModal,
+  DeleteWorkspaceModal,
+  GroupModal,
+  ManageGroupsModal,
+  RenameModal,
+  TagGroupCreateModal,
+  TagGroupDeleteModal,
+  type ArchiveRequest,
+} from './modals.ts'
 import { partitionArchivable } from '../../../../pure/recycleActions.ts'
 import { pruneRecycleBin, recycleBinActions, useRecycleBin } from './recycleBinStore.ts'
 import { RecycleDrawer } from './recycleDrawer.ts'
@@ -29,6 +63,14 @@ import { ProjectRow, SearchResultRow, SessionRow } from './rows.ts'
 import { EMPTY_SEARCH, SEARCH_DEBOUNCE_MS, sanitizeQuery, type SearchState } from './search.ts'
 import { SelectionBar } from './selection.ts'
 import './styles.ts'
+import {
+  TagGroupBlock,
+  TagColorSwatch,
+  sessionDragProps,
+  tagCollapseKey,
+  tagGroupMenuItems,
+  ungroupDropZone,
+} from './tagGroups.ts'
 import { TopBar } from './toolbar.ts'
 import type { TreeProps } from './types.ts'
 
@@ -57,6 +99,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
     loadMarks,
     savePinned,
     saveUnread,
+    loadTagGroups,
+    saveTagGroups,
     openInNewTab,
   } = props
   const tr = t
@@ -104,6 +148,13 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const [archiveRequest, setArchiveRequest] = useState<ArchiveRequest | null>(null)
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [archiveError, setArchiveError] = useState<string | null>(null)
+  // #107 会话标签组：持久态（组定义 + 归属）住宿主能力口 `tags` 键；对话框与
+  // 「刚开的新会话该归到哪个组」是纯界面状态。
+  const [tagFile, setTagFile] = useState<TagGroupsFile>(emptyTagGroups())
+  const [tagCreate, setTagCreate] = useState<{ groupKey: string; sessionId: string } | null>(null)
+  const [tagRename, setTagRename] = useState<{ groupKey: string; id: string; name: string } | null>(null)
+  const [tagDelete, setTagDelete] = useState<{ groupKey: string; id: string; name: string } | null>(null)
+  const [tagNewSession, setTagNewSession] = useState<{ groupKey: string; tagId: string } | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const hoverCard = useHoverCardRoom(rootRef)
 
@@ -168,6 +219,43 @@ export function WorkspaceTree(props: TreeProps): unknown {
       cancelled = true
     }
   }, [loadMarks])
+
+  // 标签组（#107）：与分组同一条路（宿主能力口 `tags` 键，= 旧侧栏的 tags.json 文件）。
+  // 读一次（ref 守门，理由同上）；读失败保持空状态——树照常可用，只是没有标签组，
+  // 不弹错、不白屏（与分组、标记的降级口径一致）。
+  const tagsLoaded = useRef(false)
+  useEffect(() => {
+    if (tagsLoaded.current) return
+    tagsLoaded.current = true
+    let cancelled = false
+    loadTagGroups().then(
+      (file) => {
+        if (!cancelled) setTagFile(file)
+      },
+      (reason: unknown) => {
+        if (!cancelled) console.warn('[dsh-one] session tag groups unavailable:', reason)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [loadTagGroups])
+
+  /** 写回标签组状态（先落界面、再落宿主能力口；失败静默，与分组同一处置）。 */
+  const writeTags = (next: TagGroupsFile): void => {
+    setTagFile(next)
+    saveTagGroups(next)
+  }
+  /** 某个分组键（工作区 id / 未分组桶）名下的标签组桶；没有就是空桶（不建键）。 */
+  const tagBucket = (groupKey: string): TagGroupBucket => tagBucketOf(tagFile, groupKey)
+  /** 把一个桶写回去；`null` = 没变化，跳过落盘。 */
+  const applyTagBucket = (groupKey: string, next: TagGroupBucket | null): void => {
+    if (next === null) return
+    writeTags(withTagBucket(tagFile, groupKey, next))
+  }
+  /** 一行会话所属的分组键（与树里的分组键同域；认不出就是未分组桶）。 */
+  const groupKeyOfSession = (sessionId: string): string =>
+    workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.workspaceId ?? UNGROUPED_KEY
 
   const pinnedIds = new Set(marks.pinned)
   const unreadIds = new Set(marks.unread)
@@ -239,12 +327,43 @@ export function WorkspaceTree(props: TreeProps): unknown {
     }
   }, [trimmedQuery, searchSessions])
 
+  // 标签组的「组内新建会话」（#107）：菜单点完先记下目标组，等那个新会话被会话服务
+  // 选中（`startSession` 内部会 `open` 它）再归组——`startSession` 只回 void，拿不到 id，
+  // 所以认「当前会话 + 它确实落在目标工作区」这两个事实。工作区对不上就放弃（不猜）。
+  useEffect(() => {
+    if (tagNewSession === null) return
+    const current = list.current
+    if (current === undefined) return
+    if (groupKeyOfSession(current) !== tagNewSession.groupKey) return
+    applyTagBucket(tagNewSession.groupKey, setSessionTagGroup(tagBucket(tagNewSession.groupKey), current, tagNewSession.tagId))
+    setTagNewSession(null)
+  }, [tagNewSession, list.current, workspaces, tagFile])
+
+  // 标签组的空组清理（#107）：组只与成员一起出现，成员全没了（归档 / 从 dsh 侧消失）
+  // 的组连归属一起剔掉。与回收站清账同一道闸——基线未就绪（列表空）时什么都不做，
+  // 否则冷启动会把用户全部的标签组当成空组清光。**进过回收站的会话仍算活着**：它还在
+  // dsh 上，随时能还原回组里（判据写在 pure/sessionTagGroups.ts 的 pruneTagGroups）。
+  useEffect(() => {
+    const baselineReady = workspacePhase === 'ready' && list.ids.length > 0
+    if (!baselineReady) return
+    const alive = new Set(list.ids.filter((id) => !archived.has(id)))
+    let next: TagGroupsFile | null = null
+    for (const [workspaceId, bucket] of Object.entries(tagFile.workspaces)) {
+      const pruned = pruneTagGroups(bucket, (sessionId) => alive.has(sessionId))
+      if (pruned !== null) next = withTagBucket(next ?? tagFile, workspaceId, pruned)
+    }
+    if (next !== null) {
+      setTagFile(next)
+      saveTagGroups(next)
+    }
+  }, [tagFile, list.ids, workspacePhase, archivedSessionIds])
+
   // 排序 = 官方顺序，**唯一例外**是置顶项在这一层排最前（#98 定稿，`pinnedFirst`）。
+  /** 这一层的官方顺序（用户选了「最近更新」就先按它排，否则保持会话服务给的顺序）。 */
+  const baseOrder = (sessions: readonly SessionNode[]): readonly SessionNode[] =>
+    orderBy === 'updated' ? [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) : sessions
   const withOrder = (sessions: readonly SessionNode[]): readonly SessionNode[] =>
-    pinnedFirst(
-      orderBy === 'updated' ? [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) : sessions,
-      (node) => pinnedIds.has(node.id),
-    )
+    pinnedFirst(baseOrder(sessions), (node) => pinnedIds.has(node.id))
   // 过滤态只在分组方式 = 按工作区时生效（单列表没有工作区分块可言）。
   const filterActive = groupBy === 'workspace' && activeGroupId !== null && hasTreeGroup(groupsFile, activeGroupId)
   const groups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
@@ -426,15 +545,12 @@ export function WorkspaceTree(props: TreeProps): unknown {
   }
 
   /**
-   * 批量归档（选择态操作条）：资格判定先切一遍，可归档的进明细、其余的进跳过数；
-   * 一条都不可归档时不开弹窗（按钮本身也会按这个数禁用）。
+   * 一批会话的归档请求：资格判定先切一遍，可归档的进明细、其余的进跳过数；一条都
+   * 不可归档时不开弹窗（调用方的菜单项也按同一个数禁用）。两个入口共用它——选择态
+   * 的「批量归档」与标签组的「整组归档」（#107）——所以「哪些会被跳过」两边口径一致。
    */
-  const requestArchiveSelection = (): void => {
-    if (selection.length === 0) return
-    const nodes = selection.flatMap((id) => {
-      const node = visibleNodes.find((candidate) => candidate.id === id)
-      return node === undefined ? [] : [node]
-    })
+  const requestArchiveNodes = (nodes: readonly SessionNode[]): void => {
+    if (nodes.length === 0) return
     const partition = partitionArchivable(nodes.map((node) => ({ node, ...eligibilityOf(node) })))
     if (partition.ready.length === 0) return
     openArchive({
@@ -442,6 +558,161 @@ export function WorkspaceTree(props: TreeProps): unknown {
       skipped: partition.skipped.length,
       kind: 'archive',
     })
+  }
+
+  /** 批量归档（选择态操作条）。 */
+  const requestArchiveSelection = (): void => {
+    if (selection.length === 0) return
+    requestArchiveNodes(
+      selection.flatMap((id) => {
+        const node = visibleNodes.find((candidate) => candidate.id === id)
+        return node === undefined ? [] : [node]
+      }),
+    )
+  }
+
+  // -------------------------------------------------------------------------
+  // #107 会话标签组：动作（判定与状态变更全走 pure/sessionTagGroups.ts）
+  // -------------------------------------------------------------------------
+
+  /** 翻一个组的折叠态（纯视图态 → 随视图偏好落客户端存储，不进 tags.json）。 */
+  const toggleTagCollapsed = (groupKey: string, tagId: string): void => {
+    const key = tagCollapseKey(groupKey, tagId)
+    setPrefs((prev) => ({
+      ...prev,
+      tagCollapsed: prev.tagCollapsed.includes(key)
+        ? prev.tagCollapsed.filter((candidate) => candidate !== key)
+        : [...prev.tagCollapsed, key],
+    }))
+  }
+
+  const expandTag = (groupKey: string, tagId: string): void => {
+    const key = tagCollapseKey(groupKey, tagId)
+    setPrefs((prev) =>
+      prev.tagCollapsed.includes(key) ? { ...prev, tagCollapsed: prev.tagCollapsed.filter((candidate) => candidate !== key) } : prev,
+    )
+  }
+
+  /**
+   * 把一条会话归到某组（拖进组块走这里）。**只接同一个工作区里的会话**：桶是
+   * per-workspace 的，把别的工作区的会话拖进来会把归属写进另一个桶，那条会话在
+   * 自己的工作区里就看不见了。拖进折叠的组顺带把它展开——让用户看到刚拖进来的那条
+   *（折叠是偏好，要再折叠一次才算用户的显式意图）。
+   */
+  const assignTagGroup = (groupKey: string, sessionId: string, tagId: string): void => {
+    if (groupKeyOfSession(sessionId) !== groupKey) return
+    applyTagBucket(groupKey, setSessionTagGroup(tagBucket(groupKey), sessionId, tagId))
+    expandTag(groupKey, tagId)
+  }
+
+  /** 拖到组外 = 移出标签组（本来就没归组则什么都不做）。 */
+  const moveOutOfTag = (groupKey: string, sessionId: string): void => {
+    const bucket = tagBucket(groupKey)
+    if (bucket.sessionTags[sessionId] === undefined) return
+    applyTagBucket(groupKey, setSessionTagGroup(bucket, sessionId, null))
+  }
+
+  /** 拖 pill 换组序：先摘下源组，再插到目标组的前/后（旧侧栏同一算法）。 */
+  const reorderTag = (groupKey: string, sourceId: string, targetId: string, before: boolean): void => {
+    const bucket = tagBucket(groupKey)
+    const ids = bucket.tags.map((tag) => tag.id)
+    if (!ids.includes(sourceId) || !ids.includes(targetId)) return
+    ids.splice(ids.indexOf(sourceId), 1)
+    ids.splice(ids.indexOf(targetId) + (before ? 0 : 1), 0, sourceId)
+    applyTagBucket(groupKey, reorderTagGroups(bucket, ids))
+  }
+
+  /** 组 pill 菜单的动作（菜单项由 `tagGroupMenuItems` 树出，这里只按 id 派发）。 */
+  const onTagMenuSelect = (groupKey: string, def: TagGroupDef, members: readonly SessionNode[], id: string): void => {
+    if (id === 'tag-new-session') {
+      // 未分组桶没有工作区，开不出会话（那一桶里的会话来自已删除的工作区）。
+      if (groupKey === UNGROUPED_KEY) return
+      // 先记下「这个新会话该归哪个组」，会话开出来（`startSession` 会把它选中）之后
+      // 由下面那个 effect 归组——`startSession` 只回 void，拿不到 id。
+      setTagNewSession({ groupKey, tagId: def.id })
+      startSession(groupKey)
+      return
+    }
+    if (id === 'tag-archive') {
+      requestArchiveNodes(members)
+      return
+    }
+    if (id === 'tag-recycle') {
+      // 整组移入回收站：本地可逆，立即执行；置顶的不够格（判定与行菜单同一份）。
+      const eligible = members
+        .filter((node) => cannotRecycleReason(eligibilityOf(node)) === null)
+        .map((node) => node.id)
+      moveToRecycleBin(eligible)
+      return
+    }
+    if (id === 'tag-ungroup') {
+      applyTagBucket(groupKey, setSessionsTagGroup(tagBucket(groupKey), members.map((node) => node.id), null))
+      return
+    }
+    if (id === 'tag-rename') {
+      setTagRename({ groupKey, id: def.id, name: def.name })
+      return
+    }
+    if (id === 'tag-delete') {
+      setTagDelete({ groupKey, id: def.id, name: def.name })
+      return
+    }
+    if (id.startsWith('tag-color-')) {
+      applyTagBucket(groupKey, updateTagGroup(tagBucket(groupKey), def.id, { color: id.slice('tag-color-'.length) as TagColor }))
+    }
+  }
+
+  /**
+   * 行菜单「标签组」一节的项（#107）：本工作区的组 + 「不归入标签组」+「新建标签组…」。
+   * 恒渲染这一节（一个组都没有时也渲染）：不然新建第一个组没有入口——拖拽只能把会话
+   * 拖进**已经存在**的组。
+   */
+  const tagItemsFor = (sessionId: string): { items: unknown[]; selectedIds: string[] } => {
+    const groupKey = groupKeyOfSession(sessionId)
+    const bucket = tagBucket(groupKey)
+    const current = bucket.sessionTags[sessionId]
+    // 文案包一层带标记的 span：菜单项的类名是官方哈希，验证套件与样式都不该认它
+    //（与行菜单其它项同一做法，见 rows.ts 的 sessionMenuItem）。
+    const label = (suffix: string, text: string): unknown =>
+      h('span', { 'data-dshone-tree-item': `${TAG_MENU_PREFIX}${suffix}` }, text)
+    return {
+      items: [
+        { type: 'separator', id: 'tag-separator' },
+        { type: 'label', id: 'tag-label', text: tr('tag.membership') },
+        ...bucket.tags.map((tag) => ({
+          id: `${TAG_MENU_PREFIX}${tag.id}`,
+          label: label(tag.id, tag.name),
+          icon: h(TagColorSwatch, { color: tag.color }),
+        })),
+        { id: `${TAG_MENU_PREFIX}__none`, label: label('__none', tr('tag.none')) },
+        { type: 'separator', id: 'tag-new-separator' },
+        { id: `${TAG_MENU_PREFIX}__new`, label: label('__new', tr('tag.new')) },
+      ],
+      selectedIds: [current === undefined ? `${TAG_MENU_PREFIX}__none` : `${TAG_MENU_PREFIX}${current}`],
+    }
+  }
+
+  /** 行菜单里选中一个标签组项。 */
+  const onRowTagSelect = (sessionId: string, id: string): void => {
+    const groupKey = groupKeyOfSession(sessionId)
+    if (id === '__new') {
+      setTagCreate({ groupKey, sessionId })
+      return
+    }
+    applyTagBucket(groupKey, setSessionTagGroup(tagBucket(groupKey), sessionId, id === '__none' ? null : id))
+  }
+
+  /**
+   * 新建标签组：建完立刻把触发它的那条会话归进去——组只与成员一起出现，先建一个
+   * 空组等于给用户一个看不见、也点不到的空壳（空组处理见 pure/sessionTagGroups.ts）。
+   */
+  const createTagFrom = (target: { groupKey: string; sessionId: string }, name: string, color: TagColor): void => {
+    const created = createTagGroup(tagBucket(target.groupKey), name, newTagGroupId(), color)
+    if (!created.ok) return
+    const assigned = setSessionTagGroup(created.bucket, target.sessionId, created.id) ?? created.bucket
+    writeTags(withTagBucket(tagFile, target.groupKey, assigned))
+    setTagCreate(null)
+    flashTip(tr('tag.created', { name: name.trim() }))
   }
 
   // 底部回收站入口行发来的请求（同一 bundle 内的模块级信号，见 recycleEntry.ts 的文件头）：
@@ -515,6 +786,42 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const snippetOf = (sessionId: string): string | undefined =>
     content.items.find((item) => item.id === sessionId)?.snippet
 
+  /**
+   * #107：按工作区视图里一条会话行的 props（组内行与未归组行共用同一份）。
+   *
+   * 与单列表那一份的差别只有两处，都是标签组带来的：行**可拖**（拖进组块入组、拖到
+   * 组外移出），行菜单多一节「标签组」（选组 / 不归入 / 新建）。单列表里没有组块可
+   * 落，拖拽没有意义，所以那一份保持原样。
+   */
+  const groupedRowProps = (row: SessionNode): Record<string, unknown> => {
+    const section = tagItemsFor(row.id)
+    return {
+      node: row,
+      ...(list.current === undefined ? {} : { currentId: list.current }),
+      now,
+      flat: false,
+      hoverCard,
+      tr,
+      selectMode,
+      selected: selectedSet.has(row.id),
+      pinned: pinnedIds.has(row.id),
+      unread: unreadIds.has(row.id),
+      tagItems: section.items,
+      tagSelectedIds: section.selectedIds,
+      onTagSelect: (id: string) => onRowTagSelect(row.id, id),
+      dragProps: sessionDragProps(row.id),
+      onToggleSelect: () => toggleSelected(row.id),
+      onOpen: () => openSessionClearingUnread(row.id),
+      onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
+      onFork: () => forkSession(row.id),
+      onMoveToRecycleBin: () => moveToRecycleBin([row.id]),
+      onArchive: () => requestArchiveSession(row),
+      onTogglePin: () => togglePin(row.id),
+      onToggleUnread: () => toggleUnread(row.id),
+      onOpenInNewTab: openInNewTab === undefined ? undefined : () => openInNewTab(row.id),
+    }
+  }
+
   const treeBody =
     trimmedQuery !== ''
       ? searchRows.length > 0
@@ -574,10 +881,21 @@ export function WorkspaceTree(props: TreeProps): unknown {
         : h(
             'div',
             { role: 'tree', 'data-dshone-tree': 'groups' },
-            groups.map((group) =>
-              h(
+            groups.map((group) => {
+              const split = splitByTagGroups(
+                baseOrder(group.sessions),
+                tagBucket(group.key),
+                (node) => pinnedIds.has(node.id),
+              )
+              return h(
                 'div',
-                { className: 'dshOneTree_groupSection', key: group.key, 'data-dshone-group-key': group.key },
+                {
+                  className: 'dshOneTree_groupSection',
+                  key: group.key,
+                  'data-dshone-group-key': group.key,
+                  // #107：拖到组外（工作区行 / 未归组的空处）= 移出标签组。
+                  ...ungroupDropZone((sessionId: string) => moveOutOfTag(group.key, sessionId)),
+                },
                 h(ProjectRow, {
                   group,
                   tr,
@@ -606,32 +924,37 @@ export function WorkspaceTree(props: TreeProps): unknown {
                       }),
                 }),
                 // #81 功能 6：展开的分组把它的会话全列出来，不再截到 5 行。
-                ...withOrder(group.sessions).map((row) =>
-                  h(SessionRow, {
-                    key: row.id,
-                    node: row,
-                    ...(list.current === undefined ? {} : { currentId: list.current }),
-                    now,
-                    flat: false,
-                    hoverCard,
+                // #107：先按标签组切块（组内 = 组内置顶项先、其余官方顺序），每个组块
+                // 是一段「pill 组头 + 贯穿竖线 + 缩进行」，没归组的行殿后、平铺。
+                ...split.blocks.map((block) =>
+                  h(TagGroupBlock, {
+                    key: `tag:${block.def.id}`,
+                    groupKey: group.key,
+                    def: block.def,
+                    collapsed: prefs.tagCollapsed.includes(tagCollapseKey(group.key, block.def.id)),
+                    // 折叠计数按组内全部会话数（折叠时行不渲染，但计数还得准）。
+                    sessions: block.sessions,
+                    isUnread: (sessionId: string) => unreadIds.has(sessionId),
+                    menuItems: tagGroupMenuItems({
+                      name: block.def.name,
+                      color: block.def.color,
+                      total: block.sessions.length,
+                      archivable: block.sessions.filter((node) => cannotArchiveReason(eligibilityOf(node)) === null).length,
+                      recyclable: block.sessions.filter((node) => cannotRecycleReason(eligibilityOf(node)) === null).length,
+                      tr,
+                    }),
+                    menuSelectedIds: [`tag-color-${block.def.color}`],
+                    onMenuSelect: (id: string) => onTagMenuSelect(group.key, block.def, block.sessions, id),
+                    onToggleCollapse: () => toggleTagCollapsed(group.key, block.def.id),
+                    onDropSession: (sessionId: string) => assignTagGroup(group.key, sessionId, block.def.id),
+                    onDropTag: (sourceId: string, before: boolean) => reorderTag(group.key, sourceId, block.def.id, before),
                     tr,
-                    selectMode,
-                    selected: selectedSet.has(row.id),
-                    pinned: pinnedIds.has(row.id),
-                    unread: unreadIds.has(row.id),
-                    onToggleSelect: () => toggleSelected(row.id),
-                    onOpen: () => openSessionClearingUnread(row.id),
-                    onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
-                    onFork: () => forkSession(row.id),
-                    onMoveToRecycleBin: () => moveToRecycleBin([row.id]),
-                    onArchive: () => requestArchiveSession(row),
-                    onTogglePin: () => togglePin(row.id),
-                    onToggleUnread: () => toggleUnread(row.id),
-                    onOpenInNewTab: openInNewTab === undefined ? undefined : () => openInNewTab(row.id),
+                    children: block.sessions.map((row) => h(SessionRow, { key: row.id, ...groupedRowProps(row) })),
                   }),
                 ),
-              ),
-            ),
+                ...split.ungrouped.map((row) => h(SessionRow, { key: row.id, ...groupedRowProps(row) })),
+              )
+            }),
           )
 
   return h(
@@ -816,6 +1139,46 @@ export function WorkspaceTree(props: TreeProps): unknown {
         if (archiveBusy) return
         setArchiveRequest(null)
         setArchiveError(null)
+      },
+    }),
+    // #107 标签组：重命名（复用工作区/会话重命名那一枚通用对话框）、删除确认、
+    // 新建（名字 + 颜色）。三个都只开在有明确目标时。
+    h(RenameModal, {
+      open: tagRename !== null,
+      titleKey: 'tag.rename.title',
+      fieldKey: 'tag.name.label',
+      initial: tagRename?.name ?? '',
+      tr,
+      onClose: () => setTagRename(null),
+      onSubmit: async (value: string) => {
+        const target = tagRename
+        if (target === null) return
+        const bucket = tagBucket(target.groupKey)
+        // 校核与落盘同一份纯函数：放到这里只为把「重名」翻成用户看得懂的提示。
+        if (tagGroupNameError(bucket, value, target.id) !== null) throw new Error(tr('tag.name.duplicate'))
+        applyTagBucket(target.groupKey, updateTagGroup(bucket, target.id, { name: value }))
+      },
+    }),
+    h(TagGroupDeleteModal, {
+      target: tagDelete === null ? null : { id: tagDelete.id, name: tagDelete.name },
+      tr,
+      onClose: () => setTagDelete(null),
+      onSubmit: (id: string) => {
+        const target = tagDelete
+        if (target === null) return
+        applyTagBucket(target.groupKey, deleteTagGroup(tagBucket(target.groupKey), id))
+        setTagDelete(null)
+      },
+    }),
+    h(TagGroupCreateModal, {
+      open: tagCreate !== null,
+      tr,
+      defaultColor: nextTagColor(tagCreate === null ? emptyTagBucket() : tagBucket(tagCreate.groupKey)),
+      validate: (name: string) => tagGroupNameError(tagCreate === null ? emptyTagBucket() : tagBucket(tagCreate.groupKey), name),
+      onClose: () => setTagCreate(null),
+      onSubmit: (name: string, color: TagColor) => {
+        if (tagCreate === null) return
+        createTagFrom(tagCreate, name, color)
       },
     }),
     // 飘提示宿主（移入/还原/归档的回执）。

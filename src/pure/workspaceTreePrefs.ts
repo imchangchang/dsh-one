@@ -36,6 +36,16 @@ export interface TreeViewPrefs {
    * 收起一个块不该影响主树里那个工作区是展开还是收起（旧侧栏同此处置）。
    */
   recycleCollapsed: string[]
+  /**
+   * 收起态会被跨工作区重复的标签组 id（#107 的折叠）要连桶一起认定为「哪个工作区的
+   * 哪个组」，所以这里存的是 `<分组键>\u0000<组 id>` 这种复合键（见
+   * `workspaceTree/tagGroups.ts` 的 `tagCollapseKey`）。
+   *
+   * 折叠态**不进** `tags.json`：它是纯视图态，按铁律第二类走客户端存储——旧侧栏把它
+   * 记在标签组文件里，那是第二类与第一类混住，迁入时读过即弃（见
+   * `pure/sessionTagGroups.ts` 的文件头）。
+   */
+  tagCollapsed: string[]
 }
 
 /** 官方客户端惯例的键名风格：`dsh.<区>.<名>`。 */
@@ -43,7 +53,14 @@ export const TREE_VIEW_PREF_KEY = 'dsh.workspaceTree.view'
 
 /** 默认偏好：与官方 WorkspaceBrowser 的初始态一致（按工作区 / 手动序 / 看全部）。 */
 export function defaultTreeViewPrefs(): TreeViewPrefs {
-  return { groupBy: 'workspace', orderBy: 'manual', activeGroupId: null, expandedGroups: [], recycleCollapsed: [] }
+  return {
+    groupBy: 'workspace',
+    orderBy: 'manual',
+    activeGroupId: null,
+    expandedGroups: [],
+    recycleCollapsed: [],
+    tagCollapsed: [],
+  }
 }
 
 /** 解析一条持久化记录（坏值/旧值一律回落默认，绝不抛）。 */
@@ -59,6 +76,7 @@ export function parseTreeViewPrefs(raw: unknown): TreeViewPrefs {
     activeGroupId: typeof record.activeGroupId === 'string' && record.activeGroupId !== '' ? record.activeGroupId : null,
     expandedGroups: keyList(record.expandedGroups),
     recycleCollapsed: keyList(record.recycleCollapsed),
+    tagCollapsed: keyList(record.tagCollapsed),
   }
 }
 

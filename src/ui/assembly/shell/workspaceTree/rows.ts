@@ -32,7 +32,7 @@ import {
   type SessionEligibilityFacts,
 } from '../../../../pure/sessionEligibility.ts'
 import { createdLabel, displayTitle, hoverTimeLabel, timeLabel } from './format.ts'
-import { GROUP_MENU_PREFIX } from './groups.ts'
+import { GROUP_MENU_PREFIX, TAG_MENU_PREFIX } from './groups.ts'
 import { SelectMark } from './selection.ts'
 import type { Translate } from './types.ts'
 
@@ -357,6 +357,10 @@ export function SessionRow({
   onTogglePin,
   onToggleUnread,
   onOpenInNewTab,
+  tagItems,
+  tagSelectedIds,
+  onTagSelect,
+  dragProps,
 }: {
   node: SessionNode
   currentId?: string
@@ -389,6 +393,21 @@ export function SessionRow({
    * （官方 web 形态）：菜单项不出现、行右键也不接管（不抢浏览器原生右键菜单）。
    */
   onOpenInNewTab?: (() => void) | undefined
+  /**
+   * #107 标签组一节（分隔线 + 小标题 + 本工作区的标签组 + 「不归入标签组」+
+   * 「新建标签组…」）。由树层按这一行所属的工作区拼好——行的菜单里加一节与前缀
+   * 判定都走 `TAG_MENU_PREFIX`，本件不认标签组模型，只把它当一组菜单项渲染。
+   */
+  tagItems?: readonly unknown[] | undefined
+  /** 这一行的标签组项勾选态（官方 Menu 的 selectedIds）。 */
+  tagSelectedIds?: readonly string[] | undefined
+  /** 选中一个标签组项（id 已去掉 `TAG_MENU_PREFIX`）。 */
+  onTagSelect?: ((id: string) => void) | undefined
+  /**
+   * 行上的拖拽属性（`draggable` + 往 DataTransfer 里写会话 id 的处理器）由树层拼好
+   * ——MIME 常量的正本在 `tagGroups.ts`，本件不认识它，避免 rows ↔ tagGroups 互相 import。
+   */
+  dragProps?: Record<string, unknown> | undefined
 }): unknown {
   const [menuOpen, setMenuOpen] = useState(false)
   /** 行右键的指针位置：有值时菜单挂在指针处（官方 Menu 的 getAnchorRect 口）。 */
@@ -476,6 +495,10 @@ export function SessionRow({
       icon: h(IconArchiveOutline20, { size: 16 }),
       disabled: archiveBlocked !== null,
     },
+    // #107 标签组一节：列在本工作区的那几个组 + 「不归入标签组」+「新建标签组…」。
+    // 与工作区行的「所属分组」一节同一形态（官方 Menu 的 separator + label + 勾选项），
+    // 只是项 id 走另一个前缀（`TAG_MENU_PREFIX`）。
+    ...(tagItems ?? []),
   ]
   const anchor = h(
     'button',
@@ -516,6 +539,9 @@ export function SessionRow({
       ...(selectMode
         ? { 'data-dshone-tree-checked': selected, 'data-dshone-tree-check': selectable ? 'eligible' : 'blocked' }
         : {}),
+      // #107：把这一行拖进/拖出标签组（拖拽属性由树层拼，见 dragProps 的说明）。
+      // 选择态不给拖：那时候整行只有「勾选」一个动作。
+      ...(selectMode ? {} : (dragProps ?? {})),
       onClick: selectMode ? (selectable ? onToggleSelect : () => {}) : onOpen,
       // 行右键开出同一份菜单（指针位置锚定）。三条不接管的线：
       // - 多开不可用的宿主（官方 web）：那里没有这一项可给，抢掉原生右键菜单只是添乱；
@@ -571,11 +597,16 @@ export function SessionRow({
                   setMenuOpen(false)
                 },
                 items: menuItems,
-                // 两项标记动作的勾选态（官方 Menu 的 selectedIds：✓ 由官方渲染）。
-                selectedIds: [...(pinned ? ['pin'] : []), ...(unread ? ['unread'] : [])],
+                // 勾选态（官方 Menu 的 selectedIds：✓ 由官方渲染）：两项标记动作 +
+                // 本行的标签组归属（#107）。
+                selectedIds: [...(pinned ? ['pin'] : []), ...(unread ? ['unread'] : []), ...(tagSelectedIds ?? [])],
                 onSelect: (id: string) => {
                   setMenuAt(null)
                   setMenuOpen(false)
+                  if (id.startsWith(TAG_MENU_PREFIX)) {
+                    onTagSelect?.(id.slice(TAG_MENU_PREFIX.length))
+                    return
+                  }
                   if (id === 'rename') onRename(node.title)
                   if (id === 'pin') onTogglePin()
                   if (id === 'unread') onToggleUnread()
