@@ -1656,8 +1656,13 @@ function SessionStatusDots({ statuses, tr }) {
   );
   return (0, import_react7.createElement)("span", { className: "dshOneTree_slot" }, (0, import_react7.createElement)(import_dsh_client_ui_primitives7.StateDot, { state: statuses[0].state, className: "dshOneTree_dot" }), labels);
 }
-function SessionHoverContent({ node, now, tr }) {
-  const statuses = sessionStatuses(node);
+function SessionHoverContent({
+  node,
+  now,
+  tr,
+  unread
+}) {
+  const statuses = sessionStatuses({ ...node, unread });
   return (0, import_react7.createElement)(
     "div",
     { className: "dshOneTree_hoverContent" },
@@ -1992,7 +1997,7 @@ function SessionRow({
   if (!hoverCard || selectMode) return row;
   return (0, import_react7.createElement)(import_dsh_client_ui_primitives7.HoverCard, {
     anchor: row,
-    content: (0, import_react7.createElement)(SessionHoverContent, { node, now, tr }),
+    content: (0, import_react7.createElement)(SessionHoverContent, { node, now, tr, unread }),
     disabled: menuOpen,
     copyText: node.blank ? void 0 : node.title,
     copyLabel: tr("copy"),

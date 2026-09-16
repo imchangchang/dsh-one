@@ -122,8 +122,19 @@ function SessionStatusDots({ statuses, tr }: { statuses: ReturnType<typeof sessi
 }
 
 /** 会话行悬停卡（官方 `SessionHoverContent`）：标题 + 相对时间 + 每条活状态。 */
-function SessionHoverContent({ node, now, tr }: { node: SessionNode; now: number; tr: Translate }): unknown {
-  const statuses = sessionStatuses(node)
+function SessionHoverContent({
+  node,
+  now,
+  tr,
+  unread,
+}: {
+  node: SessionNode
+  now: number
+  tr: Translate
+  /** #102：与行上的状态点同口径（未读那条在悬停卡里也读作「未读」，不是「空闲」）。 */
+  unread: boolean
+}): unknown {
+  const statuses = sessionStatuses({ ...node, unread })
   return h(
     'div',
     { className: 'dshOneTree_hoverContent' },
@@ -551,7 +562,7 @@ export function SessionRow({
   if (!hoverCard || selectMode) return row
   return h(HoverCard, {
     anchor: row,
-    content: h(SessionHoverContent, { node, now, tr }),
+    content: h(SessionHoverContent, { node, now, tr, unread }),
     disabled: menuOpen,
     copyText: node.blank ? undefined : node.title,
     copyLabel: tr('copy'),
