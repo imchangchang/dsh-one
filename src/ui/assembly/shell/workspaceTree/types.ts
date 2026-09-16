@@ -116,6 +116,25 @@ export interface TreeProps {
    */
   openInNewTab?: ((sessionId: string) => Promise<unknown>) | undefined
   /**
+   * #121：这个会话现在是不是正开在宿主的对话面板里（宿主能力口 `isSessionInPanel` 的
+   * 封装）。树的会话行点击按它判「当前会话行」是就地改名还是按打开处理——`list.current`
+   * （官方 sessions 服务的状态，启动时可能是官方恢复的上次会话）不等于「宿主真的开着
+   * 它」，两者不同步时只按前者判，用户点那行只会进改名、面板永远不出来。
+   *
+   * 官方 web 形态（无桥）恒 false（那一端没有宿主面板这个概念）→ 当前会话行一律按
+   * 打开处理。答不出来也回 false，是安全的降级方向。
+   */
+  isSessionInPanel: (sessionId: string) => Promise<boolean>
+  /**
+   * #121：把对话面板亮到这个会话（宿主能力口 `openSessionPanel` 的封装）。**必须是
+   * 独立的一条**：会话已经是官方 sessions 服务的「当前」时，`sessions.open` 不会让值
+   * 变化、选择桥也就不会上报，光靠官方那条路面板永远不出来。
+   *
+   * 官方 web 形态（无桥）是静默空操作——那一端的「打开」就是官方 `sessions.open`，
+   * 调用方已经先走过它了。
+   */
+  openSessionPanel: (sessionId: string) => Promise<void>
+  /**
    * #109 工作区行：在编辑器窗口里打开这个工作区文件夹（`newWindow` = 另开一个窗口）。
    * **undefined = 这个宿主没有编辑器窗口**（官方 web 形态）：hover 的「在 VS Code 打开」
    * 与右键的「在新窗口打开文件夹」两项都不出现。

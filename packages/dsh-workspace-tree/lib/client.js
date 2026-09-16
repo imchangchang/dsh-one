@@ -631,6 +631,23 @@ function hostCapabilities(ctx) {
       }
       throw fail("unavailable", "this shell has no editor tabs; the host half serves no session tab action");
     },
+    // #121：会话行点击的两条。没有桥 = 官方 web 一侧（或页面还没装上桥）：那一端没有
+    // 「宿主面板」这个概念，查询如实回 false（= 一律按打开处理），动作静默返回
+    //（那边的「打开」由官方 sessions.open 负责，消费方已经先走过它了）。
+    async isSessionInPanel(sessionId) {
+      if (!viaBridge()) return false;
+      try {
+        const data = await bridgeCall("session.inPanel", { sessionId });
+        return data.open === true;
+      } catch (err) {
+        console.warn("[dsh-one] session panel state unavailable:", err);
+        return false;
+      }
+    },
+    async openSessionPanel(sessionId) {
+      if (!viaBridge()) return;
+      await bridgeCall("session.openPanel", { sessionId });
+    },
     get settingsPage() {
       return viaBridge();
     },
@@ -3606,7 +3623,7 @@ function SessionRow({
   renaming,
   renameDraft,
   renameSelection,
-  onRenameStart,
+  onCurrentRowClick,
   onRenameDraft,
   onRenameCommit,
   onRenameCancel
@@ -3838,7 +3855,8 @@ function SessionRow({
       // 选择态不给拖：那时候整行只有「勾选」一个动作；编辑态也不给拖（拖走正在改名的
       // 行只会把编辑态连同输入框一起晃没）。
       ...selectMode || renamingNow ? {} : withDragGuard(dragProps),
-      // #115 情境化点击：**非当前会话** = 打开（原样）；**当前会话** = 就地改名。
+      // #115/#121 情境化点击：**非当前会话** = 打开（原样）；**当前会话** = 报到树层
+      // （由它问过宿主再定就地改名还是按打开处理，见 onCurrentRowClick 的说明）。
       // 行内互斥件（行尾状态点/图钉/定时标记/时间/⋯ 那一层）点上去不算「点行」，
       // 按原来的打开处置走——它们各有自己的含义，不该把改名触发了。拖拽窗口里到达的
       // 点击同样吞掉（见 withDragGuard）。选择态照旧整行只有勾选。
@@ -3852,7 +3870,7 @@ function SessionRow({
         const dragging = rowDragActive;
         rowDragActive = false;
         const meta = event.target instanceof Element && event.target.closest(ROW_META_SELECTOR) !== null;
-        if (!meta && !dragging && isCurrent) onRenameStart?.();
+        if (!meta && !dragging && isCurrent) onCurrentRowClick?.();
         else onOpen();
       },
       // 行右键开出同一份菜单（指针位置锚定）。**接管条件只剩「非选择态」**（#109）：
@@ -4382,7 +4400,9 @@ function WorkspaceTree(props) {
     openWorkspaceFolder,
     openWorkspaceTerminal,
     shellName,
-    loadCurrentFolders
+    loadCurrentFolders,
+    isSessionInPanel,
+    openSessionPanel
   } = props;
   const tr = t;
   const now = Date.now();
@@ -4554,6 +4574,26 @@ function WorkspaceTree(props) {
   };
   const cancelRowRename = () => {
     setSessionEdit(null);
+  };
+  const sessionOpenInPanel = async (sessionId) => {
+    try {
+      return await isSessionInPanel(sessionId);
+    } catch (reason) {
+      console.warn("[dsh-one] session panel state failed:", reason);
+      return false;
+    }
+  };
+  const activateSessionRow = (row) => {
+    void sessionOpenInPanel(row.id).then((openInPanel) => {
+      if (openInPanel) {
+        startRowRename(row);
+        return;
+      }
+      openSessionClearingUnread(row.id);
+      void openSessionPanel(row.id).catch((reason) => {
+        console.warn("[dsh-one] show session panel failed:", reason);
+      });
+    });
   };
   (0, import_react13.useEffect)(() => {
     if (sessionEdit === null || list.ids.length === 0) return;
@@ -5079,8 +5119,9 @@ function WorkspaceTree(props) {
       dragProps: sessionDragProps(row.id),
       onToggleSelect: () => toggleSelected(row.id),
       onOpen: () => openSessionClearingUnread(row.id),
-      // #115：点「当前会话」那一行 = 进就地改名（判定在行里按 currentId 做）。
-      onRenameStart: () => startRowRename(row),
+      // #115/#121：点「当前会话」那一行 = 请求就地改名；树层先问宿主这条会话是不是真的
+      // 开在面板里（开着就地改名，没开按打开处理，见 activateSessionRow）。
+      onCurrentRowClick: () => activateSessionRow(row),
       ...rowRenameProps(row),
       onRename: (title) => setSessionRenameTarget({ id: row.id, title }),
       onFork: () => forkRow(row.id),
@@ -5136,8 +5177,9 @@ function WorkspaceTree(props) {
         unread: unreadIds.has(row.id),
         onToggleSelect: () => toggleSelected(row.id),
         onOpen: () => openSessionClearingUnread(row.id),
-        // #115：与分组行同一份情境化点击与行内改名（定义见 `rowRenameProps`）。
-        onRenameStart: () => startRowRename(row),
+        // #115/#121：与分组行同一份情境化点击与行内改名（定义见 `rowRenameProps`
+        // 与 `activateSessionRow`）。
+        onCurrentRowClick: () => activateSessionRow(row),
         ...rowRenameProps(row),
         onRename: (title) => setSessionRenameTarget({ id: row.id, title }),
         onFork: () => forkRow(row.id),
@@ -5549,6 +5591,13 @@ function apply(ctx) {
       // 官方 web 侧能力口如实回空表 → 树按「没有当前工作区」渲染（不显示徽标、不置顶），
       // 插件不做任何宿主判断（可移植件：两端同一份代码）。
       loadCurrentFolders: () => caps.currentWorkspaceFolders(),
+      // #121 会话行点击的两条（都走宿主能力口，插件不碰宿主 API）：查询某会话是否正开在
+      // 宿主面板里（改名判据的真条件），以及请宿主把面板亮到某会话（会话已是 current 时
+      // 官方 sessions.open 不会让它变化、选择桥也就不会上报，必须单独请一次）。
+      // 官方 web 侧：前者恒 false、后者静默空操作——那一端没有「宿主面板」这个概念，
+      // 插件的点击逻辑照常跑（一律按打开处理），两端同一份代码。
+      isSessionInPanel: (sessionId) => caps.isSessionInPanel(sessionId),
+      openSessionPanel: (sessionId) => caps.openSessionPanel(sessionId),
       // 官方 sessions 服务：选中会话（镜像官方 ui-workspace 的 openSession，
       // 不调 layout.selectPanel——自有侧栏树没有主面板概念）。
       open: (sessionId) => {

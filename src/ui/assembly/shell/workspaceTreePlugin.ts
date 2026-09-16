@@ -4,11 +4,13 @@
  * ## 命名（AGENTS.md 铁律「自有插件命名分两类」）
  * 本件命名 `dsh-*` 而非 `vscode-*`，因为它不绑定 VS Code 宿主：只有自己写的 DOM
  * 标记（`dshOneTree_*` 类名与 `data-*`），不碰 `acquireVsCodeApi`、不 postMessage；
- * 数据全取官方 hooks、动作全走官方服务、样式全用官方 token。唯一一项与宿主有关的
- * 动作是会话行菜单的「在新标签页打开」（#72）：它走**宿主能力口**这个抽象口
- * （`./hostCapabilities.ts`，插件不直接碰宿主 API），并且按能力口如实上报的
- * `editorTabs` 决定该项出不出现——官方 web 侧没有「编辑器标签页」这个概念，那一项
- * 就不显示，插件其余行为一模一样。因此它不依赖我们的 shell 实现，官方 web 侧同样
+ * 数据全取官方 hooks、动作全走官方服务、样式全用官方 token。与宿主有关的动作
+ * （#72 的「在新标签页打开」、#109 的工作区行宿主动作、#121 的「这个会话开在宿主
+ * 面板里吗 / 把面板亮到它」）一律走**宿主能力口**这个抽象口
+ * （`./hostCapabilities.ts`，插件不直接碰宿主 API），并按能力口如实上报的
+ * `editorTabs` / `workspaceOpen` / `isSessionInPanel` 决定入口出不出现或走哪条路
+ * ——官方 web 侧没有那些宿主概念，那些入口就不显示、当前会话行一律按打开处理，
+ * 插件其余行为一模一样。因此它不依赖我们的 shell 实现，官方 web 侧同样
  * 能装（#83 收尾要做的是把挂载点挪出我们的 frame 并打成独立 npm 包，本步先把命名
  * 与 id 对齐）。
  *
@@ -358,6 +360,13 @@ export function apply(ctx: TreeContext): void {
       // 官方 web 侧能力口如实回空表 → 树按「没有当前工作区」渲染（不显示徽标、不置顶），
       // 插件不做任何宿主判断（可移植件：两端同一份代码）。
       loadCurrentFolders: (): Promise<readonly string[]> => caps.currentWorkspaceFolders(),
+      // #121 会话行点击的两条（都走宿主能力口，插件不碰宿主 API）：查询某会话是否正开在
+      // 宿主面板里（改名判据的真条件），以及请宿主把面板亮到某会话（会话已是 current 时
+      // 官方 sessions.open 不会让它变化、选择桥也就不会上报，必须单独请一次）。
+      // 官方 web 侧：前者恒 false、后者静默空操作——那一端没有「宿主面板」这个概念，
+      // 插件的点击逻辑照常跑（一律按打开处理），两端同一份代码。
+      isSessionInPanel: (sessionId: string): Promise<boolean> => caps.isSessionInPanel(sessionId),
+      openSessionPanel: (sessionId: string): Promise<void> => caps.openSessionPanel(sessionId),
       // 官方 sessions 服务：选中会话（镜像官方 ui-workspace 的 openSession，
       // 不调 layout.selectPanel——自有侧栏树没有主面板概念）。
       open: (sessionId: string): void => {

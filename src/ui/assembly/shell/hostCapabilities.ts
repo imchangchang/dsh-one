@@ -16,6 +16,7 @@
  * | `downloadGatewayFile` | 扩展宿主经 loopback 代理取内容 + 弹保存框 | 浏览器原生 `fetch` + `a[download]` |
  * | `openExternal` | 扩展宿主 `vscode.env.openExternal` | 页面原生 `window.open` |
  * | `openSessionInNewTab`（+ `editorTabs`） | 扩展宿主开一个 WebviewPanel（#72 多开） | **无**——官方 web 没有编辑器标签页，能力恒缺席 |
+ * | `isSessionInPanel` / `openSessionPanel`（#121） | 扩展宿主按面板↔会话的跟踪如实回答 + 把面板亮到该会话 | **false / 静默空操作**——官方 web 没有「宿主面板」这个概念，那一端的「打开会话」就是官方 `sessions.open` |
  * | `openSettings`（+ `settingsPage`） | 扩展宿主开/聚焦设置页（设置独立成编辑器页，#70） | **无**——官方 web 的设置是官方底部那一行，没有独立设置页；能力恒缺席，侧栏齿轮在那一端不渲染 |
  * | `createWorkspaceDirectory`（+ `workspaceCreate`） | 扩展宿主建目录并注册（`dshOne.workspace.create` 命令：`~/.dsh/workspaces/<名>`） | **无**——官方 web 的「新建目录」归官方 directory-flow 占用者（见 #99 的说明），能力恒缺席 |
  * | `openWorkspaceFolder`（+ `workspaceOpen`） | 扩展宿主 `dshOne.workspace.openFolder` 命令（`vscode.openFolder`，可要求新窗口） | **无**——官方 web 是浏览器里的一页，没有「编辑器窗口」可以放这个文件夹，能力恒缺席 |
@@ -126,6 +127,30 @@ export interface HostCapabilities {
    * 决定要不要给出这个入口，正常路径不会走到这里。
    */
   openSessionInNewTab(sessionId: string): Promise<void>
+  /**
+   * 这个会话现在是不是正开在宿主的对话面板里（#121）——侧栏树按它判「点当前会话行」
+   * 是就地改名还是按打开处理。
+   *
+   * **为什么不能只看「侧栏认为的当前会话」**：那个判据来自官方 sessions 服务的状态，
+   * 启动时可能是官方恢复的上次会话，与宿主真的开着哪个面板是两件事；两者不同步时，
+   * 一个「宿主其实没开」的会话会被当成已打开，用户点它只会进改名、面板永远不出来
+   * （#121 报的就是这个现场）。所以判据加这一条真条件。
+   *
+   * **官方 web 侧恒 false**：那一端没有「宿主面板」这个概念（同一份理由见本文件头
+   * 的能力表），消费方按「按打开处理」走官方自己的会话切换。答不出来时（能力桥不认
+   * 这条调用等异常路径）同样回 false——「没开」的处置就是按打开处理，与 #121 之前的
+   * 点击行为一致，是个安全的降级方向。
+   */
+  isSessionInPanel(sessionId: string): Promise<boolean>
+  /**
+   * 把对话面板亮到这个会话（#121）：创建 / 聚焦 / 就地切换（VS Code 侧 = 与侧栏点
+   * 会话那条通路同一个函数）。
+   *
+   * **官方 web 侧静默返回**（不是抛 `unavailable`）：那一端没有宿主面板，「打开一个
+   * 会话」就是官方 `sessions.open` 自己那件事，消费方（侧栏树）在那一端本来就会先
+   * 走它；这里再抛错只会让每次点当前会话都在控制台留一行噪音，而那一端本来就无事可做。
+   */
+  openSessionPanel(sessionId: string): Promise<void>
   /**
    * 这套宿主有没有「独立的设置页」（#99 侧栏顶栏齿轮）：**同步判定**，消费方按它
    * 决定齿轮渲不渲染——VS Code 侧设置是我们自己的编辑器页（能力在），官方 web 侧
@@ -344,6 +369,24 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
         return
       }
       throw fail('unavailable', 'this shell has no editor tabs; the host half serves no session tab action')
+    },
+    // #121：会话行点击的两条。没有桥 = 官方 web 一侧（或页面还没装上桥）：那一端没有
+    // 「宿主面板」这个概念，查询如实回 false（= 一律按打开处理），动作静默返回
+    //（那边的「打开」由官方 sessions.open 负责，消费方已经先走过它了）。
+    async isSessionInPanel(sessionId) {
+      if (!viaBridge()) return false
+      try {
+        const data = await bridgeCall('session.inPanel', { sessionId })
+        return data.open === true
+      } catch (err) {
+        // 答不出来一律当「没开」：处置是按打开处理（安全的降级方向，见接口说明）。
+        console.warn('[dsh-one] session panel state unavailable:', err)
+        return false
+      }
+    },
+    async openSessionPanel(sessionId) {
+      if (!viaBridge()) return
+      await bridgeCall('session.openPanel', { sessionId })
     },
     get settingsPage() {
       return viaBridge()

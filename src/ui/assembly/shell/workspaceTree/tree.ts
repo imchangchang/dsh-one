@@ -115,6 +115,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
     openWorkspaceTerminal,
     shellName,
     loadCurrentFolders,
+    isSessionInPanel,
+    openSessionPanel,
   } = props
   const tr = t
   const now = Date.now()
@@ -378,6 +380,60 @@ export function WorkspaceTree(props: TreeProps): unknown {
   /** Esc / 失焦取消：退出编辑态，什么都不发。 */
   const cancelRowRename = (): void => {
     setSessionEdit(null)
+  }
+
+  /**
+   * 问宿主：这个会话现在开在对话面板里吗（契约上不抛——能力口把答不出来收成 false）。
+   * 真抛了也按「没开」处置，与能力口的降级方向一致：最坏的错法不能是「用户点不出
+   * 对话区」。
+   */
+  const sessionOpenInPanel = async (sessionId: string): Promise<boolean> => {
+    try {
+      return await isSessionInPanel(sessionId)
+    } catch (reason) {
+      console.warn('[dsh-one] session panel state failed:', reason)
+      return false
+    }
+  }
+
+  /**
+   * 点「当前会话」那一行（#115 的语义、#121 修的判据）：**宿主确实正开着它**才就地
+   * 改名，否则按打开处理。
+   *
+   * 为什么要多这一条真条件：「当前」的判据是官方 sessions 服务的 `list.current`，它
+   * 可能是启动时官方恢复的上次会话，**不等于宿主侧真的开着这条会话的对话面板**。两者
+   * 不同步时只按 `list.current` 判就会进改名，而改名这条路永远不会把面板打开——用户
+   * 于是再也点不出对话区（#121 报的正是这个现场：刚启动点一条会话，右边还是 Welcome）。
+   *
+   * 两条分支：
+   * - 宿主说开着 → 就地改名（#115 的语义原样保留，没有改回「点当前会话 = 打开」）；
+   * - 宿主说没开 → 按打开处理：先走官方 `sessions.open`（官方 web 侧的「打开」就是它；
+   *   在 VS Code 侧它顺带清掉手动未读），**再请宿主把面板亮到这个会话**。后一步是必须
+   *   的：这条会话已经是「当前」，`sessions.open` 不会让值变化、选择桥也就不会上报，
+   *   光靠官方那条路面板永远不出来。
+   *
+   * **点击那一刻问一次宿主**（而不是挂载时问一次缓存住）：面板可能被用户从对话区那一侧
+   * 关掉或切走，缓存下来的「开着」会变成假话——而假话恰好就是本 bug 的形态。问一次是
+   * 一次 webview↔宿主的往返（毫秒级），点击到进编辑态的延迟用户感知不到。
+   *
+   * **启动期不主动开面板**（#121 第 2 点让实现者判断，理由在此）：侧栏一挂载就把面板
+   * 顶出来是打扰（#68 的「默认开一次」已经承担了这件事，且它尊重「用户手动关过」这个
+   * 选择）；这里修的是判据——用户点了那条会话就是明确说了「我要看它」，此时打开不打扰。
+   * 启动期的不同步因此在点击那一刻被如实判掉，不需要额外的动作。
+   */
+  const activateSessionRow = (row: SessionNode): void => {
+    void sessionOpenInPanel(row.id).then((openInPanel) => {
+      if (openInPanel) {
+        startRowRename(row)
+        return
+      }
+      openSessionClearingUnread(row.id)
+      void openSessionPanel(row.id).catch((reason: unknown) => {
+        // 面板这条失败只落一条日志：官方那条已经走了，用户至少拿到了会话切换；面板本身
+        // 起不来时宿主已经弹过错误（prepareChatPanel）。
+        console.warn('[dsh-one] show session panel failed:', reason)
+      })
+    })
   }
 
   // 编辑态跟着那条会话走：它在 dsh 侧没了（归档/删除）就把编辑态收掉，免得列表稍后
@@ -1182,8 +1238,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
       dragProps: sessionDragProps(row.id),
       onToggleSelect: () => toggleSelected(row.id),
       onOpen: () => openSessionClearingUnread(row.id),
-      // #115：点「当前会话」那一行 = 进就地改名（判定在行里按 currentId 做）。
-      onRenameStart: () => startRowRename(row),
+      // #115/#121：点「当前会话」那一行 = 请求就地改名；树层先问宿主这条会话是不是真的
+      // 开在面板里（开着就地改名，没开按打开处理，见 activateSessionRow）。
+      onCurrentRowClick: () => activateSessionRow(row),
       ...rowRenameProps(row),
       onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
       onFork: () => forkRow(row.id),
@@ -1248,8 +1305,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
                 unread: unreadIds.has(row.id),
                 onToggleSelect: () => toggleSelected(row.id),
                 onOpen: () => openSessionClearingUnread(row.id),
-                // #115：与分组行同一份情境化点击与行内改名（定义见 `rowRenameProps`）。
-                onRenameStart: () => startRowRename(row),
+                // #115/#121：与分组行同一份情境化点击与行内改名（定义见 `rowRenameProps`
+                // 与 `activateSessionRow`）。
+                onCurrentRowClick: () => activateSessionRow(row),
                 ...rowRenameProps(row),
                 onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
                 onFork: () => forkRow(row.id),

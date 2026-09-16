@@ -36,3 +36,26 @@ export function drainAfterCreate(panelSessionId: string | undefined, pending: st
   if (pending === undefined) return undefined
   return panelSessionId === pending ? undefined : pending
 }
+
+/**
+ * 这个会话现在是不是正开在宿主的面板里（#121）——侧栏树「点当前会话行」按它判
+ * 「就地改名还是按打开处理」。
+ *
+ * 两种形态都算「开着」：**单例面板**（它的当前会话就是这条会话）与**显式多开的
+ * 标签页**（这条会话有自己专属的面板）——两种都是这条会话的对话区真的在屏幕上。
+ * 面板上挂着别的会话、根本没有面板，都算没开。
+ *
+ * 与 {@link routeSelection} 的区别：那个回答「这次打开请求该 create / switch /
+ * reveal」，这个回答「宿主现在到底有没有开着它」。**#121 的 bug 正是把两者混为一谈**：
+ * 侧栏只按官方 sessions 服务的 `list.current` 判「当前」（启动时它可能是官方恢复的
+ * 上次会话），就以为宿主开着它，于是点击进了改名、面板永远不出来。
+ *
+ * @param state.panelSessionId - 宿主面板当前挂着的会话（无面板 = undefined）。
+ * @param state.tabbed - 这条会话有没有自己的多开标签页。
+ */
+export function panelShowsSession(
+  state: { panelSessionId: string | undefined; tabbed: boolean },
+  sessionId: string,
+): boolean {
+  return state.panelSessionId === sessionId || state.tabbed
+}
