@@ -469,6 +469,27 @@ export function WorkspaceTree(props: TreeProps): unknown {
 
   const errorText = (reason: unknown): string => (reason instanceof Error ? reason.message : String(reason))
 
+  /**
+   * #110：动作失败的**可见反馈**。归档 / 分叉 / 多开三条线原来或不声不响地吞掉、
+   * 或只往控制台写一行（用户看不见）；统一飘一条提示——工具就是 #103 立起的
+   * `flashTip`（可复用、2.2 秒自动消失，任何座位都能发），所以这里只把原因并进
+   * 文案键，不另造一套反馈通道。
+   */
+  const reportFailure = (key: string, reason: unknown): void => {
+    flashTip(tr(key, { message: errorText(reason) }))
+  }
+  /** 分叉一行：成功后插件自己会打开子会话，这里只管失败的可见反馈。 */
+  const forkRow = (sessionId: string): void => {
+    void forkSession(sessionId).catch((reason: unknown) => reportFailure('fork.failed', reason))
+  }
+  /** 「在新标签页打开」一行；宿主没有这条能力时整个动作不注入（菜单项也不出现）。 */
+  const openRowInNewTab =
+    openInNewTab === undefined
+      ? undefined
+      : (sessionId: string): void => {
+          void openInNewTab(sessionId).catch((reason: unknown) => reportFailure('openInNewTab.failed', reason))
+        }
+
   /** 一条会话的资格事实（会话快照 + 置顶/未读两份 id 集合，见 pure/sessionEligibility.ts）。 */
   const eligibilityOf = (node: SessionNode): SessionEligibilityFacts => ({
     pinned: pinnedIds.has(node.id),
@@ -606,7 +627,10 @@ export function WorkspaceTree(props: TreeProps): unknown {
         const done = new Set(outcome.done)
         if (done.size > 0) setSelection((prev) => prev.filter((id) => !done.has(id)))
         if (outcome.failed.length > 0) {
-          setArchiveError(tr('archive.failed', { n: outcome.failed.length }))
+          const message = tr('archive.failed', { n: outcome.failed.length })
+          setArchiveError(message)
+          // #110：弹窗里那一行之外再飘一条——关掉弹窗之后就只剩日志了，用户看不见。
+          flashTip(message)
           return
         }
         setArchiveRequest(null)
@@ -615,6 +639,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
       (reason: unknown) => {
         setArchiveBusy(false)
         setArchiveError(errorText(reason))
+        // #110：归档失败必须可见（原来只有弹窗内联红字）。
+        reportFailure('archive.failed.reason', reason)
       },
     )
   }
@@ -879,11 +905,44 @@ export function WorkspaceTree(props: TreeProps): unknown {
     content.items.find((item) => item.id === sessionId)?.snippet
 
   /**
+   * #110：空态 / 加载态一块——同一外形（`.dshOneTree_empty`），`data-dshone-tree-empty`
+   * 写明是哪一种，验证套件与样式都按它认。`lines` 每项自成一行（块级），可选入口按钮
+   * 跟在最后一行下面。
+   */
+  const emptyNotice = (kind: string, lines: readonly unknown[], action?: unknown): unknown =>
+    h(
+      'div',
+      { className: 'dshOneTree_empty', 'data-dshone-tree': 'empty', 'data-dshone-tree-empty': kind },
+      ...lines.map((line, index) => h('div', { className: 'dshOneTree_emptyLine', key: `line-${String(index)}` }, line)),
+      ...(action === undefined ? [] : [action]),
+    )
+  /** 零工作区空态：文案指向上方的 ＋（旧侧栏同款说法），不改任何入口位置。 */
+  const noWorkspacesNotice = emptyNotice('no-workspaces', [tr('empty.noWorkspaces')])
+  /** 分组无成员空态：专属文案 + 「管理分组…」入口（去那儿给工作区打标/建组）。 */
+  const groupMembersNotice = emptyNotice(
+    'group-members',
+    [tr('empty.groupMembers'), tr('empty.groupMembers.hint')],
+    h(
+      'button',
+      {
+        type: 'button',
+        className: 'dshOneTree_emptyAction',
+        'data-dshone-tree-action': 'group-manage-empty',
+        onClick: () => setManageGroupsOpen(true),
+      },
+      tr('group.manage'),
+    ),
+  )
+
+  /**
    * #107：按工作区视图里一条会话行的 props（组内行与未归组行共用同一份）。
    *
    * 与单列表那一份的差别只有两处，都是标签组带来的：行**可拖**（拖进组块入组、拖到
    * 组外移出），行菜单多一节「标签组」（选组 / 不归入 / 新建）。单列表里没有组块可
    * 落，拖拽没有意义，所以那一份保持原样。
+   *
+   * #110 起分叉与多开都走 `forkRow` / `openRowInNewTab`（失败要飘一行可见反馈），
+   * 两条路径（这里与单列表）共用同一份包装。
    */
   const groupedRowProps = (row: SessionNode): Record<string, unknown> => {
     const section = tagItemsFor(row.id)
@@ -905,12 +964,12 @@ export function WorkspaceTree(props: TreeProps): unknown {
       onToggleSelect: () => toggleSelected(row.id),
       onOpen: () => openSessionClearingUnread(row.id),
       onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
-      onFork: () => forkSession(row.id),
+      onFork: () => forkRow(row.id),
       onMoveToRecycleBin: () => moveToRecycleBin([row.id]),
       onArchive: () => requestArchiveSession(row),
       onTogglePin: () => togglePin(row.id),
       onToggleUnread: () => toggleUnread(row.id),
-      onOpenInNewTab: openInNewTab === undefined ? undefined : () => openInNewTab(row.id),
+      onOpenInNewTab: openRowInNewTab === undefined ? undefined : () => openRowInNewTab(row.id),
     }
   }
 
@@ -965,12 +1024,12 @@ export function WorkspaceTree(props: TreeProps): unknown {
                 onToggleSelect: () => toggleSelected(row.id),
                 onOpen: () => openSessionClearingUnread(row.id),
                 onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
-                onFork: () => forkSession(row.id),
+                onFork: () => forkRow(row.id),
                 onMoveToRecycleBin: () => moveToRecycleBin([row.id]),
                 onArchive: () => requestArchiveSession(row),
                 onTogglePin: () => togglePin(row.id),
                 onToggleUnread: () => toggleUnread(row.id),
-                onOpenInNewTab: openInNewTab === undefined ? undefined : () => openInNewTab(row.id),
+                onOpenInNewTab: openRowInNewTab === undefined ? undefined : () => openRowInNewTab(row.id),
               }),
             ),
           )
@@ -1060,6 +1119,31 @@ export function WorkspaceTree(props: TreeProps): unknown {
             }),
           )
 
+  /**
+   * 列表区的内容（#110 把加载态与两种空态接在这里；原来加载中是整块空白）：
+   * 加载中（工作区快照还没到）→ 加载文案；选中分组里没有工作区 → 分组空态 + 入口；
+   * 一个工作区都没有 → 提示贴在列表最前（未分组块 / 平铺行照旧跟在后面）；
+   * 其余情况照旧渲染 `treeBody`，搜索态额外补一行官方那套「结果上限」提示。
+   */
+  const listChildren: readonly unknown[] = ((): readonly unknown[] => {
+    if (workspacePhase !== 'ready') return [emptyNotice('loading', [tr('empty.loading')])]
+    if (trimmedQuery !== '') {
+      return content.hasMore
+        ? [
+            treeBody,
+            h(
+              'div',
+              { className: 'dshOneTree_searchStatus', key: 'search-more', role: 'status', 'data-dshone-tree': 'search-more' },
+              tr('search.hasMore', { n: searchResultLimit }),
+            ),
+          ]
+        : [treeBody]
+    }
+    if (groupBy === 'workspace' && filterActive && groups.length === 0) return [groupMembersNotice]
+    if (workspaces.length > 0) return groups.length === 0 ? [emptyNotice('none', [tr('empty.none')])] : [treeBody]
+    return groups.length === 0 ? [noWorkspacesNotice] : [noWorkspacesNotice, treeBody]
+  })()
+
   return h(
     'div',
     { className: 'dshOneTree_root', ref: rootRef, 'data-shell': 'dsh-one-tree', 'data-dshone-tree': 'root' },
@@ -1120,11 +1204,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
       h(
         'div',
         { className: 'dshOneTree_list' },
-        workspacePhase !== 'ready'
-          ? null
-          : groups.length === 0 && trimmedQuery === ''
-            ? h('div', { className: 'dshOneTree_empty' }, tr('empty.none'))
-            : treeBody,
+        ...listChildren,
       ),
     ),
     // 回收站抽屉（#103）：本地可逆那一层。块头折叠态是纯视图态，随视图偏好一起落

@@ -2,6 +2,7 @@
 import { createElement as h, useState } from 'react'
 import {
   HoverCard,
+  IconAlarmClockOutline16,
   IconArchiveOutline20,
   IconBranchOutline16,
   IconEditOutline16,
@@ -171,6 +172,30 @@ function WorkspaceHoverContent({
     h('div', { className: 'dshOneTree_hoverTitle' }, label),
     cwd === undefined ? null : h('div', { className: 'dshOneTree_hoverPath' }, cwd),
     createdAt === undefined ? null : h('div', { className: 'dshOneTree_hoverTime' }, createdLabel(createdAt, tr)),
+  )
+}
+
+/**
+ * 活跃定时任务标记（官方 `ActiveScheduleIndicator`，#110 补渲染）：闹钟图标 +
+ * 无障碍/悬停文案（`schedule.active`）。数据来自官方 list 投影
+ * （`SessionNode.hasActiveSchedule`），只读展示；行本身仍是唯一动作。
+ *
+ * 位置也照官方：**标题之后、相对时间之前**（官方 rows 的 `row.hasActiveSchedule &&`）。
+ * 搜索结果行用的是同一个件，只多一个 `searchScheduleIndicator` 变体类（贴标题、
+ * 不留右外边距，官方 `Rows.module.css` 原值）。
+ */
+function ActiveScheduleIndicator({ tr, search = false }: { tr: Translate; search?: boolean }): unknown {
+  const label = tr('schedule.active')
+  return h(
+    'span',
+    {
+      className: `dshOneTree_scheduleIndicator${search ? ' dshOneTree_searchScheduleIndicator' : ''}`,
+      role: 'img',
+      'aria-label': label,
+      title: label,
+      'data-dshone-tree-schedule': '',
+    },
+    h(IconAlarmClockOutline16, {}),
   )
 }
 
@@ -520,7 +545,7 @@ export function SessionRow({
       icon: h(UnreadIcon, {}),
       disabled: unreadBlocked,
     },
-    { id: 'fork', label: tr('menu.fork'), icon: h(IconBranchOutline16, {}) },
+    { id: 'fork', label: h('span', { 'data-dshone-tree-item': 'fork' }, tr('menu.fork')), icon: h(IconBranchOutline16, {}) },
     ...openInNewTabItem,
     // 「移入回收站」= 本地可逆的一层（#103）：只有置顶被拦；运行中 / 未读 / 待交互都能移进去
     // （进去还能还原），所以它的判定结果与下面「归档」分开算。
@@ -636,6 +661,8 @@ export function SessionRow({
             : null,
         pinned ? h(PinMark, { key: 'pin', sessionId: node.id }) : null,
         h('span', { key: 'title', className: `dshOneTree_title${unread ? ' dshOneTree_unread' : ''}` }, title),
+        // 活跃定时任务标记（#110，官方 `row.hasActiveSchedule &&` 同位置：标题后、时间前）。
+        node.hasActiveSchedule ? h(ActiveScheduleIndicator, { key: 'schedule', tr }) : null,
         node.blank || selectMode
           ? null
           : h('span', {
@@ -736,6 +763,9 @@ export function SearchResultRow({
       type: 'button',
       className: `dshOneTree_searchRow${selected ? ' dshOneTree_selected' : ''}`,
       role: 'treeitem',
+      // 行标记（自有契约）：验证套件按它数「结果里有几行」——与树里的会话行
+      // `data-dshone-tree-row="session"` 同一个用途（F-12/F-18 都读它）。
+      'data-dshone-tree-row': 'search',
       'aria-selected': selected,
       // 行上带的会话 id 与勾选态（与树里的会话行同一套标记，验证套件据此认行）。
       'data-dshone-tree-session': node.id,
@@ -767,6 +797,8 @@ export function SearchResultRow({
               { key: 'title', className: `dshOneTree_searchRowTitle${unread ? ' dshOneTree_unread' : ''}` },
               displayTitle(node, tr),
             ),
+            // 同样补上活跃定时任务标记（官方 `SearchResultItem` 的 `search: true` 变体）。
+            node.hasActiveSchedule ? h(ActiveScheduleIndicator, { key: 'schedule', tr, search: true }) : null,
           ],
         }),
         h('span', {

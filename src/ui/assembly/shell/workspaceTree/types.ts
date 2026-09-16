@@ -54,7 +54,11 @@ export interface TreeProps {
   /** 在工作区里开新会话（复用空白会话或新建），见 apply 处对官方语义的说明。 */
   startSession: (workspaceId?: string) => void
   renameSession: (sessionId: string, title: string) => Promise<void>
-  forkSession: (sessionId: string) => void
+  /**
+   * 分叉会话（官方 `uiWorkspace.forkSession` 的语义）。返回 Promise：失败由界面层
+   * 如实报出来（#110），插件只负责把官方那条链路的成败原样交回，不再自己吞掉。
+   */
+  forkSession: (sessionId: string) => Promise<unknown>
   renameWorkspace: (workspaceId: string, title: string) => Promise<unknown>
   deleteWorkspace: (workspaceId: string) => Promise<void>
   /**
@@ -107,7 +111,8 @@ export interface TreeProps {
   saveTagGroups: (file: TagGroupsFile) => void
   /**
    * 「在新标签页打开」（#72 多开通道）：宿主有编辑器标签页时由 apply 注入，
-   * 官方 web 形态（无此能力）不注入 = 菜单项与行右键都不出现。
+   * 官方 web 形态（无此能力）不注入 = 菜单项与行右键都不出现。返回 Promise：
+   * 失败由界面层如实报出来（#110），插件不再只写一行日志。
    */
-  openInNewTab?: (sessionId: string) => void
+  openInNewTab?: ((sessionId: string) => Promise<unknown>) | undefined
 }

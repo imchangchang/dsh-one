@@ -61,6 +61,8 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export function IconTrashOutline16(props: { size?: number; className?: string }): unknown
   export function IconBranchOutline16(props: { size?: number; className?: string }): unknown
   export function IconArchiveOutline20(props: { size?: number; className?: string }): unknown
+  /** 官方图标件（#110：活跃定时任务标记，官方 ui-workspace 的 ActiveScheduleIndicator 同款）。 */
+  export function IconAlarmClockOutline16(props: { size?: number; className?: string }): unknown
   /** 官方图标件（#81：批量选择入口、回收站「还原」）。 */
   export function IconChecklistOutline14(props: { size?: number; className?: string }): unknown
   export function IconRefreshOutline16(props: { size?: number; className?: string }): unknown

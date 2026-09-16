@@ -65,6 +65,7 @@
  *   `IconPlusOutline16` / `IconSearchOutline16` / `IconCloseFill14` /
  *   `IconPersonalizationOutline16` / `IconEditOutline16` / `IconTrashOutline16` /
  *   `IconBranchOutline16` / `IconArchiveOutline20` / `IconRightUpOutline16` /
+ *   `IconAlarmClockOutline16`（#110 活跃定时任务标记）/
  *   `StateDot` / `Menu` / `Tooltip` / `HoverCard` / `Modal` / `Button` /
  *   `relativeTime`。
  *
@@ -228,9 +229,20 @@ export function apply(ctx: TreeContext): void {
   // 宿主能力口（#72 多开入口用它；`editorTabs` 是读时判定，注入面按它决定动作给不给）。
   const caps = hostCapabilities(ctx)
 
-  /** 官方 uiWorkspace 服务（归档与选目录用它；缺席时退回官方 workspaces 服务）。 */
+  /**
+   * 官方 uiWorkspace 服务（归档与选目录用它；缺席时退回官方 workspaces 服务）。
+   *
+   * 取法必须用 `ctx.get('uiWorkspace')`：官方把「可选服务」的正规取法定死为
+   * `ctx.get(key)` + undefined 判定（官方服务目录里那条 `access.optional.expression`
+   * 原文就是 `ctx.get("…")`，并标着 `requiresUndefinedCheck`），而**属性访问**
+   * `ctx.uiWorkspace` 是硬依赖的取法——没在 `inject` 里声明就抛
+   * `cannot get property "uiWorkspace" without inject`。本条原来写成属性访问，
+   * 于是归档与「选择已有文件夹…」在装配页上**必然失败**（#110 浏览器验证实测到的那条
+   * 报错），改成官方给的可选取法之后，缺席就真的回落到 `workspaces.archiveSession`，
+   * 在的时候走 uiWorkspace——两种情形都成立，插件也不必硬依赖这个服务。
+   */
   const uiWorkspace = (): UiWorkspaceService | undefined =>
-    (ctx as unknown as { uiWorkspace?: UiWorkspaceService }).uiWorkspace
+    ctx.get('uiWorkspace') as UiWorkspaceService | undefined
 
   /**
    * #103：回收站（本地集合）与归档动作接进模块级 store——树主组件与底部入口行是
@@ -273,15 +285,10 @@ export function apply(ctx: TreeContext): void {
       // 「在新标签页打开」（#72 多开通道）：走宿主能力口（抽象口，插件不碰宿主 API）。
       // 能力口如实上报 `editorTabs`：没有编辑器标签页的宿主（官方 web 形态）不注入
       // 这个动作，菜单项与行右键都不出现——那是同一份插件在另一端的正确形态。
+      // 失败不再在这里吞掉（#110）：把 Promise 交回树组件，由界面给一行可见反馈。
       ...(caps.editorTabs
         ? {
-            openInNewTab: (sessionId: string): void => {
-              caps.openSessionInNewTab(sessionId).catch((reason: unknown) => {
-                // 宿主侧失败已弹 VS Code 错误提示（服务没起/清单拉取失败）；
-                // 这里只留一条诊断，不重复打扰用户。
-                console.warn('[dsh-one] open session in new tab failed:', reason)
-              })
-            },
+            openInNewTab: (sessionId: string): Promise<unknown> => caps.openSessionInNewTab(sessionId),
           }
         : {}),
       // #99 顶栏 ＋ 菜单第二项「创建新工作区目录…」：宿主能力口，宿主没有这条能力
@@ -328,12 +335,9 @@ export function apply(ctx: TreeContext): void {
         if (!result.ok) throw new Error(result.error?.message ?? 'rename failed')
       },
       // 官方 uiWorkspace.forkSession：sessions.fork(increaseTitle) 后打开子会话。
-      forkSession: (sessionId: string): void => {
-        void sessions
-          .fork({ sessionId, increaseTitle: true })
-          .then((childId) => sessions.open(childId))
-          .catch(() => {})
-      },
+      // 失败不再静默吞掉（#110）：Promise 交回树组件，由界面给一行可见反馈。
+      forkSession: (sessionId: string): Promise<unknown> =>
+        sessions.fork({ sessionId, increaseTitle: true }).then((childId) => sessions.open(childId)),
       renameWorkspace: (workspaceId: string, title: string): Promise<unknown> => workspaces.rename(workspaceId, title),
       deleteWorkspace: (workspaceId: string): Promise<void> => workspaces.delete(workspaceId),
       // 官方 uiWorkspace.pickDirectory：宿主原生选择器。**为什么直调服务而不是渲染
