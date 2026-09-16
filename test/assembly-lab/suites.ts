@@ -5774,4 +5774,3 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // scaleSuites.ts，与 driftSuites.ts 同为独立文件，少一处合入热点）。
   SCALE_SUITE,
 ]
-]
