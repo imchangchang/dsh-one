@@ -20,9 +20,10 @@
  * \`tree.ts\`（主组件：组合各件 + 状态与订阅）、\`rows.ts\`（分组头行 / 会话行 /
  * 搜索结果行）、\`toolbar.ts\`（顶部工具栏）、\`groupFilterBar.ts\`（分组过滤条）、
  * \`selection.ts\`（批量选择）、\`recycleDrawer.ts\`（回收站抽屉）、\`recycleEntry.ts\`
- * （底部回收站入口行）、\`modals.ts\`（对话框）、\`search.ts\` / \`groups.ts\` /
- * \`format.ts\` / \`hoverCard.ts\` / \`types.ts\`、\`styles.ts\`（全部样式）、
- * \`locale.ts\`（词典）。
+ * （底部回收站入口行）、\`recycleBinStore.ts\`（回收站状态与动作：两个座位共享的
+ * 模块级 store）、\`flash.ts\`（飘提示）、\`modals.ts\`（对话框，含归档确认弹窗）、
+ * \`search.ts\` / \`groups.ts\` / \`format.ts\` / \`hoverCard.ts\` / \`types.ts\`、
+ * \`styles.ts\`（全部样式）、\`locale.ts\`（词典）。
  *
  * ## 机制分层（按 AGENTS.md 的优先序逐层举证）
  *
@@ -96,15 +97,19 @@
  * **悬停卡（#85 B 项）**：官方 HoverCard 只在容器右侧放得下 244+8px 时渲染，
  * 否则不渲染（官方定位会落到视口外；取舍见 `workspaceTree/hoverCard.ts` 的说明）。
  *
+ * **回收站的两层语义（#103）**：**回收站 = 本地可逆的一层**（只写我们自己的
+ * `recycle-bin` 集合，见 `workspaceTree/recycleBinStore.ts`；移入/还原都不动 dsh
+ * 侧），**归档 = 删除**（终点动作，走官方 `uiWorkspace.archiveSession`，UI 上一律
+ * 先过确认弹窗）。两者在界面上是分开的两个入口（会话行菜单两项），不共用一条路。
+ * 状态按 AGENTS.md 铁律住在宿主能力口（键 `recycle-bin`，与旧侧栏那份文件同名同形），
+ * 两个座位（树主组件与底部入口行）共享同一个模块级 store。
+ *
  * ## 已知取舍（下一步的差异化层处理）
- * - **分组展开态与视图偏好（分组方式/排序方式）目前只存在组件内存里，不跨重载
- *   持久化**。按 AGENTS.md 铁律「插件状态按官方惯例存储」，这类**纯视图态**应当
- *   沿用官方客户端既有惯例（官方 ui-workspace 的 `createWorkspaceViewStore()` 走
- *   `@deepseek-ai/dsh-client-store` 的 `defineStore`，经 entry 的 `store` 座位由
- *   框架托管持久化）。本步先不接该座位：它是**注册期**的座位声明，接入即改注册
- *   形状，与本步「只换渲染」的边界冲突；留到后续收敛时按官方 store 座位一次接好。
- *   **这是本步的已知偏差，不是最终形态。**（#102 的置顶/未读**不**走这条偏差——
- *   它们是用户可感知的持久状态，按铁律由宿主半拥有、经能力口读写，见 `state` 一节。）
+ * - **视图偏好**（分组方式/排序方式/当前分组/展开集合/回收站块折叠）走官方客户端
+ *   既有惯例的 `localStorage`（键 `dsh.workspaceTree.view`，见
+ *   `pure/workspaceTreePrefs.ts`），不接官方 `store` 座位：那个座位是**注册期**声明，
+ *   接入即改注册形状，与「只换渲染」的边界冲突。差别只在「谁能读到」——localStorage
+ *   是这台机器这个浏览器的看法，而官方 store 座位会被框架托管；偏好本身不缺持久化。
  * - 「按最近更新」在组内按 updatedAt 倒序（官方是手动序 + 活动晋升，常见情况下
  *   结果一致）。
  * - 工作区/会话重命名与工作区删除走官方 Modal 原语自渲染（官方同款组件、同款

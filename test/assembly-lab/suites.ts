@@ -1433,12 +1433,16 @@ export const MULTIOPEN_SUITE: LabSuite = {
       const menu = await menuFacts(sidebar.page)
       check.fact(`⋯ 菜单：${JSON.stringify(menu)}`)
       check.ok('⋯ 菜单弹出且带「在新标签页打开」项', menu.menus === 1 && menu.item.trim() !== '', JSON.stringify(menu))
+      // #103 起行菜单多一项「移入回收站」（与「归档会话」分开的两层语义）：五项都有
+      // 文案才算原三项没被挤掉。
       check.ok(
-        // #102 起菜单里多了「置顶」「标为未读」两项，所以这里不再钉死项数，改成
-        // 「原有四项都还在且每一项都有文案」——钉死会让共享热点上每加一项都要改这里。
-        '原有四项都还在且每项都有文案（重命名 / 分叉 / 在新标签页打开 / 归档）',
+        // #102/#103 起菜单里多了「置顶」「标为未读」「移入回收站」几项，所以这里不再钉死项数，
+        // 改成「原有几项都还在且每一项都有文案」——钉死会让共享热点上每加一项都要改这里。
+        '原有五项都还在且每项都有文案（重命名 / 分叉 / 在新标签页打开 / 移入回收站 / 归档）',
         menu.allItems.every((label) => label.trim() !== '') &&
-          ['重命名', '分叉会话', '在新标签页打开', '归档会话'].every((label) => menu.allItems.some((text) => text.includes(label))),
+          ['重命名', '分叉会话', '在新标签页打开', '移入回收站', '归档会话'].every((label) =>
+            menu.allItems.some((text) => text.includes(label)),
+          ),
         JSON.stringify(menu.allItems),
       )
       screenshots.push(await shot(ctx, sidebar.page, 'multiopen-menu'))
@@ -2652,8 +2656,11 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
       await page.waitForTimeout(2_500)
       const afterReload = (await hostRecycleBin(page)) as { sessionIds?: string[] } | null
-      check.eq('重载后本地集合仍是那两条（从宿主状态存储读回）', afterReload?.sessionIds ?? [], [first, second])
-      check.eq('重载后入口角标还是 2（本地集合从宿主状态存储读回）', await entryCount(), '2')
+      check.eq('重载后本地集合仍是那两条（旧文件形状读回来原样保留移入顺序）', afterReload?.sessionIds ?? [], [first, second])
+      // 注入的就是旧侧栏那份文件的形状（`{version:1, sessionIds:[...]}`）：页面打开时
+      // 原样读回 = 「旧 recycle-bin.json 一次性迁入」这件事的可执行口径（键名与文件形状
+      // 都是同一份，没有搬运步骤，见 pure/recycleBinState.ts 的说明）。
+      check.eq('重载后入口角标还是 2（旧文件形状的本地集合原样读回）', await entryCount(), '2')
       await page.click('[data-dshone-tree-action="recycle-open"]')
       await page.waitForTimeout(350)
       const reloadedDrawer = await page.evaluate(() => {
@@ -2785,6 +2792,73 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
         screenshots.push(await shot(ctx, page, 'recycle-archive-blocked-hint'))
         check.fact(`被拦住的会话示例：${JSON.stringify(blocked[0])}`)
       }
+
+      // ---- ⑪ 多选语境复用同一套动作与同一个弹窗（#103 第 6 条） ----
+      // 先挑行（选择态下行内操作区不渲染，得在进入选择态之前挑），再进选择态点它们。
+      // 挑法：优先带上状态不是 idle 的那些（它们按判定不能归档 → 才是「写明跳过数」
+      // 那条断言的观察对象），再补几条空闲的。
+      const picked = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]')).filter(
+          (row) => row.querySelector('.dshOneTree_rowActions') !== null,
+        )
+        const status = (row: Element): string => row.getAttribute('data-dshone-tree-status') ?? ''
+        const chosen = [...rows.filter((row) => status(row) !== 'idle').slice(0, 2), ...rows.filter((row) => status(row) === 'idle').slice(0, 2)]
+        return chosen.map((row) => ({ id: row.getAttribute('data-dshone-session') ?? '', status: status(row) }))
+      })
+      await page.click('[data-dshone-tree-action="select-mode"]')
+      await page.waitForTimeout(300)
+      for (const entry of picked) {
+        await page.locator(`[data-dshone-session="${entry.id}"]`).click()
+        await page.waitForTimeout(80)
+      }
+      const selected = await page.evaluate((ids: string[]) => {
+        const marks = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+          .filter((row) => ids.includes(row.getAttribute('data-dshone-session') ?? ''))
+          .map((row) => row.getAttribute('data-dshone-tree-checked') ?? '')
+        return marks
+      }, picked.map((entry) => entry.id))
+      // 归档资格：状态不是 idle 的（运行中 / 等待交互）按判定会被跳过——这正是
+      // 弹窗要「写明跳过数」的原因（置顶/未读那两个事实还没落地，见 sessionActions 说明）。
+      const expectedSkipped = picked.filter((entry) => entry.status !== 'idle').length
+      check.fact(`选择态选中 ${String(selected.length)} 行：${picked.map((entry) => `${entry.status || '?'}`).join(',')}（预期跳过 ${String(expectedSkipped)}）`)
+      check.ok('进入选择态后点行 = 勾选（选中标记带上）', selected.length === picked.length && selected.every((value) => value === 'true'))
+      check.ok('挑到的行里有可归档的（否则归档按钮本来就该禁用）', picked.length > expectedSkipped, JSON.stringify(picked))
+      if (picked.length === 0 || picked.length === expectedSkipped) return screenshots
+      await page.click('[data-dshone-tree-action="selection-archive"]')
+      await page.waitForTimeout(400)
+      const batchModal = await page.evaluate(() => ({
+        button: document.querySelector('[data-dshone-tree-action="archive-confirm"]') !== null,
+        rows: document.querySelectorAll('[data-dshone-archive-row]').length,
+        blocks: document.querySelectorAll('[data-dshone-archive-block]').length,
+        skipped: document.querySelector('[data-dshone-archive-skipped]')?.textContent ?? '',
+      }))
+      check.fact(`批量归档弹窗：${JSON.stringify(batchModal)}`)
+      check.ok('多选操作条「归档」复用同一个确认弹窗（按工作区树形列明细）', batchModal.button && batchModal.blocks >= 1 && batchModal.rows >= 1)
+      check.ok(
+        '弹窗写明跳过数（与资格判定算出来的一致：有跳过就写明条数，没有就不出现这行）',
+        expectedSkipped === 0 ? batchModal.skipped === '' : batchModal.skipped.includes(`另有 ${String(expectedSkipped)} 个`),
+        `skipped=${JSON.stringify(batchModal.skipped)} expected=${String(expectedSkipped)}`,
+      )
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      check.eq('取消批量归档 → 弹窗关掉、本地集合没变（还是空）', (await hostRecycleBin(page) as { sessionIds?: string[] } | null)?.sessionIds ?? [], [])
+      screenshots.push(await shot(ctx, page, 'recycle-batch-archive'))
+
+      // 多选操作条「移入回收站」：立即执行 + 飘提示 + 退出选择态（本地可逆，无确认）。
+      await page.click('[data-dshone-tree-action="selection-recycle"]')
+      await page.waitForTimeout(600)
+      const batchMoveFlash = await page.textContent('[data-dshone-tree="flash"]')
+      const batchMoveState = (await hostRecycleBin(page)) as { sessionIds?: string[] } | null
+      check.ok('批量移入回收站：飘一条回执', (batchMoveFlash ?? '').includes('回收站'), String(batchMoveFlash))
+      check.eq('批量移入回收站：选中的都进了本地集合（按勾选顺序）', batchMoveState?.sessionIds ?? [], picked.map((entry) => entry.id))
+      check.eq('批量移入回收站：动作完退出选择态（动作条消失）', await contentCount(page, '[data-dshone-tree="selection-bar"]'), 0)
+      await page.waitForTimeout(1_200)
+      check.eq('批量移入同样不动 dsh 侧（官方浏览区会话数不变）', await officialRows(), officialBefore)
+
+      // 收尾：全部还原（本地可逆），让页面回到干净状态。
+      await page.click('[data-dshone-tree-action="recycle-restore-all"]')
+      await page.waitForTimeout(500)
+      check.eq('批量移入的那些也能一次全部还原', (await hostRecycleBin(page) as { sessionIds?: string[] } | null)?.sessionIds ?? [], [])
 
       check.eq('两层语义套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
     } finally {
