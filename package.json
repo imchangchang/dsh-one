@@ -167,7 +167,8 @@
     "verify:host-half": "node scripts/verify-host-half-official.mjs",
     "verify:plugins-official": "npm run build && node scripts/verify-plugins-official.mjs",
     "verify:lab": "npm run build && node test/assembly-lab/verify.ts",
-    "package": "npm run build && vsce package"
+    "package": "npm run build && vsce package",
+    "verify:install-guide": "node --import ./test/install-guide/register.mjs test/install-guide/smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

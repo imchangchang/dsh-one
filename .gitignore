@@ -8,3 +8,5 @@ test/sandbox/.build-mock-llm/
 test/sandbox/*.report.html
 # 装配实验室的每次运行产物（ledger / HTML 报告 / 截图）：随时可重新生成，不入库。
 test/assembly-lab/out/
+# 安装引导页浏览器冒烟的产物（台账 / 截图）：同上，随手重跑即可。
+test/install-guide/out/

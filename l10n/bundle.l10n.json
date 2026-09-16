@@ -105,7 +105,6 @@
   "Starting the dsh service…": "Starting the dsh service…",
   "The dsh service is not running; no sessions yet.": "The dsh service is not running; no sessions yet.",
   "The dsh service is not running. Start it to load this sidebar.": "The dsh service is not running. Start it to load this sidebar.",
-  "This sidebar needs dsh. Pick your platform and run the command in a terminal:": "This sidebar needs dsh. Pick your platform and run the command in a terminal:",
   "The script is maintained by dsh-one (unofficial).": "The script is maintained by dsh-one (unofficial).",
   "Official installation guide": "Official installation guide",
   "Platform": "Platform",
@@ -234,5 +233,15 @@
   "Session export failed: HTTP {0}": "Session export failed: HTTP {0}",
   "Session export failed: {0}": "Session export failed: {0}",
   "Session log exported to {0}": "Session log exported to {0}",
-  "Export session log": "Export session log"
+  "Export session log": "Export session log",
+  "dsh powers this sidebar. Pick your platform, run one command, then come back here.": "dsh powers this sidebar. Pick your platform, run one command, then come back here.",
+  "Open a terminal in VS Code (or your system terminal).": "Open a terminal in VS Code (or your system terminal).",
+  "Paste the command above and press Enter.": "Paste the command above and press Enter.",
+  "The first run takes a minute or two — dsh prepares profiles and dependencies.": "The first run takes a minute or two — dsh prepares profiles and dependencies.",
+  "Terminal install": "Terminal install",
+  "Editor setup": "Editor setup",
+  "Back in VS Code, DSH One starts the dsh service and loads your sessions automatically — no extra setup.": "Back in VS Code, DSH One starts the dsh service and loads your sessions automatically — no extra setup.",
+  "You can also use the official dsh web interface in a browser.": "You can also use the official dsh web interface in a browser.",
+  "Open dsh web": "Open dsh web",
+  "Copy command": "Copy command"
 }

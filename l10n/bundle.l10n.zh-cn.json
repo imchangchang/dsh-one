@@ -105,7 +105,6 @@
   "Starting the dsh service…": "正在启动 dsh 服务…",
   "The dsh service is not running; no sessions yet.": "dsh 服务未运行，还没有会话。",
   "The dsh service is not running. Start it to load this sidebar.": "dsh 服务未运行。启动后即可加载本侧栏。",
-  "This sidebar needs dsh. Pick your platform and run the command in a terminal:": "本侧栏依赖 dsh。请选择你的平台，在终端运行下面的命令：",
   "The script is maintained by dsh-one (unofficial).": "该脚本由 dsh-one 维护（非官方）。",
   "Official installation guide": "官方安装文档",
   "Platform": "平台",
@@ -234,5 +233,15 @@
   "Session export failed: HTTP {0}": "会话导出失败：HTTP {0}",
   "Session export failed: {0}": "会话导出失败：{0}",
   "Session log exported to {0}": "会话日志已导出到 {0}",
-  "Export session log": "导出会话日志"
+  "Export session log": "导出会话日志",
+  "dsh powers this sidebar. Pick your platform, run one command, then come back here.": "dsh 是这个侧栏的运行环境。选好平台，跑一条命令，再回到这里就行。",
+  "Open a terminal in VS Code (or your system terminal).": "在 VS Code 里打开终端（或用系统终端）。",
+  "Paste the command above and press Enter.": "粘贴上面的命令，回车执行。",
+  "The first run takes a minute or two — dsh prepares profiles and dependencies.": "第一次运行需要一两分钟：dsh 要准备 profile 和依赖。",
+  "Terminal install": "终端安装",
+  "Editor setup": "编辑器接入",
+  "Back in VS Code, DSH One starts the dsh service and loads your sessions automatically — no extra setup.": "回到 VS Code 侧栏就能用：DSH One 会自动启动 dsh 服务并加载会话，不需要额外配置。",
+  "You can also use the official dsh web interface in a browser.": "也可以在浏览器里使用官方 dsh web 界面。",
+  "Open dsh web": "打开 dsh web",
+  "Copy command": "复制命令"
 }

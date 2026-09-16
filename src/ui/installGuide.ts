@@ -1,24 +1,24 @@
 import * as vscode from 'vscode'
-import * as crypto from 'node:crypto'
 import type { Logger } from '../log.ts'
 import { createPanelSlot } from '../pure/panelSlot.ts'
 import {
   DSH_OFFICIAL_INSTALL_URL,
-  INSTALL_SCRIPT_OS_LABEL,
   INSTALL_SCRIPT_OS_ORDER,
   hostOsFromPlatform,
   installCommandFor,
-  installOsOrDefault,
   type HostOs,
 } from '../pure/installScript.ts'
+import { installGuidePageHtml, type InstallGuideTexts } from '../pure/installGuidePage.ts'
 
 /**
- * 安装引导 tab（#100）：安装方式单独开一个编辑器 tab（像设置页那样），侧栏只在
- * 这种情况下显示「未安装」状态——窄侧栏放不下平台下拉 + 命令条 + 复制按钮。
+ * 安装引导 tab（#100 落地、#105 改版）：安装方式单独开一个编辑器 tab（像设置页那样），
+ * 侧栏只在「未安装」状态下指向它——窄侧栏放不下平台下拉 + 命令条 + 复制按钮。
  *
  * 页面是**宿主侧普通 HTML**（我们的 HTML + CSS + 内联脚本，文案走
- * `vscode.l10n.t`），不参与装配树：dsh 没装时网关起不来，装配页组装不了。
- * 单例：已开则聚焦（`pure/panelSlot.ts`），不再开第二个 tab。
+ * `vscode.l10n.t`，拼装在 `pure/installGuidePage.ts`），不参与装配树：dsh 没装时
+ * 网关起不来，装配页组装不了。单例：已开则聚焦（`pure/panelSlot.ts`）。
+ *
+ * 页面只回「平台名」或一个动作名，命令文本一律由宿主现算后写剪贴板（#100 定的口径）。
  */
 
 export const INSTALL_GUIDE_VIEW_TYPE = 'dshOne.installGuide'
@@ -59,6 +59,12 @@ function createGuidePanel(logger: Logger): vscode.WebviewPanel {
     }
     if (message.type === 'installGuide:openDocs') {
       void vscode.env.openExternal(vscode.Uri.parse(DSH_OFFICIAL_INSTALL_URL))
+      return
+    }
+    if (message.type === 'installGuide:openWeb') {
+      // 官方 dsh web 地址与启动/鉴权细节都在既有命令里（它会先确保服务在跑，
+      // 再开带 token 的本机地址）——引导页不另起一套 URL 拼装。
+      void vscode.commands.executeCommand('dshOne.openExternal')
     }
   })
   panel.onDidDispose(() => {
@@ -69,132 +75,35 @@ function createGuidePanel(logger: Logger): vscode.WebviewPanel {
   return panel
 }
 
-/** 各平台命令的页内表：平台下拉切换时页面自己换文案，不用往返宿主。 */
-function commandsJson(): string {
-  const table: Record<string, string> = {}
-  for (const os of INSTALL_SCRIPT_OS_ORDER) table[os] = installCommandFor(os)
-  return JSON.stringify(table).replace(/</g, '\\u003c')
+/** 宿主侧文案（英文默认串走 `vscode.l10n.t`，翻译在 l10n/bundle.l10n.zh-cn.json）。 */
+function guideTexts(): InstallGuideTexts {
+  return {
+    heroTitle: vscode.l10n.t('Install dsh'),
+    heroLead: vscode.l10n.t(
+      'dsh powers this sidebar. Pick your platform, run one command, then come back here.',
+    ),
+    installButton: vscode.l10n.t('Install dsh'),
+    platformLabel: vscode.l10n.t('Platform'),
+    copy: vscode.l10n.t('Copy command'),
+    copied: vscode.l10n.t('Copied'),
+    copyFailed: vscode.l10n.t('Copy failed'),
+    docsLink: vscode.l10n.t('Official installation guide'),
+    terminalTab: vscode.l10n.t('Terminal install'),
+    editorTab: vscode.l10n.t('Editor setup'),
+    terminalSteps: [
+      vscode.l10n.t('Open a terminal in VS Code (or your system terminal).'),
+      vscode.l10n.t('Paste the command above and press Enter.'),
+      vscode.l10n.t('The first run takes a minute or two — dsh prepares profiles and dependencies.'),
+    ],
+    unofficialNote: vscode.l10n.t('The script is maintained by dsh-one (unofficial).'),
+    editorLead: vscode.l10n.t(
+      'Back in VS Code, DSH One starts the dsh service and loads your sessions automatically — no extra setup.',
+    ),
+    editorNote: vscode.l10n.t('You can also use the official dsh web interface in a browser.'),
+    openWeb: vscode.l10n.t('Open dsh web'),
+  }
 }
 
 export function installGuideHtml(hostOs: HostOs | undefined): string {
-  const nonce = crypto.randomBytes(16).toString('base64')
-  const csp = [
-    "default-src 'none'",
-    `script-src 'nonce-${nonce}'`,
-    "style-src 'unsafe-inline'",
-  ].join('; ')
-  const defaultOs = installOsOrDefault(hostOs)
-  const options = INSTALL_SCRIPT_OS_ORDER.map(
-    (os) =>
-      `<option value="${os}"${os === defaultOs ? ' selected' : ''}>${INSTALL_SCRIPT_OS_LABEL[os]}</option>`,
-  ).join('')
-  const title = vscode.l10n.t('Install dsh')
-  const lead = vscode.l10n.t('This sidebar needs dsh. Pick your platform and run the command in a terminal:')
-  const platform = vscode.l10n.t('Platform')
-  const noteUnofficial = vscode.l10n.t('The script is maintained by dsh-one (unofficial).')
-  const noteAfter = vscode.l10n.t('Install it and come back here to start automatically.')
-  const docs = vscode.l10n.t('Official installation guide')
-  const copy = vscode.l10n.t('Copy')
-  const copied = vscode.l10n.t('Copied')
-  const copyFailed = vscode.l10n.t('Copy failed')
-
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="${csp}" />
-    <title>${title}</title>
-    <style>
-      body {
-        margin: 0; padding: 20px 24px;
-        font-family: var(--vscode-font-family, system-ui, sans-serif);
-        font-size: 13px; line-height: 1.6;
-        color: var(--vscode-foreground, #ccc);
-        background: var(--vscode-editor-background, transparent);
-      }
-      .page { max-width: 720px; display: flex; flex-direction: column; gap: 10px; }
-      h1 { font-size: 16px; font-weight: 600; margin: 0; }
-      p { margin: 0; }
-      .lead { color: var(--vscode-descriptionForeground, #888); }
-      .note { font-size: 12px; color: var(--vscode-descriptionForeground, #888); }
-      .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin: 2px 0; }
-      select {
-        flex: 0 0 auto; padding: 3px 8px; border-radius: 12px; cursor: pointer;
-        font-family: inherit; font-size: 12px; font-weight: 500;
-        background: var(--vscode-dropdown-background, var(--vscode-button-background));
-        color: var(--vscode-dropdown-foreground, var(--vscode-button-foreground));
-        border: 1px solid var(--vscode-dropdown-border, transparent);
-      }
-      .cmd {
-        flex: 1 1 320px; min-width: 0;
-        display: flex; align-items: center; gap: 6px;
-        background: var(--vscode-editorWidget-background, rgba(127,127,127,.12));
-        border: 1px solid var(--vscode-panel-border, rgba(127,127,127,.3));
-        border-radius: 12px; padding: 2px 4px 2px 12px;
-      }
-      code {
-        flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        font-family: var(--vscode-editor-font-family, monospace);
-        font-size: 12px; color: var(--vscode-foreground);
-      }
-      button {
-        padding: 4px 12px; border: 0; border-radius: 4px; cursor: pointer;
-        font-family: inherit; font-size: 12px;
-        background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-      }
-      button:hover { background: var(--vscode-button-hoverBackground); }
-      button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
-      #copy {
-        flex: none; padding: 3px 10px; border-radius: 8px; white-space: nowrap;
-        background: transparent; color: var(--vscode-descriptionForeground, #888);
-      }
-      #copy:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.25)); color: var(--vscode-foreground); }
-      #docs { align-self: flex-start; }
-    </style>
-  </head>
-  <body>
-    <div class="page">
-      <h1>${title}</h1>
-      <p class="lead">${lead}</p>
-      <div class="row">
-        <select id="os" aria-label="${platform}">${options}</select>
-        <div class="cmd">
-          <code id="cmd"></code>
-          <button id="copy" type="button">${copy}</button>
-        </div>
-      </div>
-      <p class="note">${noteUnofficial}</p>
-      <p class="note">${noteAfter}</p>
-      <button id="docs" type="button">${docs}</button>
-    </div>
-    <script nonce="${nonce}">
-      const vscode = globalThis.__DSH_ONE_VSCODE__ || acquireVsCodeApi()
-      const COMMANDS = ${commandsJson()}
-      const osSelect = document.getElementById('os')
-      const code = document.getElementById('cmd')
-      const apply = () => {
-        const text = COMMANDS[osSelect.value] || ''
-        code.textContent = text
-        code.title = text
-      }
-      osSelect.addEventListener('change', apply)
-      apply()
-      const copyButton = document.getElementById('copy')
-      const copyLabel = copyButton.textContent
-      copyButton.addEventListener('click', () => {
-        vscode.postMessage({ type: 'installGuide:copy', os: osSelect.value })
-      })
-      document.getElementById('docs').addEventListener('click', () => {
-        vscode.postMessage({ type: 'installGuide:openDocs' })
-      })
-      window.addEventListener('message', (event) => {
-        const msg = event.data
-        if (!msg || msg.type !== 'installGuide:copied') return
-        copyButton.textContent = msg.ok ? ${JSON.stringify(copied)} : ${JSON.stringify(copyFailed)}
-        setTimeout(() => { copyButton.textContent = copyLabel }, 2000)
-      })
-    </script>
-  </body>
-</html>
-`
+  return installGuidePageHtml(hostOs, guideTexts(), vscode.env.language)
 }
