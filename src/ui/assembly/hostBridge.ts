@@ -1,10 +1,16 @@
 /**
- * 宿主能力桥（#65 批 1）——装配页里的自有插件向扩展宿主请求「只有宿主能做的事」
- * （git 二进制、VS Code API），走一条请求-响应消息通道：
+ * 宿主能力桥（#65 批 1；#84 起同时是「宿主能力口」在 VS Code 侧的实现）——装配页里
+ * 的自有插件向扩展宿主请求「只有宿主能做的事」（git 二进制、VS Code API、文件保存
+ * 对话框），走一条请求-响应消息通道：
  *
  *   页面 → 宿主：{ type: 'dshOne.hostCall', call: '<白名单名>', args: <对象>, id: <调用方生成> }
  *   宿主 → 页面：{ type: 'dshOne.hostResult', id: <回声>, ok: true, data } 或
  *                { type: 'dshOne.hostResult', id: <回声>, ok: false, error: { code, message } }
+ *
+ * 前端插件不直接走这条通道，而是调**能力口**（`src/ui/assembly/shell/hostCapabilities.ts`）：
+ * 能力口在 VS Code 侧把调用落到本桥的白名单调用上，在官方 web 侧落到宿主半插件的
+ * 网关 RPC 上——插件代码两端一样（#84）。所以下面每个 `call` 名字都对应能力口里的
+ * 一个方法，两边同名同参数。
  *
  * 走第几层机制：这条桥是 dsh-one 自有外壳与自有插件之间的通道，不触碰任何官方
  * 组件（官方机制层 1-3 都不涉及宿主能力；官方也没有「插件向宿主取 git 数据」
@@ -14,7 +20,7 @@
  * 安全（这是外部输入进入宿主的唯一入口，按白名单 + 参数校核 + 结构化错误收口）：
  * - **白名单**：call 名不在 HOST_CALLS 表里一律 unknown-call，绝不动态转发；
  * - **参数校核**：每个调用自校验参数形状（git hash 正则、URL 协议白名单、
- *   cwd 归属），不合法即 invalid-args 且不执行任何外部命令；
+ *   cwd 归属、下载路径必须本站绝对路径），不合法即 invalid-args 且不执行任何外部命令；
  * - **不拼 shell**：git 一律 execFile（argv 数组），不做字符串拼接——参数校核
  *   是第一道防线，argv 传递本身也杜绝了 shell 注入；
  * - **路径限域**：调用方给的 cwd 只允许落在三类允许根内——VS Code 工作区目录、
@@ -25,6 +31,7 @@
  * - **结构化错误**：回执只有 { code, message }，message 不含命令行原文。
  */
 import * as vscode from 'vscode'
+import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { Logger } from '../../log.ts'
@@ -37,6 +44,8 @@ import {
   resolveQueryDir,
   type HostCallError,
 } from '../../pure/hostCalls.ts'
+import type { DownloadArgs, HostCapabilityError, SaveFileArgs } from '../../pure/hostCapabilities.ts'
+import { performGatewayDownload, performSaveContent } from '../../pure/hostDownload.ts'
 import type { CommitInfoResult } from '../../pure/chatContract.ts'
 import type { GitWorkspaceQueryResult } from '../../pure/gitWorkspaceQuery.ts'
 
@@ -46,10 +55,13 @@ export type { HostCallErrorCode, HostCallError } from '../../pure/hostCalls.ts'
 /**
  * 调用名白名单（新增能力必须同时登记参数校核与实现；**失去全部消费者的调用
  * 就地删除**——`vscode.openInBuiltinBrowser` 随右键菜单收缩一并移除，见 #65）。
+ * 名字与能力口的方法一一对应（见 `src/ui/assembly/shell/hostCapabilities.ts` 的能力表）。
  */
 export const HOST_CALLS = {
   'git.show': 'One commit (hash + author + message + shortstat + GitHub link) from the git CLI.',
   'vscode.openExternal': 'Open a http/https/mailto URL with the system browser (git card "Open on GitHub").',
+  'file.download': 'Fetch content from the connected dsh gateway by path and save it where the user chooses.',
+  'file.save': 'Write base64 content to a file where the user chooses.',
 } as const
 
 export type HostCallName = keyof typeof HOST_CALLS
@@ -71,7 +83,7 @@ export interface HostCallResult {
   error?: HostCallError
 }
 
-/** 宿主能力桥依赖（工作区根、git 可执行文件路径、日志）。 */
+/** 宿主能力桥依赖（工作区根、git 可执行文件路径、日志、落盘三件套）。 */
 export interface HostBridgeDeps {
   /** 允许 git 执行的工作目录来源（VS Code 工作区目录）。 */
   workspaceFolders: () => readonly string[]
@@ -88,6 +100,19 @@ export interface HostBridgeDeps {
   timeoutMs?: number
   /** 诊断日志（写输出面板；git 查询的扫描/超时留痕用）。 */
   log?: (line: string) => void
+  /**
+   * 网关内容来源（loopback mirror 的源；`file.download` 用）。取不到（服务没跑、
+   * 面板已关）时该调用回 `unsupported`——不静默拿别的地址去取。
+   */
+  gatewayOrigin?: () => string | undefined
+  /** 选择保存位置（缺省弹 VS Code 保存对话框；测试注入假件）。返回 null = 用户取消。 */
+  chooseSavePath?: (suggestedName: string) => Promise<string | null>
+  /** 落盘（缺省 fs.writeFile；测试注入假件）。 */
+  writeBytes?: (target: string, data: Uint8Array) => Promise<void>
+  /** 用户提示（缺省 VS Code 消息框；测试注入假件）。 */
+  notify?: (level: 'info' | 'error', message: string) => void
+  /** 取网关内容（缺省 fetch；测试注入假件）。 */
+  fetchGateway?: (url: string, init?: { method: string }) => Promise<Response>
 }
 
 /**
@@ -121,6 +146,71 @@ async function gitShow(args: { hash: string; cwd?: string }, deps: HostBridgeDep
 }
 
 /**
+ * `file.download`：把网关某条路径的内容交给用户（VS Code 里 = 保存对话框 + 写盘）。
+ *
+ * 为什么不让页面自己下载：webview 的源是 `vscode-webview://`，裸 fetch 非 http 源
+ * 直接失败，`a[download]` 也被禁；能取到网关内容的只有宿主（经 loopback mirror，
+ * 鉴权 cookie 在代理侧加）。所以这条能力的语义是「取内容 + 交给用户」，不是「给我字节」。
+ *
+ * 流程与安全检查在 `src/pure/hostDownload.ts`（纯逻辑，可单测）；这里只提供 VS Code
+ * 的三件套（取内容 / 保存框 / 写盘）与用户提示。
+ */
+async function fileDownload(args: DownloadArgs, deps: HostBridgeDeps): Promise<{ path: string } | HostCapabilityError> {
+  const result = await performGatewayDownload(args, {
+    ...(deps.gatewayOrigin === undefined ? {} : { gatewayOrigin: deps.gatewayOrigin }),
+    ...(deps.fetchGateway === undefined ? {} : { fetchImpl: deps.fetchGateway }),
+    chooseSavePath: deps.chooseSavePath ?? defaultChooseSavePath,
+    writeBytes: deps.writeBytes ?? defaultWriteBytes,
+  })
+  notifyResult(result, deps)
+  return result
+}
+
+/** `file.save`：把页面给的 base64 内容落到用户选的位置。 */
+async function fileSave(args: SaveFileArgs, deps: HostBridgeDeps): Promise<{ path: string } | HostCapabilityError> {
+  const result = await performSaveContent(args, {
+    chooseSavePath: deps.chooseSavePath ?? defaultChooseSavePath,
+    writeBytes: deps.writeBytes ?? defaultWriteBytes,
+  })
+  notifyResult(result, deps)
+  return result
+}
+
+/**
+ * 用户提示：成功报落点，失败报原因，**取消不报**（用户自己按的取消）。
+ * 文案沿用既有导出那几条 l10n key，不新增词条。
+ */
+function notifyResult(result: { path: string } | HostCapabilityError, deps: HostBridgeDeps): void {
+  const notify = deps.notify ?? defaultNotify
+  if ('path' in result) {
+    notify('info', vscode.l10n.t('Session log exported to {0}', result.path))
+    return
+  }
+  if (result.code === 'cancelled') return
+  notify('error', vscode.l10n.t('Session export failed: {0}', result.message))
+}
+
+/** 默认保存位置选择：VS Code 保存对话框（默认落在 ~/Downloads）。 */
+async function defaultChooseSavePath(suggestedName: string): Promise<string | null> {
+  const target = await vscode.window.showSaveDialog({
+    defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Downloads', suggestedName)),
+    saveLabel: vscode.l10n.t('Export session log'),
+  })
+  return target === undefined ? null : target.fsPath
+}
+
+/** 默认落盘。 */
+async function defaultWriteBytes(target: string, data: Uint8Array): Promise<void> {
+  await fs.writeFile(target, data)
+}
+
+/** 默认提示（与既有导出提示同一条 l10n key）。 */
+function defaultNotify(level: 'info' | 'error', message: string): void {
+  if (level === 'info') void vscode.window.showInformationMessage(message)
+  else void vscode.window.showErrorMessage(message)
+}
+
+/**
  * 执行一次能力调用（白名单 → 参数校核 → 实现）。便于单测的纯入口：任何异常
  * 都由调用方收成 { code: 'failed' } 回执，绝不把堆栈抛回页面。
  */
@@ -128,13 +218,19 @@ export async function runHostCall(
   call: string,
   args: unknown,
   deps: HostBridgeDeps,
-): Promise<CommitInfoResult | null | HostCallError> {
+): Promise<CommitInfoResult | { path: string } | null | HostCapabilityError> {
   if (!(call in HOST_CALLS)) {
     return { code: 'unknown-call', message: `unknown host call: ${call}` }
   }
   if (call === 'git.show') {
     const parsed = parseGitShowArgs(args)
     return isHostCallError(parsed) ? parsed : await gitShow(parsed, deps)
+  }
+  if (call === 'file.download') {
+    return await fileDownload(args as DownloadArgs, deps)
+  }
+  if (call === 'file.save') {
+    return await fileSave(args as SaveFileArgs, deps)
   }
   const url = parseAllowedUrl(asRecord(args)?.url)
   if (url === null) {

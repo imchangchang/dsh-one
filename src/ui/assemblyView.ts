@@ -1,6 +1,5 @@
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
-import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { ServerManager } from '../server/manager.ts'
@@ -230,7 +229,7 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
  */
 const gatewayRootsByManager = new WeakMap<ServerManager, () => Promise<readonly string[]>>()
 
-function hostBridgeDeps(manager: ServerManager, logger: Logger): HostBridgeDeps {
+function hostBridgeDeps(manager: ServerManager, logger: Logger, gatewayOrigin?: () => string | undefined): HostBridgeDeps {
   let roots = gatewayRootsByManager.get(manager)
   if (roots === undefined) {
     roots = createGatewayWorkspaceRoots({
@@ -245,6 +244,9 @@ function hostBridgeDeps(manager: ServerManager, logger: Logger): HostBridgeDeps 
   return {
     ...defaultHostBridgeDeps(),
     extraAllowedRoots: roots,
+    // `file.download` 的取数源 = 该面板所用 mirror 的 loopback 源（鉴权 cookie 由
+    // 代理侧附加；页面拿不到也不该拿到 cookie）。mirror 随面板释放，故传 getter。
+    ...(gatewayOrigin === undefined ? {} : { gatewayOrigin }),
     // git 查询的扫描/命中/超时留痕走输出面板「DSH One」频道（probe 同一条通道），
     // 页面侧不感知、UI 不阻塞。
     log: (line: string) => logger.info(line),
@@ -373,15 +375,6 @@ async function createChatPanel(
   chatSingleton = { panel }
   logger.info(`assembled chat: ${mirror.origin}${sessionId === undefined ? '' : ` session=${sessionId.slice(0, 13)}`}`)
   const probeSub = subscribeAssemblyProbe(panel.webview, logger)
-  // 会话日志导出（session-export 插件，#71）：官方导出走裸 fetch + a[download]
-  // 在 webview 双杀（非 http 源 + 禁下载）——点击 postMessage 过来，宿主经
-  // mirror 拉 ZIP（读操作）→ showSaveDialog → 写盘。
-  const exportSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
-    if (typeof msg !== 'object' || msg === null) return
-    const m = msg as { type?: unknown; sessionId?: unknown }
-    if (m.type !== 'dshOne.exportSessionLog' || typeof m.sessionId !== 'string' || m.sessionId === '') return
-    void exportSessionLog(mirror, m.sessionId)
-  })
   // 活跃/标题上报（session-boot 插件）：维护映射 + 面板标题跟随会话标题。
   const metaSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
     if (typeof msg !== 'object' || msg === null) return
@@ -395,11 +388,10 @@ async function createChatPanel(
   })
   // 宿主能力桥（#65 批 1）：页面插件（git 卡片/右键菜单等）经它取 git 数据与
   // VS Code 动作；白名单 + 参数校核在 hostBridge 内收口。
-  const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger))
+  const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger, () => mirror.origin))
   trackAssemblyWebview(context, panel.webview)
   panel.onDidDispose(() => {
     probeSub.dispose()
-    exportSub.dispose()
     metaSub.dispose()
     hostSub.dispose()
     untrackAssemblyWebview(panel.webview)
@@ -420,33 +412,6 @@ async function createChatPanel(
     banner: versionBanner(dshVersion(status.url) ?? status.version),
     bootSessionId: sessionId,
   })
-}
-
-/** 会话日志导出落盘：经 mirror 拉 ZIP（读）→ VS Code 保存对话框 → 写盘。 */
-async function exportSessionLog(mirror: AssemblyMirror, sessionId: string): Promise<void> {
-  const url = `${mirror.origin}/api/session.export?sessionId=${encodeURIComponent(sessionId)}&includeDescendants=true`
-  const head = await fetch(url, { method: 'HEAD' })
-  if (!head.ok) {
-    void vscode.window.showErrorMessage(vscode.l10n.t('Session export failed: HTTP {0}', head.status))
-    return
-  }
-  const filename = `dsh-session-${sessionId.replace(/[^A-Za-z0-9_-]/g, '_')}.zip`
-  const target = await vscode.window.showSaveDialog({
-    defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Downloads', filename)),
-    saveLabel: vscode.l10n.t('Export session log'),
-  })
-  if (target === undefined) return
-  try {
-    const res = await fetch(url)
-    if (!res.ok || res.body === null) throw new Error(`HTTP ${res.status}`)
-    const buffer = Buffer.from(await res.arrayBuffer())
-    await fs.writeFile(target.fsPath, buffer)
-    void vscode.window.showInformationMessage(vscode.l10n.t('Session log exported to {0}', target.fsPath))
-  } catch (err) {
-    void vscode.window.showErrorMessage(
-      vscode.l10n.t('Session export failed: {0}', err instanceof Error ? err.message : String(err)),
-    )
-  }
 }
 
 /**
@@ -621,7 +586,11 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
   resolveWebviewView(view: vscode.WebviewView): void {
     view.webview.options = { enableScripts: true }
     const probeSub = subscribeAssemblyProbe(view.webview, this.logger)
-    const hostSub = subscribeHostCalls(view.webview, this.logger, hostBridgeDeps(this.manager, this.logger))
+    const hostSub = subscribeHostCalls(
+      view.webview,
+      this.logger,
+      hostBridgeDeps(this.manager, this.logger, () => this.mirror?.origin),
+    )
     trackAssemblyWebview(this.context, view.webview)
     const retrySub = view.webview.onDidReceiveMessage((msg: unknown) => {
       if (typeof msg !== 'object' || msg === null) return
@@ -776,7 +745,7 @@ export function registerAssembledSettings(
       if (typeof msg !== 'object' || msg === null || (msg as { type?: unknown }).type !== 'dshOne.openSettingsDocument') return
       void openSettingsDocumentInEditor()
     })
-    const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger))
+    const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger, () => mirror.origin))
     trackAssemblyWebview(context, panel.webview)
     panel.onDidDispose(() => {
       probeSub.dispose()
