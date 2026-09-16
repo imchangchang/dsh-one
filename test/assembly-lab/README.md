@@ -76,6 +76,7 @@ chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（
 | **F-05 BRIDGE** | 宿主能力口页面侧：全页 `acquireVsCodeApi` 只调一次、并发调用按 id 配对、结构化错误带 code、上行消息形状 |
 | **F-06 PORTABLE** | 可移植性（#83）：**抹掉自有 frame 标记**的 chat 页（`data-shell*` 一律不落进 DOM，等于官方 web 那种「没有我们的 shell frame」的处境）上，三个 `dsh-*` 插件照常工作——正文装饰与提交卡片、行内码右键菜单、清空/反悔；外链在**有宿主桥**时走 `vscode.openExternal`、**撤掉桥**后改走页面 `window.open`（官方 web 侧那条路） |
 | **F-07 SIDEBAR** | 侧栏六项核心功能（#81）与状态读写（#82）：分组过滤（旧 `groups.json` 形状注进宿主状态存储即用、界面新建按同一形状写回、旧字段不被动）、活状态计数与行同源、工作区内会话不折叠、回收站抽屉按工作区组织、批量选择动作条、视图态走官方 localStorage 惯例并在重载后生效 |
+| **F-08 MULTIOPEN** | 会话多开（#72）：会话行菜单与行右键都带「在新标签页打开」（右键菜单锚在指针处）、点了发出的会话 id 是那一行的真会话；多开 tab 的启动注入（`__DSH_ONE_BOOT__.sessionId`）真的开到目标会话，同源（共 localStorage）两页各开各自会话、零交叉；注入不存在的 id 时防闪帧遮罩在场 |
 | **F-09 HEADER-UTILITIES** | 对话区会话头 `conversation.session.header.utilities` 座位的**条目集合**（#87）：官方 open-in-app 与自有导出的条目都在且都可见、没有任何条目被自有 CSS 摘掉、官方同 id 的导入条目被 shadow；外加官方宿主路由（`/open-in-app/apps`）按 `location.origin` 与官方内部基址 `http://dsh.internal` 两条寻址方式都可达（页面传输接缝改写落到 loopback） |
 | **R-06 只读守卫** | 整轮跑前跑后数一遍网关会话数：必须一模一样。「真实网关只读」的可执行定义——喂 prompt、点新建会话都会改变这个数 |
 
@@ -86,8 +87,8 @@ chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（
 官方基准」两条。另有两条显式例外写在套件的 `expect` 里：列表容器只比宽度（自有树多一条
 分组过滤条，矮一行是功能带来的），两侧都没产生某元素时该组跳过（一侧有则仍判失败）。
 
-首版 6 项合计 245 条断言；#83 加 F-06、#81 加 F-07、#77 加座位锚点、#87 加 F-09 之后共
-**9 项 310 条断言**（F-01 43 / F-02 13 / F-03 14 / F-04 181 / F-05 7 / F-06 11 / F-07 27 / F-09 13 / R-06 1），
+首版 6 项合计 245 条断言；#83 加 F-06、#81 加 F-07、#77 加座位锚点、#87 加 F-09、#72 加 F-08 之后共
+**10 项 336 条断言**（F-01 43 / F-02 13 / F-03 14 / F-04 181 / F-05 7 / F-06 11 / F-07 27 / F-08 26 / F-09 13 / R-06 1），
 本机全绿约 80 秒。
 
 ## 页面是怎么造出来的（为什么可信）
@@ -109,7 +110,11 @@ chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（
 页内宿主是**假宿主**（`fakeHost.ts`，走 `addInitScript` 在页面任何脚本之前注入，对应
 「VS Code 在 webview 里预置宿主对象」的真实位置）：`acquireVsCodeApi` 与 VS Code 同语义
 （**全页只允许一次**，第二次 throw），`dshOne.hostCall` 按 `src/pure/hostCalls.ts` 的同一套
-协议应答。
+协议应答（按能力各记观测值：`openedUrls` / `sessionTabsOpened`）。
+
+开页默认**一页一个浏览器上下文**（各自干净 localStorage）；要造「真 VS Code 里多条
+webview 同源、共享 localStorage」的现场（多开会话 tab 的互相干扰就发生在这里），用
+`openTreePageAlongside` 在已有页面的同一上下文里再开一页（F-08 MULTIOPEN 就是这么验的）。
 
 ## 写新套件的约定
 
@@ -131,7 +136,7 @@ chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（
   CSS 标记两处；**旧 id 无残留**自 #83 起由单测 `test/pluginPortability.test.ts`
   覆盖（全仓扫旧 id，含 build.mjs 与注释之外的源码行），不再挂在浏览器套件里；
   「页面上的插件标记」一处仍未覆盖；
-- **NOFLASH**：`?session=<id>` 注入会话时的防闪帧遮罩；
+- ~~**NOFLASH**：`?session=<id>` 注入会话时的防闪帧遮罩~~ —— #72 起由 **F-08** 覆盖（注入真会话时 boot-timing 证明真的开到了；注入不存在的 id 时遮罩必须在场）。
 - **EXPORT**：会话日志导出自有行动（需要一份真实会话数据）；
 - **PERF**：整包缓存命中与 git 卡片扫描开销；
 - **PARITY 加深**：悬停态（时间隐去、操作按钮出现、分组行文件夹换箭头）与更多元素档位；
