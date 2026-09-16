@@ -138,7 +138,13 @@ export function startAssemblyMirror(
       logger.info(`assembly mirror: http://127.0.0.1:${addr.port}/`)
       resolve({
         origin: `http://127.0.0.1:${addr.port}`,
-        dispose: () => server.close(),
+        dispose: () => {
+          server.close()
+          // `close()` 只停止接受新连接，已建立的连接要显式断掉：流式响应
+          // （下面的 /plugins/events 那类）不会自己结束，留着就是进程不退出
+          // 的原因（#88）。
+          server.closeAllConnections()
+        },
       })
     })
   })
@@ -328,6 +334,14 @@ function proxyRequest(
     logger.warn(`assembly mirror: ${req.method} ${url.pathname} failed: ${err.message}`)
     res.writeHead(502, { 'access-control-allow-origin': '*' })
     res.end('assembly mirror proxy error')
+  })
+  // 下游（浏览器 / VS Code webview）没等响应写完就走了：把上游请求一并收掉。
+  // 网关的 `/plugins/events` 是流式响应，永远不会自己结束，不收就会在这个
+  // 进程里留下一条 ESTABLISHED 连接——实验室里的表现就是「断言全跑完、报告
+  // 也生成了，但进程不退出」（#88）。响应正常写完时（`writableEnded`）不碰
+  // 上游，让它照常回连接池复用。
+  res.on('close', () => {
+    if (!res.writableEnded) preq.destroy()
   })
   req.pipe(preq)
 }

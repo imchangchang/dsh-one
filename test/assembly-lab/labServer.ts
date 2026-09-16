@@ -24,6 +24,7 @@
  */
 import * as http from 'node:http'
 import * as path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
@@ -311,6 +312,14 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
       }
       resolve(address.port)
     })
+  }).catch((err: unknown) => {
+    // 起不来（最常见是端口被上一轮遗留的进程占着）时，先把已经起的 mirror
+    // 收掉再抛。mirror 自己是个监听中的 HTTP server，不收就把进程挂在启动
+    // 阶段永不退出——现场表现正是「chromium 一直没起来、整轮挂住」（#88）。
+    server.close()
+    server.closeAllConnections()
+    mirror.dispose()
+    throw describeListenFailure(err, options.port ?? 0)
   })
   log.info(`assembly lab ready: ${origin()}/ (mirror ${mirror.origin}, gateway ${gateway})`)
 
@@ -322,8 +331,51 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     trees: LAB_TREES,
     dispose: () => {
       server.close()
+      // 同 assemblyMirror：`close()` 不管已建立的连接，显式断掉，别把端口和
+      // 事件循环一起留给调用方。
+      server.closeAllConnections()
       mirror.dispose()
     },
+  }
+}
+
+/**
+ * 监听失败的人话说明（#88）：端口被占时要点名「是谁占着的」——上一轮遗留的
+ * 进程、别的 session 的实验室、还是用户的别的服务，一眼能看出下一步怎么办。
+ */
+export function describeListenFailure(err: unknown, port: number): Error {
+  if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') {
+    return err instanceof Error ? err : new Error(String(err))
+  }
+  const holder = portHolder(port)
+  return new Error(
+    `lab: 端口 ${port} 已被占用（EADDRINUSE），占用者：${holder ?? '（查不到是谁：lsof 不可用或没权限）'}` +
+      `——换一个端口（LAB_PORT=<n> npm run verify:lab），或先结束上面那个进程。`,
+  )
+}
+
+/**
+ * 谁占着这个端口：`lsof` 找 LISTEN 的进程号，`ps` 取它的命令行。取不到就返回
+ * undefined——查不到是谁，也不该让报错本身再失败一次。
+ */
+export function portHolder(port: number): string | undefined {
+  try {
+    const listing = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fp'], { encoding: 'utf8' })
+    const pids = [...listing.matchAll(/^p(\d+)$/gm)].map((match) => match[1])
+    if (pids.length === 0) return undefined
+    return pids
+      .map((pid) => {
+        let command = ''
+        try {
+          command = execFileSync('ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8' }).trim().replace(/\s+/g, ' ')
+        } catch {
+          command = ''
+        }
+        return command === '' ? `pid ${pid}` : `pid ${pid}（${command}）`
+      })
+      .join('、')
+  } catch {
+    return undefined
   }
 }
 
