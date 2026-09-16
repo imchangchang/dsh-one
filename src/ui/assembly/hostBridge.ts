@@ -44,6 +44,8 @@ import {
   parseNoArgs,
   parseOpenFolderArgs,
   parseOpenTerminalArgs,
+  parseSessionInPanelArgs,
+  parseSessionOpenPanelArgs,
   parseSessionTabArgs,
   resolveQueryDir,
   type HostCallError,
@@ -72,6 +74,8 @@ export const HOST_CALLS = {
   'state.write': 'Write one plugin state value (same store, atomic write).',
   'state.delete': 'Delete one plugin state value (same store).',
   'session.openInNewTab': 'Open one session in its own editor tab (explicit multi-open; the chat panel stays a singleton).',
+  'session.inPanel': 'Whether one session is currently shown by this host\'s chat panel (the sidebar row\'s rename-vs-open decision, #121).',
+  'session.openPanel': 'Show one session in this host\'s chat panel (create / reveal / switch in place; #121).',
   'vscode.openSettings': 'Open (or focus) the dsh-one settings editor page (the sidebar toolbar gear, #99).',
   'vscode.workspaceCreate': 'Create a workspace directory (~/.dsh/workspaces/<name>) and register it (the sidebar + menu, #99).',
   'vscode.workspaceFolders': 'List the folders this VS Code window has open (the sidebar tree\'s current-workspace badge and pinning, #112).',
@@ -138,6 +142,22 @@ export interface HostBridgeDeps {
    * ——官方 web 形态的侧栏树本来也不会显示这个菜单项（见能力口的 `editorTabs`）。
    */
   openSessionInNewTab?: (sessionId: string) => void
+  /**
+   * 这个会话现在是不是正开在宿主的面板里（#121）：侧栏树据此判「点当前会话行 = 就地
+   * 改名还是按打开处理」。装配视图提供实现（面板与会话的跟踪都在那里）；缺省无实现
+   * = `unsupported`——调用方（侧栏树）把答不出来一律当「没开」，处置就是按打开处理。
+   */
+  sessionInPanel?: (sessionId: string) => boolean
+  /**
+   * 把对话面板亮到这个会话（#121）：创建 / 聚焦 / 就地切换，语义与侧栏点会话那条
+   * 通路（`dshOne.sessionSelected` → `openSessionChat`）完全一样。装配视图提供实现；
+   * 缺省无实现 = `unsupported`。
+   *
+   * 为什么必须有这一条：会话已经是官方 sessions 服务的「当前」时，`sessions.open`
+   * 不会让它变，选择桥（sessionBridgePlugin）也就不会上报，光靠那条路面板永远不
+   * 出来——用户报的「启动后点当前会话，右边对话区一直不出来」正是这个现场。
+   */
+  openSessionPanel?: (sessionId: string) => void
   /**
    * 打开（或聚焦）设置页（#99 顶栏齿轮）。装配视图提供实现（设置页的注册与
    * 生命周期都在那里）；缺省无实现 = `unsupported`。
@@ -272,6 +292,7 @@ export async function runHostCall(
   | { path: string }
   | { value?: unknown; deleted?: boolean }
   | { paths: readonly string[] }
+  | { open: boolean }
   | null
   | HostCapabilityError
 > {
@@ -298,6 +319,26 @@ export async function runHostCall(
       return { code: 'unsupported', message: 'this host has no editor tabs to open a session in' }
     }
     deps.openSessionInNewTab(parsed.sessionId)
+    return null
+  }
+  // #121：会话行点击的两条——「这个会话开在面板里吗」（改名判据的真条件）与
+  // 「把面板亮到这个会话」（已开面板不会跟着 `sessions.open` 走，得单独请宿主亮一下）。
+  if (call === 'session.inPanel') {
+    const parsed = parseSessionInPanelArgs(args)
+    if (isHostCallError(parsed)) return parsed
+    if (deps.sessionInPanel === undefined) {
+      return { code: 'unsupported', message: 'this host has no chat panel to track a session in' }
+    }
+    return { open: deps.sessionInPanel(parsed.sessionId) }
+  }
+  if (call === 'session.openPanel') {
+    const parsed = parseSessionOpenPanelArgs(args)
+    if (isHostCallError(parsed)) return parsed
+    if (deps.openSessionPanel === undefined) {
+      return { code: 'unsupported', message: 'this host has no chat panel to open a session in' }
+    }
+    // 不开 await：开面板要等网关与页面起来（秒级），页面侧这是「发出去就完事」的动作。
+    deps.openSessionPanel(parsed.sessionId)
     return null
   }
   if (call === 'vscode.openSettings') {

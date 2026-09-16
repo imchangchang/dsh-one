@@ -755,9 +755,12 @@ interface RenameInputEvent {
  * 按它核对「原因 ↔ 禁用 ↔ 原因提示」三者一致。
  *
  * #115 起行点击是**情境化**的：非当前会话 = 打开（原样），当前会话 = 就地改名（这一行
- * 变成输入框）。「已打开」的判据就是这一行是不是当前附着会话（`isCurrent`，与行可见性、
- * 「当前」标记同一份状态），不另立概念。编辑态本身住在树层（`renaming` 进来、草稿与
- * 选区进来、进出编辑态的回调出去），这样列表重绘（会话状态推送）不会把编辑态一起丢掉。
+ * 变成输入框）。行这一侧只看 `isCurrent`（这一行是不是当前附着会话，与行可见性、「当前」
+ * 标记同一份状态）——**它不等于「宿主真的开着这条会话」**（`list.current` 可能是启动时
+ * 官方恢复的上次会话），所以「当前会话行被点」这件事本件只如实上报（`onCurrentRowClick`），
+ * 由树层问过宿主之后再定「就地改名还是按打开处理」（#121，判定与理由见 tree.ts 的
+ * `activateSessionRow`）。编辑态本身住在树层（`renaming` 进来、草稿与选区进来、进出编辑态
+ * 的回调出去），这样列表重绘（会话状态推送）不会把编辑态一起丢掉。
  */
 export function SessionRow({
   node,
@@ -788,7 +791,7 @@ export function SessionRow({
   renaming,
   renameDraft,
   renameSelection,
-  onRenameStart,
+  onCurrentRowClick,
   onRenameDraft,
   onRenameCommit,
   onRenameCancel,
@@ -860,10 +863,12 @@ export function SessionRow({
    */
   renameSelection?: { start: number; end: number } | undefined
   /**
-   * #115：点「当前会话」那一行 = 进入就地改名。判定（哪一行算已打开）在树层——它才是
-   * 当前附着会话（`list.current`）的持有者，本件只用行上的 `currentId` 判 `isCurrent`。
+   * #115/#121：这一行**被判为当前**时收到的一次整行点击。本件只如实上报这件事——「是
+   * 就地改名还是按打开处理」由树层定：它才持有当前附着会话（`list.current`），也只有它
+   * 能问宿主「这条会话真的开在面板里吗」（#121 的真条件；本件只按行上的 `currentId` 判
+   * `isCurrent`，不碰宿主）。
    */
-  onRenameStart?: (() => void) | undefined
+  onCurrentRowClick?: (() => void) | undefined
   /** #115：草稿（含光标位置）变了；树层存下来，重绘后据此恢复。 */
   onRenameDraft?: ((draft: string, selection: { start: number; end: number }) => void) | undefined
   /** #115：Enter 提交（非空且改动过才真的发请求，判定在树层）。 */
@@ -1153,7 +1158,8 @@ export function SessionRow({
       // 选择态不给拖：那时候整行只有「勾选」一个动作；编辑态也不给拖（拖走正在改名的
       // 行只会把编辑态连同输入框一起晃没）。
       ...(selectMode || renamingNow ? {} : withDragGuard(dragProps)),
-      // #115 情境化点击：**非当前会话** = 打开（原样）；**当前会话** = 就地改名。
+      // #115/#121 情境化点击：**非当前会话** = 打开（原样）；**当前会话** = 报到树层
+      // （由它问过宿主再定就地改名还是按打开处理，见 onCurrentRowClick 的说明）。
       // 行内互斥件（行尾状态点/图钉/定时标记/时间/⋯ 那一层）点上去不算「点行」，
       // 按原来的打开处置走——它们各有自己的含义，不该把改名触发了。拖拽窗口里到达的
       // 点击同样吞掉（见 withDragGuard）。选择态照旧整行只有勾选。
@@ -1171,7 +1177,7 @@ export function SessionRow({
               const dragging = rowDragActive
               rowDragActive = false
               const meta = event.target instanceof Element && event.target.closest(ROW_META_SELECTOR) !== null
-              if (!meta && !dragging && isCurrent) onRenameStart?.()
+              if (!meta && !dragging && isCurrent) onCurrentRowClick?.()
               else onOpen()
             },
       // 行右键开出同一份菜单（指针位置锚定）。**接管条件只剩「非选择态」**（#109）：

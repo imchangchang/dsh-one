@@ -212,6 +212,23 @@ function hostCapabilities(ctx) {
       }
       throw fail("unavailable", "this shell has no editor tabs; the host half serves no session tab action");
     },
+    // #121：会话行点击的两条。没有桥 = 官方 web 一侧（或页面还没装上桥）：那一端没有
+    // 「宿主面板」这个概念，查询如实回 false（= 一律按打开处理），动作静默返回
+    //（那边的「打开」由官方 sessions.open 负责，消费方已经先走过它了）。
+    async isSessionInPanel(sessionId) {
+      if (!viaBridge()) return false;
+      try {
+        const data = await bridgeCall("session.inPanel", { sessionId });
+        return data.open === true;
+      } catch (err) {
+        console.warn("[dsh-one] session panel state unavailable:", err);
+        return false;
+      }
+    },
+    async openSessionPanel(sessionId) {
+      if (!viaBridge()) return;
+      await bridgeCall("session.openPanel", { sessionId });
+    },
     get settingsPage() {
       return viaBridge();
     },

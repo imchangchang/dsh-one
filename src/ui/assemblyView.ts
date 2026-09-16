@@ -10,7 +10,7 @@ import { parse as parseSemver, compare as compareSemver } from '../pure/semver.t
 import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import { defaultHostBridgeDeps, subscribeHostCalls, type HostBridgeDeps } from './assembly/hostBridge.ts'
 import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
-import { drainAfterCreate, routeSelection } from '../pure/sessionPanelRouting.ts'
+import { drainAfterCreate, panelShowsSession, routeSelection } from '../pure/sessionPanelRouting.ts'
 import { assignSessionTab, hasSessionTab, releaseSessionTab, sessionTabOf } from '../pure/sessionTabs.ts'
 import { listSessions } from '../server/dshRpc.ts'
 import { workspaceRootsOfSessionRows } from '../pure/workspaceRoots.ts'
@@ -212,6 +212,11 @@ function hostBridgeDeps(
     // 「在新标签页打开」（#72 多开通道）：页面侧只发会话 id，开面板的动作全在这里
     // （面板与共享 mirror 的生命周期都归本模块）。
     openSessionInNewTab: (sessionId) => void openSessionInNewTab(sessionId),
+    // #121 侧栏树的会话行点击：先问「这个会话开在面板里吗」（宿主自己去重、页面侧
+    // 据此决定就地改名还是按打开处理），答「没开」时再请宿主把面板亮到它（清一色
+    // 落到 openSessionChat，与侧栏点会话那条通路同一个函数）。
+    sessionInPanel: (sessionId) => sessionInPanel(sessionId),
+    openSessionPanel: (sessionId) => showSessionInPanel(sessionId, logger),
     // git 查询的扫描/命中/超时留痕走输出面板「DSH One」频道（probe 同一条通道），
     // 页面侧不感知、UI 不阻塞。
     log: (line: string) => logger.info(line),
@@ -262,6 +267,39 @@ let pendingSessionOpen: string | undefined
 function panelSession(): string | undefined {
   const panel = chatSingleton?.panel ?? active?.panel
   return panel === undefined ? undefined : panelSessionId.get(panel)
+}
+
+/**
+ * 这个会话现在是不是正开在宿主的面板里（#121）——侧栏树据此判「点当前会话行 = 就地
+ * 改名还是按打开处理」。判据是面板与它当前会话的映射：单例面板（`chatSingleton` /
+ * `active` + `panelSessionId`）与显式多开的标签页（`sessionTabPanels`）都算——两种
+ * 形态都是这条会话的对话区真的在屏幕上。无面板、或面板上挂着别的会话 = false。
+ *
+ * 注意它**不等于**「侧栏认为的当前会话」（`list.current`）：那个来自官方 sessions
+ * 服务的状态（启动时可能是官方恢复的上次会话），与宿主真的开了哪个面板是两件事。
+ */
+function sessionInPanel(sessionId: string): boolean {
+  const panel = chatSingleton?.panel ?? active?.panel
+  return panelShowsSession(
+    {
+      panelSessionId: panel === undefined ? undefined : panelSessionId.get(panel),
+      tabbed: sessionTabOf(sessionTabPanels, sessionId) !== undefined,
+    },
+    sessionId,
+  )
+}
+
+/**
+ * 把对话面板亮到这个会话（#121）：与侧栏 `dshOne.sessionSelected` 那条通路
+ * （下面的 `openSessionChat`）同一个函数——创建 / 聚焦 / 就地切换三种处置完全一致。
+ *
+ * 失败只落日志：这是页面送出「打开」之后的异步动作（开面板要等网关与页面起来，
+ * 秒级），界面那一侧没有可回执的落点，prepareChatPanel 已经在失败时弹过错误。
+ */
+function showSessionInPanel(sessionId: string, logger: Logger): void {
+  void openSessionChat(sessionId).catch((err: unknown) => {
+    logger.warn(`assembled chat: opening ${sessionId.slice(0, 13)} failed: ${err instanceof Error ? err.message : String(err)}`)
+  })
 }
 
 /** 把待开会话兑现到既有面板：同 id 只 reveal（宿主去重），不同才就地切换。 */

@@ -89,22 +89,37 @@ export async function resolveQueryDir(
  */
 export const SESSION_ID_ARG_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 
-/** `session.openInNewTab` 的参数（多开通道，见 hostBridge 的 HOST_CALLS）。 */
-export interface SessionTabArgs {
+/** 「只带一个会话 id」的调用的参数（多开通道与 #121 的两条，见 hostBridge 的 HOST_CALLS）。 */
+export interface SessionArgs {
   sessionId: string
 }
 
-/** 校核 `session.openInNewTab` 的参数；不合法返回结构化错误。 */
-export function parseSessionTabArgs(args: unknown): SessionTabArgs | HostCallError {
+/** 校核「只带一个会话 id」的参数；不合法返回结构化错误（错误信息里带调用名）。 */
+export function parseSessionIdArgs(call: string, args: unknown): SessionArgs | HostCallError {
   const record = asRecord(args)
   if (record === undefined) {
-    return { code: 'invalid-args', message: 'session.openInNewTab expects an object argument' }
+    return { code: 'invalid-args', message: `${call} expects an object argument` }
   }
   const sessionId = record.sessionId
   if (typeof sessionId !== 'string' || !SESSION_ID_ARG_RE.test(sessionId)) {
-    return { code: 'invalid-args', message: 'session.openInNewTab expects a plain session id string' }
+    return { code: 'invalid-args', message: `${call} expects a plain session id string` }
   }
   return { sessionId }
+}
+
+/** 校核 `session.openInNewTab` 的参数。 */
+export function parseSessionTabArgs(args: unknown): SessionArgs | HostCallError {
+  return parseSessionIdArgs('session.openInNewTab', args)
+}
+
+/** 校核 `session.inPanel` 的参数（#121：这个会话是不是正开在宿主的面板里）。 */
+export function parseSessionInPanelArgs(args: unknown): SessionArgs | HostCallError {
+  return parseSessionIdArgs('session.inPanel', args)
+}
+
+/** 校核 `session.openPanel` 的参数（#121：把宿主的面板亮到这个会话）。 */
+export function parseSessionOpenPanelArgs(args: unknown): SessionArgs | HostCallError {
+  return parseSessionIdArgs('session.openPanel', args)
 }
 
 /** git.show 的参数（hash 必填且形状严格；cwd 可选）。 */

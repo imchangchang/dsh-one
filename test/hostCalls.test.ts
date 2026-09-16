@@ -17,6 +17,8 @@ import {
   parseNoArgs,
   parseOpenFolderArgs,
   parseOpenTerminalArgs,
+  parseSessionInPanelArgs,
+  parseSessionOpenPanelArgs,
   parseSessionTabArgs,
   parseWorkspacePath,
   WORKSPACE_PATH_MAX,
@@ -61,6 +63,21 @@ test('parseSessionTabArgs：#72 多开请求只收标识符形状的会话 id', 
   // 带路径/空白/控制字符/超长一律拒（这个 id 会被宿主拿去查表与写标题）
   for (const bad of ['../etc/passwd', 'session 1', 'session\n1', 'session-1/', 'a'.repeat(129), '-leading']) {
     assert.ok(isHostCallError(parseSessionTabArgs({ sessionId: bad })), `should reject ${JSON.stringify(bad)}`)
+  }
+})
+
+test('#121 parseSessionInPanelArgs / parseSessionOpenPanelArgs：与多开同一条会话 id 校核', () => {
+  assert.deepEqual(parseSessionInPanelArgs({ sessionId: 'session-1' }), { sessionId: 'session-1' })
+  assert.deepEqual(parseSessionOpenPanelArgs({ sessionId: 'session-1' }), { sessionId: 'session-1' })
+  // 形状不对一律结构化拒掉，且错误信息里带调用名（页面侧两边对不上时好定位）
+  for (const parse of [parseSessionInPanelArgs, parseSessionOpenPanelArgs]) {
+    const rejected = parse({ sessionId: '../etc/passwd' })
+    assert.ok(isHostCallError(rejected))
+    assert.equal((rejected as { code: string }).code, 'invalid-args')
+    assert.match((rejected as { message: string }).message, /expects a plain session id string/)
+    assert.ok(isHostCallError(parse(undefined)))
+    assert.ok(isHostCallError(parse({})))
+    assert.ok(isHostCallError(parse({ sessionId: 7 })))
   }
 })
 
