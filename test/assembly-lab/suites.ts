@@ -2449,7 +2449,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '回收站两层语义（#103）：移入/还原是本地可逆、归档=删除带确认（RECYCLE-TWO-LAYER 套件）',
   expect:
-    '#103 定的两层语义在真实装配页上成立（真网关**只读** + 假宿主 + 同一上下文里并排开官方浏览区对照档）：① **移入回收站只写本地状态**——行菜单「移入回收站」后会话从我们树里消失、入口角标 +1、假宿主状态存储里出现 `recycle-bin`（形状 `{version:1, sessionIds:[按移入顺序]}`），而**官方浏览区里的会话一条都没少**（同时刻对照，证明 dsh 侧一个字节没动）；② **抽屉形态**：点入口行从底部半高滑出（高度档 50）、提手上拉吸附到 90、按原工作区分块、块内按移入顺序倒序、块头可折叠且折叠态落 `dsh.workspaceTree.view`（重载后仍收起）；③ **还原**（行尾按钮与入口「全部还原」）同样只动本地状态，会话回到树里；④ **归档 = 删除**：入口「清空」先开确认弹窗（写明不可恢复、按工作区列出将归档的会话、写明跳过数），取消则什么都不发生；⑤ 回收站空时入口两枚动作图标禁用。全程零 pageerror，且本套件**从不点归档确认**（那会写真实网关）。',
+    '#103 定的两层语义在真实装配页上成立（真网关**只读** + 假宿主 + 同一上下文里并排开官方浏览区对照档）：① **移入回收站只写本地状态**——行菜单「移入回收站」后会话从我们树里消失、入口角标 +1、假宿主状态存储里出现 `recycle-bin`（形状 `{version:1, sessionIds:[按移入顺序]}`），而**官方浏览区里的会话一条都没少**（同时刻对照，证明 dsh 侧一个字节没动）；② **抽屉形态**：点入口行从底部半高滑出（高度档 50）、提手上拉吸附到 90、按原工作区分块、块内按移入顺序倒序、块头可折叠且折叠态落 `dsh.workspaceTree.view`（重载后仍收起）；③ 状态按旧侧栏那份文件的键名与形状读回（**旧 recycle-bin.json 原样迁入**），并在基线就绪时**清账**——集合里 dsh 侧已不存在的 id 被剔掉、真的那几条原样保留；④ **还原**（行尾按钮与入口「全部还原」）同样只动本地状态，会话回到树里；⑤ **归档 = 删除**：入口「清空」与多选操作条的「归档」都先开同一个确认弹窗（写明不可恢复、按工作区列出将归档的会话、写明跳过数），取消则什么都不发生；⑥ 多选操作条的「移入回收站」复用同一套本地动作（立即执行 + 飘提示 + 退出选择态）；⑦ 回收站空时入口两枚动作图标禁用。全程零 pageerror，且本套件**从不点归档确认**（那会写真实网关）。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -2649,18 +2649,25 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       check.eq('重新打开后折叠态仍在', await page.getAttribute(`[data-dshone-recycle-group-toggle="${collapsedKey}"]`, 'data-dshone-recycle-collapsed'), 'true')
 
       // ---- ⑥ 重载后仍生效（本地集合从宿主状态存储读回、折叠态从客户端存储读回） ----
+      // 注入的就是旧侧栏那份文件的形状（`{version:1, sessionIds:[...]}`），并且故意多带
+      // 一条 dsh 侧早已不存在的 id：清账（基线就绪时剔除认不出的 id）应当把它剔掉。
+      const GHOST = 'session-lab-not-in-dsh'
       await page.addInitScript({
-        content: `(() => { globalThis.__LAB_HOST__.stateStore['recycle-bin'] = ${JSON.stringify({ version: 1, sessionIds: [first, second] }) } })()`,
+        content: `(() => { globalThis.__LAB_HOST__.stateStore['recycle-bin'] = ${JSON.stringify({ version: 1, sessionIds: [first, second, 'session-lab-not-in-dsh'] }) } })()`,
       })
       await page.reload({ waitUntil: 'domcontentloaded' })
       await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
       await page.waitForTimeout(2_500)
       const afterReload = (await hostRecycleBin(page)) as { sessionIds?: string[] } | null
       check.eq('重载后本地集合仍是那两条（旧文件形状读回来原样保留移入顺序）', afterReload?.sessionIds ?? [], [first, second])
-      // 注入的就是旧侧栏那份文件的形状（`{version:1, sessionIds:[...]}`）：页面打开时
-      // 原样读回 = 「旧 recycle-bin.json 一次性迁入」这件事的可执行口径（键名与文件形状
-      // 都是同一份，没有搬运步骤，见 pure/recycleBinState.ts 的说明）。
-      check.eq('重载后入口角标还是 2（旧文件形状的本地集合原样读回）', await entryCount(), '2')
+      // 页面打开时原样读回 = 「旧 recycle-bin.json 一次性迁入」这件事的可执行口径
+      //（键名与文件形状都是同一份，没有搬运步骤，见 pure/recycleBinState.ts 的说明）。
+      check.eq('重载后入口角标 ≤2 且不含认不出的那条（角标与抽屉同源）', await entryCount(), '2')
+      await page.waitForTimeout(1_200)
+      const pruned = ((await hostRecycleBin(page)) as { sessionIds?: string[] } | null)?.sessionIds ?? []
+      check.fact(`清账后宿主状态=${JSON.stringify(pruned)}（注入时多带了一条 ${GHOST}）`)
+      check.eq('清账：dsh 侧已不存在的 id 被剔出本地集合，其余原样保留', pruned, [first, second])
+      check.eq('清账不误伤：两条真的还在集合里（角标 2、抽屉里也有两行）', pruned.length, 2)
       await page.click('[data-dshone-tree-action="recycle-open"]')
       await page.waitForTimeout(350)
       const reloadedDrawer = await page.evaluate(() => {
