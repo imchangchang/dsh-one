@@ -42,7 +42,7 @@
  * externals 种子表满足）。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { createLayoutStore, LayoutController, PANEL_INFO_SOURCE, ThemePresenter, type ThemeSnapshot } from './frameShared'
+import { createLayoutStore, LayoutController, PANEL_INFO_SOURCE, ThemePresenter, type PanelActions, type ThemeSnapshot } from './frameShared'
 
 // ---------------------------------------------------------------------------
 // 类型（本地最小面）
@@ -56,7 +56,7 @@ interface RootSlotEntry {
   name: 'root'
   children: Record<string, { kind: 'single' | 'list'; scope: 'root' | 'session' | 'session-maybe' }>
   store: () => unknown
-  inject: (actions: { openDetails(): void; closeDetails(): void; toggleSidebar(): void }) => Record<string, never>
+  inject: (actions: PanelActions) => Record<string, never>
 }
 
 interface ShellContext {
@@ -271,7 +271,7 @@ export function apply(ctx: ShellContext): void {
           'shell.overlay': { kind: 'list', scope: 'root' },
         },
         store: createLayoutStore,
-        inject: (actions: { openDetails(): void; closeDetails(): void; toggleSidebar(): void }) => {
+        inject: (actions: PanelActions) => {
           layout.attachPanels(actions)
           return {}
         },

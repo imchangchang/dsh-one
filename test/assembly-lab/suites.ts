@@ -62,11 +62,20 @@ async function contentCount(page: OpenedPage['page'], selector: string): Promise
 // F-01 CONTRACT：底座契约完备性（AGENTS.md 铁律要求的常驻断言）
 // ---------------------------------------------------------------------------
 
-const CONTRACT_TREES: ReadonlyArray<{ route: string; content: { label: string; selector: string } }> = [
-  { route: 'sidebar', content: { label: '自有工作区树的会话行', selector: '.dshOneTree_sessionRow' } },
-  { route: 'sidebar-official', content: { label: '官方浏览区的会话行', selector: '[class*="_sessionRow"]' } },
-  { route: 'chat', content: { label: '对话区 composer 座位', selector: '[data-slot="conversation.composer.bar"] > *' } },
-  { route: 'settings', content: { label: '设置内容区', selector: '[data-slot="settings.section"] > *' } },
+const CONTRACT_TREES: ReadonlyArray<{
+  route: string
+  content: { label: string; selector: string }
+  /**
+   * 该树必须出现的座位锚点（`[data-slot="<名>"]` 只有「被声明 + 真渲染」才会在
+   * DOM 里：声明来自该树 root 条目的 children 表，渲染来自该树的 frame）。
+   * 官方改座位名/改归属（`details` → `rightbar` 那一类漂移）时这里先红。
+   */
+  seats: readonly string[]
+}> = [
+  { route: 'sidebar', content: { label: '自有工作区树的会话行', selector: '.dshOneTree_sessionRow' }, seats: ['sidebar', 'sidebar.workspaces', 'sidebar.settings'] },
+  { route: 'sidebar-official', content: { label: '官方浏览区的会话行', selector: '[class*="_sessionRow"]' }, seats: ['sidebar', 'sidebar.workspaces'] },
+  { route: 'chat', content: { label: '对话区 composer 座位', selector: '[data-slot="conversation.composer.bar"] > *' }, seats: ['main', 'conversation.composer.bar', 'rightbar'] },
+  { route: 'settings', content: { label: '设置内容区', selector: '[data-slot="settings.section"] > *' }, seats: ['dshOne.settings.page', 'settings.section'] },
 ]
 
 export const CONTRACT_SUITE: LabSuite = {
@@ -74,7 +83,7 @@ export const CONTRACT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '底座契约完备性：四棵树在真实网关上零崩溃、零缺失契约（CONTRACT 套件）',
   expect:
-    '实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）各自在真实网关只读下打开：**零 `slot entry crashed`**（官方渲染层崩溃 + 页面无 `data-slot-error` 元素）、**零 pageerror**、**零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`，即缺服务/缺钩子那类底座缺口）；且该树自己的关键座位**有内容**（不是空壳）、该树的 frame 插件 bundle 真的装进了页面（combo 请求里有它的 id、页面上有它的 CSS 标记）。',
+    '实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）各自在真实网关只读下打开：**零 `slot entry crashed`**（官方渲染层崩溃 + 页面无 `data-slot-error` 元素）、**零 pageerror**、**零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`，即缺服务/缺钩子那类底座缺口）；该树自己的关键座位**有内容**（不是空壳）、**预期座位锚点都在**（官方改座位名/改归属时这里先红）、该树的 frame 插件 bundle 真的装进了页面（combo 请求里有它的 id、页面上有它的 CSS 标记）；chat 树额外核官方右栏座位（声明 + 官方 ui-sidebar-right 的座位已注册 + 面板几何在官方钳位区间内）。缺 hook 与缺服务在页面上的表现就是 `slot entry crashed` / `did not activate`，所以这两条断言即 hook/服务的完备性断言。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     for (const entry of CONTRACT_TREES) {
@@ -90,6 +99,12 @@ export const CONTRACT_SUITE: LabSuite = {
         )
         check.ok(`${entry.route}：首屏就绪（${tree.readySelector}）`, opened.ready)
         check.ok(`${entry.route}：${entry.content.label}有内容（${entry.content.selector}）`, content > 0)
+        // 座位锚点：声明 + 渲染都在才会有锚点。官方改座位名/改归属时，
+        // 命中的官方贡献会 park 或换名，这里立刻红（不用等用户撞见空面板）。
+        const seatCounts = await seatFacts(page, entry.seats)
+        const missingSeats = entry.seats.filter((name) => (seatCounts[name] ?? -1) < 0)
+        check.fact(`${entry.route}：座位锚点 ${entry.seats.map((name) => `${name}=${String(seatCounts[name] ?? -1)}`).join(' ')}`)
+        check.ok(`${entry.route}：预期座位锚点都在（${entry.seats.join(' / ')}）`, missingSeats.length === 0, missingSeats.join(','))
         check.eq(`${entry.route}：零槽位崩溃标记（data-slot-error）`, slots.errors, [])
         check.eq(`${entry.route}：零槽位崩溃日志（slot entry crashed）`, gaps.crashes, [])
         check.eq(`${entry.route}：零装载未激活（缺服务/缺钩子）`, gaps.bootFails, [])
@@ -113,6 +128,22 @@ export const CONTRACT_SUITE: LabSuite = {
           cssTags.includes(tree.tree.shellPluginId),
           cssTags.filter((tag) => tag.startsWith('@dsh-one/')).join(','),
         )
+        // chat 树的官方右栏座位（#79 决策 B）：座位声明在我们这里、贡献来自官方
+        // ui-sidebar-right，所以「官方真注册进来了 + 面板几何在官方钳位区间内」
+        // 就是这条链路活着的证据。
+        if (entry.route === 'chat') {
+          const rightbar = await rightbarFacts(page)
+          check.fact(
+            `chat：官方右栏 面板元素=${String(rightbar.panel)} 面板宽=${String(rightbar.panelWidth)} 外框宽=${String(rightbar.frameWidth)} 会话座位=${String(rightbar.sessionSeat)}`,
+          )
+          check.ok('chat：官方 ui-sidebar-right 的座位已注册进 rightbar（有子项）', (seatCounts.rightbar ?? -1) > 0, `rightbar=${String(seatCounts.rightbar ?? -1)}`)
+          check.ok('chat：官方右栏面板元素在（[data-sidebar-right-panel]）', rightbar.panel)
+          check.ok(
+            'chat：官方右栏面板宽 > 0 且 ≤ 外框 70%（官方钳位区间，见 frameShared.computeColumns）',
+            rightbar.panelWidth > 0 && rightbar.panelWidth <= Math.round(rightbar.frameWidth * 0.7) + 1,
+            `panel=${String(rightbar.panelWidth)} frame=${String(rightbar.frameWidth)}`,
+          )
+        }
         screenshots.push(await shot(ctx, page, `contract-${entry.route}`))
       } finally {
         await opened.context.close()
@@ -130,6 +161,41 @@ async function combosRequested(page: OpenedPage['page']): Promise<string[]> {
       .map((entry) => entry.name)
       .filter((name) => name.includes('/plugins-local/')),
   )
+}
+
+/**
+ * 座位锚点的子项数：`-1` = 锚点不在（该座位没被声明，或声明了但该树的 frame 没渲染它）。
+ * `[data-slot]` 锚点由框架渲染器在渲染座位时生成，所以它同时证明「声明」与「渲染」两件事。
+ */
+async function seatFacts(page: OpenedPage['page'], names: readonly string[]): Promise<Record<string, number>> {
+  return page.evaluate((keys: string[]) => {
+    const out: Record<string, number> = {}
+    for (const key of keys) {
+      const element = document.querySelector(`[data-slot="${key}"]`)
+      out[key] = element === null ? -1 : element.children.length
+    }
+    return out
+  }, [...names])
+}
+
+/** chat 树官方右栏的观测：面板元素、面板宽（官方座位自己写的 inline width）、外框宽、会话座位数。 */
+async function rightbarFacts(
+  page: OpenedPage['page'],
+): Promise<{ panel: boolean; panelWidth: number; frameWidth: number; sessionSeat: number }> {
+  return page.evaluate(() => {
+    const panel = document.querySelector('[data-sidebar-right-panel]') as HTMLElement | null
+    const frame = document.querySelector('.dshOneShell_frame') as HTMLElement | null
+    const px = (value: string | null | undefined): number => {
+      const parsed = Number.parseFloat(value ?? '')
+      return Number.isFinite(parsed) ? Math.round(parsed) : -1
+    }
+    return {
+      panel: panel !== null,
+      panelWidth: panel === null ? -1 : px(panel.style.width),
+      frameWidth: frame === null ? -1 : Math.round(frame.getBoundingClientRect().width),
+      sessionSeat: document.querySelectorAll('[data-slot="rightbar.session"]').length,
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------
