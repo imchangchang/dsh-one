@@ -581,7 +581,13 @@ export const PARITY_SUITE: LabSuite = {
         return { applied: fallbacks.length, officialFallbacks: fallbacks.map(([key, value]) => `${key}=${value}`) }
       })
       check.fact(`密度档兜底值（自作树 CSS 读出并回填到 frame）：${densityFix.officialFallbacks.join(' ')}`)
-      check.ok('密度档变量组 ≥ 10 项（与契约测试同口径）', densityFix.applied >= 10, `applied=${String(densityFix.applied)}`)
+      // #104 起键面从 17 项扩到 25 项（顶栏 / 分组过滤条 / 回收站入口行 / 抽屉），
+      // 这里只守量级（精确键集与逐项官方原值由外壳契约套件的两条测试在源码层守）。
+      check.ok(
+        '密度档变量组 ≥ 20 项（#104 起 25 项；与契约测试同口径）',
+        densityFix.applied >= 20,
+        `applied=${String(densityFix.applied)}`,
+      )
       await own.page.waitForTimeout(200)
       const alignedDensity = await samplePair(own.page, 'projectRow', ['height'])
       check.eq(
@@ -1808,6 +1814,253 @@ export const SKELETON_SUITE: LabSuite = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// F-13 DENSITY-SPREAD：密度档扩到侧栏骨架四区（#104）
+// ---------------------------------------------------------------------------
+
+/**
+ * 要量的区域：区域名 → 选择器 + 要读的 CSS 属性（px 数值，直接比大小）。
+ * `where` 区分量它的时候抽屉开没开：抽屉整块盖住树区（`.dshOneTree_drawer` 是
+ * `position:absolute;inset:0`），所以树区四件在抽屉关着时量、抽屉内部开着时量。
+ */
+const DENSITY_REGIONS: ReadonlyArray<{
+  region: string
+  where: 'tree' | 'drawer'
+  selector: string
+  props: readonly string[]
+}> = [
+  { region: '顶栏行', where: 'tree', selector: '[data-dshone-tree="top-bar"]', props: ['height', 'paddingLeft', 'columnGap'] },
+  { region: '顶栏图标按钮', where: 'tree', selector: '[data-dshone-tree="top-bar"] .dshOneTree_iconButton', props: ['width', 'height'] },
+  { region: '顶栏动作组', where: 'tree', selector: '[data-dshone-tree="top-bar-actions"]', props: ['columnGap'] },
+  { region: '分组过滤条', where: 'tree', selector: '.dshOneTree_filterBar', props: ['paddingLeft', 'columnGap'] },
+  { region: '分组胶囊', where: 'tree', selector: '.dshOneTree_pill', props: ['height', 'fontSize', 'columnGap', 'paddingLeft', 'paddingRight'] },
+  { region: '回收站入口行', where: 'tree', selector: '[data-dshone-tree="recycle-entry"]', props: ['paddingLeft', 'paddingRight'] },
+  { region: '回收站入口主区', where: 'tree', selector: '.dshOneTree_footerMain', props: ['height', 'paddingLeft', 'paddingRight'] },
+  { region: '回收站入口动作按钮', where: 'tree', selector: '.dshOneTree_footerIconButton', props: ['width', 'height'] },
+  { region: '抽屉头', where: 'drawer', selector: '.dshOneTree_drawerHeader', props: ['height', 'paddingLeft', 'paddingRight', 'columnGap'] },
+  { region: '抽屉分块块头', where: 'drawer', selector: '.dshOneTree_drawerGroupLabel', props: ['height', 'paddingLeft', 'paddingRight'] },
+  { region: '抽屉会话行', where: 'drawer', selector: '.dshOneTree_drawerRow', props: ['height', 'paddingLeft', 'paddingRight'] },
+  { region: '抽屉列表', where: 'drawer', selector: '.dshOneTree_drawerList', props: ['paddingLeft', 'paddingRight', 'paddingBottom'] },
+]
+
+type DensityReading = Record<string, Record<string, number>>
+
+/** 读一组区域的几何（元素不在就不进表——报告里会作为事实记一笔）。 */
+async function readDensity(page: OpenedPage['page'], where: 'tree' | 'drawer'): Promise<DensityReading> {
+  const specs = DENSITY_REGIONS.filter((spec) => spec.where === where).map(({ region, selector, props }) => ({
+    region,
+    selector,
+    props,
+  }))
+  return page.evaluate((list) => {
+    const out: Record<string, Record<string, number>> = {}
+    // getPropertyValue 只认 kebab-case（`paddingLeft` 会读成空串，height 这种同名属性
+    // 才恰好能读）——这里把 camelCase 的属性名转过去。
+    const kebab = (prop: string): string => prop.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+    for (const spec of list) {
+      const element = document.querySelector(spec.selector)
+      if (element === null) continue
+      const computed = getComputedStyle(element)
+      const values: Record<string, number> = {}
+      for (const prop of spec.props) values[prop] = Number.parseFloat(computed.getPropertyValue(kebab(prop)))
+      out[spec.region] = values
+    }
+    return out
+  }, specs)
+}
+
+/**
+ * 把自有页的密度变量按树插件自己声明的官方兜底值内联回 frame（= 官方档，与 F-04
+ * 同一处置：`var(--dsh-one-density-x, <官方原值>)` 的第二参数就是「没人给偏好」时
+ * 的值），返回内联的项数。恢复用 {@link restoreDensity}。
+ */
+async function applyOfficialDensity(page: OpenedPage['page']): Promise<number> {
+  return page.evaluate(() => {
+    const treeCss =
+      Array.from(document.querySelectorAll('style[data-plugin]'))
+        .find((element) => element.getAttribute('data-plugin') === '@dsh-one/dsh-workspace-tree')
+        ?.textContent ?? ''
+    const fallbacks = Array.from(treeCss.matchAll(/var\(--dsh-one-density-([a-z-]+),\s*([^)]+)\)/g))
+    const frame = document.querySelector('[class*="dshOneSidebarShell_frame"]')
+    if (frame === null) return -1
+    frame.setAttribute('data-lab-density-backup', frame.getAttribute('style') ?? '')
+    for (const match of fallbacks) {
+      frame.setAttribute('style', `${frame.getAttribute('style') ?? ''};--dsh-one-density-${match[1] ?? ''}:${(match[2] ?? '').trim()}`)
+    }
+    return fallbacks.length
+  })
+}
+
+/** 撤掉 {@link applyOfficialDensity} 的内联，让页面回到宿主给的 VS Code 档。 */
+async function restoreDensity(page: OpenedPage['page']): Promise<void> {
+  await page.evaluate(() => {
+    const frame = document.querySelector('[class*="dshOneSidebarShell_frame"]')
+    if (frame === null) return
+    const backup = frame.getAttribute('data-lab-density-backup')
+    if (backup === null) return
+    frame.removeAttribute('data-lab-density-backup')
+    if (backup === '') frame.removeAttribute('style')
+    else frame.setAttribute('style', backup)
+  })
+}
+
+/**
+ * #104：把 #85 立的密度档从「列表行」扩到骨架四区（顶栏 / 分组过滤条 / 回收站入口行 /
+ * 抽屉）。这条套件量的是**同一页、同一数据、三档宽度**下两种密度状态的几何差：
+ * 宿主给的 VS Code 档 vs 把变量对齐回官方兜底值（= 官方档）。
+ *
+ * 判据只有一条、但要求严格：**四区的每一项几何，紧凑档都必须严格小于官方原值**——
+ * 「兜底 = 官方」由外壳契约套件在源码层守（键集 + 兜底字面量），这里守的是「这套变量
+ * 真的把这几块变紧了」，而不是只在列表行上生效。
+ */
+export const DENSITY_SPREAD_SUITE: LabSuite = {
+  id: 'F-13',
+  phase: 'new-feature',
+  name: '侧栏密度档扩散（#104）：顶栏 / 分组过滤条 / 回收站入口行 / 抽屉在三档宽度下都更紧凑（DENSITY-SPREAD 套件）',
+  expect:
+    '同一页、同一数据、260/340/500 三档宽度下，把自有树的密度变量从宿主给的 VS Code 档切到它自己声明的官方兜底值（= 官方档），四区的几何逐一比较：顶栏行（高/左内边距/行内间隙）、顶栏图标按钮（宽高）、顶栏动作组间隙、分组过滤条（左内边距/间隙）、分组胶囊（高/字号/间隙/左右内边距）、回收站入口行（左右内边距）、入口主区（高/左右内边距）、入口动作按钮（宽高）、抽屉头（高/左右内边距/间隙）、抽屉分块块头（高/左右内边距）、抽屉会话行（高/左右内边距）、抽屉列表（左右内边距/底部留白）——**每一项紧凑档都严格小于官方原值**，且同一区域在三档宽度下的紧凑读数一致（密度是容器给的，不随宽度漂）。同时钉住「对齐到官方兜底值后读数确实变大」（说明这两组读数真的来自那套变量，不是量到了别的东西）。全程零 pageerror。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+    const widths = [260, 340, 500] as const
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
+    const { page } = opened
+    try {
+      const treeRegions = DENSITY_REGIONS.filter((spec) => spec.where === 'tree')
+      const drawerRegions = DENSITY_REGIONS.filter((spec) => spec.where === 'drawer')
+      check.fact(
+        `量法：同一页两种密度状态（宿主给的 VS Code 档 vs 内联官方兜底值），三档宽度 ${widths.join('/')}。` +
+          `抽屉关着量 ${treeRegions.map((spec) => spec.region).join('、')}；抽屉开着量 ${drawerRegions.map((spec) => spec.region).join('、')}`,
+      )
+
+      // ---- 树区四件：三档宽度 × 两种密度状态 ----
+      const compactByWidth = new Map<number, DensityReading>()
+      const officialByWidth = new Map<number, DensityReading>()
+      for (const width of widths) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(300)
+        const compact = await readDensity(page, 'tree')
+        const aligned = await applyOfficialDensity(page)
+        check.ok(
+          `w=${String(width)}：密度变量对齐到官方兜底值（内联项数 > 0）`,
+          aligned >= 20,
+          `内联项数=${String(aligned)}（#104 起键面 25 项；精确键集由外壳契约套件守）`,
+        )
+        await page.waitForTimeout(200)
+        const official = await readDensity(page, 'tree')
+        if (width === 340) {
+          screenshots.push(await shot(ctx, page, 'density-spread-compact-340'))
+        }
+        await restoreDensity(page)
+        await page.waitForTimeout(150)
+        compactByWidth.set(width, compact)
+        officialByWidth.set(width, official)
+        if (width === 340) {
+          screenshots.push(await shot(ctx, page, 'density-spread-official-340'))
+        }
+        for (const spec of treeRegions) {
+          const owner = compact[spec.region]
+          const base = official[spec.region]
+          check.ok(
+            `w=${String(width)} ${spec.region}：元素在（两种状态都量到）`,
+            owner !== undefined && base !== undefined,
+            `compact=${String(owner !== undefined)} official=${String(base !== undefined)}`,
+          )
+          if (owner === undefined || base === undefined) continue
+          const rows = spec.props.map((prop) => ({
+            prop,
+            compact: owner[prop] ?? Number.NaN,
+            official: base[prop] ?? Number.NaN,
+          }))
+          const loose = rows.filter((row) => !(row.compact < row.official))
+          check.ok(
+            `w=${String(width)} ${spec.region}：每一项紧凑档都严格小于官方原值`,
+            loose.length === 0,
+            rows.map((row) => `${row.prop} ${String(row.compact)}<${String(row.official)}`).join(' '),
+          )
+        }
+      }
+      check.fact(
+        `顶栏/过滤条/回收站入口行 @340（紧凑 → 官方）：${treeRegions
+          .flatMap((spec) => {
+            const owner = compactByWidth.get(340)?.[spec.region] ?? {}
+            const base = officialByWidth.get(340)?.[spec.region] ?? {}
+            return spec.props.map((prop) => `${spec.region}.${prop} ${String(owner[prop])}→${String(base[prop])}`)
+          })
+          .join('；')}`,
+      )
+      // 密度是容器给的、不是宽度给的：同一区域在三档宽度下的紧凑读数必须一致。
+      for (const spec of treeRegions) {
+        const samples = widths.map((width) => compactByWidth.get(width)?.[spec.region]).filter((value) => value !== undefined)
+        const first = samples[0] ?? {}
+        const drifted = samples.filter((value) => spec.props.some((prop) => value[prop] !== first[prop]))
+        check.ok(
+          `${spec.region}：三档宽度下紧凑读数一致（密度不随宽度漂）`,
+          samples.length === widths.length && drifted.length === 0,
+          drifted.length === 0
+            ? spec.props.map((prop) => `${prop}=${String(first[prop])}`).join(' ')
+            : JSON.stringify(drifted),
+        )
+      }
+
+      // ---- 抽屉：整块盖住树区，点开再量 ----
+      await page.setViewportSize({ width: 340, height: 900 })
+      await page.click('[data-dshone-tree-action="recycle-open"]')
+      await page.waitForTimeout(400)
+      const drawerOpen = await contentCount(page, '[data-dshone-tree="recycle-drawer"]')
+      check.eq('抽屉打开（四区里最后一块要量的区域）', drawerOpen, 1)
+      const drawerCompactByWidth = new Map<number, DensityReading>()
+      const drawerOfficialByWidth = new Map<number, DensityReading>()
+      for (const width of widths) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(300)
+        const compact = await readDensity(page, 'drawer')
+        await applyOfficialDensity(page)
+        await page.waitForTimeout(200)
+        const official = await readDensity(page, 'drawer')
+        await restoreDensity(page)
+        await page.waitForTimeout(150)
+        drawerCompactByWidth.set(width, compact)
+        drawerOfficialByWidth.set(width, official)
+        for (const spec of drawerRegions) {
+          const owner = compact[spec.region]
+          const base = official[spec.region]
+          // 抽屉内容 = 网关的归档集合：当前网关上有内容（F-07 同款断言），但仍按
+          // F-04 的口径处理「这一轮真没有」——没有可比的东西就记一笔跳过。
+          if (owner === undefined || base === undefined) {
+            check.fact(`w=${String(width)} ${spec.region}：这一轮没有这个元素（网关归档集合为空时抽屉只出状态行）——跳过`)
+            continue
+          }
+          const rows = spec.props.map((prop) => ({ prop, compact: owner[prop] ?? Number.NaN, official: base[prop] ?? Number.NaN }))
+          const loose = rows.filter((row) => !(row.compact < row.official))
+          check.ok(
+            `w=${String(width)} ${spec.region}：每一项紧凑档都严格小于官方原值`,
+            loose.length === 0,
+            rows.map((row) => `${row.prop} ${String(row.compact)}<${String(row.official)}`).join(' '),
+          )
+        }
+      }
+      check.fact(
+        `抽屉四件 @340（紧凑 → 官方）：${drawerRegions
+          .flatMap((spec) => {
+            const owner = drawerCompactByWidth.get(340)?.[spec.region] ?? {}
+            const base = drawerOfficialByWidth.get(340)?.[spec.region] ?? {}
+            return spec.props.map((prop) => `${spec.region}.${prop} ${String(owner[prop])}→${String(base[prop])}`)
+          })
+          .join('；')}`,
+      )
+      screenshots.push(await shot(ctx, page, 'density-spread-drawer-340'))
+      await page.click('[data-dshone-tree-action="recycle-close"]')
+      await page.waitForTimeout(200)
+      check.eq('抽屉关掉', await contentCount(page, '[data-dshone-tree="recycle-drawer"]'), 0)
+
+      check.eq('密度套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
+    } finally {
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -1824,4 +2077,6 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   WIRE_LIVENESS_SUITE,
   // #99 侧栏骨架（F-12：F-10/F-11 已被 #91 的漂移断言占用）。
   SKELETON_SUITE,
+  // #104 密度档扩散（F-13）。
+  DENSITY_SPREAD_SUITE,
 ]
