@@ -22,6 +22,9 @@ import {
   type GatewayAssets,
 } from './assembly/wireFilter.ts'
 import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, type AssemblyTree } from './assembly/trees.ts'
+import { decideSidebarStatus, assemblyFailureView, type SidebarStatusDecision } from '../pure/sidebarStatus.ts'
+import { sidebarStatusHtml } from './sidebarStatusPage.ts'
+import { openInstallGuide } from './installGuide.ts'
 
 /**
  * cordis 装配视图（#64 对话区面板，#70 起泛化为两棵树）：
@@ -562,45 +565,24 @@ export function registerAssembledChat(
 }
 
 /**
- * 侧栏位装配失败时的占位页：说明原因 + Retry 按钮（post assembly:retry 重试
- * 装配）。服务没起/清单拉取失败都落这里——侧栏 view 没有命令层的弹窗可依赖。
+ * 侧栏状态页（#100）：三态各有自己的文案与按钮——
+ * - 未安装：「查看安装指南」→ 开独立的安装引导 tab（窄侧栏放不下引导内容）；
+ * - 服务未运行 / 启动中：「启动 dsh 服务」（启动中只显示进度文案）；
+ * - 装配失败：说明原因 + 「重试装配」。
+ *
+ * 判定结果若是 `assemble`（服务在跑、交给装配页）就不动页面。
+ * 页面的 HTML 由 `sidebarStatusPage.ts` 出（宿主侧普通 HTML，不参与装配树）。
  */
-function sidebarFallbackHtml(reason: string): string {
-  const nonce = crypto.randomBytes(16).toString('base64')
-  const csp = [
-    "default-src 'none'",
-    "script-src 'nonce-" + nonce + "'",
-    "style-src 'unsafe-inline'",
-  ].join('; ')
-  const button = vscode.l10n.t('Retry')
-  const hint = vscode.l10n.t('DSH sidebar failed to load: {0}', reason)
-  const escapeHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="${csp}" />
-    <title>DSH One sidebar</title>
-    <script nonce="${nonce}">
-      const vscode = globalThis.__DSH_ONE_VSCODE__ || acquireVsCodeApi()
-      document.addEventListener('click', (e) => {
-        if (e.target && e.target.id === 'dsh-retry') vscode.postMessage({ type: 'assembly:retry' })
-      })
-    </script>
-  </head>
-  <body style="font-family:var(--vscode-font-family,system-ui,sans-serif);padding:12px;font-size:13px;color:var(--vscode-descriptionForeground,#888)">
-    <div>${escapeHtml(hint)}</div>
-    <button id="dsh-retry" style="margin-top:8px;padding:4px 12px;cursor:pointer">${escapeHtml(button)}</button>
-  </body>
-</html>
-`
+function renderSidebarStatus(webview: vscode.Webview, decision: SidebarStatusDecision): void {
+  if (decision.kind === 'assemble') return
+  webview.html = sidebarStatusHtml(decision)
 }
 
 /**
  * 侧栏位装配 provider（#70）：dshOne.chat view 的内容从自研 vanilla 换成
  * 官方侧栏装配（第二棵 cordis 树）。生命周期：首次 resolve 装配一次，mirror
  * 随 view dispose 回收（retainContextWhenHidden 下折叠不触发 dispose）；
- * 失败落占位页，Retry 重新装配。
+ * 装不起来（未安装 / 服务没起 / 装配失败）落状态页，各自的按钮重新走一遍。
  */
 class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private mirror: AssemblyMirror | undefined
@@ -629,6 +611,8 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
       if (typeof msg !== 'object' || msg === null) return
       const type = (msg as { type?: unknown }).type
       if (type === 'assembly:retry') void this.assemble(view)
+      else if (type === 'assembly:start') this.startFromStatusPage(view)
+      else if (type === 'assembly:openInstallGuide') openInstallGuide(this.logger)
       else if (type === 'dshOne.openSettings') this.onOpenSettings?.()
       else if (type === 'dshOne.sessionSelected') {
         const sessionId = (msg as { sessionId?: unknown }).sessionId
@@ -651,13 +635,32 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
     this.onDidBecomeVisible?.()
   }
 
-  /** 装配一次：ensureStarted → 清单 → mirror → 装配页；失败落占位页。 */
+  /**
+   * 状态页「启动 dsh 服务」：先落「正在启动」页再走装配。ensureStarted 的第一件
+   * 事就是把 state 置成 starting（同步执行），所以这里能立刻读到；不这么做的话，
+   * 页面会停在「启动」按钮上直到服务真的起来，看起来像点击没生效。
+   */
+  private startFromStatusPage(view: vscode.WebviewView): void {
+    const started = this.manager.ensureStarted()
+    renderSidebarStatus(view.webview, decideSidebarStatus(this.manager.getStatus()))
+    void started.then(() => this.assemble(view))
+  }
+
+  /** 装配一次：ensureStarted → 清单 → mirror → 装配页；装不起来落状态页。 */
   private assemble(view: vscode.WebviewView): void {
     this.running ??= (async () => {
+      // 首帧先落状态页（服务在跑时马上被装配页替换）：侧栏揭面到装配完成之间是
+      // 网关往返，这段时间不该是白屏。已在装的服务不用重画（等结果就行）。
+      const initial = decideSidebarStatus(this.manager.getStatus())
+      if (initial.kind !== 'assemble') renderSidebarStatus(view.webview, initial)
+      const status = await this.manager.ensureStarted()
+      const decision = decideSidebarStatus(status)
+      if (decision.kind !== 'assemble') {
+        renderSidebarStatus(view.webview, decision)
+        return
+      }
       try {
-        const status = await this.manager.ensureStarted()
-        if (status.state !== 'running' || !status.url) throw new Error(vscode.l10n.t('DSH service is not running'))
-        const assembly = await loadGatewayAssembly(status.url, SIDEBAR_TREE, this.logger)
+        const assembly = await loadGatewayAssembly(decision.url, SIDEBAR_TREE, this.logger)
         // 重试路径：先释放旧 mirror（插件集可能已变）。
         if (this.mirror !== undefined) releaseSharedMirror(this.mirror)
         this.mirror = await acquireSharedMirror(this.context, this.manager, this.logger)
@@ -669,14 +672,14 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
           bootWire: assembly.wire,
           bootstrapUrl: assembly.wire.batches[0].url,
           theme: currentTheme(),
-          banner: versionBanner(dshVersion(status.url) ?? status.version),
+          banner: versionBanner(dshVersion(decision.url) ?? status.version),
         })
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err)
         this.logger.warn(`assembled sidebar failed: ${reason}`)
         this.mirror?.dispose()
         this.mirror = undefined
-        view.webview.html = sidebarFallbackHtml(reason)
+        renderSidebarStatus(view.webview, assemblyFailureView(status, reason))
       } finally {
         this.running = undefined
       }
