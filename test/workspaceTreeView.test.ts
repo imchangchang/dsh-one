@@ -127,6 +127,16 @@ test('deriveGroups：工作区记账里指向未知会话的 id 被跳过（列�
   assert.deepEqual(groups[0].sessions.map((s) => s.id), ['a'])
 })
 
+// 零工作区、零可见会话：树走空态分支（组件按 groups.length === 0 渲染「暂无会话」，
+// 正是「无工作区」那一档），不抛也不凭空造分组——#85 追加项去掉顶部「新会话」胶囊后，
+// 这条路径仍由它自己兜（胶囊在树外面，没参与这条路）。
+test('deriveGroups：零工作区且零会话时出空分组表（树走空态分支，不抛）', () => {
+  assert.deepEqual(deriveGroups(list([]), [], [], noPending, { expandedGroups: [] }), [])
+  // 一个工作区都没有、但有会话时，会话全部落「未分组」：树不上空态，仍出分组树。
+  const stray = deriveGroups(list([summary('a')]), [], [], noPending, { expandedGroups: [UNGROUPED_KEY] })
+  assert.deepEqual(stray.map((g) => g.key), [UNGROUPED_KEY])
+})
+
 // ---------------------------------------------------------------------------
 // 平铺推导（对齐官方 deriveFlat）
 // ---------------------------------------------------------------------------
