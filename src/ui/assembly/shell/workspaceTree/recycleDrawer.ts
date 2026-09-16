@@ -12,6 +12,14 @@
  * - 每行行尾一枚「还原」，行菜单「还原 / 永久归档」——永久归档是**终点动作**
  *   （走官方 `archiveSession`），所以交给树层的确认弹窗，本件只发请求。
  *
+ * ## 开合都有动效（#117）
+ * 滑入与滑出共用同一条 CSS 过渡（时长/缓动是官方 token，见 `styles.ts` 那段规则的出处注），
+ * 所以两边天然对称。关闭时**不立刻卸载**：元素先进退场期把滑出演完，`transitionend` 一到
+ * 再卸（兜底定时器防收不到事件）。选「退场期保留」而不是「常驻挂载」的理由：`closed` 时
+ * 元素真的从 DOM 里消失是本件既有的对外形态（#114 的套件与几处回归都按「关闭 = DOM 里
+ * 没有抽屉」判），常驻挂载要靠 `visibility` 之类的手段假装不在，反倒把「关上」这件事
+ * 拆成两份判据；而退场期只是一个渲染相位，开合态仍只有 `recycleDrawerStore` 一份事实源。
+ *
  * ## 为什么抽屉是自有渲染、不占官方槽位
  * 官方侧栏没有「抽屉」这样的座位，硬塞一个新槽会与官方布局插件争地盘；整块盖住自己
  * 渲染的树区域是自有渲染范围内的事（同 #81 的处置）。
@@ -40,6 +48,33 @@ const DRAWER_HEIGHT_MAX = 0.97
 const DRAWER_CLOSE_BELOW = 0.35
 /** 位移小于此值（px）视为「点击提手」而不是拖动 = 收起抽屉。 */
 const DRAWER_CLICK_SLOP = 4
+
+/**
+ * 抽屉在 DOM 里的相位（#117）。`closed` 完全不渲染；`entering` / `open` 是滑入的两个拍
+ * （先挂上、等元素以收起位画过一帧再加展开类，否则 transition 不触发——#103 的入场动画也
+ * 是这个路子）；`leaving` 是**退场期**：关闭之后元素还留在 DOM 里把滑出过渡演完。
+ */
+type DrawerPhase = 'closed' | 'entering' | 'open' | 'leaving'
+
+/**
+ * 退场期的兜底余量（毫秒）：正常情况下 `transitionend` 一到就收场，这个余量只用在
+ * 「兜底定时器」上，避免它和过渡结束抢那几毫秒。定时器的时长本身不写死——读元素上真实
+ * 的过渡时长（见 `transitionMsOf`），因为那是官方 token 算出来的值，可能与 200ms 不同。
+ */
+const DRAWER_EXIT_SLACK_MS = 60
+
+/** 元素上真实的过渡时长（毫秒）；多条时取最长的一条（本件的过渡只有 transform 一条）。 */
+function transitionMsOf(element: HTMLElement): number {
+  const parts = getComputedStyle(element).transitionDuration.split(',')
+  let longest = 0
+  for (const part of parts) {
+    const value = Number.parseFloat(part)
+    if (!Number.isFinite(value)) continue
+    const ms = part.trim().endsWith('ms') ? value : value * 1000
+    longest = Math.max(longest, ms)
+  }
+  return longest
+}
 
 export function RecycleDrawer({
   open,
@@ -73,8 +108,8 @@ export function RecycleDrawer({
   onArchive: (sessionId: string) => void
 }): unknown {
   const drawerRef = useRef<HTMLDivElement | null>(null)
-  /** 滑入动画的入场标记（挂载后下一帧再加 `.dshOneTree_drawerOpen`，否则 transition 不触发）。 */
-  const [entered, setEntered] = useState(false)
+  /** 挂载相位（见 `DrawerPhase`）：滑入的入场拍 + 关闭后的退场期都住在它身上。 */
+  const [phase, setPhase] = useState<DrawerPhase>('closed')
   /** 拖动中的高度（面板高比例）；null = 用档位值。 */
   const [dragHeight, setDragHeight] = useState<number | null>(null)
   /** 松手吸附后的档位；null = 默认半高（每次重新打开都回默认档，旧侧栏同此处置）。 */
@@ -82,16 +117,54 @@ export function RecycleDrawer({
   /** 开着行菜单的那一行（菜单开着时 Esc / 点外先让菜单走，不连动关抽屉）。 */
   const [menuFor, setMenuFor] = useState<string | null>(null)
 
+  // 开合态 → 相位。打开：先挂上（entering，元素在收起位、还没有展开类）。关闭：**不卸载**，
+  // 先进 leaving 把滑出过渡演完（#117），收场交给下面那个 effect。开合态本身仍只有
+  // `recycleDrawerStore` 一份事实源，本件只是按它决定元素在 DOM 里的相位。
   useEffect(() => {
-    if (!open) {
-      setEntered(false)
-      setSnapHeight(null)
-      setMenuFor(null)
+    if (open) {
+      setPhase('entering')
       return
     }
-    const frame = requestAnimationFrame(() => setEntered(true))
-    return () => cancelAnimationFrame(frame)
+    setSnapHeight(null)
+    setMenuFor(null)
+    setPhase((prev) => (prev === 'closed' ? 'closed' : 'leaving'))
   }, [open])
+
+  // entering → open：加展开类这一下就是滑入的触发点，而过渡要成立，元素必须**先以收起位
+  // 真的过了一帧**（挂载与加类落在同一帧的话，浏览器看不到「从哪来」，直接把它画在展开位、
+  // 过渡不触发——#117 实测到的就是这个：加类那次提交赶上插入那次提交，滑入变成瞬移）。
+  // 所以等两帧：第一帧元素以收起位落进画面，第二帧才加类。
+  useEffect(() => {
+    if (phase !== 'entering') return
+    let second = 0
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => setPhase('open'))
+    })
+    return () => {
+      cancelAnimationFrame(first)
+      cancelAnimationFrame(second)
+    }
+  }, [phase])
+
+  // 退场期的收场：过渡跑完（`transitionend`，且事件来自抽屉自己、属性是 transform）就卸载。
+  // 另起一个兜底定时器，防两种收不到那个事件的情形——过渡被 `prefers-reduced-motion` 关掉
+  // （没有过渡就没有结束事件）、或元素在过渡中途被浏览器判为不渲染。定时器时长 = 元素上
+  // 真实的过渡时长（官方 token 算出来的值）+ 一小截余量，不写死。退场期里又打开时，这个
+  // effect 先被清理、相位由上面那条改成 entering/open，退场期自然作废。
+  useEffect(() => {
+    if (phase !== 'leaving') return
+    const drawer = drawerRef.current
+    const finish = (): void => setPhase((prev) => (prev === 'leaving' ? 'closed' : prev))
+    const onEnd = (event: TransitionEvent): void => {
+      if (event.target === drawer && event.propertyName === 'transform') finish()
+    }
+    drawer?.addEventListener('transitionend', onEnd)
+    const timer = setTimeout(finish, (drawer === null ? 0 : transitionMsOf(drawer)) + DRAWER_EXIT_SLACK_MS)
+    return () => {
+      drawer?.removeEventListener('transitionend', onEnd)
+      clearTimeout(timer)
+    }
+  }, [phase])
 
   // 点抽屉外收起：判据是「点在自有树区域里、但不在抽屉上」。官方菜单 / 弹窗都 portal 到
   // document.body（不在树区域里），所以点它们不会把抽屉带走——不需要给浮层列白名单。
@@ -170,14 +243,14 @@ export function RecycleDrawer({
     handle?.addEventListener('pointercancel', up)
   }
 
-  if (!open) return null
+  if (phase === 'closed') return null
   const total = recycleCount(groups)
   const height = dragHeight ?? snapHeight ?? DRAWER_HEIGHT_DEFAULT
 
   return h(
     'div',
     {
-      className: `dshOneTree_drawer${entered ? ' dshOneTree_drawerOpen' : ''}`,
+      className: `dshOneTree_drawer${phase === 'open' ? ' dshOneTree_drawerOpen' : ''}${phase === 'leaving' ? ' dshOneTree_drawerLeaving' : ''}`,
       style: { height: `${String(height * 100)}%` },
       ref: drawerRef,
       'data-dshone-tree': 'recycle-drawer',

@@ -31,6 +31,7 @@ import { RECYCLE_ENTRY_TOGGLE_SUITE } from './recycleEntrySuites.ts'
 import { SCALE_SUITE } from './scaleSuites.ts'
 import { COLLAPSE_ALL_ICON_SUITE } from './collapseAllIconSuites.ts'
 import { TAG_GROUP_RAIL_SUITE } from './tagRailSuites.ts'
+import { RECYCLE_DRAWER_COLLAPSE_SUITE } from './recycleDrawerSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -1076,7 +1077,8 @@ export const SIDEBAR_SUITE: LabSuite = {
       )
       screenshots.push(await shot(ctx, page, 'sidebar-recycle-drawer'))
       await page.click('[data-dshone-tree-action="recycle-close"]')
-      await page.waitForTimeout(200)
+      // 收起有滑出过渡（#117）：等过渡跑完抽屉才从 DOM 里消失，所以这里等得比过渡长。
+      await page.waitForTimeout(400)
       check.eq('功能 5：抽屉可以关掉', await contentCount(page, '[data-dshone-tree="recycle-drawer"]'), 0)
 
       // ---- 功能 4：批量选择（只验选择与动作条，不点「移入回收站」——那会写真实网关） ----
@@ -2101,7 +2103,8 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
       )
       screenshots.push(await shot(ctx, page, 'density-spread-drawer-340'))
       await page.click('[data-dshone-tree-action="recycle-close"]')
-      await page.waitForTimeout(200)
+      // 收起有滑出过渡（#117）：等过渡跑完抽屉才从 DOM 里消失，所以这里等得比过渡长。
+      await page.waitForTimeout(400)
       check.eq('抽屉关掉', await contentCount(page, '[data-dshone-tree="recycle-drawer"]'), 0)
 
       check.eq('密度套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
@@ -2679,7 +2682,8 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
 
       // 关掉再开：折叠态还在（视图态住在树组件里，随 prefs 走）。
       await page.click('[data-dshone-tree-action="recycle-close"]')
-      await page.waitForTimeout(250)
+      // 收起有滑出过渡（#117）：等过渡跑完抽屉才从 DOM 里消失，所以这里等得比过渡长。
+      await page.waitForTimeout(400)
       check.eq('点关闭按钮收起抽屉', await contentCount(page, '[data-dshone-tree="recycle-drawer"]'), 0)
       await page.click('[data-dshone-tree-action="recycle-toggle"]')
       await page.waitForTimeout(350)
@@ -5775,6 +5779,9 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #113 侧栏风格档位表（F-23：F-20/F-21/F-22 已被 #114/#112/#115 占用；套件本体在
   // scaleSuites.ts，与 driftSuites.ts 同为独立文件，少一处合入热点）。
   SCALE_SUITE,
+  // #117 回收站抽屉收起也有动效（F-24：F-23 已被 #113 的档位表套件占用）。
+  // 独立文件，见 recycleDrawerSuites.ts 文件头的理由。
+  RECYCLE_DRAWER_COLLAPSE_SUITE,
   // #118 顶栏折叠/展开全部的方框加减号图标（F-25：F-20…F-23 已被 #114/#112/#115/#113
   // 占用，F-24 归 #117 的抽屉收起动效；套件本体在 collapseAllIconSuites.ts，同为独立文件）。
   COLLAPSE_ALL_ICON_SUITE,
