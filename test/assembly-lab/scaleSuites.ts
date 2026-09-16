@@ -47,8 +47,11 @@ const metrics = (tier: TierName): [string, string][] => Object.entries(SCALE_TIE
  */
 const PROP_METRIC: Readonly<Record<string, RegExp>> = {
   borderRadius: /radius$/i,
-  height: /(height|size)$/i,
-  width: /(width|size)$/i,
+  // `(?<!line)`：文字行高（*LineHeight）不是「高度」——一个 20px 的盒子不能拿 20px 的
+  // 文字行高当出处（否则报告里写出来的出处会张冠李戴）。口径与 test/sidebarStyleScale.test.ts
+  // 的源码层扫描一致。
+  height: /(?<!line)(height|size)$/i,
+  width: /(?<!line)(width|size)$/i,
   fontSize: /fontsize$/i,
   lineHeight: /lineheight$/i,
 }
@@ -201,13 +204,17 @@ async function openMenu(page: OpenedPage['page'], selector: string): Promise<voi
   await page.waitForTimeout(300)
 }
 
-/** 关掉当前菜单（Esc；个别情况下官方不接 Esc 就点一下别处）。 */
-async function closeMenu(page: OpenedPage['page']): Promise<void> {
+/**
+ * 关掉当前菜单：Esc；官方不接 Esc 时**再点一次那个触发器**（它是 toggle，副作用只有开关）。
+ * 不用「点别处」的兜底：侧栏那一带底下是行与行上的 `＋`，一次盲点可能真的建出一个会话
+ * （R-06 守的是「整轮跑完网关会话数不变」，别让收尾动作去踩它）。
+ */
+async function closeMenu(page: OpenedPage['page'], trigger: string): Promise<void> {
   await page.keyboard.press('Escape')
   await page.waitForTimeout(200)
   const left = await page.evaluate(() => document.querySelectorAll('[role="menu"]').length)
   if (left > 0) {
-    await page.mouse.click(360, 880)
+    await page.click(trigger)
     await page.waitForTimeout(200)
   }
 }
@@ -380,7 +387,7 @@ export const SCALE_SUITE: LabSuite = {
           SCALE_TIERS.container.listRadius,
         )
         screenshots.push(await shot(ctx, page, `scale-menu-${target.name === '视图选项菜单' ? 'view-options' : 'group-pill'}`))
-        await closeMenu(page)
+        await closeMenu(page, target.trigger)
         check.eq(`${target.name}：关掉了`, await page.evaluate(() => document.querySelectorAll('[role="menu"]').length), 0)
       }
       check.ok('至少开出过一份菜单（菜单紧凑档断言真的跑到了）', menus.length >= 1, `开出 ${String(menus.length)} 份`)
