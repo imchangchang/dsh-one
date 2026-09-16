@@ -343,8 +343,14 @@ interface SearchPage {
  * 一致，便于对照源码阅读。
  */
 interface TreeProps {
-  /** 侧栏壳给的宽度形态：宽列（true）渲染整块浏览区。自有 frame 恒传 true。 */
+  /**
+   * 侧栏壳给的宽度形态：宽列（true）渲染整块浏览区，rail（false）只渲染搜索/添加
+   * 两个 36px 图标——**本步只做宽列**：自有侧栏外框恒传 `collapsed:false`，官方
+   * SidebarRoot 遂恒取 wide=true（`wide = !collapsed || !settled`），rail 分支在
+   * VS Code 形态下不可达；将来若要支持内页收起轨，按官方同款补 rail 分支即可。
+   */
   wide?: boolean
+  /** rail 态点图标请求展开（官方 owner share）；本步宽列形态不消费。 */
   expandSidebar?: () => void
   t: Translate
   useSessions: <R>(selector: (state: SessionListLike) => R) => R
