@@ -1434,8 +1434,11 @@ export const MULTIOPEN_SUITE: LabSuite = {
       check.fact(`⋯ 菜单：${JSON.stringify(menu)}`)
       check.ok('⋯ 菜单弹出且带「在新标签页打开」项', menu.menus === 1 && menu.item.trim() !== '', JSON.stringify(menu))
       check.ok(
-        '菜单四项都有文案（原三项未被挤掉）',
-        menu.allItems.length === 4 && menu.allItems.every((label) => label.trim() !== ''),
+        // #102 起菜单里多了「置顶」「标为未读」两项，所以这里不再钉死项数，改成
+        // 「原有四项都还在且每一项都有文案」——钉死会让共享热点上每加一项都要改这里。
+        '原有四项都还在且每项都有文案（重命名 / 分叉 / 在新标签页打开 / 归档）',
+        menu.allItems.every((label) => label.trim() !== '') &&
+          ['重命名', '分叉会话', '在新标签页打开', '归档会话'].every((label) => menu.allItems.some((text) => text.includes(label))),
         JSON.stringify(menu.allItems),
       )
       screenshots.push(await shot(ctx, sidebar.page, 'multiopen-menu'))
@@ -2071,6 +2074,326 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// F-14 PIN-UNREAD：置顶与手动未读（#102）
+// ---------------------------------------------------------------------------
+
+/** 树里一个分组区块的会话行现状（F-14 的行级夹具）。 */
+interface LabSessionRow {
+  id: string
+  /** 行上的活状态（`data-dshone-tree-status`）：waiting / running / idle。 */
+  status: string
+  pinned: boolean
+  unread: boolean
+  /** 状态位里真画了东西（未读的绿点就落在这里；空闲行是空槽）。 */
+  dot: boolean
+  /** 这一行有行操作（非空白会话才有 ⋯ 菜单）。 */
+  menu: boolean
+  /** 选择态下的勾选资格（`data-dshone-tree-check`）：eligible / blocked。 */
+  check: string | null
+  /** 勾选框上的原因提示（不可勾选时才有）。 */
+  checkTip: string
+  /** 标题的 font-weight（未读加粗 = 600）。 */
+  weight: string
+}
+
+interface LabSection {
+  key: string
+  sessions: LabSessionRow[]
+}
+
+/** 逐个分组读会话行现状（含行内的置顶图钉与未读加粗）。 */
+async function sectionRows(page: OpenedPage['page']): Promise<LabSection[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-dshone-group-key]')).map((section) => ({
+      key: section.getAttribute('data-dshone-group-key') ?? '',
+      sessions: Array.from(section.querySelectorAll('[data-dshone-tree-row="session"]')).map((row) => {
+        const title = row.querySelector('.dshOneTree_title')
+        const check = row.querySelector('.dshOneTree_check')
+        return {
+          id: row.getAttribute('data-dshone-tree-session') ?? '',
+          status: row.getAttribute('data-dshone-tree-status') ?? '',
+          pinned: row.querySelector('[data-dshone-tree-pin]') !== null,
+          unread: (title?.className ?? '').includes('dshOneTree_unread'),
+          dot: (row.querySelector('.dshOneTree_slot')?.children.length ?? 0) > 0,
+          menu: row.querySelector('[data-dshone-tree-action="session-menu"]') !== null,
+          check: row.getAttribute('data-dshone-tree-check'),
+          checkTip: check?.getAttribute('title') ?? '',
+          weight: title === null ? '' : getComputedStyle(title).fontWeight,
+        }
+      }),
+    })),
+  )
+}
+
+/** 把收缩着的分组全展开（只动本地展开态，不写网关）。 */
+async function expandAllGroups(page: OpenedPage['page']): Promise<void> {
+  await page.evaluate(() => {
+    for (const row of Array.from(document.querySelectorAll('[data-dshone-tree-row="workspace"]'))) {
+      if (row.getAttribute('aria-expanded') !== 'true') (row as HTMLElement).click()
+    }
+  })
+  await page.waitForTimeout(400)
+}
+
+/** 开某一行的 ⋯ 菜单（行操作悬停才显形，所以先 hover）。 */
+async function openSessionMenu(page: OpenedPage['page'], sessionId: string): Promise<void> {
+  const row = page.locator(`[data-dshone-tree-session="${sessionId}"]`)
+  await row.hover()
+  await row.locator('[data-dshone-tree-action="session-menu"]').click()
+  await page.waitForTimeout(250)
+}
+
+/** 当前菜单里我们那几项的状态（按自有标记属性取项，不认官方哈希类名）。 */
+async function sessionMenuItemFacts(page: OpenedPage['page']): Promise<
+  Record<'pin' | 'unread' | 'archive', { text: string; disabled: boolean; tip: string; children: number } | null>
+> {
+  return page.evaluate(() => {
+    const menu = Array.from(document.querySelectorAll('[role="menu"]')).pop()
+    const read = (name: string): { text: string; disabled: boolean; tip: string; children: number } | null => {
+      const mark = menu?.querySelector(`[data-dshone-tree-item="${name}"]`)
+      const button = mark?.closest('button') ?? null
+      if (mark === null || mark === undefined || button === null) return null
+      return {
+        text: (mark.textContent ?? '').trim(),
+        disabled: button.disabled === true,
+        tip: mark.getAttribute('title') ?? '',
+        // 官方 Menu 的勾选态（selectedIds）会多渲染一个 check 图标子元素：有 ✓ 时
+        // 子元素数比没有时多 1（图标槽 + 文案槽 [+ check]）。
+        children: button.childElementCount,
+      }
+    }
+    return { pin: read('pin'), unread: read('unread'), archive: read('archive') }
+  })
+}
+
+/** 假宿主状态存储里的一个键。 */
+async function hostState(page: OpenedPage['page'], key: string): Promise<unknown> {
+  return page.evaluate((name: string) => {
+    const host = (globalThis as unknown as { __LAB_HOST__?: { stateStore?: Record<string, unknown> } }).__LAB_HOST__
+    return host?.stateStore?.[name] ?? null
+  }, key)
+}
+
+/**
+ * 置顶与手动未读（#102）：状态迁入、置顶排最前、未读的标/清/禁用、保护规则三处禁用。
+ *
+ * 数据面与其它套件一致：真实网关只读 + 假宿主；两份标记注进假宿主的状态存储
+ * （`pinned` 注**旧形状**的裸 id 数组，用来验一次性迁入与写回；`unread` 注规范形状，
+ * 用来验「规范形状不重写」）。
+ */
+export const PIN_UNREAD_SUITE: LabSuite = {
+  id: 'F-14',
+  phase: 'new-feature',
+  name: '置顶与手动未读（#102）：旧值迁入 + 置顶排最前 + 未读标/清/禁用 + 保护规则（PIN-UNREAD 套件）',
+  expect:
+    '侧栏树（真实网关只读 + 假宿主）：① **迁入**——注入旧形状（裸 id 数组）的 `pinned` 与规范形状的 `unread`，两者都被采用（行上出图钉 / 出未读加粗），且只有旧形状那一份被按规范形状 `{version:1, sessionIds:[…]}` 写回一次、规范形状那一份原样不重写；② **置顶排最前**——置顶行的位置在它所在分组里排第一（其余行保持官方顺序）；③ **手动未读**——菜单「标为未读」把行变成绿点 + 标题加粗并写进 `unread` 键，再点「标为已读」清掉；**打开会话即清未读**；运行中（或后代在跑）的那一行该项禁用并给出原因；④ **保护规则**——置顶行在选择态下不可勾选（勾选框灰、带原因、点它不切换）、「归档会话」项禁用并给出置顶原因，未读行的归档项禁用并给出未读原因（归档许可的口径 = `canArchive`）。全程零 pageerror。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+
+    // 一、先开一次页面摸清真网关上真有的行——夹具必须用页面里真有的会话 id，
+    // 否则断言无从观察（与 F-07 同一做法）。
+    const probe = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
+    let before: LabSection[] = []
+    try {
+      await expandAllGroups(probe.page)
+      before = await sectionRows(probe.page)
+    } finally {
+      await probe.context.close()
+    }
+    const allRows = before.flatMap((section) => section.sessions.map((row, index) => ({ ...row, key: section.key, index })))
+    check.fact(
+      `真实网关的行：${String(allRows.length)} 条（分组 ${String(before.length)} 个，其中带行菜单的 ${String(allRows.filter((row) => row.menu).length)} 条）`,
+    )
+
+    // 置顶目标：挑一个「分组里至少两行、且它不是第一行」的会话——置顶后它要挪到第一，
+    // 位置变化才看得出来。
+    const pinTarget = allRows.find((row) => row.menu && row.index > 0)
+    // 未读目标：另挑一条空闲行（与置顶那条不同），未读项对它是可用的。
+    const unreadTarget = allRows.find((row) => row.menu && row.status === 'idle' && row.id !== pinTarget?.id)
+    // 运行中样本：真网关上通常有（跑这个套件的会话自己就在跑），没有时下面按无样本记。
+    const runningTarget = allRows.find((row) => row.status === 'running')
+    check.fact(
+      `夹具：置顶=${pinTarget?.id.slice(0, 13) ?? '无'}（分组 ${pinTarget?.key.slice(0, 8) ?? '无'} 第 ${String(pinTarget?.index ?? -1)} 行） 未读=${unreadTarget?.id.slice(0, 13) ?? '无'} 运行中样本=${runningTarget?.id.slice(0, 13) ?? '无'}`,
+    )
+    if (pinTarget === undefined || unreadTarget === undefined) {
+      check.ok('真网关上取到置顶与未读各一个夹具会话', false, `pin=${String(pinTarget !== undefined)} unread=${String(unreadTarget !== undefined)}`)
+      return screenshots
+    }
+
+    // 二、带注入状态开页：`pinned` 注**旧形状**（裸 id 数组，迁入后应被写回规范形状），
+    // `unread` 注**规范形状**并故意多带一个字段（不重写的话它会原样留着）。
+    const injectedUnread = { version: 1, sessionIds: [unreadTarget.id], keep: 'untouched' }
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), {
+      width: 380,
+      height: 900,
+      state: { pinned: [pinTarget.id], unread: injectedUnread },
+    })
+    const { page } = opened
+    try {
+      await expandAllGroups(page)
+      const after = await sectionRows(page)
+      const rows = after.flatMap((section) => section.sessions.map((row, index) => ({ ...row, key: section.key, index })))
+      const pinnedRow = rows.find((row) => row.id === pinTarget.id)
+      const unreadRow = rows.find((row) => row.id === unreadTarget.id)
+      const pinnedSection = after.find((section) => section.key === pinTarget.key)
+
+      // ---- ① 迁入读取：两份旧值都被采用 ----
+      check.ok('迁入：旧形状的 pinned 被采用（那一行出图钉）', pinnedRow?.pinned === true, JSON.stringify(pinnedRow))
+      check.ok('迁入：规范形状的 unread 被采用（那一行标题加粗）', unreadRow?.unread === true, JSON.stringify(unreadRow))
+      check.eq('未读行标题加粗（600）', unreadRow?.weight, '600')
+      check.ok('未读行画出状态位（空闲行本来是个空槽）', unreadRow?.dot === true, JSON.stringify(unreadRow))
+
+      // ---- ② 置顶排最前（它所在的那一层）----
+      check.ok(
+        '置顶排最前：置顶行在它所在分组里是第一行（其余保持官方顺序）',
+        pinnedSection?.sessions[0]?.id === pinTarget.id,
+        `组内顺序=${JSON.stringify(pinnedSection?.sessions.map((row) => row.id.slice(0, 14)))}`,
+      )
+      // 「其余保持官方顺序」的对照口径：置顶前的顺序**去掉置顶那条**，应当与置顶后
+      // 去掉第一行完全一致。
+      const beforeRest = (before.find((section) => section.key === pinTarget.key)?.sessions ?? [])
+        .map((row) => row.id)
+        .filter((id) => id !== pinTarget.id)
+      check.ok(
+        '其余行保持官方顺序（去掉置顶行后与置顶前的顺序一致）',
+        JSON.stringify((pinnedSection?.sessions ?? []).slice(1).map((row) => row.id)) === JSON.stringify(beforeRest),
+        `after=${JSON.stringify((pinnedSection?.sessions ?? []).slice(1).map((row) => row.id.slice(0, 14)))} before=${JSON.stringify(beforeRest.map((id) => id.slice(0, 14)))}`,
+      )
+
+      // ---- ① 迁入写回：旧形状写回规范形状；规范形状原样不重写 ----
+      check.eq('迁入写回：旧形状的 pinned 被按规范形状写回一次', await hostState(page, 'pinned'), {
+        version: 1,
+        sessionIds: [pinTarget.id],
+      })
+      check.eq('规范形状的 unread 不被重写（注入的多余字段原样留着）', await hostState(page, 'unread'), injectedUnread)
+
+      // ---- ③ 菜单：文案随状态翻转 + 勾选态 ----
+      await openSessionMenu(page, pinTarget.id)
+      const pinnedMenu = await sessionMenuItemFacts(page)
+      check.fact(`置顶行菜单：${JSON.stringify(pinnedMenu)}`)
+      check.ok('已置顶时文案是「取消置顶」', pinnedMenu.pin?.text === '取消置顶', JSON.stringify(pinnedMenu.pin))
+      screenshots.push(await shot(ctx, page, 'pin-unread-menu-pinned'))
+      // ---- ④ 保护规则：归档项对置顶行禁用并给出置顶原因 ----
+      check.ok(
+        '保护规则：置顶行的「归档会话」禁用并给出置顶原因',
+        pinnedMenu.archive?.disabled === true && pinnedMenu.archive.tip.includes('置顶会话不能归档'),
+        JSON.stringify(pinnedMenu.archive),
+      )
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(200)
+
+      await openSessionMenu(page, unreadTarget.id)
+      const unreadMenu = await sessionMenuItemFacts(page)
+      check.fact(`未读行菜单：${JSON.stringify(unreadMenu)}`)
+      check.ok('已未读时文案是「标为已读」', unreadMenu.unread?.text === '标为已读', JSON.stringify(unreadMenu.unread))
+      check.ok(
+        '保护规则：未读行的「归档会话」禁用并给出未读原因（归档许可的口径见 canArchive）',
+        unreadMenu.archive?.disabled === true && unreadMenu.archive.tip.includes('未读的会话不能归档'),
+        JSON.stringify(unreadMenu.archive),
+      )
+      // 未置顶的行：pin 项文案是「置顶」、没有 ✓（与置顶行比，子元素少一个）。
+      check.ok('未置顶时文案是「置顶」', unreadMenu.pin?.text === '置顶', JSON.stringify(unreadMenu.pin))
+      check.ok(
+        '未置顶的行菜单里 pin 项没有 ✓（子元素比置顶行少一个：官方 Menu 的 check 槽）',
+        unreadMenu.pin !== null && pinnedMenu.pin !== null && unreadMenu.pin.children === pinnedMenu.pin.children - 1,
+        `unpinned=${String(unreadMenu.pin?.children)} pinned=${String(pinnedMenu.pin?.children)}`,
+      )
+      screenshots.push(await shot(ctx, page, 'pin-unread-menu-unread'))
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(200)
+
+      // ---- ③ 运行中：该项禁用并给出原因 ----
+      // 真网关上跑这个套件的会话自己通常就在跑，所以一般都有样本；万一这轮没有
+      // （跑完那一刻刚结束），这条按「无样本」通过，并把规则本身交给单测钉住
+      // （test/sessionEligibility.test.ts 的 canArchive/sessionBusy）。断言条数恒定。
+      let runningBlocked = true
+      let runningDetail = '本轮真网关上没有运行中的会话（无样本）'
+      if (runningTarget !== undefined) {
+        await openSessionMenu(page, runningTarget.id)
+        const runningMenu = await sessionMenuItemFacts(page)
+        runningDetail = JSON.stringify(runningMenu.unread)
+        runningBlocked =
+          runningMenu.unread?.disabled === true && runningMenu.unread.tip.includes('运行中的会话不支持手动标为已读/未读')
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(200)
+      }
+      check.ok('运行中的会话：未读项禁用并给出原因（无运行样本的一轮按无样本通过）', runningBlocked, runningDetail)
+
+      // ---- ③ 标为未读 / 标为已读：走菜单，写回 unread 键 ----
+      await openSessionMenu(page, unreadTarget.id)
+      await page.click('[data-dshone-tree-item="unread"]')
+      await page.waitForTimeout(350)
+      const markedRead = (await sectionRows(page)).flatMap((section) => section.sessions).find((row) => row.id === unreadTarget.id)
+      check.eq('「标为已读」后行上不再加粗', markedRead?.unread, false)
+      check.eq('「标为已读」写回 unread 键（那一行被摘掉，其余保留）', await hostState(page, 'unread'), {
+        version: 1,
+        sessionIds: [],
+      })
+
+      // 再标一次未读（这次是为了验「打开会话即清未读」）。
+      await openSessionMenu(page, unreadTarget.id)
+      await page.click('[data-dshone-tree-item="unread"]')
+      await page.waitForTimeout(350)
+      const reMarked = (await sectionRows(page)).flatMap((section) => section.sessions).find((row) => row.id === unreadTarget.id)
+      check.eq('「标为未读」后行上加粗', reMarked?.unread, true)
+      check.eq('「标为未读」写回 unread 键', await hostState(page, 'unread'), {
+        version: 1,
+        sessionIds: [unreadTarget.id],
+      })
+
+      // ---- ③ 打开会话即清未读 ----
+      await page.click(`[data-dshone-tree-session="${unreadTarget.id}"]`)
+      await page.waitForTimeout(400)
+      const openedRow = (await sectionRows(page)).flatMap((section) => section.sessions).find((row) => row.id === unreadTarget.id)
+      check.eq('打开会话即清未读：行上不再加粗', openedRow?.unread, false)
+      check.eq('打开会话即清未读：unread 键里没有它了', await hostState(page, 'unread'), { version: 1, sessionIds: [] })
+
+      // ---- ④ 保护规则：置顶行不可勾选（组头三态遇置顶只能 none/some，判定见 pure 工具）----
+      await page.click('[data-dshone-tree-action="select-mode"]')
+      await page.waitForTimeout(300)
+      const selectRows = await page.evaluate((pinnedId: string) => {
+        const read = (id: string): { check: string | null; tip: string; checked: string | null } => {
+          const row = document.querySelector(`[data-dshone-tree-session="${id}"]`)
+          return {
+            check: row?.getAttribute('data-dshone-tree-check') ?? null,
+            tip: row?.querySelector('.dshOneTree_check')?.getAttribute('title') ?? '',
+            checked: row?.getAttribute('data-dshone-tree-checked') ?? null,
+          }
+        }
+        return { pinned: read(pinnedId), other: read(document.querySelector('[data-dshone-tree-session]:not([data-dshone-tree-session="' + pinnedId + '"])')?.getAttribute('data-dshone-tree-session') ?? '') }
+      }, pinTarget.id)
+      check.ok(
+        '保护规则：置顶行在选择态下不可勾选（带原因提示）',
+        selectRows.pinned.check === 'blocked' && selectRows.pinned.tip.includes('置顶会话不能移入回收站或归档'),
+        JSON.stringify(selectRows.pinned),
+      )
+      // 点它不切换勾选（不可勾选的行整行点下去也不该被选中）。
+      await page.click(`[data-dshone-tree-session="${pinTarget.id}"]`)
+      await page.waitForTimeout(200)
+      const afterClick = await page.getAttribute(`[data-dshone-tree-session="${pinTarget.id}"]`, 'data-dshone-tree-checked')
+      check.eq('点置顶行不切换勾选（仍未被选中）', afterClick, 'false')
+      check.ok('非置顶行照旧可勾选（对照组）', selectRows.other.check === 'eligible', JSON.stringify(selectRows.other))
+      screenshots.push(await shot(ctx, page, 'pin-unread-protect-select'))
+      await page.click('[data-dshone-tree-action="select-mode"]')
+      await page.waitForTimeout(250)
+
+      // ---- 取消置顶：图钉消失、状态清空 ----
+      await openSessionMenu(page, pinTarget.id)
+      await page.click('[data-dshone-tree-item="pin"]')
+      await page.waitForTimeout(350)
+      const unpinnedRow = (await sectionRows(page)).flatMap((section) => section.sessions).find((row) => row.id === pinTarget.id)
+      check.eq('取消置顶：行上不再有图钉', unpinnedRow?.pinned, false)
+      check.eq('取消置顶写回 pinned 键（空集合）', await hostState(page, 'pinned'), { version: 1, sessionIds: [] })
+
+      check.eq('置顶与未读套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
+    } finally {
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -2089,4 +2412,6 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   SKELETON_SUITE,
   // #104 密度档扩散（F-13）。
   DENSITY_SPREAD_SUITE,
+  // #102 置顶与手动未读（F-14：F-13 已被 #104 的密度套件占用）。
+  PIN_UNREAD_SUITE,
 ]

@@ -220,6 +220,33 @@ test('showsStatusDot：done 档且没有完成提醒时不画点（官方只在�
   assert.equal(showsStatusDot(running, false), true)
 })
 
+// #102 手动未读（我们的扩展）：空闲档借官方 done 绿点，标签是「未读」；在跑/在等
+// 用户时让位给那两类状态（它们更该先说）。
+test('sessionStatuses + unread：空闲档的未读落到 done 档、标签是「未读」', () => {
+  assert.deepEqual(sessionStatuses({ running: false, runningSubagentCount: 0, completed: false, unread: true }), [
+    { state: 'done', labelKey: 'status.unread' },
+  ])
+  // 完成提醒优先于手动未读（两者共用同一颗绿点，官方那条先报）。
+  assert.deepEqual(sessionStatuses({ running: false, runningSubagentCount: 0, completed: true, unread: true }), [
+    { state: 'done', labelKey: 'status.completed' },
+  ])
+  // 运行中 / 等用户时未读不覆盖主状态。
+  assert.deepEqual(sessionStatuses({ running: true, runningSubagentCount: 0, completed: false, unread: true })[0], {
+    state: 'ongoing',
+    labelKey: 'status.running',
+  })
+  assert.deepEqual(
+    sessionStatuses({ running: false, runningSubagentCount: 0, completed: false, unread: true, pendingInteraction: 'approval' })[0],
+    { state: 'warning', labelKey: 'status.waitingApproval' },
+  )
+})
+
+test('showsStatusDot：手动未读要与 completed 一起并进第二参，否则空闲档那颗绿点不渲染', () => {
+  const unreadIdle = sessionStatuses({ running: false, runningSubagentCount: 0, completed: false, unread: true })
+  assert.equal(showsStatusDot(unreadIdle, true), true)
+  assert.equal(showsStatusDot(unreadIdle, false), false)
+})
+
 // ---------------------------------------------------------------------------
 // 子代理后代计数（对齐官方 indexSubagentDescendants）
 // ---------------------------------------------------------------------------
