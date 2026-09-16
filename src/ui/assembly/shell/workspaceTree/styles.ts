@@ -190,8 +190,12 @@ export const SCALE_TIERS = {
  * 中文说明写在每一条上方的注释里。
  */
 export const SCALE_EXEMPT: readonly { selector: string; reason: string }[] = [
-  // 标签组（#107）：形态与数值逐字沿用旧侧栏的 .tag-* 规则，不进档位表（要改另立条目）。
-  { selector: 'dshOneTree_tag', reason: 'tag groups (#107): values kept verbatim from the old sidebar' },
+  // 标签组（#107，#122 改回旧侧栏的竖线规格）：pill 16px 的左缘、22px 的组头高、
+  // 16/19/2/2 的竖线几何、组内行 24px 左内边距，都是**这套自定义形态自己**的取值——
+  // 它们是「标签组」这一层的布局（竖线要落进行的左内边距里才不压文字），官方没有标签组
+  // 这个形态，档位表里也就没有能拿来当出处的量（档位表管的是与官方件同族控件的高度/
+  // 圆角/字号/留白）。所以这一族规则整条不进档位表。
+  { selector: 'dshOneTree_tag', reason: 'tag groups (#107/#122): pill, rail and row indent are this custom shape own layout; the official side has no tag group to take a tier value from' },
   // a11y 的 1×1 裁剪盒（视觉隐藏但仍在树里），不是几何档位能表达的形态。
   { selector: 'dshOneTree_visuallyHidden', reason: 'a11y 1x1 clip box is not a geometric tier value' },
   // 勾选框里的自绘短横线：官方图标集没有减号类图标，这条横线用样式画（举证见那条规则上方）。
@@ -448,13 +452,15 @@ export const CSS =
   '.dshOneTree_flash{z-index:20;max-width:90%;background:var(--dsw-alias-bg-elevated,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;padding:6px 10px;font-size:var(--dsh-one-density-meta-font-size,12px);position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}' +
   // 入口行两枚动作里的「清空」是危险动作（= 永久归档），按错误色标出来。
   '.dshOneTree_footerIconDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}' +
-  // 会话标签组（#107）：形态与数值逐字沿用旧侧栏 sessionsView.ts 的 `.tag-*` 规则
-  //（小 pill、pill 下沿到组尾的 2px 贯穿竖线、组内行 24px 左缩进、折叠计数角标）。
-  // 组色由组件经 `--dshone-tag-color` 下发（色板在 tagGroups.ts，理由见那个文件头：
-  // 用户自选的标签色板，官方 token 里没有这一类）。
+  // 会话标签组（#107；#122 把竖线改回旧侧栏的规格）：形态与数值逐字沿用旧侧栏
+  // sessionsView.ts 的 `.tag-*` 规则（小 pill、pill 下沿到组尾的 2px 贯穿竖线、
+  // 组内行 24px 左缩进、折叠计数角标）。
+  // 组色由组件经 `--dshone-tag-color` 下发在**组块**上（色板在 tagGroups.ts，理由见
+  // 那个文件头：用户自选的标签色板，官方 token 里没有这一类）——竖线与组内行是 pill 的
+  // 兄弟节点，变量挂在组块这一层才继承得到。
   '.dshOneTree_tagBlock{position:relative;border-radius:6px}' +
-  // 组头：pill 左缘与竖线同列；右侧留出折叠三角与动作位。
-  '.dshOneTree_tagHead{align-items:center;height:22px;padding-left:var(--dsh-one-density-row-padding-inline,8px);padding-right:var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
+  // 组头：pill 左缘与竖线同列（16px，旧侧栏 .tag-head 的原值）；右侧留出折叠三角与动作位。
+  '.dshOneTree_tagHead{align-items:center;height:22px;padding-left:16px;padding-right:var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   '.dshOneTree_tagPill{cursor:grab;color:var(--dshone-tag-color);background:color-mix(in srgb,var(--dshone-tag-color) 22%,transparent);border:1px solid color-mix(in srgb,var(--dshone-tag-color) 45%,transparent);border-radius:4px;align-items:center;gap:4px;height:16px;padding:0 7px;font-size:10px;font-weight:600;line-height:1;white-space:nowrap;display:inline-flex}' +
   '.dshOneTree_tagPill:active{cursor:grabbing}' +
   '.dshOneTree_tagDot{width:6px;height:6px;background:var(--dshone-tag-color);border-radius:2px;flex:none}' +
@@ -473,10 +479,17 @@ export const CSS =
   // 折叠态才出计数（展开态每行自己带状态点）；靠右对齐到行尾动作列。
   '.dshOneTree_tagCounts{align-items:center;gap:6px;margin-left:auto;padding-right:2px;display:inline-flex}' +
   '.dshOneTree_tagCount{color:var(--dsw-alias-label-tertiary);align-items:center;gap:4px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}' +
-  // 组内行：贯穿竖线（从 pill 下沿到组尾）+ 仅给会话行加约 12px 左缩进，行内元素不动。
-  '.dshOneTree_tagRows{border-left:2px solid color-mix(in srgb,var(--dshone-tag-color) 55%,transparent);margin-left:calc(var(--dsh-one-density-row-padding-inline,8px) + 8px);padding-left:8px}' +
+  // 贯穿整组的竖线（#122 回到旧侧栏 .tag-line 的规格）：组块上一个**绝对定位的细线元素**，
+  // 起点是 pill 下沿（22px 的组头，pill 16px 居中 → 下沿落在 19px）贴着垂直方向往下，
+  // 终点收在组块底部（bottom:2px），横向上落在组内行的左内边距里（16px 起、宽 2px，
+  // 不压文字）。颜色就是**组色本身**（实色，不做半透明淡化：用户要的是「与标签同色」）。
+  '.dshOneTree_tagLine{pointer-events:none;position:absolute;left:16px;top:19px;bottom:2px;width:2px;border-radius:1px;background:var(--dshone-tag-color)}' +
+  // 折叠态（组内行不渲染）不画线。
+  '.dshOneTree_tagCollapsed .dshOneTree_tagLine{display:none}' +
+  // 组内行：只给会话行加左内边距（旧侧栏 .session-row.tagged 的 24px，竖线落在这一段里），
+  // 行**自身**的左边界与普通会话行一致——不再叠外边距，行内元素一概不动。
   '.dshOneTree_tagRows>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}' +
-  '.dshOneTree_tagRows .dshOneTree_sessionRow{padding-left:12px}' +
+  '.dshOneTree_tagRows .dshOneTree_sessionRow{padding-left:24px}' +
   // 拖会话入组时目标组块高亮（组色淡底，不遮行）。
   '.dshOneTree_tagDropActive{background:color-mix(in srgb,var(--dshone-tag-color) 14%,transparent)}' +
   // 组色小色块（选色菜单与新建弹窗的色板共用）。
