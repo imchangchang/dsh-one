@@ -28,6 +28,7 @@ import {
 import { consoleLogger, LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
 import { FIBER_SUITE, WIRE_LIVENESS_SUITE } from './driftSuites.ts'
 import { RECYCLE_ENTRY_TOGGLE_SUITE } from './recycleEntrySuites.ts'
+import { SCALE_SUITE } from './scaleSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -596,10 +597,11 @@ export const PARITY_SUITE: LabSuite = {
         return { applied: fallbacks.length, officialFallbacks: fallbacks.map(([key, value]) => `${key}=${value}`) }
       })
       check.fact(`密度档兜底值（自作树 CSS 读出并回填到 frame）：${densityFix.officialFallbacks.join(' ')}`)
-      // #104 起键面从 17 项扩到 25 项（顶栏 / 分组过滤条 / 回收站入口行 / 抽屉），
-      // 这里只守量级（精确键集与逐项官方原值由外壳契约套件的两条测试在源码层守）。
+      // #104 起键面从 17 项扩到 25 项（顶栏 / 分组过滤条 / 回收站入口行 / 抽屉），#113 再加
+      // 行圆角一项（26 项）；这里只守量级（精确键集与逐项官方原值由外壳契约套件的两条测试
+      // 在源码层守）。
       check.ok(
-        '密度档变量组 ≥ 20 项（#104 起 25 项；与契约测试同口径）',
+        '密度档变量组 ≥ 20 项（#104 起 25 项，#113 起 26 项；与契约测试同口径）',
         densityFix.applied >= 20,
         `applied=${String(densityFix.applied)}`,
       )
@@ -1990,7 +1992,7 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
         check.ok(
           `w=${String(width)}：密度变量对齐到官方兜底值（内联项数 > 0）`,
           aligned >= 20,
-          `内联项数=${String(aligned)}（#104 起键面 25 项；精确键集由外壳契约套件守）`,
+          `内联项数=${String(aligned)}（#104 起键面 25 项、#113 起 26 项（加行圆角）；精确键集由外壳契约套件守）`,
         )
         await page.waitForTimeout(200)
         const official = await readDensity(page, 'tree')
@@ -5768,4 +5770,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   CURRENT_WORKSPACE_FOLDER_SUITE,
   // #115 会话行点击逻辑与行内改名（F-22：F-20 已被 #114 的回收站入口套件、F-21 已被 #112 的当前工作区套件占用）。
   SESSION_ROW_RENAME_SUITE,
+  // #113 侧栏风格档位表（F-23：F-20/F-21/F-22 已被 #114/#112/#115 占用；套件本体在
+  // scaleSuites.ts，与 driftSuites.ts 同为独立文件，少一处合入热点）。
+  SCALE_SUITE,
+]
 ]
