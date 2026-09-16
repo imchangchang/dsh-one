@@ -1,7 +1,7 @@
 {
   "title": "宿主半插件（@dsh-one/dsh-host-capabilities）+ 宿主能力口 + 会话导出迁移（host-half-plugin 任务 #84）",
   "branch": "agent/host-half",
-  "commit": "",
+  "commit": "31d4e98",
   "environment": {
     "mode": "real-dsh（隔离临时 HOME + 临时 profile，脚本 scripts/verify-host-half-official.mjs）+ node 单测",
     "dsh": "0.1.6-alpha.1",
