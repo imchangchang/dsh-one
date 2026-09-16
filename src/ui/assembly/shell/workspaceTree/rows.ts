@@ -764,7 +764,7 @@ export function SearchResultRow({
       className: `dshOneTree_searchRow${selected ? ' dshOneTree_selected' : ''}`,
       role: 'treeitem',
       // 行标记（自有契约）：验证套件按它数「结果里有几行」——与树里的会话行
-      // `data-dshone-tree-row="session"` 同一个用途（F-12/F-16 都读它）。
+      // `data-dshone-tree-row="session"` 同一个用途（F-12/F-18 都读它）。
       'data-dshone-tree-row': 'search',
       'aria-selected': selected,
       // 行上带的会话 id 与勾选态（与树里的会话行同一套标记，验证套件据此认行）。
