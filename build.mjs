@@ -99,6 +99,14 @@ const SHELL_PLUGINS = [
     id: '@dsh-one/vscode-composer-clear',
     entry: 'src/ui/assembly/shell/composerClearPlugin.ts',
   },
+  {
+    // #65 批 2：侧栏工作区/会话树的 shadow 件（官方 sidebar.workspaces 座位 +
+    // 官方服务）。零宿主耦合（无 hostCall/acquireVsCodeApi）→ 按 AGENTS.md 铁律
+    // 「自有插件命名分两类」命名 dsh-*（官方 web 侧也能用，见 #83）。
+    id: '@dsh-one/dsh-workspace-tree',
+    entry: 'src/ui/assembly/shell/workspaceTreeEntry.ts',
+    externals: ['@deepseek-ai/dsh-client-ui-primitives'],
+  },
 ]
 await fsp.rm('dist/assembly', { recursive: true, force: true })
 for (const plugin of SHELL_PLUGINS) {

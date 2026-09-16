@@ -29,6 +29,7 @@ import {
   SESSION_BRIDGE_PLUGIN_ID,
   SESSION_EXPORT_PLUGIN_ID,
   THEME_FOLLOW_PLUGIN_ID,
+  WORKSPACE_TREE_PLUGIN_ID,
   extractBootWire,
   extractFrontendAssets,
   filterWire,
@@ -120,7 +121,8 @@ const CHAT_TREE: AssemblyTree = {
 const SIDEBAR_TREE: AssemblyTree = {
   blockList: SIDEBAR_BLOCK_LIST,
   shellPluginId: SIDEBAR_SHELL_PLUGIN_ID,
-  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SETTINGS_GEAR_PLUGIN_ID, SESSION_BRIDGE_PLUGIN_ID],
+  // #65 批 2：工作区/会话树换成自有影子插件（官方 sidebar.workspaces 座位）。
+  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SETTINGS_GEAR_PLUGIN_ID, SESSION_BRIDGE_PLUGIN_ID, WORKSPACE_TREE_PLUGIN_ID],
 }
 const SETTINGS_TREE: AssemblyTree = {
   blockList: SETTINGS_BLOCK_LIST,

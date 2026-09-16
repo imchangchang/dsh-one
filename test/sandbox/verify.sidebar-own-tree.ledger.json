@@ -1,0 +1,84 @@
+{
+  "title": "DSH One 装配线测试报告：侧栏自有工作区树（#65 批 2 第一步）",
+  "branch": "agent/sidebar-own-tree",
+  "commit": "6284b340b78b2edd63e7c7aab21eabe15bedc999",
+  "environment": {
+    "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
+    "dsh": "0.1.6-alpha.1",
+    "locale": "zh-cn",
+    "theme": "dark（含浅色切换断言）",
+    "driver": "playwright chromium + .dev-host/assembly-lab/verify.mjs（90 条断言）",
+    "date": "2026-09-16T00:51:56.108Z"
+  },
+  "coverageNote": "本报告是浏览器验证（第一道验证）：装配页由仓库真实模块（pageHtml / wireFilter / assemblyMirror）构建，数据面是本机真实 dsh 网关（只读），宿主通道是假宿主。外观断言的口径 = 同一 frame、同一网关数据、同一宽度下，自有树与「同一 frame 里由官方组件渲染的浏览区」逐项比对 computed style（只差装不装自有树插件这一个变量），不硬编码数值。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/原生菜单）、真模型输出、以及「点会话 → 对话面板跟随」的宿主侧行为（那是既有 #71 桥的语义，见 VS Code 验证清单）。本轮的基线已对齐 develop/cordis-chat（含 #76 的 0.1.6 兼容修复）：0.1.6 上四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）全部零 slot entry crashed、零缺失契约，chat 树的对话区由官方 keyed `main` 槽位渲染出来（对齐前这里是空的）。本轮另含改名生效断言（#83）：侧栏树插件 id 由 @dsh-one/vscode-workspace-tree 改为 @dsh-one/dsh-workspace-tree，断言页面请求的 combo、插件注入的 css/plugin 标记三处同 id，且旧 id 全页无残留。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "自有工作区树遮蔽官方浏览区（TREE 套件）",
+      "expect": "自有插件在官方 sidebar.workspaces 座位上渲染整块浏览区，官方 WorkspaceBrowser 不再渲染；分节标题、树行数、整页文本（分组名/会话标题/相对时间/状态文案）与官方档逐字一致；侧栏壳的新建会话按钮与设置入口不受影响；页面零 console/pageerror（不设白名单）。另含改名生效断言（#83）：bundle 以 @dsh-one/dsh-workspace-tree 装载（页面 combo 请求 + css 标记 + plugin 标记三处同 id），旧 id @dsh-one/vscode-workspace-tree 在整页与全部资源请求里无残留。",
+      "screenshots": [
+        "/tmp/dsh65-batch2/01-tree-own-340.png",
+        "/tmp/dsh65-batch2/02-tree-official-340.png"
+      ],
+      "result": "pass",
+      "notes": "本套件断言 8 条，通过 8。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "外观对齐官方（PARITY 套件，260/340/500 三档宽度）",
+      "expect": "同一 frame、同一网关数据、同一宽度下，自有树与官方浏览区逐项相等：分节头（高 36/圆角 12/左内边距 4/下外边距 4/上外边距 2/右外边距 -4）、搜索胶囊（28 高/圆角 50%/按钮 28×28）、视图选项按钮（28×28 圆 + hover 底色）、分组行（高 34/内边距 0 8/间距 6/圆角 8/文件夹位 16×20）、会话行（高 32/间距 0/标题 14px/行高 20/相对时间 12px 行高 20）、溢出按钮（高 28/字号 12/左内边距 28）、列表容器（左 -4/右 2/内边距 4/滚动条槽 stable/底部 16）、选中行与悬停底色、悬停时时间隐去且操作按钮出现、分组行悬停文件夹换折叠箭头。断言取两侧 computed style 直接比对，不硬编码数值。",
+      "screenshots": [
+        "/tmp/dsh65-batch2/03-parity-own-260.png",
+        "/tmp/dsh65-batch2/04-parity-official-260.png",
+        "/tmp/dsh65-batch2/05-parity-compare-260.png",
+        "/tmp/dsh65-batch2/06-parity-own-340.png",
+        "/tmp/dsh65-batch2/07-parity-official-340.png",
+        "/tmp/dsh65-batch2/08-parity-compare-340.png",
+        "/tmp/dsh65-batch2/09-parity-own-500.png",
+        "/tmp/dsh65-batch2/10-parity-official-500.png",
+        "/tmp/dsh65-batch2/11-parity-compare-500.png"
+      ],
+      "result": "pass",
+      "notes": "本套件断言 57 条，通过 57。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "树的交互：折叠、选中、搜索、视图选项（INTERACT 套件）",
+      "expect": "点未展开的分组行 → 展开出会话行，再点 → 收起；点会话行 → 官方 sessions.open 生效（选中态跟过去）且侧栏桥把选中上报宿主；点搜索按钮 → 输入框按官方动效展开（胶囊变输入框、分节标题让位），输入查询 → 出搜索结果行（走官方 sessions.search），清除 → 回到分组树；视图选项菜单含官方两节四项，选「单列表」→ 平铺并改分节标题；全程零 console/pageerror。",
+      "screenshots": [
+        "/tmp/dsh65-batch2/12-interact-group-expanded.png",
+        "/tmp/dsh65-batch2/13-interact-selected.png",
+        "/tmp/dsh65-batch2/14-interact-search.png",
+        "/tmp/dsh65-batch2/15-interact-view-options.png",
+        "/tmp/dsh65-batch2/16-interact-flat-list.png"
+      ],
+      "result": "pass",
+      "notes": "本套件断言 10 条，通过 10。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "底座契约完备性实测（CONTRACT 套件，四棵/四档页面）",
+      "expect": "每棵树在真实网关上零 `slot entry crashed`、零缺失钩子或服务（AGENTS.md 铁律「底座契约完备性」要求的验证集断言），且各自钉一个内容断言：sidebar 树（sidebar.workspaces + sidebar.settings 均有内容）、chat 树（对话区槽位有内容）、settings 树（设置内容区有内容）、官方浏览区对照档（零 crash / 零缺失）。",
+      "screenshots": [],
+      "notes": "逐树实测（真实网关）：sidebar（自有树） → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=-1 main=-1 sidebar.workspaces=1；sidebar-official（官方浏览区对照档） → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=-1 main=-1 sidebar.workspaces=1；chat → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=-1 main=1 sidebar.workspaces=-1；settings → slot entry crashed 0 条、缺失服务/钩子 0 条；槽位占用 conversation=-1 main=-1 sidebar.workspaces=-1。四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）全部零 crash、零缺失契约，且各自的关键座位都有内容：chat 树的对话区在 0.1.6 上由官方 ui-conversation 注册进 keyed `main` 槽位渲染（本分支已随 #76 的对齐合并拿到该契约，改名前的基线分支上这里静默为空）。 本套件断言 7 条，通过 7。",
+      "result": "pass"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "既有装配回归（sidebar / settings 树 + 主题跟随）",
+      "expect": "sidebar 树：侧栏壳在、内容铺满视图宽且贴左缘、body 无宿主注入内边距、设置齿轮点击仍发 dshOne.openSettings、零未预期错误；settings 树：导航节 ≥3、外观行仍被屏蔽、零未预期错误；主题跟随仍可切浅色。",
+      "screenshots": [
+        "/tmp/dsh65-batch2/17-regression-sidebar.png",
+        "/tmp/dsh65-batch2/18-regression-settings.png",
+        "/tmp/dsh65-batch2/19-regression-theme-light.png"
+      ],
+      "result": "pass",
+      "notes": "本套件断言 8 条，通过 8。"
+    }
+  ]
+}

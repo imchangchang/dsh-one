@@ -32,7 +32,7 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export function IconSettingsOutline16(props: { size?: number }): unknown
   export function IconSettingsOutline14(props: { size?: number }): unknown
   /** 官方按钮件（设置行动，ui-settings-general SettingsDocumentAction 同款）。 */
-  export function Button(props: { variant?: string; size?: string; disabled?: boolean; onClick?: () => void; children?: unknown }): unknown
+  export function Button(props: { variant?: string; size?: string; disabled?: boolean; onClick?: () => void; className?: string; children?: unknown }): unknown
   /** 官方下载图标（session-log-export HeaderAction 同款）。 */
   export function IconDownloadOutline16(props: { size?: number }): unknown
   /** 官方剪贴板写入（带 execCommand 回退；webview 里比裸 navigator.clipboard 稳）。 */
@@ -45,19 +45,60 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export function IconRightUpOutline16(props: { size?: number }): unknown
   export function IconCodeOutline16(props: { size?: number }): unknown
   export function IconFolderOpenOutline16(props: { size?: number }): unknown
+  /**
+   * 官方图标件（#65 批 2 侧栏自有树用；名与尺寸档全部取自官方 primitives
+   * 导出表「Object.freeze」那一份，未新增自造图标）。
+   */
+  export function IconFolderOpen16(props: { size?: number; className?: string }): unknown
+  export function IconFolderClose16(props: { size?: number; className?: string }): unknown
+  export function IconTriangleRightFill14(props: { size?: number; className?: string }): unknown
+  export function IconEllipsisOutline16(props: { size?: number; className?: string }): unknown
+  export function IconPlusOutline16(props: { size?: number; className?: string }): unknown
+  export function IconSearchOutline16(props: { size?: number; className?: string }): unknown
+  export function IconCloseFill14(props: { size?: number; className?: string }): unknown
+  export function IconPersonalizationOutline16(props: { size?: number; className?: string }): unknown
+  export function IconEditOutline16(props: { size?: number; className?: string }): unknown
+  export function IconTrashOutline16(props: { size?: number; className?: string }): unknown
+  export function IconBranchOutline16(props: { size?: number; className?: string }): unknown
+  export function IconArchiveOutline20(props: { size?: number; className?: string }): unknown
+  /** 官方状态点（三档：ongoing / warning / done）。 */
+  export function StateDot(props: { state: string; className?: string }): unknown
+  /** 官方紧凑相对时间（单位 + 数值，文案由词典拼）。 */
+  export function relativeTime(updatedAt: number, now: number): { unit: string; n: number }
   /** 官方 tooltip（primitives 导出；label + side + delayMs，cloneElement 挂到子元素上）。 */
-  export function Tooltip(props: { label: string; side?: 'top' | 'right' | 'bottom'; delayMs?: number; children?: unknown }): unknown
+  export function Tooltip(props: { label: string; side?: 'top' | 'right' | 'bottom'; delayMs?: number; disabled?: boolean; children?: unknown }): unknown
+  /** 官方悬停卡（anchor + content + 复制按钮文案）。 */
+  export function HoverCard(props: {
+    anchor: unknown
+    content: unknown
+    disabled?: boolean
+    copyText?: string
+    copyLabel?: string
+    copiedLabel?: string
+  }): unknown
+  /** 官方模态（设置/重命名等对话框的通用壳）。 */
+  export function Modal(props: {
+    open: boolean
+    onClose: () => void
+    closeLabel?: string
+    title?: string
+    description?: string
+    footer?: unknown
+    children?: unknown
+  }): unknown
   /** 官方菜单件（右键菜单家族复用官方观感与定位/外点关闭语义）。 */
   export function Menu(props: {
     open: boolean
     anchor?: unknown
     items: readonly unknown[]
-    onSelect: (id: string) => void
+    onSelect: (id: string, ...rest: unknown[]) => void
     onClose: () => void
     getAnchorRect?: () => DOMRect | null
     portal?: boolean
     dense?: boolean
     compact?: boolean
+    closeOnPointerLeave?: boolean
+    selectedIds?: readonly string[]
     align?: 'start' | 'end'
     side?: 'top' | 'bottom'
   }): unknown
