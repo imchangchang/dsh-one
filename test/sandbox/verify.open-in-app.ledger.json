@@ -1,7 +1,7 @@
 {
   "title": "DSH One 装配线测试报告：官方 open-in-app 能力在 VS Code 对话区缺席（#87）",
   "branch": "agent/open-in-app",
-  "commit": "f00d14e",
+  "commit": "5093726",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）+ VS Code 验证（隔离窗口真 webview / CDP 取 DOM）",
     "dsh": "0.1.6-alpha.1",
@@ -9,7 +9,7 @@
     "theme": "dark",
     "viewports": "1200（chat 树）；侧栏三档 260/340/500（回归）",
     "driver": "playwright chromium + test/assembly-lab/verify.ts（7 个套件）+ 隔离 VS Code（--remote-debugging-port，CDP 直连 webview iframe target）",
-    "date": "2026-09-16T03:04:19.923Z"
+    "date": "2026-09-16T03:05:56.454Z"
   },
   "coverageNote": "两个根因都在验证集里钉住了：①官方 `dsh-session-log-export` 的遮蔽曾经用「该 slot 内一切非自有条目 display:none」的 CSS 实现，把 0.1.6 新加进同一 slot 的官方 open-in-app 条目一起摘掉——现在按官方槽位机制用同 id + priority −1 shadow，F-06 逐条断言座位里每个条目的可见性；②官方 open-in-app 用裸 fetch 打自己的宿主路由（基址取 location.origin，读不到时退回官方常量 http://dsh.internal），VS Code webview 里页面源是 vscode-webview://，读取失败被官方 `catch {}` 吞掉 → 应用清单为空 → 按钮不渲染——页面传输接缝现在接管全局 fetch、把这两类宿主寻址 URL 改写到 loopback，F-06 用两条寻址实测 + resource timing 证明改写落点。VS Code 侧的证据是隔离窗口（真 webview）里 CDP 取到的 DOM 与截图，见 R-07。\n\n未覆盖，逐条说明：①**没真启动过任何本地应用**（访达 / iTerm2 / 终端）——那会在用户机器上开窗，属写类动作；只验到「菜单打开 + 四个应用项与图标到位」，即启动按钮发出的 POST 之前的一切（POST 本身走同一条已验的宿主路由改写）。②**官方 `/open-in-app/open` 的 HTTP 200 语义**没在该窗口里实测（需要真启动应用）；③**Windows/Linux** 的平台清单（explorer / filemanager / 各种终端）没验——本机网关只探到 macOS 的四个；④真模型输出、macOS 之外的 VS Code 宿主形态不在范围内。",
   "items": [
@@ -22,7 +22,7 @@
       "screenshots": [
         "/tmp/dsh87-shots/header-utilities-chat.png"
       ],
-      "notes": "本套件断言 13 条，通过 13。\n观测：\n- 选中会话 session-54292c69-8c1f-4a03-a6b8-dd4de488196e（cwd=/Users/cgeng/Workspaces/dsh-mobile，候选 1137 个）\n- 座位条目：[{\"tag\":\"span\",\"className\":\"_root_1nxmc_1\",\"display\":\"flex\",\"width\":52,\"height\":28,\"ariaLabel\":\"在 访达 中打开工作目录\",\"openInAppIcons\":1,\"exportMarkers\":0,\"officialExportButtons\":0},{\"tag\":\"span\",\"className\":\"dshOneExport_btn\",\"display\":\"flex\",\"width\":109,\"height\":28,\"ariaLabel\":\"\",\"openInAppIcons\":0,\"exportMarkers\":1,\"officialExportButtons\":0}]\n- 宿主路由观测：origin=http://127.0.0.1:3393 {\"internal\":{\"label\":\"internal\",\"url\":\"http://dsh.internal/open-in-app/apps\",\"status\":200,\"apps\":[\"finder\",\"vscode\",\"iterm\",\"terminal\"]},\"sameOrigin\":{\"label\":\"page-origin\",\"url\":\"http://127.0.0.1:3393/open-in-app/apps\",\"status\":200,\"apps\":[\"finder\",\"vscode\",\"iterm\",\"terminal\"]},\"requested\":[\"http://127.0.0.1:51177/open-in-app/apps\",\"http://127.0.0.1:51177/open-in-app/apps\",\"http://127.0.0.1:51177/open-in-app/apps\"]}"
+      "notes": "本套件断言 13 条，通过 13。\n观测：\n- 选中会话 session-54292c69-8c1f-4a03-a6b8-dd4de488196e（cwd=/Users/cgeng/Workspaces/dsh-mobile，候选 1137 个）\n- 座位条目：[{\"tag\":\"span\",\"className\":\"_root_1nxmc_1\",\"display\":\"flex\",\"width\":52,\"height\":28,\"ariaLabel\":\"在 访达 中打开工作目录\",\"openInAppIcons\":1,\"exportMarkers\":0,\"officialExportButtons\":0},{\"tag\":\"span\",\"className\":\"dshOneExport_btn\",\"display\":\"flex\",\"width\":109,\"height\":28,\"ariaLabel\":\"\",\"openInAppIcons\":0,\"exportMarkers\":1,\"officialExportButtons\":0}]\n- 宿主路由观测：origin=http://127.0.0.1:3394 {\"internal\":{\"label\":\"internal\",\"url\":\"http://dsh.internal/open-in-app/apps\",\"status\":200,\"apps\":[\"finder\",\"vscode\",\"iterm\",\"terminal\"]},\"sameOrigin\":{\"label\":\"page-origin\",\"url\":\"http://127.0.0.1:3394/open-in-app/apps\",\"status\":200,\"apps\":[\"finder\",\"vscode\",\"iterm\",\"terminal\"]},\"requested\":[\"http://127.0.0.1:51868/open-in-app/apps\",\"http://127.0.0.1:51868/open-in-app/apps\",\"http://127.0.0.1:51868/open-in-app/apps\"]}"
     },
     {
       "id": "F-01",
@@ -73,7 +73,7 @@
       "expect": "装配页注入的 `__DSH_ONE_HOST__.call` 是函数；全页 `acquireVsCodeApi` **只被调用一次**（统一获取点约束，第二次会 throw）；并发调用按各自 id 兑现自己的回执；宿主拒绝时抛带 code 的结构化错误；上行消息形状是 {type:dshOne.hostCall,call,args,id} 且 id 各不相同。",
       "result": "pass",
       "screenshots": [],
-      "notes": "本套件断言 7 条，通过 7。\n观测：\n- 桥：{\"missing\":false,\"callType\":\"function\",\"acquireCalls\":1,\"shas\":[\"aaaaaaa\",\"bbbbbbb\"],\"codes\":[\"lab: fake commit aaaaaaa\",\"lab: fake commit bbbbbbb\"],\"rejected\":{\"code\":\"unknown-call\",\"message\":\"lab host: unknown call lab.unknown\"},\"ids\":[\"hc1-od63ainl\",\"hc2-n7djhe8q\",\"hc3-pc6lkvd2\"],\"shapeOk\":true}"
+      "notes": "本套件断言 7 条，通过 7。\n观测：\n- 桥：{\"missing\":false,\"callType\":\"function\",\"acquireCalls\":1,\"shas\":[\"aaaaaaa\",\"bbbbbbb\"],\"codes\":[\"lab: fake commit aaaaaaa\",\"lab: fake commit bbbbbbb\"],\"rejected\":{\"code\":\"unknown-call\",\"message\":\"lab host: unknown call lab.unknown\"},\"ids\":[\"hc1-uvh5lkyv\",\"hc2-b88z7vst\",\"hc3-ua56ctfx\"],\"shapeOk\":true}"
     },
     {
       "id": "R-07",
@@ -86,7 +86,7 @@
         "/tmp/dsh87-shots/03-vscode-window.png"
       ],
       "result": "pass",
-      "notes": "隔离实例：`Code <worktree> --extensionDevelopmentPath=<worktree> --user-data-dir=/tmp/dsh-uidev/open-in-app/user-data --extensions-dir=/tmp/dsh-uidev/open-in-app/extensions --remote-debugging-port=9333`，会话由放在隔离 extensions 目录里的一次性诊断扩展（按环境变量 `DSH_ONE_DIAG_SESSION` 调 `dshOne.session.open`）打开；**仓库代码零改动**（诊断扩展与脚本都在 /tmp）。\n\n取 DOM 证据：CDP `/json/list` 里 webview 是 `type=iframe` 的 target，直连它的 WebSocket 在**内层 iframe**（`document.querySelector(\"iframe\").contentDocument`）里求值——实测座位 `conversation.session.header.utilities` 有两个条目：`_root_1nxmc_1`（open-in-app，display=flex、51×28、可及名「在 访达 中打开工作目录」、应用图标 1 个且 `iconLoaded=true`）与 `dshOneExport_btn`（自有导出，display=flex、108×28）。座位锚点自身矩形为 0 是正常的（官方 slot 锚点 `display: contents`，无盒）。\n\n点开菜单（只点下拉箭头，不点启动按钮——不启动任何本地应用）：`[role=menuitem]` 四项 = 访达 / VS Code / iTerm2 / 终端，与网关 `/open-in-app/apps` 返回的四项逐字一致，图标经 `/open-in-app/icon/<id>` 真加载——这一步同时证明应用清单读取在真 webview 里通过了页面传输接缝（否则官方控制器会 `catch {}` 成空清单、按钮根本不渲染）。截图 01 就是展开态的现场。\n\n一手根因证据（探针日志）：`[assembly] page origin vscode-webview://0f6bcesi… mirror http://127.0.0.1:49524` —— 真 webview 的页面源是 `vscode-webview://<uuid>`（不是 \"null\"），所以官方 `hostBase()` 会把它当宿主基址：改写的判定必须比 protocol + host 而不是 origin（不透明源的 origin 序列化成 \"null\"，会与 blob: 撞值），实现即按此写。日志文件：`<user-data-dir>/logs/<时间>/window1/exthost/output_logging_*/1-DSH One.log`。\n\n没验的：真的启动某个应用（访达等）——那会在用户机器上开窗；菜单项点击后发出的是 POST `/open-in-app/open`，走的是与清单读取同一条已验的宿主路由改写。"
+      "notes": "隔离实例：`Code <worktree> --extensionDevelopmentPath=<worktree> --user-data-dir=/tmp/dsh-uidev/open-in-app/user-data --extensions-dir=/tmp/dsh-uidev/open-in-app/extensions --remote-debugging-port=9333`，会话由放在隔离 extensions 目录里的一次性诊断扩展（按环境变量 `DSH_ONE_DIAG_SESSION` 调 `dshOne.session.open`）打开；**仓库代码零改动**（诊断扩展与脚本都在 /tmp）。\n\n取 DOM 证据：CDP `/json/list` 里 webview 是 `type=iframe` 的 target，直连它的 WebSocket 在**内层 iframe**（`document.querySelector(\"iframe\").contentDocument`）里求值——实测座位 `conversation.session.header.utilities` 有两个条目：`_root_1nxmc_1`（open-in-app，display=flex、51×28、可及名「在 访达 中打开工作目录」、应用图标 1 个且 `iconLoaded=true`）与 `dshOneExport_btn`（自有导出，display=flex、108×28）。座位锚点自身矩形为 0 是正常的（官方 slot 锚点 `display: contents`，无盒）。\n\n点开菜单（只点下拉箭头，不点启动按钮——不启动任何本地应用）：`[role=menuitem]` 四项 = 访达 / VS Code / iTerm2 / 终端，与网关 `/open-in-app/apps` 返回的四项逐字一致，图标经 `/open-in-app/icon/<id>` 真加载——这一步同时证明应用清单读取在真 webview 里通过了页面传输接缝（否则官方控制器会 `catch {}` 成空清单、按钮根本不渲染）。截图 01 就是展开态的现场。\n\n一手根因证据（探针日志）：`[assembly] page origin vscode-webview://0f6bcesi… mirror http://127.0.0.1:49524` —— 真 webview 的页面源是 `vscode-webview://<uuid>`（不是 \"null\"），所以官方 `hostBase()` 会把它当宿主基址：改写的判定必须比 protocol + host 而不是 origin（不透明源的 origin 序列化成 \"null\"，会与 blob: 撞值），实现即按此写。截图那一轮的 webview 源是 `vscode-webview://024h0sj6jsqb4ee48tv8k43tahsas5bkteu7tgugeb8pjh432l66`（CDP 探针输出里的 `origin` 字段）。日志文件：`<user-data-dir>/logs/<时间>/window1/exthost/output_logging_*/1-DSH One.log`。\n\n没验的：真的启动某个应用（访达等）——那会在用户机器上开窗；菜单项点击后发出的是 POST `/open-in-app/open`，走的是与清单读取同一条已验的宿主路由改写。"
     },
     {
       "id": "F-04",
