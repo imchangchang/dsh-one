@@ -19,6 +19,18 @@ const SHELL_DIR = path.join(import.meta.dirname, '..', 'src', 'ui', 'assembly', 
 
 const read = (file: string): string => fs.readFileSync(path.join(SHELL_DIR, file), 'utf8')
 
+/**
+ * 侧栏工作区树的全部源码：#99 把插件本体拆成 `workspaceTreePlugin.ts`（注册与组合）
+ * + `workspaceTree/` 下的分件（行、工具栏、分组条、选择态、抽屉、对话框、样式…）。
+ * 本文件的三条树断言按「整棵树」扫源码，所以要拼起来读——拆文件不改变断言口径。
+ */
+const TREE_SOURCE = ((): string => {
+  const dir = path.join(SHELL_DIR, 'workspaceTree')
+  const parts = [read('workspaceTreePlugin.ts')]
+  for (const name of fs.readdirSync(dir).sort()) parts.push(fs.readFileSync(path.join(dir, name), 'utf8'))
+  return parts.join('\n')
+})()
+
 /** 三棵树的 frame 插件（官方 ui-layout 的角色承担者）。 */
 const SHELLS = ['shellPlugin.ts', 'sidebarFramePlugin.ts', 'settingsFramePlugin.ts']
 
@@ -109,7 +121,7 @@ test('密度偏好：shell 设的键集 = 树插件消费的键集，且树兜�
     ]),
   )
   assert.ok(profile.size >= 10, `shell 的 DENSITY_PROFILE 至少要有 10 项（实际 ${profile.size}）`)
-  const tree = read('workspaceTreePlugin.ts')
+  const tree = TREE_SOURCE
   const consumed = new Map([...tree.matchAll(/var\(--dsh-one-density-([a-z-]+),\s*([^)]+)\)/g)].map((m) => [m[1], m[2]]))
   assert.ok(consumed.size >= 10, `树插件消费的密度变量至少要有 10 项（实际 ${consumed.size}）`)
   assert.deepEqual(
@@ -140,7 +152,7 @@ test('密度偏好：shell 设的键集 = 树插件消费的键集，且树兜�
 // 官方悬停卡；shell 不得再用 CSS 把官方卡片钉进容器（上一版的做法，正是用户
 // 反馈的「遮挡内容」）。
 test('悬停卡：官方卡几何常数取自官方实现，且 shell 不再用 CSS 钉住卡片', () => {
-  const tree = read('workspaceTreePlugin.ts')
+  const tree = TREE_SOURCE
   assert.match(tree, /const HOVER_CARD_WIDTH = 244/, '卡宽取官方 css-module 的固定 244px')
   assert.match(tree, /const HOVER_CARD_GAP = 8/, '定位间隙取官方实现的 anchor.right + 8')
   assert.match(tree, /available >= HOVER_CARD_WIDTH \+ HOVER_CARD_GAP/, '判据 = 容器到视口右缘的余量 ≥ 卡宽 + 间隙')
@@ -168,7 +180,7 @@ test('官方「新会话」胶囊：只在 shell 的 CSS 里摘，树插件不�
   )
   assert.match(shell, /dsh-client-ui-sidebar/, '规则上方必须点明举证来源（查过的官方包与文件）')
   assert.match(shell, /哈希前缀/, '注释要写明类名稳定性风险：css-module 后缀稳定、哈希前缀随版本变')
-  const tree = read('workspaceTreePlugin.ts')
+  const tree = TREE_SOURCE
   assert.ok(!/class\*="newSession"/.test(tree), '树插件不得掺和官方胶囊的摘除（同一份插件还要在官方 web 形态里跑）')
 })
 
