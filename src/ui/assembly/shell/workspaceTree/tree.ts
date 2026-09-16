@@ -66,6 +66,7 @@ import {
 import { partitionArchivable } from '../../../../pure/recycleActions.ts'
 import { pruneRecycleBin, recycleBinActions, useRecycleBin } from './recycleBinStore.ts'
 import { RecycleDrawer } from './recycleDrawer.ts'
+import { setRecycleDrawerOpen, useRecycleDrawerOpen } from './recycleDrawerStore.ts'
 import { recycleEntrySignal } from './recycleEntry.ts'
 import { ProjectRow, SearchResultRow, SessionRow } from './rows.ts'
 import { EMPTY_SEARCH, SEARCH_DEBOUNCE_MS, sanitizeQuery, type SearchState } from './search.ts'
@@ -154,7 +155,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const [selection, setSelection] = useState<readonly string[]>([])
   const [busy, setBusy] = useState(false)
   const [selectionError, setSelectionError] = useState<string | null>(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  // 回收站抽屉的开合态住模块级 store（#114：入口行在另一个座位，它也要读到同一份，
+  // 才能把点击翻成展开还是收起——见 `recycleDrawerStore.ts`）。本组件是**唯一写它的人**。
+  const drawerOpen = useRecycleDrawerOpen()
   const [recycleError, setRecycleError] = useState<string | null>(null)
   const [archiveRequest, setArchiveRequest] = useState<ArchiveRequest | null>(null)
   const [archiveBusy, setArchiveBusy] = useState(false)
@@ -923,12 +926,16 @@ export function WorkspaceTree(props: TreeProps): unknown {
   }
 
   // 底部回收站入口行发来的请求（同一 bundle 内的模块级信号，见 recycleEntry.ts 的文件头）：
-  // 开抽屉 / 清空（不可逆，走确认弹窗）/ 全部还原（本地可逆，直接执行）。
+  // 开 / 关抽屉、清空（不可逆，走确认弹窗）、全部还原（本地可逆，直接执行）。
   useEffect(() => {
     return recycleEntrySignal.subscribe((request) => {
       if (request === 'open') {
-        setDrawerOpen(true)
+        setRecycleDrawerOpen(true)
         setRecycleError(null)
+        return
+      }
+      if (request === 'close') {
+        setRecycleDrawerOpen(false)
         return
       }
       if (request === 'restoreAll') {
@@ -1320,7 +1327,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
       busy,
       error: recycleError,
       onClose: () => {
-        setDrawerOpen(false)
+        setRecycleDrawerOpen(false)
         setRecycleError(null)
       },
       onToggleGroup: (key: string) =>

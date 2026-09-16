@@ -21,7 +21,8 @@
  * 搜索结果行）、\`toolbar.ts\`（顶部工具栏）、\`groupFilterBar.ts\`（分组过滤条）、
  * \`selection.ts\`（批量选择）、\`recycleDrawer.ts\`（回收站抽屉）、\`recycleEntry.ts\`
  * （底部回收站入口行）、\`recycleBinStore.ts\`（回收站状态与动作：两个座位共享的
- * 模块级 store）、\`tagGroups.ts\`（会话标签组的组头与拖拽：组 pill、折叠计数、
+ * 模块级 store）、\`recycleDrawerStore.ts\`（回收站抽屉的开合态：入口行与树主组件
+ * 共享，见 #114）、\`tagGroups.ts\`（会话标签组的组头与拖拽：组 pill、折叠计数、
  * 落点判定与自定义 MIME）、\`flash.ts\`（飘提示）、\`modals.ts\`（对话框，含归档
  * 确认弹窗与新建标签组弹窗）、\`search.ts\` / \`groups.ts\` / \`format.ts\` /
  * \`hoverCard.ts\` / \`types.ts\`、\`styles.ts\`（全部样式）、\`locale.ts\`（词典）。

@@ -1268,7 +1268,7 @@ var recycleBinActions = {
 };
 
 // src/ui/assembly/shell/workspaceTree/recycleEntry.ts
-var import_react2 = require("react");
+var import_react3 = require("react");
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 
 // src/pure/workspaceTreeView.ts
@@ -1515,18 +1515,45 @@ function recycleCount(groups) {
 var EMPTY_PENDING = /* @__PURE__ */ new Map();
 var EMPTY_IDS = /* @__PURE__ */ new Set();
 
-// src/ui/assembly/shell/workspaceTree/recycleEntry.ts
+// src/ui/assembly/shell/workspaceTree/recycleDrawerStore.ts
+var import_react2 = require("react");
+var open = false;
 var listeners2 = /* @__PURE__ */ new Set();
+function publish2(next) {
+  if (next === open) return;
+  open = next;
+  for (const listener of [...listeners2]) listener();
+}
+function setRecycleDrawerOpen(next) {
+  publish2(next);
+}
+function subscribeRecycleDrawer(listener) {
+  listeners2.add(listener);
+  return () => {
+    listeners2.delete(listener);
+  };
+}
+function useRecycleDrawerOpen() {
+  const [state, setState] = (0, import_react2.useState)(open);
+  (0, import_react2.useEffect)(() => {
+    setState(open);
+    return subscribeRecycleDrawer(() => setState(open));
+  }, []);
+  return state;
+}
+
+// src/ui/assembly/shell/workspaceTree/recycleEntry.ts
+var listeners3 = /* @__PURE__ */ new Set();
 var recycleEntrySignal = {
-  /** 入口行发请求（开抽屉 / 清空 / 全部还原）。 */
+  /** 入口行发请求（开 / 关抽屉、清空、全部还原）。 */
   request(request) {
-    for (const listener of [...listeners2]) listener(request);
+    for (const listener of [...listeners3]) listener(request);
   },
   /** 树主组件挂载时订阅（返回退订）。 */
   subscribe(listener) {
-    listeners2.add(listener);
+    listeners3.add(listener);
     return () => {
-      listeners2.delete(listener);
+      listeners3.delete(listener);
     };
   }
 };
@@ -1536,13 +1563,14 @@ function RecycleEntry({ wide = true, t, useSessions, useWorkspaces }) {
   const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds);
   const bin = useRecycleBin();
   const total = visibleRecycleIds(bin.ids, list, archivedSessionIds).length;
+  const drawerOpen = useRecycleDrawerOpen();
   const action = (kind) => {
     const label = kind === "empty" ? tr("recycle.emptyAll") : tr("recycle.restoreAll");
-    return (0, import_react2.createElement)(import_dsh_client_ui_primitives.Tooltip, {
+    return (0, import_react3.createElement)(import_dsh_client_ui_primitives.Tooltip, {
       label,
       side: "top",
       delayMs: 500,
-      children: (0, import_react2.createElement)(
+      children: (0, import_react3.createElement)(
         "button",
         {
           type: "button",
@@ -1553,11 +1581,11 @@ function RecycleEntry({ wide = true, t, useSessions, useWorkspaces }) {
           disabled: total === 0,
           onClick: () => recycleEntrySignal.request(kind === "empty" ? "empty" : "restoreAll")
         },
-        kind === "empty" ? (0, import_react2.createElement)(import_dsh_client_ui_primitives.IconTrashOutline16, { size: 14 }) : (0, import_react2.createElement)(import_dsh_client_ui_primitives.IconRefreshOutline16, { size: 14 })
+        kind === "empty" ? (0, import_react3.createElement)(import_dsh_client_ui_primitives.IconTrashOutline16, { size: 14 }) : (0, import_react3.createElement)(import_dsh_client_ui_primitives.IconRefreshOutline16, { size: 14 })
       )
     });
   };
-  return (0, import_react2.createElement)(
+  return (0, import_react3.createElement)(
     "div",
     {
       className: `dshOneTree_footerRow${total === 0 ? " dshOneTree_footerRowEmpty" : ""}`,
@@ -1565,19 +1593,30 @@ function RecycleEntry({ wide = true, t, useSessions, useWorkspaces }) {
       "data-dshone-tree-recycle-count": total,
       "data-rail": wide ? void 0 : ""
     },
-    (0, import_react2.createElement)(
+    (0, import_react3.createElement)(
       "button",
       {
         type: "button",
         className: "dshOneTree_footerMain",
         "aria-label": `${tr("recycle.open")} (${String(total)})`,
-        "data-dshone-tree-action": "recycle-open",
+        // 官方 primitives 里没有「展开态」原语，用标准 ARIA 属性表达开关状态
+        // （`aria-expanded` = 受控区域是否展开）；`data-*` 那两条是自有契约，给验证套件读。
+        "aria-expanded": drawerOpen,
+        "data-dshone-tree-action": "recycle-toggle",
         "data-dshone-tree-recycle-count": total,
-        onClick: () => recycleEntrySignal.request("open")
+        "data-dshone-tree-recycle-expanded": drawerOpen ? "true" : "false",
+        onClick: () => recycleEntrySignal.request(drawerOpen ? "close" : "open")
       },
-      (0, import_react2.createElement)("span", { className: "dshOneTree_footerIcon" }, (0, import_react2.createElement)(import_dsh_client_ui_primitives.IconArchiveOutline20, { size: 16 })),
-      (0, import_react2.createElement)("span", { className: "dshOneTree_footerLabel" }, tr("recycle.open")),
-      (0, import_react2.createElement)("span", { className: "dshOneTree_footerCount" }, String(total))
+      // 图标位带上用的哪一枚官方图标（自有契约，与 `data-dshone-tree-action` 同一做法：
+      // 官方组件渲染出来的 DOM 里没有图标名，验证套件要认「组件」只能靠这个标记，
+      // 再配上渲染结果的几何/位图指纹一起核）。
+      (0, import_react3.createElement)(
+        "span",
+        { className: "dshOneTree_footerIcon", "data-dshone-tree-icon": "IconTrashOutline16" },
+        (0, import_react3.createElement)(import_dsh_client_ui_primitives.IconTrashOutline16, { size: 16 })
+      ),
+      (0, import_react3.createElement)("span", { className: "dshOneTree_footerLabel" }, tr("recycle.open")),
+      (0, import_react3.createElement)("span", { className: "dshOneTree_footerCount" }, String(total))
     ),
     action("empty"),
     action("restoreAll")
@@ -1585,7 +1624,7 @@ function RecycleEntry({ wide = true, t, useSessions, useWorkspaces }) {
 }
 
 // src/ui/assembly/shell/workspaceTree/tree.ts
-var import_react12 = require("react");
+var import_react13 = require("react");
 var import_dsh_client_ui_primitives10 = require("@deepseek-ai/dsh-client-ui-primitives");
 
 // src/pure/tokenScan.ts
@@ -1677,32 +1716,32 @@ function pageStorage() {
 }
 
 // src/ui/assembly/shell/workspaceTree/flash.ts
-var import_react3 = require("react");
+var import_react4 = require("react");
 var FLASH_MS = 2200;
-var listeners3 = /* @__PURE__ */ new Set();
+var listeners4 = /* @__PURE__ */ new Set();
 function flashTip(message) {
-  for (const listener of [...listeners3]) listener(message);
+  for (const listener of [...listeners4]) listener(message);
 }
 function FlashHost() {
-  const [state, setState] = (0, import_react3.useState)(null);
-  (0, import_react3.useEffect)(() => {
+  const [state, setState] = (0, import_react4.useState)(null);
+  (0, import_react4.useEffect)(() => {
     let seq = 0;
     const listener = (message) => {
       seq += 1;
       setState({ message, seq });
     };
-    listeners3.add(listener);
+    listeners4.add(listener);
     return () => {
-      listeners3.delete(listener);
+      listeners4.delete(listener);
     };
   }, []);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (state === null) return;
     const timer = setTimeout(() => setState(null), FLASH_MS);
     return () => clearTimeout(timer);
   }, [state?.seq]);
   if (state === null) return null;
-  return (0, import_react3.createElement)(
+  return (0, import_react4.createElement)(
     "div",
     {
       className: "dshOneTree_flash",
@@ -1735,14 +1774,14 @@ function displayTitle(node, tr) {
 }
 
 // src/ui/assembly/shell/workspaceTree/groupFilterBar.ts
-var import_react4 = require("react");
+var import_react5 = require("react");
 var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 function menuRow(name, count) {
-  return (0, import_react4.createElement)(
+  return (0, import_react5.createElement)(
     "span",
     { className: "dshOneTree_menuRow" },
-    (0, import_react4.createElement)("span", { className: "dshOneTree_menuRowLabel" }, name),
-    (0, import_react4.createElement)("span", { className: "dshOneTree_menuRowCount" }, String(count))
+    (0, import_react5.createElement)("span", { className: "dshOneTree_menuRowLabel" }, name),
+    (0, import_react5.createElement)("span", { className: "dshOneTree_menuRowCount" }, String(count))
   );
 }
 function GroupFilterBar({
@@ -1755,11 +1794,11 @@ function GroupFilterBar({
   onCreate,
   onManage
 }) {
-  const [open, setOpen] = (0, import_react4.useState)(false);
+  const [open2, setOpen] = (0, import_react5.useState)(false);
   const active = activeGroupId === null ? null : groups.find((group) => group.id === activeGroupId) ?? null;
   const count = active === null ? totalCount : groupCounts.get(active.id) ?? 0;
   const label = active === null ? tr("group.allWorkspaces") : active.name;
-  return (0, import_react4.createElement)(
+  return (0, import_react5.createElement)(
     "div",
     {
       className: "dshOneTree_filterBar",
@@ -1767,13 +1806,13 @@ function GroupFilterBar({
       role: "group",
       "aria-label": tr("group.filter.aria")
     },
-    (0, import_react4.createElement)(import_dsh_client_ui_primitives3.Menu, {
-      open,
+    (0, import_react5.createElement)(import_dsh_client_ui_primitives3.Menu, {
+      open: open2,
       onClose: () => setOpen(false),
       items: [
         {
           id: "all",
-          label: (0, import_react4.createElement)(
+          label: (0, import_react5.createElement)(
             "span",
             { "data-dshone-tree-pill-item": "all" },
             menuRow(tr("group.allWorkspaces"), totalCount)
@@ -1781,7 +1820,7 @@ function GroupFilterBar({
         },
         ...groups.map((group) => ({
           id: group.id,
-          label: (0, import_react4.createElement)(
+          label: (0, import_react5.createElement)(
             "span",
             { "data-dshone-tree-pill-item": group.id },
             menuRow(group.name, groupCounts.get(group.id) ?? 0)
@@ -1790,13 +1829,13 @@ function GroupFilterBar({
         { type: "separator", id: "group-menu-separator" },
         {
           id: "new",
-          label: (0, import_react4.createElement)("span", { "data-dshone-tree-action": "group-new" }, tr("group.new")),
-          icon: (0, import_react4.createElement)(import_dsh_client_ui_primitives3.IconPlusOutline16, {})
+          label: (0, import_react5.createElement)("span", { "data-dshone-tree-action": "group-new" }, tr("group.new")),
+          icon: (0, import_react5.createElement)(import_dsh_client_ui_primitives3.IconPlusOutline16, {})
         },
         {
           id: "manage",
-          label: (0, import_react4.createElement)("span", { "data-dshone-tree-action": "group-manage" }, tr("group.manage")),
-          icon: (0, import_react4.createElement)(import_dsh_client_ui_primitives3.IconSettingsOutline16, {})
+          label: (0, import_react5.createElement)("span", { "data-dshone-tree-action": "group-manage" }, tr("group.manage")),
+          icon: (0, import_react5.createElement)(import_dsh_client_ui_primitives3.IconSettingsOutline16, {})
         }
       ],
       selectedIds: [activeGroupId ?? "all"],
@@ -1810,23 +1849,23 @@ function GroupFilterBar({
       dense: true,
       portal: true,
       closeOnPointerLeave: true,
-      anchor: (0, import_react4.createElement)(
+      anchor: (0, import_react5.createElement)(
         "button",
         {
           type: "button",
           className: `dshOneTree_pill${active === null ? "" : " dshOneTree_pillActive"}`,
           "aria-label": `${tr("group.filter.aria")} - ${label}`,
           "aria-haspopup": "menu",
-          "aria-expanded": open,
+          "aria-expanded": open2,
           "data-dshone-tree-action": "group-pill",
           "data-dshone-tree-group": active?.id ?? "all",
           "data-dshone-tree-group-count": count,
           onClick: () => setOpen((value) => !value)
         },
-        (0, import_react4.createElement)("span", { className: "dshOneTree_pillTag" }, (0, import_react4.createElement)(import_dsh_client_ui_primitives3.IconFolderOpenOutline16, { size: 12 })),
-        (0, import_react4.createElement)("span", { className: "dshOneTree_pillLabel" }, label),
-        (0, import_react4.createElement)("span", { className: "dshOneTree_pillCount" }, String(count)),
-        (0, import_react4.createElement)("span", { className: "dshOneTree_pillChevron" }, (0, import_react4.createElement)(import_dsh_client_ui_primitives3.IconChevronDownOutline14, {}))
+        (0, import_react5.createElement)("span", { className: "dshOneTree_pillTag" }, (0, import_react5.createElement)(import_dsh_client_ui_primitives3.IconFolderOpenOutline16, { size: 12 })),
+        (0, import_react5.createElement)("span", { className: "dshOneTree_pillLabel" }, label),
+        (0, import_react5.createElement)("span", { className: "dshOneTree_pillCount" }, String(count)),
+        (0, import_react5.createElement)("span", { className: "dshOneTree_pillChevron" }, (0, import_react5.createElement)(import_dsh_client_ui_primitives3.IconChevronDownOutline14, {}))
       )
     })
   );
@@ -1845,12 +1884,12 @@ function newGroupId() {
 }
 
 // src/ui/assembly/shell/workspaceTree/hoverCard.ts
-var import_react5 = require("react");
+var import_react6 = require("react");
 var HOVER_CARD_WIDTH = 244;
 var HOVER_CARD_GAP = 8;
 function useHoverCardRoom(rootRef) {
-  const [room, setRoom] = (0, import_react5.useState)(false);
-  (0, import_react5.useEffect)(() => {
+  const [room, setRoom] = (0, import_react6.useState)(false);
+  (0, import_react6.useEffect)(() => {
     const measure = () => {
       const el2 = rootRef.current;
       if (el2 === null) return;
@@ -1872,11 +1911,11 @@ function useHoverCardRoom(rootRef) {
 }
 
 // src/ui/assembly/shell/workspaceTree/modals.ts
-var import_react7 = require("react");
+var import_react8 = require("react");
 var import_dsh_client_ui_primitives5 = require("@deepseek-ai/dsh-client-ui-primitives");
 
 // src/ui/assembly/shell/workspaceTree/tagGroups.ts
-var import_react6 = require("react");
+var import_react7 = require("react");
 var import_dsh_client_ui_primitives4 = require("@deepseek-ai/dsh-client-ui-primitives");
 var SESSION_DRAG_MIME = "text/dsh-session";
 var TAG_DRAG_MIME = "text/dsh-tag";
@@ -1901,38 +1940,38 @@ function tagCollapseKey(groupKey, tagId) {
 }
 function tagGroupMenuItems(opts) {
   const { tr, name, total, archivable, recyclable } = opts;
-  const label = (id, text) => (0, import_react6.createElement)("span", { "data-dshone-tree-item": id }, text);
+  const label = (id, text) => (0, import_react7.createElement)("span", { "data-dshone-tree-item": id }, text);
   return [
     { type: "label", id: "tag-menu-title", text: tr("tag.menu.title", { name }) },
-    { id: "tag-new-session", label: label("tag-new-session", tr("tag.newSession")), icon: (0, import_react6.createElement)(import_dsh_client_ui_primitives4.IconPlusOutline16, {}) },
+    { id: "tag-new-session", label: label("tag-new-session", tr("tag.newSession")), icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconPlusOutline16, {}) },
     {
       id: "tag-archive",
       label: label("tag-archive", tr("tag.archive", { n: total })),
-      icon: (0, import_react6.createElement)(import_dsh_client_ui_primitives4.IconArchiveOutline20, { size: 16 }),
+      icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconArchiveOutline20, { size: 16 }),
       disabled: archivable === 0,
       ...archivable === 0 ? { title: tr("tag.archive.none") } : {}
     },
     {
       id: "tag-recycle",
       label: label("tag-recycle", tr("tag.recycle", { n: total })),
-      icon: (0, import_react6.createElement)(import_dsh_client_ui_primitives4.IconTrashOutline16, {}),
+      icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconTrashOutline16, {}),
       disabled: recyclable === 0,
       ...recyclable === 0 ? { title: tr("tag.recycle.blocked") } : {}
     },
     { id: "tag-ungroup", label: label("tag-ungroup", tr("tag.ungroup")) },
-    { id: "tag-rename", label: label("tag-rename", tr("tag.rename")), icon: (0, import_react6.createElement)(import_dsh_client_ui_primitives4.IconEditOutline16, {}) },
+    { id: "tag-rename", label: label("tag-rename", tr("tag.rename")), icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconEditOutline16, {}) },
     { type: "separator", id: "tag-color-separator" },
     { type: "label", id: "tag-color-label", text: tr("tag.color") },
     ...TAG_COLORS.map((candidate) => ({
       id: `tag-color-${candidate}`,
       label: label(`tag-color-${candidate}`, tr(TAG_COLOR_LABEL[candidate])),
-      icon: (0, import_react6.createElement)(TagColorSwatch, { color: candidate })
+      icon: (0, import_react7.createElement)(TagColorSwatch, { color: candidate })
     })),
     { type: "separator", id: "tag-delete-separator" },
     {
       id: "tag-delete",
       label: label("tag-delete", tr("tag.delete")),
-      icon: (0, import_react6.createElement)(import_dsh_client_ui_primitives4.IconTrashOutline16, {}),
+      icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconTrashOutline16, {}),
       danger: true
     }
   ];
@@ -1973,7 +2012,7 @@ function ungroupDropZone(onDrop) {
   };
 }
 function TagColorSwatch({ color }) {
-  return (0, import_react6.createElement)("span", { className: "dshOneTree_tagSwatch", style: { background: TAG_COLOR_CSS[color] }, "aria-hidden": true });
+  return (0, import_react7.createElement)("span", { className: "dshOneTree_tagSwatch", style: { background: TAG_COLOR_CSS[color] }, "aria-hidden": true });
 }
 function TagGroupBlock({
   groupKey,
@@ -1990,12 +2029,12 @@ function TagGroupBlock({
   tr,
   children
 }) {
-  const [menuOpen, setMenuOpen] = (0, import_react6.useState)(false);
-  const [dropActive, setDropActive] = (0, import_react6.useState)(false);
-  const [pillDrop, setPillDrop] = (0, import_react6.useState)(null);
+  const [menuOpen, setMenuOpen] = (0, import_react7.useState)(false);
+  const [dropActive, setDropActive] = (0, import_react7.useState)(false);
+  const [pillDrop, setPillDrop] = (0, import_react7.useState)(null);
   const counts = tagGroupCounts(sessions, isUnread);
   const hasCounts = counts.pending + counts.running + counts.unread > 0;
-  const anchor = (0, import_react6.createElement)(
+  const anchor = (0, import_react7.createElement)(
     "button",
     {
       type: "button",
@@ -2005,15 +2044,15 @@ function TagGroupBlock({
       "data-dshone-tree-tag-target": def.id,
       onClick: (event) => {
         event.stopPropagation();
-        setMenuOpen((open) => !open);
+        setMenuOpen((open2) => !open2);
       }
     },
-    (0, import_react6.createElement)(import_dsh_client_ui_primitives4.IconEllipsisOutline16, {})
+    (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconEllipsisOutline16, {})
   );
-  const head = (0, import_react6.createElement)(
+  const head = (0, import_react7.createElement)(
     "div",
     { className: "dshOneTree_tagHead" },
-    (0, import_react6.createElement)(
+    (0, import_react7.createElement)(
       "span",
       {
         className: "dshOneTree_tagPill",
@@ -2053,10 +2092,10 @@ function TagGroupBlock({
           onDropTag(sourceId, before);
         }
       },
-      (0, import_react6.createElement)("span", { className: "dshOneTree_tagDot" }),
-      (0, import_react6.createElement)("span", { className: "dshOneTree_tagName" }, def.name)
+      (0, import_react7.createElement)("span", { className: "dshOneTree_tagDot" }),
+      (0, import_react7.createElement)("span", { className: "dshOneTree_tagName" }, def.name)
     ),
-    (0, import_react6.createElement)(
+    (0, import_react7.createElement)(
       "button",
       {
         type: "button",
@@ -2070,38 +2109,38 @@ function TagGroupBlock({
           onToggleCollapse();
         }
       },
-      (0, import_react6.createElement)(import_dsh_client_ui_primitives4.IconTriangleRightFill14, { className: `dshOneTree_tagArrow${collapsed ? "" : " dshOneTree_tagArrowOpen"}` })
+      (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconTriangleRightFill14, { className: `dshOneTree_tagArrow${collapsed ? "" : " dshOneTree_tagArrowOpen"}` })
     ),
     // 折叠态才出计数（展开时每行自己带状态点，再数一遍是噪音）。
-    collapsed && hasCounts ? (0, import_react6.createElement)(
+    collapsed && hasCounts ? (0, import_react7.createElement)(
       "span",
       {
         className: "dshOneTree_tagCounts",
         "data-dshone-tree-tag-counts": `${String(counts.pending)}/${String(counts.running)}/${String(counts.unread)}`
       },
-      counts.pending > 0 ? (0, import_react6.createElement)(
+      counts.pending > 0 ? (0, import_react7.createElement)(
         "span",
         { className: "dshOneTree_tagCount", key: "pending", title: tr("tag.count.pending", { n: counts.pending }) },
-        (0, import_react6.createElement)(import_dsh_client_ui_primitives4.StateDot, { state: "warning" }),
+        (0, import_react7.createElement)(import_dsh_client_ui_primitives4.StateDot, { state: "warning" }),
         String(counts.pending)
       ) : null,
-      counts.running > 0 ? (0, import_react6.createElement)(
+      counts.running > 0 ? (0, import_react7.createElement)(
         "span",
         { className: "dshOneTree_tagCount", key: "running", title: tr("tag.count.running", { n: counts.running }) },
-        (0, import_react6.createElement)(import_dsh_client_ui_primitives4.StateDot, { state: "ongoing" }),
+        (0, import_react7.createElement)(import_dsh_client_ui_primitives4.StateDot, { state: "ongoing" }),
         String(counts.running)
       ) : null,
-      counts.unread > 0 ? (0, import_react6.createElement)(
+      counts.unread > 0 ? (0, import_react7.createElement)(
         "span",
         { className: "dshOneTree_tagCount", key: "unread", title: tr("tag.count.unread", { n: counts.unread }) },
-        (0, import_react6.createElement)(import_dsh_client_ui_primitives4.StateDot, { state: "done" }),
+        (0, import_react7.createElement)(import_dsh_client_ui_primitives4.StateDot, { state: "done" }),
         String(counts.unread)
       ) : null
     ) : null,
-    (0, import_react6.createElement)(
+    (0, import_react7.createElement)(
       "span",
       { className: "dshOneTree_rowActions" },
-      (0, import_react6.createElement)(import_dsh_client_ui_primitives4.Menu, {
+      (0, import_react7.createElement)(import_dsh_client_ui_primitives4.Menu, {
         open: menuOpen,
         onClose: () => setMenuOpen(false),
         items: menuItems,
@@ -2116,7 +2155,7 @@ function TagGroupBlock({
       })
     )
   );
-  return (0, import_react6.createElement)(
+  return (0, import_react7.createElement)(
     "div",
     {
       className: `dshOneTree_tagBlock${dropActive ? " dshOneTree_tagDropActive" : ""}${collapsed ? " dshOneTree_tagCollapsed" : ""}${menuOpen ? " dshOneTree_menuOpen" : ""}`,
@@ -2152,7 +2191,7 @@ function TagGroupBlock({
       }
     },
     head,
-    collapsed ? null : (0, import_react6.createElement)("div", { className: "dshOneTree_tagRows", "data-dshone-tree-tag-rows": def.id }, children)
+    collapsed ? null : (0, import_react7.createElement)("div", { className: "dshOneTree_tagRows", "data-dshone-tree-tag-rows": def.id }, children)
   );
 }
 
@@ -2165,19 +2204,19 @@ function GroupModal({
   onSubmit,
   onClose
 }) {
-  const [draft, setDraft] = (0, import_react7.useState)("");
-  const [busy, setBusy] = (0, import_react7.useState)(false);
-  const open = dialog !== null;
+  const [draft, setDraft] = (0, import_react8.useState)("");
+  const [busy, setBusy] = (0, import_react8.useState)(false);
+  const open2 = dialog !== null;
   const kind = dialog?.kind ?? "create";
   const initialName = dialog === null || dialog.kind === "create" ? "" : dialog.name;
-  const lastOpen = (0, import_react7.useRef)(false);
-  (0, import_react7.useEffect)(() => {
-    if (open && !lastOpen.current) {
+  const lastOpen = (0, import_react8.useRef)(false);
+  (0, import_react8.useEffect)(() => {
+    if (open2 && !lastOpen.current) {
       setDraft(initialName);
       setBusy(false);
     }
-    lastOpen.current = open;
-  }, [open, initialName]);
+    lastOpen.current = open2;
+  }, [open2, initialName]);
   const submit = () => {
     if (busy) return;
     setBusy(true);
@@ -2191,17 +2230,17 @@ function GroupModal({
     return null;
   })();
   if (kind === "delete") {
-    return (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Modal, {
-      open,
+    return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
+      open: open2,
       onClose,
       closeLabel: tr("close"),
       title: tr("group.delete"),
       ...dialog === null || dialog.kind === "create" ? {} : { description: tr("group.delete.desc", { name: dialog.name }) },
-      footer: (0, import_react7.createElement)(
+      footer: (0, import_react8.createElement)(
         "div",
         { style: { display: "flex", gap: "8px" } },
-        (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
-        (0, import_react7.createElement)(
+        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
+        (0, import_react8.createElement)(
           import_dsh_client_ui_primitives5.Button,
           {
             variant: "outline",
@@ -2215,26 +2254,26 @@ function GroupModal({
           tr("group.delete")
         )
       ),
-      children: error === null ? null : (0, import_react7.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)
+      children: error === null ? null : (0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)
     });
   }
-  return (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Modal, {
-    open,
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
+    open: open2,
     onClose,
     closeLabel: tr("close"),
     title: kind === "create" ? tr("group.new") : tr("group.rename"),
-    footer: (0, import_react7.createElement)(
+    footer: (0, import_react8.createElement)(
       "div",
       { style: { display: "flex", gap: "8px" } },
-      (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
-      (0, import_react7.createElement)(
+      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
+      (0, import_react8.createElement)(
         import_dsh_client_ui_primitives5.Button,
         { variant: "primary", disabled: busy || nameError !== null, onClick: submit },
         kind === "create" ? tr("group.new") : tr("rename")
       )
     ),
     children: [
-      (0, import_react7.createElement)("input", {
+      (0, import_react8.createElement)("input", {
         className: "dshOneTree_renameInput",
         value: draft,
         "aria-label": kind === "create" ? tr("group.new") : tr("group.rename"),
@@ -2247,7 +2286,7 @@ function GroupModal({
           if (nameError === null) submit();
         }
       }),
-      nameError === null && error === null ? null : (0, import_react7.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, nameError ?? error)
+      nameError === null && error === null ? null : (0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, nameError ?? error)
     ]
   });
 }
@@ -2261,17 +2300,17 @@ function ArchiveSessionsModal({
 }) {
   const total = target === null ? 0 : target.blocks.reduce((sum, block) => sum + block.sessions.length, 0);
   const title = target === null ? "" : target.kind === "emptyBin" ? tr("archive.title.empty", { n: total }) : total === 1 ? tr("archive.title.one") : tr("archive.title.many", { n: total });
-  return (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Modal, {
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
     open: target !== null,
     onClose,
     closeLabel: tr("close"),
     title,
     description: tr("archive.desc"),
-    footer: (0, import_react7.createElement)(
+    footer: (0, import_react8.createElement)(
       "div",
       { style: { display: "flex", gap: "8px" } },
-      (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
-      (0, import_react7.createElement)(
+      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
+      (0, import_react8.createElement)(
         import_dsh_client_ui_primitives5.Button,
         {
           variant: "outline",
@@ -2285,25 +2324,25 @@ function ArchiveSessionsModal({
       )
     ),
     children: [
-      target === null || target.skipped === 0 ? null : (0, import_react7.createElement)(
+      target === null || target.skipped === 0 ? null : (0, import_react8.createElement)(
         "div",
         { className: "dshOneTree_deleteStatus", "data-dshone-archive-skipped": target.skipped },
         tr("archive.skipped", { n: target.skipped })
       ),
-      (0, import_react7.createElement)(
+      (0, import_react8.createElement)(
         "div",
         { className: "dshOneTree_modalBlocks", "data-dshone-archive-blocks": total },
         target === null ? null : target.blocks.map(
-          (block) => (0, import_react7.createElement)(
+          (block) => (0, import_react8.createElement)(
             "div",
             { className: "dshOneTree_modalBlock", key: block.key, "data-dshone-archive-block": block.key },
-            (0, import_react7.createElement)(
+            (0, import_react8.createElement)(
               "div",
               { className: "dshOneTree_modalBlockLabel" },
               block.workspaceId === void 0 ? tr("group.ungrouped") : block.label
             ),
             block.sessions.map(
-              (node) => (0, import_react7.createElement)(
+              (node) => (0, import_react8.createElement)(
                 "div",
                 { className: "dshOneTree_modalRow", key: node.id, "data-dshone-archive-row": node.id },
                 displayTitle(node, tr)
@@ -2312,46 +2351,46 @@ function ArchiveSessionsModal({
           )
         )
       ),
-      error === null ? null : (0, import_react7.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)
+      error === null ? null : (0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)
     ]
   });
 }
 function TagGroupCreateModal({
-  open,
+  open: open2,
   tr,
   defaultColor,
   validate,
   onSubmit,
   onClose
 }) {
-  const [draft, setDraft] = (0, import_react7.useState)("");
-  const [color, setColor] = (0, import_react7.useState)(defaultColor);
-  const [idle, setIdle] = (0, import_react7.useState)(true);
-  const lastOpen = (0, import_react7.useRef)(false);
-  (0, import_react7.useEffect)(() => {
-    if (open && !lastOpen.current) {
+  const [draft, setDraft] = (0, import_react8.useState)("");
+  const [color, setColor] = (0, import_react8.useState)(defaultColor);
+  const [idle, setIdle] = (0, import_react8.useState)(true);
+  const lastOpen = (0, import_react8.useRef)(false);
+  (0, import_react8.useEffect)(() => {
+    if (open2 && !lastOpen.current) {
       setDraft("");
       setColor(defaultColor);
       setIdle(true);
     }
-    lastOpen.current = open;
-  }, [open, defaultColor]);
+    lastOpen.current = open2;
+  }, [open2, defaultColor]);
   const nameError = idle ? null : validate(draft);
   const blocked = idle || nameError !== null;
   const submit = () => {
     if (draft.trim() === "" || validate(draft) !== null) return;
     onSubmit(draft.trim(), color);
   };
-  return (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Modal, {
-    open,
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
+    open: open2,
     onClose,
     closeLabel: tr("close"),
     title: tr("tag.new"),
-    footer: (0, import_react7.createElement)(
+    footer: (0, import_react8.createElement)(
       "div",
       { style: { display: "flex", gap: "8px" } },
-      (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", onClick: onClose }, tr("cancel")),
-      (0, import_react7.createElement)(
+      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", onClick: onClose }, tr("cancel")),
+      (0, import_react8.createElement)(
         import_dsh_client_ui_primitives5.Button,
         {
           variant: "primary",
@@ -2363,7 +2402,7 @@ function TagGroupCreateModal({
       )
     ),
     children: [
-      (0, import_react7.createElement)("input", {
+      (0, import_react8.createElement)("input", {
         className: "dshOneTree_renameInput",
         "data-dshone-tree": "tag-name-input",
         value: draft,
@@ -2382,11 +2421,11 @@ function TagGroupCreateModal({
       }),
       // 6 色色板：一枚枚色块当按钮（官方 Button 装不下「色块」这种内容，这里按旧侧栏
       // 同一形态自绘，几何与选中态在 styles.ts 的 `dshOneTree_tagColorPick*`）。
-      (0, import_react7.createElement)(
+      (0, import_react8.createElement)(
         "div",
         { className: "dshOneTree_tagColorPick", "data-dshone-tree": "tag-color-pick" },
         TAG_COLORS.map(
-          (candidate) => (0, import_react7.createElement)(
+          (candidate) => (0, import_react8.createElement)(
             "button",
             {
               type: "button",
@@ -2399,11 +2438,11 @@ function TagGroupCreateModal({
               "data-dshone-tag-color": candidate,
               onClick: () => setColor(candidate)
             },
-            candidate === color ? (0, import_react7.createElement)(import_dsh_client_ui_primitives5.IconCheckOutline16, { size: 12 }) : null
+            candidate === color ? (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconCheckOutline16, { size: 12 }) : null
           )
         )
       ),
-      idle || nameError === null ? null : (0, import_react7.createElement)(
+      idle || nameError === null ? null : (0, import_react8.createElement)(
         "div",
         { className: "dshOneTree_renameError", role: "alert" },
         nameError === "empty" ? tr("tag.name.empty") : tr("tag.name.duplicate")
@@ -2417,17 +2456,17 @@ function TagGroupDeleteModal({
   onSubmit,
   onClose
 }) {
-  return (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Modal, {
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
     open: target !== null,
     onClose,
     closeLabel: tr("close"),
     title: tr("tag.delete"),
     ...target === null ? {} : { description: tr("tag.delete.desc", { name: target.name }) },
-    footer: (0, import_react7.createElement)(
+    footer: (0, import_react8.createElement)(
       "div",
       { style: { display: "flex", gap: "8px" } },
-      (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", onClick: onClose }, tr("cancel")),
-      (0, import_react7.createElement)(
+      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", onClick: onClose }, tr("cancel")),
+      (0, import_react8.createElement)(
         import_dsh_client_ui_primitives5.Button,
         {
           variant: "outline",
@@ -2444,7 +2483,7 @@ function TagGroupDeleteModal({
   });
 }
 function RenameModal({
-  open,
+  open: open2,
   titleKey,
   fieldKey,
   initial,
@@ -2452,18 +2491,18 @@ function RenameModal({
   onSubmit,
   onClose
 }) {
-  const [draft, setDraft] = (0, import_react7.useState)(initial);
-  const [busy, setBusy] = (0, import_react7.useState)(false);
-  const [error, setError] = (0, import_react7.useState)(null);
-  const lastOpen = (0, import_react7.useRef)(false);
-  (0, import_react7.useEffect)(() => {
-    if (open && !lastOpen.current) {
+  const [draft, setDraft] = (0, import_react8.useState)(initial);
+  const [busy, setBusy] = (0, import_react8.useState)(false);
+  const [error, setError] = (0, import_react8.useState)(null);
+  const lastOpen = (0, import_react8.useRef)(false);
+  (0, import_react8.useEffect)(() => {
+    if (open2 && !lastOpen.current) {
       setDraft(initial);
       setError(null);
       setBusy(false);
     }
-    lastOpen.current = open;
-  }, [open, initial]);
+    lastOpen.current = open2;
+  }, [open2, initial]);
   const commit = () => {
     if (busy) return;
     setBusy(true);
@@ -2476,19 +2515,19 @@ function RenameModal({
       setError(reason instanceof Error ? reason.message : String(reason));
     });
   };
-  return (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Modal, {
-    open,
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
+    open: open2,
     onClose,
     closeLabel: tr("close"),
     title: tr(titleKey),
-    footer: (0, import_react7.createElement)(
+    footer: (0, import_react8.createElement)(
       "div",
       { style: { display: "flex", gap: "8px" } },
-      (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
-      (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "primary", disabled: busy || draft.trim() === "", onClick: commit }, tr("rename"))
+      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
+      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "primary", disabled: busy || draft.trim() === "", onClick: commit }, tr("rename"))
     ),
     children: [
-      (0, import_react7.createElement)("input", {
+      (0, import_react8.createElement)("input", {
         className: "dshOneTree_renameInput",
         value: draft,
         "aria-label": tr(fieldKey),
@@ -2505,7 +2544,7 @@ function RenameModal({
           }
         }
       }),
-      error === null ? null : (0, import_react7.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)
+      error === null ? null : (0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)
     ]
   });
 }
@@ -2515,8 +2554,8 @@ function DeleteWorkspaceModal({
   onSubmit,
   onClose
 }) {
-  const [busy, setBusy] = (0, import_react7.useState)(false);
-  const [error, setError] = (0, import_react7.useState)(null);
+  const [busy, setBusy] = (0, import_react8.useState)(false);
+  const [error, setError] = (0, import_react8.useState)(null);
   const commit = () => {
     if (busy || target === null) return;
     setBusy(true);
@@ -2529,26 +2568,26 @@ function DeleteWorkspaceModal({
       setError(reason instanceof Error ? reason.message : String(reason));
     });
   };
-  return (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Modal, {
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
     open: target !== null,
     onClose,
     closeLabel: tr("close"),
     title: tr("delete.workspace"),
     ...target === null ? {} : { description: tr("delete.desc", { name: target.title }) },
-    footer: (0, import_react7.createElement)(
+    footer: (0, import_react8.createElement)(
       "div",
       { style: { display: "flex", gap: "8px" } },
-      (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
-      (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: commit, className: "dshOneTree_deleteAction" }, tr("delete.workspace"))
+      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
+      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", disabled: busy, onClick: commit, className: "dshOneTree_deleteAction" }, tr("delete.workspace"))
     ),
     children: [
-      busy ? (0, import_react7.createElement)("div", { className: "dshOneTree_deleteStatus", role: "status" }, tr("delete.pending")) : null,
-      error === null ? null : (0, import_react7.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)
+      busy ? (0, import_react8.createElement)("div", { className: "dshOneTree_deleteStatus", role: "status" }, tr("delete.pending")) : null,
+      error === null ? null : (0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)
     ]
   });
 }
 function ManageGroupsModal({
-  open,
+  open: open2,
   groups,
   counts,
   tr,
@@ -2557,16 +2596,16 @@ function ManageGroupsModal({
   onDelete,
   onClose
 }) {
-  const [draft, setDraft] = (0, import_react7.useState)("");
-  const [error, setError] = (0, import_react7.useState)(null);
-  const lastOpen = (0, import_react7.useRef)(false);
-  (0, import_react7.useEffect)(() => {
-    if (open && !lastOpen.current) {
+  const [draft, setDraft] = (0, import_react8.useState)("");
+  const [error, setError] = (0, import_react8.useState)(null);
+  const lastOpen = (0, import_react8.useRef)(false);
+  (0, import_react8.useEffect)(() => {
+    if (open2 && !lastOpen.current) {
       setDraft("");
       setError(null);
     }
-    lastOpen.current = open;
-  }, [open]);
+    lastOpen.current = open2;
+  }, [open2]);
   const submit = () => {
     const failure = onCreate(draft.trim());
     if (failure === null) {
@@ -2576,7 +2615,7 @@ function ManageGroupsModal({
     }
     setError(failure === "empty" ? tr("group.name.empty") : tr("group.name.duplicate"));
   };
-  const rowIcon = (groupId, name, action) => (0, import_react7.createElement)(
+  const rowIcon = (groupId, name, action) => (0, import_react8.createElement)(
     "button",
     {
       type: "button",
@@ -2586,37 +2625,37 @@ function ManageGroupsModal({
       "data-dshone-group-target": groupId,
       onClick: () => action === "rename" ? onRename(groupId, name) : onDelete(groupId, name)
     },
-    action === "rename" ? (0, import_react7.createElement)(import_dsh_client_ui_primitives5.IconEditOutline16, {}) : (0, import_react7.createElement)(import_dsh_client_ui_primitives5.IconTrashOutline16, {})
+    action === "rename" ? (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconEditOutline16, {}) : (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconTrashOutline16, {})
   );
-  return (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Modal, {
-    open,
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
+    open: open2,
     onClose,
     closeLabel: tr("close"),
     title: tr("group.manage.title"),
-    footer: (0, import_react7.createElement)(
+    footer: (0, import_react8.createElement)(
       "div",
       { style: { display: "flex", gap: "8px" } },
-      (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", onClick: onClose }, tr("close"))
+      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "outline", onClick: onClose }, tr("close"))
     ),
     children: [
-      (0, import_react7.createElement)(
+      (0, import_react8.createElement)(
         "div",
         { className: "dshOneTree_manageList", "data-dshone-tree": "group-manage-list" },
-        groups.length === 0 ? (0, import_react7.createElement)("div", { className: "dshOneTree_manageEmpty" }, tr("group.manage.none")) : groups.map(
-          (group) => (0, import_react7.createElement)(
+        groups.length === 0 ? (0, import_react8.createElement)("div", { className: "dshOneTree_manageEmpty" }, tr("group.manage.none")) : groups.map(
+          (group) => (0, import_react8.createElement)(
             "div",
             { className: "dshOneTree_manageRow", key: group.id, "data-dshone-manage-group": group.id },
-            (0, import_react7.createElement)("span", { className: "dshOneTree_manageName" }, group.name),
-            (0, import_react7.createElement)("span", { className: "dshOneTree_manageCount" }, String(counts.get(group.id) ?? 0)),
+            (0, import_react8.createElement)("span", { className: "dshOneTree_manageName" }, group.name),
+            (0, import_react8.createElement)("span", { className: "dshOneTree_manageCount" }, String(counts.get(group.id) ?? 0)),
             rowIcon(group.id, group.name, "rename"),
             rowIcon(group.id, group.name, "delete")
           )
         )
       ),
-      (0, import_react7.createElement)(
+      (0, import_react8.createElement)(
         "div",
         { className: "dshOneTree_manageCreate" },
-        (0, import_react7.createElement)("input", {
+        (0, import_react8.createElement)("input", {
           className: "dshOneTree_renameInput",
           "data-dshone-tree": "group-manage-input",
           value: draft,
@@ -2632,15 +2671,15 @@ function ManageGroupsModal({
             submit();
           }
         }),
-        (0, import_react7.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "primary", disabled: draft.trim() === "", onClick: submit }, tr("group.new"))
+        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { variant: "primary", disabled: draft.trim() === "", onClick: submit }, tr("group.new"))
       ),
-      error === null ? null : (0, import_react7.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)
+      error === null ? null : (0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)
     ]
   });
 }
 
 // src/ui/assembly/shell/workspaceTree/recycleDrawer.ts
-var import_react8 = require("react");
+var import_react9 = require("react");
 var import_dsh_client_ui_primitives6 = require("@deepseek-ai/dsh-client-ui-primitives");
 var DRAWER_HEIGHT_DEFAULT = 0.5;
 var DRAWER_HEIGHT_EXPANDED = 0.9;
@@ -2649,7 +2688,7 @@ var DRAWER_HEIGHT_MAX = 0.97;
 var DRAWER_CLOSE_BELOW = 0.35;
 var DRAWER_CLICK_SLOP = 4;
 function RecycleDrawer({
-  open,
+  open: open2,
   groups,
   collapsed,
   now,
@@ -2662,13 +2701,13 @@ function RecycleDrawer({
   onRestore,
   onArchive
 }) {
-  const drawerRef = (0, import_react8.useRef)(null);
-  const [entered, setEntered] = (0, import_react8.useState)(false);
-  const [dragHeight, setDragHeight] = (0, import_react8.useState)(null);
-  const [snapHeight, setSnapHeight] = (0, import_react8.useState)(null);
-  const [menuFor, setMenuFor] = (0, import_react8.useState)(null);
-  (0, import_react8.useEffect)(() => {
-    if (!open) {
+  const drawerRef = (0, import_react9.useRef)(null);
+  const [entered, setEntered] = (0, import_react9.useState)(false);
+  const [dragHeight, setDragHeight] = (0, import_react9.useState)(null);
+  const [snapHeight, setSnapHeight] = (0, import_react9.useState)(null);
+  const [menuFor, setMenuFor] = (0, import_react9.useState)(null);
+  (0, import_react9.useEffect)(() => {
+    if (!open2) {
       setEntered(false);
       setSnapHeight(null);
       setMenuFor(null);
@@ -2676,9 +2715,9 @@ function RecycleDrawer({
     }
     const frame = requestAnimationFrame(() => setEntered(true));
     return () => cancelAnimationFrame(frame);
-  }, [open]);
-  (0, import_react8.useEffect)(() => {
-    if (!open) return;
+  }, [open2]);
+  (0, import_react9.useEffect)(() => {
+    if (!open2) return;
     const onPointerDown = (event) => {
       const drawer = drawerRef.current;
       const root = drawer?.parentElement ?? null;
@@ -2689,9 +2728,9 @@ function RecycleDrawer({
     };
     document.addEventListener("mousedown", onPointerDown, true);
     return () => document.removeEventListener("mousedown", onPointerDown, true);
-  }, [open, onClose]);
-  (0, import_react8.useEffect)(() => {
-    if (!open) return;
+  }, [open2, onClose]);
+  (0, import_react9.useEffect)(() => {
+    if (!open2) return;
     const onKey = (event) => {
       if (event.key !== "Escape" || event.defaultPrevented || menuFor !== null) return;
       event.preventDefault();
@@ -2699,7 +2738,7 @@ function RecycleDrawer({
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [open, onClose, menuFor]);
+  }, [open2, onClose, menuFor]);
   const startDrag = (event) => {
     if (event.button !== 0) return;
     const drawer = drawerRef.current;
@@ -2739,10 +2778,10 @@ function RecycleDrawer({
     handle?.addEventListener("pointerup", up);
     handle?.addEventListener("pointercancel", up);
   };
-  if (!open) return null;
+  if (!open2) return null;
   const total = recycleCount(groups);
   const height = dragHeight ?? snapHeight ?? DRAWER_HEIGHT_DEFAULT;
-  return (0, import_react8.createElement)(
+  return (0, import_react9.createElement)(
     "div",
     {
       className: `dshOneTree_drawer${entered ? " dshOneTree_drawerOpen" : ""}`,
@@ -2753,7 +2792,7 @@ function RecycleDrawer({
       role: "region",
       "aria-label": tr("recycle.title")
     },
-    (0, import_react8.createElement)(
+    (0, import_react9.createElement)(
       "div",
       {
         className: "dshOneTree_drawerHandle",
@@ -2761,14 +2800,14 @@ function RecycleDrawer({
         title: tr("recycle.handle"),
         onPointerDown: startDrag
       },
-      (0, import_react8.createElement)("span", { className: "dshOneTree_drawerGrip" })
+      (0, import_react9.createElement)("span", { className: "dshOneTree_drawerGrip" })
     ),
-    (0, import_react8.createElement)(
+    (0, import_react9.createElement)(
       "div",
       { className: "dshOneTree_drawerHeader" },
-      (0, import_react8.createElement)("span", { className: "dshOneTree_drawerTitle" }, tr("recycle.title")),
-      (0, import_react8.createElement)("span", { className: "dshOneTree_drawerCount", "data-dshone-recycle-count": total }, String(total)),
-      (0, import_react8.createElement)(
+      (0, import_react9.createElement)("span", { className: "dshOneTree_drawerTitle" }, tr("recycle.title")),
+      (0, import_react9.createElement)("span", { className: "dshOneTree_drawerCount", "data-dshone-recycle-count": total }, String(total)),
+      (0, import_react9.createElement)(
         "button",
         {
           type: "button",
@@ -2777,14 +2816,14 @@ function RecycleDrawer({
           "data-dshone-tree-action": "recycle-close",
           onClick: onClose
         },
-        (0, import_react8.createElement)(import_dsh_client_ui_primitives6.IconCloseFill14, {})
+        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconCloseFill14, {})
       )
     ),
-    total === 0 ? (0, import_react8.createElement)("div", { className: "dshOneTree_drawerStatus" }, tr("recycle.empty")) : (0, import_react8.createElement)(
+    total === 0 ? (0, import_react9.createElement)("div", { className: "dshOneTree_drawerStatus" }, tr("recycle.empty")) : (0, import_react9.createElement)(
       "div",
       { className: "dshOneTree_drawerList" },
       groups.map(
-        (group) => (0, import_react8.createElement)(RecycleBlock, {
+        (group) => (0, import_react9.createElement)(RecycleBlock, {
           key: group.key,
           group,
           collapsed: collapsed.includes(group.key),
@@ -2800,7 +2839,7 @@ function RecycleDrawer({
         })
       )
     ),
-    error === null ? null : (0, import_react8.createElement)("div", { className: "dshOneTree_selectionError", role: "alert" }, error)
+    error === null ? null : (0, import_react9.createElement)("div", { className: "dshOneTree_selectionError", role: "alert" }, error)
   );
 }
 function RecycleBlock({
@@ -2817,10 +2856,10 @@ function RecycleBlock({
   onArchive
 }) {
   const label = group.workspaceId === void 0 ? tr("group.ungrouped") : group.label;
-  return (0, import_react8.createElement)(
+  return (0, import_react9.createElement)(
     "div",
     { className: "dshOneTree_drawerGroup", "data-dshone-recycle-group": group.key },
-    (0, import_react8.createElement)(
+    (0, import_react9.createElement)(
       "button",
       {
         type: "button",
@@ -2830,18 +2869,18 @@ function RecycleBlock({
         "aria-expanded": !collapsed,
         onClick: onToggle
       },
-      (0, import_react8.createElement)(
+      (0, import_react9.createElement)(
         "span",
         { className: "dshOneTree_drawerGroupArrow" },
-        (0, import_react8.createElement)(import_dsh_client_ui_primitives6.IconTriangleRightFill14, { className: `dshOneTree_arrow${collapsed ? "" : " dshOneTree_arrowOpen"}` })
+        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconTriangleRightFill14, { className: `dshOneTree_arrow${collapsed ? "" : " dshOneTree_arrowOpen"}` })
       ),
-      (0, import_react8.createElement)("span", { className: "dshOneTree_drawerGroupLabelText" }, label),
-      (0, import_react8.createElement)("span", { className: "dshOneTree_drawerGroupCount" }, String(group.sessions.length))
+      (0, import_react9.createElement)("span", { className: "dshOneTree_drawerGroupLabelText" }, label),
+      (0, import_react9.createElement)("span", { className: "dshOneTree_drawerGroupCount" }, String(group.sessions.length))
     ),
     collapsed ? null : group.sessions.map((node) => {
       const title = displayTitle(node, tr);
       const menuOpen = openMenuFor === node.id;
-      const anchor = (0, import_react8.createElement)(
+      const anchor = (0, import_react9.createElement)(
         "button",
         {
           type: "button",
@@ -2853,9 +2892,9 @@ function RecycleBlock({
             onMenuToggle(node.id);
           }
         },
-        (0, import_react8.createElement)(import_dsh_client_ui_primitives6.IconEllipsisOutline16, {})
+        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconEllipsisOutline16, {})
       );
-      return (0, import_react8.createElement)(
+      return (0, import_react9.createElement)(
         "div",
         {
           className: `dshOneTree_drawerRow${menuOpen ? " dshOneTree_menuOpen" : ""}`,
@@ -2864,16 +2903,16 @@ function RecycleBlock({
           "data-dshone-recycle-row": node.id,
           onClick: () => onOpen(node.id)
         },
-        (0, import_react8.createElement)("span", { className: "dshOneTree_title" }, title),
-        (0, import_react8.createElement)("span", { className: "dshOneTree_time" }, timeLabel(node.updatedAt, now, tr)),
-        (0, import_react8.createElement)(
+        (0, import_react9.createElement)("span", { className: "dshOneTree_title" }, title),
+        (0, import_react9.createElement)("span", { className: "dshOneTree_time" }, timeLabel(node.updatedAt, now, tr)),
+        (0, import_react9.createElement)(
           "span",
           { className: "dshOneTree_drawerActions" },
-          (0, import_react8.createElement)(import_dsh_client_ui_primitives6.Tooltip, {
+          (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Tooltip, {
             label: tr("recycle.restore"),
             side: "top",
             delayMs: 500,
-            children: (0, import_react8.createElement)(
+            children: (0, import_react9.createElement)(
               "button",
               {
                 type: "button",
@@ -2886,21 +2925,21 @@ function RecycleBlock({
                   onRestore(node.id);
                 }
               },
-              (0, import_react8.createElement)(import_dsh_client_ui_primitives6.IconRefreshOutline16, { size: 14 }),
+              (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconRefreshOutline16, { size: 14 }),
               tr("recycle.restore")
             )
           }),
-          (0, import_react8.createElement)(import_dsh_client_ui_primitives6.Menu, {
+          (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Menu, {
             open: menuOpen,
             onClose: () => onMenuToggle(node.id),
             items: [
-              { id: "restore", label: tr("recycle.restore"), icon: (0, import_react8.createElement)(import_dsh_client_ui_primitives6.IconRefreshOutline16, { size: 16 }) },
+              { id: "restore", label: tr("recycle.restore"), icon: (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconRefreshOutline16, { size: 16 }) },
               {
                 id: "archive",
                 // 标记属性（自有契约，与 rows.ts 的菜单项同一做法）：官方菜单项的
                 // 类名是官方哈希，验证套件与样式都不该认它。
-                label: (0, import_react8.createElement)("span", { "data-dshone-recycle-item": "archive" }, tr("menu.archiveForever")),
-                icon: (0, import_react8.createElement)(import_dsh_client_ui_primitives6.IconArchiveOutline20, { size: 16 }),
+                label: (0, import_react9.createElement)("span", { "data-dshone-recycle-item": "archive" }, tr("menu.archiveForever")),
+                icon: (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconArchiveOutline20, { size: 16 }),
                 danger: true
               }
             ],
@@ -2921,23 +2960,23 @@ function RecycleBlock({
 }
 
 // src/ui/assembly/shell/workspaceTree/rows.ts
-var import_react10 = require("react");
+var import_react11 = require("react");
 var import_dsh_client_ui_primitives8 = require("@deepseek-ai/dsh-client-ui-primitives");
 
 // src/ui/assembly/shell/workspaceTree/selection.ts
-var import_react9 = require("react");
+var import_react10 = require("react");
 var import_dsh_client_ui_primitives7 = require("@deepseek-ai/dsh-client-ui-primitives");
-var listeners4 = /* @__PURE__ */ new Set();
+var listeners5 = /* @__PURE__ */ new Set();
 var selectionEntrySignal = {
   /** 进入多选（任何入口都调这一个；调用即清空上一轮勾选）。 */
   enter() {
-    for (const listener of [...listeners4]) listener();
+    for (const listener of [...listeners5]) listener();
   },
   /** 树主组件挂载时订阅入口请求（返回退订）。 */
   subscribe(listener) {
-    listeners4.add(listener);
+    listeners5.add(listener);
     return () => {
-      listeners4.delete(listener);
+      listeners5.delete(listener);
     };
   }
 };
@@ -2947,12 +2986,12 @@ function SelectMark({
   disabled
 }) {
   const filled = on || partial === true;
-  return (0, import_react9.createElement)(
+  return (0, import_react10.createElement)(
     "span",
     {
       className: `dshOneTree_checkBox${filled ? " dshOneTree_checkOn" : ""}${disabled === true ? " dshOneTree_checkOff" : ""}`
     },
-    on ? (0, import_react9.createElement)(import_dsh_client_ui_primitives7.IconCheckOutline16, { size: 12 }) : partial === true ? (0, import_react9.createElement)("span", { className: "dshOneTree_checkDash" }) : null
+    on ? (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconCheckOutline16, { size: 12 }) : partial === true ? (0, import_react10.createElement)("span", { className: "dshOneTree_checkDash" }) : null
   );
 }
 function SelectionBar({
@@ -2964,14 +3003,14 @@ function SelectionBar({
   onArchive,
   onExit
 }) {
-  return (0, import_react9.createElement)(
+  return (0, import_react10.createElement)(
     "div",
     { className: "dshOneTree_selectionBarWrap", "data-dshone-tree": "selection-bar" },
-    (0, import_react9.createElement)(
+    (0, import_react10.createElement)(
       "div",
       { className: "dshOneTree_selectionBar" },
-      (0, import_react9.createElement)("span", { className: "dshOneTree_selectionCount" }, count === 0 ? tr("select.none") : tr("select.count", { n: count })),
-      (0, import_react9.createElement)(
+      (0, import_react10.createElement)("span", { className: "dshOneTree_selectionCount" }, count === 0 ? tr("select.none") : tr("select.count", { n: count })),
+      (0, import_react10.createElement)(
         import_dsh_client_ui_primitives7.Button,
         {
           variant: "outline",
@@ -2982,7 +3021,7 @@ function SelectionBar({
           children: tr("select.moveToRecycleBin")
         }
       ),
-      (0, import_react9.createElement)(
+      (0, import_react10.createElement)(
         import_dsh_client_ui_primitives7.Button,
         {
           variant: "outline",
@@ -2992,7 +3031,7 @@ function SelectionBar({
           children: tr("select.archivePermanent")
         }
       ),
-      (0, import_react9.createElement)(import_dsh_client_ui_primitives7.Button, {
+      (0, import_react10.createElement)(import_dsh_client_ui_primitives7.Button, {
         variant: "outline",
         disabled: busy,
         onClick: onExit,
@@ -3000,7 +3039,7 @@ function SelectionBar({
         children: tr("select.exit")
       })
     ),
-    error === null ? null : (0, import_react9.createElement)("div", { className: "dshOneTree_selectionError", role: "alert" }, error)
+    error === null ? null : (0, import_react10.createElement)("div", { className: "dshOneTree_selectionError", role: "alert" }, error)
   );
 }
 
@@ -3008,11 +3047,11 @@ function SelectionBar({
 var PIN_PATHS = ["M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z", "M8 9.5v4"];
 var UNREAD_PATHS = ["M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8z"];
 function strokeIcon(paths) {
-  return (0, import_react10.createElement)(
+  return (0, import_react11.createElement)(
     "svg",
     { viewBox: "0 0 16 16", width: 14, height: 14, fill: "none", "aria-hidden": true },
     ...paths.map(
-      (d, index) => (0, import_react10.createElement)("path", {
+      (d, index) => (0, import_react11.createElement)("path", {
         key: String(index),
         d,
         stroke: "currentColor",
@@ -3024,7 +3063,7 @@ function strokeIcon(paths) {
   );
 }
 function PinMark({ sessionId }) {
-  return (0, import_react10.createElement)("span", { className: "dshOneTree_pin", "data-dshone-tree-pin": sessionId, "aria-hidden": true }, strokeIcon(PIN_PATHS));
+  return (0, import_react11.createElement)("span", { className: "dshOneTree_pin", "data-dshone-tree-pin": sessionId, "aria-hidden": true }, strokeIcon(PIN_PATHS));
 }
 var TERMINAL_PATHS = [
   "M2 1.5h12A1.5 1.5 0 0 1 15.5 3v10A1.5 1.5 0 0 1 14 14.5H2A1.5 1.5 0 0 1 .5 13V3A1.5 1.5 0 0 1 2 1.5zm0 1.3a.2.2 0 0 0-.2.2v10c0 .11.09.2.2.2h12a.2.2 0 0 0 .2-.2V3a.2.2 0 0 0-.2-.2H2z",
@@ -3032,16 +3071,16 @@ var TERMINAL_PATHS = [
   "M7.2 10.6h4.6v1.3H7.2z"
 ];
 function TerminalIcon() {
-  return (0, import_react10.createElement)(
+  return (0, import_react11.createElement)(
     "svg",
     { viewBox: "0 0 16 16", width: 16, height: 16, fill: "currentColor", "fill-rule": "evenodd", "aria-hidden": true },
-    ...TERMINAL_PATHS.map((d, index) => (0, import_react10.createElement)("path", { key: String(index), d }))
+    ...TERMINAL_PATHS.map((d, index) => (0, import_react11.createElement)("path", { key: String(index), d }))
   );
 }
 function submenuChild(options) {
   return {
     id: options.id,
-    label: (0, import_react10.createElement)(
+    label: (0, import_react11.createElement)(
       "span",
       {
         "data-dshone-tree-item": options.marker,
@@ -3050,24 +3089,24 @@ function submenuChild(options) {
       },
       options.name
     ),
-    ...options.checked ? { icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconCheckOutline16, { size: 12 }) } : {}
+    ...options.checked ? { icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconCheckOutline16, { size: 12 }) } : {}
   };
 }
 function indentSubmenuItem(item) {
   if (typeof item !== "object" || item === null) return item;
   const record = item;
-  return { ...record, label: (0, import_react10.createElement)("span", { className: "dshOneTree_submenuItem" }, record.label ?? null) };
+  return { ...record, label: (0, import_react11.createElement)("span", { className: "dshOneTree_submenuItem" }, record.label ?? null) };
 }
 function submenuParent(options) {
   return {
     id: options.id,
-    label: (0, import_react10.createElement)(
+    label: (0, import_react11.createElement)(
       "span",
       { "data-dshone-tree-item": options.id },
       options.label,
-      (0, import_react10.createElement)("span", { className: "dshOneTree_submenuArrow", "aria-hidden": true }, options.open ? "\u25BE" : "\u25B8")
+      (0, import_react11.createElement)("span", { className: "dshOneTree_submenuArrow", "aria-hidden": true }, options.open ? "\u25BE" : "\u25B8")
     ),
-    icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconFolderOpenOutline16, {})
+    icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconFolderOpenOutline16, {})
   };
 }
 function UnreadIcon() {
@@ -3087,13 +3126,13 @@ function archiveBlockKey(reason) {
 }
 function SessionStatusDots({ statuses, tr }) {
   const labels = statuses.map(
-    (status) => (0, import_react10.createElement)(
+    (status) => (0, import_react11.createElement)(
       "span",
       { className: "dshOneTree_visuallyHidden", key: status.labelKey },
       status.labelCount === void 0 ? tr(status.labelKey) : tr(status.labelKey, { n: status.labelCount })
     )
   );
-  return (0, import_react10.createElement)("span", { className: "dshOneTree_slot" }, (0, import_react10.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: statuses[0].state, className: "dshOneTree_dot" }), labels);
+  return (0, import_react11.createElement)("span", { className: "dshOneTree_slot" }, (0, import_react11.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: statuses[0].state, className: "dshOneTree_dot" }), labels);
 }
 function SessionHoverContent({
   node,
@@ -3102,17 +3141,17 @@ function SessionHoverContent({
   unread
 }) {
   const statuses = sessionStatuses({ ...node, unread });
-  return (0, import_react10.createElement)(
+  return (0, import_react11.createElement)(
     "div",
     { className: "dshOneTree_hoverContent" },
-    (0, import_react10.createElement)("div", { className: "dshOneTree_hoverTitle" }, displayTitle(node, tr)),
-    node.blank ? null : (0, import_react10.createElement)("div", { className: "dshOneTree_hoverTime" }, hoverTimeLabel(node.updatedAt, now, tr)),
+    (0, import_react11.createElement)("div", { className: "dshOneTree_hoverTitle" }, displayTitle(node, tr)),
+    node.blank ? null : (0, import_react11.createElement)("div", { className: "dshOneTree_hoverTime" }, hoverTimeLabel(node.updatedAt, now, tr)),
     statuses.map(
-      (status) => (0, import_react10.createElement)(
+      (status) => (0, import_react11.createElement)(
         "div",
         { className: "dshOneTree_hoverStatus", key: status.labelKey },
-        (0, import_react10.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: status.state }),
-        (0, import_react10.createElement)("span", null, status.labelCount === void 0 ? tr(status.labelKey) : tr(status.labelKey, { n: status.labelCount }))
+        (0, import_react11.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: status.state }),
+        (0, import_react11.createElement)("span", null, status.labelCount === void 0 ? tr(status.labelKey) : tr(status.labelKey, { n: status.labelCount }))
       )
     )
   );
@@ -3123,17 +3162,17 @@ function WorkspaceHoverContent({
   createdAt,
   tr
 }) {
-  return (0, import_react10.createElement)(
+  return (0, import_react11.createElement)(
     "div",
     { className: "dshOneTree_hoverContent" },
-    (0, import_react10.createElement)("div", { className: "dshOneTree_hoverTitle" }, label),
-    cwd === void 0 ? null : (0, import_react10.createElement)("div", { className: "dshOneTree_hoverPath" }, cwd),
-    createdAt === void 0 ? null : (0, import_react10.createElement)("div", { className: "dshOneTree_hoverTime" }, createdLabel(createdAt, tr))
+    (0, import_react11.createElement)("div", { className: "dshOneTree_hoverTitle" }, label),
+    cwd === void 0 ? null : (0, import_react11.createElement)("div", { className: "dshOneTree_hoverPath" }, cwd),
+    createdAt === void 0 ? null : (0, import_react11.createElement)("div", { className: "dshOneTree_hoverTime" }, createdLabel(createdAt, tr))
   );
 }
 function ActiveScheduleIndicator({ tr, search = false }) {
   const label = tr("schedule.active");
-  return (0, import_react10.createElement)(
+  return (0, import_react11.createElement)(
     "span",
     {
       className: `dshOneTree_scheduleIndicator${search ? " dshOneTree_searchScheduleIndicator" : ""}`,
@@ -3142,7 +3181,7 @@ function ActiveScheduleIndicator({ tr, search = false }) {
       title: label,
       "data-dshone-tree-schedule": ""
     },
-    (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconAlarmClockOutline16, {})
+    (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconAlarmClockOutline16, {})
   );
 }
 function ProjectRow({
@@ -3171,9 +3210,9 @@ function ProjectRow({
   checkDisabled,
   onToggleSelect
 }) {
-  const [menuOpen, setMenuOpen] = (0, import_react10.useState)(false);
-  const [submenuOpen, setSubmenuOpen] = (0, import_react10.useState)(false);
-  const [menuAt, setMenuAt] = (0, import_react10.useState)(null);
+  const [menuOpen, setMenuOpen] = (0, import_react11.useState)(false);
+  const [submenuOpen, setSubmenuOpen] = (0, import_react11.useState)(false);
+  const [menuAt, setMenuAt] = (0, import_react11.useState)(null);
   const label = group.workspaceId === void 0 ? tr("group.ungrouped") : group.label;
   const active = expanded && group.containsCurrent;
   const state = checkState ?? "none";
@@ -3194,15 +3233,15 @@ function ProjectRow({
     {
       type: "label",
       id: "workspace-title",
-      text: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "menu-title" }, tr("menu.workspaceTitle", { name: label }))
+      text: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "menu-title" }, tr("menu.workspaceTitle", { name: label }))
     },
     // 未分组桶没有路径与工作区身份，能做的只有它自己那两件（新建会话 / 整桶归档）。
-    ...ungrouped ? [{ id: "new-session", label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "new-session" }, tr("menu.newSession")), icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, {}) }] : [],
+    ...ungrouped ? [{ id: "new-session", label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "new-session" }, tr("menu.newSession")), icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, {}) }] : [],
     ...hasPath ? [
       {
         id: "copy-folder-ref",
-        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "copy-folder-ref" }, tr("menu.copyFolderReference")),
-        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, {})
+        label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "copy-folder-ref" }, tr("menu.copyFolderReference")),
+        icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, {})
       }
     ] : [],
     // 「分组…」二级菜单：父项点一下就地展开，子项紧跟在它后面（勾选态走 selectedIds 的 ✓）。
@@ -3212,7 +3251,7 @@ function ProjectRow({
     ] : [],
     {
       id: "archive-all",
-      label: (0, import_react10.createElement)(
+      label: (0, import_react11.createElement)(
         "span",
         {
           "data-dshone-tree-item": "archive-all",
@@ -3221,40 +3260,40 @@ function ProjectRow({
         },
         ungrouped ? tr("menu.archiveUngrouped") : tr("menu.archiveWorkspace")
       ),
-      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconArchiveOutline20, { size: 16 }),
+      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconArchiveOutline20, { size: 16 }),
       disabled: !canArchiveAll
     },
     ...hasPath && onOpenFolder !== void 0 ? [
       {
         id: "open-new-window",
-        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "open-new-window" }, tr("menu.openFolderInNewWindow")),
-        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconRightUpOutline16, {})
+        label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "open-new-window" }, tr("menu.openFolderInNewWindow")),
+        icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconRightUpOutline16, {})
       }
     ] : [],
     ...hasPath ? [
       {
         id: "copy-path",
-        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "copy-path" }, tr("menu.copyPath")),
-        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, {})
+        label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "copy-path" }, tr("menu.copyPath")),
+        icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, {})
       }
     ] : [],
     ...onRename === void 0 ? [] : [
       {
         id: "rename",
-        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "rename" }, tr("menu.renameWorkspace")),
-        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconEditOutline16, {})
+        label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "rename" }, tr("menu.renameWorkspace")),
+        icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconEditOutline16, {})
       }
     ],
     ...onDelete === void 0 ? [] : [
       {
         id: "remove",
-        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "remove" }, tr("menu.removeWorkspace")),
-        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, {}),
+        label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "remove" }, tr("menu.removeWorkspace")),
+        icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, {}),
         danger: true
       }
     ]
   ];
-  const iconButton = (options) => (0, import_react10.createElement)(
+  const iconButton = (options) => (0, import_react11.createElement)(
     "button",
     {
       key: options.key,
@@ -3277,7 +3316,7 @@ function ProjectRow({
       aria: tr("actions.newSession.aria", { name: label }),
       onClick: onCreate,
       marker: "new-session-button",
-      children: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, {})
+      children: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, {})
     }),
     ...hasPath && onOpenTerminal !== void 0 ? [
       iconButton({
@@ -3285,7 +3324,7 @@ function ProjectRow({
         action: "workspace-terminal",
         aria: tr("actions.workspace.terminal", { name: label }),
         onClick: onOpenTerminal,
-        children: (0, import_react10.createElement)(TerminalIcon, {})
+        children: (0, import_react11.createElement)(TerminalIcon, {})
       })
     ] : [],
     // 「在 VS Code 打开」只在**非当前工作区**时出现（E1）：当前工作区本来就在编辑器里，
@@ -3296,7 +3335,7 @@ function ProjectRow({
         action: "workspace-open",
         aria: tr("actions.workspace.open", { name: label }),
         onClick: () => onOpenFolder({ newWindow: false }),
-        children: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconFolderOpenOutline16, {})
+        children: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconFolderOpenOutline16, {})
       })
     ] : [],
     ...onDelete === void 0 ? [] : [
@@ -3305,12 +3344,12 @@ function ProjectRow({
         action: "workspace-remove",
         aria: tr("actions.workspace.remove", { name: label }),
         onClick: onDelete,
-        children: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, {})
+        children: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, {})
       })
     ]
   ];
-  const anchor = (0, import_react10.createElement)("span", { className: "dshOneTree_menuAnchor", "aria-hidden": true });
-  const row = (0, import_react10.createElement)(
+  const anchor = (0, import_react11.createElement)("span", { className: "dshOneTree_menuAnchor", "aria-hidden": true });
+  const row = (0, import_react11.createElement)(
     "div",
     {
       className: `dshOneTree_projectRow${menuOpen ? " dshOneTree_menuOpen" : ""}`,
@@ -3335,7 +3374,7 @@ function ProjectRow({
         // #108：三态全选框（旧侧栏的处置：框在最前，文件夹与折叠箭头照常保留）。
         // 点框只勾选、不折叠（stopPropagation），所以我们自己做一枚可点元素而不是
         // 让整行承接——组头的整行点击仍是「展开/收起」。
-        selectMode !== true ? null : (0, import_react10.createElement)(
+        selectMode !== true ? null : (0, import_react11.createElement)(
           "span",
           {
             key: "check",
@@ -3353,46 +3392,46 @@ function ProjectRow({
               if (checkDisabled !== true) onToggleSelect?.();
             }
           },
-          (0, import_react10.createElement)(SelectMark, {
+          (0, import_react11.createElement)(SelectMark, {
             on: state === "all",
             partial: state === "some",
             disabled: checkDisabled === true
           })
         ),
-        (0, import_react10.createElement)(
+        (0, import_react11.createElement)(
           "span",
           {
             key: "folder",
             className: `dshOneTree_slot dshOneTree_folder${active ? " dshOneTree_folderActive" : ""}`,
-            children: expanded ? (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconFolderOpen16, {}) : (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconFolderClose16, {})
+            children: expanded ? (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconFolderOpen16, {}) : (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconFolderClose16, {})
           }
         ),
-        (0, import_react10.createElement)("span", {
+        (0, import_react11.createElement)("span", {
           key: "chevron",
           className: "dshOneTree_slot dshOneTree_chevron",
-          children: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconTriangleRightFill14, {
+          children: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconTriangleRightFill14, {
             className: `dshOneTree_arrow${expanded ? " dshOneTree_arrowOpen" : ""}`
           })
         }),
-        (0, import_react10.createElement)("span", {
+        (0, import_react11.createElement)("span", {
           key: "text",
           className: "dshOneTree_projectText",
-          children: (0, import_react10.createElement)("span", { className: "dshOneTree_title" }, label)
+          children: (0, import_react11.createElement)("span", { className: "dshOneTree_title" }, label)
         }),
         // 行尾的绝对定位层（#109）：当前工作区那枚胶囊 + 活状态计数。**不能进正常流**：
         // 官方这一行没有它们，进流会把标题挤窄，而 F-04 PARITY 逐项比对标题的几何矩形
         // （同一处置见 ActivityBadge 的说明）。悬停时整层让位给四枚动作按钮。
-        (0, import_react10.createElement)(
+        (0, import_react11.createElement)(
           "span",
           { key: "end", className: "dshOneTree_rowEnd" },
-          group.containsCurrent ? (0, import_react10.createElement)("span", { className: "dshOneTree_workspaceBadge", "data-dshone-tree-badge": shellName, title: tr("badge.current") }, shellName) : null,
-          counts === void 0 ? null : (0, import_react10.createElement)(ActivityBadge, { counts, tr })
+          group.containsCurrent ? (0, import_react11.createElement)("span", { className: "dshOneTree_workspaceBadge", "data-dshone-tree-badge": shellName, title: tr("badge.current") }, shellName) : null,
+          counts === void 0 ? null : (0, import_react11.createElement)(ActivityBadge, { counts, tr })
         ),
-        (0, import_react10.createElement)("span", {
+        (0, import_react11.createElement)("span", {
           key: "actions",
           className: "dshOneTree_rowActions",
           children: [
-            (0, import_react10.createElement)(import_dsh_client_ui_primitives8.Menu, {
+            (0, import_react11.createElement)(import_dsh_client_ui_primitives8.Menu, {
               key: "menu",
               open: menuOpen,
               onClose: () => {
@@ -3402,7 +3441,7 @@ function ProjectRow({
               items: menuItems,
               onSelect: (id) => {
                 if (id === "groups") {
-                  setSubmenuOpen((open) => !open);
+                  setSubmenuOpen((open2) => !open2);
                   return;
                 }
                 if (id.startsWith(GROUP_MENU_PREFIX)) {
@@ -3431,9 +3470,9 @@ function ProjectRow({
     }
   );
   if (group.createdAt === void 0 || !hoverCard || selectMode === true) return row;
-  return (0, import_react10.createElement)(import_dsh_client_ui_primitives8.HoverCard, {
+  return (0, import_react11.createElement)(import_dsh_client_ui_primitives8.HoverCard, {
     anchor: row,
-    content: (0, import_react10.createElement)(WorkspaceHoverContent, { label: group.label, cwd: group.cwd, createdAt: group.createdAt, tr }),
+    content: (0, import_react11.createElement)(WorkspaceHoverContent, { label: group.label, cwd: group.cwd, createdAt: group.createdAt, tr }),
     disabled: menuOpen,
     copyText: group.cwd,
     copyLabel: tr("copy"),
@@ -3467,9 +3506,9 @@ function SessionRow({
   onTagSelect,
   dragProps
 }) {
-  const [menuOpen, setMenuOpen] = (0, import_react10.useState)(false);
-  const [submenuOpen, setSubmenuOpen] = (0, import_react10.useState)(false);
-  const [menuAt, setMenuAt] = (0, import_react10.useState)(null);
+  const [menuOpen, setMenuOpen] = (0, import_react11.useState)(false);
+  const [submenuOpen, setSubmenuOpen] = (0, import_react11.useState)(false);
+  const [menuAt, setMenuAt] = (0, import_react11.useState)(null);
   const title = displayTitle(node, tr);
   const isCurrent = node.id === currentId;
   const facts = eligibilityOf(node, pinned, unread);
@@ -3483,10 +3522,10 @@ function SessionRow({
       id: "openInNewTab",
       // 标记属性（自有契约）：菜单项类名是官方哈希，验证套件与样式都不该认它，
       // 按这个属性取「我们那一项」（与 contextMenuPlugin 的图标项同一做法）。
-      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "openInNewTab" }, tr("menu.openInNewTab")),
+      label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "openInNewTab" }, tr("menu.openInNewTab")),
       // 图标取官方 primitives 的 IconRightUpOutline16（向右上离开方框 = 到别处打开），
       // 与官方行菜单项同为 16 档、同为 icon 槽位的次级色。
-      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconRightUpOutline16, {})
+      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconRightUpOutline16, {})
     }
   ];
   const recycleBlocked = cannotRecycleReason(facts);
@@ -3495,29 +3534,29 @@ function SessionRow({
     {
       type: "label",
       id: "session-title",
-      text: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "menu-title" }, tr("menu.sessionTitle", { name: title }))
+      text: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "menu-title" }, tr("menu.sessionTitle", { name: title }))
     },
     {
       id: "selectMultiple",
-      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "selectMultiple" }, tr("menu.selectMultiple")),
+      label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "selectMultiple" }, tr("menu.selectMultiple")),
       // 图标取顶栏那个多选入口的同一枚（IconChecklistOutline14），两处是同一个动作。
-      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconChecklistOutline14, {})
+      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconChecklistOutline14, {})
     },
     ...openInNewTabItem,
     {
       id: "rename",
-      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "rename" }, tr("rename")),
-      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconEditOutline16, {})
+      label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "rename" }, tr("rename")),
+      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconEditOutline16, {})
     },
     // #102 两项标记动作：文案随状态翻转，勾选态走官方 Menu 的 selectedIds（✓）。
     {
       id: "pin",
-      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "pin" }, pinned ? tr("menu.unpin") : tr("menu.pin")),
+      label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "pin" }, pinned ? tr("menu.unpin") : tr("menu.pin")),
       icon: strokeIcon(PIN_PATHS)
     },
     {
       id: "unread",
-      label: (0, import_react10.createElement)(
+      label: (0, import_react11.createElement)(
         "span",
         {
           "data-dshone-tree-item": "unread",
@@ -3525,7 +3564,7 @@ function SessionRow({
         },
         unread ? tr("menu.markRead") : tr("menu.markUnread")
       ),
-      icon: (0, import_react10.createElement)(UnreadIcon, {}),
+      icon: (0, import_react11.createElement)(UnreadIcon, {}),
       disabled: unreadBlocked
     },
     ...groupChildren.length === 0 || onTagSelect === void 0 ? [] : [
@@ -3539,7 +3578,7 @@ function SessionRow({
       // 失败（服务端回退到最后一个 turn/end 切点）——按旧侧栏的处置禁用。**只能按
       // `blank` 判**：会话快照里没有「有没有完成过轮次」这个事实（`SessionSummaryLike`
       // 没有对应字段，旧侧栏吃的 `sessionStatsTurns` 是它自己 store 里的统计）。
-      label: (0, import_react10.createElement)(
+      label: (0, import_react11.createElement)(
         "span",
         {
           "data-dshone-tree-item": "fork",
@@ -3547,19 +3586,19 @@ function SessionRow({
         },
         tr("menu.fork")
       ),
-      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconBranchOutline16, {}),
+      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconBranchOutline16, {}),
       disabled: node.blank
     },
     {
       id: "copyReference",
-      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "copyReference" }, tr("menu.copyReference")),
-      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, {})
+      label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "copyReference" }, tr("menu.copyReference")),
+      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, {})
     },
     // 「移入回收站」= 本地可逆的一层（#103）：只有置顶被拦；运行中 / 未读 / 待交互都能移进去
     // （进去还能还原），所以它的判定结果与下面「归档」分开算。
     {
       id: "move-to-recycle-bin",
-      label: (0, import_react10.createElement)(
+      label: (0, import_react11.createElement)(
         "span",
         {
           "data-dshone-tree-item": "move-to-recycle-bin",
@@ -3568,13 +3607,13 @@ function SessionRow({
         },
         tr("menu.moveToRecycleBin")
       ),
-      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, {}),
+      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, {}),
       disabled: recycleBlocked !== null
     },
     // 「归档会话」= 终点动作（#103 的归档 = 删除）：置顶与「状态还在动」的都不许归档。
     {
       id: "archive",
-      label: (0, import_react10.createElement)(
+      label: (0, import_react11.createElement)(
         "span",
         {
           "data-dshone-tree-item": "archive",
@@ -3583,11 +3622,11 @@ function SessionRow({
         },
         tr("menu.archiveSession")
       ),
-      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconArchiveOutline20, { size: 16 }),
+      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconArchiveOutline20, { size: 16 }),
       disabled: archiveBlocked !== null
     }
   ];
-  const anchor = (0, import_react10.createElement)(
+  const anchor = (0, import_react11.createElement)(
     "button",
     {
       type: "button",
@@ -3597,12 +3636,12 @@ function SessionRow({
       onClick: (event) => {
         event.stopPropagation();
         setMenuAt(null);
-        setMenuOpen((open) => !open);
+        setMenuOpen((open2) => !open2);
       }
     },
-    (0, import_react10.createElement)(import_dsh_client_ui_primitives8.IconEllipsisOutline16, {})
+    (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconEllipsisOutline16, {})
   );
-  const row = (0, import_react10.createElement)(
+  const row = (0, import_react11.createElement)(
     "div",
     {
       className: `dshOneTree_sessionRow${(selectMode ? selected : isCurrent) ? " dshOneTree_selected" : ""}${menuOpen ? " dshOneTree_menuOpen" : ""}${flat && !showStatus && !selectMode ? " dshOneTree_flatRowWithoutStatus" : ""}`,
@@ -3636,7 +3675,7 @@ function SessionRow({
         setMenuOpen(true);
       },
       children: [
-        selectMode ? (0, import_react10.createElement)(
+        selectMode ? (0, import_react11.createElement)(
           "span",
           {
             key: "check",
@@ -3646,13 +3685,13 @@ function SessionRow({
             // 原因提示挂在勾选框上（行上挂会让整行都冒出原生气泡）。
             ...selectable ? {} : { title: tr("protect.recycle.pinned") }
           },
-          (0, import_react10.createElement)(SelectMark, { on: selected, disabled: !selectable })
-        ) : !flat || showStatus ? showStatus ? (0, import_react10.createElement)(SessionStatusDots, { key: "status", statuses, tr }) : (0, import_react10.createElement)("span", { key: "status", className: "dshOneTree_slot" }) : null,
-        pinned ? (0, import_react10.createElement)(PinMark, { key: "pin", sessionId: node.id }) : null,
-        (0, import_react10.createElement)("span", { key: "title", className: `dshOneTree_title${unread ? " dshOneTree_unread" : ""}` }, title),
+          (0, import_react11.createElement)(SelectMark, { on: selected, disabled: !selectable })
+        ) : !flat || showStatus ? showStatus ? (0, import_react11.createElement)(SessionStatusDots, { key: "status", statuses, tr }) : (0, import_react11.createElement)("span", { key: "status", className: "dshOneTree_slot" }) : null,
+        pinned ? (0, import_react11.createElement)(PinMark, { key: "pin", sessionId: node.id }) : null,
+        (0, import_react11.createElement)("span", { key: "title", className: `dshOneTree_title${unread ? " dshOneTree_unread" : ""}` }, title),
         // 活跃定时任务标记（#110，官方 `row.hasActiveSchedule &&` 同位置：标题后、时间前）。
-        node.hasActiveSchedule ? (0, import_react10.createElement)(ActiveScheduleIndicator, { key: "schedule", tr }) : null,
-        node.blank || selectMode ? null : (0, import_react10.createElement)("span", {
+        node.hasActiveSchedule ? (0, import_react11.createElement)(ActiveScheduleIndicator, { key: "schedule", tr }) : null,
+        node.blank || selectMode ? null : (0, import_react11.createElement)("span", {
           key: "time",
           className: "dshOneTree_time",
           children: timeLabel(node.updatedAt, now, tr)
@@ -3660,11 +3699,11 @@ function SessionRow({
         // 行菜单挂在 actions 里（选择态下整行让位）。**空白会话行也挂**（#109）：它的
         // ⋯ 按钮照官方不渲染（`node.blank` 那一支），但右键要能开出菜单——所以这里渲染
         // 的是一层「可能有按钮、一定有菜单」的容器，锚点按有没有按钮二选一。
-        selectMode ? null : (0, import_react10.createElement)("span", {
+        selectMode ? null : (0, import_react11.createElement)("span", {
           key: "actions",
           className: "dshOneTree_rowActions",
           children: [
-            (0, import_react10.createElement)(import_dsh_client_ui_primitives8.Menu, {
+            (0, import_react11.createElement)(import_dsh_client_ui_primitives8.Menu, {
               key: "menu",
               open: menuOpen,
               onClose: () => {
@@ -3678,7 +3717,7 @@ function SessionRow({
               selectedIds: [...pinned ? ["pin"] : [], ...unread ? ["unread"] : [], ...tagSelectedIds ?? []],
               onSelect: (id) => {
                 if (id === "moveToGroup") {
-                  setSubmenuOpen((open) => !open);
+                  setSubmenuOpen((open2) => !open2);
                   return;
                 }
                 if (id.startsWith(TAG_MENU_PREFIX)) {
@@ -3707,7 +3746,7 @@ function SessionRow({
               // 锚点：非空白行是那一枚 ⋯ 按钮（Menu 自己会把它渲染在自己的根节点里，
               // 所以这里**只**传给 Menu、不再另渲染一份）；空白行没有按钮，给一个零尺寸
               // 占位（右键那一份用指针坐标，锚点只是在别的打开方式下当兜底）。
-              anchor: node.blank ? (0, import_react10.createElement)("span", { className: "dshOneTree_menuAnchor", "aria-hidden": true }) : anchor,
+              anchor: node.blank ? (0, import_react11.createElement)("span", { className: "dshOneTree_menuAnchor", "aria-hidden": true }) : anchor,
               // 行右键开的那一份：菜单锚在指针处（官方 Menu 的 getAnchorRect
               // 优先于 anchor 的矩形，官方自己的右键菜单也是这么用的）。
               ...menuAt === null ? {} : { getAnchorRect: () => new DOMRect(menuAt.x, menuAt.y, 0, 0) }
@@ -3718,9 +3757,9 @@ function SessionRow({
     }
   );
   if (!hoverCard || selectMode) return row;
-  return (0, import_react10.createElement)(import_dsh_client_ui_primitives8.HoverCard, {
+  return (0, import_react11.createElement)(import_dsh_client_ui_primitives8.HoverCard, {
     anchor: row,
-    content: (0, import_react10.createElement)(SessionHoverContent, { node, now, tr, unread }),
+    content: (0, import_react11.createElement)(SessionHoverContent, { node, now, tr, unread }),
     disabled: menuOpen,
     copyText: node.blank ? void 0 : node.title,
     copyLabel: tr("copy"),
@@ -3742,7 +3781,7 @@ function SearchResultRow({
   const statuses = sessionStatuses({ ...node, unread });
   const showStatus = showsStatusDot(statuses, node.completed || unread);
   const selectable = canRecycle(eligibilityOf(node, pinned, unread));
-  return (0, import_react10.createElement)(
+  return (0, import_react11.createElement)(
     "button",
     {
       type: "button",
@@ -3758,35 +3797,35 @@ function SearchResultRow({
       onClick: selectMode ? selectable ? onToggleSelect : () => {
       } : onOpen,
       children: [
-        (0, import_react10.createElement)("span", {
+        (0, import_react11.createElement)("span", {
           key: "heading",
           className: "dshOneTree_searchRowHeading",
           children: [
-            selectMode ? (0, import_react10.createElement)(
+            selectMode ? (0, import_react11.createElement)(
               "span",
               {
                 key: "check",
                 className: "dshOneTree_check",
                 ...selectable ? {} : { title: tr("protect.recycle.pinned") }
               },
-              (0, import_react10.createElement)(SelectMark, { on: selected, disabled: !selectable })
-            ) : showStatus ? (0, import_react10.createElement)(SessionStatusDots, { key: "status", statuses, tr }) : (0, import_react10.createElement)("span", { key: "status", className: "dshOneTree_slot" }),
-            pinned ? (0, import_react10.createElement)(PinMark, { key: "pin", sessionId: node.id }) : null,
-            (0, import_react10.createElement)(
+              (0, import_react11.createElement)(SelectMark, { on: selected, disabled: !selectable })
+            ) : showStatus ? (0, import_react11.createElement)(SessionStatusDots, { key: "status", statuses, tr }) : (0, import_react11.createElement)("span", { key: "status", className: "dshOneTree_slot" }),
+            pinned ? (0, import_react11.createElement)(PinMark, { key: "pin", sessionId: node.id }) : null,
+            (0, import_react11.createElement)(
               "span",
               { key: "title", className: `dshOneTree_searchRowTitle${unread ? " dshOneTree_unread" : ""}` },
               displayTitle(node, tr)
             ),
             // 同样补上活跃定时任务标记（官方 `SearchResultItem` 的 `search: true` 变体）。
-            node.hasActiveSchedule ? (0, import_react10.createElement)(ActiveScheduleIndicator, { key: "schedule", tr, search: true }) : null
+            node.hasActiveSchedule ? (0, import_react11.createElement)(ActiveScheduleIndicator, { key: "schedule", tr, search: true }) : null
           ]
         }),
-        (0, import_react10.createElement)("span", {
+        (0, import_react11.createElement)("span", {
           key: "meta",
           className: "dshOneTree_searchRowMeta",
           children: [
-            (0, import_react10.createElement)("span", { key: "ws", className: "dshOneTree_searchRowWorkspace" }, workspaceLabel || tr("group.ungrouped")),
-            snippet === void 0 || snippet === "" ? null : (0, import_react10.createElement)("span", { key: "snip", className: "dshOneTree_searchRowSnippet" }, snippet)
+            (0, import_react11.createElement)("span", { key: "ws", className: "dshOneTree_searchRowWorkspace" }, workspaceLabel || tr("group.ungrouped")),
+            snippet === void 0 || snippet === "" ? null : (0, import_react11.createElement)("span", { key: "snip", className: "dshOneTree_searchRowSnippet" }, snippet)
           ]
         })
       ]
@@ -3794,22 +3833,22 @@ function SearchResultRow({
   );
 }
 function ActivityBadge({ counts, tr }) {
-  return (0, import_react10.createElement)(
+  return (0, import_react11.createElement)(
     "span",
     {
       className: "dshOneTree_activity",
       "data-dshone-tree-activity": `${String(counts.running)}/${String(counts.waiting)}`
     },
-    counts.running > 0 ? (0, import_react10.createElement)(
+    counts.running > 0 ? (0, import_react11.createElement)(
       "span",
       { className: "dshOneTree_activityItem", "data-dshone-tree-running": counts.running, title: tr("activity.running", { n: counts.running }) },
-      (0, import_react10.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: "ongoing" }),
+      (0, import_react11.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: "ongoing" }),
       String(counts.running)
     ) : null,
-    counts.waiting > 0 ? (0, import_react10.createElement)(
+    counts.waiting > 0 ? (0, import_react11.createElement)(
       "span",
       { className: "dshOneTree_activityItem", "data-dshone-tree-waiting": counts.waiting, title: tr("activity.waiting", { n: counts.waiting }) },
-      (0, import_react10.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: "warning" }),
+      (0, import_react11.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: "warning" }),
       String(counts.waiting)
     ) : null
   );
@@ -3843,7 +3882,7 @@ if (typeof document !== "undefined" && document.querySelector(`style[data-plugin
 }
 
 // src/ui/assembly/shell/workspaceTree/toolbar.ts
-var import_react11 = require("react");
+var import_react12 = require("react");
 var import_dsh_client_ui_primitives9 = require("@deepseek-ai/dsh-client-ui-primitives");
 function ViewOptionsMenu({
   groupBy,
@@ -3852,9 +3891,9 @@ function ViewOptionsMenu({
   onGroupPick,
   onOrderPick
 }) {
-  const [open, setOpen] = (0, import_react11.useState)(false);
-  return (0, import_react11.createElement)(import_dsh_client_ui_primitives9.Menu, {
-    open,
+  const [open2, setOpen] = (0, import_react12.useState)(false);
+  return (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Menu, {
+    open: open2,
     onClose: () => setOpen(false),
     items: [
       { type: "label", id: "group-by", text: tr("groupBy.label") },
@@ -3874,11 +3913,11 @@ function ViewOptionsMenu({
     align: "end",
     dense: true,
     portal: true,
-    anchor: (0, import_react11.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
+    anchor: (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
       label: tr("viewOptions.label"),
       side: "bottom",
       delayMs: 500,
-      children: (0, import_react11.createElement)(
+      children: (0, import_react12.createElement)(
         "button",
         {
           type: "button",
@@ -3887,49 +3926,49 @@ function ViewOptionsMenu({
           "data-dshone-tree-action": "view-options",
           onClick: () => setOpen((v) => !v)
         },
-        (0, import_react11.createElement)(import_dsh_client_ui_primitives9.IconPersonalizationOutline16, {})
+        (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconPersonalizationOutline16, {})
       )
     })
   });
 }
 function TopBar(props) {
   const { tr, query, allCollapsed, selectMode } = props;
-  const [addOpen, setAddOpen] = (0, import_react11.useState)(false);
-  const searchInput = (0, import_react11.useRef)(null);
+  const [addOpen, setAddOpen] = (0, import_react12.useState)(false);
+  const searchInput = (0, import_react12.useRef)(null);
   const addItems = [
     {
       id: "pick-folder",
-      label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "workspace-pick" }, tr("workspace.pickFolder")),
-      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives9.IconFolderOpenOutline16, {})
+      label: (0, import_react12.createElement)("span", { "data-dshone-tree-item": "workspace-pick" }, tr("workspace.pickFolder")),
+      icon: (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconFolderOpenOutline16, {})
     },
     ...props.onCreateWorkspaceFolder === void 0 ? [] : [
       {
         id: "create-folder",
-        label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "workspace-create" }, tr("workspace.create")),
-        icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives9.IconPlusOutline16, {})
+        label: (0, import_react12.createElement)("span", { "data-dshone-tree-item": "workspace-create" }, tr("workspace.create")),
+        icon: (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconPlusOutline16, {})
       }
     ]
   ];
-  return (0, import_react11.createElement)(
+  return (0, import_react12.createElement)(
     "div",
     { className: "dshOneTree_sectionHeader", "data-dshone-tree": "top-bar" },
     // 官方搜索栏的**展开态**（search / searchSlot 两层都带 Expanded 变体，与官方
     // SidebarRoot 展开后的 DOM 同构）：折叠态不在（#99 退役放大镜胶囊）。
-    (0, import_react11.createElement)(
+    (0, import_react12.createElement)(
       "div",
       { className: "dshOneTree_searchSlot dshOneTree_searchSlotExpanded" },
-      (0, import_react11.createElement)(
+      (0, import_react12.createElement)(
         "div",
         {
           className: "dshOneTree_search dshOneTree_searchExpanded",
           "data-dshone-tree": "search-box",
           onClick: () => searchInput.current?.focus()
         },
-        (0, import_react11.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
+        (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
           label: tr("search"),
           side: "bottom",
           delayMs: 500,
-          children: (0, import_react11.createElement)(
+          children: (0, import_react12.createElement)(
             "button",
             {
               type: "button",
@@ -3939,10 +3978,10 @@ function TopBar(props) {
               "data-dshone-tree-action": "search",
               onClick: () => searchInput.current?.focus()
             },
-            (0, import_react11.createElement)(import_dsh_client_ui_primitives9.IconSearchOutline16, { size: 11 })
+            (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconSearchOutline16, { size: 11 })
           )
         }),
-        (0, import_react11.createElement)("input", {
+        (0, import_react12.createElement)("input", {
           ref: searchInput,
           className: "dshOneTree_searchInput",
           "data-dshone-tree": "search-input",
@@ -3956,7 +3995,7 @@ function TopBar(props) {
             props.onQueryClear();
           }
         }),
-        (0, import_react11.createElement)(
+        (0, import_react12.createElement)(
           "button",
           {
             type: "button",
@@ -3968,19 +4007,19 @@ function TopBar(props) {
               props.onQueryClear();
             }
           },
-          (0, import_react11.createElement)(import_dsh_client_ui_primitives9.IconCloseFill14, {})
+          (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconCloseFill14, {})
         )
       )
     ),
-    (0, import_react11.createElement)(
+    (0, import_react12.createElement)(
       "div",
       { className: "dshOneTree_headerActions", "data-dshone-tree": "top-bar-actions" },
       // 折叠 / 展开全部（#99）：图标与提示随当前态翻转，语义同旧侧栏。
-      (0, import_react11.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
+      (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
         label: allCollapsed ? tr("toolbar.expandAll") : tr("toolbar.collapseAll"),
         side: "bottom",
         delayMs: 500,
-        children: (0, import_react11.createElement)(
+        children: (0, import_react12.createElement)(
           "button",
           {
             type: "button",
@@ -3990,11 +4029,11 @@ function TopBar(props) {
             "data-dshone-tree-collapsed": allCollapsed,
             onClick: props.onToggleCollapseAll
           },
-          allCollapsed ? (0, import_react11.createElement)(import_dsh_client_ui_primitives9.IconChevronDownOutline14, {}) : (0, import_react11.createElement)(import_dsh_client_ui_primitives9.IconChevronUpOutline14, {})
+          allCollapsed ? (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconChevronDownOutline14, {}) : (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconChevronUpOutline14, {})
         )
       }),
       // 添加工作区（＋）：两项菜单（选已有文件夹 / 创建新工作区目录）。
-      (0, import_react11.createElement)(import_dsh_client_ui_primitives9.Menu, {
+      (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Menu, {
         open: addOpen,
         onClose: () => setAddOpen(false),
         items: addItems,
@@ -4007,29 +4046,29 @@ function TopBar(props) {
         dense: true,
         portal: true,
         closeOnPointerLeave: true,
-        anchor: (0, import_react11.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
+        anchor: (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
           label: tr("workspace.add"),
           side: "bottom",
           delayMs: 500,
-          children: (0, import_react11.createElement)(
+          children: (0, import_react12.createElement)(
             "button",
             {
               type: "button",
               className: "dshOneTree_iconButton",
               "aria-label": tr("workspace.add"),
               "data-dshone-tree-action": "add-workspace",
-              onClick: () => setAddOpen((open) => !open)
+              onClick: () => setAddOpen((open2) => !open2)
             },
-            (0, import_react11.createElement)(import_dsh_client_ui_primitives9.IconProjectAddOutline16, { size: 16 })
+            (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconProjectAddOutline16, { size: 16 })
           )
         })
       }),
       // 设置齿轮（#99）：宿主有独立设置页时才有这一枚（官方 web 侧设置归官方底部行）。
-      props.onOpenSettings === void 0 ? null : (0, import_react11.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
+      props.onOpenSettings === void 0 ? null : (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
         label: tr("toolbar.settings"),
         side: "bottom",
         delayMs: 500,
-        children: (0, import_react11.createElement)(
+        children: (0, import_react12.createElement)(
           "button",
           {
             type: "button",
@@ -4038,22 +4077,22 @@ function TopBar(props) {
             "data-dshone-tree-action": "settings",
             onClick: props.onOpenSettings
           },
-          (0, import_react11.createElement)(import_dsh_client_ui_primitives9.IconSettingsOutline16, { size: 16 })
+          (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconSettingsOutline16, { size: 16 })
         )
       }),
       // #81 已有入口（位置本条不动）。
-      (0, import_react11.createElement)(ViewOptionsMenu, {
+      (0, import_react12.createElement)(ViewOptionsMenu, {
         groupBy: props.groupBy,
         orderBy: props.orderBy,
         tr,
         onGroupPick: props.onGroupPick,
         onOrderPick: props.onOrderPick
       }),
-      (0, import_react11.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
+      (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
         label: selectMode ? tr("select.exit") : tr("select.enter"),
         side: "bottom",
         delayMs: 500,
-        children: (0, import_react11.createElement)(
+        children: (0, import_react12.createElement)(
           "button",
           {
             type: "button",
@@ -4063,7 +4102,7 @@ function TopBar(props) {
             "data-dshone-tree-action": "select-mode",
             onClick: props.onToggleSelectMode
           },
-          (0, import_react11.createElement)(import_dsh_client_ui_primitives9.IconChecklistOutline14, { size: 16 })
+          (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconChecklistOutline14, { size: 16 })
         )
       })
     )
@@ -4107,46 +4146,46 @@ function WorkspaceTree(props) {
   const workspacePhase = useWorkspaces((state) => state.phase);
   const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds);
   const pending = useSessionPendingInteraction((state) => state);
-  const [prefs, setPrefs] = (0, import_react12.useState)(readTreeViewPrefs(pageStorage()));
+  const [prefs, setPrefs] = (0, import_react13.useState)(readTreeViewPrefs(pageStorage()));
   const groupBy = prefs.groupBy;
   const orderBy = prefs.orderBy;
   const activeGroupId = prefs.activeGroupId;
   const groupExpansion = prefs.expandedGroups;
-  const [searchText, setSearchText] = (0, import_react12.useState)("");
-  const [content, setContent] = (0, import_react12.useState)(EMPTY_SEARCH);
-  const [renameTarget, setRenameTarget] = (0, import_react12.useState)(null);
-  const [sessionRenameTarget, setSessionRenameTarget] = (0, import_react12.useState)(null);
-  const [deleteTarget, setDeleteTarget] = (0, import_react12.useState)(null);
-  const [groupsFile, setGroupsFile] = (0, import_react12.useState)(emptyTreeGroups());
-  const [groupDialog, setGroupDialog] = (0, import_react12.useState)(null);
-  const [groupError, setGroupError] = (0, import_react12.useState)(null);
-  const [marks, setMarks] = (0, import_react12.useState)(emptySessionMarks());
-  const [manageGroupsOpen, setManageGroupsOpen] = (0, import_react12.useState)(false);
-  const [selectMode, setSelectMode] = (0, import_react12.useState)(false);
-  const [selection, setSelection] = (0, import_react12.useState)([]);
-  const [busy, setBusy] = (0, import_react12.useState)(false);
-  const [selectionError, setSelectionError] = (0, import_react12.useState)(null);
-  const [drawerOpen, setDrawerOpen] = (0, import_react12.useState)(false);
-  const [recycleError, setRecycleError] = (0, import_react12.useState)(null);
-  const [archiveRequest, setArchiveRequest] = (0, import_react12.useState)(null);
-  const [archiveBusy, setArchiveBusy] = (0, import_react12.useState)(false);
-  const [archiveError, setArchiveError] = (0, import_react12.useState)(null);
-  const [tagFile, setTagFile] = (0, import_react12.useState)(emptyTagGroups());
-  const [tagCreate, setTagCreate] = (0, import_react12.useState)(null);
-  const [tagRename, setTagRename] = (0, import_react12.useState)(null);
-  const [tagDelete, setTagDelete] = (0, import_react12.useState)(null);
-  const [tagNewSession, setTagNewSession] = (0, import_react12.useState)(null);
-  const rootRef = (0, import_react12.useRef)(null);
+  const [searchText, setSearchText] = (0, import_react13.useState)("");
+  const [content, setContent] = (0, import_react13.useState)(EMPTY_SEARCH);
+  const [renameTarget, setRenameTarget] = (0, import_react13.useState)(null);
+  const [sessionRenameTarget, setSessionRenameTarget] = (0, import_react13.useState)(null);
+  const [deleteTarget, setDeleteTarget] = (0, import_react13.useState)(null);
+  const [groupsFile, setGroupsFile] = (0, import_react13.useState)(emptyTreeGroups());
+  const [groupDialog, setGroupDialog] = (0, import_react13.useState)(null);
+  const [groupError, setGroupError] = (0, import_react13.useState)(null);
+  const [marks, setMarks] = (0, import_react13.useState)(emptySessionMarks());
+  const [manageGroupsOpen, setManageGroupsOpen] = (0, import_react13.useState)(false);
+  const [selectMode, setSelectMode] = (0, import_react13.useState)(false);
+  const [selection, setSelection] = (0, import_react13.useState)([]);
+  const [busy, setBusy] = (0, import_react13.useState)(false);
+  const [selectionError, setSelectionError] = (0, import_react13.useState)(null);
+  const drawerOpen = useRecycleDrawerOpen();
+  const [recycleError, setRecycleError] = (0, import_react13.useState)(null);
+  const [archiveRequest, setArchiveRequest] = (0, import_react13.useState)(null);
+  const [archiveBusy, setArchiveBusy] = (0, import_react13.useState)(false);
+  const [archiveError, setArchiveError] = (0, import_react13.useState)(null);
+  const [tagFile, setTagFile] = (0, import_react13.useState)(emptyTagGroups());
+  const [tagCreate, setTagCreate] = (0, import_react13.useState)(null);
+  const [tagRename, setTagRename] = (0, import_react13.useState)(null);
+  const [tagDelete, setTagDelete] = (0, import_react13.useState)(null);
+  const [tagNewSession, setTagNewSession] = (0, import_react13.useState)(null);
+  const rootRef = (0, import_react13.useRef)(null);
   const hoverCard = useHoverCardRoom(rootRef);
   const bin = useRecycleBin();
   const archived = new Set(archivedSessionIds);
   const recycledIds = visibleRecycleIds(bin.ids, list, archivedSessionIds);
   const recycled = new Set(recycledIds);
-  (0, import_react12.useEffect)(() => {
+  (0, import_react13.useEffect)(() => {
     writeTreeViewPrefs(pageStorage(), prefs);
   }, [prefs]);
-  const groupsLoaded = (0, import_react12.useRef)(false);
-  (0, import_react12.useEffect)(() => {
+  const groupsLoaded = (0, import_react13.useRef)(false);
+  (0, import_react13.useEffect)(() => {
     if (groupsLoaded.current) return;
     groupsLoaded.current = true;
     let cancelled = false;
@@ -4167,8 +4206,8 @@ function WorkspaceTree(props) {
     setGroupsFile(next);
     saveGroups(next);
   };
-  const marksLoaded = (0, import_react12.useRef)(false);
-  (0, import_react12.useEffect)(() => {
+  const marksLoaded = (0, import_react13.useRef)(false);
+  (0, import_react13.useEffect)(() => {
     if (marksLoaded.current) return;
     marksLoaded.current = true;
     let cancelled = false;
@@ -4184,8 +4223,8 @@ function WorkspaceTree(props) {
       cancelled = true;
     };
   }, [loadMarks]);
-  const tagsLoaded = (0, import_react12.useRef)(false);
-  (0, import_react12.useEffect)(() => {
+  const tagsLoaded = (0, import_react13.useRef)(false);
+  (0, import_react13.useEffect)(() => {
     if (tagsLoaded.current) return;
     tagsLoaded.current = true;
     let cancelled = false;
@@ -4231,21 +4270,21 @@ function WorkspaceTree(props) {
     if (unreadIds.has(sessionId)) persistUnread(toggleMarkId(marks.unread, sessionId, false));
     openSession(sessionId);
   };
-  (0, import_react12.useEffect)(() => {
+  (0, import_react13.useEffect)(() => {
     if (list.current === void 0 || workspacePhase !== "ready") return;
     const key = owningGroupKey(workspaces, list.current);
     setPrefs(
       (prev) => prev.expandedGroups.includes(key) ? prev : { ...prev, expandedGroups: [...prev.expandedGroups, key] }
     );
   }, [list.current, workspaces, workspacePhase]);
-  (0, import_react12.useEffect)(() => {
+  (0, import_react13.useEffect)(() => {
     const known = new Set(list.ids.filter((id) => !archived.has(id)));
     const baselineReady = workspacePhase === "ready" && list.ids.length > 0;
     if (!baselineReady) return;
     void pruneRecycleBin(known, true);
   }, [bin.ids, list.ids, workspacePhase, archivedSessionIds]);
   const trimmedQuery = searchText.trim();
-  (0, import_react12.useEffect)(() => {
+  (0, import_react13.useEffect)(() => {
     if (trimmedQuery === "") {
       setContent(EMPTY_SEARCH);
       return;
@@ -4266,7 +4305,7 @@ function WorkspaceTree(props) {
       controller.abort();
     };
   }, [trimmedQuery, searchSessions]);
-  (0, import_react12.useEffect)(() => {
+  (0, import_react13.useEffect)(() => {
     if (tagNewSession === null) return;
     const current = list.current;
     if (current === void 0) return;
@@ -4274,7 +4313,7 @@ function WorkspaceTree(props) {
     applyTagBucket(tagNewSession.groupKey, setSessionTagGroup(tagBucket(tagNewSession.groupKey), current, tagNewSession.tagId));
     setTagNewSession(null);
   }, [tagNewSession, list.current, workspaces, tagFile]);
-  (0, import_react12.useEffect)(() => {
+  (0, import_react13.useEffect)(() => {
     const baselineReady = workspacePhase === "ready" && list.ids.length > 0;
     if (!baselineReady) return;
     const alive = new Set(list.ids.filter((id) => !archived.has(id)));
@@ -4353,7 +4392,7 @@ function WorkspaceTree(props) {
     setSelection([]);
     setSelectionError(null);
   };
-  (0, import_react12.useEffect)(() => selectionEntrySignal.subscribe(() => enterSelection()), []);
+  (0, import_react13.useEffect)(() => selectionEntrySignal.subscribe(() => enterSelection()), []);
   const errorText = (reason) => reason instanceof Error ? reason.message : String(reason);
   const reportFailure = (key, reason) => {
     flashTip(tr(key, { message: errorText(reason) }));
@@ -4607,13 +4646,13 @@ function WorkspaceTree(props) {
     const groupKey = groupKeyOfSession(sessionId);
     const bucket = tagBucket(groupKey);
     const current = bucket.sessionTags[sessionId];
-    const label = (suffix, text) => (0, import_react12.createElement)("span", { "data-dshone-tree-item": `${TAG_MENU_PREFIX}${suffix}` }, text);
+    const label = (suffix, text) => (0, import_react13.createElement)("span", { "data-dshone-tree-item": `${TAG_MENU_PREFIX}${suffix}` }, text);
     return {
       items: [
         ...bucket.tags.map((tag) => ({
           id: `${TAG_MENU_PREFIX}${tag.id}`,
           label: label(tag.id, tag.name),
-          icon: (0, import_react12.createElement)(TagColorSwatch, { color: tag.color })
+          icon: (0, import_react13.createElement)(TagColorSwatch, { color: tag.color })
         })),
         { id: `${TAG_MENU_PREFIX}__none`, label: label("__none", tr("tag.none")) },
         { id: `${TAG_MENU_PREFIX}__new`, label: label("__new", tr("tag.new")) }
@@ -4637,11 +4676,15 @@ function WorkspaceTree(props) {
     setTagCreate(null);
     flashTip(tr("tag.created", { name: name.trim() }));
   };
-  (0, import_react12.useEffect)(() => {
+  (0, import_react13.useEffect)(() => {
     return recycleEntrySignal.subscribe((request) => {
       if (request === "open") {
-        setDrawerOpen(true);
+        setRecycleDrawerOpen(true);
         setRecycleError(null);
+        return;
+      }
+      if (request === "close") {
+        setRecycleDrawerOpen(false);
         return;
       }
       if (request === "restoreAll") {
@@ -4696,17 +4739,17 @@ function WorkspaceTree(props) {
     return [...local, ...extra].slice(0, searchResultLimit);
   })();
   const snippetOf = (sessionId) => content.items.find((item) => item.id === sessionId)?.snippet;
-  const emptyNotice = (kind, lines, action) => (0, import_react12.createElement)(
+  const emptyNotice = (kind, lines, action) => (0, import_react13.createElement)(
     "div",
     { className: "dshOneTree_empty", "data-dshone-tree": "empty", "data-dshone-tree-empty": kind },
-    ...lines.map((line, index) => (0, import_react12.createElement)("div", { className: "dshOneTree_emptyLine", key: `line-${String(index)}` }, line)),
+    ...lines.map((line, index) => (0, import_react13.createElement)("div", { className: "dshOneTree_emptyLine", key: `line-${String(index)}` }, line)),
     ...action === void 0 ? [] : [action]
   );
   const noWorkspacesNotice = emptyNotice("no-workspaces", [tr("empty.noWorkspaces")]);
   const groupMembersNotice = emptyNotice(
     "group-members",
     [tr("empty.groupMembers"), tr("empty.groupMembers.hint")],
-    (0, import_react12.createElement)(
+    (0, import_react13.createElement)(
       "button",
       {
         type: "button",
@@ -4748,11 +4791,11 @@ function WorkspaceTree(props) {
       onOpenInNewTab: openRowInNewTab === void 0 ? void 0 : () => openRowInNewTab(row.id)
     };
   };
-  const treeBody = trimmedQuery !== "" ? searchRows.length > 0 ? (0, import_react12.createElement)(
+  const treeBody = trimmedQuery !== "" ? searchRows.length > 0 ? (0, import_react13.createElement)(
     "div",
     { className: "dshOneTree_searchTree", role: "tree", "aria-label": tr("search.results.aria"), "data-dshone-tree": "search" },
     searchRows.map(
-      (row) => (0, import_react12.createElement)(SearchResultRow, {
+      (row) => (0, import_react13.createElement)(SearchResultRow, {
         key: row.id,
         node: row,
         workspaceLabel: workspaceLabelOf(row.id),
@@ -4768,15 +4811,15 @@ function WorkspaceTree(props) {
         onToggleSelect: () => toggleSelected(row.id)
       })
     )
-  ) : content.pending ? (0, import_react12.createElement)("div", { className: "dshOneTree_searchStatus" }, tr("search.pending")) : (0, import_react12.createElement)(
+  ) : content.pending ? (0, import_react13.createElement)("div", { className: "dshOneTree_searchStatus" }, tr("search.pending")) : (0, import_react13.createElement)(
     "div",
     { className: "dshOneTree_searchStatus" },
     content.failed ? tr("search.unavailable") : tr("search.noMatches")
-  ) : groupBy === "flat" ? (0, import_react12.createElement)(
+  ) : groupBy === "flat" ? (0, import_react13.createElement)(
     "div",
     { className: "dshOneTree_flatList", role: "tree", "data-dshone-tree": "flat" },
     flatRows.map(
-      (row) => (0, import_react12.createElement)(SessionRow, {
+      (row) => (0, import_react13.createElement)(SessionRow, {
         key: row.id,
         node: row,
         ...list.current === void 0 ? {} : { currentId: list.current },
@@ -4801,7 +4844,7 @@ function WorkspaceTree(props) {
         onOpenInNewTab: openRowInNewTab === void 0 ? void 0 : () => openRowInNewTab(row.id)
       })
     )
-  ) : (0, import_react12.createElement)(
+  ) : (0, import_react13.createElement)(
     "div",
     { role: "tree", "data-dshone-tree": "groups" },
     orderedGroups.map((group) => {
@@ -4811,7 +4854,7 @@ function WorkspaceTree(props) {
         (node) => pinnedIds.has(node.id)
       );
       const check = groupCheck(group.key, group.sessions);
-      return (0, import_react12.createElement)(
+      return (0, import_react13.createElement)(
         "div",
         {
           className: "dshOneTree_groupSection",
@@ -4820,7 +4863,7 @@ function WorkspaceTree(props) {
           // #107：拖到组外（工作区行 / 未归组的空处）= 移出标签组。
           ...ungroupDropZone((sessionId) => moveOutOfTag(group.key, sessionId))
         },
-        (0, import_react12.createElement)(ProjectRow, {
+        (0, import_react13.createElement)(ProjectRow, {
           group,
           tr,
           expanded: groupExpansion.includes(group.key),
@@ -4856,7 +4899,7 @@ function WorkspaceTree(props) {
           }
         }),
         ...split.blocks.map(
-          (block) => (0, import_react12.createElement)(TagGroupBlock, {
+          (block) => (0, import_react13.createElement)(TagGroupBlock, {
             key: `tag:${block.def.id}`,
             groupKey: group.key,
             def: block.def,
@@ -4878,10 +4921,10 @@ function WorkspaceTree(props) {
             onDropSession: (sessionId) => assignTagGroup(group.key, sessionId, block.def.id),
             onDropTag: (sourceId, before) => reorderTag(group.key, sourceId, block.def.id, before),
             tr,
-            children: block.sessions.map((row) => (0, import_react12.createElement)(SessionRow, { key: row.id, ...groupedRowProps(row) }))
+            children: block.sessions.map((row) => (0, import_react13.createElement)(SessionRow, { key: row.id, ...groupedRowProps(row) }))
           })
         ),
-        ...split.ungrouped.map((row) => (0, import_react12.createElement)(SessionRow, { key: row.id, ...groupedRowProps(row) }))
+        ...split.ungrouped.map((row) => (0, import_react13.createElement)(SessionRow, { key: row.id, ...groupedRowProps(row) }))
       );
     })
   );
@@ -4890,7 +4933,7 @@ function WorkspaceTree(props) {
     if (trimmedQuery !== "") {
       return content.hasMore ? [
         treeBody,
-        (0, import_react12.createElement)(
+        (0, import_react13.createElement)(
           "div",
           { className: "dshOneTree_searchStatus", key: "search-more", role: "status", "data-dshone-tree": "search-more" },
           tr("search.hasMore", { n: searchResultLimit })
@@ -4901,12 +4944,12 @@ function WorkspaceTree(props) {
     if (workspaces.length > 0) return groups.length === 0 ? [emptyNotice("none", [tr("empty.none")])] : [treeBody];
     return groups.length === 0 ? [noWorkspacesNotice] : [noWorkspacesNotice, treeBody];
   })();
-  return (0, import_react12.createElement)(
+  return (0, import_react13.createElement)(
     "div",
     { className: "dshOneTree_root", ref: rootRef, "data-shell": "dsh-one-tree", "data-dshone-tree": "root" },
     // 顶部工具栏（#99 B 段）：官方搜索栏（展开态）+ 折叠/展开全部 + 添加工作区 + 设置齿轮，
     // 末尾保留 #81 已有的视图选项与多选入口。见 toolbar.ts 的说明与机制举证。
-    (0, import_react12.createElement)(TopBar, {
+    (0, import_react13.createElement)(TopBar, {
       tr,
       query: searchText,
       onQueryChange: (value) => setSearchText(sanitizeQuery(value)),
@@ -4923,14 +4966,14 @@ function WorkspaceTree(props) {
       selectMode,
       onToggleSelectMode: () => selectMode ? exitSelection() : selectionEntrySignal.enter()
     }),
-    (0, import_react12.createElement)(
+    (0, import_react13.createElement)(
       "div",
       { className: "dshOneTree_listArea" },
       // #81 功能 1 / #99 B 段：分组过滤条 = 单胶囊 + 成员计数 + ▾ 下拉
       //（只在「按工作区」下有意义；搜索态下让位给结果）。
       // #108：**选择态下不收起**——操作条要插在它下方（#98 的布局规范），收起它
       // 一切换状态就跳一下，且「先按分组过滤、再整组勾选」正是常用路径。
-      groupBy === "workspace" && trimmedQuery === "" ? (0, import_react12.createElement)(GroupFilterBar, {
+      groupBy === "workspace" && trimmedQuery === "" ? (0, import_react13.createElement)(GroupFilterBar, {
         groups: groupDefs,
         activeGroupId: filterActive ? activeGroupId : null,
         groupCounts,
@@ -4945,7 +4988,7 @@ function WorkspaceTree(props) {
       }) : null,
       // #81 功能 4 的选择态动作条，动作按 #103 的两层语义接线：移入回收站（本地可逆，
       // 立即执行 + 飘提示 + 结束选择态）与批量归档（不可逆，先过确认弹窗）。
-      selectMode ? (0, import_react12.createElement)(SelectionBar, {
+      selectMode ? (0, import_react13.createElement)(SelectionBar, {
         count: selection.length,
         busy,
         error: selectionError,
@@ -4954,7 +4997,7 @@ function WorkspaceTree(props) {
         onArchive: requestArchiveSelection,
         onExit: exitSelection
       }) : null,
-      (0, import_react12.createElement)(
+      (0, import_react13.createElement)(
         "div",
         { className: "dshOneTree_list" },
         ...listChildren
@@ -4962,7 +5005,7 @@ function WorkspaceTree(props) {
     ),
     // 回收站抽屉（#103）：本地可逆那一层。块头折叠态是纯视图态，随视图偏好一起落
     // 客户端存储（`recycleCollapsed`）。
-    (0, import_react12.createElement)(RecycleDrawer, {
+    (0, import_react13.createElement)(RecycleDrawer, {
       open: drawerOpen,
       groups: recycleGroups,
       collapsed: prefs.recycleCollapsed,
@@ -4971,7 +5014,7 @@ function WorkspaceTree(props) {
       busy,
       error: recycleError,
       onClose: () => {
-        setDrawerOpen(false);
+        setRecycleDrawerOpen(false);
         setRecycleError(null);
       },
       onToggleGroup: (key) => setPrefs((prev) => ({
@@ -4982,7 +5025,7 @@ function WorkspaceTree(props) {
       onRestore: (sessionId) => restoreFromRecycle([sessionId]),
       onArchive: requestArchiveFromBin
     }),
-    (0, import_react12.createElement)(RenameModal, {
+    (0, import_react13.createElement)(RenameModal, {
       open: renameTarget !== null,
       titleKey: "rename.workspace.title",
       fieldKey: "field.workspaceName",
@@ -4994,7 +5037,7 @@ function WorkspaceTree(props) {
         await renameWorkspace(renameTarget.workspaceId, value);
       }
     }),
-    (0, import_react12.createElement)(RenameModal, {
+    (0, import_react13.createElement)(RenameModal, {
       open: sessionRenameTarget !== null,
       titleKey: "rename.session.title",
       fieldKey: "field.sessionName",
@@ -5006,7 +5049,7 @@ function WorkspaceTree(props) {
         await renameSession(sessionRenameTarget.id, value);
       }
     }),
-    (0, import_react12.createElement)(GroupModal, {
+    (0, import_react13.createElement)(GroupModal, {
       dialog: groupDialog,
       groups: groupDefs,
       tr,
@@ -5038,7 +5081,7 @@ function WorkspaceTree(props) {
     }),
     // 「管理分组…」对话框（#99 B 段）：行内 ✎/🗑 关掉本框、开上面那套对话框去做
     //（校核复用），建新组则内联走同一份 `applyGroupCreate`。
-    (0, import_react12.createElement)(ManageGroupsModal, {
+    (0, import_react13.createElement)(ManageGroupsModal, {
       open: manageGroupsOpen,
       groups: groupDefs,
       counts: groupCounts,
@@ -5056,7 +5099,7 @@ function WorkspaceTree(props) {
       },
       onClose: () => setManageGroupsOpen(false)
     }),
-    (0, import_react12.createElement)(DeleteWorkspaceModal, {
+    (0, import_react13.createElement)(DeleteWorkspaceModal, {
       target: deleteTarget,
       tr,
       onClose: () => setDeleteTarget(null),
@@ -5064,7 +5107,7 @@ function WorkspaceTree(props) {
     }),
     // 归档确认弹窗（#103，可复用件）：会话行菜单「归档会话」、回收站行菜单「永久归档」、
     // 入口行「清空」、选择态「批量归档」四个入口共用它——归档 = 删除，一律先确认。
-    (0, import_react12.createElement)(ArchiveSessionsModal, {
+    (0, import_react13.createElement)(ArchiveSessionsModal, {
       target: archiveRequest,
       tr,
       busy: archiveBusy,
@@ -5078,7 +5121,7 @@ function WorkspaceTree(props) {
     }),
     // #107 标签组：重命名（复用工作区/会话重命名那一枚通用对话框）、删除确认、
     // 新建（名字 + 颜色）。三个都只开在有明确目标时。
-    (0, import_react12.createElement)(RenameModal, {
+    (0, import_react13.createElement)(RenameModal, {
       open: tagRename !== null,
       titleKey: "tag.rename.title",
       fieldKey: "tag.name.label",
@@ -5093,7 +5136,7 @@ function WorkspaceTree(props) {
         applyTagBucket(target.groupKey, updateTagGroup(bucket, target.id, { name: value }));
       }
     }),
-    (0, import_react12.createElement)(TagGroupDeleteModal, {
+    (0, import_react13.createElement)(TagGroupDeleteModal, {
       target: tagDelete === null ? null : { id: tagDelete.id, name: tagDelete.name },
       tr,
       onClose: () => setTagDelete(null),
@@ -5104,7 +5147,7 @@ function WorkspaceTree(props) {
         setTagDelete(null);
       }
     }),
-    (0, import_react12.createElement)(TagGroupCreateModal, {
+    (0, import_react13.createElement)(TagGroupCreateModal, {
       open: tagCreate !== null,
       tr,
       defaultColor: nextTagColor(tagCreate === null ? emptyTagBucket() : tagBucket(tagCreate.groupKey)),
@@ -5116,7 +5159,7 @@ function WorkspaceTree(props) {
       }
     }),
     // 飘提示宿主（移入/还原/归档的回执）。
-    (0, import_react12.createElement)(FlashHost, {})
+    (0, import_react13.createElement)(FlashHost, {})
   );
 }
 

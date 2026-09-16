@@ -26,6 +26,7 @@ import {
 } from './harness.ts'
 import { LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
 import { FIBER_SUITE, WIRE_LIVENESS_SUITE } from './driftSuites.ts'
+import { RECYCLE_ENTRY_TOGGLE_SUITE } from './recycleEntrySuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 
 export interface SuiteContext {
@@ -1042,8 +1043,8 @@ export const SIDEBAR_SUITE: LabSuite = {
       screenshots.push(await shot(ctx, page, 'sidebar-activity-counts'))
 
       // ---- 功能 3/5：回收站抽屉（数据 = 官方归档集合；只读，不点还原） ----
-      const recycleTotal = await page.getAttribute('[data-dshone-tree-action="recycle-open"]', 'data-dshone-tree-recycle-count')
-      await page.click('[data-dshone-tree-action="recycle-open"]')
+      const recycleTotal = await page.getAttribute('[data-dshone-tree-action="recycle-toggle"]', 'data-dshone-tree-recycle-count')
+      await page.click('[data-dshone-tree-action="recycle-toggle"]')
       await page.waitForTimeout(300)
       const drawer = await page.evaluate(() => {
         const root = document.querySelector('[data-dshone-tree="recycle-drawer"]')
@@ -1842,7 +1843,7 @@ export const SKELETON_SUITE: LabSuite = {
         entry.actions.join(','),
       )
       screenshots.push(await shot(ctx, page, 'skeleton-footer-recycle-entry'))
-      await page.click('[data-dshone-tree-action="recycle-open"]')
+      await page.click('[data-dshone-tree-action="recycle-toggle"]')
       await page.waitForTimeout(300)
       const drawerOpened = await contentCount(page, '[data-dshone-tree="recycle-drawer"]')
       check.eq('点入口行开现有抽屉', drawerOpened, 1)
@@ -2047,7 +2048,7 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
 
       // ---- 抽屉：整块盖住树区，点开再量 ----
       await page.setViewportSize({ width: 340, height: 900 })
-      await page.click('[data-dshone-tree-action="recycle-open"]')
+      await page.click('[data-dshone-tree-action="recycle-toggle"]')
       await page.waitForTimeout(400)
       const drawerOpen = await contentCount(page, '[data-dshone-tree="recycle-drawer"]')
       check.eq('抽屉打开（四区里最后一块要量的区域）', drawerOpen, 1)
@@ -2575,7 +2576,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       const flashText = await page.textContent('[data-dshone-tree="flash"]')
       check.ok('移入后飘一条回执提示', (flashText ?? '').includes('回收站'), String(flashText))
       check.eq('移入的会话从我们树里消失', await contentCount(page, `[data-dshone-tree-session="${first}"]`), 0)
-      const entryCount = async (): Promise<string | null> => page.getAttribute('[data-dshone-tree-action="recycle-open"]', 'data-dshone-tree-recycle-count')
+      const entryCount = async (): Promise<string | null> => page.getAttribute('[data-dshone-tree-action="recycle-toggle"]', 'data-dshone-tree-recycle-count')
       const afterFirstMoveState = (await hostRecycleBin(page)) as { version?: number; sessionIds?: string[] } | null
       check.fact(`移入一条后：入口角标=${String(await entryCount())} 宿主状态=${JSON.stringify(afterFirstMoveState)}`)
       check.eq('入口角标 +1（本地集合的计数）', await entryCount(), '1')
@@ -2598,7 +2599,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       check.ok('移入回收站不动 dsh 侧：那条会话在官方浏览区还在', officialStillHasFirst)
 
       // ---- ③ 抽屉：半高滑出 + 分块 + 块内移入顺序倒序 ----
-      await page.click('[data-dshone-tree-action="recycle-open"]')
+      await page.click('[data-dshone-tree-action="recycle-toggle"]')
       await page.waitForTimeout(400)
       const drawer = await page.evaluate(() => {
         const root = document.querySelector('[data-dshone-tree="recycle-drawer"]')
@@ -2673,7 +2674,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       await page.click('[data-dshone-tree-action="recycle-close"]')
       await page.waitForTimeout(250)
       check.eq('点关闭按钮收起抽屉', await contentCount(page, '[data-dshone-tree="recycle-drawer"]'), 0)
-      await page.click('[data-dshone-tree-action="recycle-open"]')
+      await page.click('[data-dshone-tree-action="recycle-toggle"]')
       await page.waitForTimeout(350)
       check.eq('重新打开后折叠态仍在', await page.getAttribute(`[data-dshone-recycle-group-toggle="${collapsedKey}"]`, 'data-dshone-recycle-collapsed'), 'true')
 
@@ -2697,7 +2698,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       check.fact(`清账后宿主状态=${JSON.stringify(pruned)}（注入时多带了一条 ${GHOST}）`)
       check.eq('清账：dsh 侧已不存在的 id 被剔出本地集合，其余原样保留', pruned, [first, second])
       check.eq('清账不误伤：两条真的还在集合里（角标 2、抽屉里也有两行）', pruned.length, 2)
-      await page.click('[data-dshone-tree-action="recycle-open"]')
+      await page.click('[data-dshone-tree-action="recycle-toggle"]')
       await page.waitForTimeout(350)
       const reloadedDrawer = await page.evaluate(() => {
         const root = document.querySelector('[data-dshone-tree="recycle-drawer"]')
@@ -5035,4 +5036,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   SIDEBAR_EMPTY_FEEDBACK_SUITE,
   // #109 侧栏菜单补全（F-19：F-01…F-18 与 R-06 已被占用）。
   SIDEBAR_MENUS_SUITE,
+  // #114 回收站入口行的图标与开合（F-20：F-01…F-19 与 R-06 已被占用）。
+  // 独立文件，见 recycleEntrySuites.ts 文件头的理由。
+  RECYCLE_ENTRY_TOGGLE_SUITE,
 ]
