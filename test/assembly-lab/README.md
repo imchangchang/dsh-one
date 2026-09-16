@@ -83,7 +83,7 @@ chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（
 | **F-01 CONTRACT** | 底座契约完备性（铁律要求的那条）：四棵树各自**零 `slot entry crashed`**、零 `data-slot-error`、零 pageerror、零装载未激活（`web boot: … did not activate` / `waiting for service`，即缺服务/缺钩子）；关键座位有内容；**预期座位锚点都在**（官方改座位名/改归属时先红）；该树的自有插件全在 combo 请求里且 frame 插件确实执行过；chat 树另核官方右栏（座位已注册 + 面板几何在官方钳位区间内） |
 | **F-02 SMOKE** | 三棵树冒烟：侧栏出真会话行/分组行、对话区 composer 可输入且会话面板挂在 keyed `main` 槽位上、设置页出设置项，且控制台零 error |
 | **F-03 INTERACT** | 关键交互：行内码右键菜单（官方 Menu 单图标项 + Esc 关闭 + 高亮撤销）、commit 卡片（走宿主能力口 + GitHub 按钮发出 `vscode.openExternal`）、清空（Esc ×2）与反悔（Ctrl+Z） |
-| **F-04 PARITY** | 侧栏自有树与官方浏览区在 260/340/500 三档宽度下逐项对齐：分节头、搜索胶囊、图标按钮、分组行、会话行、标题、时间、图标位、列表容器的 computed style 与几何矩形；**数值不硬编码**，两侧取到就直接比。密度档（#85）的处置见下 |
+| **F-04 PARITY** | 侧栏自有树与官方浏览区在 260/340/500 三档宽度下逐项对齐：分节头、搜索栏（#99 起两侧都取**展开态**）、图标按钮、分组行、会话行、标题、时间、图标位、列表容器的 computed style 与几何矩形；**数值不硬编码**，两侧取到就直接比。密度档（#85）的处置见下 |
 | **F-05 BRIDGE** | 宿主能力口页面侧：全页 `acquireVsCodeApi` 只调一次、并发调用按 id 配对、结构化错误带 code、上行消息形状 |
 | **F-06 PORTABLE** | 可移植性（#83）：**抹掉自有 frame 标记**的 chat 页（`data-shell*` 一律不落进 DOM，等于官方 web 那种「没有我们的 shell frame」的处境）上，三个 `dsh-*` 插件照常工作——正文装饰与提交卡片、行内码右键菜单、清空/反悔；外链在**有宿主桥**时走 `vscode.openExternal`、**撤掉桥**后改走页面 `window.open`（官方 web 侧那条路） |
 | **F-07 SIDEBAR** | 侧栏六项核心功能（#81）与状态读写（#82）：分组过滤（旧 `groups.json` 形状注进宿主状态存储即用、界面新建按同一形状写回、旧字段不被动）、活状态计数与行同源、工作区内会话不折叠、回收站抽屉按工作区组织、批量选择动作条、视图态走官方 localStorage 惯例并在重载后生效 |
