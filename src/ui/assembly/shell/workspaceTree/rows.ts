@@ -28,6 +28,7 @@ import {
   cannotArchiveReason,
   cannotRecycleReason,
   sessionBusy,
+  type GroupSelectionState,
   type SessionBlockReason,
   type SessionEligibilityFacts,
 } from '../../../../pure/sessionEligibility.ts'
@@ -187,6 +188,11 @@ export function ProjectRow({
   onRename,
   onDelete,
   onToggleGroup,
+  selectMode,
+  checkState,
+  checkTip,
+  checkDisabled,
+  onToggleSelect,
 }: {
   group: GroupNode
   tr: Translate
@@ -205,10 +211,31 @@ export function ProjectRow({
   onDelete?: () => void
   /** 勾选/取消勾选一个分组的归属（走宿主能力口落盘）。 */
   onToggleGroup: (groupId: string) => void
+  /**
+   * #108：批量选择态。组头在文件夹图标前出一枚**三态全选框**（与旧侧栏同款：框在
+   * 最前，文件夹与折叠箭头照常保留），行内其余动作（⋯ / ＋ / 悬停卡）不动它们——
+   * 组头那几件与「选中哪些会话」是两件事，让位反而少了一条入口。
+   */
+  selectMode?: boolean
+  /** #108：这一组的三态（`groupSelectionState` 的产物，组内有置顶时最满只能 some）。 */
+  checkState?: GroupSelectionState
+  /** #108：三态框的悬停提示（为什么这一组选不满）。 */
+  checkTip?: string
+  /** #108：这一组一条都勾不上（全被置顶挡住）时框画灰、点了也不动。 */
+  checkDisabled?: boolean
+  /** #108：点三态框（`none`/`some` → 补齐到本组最大值；`all` → 取消全选本组）。 */
+  onToggleSelect?: () => void
 }): unknown {
   const [menuOpen, setMenuOpen] = useState(false)
   const label = group.workspaceId === undefined ? tr('group.ungrouped') : group.label
   const active = expanded && group.containsCurrent
+  const state: GroupSelectionState = checkState ?? 'none'
+  const checkLabel =
+    state === 'all'
+      ? tr('select.group.all', { name: label })
+      : state === 'some'
+        ? tr('select.group.some', { name: label })
+        : tr('select.group.none', { name: label })
   // 行菜单 = 原有两项 + 「所属分组」一节（有自定义分组、且本行是真实工作区时才出）。
   // 勾选态走官方 Menu 的 selectedIds（官方 ViewOptionsMenu 同款机制）。
   const groupItems =
@@ -250,8 +277,39 @@ export function ProjectRow({
       'data-dshone-tree-row': 'workspace',
       'data-dshone-tree-key': group.key,
       'data-dshone-tree-count': group.sessionCount,
+      // #108：组头三态的当前值写在行上（验证套件按行读，不认官方哈希类名）。
+      ...(selectMode === true ? { 'data-dshone-tree-check': state } : {}),
       onClick: onToggle,
       children: [
+        // #108：三态全选框（旧侧栏的处置：框在最前，文件夹与折叠箭头照常保留）。
+        // 点框只勾选、不折叠（stopPropagation），所以我们自己做一枚可点元素而不是
+        // 让整行承接——组头的整行点击仍是「展开/收起」。
+        selectMode !== true
+          ? null
+          : h(
+              'span',
+              {
+                key: 'check',
+                className: 'dshOneTree_check dshOneTree_groupCheck',
+                role: 'checkbox',
+                'aria-checked': state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false',
+                'aria-label': checkLabel,
+                'aria-disabled': checkDisabled === true,
+                'data-dshone-tree-action': 'group-select',
+                'data-dshone-tree-check': state,
+                // 提示挂在框上（行上挂会让整行都冒出原生气泡）。
+                ...(checkTip === undefined ? {} : { title: checkTip }),
+                onClick: (event: { stopPropagation(): void }) => {
+                  event.stopPropagation()
+                  if (checkDisabled !== true) onToggleSelect?.()
+                },
+              },
+              h(SelectMark, {
+                on: state === 'all',
+                partial: state === 'some',
+                disabled: checkDisabled === true,
+              }),
+            ),
         h(
           'span',
           {
@@ -317,7 +375,7 @@ export function ProjectRow({
       ],
     },
   )
-  if (group.createdAt === undefined || !hoverCard) return row
+  if (group.createdAt === undefined || !hoverCard || selectMode === true) return row
   return h(HoverCard, {
     anchor: row,
     content: h(WorkspaceHoverContent, { label: group.label, cwd: group.cwd, createdAt: group.createdAt, tr }),
@@ -516,7 +574,7 @@ export function SessionRow({
     h(IconEllipsisOutline16, {}),
   )
   // 选择态下整行只有「勾选」一个动作：打开会话、行菜单都先让位（与官方进入选择态
-  // 后的处置一致——动作条在底部集中给批量动作）。
+  // 后的处置一致——批量动作集中在分组过滤条下方那一条里给）。
   const row = h(
     'div',
     {
@@ -642,24 +700,36 @@ export function SearchResultRow({
   node,
   workspaceLabel,
   snippet,
+  selectMode,
   selected,
   pinned,
   unread,
   tr,
   onOpen,
+  onToggleSelect,
 }: {
   node: SessionNode
   workspaceLabel: string
   snippet?: string
+  /**
+   * #108（C8）：选择态下的搜索结果行同样可勾选——点行 = 勾选，勾选资格与树里的会话行
+   * 同一份判定（`canRecycle`）。搜索态是「在全部会话里找」，与分组视图是两个视图，
+   * 所以这里按行算资格，不接组头那套三态（搜索结果没有分组头）。
+   */
+  selectMode: boolean
+  /** 选择态下 = 是否被勾选；非选择态 = 是否是当前会话（与树里的会话行同一口径）。 */
   selected: boolean
   /** #102：与树里的会话行同一套标记呈现（图钉 + 未读绿点 + 加粗）。 */
   pinned: boolean
   unread: boolean
   tr: Translate
   onOpen: () => void
+  /** 点整行 = 勾选/取消（与树里的会话行同一处置）。 */
+  onToggleSelect: () => void
 }): unknown {
   const statuses = sessionStatuses({ ...node, unread })
   const showStatus = showsStatusDot(statuses, node.completed || unread)
+  const selectable = canRecycle(eligibilityOf(node, pinned, unread))
   return h(
     'button',
     {
@@ -667,15 +737,30 @@ export function SearchResultRow({
       className: `dshOneTree_searchRow${selected ? ' dshOneTree_selected' : ''}`,
       role: 'treeitem',
       'aria-selected': selected,
-      onClick: onOpen,
+      // 行上带的会话 id 与勾选态（与树里的会话行同一套标记，验证套件据此认行）。
+      'data-dshone-tree-session': node.id,
+      ...(selectMode
+        ? { 'data-dshone-tree-checked': selected, 'data-dshone-tree-check': selectable ? 'eligible' : 'blocked' }
+        : {}),
+      onClick: selectMode ? (selectable ? onToggleSelect : () => {}) : onOpen,
       children: [
         h('span', {
           key: 'heading',
           className: 'dshOneTree_searchRowHeading',
           children: [
-            showStatus
-              ? h(SessionStatusDots, { key: 'status', statuses, tr })
-              : h('span', { key: 'status', className: 'dshOneTree_slot' }),
+            selectMode
+              ? h(
+                  'span',
+                  {
+                    key: 'check',
+                    className: 'dshOneTree_check',
+                    ...(selectable ? {} : { title: tr('protect.recycle.pinned') }),
+                  },
+                  h(SelectMark, { on: selected, disabled: !selectable }),
+                )
+              : showStatus
+                ? h(SessionStatusDots, { key: 'status', statuses, tr })
+                : h('span', { key: 'status', className: 'dshOneTree_slot' }),
             pinned ? h(PinMark, { key: 'pin', sessionId: node.id }) : null,
             h(
               'span',

@@ -3262,6 +3262,462 @@ export const TAG_GROUPS_SUITE: LabSuite = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// F-17 SIDEBAR-MULTI-SELECT：侧栏多选与批量（#108：F-16 已被 #107 的标签组套件占用）
+// ---------------------------------------------------------------------------
+
+/** 一个分组的组头三态现状（行上的态 + 框上画的态）。 */
+interface GroupCheckFact {
+  key: string
+  /** 行上的 `data-dshone-tree-check`：none / some / all；不在选择态时是 missing。 */
+  row: string
+  /** 框自己的 `data-dshone-tree-check`（同一个值，从框上读一遍防两处漂移）。 */
+  box: string
+  aria: string
+  tip: string
+  /** 框里画的是短横线（部分选中）。 */
+  dash: boolean
+  /** 框里有几个子元素（全选时是官方对勾图标 = 1，空态 = 0，短横线 = 1）。 */
+  glyph: number
+  /** 组里的会话数（行上带的 `data-dshone-tree-count`）。 */
+  count: number
+}
+
+/** 逐个分组读组头三态。 */
+async function groupCheckFacts(page: OpenedPage['page']): Promise<GroupCheckFact[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-dshone-group-key]')).map((section) => {
+      const head = section.querySelector('[data-dshone-tree-row="workspace"]')
+      const box = head?.querySelector('[data-dshone-tree-action="group-select"]') ?? null
+      return {
+        key: section.getAttribute('data-dshone-group-key') ?? '',
+        row: head?.getAttribute('data-dshone-tree-check') ?? 'missing',
+        box: box?.getAttribute('data-dshone-tree-check') ?? 'missing',
+        aria: box?.getAttribute('aria-checked') ?? '',
+        tip: box?.getAttribute('title') ?? '',
+        dash: box?.querySelector('.dshOneTree_checkDash') !== null,
+        glyph: box?.querySelector('.dshOneTree_checkBox')?.childElementCount ?? -1,
+        count: Number(head?.getAttribute('data-dshone-tree-count') ?? '-1'),
+      }
+    }),
+  )
+}
+
+/** 选择态下的现状：勾了哪些行、动作条计数、红字、飘提示。 */
+async function selectionFacts(page: OpenedPage['page']): Promise<{
+  checked: readonly string[]
+  count: string
+  error: string
+  bar: boolean
+  flash: string
+}> {
+  return page.evaluate(() => {
+    const bar = document.querySelector('[data-dshone-tree="selection-bar"]')
+    return {
+      checked: Array.from(document.querySelectorAll('[data-dshone-tree-checked="true"]')).map(
+        (row) => row.getAttribute('data-dshone-tree-session') ?? '',
+      ),
+      count: bar?.querySelector('.dshOneTree_selectionCount')?.textContent ?? '',
+      error: bar?.querySelector('.dshOneTree_selectionError')?.textContent ?? '',
+      bar: bar !== null,
+      flash: document.querySelector('[data-dshone-tree="flash"]')?.textContent ?? '',
+    }
+  })
+}
+
+/** 某一个工作区块里会话行的 id 与活状态（挑夹具用）。 */
+async function groupRowIds(
+  page: OpenedPage['page'],
+  key: string,
+): Promise<readonly { id: string; status: string; menu: boolean }[]> {
+  return page.evaluate((groupKey: string) => {
+    const section = document.querySelector(`[data-dshone-group-key="${groupKey}"]`)
+    return Array.from(section?.querySelectorAll('[data-dshone-tree-row="session"]') ?? []).map((row) => ({
+      id: row.getAttribute('data-dshone-tree-session') ?? '',
+      status: row.getAttribute('data-dshone-tree-status') ?? '',
+      menu: row.querySelector('[data-dshone-tree-action="session-menu"]') !== null,
+    }))
+  }, key)
+}
+
+/**
+ * 侧栏多选与批量（#108）：入口 API、组头三态全选、分组条下方那条操作条、批量两个
+ * 动作分开（移入回收站立即执行 / 归档走确认弹窗）、失败留选中、飘提示出现与消失、
+ * 搜索结果行可勾选。
+ *
+ * 数据面与其它侧栏套件一致：真实网关只读 + 假宿主。本套件**从不点归档确认**
+ *（那会写真实网关），归档这条验的是「先开确认弹窗 + 弹窗里的跳过数」这条前置链路；
+ * 批量移入回收站只动本地状态，所以可以真点（结尾全部还原）。
+ */
+export const MULTI_SELECT_SUITE: LabSuite = {
+  id: 'F-17',
+  phase: 'new-feature',
+  name: '侧栏多选与批量（#108）：入口 API + 组头三态全选 + 分组条下方的操作条 + 批量两动作 + 失败留选中（MULTI-SELECT 套件）',
+  expect:
+    '真实装配页（真网关只读 + 假宿主）：① **入口 API**——选择态只有一个入口（`selectionEntrySignal.enter()`），顶部工具栏那一枚就是它（本套件每一次「进选择态」都点这一枚 = 每一次都在走这个 API）；② **组头三态全选**——进选择态后每个工作区组头出一枚三态框，`none → some/all` 随勾选翻转，点一下把本组**够格**的成员一次勾上、再点一下取消；**组内有置顶会话时最满只能 some**（框里画短横线而不是对勾），悬停给出原因；收起着的工作区也能一次勾满（成员按整组数，不看折叠态）；③ **资格**——置顶行不可勾选（灰框 + 原因 + 点了不切换），运行中/未读/待交互可勾；④ **操作条位置**——分组过滤条在选择态下**不收起**，操作条插在它下方（文档顺序可证），条上是「已选 N 项 + 移入回收站 + 归档 + 取消」；⑤ **批量两个动作分开**——「移入回收站」立即执行、不开弹窗、飘一条回执、动作完退出选择态、只写本地集合；「归档」开同一个确认弹窗（按工作区列明细 + 写明跳过数），Esc 取消则什么都不发生；⑥ **失败不静默**——注入一次 state.write 失败后批量移入，失败项**留在勾选里**、动作条不消失、红字写明确条数；⑦ **飘提示**——出现后约 2.2 秒自己消失；⑧ **搜索结果行可勾选**（C8）——搜索态下点结果行 = 勾选，资格与树里的行同一份判定；⑨ 选择态下会话行的时间 / ⋯ 菜单 / 右键菜单 / 悬停卡都让位。全程零 pageerror，且**从不点归档确认**。',
+  run: async (ctx, check) => {
+    const screenshots: string[] = []
+    const selectButton = '[data-dshone-tree-action="select-mode"]'
+    const checkOf = async (page: OpenedPage['page'], id: string): Promise<string | null> =>
+      page.getAttribute(`[data-dshone-tree-session="${id}"]`, 'data-dshone-tree-checked')
+
+    // 一、先开一次页面摸清夹具：需要一个「≥2 条带行菜单的会话行」的工作区块（一条拿
+    // 去置顶，另一条用来验组头 some），另需一个**不含置顶**的组验 all。
+    const probe = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
+    let sections: LabSection[] = []
+    try {
+      await expandAllGroups(probe.page)
+      sections = await sectionRows(probe.page)
+    } finally {
+      await probe.context.close()
+    }
+    const menuRows = sections
+      .map((section) => ({ key: section.key, rows: section.sessions.filter((row) => row.menu) }))
+      .filter((entry) => entry.rows.length >= 2)
+    const fixture = menuRows[0]
+    const pinnedTarget = fixture?.rows[0]?.id
+    const freeTarget = fixture?.rows[1]?.id
+    const otherGroup = sections.find(
+      (section) => section.key !== fixture?.key && section.sessions.some((row) => row.menu),
+    )
+    check.fact(
+      `夹具：分组 ${String(sections.length)} 个；带 ≥2 条行菜单的分组=${fixture?.key.slice(0, 10) ?? '无'}（置顶 ${pinnedTarget?.slice(0, 13) ?? '无'} / 空闲 ${freeTarget?.slice(0, 13) ?? '无'}）；另一组=${otherGroup?.key.slice(0, 10) ?? '无'}`,
+    )
+    if (fixture === undefined || pinnedTarget === undefined || freeTarget === undefined || otherGroup === undefined) {
+      check.ok('真网关上找到两组夹具（一组 ≥2 条可操作行、另有一组无置顶）', false, '夹具不足')
+      return screenshots
+    }
+
+    // 二、带注入态开页：置顶注入旧形状（裸 id 数组），组头三态的置顶约束才有观察对象。
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), {
+      width: 380,
+      height: 900,
+      state: { pinned: [pinnedTarget] },
+    })
+    const { page } = opened
+    try {
+      await expandAllGroups(page)
+      const fixtureRows = await groupRowIds(page, fixture.key)
+      const pinnedHere = fixtureRows.filter((row) => row.id === pinnedTarget).length
+      check.fact(`置顶组 ${fixture.key.slice(0, 10)}：行=${JSON.stringify(fixtureRows.map((row) => `${row.id.slice(0, 11)}:${row.status}`))}`)
+      check.ok('夹具成立：置顶那条在所选分组里（组头三态的置顶约束才有对象）', pinnedHere === 1)
+
+      // ---- ① 进选择态（走的就是入口 API：工具栏那一枚 → selectionEntrySignal.enter）----
+      const beforeSelect = await groupCheckFacts(page)
+      check.ok(
+        '未进选择态时组头没有三态框（`data-dshone-tree-check` 不在行上）',
+        beforeSelect.every((entry) => entry.row === 'missing' && entry.box === 'missing'),
+        JSON.stringify(beforeSelect.slice(0, 2)),
+      )
+      await page.click(selectButton)
+      await page.waitForTimeout(300)
+      const entered = await selectionFacts(page)
+      check.eq('进选择态：动作条出现', entered.bar, true)
+      check.eq('进选择态：勾选是空的（入口 API 每次进入都清空上一轮）', entered.checked, [])
+      check.eq('动作条文案 = 未选任何会话', entered.count, '未选任何会话')
+      check.eq('进选择态：工具栏那枚按钮按下去（aria-pressed）', await page.getAttribute(selectButton, 'aria-pressed'), 'true')
+
+      // ---- ③ 资格：置顶行不可勾（灰框 + 原因 + 点了不切换）----
+      const pinnedEligibility = await page.evaluate((id: string) => {
+        const row = document.querySelector(`[data-dshone-tree-session="${id}"]`)
+        return {
+          check: row?.getAttribute('data-dshone-tree-check') ?? 'missing',
+          tip: row?.querySelector('.dshOneTree_check')?.getAttribute('title') ?? '',
+          dotted: row?.querySelector('.dshOneTree_checkOff') !== null,
+        }
+      }, pinnedTarget)
+      check.fact(`置顶行的勾选资格：${JSON.stringify(pinnedEligibility)}`)
+      check.ok(
+        '置顶行不可勾选（行上标 blocked + 框画灰 + 带原因提示）',
+        pinnedEligibility.check === 'blocked' && pinnedEligibility.dotted && pinnedEligibility.tip.includes('置顶会话不能移入回收站或归档'),
+        JSON.stringify(pinnedEligibility),
+      )
+      await page.locator(`[data-dshone-tree-session="${pinnedTarget}"]`).click()
+      await page.waitForTimeout(200)
+      check.eq('点置顶行也不切换勾选（仍未被勾上）', await checkOf(page, pinnedTarget), 'false')
+      check.eq('点置顶行不改变勾选数（还是空）', (await selectionFacts(page)).checked, [])
+
+      // ---- ④ 操作条在分组过滤条下方（且过滤条不收起）----
+      const order = await page.evaluate(() => {
+        const area = document.querySelector('.dshOneTree_listArea')
+        const filter = document.querySelector('[data-dshone-tree="group-filter"]')
+        const bar = document.querySelector('[data-dshone-tree="selection-bar"]')
+        const list = document.querySelector('.dshOneTree_list')
+        const position = (a: Element | null, b: Element | null): number => {
+          if (a === null || b === null) return -2
+          const rel = a.compareDocumentPosition(b)
+          return (rel & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 ? 1 : -1
+        }
+        return {
+          inArea: area !== null && filter !== null && area.contains(filter) && bar !== null && area.contains(bar),
+          filterBeforeBar: position(filter, bar),
+          barBeforeList: position(bar, list),
+          // 分组过滤条在选择态下仍在（#108 改掉了「选择态收起过滤条」）。
+          filterVisible: filter !== null && (filter as HTMLElement).offsetParent !== null,
+        }
+      })
+      check.fact(`选择态的条序：${JSON.stringify(order)}`)
+      check.ok('分组过滤条与操作条都在列表区里', order.inArea)
+      check.ok('分组过滤条在选择态下**不收起**（#108 起它常驻）', order.filterVisible)
+      check.ok('操作条插在分组过滤条**下方**（文档顺序）', order.filterBeforeBar === 1, JSON.stringify(order))
+      check.ok('操作条在会话列表**上方**', order.barBeforeList === 1, JSON.stringify(order))
+
+      // ---- ② 组头三态：none →（点一下）some（组内有置顶） ----
+      const atNone = (await groupCheckFacts(page)).find((entry) => entry.key === fixture.key)
+      check.fact(`置顶组组头（未勾）：${JSON.stringify(atNone)}`)
+      check.eq('置顶组初始态 = none', atNone?.row, 'none')
+      check.eq('none 态：框上 aria-checked = false、没有短横线', `${String(atNone?.aria)}/${String(atNone?.dash)}`, 'false/false')
+      check.ok(
+        '组内有置顶 → 框上写明原因（悬停提示说的是置顶挡住的条数）',
+        (atNone?.tip ?? '').includes('置顶') && (atNone?.tip ?? '').includes('1'),
+        JSON.stringify(atNone?.tip),
+      )
+      const eligibleInFixture = fixtureRows.filter((row) => row.id !== pinnedTarget)
+      await page.click(`[data-dshone-group-key="${fixture.key}"] [data-dshone-tree-action="group-select"]`)
+      await page.waitForTimeout(300)
+      const atSome = (await groupCheckFacts(page)).find((entry) => entry.key === fixture.key)
+      const afterGroupSelect = await selectionFacts(page)
+      check.fact(`置顶组组头（点一下后）：${JSON.stringify(atSome)} 已勾=${JSON.stringify(afterGroupSelect.checked.map((id) => id.slice(0, 11)))}`)
+      check.eq('点一下组头三态框：本组够格的成员全被勾上', afterGroupSelect.checked.length, eligibleInFixture.length)
+      check.eq(
+        '组内有置顶 → 最满只能 some（不是 all）',
+        atSome?.row,
+        'some',
+      )
+      check.eq('some 态：框里画的是短横线（不是对勾）', `${String(atSome?.aria)}/${String(atSome?.dash)}`, 'mixed/true')
+      check.eq('置顶那条**没被**勾上（资格判定挡住了它）', await checkOf(page, pinnedTarget), 'false')
+      check.eq('动作条计数跟上了（已选 N 项）', afterGroupSelect.count, `已选 ${String(eligibleInFixture.length)} 项`)
+      screenshots.push(await shot(ctx, page, 'multi-select-group-some'))
+
+      await page.click(`[data-dshone-group-key="${fixture.key}"] [data-dshone-tree-action="group-select"]`)
+      await page.waitForTimeout(300)
+      const backToNone = (await groupCheckFacts(page)).find((entry) => entry.key === fixture.key)
+      check.eq('再点一下：取消全选本组（回到 none）', backToNone?.row, 'none')
+      check.eq('取消后勾选清空', (await selectionFacts(page)).checked, [])
+
+      // ---- ② 另一组（无置顶）：点一下 = all ----
+      await page.click(`[data-dshone-group-key="${otherGroup.key}"] [data-dshone-tree-action="group-select"]`)
+      await page.waitForTimeout(300)
+      const atAll = (await groupCheckFacts(page)).find((entry) => entry.key === otherGroup.key)
+      const otherChecked = (await selectionFacts(page)).checked.length
+      check.fact(`无置顶组组头（点一下后）：${JSON.stringify(atAll)} 已勾 ${String(otherChecked)}`)
+      check.eq('无置顶的组：点一下 = 全选（all）', atAll?.row, 'all')
+      check.eq('all 态：框里是对勾、没有短横线', `${String(atAll?.aria)}/${String(atAll?.dash)}/${String(atAll?.glyph)}`, 'true/false/1')
+      check.eq('all 态：组里勾上的条数 = 组里的会话数', otherChecked, atAll?.count)
+      screenshots.push(await shot(ctx, page, 'multi-select-group-all'))
+      await page.click(`[data-dshone-group-key="${otherGroup.key}"] [data-dshone-tree-action="group-select"]`)
+      await page.waitForTimeout(300)
+      check.eq('再点一下取消全选（回到 none）', (await groupCheckFacts(page)).find((entry) => entry.key === otherGroup.key)?.row, 'none')
+
+      // ---- ② 收起着的工作区也能一次勾满（成员按整组数，不看折叠态）----
+      await page.click(`[data-dshone-group-key="${otherGroup.key}"] [data-dshone-tree-row="workspace"]`)
+      await page.waitForTimeout(250)
+      const collapsedRows = await contentCount(page, `[data-dshone-group-key="${otherGroup.key}"] [data-dshone-tree-row="session"]`)
+      const collapsedState = (await groupCheckFacts(page)).find((entry) => entry.key === otherGroup.key)
+      check.fact(`收起后的组：块内行=${String(collapsedRows)} 组头态=${String(collapsedState?.row)} 组规模=${String(collapsedState?.count)}`)
+      check.eq('组收起后块内没有行（折叠真的生效）', collapsedRows, 0)
+      check.ok('收起着的组组头仍有让三态框可数的规模（成员按整组数）', (collapsedState?.count ?? 0) > 0)
+      await page.click(`[data-dshone-group-key="${otherGroup.key}"] [data-dshone-tree-action="group-select"]`)
+      await page.waitForTimeout(300)
+      // 组收起时它的会话行根本不渲染，所以「勾了几条」读不到行属性——读动作条计数
+      //（计数与勾选同源，正是「整组被勾满」这条断言的观察面）。
+      const collapsedPicked = (await selectionFacts(page)).count
+      const collapsedAfter = (await groupCheckFacts(page)).find((entry) => entry.key === otherGroup.key)
+      await page.click(`[data-dshone-group-key="${otherGroup.key}"] [data-dshone-tree-row="workspace"]`)
+      await page.waitForTimeout(250)
+      check.eq('收起着的组也能一次勾满（动作条计数 = 组规模，与展开时一致）', collapsedPicked, `已选 ${String(collapsedState?.count)} 项`)
+      check.eq('收起着的组：组头三态同样翻到 all', collapsedAfter?.row, 'all')
+      await page.click(`[data-dshone-group-key="${otherGroup.key}"] [data-dshone-tree-action="group-select"]`)
+      await page.waitForTimeout(250)
+      check.eq('收起态下再点一次同样能取消（勾选清空）', (await selectionFacts(page)).count, '未选任何会话')
+
+      // ---- ⑨ 选择态下的行：时间 / ⋯ 菜单 / 右键菜单 / 悬停卡让位 ----
+      const rowAffordances = await page.evaluate((id: string) => {
+        const row = document.querySelector(`[data-dshone-tree-session="${id}"]`)
+        return {
+          time: row?.querySelector('.dshOneTree_time') !== null,
+          menu: row?.querySelector('[data-dshone-tree-action="session-menu"]') !== null,
+          check: row?.querySelector('.dshOneTree_checkBox') !== null,
+        }
+      }, freeTarget)
+      check.eq('选择态下的会话行：时间让位、⋯ 菜单让位、勾选框在场', rowAffordances, { time: false, menu: false, check: true })
+      await page.locator(`[data-dshone-tree-session="${freeTarget}"]`).click({ button: 'right' })
+      await page.waitForTimeout(250)
+      const menuInSelectMode = await contentCount(page, '[role="menu"]')
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(200)
+      check.eq('选择态下行右键不弹菜单（原生菜单也不被接管）', menuInSelectMode, 0)
+      await page.locator(`[data-dshone-tree-session="${freeTarget}"]`).hover()
+      await page.waitForTimeout(900)
+      const hoverInSelectMode = await contentCount(page, '.dshOneTree_hoverContent')
+      // 对照：退出选择态后同一行右键**会**弹菜单（这条断言才有内容）。
+      await page.click('[data-dshone-tree-action="selection-exit"]')
+      await page.waitForTimeout(250)
+      await page.locator(`[data-dshone-tree-session="${freeTarget}"]`).click({ button: 'right' })
+      await page.waitForTimeout(300)
+      const menuOutside = await contentCount(page, '[role="menu"]')
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(200)
+      await page.locator(`[data-dshone-tree-session="${freeTarget}"]`).hover()
+      await page.waitForTimeout(900)
+      const hoverOutside = await contentCount(page, '.dshOneTree_hoverContent')
+      await page.mouse.move(4, 4)
+      await page.waitForTimeout(200)
+      check.fact(
+        `行右键与悬停卡的对照：选择态内 菜单数=${String(menuInSelectMode)} 悬停卡=${String(hoverInSelectMode)}；选择态外 菜单数=${String(menuOutside)} 悬停卡=${String(hoverOutside)}（悬停卡对照为 0 = 这个宽度下官方本来就没出卡，本条按「选择态内不给」判）`,
+      )
+      check.ok('对照成立：选择态之外行右键确实会弹菜单（说明上面那条「不弹」是真的让位）', menuOutside > 0, String(menuOutside))
+      check.eq('选择态下悬停不出会话悬停卡', hoverInSelectMode, 0)
+      await page.click(selectButton)
+      await page.waitForTimeout(300)
+      check.eq('重新进选择态：勾选是空的', (await selectionFacts(page)).checked, [])
+
+      // ---- ⑤ 批量归档：独立动作 + 确认弹窗（明确跳过数）----
+      // 勾选前先把整棵树展开（折叠着的组不渲染行），再在**全部**够格的行里挑：
+      // 优先挑状态不是 idle 的（它们按资格会被跳过 → 弹窗「写明跳过数」才有对象），
+      // 再补 idle 的。挑「够格」用的就是行上那个标记（与资格判定同源）。
+      check.eq('批量勾选前：勾选是空的（上一步已清干净）', (await selectionFacts(page)).checked, [])
+      await expandAllGroups(page)
+      const pickOrder = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+          .filter((row) => row.getAttribute('data-dshone-tree-check') === 'eligible')
+          .map((row) => ({
+            id: row.getAttribute('data-dshone-tree-session') ?? '',
+            status: row.getAttribute('data-dshone-tree-status') ?? '',
+          }))
+          .filter((row) => row.id !== '')
+        return [...rows.filter((row) => row.status !== 'idle').slice(0, 2), ...rows.filter((row) => row.status === 'idle').slice(0, 2)]
+      })
+      check.fact(`批量夹具：${pickOrder.map((row) => `${row.id.slice(0, 11)}:${row.status}`).join(' ')}`)
+      const expectedSkipped = pickOrder.filter((row) => row.status !== 'idle').length
+      check.ok('批量夹具里有可归档的行（否则「归档」本来就该禁用）', pickOrder.length > expectedSkipped, JSON.stringify(pickOrder))
+      if (pickOrder.length === 0 || pickOrder.length === expectedSkipped) return screenshots
+      for (const entry of pickOrder) {
+        await page.locator(`[data-dshone-tree-session="${entry.id}"]`).click()
+        await page.waitForTimeout(80)
+      }
+      check.eq('逐行点选：已勾上的条数 = 点的次数', (await selectionFacts(page)).checked.length, pickOrder.length)
+      await page.click('[data-dshone-tree-action="selection-archive"]')
+      await page.waitForTimeout(400)
+      const batchModal = await page.evaluate(() => ({
+        confirm: document.querySelector('[data-dshone-tree-action="archive-confirm"]') !== null,
+        rows: document.querySelectorAll('[data-dshone-archive-row]').length,
+        blocks: document.querySelectorAll('[data-dshone-archive-block]').length,
+        skipped: document.querySelector('[data-dshone-archive-skipped]')?.textContent ?? '',
+        bar: document.querySelector('[data-dshone-tree="selection-bar"]') !== null,
+      }))
+      check.fact(`批量归档弹窗：${JSON.stringify(batchModal)}（预期跳过 ${String(expectedSkipped)}）`)
+      check.ok('「归档」是独立动作：开确认弹窗（不是立即执行）', batchModal.confirm && batchModal.blocks >= 1 && batchModal.rows >= 1)
+      check.ok(
+        '弹窗写明跳过数（与资格判定算出来的一致）',
+        expectedSkipped === 0 ? batchModal.skipped === '' : batchModal.skipped.includes(`另有 ${String(expectedSkipped)} 个`),
+        `skipped=${JSON.stringify(batchModal.skipped)} expected=${String(expectedSkipped)}`,
+      )
+      screenshots.push(await shot(ctx, page, 'multi-select-batch-archive'))
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      check.eq('取消归档：弹窗关掉', await contentCount(page, '[data-dshone-tree-action="archive-confirm"]'), 0)
+      check.eq('取消归档：勾选一条不少（留在选中里）', (await selectionFacts(page)).checked.length, pickOrder.length)
+      check.eq('取消归档：本地集合没变（什么都没发生）', await hostRecycleBin(page), null)
+
+      // ---- ⑦ 失败不静默：注入一次 state.write 失败，批量移入回收站 ----
+      await page.evaluate(() => {
+        ;(globalThis as unknown as { __LAB_HOST__: { failStateWrite: string | null } }).__LAB_HOST__.failStateWrite = 'recycle-bin'
+      })
+      await page.click('[data-dshone-tree-action="selection-recycle"]')
+      await page.waitForTimeout(600)
+      const failed = await selectionFacts(page)
+      check.fact(`注入写失败后的动作条：${JSON.stringify(failed)}`)
+      check.ok('失败：动作条不消失', failed.bar)
+      check.ok('失败：红字写明没移成的条数（不静默）', failed.error.includes('没能移入回收站') && failed.error.includes(String(pickOrder.length)), JSON.stringify(failed.error))
+      check.eq('失败：失败项留在选中里（勾选一条不少）', failed.checked.length, pickOrder.length)
+      check.ok('失败：飘提示也报了同一件事', failed.flash.includes('没能移入回收站'), JSON.stringify(failed.flash))
+      check.eq('失败：什么都没写进宿主（数据一个字节没动）', await hostRecycleBin(page), null)
+      screenshots.push(await shot(ctx, page, 'multi-select-move-failed'))
+      await page.evaluate(() => {
+        ;(globalThis as unknown as { __LAB_HOST__: { failStateWrite: string | null } }).__LAB_HOST__.failStateWrite = null
+      })
+      check.eq('失败后仍在选择态（可以直接重试）', await page.getAttribute(selectButton, 'aria-pressed'), 'true')
+
+      // ---- ⑤ 批量移入回收站：立即执行 + 飘提示 + 退出选择态 ----
+      await page.click('[data-dshone-tree-action="selection-recycle"]')
+      await page.waitForTimeout(500)
+      const moved = await selectionFacts(page)
+      const movedState = (await hostRecycleBin(page)) as { version?: number; sessionIds?: string[] } | null
+      check.fact(`批量移入后：动作条在=${String(moved.bar)} 飘提示=${JSON.stringify(moved.flash)} 本地集合=${JSON.stringify((movedState?.sessionIds ?? []).map((id) => id.slice(0, 11)))}`)
+      check.eq('「移入回收站」立即执行：不开归档确认弹窗', await contentCount(page, '[data-dshone-tree-action="archive-confirm"]'), 0)
+      check.eq('批量移入：选中的都进了本地集合（按勾选顺序）', movedState?.sessionIds ?? [], pickOrder.map((entry) => entry.id))
+      check.ok('批量移入：飘一条回执', moved.flash.includes('回收站'), JSON.stringify(moved.flash))
+      check.eq('批量移入：动作完退出选择态（动作条消失）', moved.bar, false)
+      screenshots.push(await shot(ctx, page, 'multi-select-batch-moved'))
+
+      // ---- ⑦ 飘提示 2.2 秒后自己消失 ----
+      // 重新制造一条提示（「全部还原」也飘），出现 → 消失两头都断言。
+      await page.click('[data-dshone-tree-action="recycle-restore-all"]')
+      await page.waitForTimeout(250)
+      const flashShown = await contentCount(page, '[data-dshone-tree="flash"]')
+      await page.waitForTimeout(2_600)
+      const flashGone = await contentCount(page, '[data-dshone-tree="flash"]')
+      check.eq('飘提示出现', flashShown, 1)
+      check.eq('飘提示约 2.2 秒后自己消失', flashGone, 0)
+      check.eq('收尾：本地集合清空（回到干净状态）', await hostRecycleBin(page), { version: 1, sessionIds: [] })
+      check.eq('收尾：被移走的那几条回到树里', await contentCount(page, `[data-dshone-tree-session="${pickOrder[0]?.id ?? ''}"]`), 1)
+
+      // ---- ⑧ 搜索结果行可勾选（C8）----
+      // 上一步「批量移入」结束时已退出选择态，这里重新进一次再验搜索态下的勾选。
+      await page.click(selectButton)
+      await page.waitForTimeout(300)
+      const titleNeedle = (await page.textContent(`[data-dshone-tree-session="${freeTarget}"] .dshOneTree_title`)) ?? ''
+      const query = titleNeedle.trim().slice(0, 6)
+      check.fact(`搜索夹具：用标题前 6 字 ${JSON.stringify(query)} 搜（命中行含 ${freeTarget.slice(0, 13)}）`)
+      await page.fill('[data-dshone-tree="search-input"]', query)
+      await page.waitForTimeout(700)
+      const searchRows = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-dshone-tree="search"] [data-dshone-tree-session]')).map((row) => ({
+          id: row.getAttribute('data-dshone-tree-session') ?? '',
+          check: row.getAttribute('data-dshone-tree-check') ?? 'missing',
+          selected: row.getAttribute('data-dshone-tree-checked') ?? 'missing',
+        })),
+      )
+      check.fact(`搜索态下的结果行（前 3）：${JSON.stringify(searchRows.slice(0, 3))}`)
+      check.ok('搜索态下仍然出结果行', searchRows.length > 0, JSON.stringify(searchRows.length))
+      check.ok(
+        '搜索结果行带着选择资格标记（与树里的行同一份判定）',
+        searchRows.length > 0 && searchRows.every((row) => row.check === 'eligible' || row.check === 'blocked'),
+        JSON.stringify(searchRows.slice(0, 3)),
+      )
+      check.ok('搜索结果行还没被勾', searchRows.every((row) => row.selected === 'false'))
+      const hitFree = searchRows.find((row) => row.id === freeTarget) ?? searchRows[0]
+      await page.locator(`[data-dshone-tree="search"] [data-dshone-tree-session="${hitFree?.id ?? ''}"]`).click()
+      await page.waitForTimeout(250)
+      const searchSelected = await selectionFacts(page)
+      check.fact(`点搜索结果行后：已勾=${JSON.stringify(searchSelected.checked)} 计数=${JSON.stringify(searchSelected.count)}`)
+      check.ok(
+        '点搜索结果行 = 勾选（C8：选择态下搜索结果行同样可勾）',
+        searchSelected.checked.includes(hitFree?.id ?? ''),
+        JSON.stringify(searchSelected),
+      )
+      check.eq('搜索结果行勾上后动作条计数跟上', searchSelected.count, '已选 1 项')
+      check.eq('搜索态下行上带的勾选标记也翻成 true', await checkOf(page, hitFree?.id ?? ''), 'true')
+      screenshots.push(await shot(ctx, page, 'multi-select-search-row'))
+      await page.click('[data-dshone-tree="search-clear"]')
+      await page.waitForTimeout(500)
+      check.eq('清掉搜索后勾选仍在（选择态是跨视图的）', (await selectionFacts(page)).checked, [hitFree?.id ?? ''])
+      await page.click('[data-dshone-tree-action="selection-exit"]')
+      await page.waitForTimeout(300)
+      const exited = await selectionFacts(page)
+      check.eq('「取消」退出选择态：动作条消失', exited.bar, false)
+      check.eq('退出选择态：勾选清空', exited.checked, [])
+      check.eq('退出选择态：工具栏那枚按钮弹起', await page.getAttribute(selectButton, 'aria-pressed'), 'false')
+
+      check.eq('多选与批量套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
+    } finally {
+      await opened.context.close()
+    }
+    return screenshots
+  },
+}
+
 export const SUITES: ReadonlyArray<LabSuite> = [
   CONTRACT_SUITE,
   SMOKE_SUITE,
@@ -3286,4 +3742,6 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   RECYCLE_TWO_LAYER_SUITE,
   // #107 会话标签组（F-16）。
   TAG_GROUPS_SUITE,
+  // #108 侧栏多选与批量（F-17：F-16 已被 #107 的标签组套件占用）。
+  MULTI_SELECT_SUITE,
 ]
