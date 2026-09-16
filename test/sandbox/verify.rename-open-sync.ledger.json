@@ -1,0 +1,364 @@
+{
+  "title": "DSH One 装配线测试报告：启动后点「当前」会话只进改名、对话面板不出来（#121）",
+  "branch": "agent/rename-open-sync",
+  "commit": "122f889ca5ce4eaae2542efa41317f66d3eecec2",
+  "environment": {
+    "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
+    "dsh": "（未知）",
+    "gateway": "http://127.0.0.1:3093",
+    "lab": "http://127.0.0.1:3521",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（26 个套件）",
+    "date": "2026-09-16T13:31:12.631Z"
+  },
+  "coverageNote": "本报告是浏览器验证（第一道验证）：装配页由仓库真实模块（pageHtml / wireFilter / trees / assemblyMirror）构建，数据面是本机真实 dsh 网关（只读），宿主通道是假宿主（按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP 差异、剪贴板、原生菜单、多 webview 生命周期）、真模型输出、macOS 之外的平台。本轮的验收对象是 #121（启动后点「当前」会话只进改名、对话面板不出来）：**F-26 是新增功能项**，F-01…F-23、F-25 与 R-06 是同一轮跑过的回归项（**26 项 989 条断言全绿**，其中 F-22 是 #115 的会话行改名套件——本次改的是判据，它必须原样全绿）。套件编号从未占用的往下取：F-24 归 #117（回收站抽屉收起动效）、F-25 归 #118（顶栏折叠图标），本条取 **F-26**（F-01…F-23、F-25 与 R-06 已占）。八处口径说明：\n① **这次改的判据落在宿主半边，而实验室的宿主是假宿主**——页面侧的新两条能力（`session.inPanel` 查询 / `session.openPanel` 打开）在浏览器验证里验的是「页面确实问了、问的是哪条会话、请宿主亮的是哪条会话、次数对不对」，宿主侧的真实现（`src/ui/assemblyView.ts` 按面板↔会话的跟踪如实回答，判据 = 单例面板挂着它、或它有自己专属的多开标签页）在实验室里不存在。所以那条判据抽成了纯函数 `panelShowsSession`（`src/pure/sessionPanelRouting.ts`），由**单测**四种形态逐条钉住（挂着这条 / 挂着别的 / 根本没有面板 / 有专属多开标签页）；真窗里的端到端复现（重启 VS Code → 立刻点一条会话）按 issue 正文留给用户。\n② **四条路怎么造的现场**：假宿主新增 `panelSession` 开关（`true` = 宿主说这条会话开着；`false` = 没开）与 `panelQueries` / `panelsOpened` 记录，`session.openPanel` 到达时把开关翻成「开着它」（真宿主做完这件事之后确实如此）。缺省 `true` = 既有姿态，F-22 等既有套件按它验「点当前会话行 = 就地改名」，所以本次改动没有改动任何既有断言。\n③ **①的根因断言**：宿主说没开、点当前会话行时，套件同时断言「官方那条通路一声不响」——这条会话已经是官方 sessions 服务的「当前」，`sessions.open` 不会让值变化，选择桥（`sessionBridgePlugin`）因此零新增 `dshOne.sessionSelected`。面板出不来的机制就在这里，也正是必须新增 `session.openPanel` 这条（而不是只靠官方那条路）的原因。\n④ **④「没有宿主桥」怎么造**：套件在最后删掉页面上的 `__DSH_ONE_HOST__`（能力口 `hostCallAvailable()` 读的就是它），那一端就变成「官方 web 那一侧的处境」——查询恒 false（按打开处理）、动作静默，且一个宿主调用都不发。删桥这一步放在套件最后（删掉之后其余依赖宿主能力的断言就不成立了）。能力口「无桥 → false 且不抛错」的直接单测在 `test/hostCapabilitySdk.test.ts`（三条）。\n⑤ **断言可反证（本次实测做过一次）**：把树层的判据临时改成「一律当宿主开着」（= 修改前的行为）再跑 F-26，①的四条与④变红（点当前会话行进去的是编辑态、零打开请求、零 `session.inPanel` 查询）——失败信息与用户报的现象同形，说明这两条路确实钉在这次改动上，不是空转。\n⑥ **改判据没有改语义**：#115 定的「点当前会话 = 就地改名」原样保留（②断言）。本次修的是判据加一条真条件（宿主确实正开着它）。两端的退路也写明了：官方 web 侧（无桥）查询恒 false → 那一端当前会话行一律按打开处理（那一端的「打开」本来就是官方 `sessions.open`），这支特性在那端不生效是有意的、写在能力口的能力表里。\n⑦ **启动不同步不做额外动作**（issue 第 2 点让实现者判断）：侧栏一挂载就主动把面板顶出来是打扰（#68 的「自动开一次」已经承担了这件事，且它尊重「用户手动关过」这个选择），所以处理方式是「点击那一刻如实判掉」——用户点了那条会话就是明确表达要看它。F-26 ① 走的正是这条路。\n⑧ **活数据抖动与本轮环境**：F-01 / F-04 / F-14 / F-15 / F-16 / F-21 的夹具取当天网关上的真实会话与工作区，R-06 数的是网关会话数，机器上别的 session 在跑就会抖（#116 跟踪此事）；遇到这类红先单套件重跑，不要当回归去改断言。**本轮环境如实交代**：跑这一轮时用户那两个 dsh 网关（3080 / 3088）已经停了（21:15 前后进程退出、`~/.dsh/dsh-owned.json` 被清掉），所以我**自己起了一个 dsh web 实例**（`dsh web --host 127.0.0.1 --port 3093 --no-open`，用真实 `~/.dsh` profile，跑完即杀，实验室连的是它）——数据面仍是真实网关的真实会话数据，R-06 量的是它跑前跑后的会话数（一致）。\n本分支未做 VS Code 验证（`scripts/dev-ui-test.sh`）：按 AGENTS.md 的规矩 agent 不自己起真窗口，这条的真窗复现（重启 VS Code → 立刻点一个会话）已写在 issue 正文里交给用户。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "底座契约完备性：四棵树在真实网关上零崩溃、零缺失契约（CONTRACT 套件）",
+      "expect": "实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）各自在真实网关只读下打开：**零 `slot entry crashed`**（官方渲染层崩溃 + 页面无 `data-slot-error` 元素）、**零 pageerror**、**零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`，即缺服务/缺钩子那类底座缺口）；该树自己的关键座位**有内容**（不是空壳）、**预期座位锚点都在**（官方改座位名/改归属时这里先红）、该树的 frame 插件 bundle 真的装进了页面（combo 请求里有它的 id、页面上有它的 CSS 标记）；chat 树额外核官方右栏座位（声明 + 官方 ui-sidebar-right 的座位已注册 + 面板几何在官方钳位区间内）。缺 hook 与缺服务在页面上的表现就是 `slot entry crashed` / `did not activate`，所以这两条断言即 hook/服务的完备性断言。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/contract-sidebar.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/contract-sidebar-official.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/contract-chat.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/contract-settings.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/contract-chat-rightbar.png"
+      ],
+      "notes": "本套件断言 43 条，通过 43。\n观测：\n- sidebar：ready=true 槽位锚点=8 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 自有工作区树的会话行=12\n- sidebar：座位锚点 sidebar=1 sidebar.workspaces=1 sidebar.settings=0\n- sidebar-official：ready=true 槽位锚点=9 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 官方浏览区的会话行=6\n- sidebar-official：座位锚点 sidebar=1 sidebar.workspaces=1\n- chat：ready=true 槽位锚点=22 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 对话区 composer 座位=1\n- chat：座位锚点 main=1 conversation.composer.bar=1 rightbar=1\n- chat：官方右栏 面板元素=true 面板宽=540 外框宽=1200 会话座位=1\n- settings：ready=true 槽位锚点=6 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 设置内容区=1\n- settings：座位锚点 main=1 settings.section=1\n- chat（会话 session-0f66f3dd）：会话头右侧角按钮=[\"打开右侧边栏\"] 展开前轨道宽=0\n- chat：点开后 面板开=true 轨道宽=576 面板宽=576 面板左缘=703 页签=[\"对话\",\"轨迹\",\"开始\"]"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "三棵树冒烟渲染：侧栏会话树 / 对话区 / 设置页都出真内容（SMOKE 套件）",
+      "expect": "侧栏树：真实网关的会话行（自有树插件渲染）与分组行都在，行上有标题文本，侧栏壳的新建会话按钮在。对话区：composer 座位里有可编辑输入框。设置页：设置内容区渲染出多行设置项。三棵树控制台零 error。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/smoke-sidebar.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/smoke-chat.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/smoke-settings.png"
+      ],
+      "notes": "本套件断言 13 条，通过 13。\n观测：\n- sidebar：分组行=15 会话行=12 文本长度=453\n- chat：composer 可编辑元素=1 自有对话容器=1 main 槽位子项=1 main 下的会话面板=1 composer.bar 座位子项=1\n- settings：通用设置行=1 行内容元素=6 内容区后代=69"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "关键交互：行内码右键菜单、清空（Esc ×2）+ 反悔（Ctrl+Z）、commit 卡片（INTERACT 套件）",
+      "expect": "chat 树：给消息正文里的行内码点右键 → 弹出官方 Menu（role=menu）承载的单图标项，行内码被高亮标记，Esc 后菜单与高亮都撤掉。正文里的 7 位 hash → 悬停出提交卡片，卡片内容来自宿主能力口（假宿主回执），点卡片上的 GitHub 按钮 → 页面发出一次 vscode.openExternal。composer 里输入文字后按 Esc → 出「再按一次」提示；再按 Esc → 草稿清空且出撤销入口；Ctrl+Z → 草稿复原。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/interact-menu.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/interact-gitcard.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/interact-clear-arm.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/interact-clear-done.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/interact-clear-undo.png"
+      ],
+      "notes": "本套件断言 14 条，通过 14。\n观测：\n- 右键菜单：{\"marked\":1,\"menuPresent\":true,\"role\":\"menu\",\"items\":1,\"iconItems\":1}\n- git 卡片：{\"present\":true,\"text\":\"Lab Bot1 天前 (2026-09-15 08:00:00.000Z)lab: fake commit deadbeesecond line of the fake body3 个文件变更, +12, -4提交 0123456在 GitHub 打开\",\"buttons\":2}\n- GitHub 按钮发出的 openExternal：[\"https://github.com/example/repo/commit/deadbee\"]\n- 第一次 Esc 后的提示元素=1\n- 第二次 Esc 后的草稿=\"\" 撤销入口=1\n- Ctrl+Z 后的草稿=\"lab clear test\""
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "侧栏树外观与几何对齐官方（PARITY 套件，260/340/500 三档宽度）",
+      "expect": "同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索胶囊、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。四组例外都写明了理由：**列表容器只比宽度**（自有树多一条分组过滤条，容器矮一行是功能带来的）、**相对时间只比高度**（#109 的 E7 把当前工作区那一组排到最前，官方页仍按注册顺序，两侧取到的可能是不同会话的相对时间，而宽度正是被文本撑出来的）、**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/parity-own-340.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/parity-official-340.png"
+      ],
+      "notes": "本套件断言 178 条，通过 178。\n观测：\n- 对齐口径：自有树（.dshOneTree_*）对官方对照档（官方 hash 类名，按类名后缀配对），逐组比 computed style 各属性 + 几何矩形；共 10 组元素 × 3 档宽度（260/340/500）\n- 密度档兜底值（自作树 CSS 读出并回填到 frame）：icon-button-size=28px icon-button-size=28px section-header-height=36px section-gap=4px section-header-gap=4px section-padding-inline=4px icon-button-size=28px section-gap=4px search-height=28px search-expanded-height=30px icon-button-size=28px icon-button-size=28px icon-button-size=28px search-expanded-height=30px list-padding-bottom=16px row-gap=2px group-gap=4px overflow-row-height=28px row-radius=8px meta-font-size=12px row-radius=8px row-padding-inline=8px row-height=34px session-row-height=32px title-line-height=20px title-font-size=14px title-line-height=20px title-font-size=14px title-line-height=20px meta-font-size=12px meta-line-height=20px search-row-min-height=48px row-radius=8px section-gap=4px group-gap=4px section-padding-inline=4px pill-height=28px section-gap=4px pill-padding-end=4px pill-padding-start=8px pill-font-size=13px section-padding-inline=4px footer-row-height=42px row-radius=8px row-padding-inline=8px title-font-size=14px meta-font-size=12px icon-button-size=28px icon-button-size=28px row-height=34px meta-font-size=12px meta-font-size=12px row-padding-inline=8px meta-font-size=12px meta-line-height=20px meta-font-size=12px meta-font-size=12px section-header-height=36px section-gap=4px section-padding-inline=4px row-padding-inline=8px title-font-size=14px meta-font-size=12px section-padding-inline=4px list-padding-bottom=16px group-gap=4px row-radius=8px drawer-block-header-height=26px section-gap=4px row-padding-inline=8px meta-font-size=12px session-row-height=32px row-radius=8px row-padding-inline=8px meta-font-size=12px meta-font-size=12px meta-font-size=12px meta-font-size=12px meta-font-size=12px row-padding-inline=8px row-padding-inline=8px meta-font-size=12px row-padding-inline=8px row-gap=2px\n- w=260 sectionHeader：own=\"\" (263) official=\"工作区\" (263)\n- w=260 search：own=\"\" (103) official=\"\" (255)\n- w=260 search：本组只比样式，不比矩形（宽度由两边工具栏条目数决定）\n- w=260 searchButton：own=\"\" (28) official=\"\" (28)\n- w=260 iconButton：own=\"\" (0) official=\"\" (0)\n- w=260 projectRow：own=\"dsh-tool-showimage\" (249) official=\"dsh-tool-showimage\" (249)\n- w=260 sessionRow：own=\"新会话\" (249) official=\"新会话\" (249)\n- w=260 title：own=\"dsh-tool-showimage\" (211) official=\"dsh-tool-showimage\" (211)\n- w=260 time：own=\"1小时\" (31) official=\"22分钟\" (40)\n- w=260 slot：own=\"\" (16) official=\"\" (16)\n- w=260 list：own=\"dsh-tool-showimagelaixidsh-mobiledsh-com\" (261) official=\"dsh-tool-showimagelaixidsh-mobiledsh-com\" (261)\n- w=340 sectionHeader：own=\"\" (343) official=\"工作区\" (343)\n- w=340 search：own=\"\" (183) official=\"\" (335)\n- w=340 search：本组只比样式，不比矩形（宽度由两边工具栏条目数决定）\n- w=340 searchButton：own=\"\" (28) official=\"\" (28)\n- w=340 iconButton：own=\"\" (0) official=\"\" (0)\n- w=340 projectRow：own=\"dsh-tool-showimage\" (329) official=\"dsh-tool-showimage\" (329)\n- w=340 sessionRow：own=\"新会话\" (329) official=\"新会话\" (329)\n- w=340 title：own=\"dsh-tool-showimage\" (291) official=\"dsh-tool-showimage\" (291)\n- w=340 time：own=\"1小时\" (31) official=\"22分钟\" (40)\n- w=340 slot：own=\"\" (16) official=\"\" (16)\n- w=340 list：own=\"dsh-tool-showimagelaixidsh-mobiledsh-com\" (341) official=\"dsh-tool-showimagelaixidsh-mobiledsh-com\" (341)\n- w=500 sectionHeader：own=\"\" (503) official=\"工作区\" (503)\n- w=500 search：own=\"\" (343) official=\"\" (495)\n- w=500 search：本组只比样式，不比矩形（宽度由两边工具栏条目数决定）\n- w=500 searchButton：own=\"\" (28) official=\"\" (28)\n- w=500 iconButton：own=\"\" (0) official=\"\" (0)\n- w=500 projectRow：own=\"dsh-tool-showimage\" (489) official=\"dsh-tool-showimage\" (489)\n- w=500 sessionRow：own=\"新会话\" (489) official=\"新会话\" (489)\n- w=500 title：own=\"dsh-tool-showimage\" (451) official=\"dsh-tool-showimage\" (451)\n- w=500 time：own=\"1小时\" (31) official=\"22分钟\" (40)\n- w=500 slot：own=\"\" (16) official=\"\" (16)\n- w=500 list：own=\"dsh-tool-showimagelaixidsh-mobiledsh-com\" (501) official=\"dsh-tool-showimagelaixidsh-mobiledsh-com\" (501)"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "宿主能力口页面侧：统一获取点、id 配对、结构化错误（BRIDGE 套件）",
+      "expect": "装配页注入的 `__DSH_ONE_HOST__.call` 是函数；全页 `acquireVsCodeApi` **只被调用一次**（统一获取点约束，第二次会 throw）；并发调用按各自 id 兑现自己的回执；宿主拒绝时抛带 code 的结构化错误；上行消息形状是 {type:dshOne.hostCall,call,args,id} 且 id 各不相同。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "本套件断言 7 条，通过 7。\n观测：\n- 桥：{\"missing\":false,\"callType\":\"function\",\"acquireCalls\":1,\"shas\":[\"aaaaaaa\",\"bbbbbbb\"],\"codes\":[\"lab: fake commit aaaaaaa\",\"lab: fake commit bbbbbbb\"],\"rejected\":{\"code\":\"unknown-call\",\"message\":\"lab host: unknown call lab.unknown\"},\"ids\":[\"hc1-ykca3lro\",\"hc2-mfevale3\",\"hc3-utc7jpvs\",\"hc4-d0mcs1mj\",\"hc5-7pf2ajwd\",\"hc6-r3jafrbs\",\"hc7-7baherhu\",\"hc8-shl634or\",\"hc9-c1mrwp2r\"],\"shapeOk\":true}"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "可移植性：页面上没有自有 frame 标记时，三个 dsh-* 插件照常工作（PORTABLE 套件）",
+      "expect": "chat 树在**抹掉自有 frame 标记**的页面上（`data-shell*` 属性一律不落进 DOM，等于官方 web 那种「没有我们的 shell frame」的处境）照常可用：官方对话区容器仍在；夹具正文被 git 卡片装饰、悬停出提交卡片；行内码右键出菜单、Esc 撤掉；GitHub 按钮有宿主桥时走 `vscode.openExternal`，把宿主桥撤掉后改走页面 `window.open`（官方 web 侧那条路）；composer 里 Esc ×2 清空、Ctrl+Z 复原。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/portable-menu.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/portable-gitcard.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/portable-clear-arm.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/portable-clear-undo.png"
+      ],
+      "notes": "本套件断言 11 条，通过 11。\n观测：\n- 抹掉 frame 标记后的页面：data-shell=0 data-shell-overlay=0 官方对话区容器=1\n- 无 frame 标记时的右键菜单：{\"menu\":true,\"items\":1,\"marked\":1}\n- 无 frame 标记时的提交卡片：{\"present\":true,\"text\":\"Lab Bot1 天前 (2026-09-15 08:00:00.000Z)lab: fake commit deadbeesecond line of the fake body3 个文件变更, +12, -4提交 0123456在 GitHub 打开\",\"buttons\":2}\n- 有宿主桥时的外链出口：[\"https://github.com/example/repo/commit/deadbee\"]\n- 撤掉宿主桥后的外链出口：[\"https://github.com/example/repo/commit/deadbee\"]"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "侧栏六项核心功能（#81）：分组过滤、活状态计数、回收站抽屉、批量选择、不折叠、状态读写与视图态持久化",
+      "expect": "侧栏树（真实网关只读 + 假宿主）：**旧版 groups.json 的形状注进宿主状态存储就是可用数据**（分组 chip 按它渲染，过滤只留归属该分组的工作区）；分组由界面新建后按同一形状写回宿主状态存储（version 1、membership 在、旧字段 activeGroupId 不被抹掉）。**计数与行同源**：每个工作区行尾的「运行中/等待交互」角标数值 = 该工作区下会话行里 `data-dshone-tree-status` 的数（这同时证明工作区内会话没有被官方那 5 行截断，**不折叠**：不出现「显示更多」行，行数 = 该工作区的会话总数）。**回收站**：官方归档集合在抽屉里按工作区组织、每行有还原按钮；批量选择态出复选框与动作条，选中计数随点选变化，退出后动作条消失。**视图态**：当前过滤的分组写进官方惯例的 `dsh.workspaceTree.view`（localStorage），同上下文重载后仍然生效。全程零 pageerror（归档/还原**不被点击**——那会写真实网关）。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/sidebar-group-filter.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/sidebar-activity-counts.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/sidebar-recycle-drawer.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/sidebar-multi-select.png"
+      ],
+      "notes": "本套件断言 29 条，通过 29。\n观测：\n- 真实网关上的工作区分组键：b29ca186-0715-4902-89f6-3c928a68dac1, 638dc7b8-35f8-4263-a85d-656af54358bf, 54b1f167-5db2-49f8-aa61-01828d446bf3, 1c035e6a-c954-46f5-b0fd-95de0d79789e（共 15 个）\n- 分组胶囊：label=\"全部工作区14\" 计数=14 下拉项=all,g-lab-one,g-lab-two\n- 展开了 15 个分组：b29ca186=2行(角标无) 638dc7b8=1行(角标无) 54b1f167=1行(角标无) 1c035e6a=1行(角标无) 8f908f22=1行(角标无)\n- 回收站入口角标=0 抽屉={\"groups\":[],\"rows\":0,\"restores\":0,\"empty\":false,\"status\":true}\n- 可勾选会话行=131 已勾选=2 动作条=\"已选 2 项移入回收站归档退出选择\""
+    },
+    {
+      "id": "F-09",
+      "phase": "new-feature",
+      "name": "对话区会话头 utilities 座位的条目集合：官方 open-in-app 与自有导出都在且都可见（HEADER-UTILITIES 套件）",
+      "expect": "chat 树在**真实会话**下打开：`conversation.session.header.utilities` 座位里官方 `@deepseek-ai/dsh-client-ui-open-in-app` 的贡献在（DOM 有它的 split button，取 /open-in-app/icon/* 的应用图标）且**可见**（该条目矩形非 0、没有被 display:none 摘掉呈现）；自有 `@dsh-one/dsh-session-export` 的导出按钮同样在且可见；座位里没有任何一个条目被自有 CSS 摘掉呈现（#87 的缺席就是「该座位上一切非自有条目一律 display:none」造成的，这里按条目逐个盯住）；官方 `dsh-session-log-export` 的同 id 条目被本插件的 shadow（priority −1）顶掉、不再渲染（防止两个导出入口并存）。另：官方宿主路由（应用清单 `/open-in-app/apps`）在页面里可达——一条取官方内部基址 `http://dsh.internal`、一条取页面自身源，两条都要 200 且带应用清单（webview 里页面源不是网关，这类按 location.origin 寻址的裸 fetch 由页面传输接缝改写到 loopback）。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/header-utilities-chat.png"
+      ],
+      "notes": "本套件断言 13 条，通过 13。\n观测：\n- 选中会话 session-0f66f3dd-63ca-4881-88c5-f57dddabf6d8（cwd=/Users/cgeng/Documents/kimi/Workspaces/ESP32的语音键盘方案，候选 1198 个）\n- 座位条目：[{\"tag\":\"span\",\"className\":\"_root_1nxmc_1\",\"display\":\"flex\",\"width\":52,\"height\":28,\"ariaLabel\":\"在 访达 中打开工作目录\",\"openInAppIcons\":1,\"exportMarkers\":0,\"officialExportButtons\":0},{\"tag\":\"span\",\"className\":\"dshOneExport_btn\",\"display\":\"flex\",\"width\":109,\"height\":28,\"ariaLabel\":\"\",\"openInAppIcons\":0,\"exportMarkers\":1,\"officialExportButtons\":0}]\n- 宿主路由观测：origin=http://127.0.0.1:3521 {\"internal\":{\"label\":\"internal\",\"url\":\"http://dsh.internal/open-in-app/apps\",\"status\":200,\"apps\":[\"finder\",\"vscode\",\"iterm\",\"terminal\"]},\"sameOrigin\":{\"label\":\"page-origin\",\"url\":\"http://127.0.0.1:3521/open-in-app/apps\",\"status\":200,\"apps\":[\"finder\",\"vscode\",\"iterm\",\"terminal\"]},\"requested\":[\"http://127.0.0.1:50116/open-in-app/apps\",\"http://127.0.0.1:50116/open-in-app/apps\",\"http://127.0.0.1:50116/open-in-app/apps\"]}"
+    },
+    {
+      "id": "F-08",
+      "phase": "new-feature",
+      "name": "会话多开：会话行菜单「在新标签页打开」+ 多开 tab 的启动注入（MULTIOPEN 套件）",
+      "expect": "侧栏树：会话行的 ⋯ 菜单里有「在新标签页打开」项（原有三项都在，每项都有文案），**行右键**弹出同一份菜单且菜单锚在指针处，Esc 关掉；点该项 → 页面经宿主能力口发出一次 `session.openInNewTab`，带的是**那一行**的真会话 id；点第二行得到第二个不同 id。chat 树：`?session=<id>` 的页面把该 id 注入 `__DSH_ONE_BOOT__` 并真的把它开成当前会话（boot-timing first-meta 等于该 id）；**同一个浏览器上下文（同一源、同一 localStorage，即真 VS Code 里多条 webview 的现场）里开第二个多开会话页**，两页各自开自己的会话、互不串；注入一个不存在的 id 时防闪帧遮罩在场（不闪官方空白态）。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/multiopen-menu.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/multiopen-rightclick.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/multiopen-tab-1.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/multiopen-tab-2.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/multiopen-opening-mask.png"
+      ],
+      "notes": "本套件断言 26 条，通过 26。\n观测：\n- 网关会话数=1198；注入用会话=session-0f66f, session-d294f\n- 侧栏分组=15 会话行=12（其中带行菜单的=11）\n- ⋯ 菜单：{\"menus\":1,\"item\":\"归档会话\",\"allItems\":[\"选择多个\",\"在新标签页打开\",\"重命名\",\"置顶\",\"标为未读\",\"移到分组…▸\",\"分叉会话\",\"复制引用\",\"移入回收站\",\"归档会话\"],\"anchored\":{\"left\":177,\"top\":443}}\n- ⋯ 菜单点「在新标签页打开」后宿主收到=[\"session-1d8a0d5d-e8fe-493c-9ec9-a117642fe52b\"]\n- 行右键菜单：{\"menus\":1,\"item\":\"归档会话\",\"allItems\":[\"选择多个\",\"在新标签页打开\",\"重命名\",\"置顶\",\"标为未读\",\"移到分组…▸\",\"分叉会话\",\"复制引用\",\"移入回收站\",\"归档会话\"],\"anchored\":{\"left\":90,\"top\":463}} 期望锚点约 {\"left\":90,\"top\":463}\n- 两行各点多开后宿主收到的全部请求=[\"session-1d8a0d5d-e8fe-493c-9ec9-a117642fe52b\",\"session-f35be71c-db63-44bb-b28a-17ac910bdab4\"]\n- 多开页 1 提到页 2 会话的日志=[]；页 2 提到页 1 会话的日志=[]\n- 不存在会话的注入：boot=\"session-lab-missing-000\" 遮罩=1 consoleError=[]"
+    },
+    {
+      "id": "F-10",
+      "phase": "new-feature",
+      "name": "fiber 级契约：四棵树里没有任何 cordis scope 进 FAILED（FIBER 套件）",
+      "expect": "实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）在真实网关只读下打开，页面里装上 cordis fiber 探针（包 `__ModuleLoader__.load` 的 factory 记插件 id → 包 `@deepseek-ai/dsh-client-modules` 的 apply 拿 ctx → 监听 `internal/plugin` 与 `internal/status`，见 `fiberProbeScript`）：**没有任何 scope 进 FAILED**（官方 Fiber 状态枚举里的 3）。这条断言要抓的是 F-01 抓不到的那一类——cordis 插件 fiber 失败**不进浏览器控制台**（官方 client logger 没有 console exporter），#74 那条 `slot \"conversation.hero.agentPreset\" is not declared` 就是靠派生症状才被发现的；F-01 看的是装起来的症状（座位锚点、槽位崩溃、页面报错），这条看的是**装载本身**。同时钉住探针本身没瞎：接上了事件总线、登记到了该树的自有 frame 插件、真观察到 scope 状态变化、探针自身零异常——否则「零失败」是空的。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "本套件断言 20 条，通过 20。\n观测：\n- sidebar：fiber 探针等待 1539ms 后静下来（事件数 123）\n- sidebar：探针登记插件=36 事件总线=1 状态事件=123 scope=123 状态分布={\"active\":62,\"loading\":61}\n- sidebar-official：fiber 探针等待 1546ms 后静下来（事件数 121）\n- sidebar-official：探针登记插件=35 事件总线=1 状态事件=121 scope=121 状态分布={\"active\":61,\"loading\":60}\n- chat：fiber 探针等待 1565ms 后静下来（事件数 201）\n- chat：探针登记插件=58 事件总线=1 状态事件=201 scope=201 状态分布={\"active\":101,\"loading\":100}\n- settings：fiber 探针等待 1555ms 后静下来（事件数 147）\n- settings：探针登记插件=40 事件总线=1 状态事件=147 scope=147 状态分布={\"active\":74,\"loading\":73}"
+    },
+    {
+      "id": "F-11",
+      "phase": "new-feature",
+      "name": "block list 存活性：三棵树 block 的每个官方插件 id 都能在当天网关 wire 里找到（WIRE-LIVENESS 套件）",
+      "expect": "拿**当天网关下发的官方 wire**（实验室各页面的装配来源，`lab.gatewayPluginIds()`）逐棵树核 block list：`chat` / `sidebar` / `settings` 三棵树引用的每个官方插件 id 都必须能在 wire 的 entries 里找到，一条都不能缺。红了就是清单与现实漂移了——官方把某个被 block 的插件**改名或并进别的插件**时，新 id 不会被剥掉，官方件会静默混进树里（`filterWire` 只会打一条 warn，不阻断装配），而这正是最难排查的那种「看着正常、其实多了个不该在的官方件」。失败信息带上「哪棵树 + 哪个 id + 当天 wire 里含同名词的邻近 id（可能改成了谁）」。红了怎么办：按官方 release notes 或官方源码确认它的新装载方式，把这条 block 改成新 id（内容搬进别的插件时通常是**摘除**这条，因为那个 id 已经不存在了），摘除要照 CHAT_FLOW / SETTINGS_PAGES 的写法写明为什么。三棵树都查（`sidebar-official` 对照档与 `sidebar` 同一份 block list，去重后不重复报）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "本套件断言 4 条，通过 4。\n观测：\n- 当天网关 http://127.0.0.1:3093（dsh （未知））的官方 wire：56 个条目；被检查的树 chat / sidebar / settings\n- chat：block list 5 项，在当天 wire 里命中 5 项\n- sidebar：block list 25 项，在当天 wire 里命中 25 项\n- settings：block list 18 项，在当天 wire 里命中 18 项"
+    },
+    {
+      "id": "F-12",
+      "phase": "new-feature",
+      "name": "侧栏骨架四区（#99）：顶栏四项 + 官方搜索栏 + 单胶囊分组条 + 底部回收站入口行（SIDEBAR-SKELETON 套件）",
+      "expect": "#99 定的四区骨架在真实装配页上成立：① 顶栏一行里搜索栏（官方那套 UI 的展开态，30px 高 / 10px 圆角）、折叠展开全部、添加工作区、设置齿轮四件都在，且折叠全部真的收起整棵树；② 添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录），第二项经宿主能力口发出 `vscode.workspaceCreate`；③ 设置齿轮经宿主能力口发出 `vscode.openSettings`（假宿主只记录，真宿主开设置页），同时官方 `sidebar.settings` 那一行不再渲染；④ 分组过滤条是单胶囊 + 成员计数 + ▾，下拉含「全部工作区 / 各组 / 新建分组… / 管理分组…」，管理分组对话框列出全部组；⑤ 回收站入口行在官方 `sidebar.footer.action` 座位里、与官方 cordis-panel 条目并存、不在自有浏览区 DOM 内，点它开现有抽屉。全程零 pageerror。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/skeleton-group-pill.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/skeleton-manage-groups.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/skeleton-footer-recycle-entry.png"
+      ],
+      "notes": "本套件断言 28 条，通过 28。\n观测：\n- 密度档兜底值回填项数=84（与 F-04 同一口径：先把 VS Code 档对齐到官方档再量几何）\n- 顶栏四件：{\"collapseAll\":true,\"addWorkspace\":true,\"settings\":true} 搜索={\"found\":true,\"height\":\"30px\",\"radius\":\"10px\",\"borderWidth\":\"1px\",\"borderStyle\":\"solid\",\"placeholder\":\"搜索会话…\",\"opacity\":\"1\",\"tabIndex\":0,\"retiredPill\":false}\n- 搜索态：结果行=0 状态文案=\"内容搜索暂不可用，仅显示名称匹配。\""
+    },
+    {
+      "id": "F-13",
+      "phase": "new-feature",
+      "name": "侧栏密度档扩散（#104）：顶栏 / 分组过滤条 / 回收站入口行 / 抽屉在三档宽度下都更紧凑（DENSITY-SPREAD 套件）",
+      "expect": "同一页、同一数据、260/340/500 三档宽度下，把自有树的密度变量从宿主给的 VS Code 档切到它自己声明的官方兜底值（= 官方档），四区的几何逐一比较：顶栏行（高/左内边距/行内间隙）、顶栏图标按钮（宽高）、顶栏动作组间隙、分组过滤条（左内边距/间隙）、分组胶囊（高/字号/间隙/左右内边距）、回收站入口行（左右内边距）、入口主区（高/左右内边距）、入口动作按钮（宽高）、抽屉头（高/左右内边距/间隙）、抽屉分块块头（高/左右内边距）、抽屉会话行（高/左右内边距）、抽屉列表（左右内边距/底部留白）——**每一项紧凑档都严格小于官方原值**，且同一区域在三档宽度下的紧凑读数一致（密度是容器给的，不随宽度漂）。同时钉住「对齐到官方兜底值后读数确实变大」（说明这两组读数真的来自那套变量，不是量到了别的东西）。全程零 pageerror。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/density-spread-compact-340.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/density-spread-official-340.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/density-spread-drawer-340.png"
+      ],
+      "notes": "本套件断言 65 条，通过 65。\n观测：\n- 量法：同一页两种密度状态（宿主给的 VS Code 档 vs 内联官方兜底值），三档宽度 260/340/500。抽屉关着量 顶栏行、顶栏图标按钮、顶栏动作组、分组过滤条、分组胶囊、回收站入口行、回收站入口主区、回收站入口动作按钮；抽屉开着量 抽屉头、抽屉分块块头、抽屉会话行、抽屉列表\n- 顶栏/过滤条/回收站入口行 @340（紧凑 → 官方）：顶栏行.height 26→36；顶栏行.paddingLeft 2→4；顶栏行.columnGap 2→4；顶栏图标按钮.width 26→28；顶栏图标按钮.height 26→28；顶栏动作组.columnGap 2→4；分组过滤条.paddingLeft 2→4；分组过滤条.columnGap 2→4；分组胶囊.height 26→28；分组胶囊.fontSize 12→13；分组胶囊.columnGap 2→4；分组胶囊.paddingLeft 7→8；分组胶囊.paddingRight 2→4；回收站入口行.paddingLeft 2→4；回收站入口行.paddingRight 2→4；回收站入口主区.height 26→42；回收站入口主区.paddingLeft 7→8；回收站入口主区.paddingRight 7→8；回收站入口动作按钮.width 26→28；回收站入口动作按钮.height 26→28\n- w=260 抽屉分块块头：这一轮没有这个元素（网关归档集合为空时抽屉只出状态行）——跳过\n- w=260 抽屉会话行：这一轮没有这个元素（网关归档集合为空时抽屉只出状态行）——跳过\n- w=260 抽屉列表：这一轮没有这个元素（网关归档集合为空时抽屉只出状态行）——跳过\n- w=340 抽屉分块块头：这一轮没有这个元素（网关归档集合为空时抽屉只出状态行）——跳过\n- w=340 抽屉会话行：这一轮没有这个元素（网关归档集合为空时抽屉只出状态行）——跳过\n- w=340 抽屉列表：这一轮没有这个元素（网关归档集合为空时抽屉只出状态行）——跳过\n- w=500 抽屉分块块头：这一轮没有这个元素（网关归档集合为空时抽屉只出状态行）——跳过\n- w=500 抽屉会话行：这一轮没有这个元素（网关归档集合为空时抽屉只出状态行）——跳过\n- w=500 抽屉列表：这一轮没有这个元素（网关归档集合为空时抽屉只出状态行）——跳过\n- 抽屉四件 @340（紧凑 → 官方）：抽屉头.height 26→36；抽屉头.paddingLeft 7→8；抽屉头.paddingRight 2→4；抽屉头.columnGap 2→4；抽屉分块块头.height undefined→undefined；抽屉分块块头.paddingLeft undefined→undefined；抽屉分块块头.paddingRight undefined→undefined；抽屉会话行.height undefined→undefined；抽屉会话行.paddingLeft undefined→undefined；抽屉会话行.paddingRight undefined→undefined；抽屉列表.paddingLeft undefined→undefined；抽屉列表.paddingRight undefined→undefined；抽屉列表.paddingBottom undefined→undefined"
+    },
+    {
+      "id": "F-14",
+      "phase": "new-feature",
+      "name": "置顶与手动未读（#102）：旧值迁入 + 置顶排最前 + 未读标/清/禁用 + 保护规则（PIN-UNREAD 套件）",
+      "expect": "侧栏树（真实网关只读 + 假宿主）：① **迁入**——注入旧形状（裸 id 数组）的 `pinned` 与规范形状的 `unread`，两者都被采用（行上出图钉 / 出未读加粗），且只有旧形状那一份被按规范形状 `{version:1, sessionIds:[…]}` 写回一次、规范形状那一份原样不重写；② **置顶排最前**——置顶行的位置在它所在分组里排第一（其余行保持官方顺序）；③ **手动未读**——菜单「标为未读」把行变成绿点 + 标题加粗并写进 `unread` 键，再点「标为已读」清掉；**打开会话即清未读**；运行中（或后代在跑）的那一行该项禁用并给出原因；④ **保护规则**——置顶行在选择态下不可勾选（勾选框灰、带原因、点它不切换）、「归档会话」项禁用并给出置顶原因，未读行的归档项禁用并给出未读原因（归档许可的口径 = `canArchive`）。全程零 pageerror。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/pin-unread-menu-pinned.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/pin-unread-menu-unread.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/pin-unread-protect-select.png"
+      ],
+      "notes": "本套件断言 27 条，通过 27。\n观测：\n- 真实网关的行：131 条（分组 15 个，其中带行菜单的 130 条）\n- 夹具：置顶=session-d294f（分组 b29ca186 第 1 行） 未读=session-75f94 运行中样本=无\n- 置顶行菜单：{\"pin\":{\"text\":\"取消置顶\",\"disabled\":false,\"tip\":\"\",\"children\":3},\"unread\":{\"text\":\"标为未读\",\"disabled\":false,\"tip\":\"\",\"children\":2},\"archive\":{\"text\":\"归档会话\",\"disabled\":true,\"tip\":\"置顶会话不能归档，先取消置顶\",\"children\":2}}\n- 未读行菜单：{\"pin\":{\"text\":\"置顶\",\"disabled\":false,\"tip\":\"\",\"children\":2},\"unread\":{\"text\":\"标为已读\",\"disabled\":false,\"tip\":\"\",\"children\":3},\"archive\":{\"text\":\"归档会话\",\"disabled\":true,\"tip\":\"未读的会话不能归档\",\"children\":2}}"
+    },
+    {
+      "id": "F-15",
+      "phase": "new-feature",
+      "name": "回收站两层语义（#103）：移入/还原是本地可逆、归档=删除带确认（RECYCLE-TWO-LAYER 套件）",
+      "expect": "#103 定的两层语义在真实装配页上成立（真网关**只读** + 假宿主 + 同一上下文里并排开官方浏览区对照档）：① **移入回收站只写本地状态**——行菜单「移入回收站」后会话从我们树里消失、入口角标 +1、假宿主状态存储里出现 `recycle-bin`（形状 `{version:1, sessionIds:[按移入顺序]}`），而**官方浏览区里的会话一条都没少**（同时刻对照，证明 dsh 侧一个字节没动）；② **抽屉形态**：点入口行从底部半高滑出（高度档 50）、提手上拉吸附到 90、按原工作区分块、块内按移入顺序倒序、块头可折叠且折叠态落 `dsh.workspaceTree.view`（重载后仍收起）；③ 状态按旧侧栏那份文件的键名与形状读回（**旧 recycle-bin.json 原样迁入**），并在基线就绪时**清账**——集合里 dsh 侧已不存在的 id 被剔掉、真的那几条原样保留；④ **还原**（行尾按钮与入口「全部还原」）同样只动本地状态，会话回到树里；⑤ **归档 = 删除**：入口「清空」与多选操作条的「归档」都先开同一个确认弹窗（写明不可恢复、按工作区列出将归档的会话、写明跳过数），取消则什么都不发生；⑥ 多选操作条的「移入回收站」复用同一套本地动作（立即执行 + 飘提示 + 退出选择态）；⑦ 回收站空时入口两枚动作图标禁用。全程零 pageerror，且本套件**从不点归档确认**（那会写真实网关）。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/recycle-moved-first.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/recycle-drawer-half.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/recycle-drawer-expanded.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/recycle-empty-confirm.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/recycle-restored-all.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/recycle-batch-archive.png"
+      ],
+      "notes": "本套件断言 63 条，通过 63。\n观测：\n- 夹具：同一工作区块里带行菜单的会话行={\"key\":\"b29ca186-0715-4902-89f6-3c928a68dac1\",\"ids\":[\"session-75f94f7e-c138-4241-bdeb-577e4dc9990d\",\"session-d294fb76-b017-4e27-8f3b-fce6f46c09a7\"],\"titles\":[\"SVG架构图呈现能力\",\"图片直接展示工具开发想法\"],\"siblingRows\":2}\n- 夹具会话：session-75f94f7e-c138-4241-bdeb-577e4dc9990d（SVG架构图呈现能力）与 session-d294fb76-b017-4e27-8f3b-fce6f46c09a7（同在 b29ca186-0715-4902-89f6-3c928a68dac1 块）\n- 官方浏览区对照档（工作区全展开）：会话行=44 含首条夹具标题=true\n- 行菜单两项：移入回收站=\"移入回收站\"（原因  禁用 false） 归档会话=\"归档会话\"（原因  禁用 false 提示 \"\"）\n- 移入一条后：入口角标=1 宿主状态={\"version\":1,\"sessionIds\":[\"session-75f94f7e-c138-4241-bdeb-577e4dc9990d\"]}\n- 移入两条后官方浏览区：会话行=44（移入前 44）含首条夹具=true\n- 抽屉：高度档=50 实测比例=0.50 块=[{\"key\":\"b29ca186-0715-4902-89f6-3c928a68dac1\",\"rows\":[\"session-d294fb76-b017-4e27-8f3b-fce6f46c09a7\",\"session-75f94f7e-c138-4241-bdeb-577e4dc9990d\"]}]\n- 夹具两条所在块：{\"key\":\"b29ca186-0715-4902-89f6-3c928a68dac1\",\"rows\":[\"session-d294fb76-b017-4e27-8f3b-fce6f46c09a7\",\"session-75f94f7e-c138-4241-bdeb-577e4dc9990d\"]}（工作区块键 b29ca186-0715-4902-89f6-3c928a68dac1）\n- 折叠块 b29ca186-0715-4902-89f6-3c928a68dac1：flag=true 行数=0 prefs={\"groupBy\":\"workspace\",\"orderBy\":\"manual\",\"activeGroupId\":null,\"expandedGroups\":[\"b29ca186-0715-4902-89f6-3c928a68dac1\",\"638dc7b8-35f8-4263-a85d-656af54358bf\",\"54b1f167-5db2-49f8-aa61-01828d446bf3\",\"1c035e6a-c954-46f5-b0fd-95de0d79789e\",\"8f908f22-a4f2-4f6c-aae4-f034fe4269e1\",\"e7f1b064-6497-4860-bbc6-f03620e97933\",\"b09d7d32-d44f-4766-8aee-0d434f648207\",\"62b6453f-c53c-45c6-b315-9e0457816b7e\",\"394121fe-1472-440f-992a-0296e2db9c73\",\"d7ecd7c7-4657-42a3-a4ac-c3b790240bfa\",\"ef81e339-1bc0-4205-91d9-f7262ae2c625\",\"626e730c-9a87-46ab-97a3-57444fbed94d\",\"09bd708b-367c-479a-a89b-88d26f3dcfa3\",\"f7e6042b-0b8d-4b92-ae47-19e5d2063118\",\"\"],\"recycleCollapsed\":[\"b29ca186-0715-4902-89f6-3c928a68dac1\"],\"tagCollapsed\":[]}\n- 清账后宿主状态=[\"session-75f94f7e-c138-4241-bdeb-577e4dc9990d\",\"session-d294fb76-b017-4e27-8f3b-fce6f46c09a7\"]（注入时多带了一条 session-lab-not-in-dsh）\n- 重载后抽屉：{\"rows\":0,\"collapsed\":[\"b29ca186-0715-4902-89f6-3c928a68dac1=true\"]}\n- 清空确认弹窗：按钮=true 工作区块=1 明细行=1 文案=\"清空回收站（1 个会话）？归档 = 删除：这些会话会从列表里消失，不能在这里恢复（会话记录仍留在 dsh 上）。dsh-tool-showimage图片直接展示工具开发想法取消归档\"\n- 归档项判定逐行实测：ok(禁用false) ok(禁用false) ok(禁用false) ok(禁用false) ok(禁用false) ok(禁用false)\n- 选择态选中 2 行：idle,idle（预期跳过 0）\n- 批量归档弹窗：{\"button\":true,\"rows\":2,\"blocks\":1,\"skipped\":\"\"}"
+    },
+    {
+      "id": "F-16",
+      "phase": "new-feature",
+      "name": "会话标签组（#107）：迁入 / 拖入拖出 / 组间拖拽换位 / 组内置顶 / 折叠计数 / 组菜单（TAG-GROUPS 套件）",
+      "expect": "#107 定的标签组语义在真实装配页上成立（真网关**只读** + 假宿主）：① **迁入**——把旧侧栏那份 `tags.json`（v2 形状，含内置组 Todo/Doing/Done 与一个从没成员的空气组）注进假宿主状态存储后，自建组与它的归属原样迁入，**旧内置组不再算组**（它们的会话回落「未归组」，会话说到底一条不动），空气组被清掉，写回的 `tags` 里**不再有 `collapsed` 字段**（折叠是纯视图态，走客户端存储）；② **拖入/拖出**——把一条会话拖到组块上就归进该组、拖到组外（工作区层）就移出分组，两次都只改我们自己的 `tags` 状态；③ **组间拖拽换位**——拖 pill 到另一个 pill 的上半 = 插到它前面，新顺序落回状态；④ **组内置顶**——菜单里置顶一条组内会话后，它排到**该组内**最前（组与组之间的相对位置不受影响）；⑤ **折叠 + 折叠计数**——点 pill 右侧三角收起组内行，组头右侧出现组内「待交互/运行中/未读」计数（每会话只进一个桶），折叠态落 `dsh.workspaceTree.view` 而不是 `tags.json`；⑥ **pill 菜单八项**（标题行 + 组内新建会话 / 整组归档 / 整组移入回收站 / 移出标签组 / 改名 / 颜色 / 删除组）全在，其中**两项危险动作走确认弹窗**（整组归档开 #103 那个归档确认弹窗并写明跳过数、删除组开删除确认弹窗），弹窗取消则什么都不发生；⑦ **整组移入回收站**是本地可逆那一层（立即执行 + 飘提示，不动 dsh 侧）；⑧ **空组处理**——组内成员走了、清了之后，组定义与归属一起被清掉（组只与成员一起出现，不留看不见也删不掉的空壳）。全程零 pageerror。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/tag-groups-migrated.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/tag-groups-drag-in.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/tag-groups-created.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/tag-groups-reorder.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/tag-groups-pin.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/tag-groups-menu.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/tag-groups-recycle-keeps-group.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/tag-groups-empty-pruned.png"
+      ],
+      "notes": "本套件断言 55 条，通过 55。\n观测：\n- 夹具：{\"key\":\"b09d7d32-d44f-4766-8aee-0d434f648207\",\"ids\":[\"session-06347017-4471-4ca8-98ef-d8f71c0cbd6f\",\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\",\"session-1f011ac5-1d0f-4519-87db-46b40d4bc41a\"]}\n- 夹具会话：旧内置组里的 session-06347017-4471-4ca8-98ef-d8f71c0cbd6f、自建组里的 session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd、用来拖的 session-1f011ac5-1d0f-4519-87db-46b40d4bc41a（同在 b09d7d32-d44f-4766-8aee-0d434f648207 块）\n- 迁入后页面上的标签组块：[{\"key\":\"b09d7d32-d44f-4766-8aee-0d434f648207\",\"tag\":\"t-lab\",\"collapsed\":false,\"rows\":[\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\"],\"counts\":\"\"}]\n- 迁入后宿主状态存储里的桶={\"tags\":[{\"id\":\"t-lab\",\"name\":\"实验室组\",\"color\":\"purple\"}],\"sessionTags\":{\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\":\"t-lab\"}}\n- 行菜单「移到分组…」里的项：[\"实验室组\",\"不归入标签组\",\"新建标签组\"]\n- 新建后的桶：{\"tags\":[{\"id\":\"t-lab\",\"name\":\"实验室组\",\"color\":\"purple\"},{\"id\":\"t-71d5805f-3d0e-4a73-a1ad-c6e2114229d2\",\"name\":\"乙组\",\"color\":\"green\"}],\"sessionTags\":{\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\":\"t-lab\",\"session-1f011ac5-1d0f-4519-87db-46b40d4bc41a\":\"t-71d5805f-3d0e-4a73-a1ad-c6e2114229d2\"}}\n- 换位前组顺序=[\"t-lab\",\"t-71d5805f-3d0e-4a73-a1ad-c6e2114229d2\"]\n- 换位后组顺序=[\"t-71d5805f-3d0e-4a73-a1ad-c6e2114229d2\",\"t-lab\"]\n- 置顶前实验室组内顺序=[\"session-06347017-4471-4ca8-98ef-d8f71c0cbd6f\",\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\"]\n- 折叠后的乙组={\"key\":\"b09d7d32-d44f-4766-8aee-0d434f648207\",\"tag\":\"t-71d5805f-3d0e-4a73-a1ad-c6e2114229d2\",\"collapsed\":true,\"rows\":[],\"counts\":\"0/0/1\"}（折叠前成员状态=[{\"status\":\"idle\",\"unread\":true}]）\n- 标签组菜单：{\"items\":[\"在此标签组中新建会话\",\"归档整组（2 个会话）\",\"整组移入回收站（2 个会话）\",\"移出标签组\",\"重命名标签组\",\"黄色\",\"蓝色\",\"绿色\",\"橙色\",\"紫色\",\"红色\",\"删除标签组\"],\"text\":\"标签组：实验室组在此标签组中新建会话归档整组（2 个会话）整组移入回收站（2 个会话）移出标签组重命名标签组颜色黄色蓝色绿色橙色紫色红色删除标签组\"}\n- 归档确认弹窗：{\"total\":\"1\",\"rows\":1,\"skipped\":\"1\"}\n- 整组移入回收站后的桶={\"tags\":[{\"id\":\"t-71d5805f-3d0e-4a73-a1ad-c6e2114229d2\",\"name\":\"乙组\",\"color\":\"green\"},{\"id\":\"t-lab\",\"name\":\"实验室组\",\"color\":\"purple\"}],\"sessionTags\":{\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\":\"t-lab\",\"session-1f011ac5-1d0f-4519-87db-46b40d4bc41a\":\"t-71d5805f-3d0e-4a73-a1ad-c6e2114229d2\",\"session-06347017-4471-4ca8-98ef-d8f71c0cbd6f\":\"t-lab\"}}\n- 整组移出后宿主状态存储里的桶={\"tags\":[{\"id\":\"t-71d5805f-3d0e-4a73-a1ad-c6e2114229d2\",\"name\":\"乙组\",\"color\":\"green\"}],\"sessionTags\":{\"session-1f011ac5-1d0f-4519-87db-46b40d4bc41a\":\"t-71d5805f-3d0e-4a73-a1ad-c6e2114229d2\"}}"
+    },
+    {
+      "id": "F-17",
+      "phase": "new-feature",
+      "name": "侧栏多选与批量（#108）：入口 API + 组头三态全选 + 分组条下方的操作条 + 批量两动作 + 失败留选中（MULTI-SELECT 套件）",
+      "expect": "真实装配页（真网关只读 + 假宿主）：① **入口 API**——选择态只有一个入口（`selectionEntrySignal.enter()`），顶部工具栏那一枚就是它（本套件每一次「进选择态」都点这一枚 = 每一次都在走这个 API）；② **组头三态全选**——进选择态后每个工作区组头出一枚三态框，`none → some/all` 随勾选翻转，点一下把本组**够格**的成员一次勾上、再点一下取消；**组内有置顶会话时最满只能 some**（框里画短横线而不是对勾），悬停给出原因；收起着的工作区也能一次勾满（成员按整组数，不看折叠态）；③ **资格**——置顶行不可勾选（灰框 + 原因 + 点了不切换），运行中/未读/待交互可勾；④ **操作条位置**——分组过滤条在选择态下**不收起**，操作条插在它下方（文档顺序可证），条上是「已选 N 项 + 移入回收站 + 归档 + 取消」；⑤ **批量两个动作分开**——「移入回收站」立即执行、不开弹窗、飘一条回执、动作完退出选择态、只写本地集合；「归档」开同一个确认弹窗（按工作区列明细 + 写明跳过数），Esc 取消则什么都不发生；⑥ **失败不静默**——注入一次 state.write 失败后批量移入，失败项**留在勾选里**、动作条不消失、红字写明确条数；⑦ **飘提示**——出现后约 2.2 秒自己消失；⑧ **搜索结果行可勾选**（C8）——搜索态下点结果行 = 勾选，资格与树里的行同一份判定；⑨ 选择态下会话行的时间 / ⋯ 菜单 / 右键菜单 / 悬停卡都让位。全程零 pageerror，且**从不点归档确认**。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/multi-select-group-some.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/multi-select-group-all.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/multi-select-batch-archive.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/multi-select-move-failed.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/multi-select-batch-moved.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/multi-select-search-row.png"
+      ],
+      "notes": "本套件断言 70 条，通过 70。\n观测：\n- 夹具：分组 15 个；带 ≥2 条行菜单的分组=b29ca186-0（置顶 session-75f94 / 空闲 session-d294f）；另一组=638dc7b8-3\n- 置顶组 b29ca186-0：行=[\"session-75f:idle\",\"session-d29:idle\"]\n- 置顶行的勾选资格：{\"check\":\"blocked\",\"tip\":\"置顶会话不能移入回收站或归档，先取消置顶\",\"dotted\":true}\n- 选择态的条序：{\"inArea\":true,\"filterBeforeBar\":1,\"barBeforeList\":1,\"filterVisible\":true}\n- 置顶组组头（未勾）：{\"key\":\"b29ca186-0715-4902-89f6-3c928a68dac1\",\"row\":\"none\",\"box\":\"none\",\"aria\":\"false\",\"tip\":\"组内有 1 个置顶会话不能被勾选，所以这一组选不满\",\"dash\":false,\"glyph\":0,\"count\":2}\n- 置顶组组头（点一下后）：{\"key\":\"b29ca186-0715-4902-89f6-3c928a68dac1\",\"row\":\"some\",\"box\":\"some\",\"aria\":\"mixed\",\"tip\":\"组内有 1 个置顶会话不能被勾选，所以这一组选不满\",\"dash\":true,\"glyph\":1,\"count\":2} 已勾=[\"session-d29\"]\n- 无置顶组组头（点一下后）：{\"key\":\"638dc7b8-35f8-4263-a85d-656af54358bf\",\"row\":\"all\",\"box\":\"all\",\"aria\":\"true\",\"tip\":\"\",\"dash\":false,\"glyph\":1,\"count\":1} 已勾 1\n- 收起后的组：块内行=0 组头态=none 组规模=1\n- 行右键与悬停卡的对照：选择态内 菜单数=0 悬停卡=0；选择态外 菜单数=1 悬停卡=0（悬停卡对照为 0 = 这个宽度下官方本来就没出卡，本条按「选择态内不给」判）\n- 批量夹具：session-d29:idle session-9be:idle\n- 批量归档弹窗：{\"confirm\":true,\"rows\":2,\"blocks\":2,\"skipped\":\"\",\"bar\":true}（预期跳过 0）\n- 注入写失败后的动作条：{\"checked\":[\"session-d294fb76-b017-4e27-8f3b-fce6f46c09a7\",\"session-9be0a104-3c03-4f21-a2ea-c97fb441a1ec\"],\"count\":\"已选 2 项\",\"error\":\"2 个会话没能移入回收站\",\"bar\":true,\"flash\":\"2 个会话没能移入回收站\"}\n- 批量移入后：动作条在=false 飘提示=\"已移入回收站（2 个会话）\" 本地集合=[\"session-d29\",\"session-9be\"]\n- 搜索夹具：用标题前 6 字 \"图片直接展示\" 搜（命中行含 session-d294f）\n- 搜索态下的结果行（前 3）：[{\"id\":\"session-d294fb76-b017-4e27-8f3b-fce6f46c09a7\",\"check\":\"eligible\",\"selected\":\"false\"}]\n- 点搜索结果行后：已勾=[\"session-d294fb76-b017-4e27-8f3b-fce6f46c09a7\"] 计数=\"已选 1 项\""
+    },
+    {
+      "id": "F-18",
+      "phase": "new-feature",
+      "name": "侧栏空态、加载态与失败可见（#110）：零工作区 / 分组无成员 / 加载中 / 三类失败 / 定时任务标记 / 搜索上限",
+      "expect": "#110 的空态与反馈在真实装配页上成立（真网关**只读** + 假宿主 + 页内夹具）：① **分组无成员空态**——选中一个没有成员工作区的分组时，列表出专属文案与「管理分组…」入口按钮（点它真的打开管理分组对话框），分组块一个不渲染；切回「全部工作区」分组块照常回来；② **加载态**——工作区快照还（被夹具推迟）没到时，列表区出「加载中…」而不是整块空白，快照到了就换成正常内容；③ **零工作区空态**——工作区清单为空时出「还没有工作区…用上方的 ＋…」文案，且上方的 ＋ 入口在场（文案指的是它）；④ **三类失败都有可见反馈**——分叉（`session/fork` 回执被换成失败）、归档（`workspace/archiveSession` 回执被换成失败，弹窗内联红字 + 飘提示各一条）、多开（宿主能力口回 `lab/forced` 失败）：三条都飘出一行说明，不再静默吞掉或只写日志；⑤ **官方自带但此前没渲染的两项**（#98 L6）——活跃定时任务标记按官方位置（标题后、时间前）与官方件（`role=img` + `schedule.active` 文案 + 闹钟图标）渲染，搜索结果行同样带上它；搜索回执带 `hasMore` 时出官方那套「仅显示前 N 条结果」上限提示。夹具只改**页面收到的回执**（HTTP 回执与 `workspace/follow` 流的帧），请求不落到网关，所以全程仍然只读。全程零 pageerror。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/empty-group-members.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/empty-schedule-mark.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/empty-search-has-more.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/empty-fork-failed.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/empty-multitab-failed.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/empty-archive-failed.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/empty-loading.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/empty-no-workspaces.png"
+      ],
+      "notes": "本套件断言 34 条，通过 34。\n观测：\n- 分组空态：{\"found\":true,\"text\":\"该分组还没有工作区。先在「管理分组…」里给工作区打标。也可以在上方分组菜单里「新建分组…」。管理分组…\",\"lines\":2,\"action\":\"管理分组…\",\"sections\":0}\n- 分组名校验：空名={\"error\":\"分组名称不能为空\",\"disabled\":true} 重名={\"error\":\"已存在同名分组\",\"disabled\":true} 新名={\"error\":\"\",\"disabled\":false}\n- 夹具目标会话：session-75f94f7e-c138-4241-bdeb-577e4dc9990d（SVG架构图呈现能力）\n- 夹具目标会话在重载后的树里：行数=1（id=session-75f94f7e-c138-4241-bdeb-577e4dc9990d）\n- 定时任务标记：会话行=131 标记=126 未标记的行=[{\"id\":\"session-f08dce50-a1b7-46b3-b7b7-64fe512f4df1\",\"status\":\"idle\",\"hasActions\":true,\"blankLike\":false,\"group\":\"e7f1b064-6497-4860-bbc6-f03620e97933\"},{\"id\":\"session-1e3c9bfe-fdd0-475a-bf52-7d0dfdde4b73\",\"status\":\"idle\",\"hasActions\":false,\"blankLike\":true,\"group\":\"d7ecd7c7-4657-42a3-a4ac-c3b790240bfa\"},{\"id\":\"session-0ad4c944-cc8b-49ba-a594-2b8128ba63de\",\"status\":\"idle\",\"hasActions\":true,\"blankLike\":false,\"group\":\"d7ecd7c7-4657-42a3-a4ac-c3b790240bfa\"},{\"id\":\"session-bfca4da7-2ca2-4d0e-8815-47414baf7048\",\"status\":\"idle\",\"hasActions\":true,\"blankLike\":false,\"group\":\"d7ecd7c7-4657-42a3-a4ac-c3b790240bfa\"},{\"id\":\"session-5a5efa1b-e809-4942-bd08-05023e1c41d1\",\"status\":\"idle\",\"hasActions\":true,\"blankLike\":false,\"group\":\"\"}]（夹具补了 1169 条 list 投影 + 4 条控制流投影）role=img 文案=\"有活动定时任务\" 几何=16px×20px margin-right=6px\n- 标记覆盖：list 回执里的会话 1169 条，行 131 枚标记 126\n- 搜索夹具：结果行=1 上限提示=\"仅显示前 20 条结果，请缩小搜索范围。\" 状态行=[\"仅显示前 20 条结果，请缩小搜索范围。\"]（夹具回执调用 1 次）\n- 分叉失败：夹具拦到的 fork 请求=1 飘提示=\"分叉会话失败：session fork failed: lab/forced: lab: fork rejected (fixture)\"\n- 多开失败：宿主收到的调用=1 飘提示=\"在新标签页打开失败：lab host: forced failure for session.openInNewTab\"\n- 归档夹具：候选 8 行，可归档的那一行=session-75f94f7e-c138-4241-bdeb-577e4dc9990d\n- 归档失败：夹具拦到的归档请求=1 弹窗内联=\"1 个会话归档失败\" 飘提示=\"1 个会话归档失败\"\n- 加载态：出现=true 文案=\"加载中…\"\n- 零工作区：文案=\"还没有工作区。用上方的 ＋ 添加已有文件夹，或创建新工作区。\" 分组块键=[\"\"] 夹具改空的 follow 帧=1"
+    },
+    {
+      "id": "F-19",
+      "phase": "new-feature",
+      "name": "侧栏菜单补全（#109）：会话行十项 + 接管条件 + 工作区行 hover 四按钮与右键七项 + 二级菜单 + 当前工作区标识（SIDEBAR-MENUS 套件）",
+      "expect": "侧栏树在真实装配页上（真网关只读 + 假宿主 + 注入的分组状态与标签组状态）：① **会话行菜单**按截图顺序凑齐十项（选择多个 / 在新标签页打开 / 重命名 / 置顶·取消置顶 / 标为未读·已读 / 移到分组… / 分叉会话 / 复制引用 / 移入回收站 / 归档会话），标题行「会话: {label}」、**无分隔线**；「移到分组…」是二级菜单（**就地展开**，子项 = 本工作区的标签组 + 不归入 + 新建）：点一项就归组并写回 `tags`、重开菜单时该项带官方 ✓；两项危险动作的禁用态与其判定原因一致；「置顶」按状态就地翻转并写宿主状态；「复制引用」写剪贴板并给飘提示；「选择多个」进选择态。② **接管条件只剩「非选择态」**：行右键开出同一份菜单（横向锚在指针处——活数据页面上行会在测量与点击之间移动，纵向逐像素那一条由 F-08 钉），Esc 关掉；空白会话行也挂着菜单容器（官方不给显式 ⋯，右键仍接管）。③ **工作区行 hover 四按钮**＝＋ / 终端打开 / 在 VS Code 打开（**仅非当前工作区**）/ 从列表移除；终端与打开文件夹经能力口发出带该工作区路径的调用。④ **工作区行右键七项**（复制文件夹引用 / 分组… / 归档该工作区全部会话 / 在新窗口打开文件夹 / 复制路径 / 重命名工作区 / 从列表移除），「分组…」展开后子项就地翻转 ✓ 且**不关菜单**（归属写回宿主状态），「归档全部会话」开的是 #103 那个确认弹窗（本套件只取消、不确认）。⑤ **当前工作区标识**：蓝色胶囊写宿主名（`vscode`）、该组排在最前、文件夹图标染色——假宿主上报的「打开的文件夹」= **网关上的第一个真实工作区路径**（#112 起判定按文件夹，不再按当前会话；这一条的口径细节与顺序稳定性由 F-21 钉）。全程零 pageerror。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/menus-session.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/menus-session-group-submenu.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/menus-session-rightclick.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/menus-workspace-hover.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/menus-workspace-rightclick.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/menus-workspace-submenu.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/menus-workspace-archive-confirm.png"
+      ],
+      "notes": "本套件断言 61 条，通过 61。\n观测：\n- 网关工作区（假宿主「打开的文件夹」取第一个）：[\"/Users/cgeng/Workspaces/dsh-tool-showimage\",\"/Users/cgeng/Workspaces/laixi\",\"/Users/cgeng/Workspaces/dsh-mobile\",\"/Users/cgeng/Workspaces/dsh-computer-use\",\"/Users/cgeng/Workspaces/dsh-launcher\",\"/Users/cgeng/Workspaces/VoxKey\",\"/Users/cgeng/Workspaces/dsh-plan\",\"/Users/cgeng/Workspaces/dsh-intent\",\"/Users/cgeng/Workspaces/POV\",\"/Users/cgeng/Documents/kimi/Workspaces/ESP32的语音键盘方案\",\"/Users/cgeng/.dsh/workspaces/agent-chrome\",\"/Users/cgeng/.dsh/workspaces/dsh-im\",\"/Users/cgeng/Workspaces/dsh-xf\",\"/Users/cgeng/Workspaces/dsh-one\"]\n- 夹具会话：{\"key\":\"b09d7d32-d44f-4766-8aee-0d434f648207\",\"id\":\"session-06347017-4471-4ca8-98ef-d8f71c0cbd6f\",\"title\":\"Kimi模式加载失败原因排查\",\"members\":[\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\",\"session-1f011ac5-1d0f-4519-87db-46b40d4bc41a\"]}\n- 标签组夹具：在夹具那个工作区注两个组（各挂一条成员）{\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\":\"t-one\",\"session-1f011ac5-1d0f-4519-87db-46b40d4bc41a\":\"t-two\"}\n- 注入后宿主里的 tags 键=1\n- 重载后的夹具会话：{\"id\":\"session-06347017-4471-4ca8-98ef-d8f71c0cbd6f\",\"title\":\"Kimi模式加载失败原因排查\",\"hasMenu\":true}\n- 会话行菜单项序：[\"selectMultiple\",\"openInNewTab\",\"rename\",\"pin\",\"unread\",\"moveToGroup\",\"fork\",\"copyReference\",\"move-to-recycle-bin\",\"archive\"]（文案：[\"选择多个\",\"在新标签页打开\",\"重命名\",\"置顶\",\"标为未读\",\"移到分组…▸\",\"分叉会话\",\"复制引用\",\"移入回收站\",\"归档会话\"]）\n- 标签组能力在场：菜单里含「移到分组…」二级项\n- 「移到分组…」展开后子项：[{\"m\":\"tag:t-one\",\"t\":\"组一\"},{\"m\":\"tag:t-two\",\"t\":\"组二\"},{\"m\":\"tag:__none\",\"t\":\"不归入标签组\"},{\"m\":\"tag:__new\",\"t\":\"新建标签组\"}]\n- 点「组一」后：宿主 tags={\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\":\"t-one\",\"session-1f011ac5-1d0f-4519-87db-46b40d4bc41a\":\"t-two\",\"session-06347017-4471-4ca8-98ef-d8f71c0cbd6f\":\"t-one\"}\n- 归组后页面上的标签组块：[{\"t\":\"t-one\",\"rows\":2},{\"t\":\"t-two\",\"rows\":1}]\n- 重开菜单后「组一」项：{\"children\":3,\"text\":\"组一\"}\n- 点「不归入标签组」后宿主 tags={\"session-6cf129a5-6825-4897-8f9f-ab7eae7b19cd\":\"t-one\",\"session-1f011ac5-1d0f-4519-87db-46b40d4bc41a\":\"t-two\"}\n- 危险两项：移入回收站={\"marker\":\"move-to-recycle-bin\",\"text\":\"移入回收站\",\"disabled\":false,\"reason\":\"\",\"tip\":\"\",\"inSubmenu\":false,\"checked\":null} 归档会话={\"marker\":\"archive\",\"text\":\"归档会话\",\"disabled\":false,\"reason\":\"\",\"tip\":\"\",\"inSubmenu\":false,\"checked\":null}\n- 复制引用：剪贴板=\"@[Kimi模式加载失败原因排查](dsh-session:InNlc3Npb24tMDYzNDcwMTctNDQ3MS00Y2E4LTk4ZWYtZDhmNz\" 飘提示=\"已复制会话引用\"\n- 行右键菜单：[\"selectMultiple\",\"openInNewTab\",\"rename\",\"pin\",\"unread\",\"moveToGroup\",\"fork\",\"copyReference\",\"move-to-recycle-bin\",\"archive\"]\n- 右键菜单锚点：{\"left\":76,\"top\":600} 行(点击后)={\"x\":-4,\"y\":630,\"width\":369,\"height\":26}\n- 会话行：共 131，其中无 ⋯ 按钮（空白会话）=1，它们里有菜单容器的=1\n- 工作区行键：[\"b29ca186-0715-4902-89f6-3c928a68dac1\",\"638dc7b8-35f8-4263-a85d-656af54358bf\",\"54b1f167-5db2-49f8-aa61-01828d446bf3\",\"1c035e6a-c954-46f5-b0fd-95de0d79789e\"]（共 15）\n- 当前工作区行的动作按钮：[\"workspace-new-session\",\"workspace-terminal\",\"workspace-remove\"]\n- 非当前工作区行的动作按钮：[\"workspace-new-session\",\"workspace-terminal\",\"workspace-open\",\"workspace-remove\"]\n- 宿主收到的动作：{\"folders\":[{\"path\":\"/Users/cgeng/Workspaces/laixi\",\"newWindow\":false}],\"terminals\":[{\"path\":\"/Users/cgeng/Workspaces/laixi\"}]}\n- 工作区行菜单：[\"copy-folder-ref\",\"groups\",\"archive-all\",\"open-new-window\",\"copy-path\",\"rename\",\"remove\"]（文案：[\"复制文件夹引用\",\"分组…▸\",\"归档该工作区全部会话\",\"在新窗口打开文件夹\",\"复制路径\",\"重命名工作区\",\"从列表移除\"]）\n- 「分组…」展开后子项：[{\"marker\":\"workspace-group-item\",\"text\":\"Lab One\",\"disabled\":false,\"reason\":\"missing\",\"tip\":\"\",\"inSubmenu\":true,\"checked\":\"false\"},{\"marker\":\"workspace-group-item\",\"text\":\"Lab Two\",\"disabled\":false,\"reason\":\"missing\",\"tip\":\"\",\"inSubmenu\":true,\"checked\":\"false\"}]\n- 勾选一项后：子项={\"marker\":\"workspace-group-item\",\"text\":\"Lab One\",\"disabled\":false,\"reason\":\"missing\",\"tip\":\"\",\"inSubmenu\":true,\"checked\":\"true\"} 宿主归属={\"638dc7b8-35f8-4263-a85d-656af54358bf\":[\"g-lab-one\"]}\n- 工作区归档确认弹窗：{\"button\":true,\"blocks\":1}\n- 当前工作区标识：{\"shell\":\"vscode\",\"text\":\"vscode\",\"folderActive\":true,\"first\":true}\n- 未分组行：{\"actions\":[\"workspace-new-session\"],\"hasMenuContainer\":true}（网关当前**没有**未分组桶时为空——真网关只读，不造会话去凑它；未分组行的 ＋ 走的是与工作区行同一个 startSession，源码契约测试 test/assemblyShellContract.test.ts 钉着它不再对 workspaceId === undefined 直接 return）\n- 未分组行右键菜单：[\"new-session\",\"archive-all\"]"
+    },
+    {
+      "id": "F-20",
+      "phase": "new-feature",
+      "name": "回收站入口行：主区图标是垃圾桶 + 点击是「展开 / 收起」（#114，RECYCLE-ENTRY-TOGGLE 套件）",
+      "expect": "回收站入口行的两条改动在真实装配页上成立（真网关**只读** + 假宿主注入的 `recycle-bin`）：① **主区图标是垃圾桶**——按组件标记与渲染指纹核，不靠眼睛：图标位的 `data-dshone-tree-icon` 是 `IconTrashOutline16`，渲染出的 svg 是官方 16 号图标（`viewBox=\"0 0 16 16\"`、宽高 16、单条 path），且它的 `path@d` 与同一行「清空」那枚**完全相同**（同一枚官方图标 = 垃圾桶）、与「恢复全部」那枚不同；换下去的那枚 `IconArchiveOutline20` 是 `0 0 20 20` 的两条 path，所以「不是归档箱」这件事有可判定的判据；② **点击是开合开关**——主区点一下抽屉出现且按钮的 `aria-expanded` / 自有标记翻成展开，再点一下抽屉消失、标记翻回收起（连点两次 = 展开→收起）；③ **与「点外面 / Esc 关闭」是同一份状态**：抽屉开着时点树区（抽屉外）或按 Esc 都收起，之后**再点主区是展开**（不会「点了没反应」），按钮的标记与屏幕上抽屉的真实状态始终一致；④ **计数 0 的行为不变**——注入空集合时整行仍是灰态、右侧两枚动作图标仍禁用，主区仍可点且照常开合；另在「抽屉里真有内容」的那一页重验一遍开合，证明 toggle 不是只在空态成立。全程零 pageerror，本套件不点归档确认、不写网关。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/recycle-entry-toggle-open.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/recycle-entry-toggle-with-rows.png"
+      ],
+      "notes": "本套件断言 30 条，通过 30。\n观测：\n- 入口行图标：标记=IconTrashOutline16 viewBox=0 0 16 16 宽高=16×16 path 数=1；计数=0\n- 塞进回收站的那一条会话：session-1e3c9bfe-fdd0-475a-bf52-7d0dfdde4b73"
+    },
+    {
+      "id": "F-21",
+      "phase": "new-feature",
+      "name": "当前工作区按 VS Code 打开的文件夹判定（#112）：命中置顶、切换会话不改顺序、空表不置顶、多根（CURRENT-WORKSPACE-FOLDER 套件）",
+      "expect": "侧栏树在真实装配页上（真网关**只读** + 假宿主 + 把 `workspace/follow` 的基线帧换成三棵**合成**工作区的页内夹具；合成工作区的成员是真会话行）：① **文件夹命中 → 徽标 + 置顶**：假宿主上报「打开的文件夹」= 某一棵工作区的路径时，**只有那一棵**带当前工作区标识与蓝色胶囊（写宿主名 `vscode`）、文件夹图标染色，并且**只有它**排到最前（其余保持官方工作区顺序）；② **切换会话不改变工作区顺序**（用户报的现象）：点开另一个工作区里的一条会话行之后，工作区顺序与徽标纹丝不动，新选中的会话所属工作区**不会**因此被标成当前；③ **文件夹表为空 → 无徽标、不置顶**（官方 web 侧没有「VS Code 打开的文件夹」这个概念，能力口在那里回的就是空表；VS Code 空窗口同形）：一个胶囊都没有、顺序 = 官方工作区顺序（同时断言树确实问过宿主这条能力，证明这是「问过、答案是空」而不是没调）；④ **多根**：假宿主上报两个文件夹（三棵合成工作区里命中两棵）时，命中的那两棵**都**是当前（都带徽标、都排到最前，两棵之间保持官方相对顺序），没命中的那棵留在后面；上报一个都不命中的路径时没有徽标、顺序回到官方顺序。全程零 pageerror。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/current-workspace-empty.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/current-workspace-hit.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/current-workspace-session-switch.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/current-workspace-multiroot.png"
+      ],
+      "notes": "本套件断言 20 条，通过 20。\n观测：\n- 网关可用会话（非空白、非子代理）：629 条；合成三棵工作区各挂 [1,1,2] 条\n- 夹具：workspace/follow 基线帧已换 1 次，丢掉的非基线帧 0 帧\n- 官方工作区顺序（合成三棵）：[\"lab-ws-one\",\"lab-ws-two\",\"lab-ws-three\"]；空表下面={\"keys\":[\"lab-ws-one\",\"lab-ws-two\",\"lab-ws-three\"],\"current\":[],\"badged\":[]}\n- 命中 /lab/ws-three 时：顺序=[\"lab-ws-three\",\"lab-ws-one\",\"lab-ws-two\"] 当前=[\"lab-ws-three\"] 胶囊=[{\"key\":\"lab-ws-three\",\"shell\":\"vscode\",\"text\":\"vscode\",\"folderActive\":true}]\n- 点开 lab-ws-one 里的会话 session-0f66f3dd-63ca-4881-88c5-f57dddabf6d8：顺序 [\"lab-ws-three\",\"lab-ws-one\",\"lab-ws-two\"] → [\"lab-ws-three\",\"lab-ws-one\",\"lab-ws-two\"]；当前 [\"lab-ws-three\"] → [\"lab-ws-three\"]\n- 多根（/lab/ws-three + /lab/ws-one）命中两棵时：顺序=[\"lab-ws-one\",\"lab-ws-three\",\"lab-ws-two\"] 当前=[\"lab-ws-one\",\"lab-ws-three\"]\n- 多根/单根都没命中时：顺序=[\"lab-ws-one\",\"lab-ws-two\",\"lab-ws-three\"] 当前=[]"
+    },
+    {
+      "id": "F-22",
+      "phase": "new-feature",
+      "name": "会话行点击逻辑与行内改名（#115）：非当前行点击=打开、当前行点击=就地改名（Enter 提交 / Esc·失焦取消 / 空与未改动不发请求 / IME 守护 / 重绘保焦点与选区）",
+      "expect": "侧栏树在真实装配页上（真网关只读 + 假宿主 + 页面侧换掉 `session/rename` 的回执）：① **非当前会话行点击 = 打开**——它变成当前会话行（`aria-selected` 移过来），且**不进编辑态**（树上没有任何行内改名输入框）；② **当前会话行再点一下 = 就地改名**——这一行的标题位换成输入框，prefill = 原标题、**整段全选**、焦点已经在输入框上（可以直接打字），输入框有 `aria-label`（词典里的「会话名称」）；③ **Enter 提交走既有通路**——恰好一条 `session/rename`（会话 id = 这一行、标题 = 输入框里的新标题，即官方 `sessions.binding(id).session.rename`），提交后退出编辑态，且回执里的标题落回这一行（**标题更新**在页面上可见）；④ **Esc 取消 / 失焦取消**都退出编辑态、标题不变、**零请求**；IME 组合期间的 Enter 不提交（`compositionstart/end` 与键盘事件自带的 `isComposing` 两条判据各验一次）；⑤ **空串 / 未改动（含全空白）不发请求**——都是直接退出编辑态；⑥ **多选态下点行仍只勾选**——当前行也一样（勾上/取消，不进改名）；⑦ **重绘后输入框的焦点与选区保持**——编辑中点两次合成点击把视图从「按工作区」切到「单列表」（那一行的 DOM 会被摘掉重挂，是最硬的一种重绘），焦点、`selectionStart/End` 与草稿都原样还在，且整段没有触发提交。全程零 pageerror。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/rowrename-01-open.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/rowrename-02-edit.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/rowrename-03-committed.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/rowrename-04-after-repaint.png"
+      ],
+      "notes": "本套件断言 45 条，通过 45。\n观测：\n- 夹具：有标题有 ⋯ 的会话行 130 条；打开时已有当前会话=null；拿来点的非当前会话行=\"session-75f94f7e-c138-4241-bdeb-577e4dc9990d\"（\"SVG架构图呈现能力\"）\n- IME 探测：{\"edited\":\"SVG架构图呈现能力 组合中\",\"barePrevented\":false,\"composingPrevented\":false,\"stillEditing\":true}\n- ④ 边界探测（点状态点 / 拖拽中点击 / 拖拽后点击）={\"statusTap\":false,\"duringDrag\":false,\"afterDrag\":true}\n- 多选态下可勾选的会话行：[\"session-75f94f7e-c138-4241-bdeb-577e4dc9990d\",\"session-d294fb76-b017-4e27-8f3b-fce6f46c09a7\",\"session-9be0a104-3c03-4f21-a2ea-c97fb441a1ec\",\"session-54292c69-8c1f-4a03-a6b8-dd4de488196e\",\"session-a9e7c56d-1240-4dc5-8662-c20fc284ebfa\"]（共 130 条）\n- ⑦ 这次重绘把输入框节点换掉了没有：true（换掉 = 走的是「节点被摘掉重挂」这条最硬的路）"
+    },
+    {
+      "id": "F-23",
+      "phase": "new-feature",
+      "name": "侧栏风格档位表（#113）：几何读数逐项落在官方档位表里，菜单统一官方紧凑档（SCALE 套件）",
+      "expect": "侧栏树在真实装配页上（真网关只读 + 假宿主）：① **几何读数逐项有出处**——会话行 / 工作区行 / 行标题 / 行时间 / 行内图标位 / 行内图标按钮 / 顶栏（分节头）/ 顶栏图标按钮 / 搜索框 / 分组胶囊 / 回收站入口行主区与动作按钮 / 当前工作区胶囊 / 抽屉头 / 抽屉分块块头 / 抽屉会话行的圆角、高度、字号、行高读数，每一条都能在 `styles.ts` 那份官方档位表（紧凑档 / 标准档 / 容器档）里按属性对上出处（期望值从档位表读，不硬编码）。② **菜单统一官方紧凑档**：顶栏「视图选项」与分组胶囊两份菜单都开一遍，官方 Menu 的项（渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px）、项内图标盒（14×14）、分组标题（11px / 16px / 内边距 4px 7px）、分隔线（外边距 2px）、列表容器（内边距 2px / 圆角 7px）逐项等于官方紧凑档实测值；两份菜单的项几何彼此一致（同一侧栏里只有一种菜单密度）。全程零 pageerror。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/scale-tree-compact.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/scale-menu-view-options.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/scale-menu-group-pill.png"
+      ],
+      "notes": "本套件断言 77 条，通过 77。\n观测：\n- 档位表（紧凑档 / 标准档 / 容器档）取自 workspaceTree/styles.ts：compact={\"rowHeight\":\"26px\",\"rowRadius\":\"5px\",\"rowGap\":\"6px\",\"rowPaddingInline\":\"7px\",\"rowPaddingBlock\":\"3px\",\"fontSize\":\"12px\",\"lineHeight\":\"18px\",\"iconSize\":\"14px\",\"iconButtonSize\":\"26px\",\"groupLabelHeight\":\"24px\",\"groupLabelFontSize\":\"11px\",\"groupLabelLineHeight\":\"16px\",\"groupLabelPaddingBlock\":\"4px\",\"listRadius\":\"7px\",\"listPadding\":\"2px\",\"separatorMargin\":\"2px\"}；container={\"listRadius\":\"7px\",\"cardRadius\":\"12px\",\"pillRadius\":\"999px\",\"roundRadius\":\"50%\",\"listBottomPadding\":\"12px\"}\n- 量到的树区区域：会话行、工作区行、行标题、行时间、行内图标位、行内图标按钮、顶栏（分节头）、顶栏图标按钮、搜索框、分组胶囊、回收站入口主区、回收站入口动作按钮\n- 树区读数里没有出处的项：（无）\n- 树区读数 → 出处：会话行.borderRadius=5px(compact.rowRadius)；会话行.height=26px(compact.rowHeight)；工作区行.borderRadius=5px(compact.rowRadius)；工作区行.height=26px(compact.rowHeight)；行标题.fontSize=12px(compact.fontSize)；行标题.lineHeight=18px(compact.lineHeight)；行时间.fontSize=12px(compact.fontSize)；行时间.lineHeight=18px(compact.lineHeight)；行内图标位.width=16px(standard.slotWidth)；行内图标位.height=20px(standard.slotHeight)；行内图标按钮.width=16px(standard.slotWidth)；行内图标按钮.height=16px(standard.rowIconButtonSize)；行内图标按钮.borderRadius=4px(standard.rowIconButtonRadius)；顶栏（分节头）.height=26px(compact.rowHeight)；顶栏（分节头）.borderRadius=12px(standard.sectionHeaderRadius)；顶栏图标按钮.width=26px(compact.iconButtonSize)；顶栏图标按钮.height=26px(compact.rowHeight)；搜索框.height=26px(compact.rowHeight)；搜索框.borderRadius=10px(standard.searchExpandedRadius)；分组胶囊.height=26px(compact.rowHeight)；分组胶囊.fontSize=12px(compact.fontSize)；分组胶囊.borderRadius=999px(container.pillRadius)；回收站入口主区.height=26px(compact.rowHeight)；回收站入口主区.borderRadius=5px(compact.rowRadius)；回收站入口主区.fontSize=12px(compact.fontSize)；回收站入口动作按钮.width=26px(compact.iconButtonSize)；回收站入口动作按钮.height=26px(compact.rowHeight)\n- 这一轮页面没有回收站入口（网关无归档入口按钮）——抽屉三件跳过\n- 视图选项菜单：项数=4、图标项=0、分组标题=2、分隔线=1；第一项={\"height\":\"26px\",\"minHeight\":\"26px\",\"fontSize\":\"12px\",\"lineHeight\":\"18px\",\"borderRadius\":\"5px\",\"gap\":\"6px\",\"padding\":\"3px 7px 3px 7px\"}；容器={\"padding\":\"2px 2px 2px 2px\",\"borderRadius\":\"7px\",\"minWidth\":\"164px\"}\n- 分组胶囊菜单：项数=3、图标项=2、分组标题=0、分隔线=1；第一项={\"height\":\"26px\",\"minHeight\":\"26px\",\"fontSize\":\"12px\",\"lineHeight\":\"18px\",\"borderRadius\":\"5px\",\"gap\":\"6px\",\"padding\":\"3px 7px 3px 7px\"}；容器={\"padding\":\"2px 2px 2px 2px\",\"borderRadius\":\"7px\",\"minWidth\":\"164px\"}"
+    },
+    {
+      "id": "F-25",
+      "phase": "new-feature",
+      "name": "顶栏「折叠 / 展开全部」的方框加减号图标（#118，COLLAPSE-ALL-ICON 套件）",
+      "expect": "顶栏那一枚的图标与态映射（真网关**只读** + 假宿主 + 真装配页）：① **图标按标记与渲染指纹核**——图标位带 `data-dshone-tree-icon=\"collapse-all\"`，值随态是 `minus` / `plus`；渲染出的是 16 号视框（`0 0 16 16`、宽高 16、两条 path、两态共用的方框那一条逐字等于插件里的 `COLLAPSE_ALL_BOX`），**不再有一丝 chevron**（按钮子树里没有 14 号视框的 svg，path 数也从 1 变 2）；两态各自的 `path@d` 与插件数据 `COLLAPSE_ALL_GLYPHS[minus|plus]` 逐条相同，方框那一笔两态相同、中间那一笔两态不同；尺寸与同一行其它图标按钮一致（都是 16，按钮 26×26、图标居中）。② **提示随态翻转**：`aria-label` 与官方 Tooltip 的文案两态分别是「折叠所有工作区」与「展开所有工作区」（取插件 zh 词典比对，不硬编码），且与图标值、`data-dshone-tree-collapsed` 四者同源。③ **点击语义不变**：当前有展开着的分组时点一下 = 折叠全部（可见工作区行全部 `aria-expanded=\"false\"`、可见会话行归零），此时图标变 `plus`、提示变「展开所有工作区」；再点一下 = 展开全部（原先有会话的工作区行重新展开、会话行回来）；两次点击之间工作区行的**行数不变**（只动展开态，不动行集合）。④ **搜索态恒为折叠全部**：先把树折到全收起（此刻图标是 `plus`），再在搜索框里敲字——搜索态下（结果行或搜索状态原文在场）图标立刻回到 `minus`、提示回到「折叠所有工作区」，点它发的也是折叠；Esc 清空搜索后回到全收起态、图标又是 `plus`（搜索态这一条不污染持久状态）。全程零 pageerror，只点这一枚按钮与搜索框，不写网关。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/collapse-all-icon-minus.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/collapse-all-icon-plus.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/collapse-all-icon-round-trip.png"
+      ],
+      "notes": "本套件断言 33 条，通过 33。\n观测：\n- 首屏：图标值=minus collapsed=\"false\" 工作区行=15 展开着=1 会话行=12\n- 搜索态：结果行=0 状态原文=\"内容搜索暂不可用，仅显示名称匹配。\" 图标值=minus"
+    },
+    {
+      "id": "F-26",
+      "phase": "new-feature",
+      "name": "会话行点击的「宿主真的开着它吗」（#121，RENAME-OPEN-SYNC 套件）",
+      "expect": "侧栏树在真实装配页上（真网关**只读** + 假宿主控制「宿主说开了 / 没开」两种回执）：① 宿主说**未打开**时点**当前**会话行 → 树**发出打开请求**（假宿主收到一条 `session.openPanel`，会话 id 就是这一行；此前树还问过一次 `session.inPanel`，问的也是这一行），且**不进编辑态**（树上没有任何行内改名输入框）——这正是用户报的现场修好之后的样子；② 宿主说**已打开**时点**当前**会话行 → **进编辑态**（行变输入框、prefill = 原标题、焦点在输入框上），#115 的「点当前会话 = 就地改名」语义原样保留；③ 宿主说**未打开**时点**非当前**会话行 → 照旧是**打开**（当前标记落到它身上、不进编辑态），且这条路**根本不问**宿主这条能力（`session.inPanel` / `session.openPanel` 的调用次数都不动）；④ 页面**没有宿主桥**（= 官方 web 那一侧的处境，删掉页面上的 `__DSH_ONE_HOST__` 造出来）→ 能力口返回 false、**不抛错**：当前会话行按打开处理（不进编辑态）、不发出任何宿主调用、控制台没有那条失败告警、零 pageerror。全程零 pageerror，本套件不写网关（`session.openPanel` 只在假宿主里记录，不提交改名）。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/rename-open-03-noncurrent-open.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/rename-open-01-open-not-in-panel.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/rename-open-sync/test/assembly-lab/out/shots/rename-open-02-edit-in-panel.png"
+      ],
+      "notes": "本套件断言 22 条，通过 22。\n观测：\n- 夹具：有标题的会话行 131 条；打开时已有当前会话=\"session-1e3c9bfe-fdd0-475a-bf52-7d0dfdde4b73\"；拿来点的非当前会话行=\"session-75f94f7e-c138-4241-bdeb-577e4dc9990d\"（\"SVG架构图呈现能力\"）\n- ① 假宿主的面板状态被打开请求翻成：true（真宿主做完这件事之后确实如此）\n- ④ 删桥前后的页面告警数：0（其中面板状态告警 0 条）"
+    },
+    {
+      "id": "R-06",
+      "phase": "regression",
+      "name": "实验室对真实网关只读（跑前跑后会话数不变）",
+      "expect": "整轮浏览器验证跑完，网关上的会话数与跑前完全相同：实验室只渲染与做本地夹具交互，不创建会话、不发 prompt、不归档（唯一写类动作是 token 换票，与扩展自身连接路径相同）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "本套件断言 1 条，通过 1。\n观测：\n- 网关会话数：跑前 1198，跑后 1198"
+    }
+  ]
+}
