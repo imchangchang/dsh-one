@@ -3,8 +3,8 @@
  *
  * ## 机制分层（按 AGENTS.md 的优先序逐层举证）
  *
- * **层 1（官方槽位机制）——影子替换**：`sidebar.workspaces` 是官方 ui-sidebar
- * 声明的 single 座位（`dsh-client-ui-sidebar/lib/types/client/contract/slots.d.ts`，
+ * **层 1（官方槽位机制）——遮蔽**：`sidebar.workspaces` 是官方 ui-sidebar
+ * 声明的 single 槽位（`dsh-client-ui-sidebar/lib/types/client/contract/slots.d.ts`，
  * 语义 = 分节头 + 搜索 + 分组树 + 工作区对话框），官方 ui-workspace 的
  * WorkspaceBrowser 以默认优先号 0 注册。本插件同名单独注册、优先号 −1 顶掉它
  * （注册表原文「register at a different priority to shadow it (lowest renders)」，
@@ -15,6 +15,13 @@
  * 槽名已被声明，再声明一次注册表会报错——这就是「不能重新声明已声明槽名」
  * 那条坑。留空表不影响官方子槽：槽声明在注册表里是全局事实，与哪条 entry
  * 渲染无关。
+ *
+ * **与官方插件共存（AGENTS.md 铁律「优先与官方插件共存，不顶替其角色」）**：
+ * 本插件只遮蔽**槽位本身**，ui-workspace 插件照常装载——它的服务
+ * （`uiWorkspace`）、它经 `ctx.slots.provideRoot` 下发的 `workspaces` 钩子、
+ * 它注册的 `sidebar.workspaces.directoryFlow` 子槽声明、它的 locale 词典全部
+ * 原样存活，自有树只是占用同一槽位的渲染位。我们消费的 `useWorkspaces` /
+ * `useSessions` / `useSessionPendingInteraction` 三条钩子正是这么来的（见层 2）。
  *
  * **层 2（官方服务 API）——数据与动作**：本插件不做任何自己的取数 IO。
  * - 数据：框架注入的官方标准钩子 `useSessions`（官方 sessions 服务的 list
@@ -48,7 +55,7 @@
  * - 「按最近更新」在组内按 updatedAt 倒序（官方是手动序 + 活动晋升，常见情况下
  *   结果一致）。
  * - 工作区/会话重命名与工作区删除走官方 Modal 原语自渲染（官方同款组件、同款
- *   文案）——官方那条 entry 的对话框随它一起被影子替换，必须自己重做。
+ *   文案）——官方那条 entry 的对话框随它一起被遮蔽，必须自己重做。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import {
@@ -252,7 +259,7 @@ const CSS =
   '.dshOneTree_projectRow:hover,.dshOneTree_sessionRow:hover,.dshOneTree_sessionRow.dshOneTree_selected,.dshOneTree_projectRow.dshOneTree_menuOpen,.dshOneTree_sessionRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:34px}' +
   '.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}' +
-  '.dshOneTree_sessionRow{box-sizing:border-box;height:32px;gap:0}' +
+  '.dshOneTree_sessionRow{height:32px;gap:0}' +
   '.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}' +
   '.dshOneTree_flatRowWithoutStatus .dshOneTree_title{margin-left:0}' +
   '.dshOneTree_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}' +
@@ -331,8 +338,8 @@ interface SearchPage {
 }
 
 /**
- * 组件 props：官方 WorkspaceBrowser 的同一组座位（owner share `wide` +
- * 框架标准钩子 + entry 自己 inject 出来的动作 + locale 座位）。命名与官方保持
+ * 组件 props：官方 WorkspaceBrowser 的同一组槽位（owner share `wide` +
+ * 框架标准钩子 + entry 自己 inject 出来的动作 + locale 槽位）。命名与官方保持
  * 一致，便于对照源码阅读。
  */
 interface TreeProps {
@@ -343,7 +350,7 @@ interface TreeProps {
   useSessions: <R>(selector: (state: SessionListLike) => R) => R
   useWorkspaces: <R>(selector: (state: WorkspaceSnapshotLike) => R) => R
   useSessionPendingInteraction: <R>(selector: (state: PendingMap) => R) => R
-  /** 框架按 entry 的 hooks 座位绑定的目录流占用探针（官方 WorkspaceBrowser 同款）。 */
+  /** 框架按 entry 的 hooks 槽位绑定的目录流占用探针（官方 WorkspaceBrowser 同款）。 */
   useDirectoryFlow?: <R>(selector: (occupied: boolean) => R) => R
   /** 官方 sessions 服务：选中会话。 */
   open: (sessionId: string) => void
@@ -521,6 +528,7 @@ function ProjectRow({
       role: 'treeitem',
       'aria-expanded': expanded,
       'data-dshone-tree-row': 'workspace',
+      'data-dshone-tree-count': group.sessionCount,
       onClick: onToggle,
       children: [
         h(
@@ -1204,6 +1212,7 @@ function WorkspaceTree(props: TreeProps): unknown {
           {
             ref: searchRoot,
             className: `dshOneTree_search${searchExpanded ? ' dshOneTree_searchExpanded' : ''}`,
+            'data-dshone-tree': 'search-pill',
             onClick: () => {
               setSearchExpanded(true)
               searchInput.current?.focus()
@@ -1230,6 +1239,7 @@ function WorkspaceTree(props: TreeProps): unknown {
           h('input', {
             ref: searchInput,
             className: 'dshOneTree_searchInput',
+            'data-dshone-tree': 'search-input',
             type: 'text',
             placeholder: tr('search.placeholder'),
             maxLength: SEARCH_QUERY_MAX,
@@ -1248,6 +1258,7 @@ function WorkspaceTree(props: TreeProps): unknown {
                 {
                   type: 'button',
                   className: 'dshOneTree_clearButton',
+                  'data-dshone-tree': 'search-clear',
                   'aria-label': tr('search.clear'),
                   onClick: (event: { stopPropagation(): void }) => {
                     event.stopPropagation()
@@ -1441,7 +1452,7 @@ export function apply(ctx: TreeContext): void {
       renameWorkspace: (workspaceId: string, title: string): Promise<unknown> => workspaces.rename(workspaceId, title),
       deleteWorkspace: (workspaceId: string): Promise<void> => workspaces.delete(workspaceId),
       // 官方 uiWorkspace.pickDirectory：宿主原生选择器（官方另经
-      // sidebar.workspaces.directoryFlow 座位让可替换的选择器接管；我们的 entry
+      // sidebar.workspaces.directoryFlow 槽位让可替换的选择器接管；我们的 entry
       // 无法渲染该子槽，故直调服务）。
       addWorkspace: (): void => {
         const service = uiWorkspace()
@@ -1465,7 +1476,7 @@ export function apply(ctx: TreeContext): void {
 
   ctx.effect(() => {
     const disposeLocale = ctx.locale.register(LOCALE_NS, { zh: ZH, en: EN })
-    // 对既有座位名（官方 ui-sidebar 的 children 表声明）必须走 slots.inject：
+    // 对既有槽位名（官方 ui-sidebar 的 children 表声明）必须走 slots.inject：
     // 直接 register 会在「未声明」时抛错。single 槽影子：priority −1 < 官方
     // WorkspaceBrowser 的默认 0 → 本件渲染。
     const disposeInject = ctx.slots.inject('sidebar.workspaces', () =>
