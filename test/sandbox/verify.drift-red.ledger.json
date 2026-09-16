@@ -1,0 +1,99 @@
+{
+  "title": "DSH One 验收报告：#91 两条漂移断言（fiber 状态 + block list 存活性）",
+  "branch": "agent/drift-red",
+  "commit": "1e31fb5",
+  "environment": {
+    "mode": "浏览器验证（test/assembly-lab：仓库真实模块 + 本机真 dsh 网关只读 + 假宿主）",
+    "dsh": "0.1.6-alpha.1（网关 http://127.0.0.1:3080）",
+    "locale": "zh",
+    "theme": "dark",
+    "driver": "LAB_PORT=3361 npm run verify:lab（12 套件 360 条断言）；反例各跑一次单套件（--suite F-10 / F-11）",
+    "date": "2026-09-16T06:40:00Z"
+  },
+  "coverageNote": "本次改动只动验证集（test/assembly-lab 的 harness/labServer/新套件）与 block list 的两条死条目，不改任何运行期行为；真桌面 VS Code 窗口不在本报告范围（AGENTS 铁律：agent 不起真窗），浏览器验证覆盖改动的全部行为——两条新断言本身就在浏览器验证里，且已有 10 套件本轮全绿作回归证据。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "F-10 FIBER：四棵树里零 cordis scope 进 FAILED（fiber 级断言落地）",
+      "expect": "四棵树（sidebar / sidebar-official / chat / settings）在真网关上打开，页面里装 fiber 探针（包 `__ModuleLoader__.load` 的 factory 记插件 id、只包 `@deepseek-ai/dsh-client-modules` 的 apply 拿 ctx、监听 `internal/plugin` + `internal/status`）：每棵树零 scope 进 FAILED；并且探针自证有效（接上事件总线 ≥ 1、登记到该树自有 frame 插件、观察到 scope 状态变化 > 0、探针自身零异常）。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/drift-red/test/assembly-lab/out/shots/contract-chat.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/drift-red/test/assembly-lab/out/shots/contract-settings.png"
+      ],
+      "notes": "逐条核对：`PASS F-10 … 断言 20/20（9.3s）`，四棵树各自 5 条断言全过。观测行：sidebar 登记插件 35 / 事件总线 1 / 状态事件 121 / scope 121（active 61 + loading 60）；sidebar-official 34 / 1 / 119 / 119；chat 57 / 1 / 199 / 199；settings 39 / 1 / 145 / 145——**四棵树 FAILED 与 disposed 均为 0**。判定用「fiber 状态静下来」而不是固定睡眠（连续 1.5 秒没有新的状态事件即认为装完，上限 15 秒），实测四棵树各约 1.6 秒静下来，整个套件 9.3 秒。这条断言要抓的是 F-01 抓不到的那一类：cordis fiber 失败**不进浏览器控制台**（官方 client logger 没有 console exporter）。",
+      "screenshotsNote": "截图来自同轮全量跑的 F-01 CONTRACT（四棵树同形页面）；fiber 状态本身不是视觉现象，证据在 ledger 的观测行与 F-04 的反例。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "F-11 WIRE-LIVENESS：三棵树 block list 的每个 id 都在当天网关 wire 里（+ 清掉两条死条目）",
+      "expect": "`chat` / `sidebar` / `settings` 三棵树 block list 的每一项都能在当天网关下发的官方 wire 里找到；同时三棵生产树都被检查到（标签去重没吃掉哪一棵）。顺带把日志里长期出现的两条与现网对不上的死条目摘掉。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：`PASS F-11 … 断言 4/4（0.0s）`。观测行：当天网关（dsh 0.1.6-alpha.1）官方 wire 55 个条目；`chat：block list 5 项，命中 5`、`sidebar：25 项，命中 25`、`settings：18 项，命中 18`。摘除的两条死条目 = `@deepseek-ai/dsh-client-ui-model-selection`（官方并进 ui-conversation）与 `@deepseek-ai/dsh-client-ui-settings-models`（并进 ui-settings）——跑前实测它们正是 wire 里唯二找不到的 block 条目（探针日志 `blocklist entries absent from the gateway wire …: @deepseek-ai/dsh-client-ui-settings-models`），所以摘除**不改剥离结果**：同一轮 mirror 日志三棵树的 kept/dropped 计数与摘除前一致（29 / 49 / 36 段），摘除后那两条 warn 也不再出现。副作用已写进注释：更老的网关（如 0.1.2 线）若仍有这两件，这条过滤不再生效（README 只把 0.1.2-rc.1 / 0.1.6-alpha.1 记为已实测版本）。",
+      "screenshotsNote": "这条是 Node 侧断言（不打开页面），无需截图。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "反例一：block 条目被改名时 F-11 变红（模拟官方改名/换装载方式）",
+      "expect": "把 `CHAT_FLOW` 里的一条 block 改成官方没有的名字（`@deepseek-ai/dsh-client-ui-skill` → `…-skill-v2`），跑 `--suite F-11` 必须红，并报出「哪棵树 + 哪个 id + 可能改成了谁」。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：`FAIL F-11 … 断言 2/4`，红的两条正是引用该条目的两棵树：`✗ sidebar：block list 的每一项都能在当天网关 wire 里找到（actual=[\"@deepseek-ai/dsh-client-ui-skill-v2 —— 可能被改名/换装载方式，当天 wire 里含同名词的邻近 id：@deepseek-ai/dsh-client-ui-skill\"] expected=[]）`，settings 树同上；**chat 树不红**——该条目只被 sidebar/settings 引用，这正是失败信息要报出「哪棵树」的原因。改完立刻 `git checkout` 还原，还原后 F-11 复跑 4/4 绿。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "反例二：settings frame 少声明 root 子槽 `main` 时 F-10 变红（#74 根因复现）",
+      "expect": "临时摘掉 settings frame root children 里的 `main`（就是 #74 的根因：官方 ui-conversation 的整棵对话子树注册挂在 `slots.inject(\"main\", …)` 上，不声明则它下面的座位名没人声明），跑 `--suite F-10` 必须在 settings 树这条断言上红，并**点名**是哪个插件的哪个座位失败。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/drift-red/test/assembly-lab/out/shots/contract-settings.png"
+      ],
+      "notes": "逐条核对：`FAIL F-10 … 断言 19/20（9.8s）`，唯一红的一条 = `✗ settings：零 scope 进 FAILED（actual=[\"@deepseek-ai/dsh-client-ui-agent-preset: slot \\\"conversation.hero.agentPreset\\\" is not declared (a parent entry's children table must declare it)\"] expected=[]）`——直接点名插件 id + 座位名 + 原因。对照：同一次现场里 F-01 报的是派生症状（settings 树 6 条 `cannot get required service \"sessions\" in inactive context`），既不说是哪个插件也不说是哪个座位；#74 当初就是靠这串看起来无关的噪音绕了很久才定位到根因。另外记一笔：摘掉 `shell.overlay` 声明走的是 `slot entry crashed`（console 可见、F-01 已覆盖），不是这条断言的活儿；摘掉 chat 树的 single `conversation` 在 0.1.6 上无人注册、不产生失败。改完立刻 `git checkout` 还原，还原后 F-10 复跑 20/20 绿。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "现有 10 套件全绿：实验室由 10 项 336 条 → 12 项 360 条",
+      "expect": "`LAB_PORT=3361 npm run verify:lab` 全量跑：原有 10 套件（F-01 CONTRACT / F-02 SMOKE / F-03 INTERACT / F-04 PARITY / F-05 BRIDGE / F-06 PORTABLE / F-07 SIDEBAR / F-08 MULTIOPEN / F-09 HEADER-UTILITIES / R-06 只读守卫）逐条通过，加上新增的 F-10（20 条）与 F-11（4 条），共 12 项 360 条断言全过。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/drift-red/test/assembly-lab/out/shots/parity-own-340.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/drift-red/test/assembly-lab/out/shots/header-utilities-chat.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/drift-red/test/assembly-lab/out/shots/multiopen-tab-2.png"
+      ],
+      "notes": "逐条核对：F-01 43/43、F-02 13/13、F-03 14/14、F-04 181/181、F-05 7/7、F-06 11/11、F-07 27/27、F-08 26/26、F-09 13/13、F-10 20/20、F-11 4/4、R-06 1/1 = **360/360**，整轮约 1 分半（套件本身约 90 秒）。反复跑了 4 轮（含 done 标记后一轮）均 12 项全绿。环境噪音记一笔：某一轮 R-06 报 `1145 vs 1143`——网关是用户日常实例，期间有并发会话在动（本任务全程不改运行期行为，且随后两轮均前后一致）；与本次改动无关。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "三棵树的过滤结果没变（摘掉的两条死条目本来就不在 wire 里）",
+      "expect": "block list 摘掉两条死条目后，三棵树请求到的 combo 同一份内容——mirror 日志里三棵树的 kept/dropped 段数与摘除前一致，页面上各插件的装载情况不变（F-10/F-11 与既有 10 套件都绿）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：mirror 日志三棵树分别 `kept 29 / kept 49 / kept 36` 段，dropped 列表不变；F-10 四棵树的 scope 数与注册插件数正常（chat 57 / settings 39 / sidebar 35 / 对照档 34）。理由：`filterWire` 只剥「wire 里真有」的 id，被摘的两条当天 wire 里不存在（跑前 warn 实测），摘除前后剥掉的段集合相同。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "门禁：typecheck / 单测 / build / i18n",
+      "expect": "`npm run typecheck`、`npm test`、`npm run build`、`I18N_BASE=develop/cordis-chat scripts/check-i18n.sh agent/drift-red` 全部通过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：typecheck 无输出（通过）；`npm test` = **tests 694 / pass 694 / fail 0**；build 成功（含 7 个 shell 插件与 5 个插件包的产物、宿主半）；i18n 门禁输出 `[i18n] OK：分支 agent/drift-red 相对 develop/cordis-chat 的新增行无 i18n 漏同步。`。`scripts/dev-finish.sh` 已跑通并打标 `done/drift-red` → `1e31fb5`（未合入，按流程等主线）。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "文档随实测刷新，且没起真 VS Code 窗口",
+      "expect": "`test/assembly-lab/README.md` 的套件清单、断言总数按实测刷新，并写清与每日探针 `clientContract.mjs` 的分工；`docs/dsh-compat-checklist.md` 的分工句同步。全程不跑 `dev-ui-test.sh`、不跑任何 `code --extensionDevelopmentPath`（AGENTS 铁律）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：README 套件表新增 F-10 / F-11 两行、总数改为「12 项 360 条…约 1 分半」、新增一节「和每日上游探针（clientContract.mjs）的分工」（一句话：探针管名字在不在——离线、每天、不需要网关；实验室管装起来活不活、清单还对不对得上——运行期、真网关、改装配必跑）；compat checklist 的分工句补上 F-10 / F-11；`npm run verify:lab` 的跑法注释里「五套件」改为「全部套件」。本任务全程只跑浏览器验证，未起过 VS Code 窗口（本机 ps 里没有 `--extensionDevelopmentPath` 进程）。"
+    }
+  ]
+}
