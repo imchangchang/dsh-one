@@ -403,12 +403,18 @@ export const RECYCLE_DRAWER_COLLAPSE_SUITE: LabSuite = {
           .map((sample) => `${String(sample.t)}ms:${sample.present ? String(Math.round(sample.offset ?? -1)) : 'gone'}`)
           .join(' ')}`,
       )
-      const reducedFirstAfterClick = reducedClosing.find((sample) => sample.present)
+      // 判据不能盯「第一帧在场的取样」：点下去那一刻 React 还没提交这次状态变更，取样可能先读到
+      // 一帧「还没开始关」的样子（6ms 那一帧 offset=0、还带展开类）。真正要判的是**整段取样里
+      // 有没有中间位置**——直接切换只有一个 0 → 收起位 的跳变，与上面开过渡时「有多帧中间位置」
+      // 正好相反。
+      const reducedPresent = reducedClosing.filter((sample) => sample.present)
+      const reducedMoving = movingFrames(reducedClosing)
       check.ok(
-        'reduced-motion：收起是直接切换——第一帧在场的取样就已经到收起位（没有中间帧）',
-        reducedFirstAfterClick !== undefined &&
-          (reducedFirstAfterClick.offset ?? 0) >= reducedFirstAfterClick.height * 0.95,
-        JSON.stringify(reducedFirstAfterClick),
+        'reduced-motion：收起是直接切换——整段取样里没有任何中间位置（一步到收起位）',
+        reducedPresent.length >= 1 &&
+          reducedMoving.length === 0 &&
+          (reducedPresent.at(-1)?.offset ?? 0) >= (reducedPresent.at(-1)?.height ?? 0) * 0.95,
+        `在场帧=${reducedPresent.map((sample) => `${String(sample.t)}ms:${String(Math.round(sample.offset ?? -1))}`).join(' ')}`,
       )
       check.eq('reduced-motion：抽屉最终同样从 DOM 里消失（兜底定时器收场）', (await drawerFacts(page)).count, 0)
       await page.emulateMedia({ reducedMotion: null })
