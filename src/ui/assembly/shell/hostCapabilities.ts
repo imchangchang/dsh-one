@@ -174,7 +174,9 @@ async function browserDownload(path: string, suggestedName: string): Promise<Dow
  * @param ctx - 插件 apply 拿到的 cordis ctx（读官方 Connection 服务用）。
  */
 export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
-  const viaBridge = hostCallAvailable()
+  // 每调用一次判一次（不缓存）：页面side SDK 的安装时机取决于外壳注入顺序，直接
+  // 判「现在有没有」比在构造时刻定生死稳。
+  const viaBridge = (): boolean => hostCallAvailable()
   return {
     async stateRead(key) {
       const payload = await capabilityCall(ctx, 'stateRead', { key })
@@ -188,13 +190,13 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
       return payload.deleted === true
     },
     async gitShow(args) {
-      if (viaBridge) {
+      if (viaBridge()) {
         return (await bridgeCall('git.show', { hash: args.hash, cwd: args.cwd })) as unknown as CommitInfoResult
       }
       return (await capabilityCall(ctx, 'gitShow', { hash: args.hash, cwd: args.cwd })) as unknown as CommitInfoResult
     },
     async saveContent(args) {
-      if (viaBridge) {
+      if (viaBridge()) {
         const data = await bridgeCall('file.save', { suggestedName: args.suggestedName, base64: args.base64 })
         return { path: String(data.path ?? '') }
       }
@@ -202,7 +204,7 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
       return { path: String(payload.path ?? '') }
     },
     async downloadGatewayFile(args) {
-      if (viaBridge) {
+      if (viaBridge()) {
         const data = await bridgeCall('file.download', { path: args.path, suggestedName: args.suggestedName })
         return { path: String(data.path ?? '') }
       }

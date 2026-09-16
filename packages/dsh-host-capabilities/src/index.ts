@@ -24,6 +24,10 @@
  * 为一个基类引入这种不确定性不划算。SRC 发现路径只要求「实例上有个 `typertRemote`
  * 绑定 + 原型上有版本化标记」，这两样都由官方协议包提供。
  *
+ * 本包的 `package.json` 同时把 `@deepseek-ai/cordis` 声明成依赖（代码里并不 import 它）：
+ * 协议包把 cordis 当 peerDependency，而 profile 的 pnpm 配置是 `autoInstallPeers: false`，
+ * 不显式声明就会在安装后解析不到那个 import。
+ *
  * 端点全名 = `<服务名>/<方法名>`（如 `dshOneHostCapabilities/stateRead`）。**没有生成
  * typert 描述文件**：官方网关对未登记端点走 SRC 回退（`dsh-api-gateway/lib/index.js`
  * 的 `resolveSrcDescriptor`，按方法形参名取值）。这条路要求**方法的形参名保持不变**
