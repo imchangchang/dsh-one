@@ -1,16 +1,20 @@
 /**
  * @dsh-one/vscode-shell——自有 root 外框插件（#64 方案 A′）：顶替下线的官方
  * ui-layout（root 槽注册 + layout 服务 + ThemePresenter + panelInfo 槽位钩子），
- * 只装配对话区，无官方侧栏。接手官方框架插件 ui-layout 的契约清单与版本核对办法见
- * frameShared.ts 文件头（「官方框架插件 ui-layout 的契约清单」）。
+ * 只装配对话区，无官方侧栏。接手官方框架插件 ui-layout 的契约清单、版本核对办法，
+ * 以及「为什么不能改成加载官方 ui-layout + 只遮蔽它的 root slot」（#77 实测结论）
+ * 见 frameShared.ts 文件头。
  *
- * - root 槽注册：children 声明 conversation / main / details / shell.overlay
- *   （不声明 sidebar——chat 树 block 了 ui-sidebar，其 sidebar.workspaces
- *   贡献不会注册；不带 locale 字段（不消费 t））。会话面板槽位两版都声明：
- *   0.1.2 线登记 single `conversation`，0.1.6 线登记 keyed `main`（key =
- *   `conversation`），渲染哪个由注册表实际有贡献的那个决定。
- * - ShellFrame：主区会话面板 + details 面板 + shell.overlay 层；切会话时
- *   关 details（官方 AppFrame 语义，无侧栏/拖拽维度）。
+ * - root 槽注册：children 声明 conversation / main / details / rightbar /
+ *   shell.overlay（不声明 sidebar——chat 树 block 了 ui-sidebar，其
+ *   sidebar.workspaces 贡献不会注册；不带 locale 字段（不消费 t））。会话面板
+ *   槽位两版都声明：0.1.2 线登记 single `conversation`，0.1.6 线登记 keyed
+ *   `main`（key = `conversation`），渲染哪个由注册表实际有贡献的那个决定。
+ *   `rightbar` 是 #79 决策 B 的接入点：声明后官方 ui-sidebar-right 才注册它的
+ *   座位，文件/终端/文档预览三个官方插件在这棵树上真正可用。
+ * - ShellFrame：主区会话面板 + details 面板 + 官方右栏座位 + shell.overlay 层；
+ *   切会话时关 details（官方 AppFrame 语义，无侧栏/拖拽维度）。右栏几何照官方
+ *   AppFrame 的两步解算（frameShared.computeColumns），呈现上报走 ctx.layout。
  *
  * 构建：esbuild 打成官方同格式自注册 IIFE（clientEntry.ts + banner/footer
  * 包出 window.__ModuleLoader__.load({id, factory})）；react / react/jsx-runtime /
@@ -20,8 +24,10 @@
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   PANEL_INFO_SOURCE,
+  computeColumns,
   createLayoutStore,
   LayoutController,
+  rightbarPreference,
   ThemePresenter,
   type PanelActions,
   type PanelInfoSnapshot,
@@ -54,7 +60,7 @@ interface ShellFrameProps {
   useSessions: <R>(selector: (state: SessionsSnapshot) => R) => R
   /** 官方 root 槽位钩子（本插件经 ctx.slots.provideRoot 提供，见 frameShared）。 */
   usePanelInfo: <R>(selector: (info: PanelInfoSnapshot) => R) => R
-  actions: Pick<PanelActions, 'openDetails' | 'closeDetails'>
+  actions: Pick<PanelActions, 'openDetails' | 'closeDetails' | 'setViewportWidth'>
   renderSlot: (name: string, params: Record<string, unknown>, opts?: { entryKey?: string }) => unknown
   SessionProvider: unknown
   /** 框架按 entry 的 locale 注入的 t（函数内别名 tr 避开 i18n 门禁裸 t() 扫描）。 */
@@ -108,7 +114,7 @@ function createConversationSeatMirror(ctx: ShellContext): SeatMirror {
 // 样式（官方 css-module 注入形态的本地版：data-plugin-css 防重）
 // ---------------------------------------------------------------------------
 
-const CSS = '.dshOneShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative}.dshOneShell_row{flex:1;min-height:0;display:flex}.dshOneShell_main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}.dshOneShell_details{border-left:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden;background:var(--dsw-alias-bg-base)}.dshOneShell_openingMask{z-index:15;position:absolute;top:0;left:0;right:0;bottom:0;background:var(--dsw-alias-bg-base);align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);font-size:14px;line-height:22px;display:flex}.dshOneShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
+const CSS = '.dshOneShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative}.dshOneShell_row{flex:1;min-height:0;display:flex}.dshOneShell_main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}.dshOneShell_details{border-left:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden;background:var(--dsw-alias-bg-base)}.dshOneShell_rightbarCol{flex:none;position:relative;overflow:visible}.dshOneShell_openingMask{z-index:15;position:absolute;top:0;left:0;right:0;bottom:0;background:var(--dsw-alias-bg-base);align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);font-size:14px;line-height:22px;display:flex}.dshOneShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
 // composer dock 统计行字号压小（#71 验收）：官方 StatsLine 字号取自官方变量
 // --dsh-content-font-size-secondary（默认 13px，由 ui-theme 按字号设置推导，
 // 五处消费——全局改会误伤 message-feedback/tool/workflow-run）。机制层 4 举证：
@@ -167,6 +173,33 @@ const bootSessionId = (): string | undefined => {
 
 function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, SessionProvider, conversationSeat, t }: ShellFrameProps) {
   const panels = useStore((s) => s)
+  // 容器实测宽（官方 AppFrame 同款：ResizeObserver + rAF 节流量自己的盒宽）——
+  // 右栏宽度偏好按它推导，所以必须在座位挂载前尽量到位（首帧量一次）。
+  const frameRef = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    const el = frameRef.current
+    if (el === null) return
+    let raf: number | null = null
+    let disposed = false
+    const measure = (): void => {
+      const width = el.getBoundingClientRect().width
+      if (width > 0) actions.setViewportWidth(width)
+    }
+    measure()
+    const observer = new ResizeObserver(() => {
+      if (disposed) return
+      raf ??= requestAnimationFrame(() => {
+        raf = null
+        measure()
+      })
+    })
+    observer.observe(el)
+    return () => {
+      disposed = true
+      observer.disconnect()
+      if (raf !== null) cancelAnimationFrame(raf)
+    }
+  }, [actions])
   // 会话面板槽位名（0.1.2 线 = single `conversation`，0.1.6 线 = keyed `main`）：
   // 注册在首渲之后，用订阅驱动重渲（官方槽位注册会 bump registry 版本）。
   const [, setSeatTick] = useState(0)
@@ -220,9 +253,16 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
     conversationSeat.getSnapshot() === 'main'
       ? renderSlot('main', {}, { entryKey: activePanelId ?? 'conversation' })
       : renderSlot('conversation', {})
+  // 右栏几何（官方 AppFrame 同款两步解算，数值规则见 frameShared.computeColumns）：
+  // 座位拿到的是「正常态」宽度 `normal.rightbar`，占不占轨道看 `rightbarTrack`
+  // （`cols.rightbar`）。没让轨道时官方座位自己贴着外框右缘悬在内容之上——
+  // 这正是官方右栏「是一条轨道，不是一个盒子」的语义（窄容器下就是这么呈现的）。
+  const rightbarPref = rightbarPreference(panels.rightbar, panels.viewportWidth)
+  const rightbarNormal = computeColumns(panels.viewportWidth, 0, rightbarPref).rightbar
+  const rightbarTrackWidth = computeColumns(panels.viewportWidth, 0, panels.rightbarTrack ? rightbarPref : 0).rightbar
   return h(
     'div',
-    { className: 'dshOneShell_frame', 'data-shell': 'dsh-one' },
+    { className: 'dshOneShell_frame', 'data-shell': 'dsh-one', ref: frameRef },
     h(DocumentTitle, {
       productTitle: 'DeepSeek Harness',
       ...(documentTitle === undefined ? {} : { title: documentTitle }),
@@ -237,6 +277,20 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
           { className: 'dshOneShell_details', style: { width: panels.details } },
           h(SessionProvider, null, renderSlot('details', {})),
         ),
+      // 官方右栏座位（#79 决策 B）：文件/终端/文档预览三个官方插件经
+      // `ctx.slots.inject('rightbar', …)` 等这个座位被声明后自己注册进来
+      // （ui-sidebar-right 的 RightbarRoot），呈现上报走 ctx.layout（见 frameShared
+      // 的 openRightbar）。props 三个字段是官方契约（官方 AppFrame 同款）：
+      // width = 正常态面板宽、viewportWidth = 外框宽、canShow = 容器装不装得下。
+      h(
+        'div',
+        { className: 'dshOneShell_rightbarCol', style: { width: rightbarTrackWidth } },
+        renderSlot('rightbar', {
+          width: rightbarNormal,
+          viewportWidth: panels.viewportWidth,
+          canShow: rightbarNormal > 0,
+        }),
+      ),
     ),
     opening && h('div', { className: 'dshOneShell_openingMask', 'data-opening-mask': '' }, tr('opening')),
     h('div', { className: 'dshOneShell_overlay', 'data-shell-overlay': true }, renderSlot('shell.overlay', {})),
@@ -265,10 +319,14 @@ export function apply(ctx: ShellContext): void {
         // 不声明 sidebar 子槽：chat 树 block 了 ui-sidebar，侧栏贡献整树缺席。
         // 会话面板两版槽位都声明（0.1.2 的 single `conversation` / 0.1.6 的
         // keyed `main`），渲染哪个见 conversationSeat 镜像。
+        // `rightbar`（#79 决策 B）声明后官方 ui-sidebar-right 才会注册它的座位
+        // （官方件用 `ctx.slots.inject('rightbar', …)` 等声明），文件/终端/
+        // 文档预览三个插件随之在这棵树上真正可用。
         children: {
           conversation: { kind: 'single', scope: 'session-maybe' },
           main: { kind: 'keyed', scope: 'root' },
           details: { kind: 'single', scope: 'session' },
+          rightbar: { kind: 'single', scope: 'root' },
           'shell.overlay': { kind: 'list', scope: 'root' },
         },
         store: createLayoutStore,

@@ -53,7 +53,7 @@ chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（
 
 | 套件 | 验什么 |
 | --- | --- |
-| **F-01 CONTRACT** | 底座契约完备性（铁律要求的那条）：四棵树各自**零 `slot entry crashed`**、零 `data-slot-error`、零 pageerror、零装载未激活（`web boot: … did not activate` / `waiting for service`，即缺服务/缺钩子）；关键座位有内容；该树的自有插件全在 combo 请求里且 frame 插件确实执行过 |
+| **F-01 CONTRACT** | 底座契约完备性（铁律要求的那条）：四棵树各自**零 `slot entry crashed`**、零 `data-slot-error`、零 pageerror、零装载未激活（`web boot: … did not activate` / `waiting for service`，即缺服务/缺钩子）；关键座位有内容；**预期座位锚点都在**（官方改座位名/改归属时先红）；该树的自有插件全在 combo 请求里且 frame 插件确实执行过；chat 树另核官方右栏（座位已注册 + 面板几何在官方钳位区间内） |
 | **F-02 SMOKE** | 三棵树冒烟：侧栏出真会话行/分组行、对话区 composer 可输入且会话面板挂在 keyed `main` 槽位上、设置页出设置项，且控制台零 error |
 | **F-03 INTERACT** | 关键交互：行内码右键菜单（官方 Menu 单图标项 + Esc 关闭 + 高亮撤销）、commit 卡片（走宿主能力口 + GitHub 按钮发出 `vscode.openExternal`）、清空（Esc ×2）与反悔（Ctrl+Z） |
 | **F-04 PARITY** | 侧栏自有树与官方浏览区在 260/340/500 三档宽度下逐项对齐：分节头、搜索胶囊、图标按钮、分组行、会话行、标题、时间、图标位、列表容器的 computed style 与几何矩形；**数值不硬编码**，两侧取到就直接比。密度档（#85）的处置见下 |

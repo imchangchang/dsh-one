@@ -53,11 +53,15 @@ export interface BlockedPlugin {
   reason: string
 }
 
-/** 官方外框条目（两棵树共用）：与 VS Code 外壳冲突，由自有 frame 插件接管根组合。 */
+/** 官方外框条目（三棵树共用）：与 VS Code 外壳形态冲突，由自有 frame 插件接管根组合。 */
 const UI_LAYOUT: BlockedPlugin = {
   id: '@deepseek-ai/dsh-client-ui-layout',
-  // 官方应用外框，与 VS Code 外壳冲突；由 @dsh-one/vscode-shell（chat 树）/
-  // @dsh-one/vscode-sidebar-shell（sidebar 树）接管根组合并提供 layout 服务
+  // 官方应用外框（三列网格 + 拖拽把手 + 最小 56px 侧栏轨），与 VS Code 的
+  // 容器形态冲突；由 @dsh-one/vscode-shell（chat 树）/ @dsh-one/vscode-sidebar-shell
+  // （sidebar 树）/ @dsh-one/vscode-settings-shell（settings 树）接管根组合。
+  // #77 实测过铁律的首选路径（加载官方件 + 只遮蔽它的 root slot），三条硬约束
+  // 使其不可行：root 子槽声明排他、renderSlot 授权按条目、同域二次 provide 抛错
+  // 且整页 boot 失败——证据与结论见 shell/frameShared.ts 文件头。
   reason: 'official app frame conflicts with the VS Code shell; the @dsh-one frame plugin takes over root composition and provides the layout service',
 }
 
@@ -121,7 +125,9 @@ export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT, ...C
 /**
  * chat 树 block list（#64 行为 + #71 瘦身）：官方外框、官方侧栏、设置子页组。
  * 对话流卡片全保留（本树渲染它们）；composer hero 的 agent preset 与权限
- * 选择保留（新会话功能）。
+ * 选择保留（新会话功能）；官方右栏系（ui-sidebar-right + 文件/终端/文档预览）
+ * 不在此列——自有 frame 的 root 条目声明 `rightbar` 座位并渲染它（#79 决策 B），
+ * 这几件在这棵树上真生效。
  */
 export const CHAT_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
   UI_LAYOUT,

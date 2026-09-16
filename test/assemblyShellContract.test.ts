@@ -143,3 +143,29 @@ test('官方「新会话」胶囊：只在 shell 的 CSS 里摘，树插件不�
   assert.ok(!/class\*="newSession"/.test(tree), '树插件不得掺和官方胶囊的摘除（同一份插件还要在官方 web 形态里跑）')
 })
 
+/**
+ * 官方右栏（#79 决策 B）：chat 树声明 rightbar 座位并渲染，文件/终端/文档预览
+ * 三个官方插件才有地方注册。三件事都是官方契约，任一处漂移都要在这里先红。
+ */
+test('chat 树：rightbar 座位声明 + 按官方 props 契约渲染（#79 决策 B）', () => {
+  const text = read('shellPlugin.ts')
+  assert.match(text, /rightbar:\s*\{\s*kind:\s*'single',\s*scope:\s*'root'\s*\}/, 'chat 树要声明官方 rightbar 座位（官方 ui-sidebar-right 经 slots.inject 等它）')
+  // 官方 AppFrame 的 RightbarColumn 传的三个字段（官方 client.js 的 renderSlot("rightbar", …)）。
+  assert.match(text, /renderSlot\(\s*'rightbar',\s*\{[\s\S]{0,200}?width:[\s\S]{0,80}?viewportWidth:[\s\S]{0,80}?canShow:/, 'rightbar 座位要按官方 props 契约传 width / viewportWidth / canShow')
+})
+
+test('layout 服务：右栏呈现上报落进布局状态（官方 ILayout.openRightbar/closeRightbar 语义）', () => {
+  const controller = /export class LayoutController \{([\s\S]*?)\n\}/.exec(read('frameShared.ts'))?.[1] ?? ''
+  // 官方语义：右侧栏占据者上报呈现组成（track / fullscreen），外框据此定轨道宽度；
+  // 官方 ui-sidebar-right 的 syncPresentation 调的就是这两个方法。
+  assert.match(controller, /openRightbar\([\s\S]{0,200}?this\.#require\(\)\.openRightbar\(/, 'openRightbar 要把上报转交布局状态（不能是空实现）')
+  assert.match(controller, /closeRightbar\(\):\s*void\s*\{\s*this\.#require\(\)\.closeRightbar\(\)/, 'closeRightbar 要把隐藏上报转交布局状态')
+  const store = read('frameShared.ts')
+  for (const action of ['openRightbar', 'closeRightbar', 'setRightbar', 'setViewportWidth']) {
+    assert.ok(new RegExp(`\\b${action}:\\s*\\(d`).test(store), `layout store 要有官方同名的 ${action} 动作`)
+  }
+  // 官方 columns.ts 的数值：右列上限 70% 视口、首开 45%、中列底线 400。
+  assert.match(store, /RIGHTBAR_MAX_RATIO = 0\.7/, '右列上限比例要对齐官方 columns.ts')
+  assert.match(store, /RIGHTBAR_DEFAULT_RATIO = 0\.45/, '右列首开比例要对齐官方 columns.ts')
+  assert.match(store, /CENTER_MIN_WIDTH = 400/, '中列底线要对齐官方 columns.ts')
+})
