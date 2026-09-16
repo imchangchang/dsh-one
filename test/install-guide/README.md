@@ -52,7 +52,14 @@ SMOKE_HEADED=1 npm run verify:install-guide      # 开有界面的浏览器看�
 
 ## 产物（`out/`，已 gitignore）
 
-- `smoke.<locale>.json`：台账（断言明细 + 观测值 + 截图清单），交给主线审查用；
+- `verify.install-guide.ledger.json`：**合入门禁报告**用的台账（`test/sandbox/report.mjs` 的形状：
+  每项一段「看到什么」的期望 + 相关截图 + 通过/失败）。渲染成单文件报告：
+
+  ```bash
+  node test/sandbox/report.mjs --ledger test/install-guide/out/verify.install-guide.ledger.json
+  ```
+
+- `smoke.<locale>.json`：逐条断言明细 + 观测值（对比度实测、背景色等），排障用；
 - `<locale>-<theme>-terminal.png` / `-editor.png` / `-menu.png` / `-narrow.png`：明暗两态的截图，
   **留给人工看观感**（布局、留白、层级这类浏览器断言只能兜住底线，好不好看要人眼）。
 

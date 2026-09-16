@@ -20,6 +20,7 @@
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { installGuideHtml } from '../../src/ui/installGuide.ts'
@@ -372,6 +373,133 @@ async function runNarrow(browser, theme) {
   await context.close()
 }
 
+/* ---------- 报告条目：把逐条断言折成「人看截图能逐条对照」的几项 ---------- */
+
+/**
+ * 报告条目（合入门禁那份报告用的形状，见 `test/sandbox/report.mjs`）：每项给一段
+ * 「看到什么」的期望 + 相关截图，人在报告里逐项对照。断言按标签里的关键词归到条目，
+ * 归不掉的断言会单独列成一项并判失败——归类漏了不会静默。
+ */
+const ITEM_SPECS = [
+  {
+    id: 'IG-01',
+    phase: 'new-feature',
+    name: 'hero：居中大标题 + 副标题，没有网站式导航',
+    expect:
+      '页面顶部是一行居中大标题「安装 dsh」，下面一行灰色副标题（两行内），四周留白充足；顶部没有会员权益/文档/控制台那一类网站导航条。',
+    patterns: [/hero/, /副标题/, /顶部导航/, /<html lang>/],
+    shots: ['-terminal'],
+  },
+  {
+    id: 'IG-02',
+    phase: 'new-feature',
+    name: '一键安装命令行：主按钮 + 同行命令胶囊',
+    expect:
+      '一行里左侧是深色主按钮「安装 dsh ▾」（下拉收起时也带箭头），右侧同一行是命令胶囊：等宽字体、单行省略（长了出省略号，不折行），命令是宿主平台那一条。',
+    patterns: [/主按钮/, /下拉初始收起/, /命令胶囊显示/, /命令等宽/],
+    shots: ['-terminal'],
+  },
+  {
+    id: 'IG-03',
+    phase: 'new-feature',
+    name: '下拉菜单：平台项（✓ 选中态）+ 外链项（↗）',
+    expect:
+      '点「安装 dsh ▾」开出一个浮层菜单：上面是平台项，命令相同的平台合成一项（macOS / Linux 一条、Windows 一条），当前平台左侧有 ✓ 且加粗，未选中项留着同宽空位；下面是分隔线与「官方安装文档 ↗」；点菜单外部、按 Esc 都能关掉，Esc 关闭后焦点回主按钮。',
+    patterns: [/开出下拉/, /平台项按命令分叉合成/, /只有一项带/, /✓ 落在/, /未选中项留出/, /外链项带/, /Esc 关闭/, /点下拉外部/, /点外链项后下拉收起/, /点外链项发出/],
+    shots: ['-menu'],
+  },
+  {
+    id: 'IG-04',
+    phase: 'new-feature',
+    name: '换平台：命令即时更换、选中态跟着走',
+    expect:
+      '在菜单里选另一个平台后，菜单收起、右侧命令立刻换成该平台的命令（不用刷新页面），✓ 移到新平台那一项。',
+    patterns: [/选 Windows 后命令/, /选完自动收起/, /✓ 跟着移到/, /新平台的 ✓/],
+    shots: ['-terminal'],
+  },
+  {
+    id: 'IG-05',
+    phase: 'new-feature',
+    name: '复制：命令不走页面，成功/失败都有反馈',
+    expect:
+      '点命令条右侧的复制图标：宿主把命令写进系统剪贴板，图标短暂变成 ✓（朗读区报「已复制」），约两秒后回到空闲；宿主复制失败时变成 ×（报「复制失败」）。发回宿主的消息里只有平台名，没有命令文本（命令始终由宿主现算）。',
+    patterns: [/复制消息只有/, /消息里不含/, /复制成功/, /复制失败/, /反馈过一会儿/],
+    shots: ['-terminal'],
+  },
+  {
+    id: 'IG-06',
+    phase: 'new-feature',
+    name: '分段控件：终端安装 / 编辑器接入',
+    expect:
+      '安装行下面是一个胶囊式分段控件，默认选中「终端安装」，内容是该段的三步说明（同一页内切换，不整页跳转）；切到「编辑器接入」后换成「装完回侧栏即可用」的说明与「打开 dsh web ↗」入口，主按钮与命令条仍在。',
+    patterns: [/默认在/, /段初始收起/, /终端段有安装步骤/, /切到编辑器段/, /分段控件的选中态/, /打开动作/],
+    shots: ['-editor'],
+  },
+  {
+    id: 'IG-07',
+    phase: 'new-feature',
+    name: '明暗两态：背景是编辑器主题色，文字对比度达标',
+    expect:
+      '浅色与深色主题下各看一遍：页面背景是编辑器主题背景（不是固定白底），命令胶囊是与背景可分辨的一块面，标题/命令/按钮/次要文字都看得清（正文对比度 >=4.5:1，次要小字 >=3:1）。',
+    patterns: [/页面背景/, /命令胶囊是与背景/, /对比度/],
+    shots: ['-terminal', '-editor'],
+  },
+  {
+    id: 'IG-08',
+    phase: 'new-feature',
+    name: '窄面板：命令胶囊换行、仍是单行、复制图标不丢',
+    expect:
+      '把编辑器 tab 拖窄（420px）后，命令胶囊换到主按钮下一行，命令仍是单行省略不折行，复制图标仍在胶囊内可见。',
+    patterns: [/窄面板/],
+    shots: ['-narrow'],
+  },
+  {
+    id: 'IG-09',
+    phase: 'new-feature',
+    name: '页面干净：控制台零 error',
+    expect: '整轮交互（开合菜单、换平台、复制、切段）后控制台没有 error。',
+    patterns: [/控制台零 error/],
+    shots: [],
+  },
+]
+
+/** 断言 → 报告条目；归不掉的单列一项并判失败（归类漏了不静默）。 */
+function reportItems() {
+  const buckets = ITEM_SPECS.map((spec) => ({ spec, own: [] }))
+  const orphans = []
+  for (const entry of checks) {
+    const bucket = buckets.find(({ spec }) => spec.patterns.some((pattern) => pattern.test(entry.label)))
+    if (bucket === undefined) orphans.push(entry)
+    else bucket.own.push(entry)
+  }
+  const items = buckets.map(({ spec, own }) => ({
+    id: spec.id,
+    phase: spec.phase,
+    name: spec.name,
+    expect: spec.expect,
+    result: own.every((entry) => entry.ok) ? 'pass' : 'fail',
+    screenshots: ['light', 'dark'].flatMap((theme) =>
+      spec.shots.map((suffix) => path.join(OUT, `${LOCALE}-${theme}${suffix}.png`)),
+    ),
+    notes: own
+      .filter((entry) => !entry.ok)
+      .map((entry) => `✗ ${entry.label}${entry.detail === '' ? '' : `（${entry.detail}）`}`)
+      .join('\n'),
+  }))
+  if (orphans.length > 0) {
+    items.push({
+      id: 'IG-00',
+      phase: 'new-feature',
+      name: '未归类的断言（harness 归类漏了）',
+      expect: '每条断言都该归到上面某一项；出现本项说明 smoke.mjs 的 ITEM_SPECS 要补。',
+      result: 'fail',
+      screenshots: [],
+      notes: orphans.map((entry) => `- ${entry.label}`).join('\n'),
+    })
+  }
+  return items
+}
+
 /* ---------- 主流程 ---------- */
 
 async function main() {
@@ -388,6 +516,7 @@ async function main() {
   }
 
   const passed = checks.filter((c) => c.ok).length
+  const shots = (await fsp.readdir(OUT)).filter((f) => f.startsWith(`${LOCALE}-`) && f.endsWith('.png')).sort()
   const ledger = {
     suite: 'INSTALL-GUIDE-SMOKE',
     locale: LOCALE,
@@ -396,17 +525,49 @@ async function main() {
     assertions: { total: checks.length, passed, failed: checks.length - passed },
     checks,
     facts,
-    screenshots: (await fsp.readdir(OUT)).filter((f) => f.startsWith(`${LOCALE}-`) && f.endsWith('.png')).sort(),
+    screenshots: shots,
   }
   await fsp.writeFile(path.join(OUT, `smoke.${LOCALE}.json`), `${JSON.stringify(ledger, null, 2)}\n`, 'utf8')
+
+  // 合入门禁那份报告：按 `test/sandbox/report.mjs` 的形状产出条目（新增功能项在前）。
+  const report = {
+    title: `安装引导页浏览器冒烟（#105，locale=${LOCALE}）`,
+    branch: git(['rev-parse', '--abbrev-ref', 'HEAD']),
+    commit: git(['rev-parse', '--short', 'HEAD']),
+    command: `npm run verify:install-guide${LOCALE === 'en' ? '' : `（SMOKE_LOCALE=${LOCALE}）`}`,
+    environment: {
+      mode: '浏览器（Playwright chromium，页面由真实宿主代码渲染，宿主侧是页内假桥）',
+      网关: '不需要（这一页不参与装配树）',
+      locale: LOCALE,
+      'theme 档': 'light + dark（VS Code 默认浅色/深色主题的 token 取值）',
+      viewport: '900×780（窄面板档 420×780）',
+      date: new Date().toISOString(),
+      断言: `${String(passed)}/${String(checks.length)} 通过`,
+    },
+    coverageNote:
+      '不覆盖：真 VS Code webview 宿主层（CSP 实际执行、真剪贴板、原生菜单、主题跟随）、真 dsh 安装过程本身。' +
+      '这一页不参与装配树，装配侧回归看 `npm run verify:lab` 的报告；侧栏状态页与引导 tab 单例行为看 npm test 的 sidebarStatusPage.test.ts。',
+    items: reportItems(),
+  }
+  await fsp.writeFile(path.join(OUT, 'verify.install-guide.ledger.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8')
 
   for (const line of facts) console.log(`  · ${line}`)
   for (const failed of checks.filter((c) => !c.ok)) console.log(`  ✗ ${failed.label}${failed.detail === '' ? '' : `（${failed.detail}）`}`)
   console.log(
     `\n[install-guide-smoke] locale=${LOCALE} 断言 ${String(checks.length)} 条，通过 ${String(passed)} 条；` +
-      `产物 ${path.relative(process.cwd(), OUT)}/{smoke.${LOCALE}.json, *.png}`,
+      `条目 ${String(report.items.length)} 项（失败 ${String(report.items.filter((i) => i.result === 'fail').length)} 项）；` +
+      `产物 ${path.relative(process.cwd(), OUT)}/{smoke.${LOCALE}.json, verify.install-guide.ledger.json, *.png}`,
   )
   if (passed !== checks.length) process.exitCode = 1
+}
+
+/** 取一个 git 信息（拿不到就留空，不让报告生成失败）。 */
+function git(args) {
+  try {
+    return execFileSync('git', args, { encoding: 'utf8' }).trim()
+  } catch {
+    return ''
+  }
 }
 
 await main()
