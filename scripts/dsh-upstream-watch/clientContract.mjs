@@ -45,7 +45,6 @@
  */
 
 /** 提取前提（combo 结构）——不成立时说明取法失效，人工按新结构改本文件。 */
-const SEGMENT_MARKER = 'window.__ModuleLoader__.load({'
 const MIN_SEGMENTS = 40
 const MIN_CATALOG_ENTRIES = 30
 
