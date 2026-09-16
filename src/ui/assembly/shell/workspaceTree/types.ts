@@ -2,6 +2,7 @@
 import type { SessionListLike } from '../../../../pure/workspaceTreeView.ts'
 import type { GroupFile } from '../../../../pure/dshStateFile.ts'
 import type { SessionMarksState } from '../../../../pure/sessionMarks.ts'
+import type { TagGroupsFile } from '../../../../pure/sessionTagGroups.ts'
 
 export type Translate = (key: string, params?: Record<string, string | number>) => string
 
@@ -95,6 +96,15 @@ export interface TreeProps {
   savePinned: (ids: readonly string[]) => void
   /** 写回手动未读 id 集合（宿主能力口 `stateWrite('unread')`；失败静默）。 */
   saveUnread: (ids: readonly string[]) => void
+  /**
+   * #107：会话标签组的持久状态读回（宿主能力口 `stateRead('tags')` 的封装，见
+   * `pure/sessionTagGroups.ts`）。键名 `tags` 就是旧侧栏的文件名
+   * （`~/.dsh/dsh-one/tags.json`），所以旧数据开箱即用——迁入的只有形状
+   * （丢掉不再算组的旧内置组、丢掉折叠字段），读一次、变更时写回。
+   */
+  loadTagGroups: () => Promise<TagGroupsFile>
+  /** 写回标签组状态（宿主能力口 `stateWrite('tags')`；失败静默，界面按内存态继续可用）。 */
+  saveTagGroups: (file: TagGroupsFile) => void
   /**
    * 「在新标签页打开」（#72 多开通道）：宿主有编辑器标签页时由 apply 注入，
    * 官方 web 形态（无此能力）不注入 = 菜单项与行右键都不出现。

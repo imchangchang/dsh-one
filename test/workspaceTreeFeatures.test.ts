@@ -304,6 +304,7 @@ test('视图态：写出去能读回来（分组方式/排序/当前分组/展�
     activeGroupId: 'g-1',
     expandedGroups: ['w1', ''],
     recycleCollapsed: ['w2'],
+    tagCollapsed: ['w1\u0000t-1'],
   }
   writeTreeViewPrefs(storage, prefs)
   assert.deepEqual(readTreeViewPrefs(storage), prefs)
@@ -317,10 +318,12 @@ test('视图态：无键/坏 JSON/未知取值一律回落默认（坏值不该�
   assert.deepEqual(readTreeViewPrefs(undefined), defaultTreeViewPrefs())
   assert.deepEqual(
     parseTreeViewPrefs({ groupBy: 'nope', orderBy: 'nope', activeGroupId: '', expandedGroups: ['a', 'a', 7] }),
-    { groupBy: 'workspace', orderBy: 'manual', activeGroupId: null, expandedGroups: ['a'], recycleCollapsed: [] },
+    { groupBy: 'workspace', orderBy: 'manual', activeGroupId: null, expandedGroups: ['a'], recycleCollapsed: [], tagCollapsed: [] },
   )
-  // 旧版本的偏好里没有 recycleCollapsed：缺字段按空集合（旧数据不该让抽屉乱收）
+  // 旧版本的偏好里没有 recycleCollapsed / tagCollapsed：缺字段按空集合
+  // （旧数据不该让抽屉、标签组乱收）
   assert.deepEqual(parseTreeViewPrefs({ expandedGroups: ['w1'], recycleCollapsed: 'nope' }).recycleCollapsed, [])
+  assert.deepEqual(parseTreeViewPrefs({ expandedGroups: ['w1'], tagCollapsed: 'nope' }).tagCollapsed, [])
 })
 
 test('视图态：存储不可用（隐私模式/配额满）不抛，静默降级', () => {

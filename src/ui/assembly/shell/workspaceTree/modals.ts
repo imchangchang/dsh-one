@@ -1,9 +1,17 @@
-/** 对话框（分组新建/重命名/删除、工作区与会话重命名、删除工作区）。 */
+/** 对话框（分组新建/重命名/删除、工作区与会话重命名、删除工作区、标签组新建/删除）。 */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { Button, IconEditOutline16, IconTrashOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  Button,
+  IconCheckOutline16,
+  IconEditOutline16,
+  IconTrashOutline16,
+  Modal,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionBlock } from '../../../../pure/workspaceTreeView.ts'
 import type { WorkspaceGroupDef } from '../../../../pure/treeGroups.ts'
+import { TAG_COLORS, type TagColor } from '../../../../pure/sessionTags.ts'
 import { displayTitle } from './format.ts'
+import { TAG_COLOR_CSS, TAG_COLOR_LABEL } from './tagGroups.ts'
 import type { Translate } from './types.ts'
 
 /**
@@ -215,6 +223,158 @@ export interface ArchiveRequest {
   readonly skipped: number
   /** `emptyBin` = 从回收站入口「清空」进来的（标题按整仓口径）。 */
   readonly kind: 'archive' | 'emptyBin'
+}
+
+/**
+ * 新建标签组（#107）：名字输入 + 6 色色板（默认给轮换色，点一下换）。
+ *
+ * 名字的空/重名就地判定，与落盘走同一份纯函数（`sessionTagGroups.tagGroupNameError`），
+ * 不会出现「界面放过、落盘被拒」的第二套判断。
+ */
+export function TagGroupCreateModal({
+  open,
+  tr,
+  defaultColor,
+  validate,
+  onSubmit,
+  onClose,
+}: {
+  open: boolean
+  tr: Translate
+  /** 默认色（按已有组数轮换，见 `nextTagColor`）。 */
+  defaultColor: TagColor
+  /** 名字校验（调用方把它接到纯函数 `sessionTagGroups.tagGroupNameError` 上）。 */
+  validate: (name: string) => 'empty' | 'duplicate' | null
+  onSubmit: (name: string, color: TagColor) => void
+  onClose: () => void
+}): unknown {
+  const [draft, setDraft] = useState('')
+  const [color, setColor] = useState<TagColor>(defaultColor)
+  const [idle, setIdle] = useState(true)
+  const lastOpen = useRef(false)
+  useEffect(() => {
+    if (open && !lastOpen.current) {
+      setDraft('')
+      setColor(defaultColor)
+      setIdle(true)
+    }
+    lastOpen.current = open
+  }, [open, defaultColor])
+  const nameError = idle ? null : validate(draft)
+  const blocked = idle || nameError !== null
+  const submit = (): void => {
+    if (draft.trim() === '' || validate(draft) !== null) return
+    onSubmit(draft.trim(), color)
+  }
+  return h(Modal, {
+    open,
+    onClose,
+    closeLabel: tr('close'),
+    title: tr('tag.new'),
+    footer: h(
+      'div',
+      { style: { display: 'flex', gap: '8px' } },
+      h(Button, { variant: 'outline', onClick: onClose }, tr('cancel')),
+      h(
+        Button,
+        {
+          variant: 'primary',
+          disabled: blocked,
+          onClick: submit,
+          'data-dshone-tree-action': 'tag-create-confirm',
+        },
+        tr('tag.new'),
+      ),
+    ),
+    children: [
+      h('input', {
+        className: 'dshOneTree_renameInput',
+        'data-dshone-tree': 'tag-name-input',
+        value: draft,
+        'aria-label': tr('tag.name.label'),
+        placeholder: tr('tag.name.label'),
+        autoFocus: true,
+        onChange: (event: { target: { value: string } }) => {
+          setDraft(event.target.value)
+          setIdle(false)
+        },
+        onKeyDown: (event: { key: string; preventDefault(): void }) => {
+          if (event.key !== 'Enter') return
+          event.preventDefault()
+          submit()
+        },
+      }),
+      // 6 色色板：一枚枚色块当按钮（官方 Button 装不下「色块」这种内容，这里按旧侧栏
+      // 同一形态自绘，几何与选中态在 styles.ts 的 `dshOneTree_tagColorPick*`）。
+      h(
+        'div',
+        { className: 'dshOneTree_tagColorPick', 'data-dshone-tree': 'tag-color-pick' },
+        TAG_COLORS.map((candidate) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              key: candidate,
+              className: `dshOneTree_tagColorPickItem${candidate === color ? ' dshOneTree_tagColorPickOn' : ''}`,
+              style: { background: TAG_COLOR_CSS[candidate] },
+              title: tr(TAG_COLOR_LABEL[candidate]),
+              'aria-label': tr(TAG_COLOR_LABEL[candidate]),
+              'aria-pressed': candidate === color,
+              'data-dshone-tag-color': candidate,
+              onClick: () => setColor(candidate),
+            },
+            candidate === color ? h(IconCheckOutline16, { size: 12 }) : null,
+          ),
+        ),
+      ),
+      idle || nameError === null
+        ? null
+        : h(
+            'div',
+            { className: 'dshOneTree_renameError', role: 'alert' },
+            nameError === 'empty' ? tr('tag.name.empty') : tr('tag.name.duplicate'),
+          ),
+    ],
+  })
+}
+
+/** 删除标签组确认（#107）：组定义与归属一起消失，会话本身一条不动。 */
+export function TagGroupDeleteModal({
+  target,
+  tr,
+  onSubmit,
+  onClose,
+}: {
+  target: { id: string; name: string } | null
+  tr: Translate
+  onSubmit: (id: string) => void
+  onClose: () => void
+}): unknown {
+  return h(Modal, {
+    open: target !== null,
+    onClose,
+    closeLabel: tr('close'),
+    title: tr('tag.delete'),
+    ...(target === null ? {} : { description: tr('tag.delete.desc', { name: target.name }) }),
+    footer: h(
+      'div',
+      { style: { display: 'flex', gap: '8px' } },
+      h(Button, { variant: 'outline', onClick: onClose }, tr('cancel')),
+      h(
+        Button,
+        {
+          variant: 'outline',
+          className: 'dshOneTree_deleteAction',
+          'data-dshone-tree-action': 'tag-delete-confirm',
+          onClick: () => {
+            if (target !== null) onSubmit(target.id)
+          },
+        },
+        tr('tag.delete'),
+      ),
+    ),
+    children: null,
+  })
 }
 
 /** 重命名对话框（官方同款 Modal + Button + 圆形输入框）。 */
