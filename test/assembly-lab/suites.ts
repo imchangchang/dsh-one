@@ -33,6 +33,7 @@ import { COLLAPSE_ALL_ICON_SUITE } from './collapseAllIconSuites.ts'
 import { TAG_GROUP_RAIL_SUITE } from './tagRailSuites.ts'
 import { RECYCLE_DRAWER_COLLAPSE_SUITE } from './recycleDrawerSuites.ts'
 import { TOPBAR_RHYTHM_SUITE } from './topbarRhythmSuites.ts'
+import { RENAME_OPEN_SYNC_SUITE } from './renameOpenSyncSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -5793,4 +5794,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #119 顶栏 / 分组过滤条一带的纵向留白（F-26：#117 归 F-24、#118 已占 F-25——两边并行
   // 开发撞了号，按「从未占用的继续」顺延；套件本体在 topbarRhythmSuites.ts，同为独立文件）。
   TOPBAR_RHYTHM_SUITE,
+  // #121 会话行点击的「宿主真的开着它吗」（F-28：F-26 归 #119、F-27 归 #122；
+  // 套件本体在 renameOpenSyncSuites.ts，同为独立文件）。
+  RENAME_OPEN_SYNC_SUITE,
 ]

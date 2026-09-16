@@ -10,7 +10,9 @@
  *   `src/pure/hostCalls.ts` 的同一套协议应答（`dshOne.hostResult`），数据是固定
  *   的假提交——实验室要的是契约与配对语义，不是真 git。另按能力各自记录观测值：
  *   `openedUrls`（VS Code 侧开外链的要求）、`sessionTabsOpened`（多开通道要求开的
- *   会话 id，#72）。
+ *   会话 id，#72）、`panelQueries` / `panelsOpened`（#121 侧栏树问「这条会话开在面板里
+ *   吗」与请宿主把面板亮到某会话——宿主面板本身在真宿主里，`panelSession` 是那两个
+ *   回执的开关，见下）。
  * - `window.open`：官方 web 侧的开外链出口（#83），调用记进
  *   `__LAB_HOST__.openedByWindow`（不真的开窗）。
  * - **状态三件套**（`state.read/write/delete`，#82）：宿主半的状态存储在实验室里由
@@ -60,6 +62,15 @@ export function fakeHostScript(
     // 因为磁盘/权限写不进去，这条就是那个情形的可复现版本）。
     failStateWrite: null,
     sessionTabsOpened: [],
+    // #121 宿主面板：假宿主不做真的面板（那是真宿主的事），只回答侧栏树问的那句
+    // 「这条会话现在开在对话面板里吗」，并记录「树请宿主把面板亮到哪个会话」。
+    // panelSession 缺省 true = 一律答「开着」（既有姿态：#115 的「点当前会话行 =
+    // 就地改名」成立，F-22 等套件按它验）；设 false 就造出「宿主说没打开」的现场
+    //（#121 的 F-26 要的正是它）。session.openPanel 到达时把它翻回 true——真宿主
+    // 在那之后确实开着这条会话了；要让「没打开」一直成立，套件点完再设回 false。
+    panelSession: true,
+    panelQueries: [],
+    panelsOpened: [],
     settingsOpened: [],
     workspaceCreateCalls: [],
     openedFolders: [],
@@ -151,6 +162,31 @@ export function fakeHostScript(
     if (message.call === "vscode.openExternal") {
       var url = message.args && typeof message.args.url === "string" ? message.args.url : ""
       host.openedUrls.push(url)
+      result(message.id, true, null)
+      return
+    }
+    if (message.call === "session.inPanel") {
+      // #121 侧栏树问「这条会话现在开在宿主面板里吗」：假宿主按 panelSession 如实回。
+      var askedId = message.args && typeof message.args.sessionId === "string" ? message.args.sessionId : ""
+      if (askedId === "") {
+        result(message.id, false, { code: "invalid-args", message: "lab host: empty session id" })
+        return
+      }
+      host.panelQueries.push(askedId)
+      result(message.id, true, { open: host.panelSession === true })
+      return
+    }
+    if (message.call === "session.openPanel") {
+      // #121 树请宿主把对话面板亮到这个会话：真宿主在这里 openSessionChat（创建 /
+      // 聚焦 / 就地切换）；假宿主记录「请亮哪个会话」，并把面板状态翻成「开着它」
+      //（真宿主做完这件事之后确实如此）。
+      var showId = message.args && typeof message.args.sessionId === "string" ? message.args.sessionId : ""
+      if (showId === "") {
+        result(message.id, false, { code: "invalid-args", message: "lab host: empty session id" })
+        return
+      }
+      host.panelsOpened.push(showId)
+      host.panelSession = true
       result(message.id, true, null)
       return
     }
