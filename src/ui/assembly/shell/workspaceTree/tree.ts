@@ -13,6 +13,7 @@ import {
   workspaceMatchesGroup,
 } from '../../../../pure/treeGroups.ts'
 import { pageStorage, readTreeViewPrefs, writeTreeViewPrefs, type TreeViewPrefs } from '../../../../pure/workspaceTreePrefs.ts'
+import { emptySessionMarks, pinnedFirst, toggleMarkId, type SessionMarksState } from '../../../../pure/sessionMarks.ts'
 import type { GroupFile } from '../../../../pure/dshStateFile.ts'
 import { GroupFilterBar } from './groupFilterBar.ts'
 import { newGroupId } from './groups.ts'
@@ -50,6 +51,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
     searchResultLimit,
     loadGroups,
     saveGroups,
+    loadMarks,
+    savePinned,
+    saveUnread,
     recycleSessions,
     restoreSession,
     openInNewTab,
@@ -84,6 +88,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
     | null
   >(null)
   const [groupError, setGroupError] = useState<string | null>(null)
+  // #102：两份用户标记（置顶 / 手动未读）的 id 集合。与分组同一处置：住宿主能力口
+  // （`stateRead('pinned' | 'unread')`，键名 = 旧侧栏的文件名），读一次、变更时写回。
+  const [marks, setMarks] = useState<SessionMarksState>(emptySessionMarks())
   // 「管理分组…」对话框（#99 B 段，单胶囊下拉里的一项）。
   const [manageGroupsOpen, setManageGroupsOpen] = useState(false)
   // 批量选择（纯视图态，不持久化）+ 回收站抽屉 + 还原中的会话 id。
@@ -139,6 +146,54 @@ export function WorkspaceTree(props: TreeProps): unknown {
     saveGroups(next)
   }
 
+  // 置顶 / 手动未读（#102）：同样读一次（ref 守门，理由与分组那段一致——注入的
+  // props 每次渲染都可能是新函数）。读失败（能力口没实现/宿主半没装）保持空集合：
+  // 树照常可用，只是没有置顶与未读标记，不弹错、不白屏。
+  const marksLoaded = useRef(false)
+  useEffect(() => {
+    if (marksLoaded.current) return
+    marksLoaded.current = true
+    let cancelled = false
+    loadMarks().then(
+      (state) => {
+        if (!cancelled) setMarks(state)
+      },
+      (reason: unknown) => {
+        if (!cancelled) console.warn('[dsh-one] session marks unavailable:', reason)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [loadMarks])
+
+  const pinnedIds = new Set(marks.pinned)
+  const unreadIds = new Set(marks.unread)
+  /** 写回一份标记（先落界面、再落宿主能力口；失败静默，与分组同一处置）。 */
+  const persistPinned = (ids: readonly string[]): void => {
+    setMarks((prev) => ({ ...prev, pinned: ids }))
+    savePinned(ids)
+  }
+  const persistUnread = (ids: readonly string[]): void => {
+    setMarks((prev) => ({ ...prev, unread: ids }))
+    saveUnread(ids)
+  }
+  /** 翻一下某一行的置顶/未读（无变化时 `toggleMarkId` 回同一份引用 = 不写盘）。 */
+  const togglePin = (sessionId: string): void => {
+    persistPinned(toggleMarkId(marks.pinned, sessionId, !pinnedIds.has(sessionId)))
+  }
+  const toggleUnread = (sessionId: string): void => {
+    persistUnread(toggleMarkId(marks.unread, sessionId, !unreadIds.has(sessionId)))
+  }
+  /**
+   * #102：打开会话即清未读——手动未读的意义就是「还没看」，看过了就不再是未读。
+   * 树里三处打开入口（分组行、平铺行、搜索结果行）与抽屉里的行都走这里。
+   */
+  const openSessionClearingUnread = (sessionId: string): void => {
+    if (unreadIds.has(sessionId)) persistUnread(toggleMarkId(marks.unread, sessionId, false))
+    openSession(sessionId)
+  }
+
   // 当前会话所在分组默认展开（官方同款：只在一条分组从未被显式收/展过时自动展开）。
   useEffect(() => {
     if (list.current === undefined || workspacePhase !== 'ready') return
@@ -173,8 +228,12 @@ export function WorkspaceTree(props: TreeProps): unknown {
   }, [trimmedQuery, searchSessions])
 
   const archived = new Set(archivedSessionIds)
+  // 排序 = 官方顺序，**唯一例外**是置顶项在这一层排最前（#98 定稿，`pinnedFirst`）。
   const withOrder = (sessions: readonly SessionNode[]): readonly SessionNode[] =>
-    orderBy === 'updated' ? [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) : sessions
+    pinnedFirst(
+      orderBy === 'updated' ? [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) : sessions,
+      (node) => pinnedIds.has(node.id),
+    )
   // 过滤态只在分组方式 = 按工作区时生效（单列表没有工作区分块可言）。
   const filterActive = groupBy === 'workspace' && activeGroupId !== null && hasTreeGroup(groupsFile, activeGroupId)
   const groups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
@@ -346,8 +405,10 @@ export function WorkspaceTree(props: TreeProps): unknown {
                 workspaceLabel: workspaceLabelOf(row.id),
                 ...(snippetOf(row.id) === undefined ? {} : { snippet: snippetOf(row.id) }),
                 selected: row.id === list.current,
+                pinned: pinnedIds.has(row.id),
+                unread: unreadIds.has(row.id),
                 tr,
-                onOpen: () => openSession(row.id),
+                onOpen: () => openSessionClearingUnread(row.id),
               }),
             ),
           )
@@ -373,11 +434,15 @@ export function WorkspaceTree(props: TreeProps): unknown {
                 tr,
                 selectMode,
                 selected: selectedSet.has(row.id),
+                pinned: pinnedIds.has(row.id),
+                unread: unreadIds.has(row.id),
                 onToggleSelect: () => toggleSelected(row.id),
-                onOpen: () => openSession(row.id),
+                onOpen: () => openSessionClearingUnread(row.id),
                 onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
                 onFork: () => forkSession(row.id),
                 onArchive: () => void archiveSession(row.id).catch(() => {}),
+                onTogglePin: () => togglePin(row.id),
+                onToggleUnread: () => toggleUnread(row.id),
                 onOpenInNewTab: openInNewTab === undefined ? undefined : () => openInNewTab(row.id),
               }),
             ),
@@ -428,11 +493,15 @@ export function WorkspaceTree(props: TreeProps): unknown {
                     tr,
                     selectMode,
                     selected: selectedSet.has(row.id),
+                    pinned: pinnedIds.has(row.id),
+                    unread: unreadIds.has(row.id),
                     onToggleSelect: () => toggleSelected(row.id),
-                    onOpen: () => openSession(row.id),
+                    onOpen: () => openSessionClearingUnread(row.id),
                     onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
                     onFork: () => forkSession(row.id),
                     onArchive: () => void archiveSession(row.id).catch(() => {}),
+                    onTogglePin: () => togglePin(row.id),
+                    onToggleUnread: () => toggleUnread(row.id),
                     onOpenInNewTab: openInNewTab === undefined ? undefined : () => openInNewTab(row.id),
                   }),
                 ),
@@ -514,7 +583,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
         setDrawerOpen(false)
         setRecycleError(null)
       },
-      onOpen: (sessionId: string) => openSession(sessionId),
+      onOpen: (sessionId: string) => openSessionClearingUnread(sessionId),
       onRestore: restoreFromRecycle,
     }),
     h(RenameModal, {

@@ -172,6 +172,58 @@ function treeGroupDefs(file) {
   return file.groups;
 }
 
+// src/pure/sessionMarks.ts
+var SESSION_PINNED_STATE_KEY = "pinned";
+var SESSION_UNREAD_STATE_KEY = "unread";
+function emptySessionMarks() {
+  return { pinned: [], unread: [] };
+}
+function sanitizeMarkIds(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const id of raw) {
+    if (typeof id !== "string" || id === "") continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+function migrateMarkIds(value) {
+  if (value === null || value === void 0) return { ids: [], needsRewrite: false };
+  if (Array.isArray(value)) return { ids: sanitizeMarkIds(value), needsRewrite: true };
+  if (typeof value === "object") {
+    const record = value;
+    if (record.version === 1 && Array.isArray(record.sessionIds)) {
+      return { ids: sanitizeMarkIds(record.sessionIds), needsRewrite: false };
+    }
+  }
+  return { ids: [], needsRewrite: true };
+}
+function markStateFile(ids) {
+  return { version: 1, sessionIds: [...ids] };
+}
+function migrateSessionMarks(values) {
+  const pinned = migrateMarkIds(values.pinned);
+  const unread = migrateMarkIds(values.unread);
+  const rewrite = [];
+  if (pinned.needsRewrite) rewrite.push("pinned");
+  if (unread.needsRewrite) rewrite.push("unread");
+  return { marks: { pinned: pinned.ids, unread: unread.ids }, rewrite };
+}
+function toggleMarkId(ids, id, on) {
+  const has = ids.includes(id);
+  if (on) return has ? ids : [...ids, id];
+  return has ? ids.filter((value) => value !== id) : ids;
+}
+function pinnedFirst(items, isPinned) {
+  const pinned = [];
+  const rest = [];
+  for (const item of items) (isPinned(item) ? pinned : rest).push(item);
+  return [...pinned, ...rest];
+}
+
 // src/pure/hostCallError.ts
 function isHostCallError(value) {
   return typeof value === "object" && value !== null && typeof value.code === "string" && typeof value.message === "string";
@@ -443,6 +495,16 @@ var ZH = {
   "menu.fork": "\u5206\u53C9\u4F1A\u8BDD",
   "menu.openInNewTab": "\u5728\u65B0\u6807\u7B7E\u9875\u6253\u5F00",
   "menu.archiveSession": "\u5F52\u6863\u4F1A\u8BDD",
+  "menu.pin": "\u7F6E\u9876",
+  "menu.unpin": "\u53D6\u6D88\u7F6E\u9876",
+  "menu.markUnread": "\u6807\u4E3A\u672A\u8BFB",
+  "menu.markRead": "\u6807\u4E3A\u5DF2\u8BFB",
+  "menu.unreadBlocked": "\u8FD0\u884C\u4E2D\u7684\u4F1A\u8BDD\u4E0D\u652F\u6301\u624B\u52A8\u6807\u4E3A\u5DF2\u8BFB/\u672A\u8BFB",
+  "protect.recycle.pinned": "\u7F6E\u9876\u4F1A\u8BDD\u4E0D\u80FD\u79FB\u5165\u56DE\u6536\u7AD9\u6216\u5F52\u6863\uFF0C\u5148\u53D6\u6D88\u7F6E\u9876",
+  "protect.archive.pinned": "\u7F6E\u9876\u4F1A\u8BDD\u4E0D\u80FD\u5F52\u6863\uFF0C\u5148\u53D6\u6D88\u7F6E\u9876",
+  "protect.archive.pending": "\u5F85\u5904\u7406\u7684\u4F1A\u8BDD\u4E0D\u80FD\u5F52\u6863",
+  "protect.archive.running": "\u8FD0\u884C\u4E2D\u7684\u4F1A\u8BDD\u4E0D\u80FD\u5F52\u6863",
+  "protect.archive.unread": "\u672A\u8BFB\u7684\u4F1A\u8BDD\u4E0D\u80FD\u5F52\u6863",
   "workspace.add": "\u6DFB\u52A0\u5DE5\u4F5C\u533A",
   "workspace.pickFolder": "\u9009\u62E9\u5DF2\u6709\u6587\u4EF6\u5939\u2026",
   "workspace.create": "\u521B\u5EFA\u65B0\u5DE5\u4F5C\u533A\u76EE\u5F55\u2026",
@@ -460,6 +522,7 @@ var ZH = {
   "status.planReview": "\u8BA1\u5212\u5F85\u5BA1",
   "status.waitingAnswer": "\u7B49\u5F85\u56DE\u7B54",
   "status.completed": "\u5DF2\u5B8C\u6210",
+  "status.unread": "\u672A\u8BFB",
   "schedule.active": "\u6709\u6D3B\u52A8\u5B9A\u65F6\u4EFB\u52A1",
   "hover.created": "\u521B\u5EFA\u4E8E {time}",
   "hover.copied": "\u5DF2\u590D\u5236",
@@ -541,6 +604,16 @@ var EN = {
   "menu.fork": "Fork session",
   "menu.openInNewTab": "Open in New Tab",
   "menu.archiveSession": "Archive session",
+  "menu.pin": "Pin",
+  "menu.unpin": "Unpin",
+  "menu.markUnread": "Mark as unread",
+  "menu.markRead": "Mark as read",
+  "menu.unreadBlocked": "Running sessions cannot be marked read/unread manually",
+  "protect.recycle.pinned": "Pinned sessions cannot be moved to the recycle bin or archived; unpin them first",
+  "protect.archive.pinned": "Pinned sessions cannot be archived; unpin them first",
+  "protect.archive.pending": "Sessions with pending items cannot be archived",
+  "protect.archive.running": "Running sessions cannot be archived",
+  "protect.archive.unread": "Unread sessions cannot be archived",
   "workspace.add": "Add workspace",
   "workspace.pickFolder": "Choose an existing folder\u2026",
   "workspace.create": "Create a new workspace folder\u2026",
@@ -558,6 +631,7 @@ var EN = {
   "status.planReview": "Plan awaiting review",
   "status.waitingAnswer": "Waiting for answer",
   "status.completed": "Completed",
+  "status.unread": "Unread",
   "schedule.active": "Has active scheduled task",
   "hover.created": "Created {time}",
   "hover.copied": "Copied",
@@ -722,6 +796,7 @@ function sessionStatuses(node) {
   }
   if (subagents !== void 0) return [subagents];
   if (node.completed) return [{ state: "done", labelKey: "status.completed" }];
+  if (node.unread === true) return [{ state: "done", labelKey: "status.unread" }];
   return [{ state: "done", labelKey: "status.idle" }];
 }
 function showsStatusDot(statuses, completed) {
@@ -1470,13 +1545,33 @@ function RecycleDrawer({
 var import_react7 = require("react");
 var import_dsh_client_ui_primitives7 = require("@deepseek-ai/dsh-client-ui-primitives");
 
+// src/pure/sessionEligibility.ts
+function sessionBusy(facts) {
+  return facts.running || (facts.runningSubagentCount ?? 0) > 0;
+}
+function canRecycle(facts) {
+  return cannotRecycleReason(facts) === null;
+}
+function cannotRecycleReason(facts) {
+  return facts.pinned ? "pinned" : null;
+}
+function cannotArchiveReason(facts) {
+  if (facts.pinned) return "pinned";
+  if (facts.pendingInteraction !== void 0) return "pending";
+  if (sessionBusy(facts)) return "running";
+  if (facts.unread) return "unread";
+  return null;
+}
+
 // src/ui/assembly/shell/workspaceTree/selection.ts
 var import_react6 = require("react");
 var import_dsh_client_ui_primitives6 = require("@deepseek-ai/dsh-client-ui-primitives");
-function SelectMark({ on }) {
+function SelectMark({ on, disabled }) {
   return (0, import_react6.createElement)(
     "span",
-    { className: `dshOneTree_checkBox${on ? " dshOneTree_checkOn" : ""}` },
+    {
+      className: `dshOneTree_checkBox${on ? " dshOneTree_checkOn" : ""}${disabled === true ? " dshOneTree_checkOff" : ""}`
+    },
     on ? (0, import_react6.createElement)(import_dsh_client_ui_primitives6.IconCheckOutline16, { size: 12 }) : null
   );
 }
@@ -1515,6 +1610,42 @@ function SelectionBar({
 }
 
 // src/ui/assembly/shell/workspaceTree/rows.ts
+var PIN_PATHS = ["M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z", "M8 9.5v4"];
+var UNREAD_PATHS = ["M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8z"];
+function strokeIcon(paths, className) {
+  return (0, import_react7.createElement)(
+    "svg",
+    { viewBox: "0 0 16 16", width: 14, height: 14, fill: "none", "aria-hidden": true, ...className === void 0 ? {} : { className } },
+    ...paths.map(
+      (d, index) => (0, import_react7.createElement)("path", {
+        key: String(index),
+        d,
+        stroke: "currentColor",
+        "stroke-width": "1.3",
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round"
+      })
+    )
+  );
+}
+function PinMark({ sessionId }) {
+  return (0, import_react7.createElement)("span", { className: "dshOneTree_pin", "data-dshone-tree-pin": sessionId, "aria-hidden": true }, strokeIcon(PIN_PATHS));
+}
+function UnreadIcon() {
+  return strokeIcon(UNREAD_PATHS);
+}
+function eligibilityOf(node, pinned, unread) {
+  return {
+    pinned,
+    running: node.running,
+    runningSubagentCount: node.runningSubagentCount,
+    unread,
+    ...node.pendingInteraction === void 0 ? {} : { pendingInteraction: node.pendingInteraction }
+  };
+}
+function archiveBlockKey(reason) {
+  return `protect.archive.${reason}`;
+}
 function SessionStatusDots({ statuses, tr }) {
   const labels = statuses.map(
     (status) => (0, import_react7.createElement)(
@@ -1690,19 +1821,27 @@ function SessionRow({
   tr,
   selectMode,
   selected,
+  pinned,
+  unread,
   onToggleSelect,
   onOpen,
   onRename,
   onFork,
   onArchive,
+  onTogglePin,
+  onToggleUnread,
   onOpenInNewTab
 }) {
   const [menuOpen, setMenuOpen] = (0, import_react7.useState)(false);
   const [menuAt, setMenuAt] = (0, import_react7.useState)(null);
   const title = displayTitle(node, tr);
   const isCurrent = node.id === currentId;
-  const statuses = sessionStatuses(node);
-  const showStatus = showsStatusDot(statuses, node.completed);
+  const facts = eligibilityOf(node, pinned, unread);
+  const selectable = canRecycle(facts);
+  const archiveBlocked = cannotArchiveReason(facts);
+  const unreadBlocked = sessionBusy(facts);
+  const statuses = sessionStatuses({ ...node, unread });
+  const showStatus = showsStatusDot(statuses, node.completed || unread);
   const openInNewTabItem = onOpenInNewTab === void 0 ? [] : [
     {
       id: "openInNewTab",
@@ -1716,9 +1855,42 @@ function SessionRow({
   ];
   const menuItems = [
     { id: "rename", label: tr("rename"), icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives7.IconEditOutline16, {}) },
+    // #102 两项标记动作：文案随状态翻转，勾选态走官方 Menu 的 selectedIds（✓），
+    // 禁用时的原因写在 label 节点的 title 上（官方 Menu 的项没有独立的提示槽，
+    // 见 workspaceTreePlugin 文件头对 Menu 项形状的说明）。
+    {
+      id: "pin",
+      label: (0, import_react7.createElement)("span", { "data-dshone-tree-item": "pin" }, pinned ? tr("menu.unpin") : tr("menu.pin")),
+      icon: strokeIcon(PIN_PATHS)
+    },
+    {
+      id: "unread",
+      label: (0, import_react7.createElement)(
+        "span",
+        {
+          "data-dshone-tree-item": "unread",
+          ...unreadBlocked ? { title: tr("menu.unreadBlocked") } : {}
+        },
+        unread ? tr("menu.markRead") : tr("menu.markUnread")
+      ),
+      icon: (0, import_react7.createElement)(UnreadIcon, {}),
+      disabled: unreadBlocked
+    },
     { id: "fork", label: tr("menu.fork"), icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives7.IconBranchOutline16, {}) },
     ...openInNewTabItem,
-    { id: "archive", label: tr("menu.archiveSession"), icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives7.IconArchiveOutline20, { size: 16 }) }
+    {
+      id: "archive",
+      label: (0, import_react7.createElement)(
+        "span",
+        {
+          "data-dshone-tree-item": "archive",
+          ...archiveBlocked === null ? {} : { title: tr(archiveBlockKey(archiveBlocked)) }
+        },
+        tr("menu.archiveSession")
+      ),
+      icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives7.IconArchiveOutline20, { size: 16 }),
+      disabled: archiveBlocked !== null
+    }
   ];
   const anchor = (0, import_react7.createElement)(
     "button",
@@ -1742,11 +1914,17 @@ function SessionRow({
       role: "treeitem",
       "aria-selected": selectMode ? selected : isCurrent,
       "data-dshone-tree-row": "session",
+      // 行上带的会话 id（与工作区行的 `data-dshone-tree-key` 同一个用途：验证套件据此
+      // 认行，不用去猜 DOM 顺序）。
+      "data-dshone-tree-session": node.id,
       // 行上的活状态（供验证套件把「工作区行尾的计数」与「行内真实状态」对照）：
       // 等待交互 > 运行中 > 空闲，与状态点的优先级同源。
       "data-dshone-tree-status": node.pendingInteraction !== void 0 ? "waiting" : node.running ? "running" : "idle",
-      ...selectMode ? { "data-dshone-tree-checked": selected } : {},
-      onClick: selectMode ? onToggleSelect : onOpen,
+      // 置顶行不可勾选（#102）：选择态下点它不切换勾选（勾选框本身也带提示）。
+      // `data-dshone-tree-check` 把资格写在行上（验证套件按行读），提示在勾选框上。
+      ...selectMode ? { "data-dshone-tree-checked": selected, "data-dshone-tree-check": selectable ? "eligible" : "blocked" } : {},
+      onClick: selectMode ? selectable ? onToggleSelect : () => {
+      } : onOpen,
       // 行右键开出同一份菜单（指针位置锚定）。三条不接管的线：
       // - 多开不可用的宿主（官方 web）：那里没有这一项可给，抢掉原生右键菜单只是添乱；
       // - 空白会话行（`node.blank`）：官方对这类行整个不给行菜单（见下面 actions 的
@@ -1759,8 +1937,20 @@ function SessionRow({
         setMenuOpen(true);
       },
       children: [
-        selectMode ? (0, import_react7.createElement)("span", { key: "check", className: "dshOneTree_check" }, (0, import_react7.createElement)(SelectMark, { on: selected })) : !flat || showStatus ? showStatus ? (0, import_react7.createElement)(SessionStatusDots, { key: "status", statuses, tr }) : (0, import_react7.createElement)("span", { key: "status", className: "dshOneTree_slot" }) : null,
-        (0, import_react7.createElement)("span", { key: "title", className: "dshOneTree_title" }, title),
+        selectMode ? (0, import_react7.createElement)(
+          "span",
+          {
+            key: "check",
+            className: "dshOneTree_check",
+            // 置顶会话不可勾选（#102 保护规则）：勾选是「批量移入回收站」的前置，
+            // 而置顶不允许进回收站也不允许归档——所以最满也只勾得上它以外的行。
+            // 原因提示挂在勾选框上（行上挂会让整行都冒出原生气泡）。
+            ...selectable ? {} : { title: tr("protect.recycle.pinned") }
+          },
+          (0, import_react7.createElement)(SelectMark, { on: selected, disabled: !selectable })
+        ) : !flat || showStatus ? showStatus ? (0, import_react7.createElement)(SessionStatusDots, { key: "status", statuses, tr }) : (0, import_react7.createElement)("span", { key: "status", className: "dshOneTree_slot" }) : null,
+        pinned ? (0, import_react7.createElement)(PinMark, { key: "pin", sessionId: node.id }) : null,
+        (0, import_react7.createElement)("span", { key: "title", className: `dshOneTree_title${unread ? " dshOneTree_unread" : ""}` }, title),
         node.blank || selectMode ? null : (0, import_react7.createElement)("span", {
           key: "time",
           className: "dshOneTree_time",
@@ -1776,10 +1966,14 @@ function SessionRow({
               setMenuOpen(false);
             },
             items: menuItems,
+            // 两项标记动作的勾选态（官方 Menu 的 selectedIds：✓ 由官方渲染）。
+            selectedIds: [...pinned ? ["pin"] : [], ...unread ? ["unread"] : []],
             onSelect: (id) => {
               setMenuAt(null);
               setMenuOpen(false);
               if (id === "rename") onRename(node.title);
+              if (id === "pin") onTogglePin();
+              if (id === "unread") onToggleUnread();
               if (id === "fork") onFork();
               if (id === "openInNewTab") onOpenInNewTab?.();
               if (id === "archive") onArchive();
@@ -1810,11 +2004,13 @@ function SearchResultRow({
   workspaceLabel,
   snippet,
   selected,
+  pinned,
+  unread,
   tr,
   onOpen
 }) {
-  const statuses = sessionStatuses(node);
-  const showStatus = showsStatusDot(statuses, node.completed);
+  const statuses = sessionStatuses({ ...node, unread });
+  const showStatus = showsStatusDot(statuses, node.completed || unread);
   return (0, import_react7.createElement)(
     "button",
     {
@@ -1829,7 +2025,12 @@ function SearchResultRow({
           className: "dshOneTree_searchRowHeading",
           children: [
             showStatus ? (0, import_react7.createElement)(SessionStatusDots, { key: "status", statuses, tr }) : (0, import_react7.createElement)("span", { key: "status", className: "dshOneTree_slot" }),
-            (0, import_react7.createElement)("span", { key: "title", className: "dshOneTree_searchRowTitle" }, displayTitle(node, tr))
+            pinned ? (0, import_react7.createElement)(PinMark, { key: "pin", sessionId: node.id }) : null,
+            (0, import_react7.createElement)(
+              "span",
+              { key: "title", className: `dshOneTree_searchRowTitle${unread ? " dshOneTree_unread" : ""}` },
+              displayTitle(node, tr)
+            )
           ]
         }),
         (0, import_react7.createElement)("span", {
@@ -1882,7 +2083,7 @@ var CSS = (
   // 容器外，让侧栏外层（官方 hHd-Xa_regionArea）的 scrollWidth 比 clientWidth 大 4px
   // ——平时看不见，但官方在「单列表」视图里对选中行 scrollIntoView 时会被横滚 4px，
   // 整棵树跟着左移 4px（#85 回归断言实测到的既有缺陷）。列表自己的滚动在 .dshOneTree_list。
-  ".dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex;position:relative}.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:0}.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:none;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);display:flex}.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}.dshOneTree_searchButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_searchExpanded .dshOneTree_searchButton{width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-search-expanded-height,30px)}.dshOneTree_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchExpanded .dshOneTree_searchButton:hover{background:0 0}.dshOneTree_searchInput{opacity:0;pointer-events:none;width:0;min-width:0;color:var(--dsw-alias-label-primary);transition:opacity .12s var(--ds-ease-in-out);background:0 0;border:none;outline:none;flex:1;font-size:13px;line-height:18px}.dshOneTree_searchExpanded .dshOneTree_searchInput{opacity:1;pointer-events:auto;margin-left:-2px}.dshOneTree_searchInput::placeholder{color:var(--dsw-alias-label-tertiary)}.dshOneTree_clearButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}.dshOneTree_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:var(--dsh-one-density-list-padding-bottom,16px);overflow-y:auto}.dshOneTree_flatList>*+*,.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_groupSection{position:relative}.dshOneTree_groupSection+.dshOneTree_groupSection{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_searchStatus,.dshOneTree_searchWarning{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}.dshOneTree_searchWarning{color:var(--dsw-alias-label-secondary)}.dshOneTree_empty{color:var(--dsw-alias-label-tertiary);padding:16px 12px;font-size:13px}.dshOneTree_sessionOverflowButton{cursor:pointer;text-align:left;width:100%;height:var(--dsh-one-density-overflow-row-height,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:8px;padding:0 12px 0 28px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_sessionOverflowButton:hover{color:var(--dsw-alias-label-secondary);background:0 0}.dshOneTree_projectRow,.dshOneTree_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_projectRow:hover,.dshOneTree_sessionRow:hover,.dshOneTree_sessionRow.dshOneTree_selected,.dshOneTree_projectRow.dshOneTree_menuOpen,.dshOneTree_sessionRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:var(--dsh-one-density-row-height,34px)}.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}.dshOneTree_flatRowWithoutStatus .dshOneTree_title{margin-left:0}.dshOneTree_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.dshOneTree_folderActive{color:var(--dsw-alias-state-business-primary)}.dshOneTree_projectRow .dshOneTree_chevron{display:none}.dshOneTree_projectRow:hover .dshOneTree_chevron{display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_folder{display:none}.dshOneTree_arrow{transition:transform .15s var(--ds-ease-in-out)}.dshOneTree_arrowOpen{transform:rotate(90deg)}.dshOneTree_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.dshOneTree_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}.dshOneTree_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}.dshOneTree_scheduleIndicator{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;margin-right:6px;display:inline-flex}.dshOneTree_dot{flex:none}.dshOneTree_rowActions{flex:none;align-items:center;gap:12px;display:none}.dshOneTree_projectRow:hover .dshOneTree_rowActions,.dshOneTree_sessionRow:hover .dshOneTree_rowActions,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowActions,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_sessionRow:hover .dshOneTree_time,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_rowIconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_rowIconButton:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_chevron{color:var(--dsw-alias-label-caption)}.dshOneTree_searchRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:var(--dsh-one-density-search-row-min-height,48px);color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}.dshOneTree_searchRow:hover,.dshOneTree_searchRow.dshOneTree_selected{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchRowHeading{align-items:center;min-width:0;display:flex}.dshOneTree_searchRowTitle{text-overflow:ellipsis;white-space:nowrap;flex:0 auto;min-width:0;margin-left:4px;font-size:14px;line-height:20px;overflow:hidden}.dshOneTree_searchRowMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.dshOneTree_searchRowWorkspace,.dshOneTree_searchRowSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.dshOneTree_searchRowWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_searchRowSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.dshOneTree_hoverContent{flex-direction:column;gap:8px;display:flex}.dshOneTree_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.dshOneTree_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.dshOneTree_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.dshOneTree_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.dshOneTree_renameInput{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:44px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:22px;outline:none;padding:7px 14px;font-size:14px;font-weight:400;line-height:22px}.dshOneTree_renameError{color:var(--dsw-alias-state-error-primary);margin-top:8px;font-size:12px;line-height:18px}.dshOneTree_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.dshOneTree_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_filterBar{align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex}.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-pill-height,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);max-width:100%;padding:0 var(--dsh-one-density-pill-padding-end,4px) 0 var(--dsh-one-density-pill-padding-start,8px);font-size:var(--dsh-one-density-pill-font-size,13px);display:inline-flex;overflow:hidden}.dshOneTree_pill:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillActive{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillTag{flex:none;align-items:center;color:var(--dsw-alias-label-tertiary);display:inline-flex}.dshOneTree_pillLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.dshOneTree_pillCount{color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_pillChevron{color:var(--dsw-alias-label-tertiary);flex:none;align-items:center;display:inline-flex}.dshOneTree_menuRow{align-items:center;gap:12px;min-width:0;width:100%;display:flex}.dshOneTree_menuRowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_menuRowCount{color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_footerRow{align-items:center;gap:2px;padding:0 var(--dsh-one-density-section-padding-inline,4px);display:flex}.dshOneTree_footerRowEmpty{color:var(--dsw-alias-label-tertiary)}.dshOneTree_footerMain{cursor:pointer;min-width:0;height:var(--dsh-one-density-footer-row-height,42px);color:inherit;background:0 0;border:none;border-radius:8px;flex:1;align-items:center;gap:8px;padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}.dshOneTree_footerMain:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_footerIcon{flex:none;align-items:center;display:inline-flex}.dshOneTree_footerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_footerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_footerIconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_footerIconButton:disabled{cursor:default;opacity:.45}.dshOneTree_footerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_manageList{max-height:240px;margin-bottom:12px;overflow-y:auto}.dshOneTree_manageRow{align-items:center;gap:8px;height:var(--dsh-one-density-row-height,34px);padding:0 4px;display:flex}.dshOneTree_manageName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_manageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_manageEmpty{color:var(--dsw-alias-label-tertiary);padding:8px 4px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_manageCreate{align-items:center;gap:8px;display:flex}.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}.dshOneTree_manageCreate button{white-space:nowrap;flex:none}.dshOneTree_activity{pointer-events:none;position:absolute;right:var(--dsh-one-density-row-padding-inline,8px);align-items:center;gap:6px;display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_activity,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_activity{display:none}.dshOneTree_activityItem{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px);align-items:center;gap:4px;display:inline-flex}.dshOneTree_check{cursor:pointer;width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkBox{box-sizing:border-box;width:14px;height:14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkOn{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.dshOneTree_selectionBarWrap{flex:none}.dshOneTree_selectionBar{gap:8px;box-sizing:border-box;padding:4px 8px;align-items:center;display:flex}.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 8px 4px}.dshOneTree_drawer{z-index:10;background:var(--dsw-alias-bg-base);position:absolute;inset:0;flex-direction:column;display:flex}.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshOneTree_drawerList{min-height:0;padding:0 var(--dsh-one-density-section-padding-inline,4px) var(--dsh-one-density-list-padding-bottom,16px);flex:1;overflow-y:auto}.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_drawerGroupLabel{color:var(--dsw-alias-label-tertiary);height:var(--dsh-one-density-drawer-block-header-height,26px);align-items:center;padding:0 var(--dsh-one-density-row-padding-inline,8px);font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}.dshOneTree_drawerRow{cursor:pointer;height:var(--dsh-one-density-session-row-height,32px);color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerRow .dshOneTree_title{flex:1}.dshOneTree_drawerRestore{cursor:pointer;height:20px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;align-items:center;gap:4px;padding:0 4px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}.dshOneTree_drawerRestore:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_drawerStatus{color:var(--dsw-alias-label-tertiary);padding:10px 8px;font-size:var(--dsh-one-density-meta-font-size,12px)}"
+  ".dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex;position:relative}.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:4px;margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:4px;display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:0}.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:none;flex:none;align-items:center;gap:4px;display:flex}.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}.dshOneTree_searchButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_searchExpanded .dshOneTree_searchButton{width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-search-expanded-height,30px)}.dshOneTree_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchExpanded .dshOneTree_searchButton:hover{background:0 0}.dshOneTree_searchInput{opacity:0;pointer-events:none;width:0;min-width:0;color:var(--dsw-alias-label-primary);transition:opacity .12s var(--ds-ease-in-out);background:0 0;border:none;outline:none;flex:1;font-size:13px;line-height:18px}.dshOneTree_searchExpanded .dshOneTree_searchInput{opacity:1;pointer-events:auto;margin-left:-2px}.dshOneTree_searchInput::placeholder{color:var(--dsw-alias-label-tertiary)}.dshOneTree_clearButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}.dshOneTree_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:var(--dsh-one-density-list-padding-bottom,16px);overflow-y:auto}.dshOneTree_flatList>*+*,.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_groupSection{position:relative}.dshOneTree_groupSection+.dshOneTree_groupSection{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_searchStatus,.dshOneTree_searchWarning{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}.dshOneTree_searchWarning{color:var(--dsw-alias-label-secondary)}.dshOneTree_empty{color:var(--dsw-alias-label-tertiary);padding:16px 12px;font-size:13px}.dshOneTree_sessionOverflowButton{cursor:pointer;text-align:left;width:100%;height:var(--dsh-one-density-overflow-row-height,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:8px;padding:0 12px 0 28px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_sessionOverflowButton:hover{color:var(--dsw-alias-label-secondary);background:0 0}.dshOneTree_projectRow,.dshOneTree_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_projectRow:hover,.dshOneTree_sessionRow:hover,.dshOneTree_sessionRow.dshOneTree_selected,.dshOneTree_projectRow.dshOneTree_menuOpen,.dshOneTree_sessionRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:var(--dsh-one-density-row-height,34px)}.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}.dshOneTree_flatRowWithoutStatus .dshOneTree_title{margin-left:0}.dshOneTree_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.dshOneTree_folderActive{color:var(--dsw-alias-state-business-primary)}.dshOneTree_projectRow .dshOneTree_chevron{display:none}.dshOneTree_projectRow:hover .dshOneTree_chevron{display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_folder{display:none}.dshOneTree_arrow{transition:transform .15s var(--ds-ease-in-out)}.dshOneTree_arrowOpen{transform:rotate(90deg)}.dshOneTree_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.dshOneTree_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}.dshOneTree_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}.dshOneTree_scheduleIndicator{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;margin-right:6px;display:inline-flex}.dshOneTree_dot{flex:none}.dshOneTree_rowActions{flex:none;align-items:center;gap:12px;display:none}.dshOneTree_projectRow:hover .dshOneTree_rowActions,.dshOneTree_sessionRow:hover .dshOneTree_rowActions,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowActions,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_sessionRow:hover .dshOneTree_time,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_rowIconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_rowIconButton:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_chevron{color:var(--dsw-alias-label-caption)}.dshOneTree_searchRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:var(--dsh-one-density-search-row-min-height,48px);color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}.dshOneTree_searchRow:hover,.dshOneTree_searchRow.dshOneTree_selected{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchRowHeading{align-items:center;min-width:0;display:flex}.dshOneTree_searchRowTitle{text-overflow:ellipsis;white-space:nowrap;flex:0 auto;min-width:0;margin-left:4px;font-size:14px;line-height:20px;overflow:hidden}.dshOneTree_searchRowMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.dshOneTree_searchRowWorkspace,.dshOneTree_searchRowSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.dshOneTree_searchRowWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_searchRowSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.dshOneTree_hoverContent{flex-direction:column;gap:8px;display:flex}.dshOneTree_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.dshOneTree_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.dshOneTree_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.dshOneTree_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.dshOneTree_renameInput{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:44px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:22px;outline:none;padding:7px 14px;font-size:14px;font-weight:400;line-height:22px}.dshOneTree_renameError{color:var(--dsw-alias-state-error-primary);margin-top:8px;font-size:12px;line-height:18px}.dshOneTree_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.dshOneTree_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_filterBar{align-items:center;gap:4px;margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:4px;display:flex}.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:none;align-items:center;gap:4px;max-width:100%;padding:0 6px 0 8px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex;overflow:hidden}.dshOneTree_pill:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillActive{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillTag{flex:none;align-items:center;color:var(--dsw-alias-label-tertiary);display:inline-flex}.dshOneTree_pillLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.dshOneTree_pillCount{color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_pillChevron{color:var(--dsw-alias-label-tertiary);flex:none;align-items:center;display:inline-flex}.dshOneTree_menuRow{align-items:center;gap:12px;min-width:0;width:100%;display:flex}.dshOneTree_menuRowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_menuRowCount{color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_footerRow{align-items:center;gap:2px;padding:0 4px;display:flex}.dshOneTree_footerRowEmpty{color:var(--dsw-alias-label-tertiary)}.dshOneTree_footerMain{cursor:pointer;min-width:0;height:var(--dsh-one-density-row-height,34px);color:inherit;background:0 0;border:none;border-radius:8px;flex:1;align-items:center;gap:8px;padding:0 8px;font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}.dshOneTree_footerMain:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_footerIcon{flex:none;align-items:center;display:inline-flex}.dshOneTree_footerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_footerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_footerIconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_footerIconButton:disabled{cursor:default;opacity:.45}.dshOneTree_footerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_manageList{max-height:240px;margin-bottom:12px;overflow-y:auto}.dshOneTree_manageRow{align-items:center;gap:8px;height:var(--dsh-one-density-row-height,34px);padding:0 4px;display:flex}.dshOneTree_manageName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_manageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_manageEmpty{color:var(--dsw-alias-label-tertiary);padding:8px 4px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_manageCreate{align-items:center;gap:8px;display:flex}.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}.dshOneTree_manageCreate button{white-space:nowrap;flex:none}.dshOneTree_activity{pointer-events:none;position:absolute;right:var(--dsh-one-density-row-padding-inline,8px);align-items:center;gap:6px;display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_activity,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_activity{display:none}.dshOneTree_activityItem{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px);align-items:center;gap:4px;display:inline-flex}.dshOneTree_check{cursor:pointer;width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkBox{box-sizing:border-box;width:14px;height:14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkOn{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.dshOneTree_checkOff{opacity:.35;cursor:default}.dshOneTree_pin{flex:none;width:14px;height:14px;margin-right:4px;color:var(--dsw-alias-label-tertiary);align-items:center;display:inline-flex}.dshOneTree_unread{font-weight:600}.dshOneTree_selectionBarWrap{flex:none}.dshOneTree_selectionBar{gap:8px;box-sizing:border-box;padding:4px 8px;align-items:center;display:flex}.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 8px 4px}.dshOneTree_drawer{z-index:10;background:var(--dsw-alias-bg-base);position:absolute;inset:0;flex-direction:column;display:flex}.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:4px;padding:0 4px 0 8px;display:flex}.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshOneTree_drawerList{min-height:0;padding:0 4px var(--dsh-one-density-list-padding-bottom,16px);flex:1;overflow-y:auto}.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_drawerGroupLabel{color:var(--dsw-alias-label-tertiary);height:24px;align-items:center;padding:0 8px;font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}.dshOneTree_drawerRow{cursor:pointer;height:var(--dsh-one-density-session-row-height,32px);color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerRow .dshOneTree_title{flex:1}.dshOneTree_drawerRestore{cursor:pointer;height:20px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;align-items:center;gap:4px;padding:0 4px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}.dshOneTree_drawerRestore:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_drawerStatus{color:var(--dsw-alias-label-tertiary);padding:10px 8px;font-size:var(--dsh-one-density-meta-font-size,12px)}"
 );
 var CSS_TAG_ID = "@dsh-one/dsh-workspace-tree/Tree.css";
 if (typeof document !== "undefined" && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
@@ -2142,6 +2343,9 @@ function WorkspaceTree(props) {
     searchResultLimit,
     loadGroups,
     saveGroups,
+    loadMarks,
+    savePinned,
+    saveUnread,
     recycleSessions,
     restoreSession,
     openInNewTab
@@ -2166,6 +2370,7 @@ function WorkspaceTree(props) {
   const [groupsFile, setGroupsFile] = (0, import_react9.useState)(emptyTreeGroups());
   const [groupDialog, setGroupDialog] = (0, import_react9.useState)(null);
   const [groupError, setGroupError] = (0, import_react9.useState)(null);
+  const [marks, setMarks] = (0, import_react9.useState)(emptySessionMarks());
   const [manageGroupsOpen, setManageGroupsOpen] = (0, import_react9.useState)(false);
   const [selectMode, setSelectMode] = (0, import_react9.useState)(false);
   const [selection, setSelection] = (0, import_react9.useState)([]);
@@ -2207,6 +2412,43 @@ function WorkspaceTree(props) {
     setGroupsFile(next);
     saveGroups(next);
   };
+  const marksLoaded = (0, import_react9.useRef)(false);
+  (0, import_react9.useEffect)(() => {
+    if (marksLoaded.current) return;
+    marksLoaded.current = true;
+    let cancelled = false;
+    loadMarks().then(
+      (state) => {
+        if (!cancelled) setMarks(state);
+      },
+      (reason) => {
+        if (!cancelled) console.warn("[dsh-one] session marks unavailable:", reason);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [loadMarks]);
+  const pinnedIds = new Set(marks.pinned);
+  const unreadIds = new Set(marks.unread);
+  const persistPinned = (ids) => {
+    setMarks((prev) => ({ ...prev, pinned: ids }));
+    savePinned(ids);
+  };
+  const persistUnread = (ids) => {
+    setMarks((prev) => ({ ...prev, unread: ids }));
+    saveUnread(ids);
+  };
+  const togglePin = (sessionId) => {
+    persistPinned(toggleMarkId(marks.pinned, sessionId, !pinnedIds.has(sessionId)));
+  };
+  const toggleUnread = (sessionId) => {
+    persistUnread(toggleMarkId(marks.unread, sessionId, !unreadIds.has(sessionId)));
+  };
+  const openSessionClearingUnread = (sessionId) => {
+    if (unreadIds.has(sessionId)) persistUnread(toggleMarkId(marks.unread, sessionId, false));
+    openSession(sessionId);
+  };
   (0, import_react9.useEffect)(() => {
     if (list.current === void 0 || workspacePhase !== "ready") return;
     const key = owningGroupKey(workspaces, list.current);
@@ -2237,7 +2479,10 @@ function WorkspaceTree(props) {
     };
   }, [trimmedQuery, searchSessions]);
   const archived = new Set(archivedSessionIds);
-  const withOrder = (sessions) => orderBy === "updated" ? [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) : sessions;
+  const withOrder = (sessions) => pinnedFirst(
+    orderBy === "updated" ? [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) : sessions,
+    (node) => pinnedIds.has(node.id)
+  );
   const filterActive = groupBy === "workspace" && activeGroupId !== null && hasTreeGroup(groupsFile, activeGroupId);
   const groups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
     expandedGroups: groupExpansion,
@@ -2370,8 +2615,10 @@ function WorkspaceTree(props) {
         workspaceLabel: workspaceLabelOf(row.id),
         ...snippetOf(row.id) === void 0 ? {} : { snippet: snippetOf(row.id) },
         selected: row.id === list.current,
+        pinned: pinnedIds.has(row.id),
+        unread: unreadIds.has(row.id),
         tr,
-        onOpen: () => openSession(row.id)
+        onOpen: () => openSessionClearingUnread(row.id)
       })
     )
   ) : content.pending ? (0, import_react9.createElement)("div", { className: "dshOneTree_searchStatus" }, tr("search.pending")) : (0, import_react9.createElement)(
@@ -2392,12 +2639,16 @@ function WorkspaceTree(props) {
         tr,
         selectMode,
         selected: selectedSet.has(row.id),
+        pinned: pinnedIds.has(row.id),
+        unread: unreadIds.has(row.id),
         onToggleSelect: () => toggleSelected(row.id),
-        onOpen: () => openSession(row.id),
+        onOpen: () => openSessionClearingUnread(row.id),
         onRename: (title) => setSessionRenameTarget({ id: row.id, title }),
         onFork: () => forkSession(row.id),
         onArchive: () => void archiveSession(row.id).catch(() => {
         }),
+        onTogglePin: () => togglePin(row.id),
+        onToggleUnread: () => toggleUnread(row.id),
         onOpenInNewTab: openInNewTab === void 0 ? void 0 : () => openInNewTab(row.id)
       })
     )
@@ -2441,12 +2692,16 @@ function WorkspaceTree(props) {
             tr,
             selectMode,
             selected: selectedSet.has(row.id),
+            pinned: pinnedIds.has(row.id),
+            unread: unreadIds.has(row.id),
             onToggleSelect: () => toggleSelected(row.id),
-            onOpen: () => openSession(row.id),
+            onOpen: () => openSessionClearingUnread(row.id),
             onRename: (title) => setSessionRenameTarget({ id: row.id, title }),
             onFork: () => forkSession(row.id),
             onArchive: () => void archiveSession(row.id).catch(() => {
             }),
+            onTogglePin: () => togglePin(row.id),
+            onToggleUnread: () => toggleUnread(row.id),
             onOpenInNewTab: openInNewTab === void 0 ? void 0 : () => openInNewTab(row.id)
           })
         )
@@ -2519,7 +2774,7 @@ function WorkspaceTree(props) {
         setDrawerOpen(false);
         setRecycleError(null);
       },
-      onOpen: (sessionId) => openSession(sessionId),
+      onOpen: (sessionId) => openSessionClearingUnread(sessionId),
       onRestore: restoreFromRecycle
     }),
     (0, import_react9.createElement)(RenameModal, {
@@ -2717,6 +2972,37 @@ function apply(ctx) {
       saveGroups: (file) => {
         void hostCapabilities(ctx).stateWrite(TREE_GROUPS_STATE_KEY, JSON.parse(serializeTreeGroups(file))).catch((reason) => {
           console.warn("[dsh-one] workspace groups not persisted:", reason);
+        });
+      },
+      // #102：置顶与手动未读两份 id 集合——与分组同一条路（宿主能力口的
+      // `stateRead/stateWrite`），键名 `pinned` / `unread` **就是旧侧栏的文件名**
+      // （`~/.dsh/dsh-one/pinned.json` / `unread.json`），所以旧数据开箱即用：读到的
+      // 若是规范形状直接采用；若是更早的裸 id 数组或坏值，采用清洗后的 id 并按规范
+      // 形状写回一次（`migrateSessionMarks` 的 `rewrite`）——那次写回就是「迁入落定」，
+      // 此后只有能力口读写，插件自己不碰任何文件（它本来也没有文件 IO 的能力）。
+      loadMarks: async () => {
+        const port = hostCapabilities(ctx);
+        const loaded = migrateSessionMarks({
+          pinned: await port.stateRead(SESSION_PINNED_STATE_KEY),
+          unread: await port.stateRead(SESSION_UNREAD_STATE_KEY)
+        });
+        for (const key of loaded.rewrite) {
+          const ids = key === "pinned" ? loaded.marks.pinned : loaded.marks.unread;
+          void port.stateWrite(key === "pinned" ? SESSION_PINNED_STATE_KEY : SESSION_UNREAD_STATE_KEY, markStateFile(ids)).then(
+            () => console.warn(`[dsh-one] session marks[${key}]: migrated legacy shape, rewritten in canonical form`),
+            (reason) => console.warn(`[dsh-one] session marks[${key}] migation not persisted:`, reason)
+          );
+        }
+        return loaded.marks;
+      },
+      savePinned: (ids) => {
+        void hostCapabilities(ctx).stateWrite(SESSION_PINNED_STATE_KEY, markStateFile(ids)).catch((reason) => {
+          console.warn("[dsh-one] pinned sessions not persisted:", reason);
+        });
+      },
+      saveUnread: (ids) => {
+        void hostCapabilities(ctx).stateWrite(SESSION_UNREAD_STATE_KEY, markStateFile(ids)).catch((reason) => {
+          console.warn("[dsh-one] unread sessions not persisted:", reason);
         });
       },
       // #81 功能 3/4：进回收站 = 官方归档（逐个走官方 uiWorkspace.archiveSession；

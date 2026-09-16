@@ -152,6 +152,12 @@ const CSS =
   '.dshOneTree_check{cursor:pointer;width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}' +
   '.dshOneTree_checkBox{box-sizing:border-box;width:14px;height:14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;justify-content:center;align-items:center;display:inline-flex}' +
   '.dshOneTree_checkOn{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}' +
+  // #102：勾选框的灰态（置顶行不可勾选）。0.35 的透明度与旧侧栏的 disabled 复选框同值。
+  '.dshOneTree_checkOff{opacity:.35;cursor:default}' +
+  // #102：置顶图钉（标题前常驻）与手动未读的加粗标题。颜色走官方 token（次级色，
+  // 与行内其它标记同一档）；加粗值取自旧侧栏的 .session-title.unread（600）。
+  '.dshOneTree_pin{flex:none;width:14px;height:14px;margin-right:4px;color:var(--dsw-alias-label-tertiary);align-items:center;display:inline-flex}' +
+  '.dshOneTree_unread{font-weight:600}' +
   '.dshOneTree_selectionBarWrap{flex:none}' +
   '.dshOneTree_selectionBar{gap:8px;box-sizing:border-box;padding:4px 8px;align-items:center;display:flex}' +
   '.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-meta-font-size,12px)}' +

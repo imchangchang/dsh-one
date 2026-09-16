@@ -102,12 +102,24 @@
  *   沿用官方客户端既有惯例（官方 ui-workspace 的 `createWorkspaceViewStore()` 走
  *   `@deepseek-ai/dsh-client-store` 的 `defineStore`，经 entry 的 `store` 座位由
  *   框架托管持久化）。本步先不接该座位：它是**注册期**的座位声明，接入即改注册
- *   形状，与本步「只换渲染」的边界冲突；留到差异化层（要一并管置顶/未读/分组）
- *   时按官方 store 座位一次接好。**这是本步的已知偏差，不是最终形态。**
+ *   形状，与本步「只换渲染」的边界冲突；留到后续收敛时按官方 store 座位一次接好。
+ *   **这是本步的已知偏差，不是最终形态。**（#102 的置顶/未读**不**走这条偏差——
+ *   它们是用户可感知的持久状态，按铁律由宿主半拥有、经能力口读写，见 `state` 一节。）
  * - 「按最近更新」在组内按 updatedAt 倒序（官方是手动序 + 活动晋升，常见情况下
  *   结果一致）。
  * - 工作区/会话重命名与工作区删除走官方 Modal 原语自渲染（官方同款组件、同款
  *   文案）——官方那条 entry 的对话框随它一起被遮蔽，必须自己重做。
+ *
+ * ## 用户标记（#102：置顶 / 手动未读）
+ * 两份 id 集合是**用户可感知的持久状态**，按铁律由宿主半拥有、经能力口读写：
+ * `stateRead/stateWrite('pinned' | 'unread')`，落 `~/.dsh/dsh-one/<键>.json`——键名
+ * 与旧侧栏的文件名逐字相同，所以**旧文件就是新状态**（和分组同一处置，没有搬家这
+ * 一步）；唯一要「迁」的是形状（更早的裸 id 数组），由 `migrateSessionMarks` 认下并按
+ * 规范形状写回一次，此后只有能力口读写。判定与排序是纯的、单独有单测：
+ * `pure/sessionMarks.ts`（置顶/未读状态 + `pinnedFirst` 排序）、
+ * `pure/sessionEligibility.ts`（`canRecycle` / `canArchive` / 组头三态）。
+ * 视觉：置顶图钉与未读绿点是**旧侧栏那两条描边路径**（官方 primitives 的导出表里
+ * 没有图钉与未读图标，逐个看过 0.1.6-alpha.1 的 80 个 `Icon*` 名字）。
  */
 import {
   TREE_GROUPS_STATE_KEY,
@@ -115,6 +127,13 @@ import {
   parseTreeGroups,
   serializeTreeGroups,
 } from '../../../pure/treeGroups.ts'
+import {
+  SESSION_PINNED_STATE_KEY,
+  SESSION_UNREAD_STATE_KEY,
+  markStateFile,
+  migrateSessionMarks,
+  type SessionMarksState,
+} from '../../../pure/sessionMarks.ts'
 import type { GroupFile } from '../../../pure/dshStateFile.ts'
 import type { SessionListLike } from '../../../pure/workspaceTreeView.ts'
 import { hostCapabilities, type CapabilityContext } from './hostCapabilities.ts'
@@ -315,6 +334,43 @@ export function apply(ctx: TreeContext): void {
           .catch((reason: unknown) => {
             // 状态写失败（能力口不可用/宿主半没装）：界面按内存态继续可用，日志留痕。
             console.warn('[dsh-one] workspace groups not persisted:', reason)
+          })
+      },
+      // #102：置顶与手动未读两份 id 集合——与分组同一条路（宿主能力口的
+      // `stateRead/stateWrite`），键名 `pinned` / `unread` **就是旧侧栏的文件名**
+      // （`~/.dsh/dsh-one/pinned.json` / `unread.json`），所以旧数据开箱即用：读到的
+      // 若是规范形状直接采用；若是更早的裸 id 数组或坏值，采用清洗后的 id 并按规范
+      // 形状写回一次（`migrateSessionMarks` 的 `rewrite`）——那次写回就是「迁入落定」，
+      // 此后只有能力口读写，插件自己不碰任何文件（它本来也没有文件 IO 的能力）。
+      loadMarks: async (): Promise<SessionMarksState> => {
+        const port = hostCapabilities(ctx as unknown as CapabilityContext)
+        const loaded = migrateSessionMarks({
+          pinned: await port.stateRead(SESSION_PINNED_STATE_KEY),
+          unread: await port.stateRead(SESSION_UNREAD_STATE_KEY),
+        })
+        for (const key of loaded.rewrite) {
+          const ids = key === 'pinned' ? loaded.marks.pinned : loaded.marks.unread
+          void port
+            .stateWrite(key === 'pinned' ? SESSION_PINNED_STATE_KEY : SESSION_UNREAD_STATE_KEY, markStateFile(ids))
+            .then(
+              () => console.warn(`[dsh-one] session marks[${key}]: migrated legacy shape, rewritten in canonical form`),
+              (reason: unknown) => console.warn(`[dsh-one] session marks[${key}] migation not persisted:`, reason),
+            )
+        }
+        return loaded.marks
+      },
+      savePinned: (ids: readonly string[]): void => {
+        void hostCapabilities(ctx as unknown as CapabilityContext)
+          .stateWrite(SESSION_PINNED_STATE_KEY, markStateFile(ids))
+          .catch((reason: unknown) => {
+            console.warn('[dsh-one] pinned sessions not persisted:', reason)
+          })
+      },
+      saveUnread: (ids: readonly string[]): void => {
+        void hostCapabilities(ctx as unknown as CapabilityContext)
+          .stateWrite(SESSION_UNREAD_STATE_KEY, markStateFile(ids))
+          .catch((reason: unknown) => {
+            console.warn('[dsh-one] unread sessions not persisted:', reason)
           })
       },
       // #81 功能 3/4：进回收站 = 官方归档（逐个走官方 uiWorkspace.archiveSession；
