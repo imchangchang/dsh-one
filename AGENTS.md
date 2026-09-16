@@ -68,6 +68,8 @@
 | **外框插件（frame plugin）** | 我们工程词（对应官方 `AppFrame`） | 我们渲染页面外框的插件（现 id `@dsh-one/vscode-shell`，该 id 为历史遗留）；在新铁律下它的角色收敛为「遮蔽 root 槽位 + VS Code 渲染适配」。此前误称「shell 插件」 |
 | **槽位（slot）** | **官方原词** | 官方槽位系统的命名单元（如 `conversation.chat.node`）；注册条目按 priority 竞争上位。此前我自造的「座位」为非标准词，不再使用 |
 | **遮蔽（shadow）** | **官方原词** | 同名槽位再注册一个**更小优先号**的条目：官方条目仍在注册表、其服务与槽位声明照常存活，但不再渲染（号最小者上位）。出处：官方注册表报错原文「register at a different priority to shadow it (lowest renders)」与 `registry.d.ts` 注释；spike #69 浏览器实测过 |
+| **接缝（seam）** | **官方原词** | 官方给 shell 预留的扩展点：WebBoot `run(container, seams)` 的 seams 参数、`__DSH_TRANSPORT__`、`__DSH_BOOT__`、种子表等；官方注释原话「拥有不同物理传输的 shell 在此提供实现」。此前我自造的「平台缝」为非标准词，不再使用 |
+| **宿主调用通道（hostCall/hostResult）** | 我们工程词 | 页面插件向扩展宿主请求能力（跑 git、读写文件、弹对话框等）的请求-应答通道，消息类型即 `hostCall`/`hostResult`；官方 web 侧由宿主半提供同类能力。此前我自造的「能力桥」为非标准词，不再使用 |
 | **插件整包（combo）** | 官方原词 `combo` | 网关把全部前端插件的代码拼成一个大文件、一个网址一次性下发；网校对文件内容做校验，改名单重新申请会 404 |
 | **装配** | 我们工程词 | 用官方 dsh web 前端组件在我们的 shell 里组装出 VS Code 前端（代码在 `src/ui/assembly/`、`src/server/assemblyMirror.ts`） |
 | **loopback 代理** | 我们工程词 | 扩展在 127.0.0.1 起的转发服务器，替 webview 把请求转给 dsh 网关并附带登录 cookie（鉴权在代理侧完成，页面不接触 cookie） |
