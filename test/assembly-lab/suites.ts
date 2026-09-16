@@ -1341,11 +1341,30 @@ export const MULTIOPEN_SUITE: LabSuite = {
     // ---------------------------------------------------------------------
     const sidebar = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
     try {
-      const rows = await contentCount(sidebar.page, '.dshOneTree_sessionRow')
-      check.fact(`侧栏会话行=${String(rows)}`)
-      check.ok('侧栏有 ≥2 条会话行可点', rows >= 2, `rows=${String(rows)}`)
-      const row0 = sidebar.page.locator('.dshOneTree_sessionRow').nth(0)
-      const row1 = sidebar.page.locator('.dshOneTree_sessionRow').nth(1)
+      // 只有非空白会话行才带行菜单（官方 SessionNodeItem：`!row.blank && (...)` 才渲染
+      // 时间与行操作），多开入口同理——所以可点的行按「带行操作的会话行」挑。
+      const rows = sidebar.page.locator('.dshOneTree_sessionRow').filter({ has: sidebar.page.locator('.dshOneTree_rowActions') })
+      // 树默认只展开当前会话所在分组，其余分组收起、里面一条会话行都不渲染 —— 先展开
+      // 几个分组，凑出 ≥2 条带行菜单的会话行（点分组头只是本地展开，不写网关）。
+      const groupRows = sidebar.page.locator('.dshOneTree_projectRow')
+      const groupCount = await groupRows.count()
+      for (let index = 0; index < groupCount && (await rows.count()) < 2; index += 1) {
+        const overflow = sidebar.page.locator('.dshOneTree_sessionOverflowButton')
+        if ((await overflow.count()) > 0) {
+          await overflow.first().click()
+          await sidebar.page.waitForTimeout(200)
+          continue
+        }
+        await groupRows.nth(index).click()
+        await sidebar.page.waitForTimeout(250)
+      }
+      const rowCount = await rows.count()
+      check.fact(
+        `侧栏分组=${String(groupCount)} 会话行=${String(await contentCount(sidebar.page, '.dshOneTree_sessionRow'))}（其中带行菜单的=${String(rowCount)}）`,
+      )
+      check.ok('侧栏有 ≥2 条带行菜单的会话行', rowCount >= 2, `rows=${String(rowCount)}`)
+      const row0 = rows.nth(0)
+      const row1 = rows.nth(1)
 
       await row0.hover()
       await row0.locator('.dshOneTree_rowIconButton').click()

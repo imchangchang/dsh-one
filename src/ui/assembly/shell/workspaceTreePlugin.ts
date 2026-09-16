@@ -991,11 +991,13 @@ function SessionRow({
         node.pendingInteraction !== undefined ? 'waiting' : node.running ? 'running' : 'idle',
       ...(selectMode ? { 'data-dshone-tree-checked': selected } : {}),
       onClick: selectMode ? onToggleSelect : onOpen,
-      // 行右键开出同一份菜单（指针位置锚定）：多开不可用的宿主（官方 web）不接管
-      // ——那里没有这一项可给，抢掉原生右键菜单只是添乱；选择态下整行只有「勾选」
-      // 一个动作（同上面 onClick 的处置），右键也不接管。
+      // 行右键开出同一份菜单（指针位置锚定）。三条不接管的线：
+      // - 多开不可用的宿主（官方 web）：那里没有这一项可给，抢掉原生右键菜单只是添乱；
+      // - 空白会话行（`node.blank`）：官方对这类行整个不给行菜单（见下面 actions 的
+      //   `node.blank ? null`），接了右键却没有菜单可弹，只会白白吃掉原生菜单；
+      // - 选择态：整行只有「勾选」一个动作（同上面 onClick 的处置）。
       onContextMenu:
-        onOpenInNewTab === undefined || selectMode
+        node.blank || onOpenInNewTab === undefined || selectMode
           ? undefined
           : (event: { preventDefault(): void; stopPropagation(): void; clientX: number; clientY: number }) => {
               event.preventDefault()
