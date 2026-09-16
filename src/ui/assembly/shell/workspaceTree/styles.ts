@@ -6,21 +6,24 @@
  */
 
 // ---------------------------------------------------------------------------
-// 样式：数值逐字取自官方 css-module（Rows.module.css / WorkspaceBrowser.module.css），
+// 样式：数值逐字取自官方 css-module（Rows.module.css / WorkspaceBrowser.module.css，
+// 骨架四区的几件另见对应规则上方的出处注；#104），
 // 颜色只用官方 token 变量；类名前缀 dshOneTree_ 是本插件自有命名空间。
 //
-// ## 密度偏好（#85 A 项）：消费 shell 给的 CSS 变量，缺省即官方档
+// ## 密度偏好（#85 A 项，键面 #104 扩到骨架四区）：消费 shell 给的 CSS 变量，缺省即官方档
 // 几何/间距项（行高、行间空隙、分组空隙、行内边距、分节头高、字号、列表底部
-// 留白、图标按钮/搜索胶囊尺寸）写成 `var(--dsh-one-density-<项>, <官方原值>)`：
+// 留白、图标按钮/搜索胶囊尺寸，以及 #104 扩出来的顶栏行内边距与行内间隙、
+// 分组胶囊的高/字号/内边距、回收站入口行行高、抽屉块头高）写成
+// `var(--dsh-one-density-<项>, <官方原值>)`：
 // - **本插件不判断宿主**：没人给偏好时取官方字面量（官方 web 侧原样），宿主
 //   （我们的 VS Code 侧栏外框 @dsh-one/vscode-sidebar-shell）在容器上设这组
 //   变量时自动变紧凑——本件据此保持可移植（AGENTS.md 铁律「能移植的必须移植」）。
 // - 变量是**可选输入**、不是契约：官方 web 无人设 → 走兜底；任何宿主都可以只
 //   设其中几项（未设的项独立回落官方值）。
 // - 观感语言（图标/颜色/圆角/字体族/动效曲线）**不在这组变量里**：那些继续
-//   逐字沿用官方，本次只调密度（issue #85 范围）。
+//   逐字沿用官方，这里只调密度（issue #85 / #104 的范围）。
 // - 变量名与官方原值两栏一一对应，改动时两边同步（test/assemblyShellContract.test.ts
-//   有一条契约测试守着「shell 设的键集 = 树消费的键集」）。
+//   有两条契约测试守着「shell 设的键集 = 树消费的键集」与「新键各挂各的规则」）。
 // ---------------------------------------------------------------------------
 const CSS =
   // overflow:hidden 是给分节头的 `margin-right:-4px`（官方原值，让标题栏贴到侧栏
@@ -31,13 +34,13 @@ const CSS =
   '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex;position:relative}' +
   '.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
-  '.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:4px;margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:4px;display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}' +
+  '.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}' +
   // 搜索栏（#99：官方那套 UI 的**展开态**常驻，折叠态的放大镜胶囊退役）——
   // search / searchSlot / searchButton / searchInput 四个类名与几何逐字对应官方
   // css-module（含 Expanded 变体），所以两侧展开态可以直接逐项比对（F-04）。
   '.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}' +
   '.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:0}' +
-  '.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:none;flex:none;align-items:center;gap:4px;display:flex}' +
+  '.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:none;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);display:flex}' +
   '.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}' +
   '.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}' +
   '.dshOneTree_searchButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
@@ -103,12 +106,14 @@ const CSS =
   '.dshOneTree_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}' +
   '.dshOneTree_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}' +
   // ---- #81：分组过滤条 / 活状态计数 / 批量选择 / 回收站抽屉 ----
-  // 数值全部沿用既有密度档变量（不新增键：assemblyShellContract 的契约测试要求
-  // 「shell 设的键集 = 树消费的键集」，见该测试的说明）；颜色一律官方 token。
-  '.dshOneTree_filterBar{align-items:center;gap:4px;margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:4px;display:flex}' +
+  // 颜色一律官方 token；尺寸/间距走密度档变量（#104 起把过滤条与抽屉也纳进来，新键的
+  // 出处见文件头那段的说明：胶囊尺寸取自官方同形的胶囊触发器、块头取自官方列表分组
+  // 块头）。变量名与官方原值两栏一一对应，改动时 shell 侧那张表同步改。
+  '.dshOneTree_filterBar{align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex}' +
   // 分组过滤条（#99：单胶囊 + 成员计数 + ▾）。外观语言沿用官方胶囊语言（官方 token、
-  // 999px 圆角、官方 iconButton 同档高度），尺寸走密度档。
-  '.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:none;align-items:center;gap:4px;max-width:100%;padding:0 6px 0 8px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex;overflow:hidden}' +
+  // 999px 圆角），尺寸按官方同形的胶囊触发器（ui-model-selection 的 `_7KE1Ra_trigger`
+  // ——28px 高 / 13px 字号 / 行内间隙 4px / 内边距起 8px 止 4px），并走密度档。
+  '.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-pill-height,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);max-width:100%;padding:0 var(--dsh-one-density-pill-padding-end,4px) 0 var(--dsh-one-density-pill-padding-start,8px);font-size:var(--dsh-one-density-pill-font-size,13px);display:inline-flex;overflow:hidden}' +
   '.dshOneTree_pill:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_pillActive{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_pillTag{flex:none;align-items:center;color:var(--dsw-alias-label-tertiary);display:inline-flex}' +
@@ -119,10 +124,12 @@ const CSS =
   '.dshOneTree_menuRowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}' +
   '.dshOneTree_menuRowCount{color:var(--dsw-alias-label-tertiary);flex:none}' +
   // 底部回收站入口行（#99：官方 sidebar.footer.action 座位）。形态按旧侧栏那一行：
-  // 主区（🗑 + 文案 + 计数）+ 右侧两枚动作图标；计数 0 整体灰态。
-  '.dshOneTree_footerRow{align-items:center;gap:2px;padding:0 4px;display:flex}' +
+  // 主区（🗑 + 文案 + 计数）+ 右侧两枚动作图标；计数 0 整体灰态。行高按**同座位**的
+  // 官方条目（ui-cordis 的 CordisPanel.module.css `Nqubda_badge{height:42px}`）取，
+  // 内边距走骨架基线与行内边距两档。
+  '.dshOneTree_footerRow{align-items:center;gap:2px;padding:0 var(--dsh-one-density-section-padding-inline,4px);display:flex}' +
   '.dshOneTree_footerRowEmpty{color:var(--dsw-alias-label-tertiary)}' +
-  '.dshOneTree_footerMain{cursor:pointer;min-width:0;height:var(--dsh-one-density-row-height,34px);color:inherit;background:0 0;border:none;border-radius:8px;flex:1;align-items:center;gap:8px;padding:0 8px;font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}' +
+  '.dshOneTree_footerMain{cursor:pointer;min-width:0;height:var(--dsh-one-density-footer-row-height,42px);color:inherit;background:0 0;border:none;border-radius:8px;flex:1;align-items:center;gap:8px;padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}' +
   '.dshOneTree_footerMain:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_footerIcon{flex:none;align-items:center;display:inline-flex}' +
   '.dshOneTree_footerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}' +
@@ -150,11 +157,13 @@ const CSS =
   '.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
   '.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 8px 4px}' +
   '.dshOneTree_drawer{z-index:10;background:var(--dsw-alias-bg-base);position:absolute;inset:0;flex-direction:column;display:flex}' +
-  '.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:4px;padding:0 4px 0 8px;display:flex}' +
+  '.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   '.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
-  '.dshOneTree_drawerList{min-height:0;padding:0 4px var(--dsh-one-density-list-padding-bottom,16px);flex:1;overflow-y:auto}' +
+  '.dshOneTree_drawerList{min-height:0;padding:0 var(--dsh-one-density-section-padding-inline,4px) var(--dsh-one-density-list-padding-bottom,16px);flex:1;overflow-y:auto}' +
   '.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}' +
-  '.dshOneTree_drawerGroupLabel{color:var(--dsw-alias-label-tertiary);height:24px;align-items:center;padding:0 8px;font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}' +
+  // 抽屉里的分块块头：官方列表的分组块头是 ui-model-selection 的 `_7KE1Ra_groupTitle`
+  // （5px + 18px 行高 + 3px = 26px 总高、行内边距 8px、12px 字号），这里取同一套。
+  '.dshOneTree_drawerGroupLabel{color:var(--dsw-alias-label-tertiary);height:var(--dsh-one-density-drawer-block-header-height,26px);align-items:center;padding:0 var(--dsh-one-density-row-padding-inline,8px);font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}' +
   '.dshOneTree_drawerRow{cursor:pointer;height:var(--dsh-one-density-session-row-height,32px);color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   '.dshOneTree_drawerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_drawerRow .dshOneTree_title{flex:1}' +

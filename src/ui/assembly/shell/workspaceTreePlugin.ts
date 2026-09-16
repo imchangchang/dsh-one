@@ -82,11 +82,15 @@
  * **样式 = 官方 token + 官方默认几何**：本插件不写自造颜色/尺寸。样式全在
  * `workspaceTree/styles.ts`，其中每个数值都逐字
  * 取自官方 css-module（`ui-workspace/src/client/rows/Rows.module.css` 与
- * `WorkspaceBrowser.module.css`，0.1.6-alpha.1 的 `lib/client.js` 内联副本），
+ * `WorkspaceBrowser.module.css`，0.1.6-alpha.1 的 `lib/client.js` 内联副本；骨架四区
+ * 另取同族组件——胶囊与分块块头取 ui-model-selection 的 `ModelSelection.module.css`、
+ * 回收站入口行的行高取 ui-cordis 的 `CordisPanel.module.css`，逐条出处见
+ * `styles.ts` 对应规则上方），
  * 颜色一律引用官方 token 变量（`--dsw-*`）。**不引用官方哈希类名**
  * （`YDXeBa_*` / `bhn1Oq_*` 随版本变），只用自有类名 + 官方 token：数值同源、
  * token 同源，只有类名是自己的。
- * **密度/间距（#85 A 项）**：几何项写 `var(--dsh-one-density-<项>, <官方原值>)`
+ * **密度/间距（#85 A 项，键面 #104 扩到骨架四区）**：几何项写
+ * `var(--dsh-one-density-<项>, <官方原值>)`
  * ——宿主（我们的 VS Code 侧栏外框）在容器上设这组变量时自动变紧凑，没人设时
  * 取官方原值，本件零宿主判断、保持可移植（见 `workspaceTree/styles.ts` 的密度偏好说明）。
  * **悬停卡（#85 B 项）**：官方 HoverCard 只在容器右侧放得下 244+8px 时渲染，
