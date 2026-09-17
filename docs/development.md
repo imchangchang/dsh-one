@@ -50,6 +50,57 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 - **未安装 dsh**：临时把 PATH 里的 dsh 摘掉（或把 `dshOne.dshPath` 指到不存在的路径），打开面板应报"未找到 dsh"并引导安装。
 - **验证复用语义**：先手动 `dsh web --port 3080` 起一个实例，再打开面板，状态栏 tooltip 应显示"已复用已有实例"，关闭 VSCode 后该实例应仍在运行。
 
+## 日志与事后取证（面板消失这类宿主行为）
+
+扩展的日志有两个落点：
+
+1. **输出面板**（VS Code 里「输出 → DSH One」），也是命令 `dsh-one: Show Logs` 打开的那一份；
+2. **文件**：`<扩展 globalStorage>/logs/dsh-one-<进程号>.log`。macOS 上的完整路径是
+
+   ```
+   ~/Library/Application Support/Code/User/globalStorage/cgeng.dsh-one/logs/dsh-one-<pid>.log
+   ```
+
+   扩展激活时会把自己的路径写进日志第一行（`log file: …`），找不准就打开输出面板看首行。
+
+为什么要有一份文件：窗口重载 / 扩展宿主重启这类事发生在扩展之外，出问题后只能靠日志自证，而 VS Code 自己那份日志（它自己目录下的 `output_logging_…`）路径随版本和窗口变、还会被清理。这份文件的约定：
+
+- **一窗一文件**，文件名带进程号——**扩展宿主重启 = 一个全新文件**，所以要找「刚才出问题的那个窗口」，看 `logs/` 下修改时间最新的那个文件；
+- 单文件超过 2 MB 轮转到 `xxx.log.1`，只留一份上一版（要看的通常是最近那段）；
+- 写不进去（目录权限等）就自动关掉自己，不影响扩展任何行为。
+
+对话面板的生命周期在这个文件里可以逐条对着读（关键字 `chat panel`）：
+
+| 行 | 含义 |
+| --- | --- |
+| `chat panel created: kind=singleton\|tab session=…` | 面板建立（单例 / 多开标签页） |
+| `chat panel replaced: session=… -> …` | 单例被**我们自己**替换掉（新面板顶掉旧面板） |
+| `chat panel disposed: kind=… session=… reason=replace\|other` | 面板被销毁。`replace` = 上面那条替换；`other` = 用户点关闭 **或**扩展宿主收摊 |
+| `chat panel restoring: … saved=yes\|no` | 窗口重载后 VS Code 把标签页交回来，开始按存下的状态重装（`saved=no` = 这个面板没存过状态，按默认面板恢复） |
+| `chat panel restored: kind=… session=…` | 恢复成功 |
+| `chat panel restore failed: …` | 恢复时装配不起来，面板里落的是状态页（可重试） |
+| `window focus: focused\|blurred` | 窗口焦点变化（用户报的「切走再回来」在这里对时间点） |
+| `dsh-one deactivating (extension host shutting down)` | 扩展宿主收摊（重载 / 退出）——**这条是「面板被宿主带走」的铁证** |
+
+读一份日志时：
+
+- 日志末尾有 `deactivating`、其后又是一份新 pid 的文件 → 那次是**宿主重启**（重载 / 退出），面板是被宿主带走的；
+- 只有 `chat panel replaced`、没有 `deactivating` → 是**我们**换了单例（例如侧栏点了另一个会话），不是宿主；
+- 有 `disposed … reason=other` 但整份文件里没有 `deactivating` → 用户点了关闭，或者宿主是崩的（崩了不会调 deactivate）。
+
+## 人工验收：面板在重载 / 切窗口之后还在（#169）
+
+这条只能人开真窗口验（宿主行为，浏览器验证到不了）。扩展自己不能起窗口，所以由人跑：
+
+1. 起 dev host（`scripts/dev-ui-test.sh`，或 VS Code 里按 F5），确认侧栏亮了、对话面板 tab 开着，看一眼该面板当前是哪个会话；
+2. 命令面板跑 **Developer: Reload Window**，等窗口起来：
+   - 期望：对话面板 tab **还在**，内容回到**同一个会话**（历史/composer 都在）；
+   - 期望：多开的标签页（会话行菜单「在新标签页打开」开的那些）也各自回来，落在各自的会话；
+   - 期望：日志（见上一节）里能看到 `chat panel restoring` → `chat panel restored`；
+3. 再验一次「切走窗口再回来」：切到别的应用（或别的 VS Code 窗口）几十秒再切回来，面板应原样还在（VS Code 不会因为焦点变化重载窗口，这条用于排除「我们自己把面板关掉」的可能）；
+4. 降级分支（可选，验「不静默空白」）：把 dsh 服务停掉（命令 `dsh-one: Stop Service`）后再 Reload Window——面板 tab 应当还在，里面是「dsh 服务没在运行 / 启动服务」的状态页，点「Start the dsh service」应把面板装起来；
+5. 会话已经删掉的情况：把某个会话归档/删掉，再 Reload Window——面板应弹一句「这个对话面板原来打开的会话已经不在了」，并且**不带那个会话**打开（不是一片空白）。
+
 ## 发版流程
 
 发布门禁：`scripts/release-gate.sh`（默认 dry-run 只输出计划与只读校验，`--apply` 才执行）。两段式：

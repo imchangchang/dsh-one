@@ -53,6 +53,12 @@ export interface AssemblyPageOptions {
   transport?: boolean
   /** #71 tab 启动注入：宿主给的会话 id；缺省无注入（官方恢复行为）。 */
   bootSessionId?: string
+  /**
+   * 这个页面是哪种面板（#169）：true = 显式多开的标签页，false/缺省 = 单例。
+   * 页面把它连同当前会话 id 一起存进 webview 的 state，宿主恢复标签页时按它
+   * 决定这个面板回到单例槽位还是多开表（见 pure/chatPanelState.ts）。
+   */
+  panelTab?: boolean
 }
 
 import { assemblyProbeJs } from './probe.ts'
@@ -294,7 +300,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
   // 侧栏桥要靠这个「加载那一刻的值」判别「首个非空选中是官方恢复还是用户点击」。
   // 读数失败（隐私模式等）不影响任何行为，只是判别退化为「用户没点过就抑制」。
   const bootGlobals =
-    `    <script nonce="${cspNonce}">globalThis.__DSH_ONE_BOOT__ = ${JSON.stringify({ sessionId: options.bootSessionId ?? null })};` +
+    `    <script nonce="${cspNonce}">globalThis.__DSH_ONE_BOOT__ = ${JSON.stringify({ sessionId: options.bootSessionId ?? null, panelTab: options.panelTab === true })};` +
     `try{globalThis.__DSH_ONE_RESTORE__=localStorage.getItem("dsh.sessions.current")}catch(ignored){globalThis.__DSH_ONE_RESTORE__=null}</script>\n`
   const cspOn = options.csp !== false
   const transportOn = options.transport !== false

@@ -11,7 +11,15 @@
  * 活跃上报：每次 list.current 变化（含注入 open 的结果与官方恢复值）广播
  * {type:'dshOne.sessionMeta', sessionId, title}——宿主维护 tab↔会话映射、
  * 跟随面板标题；首拍恢复值也上报（默认 tab 借此挂接映射）。
+ *
+ * 状态上报（#169）：同一拍把「我是哪个面板、当前开着哪个会话」通过官方
+ * `acquireVsCodeApi().setState()` 存进这条 webview 的 state。窗口重载 / 扩展
+ * 宿主重启之后，VS Code 只把有 serializer 的 webview 的 state 交回宿主
+ * （`deserializeWebviewPanel`），宿主据此把标签页恢复回原会话。状态只能由
+ * 页面写——`WebviewPanel` 没有 state 属性（vscode.d.ts 头注写明了这条分工）。
  */
+
+import { CHAT_PANEL_STATE_VERSION } from '../../../pure/chatPanelState.ts'
 
 interface SessionsListSnapshot {
   phase: string
@@ -32,10 +40,16 @@ interface BootContext {
   effect(body: () => (() => void) | void, label?: string): void
 }
 
+interface VscodeApi {
+  postMessage(msg: unknown): void
+  /** 官方持久化口：宿主恢复标签页时会把它交回 `deserializeWebviewPanel`。 */
+  setState?(state: unknown): void
+}
+
 interface BootGlobals {
-  __DSH_ONE_BOOT__?: { sessionId?: unknown }
-  __DSH_ONE_VSCODE__?: { postMessage(msg: unknown): void }
-  acquireVsCodeApi?: () => { postMessage(msg: unknown): void }
+  __DSH_ONE_BOOT__?: { sessionId?: unknown; panelTab?: unknown }
+  __DSH_ONE_VSCODE__?: VscodeApi
+  acquireVsCodeApi?: () => VscodeApi
 }
 
 const bootSessionId = (): string | undefined => {
@@ -43,7 +57,11 @@ const bootSessionId = (): string | undefined => {
   return typeof raw === 'string' && raw !== '' ? raw : undefined
 }
 
-const postMeta = (sessionId: string, title: string | undefined): void => {
+/** 本页是不是多开的标签页（宿主经 __DSH_ONE_BOOT__ 注入，#169）。 */
+const bootPanelTab = (): boolean => (globalThis as BootGlobals).__DSH_ONE_BOOT__?.panelTab === true
+
+/** 共用取一次 acquireVsCodeApi（全页只允许调一次，probe 是统一获取点）。 */
+const vscodeApi = (): VscodeApi | undefined => {
   const g = globalThis as BootGlobals
   let vscode = g.__DSH_ONE_VSCODE__
   if (vscode === undefined && typeof g.acquireVsCodeApi === 'function') {
@@ -54,7 +72,26 @@ const postMeta = (sessionId: string, title: string | undefined): void => {
       /* 二次 acquire throw：probe 已持有且全局缺失（不应发生） */
     }
   }
-  vscode?.postMessage({ type: 'dshOne.sessionMeta', sessionId, title })
+  return vscode
+}
+
+const postMeta = (sessionId: string, title: string | undefined): void => {
+  vscodeApi()?.postMessage({ type: 'dshOne.sessionMeta', sessionId, title })
+}
+
+/** 上次存进 webview state 的会话 id（同值不重复写）。 */
+let persistedSessionId: string | null | undefined
+
+/**
+ * 把这条面板的身份存进 webview 的 state（#169）。恢复链路上宿主读回来的就是
+ * 它；浏览器里没有 acquireVsCodeApi（实验室/官方 web），setState 缺席，整个
+ * 调用是空操作。
+ */
+const persistPanelState = (sessionId: string | undefined): void => {
+  const value = sessionId ?? null
+  if (persistedSessionId === value) return
+  persistedSessionId = value
+  vscodeApi()?.setState?.({ v: CHAT_PANEL_STATE_VERSION, sessionId: value, tab: bootPanelTab() })
 }
 
 const timingLog = (phase: string, detail = ''): void => {
@@ -118,6 +155,7 @@ export function apply(ctx: BootContext): void {
         reportedFirstMeta = true
         timingLog('first-meta', current.slice(0, 13))
       }
+      persistPanelState(current)
       postMeta(current, list.byId[current]?.displayTitle ?? list.byId[current]?.title)
     }
   })

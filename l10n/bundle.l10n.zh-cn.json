@@ -243,5 +243,8 @@
   "Back in VS Code, DSH One starts the dsh service and loads your sessions automatically — no extra setup.": "回到 VS Code 侧栏就能用：DSH One 会自动启动 dsh 服务并加载会话，不需要额外配置。",
   "You can also use the official dsh web interface in a browser.": "也可以在浏览器里使用官方 dsh web 界面。",
   "Open dsh web": "打开 dsh web",
-  "Copy command": "复制命令"
+  "Copy command": "复制命令",
+  "DSH chat panel failed to load: {0}": "DSH 对话面板装配失败：{0}",
+  "The dsh service is not running. Start it to load this chat panel.": "dsh 服务没在运行。启动服务后这个对话面板才会加载。",
+  "The session this chat panel was showing no longer exists; the panel opens without it.": "这个对话面板原来打开的会话已经不在了，面板会不带它打开。"
 }

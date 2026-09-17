@@ -243,5 +243,8 @@
   "Back in VS Code, DSH One starts the dsh service and loads your sessions automatically — no extra setup.": "Back in VS Code, DSH One starts the dsh service and loads your sessions automatically — no extra setup.",
   "You can also use the official dsh web interface in a browser.": "You can also use the official dsh web interface in a browser.",
   "Open dsh web": "Open dsh web",
-  "Copy command": "Copy command"
+  "Copy command": "Copy command",
+  "DSH chat panel failed to load: {0}": "DSH chat panel failed to load: {0}",
+  "The dsh service is not running. Start it to load this chat panel.": "The dsh service is not running. Start it to load this chat panel.",
+  "The session this chat panel was showing no longer exists; the panel opens without it.": "The session this chat panel was showing no longer exists; the panel opens without it."
 }

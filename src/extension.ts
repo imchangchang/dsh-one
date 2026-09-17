@@ -45,9 +45,22 @@ function resolveSessionArg(arg: unknown): string | undefined {
   return typeof arg === 'string' && arg ? arg : undefined
 }
 
+/**
+ * activate 建的 logger（`deactivate` 要用它写「宿主收摊」那条告别日志，#169）。
+ */
+let hostLogger: Logger | undefined
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const logger = new Logger()
-  logger.info(`dsh-one activating (platform=${process.platform}/${process.arch})`)
+  // 日志同时落一份文件（#169）：面板恢复这类宿主行为事后只能靠日志自证，而 VS
+  // Code 输出面板的落点不在我们手里（自己的日志目录、会被清理）。位置固定在扩展
+  // globalStorage 下，路径写进首行与 docs/development.md。
+  const logger = new Logger({ logFileDir: vscode.Uri.joinPath(context.globalStorageUri, 'logs').fsPath })
+  const mode = context.extensionMode === vscode.ExtensionMode.Development ? 'dev' : 'stable'
+  logger.info(
+    `dsh-one activating (platform=${process.platform}/${process.arch}, pid=${process.pid}, vscode=${vscode.version}, mode=${mode})`,
+  )
+  if (logger.filePath !== undefined) logger.info(`log file: ${logger.filePath}`)
+  hostLogger = logger
 
   const manager = new ServerManager(context, logger)
 
@@ -148,7 +161,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     tagBridge,
     activeSessionChanged,
     // 窗口失焦期间侧栏可能被覆盖，回到聚焦时列表可能过期——刷新一次（失焦不刷）。
+    // 焦点变化本身也记一条（#169）：用户报的「切走窗口再回来面板没了」要从日志里
+    // 对得上当时的焦点事件，才分得清是「宿主重启带走了面板」还是「焦点回来触发了
+    // 什么把面板替换掉了」。
     vscode.window.onDidChangeWindowState((state) => {
+      logger.info(`window focus: ${state.focused ? 'focused' : 'blurred'}`)
       if (state.focused) void sessions.refreshSoon()
     }),
     vscode.commands.registerCommand('dshOne.start', async () => {
@@ -529,4 +546,9 @@ export function deactivate(): void {
   // dsh 与 VSCode 生命周期解绑：reload/关窗不再终止 dsh（pidfile 记录身份，
   // 下个窗口 re-own；只有 dshOne.stop/restart 会杀）。本地资源由
   // context.subscriptions 自动 dispose，这里无事可做。
+  //
+  // 只留一条告别日志（#169）：窗口重载 / 扩展宿主退出时 VS Code 不逐个 dispose
+  // 面板（用户看到的就是「面板没了」），日志里有这条 + 其后是一份新 pid 的日志
+  // 文件 = 面板是被宿主带走的；没有这条 = 得另找原因。写在同步 IO 上，来得及。
+  hostLogger?.info('dsh-one deactivating (extension host shutting down)')
 }

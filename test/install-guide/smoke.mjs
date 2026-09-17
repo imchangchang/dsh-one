@@ -446,6 +446,25 @@ const STATUS_CASES = [
     hint: T('DSH sidebar failed to load: {0}', ASSEMBLY_ERROR),
     button: { label: T('Retry'), message: 'assembly:retry' },
   },
+  {
+    id: 'chat-panel-not-running',
+    name: '对话面板恢复·服务未运行',
+    // #169：恢复出来的对话面板装不起来时画的是同一份状态页，只是文案按面板说
+    // （`surface: 'chatPanel'`），且面板上给得出「启动服务」这一步。
+    host: { state: 'stopped' },
+    view: () => ({ kind: 'serviceDown', starting: false }),
+    surface: 'chatPanel',
+    hint: T('The dsh service is not running. Start it to load this chat panel.'),
+    button: { label: T('Start the dsh service'), message: 'assembly:start' },
+  },
+  {
+    id: 'chat-panel-assembly-failed',
+    name: '对话面板恢复·装配失败',
+    view: () => assemblyFailureView({ state: 'running', url: 'http://127.0.0.1:3080' }, ASSEMBLY_ERROR),
+    surface: 'chatPanel',
+    hint: T('DSH chat panel failed to load: {0}', ASSEMBLY_ERROR),
+    button: { label: T('Retry'), message: 'assembly:retry' },
+  },
 ]
 
 const statusPageFile = (id) => path.join(OUT, `status.${LOCALE}.${id}.html`)
@@ -537,6 +556,17 @@ async function runStatusCase(browser, theme, entry) {
  * `/主按钮/` 之类）会把状态页的断言抢走。报告里仍按阶段排序（新增在前，回归在后）。
  */
 const ITEM_SPECS = [
+  {
+    id: 'SP-07',
+    phase: 'regression',
+    name: '对话面板恢复：装不起来时画的是状态页而不是空白',
+    expect:
+      '窗口重载后恢复出来的对话面板装不起来时（服务没在跑 / 装配失败），面板里是同一份状态页——文案按面板说（「dsh 服务没在运行。启动服务后这个对话面板才会加载。」/「DSH 对话面板装配失败：…」），按钮是「启动 dsh 服务」与「重试」，动作与侧栏那套同名。',
+    // 这条必须排在 SP-01..SP-06 前面：那几项的模式（/未运行/、/装配失败/、/明暗差/…）
+    // 是通用词，会先把它这几条断言抢走。
+    patterns: [/对话面板恢复/],
+    shots: ['-status-chat-panel-not-running', '-status-chat-panel-assembly-failed'],
+  },
   {
     id: 'SP-01',
     phase: 'regression',
@@ -723,7 +753,11 @@ async function main() {
   await fsp.mkdir(OUT, { recursive: true })
   await fsp.writeFile(pageFile, installGuideHtml(HOST_OS), 'utf8')
   for (const entry of STATUS_CASES) {
-    await fsp.writeFile(statusPageFile(entry.id), sidebarStatusHtml(statusViewOf(entry)), 'utf8')
+    await fsp.writeFile(
+      statusPageFile(entry.id),
+      sidebarStatusHtml(statusViewOf(entry), { surface: entry.surface ?? 'sidebar' }),
+      'utf8',
+    )
   }
   checkStatusDecisions()
   const browser = await chromium.launch({ headless: process.env.SMOKE_HEADED !== '1' })

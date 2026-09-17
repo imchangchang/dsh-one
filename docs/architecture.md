@@ -15,7 +15,7 @@ dsh-one/
 │                              # 经官方 api-gateway 暴露成 Remote 端点；前端插件经宿主能力口调用（#84）
 ├── src/
 │   ├── extension.ts        # activate/deactivate 入口：装配（命令注册、侧栏 view 注册、默认打开装配面板）
-│   ├── log.ts              # 输出通道日志，写入前对 URL query 值脱敏
+│   ├── log.ts              # 日志（输出通道 + 文件 sink），写入前对 URL query 值脱敏
 │   ├── server/
 │   │   ├── locateDsh.ts    # 定位 dsh 可执行文件（dshPath 配置 → PATH → 报错引导安装）
 │   │   ├── manager.ts      # dsh web 进程生命周期：re-own/复用探测/spawn/就绪/清理（含外部实例的 B 档连接与 A 档停止/重启）
@@ -31,7 +31,7 @@ dsh-one/
 │   │   └── tagBridge.ts    # loopback tag-bridge：派生脚本 --tag 代写 tags.json 的 HTTP 小服务
 │   ├── ui/
 │   │   ├── assembly/       # 装配对话区：pageHtml（装配页生成）、wireFilter（插件整包过滤）、shell/（自有 shell 插件）、probe（诊断探针）
-│   │   ├── assemblyView.ts # 装配面板宿主：dshOne.assembledChat 命令、单例面板生命周期、reveal/用户关闭追踪（默认打开用）
+│   │   ├── assemblyView.ts # 装配面板宿主：dshOne.assembledChat 命令、单例面板生命周期、面板恢复（serializer）、reveal/用户关闭追踪（默认打开用）
 │   │   ├── sessionsStore.ts # 侧栏数据层：基线拉取 + host 帧逐帧增量维护
 │   │   ├── sessionsView.ts # 侧栏视图（WebviewViewProvider）：快照推送、动作路由到 extension 命令、可见性钩子
 │   │   ├── sessionsWebview.ts # 侧栏 webview 前端（浏览器上下文）
@@ -57,7 +57,7 @@ dsh-one/
 - `src/server/locateDsh.ts`：`locateDsh()` 三步定位：`dshOne.dshPath` 配置非空则用它，否则用 PATH 上的 `dsh`；对候选跑 `dsh --version` 验证并提取版本号；失败则抛出 `DshNotFoundError`，`ServerManager` 据此在 `ServerStatus.reason` 上标记 `dshNotFound`，侧栏状态页据此显示「未安装」并给「查看安装指南」按钮 → 打开安装引导 tab（`dshOne.openInstallPage`；引导页里按平台给一键脚本，官方安装文档 <https://www.deepseek.com/harness/> 作为其中一条入口）。
 - `src/ui/sidebarStatusPage.ts` / `src/ui/installGuide.ts`：侧栏状态页与安装引导 tab（#100 落地、#105 改版）。两者都是**宿主侧渲染的普通 HTML**（我们自己的 HTML + CSS + 内联脚本，文案走 `vscode.l10n.t`），不参与装配树——dsh 未安装时网关起不来，装配页组装不了，这一层只能由宿主直接给页面。状态页三态的分流判定在 `src/pure/sidebarStatus.ts`（纯函数，单测覆盖）；引导 tab 是单例面板（槽位逻辑在 `src/pure/panelSlot.ts`），已开则聚焦，页面结构在 `src/pure/installGuidePage.ts`（纯函数：居中 hero + 主按钮下拉（平台项按命令分叉合成、选中态 ✓、外链项 ↗）+ 同行命令胶囊与复制 + 「终端安装 / 编辑器接入」分段）。
 - `src/server/manager.ts`：`ServerManager` 是整个扩展的核心，持有 `ServerStatus` 并通过 `onDidChangeState` 事件通知 UI。
-- `src/ui/assemblyView.ts`：`registerAssembledChat()` 注册 `dshOne.assembledChat` 命令——ensureStarted 后经 `loadGatewayAssembly()`（cookie GET 网关 `/`，提取 `__DSH_BOOT__` wire 与前端资产名）+ `startAssemblyMirror()` 起 loopback 代理，装配页 HTML 设为面板内容；单例面板，后开替换先开，关面板即 dispose mirror。导出 `revealAssembledChat()`（已开则聚焦）/`hasAssembledChatPanel()`/`wasAssembledChatClosedByUser()` 给默认打开与侧栏点开会话复用。
+- `src/ui/assemblyView.ts`：`registerAssembledChat()` 注册 `dshOne.assembledChat` 命令——ensureStarted 后经 `loadGatewayAssembly()`（cookie GET 网关 `/`，提取 `__DSH_BOOT__` wire 与前端资产名）+ `startAssemblyMirror()` 起 loopback 代理，装配页 HTML 设为面板内容；单例面板，后开替换先开，关面板即 dispose mirror。同时注册 webview 面板的 serializer（`registerWebviewPanelSerializer`，view type 与状态形状在 `src/pure/chatPanelState.ts`）：窗口重载 / 扩展宿主重启之后，VS Code 把页面经 `acquireVsCodeApi().setState()` 存下的会话 id 交回来，标签页据此装回原会话；网关没起来或会话已不存在时面板里落状态页（复用 `src/ui/sidebarStatusPage.ts`，`surface: 'chatPanel'`），不留空白。导出 `revealAssembledChat()`（已开则聚焦）/`hasAssembledChatPanel()`/`wasAssembledChatClosedByUser()` 给默认打开与侧栏点开会话复用。
 - `src/ui/sessionsStore.ts`：`SessionsStore` 是侧栏数据层——在 `running` 状态下拉取 workspace.list + session.list 基线并缓存，通过 `subscribeHostEvents()` 订阅 host 事件，帧载荷逐帧增量维护缓存基线（解析与应用在 `src/pure/hostFrames.ts`），全量重拉只留基线场景；另有 60s 本地 tick 让会话行的相对时间文案随时间更新；模型构建全部下沉到 `src/pure/sessionTree.ts`。搜索/排序/置顶/未读/折叠只基于缓存基线本地重建模型；客户端状态（回收站/分组/标签组/置顶/未读）落在 `~/.dsh/dsh-one/` 文件（跨窗口共享）。变更经 `onDidChange` 通知侧栏视图与 extension。
 - `src/ui/sessionsView.ts` / `sessionsWebview.ts`：侧栏视图与前端。动作（打开/新建/重命名/归档/置顶/未读/fork/搜索/排序/刷新）经 postMessage 回宿主，路由到 `extension.ts` 注册的命令；纯 store 操作直接落 store。会话高亮由快照的 `activeSessionId` 驱动（= extension 记的「最近打开的会话」）。
 - `src/pure/`：与 vscode 解耦的业务规则。所有"容易写错的判断"（rpcId 校验、semver 比较、就绪行解析、会话树构建、@token 扫描）都下沉到这里，保证可以脱离 VSCode 单测。
@@ -128,5 +128,5 @@ dsh-one/
 
 ## 日志与安全细节
 
-- 所有日志走 `Logger`（`src/log.ts`），写入前 `sanitize()` 会把 URL 的 query 值脱敏成 `***`，避免 token 类参数进日志。新增日志点请走 `Logger`，不要 `console.log`。
+- 所有日志走 `Logger`（`src/log.ts`），写入前 `sanitize()` 会把 URL 的 query 值脱敏成 `***`，避免 token 类参数进日志。新增日志点请走 `Logger`，不要 `console.log`。日志同时落一份文件（`src/pure/logFile.ts`，位置与读法见 `docs/development.md`「日志与事后取证」）——窗口重载 / 扩展宿主重启这类发生在扩展之外的故障，事后只能靠这份文件自证。
 - webview CSP 收紧：`default-src 'none'`，script 必须带 nonce；装配页在普通浏览器可开（零 acquireVsCodeApi），loopback 代理负责把请求来源改写成网关自己并剥掉浏览器自动加的来源声明头（`sec-fetch-*`），否则网关按可疑请求拒绝（403）。
