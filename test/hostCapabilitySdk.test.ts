@@ -331,11 +331,25 @@ test('#99 设置齿轮：官方 web 侧如实上报缺席，调用被 unavailabl
 test('#99 创建新工作区目录：桥在时上报有能力，调用落到 bridge 的 vscode.workspaceCreate', async () => {
   resetGlobals()
   const bridgeCalls: Array<{ name: string; args: unknown }> = []
-  installBridge(bridgeCalls, { 'vscode.workspaceCreate': null })
+  installBridge(bridgeCalls, { 'vscode.workspaceCreate': { workspaceId: 'ws-1', title: 'Ws One' } })
   const caps = hostCapabilities(undefined)
   assert.equal(caps.workspaceCreate, true)
-  await caps.createWorkspaceDirectory()
+  assert.deepEqual(await caps.createWorkspaceDirectory(), { workspaceId: 'ws-1', title: 'Ws One' })
   assert.deepEqual(bridgeCalls, [{ name: 'vscode.workspaceCreate', args: {} }])
+  resetGlobals()
+})
+
+test('#176 创建新工作区目录：回执里的新工作区原样带给调用方；没建成（用户取消）给 workspaceId: null', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, { 'vscode.workspaceCreate': { workspaceId: null } })
+  const caps = hostCapabilities(undefined)
+  assert.deepEqual(await caps.createWorkspaceDirectory(), { workspaceId: null }, '取消不是失败：调用方据此静默')
+  resetGlobals()
+
+  const second: Array<{ name: string; args: unknown }> = []
+  installBridge(second, { 'vscode.workspaceCreate': { workspaceId: 'ws-2' } })
+  assert.deepEqual(await hostCapabilities(undefined).createWorkspaceDirectory(), { workspaceId: 'ws-2' }, '宿主给不出名字时只带 id（界面从工作区快照里再找）')
   resetGlobals()
 })
 
@@ -349,6 +363,38 @@ test('#99 创建新工作区目录：官方 web 侧如实上报缺席，调用�
     (err: unknown) => (err as CapabilityFailure).code === 'unavailable',
   )
   assert.deepEqual(calls, [], '缺席的能力不该往网关上打任何请求')
+  resetGlobals()
+})
+
+// ---------------------------------------------------------------------------
+// #176：添加/创建工作区之后的「在该工作区开新会话」
+// ---------------------------------------------------------------------------
+
+test('#176 开新会话：桥在时上报有能力，调用落到 bridge 的 session.newInWorkspace（参数就是那个工作区 id）', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, { 'session.newInWorkspace': null })
+  const caps = hostCapabilities(undefined)
+  assert.equal(caps.sessionNewInWorkspace, true)
+  await caps.newSessionInWorkspace('ws-1')
+  assert.deepEqual(bridgeCalls, [{ name: 'session.newInWorkspace', args: { workspaceId: 'ws-1' } }])
+  resetGlobals()
+})
+
+test('#176 开新会话：官方 web 侧如实上报缺席（页面据此只添加、不开会话），调用被 unavailable 拒掉且不打网关', async () => {
+  resetGlobals()
+  const calls: Call[] = []
+  const caps = hostCapabilities(gatewayCtx({}, calls))
+  assert.equal(
+    caps.sessionNewInWorkspace,
+    false,
+    '没有宿主桥 = 添加完建不建会话归官方自己的 directory-flow，页面据此少做这一步',
+  )
+  await assert.rejects(
+    () => caps.newSessionInWorkspace('ws-1'),
+    (err: unknown) => (err as CapabilityFailure).code === 'unavailable',
+  )
+  assert.deepEqual(calls, [], '缺席的能力不该往网关上打任何请求（这条连宿主半端点都没有）')
   resetGlobals()
 })
 

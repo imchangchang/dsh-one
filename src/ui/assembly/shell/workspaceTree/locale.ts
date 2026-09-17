@@ -198,6 +198,11 @@ export const ZH: Record<string, string> = {
   'workspace.add': '\u6DFB\u52A0\u5DE5\u4F5C\u533A',
   'workspace.pickFolder': '\u9009\u62E9\u5DF2\u6709\u6587\u4EF6\u5939\u2026',
   'workspace.create': '\u521B\u5EFA\u65B0\u5DE5\u4F5C\u533A\u76EE\u5F55\u2026',
+  // #176：添加/创建工作区之后的收尾（加完开新会话；被分组过滤挡住时给一条页面内提示）。
+  'addNotice.filtered': '\u201c{name}\u201d\u4e0d\u5728\u5f53\u524d\u5206\u7ec4\u91cc\uff0c\u6811\u91cc\u770b\u4e0d\u5230\u5b83',
+  'addNotice.dismiss': '\u5173\u95ed\u63d0\u793a',
+  'workspace.addFailed': '\u6dfb\u52a0\u5de5\u4f5c\u533a\u5931\u8d25\uff1a{message}',
+  'workspace.newSessionFailed': '\u65b0\u5efa\u4f1a\u8bdd\u5931\u8d25\uff1a{message}',
   'toolbar.collapseAll': '\u6298\u53E0\u6240\u6709\u5DE5\u4F5C\u533A',
   'toolbar.expandAll': '\u5C55\u5F00\u6240\u6709\u5DE5\u4F5C\u533A',
   'toolbar.settings': '\u8BBE\u7F6E',
@@ -409,6 +414,12 @@ export const EN: Record<string, string> = {
   'workspace.add': 'Add workspace',
   'workspace.pickFolder': 'Choose an existing folder\u2026',
   'workspace.create': 'Create a new workspace folder\u2026',
+  // #176: what happens after adding a workspace (start a session there; hint when the
+  // group filter hides the new row).
+  'addNotice.filtered': '\u201c{name}\u201d is not in the current group, so it does not show here',
+  'addNotice.dismiss': 'Dismiss',
+  'workspace.addFailed': 'Could not add the workspace: {message}',
+  'workspace.newSessionFailed': 'Could not start a session: {message}',
   'toolbar.collapseAll': 'Collapse all workspaces',
   'toolbar.expandAll': 'Expand all workspaces',
   'toolbar.settings': 'Settings',
