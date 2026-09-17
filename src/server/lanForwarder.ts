@@ -18,9 +18,14 @@ import type { Logger } from '../log.ts'
 export class LanForwarder {
   private server: net.Server | null = null
   private activeIp: string | undefined
+  private activePort: number | undefined
   private listening = false
 
-  constructor(private readonly logger: Logger) {}
+  private readonly logger: Logger
+
+  constructor(logger: Logger) {
+    this.logger = logger
+  }
 
   /** 转发器是否在监听（绑定成功后为 true）。 */
   get isActive(): boolean {
@@ -33,14 +38,17 @@ export class LanForwarder {
   }
 
   /**
-   * 在 `<lanIp>:<port>` 监听并透传到 `127.0.0.1:<port>`。重复 start 先停旧的
-   * （换 IP / 换端口时走这里）。绑定失败抛错——调用方决定怎么提示。
+   * 在 `<lanIp>:<port>` 监听并透传到 `127.0.0.1:<targetPort>`（生产里 targetPort
+   * 与 port 相同——同端口、不同地址；拆开参数是为了能在纯 loopback 环境单测）。
+   * 重复 start 先停旧的（换 IP / 换端口时走这里）。绑定失败抛错——调用方决定
+   * 怎么提示。
    */
-  async start(lanIp: string, port: number): Promise<void> {
-    if (this.listening && this.activeIp === lanIp) return
+  async start(lanIp: string, port: number, targetPort: number = port): Promise<void> {
+    // IP 或端口任一变化都要重绑（只看 IP 会把「换端口」短路成 no-op）。
+    if (this.listening && this.activeIp === lanIp && this.activePort === port) return
     this.stop()
     const server = net.createServer((socket) => {
-      const upstream = net.connect({ host: '127.0.0.1', port })
+      const upstream = net.connect({ host: '127.0.0.1', port: targetPort })
       // 透传是双向裸管道：任何一端断开/出错就拆掉整条链路，不留半开连接。
       socket.on('error', () => upstream.destroy())
       upstream.on('error', () => socket.destroy())
@@ -68,6 +76,7 @@ export class LanForwarder {
     })
     this.server = server
     this.activeIp = lanIp
+    this.activePort = port
     this.listening = true
     this.logger.info(`lan forwarder: ${lanIp}:${port} -> 127.0.0.1:${port}`)
   }
@@ -78,6 +87,7 @@ export class LanForwarder {
     const server = this.server
     this.server = null
     this.activeIp = undefined
+    this.activePort = undefined
     this.listening = false
     // close() 只停监听，不踢已建立连接；实例已不在 running，连接一并拆掉。
     // closeAllConnections 在 Node 18.2+ 才有（本仓库 @types/node 22 的类型没标），
