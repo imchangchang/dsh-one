@@ -237,7 +237,7 @@ async function clickOutsideSearch(page: OpenedPage['page']): Promise<void> {
 }
 
 export const SEARCH_COLLAPSE_SUITE: LabSuite = {
-  id: 'F-33',
+  id: 'F-36',
   phase: 'new-feature',
   name: '顶栏搜索栏的收起 / 展开（#132）：平时一枚放大镜，点开才展开成输入框（SEARCH-COLLAPSE 套件）',
   expect:

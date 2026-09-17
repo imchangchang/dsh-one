@@ -97,7 +97,8 @@ async function readMarkers(page: OpenedPage['page']): Promise<MarkerFacts> {
       groupedContainers: document.querySelectorAll('[data-dshone-tree="groups"]').length,
       others: {
         searchBox: has('[data-dshone-tree="search-box"]'),
-        searchInput: has('[data-dshone-tree="search-input"]'),
+        // #132 起搜索栏默认是收起态（放大镜），输入框点开才渲染——所以「搜索入口在不在」
+        // 看的是 searchBox，输入框本身由 F-36 按两态判。
         collapseAll: has('[data-dshone-tree-action="collapse-all"]'),
         addWorkspace: has('[data-dshone-tree-action="add-workspace"]'),
         settings: has('[data-dshone-tree-action="settings"]'),
@@ -244,7 +245,7 @@ export const VIEW_OPTIONS_RETIRED_SUITE: LabSuite = {
         ['search', 'collapse-all', 'add-workspace', 'select-mode'],
       )
       check.eq('① 顶栏与分组过滤条的文案里不含任何一个退役词', markers.retiredTexts, [])
-      check.ok('④ 搜索框（含输入框）仍在', markers.others.searchBox && markers.others.searchInput, JSON.stringify(markers.others))
+      check.ok('④ 搜索入口（放大镜 / 展开后的输入框那一个槽）仍在', markers.others.searchBox, JSON.stringify(markers.others))
       check.ok(
         '④ 折叠/展开全部 · 添加工作区 · 多选入口仍在',
         markers.others.collapseAll && markers.others.addWorkspace && markers.others.selectMode,
@@ -324,7 +325,7 @@ export const VIEW_OPTIONS_RETIRED_SUITE: LabSuite = {
       )
       check.ok(
         '④ 注入旧记录并重载后，其余四件与分组树照旧',
-        afterSeeded.others.searchInput &&
+        afterSeeded.others.searchBox &&
           afterSeeded.others.collapseAll &&
           afterSeeded.others.addWorkspace &&
           afterSeeded.others.selectMode &&

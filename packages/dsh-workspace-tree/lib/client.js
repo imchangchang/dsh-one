@@ -4170,7 +4170,34 @@ function CollapseAllIcon({ glyph }) {
 function TopBar(props) {
   const { tr, query, allCollapsed, selectMode } = props;
   const [addOpen, setAddOpen] = (0, import_react12.useState)(false);
+  const [searchExpanded, setSearchExpanded] = (0, import_react12.useState)(false);
+  const searchRoot = (0, import_react12.useRef)(null);
   const searchInput = (0, import_react12.useRef)(null);
+  const trimmedQuery = query.trim();
+  (0, import_react12.useEffect)(() => {
+    if (searchExpanded) searchInput.current?.focus();
+  }, [searchExpanded]);
+  (0, import_react12.useEffect)(() => {
+    if (!searchExpanded) return;
+    const onClick = (event) => {
+      const target = event.target;
+      if (!(target instanceof Node) || searchRoot.current?.contains(target) === true) return;
+      searchInput.current?.blur();
+      if (trimmedQuery !== "") return;
+      setSearchExpanded(false);
+    };
+    document.addEventListener("click", onClick);
+    return () => {
+      document.removeEventListener("click", onClick);
+    };
+  }, [searchExpanded, trimmedQuery]);
+  const expandSearch = () => {
+    setSearchExpanded(true);
+  };
+  const collapseSearch = () => {
+    props.onQueryClear();
+    setSearchExpanded(false);
+  };
   const addItems = [
     {
       id: "pick-folder",
@@ -4190,36 +4217,46 @@ function TopBar(props) {
   return (0, import_react12.createElement)(
     "div",
     { className: "dshOneTree_sectionHeader", "data-dshone-tree": "top-bar" },
-    // 官方搜索栏的**展开态**（search / searchSlot 两层都带 Expanded 变体，与官方
-    // SidebarRoot 展开后的 DOM 同构）：折叠态不在（#99 退役放大镜胶囊）。
+    // 官方搜索栏（#132：两态都在，默认折叠）——search / searchSlot 两层各带一个
+    // Expanded 变体，与官方侧栏的 DOM 同构；折叠态就是那枚 28px 的圆放大镜。
+    // `data-dshone-tree-state` 是自有标记，让验证套件能直接读「现在是哪一态」，不必
+    // 解析类名（与折叠全部那枚的 `data-dshone-tree-icon-value` 同一做法）。
     (0, import_react12.createElement)(
       "div",
-      { className: "dshOneTree_searchSlot dshOneTree_searchSlotExpanded" },
+      {
+        className: `dshOneTree_searchSlot${searchExpanded ? " dshOneTree_searchSlotExpanded" : ""}`,
+        ref: searchRoot
+      },
       (0, import_react12.createElement)(
         "div",
         {
-          className: "dshOneTree_search dshOneTree_searchExpanded",
+          className: `dshOneTree_search${searchExpanded ? " dshOneTree_searchExpanded" : ""}`,
           "data-dshone-tree": "search-box",
-          onClick: () => searchInput.current?.focus()
+          "data-dshone-tree-state": searchExpanded ? "expanded" : "collapsed",
+          onClick: expandSearch
         },
         (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
           label: tr("search"),
           side: "bottom",
           delayMs: 500,
+          // 官方：展开后不再出这一枚提示（`disabled: searchExpanded`）——这时按钮只是
+          // 展开态图标位，提示没有意义。
+          disabled: searchExpanded,
           children: (0, import_react12.createElement)(
             "button",
             {
               type: "button",
               className: "dshOneTree_searchButton",
               "aria-label": tr("search.sessions.aria"),
-              "aria-expanded": true,
+              "aria-expanded": searchExpanded,
               "data-dshone-tree-action": "search",
-              onClick: () => searchInput.current?.focus()
+              onClick: expandSearch
             },
-            (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconSearchOutline16, { size: 11 })
+            // 官方两态的图标尺寸不同：折叠 14、展开 11（`size: searchExpanded ? 11 : 14`）。
+            (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconSearchOutline16, { size: searchExpanded ? 11 : 14 })
           )
         }),
-        (0, import_react12.createElement)("input", {
+        searchExpanded ? (0, import_react12.createElement)("input", {
           ref: searchInput,
           className: "dshOneTree_searchInput",
           "data-dshone-tree": "search-input",
@@ -4230,10 +4267,11 @@ function TopBar(props) {
           onChange: (event) => props.onQueryChange(event.target.value),
           onKeyDown: (event) => {
             if (event.key !== "Escape") return;
-            props.onQueryClear();
+            collapseSearch();
           }
-        }),
-        (0, import_react12.createElement)(
+        }) : null,
+        // 清除钮只在展开态渲染（官方也是 `searchExpanded && …`）。
+        searchExpanded ? (0, import_react12.createElement)(
           "button",
           {
             type: "button",
@@ -4242,11 +4280,11 @@ function TopBar(props) {
             "aria-label": tr("search.clear"),
             onClick: (event) => {
               event.stopPropagation();
-              props.onQueryClear();
+              collapseSearch();
             }
           },
           (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconCloseFill14, {})
-        )
+        ) : null
       )
     ),
     (0, import_react12.createElement)(
@@ -5229,8 +5267,9 @@ function WorkspaceTree(props) {
   return (0, import_react13.createElement)(
     "div",
     { className: "dshOneTree_root", ref: rootRef, "data-shell": "dsh-one-tree", "data-dshone-tree": "root" },
-    // 顶部工具栏（#99 B 段）：官方搜索栏（展开态）+ 折叠/展开全部 + 添加工作区 + 设置齿轮，
-    // 末尾是多选入口（#131 起那一行只有这四件，视图选项已退役）。见 toolbar.ts 的说明与机制举证。
+    // 顶部工具栏（#99 B 段）：官方搜索栏（#132 起默认折叠，点开才展开）+ 折叠/展开全部
+    // + 添加工作区 + 设置齿轮，末尾是多选入口（#131 起那一行只有这四件，视图选项已退役）。
+    // 见 toolbar.ts 的说明与机制举证。
     (0, import_react13.createElement)(TopBar, {
       tr,
       query: searchText,
