@@ -116,7 +116,7 @@ flowchart LR
 
 ### dsh version tracking
 
-A scheduled GitHub Action ([dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)) checks for new [dsh releases](https://github.com/deepseek-ai/deepseek-harness/releases) daily; for each new version it runs the automated probe suite (21 checks: the wire protocol, the front-end artifacts the gateway serves — boot contract, combo endpoint, Origin fence — and the client contract surface the assembled UI depends on) and files an `upstream-watch` issue with the results. The last two badges above show the latest upstream release and the latest probe outcome; the full test list (automated + manual items) lives in [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md).
+A scheduled GitHub Action ([dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)) checks for new [dsh releases](https://github.com/deepseek-ai/deepseek-harness/releases) daily; for each new version it runs the automated probe suite (22 checks: the wire protocol, the front-end artifacts the gateway serves — boot contract, combo endpoint, Origin fence —, the client contract surface the assembled UI depends on, and the internal identifiers inside the installed official packages) and files an `upstream-watch` issue with the results. The last two badges above show the latest upstream release and the latest probe outcome; the full test list (automated + manual items) lives in [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md).
 
 **Tested versions.** Two dsh versions have been verified end to end:
 
@@ -132,7 +132,7 @@ A scheduled GitHub Action ([dsh-upstream-watch](.github/workflows/dsh-upstream-w
 
 | Check | Command | Covers |
 |---|---|---|
-| upstream probe | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <version>` | wire surface + client contract surface: are the slot names, root-level hooks and field/method names we depend on still there |
+| upstream probe | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <version>` | wire surface + client contract surface + installed official artifacts: are the slot names, root-level hooks, field/method names and internal identifiers we depend on still there |
 | browser verification | `npm run verify:lab` | the four assembled trees boot on a real gateway with no crashed slot and no missing contract |
 | host-half verification | `npm run verify:host-half` | the gateway-side plugin half against official dsh |
 
@@ -144,6 +144,7 @@ Who finds what: the probe runs daily in CI and catches renamed slots, hooks and 
 | Unary RPC (`session/*`, `workspace/*`, `agentPresets/*`, `commands/*` args shapes) | probe |
 | WebSocket streams (`session/follow` snapshot, `session/control` baseline) | probe |
 | Client contract surface (slot names, root hooks, field names the assembly depends on) | probe |
+| Internal identifiers inside the installed official packages (silent-failure dependencies) | probe |
 | Assembled trees on a real gateway (boot, slots filled, no crashed entry) | browser verification |
 | Host-half plugin against official dsh | `verify:host-half` |
 | Live-streaming rendering, approvals/questions through the assembled chat | manual (per-version issue) |
