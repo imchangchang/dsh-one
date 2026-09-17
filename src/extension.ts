@@ -5,7 +5,7 @@ import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
-import { browserUrl } from './server/serverAuth.ts'
+import { browserUrl, getAuth } from './server/serverAuth.ts'
 import { archiveSession, createSession, ensureWorkspace, forkSession, renameSession } from './server/dshRpc.ts'
 import { formatSessionMention } from './pure/sessionMention.ts'
 import {
@@ -21,6 +21,11 @@ import {
 import { SessionsStore } from './ui/sessionsStore.ts'
 import { StatusBar } from './ui/statusbar.ts'
 import { openInstallGuide } from './ui/installGuide.ts'
+import { DshUpdate } from './server/dshUpdate.ts'
+import { locateDsh, type LocatedDsh } from './server/locateDsh.ts'
+import { decideUpdate } from './pure/dshUpdate.ts'
+import { statusActions, statusSummary } from './pure/statusActions.ts'
+import { lanOrigin, tokenizedUrl } from './pure/lanAccess.ts'
 import { TagBridge } from './server/tagBridge.ts'
 
 /**
@@ -70,7 +75,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void manager.ensureStarted()
   }
 
-  const statusBar = new StatusBar(manager)
+  const dshUpdate = new DshUpdate(logger)
+  const statusBar = new StatusBar(manager, dshUpdate)
+
+  // #86 更新检查：这里做一次静默检查（查到才影响 tooltip 里那行提示；失败只进日志，
+  // 不打扰用户）。只在拿到真实 dsh 版本之后查一次——版本未知时比不出结果，
+  // 「检查更新」命令随时可以再手动触发。
+  let updateChecked = false
+  const tryUpdateCheck = (): void => {
+    if (updateChecked) return
+    const status = manager.getStatus()
+    if (status.state !== 'running' || !status.version || status.version === 'unknown') return
+    updateChecked = true
+    void dshUpdate.check()
+  }
+  context.subscriptions.push(manager.onDidChangeState(tryUpdateCheck))
+  tryUpdateCheck()
 
   // #71 预热：激活后网关一旦 running，后台暖共享代理 + 三树过滤整包缓存
   // （静默，失败不挡激活）。首个侧栏揭面/首个 tab 不再付 mirror 启动与
@@ -144,6 +164,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!revealAssembledSettings()) await vscode.commands.executeCommand('dshOne.assembledSettings')
   }
 
+  // #86 检查更新用的「当前版本」：优先现在能不能定位到 dsh（那才是真实安装位置上的版本），
+  // 定位不到就退回状态里已经探到的版本（服务在跑时总是有）。
+  const installedDshVersion = async (): Promise<string | undefined> => {
+    try {
+      const located = await locateDsh(logger)
+      return located.version === 'unknown' ? undefined : located.version
+    } catch {
+      const version = manager.getStatus().version
+      return version && version !== 'unknown' ? version : undefined
+    }
+  }
+
+  // #86 升级要 dsh 的可执行文件路径（用来推导同目录的 npm）；定位不到就没法拼命令，
+  // 直接把 locate 的报错（含安装指引）给用户。
+  const locateForUpgrade = async (): Promise<LocatedDsh | undefined> => {
+    try {
+      return await locateDsh(logger)
+    } catch (err) {
+      void vscode.window.showErrorMessage(errorText(err))
+      return undefined
+    }
+  }
+
   // 侧栏 sessions 面板（#70）：dshOne.chat view 的内容换成官方侧栏装配
   // （第二棵 cordis 树，assemblyView.ts），自研 vanilla 侧栏（sessionsView/
   // sessionsWebview）摘钩保留——#65 迁移参照物，暂不使用。可见性钩子沿用
@@ -157,6 +200,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger,
     manager,
     statusBar,
+    dshUpdate,
     sessions,
     tagBridge,
     activeSessionChanged,
@@ -274,6 +318,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('dshOne.showLogs', () => {
       logger.show()
+    }),
+    // #86 检查更新：固定比 npm 的 latest dist-tag（口径与理由见 src/pure/dshUpdate.ts）。
+    // 有新版本时顺带给「升级」按钮；查不到就报检查失败——不冒充「已是最新」。
+    vscode.commands.registerCommand('dshOne.checkUpdate', async () => {
+      const installed = await installedDshVersion()
+      await dshUpdate.check()
+      const verdict = decideUpdate(installed, dshUpdate.latest())
+      if (verdict.state === 'update') {
+        const upgrade = vscode.l10n.t('Upgrade')
+        const pick = await vscode.window.showInformationMessage(
+          vscode.l10n.t('A newer dsh is available: v{0} (current v{1}).', verdict.latest!, verdict.installed!),
+          upgrade,
+        )
+        if (pick === upgrade) await vscode.commands.executeCommand('dshOne.upgrade')
+        return
+      }
+      if (verdict.state === 'current') {
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t('dsh is up to date (v{0}).', verdict.latest!),
+        )
+        return
+      }
+      if (verdict.state === 'ahead') {
+        // alpha/next 用户会落到这里：npm latest 比手上旧，没什么可升的。
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t(
+            'Installed dsh v{0} is newer than the npm latest v{1}; nothing to upgrade.',
+            verdict.installed!,
+            verdict.latest!,
+          ),
+        )
+        return
+      }
+      void vscode.window.showWarningMessage(
+        vscode.l10n.t('Update check failed: {0}', dshUpdate.lastError() ?? vscode.l10n.t('unknown reason')),
+      )
+    }),
+    // #86 升级：在集成终端里跑全局安装命令（命令可见、可中断）。装的版本比 latest 新时
+    // 先弹确认说明「继续等于降级」，避免 alpha 用户被无声地拉回正式通道。
+    vscode.commands.registerCommand('dshOne.upgrade', async () => {
+      const dsh = await locateForUpgrade()
+      if (!dsh) return
+      if (!dshUpdate.latest()) await dshUpdate.check()
+      const latest = dshUpdate.latest()
+      const verdict = decideUpdate(dsh.version, latest)
+      if (verdict.state === 'current') {
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t('dsh is up to date (v{0}).', latest!),
+        )
+        return
+      }
+      if (verdict.state === 'ahead') {
+        const proceed = vscode.l10n.t('Continue')
+        const answer = await vscode.window.showWarningMessage(
+          vscode.l10n.t(
+            'Installed dsh v{0} is newer than the npm latest v{1}; continuing installs the older version.',
+            verdict.installed!,
+            latest!,
+          ),
+          { modal: true },
+          proceed,
+        )
+        if (answer !== proceed) return
+      }
+      dshUpdate.runUpgradeInTerminal(dsh, latest)
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t('Installing dsh in the terminal; restart the dsh service when it finishes.'),
+      )
     }),
     // #70 摘钩标注：以下会话/工作区命令原为自研侧栏 webview 消息驱动（行内
     // 菜单/右键菜单转发）。侧栏位换成官方侧栏装配后失去调用方，注册保留作
@@ -462,6 +574,78 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // （平台下拉 + 一键命令 + 复制）窄侧栏放不下，独立成一个编辑器 tab；官方
     // 安装文档作为 tab 里的一条入口保留。
     vscode.commands.registerCommand('dshOne.openInstallPage', () => openInstallGuide(logger)),
+    // #90 状态栏点击 = 打开动作面板：动作清单与悬停气泡同一份表
+    // （src/pure/statusActions.ts），这里只负责把它渲染成原生 QuickPick 并转发命令。
+    vscode.commands.registerCommand('dshOne.statusPanel', async () => {
+      const status = manager.getStatus()
+      const verdict = decideUpdate(status.version, dshUpdate.latest())
+      const t = (message: string, ...args: Array<string | number | boolean>): string =>
+        vscode.l10n.t(message, ...args)
+      const actions = statusActions(status, t, verdict)
+      const picked = await vscode.window.showQuickPick(
+        actions.map((action) => ({ label: `$(${action.icon}) ${action.label}`, action })),
+        { title: 'DSH One', placeHolder: statusSummary(status, t, verdict) },
+      )
+      if (picked) await vscode.commands.executeCommand(picked.action.command)
+    }),
+    // 复制带 token 的访问链接（backlog statusbar-lan-access）：本机链接 =
+    // browserUrl（token 从认证态取）；局域网链接 = 转发器在监听的 <ip>:<port>
+    // + 同一个 token。token 是敏感值：只进剪贴板，不进日志（serverAuth 的约定）。
+    vscode.commands.registerCommand('dshOne.copyLink', async () => {
+      const status = manager.getStatus()
+      if (status.state !== 'running' || !status.url) {
+        void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to copy a link for.'))
+        return
+      }
+      const link = browserUrl(status.url)
+      await vscode.env.clipboard.writeText(link)
+      // 0.1.1（无 token 的 legacy 实例）复制出来的是干净 URL，不能报「含 token」。
+      void vscode.window.showInformationMessage(
+        link.includes('token=')
+          ? vscode.l10n.t('Local access link copied (with token).')
+          : vscode.l10n.t('Local access link copied.'),
+      )
+    }),
+    vscode.commands.registerCommand('dshOne.copyLanLink', async () => {
+      const status = manager.getStatus()
+      const ip = manager.lanAddress
+      const token = status.url ? getAuth(status.url)?.token : undefined
+      if (status.state !== 'running' || !ip || !token) {
+        void vscode.window.showWarningMessage(vscode.l10n.t('LAN access is not enabled for this instance.'))
+        return
+      }
+      await vscode.env.clipboard.writeText(tokenizedUrl(lanOrigin(ip, status.port ?? 0), token))
+      void vscode.window.showInformationMessage(vscode.l10n.t('LAN access link copied (with token).'))
+    }),
+    // 局域网开关：改设置 + 重启（能力来自 spawn 时的 --trusted-host，必须重启才生效）。
+    // 开 = 把服务暴露给局域网，安全影响必须先讲清（拿到链接的人都能用）。
+    vscode.commands.registerCommand('dshOne.restartLan', async () => {
+      if (manager.getStatus().state !== 'running') {
+        void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to restart.'))
+        return
+      }
+      const proceed = vscode.l10n.t('Restart for LAN access')
+      const answer = await vscode.window.showWarningMessage(
+        vscode.l10n.t(
+          'Expose dsh to the local network? Anyone on the network with the link (which carries the token) can use it. dsh restarts to enable LAN access.',
+        ),
+        { modal: true },
+        proceed,
+      )
+      if (answer !== proceed) return
+      await vscode.workspace.getConfiguration('dshOne').update('lanAccess', true, vscode.ConfigurationTarget.Global)
+      await manager.restart()
+    }),
+    vscode.commands.registerCommand('dshOne.restartLocal', async () => {
+      // 与 restartLan 同样先判运行态：否则「重启」会把没跑的服务直接拉起来，
+      // 而用户点的是「切回仅本机」。
+      if (manager.getStatus().state !== 'running') {
+        void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to restart.'))
+        return
+      }
+      await vscode.workspace.getConfiguration('dshOne').update('lanAccess', false, vscode.ConfigurationTarget.Global)
+      await manager.restart()
+    }),
     // 未安装 dsh 时状态栏「Install dsh」链接的落点：聚焦侧栏面板，那里是
     // 「未安装」状态页（`reason === 'dshNotFound'`），页面上的「查看安装指南」
     // 再开上面的引导 tab。侧栏本身就是窄条，不在这里直接塞引导内容。

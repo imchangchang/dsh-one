@@ -30,7 +30,6 @@
 - **Workspace sync** — your current folder is registered as the dsh workspace (idempotent), so dsh opens right where you are working.
 - **Native sessions list** — grouped by workspace (current folder on top), with search (title / session id), sorting (recent / oldest / title), pin, mark-as-unread, rename, archive, fork, and "open folder" actions. Hover a session row for the `⋯` menu; refresh follows the dsh host event stream automatically.
 - **Assembled chat area** — the conversation area is the official dsh web UI (same components as the browser page), assembled inside VS Code behind a local loopback proxy that handles login and filters out the official frame/sidebar plugins. Clicking the DSH One activity-bar icon opens the sidebar and the chat area together; clicking a session in the sidebar focuses the chat area.
-- **Status bar** — `DSH: running :port / starting / stopped / error`, click to open the dsh page in your browser.
 
 ## Screenshots
 
@@ -83,10 +82,15 @@ flowchart LR
   | --- | --- |
   | `DSH One: Open Assembled Chat` | Open the assembled chat area |
   | `DSH One: Restart Service` / `DSH One: Stop Service` | Restart / stop the dsh service |
+  | `DSH One: Show Status Panel` | Open the status-bar action panel (same as clicking the status-bar item) |
   | `DSH One: Show Logs` | Show the extension log |
+  | `DSH One: Copy Local Access Link` / `DSH One: Copy LAN Access Link` | Copy the tokenized dsh web link (the LAN link requires LAN access to be on) |
+  | `DSH One: Restart dsh for LAN Access` / `DSH One: Restart dsh for Local-only Access` | Toggle LAN reachability (takes effect with the restart) |
+  | `DSH One: Check for dsh Updates` | Compare against the npm `latest` tag; offers Upgrade when a newer version exists |
+  | `DSH One: Upgrade dsh` | Run the global install command in the integrated terminal; restart the dsh service afterwards |
   | `DSH One: View dsh Installation Guide` | Open the install guide tab (platform one-liner script + copy, plus a link to the official docs) |
 
-- **Status bar** — shows the service state; click to open the dsh page in your browser.
+- **Status bar** — shows the service state. **Click** it to open the action panel, which lists the actions available in the current state (open in browser, check for updates or upgrade, copy access link, restart/stop, show logs, …) one action per row; **hover** shows the same set of actions as one link per row. The hover also states whether LAN access is currently on, with a one-click restart to enable it when it is off.
 
 ## Settings
 
@@ -95,12 +99,13 @@ flowchart LR
 | `dshOne.dshPath` | `string` | `""` | Path to the dsh executable; empty means look up `dsh` on PATH |
 | `dshOne.port` | `number` | `3080` | Service port; `0` lets the OS assign one (adoption probe is skipped) |
 | `dshOne.autoStart` | `boolean` | `true` | Start (or reuse) the dsh web service when the extension activates |
+| `dshOne.lanAccess` | `boolean` | `false` | Expose the dsh web service to your local network (dsh itself still listens on 127.0.0.1; DSH One forwards from your LAN address). Anyone on the network with the tokenized link can use dsh |
 
 ## Security and permissions
 
-- **Local only** — the service listens on `127.0.0.1`; nothing is exposed to your network.
+- **Local only by default** — dsh always listens on `127.0.0.1`. With LAN access enabled (`dshOne.lanAccess`, or the one-click restart from the status bar), DSH One forwards from your LAN address to the local service — **anyone on the same network with the tokenized link can use dsh** (it can run commands on your machine). Only enable it on trusted networks and switch back to local-only from the status bar when done.
 - **Your data stays with dsh** — DSH One does not read or write `~/.dsh`; that data belongs to dsh. Uninstalling the extension never touches your sessions or workspaces.
-- **No runtime management** — the extension does not download or manage Node.js / dsh and performs no update checks; upgrade dsh yourself.
+- **No runtime management** — the extension does not download or manage Node.js / dsh installs; “Check for Updates / Upgrade” only runs npm's global install command in a visible terminal that you can interrupt.
 - **Process safety** — the extension only stops dsh processes it started itself; an already-running dsh instance is reused, never killed. Closing or reloading the VSCode window does not stop dsh.
 
 ## Compatibility
