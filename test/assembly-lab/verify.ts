@@ -11,6 +11,12 @@
  * 用户的 `~/.dsh` 一个字节都不动，用户日常那台实例全程只被**只读探测**两次
  * （跑前一次、跑后一次，见 R-06）。
  *
+ * 实例是一次性的、**机器不是**：整轮里任何一页发出的请求只要命中「会打到用户机器」那几条
+ * 路由（拉本机应用 / 用系统默认应用开文件 / 原生选目录面板 / 在真机上起 shell），
+ * **整轮当场红**（#175，清单与出处见 `harness.ts` 的 `NATIVE_SIDE_EFFECT_ROUTES`）。
+ * 这条判据与 #163 的「探针只观察不点击」并存：那条防我们自己的探针，这条防探针之外的
+ * 任何路径。
+ *
  * 参数（部分能用环境变量给，便于 CI/其他 session）：
  *   --gateway <url>   连**外部实例**（LAB_GATEWAY 同义；人工排查用）。给了它就不再
  *                     自起实例，也不播种；那时按既有口径对待——**只读**，且 R-06
@@ -38,7 +44,7 @@ import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser } from 'playwright'
-import { Check, apiMethodCounts, apiOriginCounts, launchBrowser } from './harness.ts'
+import { Check, NATIVE_SIDE_EFFECT_ROUTES, apiMethodCounts, apiOriginCounts, launchBrowser, nativeSideEffectCalls, setLabSuite } from './harness.ts'
 import { startLabGateway, portListening, type LabGateway } from './labGateway.ts'
 import {
   consoleLogger,
@@ -264,6 +270,10 @@ function pidAlive(pid: number): boolean {
  *
  * `--gateway` 连外部实例时没有 ①，改成：整轮连的就是指定那台，对它自己按只读口径
  * 跑前跑后各探测一次（连的是用户日常实例时，就是原来那条会话数不变的守卫）。
+ *
+ * #175 在这套判据里加的是**另一半**（原生副作用那一半，见 {@link nativeSideEffectCheck}）：
+ * 「零请求打到实例之外」管的是**别打到别人的实例**，管不了「打到本轮的隔离实例、但那条
+ * 调用会在用户这台机器上拉出一个访达」。实例是一次性的、机器不是，所以那一半也必须判死。
  */
 function readonlyCheck(
   check: Check,
@@ -357,25 +367,158 @@ async function assertIsolatedCollected(check: Check, isolated: LabGateway): Prom
   check.ok(`临时 DSH_HOME 已删掉（${isolated.home}）`, !exists, exists ? '目录仍在' : '目录已删')
 }
 
-/** 整轮页面发出的 `/api/<method>` 的观测（信息性，见 #175）：写类在前、读类归一行。 */
-function apiRequestFacts(): string[] {
-  const counts = apiMethodCounts()
-  if (counts.size === 0) return ['整轮页面没有发出过任何 /api/ 请求（观测）']
-  const entries = [...counts.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
-  const writes = entries.filter(([method]) => WRITE_METHOD_RE.test(method))
-  const reads = entries.filter(([method]) => !WRITE_METHOD_RE.test(method))
-  return [
-    `整轮发过的写类 RPC（观测，不判死）：${writes.length === 0 ? '（无）' : writes.map(([m, n]) => `${m}×${String(n)}`).join('、')}`,
-    `整轮发过的读类 RPC：${reads.map(([m, n]) => `${m}×${String(n)}`).join('、')}`,
-  ]
+/**
+ * 一条方法名算不算**读**（#175 的口径）。
+ *
+ * 判法：把方法名**末段**按 camelCase 切成词（`syncInspectManifest` → `sync`/`inspect`/
+ * `manifest`，`modelCatalog` → `model`/`catalog`），命中下面读词表的算读——**其余一律按写算**。
+ *
+ * 为什么默认放在「写」这一头（默认从严）：#175 要的不是「把今天的清单分类好」，而是
+ * 「官方明天新增一个方法时别让它悄悄溜过去」。按读去枚举做不到这件事——新方法天然不在
+ * 读表里，于是它一定出现在报告里被点名；反过来若按写去枚举，新方法两边都不沾、静默消失。
+ *
+ * 词表不大，但都是**读**：`canOpenX` 那族是能力探针（只报告能不能，不动手），`inspect` /
+ * `inventory` / `catalog` / `describe` 是枚举现状。写成词而不是前缀，就是为了让
+ * `syncInspectManifest` 这种「动作词在中间」的名字也认得出来。
+ */
+const READ_METHOD_WORDS: ReadonlySet<string> = new Set([
+  'list',
+  'get',
+  'read',
+  'readall',
+  'readbytes',
+  'readrelated',
+  'describe',
+  'stat',
+  'changes',
+  'follow',
+  'search',
+  'page',
+  'query',
+  'inventory',
+  'catalog',
+  'inspect',
+  'manifest',
+  'environment',
+  'shells',
+  'can',
+])
+
+/**
+ * 已知的写类词（只用于把「见过面的写」与「这一轮的新面孔」分开）。
+ * 分出来纯粹是为了报告好读：两者都按写看待、都不判死。
+ */
+const KNOWN_WRITE_WORDS: ReadonlySet<string> = new Set([
+  'create',
+  'createdirectory',
+  'delete',
+  'remove',
+  'rename',
+  'archive',
+  'unarchive',
+  'prompt',
+  'respond',
+  'set',
+  'unset',
+  'mutate',
+  'replace',
+  'update',
+  'write',
+  'open',
+  'cancel',
+  'abort',
+  'fork',
+  'send',
+  'move',
+  'add',
+  'clear',
+  'reset',
+  'start',
+  'stop',
+  'pause',
+  'resume',
+  'select',
+  'selectmodel',
+  'control',
+  'insert',
+  'pick',
+])
+
+/** 方法名末段切成词（camelCase / 数字 / 下划线 / 点都算边界）。 */
+function methodWords(tail: string): string[] {
+  return tail
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .map((word) => word.toLowerCase())
+    .filter((word) => word !== '')
+}
+
+/** 一条方法名在报告里的归类。 */
+function classifyMethod(method: string): string {
+  const words = methodWords(method.split('/').pop() ?? method)
+  // 读词优先：`canOpenWorkspacePath` 这种名字里同时有 `can`（读）与 `open`（写），
+  // 而它实际只是个能力探针——不优先就会把它误判成写。
+  if (words.some((word) => READ_METHOD_WORDS.has(word))) return '读'
+  return words.some((word) => KNOWN_WRITE_WORDS.has(word)) ? '写' : '写（新面孔）'
 }
 
 /**
- * 一条方法名算不算写类（#175 的口径）：方法名里带这些动作词的都算。
- * 这是**观测**用的粗分类，不参与判定——所以宁可宽一点，让它把可疑的名字都摆出来。
+ * 整轮页面发出的网关调用的**表**（观测，见 #175）：方法名 / 次数 / 归类，按方法名排。
+ *
+ * 为什么给成表而不是一行流水：这份清单是「自起的那台一次性实例到底被写了什么」的答卷，
+ * 一行流水读不出「有没有新面孔」。归类口径见 {@link READ_METHOD_TAIL_RE}／
+ * {@link classifyMethod}；报告渲染器把说明放进 `<pre>`，所以这里给对齐好的等宽表。
  */
-const WRITE_METHOD_RE =
-  /(create|delete|remove|rename|archive|prompt|respond|write|update|put|patch|execute|cancel|abort|fork|send|move|add|clear|reset|start|stop|pause|resume|select|open|set)/i
+function gatewayCallFacts(): string[] {
+  const counts = apiMethodCounts()
+  if (counts.size === 0) return ['整轮页面没有发出过任何网关调用（观测）']
+  const rows = [...counts.entries()]
+    .map(([method, count]) => ({ method, count, kind: classifyMethod(method) }))
+    .sort((a, b) => (a.method < b.method ? -1 : a.method > b.method ? 1 : 0))
+  const width = Math.max(...rows.map((row) => row.method.length), 4)
+  const lines = [
+    '整轮页面发出的网关调用（观测，不判死——默认跑法的实例是一次性的，写它不算违规）：',
+    `  ${'方法名'.padEnd(width)}  次数  归类`,
+    ...rows.map((row) => `  ${row.method.padEnd(width)}  ${String(row.count).padStart(4)}  ${row.kind}`),
+  ]
+  if (rows.some((row) => row.kind === '写（新面孔）')) {
+    lines.push(
+      '「写（新面孔）」= 名字不在已知读动词表里，按默认从严算写——请过一眼：它可能是官方新加的写类动作，也可能是我们还没见过的读法。',
+    )
+  }
+  return lines
+}
+
+/**
+ * R-06 的原生副作用判据（#175 的机制级守卫，与 #163 的 `observeOnly` 政策并存）。
+ *
+ * 口径：整轮里**一条都不许出现** {@link NATIVE_SIDE_EFFECT_ROUTES} 里的调用。这不依赖
+ * 「套件有没有点那个控件」——#163 管「探针不许点」，这里管「**只要发了就当场红**」，
+ * 两条合起来才是闭环：前者防我们自己的探针，后者防探针之外的任何路径（新套件、
+ * 新控件、官方新增的入口、套件自己 `newPage()` 开的页）。
+ *
+ * 失败信息必须**指名道姓**：哪个套件、哪一页、哪条路径、带了什么参数（摘要）。
+ */
+function nativeSideEffectCheck(check: Check): void {
+  const calls = nativeSideEffectCalls()
+  check.fact(
+    `原生副作用类的判定范围（${String(NATIVE_SIDE_EFFECT_ROUTES.length)} 条，出处见 harness.ts 的 NATIVE_SIDE_EFFECT_ROUTES）：${NATIVE_SIDE_EFFECT_ROUTES.map((route) => route.path).join('、')}`,
+  )
+  const detail =
+    calls.length === 0
+      ? '整轮一条都没有'
+      : calls
+          .map(
+            (call) =>
+              `套件 ${call.suite}${call.suiteName === '' ? '' : `（${call.suiteName}）`} 在页面 ${call.page} 发出 ${call.path}（${call.detail}）`,
+          )
+          .join('；')
+  check.ok('整轮零原生副作用调用（扫整轮发往网关的这类调用，一条即红）', calls.length === 0, detail)
+  for (const call of calls) {
+    check.fact(`原生副作用调用：套件 ${call.suite}、页面 ${call.page}、${call.path}、参数摘要 ${call.detail}`)
+  }
+}
+
 
 async function main(): Promise<number> {
   if (process.argv.includes('--help') || process.argv.includes('-h')) return printUsage()
@@ -458,6 +601,9 @@ async function main(): Promise<number> {
     for (const suite of suites) {
       const check = new Check()
       const started = Date.now()
+      // 给观测点指名道姓的能力（#175）：进套件前打标记，这一套里发出的原生副作用调用
+      // 都会带上它的 id 与名字。
+      setLabSuite(suite.id, suite.name)
       let screenshots: string[] = []
       let crash: string | undefined
       try {
@@ -489,7 +635,8 @@ async function main(): Promise<number> {
     // 跑后那一次探测（同一次只读口径）。
     const everydayAfter = watchEveryday ? await probeReadOnly(EVERYDAY_GATEWAY, undefined, log) : undefined
     const externalAfter = args.gateway === undefined ? undefined : await probeReadOnly(gateway, args.token, log)
-    for (const line of apiRequestFacts()) readonly.fact(line)
+    nativeSideEffectCheck(readonly)
+    for (const line of gatewayCallFacts()) readonly.fact(line)
     readonlyCheck(readonly, {
       ...(args.gateway === undefined ? {} : { external: args.gateway }),
       gateway,
@@ -514,7 +661,7 @@ async function main(): Promise<number> {
   const readonlyPassed = readonly.failed.length === 0
   if (!readonlyPassed) failed += 1
   process.stdout.write(
-    `${readonlyPassed ? 'PASS' : 'FAIL'} R-06 只读与收尾（整轮零请求打到实例之外） — 断言 ${String(readonly.passed)}/${String(readonly.total)}\n`,
+    `${readonlyPassed ? 'PASS' : 'FAIL'} R-06 零越界与零原生副作用（整轮零请求打到实例之外 + 整轮零原生副作用调用） — 断言 ${String(readonly.passed)}/${String(readonly.total)}\n`,
   )
   for (const assertion of readonly.failed) {
     process.stdout.write(`      ✗ ${assertion.label}（${assertion.detail}）\n`)
@@ -522,9 +669,11 @@ async function main(): Promise<number> {
   items.push({
     id: 'R-06',
     phase: 'regression',
-    name: '整轮零请求打到实例之外（默认：隔离实例自起自收；--gateway：外部实例按只读对待）',
+    name: '整轮零请求打到实例之外 + 整轮零原生副作用调用（默认：隔离实例自起自收；--gateway：外部实例按只读对待）',
     expect:
-      '整轮浏览器验证的写面只落在**实验室自起的隔离实例**里（独立临时 DSH_HOME、随机端口）：页面上发出的请求**一条都不落在本轮实例之外**（页面请求的源逐个记下来核过，用户日常实例不在里面），用户日常实例全程只被**只读**探测两次（跑前一次、跑后一次，读数记进事实——共享实例上有别的写者时读数会差，那不归本轮管，见上一条断言），跑完隔离实例按 PID 收掉、端口释放、临时 DSH_HOME 删掉。附整轮页面发出的 /api/ 方法清单（写类在前）作为观测。',
+      '① 整轮浏览器验证的写面只落在**实验室自起的隔离实例**里（独立临时 DSH_HOME、随机端口）：页面上发出的请求**一条都不落在本轮实例之外**（页面请求的源逐个记下来核过，用户日常实例不在里面），用户日常实例全程只被**只读**探测两次（跑前一次、跑后一次，读数记进事实——共享实例上有别的写者时读数会差，那不归本轮管），跑完隔离实例按 PID 收掉、端口释放、临时 DSH_HOME 删掉。' +
+      '② **整轮零原生副作用调用**（#175 的机制级守卫）：整轮里**任何一页**发出的请求命中「会打到用户机器」那几条路由（`open-in-app/open` 拉本机应用、`settings/openSettingsDocument` 用系统默认应用开文件、`settings/openAgentPresetDirectory`、`session/openWorkspacePath`——出处逐条写在 harness.ts 的 NATIVE_SIDE_EFFECT_ROUTES）即判红，失败信息报出**套件、页面、路径与参数摘要**；这条不依赖「探针没点那个控件」，探针之外的任何路径发出来一样红（与 #163 的 observeOnly 政策并存，两条合起来才是闭环）。' +
+      '③ 附整轮页面发出的网关调用表（方法名 / 次数 / 归类）作为观测：归类按「末段命中读动词才算读、其余一律按写算」的从严口径，写类里名字不在已知动词表里的标「写（新面孔）」点名。',
     result: readonlyPassed ? 'pass' : 'fail',
     screenshots: [],
     notes: readonly.notes(),
