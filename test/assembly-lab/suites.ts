@@ -2404,6 +2404,41 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
     const { page } = opened
     try {
+      // ---- 夹具：往假宿主的回收站里放两条**真会话**（#195）----
+      // 为什么必须放：抽屉里那三区（分块块头 / 会话行 / 列表）要回收站里真有内容才渲染
+      // （空集合时抽屉只出一行状态文案），而 #177 把默认跑法换成自起的隔离实例之后，
+      // 「这一轮页面上有人往回收站挪过会话」这个前提不成立了——那三区在三档宽度下各记一条
+      // 事实跳过（共 9 条，见 README 的普查清单）。做法与 F-45 同一条：取**树上真实存在的
+      // 会话 id** 注进假宿主的 `recycle-bin`（旧侧栏那份形状：`{version:1, sessionIds:[…]}`），
+      // 再重载一次让页面把它读回来。只写假宿主的状态存储（那本来就是 dsh 自己目录里的
+      // 本地状态），**网关一个字节不动**；注入的 id 是真的，所以抽屉里的行、块头计数、
+      // 分块归属全部按真数据算，判据不因这份夹具而放宽。
+      const recycledIds = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+          .slice(0, 2)
+          .map((row) => row.getAttribute('data-dshone-tree-session') ?? '')
+          .filter((id) => id !== ''),
+      )
+      if (recycledIds.length === 0) {
+        check.fact('树上一条会话行都没有（回收站夹具放不进东西）——抽屉里那三区会按「没有这个元素」逐条记事实')
+      } else {
+        await page.addInitScript({
+          content: `(() => { globalThis.__LAB_HOST__.stateStore['recycle-bin'] = ${JSON.stringify({ version: 1, sessionIds: recycledIds })} })()`,
+        })
+        await page.reload({ waitUntil: 'domcontentloaded' })
+        await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
+        await page.waitForTimeout(2_500)
+        const binBadge = await page.getAttribute(
+          '[data-dshone-tree-action="recycle-toggle"]',
+          'data-dshone-tree-recycle-count',
+        )
+        check.ok(
+          '回收站夹具接上了：入口角标 = 注入的会话数（抽屉里因此有真的可逆层条目）',
+          binBadge === String(recycledIds.length),
+          `角标=${String(binBadge)} 注入=${String(recycledIds.length)}（${recycledIds.join(', ')}）`,
+        )
+      }
+
       const treeRegions = DENSITY_REGIONS.filter((spec) => spec.where === 'tree')
       const drawerRegions = DENSITY_REGIONS.filter((spec) => spec.where === 'drawer')
       // #134 之后的两类判据各自量到多少项：末了用它守住「口径重写没把套件改空」。
