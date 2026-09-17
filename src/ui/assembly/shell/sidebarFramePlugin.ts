@@ -94,49 +94,60 @@ function Nothing(): null {
 // WorkspaceBrowser.module.css；#104 扩出来的几件另取同族组件——分组胶囊取自
 // ui-model-selection 的 ModelSelection.module.css、回收站入口行行高取自 ui-cordis 的
 // CordisPanel.module.css），每个键的出处写在它自己那一段上面。
-// **VS Code 档（#113 起）整套取「官方紧凑档」**——官方 primitives `Menu` 的 compact 变体
+// **VS Code 档（#113 起）取「官方紧凑档」**——官方 primitives `Menu` 的 compact 变体
 // （项 26px 高 / 5px 圆角 / 6px 间隙 / 7px 行内边距 / 12px 字号 / 18px 行高；列表 2px 容器
 // 内边距，出处与举证见 workspaceTree/styles.ts 文件头的官方档位表）。此前那套按「VS Code
 // 原生侧栏树观感」手调的数值（24 / 30 / 11px…）是自造的中间值，已全部换掉：现在每一处
 // 几何要么是官方标准档（official 列）、要么是官方紧凑档（vscode 列），没有第三来源。
 //
-// **#123 起的一条收窄：「与菜单同档」只覆盖几何、文字字号按官方标题档。** 用户实测工作区名
-// 与会话标题过于紧凑（12px），要的是「标题与官方侧栏一致」——官方侧栏的标题就是 14px/20px
-// （`.YDXeBa_title`）。所以 `title-font-size` / `title-line-height` 这两项两边同值、取官方
-// 标题档，其余几何（行高 26px、圆角 5px、间距、图标位）仍取紧凑档；行盒 26px 装得下 20px
-// 的行字（上下各 3px），两条口径不冲突。这不是把「同档」破了：几何仍然同档，只是文字不跟
-// 菜单的 12px（跟了的话标题会与同一行里 12px 的时间 / 计数分不出层级）。
+// **#134 起的口径（用户拍板，两句话同时成立）：行家族取官方标准档；菜单仍取官方紧凑档。**
+// 用户在侧栏里实测后要的是「行参考官方侧栏自己的尺寸」，所以 #113 那条「行家族与菜单同档
+// （紧凑档）」作废：工作区行 34px / 会话行 32px / 抽屉会话行 32px / 搜索结果行（最小高
+// 48px）/ 列表里的会话溢出按钮 28px，加上行圆角 8px、行内边距 8px、标题 14px/20px、
+// 行内图标位 16×20——每一项都是官方侧栏的原值（出处逐条写在各条目上方），这些键的
+// **vscode 列 = official 列**。菜单这一侧不动：官方 `Menu` 仍传 `compact`，项还是 26px /
+// 12px / 18px / 圆角 5px / 内边距 3px 7px（顶栏 / 分组过滤条 / 弹窗等其余控件也照旧走紧凑档）。
+// 两条口径由 test/sidebarStyleScale.test.ts 分别判：行家族逐项「= 标准档里那一项同名量」，
+// 菜单一侧仍「落在紧凑档里」。
 //
-// **#119 起的一条分工：纵向留白取官方节奏、横向取紧凑档。** 表里**消费点全在 margin 上**的
-// 三项就是纵向留白（`section-header-gap` 用在顶栏那一行的下边距，`group-gap` 用在分组过滤条
-// 的下边距与块与块之间的上边距，`row-gap` 用在行与行之间——它本来就是两边同值的 2px），
-// 前两项这次从紧凑档的 2px 改回**官方原值 4px**。理由：官方紧凑档
+// **#123 的一条（并入上面的行家族口径）**：标题文字（工作区名 / 会话标题 / 行内改名输入框 /
+// 抽屉标题 / 回收站入口行文字）取官方标题档 14px/20px（`.YDXeBa_title`）——用户实测 12px
+// 过于紧凑，要的是「标题与官方侧栏一致」。行盒 32/34px 装得下 20px 的行字，两件事同时成立。
+// 行里的**元信息**（时间 / 计数）仍取紧凑档的 12px / 18px（#123 定的，本次没动）。
+//
+// **#119 起的一条分工：纵向留白取官方节奏、横向取紧凑档（行内容基准那两项除外）。** 表里
+// **消费点全在 margin 上**的三项就是纵向留白（`section-header-gap` 用在顶栏那一行的下边距，
+// `group-gap` 用在分组过滤条的下边距与块与块之间的上边距，`row-gap` 用在行与行之间——它
+// 本来就是两边同值的 2px），前两项这次从紧凑档的 2px 改回**官方原值 4px**。理由：官方紧凑档
 // 里并没有「块与块之间」的纵向刻度——那个 2px 是**菜单项彼此相接**的分隔线外边距
 // （`._compactList_1nxmc_128 ._separator_1nxmc_82{margin:2px}`，项自身没有独立底色，相接
 // 才对），照搬到有独立底色的行 / 块之间，会把顶栏那一行、分组过滤条、列表首行糊成一坨
-// （用户实测反馈）。横向（行内间隙、胶囊内间隙、行内边距）在 380px 侧栏里紧凑是对的，不动。
+// （用户实测反馈）。
 // 每个键两边一致由 test/assemblyShellContract 的契约测试守着（表里的 official 必须等于树
-// 插件 CSS 的兜底字面量、键集两边相等、VS Code 档不得大于官方档）；「vscode 列全部落在
-// 紧凑档、official 列全部落在标准档」与上面这条纵向分工，由 test/sidebarStyleScale.test.ts
-// 显式表达（纵向那两项按「vscode = official」判，其余键仍必须落紧凑档）。
-// **#123 起这条扫描多一档口径**：`title-font-size` / `title-line-height` 这一族不能只按
-// 「值在表里出现过」判——14px 恰好也是紧凑档的图标位边长，靠集合判会把它们误放行；所以
-// 那一族在同一份测试里单独按「= 标准档的 titleFontSize / titleLineHeight，且两边同值」判。
-// **观感语言（图标/颜色/字体族/动效）不在这张表里**——那些继续逐字沿用官方；唯一的例外
-// 是行圆角 `row-radius`（#113）：它在两个档之间取值不同（标准档 8px / 紧凑档 5px）。
+// 插件 CSS 的兜底字面量、键集两边相等、VS Code 档不得大于官方档）；「行家族项 = 标准档、
+// 纵向留白项 = 官方原值、其余项仍落紧凑档、official 列全在标准档」由
+// test/sidebarStyleScale.test.ts 显式表达（行家族那几项按「= 标准档里那一项**同名量**」判，
+// 不是「值在标准档里出现过」——同一批里 `row-height` 的 34px 与 `row-radius` 的 8px 都是
+// 标准档的量，按集合判会互相蒙混）。
+// **观感语言（图标/颜色/字体族/动效）不在这张表里**——那些继续逐字沿用官方；进表的唯一
+// 圆角是行圆角 `row-radius`（#113 起；#134 后它两边同值 8px，留着是因为 F-04 的对齐口径
+// 按「把变量对齐回树插件自己声明的官方兜底值」量，这一项得跟着走完这条路）。
 // ---------------------------------------------------------------------------
 
 /**
  * 密度档：键 = 变量后缀，official = 官方原值（与树插件 CSS 兜底同源），vscode = VS Code 档。
- * vscode 缺省是官方紧凑档，例外逐项写在各自条目上方（#119 的纵向留白三项取官方原值、
- * #123 的标题文字族取官方标题档）。
+ * vscode 缺省是官方紧凑档；例外逐项写在各自条目上方——#134 的行家族（取官方标准档，两边
+ * 同值）、#119 的纵向留白三项（取官方原值）、#123 的元信息（仍紧凑档）。
  */
 export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode: string }>> = {
-  // 行高（工作区行 / 会话行 / 会话溢出按钮 / 回收站入口行主区）——紧凑档行高 26px：
-  // 官方 compact 档 `._compactList_1nxmc_128 ._item_1nxmc_92{min-height:26px}`（紧凑档只有
-  // 这「一个控件一行」的行高，两个行种因此同高）。
-  'row-height': { official: '34px', vscode: '26px' },
-  'session-row-height': { official: '32px', vscode: '26px' },
+  // 工作区行行高：官方 `.YDXeBa_projectRow{height:34px}`。**#134 起 VS Code 档 = 官方原值**
+  // （行家族取标准档，不再跟菜单的 26px）。**弹窗里的行不吃这个键**（管理分组对话框的行固定
+  // 26px，理由写在 styles.ts 那条规则上方）。
+  'row-height': { official: '34px', vscode: '34px' },
+  // 会话行行高：官方 `.YDXeBa_sessionRow{height:32px}`（主树会话行与抽屉会话行共用）。
+  // **#134 起 VS Code 档 = 官方原值**——两个行种仍是同一个键，但不再是「同高」的理由：
+  // 官方侧栏里工作区行 34px、会话行 32px，本来就差 2px。
+  'session-row-height': { official: '32px', vscode: '32px' },
   // 行间空隙：**取标准档的 2px**（官方 `.bhn1Oq_flatList>*+*{margin-top:2px}`），不取紧凑档
   // 列表的 `gap:0`——那是菜单项彼此相接的形态（项自身没有独立底色），我们的行是独立可悬停
   // 的条目，官方侧栏给它们留的正是这 2px。
@@ -146,8 +157,11 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   // 就是这 4px。**VS Code 档同样取 4px（纵向取官方节奏，见文件头 #119）**：这里此前跟横向一起
   // 砍成紧凑档的 2px，用户实测顶栏 / 过滤条 / 首行一带太挤。
   'group-gap': { official: '4px', vscode: '4px' },
-  // 行内边距：紧凑档的项内边距 7px（官方 `._item_1nxmc_92{padding:3px 7px}`）。
-  'row-padding-inline': { official: '8px', vscode: '7px' },
+  // 行内边距：官方 `.YDXeBa_projectRow,.YDXeBa_sessionRow{padding:0 8px}`。**#134 起 VS Code 档
+  // = 官方原值**（行家族取标准档）。它同时是**行内容基准**：骨架区与行形件的左缘都按这一项
+  // 对齐（顶栏搜索框 / 分组过滤条 / 选择态动作条 / 抽屉头与块头 / 行尾层），所以这些消费点跟着
+  // 行一起从 7px 变到 8px——它们要的就是「和行的文字左缘同一条竖线」。
+  'row-padding-inline': { official: '8px', vscode: '8px' },
   // 行高（分节头 / 抽屉头）：紧凑档行高 26px——一列里只有这一种「一个控件的高度」，
   // 搜索框与图标按钮都按它对齐（比它高的东西会把这一行撑破）。
   'section-header-height': { official: '36px', vscode: '26px' },
@@ -155,27 +169,33 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   // 分节头与它下面那一段之间的纵向留白。**VS Code 档同样取 4px（纵向取官方节奏，见文件头 #119）**。
   'section-header-gap': { official: '4px', vscode: '4px' },
   // 标题文字（工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 回收站入口行文字，五处共用一个键）：
-  // **两边同值，取官方标题档**（#123）——官方 `.YDXeBa_title{font-size:14px;line-height:20px}`。
-  // #113 立的「与菜单同档」从此只覆盖几何（行高 26px / 圆角 5px / 间距 / 图标位），**文字字号
-  // 按官方标题档**：用户实测 12px 的工作区名与会话标题过于紧凑，要的是「标题与官方侧栏一致」。
-  // 行盒 26px 装得下 20px 的行字（上下各 3px），所以与几何那条口径不冲突（理由写在文件头 #123）。
+  // **两边同值，取官方标题档**——官方 `.YDXeBa_title{font-size:14px;line-height:20px}`。
+  // #123 立这一条时它还只是「几何跟菜单同档、文字例外」；**#134 起它是行家族口径的一部分**
+  // （行家族整套取官方标准档，标题就在其中），所以「与菜单同档」这句话整体作废、不再有例外之说。
+  // 行盒 32/34px 装得下 20px 的行字，两件事同时成立。
   'title-font-size': { official: '14px', vscode: '14px' },
   'title-line-height': { official: '20px', vscode: '20px' },
   // 行字数：元信息（时间 / 计数 / 抽屉计数…）取紧凑档字号 12px / 文字行高 18px
   // （官方 `._item_1nxmc_92{font-size:12px;line-height:18px}`）；官方原值本来就 12px，
-  // 这一项两边同值（不再压到 11px）。
+  // 这一项两边同值（不再压到 11px）。**#134 没动它**：用户点的是行的尺寸，行内元信息仍按
+  // #123 定的紧凑档（搜索结果行里那一段 17px 行高是官方给 `_searchResultSnippet` 自己的量，
+  // 写在树插件的 CSS 里，不占这个键）。
   'meta-font-size': { official: '12px', vscode: '12px' },
   'meta-line-height': { official: '20px', vscode: '18px' },
   // 列表底部留白：紧凑档的项内边距 7px（同一档里「内容与容器边之间」的那个留白值）。
   'list-padding-bottom': { official: '16px', vscode: '7px' },
-  'overflow-row-height': { official: '28px', vscode: '26px' },
+  // 会话溢出按钮行高（列表末尾那条「还有 N 个会话」）：官方
+  // `.bhn1Oq_sessionOverflowButton{height:28px}`。它是**行家族一员**（本身就是列表里的一行），
+  // #134 起 VS Code 档 = 官方原值 28px。
+  'overflow-row-height': { official: '28px', vscode: '28px' },
   // 图标按钮 / 搜索框：高度对齐紧凑档行高 26px（同一行里的控件与行同高）。
   'icon-button-size': { official: '28px', vscode: '26px' },
   'search-height': { official: '28px', vscode: '26px' },
   'search-expanded-height': { official: '30px', vscode: '26px' },
-  // 搜索结果行的最小高：行家族一员，取紧凑档行高 26px 当「不低于一行」的下限——这一行是
-  // 两行内容块，实际高度由内容（标题 18px + 元信息 18px + 上下内边距）撑出，比下限高。
-  'search-row-min-height': { official: '48px', vscode: '26px' },
+  // 搜索结果行的最小高：行家族一员，官方 `.YDXeBa_searchResultRow{min-height:48px}`——#134 起
+  // VS Code 档 = 官方原值。这一行是两行内容块（标题 20px + 元信息 17px + 上下内边距 4px×2），
+  // 平时由内容撑到 45px 上下，48px 是它自己的下限。
+  'search-row-min-height': { official: '48px', vscode: '48px' },
   // ---- #104：从「列表行」扩到骨架其余四区（顶栏 / 分组过滤条 / 回收站入口行 / 抽屉）----
   // 每项的官方原值都取自官方**同族组件**的规则，出处逐条写在下面。
   //
@@ -198,8 +218,10 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   'pill-padding-start': { official: '8px', vscode: '7px' },
   'pill-padding-end': { official: '4px', vscode: '2px' },
   // 回收站入口行的行高：官方 ui-cordis 的 CordisPanel.module.css `Nqubda_badge{height:
-  // 42px}`——那是官方在**同一个座位**（官方 `sidebar.footer.action`）里的条目，我们的
-  // 入口行与它并排，行高取同一个值。VS Code 档取紧凑档行高 26px（它也是行家族一员）。
+  // 42px}`——那是官方在**同一个座位**（官方 `sidebar.footer.action`）里的条目。**VS Code 档
+  // 不取这个 42px**（#134）：用户只点了侧栏里的行，而官方那一件是徽标形态（不是一行：没有 hover
+  // 底色、也不带左侧图标 + 计数这一套），抬到 42px 会让底栏凭空高一倍；这一行仍取紧凑档的
+  // 26px。它的圆角与行内边距吃行内容基准那两个键，跟着行一起成为官方的 8px / 8px。
   'footer-row-height': { official: '42px', vscode: '26px' },
   // 抽屉里「按工作区分块」的块头高度：官方列表里的分组块头是 ui-model-selection 的
   // `_7KE1Ra_groupTitle{padding:5px 8px 3px;font-size:12px;line-height:18px}`，总高
@@ -208,10 +230,12 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   // `line-height:16px` = 4+16+4）。
   'drawer-block-header-height': { official: '26px', vscode: '24px' },
   // 行圆角（#113 新增，唯一进这张表的圆角）：官方侧栏行是 8px
-  // （`YDXeBa_projectRow,YDXeBa_sessionRow{border-radius:8px}`），紧凑档的项是 5px
-  // （`._item_1nxmc_92{border-radius:5px}`）。走变量的理由：F-04 的对齐断言要把密度变量
-  // 换回官方档再逐项比对圆角，硬编码 5px 会让那一组比对红。
-  'row-radius': { official: '8px', vscode: '5px' },
+  // （`YDXeBa_projectRow,YDXeBa_sessionRow{border-radius:8px}`）。**#134 起 VS Code 档 =
+  // 官方原值**（行家族取标准档，紧凑档那个 5px 不再用于行）。这个键留着而不是写死 8px：
+  // F-04 的对齐口径是「把密度变量对齐回树插件自己声明的官方兜底值再逐项比」，行圆角在那条路
+  // 上要跟得动；它同时还是**行形件共用的圆角**（溢出按钮 / 搜索行 / 入口行主区 / 抽屉块头），
+  // 一处改、这一族一起走。
+  'row-radius': { official: '8px', vscode: '8px' },
 }
 
 /** 密度档 → 一条 CSS 规则（挂在 frame 上，容器内所有插件经继承拿到）。 */
