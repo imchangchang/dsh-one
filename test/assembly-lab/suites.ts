@@ -35,6 +35,7 @@ import { RECYCLE_DRAWER_COLLAPSE_SUITE } from './recycleDrawerSuites.ts'
 import { TOPBAR_RHYTHM_SUITE } from './topbarRhythmSuites.ts'
 import { RENAME_OPEN_SYNC_SUITE } from './renameOpenSyncSuites.ts'
 import { SELECTION_BAR_SUITE } from './selectionBarSuites.ts'
+import { SELECT_MODE_INDENT_SUITE } from './selectModeIndentSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -5804,4 +5805,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #123 侧栏标题文字回到官方标题档（F-30：F-24…F-29 已被 #117/#118/#119/#122/#121/#120 占用；
   // 套件本体在 scaleSuites.ts，与 F-23 同一份档位表口径）。
   TITLE_TIER_SUITE,
+  // #124 进入多选后会话与工作区的缩进关系（F-31：F-30 已被 #123 的标题字号套件占用；套件本体在
+  // selectModeIndentSuites.ts，同上为独立文件）。
+  SELECT_MODE_INDENT_SUITE,
 ]
