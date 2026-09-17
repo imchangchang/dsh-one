@@ -629,7 +629,16 @@ export const DRAG_PARITY_SUITE: LabSuite = {
         if (officialRows.length === 0) {
           check.fact('⑨ 官方页这一轮没有会话行可量（当天数据），源行形态这一条按「实测不到」记事实、不判失败')
         } else {
-          const OFFICIAL_ROW = '[class*="_sessionRow"]'
+          // 官方把**当前选中那一行**排除在拖拽源之外（实测：`sessionRow selected` 的
+          // `draggable=false`，其余行是 true），而这一页首行正好是客户端自启的那条空白会话
+          // （选中态）——所以源行要挑「第一条真能拖的行」，否则这条前置会假红（#177 实测）。
+          const OFFICIAL_ROW = await official.page.evaluate(() => {
+            const rows = Array.from(document.querySelectorAll('[class*="_sessionRow"]')) as HTMLElement[]
+            const pick = rows.find((row) => row.draggable) ?? rows[0]
+            if (pick === undefined) return ''
+            pick.setAttribute('data-lab-official-drag-row', '1')
+            return '[data-lab-official-drag-row="1"]'
+          })
           const officialBefore = await rowDragFacts(official.page, OFFICIAL_ROW)
           const sessionId = await official.page.evaluate(() => {
             const row = document.querySelector('[class*="_sessionRow"]')
