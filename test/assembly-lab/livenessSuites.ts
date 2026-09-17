@@ -8,10 +8,60 @@
  * ## 这一套件判什么
  *
  * 对一批**指定的交互点**逐个做「悬停 → 拍基线 → 点一下 → 等 1200 毫秒 → 再拍一次」，
- * 只要出现下列任一可观测变化就算「有反应」：
+ * 只要下列任一路信号响了就算「有反应」（前四路判的是**结构变没变**，后两路是 #170 补的
+ * **文字与样式/属性**）：
  *   - DOM 里新增/移除了**有意义的元素**（脚本、样式、tooltip 这类噪音按标记滤掉）；
  *   - 弹层出现（`role=menu/listbox/dialog` 计数变化，菜单常常只是换个可见性）；
- *   - 宿主通道有新消息（能力口调用与 postMessage 计数）。
+ *   - 宿主通道有新消息（能力口调用与 postMessage 计数）；
+ *   - 语义上行有新消息（`assembly:log` 这类页面自身的诊断不算——每次点击都发一条）；
+ *   - **文字变了**（`characterData` 突变：例如官方字号步进器里那个 `<span>{fontSize}</span>`，
+ *     点一下变的是**同一个文字节点的 `nodeValue`**，从 14 变 15）；
+ *   - **样式 / 属性变了**（`attributes` 突变：例如字号与主题这类偏好只改 CSS 变量或 class）。
+ *
+ * ## 为什么补上「文字 / 属性」（#170）
+ *
+ * 现场：官方设置页的「增大字号」被这一套判成「点了没反应」。查下来不是控件坏了，是探针的
+ * 观察粒度不够——`MutationObserver` 只声明了 `{childList: true, subtree: true}`，而那个控件
+ * 点一下改的正是同一个文字节点的 `nodeValue` 加样式，两样都不在观察范围内。只改文字、或
+ * 只改样式的控件在设置页里是一大类（字号、主题、各种偏好），这一路判红全是**假红**。
+ *
+ * issue 给的三条路里（① 观察器补 `characterData` / `attributes`；② 每个交互点自带一条读数；
+ * ③ 白名单「只改样式/文字」一类）**选的是 ①，并按套件原有的「末态」口径实现**：
+ *   - ② 要给每个交互点各写一条读数（读 `getComputedStyle`、读某枚 `.value` 的文本），判据长度
+ *     随交互点数线性增长，而且每条读数都是**我们自己猜**「这个控件该改哪一处」；猜错（控件换了
+ *     实现）就又是一条假红。① 观察的是**用户看得见的那两类变化**（页面上的字变了、样式变了），
+ *     与具体控件无关，以后新增交互点不用再写读数。
+ *   - ③ 等于把这一类控件排除在判据之外、放弃对它们的覆盖，以后新长出来的同类控件一律抓不到
+ *     （issue 正文明列了这条缺点）。
+ *   - ① 的风险是**判据变松**（页面自己那点风吹草动都算反应），所以配了下面这组常驻护栏。
+ *
+ * **但这两路不是无条件算数**：一条交互点**算「有反应」的那几路信号由它自己声明**（交互点表
+ * 里的 `signals`），**缺省仍是只看结构的那四路**（也就是 #170 之前的口径）。理由：期望是「弹层
+ * 开出来 / 内容切过去」的那些点，一旦把文字/属性也算成反应，「弹层其实没开、只是按钮上
+ * `aria-expanded` 翻了一下」这类回归就从判据里溜走了——那正是这一套最初要抓的东西（#156 的
+ * ＋）。所以**假红**这一头由交互点表自己敞开：反应本来就只出在文字或样式上的控件（官方设置
+ * 页的字号步进器那一类）写 `signals: ALL_SIGNALS`。今天这三棵树上**没有**已点交互点需要它
+ * ——把观察器改回只声明 `childList` 再跑一遍量过：48 条里红的只有下面那组对照件的两条「按
+ * 现在的读法判绿」，其余 46 条（含三棵树全部真实交互点）逐条同值。这条口径以后怎么用、
+ * 以及「需要它时怎么证」由下面的对照件守着。
+ *
+ * ## 探针自己的对照件（`runProbeFixtures`，在设置页上真跑）
+ *
+ * 「文字 / 属性这两路真的看得见吗、看见了会不会把不该放过的也放过」不是靠读代码相信，是靠
+ * 实测——设置页末尾就地装五枚合成控件（只是页面上就地挂几个节点，点它们不碰网关、跑完摘掉），
+ * 逐条判（装的与判的都在套件里，谁哪天把观察粒度改回去，这几条当场红）：
+ *   - 「只改文字」「只改样式」两枚**真会变**的控件：按**改前的读法**（只看结构那四路）必须判红、
+ *     按**六路全开**必须判绿——这就是 #170 的负向对照（同一轮里两边读数都取，作为常驻证据）；
+ *   - 一枚**真·点了没反应**的控件（handler 只把点击数加一，页面一个字节都不改）：点击确实
+ *     落下了（计数为 1），读数必须仍是「无反应」——守「判据没被放宽成『点了就算』」，也顺带
+ *     证明这一页在 1200 毫秒窗口里没有别的东西在改 DOM / 属性；
+ *   - 两枚**闪一下又复原**的控件（改完 250 毫秒再改回去）：读数必须仍是「无反应」——守的是
+ *     #156 的现场（composer 的 ＋：菜单开了又立刻自己关掉 = 有变动、没结果），文字/属性这
+ *     两路不许把这个口径吃掉。
+ *
+ * **只写客户端存储的控件不在此列**：本套件不观察 `localStorage`。理由是这类写入对用户不是
+ * 「看得见的变化」——只落一份客户端存储、页面上一动不动，用户看到的仍然是「点了没反应」，
+ * 那该判红；要覆盖它的动作走页面内夹具与契约断言，而不是把它算成反应。
  *
  * 判据分两种，**都由运行期事实给出，不写死**：
  *
@@ -108,11 +158,20 @@ const HOVER_SETTLE_MS = 800
  * 为什么必须过滤：① 页面自己会周期性地插 `<script>`/`<style>`（与点击无关）；
  * ② 鼠标移上去会出官方 Tooltip（`role="tooltip"`），点下去它又会消失——两者都不是
  * 「这个控件干了什么」。滤掉这两类之后，剩下的增减才配叫「反应」。
+ *
+ * 四路信号都记：元素增减（`childList`，判据取末态，见 {@link LivenessSnapshot}）、
+ * **文字**（`characterData`）与**样式/属性**（`attributes`）这两路是 #170 补的，它们记的是
+ * **每个节点第一次变动前的值**（`charFirst` / `attrFirst`）——快照时拿「此刻的值」与它比，
+ * 相同就说明这一路只是**闪了一下又复原**，不算反应（与元素数同一套末态口径）。原始突变
+ * 次数（`charEvents` / `attrEvents`）只写进明细给人看，不参与判定。
  */
 export function livenessRecorderScript(): string {
   return `(() => {
   if (globalThis.__LAB_LIVENESS__ !== undefined && globalThis.__LAB_LIVENESS__.installed === true) return
-  const rec = { installed: true, interesting: 0, removed: 0, added: [] }
+  const rec = {
+    installed: true, interesting: 0, removed: 0, added: [],
+    charEvents: 0, attrEvents: 0, charFirst: new Map(), attrFirst: new Map(),
+  }
   globalThis.__LAB_LIVENESS__ = rec
   const NOISE = "script,style,[role=tooltip],[data-lab-noise]"
   const meaningful = (node) => {
@@ -124,6 +183,17 @@ export function livenessRecorderScript(): string {
       return true
     }
     return true
+  }
+  // 文字与属性这两路同样按噪音子树滤：脚本/样式自己的文字在变、tooltip 上的属性在变，
+  // 都不是「这个控件干了什么」（与上面 childList 那一路同一份 NOISE）。
+  const inNoise = (node) => {
+    const el = node.nodeType === 1 ? node : node.parentElement
+    if (el === null || typeof el.closest !== "function") return false
+    try {
+      return el.closest(NOISE) !== null
+    } catch (error) {
+      return false
+    }
   }
   const note = (node) => {
     rec.interesting += 1
@@ -138,10 +208,37 @@ export function livenessRecorderScript(): string {
   }
   new MutationObserver((records) => {
     for (const record of records) {
+      if (record.type === "characterData") {
+        const node = record.target
+        if (inNoise(node)) continue
+        rec.charEvents += 1
+        if (!rec.charFirst.has(node)) rec.charFirst.set(node, record.oldValue ?? node.data)
+        continue
+      }
+      if (record.type === "attributes") {
+        const el = record.target
+        const name = record.attributeName
+        if (name === null || inNoise(el)) continue
+        rec.attrEvents += 1
+        let per = rec.attrFirst.get(el)
+        if (per === undefined) {
+          per = new Map()
+          rec.attrFirst.set(el, per)
+        }
+        if (!per.has(name)) per.set(name, record.oldValue)
+        continue
+      }
       for (const node of record.addedNodes) if (meaningful(node)) note(node)
       for (const node of record.removedNodes) if (meaningful(node)) rec.removed += 1
     }
-  }).observe(document, { childList: true, subtree: true })
+  }).observe(document, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    characterDataOldValue: true,
+    attributes: true,
+    attributeOldValue: true,
+  })
 })()`
 }
 
@@ -164,12 +261,39 @@ interface LivenessSnapshot {
   sent: number
   /** 新出现的语义上行消息类型（写进明细，人读得出「走了哪条通道」）。 */
   sentTypes: string[]
+  /**
+   * **末态仍是新的**文字变化条数（#170）。
+   *
+   * 与元素数同一套「取末态」口径：记的是每个文字节点**第一次变动前的值**，这里拿它跟
+   * 「此刻的值」比——闪一下又复原（例如菜单开了又关）的不算，只有真留在页面上的才算。
+   */
+  textChanges: number
+  /** **末态仍是新的**属性变化条数（#170；样式、class、`aria-*` 都在这条路上）。 */
+  attrChanges: number
+  /** 文字变化的读数样本（`"14"→"15"`，写进明细）。 */
+  textSamples: string[]
+  /** 属性变化的读数样本（`span.style` / `html.data-theme`，写进明细）。 */
+  attrSamples: string[]
+  /** 文字 / 属性这两路**原始突变次数**（含闪一下又复原的），只给人看，不参与判定。 */
+  textEvents: number
+  attrEvents: number
 }
 
 async function livenessSnapshot(page: Page): Promise<LivenessSnapshot> {
   return page.evaluate(() => {
-    const rec = (globalThis as { __LAB_LIVENESS__?: { interesting: number; removed: number; added: string[] } })
-      .__LAB_LIVENESS__
+    const rec = (
+      globalThis as {
+        __LAB_LIVENESS__?: {
+          interesting: number
+          removed: number
+          added: string[]
+          charEvents: number
+          attrEvents: number
+          charFirst: Map<Text, string>
+          attrFirst: Map<Element, Map<string, string | null>>
+        }
+      }
+    ).__LAB_LIVENESS__
     const host = (globalThis as { __LAB_HOST__?: { hostCalls: unknown[]; sent: unknown[] } }).__LAB_HOST__
     const sent = (host?.sent ?? []).map((message) => (message as { type?: string }).type ?? '?')
     // `assembly:log` 是**页面自身的诊断探针**（`src/ui/assembly/probe.ts`：每次点击 capture
@@ -180,6 +304,26 @@ async function livenessSnapshot(page: Page): Promise<LivenessSnapshot> {
       if (element.closest('script,style,[role=tooltip]') !== null) continue
       elements += 1
     }
+    const short = (value: string | null): string => JSON.stringify(String(value ?? '').slice(0, 16))
+    const textSamples: string[] = []
+    let textChanges = 0
+    for (const [node, original] of rec?.charFirst ?? []) {
+      const now = node.data
+      if (now === original) continue
+      textChanges += 1
+      if (textSamples.length < 6) textSamples.push(`${short(original)}→${short(now)}`)
+    }
+    const attrSamples: string[] = []
+    let attrChanges = 0
+    for (const [element, per] of rec?.attrFirst ?? []) {
+      const tag = element.tagName.toLowerCase()
+      for (const [name, original] of per) {
+        const now = element.getAttribute(name)
+        if (now === original) continue
+        attrChanges += 1
+        if (attrSamples.length < 6) attrSamples.push(`${tag}.${name} ${short(original)}→${short(now)}`)
+      }
+    }
     return {
       elements,
       mutations: (rec?.interesting ?? 0) + (rec?.removed ?? 0),
@@ -188,8 +332,50 @@ async function livenessSnapshot(page: Page): Promise<LivenessSnapshot> {
       hostCalls: host?.hostCalls.length ?? -1,
       sent: semantic.length,
       sentTypes: [...new Set(semantic)].slice(-4),
+      textChanges,
+      attrChanges,
+      textSamples,
+      attrSamples,
+      textEvents: rec?.charEvents ?? 0,
+      attrEvents: rec?.attrEvents ?? 0,
     }
   })
+}
+
+/** 「有反应」的六路信号。 */
+export type LivenessSignal = 'element' | 'popup' | 'host' | 'sent' | 'text' | 'attr'
+
+/**
+ * 只看**结构变没变**的那四路信号（元素数 / 弹层 / 宿主通道 / 语义上行）——#170 之前
+ * `reacted` 的全部口径。
+ *
+ * 也是**缺省口径**：一条交互点没说「它的反应可以只出在文字/属性上」时，就按这四路判。
+ * 这样「弹层该开却没开、只是 `aria-expanded` 翻了一下」这类回归仍然判红——判据一个字没放宽。
+ */
+export const STRUCTURAL_SIGNALS: readonly LivenessSignal[] = ['element', 'popup', 'host', 'sent']
+
+/**
+ * 六路全开（#170 的完整口径）：文字与属性这两路也算反应。
+ *
+ * 给**反应本来就只出在文字或样式上**的交互点用（设置页的字号步进器那一类：改的是同一个
+ * 文字节点的 `nodeValue` 加一条样式），也是对照件证明「改前的读法判红、现在的读法判绿」时
+ * 两边对照用的那一份。
+ */
+export const ALL_SIGNALS: readonly LivenessSignal[] = [...STRUCTURAL_SIGNALS, 'text', 'attr']
+
+/** 六路信号一个都没响（元素不在场时的空读数）。 */
+const NO_SIGNALS: Record<LivenessSignal, boolean> = {
+  element: false,
+  popup: false,
+  host: false,
+  sent: false,
+  text: false,
+  attr: false,
+}
+
+/** 一条读数在指定那几路信号上算不算「有反应」（报告里用来对照「改前的读法」）。 */
+export function reactedOn(probe: ClickProbe, signals: readonly LivenessSignal[]): boolean {
+  return signals.some((name) => probe.signals[name] === true)
 }
 
 /** 一次点击探测的结论。 */
@@ -199,8 +385,10 @@ export interface ClickProbe {
   present: boolean
   /** 命中的那一个是不是禁用态（禁用态本来就点不动，「只观察」那几条里有两枚就是它）。 */
   disabled: boolean
-  /** 是否出现了可观测反应。 */
+  /** 是否出现了可观测反应（按调用方挑的那几路信号判）。 */
   reacted: boolean
+  /** 六路信号各自响没响（#170：报告里读得出「反应出在哪一路上」）。 */
+  signals: Record<LivenessSignal, boolean>
   /** 人是读的观测明细（写进报告的事实里）。 */
   detail: string
 }
@@ -220,11 +408,28 @@ async function visibleIndex(page: Page, selector: string): Promise<number | null
  *
  * 顺序是刻意的：**先悬停再拍基线**——Tooltip 是悬停就出的，把它算进点击的反应会让
  * 任何控件都「有反应」，这条判据就废了。
+ *
+ * `options.signals` 指定用哪几路信号判（见 {@link LivenessSignal}）——**缺省是只看结构的那四路**，
+ * 也就是 #170 之前的口径：文字/属性这两路只在调用方**明确声明**「这条的反应可以只出在文字或
+ * 样式上」时才算数。缺省从严的理由（为什么不是六路全开）写在文件头「为什么补上文字/属性」。
  */
-export async function probeClick(page: Page, label: string, selector: string): Promise<ClickProbe> {
+export async function probeClick(
+  page: Page,
+  label: string,
+  selector: string,
+  options: { signals?: readonly LivenessSignal[] } = {},
+): Promise<ClickProbe> {
+  const nothing = (): Record<LivenessSignal, boolean> => ({ ...NO_SIGNALS })
   const index = await visibleIndex(page, selector)
   if (index === null) {
-    return { label, present: false, disabled: false, reacted: false, detail: '元素不在场（选择器没命中可见元素）' }
+    return {
+      label,
+      present: false,
+      disabled: false,
+      reacted: false,
+      signals: nothing(),
+      detail: '元素不在场（选择器没命中可见元素）',
+    }
   }
   const target = page.locator(selector).nth(index)
   // 先滚进视口再量：这一批交互点里有的在列表底部（底部动作条、设置项），页面被前面的
@@ -232,7 +437,14 @@ export async function probeClick(page: Page, label: string, selector: string): P
   await target.scrollIntoViewIfNeeded().catch(() => undefined)
   const box = await target.boundingBox()
   if (box === null) {
-    return { label, present: false, disabled: false, reacted: false, detail: '元素不在场（拿到盒子之后又不可见）' }
+    return {
+      label,
+      present: false,
+      disabled: false,
+      reacted: false,
+      signals: nothing(),
+      detail: '元素不在场（拿到盒子之后又不可见）',
+    }
   }
   const disabled = await target
     .isDisabled()
@@ -258,7 +470,18 @@ export async function probeClick(page: Page, label: string, selector: string): P
   const hostDelta = after.hostCalls - before.hostCalls
   const sentDelta = after.sent - before.sent
   const mutationDelta = after.mutations - before.mutations
-  const reacted = elementDelta !== 0 || popupDelta !== 0 || hostDelta !== 0 || sentDelta !== 0
+  const textDelta = after.textChanges - before.textChanges
+  const attrDelta = after.attrChanges - before.attrChanges
+  const signals: Record<LivenessSignal, boolean> = {
+    element: elementDelta !== 0,
+    popup: popupDelta !== 0,
+    host: hostDelta !== 0,
+    sent: sentDelta !== 0,
+    text: textDelta !== 0,
+    attr: attrDelta !== 0,
+  }
+  // 缺省只看结构那四路（#170 之前的口径，见函数注释）：文字/属性两路要调用方显式声明才算。
+  const reacted = (options.signals ?? STRUCTURAL_SIGNALS).some((name) => signals[name])
   // 收尾：把这一下可能开出来的弹层关掉再量下一个——不然下一个交互点的读数里会掺着
   // 上一个留下的菜单（实测过：权限那一下留着的菜单会让「模型选择」显示成「弹层 1→0」）。
   // 弹层还没关干净就再按一次（反馈这类弹窗要两次 Esc 才收）。
@@ -268,12 +491,15 @@ export async function probeClick(page: Page, label: string, selector: string): P
     await page.keyboard.press('Escape')
     await page.waitForTimeout(300)
   }
+  const samples = (all: string[], delta: number): string =>
+    delta === 0 ? '无' : all.slice(all.length - Math.max(1, delta)).join(',') || '（已不在 DOM）'
   return {
     label,
     present: true,
     disabled,
     reacted,
-    detail: `元素数 ${String(before.elements)}→${String(after.elements)}（Δ${String(elementDelta)}）· 弹层 ${String(before.popups)}→${String(after.popups)} · 宿主调用 +${String(hostDelta)} · 语义上行 +${String(sentDelta)}${sentDelta === 0 ? '' : `（${after.sentTypes.join(',')}）`} · 明细：DOM 变动 ${String(mutationDelta)} 次（新增 ${after.added.slice(after.added.length - Math.max(0, mutationDelta)).join(',') || '无'}）· 禁用=${String(disabled)} · 指针落点 ${hit}`,
+    signals,
+    detail: `元素数 ${String(before.elements)}→${String(after.elements)}（Δ${String(elementDelta)}）· 弹层 ${String(before.popups)}→${String(after.popups)} · 宿主调用 +${String(hostDelta)} · 语义上行 +${String(sentDelta)}${sentDelta === 0 ? '' : `（${after.sentTypes.join(',')}）`} · 文字 Δ${String(textDelta)}（末态仍是新的共 ${String(after.textChanges)} 条，本轮原始突变 +${String(after.textEvents - before.textEvents)} 次：${samples(after.textSamples, textDelta)}）· 属性 Δ${String(attrDelta)}（末态仍是新的共 ${String(after.attrChanges)} 条，本轮原始突变 +${String(after.attrEvents - before.attrEvents)} 次：${samples(after.attrSamples, attrDelta)}）· 明细：DOM 变动 ${String(mutationDelta)} 次（新增 ${after.added.slice(after.added.length - Math.max(0, mutationDelta)).join(',') || '无'}）· 禁用=${String(disabled)} · 指针落点 ${hit}`,
   }
 }
 
@@ -396,6 +622,191 @@ async function observePoint(
     seen.clicks === 0,
     `观察窗口内页面收到的点击次数=${String(seen.clicks)}；不点的理由=${reason}`,
   )
+}
+
+// ---------------------------------------------------------------------------
+// 探针自己的对照件（#170）：在真实页面上就地装五枚合成控件
+// ---------------------------------------------------------------------------
+
+/** 对照件的页面侧状态（点击计数 + 末态读数），用来判「点击真的落在了对照件上」。 */
+interface FixtureState {
+  clicks: Record<string, number>
+  text: string
+  flashText: string
+  flashAttr: string | null
+  styleOutlined: boolean
+}
+
+/** 读对照件的状态（都在页面里就地读，不写任何别的东西）。 */
+async function fixtureState(page: Page): Promise<FixtureState> {
+  return page.evaluate(() => {
+    const state = (globalThis as { __LAB_FIXTURES__?: { clicks: Record<string, number> } }).__LAB_FIXTURES__
+    const value = (id: string): string => {
+      const node = document.querySelector(id)?.firstChild as Text | null | undefined
+      return node === null || node === undefined ? '' : node.data
+    }
+    const style = document.querySelector('#lab-fixture-style')?.getAttribute('style') ?? ''
+    return {
+      clicks: state?.clicks ?? {},
+      text: value('#lab-fixture-text'),
+      flashText: value('#lab-fixture-text-flash'),
+      flashAttr: document.querySelector('#lab-fixture-attr-flash')?.getAttribute('data-lab-flag') ?? null,
+      styleOutlined: /outline/.test(style),
+    }
+  })
+}
+
+/**
+ * 在**真实页面**上就地装五枚合成控件（#170 的对照件，理由见文件头「探针自己的对照件」）。
+ *
+ * 为什么装在真实页面上而不是另开一张空白页：① 这里要证的正是「这一页在 1200 毫秒窗口里
+ * 有没有别的东西在改 DOM / 文字 / 属性」——空白页上没有这份环境；② 装在这一页上，探针看到的
+ * 是新信号**在同一份现场**里的表现（同一个记录器、同一份噪音来源）。
+ *
+ * 五枚各自只干一件事（都先把点击数加一，好在失败时读出「点击到底落下没有」）：
+ *   - `lab-fixture-text`：改**同一个文字节点的 `nodeValue`**（`0` → `1`）——官方那句
+ *     `<span className={value}>{fontSize}</span>` 就是这一路；
+ *   - `lab-fixture-style`：加一条 `outline`（只改样式，属性这一路）；
+ *   - `lab-fixture-dead`：handler 里一件可观测的事都不干（真·点了没反应）；
+ *   - `lab-fixture-text-flash` / `lab-fixture-attr-flash`：改完 250 毫秒再改回去（闪一下又复原）。
+ */
+async function installProbeFixtures(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const state = { clicks: {} as Record<string, number> }
+    ;(globalThis as { __LAB_FIXTURES__?: typeof state }).__LAB_FIXTURES__ = state
+    const host = document.createElement('div')
+    host.id = 'lab-liveness-fixtures'
+    // 固定钉在视口左下角（`probeClick` 会先把目标滚进视口，固定定位不受滚动影响），
+    // 层级压过页面自身，免得点击落在别的东西上。
+    host.setAttribute(
+      'style',
+      'position:fixed;left:6px;bottom:6px;z-index:2147483000;display:flex;gap:4px;padding:4px;background:#fff;border:1px solid #888;font:11px/1.2 monospace',
+    )
+    const make = (id: string, text: string, onClick: (button: HTMLButtonElement) => void): void => {
+      const button = document.createElement('button')
+      button.id = id
+      button.type = 'button'
+      button.setAttribute('style', 'width:58px;height:22px')
+      button.append(document.createTextNode(text))
+      button.addEventListener('click', () => {
+        state.clicks[id] = (state.clicks[id] ?? 0) + 1
+        onClick(button)
+      })
+      host.append(button)
+    }
+    make('lab-fixture-text', '0', (button) => {
+      const node = button.firstChild as Text
+      node.data = String(Number(node.data) + 1)
+    })
+    make('lab-fixture-style', '样式', (button) => {
+      button.style.outline = '2px solid #f00'
+    })
+    make('lab-fixture-dead', '没反应', () => undefined)
+    make('lab-fixture-text-flash', '0', (button) => {
+      const node = button.firstChild as Text
+      node.data = 'X'
+      setTimeout(() => {
+        node.data = '0'
+      }, 250)
+    })
+    make('lab-fixture-attr-flash', '属性闪', (button) => {
+      button.setAttribute('data-lab-flag', '1')
+      setTimeout(() => {
+        button.removeAttribute('data-lab-flag')
+      }, 250)
+    })
+    document.body.append(host)
+  })
+}
+
+/** 收起对照件（截图与后续断言里不该出现这五枚合成控件）。 */
+async function removeProbeFixtures(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    document.querySelector('#lab-liveness-fixtures')?.remove()
+  })
+}
+
+/**
+ * 跑一遍对照件，落成断言（#170 的负向对照与两条护栏）。
+ *
+ * 判据三组：
+ *   1. **负向对照**（#170 就是这个）：只改文字 / 只改样式那两枚——按**改前的读法**
+ *      （`STRUCTURAL_SIGNALS`）必须判红、按**六路全开**（`ALL_SIGNALS`）必须判绿；同时判
+ *      「点击真落下了、页面上确实变了」（不然「判绿」可能只是因为点击根本没点到）。
+ *   2. **真·点了没反应仍判红**：点击计数为 1（真点了），读数必须仍是「无反应」。
+ *   3. **闪一下又复原仍判红**：文字与属性各一枚，改完 250 毫秒改回去，读数必须仍是「无反应」。
+ *
+ * 五枚都按 `ALL_SIGNALS`（六路全开）判——这一组对照件判的正是「放宽之后」的表现，放宽的
+ * 边界由第 2、3 组守着；交互点表里那些点的缺省口径（只看结构那四路）不在这里。
+ */
+async function runProbeFixtures(check: Check, page: Page, where: string): Promise<void> {
+  await installProbeFixtures(page)
+  try {
+    const text = await probeClick(page, '对照件 · 只改文字', '#lab-fixture-text', { signals: ALL_SIGNALS })
+    check.fact(`[${where}·对照件] 只改文字：${text.detail}`)
+    check.ok(
+      '[对照件] 只改文字的可点控件：按改前的读法（只看结构那四路）判红——这一支就是 #170 要收的假红',
+      !reactedOn(text, STRUCTURAL_SIGNALS),
+      `signals=${JSON.stringify(text.signals)}；${text.detail}`,
+    )
+    check.ok(
+      '[对照件] 只改文字的可点控件：按现在的读法判绿（文字这一路看得见）',
+      text.reacted && text.signals.text,
+      `reacted=${String(text.reacted)} signals=${JSON.stringify(text.signals)}`,
+    )
+    const style = await probeClick(page, '对照件 · 只改样式', '#lab-fixture-style', { signals: ALL_SIGNALS })
+    check.fact(`[${where}·对照件] 只改样式：${style.detail}`)
+    check.ok(
+      '[对照件] 只改样式的可点控件：按改前的读法（只看结构那四路）判红——同一支假红的另一面',
+      !reactedOn(style, STRUCTURAL_SIGNALS),
+      `signals=${JSON.stringify(style.signals)}；${style.detail}`,
+    )
+    check.ok(
+      '[对照件] 只改样式的可点控件：按现在的读法判绿（属性这一路看得见）',
+      style.reacted && style.signals.attr,
+      `reacted=${String(style.reacted)} signals=${JSON.stringify(style.signals)}`,
+    )
+    const dead = await probeClick(page, '对照件 · 点了没反应', '#lab-fixture-dead', { signals: ALL_SIGNALS })
+    check.fact(`[${where}·对照件] 点了没反应：${dead.detail}`)
+    const flashText = await probeClick(page, '对照件 · 文字闪一下又复原', '#lab-fixture-text-flash', { signals: ALL_SIGNALS })
+    check.fact(`[${where}·对照件] 文字闪一下又复原：${flashText.detail}`)
+    const flashAttr = await probeClick(page, '对照件 · 属性闪一下又复原', '#lab-fixture-attr-flash', { signals: ALL_SIGNALS })
+    check.fact(`[${where}·对照件] 属性闪一下又复原：${flashAttr.detail}`)
+    const state = await fixtureState(page)
+    check.fact(`[${where}·对照件] 页面侧读数：${JSON.stringify(state)}`)
+    check.ok(
+      '[对照件] 五枚的点击都真的落下过（失败时读得出「是没点到」还是「判据放过了」）',
+      Object.entries(state.clicks).length === 5 && Object.values(state.clicks).every((count) => count >= 1),
+      JSON.stringify(state.clicks),
+    )
+    check.ok(
+      '[对照件] 只改文字那枚：读数真的从 0 变成 1（判绿不是因为点击根本没点到）',
+      state.text === '1',
+      `text=${JSON.stringify(state.text)} clicks=${JSON.stringify(state.clicks)}`,
+    )
+    check.ok(
+      '[对照件] 只改样式那枚：样式真的加上了 outline（判绿不是因为点击根本没点到）',
+      state.styleOutlined,
+      `styleOutlined=${String(state.styleOutlined)} clicks=${JSON.stringify(state.clicks)}`,
+    )
+    check.ok(
+      '[对照件] 真·点了没反应的控件仍判红（点击计数为 1、页面上一个字节都没改）',
+      !dead.reacted && (state.clicks['lab-fixture-dead'] ?? 0) >= 1,
+      `reacted=${String(dead.reacted)} signals=${JSON.stringify(dead.signals)} clicks=${String(state.clicks['lab-fixture-dead'] ?? 0)}`,
+    )
+    check.ok(
+      '[对照件] 文字闪一下又复原仍判红（判据取末态，不数变动次数——#156 那枚 ＋ 就是「有变动、没结果」）',
+      !flashText.reacted && state.flashText === '0',
+      `reacted=${String(flashText.reacted)} signals=${JSON.stringify(flashText.signals)} 末态=${JSON.stringify(state.flashText)}`,
+    )
+    check.ok(
+      '[对照件] 属性闪一下又复原仍判红（同上：末态口径不许被新信号吃掉）',
+      !flashAttr.reacted && state.flashAttr === null,
+      `reacted=${String(flashAttr.reacted)} signals=${JSON.stringify(flashAttr.signals)} 末态=${JSON.stringify(state.flashAttr)}`,
+    )
+  } finally {
+    await removeProbeFixtures(page)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -541,6 +952,18 @@ interface LivenessPoint {
   observeOnly?: string
   /** 与 `observeOnly` 一起用：期望它当前**就是禁用态**（本来就点不动），据此断言。 */
   expectDisabled?: boolean
+  /**
+   * 这条交互点**算「有反应」**的那几路信号；不给就是 {@link STRUCTURAL_SIGNALS}
+   * （只看结构那四路 = #170 之前的口径，判据一个字没放宽）。
+   *
+   * 什么时候要给：这条控件的反应**本来就只出在文字或样式上**（页面上一个元素没增没减、也
+   * 没有弹层与通道消息，只是那枚数字变了或那条样式变了）——官方设置页的字号步进器就是这么
+   * 干的。这种点要给 {@link ALL_SIGNALS}，否则「点了没反应」是**假红**（#170 的现场）。
+   * 反过来，期望是「弹层开出来 / 内容切过去」的点**不要**给：给了文字/属性这两路之后，
+   * 弹层其实没开、只是按钮上 `aria-expanded` 翻了一下的回归就抓不到了。判错的症状很好认——
+   * 报告里那条的明细会写「文字 Δ…」或「属性 Δ…」。
+   */
+  signals?: readonly LivenessSignal[]
 }
 
 const COMPOSER = '[data-slot="conversation.composer.bar"]'
@@ -761,7 +1184,7 @@ export const LIVENESS_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '交互活性探针：点得动的控件点下去必须有可观测反应，官方点得动而我们的点不动即判红（INTERACTION-LIVENESS 套件）',
   expect:
-    '对一批交互点逐个「悬停 → 拍基线 → 点一下 → 1200 毫秒内有没有可观测变化（有意义 DOM 变化 / 弹层出现 / 宿主通道有新消息任一）」。**判据不写死**：官方页里存在的交互点与官方页本身对照（官方有反应 ⇒ 我们必须有反应），只有我们有的交互点按「必须反应」判。**另一类是「只观察、绝不点击」**：动作经真网关落到用户机器上（会话头的「在访达中打开工作目录」会在用户桌面上拉起访达）或会改用户持久状态的控件（设置页的「增大字号」「打开配置文件」，以及本来就点不动的两枚禁用态：空草稿的发送、回收站计数 0 时的清空），这一类只判「控件在场（可见、几何非零）」「期望禁用时确实是禁用态」「这一步没有派发过任何点击」，每条的不点理由写在交互点表里。composer 的 ＋ 另有一条静默判据：「点了没反应时页面必须留下能指名道姓的失败行（哪个 source 失败、什么原因）」，外加一条页面内正向对照——把官方 `commandUi` 贡献表里**不合契约（缺 `available`）**的贡献就地摘掉之后 ＋ 必须恢复；环境本身服务不了这条会话（`command directory warmup failed`，#145）时这一条只记事实。全程只读：不点发送、不点归档确认、不写任何网关数据、不在用户机器上拉起原生应用。',
+    '对一批交互点逐个「悬停 → 拍基线 → 点一下 → 1200 毫秒内有没有可观测变化」。**可观测变化有六路**（#170 补了后两路）：有意义 DOM 变化 / 弹层出现 / 宿主通道有新消息 / 语义上行有新消息（前面四路只看结构变没变），以及**文字变了**（`characterData`）、**样式或属性变了**（`attributes`）——后两路按「末态」判（记的是每个节点第一次变动前的值，闪一下又复原不算），修的是「只改文字或只改样式的控件被判成点了没反应」这一支假红。**哪几路算一条交互点的反应由那条点自己声明**（交互点表里的 `signals`），缺省是只看结构那四路 = #170 之前的口径（判据一条都没放宽）：期望是「弹层开出来 / 内容切过去」的点只按那四路判，反应本来就只出在文字或样式上的控件才写 `signals: ALL_SIGNALS`。**探针自带五枚合成对照件**（装在同一张真实页面上跑）：只改文字、只改样式两枚必须「按改前的读法判红、按六路全开判绿」，真·点了没反应的与闪一下又复原的各一枚必须仍判红。**判据不写死**：官方页里存在的交互点与官方页本身对照（官方有反应 ⇒ 我们必须有反应），只有我们有的交互点按「必须反应」判。**另一类是「只观察、绝不点击」**：动作经真网关落到用户机器上（会话头的「在访达中打开工作目录」会在用户桌面上拉起访达）或会改用户持久状态的控件（设置页的「增大字号」「打开配置文件」，以及本来就点不动的两枚禁用态：空草稿的发送、回收站计数 0 时的清空），这一类只判「控件在场（可见、几何非零）」「期望禁用时确实是禁用态」「这一步没有派发过任何点击」，每条的不点理由写在交互点表里。composer 的 ＋ 另有一条静默判据：「点了没反应时页面必须留下能指名道姓的失败行（哪个 source 失败、什么原因）」，外加一条页面内正向对照——把官方 `commandUi` 贡献表里**不合契约（缺 `available`）**的贡献就地摘掉之后 ＋ 必须恢复；这两条判的是「菜单真的开了」，固定只按**前四路**判（不许被 #170 的两路放松）。环境本身服务不了这条会话（`command directory warmup failed`，#145）时这一条只记事实。全程只读：不点发送、不点归档确认、不写任何网关数据、不在用户机器上拉起原生应用。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const chat = route('chat')
@@ -809,7 +1232,7 @@ export const LIVENESS_SUITE: LabSuite = {
           check.fact(`[官方页·只观察] ${point.label}：${seen.detail}`)
           continue
         }
-        const probe = await probeClick(official.page, point.label, point.official)
+        const probe = await probeClick(official.page, point.label, point.official, { signals: point.signals ?? STRUCTURAL_SIGNALS })
         officialResults.set(point.label, probe)
         check.fact(
           `[官方页] ${point.label}：${probe.present ? probe.detail : '元素不在场'}`,
@@ -825,7 +1248,7 @@ export const LIVENESS_SUITE: LabSuite = {
           await observePoint(check, chatPage.page, point, 'chat', headerReady)
           continue
         }
-        const ours = await probeClick(chatPage.page, point.label, point.selector)
+        const ours = await probeClick(chatPage.page, point.label, point.selector, { signals: point.signals ?? STRUCTURAL_SIGNALS })
         check.fact(`[chat] ${point.label}：${ours.detail}${ours.present ? '' : `（元素不在场；期望=${point.expect}）`}`)
         if (!ours.present) {
           check.fact(`[chat] ${point.label}：这一轮页面上没有这个控件，跳过判定`)
@@ -849,14 +1272,16 @@ export const LIVENESS_SUITE: LabSuite = {
 
       // ── ＋ 的专件 ────────────────────────────────────────────────────
       const addSelector = `${COMPOSER} button[aria-label="添加文件或调用指令"]`
-      const addOurs = await probeClick(chatPage.page, 'composer ＋', addSelector)
+      // 下面三条判的都是**菜单真的开了**（结构变了），所以固定按那四路判（不看文字与属性）——#170
+      // 补的文字/属性两路不进这里，这三条的判据与补观察粒度之前逐字等价（不许被放松）。
+      const addOurs = await probeClick(chatPage.page, 'composer ＋', addSelector, { signals: STRUCTURAL_SIGNALS })
       const failures = candidateFailureLines(chatPage.capture.all)
       check.fact(`＋ 的候选失败行：${JSON.stringify(failures.map((line) => line.slice(0, 200)))}`)
       check.ok('＋ 不是禁用态（点不动不是因为按钮被禁用）', addOurs.present && !addOurs.disabled, `present=${String(addOurs.present)} disabled=${String(addOurs.disabled)}`)
       check.ok(
         '＋ 没反应时，页面必定留下一行能指名道姓的失败（哪个 source 失败、什么原因）——静默失败判红',
         addOurs.reacted || failures.length > 0,
-        `reacted=${String(addOurs.reacted)} 失败行 ${String(failures.length)} 条`,
+        `reacted=${String(addOurs.reacted)}（只按那四路判：不看文字与属性）失败行 ${String(failures.length)} 条；${addOurs.detail}`,
       )
       screenshots.push(await shot(ctx, chatPage.page, 'liveness-01-chat'))
 
@@ -886,7 +1311,10 @@ export const LIVENESS_SUITE: LabSuite = {
           const malformed = contributions.filter((entry) => !entry.hasAvailable).map((entry) => entry.name)
           check.fact(`注册表里缺 available 的贡献（不合官方 CommandContribution 契约）：${JSON.stringify(malformed)}`)
           const removed = await stripMalformedContributions(stripPage)
-          const afterStrip = await probeClick(stripPage, 'composer ＋（摘掉违规贡献后）', addSelector)
+          // 同上面那条：正向对照判的是**菜单真的开了**，只按那四路判（不看文字与属性，不许被 #170 的两路放松）。
+          const afterStrip = await probeClick(stripPage, 'composer ＋（摘掉违规贡献后）', addSelector, {
+            signals: STRUCTURAL_SIGNALS,
+          })
           check.fact(`＋ 在摘掉 ${JSON.stringify(removed)} 之后：${afterStrip.detail}`)
           const unavailable = sessionUnavailable(stripCapture.all)
           if (unavailable) {
@@ -897,7 +1325,7 @@ export const LIVENESS_SUITE: LabSuite = {
             check.ok(
               '正向对照：不合契约的贡献摘掉之后 ＋ 必须恢复（证明了「点不动」的因果就在那条贡献上）',
               afterStrip.reacted,
-              afterStrip.detail,
+              `（只按那四路判：不看文字与属性）${afterStrip.detail}`,
             )
           }
           check.ok(
@@ -930,7 +1358,7 @@ export const LIVENESS_SUITE: LabSuite = {
           await observePoint(check, sidebarPage.page, point, 'sidebar', true)
           continue
         }
-        const ours = await probeClick(sidebarPage.page, point.label, point.selector)
+        const ours = await probeClick(sidebarPage.page, point.label, point.selector, { signals: point.signals ?? STRUCTURAL_SIGNALS })
         check.fact(`[sidebar] ${point.label}：${ours.detail}${ours.present ? '' : `（元素不在场；期望=${point.expect}）`}`)
         if (!ours.present) {
           check.fact(`[sidebar] ${point.label}：这一轮页面上没有这个控件，跳过判定`)
@@ -976,7 +1404,7 @@ export const LIVENESS_SUITE: LabSuite = {
           await observePoint(check, settingsPage.page, point, 'settings', true)
           continue
         }
-        const ours = await probeClick(settingsPage.page, point.label, point.selector)
+        const ours = await probeClick(settingsPage.page, point.label, point.selector, { signals: point.signals ?? STRUCTURAL_SIGNALS })
         check.fact(`[settings] ${point.label}：${ours.detail}${ours.present ? '' : `（元素不在场；期望=${point.expect}）`}`)
         if (!ours.present) {
           check.fact(`[settings] ${point.label}：这一轮页面上没有这个控件，跳过判定`)
@@ -988,6 +1416,8 @@ export const LIVENESS_SUITE: LabSuite = {
         }
         check.ok(`[settings] ${point.label}：点下去有可观测反应（${point.expect}）`, ours.reacted, ours.detail)
       }
+      // 探针自己的对照件（#170）：装在这一页上跑（理由与三组判据见文件头与 runProbeFixtures）。
+      await runProbeFixtures(check, settingsPage.page, 'settings')
       check.eq('[settings] 零 pageerror', withoutKnownNoise(settingsPage.capture.pageErrors).real, [])
       screenshots.push(await shot(ctx, settingsPage.page, 'liveness-03-settings'))
     } finally {
