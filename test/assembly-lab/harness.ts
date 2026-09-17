@@ -787,7 +787,13 @@ export function contractGaps(
 
 /** 造一个 headless（或带界面）的 chromium。 */
 export async function launchBrowser(headless = true): Promise<Browser> {
-  return chromium.launch({ headless })
+  // `handleSIGINT` / `handleSIGTERM` 交给**我们自己的**信号处理（`verify.ts` 的 `onSignal`）：
+  // Playwright 默认会自己装一对，收到 SIGINT 就关掉浏览器然后 `process.exit(130)`——
+  // 于是我们的收尾（关实验室服务器、**按 PID 收掉隔离实例**、删临时 DSH_HOME）刚走到
+  // `browser.close()` 就被它带走了：进程按 130 退出，隔离实例与临时目录留在原地
+  // （#177 实测：Ctrl-C 之后 `dsh web` 还在监听、`dsh-lab-home-*` 还在）。关浏览器的
+  // 责任本来就在我们的收尾里，这里只需把它的默认行为关掉。
+  return chromium.launch({ headless, handleSIGINT: false, handleSIGTERM: false })
 }
 
 /**
