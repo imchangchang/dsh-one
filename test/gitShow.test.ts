@@ -5,9 +5,6 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import * as os from 'node:os'
-import * as path from 'node:path'
-import * as fs from 'node:fs/promises'
 import {
   COMMIT_SHA_RE,
   GIT_INFO_FORMAT,

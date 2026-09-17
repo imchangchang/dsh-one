@@ -146,8 +146,8 @@ export async function startProtoServer(options: ProtoServerOptions): Promise<Pro
     }
   }
 
-  server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    proxyUpgrade(req, socket, head, mirror.origin)
+  server.on('upgrade', (req: IncomingMessage, socket: Duplex) => {
+    proxyUpgrade(req, socket, mirror.origin)
   })
 
   const origin = (): string => `http://127.0.0.1:${boundPort}`
@@ -218,7 +218,7 @@ function proxyToMirror(req: IncomingMessage, res: ServerResponse, mirrorOrigin: 
   req.pipe(preq)
 }
 
-function proxyUpgrade(req: IncomingMessage, clientSocket: Duplex, head: Buffer, mirrorOrigin: string): void {
+function proxyUpgrade(req: IncomingMessage, clientSocket: Duplex, mirrorOrigin: string): void {
   const preq = http.request(`${mirrorOrigin}${req.url ?? '/'}`, { headers: req.headers })
   preq.end()
   preq.on('upgrade', (pres, upstream, upstreamHead) => {

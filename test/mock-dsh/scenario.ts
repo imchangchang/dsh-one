@@ -89,21 +89,6 @@ export function sessionEvent(event: SessionEventLike, view?: ToolEventViewLike, 
   return { method: 'session/event', payload, ...(delayMs !== undefined ? { delayMs } : {}) }
 }
 
-/** 一条 session/projection 帧（消费端按 key 合并进基线投影，见 src/server/modernStreams.ts）。 */
-export function projection(seq: number, key: string, value: unknown, delayMs?: number): MuxFrameSpec {
-  return { method: 'session/projection', payload: { seq, key, value }, ...(delayMs !== undefined ? { delayMs } : {}) }
-}
-
-/** 一条 session/queue 整表快照帧（扩展 session/queue case）。 */
-export function queue(items: unknown[], delayMs?: number): MuxFrameSpec {
-  return { method: 'session/queue', payload: { items }, ...(delayMs !== undefined ? { delayMs } : {}) }
-}
-
-/** 一条 session/jobs 整表快照帧（扩展 session/jobs case）。 */
-export function jobs(list: unknown[], delayMs?: number): MuxFrameSpec {
-  return { method: 'session/jobs', payload: { jobs: list }, ...(delayMs !== undefined ? { delayMs } : {}) }
-}
-
 // ---------------------------------------------------------------------------
 // 事件构造 helper（会话日志里的原始事件，src/pure/conversation.ts applyEvent）。
 // ---------------------------------------------------------------------------

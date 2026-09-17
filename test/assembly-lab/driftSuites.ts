@@ -16,13 +16,12 @@
  * 里面改），独立成文件能少一半冲突面。
  */
 import {
-  Check,
   describeFiberFailure,
   fiberStateCounts,
   openTreePage,
   waitForFiberQuiet,
 } from './harness.ts'
-import { LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
+import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { localBundleRev } from '../../src/server/localBundleRev.ts'
 import { ASSEMBLY_TREES, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
 import { filterWire, type BootWire, type BootWireBatch } from '../../src/ui/assembly/wireFilter.ts'

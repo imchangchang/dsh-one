@@ -478,7 +478,7 @@ function proxyToMirror(req: IncomingMessage, res: ServerResponse, mirrorOrigin: 
 function proxyUpgrade(req: IncomingMessage, clientSocket: Duplex, head: Buffer, mirrorOrigin: string): void {
   const preq = http.request(`${mirrorOrigin}${req.url ?? '/'}`, { headers: req.headers })
   preq.end()
-  preq.on('upgrade', (pres, upstream, upstreamHead) => {
+  preq.on('upgrade', (pres, upstream) => {
     const lines = ['HTTP/1.1 101 Switching Protocols']
     for (const [key, value] of Object.entries(pres.headers)) {
       if (value !== undefined) lines.push(`${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
