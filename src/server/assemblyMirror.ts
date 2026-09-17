@@ -5,7 +5,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { LogSink } from '../log.ts'
 import { cookieHeader } from './serverAuth.ts'
-import { blockedIdsOf, extractBootWire, CHAT_BLOCK_LIST, CHAT_FRAME_PLUGIN_ID, type BlockedPlugin } from '../ui/assembly/wireFilter.ts'
+import { localBundleRev } from './localBundleRev.ts'
+import {
+  blockedIdsOf,
+  extractBootWire,
+  filterWire,
+  projectGraphFrame,
+  CHAT_BLOCK_LIST,
+  CHAT_FRAME_PLUGIN_ID,
+  type BlockedPlugin,
+  type BootWire,
+} from '../ui/assembly/wireFilter.ts'
 
 // serverAuth 的 per-origin 状态是模块级 Map：harness/测试若另起 bundle 实例
 // 会读写不到同一份（probe 时踩过)。统一从这里再导出，保证消费方与 mirror
@@ -20,6 +30,9 @@ export { cookieHeader, registerAuth, exchangeToken, probeToken, dshVersion } fro
  *   （探针证实 rev 是内容校验：重拼/错 rev 一律 404，只能拉原 combo；官方按
  *   URL 长度把 application 切成几批时逐批拉），按 `window.__ModuleLoader__.load({`
  *   边界剥掉 BLOCK_LIST 段后伺服；
+ * - /plugins-local/events：官方 `/plugins/events` 那条 SSE 的过滤版（页面把自己的
+ *   事件流改道到这里，见 serveGraphEvents）——`graph` 帧带的是最新一份完整 roster，
+ *   0.1.6-alpha.2 起页面会采纳它，不过滤就会把我们 block 掉的官方插件装回来；
  * - /（可选)：装配页 HTML（options.assemblyPage 提供时；生产由外壳生成 HTML，
  *   实验室按树路由自己伺服页面，都不走这个口）；
  * - 其余一切路径（/api、/assets、/plugins、/provider/status、/plan/status……)
@@ -37,7 +50,7 @@ export interface AssemblyMirror {
   dispose(): void
 }
 
-/** 一棵树 = 自有外框插件 id + 该树 block list（过滤版整包的缓存键）。 */
+/** 一棵树 = 自有外框插件 id + 该树 block list（过滤版整包的缓存键；事件流投影也按它取 block list）。 */
 export interface AssemblyTreeCombo {
   /** 该树自有外框插件 id（请求 combo 的 id 列表里带着它——路由与缓存键都靠它）。 */
   framePluginId: string
@@ -70,18 +83,18 @@ export function startAssemblyMirror(
 ): Promise<AssemblyMirror> {
   // 过滤版官方 combo 缓存：按树缓存（key = 该树 framePluginId，#71 共享
   // mirror 多树伺服）。mirror 生命周期内网关插件集不变；失败不缓存（重试）。
-  const treeCombos = new Map<string, readonly string[]>(
-    (options.treeCombos ?? [{ framePluginId: CHAT_FRAME_PLUGIN_ID, blockList: CHAT_BLOCK_LIST }]).map((tree) => [
-      tree.framePluginId,
-      blockedIdsOf(tree.blockList),
-    ]),
+  // 事件流路由（下面的 serveGraphEvents）要的是同一棵树的 block list 本身（它跑
+  // filterWire），所以这张表存整份清单、combo 路由用时现取 id 表。
+  const treeEntries = options.treeCombos ?? [{ framePluginId: CHAT_FRAME_PLUGIN_ID, blockList: CHAT_BLOCK_LIST }]
+  const treeBlocks = new Map<string, ReadonlyArray<BlockedPlugin>>(
+    treeEntries.map((tree) => [tree.framePluginId, tree.blockList]),
   )
-  const treeCombosKeys = new Set(treeCombos.keys())
+  const treeCombosKeys = new Set(treeBlocks.keys())
   const comboCache = new Map<string, Promise<{ text: string; ids: ReadonlySet<string> }>>()
   const filteredGatewayCombo = (framePluginId: string): Promise<{ text: string; ids: ReadonlySet<string> }> => {
     let pending = comboCache.get(framePluginId)
     if (pending === undefined) {
-      pending = fetchFilteredGatewayCombo(target, treeCombos.get(framePluginId) ?? [], logger)
+      pending = fetchFilteredGatewayCombo(target, blockedIdsOf(treeBlocks.get(framePluginId) ?? []), logger)
       comboCache.set(framePluginId, pending)
       pending.catch(() => {
         if (comboCache.get(framePluginId) === pending) comboCache.delete(framePluginId)
@@ -118,6 +131,12 @@ export function startAssemblyMirror(
         }
         if (url.pathname === '/plugins-local/') {
           void serveCombo(req, res, url, options, filteredGatewayCombo, treeCombosKeys, logger)
+          return
+        }
+        // 事件流（SSE）：官方前端那条 `/plugins/events` 改道走这里，理由是每一帧
+        // graph 都要过一遍该树的 blocklist（见 serveGraphEvents 的文件注释）。
+        if (url.pathname === '/plugins-local/events') {
+          void serveGraphEvents(req, res, url, target, treeBlocks, options.pluginsDir, logger)
           return
         }
         // 其余一切路径原样反代网关（/api、/assets、/plugins、/provider/status、
@@ -290,6 +309,129 @@ async function serveCombo(
     res.writeHead(502, { 'access-control-allow-origin': '*' })
     res.end('assembly mirror combo error')
   }
+}
+
+/**
+ * 事件流路由：`/plugins-local/events?ids=<frame 插件 id>[,<追加的自有 id>…]`。
+ *
+ * **为什么要它**（#191）：官方前端启动时会开一条 SSE（`dsh-client-hmr` 的
+ * `/plugins/events`），每帧 `type: "graph"` 带的是**最新一份完整 roster**。0.1.6-alpha.1
+ * 的客户端半对 graph 帧是「收到就丢」，0.1.6-alpha.2 改成交给条目协调器
+ * （`ctx.modules.entries.sync`）按 roster 增删页面上的插件条目。而这份 roster 由网关
+ * 生成，**是未过滤的全量清单**：直接采纳 → 我们 block 掉的官方插件被装回来、我们自己
+ * 的 frame 插件条目被卸掉（root 槽注册随之撤销）→ 整页白
+ * （`renderSlot('root') before any 'root' registration`）。
+ *
+ * **做法**（与 combo 那一路同一个机制：只在我们自己的转发管道里过滤，网关零改动）：
+ * 这条流只由我们伺服的装配页使用（`pageHtml` 把 `/plugins/events` 改道到这里），
+ * 每一帧都按该树的 `filterWire` 重新投影一遍——与页面 boot 时拿到的 `__DSH_BOOT__`
+ * **同一个函数**，所以「同一份 roster 只有一个算法」。alpha.1 上这些帧本来就被客户端
+ * 丢掉，投影等于空转，因此**不需要按版本分叉**。
+ *
+ * **失败怎么退化**：投影抛错（官方换了帧形状、block list 与清单对不上）时**丢弃这一帧**
+ * 并落一条 warn —— 页面保持自己那份 roster，退化成 alpha.1 的行为；反过来放行会立刻
+ * 把页面洗白，那是更坏的失败方式。
+ *
+ * `ids` 由页面给：第一个是 frame 插件 id（决定取哪棵树的 block list），其余是该树追加
+ * 的自有插件 id（投影要把它们补回 roster）。为什么不从 mirror 自己那份树表里取追加
+ * id：实验室的「官方浏览区对照档」与 sidebar 树**共用同一个 frame 插件 id**（只差装不装
+ * 自有工作区树插件），按 framePluginId 查会张冠李戴。
+ */
+async function serveGraphEvents(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  target: () => string | undefined,
+  treeBlocks: ReadonlyMap<string, ReadonlyArray<BlockedPlugin>>,
+  pluginsDir: string,
+  logger: LogSink,
+): Promise<void> {
+  const reject = (status: number, body: string): void => {
+    res.writeHead(status, { 'access-control-allow-origin': '*' })
+    res.end(body)
+  }
+  const gateway = target()
+  if (gateway === undefined) {
+    reject(503, 'dsh service is not running')
+    return
+  }
+  const ids = (url.searchParams.get('ids') ?? '').split(',').filter((id) => id !== '')
+  const treeBlockList = ids.length === 0 ? undefined : treeBlocks.get(ids[0] ?? '')
+  if (req.method !== 'GET' || treeBlockList === undefined || ids.some((id) => !LOCAL_PLUGIN_RE.test(id))) {
+    logger.warn(`assembly mirror: rejected graph events request (ids ${ids.join(',') || 'none'})`)
+    reject(404, 'not found')
+    return
+  }
+  // 逐帧投影要读明文：让网关别 gzip（网关的压缩中间件按 accept-encoding 决定）。
+  // 其余头与 proxyHeaders 同口径（Origin/Referer 改写为网关权威、cookie 服务侧附加），
+  // 但这里自己拼一份小的：proxyRequest 那套会把浏览器的 connection/keep-alive 也带上，
+  // 经 fetch 转发给上游并不合适。
+  const cookie = cookieHeader(gateway)
+  const controller = new AbortController()
+  res.on('close', () => controller.abort())
+  let upstream: Response
+  try {
+    upstream = await fetch(`${gateway}/plugins/events`, {
+      headers: {
+        accept: 'text/event-stream',
+        'accept-encoding': 'identity',
+        origin: gateway,
+        referer: gateway,
+        ...(cookie === undefined ? {} : { cookie }),
+      },
+      signal: controller.signal,
+    })
+  } catch (err) {
+    logger.warn(`assembly mirror: graph events upstream failed: ${err instanceof Error ? err.message : String(err)}`)
+    reject(502, 'assembly mirror events error')
+    return
+  }
+  if (!upstream.ok || upstream.body === null) {
+    logger.warn(`assembly mirror: graph events upstream HTTP ${upstream.status}`)
+    reject(502, 'assembly mirror events error')
+    return
+  }
+  // 投影用的本地那半版本与页面 boot 时那份一致（同一个 pluginsDir，同一个函数）。
+  const localRev = await localBundleRev(pluginsDir)
+  const project = (graph: BootWire): BootWire =>
+    filterWire(graph, treeBlockList, ids[0] ?? '', ids.slice(1), localRev, (line) => logger.warn(line))
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+    'access-control-allow-origin': '*',
+  })
+  res.flushHeaders()
+  const decoder = new TextDecoder()
+  const reader = upstream.body.getReader()
+  let buffer = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let index = buffer.indexOf('\n\n')
+      while (index !== -1) {
+        const frame = buffer.slice(0, index + 2)
+        buffer = buffer.slice(index + 2)
+        let out = ''
+        try {
+          out = projectGraphFrame(frame, project)
+        } catch (err) {
+          logger.warn(`assembly mirror: dropped a graph event frame: ${err instanceof Error ? err.message : String(err)}`)
+        }
+        if (out !== '') res.write(out)
+        index = buffer.indexOf('\n\n')
+      }
+    }
+    if (buffer !== '') res.write(buffer)
+  } catch (err) {
+    // 页面/面板关掉是我们自己 abort 的，属正常收尾，不算错。
+    if (!controller.signal.aborted) {
+      logger.warn(`assembly mirror: graph events stream ended: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+  res.end()
 }
 
 function proxyHeaders(req: IncomingMessage, target: string): Record<string, string | string[]> {

@@ -34,7 +34,7 @@ import { localBundleRev } from '../../src/server/localBundleRev.ts'
 import { registerVersion } from '../../src/server/serverAuth.ts'
 import { defaultOwnedPath, readOwnedRecord } from '../../src/server/ownedRecord.ts'
 import { bootstrapUrlOf, extractBootWire, extractFrontendAssets, filterWire, WORKSPACE_TREE_PLUGIN_ID, type BootWire } from '../../src/ui/assembly/wireFilter.ts'
-import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
+import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, localPluginIdsOf, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
 import { compare as compareSemver, parse as parseSemver } from '../../src/pure/semver.ts'
 import type { LogSink } from '../../src/log.ts'
 
@@ -289,6 +289,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
           ? `The dsh version is unknown; this chat assembly expects ${PREREQ_MIN} <= version < ${PREREQ_MAX}.`
           : `The connected dsh is ${dshVersion}, which may not match this chat assembly (expects ${PREREQ_MIN} <= version < ${PREREQ_MAX}).`,
       ...(sessionId === null || sessionId === '' ? {} : { bootSessionId: sessionId }),
+      localPluginIds: localPluginIdsOf(route.tree),
     })
   }
 

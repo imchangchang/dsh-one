@@ -23,7 +23,7 @@ import {
   type BootWire,
   type GatewayAssets,
 } from './assembly/wireFilter.ts'
-import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, type AssemblyTree } from './assembly/trees.ts'
+import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, localPluginIdsOf, type AssemblyTree } from './assembly/trees.ts'
 import {
   ASSEMBLED_CHAT_VIEW_TYPE,
   decodeChatPanelState,
@@ -555,6 +555,7 @@ function mountChatPanel(params: {
     banner,
     bootSessionId: sessionId,
     panelTab: tab,
+    localPluginIds: localPluginIdsOf(CHAT_TREE),
   })
 }
 
@@ -809,7 +810,7 @@ function renderChatStatusPage(panel: vscode.WebviewPanel, view: SidebarStatusVie
 
 /**
  * 侧栏桥消息落点（单例路由）：有单例 → 揭示 + 转发就地切换消息（不 reload、
- * 不遮罩——运行时切换走官方 sessions.open，加载态官方自带）；无单例 → 创建
+ * 不遮罩——运行时切换走官方打开会话的入口，加载态官方自带）；无单例 → 创建
  * （冷启动注入 bootSessionId，防闪帧遮罩此刻生效一次）。
  */
 async function openSessionChat(sessionId: string): Promise<void> {
@@ -1093,6 +1094,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
           bootstrapUrl: bootstrapUrlOf(assembly.wire),
           theme: currentTheme(),
           banner: versionBanner(dshVersion(decision.url) ?? status.version),
+          localPluginIds: localPluginIdsOf(SIDEBAR_TREE),
         })
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err)
@@ -1219,6 +1221,7 @@ export function registerAssembledSettings(
       bootstrapUrl: bootstrapUrlOf(assembly.wire),
       theme: currentTheme(),
       banner: versionBanner(dshVersion(status.url) ?? status.version),
+      localPluginIds: localPluginIdsOf(SETTINGS_TREE),
     })
   })
 }
