@@ -16,6 +16,7 @@ import {
   Check,
   bodyText,
   contractGaps,
+  hasAnyText,
   hasText,
   isText,
   knownNoise,
@@ -1689,7 +1690,7 @@ export const MULTIOPEN_SUITE: LabSuite = {
         '原有五项都还在且每项都有文案（重命名 / 分叉 / 在新标签页打开 / 移入回收站 / 归档）',
         menu.allItems.every((label) => label.trim() !== '') &&
           ['重命名', '分叉会话', '在新标签页打开', '移入回收站', '归档会话'].every((label) =>
-            menu.allItems.some((text) => text.includes(label)),
+            texts(label).some((variant) => menu.allItems.some((text) => text.includes(variant))),
           ),
         JSON.stringify(menu.allItems),
       )
@@ -2079,7 +2080,7 @@ export const SKELETON_SUITE: LabSuite = {
         text: document.querySelector('[data-dshone-tree-item="workspace-pick"]')?.textContent ?? '',
       }))
       check.ok('添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录）', addItems.pick && addItems.create, JSON.stringify(addItems))
-      check.ok('菜单项文案是「选择已有文件夹…」', addItems.text.includes('选择已有文件夹'), addItems.text)
+      check.ok('菜单项文案是「选择已有文件夹…」', hasText(addItems.text, '选择已有文件夹'), addItems.text)
       await page.click('[data-dshone-tree-item="workspace-create"]')
       await page.waitForTimeout(400)
       const createCalls = await page.evaluate(() => {
@@ -2127,7 +2128,7 @@ export const SKELETON_SUITE: LabSuite = {
         JSON.stringify({ inTopBar: pill.inTopBar, inListArea: pill.inListArea }),
       )
       check.ok('分组过滤条是一枚胶囊（旧的那排 chip 已不在）', pill.found && pill.chips === 0, JSON.stringify(pill))
-      check.ok('胶囊带成员计数与「全部工作区」初值', pill.label.includes('全部工作区') && Number(pill.count) > 0 && pill.active === 'all', JSON.stringify(pill))
+      check.ok('胶囊带成员计数与「全部工作区」初值', hasText(pill.label, '全部工作区') && Number(pill.count) > 0 && pill.active === 'all', JSON.stringify(pill))
       await openPillMenu(page)
       const pillItems = await page.evaluate(() => ({
         all: document.querySelector('[data-dshone-tree-pill-item="all"]') !== null,
@@ -2200,7 +2201,7 @@ export const SKELETON_SUITE: LabSuite = {
         sidebarCombo !== undefined && sidebarCombo.includes('@deepseek-ai/dsh-client-ui-cordis/client.js'),
         `combo=${String(sidebarCombo?.slice(0, 120))}`,
       )
-      check.ok('入口行形态：🗑 + 文案 + 计数', entry.label.includes('回收站') && Number(entry.count) >= 0, JSON.stringify(entry))
+      check.ok('入口行形态：🗑 + 文案 + 计数', hasText(entry.label, '回收站') && Number(entry.count) >= 0, JSON.stringify(entry))
       check.ok(
         '入口行右侧两枚动作图标在（清空 / 恢复全部）',
         entry.actions.includes('recycle-empty-all') && entry.actions.includes('recycle-restore-all'),
@@ -2740,7 +2741,7 @@ export const PIN_UNREAD_SUITE: LabSuite = {
       // ---- ④ 保护规则：归档项对置顶行禁用并给出置顶原因 ----
       check.ok(
         '保护规则：置顶行的「归档会话」禁用并给出置顶原因',
-        pinnedMenu.archive?.disabled === true && hasText(pinnedMenu.archive.tip, '置顶会话不能归档'),
+        pinnedMenu.archive?.disabled === true && hasText(pinnedMenu.archive.tip, '置顶会话不能归档，先取消置顶'),
         JSON.stringify(pinnedMenu.archive),
       )
       await page.keyboard.press('Escape')
@@ -2828,7 +2829,7 @@ export const PIN_UNREAD_SUITE: LabSuite = {
       }, pinTarget.id)
       check.ok(
         '保护规则：置顶行在选择态下不可勾选（带原因提示）',
-        selectRows.pinned.check === 'blocked' && hasText(selectRows.pinned.tip, '置顶会话不能移入回收站或归档'),
+        selectRows.pinned.check === 'blocked' && hasText(selectRows.pinned.tip, '置顶会话不能移入回收站或归档，先取消置顶'),
         JSON.stringify(selectRows.pinned),
       )
       // 点它不切换勾选（不可勾选的行整行点下去也不该被选中）。
@@ -3186,7 +3187,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       check.fact(`清空确认弹窗：按钮=${String(confirm.button)} 工作区块=${String(confirm.blocks)} 明细行=${String(confirm.rows)} 文案=${JSON.stringify(confirm.text.slice(0, 120))}`)
       check.ok('清空先开确认弹窗（不是直接执行）', confirm.button)
       check.ok('弹窗按工作区树形列明细（块 + 行都在）', confirm.blocks >= 1 && confirm.rows === 1)
-      check.ok('弹窗写明不可恢复（归档 = 删除）', confirm.text.includes('不能在这里恢复') || confirm.text.includes('删除'), confirm.text.slice(0, 120))
+      check.ok('弹窗写明不可恢复（归档 = 删除）', hasText(confirm.text, '不能在这里恢复') || hasText(confirm.text, '删除'), confirm.text.slice(0, 120))
       screenshots.push(await shot(ctx, page, 'recycle-empty-confirm'))
       await page.keyboard.press('Escape')
       await page.waitForTimeout(300)
@@ -3315,7 +3316,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       check.ok('多选操作条「归档」复用同一个确认弹窗（按工作区树形列明细）', batchModal.button && batchModal.blocks >= 1 && batchModal.rows >= 1)
       check.ok(
         '弹窗写明跳过数（与资格判定算出来的一致：有跳过就写明条数，没有就不出现这行）',
-        expectedSkipped === 0 ? batchModal.skipped === '' : batchModal.skipped.includes(`另有 ${String(expectedSkipped)} 个`),
+        expectedSkipped === 0 ? batchModal.skipped === '' : hasText(batchModal.skipped, `另有 ${String(expectedSkipped)} 个`),
         `skipped=${JSON.stringify(batchModal.skipped)} expected=${String(expectedSkipped)}`,
       )
       await page.keyboard.press('Escape')
@@ -3579,8 +3580,8 @@ export const TAG_GROUPS_SUITE: LabSuite = {
         Array.from(document.querySelectorAll('[data-dshone-tree-item^="tag:"]')).map((el) => el.textContent ?? ''),
       )
       check.fact(`行菜单「移到分组…」里的项：${JSON.stringify(rowTagSection)}`)
-      check.ok('会话行菜单里有「新建标签组…」与「不归入标签组」', rowTagSection.includes('新建标签组') && rowTagSection.includes('不归入标签组'))
-      check.ok('菜单里列出了本工作区已有的组', rowTagSection.includes('实验室组'))
+      check.ok('会话行菜单里有「新建标签组…」与「不归入标签组」', hasAnyText(rowTagSection, '新建标签组') && hasAnyText(rowTagSection, '不归入标签组'))
+      check.ok('菜单里列出了本工作区已有的组', hasAnyText(rowTagSection, '实验室组'))
       await page.click('[data-dshone-tree-item="tag:__new"]')
       await page.waitForTimeout(300)
       check.eq('「新建标签组…」开出新建弹窗（名字 + 6 色）', await contentCount(page, '[data-dshone-tree="tag-name-input"]'), 1)
@@ -3674,8 +3675,9 @@ export const TAG_GROUPS_SUITE: LabSuite = {
       await openTagMenu(page, 't-lab')
       const menu = await tagMenuFacts(page)
       check.fact(`标签组菜单：${JSON.stringify(menu)}`)
+      // 判「菜单里有这一项」时，期望值写成词典里的中文，zh / en 两种取值都算（见 harness.texts）。
       const menuHas = (needle: string): boolean =>
-        menu.items.some((text) => text.includes(needle)) || menu.text.includes(needle)
+        texts(needle).some((variant) => menu.items.some((text) => text.includes(variant)) || menu.text.includes(variant))
       check.ok('八项之一：标题行（写着这是哪个组）', menuHas('标签组：实验室组'))
       check.ok('八项之二：组内新建会话', menuHas('在此标签组中新建会话'))
       check.ok('八项之三：整组归档（带条数）', menuHas('归档整组（2 个会话）'))
@@ -3936,7 +3938,7 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       check.fact(`置顶行的勾选资格：${JSON.stringify(pinnedEligibility)}`)
       check.ok(
         '置顶行不可勾选（行上标 blocked + 框画灰 + 带原因提示）',
-        pinnedEligibility.check === 'blocked' && pinnedEligibility.dotted && hasText(pinnedEligibility.tip, '置顶会话不能移入回收站或归档'),
+        pinnedEligibility.check === 'blocked' && pinnedEligibility.dotted && hasText(pinnedEligibility.tip, '置顶会话不能移入回收站或归档，先取消置顶'),
         JSON.stringify(pinnedEligibility),
       )
       await page.locator(`[data-dshone-tree-session="${pinnedTarget}"]`).click()
@@ -3999,7 +4001,7 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       )
       check.eq('some 态：框里画的是短横线（不是对勾）', `${String(atSome?.aria)}/${String(atSome?.dash)}`, 'mixed/true')
       check.eq('置顶那条**没被**勾上（资格判定挡住了它）', await checkOf(page, pinnedTarget), 'false')
-      check.eq('动作条计数跟上了（已选 N 项）', afterGroupSelect.count, `已选 ${String(eligibleInFixture.length)} 项`)
+      check.eqTexts('动作条计数跟上了（已选 N 项）', [afterGroupSelect.count], [`已选 ${String(eligibleInFixture.length)} 项`])
       screenshots.push(await shot(ctx, page, 'multi-select-group-some'))
 
       await page.click(`[data-dshone-group-key="${fixture.key}"] [data-dshone-tree-action="group-select"]`)
@@ -4038,7 +4040,7 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       const collapsedAfter = (await groupCheckFacts(page)).find((entry) => entry.key === otherGroup.key)
       await page.click(`[data-dshone-group-key="${otherGroup.key}"] [data-dshone-tree-row="workspace"]`)
       await page.waitForTimeout(250)
-      check.eq('收起着的组也能一次勾满（动作条计数 = 组规模，与展开时一致）', collapsedPicked, `已选 ${String(collapsedState?.count)} 项`)
+      check.eqTexts('收起着的组也能一次勾满（动作条计数 = 组规模，与展开时一致）', [collapsedPicked], [`已选 ${String(collapsedState?.count)} 项`])
       check.eq('收起着的组：组头三态同样翻到 all', collapsedAfter?.row, 'all')
       await page.click(`[data-dshone-group-key="${otherGroup.key}"] [data-dshone-tree-action="group-select"]`)
       await page.waitForTimeout(250)
@@ -4123,7 +4125,7 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       check.ok('「归档」是独立动作：开确认弹窗（不是立即执行）', batchModal.confirm && batchModal.blocks >= 1 && batchModal.rows >= 1)
       check.ok(
         '弹窗写明跳过数（与资格判定算出来的一致）',
-        expectedSkipped === 0 ? batchModal.skipped === '' : batchModal.skipped.includes(`另有 ${String(expectedSkipped)} 个`),
+        expectedSkipped === 0 ? batchModal.skipped === '' : hasText(batchModal.skipped, `另有 ${String(expectedSkipped)} 个`),
         `skipped=${JSON.stringify(batchModal.skipped)} expected=${String(expectedSkipped)}`,
       )
       screenshots.push(await shot(ctx, page, 'multi-select-batch-archive'))
@@ -4142,9 +4144,9 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       const failed = await selectionFacts(page)
       check.fact(`注入写失败后的动作条：${JSON.stringify(failed)}`)
       check.ok('失败：动作条不消失', failed.bar)
-      check.ok('失败：红字写明没移成的条数（不静默）', failed.error.includes('没能移入回收站') && failed.error.includes(String(pickOrder.length)), JSON.stringify(failed.error))
+      check.ok('失败：红字写明没移成的条数（不静默）', hasText(failed.error, '没能移入回收站') && failed.error.includes(String(pickOrder.length)), JSON.stringify(failed.error))
       check.eq('失败：失败项留在选中里（勾选一条不少）', failed.checked.length, pickOrder.length)
-      check.ok('失败：飘提示也报了同一件事', failed.flash.includes('没能移入回收站'), JSON.stringify(failed.flash))
+      check.ok('失败：飘提示也报了同一件事', hasText(failed.flash, '没能移入回收站'), JSON.stringify(failed.flash))
       check.eq('失败：什么都没写进宿主（数据一个字节没动）', await hostRecycleBin(page), null)
       screenshots.push(await shot(ctx, page, 'multi-select-move-failed'))
       await page.evaluate(() => {
@@ -4160,7 +4162,7 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       check.fact(`批量移入后：动作条在=${String(moved.bar)} 飘提示=${JSON.stringify(moved.flash)} 本地集合=${JSON.stringify((movedState?.sessionIds ?? []).map((id) => id.slice(0, 11)))}`)
       check.eq('「移入回收站」立即执行：不开归档确认弹窗', await contentCount(page, '[data-dshone-tree-action="archive-confirm"]'), 0)
       check.eq('批量移入：选中的都进了本地集合（按勾选顺序）', movedState?.sessionIds ?? [], pickOrder.map((entry) => entry.id))
-      check.ok('批量移入：飘一条回执', moved.flash.includes('回收站'), JSON.stringify(moved.flash))
+      check.ok('批量移入：飘一条回执', hasText(moved.flash, '回收站'), JSON.stringify(moved.flash))
       check.eq('批量移入：动作完退出选择态（动作条消失）', moved.bar, false)
       screenshots.push(await shot(ctx, page, 'multi-select-batch-moved'))
 
@@ -4497,7 +4499,7 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
         hasText(groupEmpty.text, '该分组还没有工作区') && hasText(groupEmpty.text, '管理分组'),
         groupEmpty.text,
       )
-      check.ok('空态带「管理分组…」入口按钮', groupEmpty.action.includes('管理分组'), groupEmpty.action)
+      check.ok('空态带「管理分组…」入口按钮', hasText(groupEmpty.action, '管理分组'), groupEmpty.action)
       check.eq('分组空态下不渲染任何分组块（不是「找不到就显示全部」）', groupEmpty.sections, 0)
       screenshots.push(await shot(ctx, page, 'empty-group-members'))
       await page.click('[data-dshone-tree-action="group-manage-empty"]')
@@ -4667,7 +4669,7 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       check.fact(
         `搜索夹具：结果行=${String(search.results)} 上限提示=${JSON.stringify(search.more)} 状态行=${JSON.stringify(search.status)}（夹具回执调用 ${String(stats.searchCalls)} 次）`,
       )
-      check.ok('搜索回执带 hasMore 时出上限提示（官方 search.hasMore 键）', search.more.includes('仅显示前') && search.more.includes('条结果'), search.more)
+      check.ok('搜索回执带 hasMore 时出上限提示（官方 search.hasMore 键）', hasText(search.more, '仅显示前') && hasText(search.more, '条结果'), search.more)
       check.ok(
         '提示里带上限条数（数值来自官方 searchResultLimit）',
         /仅显示前 (\d+) 条结果/.test(search.more) && Number(/仅显示前 (\d+) 条结果/.exec(search.more)?.[1] ?? '0') > 0,
@@ -4759,8 +4761,8 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
         }))
         check.fact(`归档失败：夹具拦到的归档请求=${String(stats.archiveCalls)} 弹窗内联=${JSON.stringify(archive.alert)} 飘提示=${JSON.stringify(archive.flash)}`)
         check.ok('归档失败真的走过了那条 RPC（夹具拦到请求 = 没落到网关）', stats.archiveCalls === 1, String(stats.archiveCalls))
-        check.ok('归档失败在弹窗里有一行红字（原本只有这一处）', archive.alert.includes('归档失败'), archive.alert)
-        check.ok('归档失败另外飘一条可见反馈（关掉弹窗也看得到）', archive.flash.includes('归档失败'), archive.flash)
+        check.ok('归档失败在弹窗里有一行红字（原本只有这一处）', hasText(archive.alert, '归档失败'), archive.alert)
+        check.ok('归档失败另外飘一条可见反馈（关掉弹窗也看得到）', hasText(archive.flash, '归档失败'), archive.flash)
         screenshots.push(await shot(ctx, page, 'empty-archive-failed'))
         await page.keyboard.press('Escape')
         await page.waitForTimeout(300)
@@ -5082,10 +5084,10 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
         const expandedGroups = await sidebarMenuItems(page)
         const tagChildren = expandedGroups.items.filter((item) => item.marker.startsWith('tag:'))
         check.fact(`「移到分组…」展开后子项：${JSON.stringify(tagChildren.map((item) => ({ m: item.marker, t: item.text })))}`)
-        check.eq('展开出本工作区的两个标签组（+ 不归入 + 新建）', tagChildren.map((item) => item.text), [
+        check.eqTexts('展开出本工作区的两个标签组（+ 不归入 + 新建）', tagChildren.map((item) => item.text), [
           '组一',
           '组二',
-          '不归入标签组',
+          '移出标签组',
           '新建标签组',
         ])
         check.eq('展开后菜单没关（子项追加在同一份菜单里，就地展开）', await contentCount(page, '[role="menu"]'), 1)

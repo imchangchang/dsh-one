@@ -30,23 +30,59 @@
 ## 跑法
 
 ```bash
-npm run verify:lab                 # 全量：build + 全部套件 + ledger + HTML 报告
-npm run verify:lab -- --suite F-01 # 只跑契约完备性
+npm run verify:lab                      # 全量：build + 全部套件 + ledger + HTML 报告（对着本机日常实例）
+npm run verify:lab -- --empty           # 全量：先起一个空实例网关再跑整轮（判据自足性，见下节）
+npm run verify:lab -- --suite F-01      # 只跑契约完备性
+npm run verify:lab -- --empty --suite F-49   # 空实例上只跑一条
 npm run verify:lab -- --headed --keep   # 开有界面的浏览器，跑完留服务器，人工点页面
 ```
+
+**两道跑法都绿才算过**（#162）：
+
+1. **日常实例整轮**（`npm run verify:lab`，连本机那个在跑的网关）——真实数据下的对照。它回答的是
+   「在用户真在用、有真实工作区与会话的实例上，界面装得起来、用起来对不对」。
+2. **空实例整轮**（`npm run verify:lab -- --empty`）——判据自足性。它现起一个**全新 `DSH_HOME`**
+   的真 dsh 网关（工作区与会话都是零，插件集是官方默认那一套），整轮对着它跑。它回答的是
+   「**套件的判据有没有吃运行环境的输入**」：以前这条只能靠撞——开发者日常实例上绿、换台机器
+   （或换一个语言）就红，一天撞了 5 次（#148 / #162）。
+
+空实例跑法是**自包含**的：端口现取空闲的（不碰用户正在用的 3080），`DSH_HOME` 指向本次运行新建的
+临时目录（不碰用户的 `~/.dsh`，也**不写** `~/.dsh/dsh-owned.json`），起的进程跑完**按 PID** 收掉
+（先 SIGTERM、不退再 SIGKILL），临时目录一并删掉。它跑完的产物单独放 `test/assembly-lab/out-empty/`，
+好与日常实例那一轮的报告并排看。
+
+空实例起来之后会往里放一份**最小数据**（两个工作区 + 各一个会话，走官方 `workspace/create` /
+`session/create`，只落在那份临时 `DSH_HOME` 里）：对话区那棵树要有**一条真打开的会话**才有
+composer、右栏、会话头这些座位，这件事页内夹具造不出来（那要整条 `session/control` 流与投影）。
+侧栏那批套件要的「有工作区、有若干会话行」则由**页内数据集夹具**给（见下节），两者分工不同。
 
 前置条件（两条）：
 
 1. `npm run build` 过（`verify:lab` 自己会先跑）。自有插件的 bundle 在
    `dist/assembly/plugins/`，页面要靠它装配。
-2. **本机有一个在跑的 dsh 网关**，端口缺省 3080，且它的 launch token 能从
+2. **日常实例那一轮**需要本机有一个在跑的 dsh 网关，端口缺省 3080，且它的 launch token 能从
    `~/.dsh/dsh-owned.json` 里读到（扩展 spawn/adopt 的实例都会记在那；手工起的实例用
    `LAB_TOKEN=<token> npm run verify:lab`）。网关**只读**——套件只做渲染与本地夹具交互，
-   token 换票是唯一的写类动作（与扩展自身连接路径相同）；**「只读」的三条边界与逐类普查
-   结果见下面「真实网关只读是什么意思」**。
+   token 换票是唯一的写类动作（与扩展自身连接路径相同）。**空实例那一轮不需要这条**：网关由
+   它自己起；**「只读」的三条边界与逐类普查结果见下面「真实网关只读是什么意思」**。
 
 环境变量：`LAB_GATEWAY`（网关地址）、`LAB_TOKEN`（token）、`LAB_PORT`（实验室端口，
-缺省 3179，`0` = 随机）。全部参数见 `node test/assembly-lab/verify.ts --help`。
+缺省 3179，`0` = 随机）。`--empty` 与 `--gateway` / `--token` / `LAB_GATEWAY` **互斥**（空实例
+那一轮连的就是本次现起的网关）。全部参数见 `node test/assembly-lab/verify.ts --help`。
+
+### 套件判据不许依赖运行环境（#162 立，硬约束）
+
+写套件时，凡是「这台机器上碰巧是什么样」的东西，**都不许进判据**：
+
+- **数据**（有几棵工作区、几条会话、它们叫什么、属于哪个分组）→ 由**页内数据集夹具**
+  声明（`dataset.ts`；`openTreePage` 的 `dataset` 选项，侧栏那两棵树默认就装 `SIDEBAR_DATASET`）。
+  要真数据的套件（与官方页并排对照、零工作区空态这几档）显式写 `dataset: null`。
+- **文案**（按钮、菜单、提示、读屏标签）→ 从插件词典读（`workspaceTree/locale.ts` 的 zh / en 两份）。
+  断言里写死中文会在英文页面上假红——页面语言是环境输入（日常实例 zh、空实例 en）。用法：
+  `check.eqText(label, actual, '取消置顶')`、`isText(actual, '未读')`、`hasText(text, '回收站')`
+  （都在 `harness.ts`，给词典里那条中文，自动按 zh / en 两种取值判）。
+- **不要放宽判据来让它变绿**：这些事修的是**数据与文案的来源**，不是期望的松紧。真做不到自控的
+  少数几档，改成「记事实 + 只判关系量」，并在注释里写明为什么。
 
 ### 自己起网关时必须给独立的 `DSH_HOME`（硬规矩）
 
@@ -134,6 +170,7 @@ F-01 主体里那三条还没有）；F-41 / F-49 等按 #162 的普查结论处
 - `test/assembly-lab/out/verify.lab.ledger.json`——台账（事实源，报告由它渲染）
 - `test/assembly-lab/out/verify.lab.report.html`——单文件报告（截图 base64 内嵌，可直接分发）
 - `test/assembly-lab/out/shots/*.png`——各套件截图
+- 空实例那一轮（`--empty`）的同样三份落在 `test/assembly-lab/out-empty/` 下（`--out <dir>` 可改）。
 
 人工开窗：跑 `--headed --keep`，浏览器打开的 `/` 是实验室首页，列出四棵树的页面链接。
 

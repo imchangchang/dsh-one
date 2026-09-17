@@ -567,7 +567,7 @@ export const STATUS_DOT_SUITE: LabSuite = {
           mine?.dot?.color !== undefined && mine.dot.color === probe && probe !== '',
           `dot=${String(mine?.dot?.color)} probe=${probe}`,
         )
-        check.eq('⑤ 手动未读：读屏文案是「未读」（与「已完成」不同）', mine?.dot?.labels, ['未读'])
+        check.eqTexts('⑤ 手动未读：读屏文案是「未读」（与「已完成」不同）', mine?.dot?.labels, ['未读'])
         check.eq('⑤ 手动未读：标题加粗 600（旧侧栏正本 `.session-title.unread` 的同一形态）', mine?.titleWeight, '600')
         // 「未读」与「已完成」可区分——点本身同形（都是官方 done 那颗），区分在两处：
         check.eq(
@@ -635,7 +635,7 @@ export const STATUS_DOT_SUITE: LabSuite = {
           searchRow?.dot?.state ?? null,
           'warning',
         )
-        check.eq('⑦ 搜索结果行：读屏文案同样是官方那一档', searchRow?.dot?.labels, ['等待审批'])
+        check.eqTexts('⑦ 搜索结果行：读屏文案同样是官方那一档', searchRow?.dot?.labels, ['等待审批'])
         check.ok(
           '⑦ 搜索结果行：解析色同样是 `--dsw-alias-state-warn-primary`',
           searchRow?.dot?.color === (await probeColor(own.page, WARN_TOKEN)),

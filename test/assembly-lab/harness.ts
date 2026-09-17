@@ -30,7 +30,17 @@ export interface Assertion {
  *
  * 判据一个字没放宽：能对上的永远是**同一个键**的那两种语言取值。
  */
+/**
+ * 官方命名空间的几条（我们的弹窗经官方 `t()` 取，值不归 `workspaceTree/locale.ts` 管）：
+ * 值取自官方词典本身（zh 页 / en 页各实测一次）。套件判这些文案时同样要两种语言都认。
+ */
+const OFFICIAL_EXTRA: Readonly<Record<string, readonly [string, string]>> = {
+  取消: ['取消', 'Cancel'],
+}
+
 export function texts(zhText: string): string[] {
+  const extra = OFFICIAL_EXTRA[zhText]
+  if (extra !== undefined) return [...extra]
   for (const [key, template] of Object.entries(ZH)) {
     if (template === zhText) return [zhText, EN[key] ?? zhText]
   }
@@ -49,8 +59,29 @@ export function texts(zhText: string): string[] {
     const english = (EN[key] ?? template).replace(/\{(\w+)\}/g, (all, name: string) => values[name] ?? all)
     return [zhText, english]
   }
+  // 只给了词典条目的**前缀**（例如判「菜单标题是『工作区: 某某』」时只写 '工作区:'）：
+  // 取那一条的前缀，zh / en 各一份。
+  for (const [key, template] of Object.entries(ZH)) {
+    if (!template.startsWith(zhText)) continue
+    const rest = template.slice(zhText.length)
+    if (!/^\s*\{\w+\}/.test(rest)) continue
+    const english = EN[key]
+    if (typeof english !== 'string') continue
+    return [zhText, english.split(/\{\w+\}/)[0] ?? english]
+  }
   // 词典里没有这一条（例如夹具自己起的名字）：原样返回，判据照旧只认这一份。
   return [zhText]
+}
+
+/**
+ * 一串实测文案里有没有词典里这条（**数组元素逐个等于**它的 zh / en 任一份）。
+ *
+ * 与 {@link hasText} 的差别：那个判「一段文字里含不含这条」，这个判「这一串条目里有没有
+ * 等于这条的那一项」。菜单项清单这类读数是数组，用这个。
+ */
+export function hasAnyText(actual: readonly (string | null | undefined)[], zhText: string): boolean {
+  const allowed = texts(zhText)
+  return actual.some((item) => typeof item === 'string' && allowed.includes(item))
 }
 
 /**
@@ -86,6 +117,22 @@ export class Check {
   eq(label: string, actual: unknown, expected: unknown): boolean {
     const same = JSON.stringify(actual) === JSON.stringify(expected)
     return this.ok(label, same, same ? String(actual) : `actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`)
+  }
+
+  /**
+   * 一组文案的逐项比较（见 {@link texts}）：期望写成一串词典里的中文（可以混着不是词典文案的
+   * 值，例如图标名 `minus`），实测值逐项等于它的 zh / en 任一份就算过。
+   */
+  eqTexts(label: string, actual: readonly string[] | undefined, expected: readonly string[]): boolean {
+    const list = Array.isArray(actual) ? actual : []
+    const same =
+      list.length === expected.length &&
+      expected.every((want, index) => texts(want).includes(list[index] ?? '\u0000'))
+    return this.ok(
+      label,
+      same,
+      same ? JSON.stringify(list) : `actual=${JSON.stringify(list)} expected（每项 zh/en 任一份）=${JSON.stringify(expected)}`,
+    )
   }
 
   /**
