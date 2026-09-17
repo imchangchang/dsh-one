@@ -125,6 +125,8 @@ export const COMBO_CACHE_KEY_SUITE: LabSuite = {
         pluginsDir,
         // 随机端口：姊妹服务器不跟别的实验室抢端口。
         port: 0,
+        // 姊妹服务器连的是同一台网关，跑法（外部实例 / 自起隔离实例）与母服务器一致。
+        external: ctx.lab.external,
         ...(ctx.lab.dshVersion === undefined ? {} : { version: ctx.lab.dshVersion }),
       })
       const appRev = (await ctx.lab.gatewayWire()).batches.filter((batch) => batch.phase === 'application')[0].rev
