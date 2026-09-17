@@ -12,10 +12,17 @@
  *   按 __ModuleLoader__.load 边界剥掉 blocked 段后伺服，见 assemblyMirror)。
  * - bootstrap 批只有 client-modules，永不过滤。
  *
- * 两棵树两份 block list（#70）：
- * - chat 树（装配对话区）：官方外框 + 官方侧栏都下线（#64 行为不变）
- * - sidebar 树（侧栏位装配）：只下官方外框，官方侧栏（品牌位/工作区树/
- *   设置入口/底部动作）原样进侧栏位，设置面板 = 官方 SettingsRoot modal
+ * 三棵树三份 block list（#70 立、#71 瘦身、#180 逐条复核）：
+ * - chat 树（装配对话区）：官方外框 + 官方侧栏都下线（#64 行为不变）；
+ *   对话区本身在这棵树上，对话流卡片全保留。
+ * - sidebar 树（侧栏位装配）：官方外框 + 对话区那几件下线，官方侧栏（品牌位/
+ *   工作区树/设置入口/底部动作）原样进侧栏位。
+ * - settings 树（设置独立成页）：官方外框 + 官方侧栏 + 对话区那几件下线，
+ *   设置子页组保留（那正是这一页的内容）。
+ *
+ * 每一条为什么在**这一棵**树上还要下线，理由写在各自的清单里（#180：22 个 id
+ * 逐条复核过一遍，判据是「这棵树有没有声明它注册的座位」——没声明的整件停车，
+ * 放回来不会多渲染任何东西，就不该继续挂在依赖名单上）。
  */
 
 /** 前端资产清单（从网关 / 注入 HTML 解析，哈希文件名不硬编码)。 */
@@ -72,69 +79,115 @@ const UI_LAYOUT: BlockedPlugin = {
 
 
 /**
- * 对话流卡片组（#71 瘦身）：chat 树无关区（会话页卡片/工具/工作流/设置
- * 子页等）。一条一理由；inject 闭包硬约束——保留 ui-input-trigger（ui-cordis
- * 的 inputTriggers 服务依赖，已核实其 inject 列表）。
+ * 对话流卡片组，**只在 settings 树里下线**（#71 瘦身，2026-09-18 #180 逐条复核后
+ * 从这里摘掉了 sidebar 树）。
+ *
+ * 为什么 sidebar 树不必再下线它们：这 7 件注册的座位全在对话区（`conversation.*` /
+ * `tool.call.*`），而 sidebar 树**一个都没声明**——它的 frame 只声明 `sidebar` 与
+ * `shell.overlay`，官方 ui-conversation（那些座位的声明方）也在这棵树上被下线，
+ * 整棵对话子树因此不存在（#180 在真树上读过槽位声明表：sidebar 树共 10 个名字，
+ * 一个 `conversation.*` 都没有）。座位没声明 = 官方 `slots.inject` 的回调永不跑 =
+ * 整件停车、不渲染任何东西、不抛错，所以在那棵树上挂着它只是白背一个 id 依赖。
+ *
+ * 为什么 settings 树继续下线：设置页声明了 keyed `main`（#74：官方 ui-conversation
+ * 的整棵对话子树挂在这个名字上，不声明它，官方 ui-agent-preset 的会话级 scope 会抛
+ * `slot "conversation.hero.agentPreset" is not declared`），于是这些座位在设置页里
+ * **是声明了的**，放回会真的注册进那棵子树。今天渲染不出来只因为设置页只渲染自己
+ * 那条 keyed 条目（`renderSlot('main', {}, { entryKey: dshOne.settings })`）——把设置页
+ * 的形态押在「我们恰好只渲染一条 keyed 条目」这条实现事实上不划算，所以这棵树继续
+ * 下线。判据是「这棵树有没有声明它注册的座位」，不是「放回去今天看起来会不会变」。
+ *
+ * 放回 sidebar 树那一步的 inject 闭包核过（7 件的 inject 服务在那棵树里都有提供方）：
+ * `slots` / `sessions` / `locale` / `remote.*` 与树无关；`commandUi` 由 ui-commands
+ * 提供（#164 起三棵树都不下线它）、`sidebarRight` 由 ui-sidebar-right 提供，两件都没
+ * 被下过线。缺服务是硬约束——boot 的规矩是一个条目没激活就整页抛错（#164 现场）。
  */
-const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
-  { id: '@deepseek-ai/dsh-client-ui-tool', reason: 'tool-call cards; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-client-ui-workflow-run', reason: 'workflow-run cards; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-client-ui-deliverables', reason: 'deliverables cards; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-client-ui-trajectory', reason: 'trajectory panel (390KB); no conversation area in the sidebar/settings trees' },
-  // ui-approval 曾在这条清单里（「approval cards; no conversation area」）。2026-09-17
-  // 摘除：它与 ui-user-questions 是官方安装里唯二**真的会发布**会话等待态的插件
-  // （第三个调用点 ui-session 只注册那条口子、自己不发布，见下面那一段），而等待态
-  // 正是侧栏会话行黄点的数据源（#140）——把发布者挡掉，侧栏页的等待态表恒空，
-  // 等提问 / 等审批的会话就显示成绿点。它们的卡片只往 `conversation.composer` 座位
-  // 渲染，而这个座位在侧栏 / 设置两棵树里没人声明，官方那两件用的是 `slots.inject`
-  //（等目标槽名被声明后再注册的正规挂法）——注册条件永不满足，所以放行不会多渲染
-  // 任何东西，也不会 loud throw。侧栏树保持原样的前提由 F-42 常驻把关。
-  { id: '@deepseek-ai/dsh-client-ui-attachment', reason: 'message attachment gallery; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-client-ui-subagent', reason: 'subagent cards; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-client-ui-jobs', reason: 'background-jobs cards; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-client-ui-goal', reason: 'goal cards; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-client-ui-plan', reason: 'plan cards; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-client-ui-message-feedback', reason: 'message feedback; no conversation area in the sidebar/settings trees' },
-  // ui-model-selection 曾在这条清单里（composer 里的模型选择面）。2026-09-16 摘除，
-  // 当时的理由写的是「0.1.6-alpha.1 的 wire 里已经没有这个条目」——**那条观察是错的**
-  //（#164 更正）：它看到的 wire 来自日常 profile，而那台机器装了另一仓的
-  // `@dsh-one/dsh-llm-provider`，它的 bundle patch 里 `disabled: true` 把
-  // `ui-model-selection` 与 `ui-settings-models` 两行禁掉了；全新 `DSH_HOME` 上
-  // 这两条一直在官方 wire 里（0.1.6-alpha.1 实测，见 F-55）。
-  // 教训：**「官方有没有这个插件」只能看全新 `DSH_HOME` 的 wire**，被自己的补丁
-  // 改过的 profile 拿来做这个判断一定得出反的结论。
-  // 摘除这个动作本身是对的（清单一长就与 wire 对不上），保持现状：它只在
-  // `conversation.input.model` 座位渲染，而侧栏 / 设置两棵树不声明对话区座位，
-  // 所以放着不渲染任何东西。
-  { id: '@deepseek-ai/dsh-client-ui-skill', reason: 'skill cards; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-client-ui-reference', reason: 'reference cards; no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-session-log-export', reason: 'session-log export (routed through the host save-dialog action, #71)' },
-  // ui-user-questions 曾在这条清单里（「user-question cards; no conversation area」）。
-  // 2026-09-17 摘除，理由与上一条 ui-approval 同：#140 的等待态数据源。官方安装里
-  // 只有三处调用 `uiSession.registerPendingInteraction`——本件（question 与
-  // plan-review 两档）、ui-approval（approval 档）、ui-session 自己；前两件之前被
-  // 挡掉之后，侧栏页一条等待态都发布不出来。`plan-review` 这一档就是本件发的
-  //（`pending.kind === "plan-review" ? 2 : 1` 的优先号），所以 ui-plan 不必放行
-  // ——它的 plan 卡片仍然只在对话区有用。
-  { id: '@deepseek-ai/dsh-client-ui-directory-picker-native', reason: 'native directory picker (VS Code host provides its own picker)' },
+const FLOW_SETTINGS_TREE: ReadonlyArray<BlockedPlugin> = [
+  { id: '@deepseek-ai/dsh-client-ui-tool', reason: 'tool-call cards; the settings tree declares the conversation seats (via keyed `main`) but is not a conversation page' },
+  { id: '@deepseek-ai/dsh-client-ui-attachment', reason: 'message attachment gallery; the settings tree declares the conversation seats (via keyed `main`) but is not a conversation page' },
+  { id: '@deepseek-ai/dsh-client-ui-subagent', reason: 'subagent cards; the settings tree declares the conversation seats (via keyed `main`) but is not a conversation page' },
+  { id: '@deepseek-ai/dsh-client-ui-jobs', reason: 'background-jobs cards; the settings tree declares the conversation seats (via keyed `main`) but is not a conversation page' },
+  { id: '@deepseek-ai/dsh-client-ui-plan', reason: 'plan cards; the settings tree declares the conversation seats (via keyed `main`) but is not a conversation page' },
+  { id: '@deepseek-ai/dsh-client-ui-message-feedback', reason: 'message feedback; the settings tree declares the conversation seats (via keyed `main`) but is not a conversation page' },
+  { id: '@deepseek-ai/dsh-session-log-export', reason: 'session-log export (routed through the host save-dialog action, #71); its seat is declared in the settings tree but nothing renders there' },
 ]
+
+/**
+ * 对话区那几件里**两棵树都要下线**的（sidebar + settings）：多一个硬理由，不只是形态。
+ *
+ * - 前四件（workflow-run / deliverables / trajectory / goal）的 inject 里都有官方
+ *   `uiConversation` 服务，而这个服务由 ui-conversation 提供——sidebar 树下线了
+ *   ui-conversation，服务不存在，放回它们会停在「未激活」，boot 一个条目没激活就整页
+ *   抛错（#164 现场：`@deepseek-ai/dsh-client-ui-model-selection: pending (waiting for
+ *   service: commandUi)`，整页连自有根节点都不出现）。这是**服务级**硬约束，不是形态
+ *   判断。settings 树里这个服务在（ui-conversation 只被 sidebar 树下线），所以那棵树
+ *   的理由仍是上一条清单的形态理由。
+ * - directory-picker-native 注册的两处座位里，`sidebar.workspaces.directoryFlow`
+ *   在 **sidebar 树真被声明**（官方 ui-workspace 的 WorkspaceBrowser 声明它，自有树
+ *   还要读它的占用态做「官方目录选择器接管」，见 dsh-workspace-tree）：放回它就会往
+ *   我们自己的树里注册官方原生目录选择器，形态与 #176 那条添加工作区流程都会变。
+ *   它在 settings 树里的两处座位同样都被声明（`conversation.hero.workspace.directoryFlow`
+ *   随 ui-conversation 的子树成立、`sidebar.workspaces.directoryFlow` 由 ui-workspace
+ *   声明），所以两棵树都继续下线。
+ */
+const FLOW_BOTH_TREES: ReadonlyArray<BlockedPlugin> = [
+  { id: '@deepseek-ai/dsh-client-ui-workflow-run', reason: 'injects the official `uiConversation` service, which the sidebar tree does not provide (ui-conversation is blocked there); boot fails when an entry never activates' },
+  { id: '@deepseek-ai/dsh-client-ui-deliverables', reason: 'injects the official `uiConversation` service, which the sidebar tree does not provide (ui-conversation is blocked there); boot fails when an entry never activates' },
+  { id: '@deepseek-ai/dsh-client-ui-trajectory', reason: 'injects the official `uiConversation` service, which the sidebar tree does not provide (ui-conversation is blocked there); boot fails when an entry never activates' },
+  { id: '@deepseek-ai/dsh-client-ui-goal', reason: 'injects the official `uiConversation` service, which the sidebar tree does not provide (ui-conversation is blocked there); boot fails when an entry never activates' },
+  { id: '@deepseek-ai/dsh-client-ui-directory-picker-native', reason: 'native directory picker; its `sidebar.workspaces.directoryFlow` seat is declared in the sidebar tree by the official WorkspaceBrowser, and the settings tree declares both of its seats' },
+]
+
+/**
+ * #180 从这份名单里摘除的（留档，别再挂回去）：
+ *
+ * - **ui-reference**：**没有任何座位贡献**（12.5KB 的 client.js 里一次
+ *   `slots.register` / `slots.inject` 都没有，只注册 `@` 触发源与自己的词典，
+ *   见官方 `dsh-client-ui-reference/lib/client.js` 的 `apply`）。它在对话区里也
+ *   只是给 composer 的 `@` 菜单贡献候选，自己什么也不画——原来那条
+ *   「reference cards; no conversation area」的理由是错的。两棵树里放回都
+ *   零渲染。
+ * - **ui-skill**：唯一注册的座位是 `tool.call.toolview`，而这个座位由 ui-tool
+ *   声明、ui-tool 在两棵树里都下线 ⇒ 两棵树都没声明它 ⇒ 整件停车（另有一处
+ *   `/` 触发源注册，只在 composer 渲染时才有去处）。两棵树里放回都零渲染。
+ *
+ * - ui-approval / ui-user-questions 更早（2026-09-17）就已摘除：它们是官方安装里
+ *   唯二**真的会发布**会话等待态的插件（第三个调用点 ui-session 只注册那条口子、
+ *   自己不发布），而等待态正是侧栏会话行黄点的数据源（#140）——把发布者挡掉，
+ *   侧栏页的等待态表恒空，等提问 / 等审批的会话就显示成绿点。它们的卡片只往
+ *   `conversation.composer` 座位渲染，官方那两件用的是 `slots.inject`（等目标槽名
+ *   被声明后再注册的正规挂法），sidebar 树没声明那个座位、注册条件永不满足，所以
+ *   在那棵树上放行既不多渲染东西也不抛错。（**更正**：#180 在真树上读声明表时发现
+ *   「侧栏 / 设置两棵树里没人声明这个座位」这句原注释只对 sidebar 树成立——设置页
+ *   声明了 keyed `main`，`conversation.composer` 在那棵树里是声明了的。）
+ * - ui-model-selection 也曾在这条清单里。2026-09-16 摘除，当时的理由写的是
+ *   「0.1.6-alpha.1 的 wire 里已经没有这个条目」——**那条观察是错的**（#164 更正）：
+ *   它看到的 wire 来自日常 profile，而那台机器装了另一仓的 `@dsh-one/dsh-llm-provider`，
+ *   它的 bundle patch 里 `disabled: true` 把 `ui-model-selection` 与
+ *   `ui-settings-models` 两行禁掉了；全新 `DSH_HOME` 上这两条一直在官方 wire 里
+ *   （0.1.6-alpha.1 实测，见 F-55）。教训：**「官方有没有这个插件」只能看全新
+ *   `DSH_HOME` 的 wire**，被自己的补丁改过的 profile 拿来做这个判断一定得出反的结论。
+ *   它今天三棵树都不下线：只在 `conversation.input.model` 座位渲染，sidebar 树没声明
+ *   那个座位（停车），settings 树声明了但不渲染对话区。
+ */
 
 /** 设置子页组（#71 瘦身）：设置独立成页后 chat/sidebar 树不再载设置子页。 */
 const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-settings-general', reason: 'General section (owns SettingsRoot/modal); only the settings tree needs it after settings became a page' },
   // ui-settings-models 曾在这条清单里（Models 设置节）。2026-09-16 摘除，当时的理由
-  // 与 CHAT_FLOW 里 ui-model-selection 那一段同一份错误观察（日常 profile 被另一仓的
+  // 与上面那一段摘除留档里 ui-model-selection 同一份错误观察（日常 profile 被另一仓的
   // `@dsh-one/dsh-llm-provider` 补丁改过），更正与教训见那一段。
-  // 它留在清单外是对的：本树不声明设置区座位，放着不渲染任何东西。
+  // 它留在清单外是对的：chat / sidebar 两棵树不声明设置区座位，放着不渲染任何东西。
   { id: '@deepseek-ai/dsh-client-ui-settings-plugins', reason: 'Plugins section; only the settings tree needs it after settings became a page' },
   { id: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory', reason: 'plugin-inventory section; only the settings tree needs it after settings became a page' },
 ]
 
 /**
- * sidebar 树 block list（#70，#71 瘦身）：官方外框 + 对话流卡片组 + 设置
- * 子页组。保留闭包：ui-settings（settingsScope 服务提供方，theme 依赖）、
- * ui-input-trigger（ui-cordis 的 inputTriggers 依赖）、ui-cordis（底部动作条）、
- * ui-commands（commandUi 服务，#164）。
+ * sidebar 树 block list（#70，#71 瘦身；#180 起不再背对话流卡片的 id）：官方外框 +
+ * 对话区那两件必须下线的 + 设置子页组 + 侧栏树专属（真正的对话区组件）。
+ * 保留闭包：ui-settings（settingsScope 服务提供方，theme 依赖）、ui-input-trigger
+ * （ui-cordis 的 inputTriggers 依赖）、ui-cordis（底部动作条）、ui-commands
+ * （commandUi 服务，#164）。
  */
 // 侧栏树专属追加：真正的对话区组件（卡片宿主 ui-conversation、卡片组 ui-chat、
 // 会话级 seat agent-preset）——侧栏这棵树没有对话区。
@@ -160,7 +213,7 @@ const SIDEBAR_ONLY: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-agent-preset', reason: 'session-scoped seat mounted in the conversation hero; nowhere to render in the sidebar tree' },
 ]
 
-export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT, ...CHAT_FLOW, ...SETTINGS_PAGES, ...SIDEBAR_ONLY]
+export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT, ...FLOW_BOTH_TREES, ...SETTINGS_PAGES, ...SIDEBAR_ONLY]
 
 /**
  * chat 树 block list（#64 行为 + #71 瘦身）：官方外框、官方侧栏、设置子页组。
@@ -179,18 +232,25 @@ export const CHAT_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
 ]
 
 /**
- * settings 树 block list（#70 设置独立成页 + #71 瘦身）：官方外框、官方
- * 侧栏、对话流卡片组。设置四件套/主题/权限/预设全保留（设置页内容）。
+ * settings 树 block list（#70 设置独立成页 + #71 瘦身）：官方外框、官方侧栏、
+ * 对话流卡片组（两棵树都下线的那 5 件 + 只在设置树下线的 7 件）。设置四件套/
+ * 主题/权限/预设全保留（设置页内容）。
  */
 export const SETTINGS_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
   UI_LAYOUT,
   {
     id: '@deepseek-ai/dsh-client-ui-sidebar',
-    // 设置页 frame 只声明侧栏壳子槽、不渲染 sidebar——ui-sidebar 的槽注册
-    // 在无人声明 'sidebar' 时 loud throw（spike #69 题3 实锤），必须下线
-    reason: 'settings tree declares the sidebar shell children but not the sidebar slot; ui-sidebar registration loud-throws when undeclared (#69)',
+    // 设置页 frame 只声明侧栏壳的四个子槽（品牌位/工作区树/底部动作），不声明
+    // `sidebar` 座位本身、也不渲染它——所以官方 ui-sidebar 的注册**不会被触发**
+    // （它的 register 在 `ctx.slots.inject("sidebar", …)` 里，
+    // dsh-client-ui-sidebar/lib/client.js:375：座位没声明就整件停车）。
+    // spike #69 当年写的理由（「无人声明 'sidebar' 时 loud throw」）在
+    // 0.1.6-alpha.1 的官方产物里**不成立**，#180 逐条复核时按源码更正；
+    // 下线它的理由改成形态本身：设置页不是侧栏位页，侧栏壳不该进来。
+    reason: 'settings tree declares only the sidebar shell children, not the sidebar seat: the settings page is not a sidebar page',
   },
-  ...CHAT_FLOW,
+  ...FLOW_BOTH_TREES,
+  ...FLOW_SETTINGS_TREE,
 ]
 
 /** block list → id 列表。 */

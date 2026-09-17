@@ -5,8 +5,9 @@
  * 数据源而不在映射：侧栏树的 `sessionStatuses`（官方同名函数的逐字移植）本来就把
  * `pendingInteraction` 映到 `warning`，但**等待态表在侧栏页里恒空**——官方往里发布
  * 条目只有一条口子（`uiSession.registerPendingInteraction`），而调用它的三件里，
- * `dsh-client-ui-approval` 与 `dsh-client-ui-user-questions` 都被侧栏树的 block list
- * 挡掉了（见 `src/ui/assembly/wireFilter.ts` 的 CHAT_FLOW）。
+ * `dsh-client-ui-approval` 与 `dsh-client-ui-user-questions` 当时都被侧栏树的 block
+ * 清单挡掉了（2026-09-17 已摘除，理由与留档见 `src/ui/assembly/wireFilter.ts`；
+ * #180 起那份清单里也不再挂对话流卡片）。
  *
  * 本套件怎么**确定性地**造出这一态（不能等用户当天恰好有等待会话，那种断言会偶红）：
  * 页面的官方客户端在一条 `$events` 逻辑流上收「转发过来的 Remote 事件」，其中
