@@ -335,7 +335,7 @@ export const UNREAD_COUNT_SUITE: LabSuite = {
       const boldRows = baseline?.sessions.filter((session) => session.unread) ?? []
       const boldDotColor = boldRows.map((session) => session.dotColor).find((color) => color !== '') ?? ''
       check.eq(
-        '① 同源：这一组里带未读标记的可见行数 = 角标第三项（回收站里那条与会话行都数不到鬼 id）',
+        '① 同源：这一组里带未读标记的可见行数 = 角标第三项（挪进回收站的那条与鬼 id 都没被数进去）',
         boldRows.length,
         marked.length,
       )
@@ -367,10 +367,18 @@ export const UNREAD_COUNT_SUITE: LabSuite = {
         activityTexts('activity.running', 1).includes(running?.byMark.running?.title ?? ''),
         `title=${JSON.stringify(running?.byMark.running?.title ?? '')}`,
       )
+      // 行上的未读标记不受角标那三个数字的互斥影响：那一条会话仍在手动未读集合里、行照旧加粗，
+      // 只是它在角标里占了「运行中」那一格。这条把两件事分开钉住（互斥只发生在角标的桶之间）。
+      const boldAfterRunning = (running?.sessions.filter((session) => session.unread) ?? []).length
       check.eq(
-        '② 同源：带未读标记的行少了「已经在跑的那一条」那一枚（角标把互斥算对了）',
-        (running?.sessions.filter((session) => session.unread) ?? []).length,
+        '② 行上的未读标记照旧（互斥只发生在角标的三个数字之间，行上加粗不受影响）',
+        boldAfterRunning,
         marked.length,
+      )
+      check.eq(
+        '② 同源：角标第三项 = 注入的可见条数 − 已挪进「运行中」的那一条',
+        running?.byMark.unread?.count,
+        marked.length - 1,
       )
 
       // ---- ③ 再投一条等待帧：等待交互那一枚也进来 ----
