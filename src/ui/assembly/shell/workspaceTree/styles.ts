@@ -417,6 +417,13 @@ export const CSS =
   // IconRemove* / IconSubtract* 零命中），所以这条横线用样式画。
   '.dshOneTree_checkDash{width:8px;height:2px;background:currentColor;border-radius:1px}' +
   '.dshOneTree_groupCheck{flex:none;cursor:pointer}' +
+  // #124：会话行的选中态勾选框自带这一段行内间隙。两行在选中态都被「行首插一枚勾选框」
+  // 右推同样的量：工作区行的 6px 由 `.dshOneTree_projectRow` 的 flex gap 给（框宽 16 + gap 6
+  // = 22px，就是官方 compact 档 `._item_1nxmc_92{gap:6px}` 那一档），而会话行的 gap 是 0
+  //（它靠元素各自的外边距排布），所以这 6px 由勾选框自己带上——两行的名字与标题因此各右移
+  // 同样 22px，「工作区名比会话标题靠右那一点」在进选中态前后不变（组内会话行同理：缩进在
+  // 行的 padding-left 上，不参与这段位移）。
+  '.dshOneTree_sessionRow .dshOneTree_check{margin-right:6px}' +
   // #102：置顶图钉（标题前常驻）与手动未读的加粗标题。颜色走官方 token（次级色，
   // 与行内其它标记同一档）；加粗值取自旧侧栏的 .session-title.unread（600）。
   '.dshOneTree_pin{flex:none;width:14px;height:14px;margin-right:4px;color:var(--dsw-alias-label-tertiary);align-items:center;display:inline-flex}' +

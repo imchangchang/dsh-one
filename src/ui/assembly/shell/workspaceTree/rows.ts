@@ -1135,7 +1135,10 @@ export function SessionRow({
     {
       className:
         `dshOneTree_sessionRow${(selectMode ? selected : isCurrent) ? ' dshOneTree_selected' : ''}${menuOpen ? ' dshOneTree_menuOpen' : ''}` +
-        `${flat && !showStatus && !selectMode ? ' dshOneTree_flatRowWithoutStatus' : ''}`,
+        // #124：这份「没有状态槽」的标记在选择态下同样成立（勾选框不再顶替状态槽，
+        // 所以标题那位 4px 左外边距也不是给勾选框让位用的了）；选择态的排布由此统一为
+        // 「正常态那一行 + 行首插一枚勾选框」，两行插入的量一致。
+        `${flat && !showStatus ? ' dshOneTree_flatRowWithoutStatus' : ''}`,
       role: 'treeitem',
       'aria-selected': selectMode ? selected : isCurrent,
       'data-dshone-tree-row': 'session',
@@ -1195,6 +1198,11 @@ export function SessionRow({
             setMenuOpen(true)
           },
       children: [
+        // #108/#124：选择态的勾选框**插在行首、不顶替状态槽**（与工作区行把框插在文件夹
+        // 图标之前同一处置）。顶替的话这一行只有勾选框顶掉状态槽的那 0px 位移，而工作区行的
+        // 名字被右推「框宽 16 + 行内 gap 6」——两行一起看就是「进选择态后缩进关系断了」。
+        // 现在两行插入同样的量：工作区行那 6px 由行的 flex gap 给，会话行 gap 是 0
+        // （它的元素各自带外边距），所以勾选框自己带上这 6px（见样式里那条 margin-right）。
         selectMode
           ? h(
               'span',
@@ -1208,11 +1216,12 @@ export function SessionRow({
               },
               h(SelectMark, { on: selected, disabled: !selectable }),
             )
-          : !flat || showStatus
-            ? showStatus
-              ? h(SessionStatusDots, { key: 'status', statuses, tr })
-              : h('span', { key: 'status', className: 'dshOneTree_slot' })
-            : null,
+          : null,
+        !flat || showStatus
+          ? showStatus
+            ? h(SessionStatusDots, { key: 'status', statuses, tr })
+            : h('span', { key: 'status', className: 'dshOneTree_slot' })
+          : null,
         pinned ? h(PinMark, { key: 'pin', sessionId: node.id }) : null,
         // #115 编辑态：标题位就地换成输入框（prefill + 全选由树层给初值与选区），
         // 行其余部分照旧——行结构与不编辑时完全一致，重绘才不会把输入框换掉。
