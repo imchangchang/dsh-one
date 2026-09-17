@@ -59,6 +59,7 @@ import { EXPAND_DEFAULTS_SUITE } from './expandDefaultsSuites.ts'
 import { UNREAD_COUNT_SUITE } from './unreadCountSuites.ts'
 import { LIVENESS_SUITE } from './livenessSuites.ts'
 import { RECYCLE_DRAWER_COMPLETE_SUITE } from './recycleDrawerCompleteSuites.ts'
+import { FRESH_PROFILE_BOOT_SUITE } from './freshProfileSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6138,4 +6139,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #154 回收站抽屉补齐（F-53：F-49…#152、F-50 #155、F-51 #151、F-52 #153、F-54 #156 已占，
   // 按「从未占用的继续」顺延；套件本体在 recycleDrawerCompleteSuites.ts，同为独立文件）。
   RECYCLE_DRAWER_COMPLETE_SUITE,
+  // #164 全新 DSH_HOME 上的 boot（F-55：F-01…F-54 与 R-06 已占，按「从未占用的继续」
+  // 顺延；套件本体在 freshProfileSuites.ts，同为独立文件，少一处合入热点。
+  // 它自己起一台临时 DSH_HOME 的网关，见那个文件头。
+  FRESH_PROFILE_BOOT_SUITE,
 ]

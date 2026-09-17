@@ -115,6 +115,13 @@ test('filterWire（sidebar 树）：外框+对话流+设置子页剥除，官方
   assert.ok(!SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-workspace'))
   assert.ok(!SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-settings'))
   assert.ok(!SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-input-trigger'))
+  // #164 的 boot 闭包：ui-commands 必须放行（官方 ui-model-selection 按服务名依赖它的
+  // commandUi，挡着就是「一个条目没激活 → 整页 boot 失败」，干净 profile 上整棵树挂不上）；
+  // ui-permission-presets 当初被挡的理由只有「依赖 commandUi」，一并放行；
+  // ui-model-selection 本来就不在列（它只在对话区的座位渲染，侧栏树不声明那个座位）。
+  assert.ok(!SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-commands'), 'ui-commands 在侧栏树上必须放行（#164）')
+  assert.ok(!SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-permission-presets'), 'ui-permission-presets 在侧栏树上必须放行（#164）')
+  assert.ok(!SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-model-selection'), 'ui-model-selection 不在侧栏树 block list 里')
   // sidebar frame 插件替换 shell 位。
   const shell = filtered.entries.filter((e) => e.id === SIDEBAR_SHELL_PLUGIN_ID)
   assert.equal(shell.length, 1)

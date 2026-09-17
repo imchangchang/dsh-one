@@ -585,6 +585,56 @@ export async function launchBrowser(headless = true): Promise<Browser> {
   return chromium.launch({ headless })
 }
 
+/**
+ * 等 fiber 状态**静下来**再下结论（F-10 / F-55 共用）。
+ *
+ * 为什么不能只睡一个固定时长：失败发生在会话级 scope 创建那一刻（#74 那条就是），
+ * 而那一刻取决于会话数据什么时候到——睡短了会漏，睡长了每棵树白等。这里改成看
+ * `internal/status` 事件的增长：连续 `quietMs` 没有新事件就当这棵树装完了，
+ * 上限 `maxMs` 兜底（跑着的会话会持续推流，不能无限等）。
+ */
+export async function waitForFiberQuiet(
+  page: Page,
+  check: Check,
+  label: string,
+  options: { quietMs?: number; maxMs?: number } = {},
+): Promise<FiberProbeFacts> {
+  const quietMs = options.quietMs ?? 1500
+  const maxMs = options.maxMs ?? 15_000
+  const started = Date.now()
+  let facts = await fiberFacts(page)
+  let lastEvents = facts?.events ?? -1
+  let quietSince = Date.now()
+  while (Date.now() - started < maxMs) {
+    await page.waitForTimeout(250)
+    const next = await fiberFacts(page)
+    if (next === null) break
+    facts = next
+    if (next.events !== lastEvents) {
+      lastEvents = next.events
+      quietSince = Date.now()
+      continue
+    }
+    if (Date.now() - quietSince >= quietMs) break
+  }
+  check.fact(`${label}：fiber 探针等待 ${String(Date.now() - started)}ms 后静下来（事件数 ${String(facts?.events ?? -1)}）`)
+  if (facts === null) throw new Error(`${label}: fiber 探针没装上（页面里没有 __LAB_FIBER__）`)
+  return facts
+}
+
+/** 一条失败 scope 的人话描述（失败信息里直接点名插件、状态与原因）。 */
+export function describeFiberFailure(fact: FiberScopeFact): string {
+  const who = fact.plugin ?? `无主 scope（uid=${String(fact.uid)}${fact.name === '' ? '' : `, name=${fact.name}`}）`
+  return `${who}: ${fact.error === '' ? `状态 ${fact.prev} → ${fact.state}` : fact.error}`
+}
+
+/** 各状态的 scope 数（报告里的观测行用）。 */
+export function fiberStateCounts(facts: FiberProbeFacts): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const scope of facts.scopes) counts[scope.state] = (counts[scope.state] ?? 0) + 1
+  return counts
+}
+
 // ---------------------------------------------------------------------------
 // 夹具：页面与网关之间那条 mux WebSocket 上的官方转发事件（`$events`）
 // ---------------------------------------------------------------------------
