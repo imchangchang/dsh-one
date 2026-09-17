@@ -1107,8 +1107,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
     // 文案包一层带标记的 span：菜单项的类名是官方哈希，验证套件与样式都不该认它
     //（与行菜单其它项同一做法，见 rows.ts 的 sessionMenuItem）。
     // #109：这一节的项住在会话行菜单「移到分组…」的**就地展开**里（不再是菜单末尾的一节），
-    // 所以**不带分隔线与小标题**（#109 的会话行菜单没有分隔线）；缩进由 rows.ts 的
-    // `.dshOneTree_submenuItem` 承担。`data-dshone-tree-item` 标记照旧（验证套件按它认项）。
+    // 所以**不带分隔线与小标题**（#109 的会话行菜单没有分隔线）；文字列由 rows.ts 的
+    // `.dshOneTree_submenuItem` 标记 + styles.ts 那条规则一起定（#174 起与父项文字严格对齐，
+    // 即不再额外缩进）。`data-dshone-tree-item` 标记照旧（验证套件按它认项）。
     const label = (suffix: string, text: string): unknown =>
       h('span', { 'data-dshone-tree-item': `${TAG_MENU_PREFIX}${suffix}` }, text)
     return {
