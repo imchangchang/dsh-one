@@ -83,7 +83,10 @@ const GEOMETRY_PROBES: ReadonlyArray<{ label: string; selector: string; props: r
   { label: '行内图标按钮', selector: '.dshOneTree_rowIconButton', props: ['width', 'height', 'borderRadius'] },
   { label: '顶栏（分节头）', selector: '.dshOneTree_sectionHeader', props: ['height', 'borderRadius'] },
   { label: '顶栏图标按钮', selector: '.dshOneTree_iconButton', props: ['width', 'height', 'borderRadius'] },
-  { label: '搜索框', selector: '.dshOneTree_searchExpanded', props: ['height', 'borderRadius'] },
+  // 搜索框量的是**折叠态**（#132 起这才是默认那一态；展开态在下面单独点开量一遍）——
+  // 折叠态的圆角是百分比（50%），按 readProbes 的口径（只收写死的 px）会被跳过，
+  // 所以这里实际读到的是高度。
+  { label: '搜索框（折叠态）', selector: '.dshOneTree_search', props: ['height', 'borderRadius'] },
   { label: '分组胶囊', selector: '.dshOneTree_pill', props: ['height', 'fontSize', 'borderRadius'] },
   { label: '回收站入口主区', selector: '.dshOneTree_footerMain', props: ['height', 'borderRadius', 'fontSize'] },
   { label: '回收站入口动作按钮', selector: '.dshOneTree_footerIconButton', props: ['width', 'height', 'borderRadius'] },
@@ -255,7 +258,7 @@ export const SCALE_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏风格档位表（#113）：几何读数逐项落在官方档位表里，菜单统一官方紧凑档（SCALE 套件）',
   expect:
-    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **几何读数逐项有出处**——会话行 / 工作区行 / 行标题 / 行时间 / 行内图标位 / 行内图标按钮 / 顶栏（分节头）/ 顶栏图标按钮 / 搜索框 / 分组胶囊 / 回收站入口行主区与动作按钮 / 当前工作区胶囊 / 抽屉头 / 抽屉分块块头 / 抽屉会话行的圆角、高度、字号、行高读数，每一条都能在 `styles.ts` 那份官方档位表（紧凑档 / 标准档 / 容器档）里按属性对上出处（期望值从档位表读，不硬编码）；单独钉住的关键值里，**行标题文字是标准档的 14px/20px**（#123 起标题文字取官方标题档，不再跟紧凑档的 12px/18px，完整断言在 F-30）。② **菜单统一官方紧凑档**：侧栏里仍存在的两份菜单（分组胶囊、会话行 ⋯；#131 前是「视图选项」那一份，它退役后换成会话行菜单，口径不变）都开一遍，官方 Menu 的项（渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px）、项内图标盒（14×14）、分组标题（11px / 16px / 内边距 4px 7px）、分隔线（外边距 2px）、列表容器（内边距 2px / 圆角 7px）逐项等于官方紧凑档实测值；两份菜单的项几何彼此一致（同一侧栏里只有一种菜单密度）。全程零 pageerror。',
+    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **几何读数逐项有出处**——会话行 / 工作区行 / 行标题 / 行时间 / 行内图标位 / 行内图标按钮 / 顶栏（分节头）/ 顶栏图标按钮 / 搜索框（两态：#132 起默认折叠，折叠态与点开后的展开态各量一遍）/ 分组胶囊 / 回收站入口行主区与动作按钮 / 当前工作区胶囊 / 抽屉头 / 抽屉分块块头 / 抽屉会话行的圆角、高度、字号、行高读数，每一条都能在 `styles.ts` 那份官方档位表（紧凑档 / 标准档 / 容器档）里按属性对上出处（期望值从档位表读，不硬编码）；单独钉住的关键值里，**行标题文字是标准档的 14px/20px**（#123 起标题文字取官方标题档，不再跟紧凑档的 12px/18px，完整断言在 F-30）、**搜索框展开态圆角是标准档的 10px**。② **菜单统一官方紧凑档**：顶栏「视图选项」与分组胶囊两份菜单都开一遍，官方 Menu 的项（渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px）、项内图标盒（14×14）、分组标题（11px / 16px / 内边距 4px 7px）、分隔线（外边距 2px）、列表容器（内边距 2px / 圆角 7px）逐项等于官方紧凑档实测值；两份菜单的项几何彼此一致（同一侧栏里只有一种菜单密度）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -306,6 +309,43 @@ export const SCALE_SUITE: LabSuite = {
       const slot = treeProbes.find((probe) => probe.label === '行内图标位')
       check.eq('行内图标位宽 = 标准档 16px', slot?.readings.width, SCALE_TIERS.standard.slotWidth)
       check.eq('行内图标位高 = 标准档 20px', slot?.readings.height, SCALE_TIERS.standard.slotHeight)
+
+      // ---- 搜索框两态（#132）----
+      // 折叠态上面已经量过（默认那一态）；展开态点开放大镜再量一遍——两态的高度与圆角
+      // 是两组不同的官方原值（搜索框 28px / 展开态 30px + 10px 圆角），只量一态就漏一半。
+      const collapsedSearch = treeProbes.find((probe) => probe.label === '搜索框（折叠态）')
+      check.ok(
+        '搜索框（折叠态）：量到了（它是 #132 起的默认态）',
+        collapsedSearch !== undefined && Object.keys(collapsedSearch.readings).length > 0,
+        JSON.stringify(collapsedSearch?.readings ?? null),
+      )
+      await page.click('[data-dshone-tree-action="search"]')
+      await page.waitForTimeout(300)
+      const expandedProbes = await readProbes(page, [
+        { label: '搜索框（展开态）', selector: '.dshOneTree_searchExpanded', props: ['height', 'borderRadius'] },
+      ])
+      const expandedSearch = expandedProbes.find((probe) => probe.label === '搜索框（展开态）')
+      check.fact(`搜索框两态读数：折叠=${JSON.stringify(collapsedSearch?.readings ?? null)} 展开=${JSON.stringify(expandedSearch?.readings ?? null)}`)
+      check.ok('搜索框（展开态）：点开放大镜后量到了', expandedSearch !== undefined, JSON.stringify(expandedProbes))
+      for (const probe of expandedProbes) {
+        for (const [prop, value] of Object.entries(probe.readings)) {
+          const source = sourceOf(prop, value)
+          check.ok(`${probe.label}：${prop} = ${value} 能在档位表里找到出处`, source !== null, source ?? '不在档位表里')
+        }
+      }
+      check.eq(
+        '搜索框（展开态）：圆角 = 标准档 searchExpandedRadius（10px）',
+        expandedSearch?.readings.borderRadius,
+        SCALE_TIERS.standard.searchExpandedRadius,
+      )
+      check.eq(
+        '搜索框两态同高（VS Code 档里两者都是 26px：这一列只有一种控件高度，官方档才是 28 vs 30）',
+        collapsedSearch?.readings.height,
+        expandedSearch?.readings.height,
+      )
+      check.eq('搜索框（折叠态）：高度 = 紧凑档的图标按钮边长（官方两侧同源：28px 槽位 / 28px 按钮）', collapsedSearch?.readings.height, SCALE_TIERS.compact.iconButtonSize)
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(250)
       screenshots.push(await shot(ctx, page, 'scale-tree-compact'))
 
       // ---- 抽屉内部（整块盖住树区，开着才量得到）----

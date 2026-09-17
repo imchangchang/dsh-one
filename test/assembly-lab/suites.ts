@@ -40,6 +40,7 @@ import { SUBMENU_INDENT_SUITE } from './submenuIndentSuites.ts'
 import { MODAL_COMPACT_SUITE } from './modalCompactSuites.ts'
 import { VIEW_OPTIONS_RETIRED_SUITE } from './viewOptionsSuites.ts'
 import { TOPBAR_INLINE_SUITE } from './topbarInlineSuites.ts'
+import { SEARCH_COLLAPSE_SUITE } from './searchCollapseSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -499,11 +500,12 @@ export const INTERACT_SUITE: LabSuite = {
  */
 const PARITY_PAIRS: ReadonlyArray<{ suffix: string; props: readonly string[]; geometry?: 'width' | 'height' | 'none' }> = [
   { suffix: 'sectionHeader', props: ['height', 'borderRadius', 'paddingLeft', 'marginTop', 'marginBottom', 'marginRight'] },
-  // 搜索栏（#99）：自有树常驻官方那套 UI 的**展开态**（30px 高、10px 圆角、.5px 边框），
-  // 官方对照档默认折叠（28px 圆胶囊），所以套件先把官方那份点开（见下面 run 里的说明），
-  // 两侧同处展开态后逐项比样式。**矩形高度**可比（30px 对 30px），**宽度不可比**：
-  // 自有树顶栏比官方多三枚图标（折叠展开全部 / 添加工作区 / 设置齿轮，另有多选入口；
-  // #131 起视图选项那一枚已退役），搜索栏分到的可用宽度本来就不同——那是功能带来的差异。
+  // 搜索栏（#99 立骨架、#132 起两态）：自有树与官方页**默认都是收起态**（28px 圆胶囊），
+  // 点开后都是展开态（30px 高 / 10px 圆角）。所以这一组两态各比一遍：先在两侧的默认
+  // 折叠态下比（下面 run 里的 collapsed 块），再把两侧都点开、同处展开态后比（主循环）。
+  // **矩形宽度不比**（geometry 'none'）：自有树顶栏比官方多几枚图标（折叠展开全部 /
+  // 添加工作区 / 设置齿轮，另有多选入口；#131 起视图选项那一枚已退役），搜索栏分到的
+  // 可用宽度本来就不同——那是功能带来的差异。
   { suffix: 'search', props: ['height', 'borderRadius'], geometry: 'none' },
   { suffix: 'searchButton', props: ['width', 'height', 'borderRadius'] },
   { suffix: 'iconButton', props: ['width', 'height', 'borderRadius'] },
@@ -563,18 +565,15 @@ export const PARITY_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏树外观与几何对齐官方（PARITY 套件，260/340/500 三档宽度）',
   expect:
-    '同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索胶囊、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。四组例外都写明了理由：**列表容器只比宽度**（自有树多一条分组过滤条，容器矮一行是功能带来的）、**相对时间只比高度**（#109 的 E7 把当前工作区那一组排到最前，官方页仍按注册顺序，两侧取到的可能是不同会话的相对时间，而宽度正是被文本撑出来的）、**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。',
+    '同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索栏两态、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。**搜索栏（#132 起两态）**：两侧默认都是折叠态，所以先在默认的折叠态下比一遍（28px 圆胶囊那一支），再把两侧各自点开、同处展开态后进主循环（30px / 10px 圆角那一支）——两态都覆盖，不是只比一态。四组例外都写明了理由：**列表容器只比宽度**（自有树多一条分组过滤条，容器矮一行是功能带来的）、**相对时间只比高度**（#109 的 E7 把当前工作区那一组排到最前，官方页仍按注册顺序，两侧取到的可能是不同会话的相对时间，而宽度正是被文本撑出来的）、**搜索栏只比样式不比矩形**（自有树顶栏比官方多几枚图标，可用宽度本来就不同）、**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const own = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
     const official = await openTreePage(ctx.browser, ctx.lab, route('sidebar-official'), { width: 380, height: 900 })
     try {
-      // #99：自有树的搜索栏常驻**展开态**（折叠态的放大镜胶囊退役），官方对照档默认
-      // 是折叠态——两侧要逐项可比，先把官方页的搜索点开：官方那套 UI 的展开态与自有树
-      // 是同一份几何（30px 高、10px 圆角、放大镜按钮在展开态高 30px）。这一步只切官方
-      // 页的呈现状态，不碰任何数据。
-      await official.page.click('[class*="_searchButton"]')
-      await official.page.waitForTimeout(200)
+      // #132 起自有树的搜索栏与官方页一样是**两态的**、默认都收起：下面先把两侧的默认
+      // 折叠态比一遍（同一份「都还没点开」的现场），再各自点开、同处展开态后进主循环
+      // 逐项比（原来那条流程）。两边都只切呈现状态，不碰任何数据。
       check.fact(
         `对齐口径：自有树（.dshOneTree_*）对官方对照档（官方 hash 类名，按类名后缀配对），逐组比 computed style 各属性 + 几何矩形；共 ${String(PARITY_PAIRS.length)} 组元素 × 3 档宽度（260/340/500）`,
       )
@@ -623,6 +622,32 @@ export const PARITY_SUITE: LabSuite = {
         alignedDensity.styles.height,
         officialDensity.styles.height,
       )
+
+      // ---- 搜索栏：两侧默认折叠态先比一遍（#132 起两边都默认收起，这是同一份现场） ----
+      // 折叠态的读数与展开态取值不同（28px 圆胶囊 vs 30px 圆角框），所以这一遍不是主循环
+      // 的重复：主循环在两侧点开之后跑，比的是展开态。
+      for (const pair of PARITY_PAIRS.filter((candidate) => candidate.suffix === 'search' || candidate.suffix === 'searchButton')) {
+        const a = await samplePair(own.page, pair.suffix, pair.props)
+        const b = await samplePair(official.page, pair.suffix, pair.props)
+        const label = `折叠态 w=340 ${pair.suffix}`
+        if (!check.ok(`${label}：两侧都取到元素`, a.found && b.found, `own=${String(a.found)} official=${String(b.found)}`)) continue
+        check.fact(`${label}：own=${JSON.stringify(a.styles)} (${String(a.rect.width)}×${String(a.rect.height)}) official=${JSON.stringify(b.styles)} (${String(b.rect.width)}×${String(b.rect.height)})`)
+        for (const prop of pair.props) {
+          check.ok(`${label}：${prop} 一致`, a.styles[prop] === b.styles[prop], `own=${a.styles[prop]} official=${b.styles[prop]}`)
+        }
+        if (pair.suffix === 'searchButton') {
+          check.ok(
+            `${label}：几何矩形一致（折叠态两侧都是同一枚图标按钮）`,
+            a.rect.width === b.rect.width && a.rect.height === b.rect.height,
+            `own=${String(a.rect.width)}×${String(a.rect.height)} official=${String(b.rect.width)}×${String(b.rect.height)}`,
+          )
+        }
+      }
+      // 各自点开，同处展开态进主循环（自有树点它自己的放大镜，官方点官方那一枚）。
+      await own.page.click('[data-dshone-tree-action="search"]')
+      await official.page.click('[class*="_searchButton"]')
+      await own.page.waitForTimeout(250)
+      await official.page.waitForTimeout(250)
 
       for (const width of [260, 340, 500]) {
         await own.page.setViewportSize({ width, height: 900 })
@@ -1608,9 +1633,11 @@ export const MULTIOPEN_SUITE: LabSuite = {
 // ---------------------------------------------------------------------------
 
 /**
- * 侧栏骨架（#99 B 段）的四区断言：自绘顶栏（官方搜索栏展开态 + 折叠展开全部 +
- * 添加工作区两项菜单 + 设置齿轮）、单胶囊分组条、底部回收站入口行（官方
- * `sidebar.footer.action` 座位，与官方 cordis-panel 并存）、底部设置行隐藏。
+ * 侧栏骨架（#99 B 段）的四区断言：自绘顶栏（官方搜索栏 + 折叠展开全部 + 添加工作区两项
+ * 菜单 + 设置齿轮）、单胶囊分组条、底部回收站入口行（官方 `sidebar.footer.action` 座位，
+ * 与官方 cordis-panel 并存）、底部设置行隐藏。搜索栏按 **#132** 的新口径测**两态**：
+ * 初始是收起态（一枚 28px 放大镜），点开才展开成官方展开态（30px / 10px 圆角），
+ * Esc 收起并清空——两态各自的断言都在下面，不留「只看一态」的空档。
  *
  * 数据面仍旧是真实网关只读 + 假宿主；分组状态注入到假宿主的状态存储里（与 F-07 同
  * 一套做法），这样单胶囊的下拉与管理对话框有确定的内容可断言。
@@ -1618,9 +1645,9 @@ export const MULTIOPEN_SUITE: LabSuite = {
 export const SKELETON_SUITE: LabSuite = {
   id: 'F-12',
   phase: 'new-feature',
-  name: '侧栏骨架四区（#99）：顶栏四项 + 官方搜索栏 + 单胶囊分组条 + 底部回收站入口行（SIDEBAR-SKELETON 套件）',
+  name: '侧栏骨架四区（#99）：顶栏四项 + 官方搜索栏两态 + 单胶囊分组条 + 底部回收站入口行（SIDEBAR-SKELETON 套件）',
   expect:
-    '#99 定的四区骨架在真实装配页上成立：① 顶栏一行里搜索栏（官方那套 UI 的展开态，30px 高 / 10px 圆角）、折叠展开全部、添加工作区、设置齿轮四件都在，且折叠全部真的收起整棵树（#131 起顶栏就是这四件加多选入口，视图选项那一枚已退役）；② 添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录），第二项经宿主能力口发出 `vscode.workspaceCreate`；③ 设置齿轮经宿主能力口发出 `vscode.openSettings`（假宿主只记录，真宿主开设置页），同时官方 `sidebar.settings` 那一行不再渲染；④ 分组过滤条是单胶囊 + 成员计数 + ▾，下拉含「全部工作区 / 各组 / 新建分组… / 管理分组…」，管理分组对话框列出全部组；⑤ 回收站入口行在官方 `sidebar.footer.action` 座位里、与官方 cordis-panel 条目并存、不在自有浏览区 DOM 内，点它开现有抽屉。全程零 pageerror。',
+    '#99 定的四区骨架在真实装配页上成立：① 顶栏一行里搜索栏（#132 起是**两态**——初始收起态 28px 圆胶囊 + 放大镜、点开后展开态 30px 高 / 10px 圆角 / .5px 实线边框且有输入框与清除钮，Esc 收起并清空）、折叠展开全部、添加工作区、设置齿轮四件都在，且折叠全部真的收起整棵树；② 添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录），第二项经宿主能力口发出 `vscode.workspaceCreate`；③ 设置齿轮经宿主能力口发出 `vscode.openSettings`（假宿主只记录，真宿主开设置页），同时官方 `sidebar.settings` 那一行不再渲染；④ 分组过滤条是单胶囊 + 成员计数 + ▾，下拉含「全部工作区 / 各组 / 新建分组… / 管理分组…」，管理分组对话框列出全部组；⑤ 回收站入口行在官方 `sidebar.footer.action` 座位里、与官方 cordis-panel 条目并存、不在自有浏览区 DOM 内，点它开现有抽屉。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const groupsState = {
@@ -1657,38 +1684,59 @@ export const SKELETON_SUITE: LabSuite = {
       await page.waitForTimeout(200)
 
       // ---- ① 顶栏一行四件 ----
-      const bar = await page.evaluate(() => {
-        const row = document.querySelector('[data-dshone-tree="top-bar"]')
-        if (row === null) return null
-        const action = (name: string): boolean => row.querySelector(`[data-dshone-tree-action="${name}"]`) !== null
-        const input = row.querySelector<HTMLInputElement>('[data-dshone-tree="search-input"]')
-        const searchBox = row.querySelector('[data-dshone-tree="search-box"]')
-        const searchStyle = searchBox === null ? null : getComputedStyle(searchBox)
-        const inputStyle = input === null ? null : getComputedStyle(input)
-        return {
-          actions: {
-            collapseAll: action('collapse-all'),
-            addWorkspace: action('add-workspace'),
-            settings: action('settings'),
+      // 搜索栏是**两态**的（#132：平时一枚放大镜，点开才展开成输入框），所以这里两态各
+      // 量一遍：收起态按官方折叠态那一支（28px 圆胶囊、无边框、输入框与清除钮不在场），
+      // 展开态按官方展开态那一支（30px 高 / 10px 圆角 / .5px 实线边框、输入框 + 清除钮）。
+      const readBar = async (): Promise<{
+        actions: { collapseAll: boolean; addWorkspace: boolean; settings: boolean; viewOptions: boolean }
+        search: {
+          state: string
+          height: string
+          radius: string
+          borderWidth: string
+          borderStyle: string
+          inputPresent: boolean
+          clearPresent: boolean
+          ariaExpanded: string
+          placeholder: string
+          opacity: string
+          tabIndex: number
+        }
+      } | null> =>
+        page.evaluate(() => {
+          const row = document.querySelector('[data-dshone-tree="top-bar"]')
+          if (row === null) return null
+          const action = (name: string): boolean => row.querySelector(`[data-dshone-tree-action="${name}"]`) !== null
+          const input = row.querySelector<HTMLInputElement>('[data-dshone-tree="search-input"]')
+          const searchBox = row.querySelector('[data-dshone-tree="search-box"]')
+          const searchStyle = searchBox === null ? null : getComputedStyle(searchBox)
+          const inputStyle = input === null ? null : getComputedStyle(input)
+          return {
+            actions: {
+              collapseAll: action('collapse-all'),
+              addWorkspace: action('add-workspace'),
+              settings: action('settings'),
             /** #131：视图选项那一枚退役了，顶栏这一行只剩四件。 */
             viewOptions: action('view-options'),
-          },
-          search: {
-            found: searchBox !== null && input !== null,
-            height: searchStyle?.height ?? '',
-            radius: searchStyle?.borderRadius ?? '',
-            borderWidth: searchStyle?.borderTopWidth ?? '',
-            borderStyle: searchStyle?.borderTopStyle ?? '',
-            placeholder: input?.placeholder ?? '',
-            opacity: inputStyle?.opacity ?? '',
-            tabIndex: input?.tabIndex ?? -1,
-            /** #99：折叠态的放大镜胶囊退役——页面上不该再有那一枚。 */
-            retiredPill: document.querySelector('[data-dshone-tree="search-pill"]') !== null,
-          },
-        }
-      })
+            },
+            search: {
+              state: searchBox?.getAttribute('data-dshone-tree-state') ?? '',
+              height: searchStyle?.height ?? '',
+              radius: searchStyle?.borderRadius ?? '',
+              borderWidth: searchStyle?.borderTopWidth ?? '',
+              borderStyle: searchStyle?.borderTopStyle ?? '',
+              inputPresent: input !== null,
+              clearPresent: row.querySelector('[data-dshone-tree="search-clear"]') !== null,
+              ariaExpanded: row.querySelector('[data-dshone-tree-action="search"]')?.getAttribute('aria-expanded') ?? '',
+              placeholder: input?.placeholder ?? '',
+              opacity: inputStyle?.opacity ?? '',
+              tabIndex: input?.tabIndex ?? -1,
+            },
+          }
+        })
+      const bar = await readBar()
       check.ok('顶栏一行在（自绘 .dshOneTree_sectionHeader）', bar !== null)
-      check.fact(`顶栏四件：${JSON.stringify(bar?.actions)} 搜索=${JSON.stringify(bar?.search)}`)
+      check.fact(`顶栏四件：${JSON.stringify(bar?.actions)} 搜索（初始）=${JSON.stringify(bar?.search)}`)
       check.ok('顶栏：折叠/展开全部在', bar?.actions.collapseAll === true)
       check.ok('顶栏：添加工作区（＋）在', bar?.actions.addWorkspace === true)
       check.ok('顶栏：设置齿轮在', bar?.actions.settings === true)
@@ -1699,20 +1747,41 @@ export const SKELETON_SUITE: LabSuite = {
         bar?.actions.viewOptions === false,
         JSON.stringify(bar?.actions),
       )
-      check.ok(
-        '搜索栏 = 官方那套 UI 的展开态（30px 高 / 10px 圆角 / token 实线边框）',
-        bar?.search.height === '30px' &&
-          bar?.search.radius === '10px' &&
-          bar?.search.borderStyle === 'solid' &&
-          bar?.search.borderWidth !== '0px',
-        JSON.stringify(bar?.search),
+      // #132：初始态是**收起态**——官方折叠态那一支（放大镜在场、输入框与清除钮不在场）。
+      check.eq(
+        '搜索栏初始是收起态（放大镜在场、输入框与清除钮不在场、aria-expanded=false）',
+        [bar?.search.state, bar?.search.inputPresent, bar?.search.clearPresent, bar?.search.ariaExpanded],
+        ['collapsed', false, false, 'false'],
       )
       check.ok(
-        '搜索框常显可输入（退役的折叠胶囊不在，输入框不再 tabIndex=-1）',
-        bar?.search.opacity === '1' && bar.search.tabIndex === 0 && bar.search.retiredPill === false,
+        '收起态几何 = 官方折叠态那一支（28px 高、圆胶囊、无边框）',
+        bar?.search.height === '28px' && bar?.search.radius === '50%' && bar?.search.borderWidth === '0px',
         JSON.stringify(bar?.search),
       )
-      check.ok('搜索框用官方词典的占位文案', (bar?.search.placeholder ?? '').includes('搜索会话'), String(bar?.search.placeholder))
+      // 点开才展开成输入框。
+      await page.click('[data-dshone-tree-action="search"]')
+      await page.waitForTimeout(250)
+      const barExpanded = await readBar()
+      check.fact(`搜索（点开后）=${JSON.stringify(barExpanded?.search)}`)
+      check.eq(
+        '点放大镜后是展开态（输入框与清除钮都在场、aria-expanded=true）',
+        [barExpanded?.search.state, barExpanded?.search.inputPresent, barExpanded?.search.clearPresent, barExpanded?.search.ariaExpanded],
+        ['expanded', true, true, 'true'],
+      )
+      check.ok(
+        '展开态几何 = 官方展开态那一支（30px 高 / 10px 圆角 / token 实线边框）',
+        barExpanded?.search.height === '30px' &&
+          barExpanded?.search.radius === '10px' &&
+          barExpanded?.search.borderStyle === 'solid' &&
+          barExpanded?.search.borderWidth !== '0px',
+        JSON.stringify(barExpanded?.search),
+      )
+      check.ok(
+        '展开态输入框可输入（opacity 1、进得了 Tab 序）',
+        barExpanded?.search.opacity === '1' && barExpanded?.search.tabIndex === 0,
+        JSON.stringify(barExpanded?.search),
+      )
+      check.ok('搜索框用官方词典的占位文案', (barExpanded?.search.placeholder ?? '').includes('搜索会话'), String(barExpanded?.search.placeholder))
 
       // 搜索走官方 `sessions.search`（结果区文案也是官方那套键）：敲一个几乎不可能
       // 命中的串，官方路径必然给出「无匹配 / 内容搜索不可用」之一。
@@ -1738,8 +1807,15 @@ export const SKELETON_SUITE: LabSuite = {
         searchState.results === 0 && (searchState.status.includes('无匹配') || searchState.status.includes('内容搜索')),
         JSON.stringify(searchState),
       )
+      // #132：Esc 这一路 = 收起 + 清空（两件事都要有断言——只收起不清空会留着结果区）。
       await page.keyboard.press('Escape')
-      await page.waitForTimeout(200)
+      await page.waitForTimeout(250)
+      const barAfterEsc = await readBar()
+      check.eq(
+        'Esc 收起搜索（回到放大镜、输入框与清除钮不在场）',
+        [barAfterEsc?.search.state, barAfterEsc?.search.inputPresent, barAfterEsc?.search.clearPresent],
+        ['collapsed', false, false],
+      )
       check.eq('Esc 清空搜索并回到树', await contentCount(page, '[data-dshone-group-key]') > 0, true)
 
       // ---- ② 添加工作区：两项菜单 + 主动创建走宿主能力口 ----
@@ -3769,6 +3845,9 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       const titleNeedle = (await page.textContent(`[data-dshone-tree-session="${freeTarget}"] .dshOneTree_title`)) ?? ''
       const query = titleNeedle.trim().slice(0, 6)
       check.fact(`搜索夹具：用标题前 6 字 ${JSON.stringify(query)} 搜（命中行含 ${freeTarget.slice(0, 13)}）`)
+      // #132：搜索栏默认是收起态的放大镜，先点开再打字。
+      await page.click('[data-dshone-tree-action="search"]')
+      await page.waitForTimeout(250)
       await page.fill('[data-dshone-tree="search-input"]', query)
       await page.waitForTimeout(700)
       const searchRows = await page.evaluate(() =>
@@ -4232,6 +4311,9 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       screenshots.push(await shot(ctx, page, 'empty-schedule-mark'))
 
       // L6 之二：搜索上限提示（官方 search.hasMore 键，此前没有使用点）。
+      // #132：搜索栏默认收起，先点开放大镜再打字。
+      await page.click('[data-dshone-tree-action="search"]')
+      await page.waitForTimeout(250)
       await page.fill('[data-dshone-tree="search-input"]', 'lab-has-more-fixture')
       await page.waitForSelector('[data-dshone-tree="search-more"]', { timeout: 8_000 }).catch(() => undefined)
       const search = await page.evaluate(() => {
@@ -5558,12 +5640,17 @@ export const SESSION_ROW_RENAME_SUITE: LabSuite = {
       await page.click(rowSel)
       await page.waitForTimeout(300)
       await page.fill(inputSel, 'lab-blur-丢弃')
-      await page.click('[data-dshone-tree="search-input"]')
+      // #132：搜索栏默认是收起态的放大镜，点它会展开并把焦点交给搜索输入框——改名输入框
+      // 因此失焦（本条要验的就是「点到别的地方就放弃改名」）。
+      await page.click('[data-dshone-tree-action="search"]')
       await page.waitForTimeout(400)
       const afterBlur = await rowRenameFacts(page, otherId)
-      check.ok('④ 失焦（点到搜索框）取消：退出编辑态', !afterBlur.hasInput && !afterBlur.renaming)
+      check.ok('④ 失焦（点到顶栏搜索）取消：退出编辑态', !afterBlur.hasInput && !afterBlur.renaming)
       check.eq('④ 失焦取消：标题没变', afterBlur.title, newTitle)
       check.eq('④ 失焦取消：零请求', renameCalls.length, callsAfterCommit)
+      // 把搜索收回折叠态，后面的步骤不该带着一个展开的搜索框跑。
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(250)
 
       // ---- ⑤ 空串 / 未改动 → 不发请求 ----
       // 未改动：进编辑态后直接 Enter（草稿还是原标题）。
@@ -5836,4 +5923,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 按「从未占用的继续」顺延；
   // 套件本体在 topbarInlineSuites.ts，同上为独立文件，少一处合入热点）。
   TOPBAR_INLINE_SUITE,
+  // #132 顶栏搜索栏改回收起 / 展开两态（F-36：F-30…F-35 已被 #123/#124/#126/#131/#127/#125 占走，
+  // 按「从未占用的继续」顺延；套件本体在 searchCollapseSuites.ts，同为独立文件，少一处合入热点）。
+  SEARCH_COLLAPSE_SUITE,
 ]
