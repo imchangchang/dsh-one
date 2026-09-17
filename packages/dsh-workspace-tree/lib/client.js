@@ -1827,106 +1827,6 @@ function displayTitle(node, tr) {
   return node.blank ? tr("session.new") : node.title;
 }
 
-// src/ui/assembly/shell/workspaceTree/groupFilterBar.ts
-var import_react5 = require("react");
-var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
-function menuRow(name, count) {
-  return (0, import_react5.createElement)(
-    "span",
-    { className: "dshOneTree_menuRow" },
-    (0, import_react5.createElement)("span", { className: "dshOneTree_menuRowLabel" }, name),
-    (0, import_react5.createElement)("span", { className: "dshOneTree_menuRowCount" }, String(count))
-  );
-}
-function GroupFilterBar({
-  groups,
-  activeGroupId,
-  groupCounts,
-  totalCount,
-  tr,
-  onPick,
-  onCreate,
-  onManage
-}) {
-  const [open2, setOpen] = (0, import_react5.useState)(false);
-  const active = activeGroupId === null ? null : groups.find((group) => group.id === activeGroupId) ?? null;
-  const count = active === null ? totalCount : groupCounts.get(active.id) ?? 0;
-  const label = active === null ? tr("group.allWorkspaces") : active.name;
-  return (0, import_react5.createElement)(
-    "div",
-    {
-      className: "dshOneTree_filterBar",
-      "data-dshone-tree": "group-filter",
-      role: "group",
-      "aria-label": tr("group.filter.aria")
-    },
-    (0, import_react5.createElement)(import_dsh_client_ui_primitives3.Menu, {
-      open: open2,
-      onClose: () => setOpen(false),
-      items: [
-        {
-          id: "all",
-          label: (0, import_react5.createElement)(
-            "span",
-            { "data-dshone-tree-pill-item": "all" },
-            menuRow(tr("group.allWorkspaces"), totalCount)
-          )
-        },
-        ...groups.map((group) => ({
-          id: group.id,
-          label: (0, import_react5.createElement)(
-            "span",
-            { "data-dshone-tree-pill-item": group.id },
-            menuRow(group.name, groupCounts.get(group.id) ?? 0)
-          )
-        })),
-        { type: "separator", id: "group-menu-separator" },
-        {
-          id: "new",
-          label: (0, import_react5.createElement)("span", { "data-dshone-tree-action": "group-new" }, tr("group.new")),
-          icon: (0, import_react5.createElement)(import_dsh_client_ui_primitives3.IconPlusOutline16, { size: 14 })
-        },
-        {
-          id: "manage",
-          label: (0, import_react5.createElement)("span", { "data-dshone-tree-action": "group-manage" }, tr("group.manage")),
-          icon: (0, import_react5.createElement)(import_dsh_client_ui_primitives3.IconSettingsOutline16, { size: 14 })
-        }
-      ],
-      selectedIds: [activeGroupId ?? "all"],
-      onSelect: (id) => {
-        setOpen(false);
-        if (id === "new") onCreate();
-        else if (id === "manage") onManage();
-        else onPick(id === "all" ? null : id);
-      },
-      align: "start",
-      // #113：官方紧凑档（菜单项 26px 高 / 12px 字号 / 图标位 14×14），与胶囊本身
-      // （26px 高 / 12px 字号）同档；`separator` 与分组标题的间距也由官方该档给。
-      compact: true,
-      portal: true,
-      closeOnPointerLeave: true,
-      anchor: (0, import_react5.createElement)(
-        "button",
-        {
-          type: "button",
-          className: `dshOneTree_pill${active === null ? "" : " dshOneTree_pillActive"}`,
-          "aria-label": `${tr("group.filter.aria")} - ${label}`,
-          "aria-haspopup": "menu",
-          "aria-expanded": open2,
-          "data-dshone-tree-action": "group-pill",
-          "data-dshone-tree-group": active?.id ?? "all",
-          "data-dshone-tree-group-count": count,
-          onClick: () => setOpen((value) => !value)
-        },
-        (0, import_react5.createElement)("span", { className: "dshOneTree_pillTag" }, (0, import_react5.createElement)(import_dsh_client_ui_primitives3.IconFolderOpenOutline16, { size: 12 })),
-        (0, import_react5.createElement)("span", { className: "dshOneTree_pillLabel" }, label),
-        (0, import_react5.createElement)("span", { className: "dshOneTree_pillCount" }, String(count)),
-        (0, import_react5.createElement)("span", { className: "dshOneTree_pillChevron" }, (0, import_react5.createElement)(import_dsh_client_ui_primitives3.IconChevronDownOutline14, {}))
-      )
-    })
-  );
-}
-
 // src/ui/assembly/shell/workspaceTree/groups.ts
 var GROUP_MENU_PREFIX = "group:";
 var TAG_MENU_PREFIX = "tag:";
@@ -1940,12 +1840,12 @@ function newGroupId() {
 }
 
 // src/ui/assembly/shell/workspaceTree/hoverCard.ts
-var import_react6 = require("react");
+var import_react5 = require("react");
 var HOVER_CARD_WIDTH = 244;
 var HOVER_CARD_GAP = 8;
 function useHoverCardRoom(rootRef) {
-  const [room, setRoom] = (0, import_react6.useState)(false);
-  (0, import_react6.useEffect)(() => {
+  const [room, setRoom] = (0, import_react5.useState)(false);
+  (0, import_react5.useEffect)(() => {
     const measure = () => {
       const el2 = rootRef.current;
       if (el2 === null) return;
@@ -1967,12 +1867,12 @@ function useHoverCardRoom(rootRef) {
 }
 
 // src/ui/assembly/shell/workspaceTree/modals.ts
-var import_react9 = require("react");
-var import_dsh_client_ui_primitives6 = require("@deepseek-ai/dsh-client-ui-primitives");
+var import_react8 = require("react");
+var import_dsh_client_ui_primitives5 = require("@deepseek-ai/dsh-client-ui-primitives");
 
 // src/ui/assembly/shell/workspaceTree/selection.ts
-var import_react7 = require("react");
-var import_dsh_client_ui_primitives4 = require("@deepseek-ai/dsh-client-ui-primitives");
+var import_react6 = require("react");
+var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 var listeners5 = /* @__PURE__ */ new Set();
 var selectionEntrySignal = {
   /** 进入多选（任何入口都调这一个；调用即清空上一轮勾选）。 */
@@ -1993,12 +1893,12 @@ function SelectMark({
   disabled
 }) {
   const filled = on || partial === true;
-  return (0, import_react7.createElement)(
+  return (0, import_react6.createElement)(
     "span",
     {
       className: `dshOneTree_checkBox${filled ? " dshOneTree_checkOn" : ""}${disabled === true ? " dshOneTree_checkOff" : ""}`
     },
-    on ? (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconCheckOutline16, { size: 12 }) : partial === true ? (0, import_react7.createElement)("span", { className: "dshOneTree_checkDash" }) : null
+    on ? (0, import_react6.createElement)(import_dsh_client_ui_primitives3.IconCheckOutline16, { size: 12 }) : partial === true ? (0, import_react6.createElement)("span", { className: "dshOneTree_checkDash" }) : null
   );
 }
 function SelectionBar({
@@ -2010,17 +1910,17 @@ function SelectionBar({
   onArchive,
   onExit
 }) {
-  return (0, import_react7.createElement)(
+  return (0, import_react6.createElement)(
     "div",
     { className: "dshOneTree_selectionBarWrap", "data-dshone-tree": "selection-bar" },
-    (0, import_react7.createElement)(
+    (0, import_react6.createElement)(
       "div",
       { className: "dshOneTree_selectionBar" },
-      (0, import_react7.createElement)("span", { className: "dshOneTree_selectionCount" }, count === 0 ? tr("select.none") : tr("select.count", { n: count })),
-      (0, import_react7.createElement)(
+      (0, import_react6.createElement)("span", { className: "dshOneTree_selectionCount" }, count === 0 ? tr("select.none") : tr("select.count", { n: count })),
+      (0, import_react6.createElement)(
         "div",
         { className: "dshOneTree_selectionActions" },
-        (0, import_react7.createElement)(import_dsh_client_ui_primitives4.Button, {
+        (0, import_react6.createElement)(import_dsh_client_ui_primitives3.Button, {
           variant: "outline",
           size: "sm",
           disabled: busy || count === 0,
@@ -2029,7 +1929,7 @@ function SelectionBar({
           "data-dshone-tree-action": "selection-recycle",
           children: tr("select.moveToRecycleBin")
         }),
-        (0, import_react7.createElement)(import_dsh_client_ui_primitives4.Button, {
+        (0, import_react6.createElement)(import_dsh_client_ui_primitives3.Button, {
           variant: "outline",
           size: "sm",
           disabled: busy || count === 0,
@@ -2037,7 +1937,7 @@ function SelectionBar({
           "data-dshone-tree-action": "selection-archive",
           children: tr("select.archivePermanent")
         }),
-        (0, import_react7.createElement)(import_dsh_client_ui_primitives4.Button, {
+        (0, import_react6.createElement)(import_dsh_client_ui_primitives3.Button, {
           variant: "outline",
           size: "sm",
           disabled: busy,
@@ -2047,13 +1947,13 @@ function SelectionBar({
         })
       )
     ),
-    error === null ? null : (0, import_react7.createElement)("div", { className: "dshOneTree_selectionError", role: "alert" }, error)
+    error === null ? null : (0, import_react6.createElement)("div", { className: "dshOneTree_selectionError", role: "alert" }, error)
   );
 }
 
 // src/ui/assembly/shell/workspaceTree/tagGroups.ts
-var import_react8 = require("react");
-var import_dsh_client_ui_primitives5 = require("@deepseek-ai/dsh-client-ui-primitives");
+var import_react7 = require("react");
+var import_dsh_client_ui_primitives4 = require("@deepseek-ai/dsh-client-ui-primitives");
 var SESSION_DRAG_MIME = "text/dsh-session";
 var TAG_DRAG_MIME = "text/dsh-tag";
 var TAG_COLOR_CSS = {
@@ -2077,38 +1977,38 @@ function tagCollapseKey(groupKey, tagId) {
 }
 function tagGroupMenuItems(opts) {
   const { tr, name, total, archivable, recyclable } = opts;
-  const label = (id, text) => (0, import_react8.createElement)("span", { "data-dshone-tree-item": id }, text);
+  const label = (id, text) => (0, import_react7.createElement)("span", { "data-dshone-tree-item": id }, text);
   return [
     { type: "label", id: "tag-menu-title", text: tr("tag.menu.title", { name }) },
-    { id: "tag-new-session", label: label("tag-new-session", tr("tag.newSession")), icon: (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconPlusOutline16, { size: 14 }) },
+    { id: "tag-new-session", label: label("tag-new-session", tr("tag.newSession")), icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconPlusOutline16, { size: 14 }) },
     {
       id: "tag-archive",
       label: label("tag-archive", tr("tag.archive", { n: total })),
-      icon: (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconArchiveOutline20, { size: 14 }),
+      icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconArchiveOutline20, { size: 14 }),
       disabled: archivable === 0,
       ...archivable === 0 ? { title: tr("tag.archive.none") } : {}
     },
     {
       id: "tag-recycle",
       label: label("tag-recycle", tr("tag.recycle", { n: total })),
-      icon: (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconTrashOutline16, { size: 14 }),
+      icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconTrashOutline16, { size: 14 }),
       disabled: recyclable === 0,
       ...recyclable === 0 ? { title: tr("tag.recycle.blocked") } : {}
     },
     { id: "tag-ungroup", label: label("tag-ungroup", tr("tag.ungroup")) },
-    { id: "tag-rename", label: label("tag-rename", tr("tag.rename")), icon: (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconEditOutline16, { size: 14 }) },
+    { id: "tag-rename", label: label("tag-rename", tr("tag.rename")), icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconEditOutline16, { size: 14 }) },
     { type: "separator", id: "tag-color-separator" },
     { type: "label", id: "tag-color-label", text: tr("tag.color") },
     ...TAG_COLORS.map((candidate) => ({
       id: `tag-color-${candidate}`,
       label: label(`tag-color-${candidate}`, tr(TAG_COLOR_LABEL[candidate])),
-      icon: (0, import_react8.createElement)(TagColorSwatch, { color: candidate })
+      icon: (0, import_react7.createElement)(TagColorSwatch, { color: candidate })
     })),
     { type: "separator", id: "tag-delete-separator" },
     {
       id: "tag-delete",
       label: label("tag-delete", tr("tag.delete")),
-      icon: (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconTrashOutline16, { size: 14 }),
+      icon: (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconTrashOutline16, { size: 14 }),
       danger: true
     }
   ];
@@ -2149,7 +2049,7 @@ function ungroupDropZone(onDrop) {
   };
 }
 function TagColorSwatch({ color }) {
-  return (0, import_react8.createElement)("span", { className: "dshOneTree_tagSwatch", style: { background: TAG_COLOR_CSS[color] }, "aria-hidden": true });
+  return (0, import_react7.createElement)("span", { className: "dshOneTree_tagSwatch", style: { background: TAG_COLOR_CSS[color] }, "aria-hidden": true });
 }
 function TagGroupBlock({
   groupKey,
@@ -2166,12 +2066,12 @@ function TagGroupBlock({
   tr,
   children
 }) {
-  const [menuOpen, setMenuOpen] = (0, import_react8.useState)(false);
-  const [dropActive, setDropActive] = (0, import_react8.useState)(false);
-  const [pillDrop, setPillDrop] = (0, import_react8.useState)(null);
+  const [menuOpen, setMenuOpen] = (0, import_react7.useState)(false);
+  const [dropActive, setDropActive] = (0, import_react7.useState)(false);
+  const [pillDrop, setPillDrop] = (0, import_react7.useState)(null);
   const counts = tagGroupCounts(sessions, isUnread);
   const hasCounts = counts.pending + counts.running + counts.unread > 0;
-  const anchor = (0, import_react8.createElement)(
+  const anchor = (0, import_react7.createElement)(
     "button",
     {
       type: "button",
@@ -2184,12 +2084,12 @@ function TagGroupBlock({
         setMenuOpen((open2) => !open2);
       }
     },
-    (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconEllipsisOutline16, {})
+    (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconEllipsisOutline16, {})
   );
-  const head = (0, import_react8.createElement)(
+  const head = (0, import_react7.createElement)(
     "div",
     { className: "dshOneTree_tagHead" },
-    (0, import_react8.createElement)(
+    (0, import_react7.createElement)(
       "span",
       {
         className: "dshOneTree_tagPill",
@@ -2227,10 +2127,10 @@ function TagGroupBlock({
           onDropTag(sourceId, before);
         }
       },
-      (0, import_react8.createElement)("span", { className: "dshOneTree_tagDot" }),
-      (0, import_react8.createElement)("span", { className: "dshOneTree_tagName" }, def.name)
+      (0, import_react7.createElement)("span", { className: "dshOneTree_tagDot" }),
+      (0, import_react7.createElement)("span", { className: "dshOneTree_tagName" }, def.name)
     ),
-    (0, import_react8.createElement)(
+    (0, import_react7.createElement)(
       "button",
       {
         type: "button",
@@ -2244,38 +2144,38 @@ function TagGroupBlock({
           onToggleCollapse();
         }
       },
-      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconTriangleRightFill14, { className: `dshOneTree_tagArrow${collapsed ? "" : " dshOneTree_tagArrowOpen"}` })
+      (0, import_react7.createElement)(import_dsh_client_ui_primitives4.IconTriangleRightFill14, { className: `dshOneTree_tagArrow${collapsed ? "" : " dshOneTree_tagArrowOpen"}` })
     ),
     // 折叠态才出计数（展开时每行自己带状态点，再数一遍是噪音）。
-    collapsed && hasCounts ? (0, import_react8.createElement)(
+    collapsed && hasCounts ? (0, import_react7.createElement)(
       "span",
       {
         className: "dshOneTree_tagCounts",
         "data-dshone-tree-tag-counts": `${String(counts.pending)}/${String(counts.running)}/${String(counts.unread)}`
       },
-      counts.pending > 0 ? (0, import_react8.createElement)(
+      counts.pending > 0 ? (0, import_react7.createElement)(
         "span",
         { className: "dshOneTree_tagCount", key: "pending", title: tr("tag.count.pending", { n: counts.pending }) },
-        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.StateDot, { state: "warning" }),
+        (0, import_react7.createElement)(import_dsh_client_ui_primitives4.StateDot, { state: "warning" }),
         String(counts.pending)
       ) : null,
-      counts.running > 0 ? (0, import_react8.createElement)(
+      counts.running > 0 ? (0, import_react7.createElement)(
         "span",
         { className: "dshOneTree_tagCount", key: "running", title: tr("tag.count.running", { n: counts.running }) },
-        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.StateDot, { state: "ongoing" }),
+        (0, import_react7.createElement)(import_dsh_client_ui_primitives4.StateDot, { state: "ongoing" }),
         String(counts.running)
       ) : null,
-      counts.unread > 0 ? (0, import_react8.createElement)(
+      counts.unread > 0 ? (0, import_react7.createElement)(
         "span",
         { className: "dshOneTree_tagCount", key: "unread", title: tr("tag.count.unread", { n: counts.unread }) },
-        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.StateDot, { state: "done" }),
+        (0, import_react7.createElement)(import_dsh_client_ui_primitives4.StateDot, { state: "done" }),
         String(counts.unread)
       ) : null
     ) : null,
-    (0, import_react8.createElement)(
+    (0, import_react7.createElement)(
       "span",
       { className: "dshOneTree_rowActions" },
-      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Menu, {
+      (0, import_react7.createElement)(import_dsh_client_ui_primitives4.Menu, {
         open: menuOpen,
         onClose: () => setMenuOpen(false),
         items: menuItems,
@@ -2294,7 +2194,7 @@ function TagGroupBlock({
       })
     )
   );
-  return (0, import_react8.createElement)(
+  return (0, import_react7.createElement)(
     "div",
     {
       className: `dshOneTree_tagBlock${dropActive ? " dshOneTree_tagDropActive" : ""}${collapsed ? " dshOneTree_tagCollapsed" : ""}${menuOpen ? " dshOneTree_menuOpen" : ""}`,
@@ -2337,28 +2237,28 @@ function TagGroupBlock({
     // 贯穿竖线（#122）：从 pill 下沿画到组块底部的一条组色细线，几何与颜色全在 styles.ts
     // 的那条规则里（本件只放元素与自描述标记）。折叠态由 CSS 隐藏——所以这里不按折叠条件
     // 决定渲染与否，态只有一处（`.dshOneTree_tagCollapsed .dshOneTree_tagLine`）。
-    (0, import_react8.createElement)("div", { className: "dshOneTree_tagLine", "data-dshone-tree": "tag-line" }),
-    collapsed ? null : (0, import_react8.createElement)("div", { className: "dshOneTree_tagRows", "data-dshone-tree-tag-rows": def.id }, children)
+    (0, import_react7.createElement)("div", { className: "dshOneTree_tagLine", "data-dshone-tree": "tag-line" }),
+    collapsed ? null : (0, import_react7.createElement)("div", { className: "dshOneTree_tagRows", "data-dshone-tree-tag-rows": def.id }, children)
   );
 }
 
 // src/ui/assembly/shell/workspaceTree/modals.ts
 var MODAL_CLASS = "dshOneTree_modal";
 function modalHead(title, closeLabel, onClose, leading) {
-  return (0, import_react9.createElement)(
+  return (0, import_react8.createElement)(
     "div",
     { className: "dshOneTree_modalHead" },
     leading ?? null,
-    (0, import_react9.createElement)("h2", { className: "dshOneTree_modalTitle" }, title),
-    (0, import_react9.createElement)(
+    (0, import_react8.createElement)("h2", { className: "dshOneTree_modalTitle" }, title),
+    (0, import_react8.createElement)(
       "button",
       { type: "button", className: "dshOneTree_modalClose", "aria-label": closeLabel, onClick: onClose },
-      (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconCloseFill14, {})
+      (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconCloseFill14, {})
     )
   );
 }
-var modalDesc = (text) => (0, import_react9.createElement)("div", { className: "dshOneTree_modalDesc" }, text);
-var modalActions = (...children) => (0, import_react9.createElement)("div", { className: "dshOneTree_modalActions" }, ...children);
+var modalDesc = (text) => (0, import_react8.createElement)("div", { className: "dshOneTree_modalDesc" }, text);
+var modalActions = (...children) => (0, import_react8.createElement)("div", { className: "dshOneTree_modalActions" }, ...children);
 function GroupModal({
   dialog,
   groups,
@@ -2367,13 +2267,13 @@ function GroupModal({
   onSubmit,
   onClose
 }) {
-  const [draft, setDraft] = (0, import_react9.useState)("");
-  const [busy, setBusy] = (0, import_react9.useState)(false);
+  const [draft, setDraft] = (0, import_react8.useState)("");
+  const [busy, setBusy] = (0, import_react8.useState)(false);
   const open2 = dialog !== null;
   const kind = dialog?.kind ?? "create";
   const initialName = dialog === null || dialog.kind === "create" ? "" : dialog.name;
-  const lastOpen = (0, import_react9.useRef)(false);
-  (0, import_react9.useEffect)(() => {
+  const lastOpen = (0, import_react8.useRef)(false);
+  (0, import_react8.useEffect)(() => {
     if (open2 && !lastOpen.current) {
       setDraft(initialName);
       setBusy(false);
@@ -2393,7 +2293,7 @@ function GroupModal({
     return null;
   })();
   if (kind === "delete") {
-    return (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Modal, {
+    return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
       open: open2,
       onClose,
       title: tr("group.delete"),
@@ -2402,11 +2302,11 @@ function GroupModal({
       children: [
         modalHead(tr("group.delete"), tr("close"), onClose),
         ...dialog === null || dialog.kind === "create" ? [] : [modalDesc(tr("group.delete.desc", { name: dialog.name }))],
-        ...error === null ? [] : [(0, import_react9.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)],
+        ...error === null ? [] : [(0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)],
         modalActions(
-          (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Button, { size: "sm", variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
-          (0, import_react9.createElement)(
-            import_dsh_client_ui_primitives6.Button,
+          (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { size: "sm", variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
+          (0, import_react8.createElement)(
+            import_dsh_client_ui_primitives5.Button,
             {
               size: "sm",
               variant: "outline",
@@ -2424,7 +2324,7 @@ function GroupModal({
     });
   }
   const title = kind === "create" ? tr("group.new") : tr("group.rename");
-  return (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Modal, {
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
     open: open2,
     onClose,
     title,
@@ -2432,7 +2332,7 @@ function GroupModal({
     headless: true,
     children: [
       modalHead(title, tr("close"), onClose),
-      (0, import_react9.createElement)("input", {
+      (0, import_react8.createElement)("input", {
         className: "dshOneTree_renameInput",
         value: draft,
         "aria-label": title,
@@ -2445,11 +2345,11 @@ function GroupModal({
           if (nameError === null) submit();
         }
       }),
-      ...nameError === null && error === null ? [] : [(0, import_react9.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, nameError ?? error)],
+      ...nameError === null && error === null ? [] : [(0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, nameError ?? error)],
       modalActions(
-        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Button, { size: "sm", variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
-        (0, import_react9.createElement)(
-          import_dsh_client_ui_primitives6.Button,
+        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { size: "sm", variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
+        (0, import_react8.createElement)(
+          import_dsh_client_ui_primitives5.Button,
           { size: "sm", variant: "primary", disabled: busy || nameError !== null, onClick: submit },
           kind === "create" ? tr("group.new") : tr("rename")
         )
@@ -2467,7 +2367,7 @@ function ArchiveSessionsModal({
 }) {
   const total = target === null ? 0 : target.blocks.reduce((sum, block) => sum + block.sessions.length, 0);
   const title = target === null ? "" : target.kind === "emptyBin" ? tr("archive.title.empty", { n: total }) : total === 1 ? tr("archive.title.one") : tr("archive.title.many", { n: total });
-  return (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Modal, {
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
     open: target !== null,
     onClose,
     title,
@@ -2477,26 +2377,26 @@ function ArchiveSessionsModal({
       modalHead(title, tr("close"), onClose),
       modalDesc(tr("archive.desc")),
       ...target === null || target.skipped === 0 ? [] : [
-        (0, import_react9.createElement)(
+        (0, import_react8.createElement)(
           "div",
           { className: "dshOneTree_deleteStatus", "data-dshone-archive-skipped": target.skipped },
           tr("archive.skipped", { n: target.skipped })
         )
       ],
-      (0, import_react9.createElement)(
+      (0, import_react8.createElement)(
         "div",
         { className: "dshOneTree_modalBlocks", "data-dshone-archive-blocks": total },
         target === null ? null : target.blocks.map(
-          (block) => (0, import_react9.createElement)(
+          (block) => (0, import_react8.createElement)(
             "div",
             { className: "dshOneTree_modalBlock", key: block.key, "data-dshone-archive-block": block.key },
-            (0, import_react9.createElement)(
+            (0, import_react8.createElement)(
               "div",
               { className: "dshOneTree_modalBlockLabel" },
               block.workspaceId === void 0 ? tr("group.ungrouped") : block.label
             ),
             block.sessions.map(
-              (node) => (0, import_react9.createElement)(
+              (node) => (0, import_react8.createElement)(
                 "div",
                 { className: "dshOneTree_modalRow", key: node.id, "data-dshone-archive-row": node.id },
                 displayTitle(node, tr)
@@ -2505,11 +2405,11 @@ function ArchiveSessionsModal({
           )
         )
       ),
-      ...error === null ? [] : [(0, import_react9.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)],
+      ...error === null ? [] : [(0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)],
       modalActions(
-        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Button, { size: "sm", variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
-        (0, import_react9.createElement)(
-          import_dsh_client_ui_primitives6.Button,
+        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { size: "sm", variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
+        (0, import_react8.createElement)(
+          import_dsh_client_ui_primitives5.Button,
           {
             size: "sm",
             variant: "outline",
@@ -2533,11 +2433,11 @@ function TagGroupCreateModal({
   onSubmit,
   onClose
 }) {
-  const [draft, setDraft] = (0, import_react9.useState)("");
-  const [color, setColor] = (0, import_react9.useState)(defaultColor);
-  const [idle, setIdle] = (0, import_react9.useState)(true);
-  const lastOpen = (0, import_react9.useRef)(false);
-  (0, import_react9.useEffect)(() => {
+  const [draft, setDraft] = (0, import_react8.useState)("");
+  const [color, setColor] = (0, import_react8.useState)(defaultColor);
+  const [idle, setIdle] = (0, import_react8.useState)(true);
+  const lastOpen = (0, import_react8.useRef)(false);
+  (0, import_react8.useEffect)(() => {
     if (open2 && !lastOpen.current) {
       setDraft("");
       setColor(defaultColor);
@@ -2551,7 +2451,7 @@ function TagGroupCreateModal({
     if (draft.trim() === "" || validate(draft) !== null) return;
     onSubmit(draft.trim(), color);
   };
-  return (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Modal, {
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
     open: open2,
     onClose,
     title: tr("tag.new"),
@@ -2559,7 +2459,7 @@ function TagGroupCreateModal({
     headless: true,
     children: [
       modalHead(tr("tag.new"), tr("close"), onClose),
-      (0, import_react9.createElement)("input", {
+      (0, import_react8.createElement)("input", {
         className: "dshOneTree_renameInput",
         "data-dshone-tree": "tag-name-input",
         value: draft,
@@ -2578,11 +2478,11 @@ function TagGroupCreateModal({
       }),
       // 6 色色板：一枚枚色块当按钮（官方 Button 装不下「色块」这种内容，这里按旧侧栏
       // 同一形态自绘，几何与选中态在 styles.ts 的 `dshOneTree_tagColorPick*`）。
-      (0, import_react9.createElement)(
+      (0, import_react8.createElement)(
         "div",
         { className: "dshOneTree_tagColorPick", "data-dshone-tree": "tag-color-pick" },
         TAG_COLORS.map(
-          (candidate) => (0, import_react9.createElement)(
+          (candidate) => (0, import_react8.createElement)(
             "button",
             {
               type: "button",
@@ -2595,21 +2495,21 @@ function TagGroupCreateModal({
               "data-dshone-tag-color": candidate,
               onClick: () => setColor(candidate)
             },
-            candidate === color ? (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconCheckOutline16, { size: 12 }) : null
+            candidate === color ? (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconCheckOutline16, { size: 12 }) : null
           )
         )
       ),
       ...idle || nameError === null ? [] : [
-        (0, import_react9.createElement)(
+        (0, import_react8.createElement)(
           "div",
           { className: "dshOneTree_renameError", role: "alert" },
           nameError === "empty" ? tr("tag.name.empty") : tr("tag.name.duplicate")
         )
       ],
       modalActions(
-        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Button, { size: "sm", variant: "outline", onClick: onClose }, tr("cancel")),
-        (0, import_react9.createElement)(
-          import_dsh_client_ui_primitives6.Button,
+        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { size: "sm", variant: "outline", onClick: onClose }, tr("cancel")),
+        (0, import_react8.createElement)(
+          import_dsh_client_ui_primitives5.Button,
           {
             size: "sm",
             variant: "primary",
@@ -2629,7 +2529,7 @@ function TagGroupDeleteModal({
   onSubmit,
   onClose
 }) {
-  return (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Modal, {
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
     open: target !== null,
     onClose,
     title: tr("tag.delete"),
@@ -2639,9 +2539,9 @@ function TagGroupDeleteModal({
       modalHead(tr("tag.delete"), tr("close"), onClose),
       ...target === null ? [] : [modalDesc(tr("tag.delete.desc", { name: target.name }))],
       modalActions(
-        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Button, { size: "sm", variant: "outline", onClick: onClose }, tr("cancel")),
-        (0, import_react9.createElement)(
-          import_dsh_client_ui_primitives6.Button,
+        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { size: "sm", variant: "outline", onClick: onClose }, tr("cancel")),
+        (0, import_react8.createElement)(
+          import_dsh_client_ui_primitives5.Button,
           {
             size: "sm",
             variant: "outline",
@@ -2666,11 +2566,11 @@ function RenameModal({
   onSubmit,
   onClose
 }) {
-  const [draft, setDraft] = (0, import_react9.useState)(initial);
-  const [busy, setBusy] = (0, import_react9.useState)(false);
-  const [error, setError] = (0, import_react9.useState)(null);
-  const lastOpen = (0, import_react9.useRef)(false);
-  (0, import_react9.useEffect)(() => {
+  const [draft, setDraft] = (0, import_react8.useState)(initial);
+  const [busy, setBusy] = (0, import_react8.useState)(false);
+  const [error, setError] = (0, import_react8.useState)(null);
+  const lastOpen = (0, import_react8.useRef)(false);
+  (0, import_react8.useEffect)(() => {
     if (open2 && !lastOpen.current) {
       setDraft(initial);
       setError(null);
@@ -2690,7 +2590,7 @@ function RenameModal({
       setError(reason instanceof Error ? reason.message : String(reason));
     });
   };
-  return (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Modal, {
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
     open: open2,
     onClose,
     title: tr(titleKey),
@@ -2698,7 +2598,7 @@ function RenameModal({
     headless: true,
     children: [
       modalHead(tr(titleKey), tr("close"), onClose),
-      (0, import_react9.createElement)("input", {
+      (0, import_react8.createElement)("input", {
         className: "dshOneTree_renameInput",
         value: draft,
         "aria-label": tr(fieldKey),
@@ -2715,11 +2615,11 @@ function RenameModal({
           }
         }
       }),
-      ...error === null ? [] : [(0, import_react9.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)],
+      ...error === null ? [] : [(0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)],
       modalActions(
-        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Button, { size: "sm", variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
-        (0, import_react9.createElement)(
-          import_dsh_client_ui_primitives6.Button,
+        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { size: "sm", variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
+        (0, import_react8.createElement)(
+          import_dsh_client_ui_primitives5.Button,
           { size: "sm", variant: "primary", disabled: busy || draft.trim() === "", onClick: commit },
           tr("rename")
         )
@@ -2733,8 +2633,8 @@ function DeleteWorkspaceModal({
   onSubmit,
   onClose
 }) {
-  const [busy, setBusy] = (0, import_react9.useState)(false);
-  const [error, setError] = (0, import_react9.useState)(null);
+  const [busy, setBusy] = (0, import_react8.useState)(false);
+  const [error, setError] = (0, import_react8.useState)(null);
   const commit = () => {
     if (busy || target === null) return;
     setBusy(true);
@@ -2747,7 +2647,7 @@ function DeleteWorkspaceModal({
       setError(reason instanceof Error ? reason.message : String(reason));
     });
   };
-  return (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Modal, {
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
     open: target !== null,
     onClose,
     title: tr("delete.workspace"),
@@ -2756,12 +2656,12 @@ function DeleteWorkspaceModal({
     children: [
       modalHead(tr("delete.workspace"), tr("close"), onClose),
       ...target === null ? [] : [modalDesc(tr("delete.desc", { name: target.title }))],
-      ...busy ? [(0, import_react9.createElement)("div", { className: "dshOneTree_deleteStatus", role: "status" }, tr("delete.pending"))] : [],
-      ...error === null ? [] : [(0, import_react9.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)],
+      ...busy ? [(0, import_react8.createElement)("div", { className: "dshOneTree_deleteStatus", role: "status" }, tr("delete.pending"))] : [],
+      ...error === null ? [] : [(0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)],
       modalActions(
-        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Button, { size: "sm", variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
-        (0, import_react9.createElement)(
-          import_dsh_client_ui_primitives6.Button,
+        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { size: "sm", variant: "outline", disabled: busy, onClick: onClose }, tr("cancel")),
+        (0, import_react8.createElement)(
+          import_dsh_client_ui_primitives5.Button,
           { size: "sm", variant: "outline", disabled: busy, onClick: commit, className: "dshOneTree_deleteAction" },
           tr("delete.workspace")
         )
@@ -2783,12 +2683,12 @@ function ManageGroupsModal({
   onSetMembers,
   onClose
 }) {
-  const [draft, setDraft] = (0, import_react9.useState)("");
-  const [error, setError] = (0, import_react9.useState)(null);
-  const [memberGroupId, setMemberGroupId] = (0, import_react9.useState)(null);
-  const [memberQuery, setMemberQuery] = (0, import_react9.useState)("");
-  const lastOpen = (0, import_react9.useRef)(false);
-  (0, import_react9.useEffect)(() => {
+  const [draft, setDraft] = (0, import_react8.useState)("");
+  const [error, setError] = (0, import_react8.useState)(null);
+  const [memberGroupId, setMemberGroupId] = (0, import_react8.useState)(null);
+  const [memberQuery, setMemberQuery] = (0, import_react8.useState)("");
+  const lastOpen = (0, import_react8.useRef)(false);
+  (0, import_react8.useEffect)(() => {
     if (open2 && !lastOpen.current) {
       setDraft("");
       setError(null);
@@ -2798,7 +2698,7 @@ function ManageGroupsModal({
     lastOpen.current = open2;
   }, [open2]);
   const memberGroup = memberGroupId === null ? null : groups.find((group) => group.id === memberGroupId) ?? null;
-  (0, import_react9.useEffect)(() => {
+  (0, import_react8.useEffect)(() => {
     if (memberGroupId !== null && memberGroup === null) setMemberGroupId(null);
   }, [memberGroupId, memberGroup]);
   const submit = () => {
@@ -2810,7 +2710,7 @@ function ManageGroupsModal({
     }
     setError(failure === "empty" ? tr("group.name.empty") : tr("group.name.duplicate"));
   };
-  const rowIcon = (groupId, name, action) => (0, import_react9.createElement)(
+  const rowIcon = (groupId, name, action) => (0, import_react8.createElement)(
     "button",
     {
       type: "button",
@@ -2820,7 +2720,7 @@ function ManageGroupsModal({
       "data-dshone-group-target": groupId,
       onClick: () => action === "rename" ? onRename(groupId, name) : onDelete(groupId, name)
     },
-    action === "rename" ? (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconEditOutline16, {}) : (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconTrashOutline16, {})
+    action === "rename" ? (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconEditOutline16, {}) : (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconTrashOutline16, {})
   );
   if (memberGroup !== null) {
     const memberIds = new Set(groupMembers(memberGroup.id));
@@ -2832,7 +2732,7 @@ function ManageGroupsModal({
       rows.map((row) => row.id),
       member
     );
-    return (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Modal, {
+    return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
       open: open2,
       onClose,
       title: memberGroup.name,
@@ -2843,7 +2743,7 @@ function ManageGroupsModal({
           memberGroup.name,
           tr("close"),
           onClose,
-          (0, import_react9.createElement)(
+          (0, import_react8.createElement)(
             "button",
             {
               type: "button",
@@ -2856,13 +2756,13 @@ function ManageGroupsModal({
                 setMemberQuery("");
               }
             },
-            (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconChevronLeftOutline14, { size: 14 })
+            (0, import_react8.createElement)(import_dsh_client_ui_primitives5.IconChevronLeftOutline14, { size: 14 })
           )
         ),
-        (0, import_react9.createElement)(
+        (0, import_react8.createElement)(
           "div",
           { className: "dshOneTree_memberTools" },
-          (0, import_react9.createElement)("input", {
+          (0, import_react8.createElement)("input", {
             className: "dshOneTree_renameInput",
             "data-dshone-tree": "group-member-search",
             value: memberQuery,
@@ -2870,8 +2770,8 @@ function ManageGroupsModal({
             "aria-label": tr("group.members.search"),
             onChange: (event) => setMemberQuery(event.target.value)
           }),
-          (0, import_react9.createElement)(
-            import_dsh_client_ui_primitives6.Button,
+          (0, import_react8.createElement)(
+            import_dsh_client_ui_primitives5.Button,
             {
               size: "sm",
               variant: "outline",
@@ -2881,8 +2781,8 @@ function ManageGroupsModal({
             },
             tr("group.members.selectAll")
           ),
-          (0, import_react9.createElement)(
-            import_dsh_client_ui_primitives6.Button,
+          (0, import_react8.createElement)(
+            import_dsh_client_ui_primitives5.Button,
             {
               size: "sm",
               variant: "outline",
@@ -2893,25 +2793,25 @@ function ManageGroupsModal({
             tr("group.members.clear")
           )
         ),
-        (0, import_react9.createElement)(
+        (0, import_react8.createElement)(
           "div",
           { className: "dshOneTree_memberCount", role: "status", "data-dshone-tree": "group-member-count" },
           tr("group.members.count", { n: selected.length, m: rows.length })
         ),
-        (0, import_react9.createElement)(
+        (0, import_react8.createElement)(
           "div",
           {
             className: "dshOneTree_memberList",
             "data-dshone-tree": "group-members",
             "data-dshone-group-target": memberGroup.id
           },
-          rows.length === 0 ? (0, import_react9.createElement)(
+          rows.length === 0 ? (0, import_react8.createElement)(
             "div",
             { className: "dshOneTree_memberEmpty", "data-dshone-tree": "group-member-empty" },
             workspaces.length === 0 ? tr("group.members.none") : tr("group.members.noMatch")
           ) : rows.map((row) => {
             const on = memberIds.has(row.id);
-            return (0, import_react9.createElement)(
+            return (0, import_react8.createElement)(
               "button",
               {
                 type: "button",
@@ -2922,17 +2822,17 @@ function ManageGroupsModal({
                 "aria-pressed": on,
                 onClick: () => onToggleMember(memberGroup.id, row.id)
               },
-              (0, import_react9.createElement)(SelectMark, { on }),
-              (0, import_react9.createElement)("span", { className: "dshOneTree_memberName" }, row.label)
+              (0, import_react8.createElement)(SelectMark, { on }),
+              (0, import_react8.createElement)("span", { className: "dshOneTree_memberName" }, row.label)
             );
           })
         ),
         // 第二层不放错误行：建组那一格的校核只发生在第一层（进第二层时那条错误已清掉）。
-        modalActions((0, import_react9.createElement)(import_dsh_client_ui_primitives6.Button, { size: "sm", variant: "outline", onClick: onClose }, tr("close")))
+        modalActions((0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { size: "sm", variant: "outline", onClick: onClose }, tr("close")))
       ]
     });
   }
-  return (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Modal, {
+  return (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Modal, {
     open: open2,
     onClose,
     title: tr("group.manage.title"),
@@ -2940,16 +2840,16 @@ function ManageGroupsModal({
     headless: true,
     children: [
       modalHead(tr("group.manage.title"), tr("close"), onClose),
-      (0, import_react9.createElement)(
+      (0, import_react8.createElement)(
         "div",
         { className: "dshOneTree_manageList", "data-dshone-tree": "group-manage-list" },
-        groups.length === 0 ? (0, import_react9.createElement)("div", { className: "dshOneTree_manageEmpty" }, tr("group.manage.none")) : groups.map(
-          (group) => (0, import_react9.createElement)(
+        groups.length === 0 ? (0, import_react8.createElement)("div", { className: "dshOneTree_manageEmpty" }, tr("group.manage.none")) : groups.map(
+          (group) => (0, import_react8.createElement)(
             "div",
             { className: "dshOneTree_manageRow", key: group.id, "data-dshone-manage-group": group.id },
             // 名字本身就是进成员清单的入口（Telegram 的文件夹行也是点一下进去）；
             // 行尾 ✎/🗑 仍是「关掉本框、开那一套对话框」，各点各的。
-            (0, import_react9.createElement)(
+            (0, import_react8.createElement)(
               "button",
               {
                 type: "button",
@@ -2965,16 +2865,16 @@ function ManageGroupsModal({
               },
               group.name
             ),
-            (0, import_react9.createElement)("span", { className: "dshOneTree_manageCount" }, String(counts.get(group.id) ?? 0)),
+            (0, import_react8.createElement)("span", { className: "dshOneTree_manageCount" }, String(counts.get(group.id) ?? 0)),
             rowIcon(group.id, group.name, "rename"),
             rowIcon(group.id, group.name, "delete")
           )
         )
       ),
-      (0, import_react9.createElement)(
+      (0, import_react8.createElement)(
         "div",
         { className: "dshOneTree_manageCreate" },
-        (0, import_react9.createElement)("input", {
+        (0, import_react8.createElement)("input", {
           className: "dshOneTree_renameInput",
           "data-dshone-tree": "group-manage-input",
           value: draft,
@@ -2990,17 +2890,17 @@ function ManageGroupsModal({
             submit();
           }
         }),
-        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Button, { size: "sm", variant: "primary", disabled: draft.trim() === "", onClick: submit }, tr("group.new"))
+        (0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { size: "sm", variant: "primary", disabled: draft.trim() === "", onClick: submit }, tr("group.new"))
       ),
-      ...error === null ? [] : [(0, import_react9.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)],
-      modalActions((0, import_react9.createElement)(import_dsh_client_ui_primitives6.Button, { size: "sm", variant: "outline", onClick: onClose }, tr("close")))
+      ...error === null ? [] : [(0, import_react8.createElement)("div", { className: "dshOneTree_renameError", role: "alert" }, error)],
+      modalActions((0, import_react8.createElement)(import_dsh_client_ui_primitives5.Button, { size: "sm", variant: "outline", onClick: onClose }, tr("close")))
     ]
   });
 }
 
 // src/ui/assembly/shell/workspaceTree/recycleDrawer.ts
-var import_react10 = require("react");
-var import_dsh_client_ui_primitives7 = require("@deepseek-ai/dsh-client-ui-primitives");
+var import_react9 = require("react");
+var import_dsh_client_ui_primitives6 = require("@deepseek-ai/dsh-client-ui-primitives");
 var DRAWER_HEIGHT_DEFAULT = 0.5;
 var DRAWER_HEIGHT_EXPANDED = 0.9;
 var DRAWER_HEIGHT_MIN = 0.15;
@@ -3033,12 +2933,12 @@ function RecycleDrawer({
   onRestore,
   onArchive
 }) {
-  const drawerRef = (0, import_react10.useRef)(null);
-  const [phase, setPhase] = (0, import_react10.useState)("closed");
-  const [dragHeight, setDragHeight] = (0, import_react10.useState)(null);
-  const [snapHeight, setSnapHeight] = (0, import_react10.useState)(null);
-  const [menuFor, setMenuFor] = (0, import_react10.useState)(null);
-  (0, import_react10.useEffect)(() => {
+  const drawerRef = (0, import_react9.useRef)(null);
+  const [phase, setPhase] = (0, import_react9.useState)("closed");
+  const [dragHeight, setDragHeight] = (0, import_react9.useState)(null);
+  const [snapHeight, setSnapHeight] = (0, import_react9.useState)(null);
+  const [menuFor, setMenuFor] = (0, import_react9.useState)(null);
+  (0, import_react9.useEffect)(() => {
     if (open2) {
       setPhase("entering");
       return;
@@ -3047,7 +2947,7 @@ function RecycleDrawer({
     setMenuFor(null);
     setPhase((prev) => prev === "closed" ? "closed" : "leaving");
   }, [open2]);
-  (0, import_react10.useEffect)(() => {
+  (0, import_react9.useEffect)(() => {
     if (phase !== "entering") return;
     let second = 0;
     const first = requestAnimationFrame(() => {
@@ -3058,7 +2958,7 @@ function RecycleDrawer({
       cancelAnimationFrame(second);
     };
   }, [phase]);
-  (0, import_react10.useEffect)(() => {
+  (0, import_react9.useEffect)(() => {
     if (phase !== "leaving") return;
     const drawer = drawerRef.current;
     const finish = () => setPhase((prev) => prev === "leaving" ? "closed" : prev);
@@ -3072,7 +2972,7 @@ function RecycleDrawer({
       clearTimeout(timer);
     };
   }, [phase]);
-  (0, import_react10.useEffect)(() => {
+  (0, import_react9.useEffect)(() => {
     if (!open2) return;
     const onPointerDown = (event) => {
       const drawer = drawerRef.current;
@@ -3085,7 +2985,7 @@ function RecycleDrawer({
     document.addEventListener("mousedown", onPointerDown, true);
     return () => document.removeEventListener("mousedown", onPointerDown, true);
   }, [open2, onClose]);
-  (0, import_react10.useEffect)(() => {
+  (0, import_react9.useEffect)(() => {
     if (!open2) return;
     const onKey = (event) => {
       if (event.key !== "Escape" || event.defaultPrevented || menuFor !== null) return;
@@ -3137,7 +3037,7 @@ function RecycleDrawer({
   if (phase === "closed") return null;
   const total = recycleCount(groups);
   const height = dragHeight ?? snapHeight ?? DRAWER_HEIGHT_DEFAULT;
-  return (0, import_react10.createElement)(
+  return (0, import_react9.createElement)(
     "div",
     {
       className: `dshOneTree_drawer${phase === "open" ? " dshOneTree_drawerOpen" : ""}${phase === "leaving" ? " dshOneTree_drawerLeaving" : ""}`,
@@ -3148,7 +3048,7 @@ function RecycleDrawer({
       role: "region",
       "aria-label": tr("recycle.title")
     },
-    (0, import_react10.createElement)(
+    (0, import_react9.createElement)(
       "div",
       {
         className: "dshOneTree_drawerHandle",
@@ -3156,14 +3056,14 @@ function RecycleDrawer({
         title: tr("recycle.handle"),
         onPointerDown: startDrag
       },
-      (0, import_react10.createElement)("span", { className: "dshOneTree_drawerGrip" })
+      (0, import_react9.createElement)("span", { className: "dshOneTree_drawerGrip" })
     ),
-    (0, import_react10.createElement)(
+    (0, import_react9.createElement)(
       "div",
       { className: "dshOneTree_drawerHeader" },
-      (0, import_react10.createElement)("span", { className: "dshOneTree_drawerTitle" }, tr("recycle.title")),
-      (0, import_react10.createElement)("span", { className: "dshOneTree_drawerCount", "data-dshone-recycle-count": total }, String(total)),
-      (0, import_react10.createElement)(
+      (0, import_react9.createElement)("span", { className: "dshOneTree_drawerTitle" }, tr("recycle.title")),
+      (0, import_react9.createElement)("span", { className: "dshOneTree_drawerCount", "data-dshone-recycle-count": total }, String(total)),
+      (0, import_react9.createElement)(
         "button",
         {
           type: "button",
@@ -3172,14 +3072,14 @@ function RecycleDrawer({
           "data-dshone-tree-action": "recycle-close",
           onClick: onClose
         },
-        (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconCloseFill14, {})
+        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconCloseFill14, {})
       )
     ),
-    total === 0 ? (0, import_react10.createElement)("div", { className: "dshOneTree_drawerStatus" }, tr("recycle.empty")) : (0, import_react10.createElement)(
+    total === 0 ? (0, import_react9.createElement)("div", { className: "dshOneTree_drawerStatus" }, tr("recycle.empty")) : (0, import_react9.createElement)(
       "div",
       { className: "dshOneTree_drawerList" },
       groups.map(
-        (group) => (0, import_react10.createElement)(RecycleBlock, {
+        (group) => (0, import_react9.createElement)(RecycleBlock, {
           key: group.key,
           group,
           collapsed: collapsed.includes(group.key),
@@ -3195,7 +3095,7 @@ function RecycleDrawer({
         })
       )
     ),
-    error === null ? null : (0, import_react10.createElement)("div", { className: "dshOneTree_selectionError", role: "alert" }, error)
+    error === null ? null : (0, import_react9.createElement)("div", { className: "dshOneTree_selectionError", role: "alert" }, error)
   );
 }
 function RecycleBlock({
@@ -3212,10 +3112,10 @@ function RecycleBlock({
   onArchive
 }) {
   const label = group.workspaceId === void 0 ? tr("group.ungrouped") : group.label;
-  return (0, import_react10.createElement)(
+  return (0, import_react9.createElement)(
     "div",
     { className: "dshOneTree_drawerGroup", "data-dshone-recycle-group": group.key },
-    (0, import_react10.createElement)(
+    (0, import_react9.createElement)(
       "button",
       {
         type: "button",
@@ -3225,18 +3125,18 @@ function RecycleBlock({
         "aria-expanded": !collapsed,
         onClick: onToggle
       },
-      (0, import_react10.createElement)(
+      (0, import_react9.createElement)(
         "span",
         { className: "dshOneTree_drawerGroupArrow" },
-        (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconTriangleRightFill14, { className: `dshOneTree_arrow${collapsed ? "" : " dshOneTree_arrowOpen"}` })
+        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconTriangleRightFill14, { className: `dshOneTree_arrow${collapsed ? "" : " dshOneTree_arrowOpen"}` })
       ),
-      (0, import_react10.createElement)("span", { className: "dshOneTree_drawerGroupLabelText" }, label),
-      (0, import_react10.createElement)("span", { className: "dshOneTree_drawerGroupCount" }, String(group.sessions.length))
+      (0, import_react9.createElement)("span", { className: "dshOneTree_drawerGroupLabelText" }, label),
+      (0, import_react9.createElement)("span", { className: "dshOneTree_drawerGroupCount" }, String(group.sessions.length))
     ),
     collapsed ? null : group.sessions.map((node) => {
       const title = displayTitle(node, tr);
       const menuOpen = openMenuFor === node.id;
-      const anchor = (0, import_react10.createElement)(
+      const anchor = (0, import_react9.createElement)(
         "button",
         {
           type: "button",
@@ -3248,9 +3148,9 @@ function RecycleBlock({
             onMenuToggle(node.id);
           }
         },
-        (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconEllipsisOutline16, {})
+        (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconEllipsisOutline16, {})
       );
-      return (0, import_react10.createElement)(
+      return (0, import_react9.createElement)(
         "div",
         {
           className: `dshOneTree_drawerRow${menuOpen ? " dshOneTree_menuOpen" : ""}`,
@@ -3259,16 +3159,16 @@ function RecycleBlock({
           "data-dshone-recycle-row": node.id,
           onClick: () => onOpen(node.id)
         },
-        (0, import_react10.createElement)("span", { className: "dshOneTree_title" }, title),
-        (0, import_react10.createElement)("span", { className: "dshOneTree_time" }, timeLabel(node.updatedAt, now, tr)),
-        (0, import_react10.createElement)(
+        (0, import_react9.createElement)("span", { className: "dshOneTree_title" }, title),
+        (0, import_react9.createElement)("span", { className: "dshOneTree_time" }, timeLabel(node.updatedAt, now, tr)),
+        (0, import_react9.createElement)(
           "span",
           { className: "dshOneTree_drawerActions" },
-          (0, import_react10.createElement)(import_dsh_client_ui_primitives7.Tooltip, {
+          (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Tooltip, {
             label: tr("recycle.restore"),
             side: "top",
             delayMs: 500,
-            children: (0, import_react10.createElement)(
+            children: (0, import_react9.createElement)(
               "button",
               {
                 type: "button",
@@ -3281,23 +3181,23 @@ function RecycleBlock({
                   onRestore(node.id);
                 }
               },
-              (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconRefreshOutline16, { size: 14 }),
+              (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconRefreshOutline16, { size: 14 }),
               tr("recycle.restore")
             )
           }),
-          (0, import_react10.createElement)(import_dsh_client_ui_primitives7.Menu, {
+          (0, import_react9.createElement)(import_dsh_client_ui_primitives6.Menu, {
             open: menuOpen,
             onClose: () => onMenuToggle(node.id),
             items: [
               // #113：官方紧凑档的图标位是 14×14（官方 `._itemIcon_1nxmc_144`），
               // 项内图标按它给尺寸（官方 16 档塞进 14px 的盒子会溢出一圈）。
-              { id: "restore", label: tr("recycle.restore"), icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconRefreshOutline16, { size: 14 }) },
+              { id: "restore", label: tr("recycle.restore"), icon: (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconRefreshOutline16, { size: 14 }) },
               {
                 id: "archive",
                 // 标记属性（自有契约，与 rows.ts 的菜单项同一做法）：官方菜单项的
                 // 类名是官方哈希，验证套件与样式都不该认它。
-                label: (0, import_react10.createElement)("span", { "data-dshone-recycle-item": "archive" }, tr("menu.archiveForever")),
-                icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconArchiveOutline20, { size: 14 }),
+                label: (0, import_react9.createElement)("span", { "data-dshone-recycle-item": "archive" }, tr("menu.archiveForever")),
+                icon: (0, import_react9.createElement)(import_dsh_client_ui_primitives6.IconArchiveOutline20, { size: 14 }),
                 danger: true
               }
             ],
@@ -3320,16 +3220,16 @@ function RecycleBlock({
 }
 
 // src/ui/assembly/shell/workspaceTree/rows.ts
-var import_react11 = require("react");
-var import_dsh_client_ui_primitives8 = require("@deepseek-ai/dsh-client-ui-primitives");
+var import_react10 = require("react");
+var import_dsh_client_ui_primitives7 = require("@deepseek-ai/dsh-client-ui-primitives");
 var PIN_PATHS = ["M5.9 2.5h4.2l.6 3.8 1.8 1.7v1.5h-9V8l1.8-1.7.6-3.8z", "M8 9.5v4"];
 var UNREAD_PATHS = ["M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8z"];
 function strokeIcon(paths) {
-  return (0, import_react11.createElement)(
+  return (0, import_react10.createElement)(
     "svg",
     { viewBox: "0 0 16 16", width: 14, height: 14, fill: "none", "aria-hidden": true },
     ...paths.map(
-      (d, index) => (0, import_react11.createElement)("path", {
+      (d, index) => (0, import_react10.createElement)("path", {
         key: String(index),
         d,
         stroke: "currentColor",
@@ -3341,7 +3241,7 @@ function strokeIcon(paths) {
   );
 }
 function PinMark({ sessionId }) {
-  return (0, import_react11.createElement)("span", { className: "dshOneTree_pin", "data-dshone-tree-pin": sessionId, "aria-hidden": true }, strokeIcon(PIN_PATHS));
+  return (0, import_react10.createElement)("span", { className: "dshOneTree_pin", "data-dshone-tree-pin": sessionId, "aria-hidden": true }, strokeIcon(PIN_PATHS));
 }
 var TERMINAL_PATHS = [
   "M2 1.5h12A1.5 1.5 0 0 1 15.5 3v10A1.5 1.5 0 0 1 14 14.5H2A1.5 1.5 0 0 1 .5 13V3A1.5 1.5 0 0 1 2 1.5zm0 1.3a.2.2 0 0 0-.2.2v10c0 .11.09.2.2.2h12a.2.2 0 0 0 .2-.2V3a.2.2 0 0 0-.2-.2H2z",
@@ -3349,16 +3249,16 @@ var TERMINAL_PATHS = [
   "M7.2 10.6h4.6v1.3H7.2z"
 ];
 function TerminalIcon() {
-  return (0, import_react11.createElement)(
+  return (0, import_react10.createElement)(
     "svg",
     { viewBox: "0 0 16 16", width: 16, height: 16, fill: "currentColor", "fill-rule": "evenodd", "aria-hidden": true },
-    ...TERMINAL_PATHS.map((d, index) => (0, import_react11.createElement)("path", { key: String(index), d }))
+    ...TERMINAL_PATHS.map((d, index) => (0, import_react10.createElement)("path", { key: String(index), d }))
   );
 }
 function submenuChild(options) {
   return {
     id: options.id,
-    label: (0, import_react11.createElement)(
+    label: (0, import_react10.createElement)(
       "span",
       {
         "data-dshone-tree-item": options.marker,
@@ -3367,7 +3267,7 @@ function submenuChild(options) {
       },
       options.name
     ),
-    ...options.checked ? { icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconCheckOutline16, { size: 12 }) } : {}
+    ...options.checked ? { icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconCheckOutline16, { size: 12 }) } : {}
   };
 }
 function indentSubmenuItem(item) {
@@ -3377,21 +3277,21 @@ function indentSubmenuItem(item) {
     ...record,
     // 官方项的图标槽是 flex:none 的 14×14 盒子（紧凑档 `._itemIcon_1nxmc_144`）：
     // 空 span 塞进去不画东西、只占位。
-    icon: record.icon ?? (0, import_react11.createElement)("span", { className: "dshOneTree_submenuIconGap", "aria-hidden": true }),
-    label: (0, import_react11.createElement)("span", { className: "dshOneTree_submenuItem" }, record.label ?? null)
+    icon: record.icon ?? (0, import_react10.createElement)("span", { className: "dshOneTree_submenuIconGap", "aria-hidden": true }),
+    label: (0, import_react10.createElement)("span", { className: "dshOneTree_submenuItem" }, record.label ?? null)
   };
 }
 function submenuParent(options) {
   return {
     id: options.id,
-    label: (0, import_react11.createElement)(
+    label: (0, import_react10.createElement)(
       "span",
       { "data-dshone-tree-item": options.id },
       options.label,
-      (0, import_react11.createElement)("span", { className: "dshOneTree_submenuArrow", "aria-hidden": true }, options.open ? "\u25BE" : "\u25B8")
+      (0, import_react10.createElement)("span", { className: "dshOneTree_submenuArrow", "aria-hidden": true }, options.open ? "\u25BE" : "\u25B8")
     ),
     // 图标位取紧凑档的 14×14（官方 `._itemIcon_1nxmc_144`），见文件里各菜单项的同一处置。
-    icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconFolderOpenOutline16, { size: 14 })
+    icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconFolderOpenOutline16, { size: 14 })
   };
 }
 function UnreadIcon() {
@@ -3411,13 +3311,13 @@ function archiveBlockKey(reason) {
 }
 function SessionStatusDots({ statuses, tr }) {
   const labels = statuses.map(
-    (status) => (0, import_react11.createElement)(
+    (status) => (0, import_react10.createElement)(
       "span",
       { className: "dshOneTree_visuallyHidden", key: status.labelKey },
       status.labelCount === void 0 ? tr(status.labelKey) : tr(status.labelKey, { n: status.labelCount })
     )
   );
-  return (0, import_react11.createElement)("span", { className: "dshOneTree_slot" }, (0, import_react11.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: statuses[0].state, className: "dshOneTree_dot" }), labels);
+  return (0, import_react10.createElement)("span", { className: "dshOneTree_slot" }, (0, import_react10.createElement)(import_dsh_client_ui_primitives7.StateDot, { state: statuses[0].state, className: "dshOneTree_dot" }), labels);
 }
 function SessionHoverContent({
   node,
@@ -3426,17 +3326,17 @@ function SessionHoverContent({
   unread
 }) {
   const statuses = sessionStatuses({ ...node, unread });
-  return (0, import_react11.createElement)(
+  return (0, import_react10.createElement)(
     "div",
     { className: "dshOneTree_hoverContent" },
-    (0, import_react11.createElement)("div", { className: "dshOneTree_hoverTitle" }, displayTitle(node, tr)),
-    node.blank ? null : (0, import_react11.createElement)("div", { className: "dshOneTree_hoverTime" }, hoverTimeLabel(node.updatedAt, now, tr)),
+    (0, import_react10.createElement)("div", { className: "dshOneTree_hoverTitle" }, displayTitle(node, tr)),
+    node.blank ? null : (0, import_react10.createElement)("div", { className: "dshOneTree_hoverTime" }, hoverTimeLabel(node.updatedAt, now, tr)),
     statuses.map(
-      (status) => (0, import_react11.createElement)(
+      (status) => (0, import_react10.createElement)(
         "div",
         { className: "dshOneTree_hoverStatus", key: status.labelKey },
-        (0, import_react11.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: status.state }),
-        (0, import_react11.createElement)("span", null, status.labelCount === void 0 ? tr(status.labelKey) : tr(status.labelKey, { n: status.labelCount }))
+        (0, import_react10.createElement)(import_dsh_client_ui_primitives7.StateDot, { state: status.state }),
+        (0, import_react10.createElement)("span", null, status.labelCount === void 0 ? tr(status.labelKey) : tr(status.labelKey, { n: status.labelCount }))
       )
     )
   );
@@ -3447,17 +3347,17 @@ function WorkspaceHoverContent({
   createdAt,
   tr
 }) {
-  return (0, import_react11.createElement)(
+  return (0, import_react10.createElement)(
     "div",
     { className: "dshOneTree_hoverContent" },
-    (0, import_react11.createElement)("div", { className: "dshOneTree_hoverTitle" }, label),
-    cwd === void 0 ? null : (0, import_react11.createElement)("div", { className: "dshOneTree_hoverPath" }, cwd),
-    createdAt === void 0 ? null : (0, import_react11.createElement)("div", { className: "dshOneTree_hoverTime" }, createdLabel(createdAt, tr))
+    (0, import_react10.createElement)("div", { className: "dshOneTree_hoverTitle" }, label),
+    cwd === void 0 ? null : (0, import_react10.createElement)("div", { className: "dshOneTree_hoverPath" }, cwd),
+    createdAt === void 0 ? null : (0, import_react10.createElement)("div", { className: "dshOneTree_hoverTime" }, createdLabel(createdAt, tr))
   );
 }
 function ActiveScheduleIndicator({ tr, search = false }) {
   const label = tr("schedule.active");
-  return (0, import_react11.createElement)(
+  return (0, import_react10.createElement)(
     "span",
     {
       className: `dshOneTree_scheduleIndicator${search ? " dshOneTree_searchScheduleIndicator" : ""}`,
@@ -3466,7 +3366,7 @@ function ActiveScheduleIndicator({ tr, search = false }) {
       title: label,
       "data-dshone-tree-schedule": ""
     },
-    (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconAlarmClockOutline16, {})
+    (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconAlarmClockOutline16, {})
   );
 }
 function ProjectRow({
@@ -3495,9 +3395,9 @@ function ProjectRow({
   checkDisabled,
   onToggleSelect
 }) {
-  const [menuOpen, setMenuOpen] = (0, import_react11.useState)(false);
-  const [submenuOpen, setSubmenuOpen] = (0, import_react11.useState)(false);
-  const [menuAt, setMenuAt] = (0, import_react11.useState)(null);
+  const [menuOpen, setMenuOpen] = (0, import_react10.useState)(false);
+  const [submenuOpen, setSubmenuOpen] = (0, import_react10.useState)(false);
+  const [menuAt, setMenuAt] = (0, import_react10.useState)(null);
   const label = group.workspaceId === void 0 ? tr("group.ungrouped") : group.label;
   const active = expanded && group.containsCurrent;
   const state = checkState ?? "none";
@@ -3518,15 +3418,15 @@ function ProjectRow({
     {
       type: "label",
       id: "workspace-title",
-      text: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "menu-title" }, tr("menu.workspaceTitle", { name: label }))
+      text: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "menu-title" }, tr("menu.workspaceTitle", { name: label }))
     },
     // 未分组桶没有路径与工作区身份，能做的只有它自己那两件（新建会话 / 整桶归档）。
-    ...ungrouped ? [{ id: "new-session", label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "new-session" }, tr("menu.newSession")), icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, { size: 14 }) }] : [],
+    ...ungrouped ? [{ id: "new-session", label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "new-session" }, tr("menu.newSession")), icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconPlusOutline16, { size: 14 }) }] : [],
     ...hasPath ? [
       {
         id: "copy-folder-ref",
-        label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "copy-folder-ref" }, tr("menu.copyFolderReference")),
-        icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, { size: 14 })
+        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "copy-folder-ref" }, tr("menu.copyFolderReference")),
+        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconCopyOutline16, { size: 14 })
       }
     ] : [],
     // 「分组…」二级菜单：父项点一下就地展开，子项紧跟在它后面（勾选态走 selectedIds 的 ✓）。
@@ -3536,7 +3436,7 @@ function ProjectRow({
     ] : [],
     {
       id: "archive-all",
-      label: (0, import_react11.createElement)(
+      label: (0, import_react10.createElement)(
         "span",
         {
           "data-dshone-tree-item": "archive-all",
@@ -3545,40 +3445,40 @@ function ProjectRow({
         },
         ungrouped ? tr("menu.archiveUngrouped") : tr("menu.archiveWorkspace")
       ),
-      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconArchiveOutline20, { size: 14 }),
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconArchiveOutline20, { size: 14 }),
       disabled: !canArchiveAll
     },
     ...hasPath && onOpenFolder !== void 0 ? [
       {
         id: "open-new-window",
-        label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "open-new-window" }, tr("menu.openFolderInNewWindow")),
-        icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconRightUpOutline16, { size: 14 })
+        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "open-new-window" }, tr("menu.openFolderInNewWindow")),
+        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconRightUpOutline16, { size: 14 })
       }
     ] : [],
     ...hasPath ? [
       {
         id: "copy-path",
-        label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "copy-path" }, tr("menu.copyPath")),
-        icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, { size: 14 })
+        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "copy-path" }, tr("menu.copyPath")),
+        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconCopyOutline16, { size: 14 })
       }
     ] : [],
     ...onRename === void 0 ? [] : [
       {
         id: "rename",
-        label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "rename" }, tr("menu.renameWorkspace")),
-        icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconEditOutline16, { size: 14 })
+        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "rename" }, tr("menu.renameWorkspace")),
+        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconEditOutline16, { size: 14 })
       }
     ],
     ...onDelete === void 0 ? [] : [
       {
         id: "remove",
-        label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "remove" }, tr("menu.removeWorkspace")),
-        icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, { size: 14 }),
+        label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "remove" }, tr("menu.removeWorkspace")),
+        icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconTrashOutline16, { size: 14 }),
         danger: true
       }
     ]
   ];
-  const iconButton = (options) => (0, import_react11.createElement)(
+  const iconButton = (options) => (0, import_react10.createElement)(
     "button",
     {
       key: options.key,
@@ -3601,7 +3501,7 @@ function ProjectRow({
       aria: tr("actions.newSession.aria", { name: label }),
       onClick: onCreate,
       marker: "new-session-button",
-      children: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, {})
+      children: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconPlusOutline16, {})
     }),
     ...hasPath && onOpenTerminal !== void 0 ? [
       iconButton({
@@ -3609,7 +3509,7 @@ function ProjectRow({
         action: "workspace-terminal",
         aria: tr("actions.workspace.terminal", { name: label }),
         onClick: onOpenTerminal,
-        children: (0, import_react11.createElement)(TerminalIcon, {})
+        children: (0, import_react10.createElement)(TerminalIcon, {})
       })
     ] : [],
     // 「在 VS Code 打开」只在**非当前工作区**时出现（E1）：当前工作区本来就在编辑器里，
@@ -3620,7 +3520,7 @@ function ProjectRow({
         action: "workspace-open",
         aria: tr("actions.workspace.open", { name: label }),
         onClick: () => onOpenFolder({ newWindow: false }),
-        children: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconFolderOpenOutline16, {})
+        children: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconFolderOpenOutline16, {})
       })
     ] : [],
     ...onDelete === void 0 ? [] : [
@@ -3629,12 +3529,12 @@ function ProjectRow({
         action: "workspace-remove",
         aria: tr("actions.workspace.remove", { name: label }),
         onClick: onDelete,
-        children: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, {})
+        children: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconTrashOutline16, {})
       })
     ]
   ];
-  const anchor = (0, import_react11.createElement)("span", { className: "dshOneTree_menuAnchor", "aria-hidden": true });
-  const row = (0, import_react11.createElement)(
+  const anchor = (0, import_react10.createElement)("span", { className: "dshOneTree_menuAnchor", "aria-hidden": true });
+  const row = (0, import_react10.createElement)(
     "div",
     {
       className: `dshOneTree_projectRow${menuOpen ? " dshOneTree_menuOpen" : ""}`,
@@ -3659,7 +3559,7 @@ function ProjectRow({
         // #108：三态全选框（旧侧栏的处置：框在最前，文件夹与折叠箭头照常保留）。
         // 点框只勾选、不折叠（stopPropagation），所以我们自己做一枚可点元素而不是
         // 让整行承接——组头的整行点击仍是「展开/收起」。
-        selectMode !== true ? null : (0, import_react11.createElement)(
+        selectMode !== true ? null : (0, import_react10.createElement)(
           "span",
           {
             key: "check",
@@ -3677,28 +3577,28 @@ function ProjectRow({
               if (checkDisabled !== true) onToggleSelect?.();
             }
           },
-          (0, import_react11.createElement)(SelectMark, {
+          (0, import_react10.createElement)(SelectMark, {
             on: state === "all",
             partial: state === "some",
             disabled: checkDisabled === true
           })
         ),
-        (0, import_react11.createElement)(
+        (0, import_react10.createElement)(
           "span",
           {
             key: "folder",
             className: `dshOneTree_slot dshOneTree_folder${active ? " dshOneTree_folderActive" : ""}`,
-            children: expanded ? (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconFolderOpen16, {}) : (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconFolderClose16, {})
+            children: expanded ? (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconFolderOpen16, {}) : (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconFolderClose16, {})
           }
         ),
-        (0, import_react11.createElement)("span", {
+        (0, import_react10.createElement)("span", {
           key: "chevron",
           className: "dshOneTree_slot dshOneTree_chevron",
-          children: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconTriangleRightFill14, {
+          children: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconTriangleRightFill14, {
             className: `dshOneTree_arrow${expanded ? " dshOneTree_arrowOpen" : ""}`
           })
         }),
-        (0, import_react11.createElement)("span", {
+        (0, import_react10.createElement)("span", {
           key: "text",
           className: "dshOneTree_projectText",
           // #138：活状态计数**跟着标题文字走**（同一个标题盒里、文字之后），所以它装在
@@ -3712,23 +3612,23 @@ function ProjectRow({
           // 窄侧栏里胶囊会压住标题文字与计数（实测 260px 下压住计数右缘 4.6px），
           // 进流之后它自己占住那一格，标题文字用省略号让位，两者永不重叠（见它的样式规则
           // 与 ActivityBadge 的说明）。
-          children: (0, import_react11.createElement)(
+          children: (0, import_react10.createElement)(
             "span",
             { className: "dshOneTree_title" },
-            (0, import_react11.createElement)("span", { className: "dshOneTree_titleText" }, label),
-            counts === void 0 ? null : (0, import_react11.createElement)(ActivityBadge, { counts, tr }),
-            (0, import_react11.createElement)(
+            (0, import_react10.createElement)("span", { className: "dshOneTree_titleText" }, label),
+            counts === void 0 ? null : (0, import_react10.createElement)(ActivityBadge, { counts, tr }),
+            (0, import_react10.createElement)(
               "span",
               { key: "end", className: "dshOneTree_rowEnd" },
-              group.containsCurrent ? (0, import_react11.createElement)("span", { className: "dshOneTree_workspaceBadge", "data-dshone-tree-badge": shellName, title: tr("badge.current") }, shellName) : null
+              group.containsCurrent ? (0, import_react10.createElement)("span", { className: "dshOneTree_workspaceBadge", "data-dshone-tree-badge": shellName, title: tr("badge.current") }, shellName) : null
             )
           )
         }),
-        (0, import_react11.createElement)("span", {
+        (0, import_react10.createElement)("span", {
           key: "actions",
           className: "dshOneTree_rowActions",
           children: [
-            (0, import_react11.createElement)(import_dsh_client_ui_primitives8.Menu, {
+            (0, import_react10.createElement)(import_dsh_client_ui_primitives7.Menu, {
               key: "menu",
               open: menuOpen,
               onClose: () => {
@@ -3770,9 +3670,9 @@ function ProjectRow({
     }
   );
   if (group.createdAt === void 0 || !hoverCard || selectMode === true) return row;
-  return (0, import_react11.createElement)(import_dsh_client_ui_primitives8.HoverCard, {
+  return (0, import_react10.createElement)(import_dsh_client_ui_primitives7.HoverCard, {
     anchor: row,
-    content: (0, import_react11.createElement)(WorkspaceHoverContent, { label: group.label, cwd: group.cwd, createdAt: group.createdAt, tr }),
+    content: (0, import_react10.createElement)(WorkspaceHoverContent, { label: group.label, cwd: group.cwd, createdAt: group.createdAt, tr }),
     disabled: menuOpen,
     copyText: group.cwd,
     copyLabel: tr("copy"),
@@ -3829,27 +3729,27 @@ function SessionRow({
   onRenameCommit,
   onRenameCancel
 }) {
-  const [menuOpen, setMenuOpen] = (0, import_react11.useState)(false);
-  const [submenuOpen, setSubmenuOpen] = (0, import_react11.useState)(false);
-  const [menuAt, setMenuAt] = (0, import_react11.useState)(null);
+  const [menuOpen, setMenuOpen] = (0, import_react10.useState)(false);
+  const [submenuOpen, setSubmenuOpen] = (0, import_react10.useState)(false);
+  const [menuAt, setMenuAt] = (0, import_react10.useState)(null);
   const title = displayTitle(node, tr);
   const isCurrent = node.id === currentId;
-  const renameInput = (0, import_react11.useRef)(null);
-  (0, import_react11.useLayoutEffect)(() => {
+  const renameInput = (0, import_react10.useRef)(null);
+  (0, import_react10.useLayoutEffect)(() => {
     const input = renameInput.current;
     if (input === null || document.activeElement === input) return;
     input.focus();
     const selection = renameSelection ?? { start: 0, end: input.value.length };
     input.setSelectionRange(selection.start, selection.end);
   });
-  (0, import_react11.useEffect)(() => {
+  (0, import_react10.useEffect)(() => {
     if (renaming !== true) return;
     setMenuAt(null);
     setMenuOpen(false);
     setSubmenuOpen(false);
   }, [renaming]);
-  const composingRef = (0, import_react11.useRef)(false);
-  (0, import_react11.useEffect)(() => {
+  const composingRef = (0, import_react10.useRef)(false);
+  (0, import_react10.useEffect)(() => {
     if (renaming !== true) return;
     const report = () => {
       const input = renameInput.current;
@@ -3912,11 +3812,11 @@ function SessionRow({
       id: "openInNewTab",
       // 标记属性（自有契约）：菜单项类名是官方哈希，验证套件与样式都不该认它，
       // 按这个属性取「我们那一项」（与 contextMenuPlugin 的图标项同一做法）。
-      label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "openInNewTab" }, tr("menu.openInNewTab")),
+      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "openInNewTab" }, tr("menu.openInNewTab")),
       // 图标取官方 primitives 的 IconRightUpOutline16（向右上离开方框 = 到别处打开），
       // 同为 icon 槽位的次级色；尺寸按紧凑档的 14×14 图标位给（`{ size: 14 }`，
       // 官方 16 档图标塞进 14px 的盒子会溢出一圈）。
-      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconRightUpOutline16, { size: 14 })
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconRightUpOutline16, { size: 14 })
     }
   ];
   const recycleBlocked = cannotRecycleReason(facts);
@@ -3925,29 +3825,29 @@ function SessionRow({
     {
       type: "label",
       id: "session-title",
-      text: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "menu-title" }, tr("menu.sessionTitle", { name: title }))
+      text: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "menu-title" }, tr("menu.sessionTitle", { name: title }))
     },
     {
       id: "selectMultiple",
-      label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "selectMultiple" }, tr("menu.selectMultiple")),
+      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "selectMultiple" }, tr("menu.selectMultiple")),
       // 图标取顶栏那个多选入口的同一枚（IconChecklistOutline14），两处是同一个动作。
-      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconChecklistOutline14, {})
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconChecklistOutline14, {})
     },
     ...openInNewTabItem,
     {
       id: "rename",
-      label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "rename" }, tr("rename")),
-      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconEditOutline16, { size: 14 })
+      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "rename" }, tr("rename")),
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconEditOutline16, { size: 14 })
     },
     // #102 两项标记动作：文案随状态翻转，勾选态走官方 Menu 的 selectedIds（✓）。
     {
       id: "pin",
-      label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "pin" }, pinned ? tr("menu.unpin") : tr("menu.pin")),
+      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "pin" }, pinned ? tr("menu.unpin") : tr("menu.pin")),
       icon: strokeIcon(PIN_PATHS)
     },
     {
       id: "unread",
-      label: (0, import_react11.createElement)(
+      label: (0, import_react10.createElement)(
         "span",
         {
           "data-dshone-tree-item": "unread",
@@ -3955,7 +3855,7 @@ function SessionRow({
         },
         unread ? tr("menu.markRead") : tr("menu.markUnread")
       ),
-      icon: (0, import_react11.createElement)(UnreadIcon, {}),
+      icon: (0, import_react10.createElement)(UnreadIcon, {}),
       disabled: unreadBlocked
     },
     ...groupChildren.length === 0 || onTagSelect === void 0 ? [] : [
@@ -3969,7 +3869,7 @@ function SessionRow({
       // 失败（服务端回退到最后一个 turn/end 切点）——按旧侧栏的处置禁用。**只能按
       // `blank` 判**：会话快照里没有「有没有完成过轮次」这个事实（`SessionSummaryLike`
       // 没有对应字段，旧侧栏吃的 `sessionStatsTurns` 是它自己 store 里的统计）。
-      label: (0, import_react11.createElement)(
+      label: (0, import_react10.createElement)(
         "span",
         {
           "data-dshone-tree-item": "fork",
@@ -3977,19 +3877,19 @@ function SessionRow({
         },
         tr("menu.fork")
       ),
-      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconBranchOutline16, { size: 14 }),
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconBranchOutline16, { size: 14 }),
       disabled: node.blank
     },
     {
       id: "copyReference",
-      label: (0, import_react11.createElement)("span", { "data-dshone-tree-item": "copyReference" }, tr("menu.copyReference")),
-      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconCopyOutline16, { size: 14 })
+      label: (0, import_react10.createElement)("span", { "data-dshone-tree-item": "copyReference" }, tr("menu.copyReference")),
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconCopyOutline16, { size: 14 })
     },
     // 「移入回收站」= 本地可逆的一层（#103）：只有置顶被拦；运行中 / 未读 / 待交互都能移进去
     // （进去还能还原），所以它的判定结果与下面「归档」分开算。
     {
       id: "move-to-recycle-bin",
-      label: (0, import_react11.createElement)(
+      label: (0, import_react10.createElement)(
         "span",
         {
           "data-dshone-tree-item": "move-to-recycle-bin",
@@ -3998,13 +3898,13 @@ function SessionRow({
         },
         tr("menu.moveToRecycleBin")
       ),
-      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconTrashOutline16, { size: 14 }),
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconTrashOutline16, { size: 14 }),
       disabled: recycleBlocked !== null
     },
     // 「归档会话」= 终点动作（#103 的归档 = 删除）：置顶与「状态还在动」的都不许归档。
     {
       id: "archive",
-      label: (0, import_react11.createElement)(
+      label: (0, import_react10.createElement)(
         "span",
         {
           "data-dshone-tree-item": "archive",
@@ -4013,11 +3913,11 @@ function SessionRow({
         },
         tr("menu.archiveSession")
       ),
-      icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconArchiveOutline20, { size: 14 }),
+      icon: (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconArchiveOutline20, { size: 14 }),
       disabled: archiveBlocked !== null
     }
   ];
-  const anchor = (0, import_react11.createElement)(
+  const anchor = (0, import_react10.createElement)(
     "button",
     {
       type: "button",
@@ -4030,10 +3930,10 @@ function SessionRow({
         setMenuOpen((open2) => !open2);
       }
     },
-    (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconEllipsisOutline16, {})
+    (0, import_react10.createElement)(import_dsh_client_ui_primitives7.IconEllipsisOutline16, {})
   );
   const renamingNow = renaming === true;
-  const row = (0, import_react11.createElement)(
+  const row = (0, import_react10.createElement)(
     "div",
     {
       className: `dshOneTree_sessionRow${(selectMode ? selected : isCurrent) ? " dshOneTree_selected" : ""}${menuOpen ? " dshOneTree_menuOpen" : ""}`,
@@ -4095,8 +3995,8 @@ function SessionRow({
         // 那一段空），本条按用户口径改回来。
         // #124 立下的 δ 照旧：会话行的整段插入量仍是 22px（#108 起两行在选中态下插入
         // 同样的量），标题落点因此不变——7 + 22 + 16 + 4 = 49，与工作区名的 51 相差 2。
-        selectMode ? (0, import_react11.createElement)("span", { key: "checkIndent", className: "dshOneTree_checkIndent" }) : null,
-        selectMode ? (0, import_react11.createElement)(
+        selectMode ? (0, import_react10.createElement)("span", { key: "checkIndent", className: "dshOneTree_checkIndent" }) : null,
+        selectMode ? (0, import_react10.createElement)(
           "span",
           {
             key: "check",
@@ -4106,7 +4006,7 @@ function SessionRow({
             // 原因提示挂在勾选框上（行上挂会让整行都冒出原生气泡）。
             ...selectable ? {} : { title: tr("protect.recycle.pinned") }
           },
-          (0, import_react11.createElement)(SelectMark, { on: selected, disabled: !selectable })
+          (0, import_react10.createElement)(SelectMark, { on: selected, disabled: !selectable })
         ) : null,
         // #133：选择态下**状态槽不渲染**——框左边那 22px 缩进就是它让出来的位置。
         // 为什么让它让位，而不是「保留在框的右侧」或「缩进之后紧跟槽」：本条的两个硬
@@ -4117,14 +4017,14 @@ function SessionRow({
         // 再挂主区），行首不留状态槽，活状态画在行尾。
         // 状态事实没有丢：活状态照旧写在行上（`data-dshone-tree-status`，与这枚点同源
         // 的判定），组头三态、归档跳过数、回收站保护这些判定也都不看这颗点。
-        !selectMode ? showStatus ? (0, import_react11.createElement)(SessionStatusDots, { key: "status", statuses, tr }) : (0, import_react11.createElement)("span", { key: "status", className: "dshOneTree_slot" }) : null,
-        pinned ? (0, import_react11.createElement)(PinMark, { key: "pin", sessionId: node.id }) : null,
+        !selectMode ? showStatus ? (0, import_react10.createElement)(SessionStatusDots, { key: "status", statuses, tr }) : (0, import_react10.createElement)("span", { key: "status", className: "dshOneTree_slot" }) : null,
+        pinned ? (0, import_react10.createElement)(PinMark, { key: "pin", sessionId: node.id }) : null,
         // #115 编辑态：标题位就地换成输入框（prefill + 全选由树层给初值与选区），
         // 行其余部分照旧——行结构与不编辑时完全一致，重绘才不会把输入框换掉。
-        renamingNow ? (0, import_react11.createElement)("input", { key: "title", ref: renameInput, className: "dshOneTree_inlineRenameInput", ...renameInputEvents }) : (0, import_react11.createElement)("span", { key: "title", className: `dshOneTree_title${unread ? " dshOneTree_unread" : ""}` }, title),
+        renamingNow ? (0, import_react10.createElement)("input", { key: "title", ref: renameInput, className: "dshOneTree_inlineRenameInput", ...renameInputEvents }) : (0, import_react10.createElement)("span", { key: "title", className: `dshOneTree_title${unread ? " dshOneTree_unread" : ""}` }, title),
         // 活跃定时任务标记（#110，官方 `row.hasActiveSchedule &&` 同位置：标题后、时间前）。
-        node.hasActiveSchedule ? (0, import_react11.createElement)(ActiveScheduleIndicator, { key: "schedule", tr }) : null,
-        node.blank || selectMode ? null : (0, import_react11.createElement)("span", {
+        node.hasActiveSchedule ? (0, import_react10.createElement)(ActiveScheduleIndicator, { key: "schedule", tr }) : null,
+        node.blank || selectMode ? null : (0, import_react10.createElement)("span", {
           key: "time",
           className: "dshOneTree_time",
           children: timeLabel(node.updatedAt, now, tr)
@@ -4134,11 +4034,11 @@ function SessionRow({
         // 的是一层「可能有按钮、一定有菜单」的容器，锚点按有没有按钮二选一。
         // #115 编辑中同样让位：编辑态与菜单互斥（菜单里也有「重命名」，两条路同时开着
         // 只会互相顶掉），要改名就先 Enter/Esc 收掉输入框。
-        selectMode || renamingNow ? null : (0, import_react11.createElement)("span", {
+        selectMode || renamingNow ? null : (0, import_react10.createElement)("span", {
           key: "actions",
           className: "dshOneTree_rowActions",
           children: [
-            (0, import_react11.createElement)(import_dsh_client_ui_primitives8.Menu, {
+            (0, import_react10.createElement)(import_dsh_client_ui_primitives7.Menu, {
               key: "menu",
               open: menuOpen,
               onClose: () => {
@@ -4183,7 +4083,7 @@ function SessionRow({
               // 锚点：非空白行是那一枚 ⋯ 按钮（Menu 自己会把它渲染在自己的根节点里，
               // 所以这里**只**传给 Menu、不再另渲染一份）；空白行没有按钮，给一个零尺寸
               // 占位（右键那一份用指针坐标，锚点只是在别的打开方式下当兜底）。
-              anchor: node.blank ? (0, import_react11.createElement)("span", { className: "dshOneTree_menuAnchor", "aria-hidden": true }) : anchor,
+              anchor: node.blank ? (0, import_react10.createElement)("span", { className: "dshOneTree_menuAnchor", "aria-hidden": true }) : anchor,
               // 行右键开的那一份：菜单锚在指针处（官方 Menu 的 getAnchorRect
               // 优先于 anchor 的矩形，官方自己的右键菜单也是这么用的）。
               ...menuAt === null ? {} : { getAnchorRect: () => new DOMRect(menuAt.x, menuAt.y, 0, 0) }
@@ -4194,9 +4094,9 @@ function SessionRow({
     }
   );
   if (!hoverCard || selectMode) return row;
-  return (0, import_react11.createElement)(import_dsh_client_ui_primitives8.HoverCard, {
+  return (0, import_react10.createElement)(import_dsh_client_ui_primitives7.HoverCard, {
     anchor: row,
-    content: (0, import_react11.createElement)(SessionHoverContent, { node, now, tr, unread }),
+    content: (0, import_react10.createElement)(SessionHoverContent, { node, now, tr, unread }),
     // 改名编辑期间不出悬停卡（`disabled` 是官方 HoverCard 的既有口）：卡片会盖住输入框、
     // 也会在指针移动时重排行。**保留这层包装**（不改成直接返回 row）——结构与不编辑时
     // 一致，编辑态进出才不会把整行 DOM 换掉。
@@ -4221,7 +4121,7 @@ function SearchResultRow({
   const statuses = sessionStatuses({ ...node, unread });
   const showStatus = showsStatusDot(statuses, node.completed || unread);
   const selectable = canRecycle(eligibilityOf(node, pinned, unread));
-  return (0, import_react11.createElement)(
+  return (0, import_react10.createElement)(
     "button",
     {
       type: "button",
@@ -4237,35 +4137,35 @@ function SearchResultRow({
       onClick: selectMode ? selectable ? onToggleSelect : () => {
       } : onOpen,
       children: [
-        (0, import_react11.createElement)("span", {
+        (0, import_react10.createElement)("span", {
           key: "heading",
           className: "dshOneTree_searchRowHeading",
           children: [
-            selectMode ? (0, import_react11.createElement)(
+            selectMode ? (0, import_react10.createElement)(
               "span",
               {
                 key: "check",
                 className: "dshOneTree_check",
                 ...selectable ? {} : { title: tr("protect.recycle.pinned") }
               },
-              (0, import_react11.createElement)(SelectMark, { on: selected, disabled: !selectable })
-            ) : showStatus ? (0, import_react11.createElement)(SessionStatusDots, { key: "status", statuses, tr }) : (0, import_react11.createElement)("span", { key: "status", className: "dshOneTree_slot" }),
-            pinned ? (0, import_react11.createElement)(PinMark, { key: "pin", sessionId: node.id }) : null,
-            (0, import_react11.createElement)(
+              (0, import_react10.createElement)(SelectMark, { on: selected, disabled: !selectable })
+            ) : showStatus ? (0, import_react10.createElement)(SessionStatusDots, { key: "status", statuses, tr }) : (0, import_react10.createElement)("span", { key: "status", className: "dshOneTree_slot" }),
+            pinned ? (0, import_react10.createElement)(PinMark, { key: "pin", sessionId: node.id }) : null,
+            (0, import_react10.createElement)(
               "span",
               { key: "title", className: `dshOneTree_searchRowTitle${unread ? " dshOneTree_unread" : ""}` },
               displayTitle(node, tr)
             ),
             // 同样补上活跃定时任务标记（官方 `SearchResultItem` 的 `search: true` 变体）。
-            node.hasActiveSchedule ? (0, import_react11.createElement)(ActiveScheduleIndicator, { key: "schedule", tr, search: true }) : null
+            node.hasActiveSchedule ? (0, import_react10.createElement)(ActiveScheduleIndicator, { key: "schedule", tr, search: true }) : null
           ]
         }),
-        (0, import_react11.createElement)("span", {
+        (0, import_react10.createElement)("span", {
           key: "meta",
           className: "dshOneTree_searchRowMeta",
           children: [
-            (0, import_react11.createElement)("span", { key: "ws", className: "dshOneTree_searchRowWorkspace" }, workspaceLabel || tr("group.ungrouped")),
-            snippet === void 0 || snippet === "" ? null : (0, import_react11.createElement)("span", { key: "snip", className: "dshOneTree_searchRowSnippet" }, snippet)
+            (0, import_react10.createElement)("span", { key: "ws", className: "dshOneTree_searchRowWorkspace" }, workspaceLabel || tr("group.ungrouped")),
+            snippet === void 0 || snippet === "" ? null : (0, import_react10.createElement)("span", { key: "snip", className: "dshOneTree_searchRowSnippet" }, snippet)
           ]
         })
       ]
@@ -4273,22 +4173,22 @@ function SearchResultRow({
   );
 }
 function ActivityBadge({ counts, tr }) {
-  return (0, import_react11.createElement)(
+  return (0, import_react10.createElement)(
     "span",
     {
       className: "dshOneTree_activity",
       "data-dshone-tree-activity": `${String(counts.running)}/${String(counts.waiting)}`
     },
-    counts.running > 0 ? (0, import_react11.createElement)(
+    counts.running > 0 ? (0, import_react10.createElement)(
       "span",
       { className: "dshOneTree_activityItem", "data-dshone-tree-running": counts.running, title: tr("activity.running", { n: counts.running }) },
-      (0, import_react11.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: "ongoing" }),
+      (0, import_react10.createElement)(import_dsh_client_ui_primitives7.StateDot, { state: "ongoing" }),
       String(counts.running)
     ) : null,
-    counts.waiting > 0 ? (0, import_react11.createElement)(
+    counts.waiting > 0 ? (0, import_react10.createElement)(
       "span",
       { className: "dshOneTree_activityItem", "data-dshone-tree-waiting": counts.waiting, title: tr("activity.waiting", { n: counts.waiting }) },
-      (0, import_react11.createElement)(import_dsh_client_ui_primitives8.StateDot, { state: "warning" }),
+      (0, import_react10.createElement)(import_dsh_client_ui_primitives7.StateDot, { state: "warning" }),
       String(counts.waiting)
     ) : null
   );
@@ -4310,7 +4210,7 @@ var CSS = (
   // 容器外，让侧栏外层（官方 hHd-Xa_regionArea）的 scrollWidth 比 clientWidth 大 4px
   // ——平时看不见，但官方在「单列表」视图里对选中行 scrollIntoView 时会被横滚 4px，
   // 整棵树跟着左移 4px（#85 回归断言实测到的既有缺陷）。列表自己的滚动在 .dshOneTree_list。
-  '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex;position:relative}.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:calc(var(--dsh-one-density-row-padding-inline,8px) - var(--dsh-one-density-section-padding-inline,4px) + 2px)}.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:none;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);display:flex}.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}.dshOneTree_searchButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_searchExpanded .dshOneTree_searchButton{width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-search-expanded-height,30px)}.dshOneTree_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchExpanded .dshOneTree_searchButton:hover{background:0 0}.dshOneTree_searchInput{opacity:0;pointer-events:none;width:0;min-width:0;color:var(--dsw-alias-label-primary);transition:opacity .12s var(--ds-ease-in-out);background:0 0;border:none;outline:none;flex:1;font-size:13px;line-height:18px}.dshOneTree_searchExpanded .dshOneTree_searchInput{opacity:1;pointer-events:auto;margin-left:-2px}.dshOneTree_searchInput::placeholder{color:var(--dsw-alias-label-tertiary)}.dshOneTree_clearButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}.dshOneTree_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:var(--dsh-one-density-list-padding-bottom,16px);overflow-y:auto}.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_groupSection{position:relative}.dshOneTree_groupSection+.dshOneTree_groupSection{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_searchStatus,.dshOneTree_searchWarning{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}.dshOneTree_searchWarning{color:var(--dsw-alias-label-secondary)}.dshOneTree_empty{color:var(--dsw-alias-label-tertiary);padding:16px 12px;font-size:13px}.dshOneTree_emptyLine+.dshOneTree_emptyLine{margin-top:2px}.dshOneTree_emptyAction{cursor:pointer;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:5px;flex:none;align-items:center;margin-top:8px;padding:0 10px;font-family:inherit;font-size:12px;display:inline-flex}.dshOneTree_emptyAction:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sessionOverflowButton{cursor:pointer;text-align:left;width:100%;height:var(--dsh-one-density-overflow-row-height,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);padding:0 12px 0 28px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_sessionOverflowButton:hover{color:var(--dsw-alias-label-secondary);background:0 0}.dshOneTree_projectRow,.dshOneTree_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:var(--dsh-one-density-row-radius,8px);align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_projectRow:hover,.dshOneTree_sessionRow:hover,.dshOneTree_sessionRow.dshOneTree_selected,.dshOneTree_projectRow.dshOneTree_menuOpen,.dshOneTree_sessionRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:var(--dsh-one-density-row-height,34px)}.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}.dshOneTree_inlineRenameInput{box-sizing:border-box;flex:1;min-width:0;height:var(--dsh-one-density-title-line-height,20px);margin:0 6px 0 4px;padding:0 4px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover);border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;outline:none;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);user-select:text}.dshOneTree_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.dshOneTree_folderActive{color:var(--dsw-alias-state-business-primary)}.dshOneTree_projectRow .dshOneTree_chevron{display:none}.dshOneTree_projectRow:hover .dshOneTree_chevron{display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_folder{display:none}.dshOneTree_arrow{transition:transform .15s var(--ds-ease-in-out)}.dshOneTree_arrowOpen{transform:rotate(90deg)}.dshOneTree_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.dshOneTree_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}.dshOneTree_projectRow .dshOneTree_title{display:flex;align-items:center}.dshOneTree_projectRow .dshOneTree_titleText{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.dshOneTree_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}.dshOneTree_scheduleIndicator{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;margin-right:6px;display:inline-flex}.dshOneTree_searchScheduleIndicator{margin-left:4px;margin-right:0}.dshOneTree_dot{flex:none}.dshOneTree_rowActions{flex:none;align-items:center;gap:12px;display:none}.dshOneTree_projectRow:hover .dshOneTree_rowActions,.dshOneTree_sessionRow:hover .dshOneTree_rowActions,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowActions,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_sessionRow:hover .dshOneTree_time,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_rowIconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_rowIconButton:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_chevron{color:var(--dsw-alias-label-caption)}.dshOneTree_searchRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:var(--dsh-one-density-search-row-min-height,48px);color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);flex-direction:column;align-items:stretch;padding:4px var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_searchRow:hover,.dshOneTree_searchRow.dshOneTree_selected{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchRowHeading{align-items:center;min-width:0;display:flex}.dshOneTree_searchRowTitle{text-overflow:ellipsis;white-space:nowrap;flex:0 auto;min-width:0;margin-left:4px;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}.dshOneTree_searchRowMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.dshOneTree_searchRowWorkspace,.dshOneTree_searchRowSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.dshOneTree_searchRowWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_searchRowSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.dshOneTree_hoverContent{flex-direction:column;gap:8px;display:flex}.dshOneTree_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.dshOneTree_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.dshOneTree_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.dshOneTree_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.dshOneTree_modal{box-sizing:border-box;gap:6px;padding:12px;border-radius:12px}.dshOneTree_modalHead{flex:none;align-items:center;gap:2px;height:26px;display:flex}.dshOneTree_modalTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;font-size:14px;line-height:20px;font-weight:500;overflow:hidden}.dshOneTree_modalClose{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_modalClose:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_modalDesc{color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px}.dshOneTree_modalActions{flex:none;justify-content:flex-end;align-items:center;gap:6px;display:flex}.dshOneTree_renameInput{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:26px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:5px;outline:none;padding:0 7px;font-size:12px;font-weight:400;line-height:18px}.dshOneTree_renameInput::placeholder{color:var(--dsw-alias-label-tertiary)}.dshOneTree_renameError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dshOneTree_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.dshOneTree_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_filterBar{align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-pill-height,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);max-width:100%;padding:0 var(--dsh-one-density-pill-padding-end,4px) 0 var(--dsh-one-density-pill-padding-start,8px);font-size:var(--dsh-one-density-pill-font-size,13px);display:inline-flex;overflow:hidden}.dshOneTree_pill:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillActive{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillTag{flex:none;align-items:center;color:var(--dsw-alias-label-tertiary);display:inline-flex}.dshOneTree_pillLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.dshOneTree_pillCount{color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_pillChevron{color:var(--dsw-alias-label-tertiary);flex:none;align-items:center;display:inline-flex}.dshOneTree_menuRow{align-items:center;gap:6px;min-width:0;width:100%;display:flex}.dshOneTree_menuRowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_menuRowCount{color:var(--dsw-alias-label-tertiary);flex:none}[role="menuitem"]:has(.dshOneTree_submenuItem){padding-left:27px}.dshOneTree_footerRow{box-sizing:border-box;flex:none;width:100%;align-items:center;gap:2px;padding-right:8px;display:flex}.dshOneTree_footerRowEmpty{color:var(--dsw-alias-label-tertiary)}.dshOneTree_footerMain{cursor:pointer;min-width:0;line-height:var(--dsh-one-density-title-line-height,20px);color:inherit;background:0 0;border:0;border-radius:0;flex:1;align-items:center;gap:6px;padding:7px 4px 7px var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}.dshOneTree_footerMain:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_footerIcon{flex:none;align-items:center;display:inline-flex}.dshOneTree_footerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_footerCount{color:var(--dsw-alias-label-tertiary);background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 20%,transparent);border-radius:8px;flex:none;font-size:10px;line-height:16px;padding:0 5px}.dshOneTree_footerRowEmpty .dshOneTree_footerCount{background:0 0;padding:0}.dshOneTree_footerIconButton{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_footerIconButton:disabled{cursor:default;opacity:.45}.dshOneTree_footerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_manageList{max-height:240px;overflow-y:auto}.dshOneTree_manageRow{align-items:center;gap:6px;height:26px;display:flex}.dshOneTree_manageName{cursor:pointer;text-align:left;color:inherit;background:0 0;border:none;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;padding:0;font-family:inherit;font-size:12px;line-height:18px;overflow:hidden}.dshOneTree_manageName:hover{color:var(--dsw-alias-label-secondary)}.dshOneTree_manageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:18px}.dshOneTree_manageEmpty{color:var(--dsw-alias-label-tertiary);padding:4px 0;font-size:12px;line-height:18px}.dshOneTree_manageCreate{align-items:center;gap:6px;display:flex}.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}.dshOneTree_manageCreate button{white-space:nowrap;flex:none}.dshOneTree_modalBack{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_modalBack:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_memberTools{flex-wrap:wrap;align-items:center;gap:6px;display:flex}.dshOneTree_memberTools .dshOneTree_renameInput{flex:1;min-width:0}.dshOneTree_memberTools button{white-space:nowrap;flex:none}.dshOneTree_memberCount{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dshOneTree_memberList{max-height:240px;overflow-y:auto}.dshOneTree_memberRow{cursor:pointer;text-align:left;width:100%;height:26px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:5px;align-items:center;gap:6px;padding:0;font-family:inherit;font-size:12px;line-height:18px;display:flex}.dshOneTree_memberRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_memberName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_memberEmpty{color:var(--dsw-alias-label-tertiary);padding:4px 0;font-size:12px;line-height:18px}.dshOneTree_rowEnd{pointer-events:none;flex:none;margin-left:auto;align-items:center;gap:6px;display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_rowEnd,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowEnd{display:none}.dshOneTree_workspaceBadge{flex:none;height:16px;color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent);border:.5px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 40%,transparent);border-radius:10px;align-items:center;padding:0 4px;font-size:11px;line-height:16px;display:inline-flex}.dshOneTree_menuAnchor{display:none}.dshOneTree_activity{flex:none;margin-left:6px;align-items:center;gap:6px;display:inline-flex}.dshOneTree_activityItem{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px);align-items:center;gap:4px;display:inline-flex}.dshOneTree_check{cursor:pointer;width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkBox{box-sizing:border-box;width:14px;height:14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkOn{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.dshOneTree_checkOff{opacity:.35;cursor:default}.dshOneTree_checkDash{width:8px;height:2px;background:currentColor;border-radius:1px}.dshOneTree_groupCheck{flex:none;cursor:pointer}.dshOneTree_checkIndent{width:22px;flex:none}.dshOneTree_pin{flex:none;width:14px;height:14px;margin-right:4px;color:var(--dsw-alias-label-tertiary);align-items:center;display:inline-flex}.dshOneTree_unread{font-weight:600}.dshOneTree_selectionBarWrap{flex:none;background:var(--dsw-alias-interactive-bg-hover);border-top:.5px solid var(--dsw-alias-border-l3);border-bottom:.5px solid var(--dsw-alias-border-l3);margin:0 0 var(--dsh-one-density-group-gap,4px);padding:var(--dsh-one-density-section-gap,4px) 0}.dshOneTree_selectionBar{box-sizing:border-box;flex-wrap:wrap;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:none;white-space:nowrap;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}.dshOneTree_selectionActions{flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-left:auto;display:flex}.dshOneTree_selectionActions button{flex:none;white-space:nowrap}.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 var(--dsh-one-density-row-padding-inline,8px) var(--dsh-one-density-section-gap,4px)}.dshOneTree_drawer{z-index:10;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-top:.5px solid var(--dsw-alias-border-l3);position:absolute;left:0;right:0;bottom:0;transform:translateY(100%);transition:transform var(--ds-transition-duration) var(--ds-ease-in-out);flex-direction:column;display:flex;overflow:hidden}.dshOneTree_drawerOpen{transform:none}.dshOneTree_drawerLeaving{pointer-events:none}@media (prefers-reduced-motion:reduce){.dshOneTree_drawer{transition:none}}.dshOneTree_drawerHandle{cursor:grab;height:12px;flex:none;justify-content:center;align-items:center;display:flex;touch-action:none}.dshOneTree_drawerHandle:active{cursor:grabbing}.dshOneTree_drawerGrip{width:32px;height:3px;background:var(--dsw-alias-border-l3);border-radius:2px}.dshOneTree_drawerHandle:hover .dshOneTree_drawerGrip{background:var(--dsw-alias-label-tertiary)}.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshOneTree_drawerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_drawerList{min-height:0;padding:0 var(--dsh-one-density-section-padding-inline,4px) var(--dsh-one-density-list-padding-bottom,16px) 0;flex:1;overflow-y:auto}.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_drawerGroupLabel{cursor:pointer;width:100%;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);height:var(--dsh-one-density-drawer-block-header-height,26px);align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}.dshOneTree_drawerGroupLabel:hover{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerGroupArrow{width:14px;flex:none;align-items:center;display:inline-flex}.dshOneTree_drawerGroupLabelText{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_drawerGroupCount{flex:none}.dshOneTree_drawerRow{cursor:pointer;height:var(--dsh-one-density-session-row-height,32px);color:var(--dsw-alias-label-primary);border-radius:var(--dsh-one-density-row-radius,8px);align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerRow:hover,.dshOneTree_drawerRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerRow .dshOneTree_title{flex:1;margin:0}.dshOneTree_drawerActions{flex:none;align-items:center;gap:2px;display:inline-flex}.dshOneTree_drawerRow:hover .dshOneTree_time,.dshOneTree_drawerRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_drawerRestore{cursor:pointer;height:20px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;align-items:center;gap:4px;padding:0 4px;font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}.dshOneTree_drawerRestore:hover:not(:disabled){color:var(--dsw-alias-label-primary)}.dshOneTree_drawerRestore:disabled{cursor:default;opacity:.45}.dshOneTree_drawerStatus{color:var(--dsw-alias-label-tertiary);padding:10px 8px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_modalBlocks{max-height:240px;overflow-y:auto}.dshOneTree_modalBlock+.dshOneTree_modalBlock{margin-top:6px}.dshOneTree_modalBlockLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dshOneTree_modalRow{box-sizing:border-box;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;height:26px;font-size:12px;line-height:18px;padding:4px 0 4px 16px;overflow:hidden}.dshOneTree_flash{z-index:20;max-width:90%;background:var(--dsw-alias-bg-elevated,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;padding:6px 10px;font-size:var(--dsh-one-density-meta-font-size,12px);position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}.dshOneTree_footerIconDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_tagBlock{position:relative;border-radius:6px}.dshOneTree_tagHead{align-items:center;height:22px;padding-left:16px;padding-right:var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_tagPill{cursor:grab;color:var(--dshone-tag-color);background:color-mix(in srgb,var(--dshone-tag-color) 22%,transparent);border:1px solid color-mix(in srgb,var(--dshone-tag-color) 45%,transparent);border-radius:4px;align-items:center;gap:4px;height:16px;padding:0 7px;font-size:10px;font-weight:600;line-height:1;white-space:nowrap;display:inline-flex}.dshOneTree_tagPill:active{cursor:grabbing}.dshOneTree_tagDot{width:6px;height:6px;background:var(--dshone-tag-color);border-radius:2px;flex:none}.dshOneTree_tagName{text-overflow:ellipsis;white-space:nowrap;max-width:120px;overflow:hidden}.dshOneTree_tagPill[data-dshone-tag-drop="before"]{box-shadow:0 -2px 0 0 var(--dshone-tag-color)}.dshOneTree_tagPill[data-dshone-tag-drop="after"]{box-shadow:0 2px 0 0 var(--dshone-tag-color)}.dshOneTree_tagToggle{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;margin-left:2px;padding:0;display:inline-flex}.dshOneTree_tagToggle:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_tagArrow{transition:transform .15s ease}.dshOneTree_tagArrowOpen{transform:rotate(90deg)}.dshOneTree_tagBlock:hover .dshOneTree_rowActions,.dshOneTree_tagBlock.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_tagCounts{align-items:center;gap:6px;margin-left:auto;padding-right:2px;display:inline-flex}.dshOneTree_tagCount{color:var(--dsw-alias-label-tertiary);align-items:center;gap:4px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}.dshOneTree_tagLine{pointer-events:none;position:absolute;left:16px;top:19px;bottom:2px;width:2px;border-radius:1px;background:var(--dshone-tag-color)}.dshOneTree_tagCollapsed .dshOneTree_tagLine{display:none}.dshOneTree_tagRows>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_tagRows .dshOneTree_sessionRow{padding-left:24px}.dshOneTree_tagDropActive{background:color-mix(in srgb,var(--dshone-tag-color) 14%,transparent)}.dshOneTree_tagSwatch{width:10px;height:10px;border-radius:3px;flex:none;display:block}.dshOneTree_tagColorPick{gap:6px;display:flex}.dshOneTree_tagColorPickItem{cursor:pointer;width:20px;height:20px;color:var(--dsw-alias-label-inverse,#fff);border:.5px solid var(--dsw-alias-border-l4);border-radius:5px;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_tagColorPickOn{box-shadow:0 0 0 2px var(--dsw-alias-label-secondary)}'
+  '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex;position:relative}.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1 0 auto;align-items:center;margin-left:auto;padding-left:0;display:flex}.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:calc(var(--dsh-one-density-row-padding-inline,8px) - var(--dsh-one-density-section-padding-inline,4px) + 2px)}.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:100%;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);transition:max-width .18s var(--ds-ease-in-out),opacity .12s var(--ds-ease-in-out),transform .18s var(--ds-ease-in-out),visibility 0s linear;display:flex;overflow:hidden}.dshOneTree_headerActionsHidden{opacity:0;pointer-events:none;visibility:hidden;max-width:0;transform:translate(4px);transition-delay:0s,0s,0s,.18s}.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}.dshOneTree_searchButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_searchExpanded .dshOneTree_searchButton{width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-search-expanded-height,30px)}.dshOneTree_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchExpanded .dshOneTree_searchButton:hover{background:0 0}.dshOneTree_searchInput{opacity:0;pointer-events:none;width:0;min-width:0;color:var(--dsw-alias-label-primary);transition:opacity .12s var(--ds-ease-in-out);background:0 0;border:none;outline:none;flex:1;font-size:13px;line-height:18px}.dshOneTree_searchExpanded .dshOneTree_searchInput{opacity:1;pointer-events:auto;margin-left:-2px}.dshOneTree_searchInput::placeholder{color:var(--dsw-alias-label-tertiary)}.dshOneTree_clearButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}.dshOneTree_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:var(--dsh-one-density-list-padding-bottom,16px);overflow-y:auto}.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_groupSection{position:relative}.dshOneTree_groupSection+.dshOneTree_groupSection{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_searchStatus,.dshOneTree_searchWarning{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}.dshOneTree_searchWarning{color:var(--dsw-alias-label-secondary)}.dshOneTree_empty{color:var(--dsw-alias-label-tertiary);padding:16px 12px;font-size:13px}.dshOneTree_emptyLine+.dshOneTree_emptyLine{margin-top:2px}.dshOneTree_emptyAction{cursor:pointer;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:5px;flex:none;align-items:center;margin-top:8px;padding:0 10px;font-family:inherit;font-size:12px;display:inline-flex}.dshOneTree_emptyAction:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sessionOverflowButton{cursor:pointer;text-align:left;width:100%;height:var(--dsh-one-density-overflow-row-height,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);padding:0 12px 0 28px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_sessionOverflowButton:hover{color:var(--dsw-alias-label-secondary);background:0 0}.dshOneTree_projectRow,.dshOneTree_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:var(--dsh-one-density-row-radius,8px);align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_projectRow:hover,.dshOneTree_sessionRow:hover,.dshOneTree_sessionRow.dshOneTree_selected,.dshOneTree_projectRow.dshOneTree_menuOpen,.dshOneTree_sessionRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:var(--dsh-one-density-row-height,34px)}.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}.dshOneTree_inlineRenameInput{box-sizing:border-box;flex:1;min-width:0;height:var(--dsh-one-density-title-line-height,20px);margin:0 6px 0 4px;padding:0 4px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover);border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;outline:none;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);user-select:text}.dshOneTree_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.dshOneTree_folderActive{color:var(--dsw-alias-state-business-primary)}.dshOneTree_projectRow .dshOneTree_chevron{display:none}.dshOneTree_projectRow:hover .dshOneTree_chevron{display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_folder{display:none}.dshOneTree_arrow{transition:transform .15s var(--ds-ease-in-out)}.dshOneTree_arrowOpen{transform:rotate(90deg)}.dshOneTree_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.dshOneTree_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}.dshOneTree_projectRow .dshOneTree_title{display:flex;align-items:center}.dshOneTree_projectRow .dshOneTree_titleText{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.dshOneTree_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}.dshOneTree_scheduleIndicator{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;margin-right:6px;display:inline-flex}.dshOneTree_searchScheduleIndicator{margin-left:4px;margin-right:0}.dshOneTree_dot{flex:none}.dshOneTree_rowActions{flex:none;align-items:center;gap:12px;display:none}.dshOneTree_projectRow:hover .dshOneTree_rowActions,.dshOneTree_sessionRow:hover .dshOneTree_rowActions,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowActions,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_sessionRow:hover .dshOneTree_time,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_rowIconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_rowIconButton:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_chevron{color:var(--dsw-alias-label-caption)}.dshOneTree_searchRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:var(--dsh-one-density-search-row-min-height,48px);color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);flex-direction:column;align-items:stretch;padding:4px var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_searchRow:hover,.dshOneTree_searchRow.dshOneTree_selected{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchRowHeading{align-items:center;min-width:0;display:flex}.dshOneTree_searchRowTitle{text-overflow:ellipsis;white-space:nowrap;flex:0 auto;min-width:0;margin-left:4px;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}.dshOneTree_searchRowMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.dshOneTree_searchRowWorkspace,.dshOneTree_searchRowSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.dshOneTree_searchRowWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_searchRowSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.dshOneTree_hoverContent{flex-direction:column;gap:8px;display:flex}.dshOneTree_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.dshOneTree_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.dshOneTree_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.dshOneTree_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.dshOneTree_modal{box-sizing:border-box;gap:6px;padding:12px;border-radius:12px}.dshOneTree_modalHead{flex:none;align-items:center;gap:2px;height:26px;display:flex}.dshOneTree_modalTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;font-size:14px;line-height:20px;font-weight:500;overflow:hidden}.dshOneTree_modalClose{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_modalClose:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_modalDesc{color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px}.dshOneTree_modalActions{flex:none;justify-content:flex-end;align-items:center;gap:6px;display:flex}.dshOneTree_renameInput{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:26px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:5px;outline:none;padding:0 7px;font-size:12px;font-weight:400;line-height:18px}.dshOneTree_renameInput::placeholder{color:var(--dsw-alias-label-tertiary)}.dshOneTree_renameError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dshOneTree_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.dshOneTree_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_filterBar{align-items:center;box-sizing:border-box;min-width:0;max-width:100%;opacity:1;visibility:visible;gap:var(--dsh-one-density-section-gap,4px);margin:0 0 0 calc(-1 * var(--dsh-one-density-section-padding-inline,4px));padding-left:var(--dsh-one-density-row-padding-inline,8px);transition:max-width .18s var(--ds-ease-in-out),opacity .12s var(--ds-ease-in-out),transform .18s var(--ds-ease-in-out),visibility 0s linear;display:flex;overflow:hidden}.dshOneTree_filterBarHidden{opacity:0;pointer-events:none;visibility:hidden;box-sizing:border-box;max-width:0;margin-left:calc(-1 * var(--dsh-one-density-section-gap,4px));padding-left:0;transform:translate(-4px);transition-delay:0s,0s,0s,.18s}.dshOneTree_pillSlot{min-width:0;flex:1 1 auto}.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-pill-height,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:1 1 auto;min-width:0;align-items:center;gap:var(--dsh-one-density-section-gap,4px);max-width:100%;padding:0 var(--dsh-one-density-pill-padding-end,4px) 0 var(--dsh-one-density-pill-padding-start,8px);font-size:var(--dsh-one-density-pill-font-size,13px);display:inline-flex;overflow:hidden}.dshOneTree_pill:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillActive{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillTag{flex:none;align-items:center;color:var(--dsw-alias-label-tertiary);display:inline-flex}.dshOneTree_pillLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.dshOneTree_pillCount{color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_pillChevron{color:var(--dsw-alias-label-tertiary);flex:none;align-items:center;display:inline-flex}.dshOneTree_menuRow{align-items:center;gap:6px;min-width:0;width:100%;display:flex}.dshOneTree_menuRowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_menuRowCount{color:var(--dsw-alias-label-tertiary);flex:none}[role="menuitem"]:has(.dshOneTree_submenuItem){padding-left:27px}.dshOneTree_footerRow{box-sizing:border-box;flex:none;width:100%;align-items:center;gap:2px;padding-right:8px;display:flex}.dshOneTree_footerRowEmpty{color:var(--dsw-alias-label-tertiary)}.dshOneTree_footerMain{cursor:pointer;min-width:0;line-height:var(--dsh-one-density-title-line-height,20px);color:inherit;background:0 0;border:0;border-radius:0;flex:1;align-items:center;gap:6px;padding:7px 4px 7px var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}.dshOneTree_footerMain:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_footerIcon{flex:none;align-items:center;display:inline-flex}.dshOneTree_footerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_footerCount{color:var(--dsw-alias-label-tertiary);background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 20%,transparent);border-radius:8px;flex:none;font-size:10px;line-height:16px;padding:0 5px}.dshOneTree_footerRowEmpty .dshOneTree_footerCount{background:0 0;padding:0}.dshOneTree_footerIconButton{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_footerIconButton:disabled{cursor:default;opacity:.45}.dshOneTree_footerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_manageList{max-height:240px;overflow-y:auto}.dshOneTree_manageRow{align-items:center;gap:6px;height:26px;display:flex}.dshOneTree_manageName{cursor:pointer;text-align:left;color:inherit;background:0 0;border:none;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;padding:0;font-family:inherit;font-size:12px;line-height:18px;overflow:hidden}.dshOneTree_manageName:hover{color:var(--dsw-alias-label-secondary)}.dshOneTree_manageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:18px}.dshOneTree_manageEmpty{color:var(--dsw-alias-label-tertiary);padding:4px 0;font-size:12px;line-height:18px}.dshOneTree_manageCreate{align-items:center;gap:6px;display:flex}.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}.dshOneTree_manageCreate button{white-space:nowrap;flex:none}.dshOneTree_modalBack{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_modalBack:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_memberTools{flex-wrap:wrap;align-items:center;gap:6px;display:flex}.dshOneTree_memberTools .dshOneTree_renameInput{flex:1;min-width:0}.dshOneTree_memberTools button{white-space:nowrap;flex:none}.dshOneTree_memberCount{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dshOneTree_memberList{max-height:240px;overflow-y:auto}.dshOneTree_memberRow{cursor:pointer;text-align:left;width:100%;height:26px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:5px;align-items:center;gap:6px;padding:0;font-family:inherit;font-size:12px;line-height:18px;display:flex}.dshOneTree_memberRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_memberName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_memberEmpty{color:var(--dsw-alias-label-tertiary);padding:4px 0;font-size:12px;line-height:18px}.dshOneTree_rowEnd{pointer-events:none;flex:none;margin-left:auto;align-items:center;gap:6px;display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_rowEnd,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowEnd{display:none}.dshOneTree_workspaceBadge{flex:none;height:16px;color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent);border:.5px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 40%,transparent);border-radius:10px;align-items:center;padding:0 4px;font-size:11px;line-height:16px;display:inline-flex}.dshOneTree_menuAnchor{display:none}.dshOneTree_activity{flex:none;margin-left:6px;align-items:center;gap:6px;display:inline-flex}.dshOneTree_activityItem{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px);align-items:center;gap:4px;display:inline-flex}.dshOneTree_check{cursor:pointer;width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkBox{box-sizing:border-box;width:14px;height:14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkOn{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.dshOneTree_checkOff{opacity:.35;cursor:default}.dshOneTree_checkDash{width:8px;height:2px;background:currentColor;border-radius:1px}.dshOneTree_groupCheck{flex:none;cursor:pointer}.dshOneTree_checkIndent{width:22px;flex:none}.dshOneTree_pin{flex:none;width:14px;height:14px;margin-right:4px;color:var(--dsw-alias-label-tertiary);align-items:center;display:inline-flex}.dshOneTree_unread{font-weight:600}.dshOneTree_selectionBarWrap{flex:none;background:var(--dsw-alias-interactive-bg-hover);border-top:.5px solid var(--dsw-alias-border-l3);border-bottom:.5px solid var(--dsw-alias-border-l3);margin:0 0 var(--dsh-one-density-group-gap,4px);padding:var(--dsh-one-density-section-gap,4px) 0}.dshOneTree_selectionBar{box-sizing:border-box;flex-wrap:wrap;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:none;white-space:nowrap;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}.dshOneTree_selectionActions{flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-left:auto;display:flex}.dshOneTree_selectionActions button{flex:none;white-space:nowrap}.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 var(--dsh-one-density-row-padding-inline,8px) var(--dsh-one-density-section-gap,4px)}.dshOneTree_drawer{z-index:10;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-top:.5px solid var(--dsw-alias-border-l3);position:absolute;left:0;right:0;bottom:0;transform:translateY(100%);transition:transform var(--ds-transition-duration) var(--ds-ease-in-out);flex-direction:column;display:flex;overflow:hidden}.dshOneTree_drawerOpen{transform:none}.dshOneTree_drawerLeaving{pointer-events:none}@media (prefers-reduced-motion:reduce){.dshOneTree_drawer{transition:none}}.dshOneTree_drawerHandle{cursor:grab;height:12px;flex:none;justify-content:center;align-items:center;display:flex;touch-action:none}.dshOneTree_drawerHandle:active{cursor:grabbing}.dshOneTree_drawerGrip{width:32px;height:3px;background:var(--dsw-alias-border-l3);border-radius:2px}.dshOneTree_drawerHandle:hover .dshOneTree_drawerGrip{background:var(--dsw-alias-label-tertiary)}.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshOneTree_drawerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_drawerList{min-height:0;padding:0 var(--dsh-one-density-section-padding-inline,4px) var(--dsh-one-density-list-padding-bottom,16px) 0;flex:1;overflow-y:auto}.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_drawerGroupLabel{cursor:pointer;width:100%;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);height:var(--dsh-one-density-drawer-block-header-height,26px);align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}.dshOneTree_drawerGroupLabel:hover{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerGroupArrow{width:14px;flex:none;align-items:center;display:inline-flex}.dshOneTree_drawerGroupLabelText{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_drawerGroupCount{flex:none}.dshOneTree_drawerRow{cursor:pointer;height:var(--dsh-one-density-session-row-height,32px);color:var(--dsw-alias-label-primary);border-radius:var(--dsh-one-density-row-radius,8px);align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerRow:hover,.dshOneTree_drawerRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerRow .dshOneTree_title{flex:1;margin:0}.dshOneTree_drawerActions{flex:none;align-items:center;gap:2px;display:inline-flex}.dshOneTree_drawerRow:hover .dshOneTree_time,.dshOneTree_drawerRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_drawerRestore{cursor:pointer;height:20px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;align-items:center;gap:4px;padding:0 4px;font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}.dshOneTree_drawerRestore:hover:not(:disabled){color:var(--dsw-alias-label-primary)}.dshOneTree_drawerRestore:disabled{cursor:default;opacity:.45}.dshOneTree_drawerStatus{color:var(--dsw-alias-label-tertiary);padding:10px 8px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_modalBlocks{max-height:240px;overflow-y:auto}.dshOneTree_modalBlock+.dshOneTree_modalBlock{margin-top:6px}.dshOneTree_modalBlockLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dshOneTree_modalRow{box-sizing:border-box;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;height:26px;font-size:12px;line-height:18px;padding:4px 0 4px 16px;overflow:hidden}.dshOneTree_flash{z-index:20;max-width:90%;background:var(--dsw-alias-bg-elevated,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;padding:6px 10px;font-size:var(--dsh-one-density-meta-font-size,12px);position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}.dshOneTree_footerIconDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_tagBlock{position:relative;border-radius:6px}.dshOneTree_tagHead{align-items:center;height:22px;padding-left:16px;padding-right:var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_tagPill{cursor:grab;color:var(--dshone-tag-color);background:color-mix(in srgb,var(--dshone-tag-color) 22%,transparent);border:1px solid color-mix(in srgb,var(--dshone-tag-color) 45%,transparent);border-radius:4px;align-items:center;gap:4px;height:16px;padding:0 7px;font-size:10px;font-weight:600;line-height:1;white-space:nowrap;display:inline-flex}.dshOneTree_tagPill:active{cursor:grabbing}.dshOneTree_tagDot{width:6px;height:6px;background:var(--dshone-tag-color);border-radius:2px;flex:none}.dshOneTree_tagName{text-overflow:ellipsis;white-space:nowrap;max-width:120px;overflow:hidden}.dshOneTree_tagPill[data-dshone-tag-drop="before"]{box-shadow:0 -2px 0 0 var(--dshone-tag-color)}.dshOneTree_tagPill[data-dshone-tag-drop="after"]{box-shadow:0 2px 0 0 var(--dshone-tag-color)}.dshOneTree_tagToggle{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;margin-left:2px;padding:0;display:inline-flex}.dshOneTree_tagToggle:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_tagArrow{transition:transform .15s ease}.dshOneTree_tagArrowOpen{transform:rotate(90deg)}.dshOneTree_tagBlock:hover .dshOneTree_rowActions,.dshOneTree_tagBlock.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_tagCounts{align-items:center;gap:6px;margin-left:auto;padding-right:2px;display:inline-flex}.dshOneTree_tagCount{color:var(--dsw-alias-label-tertiary);align-items:center;gap:4px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}.dshOneTree_tagLine{pointer-events:none;position:absolute;left:16px;top:19px;bottom:2px;width:2px;border-radius:1px;background:var(--dshone-tag-color)}.dshOneTree_tagCollapsed .dshOneTree_tagLine{display:none}.dshOneTree_tagRows>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_tagRows .dshOneTree_sessionRow{padding-left:24px}.dshOneTree_tagDropActive{background:color-mix(in srgb,var(--dshone-tag-color) 14%,transparent)}.dshOneTree_tagSwatch{width:10px;height:10px;border-radius:3px;flex:none;display:block}.dshOneTree_tagColorPick{gap:6px;display:flex}.dshOneTree_tagColorPickItem{cursor:pointer;width:20px;height:20px;color:var(--dsw-alias-label-inverse,#fff);border:.5px solid var(--dsw-alias-border-l4);border-radius:5px;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_tagColorPickOn{box-shadow:0 0 0 2px var(--dsw-alias-label-secondary)}'
 );
 var CSS_TAG_ID = "@dsh-one/dsh-workspace-tree/Tree.css";
 if (typeof document !== "undefined" && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
@@ -4335,6 +4235,115 @@ var COLLAPSE_ALL_GLYPHS = {
 };
 var COLLAPSE_ALL_GLYPH_SCALE = 1.25;
 var COLLAPSE_ALL_GLYPH_TRANSFORM = `translate(8 8) scale(${String(COLLAPSE_ALL_GLYPH_SCALE)}) translate(-8 -8)`;
+
+// src/ui/assembly/shell/workspaceTree/groupFilterBar.ts
+var import_react11 = require("react");
+var import_dsh_client_ui_primitives8 = require("@deepseek-ai/dsh-client-ui-primitives");
+function menuRow(name, count) {
+  return (0, import_react11.createElement)(
+    "span",
+    { className: "dshOneTree_menuRow" },
+    (0, import_react11.createElement)("span", { className: "dshOneTree_menuRowLabel" }, name),
+    (0, import_react11.createElement)("span", { className: "dshOneTree_menuRowCount" }, String(count))
+  );
+}
+function GroupFilterBar({
+  groups,
+  activeGroupId,
+  groupCounts,
+  totalCount,
+  tr,
+  onPick,
+  onCreate,
+  onManage,
+  hidden = false
+}) {
+  const [open2, setOpen] = (0, import_react11.useState)(false);
+  const active = activeGroupId === null ? null : groups.find((group) => group.id === activeGroupId) ?? null;
+  const count = active === null ? totalCount : groupCounts.get(active.id) ?? 0;
+  const label = active === null ? tr("group.allWorkspaces") : active.name;
+  return (0, import_react11.createElement)(
+    "div",
+    {
+      className: `dshOneTree_filterBar${hidden ? " dshOneTree_filterBarHidden" : ""}`,
+      "data-dshone-tree": "group-filter",
+      "data-dshone-tree-visible": hidden ? "false" : "true",
+      role: "group",
+      "aria-label": tr("group.filter.aria")
+    },
+    (0, import_react11.createElement)(import_dsh_client_ui_primitives8.Menu, {
+      open: open2,
+      onClose: () => setOpen(false),
+      items: [
+        {
+          id: "all",
+          label: (0, import_react11.createElement)(
+            "span",
+            { "data-dshone-tree-pill-item": "all" },
+            menuRow(tr("group.allWorkspaces"), totalCount)
+          )
+        },
+        ...groups.map((group) => ({
+          id: group.id,
+          label: (0, import_react11.createElement)(
+            "span",
+            { "data-dshone-tree-pill-item": group.id },
+            menuRow(group.name, groupCounts.get(group.id) ?? 0)
+          )
+        })),
+        { type: "separator", id: "group-menu-separator" },
+        {
+          id: "new",
+          label: (0, import_react11.createElement)("span", { "data-dshone-tree-action": "group-new" }, tr("group.new")),
+          icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, { size: 14 })
+        },
+        {
+          id: "manage",
+          label: (0, import_react11.createElement)("span", { "data-dshone-tree-action": "group-manage" }, tr("group.manage")),
+          icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconSettingsOutline16, { size: 14 })
+        }
+      ],
+      selectedIds: [activeGroupId ?? "all"],
+      onSelect: (id) => {
+        setOpen(false);
+        if (id === "new") onCreate();
+        else if (id === "manage") onManage();
+        else onPick(id === "all" ? null : id);
+      },
+      align: "start",
+      // #113：官方紧凑档（菜单项 26px 高 / 12px 字号 / 图标位 14×14），与胶囊本身
+      // （26px 高 / 12px 字号）同档；`separator` 与分组标题的间距也由官方该档给。
+      compact: true,
+      // #135：这一格是**胶囊在顶栏那一行里的落点**。官方 Menu 会把锚点包进它自己的根
+      // `span`（`.bhn…` 那一层：官方 css-module `_root_1nxmc_1{position:relative;
+      // display:inline-flex}`），所以真正作为那一行直接子元素的是那层 span，不是胶囊
+      // 按钮——窄侧栏下要收得动胶囊，就得让这层收得动。走官方 Menu 公开的 `className`
+      // prop（官方组件签名里有它，渲染时 `clsx(root, className)` 挂在根 span 上），
+      // 不碰它的内部类名与哈希。
+      className: "dshOneTree_pillSlot",
+      portal: true,
+      closeOnPointerLeave: true,
+      anchor: (0, import_react11.createElement)(
+        "button",
+        {
+          type: "button",
+          className: `dshOneTree_pill${active === null ? "" : " dshOneTree_pillActive"}`,
+          "aria-label": `${tr("group.filter.aria")} - ${label}`,
+          "aria-haspopup": "menu",
+          "aria-expanded": open2,
+          "data-dshone-tree-action": "group-pill",
+          "data-dshone-tree-group": active?.id ?? "all",
+          "data-dshone-tree-group-count": count,
+          onClick: () => setOpen((value) => !value)
+        },
+        (0, import_react11.createElement)("span", { className: "dshOneTree_pillTag" }, (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconFolderOpenOutline16, { size: 12 })),
+        (0, import_react11.createElement)("span", { className: "dshOneTree_pillLabel" }, label),
+        (0, import_react11.createElement)("span", { className: "dshOneTree_pillCount" }, String(count)),
+        (0, import_react11.createElement)("span", { className: "dshOneTree_pillChevron" }, (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconChevronDownOutline14, {}))
+      )
+    })
+  );
+}
 
 // src/ui/assembly/shell/workspaceTree/toolbar.ts
 function CollapseAllIcon({ glyph }) {
@@ -4411,6 +4420,9 @@ function TopBar(props) {
   return (0, import_react12.createElement)(
     "div",
     { className: "dshOneTree_sectionHeader", "data-dshone-tree": "top-bar" },
+    // 行首：分组过滤胶囊（#135 起并入这一行）。搜索展开时它让位（零宽收起，见文件头
+    // 让位那一节）——组件照常挂载，`data-dshone-tree-visible` 让验证套件读得到这一刻。
+    (0, import_react12.createElement)(GroupFilterBar, { ...props.filter, tr, hidden: searchExpanded }),
     // 官方搜索栏（#132：两态都在，默认折叠）——search / searchSlot 两层各带一个
     // Expanded 变体，与官方侧栏的 DOM 同构；折叠态就是那枚 28px 的圆放大镜。
     // `data-dshone-tree-state` 是自有标记，让验证套件能直接读「现在是哪一态」，不必
@@ -4483,7 +4495,13 @@ function TopBar(props) {
     ),
     (0, import_react12.createElement)(
       "div",
-      { className: "dshOneTree_headerActions", "data-dshone-tree": "top-bar-actions" },
+      {
+        // 搜索展开时让位（#135）：官方 `headerActionsHidden` 的同名同事——收成零宽、
+        // 不可见也不接指针，收起搜索后原样回来（`data-dshone-tree-visible` 同胶囊那一枚）。
+        className: `dshOneTree_headerActions${searchExpanded ? " dshOneTree_headerActionsHidden" : ""}`,
+        "data-dshone-tree": "top-bar-actions",
+        "data-dshone-tree-visible": searchExpanded ? "false" : "true"
+      },
       // 折叠 / 展开全部（#99；图标 #118 起换成方框加减号）：图标与提示随当前态翻转，
       // 语义同旧侧栏——「还有展开着的」显示方框横杠（点了折叠全部），「全折叠了」
       // 显示方框十字（点了展开全部）。
@@ -5470,9 +5488,16 @@ function WorkspaceTree(props) {
   return (0, import_react13.createElement)(
     "div",
     { className: "dshOneTree_root", ref: rootRef, "data-shell": "dsh-one-tree", "data-dshone-tree": "root" },
-    // 顶部工具栏（#99 B 段）：官方搜索栏（#132 起默认折叠，点开才展开）+ 折叠/展开全部
-    // + 添加工作区 + 设置齿轮，末尾是多选入口（#131 起那一行只有这四件，视图选项已退役）。
-    // 见 toolbar.ts 的说明与机制举证。
+    // 顶部工具栏（#99 B 段；#135 起**一行五件**）：行首是分组过滤胶囊（原来自己在列表区
+    // 占一行），右边依次是官方搜索栏（#132 起默认折叠，点开才展开）+ 折叠/展开全部 +
+    // 添加工作区 + 设置齿轮 + 多选入口（#131 起搜索栏之后只有这四件，视图选项已退役）。
+    // 搜索展开时除输入框外一律让位，让位规则与官方出处见 toolbar.ts 文件头。
+    //
+    // 分组胶囊的状态与回调仍由这里拥有（分组定义、计数、选择态、建组/管理对话框都在
+    // 这个组件里），只是交给顶栏渲染——它现在是那一行的行首那一件。
+    // #108 起它**选择态下不收起**：那一刻操作条要在它下方接着出现（#98 的布局规范），
+    // 收起它一切换状态就跳一下，且「先按分组过滤、再整组勾选」正是常用路径；#135 之后
+    // 它在搜索态下也不再从 DOM 里摘掉，而是由顶栏按搜索展开与否给它让位（零宽收起）。
     (0, import_react13.createElement)(TopBar, {
       tr,
       query: searchText,
@@ -5484,28 +5509,23 @@ function WorkspaceTree(props) {
       ...createWorkspaceFolder === void 0 ? {} : { onCreateWorkspaceFolder: createWorkspaceFolder },
       ...openSettings === void 0 ? {} : { onOpenSettings: openSettings },
       selectMode,
-      onToggleSelectMode: () => selectMode ? exitSelection() : selectionEntrySignal.enter()
-    }),
-    (0, import_react13.createElement)(
-      "div",
-      { className: "dshOneTree_listArea" },
-      // #81 功能 1 / #99 B 段：分组过滤条 = 单胶囊 + 成员计数 + ▾ 下拉
-      //（侧栏恒为「按工作区」，所以非搜索态下恒在场；搜索态下让位给结果）。
-      // #108：**选择态下不收起**——操作条要插在它下方（#98 的布局规范），收起它
-      // 一切换状态就跳一下，且「先按分组过滤、再整组勾选」正是常用路径。
-      trimmedQuery === "" ? (0, import_react13.createElement)(GroupFilterBar, {
+      onToggleSelectMode: () => selectMode ? exitSelection() : selectionEntrySignal.enter(),
+      filter: {
         groups: groupDefs,
         activeGroupId: filterActive ? activeGroupId : null,
         groupCounts,
         totalCount: workspaces.length,
-        tr,
         onPick: (groupId) => setPrefs((prev) => ({ ...prev, activeGroupId: groupId })),
         onCreate: () => {
           setGroupError(null);
           setGroupDialog({ kind: "create" });
         },
         onManage: () => setManageGroupsOpen(true)
-      }) : null,
+      }
+    }),
+    (0, import_react13.createElement)(
+      "div",
+      { className: "dshOneTree_listArea" },
       // #81 功能 4 的选择态动作条，动作按 #103 的两层语义接线：移入回收站（本地可逆，
       // 立即执行 + 飘提示 + 结束选择态）与批量归档（不可逆，先过确认弹窗）。
       selectMode ? (0, import_react13.createElement)(SelectionBar, {

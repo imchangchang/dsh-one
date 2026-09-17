@@ -288,7 +288,7 @@ function spread(values: readonly number[]): number {
 }
 
 export const TOOLBAR_SINGLE_ROW_SUITE: LabSuite = {
-  id: 'F-39',
+  id: 'F-42',
   phase: 'new-feature',
   name: '顶栏合并成一行：分组过滤胶囊与工具行同排、搜索展开时输入框占整行（#135，TOOLBAR-SINGLE-ROW 套件）',
   expect:
