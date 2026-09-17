@@ -1214,11 +1214,17 @@ export function SessionRow({
             setMenuOpen(true)
           },
       children: [
-        // #108/#124：选择态的勾选框**插在行首、不顶替状态槽**（与工作区行把框插在文件夹
-        // 图标之前同一处置）。顶替的话这一行只有勾选框顶掉状态槽的那 0px 位移，而工作区行的
-        // 名字被右推「框宽 16 + 行内 gap 6」——两行一起看就是「进选择态后缩进关系断了」。
-        // 现在两行插入同样的量：工作区行那 6px 由行的 flex gap 给，会话行 gap 是 0
-        // （它的元素各自带外边距），所以勾选框自己带上这 6px（见样式里那条 margin-right）。
+        // #133：选择态的勾选框**缩进一层**——它落在工作区行那枚文件夹图标的列上
+        //（行内边距 7 + 框宽 16 + 行内间隙 6 = 29），左边那 22px 留空。这一段空由下面
+        // 那个 22px 的占位元素给出，它**是刻意的**（= 工作区行的「框宽 16 + 行内间隙 6」
+        // 这一层缩进本身），不是没人要的死空间：#124 当时以死空间为由把框放在行首，
+        // 用户实测后明确要旧侧栏那个形态（组头的框在最左、行的框缩进一层，左侧留出
+        // 那一段空），本条按用户口径改回来。
+        // #124 立下的 δ 照旧：会话行的整段插入量仍是 22px（#108 起两行在选中态下插入
+        // 同样的量），标题落点因此不变——7 + 22 + 16 + 4 = 49，与工作区名的 51 相差 2。
+        selectMode
+          ? h('span', { key: 'checkIndent', className: 'dshOneTree_checkIndent' })
+          : null,
         selectMode
           ? h(
               'span',
@@ -1233,11 +1239,20 @@ export function SessionRow({
               h(SelectMark, { on: selected, disabled: !selectable }),
             )
           : null,
-        // 状态槽恒在（行尾固定宽度）：有状态时是状态点，没有时是一枚等宽占位，
-        // 这样标题与时间的右缘不会随状态有无跳动（#131 前「单列表少一枚槽」那一支已退役）。
-        showStatus
-          ? h(SessionStatusDots, { key: 'status', statuses, tr })
-          : h('span', { key: 'status', className: 'dshOneTree_slot' }),
+        // #133：选择态下**状态槽不渲染**——框左边那 22px 缩进就是它让出来的位置。
+        // 为什么让它让位，而不是「保留在框的右侧」或「缩进之后紧跟槽」：本条的两个硬
+        // 约束是「标题仍落在 49」与「δ 仍是 2」，任何一处把 16px 的槽留在框前或框后都
+        // 会多出 16 + 4 = 20px、标题当场越过 49，δ 随之断掉；而用户口径要的就是框左侧
+        // 那一段空，槽留着也把这 22px 填掉 16px 了。旧侧栏进多选后同样是这个处置——
+        // 它那一行的第一个子元素就是复选框（`renderSessionRow` 在多选态下先挂复选框、
+        // 再挂主区），行首不留状态槽，活状态画在行尾。
+        // 状态事实没有丢：活状态照旧写在行上（`data-dshone-tree-status`，与这枚点同源
+        // 的判定），组头三态、归档跳过数、回收站保护这些判定也都不看这颗点。
+        !selectMode
+          ? showStatus
+            ? h(SessionStatusDots, { key: 'status', statuses, tr })
+            : h('span', { key: 'status', className: 'dshOneTree_slot' })
+          : null,
         pinned ? h(PinMark, { key: 'pin', sessionId: node.id }) : null,
         // #115 编辑态：标题位就地换成输入框（prefill + 全选由树层给初值与选区），
         // 行其余部分照旧——行结构与不编辑时完全一致，重绘才不会把输入框换掉。

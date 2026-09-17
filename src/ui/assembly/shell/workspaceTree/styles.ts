@@ -109,6 +109,11 @@
 //   整体右移一个缩进位、文字落在**父项文字左缘右侧 20px** 处。这不是官方件自己的几何，而是
 //   「嵌套一层」的关系量——档位表里没有「缩进」这一档，所以这条规则整条登记在下面的
 //   `SCALE_EXEMPT` 里。
+// - **选中态勾选框的缩进**（`.dshOneTree_checkIndent`，#133）→ **标准档的图标位 16px +
+//   紧凑档的行内间隙 6px = 22px**：会话行进多选后，勾选框左边先空出一层，框就落在工作区行
+//   那枚文件夹图标的列上（两行的行内边距与间隙同档，7 + 22 = 29 = 7 + 16 + 6）。与二级菜单项
+//   同一条理由——这是「缩进一层」这个关系量，官方没有哪个件带这种缩进，档位表里没有能拿来
+//   当出处的量，所以这条规则登记在 `SCALE_EXEMPT` 里。
 // - **骨架窗口件**（顶栏 / 抽屉头 / 搜索框 / 图标按钮）→ 高度取**紧凑档的行高 26px**
 //   （一列里只有这一种「一个控件的高度」，比它高的东西会把这一行撑破），横向档取紧凑档的
 //   容器内边距 2px；它们的官方原值（36 / 30 / 28px）留在标准档里当兜底。
@@ -287,6 +292,12 @@ export const SCALE_EXEMPT: readonly { selector: string; reason: string }[] = [
   // 独立的胶囊件可当出处）。这一行里其余的取值（26 / 16 / 14 / 8 / 2px）都能在档位表里找到
   // 出处，逐条对应写在它那条规则上方。
   { selector: 'dshOneTree_footerCount', reason: 'recycle entry count pill (#137): 10px/16px/8px/0 5px are the old sidebar plugin values for this row, not a tier of any official component' },
+  // 会话行选中态勾选框的缩进（#133）：22px 是**标准档图标位 16px + 紧凑档行内间隙 6px 的和**
+  // ——也就是工作区行里「框宽 + 行内 gap」那一层，即「缩进一层」这个关系量本身。与上面
+  // 二级菜单项同一条理由：官方没有哪个件带这种嵌套缩进，档位表里没有能拿来当出处的量。
+  // 算式与出处写在 `SCALE_TIERS` 上方那张注释表的「选中态勾选框的缩进」一条、以及
+  // 那条规则上方。
+  { selector: 'dshOneTree_checkIndent', reason: 'select-mode check indent (#133): 22px = standard icon slot 16px + compact row gap 6px, i.e. the workspace row own checkbox column, a nesting offset no official component has a tier for' },
 ]
 // 导出给断言用（test/sidebarStyleScale.test.ts 直接拿这段字符串做表驱动扫描：档位表与
 // 样式是同一份源码里的两个东西，读实体比扫源码文本稳）。
@@ -587,13 +598,17 @@ export const CSS =
   // IconRemove* / IconSubtract* 零命中），所以这条横线用样式画。
   '.dshOneTree_checkDash{width:8px;height:2px;background:currentColor;border-radius:1px}' +
   '.dshOneTree_groupCheck{flex:none;cursor:pointer}' +
-  // #124：会话行的选中态勾选框自带这一段行内间隙。两行在选中态都被「行首插一枚勾选框」
-  // 右推同样的量：工作区行的 6px 由 `.dshOneTree_projectRow` 的 flex gap 给（框宽 16 + gap 6
-  // = 22px，就是官方 compact 档 `._item_1nxmc_92{gap:6px}` 那一档），而会话行的 gap 是 0
-  //（它靠元素各自的外边距排布），所以这 6px 由勾选框自己带上——两行的名字与标题因此各右移
-  // 同样 22px，「工作区名比会话标题靠右那一点」在进选中态前后不变（组内会话行同理：缩进在
-  // 行的 padding-left 上，不参与这段位移）。
-  '.dshOneTree_sessionRow .dshOneTree_check{margin-right:6px}' +
+  // #133：会话行选中态勾选框左边那一段缩进（占位元素，22px = 标准档的图标位 16px +
+  // 紧凑档的行内间隙 6px，也就是工作区行里「框宽 + 行内 gap」那一层）。它把框推到工作区
+  // 行文件夹图标那一列上（7 + 22 = 29 = 7 + 16 + 6），左边那一段就是用户要的「空出一层」。
+  // 框自己不再带外边距——它右边的 4px 间隔由标题自己的左外边距给（标题那条规则里的
+  // `margin:0 6px 0 4px`），标题因此落在 7 + 22 + 16 + 4 = 49，与工作区名的 51 相差 2
+  //（#124 立下的 δ，两态一致）。组内会话行（#122 的 24px 左内边距）同一条规则，缩进相对
+  // 组内行的内容基准算，框落 24 + 22 = 46、标题落 66，δ(组内) 同样不变。
+  // 这一段**不是死空间**：#124 当时以死空间为由把框放在行首，用户实测后要的就是旧侧栏
+  // 那个形态（组头的框在最左、行的框缩进一层），所以它按用户口径留着（详见 rows.ts 里
+  // 那段说明）。
+  '.dshOneTree_checkIndent{width:22px;flex:none}' +
   // #102：置顶图钉（标题前常驻）与手动未读的加粗标题。颜色走官方 token（次级色，
   // 与行内其它标记同一档）；加粗值取自旧侧栏的 .session-title.unread（600）。
   '.dshOneTree_pin{flex:none;width:14px;height:14px;margin-right:4px;color:var(--dsw-alias-label-tertiary);align-items:center;display:inline-flex}' +
