@@ -459,6 +459,13 @@ export const SELECT_MODE_INDENT_SUITE: LabSuite = {
         Math.abs(plainCheck.inset - (plainSelected.rowPaddingLeft + wsInsert)) <= 1,
         JSON.stringify({ checkInset: plainCheck.inset, padding: plainSelected.rowPaddingLeft, wsInsert }),
       )
+      // #124 那条「两边插入同样的量」照旧成立——只是会话行这一份现在由占位给出，
+      // 不再是勾选框自己的外边距（框右外边距为 0；标题那 4px 由标题自己的外边距给）。
+      check.ok(
+        '两行的插入量一致：会话标题（未归组 / 组内）位移的量 = 工作区名位移的量 = 工作区行自己的那份插入量',
+        Math.abs(shiftWs - wsInsert) <= 1 && Math.abs(shiftPlain - wsInsert) <= 1 && Math.abs(shiftTagged - wsInsert) <= 1,
+        JSON.stringify({ wsInsert, shiftWs, shiftPlain, shiftTagged, checkMarginRight: plainCheck.marginRight }),
+      )
       check.ok(
         '① 会话行框的左缘 = 工作区行文件夹图标的左缘（±1px，这就是「对齐文件夹图标那一列」）',
         folderInset !== null && selected.wsFolder?.display !== 'none' && Math.abs(plainCheck.inset - folderInset) <= 1,
