@@ -1,12 +1,13 @@
 import * as crypto from 'node:crypto'
 import type { HistoryEntryLike } from '../pure/conversation.ts'
 import { historyWindowRequest } from '../pure/historyWindow.ts'
+import { commandsExecuteArgs } from '../pure/dshWire.ts'
 import type { OutgoingImage } from '../pure/chatContract.ts'
 import type { AgentPresetLike } from '../pure/agentPreset.ts'
 import { asSlashCommandSpec } from '../pure/slashCommand.ts'
 import type { SlashCommandSpecLike } from '../pure/slashCommand.ts'
 import type { FileRefCandidate } from '../pure/fileReference.ts'
-import { cookieHeader, isModern, is013Wire } from './serverAuth.ts'
+import { cookieHeader, dshVersion, isModern } from './serverAuth.ts'
 
 export interface WorkspaceView {
   workspaceId: string
@@ -420,19 +421,9 @@ export async function executeCommand(
   line: string,
   images?: OutgoingImage[],
 ): Promise<CommandOutcome> {
-  // 0.1.3 把第三个参数从 `images: EncodedImageAttachment[]` 改名为
-  // `submittedAttachments: CommandSubmitAttachment[]`（图片元素加 `type:'image'`），
-  // 网关 assertExactArguments 拒绝多余键：照发 `images`（即使空数组）在 0.1.3 上
-  // 会被 gateway/arguments-invalid 拒，全部斜杠命令失效。0.1.2 反过来只认
-  // `images`，发 `submittedAttachments` 同样被拒。所以必须按版本分叉，不能双键。
-  const attachments = (images ?? []).map((img) => ({
-    mediaType: img.mediaType,
-    data: img.data,
-    ...(img.name ? { name: img.name } : {}),
-  }))
-  const args = is013Wire(baseUrl)
-    ? { agentId: sessionId, line, submittedAttachments: attachments.map((a) => ({ type: 'image' as const, ...a })) }
-    : { agentId: sessionId, line, images: attachments }
+  // args 形状按 dsh 版本分叉（0.1.3 起第三个参数改名 `submittedAttachments`），
+  // 判定与构造都在 `src/pure/dshWire.ts`——上游探针 import 的是同一份（#37）。
+  const args = commandsExecuteArgs(dshVersion(baseUrl), sessionId, line, images ?? [])
   const value = await callRpc<
     { commandId: string; result: { kind: 'success'; text?: string } | { kind: 'error'; text: string } } | undefined
   >(
