@@ -102,6 +102,11 @@
 //   走行内容基准、计数胶囊的档位豁免）写在它那几条规则上方。这一行因此**退出密度档**。
 // - **胶囊**（分组过滤条）→ **紧凑档**的高度与字号（与菜单项同高），圆角走容器档的 999px，
 //   左内边距取紧凑档的项内边距 7px、右内边距取紧凑档的容器内边距 2px。
+// - **「当前工作区」胶囊**（`.dshOneTree_workspaceBadge`，#109 E7；#138 收紧一档）→ **逐项按
+//   形态取最近的档**：高取标准档行内图标按钮的 16px、字号取标准档小胶囊的 11px、行高取紧凑档
+//   分组标签的 16px、内边距取标准档胶囊触发器的 4px、圆角取容器档小胶囊的 10px——它不是官方
+//   某一件的整份复刻，而是「一行高的小胶囊」这个形态在表里能指到的最近几档，逐条理由写在
+//   那条规则上方。
 // - **菜单**→ 官方 `Menu` 传 `compact: true`（官方紧凑档），项内图标按官方该档的 14×14
 //   图标位给 `{ size: 14 }`。
 // - **二级菜单项**（就地展开的子项）→ 缩进 = **紧凑档的图标槽 14px + 项内间隙 6px = 20px**：
@@ -403,6 +408,16 @@ export const CSS =
   '.dshOneTree_arrowOpen{transform:rotate(90deg)}' +
   '.dshOneTree_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}' +
   '.dshOneTree_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}' +
+  // 工作区行的标题盒里多一件东西（#138：活状态计数跟在标题文字之后，见 rows.ts 的
+  // ActivityBadge 说明），所以这一行的标题改成**行向 flex**：文字（`.dshOneTree_titleText`）
+  // 与计数（`.dshOneTree_activity`）并排。**盒子本身没变**：`.dshOneTree_title` 仍是
+  // `projectText` 的列项，宽度仍由 stretch 撑满（上面那条规则里的 font-size / line-height /
+  // overflow 照旧），所以 F-04 PARITY 逐项比对的标题矩形一分不动——计数进的是**盒里**，
+  // 不是行里。只给工作区行加这一条：会话行 / 抽屉行 / 搜索行的标题没有计数，维持原样。
+  '.dshOneTree_projectRow .dshOneTree_title{display:flex;align-items:center}' +
+  // 省略号落在**文字**这一段上（标题自己成了 flex 容器，它那条 `text-overflow` 不再管文字）：
+  // `min-width:0` 让它能缩到比内容窄，标题长到装不下时缩的是它，右边的计数照常可见。
+  '.dshOneTree_projectRow .dshOneTree_titleText{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}' +
   '.dshOneTree_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}' +
   '.dshOneTree_scheduleIndicator{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;margin-right:6px;display:inline-flex}' +
   // 搜索结果行里的那一枚（官方 `_searchScheduleIndicator`）：贴着标题，不再留右外边距。
@@ -571,22 +586,53 @@ export const CSS =
   '.dshOneTree_manageCreate{align-items:center;gap:6px;display:flex}' +
   '.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}' +
   '.dshOneTree_manageCreate button{white-space:nowrap;flex:none}' +
-  // 行尾绝对定位层（#109）：当前工作区那枚蓝色胶囊 + 活状态计数。**不进正常流**——
-  // 官方这一行没有这两个元素，进流会把标题挤窄，而 F-04 PARITY 逐项比对标题的几何
-  // 矩形（同一处置的说明见 ActivityBadge 的注释）。悬停时整层让位给四枚动作按钮。
-  '.dshOneTree_rowEnd{pointer-events:none;position:absolute;right:var(--dsh-one-density-row-padding-inline,8px);align-items:center;gap:6px;display:inline-flex}' +
+  // 行尾那一层（#109）：**只剩**当前工作区那枚蓝色胶囊，它是**标题盒里的一个 flex 项**
+  // （`margin-left:auto` 把它推到标题盒右缘 = 行的内容右缘，观感上仍是「行尾」）。
+  // #138 之前它绝对定位叠在标题上（`position:absolute;right:8px`）：那一版在窄侧栏里
+  // 会让胶囊压住标题文字——实测 260px 宽下压住标题右侧的活状态计数 4.6px，标题长的时候
+  // 压得更多。进流之后它自己占住那一格（`flex:none`），标题文字用省略号让位，两者永不重叠。
+  // **它仍然按「当前工作区」才渲染**：没有当前工作区时这一层是空的（宽 0，不占地方），
+  // 于是标题盒的内容宽度与官方那一行一致（F-04 PARITY 的标题矩形比对不受影响）。
+  // 悬停 / 菜单打开时整层让位给行尾那几枚动作按钮——胶囊占的正是它们要用的那一格，所以
+  // 让位规则照旧（计数不在这层里，不受它影响，见 rows.ts 的 ActivityBadge 说明）。
+  '.dshOneTree_rowEnd{pointer-events:none;flex:none;margin-left:auto;align-items:center;gap:6px;display:inline-flex}' +
   '.dshOneTree_projectRow:hover .dshOneTree_rowEnd,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowEnd{display:none}' +
   // 「当前工作区」胶囊（#109 E7）：蓝色药丸 + 容器名（VS Code 侧就是 vscode，官方 web 侧是 web
   // ——名字由能力口给，不写死）。颜色全部由官方 business 蓝 token 混出来（老侧栏那份用的是
   // VS Code 的 chart 蓝，官方 web 侧没有那个变量，本件要保持可移植）；`color-mix` 认不出时
   // 前一行的兜底值生效（中性底色 + 蓝字，观感退化但不破版）。
-  // 尺寸取**容器档的小状态胶囊**（官方 ui-cordis 的 `.Nqubda_rowStatus{height:20px;
-  // border-radius:10px;padding:0 6px;font-size:11px;line-height:20px}`）——它就是这个形态的
-  // 官方原件：一行高的状态小胶囊。此前那组 16px / 10px / line-height:1 是自造值（#113 换掉）。
-  '.dshOneTree_workspaceBadge{flex:none;height:20px;color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent);border:.5px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 40%,transparent);border-radius:10px;align-items:center;padding:0 6px;font-size:11px;line-height:20px;display:inline-flex}' +
+  //
+  // #138 收紧一档，逐项与它取的那一档（档位表见文件头）：
+  // - **高 16px = 标准档的行内图标按钮尺寸**（`SCALE_TIERS.standard.rowIconButtonSize`，官方
+  //   `.YDXeBa_iconButton{width:16px;height:16px}`）。为什么它最近：这一枚是**行内的一行高
+  //   小件**，离它最近的官方量就是行家族自己在标准档里最小的那个单行盒子（16×16 的行内图标
+  //   按钮）；再小一档的表里没有官方量（14px 是紧凑档的**图标盒**、不是控件高，12px 一类只
+  //   有字号）。改前的 20px 是容器档小状态胶囊的高（`standard.smallPillHeight`，官方
+  //   `.Nqubda_rowStatus{height:20px}`）——同一个形态的官方原件，但用户实测觉得偏大，所以
+  //   这一项从它收紧到标准档行内件的 16px。
+  // - **字号 11px = 标准档的小胶囊字号**（`standard.smallPillFontSize`，同一份
+  //   `.Nqubda_rowStatus{font-size:11px}`；紧凑档的分组标签字号 `compact.groupLabelFontSize`
+  //   同值 11px）。这是档位表里最小的一档字号，不再往下取（10px 一类的量官方表里没有，
+  //   取它就得自造），所以这一项**保持不变**——收紧发生在高度与内边距上。
+  // - **行高 16px = 紧凑档的分组标签行高**（`compact.groupLabelLineHeight`，官方
+  //   `._label_1nxmc_124{line-height:16px}`）：11px 的字配 16px 的行高，盒子高 16px 时文字
+  //   正好垂直居中（改前是 20px 行高配 20px 盒子，跟着高度一起收紧一档）。
+  // - **内边距 0 4px = 标准档胶囊触发器的右内边距**（`standard.pillPaddingEnd`，官方
+  //   `._7KE1Ra_trigger{padding:0 4px 0 8px}` 里那个 4px）：官方胶囊自己的横向内边距就是
+  //   4px 起，改前的 6px 在档位表里没有出处（是 #109 自带的字面量），所以按官方胶囊那一档
+  //   收紧到 4px。
+  // - **圆角 10px = 容器档的小胶囊圆角**（`standard.smallPillRadius`，同上那份
+  //   `.Nqubda_rowStatus{border-radius:10px}`）：16px 高的盒子上 10px 圆角与胶囊同形，
+  //   这一项没动（用户点的是「偏大」，不是形状）。
+  '.dshOneTree_workspaceBadge{flex:none;height:16px;color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent);border:.5px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 40%,transparent);border-radius:10px;align-items:center;padding:0 4px;font-size:11px;line-height:16px;display:inline-flex}' +
   // 二级菜单的零尺寸锚点（空白会话行 / 未分组行没有 ⋯ 按钮可挂；右键那一份用指针坐标）。
   '.dshOneTree_menuAnchor{display:none}' +
-  '.dshOneTree_activity{align-items:center;gap:6px;display:inline-flex}' +
+  // 活状态计数（#138 起住在工作区行的标题盒里，见上面那两条 title 规则与 rows.ts 的
+  // ActivityBadge 说明）：`flex:none` 保证它不被标题文字挤扁，左外边距 6px 是**它与标题
+  // 文字之间的那一格间距** = 档位表的 `standard.rowGap`（官方
+  // `.YDXeBa_projectRow,.YDXeBa_sessionRow{gap:6px}`——同一行的行内间隙就是这个值，行那条
+  // 规则里的 `gap:6px` 也是它）。组内两枚计数之间的 6px 仍由本件自己的 `gap` 给。
+  '.dshOneTree_activity{flex:none;margin-left:6px;align-items:center;gap:6px;display:inline-flex}' +
   '.dshOneTree_activityItem{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px);align-items:center;gap:4px;display:inline-flex}' +
   '.dshOneTree_check{cursor:pointer;width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}' +
   '.dshOneTree_checkBox{box-sizing:border-box;width:14px;height:14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;justify-content:center;align-items:center;display:inline-flex}' +

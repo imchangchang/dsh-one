@@ -645,17 +645,29 @@ export function ProjectRow({
         h('span', {
           key: 'text',
           className: 'dshOneTree_projectText',
-          children: h('span', { className: 'dshOneTree_title' }, label),
+          // #138：活状态计数**跟着标题文字走**（同一个标题盒里、文字之后），所以它装在
+          // `.dshOneTree_title` 里面、文字的兄弟位上；文字自己包一层
+          // `.dshOneTree_titleText`（省略号落在它身上，见 ActivityBadge 的说明）。
+          // 标题盒本身仍是 projectText 撑出来的那个矩形（计数进的是盒里、不是行里），
+          // F-04 PARITY 逐项比对标题矩形这一条因此不受影响。
+          //
+          // 行尾那一层（#109）也在标题盒里、贴着它的**右缘**（`margin-left:auto`）：
+          // 这一层只剩「当前工作区」那枚胶囊，#138 起不再绝对定位叠在标题上——叠着时
+          // 窄侧栏里胶囊会压住标题文字与计数（实测 260px 下压住计数右缘 4.6px），
+          // 进流之后它自己占住那一格，标题文字用省略号让位，两者永不重叠（见它的样式规则
+          // 与 ActivityBadge 的说明）。
+          children: h(
+            'span',
+            { className: 'dshOneTree_title' },
+            h('span', { className: 'dshOneTree_titleText' }, label),
+            counts === undefined ? null : h(ActivityBadge, { counts, tr }),
+            h(
+              'span',
+              { key: 'end', className: 'dshOneTree_rowEnd' },
+              group.containsCurrent ? h('span', { className: 'dshOneTree_workspaceBadge', 'data-dshone-tree-badge': shellName, title: tr('badge.current') }, shellName) : null,
+            ),
+          ),
         }),
-        // 行尾的绝对定位层（#109）：当前工作区那枚胶囊 + 活状态计数。**不能进正常流**：
-        // 官方这一行没有它们，进流会把标题挤窄，而 F-04 PARITY 逐项比对标题的几何矩形
-        // （同一处置见 ActivityBadge 的说明）。悬停时整层让位给四枚动作按钮。
-        h(
-          'span',
-          { key: 'end', className: 'dshOneTree_rowEnd' },
-          group.containsCurrent ? h('span', { className: 'dshOneTree_workspaceBadge', 'data-dshone-tree-badge': shellName, title: tr('badge.current') }, shellName) : null,
-          counts === undefined ? null : h(ActivityBadge, { counts, tr }),
-        ),
         h('span', {
           key: 'actions',
           className: 'dshOneTree_rowActions',
@@ -1446,12 +1458,31 @@ export function SearchResultRow({
   )
 }
 /**
- * 工作区行尾的活状态计数（#81 功能 2）：运行中 / 等待交互。
+ * 工作区行里「运行中 / 等待交互」的活状态计数（#81 功能 2；#138 起位置改到标题文字之后）。
  *
- * 绝对定位（不吃行的横向空间）：官方该行没有这个元素，正常流里插一个会把标题挤窄，
- * 而 F-04 PARITY 逐项比对标题的几何矩形——绝对定位让「官方有的东西」保持一致，
- * 我们新增的东西不改变它们；行悬停时让它消失（悬停位置留给官方那组行操作按钮，
- * 与官方会话行「悬停时时间让位」同一处置）。
+ * ## 它为什么装在标题盒里、而不是行里的一个兄弟节点
+ *
+ * 用户实测要的是「计数紧跟工作区标题文字」。这一行的可用横向空间是这么分的：
+ * `.dshOneTree_projectText` 是 `flex:1` 的列容器，`.dshOneTree_title` 在它里面**撑满**整个
+ * 盒子（340 宽下 title 盒 = 30..321，而文字只有 133.77 宽）——也就是说标题盒的右缘是行的
+ * 内容右缘，与文字结束处在哪儿无关。于是「放成 title 的兄弟节点」只有两种落法，都不成立：
+ * - 放进 `projectText`（列容器）→ 计数被挤到第二行，不是「同一行紧跟标题」；
+ * - 放进行容器（`projectText` 之后）→ 计数占走横向空间，title 盒当场变窄，而 F-04 PARITY
+ *   逐项比对标题的几何矩形（官方那一行没有这个计数，两边就对不上了）。
+ *
+ * 所以计数进**标题盒内部**：`.dshOneTree_title` 在 `styles.ts` 里改成 `display:flex`
+ * （它是 `projectText` 的列项，盒子仍由 stretch 撑出同样那个矩形，一像素不变），文字包一层
+ * `.dshOneTree_titleText` 承担省略号，本件是它的 `flex:none` 兄弟项、紧跟文字之后。
+ * 标题长到要截断时是**文字**先省略、计数照常可见（若把计数混进文字流里，它会随文字一起被
+ * 裁掉）；计数左边那 6px 是行内间隙（档位表 `standard.rowGap`，见样式规则上方）。
+ *
+ * ## 悬停时它不消失
+ *
+ * #138 之前它住在行尾那一层（`.dshOneTree_rowEnd`，绝对定位在行右缘），那一层在行悬停 /
+ * 菜单打开时整层 `display:none`（把行尾那一格让给四枚动作按钮）。计数挪进标题盒之后不再受
+ * 那条规则管辖：它落在标题文字右侧、不在那一层的子树上，所以悬停时照常显示（由验证套件钉住）。
+ * 同一格里另一件东西（「当前工作区」胶囊）也搬进了标题盒（贴着它右缘、`margin-left:auto`，
+ * 见 `ProjectRow` 里的说明与样式规则）：两件都在流里，谁也不会压住谁。
  */
 function ActivityBadge({ counts, tr }: { counts: ActivityCounts; tr: Translate }): unknown {
   return h(
