@@ -16,7 +16,7 @@
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
-import { openTreePage, withoutKnownNoise, type Check, type OpenedPage } from './harness.ts'
+import { openTreePage, withoutKnownNoise, type Check, type OpenedPage, texts, isText } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { SCALE_EXEMPT, SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
 import { sourceOf } from './scaleSuites.ts'
@@ -349,8 +349,8 @@ export const MODAL_COMPACT_SUITE: LabSuite = {
       })
       check.ok(
         '必填校验：空名时确认钮禁用（取消钮不受影响）',
-        groupCreateButtons.some((button) => button.text === '新建分组' && button.disabled) &&
-          groupCreateButtons.some((button) => button.text === '取消' && !button.disabled),
+        groupCreateButtons.some((button) =>isText(button.text, '新建分组') && button.disabled) &&
+          groupCreateButtons.some((button) =>isText(button.text, '取消') && !button.disabled),
         JSON.stringify(groupCreateButtons),
       )
       await page.fill('.dshOneTree_renameInput', 'Lab One')

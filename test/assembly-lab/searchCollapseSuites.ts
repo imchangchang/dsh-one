@@ -18,7 +18,7 @@
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
-import { openTreePage, withoutKnownNoise, type OpenedPage } from './harness.ts'
+import { openTreePage, withoutKnownNoise, type OpenedPage, hasText } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
@@ -366,7 +366,7 @@ export const SEARCH_COLLAPSE_SUITE: LabSuite = {
       check.fact(`搜索态：结果行=${String(searching.rows)} 状态文案=${JSON.stringify(searching.status)}`)
       check.ok(
         '展开态下输入照常走官方结果区（无匹配 / 内容搜索不可用）',
-        searching.rows === 0 && (searching.status.includes('无匹配') || searching.status.includes('内容搜索')),
+        searching.rows === 0 && (hasText(searching.status, '无匹配') || hasText(searching.status, '内容搜索')),
         JSON.stringify(searching),
       )
       screenshots.push(await shot(ctx, own.page, 'search-collapse-typing'))

@@ -16,11 +16,14 @@ import {
   Check,
   bodyText,
   contractGaps,
+  hasText,
+  isText,
   knownNoise,
   openTreePage,
   openTreePageAlongside,
   slotFacts,
   slotChildren,
+  texts,
   withoutKnownNoise,
   setLabWorkspaceFolders,
   type OpenedPage,
@@ -1070,7 +1073,7 @@ export const SIDEBAR_SUITE: LabSuite = {
       check.eq('分组胶囊的下拉按旧 groups.json 渲染（全部 + 两个分组）', initialPill.items, ['all', 'g-lab-one', 'g-lab-two'])
       check.ok(
         '分组胶囊默认显示「全部工作区」+ 成员工作区数（#99 单胶囊口径：只数工作区，不含未分组桶）',
-        initialPill.label.includes('全部工作区') && initialPill.count === String(keys.filter((key) => key !== '').length),
+        hasText(initialPill.label, '全部工作区') && initialPill.count === String(keys.filter((key) => key !== '').length),
         `label=${initialPill.label} count=${String(initialPill.count)} 工作区行=${String(keys.filter((key) => key !== '').length)}`,
       )
       // 旧文件里的 activeGroupId 是**旧版**的「当前分组」；本版它是纯视图态（住
@@ -2046,14 +2049,14 @@ export const SKELETON_SUITE: LabSuite = {
         }))
       const searchDeadline = Date.now() + 6000
       let searchState = await readSearchState()
-      while (searchState.status.includes('正在搜索') && Date.now() < searchDeadline) {
+      while (hasText(searchState.status, '正在搜索') && Date.now() < searchDeadline) {
         await page.waitForTimeout(250)
         searchState = await readSearchState()
       }
       check.fact(`搜索态：结果行=${String(searchState.results)} 状态文案=${JSON.stringify(searchState.status)}`)
       check.ok(
         '搜索走官方那套结果/降级文案（无匹配 · 内容搜索不可用）',
-        searchState.results === 0 && (searchState.status.includes('无匹配') || searchState.status.includes('内容搜索')),
+        searchState.results === 0 && (hasText(searchState.status, '无匹配') || hasText(searchState.status, '内容搜索')),
         JSON.stringify(searchState),
       )
       // #132：Esc 这一路 = 收起 + 清空（两件事都要有断言——只收起不清空会留着结果区）。
@@ -2732,12 +2735,12 @@ export const PIN_UNREAD_SUITE: LabSuite = {
       await openSessionMenu(page, pinTarget.id)
       const pinnedMenu = await sessionMenuItemFacts(page)
       check.fact(`置顶行菜单：${JSON.stringify(pinnedMenu)}`)
-      check.ok('已置顶时文案是「取消置顶」', pinnedMenu.pin?.text === '取消置顶', JSON.stringify(pinnedMenu.pin))
+      check.ok('已置顶时文案是「取消置顶」',isText(pinnedMenu.pin?.text, '取消置顶'), JSON.stringify(pinnedMenu.pin))
       screenshots.push(await shot(ctx, page, 'pin-unread-menu-pinned'))
       // ---- ④ 保护规则：归档项对置顶行禁用并给出置顶原因 ----
       check.ok(
         '保护规则：置顶行的「归档会话」禁用并给出置顶原因',
-        pinnedMenu.archive?.disabled === true && pinnedMenu.archive.tip.includes('置顶会话不能归档'),
+        pinnedMenu.archive?.disabled === true && hasText(pinnedMenu.archive.tip, '置顶会话不能归档'),
         JSON.stringify(pinnedMenu.archive),
       )
       await page.keyboard.press('Escape')
@@ -2746,14 +2749,14 @@ export const PIN_UNREAD_SUITE: LabSuite = {
       await openSessionMenu(page, unreadTarget.id)
       const unreadMenu = await sessionMenuItemFacts(page)
       check.fact(`未读行菜单：${JSON.stringify(unreadMenu)}`)
-      check.ok('已未读时文案是「标为已读」', unreadMenu.unread?.text === '标为已读', JSON.stringify(unreadMenu.unread))
+      check.ok('已未读时文案是「标为已读」',isText(unreadMenu.unread?.text, '标为已读'), JSON.stringify(unreadMenu.unread))
       check.ok(
         '保护规则：未读行的「归档会话」禁用并给出未读原因（归档许可的口径见 canArchive）',
-        unreadMenu.archive?.disabled === true && unreadMenu.archive.tip.includes('未读的会话不能归档'),
+        unreadMenu.archive?.disabled === true && hasText(unreadMenu.archive.tip, '未读的会话不能归档'),
         JSON.stringify(unreadMenu.archive),
       )
       // 未置顶的行：pin 项文案是「置顶」、没有 ✓（与置顶行比，子元素少一个）。
-      check.ok('未置顶时文案是「置顶」', unreadMenu.pin?.text === '置顶', JSON.stringify(unreadMenu.pin))
+      check.ok('未置顶时文案是「置顶」',isText(unreadMenu.pin?.text, '置顶'), JSON.stringify(unreadMenu.pin))
       check.ok(
         '未置顶的行菜单里 pin 项没有 ✓（子元素比置顶行少一个：官方 Menu 的 check 槽）',
         unreadMenu.pin !== null && pinnedMenu.pin !== null && unreadMenu.pin.children === pinnedMenu.pin.children - 1,
@@ -2774,7 +2777,7 @@ export const PIN_UNREAD_SUITE: LabSuite = {
         const runningMenu = await sessionMenuItemFacts(page)
         runningDetail = JSON.stringify(runningMenu.unread)
         runningBlocked =
-          runningMenu.unread?.disabled === true && runningMenu.unread.tip.includes('运行中的会话不支持手动标为已读/未读')
+          runningMenu.unread?.disabled === true && hasText(runningMenu.unread.tip, '运行中的会话不支持手动标为已读/未读')
         await page.keyboard.press('Escape')
         await page.waitForTimeout(200)
       }
@@ -2825,7 +2828,7 @@ export const PIN_UNREAD_SUITE: LabSuite = {
       }, pinTarget.id)
       check.ok(
         '保护规则：置顶行在选择态下不可勾选（带原因提示）',
-        selectRows.pinned.check === 'blocked' && selectRows.pinned.tip.includes('置顶会话不能移入回收站或归档'),
+        selectRows.pinned.check === 'blocked' && hasText(selectRows.pinned.tip, '置顶会话不能移入回收站或归档'),
         JSON.stringify(selectRows.pinned),
       )
       // 点它不切换勾选（不可勾选的行整行点下去也不该被选中）。
@@ -2990,7 +2993,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
         )
         check.ok(
           '行菜单里「移入回收站」与「归档会话」是两项分开的（各自一份文案、各自一条判定结果）',
-          facts.recycle.text.includes('移入回收站') && facts.archive.text.includes('归档会话') && facts.recycle.text !== facts.archive.text,
+          hasText(facts.recycle.text, '移入回收站') && hasText(facts.archive.text, '归档会话') && facts.recycle.text !== facts.archive.text,
         )
         check.ok(
           '两枚菜单项各自的禁用态与判定原因一致（有原因 = 禁用且带原因提示；没原因 = 可选）',
@@ -3918,7 +3921,7 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       const entered = await selectionFacts(page)
       check.eq('进选择态：动作条出现', entered.bar, true)
       check.eq('进选择态：勾选是空的（入口 API 每次进入都清空上一轮）', entered.checked, [])
-      check.eq('动作条文案 = 未选任何会话', entered.count, '未选任何会话')
+      check.eqText('动作条文案 = 未选任何会话', entered.count, '未选任何会话')
       check.eq('进选择态：工具栏那枚按钮按下去（aria-pressed）', await page.getAttribute(selectButton, 'aria-pressed'), 'true')
 
       // ---- ③ 资格：置顶行不可勾（灰框 + 原因 + 点了不切换）----
@@ -3933,7 +3936,7 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       check.fact(`置顶行的勾选资格：${JSON.stringify(pinnedEligibility)}`)
       check.ok(
         '置顶行不可勾选（行上标 blocked + 框画灰 + 带原因提示）',
-        pinnedEligibility.check === 'blocked' && pinnedEligibility.dotted && pinnedEligibility.tip.includes('置顶会话不能移入回收站或归档'),
+        pinnedEligibility.check === 'blocked' && pinnedEligibility.dotted && hasText(pinnedEligibility.tip, '置顶会话不能移入回收站或归档'),
         JSON.stringify(pinnedEligibility),
       )
       await page.locator(`[data-dshone-tree-session="${pinnedTarget}"]`).click()
@@ -4039,7 +4042,7 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       check.eq('收起着的组：组头三态同样翻到 all', collapsedAfter?.row, 'all')
       await page.click(`[data-dshone-group-key="${otherGroup.key}"] [data-dshone-tree-action="group-select"]`)
       await page.waitForTimeout(250)
-      check.eq('收起态下再点一次同样能取消（勾选清空）', (await selectionFacts(page)).count, '未选任何会话')
+      check.eqText('收起态下再点一次同样能取消（勾选清空）', (await selectionFacts(page)).count, '未选任何会话')
 
       // ---- ⑨ 选择态下的行：时间 / ⋯ 菜单 / 右键菜单 / 悬停卡让位 ----
       const rowAffordances = await page.evaluate((id: string) => {
@@ -4210,7 +4213,7 @@ export const MULTI_SELECT_SUITE: LabSuite = {
         searchSelected.checked.includes(hitFree?.id ?? ''),
         JSON.stringify(searchSelected),
       )
-      check.eq('搜索结果行勾上后动作条计数跟上', searchSelected.count, '已选 1 项')
+      check.eqText('搜索结果行勾上后动作条计数跟上', searchSelected.count, '已选 1 项')
       check.eq('搜索态下行上带的勾选标记也翻成 true', await checkOf(page, hitFree?.id ?? ''), 'true')
       screenshots.push(await shot(ctx, page, 'multi-select-search-row'))
       await page.click('[data-dshone-tree="search-clear"]')
@@ -4491,7 +4494,7 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       check.ok('选中没有成员工作区的分组 → 出专属空态', groupEmpty.found, JSON.stringify(groupEmpty))
       check.ok(
         '空态文案写明「这个分组里还没有工作区」与下一步去哪',
-        groupEmpty.text.includes('该分组还没有工作区') && groupEmpty.text.includes('管理分组'),
+        hasText(groupEmpty.text, '该分组还没有工作区') && hasText(groupEmpty.text, '管理分组'),
         groupEmpty.text,
       )
       check.ok('空态带「管理分组…」入口按钮', groupEmpty.action.includes('管理分组'), groupEmpty.action)
@@ -4540,8 +4543,8 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       const duplicateName = await groupName('Lab Empty')
       const freshName = await groupName('Lab Fresh')
       check.fact(`分组名校验：空名=${JSON.stringify(emptyName)} 重名=${JSON.stringify(duplicateName)} 新名=${JSON.stringify(freshName)}`)
-      check.ok('空名就地提示「分组名称不能为空」且提交禁用', emptyName.error === '分组名称不能为空' && emptyName.disabled, JSON.stringify(emptyName))
-      check.ok('重名就地提示「已存在同名分组」且提交禁用', duplicateName.error === '已存在同名分组' && duplicateName.disabled, JSON.stringify(duplicateName))
+      check.ok('空名就地提示「分组名称不能为空」且提交禁用',isText(emptyName.error, '分组名称不能为空') && emptyName.disabled, JSON.stringify(emptyName))
+      check.ok('重名就地提示「已存在同名分组」且提交禁用',isText(duplicateName.error, '已存在同名分组') && duplicateName.disabled, JSON.stringify(duplicateName))
       check.ok('换个没被占用的名字 → 提示消失、提交可用', freshName.error === '' && !freshName.disabled, JSON.stringify(freshName))
       await page.keyboard.press('Escape')
       await page.waitForTimeout(250)
@@ -4630,7 +4633,7 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       )
       check.ok(
         '标记是官方件的形状（role=img + schedule.active 文案 + 图标）',
-        schedule.role === 'img' && schedule.label === '有活动定时任务' && schedule.title === '有活动定时任务' && schedule.svg,
+        schedule.role === 'img' &&isText(schedule.label, '有活动定时任务') &&isText(schedule.title, '有活动定时任务') && schedule.svg,
         JSON.stringify(schedule),
       )
       check.ok(
@@ -4694,7 +4697,7 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       check.ok('分叉失败真的走过了那条 RPC（夹具拦到请求 = 没落到网关）', stats.forkCalls === 1, String(stats.forkCalls))
       check.ok(
         '分叉失败有一行可见反馈（原来静默吞掉）',
-        forkFlash.includes('分叉会话失败') && forkFlash.includes('fork rejected'),
+        hasText(forkFlash, '分叉会话失败') && forkFlash.includes('fork rejected'),
         forkFlash,
       )
       screenshots.push(await shot(ctx, page, 'empty-fork-failed'))
@@ -4710,7 +4713,7 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       check.ok('多开真的走过了宿主能力口', forcedCalls === 1, String(forcedCalls))
       check.ok(
         '多开失败有一行可见反馈（原来只往控制台写一行）',
-        tabFlash.includes('在新标签页打开失败'),
+        hasText(tabFlash, '在新标签页打开失败'),
         tabFlash,
       )
       screenshots.push(await shot(ctx, page, 'empty-multitab-failed'))
@@ -4793,7 +4796,7 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       check.ok('夹具真的改空了工作区清单的帧（否则这条空态无从谈起）', stats.emptiedFollowFrames > 0, String(stats.emptiedFollowFrames))
       check.ok(
         '零工作区空态文案写明用上方的 ＋（旧侧栏同款说法）',
-        zero.text.includes('还没有工作区') && zero.text.includes('＋'),
+        hasText(zero.text, '还没有工作区') && zero.text.includes('＋'),
         zero.text,
       )
       check.ok('文案指的入口真在场（顶栏的添加工作区）', zero.addButton)
@@ -5184,7 +5187,7 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
       check.ok('「置顶」写进宿主状态存储', (pinnedState?.sessionIds ?? []).includes(sessionId), JSON.stringify(pinnedState))
       await openSessionMenu(page, sessionId)
       const pinnedMenu = await sidebarMenuItems(page)
-      check.eq('已置顶时该项文案翻成「取消置顶」', pinnedMenu.items.find((item) => item.marker === 'pin')?.text ?? '', '取消置顶')
+      check.eqText('已置顶时该项文案翻成「取消置顶」', pinnedMenu.items.find((item) => item.marker === 'pin')?.text ?? '', '取消置顶')
       await page.click('[data-dshone-tree-item="pin"]')
       await page.waitForTimeout(400)
       check.eq(
@@ -5916,7 +5919,7 @@ export const SESSION_ROW_RENAME_SUITE: LabSuite = {
         JSON.stringify([editing.selStart, editing.selEnd]),
       )
       check.ok('② 输入框已经拿到焦点（点完就能直接打字）', editing.focused)
-      check.eq('⑤ 无障碍：输入框有 aria-label（词典里的「会话名称」）', editing.ariaLabel, '会话名称')
+      check.eqText('⑤ 无障碍：输入框有 aria-label（词典里的「会话名称」）', editing.ariaLabel, '会话名称')
       screenshots.push(await shot(ctx, page, 'rowrename-02-edit'))
 
       // ---- IME 守护：组合期间的 Enter 不提交（两条判据各一次）----

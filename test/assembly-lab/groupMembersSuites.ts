@@ -14,9 +14,10 @@
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
-import { openTreePage, withoutKnownNoise, type Check, type OpenedPage } from './harness.ts'
+import { openTreePage, withoutKnownNoise, type Check, type OpenedPage, hasText } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
+import { EN, ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'
 import { sourceOf } from './scaleSuites.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
@@ -33,6 +34,88 @@ const GROUPS = [
   { id: 'g-lab-two', name: 'Lab Two' },
   { id: 'g-lab-empty', name: 'Lab Empty' },
 ]
+
+/**
+ * 工作区夹具：四棵**合成**工作区，名字两两不互为子串。
+ *
+ * 为什么必须自造：以前这条套件拿当天网关上的工作区清单当判据输入（行数、名字、以及
+ * 「拿最后一棵的名字当过滤串，剩下几棵算过滤外」），于是判据跟着**这台机器碰巧有多少
+ * 工作区、名字怎么起**走——日常实例上绿、全新 `DSH_HOME` 的空实例上红（#148 立、
+ * #162 普查）。四棵两两不互为子串之后，「过滤后只剩匹配行」「过滤外仍有成员」这两档
+ * 才每次都成立，而判据本身一个字没放宽。
+ */
+const LAB_WORKSPACES: ReadonlyArray<{ workspaceId: string; path: string; title: string }> = [
+  { workspaceId: 'lab-ws-alpha', path: '/lab/alpha', title: 'Lab Alpha' },
+  { workspaceId: 'lab-ws-beta', path: '/lab/beta', title: 'Lab Beta' },
+  { workspaceId: 'lab-ws-gamma', path: '/lab/gamma', title: 'Lab Gamma' },
+  { workspaceId: 'lab-ws-delta', path: '/lab/delta', title: 'Lab Delta' },
+]
+
+/**
+ * 把 `workspace/follow` 的基线帧换成 {@link LAB_WORKSPACES} 声明的四棵，其余工作区帧
+ * （upsert / order / remove / archived）一律丢掉——否则真工作区会从增量里回来，树里就
+ * 不只剩合成的那四棵了。只改页面收到的帧，请求不落到网关，所以网关仍只读。
+ *
+ * 与 F-21 / F-47 / F-51 的三份同一套做法（各处形状不同，所以各写各的，见
+ * `expandDefaultsSuites.ts` 里那条同样的说明）。合成项借真 item 的字段面：官方还可能
+ * 带别的字段，套件只覆写自己控制得住的那几项。
+ */
+async function installWorkspaceFixture(
+  page: OpenedPage['page'],
+  workspaces: readonly { workspaceId: string; path: string; title: string }[],
+  stats: { rewritten: number; dropped: number },
+): Promise<{ rewritten: number; dropped: number }> {
+  await page.routeWebSocket(/remote\.mux/, (socket) => {
+    const upstream = socket.connectToServer()
+    const endpoints = new Map<string, string>()
+    socket.onMessage((message) => {
+      try {
+        const frame = JSON.parse(String(message)) as { type?: string; streamId?: string; endpoint?: string }
+        if (frame.type === 'open' && frame.streamId !== undefined && frame.endpoint !== undefined) {
+          endpoints.set(frame.streamId, frame.endpoint)
+        }
+      } catch {
+        /* 客户端帧形状变了就原样转发（夹具不参与协议解读） */
+      }
+      upstream.send(message)
+    })
+    upstream.onMessage((message) => {
+      const text = String(message)
+      let frame:
+        | { streamId?: string; type?: string; value?: { type?: string; value?: { items?: unknown[]; archivedSessionIds?: unknown } } }
+        | undefined
+      try {
+        frame = JSON.parse(text) as typeof frame
+      } catch {
+        frame = undefined
+      }
+      const endpoint = frame?.streamId === undefined ? undefined : endpoints.get(frame.streamId)
+      if (endpoint !== 'workspace/follow') {
+        socket.send(message)
+        return
+      }
+      const payload = frame?.value
+      if (frame?.type === 'item' && payload?.type === 'baseline' && payload.value !== undefined) {
+        const template = (payload.value.items ?? []).find((item) => typeof (item as { path?: unknown }).path === 'string')
+        const base = typeof template === 'object' && template !== null ? template : { createdAt: new Date(0).toISOString() }
+        payload.value.items = workspaces.map((workspace) => ({
+          ...base,
+          workspaceId: workspace.workspaceId,
+          path: workspace.path,
+          title: workspace.title,
+          sessionIds: [],
+          updatedAt: new Date(0).toISOString(),
+        }))
+        payload.value.archivedSessionIds = []
+        stats.rewritten += 1
+        socket.send(JSON.stringify(frame))
+        return
+      }
+      stats.dropped += 1
+    })
+  })
+  return stats
+}
 
 /** 写类 RPC（改网关上的东西）：本套件全程都不许出现（网关只读）。 */
 const WRITE_METHODS = [
@@ -168,6 +251,19 @@ async function memberView(page: OpenedPage['page']): Promise<MemberViewFacts> {
 /** 「已选」计数行里的第一个数字（过滤结果里的已选数）。 */
 function selectedCount(view: MemberViewFacts): number {
   return Number(view.countText.match(/\d+/)?.[0] ?? '-1')
+}
+
+/**
+ * 从插件词典取一条文案，把 `{n}` / `{m}` 这类占位换成具体值。
+ *
+ * 为什么要两份：页面语言随环境走（日常实例是 zh，全新 `DSH_HOME` 的空实例起来是 en），
+ * 断言里的文案必须从词典读、两种语言都认，不能硬编码中文——硬编码就是「判据吃运行环境
+ * 的输入」（#148 立的正是这一条）。
+ */
+function say(key: string, values: Record<string, string>): string[] {
+  return [ZH, EN].map((dict) =>
+    Object.entries(values).reduce((text, [name, value]) => text.replace(`{${name}}`, value), dict[key] ?? ''),
+  )
 }
 
 /** 打开「管理分组…」对话框（第一层）。 */
@@ -341,7 +437,7 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '管理分组里的成员清单：点分组名进第二层，全部工作区勾选 + 搜索 + 全选/清空，勾选即时落盘（#139，GROUP-MEMBERS 套件）',
   expect:
-    '真实装配页上（真网关**只读** + 假宿主 + 注入的分组状态：Lab One / Lab Two / Lab Empty 三组，**第一个工作区同时在两个组里**），在「管理分组…」对话框里点某一组的名字进它的**成员清单**：① **成员清单在**——行数 = 当前工作区数、行的顺序与文字与树里逐条相同、每行**恰好一枚**勾选件（复用会话多选态那一枚 `SelectMark`），且行上的状态标记与勾选件的渲染指纹一致；搜索框、全选 / 清空、返回键都在场。② **回显与宿主状态逐条一致**——每行的勾选态 = 假宿主状态存储里该组 membership 里有没有它（含「一个工作区同时在两个组里」：两个组的清单里那一行都勾着；零成员组里每一行都不勾）。③ **点一下入组**——行变成勾选、宿主状态里出现该组 id、「已选」计数 +1；返回分组列表后该组的成员计数 = 原值 +1，且等于宿主状态里该组成员的工作区数（不是另一套算法）；其余两组的计数一点没动。④ **再点一下出组**——重进清单时上一次的勾选还在（状态来自宿主那一份），点一下：取消、宿主状态里移除、计数 −1 回到原值。⑤ **搜索与批量动作的作用域是「当前过滤结果」**——输入一个必然无匹配的串 → 一行都不渲染且给空态文案；输入一个子串 → 只剩匹配行（期望集合按同一条包含规则从工作区清单算出来，不写死）；在这一过滤态下点「全选」→ 宿主状态里该组成员 = 原有成员 ∪ 过滤结果（**过滤外的工作区一个都没被带上**），点「清空」→ 只剩过滤外的原有成员（过滤外的成员一行不动）；清掉搜索框后全部行回来。⑥ **三档宽度 260 / 340 / 500 下不横向溢出、不裁切**——对话框左右缘在视口内、`scrollWidth ≤ clientWidth + 1`、页面无横向溢出、顶部那一行不溢出、每一枚成员行都落在对话框之内且宽高 > 0；成员行高 26px / 圆角 5px、行文字 12px·18px、返回键 26×26 与圆角 5px、搜索框 26px / 圆角 5px / 12px·18px、批量按钮与底部按钮 = 官方 Button 的 `sm` 档（28px / 圆角 14px / 12px·18px）、勾选件 14×14 / 圆角 4px——**逐项在档位表里找到出处**（期望值从 `SCALE_TIERS` 读，不硬编码）。⑦ **回归与只读**——分组列表原先的三件事不变（改名 / 删除各开出自己那个对话框且取消后分组一条不动、新建分组的空名仍禁用确认钮、重名按一下出红字且分组一个都不多、合法名字建得出来且新组零成员），**成员清单里的写入与工作区行菜单那条路径等价**（关掉管理框后，同一工作区在工作区行菜单「分组…」里那一项也显示 ✓），全程零 pageerror、全程没有走任何写类 RPC（网关只读）。',
+    '真实装配页上（真网关**只读** + 假宿主 + 页内夹具：四棵**合成**工作区［Lab Alpha / Beta / Gamma / Delta，两两不互为子串］+ 注入的分组状态：Lab One / Lab Two / Lab Empty 三组，**第一个工作区同时在两个组里**；工作区清单由夹具自造，不读当天网关那一份——判据不吃运行环境的输入），在「管理分组…」对话框里点某一组的名字进它的**成员清单**：① **成员清单在**——行数 = 当前工作区数、行的顺序与文字与树里逐条相同、每行**恰好一枚**勾选件（复用会话多选态那一枚 `SelectMark`），且行上的状态标记与勾选件的渲染指纹一致；搜索框、全选 / 清空、返回键都在场。② **回显与宿主状态逐条一致**——每行的勾选态 = 假宿主状态存储里该组 membership 里有没有它（含「一个工作区同时在两个组里」：两个组的清单里那一行都勾着；零成员组里每一行都不勾）。③ **点一下入组**——行变成勾选、宿主状态里出现该组 id、「已选」计数 +1；返回分组列表后该组的成员计数 = 原值 +1，且等于宿主状态里该组成员的工作区数（不是另一套算法）；其余两组的计数一点没动。④ **再点一下出组**——重进清单时上一次的勾选还在（状态来自宿主那一份），点一下：取消、宿主状态里移除、计数 −1 回到原值。⑤ **搜索与批量动作的作用域是「当前过滤结果」**——输入一个必然无匹配的串 → 一行都不渲染且给空态文案；输入一个子串 → 只剩匹配行（期望集合按同一条包含规则从工作区清单算出来，不写死）；在这一过滤态下点「全选」→ 宿主状态里该组成员 = 原有成员 ∪ 过滤结果（**过滤外的工作区一个都没被带上**），点「清空」→ 只剩过滤外的原有成员（过滤外的成员一行不动）；清掉搜索框后全部行回来。⑥ **三档宽度 260 / 340 / 500 下不横向溢出、不裁切**——对话框左右缘在视口内、`scrollWidth ≤ clientWidth + 1`、页面无横向溢出、顶部那一行不溢出、每一枚成员行都落在对话框之内且宽高 > 0；成员行高 26px / 圆角 5px、行文字 12px·18px、返回键 26×26 与圆角 5px、搜索框 26px / 圆角 5px / 12px·18px、批量按钮与底部按钮 = 官方 Button 的 `sm` 档（28px / 圆角 14px / 12px·18px）、勾选件 14×14 / 圆角 4px——**逐项在档位表里找到出处**（期望值从 `SCALE_TIERS` 读，不硬编码）。⑦ **回归与只读**——分组列表原先的三件事不变（改名 / 删除各开出自己那个对话框且取消后分组一条不动、新建分组的空名仍禁用确认钮、重名按一下出红字且分组一个都不多、合法名字建得出来且新组零成员），**成员清单里的写入与工作区行菜单那条路径等价**（关掉管理框后，同一工作区在工作区行菜单「分组…」里那一项也显示 ✓），全程零 pageerror、全程没有走任何写类 RPC（网关只读）。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const shot = async (page: OpenedPage['page'], name: string): Promise<string> => {
@@ -365,14 +461,16 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       await r.continue()
     })
     try {
-      const listed = await treeWorkspaces(page)
-      check.fact(`网关上的工作区行（树里顺序）：${JSON.stringify(listed.map((row) => row.label))}`)
-      check.ok('网关上有工作区行（成员清单要有可比的对象）', listed.length > 0, JSON.stringify(listed))
-      if (listed.length === 0) return screenshots
-
-      // ---- 夹具：第一个工作区同时在 Lab One 与 Lab Two 里（多对多的回显要有它）----
+      // ---- 夹具一：**合成工作区**（页内夹具，不读当天网关的工作区清单）----
+      // 为什么必须自造：以前这条套件拿「网关上有几棵工作区、都叫什么」当判据的输入，于是
+      // 判据跟着**这台机器碰巧有多少工作区、名字里有没有互相包含**走——日常实例上绿、
+      // 全新 DSH_HOME 的空实例上直接红（#148 立、#162 普查）。工作区清单本来就是套件
+      // 该控制的那一项，改成自己声明四棵，判据一个字不用改。
+      const wsStats = { rewritten: 0, dropped: 0 }
+      await installWorkspaceFixture(page, LAB_WORKSPACES, wsStats)
+      // ---- 夹具二：第一个工作区同时在 Lab One 与 Lab Two 里（多对多的回显要有它）----
       // 树层从假宿主的状态存储读分组（挂载时读一次），所以注入之后要重载页面。
-      const multi = listed[0]?.id ?? ''
+      const multi = LAB_WORKSPACES[0]?.workspaceId ?? ''
       const fixture: HostGroupsFile = {
         groups: GROUPS,
         membership: { [multi]: ['g-lab-one', 'g-lab-two'] },
@@ -385,7 +483,14 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       await page.waitForTimeout(2_500)
       const workspaces = await treeWorkspaces(page)
       const ids = workspaces.map((row) => row.id)
-      check.eq('重载后工作区行还是同一批（夹具注入没弄丢行）', ids, listed.map((row) => row.id))
+      check.fact(`合成工作区进了树（树里顺序）：${JSON.stringify(workspaces.map((row) => row.label))}`)
+      check.ok(
+        '① 夹具生效：树里的工作区行 = 夹具声明的四棵（顺序逐条相同）',
+        JSON.stringify(ids) === JSON.stringify(LAB_WORKSPACES.map((workspace) => workspace.workspaceId)),
+        JSON.stringify(ids),
+      )
+      check.ok('① 夹具生效：`workspace/follow` 的基线帧被换成了合成工作区', wsStats.rewritten > 0, JSON.stringify(wsStats))
+      if (ids.length === 0) return screenshots
 
       // ---- ⑦ 列表层的第一眼：分组、计数与入口 ----
       await openManage(page)
@@ -463,7 +568,11 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       await openMembers(page, 'g-lab-empty')
       const viewEmpty = await memberView(page)
       check.eq('② 零成员组的清单里一行都不勾', viewEmpty.rows.map((row) => row.checkOn), ids.map(() => false))
-      check.eq('② 零成员组的计数行写的是「已选 0 / 全部」', viewEmpty.countText.replace(/\s+/g, ' '), `已选 0 / ${String(ids.length)}`)
+      check.ok(
+        '② 零成员组的计数行写的是「已选 0 / 全部」（文案从词典读，zh / en 都认）',
+        say('group.members.count', { n: '0', m: String(ids.length) }).includes(viewEmpty.countText.replace(/\s+/g, ' ')),
+        `actual=${JSON.stringify(viewEmpty.countText.replace(/\s+/g, ' '))} expected=${JSON.stringify(say('group.members.count', { n: '0', m: String(ids.length) }))}`,
+      )
 
       // ---- 进度基准：先把 Lab One 清成空组（用第二层的「清空」，也顺手走一遍那条路径）----
       await backToList(page)
@@ -598,10 +707,11 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       await searchMembers(page, '')
       const restored = await memberView(page)
       check.eq('⑤ 清掉搜索框：全部行回来', restored.rows.map((row) => row.id), ids)
-      check.eq(
-        '⑤ 清掉搜索框后计数行按「全部工作区」的口径算（分母 = 工作区总数）',
-        restored.countText.replace(/\s+/g, ' '),
-        `已选 ${String(restored.rows.filter((row) => row.checkOn).length)} / ${String(ids.length)}`,
+      const restoredSelected = String(restored.rows.filter((row) => row.checkOn).length)
+      check.ok(
+        '⑤ 清掉搜索框后计数行按「全部工作区」的口径算（分母 = 工作区总数；文案从词典读，zh / en 都认）',
+        say('group.members.count', { n: restoredSelected, m: String(ids.length) }).includes(restored.countText.replace(/\s+/g, ' ')),
+        `actual=${JSON.stringify(restored.countText.replace(/\s+/g, ' '))} expected=${JSON.stringify(say('group.members.count', { n: restoredSelected, m: String(ids.length) }))}`,
       )
 
       // ---- ⑥ 三档宽度：不溢出、不裁切，几何逐项落在档位表里 ----
@@ -673,7 +783,7 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       }))
       check.ok(
         '⑦ 改名：关掉管理框、开出「重命名分组」并带上原名字',
-        rename.dialogs === 1 && rename.value === 'Lab One' && rename.title.includes('重命名'),
+        rename.dialogs === 1 && rename.value === 'Lab One' && hasText(rename.title, '重命名'),
         JSON.stringify(rename),
       )
       await closeDialog(page)

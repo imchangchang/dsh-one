@@ -7,6 +7,8 @@
  * - `Check`：断言收集器——一条断言一处观测，最后折成 ledger 条目。
  */
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
+import { installLabDataset, SIDEBAR_DATASET, type DatasetStats, type LabDataset } from './dataset.ts'
+import { EN, ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'
 import { fakeHostScript } from './fakeHost.ts'
 import type { LabServer, LabTreeRoute } from './labServer.ts'
 
@@ -15,6 +17,60 @@ export interface Assertion {
   label: string
   ok: boolean
   detail: string
+}
+
+/**
+ * 一条**文案**断言：把期望值写成插件词典里的那条中文，再按当前页面语言放宽到它对应的
+ * 两种取值（zh / en）。
+ *
+ * 为什么要有它：页面语言是**运行环境的输入**（开发者日常实例是 zh，全新 `DSH_HOME` 的空
+ * 实例起来是 en）。断言里写死中文会得到一条「换台机器就红」的假失败（#148 立、#162 普查），
+ * 所以期望值一律从词典来：给一条中文文案，这里反查出它的键、把 `{n}` 这类占位抓出来，
+ * 再渲染出 zh / en 两份；断言判「实测值等于其中一份」。
+ *
+ * 判据一个字没放宽：能对上的永远是**同一个键**的那两种语言取值。
+ */
+export function texts(zhText: string): string[] {
+  for (const [key, template] of Object.entries(ZH)) {
+    if (template === zhText) return [zhText, EN[key] ?? zhText]
+  }
+  // 带占位的那几条（`已选 {n} 项`）：从实测文案里把参数抓出来，再用同一批参数渲染 en，
+  // 这样「数字跟着走」这件事不会被写成固定值。
+  for (const [key, template] of Object.entries(ZH)) {
+    const names = [...template.matchAll(/\{(\w+)\}/g)].map((match) => match[1] as string)
+    if (names.length === 0) continue
+    const pattern = `^${template
+      .split(/\{\w+\}/g)
+      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('(.+?)')}$`
+    const match = new RegExp(pattern, 'u').exec(zhText)
+    if (match === null) continue
+    const values = Object.fromEntries(names.map((name, index) => [name, match[index + 1] ?? '']))
+    const english = (EN[key] ?? template).replace(/\{(\w+)\}/g, (all, name: string) => values[name] ?? all)
+    return [zhText, english]
+  }
+  // 词典里没有这一条（例如夹具自己起的名字）：原样返回，判据照旧只认这一份。
+  return [zhText]
+}
+
+/**
+ * 实测文案**恰好等于**词典里那条（zh / en 任一份）。判据写成「页面文案是『取消置顶』」时用它，
+ * 与 {@link texts} 的差别只是这里直接吃实测值、不必自己判 `typeof`。
+ */
+export function isText(actual: string | null | undefined, zhText: string): boolean {
+  return typeof actual === 'string' && texts(zhText).includes(actual)
+}
+
+/**
+ * 「这段实测文案里含不含词典里那条」（zh / en 任一份含上就算）。
+ *
+ * 与 {@link texts} 同一件事的另一种用法：判据写成「页面文案里出现『回收站』」时，
+ * 期望值同样要从词典来，不能写死中文（理由见 `texts`）。带占位的那几条
+ * （`归档整组（2 个会话）`）也会按实测里的数字渲染出 en 那一份再比。
+ */
+export function hasText(actual: string | null | undefined, zhText: string): boolean {
+  const text = typeof actual === 'string' ? actual : ''
+  return texts(zhText).some((variant) => text.includes(variant))
 }
 
 /** 断言收集器：`ok/eq` 记一条，`fact` 记一个观测值（不计入通过数，写进报告说明）。 */
@@ -30,6 +86,20 @@ export class Check {
   eq(label: string, actual: unknown, expected: unknown): boolean {
     const same = JSON.stringify(actual) === JSON.stringify(expected)
     return this.ok(label, same, same ? String(actual) : `actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`)
+  }
+
+  /**
+   * 文案断言（见 {@link texts}）：`expected` 写成词典里的中文，实测值等于它的 zh / en 任一份
+   * 就算过。用它的地方都是「页面把这条文案渲染成什么」这一类的判据。
+   */
+  eqText(label: string, actual: unknown, expected: string): boolean {
+    const allowed = texts(expected)
+    const same = allowed.includes(typeof actual === 'string' ? actual : JSON.stringify(actual))
+    return this.ok(
+      label,
+      same,
+      same ? String(actual) : `actual=${JSON.stringify(actual)} expected（zh/en 任一份）=${JSON.stringify(allowed)}`,
+    )
   }
 
   /** 只记录观测值（例如「treeitems=17」），不判定。 */
@@ -156,6 +226,20 @@ export interface OpenOptions {
    * 要换成另一份，用 {@link setLabWorkspaceFolders} 再重载页面。
    */
   workspaceFolders?: readonly string[]
+  /**
+   * 页内数据集夹具（#162，见 `dataset.ts`）：给这一页喂一份套件自己声明的工作区与会话，
+   * 判据就不再吃「这台机器上碰巧有什么数据」。**必须在页面第一次导航之前装**，所以走
+   * 这里（`newContext` 之后、`newPage` 之前），套件不用为夹具再重载一次页面。
+   *
+   * 三种取值：
+   * - 不传：走缺省——侧栏那棵树（`sidebar` 与 `sidebar-official` 两个路由）**默认装**
+   *   `SIDEBAR_DATASET`，其余树不装。理由是「判据不许依赖运行环境」这条硬约束（README）：
+   *   侧栏那一批套件的判据全靠树上有工作区与会话行，而「这台机器上有几棵、几个」本来
+   *   就不该进判据。
+   * - `null`：这一页要**真的网关数据**（与官方页并排对照、零工作区空态这类套件），不装夹具。
+   * - 传一份 `LabDataset`：装这一份（宿主要自己造数据的套件用它）。
+   */
+  dataset?: LabDataset | null
 }
 
 export interface OpenedPage {
@@ -163,6 +247,11 @@ export interface OpenedPage {
   page: Page
   capture: PageCapture
   url: string
+  /**
+   * 这一页装的页内数据集夹具的计数（没装夹具时为 undefined）。套件用它断言
+   * 「夹具真的接上了」，而不是把空读数当结论。
+   */
+  dataset?: DatasetStats
   /** 首屏就绪选择器是否出现（false 时页面很可能整块没起来）。 */
   ready: boolean
 }
@@ -452,7 +541,12 @@ export async function openTreePage(
   await context.addInitScript({
     content: fakeHostScript(options.state ?? {}, options.failCalls ?? [], options.workspaceFolders ?? []),
   })
-  return await openPageIn(lab, route, context, options)
+  // 数据集夹具（#162）：装在这个上下文上、在第一次导航之前，首帧基线就已是夹具那一份。
+  // 缺省口径见 OpenOptions.dataset 的说明（侧栏那两棵树默认装，其余不装）。
+  const dataset =
+    options.dataset === undefined ? (route.route.startsWith('sidebar') ? SIDEBAR_DATASET : undefined) : (options.dataset ?? undefined)
+  const datasetStats = dataset === undefined ? undefined : await installLabDataset(context, dataset)
+  return await openPageIn(lab, route, context, options, datasetStats)
 }
 
 /**
@@ -494,6 +588,7 @@ async function openPageIn(
   route: LabTreeRoute,
   context: BrowserContext,
   options: OpenOptions,
+  datasetStats?: DatasetStats,
 ): Promise<OpenedPage> {
   // 抹自有 frame 标记（#83）：两处入口都认这个开关，且必须在建页之前装——
   // 页面任何脚本执行前生效，属性才从来没进过 DOM。（假宿主由上下文持有者
@@ -520,7 +615,7 @@ async function openPageIn(
     ready = false
   }
   await page.waitForTimeout(options.settleMs ?? 2_500)
-  return { context, page, capture, url, ready }
+  return { context, page, capture, url, ready, ...(datasetStats === undefined ? {} : { dataset: datasetStats }) }
 }
 
 export interface SlotFact {

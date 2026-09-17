@@ -50,13 +50,7 @@
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from 'playwright'
-import {
-  emit,
-  installEventStreamInjector,
-  openTreePage,
-  waitForEventStream,
-  type OpenedPage,
-} from './harness.ts'
+import { emit, installEventStreamInjector, openTreePage, waitForEventStream, type OpenedPage, texts, isText } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
@@ -447,8 +441,7 @@ export const PENDING_DOT_SUITE: LabSuite = {
         `dot=${String(doneDot?.color)} probe=${doneProbe}`,
       )
       check.ok(
-        '跑完还没打开：读屏文案是官方那一档（已完成）',
-        doneDot?.labels[0] === '已完成',
+        '跑完还没打开：读屏文案是官方那一档（已完成）',isText(doneDot?.labels[0], '已完成'),
         JSON.stringify(doneDot?.labels),
       )
       check.eq('跑完还没打开：三个计数都归零时那枚角标整枚不渲染（与「等待中 1」那一态对照）', afterDone.find((row) => row.id === target.id)?.activity ?? null, null)

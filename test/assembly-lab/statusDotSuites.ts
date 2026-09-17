@@ -53,7 +53,7 @@
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import type { BrowserContext, Page } from 'playwright'
-import { openTreePage, type Check } from './harness.ts'
+import { openTreePage, type Check, texts, isText } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
 import { emit, installEventStreamInjector, waitForEventStream, type EventStreamInjector } from './harness.ts'
@@ -579,8 +579,8 @@ export const STATUS_DOT_SUITE: LabSuite = {
           '⑤ 未读 vs 已完成：可区分处 = 标题字重（未读 600 / 已完成 400）与读屏文案（未读 / 已完成）',
           mine?.titleWeight === '600' &&
             doneOwn?.titleWeight === '400' &&
-            mine?.dot?.labels?.[0] === '未读' &&
-            doneOwn?.dot?.labels?.[0] === '已完成',
+            isText(mine?.dot?.labels?.[0], '未读') &&
+            isText(doneOwn?.dot?.labels?.[0], '已完成'),
           `未读字重=${String(mine?.titleWeight)} 已完成字重=${String(doneOwn?.titleWeight)} 未读文案=${String(mine?.dot?.labels)} 已完成文案=${String(doneOwn?.dot?.labels)}`,
         )
         const theirs = await offTarget()

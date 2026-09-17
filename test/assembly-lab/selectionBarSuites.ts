@@ -207,7 +207,7 @@ export const SELECTION_BAR_SUITE: LabSuite = {
             facts.barScrollWidth
           }/${facts.barClientWidth} 区=${String(facts.areaScrollWidth)}/${String(facts.areaClientWidth)}；按钮高=${facts.buttons.map((b) => b.height).join('/')}`,
         )
-        check.eq(`${width}px：计数文案是「未选任何会话」（用户实测的那一条）`, facts.countText, '未选任何会话')
+        check.eqText(`${width}px：计数文案是「未选任何会话」（用户实测的那一条）`, facts.countText, '未选任何会话')
         check.eq(`${width}px：计数是单行（getClientRects().length === 1）`, facts.countLines, 1)
         check.ok(
           `${width}px：计数不收缩（盒子宽 ≥ 文字宽）`,
