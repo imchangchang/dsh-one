@@ -85,7 +85,10 @@ const SYNTHETIC: Record<string, string> = {
   'dsh-client-ui-theme/lib/client.js': `ctx.slots.inject("settings.general.item", () => ({ id: "appearance" }));`,
   'dsh-client-ui-settings-general/lib/client.js': `ctx.slots.inject("settings.action", () => ({ id: "open-document" }));`,
   'dsh-client-ui-cordis/lib/client.js': `ctx.slots.inject("sidebar.footer.action", () => ({ id: "cordis-panel" }));`,
-  'dsh-api-session-controller/lib/client.js': `remoteEvents.emit("api-session/error", sessionId, message);`,
+  'dsh-api-session-controller/lib/client.js': `
+    this.lastAgentError = message;
+    lastAgentError: this.lastAgentError,
+  `,
 }
 
 /** 把合成产物铺到临时目录，返回该目录（调用方负责删）。 */
@@ -163,7 +166,7 @@ test('负向：整包不在（出处文件读不到）也 fail，并说明是文
   withSynthetic({ 'dsh-api-session-controller/lib/client.js': null }, (root) => {
     const row = mod.checkOfficialIdentifiers({ root, version: '0.1.6-alpha.1', profile: '合成产物' })
     assert.equal(row.status, 'fail')
-    assert.match(row.detail, /event\.api-session\/error/)
+    assert.match(row.detail, /snapshot-field\.lastAgentError/)
     assert.match(row.detail, /出处文件读不到/)
   })
 })
