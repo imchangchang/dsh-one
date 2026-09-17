@@ -153,6 +153,13 @@
 //   `<Button size="sm">`），容器圆角取容器档的卡片圆角 12px 与容器内留白 12px；**标题是标题、
 //   不是行**，取标题档（标准档的 14px / 20px，与抽屉标题那一档同源）。弹窗整条细节见下面
 //   `.dshOneTree_modal` 那一节的注释（含为什么它不吃密度变量）。
+// - **管理分组的成员清单**（`.dshOneTree_member*` / `.dshOneTree_modalBack`，#139）→ 与上面
+//   弹窗里的行**同一档（紧凑档）**：成员行 26px / 圆角 5px / 行内间隙 6px / 文字 12px·18px
+//   （逐项就是紧凑档的行高、行圆角、项内间隙、字号与文字行高），返回键 26×26 与圆角 5px
+//   取紧凑档的图标按钮与行圆角，搜索框沿用弹窗输入框那一档，两枚批量按钮取官方 Button 的
+//   `sm` 档，勾选件复用会话多选态那一枚（`.dshOneTree_checkBox` 14×14 / 圆角 4px，出处是
+//   紧凑档图标位与标准档行内图标圆角）。它**不是侧栏的行家族**——#134 定过「弹窗里的行不
+//   跟行家族走」，这一层照那条口径取紧凑档。
 // ---------------------------------------------------------------------------
 
 /**
@@ -580,12 +587,17 @@ export const CSS =
   // 留白里，再叠一份会让名字比上方的标题与输入框更靠右（三者左缘要对齐）。
   '.dshOneTree_manageList{max-height:240px;overflow-y:auto}' +
   '.dshOneTree_manageRow{align-items:center;gap:6px;height:26px;display:flex}' +
-  '.dshOneTree_manageName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;font-size:12px;line-height:18px;overflow:hidden}' +
+  // 分组名本身就是进成员清单的入口（#139）：当按钮使，几何逐字沿用原来那个 span
+  //（同一行里的文字：紧凑档字号 12px / 行高 18px，仍是 F-34 量到的那一项），只是把
+  // 浏览器给按钮的默认外观清掉（背景 / 边框 / 内边距 / 字体族）。
+  '.dshOneTree_manageName{cursor:pointer;text-align:left;color:inherit;background:0 0;border:none;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;padding:0;font-family:inherit;font-size:12px;line-height:18px;overflow:hidden}' +
+  '.dshOneTree_manageName:hover{color:var(--dsw-alias-label-secondary)}' +
   '.dshOneTree_manageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:18px}' +
   '.dshOneTree_manageEmpty{color:var(--dsw-alias-label-tertiary);padding:4px 0;font-size:12px;line-height:18px}' +
   '.dshOneTree_manageCreate{align-items:center;gap:6px;display:flex}' +
   '.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}' +
   '.dshOneTree_manageCreate button{white-space:nowrap;flex:none}' +
+<<<<<<< HEAD
   // 行尾那一层（#109）：**只剩**当前工作区那枚蓝色胶囊，它是**标题盒里的一个 flex 项**
   // （`margin-left:auto` 把它推到标题盒右缘 = 行的内容右缘，观感上仍是「行尾」）。
   // #138 之前它绝对定位叠在标题上（`position:absolute;right:8px`）：那一版在窄侧栏里
@@ -596,6 +608,32 @@ export const CSS =
   // 悬停 / 菜单打开时整层让位给行尾那几枚动作按钮——胶囊占的正是它们要用的那一格，所以
   // 让位规则照旧（计数不在这层里，不受它影响，见 rows.ts 的 ActivityBadge 说明）。
   '.dshOneTree_rowEnd{pointer-events:none;flex:none;margin-left:auto;align-items:center;gap:6px;display:inline-flex}' +
+=======
+  // ---- 成员清单（#139，管理分组对话框的第二层）：与上面的列表行同一档（紧凑档）----
+  // 逐条出处：行高 26px = 紧凑档行高（`._item_1nxmc_92{min-height:26px}`）、行圆角 5px =
+  // 紧凑档行圆角、行内间隙 6px = 紧凑档项内间隙、行文字 12px/18px = 紧凑档字号与文字行高；
+  // 返回键 26×26 与圆角 5px、搜索框（`.dshOneTree_renameInput`：高 26px / 圆角 5px /
+  // 12px / 18px）与两枚批量按钮（官方 Button 的 `sm` 档）都取列表层同一批档位——这一层
+  // 整层就是「管理框里的行」那一条口径（#134 明确弹窗里的行不跟侧栏的行家族走）。
+  // 勾选件复用会话多选态那一枚（`.dshOneTree_checkBox` 14×14 / 圆角 4px，见 selection.ts）。
+  '.dshOneTree_modalBack{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
+  '.dshOneTree_modalBack:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
+  // 顶部这一条允许换行：窄侧栏（260px）一盘放不下「搜索框 + 全选 + 清空」时整枚换行，
+  // 绝不横向溢出（与选择态动作条同一条取舍：宁换行，不挤文字）。
+  '.dshOneTree_memberTools{flex-wrap:wrap;align-items:center;gap:6px;display:flex}' +
+  '.dshOneTree_memberTools .dshOneTree_renameInput{flex:1;min-width:0}' +
+  '.dshOneTree_memberTools button{white-space:nowrap;flex:none}' +
+  '.dshOneTree_memberCount{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}' +
+  '.dshOneTree_memberList{max-height:240px;overflow-y:auto}' +
+  '.dshOneTree_memberRow{cursor:pointer;text-align:left;width:100%;height:26px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:5px;align-items:center;gap:6px;padding:0;font-family:inherit;font-size:12px;line-height:18px;display:flex}' +
+  '.dshOneTree_memberRow:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
+  '.dshOneTree_memberName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}' +
+  '.dshOneTree_memberEmpty{color:var(--dsw-alias-label-tertiary);padding:4px 0;font-size:12px;line-height:18px}' +
+  // 行尾绝对定位层（#109）：当前工作区那枚蓝色胶囊 + 活状态计数。**不进正常流**——
+  // 官方这一行没有这两个元素，进流会把标题挤窄，而 F-04 PARITY 逐项比对标题的几何
+  // 矩形（同一处置的说明见 ActivityBadge 的注释）。悬停时整层让位给四枚动作按钮。
+  '.dshOneTree_rowEnd{pointer-events:none;position:absolute;right:var(--dsh-one-density-row-padding-inline,8px);align-items:center;gap:6px;display:inline-flex}' +
+>>>>>>> a95e4af4 (feat(#139): 管理分组里点分组名进成员清单，逐条勾选即时落盘)
   '.dshOneTree_projectRow:hover .dshOneTree_rowEnd,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowEnd{display:none}' +
   // 「当前工作区」胶囊（#109 E7）：蓝色药丸 + 容器名（VS Code 侧就是 vscode，官方 web 侧是 web
   // ——名字由能力口给，不写死）。颜色全部由官方 business 蓝 token 混出来（老侧栏那份用的是

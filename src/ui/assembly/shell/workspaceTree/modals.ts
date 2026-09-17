@@ -6,11 +6,15 @@
  * prop——官方件在这一版**没有尺寸变体**（举证见 styles.ts 那一段），`headless` 是它
  * 给的官方口子：mask / Esc / portal / `role="dialog"` 仍由官方代码提供，标题行、
  * 说明行与底部按钮行由本件按紧凑档拼（`modalHead` / `modalDesc` / `modalActions`）。
+ *
+ * #139：「管理分组…」多了一层——点分组名进它的**成员清单**（全部工作区 + 勾选），
+ * 详见 {@link ManageGroupsModal}。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import {
   Button,
   IconCheckOutline16,
+  IconChevronLeftOutline14,
   IconCloseFill14,
   IconEditOutline16,
   IconTrashOutline16,
@@ -20,17 +24,20 @@ import type { SessionBlock } from '../../../../pure/workspaceTreeView.ts'
 import type { WorkspaceGroupDef } from '../../../../pure/treeGroups.ts'
 import { TAG_COLORS, type TagColor } from '../../../../pure/sessionTags.ts'
 import { displayTitle } from './format.ts'
+import { SelectMark } from './selection.ts'
 import { TAG_COLOR_CSS, TAG_COLOR_LABEL } from './tagGroups.ts'
 import type { Translate } from './types.ts'
 
 /** 弹窗容器的自有类名（挂在官方 Modal 的 dialog 元素上，几何见 styles.ts 那一节）。 */
 const MODAL_CLASS = 'dshOneTree_modal'
 
-/** 头行：标题 + 关闭钮。官方 Modal 在 `headless` 下不再渲染这两件，由这里按紧凑档拼。 */
-function modalHead(title: string, closeLabel: string, onClose: () => void): unknown {
+/** 头行：标题 + 关闭钮。官方 Modal 在 `headless` 下不再渲染这两件，由这里按紧凑档拼。
+ *  `leading` 是标题左边的可选件（成员清单的「返回分组列表」落在这一格）。 */
+function modalHead(title: string, closeLabel: string, onClose: () => void, leading?: unknown): unknown {
   return h(
     'div',
     { className: 'dshOneTree_modalHead' },
+    leading ?? null,
     h('h2', { className: 'dshOneTree_modalTitle' }, title),
     h(
       'button',
@@ -565,38 +572,82 @@ export function DeleteWorkspaceModal({
  * 对话框（{@link GroupModal}，与落盘走同一份纯函数）。管理对话框只负责「列出来 +
  * 把动作转给那一套」，避免长出第二份校验——行内 ✎/🗑 因此是「关掉本框、开那个框」。
  * 建新组则直接内联（只多一个名字输入，校核仍是同一份 `createTreeGroup`）。
+ *
+ * ## #139：两级形态（点分组名 → 该组的成员清单）
+ *
+ * 用户点名要对齐 **Telegram 的聊天文件夹**：在文件夹管理界面里**直接就能把现有对话
+ * 挑进这个文件夹**。所以我们这里也分两级——第一级是分组列表（上面那些），**点分组名**
+ * 进第二级：该组的**成员清单**，列出**全部工作区**（顺序沿用树里的官方顺序，由树层
+ * 组好传进来）、每行一枚勾选件（复用会话多选态的 {@link SelectMark}），点一下即时
+ * 入组 / 出组；顶部一行是搜索框 + 「全选 / 清空」，头行最左是返回分组列表的入口。
+ *
+ * 三处刻意的取舍（与 issue #139 的「明确的取舍」一致）：
+ * - **不做 Telegram 的「排除的聊天」那一段**：那一段是为「按类别自动纳入」服务的，
+ *   而我们这里是手工逐一勾选、且归属多对多——勾选本身就覆盖了排除的语义。
+ * - **不做拖拽**：拖拽那条路径已经有了（pill 拖拽换组序、会话行拖进组块），本层只加
+ *   管理界面里的勾选路径。
+ * - **「全选 / 清空」的作用域 = 当前过滤结果**（不是全部工作区）：搜索框在场时，用户
+ *   眼前就是那几个工作区，批量动作只收拾看得见的那些才与「所见即所得」一致；要看全
+ *   部就先清空搜索框（那时过滤结果 = 全部）。这条口径写在按钮的渲染位置这里，验证
+ *   套件按同一口径断言。
+ *
+ * 写路径**只有一条**：勾选与批量都回到树层那一个纯函数（`toggleWorkspaceGroup`）
+ * 与那一个落盘口（`writeGroups`），本件自己不碰分组状态、也不做第二份成员判定
+ * （每行的勾选态由 `groupMembers` 给，它读的就是过滤 / 计数用的同一个判定）。
  */
 export function ManageGroupsModal({
   open,
   groups,
   counts,
+  workspaces,
+  groupMembers,
   tr,
   onCreate,
   onRename,
   onDelete,
+  onToggleMember,
+  onSetMembers,
   onClose,
 }: {
   open: boolean
   groups: readonly WorkspaceGroupDef[]
   /** 每个分组的成员工作区数（组 id → 计数）。 */
   counts: ReadonlyMap<string, number>
+  /** 全部工作区（树里的官方顺序），成员清单按它逐行列。 */
+  workspaces: readonly { id: string; label: string }[]
+  /** 某组当前的成员工作区 id（与过滤 / 计数同一份判定）。 */
+  groupMembers: (groupId: string) => readonly string[]
   tr: Translate
   /** 建新组：成功回 null，失败回词典键（'group.name.empty' / 'group.name.duplicate'）。 */
   onCreate: (name: string) => 'empty' | 'duplicate' | null
   onRename: (groupId: string, name: string) => void
   onDelete: (groupId: string, name: string) => void
+  /** 勾选 / 取消勾选一个工作区的归属（走树层同一个纯函数与同一个落盘口；**组在前**）。 */
+  onToggleMember: (groupId: string, workspaceId: string) => void
+  /** 批量勾选 / 取消（「全选 / 清空」，作用域 = 调用方给的这一批）。 */
+  onSetMembers: (groupId: string, workspaceIds: readonly string[], member: boolean) => void
   onClose: () => void
 }): unknown {
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
+  /** 正在看哪一组的成员清单（null = 分组列表）。 */
+  const [memberGroupId, setMemberGroupId] = useState<string | null>(null)
+  const [memberQuery, setMemberQuery] = useState('')
   const lastOpen = useRef(false)
   useEffect(() => {
     if (open && !lastOpen.current) {
       setDraft('')
       setError(null)
+      setMemberGroupId(null)
+      setMemberQuery('')
     }
     lastOpen.current = open
   }, [open])
+  // 正在看的那一组被删掉（或换了一份状态）时收回列表层：成员清单没有「没有这一组」的形态。
+  const memberGroup = memberGroupId === null ? null : (groups.find((group) => group.id === memberGroupId) ?? null)
+  useEffect(() => {
+    if (memberGroupId !== null && memberGroup === null) setMemberGroupId(null)
+  }, [memberGroupId, memberGroup])
   const submit = (): void => {
     const failure = onCreate(draft.trim())
     if (failure === null) {
@@ -619,6 +670,120 @@ export function ManageGroupsModal({
       },
       action === 'rename' ? h(IconEditOutline16, {}) : h(IconTrashOutline16, {}),
     )
+  if (memberGroup !== null) {
+    const memberIds = new Set(groupMembers(memberGroup.id))
+    const query = memberQuery.trim().toLowerCase()
+    // 「当前过滤结果」：搜索框空的时侯它就是全部工作区，所以「全选 / 清空」不必分两套。
+    const rows = workspaces.filter((workspace) => query === '' || workspace.label.toLowerCase().includes(query))
+    const selected = rows.filter((row) => memberIds.has(row.id))
+    const setMembers = (member: boolean): void =>
+      onSetMembers(
+        memberGroup.id,
+        rows.map((row) => row.id),
+        member,
+      )
+    return h(Modal, {
+      open,
+      onClose,
+      title: memberGroup.name,
+      className: MODAL_CLASS,
+      headless: true,
+      children: [
+        modalHead(
+          memberGroup.name,
+          tr('close'),
+          onClose,
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dshOneTree_modalBack',
+              'aria-label': tr('group.members.back'),
+              title: tr('group.members.back'),
+              'data-dshone-tree-action': 'group-members-back',
+              onClick: () => {
+                setMemberGroupId(null)
+                setMemberQuery('')
+              },
+            },
+            h(IconChevronLeftOutline14, { size: 14 }),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'dshOneTree_memberTools' },
+          h('input', {
+            className: 'dshOneTree_renameInput',
+            'data-dshone-tree': 'group-member-search',
+            value: memberQuery,
+            placeholder: tr('group.members.search'),
+            'aria-label': tr('group.members.search'),
+            onChange: (event: { target: { value: string } }) => setMemberQuery(event.target.value),
+          }),
+          h(
+            Button,
+            {
+              size: 'sm',
+              variant: 'outline',
+              disabled: rows.length === 0 || selected.length === rows.length,
+              'data-dshone-tree-action': 'group-member-all',
+              onClick: () => setMembers(true),
+            },
+            tr('group.members.selectAll'),
+          ),
+          h(
+            Button,
+            {
+              size: 'sm',
+              variant: 'outline',
+              disabled: selected.length === 0,
+              'data-dshone-tree-action': 'group-member-none',
+              onClick: () => setMembers(false),
+            },
+            tr('group.members.clear'),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'dshOneTree_memberCount', role: 'status', 'data-dshone-tree': 'group-member-count' },
+          tr('group.members.count', { n: selected.length, m: rows.length }),
+        ),
+        h(
+          'div',
+          {
+            className: 'dshOneTree_memberList',
+            'data-dshone-tree': 'group-members',
+            'data-dshone-group-target': memberGroup.id,
+          },
+          rows.length === 0
+            ? h(
+                'div',
+                { className: 'dshOneTree_memberEmpty', 'data-dshone-tree': 'group-member-empty' },
+                workspaces.length === 0 ? tr('group.members.none') : tr('group.members.noMatch'),
+              )
+            : rows.map((row) => {
+                const on = memberIds.has(row.id)
+                return h(
+                  'button',
+                  {
+                    type: 'button',
+                    key: row.id,
+                    className: 'dshOneTree_memberRow',
+                    'data-dshone-member-row': row.id,
+                    'data-dshone-member-state': on ? 'on' : 'off',
+                    'aria-pressed': on,
+                    onClick: () => onToggleMember(memberGroup.id, row.id),
+                  },
+                  h(SelectMark, { on }),
+                  h('span', { className: 'dshOneTree_memberName' }, row.label),
+                )
+              }),
+        ),
+        // 第二层不放错误行：建组那一格的校核只发生在第一层（进第二层时那条错误已清掉）。
+        modalActions(h(Button, { size: 'sm', variant: 'outline', onClick: onClose }, tr('close'))),
+      ],
+    })
+  }
   return h(Modal, {
     open,
     onClose,
@@ -636,7 +801,24 @@ export function ManageGroupsModal({
               h(
                 'div',
                 { className: 'dshOneTree_manageRow', key: group.id, 'data-dshone-manage-group': group.id },
-                h('span', { className: 'dshOneTree_manageName' }, group.name),
+                // 名字本身就是进成员清单的入口（Telegram 的文件夹行也是点一下进去）；
+                // 行尾 ✎/🗑 仍是「关掉本框、开那一套对话框」，各点各的。
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dshOneTree_manageName',
+                    'data-dshone-tree-action': 'group-members',
+                    'data-dshone-group-target': group.id,
+                    title: tr('group.members.open', { name: group.name }),
+                    onClick: () => {
+                      setMemberQuery('')
+                      setError(null)
+                      setMemberGroupId(group.id)
+                    },
+                  },
+                  group.name,
+                ),
                 h('span', { className: 'dshOneTree_manageCount' }, String(counts.get(group.id) ?? 0)),
                 rowIcon(group.id, group.name, 'rename'),
                 rowIcon(group.id, group.name, 'delete'),

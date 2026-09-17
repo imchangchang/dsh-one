@@ -19,6 +19,7 @@ import {
   emptyTreeGroups,
   hasTreeGroup,
   renameTreeGroup,
+  setWorkspacesGroupMembership,
   toggleWorkspaceGroup,
   treeGroupDefs,
   workspaceGroupIds,
@@ -588,6 +589,16 @@ export function WorkspaceTree(props: TreeProps): unknown {
     groupDefs.map((def) => [def.id, workspaces.filter((workspace) => workspaceMatchesGroup(groupsFile, workspace.workspaceId, def.id)).length]),
   )
 
+  // #139 成员清单的名单：**全部工作区**、顺序沿用树里的官方顺序（与树体同一份推导
+  // `flatGroups`——它对全部工作区摊平、不带分组过滤，所以「当前正过滤着某个分组」时
+  // 管理框里照样能看到并勾选全部工作区；未分组桶不是工作区，剔掉）。
+  const memberRows = currentWorkspaceFirst(flatGroups)
+    .filter((group) => group.workspaceId !== undefined)
+    .map((group) => ({ id: group.workspaceId as string, label: group.label }))
+  /** 某组当前的成员工作区 id——判定与上面的计数、列表过滤同一份 `workspaceMatchesGroup`。 */
+  const groupMemberIds = (groupId: string): readonly string[] =>
+    memberRows.filter((row) => workspaceMatchesGroup(groupsFile, row.id, groupId)).map((row) => row.id)
+
   // 建组 / 改名 / 删除的**唯一**落盘路径：两个入口（单胶囊下拉的「新建分组…」与
   // 「管理分组…」对话框）都走这里，校核是同一份纯函数（`treeGroups`），不会出现
   // 「界面放过、落盘被拒」的第二套判断。
@@ -611,6 +622,19 @@ export function WorkspaceTree(props: TreeProps): unknown {
     if (next !== null) writeGroups(next)
     // 删掉的正是当前过滤的分组 → 过滤回落「全部」。
     setPrefs((prev) => (prev.activeGroupId === groupId ? { ...prev, activeGroupId: null } : prev))
+  }
+
+  /**
+   * 归属的增删：**唯一**的一条（工作区行菜单「分组…」的二级项与 #139 成员清单里的
+   * 勾选都走它）。判定与落盘各只有一份：{@link toggleWorkspaceGroup} + `writeGroups`。
+   */
+  const toggleWorkspaceInGroup = (workspaceId: string, groupId: string): void => {
+    writeGroups(toggleWorkspaceGroup(groupsFile, workspaceId, groupId))
+  }
+  /** 批量勾选 / 取消（成员清单的「全选 / 清空」）：折叠同一个纯函数，一次落盘。 */
+  const setWorkspacesInGroup = (groupId: string, workspaceIds: readonly string[], member: boolean): void => {
+    const next = setWorkspacesGroupMembership(groupsFile, workspaceIds, groupId, member)
+    if (next !== null) writeGroups(next)
   }
 
   const toggleSelected = (sessionId: string): void => {
@@ -1337,7 +1361,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
                   onCopyPath: () => copyWorkspacePath(group),
                   onToggleGroup: (groupId: string) => {
                     if (group.workspaceId === undefined) return
-                    writeGroups(toggleWorkspaceGroup(groupsFile, group.workspaceId, groupId))
+                    toggleWorkspaceInGroup(group.workspaceId, groupId)
                   },
                   ...(group.workspaceId === undefined
                     ? {}
@@ -1545,13 +1569,20 @@ export function WorkspaceTree(props: TreeProps): unknown {
       },
     }),
     // 「管理分组…」对话框（#99 B 段）：行内 ✎/🗑 关掉本框、开上面那套对话框去做
-    //（校核复用），建新组则内联走同一份 `applyGroupCreate`。
+    //（校核复用），建新组则内联走同一份 `applyGroupCreate`。#139 起多一层：点分组名
+    // 进它的成员清单（全部工作区 + 勾选），勾选与批量都回到上面那一条唯一的写路径。
     h(ManageGroupsModal, {
       open: manageGroupsOpen,
       groups: groupDefs,
       counts: groupCounts,
+      workspaces: memberRows,
+      groupMembers: groupMemberIds,
       tr,
       onCreate: applyGroupCreate,
+      // 成员清单的回调是**组在前**（与 onRename / onDelete / onSetMembers 同一序），
+      // 这里翻到纯函数那一序（工作区在前，与 `toggleWorkspaceGroup` 一致）。
+      onToggleMember: (groupId: string, workspaceId: string) => toggleWorkspaceInGroup(workspaceId, groupId),
+      onSetMembers: setWorkspacesInGroup,
       onRename: (groupId: string, name: string) => {
         setManageGroupsOpen(false)
         setGroupError(null)

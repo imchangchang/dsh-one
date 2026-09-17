@@ -30,6 +30,7 @@ import {
   parseTreeGroups,
   renameTreeGroup,
   serializeTreeGroups,
+  setWorkspacesGroupMembership,
   toggleWorkspaceGroup,
   workspaceGroupIds,
   workspaceMatchesGroup,
@@ -147,6 +148,27 @@ test('工作区归属开关：加/移出/未知组，以及「已经在该组再
   const off = toggleWorkspaceGroup(on as NonNullable<typeof on>, 'w1', 'g-1')
   assert.deepEqual(off?.membership, {})
   assert.equal(toggleWorkspaceGroup(created.file, 'w1', 'g-nope'), null, '未知组不落盘')
+})
+
+test('#139 批量归属：对给定的一批工作区折叠同一个开关，已符合的跳过、无变化回 null', () => {
+  const created = createTreeGroup(emptyTreeGroups(), '工作', 'g-1')
+  if (!created.ok) throw new Error('unreachable')
+  const one = toggleWorkspaceGroup(created.file, 'w1', 'g-1') as NonNullable<ReturnType<typeof toggleWorkspaceGroup>>
+  // 「全选」：只补还没进去的，已经是成员的那一个不动（也不会被踢出来）。
+  const all = setWorkspacesGroupMembership(one, ['w1', 'w2', 'w3'], 'g-1', true)
+  assert.deepEqual(all?.membership, { w1: ['g-1'], w2: ['g-1'], w3: ['g-1'] })
+  // 再来一次全选：已经没有可改的 → 无变化（调用方跳过落盘）。
+  assert.equal(setWorkspacesGroupMembership(all as NonNullable<typeof all>, ['w1', 'w2'], 'g-1', true), null)
+  // 「清空」：同样只收拾该收拾的。
+  const none = setWorkspacesGroupMembership(all as NonNullable<typeof all>, ['w1', 'w2'], 'g-1', false)
+  assert.deepEqual(none?.membership, { w3: ['g-1'] })
+  assert.equal(setWorkspacesGroupMembership(none as NonNullable<typeof none>, ['w1', 'w2'], 'g-1', false), null)
+  // 未知组 / 空批次：不动（与单点那条同一口径）。
+  assert.equal(setWorkspacesGroupMembership(created.file, ['w1'], 'g-nope', true), null)
+  assert.equal(setWorkspacesGroupMembership(created.file, [], 'g-1', true), null)
+  // 多对多：只动这一组的归属，其它组的归属原样保留。
+  const two = setWorkspacesGroupMembership(one, ['w1'], 'g-2', true)
+  assert.equal(two, null, 'g-2 不在组表里 → 照旧不动')
 })
 
 test('落盘文本与旧格式逐字同形（两端/旧版本读得回去）', () => {

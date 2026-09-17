@@ -1,5 +1,7 @@
 /**
  * 弹窗的紧凑档（#127）：七个对话框逐个开出来量几何，读数逐项落在官方档位表里。
+ * #139 起把「管理分组…」的**第二层**（成员清单：返回键 / 搜索框 / 批量按钮 / 成员行与
+ * 勾选件）也在同一个弹窗里量一遍——弹窗的每一层都归这条套件管。
  *
  * 独立成一个文件、不写进 `suites.ts` 的理由与其它的独立套件文件同一条：那个文件是本批
  * 开发的合入热点（末尾只加一行注册）。
@@ -40,6 +42,13 @@ const PROBES: ReadonlyArray<{ label: string; selector: string; props: readonly s
   { label: '管理行', selector: '.dshOneTree_manageRow', props: ['height'], all: true },
   { label: '管理行名字', selector: '.dshOneTree_manageName', props: ['fontSize', 'lineHeight'], all: true },
   { label: '管理行计数', selector: '.dshOneTree_manageCount', props: ['fontSize', 'lineHeight'], all: true },
+  // #139：管理分组的第二层（成员清单）——返回键、搜索框、批量按钮、成员行与其勾选件
+  // （这一层由本套件在下面那一节开出来量一遍；F-39 另在三档宽度下重量）。
+  { label: '返回键', selector: '.dshOneTree_modalBack', props: ['width', 'height', 'borderRadius'] },
+  { label: '成员行', selector: '.dshOneTree_memberRow', props: ['height', 'borderRadius'], all: true },
+  { label: '成员行名字', selector: '.dshOneTree_memberName', props: ['fontSize', 'lineHeight'], all: true },
+  { label: '计数行', selector: '.dshOneTree_memberCount', props: ['fontSize', 'lineHeight'], all: true },
+  { label: '勾选件', selector: '.dshOneTree_checkBox', props: ['width', 'height', 'borderRadius'] },
   { label: '归档块头', selector: '.dshOneTree_modalBlockLabel', props: ['fontSize', 'lineHeight'], all: true },
   { label: '归档明细行', selector: '.dshOneTree_modalRow', props: ['height', 'fontSize', 'lineHeight'], all: true },
   { label: '状态行', selector: '.dshOneTree_deleteStatus', props: ['fontSize', 'lineHeight'], all: true },
@@ -263,7 +272,7 @@ export const MODAL_COMPACT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '弹窗的紧凑档：七个对话框逐个量几何 + 危险色可分 + 260px 不溢出 + 行为回归（#127，MODAL-COMPACT 套件）',
   expect:
-    '侧栏在真实装配页上（真网关**只读** + 假宿主 + 注入的分组状态）把七个弹窗逐个开出来（分组新建/重命名/删除、管理分组、归档确认、标签组新建/删除、会话与工作区重命名、删除工作区）：① **每一处几何都能在官方档位表里按属性找到出处**——对话框圆角、头行高、标题字号与行高、关闭钮宽高与圆角、说明行、底部按钮（官方 Button 的 `sm` 档：高 28px / 字号 12px / 行高 18px / 圆角 14px）、输入框（高 26px / 圆角 5px / 字号 12px / 行高 18px）、错误行与状态行、管理行高与其名字计数、归档明细行与块头，逐项都在 `styles.ts` 那份档位表里；档位表管不到的那一族（标签组色板，`SCALE_EXEMPT` 里逐条写了理由）只记事实、不判失败。② **危险动作在紧凑档下仍与普通按钮视觉可分**：危险按钮的文字色解析出来就是官方 `--dsw-alias-state-error-primary`（拿同一枚 token 挂在探针上比），与同框里的普通按钮**不同色**，而两者**同高**（差异只在颜色，不是把 danger 档压没了）。③ **260px 窄宽度下不溢出、不裁切**：对话框左右缘都在视口内、`scrollWidth ≤ clientWidth`，页面无横向溢出，底部按钮行不换行溢出，框里每个输入框与按钮的矩形都在对话框之内且内容没有被裁切（`scrollWidth ≤ clientWidth + 1`）。④ **行为零变化**四条各一条断言：**必填校验**（分组新建：空名时确认钮禁用；填一个重名 → 错误行出现且确认钮仍禁用）、**Esc 与点外关闭**（Esc 关掉；再开一次点遮罩关掉）、**busy 态**（点「确认归档」后请求被页内夹具接住：两枚按钮都禁用、确认钮文案变「归档中…」，夹具放行后请求不落到网关）、**二次确认**（管理分组里点 🗑 只开出确认框、宿主状态里的分组定义一条不动，取消后分组仍在）。全程零 pageerror。',
+    '侧栏在真实装配页上（真网关**只读** + 假宿主 + 注入的分组状态）把七个弹窗逐个开出来（分组新建/重命名/删除、管理分组、归档确认、标签组新建/删除、会话与工作区重命名、删除工作区）：① **每一处几何都能在官方档位表里按属性找到出处**——对话框圆角、头行高、标题字号与行高、关闭钮宽高与圆角、说明行、底部按钮（官方 Button 的 `sm` 档：高 28px / 字号 12px / 行高 18px / 圆角 14px）、输入框（高 26px / 圆角 5px / 字号 12px / 行高 18px）、错误行与状态行、管理行高与其名字计数、**管理分组第二层（成员清单）的返回键 / 搜索框 / 批量按钮 / 成员行与其勾选件**、归档明细行与块头，逐项都在 `styles.ts` 那份档位表里；档位表管不到的那一族（标签组色板，`SCALE_EXEMPT` 里逐条写了理由）只记事实、不判失败。② **危险动作在紧凑档下仍与普通按钮视觉可分**：危险按钮的文字色解析出来就是官方 `--dsw-alias-state-error-primary`（拿同一枚 token 挂在探针上比），与同框里的普通按钮**不同色**，而两者**同高**（差异只在颜色，不是把 danger 档压没了）。③ **260px 窄宽度下不溢出、不裁切**：对话框左右缘都在视口内、`scrollWidth ≤ clientWidth`，页面无横向溢出，底部按钮行不换行溢出，框里每个输入框与按钮的矩形都在对话框之内且内容没有被裁切（`scrollWidth ≤ clientWidth + 1`）。④ **行为零变化**四条各一条断言：**必填校验**（分组新建：空名时确认钮禁用；填一个重名 → 错误行出现且确认钮仍禁用）、**Esc 与点外关闭**（Esc 关掉；再开一次点遮罩关掉）、**busy 态**（点「确认归档」后请求被页内夹具接住：两枚按钮都禁用、确认钮文案变「归档中…」，夹具放行后请求不落到网关）、**二次确认**（管理分组里点 🗑 只开出确认框、宿主状态里的分组定义一条不动，取消后分组仍在）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const shot = async (page: OpenedPage['page'], name: string): Promise<string> => {
@@ -374,6 +383,29 @@ export const MODAL_COMPACT_SUITE: LabSuite = {
         () => Array.from(document.querySelectorAll('[data-dshone-manage-group]')).map((row) => row.getAttribute('data-dshone-manage-group') ?? ''),
       )
       check.ok('管理分组：列表里就是注入的两个分组', manageRows.length === 2, JSON.stringify(manageRows))
+
+      // ---- ① 管理分组的第二层（#139 的成员清单）----
+      // 点分组名进成员清单：返回键、搜索框、批量按钮、成员行与其勾选件都在这一个弹窗里，
+      // 所以几何也在这里量一遍（「弹窗的紧凑档」这条套件的覆盖面 = 每个弹窗的每一层）。
+      await page.click(`[data-dshone-manage-group="${manageRows[0] as string}"] [data-dshone-tree-action="group-members"]`)
+      await page.waitForSelector('[data-dshone-tree="group-members"]')
+      await page.waitForTimeout(200)
+      await auditModal(page, check, '管理分组·成员清单')
+      screenshots.push(await shot(page, 'modal-manage-members'))
+      const memberRows = await page.evaluate(() => ({
+        rows: document.querySelectorAll('[data-dshone-member-row]').length,
+        marks: document.querySelectorAll('[data-dshone-member-row] .dshOneTree_checkBox').length,
+        back: document.querySelector('[data-dshone-tree-action="group-members-back"]') !== null,
+      }))
+      check.ok(
+        '成员清单：每一行都带勾选件、返回键在场（本层是管理框的第二级）',
+        memberRows.rows === memberRows.marks && memberRows.back,
+        JSON.stringify(memberRows),
+      )
+      await page.click('[data-dshone-tree-action="group-members-back"]')
+      await page.waitForSelector('[data-dshone-tree="group-manage-list"]')
+      await page.waitForTimeout(200)
+      check.eq('成员清单：返回键回到分组列表（同一个弹窗、不是新开一个）', await dialogCount(page), 1)
 
       // ---- ④ 二次确认：行内 🗑 只开确认框，分组定义一条不动 ----
       const before = await page.evaluate(
