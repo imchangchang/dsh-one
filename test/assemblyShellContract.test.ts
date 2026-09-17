@@ -165,7 +165,11 @@ test('密度档扩散（#104）：四区新键各挂各的规则，且每项 VS 
   const SPREAD: ReadonlyArray<{ key: string; rules: readonly string[] }> = [
     {
       key: 'section-padding-inline',
-      rules: ['dshOneTree_sectionHeader', 'dshOneTree_filterBar', 'dshOneTree_footerRow', 'dshOneTree_drawerHeader', 'dshOneTree_drawerList'],
+      // #125 起这项只用在**右内缩**（入口行 / 抽屉头 / 抽屉列表）与顶栏那一行的左内缩上：
+      // 过滤条、入口行、抽屉列表的**左**内缩改成「行内容基准」（`row-padding-inline`），因为
+      // 那三处的内容是行家族（行自己带行内边距），容器再加一道会把整列推右一格。左缘对齐的
+      // 断言在装配实验室的 F-30 里按几何矩形判，不在这一条（这一条只管键挂到了哪些规则上）。
+      rules: ['dshOneTree_sectionHeader', 'dshOneTree_footerRow', 'dshOneTree_drawerHeader', 'dshOneTree_drawerList'],
     },
     {
       key: 'section-gap',
