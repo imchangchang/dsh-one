@@ -115,8 +115,13 @@ interface InlineReading {
   /** 底部回收站入口行：容器左缘 + 主区图标左缘。 */
   entryBoxLeft: number | null
   entryIconLeft: number | null
-  /** 抽屉头标题左缘、抽屉列表左缘、抽屉会话行的内容左缘（抽屉要有内容才量得到行）。 */
+  /** 抽屉头：内容左缘（#154 起这一行最左是「返回」，它才是骨架基线的落点）+ 标题左缘 + 标题与返回之间的实测间隙；以及抽屉列表左缘、抽屉会话行的内容左缘（抽屉要有内容才量得到行）。 */
+  drawerBackLeft: number | null
+  drawerBackRight: number | null
   drawerTitleLeft: number | null
+  drawerTitleGap: number | null
+  /** 抽屉头这一行自己的列间隙（读 computed style，用来判「标题紧跟在返回之后」）。 */
+  drawerHeaderGap: number | null
   drawerListLeft: number | null
   drawerRowContentLeft: number | null
   drawerRowCount: number
@@ -172,6 +177,17 @@ async function readInline(page: OpenedPage['page']): Promise<InlineReading> {
           break
         }
       }
+      // 抽屉头：#154 起这一行最左是「返回」（骨架基线的落点是它），标题跟在它后面。
+      const drawerHeader = element(selectors.drawerHeader)
+      const drawerBack = drawerHeader?.querySelector('[data-dshone-tree-action="recycle-close"]') ?? null
+      const drawerBackBox = drawerBack?.getBoundingClientRect() ?? null
+      const drawerTitle = element(selectors.drawerTitle)
+      const drawerTitleBox = drawerTitle?.getBoundingClientRect() ?? null
+      const drawerTitleGap =
+        drawerBackBox === null || drawerTitleBox === null || drawerBackBox.width === 0
+          ? null
+          : round(drawerTitleBox.left - drawerBackBox.right)
+
       // 抽屉会话行：行盒左缘 + 行的左内边距（与列表行同一读法）。
       const drawerRow = element(selectors.drawerRow)
       const drawerRowBox = drawerRow?.getBoundingClientRect() ?? null
@@ -215,7 +231,12 @@ async function readInline(page: OpenedPage['page']): Promise<InlineReading> {
         rowBackground: rowStyle === null ? '' : rowStyle.backgroundColor,
         entryBoxLeft: left(selectors.entryRow),
         entryIconLeft,
+        drawerBackLeft: drawerBackBox === null ? null : round(drawerBackBox.left),
+        drawerBackRight: drawerBackBox === null ? null : round(drawerBackBox.right),
         drawerTitleLeft: left(selectors.drawerTitle),
+        drawerTitleGap,
+        drawerHeaderGap:
+          drawerHeader === null ? null : round(px(getComputedStyle(drawerHeader).columnGap)),
         drawerListLeft: left(selectors.drawerList),
         drawerRowContentLeft,
         drawerRowCount: document.querySelectorAll(selectors.drawerRow).length,
@@ -237,6 +258,7 @@ async function readInline(page: OpenedPage['page']): Promise<InlineReading> {
       projectRow: PROJECT_ROW,
       entryRow: ENTRY_ROW,
       entryMain: ENTRY_MAIN,
+      drawerHeader: DRAWER_HEADER,
       drawerTitle: DRAWER_TITLE,
       drawerList: DRAWER_LIST,
       drawerRow: DRAWER_ROW,
@@ -300,7 +322,7 @@ export const TOPBAR_INLINE_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '顶栏 / 过滤条的横向基准（#125 立、#135 按并成一行的新形态重写）：收起看胶囊、展开看搜索框，都与行内容左缘同一条竖线（TOPBAR-INLINE 套件）',
   expect:
-    '真实装配页上（真网关**只读** + 假宿主）、260/340/500 三档宽度 × 两种密度状态（宿主给的 VS Code 档 / 把密度变量对齐回树插件自己声明的官方兜底值 = 官方档）下量**几何矩形**（不靠截图）：① **左缘同一条竖线（±1px）**——#135 起分组胶囊与搜索框都在顶栏那一行里，所以**收起态按胶囊量**（胶囊左缘 = 列表行的内容左缘 = 工作区行行盒左缘 + 行的 `padding-left`，也就是文件夹图标那一格的左缘；两个读法必须互相印证），**展开态按搜索框量**（点开放大镜之后，搜索框左缘 = 同一条行内容左缘；这一刻胶囊已让位成零宽，不再拿它比）。收起态的放大镜靠右挨着动作组（#132 的形态），套件按事实记它的位置并钉住「不与动作组重叠」；② **行出血不受影响**——行盒左缘仍在侧栏左缘（±1px）上（hover 底色因此通栏到两侧），且 hover 时底色真的出现（非透明）；③ **相对侧栏左缘有下限**——量到的那个左缘不低于当页的 `row-padding-inline`（行内容基准本身）且不低于紧凑档的项内边距 7px（档位表 `SCALE_TIERS.compact.rowPaddingInline`，官方出处 `._item_1nxmc_92{padding:3px 7px}`），防止以后又被压回贴边；④ **右侧关系与横向溢出**——顶栏那一行的**盒子**右缘仍在列表右缘之外（官方分节头的 `margin-right:-4px` 右出血保留）、胶囊不横向溢出它所在的盒子、展开态搜索框的右缘不越出那一行的内容右缘、那一行 / 列表区 / 列表 / 文档自身的 `scrollWidth ≤ clientWidth + 1`。**#142 起这一行右侧的「内容内缩」另有专条**：那一行补了 `padding-right`（值 = 4px 出血 + 列表右外边距 + 滚动条车道 + 行右内边距，见 `styles.ts` 那条规则上方），把**内容**右缘收到「行内容右缘」那条竖线上——这条关系由 **F-44** 在真页面里判（三档宽度 × 两档密度、收起 / 展开两态），本套件只守**盒子**：这里管盒子右缘的出血与不溢出（上一条的四个判据一条没放宽，只是从此「盒子」与「内容」两条口径分工明确）。（#125 时的两条按新形态退场：过滤条不再自成一行、所以「过滤条右缘 = 列表区右缘」不成立；展开态的动作组已让位成零宽、所以不比「搜索框右缘 ≤ 动作组左缘」。）另核两处「同基准」的顺带项（#125 要做的第 4 点）：底部回收站入口行的主区图标左缘、抽屉头标题左缘、抽屉会话行的内容左缘都落在同一条行内容基准上（抽屉要有内容才量得到行，用假宿主注入一条回收站记录，不写网关）。量之前先钉住 `root.scrollLeft = 0`（整棵树被横滚会让所有读数整体左移，那是另一件事）。全程零 pageerror。',
+    '真实装配页上（真网关**只读** + 假宿主）、260/340/500 三档宽度 × 两种密度状态（宿主给的 VS Code 档 / 把密度变量对齐回树插件自己声明的官方兜底值 = 官方档）下量**几何矩形**（不靠截图）：① **左缘同一条竖线（±1px）**——#135 起分组胶囊与搜索框都在顶栏那一行里，所以**收起态按胶囊量**（胶囊左缘 = 列表行的内容左缘 = 工作区行行盒左缘 + 行的 `padding-left`，也就是文件夹图标那一格的左缘；两个读法必须互相印证），**展开态按搜索框量**（点开放大镜之后，搜索框左缘 = 同一条行内容左缘；这一刻胶囊已让位成零宽，不再拿它比）。收起态的放大镜靠右挨着动作组（#132 的形态），套件按事实记它的位置并钉住「不与动作组重叠」；② **行出血不受影响**——行盒左缘仍在侧栏左缘（±1px）上（hover 底色因此通栏到两侧），且 hover 时底色真的出现（非透明）；③ **相对侧栏左缘有下限**——量到的那个左缘不低于当页的 `row-padding-inline`（行内容基准本身）且不低于紧凑档的项内边距 7px（档位表 `SCALE_TIERS.compact.rowPaddingInline`，官方出处 `._item_1nxmc_92{padding:3px 7px}`），防止以后又被压回贴边；④ **右侧关系与横向溢出**——顶栏那一行的**盒子**右缘仍在列表右缘之外（官方分节头的 `margin-right:-4px` 右出血保留）、胶囊不横向溢出它所在的盒子、展开态搜索框的右缘不越出那一行的内容右缘、那一行 / 列表区 / 列表 / 文档自身的 `scrollWidth ≤ clientWidth + 1`。**#142 起这一行右侧的「内容内缩」另有专条**：那一行补了 `padding-right`（值 = 4px 出血 + 列表右外边距 + 滚动条车道 + 行右内边距，见 `styles.ts` 那条规则上方），把**内容**右缘收到「行内容右缘」那条竖线上——这条关系由 **F-44** 在真页面里判（三档宽度 × 两档密度、收起 / 展开两态），本套件只守**盒子**：这里管盒子右缘的出血与不溢出（上一条的四个判据一条没放宽，只是从此「盒子」与「内容」两条口径分工明确）。（#125 时的两条按新形态退场：过滤条不再自成一行、所以「过滤条右缘 = 列表区右缘」不成立；展开态的动作组已让位成零宽、所以不比「搜索框右缘 ≤ 动作组左缘」。）另核两处「同基准」的顺带项（#125 要做的第 4 点）：底部回收站入口行的主区图标左缘、抽屉头的内容左缘（#154 起这一行最左是「返回」那枚键）、抽屉会话行的内容左缘都落在同一条行内容基准上（抽屉要有内容才量得到行，用假宿主注入一条回收站记录，不写网关）。量之前先钉住 `root.scrollLeft = 0`（整棵树被横滚会让所有读数整体左移，那是另一件事）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const widths = [260, 340, 500] as const
@@ -551,15 +573,22 @@ export const TOPBAR_INLINE_SUITE: LabSuite = {
         await page.waitForTimeout(400)
         const drawer = await readInline(page)
         check.fact(
-          `抽屉 @340（当页 row-padding-inline=${String(drawer.rowPaddingInline)}px）：头标题左缘 ${String(drawer.drawerTitleLeft)}、列表左缘 ${String(drawer.drawerListLeft)}、` +
+          `抽屉 @340（当页 row-padding-inline=${String(drawer.rowPaddingInline)}px）：头里返回键 [${String(drawer.drawerBackLeft)},${String(drawer.drawerBackRight)}]、标题左缘 ${String(drawer.drawerTitleLeft)}（标题 − 返回右缘 = ${String(drawer.drawerTitleGap)}）、列表左缘 ${String(drawer.drawerListLeft)}、` +
             `会话行内容左缘 ${String(drawer.drawerRowContentLeft)}（行数 ${String(drawer.drawerRowCount)}）、行内容基准 ${String(drawer.rowContentLeft)}`,
         )
         screenshots.push(await shot(ctx, page, 'topbar-inline-drawer-340'))
         check.ok(
-          '抽屉头标题左缘 = 行内容基准（抽屉头也是骨架区，左内缩走行内容基准）',
-          drawer.drawerTitleLeft !== null &&
-            Math.abs(drawer.drawerTitleLeft - (drawer.rowContentLeft ?? Number.NaN)) <= ALIGN_TOLERANCE,
-          `标题=${String(drawer.drawerTitleLeft)} 行内容=${String(drawer.rowContentLeft)}`,
+          '抽屉头的内容左缘（#154 起这一行最左是「返回」）= 行内容基准（抽屉头也是骨架区，左内缩走行内容基准）',
+          drawer.drawerBackLeft !== null &&
+            Math.abs(drawer.drawerBackLeft - (drawer.rowContentLeft ?? Number.NaN)) <= ALIGN_TOLERANCE,
+          `返回键=${String(drawer.drawerBackLeft)} 行内容=${String(drawer.rowContentLeft)}`,
+        )
+        check.ok(
+          '抽屉头标题紧跟返回之后（标题左缘 − 返回右缘 = 这一行自己的列间隙，±1px；#154 起标题不再是这一行的第一个元素，这条关系取代了原来那条「标题左缘 = 行内容基准」）',
+          drawer.drawerTitleGap !== null &&
+            drawer.drawerHeaderGap !== null &&
+            Math.abs(drawer.drawerTitleGap - drawer.drawerHeaderGap) <= ALIGN_TOLERANCE,
+          `标题−返回右缘=${String(drawer.drawerTitleGap)} 头列间隙=${String(drawer.drawerHeaderGap)}`,
         )
         check.ok(
           '抽屉列表左缘 = 容器自己的左缘（列表容器零左内缩，行自己带行内边距，与主列表同一处置）',
@@ -570,7 +599,7 @@ export const TOPBAR_INLINE_SUITE: LabSuite = {
           check.fact('这一轮抽屉里没有会话行（假宿主注入的那条没被认出来）——抽屉行的对齐断言跳过')
         } else {
           check.ok(
-            '抽屉会话行的内容左缘 = 行内容基准（与抽屉头标题同一条竖线）',
+            '抽屉会话行的内容左缘 = 行内容基准（与抽屉头那枚返回键同一条竖线；#154 起抽屉头的第一个元素是返回）',
             Math.abs(drawer.drawerRowContentLeft - (drawer.rowContentLeft ?? Number.NaN)) <= ALIGN_TOLERANCE,
             `抽屉行=${String(drawer.drawerRowContentLeft)} 行内容=${String(drawer.rowContentLeft)}`,
           )

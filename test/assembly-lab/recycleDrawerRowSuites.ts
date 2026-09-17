@@ -310,35 +310,76 @@ async function hostBin(page: OpenedPage['page']): Promise<{ ids: string[]; write
 const LONG_TITLE = '这是一条刻意写得很长的会话标题：用来把抽屉行里标题与行尾两枚动作的让位关系量准（#144 夹具）'
 
 /**
- * 把 `session/list` 回执里**指定会话**换成「非空白 + 长标题」（页内夹具）。
+ * 把 `session/list` 回执里**指定会话**的标题换成一份长文案（页内夹具）。
  *
  * 为什么用夹具：见 {@link LONG_TITLE}。夹具只改**页面收到的回执**、请求不落网关（与 F-39
  * 的 `running` 夹具、F-18 的 `schedule` 夹具同一处置）。会话清单是页面挂载时取的，所以
- * 装完要**重载页面**才生效；树行与抽屉行读的是同一份清单（官方 store 的 `displayTitle`
- * 就来自回执项的 `title`），所以两处都显示这份长标题——套件随后断言抽屉行真的显示了它
- * （夹具没接上就当场红，不会静默变成「标题本来就短」）。
- * `blank` 一并翻成 false：`displayTitle` 对空白会话会退回「新会话」兜底文案，长标题会被
- * 它盖掉（这条只是把夹具那几条钉成非空白，不改任何界面的判定口径）。
+ * 装完要**重载页面**才生效；树行与抽屉行读的是同一份清单，所以两处都显示这份长标题——套件
+ * 随后断言抽屉行真的显示了它（夹具没接上就当场红，不会静默变成「标题本来就短」）。
+ * `blank` 一并翻成 false：空白会话的标题渲染成「新会话」兜底文案，长标题会被它盖掉（这条
+ * 只是把夹具那几条钉成非空白，不改任何界面的判定口径）。
+ *
+ * ## 改的是哪个字段（#154 实测修正，就是本条此前在共享实例上红的原因）
+ *
+ * 先量了 `session/list` 回执每一项的真实形状（本机实测，一次诊断脚本的输出）：
+ *
+ * ```
+ * {"sessionId":"session-…","updatedAt":1789635150056,"running":false,"blank":false,
+ *  "cwd":"/Users/cgeng/Workspaces/dsh-one","projections":{"asOfSeq":206,
+ *  "values":{"title":"Kimi Code 子代理任务分配","goal":null,…}}}
+ * ```
+ *
+ * **顶层根本没有 `title` 字段**——标题住在 `projections.values.title`。此前这里改的是不存在的
+ * `item.title`（还按同样不存在的 `item.sessionId`…那个倒是有的）来认会话，于是「改了但读不回来」，
+ * 判据读到的是当天真实标题（#116 记的那类抖动）。改成写 `projections.values.title` 之后实测
+ * 生效（诊断脚本里抽屉行的标题变成了夹具那份长文案）。会话 id 认 `sessionId`（0.1.6 实测字段名），
+ * `id` 也一并认（形状换代时的兜底）。
  */
 async function installLongTitleFixture(
   page: OpenedPage['page'],
   sessionIds: readonly string[],
+  /** 记一笔走过的 `/api/` 方法名（只读守卫：本套件收尾要断言没有任何写类方法）。 */
+  onApiCall?: (method: string) => void,
 ): Promise<{ calls: number; touched: number }> {
   const stats = { calls: 0, touched: 0 }
   await page.route('**/api/**', async (requestRoute) => {
     const request = requestRoute.request()
     const method = decodeURIComponent(request.url()).split('/api/')[1] ?? ''
-    const response = await requestRoute.fetch()
-    const body = await response.text()
+    // 不是会话清单的请求交给**更早注册**的那一条处理器（只读守卫 / 原样转发）：
+    // `fallback()` 而不是 `fetch()`——用 fetch 会绕过它，收尾那条「没有写类请求」的断言
+    // 就会变成一句空话（本套件此前正是这么漏的）。
     if (!method.startsWith('session/list')) {
-      await requestRoute.fulfill({ response, body })
+      await requestRoute.fallback()
       return
     }
+    onApiCall?.(method)
     stats.calls += 1
-    const parsed = JSON.parse(body) as { result?: { value?: { items?: { sessionId?: string; title?: string; blank?: boolean }[] } } }
+    const response = await requestRoute.fetch()
+    const body = await response.text()
+    const parsed = JSON.parse(body) as {
+      result?: {
+        value?: {
+          items?: {
+            id?: string
+            sessionId?: string
+            blank?: boolean
+            projections?: { asOfSeq?: number; values?: { title?: string } }
+          }[]
+        }
+      }
+    }
     for (const item of parsed.result?.value?.items ?? []) {
-      if (item.sessionId === undefined || !sessionIds.includes(item.sessionId)) continue
-      item.title = LONG_TITLE
+      const id = item.id ?? item.sessionId ?? ''
+      if (id === '' || !sessionIds.includes(id)) continue
+      if (item.projections?.values !== undefined) {
+        item.projections.values.title = LONG_TITLE
+        // **把 `asOfSeq` 抬到远高于网关的值**：投影值是「按序号取新」的（官方投影存储
+        // `seed`/`apply` 只在序号更大时才覆盖，同一序号不改），而页面的 mux 流常常比这次
+        // `session/list` 回执先到——那一刻真标题已经以网关那个序号落进存储，我们只换值不换
+        // 序号就会被原样忽略（#154 实测：同一台机器上一轮生效、下一轮不生效的抖动就是这个）。
+        // 序号抬大之后，无论谁先到，夹具这份都算更新的那一份。
+        item.projections.asOfSeq = Math.max(item.projections.asOfSeq ?? 0, 0) + 1_000_000
+      }
       item.blank = false
       stats.touched += 1
     }
@@ -364,7 +405,7 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '回收站抽屉的块头与行尾动作（#144，RECYCLE-DRAWER-ROW 套件）：块头与侧栏工作区行并排对齐、行尾直接列出还原 / 归档两枚动作',
   expect:
-    '真装配页（真网关**只读** + 假宿主 + 夹具注入**真实会话 id** 的 `recycle-bin` 与**一份长标题**）上的两件事（几何期望值全部从 `workspaceTree/styles.ts` 的档位表读、文案从插件 zh 词典读，不硬编码）：**A 块头与侧栏工作区行并排量**——把鼠标悬到主树的工作区行上（箭头那一格与行尾动作按钮都是悬停才显形）再与抽屉块头逐项比：① **关系量逐条对齐（±1px）**——块头行高 = 工作区行行高（= 标准档 `projectRowHeight` 34px）、圆角与左右内边距取行族那一档（`rowRadius` / `rowPaddingInline`）、**箭头那一格**宽与工作区行折叠箭头同宽（标准档 `slotWidth` 16px）且左缘同一条竖线、**名字那一列**与工作区行名字同一条左缘、名字字号与颜色一致（`titleFontSize` 14px、行文字色）、hover 底色与工作区行是同一枚 token（解析值逐字相同），箭头是**同一枚图标**（`path@d` 逐字相同）且都挂着同一套展开标记 `dshOneTree_arrowOpen`；块头的计数按行内元信息档（`metaFontSize` 12px）读、并按**关系量**判（计数 = 它这一块里的行数，不写死条数）；② **块头不补文件夹图标**（并排读数下来它恒显箭头 = 工作区行的悬停形态，再补一枚会把名字列推右 22px）：块头子树里只有一枚 svg、工作区行有文件夹与箭头两枚，这一条按事实记并钉住；③ **折叠语义一字未改**——点块头收起（标记 `true`、`aria-expanded=false`、该块的行不再渲染、折叠键落 `dsh.workspaceTree.view`、箭头不再挂 `arrowOpen`），重载后仍收起，再点一下展开回来。**B 行尾两枚动作**——④ **恰好两枚**：每行行尾是「还原」+「永久归档」（`data-dshone-recycle-restore` / `-archive`，顺序固定），各带 `aria-label`（词典 `recycle.restore.aria` / `recycle.archive.aria` 代入会话名）与官方 Tooltip（悬停读 `role="tooltip"` 的文案 = 词典 `recycle.restore` / `menu.archiveForever`）；**页面上不再有 ⋯ 二级菜单**（`[data-dshone-recycle-menu]` 计数为 0）；⑤ **几何取侧栏行尾动作按钮同一档**：两枚各自 16×16、圆角 4px（标准档 `rowIconButtonSize` / `rowIconButtonRadius`）、行内图标 16×16，**与同一页里主树工作区行的行尾动作按钮逐项相等**（±0.5px——那一枚是悬停显形的参照物），两枚之间的间距 = 官方行尾动作组那一格 12px（容器 `column-gap` 与实际盒子间隙两处都量）；⑥ **归档按错误色**（终点动作）：解析值 = 同一枚官方 token `--dsw-alias-state-error-primary` 的解析值，且与「还原」不同色；⑦ **三档宽度（260/340/500）不溢出**：抽屉行与页面都 `scrollWidth ≤ clientWidth + 1`、两枚动作整个落在行内、最右一枚的右缘 = 行的内容右缘（±1px）、标题走省略号那条路；压到 140px 时标题**真的**被截断（文字让位、两枚动作位置与尺寸一分不动、标题右缘不超过动作组左缘——标题由夹具换成一份**必然装不下**的长文案，这条判据因此不跟当天数据走）；⑧ **点动作不顺带打开会话**（两枚都 `stopPropagation`）：点任一枚都没有任何 `session.*` 宿主调用；⑨ **归档 = 先确认**：点归档开的是既有的归档确认弹窗，取消后弹窗关掉、回收站状态一条不少、**期间零 `/api/` 请求**（本套件从不点确认——那会写真实网关）；⑩ **还原 = 一条本地请求**：busy（有动作在飞，夹具把宿主对 `recycle-bin` 的写入按住）期间两枚动作都禁用且都降透明度，放行后假宿主状态里那条会话被移出回收站（恰好一条 `state.write`，不落网关）、那一行从抽屉消失、会话回到树里。收尾另核全程**没有任何写类 `/api/` 方法**、零 pageerror。',
+    '真装配页（真网关**只读** + 假宿主 + 夹具注入**真实会话 id** 的 `recycle-bin` 与**一份长标题**）上的两件事（几何期望值全部从 `workspaceTree/styles.ts` 的档位表读、文案从插件 zh 词典读，不硬编码）：**A 块头与侧栏工作区行并排量**——把鼠标悬到主树的工作区行上（箭头那一格与行尾动作按钮都是悬停才显形）再与抽屉块头逐项比：① **关系量逐条对齐（±1px）**——块头行高 = 工作区行行高（= 标准档 `projectRowHeight` 34px）、圆角与左右内边距取行族那一档（`rowRadius` / `rowPaddingInline`）、**箭头那一格**宽与工作区行折叠箭头同宽（标准档 `slotWidth` 16px）且左缘同一条竖线、**名字那一列**与工作区行名字同一条左缘、名字字号与颜色一致（`titleFontSize` 14px、行文字色）、hover 底色与工作区行是同一枚 token（解析值逐字相同），箭头是**同一枚图标**（`path@d` 逐字相同）且都挂着同一套展开标记 `dshOneTree_arrowOpen`；块头的计数按行内元信息档（`metaFontSize` 12px）读、并按**关系量**判（计数 = 它这一块里的行数，不写死条数）；② **块头不补文件夹图标**（并排读数下来它恒显箭头 = 工作区行的悬停形态，再补一枚会把名字列推右 22px）：块头子树里只有一枚 svg、工作区行有文件夹与箭头两枚，这一条按事实记并钉住；③ **折叠语义一字未改**——点块头收起（标记 `true`、`aria-expanded=false`、该块的行不再渲染、折叠键落 `dsh.workspaceTree.view`、箭头不再挂 `arrowOpen`），重载后仍收起，再点一下展开回来。**B 行尾两枚动作**——④ **恰好两枚**：每行行尾是「还原」+「永久归档」（`data-dshone-recycle-restore` / `-archive`，顺序固定），各带 `aria-label`（词典 `recycle.restore.aria` / `recycle.archive.aria` 代入会话名）与官方 Tooltip（悬停读 `role="tooltip"` 的文案 = 词典 `recycle.restore` / `menu.archiveForever`）；**行尾没有常显的 ⋯ 入口**（`[data-dshone-recycle-menu]` 计数为 0；#154 起右键能开出一份同项菜单，那一份由 F-49 判）；⑤ **几何取侧栏行尾动作按钮同一档**：两枚各自 16×16、圆角 4px（标准档 `rowIconButtonSize` / `rowIconButtonRadius`）、行内图标 16×16，**与同一页里主树工作区行的行尾动作按钮逐项相等**（±0.5px——那一枚是悬停显形的参照物），两枚之间的间距 = 官方行尾动作组那一格 12px（容器 `column-gap` 与实际盒子间隙两处都量）；⑥ **归档按错误色**（终点动作）：解析值 = 同一枚官方 token `--dsw-alias-state-error-primary` 的解析值，且与「还原」不同色；⑦ **三档宽度（260/340/500）不溢出**：抽屉行与页面都 `scrollWidth ≤ clientWidth + 1`、两枚动作整个落在行内、最右一枚的右缘 = 行的内容右缘（±1px）、标题走省略号那条路；压到 140px 时标题**真的**被截断（文字让位、两枚动作位置与尺寸一分不动、标题右缘不超过动作组左缘——标题由夹具换成一份**必然装不下**的长文案（标题写在 `session/list` 回执的 `projections.values.title` 上——顶层没有 `title` 字段，见 `installLongTitleFixture` 的实测记录），这条判据因此不跟当天数据走）；⑧ **点动作不顺带打开会话**（两枚都 `stopPropagation`）：点任一枚都没有任何 `session.*` 宿主调用；⑨ **归档 = 先确认**：点归档开的是既有的归档确认弹窗，取消后弹窗关掉、回收站状态一条不少、**这一趟没有任何写类 `/api/` 方法**（页面自己按节奏轮询的读接口不算——记录器 #154 起不再被夹具绕过，这条断言这才真的看得到东西）（本套件从不点确认——那会写真实网关）；⑩ **还原 = 一条本地请求**：busy（有动作在飞，夹具把宿主对 `recycle-bin` 的写入按住）期间两枚动作都禁用且都降透明度，放行后假宿主状态里那条会话被移出回收站（恰好一条 `state.write`，不落网关）、那一行从抽屉消失、会话回到树里。收尾另核全程**没有任何写类 `/api/` 方法**、零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const shot = async (page: OpenedPage['page'], name: string): Promise<string> => {
@@ -398,7 +439,9 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
         content: `(() => { globalThis.__LAB_HOST__.stateStore['recycle-bin'] = ${JSON.stringify({ version: 1, sessionIds: ids })} })()`,
       })
       // 标题夹具（见 LONG_TITLE / installLongTitleFixture）：必须在 reload 之前装好。
-      const titleFixture = await installLongTitleFixture(page, ids)
+      // 它接管 `session/list` 的转发，所以只读守卫的方法名也由它一并记（否则那几条会被
+      // 它的 `fetch()` 绕过，收尾的「零写类请求」就成了一句空话）。
+      const titleFixture = await installLongTitleFixture(page, ids, (method) => apiCalls.push(method))
       await page.reload({ waitUntil: 'domcontentloaded' })
       await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
       await page.waitForTimeout(2_500)
@@ -549,7 +592,11 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
       // =====================================================================
       check.eq('行尾恰好两枚动作（还原 + 永久归档）', side.drawerButtons.length, 2)
       check.eq('两枚动作的标记与顺序（还原在前、归档在后）', side.drawerButtons.map((button) => button.kind), ['restore', 'archive'])
-      check.eq('页面上不再有 ⋯ 二级菜单（data-dshone-recycle-menu 计数为 0）', side.menus, 0)
+      check.eq(
+        '行尾没有常显的 ⋯ 入口（#144 那一枚退场；#154 补的右键那一份只在右键后才渲染，它自己由 F-49 判）',
+        side.menus,
+        0,
+      )
       check.eq('行尾动作组的 column-gap = 官方行尾动作组那一格 12px', side.drawerActionsGap, ACTION_GAP)
       check.ok(
         '两枚之间的实际间隙 = 12px（盒子边到边，±1px）',
@@ -726,7 +773,17 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
       check.eq('取消确认 → 弹窗关掉', await page.locator('[data-dshone-tree-action="archive-confirm"]').count(), 0)
       const binAfterCancel = await hostBin(page)
       check.eq('取消确认 → 回收站状态一条不少', binAfterCancel.ids, ids)
-      check.eq('点归档 + 取消这一趟：零 /api/ 请求（没有落到网关）', apiCalls.slice(apiBefore), [])
+      // 这一趟的只读守卫：判「没有写类方法」而不是「一个请求都没有」——页面自己会按它的
+      // 节奏轮询读接口（实测这一趟里出现过 `session/list` / `settings/describe` /
+      // `dynamicCordisRunner/*` 这些读类调用，与点不点归档无关）；把那些算成失败等于拿
+      // 别人的心跳判我们的动作。写类方法一个都不许有才是这条要守的事（#154 起记录器不再
+      // 被夹具的 fetch 绕过，这条断言这才真的看得到东西）。
+      check.fact(`点归档 + 取消这一趟走过的 /api/ 方法：${JSON.stringify(apiCalls.slice(apiBefore))}`)
+      check.eq(
+        '点归档 + 取消这一趟：没有任何写类 /api/ 方法（没有落到网关的写面）',
+        apiCalls.slice(apiBefore).filter((call) => /archive|delete|write|rename|create|fork/i.test(call)),
+        [],
+      )
       // 若 Esc 也把抽屉带走了（抽屉的 Esc 与弹窗的 Esc 是两条独立路径），把它重新打开再继续。
       if ((await page.locator(DRAWER_ROW).count()) === 0) {
         check.fact('取消确认后抽屉跟着 Esc 一起关掉了（既有路径，与本次改动无关）——重新打开继续')
@@ -823,7 +880,12 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
       check.eq('还原只把点的那一条移出本地集合（其余条目原样）', binAfterRestore.ids, ids.filter((id) => id !== target))
       check.eq('还原落一条本地状态写入（state.write 的 recycle-bin，不落网关）', binAfterRestore.writes - writesBefore, 1)
       check.eq('还原后那一行从抽屉里消失', await page.locator(`${DRAWER_ROW}[data-dshone-recycle-row="${target}"]`).count(), 0)
-      check.eq('还原这一趟同样零 /api/ 请求', apiCalls.slice(apiBefore), [])
+      check.fact(`还原这一趟走过的 /api/ 方法：${JSON.stringify(apiCalls.slice(apiBefore))}`)
+      check.eq(
+        '还原这一趟同样没有任何写类 /api/ 方法（本地可逆那一层不碰网关写面）',
+        apiCalls.slice(apiBefore).filter((call) => /archive|delete|write|rename|create|fork/i.test(call)),
+        [],
+      )
       await page.click('[data-dshone-tree-action="recycle-close"]')
       await page.waitForTimeout(400)
       // 「回到树里」不能直接数行：那一条会话所在的工作区分组可能是收起的（展开态是视图偏好，

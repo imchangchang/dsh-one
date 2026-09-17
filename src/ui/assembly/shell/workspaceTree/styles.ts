@@ -717,9 +717,9 @@ export const CSS =
   '.dshOneTree_footerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}' +
   '.dshOneTree_footerCount{color:var(--dsw-alias-label-tertiary);background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 20%,transparent);border-radius:8px;flex:none;font-size:10px;line-height:16px;padding:0 5px}' +
   '.dshOneTree_footerRowEmpty .dshOneTree_footerCount{background:0 0;padding:0}' +
-  '.dshOneTree_footerIconButton{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
-  '.dshOneTree_footerIconButton:disabled{cursor:default;opacity:.45}' +
-  '.dshOneTree_footerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}' +
+  '.dshOneTree_footerIconButton,.dshOneTree_drawerIconButton{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
+  '.dshOneTree_footerIconButton:disabled,.dshOneTree_drawerIconButton:disabled{cursor:default;opacity:.45}' +
+  '.dshOneTree_footerIconButton:not(:disabled):hover,.dshOneTree_drawerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   // 「管理分组…」对话框（#99）：行 = 名字 + 计数 + ✎/🗑。**弹窗里的行不跟行家族**（#134：
   // 用户只点了侧栏的行，弹窗不要顺手改；#127 起这一整套取紧凑档）：行高 26px / 行内间隙 6px
   // / 字号 12px——与侧栏的行同一密度。行**不带左右内边距**：它就在弹窗自己那 12px 的容器
@@ -895,7 +895,14 @@ export const CSS =
   '.dshOneTree_drawerGrip{width:32px;height:3px;background:var(--dsw-alias-border-l3);border-radius:2px}' +
   '.dshOneTree_drawerHandle:hover .dshOneTree_drawerGrip{background:var(--dsw-alias-label-tertiary)}' +
   '.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
-  '.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+  // #154：标题与计数**同一内联组**（`flex:1` 落在这个组上，标题自己 `flex:0 1 auto`）。
+  // 为什么：抽屉头现在右边多出「清空 / 恢复全部」两枚动作（旧侧栏那一版的形态），计数若仍
+  // 单独占一行末位，就会紧贴「清空」那枚危险色按钮——旧侧栏在这里踩过一次并留了原话
+  // （`sessionsWebview.ts` 的 `renderRecycleHeader`：「计数徽标紧跟标题文本（同一内联组）：
+  // 不占 flex 主位、不被省略号截掉，也不被标题挤到行尾和清空按钮挨着（用户实测反馈位置不对）」）。
+  // 组内间隙 4px 取旧侧栏那一版的值；计数自己 `flex:none`，标题被挤时先是标题省略号让位。
+  '.dshOneTree_drawerHeading{flex:1;min-width:0;align-items:center;gap:4px;display:inline-flex}' +
+  '.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:0 1 auto;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
   '.dshOneTree_drawerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
   // #125：左内缩归 0，理由同入口行——抽屉会话行自己带 `row-padding-inline`，容器的左内缩
   // 会把整列推右一格（此前进去了 section-padding-inline，于是抽屉行的内容左缘比抽屉头
@@ -963,8 +970,8 @@ export const CSS =
   '.dshOneTree_modalRow{box-sizing:border-box;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;height:26px;font-size:12px;line-height:18px;padding:4px 0 4px 16px;overflow:hidden}' +
   // 飘提示（移入/还原/归档的回执）：贴树区域底部，几秒后自己消失。
   '.dshOneTree_flash{z-index:20;max-width:90%;background:var(--dsw-alias-bg-elevated,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;padding:6px 10px;font-size:var(--dsh-one-density-meta-font-size,12px);position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}' +
-  // 入口行两枚动作里的「清空」是危险动作（= 永久归档），按错误色标出来。
-  '.dshOneTree_footerIconDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}' +
+  // 入口行与抽屉头两枚动作里的「清空」是危险动作（= 永久归档），按错误色标出来。
+  '.dshOneTree_footerIconDanger:not(:disabled),.dshOneTree_drawerIconDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}' +
   // 会话标签组（#107；#122 把竖线改回旧侧栏的规格）：形态与数值逐字沿用旧侧栏
   // sessionsView.ts 的 `.tag-*` 规则（小 pill、pill 下沿到组尾的 2px 贯穿竖线、
   // 组内行 24px 左缩进、折叠计数角标）。

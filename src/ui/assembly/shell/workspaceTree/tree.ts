@@ -1518,6 +1518,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
       tr,
       busy,
       error: recycleError,
+      pinned: pinnedIds,
+      unread: unreadIds,
       onClose: () => {
         setRecycleDrawerOpen(false)
         setRecycleError(null)
@@ -1532,6 +1534,10 @@ export function WorkspaceTree(props: TreeProps): unknown {
       onOpen: (sessionId: string) => openSessionClearingUnread(sessionId),
       onRestore: (sessionId: string) => restoreFromRecycle([sessionId]),
       onArchive: requestArchiveFromBin,
+      // 抽屉头的两枚动作回到**既有的那两个函数**（#154）：清空 = 既有的归档确认弹窗路径，
+      // 恢复全部 = 既有的全部还原路径——与底部入口行发来的那两个请求同一个去处，不另起一条。
+      onEmpty: requestEmptyBin,
+      onRestoreAll: () => restoreFromRecycle(recycledIds),
     }),
     h(RenameModal, {
       open: renameTarget !== null,
