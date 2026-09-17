@@ -3,9 +3,9 @@
  * 客户端存储，沿用官方客户端既有惯例）。
  *
  * 与「用户可感知的持久状态」（分组定义/归属）分开的理由：那些是两个 shell
- * （VS Code 与官方 web）都必须看到同一份的用户数据，归**宿主半**；而「分组方式 /
- * 排序方式 / 当前在看的哪个分组 / 展开过哪些分组」只是这台机器这个浏览器里的
- * 看法，官方客户端本来就把同类偏好放 `localStorage`——出处：官方
+ * （VS Code 与官方 web）都必须看到同一份的用户数据，归**宿主半**；而「当前在看的
+ * 哪个分组 / 展开过哪些分组 / 回收站与标签组各自收起了哪些块」只是这台机器这个
+ * 浏览器里的看法，官方客户端本来就把同类偏好放 `localStorage`——出处：官方
  * `dsh-client-ui-conversation/lib/client.js` 的 `WIDTH_PREF_KEY =
  * "dsh.conversation.contentWidth"`（`localStorage.getItem/setItem` 直存），
  * 官方 `dsh-api-terminal-controller` 亦同。所以本模块的键名沿用 `dsh.<区>.<名>`
@@ -20,12 +20,14 @@ export interface StorageLike {
   setItem(key: string, value: string): void
 }
 
-/** 视图偏好（全部是可缺省项：解析不出来就用默认值）。 */
+/**
+ * 视图偏好（全部是可缺省项：解析不出来就用默认值）。
+ *
+ * #131 起**不再有分组方式与排序方式**：「按工作区 + 官方顺序」是侧栏唯一的形态，
+ * 那两项（以及平铺的单列表模式）已随顶栏「视图选项」菜单一起退役——存过它们的旧
+ * `localStorage` 记录不影响这里：解析只认下面这几个字段，多出来的键一律丢掉。
+ */
 export interface TreeViewPrefs {
-  /** 分组方式：按工作区 / 单列表（官方 ViewOptionsMenu 的两档）。 */
-  groupBy: 'workspace' | 'flat'
-  /** 排序方式：手动序 / 最近更新（官方同两档）。 */
-  orderBy: 'manual' | 'updated'
   /** 当前过滤的分组 id；null = 全部（不是「未分组」——未分组是空串键，见 UNGROUPED_KEY）。 */
   activeGroupId: string | null
   /** 显式展开/收起过的分组键（含未分组桶的空串）。 */
@@ -51,11 +53,9 @@ export interface TreeViewPrefs {
 /** 官方客户端惯例的键名风格：`dsh.<区>.<名>`。 */
 export const TREE_VIEW_PREF_KEY = 'dsh.workspaceTree.view'
 
-/** 默认偏好：与官方 WorkspaceBrowser 的初始态一致（按工作区 / 手动序 / 看全部）。 */
+/** 默认偏好：与官方 WorkspaceBrowser 的初始态一致（看全部、没有展开记录）。 */
 export function defaultTreeViewPrefs(): TreeViewPrefs {
   return {
-    groupBy: 'workspace',
-    orderBy: 'manual',
     activeGroupId: null,
     expandedGroups: [],
     recycleCollapsed: [],
@@ -71,8 +71,6 @@ export function parseTreeViewPrefs(raw: unknown): TreeViewPrefs {
   const keyList = (value: unknown): string[] =>
     Array.isArray(value) ? [...new Set(value.filter((key): key is string => typeof key === 'string'))] : []
   return {
-    groupBy: record.groupBy === 'flat' ? 'flat' : 'workspace',
-    orderBy: record.orderBy === 'updated' ? 'updated' : 'manual',
     activeGroupId: typeof record.activeGroupId === 'string' && record.activeGroupId !== '' ? record.activeGroupId : null,
     expandedGroups: keyList(record.expandedGroups),
     recycleCollapsed: keyList(record.recycleCollapsed),

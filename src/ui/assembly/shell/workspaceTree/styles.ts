@@ -299,7 +299,7 @@ export const CSS =
   '.dshOneTree_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}' +
   '.dshOneTree_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:var(--dsh-one-density-list-padding-bottom,16px);overflow-y:auto}' +
-  '.dshOneTree_flatList>*+*,.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}' +
+  '.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}' +
   '.dshOneTree_groupSection{position:relative}' +
   '.dshOneTree_groupSection+.dshOneTree_groupSection{margin-top:var(--dsh-one-density-group-gap,4px)}' +
   '.dshOneTree_searchStatus,.dshOneTree_searchWarning{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}' +
@@ -330,7 +330,6 @@ export const CSS =
   '.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}' +
   '.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}' +
   '.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}' +
-  '.dshOneTree_flatRowWithoutStatus .dshOneTree_title{margin-left:0}' +
   // #115 行内改名的输入框：占标题那一格（同一份外边距与字号，行几何不动），选区要高亮
   // 所以 user-select 要显式放开（整行是 user-select:none）。高度走标题行高（密度档），
   // 边框与圆角与行内其它小件同语言。
@@ -338,7 +337,6 @@ export const CSS =
   // 14px / 20px），圆角 4px = 标准档的行内图标按钮圆角（官方 `.YDXeBa_iconButton
   // {border-radius:4px}`，行内小件同一档），所以这条规则整条能落在档位表里。
   '.dshOneTree_inlineRenameInput{box-sizing:border-box;flex:1;min-width:0;height:var(--dsh-one-density-title-line-height,20px);margin:0 6px 0 4px;padding:0 4px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover);border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;outline:none;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);user-select:text}' +
-  '.dshOneTree_flatRowWithoutStatus .dshOneTree_inlineRenameInput{margin-left:0}' +
   // 行内图标位取**标准档**的 16×20（官方 `.YDXeBa_slot{width:16px;height:20px}`）：紧凑档的
   // 14×14 是官方 14 档图标的盒子，本插件的行图标是官方 16 档，理由见文件头的档位表。
   '.dshOneTree_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}' +

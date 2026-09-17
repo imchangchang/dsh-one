@@ -7,15 +7,18 @@
  *   `search.unavailable` / `search.noMatches` / `search.hasMore` 在树主组件里）与
  *   逐字取自官方 css-module 的几何（30px 高、10px 圆角、.5px 边框）。**折叠态的
  *   放大镜胶囊退役**：点一下才展开的那一态不再存在（#98「搜索」条），搜索框常显。
- * - **右 = 折叠/展开全部 · 添加工作区（＋）· 设置齿轮**：#99 新增的三件。折叠/展开全部
- *   按「全部工作区是否已折叠」显示对应图标——**方框加减号**（#118 起：还有展开着的
- *   就显示方框横杠 = 折叠全部，全折叠了就显示方框十字 = 展开全部；图标出处与官方
- *   为何没有这一枚见 `collapseAllGlyph.ts`）；添加工作区是两项菜单
- *   （选已有文件夹 / 创建新工作区目录）；设置齿轮打开我们的设置页（宿主能力口
- *   `openSettings`，宿主没有独立设置页时不渲染——官方 web 侧设置归官方底部那一行）。
- * - 同一行末尾保留 #81 已有的**视图选项**与**多选入口**：本条不动它们的位置。#108 起
- *   这一枚走的是选择态的**唯一入口 API**（`selection.ts` 的 `selectionEntrySignal.enter()`），
+ * - **右 = 折叠/展开全部 · 添加工作区（＋）· 设置齿轮 · 多选入口**：前三件是 #99 新增的。
+ *   折叠/展开全部按「全部工作区是否已折叠」显示对应图标——**方框加减号**（#118 起：还有
+ *   展开着的就显示方框横杠 = 折叠全部，全折叠了就显示方框十字 = 展开全部；图标出处与
+ *   官方为何没有这一枚见 `collapseAllGlyph.ts`）；添加工作区是两项菜单（选已有文件夹 /
+ *   创建新工作区目录）；设置齿轮打开我们的设置页（宿主能力口 `openSettings`，宿主没有
+ *   独立设置页时不渲染——官方 web 侧设置归官方底部那一行）。多选入口是 #81 已有的，
+ *   #108 起走选择态的**唯一入口 API**（`selection.ts` 的 `selectionEntrySignal.enter()`），
  *   会话行菜单里那一项「选择多个」也调它（菜单项本体属「菜单补全」那条）。
+ *
+ *   #131 起这一行**只有上述四枚**：官方那枚视图选项菜单（分组方式 / 排序方式）与它带出的
+ *   平铺单列表模式一起退役（用户实测：那两节照早先插件抄来、意义不大），
+ *   侧栏恒为「按工作区 + 官方顺序」。
  *
  * 为什么搜索栏不是渲染官方目录流子槽：官方那口子（`sidebar.workspaces.directoryFlow`）
  * 由官方 WorkspaceBrowser 条目在它自己的 `children` 里声明，而官方渲染器**只允许声明
@@ -29,7 +32,6 @@ import {
   IconChecklistOutline14,
   IconCloseFill14,
   IconFolderOpenOutline16,
-  IconPersonalizationOutline16,
   IconPlusOutline16,
   IconProjectAddOutline16,
   IconSearchOutline16,
@@ -41,64 +43,6 @@ import { COLLAPSE_ALL_GLYPHS, type CollapseAllGlyph } from './collapseAllGlyph.t
 import { SEARCH_QUERY_MAX } from './search.ts'
 import type { Translate } from './types.ts'
 
-/** 视图选项菜单（官方 `ViewOptionsMenu`）：分组方式 + 排序方式两节。 */
-export function ViewOptionsMenu({
-  groupBy,
-  orderBy,
-  tr,
-  onGroupPick,
-  onOrderPick,
-}: {
-  groupBy: 'workspace' | 'flat'
-  orderBy: 'manual' | 'updated'
-  tr: Translate
-  onGroupPick: (mode: 'workspace' | 'flat') => void
-  onOrderPick: (mode: 'manual' | 'updated') => void
-}): unknown {
-  const [open, setOpen] = useState(false)
-  return h(Menu, {
-    open,
-    onClose: () => setOpen(false),
-    items: [
-      { type: 'label', id: 'group-by', text: tr('groupBy.label') },
-      { id: 'workspace', label: tr('groupBy.workspace') },
-      { id: 'flat', label: tr('groupBy.flat') },
-      { type: 'separator', id: 'order-by-separator' },
-      { type: 'label', id: 'order-by', text: tr('orderBy.label') },
-      { id: 'manual', label: tr('orderBy.manual') },
-      { id: 'updated', label: tr('orderBy.updated') },
-    ],
-    selectedIds: [groupBy, orderBy],
-    onSelect: (id: string) => {
-      if (id === 'workspace' || id === 'flat') onGroupPick(id)
-      else if (id === 'manual' || id === 'updated') onOrderPick(id)
-      setOpen(false)
-    },
-    align: 'end',
-    // #113：菜单统一走官方紧凑档（`compact: true`），与右键菜单（shell/contextMenuPlugin.ts）
-    // 同一档，整个侧栏里的菜单密度一致。此前传的 `dense` 是官方另一档（项 34px），
-    // 已按紧凑档替换——两个都传会让重叠属性取决于官方样式表里的先后顺序，不这么用。
-    compact: true,
-    portal: true,
-    anchor: h(Tooltip, {
-      label: tr('viewOptions.label'),
-      side: 'bottom',
-      delayMs: 500,
-      children: h(
-        'button',
-        {
-          type: 'button',
-          className: 'dshOneTree_iconButton',
-          'aria-label': tr('viewOptions.label'),
-          'data-dshone-tree-action': 'view-options',
-          onClick: () => setOpen((v: boolean) => !v),
-        },
-        h(IconPersonalizationOutline16, {}),
-      ),
-    }),
-  })
-}
-
 /**
  * 「折叠 / 展开全部」那枚图标（#118）：方框加减号，自绘 SVG。
  *
@@ -108,7 +52,7 @@ export function ViewOptionsMenu({
  * `fill="currentColor"`、`fill-rule`/`clip-rule` = evenodd，颜色跟着按钮的 currentColor
  *（hover / 禁用态由样式表统一控制，与官方图标件同一套）。
  *
- * 尺寸 16：与同一行其它图标按钮一致（添加工作区 / 设置齿轮 / 视图选项都是 16 档），
+ * 尺寸 16：与同一行其它图标按钮一致（添加工作区 / 设置齿轮都是 16 档），
  * 26×26 的按钮用 flex 居中。旧侧栏这枚也是 16。
  *
  * 两条 `data-*` 是自有契约，与回收站入口行的 `data-dshone-tree-icon` 同一做法
@@ -157,10 +101,6 @@ export interface TopBarProps {
   onCreateWorkspaceFolder?: (() => void) | undefined
   /** 设置齿轮：宿主有独立设置页时才渲染（能力口 `settingsPage`）。 */
   onOpenSettings?: (() => void) | undefined
-  groupBy: 'workspace' | 'flat'
-  orderBy: 'manual' | 'updated'
-  onGroupPick: (mode: 'workspace' | 'flat') => void
-  onOrderPick: (mode: 'manual' | 'updated') => void
   selectMode: boolean
   onToggleSelectMode: () => void
 }
@@ -284,7 +224,7 @@ export function TopBar(props: TopBarProps): unknown {
           if (id === 'create-folder') props.onCreateWorkspaceFolder?.()
         },
         align: 'end',
-        // #113：官方紧凑档（与右键菜单、ViewOptionsMenu 同档，侧栏里菜单密度一致）。
+        // #113：官方紧凑档（与右键菜单、分组胶囊菜单同档，侧栏里菜单密度一致）。
         compact: true,
         portal: true,
         closeOnPointerLeave: true,
@@ -324,14 +264,7 @@ export function TopBar(props: TopBarProps): unknown {
               h(IconSettingsOutline16, { size: 16 }),
             ),
           }),
-      // #81 已有入口（位置本条不动）。
-      h(ViewOptionsMenu, {
-        groupBy: props.groupBy,
-        orderBy: props.orderBy,
-        tr,
-        onGroupPick: props.onGroupPick,
-        onOrderPick: props.onOrderPick,
-      }),
+      // #81 已有的多选入口（#131 起它前面那枚「视图选项」退役，这一枚位置不变）。
       h(Tooltip, {
         label: selectMode ? tr('select.exit') : tr('select.enter'),
         side: 'bottom',

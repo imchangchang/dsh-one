@@ -788,7 +788,6 @@ export function SessionRow({
   node,
   currentId,
   now,
-  flat,
   hoverCard,
   tr,
   selectMode,
@@ -821,7 +820,6 @@ export function SessionRow({
   node: SessionNode
   currentId?: string
   now: number
-  flat: boolean
   /** 容器右侧有空处才渲染官方悬停卡（见 useHoverCardRoom 的取舍说明）。 */
   hoverCard: boolean
   tr: Translate
@@ -863,7 +861,7 @@ export function SessionRow({
    *
    * **#109 起它们住在「移到分组…」这一项的就地展开里**（不再是菜单末尾的一节），所以树层
    * 给的那一份**不再带分隔线与小标题**（#109 的会话行菜单没有分隔线）。undefined = 这一行
-   * 没有标签组入口（单列表形态：那里没有组块可落，拖拽也没有意义）。
+   * 没有标签组入口（不在任何组块里，没有落点，拖拽与归组都没有意义）。
    */
   tagItems?: readonly unknown[] | undefined
   /** 这一行的标签组项勾选态（官方 Menu 的 selectedIds）。 */
@@ -1031,7 +1029,7 @@ export function SessionRow({
   // #107 标签组：「移到分组…」二级菜单里那一节（本工作区的组 + 「不归入标签组」+
   // 「新建标签组…」）。**项本体由树层拼好**（那一节要知道这一行属于哪个工作区），本件只
   // 负责把它放进「移到分组…」的**就地展开**里。undefined/空 = 这一行没有标签组入口
-  //（单列表形态：那里没有组块可落，拖拽也没有意义）：那就整项都不出现。
+  //（不在任何组块里，没有落点，拖拽与归组都没有意义）：那就整项都不出现。
   const groupChildren = tagItems ?? []
   // #109：菜单凑齐 10 项，顺序按用户给的截图；标题行「会话: {label}」，**没有分隔线**。
   // 禁用的原因写在 label 节点的 title 上：官方 Menu 的项只有 label / icon / disabled /
@@ -1156,11 +1154,7 @@ export function SessionRow({
     'div',
     {
       className:
-        `dshOneTree_sessionRow${(selectMode ? selected : isCurrent) ? ' dshOneTree_selected' : ''}${menuOpen ? ' dshOneTree_menuOpen' : ''}` +
-        // #124：这份「没有状态槽」的标记在选择态下同样成立（勾选框不再顶替状态槽，
-        // 所以标题那位 4px 左外边距也不是给勾选框让位用的了）；选择态的排布由此统一为
-        // 「正常态那一行 + 行首插一枚勾选框」，两行插入的量一致。
-        `${flat && !showStatus ? ' dshOneTree_flatRowWithoutStatus' : ''}`,
+        `dshOneTree_sessionRow${(selectMode ? selected : isCurrent) ? ' dshOneTree_selected' : ''}${menuOpen ? ' dshOneTree_menuOpen' : ''}`,
       role: 'treeitem',
       'aria-selected': selectMode ? selected : isCurrent,
       'data-dshone-tree-row': 'session',
@@ -1239,11 +1233,11 @@ export function SessionRow({
               h(SelectMark, { on: selected, disabled: !selectable }),
             )
           : null,
-        !flat || showStatus
-          ? showStatus
-            ? h(SessionStatusDots, { key: 'status', statuses, tr })
-            : h('span', { key: 'status', className: 'dshOneTree_slot' })
-          : null,
+        // 状态槽恒在（行尾固定宽度）：有状态时是状态点，没有时是一枚等宽占位，
+        // 这样标题与时间的右缘不会随状态有无跳动（#131 前「单列表少一枚槽」那一支已退役）。
+        showStatus
+          ? h(SessionStatusDots, { key: 'status', statuses, tr })
+          : h('span', { key: 'status', className: 'dshOneTree_slot' }),
         pinned ? h(PinMark, { key: 'pin', sessionId: node.id }) : null,
         // #115 编辑态：标题位就地换成输入框（prefill + 全选由树层给初值与选区），
         // 行其余部分照旧——行结构与不编辑时完全一致，重绘才不会把输入框换掉。

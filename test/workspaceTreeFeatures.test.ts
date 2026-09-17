@@ -7,6 +7,9 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   UNGROUPED_KEY,
   deriveGroups,
@@ -296,11 +299,9 @@ test('视图态：键名沿用官方惯例 dsh.<区>.<名>', () => {
   assert.equal(TREE_VIEW_PREF_KEY, 'dsh.workspaceTree.view')
 })
 
-test('视图态：写出去能读回来（分组方式/排序/当前分组/展开集合/抽屉折叠集合）', () => {
+test('视图态：写出去能读回来（当前分组/展开集合/抽屉与标签组的收起集合）', () => {
   const storage = memoryStorage()
   const prefs = {
-    groupBy: 'flat' as const,
-    orderBy: 'updated' as const,
     activeGroupId: 'g-1',
     expandedGroups: ['w1', ''],
     recycleCollapsed: ['w2'],
@@ -314,16 +315,35 @@ test('视图态：写出去能读回来（分组方式/排序/当前分组/展�
 test('视图态：无键/坏 JSON/未知取值一律回落默认（坏值不该让树打不开）', () => {
   assert.deepEqual(readTreeViewPrefs(memoryStorage()), defaultTreeViewPrefs())
   assert.deepEqual(readTreeViewPrefs(memoryStorage({ [TREE_VIEW_PREF_KEY]: '{' })), defaultTreeViewPrefs())
-  assert.deepEqual(readTreeViewPrefs(memoryStorage({ [TREE_VIEW_PREF_KEY]: '"flat"' })), defaultTreeViewPrefs())
+  assert.deepEqual(readTreeViewPrefs(memoryStorage({ [TREE_VIEW_PREF_KEY]: '"workspace"' })), defaultTreeViewPrefs())
   assert.deepEqual(readTreeViewPrefs(undefined), defaultTreeViewPrefs())
   assert.deepEqual(
-    parseTreeViewPrefs({ groupBy: 'nope', orderBy: 'nope', activeGroupId: '', expandedGroups: ['a', 'a', 7] }),
-    { groupBy: 'workspace', orderBy: 'manual', activeGroupId: null, expandedGroups: ['a'], recycleCollapsed: [], tagCollapsed: [] },
+    parseTreeViewPrefs({ activeGroupId: '', expandedGroups: ['a', 'a', 7] }),
+    { activeGroupId: null, expandedGroups: ['a'], recycleCollapsed: [], tagCollapsed: [] },
   )
   // 旧版本的偏好里没有 recycleCollapsed / tagCollapsed：缺字段按空集合
   // （旧数据不该让抽屉、标签组乱收）
   assert.deepEqual(parseTreeViewPrefs({ expandedGroups: ['w1'], recycleCollapsed: 'nope' }).recycleCollapsed, [])
   assert.deepEqual(parseTreeViewPrefs({ expandedGroups: ['w1'], tagCollapsed: 'nope' }).tagCollapsed, [])
+})
+
+test('视图态：#131 退役的 groupBy / orderBy 从旧记录里读出来也不认（解析只产出仍在用的字段）', () => {
+  // 用户在旧版本里选过「单列表 / 最近更新」，那条记录还在 localStorage 里：解析结果里
+  // 不该再有这两个字段（写回时顺手把它们从记录里抹掉），其余视图态照原样读回。
+  assert.deepEqual(
+    parseTreeViewPrefs({ groupBy: 'flat', orderBy: 'updated', activeGroupId: 'g-1', expandedGroups: ['a'] }),
+    { activeGroupId: 'g-1', expandedGroups: ['a'], recycleCollapsed: [], tagCollapsed: [] },
+  )
+  const storage = memoryStorage({ [TREE_VIEW_PREF_KEY]: JSON.stringify({ groupBy: 'flat', orderBy: 'updated', expandedGroups: ['w1'] }) })
+  const readBack = readTreeViewPrefs(storage)
+  assert.deepEqual(readBack, { activeGroupId: null, expandedGroups: ['w1'], recycleCollapsed: [], tagCollapsed: [] })
+  writeTreeViewPrefs(storage, readBack)
+  assert.deepEqual(Object.keys(JSON.parse(storage.data[TREE_VIEW_PREF_KEY] as string) as object).sort(), [
+    'activeGroupId',
+    'expandedGroups',
+    'recycleCollapsed',
+    'tagCollapsed',
+  ])
 })
 
 test('视图态：存储不可用（隐私模式/配额满）不抛，静默降级', () => {
@@ -337,4 +357,65 @@ test('视图态：存储不可用（隐私模式/配额满）不抛，静默降�
   }
   assert.deepEqual(readTreeViewPrefs(broken), defaultTreeViewPrefs())
   writeTreeViewPrefs(broken, defaultTreeViewPrefs())
+})
+
+// ---------------------------------------------------------------------------
+// #131 视图选项退役：源码层不留能切到平铺 / 改排序的路径
+// ---------------------------------------------------------------------------
+
+/**
+ * 源码层的「grep 一次」：`#131` 宣布侧栏恒为「按工作区 + 官方顺序」，退役的不只是那枚
+ * 按钮，还有它背后的两档取值与平铺那一支渲染。运行期那一次在浏览器套件 F-33。
+ *
+ * 口径是「不留**路径**」，不是「不许出现 flat 这个词」：下面这几个名字是**另一回事**，
+ * 必须留着，所以匹配用的是有边界的标识符，而不是裸词——
+ * - `deriveFlat` / `orderByRecency`：官方同名推导（全部可见会话 / 最近更新排序），
+ *   前者仍被选择态的 id → 节点映射用着，后者是官方顺序本身的实现；
+ * - `flatGroups`：**全部分组都展开**的那一份推导（名字里的 flat 是「摊平来看」）。
+ */
+const RETIRED_MARKERS: ReadonlyArray<{ pattern: RegExp; what: string }> = [
+  { pattern: /\bgroupBy\b/, what: '分组方式（按工作区 / 单列表）' },
+  { pattern: /\borderBy\b/, what: '排序方式（手动 / 最近更新）' },
+  { pattern: /ViewOptionsMenu/, what: '视图选项菜单本体' },
+  { pattern: /view-options/, what: '视图选项入口的标记' },
+  { pattern: /group-by/, what: '分组方式那一节的菜单 id' },
+  { pattern: /order-by/, what: '排序方式那一节的菜单 id' },
+  { pattern: /dshOneTree_flatList/, what: '单列表容器类名' },
+  { pattern: /dshOneTree_flatRowWithoutStatus/, what: '单列表行的类名' },
+  { pattern: /data-dshone-tree['"]\s*:\s*['"]flat['"]/, what: '单列表容器的标记' },
+]
+
+/** 自有侧栏的源码与词典、以及这一族的样式表（宿主侧旧侧栏不在本条范围里）。 */
+const RETIREMENT_SCOPE: readonly string[] = [
+  'src/ui/assembly/shell/workspaceTree',
+  'src/pure/workspaceTreePrefs.ts',
+  'src/pure/workspaceTreeView.ts',
+]
+
+test('视图选项退役：源码里不再有能切到平铺 / 改排序的路径', () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const files: string[] = []
+  for (const entry of RETIREMENT_SCOPE) {
+    const full = path.join(root, entry)
+    if (statSync(full).isDirectory()) {
+      for (const name of readdirSync(full)) {
+        if (name.endsWith('.ts')) files.push(path.join(full, name))
+      }
+    } else {
+      files.push(full)
+    }
+  }
+  assert.ok(files.length >= 10, `扫描面太小（只扫到 ${String(files.length)} 个文件），路径写错了？`)
+  const hits: string[] = []
+  for (const file of files) {
+    const lines = readFileSync(file, 'utf8').split('\n')
+    lines.forEach((line, index) => {
+      for (const marker of RETIRED_MARKERS) {
+        if (marker.pattern.test(line)) {
+          hits.push(`${path.relative(root, file)}:${String(index + 1)} ${marker.what} → ${line.trim()}`)
+        }
+      }
+    })
+  }
+  assert.deepEqual(hits, [], `退役的视图选项还在源码里：\n${hits.join('\n')}`)
 })
