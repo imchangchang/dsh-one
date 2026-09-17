@@ -74,6 +74,37 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 
 探针环境：ubuntu-latest + Node 24，临时 `DSH_HOME` 隔离数据目录，只读/无副作用。
 
+## 装配面：探针查不出的那一类
+
+探针读的是**字节**——名字在不在、形状像不像。它不跑页面，所以「整棵装配起不来」这一类它
+一条都看不见：0.1.6-alpha.2 上客户端契约面的名字一个没少（那几条探针是绿的），可装配页整棵
+渲染不出来（`renderSlot('root') before any 'root' registration`，四棵树皆然），用户升级即撞
+白页。
+
+所以「接一个新版本」这一步有一条**必跑**的门禁——把候选版本装到临时目录，用它跑实验室：
+
+```bash
+npm run verify:lab-version 0.1.6-alpha.2                  # 缺省跑 F-01 CONTRACT
+npm run verify:lab-version next --suite F-01,F-10,F-11    # 也可以点套件
+```
+
+脚本（`scripts/verify-lab-version.mjs`）只做两件事：`npm install --prefix <临时目录>
+@deepseek-ai/dsh@<版本>`（**不动本机已装的 dsh**），再把那个目录的 `.bin` 放到 `PATH` 前面跑
+`npm run verify:lab`（实验室按默认跑法起自己的隔离实例：独立 `DSH_HOME`、随机端口、跑完按
+PID 收）。退出码就是实验室的：0 = 四棵树零崩溃、零装载未激活、预期座位有内容。
+
+### 这样抓到的（0.1.6-alpha.2，2026-09-18）
+
+| 现象 | 官方改了什么 | 我们的落点 |
+|---|---|---|
+| 整页白：`renderSlot('root') before any 'root' registration` | 客户端的条目协调器（`dsh-client-modules` 的 `ClientEntries`）开始**采纳**官方 `/plugins/events` 事件流推来的 `graph` 帧（0.1.6-alpha.1 的客户端半对它是「收到就丢」）。那一帧带的是**未过滤的全量 roster**，采纳之后我们 block 掉的官方插件被装回来、自有 frame 插件的条目被卸掉，root 槽的注册随之撤销 | 事件流也由镜像过滤：`pageHtml` 把页面的 `/plugins/events` 改道到镜像的 `/plugins-local/events`，镜像逐帧跑该树的 `filterWire`（与页面 boot 那份**同一个函数**） |
+| 侧栏树只有工作区、没有会话行 | 会话列表快照不再下发 `current` 字段，官方各处改成自己从行上的 `retainedBy.mainView` 推（`dsh-client-ui-workspace` / `dsh-client-ui-layout` 各一份同形写法） | `pure/workspaceTreeView.ts` 的 `withCurrentSession`（两代字段的单一分叉点；侧栏树、选择桥、对话面板启动注入三处都走它） |
+| 侧栏会话行不再有「跑完还没打开」的绿点（F-43 / F-46 红） | 会话列表的**行**上不再有 `completed`，官方把它挪进同一条 `sessionStatus` 钩子的 `completionUnread` 那一格（官方 ui-session 维护：跑起来就清、成为主对话区当前会话也清） | `pure/sessionPendingSource.ts` 的 `completedIds` 投影 + `pure/workspaceTreeView.ts` 的 `withCompletedIds`；合并排在 `withoutPanelOpenCompleted` 之前（宿主面板里开着的那条仍由那条通道压掉），老代给 `null`、行里自带的那一格一个字节不动 |
+| 点会话行没反应（页面上 `sessions.open is not a function`） | 会话服务把「选中」交还给会话视图的所有者：`ctx.sessions` 只剩 retain / using / binding 这些引用管理口，`open` / `select` / `clear` 三个方法被删（类型注释 "view selection remains outside the Controller"） | 改走官方那条**两代都在**的入口 `uiWorkspace.openSession(id)`（官方 ui-chat / ui-subagent / ui-workflow-run 也用它），一个分支覆盖两代。另：官方的启动恢复也搬进了 ui-workspace 的 watcher，多开页上首次注入会被它盖掉（恢复值来自共用的 localStorage），所以注入按「没落定就再喊一次」做有限次重试，且目标落定前不上报当前会话 |
+
+两处的共同点：**契约面的名字一个都没少**，坏掉的是「这些名字背后的语义」。探针按名字查，
+补不上这一类，只能靠真页面在真版本上跑出来。
+
 ## 人工/补充项（探针覆盖不了）
 
 对新版本逐项过：
@@ -95,10 +126,13 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 | 跑什么 | 命令 | 覆盖什么 | 前置 |
 |---|---|---|---|
 | 上游探针 | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <版本>`（CI 里由 dsh-upstream-watch 每日自动跑） | 伺服面（wire + 网关前端产物：`/` 的启动契约、combo 端点、Origin 栅栏）+ 客户端契约面（combo 里的 slot/hook/字段名）+ 官方产物面（本机官方包里的内部标识符） | 本机有 dsh；探针自起临时 `DSH_HOME` 实例，只读 |
-| 浏览器验证 | `npm run verify:lab` | 四棵树在真网关上装得起来、槽位有内容、零崩溃零缺失契约（F-01 CONTRACT） | `npm run build` 过 + 本机有一个在跑的 dsh 网关 |
+| 浏览器验证（候选版本） | `npm run verify:lab-version <版本>` | **候选版本**上四棵树装不装得起来：零崩溃、零装载未激活、座位有内容（F-01 CONTRACT）。脚本把候选版本装到临时目录再用它跑实验室，不动本机安装 | 见上一节「装配面」 |
+| 浏览器验证（本机版本） | `npm run verify:lab` | 同上，但验的是本机已装的那一版；改装配相关代码后跑它 | `npm run build` 过 |
 | 宿主半验证 | `npm run verify:host-half` | 网关侧插件半（`packages/dsh-host-capabilities`）与官方 dsh 的兼容 | 见 `scripts/verify-host-half-official.mjs` |
 
 另外，探针发现「名字没了」不等于「用户已经炸了」：先按 issue 里的期望出处核对官方改动，再决定是改我们的取用路径（大多数情况）还是登记版本支持范围的变化（README「dsh version tracking」一节）。
+
+**接新版本的正确次序**：先跑上游探针（名字面）→ 再跑 `verify:lab-version <版本>`（装配面，这一步是 0.1.6-alpha.2 那次整页白的门禁）→ 过了再登记进 README 的「Tested versions」。
 
 ## 徽章数据
 

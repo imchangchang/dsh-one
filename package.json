@@ -209,6 +209,7 @@
     "verify:plugins-official": "npm run build && node scripts/verify-plugins-official.mjs",
     "verify:clean-profile": "npm run build && node scripts/verify-clean-profile.mjs",
     "verify:lab": "npm run build && node test/assembly-lab/verify.ts",
+    "verify:lab-version": "node scripts/verify-lab-version.mjs",
     "package": "npm run build && vsce package",
     "verify:install-guide": "node --import ./test/install-guide/register.mjs test/install-guide/smoke.mjs",
     "verify:legacy-sidebar": "npm run build && node --experimental-transform-types --disable-warning=ExperimentalWarning --import ./test/legacy-sidebar/register.mjs test/legacy-sidebar/verify.ts"
