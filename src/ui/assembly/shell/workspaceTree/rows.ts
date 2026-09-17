@@ -71,8 +71,14 @@ function strokeIcon(paths: readonly string[]): unknown {
   )
 }
 
-/** 置顶标记（标题前的常驻图钉）。 */
-function PinMark({ sessionId }: { sessionId: string }): unknown {
+/**
+ * 置顶标记（标题前的常驻图钉）。
+ *
+ * 导出给回收站抽屉的会话行用（#154）：抽屉那一行也要显示置顶标记，且必须是**同一枚**
+ * 标记（同一个类名、同一个 `data-dshone-tree-pin` 契约、同一份描边路径），不是照着
+ * 再画一份——两处只要有一处改了，另一处会跟着变。
+ */
+export function PinMark({ sessionId }: { sessionId: string }): unknown {
   return h('span', { className: 'dshOneTree_pin', 'data-dshone-tree-pin': sessionId, 'aria-hidden': true }, strokeIcon(PIN_PATHS))
 }
 
@@ -221,8 +227,14 @@ function archiveBlockKey(reason: SessionBlockReason): string {
  * 工作区自身的折叠（分组头点一下收起整块）保留：那是「一次看几个工作区」的层级，
  * 与「一个工作区里看得见几条会话」是两件事。
  */
-/** 主状态点 + 全部状态的读屏标签（官方 `SessionStatusDots`）。 */
-function SessionStatusDots({ statuses, tr }: { statuses: ReturnType<typeof sessionStatuses>; tr: Translate }): unknown {
+/**
+ * 主状态点 + 全部状态的读屏标签（官方 `SessionStatusDots`）。
+ *
+ * 导出给回收站抽屉的会话行用（#154）：抽屉那一行补的状态点必须是**同一枚**官方
+ * `StateDot`、同一口径的 `state`（`pure/workspaceTreeView.ts` 的 `sessionStatuses`）、
+ * 同一格的几何（`.dshOneTree_slot` 16×20），所以直接复用这一个组件而不是另写一份。
+ */
+export function SessionStatusDots({ statuses, tr }: { statuses: ReturnType<typeof sessionStatuses>; tr: Translate }): unknown {
   const labels = statuses.map((status) =>
     h(
       'span',

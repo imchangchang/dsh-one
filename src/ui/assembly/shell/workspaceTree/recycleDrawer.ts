@@ -16,6 +16,29 @@
  *   几何取侧栏行尾动作按钮同一档；永久归档是**终点动作**（走官方 `archiveSession`），
  *   所以这一枚只发请求、由树层的确认弹窗执行（本件不直接执行）。
  *
+ * ## #154：抽屉头补齐三样、行上补右键入口 / 状态点 / 图钉
+ *
+ * 对照旧侧栏正本（`src/ui/sessionsWebview.ts` 的 `renderRecycleHeader` /
+ * `renderRecycleSessionRow`，对照结论见 `docs/legacy-vs-current-sidebar-compare.md` 第 10 条）
+ * 补回四件事。**为什么是照旧侧栏、不是照官方**：官方 0.1.6-alpha.1 确实有一页「取消归档会话」
+ * （`@deepseek-ai/dsh-client-ui-settings-unarchive-sessions`，本机实测读的是它装好的那一份
+ * `lib/client.js`），但它是**设置页的一个 section**——头部的「返回」由设置页自己的导航承担、
+ * 头部没有任何批量动作，行上也只有「标题 + 工作区·时间 + 一枚『取消归档』按钮」（既没有状态点
+ * 也没有图钉）。也就是说：抽屉这个形态本身官方没有对应物，那四项官方那一页都没有可比对象，
+ * 所以按旧侧栏正本补，并在这里逐条写明理由。
+ *
+ * - **抽屉头**（`‹ 返回` / `清空` / `恢复全部`）：返回 = 关抽屉（**接手原来那枚 ✕ 的位置与
+ *   标记**——同一个动作在 26px 的一行里放两枚入口只会互相打架，旧侧栏那一版也只有返回、没有
+ *   ✕，所以既有的关闭路径一条没变）；「清空」与「恢复全部」**沿用底部入口行那两枚同一形态、
+ *   同一能力口**（26×26 图标按钮、危险色、计数 0 时禁用，点击回到树层那两个既有函数），不另起
+ *   第二条执行路径。计数仍紧跟在标题文字之后（与旧侧栏同一内联组，见 `styles.ts` 的
+ *   `.dshOneTree_drawerHeading` 那条规则上方的说明）。
+ * - **行的右键入口**：右键开出的菜单与行尾那两枚动作**同一份项**（还原 / 永久归档），项本体
+ *   复用那两个既有动作，不新增行为。
+ * - **状态点与图钉**：与主树会话行**同一枚**官方 `StateDot`（`rows.ts` 的 `SessionStatusDots`）、
+ *   同一口径的 state（`sessionStatuses({...node, unread})`）与同一枚图钉标记（`PinMark`），
+ *   同一格几何（`.dshOneTree_slot` 16×20）——两棵树里同一条会话显示的是同一件事。
+ *
  * ## 开合都有动效（#117）
  * 滑入与滑出共用同一条 CSS 过渡（时长/缓动是官方 token，见 `styles.ts` 那段规则的出处注），
  * 所以两边天然对称。关闭时**不立刻卸载**：元素先进退场期把滑出演完，`transitionend` 一到
@@ -30,14 +53,22 @@
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import {
-  IconCloseFill14,
+  IconChevronLeftOutline14,
   IconRefreshOutline16,
   IconTrashOutline16,
   IconTriangleRightFill14,
+  Menu,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { recycleCount, type RecycleGroup } from '../../../../pure/workspaceTreeView.ts'
+import {
+  recycleCount,
+  sessionStatuses,
+  showsStatusDot,
+  type RecycleGroup,
+  type SessionNode,
+} from '../../../../pure/workspaceTreeView.ts'
 import { displayTitle, timeLabel } from './format.ts'
+import { PinMark, SessionStatusDots } from './rows.ts'
 import type { Translate } from './types.ts'
 
 /** 抽屉档位（占面板高的比例）：默认半高；提手上拉到 90%。 */
@@ -86,11 +117,15 @@ export function RecycleDrawer({
   tr,
   busy,
   error,
+  pinned,
+  unread,
   onClose,
   onToggleGroup,
   onOpen,
   onRestore,
   onArchive,
+  onEmpty,
+  onRestoreAll,
 }: {
   open: boolean
   /** 抽屉内容（`deriveRecycleGroups` 按工作区分好块、块内按移入顺序倒序）。 */
@@ -102,12 +137,20 @@ export function RecycleDrawer({
   /** 有动作在飞（还原/归档中）：行上的动作先禁用，避免连点。 */
   busy: boolean
   error: string | null
+  /** 置顶的会话 id（#154：行的图钉标记与主树同源，判定也同一个集合）。 */
+  pinned: ReadonlySet<string>
+  /** 手动未读的会话 id（#154：状态点与主树同一口径，`sessionStatuses` 吃这一项）。 */
+  unread: ReadonlySet<string>
   onClose: () => void
   onToggleGroup: (key: string) => void
   onOpen: (sessionId: string) => void
   onRestore: (sessionId: string) => void
   /** 永久归档（不可逆）：树层据此开确认弹窗，本件不直接执行。 */
   onArchive: (sessionId: string) => void
+  /** 抽屉头的「清空」（不可逆）：树层据此开既有的归档确认弹窗（与入口行同一路径）。 */
+  onEmpty: () => void
+  /** 抽屉头的「恢复全部」（本地可逆）：树层执行既有的全部还原（与入口行同一路径）。 */
+  onRestoreAll: () => void
 }): unknown {
   const drawerRef = useRef<HTMLDivElement | null>(null)
   /** 挂载相位（见 `DrawerPhase`）：滑入的入场拍 + 关闭后的退场期都住在它身上。 */
@@ -246,6 +289,34 @@ export function RecycleDrawer({
   const total = recycleCount(groups)
   const height = dragHeight ?? snapHeight ?? DRAWER_HEIGHT_DEFAULT
 
+  /**
+   * 抽屉头的两枚动作（清空 / 恢复全部）。**与底部入口行那两枚同一形态、同一能力口**（#154）：
+   * 26×26 图标按钮、同一枚图标、同一份词典文案、清空按危险色、计数 0 时禁用，点击回到树层
+   * 那两个既有函数（`onEmpty` → 既有的归档确认弹窗；`onRestoreAll` → 既有的全部还原）。
+   * 标记与入口行那两枚**刻意不同**（`recycle-drawer-*`）：两处同时在场时，验证套件按标记取
+   * 元素才不会取到两个。
+   */
+  const headerAction = (kind: 'empty' | 'restoreAll'): unknown => {
+    const label = kind === 'empty' ? tr('recycle.emptyAll') : tr('recycle.restoreAll')
+    return h(Tooltip, {
+      label,
+      side: 'top',
+      delayMs: 500,
+      children: h(
+        'button',
+        {
+          type: 'button',
+          className: `dshOneTree_drawerIconButton${kind === 'empty' ? ' dshOneTree_drawerIconDanger' : ''}`,
+          'aria-label': label,
+          'data-dshone-tree-action': kind === 'empty' ? 'recycle-drawer-empty-all' : 'recycle-drawer-restore-all',
+          disabled: total === 0,
+          onClick: kind === 'empty' ? onEmpty : onRestoreAll,
+        },
+        kind === 'empty' ? h(IconTrashOutline16, { size: 14 }) : h(IconRefreshOutline16, { size: 14 }),
+      ),
+    })
+  }
+
   return h(
     'div',
     {
@@ -270,19 +341,30 @@ export function RecycleDrawer({
     h(
       'div',
       { className: 'dshOneTree_drawerHeader' },
-      h('span', { className: 'dshOneTree_drawerTitle' }, tr('recycle.title')),
-      h('span', { className: 'dshOneTree_drawerCount', 'data-dshone-recycle-count': total }, String(total)),
+      // 返回（接手原来那枚 ✕）：同一个动作、同一个标记，见文件头 #154 那一节。
       h(
         'button',
         {
           type: 'button',
           className: 'dshOneTree_iconButton',
-          'aria-label': tr('recycle.close'),
+          'aria-label': tr('recycle.back'),
+          title: tr('recycle.back'),
+          // 图标名（自有契约，与入口行主区那枚 `data-dshone-tree-icon` 同一做法）：
+          // 官方组件渲染出来的 DOM 里没有图标名，验证套件要认「组件」只能靠标记 + 渲染指纹。
+          'data-dshone-tree-icon': 'IconChevronLeftOutline14',
           'data-dshone-tree-action': 'recycle-close',
           onClick: onClose,
         },
-        h(IconCloseFill14, {}),
+        h(IconChevronLeftOutline14, {}),
       ),
+      h(
+        'span',
+        { className: 'dshOneTree_drawerHeading' },
+        h('span', { className: 'dshOneTree_drawerTitle' }, tr('recycle.title')),
+        h('span', { className: 'dshOneTree_drawerCount', 'data-dshone-recycle-count': total }, String(total)),
+      ),
+      headerAction('empty'),
+      headerAction('restoreAll'),
     ),
     total === 0
       ? h('div', { className: 'dshOneTree_drawerStatus' }, tr('recycle.empty'))
@@ -297,6 +379,8 @@ export function RecycleDrawer({
               now,
               tr,
               busy,
+              pinned,
+              unread,
               onToggle: () => onToggleGroup(group.key),
               onOpen,
               onRestore,
@@ -315,6 +399,8 @@ function RecycleBlock({
   now,
   tr,
   busy,
+  pinned,
+  unread,
   onToggle,
   onOpen,
   onRestore,
@@ -325,6 +411,8 @@ function RecycleBlock({
   now: number
   tr: Translate
   busy: boolean
+  pinned: ReadonlySet<string>
+  unread: ReadonlySet<string>
   onToggle: () => void
   onOpen: (sessionId: string) => void
   onRestore: (sessionId: string) => void
@@ -354,67 +442,169 @@ function RecycleBlock({
     ),
     collapsed
       ? null
-      : group.sessions.map((node) => {
-          const title = displayTitle(node, tr)
-          // #144：行尾直接列出两枚动作（此前「还原」旁边挂一枚 ⋯、归档藏在二级菜单里）。
-          // 两枚都 `stopPropagation`——点动作不能顺带打开会话（行自己的 onClick 是打开）。
-          // 归档这一枚只发请求：树层据此开确认弹窗（终点动作，见文件头）。
-          return h(
-            'div',
-            {
-              className: 'dshOneTree_drawerRow',
-              key: node.id,
-              role: 'treeitem',
-              'data-dshone-recycle-row': node.id,
-              onClick: () => onOpen(node.id),
+      : group.sessions.map((node) =>
+          h(RecycleRow, {
+            key: node.id,
+            node,
+            now,
+            tr,
+            busy,
+            pinned: pinned.has(node.id),
+            unread: unread.has(node.id),
+            onOpen,
+            onRestore,
+            onArchive,
+          }),
+        ),
+  )
+}
+
+/**
+ * 抽屉里的一条会话行（#154）：状态点 + 图钉 + 标题 + 时间 + 行尾两枚动作 + 右键菜单。
+ *
+ * ## 状态点与图钉为什么直接复用主树那两个组件
+ *
+ * 官方那一页（`dsh-client-ui-settings-unarchive-sessions`）的行上**没有**状态点也没有图钉
+ * （见文件头 #154 那一节的实测形态），所以这里照旧侧栏正本（`renderRecycleSessionRow`）补：
+ * 状态点走**同一枚**官方 `StateDot`、同一口径的 state（`sessionStatuses({...node, unread})`）、
+ * 同一格的几何（`.dshOneTree_slot` 16×20、空闲档不渲染点由 `showsStatusDot` 判），图钉走
+ * 主树那一枚 `PinMark`——两棵树里同一条会话显示的必须是同一件事，所以复用组件而不是照抄一份。
+ * 未读那一档与主树同一处置：绿点 + 标题加粗（`.dshOneTree_unread`），两者是同一个意思的两半。
+ *
+ * ## 右键菜单：与行尾那两枚动作**同一份项**
+ *
+ * 旧侧栏的回收站行是「⋯ 按钮与右键开同一份菜单」（`sessionsWebview.ts` 的
+ * `buildRecycleSessionMenuBody`，两项：恢复 / 归档）。#144 把行尾改成常显的两枚图标按钮之后
+ * 那一份菜单退场了，于是右键入口也没了（C1-10）。这里把它补回来，**项本体就是行尾那两枚动作
+ * 同样的两件事**（还原 / 永久归档），不新增行为、不新增执行路径。
+ *
+ * 锚点为什么是一枚**看不见的占位**、且摆在行尾那一组动作**之前**：官方 `Menu` 的渲染是
+ * 「一个根节点（官方类 `_root_1nxmc_1`，`position:relative;display:inline-flex`）+ 锚点」
+ * （实测读官方 0.1.6 的 primitives 渲染，见报告），右键那一份没有自己的按钮，只能给一个
+ * 零尺寸占位——而那个根节点在行这个 flex 容器里**必然占一格行内间隙**（行 gap 6px）。
+ * 摆在行尾那一组动作之前，那 6px 由 `flex:1` 的标题让出来，两枚动作仍钉在行内容右缘
+ * （#144 的几何一字未动，由 F-45 钉着）。
+ */
+function RecycleRow({
+  node,
+  now,
+  tr,
+  busy,
+  pinned,
+  unread,
+  onOpen,
+  onRestore,
+  onArchive,
+}: {
+  node: SessionNode
+  now: number
+  tr: Translate
+  busy: boolean
+  pinned: boolean
+  unread: boolean
+  onOpen: (sessionId: string) => void
+  onRestore: (sessionId: string) => void
+  onArchive: (sessionId: string) => void
+}): unknown {
+  const title = displayTitle(node, tr)
+  /** 右键时指针的位置（官方 `Menu` 的 `getAnchorRect` 口，主树会话行同此处置）。 */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const statuses = sessionStatuses({ ...node, unread })
+  const showStatus = showsStatusDot(statuses, node.completed || unread)
+  const menuItems = [
+    {
+      id: 'restore',
+      label: h('span', { 'data-dshone-tree-item': 'recycle-restore' }, tr('recycle.restore')),
+      icon: h(IconRefreshOutline16, { size: 14 }),
+      disabled: busy,
+    },
+    {
+      id: 'archive',
+      label: h('span', { 'data-dshone-tree-item': 'recycle-archive' }, tr('menu.archiveForever')),
+      icon: h(IconTrashOutline16, { size: 14 }),
+      disabled: busy,
+    },
+  ]
+  return h(
+    'div',
+    {
+      className: `dshOneTree_drawerRow${menuAt === null ? '' : ' dshOneTree_menuOpen'}`,
+      role: 'treeitem',
+      'data-dshone-recycle-row': node.id,
+      onClick: () => onOpen(node.id),
+      // 右键开同一份菜单（主树会话行的处置：`preventDefault` 压掉原生菜单、锚在指针处）。
+      onContextMenu: (event: { preventDefault(): void; stopPropagation(): void; clientX: number; clientY: number }) => {
+        event.preventDefault()
+        event.stopPropagation()
+        setMenuAt({ x: event.clientX, y: event.clientY })
+      },
+    },
+    // 状态槽：与主树同一条规则——空闲档也留这一格（16×20），标题因此落在同一列上。
+    showStatus ? h(SessionStatusDots, { key: 'status', statuses, tr }) : h('span', { key: 'status', className: 'dshOneTree_slot' }),
+    pinned ? h(PinMark, { key: 'pin', sessionId: node.id }) : null,
+    h('span', { key: 'title', className: `dshOneTree_title${unread ? ' dshOneTree_unread' : ''}` }, title),
+    h('span', { key: 'time', className: 'dshOneTree_time' }, timeLabel(node.updatedAt, now, tr)),
+    // 右键菜单（锚点零尺寸、见组件说明）。
+    h(Menu, {
+      key: 'menu',
+      open: menuAt !== null,
+      onClose: () => setMenuAt(null),
+      items: menuItems,
+      onSelect: (id: string) => {
+        setMenuAt(null)
+        if (id === 'restore') onRestore(node.id)
+        if (id === 'archive') onArchive(node.id)
+      },
+      // 与侧栏其它菜单同一档（#113 的紧凑档），项上带自有标记供验证套件认项。
+      compact: true,
+      portal: true,
+      closeOnPointerLeave: true,
+      anchor: h('span', { className: 'dshOneTree_menuAnchor', 'aria-hidden': true }),
+      ...(menuAt === null ? {} : { getAnchorRect: () => new DOMRect(menuAt.x, menuAt.y, 0, 0) }),
+    }),
+    h(
+      'span',
+      { key: 'actions', className: 'dshOneTree_drawerActions' },
+      h(Tooltip, {
+        label: tr('recycle.restore'),
+        side: 'top',
+        delayMs: 500,
+        children: h(
+          'button',
+          {
+            type: 'button',
+            className: 'dshOneTree_drawerAction',
+            disabled: busy,
+            'aria-label': tr('recycle.restore.aria', { name: title }),
+            'data-dshone-recycle-restore': node.id,
+            onClick: (event: { stopPropagation(): void }) => {
+              event.stopPropagation()
+              onRestore(node.id)
             },
-            h('span', { className: 'dshOneTree_title' }, title),
-            h('span', { className: 'dshOneTree_time' }, timeLabel(node.updatedAt, now, tr)),
-            h(
-              'span',
-              { className: 'dshOneTree_drawerActions' },
-              h(Tooltip, {
-                label: tr('recycle.restore'),
-                side: 'top',
-                delayMs: 500,
-                children: h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'dshOneTree_drawerAction',
-                    disabled: busy,
-                    'aria-label': tr('recycle.restore.aria', { name: title }),
-                    'data-dshone-recycle-restore': node.id,
-                    onClick: (event: { stopPropagation(): void }) => {
-                      event.stopPropagation()
-                      onRestore(node.id)
-                    },
-                  },
-                  h(IconRefreshOutline16, {}),
-                ),
-              }),
-              h(Tooltip, {
-                label: tr('menu.archiveForever'),
-                side: 'top',
-                delayMs: 500,
-                children: h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'dshOneTree_drawerAction dshOneTree_drawerActionDanger',
-                    disabled: busy,
-                    'aria-label': tr('recycle.archive.aria', { name: title }),
-                    'data-dshone-recycle-archive': node.id,
-                    onClick: (event: { stopPropagation(): void }) => {
-                      event.stopPropagation()
-                      onArchive(node.id)
-                    },
-                  },
-                  h(IconTrashOutline16, {}),
-                ),
-              }),
-            ),
-          )
-        }),
+          },
+          h(IconRefreshOutline16, {}),
+        ),
+      }),
+      h(Tooltip, {
+        label: tr('menu.archiveForever'),
+        side: 'top',
+        delayMs: 500,
+        children: h(
+          'button',
+          {
+            type: 'button',
+            className: 'dshOneTree_drawerAction dshOneTree_drawerActionDanger',
+            disabled: busy,
+            'aria-label': tr('recycle.archive.aria', { name: title }),
+            'data-dshone-recycle-archive': node.id,
+            onClick: (event: { stopPropagation(): void }) => {
+              event.stopPropagation()
+              onArchive(node.id)
+            },
+          },
+          h(IconTrashOutline16, {}),
+        ),
+      }),
+    ),
   )
 }
