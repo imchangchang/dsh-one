@@ -30,7 +30,7 @@
  *   `projections.values.title`（顶层 `title` 一并写上，两种读法都自洽），实测依据见 F-45 的
  *   `installLongTitleFixture`；
  * - `workspace/follow` 基线帧夹具：换成一棵合成工作区（成员 = 那四条），其余工作区帧丢掉、
- *   归档集合清空——与 F-21 / F-49(search-hit) 的 `installWorkspaceFixture` 同一套做法；
+ *   归档集合清空——与 F-21 的 `installWorkspaceFixture` / F-49(search-hit) 的 mux 夹具同一套做法；
  * - 假宿主状态夹具：`recycle-bin` / `pinned` / `unread` 三个键都指向合成 id（开页时一次装上）。
  *
  * 四条会话各演一个角色：**跑着的**那条先在主树读一次状态点、再用**既有的**行菜单挪进抽屉，
@@ -233,8 +233,8 @@ async function installSyntheticListFixture(
 
 /**
  * `workspace/follow` 基线帧夹具：换成一棵合成工作区（成员 = 四条合成会话），其余工作区帧
- * 一律丢掉、归档集合清空。与 F-21 / F-49(search-hit) 的 `installWorkspaceFixture` 同一套做法
- * （那边是多棵、这边一棵，判据只需要一棵）。
+ * 一律丢掉、归档集合清空。与 F-21 的 `installWorkspaceFixture` / F-49(search-hit) 的 mux 夹具
+ * 同一套做法（那边是多棵、这边一棵，判据只需要一棵）。
  */
 async function installSyntheticWorkspaceFixture(page: OpenedPage['page']): Promise<{ frames: number; dropped: number }> {
   const stats = { frames: 0, dropped: 0 }
