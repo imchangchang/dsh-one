@@ -9,8 +9,12 @@
  * - 内容为**按原工作区分块**，块头可折叠（折叠态持久化在客户端存储，见
  *   `pure/workspaceTreePrefs.ts` 的 `recycleCollapsed`），块内**按移入顺序倒序**
  *   （最近挪进来的在最上）；
- * - 每行行尾一枚「还原」，行菜单「还原 / 永久归档」——永久归档是**终点动作**
- *   （走官方 `archiveSession`），所以交给树层的确认弹窗，本件只发请求。
+ * - **块头与侧栏的工作区行同一套折叠语言**（#144）：同一枚箭头图标与同一套展开标记、
+ *   同一格箭头位、同一行高（见 `styles.ts` 那条规则上方的逐项取值）；
+ * - 每行行尾**直接列出两枚动作**（#144：此前是「还原」文字按钮 + ⋯ 二级菜单）——
+ *   「还原」（`IconRefreshOutline16`）与「永久归档」（`IconTrashOutline16`，按错误色），
+ *   几何取侧栏行尾动作按钮同一档；永久归档是**终点动作**（走官方 `archiveSession`），
+ *   所以这一枚只发请求、由树层的确认弹窗执行（本件不直接执行）。
  *
  * ## 开合都有动效（#117）
  * 滑入与滑出共用同一条 CSS 过渡（时长/缓动是官方 token，见 `styles.ts` 那段规则的出处注），
@@ -26,12 +30,10 @@
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import {
-  IconArchiveOutline20,
   IconCloseFill14,
-  IconEllipsisOutline16,
   IconRefreshOutline16,
+  IconTrashOutline16,
   IconTriangleRightFill14,
-  Menu,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { recycleCount, type RecycleGroup } from '../../../../pure/workspaceTreeView.ts'
@@ -114,8 +116,6 @@ export function RecycleDrawer({
   const [dragHeight, setDragHeight] = useState<number | null>(null)
   /** 松手吸附后的档位；null = 默认半高（每次重新打开都回默认档，旧侧栏同此处置）。 */
   const [snapHeight, setSnapHeight] = useState<number | null>(null)
-  /** 开着行菜单的那一行（菜单开着时 Esc / 点外先让菜单走，不连动关抽屉）。 */
-  const [menuFor, setMenuFor] = useState<string | null>(null)
 
   // 开合态 → 相位。打开：先挂上（entering，元素在收起位、还没有展开类）。关闭：**不卸载**，
   // 先进 leaving 把滑出过渡演完（#117），收场交给下面那个 effect。开合态本身仍只有
@@ -126,7 +126,6 @@ export function RecycleDrawer({
       return
     }
     setSnapHeight(null)
-    setMenuFor(null)
     setPhase((prev) => (prev === 'closed' ? 'closed' : 'leaving'))
   }, [open])
 
@@ -182,17 +181,17 @@ export function RecycleDrawer({
     return () => document.removeEventListener('mousedown', onPointerDown, true)
   }, [open, onClose])
 
-  // Esc 收起：官方菜单 / 弹窗自己处理 Esc（它们会 preventDefault），让它们先走。
+  // Esc 收起：官方弹窗（归档确认那一层）自己处理 Esc（它会 preventDefault），让它先走。
   useEffect(() => {
     if (!open) return
     const onKey = (event: { key: string; defaultPrevented: boolean; preventDefault(): void }): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented || menuFor !== null) return
+      if (event.key !== 'Escape' || event.defaultPrevented) return
       event.preventDefault()
       onClose()
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
-  }, [open, onClose, menuFor])
+  }, [open, onClose])
 
   /** 提手拖动：上拉扩大高度，松手吸附两档；位移 < 4px 视为点击 = 收起。 */
   const startDrag = (event: {
@@ -298,9 +297,7 @@ export function RecycleDrawer({
               now,
               tr,
               busy,
-              openMenuFor: menuFor,
               onToggle: () => onToggleGroup(group.key),
-              onMenuToggle: (sessionId: string) => setMenuFor(menuFor === sessionId ? null : sessionId),
               onOpen,
               onRestore,
               onArchive,
@@ -311,16 +308,14 @@ export function RecycleDrawer({
   )
 }
 
-/** 抽屉里的一个工作区块：块头（箭头 + 名 + 计数）+ 成员行。 */
+/** 抽屉里的一个工作区块：块头（箭头 + 名 + 计数）+ 成员行（行尾还原 / 永久归档两枚动作）。 */
 function RecycleBlock({
   group,
   collapsed,
   now,
   tr,
   busy,
-  openMenuFor,
   onToggle,
-  onMenuToggle,
   onOpen,
   onRestore,
   onArchive,
@@ -330,10 +325,7 @@ function RecycleBlock({
   now: number
   tr: Translate
   busy: boolean
-  /** 当前开着行菜单的会话 id（同一时刻只开一个）。 */
-  openMenuFor: string | null
   onToggle: () => void
-  onMenuToggle: (sessionId: string) => void
   onOpen: (sessionId: string) => void
   onRestore: (sessionId: string) => void
   onArchive: (sessionId: string) => void
@@ -364,25 +356,13 @@ function RecycleBlock({
       ? null
       : group.sessions.map((node) => {
           const title = displayTitle(node, tr)
-          const menuOpen = openMenuFor === node.id
-          const anchor = h(
-            'button',
-            {
-              type: 'button',
-              className: 'dshOneTree_rowIconButton',
-              'aria-label': tr('actions.session.aria', { name: title }),
-              'data-dshone-recycle-menu': node.id,
-              onClick: (event: { stopPropagation(): void }) => {
-                event.stopPropagation()
-                onMenuToggle(node.id)
-              },
-            },
-            h(IconEllipsisOutline16, {}),
-          )
+          // #144：行尾直接列出两枚动作（此前「还原」旁边挂一枚 ⋯、归档藏在二级菜单里）。
+          // 两枚都 `stopPropagation`——点动作不能顺带打开会话（行自己的 onClick 是打开）。
+          // 归档这一枚只发请求：树层据此开确认弹窗（终点动作，见文件头）。
           return h(
             'div',
             {
-              className: `dshOneTree_drawerRow${menuOpen ? ' dshOneTree_menuOpen' : ''}`,
+              className: 'dshOneTree_drawerRow',
               key: node.id,
               role: 'treeitem',
               'data-dshone-recycle-row': node.id,
@@ -401,7 +381,7 @@ function RecycleBlock({
                   'button',
                   {
                     type: 'button',
-                    className: 'dshOneTree_drawerRestore',
+                    className: 'dshOneTree_drawerAction',
                     disabled: busy,
                     'aria-label': tr('recycle.restore.aria', { name: title }),
                     'data-dshone-recycle-restore': node.id,
@@ -410,37 +390,28 @@ function RecycleBlock({
                       onRestore(node.id)
                     },
                   },
-                  h(IconRefreshOutline16, { size: 14 }),
-                  tr('recycle.restore'),
+                  h(IconRefreshOutline16, {}),
                 ),
               }),
-              h(Menu, {
-                open: menuOpen,
-                onClose: () => onMenuToggle(node.id),
-                items: [
-                  // #113：官方紧凑档的图标位是 14×14（官方 `._itemIcon_1nxmc_144`），
-                  // 项内图标按它给尺寸（官方 16 档塞进 14px 的盒子会溢出一圈）。
-                  { id: 'restore', label: tr('recycle.restore'), icon: h(IconRefreshOutline16, { size: 14 }) },
+              h(Tooltip, {
+                label: tr('menu.archiveForever'),
+                side: 'top',
+                delayMs: 500,
+                children: h(
+                  'button',
                   {
-                    id: 'archive',
-                    // 标记属性（自有契约，与 rows.ts 的菜单项同一做法）：官方菜单项的
-                    // 类名是官方哈希，验证套件与样式都不该认它。
-                    label: h('span', { 'data-dshone-recycle-item': 'archive' }, tr('menu.archiveForever')),
-                    icon: h(IconArchiveOutline20, { size: 14 }),
-                    danger: true,
+                    type: 'button',
+                    className: 'dshOneTree_drawerAction dshOneTree_drawerActionDanger',
+                    disabled: busy,
+                    'aria-label': tr('recycle.archive.aria', { name: title }),
+                    'data-dshone-recycle-archive': node.id,
+                    onClick: (event: { stopPropagation(): void }) => {
+                      event.stopPropagation()
+                      onArchive(node.id)
+                    },
                   },
-                ],
-                onSelect: (id: string) => {
-                  onMenuToggle(node.id)
-                  if (id === 'restore') onRestore(node.id)
-                  if (id === 'archive') onArchive(node.id)
-                },
-                // #113：官方紧凑档（与行菜单、行内码右键菜单同一档）。
-                compact: true,
-                portal: true,
-                closeOnPointerLeave: true,
-                align: 'end',
-                anchor,
+                  h(IconTrashOutline16, {}),
+                ),
               }),
             ),
           )
