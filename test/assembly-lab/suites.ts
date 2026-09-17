@@ -1011,7 +1011,7 @@ export const SIDEBAR_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏六项核心功能（#81）：分组过滤、活状态计数、回收站抽屉、批量选择、不折叠、状态读写与视图态持久化',
   expect:
-    '侧栏树（真实网关只读 + 假宿主）：**旧版 groups.json 的形状注进宿主状态存储就是可用数据**（分组 chip 按它渲染，过滤只留归属该分组的工作区）；分组由界面新建后按同一形状写回宿主状态存储（version 1、membership 在、旧字段 activeGroupId 不被抹掉）。**计数与行同源**：每个工作区行尾的「运行中/等待交互」角标数值 = 该工作区下会话行里 `data-dshone-tree-status` 的数（这同时证明工作区内会话没有被官方那 5 行截断，**不折叠**：不出现「显示更多」行，行数 = 该工作区的会话总数）。**回收站**：官方归档集合在抽屉里按工作区组织、每行有还原按钮；批量选择态出复选框与动作条，选中计数随点选变化，退出后动作条消失。**视图态**：当前过滤的分组写进官方惯例的 `dsh.workspaceTree.view`（localStorage），同上下文重载后仍然生效。全程零 pageerror（归档/还原**不被点击**——那会写真实网关）。',
+    '侧栏树（真实网关只读 + 假宿主）：**旧版 groups.json 的形状注进宿主状态存储就是可用数据**（分组 chip 按它渲染，过滤只留归属该分组的工作区）；分组由界面新建后按同一形状写回宿主状态存储（version 1、membership 在、旧字段 activeGroupId 不被抹掉）。**计数与行同源**：每个工作区行尾的「运行中/等待交互/未读」角标数值 = 该工作区下会话行里 `data-dshone-tree-status` 的数与行上那个 `dshOneTree_unread` 标记的数（#153 起角标是三项）（这同时证明工作区内会话没有被官方那 5 行截断，**不折叠**：不出现「显示更多」行，行数 = 该工作区的会话总数）。**回收站**：官方归档集合在抽屉里按工作区组织、每行有还原按钮；批量选择态出复选框与动作条，选中计数随点选变化，退出后动作条消失。**视图态**：当前过滤的分组写进官方惯例的 `dsh.workspaceTree.view`（localStorage），同上下文重载后仍然生效。全程零 pageerror（归档/还原**不被点击**——那会写真实网关）。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
 
@@ -1092,9 +1092,8 @@ export const SIDEBAR_SUITE: LabSuite = {
           const key = section.getAttribute('data-dshone-group-key') ?? ''
           const row = section.querySelector('[data-dshone-tree-row="workspace"]')
           const badge = row?.querySelector('[data-dshone-tree-activity]')?.getAttribute('data-dshone-tree-activity') ?? ''
-          const statuses = Array.from(section.querySelectorAll('[data-dshone-tree-row="session"]')).map(
-            (element) => element.getAttribute('data-dshone-tree-status') ?? '',
-          )
+          const sessionRows = Array.from(section.querySelectorAll('[data-dshone-tree-row="session"]'))
+          const statuses = sessionRows.map((element) => element.getAttribute('data-dshone-tree-status') ?? '')
           return {
             key,
             count: Number(row?.getAttribute('data-dshone-tree-count') ?? '-1'),
@@ -1102,6 +1101,8 @@ export const SIDEBAR_SUITE: LabSuite = {
             rows: statuses.length,
             running: statuses.filter((status) => status === 'running').length,
             waiting: statuses.filter((status) => status === 'waiting').length,
+            // #153 起角标有第三项（未读，数据源是行上那个 `dshOneTree_unread` 加粗标记）。
+            unread: sessionRows.filter((element) => (element.querySelector('.dshOneTree_title')?.className ?? '').includes('dshOneTree_unread')).length,
             overflow: section.querySelectorAll('.dshOneTree_sessionOverflowButton').length,
           }
         }),
@@ -1128,15 +1129,19 @@ export const SIDEBAR_SUITE: LabSuite = {
           .join(' '),
       )
       const badgeMismatch = sections.filter((section) => {
-        if (section.badge === '') return section.running > 0 || section.waiting > 0
-        const [running, waiting] = section.badge.split('/')
-        return Number(running) !== section.running || Number(waiting) !== section.waiting
+        if (section.badge === '') return section.running > 0 || section.waiting > 0 || section.unread > 0
+        const [running, waiting, unread] = section.badge.split('/')
+        return (
+          Number(running) !== section.running ||
+          Number(waiting) !== section.waiting ||
+          Number(unread) !== section.unread
+        )
       })
       check.ok(
-        '功能 2 计数：行尾角标（运行中/等待交互）= 该工作区会话行里的真实状态数',
+        '功能 2 计数：行尾角标（运行中/等待交互/未读）= 该工作区会话行里的真实状态数',
         badgeMismatch.length === 0,
         badgeMismatch
-          .map((section) => `${section.key.slice(0, 8)} badge=${section.badge} running=${String(section.running)} waiting=${String(section.waiting)}`)
+          .map((section) => `${section.key.slice(0, 8)} badge=${section.badge} running=${String(section.running)} waiting=${String(section.waiting)} unread=${String(section.unread)}`)
           .join(' '),
       )
       screenshots.push(await shot(ctx, page, 'sidebar-activity-counts'))

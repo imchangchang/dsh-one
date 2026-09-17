@@ -1512,7 +1512,8 @@ export function SearchResultRow({
   )
 }
 /**
- * 工作区行里「运行中 / 等待交互」的活状态计数（#81 功能 2；#138 起位置改到标题文字之后）。
+ * 工作区行里「运行中 / 等待交互 / 未读」的活状态计数（#81 功能 2；#138 起位置改到标题文字之后；
+ * #153 起补回旧侧栏就有的第三项「未读」）。
  *
  * ## 它为什么装在标题盒里、而不是行里的一个兄弟节点
  *
@@ -1537,13 +1538,22 @@ export function SearchResultRow({
  * 那条规则管辖：它落在标题文字右侧、不在那一层的子树上，所以悬停时照常显示（由验证套件钉住）。
  * 同一格里另一件东西（「当前工作区」胶囊）也搬进了标题盒（贴着它右缘、`margin-left:auto`，
  * 见 `ProjectRow` 里的说明与样式规则）：两件都在流里，谁也不会压住谁。
+ *
+ * ## 三枚是同一件东西（#153）
+ *
+ * 「未读」那一项与另外两项逐项同形：同一枚官方 `StateDot`（未读借官方 `done` 那颗绿点——会话行
+ * 里手动未读的状态点就是它，`sessionStatuses` 那一段写了为什么），同一档字号 / 行高 / 间隙
+ * （`.dshOneTree_activityItem` 一条规则管三枚），同一个容器（中间那 6px 由容器的 `gap` 给）。
+ * 计数口径同为「每个会话只进一个桶」（优先级 等待交互 > 运行中 > 未读，与旧侧栏工作区组头、
+ * 折叠标签组头一致）。三枚都为 0 时整枚角标不是渲染出空壳，而是**由调用方不渲染它**——
+ * `workspaceActivityCounts` 不给全零的分组留条目（见 `ProjectRow` 里 `counts === undefined` 那一支）。
  */
 function ActivityBadge({ counts, tr }: { counts: ActivityCounts; tr: Translate }): unknown {
   return h(
     'span',
     {
       className: 'dshOneTree_activity',
-      'data-dshone-tree-activity': `${String(counts.running)}/${String(counts.waiting)}`,
+      'data-dshone-tree-activity': `${String(counts.running)}/${String(counts.waiting)}/${String(counts.unread)}`,
     },
     counts.running > 0
       ? h(
@@ -1559,6 +1569,14 @@ function ActivityBadge({ counts, tr }: { counts: ActivityCounts; tr: Translate }
           { className: 'dshOneTree_activityItem', 'data-dshone-tree-waiting': counts.waiting, title: tr('activity.waiting', { n: counts.waiting }) },
           h(StateDot, { state: 'warning' }),
           String(counts.waiting),
+        )
+      : null,
+    counts.unread > 0
+      ? h(
+          'span',
+          { className: 'dshOneTree_activityItem', 'data-dshone-tree-unread': counts.unread, title: tr('activity.unread', { n: counts.unread }) },
+          h(StateDot, { state: 'done' }),
+          String(counts.unread),
         )
       : null,
   )

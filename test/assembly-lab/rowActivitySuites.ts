@@ -1,5 +1,6 @@
 /**
- * 工作区行的活状态计数与「vscode」胶囊（#138）。
+ * 工作区行的活状态计数与「vscode」胶囊（#138；#153 起计数是三档「运行中 / 等待交互 / 未读」——
+ * 本套件量的是**这一枚角标整体**跟不跟标题文字走，三档各自的口径与读数归 F-49）。
  *
  * 独立成一个文件、不写进 `suites.ts` 的理由与 `rowTierSuites.ts` / `recycleEntryAlignSuites.ts`
  * 同一条：那个文件是本批开发的合入热点，新套件放外面能少一半冲突面；注册方式是在
@@ -112,6 +113,8 @@ interface RowReading {
   activityAfterText: boolean
   runningItems: number
   waitingItems: number
+  /** #153 补的第三项（未读）。 */
+  unreadItems: number
   activityLabel: string
   /** 行尾层里还剩什么（改后应当只有胶囊）。 */
   rowEndChildren: string[]
@@ -185,6 +188,7 @@ async function readRow(page: OpenedPage['page'], keySelector?: string): Promise<
       activityAfterText: activity !== null && text !== null && activity.previousElementSibling === text,
       runningItems: activity?.querySelectorAll('[data-dshone-tree-running]').length ?? 0,
       waitingItems: activity?.querySelectorAll('[data-dshone-tree-waiting]').length ?? 0,
+      unreadItems: activity?.querySelectorAll('[data-dshone-tree-unread]').length ?? 0,
       activityLabel: activity?.querySelector('[data-dshone-tree-running]')?.getAttribute('title') ?? '',
       rowEndChildren: rowEnd === null ? [] : Array.from(rowEnd.children).map((child) => (child.getAttribute('class') ?? '').split(/\s+/).filter((name) => name.startsWith('dshOneTree_')).join('.')),
       rowEndDisplay: rowEnd === null ? 'absent' : getComputedStyle(rowEnd).display,
@@ -240,7 +244,7 @@ export const ROW_ACTIVITY_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '工作区行的活状态计数跟着标题文字走、vscode 胶囊收紧一档（ROW-ACTIVITY 套件）',
   expect:
-    '#138：工作区行里「运行中 / 等待交互」的计数从行尾那一层（绝对定位）挪到**工作区标题文字之后**（同一行），行尾那一层只剩「当前工作区」胶囊，且胶囊比改前更紧凑。真装配页 + 真网关**只读** + 假宿主 + 页内夹具（`session/list` 回执里把目标会话的 `running` 翻成 true，请求不落网关），量的是几何关系与档位取值：① **计数紧跟标题文字**——计数的左缘 − 标题**文字**那一段的右缘 = 档位表标准档的行内间隙（±1px），两者同一行（垂直中心差 ≤ 1px），计数装在标题盒里、不在行尾那一层里；② **标题盒不变**——`.dshOneTree_title` 仍是撑满 `projectText` 的那个矩形（宽 = `projectText` 的内容宽、高 = 标题档行高），没有因为计数而缩成文字宽（与官方基准的逐项比对在 F-04 PARITY）；③ **胶囊更紧凑**——`.dshOneTree_workspaceBadge` 的高 / 字号 / 行高 / 内边距 / 圆角逐项等于档位表里它那条规则上方写明的档（高 16px 严格小于改前那一档 `standard.smallPillHeight` 的 20px）；④ **三档宽度（260/340/500）不溢出、不压字**——列表与标题的 `scrollWidth ≤ clientWidth + 1`、计数整个落在标题盒里且不与行尾胶囊重叠；再压到 200px 让标题**真被省略号截断**（`scrollWidth > clientWidth + 1`）：文字先让位、计数照常可见、文字右缘仍不与胶囊重叠；⑤ **回归**——当前工作区标识（胶囊文案 = 宿主名、只有一个、排最前）、计数的语义（`1/0` 且只有运行中那一枚，等待交互那一枚在没有等待态时**不渲染**）、悬停时**计数留在原地不消失**而胶囊照旧让位、行尾动作按钮照旧出现、工作区行右键菜单照旧开出七项、全程零 pageerror。',
+    '#138：工作区行里「运行中 / 等待交互 / 未读」的计数从行尾那一层（绝对定位）挪到**工作区标题文字之后**（同一行），行尾那一层只剩「当前工作区」胶囊，且胶囊比改前更紧凑。真装配页 + 真网关**只读** + 假宿主 + 页内夹具（`session/list` 回执里把目标会话的 `running` 翻成 true，请求不落网关），量的是几何关系与档位取值：① **计数紧跟标题文字**——计数的左缘 − 标题**文字**那一段的右缘 = 档位表标准档的行内间隙（±1px），两者同一行（垂直中心差 ≤ 1px），计数装在标题盒里、不在行尾那一层里；② **标题盒不变**——`.dshOneTree_title` 仍是撑满 `projectText` 的那个矩形（宽 = `projectText` 的内容宽、高 = 标题档行高），没有因为计数而缩成文字宽（与官方基准的逐项比对在 F-04 PARITY）；③ **胶囊更紧凑**——`.dshOneTree_workspaceBadge` 的高 / 字号 / 行高 / 内边距 / 圆角逐项等于档位表里它那条规则上方写明的档（高 16px 严格小于改前那一档 `standard.smallPillHeight` 的 20px）；④ **三档宽度（260/340/500）不溢出、不压字**——列表与标题的 `scrollWidth ≤ clientWidth + 1`、计数整个落在标题盒里且不与行尾胶囊重叠；再压到 200px 让标题**真被省略号截断**（`scrollWidth > clientWidth + 1`）：文字先让位、计数照常可见、文字右缘仍不与胶囊重叠；⑤ **回归**——当前工作区标识（胶囊文案 = 宿主名、只有一个、排最前）、计数的语义（`1/0/0` 且只有运行中那一枚，等待交互与未读那两枚在没有对应会话时**不渲染**；三档各自的口径与读数归 F-49）、悬停时**计数留在原地不消失**而胶囊照旧让位、行尾动作按钮照旧出现、工作区行右键菜单照旧开出七项、全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     // 两道夹具都要落在**同一行**上：活状态计数的数据源是会话（把目标会话的 `running` 翻成
@@ -428,10 +432,11 @@ export const ROW_ACTIVITY_SUITE: LabSuite = {
       await page.setViewportSize({ width: 340, height: 900 })
       await page.waitForTimeout(300)
 
-      // ---- ⑤ 回归：计数的语义 ----
-      check.eq('⑤ 计数读数 = 运行中/等待（夹具那条是 1/0）', probe.activityValue, '1/0')
+      // ---- ⑤ 回归：计数的语义（#153 起读数写成三档「运行中/等待/未读」） ----
+      check.eq('⑤ 计数读数 = 运行中/等待/未读（夹具那条是 1/0/0）', probe.activityValue, '1/0/0')
       check.eq('⑤ 运行中那一枚渲染（带数字）', probe.runningItems, 1)
       check.eq('⑤ 等待交互那一枚在没有等待态时不渲染', probe.waitingItems, 0)
+      check.eq('⑤ 未读那一枚在没有未读会话时不渲染（夹具没有注未读集合）', probe.unreadItems, 0)
       check.ok('⑤ 计数那一枚带无障碍/悬停文案', probe.activityLabel.includes('1'), JSON.stringify({ label: probe.activityLabel }))
 
       // ---- ⑤ 回归：当前工作区标识与排序 ----

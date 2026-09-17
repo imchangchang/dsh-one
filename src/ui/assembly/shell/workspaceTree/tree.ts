@@ -543,7 +543,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
       ? { workspaceFilter: (workspaceId: string) => workspaceMatchesGroup(groupsFile, workspaceId, activeGroupId) }
       : {}),
   })
-  const activity = workspaceActivityCounts(list, workspaces, archivedSessionIds, pending, recycled)
+  // #153：行尾计数第三项「未读」吃的是**客户端那份手动未读集合**（`unread` 键，与行首状态点、
+  // 菜单里的「标为已读」同一份），不是官方「跑完还没被打开」的 `completed` 提醒。
+  const activity = workspaceActivityCounts(list, workspaces, archivedSessionIds, pending, recycled, unreadIds)
   // 全部可见会话（官方顺序）。#131 起它不再喂「单列表」那一支渲染，只留给选择态的
   // id → 节点映射（见下面的 requestArchiveSelection）。
   const visibleNodes = deriveFlat(list, archivedSessionIds, pending, recycled)
