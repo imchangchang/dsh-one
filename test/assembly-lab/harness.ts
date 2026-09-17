@@ -515,3 +515,134 @@ export function contractGaps(
 export async function launchBrowser(headless = true): Promise<Browser> {
   return chromium.launch({ headless })
 }
+
+// ---------------------------------------------------------------------------
+// 夹具：页面与网关之间那条 mux WebSocket 上的官方转发事件（`$events`）
+// ---------------------------------------------------------------------------
+
+/**
+ * 官方转发事件流在 mux 上的端点名（`dsh-api-gateway` 客户端的一个常量）。
+ *
+ * 这一段夹具（注入器 + 等就绪 + 帧构造）原来长在 F-43（`pendingDotSuites.ts`）里，
+ * #145 的 F-47 要用同一条通道投另一种帧（`api-session/error`），所以搬进 harness——
+ * 两个套件共用一份，免得两处各写一遍代理再各自漂移。
+ */
+const EVENT_STREAM_ENDPOINT = '$events'
+
+export interface EventStreamInjector {
+  /** 投一帧（未就绪就排队，`$events` 流就绪后按序发出）。 */
+  push(frame: Record<string, unknown>): void
+  /** 观测：见过几条连接、就绪几条、已投出几帧、还排着几帧、见过的端点名。 */
+  stats(): { connections: number; ready: number; sent: number; queued: number; endpoints: string[] }
+}
+
+/**
+ * 装官方转发事件的注入夹具（页面侧 WebSocket 代理）。
+ *
+ * 两件必须做对的事，都是实测撞出来的：
+ * - **mux 信封**：页面那条 socket 上跑的是**多条逻辑流**，服务端写给页面的每条消息都是
+ *   `{type:"item", streamId, value}`（`dsh-api-gateway` 客户端的 `parseRemoteStreamServerMessage`
+ *   只认这个形状，值直接放在顶层会被判成非法帧、整条 socket 当场断掉重连）。
+ * - **ready 先到页面**：客户端把 `$events` 流的**第一个**值当 ready 解析，排队中的帧抢在
+ *   前面会让整条流报废。所以帧先排队，见到 `$events` 的 ready 再放。
+ *
+ * 另外页面**不是一条 socket**：`session/control` / `workspace/follow` / `$events` /
+ * `session/follow` 各一条（实测四条），所以注入必须认准「打开过 `$events` 的那条连接
+ * 与那个 streamId」，不能图省事发给最近一条。
+ */
+export async function installEventStreamInjector(page: Page): Promise<EventStreamInjector> {
+  interface Connection {
+    send(message: string): void
+    ready: boolean
+    queue: string[]
+    /** 这条连接上 `$events` 流的 id（它自己开的那条逻辑流）。 */
+    streamId?: string
+  }
+  const connections: Connection[] = []
+  let events: Connection | undefined
+  const endpointsSeen = new Set<string>()
+  let sent = 0
+  await page.routeWebSocket(/remote\.mux/, (socket) => {
+    const upstream = socket.connectToServer()
+    const endpoints = new Map<string, string>()
+    const connection: Connection = {
+      send: (message) => {
+        socket.send(message)
+      },
+      ready: false,
+      queue: [],
+    }
+    connections.push(connection)
+    socket.onMessage((message) => {
+      try {
+        const frame = JSON.parse(String(message)) as { type?: string; streamId?: string; endpoint?: string }
+        if (frame.type === 'open' && frame.streamId !== undefined && frame.endpoint !== undefined) {
+          endpoints.set(frame.streamId, frame.endpoint)
+          endpointsSeen.add(frame.endpoint)
+          if (frame.endpoint === EVENT_STREAM_ENDPOINT) {
+            connection.streamId = frame.streamId
+            events = connection
+          }
+        }
+      } catch {
+        /* 客户端帧形状变了就原样转发，夹具自身不参与协议解读 */
+      }
+      upstream.send(message)
+    })
+    upstream.onMessage((message) => {
+      const text = String(message)
+      let frame: { type?: string; streamId?: string; value?: { type?: string } } | undefined
+      try {
+        frame = JSON.parse(text) as typeof frame
+      } catch {
+        frame = undefined
+      }
+      const endpoint = frame?.streamId === undefined ? undefined : endpoints.get(frame.streamId)
+      if (endpoint === EVENT_STREAM_ENDPOINT && frame?.type === 'item' && frame.value?.type === 'ready' && !connection.ready) {
+        socket.send(message)
+        connection.ready = true
+        for (const queued of connection.queue.splice(0)) {
+          connection.send(queued)
+          sent += 1
+        }
+        return
+      }
+      socket.send(message)
+    })
+  })
+  return {
+    push(frame) {
+      const target = events
+      const text = JSON.stringify({ type: 'item', streamId: target?.streamId, value: frame })
+      if (target !== undefined && target.ready) {
+        target.send(text)
+        sent += 1
+        return
+      }
+      target?.queue.push(text)
+    },
+    stats: () => ({
+      connections: connections.length,
+      ready: events !== undefined && events.ready ? 1 : 0,
+      sent,
+      queued: events?.queue.length ?? 0,
+      endpoints: [...endpointsSeen],
+    }),
+  }
+}
+
+/** 等 `$events` 流就绪（页面的官方客户端连上网关并收到 ready 帧）。 */
+export async function waitForEventStream(injector: EventStreamInjector, page: Page, timeoutMs = 20_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const stats = injector.stats()
+    if (stats.ready > 0 && stats.queued === 0) return true
+    await page.waitForTimeout(150)
+  }
+  return false
+}
+
+/** 一帧官方 `$events` 流上的广播事件（会话状态推进用）。 */
+export function emit(event: string, args: unknown[]): Record<string, unknown> {
+  return { type: 'emit', event, args }
+}

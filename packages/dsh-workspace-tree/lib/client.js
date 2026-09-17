@@ -465,6 +465,12 @@ function tagGroupCounts(sessions, isUnread) {
   return { pending, running, unread };
 }
 
+// src/pure/sessionOwnership.ts
+var SESSION_ALREADY_OWNED_ERROR_NAME = "SessionAlreadyOwnedError";
+function isSessionAlreadyOwnedError(message) {
+  return typeof message === "string" && message.includes(SESSION_ALREADY_OWNED_ERROR_NAME);
+}
+
 // src/pure/hostCallError.ts
 function isHostCallError(value) {
   return typeof value === "object" && value !== null && typeof value.code === "string" && typeof value.message === "string";
@@ -849,6 +855,8 @@ var ZH = {
   "copied.folderRef": "\u5DF2\u590D\u5236\u6587\u4EF6\u5939\u5F15\u7528",
   "copied.path": "\u5DF2\u590D\u5236\u8DEF\u5F84",
   "copy.failed": "\u590D\u5236\u5931\u8D25",
+  // #145：会话被另一个 dsh 进程占着写句柄（官方单写者约束），这里用不了。
+  "session.ownedElsewhere": "\u8BE5\u4F1A\u8BDD\u6B63\u88AB\u53E6\u4E00\u4E2A dsh \u5360\u7528\uFF0C\u8FD9\u91CC\u6682\u65F6\u4E0D\u80FD\u6253\u5F00\uFF1A\u5148\u5728\u90A3\u8FB9\u5173\u6389\u5B83\u518D\u56DE\u6765",
   "menu.pin": "\u7F6E\u9876",
   "menu.unpin": "\u53D6\u6D88\u7F6E\u9876",
   "menu.markUnread": "\u6807\u4E3A\u672A\u8BFB",
@@ -1051,6 +1059,8 @@ var EN = {
   "copied.folderRef": "Folder reference copied",
   "copied.path": "Path copied",
   "copy.failed": "Copy failed",
+  // #145：会话被另一个 dsh 进程占着写句柄（官方单写者约束），这里用不了。
+  "session.ownedElsewhere": "Another dsh has this session open, so it cannot be opened here: close it there first",
   "menu.pin": "Pin",
   "menu.unpin": "Unpin",
   "menu.markUnread": "Mark as unread",
@@ -1683,6 +1693,18 @@ function RecycleEntry({ wide = true, t, useSessions, useWorkspaces }) {
   );
 }
 
+// src/ui/assembly/shell/workspaceTree/sessionOwnedNotice.ts
+var listeners4 = /* @__PURE__ */ new Set();
+function reportSessionOwnedElsewhere(sessionId) {
+  for (const listener of [...listeners4]) listener(sessionId);
+}
+function onSessionOwnedElsewhere(listener) {
+  listeners4.add(listener);
+  return () => {
+    listeners4.delete(listener);
+  };
+}
+
 // src/ui/assembly/shell/workspaceTree/tree.ts
 var import_react13 = require("react");
 var import_dsh_client_ui_primitives10 = require("@deepseek-ai/dsh-client-ui-primitives");
@@ -1774,26 +1796,26 @@ function pageStorage() {
 // src/ui/assembly/shell/workspaceTree/flash.ts
 var import_react4 = require("react");
 var FLASH_MS = 2200;
-var listeners4 = /* @__PURE__ */ new Set();
-function flashTip(message) {
-  for (const listener of [...listeners4]) listener(message);
+var listeners5 = /* @__PURE__ */ new Set();
+function flashTip(message, ms = FLASH_MS) {
+  for (const listener of [...listeners5]) listener({ message, ms });
 }
 function FlashHost() {
   const [state, setState] = (0, import_react4.useState)(null);
   (0, import_react4.useEffect)(() => {
     let seq = 0;
-    const listener = (message) => {
+    const listener = (notice) => {
       seq += 1;
-      setState({ message, seq });
+      setState({ notice, seq });
     };
-    listeners4.add(listener);
+    listeners5.add(listener);
     return () => {
-      listeners4.delete(listener);
+      listeners5.delete(listener);
     };
   }, []);
   (0, import_react4.useEffect)(() => {
     if (state === null) return;
-    const timer = setTimeout(() => setState(null), FLASH_MS);
+    const timer = setTimeout(() => setState(null), state.notice.ms);
     return () => clearTimeout(timer);
   }, [state?.seq]);
   if (state === null) return null;
@@ -1804,7 +1826,7 @@ function FlashHost() {
       role: "status",
       "data-dshone-tree": "flash"
     },
-    state.message
+    state.notice.message
   );
 }
 
@@ -1875,17 +1897,17 @@ var import_dsh_client_ui_primitives5 = require("@deepseek-ai/dsh-client-ui-primi
 // src/ui/assembly/shell/workspaceTree/selection.ts
 var import_react6 = require("react");
 var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
-var listeners5 = /* @__PURE__ */ new Set();
+var listeners6 = /* @__PURE__ */ new Set();
 var selectionEntrySignal = {
   /** 进入多选（任何入口都调这一个；调用即清空上一轮勾选）。 */
   enter() {
-    for (const listener of [...listeners5]) listener();
+    for (const listener of [...listeners6]) listener();
   },
   /** 树主组件挂载时订阅入口请求（返回退订）。 */
   subscribe(listener) {
-    listeners5.add(listener);
+    listeners6.add(listener);
     return () => {
-      listeners5.delete(listener);
+      listeners6.delete(listener);
     };
   }
 };
@@ -4924,6 +4946,7 @@ function WorkspaceTree(props) {
     setSelectionError(null);
   };
   (0, import_react13.useEffect)(() => selectionEntrySignal.subscribe(() => enterSelection()), []);
+  (0, import_react13.useEffect)(() => onSessionOwnedElsewhere(() => flashTip(tr("session.ownedElsewhere"), 6e3)), [tr]);
   const errorText = (reason) => reason instanceof Error ? reason.message : String(reason);
   const reportFailure = (key, reason) => {
     flashTip(tr(key, { message: errorText(reason) }));
@@ -5677,6 +5700,17 @@ function apply(ctx) {
   const workspaces = ctx.get("workspaces");
   const caps = hostCapabilities(ctx);
   const uiWorkspace = () => ctx.get("uiWorkspace");
+  ctx.effect(() => {
+    const remote = ctx.get("remote");
+    const off = remote?.$on?.("api-session/error", (sessionId, message) => {
+      if (typeof sessionId !== "string" || sessionId === "") return;
+      if (!isSessionAlreadyOwnedError(message)) return;
+      reportSessionOwnedElsewhere(sessionId);
+    });
+    return () => {
+      off?.();
+    };
+  }, "dsh-one workspace tree: session write-handle conflicts");
   configureRecycleBin({
     capabilities: caps,
     archiveSession: async (sessionId) => {

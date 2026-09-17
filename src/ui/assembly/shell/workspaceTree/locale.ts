@@ -143,6 +143,9 @@ export const ZH: Record<string, string> = {
   'copied.folderRef': '\u5df2\u590d\u5236\u6587\u4ef6\u5939\u5f15\u7528',
   'copied.path': '\u5df2\u590d\u5236\u8def\u5f84',
   'copy.failed': '\u590d\u5236\u5931\u8d25',
+  // #145：会话被另一个 dsh 进程占着写句柄（官方单写者约束），这里用不了。
+  'session.ownedElsewhere':
+    '\u8BE5\u4F1A\u8BDD\u6B63\u88AB\u53E6\u4E00\u4E2A dsh \u5360\u7528\uFF0C\u8FD9\u91CC\u6682\u65F6\u4E0D\u80FD\u6253\u5F00\uFF1A\u5148\u5728\u90A3\u8FB9\u5173\u6389\u5B83\u518D\u56DE\u6765',
   'menu.pin': '\u7f6e\u9876',
   'menu.unpin': '\u53d6\u6d88\u7f6e\u9876',
   'menu.markUnread': '\u6807\u4e3a\u672a\u8bfb',
@@ -348,6 +351,9 @@ export const EN: Record<string, string> = {
   'copied.folderRef': 'Folder reference copied',
   'copied.path': 'Path copied',
   'copy.failed': 'Copy failed',
+  // #145：会话被另一个 dsh 进程占着写句柄（官方单写者约束），这里用不了。
+  'session.ownedElsewhere':
+    'Another dsh has this session open, so it cannot be opened here: close it there first',
   'menu.pin': 'Pin',
   'menu.unpin': 'Unpin',
   'menu.markUnread': 'Mark as unread',

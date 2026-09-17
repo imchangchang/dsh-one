@@ -50,6 +50,7 @@ import {
 import type { TagColor } from '../../../../pure/sessionTags.ts'
 import type { GroupFile } from '../../../../pure/dshStateFile.ts'
 import { FlashHost, flashTip } from './flash.ts'
+import { onSessionOwnedElsewhere } from './sessionOwnedNotice.ts'
 import { displayTitle } from './format.ts'
 import { TAG_MENU_PREFIX, newGroupId, newTagGroupId } from './groups.ts'
 import { useHoverCardRoom } from './hoverCard.ts'
@@ -668,6 +669,11 @@ export function WorkspaceTree(props: TreeProps): unknown {
   // 进入多选的入口 API（`selection.ts` 的 `selectionEntrySignal`）：顶部工具栏那一枚与
   // 会话行菜单的「选择多个」（本体在「菜单补全」那条）都调它，选择态只有这一个入口。
   useEffect(() => selectionEntrySignal.subscribe(() => enterSelection()), [])
+
+  // #145：会话被另一个 dsh 进程占着写句柄时给一条能行动的提示（订阅装在插件 apply 里，
+  // 见 `workspaceTreePlugin.ts` 那一节；这里只负责显示）。停留时长比动作回执长：这是一句
+  // 要人行动的完整话，2.2 秒读不完。
+  useEffect(() => onSessionOwnedElsewhere(() => flashTip(tr('session.ownedElsewhere'), 6000)), [tr])
 
   const errorText = (reason: unknown): string => (reason instanceof Error ? reason.message : String(reason))
 

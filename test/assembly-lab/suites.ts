@@ -51,6 +51,7 @@ import { PENDING_DOT_SUITE } from './pendingDotSuites.ts'
 import { TOPBAR_RIGHT_INSET_SUITE } from './topbarRightInsetSuites.ts'
 import { STATUS_DOT_SUITE } from './statusDotSuites.ts'
 import { RECYCLE_DRAWER_ROW_SUITE } from './recycleDrawerRowSuites.ts'
+import { SESSION_OWNED_SUITE } from './sessionOwnedSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6099,4 +6100,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #144 回收站抽屉的块头与行尾动作（F-45：F-01…F-44 与 R-06 已占，F-46 归 #146，
   // 按「从未占用的继续」顺延；套件本体在 recycleDrawerRowSuites.ts，同为独立文件）。
   RECYCLE_DRAWER_ROW_SUITE,
+  // #145 会话被另一个 dsh 进程占着写句柄时的可见提示（F-47：F-44 归 #142、F-45 归 #144、
+  // F-46 归 #146，按「从未占用的继续」顺延；套件本体在 sessionOwnedSuites.ts，同为独立文件）。
+  SESSION_OWNED_SUITE,
 ]

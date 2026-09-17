@@ -10,11 +10,22 @@ import { createElement as h, useEffect, useState } from 'react'
 /** 提示停留时长（毫秒）。 */
 const FLASH_MS = 2200
 
-const listeners = new Set<(message: string) => void>()
+/** 一条提示：文案 + 停留时长（缺省 2.2 秒）。 */
+interface FlashNotice {
+  message: string
+  ms: number
+}
 
-/** 飘一条提示（同一条文案连续发也各飘一次）。 */
-export function flashTip(message: string): void {
-  for (const listener of [...listeners]) listener(message)
+const listeners = new Set<(notice: FlashNotice) => void>()
+
+/**
+ * 飘一条提示（同一条文案连续发也各飘一次）。
+ *
+ * `ms` 只给需要读一回事的提示（#145 的「会话被另一个 dsh 占用」是一条要人行动的句子，
+ * 2.2 秒读不完），缺省仍是 2.2 秒——动作回执那几条的时长被套件钉着，不能跟着变。
+ */
+export function flashTip(message: string, ms: number = FLASH_MS): void {
+  for (const listener of [...listeners]) listener({ message, ms })
 }
 
 /**
@@ -22,12 +33,12 @@ export function flashTip(message: string): void {
  * 文案变化时重置计时（新的提示从零开始计时）。
  */
 export function FlashHost(): unknown {
-  const [state, setState] = useState<{ message: string; seq: number } | null>(null)
+  const [state, setState] = useState<{ notice: FlashNotice; seq: number } | null>(null)
   useEffect(() => {
     let seq = 0
-    const listener = (message: string): void => {
+    const listener = (notice: FlashNotice): void => {
       seq += 1
-      setState({ message, seq })
+      setState({ notice, seq })
     }
     listeners.add(listener)
     return () => {
@@ -36,7 +47,7 @@ export function FlashHost(): unknown {
   }, [])
   useEffect(() => {
     if (state === null) return
-    const timer = setTimeout(() => setState(null), FLASH_MS)
+    const timer = setTimeout(() => setState(null), state.notice.ms)
     return () => clearTimeout(timer)
   }, [state?.seq])
   if (state === null) return null
@@ -47,6 +58,6 @@ export function FlashHost(): unknown {
       role: 'status',
       'data-dshone-tree': 'flash',
     },
-    state.message,
+    state.notice.message,
   )
 }
