@@ -27,6 +27,7 @@ import {
   deleteGroup,
   removeGroupId,
   renameGroup,
+  reorderGroups,
   setWorkspaceGroupIds,
   type WorkspaceGroupDef,
 } from './workspaceGroups.ts'
@@ -76,6 +77,17 @@ export function deleteTreeGroup(file: GroupFile, id: string): GroupFile | null {
   const groups = deleteGroup(file.groups, id)
   if (groups === null) return null
   return { ...file, groups, membership: removeGroupId(file.membership, id) }
+}
+
+/**
+ * 按拖拽交出的完整顺序重排分组（#155）：判定全部在 {@link reorderGroups} 里（这一层
+ * 只把它的结果装回文件），**顺序没变或请求无效都给 null**——调用方据此跳过落盘，
+ * 所以「拖回原位」不会产生一次写入。
+ */
+export function reorderTreeGroups(file: GroupFile, groupIds: readonly string[]): GroupFile | null {
+  const groups = reorderGroups(file.groups, groupIds)
+  if (groups === null) return null
+  return { ...file, groups }
 }
 
 /** 把工作区加入/移出一个分组；无变化返回 null。 */

@@ -10,6 +10,19 @@ export const GROUP_MENU_PREFIX = 'group:'
 export const TAG_MENU_PREFIX = 'tag:'
 
 /**
+ * 「管理分组…」里拖组行换顺序的载荷类型（#155）。
+ *
+ * 与 `tagGroups.ts` 的 `text/dsh-session` / `text/dsh-tag` 同一套做法（为什么用自定义
+ * MIME 而不是 `text/plain`，理由写在那个文件头：拖拽过程中 `dataTransfer.types` 就能
+ * 分辨载荷）。它**必须**与 `text/dsh-tag` 分开：那一条说的是「某个工作区里的标签组」，
+ * 本处说的是全局的工作区分组，两者在同一页上同时活着——共用一个载荷名会让标签组的
+ * 落点判定把组行认成自己的目标。
+ *
+ * 旧侧栏的管理视图用指针事件换序（没有载荷名），所以这是第一个只属于分组的 MIME。
+ */
+export const GROUP_DRAG_MIME = 'text/dsh-group'
+
+/**
  * 新建标签组的 id：`t-<uuid>`——与旧侧栏建标签组时的形态一字不差（旧文件里现存的
  * 自建组就是 `t-...` 这种 id，新老混在一份归属表里不会互相认错）。
  */

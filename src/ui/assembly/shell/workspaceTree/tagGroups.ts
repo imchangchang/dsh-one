@@ -148,8 +148,9 @@ export function tagGroupMenuItems(opts: {
   ]
 }
 
-/** 最小拖拽事件面（React 的合成事件与原生事件都满足它）。 */
-interface DragLike {
+/** 最小拖拽事件面（React 的合成事件与原生事件都满足它）。**与「管理分组…」的组行拖拽
+ *  共用**（#155）：那个对话框里拖组行的判定就是这一套，不另写一份。 */
+export interface DragLike {
   dataTransfer: { types: readonly string[]; getData(type: string): string; setData(type: string, value: string): void; dropEffect?: string; effectAllowed?: string } | null
   clientY: number
   /** 拖出时指针要去的地方：用它区分「真的离开这块」与「只是从子元素间穿过」。 */
@@ -165,12 +166,13 @@ interface DragLike {
  * `dragenter`/`dragleave` 会在**子元素之间**反复触发（指针从组头移到组内行也算一次
  * 离开），直接照单全收会让高亮闪个不停；所以指针要去的地方还在容器里就当没离开。
  */
-function leavingContainer(event: DragLike): boolean {
+export function leavingContainer(event: DragLike): boolean {
   const related = event.relatedTarget ?? null
   return related === null || !event.currentTarget.contains(related)
 }
 
-function carries(event: DragLike, mime: string): boolean {
+/** 这一下拖拽带的是不是某种我们自己的载荷（`dataTransfer.types` 就能分辨）。 */
+export function carries(event: DragLike, mime: string): boolean {
   return event.dataTransfer?.types.includes(mime) === true
 }
 

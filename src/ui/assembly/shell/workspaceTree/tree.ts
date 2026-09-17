@@ -19,6 +19,7 @@ import {
   emptyTreeGroups,
   hasTreeGroup,
   renameTreeGroup,
+  reorderTreeGroups,
   setWorkspacesGroupMembership,
   toggleWorkspaceGroup,
   treeGroupDefs,
@@ -622,6 +623,16 @@ export function WorkspaceTree(props: TreeProps): unknown {
     if (next !== null) writeGroups(next)
     // 删掉的正是当前过滤的分组 → 过滤回落「全部」。
     setPrefs((prev) => (prev.activeGroupId === groupId ? { ...prev, activeGroupId: null } : prev))
+  }
+
+  /**
+   * #155 拖组行换顺序：管理框交出的一份**完整顺序**在这里落盘。判定（未知 id、缺项、
+   * 与现序一致）全在纯函数里（`reorderGroups`），所以「拖回原位」走不到 `writeGroups`
+   * ——一次写入都不会发生。这条与前三条共用同一个落盘口（`writeGroups`），不多一条。
+   */
+  const applyGroupReorder = (groupIds: readonly string[]): void => {
+    const next = reorderTreeGroups(groupsFile, groupIds)
+    if (next !== null) writeGroups(next)
   }
 
   /**
@@ -1585,6 +1596,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
         setGroupError(null)
         setGroupDialog({ kind: 'rename', id: groupId, name })
       },
+      onReorder: applyGroupReorder,
       onDelete: (groupId: string, name: string) => {
         setManageGroupsOpen(false)
         setGroupError(null)

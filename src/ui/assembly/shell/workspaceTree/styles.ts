@@ -332,6 +332,11 @@ export const SCALE_EXEMPT: readonly { selector: string; reason: string }[] = [
   // 算式与出处写在 `SCALE_TIERS` 上方那张注释表的「选中态勾选框的缩进」一条、以及
   // 那条规则上方。
   { selector: 'dshOneTree_checkIndent', reason: 'select-mode check indent (#133): 22px = standard icon slot 16px + compact row gap 6px, i.e. the workspace row own checkbox column, a nesting offset no official component has a tier for' },
+  // 管理分组对话框里的组行抓手（#155）：16×24 与那 6 点把手形状整套取自旧侧栏管理视图的
+  // `.wsg-row-handle`——自定义分组是旧侧栏的形态，官方侧栏里没有同族件（它没有分组这一层），
+  // 档位表里也就没有能当出处的量。同一族里另外两条（落点标记与源行半透明）没有档位属性，
+  // 不需要登记。
+  { selector: 'dshOneTree_manageHandle', reason: 'group-row drag handle (#155): 16x24 and the 6-dot grip are the old sidebar own handle box (.wsg-row-handle); custom workspace groups have no official counterpart to take a tier value from' },
 ]
 // 导出给断言用（test/sidebarStyleScale.test.ts 直接拿这段字符串做表驱动扫描：档位表与
 // 样式是同一份源码里的两个东西，读实体比扫源码文本稳）。
@@ -451,6 +456,15 @@ export const CSS =
   '.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:var(--dsh-one-density-row-height,34px)}' +
   '.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}' +
   '.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}' +
+  // #155 拖动中的源行半透明（旧侧栏 `.session-row.dragging{opacity:.45}` 的那个值）。
+  //
+  // 为什么照旧侧栏补、而不是照官方：**官方侧栏拖会话时源行在 DOM 上一点不变**——它只在
+  // 悬停那一行画落点插入线（`Rows.module.css` 的 `_dropBefore:before` / `_dropAfter:after`，
+  // 两个伪元素），源行的类名串里没有任何拖拽态；用户看到的「拖起来的东西」是浏览器给原生
+  // 拖拽画的那份半透明拖影（官方也没有 `setDragImage`）。我们的装配树用的是同一套原生拖拽、
+  // 也就有那份拖影，但旧侧栏是自绘拖拽（没有拖影），所以它把源行压淡来给「这一行被拿起来了」
+  // 的反馈——用户认的是那个形态，本条照旧侧栏补上，与官方那套不冲突（拖影 + 源行淡）。
+  '.dshOneTree_dragging{opacity:.45}' +
   '.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}' +
   // #115 行内改名的输入框：占标题那一格（同一份外边距与字号，行几何不动），选区要高亮
   // 所以 user-select 要显式放开（整行是 user-select:none）。高度走标题行高（密度档），
@@ -712,6 +726,20 @@ export const CSS =
   // 留白里，再叠一份会让名字比上方的标题与输入框更靠右（三者左缘要对齐）。
   '.dshOneTree_manageList{max-height:240px;overflow-y:auto}' +
   '.dshOneTree_manageRow{align-items:center;gap:6px;height:26px;display:flex}' +
+  // #155 组行抓手与落点标记：**整套取旧侧栏管理视图的规格**（那一层是这个功能的正本，
+  // 官方侧栏没有「自定义分组」这个东西，也就没有同族件可当出处）——抓手 16×24 与
+  // 6 点把手形状取自 `.wsg-row-handle`（`sessionsView.ts`），`cursor` 两态取自它
+  //（`cursor:grab` / `:active{cursor:grabbing}`），拖动中的源行 .55 取自 `.wsg-row.dragging`。
+  // 抓手这一条因此登记在 `SCALE_EXEMPT` 里（16×24 不是档位表里的量）。
+  '.dshOneTree_manageHandle{cursor:grab;width:16px;height:24px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}' +
+  '.dshOneTree_manageHandle:active{cursor:grabbing}' +
+  '.dshOneTree_manageRowDragging{opacity:.55}' +
+  // 落点标记 = 行上/下沿一条 2px 实线，颜色取官方那条插入线的 token
+  //（官方侧栏拖会话时画的就是它：`Rows.module.css` 的 `dropBefore`/`dropAfter` 用
+  // `--dsw-alias-state-business-primary`）；画法与本页 pill 拖拽的落点标记同一手
+  //（向外 2px 的 box-shadow，不占布局），只是颜色取官方 token 而不是组色。
+  '.dshOneTree_manageRow[data-dshone-group-drop="before"]{box-shadow:0 -2px 0 0 var(--dsw-alias-state-business-primary)}' +
+  '.dshOneTree_manageRow[data-dshone-group-drop="after"]{box-shadow:0 2px 0 0 var(--dsw-alias-state-business-primary)}' +
   // 分组名本身就是进成员清单的入口（#139）：当按钮使，几何逐字沿用原来那个 span
   //（同一行里的文字：紧凑档字号 12px / 行高 18px，仍是 F-34 量到的那一项），只是把
   // 浏览器给按钮的默认外观清掉（背景 / 边框 / 内边距 / 字体族）。
