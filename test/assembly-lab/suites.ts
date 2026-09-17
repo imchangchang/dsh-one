@@ -43,6 +43,7 @@ import { TOPBAR_INLINE_SUITE } from './topbarInlineSuites.ts'
 import { SEARCH_COLLAPSE_SUITE } from './searchCollapseSuites.ts'
 import { ROW_TIER_SUITE } from './rowTierSuites.ts'
 import { RECYCLE_ENTRY_ALIGN_SUITE } from './recycleEntryAlignSuites.ts'
+import { ROW_ACTIVITY_SUITE } from './rowActivitySuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6034,4 +6035,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // F-37 归 #134，按「从未占用的继续」顺延；套件本体在 recycleEntryAlignSuites.ts，
   // 同为独立文件，少一处合入热点）。
   RECYCLE_ENTRY_ALIGN_SUITE,
+  // #138 工作区行的活状态计数跟着标题文字走 + vscode 胶囊收紧一档（F-39：F-01…F-38 与 R-06
+  // 已被占用，按「从未占用的继续」取当时最小的未占用号；套件本体在 rowActivitySuites.ts，
+  // 同为独立文件，少一处合入热点）。
+  ROW_ACTIVITY_SUITE,
 ]

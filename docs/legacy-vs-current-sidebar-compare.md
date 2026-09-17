@@ -109,7 +109,7 @@
 | 状态点位置 | **行尾**固定 16px 槽：`sessionsWebview.ts:472-480`、`2446-2449` | **行首** 16×20 的 slot：`styles.ts:298`、`rows.ts:1211-1215` | 不同 |
 | 状态点尺寸与动画 | 绿/黄点 6px、运行中自绘 10px 像素环：`sessionsView.ts:453-470` | 官方 `StateDot`（默认 10px，出处 `docs/dsh-web-workflow-run-card-research.md:76`；`rows.ts:211` 未传 size） | 不同（点从 6px 变 10px） |
 | 状态点与时间的关系 | 互斥（有标记就不显示时间）：`sessionsWebview.ts:2443-2449` | 同时显示，hover 时时间让位给 ⋯：`rows.ts:1224-1230`、`styles.ts:315` | 不同 |
-| 工作区行尾计数 | **三项**（待交互 / 运行中 / 未读），10px 小字 + 点或环图标：`sessionsWebview.ts:1839-1855`、`sessionsView.ts:418-420` | **两项**（运行中 / 等待交互），官方 `StateDot` + 数字，绝对定位在行尾：`rows.ts:1416-1439`、`styles.ts:391` | 缺（少了「未读」这一项计数） |
+| 工作区行的计数 | **三项**（待交互 / 运行中 / 未读），10px 小字 + 点或环图标：`sessionsWebview.ts:1839-1855`、`sessionsView.ts:418-420` | **两项**（运行中 / 等待交互），官方 `StateDot` + 数字，**跟在工作区标题文字之后**（#138 起；此前绝对定位在行尾）：`rows.ts` 的 `ProjectRow` / `ActivityBadge` | 缺（少了「未读」这一项计数） |
 | 标签组折叠态计数（待交互 / 运行中 / 未读） | `sessionsWebview.ts:1956-1971` | `pure/sessionTagGroups.ts:381-390` + `tagGroups.ts:339-371` | 一致 |
 | 活跃定时任务标记（闹钟） | 无 | `rows.ts:274-287`（官方 `hasActiveSchedule`，树里与搜索结果行都有） | 现在更好（官方能力保留下来了） |
 | 未读：绿点 + 标题加粗 | `sessionsWebview.ts:2404`、`2438`、`sessionsView.ts:471` | `pure/workspaceTreeView.ts:436`、`rows.ts:1221`、`styles.ts:417-418` | 一致 |
@@ -258,7 +258,7 @@
 | 行内动作按钮 | 20×20、圆角 3px（`sessionsView.ts:496-500`） | `.dshOneTree_rowIconButton` 16×16、圆角 4px（`styles.ts:318`；档位表记名 `styles.ts:147-148`） | 不同（按钮变小 4px） |
 | 状态点尺寸 | 绿 / 黄点 6px（`sessionsView.ts:464-466`）；运行中自绘 10px 像素环（`sessionsView.ts:453-461`；画法由共享模块承担，见 `sessionsWebview.ts:476-482`） | 官方 `StateDot`，默认 10px（出处 `docs/dsh-web-workflow-run-card-research.md:76`；`rows.ts:211` 未传 size） | 不同（6px → 10px） |
 | 分组过滤胶囊尺寸 | 高约 23px（`padding: 3px 9px 3px 8px` + 12px 字，无显式行高）：`sessionsView.ts:96-103`；计数角标 11px / 16px 行高 / 圆角 999px（`116-120`） | `pill-height`：28px / 26px、`pill-font-size`：13px / 12px、`pill-padding-start`：8px / 7px、`pill-padding-end`：4px / 2px（`sidebarFramePlugin.ts:176-179`；消费点 `styles.ts:353`）；圆角 999px 取容器档（`styles.ts:188`） | 不同（高度显式化，两侧都比旧值高） |
-| 工作区行尾「宿主」小胶囊 | 10px 字、`padding: 0 7px`、圆角 999px（`sessionsView.ts:422-427`） | `.dshOneTree_workspaceBadge` 20px 高 / 圆角 10px / 11px 字（`styles.ts:400`，取官方小状态胶囊，档位表记名 `styles.ts:178-181`） | 不同（旧是自定值，现取官方同形件） |
+| 工作区行「宿主」小胶囊 | 10px 字、`padding: 0 7px`、圆角 999px（`sessionsView.ts:422-427`） | `.dshOneTree_workspaceBadge` 16px 高 / 圆角 10px / 11px 字 / 内边距 `0 4px`（`styles.ts` 的规则上方逐项写了取的哪一档：高取标准档行内图标按钮的 16px、圆角取容器档小胶囊、字号取标准档小胶囊、内边距取标准档胶囊触发器；#138 从 20px 高收紧一档） | 不同（旧是自定值，现取官方同形件的档） |
 | 抽屉尺寸 | 默认 50%、上拉 90%（`sessionsWebview.ts:2612-2613`）；提手 16px 高、把手 36×4 / 圆角 2px（`sessionsView.ts:314-322`） | 默认 50% / 90%（`recycleDrawer.ts:42-43`、`238`）；提手 12px、把手 32×3 / 圆角 2px（`styles.ts:462-464`）；过渡时长与缓动取官方 token（`styles.ts:453`） | 不同（提手与把手都缩小一档） |
 | 回收站入口行 | 行高由 `padding: 7px 4px 7px 14px` + 12px 字撑出（`sessionsView.ts:334-339`）；行内图标按钮 26×26（`341`）；行盒吃满宽度、标签吃满余量（`344`） | **#137 起整套按旧侧栏规格取定值**（不再走密度档）：行盒吃满宽度、右侧 8px，主区 `7px 4px 7px <行内容基准>`，计数胶囊 10px/16px 行高/圆角 8px/内边距 `0 5px`，动作按钮 26×26（`styles.ts:394-418`）；行高由内边距 + 标题档行高撑出 34px；`footer-row-height` 密度键随本条退场（`sidebarFramePlugin.ts:200-205`） | 基本一致（两处刻意不同：左内边距走 #125 的行内容基准、按钮形状仍是官方圆形） |
 | 空态字号与内边距 | 主行 12px、次要行 11px、内边距 `20px 12px`（`sessionsView.ts:503-508`） | `.dshOneTree_empty` 13px、内边距 `16px 12px`（`styles.ts:261`，取官方 `empty` 那一条的同值） | 不同 |
@@ -286,7 +286,7 @@
 6. **dsh 未安装 / 服务未启动的空态换了位置**：旧的在侧栏面板里（`sessionsWebview.ts:1726-1751`），现在是宿主侧的状态页（`sidebarStatusPage.ts:26-51`）；旧面板里那块「一键安装脚本」（平台下拉 + 命令条 + 复制）现在搬到安装指南页（`src/pure/installGuidePage.ts:333`、`292-315`）。→ **保持现状**（未安装时网关起不来，装配页组装不了，状态页必须在宿主侧渲染，理由写在 `sidebarStatus.ts:1-12`）。
 7. **整套菜单与行的密度收紧了**：菜单项 30px → 官方 compact 档 26px、圆角 8px → 5px、行内边距 10px → 7px；行家族（工作区行 / 会话行 / 抽屉会话行 / 搜索结果行）取官方侧栏原值——工作区行 34px、会话行 32px、圆角 8px、行内边距 8px、标题 14px/20px（#134 用户拍板：行参考官方侧栏自己的尺寸）。→ **保持现状**（这是 #113 定下、#134 收口的口径：要么官方标准档、要么官方紧凑档，不再有自造中间值；菜单一侧仍取紧凑档）。
 8. **重命名 / 删除的弹窗形态**：会话改名、工作区改名、标签组改名、删除工作区、删除标签组，旧的走 VS Code 原生 `showInputBox` / `showWarningMessage`，现在全在面板内用官方 Modal（`modals.ts` 全篇）。→ **保持现状**（可移植与两端一致的要求；如果用户更认原生框，可另立条目）。
-9. **工作区行尾的计数少了「未读」一项**：旧的是三项（待交互 / 运行中 / 未读，`sessionsWebview.ts:1839-1855`），现在只有运行中与等待交互两项（`rows.ts:1416-1439`）。→ **建议改**（补上未读计数，或明确说不要）。
+9. **工作区行的计数少了「未读」一项**：旧的是三项（待交互 / 运行中 / 未读，`sessionsWebview.ts:1839-1855`），现在只有运行中与等待交互两项，跟在标题文字之后（`rows.ts` 的 `ProjectRow` / `ActivityBadge`）。→ **建议改**（补上未读计数，或明确说不要）。
 10. **回收站的抽屉头与行**：旧的抽屉头有「‹ 返回 / 清空 / 恢复全部」三样，现在只有标题 + 计数 + ✕（`recycleDrawer.ts:274-287`），清空与全部还原只剩底部入口行那两枚；旧的行的 ⋯ 只能在按钮或右键打开，现在按钮常显、右键入口没了（`recycleDrawer.ts:368-381`）；旧的回收站行有状态点与图钉，现在没有。→ **建议改**（至少把右键入口与状态点补回来）。
 11. **标签组 pill 的菜单**：旧的右键 pill 打开（`sessionsWebview.ts:2002-2010`），现在是组头右侧的 ⋯ 按钮（`tagGroups.ts:262-276`）；旧的「颜色」是二级子菜单（`2189-2224`），现在是同一菜单里的一节。→ **建议用户拍板**（颜色那一节现在一眼能看全，但右键盘多了一个按钮）。
 12. **排序少了「活跃会话前置」这一层**：旧的在每个工作区里先把运行中 / 有后代在跑 / 未读 / 待交互的会话提到前面（`pure/sessionTree.ts:337-380`），现在只有「置顶最前」，其余保持官方顺序（#131 起不再有「最近更新」那一档，`tree.ts:520-523`）。另外旧置顶项之间按置顶的先后排，现在按官方顺序排。→ **建议用户拍板**（旧行为更利于「先看有事要处理的」）。
