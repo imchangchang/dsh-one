@@ -200,11 +200,10 @@ export class Check {
 /**
  * 整轮页面发出的 `/api/<method>` 计数（#177 的信息性观测，同时服务 #175）。
  *
- * 记法：**每一页**开页时在这一页上装一条路由（口径见 {@link OBSERVED_REQUEST}），把
- * `/api/` 后面那段路径记下、再 `fallback()` 交下去（**必须 fallback 而不是 continue**：
- * 页内数据集夹具挂在上下文那一层，`continue` 会让请求直接出网、夹具再也接不到）。
- * 两条读法都在：被夹具就地接住的那些（例如 `session/create`）**也**记一笔——所以这份
- * 计数是「页面发出去的」，不是「网关收到的」，报告里按这个口径说。
+ * 记法：**每一页**开页时听这一页的 `request` 事件（见 `observePageRequests`），把 `/api/`
+ * 后面那段路径记一笔。因为是听事件、不是挂路由，**被夹具就地接住的那些也照记**
+ * （例如 F-58 拦住 `directoryPicker/pick` 那一条）——所以这份计数是「页面发出去的」，
+ * 不是「网关收到的」，报告里按这个口径说。
  */
 const apiMethods = new Map<string, number>()
 
@@ -248,7 +247,7 @@ export interface NativeSideEffectRoute {
  * **注意第一条不在 `/api/` 下**：官方 `open-in-app` 的启动动作是页面拿 `hostBase()`
  * 裸 fetch 的一个顶层路由（`POST /open-in-app/open`），它不走 connection 的 `/api/<endpoint>`
  * 那条 RPC 通道。只扫 `/api/**` 的观测会把它整个漏掉——而它恰恰是 #163 的现场
- * （每跑一轮整轮在用户桌面上拉起一次访达），所以 {@link OBSERVED_REQUEST} 把
+ * （每跑一轮整轮在用户桌面上拉起一次访达），所以 `observePageRequests` 把
  * `/api/**` 与这份清单并起来扫。
  *
  * 清单怎么来的：把本机装着的官方 dsh（`@deepseek-ai/dsh@0.1.6-alpha.1`）里
@@ -344,20 +343,16 @@ export function resetApiMethodCounts(): void {
 }
 
 /**
- * 观测哪一类请求：`/api/**`（整轮的方法清单，报告里那一节）+ {@link NATIVE_SIDE_EFFECT_ROUTES}
- * 里那几条（不在 `/api/` 下的顶层路由也在内）。
- *
  * 为什么观测点装在**页**上而不是上下文上（#175）：上下文那一层挡不住「套件自己
  * `newPage()` 开的页」——官方页（`ctx.lab.gateway + '/'`）、`/official` 页、几个
  * 裸上下文里造的页都不经过 `openTreePage`，而原生副作用恰恰最可能从这些页上发出来。
  * 装在页上之后，**任何**上下文里开出来的**任何**一页都被扫到（`launchBrowser` 把
  * `newContext` / `newPage` 都包了一层，套件照样直接 `browser.newContext()`）。
  *
- * 为什么同时保留 `/api/**` 这一档：R-06 要「整轮零请求打到实例之外」逐个记源，
- * 那份读数就是这里记的。
+ * 记的是两类：`/api/**`（整轮的方法清单，报告里那一节；R-06 的「整轮零请求打到实例之外」
+ * 也靠这里逐个记源）+ {@link NATIVE_SIDE_EFFECT_ROUTES} 里那几条（不在 `/api/` 下的
+ * 顶层路由也在内）。见 `observePageRequests`。
  */
-const OBSERVED_REQUEST = (url: URL): boolean =>
-  url.pathname.startsWith('/api/') || NATIVE_SIDE_EFFECT_BY_PATH.has(url.pathname)
 
 /**
  * 一次调用的**参数摘要**：只记「有哪些键、每个值是什么形状」，**字符串值不进报告**。
@@ -402,15 +397,23 @@ function summarizeRequestBody(text: string): string {
 }
 
 /**
- * 给一页装观测路由（`fallback()` 交下去，理由见 {@link apiMethods}）。
+ * 给一页装观测：听 `request` 事件，**不动请求本身**。
+ *
+ * 为什么是事件而不是 `page.route` + `fallback()`（#177 原来用的是后者）：几条套件自己
+ * 在页上挂了夹具路由（`page.route('**\/api/**', …)`，F-58 就挂着一条
+ * `**\/api/directoryPicker/pick` 用来拦住原生目录面板）。同名路由按**后注册的先跑**，
+ * 套件那条一定排在观测之后——于是夹具 `fulfill()` 掉的那些请求，观测**一条都看不见**。
+ * 那份「看不见」在观测口径下不算错（没到网关就不是打到网关），但**判据不能有这种角落**：
+ * 一条真发出、夹具又恰好没接住的调用会从缝里溜掉。`request` 事件是页面发请求那一刻就发的，
+ * 谁接住、接没接住都照发，所以观测没有一个套件能盖掉的缝。
+ *
  * 命中 {@link NATIVE_SIDE_EFFECT_ROUTES} 的记一笔——**只看 POST**：官方那两条通道都
  * 只认 POST（`/api/<endpoint>` 的桥 `if (request.method !== "POST") return 404`；
  * `open-in-app` 的宿主路由对非 POST 回 405），所以非 POST 的同名请求到不了原生动作，
  * 记成红只会变成假红。
  */
-async function observePageRequests(page: Page): Promise<void> {
-  await page.route(OBSERVED_REQUEST, async (route) => {
-    const request = route.request()
+function observePageRequests(page: Page): void {
+  page.on('request', (request) => {
     const url = new URL(request.url())
     if (url.pathname.startsWith('/api/')) {
       const method = decodeURIComponent(url.pathname.slice('/api/'.length)).split('?')[0] ?? ''
@@ -427,7 +430,6 @@ async function observePageRequests(page: Page): Promise<void> {
         detail: summarizeRequestBody(request.postData() ?? ''),
       })
     }
-    await route.fallback()
   })
 }
 
@@ -447,7 +449,7 @@ function observeEveryPage(browser: Browser): Browser {
           return async (...args: unknown[]): Promise<Page> => {
             const method = target.newPage.bind(target) as (...a: unknown[]) => Promise<Page>
             const page = await method(...args)
-            await observePageRequests(page)
+            observePageRequests(page)
             return page
           }
         }
