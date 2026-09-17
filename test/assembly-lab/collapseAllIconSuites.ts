@@ -20,10 +20,9 @@
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
-import { openTreePage, withoutKnownNoise, type OpenedPage } from './harness.ts'
+import { openTreePage, withoutKnownNoise, type OpenedPage, texts } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { COLLAPSE_ALL_BOX, COLLAPSE_ALL_GLYPHS } from '../../src/ui/assembly/shell/workspaceTree/collapseAllGlyph.ts'
-import { ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里，它就是调用方。
 import type { LabSuite } from './suites.ts'
 
@@ -156,8 +155,14 @@ async function hoverTooltip(page: OpenedPage['page']): Promise<string[]> {
   return texts
 }
 
-const collapseLabel = ZH['toolbar.collapseAll'] ?? ''
-const expandLabel = ZH['toolbar.expandAll'] ?? ''
+/**
+ * 那一枚按钮的提示文案：从插件词典读（zh / en 两份都要——页面语言是运行环境的输入，
+ * 只在日常实例上是 zh；空实例起来是 en）。判「Tooltip 里出现这条」时两种都算。
+ */
+const collapseLabels = texts('折叠所有工作区')
+const expandLabels = texts('展开所有工作区')
+const tooltipHas = (tooltips: readonly string[], labels: readonly string[]): boolean =>
+  labels.some((label) => tooltips.some((tip) => tip.includes(label)))
 
 export const COLLAPSE_ALL_ICON_SUITE: LabSuite = {
   id: 'F-25',
@@ -243,11 +248,11 @@ export const COLLAPSE_ALL_ICON_SUITE: LabSuite = {
       // ---------------------------------------------------------------------
       // ② 提示与 aria 随态翻转（与图标值、collapsed 标记四者同源）
       // ---------------------------------------------------------------------
-      check.eq('展开态下 aria-label = 折叠所有工作区', expandedState.ariaLabel, collapseLabel)
+      check.eqTexts('展开态下 aria-label = 折叠所有工作区', [expandedState.ariaLabel], ['折叠所有工作区'])
       const expandedTooltip = await hoverTooltip(page)
       check.ok(
         '展开态下 Tooltip 文案 = 折叠所有工作区',
-        expandedTooltip.includes(collapseLabel),
+        tooltipHas(expandedTooltip, collapseLabels),
         JSON.stringify(expandedTooltip),
       )
 
@@ -260,7 +265,7 @@ export const COLLAPSE_ALL_ICON_SUITE: LabSuite = {
         [collapsedState.glyph, collapsedState.collapsedAttr],
         ['plus', 'true'],
       )
-      check.eq('折叠态下 aria-label = 展开所有工作区', collapsedState.ariaLabel, expandLabel)
+      check.eqTexts('折叠态下 aria-label = 展开所有工作区', [collapsedState.ariaLabel], ['展开所有工作区'])
       check.ok(
         '全折叠态下 path@d 与插件数据逐条相同（第二笔换成了十字）',
         JSON.stringify(collapsedState.ds) === JSON.stringify([...COLLAPSE_ALL_GLYPHS.plus]),
@@ -271,13 +276,13 @@ export const COLLAPSE_ALL_ICON_SUITE: LabSuite = {
       const collapsedTooltip = await hoverTooltip(page)
       check.ok(
         '折叠态下 Tooltip 文案 = 展开所有工作区',
-        collapsedTooltip.includes(expandLabel),
+        tooltipHas(collapsedTooltip, expandLabels),
         JSON.stringify(collapsedTooltip),
       )
       check.ok(
         '两态的提示文案不是同一个（真的在翻）',
-        collapseLabel !== expandLabel && !expandedTooltip.includes(expandLabel),
-        JSON.stringify({ collapseLabel, expandLabel }),
+        collapseLabels.every((label) => !expandLabels.includes(label)) && !tooltipHas(expandedTooltip, expandLabels),
+        JSON.stringify({ collapseLabels, expandLabels }),
       )
       screenshots.push(await shot(page, 'collapse-all-icon-plus'))
 
@@ -301,10 +306,10 @@ export const COLLAPSE_ALL_ICON_SUITE: LabSuite = {
         searching.searchResults > 0 || searching.searchStatus !== '',
         JSON.stringify({ results: searching.searchResults, status: searching.searchStatus }),
       )
-      check.eq(
+      check.eqTexts(
         '搜索态下图标恒为 minus（不看那一堆工作区此刻收没收起）',
         [searching.glyph, searching.collapsedAttr, searching.ariaLabel],
-        ['minus', 'false', collapseLabel],
+        ['minus', 'false', '折叠所有工作区'],
       )
       // #135：搜索展开时动作组让位（收成零宽、不可见、不接指针），所以这一刻**点不到**它。
       // 原来那条「搜索态下点它发的也是折叠」随之退场——换成把**让位本身**钉住（那是形态的
@@ -344,10 +349,10 @@ export const COLLAPSE_ALL_ICON_SUITE: LabSuite = {
         afterSearch.actionsMarker,
         'true',
       )
-      check.eq(
+      check.eqTexts(
         'Esc 后「全收起」这个状态本身还在（图标回到 plus）',
         [afterSearch.glyph, afterSearch.collapsedAttr, afterSearch.ariaLabel],
-        ['plus', 'true', expandLabel],
+        ['plus', 'true', '展开所有工作区'],
       )
 
       // ---------------------------------------------------------------------
@@ -361,10 +366,11 @@ export const COLLAPSE_ALL_ICON_SUITE: LabSuite = {
         reExpanded.expandedRows > 0 && reExpanded.sessionRows > 0,
         JSON.stringify({ expandedRows: reExpanded.expandedRows, sessionRows: reExpanded.sessionRows }),
       )
-      check.eq('展开后图标回到 minus、提示回到「折叠所有工作区」', [reExpanded.glyph, reExpanded.ariaLabel], [
-        'minus',
-        collapseLabel,
-      ])
+      check.eqTexts(
+        '展开后图标回到 minus、提示回到「折叠所有工作区」',
+        [reExpanded.glyph, reExpanded.ariaLabel],
+        ['minus', '折叠所有工作区'],
+      )
       check.eq(
         '两次点击之间工作区行的行数不变（只动展开态，不动行集合）',
         [reExpanded.workspaceRows, beforeExpand.workspaceRows],

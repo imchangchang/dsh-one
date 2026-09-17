@@ -50,13 +50,7 @@
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from 'playwright'
-import {
-  emit,
-  installEventStreamInjector,
-  openTreePage,
-  waitForEventStream,
-  type OpenedPage,
-} from './harness.ts'
+import { emit, installEventStreamInjector, openTreePage, waitForEventStream, type OpenedPage, texts, isText } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
@@ -330,7 +324,7 @@ export const PENDING_DOT_SUITE: LabSuite = {
       check.fact(`等审批：${JSON.stringify(approvalDot)} 行状态=${approvalRow?.status ?? ''} 角标=${approvalRow?.activity ?? '无'}`)
       check.eq('等审批：行的活状态是 waiting', approvalRow?.status, 'waiting')
       check.eq('等审批：状态点 data-state=warning', approvalDot?.state, 'warning')
-      check.eq('等审批：点旁边那条读屏文案是官方那一档（等待审批）', approvalDot?.labels, ['等待审批'])
+      check.eqTexts('等审批：点旁边那条读屏文案是官方那一档（等待审批）', approvalDot?.labels, ['等待审批'])
       const warnProbe = probeOf(own.page, WARN_TOKEN)
       check.ok('等审批：解析色 = 官方 `--dsw-alias-state-warn-primary`（同一枚 token 挂探针比）', approvalDot?.color === warnProbe && warnProbe !== '', `dot=${String(approvalDot?.color)} probe=${warnProbe}`)
       screenshots.push(await shot(ctx, own.page, 'pending-dot-approval'))
@@ -357,7 +351,7 @@ export const PENDING_DOT_SUITE: LabSuite = {
         (rows) => dotOf(rows, target.id)?.state === 'warning',
       )
       check.eq('等提问：状态点 data-state=warning', dotOf(afterQuestion, target.id)?.state, 'warning')
-      check.eq('等提问：读屏文案是官方那一档（等待回答）', dotOf(afterQuestion, target.id)?.labels, ['等待回答'])
+      check.eqTexts('等提问：读屏文案是官方那一档（等待回答）', dotOf(afterQuestion, target.id)?.labels, ['等待回答'])
       check.ok(
         '等提问：解析色同样是 `--dsw-alias-state-warn-primary`（四个状态点共用同一档色）',
         dotOf(afterQuestion, target.id)?.color === warnProbe,
@@ -391,7 +385,7 @@ export const PENDING_DOT_SUITE: LabSuite = {
         (rows) => dotOf(rows, target.id)?.state === 'warning',
       )
       check.eq('计划待审：状态点 data-state=warning', dotOf(afterPlan, target.id)?.state, 'warning')
-      check.eq('计划待审：读屏文案是官方那一档（计划待审）', dotOf(afterPlan, target.id)?.labels, ['计划待审'])
+      check.eqTexts('计划待审：读屏文案是官方那一档（计划待审）', dotOf(afterPlan, target.id)?.labels, ['计划待审'])
       check.ok(
         '计划待审：解析色仍是 `--dsw-alias-state-warn-primary`（三档等待态共用同一档色）',
         dotOf(afterPlan, target.id)?.color === probeOf(own.page, WARN_TOKEN),
@@ -447,8 +441,7 @@ export const PENDING_DOT_SUITE: LabSuite = {
         `dot=${String(doneDot?.color)} probe=${doneProbe}`,
       )
       check.ok(
-        '跑完还没打开：读屏文案是官方那一档（已完成）',
-        doneDot?.labels[0] === '已完成',
+        '跑完还没打开：读屏文案是官方那一档（已完成）',isText(doneDot?.labels[0], '已完成'),
         JSON.stringify(doneDot?.labels),
       )
       check.eq('跑完还没打开：三个计数都归零时那枚角标整枚不渲染（与「等待中 1」那一态对照）', afterDone.find((row) => row.id === target.id)?.activity ?? null, null)

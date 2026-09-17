@@ -16,7 +16,7 @@
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
-import { openTreePage, withoutKnownNoise, type Check, type OpenedPage } from './harness.ts'
+import { openTreePage, withoutKnownNoise, type Check, type OpenedPage, texts, isText, hasText } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { SCALE_EXEMPT, SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
 import { sourceOf } from './scaleSuites.ts'
@@ -349,8 +349,8 @@ export const MODAL_COMPACT_SUITE: LabSuite = {
       })
       check.ok(
         '必填校验：空名时确认钮禁用（取消钮不受影响）',
-        groupCreateButtons.some((button) => button.text === '新建分组' && button.disabled) &&
-          groupCreateButtons.some((button) => button.text === '取消' && !button.disabled),
+        groupCreateButtons.some((button) =>isText(button.text, '新建分组') && button.disabled) &&
+          groupCreateButtons.some((button) =>isText(button.text, '取消') && !button.disabled),
         JSON.stringify(groupCreateButtons),
       )
       await page.fill('.dshOneTree_renameInput', 'Lab One')
@@ -358,9 +358,8 @@ export const MODAL_COMPACT_SUITE: LabSuite = {
       const duplicate = await page.evaluate(() => {
         const dialog = document.querySelector('[role="dialog"]')
         const error = dialog?.querySelector('.dshOneTree_renameError') ?? null
-        const confirm = Array.from(dialog?.querySelectorAll('.dshOneTree_modalActions button') ?? []).find(
-          (button) => (button.textContent ?? '') === '新建分组',
-        )
+        // 「确认钮」= 弹窗动作行里最后一枚（文案随页面语言变，所以按位置认，不按文字认）。
+        const confirm = Array.from(dialog?.querySelectorAll('.dshOneTree_modalActions button') ?? []).at(-1)
         return { text: error?.textContent ?? '', role: error?.getAttribute('role') ?? '', disabled: (confirm as HTMLButtonElement | undefined)?.disabled ?? false }
       })
       check.ok('必填校验：重名时错误行出现（红字、role=alert）', duplicate.text !== '' && duplicate.role === 'alert', JSON.stringify(duplicate))
@@ -539,7 +538,7 @@ export const MODAL_COMPACT_SUITE: LabSuite = {
         }
       })
       check.fact(`busy 态：确认钮文案=${JSON.stringify(busy.text)} 按钮禁用=${JSON.stringify(busy.disabled)} 夹具接到的归档请求=${String(archiveCalls)}`)
-      check.ok('busy 态：确认钮文案变成「正在归档…」', busy.text.includes('正在归档'), busy.text)
+      check.ok('busy 态：确认钮文案变成「正在归档…」', hasText(busy.text, '正在归档…'), busy.text)
       check.ok('busy 态：两枚按钮都禁用（不会重复提交、也不许中途关掉）', busy.disabled.every(Boolean) === true && busy.disabled.length === 2, JSON.stringify(busy.disabled))
       check.ok('busy 态：请求真的走了那条 RPC（夹具接住 = 没落到网关）', archiveCalls === 1, String(archiveCalls))
       // 放行夹具（回失败）：busy 结束、错误可见，再按 Esc 收场。

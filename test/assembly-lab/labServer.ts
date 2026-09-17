@@ -37,6 +37,7 @@ import { extractBootWire, extractFrontendAssets, filterWire, WORKSPACE_TREE_PLUG
 import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
 import { compare as compareSemver, parse as parseSemver } from '../../src/pure/semver.ts'
 import type { LogSink } from '../../src/log.ts'
+import type { LabDataset } from './dataset.ts'
 
 /** 版本门区间（与 ui/assemblyView.ts 同一口径：区间内不显示信息条）。 */
 const PREREQ_MIN = '0.1.2-rc.1'
@@ -124,6 +125,14 @@ export interface LabServerOptions {
   /** 0 = 随机端口。 */
   port?: number
   /**
+   * 这一轮跑法给侧栏那两棵树用的**页内数据集夹具**（#162，见 `dataset.ts`）。
+   *
+   * 由 `verify.ts` 决定：日常实例整轮**不给**（套件本来就按真实数据写，那是合入门禁）；
+   * `--empty` 那一轮给 `SIDEBAR_DATASET`（空实例上没有数据可依赖，判据必须自足）。
+   * 套件自己显式声明的 `dataset` 选项优先于这里（见 harness 的 `OpenOptions`）。
+   */
+  dataset?: LabDataset
+  /**
    * 显式指定的网关 dsh 版本。
    *
    * 为什么需要：版本本来从 `~/.dsh/dsh-owned.json` 里读（扩展 spawn/adopt 的实例都
@@ -154,6 +163,8 @@ export interface LabServer {
   readonly token: string
   /** 网关 dsh 版本（来自 dsh-owned.json，取不到 undefined）。 */
   readonly dshVersion?: string
+  /** 这一轮给侧栏页面用的页内数据集夹具（没有时 undefined）。 */
+  readonly dataset?: LabDataset
   readonly trees: ReadonlyArray<LabTreeRoute>
   /**
    * 当天网关下发的官方 wire 里的插件 id 集合——**实验室各页面的装配来源**
@@ -383,6 +394,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     pluginsDir: options.pluginsDir,
     token,
     ...(dshVersion === undefined ? {} : { dshVersion }),
+    ...(options.dataset === undefined ? {} : { dataset: options.dataset }),
     trees: LAB_TREES,
     gatewayPluginIds,
     gatewayWire,

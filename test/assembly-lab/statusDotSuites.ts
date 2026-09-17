@@ -53,7 +53,7 @@
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import type { BrowserContext, Page } from 'playwright'
-import { openTreePage, type Check } from './harness.ts'
+import { openTreePage, type Check, texts, isText } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
 import { emit, installEventStreamInjector, waitForEventStream, type EventStreamInjector } from './harness.ts'
@@ -447,7 +447,8 @@ export const STATUS_DOT_SUITE: LabSuite = {
           mine?.color === ownProbe && ownProbe !== '' && theirs?.color === offProbe && ownProbe === offProbe,
           `own=${String(mine?.color)}/${ownProbe} official=${String(theirs?.color)}/${offProbe}`,
         )
-        check.eq('④ 等待交互：读屏文案两侧相等（等待审批）', [mine?.labels, theirs?.labels], [['等待审批'], ['等待审批']])
+        check.eqTexts('④ 等待交互：读屏文案两侧相等（等待审批）', mine?.labels, ['等待审批'])
+        check.eqTexts('④ 等待交互：官方侧读屏文案同一档（两侧相等）', theirs?.labels, ['等待审批'])
         check.fact(`④ 等待交互：自有 ${describeDot(mine)}；官方 ${describeDot(theirs)}`)
         screenshots.push(await pairShot(ctx, own.page, official.page, target.id, target.title, 'status-dot-warning-pair'))
         // 取消帧一到就清，回到这一行被注入之前的那一态（此刻是运行中：上一段刚把它置成 true）
@@ -479,7 +480,8 @@ export const STATUS_DOT_SUITE: LabSuite = {
           mine?.color === ownProbe && ownProbe !== '' && theirs?.color === offProbe && ownProbe === offProbe,
           `own=${String(mine?.color)}/${ownProbe} official=${String(theirs?.color)}/${offProbe}`,
         )
-        check.eq('② 跑完还没打开：读屏文案是官方那一档（已完成），两侧相等', [mine?.labels, theirs?.labels], [['已完成'], ['已完成']])
+        check.eqTexts('② 跑完还没打开：读屏文案是官方那一档（已完成）', mine?.labels, ['已完成'])
+        check.eqTexts('② 跑完还没打开：官方侧读屏文案同一档（两侧相等）', theirs?.labels, ['已完成'])
         check.eq('② 跑完还没打开：标题不加粗（未读才加粗——第 ⑤ 案要拿它对照）', [doneOwn?.titleWeight, doneOff?.titleWeight], ['400', '400'])
         check.fact(`② 跑完还没打开：自有 ${describeDot(mine)}；官方 ${describeDot(theirs)}`)
         screenshots.push(await pairShot(ctx, own.page, official.page, target.id, target.title, 'status-dot-completed-pair'))
@@ -567,7 +569,7 @@ export const STATUS_DOT_SUITE: LabSuite = {
           mine?.dot?.color !== undefined && mine.dot.color === probe && probe !== '',
           `dot=${String(mine?.dot?.color)} probe=${probe}`,
         )
-        check.eq('⑤ 手动未读：读屏文案是「未读」（与「已完成」不同）', mine?.dot?.labels, ['未读'])
+        check.eqTexts('⑤ 手动未读：读屏文案是「未读」（与「已完成」不同）', mine?.dot?.labels, ['未读'])
         check.eq('⑤ 手动未读：标题加粗 600（旧侧栏正本 `.session-title.unread` 的同一形态）', mine?.titleWeight, '600')
         // 「未读」与「已完成」可区分——点本身同形（都是官方 done 那颗），区分在两处：
         check.eq(
@@ -579,8 +581,8 @@ export const STATUS_DOT_SUITE: LabSuite = {
           '⑤ 未读 vs 已完成：可区分处 = 标题字重（未读 600 / 已完成 400）与读屏文案（未读 / 已完成）',
           mine?.titleWeight === '600' &&
             doneOwn?.titleWeight === '400' &&
-            mine?.dot?.labels?.[0] === '未读' &&
-            doneOwn?.dot?.labels?.[0] === '已完成',
+            isText(mine?.dot?.labels?.[0], '未读') &&
+            isText(doneOwn?.dot?.labels?.[0], '已完成'),
           `未读字重=${String(mine?.titleWeight)} 已完成字重=${String(doneOwn?.titleWeight)} 未读文案=${String(mine?.dot?.labels)} 已完成文案=${String(doneOwn?.dot?.labels)}`,
         )
         const theirs = await offTarget()
@@ -635,7 +637,7 @@ export const STATUS_DOT_SUITE: LabSuite = {
           searchRow?.dot?.state ?? null,
           'warning',
         )
-        check.eq('⑦ 搜索结果行：读屏文案同样是官方那一档', searchRow?.dot?.labels, ['等待审批'])
+        check.eqTexts('⑦ 搜索结果行：读屏文案同样是官方那一档', searchRow?.dot?.labels, ['等待审批'])
         check.ok(
           '⑦ 搜索结果行：解析色同样是 `--dsw-alias-state-warn-primary`',
           searchRow?.dot?.color === (await probeColor(own.page, WARN_TOKEN)),

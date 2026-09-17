@@ -7,6 +7,8 @@
  * - `Check`：断言收集器——一条断言一处观测，最后折成 ledger 条目。
  */
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
+import { installLabDataset, type DatasetStats, type LabDataset } from './dataset.ts'
+import { EN, ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'
 import { fakeHostScript } from './fakeHost.ts'
 import type { LabServer, LabTreeRoute } from './labServer.ts'
 
@@ -15,6 +17,110 @@ export interface Assertion {
   label: string
   ok: boolean
   detail: string
+}
+
+/**
+ * 一条**文案**断言：把期望值写成插件词典里的那条中文，再按当前页面语言放宽到它对应的
+ * 两种取值（zh / en）。
+ *
+ * 为什么要有它：页面语言是**运行环境的输入**（开发者日常实例是 zh，全新 `DSH_HOME` 的空
+ * 实例起来是 en）。断言里写死中文会得到一条「换台机器就红」的假失败（#148 立、#162 普查），
+ * 所以期望值一律从词典来：给一条中文文案，这里反查出它的键、把 `{n}` 这类占位抓出来，
+ * 再渲染出 zh / en 两份；断言判「实测值等于其中一份」。
+ *
+ * 判据一个字没放宽：能对上的永远是**同一个键**的那两种语言取值。
+ */
+/**
+ * 官方命名空间的几条（我们的弹窗经官方 `t()` 取，值不归 `workspaceTree/locale.ts` 管）：
+ * 值取自官方词典本身（zh 页 / en 页各实测一次）。套件判这些文案时同样要两种语言都认。
+ */
+const OFFICIAL_EXTRA: Readonly<Record<string, readonly [string, string]>> = {
+  取消: ['取消', 'Cancel'],
+}
+
+export function texts(zhText: string): string[] {
+  const extra = OFFICIAL_EXTRA[zhText]
+  if (extra !== undefined) return [...extra]
+  for (const [key, template] of Object.entries(ZH)) {
+    if (template === zhText) return [zhText, EN[key] ?? zhText]
+  }
+  // 带占位的那几条：把模板按占位切成字面量段，逐段试「截断到第 i 段」（i = 0,1,2… 个占位）。
+  // 这样 `仅显示前 20 条结果` 与只写了前半句的 `仅显示前` 都能对上同一条词典文案，
+  // 并渲染出 en 那一份（`Showing the first 20 results` / `Showing the first`）。
+  // 逐段要求**整段对上**（不是随便 startsWith），免得像早先那样配到隔壁那条上。
+  const escape = (part: string): string => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  for (const [key, template] of Object.entries(ZH)) {
+    const english = EN[key]
+    if (typeof english !== 'string') continue
+    const zhParts = template.split(/\{(\w+)\}/)
+    const enParts = english.split(/\{(\w+)\}/)
+    if (zhParts.length !== enParts.length) continue
+    // 模板以占位开头（`{n} 个会话没能移入回收站`、`{n} ago` 这类）时的两条护栏：
+    // 首个占位**只认数字**，而且输入必须以数字开头——否则前缀匹配会退化成「随便一段话
+    // 只要以某个尾巴结尾就算命中」（早先实测：`仅显示前` 配到了 `{n} 前` 那条上，
+    // 渲染出「仅显示 ago」）。
+    const leadingNumeric = (zhParts[0] ?? '').length === 0
+    for (let placeholders = 0; placeholders * 2 < zhParts.length; placeholders += 1) {
+      const zhSegments: string[] = []
+      const enSegments: string[] = []
+      for (let index = 0; index <= placeholders; index += 1) {
+        zhSegments.push(zhParts[index * 2] as string)
+        enSegments.push(enParts[index * 2] as string)
+      }
+      if (placeholders === 0) {
+        // 只写了前半句时（`仅显示前` 对 `仅显示前 {n} 条结果…`）连首段末尾的空白一起去掉再比。
+        if (zhSegments[0] === zhText) return [zhText, enSegments[0] as string]
+        if ((zhSegments[0] ?? '').trimEnd() === zhText) {
+          return [zhText, (enSegments[0] ?? '').trimEnd()]
+        }
+        continue
+      }
+      const names: string[] = []
+      for (let index = 1; index <= placeholders; index += 1) names.push(zhParts[index * 2 - 1] as string)
+      if (leadingNumeric && !/^\d/.test(zhText)) continue
+      const wildcard = `(${leadingNumeric ? '\\d+' : '.+?'})`
+      const pattern = `^${zhSegments.map(escape).join(wildcard)}$`
+      const match = new RegExp(pattern, 'u').exec(zhText)
+      if (match === null) continue
+      const values = Object.fromEntries(names.map((name, index) => [name, match[index + 1] ?? '']))
+      const render = (segments: readonly string[]): string =>
+        segments.reduce((acc, segment, index) => acc + (index === 0 ? '' : (values[names[index - 1] as string] ?? '')) + segment, '')
+      return [render(zhSegments), render(enSegments)]
+    }
+  }
+  // 词典里没有这一条（例如夹具自己起的名字）：原样返回，判据照旧只认这一份。
+  return [zhText]
+}
+
+/**
+ * 一串实测文案里有没有词典里这条（**数组元素逐个等于**它的 zh / en 任一份）。
+ *
+ * 与 {@link hasText} 的差别：那个判「一段文字里含不含这条」，这个判「这一串条目里有没有
+ * 等于这条的那一项」。菜单项清单这类读数是数组，用这个。
+ */
+export function hasAnyText(actual: readonly (string | null | undefined)[], zhText: string): boolean {
+  const allowed = texts(zhText)
+  return actual.some((item) => typeof item === 'string' && allowed.includes(item))
+}
+
+/**
+ * 实测文案**恰好等于**词典里那条（zh / en 任一份）。判据写成「页面文案是『取消置顶』」时用它，
+ * 与 {@link texts} 的差别只是这里直接吃实测值、不必自己判 `typeof`。
+ */
+export function isText(actual: string | null | undefined, zhText: string): boolean {
+  return typeof actual === 'string' && texts(zhText).includes(actual)
+}
+
+/**
+ * 「这段实测文案里含不含词典里那条」（zh / en 任一份含上就算）。
+ *
+ * 与 {@link texts} 同一件事的另一种用法：判据写成「页面文案里出现『回收站』」时，
+ * 期望值同样要从词典来，不能写死中文（理由见 `texts`）。带占位的那几条
+ * （`归档整组（2 个会话）`）也会按实测里的数字渲染出 en 那一份再比。
+ */
+export function hasText(actual: string | null | undefined, zhText: string): boolean {
+  const text = typeof actual === 'string' ? actual : ''
+  return texts(zhText).some((variant) => text.includes(variant))
 }
 
 /** 断言收集器：`ok/eq` 记一条，`fact` 记一个观测值（不计入通过数，写进报告说明）。 */
@@ -30,6 +136,36 @@ export class Check {
   eq(label: string, actual: unknown, expected: unknown): boolean {
     const same = JSON.stringify(actual) === JSON.stringify(expected)
     return this.ok(label, same, same ? String(actual) : `actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`)
+  }
+
+  /**
+   * 一组文案的逐项比较（见 {@link texts}）：期望写成一串词典里的中文（可以混着不是词典文案的
+   * 值，例如图标名 `minus`），实测值逐项等于它的 zh / en 任一份就算过。
+   */
+  eqTexts(label: string, actual: readonly string[] | undefined, expected: readonly string[]): boolean {
+    const list = Array.isArray(actual) ? actual : []
+    const same =
+      list.length === expected.length &&
+      expected.every((want, index) => texts(want).includes(list[index] ?? '\u0000'))
+    return this.ok(
+      label,
+      same,
+      same ? JSON.stringify(list) : `actual=${JSON.stringify(list)} expected（每项 zh/en 任一份）=${JSON.stringify(expected)}`,
+    )
+  }
+
+  /**
+   * 文案断言（见 {@link texts}）：`expected` 写成词典里的中文，实测值等于它的 zh / en 任一份
+   * 就算过。用它的地方都是「页面把这条文案渲染成什么」这一类的判据。
+   */
+  eqText(label: string, actual: unknown, expected: string): boolean {
+    const allowed = texts(expected)
+    const same = allowed.includes(typeof actual === 'string' ? actual : JSON.stringify(actual))
+    return this.ok(
+      label,
+      same,
+      same ? String(actual) : `actual=${JSON.stringify(actual)} expected（zh/en 任一份）=${JSON.stringify(allowed)}`,
+    )
   }
 
   /** 只记录观测值（例如「treeitems=17」），不判定。 */
@@ -156,6 +292,20 @@ export interface OpenOptions {
    * 要换成另一份，用 {@link setLabWorkspaceFolders} 再重载页面。
    */
   workspaceFolders?: readonly string[]
+  /**
+   * 页内数据集夹具（#162，见 `dataset.ts`）：给这一页喂一份套件自己声明的工作区与会话，
+   * 判据就不再吃「这台机器上碰巧有什么数据」。**必须在页面第一次导航之前装**，所以走
+   * 这里（`newContext` 之后、`newPage` 之前），套件不用为夹具再重载一次页面。
+   *
+   * 三种取值（**默认不装**，与「日常实例整轮是合入门禁」这条口径配套）：
+   * - 传一份 `LabDataset`：装这一份——**要夹具数据的套件显式声明**，两种跑法下都用它。
+   * - `null`：这一页明确要真网关数据（与官方页并排对照、零工作区空态这类套件）。
+   * - 不传：听这一轮跑法的（`LabServer.dataset`，见 `labServer.startLabServer`）——
+   *   **日常实例整轮不装**（套件本来就按真实数据写的），`--empty` 那一轮由 verify.ts
+   *   统一给侧栏那两棵树装上 `SIDEBAR_DATASET`（空实例上没有数据可依赖，判据必须是
+   *   自足的）。
+   */
+  dataset?: LabDataset | null
 }
 
 export interface OpenedPage {
@@ -163,6 +313,11 @@ export interface OpenedPage {
   page: Page
   capture: PageCapture
   url: string
+  /**
+   * 这一页装的页内数据集夹具的计数（没装夹具时为 undefined）。套件用它断言
+   * 「夹具真的接上了」，而不是把空读数当结论。
+   */
+  dataset?: DatasetStats
   /** 首屏就绪选择器是否出现（false 时页面很可能整块没起来）。 */
   ready: boolean
 }
@@ -452,7 +607,13 @@ export async function openTreePage(
   await context.addInitScript({
     content: fakeHostScript(options.state ?? {}, options.failCalls ?? [], options.workspaceFolders ?? []),
   })
-  return await openPageIn(lab, route, context, options)
+  // 数据集夹具（#162）：装在这个上下文上、在第一次导航之前，首帧基线就已是夹具那一份。
+  // 缺省口径见 OpenOptions.dataset 的说明：套件显式声明的优先，否则听这一轮跑法的
+  // （`lab.dataset`，只有 `--empty` 那一轮会给；只作用于侧栏那两棵树的页面）。
+  const fallback = route.route.startsWith('sidebar') ? lab.dataset : undefined
+  const dataset = options.dataset === undefined ? fallback : (options.dataset ?? undefined)
+  const datasetStats = dataset === undefined ? undefined : await installLabDataset(context, dataset)
+  return await openPageIn(lab, route, context, options, datasetStats)
 }
 
 /**
@@ -494,6 +655,7 @@ async function openPageIn(
   route: LabTreeRoute,
   context: BrowserContext,
   options: OpenOptions,
+  datasetStats?: DatasetStats,
 ): Promise<OpenedPage> {
   // 抹自有 frame 标记（#83）：两处入口都认这个开关，且必须在建页之前装——
   // 页面任何脚本执行前生效，属性才从来没进过 DOM。（假宿主由上下文持有者
@@ -520,7 +682,7 @@ async function openPageIn(
     ready = false
   }
   await page.waitForTimeout(options.settleMs ?? 2_500)
-  return { context, page, capture, url, ready }
+  return { context, page, capture, url, ready, ...(datasetStats === undefined ? {} : { dataset: datasetStats }) }
 }
 
 export interface SlotFact {
