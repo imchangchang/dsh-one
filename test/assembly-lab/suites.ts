@@ -4688,9 +4688,11 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
         `搜索夹具：结果行=${String(search.results)} 上限提示=${JSON.stringify(search.more)} 状态行=${JSON.stringify(search.status)}（夹具回执调用 ${String(stats.searchCalls)} 次）`,
       )
       check.ok('搜索回执带 hasMore 时出上限提示（官方 search.hasMore 键）', hasText(search.more, '仅显示前') && hasText(search.more, '条结果'), search.more)
+      // 判据：上限提示里那个数要按官方 `search.hasMore` 那句文案渲染出来（zh / en 两份都认）。
+      const moreNumber = /(\d+)/.exec(search.more)?.[1] ?? ''
       check.ok(
         '提示里带上限条数（数值来自官方 searchResultLimit）',
-        /仅显示前 (\d+) 条结果/.test(search.more) && Number(/仅显示前 (\d+) 条结果/.exec(search.more)?.[1] ?? '0') > 0,
+        moreNumber !== '' && hasText(search.more, `仅显示前 ${moreNumber} 条结果`) && Number(moreNumber) > 0,
         search.more,
       )
       check.ok('夹具那条结果按真会话渲染（行在）', search.results >= 1, String(search.results))

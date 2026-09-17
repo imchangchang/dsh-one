@@ -133,6 +133,8 @@ export interface DatasetStats {
   sessionList: number
   /** 丢掉的非基线工作区帧数（>0 说明真工作区的增量确实被挡住了）。 */
   droppedWorkspaceFrames: number
+  /** 就地回掉的 `session/create` 次数（官方客户端在夹具会话打不开时会自己建会话）。 */
+  sessionCreates: number
 }
 
 /**
@@ -155,14 +157,13 @@ function datasetViewStateScript(dataset: LabDataset): string {
     tagCollapsed: [],
   }
   const current = dataset.workspaces[0]?.sessionIds[0]
+  const lines: string[] = [`localStorage.setItem('dsh.workspaceTree.view', ${JSON.stringify(JSON.stringify(view))})`]
+  if (current !== undefined) {
+    lines.push(`localStorage.setItem('dsh.sessions.current', ${JSON.stringify(JSON.stringify({ sessionId: current }))})`)
+  }
   return `(() => {
   try {
-    localStorage.setItem('dsh.workspaceTree.view', ${JSON.stringify(JSON.stringify(view))})
-    ${
-      current === undefined
-        ? ''
-        : `localStorage.setItem('dsh.sessions.current', ${JSON.stringify(JSON.stringify({ sessionId: current }))})`
-    }
+    ${lines.join('\n    ')}
   } catch (err) { /* 隐私模式下 localStorage 不可用就跳过：夹具是尽力而为，判据会如实报出来 */ }
 })()`
 }
@@ -172,7 +173,7 @@ function datasetViewStateScript(dataset: LabDataset): string {
  * 的 `dataset` 选项就是这么做的），这样首帧基线就已经是夹具那一份。
  */
 export async function installLabDataset(context: BrowserContext, dataset: LabDataset): Promise<DatasetStats> {
-  const stats: DatasetStats = { workspaceFrames: 0, sessionList: 0, droppedWorkspaceFrames: 0 }
+  const stats: DatasetStats = { workspaceFrames: 0, sessionList: 0, droppedWorkspaceFrames: 0, sessionCreates: 0 }
   await context.addInitScript({ content: datasetViewStateScript(dataset) })
   await context.routeWebSocket(/remote\.mux/, (socket) => {
     const upstream = socket.connectToServer()
@@ -218,6 +219,30 @@ export async function installLabDataset(context: BrowserContext, dataset: LabDat
   })
   await context.route('**/api/**', async (route) => {
     const method = decodeURIComponent(route.request().url()).split('/api/')[1] ?? ''
+    // `session/create`：官方客户端在「恢复出来的当前会话打不开」时会**自己新建一个会话**
+    // （实测调用栈落在官方 api-gateway → session-controller 那条链上，跟我们的插件无关）。
+    // 夹具里的会话当然不在真网关上，所以这条一定会发；如实转给网关就等于替用户建了一条
+    // 会话（实验室承诺网关只读）。这里就地回一条成功回执（回夹具里的一条会话 id），
+    // 请求不落到网关——与「只改页面收到的回执」这条既有口径一致。
+    if (method.startsWith('session/create')) {
+      let rpcId = ''
+      try {
+        rpcId = (JSON.parse(route.request().postData() ?? '{}') as { rpcId?: string }).rpcId ?? ''
+      } catch {
+        rpcId = ''
+      }
+      stats.sessionCreates += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'server-response',
+          rpcId,
+          result: { ok: true, value: { sessionId: dataset.sessions[0]?.sessionId ?? 'lab-session-created' } },
+        }),
+      })
+      return
+    }
     if (!method.startsWith('session/list')) {
       await route.continue()
       return

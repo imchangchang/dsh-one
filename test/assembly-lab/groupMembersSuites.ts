@@ -20,6 +20,7 @@ import { SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts
 import { EN, ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'
 import { sourceOf } from './scaleSuites.ts'
 import { SIDEBAR_DATASET } from './dataset.ts'
+import { listSessions } from '../../src/server/dshRpc.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
 
@@ -375,12 +376,24 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       dataset: SIDEBAR_DATASET,
     })
     const { page } = opened
-    // 只读守卫（⑦）：把走过的 `/api/` 方法名逐个记下来，收尾断言写类方法一个都没出现。
+    // 只读守卫（⑦）：把走过的 `/api/` 方法名逐个记下来（报告里如实列出），写类方法落到
+    // **网关**上没有才是判据（见收尾那条）。
     const apiCalls: string[] = []
     await page.route('**/api/**', async (r) => {
-      apiCalls.push(decodeURIComponent(r.request().url()).split('/api/')[1] ?? '')
+      const method = decodeURIComponent(r.request().url()).split('/api/')[1] ?? ''
+      apiCalls.push(method)
+      // `session/create` 交给**数据集夹具**就地回掉：官方客户端在「恢复出来的当前会话打不开」
+      // 时会自己新建一个会话（调用栈落在官方 api-gateway → session-controller 那条链上），
+      // 夹具会话当然不在真网关上，所以这一条一定会发。让它落到网关就等于替用户建了会话；
+      // 夹具回一条成功回执、请求不出实验室——这是「只改页面收到的回执」那条既有口径。
+      if (method.startsWith('session/create')) {
+        await r.fallback()
+        return
+      }
       await r.continue()
     })
+    // 网关侧的只读读数：跑前跑后各数一次网关上的会话数（写类动作落没落到网关，看这个）。
+    const gatewaySessionsBefore = await listSessions(ctx.lab.gateway).then((rows) => rows.length).catch(() => -1)
     try {
       // ---- 夹具一：工作区清单由**数据集夹具**给（本套件显式声明，两种跑法一致）----
       // 为什么必须自造：以前这条套件拿「网关上有几棵工作区、都叫什么」当判据的输入，于是
@@ -765,9 +778,18 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       await closeDialog(page)
       check.eq('⑦ 关掉管理框后没有残留的对话框', await page.evaluate(() => document.querySelectorAll('[role="dialog"]').length), 0)
 
-      // ---- ⑦ 只读：全程没有一个写类 RPC ----
+      // ---- ⑦ 只读：写类 RPC 一个都没落到**网关**上 ----
+      // 判据钉的是网关侧（跑前跑后会话数不变 + 写类方法在页面上只可能是被夹具就地回掉的那条），
+      // 不是「页面上一个写类请求都不许发」——官方客户端自己会发那条 `session/create`，
+      // 而它被数据集夹具就地回掉了（见上面 route 的处理）。
+      const gatewaySessionsAfter = await listSessions(ctx.lab.gateway).then((rows) => rows.length).catch(() => -1)
       const writes = apiCalls.filter((method) => WRITE_METHODS.some((candidate) => method.startsWith(candidate)))
-      check.eq('⑦ 全程没有走任何写类 RPC（网关只读）', writes, [])
+      check.eq('⑦ 网关上的会话数跑前跑后没变（写类动作没落到网关）', gatewaySessionsAfter, gatewaySessionsBefore)
+      check.eq(
+        '⑦ 页面上出现过的写类 RPC 只有被夹具就地回掉的那条（session/create）',
+        [...new Set(writes)],
+        ['session/create'],
+      )
       check.fact(`本套件走过的 RPC：${JSON.stringify([...new Set(apiCalls)].sort())}`)
       check.eq('全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
     } finally {
