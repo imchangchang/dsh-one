@@ -52,7 +52,7 @@ import {
   Menu,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { COLLAPSE_ALL_GLYPHS, type CollapseAllGlyph } from './collapseAllGlyph.ts'
+import { COLLAPSE_ALL_GLYPH_TRANSFORM, COLLAPSE_ALL_GLYPHS, type CollapseAllGlyph } from './collapseAllGlyph.ts'
 import { SEARCH_QUERY_MAX } from './search.ts'
 import type { Translate } from './types.ts'
 
@@ -67,6 +67,10 @@ import type { Translate } from './types.ts'
  *
  * 尺寸 16：与同一行其它图标按钮一致（添加工作区 / 设置齿轮都是 16 档），
  * 26×26 的按钮用 flex 居中。旧侧栏这枚也是 16。
+ *
+ * 每条 path 还挂一条 `transform`（#141）：方框只占 16 格画布里的 11 格，画出来比同一排
+ * 官方图标小一圈，所以按 `collapseAllGlyph.ts` 里量出来的倍数把它放大——只动画出来的
+ * 大小，`d` 与 16×16 的渲染尺寸都不动（倍数怎么来的见那个文件）。
  *
  * 两条 `data-*` 是自有契约，与回收站入口行的 `data-dshone-tree-icon` 同一做法
  *（官方渲染出来的 DOM 里没有图标名，验证套件要认「是哪一态」只能靠标记，配合渲染出的
@@ -92,6 +96,7 @@ function CollapseAllIcon({ glyph }: { glyph: CollapseAllGlyph }): unknown {
         fill: 'currentColor',
         'fill-rule': 'evenodd',
         'clip-rule': 'evenodd',
+        transform: COLLAPSE_ALL_GLYPH_TRANSFORM,
       }),
     ),
   )

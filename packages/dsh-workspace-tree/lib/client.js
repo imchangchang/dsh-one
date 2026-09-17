@@ -4165,6 +4165,8 @@ var COLLAPSE_ALL_GLYPHS = {
   minus: [COLLAPSE_ALL_BOX, COLLAPSE_ALL_MINUS],
   plus: [COLLAPSE_ALL_BOX, COLLAPSE_ALL_PLUS]
 };
+var COLLAPSE_ALL_GLYPH_SCALE = 1.25;
+var COLLAPSE_ALL_GLYPH_TRANSFORM = `translate(8 8) scale(${String(COLLAPSE_ALL_GLYPH_SCALE)}) translate(-8 -8)`;
 
 // src/ui/assembly/shell/workspaceTree/toolbar.ts
 function CollapseAllIcon({ glyph }) {
@@ -4185,7 +4187,8 @@ function CollapseAllIcon({ glyph }) {
         d,
         fill: "currentColor",
         "fill-rule": "evenodd",
-        "clip-rule": "evenodd"
+        "clip-rule": "evenodd",
+        transform: COLLAPSE_ALL_GLYPH_TRANSFORM
       })
     )
   );
