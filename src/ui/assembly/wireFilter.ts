@@ -97,11 +97,12 @@ const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-message-feedback', reason: 'message feedback; no conversation area in the sidebar/settings trees' },
   // ui-model-selection 曾在这条清单里（composer 里的模型选择面）。2026-09-16 摘除，
   // 当时的理由写的是「0.1.6-alpha.1 的 wire 里已经没有这个条目」——**那条观察是错的**
-  //（#164 更正）：它看到的 wire 来自装了 `@dsh-one/dsh-llm-provider` 的日常 profile，
-  // 那份 bundle patch 把官方模型管理那几件关掉了（见 docs/plugin-packages.md 的
-  // 「模型服务」段），全新 `DSH_HOME` 上这一条一直在 wire 里（0.1.6-alpha.1 实测）。
-  // 教训照旧有效：**「官方有没有这个插件」只能看全新 `DSH_HOME` 的 wire**，被自己
-  // patch 改过的 profile 拿来做这个判断一定得出反的结论。
+  //（#164 更正）：它看到的 wire 来自日常 profile，而那台机器装了另一仓的
+  // `@dsh-one/dsh-llm-provider`，它的 bundle patch 里 `disabled: true` 把
+  // `ui-model-selection` 与 `ui-settings-models` 两行禁掉了；全新 `DSH_HOME` 上
+  // 这两条一直在官方 wire 里（0.1.6-alpha.1 实测，见 F-55）。
+  // 教训：**「官方有没有这个插件」只能看全新 `DSH_HOME` 的 wire**，被自己的补丁
+  // 改过的 profile 拿来做这个判断一定得出反的结论。
   // 摘除这个动作本身是对的（清单一长就与 wire 对不上），保持现状：它只在
   // `conversation.input.model` 座位渲染，而侧栏 / 设置两棵树不声明对话区座位，
   // 所以放着不渲染任何东西。
@@ -122,8 +123,8 @@ const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
 const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-settings-general', reason: 'General section (owns SettingsRoot/modal); only the settings tree needs it after settings became a page' },
   // ui-settings-models 曾在这条清单里（Models 设置节）。2026-09-16 摘除，当时的理由
-  // 与 CHAT_FLOW 里 ui-model-selection 那一段同一份错误观察（日常 profile 被
-  // `@dsh-one/dsh-llm-provider` 的 bundle patch 改过），更正见那一段。
+  // 与 CHAT_FLOW 里 ui-model-selection 那一段同一份错误观察（日常 profile 被另一仓的
+  // `@dsh-one/dsh-llm-provider` 补丁改过），更正与教训见那一段。
   // 它留在清单外是对的：本树不声明设置区座位，放着不渲染任何东西。
   { id: '@deepseek-ai/dsh-client-ui-settings-plugins', reason: 'Plugins section; only the settings tree needs it after settings became a page' },
   { id: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory', reason: 'plugin-inventory section; only the settings tree needs it after settings became a page' },

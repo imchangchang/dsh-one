@@ -126,9 +126,16 @@ function distinctiveWords(id: string): string[] {
  * 「这个 id 去哪了」的线索：在当天 wire 里找共享词的 id。
  *
  * 为什么值得猜：官方把插件**改名**或**并进别的插件**是这条断言最常见的两种红法
- * （今天的两条死条目正是后者：ui-settings-models 并进了 ui-settings、
- * ui-model-selection 并进了 ui-conversation），猜出来的邻居能让读报告的人立刻
- * 知道去哪里看，而不是对着一个不存在的 id 发呆。猜空就如实说猜空。
+ * （2026-09-16 那轮的两条红就是这样读的：ui-settings-models 与 ui-model-selection
+ * 当天不在 wire 里），猜出来的邻居能让读报告的人立刻知道去哪里看，而不是对着一个
+ * 不存在的 id 发呆。猜空就如实说猜空。
+ *
+ * **#164 更正那两条红的原因**：它们不是「官方并进别的插件」，而是**这台机器的
+ * 日常 profile 自己干掉了它们**——`@dsh-one/dsh-llm-provider`（另一仓）的 bundle
+ * patch 里 `disabled: true` 禁掉了 `ui-model-selection` 与 `ui-settings-models`。
+ * 换句话说这条断言的红有第三种原因：**wire 被我们自己的补丁改过**，而「官方改名」
+ * 与「被自己补丁关掉」在 wire 上长得一样。要区分它们只能看**全新 `DSH_HOME`** 的
+ * wire：那边才是官方的原样清单（F-55 走的就是这条）。
  */
 function renameHint(id: string, wireIds: ReadonlySet<string>): string {
   const words = distinctiveWords(id)
