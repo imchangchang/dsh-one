@@ -666,7 +666,7 @@ const SETTINGS_POINTS: ReadonlyArray<LivenessPoint> = [
     selector: '[data-slot="settings.action"] button',
     expect: '打开设置文档（官方那条经网关宿主用系统默认应用打开）',
     observeOnly:
-      '`settings.action` 这个 slot 里官方那条 `open-document` 的动作是 `remote.settings.openSettingsDocument`，由**网关宿主**用系统默认应用打开 `~/.dsh/settings.yaml`（宿主侧 `dsh-api-settings-controller` → `openNativeTextFile`）；我们自己那条（`open-document-vscode`）走宿主能力口、本身没有原生副作用。两枚在同一个 slot 里、靠一条 CSS 把官方那条藏起来，藏法一旦失效探针就会点到官方的——所以这一条按整条只观察，指着这个 slot 里的控件在不在、可不可用',
+      '`settings.action` 这个 slot 里官方那条 `open-document` 的动作是 `remote.settings.openSettingsDocument`，由**网关宿主**用系统默认应用打开 `~/.dsh/settings.yaml`（宿主侧 `dsh-api-settings-controller` → `openNativeTextFile`）；我们自己那条（`open-document-vscode`）走宿主能力口、本身没有原生副作用。两枚在同一个 slot 里、官方那条由 shell 按同 id + priority −1 遮蔽（#178 C10+C11），遮蔽一旦失效探针就会点到官方的——所以这一条按整条只观察，指着这个 slot 里的控件在不在、可不可用',
   },
 ]
 
@@ -949,8 +949,9 @@ export const LIVENESS_SUITE: LabSuite = {
     try {
       // 「打开配置文件」那条为什么只观察：`settings.action` 这个 slot 里官方那条
       // （`open-document`）的动作是经**网关宿主**用系统默认应用打开设置文档，我们自己那条
-      // 走宿主能力口。这个 slot 里到底有哪几条、官方那条是不是被自有 CSS 藏了，是这个判断的依据，
-      // 所以逐条数出来写进事实（不然「藏法失效就会点到官方的」只是读代码的推断，看不出来）。
+      // 走宿主能力口。官方那条由 shell 按**同 id + priority −1 遮蔽**（#178 C10+C11，
+      // 遮蔽上了它就不进渲染位、这里也就数不到它；遮蔽失效它会重新出现），
+      // 所以逐条数出来写进事实（不然「遮蔽失效就会点到官方的」只是读代码的推断，看不出来）。
       const docEntries = await settingsPage.page.evaluate(() =>
         Array.from(document.querySelectorAll('[data-slot="settings.action"] > *')).map((entry) => {
           const button = entry.querySelector('button')

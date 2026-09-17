@@ -88,7 +88,7 @@ interface ShellContext {
 // 188px、内容区滚动；窄视口整列自适应。
 // ---------------------------------------------------------------------------
 
-const CSS = '.dshOneSettingsShell_page{background:var(--dsw-alias-bg-base);height:100%;display:flex;justify-content:center;overflow:hidden}.dshOneSettingsShell_column{box-sizing:border-box;width:800px;max-width:calc(100vw - 32px);height:100%;display:flex;overflow:hidden}.dshOneSettingsShell_nav{flex:none;box-sizing:border-box;width:188px;flex-direction:column;gap:4px;border-right:.5px solid var(--dsw-alias-border-l3);padding:22px 12px 12px;display:flex}.dshOneSettingsShell_navTitle{padding:0 12px 14px;font-size:16px;font-weight:500;line-height:24px;color:var(--dsw-alias-label-primary)}.dshOneSettingsShell_navCell{box-sizing:border-box;cursor:pointer;height:40px;color:var(--dsw-alias-label-primary);text-align:left;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:9px 16px 9px 12px;font-family:inherit;font-size:14px;line-height:22px;display:flex}.dshOneSettingsShell_navCell:hover{background:var(--dsw-specific-sidebar-nav-item-hover)}.dshOneSettingsShell_navCell[data-active]{background:var(--dsw-specific-sidebar-nav-item-active)}.dshOneSettingsShell_navLabel{white-space:nowrap;text-overflow:ellipsis;flex:1;min-width:0;overflow:hidden}.dshOneSettingsShell_content{flex:1;min-width:0;flex-direction:column;display:flex;overflow:hidden}.dshOneSettingsShell_actions{flex:none;box-sizing:border-box;height:54px;display:flex;justify-content:flex-end;align-items:flex-start;gap:8px;padding:20px 14px 8px 10px}.dshOneSettingsShell_sections{flex:1;min-height:0;overflow-y:auto;padding:0 24px 24px}.dshOneSettingsShell_sections [data-slot="settings.general.item"]>*:has(button[aria-pressed]){display:none}.dshOneSettingsShell_actions [data-slot="settings.action"]>*:not(:has([data-dshone-doc-action])){display:none}'
+const CSS = '.dshOneSettingsShell_page{background:var(--dsw-alias-bg-base);height:100%;display:flex;justify-content:center;overflow:hidden}.dshOneSettingsShell_column{box-sizing:border-box;width:800px;max-width:calc(100vw - 32px);height:100%;display:flex;overflow:hidden}.dshOneSettingsShell_nav{flex:none;box-sizing:border-box;width:188px;flex-direction:column;gap:4px;border-right:.5px solid var(--dsw-alias-border-l3);padding:22px 12px 12px;display:flex}.dshOneSettingsShell_navTitle{padding:0 12px 14px;font-size:16px;font-weight:500;line-height:24px;color:var(--dsw-alias-label-primary)}.dshOneSettingsShell_navCell{box-sizing:border-box;cursor:pointer;height:40px;color:var(--dsw-alias-label-primary);text-align:left;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:9px 16px 9px 12px;font-family:inherit;font-size:14px;line-height:22px;display:flex}.dshOneSettingsShell_navCell:hover{background:var(--dsw-specific-sidebar-nav-item-hover)}.dshOneSettingsShell_navCell[data-active]{background:var(--dsw-specific-sidebar-nav-item-active)}.dshOneSettingsShell_navLabel{white-space:nowrap;text-overflow:ellipsis;flex:1;min-width:0;overflow:hidden}.dshOneSettingsShell_content{flex:1;min-width:0;flex-direction:column;display:flex;overflow:hidden}.dshOneSettingsShell_actions{flex:none;box-sizing:border-box;height:54px;display:flex;justify-content:flex-end;align-items:flex-start;gap:8px;padding:20px 14px 8px 10px}.dshOneSettingsShell_sections{flex:1;min-height:0;overflow-y:auto;padding:0 24px 24px}'
 const CSS_TAG_ID = '@dsh-one/vscode-settings-ui-layout/SettingsPage.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
@@ -228,27 +228,38 @@ function SettingsFrame({ renderSlot }: { renderSlot: SettingsFrameProps['renderS
 }
 
 // ---------------------------------------------------------------------------
-// 外观行屏蔽（官方机制第 4 层 CSS——前 3 层经源码确认无机制，举证）：
-// ①第 1 层槽位：settings.general.item 是 list 槽位（registry 对 list 只拒
-//   同 id+同 priority 冲突，异 priority 并存渲染；client-runner 根槽文档明
-//   说 list 是 additive）——影子只叠加不移除，无法屏蔽（ui-theme client.js
-//   注册行实锤：id 'appearance' 的 list 贡献）；
-// ②第 2 层服务：AppearanceRow 自持 store 直挂 theme/change（ui-theme
-//   client.js AppearanceRow/createAppearanceRowStore），不经 settingsSchema/
-//   settingsScope 字段表，无按 id 过滤的服务口（settingsSchema 只服务
-//   settings-models 的提供方路径操作，见 ui-settings-models createSettings-
-//   SchemaOperations 调用点）；
-// ③第 3 层接缝：__DSH_TRANSPORT__/__DSH_BOOT__ 与行级呈现无关。
-// 选择器稳定性：data-slot 是框架给 list 渲染容器的槽位名属性（实测本
-// 框架把整组 list 项装进一个 display:contents 容器，故用 >* 逐行命中；
-// 官方 GeneralSection CSS 同款消费该属性）；:has(button[aria-pressed])
-// 结构伪类命中外观行三态方块（aria-pressed 是其选中态 a11y 契约，实测
-// 六行中唯一）——字号步进器与其余三个下拉均无 aria-pressed 按钮；不依赖
-// css-module 哈希（行根类 _group_<hash> 随版本变，弃用）。
-// 作用域限本树（本 bundle 只进 settings 树），官方 web 零影响、设置数据
-// 零改动；装配页主题跟随（theme-follow 覆写）与官方 web 外观设定各自
-// 独立、互不回写。
+// 两处「官方件不进我们的设置页」按机制层 1 的**遮蔽（shadow）**做：同一个槽位、
+// 同一个条目 id、priority −1 再注册一个空件。官方那条仍在注册表里（它自己的
+// store、locale 词典、theme/change 订阅照常存活），只是不再进渲染位——官方
+// 注册表的语义是「一个 cell 里只有优先号最小的那条进渲染位」（shadow）。
+//
+// - **外观行**：官方 @deepseek-ai/dsh-client-ui-theme 在 list 槽位
+//   settings.general.item 注册的条目 id 是 'appearance'（0.1.6-alpha.1 的
+//   lib/client.js 逐字：`ctx.slots.inject("settings.general.item", () =>
+//   ctx.slots.register({ name: "settings.general.item", id: "appearance",
+//   order: 10, …}, AppearanceRow))`）。摘它的理由（#70）：那一行是 Light /
+//   Dark / System 三态，我们的设置页由 VS Code 主题跟随（vscode-theme-follow）
+//   管主题，两边各管各的。字号行（id 'font-size'）不动。
+// - **官方「打开配置文件」**：官方 @deepseek-ai/dsh-client-ui-settings-general
+//   在 list 槽位 settings.action 注册的条目 id 是 'open-document'（同版本
+//   lib/client.js 逐字），它的动作是网关宿主用系统默认应用打开
+//   ~/.dsh/settings.yaml；我们要的是走 VS Code 编辑器的自有行动
+//   （id 'open-document-vscode'，见下方注册），所以按 id 遮蔽官方那条。
+//
+// #178 之前这两处是第 4 层 CSS 结构规则（`>*:has(button[aria-pressed])` 摘外观行、
+// `>*:not(:has([data-dshone-doc-action]))` 摘官方那条）。当时的判断是「list 槽位
+// 同 id 无法遮蔽」，审计实测那是错的：list 槽位同 id 一样可以遮蔽。换成遮蔽之后
+// 两处脆点一并消失——原来的规则按**结构**认件，外观行换个控件、或这个槽位将来多
+// 出别的官方条目，规则都会误伤。#87 起「按 id 遮蔽而不是按位置/结构摘」是本仓库的
+// 既定做法（同 sessionExportPlugin 对官方 session-log-download 的处理）。
+//
+// 作用域限本树（本 bundle 只进 settings 树），官方 web 零影响、设置数据零改动。
 // ---------------------------------------------------------------------------
+
+/** 空件：占据官方条目的 cell、什么也不渲染（遮蔽用，见上）。 */
+function Nothing(): null {
+  return null
+}
 
 // ---------------------------------------------------------------------------
 // cordis 插件面：layout 服务 + root 注册（侧栏壳 4 子槽 + keyed main + overlay）
@@ -323,6 +334,14 @@ export function apply(ctx: ShellContext): void {
         OpenDocAction,
       ),
     )
+    // 两处遮蔽（机制层 1，见文件里 CSS 上方那段说明）：同 id + priority −1 注册空件，
+    // 官方那条让出渲染位。都等槽位被声明出来再注册（官方 inject 语义）。
+    const disposeAppearanceShadow = ctx.slots.inject('settings.general.item', () =>
+      ctx.slots.register({ name: 'settings.general.item', id: 'appearance', priority: -1 }, Nothing),
+    )
+    const disposeOfficialDocShadow = ctx.slots.inject('settings.action', () =>
+      ctx.slots.register({ name: 'settings.action', id: 'open-document', priority: -1 }, Nothing),
+    )
     const disposeLocale = ctx.locale.register('dshOneSettings', {
       zh: { openDocument: '\u6253\u5f00\u914d\u7f6e\u6587\u4ef6' },
       en: { openDocument: 'Open configuration file' },
@@ -356,12 +375,14 @@ export function apply(ctx: ShellContext): void {
     return () => {
       disposePage()
       disposeDocAction()
+      disposeOfficialDocShadow()
+      disposeAppearanceShadow()
       disposeLocale()
       disposeRoot()
       disposePanelInfo()
       disposeService()
     }
-  }, 'dsh-one settings shell: layout service + panel-info hook + root + settings page as keyed main + doc action')
+  }, 'dsh-one settings shell: layout service + panel-info hook + root + settings page as keyed main + doc action + two official-row shadows')
   ctx.effect(() => {
     const presenter = new ThemePresenter()
     presenter.apply(ctx.theme.getTheme())

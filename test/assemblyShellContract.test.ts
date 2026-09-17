@@ -239,13 +239,61 @@ test('官方「新会话」胶囊：只在 shell 的 CSS 里摘，树插件不�
   const shell = read('sidebarLayoutPlugin.ts')
   assert.match(
     shell,
-    /\.dshOneSidebarShell_side>div>\[class\*="root"\]>\[class\*="newSession"\]\{display:none\}/,
-    'shell 必须有摘掉官方新会话胶囊的 CSS 规则，且作用域限在官方侧栏壳（.dshOneSidebarShell_side>div>[class*="root"]）',
+    /\.dshOneSidebarShell_side \[data-dshone-official-root\]>\[class\*="newSession"\]\{display:none\}/,
+    'shell 必须有摘掉官方新会话胶囊的 CSS 规则，且作用域限在官方侧栏壳（side 下我们标了 data-dshone-official-root 的官方根）',
   )
   assert.match(shell, /dsh-client-ui-sidebar/, '规则上方必须点明举证来源（查过的官方包与文件）')
   assert.match(shell, /哈希前缀/, '注释要写明类名稳定性风险：css-module 后缀稳定、哈希前缀随版本变')
   const tree = TREE_SOURCE
   assert.ok(!/class\*="newSession"/.test(tree), '树插件不得掺和官方胶囊的摘除（同一份插件还要在官方 web 形态里跑）')
+})
+
+// #178 C10+C11：设置页里两处「官方件不进我们的页」原先按 CSS 结构伪类认件
+// （`>*:has(button[aria-pressed])` 摘外观行、`>*:not(:has([data-dshone-doc-action]))`
+// 摘官方那条「打开配置文件」）。当时的判断是「list 槽位同 id 无法遮蔽」，审计实测
+// 那是错的——list 槽位同 id 一样可以按 priority 遮蔽。现在这两处走机制层 1：同 id +
+// priority −1 注册空件，官方那条让出渲染位、仍在注册表里。
+test('设置页两处官方件按槽位遮蔽（#178 C10+C11），不再用 CSS 结构规则', () => {
+  const text = read('settingsLayoutPlugin.ts')
+  const css = /const CSS =\n?\s*'([^']*)'/.exec(text)?.[1] ?? ''
+  assert.ok(!/:has\(/.test(css), '设置页的 CSS 里不得再有 :has() 结构规则')
+  assert.ok(!/aria-pressed/.test(css), '设置页不得再按外观行的 aria-pressed 结构认件')
+  // 官方 id 逐字：ui-theme 的 'appearance'、ui-settings-general 的 'open-document'
+  // （出处写在插件里那段说明里，测试只钉住「同一个 id + 更小优先号」这条形态）。
+  assert.match(
+    text,
+    /ctx\.slots\.register\(\{\s*name:\s*'settings\.general\.item',\s*id:\s*'appearance',\s*priority:\s*-1\s*\}/,
+    '外观行要按官方同 id + priority −1 遮蔽',
+  )
+  assert.match(
+    text,
+    /ctx\.slots\.register\(\{\s*name:\s*'settings\.action',\s*id:\s*'open-document',\s*priority:\s*-1\s*\}/,
+    '官方「打开配置文件」要按官方同 id + priority −1 遮蔽',
+  )
+  assert.match(text, /dsh-client-ui-theme/, '遮蔽的出处（查过的官方包与条目 id）要写在注释里')
+})
+
+// #178 C7+C9：官方根元素不按 DOM 层次取。层次（插槽容器几层、是不是 display:contents）
+// 是渲染器的实现细节，不是官方契约——按它写的选择器在官方换包装方式时静默不命中。
+// 现在的口径：脚本按类名后缀找到官方根、打上 data-dshone-official-root，CSS 与几何
+// 快照都只认这个属性。
+test('官方侧栏根元素：按自有属性取，不按 DOM 层次（#178 C7+C9）', () => {
+  const shell = read('sidebarLayoutPlugin.ts')
+  const css = /const CSS =\n\s*'([^']*)'/.exec(shell)?.[1] ?? ''
+  assert.ok(!/>div/.test(css), 'shell 的 CSS 不得再按「side 下的 div 里再一层」这种层次假设选元素')
+  assert.ok(
+    !/querySelector[^\n]*_side>div/.test(shell),
+    '脚本里也不得再有按层次拼出来的官方根选择器（注释里提旧写法不算）',
+  )
+  assert.match(shell, /const OFFICIAL_ROOT_ATTR = 'data-dshone-official-root'/, '标记属性名要在这一处定义')
+  assert.match(shell, /endsWith\('_root'\)/, '官方根的判据是 css-module 类名后缀 root')
+  assert.match(shell, /new MutationObserver\(/, '官方根挂载晚、还可能被重挂：要有观察器兜住')
+  assert.match(css, /\[data-dshone-official-root\]/, '按官方根走的规则要用标记属性选')
+  assert.ok(!/:has\(button\[aria-pressed\]\)/.test(css), 'CSS 里不得再按结构伪类认官方件（#178 C10+C11 改成槽位遮蔽）')
+  assert.ok(
+    !/aria-label/.test(css),
+    '失效的 aria-label 规则（#178 C8：中文词典原文是「收起侧边栏」）不得留在 CSS 里',
+  )
 })
 
 /**

@@ -296,6 +296,17 @@ export const SESSION_EXPORT_PLUGIN_ID = '@dsh-one/dsh-session-export'
  */
 export const WORKSPACE_TREE_PLUGIN_ID = '@dsh-one/dsh-workspace-tree'
 
+/**
+ * 装配页的阻塞 script 要的就是 bootstrap 批的 URL。按 `phase === 'bootstrap'` 找，
+ * **不假定它在 `batches[0]`**（#178 A9）——批次的排列顺序是官方下发的形状，不是契约。
+ * 找不到就抛：装配页少了这一段，官方 WebBoot 运行时根本不会启动。
+ */
+export function bootstrapUrlOf(wire: BootWire): string {
+  const bootstrap = wire.batches.find((b) => b.phase === 'bootstrap')
+  if (bootstrap === undefined) throw new Error('assembly wire: no bootstrap batch')
+  return bootstrap.url
+}
+
 /** 从网关 `/` 注入 HTML 提取 __DSH_BOOT__ JSON（官方把 `<` 转义成 \u003c，JSON.parse 直接还原)。 */
 export function extractBootWire(html: string): BootWire {
   const m = /globalThis\["__DSH_BOOT__"\] = (\{[\s\S]*?\})<\/script>/.exec(html)

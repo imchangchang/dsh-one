@@ -89,8 +89,12 @@ async function shot(ctx: { shots: string }, page: OpenedPage['page'], name: stri
 }
 
 const FRAME = '[class*="dshOneSidebarShell_frame"]'
-/** 官方侧栏根元素（官方页上没有我们那棵树的 `.dshOneTree_root`，容器内容右缘按它算）。 */
-const SIDEBAR_ROOT = '.dshOneSidebarShell_side>div>[class*="root"]'
+/**
+ * 官方侧栏根元素（官方页上没有我们那棵树的 `.dshOneTree_root`，容器内容右缘按它算）。
+ * 按 shell 打在它身上的自有属性取（#178 C7+C9）——不再按「side > div > 根」的层次拼
+ * 选择器，顺便当「标记真的打上了」的哨兵。
+ */
+const SIDEBAR_ROOT = '[data-dshone-official-root]'
 const ROOT = '.dshOneTree_root'
 const TOP_BAR = '[data-dshone-tree="top-bar"]'
 const TOP_ACTIONS = '[data-dshone-tree="top-bar-actions"]'
@@ -316,7 +320,7 @@ async function readOfficial(page: OpenedPage['page']): Promise<OfficialReading> 
       return {
         sidebarRight,
         // 官方页没有我们那棵树的 `.dshOneTree_root`，容器内容右缘按官方侧栏根元素算
-        //（`.dshOneSidebarShell_side>div>[class*="root"]`，见 sidebarLayoutPlugin 的 CSS）。
+        //（`[data-dshone-official-root]`，shell 打的标记，见 sidebarLayoutPlugin）。
         rootContentRight:
           root === null || rootStyle === null
             ? null

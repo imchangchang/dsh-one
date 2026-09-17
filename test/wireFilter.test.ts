@@ -12,6 +12,7 @@ import {
   extractBootWire,
   extractFrontendAssets,
   filterWire,
+  bootstrapUrlOf,
   type BootWire,
 } from '../src/ui/assembly/wireFilter.ts'
 
@@ -55,6 +56,23 @@ test('从网关 HTML 提取 wire 与前端资产', () => {
 
 test('无 __DSH_BOOT__ 注入的 HTML 明确抛错', () => {
   assert.throws(() => extractBootWire('<html><body>nope</body></html>'), /__DSH_BOOT__/)
+})
+
+/**
+ * #178 A9：装配页的阻塞 script 取 bootstrap 批 URL，按 `phase === 'bootstrap'` 找，
+ * **不假定它排在 `batches[0]`**（批次顺序是官方下发的形状，不是契约）。
+ */
+test('bootstrapUrlOf：按 phase 找 bootstrap 批，不看它在第几位；找不到就抛', () => {
+  const wire = extractBootWire(FIXTURE_HTML)
+  assert.equal(bootstrapUrlOf(wire), wire.batches[0].url, '夹具里它恰好排第一')
+  // 把 application 批挪到前面：位置变了，取到的还是 bootstrap 那条。
+  const reordered: BootWire = { ...wire, batches: [wire.batches[1], wire.batches[0], ...wire.batches.slice(2)] }
+  assert.equal(bootstrapUrlOf(reordered), wire.batches[0].url, '批次顺序不是契约：按 phase 找')
+  assert.throws(
+    () => bootstrapUrlOf({ ...wire, batches: wire.batches.filter((b) => b.phase !== 'bootstrap') }),
+    /no bootstrap batch/,
+    '没有 bootstrap 批要响亮抛错（少了它官方 WebBoot 根本不会启动）',
+  )
 })
 
 test('filterWire：剥 blocklist、application 批重指 /plugins-local、追加 shell、bootstrap 不动', () => {

@@ -33,7 +33,7 @@ import { cookieHeader, exchangeToken, startAssemblyMirror, type AssemblyMirror }
 import { localBundleRev } from '../../src/server/localBundleRev.ts'
 import { registerVersion } from '../../src/server/serverAuth.ts'
 import { defaultOwnedPath, readOwnedRecord } from '../../src/server/ownedRecord.ts'
-import { extractBootWire, extractFrontendAssets, filterWire, WORKSPACE_TREE_PLUGIN_ID, type BootWire } from '../../src/ui/assembly/wireFilter.ts'
+import { bootstrapUrlOf, extractBootWire, extractFrontendAssets, filterWire, WORKSPACE_TREE_PLUGIN_ID, type BootWire } from '../../src/ui/assembly/wireFilter.ts'
 import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
 import { compare as compareSemver, parse as parseSemver } from '../../src/pure/semver.ts'
 import type { LogSink } from '../../src/log.ts'
@@ -275,7 +275,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
       cspNonce: `lab-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`,
       assets,
       bootWire: wire,
-      bootstrapUrl: wire.batches[0].url,
+      bootstrapUrl: bootstrapUrlOf(wire),
       theme,
       // 版本门与生产同口径：只有网关版本落在区间外才显示信息条（实验室不做
       // 本地化，文案与 ui/assemblyView.ts 的英文档一致）。
