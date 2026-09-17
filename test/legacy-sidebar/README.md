@@ -35,7 +35,7 @@ npm run verify:legacy-sidebar
 
 ## 产物（都已 gitignore，随时可重跑）
 
-- `out/verify.legacy-sidebar.ledger.json`——台账：全部断言、观测值、63 项几何的三档读数；
+- `out/verify.legacy-sidebar.ledger.json`——台账：全部断言、观测值、65 项几何的三档读数；
 - `out/shots/legacy-<状态>-<宽度>.png` / `current-<状态>-<宽度>.png`——两侧各自的截图；
 - `out/shots/pair-<状态>-<宽度>.png`——**并排图**（左旧右现，同一宽度、1:1）。
 

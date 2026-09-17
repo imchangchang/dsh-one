@@ -109,11 +109,14 @@
 //   那条规则上方。
 // - **菜单**→ 官方 `Menu` 传 `compact: true`（官方紧凑档），项内图标按官方该档的 14×14
 //   图标位给 `{ size: 14 }`。
-// - **二级菜单项**（就地展开的子项）→ 缩进 = **紧凑档的图标槽 14px + 项内间隙 6px = 20px**：
-//   它落在项的左内边距上（官方原有的项内边距 7px + 20px = 27px），于是子项的图标槽与文字
-//   整体右移一个缩进位、文字落在**父项文字左缘右侧 20px** 处。这不是官方件自己的几何，而是
-//   「嵌套一层」的关系量——档位表里没有「缩进」这一档，所以这条规则整条登记在下面的
-//   `SCALE_EXEMPT` 里。
+// - **二级菜单项**（就地展开的子项）→ 左内边距 = **紧凑档的项内边距 7px**
+//   （`SCALE_TIERS.compact.rowPaddingInline`）。子项整行紧接着是空的图标槽 14px 与项内间隙
+//   6px，与父项自己那串「项内边距 + 图标槽 + 间隙」逐项同值，于是**子项文字落在父项文字那一
+//   列上**（也等于「父项图标槽右缘 + 一项内间隙」），一分不比父项深。旧侧栏（正本）那条关系
+//   是「子项比父项深 14px」（`.menu-item{padding:4px 10px;gap:8px}` 配
+//   `.tag-submenu .menu-item{padding-left:24px}`；两侧逐项读数见 `test/legacy-sidebar/` 的
+//   台账），#143 把子项收到**不再比父项深**为止：这一条量的是「嵌套一层」的关系量，
+//   取值本身是档位表里的项内边距，不再需要例外登记。
 // - **选中态勾选框的缩进**（`.dshOneTree_checkIndent`，#133）→ **标准档的图标位 16px +
 //   紧凑档的行内间隙 6px = 22px**：会话行进多选后，勾选框左边先空出一层，框就落在工作区行
 //   那枚文件夹图标的列上（两行的行内边距与间隙同档，7 + 22 = 29 = 7 + 16 + 6）。与二级菜单项
@@ -293,11 +296,10 @@ export const SCALE_EXEMPT: readonly { selector: string; reason: string }[] = [
   { selector: 'dshOneTree_drawerHandle', reason: 'drawer handle (#103): hand-drawn shape, no official counterpart' },
   // 同上：把手条本体（32×3、2px 圆角），与 .dshOneTree_drawerHandle 一起构成抽屉把手。
   { selector: 'dshOneTree_drawerGrip', reason: 'drawer handle grip bar: same hand-drawn shape as above' },
-  // 二级菜单项的缩进（#126）：27px 是**紧凑档三个值的和**（项内边距 7px + 图标槽 14px +
-  // 项内间隙 6px），也就是「比父项深一层」这个关系量——官方没有哪个件带这种嵌套缩进，
-  // 档位表里没有能拿来当出处的量，所以这条规则整条不进档位表。出处与算式写在
+  // 二级菜单项的缩进（#126 立、#143 重定）：**原先那条豁免随 #143 退场**——取值从
+  // 27px（紧凑档三个值的和）收到紧凑档的项内边距 7px 之后，这条规则引用的就是档位表里的
+  // 一个量（`SCALE_TIERS.compact.rowPaddingInline`），不再需要例外登记。算式与出处写在
   // 那条规则上方、档位表那一节的「二级菜单项」一条里。
-  { selector: 'dshOneTree_submenuItem', reason: 'submenu indent (#126): 27px = compact padding-inline 7px + icon slot 14px + item gap 6px, a nesting offset no official component has a tier for' },
   // 回收站入口行的计数胶囊（#137）：字号 10px / 行高 16px / 圆角 8px / 内边距 0 5px 整套取自
   // 旧侧栏那一行（`sessionsView.ts` 的 `.recycle-entry-count`），是「这一行按旧侧栏规格」那一
   // 组取值的一员；档位表管的是与官方件同族的控件档位（官方侧栏里这一类计数只有文字、没有
@@ -600,18 +602,32 @@ export const CSS =
   '.dshOneTree_menuRow{align-items:center;gap:6px;min-width:0;width:100%;display:flex}' +
   '.dshOneTree_menuRowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}' +
   '.dshOneTree_menuRowCount{color:var(--dsw-alias-label-tertiary);flex:none}' +
-  // 二级菜单（就地展开的子项）的缩进（#126）。官方 Menu 的项是一条「图标槽 + 文字 + 勾」的
-  // 流水线，官方没有「子项缩进 / 层级」这个口（前三层都没有：项对象只认 id / label / icon /
-  // disabled / danger / type / submenu，渲染时字段逐个取用、不吃 className、style 这类口——
-  // 出处是 0.1.6-alpha.1 的 `lib/client.js` 渲染项那一段；官方 `submenu` 是右侧飞出的一层，
-  // 窄侧栏里放不下，所以子项由我们就地展开，见 rows.ts 的 submenuChild），因此缩进落在
-  // **官方项那个 `<button role="menuitem">`（官方给每个菜单项打的语义属性，同一份源码）的
-  // 左内边距**上：用 :has() 从我们自己的标记类去选它的祖先项，不碰任何官方哈希类名。
-  // 取值 = 紧凑档的项内边距 7px + 图标槽 14px + 项内间隙 6px = 27px：把整行（图标槽 + 文字）
-  // 右移一个缩进位，于是子项文字落在**父项文字左缘右侧 14px + 6px = 20px** 处，而子项自己的
-  // 图标与文字仍相邻。子项没有图标时也占住图标槽（rows.ts 的 indentSubmenuItem 补空槽），
-  // 所以「子项文字左缘 − 父项文字左缘」对所有子项是**同一个值**。
-  '[role="menuitem"]:has(.dshOneTree_submenuItem){padding-left:27px}' +
+  // 二级菜单（就地展开的子项）的缩进（#126 立、#143 按旧侧栏那条关系重定）。官方 Menu 的项是
+  // 一条「图标槽 + 文字 + 勾」的流水线，官方没有「子项缩进 / 层级」这个口（前三层都没有：
+  // 项对象只认 id / label / icon / disabled / danger / type / submenu，渲染时字段逐个取用、
+  // 不吃 className、style 这类口——出处是 0.1.6-alpha.1 的 `lib/client.js` 渲染项那一段；
+  // 官方 `submenu` 是右侧飞出的一层，窄侧栏里放不下，所以子项由我们就地展开，见 rows.ts 的
+  // submenuChild），因此缩进落在**官方项那个 `<button role="menuitem">`（官方给每个菜单项打的
+  // 语义属性，同一份源码）的左内边距**上：用 :has() 从我们自己的标记类去选它的祖先项，不碰
+  // 任何官方哈希类名。
+  //
+  // 取值 = **紧凑档的项内边距 7px**（`SCALE_TIERS.compact.rowPaddingInline`，官方
+  // `._item_1nxmc_92{padding:3px 7px}`）——子项的整行内边距与父项同档，缩进归零。算式
+  // （三项都出在官方紧凑档，每一项都相对项盒左缘）：
+  //   子项文字左缘 = 项内边距 7 + 空图标槽 14 + 项内间隙 6 = 27
+  //   父项文字左缘 = 项内边距 7 + 图标槽 14 + 项内间隙 6 = 27
+  //   父项图标槽右缘 = 项内边距 7 + 图标槽 14 = 21
+  // 即**子项文字落在父项文字那一列上**（也等于「父项图标槽右缘 + 一项内间隙」；#143 正文里
+  // 说的「落在 21px」是图标槽的右缘，文字还要再过一个项内间隙，见上面第二个算式）。
+  // 为什么重定：原先这条写 27px（= 项内边距 + 图标槽 + 间隙，把整行右移一个缩进位），子项
+  // 文字比父项文字深 20px，用户实测报「太深」；旧侧栏（正本）的同一条关系是 +14px（父项
+  // `.menu-item{padding:4px 10px;gap:8px}` 与子项 `.tag-submenu .menu-item{padding-left:24px}`
+  // 的差，两侧实测见 `test/legacy-sidebar/` 的台账：旧 +14 / 我们改前 +20）。#143 的口径是
+  // 「子项不再比父项深」，收到与父项同列为止；这条关系量由 `test/assembly-lab/` 的 F-32 在真
+  // 装配页上钉住（两个菜单各一遍，期望值从 `SCALE_TIERS` 读）。
+  // 子项没有图标时也占住图标槽（rows.ts 的 indentSubmenuItem 补空槽），所以「子项文字左缘 −
+  // 父项文字左缘」对所有子项是**同一个值**。
+  '[role="menuitem"]:has(.dshOneTree_submenuItem){padding-left:7px}' +
   // 底部回收站入口行（#99：官方 sidebar.footer.action 座位；#137 整套几何按**旧侧栏规格**
   // 重定）。形态还是主区（🗑 + 文案 + 计数）+ 右侧两枚动作图标，计数 0 整体灰态。
   //
