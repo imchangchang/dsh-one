@@ -27,9 +27,15 @@ export interface GatewayModel {
   paths: string[]
 }
 
-/** 从网关取一次工作区清单与会话清单（只读订阅，取到基线即退订）。 */
+/**
+ * 从网关取一次工作区清单与会话清单（只读订阅，取到基线即退订）。
+ *
+ * 归档会话集合也取自这一帧的 `archivedSessionIds`：`session/list` 会把归档会话一起列出来，
+ * 而**两侧都不该把它画出来**（现装配侧由官方快照的归档集合滤掉，旧侧栏由 `buildSessionTree`
+ * 的同类输入滤掉）。以前这里恒给空集合，等于旧侧栏把归档会话当普通行渲染、两侧行数对不上。
+ */
 export async function fetchGatewayModel(gateway: string, logger: Logger): Promise<GatewayModel> {
-  const workspaces = await new Promise<WorkspaceInput[]>((resolve, reject) => {
+  const baseline = await new Promise<{ workspaces: WorkspaceInput[]; archived: string[] }>((resolve, reject) => {
     let settled = false
     const timer = setTimeout(() => {
       if (settled) return
@@ -42,17 +48,19 @@ export async function fetchGatewayModel(gateway: string, logger: Logger): Promis
       settled = true
       clearTimeout(timer)
       subscription.dispose()
-      resolve(
-        frame.items.filter(
+      resolve({
+        workspaces: frame.items.filter(
           (item): item is WorkspaceInput =>
             typeof item === 'object' &&
             item !== null &&
             typeof (item as { workspaceId?: unknown }).workspaceId === 'string',
         ),
-      )
+        archived: frame.archivedSessionIds,
+      })
     })
   })
-  const archived = new Set<string>()
+  const workspaces = baseline.workspaces
+  const archived = new Set<string>(baseline.archived)
   const sessions = (await listSessions(gateway)).map(toSessionInput)
   const paths = workspaces.map((w) => w.path).filter((p) => typeof p === 'string' && p !== '')
   return { workspaces, sessions, archived, paths }

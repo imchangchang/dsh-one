@@ -8,10 +8,16 @@
 - **两侧**：旧侧栏 = 已退役、仍在仓库里的那套（`src/ui/sessionsView.ts` +
   `src/ui/sessionsWebview.ts`）；现装配侧栏 = 装配页里跑的那棵树（`@dsh-one/dsh-workspace-tree`，
   `packages/dsh-workspace-tree/src/workspaceTree/`）。
-- **数据**：两侧吃的是**同一次**只读网关读取（`session/list` + `workspace/follow` 的基线帧，
-  当次实测：14 棵工作区、1168 条可显示会话）。两侧「怎么读」本来就不同，所以 harness 不硬塞
-  同一棵 DOM，而是把同一批事实各按**它自己的原生通道**喂进去（旧侧栏吃宿主推的
-  `SessionsSnapshot`，现装配侧吃假宿主的 `stateRead` 键值与官方客户端的 `localStorage` 视图态）。
+- **数据**：两侧吃的是**同一次**只读网关读取（`session/list` + `workspace/follow` 的基线帧）。
+  **本文的截图与「当次实测」读数来自 #197 之前那一轮**——那时 harness 把实例开在用户日常的
+  `~/.dsh` 上，「当次数据」就是那台实例的：14 棵工作区、1168 条可显示会话。**#197 起改成自己
+  起一台隔离实例**（临时 `DSH_HOME`、跑完按 PID 收掉、不碰用户的 `~/.dsh`）并**播种**一份真数据
+  （5 棵工作区、16 条可显示会话，跑法见 `test/legacy-sidebar/README.md`）——所以**数据相关的读数
+  与图上的工作区名会变**（例如「全部工作区」胶囊的宽度、下面 C-1 那条工作区顺序），而本文的
+  **几何结论**（B 节那 63 项密度 / 规格读数）跟数据无关，复跑照旧。两侧「怎么读」本来就不同，
+  所以 harness 不硬塞同一棵 DOM，而是把同一批事实各按**它自己的原生通道**喂进去（旧侧栏吃宿主
+  推的 `SessionsSnapshot`，现装配侧吃假宿主的 `stateRead` 键值与官方客户端的 `localStorage`
+  视图态）。
 - **harness**：`test/legacy-sidebar/`（`npm run verify:legacy-sidebar`，约 3 分钟，跑法与端口
   见那个目录的 README）。截图与台账都重新生成，随时可复跑。
 - **主题**：旧侧栏只认 VS Code 主题变量，渲染时贴的是 VS Code 默认深色主题的取值（出处写在
@@ -285,6 +291,9 @@
   现装配侧排出 `dsh-tool-showimage > laixi > dsh-mobile > dsh-computer-use > dsh-launcher > …`。
 - 出处：旧侧栏把工作区按「当前文件夹优先，其余按**工作区 `updatedAt` 降序**」排
   （`src/pure/sessionTree.ts:417-421`）；现装配侧按网关给的官方顺序排。
+- 复现：#197 起的**播种数据上两侧碰巧同序**（那批工作区的注册顺序本来就是 `updatedAt` 降序，
+  当前文件夹又正好在最前），所以这一条要在数据上复现得看排序规则真被拉开的那种清单；两条规则
+  本身的差异在代码里仍是上面那两处。
 - 与 #128 的关系：**#128 的 A1 第一行把「工作区分组顺序」判成「一致（注册顺序 + 未分组收尾）」，
   渲染实测不成立**——两边的第二棵工作区就不是同一个。
 - 建议：**请用户拍板**。旧行为「最近动过的工作区靠上」有实际用处；现在的行为与官方 web 一致。

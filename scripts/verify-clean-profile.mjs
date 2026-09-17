@@ -43,15 +43,13 @@ const HOST_HALF = 'dsh-host-capabilities'
  * 已知的、与本条门禁无关的阻断项：命中即记为「已知阻断」，不当失败，但**必须**
  * 与签名逐字相符（换个原因红起来照样是失败）。修好之后这一项会自动变成「例外已
  * 不再需要」，提示从表里删掉——不静默留着。
+ *
+ * 现为空（#197）：最后一条 `#164`（侧栏树的 block list 挡着 `ui-commands`、官方
+ * `ui-model-selection` 等它的 `commandUi`）已经不再触发——本机实测这一轮四棵树全部
+ * 「页面装起来了」，脚本自己打出的 note 就是「例外表里的 #164 已经不再触发」。表空着
+ * 的期间，上面那段「命中即记已知阻断」的机制照旧：有阻断项就按签名加回来。
  */
-const KNOWN_BLOCKERS = [
-  {
-    issue: '#164',
-    why: '侧栏树的 block list 还挡着 ui-commands，官方 ui-model-selection 等它的 commandUi（boot 卡 pending）',
-    trees: ['sidebar', 'sidebar-official'],
-    match: /dsh-client-ui-model-selection: pending \(waiting for service: commandUi\)/,
-  },
-]
+const KNOWN_BLOCKERS = []
 
 /** 逐棵树的打开方式：就绪选择器与视口（与实验室一致）。 */
 const TREES = [
