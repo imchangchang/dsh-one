@@ -326,7 +326,8 @@ export function apply(ctx: TreeContext): void {
     },
   })
 
-  /** 工作区里「复用空白会话，否则新建」再打开（官方 connectWorkspace + open 的语义）。 */  const startSessionIn = async (workspaceId: string): Promise<string> => {
+  /** 工作区里「复用空白会话，否则新建」再打开（官方 connectWorkspace + open 的语义）。 */
+  const startSessionIn = async (workspaceId: string): Promise<string> => {
     const snapshot = workspaces.list.getSnapshot()
     const workspace = snapshot.items.find((item) => item.workspaceId === workspaceId)
     if (workspace === undefined) throw new Error(`workspace tree: unknown workspace ${workspaceId}`)
