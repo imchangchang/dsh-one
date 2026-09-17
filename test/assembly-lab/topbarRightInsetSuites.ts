@@ -30,12 +30,25 @@
  * `#142` 给 `.dshOneTree_sectionHeader` 补了 `padding-right`，值 = **四个结构量的和**：
  * ① 这一行自己的 4px 出血（官方分节头 `margin-right:-4px` 的形态，不动）、② 列表的右外边距
  * `--dsh-session-list-scrollbar-offset`、③ 列表给滚动条留的车道 `--dsh-session-list-scrollbar-width`、
- * ④ 行的右内边距 `--dsh-one-density-row-padding-inline`。本套件**不重算这个和**，只判几何关系
- * （盒子右缘 − 内容右缘 = 那条竖线到盒子右缘的距离），所以算式哪天写错了这里会先红。
+ * ④ 行的右内边距 `--dsh-one-density-row-padding-inline`。第 ① / ② / ④ 项都是常量，第 ③ 项
+ * **随宿主平台变**——所以 `#168` 起树把当页实测的车道写回那根变量，本套件既判几何关系
+ * （盒子右缘 − 内容右缘 = 那条竖线到盒子右缘的距离），也把**这个和**逐项从页面上读出来对一遍
+ * （出血取那一行自己的 `margin-right`，不写死 4px），算式哪天写错这里会先红。
+ *
+ * ## 两种滚动条形态（#168：用户实测「macOS 上顶栏右侧多缩了 8px」）
+ *
+ * 车道那一格在**实占滚动条**（Windows、实验室浏览器默认）下是滚动条自身的宽，在 **macOS 的
+ * 浮层滚动条**下是 0——写死 8px 就会在 macOS 上让顶栏内容比列表行内容多缩 8px。套件把两种
+ * 形态都量：**实占**用当页默认（车道 > 0），**浮层**用页内夹具把列表的 `scrollbar-width` 置
+ * `none`（滚动条不再占位、列表照常能滚，等价于平台的浮层滚动条对几何的影响；夹具走的是
+ * 「车道真的变 0」这条路，而不是把变量改成 0）。两种形态下 ① / ③ / ④ 全套判据都成立，并各加
+ * 一条：车道变量的值 = 列表的 `offsetWidth − clientWidth`（证明读的是当页实测），以及
+ * 右内缩 = 出血 + 列表右外边距 + 当页车道 + 行右内边距（四项都在页面上读到）。
  *
  * 另外三条一起钉住：
  * - **出血没被动**：那一行的**盒子**右缘仍在列表右缘之外（`margin-right:-4px` 还在，
- *   F-35 ④ 有同名断言，这里按「盒子右缘 = 容器内容右缘 + 4px」正面量一遍）；
+ *   F-35 ④ 有同名断言，这里按「盒子右缘 = 容器内容右缘 + 4px」正面量一遍）。**盒子**那一条
+ *   口径归 F-35（它守的是「别为了收内容把出血也去掉」），本套件守的是**内容**右缘；
  * - **最右一枚图标的悬停圆底不被裁**：那一行是 `overflow:hidden`，盒子的右出血部分会被
  *   容器的 `overflow:hidden` 切掉——内容没往左收之前，最右一枚图标的圆底正好落在被切的那
  *   4px 里。这里断言那一枚整个落在**容器的裁切边界**（容器内容右缘）内。
@@ -52,7 +65,7 @@
  * 两条都判成断言，不用写死的像素。
  *
  * 密度两档各量一遍（与 F-35 / F-26 / F-42 同一处置：把树自己声明的官方兜底值内联回 frame =
- * 官方档，量完撤销）——这条关系在两档下都应成立。
+ * 官方档，量完撤销）——这条关系在两档下都应成立。密度 × 形态共四遍，每遍量三档宽度。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
@@ -114,6 +127,8 @@ interface RightReading {
   topBarContentRight: number | null
   topBarGap: number
   topBarPaddingRight: number | null
+  /** 那一行的右外边距（负数 = 官方分节头的出血，下面按它算右内缩的和）。 */
+  topBarMarginRight: number | null
   /** 动作组与它里面最右一枚工具控件（收起态量它）。 */
   actions: Box | null
   rightmostAction: { name: string; box: Box } | null
@@ -209,6 +224,7 @@ async function readRight(page: OpenedPage['page']): Promise<RightReading> {
             : round(topBar.getBoundingClientRect().right - px(topBarStyle.paddingRight)),
         topBarGap: topBarStyle === null ? 0 : px(topBarStyle.columnGap),
         topBarPaddingRight: topBarStyle === null ? null : px(topBarStyle.paddingRight),
+        topBarMarginRight: topBarStyle === null ? null : px(topBarStyle.marginRight),
         actions: boxOf(actions),
         rightmostAction:
           lastButton === null
@@ -358,12 +374,46 @@ async function restoreDensity(page: OpenedPage['page']): Promise<void> {
   )
 }
 
+/**
+ * 两种滚动条形态（#168）：几何上它们是同一件事的两种取值——**滚动条占不占宽**。
+ * - `occupied`（实验室浏览器的默认形态，也是 Windows 上的形态）：滚动条真的吃掉列表一格；
+ * - `overlay`（macOS 的 VS Code webview 默认形态）：滚动条浮在内容上、不吃宽。
+ *
+ * 页内夹具用一条样式规则把列表的 `scrollbar-width` 置 `none`：滚动条不再占位（列表照常能滚），
+ * 列表的 `offsetWidth − clientWidth` 因此从 8px 变 0——与平台的浮层滚动条对几何的影响逐字相同，
+ * 而树侧读的正是这个实测差值，所以这条夹具走的跟真机是同一条路径（不是把变量改成 0）。
+ */
+type ScrollbarForm = 'occupied' | 'overlay'
+
+const SCROLLBAR_FORMS: readonly { id: ScrollbarForm; label: string }[] = [
+  { id: 'occupied', label: '实占滚动条形态' },
+  { id: 'overlay', label: '浮层滚动条形态' },
+]
+
+const FORM_FIXTURE_ID = 'lab-scrollbar-form'
+
+/** 把页面切到某一形态（切完等页内的车道重测跑完：ResizeObserver 回调 + 写回变量那一拍）。 */
+async function setScrollbarForm(page: OpenedPage['page'], form: ScrollbarForm): Promise<void> {
+  await page.evaluate(
+    ([listSelector, fixtureId, noLane]) => {
+      document.getElementById(fixtureId)?.remove()
+      if (!noLane) return
+      const style = document.createElement('style')
+      style.id = fixtureId
+      style.textContent = `${listSelector}{scrollbar-width:none}`
+      document.head.appendChild(style)
+    },
+    [LIST, FORM_FIXTURE_ID, form === 'overlay'] as const,
+  )
+  await page.waitForTimeout(300)
+}
+
 export const TOPBAR_RIGHT_INSET_SUITE: LabSuite = {
   id: 'F-44',
   phase: 'new-feature',
   name: '顶栏那一行的右侧基准：内容右缘落在行内容右缘那条竖线上（#142，TOPBAR-RIGHT-INSET 套件）',
   expect:
-    '真实装配页上（真网关**只读** + 假宿主）、260/340/500 三档宽度 × 两种密度状态（宿主给的 VS Code 档 / 把密度变量对齐回树自己声明的官方兜底值 = 官方档）下量**几何矩形**，另开一页官方浏览区（`/sidebar-official`，同一 frame、同一网关数据）当基准：① **收起态：顶栏内容右缘 = 行内容右缘（±1px）**——「顶栏内容右缘」取最右一枚工具控件（多选入口）的右缘，「行内容右缘」取工作区行行盒右缘 − 行的 `padding-right`（也就是行尾角标 / 时间结束的那条线，#125 左侧口径的右侧对称版），另用「行里最后一枚占内容子元素的右缘」做几何旁证；这一行的内容右缘（盒子右缘 − 右内边距）也一并判在同一条线上。② **展开态：搜索框右缘同样落在那条线上**——期望值按官方 `searchExpanded` 自带的那一笔算（`width:calc(100% + 4px)` + `margin-inline:-2px` 的 2px 外突，再减掉它右端那一格行内间隙），所以 VS Code 档正好落在这条线上、官方档短 2px（= F-42 早就写下的「最多短 2px」），容差 ±1px；同时搜索框左缘仍落在行内容左缘那条线上（#125 的左侧口径没被这次改动带偏）。③ **出血没被动、图标不被裁**——那一行的**盒子**右缘仍等于容器内容右缘 + 4px（官方分节头的 `margin-right:-4px` 还在，也就是仍伸到列表右缘之外），而**内容**整个落在**容器能画出来的范围**内（那一行是 `overflow:hidden`，出血那 4px 会被容器的裁剪切掉——内容往左收之前，最右一枚图标的悬停圆底正好落在被切的那一段里）。④ **胶囊那一侧的关系不变**——收起态里胶囊仍在行尾那一组控件的左边、两者不重叠，且那一行 / 列表区 / 列表 / 文档都没有横向溢出（`scrollWidth ≤ clientWidth + 1`）。⑤ **官方页读数两条**（同为断言，不写死像素）：官方自己的行内容右缘与我们的行内容右缘是同一个值（同一份行 CSS 的直接证据，±1px），而我们这一行的内容右缘比官方那条线更靠内至少一个行内边距（官方把动作组贴到容器内容右缘上，我们这一跳是用户点名要的、刻意往回收）。全程零 pageerror。',
+    '真实装配页上（真网关**只读** + 假宿主）、260/340/500 三档宽度 × 两种密度状态（宿主给的 VS Code 档 / 把密度变量对齐回树自己声明的官方兜底值 = 官方档）下量**几何矩形**，另开一页官方浏览区（`/sidebar-official`，同一 frame、同一网关数据）当基准：① **收起态：顶栏内容右缘 = 行内容右缘（±1px）**——「顶栏内容右缘」取最右一枚工具控件（多选入口）的右缘，「行内容右缘」取工作区行行盒右缘 − 行的 `padding-right`（也就是行尾角标 / 时间结束的那条线，#125 左侧口径的右侧对称版），另用「行里最后一枚占内容子元素的右缘」做几何旁证；这一行的内容右缘（盒子右缘 − 右内边距）也一并判在同一条线上。② **展开态：搜索框右缘同样落在那条线上**——期望值按官方 `searchExpanded` 自带的那一笔算（`width:calc(100% + 4px)` + `margin-inline:-2px` 的 2px 外突，再减掉它右端那一格行内间隙），所以 VS Code 档正好落在这条线上、官方档短 2px（= F-42 早就写下的「最多短 2px」），容差 ±1px；同时搜索框左缘仍落在行内容左缘那条线上（#125 的左侧口径没被这次改动带偏）。③ **出血没被动、图标不被裁**——那一行的**盒子**右缘仍等于容器内容右缘 + 4px（官方分节头的 `margin-right:-4px` 还在，也就是仍伸到列表右缘之外），而**内容**整个落在**容器能画出来的范围**内（那一行是 `overflow:hidden`，出血那 4px 会被容器的裁剪切掉——内容往左收之前，最右一枚图标的悬停圆底正好落在被切的那一段里）。④ **胶囊那一侧的关系不变**——收起态里胶囊仍在行尾那一组控件的左边、两者不重叠，且那一行 / 列表区 / 列表 / 文档都没有横向溢出（`scrollWidth ≤ clientWidth + 1`）。⑤ **官方页读数两条**（同为断言，不写死像素）：官方自己的行内容右缘与我们的行内容右缘是同一个值（同一份行 CSS 的直接证据，±1px），而我们这一行的内容右缘比官方那条线更靠内至少一个行内边距（官方把动作组贴到容器内容右缘上，我们这一跳是用户点名要的、刻意往回收）。⑥ **两种滚动条形态都断言**（#168）——同一页上把形态切两遍量全套：**实占形态**（实验室浏览器的默认形态，也是 Windows 上的形态：滚动条真的吃掉列表一格）与**浮层形态**（页内夹具把列表的 `scrollbar-width` 置 `none`，滚动条不占宽，等价于 macOS 的 VS Code webview 默认形态）。两种形态下 ① / ③ / ④ 的判据逐条都成立，另加两条把「读的是当页实测」钉死：**那一行的右内缩 = 出血 + 列表右外边距 + 当页实测车道 + 行右内边距**（四项都在页面上读到，不写死像素），以及**写回变量的值 = 列表的 `offsetWidth − clientWidth`**（并自证形态切换真的生效：实占形态车道 > 0、浮层形态 = 0）。写死 8px 的旧写法在浮层形态下会多缩 8px，这三条先红。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const widths = [260, 340, 500] as const
@@ -391,15 +441,32 @@ export const TOPBAR_RIGHT_INSET_SUITE: LabSuite = {
         }),
       )
       check.fact(
-        `量法：三档宽度 ${widths.join('/')} × 两种密度状态；分节头的右内缩由四个结构量给出` +
-          `——4px 出血 + 列表右外边距 ${String(initial.scrollbarOffsetVar)}px（--dsh-session-list-scrollbar-offset）` +
-          ` + 滚动条车道 ${String(initial.scrollbarWidthVar)}px（--dsh-session-list-scrollbar-width，当页实测车道 ` +
-          `${String(initial.scrollbarLane)}px） + 行右内边距 ${String(initial.rowPaddingInline)}px` +
+        `量法：三档宽度 ${widths.join('/')} × 两种密度状态 × 两种滚动条形态（#168）；分节头的右内缩由四个结构量给出` +
+          `——出血 + 列表右外边距 ${String(initial.scrollbarOffsetVar)}px（--dsh-session-list-scrollbar-offset）` +
+          ` + 滚动条车道 ${String(initial.scrollbarWidthVar)}px（--dsh-session-list-scrollbar-width = 当页实测车道 ` +
+          `${String(initial.scrollbarLane)}px = 列表 offsetWidth − clientWidth） + 行右内边距 ${String(initial.rowPaddingInline)}px` +
           `（--dsh-one-density-row-padding-inline）；容差 ±${String(ALIGN_TOLERANCE)}px`,
       )
 
-      for (const density of ['vscode', 'official'] as const) {
-        const label = density === 'vscode' ? 'VS Code 档' : '官方档'
+      // #168：每一条几何判据都要在**两种滚动条形态**下成立，所以把「形态 × 密度」摊成一个
+      // 平铺的循环：形态切换是页内夹具的增删（只在真的换了形态时才切一次），密度档仍是
+      // 「一次 apply、量三档、一次 restore」。
+      const passes = SCROLLBAR_FORMS.flatMap((form) =>
+        (['vscode', 'official'] as const).map((density) => ({ form, density })),
+      )
+      let currentForm: ScrollbarForm | null = null
+      for (const { form, density } of passes) {
+        if (currentForm !== form.id) {
+          await setScrollbarForm(own.page, form.id)
+          currentForm = form.id
+          const laneReading = await readRight(own.page)
+          check.fact(
+            `量法：切到**${form.label}**——列表实测车道 ${String(laneReading.scrollbarLane)}px、` +
+              `变量 --dsh-session-list-scrollbar-width 读到的 ${String(laneReading.scrollbarWidthVar)}px` +
+              `（页内夹具：列表 scrollbar-width ${form.id === 'overlay' ? 'none（滚动条不占宽，同 macOS 的 VS Code webview）' : '默认（滚动条实占一格）'}）`,
+          )
+        }
+        const label = `${density === 'vscode' ? 'VS Code 档' : '官方档'} / ${form.label}`
         // 密度状态在**这一个档的整个宽度循环**里保持不动（与 F-35 同一处踩过的坑：同一档里
         // 反复 apply 会把「带兜底值的样式」存成备份，restore 就成了空操作）。一次 apply、
         // 量三档、一次 restore。
@@ -427,6 +494,37 @@ export const TOPBAR_RIGHT_INSET_SUITE: LabSuite = {
               `行盒右缘 ${String(collapsed.rowBoxRight)} − 行右内边距 ${String(collapsed.rowPaddingRight)} = 行内容右缘 ${String(collapsed.rowContentRight)}` +
               `（旁证：行里最后一枚内容的右缘 ${String(collapsed.rowLastContentRight)}）；` +
               `列表右缘 ${String(collapsed.listRight)}、列表区右缘 ${String(collapsed.listAreaRight)}、容器内容右缘 ${String(collapsed.rootContentRight)}、侧栏右缘 ${String(collapsed.sidebarRight)}`,
+          )
+
+          // ---- ⓪ 形态夹具真的生效 + 那一格读的是当页实测（#168）----
+          // 先自证夹具：实占形态下车道必然 > 0、浮层形态下必然 = 0（不做这一步，一条坏掉的
+          // 夹具会让下面的判据「碰巧都过」）。
+          check.ok(
+            `w=${String(width)} ${label}：形态夹具生效——当页列表的车道（offsetWidth − clientWidth）在实占形态下 > 0、浮层形态下 = 0`,
+            collapsed.scrollbarLane !== null &&
+              (form.id === 'occupied' ? collapsed.scrollbarLane > 0 : collapsed.scrollbarLane === 0),
+            `实测车道=${String(collapsed.scrollbarLane)}px（形态=${form.id}）`,
+          )
+          // 车道这一格是**当页量出来的**：树把 `offsetWidth − clientWidth` 写回
+          // `--dsh-session-list-scrollbar-width`，所以变量与实测必须逐次相等——写死 8px 的
+          // 旧写法在浮层形态下这条先红（8 ≠ 0）。
+          check.ok(
+            `w=${String(width)} ${label}：列表车道是当页实测写回的（--dsh-session-list-scrollbar-width = offsetWidth − clientWidth）`,
+            collapsed.scrollbarLane !== null && Math.abs(collapsed.scrollbarWidthVar - collapsed.scrollbarLane) <= 0.5,
+            `变量=${String(collapsed.scrollbarWidthVar)}px 实测=${String(collapsed.scrollbarLane)}px`,
+          )
+          // 右内缩的算式逐项都在页面上读到（出血取那一行自己的 `margin-right`，不写死 4px），
+          // 期望值因此随形态与密度档走，不写死像素。
+          const expectedTopBarPadding =
+            collapsed.topBarMarginRight === null
+              ? Number.NaN
+              : -collapsed.topBarMarginRight + collapsed.scrollbarOffsetVar + (collapsed.scrollbarLane ?? Number.NaN) + collapsed.rowPaddingInline
+          check.ok(
+            `w=${String(width)} ${label}：那一行的右内缩 = 出血 ${String(collapsed.topBarMarginRight === null ? null : -collapsed.topBarMarginRight)}px + ` +
+              `列表右外边距 ${String(collapsed.scrollbarOffsetVar)}px + 当页车道 ${String(collapsed.scrollbarLane)}px + 行右内边距 ${String(collapsed.rowPaddingInline)}px`,
+            collapsed.topBarPaddingRight !== null &&
+              Math.abs(collapsed.topBarPaddingRight - expectedTopBarPadding) <= 0.5,
+            `右内缩=${String(collapsed.topBarPaddingRight)} 期望=${String(expectedTopBarPadding)}`,
           )
 
           // ---- ① 收起态：顶栏内容右缘 = 行内容右缘（±1px）----
@@ -492,7 +590,7 @@ export const TOPBAR_RIGHT_INSET_SUITE: LabSuite = {
             JSON.stringify(collapsed.overflow),
           )
           if (width === 340) {
-            screenshots.push(await shot(ctx, own.page, `topbar-right-inset-collapsed-${density}-340`))
+            screenshots.push(await shot(ctx, own.page, `topbar-right-inset-collapsed-${form.id}-${density}-340`))
           }
 
           // ---- ② 展开态：搜索框右缘落在那条线上（左缘仍归 #125 的左侧口径）----
@@ -534,7 +632,7 @@ export const TOPBAR_RIGHT_INSET_SUITE: LabSuite = {
             JSON.stringify(expanded.overflow),
           )
           if (width === 340) {
-            screenshots.push(await shot(ctx, own.page, `topbar-right-inset-expanded-${density}-340`))
+            screenshots.push(await shot(ctx, own.page, `topbar-right-inset-expanded-${form.id}-${density}-340`))
           }
           await own.page.keyboard.press('Escape')
           await own.page.waitForTimeout(250)
@@ -544,6 +642,9 @@ export const TOPBAR_RIGHT_INSET_SUITE: LabSuite = {
       }
 
       // ---- ⑤ 官方对照页：那条线在官方页上是多少（#142 要做的第 1 点）----
+      // 形态夹具在这一节撤掉，回到实验室浏览器的默认形态（实占）——官方页那一组读数讲的
+      // 是同一台机器、同一份行 CSS 的对照，形态跟着默认走最不容易看错。
+      await setScrollbarForm(own.page, 'occupied')
       await own.page.setViewportSize({ width: 340, height: 900 })
       await official.page.setViewportSize({ width: 340, height: 900 })
       await own.page.waitForTimeout(250)
