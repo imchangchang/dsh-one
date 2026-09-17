@@ -17,8 +17,9 @@ export { cookieHeader, registerAuth, exchangeToken, probeToken, dshVersion } fro
  * 127.0.0.1 随机端口，随面板关闭。路由全解析：
  * - /plugins-local/??ids：本地 combo。shell 插件（@dsh-one/vscode-shell)
  *   直接读盘；**含官方 id 时** = 过滤版 application 批——拉网关原 combo
- *   （探针证实 rev 是内容校验：重拼/错 rev 一律 404，只能拉原 combo)，按
- *   `window.__ModuleLoader__.load({` 边界剥掉 BLOCK_LIST 段后伺服；
+ *   （探针证实 rev 是内容校验：重拼/错 rev 一律 404，只能拉原 combo；官方按
+ *   URL 长度把 application 切成几批时逐批拉），按 `window.__ModuleLoader__.load({`
+ *   边界剥掉 BLOCK_LIST 段后伺服；
  * - /（可选)：装配页 HTML（options.assemblyPage 提供时；生产由外壳生成 HTML，
  *   实验室按树路由自己伺服页面，都不走这个口）；
  * - 其余一切路径（/api、/assets、/plugins、/provider/status、/plan/status……)
@@ -90,7 +91,11 @@ export function startAssemblyMirror(
   }
 
   return new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
+    // combo 请求把整份插件 id 列表放在 URL 里，而官方**只保证每一批自己的 URL**
+    // 不超过 3KB（client-modules 的 partitionComboRecords）——我们把几批合成一条
+    // 之后，长度是这个总数（实测 61 个插件的 profile ≈ 2.7KB）。node 的默认请求头
+    // 上限（16KB）够用，但那是「插件总数」这个新增长维度，留足余量免得哪天 431。
+    const server = http.createServer({ maxHeaderSize: 128 * 1024 }, (req, res) => {
       try {
         // 跨源预检：webview 的 fetch（content-type: application/json)会先发 OPTIONS。
         if (req.method === 'OPTIONS') {
@@ -171,13 +176,12 @@ async function fetchFilteredGatewayCombo(
   const indexRes = await fetch(`${gateway}/`, { headers })
   if (!indexRes.ok) throw new Error(`assembly mirror: GET / HTTP ${indexRes.status}`)
   const wire = extractBootWire(await indexRes.text())
-  const app = wire.batches.find((b) => b.phase === 'application')
-  if (app === undefined) throw new Error('assembly mirror: gateway wire has no application batch')
-  const comboRes = await fetch(`${gateway}${app.url}`, { headers })
-  if (!comboRes.ok) throw new Error(`assembly mirror: official combo HTTP ${comboRes.status}`)
-  const text = await comboRes.text()
+  // 官方按 combo URL 的长度上限把 application 阶段切成若干批（#165：干净 profile 上
+  // directory-picker-native 独占第二批）。过滤后的 combo 必须覆盖**每一批**的保留段，
+  // 否则第二批的官方插件会被当成不存在的「本地插件」而被 404 掉。
+  const appBatches = wire.batches.filter((b) => b.phase === 'application')
+  if (appBatches.length === 0) throw new Error('assembly mirror: gateway wire has no application batch')
   const segmentRe = /window\.__ModuleLoader__\.load\(\{/g
-  const marks = [...text.matchAll(segmentRe)]
   const kept: string[] = []
   const dropped: string[] = []
   // 官方整包里实际存在的 id：调用方用它区分「官方插件」与「本地自有插件」——
@@ -185,25 +189,33 @@ async function fetchFilteredGatewayCombo(
   // （实测：用户自研的 @dsh-one/dsh-llm-provider 出现在网关清单里，按前缀会被
   // 误当本地件去读盘 → ENOENT → 502）。
   const ids = new Set<string>()
-  for (let i = 0; i < marks.length; i++) {
-    const start = marks[i].index
-    const end = i + 1 < marks.length ? marks[i + 1].index : text.length
-    const segment = text.slice(start, end)
-    const id = /\bid:\s*"([^"]+)"/.exec(segment.slice(0, 300))?.[1]
-    if (id !== undefined) ids.add(id)
-    if (id !== undefined && blockIds.includes(id)) {
-      dropped.push(id)
-      continue
+  let segmentCount = 0
+  for (const app of appBatches) {
+    const comboRes = await fetch(`${gateway}${app.url}`, { headers })
+    if (!comboRes.ok) throw new Error(`assembly mirror: official combo HTTP ${comboRes.status}`)
+    const text = await comboRes.text()
+    const marks = [...text.matchAll(segmentRe)]
+    segmentCount += marks.length
+    for (let i = 0; i < marks.length; i++) {
+      const start = marks[i].index
+      const end = i + 1 < marks.length ? marks[i + 1].index : text.length
+      const segment = text.slice(start, end)
+      const id = /\bid:\s*"([^"]+)"/.exec(segment.slice(0, 300))?.[1]
+      if (id !== undefined) ids.add(id)
+      if (id !== undefined && blockIds.includes(id)) {
+        dropped.push(id)
+        continue
+      }
+      kept.push(segment)
     }
-    kept.push(segment)
   }
-  if (kept.length + dropped.length !== marks.length) {
+  if (kept.length + dropped.length !== segmentCount) {
     logger.warn(
-      `assembly mirror: combo segment strip anomaly (segments ${marks.length}, kept ${kept.length}, dropped ${dropped.length})`,
+      `assembly mirror: combo segment strip anomaly (segments ${segmentCount}, kept ${kept.length}, dropped ${dropped.length})`,
     )
   } else {
     logger.info(
-      `assembly mirror: filtered combo ready (kept ${kept.length} segments, dropped ${dropped.join(', ') || 'none'})`,
+      `assembly mirror: filtered combo ready (${String(appBatches.length)} application batch(es), kept ${kept.length} segments, dropped ${dropped.join(', ') || 'none'})`,
     )
   }
   return { text: kept.join(''), ids }
