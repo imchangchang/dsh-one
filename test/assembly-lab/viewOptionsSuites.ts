@@ -185,7 +185,13 @@ async function closeMenu(page: OpenedPage['page'], target: (typeof MENU_TRIGGERS
   await page.waitForTimeout(200)
 }
 
-/** 旧版本写下的那条视图态记录（含退役字段）+ 这一轮的展开集合，注入 `localStorage`。 */
+/**
+ * 旧版本写下的那条视图态记录（含退役字段）+ 这一轮的展开集合，注入 `localStorage`。
+ *
+ * #151 起展开态存成 `groupExpansion` 记录（官方同形状），这里刻意**写回旧形状**
+ * （`expandedGroups` 数组、并把记录那一个键删掉）：注入一次真正的旧记录，顺带把
+ * 「旧记录迁得回来」这件事在浏览器里走一遍。
+ */
 async function seedRetiredPrefs(page: OpenedPage['page'], fallbackExpanded: readonly string[]): Promise<unknown> {
   return page.evaluate(
     ([key, expanded]) => {
@@ -196,9 +202,17 @@ async function seedRetiredPrefs(page: OpenedPage['page'], fallbackExpanded: read
       } catch {
         current = {}
       }
-      const expandedGroups =
-        Array.isArray(current.expandedGroups) && current.expandedGroups.length > 0 ? current.expandedGroups : expanded
-      const seeded = { ...current, expandedGroups, groupBy: 'flat', orderBy: 'updated' }
+      const fromRecord = ((): string[] => {
+        const value = current.groupExpansion
+        if (typeof value !== 'object' || value === null || Array.isArray(value)) return []
+        return Object.entries(value as Record<string, unknown>)
+          .filter(([, state]) => state === true)
+          .map(([name]) => name)
+      })()
+      const legacy = Array.isArray(current.expandedGroups) ? (current.expandedGroups as string[]) : []
+      const expandedGroups = legacy.length > 0 ? legacy : fromRecord.length > 0 ? fromRecord : expanded
+      const seeded: Record<string, unknown> = { ...current, expandedGroups, groupBy: 'flat', orderBy: 'updated' }
+      delete seeded.groupExpansion
       localStorage.setItem(key, JSON.stringify(seeded))
       return seeded
     },
@@ -229,7 +243,7 @@ export const VIEW_OPTIONS_RETIRED_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '视图选项退役（#131）：顶栏不再有那一枚、没有能切平铺 / 改排序的路径、排序恒为官方顺序（VIEW-OPTIONS-RETIRED 套件）',
   expect:
-    '侧栏树在真实装配页上（真网关**只读** + 假宿主）：① **入口不在**——全页 `[data-dshone-tree-action="view-options"]` 数量为 0，顶栏那一行的动作恰好是「折叠/展开全部 + 添加工作区（＋）+ 设置齿轮 + 多选入口」，顶栏与分组过滤条的文案里不出现「视图选项 / 分组方式 / 按工作区 / 单列表 / 排序方式 / 手动排序 / 最近更新」任何一个词；② **没有任何能切到平铺模式的路径**——页面上既没有平铺容器（`data-dshone-tree="flat"` / `.dshOneTree_flatList`），分组容器也在；侧栏能开的每一份菜单（顶栏 ＋、分组胶囊、会话行 ⋯、工作区行右键）都开一遍，文案里一个退役词都没有；③ **排序恒为官方顺序**——把旧版本留下的记录（`{groupBy:"flat", orderBy:"updated"}`）注回 `localStorage` 再重载：树照旧是分组的（平铺容器仍不存在），每个分组的会话行 id 序列与干净态**逐条相同**（那一档没被应用，行的先后只来自官方会话服务），分组本身的先后也没变，并且树写回的记录里只剩 `activeGroupId / expandedGroups / recycleCollapsed / tagCollapsed` 四个仍在用的字段（退役那两个被顺手抹掉）；④ **其余四枚顶栏按钮与整树行为不变**——搜索框（展开态常驻）、折叠/展开全部、＋、多选入口仍在，分组过滤条仍在，注入旧记录并重载之后同样如此。全程零 pageerror。',
+    '侧栏树在真实装配页上（真网关**只读** + 假宿主）：① **入口不在**——全页 `[data-dshone-tree-action="view-options"]` 数量为 0，顶栏那一行的动作恰好是「折叠/展开全部 + 添加工作区（＋）+ 设置齿轮 + 多选入口」，顶栏与分组过滤条的文案里不出现「视图选项 / 分组方式 / 按工作区 / 单列表 / 排序方式 / 手动排序 / 最近更新」任何一个词；② **没有任何能切到平铺模式的路径**——页面上既没有平铺容器（`data-dshone-tree="flat"` / `.dshOneTree_flatList`），分组容器也在；侧栏能开的每一份菜单（顶栏 ＋、分组胶囊、会话行 ⋯、工作区行右键）都开一遍，文案里一个退役词都没有；③ **排序恒为官方顺序**——把旧版本留下的记录（`{groupBy:"flat", orderBy:"updated"}`）注回 `localStorage` 再重载：树照旧是分组的（平铺容器仍不存在），每个分组的会话行 id 序列与干净态**逐条相同**（那一档没被应用，行的先后只来自官方会话服务），分组本身的先后也没变，并且树写回的记录里只剩 `activeGroupId / groupExpansion / recycleCollapsed / tagCollapsed` 四个仍在用的字段（退役那两个被顺手抹掉，展开态 #151 起是官方同形状的 `groupExpansion` 记录——注入的那份旧形状 `expandedGroups` 数组被迁成它，注入时展开着的那几组逐条还是 `true`）；④ **其余四枚顶栏按钮与整树行为不变**——搜索框（展开态常驻）、折叠/展开全部、＋、多选入口仍在，分组过滤条仍在，注入旧记录并重载之后同样如此。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 340, height: 900 })
@@ -316,9 +330,31 @@ export const VIEW_OPTIONS_RETIRED_SUITE: LabSuite = {
       )
       const storedKeys = await readStoredPrefKeys(page)
       check.eq(
-        '③ 树写回的记录里只剩仍在用的四个字段（退役的 groupBy / orderBy 被抹掉）',
+        '③ 树写回的记录里只剩仍在用的四个字段（退役的 groupBy / orderBy 被抹掉，展开态是新形状 groupExpansion）',
         [...storedKeys].sort(),
-        ['activeGroupId', 'expandedGroups', 'recycleCollapsed', 'tagCollapsed'],
+        ['activeGroupId', 'groupExpansion', 'recycleCollapsed', 'tagCollapsed'],
+      )
+      // #151 的迁移在浏览器里走一遍：注入的是旧形状（`expandedGroups` 数组），重载后
+      // 树读出来的展开态与该数组逐条对上，并写回成官方同形状的 `groupExpansion` 记录。
+      const storedExpansion = await page.evaluate((key: string) => {
+        try {
+          const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? 'null')
+          if (typeof parsed !== 'object' || parsed === null) return {}
+          const value = (parsed as Record<string, unknown>).groupExpansion
+          return typeof value === 'object' && value !== null && !Array.isArray(value)
+            ? (value as Record<string, boolean>)
+            : {}
+        } catch {
+          return {}
+        }
+      }, PREF_KEY)
+      check.eq(
+        '③ 旧形状的展开态迁成了 groupExpansion（注入时展开着的那几组逐条还是 true）',
+        Object.entries(storedExpansion)
+          .filter(([, state]) => state === true)
+          .map(([key]) => key)
+          .sort(),
+        [...cleanOrder.map((group) => group.key)].sort(),
       )
       check.eq(
         '③ 写回的记录里确实没有那两个退役键',
