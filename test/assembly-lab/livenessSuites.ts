@@ -239,8 +239,13 @@ export async function probeClick(page: Page, label: string, selector: string): P
   const reacted = elementDelta !== 0 || popupDelta !== 0 || hostDelta !== 0 || sentDelta !== 0
   // 收尾：把这一下可能开出来的弹层关掉再量下一个——不然下一个交互点的读数里会掺着
   // 上一个留下的菜单（实测过：权限那一下留着的菜单会让「模型选择」显示成「弹层 1→0」）。
+  // 弹层还没关干净就再按一次（反馈这类弹窗要两次 Esc 才收）。
   await page.keyboard.press('Escape')
   await page.waitForTimeout(300)
+  if (after.popups > before.popups) {
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+  }
   return {
     label,
     present: true,
@@ -438,6 +443,12 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
     expect: '右栏开合（DOM 结构变）',
     official: '[data-slot="conversation.session.header.corner"] button',
   },
+  {
+    label: '对话区 · 助手动作「好的回答」',
+    selector: '[data-slot="conversation.chat.assistant-actions"] button[aria-label="好的回答"]',
+    expect: '弹出反馈弹层',
+    official: '[data-slot="conversation.chat.assistant-actions"] button[aria-label="好的回答"]',
+  },
 ]
 
 /** sidebar 树：这几枚是自有实现（官方页没有同形件），期望固定。 */
@@ -480,6 +491,11 @@ const SETTINGS_POINTS: ReadonlyArray<LivenessPoint> = [
   },
   { label: '设置 · 语言下拉', selector: '[data-slot="settings.general.item"] button:has-text("中文")', expect: '弹出语言选项' },
   { label: '设置 · 增大字号', selector: 'button[aria-label="增大字号"], button[aria-label="增大字体"]', expect: '界面字号变化' },
+  {
+    label: '设置 · 打开配置文件',
+    selector: '[data-slot="settings.action"] button',
+    expect: '经宿主能力口打开设置文档',
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -564,7 +580,7 @@ async function servableSessionCandidates(gateway: string): Promise<readonly stri
 }
 
 export const LIVENESS_SUITE: LabSuite = {
-  id: 'F-49',
+  id: 'F-54',
   phase: 'new-feature',
   name: '交互活性探针：点得动的控件点下去必须有可观测反应，官方点得动而我们的点不动即判红（INTERACTION-LIVENESS 套件）',
   expect:
