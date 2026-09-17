@@ -53,13 +53,6 @@ interface SettingsFrameProps {
   sections: SectionsMirror
 }
 
-interface RootSlotEntry {
-  name: 'root'
-  children: Record<string, { kind: 'single' | 'list' | 'keyed'; scope: 'root' | 'session' | 'session-maybe' }>
-  store: () => unknown
-  inject: (actions: PanelActions) => Record<string, never>
-}
-
 interface SlotEntryLite {
   options: { id?: string; order?: number; label?: unknown; key?: string }
 }

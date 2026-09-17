@@ -11,7 +11,7 @@ import { parse as parseSemver, compare as compareSemver } from '../pure/semver.t
 import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import { defaultHostBridgeDeps, subscribeHostCalls, type HostBridgeDeps } from './assembly/hostBridge.ts'
 import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
-import { drainAfterCreate, panelOpenSessionIds, panelSessionsMessage, routeSelection } from '../pure/sessionPanelRouting.ts'
+import { panelOpenSessionIds, panelSessionsMessage, routeSelection } from '../pure/sessionPanelRouting.ts'
 import { assignSessionTab, hasSessionTab, releaseSessionTab, sessionTabOf } from '../pure/sessionTabs.ts'
 import { listSessions } from '../server/dshRpc.ts'
 import { workspaceRootsOfSessionRows } from '../pure/workspaceRoots.ts'
@@ -316,12 +316,6 @@ let chatDeps: { context: vscode.ExtensionContext; manager: ServerManager; logger
 let creatingPanel: Promise<void> | undefined
 /** 创建期间（或服务未就绪时）累积的待开会话；后来者覆盖先来者。 */
 let pendingSessionOpen: string | undefined
-
-/** 面板当前会话 id（无面板 = undefined）。 */
-function panelSession(): string | undefined {
-  const panel = chatSingleton?.panel ?? active?.panel
-  return panel === undefined ? undefined : panelSessionId.get(panel)
-}
 
 /**
  * 宿主的面板里现在开着哪些会话（#121 的单条查询与 #147 的整份下发共用这一份事实）。

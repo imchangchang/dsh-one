@@ -57,7 +57,6 @@ import {
   resolveTagFile,
   serializeTagFileV2,
   type DraftsFile,
-  type TagFileV2,
   type WorkspaceTagState,
 } from '../pure/dshStateFile.ts'
 

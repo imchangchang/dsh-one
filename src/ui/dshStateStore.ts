@@ -34,7 +34,6 @@ import {
   serializeDraftsFile,
   serializeGroupFile,
   serializeIdListFile,
-  serializeTagFile,
   serializeTagFileV2,
   DSH_MODULE_NAMES,
   type DraftsFile,

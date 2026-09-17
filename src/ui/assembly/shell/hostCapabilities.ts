@@ -265,11 +265,6 @@ function fail(code: HostCapabilityErrorCode, message: string): CapabilityFailure
   return error
 }
 
-/** 我们自己造的失败（用于区分「载体抛错」与「能力失败」）。 */
-function isCapabilityFailureError(value: unknown): value is CapabilityFailure {
-  return value instanceof Error && typeof (value as CapabilityFailure).code === 'string'
-}
-
 /** 从 cordis ctx 取官方 Connection 的 RPC 口；缺席时给 `unavailable`。 */
 function connectionRpc(ctx: CapabilityContext | undefined): ConnectionRpc {
   const connection = ctx?.get('connection') as { rpc?: ConnectionRpc } | undefined
