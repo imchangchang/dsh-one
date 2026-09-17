@@ -105,14 +105,14 @@
 
 | 功能 | 旧：怎么做（`文件:行`） | 现：怎么做（`文件:行`） | 判断 |
 | --- | --- | --- | --- |
-| 状态优先级（待交互 > 运行中 / 后代在跑 > 未读 / 完成） | `sessionsWebview.ts:2391-2406` | `pure/workspaceTreeView.ts:398-449` | 一致 |
+| 状态优先级（待交互 > 运行中 / 后代在跑 > 未读 / 完成） | `sessionsWebview.ts:2391-2406` | `pure/workspaceTreeView.ts:406-457` | 一致 |
 | 状态点位置 | **行尾**固定 16px 槽：`sessionsWebview.ts:472-480`、`2446-2449` | **行首** 16×20 的 slot：`styles.ts:298`、`rows.ts:1211-1215` | 不同 |
 | 状态点尺寸与动画 | 绿/黄点 6px、运行中自绘 10px 像素环：`sessionsView.ts:453-470` | 官方 `StateDot`（默认 10px，出处 `docs/dsh-web-workflow-run-card-research.md:76`；`rows.ts:211` 未传 size） | 不同（点从 6px 变 10px） |
 | 状态点与时间的关系 | 互斥（有标记就不显示时间）：`sessionsWebview.ts:2443-2449` | 同时显示，hover 时时间让位给 ⋯：`rows.ts:1224-1230`、`styles.ts:315` | 不同 |
 | 工作区行的计数 | **三项**（待交互 / 运行中 / 未读），10px 小字 + 点或环图标：`sessionsWebview.ts:1839-1855`、`sessionsView.ts:418-420` | **两项**（运行中 / 等待交互），官方 `StateDot` + 数字，**跟在工作区标题文字之后**（#138 起；此前绝对定位在行尾）：`rows.ts` 的 `ProjectRow` / `ActivityBadge` | 缺（少了「未读」这一项计数） |
 | 标签组折叠态计数（待交互 / 运行中 / 未读） | `sessionsWebview.ts:1956-1971` | `pure/sessionTagGroups.ts:381-390` + `tagGroups.ts:339-371` | 一致 |
 | 活跃定时任务标记（闹钟） | 无 | `rows.ts:274-287`（官方 `hasActiveSchedule`，树里与搜索结果行都有） | 现在更好（官方能力保留下来了） |
-| 未读：绿点 + 标题加粗 | `sessionsWebview.ts:2404`、`2438`、`sessionsView.ts:471` | `pure/workspaceTreeView.ts:436`、`rows.ts:1221`、`styles.ts:417-418` | 一致 |
+| 未读：绿点 + 标题加粗 | `sessionsWebview.ts:2404`、`2438`、`sessionsView.ts:471` | `pure/workspaceTreeView.ts:444`、`rows.ts:1221`、`styles.ts:417-418` | 一致 |
 | 当前会话高亮 | 蓝色（`list.activeSelectionBackground`）：`sessionsView.ts:441-444` | 悬停底色 token：`rows.ts:1137` | 不同（高亮更淡，与官方侧栏同一门语言） |
 | 悬停卡（标题 / 路径 / 创建时刻 / 各状态） | 无，只有原生 `title`：`sessionsWebview.ts:2412` | 官方 `HoverCard`：`rows.ts:214-263`、`686-693`、`1302-1312`，判据 `hoverCard.ts:31-56`（容器右侧不足 244+8px 时不渲染） | 现在更好（但在 VS Code 侧栏里恒不出现，见 C-21） |
 
@@ -122,7 +122,7 @@
 | --- | --- | --- | --- |
 | 置顶图钉（标题前常驻） | `sessionsWebview.ts:2429-2433` | `rows.ts:76`、`1216`（同一份描边路径） | 一致 |
 | 置顶排序 | 同层最前，**置顶项之间按置顶的先后**；其后还有一层「活跃会话前置」：`pure/sessionTree.ts:287-295`、`337-380` | 同层最前，**置顶项之间保持官方顺序**；没有「活跃前置」这一层：`pure/sessionMarks.ts:135-139`、`tree.ts:520-523`、`pure/sessionTagGroups.ts:365-367` | 不同 |
-| 未读标记（绿点 + 加粗） | `sessionsWebview.ts:2404`、`2438` | `pure/workspaceTreeView.ts:436`、`rows.ts:1221` | 一致 |
+| 未读标记（绿点 + 加粗） | `sessionsWebview.ts:2404`、`2438` | `pure/workspaceTreeView.ts:444`、`rows.ts:1221` | 一致 |
 | 清未读的时机 | 会话被宿主的对话 tab **打开**那一刻清（`sessionsStore.ts:1345-1363`，邮件语义） | 在侧栏里**打开**这条会话时清（`tree.ts:341-344`） | 不同（触发点不同，结果接近） |
 | 标签组块（pill + 贯穿竖线 + 组内缩进） | `sessionsWebview.ts:1975-2012`、`sessionsView.ts:581-634` | `tagGroups.ts:223-445`、`styles.ts:501-545`（#122 回到旧规格） | 一致 |
 | 内置三组（待办 / 进行中 / 已完成） | 每个工作区 seed：`pure/sessionTags.ts:13-20`、`sessionsStore.ts:2146` | 迁入时丢弃：`pure/sessionTagGroups.ts:24-28`、`52`、`106` | 缺（有意：#98/#107 定了不恢复那套） |
