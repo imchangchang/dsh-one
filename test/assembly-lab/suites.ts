@@ -67,6 +67,7 @@ import { FRESH_PROFILE_BOOT_SUITE } from './freshProfileSuites.ts'
 import { SIDEBAR_NO_HSCROLL_SUITE } from './sidebarHScrollSuites.ts'
 import { COMBO_CACHE_KEY_SUITE } from './comboCacheKeySuites.ts'
 import { ADD_WORKSPACE_SUITE } from './addWorkspaceSuites.ts'
+import { HTML_PREVIEW_HEIGHT_SUITE } from './htmlPreviewHeightSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6404,4 +6405,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #176 顶栏 ＋ 菜单添加/创建工作区之后的收尾（F-58：F-01…F-57 与 R-06 已占，按
   // 「从未占用的继续」顺延；套件本体在 addWorkspaceSuites.ts，同为独立文件）。
   ADD_WORKSPACE_SUITE,
+  // #185 沙箱 srcdoc 帧的内容高度撑开（F-59：F-01…F-58 与 R-06 已占，按「从未占用的继续」
+  // 顺延；套件本体在 htmlPreviewHeightSuites.ts，同为独立文件，少一处合入热点）。
+  HTML_PREVIEW_HEIGHT_SUITE,
 ]
