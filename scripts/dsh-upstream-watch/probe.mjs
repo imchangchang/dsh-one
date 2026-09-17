@@ -7,9 +7,10 @@
  *        [--expect-version 0.1.3-alpha.1] [--json <结果输出路径>]
  *
  * 行为：用临时 DSH_HOME 起 `dsh web --host 127.0.0.1 --port <空闲端口> --no-open`，
- * 逐项核实 dsh-one 实际依赖的 **wire 面**（启动/认证/unary RPC/WS 流）与 **客户端
- * 契约面**（网关下发的 combo 里我们必须存在的 slot 名 / root 级 hook 名 / 取用过的
- * 字段与方法名，取法见 clientContract.mjs），输出结果表；
+ * 逐项核实 dsh-one 实际依赖的 **wire 面**（启动/认证/unary RPC/WS 流）、**网关前端
+ * 产物**（伺服面里的 `/` 启动契约标记、首个 batch 的 combo 端点、Origin 栅栏——
+ * #67 的 N1–N3）与 **客户端契约面**（网关下发的 combo 里我们必须存在的 slot 名 /
+ * root 级 hook 名 / 取用过的字段与方法名，取法见 clientContract.mjs），输出结果表；
  * 有任何 fail 时退出码为 1（skip 不算失败）。探针全部只读/无副作用（创建的
  * workspace/session 在隔离 DSH_HOME 内，进程退出即弃）。
  *
@@ -88,12 +89,12 @@ function extractVersion(text) {
   return m ? m[0] : null
 }
 
-/** dsh-one 同款 unary RPC 信封。 */
-async function rpc(baseUrl, cookie, method, args) {
+/** dsh-one 同款 unary RPC 信封。`headers` 用于 Origin 栅栏那两项（#67 N3）。 */
+async function rpc(baseUrl, cookie, method, args, headers = {}) {
   const rpcId = crypto.randomUUID()
   const res = await fetch(`${baseUrl}/api/${method}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+    headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}), ...headers },
     body: JSON.stringify({ type: 'client-request', rpcId, method, payload: { args } }),
   })
   const text = await res.text()
@@ -271,7 +272,12 @@ async function main() {
     record('ws-session-control', 'session/control baseline 帧', 'skip', '无 cookie')
   }
 
-  // 15-18. 客户端契约面（#79）：网关 combo 里的 slot 名 / root 级 hook 名 / 取用过的字段名
+  // 15-17. 网关前端产物（#67 N1–N3）：`/` 的启动契约标记、combo 端点、Origin 栅栏
+  for (const r of await probeBootSurface(baseUrl, cookie)) {
+    record(r.id, r.name, r.status, r.detail)
+  }
+
+  // 18-21. 客户端契约面（#79）：网关 combo 里的 slot 名 / root 级 hook 名 / 取用过的字段名
   for (const r of await probeClientContract(baseUrl, cookie, version)) {
     record(r.id, r.name, r.status, r.detail)
   }
@@ -279,6 +285,110 @@ async function main() {
   await cleanup()
   const failed = results.filter((r) => r.status === 'fail').length
   return finish(opts, failed > 0 ? 1 : 0)
+}
+
+/**
+ * 网关前端产物三项（#67 的 N1–N3，依据 docs/upstream-dependency-audit.html §4 F1–F6 与 §6.2）：
+ *
+ * - N1 `boot-html-contract`：带 cookie GET 网关 `/`，HTML 里必须还有启动契约的标记
+ *   （`__ModuleLoader__` 门面 / `__DSH_BOOT__` 清单 / 主题预置脚本的 `const preference`），
+ *   且 `__DSH_BOOT__` 能解析出 ≥ 40 个 entries——dsh-one 的装配页逐字照抄这三段
+ *   （pageHtml.ts：门面 + 主题预置 + 内联 wire）。
+ * - N2 `combo-endpoint`：从清单取**首个** batch 的 combo URL 请求，200 且 body > 10 KB
+ *   ——dsh-one 的 mirror 就是拉这个端点（`/plugins/??…&rev=`）再按插件段过滤的。
+ * - N3 `origin-fence`：带 cookie POST 同一方法两次——`Origin: http://127.0.0.1:1` 被网关
+ *   信任栅栏拒（403）、`Origin: <网关权威>` 才通（200），证明 mirror 把 Origin 改写为
+ *   网关权威这一手仍然必要且有效。
+ *
+ * 取不到产物时 N1/N2 都 fail（不能因为取不到就让这一面显示为「没问题」）。
+ */
+
+/** N1：网关 `/` 里必须还在的三段启动契约标记（dsh-one 装配页逐字对应）。 */
+const BOOT_HTML_MARKERS = ['__ModuleLoader__', '__DSH_BOOT__', 'const preference']
+/** N1：`__DSH_BOOT__.entries` 的下限——官方 0.1.6-alpha.1 实测 56，掉到 40 以下说明清单被换过写法。 */
+const MIN_BOOT_ENTRIES = 40
+/** N2：首个 batch 的 combo 下限（0.1.6-alpha.1 实测 bootstrap 批 20.8 KB）。 */
+const MIN_COMBO_BYTES = 10 * 1024
+
+async function probeBootSurface(baseUrl, cookie) {
+  const out = []
+  const headers = cookie ? { cookie } : {}
+  let html = null
+  let htmlError = null
+  let bootWire = null
+  let manifestError = null
+  try {
+    const res = await fetch(`${baseUrl}/`, { headers })
+    if (!res.ok) throw new Error(`GET /: HTTP ${res.status}`)
+    html = await res.text()
+  } catch (e) {
+    htmlError = String(e?.message ?? e)
+  }
+  if (html !== null) {
+    const m = /globalThis\["__DSH_BOOT__"\] = (\{[\s\S]*?\})<\/script>/.exec(html)
+    if (m === null) {
+      manifestError = html.includes('__DSH_BOOT__')
+        ? 'HTML 里有 __DSH_BOOT__ 标记，但清单解析不出来（官方改了注入写法）'
+        : 'HTML 里没有 __DSH_BOOT__ 注入'
+    } else {
+      try { bootWire = JSON.parse(m[1]) } catch (e) { manifestError = `__DSH_BOOT__ 不是合法 JSON：${String(e?.message ?? e)}` }
+    }
+  }
+
+  // N1
+  const n1Name = `网关 / 启动契约：${BOOT_HTML_MARKERS.join(' / ')} 在场 + __DSH_BOOT__ entries ≥ ${MIN_BOOT_ENTRIES}`
+  const missing = html === null ? [] : BOOT_HTML_MARKERS.filter((s) => !html.includes(s))
+  const entries = Array.isArray(bootWire?.entries) ? bootWire.entries.length : null
+  const n1Problems = []
+  if (htmlError !== null) n1Problems.push(htmlError)
+  if (missing.length > 0) n1Problems.push(`缺标记 ${missing.join('、')}`)
+  if (manifestError !== null) n1Problems.push(manifestError)
+  else if (html !== null && entries === null) n1Problems.push('__DSH_BOOT__.entries 取不到')
+  else if (entries !== null && entries < MIN_BOOT_ENTRIES) n1Problems.push(`entries=${entries}（< ${MIN_BOOT_ENTRIES}）`)
+  out.push({
+    id: 'boot-html-contract', name: n1Name, status: n1Problems.length === 0 ? 'pass' : 'fail',
+    detail: n1Problems.length === 0 ? `标记 ${BOOT_HTML_MARKERS.length}/${BOOT_HTML_MARKERS.length} 在场，entries=${entries}` : n1Problems.join('；'),
+  })
+
+  // N2
+  const n2Name = `combo 端点（__DSH_BOOT__ 首个 batch）：HTTP 200 且 body > ${MIN_COMBO_BYTES / 1024} KB`
+  const firstBatch = (Array.isArray(bootWire?.batches) ? bootWire.batches : [])[0]
+  if (htmlError !== null) {
+    out.push({ id: 'combo-endpoint', name: n2Name, status: 'fail', detail: `取不到 HTML：${htmlError}` })
+  } else if (manifestError !== null) {
+    out.push({ id: 'combo-endpoint', name: n2Name, status: 'fail', detail: `取不到清单：${manifestError}` })
+  } else if (firstBatch?.url === undefined) {
+    out.push({ id: 'combo-endpoint', name: n2Name, status: 'fail', detail: '__DSH_BOOT__.batches 为空或首个 batch 没有 url' })
+  } else {
+    try {
+      const res = await fetch(new URL(firstBatch.url, baseUrl), { headers })
+      const bytes = (await res.arrayBuffer()).byteLength
+      const ok = res.status === 200 && bytes > MIN_COMBO_BYTES
+      out.push({
+        id: 'combo-endpoint', name: n2Name, status: ok ? 'pass' : 'fail',
+        detail: `HTTP ${res.status}，${(bytes / 1024).toFixed(1)} KB（phase=${firstBatch.phase ?? '?'}${ok ? '' : `，阈值 ${MIN_COMBO_BYTES / 1024} KB`}）`,
+      })
+    } catch (e) {
+      out.push({ id: 'combo-endpoint', name: n2Name, status: 'fail', detail: `GET ${firstBatch.url}: ${String(e?.message ?? e)}` })
+    }
+  }
+
+  // N3：栅栏判定先于路由（对不存在的方法也回 403），所以「通」这一半必须用真实存在的
+  // 方法。这里用 session/list，不用 §6.2 写的 host.describe——实测两个已支持版本的认证
+  // 网关（0.1.2-rc.1 / 0.1.6-alpha.1）对 /api/host.describe 的任何 payload 都回 404
+  // not found（403 那半它照样成立），拿它判「权威 Origin → 200」判不出来。
+  const fenceArgs = { _request: {} }
+  const bad = await rpc(baseUrl, cookie, 'session/list', fenceArgs, { origin: 'http://127.0.0.1:1' })
+  const good = await rpc(baseUrl, cookie, 'session/list', fenceArgs, { origin: baseUrl })
+  const fenceOk = bad.status === 403 && good.status === 200
+  out.push({
+    id: 'origin-fence',
+    name: 'Origin 栅栏：非权威 Origin → 403、Origin = 网关权威 → 200',
+    status: fenceOk ? 'pass' : 'fail',
+    detail: `非权威 Origin → ${bad.status}（期望 403）、权威 Origin → ${good.status}（期望 200）；mirror 改写 Origin/Referer 为网关权威的依据`,
+  })
+
+  return out
 }
 
 /**
