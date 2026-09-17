@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto'
+import type { OutgoingImage } from '../pure/chatContract.ts'
 import { cookieHeader, isModern } from './serverAuth.ts'
 
 export interface WorkspaceView {
@@ -255,6 +256,39 @@ export async function ensureWorkspace(baseUrl: string, path: string): Promise<Wo
  */
 export async function deleteWorkspace(baseUrl: string, workspaceId: string): Promise<void> {
   await callRpc(baseUrl, 'workspace.delete', { workspaceId })
+}
+
+/**
+ * Send one prompt; images precede the text block. Note: this HTTP path treats
+ * a leading-slash line as plain prompt text — slash commands must go through
+ * {@link executeCommand} instead (same split as the official web client).
+ *
+ * 消费者是装配实验室的播种（`test/assembly-lab/seed.ts`）：它要真给会话发一轮
+ * prompt，让会话长出真历史、状态与投影（#177 的自起实例靠这个把 13 条"空实例上没有
+ * 这份数据"的红压掉）。#22 那轮曾把它当零引用导出删掉——那时的判断没错（旧自研
+ * 对话区下线后确实没人调），现在有了真消费者就恢复。
+ */
+export async function promptSession(
+  baseUrl: string,
+  sessionId: string,
+  text: string,
+  mode: 'queue' | 'steer' = 'queue',
+  images?: OutgoingImage[],
+): Promise<void> {
+  const content: unknown[] = (images ?? []).map((img) => ({
+    type: 'image',
+    mediaType: img.mediaType,
+    data: img.data,
+    ...(img.name ? { name: img.name } : {}),
+  }))
+  if (text) content.push({ type: 'text', text })
+  // clientTimeZone：官方 prompt 的可选字段，服务端相对时间类文案会用到用户时区。
+  await callRpc<{ accepted: true }>(baseUrl, 'session.prompt', {
+    sessionId,
+    mode,
+    content,
+    clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  })
 }
 
 /** Loose mirror of ModelSelection (apiproxy sessions.d.ts). */

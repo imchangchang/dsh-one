@@ -225,7 +225,7 @@ interface ReadOnlyProbe {
  */
 async function probeReadOnly(origin: string, explicitToken: string | undefined, log: LogSink): Promise<ReadOnlyProbe> {
   try {
-    const record = await readOwnedRecord(defaultOwnedPath(), log)
+    const record = await readOwnedRecord(defaultOwnedPath())
     const token = resolveGatewayToken(origin, explicitToken, record)
     if (token === undefined) {
       return { origin, ok: false, detail: `${origin} 拿不到 launch token（~/.dsh/dsh-owned.json 里没有它）` }
