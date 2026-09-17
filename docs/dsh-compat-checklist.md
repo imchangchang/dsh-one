@@ -2,12 +2,12 @@
 
 dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游每个 release 都可能动 wire 协议与前端插件契约。本清单是对上游新版本的完整测试项，分两层：
 
-- **自动化探针**（`.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑 `scripts/dsh-upstream-watch/probe.mjs`，覆盖 wire 面、网关前端产物与客户端契约面，结果见 `upstream-watch` label 的 issue 与 README 徽章）。安装途径：版本已上 npm 走 `npm install`（快）；**GitHub-only 版本走源码构建**（codeload 源码包 → `pnpm install --frozen-lockfile` → `pnpm run build` → `node --import tsx/esm apps/cli/src/bin.ts`，上游 README 的 Run from source 路径），保证发 npm 前就能提前测。
+- **自动化探针**（`.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑 `scripts/dsh-upstream-watch/probe.mjs`，覆盖 wire 面、网关前端产物、客户端契约面与本机官方产物面，结果见 `upstream-watch` label 的 issue 与 README 徽章）。安装途径：版本已上 npm 走 `npm install`（快）；**GitHub-only 版本走源码构建**（codeload 源码包 → `pnpm install --frozen-lockfile` → `pnpm run build` → `node --import tsx/esm apps/cli/src/bin.ts`，上游 README 的 Run from source 路径），保证发 npm 前就能提前测。
 - **人工/补充项**（探针覆盖不到的模型行为与端到端，由认领该版本测试 issue 的人执行）
 
-## 自动化探针项（probe.mjs，21 项）
+## 自动化探针项（probe.mjs，22 项）
 
-探针分两类：**伺服面**（wire——网关对外的 HTTP/WS 接口。含装配形态直引的那两样网关前端产物：`/` 的 HTML 与 `/plugins/??` 的 combo——上游改了交互方式或改了产物写法，都在这一面现形）与**客户端契约面**（combo——装配线直引官方前端插件代码，官方的 slot 名、hook 名、字段名就是我们的 ABI）。两类都由 `.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑。
+探针分三类：**伺服面**（wire——网关对外的 HTTP/WS 接口。含装配形态直引的那两样网关前端产物：`/` 的 HTML 与 `/plugins/??` 的 combo——上游改了交互方式或改了产物写法，都在这一面现形）、**客户端契约面**（combo——装配线直引官方前端插件代码，官方的 slot 名、hook 名、字段名就是我们的 ABI）与**官方产物面**（本机已安装的官方包文件——静默失效型依赖：坏了不报错、只是不生效）。三类都由 `.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑。
 
 两者的分工：探针只查「名字还在不在」，不查「装起来崩不崩」——后者归 `npm run verify:lab`：F-01 CONTRACT 套件（四棵树零崩溃、零缺失契约），外加 #91 加的两条漂移断言 **F-10 FIBER**（四棵树零 cordis scope 进 FAILED——fiber 失败不进控制台，只能运行期看）与 **F-11 WIRE-LIVENESS**（三棵树 block list 的每个 id 都要在当天 wire 里找得到——官方改名会让过滤静默失效）。
 
@@ -25,7 +25,7 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 | rpc-workspace-ops | `workspace/create` + `workspace/delete` | `src/server/dshRpc.ts` ensureWorkspace |
 | rpc-session-create | `session/create` → `{sessionId}` | 同上 createSession |
 | rpc-commands-list | `commands/list` 名册 | 同上 listCommands |
-| commands-execute-args | `commands/execute` 接受 dsh-one 现发 args 形状（`{agentId, line, images}`；0.1.3 上游已改名 `submittedAttachments`，此项会暴露） | 同上 executeCommand |
+| commands-execute-args | `commands/execute` 接受 dsh-one 现发的 args 形状。**形状不在探针里写死**：探针 import dsh-one 源码的同一份单一事实源 `src/pure/dshWire.ts` 的 `commandsExecuteArgs(version, …)`，按 `--expect-version` 分叉（0.1.2 及以前 `images`、0.1.3 起 `submittedAttachments`），用真实形状发一次（#37） | `src/pure/dshWire.ts`（`commandsExecuteArgs`）、`src/server/dshRpc.ts` executeCommand |
 | ws-mux-connect | WS `/api/remote.mux` 带 cookie 建连 | `src/server/remoteMux.ts` |
 | ws-session-follow | `session/follow` snapshot 帧（cursor/records/hasMore/projections；detail 记录 header 键与 version、是否有 chunkRows——0.1.3 起 header 与 records 形状变化在这里现形） | `src/server/modernStreams.ts`、`src/pure/chunkRows.ts` |
 | ws-session-control | `session/control` baseline 帧 | `src/server/modernStreams.ts` |
@@ -50,6 +50,28 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 
 清单不是凭记忆写的：每条都写明理由（`why`）与我方使用点（`where`），并由 `test/upstreamClientContract.test.ts` 保证「清单里的名字在 `src/` 里确实还有取用点、`where` 指向的文件确实存在」。**新增依赖 = 在 clientContract.mjs 的三张表里加一行**（名字、理由、使用点、期望的官方出处）；不再依赖就把该行删掉，否则测试会提醒。
 
+### 官方产物面（1 项，`scripts/dsh-upstream-watch/officialIdentifiers.mjs`）
+
+做法：读**本机已安装的官方包文件**（只读磁盘，不起网关、不走网络），按存在性逐个查标识符还在不在——查的是「装到本机的这版官方包内容变了没有」，与上面 combo 面（查网关下发的产物写法）互补。官方包目录按可信度找三处：① 被测实例自己的 profile（`<DSH_HOME>/profiles/node_modules`，网关实际加载的那一份——**不是每种安装方式都会建它**，实测 npm `--prefix` 装的 dsh 只建 `profiles/web`）；② 被测 dsh **自己安装树**里的官方包（从 `--command` 的可执行文件与 `--cwd` 往上逐级找 `node_modules/@deepseek-ai`，全局装 / `--prefix` 装 / 源码构建三种形态都落在这里）；③ 本机默认 `~/.dsh` 的 profile（#179 点名的那个路径，**可能不是本次被测版本**）。结果行的 detail 会写明读的是哪一份；三处都没有时报红并列出找过的地方（取不到就不能显示成「没问题」）。已安装包里的条目是符号链接，读之前按真身解析。
+
+| id | 检查内容 | 判定方式 |
+|---|---|---|
+| official-identifiers | 11 条官方内部标识符在场（下表），任一条消失即 fail | 逐条在它的**出处文件**里按**形状**查存在性（不比对内容）；不成立时报出条目名、出处文件与我方使用点 |
+
+这 11 条按 **#96 审计 comment 第七节**的核实结果列（基线 dsh 0.1.6-alpha.1，逐条在本机 `~/.dsh/profiles/node_modules/@deepseek-ai` 上只读核对过），每条的出处文件如下：
+
+| 条目 | 出处文件 |
+|---|---|
+| `root-children.sidebar` / `main` / `rightbar` / `shell.overlay`（root 子槽声明表的四个座，含 kind 与 scope） | `@deepseek-ai/dsh-client-ui-layout/lib/client.js` |
+| `sidebar-toggle.zh`（「收起侧边栏」）/ `sidebar-toggle.en`（「Collapse sidebar」），词典键 `toggle.collapse` | `@deepseek-ai/dsh-client-ui-sidebar/lib/client.js` |
+| `entry-id.session-log-download`（list 槽位条目 id） | `@deepseek-ai/dsh-session-log-export/lib/client.js` |
+| `entry-id.appearance`（`settings.general.item` 的条目 id） | `@deepseek-ai/dsh-client-ui-theme/lib/client.js` |
+| `entry-id.open-document`（`settings.action` 的条目 id） | `@deepseek-ai/dsh-client-ui-settings-general/lib/client.js` |
+| `entry-id.cordis-panel`（`sidebar.footer.action` 的条目 id） | `@deepseek-ai/dsh-client-ui-cordis/lib/client.js` |
+| `event.api-session/error`（remote 服务的内部事件名） | `@deepseek-ai/dsh-api-session-controller/lib/client.js` |
+
+为什么单列这一族：它们坏了都**不报错、只是不生效**（提示不弹、官方件悄悄冒回界面、遮蔽目标对不上），日常使用看不出来，探针是发布前唯一能发现它们的手段。新增一条 = 在 `officialIdentifiers.mjs` 的 `IDENTIFIERS` 里加一行（出处文件 + 形状 + 我方使用点）；理由（`why`）与使用点（`where`）写在表里供人读，并由 `test/upstreamOfficialIdentifiers.test.ts` 保证「`where` 指向的文件确实存在」与「删掉一条就报红」。
+
 探针环境：ubuntu-latest + Node 24，临时 `DSH_HOME` 隔离数据目录，只读/无副作用。
 
 ## 人工/补充项（探针覆盖不了）
@@ -72,7 +94,7 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 
 | 跑什么 | 命令 | 覆盖什么 | 前置 |
 |---|---|---|---|
-| 上游探针 | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <版本>`（CI 里由 dsh-upstream-watch 每日自动跑） | 伺服面（wire + 网关前端产物：`/` 的启动契约、combo 端点、Origin 栅栏）+ 客户端契约面（combo 里的 slot/hook/字段名） | 本机有 dsh；探针自起临时 `DSH_HOME` 实例，只读 |
+| 上游探针 | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <版本>`（CI 里由 dsh-upstream-watch 每日自动跑） | 伺服面（wire + 网关前端产物：`/` 的启动契约、combo 端点、Origin 栅栏）+ 客户端契约面（combo 里的 slot/hook/字段名）+ 官方产物面（本机官方包里的内部标识符） | 本机有 dsh；探针自起临时 `DSH_HOME` 实例，只读 |
 | 浏览器验证 | `npm run verify:lab` | 四棵树在真网关上装得起来、槽位有内容、零崩溃零缺失契约（F-01 CONTRACT） | `npm run build` 过 + 本机有一个在跑的 dsh 网关 |
 | 宿主半验证 | `npm run verify:host-half` | 网关侧插件半（`packages/dsh-host-capabilities`）与官方 dsh 的兼容 | 见 `scripts/verify-host-half-official.mjs` |
 
