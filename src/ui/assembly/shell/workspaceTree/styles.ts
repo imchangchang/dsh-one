@@ -329,12 +329,20 @@ export const CSS =
   // `margin-top:2px` / `margin-right:-4px` 逐字沿用官方分节头。
   '.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
+  // 顶栏那一行（照官方分节头做的骨架行）。#135 起它是**一行五件**：行首是分组过滤胶囊
+  //（`dshOneTree_filterBar`，原来在列表区另占一行），右边依次是搜索槽与动作组。搜索槽带
+  // `margin-left:auto`，所以行内空处都落在中间、胶囊贴左、搜索与四枚工具贴右
+  //（官方分节头也是 `justify-content:flex-end`，搜索槽同样靠 auto 外边距靠右）。
+  // 高度仍是「这一行里一个控件的高度」（紧凑档 26px），搜索展开态的 30px 也装得下。
   '.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}' +
   // 搜索栏（#132：官方那套 UI 的**两态都在**，默认折叠——平时是一枚 28px 圆放大镜，
   // 点开才展开成输入框 + 清除钮）——search / searchSlot / searchButton / searchInput /
   // clearButton 五个类名与几何逐字对应官方 css-module（含两个 Expanded 变体），
   // 所以两侧的折叠态与展开态都能直接逐项比对（F-04）。
-  '.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}' +
+  // `flex:1 0 auto`（grow 1 / shrink 0）：收起态它的上限就是那一枚放大镜的宽（`max-width`
+  // 取图标按钮档），够不着上限时也不许被挤小——#135 起这一行里让位的是分组名（过滤条
+  // `min-width:0`），放大镜与四枚工具有多宽就是多宽（窄侧栏下把它们挤小等于把入口挤没）。
+  '.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1 0 auto;align-items:center;margin-left:auto;padding-left:0;display:flex}' +
   // #125：搜索框的左缘要落在**行内容基准**上（工作区行的文件夹图标左缘 = 列表行的内容左缘）。
   // 顶栏那一行自己的左内缩是骨架基线 `section-padding-inline`（官方分节头
   // `.bhn1Oq_sectionHeader{padding-left:4px}`），而行的内容从 `row-padding-inline` 起
@@ -345,8 +353,18 @@ export const CSS =
   // 2px——补回来之后对齐的才是**搜索框的边框左缘**，也就是用户眼睛看到的那条左缘。
   // 两个键都是档位里的量（紧凑档 7px / 官方 8px 与紧凑档 2px / 官方 4px），所以这条例
   // 在两档下都成立、不写死像素。
+  // #135：展开态这一刻，行首的胶囊已经让位成零宽（`dshOneTree_filterBarHidden`），而它的
+  // `margin-left` 恰好抵掉它自己占的那一格行内间隙——所以上面这条算式**一格没改**就仍然
+  // 成立：搜索槽的起点还是那一行的内容原点（F-39 按几何矩形判这一条）。
   '.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:calc(var(--dsh-one-density-row-padding-inline,8px) - var(--dsh-one-density-section-padding-inline,4px) + 2px)}' +
-  '.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:none;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);display:flex}' +
+  // 右侧动作组（折叠全部 / 添加工作区 / 设置 / 多选）。#135 起它也带一枚让位变体：
+  // 搜索展开时与分组胶囊一起收成零宽（官方 `bhn1Oq_headerActionsHidden` 的同名同事，
+  // 出处与上面过滤条那一条同源——官方同一个输出里给这两件各挂一枚 Hidden 变体）。
+  // 基础规则的 `max-width` 从 `none` 改成 `100%`：过渡要从百分比插值到 0，`none` 是
+  // 不可插值的（会瞬间跳变）；`100%` 在正常态不会生效（这一组控件加起来远窄于那一行），
+  // 只是给过渡一个起点。逐条理由与上面过滤条那一条一致。
+  '.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:100%;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);transition:max-width .18s var(--ds-ease-in-out),opacity .12s var(--ds-ease-in-out),transform .18s var(--ds-ease-in-out),visibility 0s linear;display:flex;overflow:hidden}' +
+  '.dshOneTree_headerActionsHidden{opacity:0;pointer-events:none;visibility:hidden;max-width:0;transform:translate(4px);transition-delay:0s,0s,0s,.18s}' +
   '.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}' +
   '.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}' +
   '.dshOneTree_searchButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
@@ -512,20 +530,68 @@ export const CSS =
   // 颜色一律官方 token；尺寸/间距走密度档变量（#104 起把过滤条与抽屉也纳进来，新键的
   // 出处见文件头那段的说明：胶囊尺寸取自官方同形的胶囊触发器、块头取自官方列表分组
   // 块头）。变量名与官方原值两栏一一对应，改动时 shell 侧那张表同步改。
-  // #125：左内缩改用 `row-padding-inline`（= 行内容基准）而不是骨架基线
+  //
+  // #125：左内缩用 `row-padding-inline`（= 行内容基准）而不是骨架基线
   // `section-padding-inline`——过滤条上面的胶囊要和下面列表行的内容左缘对齐，而这两条
   // 在选中状态下是同时在场的（选择态动作条 `.dshOneTree_selectionBar` 的横向留白本来就是
   // `row-padding-inline`），对齐之后三条（胶囊 / 计数 / 行内容）同一条竖线。
-  '.dshOneTree_filterBar{align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
+  //
+  // #135：它从列表区搬进**顶栏那一行**（行首那一件），于是左内缩要拆成两半——
+  // 顶栏那一行的左边是骨架基线 `section-padding-inline`（官方分节头 `padding-left:4px`，
+  // 这一项与官方页逐项比对，不能动），而这一格要的仍是 `row-padding-inline`，所以先用
+  // `margin-left` 把自己**拉到容器左缘**（-1 × 骨架基线，与 `.dshOneTree_listArea` /
+  // `.dshOneTree_list` 那两处同样的「通栏容器」手法），再照旧用 `padding-left` 铺出行内容
+  // 基准。两段都是档位里的量，所以两种密度下胶囊左缘都落在行内容基准上（F-35 / F-39 判）。
+  // `margin-bottom` 那一段（#119 给的分组之间的纵向节奏）随本条退场：它现在是那一行里的
+  // 一件，与列表之间的纵向留白由那一行自己的 `margin-bottom`（`section-header-gap`）承担。
+  //
+  // 最后三项是让位机制（#135）：搜索展开时这个盒子**收成零宽**（先淡出、再收窄，
+  // 0.18s），所以基础规则里要有可插值的 `max-width`、`overflow:hidden` 与过渡。出处与
+  // 理由见下面 `dshOneTree_filterBarHidden` 那一条。
+  // `min-width:0` 是这一行的**让位次序**里的一环：窄侧栏（260px）下这一行的预算本来就紧，
+  // 该让的是**分组名**（胶囊里的名字用省略号收，`text-overflow:ellipsis` 那条路早就在），
+  // 而不是让搜索放大镜与四枚工具控件被挤小——所以这里允许它收缩到内容宽以下，而搜索槽与
+  // 动作组都声明 `flex-shrink:0`（见下）。
+  '.dshOneTree_filterBar{align-items:center;box-sizing:border-box;min-width:0;max-width:100%;opacity:1;visibility:visible;gap:var(--dsh-one-density-section-gap,4px);margin:0 0 0 calc(-1 * var(--dsh-one-density-section-padding-inline,4px));padding-left:var(--dsh-one-density-row-padding-inline,8px);transition:max-width .18s var(--ds-ease-in-out),opacity .12s var(--ds-ease-in-out),transform .18s var(--ds-ease-in-out),visibility 0s linear;display:flex;overflow:hidden}' +
+  // 搜索展开时分组胶囊让位（#135）：**收成零宽**，与官方同一套做法——官方搜索展开时给
+  // 分节头那行标题挂 `bhn1Oq_sectionLabelHidden`、给右侧动作组挂 `bhn1Oq_headerActionsHidden`
+  // （出处：`dsh-client-ui-workspace/lib/client.js` 的 WorkspaceBrowser 输出与同文件的
+  // css-module 规则：`{opacity:0;visibility:hidden;max-width:0;margin-right:-4px;
+  // transform:translate(-4px)}` 配 `.18s` 过渡；可见性延迟到过渡走完才翻，展开时立刻可见）。
+  // 我们这一行的行首那件就是分组胶囊，所以这是同一条规则的同名同事。
+  // 逐项说明为什么是这几条：
+  // - `max-width:0` + `box-sizing:border-box` + `padding-left:0`：flex 项**照样占一格 gap**
+  //   （间隙跟项数走，不跟宽度走），零宽项与它前面那一格间隙加起来正好把搜索槽推到
+  //   「胶囊不在时」的位置——`margin-left` 取负的一格间隙把它抵掉，展开态的输入框左缘
+  //   才与收起态的胶囊左缘同一条竖线（F-39 判这一条）；
+  // - `overflow:hidden`：把那一枚胶囊裁掉（零宽盒里它还挂在 DOM 上、仍受 `visibility`
+  //   管，读屏与 Tab 序都不再碰到它）；
+  // - 过渡：与官方一样先淡出再收窄，收起搜索后原样回来。`transition-delay` 的最后一个
+  //   `.18s` 只挂在 `visibility` 上（官方同款写法）：让它在收窄过程中还看得见。
+  '.dshOneTree_filterBarHidden{opacity:0;pointer-events:none;visibility:hidden;box-sizing:border-box;max-width:0;margin-left:calc(-1 * var(--dsh-one-density-section-gap,4px));padding-left:0;transform:translate(-4px);transition-delay:0s,0s,0s,.18s}' +
   // 分组过滤条（#99：单胶囊 + 成员计数 + ▾）。形状沿用官方胶囊语言（官方 token、
   // 999px 圆角 = 容器档，出处：官方 ui-cordis 的 `.Nqubda_transitionActions button`）；
   // 尺寸整套取**紧凑档**——高 26px / 字号 12px 与行菜单的项同高同字，左内边距取紧凑档的
   // 项内边距 7px、右内边距（▾ 那一侧）取紧凑档的容器内边距 2px。官方同形的胶囊触发器
   // （ui-model-selection 的 `_7KE1Ra_trigger`：28px / 13px / 起 8px 止 4px）留在标准档当兜底。
-  '.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-pill-height,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);max-width:100%;padding:0 var(--dsh-one-density-pill-padding-end,4px) 0 var(--dsh-one-density-pill-padding-start,8px);font-size:var(--dsh-one-density-pill-font-size,13px);display:inline-flex;overflow:hidden}' +
+  //
+  // `flex:1 1 auto` + `min-width:0` 是让位次序的一部分（#135）：它跟着外层的过滤条一起缩，
+  // 缩到装不下时由里面的**分组名**走省略号（名字那一格的规则在下面），图标 / 计数 / ▾ 三件
+  // 是 `flex:none`、一分不缩——把一个控件挤到看不出是什么，比名字截短更糟。
+  // 胶囊在那一行里的落点（#135）：官方 `Menu` 会把锚点包进自己的根 `span`
+  // （css-module `_root_1nxmc_1{position:relative;display:inline-flex}`），这一格就是给
+  // 那层 span 的类名（经 Menu 公开的 `className` prop 挂上去，见 groupFilterBar.ts）。
+  // 它要做的只有一件事：**跟着外层一起收**——`min-width:0` + `flex:1 1 auto`，于是窄
+  // 侧栏下先收这一格、再收里面的分组名；不然那层会照内容宽撑住，胶囊的右端（计数与 ▾）
+  // 会被它的 `overflow:hidden` 切掉。
+  '.dshOneTree_pillSlot{min-width:0;flex:1 1 auto}' +
+  '.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-pill-height,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:1 1 auto;min-width:0;align-items:center;gap:var(--dsh-one-density-section-gap,4px);max-width:100%;padding:0 var(--dsh-one-density-pill-padding-end,4px) 0 var(--dsh-one-density-pill-padding-start,8px);font-size:var(--dsh-one-density-pill-font-size,13px);display:inline-flex;overflow:hidden}' +
   '.dshOneTree_pill:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_pillActive{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_pillTag{flex:none;align-items:center;color:var(--dsw-alias-label-tertiary);display:inline-flex}' +
+  // 分组名这一格：窄侧栏（260px）下**它是这一行里唯一被收的东西**——省略号截断，旁边的
+  // 图标 / 计数 / ▾ 三件不缩（让位次序见 `.dshOneTree_pill` 与过滤条那两条的说明）。
+  // 与 `.dshOneTree_footerLabel`（#137）同一条处置：一行真的装不下时收名字，不压别的件。
   '.dshOneTree_pillLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}' +
   '.dshOneTree_pillCount{color:var(--dsw-alias-label-tertiary);flex:none}' +
   '.dshOneTree_pillChevron{color:var(--dsw-alias-label-tertiary);flex:none;align-items:center;display:inline-flex}' +
