@@ -27,6 +27,8 @@
 
 **worktree 开发 session 只开发、不合入**：dev-finish（自测 + 生成测试报告 + done 标记）通过后即止，合入由主线 agent 跑 `dev-merge.sh`。**合入门禁 = 测试报告审查**：报告由 `test/sandbox/` 的 ledger + `report.mjs` 产出（新增功能项在前、现有功能回归在后，每项带期望/截图/通过或失败结论），人工审查通过再合入；对功能有疑问才人工开窗 `dev-ui-test.sh` 验收。
 
+**动了 workspaces 面就要装依赖**（#187，2026-09-18 实测踩过）：插件包之间按**包名**互相引用（`@dsh-one/dsh-plugin-kit/<模块>`），这些链接由 `npm install` 建在 `node_modules/@dsh-one/` 下。所以**新增插件包 / 改包名 / 改包内子路径导出**之后，任务 worktree 里必须**先 `npm install` 再自测**（否则 build 挂在 `Could not resolve "@dsh-one/…"`；只在自己装过依赖的机器上自测会得到假绿）。`dev-merge.sh` 侧已内置：合入范围动过 `package.json` / `package-lock.json` / `packages/*/package.json` 时它会先 `npm install` 再重建产物，重建失败会**响亮报错并指出修法**（不会留下"已合入但产物没重建"的静默坏状态）。
+
 **验证三层与跑法**（2026-09-16 起，浏览器验证 harness 已入库）：**浏览器验证**（`npm run verify:lab`，harness 在 `test/assembly-lab/`）用 Playwright 打开装配页跑断言——页面由仓库真实模块构建、数据面是本机真实 dsh 网关（只读）、宿主侧是假宿主，约 50 秒，是**第一道**，改装配相关代码（block list / 树定义 / 自有插件 / mirror / pageHtml）后必跑；**官方 web 真机**（`npm run verify:plugins-official`，脚本 `scripts/verify-plugins-official.mjs`）在隔离的临时 HOME + 临时 profile 里把自有插件包装进 profile，用 Playwright 打开**官方页面本身**验加载与行为，约 2 分钟，改插件包（`packages/dsh-*` 的清单/产物/补丁）后必跑；**VS Code 验证**（`scripts/dev-ui-test.sh`）起隔离 VS Code 窗口实测 webview 宿主层（CSP/剪贴板/原生菜单/多 webview 生命周期），慢，是**最终准绳**；**沙盒**（`test/sandbox/run-sandbox.sh`）在 code-server 里装真插件 vsix 做宣发截图与人工核对。四者不互相替代（实验室验的是我们的装配页、真机验的是官方页面）。跑法与套件清单见 `test/assembly-lab/README.md` 与 `docs/plugin-packages.md`。
 
 **起真 VS Code 窗口只有人跑（agent 一律不许自己起）**：`scripts/dev-ui-test.sh` 或任何 `code --extensionDevelopmentPath …` 都会在用户桌面上真的弹出一个窗口、抢走焦点，而 agent 自己既看不见也点不了它；用户上一轮已经被弹窗打扰过（2026-09-16）。规则：

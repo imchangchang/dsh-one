@@ -103,11 +103,49 @@ git worktree remove "$WT"
 git -C "$TARGET_WT" branch -d "$BRANCH" >/dev/null
 git tag -d "done/$SLUG" >/dev/null
 
+# workspace 面的链接刷新（#187）：插件包之间按**包名**互相引用
+# （`@dsh-one/dsh-plugin-kit/<模块>`），这些链接由 `npm install` 建在
+# `node_modules/@dsh-one/` 下。新增包 / 改包名 / 改包内子路径导出之后，集成线这侧
+# 可能还没有那些链接——重建产物会挂在 `Could not resolve "@dsh-one/…"`（#94 合入时
+# 的现场）。判据**直接看链接在不在**（而不是猜「这次合入有没有动 workspaces 面」）：
+# 缺了才装这一次，装完仍缺就交给下面的 build 响亮失败。
+# 两个位置都看：集成线是嵌套 worktree 时，模块解析会一路往主工作区的 node_modules 走。
+ROOT_WT=$(git worktree list --porcelain | awk 'NR==1{print $2}')
+missing_links=""
+for manifest in "$TARGET_WT"/packages/*/package.json "$ROOT_WT"/packages/*/package.json; do
+  [ -e "$manifest" ] || continue
+  name=$(sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -1)
+  [ -n "$name" ] || continue
+  if [ ! -e "$TARGET_WT/node_modules/$name" ] && [ ! -e "$ROOT_WT/node_modules/$name" ]; then
+    case " $missing_links " in *" $name "*) ;; *) missing_links="$missing_links $name" ;; esac
+  fi
+done
+if [ -n "$missing_links" ]; then
+  echo "== workspace 链接缺失（${missing_links}）——先 npm install 再重建 =="
+  npm --prefix "$TARGET_WT" install --no-audit --no-fund
+fi
+
 # 扩展运行时装载的是集成线的 dist/；合并只带了源码，不重建则 reload 后还是旧代码。
 # 一次 build 出的产物不止 dist/：还有 packages/*/lib/（自有插件包的产物，不入库）——
 # 合并会把它们从版本库里删掉，这里重建后磁盘上才是当前源码对应的那一份。
 echo "== 重建 ${TARGET} 的产物（dist/ 与 packages/*/lib/，${TARGET_WT}）=="
-npm --prefix "$TARGET_WT" run build
+if ! npm --prefix "$TARGET_WT" run build; then
+  cat >&2 <<EOF
+
+⚠️  集成线现在是坏的：源码已经合入并清理完毕，但 **${TARGET} 的产物没有重建**
+    （dist/ 与 packages/*/lib/ 还是上一版，reload 窗口看到的仍是旧代码）。
+
+   最可能的两种原因与修法（在 ${TARGET_WT} 里执行）：
+     cd ${TARGET_WT}
+     npm install        # ① workspace 包链接缺失：报错里是 Could not resolve "@dsh-one/…"
+     npm run build      # ② 源码本身构建失败：按报错改，必要时新开 issue 修
+     npm run build      # 修好后再跑一次，确认产物真的重建出来
+
+   这一步之前的一切都已经完成（rebase / 复测 / --no-ff 合并 / worktree 与分支清理 /
+   done 标记删除），所以**不要重跑 dev-merge**，只需修上面这条链。
+EOF
+  exit 1
+fi
 
 echo
 echo "已合入 $TARGET 并清理 worktree / 分支 / done 标记（${TARGET} 的产物已重建，reload 窗口生效）。"
