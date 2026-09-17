@@ -37,8 +37,10 @@
  *   计划待审 / 进行中 / 已完成」这类）；我们那行渲染的是**同一个官方件**、同一种形状。
  * - **工作区行尾的「点 + 计数」是自有功能**（官方工作区行没有这一层，见
  *   `workspaceTree/rows.ts` 的 ActivityBadge）：`data-dshone-tree-activity` 写的是
- *   `运行中/等待中` 两个计数、点用官方 `StateDot`（`ongoing` / `warning`）、悬停给出
- *   「N 个会话运行中 / N 个会话等待交互」；两个计数都为 0 时整枚角标不渲染。
+ *   `运行中/等待中/未读` 三个计数（第三项是 #153 补回来的）、点用官方 `StateDot`
+ *   （`ongoing` / `warning` / `done`）、悬停给出「N 个会话运行中 / N 个会话等待交互 /
+ *   N 个会话未读」；三个计数都为 0 时整枚角标不渲染（本套件不注未读集合，所以那一项
+ *   恒为 0，读数里写出来的第三个 0 就是它）。
  *
  * 本文件末尾那几个夹具（`installEventStreamInjector` / `waitForEventStream` /
  * `waterfall` / `emit` / `expandAllWorkspaces` / `expandOfficialWorkspaces`）导出给
@@ -112,7 +114,7 @@ interface RowFacts {
   status: string
   current: boolean
   dot: DotFacts | null
-  /** 行尾那枚自有活状态角标（`data-dshone-tree-activity`，格式 `运行中/等待中`）。 */
+  /** 行尾那枚自有活状态角标（`data-dshone-tree-activity`，格式 `运行中/等待中/未读`）。 */
   activity: string | null
 }
 
@@ -253,7 +255,7 @@ export const PENDING_DOT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '会话等待态的状态点（#140）：等提问 / 等审批 / 计划待审 = 黄点，运行中 = 矩阵，完成 = 绿点',
   expect:
-    '侧栏树的等待态**真的由官方那条口子发布**（#140）：往页面的官方转发事件流（`$events`）投官方 `approval/request` / `user-questions/request` 瀑布帧（页面上真出现一条等待中的 interaction），会话行立刻亮**黄点**，`data-state=warning`、解析色 = `--dsw-alias-state-warn-primary`（同一枚 token 挂探针比，不写死色值）、读屏文案是官方那三档（等待审批 / 等待回答 / 计划待审，`plan-review` 由 ui-user-questions 发布、不是 ui-plan）；与**同一台机器上另开的官方浏览区页**投同一条帧，两边同一会话同一种态的 `data-state`、解析色、点几何逐项相等。**取消帧一到就清**（用户在对话区答复之后不会留一个假黄点）。回归三态：空闲档不渲染点（官方 `showsStatusDot` 的口径）、运行中 = 矩阵 svg（颜色 `--dsw-static-deepseek-450`）、跑完还没打开 = `data-state=done`（颜色 `--dsw-alias-state-success-primary`）。另外钉住工作区行尾那枚**自有**活状态角标的两态：等待中 1 个 = `0/1`、运行中 1 个 = `1/0`（官方工作区行没有这一层）。全程零 pageerror、零 `slot entry crashed`，夹具只改页面收到的帧（注入的 eventId 网关不知道，页面不回任何结果），网关只读。',
+    '侧栏树的等待态**真的由官方那条口子发布**（#140）：往页面的官方转发事件流（`$events`）投官方 `approval/request` / `user-questions/request` 瀑布帧（页面上真出现一条等待中的 interaction），会话行立刻亮**黄点**，`data-state=warning`、解析色 = `--dsw-alias-state-warn-primary`（同一枚 token 挂探针比，不写死色值）、读屏文案是官方那三档（等待审批 / 等待回答 / 计划待审，`plan-review` 由 ui-user-questions 发布、不是 ui-plan）；与**同一台机器上另开的官方浏览区页**投同一条帧，两边同一会话同一种态的 `data-state`、解析色、点几何逐项相等。**取消帧一到就清**（用户在对话区答复之后不会留一个假黄点）。回归三态：空闲档不渲染点（官方 `showsStatusDot` 的口径）、运行中 = 矩阵 svg（颜色 `--dsw-static-deepseek-450`）、跑完还没打开 = `data-state=done`（颜色 `--dsw-alias-state-success-primary`）。另外钉住工作区行尾那枚**自有**活状态角标的两态（#153 起读数写成三档，本套件不注未读集合、所以第三档恒为 0）：等待中 1 个 = `0/1/0`、运行中 1 个 = `1/0/0`（官方工作区行没有这一层）。全程零 pageerror、零 `slot entry crashed`，夹具只改页面收到的帧（注入的 eventId 网关不知道，页面不回任何结果），网关只读。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const own = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -361,7 +363,7 @@ export const PENDING_DOT_SUITE: LabSuite = {
         dotOf(afterQuestion, target.id)?.color === warnProbe,
         `dot=${String(dotOf(afterQuestion, target.id)?.color)}`,
       )
-      check.eq('等提问：工作区行尾的自有角标是「等待中 1」= 0/1', afterQuestion.find((row) => row.id === target.id)?.activity, '0/1')
+      check.eq('等提问：工作区行尾的自有角标是「等待中 1」= 0/1/0', afterQuestion.find((row) => row.id === target.id)?.activity, '0/1/0')
 
       // ---- ④ 计划待审（plan-review 是 user-questions 发的第二档，不是 ui-plan） ----
       injector.push({ type: 'cancel', eventId: questionId })
@@ -425,7 +427,7 @@ export const PENDING_DOT_SUITE: LabSuite = {
         runningDot?.color === ongoingProbe && ongoingProbe !== '',
         `dot=${String(runningDot?.color)} probe=${ongoingProbe}`,
       )
-      check.eq('运行中：工作区行尾的自有角标是「运行中 1」= 1/0', afterRunning.find((row) => row.id === target.id)?.activity, '1/0')
+      check.eq('运行中：工作区行尾的自有角标是「运行中 1」= 1/0/0', afterRunning.find((row) => row.id === target.id)?.activity, '1/0/0')
       screenshots.push(await shot(ctx, own.page, 'pending-dot-running'))
 
       // ---- ⑥ 跑完还没打开 → 绿点（官方完成提醒：run→idle 那条边只在非当前会话上武装） ----
@@ -449,7 +451,7 @@ export const PENDING_DOT_SUITE: LabSuite = {
         doneDot?.labels[0] === '已完成',
         JSON.stringify(doneDot?.labels),
       )
-      check.eq('跑完还没打开：两个计数都归零时那枚角标整枚不渲染（与「等待中 1」那一态对照）', afterDone.find((row) => row.id === target.id)?.activity ?? null, null)
+      check.eq('跑完还没打开：三个计数都归零时那枚角标整枚不渲染（与「等待中 1」那一态对照）', afterDone.find((row) => row.id === target.id)?.activity ?? null, null)
       screenshots.push(await shot(ctx, own.page, 'pending-dot-done'))
 
       // 六个读数压成一组观测（报告是给人看的：这里的每一条都是界面上的实测值）。
@@ -459,7 +461,7 @@ export const PENDING_DOT_SUITE: LabSuite = {
       check.fact(`　等提问：${describeDot(dotOf(afterQuestion, target.id))}；工作区行尾角标 ${afterQuestion.find((row) => row.id === target.id)?.activity ?? '无'}`)
       check.fact(`　计划待审：${describeDot(dotOf(afterPlan, target.id))}`)
       check.fact(`　运行中：${describeDot(runningDot)}；行状态 running；工作区行尾角标 ${afterRunning.find((row) => row.id === target.id)?.activity ?? '无'}`)
-      check.fact(`　跑完还没打开：${describeDot(doneDot)}；工作区行尾角标 ${afterDone.find((row) => row.id === target.id)?.activity ?? '无（两个计数都归零，整枚角标不渲染）'}`)
+      check.fact(`　跑完还没打开：${describeDot(doneDot)}；工作区行尾角标 ${afterDone.find((row) => row.id === target.id)?.activity ?? '无（三个计数都归零，整枚角标不渲染）'}`)
 
       // ---- ⑦ 与官方浏览区页并排：同一会话、同一种态 ----
       {

@@ -242,7 +242,7 @@ test('deriveGroups 接过滤：只留命中的工作区，散会话桶跟着收�
 })
 
 // ---------------------------------------------------------------------------
-// #81 功能 2：工作区活状态计数
+// #81 功能 2：工作区活状态计数（#153 起三档：运行中 / 等待交互 / 未读）
 // ---------------------------------------------------------------------------
 
 test('计数：运行中与等待交互互斥（正在等用户的会话只算「等待」，不重复计入运行）', () => {
@@ -258,7 +258,57 @@ test('计数：运行中与等待交互互斥（正在等用户的会话只算�
     ['both', { kind: 'question' }],
   ])
   const counts = workspaceActivityCounts(sessions, ws, [], pending)
-  assert.deepEqual(counts.get('w1'), { running: 1, waiting: 2 })
+  assert.deepEqual(counts.get('w1'), { running: 1, waiting: 2, unread: 0 })
+})
+
+test('计数：未读是第三档，优先级低于等待交互与运行中（每个会话只进一个桶）', () => {
+  const ws = [workspace('w1', ['plain', 'wait', 'run', 'read'])]
+  const sessions = list([
+    summary('plain'),
+    summary('wait', { running: true }),
+    summary('run', { running: true }),
+    summary('read'),
+  ])
+  const pending: PendingInteractions = new Map([['wait', { kind: 'approval' }]])
+  // 三条都在手动未读集合里，但只有那条空闲的落进「未读」
+  const counts = workspaceActivityCounts(
+    sessions,
+    ws,
+    [],
+    pending,
+    new Set<string>(),
+    new Set(['plain', 'wait', 'run']),
+  )
+  assert.deepEqual(counts.get('w1'), { running: 1, waiting: 1, unread: 1 })
+  // 不在集合里的空闲会话照旧什么都不算（未读判定只认这一份集合，不认官方 `completed`）
+  assert.equal(
+    workspaceActivityCounts(
+      list([summary('x', { completed: true })]),
+      [workspace('w1', ['x'])],
+      [],
+      noPending,
+      new Set<string>(),
+      new Set<string>(),
+    ).get('w1'),
+    undefined,
+  )
+})
+
+test('计数：未读那一项与可见性同源（子代理/已归档/回收站/非当前空白会话都不计）', () => {
+  const ws = [workspace('w1', ['a', 'sub', 'archived', 'binned', 'blank'])]
+  const sessions = list([
+    summary('a'),
+    summary('sub', { origin: 'subagent' }),
+    summary('archived'),
+    summary('binned'),
+    summary('blank', { blank: true }),
+  ])
+  const unread = new Set(['a', 'sub', 'archived', 'binned', 'blank'])
+  const visible = workspaceActivityCounts(sessions, ws, ['archived'], noPending, new Set(['binned']), unread)
+  assert.deepEqual(visible.get('w1'), { running: 0, waiting: 0, unread: 1 })
+  // 空白会话就是当前选中时进树 → 未读计数跟着进
+  const withCurrent = workspaceActivityCounts({ ...sessions, current: 'blank' }, ws, ['archived'], noPending, new Set(['binned']), unread)
+  assert.deepEqual(withCurrent.get('w1'), { running: 0, waiting: 0, unread: 2 })
 })
 
 test('计数：与树里看得见的会话同源（子代理/已归档/非当前空白会话都不计）', () => {
@@ -270,18 +320,21 @@ test('计数：与树里看得见的会话同源（子代理/已归档/非当前
     summary('blank', { running: true, blank: true }),
   ])
   const counts = workspaceActivityCounts(sessions, ws, ['archived'], noPending)
-  assert.deepEqual(counts.get('w1'), { running: 1, waiting: 0 })
+  assert.deepEqual(counts.get('w1'), { running: 1, waiting: 0, unread: 0 })
   // 空白会话就是当前选中时进树 → 计数跟着进
   const withCurrent = workspaceActivityCounts({ ...sessions, current: 'blank' }, ws, ['archived'], noPending)
-  assert.deepEqual(withCurrent.get('w1'), { running: 2, waiting: 0 })
+  assert.deepEqual(withCurrent.get('w1'), { running: 2, waiting: 0, unread: 0 })
 })
 
-test('计数：散会话归未分组桶，空闲工作区没有条目（不给行尾挂 0）', () => {
+test('计数：散会话归未分组桶，三档全零的工作区没有条目（不给行尾挂整枚角标）', () => {
   const ws = [workspace('w1', ['a'])]
   const sessions = list([summary('a'), summary('stray', { running: true })])
   const counts = workspaceActivityCounts(sessions, ws, [], noPending)
   assert.equal(counts.get('w1'), undefined)
-  assert.deepEqual(counts.get(UNGROUPED_KEY), { running: 1, waiting: 0 })
+  assert.deepEqual(counts.get(UNGROUPED_KEY), { running: 1, waiting: 0, unread: 0 })
+  // 只有未读那一档 > 0 时也要给条目（否则整枚角标不渲染，第三项等于没补）
+  const unreadOnly = workspaceActivityCounts(sessions, ws, [], noPending, new Set<string>(), new Set(['a']))
+  assert.deepEqual(unreadOnly.get('w1'), { running: 0, waiting: 0, unread: 1 })
 })
 
 // ---------------------------------------------------------------------------

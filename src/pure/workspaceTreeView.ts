@@ -459,28 +459,37 @@ export function showsStatusDot(statuses: readonly SessionStatus[], completed: bo
 }
 
 // ---------------------------------------------------------------------------
-// #81 功能 2：工作区行尾的「运行中 / 等待交互」计数
+// #81 功能 2：工作区行尾的「运行中 / 等待交互 / 未读」计数（#153 补回第三项）
 //
-// 两档的划分口径（互斥、相加 = 该工作区里正占着用户的会话数）：
+// 三档的划分口径（**互斥**——每个会话只进一个桶，优先级与旧侧栏的工作区组头
+// `appendWorkspaceCounts` 一致，也与折叠标签组头的 `tagGroupCounts` 是同一份规则）：
 // - **等待交互**：会话级 UI 正在等用户（approval / plan-review / question）——
 //   就是行上会亮警示点的那三种（`visiblePendingKind`）。
 // - **运行中**：会话在跑且**没有**在等用户。正在等用户批准的那条会话其实也
 //   「在跑」，但它对用户的意义是「等你」，两处都数会让用户以为有两件事要处理。
+// - **未读**：会话在**手动未读**集合里，且它既没在等用户、也没在跑——在跑或在
+//   等用户的会话，行首那枚状态点已经说了更要紧的事，未读就不再并进数字里。
 // 计数覆盖的范围与树里看得见的会话**完全同源**（同一套 `sessionVisible`：
-// 子代理不算、已归档不算、非当前选中的空白会话不算），否则行尾的数字会与展开
-// 后看到的行数对不上。
+// 子代理不算、已归档不算、挪进本地回收站的不算、非当前选中的空白会话不算），
+// 否则行尾的数字会与展开后看到的行数对不上。
+//
+// 未读判定吃的是**我们自己的手动未读集合**（`unread` 那一份，住在客户端存储里，
+// 由用户手动标），不是官方「跑完还没被打开」的 `completed` 提醒——`sessionStatuses`
+// 里两者共用同一颗绿点，但来源是两回事。
 // ---------------------------------------------------------------------------
 
 /** 一个分组（工作区或未分组桶）的活状态计数。 */
 export interface ActivityCounts {
   readonly running: number
   readonly waiting: number
+  readonly unread: number
 }
 
 /**
  * 每个分组键的活状态计数（键与 `GroupNode.key` 同域：工作区 id / UNGROUPED_KEY）。
  * `recycled` = 本地回收站集合（#103）：挪进回收站的会话在树里看不见，也就不该被
  * 数进行尾计数——计数与「树里看得见的行」永远同源。缺省空集。
+ * `unread` = 手动未读集合（#102 的 `unread` 键，#153 起也数进行尾那一项）。缺省空集。
  */
 export function workspaceActivityCounts(
   list: SessionListLike,
@@ -488,14 +497,16 @@ export function workspaceActivityCounts(
   archivedSessionIds: readonly string[],
   pending: PendingInteractions,
   recycled: ReadonlySet<string> = EMPTY_IDS,
+  unread: ReadonlySet<string> = EMPTY_IDS,
 ): Map<string, ActivityCounts> {
   const archived = new Set(archivedSessionIds)
-  const counts = new Map<string, { running: number; waiting: number }>()
-  const bump = (key: string, running: boolean, waiting: boolean): void => {
-    if (!running && !waiting) return
-    const current = counts.get(key) ?? { running: 0, waiting: 0 }
+  const counts = new Map<string, { running: number; waiting: number; unread: number }>()
+  const bump = (key: string, running: boolean, waiting: boolean, isUnread: boolean): void => {
+    if (!running && !waiting && !isUnread) return
+    const current = counts.get(key) ?? { running: 0, waiting: 0, unread: 0 }
     if (waiting) current.waiting += 1
-    else current.running += 1
+    else if (running) current.running += 1
+    else current.unread += 1
     counts.set(key, current)
   }
   const accounted = new Set<string>()
@@ -506,7 +517,7 @@ export function workspaceActivityCounts(
       accounted.add(id)
       if (!sessionVisible(summary, list.current, archived, recycled)) continue
       const waiting = visiblePendingKind(pending.get(id)?.kind) !== undefined
-      bump(workspace.workspaceId, summary.running, waiting)
+      bump(workspace.workspaceId, summary.running, waiting, unread.has(id))
     }
   }
   for (const id of list.ids) {
@@ -514,7 +525,7 @@ export function workspaceActivityCounts(
     if (summary === undefined || accounted.has(id)) continue
     if (!sessionVisible(summary, list.current, archived, recycled)) continue
     const waiting = visiblePendingKind(pending.get(id)?.kind) !== undefined
-    bump(UNGROUPED_KEY, summary.running, waiting)
+    bump(UNGROUPED_KEY, summary.running, waiting, unread.has(id))
   }
   return counts
 }
