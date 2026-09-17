@@ -10,3 +10,5 @@ test/sandbox/*.report.html
 test/assembly-lab/out/
 # 安装引导页浏览器冒烟的产物（台账 / 截图）：同上，随手重跑即可。
 test/install-guide/out/
+# 旧侧栏 × 现装配侧栏并排渲染对照的产物（台账 / 截图）：同上。
+test/legacy-sidebar/out/

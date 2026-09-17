@@ -122,6 +122,15 @@ export interface LabServerOptions {
   pluginsDir: string
   /** 0 = 随机端口。 */
   port?: number
+  /**
+   * 显式指定的网关 dsh 版本。
+   *
+   * 为什么需要：版本本来从 `~/.dsh/dsh-owned.json` 里读（扩展 spawn/adopt 的实例都
+   * 记在那儿，顺带记了版本）。调用方自己起一个隔离的 `dsh web` 时那个文件里没有它，
+   * 读到的版本是 undefined → 页面顶上会挂一条「dsh 版本未知」的信息条，那条东西不属
+   * 于侧栏本身，会污染并排截图与首屏几何。所以允许调用方把它知道的版本直接传进来。
+   */
+  version?: string
 }
 
 export interface LabServer {
@@ -185,7 +194,8 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     )
   }
   await exchangeToken(gateway, token, log)
-  const dshVersion = record !== null && record.port === gatewayPort(gateway) ? record.version : undefined
+  const recorded = record !== null && record.port === gatewayPort(gateway) ? record.version : undefined
+  const dshVersion = options.version ?? recorded
   if (dshVersion !== undefined) registerVersion(gateway, dshVersion)
 
   let gatewayHtml: Promise<string> | undefined
