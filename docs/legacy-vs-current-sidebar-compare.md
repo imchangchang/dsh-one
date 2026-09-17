@@ -245,12 +245,12 @@
 
 | 项 | 旧值（`文件:行`） | 现值（档位表键 / `文件:行`） | 差异 |
 | --- | --- | --- | --- |
-| 工作区行高 | 32px（`sessionsView.ts:390-394`） | `row-height`：34px / 26px（`sidebarFramePlugin.ts:124`；消费点 `styles.ts:283`） | 不同（官方档 34px；VS Code 档取紧凑档 26px） |
-| 会话行高 | 32px（`sessionsView.ts:433-437`） | `session-row-height`：32px / 26px（`sidebarFramePlugin.ts:125`；消费点 `styles.ts:285`） | 不同（VS Code 档 26px） |
-| 行字号 | 12px（`sessionsView.ts:393`、`436`） | 标题 `title-font-size`：14px / 12px；元信息 `meta-font-size`：12px / 12px（`sidebarFramePlugin.ts:145-147`；消费点 `styles.ts:307-308`） | 不同（官方档标题 14px） |
-| 文字行高 | 未显式声明（随 `--vscode-font-size`，约 1.4 倍） | 标题 `title-line-height`：20px / 18px；元信息 `meta-line-height`：20px / 18px（`sidebarFramePlugin.ts:146`、`148`；消费点 `styles.ts:307-308`） | 不同（现在显式取官方行高） |
-| 行圆角 | 会话行 4px（`sessionsView.ts:436`）；工作区行没有圆角（`390-394`） | `row-radius`：8px / 5px（`sidebarFramePlugin.ts:194`；消费点 `styles.ts:280`；档位表记名 `styles.ts:138`、`116`） | 不同（两个行种统一取档；这也是唯一进密度表的圆角，理由写在 `sidebarFramePlugin.ts:190-194`） |
-| 行内边距 | 会话行 `0 6px 0 20px` + 外边距 `0 4px`（`sessionsView.ts:434`）；工作区行 `0 10px`（`391`） | `row-padding-inline`：8px / 7px（`sidebarFramePlugin.ts:136`；消费点 `styles.ts:280`）；行改成通栏出血（`styles.ts:254`），左内边距不再承担层级缩进 | 不同（行从「左右各留 4px + 左缩进 20px」改成通栏 + 7px 内边距） |
+| 工作区行高 | 32px（`sessionsView.ts:390-394`） | `row-height`：34px / 34px（`sidebarFramePlugin.ts` 的密度表；消费点 `styles.ts` 的 `.dshOneTree_projectRow`） | 不同（30px→34px：行家族取官方侧栏原值，#134） |
+| 会话行高 | 32px（`sessionsView.ts:433-437`） | `session-row-height`：32px / 32px（同上；消费点 `.dshOneTree_sessionRow`、`.dshOneTree_drawerRow`） | 一致（同为 32px 量级，#134 起这一项两边同值） |
+| 行字号 | 12px（`sessionsView.ts:393`、`436`） | 标题 `title-font-size`：14px / 14px；元信息 `meta-font-size`：12px / 12px（消费点 `styles.ts` 的 `.dshOneTree_title` / `.dshOneTree_time`） | 不同（标题比旧值大一号：#123 起标题取官方标题档） |
+| 文字行高 | 未显式声明（随 `--vscode-font-size`，约 1.4 倍） | 标题 `title-line-height`：20px / 20px；元信息 `meta-line-height`：20px / 18px（消费点同上） | 不同（现在显式取官方行高；元信息比官方原值紧一档） |
+| 行圆角 | 会话行 4px（`sessionsView.ts:436`）；工作区行没有圆角（`390-394`） | `row-radius`：8px / 8px（消费点 `styles.ts` 的两条行规则与溢出按钮 / 搜索结果行 / 入口行主区 / 抽屉块头） | 不同（两个行种统一取官方原值；这也是唯一进密度表的圆角） |
+| 行内边距 | 会话行 `0 6px 0 20px` + 外边距 `0 4px`（`sessionsView.ts:434`）；工作区行 `0 10px`（`391`） | `row-padding-inline`：8px / 8px（消费点 `styles.ts` 的行规则，同时是骨架件与行形件对齐的「行内容基准」）；行通栏出血，左内边距不再承担层级缩进 | 不同（行从「左右各留 4px + 左缩进 20px」改成通栏 + 官方 8px 内边距） |
 | 行间距 | 列表容器 `padding: 2px 0`，行之间无间距（`sessionsView.ts:81`） | `row-gap`：2px / 2px（`sidebarFramePlugin.ts:129`；消费点 `styles.ts:256`） | 一致（同为 2px 量级，#119 起这一项两边同值） |
 | 组间距 | 标签组块 `margin: 4px 0 2px`（`sessionsView.ts:581`） | `group-gap`：4px / 4px（`sidebarFramePlugin.ts:134`；消费点 `styles.ts:258`、`347`、`441`） | 一致（#119 定「纵向取官方节奏」） |
 | 分节头下边距 | 顶栏 / 分组栏 / 选择条的 1px 分隔线（`sessionsView.ts:44-47`、`92-95`、`84-87`） | `section-header-gap`：4px / 4px（`sidebarFramePlugin.ts:142`；消费点 `styles.ts:236`）；没有分隔线 | 不同（分隔线换成留白） |
@@ -284,7 +284,7 @@
 4. **搜索时的列表形态**：旧的是「仍是分组树，只留下有命中的组」，现在是「整块换成平铺的结果行」（`tree.ts:1258-1288`，官方 SearchResults 的形态）。→ **保持现状**（这是对齐官方 web 的结果，也是 #98 的方向）；如果用户更习惯旧形态，可以另立条目。
 5. **手动刷新按钮没了**：旧顶栏有刷新（点击转圈 + 禁用 450ms，`sessionsWebview.ts:559-570`）；现在数据靠官方会话服务推送，没有任何手动刷新入口。→ **建议用户拍板**（正常推送下不需要；但用户想「强制拉一次」时没有入口）。
 6. **dsh 未安装 / 服务未启动的空态换了位置**：旧的在侧栏面板里（`sessionsWebview.ts:1726-1751`），现在是宿主侧的状态页（`sidebarStatusPage.ts:26-51`）；旧面板里那块「一键安装脚本」（平台下拉 + 命令条 + 复制）现在搬到安装指南页（`src/pure/installGuidePage.ts:333`、`292-315`）。→ **保持现状**（未安装时网关起不来，装配页组装不了，状态页必须在宿主侧渲染，理由写在 `sidebarStatus.ts:1-12`）。
-7. **整套菜单与行的密度收紧了**：菜单项 30px → 官方 compact 档 26px、圆角 8px → 5px、行内边距 10px → 7px；会话行在 VS Code 档下 26px 高、12px 字（`styles.ts:114-132`、`sidebarFramePlugin.ts:124-136`）。→ **保持现状**（这是 #113 定下的口径：要么官方标准档、要么官方紧凑档，不再有自造中间值）。
+7. **整套菜单与行的密度收紧了**：菜单项 30px → 官方 compact 档 26px、圆角 8px → 5px、行内边距 10px → 7px；行家族（工作区行 / 会话行 / 抽屉会话行 / 搜索结果行）取官方侧栏原值——工作区行 34px、会话行 32px、圆角 8px、行内边距 8px、标题 14px/20px（#134 用户拍板：行参考官方侧栏自己的尺寸）。→ **保持现状**（这是 #113 定下、#134 收口的口径：要么官方标准档、要么官方紧凑档，不再有自造中间值；菜单一侧仍取紧凑档）。
 8. **重命名 / 删除的弹窗形态**：会话改名、工作区改名、标签组改名、删除工作区、删除标签组，旧的走 VS Code 原生 `showInputBox` / `showWarningMessage`，现在全在面板内用官方 Modal（`modals.ts` 全篇）。→ **保持现状**（可移植与两端一致的要求；如果用户更认原生框，可另立条目）。
 9. **工作区行尾的计数少了「未读」一项**：旧的是三项（待交互 / 运行中 / 未读，`sessionsWebview.ts:1839-1855`），现在只有运行中与等待交互两项（`rows.ts:1416-1439`）。→ **建议改**（补上未读计数，或明确说不要）。
 10. **回收站的抽屉头与行**：旧的抽屉头有「‹ 返回 / 清空 / 恢复全部」三样，现在只有标题 + 计数 + ✕（`recycleDrawer.ts:274-287`），清空与全部还原只剩底部入口行那两枚；旧的行的 ⋯ 只能在按钮或右键打开，现在按钮常显、右键入口没了（`recycleDrawer.ts:368-381`）；旧的回收站行有状态点与图钉，现在没有。→ **建议改**（至少把右键入口与状态点补回来）。

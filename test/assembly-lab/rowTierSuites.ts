@@ -313,7 +313,7 @@ async function readSearchRow(page: OpenedPage['page']): Promise<SearchRowFacts> 
  * 已被在途的另外两个套件（#125 的顶栏左缘 / #127 的弹窗紧凑档）取用，按「从未占用的继续」顺延。
  */
 export const ROW_TIER_SUITE: LabSuite = {
-  id: 'F-35',
+  id: 'F-37',
   phase: 'new-feature',
   name: '行家族取官方标准档（#134）：工作区行 34px / 会话行 32px / 行圆角 8px / 行内边距 8px / 标题 14px·20px，图标位与状态槽在行盒里居中，菜单项仍是紧凑档（ROW-TIER 套件）',
   expect:
