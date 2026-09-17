@@ -34,6 +34,7 @@ import {
   type ShellLayoutState,
   type ThemeSnapshot,
 } from './frameShared'
+import { installExternalLinkShim } from './externalLinkShim'
 
 // ---------------------------------------------------------------------------
 // 类型（本地最小面；cordis ctx / 框架槽位的真实形态在私有包里，不跨包引用）
@@ -364,4 +365,6 @@ export function apply(ctx: ShellContext): void {
       presenter.dispose()
     }
   }, 'dsh-one shell: theme presenter')
+  // #150：外链锚点的捕获阶段兜底（三棵树共用同一份实现，见 externalLinkShim.ts）。
+  ctx.effect(() => installExternalLinkShim(), 'dsh-one shell: external link takeover')
 }

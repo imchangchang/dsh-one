@@ -24,6 +24,7 @@
 import { createElement as h, useEffect, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createLayoutStore, LayoutController, PANEL_INFO_SOURCE, ThemePresenter, type PanelActions, type ThemeSnapshot } from './frameShared'
+import { installExternalLinkShim } from './externalLinkShim'
 
 // ---------------------------------------------------------------------------
 // 类型（本地最小面）
@@ -379,4 +380,6 @@ export function apply(ctx: ShellContext): void {
       presenter.dispose()
     }
   }, 'dsh-one settings shell: theme presenter')
+  // #150：外链锚点的捕获阶段兜底（三棵树共用同一份实现，见 externalLinkShim.ts）。
+  ctx.effect(() => installExternalLinkShim(), 'dsh-one settings shell: external link takeover')
 }
