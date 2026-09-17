@@ -424,13 +424,15 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
       check.eq('收起子项后菜单还开着（就地开合，不关菜单）', afterCollapse.menuCount, 1)
 
       // ---- ④ 会话菜单的子项：点一项就归组（那一行会搬进标签组，菜单跟着收起）；重开时 ✓ 落在组一上 ----
+      // 这一侧「点击不关菜单」不成立（既有行为，见下）：子项一改归属，那一行就换父节点搬进
+      // 组块、React 重挂，挂在行上的菜单跟着收起；所以这里断的是它的等价结果（归属写回 +
+      // 重开菜单时 ✓ 落在组一上 + 文字仍在同一列）。
       await page.click('[data-dshone-tree-item="moveToGroup"]')
       await page.waitForTimeout(300)
-      const targetOfPick = await page.getAttribute('[data-dshone-tree-item="tag:t-one"]', 'data-dshone-group-target')
       await page.click('[data-dshone-tree-item="tag:t-one"]')
       await page.waitForTimeout(600)
       const tagsAfterPick = await hostState(page, 'tags')
-      check.fact(`点「组一」（target=${targetOfPick ?? '无'}）后的宿主 tags：${JSON.stringify(tagsAfterPick)}`)
+      check.fact(`点「组一」后的宿主 tags：${JSON.stringify(tagsAfterPick)}`)
       check.ok(
         '点「组一」把这一行的归属写回宿主状态',
         JSON.stringify(tagsAfterPick ?? '').includes('t-one'),
