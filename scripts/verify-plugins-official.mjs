@@ -26,7 +26,8 @@
  * 用法：
  *   node scripts/verify-plugins-official.mjs [--keep] [--port 3399] [--json]
  *
- * 退出码：0 = 全部断言通过；1 = 有断言失败（输出里标出哪一条）。
+ * 退出码：0 = 全部断言通过；1 = 有断言失败（输出里标出哪一条）；
+ * 130 / 143 = 被 Ctrl-C / SIGTERM 打断（收尾跑完再退，与装配实验室同一口径）。
  */
 import { spawn, spawnSync } from 'node:child_process'
 import * as fs from 'node:fs/promises'
@@ -98,35 +99,114 @@ async function pluginPackages() {
 
 let PORT = 0
 
+/**
+ * 本次运行起过的东西（chromium、子进程）与临时目录。放在模块级，是为了让**信号处理**
+ * 也看得见它们：`chromium.launch()` 默认带 `handleSIGINT` / `handleSIGTERM`，Playwright
+ * 自己也装了一对信号处理，收到信号就关掉浏览器然后 `process.exit(130)`——`main()` 的
+ * `finally`（关 chromium、收子进程、删临时目录）一句都跑不到，进程按 130 退掉、临时目录
+ * 留在原地（#190 实测）。现在两个开关都关掉，收尾统一由这里的 `onSignal` 负责。
+ */
+const resources = { browser: null, children: [], tmp: null }
+/** 已经进了收尾流程（信号打断会直接退进程，别让收尾跑第二遍）。 */
+let shuttingDown = false
+/** `--keep`：跑完保留临时目录供人工查看；被信号打断时改成 false（一律收干净，不留半截现场）。 */
+let keepTmpDir = keep
+
+const spawnChild = (command, commandArgs, options = {}) => {
+  const child = spawn(command, commandArgs, { detached: false, ...options })
+  resources.children.push(child)
+  return child
+}
+
+/**
+ * 带超时的收尾：收尾本身也不许把进程卡住（装配实验室 #88 的现场就是「断言跑完、
+ * 报告写完，进程还挂着」），宁可放弃等待也要退出去。
+ */
+async function withTimeout(step, work, ms) {
+  let timer
+  try {
+    await Promise.race([
+      work.then(
+        () => undefined,
+        // 收尾失败不改写验证结论，但也不能默默吞掉——打到 stderr 让人看得见。
+        (error) => {
+          process.stderr.write(
+            `verify-plugins-official: ${step} 失败：${error instanceof Error ? error.message : String(error)}\n`,
+          )
+        },
+      ),
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          process.stderr.write(`verify-plugins-official: ${step} 超过 ${String(ms / 1000)} 秒没结束，不再等它。\n`)
+          resolve()
+        }, ms)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+/** 按 PID 收掉本次运行起的子进程（先 SIGTERM 再 SIGKILL）。 */
+async function killChildren() {
+  for (const child of resources.children) {
+    if (child.exitCode === null) child.kill('SIGTERM')
+  }
+  await new Promise((resolve) => setTimeout(resolve, 800))
+  for (const child of resources.children) {
+    if (child.exitCode === null) child.kill('SIGKILL')
+  }
+}
+
+/**
+ * 收尾：关 chromium、按 PID 收子进程、删临时目录。正常跑完与信号打断都会调它，两条路共享
+ * 同一个在途 promise——被打断的那一瞬 `main()` 的 `finally` 可能也刚起来，只收一次，后到的
+ * 那条等前一条收完，免得「一边还在删临时目录、另一边已经退进程」（退早了目录就留在原地）。
+ */
+let disposal = null
+function disposeResources() {
+  disposal ??= (async () => {
+    const browser = resources.browser
+    resources.browser = null
+    if (browser !== null) await withTimeout('关闭 chromium', browser.close(), 15_000)
+    await withTimeout('收掉子进程', killChildren(), 20_000)
+    const tmp = resources.tmp
+    resources.tmp = null
+    if (tmp === null) return
+    // `--keep` 保留临时目录给人工查看；被信号打断时 `keepTmpDir` 已改成 false，一律收干净。
+    if (keepTmpDir) console.log(`保留临时目录：${tmp}`)
+    else await fs.rm(tmp, { recursive: true, force: true })
+  })()
+  return disposal
+}
+
+/** 被 Ctrl-C / SIGTERM 打断：收干净，再用约定俗成的退出码退（130 / 143）。 */
+async function onSignal(signal) {
+  if (shuttingDown) return
+  shuttingDown = true
+  keepTmpDir = false
+  process.stderr.write(`\nverify-plugins-official: 收到 ${signal}，正在回收 chromium、隔离实例与临时目录…\n`)
+  await disposeResources()
+  process.exit(signal === 'SIGINT' ? 130 : 143)
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => void onSignal(signal))
+// 兜底（信号之外的意外路径）：退出前把子进程打掉，别留孤儿。
+process.on('exit', () => {
+  for (const child of resources.children) if (child.exitCode === null) child.kill('SIGKILL')
+})
+
 async function main() {
   assertBuildArtifacts()
   PORT = portArg >= 0 ? Number(args[portArg + 1]) : await freePort()
   const mockPort = await freePort()
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-plugins-verify-'))
+  resources.tmp = tmp
   const home = path.join(tmp, 'home')
   const work = path.join(tmp, 'work')
   await fs.mkdir(home, { recursive: true })
   await fs.mkdir(work, { recursive: true })
   if (!asJson) console.log(`临时 HOME: ${home}\ndsh 端口: ${PORT}\n假模型端口: ${mockPort}`)
-
-  const children = []
-  const spawnChild = (command, commandArgs, options = {}) => {
-    const child = spawn(command, commandArgs, { detached: false, ...options })
-    children.push(child)
-    return child
-  }
-  const killChildren = async () => {
-    for (const child of children) {
-      if (child.exitCode === null) child.kill('SIGTERM')
-    }
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    for (const child of children) {
-      if (child.exitCode === null) child.kill('SIGKILL')
-    }
-  }
-  process.on('exit', () => {
-    for (const child of children) if (child.exitCode === null) child.kill('SIGKILL')
-  })
 
   const pkgs = await pluginPackages()
   record(
@@ -220,7 +300,8 @@ async function main() {
       env: { ...process.env, HOME: home, [MOCK_KEY_ENV]: 'mock-key-1' },
       stdio: ['ignore', logHandle.fd, logHandle.fd],
     })
-    browser = await chromium.launch()
+    browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false })
+    resources.browser = browser
 
     const readyLine = await waitForReady(logFile)
     const logText = await fs.readFile(logFile, 'utf8').catch(() => '')
@@ -300,10 +381,9 @@ async function main() {
       console.log(`官方页面截图：${shot}`)
     }
   } finally {
-    await browser?.close?.().catch(() => {})
-    await killChildren()
-    if (keep) console.log(`保留临时目录：${tmp}`)
-    else await fs.rm(tmp, { recursive: true, force: true })
+    // 被信号打断时收尾归 onSignal 管（它会等收尾真跑完再退），这里不再插一脚：两边同时收
+    // 会互相抢资源，抢着退的那一边会把还在删目录的另一边打断（#190 实测就是这么留下目录的）。
+    if (!shuttingDown) await disposeResources()
   }
 
   if (asJson) console.log(JSON.stringify({ evidence, failures }, null, 2))
@@ -522,4 +602,10 @@ async function rpc(cookie, method, argsObject) {
   return { status: response.status, payload: result?.ok === true ? result.value : null, raw: body }
 }
 
-await main()
+try {
+  await main()
+} catch (error) {
+  // 被信号打断时，收尾会让在途操作（页面、请求）报错——那不是这一轮的结论：退出码由
+  // onSignal 定（130 / 143），这里咽掉它；真出别的事照旧往外抛（未捕获异常、按 1 退）。
+  if (!shuttingDown) throw error
+}

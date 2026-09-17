@@ -20,7 +20,8 @@
  *
  * 用法：
  *   node scripts/verify-clean-profile.mjs [--keep] [--json]
- * 退出码：0 = 全部通过；1 = 有断言失败（输出里标出哪一条）。
+ * 退出码：0 = 全部通过；1 = 有断言失败（输出里标出哪一条）；
+ * 130 / 143 = 被 Ctrl-C / SIGTERM 打断（收尾跑完再退，与装配实验室同一口径）。
  */
 import { spawn, spawnSync } from 'node:child_process'
 import * as fs from 'node:fs/promises'
@@ -96,33 +97,117 @@ async function pluginPackages() {
   return found
 }
 
+/**
+ * 本次运行起过的东西（chromium、装配页服务器、子进程）与临时目录。放在模块级，是为了让
+ * **信号处理**也看得见它们：`chromium.launch()` 默认带 `handleSIGINT` / `handleSIGTERM`，
+ * Playwright 自己也装了一对信号处理，收到信号就关掉浏览器然后 `process.exit(130)`——
+ * `main()` 的 `finally`（关 chromium、收实验室服务器与子进程、删临时目录）一句都跑不到，
+ * 进程按 130 退掉、临时目录留在原地（#190 实测）。现在两个开关都关掉，收尾统一由这里的
+ * `onSignal` 负责。
+ */
+const resources = { browser: null, lab: null, children: [], tmp: null }
+/** 已经进了收尾流程（信号打断会直接退进程，别让收尾跑第二遍）。 */
+let shuttingDown = false
+/** `--keep`：跑完保留临时目录供人工查看；被信号打断时改成 false（一律收干净，不留半截现场）。 */
+let keepTmpDir = keep
+
+const spawnChild = (command, commandArgs, options = {}) => {
+  const child = spawn(command, commandArgs, { ...options })
+  resources.children.push(child)
+  return child
+}
+
+/**
+ * 带超时的收尾：收尾本身也不许把进程卡住（装配实验室 #88 的现场就是「断言跑完、
+ * 报告写完，进程还挂着」），宁可放弃等待也要退出去。
+ */
+async function withTimeout(step, work, ms) {
+  let timer
+  try {
+    await Promise.race([
+      work.then(
+        () => undefined,
+        // 收尾失败不改写验证结论，但也不能默默吞掉——打到 stderr 让人看得见。
+        (error) => {
+          process.stderr.write(
+            `verify-clean-profile: ${step} 失败：${error instanceof Error ? error.message : String(error)}\n`,
+          )
+        },
+      ),
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          process.stderr.write(`verify-clean-profile: ${step} 超过 ${String(ms / 1000)} 秒没结束，不再等它。\n`)
+          resolve()
+        }, ms)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+/** 按 PID 收掉本次运行起的子进程（先 SIGTERM 再 SIGKILL）。 */
+async function killChildren() {
+  for (const child of resources.children) {
+    if (child.exitCode === null) child.kill('SIGTERM')
+  }
+  await new Promise((resolve) => setTimeout(resolve, 1200))
+  for (const child of resources.children) {
+    if (child.exitCode === null) child.kill('SIGKILL')
+  }
+}
+
+/**
+ * 收尾：关 chromium、收实验室服务器、按 PID 收子进程、删临时目录。正常跑完与信号打断都会调
+ * 它，两条路共享同一个在途 promise——被打断的那一瞬 `main()` 的 `finally` 可能也刚起来，
+ * 只收一次，后到的那条等前一条收完，免得「一边还在删临时目录、另一边已经退进程」（退早了
+ * 目录就留在原地）。
+ */
+let disposal = null
+function disposeResources() {
+  disposal ??= (async () => {
+    const browser = resources.browser
+    resources.browser = null
+    if (browser !== null) await withTimeout('关闭 chromium', browser.close(), 15_000)
+    const lab = resources.lab
+    resources.lab = null
+    if (lab !== null) lab.dispose()
+    await withTimeout('收掉子进程', killChildren(), 20_000)
+    const tmp = resources.tmp
+    resources.tmp = null
+    if (tmp === null) return
+    // `--keep` 保留临时目录给人工查看；被信号打断时 `keepTmpDir` 已改成 false，一律收干净。
+    if (keepTmpDir) {
+      if (!asJson) console.log(`临时目录保留：${tmp}`)
+    } else await fs.rm(tmp, { recursive: true, force: true })
+  })()
+  return disposal
+}
+
+/** 被 Ctrl-C / SIGTERM 打断：收干净，再用约定俗成的退出码退（130 / 143）。 */
+async function onSignal(signal) {
+  if (shuttingDown) return
+  shuttingDown = true
+  keepTmpDir = false
+  process.stderr.write(`\nverify-clean-profile: 收到 ${signal}，正在回收 chromium、隔离实例与临时目录…\n`)
+  await disposeResources()
+  process.exit(signal === 'SIGINT' ? 130 : 143)
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => void onSignal(signal))
+// 兜底（信号之外的意外路径）：退出前把子进程打掉，别留孤儿。
+process.on('exit', () => {
+  for (const child of resources.children) if (child.exitCode === null) child.kill('SIGKILL')
+})
+
 async function main() {
   assertBuildArtifacts()
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-clean-profile-'))
+  resources.tmp = tmp
   const dshHome = path.join(tmp, 'dsh-home')
   await fs.mkdir(dshHome, { recursive: true })
   const gatewayPort = await freePort()
-  const children = []
-  const killChildren = async () => {
-    for (const child of children) {
-      if (child.exitCode === null) child.kill('SIGTERM')
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1200))
-    for (const child of children) {
-      if (child.exitCode === null) child.kill('SIGKILL')
-    }
-  }
-  process.on('exit', () => {
-    for (const child of children) if (child.exitCode === null) child.kill('SIGKILL')
-  })
-  const spawnChild = (command, commandArgs, options = {}) => {
-    const child = spawn(command, commandArgs, { ...options })
-    children.push(child)
-    return child
-  }
 
-  let browser = null
-  let lab = null
   try {
     if (!asJson) console.log(`临时 DSH_HOME: ${dshHome}\ndsh 端口: ${gatewayPort}`)
 
@@ -167,13 +252,14 @@ async function main() {
 
     // 3) 起装配页服务（仓库真实模块：labServer + wireFilter + mirror）。
     const labModule = await import(path.join(ROOT, 'test', 'assembly-lab', 'labServer.ts'))
-    lab = await labModule.startLabServer({
+    const lab = await labModule.startLabServer({
       gateway,
       token,
       log: labModule.consoleLogger(true),
       pluginsDir: path.join(ROOT, 'dist', 'assembly', 'plugins'),
       port: 0,
     })
+    resources.lab = lab
 
     // 4) 先核这条门禁的**前提**：干净 profile 上的 wire 真的被切成了多个 application
     //    批（不然这条门禁是空的——判据没了落点，也必须红）。
@@ -186,7 +272,8 @@ async function main() {
     )
 
     // 5) 逐棵树打开：页面必须组装得出来（filterWire + mirror 不报错）并且装得起来。
-    browser = await chromium.launch()
+    const browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false })
+    resources.browser = browser
     for (const tree of TREES) {
       const context = await browser.newContext({ viewport: tree.viewport })
       const page = await context.newPage()
@@ -242,21 +329,28 @@ async function main() {
     }
     return failures.length === 0 ? 0 : 1
   } finally {
-    if (browser !== null) await browser.close()
-    if (lab !== null) lab.dispose()
-    await killChildren()
-    if (!keep) {
-      await fs.rm(tmp, { recursive: true, force: true })
-    } else if (!asJson) {
-      console.log(`临时目录保留：${tmp}`)
-    }
+    // 被信号打断时收尾归 onSignal 管（它会等收尾真跑完再退），这里不再插一脚：两边同时收
+    // 会互相抢资源，抢着退的那一边会把还在删目录的另一边打断（#190 实测就是这么留下目录的）。
+    if (!shuttingDown) await disposeResources()
   }
 }
 
-const code = await main()
-if (asJson) {
-  console.log(JSON.stringify({ evidence, failures }, null, 2))
-} else {
-  console.log(`\n${failures.length === 0 ? '全部通过' : `失败 ${String(failures.length)} 条：${failures.join(' / ')}`}`)
+let code = 1
+try {
+  code = await main()
+} catch (error) {
+  // 被信号打断时，收尾会让在途操作（页面、请求）报错——那不是这一轮的结论：退出码由
+  // onSignal 定（130 / 143），这里咽掉它；真出别的事照旧往外抛（未捕获异常、按 1 退）。
+  if (!shuttingDown) throw error
 }
-process.exit(code)
+
+// 被信号打断就到此为止：onSignal 还在收尾，收完它会自己退，别抢在它前面退，也别把
+// 这一轮打印成「失败」。
+if (!shuttingDown) {
+  if (asJson) {
+    console.log(JSON.stringify({ evidence, failures }, null, 2))
+  } else {
+    console.log(`\n${failures.length === 0 ? '全部通过' : `失败 ${String(failures.length)} 条：${failures.join(' / ')}`}`)
+  }
+  process.exit(code)
+}
