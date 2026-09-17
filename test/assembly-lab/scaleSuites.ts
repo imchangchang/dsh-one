@@ -19,7 +19,7 @@ import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import { openTreePage, withoutKnownNoise, type Check, type OpenedPage } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
-import { SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
+import { SCALE_TIER_NAMES, SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里，它就是调用方。
 import type { LabSuite } from './suites.ts'
 
@@ -56,11 +56,16 @@ const PROP_METRIC: Readonly<Record<string, RegExp>> = {
   lineHeight: /lineheight$/i,
 }
 
-/** 读数的出处（档位名 → 量名），找不到出处返回 null。 */
-function sourceOf(prop: string, value: string): string | null {
+/**
+ * 读数的出处（档位名 → 量名），找不到出处返回 null。
+ *
+ * 导出给「弹窗的紧凑档」（#127 的套件）复用：两条套件的判据必须同口径（圆角只认
+ * `*Radius` 的量、高度只认 `*Height/*Size`…），共用一份实现才不会各写一套而漂移。
+ */
+export function sourceOf(prop: string, value: string): string | null {
   const pattern = PROP_METRIC[prop]
   if (pattern === undefined) return null
-  for (const tier of ['compact', 'standard', 'container'] as TierName[]) {
+  for (const tier of SCALE_TIER_NAMES) {
     for (const [metric, candidate] of metrics(tier)) {
       if (pattern.test(metric) && candidate === value) return `${tier}.${metric}`
     }

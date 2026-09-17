@@ -1,6 +1,6 @@
 /**
  * 侧栏风格的**档位表断言**（#113）：侧栏里每一处几何（高度 / 圆角 / 字号 / 图标位 / 间距）
- * 都必须能在那张三档的官方档位表里找到出处——**不许自造中间值**。表与出处写在
+ * 都必须能在那张官方档位表里找到出处——**不许自造中间值**。表与出处写在
  * `src/ui/assembly/shell/workspaceTree/styles.ts` 文件头的「官方档位表」一节，代码形态是
  * 它导出的 `SCALE_TIERS` / `SCALE_EXEMPT`；本文件把它们与**真正的样式字符串**、以及
  * shell 侧那张密度表对着读，做四件事：
@@ -24,7 +24,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { CSS, SCALE_EXEMPT, SCALE_TIERS } from '../src/ui/assembly/shell/workspaceTree/styles.ts'
+import { CSS, SCALE_EXEMPT, SCALE_TIER_NAMES, SCALE_TIERS } from '../src/ui/assembly/shell/workspaceTree/styles.ts'
 
 const SHELL_DIR = path.join(import.meta.dirname, '..', 'src', 'ui', 'assembly', 'shell')
 
@@ -41,9 +41,9 @@ type TierName = keyof typeof SCALE_TIERS
 const metricEntries = (tier: TierName): [string, string][] =>
   Object.entries(SCALE_TIERS[tier] as Record<string, string>)
 
-/** 档位表里的全部取值（三档并集）。 */
+/** 档位表里的全部取值（全部分组并集）。 */
 const TIER_VALUES: ReadonlySet<string> = new Set(
-  (['compact', 'standard', 'container'] as TierName[]).flatMap((tier) => metricEntries(tier).map(([, value]) => value)),
+  SCALE_TIER_NAMES.flatMap((tier) => metricEntries(tier).map(([, value]) => value)),
 )
 
 /**
@@ -62,11 +62,11 @@ const PROP_METRIC: Readonly<Record<string, RegExp>> = {
   'line-height': /lineheight$/i,
 }
 
-/** 某条属性可引用的档位取值（三档一起看）。 */
+/** 某条属性可引用的档位取值（各分组一起看）。 */
 function allowedFor(prop: string): ReadonlySet<string> {
   const pattern = PROP_METRIC[prop]
   const out = new Set<string>()
-  for (const tier of ['compact', 'standard', 'container'] as TierName[]) {
+  for (const tier of SCALE_TIER_NAMES) {
     for (const [metric, value] of metricEntries(tier)) if (pattern.test(metric)) out.add(value)
   }
   return out
@@ -207,8 +207,8 @@ function scanScale(css: string): ScanResult {
   return result
 }
 
-test('档位表本身完整：三档都在、取值都是长度字面量、每档非空', () => {
-  for (const tier of ['compact', 'standard', 'container'] as TierName[]) {
+test('档位表本身完整：每一档都在、取值都是长度字面量、每档非空', () => {
+  for (const tier of SCALE_TIER_NAMES) {
     const values = metricEntries(tier).map(([, value]) => value)
     assert.ok(values.length >= 5, `档位表 ${tier} 档至少要有 5 个量（实际 ${String(values.length)}）`)
     for (const value of values) {
