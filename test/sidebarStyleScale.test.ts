@@ -10,7 +10,9 @@
  *    量、字号对 *FontSize、宽度对 *Width/*Size）——以后新控件随手写个 6px 圆角就会在这里红；
  * ② 密度表（sidebarFramePlugin.ts 的 `DENSITY_PROFILE`）的 **横向项 vscode 列全部落在紧凑档**、
  *    **纵向留白项取官方原值**（#119 的分工：消费点全在 `margin` 上的那几项 = 块与块之间的
- *    纵向空隙 → 取官方节奏；其余按横向口径取紧凑档）、**official 列全部落在标准档**；
+ *    纵向空隙 → 取官方节奏；其余按横向口径取紧凑档）、**标题文字族取官方标题档**（#123：
+ *    工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 回收站入口行文字那一族，两边同值且
+ *    = 标准档的 `titleFontSize` / `titleLineHeight`）、**official 列全部落在标准档**；
  * ③ 紧凑档真的比标准档紧，且 VS Code 档不得大于官方原值（判据与 assemblyShellContract 同口径）；
  * ④ 例外清单里的选择器在样式里真的存在、每条都写了理由——防陈旧豁免。
  *
@@ -150,6 +152,21 @@ function isVerticalRhythmKey(key: string): boolean {
  */
 const VERTICAL_RHYTHM_KEYS: readonly string[] = ['row-gap', 'group-gap', 'section-header-gap']
 
+/**
+ * 「标题文字」这一族的名单（#123）。与纵向那份名单同理，写成显式清单：口径本身是这次改动
+ * 的一部分，新加一个标题类字号键时要在这里登记。
+ *
+ * **为什么这一族不能只靠「值在紧凑档里出现过」那条判据**：`title-font-size` 的 VS Code 档是
+ * 14px，而 14px 恰好也是紧凑档的量（`iconSize`，菜单项里那个 14×14 图标盒的边长）——集合判据
+ * 会把「字号被写成了图标边长」这种巧合放行。所以这一族按**量名**判：vscode = official，
+ * 且 official 必须等于标准档里那一项同名量的取值（`titleFontSize` / `titleLineHeight`，
+ * 官方侧栏标题 `.YDXeBa_title{font-size:14px;line-height:20px}` 的逐字出处）。
+ */
+const TITLE_TIER_KEYS: ReadonlyArray<{ key: string; metric: 'titleFontSize' | 'titleLineHeight' }> = [
+  { key: 'title-font-size', metric: 'titleFontSize' },
+  { key: 'title-line-height', metric: 'titleLineHeight' },
+]
+
 function exemptReason(selector: string): string | undefined {
   for (const entry of SCALE_EXEMPT) {
     // 例外按选择器的子串认：一条规则可能带 `:hover` / 属性选择器，都算同一条。
@@ -246,13 +263,52 @@ test('扫描器自检：档位表里没有的值必须被判红（这条守着�
   assert.equal(mixed.skipped, 1)
 })
 
-test('密度表：#119 的分工——横向项取紧凑档、纵向留白项取官方节奏、official 列全在标准档', () => {
-  const profile = densityProfile()
+interface TierFaults {
+  /** 既不是纵向留白、也不是标题族，却没落紧凑档的键。 */
+  compact: string[]
+  /** 官方原值不在标准档里的键。 */
+  standard: string[]
+  /** 纵向留白项没取官方原值的键（#119）。 */
+  vertical: string[]
+  /** 标题文字族没取官方标题档的键（#123）。 */
+  title: string[]
+}
+
+/**
+ * 密度表逐项归档的判据本体（#119 纵向 / #123 标题族 / 其余横向）。独立成函数是为了让下面
+ * 那条「口径自检」能喂一张假表——否则这几条断言是不是橡皮图章，只能靠读代码相信。
+ */
+function tierFaults(profile: ReadonlyMap<string, { official: string; vscode: string }>): TierFaults {
   const compact = new Set(metricEntries('compact').map(([, value]) => value))
   const standard = new Set(metricEntries('standard').map(([, value]) => value))
-  const badCompact: string[] = []
-  const badStandard: string[] = []
-  const badVertical: string[] = []
+  const titleTier = new Map(TITLE_TIER_KEYS.map((entry) => [entry.key, entry.metric]))
+  const faults: TierFaults = { compact: [], standard: [], vertical: [], title: [] }
+  for (const [key, value] of profile) {
+    if (!standard.has(value.official)) faults.standard.push(`${key}=${value.official}`)
+    const titleMetric = titleTier.get(key)
+    if (titleMetric !== undefined) {
+      // 标题文字族：**取官方标题档**（#123）——不是「≤ 官方」也不是「值在标准档里出现过」，
+      // 而是「两边同值，且 = 标准档里那一项**同名量**的取值」（字号对 titleFontSize、
+      // 行高对 titleLineHeight）。按量名判才不会让 14px 这种「恰好也是图标位边长」的值蒙混过关。
+      const wanted = SCALE_TIERS.standard[titleMetric]
+      if (value.vscode !== value.official || value.official !== wanted) {
+        faults.title.push(`${key}：vscode=${value.vscode} official=${value.official}，标准档 ${titleMetric}=${wanted}`)
+      }
+      continue
+    }
+    if (isVerticalRhythmKey(key)) {
+      // 纵向留白：**取官方节奏**（VS Code 档 = 官方原值），不是「≤ 官方」而是「= 官方」。
+      if (value.vscode !== value.official) faults.vertical.push(`${key}：vscode=${value.vscode} official=${value.official}`)
+      continue
+    }
+    // 其余（横向的间隙 / 内边距，以及行高、字号、圆角）：仍必须落在紧凑档。
+    if (!compact.has(value.vscode)) faults.compact.push(`${key}=${value.vscode}`)
+  }
+  return faults
+}
+
+test('密度表：#119 与 #123 的分工——横向项取紧凑档、纵向留白项取官方节奏、标题文字族取官方标题档、official 列全在标准档', () => {
+  const profile = densityProfile()
 
   // ① 纵向留白项的名单必须与「样式里消费点全在 margin 上」的那些键**对得上**——
   //    名单不会因为某项被悄悄砍半而失真（砍了就在下面红），也不会混进横向项。
@@ -264,24 +320,31 @@ test('密度表：#119 的分工——横向项取紧凑档、纵向留白项取
       '多出来的说明有一项纵向留白没登记（多半是又拿紧凑档的横向值去当纵向空隙了），' +
       '少掉的说明名单把横向项也算进来了',
   )
-
-  for (const [key, value] of profile) {
-    if (!standard.has(value.official)) badStandard.push(`${key}=${value.official}`)
-    if (isVerticalRhythmKey(key)) {
-      // ② 纵向留白：**取官方节奏**（VS Code 档 = 官方原值），不是「≤ 官方」而是「= 官方」。
-      if (value.vscode !== value.official) badVertical.push(`${key}：vscode=${value.vscode} official=${value.official}`)
-      continue
-    }
-    // ③ 其余（横向的间隙 / 内边距，以及行高、字号、圆角）：仍必须落在紧凑档。
-    if (!compact.has(value.vscode)) badCompact.push(`${key}=${value.vscode}`)
+  // ①′ 标题文字族的名单同样要落地（登记了名字、表里真有这两项、且它们不是纵向留白项）。
+  for (const { key } of TITLE_TIER_KEYS) {
+    assert.ok(profile.get(key) !== undefined, `标题文字族登记的 ${key} 应当在密度表里`)
+    assert.ok(!isVerticalRhythmKey(key), `${key} 是文字档，不该被当成纵向留白项`)
   }
 
-  assert.deepEqual(badCompact, [], '这些键的 VS Code 档不是紧凑档里的值（自造中间值）：\n' + badCompact.join('\n'))
-  assert.deepEqual(badStandard, [], '这些键的官方原值不在标准档里（出处表漏登记了）：\n' + badStandard.join('\n'))
+  const faults = tierFaults(profile)
+
   assert.deepEqual(
-    badVertical,
+    faults.compact,
     [],
-    '纵向留白项必须取官方原值（#119：砍半会让顶栏 / 过滤条 / 首行糊成一坨）：\n' + badVertical.join('\n'),
+    '这些键的 VS Code 档不是紧凑档里的值（自造中间值）：\n' + faults.compact.join('\n'),
+  )
+  assert.deepEqual(faults.standard, [], '这些键的官方原值不在标准档里（出处表漏登记了）：\n' + faults.standard.join('\n'))
+  assert.deepEqual(
+    faults.vertical,
+    [],
+    '纵向留白项必须取官方原值（#119：砍半会让顶栏 / 过滤条 / 首行糊成一坨）：\n' + faults.vertical.join('\n'),
+  )
+  assert.deepEqual(
+    faults.title,
+    [],
+    '标题文字族必须取官方标题档（#123：工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 入口行文字\n' +
+      '要的是「与官方侧栏标题一致」，也就是两边同值且等于标准档的 titleFontSize / titleLineHeight）：\n' +
+      faults.title.join('\n'),
   )
   for (const [key, value] of profile) {
     assert.ok(
@@ -289,7 +352,7 @@ test('密度表：#119 的分工——横向项取紧凑档、纵向留白项取
       `${key} 的 VS Code 档（${value.vscode}）不得大于官方原值（${value.official}）`,
     )
   }
-  // ④ 「横向保持紧凑」的可执行形态：纵向那两项的横向邻居都得仍比官方原值紧
+  // ⑤ 「横向保持紧凑」的可执行形态：纵向那两项的横向邻居都得仍比官方原值紧
   //    （这次只恢复纵向，横向没被顺带改宽）。
   const horizontalNeighbours = ['section-gap', 'section-padding-inline', 'row-padding-inline', 'pill-padding-start']
   for (const key of horizontalNeighbours) {
@@ -301,6 +364,43 @@ test('密度表：#119 的分工——横向项取紧凑档、纵向留白项取
       `${key} 是横向项，VS Code 档必须仍比官方原值紧（#119 只恢复纵向）：${horizontal.vscode} vs ${horizontal.official}`,
     )
   }
+  // ⑥ 「只动标题这一族」的可执行形态（#123）：同一行里的**元信息**（时间 / 计数）仍必须
+  //    逐字等于紧凑档的字号 / 行高——否则就是「顺带把整行文字都放大了」，把差异也一起抹平。
+  const metaTier: ReadonlyArray<{ key: string; compact: string }> = [
+    { key: 'meta-font-size', compact: SCALE_TIERS.compact.fontSize },
+    { key: 'meta-line-height', compact: SCALE_TIERS.compact.lineHeight },
+  ]
+  for (const { key, compact: wanted } of metaTier) {
+    const entry = profile.get(key)
+    assert.ok(entry !== undefined, `元信息 ${key} 应当在密度表里`)
+    assert.equal(
+      entry?.vscode,
+      wanted,
+      `${key} 必须仍是紧凑档的 ${wanted}（#123 只把标题那一族放回官方标题档，元信息没跟着放）`,
+    )
+  }
+})
+
+test('口径自检：把标题族压回紧凑档、把元信息放大都会判红（这条守着上面那条不是橡皮图章）', () => {
+  const base = densityProfile()
+  const mutate = (key: string, value: { official: string; vscode: string }): TierFaults => {
+    const mutated = new Map(base)
+    mutated.set(key, value)
+    return tierFaults(mutated)
+  }
+
+  // ① 标题字号被压回紧凑档的 12px（#123 之前的写法）——按量名判会红；注意 14px 本身在紧凑档
+  //    里也有（iconSize），所以光比集合是不会红的，这正是这一族要单独判的理由。
+  const shrunk = mutate('title-font-size', { official: '14px', vscode: '12px' })
+  assert.deepEqual(shrunk.title, ['title-font-size：vscode=12px official=14px，标准档 titleFontSize=14px'])
+  // ② 两边同值、但不是标准档那一项量（14px 换成 15px）：仍然红。
+  assert.equal(mutate('title-font-size', { official: '15px', vscode: '15px' }).title.length, 1)
+  // ③ 标题行高被压回紧凑档的 18px：同样红。
+  assert.equal(mutate('title-line-height', { official: '20px', vscode: '18px' }).title.length, 1)
+  // ④ 元信息被放大到官方标题档的 20px 行高：不落任何一档，按紧凑档那条判红。
+  assert.deepEqual(mutate('meta-line-height', { official: '20px', vscode: '20px' }).compact, ['meta-line-height=20px'])
+  // ⑤ 现况（真表）在两条判据下都干净——上面那些红不是「怎么改都红」。
+  assert.deepEqual(tierFaults(base), { compact: [], standard: [], vertical: [], title: [] })
 })
 
 test('密度表里的每个键都写进了档位表的说明（键面 = 样式里消费的键面）', () => {

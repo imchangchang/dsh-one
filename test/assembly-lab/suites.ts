@@ -28,7 +28,7 @@ import {
 import { consoleLogger, LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
 import { FIBER_SUITE, WIRE_LIVENESS_SUITE } from './driftSuites.ts'
 import { RECYCLE_ENTRY_TOGGLE_SUITE } from './recycleEntrySuites.ts'
-import { SCALE_SUITE } from './scaleSuites.ts'
+import { SCALE_SUITE, TITLE_TIER_SUITE } from './scaleSuites.ts'
 import { COLLAPSE_ALL_ICON_SUITE } from './collapseAllIconSuites.ts'
 import { TAG_GROUP_RAIL_SUITE } from './tagRailSuites.ts'
 import { RECYCLE_DRAWER_COLLAPSE_SUITE } from './recycleDrawerSuites.ts'
@@ -5801,4 +5801,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #120 选择态动作条的布局与观感（F-29：F-24…F-28 已被 #117/#118/#119/#122/#121 占用；套件本体在
   // selectionBarSuites.ts，同上为独立文件）。
   SELECTION_BAR_SUITE,
+  // #123 侧栏标题文字回到官方标题档（F-30：F-24…F-29 已被 #117/#118/#119/#122/#121/#120 占用；
+  // 套件本体在 scaleSuites.ts，与 F-23 同一份档位表口径）。
+  TITLE_TIER_SUITE,
 ]

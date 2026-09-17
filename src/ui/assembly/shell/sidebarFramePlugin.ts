@@ -100,6 +100,13 @@ function Nothing(): null {
 // 原生侧栏树观感」手调的数值（24 / 30 / 11px…）是自造的中间值，已全部换掉：现在每一处
 // 几何要么是官方标准档（official 列）、要么是官方紧凑档（vscode 列），没有第三来源。
 //
+// **#123 起的一条收窄：「与菜单同档」只覆盖几何、文字字号按官方标题档。** 用户实测工作区名
+// 与会话标题过于紧凑（12px），要的是「标题与官方侧栏一致」——官方侧栏的标题就是 14px/20px
+// （`.YDXeBa_title`）。所以 `title-font-size` / `title-line-height` 这两项两边同值、取官方
+// 标题档，其余几何（行高 26px、圆角 5px、间距、图标位）仍取紧凑档；行盒 26px 装得下 20px
+// 的行字（上下各 3px），两条口径不冲突。这不是把「同档」破了：几何仍然同档，只是文字不跟
+// 菜单的 12px（跟了的话标题会与同一行里 12px 的时间 / 计数分不出层级）。
+//
 // **#119 起的一条分工：纵向留白取官方节奏、横向取紧凑档。** 表里**消费点全在 margin 上**的
 // 三项就是纵向留白（`section-header-gap` 用在顶栏那一行的下边距，`group-gap` 用在分组过滤条
 // 的下边距与块与块之间的上边距，`row-gap` 用在行与行之间——它本来就是两边同值的 2px），
@@ -112,11 +119,18 @@ function Nothing(): null {
 // 插件 CSS 的兜底字面量、键集两边相等、VS Code 档不得大于官方档）；「vscode 列全部落在
 // 紧凑档、official 列全部落在标准档」与上面这条纵向分工，由 test/sidebarStyleScale.test.ts
 // 显式表达（纵向那两项按「vscode = official」判，其余键仍必须落紧凑档）。
+// **#123 起这条扫描多一档口径**：`title-font-size` / `title-line-height` 这一族不能只按
+// 「值在表里出现过」判——14px 恰好也是紧凑档的图标位边长，靠集合判会把它们误放行；所以
+// 那一族在同一份测试里单独按「= 标准档的 titleFontSize / titleLineHeight，且两边同值」判。
 // **观感语言（图标/颜色/字体族/动效）不在这张表里**——那些继续逐字沿用官方；唯一的例外
 // 是行圆角 `row-radius`（#113）：它在两个档之间取值不同（标准档 8px / 紧凑档 5px）。
 // ---------------------------------------------------------------------------
 
-/** 密度档：键 = 变量后缀，official = 官方原值（与树插件 CSS 兜底同源），vscode = VS Code 档（= 官方紧凑档）。 */
+/**
+ * 密度档：键 = 变量后缀，official = 官方原值（与树插件 CSS 兜底同源），vscode = VS Code 档。
+ * vscode 缺省是官方紧凑档，例外逐项写在各自条目上方（#119 的纵向留白三项取官方原值、
+ * #123 的标题文字族取官方标题档）。
+ */
 export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode: string }>> = {
   // 行高（工作区行 / 会话行 / 会话溢出按钮 / 回收站入口行主区）——紧凑档行高 26px：
   // 官方 compact 档 `._compactList_1nxmc_128 ._item_1nxmc_92{min-height:26px}`（紧凑档只有
@@ -140,10 +154,16 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   // 顶栏那一行（分节头）的下边距：官方 `.bhn1Oq_sectionHeader{…;margin-bottom:4px;…}`——官方
   // 分节头与它下面那一段之间的纵向留白。**VS Code 档同样取 4px（纵向取官方节奏，见文件头 #119）**。
   'section-header-gap': { official: '4px', vscode: '4px' },
-  // 行字数：紧凑档字号 12px / 文字行高 18px（官方 `._item_1nxmc_92{font-size:12px;line-height:18px}`）；
-  // 元信息（时间 / 计数）同档——官方原值本来就 12px，这一项两边同值（不再压到 11px）。
-  'title-font-size': { official: '14px', vscode: '12px' },
-  'title-line-height': { official: '20px', vscode: '18px' },
+  // 标题文字（工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 回收站入口行文字，五处共用一个键）：
+  // **两边同值，取官方标题档**（#123）——官方 `.YDXeBa_title{font-size:14px;line-height:20px}`。
+  // #113 立的「与菜单同档」从此只覆盖几何（行高 26px / 圆角 5px / 间距 / 图标位），**文字字号
+  // 按官方标题档**：用户实测 12px 的工作区名与会话标题过于紧凑，要的是「标题与官方侧栏一致」。
+  // 行盒 26px 装得下 20px 的行字（上下各 3px），所以与几何那条口径不冲突（理由写在文件头 #123）。
+  'title-font-size': { official: '14px', vscode: '14px' },
+  'title-line-height': { official: '20px', vscode: '20px' },
+  // 行字数：元信息（时间 / 计数 / 抽屉计数…）取紧凑档字号 12px / 文字行高 18px
+  // （官方 `._item_1nxmc_92{font-size:12px;line-height:18px}`）；官方原值本来就 12px，
+  // 这一项两边同值（不再压到 11px）。
   'meta-font-size': { official: '12px', vscode: '12px' },
   'meta-line-height': { official: '20px', vscode: '18px' },
   // 列表底部留白：紧凑档的项内边距 7px（同一档里「内容与容器边之间」的那个留白值）。
