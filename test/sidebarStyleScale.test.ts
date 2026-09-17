@@ -8,13 +8,20 @@
  * ① 扫 `styles.ts` 导出的 CSS 里每条规则的圆角/高度/字号/图标位（含文字行高），每个字面量
  *    都必须在档位表里**按属性对得上那一组量**（圆角对 *Radius 的量、高度对 *Height/*Size 的
  *    量、字号对 *FontSize、宽度对 *Width/*Size）——以后新控件随手写个 6px 圆角就会在这里红；
- * ② 密度表（sidebarFramePlugin.ts 的 `DENSITY_PROFILE`）的 **横向项 vscode 列全部落在紧凑档**、
- *    **纵向留白项取官方原值**（#119 的分工：消费点全在 `margin` 上的那几项 = 块与块之间的
- *    纵向空隙 → 取官方节奏；其余按横向口径取紧凑档）、**标题文字族取官方标题档**（#123：
- *    工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 回收站入口行文字那一族，两边同值且
- *    = 标准档的 `titleFontSize` / `titleLineHeight`）、**official 列全部落在标准档**；
+ * ② 密度表（sidebarFramePlugin.ts 的 `DENSITY_PROFILE`）的 vscode 列逐项落进它该落的档，
+ *    按 #134 的两句话分三类判——**行家族取官方标准档**（行高 / 行圆角 / 行内边距 / 搜索结果行
+ *    最小高 / 溢出按钮行高 / 标题文字那两项：每一项按「= 标准档里那一项**同名量**」判，不是
+ *    「值在标准档里出现过」）、**纵向留白取官方原值**（#119：消费点全在 `margin` 上的那几项
+ *    = 块与块之间的纵向空隙 → 取官方节奏）、**其余（菜单一侧 / 骨架 / 胶囊 / 顶栏 / 弹窗）
+ *    仍必须落紧凑档**（含 #123 起元信息必须等于紧凑档字号行高那条）；**official 列全部落在
+ *    标准档**；
  * ③ 紧凑档真的比标准档紧，且 VS Code 档不得大于官方原值（判据与 assemblyShellContract 同口径）；
  * ④ 例外清单里的选择器在样式里真的存在、每条都写了理由——防陈旧豁免。
+ *
+ * 「行家族」的名单（{@link ROW_TIER_KEYS}）与「仍落紧凑档」那一侧（默认分支 + #123 的元信息）
+ * 都是显式清单：口径本身是这次改动的一部分，新增一个行族键就要在这里登记它该等于标准档的
+ * 哪一项量——写成集合判据（「值在标准档里出现过」）会把 `row-height = 32px` 这种「拿会话行高
+ * 当工作区行高」的错放过去，所以第三条自检专门喂了这种假表。
  *
  * 为什么密度表要扫源码文本而不是 import：sidebarFramePlugin.ts 依赖 react 与官方私有包
  * （单测里 import 不进来），这与 assemblyShellContract.test.ts 的处理一致。styles.ts 没有
@@ -153,16 +160,32 @@ function isVerticalRhythmKey(key: string): boolean {
 const VERTICAL_RHYTHM_KEYS: readonly string[] = ['row-gap', 'group-gap', 'section-header-gap']
 
 /**
- * 「标题文字」这一族的名单（#123）。与纵向那份名单同理，写成显式清单：口径本身是这次改动
- * 的一部分，新加一个标题类字号键时要在这里登记。
+ * 「行家族」这一族的名单（#134）。与纵向那份名单同理，写成显式清单：口径本身是这次改动
+ * 的一部分，新加一个行族键时要在这里登记——**每个键都要写明它等于标准档里的哪一项量**。
  *
- * **为什么这一族不能只靠「值在紧凑档里出现过」那条判据**：`title-font-size` 的 VS Code 档是
- * 14px，而 14px 恰好也是紧凑档的量（`iconSize`，菜单项里那个 14×14 图标盒的边长）——集合判据
- * 会把「字号被写成了图标边长」这种巧合放行。所以这一族按**量名**判：vscode = official，
- * 且 official 必须等于标准档里那一项同名量的取值（`titleFontSize` / `titleLineHeight`，
- * 官方侧栏标题 `.YDXeBa_title{font-size:14px;line-height:20px}` 的逐字出处）。
+ * **为什么按量名判、不按集合判**：`row-height` 的 34px、`row-radius` 的 8px、`session-row-height`
+ * 的 32px 全都是标准档的量（分别出自 `projectRowHeight` / `rowRadius` / `sessionRowHeight`）——
+ * 只判「值在标准档里出现过」，把工作区行高写成会话行的 32px 一样会放行。所以这一族判三条：
+ * vscode = official（两边同值）、official = 标准档里**那一项同名量**的取值、且两者都不是
+ * 紧凑档（否则「都写 26px」也能过）。
+ *
+ * 名单里的键（依据见 styles.ts 文件头的档位表「行家族」那一条）：
+ * - `row-height` / `session-row-height`：工作区行 34px、会话行 32px（抽屉会话行与主树会话行
+ *   共用后者）；
+ * - `row-radius` / `row-padding-inline`：行圆角 8px、行内边距 8px（后者同时是「行内容基准」，
+ *   骨架件与行形件都按它对齐）；
+ * - `search-row-min-height`：搜索结果行的最小高 48px；
+ * - `overflow-row-height`：列表末尾那条「还有 N 个会话」的行高 28px；
+ * - `title-font-size` / `title-line-height`：行标题文字 14px / 20px（#123 起就在标准档，
+ *   #134 起并入行家族口径——它不再是「几何同档、文字例外」，行家族整套都是标准档）。
  */
-const TITLE_TIER_KEYS: ReadonlyArray<{ key: string; metric: 'titleFontSize' | 'titleLineHeight' }> = [
+const ROW_TIER_KEYS: ReadonlyArray<{ key: string; metric: keyof typeof SCALE_TIERS.standard }> = [
+  { key: 'row-height', metric: 'projectRowHeight' },
+  { key: 'session-row-height', metric: 'sessionRowHeight' },
+  { key: 'row-radius', metric: 'rowRadius' },
+  { key: 'row-padding-inline', metric: 'rowPaddingInline' },
+  { key: 'search-row-min-height', metric: 'searchRowMinHeight' },
+  { key: 'overflow-row-height', metric: 'overflowRowHeight' },
   { key: 'title-font-size', metric: 'titleFontSize' },
   { key: 'title-line-height', metric: 'titleLineHeight' },
 ]
@@ -264,35 +287,37 @@ test('扫描器自检：档位表里没有的值必须被判红（这条守着�
 })
 
 interface TierFaults {
-  /** 既不是纵向留白、也不是标题族，却没落紧凑档的键。 */
+  /** 不属行家族、也不是纵向留白，却没落紧凑档的键（菜单一侧 / 骨架 / 胶囊 / 顶栏 / 弹窗）。 */
   compact: string[]
   /** 官方原值不在标准档里的键。 */
   standard: string[]
   /** 纵向留白项没取官方原值的键（#119）。 */
   vertical: string[]
-  /** 标题文字族没取官方标题档的键（#123）。 */
-  title: string[]
+  /** 行家族项没取「标准档里那一项同名量」的键（#134）。 */
+  row: string[]
 }
 
 /**
- * 密度表逐项归档的判据本体（#119 纵向 / #123 标题族 / 其余横向）。独立成函数是为了让下面
- * 那条「口径自检」能喂一张假表——否则这几条断言是不是橡皮图章，只能靠读代码相信。
+ * 密度表逐项归档的判据本体（#119 纵向 / #123 元信息 / #134 行家族 / 其余仍落紧凑档）。
+ * 独立成函数是为了让下面那条「口径自检」能喂一张假表——否则这几条断言是不是橡皮图章，
+ * 只能靠读代码相信。
  */
 function tierFaults(profile: ReadonlyMap<string, { official: string; vscode: string }>): TierFaults {
   const compact = new Set(metricEntries('compact').map(([, value]) => value))
   const standard = new Set(metricEntries('standard').map(([, value]) => value))
-  const titleTier = new Map(TITLE_TIER_KEYS.map((entry) => [entry.key, entry.metric]))
-  const faults: TierFaults = { compact: [], standard: [], vertical: [], title: [] }
+  const rowTier = new Map(ROW_TIER_KEYS.map((entry) => [entry.key, entry.metric]))
+  const faults: TierFaults = { compact: [], standard: [], vertical: [], row: [] }
   for (const [key, value] of profile) {
     if (!standard.has(value.official)) faults.standard.push(`${key}=${value.official}`)
-    const titleMetric = titleTier.get(key)
-    if (titleMetric !== undefined) {
-      // 标题文字族：**取官方标题档**（#123）——不是「≤ 官方」也不是「值在标准档里出现过」，
-      // 而是「两边同值，且 = 标准档里那一项**同名量**的取值」（字号对 titleFontSize、
-      // 行高对 titleLineHeight）。按量名判才不会让 14px 这种「恰好也是图标位边长」的值蒙混过关。
-      const wanted = SCALE_TIERS.standard[titleMetric]
+    const rowMetric = rowTier.get(key)
+    if (rowMetric !== undefined) {
+      // 行家族（#134）：**取官方标准档**——不是「≤ 官方」也不是「值在标准档里出现过」，而是
+      // 「两边同值，且 = 标准档里那一项**同名量**的取值」（行高对 projectRowHeight /
+      // sessionRowHeight、圆角对 rowRadius…）。按量名判才不会让「拿会话行高当工作区行高」
+      // 这种错蒙混过关。
+      const wanted = SCALE_TIERS.standard[rowMetric]
       if (value.vscode !== value.official || value.official !== wanted) {
-        faults.title.push(`${key}：vscode=${value.vscode} official=${value.official}，标准档 ${titleMetric}=${wanted}`)
+        faults.row.push(`${key}：vscode=${value.vscode} official=${value.official}，标准档 ${rowMetric}=${wanted}`)
       }
       continue
     }
@@ -301,13 +326,13 @@ function tierFaults(profile: ReadonlyMap<string, { official: string; vscode: str
       if (value.vscode !== value.official) faults.vertical.push(`${key}：vscode=${value.vscode} official=${value.official}`)
       continue
     }
-    // 其余（横向的间隙 / 内边距，以及行高、字号、圆角）：仍必须落在紧凑档。
+    // 其余（菜单一侧的骨架 / 胶囊 / 顶栏 / 弹窗，以及横向的间隙与内边距）：仍必须落在紧凑档。
     if (!compact.has(value.vscode)) faults.compact.push(`${key}=${value.vscode}`)
   }
   return faults
 }
 
-test('密度表：#119 与 #123 的分工——横向项取紧凑档、纵向留白项取官方节奏、标题文字族取官方标题档、official 列全在标准档', () => {
+test('密度表：#134 行家族取标准档、#119 纵向留白取官方节奏、其余仍落紧凑档、official 列全在标准档', () => {
   const profile = densityProfile()
 
   // ① 纵向留白项的名单必须与「样式里消费点全在 margin 上」的那些键**对得上**——
@@ -320,10 +345,11 @@ test('密度表：#119 与 #123 的分工——横向项取紧凑档、纵向留
       '多出来的说明有一项纵向留白没登记（多半是又拿紧凑档的横向值去当纵向空隙了），' +
       '少掉的说明名单把横向项也算进来了',
   )
-  // ①′ 标题文字族的名单同样要落地（登记了名字、表里真有这两项、且它们不是纵向留白项）。
-  for (const { key } of TITLE_TIER_KEYS) {
-    assert.ok(profile.get(key) !== undefined, `标题文字族登记的 ${key} 应当在密度表里`)
-    assert.ok(!isVerticalRhythmKey(key), `${key} 是文字档，不该被当成纵向留白项`)
+  // ①′ 行家族的名单同样要落地（登记了名字、表里真有这些项、且它们不是纵向留白项）。
+  for (const { key, metric } of ROW_TIER_KEYS) {
+    assert.ok(profile.get(key) !== undefined, `行家族登记的 ${key} 应当在密度表里`)
+    assert.ok(metric in SCALE_TIERS.standard, `行家族登记的 ${key} 指的 ${metric} 应当在标准档里`)
+    assert.ok(!isVerticalRhythmKey(key), `${key} 是行族几何项，不该被当成纵向留白项`)
   }
 
   const faults = tierFaults(profile)
@@ -331,7 +357,8 @@ test('密度表：#119 与 #123 的分工——横向项取紧凑档、纵向留
   assert.deepEqual(
     faults.compact,
     [],
-    '这些键的 VS Code 档不是紧凑档里的值（自造中间值）：\n' + faults.compact.join('\n'),
+    '这些键的 VS Code 档不是紧凑档里的值（自造中间值；菜单一侧的骨架 / 胶囊 / 顶栏 / 弹窗仍必须落紧凑档）：\n' +
+      faults.compact.join('\n'),
   )
   assert.deepEqual(faults.standard, [], '这些键的官方原值不在标准档里（出处表漏登记了）：\n' + faults.standard.join('\n'))
   assert.deepEqual(
@@ -340,11 +367,9 @@ test('密度表：#119 与 #123 的分工——横向项取紧凑档、纵向留
     '纵向留白项必须取官方原值（#119：砍半会让顶栏 / 过滤条 / 首行糊成一坨）：\n' + faults.vertical.join('\n'),
   )
   assert.deepEqual(
-    faults.title,
+    faults.row,
     [],
-    '标题文字族必须取官方标题档（#123：工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 入口行文字\n' +
-      '要的是「与官方侧栏标题一致」，也就是两边同值且等于标准档的 titleFontSize / titleLineHeight）：\n' +
-      faults.title.join('\n'),
+    '行家族必须取官方标准档（#134：行不跟菜单走，每一项要等于标准档里那一项同名量）：\n' + faults.row.join('\n'),
   )
   for (const [key, value] of profile) {
     assert.ok(
@@ -352,36 +377,44 @@ test('密度表：#119 与 #123 的分工——横向项取紧凑档、纵向留
       `${key} 的 VS Code 档（${value.vscode}）不得大于官方原值（${value.official}）`,
     )
   }
-  // ⑤ 「横向保持紧凑」的可执行形态：纵向那两项的横向邻居都得仍比官方原值紧
-  //    （这次只恢复纵向，横向没被顺带改宽）。
-  const horizontalNeighbours = ['section-gap', 'section-padding-inline', 'row-padding-inline', 'pill-padding-start']
+  // ⑤ 「菜单一侧仍紧凑」的可执行形态（#134 的另一句话：行家族回标准档，菜单没被顺带放开）：
+  //    胶囊与骨架基线那几项仍必须严格比官方原值紧。
+  const horizontalNeighbours = ['section-gap', 'section-padding-inline', 'pill-padding-start', 'pill-height', 'icon-button-size']
   for (const key of horizontalNeighbours) {
     const entry = profile.get(key)
-    assert.ok(entry !== undefined, `横向邻居 ${key} 应当在密度表里`)
+    assert.ok(entry !== undefined, `菜单一侧的 ${key} 应当在密度表里`)
     const horizontal = entry ?? { official: '', vscode: '' }
     assert.ok(
       Number.parseFloat(horizontal.vscode) < Number.parseFloat(horizontal.official),
-      `${key} 是横向项，VS Code 档必须仍比官方原值紧（#119 只恢复纵向）：${horizontal.vscode} vs ${horizontal.official}`,
+      `${key} 属于菜单一侧（骨架 / 胶囊），VS Code 档必须仍比官方原值紧（#134 只放开了行家族）：${horizontal.vscode} vs ${horizontal.official}`,
     )
   }
-  // ⑥ 「只动标题这一族」的可执行形态（#123）：同一行里的**元信息**（时间 / 计数）仍必须
-  //    逐字等于紧凑档的字号 / 行高——否则就是「顺带把整行文字都放大了」，把差异也一起抹平。
-  const metaTier: ReadonlyArray<{ key: string; compact: string }> = [
-    { key: 'meta-font-size', compact: SCALE_TIERS.compact.fontSize },
-    { key: 'meta-line-height', compact: SCALE_TIERS.compact.lineHeight },
-  ]
-  for (const { key, compact: wanted } of metaTier) {
+  // ⑤′ 行家族那一侧现在**不再**存在「vscode 比 official 紧」的行族键——按名字逐个钉住，
+  //     免得「行家族回标准档」这条口径被下一次改动悄悄反悔（反悔要改这份名单，是显式动作）。
+  for (const { key } of ROW_TIER_KEYS) {
     const entry = profile.get(key)
-    assert.ok(entry !== undefined, `元信息 ${key} 应当在密度表里`)
     assert.equal(
       entry?.vscode,
-      wanted,
-      `${key} 必须仍是紧凑档的 ${wanted}（#123 只把标题那一族放回官方标题档，元信息没跟着放）`,
+      entry?.official,
+      `${key} 是行家族项：VS Code 档必须等于官方原值（#134：行取官方标准档，不再取紧凑档）`,
     )
+  }
+  // ⑥ 行家族之外的「行形件」仍取紧凑档——同一行里的**元信息**（时间 / 计数，12px / 18px）与
+  //    底栏回收站入口行主区（26px）是这条口径点名的例外，必须逐字等于紧凑档。
+  const compactKeepers: ReadonlyArray<{ key: string; compact: string; why: string }> = [
+    { key: 'meta-font-size', compact: SCALE_TIERS.compact.fontSize, why: '元信息字号（#123 起就没放开，本次也没动）' },
+    { key: 'meta-line-height', compact: SCALE_TIERS.compact.lineHeight, why: '元信息行高（同上）' },
+    { key: 'footer-row-height', compact: SCALE_TIERS.compact.rowHeight, why: '底栏回收站入口行主区（官方同座位那件是 42px 的徽标，不同形）' },
+    { key: 'drawer-block-header-height', compact: SCALE_TIERS.compact.groupLabelHeight, why: '抽屉分块块头（取紧凑档的分组标题盒）' },
+  ]
+  for (const { key, compact: wanted, why } of compactKeepers) {
+    const entry = profile.get(key)
+    assert.ok(entry !== undefined, `${key} 应当在密度表里`)
+    assert.equal(entry?.vscode, wanted, `${key} 必须仍是紧凑档的 ${wanted}（${why}）`)
   }
 })
 
-test('口径自检：把标题族压回紧凑档、把元信息放大都会判红（这条守着上面那条不是橡皮图章）', () => {
+test('口径自检：行族压回紧凑档 / 拿错标准档的量 / 元信息被放大 / 批量放开菜单侧都会判红', () => {
   const base = densityProfile()
   const mutate = (key: string, value: { official: string; vscode: string }): TierFaults => {
     const mutated = new Map(base)
@@ -389,28 +422,41 @@ test('口径自检：把标题族压回紧凑档、把元信息放大都会判�
     return tierFaults(mutated)
   }
 
-  // ① 标题字号被压回紧凑档的 12px（#123 之前的写法）——按量名判会红；注意 14px 本身在紧凑档
+  // ① 行高被压回紧凑档的 26px（#134 之前的写法）：判红。
+  assert.deepEqual(mutate('row-height', { official: '34px', vscode: '26px' }).row, [
+    'row-height：vscode=26px official=34px，标准档 projectRowHeight=34px',
+  ])
+  // ② **拿错标准档的量**——工作区行高写成会话行的 32px（32px 确实是标准档的值，按集合判会
+  //    放行）：按量名判仍然红。这是这一族不能走集合判的理由，也是本条自检的重点。
+  assert.equal(mutate('row-height', { official: '32px', vscode: '32px' }).row.length, 1)
+  // ③ 行圆角只改一边（official 8px / vscode 5px）：红。
+  assert.equal(mutate('row-radius', { official: '8px', vscode: '5px' }).row.length, 1)
+  // ④ 行内边距写成官方的另一个量（4px 是标准档的骨架基线）：红。
+  assert.equal(mutate('row-padding-inline', { official: '4px', vscode: '4px' }).row.length, 1)
+  // ⑤ 标题字号被压回紧凑档的 12px（#123 之前的写法）——按量名判会红；注意 14px 本身在紧凑档
   //    里也有（iconSize），所以光比集合是不会红的，这正是这一族要单独判的理由。
   const shrunk = mutate('title-font-size', { official: '14px', vscode: '12px' })
-  assert.deepEqual(shrunk.title, ['title-font-size：vscode=12px official=14px，标准档 titleFontSize=14px'])
-  // ② 两边同值、但不是标准档那一项量（14px 换成 15px）：仍然红。
-  assert.equal(mutate('title-font-size', { official: '15px', vscode: '15px' }).title.length, 1)
-  // ③ 标题行高被压回紧凑档的 18px：同样红。
-  assert.equal(mutate('title-line-height', { official: '20px', vscode: '18px' }).title.length, 1)
-  // ④ 元信息被放大到官方标题档的 20px 行高：不落任何一档，按紧凑档那条判红。
+  assert.deepEqual(shrunk.row, ['title-font-size：vscode=12px official=14px，标准档 titleFontSize=14px'])
+  // ⑥ 两边同值、但不是标准档那一项量（14px 换成 15px）：仍然红。
+  assert.equal(mutate('title-font-size', { official: '15px', vscode: '15px' }).row.length, 1)
+  // ⑦ 元信息被放大到官方标题档的 20px 行高：不落任何一档，按紧凑档那条判红。
   assert.deepEqual(mutate('meta-line-height', { official: '20px', vscode: '20px' }).compact, ['meta-line-height=20px'])
-  // ⑤ 现况（真表）在两条判据下都干净——上面那些红不是「怎么改都红」。
-  assert.deepEqual(tierFaults(base), { compact: [], standard: [], vertical: [], title: [] })
+  // ⑧ 菜单一侧被顺手放开（胶囊高写成官方原值 28px）：按紧凑档那条判红。
+  assert.deepEqual(mutate('pill-height', { official: '28px', vscode: '28px' }).compact, ['pill-height=28px'])
+  // ⑨ 现况（真表）在四条判据下都干净——上面那些红不是「怎么改都红」。
+  assert.deepEqual(tierFaults(base), { compact: [], standard: [], vertical: [], row: [] })
 })
 
 test('密度表里的每个键都写进了档位表的说明（键面 = 样式里消费的键面）', () => {
   const profile = densityProfile()
   const consumed = new Set([...CSS.matchAll(/var\(--dsh-one-density-([a-z-]+),/g)].map((m) => m[1] ?? ''))
   assert.deepEqual([...consumed].sort(), [...profile.keys()].sort(), '样式消费的密度键必须与 shell 那张表一一对应')
-  // 行圆角（#113）是唯一一项进入密度表的圆角：它必须在两个档之间取值不同，否则没必要走变量。
+  // 行圆角（#113 进表，唯一一项圆角）：官方原值必须等于标准档的行圆角；#134 起 VS Code 档
+  // 也取同一个值（行家族不再走紧凑档的 5px），它留在表里是因为 F-04 的对齐口径按
+  // 「把变量对齐回树插件自己声明的官方兜底值」量——这一项得跟着走完那条路。
   const rowRadius = profile.get('row-radius')
   assert.equal(rowRadius?.official, SCALE_TIERS.standard.rowRadius, 'row-radius 的官方原值要等于标准档的行圆角')
-  assert.equal(rowRadius?.vscode, SCALE_TIERS.compact.rowRadius, 'row-radius 的 VS Code 档要等于紧凑档的行圆角')
+  assert.equal(rowRadius?.vscode, SCALE_TIERS.standard.rowRadius, 'row-radius 的 VS Code 档（#134）也要等于标准档的行圆角')
 })
 
 test('例外清单：选择器在样式里真的存在，且每条都写了理由', () => {

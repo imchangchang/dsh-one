@@ -85,13 +85,19 @@
 // 密度表的 official 列），而这是官方另一个控件自己的尺寸档。
 //
 // ## 哪个控件取哪档（新增控件照此判定）
-// - **行家族**（会话行 / 工作区行 / 搜索结果行 / 抽屉会话行 / 会话溢出按钮 / 回收站入口行
-//   主区 / 空态入口按钮）→ **紧凑档**：它们与菜单项同形（一行里放图标 + 文字），所以
-//   高度 / 圆角 / 行内间隙 / 行内边距整套跟菜单项一致。**行里的文字另说**（#123）：标题
-//   （工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 回收站入口行文字）取**标准档的
-//   `titleFontSize` 14px / `titleLineHeight` 20px**——用户实测 12px 的工作区名与会话标题
-//   过于紧凑，要的是「标题与官方侧栏一致」；元信息（时间 / 计数）仍取紧凑档的 12px / 18px。
-//   行盒 26px 装得下 20px 的行字（上下各 3px），所以几何「与菜单同档」不受影响。
+// - **行家族**（工作区行 / 会话行 / 抽屉会话行 / 搜索结果行，外加列表里「还有 N 个会话」
+//   那一行溢出按钮）→ **标准档**（#134 用户拍板：侧栏里的行参考官方侧栏自己的尺寸）：
+//   高度 / 圆角 / 行内边距 / 图标位 / 文字字号与行高整套取官方侧栏的原值——工作区行 34px、
+//   会话行 32px、行圆角 8px、行内边距 8px、标题 14px/20px、行内图标位 16×20 与图标按钮
+//   16×16 / 圆角 4px。**#113 定的「行家族与菜单同档」作废**，**菜单仍取官方紧凑档**
+//   （官方 `Menu` 的 `compact` 变体：项 26px / 字号 12px / 行高 18px / 圆角 5px /
+//   内边距 3px 7px）——两条口径各管各的，行不再跟菜单走。
+//   行里的元信息（时间 / 计数）仍取紧凑档的 12px / 18px（#123 的口径，本次没动）。
+// - **不跟行家族的两处行形件**（#134 用户只点了侧栏的行，这两处不动）：底栏回收站入口行
+//   主区（`footer-row-height` 仍取紧凑档 26px——官方同座位那个 42px 的件是一个徽标，
+//   与我们的入口行不同形）与空态入口按钮（自绘件，仍取紧凑档 26px）。**弹窗里的行同样
+//   不跟**（管理分组对话框的行固定 26px，理由写在那条规则上方）。这几条在断言里逐条
+//   登记为「仍落紧凑档」，不是把口径放宽。
 // - **胶囊**（分组过滤条）→ **紧凑档**的高度与字号（与菜单项同高），圆角走容器档的 999px，
 //   左内边距取紧凑档的项内边距 7px、右内边距取紧凑档的容器内边距 2px。
 // - **菜单**→ 官方 `Menu` 传 `compact: true`（官方紧凑档），项内图标按官方该档的 14×14
@@ -122,8 +128,10 @@
 //   条内按钮是**官方 Button 的 `sm` 档**（官方 `._sm_cfgyt_30{height:28px;font-size:12px;
 //   line-height:18px;padding:0 10px;border-radius:14px}`，28px 与标准档的顶栏图标按钮 /
 //   搜索框同高），不是自造尺寸；纵向留白走密度档的 `group-gap`（#119 口径：纵向取官方节奏），
-//   横向走 `row-padding-inline`（横向取紧凑档）；形态是通栏横带（上下发丝线 + 极淡底色，
-//   颜色只用官方 token），所以它自己不带圆角/高度字面量——理由写在它那条规则上方。
+//   横向走 `row-padding-inline`（**行内容基准**：条里的计数与按钮要和列表行的文字左缘对齐，
+//   #134 起这一档是官方原值 8px，条跟着行一起变，两条边始终同一条竖线）；形态是通栏横带
+//   （上下发丝线 + 极淡底色，颜色只用官方 token），所以它自己不带圆角/高度字面量——理由写
+//   在它那条规则上方。
 // - **标签组**（`.dshOneTree_tag*`，#107）与**自绘件**（勾选框里的短横线、a11y 用的 1×1
 //   裁剪盒、抽屉把手）**不进本表**：标签组逐字沿用旧侧栏的取值（理由写在各自规则上方），
 //   自绘件不是几何档位能表达的形态；这些例外逐条列在下面的 `SCALE_EXEMPT` 里，每条都写了理由。
@@ -139,9 +147,11 @@
  * 档位表（代码形态，与上面的注释表一一对应）。值 = 上面那张表的取值，
  * test/sidebarStyleScale.test.ts 拿它做表驱动断言，钉住三件事：
  * ① 侧栏 CSS 里的圆角/高度/字号/图标位取值都能在这里找到出处（新控件拍脑袋的数值会红）；
- * ② 密度表的 vscode 列全部落在紧凑档里（两组例外：**纵向那几项取官方原值**，#119；以及
- * **标题文字族按官方标题档**，#123——它们单独按「= 标准档的 titleFontSize / titleLineHeight」
- * 判，不走「值在紧凑档里出现过」这条集合判据）；③ official 列全部落在标准档里。
+ * ② 密度表的 vscode 列逐项落在它该落的档里，分三类判（#134 起的口径）——**行家族 = 标准档**
+ * （表里那几项按「每一项 = 标准档里同名量的取值」判，不是「值在标准档里出现过」）；
+ * **纵向留白 = 官方原值**（#119）；**其余（菜单一侧与骨架 / 胶囊 / 顶栏 / 弹窗）= 紧凑档**
+ * （仍按集合判「落在紧凑档里」，含 #123 起元信息仍必须等于紧凑档字号行高那条）；
+ * ③ official 列全部落在标准档里。
  * 新增一处几何时：先在注释表里补一行「值 + 官方出处」，再在这里补同名条目。
  */
 export const SCALE_TIERS = {
@@ -327,23 +337,28 @@ export const CSS =
   // 所以里面每一行都是块级元素，按钮跟在最后自成一行。文案与内边距沿用上面那条
   // （零工作区 / 分组无成员 / 加载中三态与「暂无会话」共用同一外形，只是内容不同）。
   '.dshOneTree_emptyLine+.dshOneTree_emptyLine{margin-top:2px}' +
-  // ---- #113：行家族统一取「紧凑档」（高度 / 圆角 / 字号 / 行内间隙 / 行内边距 / 文字
-  // 行高整套与行菜单的项同档，档位表见文件头）。圆角走 `--dsh-one-density-row-radius`：
-  // 它在两个档之间取值不同（标准档 8px / 紧凑档 5px），而 F-04 要把密度对齐回官方档再逐项
-  // 比对圆角，所以必须经变量下发。
+  // 空态入口按钮（「新建会话」这类空态里的按钮）：**不跟行家族**（#134：用户只点了侧栏
+  // 的行；它是个按钮，不是列表里的行），仍逐字取紧凑档——高 26px / 圆角 5px / 字号 12px
+  // （官方 compact 档 `._item_1nxmc_92` 的三个值）。它不消费密度变量（空态在官方 web 侧
+  // 与 VS Code 侧同一形态，没有「宿主给偏好」这回事）。
   '.dshOneTree_emptyAction{cursor:pointer;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:5px;flex:none;align-items:center;margin-top:8px;padding:0 10px;font-family:inherit;font-size:12px;display:inline-flex}' +
   '.dshOneTree_emptyAction:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}' +
-  // 高 = 紧凑档行高 26px、圆角 = 紧凑档行圆角 5px、字号 = 紧凑档字号 12px（官方 compact
-  // 档 `._item_1nxmc_92` 三个值）；`padding:0 12px 0 28px` 逐字沿用官方
-  // `.bhn1Oq_sessionOverflowButton`（左侧 28px 是让文字对齐上一行的标题）。
+  // 溢出按钮（会话列表末尾那条「还有 N 个会话」）：**行家族一员**（它本身就是列表里的一行），
+  // #134 起整套取标准档——高 28px / 圆角 8px / 字号 12px / `padding:0 12px 0 28px`，四项都
+  // 逐字等于官方 `.bhn1Oq_sessionOverflowButton`（左侧 28px 是让文字对齐上一行的标题）。
   '.dshOneTree_sessionOverflowButton{cursor:pointer;text-align:left;width:100%;height:var(--dsh-one-density-overflow-row-height,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);padding:0 12px 0 28px;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
   '.dshOneTree_sessionOverflowButton:hover{color:var(--dsw-alias-label-secondary);background:0 0}' +
-  // 行：圆角/行内间隙/行内边距 = 紧凑档的 5px / 6px / 7px（官方 compact 档
-  // `._item_1nxmc_92{border-radius:5px;gap:6px;padding:3px 7px}`；横向前后两值就是
-  // 7px 与容器内边距 2px 两个档，取项内边距 7px）。
+  // 行（工作区行 / 会话行 / 抽屉会话行共用这两条）：**#134 起整套取标准档**——圆角 8px、
+  // 行内边距 8px（官方 `.YDXeBa_projectRow,.YDXeBa_sessionRow{border-radius:8px;gap:6px;
+  // padding:0 8px}` 里那三项），行高分别 34px / 32px（下面两条规则）、标题 14px/20px、
+  // 图标位 16×20。**#113 定的「与行菜单的项同档」作废**：菜单仍取官方紧凑档，行不跟它。
+  // 圆角与行内边距仍经密度变量下发（`--dsh-one-density-row-radius` / `-row-padding-inline`）：
+  // 这两个键在 VS Code 档与官方档同值，但 F-04 的对齐口径仍按「把变量对齐回树插件自己声明的
+  // 官方兜底值」量，走变量两边对得上（它们也是「行内容基准」，见文件头的档位表）。
   '.dshOneTree_projectRow,.dshOneTree_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:var(--dsh-one-density-row-radius,8px);align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   '.dshOneTree_projectRow:hover,.dshOneTree_sessionRow:hover,.dshOneTree_sessionRow.dshOneTree_selected,.dshOneTree_projectRow.dshOneTree_menuOpen,.dshOneTree_sessionRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}' +
-  // 行高 = 紧凑档行高 26px（两个行种同高：紧凑档只有「一个控件一行」这一种行高）。
+  // 行高：工作区行 34px / 会话行 32px，逐字取自官方（`.YDXeBa_projectRow{height:34px}`、
+  // `.YDXeBa_sessionRow{height:32px}`）。两个行种不再同高——官方侧栏里它们本来就差 2px。
   '.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:var(--dsh-one-density-row-height,34px)}' +
   '.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}' +
   '.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}' +
@@ -380,17 +395,21 @@ export const CSS =
   '.dshOneTree_rowIconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_rowIconButton:hover{color:var(--dsw-alias-label-primary)}' +
   '.dshOneTree_chevron{color:var(--dsw-alias-label-caption)}' +
-  // 搜索结果行：行家族一员，整套取紧凑档——最小高 26px（= 紧凑档行高；这一行是两行内容块，
-  // 实际高度由内容撑出，`min-height` 只是不低于一行）、圆角 5px、项内边距 3px 7px
-  //（官方 compact 档 `._item_1nxmc_92{padding:3px 7px}`）。
-  '.dshOneTree_searchRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:var(--dsh-one-density-search-row-min-height,48px);color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);flex-direction:column;align-items:stretch;padding:3px 7px;display:flex}' +
+  // 搜索结果行：行家族一员，**#134 起整套取标准档**——最小高 48px、圆角 8px、行内边距 8px、
+  // 块内边距 4px、标题 14px/20px、元信息 12px/17px，逐项取自官方 `.YDXeBa_searchResultRow
+  // {min-height:48px;border-radius:8px;padding:4px 8px}` 与 `.YDXeBa_searchResultTitle` /
+  // `_searchResultSnippet`。块内边距的 8px 走行内边距那一项（行内容基准，与工作区行/会话行
+  // 同一条竖线）。
+  '.dshOneTree_searchRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:var(--dsh-one-density-search-row-min-height,48px);color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);flex-direction:column;align-items:stretch;padding:4px var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   '.dshOneTree_searchRow:hover,.dshOneTree_searchRow.dshOneTree_selected{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_searchRowHeading{align-items:center;min-width:0;display:flex}' +
-  // 两行的字号/行高也取紧凑档（12px / 18px），与行标题、元信息同档——官方那一对是
-  // 14px/20px 与 12px/17px（`YDXeBa_searchResult*`），留在标准档当兜底语义。
-  '.dshOneTree_searchRowTitle{text-overflow:ellipsis;white-space:nowrap;flex:0 auto;min-width:0;margin-left:4px;font-size:12px;line-height:18px;overflow:hidden}' +
+  // 两行的字号 / 行高同样取标准档：标题 14px/20px（官方 `.YDXeBa_searchResultTitle`，
+  // 与其它行的标题同一档、同一个密度键）、元信息 12px/17px（官方 `.YDXeBa_searchResultSnippet
+  // {font-size:12px;line-height:17px}`，17px 是官方给搜索结果元信息自己的行高，与行内时间
+  // 那 18px 不是同一个量，所以这里写官方字面量、不吃 meta-line-height 那个键）。
+  '.dshOneTree_searchRowTitle{text-overflow:ellipsis;white-space:nowrap;flex:0 auto;min-width:0;margin-left:4px;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}' +
   '.dshOneTree_searchRowMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}' +
-  '.dshOneTree_searchRowWorkspace,.dshOneTree_searchRowSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;overflow:hidden}' +
+  '.dshOneTree_searchRowWorkspace,.dshOneTree_searchRowSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}' +
   '.dshOneTree_searchRowWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}' +
   '.dshOneTree_searchRowSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}' +
   '.dshOneTree_hoverContent{flex-direction:column;gap:8px;display:flex}' +
@@ -485,9 +504,11 @@ export const CSS =
   // 所以「子项文字左缘 − 父项文字左缘」对所有子项是**同一个值**。
   '[role="menuitem"]:has(.dshOneTree_submenuItem){padding-left:27px}' +
   // 底部回收站入口行（#99：官方 sidebar.footer.action 座位）。形态按旧侧栏那一行：
-  // 主区（🗑 + 文案 + 计数）+ 右侧两枚动作图标；计数 0 整体灰态。它是行家族一员，整套取
-  // 紧凑档（高 26px / 圆角 5px / 行内间隙 6px / 字号 12px）；官方同座位的条目
-  // （ui-cordis 的 CordisPanel.module.css `Nqubda_badge{height:42px}`）留在标准档当兜底。
+  // 主区（🗑 + 文案 + 计数）+ 右侧两枚动作图标；计数 0 整体灰态。**主区的行高不跟行家族**
+  // （#134 用户只点了侧栏的行；官方同座位那一件是 ui-cordis 的 `Nqubda_badge{height:42px}`
+  // ——一个徽标，与我们的入口行不是同形，抬到 42px 会让底栏凭空高一倍），仍取紧凑档的 26px；
+  // 圆角与行内边距吃的是**行内容基准**那两个键（`row-radius` / `row-padding-inline`），
+  // 所以跟着行一起变成官方的 8px / 8px。
   // #125：左内缩归 0——主区自己带 `row-padding-inline`（行家族的行内边距），所以它的内容
   // （🗑 图标）左缘落在行内容基准上，与列表行的文件夹图标同一竖线；容器再加一道左内缩
   // 会把这一行推进去一格（此前进去了 section-padding-inline，比行内容基准多 2px）。
@@ -504,9 +525,10 @@ export const CSS =
   '.dshOneTree_footerIconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_footerIconButton:disabled{cursor:default;opacity:.45}' +
   '.dshOneTree_footerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}' +
-  // 「管理分组…」对话框（#99）：行 = 名字 + 计数 + ✎/🗑。整套取紧凑档（#127）：行高 26px /
-  // 行内间隙 6px / 字号 12px——与侧栏的行同一密度。行**不带左右内边距**：它就在弹窗自己那
-  // 12px 的容器留白里，再叠一份会让名字比上方的标题与输入框更靠右（三者左缘要对齐）。
+  // 「管理分组…」对话框（#99）：行 = 名字 + 计数 + ✎/🗑。**弹窗里的行不跟行家族**（#134：
+  // 用户只点了侧栏的行，弹窗不要顺手改；#127 起这一整套取紧凑档）：行高 26px / 行内间隙 6px
+  // / 字号 12px——与侧栏的行同一密度。行**不带左右内边距**：它就在弹窗自己那 12px 的容器
+  // 留白里，再叠一份会让名字比上方的标题与输入框更靠右（三者左缘要对齐）。
   '.dshOneTree_manageList{max-height:240px;overflow-y:auto}' +
   '.dshOneTree_manageRow{align-items:center;gap:6px;height:26px;display:flex}' +
   '.dshOneTree_manageName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;font-size:12px;line-height:18px;overflow:hidden}' +
@@ -565,10 +587,11 @@ export const CSS =
   //    x=-4 处那半像素描边整条落在可视区之外（实验室实测：条的左边框矩形 l=-4，`elementFromPoint`
   //    在 x=1 处命中的已经是条内元素）；要让它可见就得给容器编一个 4px 的内缩，而那个 4px
   //    在档位表里没有出处。通栏横带沿用列表行同一套出血模型，不需要任何自造数值。
-  // ② **留白**（按 #119 的口径：纵向取官方节奏、横向取紧凑档）：上下与向内的纵向留白
+  // ② **留白**（按 #119 的口径：纵向取官方节奏、横向取行内容基准）：上下与向内的纵向留白
   //    走 `--dsh-one-density-group-gap`（官方原值 4px，就是分块之间那一档；分组过滤条
   //    的下边距用的是同一个键，两条基线同高），条内横向留白走
-  //    `--dsh-one-density-row-padding-inline`（紧凑档项内边距 7px，与列表行的文字左缘对齐）。
+  //    `--dsh-one-density-row-padding-inline`（**行内容基准**：条里的计数与按钮和列表行的
+  //    文字左缘对齐，#134 起这一档是官方原值 8px，跟着行一起变）。
   // ③ **分组**：计数与按钮两组；计数不收缩（`flex:none` + `white-space:nowrap`，任何宽度
   //    下都是一行），按钮组 `margin-left:auto` 推到右边，放不下时**整组换行**（组内再
   //    放不下就逐枚往下排，永不横向溢出）。**不走「收成图标 + tooltip」那条路**：这三枚里
@@ -610,14 +633,18 @@ export const CSS =
   '.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}' +
   // 抽屉里的分块块头**就是那一枚可点折叠的按钮**：几何取**紧凑档的分组标题档**——
   // 盒高 24px = 官方 compact 档 `._label_1nxmc_124{padding:4px 7px}` + `line-height:16px`
-  // 的 4+16+4；字号取紧凑档字号 12px；圆角/行内边距与行家族同档（5px / 7px）。官方列表的
-  // 分组块头（ui-model-selection 的 `_7KE1Ra_groupTitle`：26px 总高、12px 字号）留标准档兜底。
+  // 的 4+16+4；字号取紧凑档字号 12px。官方列表的分组块头（ui-model-selection 的
+  // `_7KE1Ra_groupTitle`：26px 总高、12px 字号）留标准档兜底。**圆角与行内边距吃
+  // 行内容基准那两个键**（`row-radius` / `row-padding-inline`，见文件头的档位表）：它们
+  // #134 起是官方的 8px / 8px，块头因此与它下面的抽屉会话行左右对齐（块头文字与行文字
+  // 同一左缘），高度仍走它自己的 `drawer-block-header-height`。
   '.dshOneTree_drawerGroupLabel{cursor:pointer;width:100%;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);height:var(--dsh-one-density-drawer-block-header-height,26px);align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}' +
   '.dshOneTree_drawerGroupLabel:hover{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_drawerGroupArrow{width:14px;flex:none;align-items:center;display:inline-flex}' +
   '.dshOneTree_drawerGroupLabelText{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}' +
   '.dshOneTree_drawerGroupCount{flex:none}' +
-  // 抽屉会话行（行家族一员）：高 26px / 圆角 5px / 行内间隙 6px / 行内边距 7px，整套紧凑档。
+  // 抽屉会话行（行家族一员）：**#134 起取标准档**——高 32px（与主树会话行同高）/
+  // 圆角 8px / 行内间隙 6px / 行内边距 8px，逐项是官方 `.YDXeBa_sessionRow` 的值。
   '.dshOneTree_drawerRow{cursor:pointer;height:var(--dsh-one-density-session-row-height,32px);color:var(--dsw-alias-label-primary);border-radius:var(--dsh-one-density-row-radius,8px);align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   '.dshOneTree_drawerRow:hover,.dshOneTree_drawerRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_drawerRow .dshOneTree_title{flex:1;margin:0}' +

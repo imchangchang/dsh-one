@@ -256,9 +256,9 @@ function uniform(items: readonly Record<string, string>[], prop: string): { ok: 
 export const SCALE_SUITE: LabSuite = {
   id: 'F-23',
   phase: 'new-feature',
-  name: '侧栏风格档位表（#113）：几何读数逐项落在官方档位表里，菜单统一官方紧凑档（SCALE 套件）',
+  name: '侧栏风格档位表（#113/#134）：几何读数逐项落在官方档位表里，行家族取标准档、菜单统一官方紧凑档（SCALE 套件）',
   expect:
-    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **几何读数逐项有出处**——会话行 / 工作区行 / 行标题 / 行时间 / 行内图标位 / 行内图标按钮 / 顶栏（分节头）/ 顶栏图标按钮 / 搜索框（两态：#132 起默认折叠，折叠态与点开后的展开态各量一遍）/ 分组胶囊 / 回收站入口行主区与动作按钮 / 当前工作区胶囊 / 抽屉头 / 抽屉分块块头 / 抽屉会话行的圆角、高度、字号、行高读数，每一条都能在 `styles.ts` 那份官方档位表（紧凑档 / 标准档 / 容器档）里按属性对上出处（期望值从档位表读，不硬编码）；单独钉住的关键值里，**行标题文字是标准档的 14px/20px**（#123 起标题文字取官方标题档，不再跟紧凑档的 12px/18px，完整断言在 F-30）、**搜索框展开态圆角是标准档的 10px**。② **菜单统一官方紧凑档**：顶栏「视图选项」与分组胶囊两份菜单都开一遍，官方 Menu 的项（渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px）、项内图标盒（14×14）、分组标题（11px / 16px / 内边距 4px 7px）、分隔线（外边距 2px）、列表容器（内边距 2px / 圆角 7px）逐项等于官方紧凑档实测值；两份菜单的项几何彼此一致（同一侧栏里只有一种菜单密度）。全程零 pageerror。',
+    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **几何读数逐项有出处**——会话行 / 工作区行 / 行标题 / 行时间 / 行内图标位 / 行内图标按钮 / 顶栏（分节头）/ 顶栏图标按钮 / 搜索框（两态：#132 起默认折叠，折叠态与点开后的展开态各量一遍）/ 分组胶囊 / 回收站入口行主区与动作按钮 / 当前工作区胶囊 / 抽屉头 / 抽屉分块块头 / 抽屉会话行的圆角、高度、字号、行高读数，每一条都能在 `styles.ts` 那份官方档位表（紧凑档 / 标准档 / 容器档）里按属性对上出处（期望值从档位表读，不硬编码）；单独钉住的关键值里，**行家族取标准档**（#134）：会话行高 32px 与圆角 8px、工作区行高 34px、行标题 14px/20px（#123 起就走标准档，完整断言在 F-30）、搜索框展开态圆角 10px；**菜单一侧仍紧凑**——分组胶囊高 26px（= 菜单项高）与容器档的 999px 圆角原样不动。② **菜单统一官方紧凑档**：分组胶囊与会话行 ⋯ 两份菜单都开一遍（#131 前第二份是顶栏「视图选项」，那一枚退役后换成会话行菜单），官方 Menu 的项（渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px）、项内图标盒（14×14）、分组标题（11px / 16px / 内边距 4px 7px）、分隔线（外边距 2px）、列表容器（内边距 2px / 圆角 7px）逐项等于官方紧凑档实测值；两份菜单的项几何彼此一致（同一侧栏里只有一种菜单密度）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -294,17 +294,19 @@ export const SCALE_SUITE: LabSuite = {
           .join('；')}`,
       )
 
-      // 紧凑档真的落到浏览器里了（不是只在表里）：行圆角 5px、行高 26px。**行文字是例外**——
-      // #123 起行 / 抽屉的标题文字取官方标题档（14px/20px，与官方侧栏标题同值），
-      // 只有元信息（时间 / 计数）仍落紧凑档；这条口径的完整断言在 F-30。
+      // 行家族的标准档值真的落到浏览器里了（不是只在表里）：#134 起工作区行 34px / 会话行 32px /
+      // 圆角 8px；菜单一侧不受影响——分组胶囊仍是紧凑档的 26px（= 菜单项高）与容器档的 999px。
       const row = treeProbes.find((probe) => probe.label === '会话行')
-      check.eq('会话行圆角 = 紧凑档 5px', row?.readings.borderRadius, SCALE_TIERS.compact.rowRadius)
-      check.eq('会话行高 = 紧凑档 26px', row?.readings.height, SCALE_TIERS.compact.rowHeight)
+      check.eq('会话行圆角 = 标准档 8px（#134：行家族取官方标准档）', row?.readings.borderRadius, SCALE_TIERS.standard.rowRadius)
+      check.eq('会话行高 = 标准档 32px（#134）', row?.readings.height, SCALE_TIERS.standard.sessionRowHeight)
+      const projectRow = treeProbes.find((probe) => probe.label === '工作区行')
+      check.eq('工作区行圆角 = 标准档 8px（#134）', projectRow?.readings.borderRadius, SCALE_TIERS.standard.rowRadius)
+      check.eq('工作区行高 = 标准档 34px（#134）', projectRow?.readings.height, SCALE_TIERS.standard.projectRowHeight)
       const title = treeProbes.find((probe) => probe.label === '行标题')
-      check.eq('行标题字号 = 标准档 14px（#123：标题文字取官方标题档）', title?.readings.fontSize, SCALE_TIERS.standard.titleFontSize)
-      check.eq('行标题行高 = 标准档 20px（#123）', title?.readings.lineHeight, SCALE_TIERS.standard.titleLineHeight)
+      check.eq('行标题字号 = 标准档 14px（#123 起，现并入行家族口径）', title?.readings.fontSize, SCALE_TIERS.standard.titleFontSize)
+      check.eq('行标题行高 = 标准档 20px', title?.readings.lineHeight, SCALE_TIERS.standard.titleLineHeight)
       const pill = treeProbes.find((probe) => probe.label === '分组胶囊')
-      check.eq('分组胶囊高 = 紧凑档 26px（与菜单项同高）', pill?.readings.height, SCALE_TIERS.compact.rowHeight)
+      check.eq('分组胶囊高 = 紧凑档 26px（菜单一侧没被顺手放开）', pill?.readings.height, SCALE_TIERS.compact.rowHeight)
       check.eq('分组胶囊圆角 = 容器档 999px', pill?.readings.borderRadius, SCALE_TIERS.container.pillRadius)
       const slot = treeProbes.find((probe) => probe.label === '行内图标位')
       check.eq('行内图标位宽 = 标准档 16px', slot?.readings.width, SCALE_TIERS.standard.slotWidth)
@@ -346,7 +348,7 @@ export const SCALE_SUITE: LabSuite = {
       check.eq('搜索框（折叠态）：高度 = 紧凑档的图标按钮边长（官方两侧同源：28px 槽位 / 28px 按钮）', collapsedSearch?.readings.height, SCALE_TIERS.compact.iconButtonSize)
       await page.keyboard.press('Escape')
       await page.waitForTimeout(250)
-      screenshots.push(await shot(ctx, page, 'scale-tree-compact'))
+      screenshots.push(await shot(ctx, page, 'scale-tree-standard'))
 
       // ---- 抽屉内部（整块盖住树区，开着才量得到）----
       // 入口行的动作名是 `recycle-toggle`（#114 起点一下是开合开关）；这里此前写的是不存在的
@@ -367,10 +369,10 @@ export const SCALE_SUITE: LabSuite = {
         }
         const drawerRow = drawerProbes.find((probe) => probe.label === '抽屉会话行')
         if (drawerRow !== undefined) {
-          check.eq('抽屉会话行高 = 紧凑档 26px', drawerRow.readings.height, SCALE_TIERS.compact.rowHeight)
-          check.eq('抽屉会话行圆角 = 紧凑档 5px', drawerRow.readings.borderRadius, SCALE_TIERS.compact.rowRadius)
+          check.eq('抽屉会话行高 = 标准档 32px（#134：与主树会话行同高）', drawerRow.readings.height, SCALE_TIERS.standard.sessionRowHeight)
+          check.eq('抽屉会话行圆角 = 标准档 8px（#134）', drawerRow.readings.borderRadius, SCALE_TIERS.standard.rowRadius)
         }
-        screenshots.push(await shot(ctx, page, 'scale-drawer-compact'))
+        screenshots.push(await shot(ctx, page, 'scale-drawer-standard'))
         await page.click('[data-dshone-tree-action="recycle-close"]')
         await page.waitForTimeout(250)
       }
@@ -513,12 +515,29 @@ interface TitleProbe {
   selector: string
   /** 它所在的行（行盒高的来源）：`.closest()` 找最近的那一层。 */
   rowSelector: string
+  /**
+   * 它所在行的行高该等于标准档里的哪一项量（#134：行家族取官方标准档，所以工作区名在 34px
+   * 的行盒里、会话标题在 32px 的行盒里——两处不再同高）。写法与 `styles.ts` 档位表的量名
+   * 一一对应，期望值从那里读、不硬编码。**只有行内两处探针需要它**（抽屉标题 / 底部入口行 /
+   * 行内改名输入框那几处各自临时构造探针，它们的行盒由调用点直接给期望值）。
+   */
+  rowMetric?: 'projectRowHeight' | 'sessionRowHeight'
 }
 
 /** #123 的五处文字：工作区名与会话标题共用一个类（同一处消费点，两个位置各量一次）。 */
 const TITLE_PROBES: ReadonlyArray<TitleProbe> = [
-  { label: '工作区名', selector: '.dshOneTree_projectRow .dshOneTree_title', rowSelector: '.dshOneTree_projectRow' },
-  { label: '会话标题', selector: '.dshOneTree_sessionRow .dshOneTree_title', rowSelector: '.dshOneTree_sessionRow' },
+  {
+    label: '工作区名',
+    selector: '.dshOneTree_projectRow .dshOneTree_title',
+    rowSelector: '.dshOneTree_projectRow',
+    rowMetric: 'projectRowHeight',
+  },
+  {
+    label: '会话标题',
+    selector: '.dshOneTree_sessionRow .dshOneTree_title',
+    rowSelector: '.dshOneTree_sessionRow',
+    rowMetric: 'sessionRowHeight',
+  },
 ]
 
 /** 读一组文字的读数（元素不在就记一条 `found: false`，由断言那边判是跳过还是失败）。 */
@@ -558,12 +577,12 @@ async function setHostPanelSession(page: OpenedPage['page'], open: boolean): Pro
 }
 
 /**
- * 一条文字读数的完整判据（#123）：字号与行高都等于**官方标题档**（标准档的
+ * 一条文字读数的完整判据（#123 / #134）：字号与行高都等于**官方标题档**（标准档的
  * `titleFontSize` / `titleLineHeight`，也就是官方侧栏标题 `.YDXeBa_title` 的原值），
- * 文字盒是单行的行盒（= 行高）、上下都没被裁，且它所在的行**仍是紧凑档的 26px**——
- * 行盒没被放大后的文字撑破（20px 行字 + 上下各 3px 的余量）。
+ * 文字盒是单行的行盒（= 行高）、上下都没被裁，且它所在的行是**行家族的标准档行高**
+ * （#134 起工作区行 34px、会话行 32px；20px 的行字装得下，行没被文字撑破）。
  */
-function expectTitleTier(check: Check, scope: string, reading: TitleReading, lineHeightKey: boolean): void {
+function expectTitleTier(check: Check, scope: string, reading: TitleReading, lineHeightKey: boolean, expectedRowHeight: string): void {
   if (!reading.found) {
     check.ok(`${scope}：元素在（量得到才谈得上字号）`, false, '这一轮页面上没有这个元素')
     return
@@ -581,27 +600,28 @@ function expectTitleTier(check: Check, scope: string, reading: TitleReading, lin
     `verticalOverflow=${String(reading.verticalOverflow)}`,
   )
   check.ok(
-    `${scope}：文字盒落在所在行里、且行高仍是紧凑档 ${SCALE_TIERS.compact.rowHeight}（行没被文字撑破）`,
-    reading.insideRow && reading.rowHeight === SCALE_TIERS.compact.rowHeight,
-    `insideRow=${String(reading.insideRow)} rowHeight=${reading.rowHeight}`,
+    `${scope}：文字盒落在所在行里、且行高就是行家族的标准档 ${expectedRowHeight}（行没被文字撑破）`,
+    reading.insideRow && reading.rowHeight === expectedRowHeight,
+    `insideRow=${String(reading.insideRow)} rowHeight=${reading.rowHeight} 期望 ${expectedRowHeight}`,
   )
 }
 
 /**
- * F-30：侧栏标题文字回到官方标题档（#123）。用户实测工作区名与会话标题过于紧凑，
- * 要的是「标题与官方侧栏一致」——所以这一族（`title-font-size` / `title-line-height`）
- * 的 VS Code 档从紧凑档的 12px/18px 改回官方标题档的 14px/20px，几何（行高 26px /
- * 圆角 5px / 间距 / 图标位）仍取紧凑档。
+ * F-30：侧栏标题文字取官方标题档（#123；#134 起并入行家族口径）。用户实测工作区名与会话标题
+ * 过于紧凑，要的是「标题与官方侧栏一致」——所以这一族（`title-font-size` / `title-line-height`）
+ * 的 VS Code 档从紧凑档的 12px/18px 改回官方标题档的 14px/20px。**#134 起归入行家族**：
+ * 这一族连同行的几何（工作区行 34px / 会话行 32px / 圆角 8px / 行内边距 8px）整套都是官方
+ * 标准档，所以本套件比 #123 那一版多一条——文字所在的行盒是**行家族的标准档高**，不再是紧凑档。
  *
  * 套件量的是**同一页真装配页**下的四处消费点（外加行内改名输入框这条只在编辑态出现的路），
- * 并与菜单项对照，钉住「几何同档、文字不同档」这两件事同时成立。
+ * 并与菜单项对照，钉住「行取标准档、菜单仍紧凑档」两件事同时成立。
  */
 export const TITLE_TIER_SUITE: LabSuite = {
   id: 'F-30',
   phase: 'new-feature',
-  name: '侧栏标题文字回到官方标题档（#123）：工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 入口行文字都是 14px/20px，行盒仍是 26px、菜单项仍是 12px（TITLE-TIER 套件）',
+  name: '侧栏标题文字取官方标题档（#123，并入 #134 的行家族口径）：工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 入口行文字都是 14px/20px，行盒是标准档的 34px 与 32px、菜单项仍是紧凑档的 12px/26px（TITLE-TIER 套件）',
   expect:
-    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **三档宽度（260/340/500）下工作区名与会话标题实测字号 = 官方标题档 14px、行高 = 20px**（期望值取自 `styles.ts` 档位表的标准档 `titleFontSize` / `titleLineHeight`，不硬编码）；② **行盒没被撑破**——两个位置所在行的 computed 高仍是紧凑档的 26px，文字盒整个落在行矩形里、`scrollHeight` 没有超过 `clientHeight`（20px 的行字在 26px 的行盒里上下各余 3px）；③ **行内改名输入框同步是 14px/20px**（点**当前**会话行进就地改名——#115/#121 那条真实路径，不是 ⋯ 菜单里的「重命名」：那一项开的是独立改名弹窗；假宿主答「这条会话开在面板里」，量 `.dshOneTree_inlineRenameInput` 的字号 / 行高 / 自身高，且它仍装在 26px 的行盒里）；④ **抽屉标题与底部回收站入口行文字同样是 14px**（这两处只消费字号那一项，行高从容器继承，套件按事实记录继承值）；⑤ **菜单项仍是紧凑档的 12px/18px**——分组胶囊菜单开一遍量官方 `Menu` 项的渲染高 26px / 字号 12px / 行高 18px，并显式钉住「会话行高 = 菜单项高（几何同档）而标题字号 ≠ 菜单项字号（文字不同档）」这两件事同时成立，证明这次只放开了文字、没顺带把几何也放开。全程零 pageerror；套件只开菜单、进一次改名编辑态再取消，不提交任何写请求。',
+    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **三档宽度（260/340/500）下工作区名与会话标题实测字号 = 官方标题档 14px、行高 = 20px**（期望值取自 `styles.ts` 档位表的标准档 `titleFontSize` / `titleLineHeight`，不硬编码）；② **行盒是行家族的标准档高、且没被撑破**——工作区名所在行 34px、会话标题所在行 32px（#134 起行家族取官方标准档，两行不再同高也不再有 26px 那一档），文字盒整个落在行矩形里、`scrollHeight` 没有超过 `clientHeight`；③ **行内改名输入框同步是 14px/20px**（点**当前**会话行进就地改名——#115/#121 那条真实路径，不是 ⋯ 菜单里的「重命名」：那一项开的是独立改名弹窗；假宿主答「这条会话开在面板里」，量 `.dshOneTree_inlineRenameInput` 的字号 / 行高 / 自身高，且它装在 32px 的标准档行盒里）；④ **抽屉标题与底部回收站入口行文字同样是 14px**（这两处只消费字号那一项，行高从容器继承，套件按事实记录继承值；它们的行盒不跟行家族——抽屉头 26px、入口行 26px）；⑤ **菜单项仍是紧凑档的 12px/18px/26px**——顶栏「视图选项」菜单开一遍量官方 `Menu` 项的渲染高 26px / 字号 12px / 行高 18px，并显式钉住「会话行盒高 32px = 标准档、菜单项 26px = 紧凑档，两者不等」「标题字号 ≠ 菜单项字号」这两件事同时成立，证明这一轮只把行家族放到了标准档、菜单没被顺带放开。全程零 pageerror；套件只开菜单、进一次改名编辑态再取消，不提交任何写请求。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const widths = [260, 340, 500] as const
@@ -609,8 +629,8 @@ export const TITLE_TIER_SUITE: LabSuite = {
     const { page } = opened
     try {
       check.fact(
-        `口径（#123）：标题文字族 = 标准档（官方标题档）${SCALE_TIERS.standard.titleFontSize} / ${SCALE_TIERS.standard.titleLineHeight}；` +
-          `行盒与菜单仍是紧凑档 ${SCALE_TIERS.compact.rowHeight} / 字号 ${SCALE_TIERS.compact.fontSize}`,
+        `口径（#123 + #134）：标题文字与行几何都是标准档（官方标题档）${SCALE_TIERS.standard.titleFontSize} / ${SCALE_TIERS.standard.titleLineHeight}、` +
+          `行高 ${SCALE_TIERS.standard.projectRowHeight} / ${SCALE_TIERS.standard.sessionRowHeight}；菜单仍是紧凑档 ${SCALE_TIERS.compact.rowHeight} / 字号 ${SCALE_TIERS.compact.fontSize}`,
       )
 
       // ---- ① + ② 三档宽度：工作区名与会话标题 ----
@@ -620,9 +640,11 @@ export const TITLE_TIER_SUITE: LabSuite = {
         const readings = await readTitles(page, TITLE_PROBES)
         const seen = readings.map((reading) => `${reading.label}=${reading.found ? `${reading.fontSize}/${reading.lineHeight}（盒 ${String(reading.boxHeight)}，行 ${reading.rowHeight}）` : '缺'}`)
         check.fact(`w=${String(width)}：${seen.join('；')}`)
-        for (const reading of readings) {
+        readings.forEach((reading, index) => {
           const scope = `w=${String(width)} ${reading.label}`
-          expectTitleTier(check, scope, reading, true)
+          // 行高的期望值按探针登记的量名去标准档读：工作区名 34px、会话标题 32px。
+          const metric = TITLE_PROBES[index]?.rowMetric ?? 'sessionRowHeight'
+          expectTitleTier(check, scope, reading, true, SCALE_TIERS.standard[metric])
           if (reading.found) {
             check.eq(
               `${scope}：文字盒高 = 行高 20px（单行，没有折行）`,
@@ -630,7 +652,7 @@ export const TITLE_TIER_SUITE: LabSuite = {
               Number.parseFloat(SCALE_TIERS.standard.titleLineHeight),
             )
           }
-        }
+        })
         if (width === 340) screenshots.push(await shot(ctx, page, 'title-tier-340'))
       }
 
@@ -649,14 +671,17 @@ export const TITLE_TIER_SUITE: LabSuite = {
           !footer.verticalOverflow && footer.insideRow,
           `verticalOverflow=${String(footer.verticalOverflow)} insideRow=${String(footer.insideRow)} rowHeight=${footer.rowHeight}`,
         )
-        check.eq('底部入口行：行盒高仍 = 紧凑档 26px', footer.rowHeight, SCALE_TIERS.compact.rowHeight)
+        // 底栏入口行**不跟行家族**（#134 的例外：官方同座位那件是 42px 的徽标、不是行），
+        // 仍取紧凑档的 26px——这里正是把这条例外钉在页面读数上。
+        check.eq('底部入口行：行盒高仍 = 紧凑档 26px（#134 只放开了侧栏的行）', footer.rowHeight, SCALE_TIERS.compact.rowHeight)
 
         await page.click('[data-dshone-tree-action="recycle-toggle"]')
         await page.waitForTimeout(400)
         const drawerTitle = (await readTitles(page, [
           { label: '抽屉标题', selector: '.dshOneTree_drawerTitle', rowSelector: '.dshOneTree_drawerHeader' },
         ]))[0]
-        expectTitleTier(check, '抽屉标题', drawerTitle ?? { label: '抽屉标题', found: false }, false)
+        // 抽屉头也是紧凑档的骨架高度（section-header-height），所以它的行盒期望值仍是 26px。
+        expectTitleTier(check, '抽屉标题', drawerTitle ?? { label: '抽屉标题', found: false }, false, SCALE_TIERS.compact.rowHeight)
         if (drawerTitle !== undefined && drawerTitle.found) {
           check.eq('抽屉标题：字号 = 官方标题档 14px（#123）', drawerTitle.fontSize, SCALE_TIERS.standard.titleFontSize)
         }
@@ -720,8 +745,8 @@ export const TITLE_TIER_SUITE: LabSuite = {
             Number.parseFloat(SCALE_TIERS.standard.titleLineHeight),
           )
           check.ok(
-            `行内改名输入框：装在紧凑档 ${SCALE_TIERS.compact.rowHeight} 的行盒里（没把行撑破、也没被行裁掉）`,
-            input.insideRow && input.rowHeight === SCALE_TIERS.compact.rowHeight,
+            `行内改名输入框：装在标准档 ${SCALE_TIERS.standard.sessionRowHeight} 的行盒里（#134：会话行取官方标准档，没把行撑破、也没被行裁掉）`,
+            input.insideRow && input.rowHeight === SCALE_TIERS.standard.sessionRowHeight,
             `insideRow=${String(input.insideRow)} rowHeight=${input.rowHeight}`,
           )
         }
@@ -735,7 +760,7 @@ export const TITLE_TIER_SUITE: LabSuite = {
         )
       }
 
-      // ---- ⑤ 菜单项仍是紧凑档：几何同档、文字不同档 ----
+      // ---- ⑤ 菜单项仍是紧凑档：行取标准档、菜单取紧凑档，两条口径各归各的 ----
       // 量的那一份是**分组胶囊菜单**（#131 前这里先找顶栏「视图选项」，它退役后改用它；
       // 它恒在，备用那份会话行菜单要悬停才点得到）。
       const sessionMenu = '[data-dshone-tree-action="session-menu"]'
@@ -760,7 +785,7 @@ export const TITLE_TIER_SUITE: LabSuite = {
           check.ok('菜单里有可量的项', items.length > 0, `项数=${String(items.length)}`)
           check.fact(`菜单第一批项：${JSON.stringify(items[0] ?? null)}`)
           check.ok(
-            `菜单项字号仍 = 紧凑档 ${SCALE_TIERS.compact.fontSize}（#123 没动菜单文字）`,
+            `菜单项字号仍 = 紧凑档 ${SCALE_TIERS.compact.fontSize}（#134 没动菜单文字）`,
             items.every((item) => item.fontSize === SCALE_TIERS.compact.fontSize),
             `实测 ${[...new Set(items.map((item) => item.fontSize))].join(' / ')}`,
           )
@@ -776,14 +801,29 @@ export const TITLE_TIER_SUITE: LabSuite = {
           )
           const menuFont = items[0]?.fontSize ?? ''
           const menuHeight = items[0]?.height ?? ''
-          const sessionRow = (await readTitles(page, [TITLE_PROBES[1] ?? { label: '会话标题', selector: '', rowSelector: '' }]))[0]
-          // 「几何同档」：标题所在的行盒与菜单项一样高（都是紧凑档的 26px）。
+          const sessionRow = (
+            await readTitles(page, [
+              TITLE_PROBES[1] ?? { label: '会话标题', selector: '', rowSelector: '', rowMetric: 'sessionRowHeight' },
+            ])
+          )[0]
+          // 「行取标准档」：标题所在的行盒是标准档的 32px（#134 之前这里是「与菜单项同档的 26px」）。
           check.eq(
-            `几何同档：会话行盒高（${SCALE_TIERS.compact.rowHeight}）= 菜单项渲染高`,
+            `行取标准档：会话行盒高 = ${SCALE_TIERS.standard.sessionRowHeight}（官方会话行原值）`,
             sessionRow?.found === true ? sessionRow.rowHeight : '',
-            menuHeight,
+            SCALE_TIERS.standard.sessionRowHeight,
           )
-          // 「文字不同档」：标题字号（官方标题档 14px）与菜单项字号（紧凑档 12px）不相等。
+          // 「菜单仍紧凑」：菜单项的渲染高仍是紧凑档的 26px，与行盒不是一个档。
+          check.eq(
+            `菜单仍紧凑：菜单项渲染高 = ${SCALE_TIERS.compact.rowHeight}`,
+            menuHeight,
+            SCALE_TIERS.compact.rowHeight,
+          )
+          check.ok(
+            `两条口径分得开：会话行盒高（${SCALE_TIERS.standard.sessionRowHeight}）≠ 菜单项渲染高（${menuHeight}）`,
+            sessionRow?.found === true && sessionRow.rowHeight !== menuHeight,
+            `行盒=${sessionRow?.found === true ? sessionRow.rowHeight : '缺'} 菜单项=${menuHeight}`,
+          )
+          // 「文字仍取标题档」：标题字号（官方标题档 14px）与菜单项字号（紧凑档 12px）不相等。
           check.ok(
             `文字不同档：标题字号（${SCALE_TIERS.standard.titleFontSize}）≠ 菜单项字号（${menuFont}）`,
             sessionRow?.found === true && sessionRow.fontSize !== menuFont,
