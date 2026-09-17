@@ -41,6 +41,7 @@ import { MODAL_COMPACT_SUITE } from './modalCompactSuites.ts'
 import { VIEW_OPTIONS_RETIRED_SUITE } from './viewOptionsSuites.ts'
 import { TOPBAR_INLINE_SUITE } from './topbarInlineSuites.ts'
 import { SEARCH_COLLAPSE_SUITE } from './searchCollapseSuites.ts'
+import { ROW_TIER_SUITE } from './rowTierSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -565,7 +566,7 @@ export const PARITY_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏树外观与几何对齐官方（PARITY 套件，260/340/500 三档宽度）',
   expect:
-    '同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索栏两态、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。**搜索栏（#132 起两态）**：两侧默认都是折叠态，所以先在默认的折叠态下比一遍（28px 圆胶囊那一支），再把两侧各自点开、同处展开态后进主循环（30px / 10px 圆角那一支）——两态都覆盖，不是只比一态。四组例外都写明了理由：**列表容器只比宽度**（自有树多一条分组过滤条，容器矮一行是功能带来的）、**相对时间只比高度**（#109 的 E7 把当前工作区那一组排到最前，官方页仍按注册顺序，两侧取到的可能是不同会话的相对时间，而宽度正是被文本撑出来的）、**搜索栏只比样式不比矩形**（自有树顶栏比官方多几枚图标，可用宽度本来就不同）、**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。',
+    '同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索栏两态、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。**搜索栏（#132 起两态）**：两侧默认都是折叠态，所以先在默认的折叠态下比一遍（28px 圆胶囊那一支），再把两侧各自点开、同处展开态后进主循环（30px / 10px 圆角那一支）——两态都覆盖，不是只比一态。四组例外都写明了理由：**列表容器只比宽度**（自有树多一条分组过滤条，容器矮一行是功能带来的）、**相对时间只比高度**（#109 的 E7 把当前工作区那一组排到最前，官方页仍按注册顺序，两侧取到的可能是不同会话的相对时间，而宽度正是被文本撑出来的）、**搜索栏只比样式不比矩形**（自有树顶栏比官方多几枚图标，可用宽度本来就不同）、**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（菜单一侧的 VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。'**#134 起还多一条更强的口径**：行家族（工作区行 / 会话行）本来就是官方标准档，所以**不用对齐密度变量**就该与官方基准逐项相等（行高 / 圆角 / 左右内边距四项）——这条把「行回到官方几何」钉在真页面上，也让 PARITY 的对照从「对齐后才可比」收紧成「行这一族直接可比」。'
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const own = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -582,11 +583,42 @@ export const PARITY_SUITE: LabSuite = {
       await own.page.waitForTimeout(300)
       await official.page.waitForTimeout(300)
 
+      // ---- #134：行家族默认即官方档（不必先对齐密度变量）----
+      // 这一组是本套件比 #134 之前更强的地方：行高 / 圆角 / 左右内边距四项在**未对齐**的
+      // VS Code 档下就与官方基准逐项相等（行家族取官方标准档的直接后果）。#134 之前行在
+      // VS Code 档是 26px / 5px / 7px，这些比对必须先对齐变量才成立。
+      const rowProps = ['height', 'borderRadius', 'paddingLeft', 'paddingRight'] as const
+      const ownRows = {
+        projectRow: await samplePair(own.page, 'projectRow', rowProps),
+        sessionRow: await samplePair(own.page, 'sessionRow', rowProps),
+      }
+      const officialRows = {
+        projectRow: await samplePair(official.page, 'projectRow', rowProps),
+        sessionRow: await samplePair(official.page, 'sessionRow', rowProps),
+      }
+      for (const suffix of ['projectRow', 'sessionRow'] as const) {
+        const a = ownRows[suffix]
+        const b = officialRows[suffix]
+        check.ok(`#134 行家族：两侧都取到 ${suffix} 元素`, a.found && b.found, `own=${String(a.found)} official=${String(b.found)}`)
+        if (!a.found || !b.found) continue
+        check.fact(`#134 ${suffix}（未对齐密度变量）：own=${JSON.stringify(a.styles)} official=${JSON.stringify(b.styles)}`)
+        for (const prop of rowProps) {
+          check.eq(
+            `#134 行家族默认即官方档：${suffix} 的 ${prop} 未对齐密度变量就与官方相等`,
+            a.styles[prop],
+            b.styles[prop],
+          )
+        }
+      }
+
       // ---- 密度档：先量 VS Code 档（现况），再把它对齐到官方兜底值 ----
-      const vscodeDensity = await samplePair(own.page, 'projectRow', ['height'])
-      const officialDensity = await samplePair(official.page, 'projectRow', ['height'])
+      // 探针用**顶栏那一行**（分节头）：它仍是紧凑档（VS Code 侧 26px vs 官方 36px），
+      // 所以「密度变量真的下发了」还量得出来。#134 之前这里用的是行高——行家族回标准档后
+      // 两边同值，那个探针已经量不出差异了。
+      const vscodeDensity = await samplePair(own.page, 'sectionHeader', ['height'])
+      const officialDensity = await samplePair(official.page, 'sectionHeader', ['height'])
       check.ok(
-        '#85 密度档：VS Code 侧的分组行比官方档紧（同一个 frame 上真的下发了密度变量）',
+        '#85 密度档：VS Code 侧的顶栏那一行比官方档紧（同一个 frame 上真的下发了密度变量）',
         Number.parseFloat(vscodeDensity.styles.height ?? '0') < Number.parseFloat(officialDensity.styles.height ?? '0'),
         `own=${vscodeDensity.styles.height} official=${officialDensity.styles.height}`,
       )
@@ -620,7 +652,7 @@ export const PARITY_SUITE: LabSuite = {
       check.eq(
         '密度档：把变量对齐到官方兜底值后，自有树与官方基准逐项一致（官方档是无人给偏好时的兜底）',
         alignedDensity.styles.height,
-        officialDensity.styles.height,
+        officialRows.projectRow.styles.height,
       )
 
       // ---- 搜索栏：两侧默认折叠态先比一遍（#132 起两边都默认收起，这是同一份现场） ----
@@ -1993,6 +2025,26 @@ const DENSITY_REGIONS: ReadonlyArray<{
   { region: '抽屉列表', where: 'drawer', selector: '.dshOneTree_drawerList', props: ['paddingRight', 'paddingBottom'] },
 ]
 
+/**
+ * #134 起「行家族取官方标准档」落到这四区里的**测量点**：这些属性两个档同值（回标准档了），
+ * 不能再按「紧凑档严格更小」判。名单是按**密度键**推出来的（见 sidebarFramePlugin.ts 的密度表）：
+ * - `抽屉会话行`：行高吃 `session-row-height`、左右内边距吃 `row-padding-inline`——两个键都是
+ *   行家族键，#134 起两边同值（32px / 8px）；
+ * - `抽屉分块块头` / `抽屉头` 的左内边距与 `回收站入口主区` 的左右内边距：吃的是**行内容基准**
+ *   `row-padding-inline`（它们要与行的文字左缘对齐），跟着行一起回官方 8px；
+ * - 抽屉头与块头的**高度**、入口主区的**高度**都不在这份名单里：它们的行高键
+ *   （`section-header-height` / `drawer-block-header-height` / `footer-row-height`）仍是紧凑档，
+ *   照样得严格更紧——这正是「只放开了行，其他控件没被顺带放开」那条口径的落地。
+ * 名单里没有的区域（顶栏 / 图标按钮 / 过滤条 / 胶囊 / 入口动作按钮 / 抽屉列表）每一项都仍按
+ * 「紧凑档严格更小」判。
+ */
+const ROW_FAMILY_SAME: Readonly<Record<string, readonly string[]>> = {
+  抽屉会话行: ['height', 'paddingLeft', 'paddingRight'],
+  抽屉分块块头: ['paddingLeft', 'paddingRight'],
+  抽屉头: ['paddingLeft'],
+  回收站入口主区: ['paddingLeft', 'paddingRight'],
+}
+
 type DensityReading = Record<string, Record<string, number>>
 
 /** 读一组区域的几何（元素不在就不进表——报告里会作为事实记一笔）。 */
@@ -2059,16 +2111,17 @@ async function restoreDensity(page: OpenedPage['page']): Promise<void> {
  * 抽屉）。这条套件量的是**同一页、同一数据、三档宽度**下两种密度状态的几何差：
  * 宿主给的 VS Code 档 vs 把变量对齐回官方兜底值（= 官方档）。
  *
- * 判据只有一条、但要求严格：**四区的每一项几何，紧凑档都必须严格小于官方原值**——
- * 「兜底 = 官方」由外壳契约套件在源码层守（键集 + 兜底字面量），这里守的是「这套变量
- * 真的把这几块变紧了」，而不是只在列表行上生效。
+ * 判据两条（#134 起口径重写）：**行家族回标准档的那几处测量点两个档同值**（`ROW_FAMILY_SAME`
+ * 名单，行高 / 行内容基准跟着行回官方原值），**其余每一项紧凑档仍必须严格小于官方原值**——
+ * 「兜底 = 官方」由外壳契约套件在源码层守（键集 + 兜底字面量），这里守的是「这套变量真的把
+ * 这几块变紧了」，而不是只在列表行上生效。
  */
 export const DENSITY_SPREAD_SUITE: LabSuite = {
   id: 'F-13',
   phase: 'new-feature',
-  name: '侧栏密度档扩散（#104）：顶栏 / 分组过滤条 / 回收站入口行 / 抽屉在三档宽度下都更紧凑（DENSITY-SPREAD 套件）',
+  name: '侧栏密度档扩散（#104，口径按 #134 重写）：顶栏 / 分组过滤条 / 回收站入口行 / 抽屉在三档宽度下的密度对照（DENSITY-SPREAD 套件）',
   expect:
-    '同一页、同一数据、260/340/500 三档宽度下，把自有树的密度变量从宿主给的 VS Code 档切到它自己声明的官方兜底值（= 官方档），四区的几何逐一比较：顶栏行（高/左内边距/行内间隙）、顶栏图标按钮（宽高）、顶栏动作组间隙、分组过滤条（左内边距/间隙）、分组胶囊（高/字号/间隙/左右内边距）、回收站入口行（右内边距，左内缩归 0、由主区自己承担）、入口主区（高/左右内边距）、入口动作按钮（宽高）、抽屉头（高/左右内边距/间隙）、抽屉分块块头（高/左右内边距）、抽屉会话行（高/左右内边距）、抽屉列表（右内边距/底部留白，左内缩同样归 0）——**每一项紧凑档都严格小于官方原值**，且同一区域在三档宽度下的紧凑读数一致（密度是容器给的，不随宽度漂）。同时钉住「对齐到官方兜底值后读数确实变大」（说明这两组读数真的来自那套变量，不是量到了别的东西）。全程零 pageerror。',
+    '同一页、同一数据、260/340/500 三档宽度下，把自有树的密度变量从宿主给的 VS Code 档切到它自己声明的官方兜底值（= 官方档），四区的几何逐一比较：顶栏行（高/左内边距/行内间隙）、顶栏图标按钮（宽高）、顶栏动作组间隙、分组过滤条（左内边距/间隙）、分组胶囊（高/字号/间隙/左右内边距）、回收站入口行（左右内边距）、入口主区（高/左右内边距）、入口动作按钮（宽高）、抽屉头（高/左右内边距/间隙）、抽屉分块块头（高/左右内边距）、抽屉会话行（高/左右内边距）、抽屉列表（左右内边距/底部留白）。判据分两类（#134 行家族取官方标准档之后的口径）：① **行家族回标准档的那些测量点两个档同值**——抽屉会话行（高 32px / 左右内边距 8px）、抽屉头与抽屉分块块头的左内边距、回收站入口主区的左右内边距（后三处吃的是「行内容基准」，跟着行一起回 8px）；② **其余每一项紧凑档仍严格小于官方原值**（含抽屉头与块头的高度、入口主区的高度——它们自己的行高键仍是紧凑档，不能跟着放开）。另钉住三件：**行族同值那几项真的量到了**（名单至少覆盖 6 项，否则说明这一轮改动没跑到）、**判「严格更紧」的项仍足够多**（至少 15 项，否则套件等于空跑）、同一区域在三档宽度下的紧凑读数一致（密度是容器给的，不随宽度漂）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const widths = [260, 340, 500] as const
@@ -2077,9 +2130,18 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
     try {
       const treeRegions = DENSITY_REGIONS.filter((spec) => spec.where === 'tree')
       const drawerRegions = DENSITY_REGIONS.filter((spec) => spec.where === 'drawer')
+      // #134 之后的两类判据各自量到多少项：末了用它守住「口径重写没把套件改空」。
+      let tighterChecks = 0
+      let sameChecks = 0
       check.fact(
         `量法：同一页两种密度状态（宿主给的 VS Code 档 vs 内联官方兜底值），三档宽度 ${widths.join('/')}。` +
           `抽屉关着量 ${treeRegions.map((spec) => spec.region).join('、')}；抽屉开着量 ${drawerRegions.map((spec) => spec.region).join('、')}`,
+      )
+      check.fact(
+        `#134 行家族回标准档的测量点（判「两边同值」而不是「更紧」）：` +
+          Object.entries(ROW_FAMILY_SAME)
+            .map(([region, props]) => `${region}.${props.join('/')}`)
+            .join('；'),
       )
 
       // ---- 树区四件：三档宽度 × 两种密度状态 ----
@@ -2116,16 +2178,24 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
             `compact=${String(owner !== undefined)} official=${String(base !== undefined)}`,
           )
           if (owner === undefined || base === undefined) continue
+          const same = ROW_FAMILY_SAME[spec.region] ?? []
           const rows = spec.props.map((prop) => ({
             prop,
             compact: owner[prop] ?? Number.NaN,
             official: base[prop] ?? Number.NaN,
+            relation: same.includes(prop) ? ('same' as const) : ('tighter' as const),
           }))
-          const loose = rows.filter((row) => !(row.compact < row.official))
+          for (const row of rows) {
+            if (row.relation === 'same') sameChecks += 1
+            else tighterChecks += 1
+          }
+          const wrong = rows.filter((row) =>
+            row.relation === 'same' ? row.compact !== row.official : !(row.compact < row.official),
+          )
           check.ok(
-            `w=${String(width)} ${spec.region}：每一项紧凑档都严格小于官方原值`,
-            loose.length === 0,
-            rows.map((row) => `${row.prop} ${String(row.compact)}<${String(row.official)}`).join(' '),
+            `w=${String(width)} ${spec.region}：行家族回标准档的那几项两边同值（=）、其余每一项紧凑档仍严格更小（<）`,
+            wrong.length === 0,
+            rows.map((row) => `${row.prop} ${String(row.compact)}${row.relation === 'same' ? '=' : '<'}${String(row.official)}`).join(' '),
           )
         }
       }
@@ -2180,12 +2250,24 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
             check.fact(`w=${String(width)} ${spec.region}：这一轮没有这个元素（网关归档集合为空时抽屉只出状态行）——跳过`)
             continue
           }
-          const rows = spec.props.map((prop) => ({ prop, compact: owner[prop] ?? Number.NaN, official: base[prop] ?? Number.NaN }))
-          const loose = rows.filter((row) => !(row.compact < row.official))
+          const same = ROW_FAMILY_SAME[spec.region] ?? []
+          const rows = spec.props.map((prop) => ({
+            prop,
+            compact: owner[prop] ?? Number.NaN,
+            official: base[prop] ?? Number.NaN,
+            relation: same.includes(prop) ? ('same' as const) : ('tighter' as const),
+          }))
+          for (const row of rows) {
+            if (row.relation === 'same') sameChecks += 1
+            else tighterChecks += 1
+          }
+          const wrong = rows.filter((row) =>
+            row.relation === 'same' ? row.compact !== row.official : !(row.compact < row.official),
+          )
           check.ok(
-            `w=${String(width)} ${spec.region}：每一项紧凑档都严格小于官方原值`,
-            loose.length === 0,
-            rows.map((row) => `${row.prop} ${String(row.compact)}<${String(row.official)}`).join(' '),
+            `w=${String(width)} ${spec.region}：行家族回标准档的那几项两边同值（=）、其余每一项紧凑档仍严格更小（<）`,
+            wrong.length === 0,
+            rows.map((row) => `${row.prop} ${String(row.compact)}${row.relation === 'same' ? '=' : '<'}${String(row.official)}`).join(' '),
           )
         }
       }
@@ -2198,6 +2280,11 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
           })
           .join('；')}`,
       )
+      // 口径重写（#134）之后守住这套件没被改空：两类判据各自都要量到足够多的项。
+      // 「两边同值」那一类至少 6 项（行族那几处测量点）、「严格更紧」那一类至少 15 项
+      // （#134 只放开了行家族，四区其余几何仍必须由密度变量压紧）。
+      check.ok('行家族回标准档的测量点真的量到了（两类判据里的「同值」一类 ≥ 6 项）', sameChecks >= 6, `项数=${String(sameChecks)}`)
+      check.ok('仍按「紧凑档严格更紧」判的项足够多（≥ 15 项，套件没被改空）', tighterChecks >= 15, `项数=${String(tighterChecks)}`)
       screenshots.push(await shot(ctx, page, 'density-spread-drawer-340'))
       await page.click('[data-dshone-tree-action="recycle-close"]')
       // 收起有滑出过渡（#117）：等过渡跑完抽屉才从 DOM 里消失，所以这里等得比过渡长。
@@ -5926,4 +6013,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #132 顶栏搜索栏改回收起 / 展开两态（F-36：F-30…F-35 已被 #123/#124/#126/#131/#127/#125 占走，
   // 按「从未占用的继续」顺延；套件本体在 searchCollapseSuites.ts，同为独立文件，少一处合入热点）。
   SEARCH_COLLAPSE_SUITE,
+  // #134 行家族取官方标准档（F-37：F-33 归 #131、F-34 归 #127、F-35 归 #125、F-36 归 #132，按「从未占用的继续」顺延
+  // 两个套件取用，按「从未占用的继续」顺延；套件本体在 rowTierSuites.ts，同为独立文件）。
+  ROW_TIER_SUITE,
 ]
