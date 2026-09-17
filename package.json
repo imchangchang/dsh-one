@@ -168,7 +168,8 @@
     "verify:plugins-official": "npm run build && node scripts/verify-plugins-official.mjs",
     "verify:lab": "npm run build && node test/assembly-lab/verify.ts",
     "package": "npm run build && vsce package",
-    "verify:install-guide": "node --import ./test/install-guide/register.mjs test/install-guide/smoke.mjs"
+    "verify:install-guide": "node --import ./test/install-guide/register.mjs test/install-guide/smoke.mjs",
+    "verify:legacy-sidebar": "npm run build && node --experimental-transform-types --disable-warning=ExperimentalWarning --import ./test/legacy-sidebar/register.mjs test/legacy-sidebar/verify.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
