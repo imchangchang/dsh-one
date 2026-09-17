@@ -23,9 +23,6 @@ export const GIT_INFO_FORMAT = '%H%x00%an%x00%ae%x00%aI%x00%s%x00%b%x00'
 /** 消息正文里可点的 commit hash：7–40 位 hex，两端不能相邻 hex（避免切开长 hex 串/英文词）。 */
 export const COMMIT_SHA_RE = /(?<![0-9a-fA-F])([0-9a-fA-F]{7,40})(?![0-9a-fA-F])/g
 
-/** 宿主侧参数校核用的严格形状（比正文扫描更严：不认两端邻接字符）。 */
-export const COMMIT_SHA_ARG_RE = /^[0-9a-fA-F]{7,40}$/
-
 /** --shortstat 的变更统计（字段与 vscode.git Commit.shortStat 同形，缺失即 undefined）。 */
 export interface GitShortStat {
   files?: number

@@ -22,20 +22,6 @@ export interface TagBridgeRecord {
   token: string
 }
 
-/** 桥支持的操作：assign（增/改，归组）、get（查）、unassign（删，清归属）。 */
-export type TagBridgeAction = 'assign' | 'get' | 'unassign'
-
-/** 一个标签组的引用（查/归组结果里标识组）。预设组 name 为 null（显示名走 l10n）。 */
-export interface TagGroupRef {
-  workspaceId: string
-  id: string
-  /** 显示名；null = 预设组（todo/doing/done），由调用方按 preset 翻译。 */
-  name: string | null
-  color: TagColor
-  /** 是否预设组。 */
-  preset: boolean
-}
-
 /** 归一化后的桥请求（已通过校验）。 */
 export type TagBridgeRequest =
   | { action: 'assign'; sessionIds: string[]; group?: string; tagId?: string }

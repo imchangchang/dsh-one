@@ -21,11 +21,6 @@ import { deleteState, readState, writeState } from '../../packages/dsh-host-capa
 /** 状态三件套的调用名（与 `HOST_CALLS` 白名单里的名字一致）。 */
 export type HostStateCall = 'state.read' | 'state.write' | 'state.delete'
 
-/** 调用名判定（不在这三个里返回 null，由调用方走别的分支）。 */
-export function asHostStateCall(call: string): HostStateCall | null {
-  return call === 'state.read' || call === 'state.write' || call === 'state.delete' ? call : null
-}
-
 /** 回执载荷：读给 `value`，删给 `deleted`，写给空对象。 */
 export interface HostStateResult {
   value?: unknown
