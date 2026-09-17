@@ -494,7 +494,7 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
         `没有标签组时「移到分组…」展开后子项：${JSON.stringify(bareExpanded.children.map((child) => child.text))}`,
       )
       check.eqTexts('没有标签组时只剩两条固定入口（不归入标签组 / 新建标签组）', bareExpanded.children.map((child) => child.text), [
-        '移出标签组',
+        '不归入标签组',
         '新建标签组',
       ])
       check.ok(
@@ -596,7 +596,7 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
       check.eqTexts('展开出四个子项（组一 / 组二 / 不归入标签组 / 新建标签组）', expanded.children.map((child) => child.text), [
         '组一',
         '组二',
-        '移出标签组',
+        '不归入标签组',
         '新建标签组',
       ])
       check.eq('展开后菜单没关（子项追加在同一份菜单里，就地展开）', expanded.menuCount, 1)
