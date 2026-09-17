@@ -18,6 +18,7 @@ npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @
 | `npm run typecheck` | `tsc --noEmit`。注意 import 都带 `.ts` 后缀（`allowImportingTsExtensions` + `verbatimModuleSyntax`），新增 import 要遵守。 |
 | `npm test` | `node --test test/*.test.ts`，只覆盖 `src/pure/`。改 pure 模块必须跑。 |
 | `npm run verify:lab` | 先 `npm run build`，再用 Playwright 跑装配的**浏览器验证**（harness 在 `test/assembly-lab/`）：四棵树在真实 dsh 网关（只读）上零槽位崩溃/零缺失契约、三树冒烟渲染、关键交互、侧栏树与官方外观逐项对齐、宿主能力口语义。需要本机有在跑的 dsh 网关（缺省 3080，token 读 `~/.dsh/dsh-owned.json`）；产物在 `test/assembly-lab/out/`（gitignored）。改装配相关代码后必跑，细节见 `test/assembly-lab/README.md`。 |
+| `npm run verify:clean-profile` | 干净 profile 门禁（#165）：在临时目录里起一个全新 `DSH_HOME`、把 `packages/` 下的自有插件包装进 profile、再起一个独立端口的 dsh，然后用装配实验室那套装配页逐棵树打开，核对「干净 profile 上装配页能起来」（不读 `~/.dsh/dsh-owned.json`、不碰你正在跑的实例，跑完按 PID 收掉）。细节与为什么要单列一条见 `test/assembly-lab/README.md`。 |
 | `npm run verify:install-guide` | 用 Playwright 跑**宿主侧那两页**的冒烟（harness 在 `test/install-guide/`）：安装引导 tab（按钮/下拉含选中态与外链/命令随平台更换/复制成功与失败反馈/分段切换）与侧栏状态页（未安装/启动中/未运行/启动失败/装配失败各自画成什么样、按钮发什么消息），页面都由真实宿主代码渲染（`vscode` 顶上假实现），明暗两态各跑一遍并留截图。不需要网关（这两页都不参与装配树）；`SMOKE_LOCALE=zh-cn` 用真中文译文渲染，产物在 `test/install-guide/out/`（gitignored），细节见 `test/install-guide/README.md`。状态页跟随服务状态变化（宿主侧订阅）由 `npm test` 的 `test/sidebarStatusPage.test.ts` 覆盖。 |
 | `npm run package` | 先 build，再 `vsce package` 打出 `.vsix`（`.vscodeignore` 排除了 src/test/node_modules 等，VSIX 里只有 dist + 清单 + 图标等）。 |
 
