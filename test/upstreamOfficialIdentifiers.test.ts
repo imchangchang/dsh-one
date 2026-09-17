@@ -126,7 +126,9 @@ test('清单形状：每条都有出处文件、形状、理由与我方使用�
 
 test('清单里的我方使用点指向的文件都还在', () => {
   for (const dep of mod.IDENTIFIERS) {
-    const files = [...dep.where.matchAll(/src\/[\w./-]+\.ts/g)].map((m) => m[0])
+    // 我方使用点：仓库根的 `src/...` 或插件包的 `packages/.../src/...`（#94 起可移植
+    // 插件的本体住在包里）。边界用前视排除包路径里的内层 `src/`，免得拼出半个路径。
+    const files = [...dep.where.matchAll(/(?<![\w/.-])((?:src|packages)\/[\w./-]+\.ts)/g)].map((m) => m[1])
     assert.ok(files.length > 0, `${dep.id} 的使用点里没有 src/… 文件`)
     for (const rel of files) {
       assert.ok(fs.existsSync(path.join(ROOT, rel)), `${dep.id} 的使用点文件不存在: ${rel}`)
