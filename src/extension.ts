@@ -597,8 +597,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to copy a link for.'))
         return
       }
-      await vscode.env.clipboard.writeText(browserUrl(status.url))
-      void vscode.window.showInformationMessage(vscode.l10n.t('Local access link copied (with token).'))
+      const link = browserUrl(status.url)
+      await vscode.env.clipboard.writeText(link)
+      // 0.1.1（无 token 的 legacy 实例）复制出来的是干净 URL，不能报「含 token」。
+      void vscode.window.showInformationMessage(
+        link.includes('token=')
+          ? vscode.l10n.t('Local access link copied (with token).')
+          : vscode.l10n.t('Local access link copied.'),
+      )
     }),
     vscode.commands.registerCommand('dshOne.copyLanLink', async () => {
       const status = manager.getStatus()
@@ -615,7 +621,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // 开 = 把服务暴露给局域网，安全影响必须先讲清（拿到链接的人都能用）。
     vscode.commands.registerCommand('dshOne.restartLan', async () => {
       if (manager.getStatus().state !== 'running') {
-        void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to copy a link for.'))
+        void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to restart.'))
         return
       }
       const proceed = vscode.l10n.t('Restart for LAN access')
@@ -631,6 +637,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await manager.restart()
     }),
     vscode.commands.registerCommand('dshOne.restartLocal', async () => {
+      // 与 restartLan 同样先判运行态：否则「重启」会把没跑的服务直接拉起来，
+      // 而用户点的是「切回仅本机」。
+      if (manager.getStatus().state !== 'running') {
+        void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to restart.'))
+        return
+      }
       await vscode.workspace.getConfiguration('dshOne').update('lanAccess', false, vscode.ConfigurationTarget.Global)
       await manager.restart()
     }),

@@ -13,10 +13,18 @@
 import { gte, parse } from './semver.ts'
 
 /**
- * `--trusted-host` 旗标的最低可用版本：以本仓库实测过的 0.1.6-alpha.1 为门槛
- * （0.1.5-rc.1 起是否存在未验证，宁可不开也不让未知旗标把 spawn 直接弄失败）。
+ * `--trusted-host` 旗标的最低可用版本 = 0.1.5-rc.1。取证（2026-09-17，从 npm registry
+ * 拉 tarball 逐版核对，不靠推断）：
+ * - `@deepseek-ai/dsh-web-app` 的 `lib/startup.js` 里 `--trusted-host` 旗标在
+ *   0.1.3-alpha.2 / 0.1.5-rc.1 / 0.1.5-rc.2 / 0.1.6-alpha.1 都存在，
+ *   `cordis.patch.yml` 也都有 `trustedHosts` 接线；
+ * - `@deepseek-ai/dsh-client-connection` 的栅栏 `isTrustedAuthority`
+ *   （0.1.5-rc.1 `lib/index.js:188-194`）语义与 0.1.6-alpha.1 一致：**不带端口的
+ *   条目按主机名匹配任意端口**（源码注释原文「port-less `host` matching any port」）
+ *   ——这正是端口回退（findFreePort 换端口）时还能连通的依据。
+ * 更低版本（0.1.2-rc.1 等）没有该旗标，传了会让 spawn 直接失败，所以必须有门槛。
  */
-export const TRUSTED_HOST_MIN_VERSION = '0.1.6-alpha.1'
+export const TRUSTED_HOST_MIN_VERSION = '0.1.5-rc.1'
 
 /** 该 dsh 版本是否支持 `--trusted-host`；版本解析不出（unknown）按不支持处理。 */
 export function supportsTrustedHost(version: string | undefined): boolean {

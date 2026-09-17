@@ -50,10 +50,16 @@ test('isPrivateIPv4：段边界与非法输入', () => {
   assert.equal(isPrivateIPv4('999.1.1.1'), false)
 })
 
-test('supportsTrustedHost：0.1.6-alpha.1 起，unknown / 旧版 / 乱串都不支持', () => {
+test('supportsTrustedHost：门槛 0.1.5-rc.1（取证见 pure/lanAccess.ts 注释）', () => {
+  // 门槛两侧：0.1.5-rc.1 及以上支持；0.1.5-alpha.1 及以下不支持（旧版没有该旗标，
+  // 传了会让 spawn 直接失败）。
+  assert.equal(supportsTrustedHost('0.1.5-rc.1'), true)
+  assert.equal(supportsTrustedHost('0.1.5-rc.2'), true)
   assert.equal(supportsTrustedHost('0.1.6-alpha.1'), true)
   assert.equal(supportsTrustedHost('0.1.6'), true)
-  assert.equal(supportsTrustedHost('0.1.5-rc.2'), false)
+  assert.equal(supportsTrustedHost('0.1.5-alpha.2'), false)
+  assert.equal(supportsTrustedHost('0.1.2-rc.1'), false)
+  // 版本解析不出（unknown / 空）按不支持处理——不许拿未知版本去赌旗标存在。
   assert.equal(supportsTrustedHost('unknown'), false)
   assert.equal(supportsTrustedHost(undefined), false)
   assert.equal(supportsTrustedHost(''), false)

@@ -26,5 +26,5 @@
   "dshOne.dshPath.description": "dsh 可执行文件路径。留空则从 PATH 查找。",
   "dshOne.autoStart.description": "激活扩展时自动启动（或复用）dsh web 服务。",
   "dshOne.port.description": "dsh web 服务端口。0 表示由操作系统分配；非 0 时会先探测该端口上是否已有 dsh 实例并复用之。注意 0 会让 dsh UI 的会话恢复失效（localStorage 按 origin 隔离）。",
-  "dshOne.lanAccess.description": "把 dsh 网页服务暴露到局域网。dsh 本身始终只监听 127.0.0.1；开启后 dsh One 会在你的局域网地址上启动转发器，并以 --trusted-host 启动 dsh，局域网设备即可打开带 token 的链接。注意：同一网络内拿到链接的人都能使用 dsh。"
+  "dshOne.lanAccess.description": "把 dsh 网页服务暴露到局域网（重启 dsh 服务后生效）。dsh 本身始终只监听 127.0.0.1；开启后 dsh One 会在你的局域网地址上启动转发器，并以 --trusted-host 启动 dsh，局域网设备即可打开带 token 的链接。注意：同一网络内拿到链接的人都能使用 dsh。平时用状态栏动作面板切换即可，不必手改这一项。"
 }

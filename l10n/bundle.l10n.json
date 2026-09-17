@@ -27,6 +27,8 @@
   "LAN access is off (local only).": "LAN access is off (local only).",
   "LAN access is off": "LAN access is off",
   "Local access link copied (with token).": "Local access link copied (with token).",
+  "No running dsh to restart.": "No running dsh to restart.",
+  "Local access link copied.": "Local access link copied.",
   "LAN access link copied (with token).": "LAN access link copied (with token).",
   "No running dsh to copy a link for.": "No running dsh to copy a link for.",
   "LAN access is not enabled for this instance.": "LAN access is not enabled for this instance.",

@@ -102,3 +102,69 @@ test('LanForwarder：重复 start 先停旧的；绑定失败即不在监听态'
   await assert.rejects(() => forwarder.start('127.0.0.1', portA, upstreamPort))
   assert.equal(forwarder.isActive, false)
 })
+
+test('LanForwarder：绑定失败后重试能成功（对端退出后接管）', async (t) => {
+  const upstreamPort = await listenEchoKeep()
+  const forwarderPort = await freePort()
+  const forwarder = new LanForwarder(logger)
+  t.after(() => {
+    forwarder.stop()
+    for (const server of servers) server.close()
+  })
+
+  // 先让别的进程占住该端口（模拟另一个窗口已在这个地址上转发）。
+  const blocker = net.createServer()
+  servers.push(blocker)
+  await new Promise<void>((resolve) => blocker.listen(forwarderPort, '127.0.0.1', resolve))
+  await assert.rejects(() => forwarder.start('127.0.0.1', forwarderPort, upstreamPort))
+  assert.equal(forwarder.isActive, false)
+
+  // 「对端窗口退出」后重试：应当接管成功、透传恢复。
+  await new Promise<void>((resolve) => blocker.close(() => resolve()))
+  await forwarder.start('127.0.0.1', forwarderPort, upstreamPort)
+  assert.equal(forwarder.isActive, true)
+  assert.equal(await roundTrip('127.0.0.1', forwarderPort, 'taken-over'), 'taken-over')
+})
+
+test('LanForwarder：并发 start 只监听一次（in-flight 复用）', async (t) => {
+  const upstreamPort = await listenEchoKeep()
+  const forwarderPort = await freePort()
+  const forwarder = new LanForwarder(logger)
+  t.after(() => {
+    forwarder.stop()
+    for (const server of servers) server.close()
+  })
+
+  await Promise.all([
+    forwarder.start('127.0.0.1', forwarderPort, upstreamPort),
+    forwarder.start('127.0.0.1', forwarderPort, upstreamPort),
+  ])
+  assert.equal(forwarder.isActive, true)
+  assert.equal(await roundTrip('127.0.0.1', forwarderPort, 'once'), 'once')
+})
+
+test('LanForwarder：stop 会断开已建立的连接', async (t) => {
+  const upstreamPort = await listenEchoKeep()
+  const forwarderPort = await freePort()
+  const forwarder = new LanForwarder(logger)
+  t.after(() => {
+    forwarder.stop()
+    for (const server of servers) server.close()
+  })
+
+  await forwarder.start('127.0.0.1', forwarderPort, upstreamPort)
+  // 建一条长连接（连上后不发完就不关），stop 后它应被断开。
+  const socket = net.connect({ host: '127.0.0.1', port: forwarderPort })
+  await new Promise<void>((resolve, reject) => {
+    socket.once('connect', () => resolve())
+    socket.once('error', reject)
+  })
+  const closed = new Promise<boolean>((resolve) => socket.once('close', () => resolve(true)))
+  forwarder.stop()
+  const timedOut = await Promise.race([
+    closed,
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2_000)),
+  ])
+  socket.destroy()
+  assert.equal(timedOut, true, 'stop 之后已建立连接应被断开')
+})

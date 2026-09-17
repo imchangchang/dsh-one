@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import { spawn, spawnSync } from 'node:child_process'
 import * as fsp from 'node:fs/promises'
+import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { parseReadyLine, type ReadyInfo } from '../pure/readyLine.ts'
@@ -90,11 +91,18 @@ export class ServerManager implements vscode.Disposable {
   /** 局域网转发器（懒建：字段初始化时 logger 还没被参数属性赋值）。 */
   private lan: LanForwarder | null = null
   /**
-   * 当前实例的局域网能力：spawn 时带了 `--trusted-host <ip>`（或 re-own 的记录里
+   * 当前实例的局域网标志：spawn 时带了 `--trusted-host <ip>`（或 re-own 的记录里
    * 有）才有值。它只代表「网关认这个局域网地址」，转发器没在跑时局域网依然不通。
+   *
+   * 命名避开标准词「宿主能力口（host capability port）」——那是前端插件请求宿主
+   * 能力的通道，与这里无关。
    */
   private currentLanIp?: string
   private lanBindFailureNotified = false
+  /** 另一个窗口已在 `<ip>:<port>` 上转发（我们绑不上，但探测到有人在听）。 */
+  private lanForwardedByPeer?: string
+  private lanRetryTimer: NodeJS.Timeout | null = null
+  private lanRetryCount = 0
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -104,11 +112,12 @@ export class ServerManager implements vscode.Disposable {
   }
 
   /**
-   * 局域网访问地址：转发器正在监听的 `<ip>`（此时局域网链接才真的可达）。
-   * undefined = 局域网访问不可用（没开、能力缺失或转发器没起来）。
+   * 局域网访问地址：本窗口转发器正在监听的 `<ip>`，或探测到**另一个窗口**已经在
+   * `<ip>` 上转发（多窗口共用一个局域网地址+端口，先到者持有监听）。
+   * undefined = 局域网访问不可用（没开、局域网标志缺失、转发器没起来）。
    */
   get lanAddress(): string | undefined {
-    return this.lanForwarder.boundIp
+    return this.lanForwarder.boundIp ?? this.lanForwardedByPeer
   }
 
   private get lanForwarder(): LanForwarder {
@@ -141,19 +150,100 @@ export class ServerManager implements vscode.Disposable {
    */
   private syncLanForwarder(next: ServerStatus): void {
     if (next.state !== 'running' || !this.currentLanIp || !this.lanSettingOn() || !next.port) {
-      this.lanForwarder.stop()
+      this.stopLanForwarder()
       return
     }
-    void this.lanForwarder.start(this.currentLanIp, next.port).catch((err: unknown) => {
-      const detail = err instanceof Error ? err.message : String(err)
-      this.logger.warn(`lan forwarder failed to bind ${this.currentLanIp}:${next.port}: ${detail}`)
-      if (!this.lanBindFailureNotified) {
-        this.lanBindFailureNotified = true
-        void vscode.window.showWarningMessage(
-          vscode.l10n.t('LAN access is unavailable: {0}', detail),
-        )
+    const lanIp = this.currentLanIp
+    const port = next.port
+    void this.lanForwarder
+      .start(lanIp, port)
+      .then(() => {
+        // 自己绑上了：无论之前是不是别的窗口在转发，都清掉对端标记与重试计数。
+        this.lanForwardedByPeer = undefined
+        this.clearLanRetry()
+      })
+      .catch(async (err: unknown) => {
+        const detail = err instanceof Error ? err.message : String(err)
+        // 多窗口共用同一个 `<局域网地址>:<端口>`：后到者必然 EADDRINUSE。这不是故障
+        // ——先到者已经在转发，局域网本来就通。探测到有人在听就按「对端在转发」处理，
+        // 而且不报错；等对端窗口退出后由重试接管。
+        if (await this.lanListening(lanIp, port)) {
+          this.logger.info(`lan forwarder: ${lanIp}:${port} is already served by another window`)
+          this.lanForwardedByPeer = lanIp
+          this.clearLanRetry()
+          return
+        }
+        this.logger.warn(`lan forwarder failed to bind ${lanIp}:${port}: ${detail}`)
+        this.scheduleLanRetry()
+        if (!this.lanBindFailureNotified) {
+          this.lanBindFailureNotified = true
+          void vscode.window.showWarningMessage(
+            vscode.l10n.t('LAN access is unavailable: {0}', detail),
+          )
+        }
+      })
+  }
+
+  /** `<ip>:<port>` 上是否已经有监听（用来区分「别的窗口在转发」与真失败）。 */
+  private lanListening(lanIp: string, port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const socket = net.connect({ host: lanIp, port })
+      const done = (ok: boolean) => {
+        socket.destroy()
+        resolve(ok)
       }
+      socket.setTimeout(1_500)
+      socket.once('connect', () => done(true))
+      socket.once('error', () => done(false))
+      socket.once('timeout', () => done(false))
     })
+  }
+
+  /**
+   * 绑定失败后的重试：对端窗口退出后由本窗口接管（局域网不至于静默失效）。
+   * 10 秒一次、最多 30 次（约 5 分钟）——足够覆盖「另一个窗口关掉」，又不会一直
+   * 空转；状态离开 running 会清掉计时器。
+   */
+  private scheduleLanRetry(): void {
+    if (this.lanRetryTimer !== null || this.lanRetryCount >= 30) return
+    this.lanRetryCount++
+    this.lanRetryTimer = setTimeout(() => {
+      this.lanRetryTimer = null
+      this.syncLanForwarder(this.status)
+    }, 10_000)
+  }
+
+  private clearLanRetry(): void {
+    if (this.lanRetryTimer !== null) clearTimeout(this.lanRetryTimer)
+    this.lanRetryTimer = null
+    this.lanRetryCount = 0
+  }
+
+  private stopLanForwarder(): void {
+    this.clearLanRetry()
+    this.lanForwardedByPeer = undefined
+    this.lanForwarder.stop()
+  }
+
+  /**
+   * 核对记录里的局域网标志与运行中的进程是否一致：命令行里能看到
+   * `--trusted-host <ip>` 才算数（manager 已有 processCommandLine 用于版本探测）。
+   * 三种结果——看到旗标 → 采用；读得到命令行但没有旗标 → 判为陈记录、不采用
+   * （气泡显示关闭并给重启入口）；命令行读不到（权限等原因）→ 沿用记录并记一行日志。
+   */
+  private verifyLanIp(owned: OwnedRecord | null): string | undefined {
+    const ip = owned?.lanIp
+    if (!ip) return undefined
+    const cmdline = owned.pid ? processCommandLine(owned.pid) : null
+    if (!cmdline) {
+      this.logger.info(`lan flag ${ip} taken from the owned record (process command line unreadable)`)
+      return ip
+    }
+    if (cmdline.includes('--trusted-host') && cmdline.includes(ip)) return ip
+    this.logger.info(
+      `owned record claims LAN access (${ip}) but the running process carries no --trusted-host; treating LAN as off`,
+    )
+    return undefined
   }
 
   /** Singleton start: concurrent callers share one in-flight promise. */
@@ -300,8 +390,10 @@ export class ServerManager implements vscode.Disposable {
     // 启动的 dsh 占用时，stop 会误杀复用 pid 的进程组——host.describe 不含
     // pid，无法更严格地验证。
     const owned = await readOwnedRecord(defaultOwnedPath(), this.logger)
-    // 局域网能力跟记录走：spawn 窗口写下的 lanIp，re-own/第二窗口读回沿用。
-    this.currentLanIp = owned?.lanIp
+    // 局域网标志跟记录走（spawn 窗口写下、re-own/第二窗口读回），但要跟**运行中的
+    // 进程**核对一次：记录可能是陈的（实例被手工重启过、端口上换了别的进程），
+    // 那时转发器能起、链接能打开，可网关不认局域网 Host，所有 /api/* 会 403。
+    this.currentLanIp = this.verifyLanIp(owned)
     if (owned) {
       if (isExternalRecord(owned) && owned.token) {
         // 外部实例重启后 token 必失效（token 只被生成它的进程换出 303），
@@ -465,7 +557,9 @@ export class ServerManager implements vscode.Disposable {
             const version = livePid !== 0
               ? probeDshVersionFromCommandLine(processCommandLine(livePid), this.logger)
               : undefined
-            await this.writeOwned({ pid: livePid, port, token: recovered, version })
+            // lanIp 必须跟着写回：writeOwned 是整对象覆盖，漏了就把局域网标志抹掉
+            // （这条自愈路径正是「窗口在 waitReady 前被关、实例还活着」的场景）。
+            await this.writeOwned({ pid: livePid, port, token: recovered, version, lanIp: this.currentLanIp })
             this.logger.info(`recovered launch token from log and re-owned authenticated dsh at ${port} (pid=${livePid})`)
             this.ownedPid = livePid
             this.setStatus({ state: 'running', url: `http://127.0.0.1:${port}`, port, adopted: false, version })
@@ -862,7 +956,7 @@ export class ServerManager implements vscode.Disposable {
    */
   dispose(): void {
     this.stopHealthCheck()
-    this.lanForwarder.stop()
+    this.stopLanForwarder()
     this.onDidChangeStateEmitter.dispose()
   }
 }

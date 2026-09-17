@@ -231,6 +231,10 @@ test('running: adopted with unknown version still hides the line (probe failed)'
 /**
  * 气泡宽度由最长一行决定（#136）：把链接语法剥成可见文字后，任何一段都不得超过
  * 48 个字符——超了就会又把气泡撑到 VS Code 的宽度上限。
+ *
+ * 口径说明：这是**近似代理**而不是硬契约——图标按 `$(name)` 的字面长度计、粗体
+ * 标记不计宽、中文字符按 1 个字符算（实际比英文宽），也不覆盖点击弹出的 QuickPick
+ * 面板（那个宽度由 VS Code 自己算）。它的用途是拦住「又写回长句把气泡撑宽」。
  */
 test('气泡宽度：每段可见文字 ≤ 48 字符（防长句撑宽）', () => {
   const MAX_VISIBLE = 48

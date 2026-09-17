@@ -27,6 +27,8 @@
   "LAN access is off (local only).": "局域网访问：关闭（仅本机）。",
   "LAN access is off": "局域网访问：关",
   "Local access link copied (with token).": "已复制本机访问链接（含 token）。",
+  "No running dsh to restart.": "当前没有正在运行的 dsh，无法重启。",
+  "Local access link copied.": "已复制本机访问链接。",
   "LAN access link copied (with token).": "已复制局域网访问链接（含 token）。",
   "No running dsh to copy a link for.": "当前没有正在运行的 dsh，无法复制链接。",
   "LAN access is not enabled for this instance.": "当前实例未开启局域网访问。",

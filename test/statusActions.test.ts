@@ -213,6 +213,10 @@ test('动作面板转发的命令都在 package.json 里声明过', async () => 
   for (const status of [
     { state: 'running', url: 'http://127.0.0.1:3080' },
     { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1' },
+    // 局域网开着的情形也要进来：否则 copyLanLink / restartLocal 的命令名
+    // 从未与 package.json 对过（拼错会静默上线）。
+    { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1', lanIp: '192.168.1.23' },
+    { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1', adopted: true, lanIp: '192.168.1.23' },
     { state: 'starting' },
     { state: 'stopped' },
     { state: 'error' },

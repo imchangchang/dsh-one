@@ -17,6 +17,8 @@ import type { Logger } from '../log.ts'
  */
 export class LanForwarder {
   private server: net.Server | null = null
+  /** 在飞的 start（并发调用复用同一个 promise，避免重复 listen 撞 EADDRINUSE）。 */
+  private starting: Promise<void> | null = null
   private activeIp: string | undefined
   private activePort: number | undefined
   private listening = false
@@ -46,6 +48,20 @@ export class LanForwarder {
   async start(lanIp: string, port: number, targetPort: number = port): Promise<void> {
     // IP 或端口任一变化都要重绑（只看 IP 会把「换端口」短路成 no-op）。
     if (this.listening && this.activeIp === lanIp && this.activePort === port) return
+    // 并发 start：复用同一个在飞 promise。少了这道守卫，后到者会再 listen 一次
+    // （撞 EADDRINUSE），进而把一次正常的争用报成绑定失败。
+    if (this.starting) await this.starting.catch(() => undefined)
+    if (this.listening && this.activeIp === lanIp && this.activePort === port) return
+    const run = this.listen(lanIp, port, targetPort)
+    this.starting = run
+    try {
+      await run
+    } finally {
+      if (this.starting === run) this.starting = null
+    }
+  }
+
+  private async listen(lanIp: string, port: number, targetPort: number): Promise<void> {
     this.stop()
     const server = net.createServer((socket) => {
       const upstream = net.connect({ host: '127.0.0.1', port: targetPort })
@@ -84,6 +100,8 @@ export class LanForwarder {
   /** 停止监听并断开所有现有连接（幂等）。 */
   stop(): void {
     if (this.server === null) return
+    // 注意：close() 是异步的，紧接着 start 同一 <ip>:<port> 可能撞 EADDRINUSE；
+    // 调用方（manager）把这种争用当「对端在转发/稍后重试」处理，不再当故障报。
     const server = this.server
     this.server = null
     this.activeIp = undefined
