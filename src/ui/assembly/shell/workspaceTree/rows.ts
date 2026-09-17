@@ -7,6 +7,8 @@ import {
   IconBranchOutline16,
   IconCheckOutline16,
   IconChecklistOutline14,
+  IconChevronDownOutline14,
+  IconChevronRightOutline14,
   IconCopyOutline16,
   IconEditOutline16,
   IconEllipsisOutline16,
@@ -172,15 +174,68 @@ function indentSubmenuItem(item: unknown): unknown {
   }
 }
 
-/** 二级菜单的父项：点一下就地展开/收起（右端一个 ▸/▾ 指示），不关菜单。 */
+/**
+ * 二级菜单父项右端的指示器（#172）：**官方那两枚 14 档 chevron**——收起时右向、展开时下向。
+ *
+ * 这两枚的取法：官方自己「收起 → 右向、展开 → 下向」这一对就出在官方 `MessageItem` 的折叠条
+ * 上（那次读官方源码时逐字核过：`open ? IconChevronDownOutline14 : IconChevronRightOutline14`，
+ * 出处是 `index-C04Zg7TP.js` 里官方 `IconChevronRightOutline14` / `IconChevronDownOutline14`
+ * 两枚件的定义，视框 `0 0 14 14`、默认尺寸 14）。尺寸取**菜单项图标那一档**：紧凑档的图标位
+ * 14×14（`._compactList_1nxmc_128 ._itemIcon_1nxmc_144{width:14px;height:14px}`，与同一份
+ * 菜单里其它项传的 `size: 14` 同一档）。
+ *
+ * `data-dshone-tree-icon` 写图标名（自有契约，与回收站头「返回」那枚同一做法）：官方组件渲染
+ * 出来的 DOM 里没有图标名，验证套件要认「用的是哪一枚」只能靠标记 + 渲染指纹（视框 / 尺寸 /
+ * path@d）。
+ */
+function submenuIndicator(open: boolean): unknown {
+  return h(
+    'span',
+    {
+      className: 'dshOneTree_submenuArrow',
+      'data-dshone-tree-icon': open ? 'IconChevronDownOutline14' : 'IconChevronRightOutline14',
+      'aria-hidden': true,
+    },
+    h(open ? IconChevronDownOutline14 : IconChevronRightOutline14, { size: 14 }),
+  )
+}
+
+/**
+ * 二级菜单的父项：点一下就地展开/收起（右端一枚指示器），不关菜单。
+ *
+ * #172 起指示器由「▸ / ▾」两个**文字字形**换成上面那两枚官方 chevron：文字字形跟着菜单项的
+ * 12px 字号走，比 14px 的图标小一圈；而且它紧跟在文字后面，与文字之间一格空隙都没有（用户
+ * 截图里报的就是「太小、且紧贴文字」）。换完还多一条：指示器**贴到项的内容右缘**（收起态与
+ * 展开态都贴同一条线），与文字之间自然拉开。
+ *
+ * 右端对齐为什么只能在自己的 label 里做（走的是第 4 层机制：CSS/DOM；前三层读官方源码确认
+ * 都没有这个口）——
+ * - 官方 Menu 渲染一个项时只画「图标槽 + label + 可选勾」三样（出处是 0.1.6-alpha.1 的
+ *   `index-C04Zg7TP.js` 渲染项那一段：`item.icon` / `item.label` / `selectedIds` 的勾三个
+ *   分支），带子菜单的项额外只多两个**属性**（`aria-haspopup="menu"` 与 `aria-expanded`）：
+ *   官方**根本不画指示器**（同一天在本机官方页上开出会话行菜单实测过，三项一条 `aria-haspopup`
+ *   都没有）。
+ * - 官方类名里那个 `_alignEnd_1nxmc_57{left:auto;right:0}` 管的是**子菜单那一层浮出面板**
+ *   贴哪一边（官方项对象里也没有「指示器」这个字段），不是指示器——所以这条对齐关系是「照
+ *   官方 `alignEnd` 的语义（右端对齐）」而不是「照抄官方某一条指示器规则」。
+ * - label 那一格官方给的是 `flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+ *   white-space:nowrap`（紧凑档 `._itemLabel_1nxmc_174`）：它自己就吃满「图标槽右边到项内容
+ *   右缘」这一段。指示器只能放进 label 里，于是本件把 label 撑成一行的 flex
+ *   （`.dshOneTree_submenuParent`）、把文字那一段做成可缩的一格
+ *   （`.dshOneTree_submenuParentLabel`）、指示器用 `margin-left:auto` 推到 label 的右缘——
+ *   也就是项的内容右缘。标题长到装不下时先由文字那一段走省略号（还给指示器留一个项内间隙），
+ *   指示器既不被官方 label 的 `overflow:hidden` 切掉、也不会压住文字。
+ * - 选择器只用我们自己的标记类（`data-dshone-tree-item` 与本节那三个类名），不碰官方哈希类名
+ *   ——与 #126 的子项缩进同一处置，那些规则与说明在 `styles.ts` 里。
+ */
 function submenuParent(options: { id: string; label: string; open: boolean }): unknown {
   return {
     id: options.id,
     label: h(
       'span',
-      { 'data-dshone-tree-item': options.id },
-      options.label,
-      h('span', { className: 'dshOneTree_submenuArrow', 'aria-hidden': true }, options.open ? '\u25be' : '\u25b8'),
+      { className: 'dshOneTree_submenuParent', 'data-dshone-tree-item': options.id },
+      h('span', { className: 'dshOneTree_submenuParentLabel' }, options.label),
+      submenuIndicator(options.open),
     ),
     // 图标位取紧凑档的 14×14（官方 `._itemIcon_1nxmc_144`），见文件里各菜单项的同一处置。
     icon: h(IconFolderOpenOutline16, { size: 14 }),
