@@ -597,18 +597,6 @@ export const CSS =
   '.dshOneTree_manageCreate{align-items:center;gap:6px;display:flex}' +
   '.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}' +
   '.dshOneTree_manageCreate button{white-space:nowrap;flex:none}' +
-<<<<<<< HEAD
-  // 行尾那一层（#109）：**只剩**当前工作区那枚蓝色胶囊，它是**标题盒里的一个 flex 项**
-  // （`margin-left:auto` 把它推到标题盒右缘 = 行的内容右缘，观感上仍是「行尾」）。
-  // #138 之前它绝对定位叠在标题上（`position:absolute;right:8px`）：那一版在窄侧栏里
-  // 会让胶囊压住标题文字——实测 260px 宽下压住标题右侧的活状态计数 4.6px，标题长的时候
-  // 压得更多。进流之后它自己占住那一格（`flex:none`），标题文字用省略号让位，两者永不重叠。
-  // **它仍然按「当前工作区」才渲染**：没有当前工作区时这一层是空的（宽 0，不占地方），
-  // 于是标题盒的内容宽度与官方那一行一致（F-04 PARITY 的标题矩形比对不受影响）。
-  // 悬停 / 菜单打开时整层让位给行尾那几枚动作按钮——胶囊占的正是它们要用的那一格，所以
-  // 让位规则照旧（计数不在这层里，不受它影响，见 rows.ts 的 ActivityBadge 说明）。
-  '.dshOneTree_rowEnd{pointer-events:none;flex:none;margin-left:auto;align-items:center;gap:6px;display:inline-flex}' +
-=======
   // ---- 成员清单（#139，管理分组对话框的第二层）：与上面的列表行同一档（紧凑档）----
   // 逐条出处：行高 26px = 紧凑档行高（`._item_1nxmc_92{min-height:26px}`）、行圆角 5px =
   // 紧凑档行圆角、行内间隙 6px = 紧凑档项内间隙、行文字 12px/18px = 紧凑档字号与文字行高；
@@ -632,8 +620,16 @@ export const CSS =
   // 行尾绝对定位层（#109）：当前工作区那枚蓝色胶囊 + 活状态计数。**不进正常流**——
   // 官方这一行没有这两个元素，进流会把标题挤窄，而 F-04 PARITY 逐项比对标题的几何
   // 矩形（同一处置的说明见 ActivityBadge 的注释）。悬停时整层让位给四枚动作按钮。
-  '.dshOneTree_rowEnd{pointer-events:none;position:absolute;right:var(--dsh-one-density-row-padding-inline,8px);align-items:center;gap:6px;display:inline-flex}' +
->>>>>>> a95e4af4 (feat(#139): 管理分组里点分组名进成员清单，逐条勾选即时落盘)
+  // 行尾那一层（#109）：**只剩**当前工作区那枚蓝色胶囊，它是**标题盒里的一个 flex 项**
+  // （`margin-left:auto` 把它推到标题盒右缘 = 行的内容右缘，观感上仍是「行尾」）。
+  // #138 之前它绝对定位叠在标题上（`position:absolute;right:8px`）：那一版在窄侧栏里
+  // 会让胶囊压住标题文字——实测 260px 宽下压住标题右侧的活状态计数 4.6px，标题长的时候
+  // 压得更多。进流之后它自己占住那一格（`flex:none`），标题文字用省略号让位，两者永不重叠。
+  // **它仍然按「当前工作区」才渲染**：没有当前工作区时这一层是空的（宽 0，不占地方），
+  // 于是标题盒的内容宽度与官方那一行一致（F-04 PARITY 的标题矩形比对不受影响）。
+  // 悬停 / 菜单打开时整层让位给行尾那几枚动作按钮——胶囊占的正是它们要用的那一格，所以
+  // 让位规则照旧（计数不在这层里，不受它影响，见 rows.ts 的 ActivityBadge 说明）。
+  '.dshOneTree_rowEnd{pointer-events:none;flex:none;margin-left:auto;align-items:center;gap:6px;display:inline-flex}' +
   '.dshOneTree_projectRow:hover .dshOneTree_rowEnd,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowEnd{display:none}' +
   // 「当前工作区」胶囊（#109 E7）：蓝色药丸 + 容器名（VS Code 侧就是 vscode，官方 web 侧是 web
   // ——名字由能力口给，不写死）。颜色全部由官方 business 蓝 token 混出来（老侧栏那份用的是
