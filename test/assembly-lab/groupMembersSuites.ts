@@ -371,6 +371,8 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       width: 380,
       height: 900,
       state: { groups: groupsState },
+      // 工作区清单由套件自己声明（见下）：两种跑法下都用同一份合成数据。
+      dataset: SIDEBAR_DATASET,
     })
     const { page } = opened
     // 只读守卫（⑦）：把走过的 `/api/` 方法名逐个记下来，收尾断言写类方法一个都没出现。
@@ -380,7 +382,7 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       await r.continue()
     })
     try {
-      // ---- 夹具一：工作区清单由 harness 的**数据集夹具**给（侧栏那两棵树的缺省口径）----
+      // ---- 夹具一：工作区清单由**数据集夹具**给（本套件显式声明，两种跑法一致）----
       // 为什么必须自造：以前这条套件拿「网关上有几棵工作区、都叫什么」当判据的输入，于是
       // 判据跟着**这台机器碰巧有多少工作区、名字里有没有互相包含**走——日常实例上绿、
       // 全新 DSH_HOME 的空实例上直接红（#148 立、#162 普查）。工作区清单本来就是套件

@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url'
 import type { Browser } from 'playwright'
 import { Check, launchBrowser } from './harness.ts'
 import { startEmptyGateway, type EmptyGateway } from './emptyGateway.ts'
+import { SIDEBAR_DATASET } from './dataset.ts'
 import {
   consoleLogger,
   defaultGateway,
@@ -240,6 +241,9 @@ async function main(): Promise<number> {
       gateway,
       ...(token === undefined ? {} : { token }),
       ...(version === undefined ? {} : { version }),
+      // 空实例上没有数据可依赖：侧栏那两棵树的页面统一喂一份套件声明的合成数据
+      // （日常实例那一轮不给——套件本来就按真实数据写）。套件自己声明的 dataset 优先。
+      ...(args.empty ? { dataset: SIDEBAR_DATASET } : {}),
       log,
       pluginsDir,
       port: args.port,

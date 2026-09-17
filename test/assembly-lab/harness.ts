@@ -7,7 +7,7 @@
  * - `Check`：断言收集器——一条断言一处观测，最后折成 ledger 条目。
  */
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
-import { installLabDataset, SIDEBAR_DATASET, type DatasetStats, type LabDataset } from './dataset.ts'
+import { installLabDataset, type DatasetStats, type LabDataset } from './dataset.ts'
 import { EN, ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'
 import { fakeHostScript } from './fakeHost.ts'
 import type { LabServer, LabTreeRoute } from './labServer.ts'
@@ -278,13 +278,13 @@ export interface OpenOptions {
    * 判据就不再吃「这台机器上碰巧有什么数据」。**必须在页面第一次导航之前装**，所以走
    * 这里（`newContext` 之后、`newPage` 之前），套件不用为夹具再重载一次页面。
    *
-   * 三种取值：
-   * - 不传：走缺省——侧栏那棵树（`sidebar` 与 `sidebar-official` 两个路由）**默认装**
-   *   `SIDEBAR_DATASET`，其余树不装。理由是「判据不许依赖运行环境」这条硬约束（README）：
-   *   侧栏那一批套件的判据全靠树上有工作区与会话行，而「这台机器上有几棵、几个」本来
-   *   就不该进判据。
-   * - `null`：这一页要**真的网关数据**（与官方页并排对照、零工作区空态这类套件），不装夹具。
-   * - 传一份 `LabDataset`：装这一份（宿主要自己造数据的套件用它）。
+   * 三种取值（**默认不装**，与「日常实例整轮是合入门禁」这条口径配套）：
+   * - 传一份 `LabDataset`：装这一份——**要夹具数据的套件显式声明**，两种跑法下都用它。
+   * - `null`：这一页明确要真网关数据（与官方页并排对照、零工作区空态这类套件）。
+   * - 不传：听这一轮跑法的（`LabServer.dataset`，见 `labServer.startLabServer`）——
+   *   **日常实例整轮不装**（套件本来就按真实数据写的），`--empty` 那一轮由 verify.ts
+   *   统一给侧栏那两棵树装上 `SIDEBAR_DATASET`（空实例上没有数据可依赖，判据必须是
+   *   自足的）。
    */
   dataset?: LabDataset | null
 }
@@ -589,9 +589,10 @@ export async function openTreePage(
     content: fakeHostScript(options.state ?? {}, options.failCalls ?? [], options.workspaceFolders ?? []),
   })
   // 数据集夹具（#162）：装在这个上下文上、在第一次导航之前，首帧基线就已是夹具那一份。
-  // 缺省口径见 OpenOptions.dataset 的说明（侧栏那两棵树默认装，其余不装）。
-  const dataset =
-    options.dataset === undefined ? (route.route.startsWith('sidebar') ? SIDEBAR_DATASET : undefined) : (options.dataset ?? undefined)
+  // 缺省口径见 OpenOptions.dataset 的说明：套件显式声明的优先，否则听这一轮跑法的
+  // （`lab.dataset`，只有 `--empty` 那一轮会给；只作用于侧栏那两棵树的页面）。
+  const fallback = route.route.startsWith('sidebar') ? lab.dataset : undefined
+  const dataset = options.dataset === undefined ? fallback : (options.dataset ?? undefined)
   const datasetStats = dataset === undefined ? undefined : await installLabDataset(context, dataset)
   return await openPageIn(lab, route, context, options, datasetStats)
 }
