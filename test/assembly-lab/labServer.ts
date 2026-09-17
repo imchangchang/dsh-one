@@ -17,7 +17,7 @@
  * 不需要自己的资产管线，mirror 就是生产那条。
  *
  * 环境变量：
- *   LAB_PORT      实验室 HTTP 端口（缺省 3179；0 = 随机）
+ *   LAB_PORT      实验室 HTTP 端口（缺省先试 3179、占用了就自动退到随机空闲；0 = 随机。见 #194）
  *   LAB_GATEWAY   网关地址（缺省 http://127.0.0.1:3080）
  *   LAB_TOKEN     网关 launch token（缺省读 ~/.dsh/dsh-owned.json 里该端口那份）
  *   LAB_PLUGINS   自有插件 bundle 目录（缺省 <repo>/dist/assembly/plugins）
@@ -355,25 +355,60 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     proxyUpgrade(req, socket, head, mirror.origin)
   })
 
-  const port = await new Promise<number>((resolve, reject) => {
-    server.on('error', reject)
-    server.listen(options.port ?? 0, '127.0.0.1', () => {
-      const address = server.address()
-      if (address === null || typeof address !== 'object') {
-        reject(new Error('lab: no loopback address'))
-        return
-      }
-      resolve(address.port)
-    })
-  }).catch((err: unknown) => {
-    // 起不来（最常见是端口被上一轮遗留的进程占着）时，先把已经起的 mirror
-    // 收掉再抛。mirror 自己是个监听中的 HTTP server，不收就把进程挂在启动
-    // 阶段永不退出——现场表现正是「chromium 一直没起来、整轮挂住」（#88）。
-    server.close()
-    server.closeAllConnections()
+  /** 收掉已经起的 mirror（它自己是个监听中的 HTTP server，不收就把进程挂在启动阶段永不退出）。 */
+  const teardownForFailure = (): void => {
+    try {
+      server.close()
+      server.closeAllConnections()
+    } catch {
+      // 监听都没成功时 close 可能直接抛（ERR_SERVER_NOT_RUNNING）——收尾不该再失败一次。
+    }
     mirror.dispose()
-    throw describeListenFailure(err, options.port ?? 0)
-  })
+  }
+  const listenOn = (desired: number): Promise<number> =>
+    new Promise<number>((resolve, reject) => {
+      const onError = (err: unknown): void => reject(err)
+      server.once('error', onError)
+      server.listen(desired, '127.0.0.1', () => {
+        server.off('error', onError)
+        const address = server.address()
+        if (address === null || typeof address !== 'object') {
+          reject(new Error('lab: no loopback address'))
+          return
+        }
+        resolve(address.port)
+      })
+    })
+
+  // 端口选择（#194）：显式指定（`--port` / `LAB_PORT`）时老实失败；**缺省**时先按老习惯
+  // 试 3179、撞车就自动退到随机空闲端口——并行跑多条线时不该有人因为忘了给 LAB_PORT
+  // 而白跑一轮。实际端口会打在下面那行 `assembly lab ready` 里，人照着它开页面。
+  const explicitPort = options.port
+  let port: number
+  if (explicitPort === undefined) {
+    try {
+      port = await listenOn(DEFAULT_LAB_PORT)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') {
+        teardownForFailure()
+        throw describeListenFailure(err, DEFAULT_LAB_PORT)
+      }
+      const holder = portHolder(DEFAULT_LAB_PORT)
+      log.warn(
+        `lab: 缺省端口 ${String(DEFAULT_LAB_PORT)} 已被占用${holder === undefined ? '' : `（${holder}）`}，` +
+          '自动退到随机空闲端口（#194）；要固定端口请显式给 LAB_PORT。',
+      )
+      port = await listenOn(0).catch((fallbackErr: unknown) => {
+        teardownForFailure()
+        throw describeListenFailure(fallbackErr, 0)
+      })
+    }
+  } else {
+    port = await listenOn(explicitPort).catch((err: unknown) => {
+      teardownForFailure()
+      throw describeListenFailure(err, explicitPort)
+    })
+  }
   log.info(`assembly lab ready: ${origin()}/ (mirror ${mirror.origin}, gateway ${gateway})`)
 
   return {
@@ -492,7 +527,21 @@ export function defaultGateway(): string {
   return process.env.LAB_GATEWAY ?? 'http://127.0.0.1:3080'
 }
 
-/** 缺省实验室端口（LAB_PORT，0 = 随机）。 */
-export function defaultPort(): number {
-  return Number(process.env.LAB_PORT ?? 3179)
+/**
+ * 没显式指定端口时**先试**的这个端口（#194）：试不到（被别人占着）就自动退到随机空闲
+ * 端口，不再像以前那样直接以 EADDRINUSE 退出——并行跑多条线是常态。
+ */
+export const DEFAULT_LAB_PORT = 3179
+
+/**
+ * 缺省实验室端口（LAB_PORT，0 = 随机）。
+ *
+ * **未设置时返回 `undefined`**（#194）：那表示「先按老习惯试 3179、撞车就自动退到随机空闲
+ * 端口」。显式给了 `LAB_PORT`（含 `0`）时返回那个值，此时端口是被指定的——占不到就按
+ * {@link describeListenFailure} 的人话报错退出，**不许偷偷换**。
+ */
+export function defaultPort(): number | undefined {
+  const raw = process.env.LAB_PORT
+  if (raw === undefined || raw.trim() === '') return undefined
+  return Number(raw)
 }

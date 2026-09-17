@@ -17,7 +17,8 @@
  *                     改判那台实例的会话数跑前跑后一致
  *   --token <token>   外部实例的 launch token（LAB_TOKEN；只有 --gateway 时才用得上，
  *                     缺省读 ~/.dsh/dsh-owned.json 里该端口那份）
- *   --port <n>        实验室端口（LAB_PORT，缺省 3179；0 = 随机）
+ *   --port <n>        实验室端口（LAB_PORT，缺省先试 3179、**占用了就自动退到随机空闲端口**
+ *                     并打印实际地址；显式给值时占不到就按人话报错退出，不偷偷换。#194）
  *   --suite <ids>     只跑指定套件（逗号分隔，如 F-01,F-04；缺省全跑）
  *   --out <dir>       产物目录（缺省 test/assembly-lab/out）
  *   --headed          开有界面的浏览器（人工看现场用）
@@ -148,7 +149,8 @@ interface Args {
    */
   gateway?: string
   token?: string
-  port: number
+  /** 实验室端口；`undefined` = 没指定（先试缺省端口，占用了就退到随机空闲）。 */
+  port: number | undefined
   suites?: string[]
   out: string
   headed: boolean
@@ -173,7 +175,9 @@ function parseArgs(argv: readonly string[]): Args {
   return {
     ...(external === undefined || external === '' ? {} : { gateway: external }),
     ...(token === undefined || token === '' ? {} : { token }),
-    port: Number(value('port') ?? defaultPort()),
+    // 显式给了 `--port` / `LAB_PORT` 就是指定端口（占不到老实失败）；缺省时留
+    // `undefined`，交给 labServer 走「先试 3179、撞了就退到随机空闲」（#194）。
+    port: value('port') === undefined ? defaultPort() : Number(value('port')),
     ...(suiteList === undefined ? {} : { suites: suiteList.split(',').map((id) => id.trim().toUpperCase()).filter((id) => id !== '') }),
     out: path.resolve(value('out') ?? path.join(LAB_DIR, 'out')),
     headed: argv.includes('--headed'),

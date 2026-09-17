@@ -92,7 +92,7 @@ npm run verify:lab -- --headed --keep   # 开有界面的浏览器，跑完留�
 自己起；用户日常那台只被只读探测两次（探不到就如实记一条事实，见 R-06）。
 
 环境变量：`LAB_GATEWAY`（外部实例地址）、`LAB_TOKEN`（外部实例的 token）、`LAB_PORT`
-（实验室端口，缺省 3179，`0` = 随机）。全部参数见 `node test/assembly-lab/verify.ts --help`。
+（实验室端口；**缺省时先试 3179、被占用就自动退到随机空闲端口并打印实际地址**——并行跑多条线时不用再自己记得给 `LAB_PORT`；显式给值时占不到就按人话报错退出，不会偷偷换端口。见 #194）。全部参数见 `node test/assembly-lab/verify.ts --help`。
 
 ### 套件判据不许依赖运行环境（#162 立，硬约束）
 
