@@ -72,6 +72,18 @@
 //     padding:0 6px;font-size:11px;line-height:20px}`
 //   容器底部留白 12px：官方 ui-cordis 的 `.Nqubda_body{padding:0 12px 12px}`（滚动列表容器）
 //
+// ## 官方变体（variant）—— 官方 primitives `Button` 的 `sm` 档
+// 这一档不属于上面三档（紧凑档是官方 Menu 的项、标准档是官方侧栏自己的原值、容器档是容器
+// 类的圆角与留白），而是**官方同一个控件自己的尺寸档**。出处是官方 primitives 的 Button
+// css-module（`dsh-web-frontend/dist/assets/index-J8NrHpw_.css`，模块前缀 `cfgyt`，版本
+// 0.1.6-alpha.1），逐条是：
+//   基类   `._button_cfgyt_4{…border-radius:18px;font-size:14px;line-height:22px;padding:0 14px}`
+//   默认档 `._md_cfgyt_24{height:36px}`
+//   小档   `._sm_cfgyt_30{height:28px;font-size:12px;line-height:18px;padding:0 10px;border-radius:14px}`
+// **用官方变体、不自己搓**：写 `<Button size="sm">` 官方件自己就带这一档（#120 实测、#127 落到
+// 弹窗与选择态动作条）。它单独一组、不并进标准档：标准档那一列是**官方侧栏自己的原值**（也是
+// 密度表的 official 列），而这是官方另一个控件自己的尺寸档。
+//
 // ## 哪个控件取哪档（新增控件照此判定）
 // - **行家族**（会话行 / 工作区行 / 搜索结果行 / 抽屉会话行 / 会话溢出按钮 / 回收站入口行
 //   主区 / 空态入口按钮）→ **紧凑档**：它们与菜单项同形（一行里放图标 + 文字），所以
@@ -108,6 +120,12 @@
 // - **标签组**（`.dshOneTree_tag*`，#107）与**自绘件**（勾选框里的短横线、a11y 用的 1×1
 //   裁剪盒、抽屉把手）**不进本表**：标签组逐字沿用旧侧栏的取值（理由写在各自规则上方），
 //   自绘件不是几何档位能表达的形态；这些例外逐条列在下面的 `SCALE_EXEMPT` 里，每条都写了理由。
+// - **弹窗**（`.dshOneTree_modal*`，#127）→ **紧凑档 + 官方变体 + 标题档**：对话框是「一整块
+//   行/控件堆起来的容器」，所以它自己与里面的行、输入框整套取紧凑档（高 26px / 圆角 5px /
+//   字号 12px / 行高 18px / 行内间隙 6px），底部按钮取**官方 Button 的 `sm` 档**（官方变体，
+//   `<Button size="sm">`），容器圆角取容器档的卡片圆角 12px 与容器内留白 12px；**标题是标题、
+//   不是行**，取标题档（标准档的 14px / 20px，与抽屉标题那一档同源）。弹窗整条细节见下面
+//   `.dshOneTree_modal` 那一节的注释（含为什么它不吃密度变量）。
 // ---------------------------------------------------------------------------
 
 /**
@@ -199,7 +217,20 @@ export const SCALE_TIERS = {
     roundRadius: '50%', // 官方 .bhn1Oq_iconButton{border-radius:50%}
     listBottomPadding: '12px', // 官方滚动列表容器 .Nqubda_body{padding:0 12px 12px}
   },
+  /** 官方变体：官方 primitives `Button` 的 `sm` 档（出处见上面那一节）。 */
+  buttonSm: {
+    height: '28px', // ._sm_cfgyt_30{height:28px}
+    radius: '14px', // ._sm_cfgyt_30{border-radius:14px}
+    fontSize: '12px', // ._sm_cfgyt_30{font-size:12px}
+    lineHeight: '18px', // ._sm_cfgyt_30{line-height:18px}
+    paddingInline: '10px', // ._sm_cfgyt_30{padding:0 10px}
+  },
 } as const
+
+/**
+ * 档位表的分组名（源码层断言与运行期套件都按它遍历，免得各处硬写名字——加一档只改这里）。
+ */
+export const SCALE_TIER_NAMES = ['compact', 'standard', 'container', 'buttonSm'] as const
 
 /**
  * 档位表管不到的规则（上面注释表里点名的例外）：键是规则选择器里的子串，值是理由。
@@ -351,8 +382,52 @@ export const CSS =
   '.dshOneTree_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}' +
   '.dshOneTree_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}' +
   '.dshOneTree_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}' +
-  '.dshOneTree_renameInput{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:44px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:22px;outline:none;padding:7px 14px;font-size:14px;font-weight:400;line-height:22px}' +
-  '.dshOneTree_renameError{color:var(--dsw-alias-state-error-primary);margin-top:8px;font-size:12px;line-height:18px}' +
+  // ---- 弹窗（#127）：七个对话框（分组新建/重命名/删除、管理分组、归档确认、标签组新建/
+  // 删除、会话/工作区/标签组重命名、删除工作区）整套取**紧凑档**，与侧栏同一密度。
+  //
+  // **为什么这一族不吃密度变量**（`var(--dsh-one-density-*)`）：官方 Modal 把内容
+  // `createPortal` 到 `document.body`，弹窗不是 frame 容器的后代——密度变量挂在 frame 上
+  // （`sidebarFramePlugin.ts` 的 `DENSITY_CSS`），继承不到弹窗里。所以这里写**紧凑档的字面量**
+  // （不是 `var(..., 官方原值)`：那样读到的永远只是兜底值，反而看不出真实取值）。两侧
+  // （VS Code 侧栏 / 官方 web）因此拿到同一份紧凑档，弹窗本就不属于「宿主容器给的排版偏好」。
+  //
+  // **为什么走 `headless` 这个官方 prop、而不是覆盖官方 Modal 的内部类名**：
+  // - 官方 primitives 的 Modal **没有尺寸变体**——0.1.6-alpha.1 的 css-module（前缀 `w1urq`）
+  //   只有 `root/mask/dialog/content/header/title/close/description/body/footer` 十类；同族的
+  //   「确认框」`confirmation` 变体反而更宽（`._confirmation_1nu42_1{width:min(440px,100%)}`、
+  //   正文 `14px/22px`）。也就是说官方这一件上没有「紧凑档」可取。
+  // - 它给的两个官方口子：`className`（挂到 dialog 上）与 `headless`（只渲染 mask + dialog +
+  //   children，标题/关闭钮/页脚由调用方给）。走官方 prop 就不必去覆盖官方哈希类名
+  //   （`[class*="_header_"]` 那种写法会随官方改名静默失效，而 CSS 类名不在每日上游探针的
+  //   覆盖范围内），符合 AGENTS「官方机制优先」的优先序：官方 prop > CSS 手段。
+  // - 稳定性：官方哪天摘掉 `headless`，我们自己的头行会与官方 header 同时出现（标题重复、
+  //   按钮仍在 children 里照常能点）——是**看得见的退化**，不是静默失效。这一条**每日探针
+  //   覆盖不到**（primitives 的代码在官方 web 前端的 chunk 里，不在 combo 的插件段里），所以
+  //   它靠上游升级时跑 `verify:lab` 的 F-34 撞出来（那一条会把七个弹窗逐个开出来量）。
+  // - 官方那层壳照旧由官方代码提供：mask 点击关闭、Esc 关闭、portal 到 body、`role="dialog"`
+  //   + `aria-modal` + `aria-label`（`title` 仍然要传，它进的是 aria-label）。
+  //
+  // 取值出处（档位表见文件头）：对话框自身 = 紧凑档的行内间隙 6px + 容器档的容器内留白 12px
+  // 与卡片圆角 12px；头行 = 紧凑档行高 26px + 容器内边距 2px（控件之间）；关闭钮 = 紧凑档
+  // 图标按钮 26px + 行圆角 5px；标题 = 标题档 14px/20px（标准档，与抽屉标题同源）；说明与
+  // 错误行 = 紧凑档 12px/18px；底部按钮 = 官方 Button `sm` 档（组件自己给，本件不写几何）。
+  '.dshOneTree_modal{box-sizing:border-box;gap:6px;padding:12px;border-radius:12px}' +
+  '.dshOneTree_modalHead{flex:none;align-items:center;gap:2px;height:26px;display:flex}' +
+  '.dshOneTree_modalTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;font-size:14px;line-height:20px;font-weight:500;overflow:hidden}' +
+  '.dshOneTree_modalClose{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
+  '.dshOneTree_modalClose:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
+  '.dshOneTree_modalDesc{color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px}' +
+  '.dshOneTree_modalActions{flex:none;justify-content:flex-end;align-items:center;gap:6px;display:flex}' +
+  // 输入框：高 26px = 紧凑档行高、圆角 5px = 紧凑档行圆角、字号 12px / 行高 18px = 紧凑档字号与
+  // 文字行高、左右内边距 7px = 紧凑档项内边距；占位字色与顶栏搜索框同一枚 token（原来没设，
+  // 走的是浏览器默认灰）。官方侧栏那个 44px / 圆角 22px 的胶囊输入框（`.bhn1Oq_renameInput`，
+  // 出处见档位表的 `renameInput*`）是标准档——留在表里当兜底语义。
+  '.dshOneTree_renameInput{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:26px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:5px;outline:none;padding:0 7px;font-size:12px;font-weight:400;line-height:18px}' +
+  '.dshOneTree_renameInput::placeholder{color:var(--dsw-alias-label-tertiary)}' +
+  // 错误行 / 进行中那行都是紧凑档正文（12px / 18px）。**不再自带 margin-top**：弹窗的内容是
+  // dialog 的 flex 项，项与项之间的空隙由 dialog 自己的 `gap`（紧凑档 6px）给，各处再叠一份
+  // 外边距会出现两种间距。行高由这一条给死，所以空行的盒高恒等于 18px。
+  '.dshOneTree_renameError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}' +
   '.dshOneTree_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}' +
   '.dshOneTree_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}' +
   // ---- #81：分组过滤条 / 活状态计数 / 批量选择 / 回收站抽屉 ----
@@ -403,13 +478,15 @@ export const CSS =
   '.dshOneTree_footerIconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_footerIconButton:disabled{cursor:default;opacity:.45}' +
   '.dshOneTree_footerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}' +
-  // 「管理分组…」对话框（#99）：行 = 名字 + 计数 + ✎/🗑。
-  '.dshOneTree_manageList{max-height:240px;margin-bottom:12px;overflow-y:auto}' +
-  '.dshOneTree_manageRow{align-items:center;gap:8px;height:var(--dsh-one-density-row-height,34px);padding:0 4px;display:flex}' +
-  '.dshOneTree_manageName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}' +
-  '.dshOneTree_manageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
-  '.dshOneTree_manageEmpty{color:var(--dsw-alias-label-tertiary);padding:8px 4px;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
-  '.dshOneTree_manageCreate{align-items:center;gap:8px;display:flex}' +
+  // 「管理分组…」对话框（#99）：行 = 名字 + 计数 + ✎/🗑。整套取紧凑档（#127）：行高 26px /
+  // 行内间隙 6px / 字号 12px——与侧栏的行同一密度。行**不带左右内边距**：它就在弹窗自己那
+  // 12px 的容器留白里，再叠一份会让名字比上方的标题与输入框更靠右（三者左缘要对齐）。
+  '.dshOneTree_manageList{max-height:240px;overflow-y:auto}' +
+  '.dshOneTree_manageRow{align-items:center;gap:6px;height:26px;display:flex}' +
+  '.dshOneTree_manageName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;font-size:12px;line-height:18px;overflow:hidden}' +
+  '.dshOneTree_manageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:18px}' +
+  '.dshOneTree_manageEmpty{color:var(--dsw-alias-label-tertiary);padding:4px 0;font-size:12px;line-height:18px}' +
+  '.dshOneTree_manageCreate{align-items:center;gap:6px;display:flex}' +
   '.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}' +
   '.dshOneTree_manageCreate button{white-space:nowrap;flex:none}' +
   // 行尾绝对定位层（#109）：当前工作区那枚蓝色胶囊 + 活状态计数。**不进正常流**——
@@ -523,11 +600,13 @@ export const CSS =
   '.dshOneTree_drawerRestore:hover:not(:disabled){color:var(--dsw-alias-label-primary)}' +
   '.dshOneTree_drawerRestore:disabled{cursor:default;opacity:.45}' +
   '.dshOneTree_drawerStatus{color:var(--dsw-alias-label-tertiary);padding:10px 8px;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
-  // 归档确认弹窗的明细（按工作区树形列）：块头 + 行。
-  '.dshOneTree_modalBlocks{max-height:240px;margin-top:8px;overflow-y:auto}' +
+  // 归档确认弹窗的明细（按工作区树形列）：块头 + 行。整套取紧凑档（#127）：块头 12px 字号、
+  // 明细行 = 紧凑档的分组标题配方（上下内边距 4px + 文字行高 18px = 26px 一行），缩进 16px
+  // 让明细行落在块头文字的下一层（树形结构）。块间距 6px = 紧凑档行内间隙。
+  '.dshOneTree_modalBlocks{max-height:240px;overflow-y:auto}' +
   '.dshOneTree_modalBlock+.dshOneTree_modalBlock{margin-top:6px}' +
-  '.dshOneTree_modalBlockLabel{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 4px}' +
-  '.dshOneTree_modalRow{color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;font-size:var(--dsh-one-density-meta-font-size,12px);padding:2px 4px 2px 16px;overflow:hidden}' +
+  '.dshOneTree_modalBlockLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}' +
+  '.dshOneTree_modalRow{box-sizing:border-box;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;height:26px;font-size:12px;line-height:18px;padding:4px 0 4px 16px;overflow:hidden}' +
   // 飘提示（移入/还原/归档的回执）：贴树区域底部，几秒后自己消失。
   '.dshOneTree_flash{z-index:20;max-width:90%;background:var(--dsw-alias-bg-elevated,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;padding:6px 10px;font-size:var(--dsh-one-density-meta-font-size,12px);position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}' +
   // 入口行两枚动作里的「清空」是危险动作（= 永久归档），按错误色标出来。
@@ -574,7 +653,7 @@ export const CSS =
   '.dshOneTree_tagDropActive{background:color-mix(in srgb,var(--dshone-tag-color) 14%,transparent)}' +
   // 组色小色块（选色菜单与新建弹窗的色板共用）。
   '.dshOneTree_tagSwatch{width:10px;height:10px;border-radius:3px;flex:none;display:block}' +
-  '.dshOneTree_tagColorPick{gap:8px;margin-top:10px;display:flex}' +
+  '.dshOneTree_tagColorPick{gap:6px;display:flex}' +
   '.dshOneTree_tagColorPickItem{cursor:pointer;width:20px;height:20px;color:var(--dsw-alias-label-inverse,#fff);border:.5px solid var(--dsw-alias-border-l4);border-radius:5px;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_tagColorPickOn{box-shadow:0 0 0 2px var(--dsw-alias-label-secondary)}'
 export const CSS_TAG_ID = '@dsh-one/dsh-workspace-tree/Tree.css'

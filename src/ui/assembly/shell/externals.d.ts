@@ -88,7 +88,13 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     copyLabel?: string
     copiedLabel?: string
   }): unknown
-  /** 官方模态（设置/重命名等对话框的通用壳）。 */
+  /**
+   * 官方模态（设置/重命名等对话框的通用壳）。
+   *
+   * `className` 挂在 dialog 元素上、`headless` 只渲染 mask + dialog + children
+   * （标题/关闭钮/页脚由调用方给）——两件都是官方件的公开 prop，#127 的弹窗靠它们
+   * 走紧凑档（举证见 workspaceTree/styles.ts 的 `.dshOneTree_modal` 那一节）。
+   */
   export function Modal(props: {
     open: boolean
     onClose: () => void
@@ -96,6 +102,9 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     title?: string
     description?: string
     footer?: unknown
+    className?: string
+    contentClassName?: string
+    headless?: boolean
     children?: unknown
   }): unknown
   /** 官方菜单件（右键菜单家族复用官方观感与定位/外点关闭语义）。 */

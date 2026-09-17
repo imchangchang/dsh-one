@@ -37,6 +37,7 @@ import { RENAME_OPEN_SYNC_SUITE } from './renameOpenSyncSuites.ts'
 import { SELECTION_BAR_SUITE } from './selectionBarSuites.ts'
 import { SELECT_MODE_INDENT_SUITE } from './selectModeIndentSuites.ts'
 import { SUBMENU_INDENT_SUITE } from './submenuIndentSuites.ts'
+import { MODAL_COMPACT_SUITE } from './modalCompactSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -5812,4 +5813,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #126 二级菜单的缩进（F-32：F-30 归 #123、F-31 归 #124；套件本体在 submenuIndentSuites.ts，
   // 同为独立文件，少一处合入热点）。
   SUBMENU_INDENT_SUITE,
+  // #127 弹窗的紧凑档（F-34：F-30 归 #123 的标题档、F-31 归 #124 的多选缩进、F-32 归 #126 的
+  // 二级菜单缩进，按「从未占用的继续」取 F-34——#125 的顶栏套件合入时顺延到 F-33；
+  // 套件本体在 modalCompactSuites.ts，同上为独立文件）。
+  MODAL_COMPACT_SUITE,
 ]
