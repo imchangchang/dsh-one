@@ -24,8 +24,9 @@
  * ui-conversation 把容器渲染出来；容器被整棵换掉（官方重挂根组件）时旧引用也会
  * 变成死节点。两种情况都只在真运行里才暴露，所以这里等它出现再挂、换掉再重挂。
  *
- * 每个用到它的插件各自打包一份（各插件是独立 bundle，没有共享模块作用域）——
- * 与同目录的 hostCapabilities.ts / hostClient.ts 同一取舍。
+ * 本模块与同包的 hostCapabilities.ts / hostClient.ts 同住私有包
+ * `@dsh-one/dsh-plugin-kit`（#94）：源码一份，构建期由各插件自己的 bundle 各打
+ * 一份进去（各插件是独立 bundle，没有共享模块作用域）。
  */
 
 /** 官方对话区容器（会话流 + composer 所在的滚动体）。 */

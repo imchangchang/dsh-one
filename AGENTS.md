@@ -85,7 +85,7 @@
 | **框架插件** | 我们工程词（指代对象是官方的） | 官方负责「把插件装起来、给出槽位与契约」的那几件：WebBoot 运行时、`ui-renderer`、`ui-layout`、`ui-sidebar`、传输层（`connection`/`api-gateway` 等）。此前误称「官方 shell」 |
 | **外框插件（frame plugin）** | 我们工程词（对应官方 `AppFrame`） | 我们渲染页面外框的插件，三个 id 按官方 `@deepseek-ai/dsh-client-ui-layout` 的命名方式取：`@dsh-one/vscode-chat-ui-layout`（对话区）/ `@dsh-one/vscode-sidebar-ui-layout`（侧栏位）/ `@dsh-one/vscode-settings-ui-layout`（设置独立成页）（#97）；在新铁律下它的角色收敛为「遮蔽 root 槽位 + VS Code 渲染适配」。此前误称「shell 插件」（原 id `@dsh-one/vscode-shell` 等已按 #97 改名） |
 | **宿主半（host half）** | **官方概念**（官方既有「插件有宿主半」的形态） | 跑在网关侧（dsh 宿主）的插件半，经官方 RPC 暴露能力与持久状态；官方格式包 + `cordis.patch.yml` 注册。作用：让前端插件不依赖 VS Code 宿主（可移植的前提） |
-| **宿主能力口（host capability port）** | 我们工程词 | 前端插件请求宿主能力的**唯一入口**（SDK，`src/ui/assembly/shell/hostCapabilities.ts`）：VS Code 侧由扩展宿主实现（既有 hostBridge），官方侧由宿主半实现——**插件代码两端不改**。此前我自造的「能力桥」为非标准词，不再使用 |
+| **宿主能力口（host capability port）** | 我们工程词 | 前端插件请求宿主能力的**唯一入口**（SDK，`packages/dsh-plugin-kit/src/hostCapabilities.ts`）：VS Code 侧由扩展宿主实现（既有 hostBridge），官方侧由宿主半实现——**插件代码两端不改**。此前我自造的「能力桥」为非标准词，不再使用 |
 | **slot**（槽位） | **官方原词** | 官方槽位系统的命名单元（如 `conversation.chat.node`）；注册条目按 priority 竞争上位。**标准写法用官方英文原词 `slot`**，中文「槽位」仅作解释；此前我自造的「座位」为非标准词，不再使用 |
 | **shadow**（遮蔽） | **官方原词** | 同名 slot 再注册一个**更小优先号**的条目：官方条目仍在注册表、其服务与 slot 声明照常存活，但不再渲染（号最小者上位）。出处：官方注册表报错原文「register at a different priority to shadow it (lowest renders)」与 `registry.d.ts` 注释；spike #69 浏览器实测过。**标准写法用 `shadow`**，中文「遮蔽」仅作解释 |
 | **seam** | **官方原词** | 官方给 shell 预留的扩展点：WebBoot `run(container, seams)` 的 seams 参数、`__DSH_TRANSPORT__`、`__DSH_BOOT__`、种子表等；官方注释原话「拥有不同物理传输的 shell 在此提供实现」。**无可用的中文译法，直接写 `seam`**（我此前自造的「接缝」「平台缝」均为非标准词，不再使用） |

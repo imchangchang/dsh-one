@@ -23,7 +23,7 @@ import {
   IconSettingsOutline16,
   Menu,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { WorkspaceGroupDef } from '../../../../pure/treeGroups.ts'
+import type { WorkspaceGroupDef } from '../../../../src/pure/treeGroups.ts'
 import type { Translate } from './types.ts'
 
 /** 下拉里的一行：名字 + 右对齐计数（官方 Menu 的 label 槽接受元素）。 */

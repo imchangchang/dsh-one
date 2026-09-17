@@ -25,15 +25,15 @@ import {
   restoreSessionsFromRecycleBin,
   type ActionOutcome,
   type RecycleBinSink,
-} from '../../../../pure/recycleActions.ts'
+} from '../../../../src/pure/recycleActions.ts'
 import {
   emptyRecycleBin,
   parseRecycleBin,
   pruneRecycleIds,
   serializeRecycleBin,
   type RecycleBinFile,
-} from '../../../../pure/recycleBinState.ts'
-import type { HostCapabilities } from '../hostCapabilities.ts'
+} from '../../../../src/pure/recycleBinState.ts'
+import type { HostCapabilities } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
 
 /** 宿主能力口的键（= `~/.dsh/dsh-one/recycle-bin.json`）。 */
 export const RECYCLE_BIN_STATE_KEY = 'recycle-bin'

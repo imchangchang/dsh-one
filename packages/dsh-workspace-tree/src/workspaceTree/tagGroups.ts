@@ -41,9 +41,9 @@ import {
   Menu,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { tagGroupCounts, type TagGroupDef } from '../../../../pure/sessionTagGroups.ts'
-import type { SessionNode } from '../../../../pure/workspaceTreeView.ts'
-import { TAG_COLORS, type TagColor } from '../../../../pure/sessionTags.ts'
+import { tagGroupCounts, type TagGroupDef } from '../../../../src/pure/sessionTagGroups.ts'
+import type { SessionNode } from '../../../../src/pure/workspaceTreeView.ts'
+import { TAG_COLORS, type TagColor } from '../../../../src/pure/sessionTags.ts'
 import type { Translate } from './types.ts'
 
 /** 会话行拖拽的载荷类型（旧侧栏同名）。 */

@@ -24,7 +24,7 @@ import * as path from 'node:path'
 import { openTreePage, withoutKnownNoise, type Check, type OpenedPage } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 // 期望值从档位表读（不硬编码）：这几个值与旧侧栏规格同值，见文件头那段。
-import { SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
+import { SCALE_TIERS } from '../../packages/dsh-workspace-tree/src/workspaceTree/styles.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
 

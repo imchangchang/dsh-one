@@ -10,7 +10,7 @@
  * ② 即使可达，webview 禁 a[download]。
  *
  * 所以本插件只写「把这份导出交给用户」，**两侧的实现由宿主能力口挑**（见
- * `./hostCapabilities.ts` 的能力表）：VS Code 侧 = 扩展宿主经 loopback 代理取内容
+ * `@dsh-one/dsh-plugin-kit/hostCapabilities` 的能力表）：VS Code 侧 = 扩展宿主经 loopback 代理取内容
  * 再弹保存框落盘；官方 web 侧 = 浏览器原生 fetch + 下载。插件代码两端一样，故命名
  * `dsh-*`（AGENTS.md 铁律「自有插件命名分两类」）。
  *
@@ -34,8 +34,8 @@
  */
 import { createElement as h, useState } from 'react'
 import { Button, IconDownloadOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { hostCapabilities, type CapabilityContext } from './hostCapabilities.ts'
-import { sessionExportFileName, sessionExportPath, shouldReportExportFailure } from '../../../pure/sessionExport.ts'
+import { hostCapabilities, type CapabilityContext } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
+import { sessionExportFileName, sessionExportPath, shouldReportExportFailure } from '../../../src/pure/sessionExport.ts'
 
 // 自有按钮自身的样式（层 4，仅作用于自有标记）：官方胶囊的呈现由层 1 的遮蔽处理，
 // 这里没有一条规则瞄准别人的元素。

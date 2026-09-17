@@ -26,7 +26,7 @@ import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import {
   COLLAPSE_ALL_GLYPH_TRANSFORM,
   COLLAPSE_ALL_GLYPHS,
-} from '../../src/ui/assembly/shell/workspaceTree/collapseAllGlyph.ts'
+} from '../../packages/dsh-workspace-tree/src/workspaceTree/collapseAllGlyph.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里，它就是调用方。
 import type { LabSuite } from './suites.ts'
 

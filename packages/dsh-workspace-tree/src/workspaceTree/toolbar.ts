@@ -84,7 +84,7 @@ import {
 import { COLLAPSE_ALL_GLYPH_TRANSFORM, COLLAPSE_ALL_GLYPHS, type CollapseAllGlyph } from './collapseAllGlyph.ts'
 import { GroupFilterBar } from './groupFilterBar.ts'
 import { SEARCH_QUERY_MAX } from './search.ts'
-import type { WorkspaceGroupDef } from '../../../../pure/treeGroups.ts'
+import type { WorkspaceGroupDef } from '../../../../src/pure/treeGroups.ts'
 import type { Translate } from './types.ts'
 
 /**

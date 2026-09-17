@@ -74,7 +74,7 @@ export const IDENTIFIERS = [
     file: 'lib/client.js',
     pattern: /"shell\.overlay"\s*:\s*\{\s*kind:\s*"list"\s*,\s*scope:\s*"root"/,
     why: '全宽悬浮层；我们把它当自有浮层（右键菜单、git 卡片）的落点，官方换 kind 或改名后这些浮层不再渲染（不报错）',
-    where: 'src/ui/assembly/shell/contextMenuPlugin.ts:308、gitCardPlugin.ts:601',
+    where: 'packages/dsh-context-menu/src/contextMenuPlugin.ts:308、packages/dsh-git-card/src/gitCardPlugin.ts:601',
   },
   {
     id: 'sidebar-toggle.zh',
@@ -101,7 +101,7 @@ export const IDENTIFIERS = [
     file: 'lib/client.js',
     pattern: /\bid:\s*"session-log-download"/,
     why: '我们按条目 id 遮蔽它、换成自有导出（按 id 是官方注册表的原生手段，比按 DOM 位置摘稳）；id 改了遮蔽落空，官方那枚按钮冒回会话头',
-    where: 'src/ui/assembly/shell/sessionExportPlugin.ts:101-103',
+    where: 'packages/dsh-session-export/src/sessionExportPlugin.ts:101-103',
   },
   {
     id: 'entry-id.appearance',
@@ -128,7 +128,7 @@ export const IDENTIFIERS = [
     file: 'lib/client.js',
     pattern: /\bid:\s*"cordis-panel"/,
     why: '我们往同一个 list 槽追加底部入口，排位是相对它算的（官方改 id 后「谁在前谁在后」的假设静默失效）',
-    where: 'src/ui/assembly/shell/workspaceTreePlugin.ts:611-618',
+    where: 'packages/dsh-workspace-tree/src/workspaceTreePlugin.ts:611-618',
   },
   {
     id: 'event.api-session/error',
@@ -137,7 +137,7 @@ export const IDENTIFIERS = [
     file: 'lib/client.js',
     pattern: /api-session\/error/,
     why: '我们订阅它弹「会话已被写句柄占用」的提示；它不是服务目录里的公开面，官方换名后那条提示静默消失（主流程不受影响）',
-    where: 'src/ui/assembly/shell/workspaceTreePlugin.ts:294-304',
+    where: 'packages/dsh-workspace-tree/src/workspaceTreePlugin.ts:294-304',
   },
 ]
 

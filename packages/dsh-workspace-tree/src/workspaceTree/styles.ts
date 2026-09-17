@@ -44,7 +44,7 @@
 //   分隔线    `._compactList_1nxmc_128 ._separator_1nxmc_82{margin:2px}`
 //   分组标题  `._compactList_1nxmc_128 ._label_1nxmc_124{padding:4px 7px;font-size:11px;line-height:16px}`
 // —— 属「官方支持但官方未用」的变体（48 个官方 bundle 的 Menu 调用点无一传 compact，
-// 举证与实测数值见 shell/contextMenuPlugin.ts 文件头）。**本插件的行 / 胶囊 / 抽屉行 /
+// 举证与实测数值见 packages/dsh-context-menu/src/contextMenuPlugin.ts 文件头）。**本插件的行 / 胶囊 / 抽屉行 /
 // 菜单整体取这一档**：用户要的「侧栏与右键菜单风格一致」就是这件事。
 //
 // ## 标准档（standard）—— 官方侧栏自己的原值（= 密度表的 official 列）

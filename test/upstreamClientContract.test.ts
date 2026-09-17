@@ -21,6 +21,11 @@ import * as path from 'node:path'
 
 const ROOT = path.join(import.meta.dirname, '..')
 const SRC = path.join(ROOT, 'src')
+/**
+ * 我方取用点的全部源码面：`src/`（VS Code 侧 + 纯逻辑）+ 各插件包的 `src/`
+ * （#94 起可移植插件的本体住在这里，只扫 `src/` 会让清单里的取用点判成「已消失」）。
+ */
+const SOURCE_ROOTS = [SRC, path.join(ROOT, 'packages')]
 const MODULE_PATH = path.join(ROOT, 'scripts', 'dsh-upstream-watch', 'clientContract.mjs')
 
 interface CheckRow {
@@ -187,11 +192,13 @@ test('依赖清单的每个名字都能在 src 里找到取用点（清单从代
   const walk = (dir: string): void => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) walk(full)
-      else if (entry.name.endsWith('.ts')) files.push(full)
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules') continue
+        walk(full)
+      } else if (entry.name.endsWith('.ts')) files.push(full)
     }
   }
-  walk(SRC)
+  for (const root of SOURCE_ROOTS) walk(root)
   const text = files.map((f) => fs.readFileSync(f, 'utf8')).join('\n')
 
   const rows: { label: string; names: string[]; where: string }[] = [
@@ -201,9 +208,11 @@ test('依赖清单的每个名字都能在 src 里找到取用点（清单从代
   ]
   for (const row of rows) {
     const hit = row.names.some((n) => new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text))
-    assert.ok(hit, `${row.label} 在 src/ 里已无取用点——不再依赖就从 clientContract.mjs 的清单里删掉该行`)
-    const paths = row.where.match(/src\/[\w./-]+\.ts/g) ?? []
-    assert.ok(paths.length > 0, `${row.label} 的 where 字段必须写出我方使用点（src/...）`)
+    assert.ok(hit, `${row.label} 在源码里（src/ 与 packages/*/src/）已无取用点——不再依赖就从 clientContract.mjs 的清单里删掉该行`)
+    // 我方使用点的写法：仓库根的 `src/...` 或插件包的 `packages/.../src/...`（#94）。
+    // 前视边界排除 `packages/<包>/src/...` 里那个内层 `src/`，免得拼出半个路径。
+    const paths = row.where.match(/(?<![\w/.-])((?:src|packages)\/[\w./-]+\.ts)/g) ?? []
+    assert.ok(paths.length > 0, `${row.label} 的 where 字段必须写出我方使用点（src/... 或 packages/...）`)
     for (const p of paths) {
       assert.ok(fs.existsSync(path.join(ROOT, p)), `${row.label} 的 where 指向不存在的文件：${p}`)
     }

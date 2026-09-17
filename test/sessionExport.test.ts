@@ -18,7 +18,7 @@ import {
 } from '../src/pure/sessionExport.ts'
 
 const ROOT = path.join(import.meta.dirname, '..')
-const PLUGIN_SOURCE = path.join(ROOT, 'src', 'ui', 'assembly', 'shell', 'sessionExportPlugin.ts')
+const PLUGIN_SOURCE = path.join(ROOT, 'packages', 'dsh-session-export', 'src', 'sessionExportPlugin.ts')
 const CLIENT_BUNDLE = path.join(ROOT, 'dist', 'assembly', 'plugins', '@dsh-one', 'dsh-session-export', 'client.js')
 
 test('导出走官方既有路由，会话 id 进 URL 前被转义', () => {

@@ -60,7 +60,7 @@ import type { ElementHandle, Page } from 'playwright'
 import { emit, installEventStreamInjector, openTreePage, waitForEventStream, withoutKnownNoise } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 // 期望文案从插件自己的词典读（不硬编码）：被测的就是「树上飘的是哪一句」。
-import { EN, ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'
+import { EN, ZH } from '../../packages/dsh-workspace-tree/src/workspaceTree/locale.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
 

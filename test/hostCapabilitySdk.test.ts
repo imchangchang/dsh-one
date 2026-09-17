@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { hostCapabilities, type CapabilityFailure } from '../src/ui/assembly/shell/hostCapabilities.ts'
+import { hostCapabilities, type CapabilityFailure } from '../packages/dsh-plugin-kit/src/hostCapabilities.ts'
 
 interface Call {
   channel: string

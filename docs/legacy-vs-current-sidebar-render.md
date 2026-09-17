@@ -7,7 +7,7 @@
 
 - **两侧**：旧侧栏 = 已退役、仍在仓库里的那套（`src/ui/sessionsView.ts` +
   `src/ui/sessionsWebview.ts`）；现装配侧栏 = 装配页里跑的那棵树（`@dsh-one/dsh-workspace-tree`，
-  `src/ui/assembly/shell/workspaceTree/`）。
+  `packages/dsh-workspace-tree/src/workspaceTree/`）。
 - **数据**：两侧吃的是**同一次**只读网关读取（`session/list` + `workspace/follow` 的基线帧，
   当次实测：14 棵工作区、1168 条可显示会话）。两侧「怎么读」本来就不同，所以 harness 不硬塞
   同一棵 DOM，而是把同一批事实各按**它自己的原生通道**喂进去（旧侧栏吃宿主推的

@@ -9,7 +9,7 @@
  * 谁——这就是「插件可移植」的关键路径（AGENTS.md 铁律「能移植的必须移植」）。
  *
  * 本包**只有宿主半**（没有客户端半）：前端调用它的那层薄 SDK 在
- * `src/ui/assembly/shell/hostCapabilities.ts`，由消费方插件各自打包（各插件是独立
+ * `packages/dsh-plugin-kit/src/hostCapabilities.ts`，由消费方插件各自打包（各插件是独立
  * bundle，没有共享模块作用域）。所以本包不声明 `dsh.client`，也就不进浏览器插件名册。
  *
  * ## 走第几层机制（AGENTS.md「官方机制优先」）

@@ -36,10 +36,9 @@ function tagColorPalette(): Map<string, string> {
     import.meta.dirname,
     '..',
     '..',
+    'packages',
+    'dsh-workspace-tree',
     'src',
-    'ui',
-    'assembly',
-    'shell',
     'workspaceTree',
     'tagGroups.ts',
   )

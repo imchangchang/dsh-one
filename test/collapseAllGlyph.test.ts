@@ -3,7 +3,7 @@
  *
  * 这条测试守的是一句承诺：**路径是从旧侧栏原样抄过来的，不是重新画的**。官方
  * primitives 没有方框加减号（#118 的举证与取法写在
- * `src/ui/assembly/shell/workspaceTree/collapseAllGlyph.ts` 的文件头），所以装配件里
+ * `packages/dsh-workspace-tree/src/workspaceTree/collapseAllGlyph.ts` 的文件头），所以装配件里
  * 这两枚只能自备数据；自备之后最怕的就是有人「顺手描一条新的」——观感会与旧侧栏、
  * 与官方图标粗细对不上，而且没人看得出来。这里拿两份数据逐字比对，谁改了其中一份
  * 都会红。
@@ -24,7 +24,7 @@ import {
   COLLAPSE_ALL_GLYPHS,
   COLLAPSE_ALL_MINUS,
   COLLAPSE_ALL_PLUS,
-} from '../src/ui/assembly/shell/workspaceTree/collapseAllGlyph.ts'
+} from '../packages/dsh-workspace-tree/src/workspaceTree/collapseAllGlyph.ts'
 import { PANEL_ICONS } from '../src/ui/shared/icons.ts'
 
 test('collapseAllGlyph：两条路径逐字取自旧侧栏的 boxedMinus / boxedPlus', () => {
@@ -47,7 +47,7 @@ test('collapseAllGlyph：方框那一笔两态共用，中间那一笔两态不�
 })
 
 test('collapseAllGlyph：数据模块零 import（装配实验室要在 node 里直接 import 它）', async () => {
-  const source = await fsp.readFile('src/ui/assembly/shell/workspaceTree/collapseAllGlyph.ts', 'utf8')
+  const source = await fsp.readFile('packages/dsh-workspace-tree/src/workspaceTree/collapseAllGlyph.ts', 'utf8')
   const imports = source.match(/^\s*import\b/gm) ?? []
   assert.deepEqual(imports, [], `collapseAllGlyph.ts 不该有 import，找到 ${String(imports.length)} 处`)
 })

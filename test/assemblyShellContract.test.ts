@@ -21,12 +21,15 @@ const read = (file: string): string => fs.readFileSync(path.join(SHELL_DIR, file
 
 /**
  * 侧栏工作区树的全部源码：#99 把插件本体拆成 `workspaceTreePlugin.ts`（注册与组合）
- * + `workspaceTree/` 下的分件（行、工具栏、分组条、选择态、抽屉、对话框、样式…）。
- * 本文件的三条树断言按「整棵树」扫源码，所以要拼起来读——拆文件不改变断言口径。
+ * + `workspaceTree/` 下的分件（行、工具栏、分组条、选择态、抽屉、对话框、样式…）；
+ * #94 起整棵树的源码住在本包里（`packages/dsh-workspace-tree/src/`）。
+ * 本文件的三条树断言按「整棵树」扫源码，所以要拼起来读——拆文件、搬家都不改变断言口径。
  */
+const TREE_DIR = path.join(import.meta.dirname, '..', 'packages', 'dsh-workspace-tree', 'src')
+
 const TREE_SOURCE = ((): string => {
-  const dir = path.join(SHELL_DIR, 'workspaceTree')
-  const parts = [read('workspaceTreePlugin.ts')]
+  const dir = path.join(TREE_DIR, 'workspaceTree')
+  const parts = [fs.readFileSync(path.join(TREE_DIR, 'workspaceTreePlugin.ts'), 'utf8')]
   for (const name of fs.readdirSync(dir).sort()) parts.push(fs.readFileSync(path.join(dir, name), 'utf8'))
   return parts.join('\n')
 })()
@@ -283,7 +286,7 @@ test('layout 服务：右栏呈现上报落进布局状态（官方 ILayout.open
  * 没反应」。
  */
 test('#109：未分组桶的 ＋ 走 sessions.create({})，不再对 undefined 直接 return', () => {
-  const plugin = read('workspaceTreePlugin.ts')
+  const plugin = fs.readFileSync(path.join(TREE_DIR, 'workspaceTreePlugin.ts'), 'utf8')
   const start = plugin.indexOf('startSession: (workspaceId?: string)')
   assert.ok(start >= 0, 'workspaceTreePlugin 里要有 startSession 注入面')
   const block = plugin.slice(start)

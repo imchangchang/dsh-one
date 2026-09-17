@@ -6,7 +6,7 @@
  * 树插件要记的用户数据只有一件：**工作区分组**（组定义 + 归属）。它的家是宿主
  * 能力口的 `stateRead/stateWrite('groups')`——不是 VS Code 的 Memento，也不是扩展
  * 自建的状态文件；VS Code 侧与官方 web 侧因此看到同一份（见
- * `src/ui/assembly/shell/hostCapabilities.ts` 的能力表）。
+ * `packages/dsh-plugin-kit/src/hostCapabilities.ts` 的能力表）。
  *
  * ## 为什么键名与文件格式沿用旧侧栏的 `groups.json`
  * 旧的 vanilla 侧栏把同一件事存在 `~/.dsh/dsh-one/groups.json`（`{version:1,

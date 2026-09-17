@@ -28,8 +28,8 @@ import {
   type ActivityCounts,
   type GroupNode,
   type SessionNode,
-} from '../../../../pure/workspaceTreeView.ts'
-import type { WorkspaceGroupDef } from '../../../../pure/treeGroups.ts'
+} from '../../../../src/pure/workspaceTreeView.ts'
+import type { WorkspaceGroupDef } from '../../../../src/pure/treeGroups.ts'
 import {
   canRecycle,
   cannotArchiveReason,
@@ -38,7 +38,7 @@ import {
   type GroupSelectionState,
   type SessionBlockReason,
   type SessionEligibilityFacts,
-} from '../../../../pure/sessionEligibility.ts'
+} from '../../../../src/pure/sessionEligibility.ts'
 import { createdLabel, displayTitle, hoverTimeLabel, timeLabel } from './format.ts'
 import { GROUP_MENU_PREFIX, TAG_MENU_PREFIX } from './groups.ts'
 import { SelectMark } from './selection.ts'
@@ -776,7 +776,7 @@ export function ProjectRow({
                 if (id === 'remove') onDelete?.()
               },
               // #113：官方紧凑档（项 26px 高 / 5px 圆角 / 12px 字号 / 14×14 图标位），
-              // 与行内码右键菜单（shell/contextMenuPlugin.ts）同一档——侧栏里的菜单密度一致。
+              // 与行内码右键菜单（packages/dsh-context-menu/src/contextMenuPlugin.ts）同一档——侧栏里的菜单密度一致。
               compact: true,
               portal: true,
               closeOnPointerLeave: true,

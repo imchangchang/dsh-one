@@ -7,12 +7,12 @@
  * 本件原先有两处 VS Code 耦合，都已拆掉：
  * - **数据**：`hostCall('git.show')` → **宿主能力口** `capabilities.gitShow(...)`
  *   （VS Code 侧 = 扩展宿主的能力桥；官方 web 侧 = 宿主半插件的网关 RPC，同一份
- *   安全口径代码，见 `./hostCapabilities.ts` 的能力表）；
+ *   安全口径代码，见 `@dsh-one/dsh-plugin-kit/hostCapabilities` 的能力表）；
  * - **外链**：`hostCall('vscode.openExternal')` → `capabilities.openExternal(...)`
  *   （VS Code 侧 = `vscode.env.openExternal`；官方 web 侧 = 页面原生 `window.open`）；
  * - **挂载点**：扫描与事件委托原先挂在自有 frame 根（`[data-shell="dsh-one"]`），
  *   取不到就整个不工作——现在挂**官方对话区容器**（`[data-conversation-scroll]`，
- *   官方 ui-conversation 的会话滚动体），见 `./mountPoints.ts` 的出处。
+ *   官方 ui-conversation 的会话滚动体），见 `@dsh-one/dsh-plugin-kit/mountPoints` 的出处。
  * 卡片本身渲染进 `shell.overlay` 座位、定位按 CSS 的坐标系算（`positioningContext`），
  * 也不认任何自有标记。三处都通用，故命名 `dsh-*`。
  *
@@ -70,10 +70,10 @@ import {
   IconUserOutline16,
   writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { hostCapabilities, type CapabilityContext } from './hostCapabilities.ts'
-import { mountOnConversation, positioningContext } from './mountPoints.ts'
-import { pickSessionWorkspacePath } from '../../../pure/sessionWorkspace.ts'
-import type { CommitInfoResult } from '../../../pure/chatContract.ts'
+import { hostCapabilities, type CapabilityContext } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
+import { mountOnConversation, positioningContext } from '@dsh-one/dsh-plugin-kit/mountPoints'
+import { pickSessionWorkspacePath } from '../../../src/pure/sessionWorkspace.ts'
+import type { CommitInfoResult } from '../../../src/pure/chatContract.ts'
 
 /** hash 标记属性（自有契约：扫描时据此跳过已包过的节点）。 */
 const HASH_ATTR = 'data-dshone-commit'

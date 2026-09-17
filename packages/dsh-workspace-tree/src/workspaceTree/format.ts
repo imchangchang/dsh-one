@@ -1,6 +1,6 @@
 /** 官方同款文案格式化（时间 / 标题）。 */
 import { relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SessionNode } from '../../../../pure/workspaceTreeView.ts'
+import type { SessionNode } from '../../../../src/pure/workspaceTreeView.ts'
 import type { Translate } from './types.ts'
 
 // ---------------------------------------------------------------------------

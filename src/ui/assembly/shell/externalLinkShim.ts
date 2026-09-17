@@ -53,7 +53,7 @@
  * 可观测的因（能力口调用次数）由验证套件 F-48 常驻盯住，读法见该套件说明。
  */
 import { parseAllowedUrl } from '../../../pure/hostCapabilities.ts'
-import { hostCapabilities } from './hostCapabilities.ts'
+import { hostCapabilities } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
 
 /** 页面级「兜底已经装过了」的标记（三棵树的 frame 插件是同族三份 bundle，页面级只装一层）。 */
 const INSTALLED_FLAG = '__DSH_ONE_EXTERNAL_LINK_SHIM__'

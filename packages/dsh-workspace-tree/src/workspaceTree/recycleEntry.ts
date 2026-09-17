@@ -38,7 +38,7 @@
  */
 import { createElement as h } from 'react'
 import { IconRefreshOutline16, IconTrashOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-import { visibleRecycleIds, type SessionListLike } from '../../../../pure/workspaceTreeView.ts'
+import { visibleRecycleIds, type SessionListLike } from '../../../../src/pure/workspaceTreeView.ts'
 import { useRecycleBin } from './recycleBinStore.ts'
 import { useRecycleDrawerOpen } from './recycleDrawerStore.ts'
 import type { Translate } from './types.ts'
