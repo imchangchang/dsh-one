@@ -210,18 +210,34 @@ export const CONTRACT_SUITE: LabSuite = {
  */
 async function rightbarOpenChecks(ctx: SuiteContext, check: Check): Promise<string[]> {
   const sessions = await listSessions(ctx.lab.gateway).catch(() => [])
-  const candidate = sessions.find((session) => session.blank === false && session.running !== true)
-  if (candidate === undefined) {
+  const candidates = sessions.filter((session) => session.blank === false && session.running !== true)
+  if (candidates.length === 0) {
     check.fact('chat：网关上没有非空白会话可用来试官方右栏展开路径（跳过该段断言）')
     return []
   }
-  const opened = await openTreePage(ctx.browser, ctx.lab, route('chat'), { sessionId: candidate.sessionId, width: 1280, height: 860 })
-  try {
-    const before = await rightbarFacts(opened.page)
-    const cornerButtons = await opened.page.evaluate(() =>
+  // 逐个试几个候选：日常实例上「哪条会话排在前面」是当天的活儿决定的，而会话头那枚
+  // 官方展开钮按会话（有没有右栏内容）不一定都出。判据没变——只是别把「今天排最前的
+  // 那条恰好不出钮」记成「座位缺了」：试到有钮的那一条为止，一条都没有才判红。
+  let opened = await openTreePage(ctx.browser, ctx.lab, route('chat'), {
+    sessionId: (candidates[0] as { sessionId: string }).sessionId,
+    width: 1280,
+    height: 860,
+  })
+  let before = await rightbarFacts(opened.page)
+  let cornerButtons = await opened.page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-slot="conversation.session.header.corner"] button')).map((button) => button.getAttribute('aria-label') ?? ''),
+  )
+  for (const candidate of candidates.slice(1, 4)) {
+    if (cornerButtons.length > 0) break
+    await opened.context.close()
+    opened = await openTreePage(ctx.browser, ctx.lab, route('chat'), { sessionId: candidate.sessionId, width: 1280, height: 860 })
+    before = await rightbarFacts(opened.page)
+    cornerButtons = await opened.page.evaluate(() =>
       Array.from(document.querySelectorAll('[data-slot="conversation.session.header.corner"] button')).map((button) => button.getAttribute('aria-label') ?? ''),
     )
-    check.fact(`chat（会话 ${candidate.sessionId.slice(0, 16)}）：会话头右侧角按钮=${JSON.stringify(cornerButtons)} 展开前轨道宽=${String(before.trackWidth)}`)
+  }
+  try {
+    check.fact(`chat（会话 ${opened.url.split('session=')[1]?.slice(0, 16) ?? '?'}）：会话头右侧角按钮=${JSON.stringify(cornerButtons)} 展开前轨道宽=${String(before.trackWidth)}`)
     if (cornerButtons.length === 0) {
       check.ok('chat：非空白会话的会话头出现官方右栏展开钮（ExpandButton 座位）', false, '会话头右侧角没有按钮')
       return [await shot(ctx, opened.page, 'contract-chat-rightbar')]
