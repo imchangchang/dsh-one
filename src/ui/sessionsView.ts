@@ -375,7 +375,6 @@ const SESSIONS_STYLE = `
     background: var(--vscode-badge-background, rgba(127,127,127,.25));
     color: var(--vscode-badge-foreground, var(--vscode-foreground));
   }
-  .recycle-header-spacer { flex: 1; }
   /* 回收站视图头按钮小号化（压全局 button 默认尺寸）；不换行。 */
   .recycle-header button { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
   /* 清空回收站用图标按钮（300px 侧栏一行放不下三个文本按钮 + 标题）：
