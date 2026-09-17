@@ -7,7 +7,7 @@
  *   宿主 → 页面：{ type: 'dshOne.hostResult', id: <回声>, ok: true, data } 或
  *                { type: 'dshOne.hostResult', id: <回声>, ok: false, error: { code, message } }
  *
- * 前端插件不直接走这条通道，而是调**能力口**（`src/ui/assembly/shell/hostCapabilities.ts`）：
+ * 前端插件不直接走这条通道，而是调**能力口**（`packages/dsh-plugin-kit/src/hostCapabilities.ts`）：
  * 能力口在 VS Code 侧把调用落到本桥的白名单调用上，在官方 web 侧落到宿主半插件的
  * 网关 RPC 上——插件代码两端一样（#84）。所以下面每个 `call` 名字都对应能力口里的
  * 一个方法，两边同名同参数。
@@ -64,7 +64,7 @@ export type { HostCallErrorCode, HostCallError } from '../../pure/hostCalls.ts'
 /**
  * 调用名白名单（新增能力必须同时登记参数校核与实现；**失去全部消费者的调用
  * 就地删除**——`vscode.openInBuiltinBrowser` 随右键菜单收缩一并移除，见 #65）。
- * 名字与能力口的方法一一对应（见 `src/ui/assembly/shell/hostCapabilities.ts` 的能力表）。
+ * 名字与能力口的方法一一对应（见 `packages/dsh-plugin-kit/src/hostCapabilities.ts` 的能力表）。
  */
 export const HOST_CALLS = {
   'git.show': 'One commit (hash + author + message + shortstat + GitHub link) from the git CLI.',

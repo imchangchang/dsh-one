@@ -1,8 +1,8 @@
 /** 本地最小类型面（官方私包的精确类型不在本仓库）。 */
-import type { SessionListLike } from '../../../../pure/workspaceTreeView.ts'
-import type { GroupFile } from '../../../../pure/dshStateFile.ts'
-import type { SessionMarksState } from '../../../../pure/sessionMarks.ts'
-import type { TagGroupsFile } from '../../../../pure/sessionTagGroups.ts'
+import type { SessionListLike } from '../../../../src/pure/workspaceTreeView.ts'
+import type { GroupFile } from '../../../../src/pure/dshStateFile.ts'
+import type { SessionMarksState } from '../../../../src/pure/sessionMarks.ts'
+import type { TagGroupsFile } from '../../../../src/pure/sessionTagGroups.ts'
 
 export type Translate = (key: string, params?: Record<string, string | number>) => string
 

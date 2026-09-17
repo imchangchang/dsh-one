@@ -60,8 +60,10 @@
  * 校核，多余键直接拒），这条靠本模块与宿主半共用 `src/pure/hostCapabilities.ts`
  * 的同一份契约保证。
  *
- * 每个插件各自打包一份本模块（各插件是独立 bundle，没有共享模块作用域）——与
- * 同目录的 hostClient.ts 同一取舍，不为此单起一个 cordis 服务。
+ * 本模块与同包的 hostClient.ts / mountPoints.ts 放在私有包
+ * `@dsh-one/dsh-plugin-kit` 里（#94）：**源码一份**，构建期由各插件自己的 bundle
+ * 各打一份进去（各插件是独立 bundle，没有共享模块作用域），所以不为此单起一个
+ * cordis 服务、也不给运行时加一个包依赖。
  */
 import {
   capabilityEndpoint,
@@ -69,9 +71,9 @@ import {
   parseAllowedUrl,
   type HostCapabilityErrorCode,
   type HostCapabilityMethod,
-} from '../../../pure/hostCapabilities.ts'
-import { parsePanelSessionsMessage } from '../../../pure/sessionPanelRouting.ts'
-import type { CommitInfoResult } from '../../../pure/chatContract.ts'
+} from '../../../src/pure/hostCapabilities.ts'
+import { parsePanelSessionsMessage } from '../../../src/pure/sessionPanelRouting.ts'
+import type { CommitInfoResult } from '../../../src/pure/chatContract.ts'
 import { hostCall, hostCallAvailable, type HostCallFailure } from './hostClient.ts'
 
 /** 能力失败：`code` 是结构化错误码（消费方按 code 决定文案，不解析 message）。 */

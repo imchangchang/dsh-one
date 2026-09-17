@@ -34,15 +34,15 @@
  *    的 Escape 用法确认）——所以「空内容放行」不会漏掉官方的中断键，官方的回合
  *    中断入口是 composer 上的停止/中断控件（`interruptible` 那个按钮）。
  * 风险与对策：监听挂在**官方对话区容器**（`[data-conversation-scroll]`，见
- * `./mountPoints.ts` 的出处与理由；composer 座位就在这棵子树里）的捕获阶段，
+ * `@dsh-one/dsh-plugin-kit/mountPoints` 的出处与理由；composer 座位就在这棵子树里）的捕获阶段，
  * 只在事件目标位于官方 composer 卡（`[data-slot="conversation.composer.bar"]`）
  * 之内时才考虑接管；放行条件（IME 组字、官方浮层打开、Ctrl+C 有选区）一律
  * `return`，不 preventDefault、不改草稿。官方 DOM 侧只依赖座位属性与
  * `role`/`aria-modal` 语义标记（非 css-module 哈希）。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { clearHintKind, decideKeyAction } from '../../../pure/composerClearState.ts'
-import { COMPOSER_SEAT_SELECTOR, mountOnConversation } from './mountPoints.ts'
+import { clearHintKind, decideKeyAction } from '../../../src/pure/composerClearState.ts'
+import { COMPOSER_SEAT_SELECTOR, mountOnConversation } from '@dsh-one/dsh-plugin-kit/mountPoints'
 
 /** 撤销窗口时长（毫秒）：窗口内 Ctrl/Cmd+Z 或点「撤销」都能反悔。 */
 const UNDO_WINDOW_MS = 8000

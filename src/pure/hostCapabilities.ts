@@ -8,7 +8,7 @@
  *
  * 本模块是纯逻辑（不依赖 node / vscode / cordis），三处共用：
  * - 宿主半插件 `packages/dsh-host-capabilities/src/`（线协议的服务端）；
- * - 前端 SDK `src/ui/assembly/shell/hostCapabilities.ts`（线协议的客户端）；
+ * - 前端 SDK `packages/dsh-plugin-kit/src/hostCapabilities.ts`（线协议的客户端）；
  * - 扩展侧能力桥 `src/ui/assembly/hostBridge.ts`（VS Code 侧同一口的实现）。
  *
  * ## 走第几层机制（AGENTS.md「官方机制优先」）

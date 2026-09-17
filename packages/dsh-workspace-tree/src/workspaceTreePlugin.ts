@@ -8,7 +8,7 @@
  * （#72 的「在新标签页打开」、#109 的工作区行宿主动作、#121 的「这个会话开在宿主
  * 面板里吗 / 把面板亮到它」、#147 的「宿主面板里开着哪些会话」订阅）一律走**宿主
  * 能力口**这个抽象口
- * （`./hostCapabilities.ts`，插件不直接碰宿主 API），并按能力口如实上报的
+ * （`@dsh-one/dsh-plugin-kit/hostCapabilities`，插件不直接碰宿主 API），并按能力口如实上报的
  * `editorTabs` / `workspaceOpen` / `isSessionInPanel` 决定入口出不出现或走哪条路
  * ——官方 web 侧没有那些宿主概念，那些入口就不显示、当前会话行一律按打开处理，
  * 插件其余行为一模一样。因此它不依赖我们的 shell 实现，官方 web 侧同样
@@ -164,25 +164,25 @@ import {
   emptyTreeGroups,
   parseTreeGroups,
   serializeTreeGroups,
-} from '../../../pure/treeGroups.ts'
+} from '../../../src/pure/treeGroups.ts'
 import {
   SESSION_PINNED_STATE_KEY,
   SESSION_UNREAD_STATE_KEY,
   markStateFile,
   migrateSessionMarks,
   type SessionMarksState,
-} from '../../../pure/sessionMarks.ts'
+} from '../../../src/pure/sessionMarks.ts'
 import {
   TAG_GROUPS_STATE_KEY,
   emptyTagGroups,
   parseTagGroups,
   serializeTagGroups,
   type TagGroupsFile,
-} from '../../../pure/sessionTagGroups.ts'
-import type { GroupFile } from '../../../pure/dshStateFile.ts'
-import { isSessionAlreadyOwnedError } from '../../../pure/sessionOwnership.ts'
-import type { SessionListLike } from '../../../pure/workspaceTreeView.ts'
-import { hostCapabilities, type CapabilityContext } from './hostCapabilities.ts'
+} from '../../../src/pure/sessionTagGroups.ts'
+import type { GroupFile } from '../../../src/pure/dshStateFile.ts'
+import { isSessionAlreadyOwnedError } from '../../../src/pure/sessionOwnership.ts'
+import type { SessionListLike } from '../../../src/pure/workspaceTreeView.ts'
+import { hostCapabilities, type CapabilityContext } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
 import { EN, LOCALE_NS, ZH } from './workspaceTree/locale.ts'
 import { configureRecycleBin } from './workspaceTree/recycleBinStore.ts'
 import { setPanelOpenSessions } from './workspaceTree/panelSessionsStore.ts'

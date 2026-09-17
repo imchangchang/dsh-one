@@ -1,9 +1,9 @@
 /** 树主组件（官方 WorkspaceBrowser 的同构复刻）：组合上面各件 + 状态与订阅。 */
 import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import { IconCloseFill14, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
-import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, withoutPanelOpenCompleted, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
-import { formatFileMention } from '../../../../pure/fileReference.ts'
-import { formatSessionMention } from '../../../../pure/sessionMention.ts'
+import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, withoutPanelOpenCompleted, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../src/pure/workspaceTreeView.ts'
+import { formatFileMention } from '../../../../src/pure/fileReference.ts'
+import { formatSessionMention } from '../../../../src/pure/sessionMention.ts'
 import {
   canRecycle,
   cannotArchiveReason,
@@ -12,7 +12,7 @@ import {
   groupSelectionToggle,
   type GroupSelectionState,
   type SessionEligibilityFacts,
-} from '../../../../pure/sessionEligibility.ts'
+} from '../../../../src/pure/sessionEligibility.ts'
 import {
   createTreeGroup,
   deleteTreeGroup,
@@ -25,7 +25,7 @@ import {
   treeGroupDefs,
   workspaceGroupIds,
   workspaceMatchesGroup,
-} from '../../../../pure/treeGroups.ts'
+} from '../../../../src/pure/treeGroups.ts'
 import {
   autoExpandGroup,
   expandedGroupKeys,
@@ -35,8 +35,8 @@ import {
   toggleGroupExpansion,
   writeTreeViewPrefs,
   type TreeViewPrefs,
-} from '../../../../pure/workspaceTreePrefs.ts'
-import { emptySessionMarks, pinnedFirst, toggleMarkId, type SessionMarksState } from '../../../../pure/sessionMarks.ts'
+} from '../../../../src/pure/workspaceTreePrefs.ts'
+import { emptySessionMarks, pinnedFirst, toggleMarkId, type SessionMarksState } from '../../../../src/pure/sessionMarks.ts'
 import {
   createTagGroup,
   deleteTagGroup,
@@ -56,9 +56,9 @@ import {
   type TagGroupBucket,
   type TagGroupDef,
   type TagGroupsFile,
-} from '../../../../pure/sessionTagGroups.ts'
-import type { TagColor } from '../../../../pure/sessionTags.ts'
-import type { GroupFile } from '../../../../pure/dshStateFile.ts'
+} from '../../../../src/pure/sessionTagGroups.ts'
+import type { TagColor } from '../../../../src/pure/sessionTags.ts'
+import type { GroupFile } from '../../../../src/pure/dshStateFile.ts'
 import { FlashHost, flashTip } from './flash.ts'
 import { onSessionOwnedElsewhere } from './sessionOwnedNotice.ts'
 import { usePanelOpenSessions } from './panelSessionsStore.ts'
@@ -75,7 +75,7 @@ import {
   TagGroupDeleteModal,
   type ArchiveRequest,
 } from './modals.ts'
-import { partitionArchivable } from '../../../../pure/recycleActions.ts'
+import { partitionArchivable } from '../../../../src/pure/recycleActions.ts'
 import { pruneRecycleBin, recycleBinActions, useRecycleBin } from './recycleBinStore.ts'
 import { RecycleDrawer } from './recycleDrawer.ts'
 import { setRecycleDrawerOpen, useRecycleDrawerOpen } from './recycleDrawerStore.ts'

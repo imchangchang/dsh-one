@@ -23,9 +23,9 @@ import {
   IconTrashOutline16,
   Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SessionBlock } from '../../../../pure/workspaceTreeView.ts'
-import type { WorkspaceGroupDef } from '../../../../pure/treeGroups.ts'
-import { TAG_COLORS, type TagColor } from '../../../../pure/sessionTags.ts'
+import type { SessionBlock } from '../../../../src/pure/workspaceTreeView.ts'
+import type { WorkspaceGroupDef } from '../../../../src/pure/treeGroups.ts'
+import { TAG_COLORS, type TagColor } from '../../../../src/pure/sessionTags.ts'
 import { displayTitle } from './format.ts'
 import { GROUP_DRAG_MIME } from './groups.ts'
 import { SelectMark } from './selection.ts'

@@ -66,7 +66,7 @@ import {
   showsStatusDot,
   type RecycleGroup,
   type SessionNode,
-} from '../../../../pure/workspaceTreeView.ts'
+} from '../../../../src/pure/workspaceTreeView.ts'
 import { displayTitle, timeLabel } from './format.ts'
 import { PinMark, SessionStatusDots } from './rows.ts'
 import type { Translate } from './types.ts'

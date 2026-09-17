@@ -4,7 +4,7 @@
  * 目标目录按序取：`~/Downloads`（存在时）→ `~/.dsh/exports`（不存在就建）。
  * 之所以不弹选择框：宿主半跑在 dsh 宿主进程里，那是个没有 GUI 的进程；**选位置
  * 是 shell 的事**——VS Code 侧的同一口由扩展宿主实现（`showSaveDialog`），
- * 前端插件看不到差别（见 `src/ui/assembly/shell/hostCapabilities.ts` 的能力表）。
+ * 前端插件看不到差别（见 `packages/dsh-plugin-kit/src/hostCapabilities.ts` 的能力表）。
  *
  * 文件名由调用方给（已被 `parseSuggestedName` 校核：无路径分隔符、无 `..`），
  * 这里再兜一道 basename，杜绝写穿目录。

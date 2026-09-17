@@ -19,7 +19,7 @@
  * ③ 机制层 3（装载/传输接缝）与「右键交互」无关。
  *
  * 第 4 层做法与稳定性风险：
- * - 委托挂在**官方对话区容器**（`[data-conversation-scroll]`，见 `./mountPoints.ts`
+ * - 委托挂在**官方对话区容器**（`[data-conversation-scroll]`，见 `@dsh-one/dsh-plugin-kit/mountPoints`
  *   的出处与理由——原来是挂在自有 frame 根上，官方 web 里那条根不存在、插件整个
  *   不工作，#83 已改）的捕获阶段，只认行内码一个目标，其余（消息行、外链、
  *   空白处……）一律让路——**不 preventDefault**，VS Code / 系统原生右键菜单照常弹出；
@@ -61,7 +61,7 @@
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { IconCheckOutline16, IconCopyOutline16, Menu, Tooltip, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
-import { mountOnConversation } from './mountPoints.ts'
+import { mountOnConversation } from '@dsh-one/dsh-plugin-kit/mountPoints'
 
 /** 右键目标高亮用的自有属性（只加属性，不改官方 DOM 结构）。 */
 const TARGET_ATTR = 'data-dshone-menu-target'

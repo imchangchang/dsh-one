@@ -34,7 +34,7 @@ import { TagBridge } from './server/tagBridge.ts'
  * **shell 关注点，非插件状态**（#82 铁律的第三类）：这条记的是「本窗口已经把面板
  * 自动打开过一次」这件事，属于面板生命周期，没有跨端语义（官方 web 没有面板、
  * 也没有「自动打开」这回事）。插件自己的用户状态一律不在这里——见
- * `src/pure/treeGroups.ts` 与 `src/ui/assembly/shell/hostCapabilities.ts`。
+ * `src/pure/treeGroups.ts` 与 `packages/dsh-plugin-kit/src/hostCapabilities.ts`。
  */
 const ASSEMBLY_AUTO_OPENED_KEY = 'dshOne.assemblyAutoOpened'
 
