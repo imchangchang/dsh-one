@@ -230,8 +230,16 @@ function hasActiveSchedule(session: SessionSummaryLike): boolean {
   return (session.projectionValues?.schedule?.length ?? 0) > 0
 }
 
-/** 官方 `sessionNode`。 */
-function sessionNode(
+/**
+ * 官方 `sessionNode`：一条会话行节点（状态点的四个输入全在这里——`running` /
+ * `runningSubagentCount` / `completed` / `pendingInteraction`）。
+ *
+ * 导出给**搜索结果行**用（#146）：官方 `deriveSearchResults` 也是拿这一个函数建节点的
+ * （`dsh-client-ui-workspace` 的搜索那一支与分组那一支共用 `sessionNode`），所以搜索
+ * 结果上的状态点与树里的同源。树层自己拼节点会漏掉 `pendingInteraction` 与
+ * `runningSubagentCount` 两格——那正是 #146 审计查出来的「官方有点、我们没有」。
+ */
+export function sessionNode(
   session: SessionSummaryLike,
   descendants: ReadonlyMap<string, { count: number; runningCount: number }>,
   pending: PendingInteractions,
