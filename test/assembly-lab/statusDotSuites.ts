@@ -447,7 +447,8 @@ export const STATUS_DOT_SUITE: LabSuite = {
           mine?.color === ownProbe && ownProbe !== '' && theirs?.color === offProbe && ownProbe === offProbe,
           `own=${String(mine?.color)}/${ownProbe} official=${String(theirs?.color)}/${offProbe}`,
         )
-        check.eq('④ 等待交互：读屏文案两侧相等（等待审批）', [mine?.labels, theirs?.labels], [['等待审批'], ['等待审批']])
+        check.eqTexts('④ 等待交互：读屏文案两侧相等（等待审批）', mine?.labels, ['等待审批'])
+        check.eqTexts('④ 等待交互：官方侧读屏文案同一档（两侧相等）', theirs?.labels, ['等待审批'])
         check.fact(`④ 等待交互：自有 ${describeDot(mine)}；官方 ${describeDot(theirs)}`)
         screenshots.push(await pairShot(ctx, own.page, official.page, target.id, target.title, 'status-dot-warning-pair'))
         // 取消帧一到就清，回到这一行被注入之前的那一态（此刻是运行中：上一段刚把它置成 true）
@@ -479,7 +480,8 @@ export const STATUS_DOT_SUITE: LabSuite = {
           mine?.color === ownProbe && ownProbe !== '' && theirs?.color === offProbe && ownProbe === offProbe,
           `own=${String(mine?.color)}/${ownProbe} official=${String(theirs?.color)}/${offProbe}`,
         )
-        check.eq('② 跑完还没打开：读屏文案是官方那一档（已完成），两侧相等', [mine?.labels, theirs?.labels], [['已完成'], ['已完成']])
+        check.eqTexts('② 跑完还没打开：读屏文案是官方那一档（已完成）', mine?.labels, ['已完成'])
+        check.eqTexts('② 跑完还没打开：官方侧读屏文案同一档（两侧相等）', theirs?.labels, ['已完成'])
         check.eq('② 跑完还没打开：标题不加粗（未读才加粗——第 ⑤ 案要拿它对照）', [doneOwn?.titleWeight, doneOff?.titleWeight], ['400', '400'])
         check.fact(`② 跑完还没打开：自有 ${describeDot(mine)}；官方 ${describeDot(theirs)}`)
         screenshots.push(await pairShot(ctx, own.page, official.page, target.id, target.title, 'status-dot-completed-pair'))

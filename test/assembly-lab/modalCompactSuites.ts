@@ -358,9 +358,8 @@ export const MODAL_COMPACT_SUITE: LabSuite = {
       const duplicate = await page.evaluate(() => {
         const dialog = document.querySelector('[role="dialog"]')
         const error = dialog?.querySelector('.dshOneTree_renameError') ?? null
-        const confirm = Array.from(dialog?.querySelectorAll('.dshOneTree_modalActions button') ?? []).find(
-          (button) => isText(button.textContent, '新建分组'),
-        )
+        // 「确认钮」= 弹窗动作行里最后一枚（文案随页面语言变，所以按位置认，不按文字认）。
+        const confirm = Array.from(dialog?.querySelectorAll('.dshOneTree_modalActions button') ?? []).at(-1)
         return { text: error?.textContent ?? '', role: error?.getAttribute('role') ?? '', disabled: (confirm as HTMLButtonElement | undefined)?.disabled ?? false }
       })
       check.ok('必填校验：重名时错误行出现（红字、role=alert）', duplicate.text !== '' && duplicate.role === 'alert', JSON.stringify(duplicate))

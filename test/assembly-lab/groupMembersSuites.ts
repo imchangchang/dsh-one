@@ -19,6 +19,7 @@ import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
 import { EN, ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'
 import { sourceOf } from './scaleSuites.ts'
+import { SIDEBAR_DATASET } from './dataset.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
 
@@ -34,88 +35,6 @@ const GROUPS = [
   { id: 'g-lab-two', name: 'Lab Two' },
   { id: 'g-lab-empty', name: 'Lab Empty' },
 ]
-
-/**
- * 工作区夹具：四棵**合成**工作区，名字两两不互为子串。
- *
- * 为什么必须自造：以前这条套件拿当天网关上的工作区清单当判据输入（行数、名字、以及
- * 「拿最后一棵的名字当过滤串，剩下几棵算过滤外」），于是判据跟着**这台机器碰巧有多少
- * 工作区、名字怎么起**走——日常实例上绿、全新 `DSH_HOME` 的空实例上红（#148 立、
- * #162 普查）。四棵两两不互为子串之后，「过滤后只剩匹配行」「过滤外仍有成员」这两档
- * 才每次都成立，而判据本身一个字没放宽。
- */
-const LAB_WORKSPACES: ReadonlyArray<{ workspaceId: string; path: string; title: string }> = [
-  { workspaceId: 'lab-ws-alpha', path: '/lab/alpha', title: 'Lab Alpha' },
-  { workspaceId: 'lab-ws-beta', path: '/lab/beta', title: 'Lab Beta' },
-  { workspaceId: 'lab-ws-gamma', path: '/lab/gamma', title: 'Lab Gamma' },
-  { workspaceId: 'lab-ws-delta', path: '/lab/delta', title: 'Lab Delta' },
-]
-
-/**
- * 把 `workspace/follow` 的基线帧换成 {@link LAB_WORKSPACES} 声明的四棵，其余工作区帧
- * （upsert / order / remove / archived）一律丢掉——否则真工作区会从增量里回来，树里就
- * 不只剩合成的那四棵了。只改页面收到的帧，请求不落到网关，所以网关仍只读。
- *
- * 与 F-21 / F-47 / F-51 的三份同一套做法（各处形状不同，所以各写各的，见
- * `expandDefaultsSuites.ts` 里那条同样的说明）。合成项借真 item 的字段面：官方还可能
- * 带别的字段，套件只覆写自己控制得住的那几项。
- */
-async function installWorkspaceFixture(
-  page: OpenedPage['page'],
-  workspaces: readonly { workspaceId: string; path: string; title: string }[],
-  stats: { rewritten: number; dropped: number },
-): Promise<{ rewritten: number; dropped: number }> {
-  await page.routeWebSocket(/remote\.mux/, (socket) => {
-    const upstream = socket.connectToServer()
-    const endpoints = new Map<string, string>()
-    socket.onMessage((message) => {
-      try {
-        const frame = JSON.parse(String(message)) as { type?: string; streamId?: string; endpoint?: string }
-        if (frame.type === 'open' && frame.streamId !== undefined && frame.endpoint !== undefined) {
-          endpoints.set(frame.streamId, frame.endpoint)
-        }
-      } catch {
-        /* 客户端帧形状变了就原样转发（夹具不参与协议解读） */
-      }
-      upstream.send(message)
-    })
-    upstream.onMessage((message) => {
-      const text = String(message)
-      let frame:
-        | { streamId?: string; type?: string; value?: { type?: string; value?: { items?: unknown[]; archivedSessionIds?: unknown } } }
-        | undefined
-      try {
-        frame = JSON.parse(text) as typeof frame
-      } catch {
-        frame = undefined
-      }
-      const endpoint = frame?.streamId === undefined ? undefined : endpoints.get(frame.streamId)
-      if (endpoint !== 'workspace/follow') {
-        socket.send(message)
-        return
-      }
-      const payload = frame?.value
-      if (frame?.type === 'item' && payload?.type === 'baseline' && payload.value !== undefined) {
-        const template = (payload.value.items ?? []).find((item) => typeof (item as { path?: unknown }).path === 'string')
-        const base = typeof template === 'object' && template !== null ? template : { createdAt: new Date(0).toISOString() }
-        payload.value.items = workspaces.map((workspace) => ({
-          ...base,
-          workspaceId: workspace.workspaceId,
-          path: workspace.path,
-          title: workspace.title,
-          sessionIds: [],
-          updatedAt: new Date(0).toISOString(),
-        }))
-        payload.value.archivedSessionIds = []
-        stats.rewritten += 1
-        socket.send(JSON.stringify(frame))
-        return
-      }
-      stats.dropped += 1
-    })
-  })
-  return stats
-}
 
 /** 写类 RPC（改网关上的东西）：本套件全程都不许出现（网关只读）。 */
 const WRITE_METHODS = [
@@ -461,16 +380,15 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       await r.continue()
     })
     try {
-      // ---- 夹具一：**合成工作区**（页内夹具，不读当天网关的工作区清单）----
+      // ---- 夹具一：工作区清单由 harness 的**数据集夹具**给（侧栏那两棵树的缺省口径）----
       // 为什么必须自造：以前这条套件拿「网关上有几棵工作区、都叫什么」当判据的输入，于是
       // 判据跟着**这台机器碰巧有多少工作区、名字里有没有互相包含**走——日常实例上绿、
       // 全新 DSH_HOME 的空实例上直接红（#148 立、#162 普查）。工作区清单本来就是套件
-      // 该控制的那一项，改成自己声明四棵，判据一个字不用改。
-      const wsStats = { rewritten: 0, dropped: 0 }
-      await installWorkspaceFixture(page, LAB_WORKSPACES, wsStats)
+      // 该控制的那一项，改成用夹具声明的那一份，判据一个字不用改。
+      const expectedWorkspaceIds = SIDEBAR_DATASET.workspaces.map((workspace) => workspace.workspaceId)
       // ---- 夹具二：第一个工作区同时在 Lab One 与 Lab Two 里（多对多的回显要有它）----
       // 树层从假宿主的状态存储读分组（挂载时读一次），所以注入之后要重载页面。
-      const multi = LAB_WORKSPACES[0]?.workspaceId ?? ''
+      const multi = expectedWorkspaceIds[0] ?? ''
       const fixture: HostGroupsFile = {
         groups: GROUPS,
         membership: { [multi]: ['g-lab-one', 'g-lab-two'] },
@@ -486,10 +404,14 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       check.fact(`合成工作区进了树（树里顺序）：${JSON.stringify(workspaces.map((row) => row.label))}`)
       check.ok(
         '① 夹具生效：树里的工作区行 = 夹具声明的四棵（顺序逐条相同）',
-        JSON.stringify(ids) === JSON.stringify(LAB_WORKSPACES.map((workspace) => workspace.workspaceId)),
+        JSON.stringify(ids) === JSON.stringify(expectedWorkspaceIds),
         JSON.stringify(ids),
       )
-      check.ok('① 夹具生效：`workspace/follow` 的基线帧被换成了合成工作区', wsStats.rewritten > 0, JSON.stringify(wsStats))
+      check.ok(
+        '① 夹具生效：`workspace/follow` 的基线帧被换成了夹具声明的工作区',
+        (opened.dataset?.workspaceFrames ?? 0) > 0,
+        JSON.stringify(opened.dataset),
+      )
       if (ids.length === 0) return screenshots
 
       // ---- ⑦ 列表层的第一眼：分组、计数与入口 ----

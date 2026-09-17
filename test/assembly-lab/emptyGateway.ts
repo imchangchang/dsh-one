@@ -193,8 +193,15 @@ export async function startEmptyGateway(log: LogSink, options: StartEmptyGateway
     const deadline = Date.now() + (options.readyTimeoutMs ?? 90_000)
     let token: string | undefined
     let exited = false
-    child.once('exit', () => {
+    child.once('exit', (code, signal) => {
       exited = true
+      // 跑到一半这个网关自己没了的话，整轮剩下的套件都会红成「连不上网关」——那不是判据
+      // 的问题，而是环境没了。把退出码、信号与它最后几行输出如实打出来，别让人对着
+      // 一屏 ECONNREFUSED 猜（第 4 轮实测踩到过一次）。
+      const tail = log1.trim().split('\n').slice(-6).join(' | ')
+      log.warn(
+        `空实例网关退出了（code=${String(code ?? 'null')} signal=${String(signal ?? 'null')}）：${tail === '' ? '没有输出' : tail}`,
+      )
     })
     while (Date.now() < deadline) {
       if (exited) break
