@@ -186,20 +186,3 @@ export async function seedLabInstance(gateway: string, home: string, log: LogSin
   )
   return { workspaces, sessions, archivedSessionIds }
 }
-
-/**
- * 套件用的两条小查询：按状态取一条播种会话、按工作区取它的空闲会话。
- * （套件靠这两个入口认行，别自己去猜「树上第一条」是哪一条。）
- */
-export function seededSession(seed: LabSeed, state: LabSessionState): LabSeedSession | undefined {
-  return seed.sessions.find((session) => session.state === state)
-}
-
-/** 这棵工作区里指定状态的播种会话（按工作区标题找）。 */
-export function seededSessionsIn(seed: LabSeed, workspaceTitle: string, state?: LabSessionState): LabSeedSession[] {
-  const workspace = seed.workspaces.find((item) => item.title === workspaceTitle)
-  if (workspace === undefined) return []
-  return seed.sessions.filter(
-    (session) => session.workspaceId === workspace.workspaceId && (state === undefined || session.state === state),
-  )
-}

@@ -457,7 +457,7 @@ async function main(): Promise<number> {
       let screenshots: string[] = []
       let crash: string | undefined
       try {
-        screenshots = await suite.run({ browser, lab, shots, ...(isolated === undefined ? {} : { seed: isolated.seed }) }, check)
+        screenshots = await suite.run({ browser, lab, shots }, check)
       } catch (err) {
         crash = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err)
         check.ok(`${suite.id} 套件执行到底`, false, crash.slice(0, 400))
