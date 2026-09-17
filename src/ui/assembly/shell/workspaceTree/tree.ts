@@ -51,7 +51,6 @@ import type { TagColor } from '../../../../pure/sessionTags.ts'
 import type { GroupFile } from '../../../../pure/dshStateFile.ts'
 import { FlashHost, flashTip } from './flash.ts'
 import { displayTitle } from './format.ts'
-import { GroupFilterBar } from './groupFilterBar.ts'
 import { TAG_MENU_PREFIX, newGroupId, newTagGroupId } from './groups.ts'
 import { useHoverCardRoom } from './hoverCard.ts'
 import {
@@ -1432,9 +1431,16 @@ export function WorkspaceTree(props: TreeProps): unknown {
   return h(
     'div',
     { className: 'dshOneTree_root', ref: rootRef, 'data-shell': 'dsh-one-tree', 'data-dshone-tree': 'root' },
-    // 顶部工具栏（#99 B 段）：官方搜索栏（#132 起默认折叠，点开才展开）+ 折叠/展开全部
-    // + 添加工作区 + 设置齿轮，末尾是多选入口（#131 起那一行只有这四件，视图选项已退役）。
-    // 见 toolbar.ts 的说明与机制举证。
+    // 顶部工具栏（#99 B 段；#135 起**一行五件**）：行首是分组过滤胶囊（原来自己在列表区
+    // 占一行），右边依次是官方搜索栏（#132 起默认折叠，点开才展开）+ 折叠/展开全部 +
+    // 添加工作区 + 设置齿轮 + 多选入口（#131 起搜索栏之后只有这四件，视图选项已退役）。
+    // 搜索展开时除输入框外一律让位，让位规则与官方出处见 toolbar.ts 文件头。
+    //
+    // 分组胶囊的状态与回调仍由这里拥有（分组定义、计数、选择态、建组/管理对话框都在
+    // 这个组件里），只是交给顶栏渲染——它现在是那一行的行首那一件。
+    // #108 起它**选择态下不收起**：那一刻操作条要在它下方接着出现（#98 的布局规范），
+    // 收起它一切换状态就跳一下，且「先按分组过滤、再整组勾选」正是常用路径；#135 之后
+    // 它在搜索态下也不再从 DOM 里摘掉，而是由顶栏按搜索展开与否给它让位（零宽收起）。
     h(TopBar, {
       tr,
       query: searchText,
@@ -1447,29 +1453,22 @@ export function WorkspaceTree(props: TreeProps): unknown {
       ...(openSettings === undefined ? {} : { onOpenSettings: openSettings }),
       selectMode,
       onToggleSelectMode: () => (selectMode ? exitSelection() : selectionEntrySignal.enter()),
+      filter: {
+        groups: groupDefs,
+        activeGroupId: filterActive ? activeGroupId : null,
+        groupCounts,
+        totalCount: workspaces.length,
+        onPick: (groupId: string | null) => setPrefs((prev) => ({ ...prev, activeGroupId: groupId })),
+        onCreate: () => {
+          setGroupError(null)
+          setGroupDialog({ kind: 'create' })
+        },
+        onManage: () => setManageGroupsOpen(true),
+      },
     }),
     h(
       'div',
       { className: 'dshOneTree_listArea' },
-      // #81 功能 1 / #99 B 段：分组过滤条 = 单胶囊 + 成员计数 + ▾ 下拉
-      //（侧栏恒为「按工作区」，所以非搜索态下恒在场；搜索态下让位给结果）。
-      // #108：**选择态下不收起**——操作条要插在它下方（#98 的布局规范），收起它
-      // 一切换状态就跳一下，且「先按分组过滤、再整组勾选」正是常用路径。
-      trimmedQuery === ''
-        ? h(GroupFilterBar, {
-            groups: groupDefs,
-            activeGroupId: filterActive ? activeGroupId : null,
-            groupCounts,
-            totalCount: workspaces.length,
-            tr,
-            onPick: (groupId: string | null) => setPrefs((prev) => ({ ...prev, activeGroupId: groupId })),
-            onCreate: () => {
-              setGroupError(null)
-              setGroupDialog({ kind: 'create' })
-            },
-            onManage: () => setManageGroupsOpen(true),
-          })
-        : null,
       // #81 功能 4 的选择态动作条，动作按 #103 的两层语义接线：移入回收站（本地可逆，
       // 立即执行 + 飘提示 + 结束选择态）与批量归档（不可逆，先过确认弹窗）。
       selectMode

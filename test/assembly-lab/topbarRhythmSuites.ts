@@ -6,9 +6,16 @@
  * `suites.ts` 的 `SUITES` 末尾追加一项。
  *
  * 本套件量的是**实际缝隙**（两个盒子的边到边的距离，按几何矩形算，不靠截图看）：顶栏那一行
- * 与分组过滤条之间、分组过滤条与列表首行之间。判据分两半，正是 #119 确立的分工——
- * **纵向留白取官方节奏（4px）、横向仍取紧凑档（2px）**。横向那一半不能只看纵向变好就算数：
- * 这次改动只该动纵向，横向被顺手改宽同样是回归，所以两组数一起量、一起断言。
+ * 与列表首行之间。判据分两半，正是 #119 确立的分工——**纵向留白取官方节奏（4px）、横向仍取
+ * 紧凑档（2px）**。横向那一半不能只看纵向变好就算数：这次改动只该动纵向，横向被顺手改宽
+ * 同样是回归，所以两组数一起量、一起断言。
+ *
+ * **#135 改了这里量什么**：分组过滤条从「列表区里自成一行」搬进了顶栏那一行（用户拍板
+ * 两行并一行），所以原来那条「顶栏那一行 → 过滤条」的缝隙没有了（两个盒子现在上下叠在
+ * 同一行里），改判两件事——① **那一行与列表首行之间的缝隙仍是官方节奏 4px**（这一格
+ * 从过滤条的下边距换成了那一行自己的下边距 = `section-header-gap`，两项目前都是 4px，
+ * 但判据仍然是「量到的缝隙 = 官方节奏那一格」，不是某个固定像素）；② 过滤条的盒子整个
+ * 落在那一行里（顶底都在行内，证明它确实成了那一行里的一件）。横向那一半原样保留。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
@@ -39,10 +46,13 @@ const FRAME = '[class*="dshOneSidebarShell_frame"]'
 const GAP_VARS = ['section-header-gap', 'group-gap', 'section-gap'] as const
 
 interface RhythmReading {
-  /** 顶栏那一行与分组过滤条之间的实际缝隙 = 过滤条上沿 − 顶栏下沿（纵向留白）。 */
-  topBarToFilterBar: number
-  /** 分组过滤条与列表首行之间的实际缝隙 = 首行上沿 − 过滤条下沿（纵向留白）。 */
-  filterBarToFirstRow: number
+  /** 顶栏那一行与列表首行之间的实际缝隙 = 首行上沿 − 那一行下沿（纵向留白）。 */
+  topBarToFirstRow: number
+  /** 分组过滤条（#135 起是那一行里的一件）整个落在那一行里吗（顶、底都在行内）。 */
+  filterInsideBar: boolean
+  /** 两个盒子的高（读数记事实用：过滤条不再自成一行，靠高与位置说明它在行里）。 */
+  topBarHeight: number
+  filterBarHeight: number
   /** 顶栏那一行的行内横向间隙（= `--dsh-one-density-section-gap`，横向）。 */
   topBarColumnGap: number
   filterBarColumnGap: number
@@ -68,9 +78,13 @@ async function readRhythm(page: OpenedPage['page']): Promise<RhythmReading | nul
       for (const key of vars) {
         frameVars[key] = getComputedStyle(frame).getPropertyValue(`--dsh-one-density-${key}`).trim()
       }
+      const barBox = topBar.getBoundingClientRect()
+      const filterBox = filterBar.getBoundingClientRect()
       return {
-        topBarToFilterBar: round(filterBar.getBoundingClientRect().top - topBar.getBoundingClientRect().bottom),
-        filterBarToFirstRow: round(firstRow.getBoundingClientRect().top - filterBar.getBoundingClientRect().bottom),
+        topBarToFirstRow: round(firstRow.getBoundingClientRect().top - barBox.bottom),
+        filterInsideBar: filterBox.top >= round(barBox.top) && filterBox.bottom <= round(barBox.bottom),
+        topBarHeight: round(barBox.height),
+        filterBarHeight: round(filterBox.height),
         topBarColumnGap: round(Number.parseFloat(getComputedStyle(topBar).columnGap)),
         filterBarColumnGap: round(Number.parseFloat(getComputedStyle(filterBar).columnGap)),
         vars: frameVars,
@@ -126,9 +140,9 @@ async function restoreDensity(page: OpenedPage['page']): Promise<void> {
 export const TOPBAR_RHYTHM_SUITE: LabSuite = {
   id: 'F-26',
   phase: 'new-feature',
-  name: '顶栏 / 分组过滤条一带：纵向留白取官方节奏、横向仍紧凑（#119，TOPBAR-RHYTHM 套件）',
+  name: '顶栏 / 分组过滤条一带：纵向留白取官方节奏、横向仍紧凑（#119 立、#135 按并成一行的新形态重写，TOPBAR-RHYTHM 套件）',
   expect:
-    '真实装配页上（真网关**只读** + 假宿主）、260/340/500 三档宽度下量「实际缝隙」（两个盒子的几何矩形边到边的距离，不靠截图）：① **顶栏那一行与分组过滤条之间、分组过滤条与列表首行之间都是 4px**——按 #119 确立的分工，纵向留白取官方节奏（官方 `.bhn1Oq_sectionHeader{margin-bottom:4px}` 与 `.bhn1Oq_groupSection+.bhn1Oq_groupSection{margin-top:4px}`），#113 档位化时被跟着横向一起砍成 2px 的那两处要回到 4px；② **横向仍是紧凑档**：同一行里顶栏与过滤条的 `column-gap` 读数是 2px（紧凑档的容器内边距），不比官方原值宽——这次只恢复纵向，横向被顺手改宽同样是回归；③ 把密度变量对齐回树插件自己声明的官方兜底值后，**纵向缝隙仍是 4px**（纵向两项的 VS Code 档就是官方原值）、**横向间隙变成官方的 4px**（证明这组读数真的来自那套密度变量，不是量到了别的东西），对齐后撤销内联、页面回到 VS Code 档；④ frame 上 `--dsh-one-density-section-header-gap` / `--dsh-one-density-group-gap` 是 4px、`--dsh-one-density-section-gap` 是 2px，与上面三组读数一一对上。全程零 pageerror。',
+    '真实装配页上（真网关**只读** + 假宿主）、260/340/500 三档宽度下量「实际缝隙」（两个盒子的几何矩形边到边的距离，不靠截图）：① **顶栏那一行与列表首行之间的实际缝隙 = 4px**——按 #119 确立的分工，纵向留白取官方节奏（官方 `.bhn1Oq_sectionHeader{margin-bottom:4px}`），#113 档位化时被跟着横向一起砍成 2px 的那一处要回到 4px。**#135 改了这里量什么**：分组过滤条从「列表区里自成一行」搬进了顶栏那一行（用户拍板两行并一行），原来「那一行 → 过滤条」那一格缝隙随之消失，改判「**过滤条的盒子整个落在那一行里**」（顶、底都在行内，位置与高度一并记事实），纵向那一格则由「那一行的下边距」承担；② **横向仍是紧凑档**：那一行与过滤条的 `column-gap` 读数都是 2px（紧凑档的容器内边距），不比官方原值宽——#119 只恢复纵向，横向被顺手改宽同样是回归；③ 把密度变量对齐回树插件自己声明的官方兜底值后，**纵向缝隙仍是 4px**（纵向那一项的 VS Code 档就是官方原值）、**横向间隙变成官方的 4px**（证明这组读数真的来自那套密度变量，不是量到了别的东西），对齐后撤销内联、页面回到 VS Code 档；④ frame 上 `--dsh-one-density-section-header-gap` / `--dsh-one-density-group-gap` 是 4px、`--dsh-one-density-section-gap` 是 2px，与上面三组读数一一对上。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const widths = [260, 340, 500] as const
@@ -145,7 +159,9 @@ export const TOPBAR_RHYTHM_SUITE: LabSuite = {
         check.fact('这一轮网关数据里没有可量的列表首行——本套件的缝隙断言无法执行')
       } else {
         check.fact(
-          `初始（w=380，VS Code 档）读数：顶栏→过滤条 ${String(initial.topBarToFilterBar)}px、过滤条→首行 ${String(initial.filterBarToFirstRow)}px；` +
+          `初始（w=380，VS Code 档）读数：顶栏→首行 ${String(initial.topBarToFirstRow)}px；` +
+            `顶栏高 ${String(initial.topBarHeight)}px、过滤条高 ${String(initial.filterBarHeight)}px、` +
+            `过滤条在行内=${String(initial.filterInsideBar)}；` +
             `顶栏行内间隙 ${String(initial.topBarColumnGap)}px、过滤条行内间隙 ${String(initial.filterBarColumnGap)}px`,
         )
         check.fact(
@@ -161,14 +177,18 @@ export const TOPBAR_RHYTHM_SUITE: LabSuite = {
             check.fact(`w=${String(width)}：这一轮没有可量的元素——跳过`)
             continue
           }
-          check.eq(
-            `w=${String(width)}：顶栏那一行与分组过滤条之间的实际缝隙 = 官方节奏 4px`,
-            reading.topBarToFilterBar,
-            4,
+          check.fact(
+            `w=${String(width)}：顶栏高 ${String(reading.topBarHeight)}px、过滤条高 ${String(reading.filterBarHeight)}px、` +
+              `顶栏→首行 ${String(reading.topBarToFirstRow)}px`,
+          )
+          check.ok(
+            `w=${String(width)}：分组过滤条整个落在顶栏那一行里（#135 起它是那一行里的一件，不再自成一行）`,
+            reading.filterInsideBar,
+            JSON.stringify(reading),
           )
           check.eq(
-            `w=${String(width)}：分组过滤条与列表首行之间的实际缝隙 = 官方节奏 4px`,
-            reading.filterBarToFirstRow,
+            `w=${String(width)}：顶栏那一行与列表首行之间的实际缝隙 = 官方节奏 4px`,
+            reading.topBarToFirstRow,
             4,
           )
           check.eq(
@@ -207,10 +227,19 @@ export const TOPBAR_RHYTHM_SUITE: LabSuite = {
           JSON.stringify(compactFacts),
         )
         if (compact !== null && official !== null && restored !== null) {
+          check.fact(
+            `官方档读数：顶栏高 ${String(official.topBarHeight)}px、过滤条高 ${String(official.filterBarHeight)}px、` +
+              `顶栏→首行 ${String(official.topBarToFirstRow)}px、过滤条在行内=${String(official.filterInsideBar)}`,
+          )
           check.eq(
-            '对齐到官方档后纵向缝隙不变（纵向两项的 VS Code 档就是官方原值 4px）',
-            [official.topBarToFilterBar, official.filterBarToFirstRow],
-            [4, 4],
+            '对齐到官方档后纵向缝隙不变（纵向那一项的 VS Code 档就是官方原值 4px）',
+            official.topBarToFirstRow,
+            4,
+          )
+          check.ok(
+            '对齐到官方档后过滤条仍整个落在顶栏那一行里（行高 36px 也装得下它）',
+            official.filterInsideBar,
+            JSON.stringify(official),
           )
           check.eq(
             '对齐到官方档后横向间隙变宽（2px → 官方的 4px）——说明这两组读数来自那套密度变量',
@@ -219,8 +248,8 @@ export const TOPBAR_RHYTHM_SUITE: LabSuite = {
           )
           check.eq(
             '撤销内联后页面回到 VS Code 档（横向间隙回到 2px、纵向仍是 4px）',
-            [restored.topBarColumnGap, restored.topBarToFilterBar, restored.filterBarToFirstRow],
-            [2, 4, 4],
+            [restored.topBarColumnGap, restored.topBarToFirstRow],
+            [2, 4],
           )
           // ---- ④ frame 上那三个变量：纵向 4px、横向 2px ----
           check.eq(

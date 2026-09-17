@@ -5,10 +5,23 @@
  * 同一条：那个文件是本批开发的合入热点，新套件放外面能少一半冲突面。注册方式是在
  * `suites.ts` 的 `SUITES` 末尾追加一项。
  *
- * 量的是什么（#125）：侧栏里那三样东西的左缘要在**同一条竖线**上——
+ * 量的是什么（#125）：侧栏里那几样东西的左缘要在**同一条竖线**上——
  * ① 顶栏那一行里的搜索框（官方搜索栏的展开态，用户一眼看到的那个圆角方框）；
  * ② 分组过滤条的胶囊；
  * ③ **列表行的内容左缘**（参照物，见下）。
+ *
+ * **#135 按新形态改了 ① 怎么量**（分组胶囊从列表区那一行搬进了顶栏那一行、两行并一行）：
+ * - 收起态（默认那一态）：那一行的行首是**分组胶囊**，所以「同一条竖线」这一条按**胶囊**
+ *   量——胶囊左缘 = 行内容左缘；这一刻放大镜靠右挨着动作组（#132 的形态），不在那条竖线上，
+ *   套件按事实记它的位置并钉住「不与动作组重叠」。
+ * - 展开态：放大镜展开成占满整行的那只搜索框，**胶囊已让位**（零宽收起，`#135`），所以这一
+ *   条按**搜索框**量——搜索框左缘 = 行内容左缘。原来那条「搜索框左缘 = 胶囊左缘」在展开态
+ *   不再成立（胶囊这一刻是零宽、左缘没有意义），故删去；两态各自的「落在同一条竖线上」分别
+ *   由正面的那一件来判，弱化的是**比对对象**、不是判据本身。
+ *
+ * 让位机制与出处（#135）见 `workspaceTree/toolbar.ts` 与 `workspaceTree/styles.ts`：
+ * 官方搜索展开时给分节头的标题与动作组各挂一枚 Hidden 变体（`sectionLabelHidden` /
+ * `headerActionsHidden`），我们照同一套把胶囊与动作组收成零宽。
  *
  * **参照物 = 工作区行的内容左缘**，可执行定义是「行盒左缘 + 行的 `padding-left`」，也就是
  * 工作区行里文件夹图标那一格（`.dshOneTree_slot`，宽 16px = 图标 16 档，图标贴着这一格
@@ -285,9 +298,9 @@ function insets(reading: InlineReading): { search: number; pill: number; row: nu
 export const TOPBAR_INLINE_SUITE: LabSuite = {
   id: 'F-35',
   phase: 'new-feature',
-  name: '顶栏 / 过滤条的横向基准（#125）：搜索框、分组胶囊与行内容左缘同一条竖线（TOPBAR-INLINE 套件）',
+  name: '顶栏 / 过滤条的横向基准（#125 立、#135 按并成一行的新形态重写）：收起看胶囊、展开看搜索框，都与行内容左缘同一条竖线（TOPBAR-INLINE 套件）',
   expect:
-    '真实装配页上（真网关**只读** + 假宿主）、260/340/500 三档宽度 × 两种密度状态（宿主给的 VS Code 档 / 把密度变量对齐回树插件自己声明的官方兜底值 = 官方档）下量**几何矩形**（不靠截图）：① **三者左缘同一条竖线（±1px）**——搜索框左缘 = 分组胶囊左缘 = 列表行的内容左缘（= 工作区行行盒左缘 + 行的 `padding-left`，也就是文件夹图标那一格的左缘；两个读法必须互相印证）；搜索栏 #132 起是两态，**这一条按展开态判**（点开放大镜再量），收起态的放大镜（28px）只记事实并钉住「不与同一行动作组重叠」——它骑在工具行里、与过滤条不同列，两行并一行是 #135 的事；② **行出血不受影响**——行盒左缘仍在侧栏左缘（±1px）上（hover 底色因此通栏到两侧），且 hover 时底色真的出现（非透明）；③ **三者相对侧栏左缘都不低于下限**——下限 = 当页的 `row-padding-inline`（行内容基准本身）且不低于紧凑档的项内边距 7px（档位表 `SCALE_TIERS.compact.rowPaddingInline`，官方出处 `._item_1nxmc_92{padding:3px 7px}`），防止以后又被压回贴边；④ **右侧关系没被这次改动动过、也不产生横向溢出**——顶栏那一行的右缘仍在列表右缘之外（官方分节头的 `margin-right:-4px` 右出血保留）、过滤条右缘仍落在列表区右缘上、搜索框右缘不超过同一行动作组的左缘、列表 / 过滤条 / 顶栏 / 文档自身的 `scrollWidth ≤ clientWidth + 1`。另核两处「同基准」的顺带项（#125 要做的第 4 点）：底部回收站入口行的主区图标左缘、抽屉头标题左缘、抽屉会话行的内容左缘都落在同一条行内容基准上（抽屉要有内容才量得到行，用假宿主注入一条回收站记录，不写网关）。量之前先钉住 `root.scrollLeft = 0`（整棵树被横滚会让所有读数整体左移，那是另一件事）。全程零 pageerror。',
+    '真实装配页上（真网关**只读** + 假宿主）、260/340/500 三档宽度 × 两种密度状态（宿主给的 VS Code 档 / 把密度变量对齐回树插件自己声明的官方兜底值 = 官方档）下量**几何矩形**（不靠截图）：① **左缘同一条竖线（±1px）**——#135 起分组胶囊与搜索框都在顶栏那一行里，所以**收起态按胶囊量**（胶囊左缘 = 列表行的内容左缘 = 工作区行行盒左缘 + 行的 `padding-left`，也就是文件夹图标那一格的左缘；两个读法必须互相印证），**展开态按搜索框量**（点开放大镜之后，搜索框左缘 = 同一条行内容左缘；这一刻胶囊已让位成零宽，不再拿它比）。收起态的放大镜靠右挨着动作组（#132 的形态），套件按事实记它的位置并钉住「不与动作组重叠」；② **行出血不受影响**——行盒左缘仍在侧栏左缘（±1px）上（hover 底色因此通栏到两侧），且 hover 时底色真的出现（非透明）；③ **相对侧栏左缘有下限**——量到的那个左缘不低于当页的 `row-padding-inline`（行内容基准本身）且不低于紧凑档的项内边距 7px（档位表 `SCALE_TIERS.compact.rowPaddingInline`，官方出处 `._item_1nxmc_92{padding:3px 7px}`），防止以后又被压回贴边；④ **右侧关系与横向溢出**——顶栏那一行的右缘仍在列表右缘之外（官方分节头的 `margin-right:-4px` 右出血保留）、胶囊不横向溢出它所在的盒子、展开态搜索框的右缘不越出那一行的内容右缘、那一行 / 列表区 / 列表 / 文档自身的 `scrollWidth ≤ clientWidth + 1`。（#125 时的两条按新形态退场：过滤条不再自成一行、所以「过滤条右缘 = 列表区右缘」不成立；展开态的动作组已让位成零宽、所以不比「搜索框右缘 ≤ 动作组左缘」。）另核两处「同基准」的顺带项（#125 要做的第 4 点）：底部回收站入口行的主区图标左缘、抽屉头标题左缘、抽屉会话行的内容左缘都落在同一条行内容基准上（抽屉要有内容才量得到行，用假宿主注入一条回收站记录，不写网关）。量之前先钉住 `root.scrollLeft = 0`（整棵树被横滚会让所有读数整体左移，那是另一件事）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const widths = [260, 340, 500] as const
@@ -344,6 +357,26 @@ export const TOPBAR_INLINE_SUITE: LabSuite = {
               collapsedReading.searchRight <= collapsedReading.topActionsLeft + ALIGN_TOLERANCE,
               `搜索右缘=${String(collapsedReading.searchRight)} 动作组左缘=${String(collapsedReading.topActionsLeft)}`,
             )
+            // #135：收起态占行首的是**分组胶囊**，所以「落在行内容基准那条竖线上」这一条
+            // 按胶囊量（展开态才轮到搜索框——那时胶囊已让位成零宽、左缘没有意义）。
+            check.ok(
+              `w=${String(width)} ${label}：收起态的分组胶囊左缘 = 行内容左缘（±${String(ALIGN_TOLERANCE)}px，#125 那条竖线）`,
+              Math.abs(collapsedReading.pillLeft - (collapsedReading.rowContentLeft ?? Number.NaN)) <= ALIGN_TOLERANCE,
+              `胶囊=${String(collapsedReading.pillLeft)} 行内容=${String(collapsedReading.rowContentLeft)}`,
+            )
+            // 胶囊与它所在盒子（过滤条）的溢出关系只在**收起态**量：展开态那一刻过滤条已经被
+            // 收成零宽、胶囊在它里面被裁掉（让位机制本身，见 #135），那个读数没有意义。
+            check.ok(
+              `w=${String(width)} ${label}：收起态胶囊不横向溢出它所在的盒子（过滤条）`,
+              collapsedReading.pillRight <= collapsedReading.filterBarRight + ALIGN_TOLERANCE,
+              `胶囊右缘=${String(collapsedReading.pillRight)} 过滤条右缘=${String(collapsedReading.filterBarRight)}`,
+            )
+            const collapsedOverflow = Object.entries(collapsedReading.overflow).filter(([, pair]) => pair[0] > pair[1] + 1)
+            check.ok(
+              `w=${String(width)} ${label}：收起态列表 / 列表区 / 过滤条 / 顶栏 / 文档都没有横向溢出（scrollWidth ≤ clientWidth + 1）`,
+              collapsedOverflow.length === 0,
+              JSON.stringify(collapsedReading.overflow),
+            )
             if (width === 340) {
               screenshots.push(await shot(ctx, page, `topbar-inline-collapsed-${density}-340`))
             }
@@ -365,16 +398,15 @@ export const TOPBAR_INLINE_SUITE: LabSuite = {
                 `旁证（行里第一枚图标）左缘 ${String(reading.rowIconLeft)}；相对侧栏左缘 = 搜索 ${String(at.search)} / 胶囊 ${String(at.pill)} / 行 ${String(at.row)}`,
             )
 
-            // ---- ① 三者左缘同一条竖线（±1px）----
+            // ---- ① 展开态：搜索框左缘 = 行内容左缘（±1px）----
+            // #135 之前这里还有一条「搜索框左缘 = 分组胶囊左缘」：那时两件都在 DOM 里、
+            // 胶囊在列表区那一行、也是可见的。并成一行之后展开态胶囊已让位成零宽，那条
+            // 比对失去对象（零宽盒的左缘不代表任何东西），所以按新形态去掉——同一条竖线
+            // 改由「搜索框 ↔ 行内容左缘」正面判，判据本身没放宽。
             check.ok(
-              `w=${String(width)} ${label}：搜索框左缘 = 分组胶囊左缘（±${String(ALIGN_TOLERANCE)}px）`,
-              Math.abs(reading.searchLeft - reading.pillLeft) <= ALIGN_TOLERANCE,
-              `搜索=${String(reading.searchLeft)} 胶囊=${String(reading.pillLeft)}`,
-            )
-            check.ok(
-              `w=${String(width)} ${label}：分组胶囊左缘 = 行内容左缘（±${String(ALIGN_TOLERANCE)}px）`,
-              Math.abs(reading.pillLeft - (reading.rowContentLeft ?? Number.NaN)) <= ALIGN_TOLERANCE,
-              `胶囊=${String(reading.pillLeft)} 行=${String(reading.rowContentLeft)}`,
+              `w=${String(width)} ${label}：搜索框左缘 = 行内容左缘（±${String(ALIGN_TOLERANCE)}px）`,
+              Math.abs(reading.searchLeft - (reading.rowContentLeft ?? Number.NaN)) <= ALIGN_TOLERANCE,
+              `搜索=${String(reading.searchLeft)} 行=${String(reading.rowContentLeft)}`,
             )
             // 参照物的两个读法互相印证：行内容左缘（行盒 + padding）必须等于行里第一枚图标的左缘
             // ——不相等说明行的第一个子元素不再贴着行的内容左缘（行的结构变了，参照物要重选）。
@@ -391,8 +423,8 @@ export const TOPBAR_INLINE_SUITE: LabSuite = {
               `行盒=${String(reading.rowBoxLeft)} 侧栏左缘=${String(reading.sidebarLeft)}`,
             )
 
-            // ---- ③ 相对侧栏左缘的下限 ----
-            for (const [name, value] of Object.entries(at)) {
+            // ---- ③ 相对侧栏左缘的下限（展开态量到的那一条左缘）----
+            for (const [name, value] of Object.entries({ search: at.search, row: at.row })) {
               check.ok(
                 `w=${String(width)} ${label}：${name} 的左缘不低于行内容基准 ${String(reading.rowPaddingInline)}px（相对侧栏左缘 ${String(value)}px）`,
                 value >= reading.rowPaddingInline - 0.5,
@@ -412,24 +444,26 @@ export const TOPBAR_INLINE_SUITE: LabSuite = {
               reading.topBarRight > reading.listRight,
               `顶栏右缘=${String(reading.topBarRight)} 列表右缘=${String(reading.listRight)}`,
             )
-            check.ok(
-              `w=${String(width)} ${label}：过滤条的右缘仍落在列表区右缘上（没有因为改左内缩而缩进去或溢出去）`,
-              Math.abs(reading.filterBarRight - reading.listAreaRight) <= 0.5,
-              `过滤条右缘=${String(reading.filterBarRight)} 列表区右缘=${String(reading.listAreaRight)}`,
+            // #135 起过滤条是顶栏那一行里的一件、不再自成一行，所以原来那条「过滤条右缘 =
+            // 列表区右缘」按新形态退场（它在列表区里才有那个右缘）；展开态的搜索框吃满整行，
+            // 右缘自然也不该再与动作组左缘比（那一刻动作组已让位成零宽、贴在最右）。
+            // 两条都换成正面判据：搜索框右缘不越出那一行的内容右缘、胶囊不溢出自己所在的盒子。
+            check.fact(
+              `w=${String(width)} ${label}：展开态右缘读数——搜索框右缘 ${String(reading.searchRight)}、那一行右缘 ${String(reading.topBarRight)}、` +
+                `列表右缘 ${String(reading.listRight)}、过滤条右缘 ${String(reading.filterBarRight)}、列表区右缘 ${String(reading.listAreaRight)}`,
             )
             check.ok(
-              `w=${String(width)} ${label}：搜索框的右缘仍不超过同一行动作组的左缘（左内缩没有把它挤出右边界）`,
-              reading.searchRight <= reading.topActionsLeft + ALIGN_TOLERANCE,
-              `搜索框右缘=${String(reading.searchRight)} 动作组左缘=${String(reading.topActionsLeft)}`,
+              `w=${String(width)} ${label}：展开态搜索框的右缘不越出那一行的右缘（占整行时没有被挤出边界）`,
+              reading.searchRight <= reading.topBarRight + ALIGN_TOLERANCE,
+              `搜索框右缘=${String(reading.searchRight)} 顶栏右缘=${String(reading.topBarRight)}`,
+            )
+            // 展开态这一条只看「还占着位的三个容器 + 文档」：过滤条这一刻是零宽盒（让位
+            // 机制本身），它的 scrollWidth/clientWidth 读数没有意义（收起态那一遍已经量过）。
+            const overflowing = Object.entries(reading.overflow).filter(
+              ([name, pair]) => name !== 'filterBar' && pair[0] > pair[1] + 1,
             )
             check.ok(
-              `w=${String(width)} ${label}：胶囊不横向溢出过滤条`,
-              reading.pillRight <= reading.filterBarRight + ALIGN_TOLERANCE,
-              `胶囊右缘=${String(reading.pillRight)} 过滤条右缘=${String(reading.filterBarRight)}`,
-            )
-            const overflowing = Object.entries(reading.overflow).filter(([, pair]) => pair[0] > pair[1] + 1)
-            check.ok(
-              `w=${String(width)} ${label}：列表 / 列表区 / 过滤条 / 顶栏 / 文档都没有横向溢出（scrollWidth ≤ clientWidth + 1）`,
+              `w=${String(width)} ${label}：展开态列表 / 列表区 / 顶栏 / 文档都没有横向溢出（scrollWidth ≤ clientWidth + 1）`,
               overflowing.length === 0,
               JSON.stringify(reading.overflow),
             )
