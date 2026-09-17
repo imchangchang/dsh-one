@@ -684,7 +684,6 @@ const SESSIONS_STYLE = `
   .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
-  .menu-hint { padding: 8px; opacity: .7; }
   /* 菜单首行的会话标题（操作对象显式化）：置灰小字、单行省略，与菜单项分隔。 */
   .session-menu-title {
     padding: 6px 10px 8px; font-size: .8em; opacity: .55;
