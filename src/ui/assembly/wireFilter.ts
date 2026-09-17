@@ -81,7 +81,14 @@ const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-workflow-run', reason: 'workflow-run cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-deliverables', reason: 'deliverables cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', reason: 'trajectory panel (390KB); no conversation area in the sidebar/settings trees' },
-  { id: '@deepseek-ai/dsh-client-ui-approval', reason: 'approval cards; no conversation area in the sidebar/settings trees' },
+  // ui-approval 曾在这条清单里（「approval cards; no conversation area」）。2026-09-17
+  // 摘除：它与 ui-user-questions 是官方安装里唯二**真的会发布**会话等待态的插件
+  // （第三个调用点 ui-session 只注册那条口子、自己不发布，见下面那一段），而等待态
+  // 正是侧栏会话行黄点的数据源（#140）——把发布者挡掉，侧栏页的等待态表恒空，
+  // 等提问 / 等审批的会话就显示成绿点。它们的卡片只往 `conversation.composer` 座位
+  // 渲染，而这个座位在侧栏 / 设置两棵树里没人声明，官方那两件用的是 `slots.inject`
+  //（等目标槽名被声明后再注册的正规挂法）——注册条件永不满足，所以放行不会多渲染
+  // 任何东西，也不会 loud throw。侧栏树保持原样的前提由 F-42 常驻把关。
   { id: '@deepseek-ai/dsh-client-ui-attachment', reason: 'message attachment gallery; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-subagent', reason: 'subagent cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-jobs', reason: 'background-jobs cards; no conversation area in the sidebar/settings trees' },
@@ -96,7 +103,13 @@ const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-skill', reason: 'skill cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-reference', reason: 'reference cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-session-log-export', reason: 'session-log export (routed through the host save-dialog action, #71)' },
-  { id: '@deepseek-ai/dsh-client-ui-user-questions', reason: 'user-question cards; no conversation area in the sidebar/settings trees' },
+  // ui-user-questions 曾在这条清单里（「user-question cards; no conversation area」）。
+  // 2026-09-17 摘除，理由与上一条 ui-approval 同：#140 的等待态数据源。官方安装里
+  // 只有三处调用 `uiSession.registerPendingInteraction`——本件（question 与
+  // plan-review 两档）、ui-approval（approval 档）、ui-session 自己；前两件之前被
+  // 挡掉之后，侧栏页一条等待态都发布不出来。`plan-review` 这一档就是本件发的
+  //（`pending.kind === "plan-review" ? 2 : 1` 的优先号），所以 ui-plan 不必放行
+  // ——它的 plan 卡片仍然只在对话区有用。
   { id: '@deepseek-ai/dsh-client-ui-directory-picker-native', reason: 'native directory picker (VS Code host provides its own picker)' },
 ]
 
