@@ -145,7 +145,9 @@
 //   它不是档位表里的某一项，而是**四个结构量的和**（每一项都能在这一行与列表的几何里量到）：
 //   ① 这一行自己的 **4px 出血**（下面 `margin-right:-4px` 的官方原值，盒子因此伸到内容列之外）；
 //   ② 列表的 **右外边距** `--dsh-session-list-scrollbar-offset`（行盒由它往左退一格）；
-//   ③ 列表给滚动条留的**车道** `--dsh-session-list-scrollbar-width`（`scrollbar-gutter:stable`）；
+//   ③ 列表给滚动条留的**车道** `--dsh-session-list-scrollbar-width`（`scrollbar-gutter:stable`；
+//   **#168 起这一项按当页实测写回**——滚动条实占时是它的宽（本机 8px），macOS 那种浮层
+//   滚动条不占宽、车道是 0，写死 8px 会让这一行多缩进 8px；写回在 scrollbarLane.ts）；
 //   ④ 行的**右内边距** `--dsh-one-density-row-padding-inline`（行的内容从那里再退一格）。
 //   四项相加就是「那一行的盒子右缘」到「行内容右缘」的距离，所以随侧栏几何走、不写死像素
 //   （算式的推导与依赖写在 `.dshOneTree_sectionHeader` 那条规则上方）。
@@ -346,6 +348,12 @@ export const CSS =
   // 容器外，让侧栏外层（官方 hHd-Xa_regionArea）的 scrollWidth 比 clientWidth 大 4px
   // ——平时看不见，但官方在「单列表」视图里对选中行 scrollIntoView 时会被横滚 4px，
   // 整棵树跟着左移 4px（#85 回归断言实测到的既有缺陷）。列表自己的滚动在 .dshOneTree_list。
+  //
+  // 这里声明的两个右偏移量，性质不同：`--dsh-session-list-scrollbar-offset` 是我们自己
+  // 让列表往左退的一格（常量），`--dsh-session-list-scrollbar-width` 是**滚动条占的那一格**
+  // ——它由宿主的滚动条形态决定（Windows 实占、macOS 浮层不占），所以下面那个 8px 只是
+  // 「还没量过」时的声明值，页面挂载后由 scrollbarLane.ts 把当页实测值写回同一根变量
+  // （#168）。消费方只有顶栏那一行与列表两条规则，它们读到的都是写回后的真值。
   '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex;position:relative}' +
   // 骨架窗口件（顶栏 / 抽屉头 / 搜索框 / 图标按钮）取「紧凑档的行高 26px」当高度、取
   // 紧凑档的容器内边距 2px 当横向档（档位表见文件头）：一列里只有这一种「一个控件的高度」，
@@ -368,10 +376,16 @@ export const CSS =
   //   ① `4px` = 这一行自己的右出血（下面 `margin-right:-4px` 的官方原值）；
   //   ② `--dsh-session-list-scrollbar-offset` = 列表自己的右外边距（列表的 `margin-right`）；
   //   ③ `--dsh-session-list-scrollbar-width` = 列表给滚动条留的车道（`scrollbar-gutter:stable`；
-  //      滚动条真的占宽时这一格就实占，是行盒右缘往左退的第二格）；
+  //      滚动条真的占宽时这一格就实占，是行盒右缘往左退的第二格）。**这一格是唯一一项
+  //      随宿主变的量**：#168 起树在挂载后把当页实测的车道写回这根变量（`offsetWidth −
+  //      clientWidth`，见 scrollbarLane.ts），所以 macOS 那种不占宽的浮层滚动条下它是 0、
+  //      这一行跟着少缩 8px，右缘仍与列表行的行尾文字同一条竖线；
   //   ④ `--dsh-one-density-row-padding-inline` = 行的右内边距（行内容从那里再退一格）。
   // 所以收起态最右一枚工具图标、展开态那只搜索框都会落在行尾文字（时间 / 角标）结束的那条线上；
   // 展开态还差官方 `searchExpanded` 自带的那 2px 外突与行内间隙的差（F-42 早有这一条）。
+  // **这条 padding-right 收的是内容，盒子一字未动**：上面那条 `margin-right:-4px`（官方分节头
+  // 的出血）照旧把盒子伸到内容列之外，盒子右缘仍在列表右缘之外。两条口径分工写死——**盒子**
+  // 右缘归 F-35 ④ 判（它守的就是「别为了收内容把出血也去掉」），**内容**右缘归 F-44 判。
   // 为什么不写成一个档位值：档位表里没有哪个量等于这个和（行内边距只是其中一项），硬凑一个值
   // 会让这条关系在别的密度档 / 别的列表几何下断掉。**这条算式按 shell 当前的右缘配置推导**
   //（`.dshOneTree_root` 的 `--dsh-session-list-edge-inset` 是 0：root 不给右内缩，列表容器用
@@ -420,6 +434,11 @@ export const CSS =
   '.dshOneTree_clearButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}' +
+  // 列表自己也让出滚动条那一格：`padding-right` 算的是「容器内缩 − 车道 − 右外边距」，
+  // 而容器不给右内缩（shell 把 `--dsh-session-list-edge-inset` 置 0），所以两种滚动条
+  // 形态下算出来都 ≤ 0、被 CSS 夹回 0（浮层形态下这一格本来就不该存在）。真正的右退一格
+  // 由 `margin-right` + 列表自身的 `scrollbar-gutter` 给出，车道那一项在这里只影响
+  // 顶栏那一行（见上面它的 `padding-right` 与 scrollbarLane.ts）。
   '.dshOneTree_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:var(--dsh-one-density-list-padding-bottom,16px);overflow-y:auto}' +
   '.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}' +
   '.dshOneTree_groupSection{position:relative}' +
