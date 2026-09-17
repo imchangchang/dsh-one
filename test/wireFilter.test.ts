@@ -232,6 +232,69 @@ test('filterWire（settings 树）：外框+官方侧栏+对话流剥除，frame
 })
 
 // ---------------------------------------------------------------------------
+// #180：block list 逐条复核（判据 = 这棵树有没有声明它注册的座位）
+// ---------------------------------------------------------------------------
+
+/**
+ * 对话流卡片组（#180 逐条复核的那一批）：它们注册的座位全在对话区
+ * （`conversation.*` / `tool.call.*`），声明方是官方 ui-conversation / ui-chat。
+ */
+const CONVERSATION_CARDS = [
+  '@deepseek-ai/dsh-client-ui-tool',
+  '@deepseek-ai/dsh-client-ui-attachment',
+  '@deepseek-ai/dsh-client-ui-subagent',
+  '@deepseek-ai/dsh-client-ui-jobs',
+  '@deepseek-ai/dsh-client-ui-plan',
+  '@deepseek-ai/dsh-client-ui-message-feedback',
+  '@deepseek-ai/dsh-session-log-export',
+]
+
+test('block list 逐条复核（#180）：sidebar 树不再背对话区卡片的 id（那棵树一个对话区座位都没声明）', () => {
+  // sidebar 树的 frame 只声明 `sidebar` + `shell.overlay`，官方 ui-conversation
+  // （那些座位的声明方）也在这棵树上被下线 ⇒ 整棵对话子树不存在 ⇒ 这几件注册时
+  // `slots.inject` 的回调永不跑，整件停车、不渲染任何东西。挂着它们只是白背
+  // 一个官方 id 依赖（官方改名就要靠 F-11 才知道）。
+  const stillBlocked = SIDEBAR_BLOCKED_IDS.filter((id) => CONVERSATION_CARDS.includes(id))
+  assert.deepEqual(stillBlocked, [], '这七件在 sidebar 树上一个座位都没声明，不该继续下线')
+  // 同一批在 settings 树里要留着：设置页声明了 keyed `main`，官方 ui-conversation 的
+  // 整棵子树因此注册成立，那些座位在那棵树里**是声明了的**（放回会真注册进对话子树）。
+  const settingsBlocked = SETTINGS_BLOCKED_IDS.filter((id) => CONVERSATION_CARDS.includes(id))
+  assert.deepEqual(settingsBlocked, [...CONVERSATION_CARDS], 'settings 树继续下线这七件')
+})
+
+test('block list 逐条复核（#180）：没有任何座位贡献、或座位只由同样被下线的件声明的两件已摘除', () => {
+  // ui-reference：client.js 里一次 `slots.register` / `slots.inject` 都没有
+  // （只注册 `@` 触发源与词典），「reference cards」那条理由本身是错的。
+  // ui-skill：唯一注册的座位 `tool.call.toolview` 由 ui-tool 声明，而 ui-tool 在
+  // 三棵树里的两棵都被下线 ⇒ 那两棵树都没声明它 ⇒ 停车。
+  for (const list of [CHAT_BLOCKED_IDS, SIDEBAR_BLOCKED_IDS, SETTINGS_BLOCKED_IDS]) {
+    assert.ok(!list.includes('@deepseek-ai/dsh-client-ui-reference'), 'ui-reference 不该再出现在任何 block list 里')
+    assert.ok(!list.includes('@deepseek-ai/dsh-client-ui-skill'), 'ui-skill 不该再出现在任何 block list 里')
+  }
+})
+
+test('block list 逐条复核（#180）：座位在 sidebar 树**真被声明**的件继续下线', () => {
+  // directory-picker-native 注册的 `sidebar.workspaces.directoryFlow` 由官方
+  // ui-workspace 的 WorkspaceBrowser 声明、而自有树还要读它的占用态 ⇒ 放回它就会往
+  // 我们自己的侧栏树里注册官方原生目录选择器。
+  assert.ok(SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-directory-picker-native'))
+  // 这四件的 inject 里有官方 `uiConversation` 服务，而 sidebar 树下线了它的提供方
+  // ui-conversation ⇒ 放回它们会停在「未激活」，boot 一个条目没激活就整页抛错（#164）。
+  for (const id of [
+    '@deepseek-ai/dsh-client-ui-workflow-run',
+    '@deepseek-ai/dsh-client-ui-deliverables',
+    '@deepseek-ai/dsh-client-ui-trajectory',
+    '@deepseek-ai/dsh-client-ui-goal',
+  ]) {
+    assert.ok(SIDEBAR_BLOCKED_IDS.includes(id), `${id} 依赖 sidebar 树没有的 uiConversation，必须继续下线`)
+    assert.ok(SETTINGS_BLOCKED_IDS.includes(id), `${id} 的座位在 settings 树里被声明，继续下线`)
+  }
+  // settings-general：`sidebar.settings` 座位由官方 ui-sidebar 在 sidebar 树里声明
+  // （它没有声明的只有 sidebar 树之外的树）⇒ 这棵树继续下线它。
+  assert.ok(SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-settings-general'))
+})
+
+// ---------------------------------------------------------------------------
 // #165：官方把 application 阶段切成好几批时的口径
 // ---------------------------------------------------------------------------
 
