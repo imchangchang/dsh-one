@@ -282,11 +282,20 @@ export const SELECT_MODE_INDENT_SUITE: LabSuite = {
           }
         }
         const chosen = best === null ? new Set<string>() : new Set(best.rows.slice(0, 3))
-        const others: string[] = []
+        // 置顶候选要**挑到夹具那一组之外**：组里有一条置顶行时组头最满只能到 some
+        // （置顶行不可勾，#17 的口径），⑦ 那条「点组头 = 全选」的期望就落不到 all——
+        // 那是本套件自己的夹具挑错了行，不是功能问题（#177 在隔离实例上实测撞到）。
+        const outside: string[] = []
+        const inside: string[] = []
         for (const section of Array.from(document.querySelectorAll('[data-dshone-group-key]'))) {
-          for (const id of operable(section)) if (!chosen.has(id)) others.push(id)
+          const key = section.getAttribute('data-dshone-group-key') ?? ''
+          for (const id of operable(section)) {
+            if (chosen.has(id)) continue
+            if (key === best?.key) inside.push(id)
+            else outside.push(id)
+          }
         }
-        return { key: best?.key ?? '', rows: best?.rows.slice(0, 3) ?? [], others }
+        return { key: best?.key ?? '', rows: best?.rows.slice(0, 3) ?? [], others: [...outside, ...inside] }
       })
       fixture = found.key === '' ? null : { key: found.key, rows: found.rows }
       pinCandidate = found.others[0] ?? ''

@@ -197,6 +197,40 @@ export class Check {
   }
 }
 
+/**
+ * 整轮页面发出的 `/api/<method>` 计数（#177 的信息性观测，同时服务 #175）。
+ *
+ * 记法：每一页开页时在这个浏览器上下文上装一条 `**\/api/**` 的路由，把路径最后一段
+ * 记下、再 `fallback()` 交下去（**必须 fallback 而不是 continue**：页内数据集夹具也挂在
+ * 同一层，`continue` 会让请求直接出网、夹具再也接不到）。所以这里数的是**页面真的发出去的**
+ * RPC，被夹具就地接住的那几条（例如 `session/create`）也在里面——报告里说明这一点，
+ * 别当成「打到网关的清单」读。
+ */
+const apiMethods = new Map<string, number>()
+
+/**
+ * 整轮页面发出的请求**落在哪个源**上（`scheme://host:port` → 次数）。
+ *
+ * 用途：R-06 的「整轮零请求打到实例之外」（#177）——页面上的一切请求都走镜像 /
+ * 实验室自己的源，**一条都不该落到本轮实例之外**（尤其不该落到用户日常那台）。
+ * 这条是页面侧的读数，与「网关进程只绑了一个地址」那条结构性事实互为佐证。
+ */
+const apiOrigins = new Map<string, number>()
+
+export function apiMethodCounts(): ReadonlyMap<string, number> {
+  return apiMethods
+}
+
+export function apiOriginCounts(): ReadonlyMap<string, number> {
+  return apiOrigins
+}
+
+/** 清空计数（同一进程里跑第二遍时用；`verify.ts` 整轮只跑一遍）。 */
+export function resetApiMethodCounts(): void {
+  apiMethods.clear()
+  apiOrigins.clear()
+}
+
 /** 一页的控制台记录（分类靠文本，因为官方不会给错误打标记）。 */
 export interface PageCapture {
   consoleErrors: string[]
@@ -297,13 +331,13 @@ export interface OpenOptions {
    * 判据就不再吃「这台机器上碰巧有什么数据」。**必须在页面第一次导航之前装**，所以走
    * 这里（`newContext` 之后、`newPage` 之前），套件不用为夹具再重载一次页面。
    *
-   * 三种取值（**默认不装**，与「日常实例整轮是合入门禁」这条口径配套）：
-   * - 传一份 `LabDataset`：装这一份——**要夹具数据的套件显式声明**，两种跑法下都用它。
-   * - `null`：这一页明确要真网关数据（与官方页并排对照、零工作区空态这类套件）。
-   * - 不传：听这一轮跑法的（`LabServer.dataset`，见 `labServer.startLabServer`）——
-   *   **日常实例整轮不装**（套件本来就按真实数据写的），`--empty` 那一轮由 verify.ts
-   *   统一给侧栏那两棵树装上 `SIDEBAR_DATASET`（空实例上没有数据可依赖，判据必须是
-   *   自足的）。
+   * 两条取值（**默认不装**）：
+   * - 传一份 `LabDataset`：装这一份——**要夹具数据的套件显式声明**。
+   * - 不传（或 `null`）：这一页要真数据（隔离实例里播种的那份，见 `seed.ts`）。
+   *
+   * #177 之前还有第三条「听这一轮跑法的」（`--empty` 那一轮由 verify.ts 统一装
+   * `SIDEBAR_DATASET`）；默认跑法换成隔离实例+播种之后，那条退场了——真数据已经在
+   * 实例里，判据不必再吃一份合成数据。
    */
   dataset?: LabDataset | null
 }
@@ -608,10 +642,9 @@ export async function openTreePage(
     content: fakeHostScript(options.state ?? {}, options.failCalls ?? [], options.workspaceFolders ?? []),
   })
   // 数据集夹具（#162）：装在这个上下文上、在第一次导航之前，首帧基线就已是夹具那一份。
-  // 缺省口径见 OpenOptions.dataset 的说明：套件显式声明的优先，否则听这一轮跑法的
-  // （`lab.dataset`，只有 `--empty` 那一轮会给；只作用于侧栏那两棵树的页面）。
-  const fallback = route.route.startsWith('sidebar') ? lab.dataset : undefined
-  const dataset = options.dataset === undefined ? fallback : (options.dataset ?? undefined)
+  // 只有套件**显式声明**时才装（#177 起不再有「整轮统一装一份」那档：默认跑法连的
+  // 隔离实例里已经有播种好的真数据，套件按真数据写）。
+  const dataset = options.dataset ?? undefined
   const datasetStats = dataset === undefined ? undefined : await installLabDataset(context, dataset)
   return await openPageIn(lab, route, context, options, datasetStats)
 }
@@ -667,6 +700,16 @@ async function openPageIn(
   // 链接拦截层替身（#150）同一条道理：替身要早于页面任何脚本挂上，才对应真 webview
   // 里「外层文档先于页面内容装好监听」的位置。
   if (options.linkLayer === true) await context.addInitScript({ content: vscodeLinkLayerScript() })
+  // RPC 观测（#177）：这一页发出的每条 `/api/<method>` 记一笔，供整轮报告列出写面。
+  // 用 `fallback()` 交下去——数据集夹具也挂在上下文这一层，`continue()` 会把请求
+  // 直接放出去、夹具就再也接不到了。
+  await context.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url())
+    const method = decodeURIComponent(url.pathname.split('/api/')[1] ?? url.pathname).split('?')[0] ?? ''
+    if (method !== '') apiMethods.set(method, (apiMethods.get(method) ?? 0) + 1)
+    apiOrigins.set(url.origin, (apiOrigins.get(url.origin) ?? 0) + 1)
+    await route.fallback()
+  })
   const page = await context.newPage()
   const capture = capturePage(page)
   const query = new URLSearchParams()
@@ -744,7 +787,13 @@ export function contractGaps(
 
 /** 造一个 headless（或带界面）的 chromium。 */
 export async function launchBrowser(headless = true): Promise<Browser> {
-  return chromium.launch({ headless })
+  // `handleSIGINT` / `handleSIGTERM` 交给**我们自己的**信号处理（`verify.ts` 的 `onSignal`）：
+  // Playwright 默认会自己装一对，收到 SIGINT 就关掉浏览器然后 `process.exit(130)`——
+  // 于是我们的收尾（关实验室服务器、**按 PID 收掉隔离实例**、删临时 DSH_HOME）刚走到
+  // `browser.close()` 就被它带走了：进程按 130 退出，隔离实例与临时目录留在原地
+  // （#177 实测：Ctrl-C 之后 `dsh web` 还在监听、`dsh-lab-home-*` 还在）。关浏览器的
+  // 责任本来就在我们的收尾里，这里只需把它的默认行为关掉。
+  return chromium.launch({ headless, handleSIGINT: false, handleSIGTERM: false })
 }
 
 /**

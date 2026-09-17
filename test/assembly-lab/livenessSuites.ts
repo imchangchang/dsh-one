@@ -646,7 +646,12 @@ const SIDEBAR_POINTS: ReadonlyArray<LivenessPoint> = [
 
 /** settings 树：设置页各节与通用设置里的控件（官方页这两处是弹窗，形态不同，不做对照）。 */
 const SETTINGS_POINTS: ReadonlyArray<LivenessPoint> = [
-  { label: '设置 · 导航到「模型服务」', selector: 'button:has-text("模型服务")', expect: '切到该节内容' },
+  // 「切到另一节」按**不是当前那一节**认，不写死节名：设置页的节来自装着的插件
+  // （日常实例上有我们自己那件 `模型服务`，隔离实例上是官方的 `模型` / `插件` /
+  // `Agent 预设` / `已归档会话`，见 `settingsLayoutPlugin` 的 navCell），写死一个节名
+  // 会在别的实例上「元素不在场 → 跳过」，跟着「导航回通用设置」那一条也就成了空点
+  // （当时已经在通用设置上，点下去当然没有反应——#177 实测红过一条）。
+  { label: '设置 · 导航到另一节', selector: 'button.dshOneSettingsShell_navCell:not([aria-current])', expect: '切到该节内容' },
   { label: '设置 · 导航回「通用设置」', selector: 'button:has-text("通用设置")', expect: '切回该节内容' },
   {
     label: '设置 · 权限预设下拉',

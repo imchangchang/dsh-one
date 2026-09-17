@@ -253,10 +253,22 @@ export const UNREAD_COUNT_SUITE: LabSuite = {
         })),
       )}`,
     )
-    const candidates = groups
+    // 目标分组必须先**活动全为零**：本套件的起点必须是三档全 0（夹具自己造的那一档
+    // 是从 0 开始的），否则读数会被环境里真跑着 / 真等着的会话污染——隔离实例上
+    // `Lab-States` 那一组就带着一条真等待会话，只按「≥2 条空闲」挑会挑到它（#177 实测）。
+    // 找不到全零的分组时退回旧口径并在事实里写明，让「这一轮的基线不干净」看得见。
+    const quiet = groups
+      .map((group) => ({ group, idle: group.sessions.filter((session) => session.status === 'idle') }))
+      .filter((entry) => entry.idle.length >= 2 && entry.group.activity === null)
+      .sort((left, right) => right.idle.length - left.idle.length)
+    const fallback = groups
       .map((group) => ({ group, idle: group.sessions.filter((session) => session.status === 'idle') }))
       .filter((entry) => entry.idle.length >= 2)
       .sort((left, right) => right.idle.length - left.idle.length)
+    const candidates = quiet.length > 0 ? quiet : fallback
+    if (quiet.length === 0) {
+      check.fact('树上没有「活动全为零」的分组，退回按空闲条数挑（基线可能不干净，下面的读数按实读记）')
+    }
     const target = candidates[0]
     check.ok(
       '当天树上有「同一工作区里 ≥2 条空闲会话」的分组（未读这一项的夹具要有行可标）',
