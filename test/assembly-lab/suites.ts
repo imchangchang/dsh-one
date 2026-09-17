@@ -60,6 +60,7 @@ import { UNREAD_COUNT_SUITE } from './unreadCountSuites.ts'
 import { LIVENESS_SUITE } from './livenessSuites.ts'
 import { RECYCLE_DRAWER_COMPLETE_SUITE } from './recycleDrawerCompleteSuites.ts'
 import { FRESH_PROFILE_BOOT_SUITE } from './freshProfileSuites.ts'
+import { SIDEBAR_NO_HSCROLL_SUITE } from './sidebarHScrollSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6143,4 +6144,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 顺延；套件本体在 freshProfileSuites.ts，同为独立文件，少一处合入热点。
   // 它自己起一台临时 DSH_HOME 的网关，见那个文件头。
   FRESH_PROFILE_BOOT_SUITE,
+  // #130 侧栏树容器不可横滚（F-56：F-01…F-55 与 R-06 已占，按「从未占用的继续」顺延；
+  // 套件本体在 sidebarHScrollSuites.ts，同为独立文件，少一处合入热点）。
+  SIDEBAR_NO_HSCROLL_SUITE,
 ]

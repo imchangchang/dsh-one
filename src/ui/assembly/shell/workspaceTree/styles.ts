@@ -343,18 +343,33 @@ export const SCALE_EXEMPT: readonly { selector: string; reason: string }[] = [
 // 导出给断言用（test/sidebarStyleScale.test.ts 直接拿这段字符串做表驱动扫描：档位表与
 // 样式是同一份源码里的两个东西，读实体比扫源码文本稳）。
 export const CSS =
-  // overflow:hidden 是给分节头的 `margin-right:-4px`（官方原值，让标题栏贴到侧栏
-  // 右缘）兜住溢出：shell 把 `--dsh-sidebar-inline-padding` 置 0 之后，那 4px 会伸到
-  // 容器外，让侧栏外层（官方 hHd-Xa_regionArea）的 scrollWidth 比 clientWidth 大 4px
-  // ——平时看不见，但官方在「单列表」视图里对选中行 scrollIntoView 时会被横滚 4px，
-  // 整棵树跟着左移 4px（#85 回归断言实测到的既有缺陷）。列表自己的滚动在 .dshOneTree_list。
+  // 这一层的横向裁切用 `overflow:clip`（后面那行 `overflow:hidden` 是老引擎的兜底：
+  // 不认 clip 的引擎退回旧行为），两件事说清——
+  //
+  // **为什么需要裁切**：分节头的 `margin-right:-4px`（官方原值，让标题栏贴到侧栏右缘）
+  // 让那一行的盒子比容器的 content 右缘多出 4px，shell 把 `--dsh-sidebar-inline-padding`
+  // 置 0 之后它就伸到容器外，把侧栏外层（官方 `hHd-Xa_regionArea`）的可滚范围撑起来——
+  // 那 4px 平时看不见（两级容器都是 `overflow:hidden`），但官方在「单列表」视图里对
+  // 选中行 `scrollIntoView` 时会被横滚 4px，整棵树跟着左移 4px（#85 回归断言实测到的
+  // 既有缺陷）。列表自己的滚动在 `.dshOneTree_list`，不在这一层。
+  //
+  // **为什么是 clip 而不是 hidden**（#130，用户实测报「点过顶栏右侧按钮后整棵树被横滚
+  // 4px、Esc 也不回位」）：`overflow:hidden` 只挡视觉，**不消掉滚动范围**——容器自己仍是
+  // 一个滚动容器，`scrollLeft` 照样能挪到 4px（实测 `scrollWidth/clientWidth = 343/339`），
+  // 于是任何把内容拖进那 4px 带的动作（自动化点击前的 `scrollIntoViewIfNeeded`、程序化
+  // `scrollIntoView`、脚本直接赋值）都会把整棵树左移 4px，且那一下之后没有任何东西把它
+  // 挪回来。`overflow:clip` 与 `hidden` 一样在 padding box 上裁切（视觉一字不变、外层
+  // 一样看不到溢出），区别是**不建立滚动容器**：可滚范围归零（实测把 `scrollLeft` 置 999
+  // 读回 0，`scrollIntoView` 与点击都不再动它），那 4px 出血照旧保留（盒子右缘仍在列表
+  // 右缘之外，F-35 ④ / F-44 ③ 守的形态没变）。Chromium 90 起支持 `clip`（VS Code 的
+  // webview 与实验室的 chromium 都远在其上），老引擎靠上面那行 `hidden` 兜底。
   //
   // 这里声明的两个右偏移量，性质不同：`--dsh-session-list-scrollbar-offset` 是我们自己
   // 让列表往左退的一格（常量），`--dsh-session-list-scrollbar-width` 是**滚动条占的那一格**
   // ——它由宿主的滚动条形态决定（Windows 实占、macOS 浮层不占），所以下面那个 8px 只是
   // 「还没量过」时的声明值，页面挂载后由 scrollbarLane.ts 把当页实测值写回同一根变量
   // （#168）。消费方只有顶栏那一行与列表两条规则，它们读到的都是写回后的真值。
-  '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex;position:relative}' +
+  '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;overflow:clip;flex-direction:column;flex:1;display:flex;position:relative}' +
   // 骨架窗口件（顶栏 / 抽屉头 / 搜索框 / 图标按钮）取「紧凑档的行高 26px」当高度、取
   // 紧凑档的容器内边距 2px 当横向档（档位表见文件头）：一列里只有这一种「一个控件的高度」，
   // 比它高的东西会把这一行撑破（这一行是 `overflow:hidden`）。它们的官方原值（36 / 30 / 28px）
