@@ -202,13 +202,37 @@ interface SessionSummaryFace {
   rename(title: string): Promise<{ ok: boolean; error?: { message: string } }>
 }
 
+/**
+ * 官方会话快照里「这条会话最近失败在哪」那一处（#183）。
+ *
+ * `lastAgentError` 在官方公开契约里（`dsh-api-session-controller/lib/types/client/contract/snapshot.d.ts`
+ * 的 `SessionSnapshot`）：官方客户端收到转发事件上的失败时，自己把它写进会话对象
+ * （`Session.handleAgentError(message)`）。本插件判「是不是被另一个 dsh 占着写句柄」
+ * 只看这个字段的**取值**，不看它由哪条事件送进来——事件名是官方内部实现，字段名是它对
+ * 外的快照契约。
+ *
+ * 只认这一个字段，不认同族的 `openError`（历史窗口打开失败那条）：双实例实测里
+ * `lastAgentError` 拿到逐字原文、`openError` 是 null、`openState` 是 `'open'`——占用这条
+ * 失败走的是「resume 失败」而不是「窗口打不开」，多认一个字段只是多押一个名字。
+ */
+interface SessionSnapshotFace {
+  readonly lastAgentError?: string | null
+}
+
+/** 会话的对外面（官方 `SessionFace` = 行为动词 + 快照读口）。 */
+interface SessionFace extends SessionSummaryFace {
+  getSnapshot(): SessionSnapshotFace
+  /** 官方 uSES 订阅口（快照变化时调一次）。 */
+  subscribe(listener: () => void): () => void
+}
+
 interface SessionsService {
   readonly list: { getSnapshot(): SessionListLike }
   readonly searchResultLimit: number
   open(id: string): void
   create(opts: { workspaceId?: string }): Promise<string>
   fork(opts: { sessionId: string; increaseTitle?: boolean }): Promise<string>
-  binding(id: string): { session: SessionSummaryFace } | undefined
+  binding(id: string): { session: SessionFace } | undefined
   search(query: string, signal: AbortSignal): Promise<{ ok: boolean; value?: SearchPage; error?: { message: string } }>
 }
 
@@ -290,29 +314,62 @@ export function apply(ctx: TreeContext): void {
    * `pure/sessionOwnership.ts`），用户在树上点它当场什么都看不到——官方把这条失败只
    * 落进会话对象的 `lastAgentError`（客户端没有界面读它），要到用户发消息时才在输入条
    * 上弹一条原始吐司（`resume failed for session …: SessionAlreadyOwnedError …`）。
-   * 侧栏树是用户点击的地方，所以在这条失败到达时给一条能行动的提示。
+   * 侧栏树是用户点击的地方，所以在**打开失败**时给一条能行动的提示。
    *
-   * 机制层 2（官方服务 API）：官方客户端服务 `remote` 的转发事件通道 `$on`——官方
-   * `dsh-api-session-controller` 的客户端半自己就是
-   * `ctx.remote.$on('api-session/error', (sessionId, message) => …)`（出处：
-   * `lib/types/client/index.js` 的 apply），我们只是同一个事件的另一个订阅方。
-   * 取法是官方的可选取法 `ctx.get('remote')`（与上面 `uiWorkspace` 同一处置）：官方
-   * web 与 VS Code 两侧都装了这个服务，但它不是本插件成立的前提，缺席就不订阅
-   *（本插件其余行为一字不变）。
+   * **判据与订阅面（#183 改道）**：只认官方错误类名（`isSessionAlreadyOwnedError`，
+   * 见 `pure/sessionOwnership.ts`），读的是**官方会话快照上的失败字段**
+   * （`lastAgentError`，出处与只认它一个的理由见 `SessionSnapshotFace`）——那是官方对外的
+   * 快照契约，也是官方客户端自己收到那条失败后写进去的地方。
+   *
+   * 为什么不再自己订阅事件名：原来这里是 `ctx.remote.$on('api-session/error', …)`
+   * （出处 `@deepseek-ai/dsh-api-session-controller/lib/client.js` 的 apply——官方客户端
+   * 半自己就是这条事件的订阅方）。那是一个**内部事件名**，不在服务目录的公开面上；
+   * 官方换名之后，官方客户端照常把失败写进快照（它自己的契约），只有我们这条提示会静默
+   * 消失（#96 审计第五节第 9 条 D4）。
+   *
+   * **触发点跟着点击走**：打开的那条会话进入 `list.current` 之后官方才会去 resume 它、
+   * 失败才会到达——所以每次树上打开一条会话，就订阅**那一条会话**的快照；快照里出现
+   * 「被别的 dsh 占着」这条错误时报一次，之后这条订阅留着（同一次打开不再重复飘），
+   * 直到用户再打开别的会话或插件卸载。**每次打开都重置判据**：用户再点同一行，应该再拿到
+   * 一次反馈（快照上的错误值还在，第一条就是重报的依据）。
+   *
+   * 订阅只跟**用户点过的那条会话**走，不给其它会话建任何东西——官方客户端对会话对象是
+   * 惰性物化的（只有被打开/被查询的那条才存在），这里保持同一条口径：不对整张列表做
+   * 批量 `binding(id)`。
    */
-  ctx.effect(() => {
-    const remote = ctx.get('remote') as
-      | { $on?: (event: string, listener: (...args: unknown[]) => void) => (() => void) | void }
-      | undefined
-    const off = remote?.$on?.('api-session/error', (sessionId, message) => {
-      if (typeof sessionId !== 'string' || sessionId === '') return
-      if (!isSessionAlreadyOwnedError(message)) return
-      reportSessionOwnedElsewhere(sessionId)
-    })
-    return () => {
-      off?.()
+  let releaseOpenFailureWatch: (() => void) | undefined
+  const watchOpenFailure = (sessionId: string): void => {
+    releaseOpenFailureWatch?.()
+    releaseOpenFailureWatch = undefined
+    // 取法是官方的可选取法 `ctx.get('sessions')` 上的 `binding(id)`（官方服务目录里的
+    // 公开面：`ClientSessions.binding(id)`）；形状对不上（官方换了）就什么都不订阅，
+    // 本插件其余行为一字不变。
+    const face = sessions.binding?.(sessionId)?.session as Partial<SessionFace> | undefined
+    if (face === undefined || typeof face.subscribe !== 'function' || typeof face.getSnapshot !== 'function') return
+    // 两个方法内部都用会话自己的字段（官方 uSES 那套），绑回它自己再调用。
+    const session: Pick<SessionFace, 'subscribe' | 'getSnapshot'> = {
+      subscribe: face.subscribe.bind(face),
+      getSnapshot: face.getSnapshot.bind(face),
     }
-  }, 'dsh-one workspace tree: session write-handle conflicts')
+    let reported = false
+    const inspect = (): void => {
+      if (reported) return
+      const failure = session.getSnapshot().lastAgentError
+      if (!isSessionAlreadyOwnedError(failure)) return
+      reported = true
+      reportSessionOwnedElsewhere(sessionId)
+    }
+    releaseOpenFailureWatch = session.subscribe(inspect)
+    // 失败可能在这一拍之前就到了（`lastAgentError` 是粘住的），所以订阅之后立刻看一次。
+    inspect()
+  }
+  ctx.effect(
+    () => () => {
+      releaseOpenFailureWatch?.()
+      releaseOpenFailureWatch = undefined
+    },
+    'dsh-one workspace tree: session write-handle conflicts',
+  )
 
   /**
    * #103：回收站（本地集合）与归档动作接进模块级 store——树主组件与底部入口行是
@@ -453,8 +510,11 @@ export function apply(ctx: TreeContext): void {
       openSessionPanel: (sessionId: string): Promise<void> => caps.openSessionPanel(sessionId),
       // 官方 sessions 服务：选中会话（镜像官方 ui-workspace 的 openSession，
       // 不调 layout.selectPanel——自有侧栏树没有主面板概念）。
+      // #183：打开之后盯这条会话的官方快照（`watchOpenFailure`）——它被别的 dsh 占着
+      // 写句柄时，官方把那条失败落到快照的失败字段上，提示由那里报出。
       open: (sessionId: string): void => {
         sessions.open(sessionId)
+        watchOpenFailure(sessionId)
       },
       // 工作区行的「+」：官方 uiWorkspace.startSession 的语义（它依赖 layout 服务的
       // beginNavigation/selectPanel，自有 layout 桩没有这两件，故按同一语义直接
