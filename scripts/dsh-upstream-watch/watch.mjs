@@ -191,7 +191,7 @@ function issueBody({ rel, version, npmVersion, probe }) {
     probeResultsMarkdown(probe),
     '## 人工完整测试',
     '',
-    '探针只查**名字还在不在**（wire 面：启动/认证/unary RPC/WS 帧形状；客户端契约面：combo 里的 slot 名 / root 级 hook / 我们取用过的字段名），**不含真模型行为**（流式渲染、工具执行、会话迁移等），也不查「装起来崩不崩」。人工项见 [docs/dsh-compat-checklist.md](../blob/main/docs/dsh-compat-checklist.md) 的「人工/补充项」一节；装配形态的两道机器验证（`npm run verify:lab`、`npm run verify:host-half`）与前置条件见同文件「上游发版时该跑的三件事」。',
+    '探针只查**名字还在不在**（wire 面：启动/认证/unary RPC/WS 帧形状；客户端契约面：combo 里的 slot 名 / root 级 hook / 我们取用过的字段名；官方产物面：本机已安装官方包里的内部标识符——这一族坏了不报错、只是不生效），**不含真模型行为**（流式渲染、工具执行、会话迁移等），也不查「装起来崩不崩」。人工项见 [docs/dsh-compat-checklist.md](../blob/main/docs/dsh-compat-checklist.md) 的「人工/补充项」一节；装配形态的两道机器验证（`npm run verify:lab`、`npm run verify:host-half`）与前置条件见同文件「上游发版时该跑的三件事」。',
     '',
     '## Release notes',
     '',

@@ -9,14 +9,23 @@
  * 行为：用临时 DSH_HOME 起 `dsh web --host 127.0.0.1 --port <空闲端口> --no-open`，
  * 逐项核实 dsh-one 实际依赖的 **wire 面**（启动/认证/unary RPC/WS 流）、**网关前端
  * 产物**（伺服面里的 `/` 启动契约标记、首个 batch 的 combo 端点、Origin 栅栏——
- * #67 的 N1–N3）与 **客户端契约面**（网关下发的 combo 里我们必须存在的 slot 名 /
- * root 级 hook 名 / 取用过的字段与方法名，取法见 clientContract.mjs），输出结果表；
- * 有任何 fail 时退出码为 1（skip 不算失败）。探针全部只读/无副作用（创建的
- * workspace/session 在隔离 DSH_HOME 内，进程退出即弃）。
+ * #67 的 N1–N3）、**客户端契约面**（网关下发的 combo 里我们必须存在的 slot 名 /
+ * root 级 hook 名 / 取用过的字段与方法名，取法见 clientContract.mjs）与 **官方产物面**
+ * （本机已安装的官方包文件里必须还在的内部标识符——静默失效型依赖，取法见
+ * officialIdentifiers.mjs），输出结果表；有任何 fail 时退出码为 1（skip 不算失败）。
+ * 探针全部只读/无副作用（创建的 workspace/session 在隔离 DSH_HOME 内，进程退出即弃；
+ * 官方产物面只读磁盘，连本机默认 `~/.dsh` 也只看不改）。
  *
  * 检查项清单与人工补充项见 docs/dsh-compat-checklist.md。
+ *
+ * 一处刻意的设计（#37）：`commands/execute` 该发什么参数形状，探针**不复刻**——
+ * 直接 import dsh-one 源码里的 `commandsExecuteArgs`（`src/pure/dshWire.ts`），
+ * 与运行时同一份。探针跟着 dsh-one 走，就不会再出现「探针自己过时、报出上游没改
+ * 的假失败」。
  */
 import { checkClientContract } from './clientContract.mjs'
+import { checkOfficialIdentifiers, resolveRealpath } from './officialIdentifiers.mjs'
+import { commandsExecuteArgs } from '../../src/pure/dshWire.ts'
 import { spawn } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -248,19 +257,22 @@ async function main() {
       cmds.body?.result?.ok ? `count=${Array.isArray(cmdsValue) ? cmdsValue.length : 'undefined'}` : `HTTP ${cmds.status} ${JSON.stringify(cmds.body ?? cmds.text).slice(0, 160)}`)
   } else record('rpc-commands-list', 'commands/list：命令名册数组', 'skip', '无 sessionId')
 
-  // 11. commands/execute 参数形状（dsh-one 现发 {agentId, line, images}；
-  // 0.1.3 上游改名为 submittedAttachments，gateway 严格校验会拒多余键）
+  // 11. commands/execute 参数形状：形状取自 dsh-one 源码的同一份单一事实源
+  // （src/pure/dshWire.ts 的 commandsExecuteArgs，按版本分叉 0.1.2 的 `images`
+  // / 0.1.3+ 的 `submittedAttachments`）——探针不再自己复刻协议知识，也就不会再
+  // 出现「dsh-one 早改对了、探针还发老形状」那种假失败（#37）。
+  const execArgs = commandsExecuteArgs(version, sessionId ?? '', '/dsh-one-probe-no-such-command')
+  const execName = `commands/execute 接受 dsh-one 现发的 args 形状（${shapeKeys(execArgs)}，取自 src/pure/dshWire.ts）`
   if (sessionId) {
-    const exec = await rpc(baseUrl, cookie, 'commands/execute', { agentId: sessionId, line: '/dsh-one-probe-no-such-command', images: [] })
+    const exec = await rpc(baseUrl, cookie, 'commands/execute', execArgs)
     const errCode = exec.body?.result && !exec.body.result.ok ? exec.body.result.error?.code : null
     if (exec.status === 200 && exec.body?.rpcId === exec.rpcId && errCode !== 'gateway/arguments-invalid') {
-      record('commands-execute-args', 'commands/execute 接受 dsh-one 的 args 形状（images 键）', 'pass',
-        errCode ? `业务错误可接受: ${errCode}` : 'ok')
+      record('commands-execute-args', execName, 'pass', errCode ? `业务错误可接受: ${errCode}` : 'ok')
     } else {
-      record('commands-execute-args', 'commands/execute 接受 dsh-one 的 args 形状（images 键）', 'fail',
+      record('commands-execute-args', execName, 'fail',
         errCode ?? `HTTP ${exec.status} ${JSON.stringify(exec.body ?? exec.text).slice(0, 160)}`)
     }
-  } else record('commands-execute-args', 'commands/execute 接受 dsh-one 的 args 形状（images 键）', 'skip', '无 sessionId')
+  } else record('commands-execute-args', execName, 'skip', '无 sessionId')
 
   // 12-14. WS mux
   if (cookie) {
@@ -282,9 +294,77 @@ async function main() {
     record(r.id, r.name, r.status, r.detail)
   }
 
+  // 22. 官方产物面（#179）：本机已安装的官方包文件里必须还在的内部标识符
+  {
+    const found = findOfficialRoot(opts, dshHome)
+    if (found.root === null) {
+      record('official-identifiers', '官方内部标识符在场（本机官方产物，存在性检查）', 'fail',
+        `找不到官方产物目录（找过：${found.tried.join('、')}）——这一面未核实，不能当成没问题`)
+    } else {
+      const r = checkOfficialIdentifiers({ root: found.root, version, profile: found.profile })
+      record(r.id, r.name, r.status, r.detail)
+    }
+  }
+
   await cleanup()
   const failed = results.filter((r) => r.status === 'fail').length
   return finish(opts, failed > 0 ? 1 : 0)
+}
+
+/**
+ * 官方产物根目录（`…/@deepseek-ai`，#179 那一项读的就是它下面的包文件）。
+ *
+ * 三个候选按可信度排：
+ *
+ * ① 被测实例自己的 profile（`<DSH_HOME>/profiles/node_modules`）——网关实际加载的那一份。
+ *    但它**不是每种安装方式都有**：实测全局装的 dsh 起新 DSH_HOME 会建它，npm `--prefix`
+ *    装出来的那份不建（只建 `profiles/web`）。
+ * ② 被测 dsh **自己安装树**里的官方包——从 `--command` 解析到的可执行文件、以及 `--cwd`
+ *    往上逐级找 `node_modules/@deepseek-ai`；npm 全局装（包嵌在 `<cli>/node_modules` 下）、
+ *    `--prefix` 装（包在 `<prefix>/node_modules` 下）、源码构建（pnpm workspace 根）都落在这里。
+ * ③ 本机默认 `~/.dsh` 的 profile——#179 点名的那个路径；**可能不是本次被测版本**，
+ *    所以 detail 里如实写明读的是哪一份。
+ *
+ * 候选目录要求里面真有官方包（`dsh-client-ui-layout` 在），免得认错目录（例如我们自己的
+ * profile 里也有一个 `@deepseek-ai`，那里面只放自有插件）。都没有时返回 `{ root: null, tried }`，
+ * 由调用方报红并列出找过的地方——取不到就不能让这一面显示成「没问题」。
+ */
+function findOfficialRoot(opts, dshHome) {
+  const candidates = []
+  const add = (dir, profile) => candidates.push({ dir, profile })
+  add(path.join(dshHome, 'profiles', 'node_modules', '@deepseek-ai'), '被测实例自己的 profile（网关实际加载的那一份）')
+  for (const start of cliSearchStarts(opts)) {
+    for (const anc of ancestors(start)) {
+      add(path.join(anc, 'node_modules', '@deepseek-ai'), `被测 dsh 的安装树（${anc}/node_modules）`)
+    }
+  }
+  add(path.join(os.homedir(), '.dsh', 'profiles', 'node_modules', '@deepseek-ai'), '本机默认 ~/.dsh 的 profile（可能不是本次被测版本）')
+
+  for (const c of candidates) {
+    if (fs.existsSync(path.join(c.dir, 'dsh-client-ui-layout'))) return { root: resolveRealpath(c.dir), profile: c.profile }
+  }
+  return { root: null, tried: candidates.map((c) => c.dir) }
+}
+
+/** 从这些目录往上找官方包：`--command` 里的可执行文件所在目录、`--cwd`（缺省用当前目录）。 */
+function cliSearchStarts(opts) {
+  const starts = []
+  const [bin] = splitCommand(opts.command)
+  if (bin.includes('/') || bin.includes('\\')) starts.push(path.dirname(resolveRealpath(bin)))
+  starts.push(opts.cwd ? resolveRealpath(opts.cwd) : process.cwd())
+  return starts
+}
+
+/** `dir` 及其各级父目录（含自身，到文件系统根为止）。 */
+function ancestors(dir) {
+  const out = []
+  let cur = path.resolve(dir)
+  for (;;) {
+    out.push(cur)
+    const up = path.dirname(cur)
+    if (up === cur) return out
+    cur = up
+  }
 }
 
 /**
