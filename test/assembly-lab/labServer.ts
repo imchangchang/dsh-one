@@ -217,7 +217,7 @@ function gatewayPort(gateway: string): number {
 
 export async function startLabServer(options: LabServerOptions): Promise<LabServer> {
   const { gateway, log } = options
-  const record = await readOwnedRecord(defaultOwnedPath(), log)
+  const record = await readOwnedRecord(defaultOwnedPath())
   const token = resolveGatewayToken(gateway, options.token, record)
   if (token === undefined) {
     throw new Error(

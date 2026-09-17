@@ -58,7 +58,7 @@ function inPrereqRange(version: string | undefined): boolean {
 
 export async function startProtoServer(options: ProtoServerOptions): Promise<ProtoServer> {
   const { gateway, log } = options
-  const record = await readOwnedRecord(defaultOwnedPath(), log)
+  const record = await readOwnedRecord(defaultOwnedPath())
   const explicit = options.token
   const port = Number(new URL(gateway).port || 80)
   const token = explicit !== undefined && explicit !== '' ? explicit : record !== null && record.port === port ? record.token : undefined

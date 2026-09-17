@@ -80,7 +80,6 @@ export class ServerManager implements vscode.Disposable {
    * 的实例（kill 权）；另一 user-data 的窗口不匹配 → adopted。 */
   private readonly ownerId: string
   private inflight: Promise<ServerStatus> | null = null
-  private stopping = false
   /** stop() 递增；进行中的 start 失败时据此判断是用户喊停而非真错误。 */
   private stopGeneration = 0
   private healthTimer: NodeJS.Timeout | null = null
@@ -278,7 +277,6 @@ export class ServerManager implements vscode.Disposable {
   }
 
   async stop(): Promise<void> {
-    this.stopping = true
     this.stopGeneration++
     this.stopHealthCheck()
     try {
@@ -288,7 +286,6 @@ export class ServerManager implements vscode.Disposable {
       if (this.status.url) clearVersion(this.status.url)
       this.ownedPid = null
       this.setStatus({ state: 'stopped' })
-      this.stopping = false
     }
   }
 
@@ -389,7 +386,7 @@ export class ServerManager implements vscode.Disposable {
     // 已知风险（已拍板接受）：dsh 死亡后 pid 被系统复用、且端口又被另一个手动
     // 启动的 dsh 占用时，stop 会误杀复用 pid 的进程组——host.describe 不含
     // pid，无法更严格地验证。
-    const owned = await readOwnedRecord(defaultOwnedPath(), this.logger)
+    const owned = await readOwnedRecord(defaultOwnedPath())
     // 局域网标志跟记录走（spawn 窗口写下、re-own/第二窗口读回），但要跟**运行中的
     // 进程**核对一次：记录可能是陈的（实例被手工重启过、端口上换了别的进程），
     // 那时转发器能起、链接能打开，可网关不认局域网 Host，所有 /api/* 会 403。
@@ -665,7 +662,7 @@ export class ServerManager implements vscode.Disposable {
     this.logger.info(`dsh logs to ${this.logFile()}`)
     await this.writeOwned({ pid: dshPid, port: spawnPort, version: dsh.version, ...(lanIp ? { lanIp } : {}) })
 
-    const ready = await this.waitReady(dshPid, spawnPort)
+    const ready = await this.waitReady(dshPid)
     const actualPort = ready.port
     if (ready.token !== undefined) {
       // 0.1.2：token 已随就绪行拿到并完成换票（auth 注册在 exchangeToken 内）。
@@ -785,7 +782,7 @@ export class ServerManager implements vscode.Disposable {
    * 进程提前退出（pid 消失）/ 90s 超时都会带上日志文件尾部作为错误详情。
    * 双层 spawn 后扩展不再持有 dsh 的进程句柄，早退只能靠 pid 存活判断。
    */
-  private waitReady(pid: number, port: number): Promise<ReadyResult> {
+  private waitReady(pid: number): Promise<ReadyResult> {
     return new Promise<ReadyResult>((resolve, reject) => {
       let settled = false
 
