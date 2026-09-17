@@ -58,6 +58,7 @@ import { DRAG_PARITY_SUITE } from './dragParitySuites.ts'
 import { EXPAND_DEFAULTS_SUITE } from './expandDefaultsSuites.ts'
 import { UNREAD_COUNT_SUITE } from './unreadCountSuites.ts'
 import { LIVENESS_SUITE } from './livenessSuites.ts'
+import { RECYCLE_DRAWER_COMPLETE_SUITE } from './recycleDrawerCompleteSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -2923,10 +2924,11 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       check.ok('收起的块里本来是有行的（不是空块的自欺欺人）', rowsInBlock > 0, `rows=${String(rowsInBlock)}`)
 
       // 关掉再开：折叠态还在（视图态住在树组件里，随 prefs 走）。
+      // 这一枚从 #154 起是抽屉头最左那枚「返回」（同一个动作、同一个标记，原来的 ✕ 由它接手）。
       await page.click('[data-dshone-tree-action="recycle-close"]')
       // 收起有滑出过渡（#117）：等过渡跑完抽屉才从 DOM 里消失，所以这里等得比过渡长。
       await page.waitForTimeout(400)
-      check.eq('点关闭按钮收起抽屉', await contentCount(page, '[data-dshone-tree="recycle-drawer"]'), 0)
+      check.eq('点抽屉头的返回收起抽屉', await contentCount(page, '[data-dshone-tree="recycle-drawer"]'), 0)
       await page.click('[data-dshone-tree-action="recycle-toggle"]')
       await page.waitForTimeout(350)
       check.eq('重新打开后折叠态仍在', await page.getAttribute(`[data-dshone-recycle-group-toggle="${collapsedKey}"]`, 'data-dshone-recycle-collapsed'), 'true')
@@ -6133,4 +6135,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #156 交互活性探针（F-54：F-49…#158 前占、F-53 归 #154，按「从未占用的继续」顺延；
   // 套件本体在 livenessSuites.ts，同为独立文件，少一处合入热点）。
   LIVENESS_SUITE,
+  // #154 回收站抽屉补齐（F-53：F-49…#152、F-50 #155、F-51 #151、F-52 #153、F-54 #156 已占，
+  // 按「从未占用的继续」顺延；套件本体在 recycleDrawerCompleteSuites.ts，同为独立文件）。
+  RECYCLE_DRAWER_COMPLETE_SUITE,
 ]
