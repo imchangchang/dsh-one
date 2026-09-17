@@ -43,8 +43,8 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 |---|---|---|
 | client-combo-index | 取法前提：combo 的插件段边界可切、官方 slot 契约目录可取 | 段数 ≥ 40 且每段 id 可读、契约目录 ≥ 30 条；不成立说明官方改了 combo 结构，按该文件注释核对取法 |
 | client-slots | 14 组关键 slot 名在场（遮蔽目标 `sidebar.workspaces`、会话面板座 keyed `main`/single `conversation`、右列座 `rightbar`/`details`、`sidebar`、`shell.overlay`、`settings.section/header/action`、各注入点…） | 每个名字要么在契约目录里、要么有注册/注入/渲染调用点；同名换代（如 `details`→`rightbar`）算同一组，任一代在场即通过 |
-| client-root-hooks | 4 条 root 级 hook 在场：`panelInfo`、`sessions`、`sessionPendingInteraction`、`workspaces`，外加框架映射出的槽位 props `use<Name>` | 每条要求「provideRoot 里有这个键」且「`use<Name>` 这个 props 名在 combo 里」——#76 的 `usePanelInfo is not a function` 就落在这一条上 |
-| client-identifiers | 我们取用过的 14 组字段/方法名在场（composer 附件字段/动作两代名、`draftRev`、`insertReference`、`activePanelId`、`entryKey`、工作区快照字段、会话快照 `byId`、`pendingInteractions`…） | 每个名字要在它该来的插件段里出现（例如附件字段只认 ui-conversation）——#78 抓到的 `imageIds`→`attachmentIds` 就是这一类 |
+| client-root-hooks | 4 条 root 级 hook 在场：`panelInfo`、`sessions`、会话等待态（`sessionStatus` / `sessionPendingInteraction` 两代）、`workspaces`，外加框架映射出的槽位 props `use<Name>` | 每条要求「provideRoot 里有这个键」且「`use<Name>` 这个 props 名在 combo 里」——#76 的 `usePanelInfo is not a function` 就落在这一条上；换过名的依赖（等待态）两组命名任一代在场即通过，名字表从产品侧 `src/pure/sessionPendingSource.ts` import，不手写 |
+| client-identifiers | 我们取用过的 14 组字段/方法名在场（composer 附件字段/动作两代名、`draftRev`、`insertReference`、`activePanelId`、`entryKey`、工作区快照字段、会话快照 `byId`、等待态取值名 `pendingInteraction` / `pendingInteractions`…） | 每个名字要在它该来的插件段里出现（例如附件字段只认 ui-conversation）——#78 抓到的 `imageIds`→`attachmentIds` 就是这一类 |
 
 失败信息的形式：`dsh <当前版本> 缺 N 组：<名字>（期望出处 <官方源码路径>；我方使用点 src/…）`，照它去查官方 release notes 或改我们的取用路径。
 
