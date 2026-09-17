@@ -42,6 +42,7 @@ import { VIEW_OPTIONS_RETIRED_SUITE } from './viewOptionsSuites.ts'
 import { TOPBAR_INLINE_SUITE } from './topbarInlineSuites.ts'
 import { SEARCH_COLLAPSE_SUITE } from './searchCollapseSuites.ts'
 import { ROW_TIER_SUITE } from './rowTierSuites.ts'
+import { RECYCLE_ENTRY_ALIGN_SUITE } from './recycleEntryAlignSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -649,10 +650,11 @@ export const PARITY_SUITE: LabSuite = {
       })
       check.fact(`密度档兜底值（自作树 CSS 读出并回填到 frame）：${densityFix.officialFallbacks.join(' ')}`)
       // #104 起键面从 17 项扩到 25 项（顶栏 / 分组过滤条 / 回收站入口行 / 抽屉），#113 再加
-      // 行圆角一项（26 项）；这里只守量级（精确键集与逐项官方原值由外壳契约套件的两条测试
+      // 行圆角一项（26 项），#137 又减掉一项（回收站入口行整套改取旧侧栏规格，`footer-row-height`
+      // 退场 → 25 项）；这里只守量级（精确键集与逐项官方原值由外壳契约套件的两条测试
       // 在源码层守）。
       check.ok(
-        '密度档变量组 ≥ 20 项（#104 起 25 项，#113 起 26 项；与契约测试同口径）',
+        '密度档变量组 ≥ 20 项（#104 起 25 项，#113 的 26 项到 #137 减回 25 项；与契约测试同口径）',
         densityFix.applied >= 20,
         `applied=${String(densityFix.applied)}`,
       )
@@ -2022,12 +2024,11 @@ const DENSITY_REGIONS: ReadonlyArray<{
   { region: '顶栏动作组', where: 'tree', selector: '[data-dshone-tree="top-bar-actions"]', props: ['columnGap'] },
   { region: '分组过滤条', where: 'tree', selector: '.dshOneTree_filterBar', props: ['paddingLeft', 'columnGap'] },
   { region: '分组胶囊', where: 'tree', selector: '.dshOneTree_pill', props: ['height', 'fontSize', 'columnGap', 'paddingLeft', 'paddingRight'] },
-  // #125：入口行的左内缩不再是密度档给的量（归 0——主区自己带 `row-padding-inline`，行内容
-  // 左缘才落在行内容基准上），所以「左内缩随密度变紧」这一条由**主区**那一项承担（同一列
-  // 的内缩现在只在行自己身上）；容器这一项只剩右内缩。
-  { region: '回收站入口行', where: 'tree', selector: '[data-dshone-tree="recycle-entry"]', props: ['paddingRight'] },
-  { region: '回收站入口主区', where: 'tree', selector: '.dshOneTree_footerMain', props: ['height', 'paddingLeft', 'paddingRight'] },
-  { region: '回收站入口动作按钮', where: 'tree', selector: '.dshOneTree_footerIconButton', props: ['width', 'height'] },
+  // 回收站入口行（#137 起**退出这张表**）：那一行整套改取旧侧栏规格的定值——行盒右侧 8px、
+  // 主区纵向 7px 与右侧 4px、动作按钮 26×26——两种密度下读数相同，不再是「紧凑档更小」的
+  // 一员，所以三行合成一行：只有主区的**左**内边距仍取行内容基准 `row-padding-inline`
+  // （#125 定的那条竖线），留着继续量。入口行自己的几何（右对齐、按钮尺寸）由 F-35 钉。
+  { region: '回收站入口主区', where: 'tree', selector: '.dshOneTree_footerMain', props: ['paddingLeft'] },
   { region: '抽屉头', where: 'drawer', selector: '.dshOneTree_drawerHeader', props: ['height', 'paddingLeft', 'paddingRight', 'columnGap'] },
   { region: '抽屉分块块头', where: 'drawer', selector: '.dshOneTree_drawerGroupLabel', props: ['height', 'paddingLeft', 'paddingRight'] },
   { region: '抽屉会话行', where: 'drawer', selector: '.dshOneTree_drawerRow', props: ['height', 'paddingLeft', 'paddingRight'] },
@@ -2132,9 +2133,9 @@ async function restoreDensity(page: OpenedPage['page']): Promise<void> {
 export const DENSITY_SPREAD_SUITE: LabSuite = {
   id: 'F-13',
   phase: 'new-feature',
-  name: '侧栏密度档扩散（#104，口径按 #134 重写）：顶栏 / 分组过滤条 / 回收站入口行 / 抽屉在三档宽度下的密度对照（DENSITY-SPREAD 套件）',
+  name: '侧栏密度档扩散（#104，口径按 #134 重写）：顶栏 / 分组过滤条 / 抽屉在三档宽度下的密度对照（DENSITY-SPREAD 套件；回收站入口行 #137 起退出这张表）',
   expect:
-    '同一页、同一数据、260/340/500 三档宽度下，把自有树的密度变量从宿主给的 VS Code 档切到它自己声明的官方兜底值（= 官方档），四区的几何逐一比较：顶栏行（高/左内边距/行内间隙）、顶栏图标按钮（宽高）、顶栏动作组间隙、分组过滤条（左内边距/间隙）、分组胶囊（高/字号/间隙/左右内边距）、回收站入口行（左右内边距）、入口主区（高/左右内边距）、入口动作按钮（宽高）、抽屉头（高/左右内边距/间隙）、抽屉分块块头（高/左右内边距）、抽屉会话行（高/左右内边距）、抽屉列表（左右内边距/底部留白）。判据分两类（#134 行家族取官方标准档之后的口径）：① **行家族回标准档的那些测量点两个档同值**——抽屉会话行（高 32px / 左右内边距 8px）、抽屉头与抽屉分块块头的左内边距、回收站入口主区的左右内边距、分组过滤条的左内边距（这几处吃的是「行内容基准」，跟着行一起回 8px；过滤条那一条是 #125 把胶囊对齐到行内容基准带来的）；② **其余每一项紧凑档仍严格小于官方原值**（含抽屉头与块头的高度、入口主区的高度——它们自己的行高键仍是紧凑档，不能跟着放开）。另钉住三件：**行族同值那几项真的量到了**（名单至少覆盖 6 项，否则说明这一轮改动没跑到）、**判「严格更紧」的项仍足够多**（至少 15 项，否则套件等于空跑）、同一区域在三档宽度下的紧凑读数一致（密度是容器给的，不随宽度漂）。全程零 pageerror。',
+    '同一页、同一数据、260/340/500 三档宽度下，把自有树的密度变量从宿主给的 VS Code 档切到它自己声明的官方兜底值（= 官方档），四区的几何逐一比较：顶栏行（高/左内边距/行内间隙）、顶栏图标按钮（宽高）、顶栏动作组间隙、分组过滤条（左内边距/间隙）、分组胶囊（高/字号/间隙/左右内边距）、入口主区（左内边距，其余项 #137 起退出这张表）、抽屉头（高/左右内边距/间隙）、抽屉分块块头（高/左右内边距）、抽屉会话行（高/左右内边距）、抽屉列表（左右内边距/底部留白）。判据分两类（#134 行家族取官方标准档之后的口径）：① **行家族回标准档的那些测量点两个档同值**——抽屉会话行（高 32px / 左右内边距 8px）、抽屉头与抽屉分块块头的左内边距、回收站入口主区的左右内边距、分组过滤条的左内边距（这几处吃的是「行内容基准」，跟着行一起回 8px；过滤条那一条是 #125 把胶囊对齐到行内容基准带来的）；② **其余每一项紧凑档仍严格小于官方原值**（含抽屉头与块头的高度、入口主区的高度——它们自己的行高键仍是紧凑档，不能跟着放开）。另钉住三件：**行族同值那几项真的量到了**（名单至少覆盖 6 项，否则说明这一轮改动没跑到）、**判「严格更紧」的项仍足够多**（至少 15 项，否则套件等于空跑）、同一区域在三档宽度下的紧凑读数一致（密度是容器给的，不随宽度漂）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const widths = [260, 340, 500] as const
@@ -2168,7 +2169,7 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
         check.ok(
           `w=${String(width)}：密度变量对齐到官方兜底值（内联项数 > 0）`,
           aligned >= 20,
-          `内联项数=${String(aligned)}（#104 起键面 25 项、#113 起 26 项（加行圆角）；精确键集由外壳契约套件守）`,
+          `内联项数=${String(aligned)}（#104 起键面 25 项、#113 加行圆角到 26 项、#137 减回 25 项（入口行退出密度档）；精确键集由外壳契约套件守）`,
         )
         await page.waitForTimeout(200)
         const official = await readDensity(page, 'tree')
@@ -6029,4 +6030,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #134 行家族取官方标准档（F-37：F-33 归 #131、F-34 归 #127、F-35 归 #125、F-36 归 #132，
   // 按「从未占用的继续」顺延；套件本体在 rowTierSuites.ts，同为独立文件）。
   ROW_TIER_SUITE,
+  // #137 回收站入口行的几何（F-38：F-33 归 #131、F-34 归 #127、F-35 归 #125、F-36 归 #132、
+  // F-37 归 #134，按「从未占用的继续」顺延；套件本体在 recycleEntryAlignSuites.ts，
+  // 同为独立文件，少一处合入热点）。
+  RECYCLE_ENTRY_ALIGN_SUITE,
 ]
