@@ -9,8 +9,8 @@
  * 页面读数逐项与它比。断言两块：
  * ① **侧栏几何**：行 / 胶囊 / 抽屉行 / 图标位 / 标题 / 顶栏的圆角、高度、字号、行高读数，
  *    逐项能在档位表里找到出处（按属性对得上那一组量）；
- * ② **菜单**：顶栏「视图选项」与分组胶囊两份菜单都开一遍，量官方 Menu 的项（高/字号/圆角/
- *    内边距/间隙）、项内图标盒、分组标题、分隔线、列表容器——逐项等于**官方紧凑档**，
+ * ② **菜单**：侧栏里仍存在的两份菜单（分组胶囊、会话行 ⋯）都开一遍，量官方 Menu 的项（高/
+ *    字号/圆角/内边距/间隙）、项内图标盒、分组标题、分隔线、列表容器——逐项等于**官方紧凑档**，
  *    且两份菜单彼此一致（同一侧栏里不能有两种菜单密度）。
  *
  * 独立成文件的原因与 driftSuites.ts 同：suites.ts 是并行开发的合入热点，末尾只加一行注册。
@@ -203,9 +203,24 @@ async function readMenuFacts(page: OpenedPage['page']): Promise<MenuFacts | null
   })
 }
 
-/** 开一份菜单：点触发器 → 等它渲染出来。 */
-async function openMenu(page: OpenedPage['page'], selector: string): Promise<void> {
-  await page.click(selector)
+/**
+ * 开一份菜单：点触发器 → 等它渲染出来。
+ *
+ * `hoverScope`：有些触发器**悬停才显形**（会话行的 ⋯ 按钮住在 `.dshOneTree_rowActions` 里，
+ * 那一层平时 `display:none`）——给了 scope 就先 hover 那一行、再点行内那一枚，
+ * 免得盲点到了别的行的那一枚（或因为不可见而一直等）。scope 用 `:has()` 取「带这一枚的行」，
+ * 空白会话行只有菜单锚点、没有按钮，不能拿第一行凑数。
+ */
+async function openMenu(page: OpenedPage['page'], selector: string, hoverScope?: string): Promise<void> {
+  if (hoverScope === undefined) {
+    await page.click(selector)
+    await page.waitForTimeout(300)
+    return
+  }
+  const row = page.locator(hoverScope).first()
+  await row.hover()
+  await page.waitForTimeout(200)
+  await row.locator(selector).click()
   await page.waitForTimeout(300)
 }
 
@@ -240,7 +255,7 @@ export const SCALE_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏风格档位表（#113）：几何读数逐项落在官方档位表里，菜单统一官方紧凑档（SCALE 套件）',
   expect:
-    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **几何读数逐项有出处**——会话行 / 工作区行 / 行标题 / 行时间 / 行内图标位 / 行内图标按钮 / 顶栏（分节头）/ 顶栏图标按钮 / 搜索框 / 分组胶囊 / 回收站入口行主区与动作按钮 / 当前工作区胶囊 / 抽屉头 / 抽屉分块块头 / 抽屉会话行的圆角、高度、字号、行高读数，每一条都能在 `styles.ts` 那份官方档位表（紧凑档 / 标准档 / 容器档）里按属性对上出处（期望值从档位表读，不硬编码）；单独钉住的关键值里，**行标题文字是标准档的 14px/20px**（#123 起标题文字取官方标题档，不再跟紧凑档的 12px/18px，完整断言在 F-30）。② **菜单统一官方紧凑档**：顶栏「视图选项」与分组胶囊两份菜单都开一遍，官方 Menu 的项（渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px）、项内图标盒（14×14）、分组标题（11px / 16px / 内边距 4px 7px）、分隔线（外边距 2px）、列表容器（内边距 2px / 圆角 7px）逐项等于官方紧凑档实测值；两份菜单的项几何彼此一致（同一侧栏里只有一种菜单密度）。全程零 pageerror。',
+    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **几何读数逐项有出处**——会话行 / 工作区行 / 行标题 / 行时间 / 行内图标位 / 行内图标按钮 / 顶栏（分节头）/ 顶栏图标按钮 / 搜索框 / 分组胶囊 / 回收站入口行主区与动作按钮 / 当前工作区胶囊 / 抽屉头 / 抽屉分块块头 / 抽屉会话行的圆角、高度、字号、行高读数，每一条都能在 `styles.ts` 那份官方档位表（紧凑档 / 标准档 / 容器档）里按属性对上出处（期望值从档位表读，不硬编码）；单独钉住的关键值里，**行标题文字是标准档的 14px/20px**（#123 起标题文字取官方标题档，不再跟紧凑档的 12px/18px，完整断言在 F-30）。② **菜单统一官方紧凑档**：侧栏里仍存在的两份菜单（分组胶囊、会话行 ⋯；#131 前是「视图选项」那一份，它退役后换成会话行菜单，口径不变）都开一遍，官方 Menu 的项（渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px）、项内图标盒（14×14）、分组标题（11px / 16px / 内边距 4px 7px）、分隔线（外边距 2px）、列表容器（内边距 2px / 圆角 7px）逐项等于官方紧凑档实测值；两份菜单的项几何彼此一致（同一侧栏里只有一种菜单密度）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -331,16 +346,25 @@ export const SCALE_SUITE: LabSuite = {
         padding: `${SCALE_TIERS.compact.rowPaddingBlock} ${SCALE_TIERS.compact.rowPaddingInline} ${SCALE_TIERS.compact.rowPaddingBlock} ${SCALE_TIERS.compact.rowPaddingInline}`,
       }
       const menus: { name: string; trigger: string; facts: MenuFacts }[] = []
-      for (const target of [
-        { name: '视图选项菜单', trigger: '[data-dshone-tree-action="view-options"]' },
-        { name: '分组胶囊菜单', trigger: '[data-dshone-tree-action="group-pill"]' },
-      ]) {
+      // #131 起视图选项菜单退役，第二份菜单换成**会话行 ⋯ 那一份**（同样是官方 `Menu`、
+      // 同样带项内图标与分组标题行），这样「同一侧栏里只有一种菜单密度」这条断言照旧有
+      // 两份菜单可比。
+      const menuTargets: ReadonlyArray<{ name: string; shot: string; trigger: string; hoverScope?: string }> = [
+        { name: '分组胶囊菜单', shot: 'group-pill', trigger: '[data-dshone-tree-action="group-pill"]' },
+        {
+          name: '会话行菜单',
+          shot: 'session-menu',
+          trigger: '[data-dshone-tree-action="session-menu"]',
+          hoverScope: '[data-dshone-tree-row="session"]:has([data-dshone-tree-action="session-menu"])',
+        },
+      ]
+      for (const target of menuTargets) {
         const exists = await page.evaluate((selector: string) => document.querySelectorAll(selector).length, target.trigger)
         if (exists === 0) {
           check.fact(`${target.name}：这一轮页面上没有这个触发器（网关数据里没有对应内容）——跳过`)
           continue
         }
-        await openMenu(page, target.trigger)
+        await openMenu(page, target.trigger, target.hoverScope)
         const facts = await readMenuFacts(page)
         check.ok(`${target.name}：菜单开出来了`, facts !== null)
         if (facts === null) continue
@@ -397,7 +421,7 @@ export const SCALE_SUITE: LabSuite = {
           facts.list.borderRadius,
           SCALE_TIERS.container.listRadius,
         )
-        screenshots.push(await shot(ctx, page, `scale-menu-${target.name === '视图选项菜单' ? 'view-options' : 'group-pill'}`))
+        screenshots.push(await shot(ctx, page, `scale-menu-${target.shot}`))
         await closeMenu(page, target.trigger)
         check.eq(`${target.name}：关掉了`, await page.evaluate(() => document.querySelectorAll('[role="menu"]').length), 0)
       }
@@ -537,7 +561,7 @@ export const TITLE_TIER_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏标题文字回到官方标题档（#123）：工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 入口行文字都是 14px/20px，行盒仍是 26px、菜单项仍是 12px（TITLE-TIER 套件）',
   expect:
-    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **三档宽度（260/340/500）下工作区名与会话标题实测字号 = 官方标题档 14px、行高 = 20px**（期望值取自 `styles.ts` 档位表的标准档 `titleFontSize` / `titleLineHeight`，不硬编码）；② **行盒没被撑破**——两个位置所在行的 computed 高仍是紧凑档的 26px，文字盒整个落在行矩形里、`scrollHeight` 没有超过 `clientHeight`（20px 的行字在 26px 的行盒里上下各余 3px）；③ **行内改名输入框同步是 14px/20px**（点**当前**会话行进就地改名——#115/#121 那条真实路径，不是 ⋯ 菜单里的「重命名」：那一项开的是独立改名弹窗；假宿主答「这条会话开在面板里」，量 `.dshOneTree_inlineRenameInput` 的字号 / 行高 / 自身高，且它仍装在 26px 的行盒里）；④ **抽屉标题与底部回收站入口行文字同样是 14px**（这两处只消费字号那一项，行高从容器继承，套件按事实记录继承值）；⑤ **菜单项仍是紧凑档的 12px/18px**——顶栏「视图选项」菜单开一遍量官方 `Menu` 项的渲染高 26px / 字号 12px / 行高 18px，并显式钉住「会话行高 = 菜单项高（几何同档）而标题字号 ≠ 菜单项字号（文字不同档）」这两件事同时成立，证明这次只放开了文字、没顺带把几何也放开。全程零 pageerror；套件只开菜单、进一次改名编辑态再取消，不提交任何写请求。',
+    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **三档宽度（260/340/500）下工作区名与会话标题实测字号 = 官方标题档 14px、行高 = 20px**（期望值取自 `styles.ts` 档位表的标准档 `titleFontSize` / `titleLineHeight`，不硬编码）；② **行盒没被撑破**——两个位置所在行的 computed 高仍是紧凑档的 26px，文字盒整个落在行矩形里、`scrollHeight` 没有超过 `clientHeight`（20px 的行字在 26px 的行盒里上下各余 3px）；③ **行内改名输入框同步是 14px/20px**（点**当前**会话行进就地改名——#115/#121 那条真实路径，不是 ⋯ 菜单里的「重命名」：那一项开的是独立改名弹窗；假宿主答「这条会话开在面板里」，量 `.dshOneTree_inlineRenameInput` 的字号 / 行高 / 自身高，且它仍装在 26px 的行盒里）；④ **抽屉标题与底部回收站入口行文字同样是 14px**（这两处只消费字号那一项，行高从容器继承，套件按事实记录继承值）；⑤ **菜单项仍是紧凑档的 12px/18px**——分组胶囊菜单开一遍量官方 `Menu` 项的渲染高 26px / 字号 12px / 行高 18px，并显式钉住「会话行高 = 菜单项高（几何同档）而标题字号 ≠ 菜单项字号（文字不同档）」这两件事同时成立，证明这次只放开了文字、没顺带把几何也放开。全程零 pageerror；套件只开菜单、进一次改名编辑态再取消，不提交任何写请求。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const widths = [260, 340, 500] as const
@@ -672,8 +696,11 @@ export const TITLE_TIER_SUITE: LabSuite = {
       }
 
       // ---- ⑤ 菜单项仍是紧凑档：几何同档、文字不同档 ----
+      // 量的那一份是**分组胶囊菜单**（#131 前这里先找顶栏「视图选项」，它退役后改用它；
+      // 它恒在，备用那份会话行菜单要悬停才点得到）。
+      const sessionMenu = '[data-dshone-tree-action="session-menu"]'
       const trigger = await page.evaluate(() => {
-        for (const selector of ['[data-dshone-tree-action="view-options"]', '[data-dshone-tree-action="group-pill"]']) {
+        for (const selector of ['[data-dshone-tree-action="group-pill"]', '[data-dshone-tree-action="session-menu"]']) {
           if (document.querySelectorAll(selector).length > 0) return selector
         }
         return null
@@ -681,7 +708,11 @@ export const TITLE_TIER_SUITE: LabSuite = {
       if (trigger === null) {
         check.fact('这一轮页面上没有菜单触发器（网关数据里没有对应内容）——菜单对照跳过')
       } else {
-        await openMenu(page, trigger)
+        await openMenu(
+          page,
+          trigger,
+          trigger === sessionMenu ? '[data-dshone-tree-row="session"]:has([data-dshone-tree-action="session-menu"])' : undefined,
+        )
         const facts = await readMenuFacts(page)
         check.ok(`菜单开出来了（触发器 ${trigger}）`, facts !== null)
         if (facts !== null) {

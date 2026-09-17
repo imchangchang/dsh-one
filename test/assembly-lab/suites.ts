@@ -38,6 +38,7 @@ import { SELECTION_BAR_SUITE } from './selectionBarSuites.ts'
 import { SELECT_MODE_INDENT_SUITE } from './selectModeIndentSuites.ts'
 import { SUBMENU_INDENT_SUITE } from './submenuIndentSuites.ts'
 import { MODAL_COMPACT_SUITE } from './modalCompactSuites.ts'
+import { VIEW_OPTIONS_RETIRED_SUITE } from './viewOptionsSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -500,8 +501,8 @@ const PARITY_PAIRS: ReadonlyArray<{ suffix: string; props: readonly string[]; ge
   // 搜索栏（#99）：自有树常驻官方那套 UI 的**展开态**（30px 高、10px 圆角、.5px 边框），
   // 官方对照档默认折叠（28px 圆胶囊），所以套件先把官方那份点开（见下面 run 里的说明），
   // 两侧同处展开态后逐项比样式。**矩形高度**可比（30px 对 30px），**宽度不可比**：
-  // 自有树顶栏比官方多三枚图标（折叠展开全部 / 添加工作区 / 设置齿轮，另保留 #81 的
-  // 视图选项与多选入口），搜索栏分到的可用宽度本来就不同——那是功能带来的差异。
+  // 自有树顶栏比官方多三枚图标（折叠展开全部 / 添加工作区 / 设置齿轮，另有多选入口；
+  // #131 起视图选项那一枚已退役），搜索栏分到的可用宽度本来就不同——那是功能带来的差异。
   { suffix: 'search', props: ['height', 'borderRadius'], geometry: 'none' },
   { suffix: 'searchButton', props: ['width', 'height', 'borderRadius'] },
   { suffix: 'iconButton', props: ['width', 'height', 'borderRadius'] },
@@ -1618,7 +1619,7 @@ export const SKELETON_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏骨架四区（#99）：顶栏四项 + 官方搜索栏 + 单胶囊分组条 + 底部回收站入口行（SIDEBAR-SKELETON 套件）',
   expect:
-    '#99 定的四区骨架在真实装配页上成立：① 顶栏一行里搜索栏（官方那套 UI 的展开态，30px 高 / 10px 圆角）、折叠展开全部、添加工作区、设置齿轮四件都在，且折叠全部真的收起整棵树；② 添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录），第二项经宿主能力口发出 `vscode.workspaceCreate`；③ 设置齿轮经宿主能力口发出 `vscode.openSettings`（假宿主只记录，真宿主开设置页），同时官方 `sidebar.settings` 那一行不再渲染；④ 分组过滤条是单胶囊 + 成员计数 + ▾，下拉含「全部工作区 / 各组 / 新建分组… / 管理分组…」，管理分组对话框列出全部组；⑤ 回收站入口行在官方 `sidebar.footer.action` 座位里、与官方 cordis-panel 条目并存、不在自有浏览区 DOM 内，点它开现有抽屉。全程零 pageerror。',
+    '#99 定的四区骨架在真实装配页上成立：① 顶栏一行里搜索栏（官方那套 UI 的展开态，30px 高 / 10px 圆角）、折叠展开全部、添加工作区、设置齿轮四件都在，且折叠全部真的收起整棵树（#131 起顶栏就是这四件加多选入口，视图选项那一枚已退役）；② 添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录），第二项经宿主能力口发出 `vscode.workspaceCreate`；③ 设置齿轮经宿主能力口发出 `vscode.openSettings`（假宿主只记录，真宿主开设置页），同时官方 `sidebar.settings` 那一行不再渲染；④ 分组过滤条是单胶囊 + 成员计数 + ▾，下拉含「全部工作区 / 各组 / 新建分组… / 管理分组…」，管理分组对话框列出全部组；⑤ 回收站入口行在官方 `sidebar.footer.action` 座位里、与官方 cordis-panel 条目并存、不在自有浏览区 DOM 内，点它开现有抽屉。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const groupsState = {
@@ -1668,6 +1669,8 @@ export const SKELETON_SUITE: LabSuite = {
             collapseAll: action('collapse-all'),
             addWorkspace: action('add-workspace'),
             settings: action('settings'),
+            /** #131：视图选项那一枚退役了，顶栏这一行只剩四件。 */
+            viewOptions: action('view-options'),
           },
           search: {
             found: searchBox !== null && input !== null,
@@ -1688,6 +1691,13 @@ export const SKELETON_SUITE: LabSuite = {
       check.ok('顶栏：折叠/展开全部在', bar?.actions.collapseAll === true)
       check.ok('顶栏：添加工作区（＋）在', bar?.actions.addWorkspace === true)
       check.ok('顶栏：设置齿轮在', bar?.actions.settings === true)
+      // #131 的正向断言：那一行只剩四件——视图选项那一枚（含它后面的分组方式 / 排序方式两节）
+      // 已退役，标记在整页都不该存在（完整的三条退役断言在 F-33）。
+      check.ok(
+        '顶栏：视图选项入口不在（#131 退役，顶栏只剩搜索栏 + 折叠全部 + 添加工作区 + 设置齿轮 + 多选）',
+        bar?.actions.viewOptions === false,
+        JSON.stringify(bar?.actions),
+      )
       check.ok(
         '搜索栏 = 官方那套 UI 的展开态（30px 高 / 10px 圆角 / token 实线边框）',
         bar?.search.height === '30px' &&
@@ -4707,7 +4717,7 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
         await page.waitForTimeout(250)
         check.eq('Esc 关掉菜单', await contentCount(page, '[role="menu"]'), 0)
       } else {
-        check.fact('标签组那一节不在这一行的菜单里（单列表形态或标签组能力缺席）—— 跳过二级菜单断言')
+        check.fact('标签组那一节不在这一行的菜单里（这一行不在任何组块里，或标签组能力缺席）—— 跳过二级菜单断言')
       }
 
       // 禁用条件：判定原因 ↔ 禁用 ↔ 原因提示三者一致（与 F-15 同一口径）。
@@ -5365,7 +5375,7 @@ export const SESSION_ROW_RENAME_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '会话行点击逻辑与行内改名（#115）：非当前行点击=打开、当前行点击=就地改名（Enter 提交 / Esc·失焦取消 / 空与未改动不发请求 / IME 守护 / 重绘保焦点与选区）',
   expect:
-    '侧栏树在真实装配页上（真网关只读 + 假宿主 + 页面侧换掉 `session/rename` 的回执）：① **非当前会话行点击 = 打开**——它变成当前会话行（`aria-selected` 移过来），且**不进编辑态**（树上没有任何行内改名输入框）；② **当前会话行再点一下 = 就地改名**——这一行的标题位换成输入框，prefill = 原标题、**整段全选**、焦点已经在输入框上（可以直接打字），输入框有 `aria-label`（词典里的「会话名称」）；③ **Enter 提交走既有通路**——恰好一条 `session/rename`（会话 id = 这一行、标题 = 输入框里的新标题，即官方 `sessions.binding(id).session.rename`），提交后退出编辑态，且回执里的标题落回这一行（**标题更新**在页面上可见）；④ **Esc 取消 / 失焦取消**都退出编辑态、标题不变、**零请求**；IME 组合期间的 Enter 不提交（`compositionstart/end` 与键盘事件自带的 `isComposing` 两条判据各验一次）；⑤ **空串 / 未改动（含全空白）不发请求**——都是直接退出编辑态；⑥ **多选态下点行仍只勾选**——当前行也一样（勾上/取消，不进改名）；⑦ **重绘后输入框的焦点与选区保持**——编辑中点两次合成点击把视图从「按工作区」切到「单列表」（那一行的 DOM 会被摘掉重挂，是最硬的一种重绘），焦点、`selectionStart/End` 与草稿都原样还在，且整段没有触发提交。全程零 pageerror。',
+    '侧栏树在真实装配页上（真网关只读 + 假宿主 + 页面侧换掉 `session/rename` 的回执）：① **非当前会话行点击 = 打开**——它变成当前会话行（`aria-selected` 移过来），且**不进编辑态**（树上没有任何行内改名输入框）；② **当前会话行再点一下 = 就地改名**——这一行的标题位换成输入框，prefill = 原标题、**整段全选**、焦点已经在输入框上（可以直接打字），输入框有 `aria-label`（词典里的「会话名称」）；③ **Enter 提交走既有通路**——恰好一条 `session/rename`（会话 id = 这一行、标题 = 输入框里的新标题，即官方 `sessions.binding(id).session.rename`），提交后退出编辑态，且回执里的标题落回这一行（**标题更新**在页面上可见）；④ **Esc 取消 / 失焦取消**都退出编辑态、标题不变、**零请求**；IME 组合期间的 Enter 不提交（`compositionstart/end` 与键盘事件自带的 `isComposing` 两条判据各验一次）；⑤ **空串 / 未改动（含全空白）不发请求**——都是直接退出编辑态；⑥ **多选态下点行仍只勾选**——当前行也一样（勾上/取消，不进改名）；⑦ **重绘后输入框的焦点与选区保持**——编辑中折叠全部再展开全部（会话行连同输入框先被摘掉、再重挂回来，是重绘里最硬的一种），焦点、`selectionStart/End` 与草稿都原样还在，且整段没有触发提交。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -5680,50 +5690,45 @@ export const SESSION_ROW_RENAME_SUITE: LabSuite = {
         placed !== null && placed.sel[0] === 2 && placed.sel[1] === draft.length,
         JSON.stringify(placed),
       )
-      // 触发整棵树重绘：把视图从「按工作区」切到「单列表」（那一行的 DOM 会被摘掉重挂）。
-      // **用合成点击**（`element.click()`）而不是真实鼠标点击——真实点击会先把输入框 blur
-      // 掉，那是「失焦取消」那条正在验的语义，不是这里要造的现场。
-      await page.evaluate(() => {
-        ;(document.querySelector('[data-dshone-tree-action="view-options"]') as HTMLElement | null)?.click()
-      })
-      await page.waitForTimeout(300)
-      const picked = await page.evaluate(() => {
-        const item = Array.from(document.querySelectorAll('[role="menu"] button[role="menuitem"]')).find((button) =>
-          (button.textContent ?? '').includes('单列表'),
-        )
-        if (item === undefined) return false
-        ;(item as HTMLElement).click()
-        return true
-      })
-      check.ok('⑦ 前置：视图选项里点到了「单列表」（切视图 = 整棵树重绘）', picked)
-      await page.waitForTimeout(800)
-      const afterFlat = await rowRenameFacts(page, otherId)
+      // 触发整棵树的 DOM 重挂：**折叠全部 → 展开全部**（收起时每个工作区的会话行都被摘掉，
+      // 展开时再挂回来），走的是「节点被摘掉重挂」这条最硬的路。**用合成点击**
+      // （`element.click()`）而不是真实鼠标点击——真实点击会先把输入框 blur 掉，那是
+      // 「失焦取消」那条正在验的语义，不是这里要造的现场。
+      //
+      // #131 起这里不再靠「切到单列表再切回来」造重绘：侧栏没有可切的分组方式了，
+      // 而折叠/展开全部既在、又是更彻底的一次重挂（行不是被换掉，是先离场再回来）。
+      const clickCollapseAll = async (): Promise<void> => {
+        await page.evaluate(() => {
+          ;(document.querySelector('[data-dshone-tree-action="collapse-all"]') as HTMLElement | null)?.click()
+        })
+        await page.waitForTimeout(600)
+      }
+      await clickCollapseAll()
+      const collapsed = await rowRenameFacts(page, otherId)
+      check.ok(
+        '⑦ 前置：折叠全部之后这一行连同输入框真的从 DOM 上摘掉了（最硬的一种重绘）',
+        !collapsed.exists && (await contentCount(page, '[data-dshone-tree-rename="input"]')) === 0,
+        JSON.stringify(collapsed),
+      )
+      await clickCollapseAll()
+      const afterRepaint = await rowRenameFacts(page, otherId)
       const replaced = await page.evaluate(() => {
         const previous = (globalThis as { __LAB_EDIT_INPUT__?: Element }).__LAB_EDIT_INPUT__
         const now = document.querySelector('[data-dshone-tree-rename="input"]')
-        return now !== null && previous !== undefined && now !== previous
+        return now !== null && now !== previous
       })
       check.fact(`⑦ 这次重绘把输入框节点换掉了没有：${String(replaced)}（换掉 = 走的是「节点被摘掉重挂」这条最硬的路）`)
-      check.ok('⑦ 切到单列表后输入框还在（编辑态没跟着重绘丢）', afterFlat.hasInput && afterFlat.renaming)
-      check.ok('⑦ 重绘后焦点仍在输入框上', afterFlat.focused)
-      check.eq('⑦ 重绘后选区保持（2..N）', [afterFlat.selStart, afterFlat.selEnd], [2, draft.length])
-      check.eq('⑦ 重绘后草稿保持', afterFlat.value, draft)
+      check.ok('⑦ 行重挂回来之后输入框还在（编辑态没跟着重绘丢）', afterRepaint.hasInput && afterRepaint.renaming)
+      check.ok('⑦ 重绘后焦点仍在输入框上', afterRepaint.focused)
+      check.eq('⑦ 重绘后选区保持（2..N）', [afterRepaint.selStart, afterRepaint.selEnd], [2, draft.length])
+      check.eq('⑦ 重绘后草稿保持', afterRepaint.value, draft)
       screenshots.push(await shot(ctx, page, 'rowrename-04-after-repaint'))
-      // 切回「按工作区」，再核一遍同三项（回到分组树 = 又一次重挂）。
-      await page.evaluate(() => {
-        ;(document.querySelector('[data-dshone-tree-action="view-options"]') as HTMLElement | null)?.click()
-      })
-      await page.waitForTimeout(300)
-      await page.evaluate(() => {
-        const item = Array.from(document.querySelectorAll('[role="menu"] button[role="menuitem"]')).find((button) =>
-          (button.textContent ?? '').includes('按工作区'),
-        )
-        ;(item as HTMLElement | undefined)?.click()
-      })
-      await page.waitForTimeout(800)
-      const afterBack = await rowRenameFacts(page, otherId)
-      check.ok('⑦ 切回分组树后焦点与编辑器仍然在场', afterBack.focused && afterBack.hasInput)
-      check.eq('⑦ 切回分组树后选区与草稿同样没丢', [afterBack.selStart, afterBack.selEnd, afterBack.value], [
+      // 再来一轮折叠/展开，核一遍同三项（第二次重挂，编辑态同样不该丢）。
+      await clickCollapseAll()
+      await clickCollapseAll()
+      const afterSecond = await rowRenameFacts(page, otherId)
+      check.ok('⑦ 第二次重挂后焦点与编辑器仍然在场', afterSecond.focused && afterSecond.hasInput)
+      check.eq('⑦ 第二次重挂后选区与草稿同样没丢', [afterSecond.selStart, afterSecond.selEnd, afterSecond.value], [
         2,
         draft.length,
         draft,
@@ -5814,7 +5819,12 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 同为独立文件，少一处合入热点）。
   SUBMENU_INDENT_SUITE,
   // #127 弹窗的紧凑档（F-34：F-30 归 #123 的标题档、F-31 归 #124 的多选缩进、F-32 归 #126 的
-  // 二级菜单缩进，按「从未占用的继续」取 F-34——#125 的顶栏套件合入时顺延到 F-33；
+  // 二级菜单缩进，按「从未占用的继续」取 F-34——F-33 归 #131 的视图选项退役，#125 的顶栏套件
+  // 合入时顺延到 F-35；
   // 套件本体在 modalCompactSuites.ts，同上为独立文件）。
   MODAL_COMPACT_SUITE,
+  // #131 视图选项退役（F-33：F-01…F-32 与 R-06 已被占用，F-34 归 #127 的弹窗紧凑档；
+  // 套件本体在 viewOptionsSuites.ts，
+  // 同为独立文件，少一处合入热点）。
+  VIEW_OPTIONS_RETIRED_SUITE,
 ]

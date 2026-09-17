@@ -13,7 +13,8 @@
  *   路径**判定，与当前会话无关（#112）。
  * - 可见性 `sessionVisible`：子代理来源的会话不进树；已归档不进树；空白会话
  *   只在它就是当前选中那一行时进树（「新会话」占位）——**当前会话只在这条上起作用**。
- * - `deriveFlat`：单列表模式的平铺，所有可见会话按最近更新倒序。
+ * - `deriveFlat`：全部可见会话的一份平铺（按最近更新倒序）——官方同名推导，我们这边
+ *   #131 起不再有「单列表」视图形态，它只用来做选择态的 id → 节点映射。
  * - `sessionStatuses`：状态点的一条主状态 + 若干无障碍标签，优先级 =
  *   等待用户（批准/计划待审/等待回答）> 运行中 > 子代理运行中 > 完成提醒 >
  *   空闲——与官方 `sessionStatuses` 完全一致。
@@ -360,7 +361,8 @@ export function currentWorkspaceFirst<T extends { readonly containsCurrent: bool
 }
 
 /**
- * 官方 `deriveFlat`：单列表模式——所有可见会话按最近更新倒序。
+ * 官方 `deriveFlat`：全部可见会话按最近更新倒序（官方拿它渲染「单列表」视图；我们
+ * #131 起只拿它当「全部可见会话」这一份名单用，见 `workspaceTree/tree.ts`）。
  * `recycled` 见 {@link sessionVisible}（#103 的本地回收站集合，缺省空集）。
  */
 export function deriveFlat(

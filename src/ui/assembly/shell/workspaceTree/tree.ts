@@ -126,11 +126,11 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds)
   const pending = useSessionPendingInteraction((state) => state)
 
-  // 视图态（分组方式/排序/当前过滤的分组/展开集合）住官方客户端惯例的 localStorage，
-  // 初值在挂载时读一次；此后每次变更都写回（见下面的写回 effect）。
+  // 视图态（当前过滤的分组 / 展开集合 / 抽屉与标签组各自的收起集合）住官方客户端惯例的
+  // localStorage，初值在挂载时读一次；此后每次变更都写回（见下面的写回 effect）。
+  // #131 起分组方式与排序方式不再存在（「按工作区 + 官方顺序」是唯一形态），见
+  // `pure/workspaceTreePrefs.ts` 的文件头。
   const [prefs, setPrefs] = useState<TreeViewPrefs>(readTreeViewPrefs(pageStorage()))
-  const groupBy = prefs.groupBy
-  const orderBy = prefs.orderBy
   const activeGroupId = prefs.activeGroupId
   const groupExpansion = prefs.expandedGroups
   const [searchText, setSearchText] = useState('')
@@ -518,13 +518,11 @@ export function WorkspaceTree(props: TreeProps): unknown {
   }, [tagFile, list.ids, workspacePhase, archivedSessionIds])
 
   // 排序 = 官方顺序，**唯一例外**是置顶项在这一层排最前（#98 定稿，`pinnedFirst`）。
-  /** 这一层的官方顺序（用户选了「最近更新」就先按它排，否则保持会话服务给的顺序）。 */
-  const baseOrder = (sessions: readonly SessionNode[]): readonly SessionNode[] =>
-    orderBy === 'updated' ? [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) : sessions
+  // #131 起这里不再有「最近更新」那一档：顺序只来自官方会话服务给的那一份。
   const withOrder = (sessions: readonly SessionNode[]): readonly SessionNode[] =>
-    pinnedFirst(baseOrder(sessions), (node) => pinnedIds.has(node.id))
-  // 过滤态只在分组方式 = 按工作区时生效（单列表没有工作区分块可言）。
-  const filterActive = groupBy === 'workspace' && activeGroupId !== null && hasTreeGroup(groupsFile, activeGroupId)
+    pinnedFirst(sessions, (node) => pinnedIds.has(node.id))
+  // 分组过滤（只留归属该组的工作区）——侧栏恒为「按工作区」，所以这一条恒有意义。
+  const filterActive = activeGroupId !== null && hasTreeGroup(groupsFile, activeGroupId)
   const groups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
     expandedGroups: groupExpansion,
     recycled,
@@ -534,8 +532,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
       : {}),
   })
   const activity = workspaceActivityCounts(list, workspaces, archivedSessionIds, pending, recycled)
+  // 全部可见会话（官方顺序）。#131 起它不再喂「单列表」那一支渲染，只留给选择态的
+  // id → 节点映射（见下面的 requestArchiveSelection）。
   const visibleNodes = deriveFlat(list, archivedSessionIds, pending, recycled)
-  const flatRows = withOrder(visibleNodes)
   const recycleGroups = deriveRecycleGroups(list, workspaces, recycledIds)
   const selectedSet = new Set(selection)
   // #109 E7：当前工作区那一组排最前（其余保持官方顺序；未分组桶恒在最后）。
@@ -551,6 +550,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
   //（收起时 `sessions` 是空的）来数。
   // #109 复用同一份：菜单里的「归档该工作区全部会话」也要这个工作区的**全部**可见会话
   //（收起的分组照样能整块归档），所以 `recycled` 一并在这一份里给出来。
+  // 这一份推导与「平铺」（#131 已退役的单列表模式）无关：它指的是**全部分组都展开**的
+  // 那一份（名字里的 flat 是「摊平来看」，不是视图形态）。
   const flatGroups = deriveGroups(list, workspaces, archivedSessionIds, pending, {
     expandedGroups: [...workspaces.map((workspace) => workspace.workspaceId), UNGROUPED_KEY],
     recycled,
@@ -1194,8 +1195,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
   /**
    * #115 行内改名：这一行在编辑态时要多吃的 props（不在编辑态就一个都不给）。
    *
-   * 编辑态是**一行的事**（`sessionEdit.id`），所以按 id 判；两个调用点（分组行 / 单列表
-   * 行）共用这一份，不留第二套接线。
+   * 编辑态是**一行的事**（`sessionEdit.id`），所以按 id 判；会话行那一侧只有这一个
+   * 调用点，不留第二套接线。
    */
   const rowRenameProps = (row: SessionNode): Record<string, unknown> =>
     sessionEdit !== null && sessionEdit.id === row.id
@@ -1210,14 +1211,14 @@ export function WorkspaceTree(props: TreeProps): unknown {
       : {}
 
   /**
-   * #107：按工作区视图里一条会话行的 props（组内行与未归组行共用同一份）。
+   * #107：树里一条会话行的 props（组内行与未归组行共用同一份）。
    *
-   * 与单列表那一份的差别只有两处，都是标签组带来的：行**可拖**（拖进组块入组、拖到
-   * 组外移出），行菜单多一节「标签组」（选组 / 不归入 / 新建）。单列表里没有组块可
-   * 落，拖拽没有意义，所以那一份保持原样。
+   * 与「搜索结果行」那一份的差别都在标签组上：行**可拖**（拖进组块入组、拖到组外移出），
+   * 行菜单多一节「标签组」（选组 / 不归入 / 新建）。搜索结果行不在任何组块里，没有落点，
+   * 拖拽也就没有意义。
    *
    * #110 起分叉与多开都走 `forkRow` / `openRowInNewTab`（失败要飘一行可见反馈），
-   * 两条路径（这里与单列表）共用同一份包装。
+   * 两条路径共用同一份包装。
    */
   const groupedRowProps = (row: SessionNode): Record<string, unknown> => {
     const section = tagItemsFor(row.id)
@@ -1225,7 +1226,6 @@ export function WorkspaceTree(props: TreeProps): unknown {
       node: row,
       ...(list.current === undefined ? {} : { currentId: list.current }),
       now,
-      flat: false,
       hoverCard,
       tr,
       selectMode,
@@ -1286,47 +1286,12 @@ export function WorkspaceTree(props: TreeProps): unknown {
               { className: 'dshOneTree_searchStatus' },
               content.failed ? tr('search.unavailable') : tr('search.noMatches'),
             )
-      : groupBy === 'flat'
-        ? h(
-            'div',
-            { className: 'dshOneTree_flatList', role: 'tree', 'data-dshone-tree': 'flat' },
-            flatRows.map((row) =>
-              h(SessionRow, {
-                key: row.id,
-                node: row,
-                ...(list.current === undefined ? {} : { currentId: list.current }),
-                now,
-                flat: true,
-                hoverCard,
-                tr,
-                selectMode,
-                selected: selectedSet.has(row.id),
-                pinned: pinnedIds.has(row.id),
-                unread: unreadIds.has(row.id),
-                onToggleSelect: () => toggleSelected(row.id),
-                onOpen: () => openSessionClearingUnread(row.id),
-                // #115/#121：与分组行同一份情境化点击与行内改名（定义见 `rowRenameProps`
-                // 与 `activateSessionRow`）。
-                onCurrentRowClick: () => activateSessionRow(row),
-                ...rowRenameProps(row),
-                onRename: (title: string) => setSessionRenameTarget({ id: row.id, title }),
-                onFork: () => forkRow(row.id),
-                onMoveToRecycleBin: () => moveToRecycleBin([row.id]),
-                onArchive: () => requestArchiveSession(row),
-                onTogglePin: () => togglePin(row.id),
-                onToggleUnread: () => toggleUnread(row.id),
-                onSelectMultiple: enterSelection,
-                onCopyReference: () => copySessionReference(row),
-                onOpenInNewTab: openRowInNewTab === undefined ? undefined : () => openRowInNewTab(row.id),
-              }),
-            ),
-          )
-        : h(
+      : h(
             'div',
             { role: 'tree', 'data-dshone-tree': 'groups' },
             orderedGroups.map((group) => {
               const split = splitByTagGroups(
-                baseOrder(group.sessions),
+                group.sessions,
                 tagBucket(group.key),
                 (node) => pinnedIds.has(node.id),
               )
@@ -1435,7 +1400,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
           ]
         : [treeBody]
     }
-    if (groupBy === 'workspace' && filterActive && groups.length === 0) return [groupMembersNotice]
+    if (filterActive && groups.length === 0) return [groupMembersNotice]
     if (workspaces.length > 0) return groups.length === 0 ? [emptyNotice('none', [tr('empty.none')])] : [treeBody]
     return groups.length === 0 ? [noWorkspacesNotice] : [noWorkspacesNotice, treeBody]
   })()
@@ -1444,7 +1409,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
     'div',
     { className: 'dshOneTree_root', ref: rootRef, 'data-shell': 'dsh-one-tree', 'data-dshone-tree': 'root' },
     // 顶部工具栏（#99 B 段）：官方搜索栏（展开态）+ 折叠/展开全部 + 添加工作区 + 设置齿轮，
-    // 末尾保留 #81 已有的视图选项与多选入口。见 toolbar.ts 的说明与机制举证。
+    // 末尾是多选入口（#131 起那一行只有这四件，视图选项已退役）。见 toolbar.ts 的说明与机制举证。
     h(TopBar, {
       tr,
       query: searchText,
@@ -1455,10 +1420,6 @@ export function WorkspaceTree(props: TreeProps): unknown {
       onPickWorkspaceFolder: pickWorkspaceFolder,
       ...(createWorkspaceFolder === undefined ? {} : { onCreateWorkspaceFolder: createWorkspaceFolder }),
       ...(openSettings === undefined ? {} : { onOpenSettings: openSettings }),
-      groupBy,
-      orderBy,
-      onGroupPick: (mode: 'workspace' | 'flat') => setPrefs((prev) => ({ ...prev, groupBy: mode })),
-      onOrderPick: (mode: 'manual' | 'updated') => setPrefs((prev) => ({ ...prev, orderBy: mode })),
       selectMode,
       onToggleSelectMode: () => (selectMode ? exitSelection() : selectionEntrySignal.enter()),
     }),
@@ -1466,10 +1427,10 @@ export function WorkspaceTree(props: TreeProps): unknown {
       'div',
       { className: 'dshOneTree_listArea' },
       // #81 功能 1 / #99 B 段：分组过滤条 = 单胶囊 + 成员计数 + ▾ 下拉
-      //（只在「按工作区」下有意义；搜索态下让位给结果）。
+      //（侧栏恒为「按工作区」，所以非搜索态下恒在场；搜索态下让位给结果）。
       // #108：**选择态下不收起**——操作条要插在它下方（#98 的布局规范），收起它
       // 一切换状态就跳一下，且「先按分组过滤、再整组勾选」正是常用路径。
-      groupBy === 'workspace' && trimmedQuery === ''
+      trimmedQuery === ''
         ? h(GroupFilterBar, {
             groups: groupDefs,
             activeGroupId: filterActive ? activeGroupId : null,
