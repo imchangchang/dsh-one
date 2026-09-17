@@ -1,7 +1,7 @@
 /** 树主组件（官方 WorkspaceBrowser 的同构复刻）：组合上面各件 + 状态与订阅。 */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
-import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, owningGroupKey, UNGROUPED_KEY, visibleRecycleIds, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
+import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
 import { formatFileMention } from '../../../../pure/fileReference.ts'
 import { formatSessionMention } from '../../../../pure/sessionMention.ts'
 import {
@@ -1142,43 +1142,33 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const searchRows = ((): readonly SessionNode[] => {
     if (trimmedQuery === '') return []
     const needle = trimmedQuery.toLowerCase()
+    // 官方 `deriveSearchResults` 与分组那一支共用同一个 `sessionNode`（见
+    // pure/workspaceTreeView.ts 的说明），所以这里也必须走它——自己拼节点会漏掉
+    // `pendingInteraction` 与 `runningSubagentCount` 两格，搜索结果行的状态点于是
+    // 与树里的对不上（#146 审计查出来的「官方有点、我们没有」）。
+    const searchDescendants = indexSubagentDescendants(list.byId)
+    const nodeOf = (id: string): SessionNode | undefined => {
+      const summary = list.byId[id]
+      return summary === undefined ? undefined : sessionNode(summary, searchDescendants, pending)
+    }
     const local = list.ids
       .flatMap((id) => {
         const summary = list.byId[id]
         if (summary === undefined || summary.origin === 'subagent' || archived.has(id)) return []
         if (summary.blank && id !== list.current) return []
         const matches = `${summary.displayTitle ?? summary.title ?? ''} ${workspaceLabelOf(id)}`.toLowerCase().includes(needle)
-        return matches
-          ? [{
-              id,
-              title: summary.blank ? '' : (summary.displayTitle ?? summary.title ?? id),
-              blank: summary.blank,
-              running: summary.running,
-              runningSubagentCount: 0,
-              completed: summary.completed === true,
-              hasActiveSchedule: (summary.projectionValues?.schedule?.length ?? 0) > 0,
-              updatedAt: summary.updatedAt,
-            }]
-          : []
+        const node = matches ? nodeOf(id) : undefined
+        return node === undefined ? [] : [node]
       })
       .sort((a, b) => b.updatedAt - a.updatedAt)
     const seen = new Set(local.map((row) => row.id))
     const extra: SessionNode[] = []
     for (const item of content.items) {
       if (seen.has(item.id)) continue
-      const summary = list.byId[item.id]
-      if (summary === undefined) continue
+      const node = nodeOf(item.id)
+      if (node === undefined) continue
       seen.add(item.id)
-      extra.push({
-        id: item.id,
-        title: summary.blank ? '' : (summary.displayTitle ?? summary.title ?? item.id),
-        blank: summary.blank,
-        running: summary.running,
-        runningSubagentCount: 0,
-        completed: summary.completed === true,
-        hasActiveSchedule: (summary.projectionValues?.schedule?.length ?? 0) > 0,
-        updatedAt: summary.updatedAt,
-      })
+      extra.push(node)
     }
     return [...local, ...extra].slice(0, searchResultLimit)
   })()

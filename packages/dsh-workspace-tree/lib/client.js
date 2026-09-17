@@ -5261,39 +5261,27 @@ function WorkspaceTree(props) {
   const searchRows = (() => {
     if (trimmedQuery === "") return [];
     const needle = trimmedQuery.toLowerCase();
+    const searchDescendants = indexSubagentDescendants(list.byId);
+    const nodeOf = (id) => {
+      const summary = list.byId[id];
+      return summary === void 0 ? void 0 : sessionNode(summary, searchDescendants, pending);
+    };
     const local = list.ids.flatMap((id) => {
       const summary = list.byId[id];
       if (summary === void 0 || summary.origin === "subagent" || archived.has(id)) return [];
       if (summary.blank && id !== list.current) return [];
       const matches = `${summary.displayTitle ?? summary.title ?? ""} ${workspaceLabelOf(id)}`.toLowerCase().includes(needle);
-      return matches ? [{
-        id,
-        title: summary.blank ? "" : summary.displayTitle ?? summary.title ?? id,
-        blank: summary.blank,
-        running: summary.running,
-        runningSubagentCount: 0,
-        completed: summary.completed === true,
-        hasActiveSchedule: (summary.projectionValues?.schedule?.length ?? 0) > 0,
-        updatedAt: summary.updatedAt
-      }] : [];
+      const node = matches ? nodeOf(id) : void 0;
+      return node === void 0 ? [] : [node];
     }).sort((a, b) => b.updatedAt - a.updatedAt);
     const seen = new Set(local.map((row) => row.id));
     const extra = [];
     for (const item of content.items) {
       if (seen.has(item.id)) continue;
-      const summary = list.byId[item.id];
-      if (summary === void 0) continue;
+      const node = nodeOf(item.id);
+      if (node === void 0) continue;
       seen.add(item.id);
-      extra.push({
-        id: item.id,
-        title: summary.blank ? "" : summary.displayTitle ?? summary.title ?? item.id,
-        blank: summary.blank,
-        running: summary.running,
-        runningSubagentCount: 0,
-        completed: summary.completed === true,
-        hasActiveSchedule: (summary.projectionValues?.schedule?.length ?? 0) > 0,
-        updatedAt: summary.updatedAt
-      });
+      extra.push(node);
     }
     return [...local, ...extra].slice(0, searchResultLimit);
   })();

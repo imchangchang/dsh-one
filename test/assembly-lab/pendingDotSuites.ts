@@ -39,6 +39,11 @@
  *   `workspaceTree/rows.ts` 的 ActivityBadge）：`data-dshone-tree-activity` 写的是
  *   `运行中/等待中` 两个计数、点用官方 `StateDot`（`ongoing` / `warning`）、悬停给出
  *   「N 个会话运行中 / N 个会话等待交互」；两个计数都为 0 时整枚角标不渲染。
+ *
+ * 本文件末尾那几个夹具（`installEventStreamInjector` / `waitForEventStream` /
+ * `waterfall` / `emit` / `expandAllWorkspaces` / `expandOfficialWorkspaces`）导出给
+ * F-45（状态点逐案审计，#146）复用：同一份「往官方转发事件流投帧」的机制，两套件各写
+ * 一份会漂。F-45 用它把同一种态同时造在自有页与官方对照页上做并排对照。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
@@ -76,7 +81,7 @@ const DONE_TOKEN = '--dsw-alias-state-success-primary'
 // 夹具：在页面与网关的 mux WebSocket 上投官方转发事件帧
 // ---------------------------------------------------------------------------
 
-interface EventStreamInjector {
+export interface EventStreamInjector {
   /** 投一帧（未就绪就排队，`$events` 流就绪后按序发出）。 */
   push(frame: Record<string, unknown>): void
   /** 观测：见过几条连接、就绪几条、已投出几帧、还排着几帧、见过的端点名。 */
@@ -97,7 +102,7 @@ interface EventStreamInjector {
  * `session/follow` 各一条（实测四条），所以注入必须认准「打开过 `$events` 的那条连接
  * 与那个 streamId」，不能图省事发给最近一条。
  */
-async function installEventStreamInjector(page: Page): Promise<EventStreamInjector> {
+export async function installEventStreamInjector(page: Page): Promise<EventStreamInjector> {
   interface Connection {
     send(message: string): void
     ready: boolean
@@ -179,7 +184,7 @@ async function installEventStreamInjector(page: Page): Promise<EventStreamInject
 }
 
 /** 等 `$events` 流就绪（页面的官方客户端连上网关并收到 ready 帧）。 */
-async function waitForEventStream(injector: EventStreamInjector, page: Page, timeoutMs = 20_000): Promise<boolean> {
+export async function waitForEventStream(injector: EventStreamInjector, page: Page, timeoutMs = 20_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const stats = injector.stats()
@@ -190,12 +195,12 @@ async function waitForEventStream(injector: EventStreamInjector, page: Page, tim
 }
 
 /** 一帧官方 `$events` 流上的瀑布事件（approval / user-questions 的原始投递）。 */
-function waterfall(event: string, eventId: string, agentId: string, request: Record<string, unknown>): Record<string, unknown> {
+export function waterfall(event: string, eventId: string, agentId: string, request: Record<string, unknown>): Record<string, unknown> {
   return { type: 'waterfall', event, eventId, agentId, request }
 }
 
 /** 一帧官方 `$events` 流上的广播事件（会话状态推进用）。 */
-function emit(event: string, args: unknown[]): Record<string, unknown> {
+export function emit(event: string, args: unknown[]): Record<string, unknown> {
   return { type: 'emit', event, args }
 }
 
@@ -331,7 +336,7 @@ const describeDot = (dot: DotFacts | null): string =>
     : `${String(dot.state)}（${dot.tag}${dot.cells > 0 ? ` ${String(dot.cells)} 格` : ''} ${String(dot.width)}×${String(dot.height)} ${dot.color} 文案=${dot.labels.join('|')}）`
 
 /** 展开全部工作区（顶栏那枚折叠/展开全部按钮是纯视图态，不写任何持久状态）。 */
-async function expandAllWorkspaces(page: Page): Promise<void> {
+export async function expandAllWorkspaces(page: Page): Promise<void> {
   const collapsed = async (): Promise<string | null> =>
     page.getAttribute('[data-dshone-tree-action="collapse-all"]', 'data-dshone-tree-collapsed')
   await page.click('[data-dshone-tree-action="collapse-all"]')
@@ -343,7 +348,7 @@ async function expandAllWorkspaces(page: Page): Promise<void> {
 }
 
 /** 展开官方浏览区的每个工作区（官方行自带 `aria-expanded`，点收起态的行即展开）。 */
-async function expandOfficialWorkspaces(page: Page): Promise<number> {
+export async function expandOfficialWorkspaces(page: Page): Promise<number> {
   const toggled = await page.evaluate(() => {
     let count = 0
     for (const row of Array.from(document.querySelectorAll('[class*="_projectRow"]'))) {
