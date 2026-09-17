@@ -135,13 +135,35 @@ function submenuChild(options: {
 }
 
 /**
- * 给二级菜单的子项加一层缩进：子项本体由树层拼好（#107 的标签组项），本件只把它的
- * label 包一层带缩进类的 span（官方 Menu 的项只有 label / icon 两个槽能放内容）。
+ * 给二级菜单的子项加一层缩进（#126）：子项本体由树层拼好（#107 的标签组项），本件只做
+ * 两件事——把 label 包一层带标记类的 span、给没有图标的项补一个空的图标槽。
+ *
+ * 缩进由样式落在**整行**上（styles.ts 里那条 `[role="menuitem"]:has(.dshOneTree_submenuItem)`）：
+ * 官方 Menu 的项是一条「图标槽 + 文字 + 勾」的流水线，只把文字右推会让子项的图标与自己的
+ * 文字脱开（色块贴在左边、文字隔 20px 远）；而官方项对象只认
+ * `{id, label, icon, disabled, danger, type, submenu}` 这几个字段（0.1.6-alpha.1 的
+ * `lib/client.js` 里渲染项的那一段：字段逐个取用、没有 className / style 这类口），
+ * 所以缩进只能落在官方那个 `<button role="menuitem">` 盒子上——用 :has() 从我们自己的
+ * 标记类去选它的祖先项，不依赖任何官方哈希类名。走的是第 4 层（CSS/DOM）机制：
+ * 前三层都没有「给就地展开的子项缩进」这个口（官方 `submenu` 是右侧飞出的一层，
+ * 窄侧栏里放不下，见 submenuChild 的说明）。
+ *
+ * 空图标槽是**为了让文字落进同一列**：有图标的子项（标签组的色块）比没图标的子项
+ * （「不归入标签组」/「新建标签组」/ 未勾选的「分组…」子项）多占一个图标槽的宽
+ * （紧凑档的图标位 14px + 项内间隙 6px），补上它，全部子项的文字左缘才落在同一个值上；
+ * 顺带钉住「勾选态 ✓ 出现时文字不位移」——✓ 画在图标槽里（见 submenuChild 的说明），
+ * 有了常驻的空槽，勾与不勾的文字位置一致。
  */
 function indentSubmenuItem(item: unknown): unknown {
   if (typeof item !== 'object' || item === null) return item
-  const record = item as { label?: unknown }
-  return { ...record, label: h('span', { className: 'dshOneTree_submenuItem' }, record.label ?? null) }
+  const record = item as { label?: unknown; icon?: unknown }
+  return {
+    ...record,
+    // 官方项的图标槽是 flex:none 的 14×14 盒子（紧凑档 `._itemIcon_1nxmc_144`）：
+    // 空 span 塞进去不画东西、只占位。
+    icon: record.icon ?? h('span', { className: 'dshOneTree_submenuIconGap', 'aria-hidden': true }),
+    label: h('span', { className: 'dshOneTree_submenuItem' }, record.label ?? null),
+  }
 }
 
 /** 二级菜单的父项：点一下就地展开/收起（右端一个 ▸/▾ 指示），不关菜单。 */
