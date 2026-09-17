@@ -1718,7 +1718,11 @@ export const MULTIOPEN_SUITE: LabSuite = {
             ` 期望锚点=${JSON.stringify(expected)}（官方钳位线=视口高 ${String(contextMenu.viewport.height)} − 菜单高 ${String(contextMenu.size?.height)} − 12）`,
         )
         check.ok('行右键弹出同一份菜单（带多开项）', contextMenu.menus === 1 && contextMenu.item.trim() !== '', JSON.stringify(contextMenu))
-        check.ok('这一次右键的指针位置取到了（锚点判据的输入端）', pointer !== null, JSON.stringify(pointer))
+        check.ok(
+          '这一次右键的指针与菜单几何都取到了（锚点判据的输入端）',
+          pointer !== null && expected !== null,
+          `pointer=${JSON.stringify(pointer)} size=${JSON.stringify(contextMenu.size)}`,
+        )
         check.eq(
           '右键菜单锚在指针处（官方 Menu 的 getAnchorRect + 官方自己的视口钳位）',
           contextMenu.anchored,
