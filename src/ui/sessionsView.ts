@@ -9,7 +9,7 @@ import { loadWebviewL10n } from './shared/webviewL10n.ts'
 import * as vscode from 'vscode'
 import * as crypto from 'node:crypto'
 import type { Logger } from '../log.ts'
-import type { ServerManager, ServerStatus } from '../server/manager.ts'
+import type { ServerManager } from '../server/manager.ts'
 import { deleteWorkspace, renameSession } from '../server/dshRpc.ts'
 import type { FromWebviewMessage, SessionsSnapshot } from '../pure/chatContract.ts'
 import { hostOsFromPlatform } from '../pure/installScript.ts'
@@ -375,7 +375,6 @@ const SESSIONS_STYLE = `
     background: var(--vscode-badge-background, rgba(127,127,127,.25));
     color: var(--vscode-badge-foreground, var(--vscode-foreground));
   }
-  .recycle-header-spacer { flex: 1; }
   /* 回收站视图头按钮小号化（压全局 button 默认尺寸）；不换行。 */
   .recycle-header button { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
   /* 清空回收站用图标按钮（300px 侧栏一行放不下三个文本按钮 + 标题）：
@@ -685,7 +684,6 @@ const SESSIONS_STYLE = `
   .menu-item .glyph { display: inline-flex; flex: none; opacity: .85; }
   .menu-item .menu-right { margin-left: auto; padding-left: 16px; opacity: .65; font-size: .9em; }
   .menu-group { padding: 5px 6px 2px; font-size: .8em; opacity: .55; }
-  .menu-hint { padding: 8px; opacity: .7; }
   /* 菜单首行的会话标题（操作对象显式化）：置灰小字、单行省略，与菜单项分隔。 */
   .session-menu-title {
     padding: 6px 10px 8px; font-size: .8em; opacity: .55;

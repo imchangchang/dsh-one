@@ -164,10 +164,6 @@ async function readMenuFacts(page: OpenedPage['page']): Promise<MenuFacts | null
     const list = Array.from(document.querySelectorAll('[role="menu"]')).pop() ?? null
     if (list === null) return null
     const px = (value: number): string => `${String(Math.round(value * 100) / 100)}px`
-    const box = (element: Element): { w: string; h: string } => {
-      const rect = element.getBoundingClientRect()
-      return { w: px(rect.width), h: px(rect.height) }
-    }
     const listStyle = getComputedStyle(list)
     const items = Array.from(list.querySelectorAll('button[role="menuitem"]'))
     const itemFacts = items.map((item) => {

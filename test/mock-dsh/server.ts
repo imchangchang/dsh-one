@@ -42,7 +42,6 @@ import {
   type MuxFrameSpec,
 } from './scenario.ts'
 import type { AgentPresetLike } from '../../src/pure/agentPreset.ts'
-import type { HistoryEntryLike } from '../../src/pure/conversation.ts'
 import type { WorkspaceView, SessionSummary } from '../../src/server/dshRpc.ts'
 
 // ---------------------------------------------------------------------------
@@ -239,10 +238,8 @@ class Gateway {
   private readonly defaultModels: SessionModelsValue
   private readonly goalRoster = new Map<string, { id: string; revision: number; objective: string; phase: 'active' | 'paused' | 'blocked' | 'complete'; maxGoalRounds: number }>()
   private renameSeq = 0
-  private readonly scenario: MockScenario
 
   constructor(scenario: MockScenario) {
-    this.scenario = scenario
     this.presets = scenario.presets ?? defaultPresets()
     this.defaultModels = {
       current: { provider: 'deepseek', model: 'deepseek-v4-flash' },

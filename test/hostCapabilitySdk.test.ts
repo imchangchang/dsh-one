@@ -490,7 +490,7 @@ test('#147 订阅：快照读不回来时按空集（不抑制任何提醒），
   resetGlobals()
   const bridgeCalls: Array<{ name: string; args: unknown }> = []
   installBridge(bridgeCalls, {})
-  const w = installMessageWindow()
+  installMessageWindow()
   const seen: string[][] = []
   const dispose = hostCapabilities(undefined).onPanelSessions((ids) => seen.push([...ids]))
   await Promise.resolve()

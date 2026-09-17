@@ -385,7 +385,7 @@ function proxyUpgrade(
   }
   const preq = http.request(`${gateway}${req.url}`, { headers: proxyHeaders(req, gateway) })
   preq.end()
-  preq.on('upgrade', (pres, usocket, uhead) => {
+  preq.on('upgrade', (pres, usocket) => {
     const lines = ['HTTP/1.1 101 Switching Protocols']
     for (const [key, value] of Object.entries(pres.headers)) {
       if (value !== undefined) lines.push(`${key}: ${Array.isArray(value) ? value.join(', ') : value}`)

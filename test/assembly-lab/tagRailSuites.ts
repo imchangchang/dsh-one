@@ -101,20 +101,6 @@ interface RailFacts {
   rowsWithoutChild: number
 }
 
-const rectOf = (element: Element | null): Rect | null => {
-  if (element === null) return null
-  const box = element.getBoundingClientRect()
-  const round = (value: number): number => Math.round(value * 10) / 10
-  return {
-    left: round(box.left),
-    right: round(box.right),
-    top: round(box.top),
-    bottom: round(box.bottom),
-    width: round(box.width),
-    height: round(box.height),
-  }
-}
-
 /** 读一个标签组块的全部几何与颜色（一次 evaluate 拿全，省往返）。 */
 async function railFacts(page: OpenedPage['page'], tagId: string): Promise<RailFacts> {
   return await page.evaluate((tag: string): RailFacts => {

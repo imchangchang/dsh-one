@@ -157,11 +157,6 @@ export function advanceWorkflowDisclosure(
   return { open, mode: facts.mode, activityCount: facts.activityCount }
 }
 
-/** 用户手动 toggle（清掉 pendingCollapse 语义在简化版里不存在，直接翻转）。 */
-export function toggleWorkflowDisclosure(prev: WorkflowDisclosureState): WorkflowDisclosureState {
-  return { ...prev, open: !prev.open }
-}
-
 /** 分组 key（官方 workflowPhaseKey）：null 与空字符串是两种身份，长度+内容防碰撞。 */
 export function workflowPhaseKey(phase: string | null): string {
   return phase === null ? 'missing' : `value:${phase.length}:${phase}`

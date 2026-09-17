@@ -324,20 +324,6 @@ export const SMOKE_SUITE: LabSuite = {
     const screenshots: string[] = []
 
     const sidebar = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
-    /**
-     * 侧栏那一页**此刻**渲染出来的会话 id（多开请求要拿它们核）。
-     *
-     * 是个函数而不是一次性快照：树默认只展开一组，套件后面才把别的组展开、行才出来，
-     * 早算会把后出现的行漏掉（实测踩过一次：点了展开出来的行、判定说「不是真会话 id」）。
-     */
-    const pageSessionIds = async (): Promise<Set<string>> =>
-      new Set(
-        await sidebar.page.evaluate(() =>
-          Array.from(document.querySelectorAll('[data-dshone-tree-session]'))
-            .map((row) => row.getAttribute('data-dshone-tree-session') ?? '')
-            .filter((id) => id !== ''),
-        ),
-      )
     try {
       const rows = await contentCount(sidebar.page, '.dshOneTree_sessionRow')
       const groups = await contentCount(sidebar.page, '.dshOneTree_projectRow')
@@ -1682,9 +1668,8 @@ export const MULTIOPEN_SUITE: LabSuite = {
     '侧栏树：会话行的 ⋯ 菜单里有「在新标签页打开」项（原有三项都在，每项都有文案），**行右键**弹出同一份菜单且菜单落点逐像素等于官方 `Menu` 自己的规则（锚在指针处 + 官方那套视口钳位，两种落点都判：900px 高的视口走「锚点 top + 4」，矮视口下走「视口高 − 菜单高 − 12」那条钳位线），Esc 关掉；点该项 → 页面经宿主能力口发出一次 `session.openInNewTab`，带的是**那一行**的真会话 id；点第二行得到第二个不同 id。chat 树：`?session=<id>` 的页面把该 id 注入 `__DSH_ONE_BOOT__` 并真的把它开成当前会话（boot-timing first-meta 等于该 id）；**同一个浏览器上下文（同一源、同一 localStorage，即真 VS Code 里多条 webview 的现场）里开第二个多开会话页**，两页各自开自己的会话、互不串；注入一个不存在的 id 时防闪帧遮罩在场（不闪官方空白态）。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
-    // 真网关的会话清单（只读）：核对「记录下来的 id 是真会话」，并挑注入用的 id。
+    // 真网关的会话清单（只读）：挑注入用的 id。
     const sessions = await listSessions(ctx.lab.gateway)
-    const knownIds = new Set(sessions.map((row) => row.sessionId))
     const targets = sessions.slice(0, 2).map((row) => row.sessionId)
     check.fact(`网关会话数=${String(sessions.length)}；注入用会话=${targets.map((id) => id.slice(0, 13)).join(', ')}`)
     if (targets.length < 2) {

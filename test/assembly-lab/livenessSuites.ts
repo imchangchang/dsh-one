@@ -75,7 +75,7 @@ import {
   type Check,
 } from './harness.ts'
 import { fakeHostScript } from './fakeHost.ts'
-import { LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
+import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { cookieHeader } from '../../src/server/assemblyMirror.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import type { LabSuite, SuiteContext } from './suites.ts'

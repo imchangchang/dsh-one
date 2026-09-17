@@ -50,7 +50,7 @@
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from 'playwright'
-import { emit, installEventStreamInjector, openTreePage, waitForEventStream, type OpenedPage, texts, isText } from './harness.ts'
+import { emit, installEventStreamInjector, openTreePage, waitForEventStream, type OpenedPage, isText } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'

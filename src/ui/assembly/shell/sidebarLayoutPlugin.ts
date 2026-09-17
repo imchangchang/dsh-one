@@ -55,13 +55,6 @@ interface SidebarFrameProps {
   renderSlot: (name: string, params: Record<string, unknown>) => unknown
 }
 
-interface RootSlotEntry {
-  name: 'root'
-  children: Record<string, { kind: 'single' | 'list'; scope: 'root' | 'session' | 'session-maybe' }>
-  store: () => unknown
-  inject: (actions: PanelActions) => Record<string, never>
-}
-
 interface ShellContext {
   effect(body: () => (() => void) | void, label?: string): void
   on(event: 'theme/change', listener: (snapshot: ThemeSnapshot) => void): () => void

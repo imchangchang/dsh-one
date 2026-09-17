@@ -14,26 +14,11 @@
  * 文件 IO 与 http 壳在 src/server/tagBridge.ts；store 的读写在 sessionsStore。
  * 本模块只保留可离屏单测的部分。
  */
-import type { TagColor } from './sessionTags.ts'
 
 /** bridge.json 的共享记录：扩展每次激活起 127.0.0.1 随机端口 + 每进程随机 token。 */
 export interface TagBridgeRecord {
   port: number
   token: string
-}
-
-/** 桥支持的操作：assign（增/改，归组）、get（查）、unassign（删，清归属）。 */
-export type TagBridgeAction = 'assign' | 'get' | 'unassign'
-
-/** 一个标签组的引用（查/归组结果里标识组）。预设组 name 为 null（显示名走 l10n）。 */
-export interface TagGroupRef {
-  workspaceId: string
-  id: string
-  /** 显示名；null = 预设组（todo/doing/done），由调用方按 preset 翻译。 */
-  name: string | null
-  color: TagColor
-  /** 是否预设组。 */
-  preset: boolean
 }
 
 /** 归一化后的桥请求（已通过校验）。 */

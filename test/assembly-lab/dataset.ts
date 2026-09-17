@@ -45,10 +45,6 @@ export interface LabDataset {
   readonly sessions: readonly LabSessionSpec[]
 }
 
-/** 夹具数据的来源说明（报告里能看到这一轮喂的是什么）。 */
-export const DATASET_NOTE =
-  '工作区与会话由页内夹具声明（#162）：`workspace/follow` 基线帧 + `session/list` 回执被换成夹具那一份，请求不落到网关，判据不再吃运行环境里的数据。'
-
 /**
  * 侧栏套件通用的那一份：四棵工作区（名字两两不互为子串，搜索类断言才有「过滤外」那一侧），
  * 会话分布 4 / 3 / 3 / 2，够覆盖「≥2」「≥3」「≥4 条会话行」这几档前置。

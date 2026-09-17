@@ -69,8 +69,3 @@ export function vscodeThemeCss(): string {
     .join('\n')
   return `:root {\n${vars}\n}\nbody { background-color: var(--vscode-editor-background); }`
 }
-
-/** 文档里要如实写的取值表（哪几项是本体补的）。 */
-export function themeTokens(): Readonly<Record<string, string>> {
-  return NATIVE_DARK_THEME
-}

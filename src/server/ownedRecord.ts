@@ -68,7 +68,7 @@ export function defaultOwnedPath(dshHome = path.join(os.homedir(), '.dsh')): str
 }
 
 /** 宽松解析：文件缺失/坏 JSON/字段缺失一律返回 null（当没有记录处理）。 */
-export async function readOwnedRecord(filePath: string, logger: LogSink): Promise<OwnedRecord | null> {
+export async function readOwnedRecord(filePath: string): Promise<OwnedRecord | null> {
   try {
     const parsed = JSON.parse(await fsp.readFile(filePath, 'utf8')) as Partial<OwnedRecord>
     if (typeof parsed.pid !== 'number' || typeof parsed.port !== 'number') return null
@@ -195,7 +195,7 @@ export async function migrateOwnedRecord(
   ownerId: string,
   logger: LogSink,
 ): Promise<void> {
-  const legacy = await readOwnedRecord(legacyPath, logger)
+  const legacy = await readOwnedRecord(legacyPath)
   const sharedExists = await fsp.access(sharedPath).then(() => true).catch(() => false)
   if (legacy !== null && !sharedExists) {
     await writeOwnedRecord(sharedPath, { ...legacy, owner: ownerId }, logger)

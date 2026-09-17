@@ -217,7 +217,7 @@ function gatewayPort(gateway: string): number {
 
 export async function startLabServer(options: LabServerOptions): Promise<LabServer> {
   const { gateway, log } = options
-  const record = await readOwnedRecord(defaultOwnedPath(), log)
+  const record = await readOwnedRecord(defaultOwnedPath())
   const token = resolveGatewayToken(gateway, options.token, record)
   if (token === undefined) {
     throw new Error(
@@ -478,7 +478,7 @@ function proxyToMirror(req: IncomingMessage, res: ServerResponse, mirrorOrigin: 
 function proxyUpgrade(req: IncomingMessage, clientSocket: Duplex, head: Buffer, mirrorOrigin: string): void {
   const preq = http.request(`${mirrorOrigin}${req.url ?? '/'}`, { headers: req.headers })
   preq.end()
-  preq.on('upgrade', (pres, upstream, upstreamHead) => {
+  preq.on('upgrade', (pres, upstream) => {
     const lines = ['HTTP/1.1 101 Switching Protocols']
     for (const [key, value] of Object.entries(pres.headers)) {
       if (value !== undefined) lines.push(`${key}: ${Array.isArray(value) ? value.join(', ') : value}`)

@@ -309,13 +309,3 @@ export function currentSideHostState(input: {
     'recycle-bin': [...input.recycleBin],
   }
 }
-
-/** 现装配侧的官方客户端 localStorage 视图态（键名见 `pure/workspaceTreePrefs.ts`）。 */
-export interface CurrentViewPrefs {
-  groupBy: 'workspace' | 'flat'
-  orderBy: 'manual' | 'updated'
-  activeGroupId: string | null
-  expandedGroups: string[]
-  recycleCollapsed: string[]
-  tagCollapsed: string[]
-}

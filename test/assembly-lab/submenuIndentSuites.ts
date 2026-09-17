@@ -348,11 +348,6 @@ async function topLevelMarkers(page: OpenedPage['page']): Promise<string[]> {
   })
 }
 
-/** 当前开着几个 `[role="menu"]`（就地展开不该让它变多，也不该让它消失）。 */
-async function menuCount(page: OpenedPage['page']): Promise<number> {
-  return page.evaluate(() => document.querySelectorAll('[role="menu"]').length)
-}
-
 /** 树里第一条带 ⋯ 的会话行（及其所属工作区键）。 */
 async function sessionFixture(page: OpenedPage['page']): Promise<{ key: string; id: string; members: string[] } | null> {
   return page.evaluate(() => {

@@ -20,7 +20,6 @@
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import {
-  Check,
   contractGaps,
   describeFiberFailure,
   fiberStateCounts,

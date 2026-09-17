@@ -48,11 +48,6 @@ type TierName = keyof typeof SCALE_TIERS
 const metricEntries = (tier: TierName): [string, string][] =>
   Object.entries(SCALE_TIERS[tier] as Record<string, string>)
 
-/** 档位表里的全部取值（全部分组并集）。 */
-const TIER_VALUES: ReadonlySet<string> = new Set(
-  SCALE_TIER_NAMES.flatMap((tier) => metricEntries(tier).map(([, value]) => value)),
-)
-
 /**
  * 属性 → 它能引用的**量的名字**：档位表里的量名就是它的语义单位（rowHeight / rowRadius /
  * fontSize…），所以「这条规则的圆角」只能引用 *Radius 的量、字号只能引用 *FontSize 的量。

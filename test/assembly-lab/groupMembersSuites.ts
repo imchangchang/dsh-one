@@ -14,7 +14,7 @@
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
-import { openTreePage, withoutKnownNoise, type Check, type OpenedPage, hasText } from './harness.ts'
+import { openTreePage, withoutKnownNoise, type OpenedPage, hasText } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
 import { EN, ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'

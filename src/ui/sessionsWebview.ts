@@ -873,7 +873,6 @@ function rebuildGroupManage(): void {
 }
 
 function buildGroupManageCard(snap: SessionsSnapshot): HTMLElement {
-  const m = groupManage!
   const card = el('div', 'wsg-manage')
   const head = el('div', 'wsg-manage-head')
   head.appendChild(el('span', 'wsg-manage-title', t('Manage groups')))
@@ -903,7 +902,7 @@ function buildGroupManageGroups(snap: SessionsSnapshot): HTMLElement {
     const byId = new Map(snap.groups.map((g) => [g.id, g]))
     for (const id of order) {
       const g = byId.get(id)
-      if (g) sec.appendChild(buildGroupManageRow(g, snap))
+      if (g) sec.appendChild(buildGroupManageRow(g))
     }
   }
   const newRow = el('div', 'wsg-new-row')
@@ -956,7 +955,7 @@ function buildGroupManageGroups(snap: SessionsSnapshot): HTMLElement {
 }
 
 /** 管理视图的一行分组：行点击 = 选中（下方工作区打标区切换）；✎/🗑 行内操作。 */
-function buildGroupManageRow(g: { id: string; name: string; count: number }, snap: SessionsSnapshot): HTMLElement {
+function buildGroupManageRow(g: { id: string; name: string; count: number }): HTMLElement {
   const m = groupManage!
   const renaming = m.renameGroupId === g.id
   const confirming = m.confirmDeleteId === g.id
@@ -2433,7 +2432,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
   }
   // 行内重命名：编辑中的该行渲染为输入框（prefill 标题），保留跨重建。
   if (s.sessionId === editingSessionId) {
-    main.appendChild(renderRenameInput(s))
+    main.appendChild(renderRenameInput())
   } else {
     main.appendChild(el('span', s.unread ? 'session-title unread' : 'session-title')).appendChild(highlightText(s.label))
   }
@@ -2501,7 +2500,7 @@ function renderSessionRow(s: SessionNodeModel): HTMLElement {
 }
 
 /** 行内重命名的输入框：Enter(Esc/失焦) 语义对齐 chat 内改名。 */
-function renderRenameInput(s: SessionNodeModel): HTMLInputElement {
+function renderRenameInput(): HTMLInputElement {
   const input = document.createElement('input')
   input.className = 'rename-input'
   input.value = editDraft
