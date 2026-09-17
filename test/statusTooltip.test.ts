@@ -11,7 +11,7 @@ test('running: version line after the title (dsh 0.1.2-rc.1)', () => {
   const status: TooltipStatus = { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.2-rc.1' }
   assert.equal(
     tooltipMarkdown(status, t),
-    '**DSH One** — http://127.0.0.1:3080\n' +
+    '**DSH One** — http://127.0.0.1:3080\n\n' +
       'dsh v0.1.2-rc.1\n\n' +
       '[$(globe) Open in Browser](command:dshOne.openExternal)\n\n' +
       '[$(cloud-download) Check for Updates](command:dshOne.checkUpdate)\n\n' +
@@ -60,7 +60,7 @@ test('running: 有新版时多一行提示，动作行的「检查更新」换�
   const status: TooltipStatus = { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1' }
   const update: UpdateVerdict = { state: 'update', installed: '0.1.5-rc.1', latest: '0.1.5-rc.2' }
   const md = tooltipMarkdown(status, t, update)
-  assert.ok(md.includes('dsh v0.1.5-rc.1\nA newer dsh is available: v0.1.5-rc.2\n\n'))
+  assert.ok(md.includes('dsh v0.1.5-rc.1\n\nA newer dsh is available: v0.1.5-rc.2\n\n'))
   assert.ok(md.includes('[$(arrow-up) Upgrade to v0.1.5-rc.2](command:dshOne.upgrade)'))
   assert.ok(!md.includes('Check for Updates'))
 })
@@ -96,7 +96,7 @@ test('running: adopted（有探测到的版本）时同样能提示更新', () =
     t,
     { state: 'update', installed: '0.1.5-rc.1', latest: '0.1.5-rc.2' },
   )
-  assert.ok(md.includes('dsh v0.1.5-rc.1\nA newer dsh is available: v0.1.5-rc.2\n\n'))
+  assert.ok(md.includes('dsh v0.1.5-rc.1\n\nA newer dsh is available: v0.1.5-rc.2\n\n'))
   assert.ok(md.includes('[$(arrow-up) Upgrade to v0.1.5-rc.2](command:dshOne.upgrade)'))
   // 管理入口文案不变（adopted 不出现 Restart/Stop Service）。
   assert.ok(!md.includes('Restart Service'))
@@ -114,7 +114,8 @@ test('running: adopted external instance shows no version line (would mislead)',
     t,
   )
   assert.ok(!md.includes('dsh v'))
-  assert.ok(md.includes('Reusing a dsh started in another window; stopping or restarting it asks for confirmation and may affect that window'))
+  assert.ok(md.includes('This dsh was started in another window.'))
+  assert.ok(md.includes('Stop / restart asks for confirmation.'))
   assert.ok(md.includes('[$(globe) Open in Browser](command:dshOne.openExternal)'))
   // 外部实例不提供 Restart/Stop 按钮（现有行为，回归确认）。
   assert.ok(!md.includes('Restart Service'))
@@ -127,7 +128,8 @@ test('running: externally-started authenticated instance (token pasted) offers m
     { state: 'running', url: 'http://127.0.0.1:3080', port: 3080, external: true },
     t,
   )
-  assert.ok(md.includes('Connected to an externally started dsh instance (launch token pasted); stopping or restarting it asks for confirmation'))
+  assert.ok(md.includes('External dsh instance (token connected).'))
+  assert.ok(md.includes('Stop / restart asks for confirmation.'))
   // 外部实例可管理：停止/重启走 external 命令（确认弹窗在命令层），无版本行。
   assert.ok(md.includes('[$(refresh) Restart External Instance](command:dshOne.external.restart)'))
   assert.ok(md.includes('[$(debug-stop) Stop External Instance](command:dshOne.external.stop)'))
@@ -137,8 +139,11 @@ test('running: externally-started authenticated instance (token pasted) offers m
 
 test('error authDshNoToken: 防护说明 + 粘贴 token / 停止 / 重启入口（含端口定位）', () => {
   const md = tooltipMarkdown({ state: 'error', port: 3080, reason: 'authDshNoToken' }, t)
-  assert.ok(md.includes('**DSH One** — Authenticated dsh instance is already running on port 3080'))
-  assert.ok(md.includes('This dsh was started outside the extension and needs its launch token to connect. Paste the token printed in its terminal URL after ?token=, or stop the instance to start your own.'))
+  assert.ok(md.includes('**DSH One** — Port 3080 is taken by another dsh'))
+  assert.ok(md.includes('Another authenticated dsh is running there.'))
+  assert.ok(md.includes('It was started outside the extension.'))
+  assert.ok(md.includes('Paste the ?token= from its terminal URL,'))
+  assert.ok(md.includes('or stop it to start your own.'))
   assert.ok(md.includes('[$(key) Paste Launch Token](command:dshOne.external.pasteToken)'))
   assert.ok(md.includes('[$(copy) Copy URL Template](command:dshOne.external.copyTokenTemplate)'))
   assert.ok(md.includes('[$(debug-stop) Stop External Instance](command:dshOne.external.stop)'))
@@ -162,7 +167,8 @@ test('starting: content unchanged, no version line', () => {
   const md = tooltipMarkdown({ state: 'starting' }, t)
   assert.ok(!md.includes('dsh v'))
   assert.ok(md.includes('**DSH One** — Service is starting…'))
-  assert.ok(md.includes('The first start may take a while (preparing profiles and dependencies).'))
+  assert.ok(md.includes('The first start may take a while.'))
+  assert.ok(md.includes('It prepares profiles and dependencies.'))
 })
 
 test('error dshNotFound: install link, no version line', () => {
@@ -193,7 +199,8 @@ test('running: adopted with recorded/probed version shows the version line', () 
   )
   assert.ok(md.includes('dsh v0.1.2-rc.1\n'))
   // adopted 分支文案与管理入口不变（无 Restart/Stop Service）。
-  assert.ok(md.includes('Reusing a dsh started in another window; stopping or restarting it asks for confirmation and may affect that window'))
+  assert.ok(md.includes('This dsh was started in another window.'))
+  assert.ok(md.includes('Stop / restart asks for confirmation.'))
   assert.ok(!md.includes('Restart Service'))
   assert.ok(!md.includes('Stop Service'))
 })
@@ -214,4 +221,42 @@ test('running: adopted with unknown version still hides the line (probe failed)'
     t,
   )
   assert.ok(!md.includes('dsh v'))
+})
+
+/**
+ * 气泡宽度由最长一行决定（#136）：把链接语法剥成可见文字后，任何一段都不得超过
+ * 48 个字符——超了就会又把气泡撑到 VS Code 的宽度上限。
+ */
+test('气泡宽度：每段可见文字 ≤ 48 字符（防长句撑宽）', () => {
+  const MAX_VISIBLE = 48
+  const statuses: TooltipStatus[] = [
+    { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1' },
+    { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1', adopted: true },
+    { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1', external: true },
+    { state: 'running', url: 'http://127.0.0.1:3080', version: 'unknown', adopted: true },
+    { state: 'starting' },
+    { state: 'stopped' },
+    { state: 'error' },
+    { state: 'error', reason: 'dshNotFound' },
+    { state: 'error', reason: 'authDshNoToken', port: 3080 },
+  ]
+  const updates: Array<UpdateVerdict | undefined> = [
+    undefined,
+    { state: 'update', installed: '0.1.5-rc.1', latest: '0.1.5-rc.2' },
+    { state: 'ahead', installed: '0.1.6-alpha.1', latest: '0.1.5-rc.1' },
+  ]
+  for (const status of statuses) {
+    for (const update of updates) {
+      for (const paragraph of tooltipMarkdown(status, t, update).split('\n\n')) {
+        // 链接按可见部分计宽：[$ (icon) 标签](command:…) → 图标 + 标签；粗体标记不占宽。
+        const visible = paragraph
+          .replace(/\[\$\(([a-z-]+)\) ([^\]]+)\]\(command:[^)]+\)/g, '$($1) $2')
+          .replace(/\*\*/g, '')
+        assert.ok(
+          visible.length <= MAX_VISIBLE,
+          `${status.state}/${status.reason ?? ''} 有 ${visible.length} 字符的段落：${visible}`,
+        )
+      }
+    }
+  }
 })

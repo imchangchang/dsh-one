@@ -154,7 +154,7 @@ test('statusSummary：状态 + 地址 + 版本，复用/外部实例有标注，
   assert.equal(statusSummary({ state: 'error' }, t), 'Service Error')
   assert.equal(
     statusSummary({ state: 'error', reason: 'authDshNoToken', port: 3080 }, t),
-    'Authenticated dsh instance is already running on port 3080',
+    'Port 3080 is taken by another dsh',
   )
 })
 

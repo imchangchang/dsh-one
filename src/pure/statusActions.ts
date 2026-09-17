@@ -166,7 +166,7 @@ export function statusSummary(
     case 'error':
       if (status.reason === 'dshNotFound') parts.push(t('dsh is not installed'))
       else if (status.reason === 'authDshNoToken') {
-        parts.push(t('Authenticated dsh instance is already running on port {0}', status.port ?? '?'))
+        parts.push(t('Port {0} is taken by another dsh', status.port ?? '?'))
       } else parts.push(t('Service Error'))
       break
     default:
