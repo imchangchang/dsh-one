@@ -400,11 +400,11 @@ test('密度表：#134 行家族取标准档、#119 纵向留白取官方节奏�
     )
   }
   // ⑥ 行家族之外的「行形件」仍取紧凑档——同一行里的**元信息**（时间 / 计数，12px / 18px）与
-  //    底栏回收站入口行主区（26px）是这条口径点名的例外，必须逐字等于紧凑档。
+  //    抽屉分块块头是这条口径点名的例外，必须逐字等于紧凑档。（底栏回收站入口行 #137 起
+  //    整套按旧侧栏规格取定值、退出密度表，所以不在这份名单里。）
   const compactKeepers: ReadonlyArray<{ key: string; compact: string; why: string }> = [
     { key: 'meta-font-size', compact: SCALE_TIERS.compact.fontSize, why: '元信息字号（#123 起就没放开，本次也没动）' },
     { key: 'meta-line-height', compact: SCALE_TIERS.compact.lineHeight, why: '元信息行高（同上）' },
-    { key: 'footer-row-height', compact: SCALE_TIERS.compact.rowHeight, why: '底栏回收站入口行主区（官方同座位那件是 42px 的徽标，不同形）' },
     { key: 'drawer-block-header-height', compact: SCALE_TIERS.compact.groupLabelHeight, why: '抽屉分块块头（取紧凑档的分组标题盒）' },
   ]
   for (const { key, compact: wanted, why } of compactKeepers) {

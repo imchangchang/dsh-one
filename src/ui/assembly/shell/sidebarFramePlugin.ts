@@ -92,9 +92,10 @@ function Nothing(): null {
 //
 // 数值口径：官方原值逐字取自官方 css-module（ui-workspace 的 Rows.module.css /
 // WorkspaceBrowser.module.css；#104 扩出来的几件另取同族组件——分组胶囊取自
-// ui-model-selection 的 ModelSelection.module.css、回收站入口行行高取自 ui-cordis 的
-// CordisPanel.module.css），每个键的出处写在它自己那一段上面。
-// **VS Code 档（#113 起）取「官方紧凑档」**——官方 primitives `Menu` 的 compact 变体
+// ui-model-selection 的 ModelSelection.module.css），每个键的出处写在它自己那一段上面。
+// （#137 起回收站入口行整套按旧侧栏规格取定值，退出这张表。）
+// **VS Code 档（#113 起）分两条口径**（#134）：**行家族取官方标准档**（工作区行 / 会话行 /
+// 搜索结果行 / 抽屉会话行等，两边同值），**菜单一侧仍取「官方紧凑档」**——官方 primitives
 // （项 26px 高 / 5px 圆角 / 6px 间隙 / 7px 行内边距 / 12px 字号 / 18px 行高；列表 2px 容器
 // 内边距，出处与举证见 workspaceTree/styles.ts 文件头的官方档位表）。此前那套按「VS Code
 // 原生侧栏树观感」手调的数值（24 / 30 / 11px…）是自造的中间值，已全部换掉：现在每一处
@@ -201,7 +202,7 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   // ---- #104：从「列表行」扩到骨架其余四区（顶栏 / 分组过滤条 / 回收站入口行 / 抽屉）----
   // 每项的官方原值都取自官方**同族组件**的规则，出处逐条写在下面。
   //
-  // 顶栏（+ 抽屉头、过滤条、回收站入口行共用的两条骨架基线）：官方 ui-workspace 的
+  // 顶栏（+ 抽屉头、过滤条共用的两条骨架基线）：官方 ui-workspace 的
   // WorkspaceBrowser.module.css——`bhn1Oq_sectionHeader{padding-left:4px}` 是分节头
   // 的左侧基线（我们顶栏那一行就照官方分节头做的），`bhn1Oq_sectionHeader{gap:4px}`
   // 与 `bhn1Oq_headerActions{gap:4px}` 是同一条行内间隙（官方模型选择菜单的胶囊触发
@@ -219,12 +220,10 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   'pill-font-size': { official: '13px', vscode: '12px' },
   'pill-padding-start': { official: '8px', vscode: '7px' },
   'pill-padding-end': { official: '4px', vscode: '2px' },
-  // 回收站入口行的行高：官方 ui-cordis 的 CordisPanel.module.css `Nqubda_badge{height:
-  // 42px}`——那是官方在**同一个座位**（官方 `sidebar.footer.action`）里的条目。**VS Code 档
-  // 不取这个 42px**（#134）：用户只点了侧栏里的行，而官方那一件是徽标形态（不是一行：没有 hover
-  // 底色、也不带左侧图标 + 计数这一套），抬到 42px 会让底栏凭空高一倍；这一行仍取紧凑档的
-  // 26px。它的圆角与行内边距吃行内容基准那两个键，跟着行一起成为官方的 8px / 8px。
-  'footer-row-height': { official: '42px', vscode: '26px' },
+  // 回收站入口行的行高**不再走这张表**（#137）：那一行整套按旧侧栏规格取定值，高度由
+  // 「7px 纵向内边距 + 标题行高 20px + 7px」撑出 34px，不随宿主密度变。这里原本有一条
+  // `footer-row-height`（官方同座位条目 `Nqubda_badge{height:42px}` / VS Code 档 26px），
+  // 随之一并退场——树侧不再消费它，留着会让「键集两边一致」这条契约断掉。
   // 抽屉里「按工作区分块」的块头高度：官方列表里的分组块头是 ui-model-selection 的
   // `_7KE1Ra_groupTitle{padding:5px 8px 3px;font-size:12px;line-height:18px}`，总高
   // 5+18+3=26px（上下内边距 + 行高）；我们那行是定高一行的，取它的总高。VS Code 档取

@@ -29,6 +29,14 @@ const route = (name: string): LabTreeRoute => {
   return found
 }
 
+/**
+ * 回收站入口行主区的纵向内边距（#137）：那一行整套按旧侧栏规格取定值，这个 7px 来自旧侧栏
+ * 插件的 `.recycle-entry-main{padding:7px 4px 7px 14px}`（`sessionsView.ts`）。它不是档位量
+ * （档位表管的是与官方件同族的控件），所以在这里写成常量而不是从 `SCALE_TIERS` 读；行盒高
+ * 由它和标题行高撑出（`2 × 7px + 20px = 34px`）。
+ */
+const ENTRY_ROW_PADDING_BLOCK = 7
+
 async function shot(ctx: { shots: string }, page: OpenedPage['page'], name: string): Promise<string> {
   const file = path.join(ctx.shots, `${name}.png`)
   await fsp.mkdir(ctx.shots, { recursive: true })
@@ -88,7 +96,11 @@ const GEOMETRY_PROBES: ReadonlyArray<{ label: string; selector: string; props: r
   // 所以这里实际读到的是高度。
   { label: '搜索框（折叠态）', selector: '.dshOneTree_search', props: ['height', 'borderRadius'] },
   { label: '分组胶囊', selector: '.dshOneTree_pill', props: ['height', 'fontSize', 'borderRadius'] },
-  { label: '回收站入口主区', selector: '.dshOneTree_footerMain', props: ['height', 'borderRadius', 'fontSize'] },
+  // 回收站入口主区（#137）：这一行整套按旧侧栏规格取定值，高度是「7px 纵向内边距 + 标题
+  // 行高 20px + 7px」撑出来的（34px）、悬停底色不带圆角，两个读数都不是档位量——这里只
+  // 留依然按档取的那一项（字号 = 官方标题档）。那一行的几何（右对齐、按钮 26×26、图标
+  // 16/14）由 F-35 钉。
+  { label: '回收站入口主区', selector: '.dshOneTree_footerMain', props: ['fontSize'] },
   { label: '回收站入口动作按钮', selector: '.dshOneTree_footerIconButton', props: ['width', 'height', 'borderRadius'] },
   { label: '当前工作区胶囊', selector: '.dshOneTree_workspaceBadge', props: ['height', 'fontSize', 'borderRadius', 'lineHeight'] },
 ]
@@ -258,7 +270,7 @@ export const SCALE_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏风格档位表（#113/#134）：几何读数逐项落在官方档位表里，行家族取标准档、菜单统一官方紧凑档（SCALE 套件）',
   expect:
-    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **几何读数逐项有出处**——会话行 / 工作区行 / 行标题 / 行时间 / 行内图标位 / 行内图标按钮 / 顶栏（分节头）/ 顶栏图标按钮 / 搜索框（两态：#132 起默认折叠，折叠态与点开后的展开态各量一遍）/ 分组胶囊 / 回收站入口行主区与动作按钮 / 当前工作区胶囊 / 抽屉头 / 抽屉分块块头 / 抽屉会话行的圆角、高度、字号、行高读数，每一条都能在 `styles.ts` 那份官方档位表（紧凑档 / 标准档 / 容器档）里按属性对上出处（期望值从档位表读，不硬编码）；单独钉住的关键值里，**行家族取标准档**（#134）：会话行高 32px 与圆角 8px、工作区行高 34px、行标题 14px/20px（#123 起就走标准档，完整断言在 F-30）、搜索框展开态圆角 10px；**菜单一侧仍紧凑**——分组胶囊高 26px（= 菜单项高）与容器档的 999px 圆角原样不动。② **菜单统一官方紧凑档**：分组胶囊与会话行 ⋯ 两份菜单都开一遍（#131 前第二份是顶栏「视图选项」，那一枚退役后换成会话行菜单），官方 Menu 的项（渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px）、项内图标盒（14×14）、分组标题（11px / 16px / 内边距 4px 7px）、分隔线（外边距 2px）、列表容器（内边距 2px / 圆角 7px）逐项等于官方紧凑档实测值；两份菜单的项几何彼此一致（同一侧栏里只有一种菜单密度）。全程零 pageerror。',
+    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **几何读数逐项有出处**——会话行 / 工作区行 / 行标题 / 行时间 / 行内图标位 / 行内图标按钮 / 顶栏（分节头）/ 顶栏图标按钮 / 搜索框（两态：#132 起默认折叠，折叠态与点开后的展开态各量一遍）/ 分组胶囊 / 回收站入口行动作按钮 / 当前工作区胶囊 / 抽屉头 / 抽屉分块块头 / 抽屉会话行的圆角、高度、字号、行高读数，每一条都能在 `styles.ts` 那份官方档位表（紧凑档 / 标准档 / 容器档）里按属性对上出处（期望值从档位表读，不硬编码）；单独钉住的关键值里，**行家族取标准档**（#134）：会话行高 32px 与圆角 8px、工作区行高 34px、行标题 14px/20px（#123 起就走标准档，完整断言在 F-30）、搜索框展开态圆角 10px；**菜单一侧仍紧凑**——分组胶囊高 26px（= 菜单项高）与容器档的 999px 圆角原样不动。（**回收站入口行主区自 #137 起不在这张表里**：那一行整套按旧侧栏规格取定值，只留字号一项仍按标题档判；它的几何由 F-38 钉。）② **菜单统一官方紧凑档**：分组胶囊与会话行 ⋯ 两份菜单都开一遍（#131 前第二份是顶栏「视图选项」，那一枚退役后换成会话行菜单），官方 Menu 的项（渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px）、项内图标盒（14×14）、分组标题（11px / 16px / 内边距 4px 7px）、分隔线（外边距 2px）、列表容器（内边距 2px / 圆角 7px）逐项等于官方紧凑档实测值；两份菜单的项几何彼此一致（同一侧栏里只有一种菜单密度）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -619,7 +631,7 @@ function expectTitleTier(check: Check, scope: string, reading: TitleReading, lin
 export const TITLE_TIER_SUITE: LabSuite = {
   id: 'F-30',
   phase: 'new-feature',
-  name: '侧栏标题文字取官方标题档（#123，并入 #134 的行家族口径）：工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 入口行文字都是 14px/20px，行盒是标准档的 34px 与 32px、菜单项仍是紧凑档的 12px/26px（TITLE-TIER 套件）',
+  name: '侧栏标题文字取官方标题档（#123，并入 #134 的行家族口径）：工作区名 / 会话标题 / 行内改名输入框 / 抽屉标题 / 入口行文字都是 14px/20px，行盒是标准档的 34px 与 32px（入口行 #137 起按旧侧栏规格撑出 34px）、菜单项仍是紧凑档的 12px/26px（TITLE-TIER 套件）',
   expect:
     '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **三档宽度（260/340/500）下工作区名与会话标题实测字号 = 官方标题档 14px、行高 = 20px**（期望值取自 `styles.ts` 档位表的标准档 `titleFontSize` / `titleLineHeight`，不硬编码）；② **行盒是行家族的标准档高、且没被撑破**——工作区名所在行 34px、会话标题所在行 32px（#134 起行家族取官方标准档，两行不再同高也不再有 26px 那一档），文字盒整个落在行矩形里、`scrollHeight` 没有超过 `clientHeight`；③ **行内改名输入框同步是 14px/20px**（点**当前**会话行进就地改名——#115/#121 那条真实路径，不是 ⋯ 菜单里的「重命名」：那一项开的是独立改名弹窗；假宿主答「这条会话开在面板里」，量 `.dshOneTree_inlineRenameInput` 的字号 / 行高 / 自身高，且它装在 32px 的标准档行盒里）；④ **抽屉标题与底部回收站入口行文字同样是 14px**（这两处只消费字号那一项，行高从容器继承，套件按事实记录继承值；它们的行盒不跟行家族——抽屉头 26px、入口行 26px）；⑤ **菜单项仍是紧凑档的 12px/18px/26px**——顶栏「视图选项」菜单开一遍量官方 `Menu` 项的渲染高 26px / 字号 12px / 行高 18px，并显式钉住「会话行盒高 32px = 标准档、菜单项 26px = 紧凑档，两者不等」「标题字号 ≠ 菜单项字号」这两件事同时成立，证明这一轮只把行家族放到了标准档、菜单没被顺带放开。全程零 pageerror；套件只开菜单、进一次改名编辑态再取消，不提交任何写请求。',
   run: async (ctx, check) => {
@@ -667,13 +679,18 @@ export const TITLE_TIER_SUITE: LabSuite = {
       } else {
         check.eq(`底部入口行文字：字号 = 官方标题档 ${SCALE_TIERS.standard.titleFontSize}`, footer.fontSize, SCALE_TIERS.standard.titleFontSize)
         check.ok(
-          `底部入口行文字：文字没被裁（行盒是紧凑档 ${SCALE_TIERS.compact.rowHeight} 高，14px 的字装得下）`,
+          '底部入口行文字：文字没被裁（行盒高度由纵向内边距 + 标题行高撑出，装得下 14px 的字）',
           !footer.verticalOverflow && footer.insideRow,
           `verticalOverflow=${String(footer.verticalOverflow)} insideRow=${String(footer.insideRow)} rowHeight=${footer.rowHeight}`,
         )
-        // 底栏入口行**不跟行家族**（#134 的例外：官方同座位那件是 42px 的徽标、不是行），
-        // 仍取紧凑档的 26px——这里正是把这条例外钉在页面读数上。
-        check.eq('底部入口行：行盒高仍 = 紧凑档 26px（#134 只放开了侧栏的行）', footer.rowHeight, SCALE_TIERS.compact.rowHeight)
+        // 行盒高（#137）：那一行整套改取旧侧栏规格，高度不再写死，而是「主区纵向内边距 7px +
+        // 标题行高 20px + 7px」撑出来的（#137 之前这里取的是密度键 `footer-row-height` 的
+        // 紧凑档 26px——那一项已随本条退场）。
+        check.eq(
+          '底部入口行：行盒高 = 7px + 标题行高 20px + 7px = 34px（#137：由内边距撑出，不再取紧凑档行高）',
+          footer.rowHeight,
+          `${String(2 * ENTRY_ROW_PADDING_BLOCK + Number.parseFloat(SCALE_TIERS.standard.titleLineHeight))}px`,
+        )
 
         await page.click('[data-dshone-tree-action="recycle-toggle"]')
         await page.waitForTimeout(400)

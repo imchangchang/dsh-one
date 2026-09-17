@@ -93,11 +93,13 @@
 //   （官方 `Menu` 的 `compact` 变体：项 26px / 字号 12px / 行高 18px / 圆角 5px /
 //   内边距 3px 7px）——两条口径各管各的，行不再跟菜单走。
 //   行里的元信息（时间 / 计数）仍取紧凑档的 12px / 18px（#123 的口径，本次没动）。
-// - **不跟行家族的两处行形件**（#134 用户只点了侧栏的行，这两处不动）：底栏回收站入口行
-//   主区（`footer-row-height` 仍取紧凑档 26px——官方同座位那个 42px 的件是一个徽标，
-//   与我们的入口行不同形）与空态入口按钮（自绘件，仍取紧凑档 26px）。**弹窗里的行同样
-//   不跟**（管理分组对话框的行固定 26px，理由写在那条规则上方）。这几条在断言里逐条
-//   登记为「仍落紧凑档」，不是把口径放宽。
+// - **不跟行家族的其余行形件**（#134 用户只点了侧栏的行，这些不动）：空态入口按钮
+//   （自绘件，仍取紧凑档 26px）。**弹窗里的行同样不跟**（管理分组对话框的行固定 26px，
+//   理由写在那条规则上方）。这几条在断言里逐条登记为「仍落紧凑档」，不是把口径放宽。
+// - **回收站入口行**（`.dshOneTree_footer*`，#137）→ **不进档位表**：用户点名的参照物是
+//   旧侧栏插件里的同一行，所以它的几何整套按那份旧规格取定值（行盒吃满宽度、右侧 8px、
+//   主区 7px 纵向内边距、计数胶囊、26×26 的动作按钮……），逐条对应与两处刻意不同（左内边距
+//   走行内容基准、计数胶囊的档位豁免）写在它那几条规则上方。这一行因此**退出密度档**。
 // - **胶囊**（分组过滤条）→ **紧凑档**的高度与字号（与菜单项同高），圆角走容器档的 999px，
 //   左内边距取紧凑档的项内边距 7px、右内边距取紧凑档的容器内边距 2px。
 // - **菜单**→ 官方 `Menu` 传 `compact: true`（官方紧凑档），项内图标按官方该档的 14×14
@@ -215,7 +217,9 @@ export const SCALE_TIERS = {
     renameInputRadius: '22px', // .bhn1Oq_renameInput{border-radius:22px}
     renameInputLineHeight: '22px', // .bhn1Oq_renameInput{line-height:22px}
     drawerBlockHeaderHeight: '26px', // ._7KE1Ra_groupTitle{padding:5px 8px 3px} + line-height:18px
-    footerRowHeight: '42px', // .Nqubda_badge{height:42px}
+    // 底下一枚原是「回收站入口行的行高」（官方同座位的 `Nqubda_badge{height:42px}`）：
+    // #137 把那一行整套改成旧侧栏规格（高度由纵向内边距 + 标题行高撑出，不再写死），
+    // 这个量连同它的密度键一起退场，所以档位表里也不再登记。
     pillHeight: '28px', // ._7KE1Ra_trigger{height:28px}
     pillFontSize: '13px', // ._7KE1Ra_trigger{font-size:13px}
     pillPaddingStart: '8px', // ._7KE1Ra_trigger{padding:0 4px 0 8px}
@@ -277,6 +281,12 @@ export const SCALE_EXEMPT: readonly { selector: string; reason: string }[] = [
   // 档位表里没有能拿来当出处的量，所以这条规则整条不进档位表。出处与算式写在
   // 那条规则上方、档位表那一节的「二级菜单项」一条里。
   { selector: 'dshOneTree_submenuItem', reason: 'submenu indent (#126): 27px = compact padding-inline 7px + icon slot 14px + item gap 6px, a nesting offset no official component has a tier for' },
+  // 回收站入口行的计数胶囊（#137）：字号 10px / 行高 16px / 圆角 8px / 内边距 0 5px 整套取自
+  // 旧侧栏那一行（`sessionsView.ts` 的 `.recycle-entry-count`），是「这一行按旧侧栏规格」那一
+  // 组取值的一员；档位表管的是与官方件同族的控件档位（官方侧栏里这一类计数只有文字、没有
+  // 独立的胶囊件可当出处）。这一行里其余的取值（26 / 16 / 14 / 8 / 2px）都能在档位表里找到
+  // 出处，逐条对应写在它那条规则上方。
+  { selector: 'dshOneTree_footerCount', reason: 'recycle entry count pill (#137): 10px/16px/8px/0 5px are the old sidebar plugin values for this row, not a tier of any official component' },
 ]
 // 导出给断言用（test/sidebarStyleScale.test.ts 直接拿这段字符串做表驱动扫描：档位表与
 // 样式是同一份源码里的两个东西，读实体比扫源码文本稳）。
@@ -503,26 +513,39 @@ export const CSS =
   // 图标与文字仍相邻。子项没有图标时也占住图标槽（rows.ts 的 indentSubmenuItem 补空槽），
   // 所以「子项文字左缘 − 父项文字左缘」对所有子项是**同一个值**。
   '[role="menuitem"]:has(.dshOneTree_submenuItem){padding-left:27px}' +
-  // 底部回收站入口行（#99：官方 sidebar.footer.action 座位）。形态按旧侧栏那一行：
-  // 主区（🗑 + 文案 + 计数）+ 右侧两枚动作图标；计数 0 整体灰态。**主区的行高不跟行家族**
-  // （#134 用户只点了侧栏的行；官方同座位那一件是 ui-cordis 的 `Nqubda_badge{height:42px}`
-  // ——一个徽标，与我们的入口行不是同形，抬到 42px 会让底栏凭空高一倍），仍取紧凑档的 26px；
-  // 圆角与行内边距吃的是**行内容基准**那两个键（`row-radius` / `row-padding-inline`），
-  // 所以跟着行一起变成官方的 8px / 8px。
-  // #125：左内缩归 0——主区自己带 `row-padding-inline`（行家族的行内边距），所以它的内容
-  // （🗑 图标）左缘落在行内容基准上，与列表行的文件夹图标同一竖线；容器再加一道左内缩
-  // 会把这一行推进去一格（此前进去了 section-padding-inline，比行内容基准多 2px）。
-  // 右侧仍吃骨架基线 `section-padding-inline`：那是两枚动作图标与侧栏右缘的距离，不是
-  // 行内容那一列的事。底色通栏也靠这一条——行盒从侧栏左缘起（与列表行同一处置：
-  // 容器零左内缩、行自己带内边距）。
-  '.dshOneTree_footerRow{align-items:center;gap:2px;padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 0;display:flex}' +
+  // 底部回收站入口行（#99：官方 sidebar.footer.action 座位；#137 整套几何按**旧侧栏规格**
+  // 重定）。形态还是主区（🗑 + 文案 + 计数）+ 右侧两枚动作图标，计数 0 整体灰态。
+  //
+  // #137 的口径：这一行的取值逐条取自旧侧栏插件的正本（`sessionsView.ts` 的 `.recycle-entry*`
+  // 与 `sessionsWebview.ts` 的 renderRecycleEntry），**不再随宿主密度变**——用户点名的参照物
+  // 就是旧侧栏那一行，所以其它「行家族取某档」的口径在这一行上不适用。逐条对应：
+  // - **行盒**：旧规格的 `width:100%` + `flex:none` + `box-sizing:border-box`，右侧 8px。
+  //   `width:100%` 是**右对齐的成因**：这一行挂在官方那个 list 槽里，槽容器的宽度按内容收缩，
+  //   不自己声明吃满的话，标签的 `flex:1` 没有余量可吃，计数与两枚动作就紧跟文字（用户截图
+  //   里那一幕）。
+  // - **主区**：纵向 7px、右 4px 用旧规格的 `7px 4px`；**左内边距不取旧规格的 14px**，改用
+  //   行内容基准 `row-padding-inline`——旧侧栏的 14px 是相对**它自己的**列表基准算的（那边
+  //   工作区行 `padding:0 10px`），这边的基准由 #125 定成「搜索框 / 分组胶囊 / 行内容同一条
+  //   竖线」，F-30 量着入口行主区图标也在这条线上；取 14px 会把图标推离基准一格。
+  // - **行高不再写死**：旧规格那一行的高度也是撑出来的（`7px + 行高 + 7px`），这边同样——
+  //   标题档行高 20px 撑出 34px（与 #134 之后的工作区行同高）。因此密度键 `footer-row-height`（官方档 42px / VS Code 档
+  //   26px）**不再被消费**，已从 shell 的密度表与档位表里删除；主区的悬停底色也不再有圆角
+  //   （旧规格 `border:0`）。
+  // - **计数**是一枚胶囊（旧规格：字号 10px / 圆角 8px / 内边距 0 5px / 有底色），底色取法与
+  //   `.dshOneTree_workspaceBadge` 同源（官方 token 里没有「徽标底色」这一类，从文字色兑）；
+  //   计数 0 时按旧规格去掉底色与内边距。
+  // - **两枚动作按钮** 26×26、内部图标 14（尺寸不再挂密度键 `icon-button-size`，那一位仍被
+  //   顶栏图标按钮消费）。按钮形状仍是官方圆形（`border-radius:50%`，出处 `.bhn1Oq_iconButton`）
+  //   ——旧侧栏那两枚是 4px 圆角方块，本条只对齐尺寸与图标，不动形状。
+  '.dshOneTree_footerRow{box-sizing:border-box;flex:none;width:100%;align-items:center;gap:2px;padding-right:8px;display:flex}' +
   '.dshOneTree_footerRowEmpty{color:var(--dsw-alias-label-tertiary)}' +
-  '.dshOneTree_footerMain{cursor:pointer;min-width:0;height:var(--dsh-one-density-footer-row-height,42px);color:inherit;background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);flex:1;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}' +
+  '.dshOneTree_footerMain{cursor:pointer;min-width:0;line-height:var(--dsh-one-density-title-line-height,20px);color:inherit;background:0 0;border:0;border-radius:0;flex:1;align-items:center;gap:6px;padding:7px 4px 7px var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}' +
   '.dshOneTree_footerMain:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_footerIcon{flex:none;align-items:center;display:inline-flex}' +
   '.dshOneTree_footerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}' +
-  '.dshOneTree_footerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
-  '.dshOneTree_footerIconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
+  '.dshOneTree_footerCount{color:var(--dsw-alias-label-tertiary);background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 20%,transparent);border-radius:8px;flex:none;font-size:10px;line-height:16px;padding:0 5px}' +
+  '.dshOneTree_footerRowEmpty .dshOneTree_footerCount{background:0 0;padding:0}' +
+  '.dshOneTree_footerIconButton{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_footerIconButton:disabled{cursor:default;opacity:.45}' +
   '.dshOneTree_footerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   // 「管理分组…」对话框（#99）：行 = 名字 + 计数 + ✎/🗑。**弹窗里的行不跟行家族**（#134：
