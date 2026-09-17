@@ -21,6 +21,7 @@ import * as fs from 'node:fs/promises'
 import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { assertBuildArtifacts } from './check-build-artifacts.mjs'
 
 const args = process.argv.slice(2)
 const keep = args.includes('--keep')
@@ -60,6 +61,7 @@ function run(command, commandArgs, options = {}) {
 }
 
 async function main() {
+  assertBuildArtifacts()
   PORT = portArg >= 0 ? Number(args[portArg + 1]) : await freePort()
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-host-half-verify-'))
   const home = path.join(tmp, 'home')

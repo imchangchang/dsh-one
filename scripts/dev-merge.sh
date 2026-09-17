@@ -78,6 +78,10 @@ rebase 有冲突。进入 $WT 解决：
   ...解决冲突后 git add，然后 GIT_EDITOR=true git rebase --continue...
   scripts/dev-finish.sh        # 重新自测 + 更新 done 标记
 再回到集成线重跑：MERGE_TARGET=$TARGET scripts/dev-merge.sh $SLUG
+
+若冲突发生在 packages/*/lib/（构建产物，已不入库，#106）：那份字节不该合，解冲突时
+把它从索引里去掉即可——git rm packages/<包>/lib/<文件>，然后照上面的 --continue 继续。
+下次 build 会重新生成，内容以源码为准。
 EOF
   exit 1
 fi
@@ -100,8 +104,10 @@ git -C "$TARGET_WT" branch -d "$BRANCH" >/dev/null
 git tag -d "done/$SLUG" >/dev/null
 
 # 扩展运行时装载的是集成线的 dist/；合并只带了源码，不重建则 reload 后还是旧代码。
-echo "== 重建 ${TARGET} 的 dist（${TARGET_WT}）=="
+# 一次 build 出的产物不止 dist/：还有 packages/*/lib/（自有插件包的产物，不入库）——
+# 合并会把它们从版本库里删掉，这里重建后磁盘上才是当前源码对应的那一份。
+echo "== 重建 ${TARGET} 的产物（dist/ 与 packages/*/lib/，${TARGET_WT}）=="
 npm --prefix "$TARGET_WT" run build
 
 echo
-echo "已合入 $TARGET 并清理 worktree / 分支 / done 标记（$TARGET 的 dist 已重建，reload 窗口生效）。"
+echo "已合入 $TARGET 并清理 worktree / 分支 / done 标记（${TARGET} 的产物已重建，reload 窗口生效）。"

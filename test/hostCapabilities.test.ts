@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync } from 'node:fs'
 import {
   HOST_CAPABILITY_METHODS,
   HOST_CAPABILITY_SERVICE,
@@ -152,10 +152,10 @@ test('file.download 路径必须本站绝对路径（协议相对 / .. / 反斜�
 })
 
 test('宿主半构建产物不压缩（官方网关按方法形参名取值）', async () => {
-  const bundle = await fs.readFile(
-    path.join(import.meta.dirname, '..', 'packages', 'dsh-host-capabilities', 'lib', 'index.js'),
-    'utf8',
-  )
+  // 产物不入库（#106）：`npm test` 会先 build，直接 `node --test` 跑本文件才会缺——给出该做什么。
+  const bundlePath = path.join(import.meta.dirname, '..', 'packages', 'dsh-host-capabilities', 'lib', 'index.js')
+  assert.ok(existsSync(bundlePath), `缺构建产物 packages/dsh-host-capabilities/lib/index.js——先跑 npm run build`)
+  const bundle = await fs.readFile(bundlePath, 'utf8')
   for (const signature of ['async stateRead(key)', 'async stateWrite(key, value)', 'async stateDelete(key)', 'async gitShow(hash, cwd)', 'async saveContent(suggestedName, base64)']) {
     assert.ok(bundle.includes(signature), `宿主半 bundle 必须保留形参名：${signature}`)
   }
