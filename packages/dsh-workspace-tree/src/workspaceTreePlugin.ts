@@ -233,7 +233,26 @@ interface SessionsService {
   create(opts: { workspaceId?: string }): Promise<string>
   fork(opts: { sessionId: string; increaseTitle?: boolean }): Promise<string>
   binding(id: string): { session: SessionFace } | undefined
-  search(query: string, signal: AbortSignal): Promise<{ ok: boolean; value?: SearchPage; error?: { message: string } }>
+  /**
+   * 内容搜索。**回执的字段名是官方的 `sessionId`，不是树内部的 `id`**（#195）——
+   * 出处：`@deepseek-ai/dsh-api-session-controller` 的 `client/sessions/manager.d.ts`
+   * 里 `export interface SessionSearchResultItem { sessionId: SessionId; snippet: string }`，
+   * 以及 `dsh-api-remotes` 的 wire schema（`{items: [{sessionId, snippet}], hasMore}`，
+   * 方法 id `session/search`），`ClientSessions.search` 原样透传这份 value。
+   * 这一条原来把它写成树内部的 `SearchPage`（`items: [{id, snippet}]`），于是
+   * `item.id` 恒为 undefined：**内容命中的会话一条都进不了结果行、摘要那一段也从来不渲染**
+   * （只剩本地标题匹配那一路）——#195 在隔离实例上打开内容搜索后，实测到页面回执里明明
+   * 带着 `sessionId` 与 snippet，而结果行 0 条带摘要。形状对齐放在下面消费它的那一处
+   * （`searchSessions` 端口）做，树内部仍按 `id` 走。
+   */
+  search(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<{
+    ok: boolean
+    value?: { items: readonly { sessionId: string; snippet: string }[]; hasMore: boolean }
+    error?: { message: string }
+  }>
 }
 
 interface WorkspacesService {
@@ -609,7 +628,12 @@ export function apply(ctx: TreeContext): void {
       ): Promise<{ items: readonly { id: string; snippet?: string }[]; hasMore: boolean }> => {
         const result = await sessions.search(query, signal)
         if (!result.ok || result.value === undefined) throw new Error(result.error?.message ?? 'search failed')
-        return result.value
+        // 官方回执给的是 `sessionId`（见 `SessionsService.search` 上的注释），树内部按 `id` 走
+        // ——形状在这里对齐一次，否则内容命中一条都进不了结果行、摘要也永远不渲染（#195）。
+        return {
+          items: result.value.items.map((item) => ({ id: item.sessionId, snippet: item.snippet })),
+          hasMore: result.value.hasMore,
+        }
       },
       searchResultLimit: sessions.searchResultLimit,
       // #82：本插件的持久状态走**宿主能力口**（`stateRead/stateWrite`）——VS Code 侧
