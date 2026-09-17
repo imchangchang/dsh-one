@@ -22,7 +22,19 @@ import {
   type GatewayAssets,
 } from './assembly/wireFilter.ts'
 import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, type AssemblyTree } from './assembly/trees.ts'
-import { decideSidebarStatus, assemblyFailureView, type SidebarStatusDecision } from '../pure/sidebarStatus.ts'
+import {
+  ASSEMBLED_CHAT_VIEW_TYPE,
+  decodeChatPanelState,
+  placeRestoredChatPanel,
+  type ChatPanelTarget,
+} from '../pure/chatPanelState.ts'
+import {
+  decideSidebarStatus,
+  assemblyFailureView,
+  type SidebarHostStatus,
+  type SidebarStatusDecision,
+  type SidebarStatusView,
+} from '../pure/sidebarStatus.ts'
 import { createStatusFollow } from '../pure/sidebarStatusFollow.ts'
 import { sidebarStatusHtml } from './sidebarStatusPage.ts'
 import { openInstallGuide } from './installGuide.ts'
@@ -42,11 +54,15 @@ import { openInstallGuide } from './installGuide.ts'
  * blocked 段后伺服），追加该树自有 frame 插件，内联进装配页。
  *
  * 版本门：网关 dsh 版本不在 [0.1.2-rc.1, 0.2.0) 时页面顶部加信息条，不阻断。
+ *
+ * 面板恢复（#169）：chat 面板注册了 WebviewPanelSerializer（view type 见
+ * pure/chatPanelState.ts），窗口重载 / 扩展宿主重启后由它把标签页装回原来的
+ * 会话——没有 serializer 时 VS Code 会直接丢掉这些标签页。
  */
 
-export const ASSEMBLED_CHAT_VIEW_TYPE = 'dshOne.assembledChat'
-
-/** 侧栏 view 的 contribute id（package.json views，#70 起内容 = 官方侧栏装配）。 */
+/**
+ * 侧栏 view 的 contribute id（package.json views，#70 起内容 = 官方侧栏装配）。
+ */
 export const ASSEMBLED_SIDEBAR_VIEW_ID = 'dshOne.chat'
 
 /** 当前打开的面板（单例：后开替换先开，与官方嵌入面板一致）。 */
@@ -344,7 +360,7 @@ async function openChatPanel(
   }
 }
 
-/** 面板的共用前置：服务就绪 + chat 树清单 + 共享 mirror（失败已弹窗，返回 undefined）。 */
+/** 面板的共用前置：服务就绪 + chat 树清单 + 共享 mirror（失败已弹窗）。 */
 interface ChatPanelSetup {
   mirror: AssemblyMirror
   assembly: GatewayAssembly
@@ -352,35 +368,55 @@ interface ChatPanelSetup {
   banner: string | undefined
 }
 
+/**
+ * 前置结果：装配成功给 setup；失败给一态状态页视图（#169 恢复路径要把它画
+ * 进面板——恢复出来的标签页不能停在一片空白上）。失败时的用户可见提示
+ * （showErrorMessage）仍在这里发，与「用户主动开面板」路径的行为一致。
+ */
+type ChatPanelPrep =
+  | { ok: true; setup: ChatPanelSetup }
+  | { ok: false; view: SidebarStatusView }
+
+/**
+ * 服务状态 → 状态页视图（`assemble` 这一态不该走到这里；真出现了按「服务没在跑」
+ * 兜底，页面给出启动按钮，用户点一下就能自救）。
+ */
+function statusViewOf(status: SidebarHostStatus): SidebarStatusView {
+  const decision = decideSidebarStatus(status)
+  return decision.kind === 'assemble' ? { kind: 'serviceDown', starting: false } : decision
+}
+
 async function prepareChatPanel(
   context: vscode.ExtensionContext,
   manager: ServerManager,
   logger: Logger,
-): Promise<ChatPanelSetup | undefined> {
+): Promise<ChatPanelPrep> {
   const status = await manager.ensureStarted()
   if (status.state !== 'running' || !status.url) {
     void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
-    return undefined
+    return { ok: false, view: statusViewOf(status) }
   }
   let assembly: GatewayAssembly
   try {
     assembly = await loadGatewayAssembly(status.url, CHAT_TREE, logger)
   } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
     void vscode.window.showErrorMessage(
-      vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
+      vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', reason),
     )
-    return undefined
+    return { ok: false, view: assemblyFailureView(manager.getStatus(), reason) }
   }
   let mirror: AssemblyMirror
   try {
     mirror = await acquireSharedMirror(context, manager, logger)
   } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
     void vscode.window.showErrorMessage(
-      vscode.l10n.t('Failed to start the assembly mirror: {0}', err instanceof Error ? err.message : String(err)),
+      vscode.l10n.t('Failed to start the assembly mirror: {0}', reason),
     )
-    return undefined
+    return { ok: false, view: assemblyFailureView(manager.getStatus(), reason) }
   }
-  return { mirror, assembly, banner: versionBanner(dshVersion(status.url) ?? status.version) }
+  return { ok: true, setup: { mirror, assembly, banner: versionBanner(dshVersion(status.url) ?? status.version) } }
 }
 
 /**
@@ -420,6 +456,13 @@ function mountChatPanel(params: {
   const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger, () => mirror.origin))
   trackAssemblyWebview(context, panel.webview)
   panel.onDidDispose(() => {
+    // 面板生命周期的留痕（#169）：dispose 只可能是「我们自己替换单例」或
+    // 「用户/宿主关掉的」两种；后者分不出是用户点关闭还是扩展宿主收摊
+    // （重载时 VS Code 不逐个 dispose 面板，那一路只有 deactivate 那条日志，
+    // 见 extension.ts），所以这里如实写 `other`，由 deactivate 那条对齐。
+    logger.info(
+      `chat panel disposed: kind=${tab ? 'tab' : 'singleton'} session=${shortSession(panelSessionId.get(panel))} reason=${replacing ? 'replace' : 'other'}`,
+    )
     probeSub.dispose()
     metaSub.dispose()
     hostSub.dispose()
@@ -441,7 +484,15 @@ function mountChatPanel(params: {
     theme: currentTheme(),
     banner,
     bootSessionId: sessionId,
+    panelTab: tab,
   })
+}
+
+/**
+ * 日志里的会话名（前 13 位够区分；无会话写 none）。
+ */
+function shortSession(sessionId: string | undefined): string {
+  return sessionId === undefined ? 'none' : sessionId.slice(0, 13)
 }
 
 /** 真正的建面板流程（由 openChatPanel 串行化调用）：单例语义，任何创建都顶替旧单例。 */
@@ -451,14 +502,21 @@ async function createChatPanel(
   logger: Logger,
   options: { sessionId?: string },
 ): Promise<void> {
-  const setup = await prepareChatPanel(context, manager, logger)
-  if (setup === undefined) return
+  const prepared = await prepareChatPanel(context, manager, logger)
+  if (!prepared.ok) return
+  const setup = prepared.setup
   const sessionId = options.sessionId
   // 单例语义（#71 终态）：任何创建都顶替旧单例（replace 期间的 dispose
   // 是我们自己触发的，不算用户手动关闭）。
+  const replacedPanel = active?.panel
+  if (replacedPanel !== undefined) {
+    logger.info(
+      `chat panel replaced: session=${shortSession(panelSessionId.get(replacedPanel))} -> ${shortSession(sessionId)}`,
+    )
+  }
   replacing = true
   try {
-    active?.panel.dispose()
+    replacedPanel?.dispose()
   } finally {
     replacing = false
   }
@@ -472,6 +530,7 @@ async function createChatPanel(
   chatSingleton = { panel }
   if (sessionId !== undefined && pendingSessionOpen === sessionId) pendingSessionOpen = undefined
   logger.info(`assembled chat: ${setup.mirror.origin}${sessionId === undefined ? '' : ` session=${sessionId.slice(0, 13)}`}`)
+  logger.info(`chat panel created: kind=singleton session=${shortSession(sessionId)}`)
   mountChatPanel({ context, manager, logger, panel, setup, sessionId, tab: false })
 }
 
@@ -491,8 +550,9 @@ export async function openSessionInNewTab(sessionId: string): Promise<void> {
   const deps = chatDeps
   if (deps === undefined) return // 注册还没发生（页面入口也来自注册后的树）
   const created = (async () => {
-    const setup = await prepareChatPanel(deps.context, deps.manager, deps.logger)
-    if (setup === undefined) return
+    const prepared = await prepareChatPanel(deps.context, deps.manager, deps.logger)
+    if (!prepared.ok) return
+    const setup = prepared.setup
     const panel = vscode.window.createWebviewPanel(
       ASSEMBLED_CHAT_VIEW_TYPE,
       `dsh: ${sessionId.slice(0, 13)}`,
@@ -500,6 +560,7 @@ export async function openSessionInNewTab(sessionId: string): Promise<void> {
       { enableScripts: true, retainContextWhenHidden: true },
     )
     deps.logger.info(`assembled chat tab: ${setup.mirror.origin} session=${sessionId.slice(0, 13)}`)
+    deps.logger.info(`chat panel created: kind=tab session=${shortSession(sessionId)}`)
     mountChatPanel({
       context: deps.context,
       manager: deps.manager,
@@ -515,6 +576,164 @@ export async function openSessionInNewTab(sessionId: string): Promise<void> {
     await created
   } finally {
     creatingSessionTabs.delete(sessionId)
+  }
+}
+
+/**
+ * 恢复一个对话面板（#169，`WebviewPanelSerializer` 的落点）：窗口重载 / 扩展宿主
+ * 重启之后，VS Code 把页面当初经 `setState` 存下的 state 交回来，这里按它把标签页
+ * 装回原来的会话。
+ *
+ * 重试那条路要留着：装配失败（网关没起来、清单拉不到）时面板上是状态页 + 按钮，
+ * 按钮的动作由这里挂着——恢复出来的面板 VS Code 建完就不管了，接线只能自己来。
+ */
+function restoreChatPanel(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+  panel: vscode.WebviewPanel,
+  state: unknown,
+): Promise<void> {
+  const saved = decodeChatPanelState(state)
+  // 没存过 state（老面板、或页面没来得及写）按「默认单例面板」恢复：面板照样
+  // 回来，只是不带会话注入，跟官方恢复值走。
+  const target: ChatPanelTarget = saved ?? { sessionId: undefined, tab: false }
+  logger.info(
+    `chat panel restoring: kind=${target.tab ? 'tab' : 'singleton'} session=${shortSession(target.sessionId)} saved=${saved === undefined ? 'no' : 'yes'}`,
+  )
+  try {
+    // 恢复出来的是新建的空壳 webview：脚本放行得显式设回来（创建时的选项不随
+    // 序列化回来），下面的状态页与装配页都靠它。
+    panel.webview.options = { enableScripts: true }
+  } catch (err) {
+    // 面板已经被关掉（恢复与用户关闭赛跑）：没什么可恢复的，如实留一条。
+    logger.warn(`chat panel restore skipped: ${err instanceof Error ? err.message : String(err)}`)
+    return Promise.resolve()
+  }
+  let attempt: Promise<void> | undefined
+  const run = (): Promise<void> => {
+    attempt ??= mountRestoredChatPanel(context, manager, logger, panel, target).finally(() => {
+      attempt = undefined
+    })
+    return attempt
+  }
+  const startThenRun = async (): Promise<void> => {
+    try {
+      await manager.ensureStarted()
+    } catch (err) {
+      logger.warn(`chat panel restore: starting the dsh service failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    await run()
+  }
+  // 状态页那三个按钮与侧栏同一套消息名（assembly:start / assembly:retry /
+  // assembly:openInstallGuide），动作落到本面板；装配页不发这三个类型，无冲突。
+  const messageSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
+    if (typeof msg !== 'object' || msg === null) return
+    const type = (msg as { type?: unknown }).type
+    if (type === 'assembly:retry') void run()
+    else if (type === 'assembly:start') void startThenRun()
+    else if (type === 'assembly:openInstallGuide') openInstallGuide(logger)
+  })
+  panel.onDidDispose(() => messageSub.dispose())
+  return run()
+}
+
+/**
+ * 恢复时的装配一次：装得上就 mountChatPanel，装不上画状态页（面板照常可用、带重试）。
+ * 全程不抛（`deserializeWebviewPanel` 抛错会被 VS Code 记成恢复失败、标签页丢掉）。
+ */
+async function mountRestoredChatPanel(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+  panel: vscode.WebviewPanel,
+  target: ChatPanelTarget,
+): Promise<void> {
+  // 首帧：服务不在跑时先落「正在启动 / 未运行」页（同侧栏，别让用户对着空白等）；
+  // 在跑就别闪一下状态页——装配是秒级的事。
+  const initial = decideSidebarStatus(manager.getStatus())
+  if (initial.kind !== 'assemble') renderChatStatusPage(panel, initial)
+  try {
+    const prepared = await prepareChatPanel(context, manager, logger)
+    if (!prepared.ok) {
+      logger.warn(`chat panel restore failed: ${prepared.view.kind}`)
+      renderChatStatusPage(panel, prepared.view)
+      return
+    }
+    const setup = prepared.setup
+    const sessionId = await restoredSession(manager, target.sessionId, logger)
+    const placement = placeRestoredChatPanel(
+      { sessionId, tab: target.tab },
+      // 单例槽位已被占（它恢复得晚，或别处已经开着/正开着一个单例）：这个面板降级
+      // 成普通标签页，不顶掉已经在的那一个。
+      { singletonOpen: chatSingleton !== undefined || active !== undefined || creatingPanel !== undefined },
+    )
+    panel.title =
+      sessionId === undefined ? vscode.l10n.t('dsh Chat (assembled)') : `dsh: ${sessionId.slice(0, 13)}`
+    if (placement === 'singleton') {
+      active = { panel, mirror: setup.mirror }
+      chatSingleton = { panel }
+    }
+    logger.info(`chat panel restored: kind=${placement} session=${shortSession(sessionId)}`)
+    try {
+      mountChatPanel({ context, manager, logger, panel, setup, sessionId, tab: placement === 'tab' })
+    } catch (err) {
+      // 走到这说明面板在装配期间被关掉了（webview 已 dispose）：把刚登记的槽位
+      // 撤掉，别留一个指向死面板的单例。
+      if (active?.panel === panel) active = undefined
+      if (chatSingleton?.panel === panel) chatSingleton = undefined
+      releaseSharedMirror(setup.mirror)
+      logger.warn(`chat panel restore aborted: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    logger.warn(`chat panel restore failed: ${reason}`)
+    renderChatStatusPage(panel, assemblyFailureView(manager.getStatus(), reason))
+  }
+}
+
+/**
+ * 恢复要开的那个会话还在不在（#169）：面板关着的这段时间里它可能被归档或删掉，
+ * 把不存在的 id 注进页面只会让用户莫名其妙（页面会保持官方恢复值）。查不到就
+ * 丢掉这个 id 并明说一句；网关查不通（刚起、网络抖动）时保留——「不知道」不等于
+ * 「不存在」。
+ */
+async function restoredSession(
+  manager: ServerManager,
+  sessionId: string | undefined,
+  logger: Logger,
+): Promise<string | undefined> {
+  if (sessionId === undefined) return undefined
+  const url = manager.getStatus().url
+  if (url === undefined) return sessionId
+  try {
+    const rows = await listSessions(url)
+    if (rows.some((row) => row.sessionId === sessionId)) return sessionId
+    logger.warn(`chat panel restore: session ${shortSession(sessionId)} is gone; restoring without it`)
+    void vscode.window.showWarningMessage(
+      vscode.l10n.t('The session this chat panel was showing no longer exists; the panel opens without it.'),
+    )
+    return undefined
+  } catch (err) {
+    logger.warn(
+      `chat panel restore: session list unavailable (${err instanceof Error ? err.message : String(err)}); keeping ${shortSession(sessionId)}`,
+    )
+    return sessionId
+  }
+}
+
+/**
+ * 状态页画进面板（#169 的降级落点）：网关没起来 / 装不起来时不能停在一片空白上。
+ * 复用侧栏那套状态页（同样三态、同样三个消息名），文案按面板说。
+ *
+ * 面板已经被关掉（恢复与用户关窗赛跑）就没地方画了，也不再抛——那一路由
+ * dispose 的日志留痕，不必在这里制造一个错误。
+ */
+function renderChatStatusPage(panel: vscode.WebviewPanel, view: SidebarStatusView): void {
+  try {
+    panel.webview.html = sidebarStatusHtml(view, { surface: 'chatPanel' })
+  } catch {
+    /* 面板已 dispose */
   }
 }
 
@@ -625,7 +844,18 @@ export function registerAssembledChat(
   chatDeps = { context, manager, logger }
   // 注册之前到达的点击（理论上不该有，防御）：注册后立刻兑现
   if (pendingSessionOpen !== undefined) void openSessionChat(pendingSessionOpen)
-  return vscode.commands.registerCommand('dshOne.assembledChat', () => openChatPanel(context, manager, logger))
+  return vscode.Disposable.from(
+    vscode.commands.registerCommand('dshOne.assembledChat', () => openChatPanel(context, manager, logger)),
+    // 面板跨「窗口重载 / 扩展宿主重启」的恢复（#169）：没注册 serializer 时
+    // VS Code 会把这些标签页直接丢掉（用户观感 = 「面板没了、要重新打开」）。
+    // state 由页面经官方 `acquireVsCodeApi().setState()` 存（见 sessionBootPlugin），
+    // 这里读回来重装。前提是 package.json 声明了
+    // `onWebviewPanel:dshOne.assembledChat` 激活事件——恢复发生在激活之前，
+    // 扩展没被唤起就没人注册 serializer（官方文档的硬要求）。
+    vscode.window.registerWebviewPanelSerializer(ASSEMBLED_CHAT_VIEW_TYPE, {
+      deserializeWebviewPanel: (panel, state) => restoreChatPanel(context, manager, logger, panel, state),
+    }),
+  )
 }
 
 /**

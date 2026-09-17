@@ -8,6 +8,9 @@ import type { SidebarStatusView } from '../pure/sidebarStatus.ts'
  *
  * 页面上只有文案与按钮，动作经 postMessage 回宿主：`assembly:openInstallGuide`
  * 开安装引导 tab、`assembly:start` 起服务、`assembly:retry` 重试装配。
+ *
+ * 同一份页面也用在**恢复出来的对话面板**上（#169）：那个面板装不起来时同样要
+ * 给用户一个可见的处境与重试入口，`options.surface` 只换两处「侧栏/面板」措辞。
  */
 
 /** 文案过 HTML 转义（装配失败详情来自错误字符串，可能含尖括号）。 */
@@ -16,7 +19,10 @@ function escapeHtml(s: string): string {
 }
 
 /** 三态 → { 标题?, 说明, 次要说明?, 详情?, 按钮? }。 */
-function contentOf(view: SidebarStatusView): {
+function contentOf(
+  view: SidebarStatusView,
+  surface: 'sidebar' | 'chatPanel',
+): {
   title?: string
   hint: string
   note?: string
@@ -32,7 +38,10 @@ function contentOf(view: SidebarStatusView): {
   }
   if (view.kind === 'assemblyFailed') {
     return {
-      hint: vscode.l10n.t('DSH sidebar failed to load: {0}', view.detail),
+      hint:
+        surface === 'chatPanel'
+          ? vscode.l10n.t('DSH chat panel failed to load: {0}', view.detail)
+          : vscode.l10n.t('DSH sidebar failed to load: {0}', view.detail),
       button: { label: vscode.l10n.t('Retry'), message: 'assembly:retry' },
     }
   }
@@ -45,20 +54,26 @@ function contentOf(view: SidebarStatusView): {
     }
   }
   return {
-    hint: vscode.l10n.t('The dsh service is not running. Start it to load this sidebar.'),
+    hint:
+      surface === 'chatPanel'
+        ? vscode.l10n.t('The dsh service is not running. Start it to load this chat panel.')
+        : vscode.l10n.t('The dsh service is not running. Start it to load this sidebar.'),
     ...(view.detail === undefined ? {} : { detail: view.detail }),
     button: { label: vscode.l10n.t('Start the dsh service'), message: 'assembly:start' },
   }
 }
 
-export function sidebarStatusHtml(view: SidebarStatusView): string {
+export function sidebarStatusHtml(
+  view: SidebarStatusView,
+  options: { surface?: 'sidebar' | 'chatPanel' } = {},
+): string {
   const nonce = crypto.randomBytes(16).toString('base64')
   const csp = [
     "default-src 'none'",
     `script-src 'nonce-${nonce}'`,
     "style-src 'unsafe-inline'",
   ].join('; ')
-  const content = contentOf(view)
+  const content = contentOf(view, options.surface ?? 'sidebar')
   const button =
     content.button === undefined
       ? ''
