@@ -6,9 +6,9 @@
 
 - **两侧正本**（都用当次工作区里的代码）：
   - 旧侧栏（vanilla，迁移参照物，只读勿改）：`src/ui/sessionsView.ts`（宿主侧 view provider + 消息处理 + 全部 CSS 的 `SESSIONS_STYLE`）、`src/ui/sessionsWebview.ts`（前端 HTML / CSS / 逻辑）、`src/ui/sessionsStore.ts`（数据与状态）、`src/pure/sessionTree.ts`（分组 / 排序 / 过滤）、`src/pure/sessionTags.ts`（标签色与内置组）。
-  - 现装配侧栏：`src/ui/assembly/shell/workspaceTree/*.ts`（15 个文件）、`src/ui/assembly/shell/sidebarLayoutPlugin.ts`（密度档与侧栏外框）、`src/ui/assembly/shell/workspaceTreePlugin.ts`、`src/pure/{workspaceTreeView,workspaceTreePrefs,treeGroups,sessionMarks,sessionEligibility,sessionTags,sessionTagGroups,recycleActions,recycleBinState}.ts`、`packages/dsh-workspace-tree/`。
+  - 现装配侧栏：`packages/dsh-workspace-tree/src/workspaceTree/*.ts`（15 个文件）、`src/ui/assembly/shell/sidebarLayoutPlugin.ts`（密度档与侧栏外框）、`packages/dsh-workspace-tree/src/workspaceTreePlugin.ts`、`src/pure/{workspaceTreeView,workspaceTreePrefs,treeGroups,sessionMarks,sessionEligibility,sessionTags,sessionTagGroups,recycleActions,recycleBinState}.ts`、`packages/dsh-workspace-tree/`。
 - **判断只取四个值**：**一致** / **缺**（现在没有）/ **不同**（都有但不一致）/ **现在更好**。
-- **证据**：每条都写 `文件:行`。只写文件名的那几种（`rows.ts` / `tree.ts` / `styles.ts` / `selection.ts` / `tagGroups.ts` / `modals.ts` / `toolbar.ts` / `groupFilterBar.ts` / `recycleDrawer.ts` / `recycleEntry.ts` / `hoverCard.ts` / `format.ts` / `search.ts` / `locale.ts`）都在 `src/ui/assembly/shell/workspaceTree/` 下；`sessionsView.ts` / `sessionsWebview.ts` / `sessionsStore.ts` 在 `src/ui/` 下；`pure/xxx.ts` 在 `src/pure/` 下。读不出来的写「未核实」，不臆断。
+- **证据**：每条都写 `文件:行`。只写文件名的那几种（`rows.ts` / `tree.ts` / `styles.ts` / `selection.ts` / `tagGroups.ts` / `modals.ts` / `toolbar.ts` / `groupFilterBar.ts` / `recycleDrawer.ts` / `recycleEntry.ts` / `hoverCard.ts` / `format.ts` / `search.ts` / `locale.ts`）都在 `packages/dsh-workspace-tree/src/workspaceTree/` 下；`sessionsView.ts` / `sessionsWebview.ts` / `sessionsStore.ts` 在 `src/ui/` 下；`pure/xxx.ts` 在 `src/pure/` 下。读不出来的写「未核实」，不臆断。
 - 语言按仓库铁律：官方机制名词用英文原词（`slot` / `shadow` / `seam` / `combo`），不造词。
 
 ---
@@ -171,7 +171,7 @@
 | 输入去抖 | 200ms：`sessionsWebview.ts:540-545` | 250ms：`search.ts:3`、`tree.ts:474-482` | 不同（几乎不可感知） |
 | 内容全文搜索（后端索引） | `sessionsStore.ts:1414-1440`（`session.search`，命中给 snippet） | `tree.ts:467-487`、`1161-1162`（官方 `sessions.search`，命中给 snippet） | 一致 |
 | 命中片段显示位置 | 会话行**下方**独立一块：`sessionsWebview.ts:1392-1402`、`2572-2582` | 搜索结果行的**第二行**：`rows.ts:1394-1403` | 不同 |
-| 命中的关键词高亮 | `sessionsWebview.ts:2588-2606`（标题 / 组名 / 片段三处包 `<mark class="dsh-mark">`，样式 `sessionsView.ts:569-575`） | 无（`grep -rn "dsh-mark\|highlight" src/ui/assembly/shell/workspaceTree/` 零命中） | 缺 |
+| 命中的关键词高亮 | `sessionsWebview.ts:2588-2606`（标题 / 组名 / 片段三处包 `<mark class="dsh-mark">`，样式 `sessionsView.ts:569-575`） | 无（`grep -rn "dsh-mark\|highlight" packages/dsh-workspace-tree/src/workspaceTree/` 零命中） | 缺 |
 | 搜索时的列表形态 | 仍是分组的树，只留下有命中的组与行：`pure/sessionTree.ts:254`、`sessionsWebview.ts:1229-1260` | 整块换成平铺的搜索结果行（官方 SearchResults 形态）：`tree.ts:1258-1288` | 不同 |
 | 无命中 / 加载中 / 索引不可用文案 | `sessionsWebview.ts:1251-1275` | `tree.ts:1282-1288`（`search.pending` / `search.noMatches` / `search.unavailable`） | 一致 |
 | 结果条数上限提示 | `sessionsWebview.ts:1261`（「换更精确的关键词」） | `tree.ts:1426-1436`（`search.hasMore`） | 一致 |
@@ -335,7 +335,7 @@
 
 ## D1. 证据规则
 
-- 每条判断都写了 `文件:行`。写「缺」的条目都用搜索确认过在装配侧零命中（例：关键词高亮 `grep -rn "dsh-mark\|highlight" src/ui/assembly/shell/workspaceTree/` 零命中；刷新按钮 `grep -rn refresh src/ui/assembly/shell/workspaceTree/` 零命中）。
+- 每条判断都写了 `文件:行`。写「缺」的条目都用搜索确认过在装配侧零命中（例：关键词高亮 `grep -rn "dsh-mark\|highlight" packages/dsh-workspace-tree/src/workspaceTree/` 零命中；刷新按钮 `grep -rn refresh packages/dsh-workspace-tree/src/workspaceTree/` 零命中）。
 - **未核实的条目**（已在原位标注）：
   - 官方侧栏壳给内容区的**字体族与基准字号**：官方 css 不在本仓库，只能确认树自己没声明。
   - 官方 `StateDot` 的 10px 取自 `docs/dsh-web-workflow-run-card-research.md:76`（从运行中的官方 bundle 抓的实现说明），不是本仓库的源码断言。

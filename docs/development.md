@@ -130,7 +130,7 @@ issue #173）。现在 rev 是 `<网关版本>-<本地产物内容哈希>`（`wi
 跑法（人开真窗口）：
 
 1. 先 `npm run build`，起 dev host（`scripts/dev-ui-test.sh`，或 VS Code 里按 F5），确认侧栏（或对话面板）装起来了；
-2. 随便改**一行侧栏样式**：例如 `src/ui/assembly/shell/workspaceTree/styles.ts` 里标准档的
+2. 随便改**一行侧栏样式**：例如 `packages/dsh-workspace-tree/src/workspaceTree/styles.ts` 里标准档的
    `rowRadius: '8px'` 改成 `'12px'`（工作区行 / 会话行的圆角，肉眼可辨）；
 3. `npm run build`；
 4. 在 dev host 窗口跑命令面板的 **Developer: Reload Window**（等窗口起来）；

@@ -52,34 +52,40 @@ VS Code 装配与官方 dsh web 两端都跑起来、以及怎么**实测**它�
 
 ```
 packages/
+  dsh-plugin-kit/          # 私有（private，不发布）：可移植插件共用的源码——宿主能力口
+                           #   与挂载点，构建期打进各插件自己的 bundle（#94）
   dsh-host-capabilities/   # 宿主半：跑在 dsh 宿主进程里，经官方 Remote 暴露能力（#84）
-  dsh-composer-clear/      # 自有插件包（每个 = 一个可装进 profile 的官方插件）
-  dsh-context-menu/
+  dsh-composer-clear/      # 自有插件包（每个 = 一个可装进 profile 的官方插件，
+  dsh-context-menu/        #   包内就是该插件的全部源码）
   dsh-git-card/
   dsh-session-export/
   dsh-workspace-tree/
 ```
 
-每个插件包只有四个源文件，都是薄的：
+每个插件包的**源就在包内**（#94 起「一个包 = 完整插件」，包外没有第二份）：
 
 ```
 packages/dsh-git-card/
   package.json        # 包清单：dsh.bundle + dsh.client + exports
   cordis.patch.yml    # 本包在 profile 里的那一层：只 insert 自己一行
-  src/client.ts       # 浏览器侧入口 → re-export 仓库里的插件本体
+  src/client.ts       # 浏览器侧入口 → re-export 同目录的插件本体（建包的 entry）
+  src/gitCardPlugin.ts# 插件本体（其余几件分别是 composerClear / contextMenu /
+                      #   sessionExport / workspaceTree 那几份；工作区树另有一个
+                      #   src/workspaceTree/ 放行、工具栏、抽屉、样式等分件）
   src/index.ts        # 宿主半（本插件贡献全在浏览器侧，所以是空 apply）
   lib/                # 构建产物（提交进仓库，与 dsh-host-capabilities 同一口径）
     client.js         #   官方 combo 格式的浏览器侧 bundle
     index.js          #   宿主半（ESM 单文件）
 ```
 
-**插件本体仍然住在 `src/ui/assembly/shell/`**，包里的 `src/client.ts` 只是包边界
-（`export { apply, inject } from '../../../src/ui/assembly/shell/gitCardPlugin.ts'`）。
-这么切的原因是：同一份源码既要进 VS Code 装配的 bundle，也要进官方格式的包，复制一份
-必然漂移；而把它整棵搬进 `packages/` 会牵动 6 处按路径引用它的测试与上游探针。
-发布的产物是自包含的（`files` 白名单只发 `lib/` 里的两个文件和补丁），所以「包」这个
-交付物本身是完整的——**这条是刻意的取舍，不是漏做**：真正的源内聚（把插件本体搬进
-包内）留作后续条目。
+三个可移植插件（提交卡 / 右键菜单 / 清空件）都要「在对话区容器上挂东西、向宿主请假」，
+这两件事的实现各只有一份，放在私有包 `packages/dsh-plugin-kit/` 里
+（`src/hostCapabilities.ts` 是宿主能力口、`src/mountPoints.ts` 是挂载点，
+`src/hostClient.ts` 是能力口底下的桥）；各插件按 `@dsh-one/dsh-plugin-kit/hostCapabilities`
+这样的子路径取用，构建期由各插件自己的 bundle 各打一份进去。这个包 `private: true`
+且不发 npm，所以对装包链路是零影响——`lib/client.js` 依旧是自包含的。
+
+发布的包只发产物（`files` 白名单只发 `lib/` 里的两个文件和补丁），源码不进 npm 包。
 
 哪些件**不进** `packages/`：只能用在我们 shell 里的 `@dsh-one/vscode-*`（三棵树的
 外框、主题跟随、会话桥、设置齿轮）——它们要么渲染我们自己的外框，要么调 VS Code 宿主，
@@ -178,7 +184,12 @@ node scripts/verify-plugins-official.mjs --keep   # 保留临时 HOME 与截图�
   `dist/assembly/plugins/` 那份）。目前 VS Code 侧**不做去重**：#73 里写的「检测网关
   清单已含同 id → 跳过叠加」还没实现，两端各自的产出一致（同一份源码），所以表现为
   「谁是有效的那份取决于装配清单」，而不是行为分叉。
-- **源内聚未做**：插件本体仍在 `src/ui/assembly/shell/`，包里的入口是薄边界（见上）。
+- **源内聚已做（#94）**：插件本体住在各自包内（`packages/<名>/src/`），包外没有第二份源；
+  三个可移植插件共用的挂载点与宿主能力口收在私有包 `packages/dsh-plugin-kit/`（不发布，
+  构建期打进各插件的 bundle）。仍留在 `src/ui/assembly/shell/` 的是只能用在我们 shell 里的
+  `@dsh-one/vscode-*`（外框、主题跟随、会话桥、设置齿轮）。
+- **`src/pure/` 仍被插件包按相对路径引**（工作区树的推导、状态文件、词典等）：那是与扩展
+  宿主、两个 webview 共用的纯逻辑层，不属于任何单个插件，所以没有跟着搬进包（#94 划的界）。
 - **官方侧的体验差异**：`dsh-workspace-tree` 在官方 web 里会 shadow 官方侧栏树（那是
   这个插件的设计意图），`vscode-*` 那几件在官方侧不存在（渲染外框这类件本来就没有意义）。
 - **多版本兼容**：真机实测只覆盖了本机装的 0.1.6-alpha.1；0.1.2 侧的官方 web 未实测。
