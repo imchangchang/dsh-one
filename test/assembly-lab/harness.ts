@@ -200,11 +200,10 @@ export class Check {
 /**
  * 整轮页面发出的 `/api/<method>` 计数（#177 的信息性观测，同时服务 #175）。
  *
- * 记法：每一页开页时在这个浏览器上下文上装一条 `**\/api/**` 的路由，把路径最后一段
- * 记下、再 `fallback()` 交下去（**必须 fallback 而不是 continue**：页内数据集夹具也挂在
- * 同一层，`continue` 会让请求直接出网、夹具再也接不到）。所以这里数的是**页面真的发出去的**
- * RPC，被夹具就地接住的那几条（例如 `session/create`）也在里面——报告里说明这一点，
- * 别当成「打到网关的清单」读。
+ * 记法：**每一页**开页时听这一页的 `request` 事件（见 `observePageRequests`），把 `/api/`
+ * 后面那段路径记一笔。因为是听事件、不是挂路由，**被夹具就地接住的那些也照记**
+ * （例如 F-58 拦住 `directoryPicker/pick` 那一条）——所以这份计数是「页面发出去的」，
+ * 不是「网关收到的」，报告里按这个口径说。
  */
 const apiMethods = new Map<string, number>()
 
@@ -225,10 +224,283 @@ export function apiOriginCounts(): ReadonlyMap<string, number> {
   return apiOrigins
 }
 
+/**
+ * 一条**会打到用户机器**的调用（#175）：实验室连的实例跑在用户这台机器上，网关宿主
+ * 收到这几条里的任何一条，后果都出在用户桌面上（访达窗口、系统默认应用、原生目录）。
+ * 实例是一次性的，机器不是——所以这几条整轮**一条都不许出现**。
+ *
+ * 清单来自**读官方源码**（出处逐条写在 {@link NATIVE_SIDE_EFFECT_ROUTES}），不是我方
+ * 猜的命名规则。每条的 `path` 是官方源码里的常量逐字照抄。
+ */
+export interface NativeSideEffectRoute {
+  /** 网关上的路径（官方源码里的常量逐字照抄）。 */
+  path: string
+  /** 为什么会打到用户机器上。 */
+  why: string
+  /** 官方出处（读过哪个包的哪个文件）。 */
+  source: string
+}
+
+/**
+ * 原生副作用类的那几条路由。
+ *
+ * **注意第一条不在 `/api/` 下**：官方 `open-in-app` 的启动动作是页面拿 `hostBase()`
+ * 裸 fetch 的一个顶层路由（`POST /open-in-app/open`），它不走 connection 的 `/api/<endpoint>`
+ * 那条 RPC 通道。只扫 `/api/**` 的观测会把它整个漏掉——而它恰恰是 #163 的现场
+ * （每跑一轮整轮在用户桌面上拉起一次访达），所以 `observePageRequests` 把
+ * `/api/**` 与这份清单并起来扫。
+ *
+ * 清单怎么来的：把本机装着的官方 dsh（`@deepseek-ai/dsh@0.1.6-alpha.1`）里
+ * 「打开本机东西 / 在真机上起东西」的入口逐个找出来读的——① 全仓扫顶层路由常量
+ * （只有 `open-in-app` 这一族是顶层路由，其中 `apps`/`icon` 是读、`open` 才是动作）；
+ * ② 逐条读 `dsh-api-*` 各包 `lib/index.js` 里带 `Remote` 装饰器的方法体，看它落到哪个原生动作。
+ * 今天一共六条：一条顶层路由 + 五条 remote。
+ *
+ * 这份清单是**会红的判据**，所以只收「读了源码、确认落到原生动作」的；拿不准的不放进来
+ * （宁可它落在报告里「写（新面孔）」那一栏被人看见）。
+ * 将来官方新增原生动作时，它要么自己进这份清单，要么由报告里那些新面孔提醒人去核对
+ * （见 `verify.ts` 的 R-06）。
+ *
+ * 命中的请求在页面上会被 `observePageRequests` **拦下来**（`abort`，不往下交），
+ * 所以这份清单同时也是「实验室绝不放行到网关」的名单。
+ */
+export const NATIVE_SIDE_EFFECT_ROUTES: ReadonlyArray<NativeSideEffectRoute> = [
+  {
+    path: '/open-in-app/open',
+    why: '宿主半按 `app` + 工作目录在真机上启动那个应用（macOS 上就是跑 `open <工作目录>`，现场表现是一个访达窗口冒出来）',
+    source:
+      '官方 `@deepseek-ai/dsh-client-ui-open-in-app/lib/client.js` 的 `OPEN_IN_APP_OPEN_ROUTE`；宿主半 `@deepseek-ai/dsh-host-open-in-app/lib/index.js` 注册同名路由，注释原话「POST route launching one application on one workspace directory」',
+  },
+  {
+    path: '/api/settings/openSettingsDocument',
+    why: '网关宿主用**系统默认应用**打开设置文档（原生文本编辑器）',
+    source:
+      '官方 `@deepseek-ai/dsh-api-settings-controller` 的 remote `settings/openSettingsDocument` → `openNativeTextFile`（`@deepseek-ai/dsh-native-command`）',
+  },
+  {
+    path: '/api/settings/openAgentPresetDirectory',
+    why: '网关宿主用原生方式打开 preset 目录（或返回目录路径）',
+    source: '同上的 remote `settings/openAgentPresetDirectory` → `openNativePath`',
+  },
+  {
+    path: '/api/session/openWorkspacePath',
+    why: '网关宿主在真机上打开（`open`）或显示（`reveal`）一个路径',
+    source: '官方 `@deepseek-ai/dsh-api-session-controller` 的 remote `session/openWorkspacePath` → `revealPath` / `openPath`',
+  },
+  {
+    path: '/api/directoryPicker/pick',
+    why: '在真机上弹出**原生目录选择器**（macOS 上是 `osascript` 弹的那个选文件夹面板），等用户在桌面上点完才回来',
+    source:
+      '官方 `@deepseek-ai/dsh-api-workspace-controller` 的 remote `directoryPicker/pick`，方法体第一句就是 `this.requireCapability("native", "pick")`；驱动方 `@deepseek-ai/dsh-host-directory-picker-native/lib/index.js` 在 macOS 分支跑 `osascript`',
+  },
+  {
+    path: '/api/terminal/create',
+    why: '在用户机器上**起一个真 shell 进程**（PTY）：官方 `@deepseek-ai/dsh-terminal` 的 `TerminalService.spawn` → `@deepseek-ai/dsh-terminal-bash` 的 `ctx.subprocess.spawnTerminal`，现场表现是机器上多一个真终端',
+    source: '官方 `@deepseek-ai/dsh-api-terminal-controller` 的 remote `terminal/create`；后端 `@deepseek-ai/dsh-terminal/lib/index.js`（PTY backend）与 `@deepseek-ai/dsh-terminal-bash/lib/index.js`（`LocalPtySession`）',
+  },
+]
+
+const NATIVE_SIDE_EFFECT_BY_PATH: ReadonlyMap<string, NativeSideEffectRoute> = new Map(
+  NATIVE_SIDE_EFFECT_ROUTES.map((entry) => [entry.path, entry]),
+)
+
+/** 整轮观测到的、**没人接住**的原生副作用类调用（一条都不该有；有就整轮红，见 `verify.ts` 的 R-06）。 */
+export interface NativeSideEffectCall {
+  /** 哪个套件发出来的（`verify.ts` 逐套件设置，见 {@link setLabSuite}）。 */
+  suite: string
+  /** 套件名（报告里给人认的）。 */
+  suiteName: string
+  /** 哪一页发出来的（发起那一刻这条页面自己的 URL）。 */
+  page: string
+  /** 命中的路径。 */
+  path: string
+  /** 参数摘要（只记键名与值的形状，**字符串值不进报告**，见 {@link summarizeRequestBody}）。 */
+  detail: string
+}
+
+const observedNativeSideEffectCalls: NativeSideEffectCall[] = []
+
+/** 整轮里**没人接住**的原生副作用类调用（R-06 的判据读它；套件夹具故意接住的不在内）。 */
+export function nativeSideEffectCalls(): ReadonlyArray<NativeSideEffectCall> {
+  return observedNativeSideEffectCalls
+}
+
+/**
+ * 当前正在跑的套件（`verify.ts` 每进一个套件设一次，跑完不重置）。
+ *
+ * 为什么要有它：判据红了要能**指名道姓**——只报「有个套件发了 `open-in-app/open`」等于
+ * 没报，得知道是哪个套件、哪一页。#177 那条观测是按页装的、本来拿不到套件号，所以由
+ * 整轮的驱动侧（`verify.ts`）在进套件时打一个标记，观测点读它。
+ */
+let currentSuite: { id: string; name: string } = { id: '（套件之外）', name: '' }
+
+export function setLabSuite(id: string, name: string): void {
+  currentSuite = { id, name }
+}
+
 /** 清空计数（同一进程里跑第二遍时用；`verify.ts` 整轮只跑一遍）。 */
 export function resetApiMethodCounts(): void {
   apiMethods.clear()
   apiOrigins.clear()
+  observedNativeSideEffectCalls.length = 0
+}
+
+/**
+ * 为什么观测点装在**页**上而不是上下文上（#175）：上下文那一层挡不住「套件自己
+ * `newPage()` 开的页」——官方页（`ctx.lab.gateway + '/'`）、`/official` 页、几个
+ * 裸上下文里造的页都不经过 `openTreePage`，而原生副作用恰恰最可能从这些页上发出来。
+ * 装在页上之后，**任何**上下文里开出来的**任何**一页都被扫到（`launchBrowser` 把
+ * `newContext` / `newPage` 都包了一层，套件照样直接 `browser.newContext()`）。
+ *
+ * 记的是两类：`/api/**`（整轮的方法清单，报告里那一节；R-06 的「整轮零请求打到实例之外」
+ * 也靠这里逐个记源）+ {@link NATIVE_SIDE_EFFECT_ROUTES} 里那几条（不在 `/api/` 下的
+ * 顶层路由也在内）。见 `observePageRequests`。
+ */
+
+/**
+ * 一次调用的**参数摘要**：只记「有哪些键、每个值是什么形状」，**字符串值不进报告**。
+ *
+ * 为什么必须摘要而不是原样抄：#175 要的是「哪一条调用、带了什么」，而这些调用的参数里
+ * 装的正是用户机上的绝对路径（`open` 的工作目录、设置文档路径）。报告是要发出去给人看的，
+ * 把用户路径灌进去就成了新的泄露面。所以字符串按「像不像一个裸标识符」分两档：
+ * 只有**纯 ASCII 标识符**（应用名 `finder` 这类）原样给，其余一律只给长度。
+ * 出处的取值形状（`{app, path}`）见 `dsh-host-open-in-app` 的 `POST /open-in-app/open` 处理段。
+ */
+function describeValue(value: unknown): string {
+  if (value === null) return 'null'
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (typeof value === 'string') {
+    return /^[A-Za-z0-9_.:-]{1,32}$/.test(value) ? value : `<字符串 ${String(value.length)} 字符>`
+  }
+  if (Array.isArray(value)) return `[${String(value.length)} 项]`
+  if (typeof value === 'object') {
+    const keys = Object.keys(value)
+    return `{${keys.slice(0, 8).join(',')}${keys.length > 8 ? ',…' : ''}}`
+  }
+  return typeof value
+}
+
+function summarizeRequestBody(text: string): string {
+  if (text === '') return '（无请求体）'
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return `（请求体 ${String(text.length)} 字节，不是 JSON）`
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return describeValue(parsed)
+  const parts: string[] = []
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    // RPC 信封自己的字段（`type` / `rpcId`）：固定形状、不带用户数据，列出来只是噪音。
+    if (key === 'type' || key === 'rpcId') continue
+    parts.push(`${key}=${describeValue(value)}`)
+    if (parts.length >= 8) break
+  }
+  return parts.length === 0 ? '（无参数）' : parts.join(' ')
+}
+
+/**
+ * 观测哪一类请求要**拦下来**：{@link NATIVE_SIDE_EFFECT_ROUTES} 里那几条（不在 `/api/`
+ * 下的顶层路由也在内）。见 `observePageRequests`。
+ */
+const NATIVE_ONLY = (url: URL): boolean => NATIVE_SIDE_EFFECT_BY_PATH.has(url.pathname)
+
+/** 已经装过观测的页（页会被 `newPage` 包装与 `context.on('page')` 两路看到，别装两遍）。 */
+const observedPages = new WeakSet<Page>()
+
+/**
+ * 给一页装观测，两件事分开做（各用各的机制，理由不一样）：
+ *
+ * **① 方法清单与请求源：听 `request` 事件，不碰请求本身。**
+ * 为什么不用 `page.route` + `fallback()`（#177 原来用的就是后者）：几条套件自己在页上挂了
+ * 夹具路由（`page.route('**\/api/**', …)`，F-58 就挂着一条 `**\/api/directoryPicker/pick`
+ * 用来拦住原生目录面板）。同名路由按**后注册的先跑**，套件那条一定排在观测之后——挂路由装
+ * 观测，夹具 `fulfill()` 掉的那些就一条都看不见。`request` 事件在页面发请求那一刻就发，
+ * 谁接住、接没接住都照发，所以这份清单没有能被套件盖掉的缝。
+ *
+ * **② 原生副作用类：挂一条路由把它们拦下来（`abort`，不 `fallback` 下去），没人接住的记一笔。**
+ * 这条路由在**装观测那一刻**注册，是这一页上**最早**的那条，所以按「后注册先跑」它跑**最后**
+ * ——正好是「套件夹具都没接住」的那一档。两个作用：
+ *   - **判据**：走到这一档 = 有一条原生调用真的发出来了，记进 {@link nativeSideEffectCalls}
+ *     让 R-06 当场红，并报出套件 / 页面 / 路径 / 参数摘要；
+ *   - **兜底**：把它 `abort` 掉，于是**即使**某个套件的夹具写坏了（漏接、或哪天不再 fulfill），
+ *     这条调用也到不了网关、用户机器上不会真的冒出东西来。安全由这一层保证，不由套件的自觉
+ *     保证——F-58 那条夹具是「故意接住」，不是「唯一的防线」。
+ *
+ * **只看 POST**：官方那两条通道都只认 POST（`/api/<endpoint>` 的桥
+ * `if (request.method !== "POST") return 404`；`open-in-app` 的宿主路由对非 POST 回 405），
+ * 非 POST 的同名请求到不了原生动作，拦它、判它红都只会变成假红。
+ *
+ * **边界**：观测装在每一页上（见 `observeEveryPage`），但只装在**经 `newPage` 开出来的页**
+ * 上。今天实验室里没有把 dsh 页面开成弹窗的地方（唯一的弹窗是外链那条路上浏览器自己开的、
+ * 套件当场关掉），所以没有留这个口子；将来真要用弹窗装 dsh 页面，这里得跟着补。
+ */
+async function observePageRequests(page: Page): Promise<void> {
+  if (observedPages.has(page)) return
+  observedPages.add(page)
+  // ① 方法清单 / 请求源（只记，不改请求）。
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (!url.pathname.startsWith('/api/')) return
+    const method = decodeURIComponent(url.pathname.slice('/api/'.length)).split('?')[0] ?? ''
+    if (method !== '') apiMethods.set(method, (apiMethods.get(method) ?? 0) + 1)
+    apiOrigins.set(url.origin, (apiOrigins.get(url.origin) ?? 0) + 1)
+  })
+  // ② 原生副作用类：拦下来 + 记一笔。
+  await page.route(NATIVE_ONLY, async (route) => {
+    const request = route.request()
+    const known = NATIVE_SIDE_EFFECT_BY_PATH.get(new URL(request.url()).pathname)
+    if (known === undefined || request.method() !== 'POST') {
+      await route.fallback()
+      return
+    }
+    observedNativeSideEffectCalls.push({
+      suite: currentSuite.id,
+      suiteName: currentSuite.name,
+      page: page.url(),
+      path: known.path,
+      detail: summarizeRequestBody(request.postData() ?? ''),
+    })
+    await route.abort('blockedbyclient')
+  })
+}
+
+/**
+ * 把 `Browser` 包一层：**每个 `newContext` 的每个 `newPage` 都装上 {@link observePageRequests}**。
+ *
+ * 包在 `Browser` 上是唯一能盖住全部页的位置——套件既用 `openTreePage`，也自己
+ * `browser.newContext()` / `context.newPage()` 开官方页与裸页（F-54、F-59、F-48、
+ * F-47 都各自开页）。观测装完才把页交出去，所以那一页的**第一个**请求就已经在观测里。
+ * 方法与属性一律绑回原对象（Playwright 的类用私有字段，`this` 指向 Proxy 会炸）。
+ */
+function observeEveryPage(browser: Browser): Browser {
+  const wrapContext = (context: BrowserContext): BrowserContext =>
+    new Proxy(context, {
+      get(target, prop) {
+        if (prop === 'newPage') {
+          return async (...args: unknown[]): Promise<Page> => {
+            const method = target.newPage.bind(target) as (...a: unknown[]) => Promise<Page>
+            const page = await method(...args)
+            await observePageRequests(page)
+            return page
+          }
+        }
+        const value = Reflect.get(target, prop) as unknown
+        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value
+      },
+    }) as BrowserContext
+  return new Proxy(browser, {
+    get(target, prop) {
+      if (prop === 'newContext') {
+        return async (...args: unknown[]): Promise<BrowserContext> => {
+          const method = target.newContext.bind(target) as (...a: unknown[]) => Promise<BrowserContext>
+          return wrapContext(await method(...args))
+        }
+      }
+      const value = Reflect.get(target, prop) as unknown
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value
+    },
+  }) as Browser
 }
 
 /** 一页的控制台记录（分类靠文本，因为官方不会给错误打标记）。 */
@@ -700,16 +972,8 @@ async function openPageIn(
   // 链接拦截层替身（#150）同一条道理：替身要早于页面任何脚本挂上，才对应真 webview
   // 里「外层文档先于页面内容装好监听」的位置。
   if (options.linkLayer === true) await context.addInitScript({ content: vscodeLinkLayerScript() })
-  // RPC 观测（#177）：这一页发出的每条 `/api/<method>` 记一笔，供整轮报告列出写面。
-  // 用 `fallback()` 交下去——数据集夹具也挂在上下文这一层，`continue()` 会把请求
-  // 直接放出去、夹具就再也接不到了。
-  await context.route('**/api/**', async (route) => {
-    const url = new URL(route.request().url())
-    const method = decodeURIComponent(url.pathname.split('/api/')[1] ?? url.pathname).split('?')[0] ?? ''
-    if (method !== '') apiMethods.set(method, (apiMethods.get(method) ?? 0) + 1)
-    apiOrigins.set(url.origin, (apiOrigins.get(url.origin) ?? 0) + 1)
-    await route.fallback()
-  })
+  // 请求观测（#177 的方法清单 + #175 的原生副作用守卫）不在这里装：它包在 `Browser`
+  // 那一层（见 `observeEveryPage`），`newPage()` 返回之前就已经装好，所以这里只管开页。
   const page = await context.newPage()
   const capture = capturePage(page)
   const query = new URLSearchParams()
@@ -793,7 +1057,9 @@ export async function launchBrowser(headless = true): Promise<Browser> {
   // `browser.close()` 就被它带走了：进程按 130 退出，隔离实例与临时目录留在原地
   // （#177 实测：Ctrl-C 之后 `dsh web` 还在监听、`dsh-lab-home-*` 还在）。关浏览器的
   // 责任本来就在我们的收尾里，这里只需把它的默认行为关掉。
-  return chromium.launch({ headless, handleSIGINT: false, handleSIGTERM: false })
+  // 观测（#175）在这里装：整轮拿到的 `Browser` 已经把 `newContext` / `newPage` 包了一层，
+  // 于是**任何**上下文、**任何**页面上发出的请求都进观测（见 `observeEveryPage`）。
+  return observeEveryPage(await chromium.launch({ headless, handleSIGINT: false, handleSIGTERM: false }))
 }
 
 /**
