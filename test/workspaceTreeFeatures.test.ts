@@ -553,7 +553,7 @@ const RETIRED_MARKERS: ReadonlyArray<{ pattern: RegExp; what: string }> = [
 
 /** 自有侧栏的源码与词典、以及这一族的样式表（宿主侧旧侧栏不在本条范围里）。 */
 const RETIREMENT_SCOPE: readonly string[] = [
-  'src/ui/assembly/shell/workspaceTree',
+  'packages/dsh-workspace-tree/src/workspaceTree',
   'src/pure/workspaceTreePrefs.ts',
   'src/pure/workspaceTreeView.ts',
 ]

@@ -8,7 +8,7 @@
  */
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
 import { installLabDataset, type DatasetStats, type LabDataset } from './dataset.ts'
-import { EN, ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'
+import { EN, ZH } from '../../packages/dsh-workspace-tree/src/workspaceTree/locale.ts'
 import { fakeHostScript } from './fakeHost.ts'
 import type { LabServer, LabTreeRoute } from './labServer.ts'
 

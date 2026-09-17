@@ -145,13 +145,14 @@ test('#73：可移植件（dsh-* 插件 id）都有一个同名包，源码入�
   for (const id of portableIds) {
     assert.ok(packaged.has(id), `可移植件 ${id} 还没有对应的包（packages/ 里没有同名插件包）`)
   }
-  // 包源码入口是薄薄一层包边界，指回仓库里的插件本体——名字改了而这里没改，
-  // 构建会挂（esbuild 解析不到），这条让它在 npm test 就红。
+  // #94：插件的入口文件指向**同一个包内**的插件本体（`./<本体>.ts`）——包即交付单元，
+  // 包外再无第二份源。名字改了而这里没改，构建会挂（esbuild 解析不到），这条让它在
+  // npm test 就红。
   for (const { dir, manifest } of PACKAGES) {
     const entry = fs.readFileSync(path.join(dir, 'src', 'client.ts'), 'utf8')
     const source = /from '([^']+)'/.exec(entry)?.[1]
     assert.ok(source !== undefined, `${manifest.name} 的 src/client.ts 必须 re-export 插件本体`)
-    assert.ok(path.isAbsolute(source!) === false && source!.startsWith('..'), `${manifest.name} 的入口应指向仓库里的共享源码`)
+    assert.ok(source!.startsWith('./'), `${manifest.name} 的入口应指向本包内的插件本体，收到 ${source}`)
     assert.ok(
       fs.existsSync(path.resolve(dir, 'src', source!)),
       `${manifest.name} 的入口指回的源文件不存在：${source}`,

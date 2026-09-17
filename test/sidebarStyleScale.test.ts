@@ -1,7 +1,7 @@
 /**
  * 侧栏风格的**档位表断言**（#113）：侧栏里每一处几何（高度 / 圆角 / 字号 / 图标位 / 间距）
  * 都必须能在那张官方档位表里找到出处——**不许自造中间值**。表与出处写在
- * `src/ui/assembly/shell/workspaceTree/styles.ts` 文件头的「官方档位表」一节，代码形态是
+ * `packages/dsh-workspace-tree/src/workspaceTree/styles.ts` 文件头的「官方档位表」一节，代码形态是
  * 它导出的 `SCALE_TIERS` / `SCALE_EXEMPT`；本文件把它们与**真正的样式字符串**、以及
  * shell 侧那张密度表对着读，做四件事：
  *
@@ -31,7 +31,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { CSS, SCALE_EXEMPT, SCALE_TIER_NAMES, SCALE_TIERS } from '../src/ui/assembly/shell/workspaceTree/styles.ts'
+import { CSS, SCALE_EXEMPT, SCALE_TIER_NAMES, SCALE_TIERS } from '../packages/dsh-workspace-tree/src/workspaceTree/styles.ts'
 
 const SHELL_DIR = path.join(import.meta.dirname, '..', 'src', 'ui', 'assembly', 'shell')
 

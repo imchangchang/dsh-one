@@ -500,7 +500,7 @@ cwd, projections:{values:{title,…}}}`），标题住在 `projections.values.ti
 **#168 修正第 ③ 项**：那一格是四个量里唯一随宿主平台变的一项——滚动条**实占**时它等于滚动条的宽
 （Windows 与实验室浏览器实测 8px），**macOS 的浮层滚动条不占宽、它是 0**。原来那个常量 8px 在
 macOS 上让顶栏内容比列表行内容多缩 8px（用户实测报的偏差）。现在树在挂载时与列表尺寸变化时把
-`列表 offsetWidth − clientWidth` 写回这根变量（`src/ui/assembly/shell/workspaceTree/scrollbarLane.ts`），
+`列表 offsetWidth − clientWidth` 写回这根变量（`packages/dsh-workspace-tree/src/workspaceTree/scrollbarLane.ts`），
 消费方一个像素都没改；F-44 两种形态各判一遍（实占 / 浮层，浮层用页内夹具把列表的
 `scrollbar-width` 置 `none` 造出来）。
 

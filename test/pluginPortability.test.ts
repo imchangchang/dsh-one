@@ -22,19 +22,22 @@ import {
 } from '../src/ui/assembly/wireFilter.ts'
 
 const ROOT = path.join(import.meta.dirname, '..')
-const SHELL_DIR = path.join(ROOT, 'src', 'ui', 'assembly', 'shell')
 
-/** 三个已迁移的插件（#83）：文件 → 该件在装配清单里的 id。 */
+/**
+ * 可移植插件的本体源码（#94 起住在各自包里，不再住 `src/ui/assembly/shell/`）：
+ * 本体文件 → 该件在装配清单里的 id。
+ */
 const PORTABLE_PLUGINS: ReadonlyArray<{ file: string; id: string }> = [
-  { file: 'gitCardPlugin.ts', id: GIT_CARD_PLUGIN_ID },
-  { file: 'contextMenuPlugin.ts', id: CONTEXT_MENU_PLUGIN_ID },
-  { file: 'composerClearPlugin.ts', id: COMPOSER_CLEAR_PLUGIN_ID },
+  { file: path.join('packages', 'dsh-git-card', 'src', 'gitCardPlugin.ts'), id: GIT_CARD_PLUGIN_ID },
+  { file: path.join('packages', 'dsh-context-menu', 'src', 'contextMenuPlugin.ts'), id: CONTEXT_MENU_PLUGIN_ID },
+  { file: path.join('packages', 'dsh-composer-clear', 'src', 'composerClearPlugin.ts'), id: COMPOSER_CLEAR_PLUGIN_ID },
 ]
 
-/** 挂载点共享模块（三个插件共用的那一个）。 */
-const MOUNT_POINTS = 'mountPoints.ts'
+/** 挂载点共享模块（三个插件共用的那一个，在私有包 `@dsh-one/dsh-plugin-kit` 里）。 */
+const PLUGIN_KIT = '@dsh-one/dsh-plugin-kit'
+const MOUNT_POINTS = path.join('packages', 'dsh-plugin-kit', 'src', 'mountPoints.ts')
 
-const read = (file: string): string => fs.readFileSync(path.join(SHELL_DIR, file), 'utf8')
+const read = (file: string): string => fs.readFileSync(path.join(ROOT, file), 'utf8')
 
 /**
  * 只留代码行：源码头里的解释会**引用**旧标记来讲「为什么改」，那是文档不是依赖。
@@ -59,7 +62,11 @@ test('#83：三个 dsh-* 插件的代码里不出现自有 frame 标记（挂载
 test('#83：三个插件经共享的挂载点模块取容器，且不再自带 frameRoot', () => {
   for (const plugin of PORTABLE_PLUGINS) {
     const code = codeOnly(read(plugin.file))
-    assert.match(code, /from '\.\/mountPoints\.ts'/, `${plugin.file} 必须用挂载点模块（不得自己找容器）`)
+    assert.match(
+      code,
+      new RegExp(`from '${PLUGIN_KIT}/mountPoints'`),
+      `${plugin.file} 必须用挂载点模块（不得自己找容器）`,
+    )
     assert.ok(!/frameRoot/.test(code), `${plugin.file} 不得再有 frameRoot（那是自有 frame 时代的取法）`)
   }
 })

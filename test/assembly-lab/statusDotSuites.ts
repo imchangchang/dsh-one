@@ -55,7 +55,7 @@ import * as path from 'node:path'
 import type { BrowserContext, Page } from 'playwright'
 import { openTreePage, isText } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
-import { SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
+import { SCALE_TIERS } from '../../packages/dsh-workspace-tree/src/workspaceTree/styles.ts'
 import { emit, installEventStreamInjector, waitForEventStream } from './harness.ts'
 import { expandAllWorkspaces, expandOfficialWorkspaces, waterfall } from './pendingDotSuites.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
