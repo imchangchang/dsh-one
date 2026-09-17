@@ -12,7 +12,8 @@
  * 请求不落到网关（与 F-18 的 `schedule` 夹具、F-39 的 `running` 夹具、F-45 的标题夹具同一
  * 处置）：
  *
- * - `session/list` 回执里把三条**真会话**的标题换成固定文案（标题那一路）；
+ * - `session/list` 回执里把三条**真会话**的标题换成固定文案（标题那一路的第一条路）；
+ * - `session/control` 基线帧里那三条的标题一并换掉（标题那一路的第二条路，见下）；
  * - `workspace/follow` 基线帧换成三棵**合成**工作区，其中一棵的名字含查询串（工作区名那一路）；
  * - `session/search` 回执返回这三条会话 + 各自固定文案的片段（片段那一路）。
  *
@@ -20,6 +21,16 @@
  * 可判的：接不上就没有行、断言直接红，不会静默退化成「今天恰好没命中」。三条各司其职：
  * 命中行（三处都会标）、非命中行（一处都不该标）、边界行（重叠与相邻那一条，见
  * `BOUNDARY_TITLE`）。
+ *
+ * ## 标题为什么必须两条路都补（#158：共享实例上 35/44 红的根因）
+ *
+ * 官方投影存储的写入方有两类：`session/list` / `session/added` / 控制流增量帧都**按序号取新**，
+ * 而控制流**基线**帧是 `replaceControlBaseline` 的 `truncate` + `seed`——**整个不看序号**，
+ * 基线里出现的每条会话都被硬换一遍。有使用者的实例上基线会带着树里那些会话（#158 实测共享实例
+ * 11 块、空闲实例 0 块），于是只补 `session/list` 的夹具在共享实例上必红：基线先到就把真标题
+ * 以真序号种进存储，那份没抬序号的回执随后被序号挡掉；就算抬了序号，基线后到照样换回去。
+ * 两条路的处置分别写在 `installApiFixtures` 与 `installMuxFixtures` 的注释里，A/B 现场实测记在
+ * #158。
  *
  * ## 判据的期望值从哪来
  *
@@ -147,13 +158,36 @@ interface FixtureStats {
   titled: number
   /** `workspace/follow` 基线帧被换成合成工作区的次数。 */
   workspaceFrames: number
+  /** 收到的 `session/control` 基线帧数（含一条都没补上的那些）。 */
+  controlFrames: number
+  /** 在控制流基线里真的换掉标题的会话数（0 = 基线里没有我们的靶子，这条夹具没起作用）。 */
+  controlTitles: number
 }
 
 /**
  * 装 HTTP 侧夹具（一个 handler 管三件事，避免多条 `page.route` 抢同一个请求）：
  * - `session/search` → 换成受控的三条结果（一条命中、一条不含查询串、一条边界文案）；
- * - `session/list` → 把目标会话的标题换成受控文案；
+ * - `session/list` → 把目标会话的标题换成受控文案，并把 `asOfSeq` 抬到远大于网关的值；
  * - 其余原样透传（网关只读，夹具只改页面收到的回执）。
+ *
+ * ## 为什么标题要**两条路都补**（#158 实测的根因）
+ *
+ * 官方会话标题的权威位置是**投影存储**那一格，而这一格有四个写入方（官方
+ * `@deepseek-ai/dsh-api-session-controller` 的 client bundle，0.1.6-alpha.1 实测）：
+ *
+ * 1. `session/list` 回执 / 列表刷新 → `store.apply(key, value, asOfSeq)`；
+ * 2. `session/added` 事件 → `apply`；
+ * 3. 控制流的 `projection` 增量帧 → `apply`；
+ * 4. 控制流的**基线帧** → `replaceControlBaseline`：先 `store.truncate(asOfSeq)`、
+ *    再 `store.seed({...block, asOfSeq})`。
+ *
+ * 前三者都**按序号取新**（`apply` 里 `seq <= row.seq` 直接 return），所以只补一条路时
+ * 要同时把序号抬大，否则会被先到的那一份挡住；而第 4 条**整个不看序号**——基线里出现的
+ * 每条会话都是 truncate + seed 硬换一遍，序号抬到多大都会被换回去。
+ *
+ * 本套件的靶子是**真会话 id**，而控制流基线在有人用着的实例上会带着这些会话（#158 实测：
+ * 共享实例 11 块、空实例 0 块），所以两条路都得补：`session/list` 这一路见本函数，
+ * `session/control` 那一路见 {@link installMuxFixtures}。
  */
 async function installApiFixtures(
   page: OpenedPage['page'],
@@ -207,7 +241,7 @@ async function installApiFixtures(
             sessionId?: string
             title?: string
             blank?: boolean
-            projections?: { values?: Record<string, unknown> }
+            projections?: { asOfSeq?: number; values?: Record<string, unknown> }
           }[]
         }
       }
@@ -220,6 +254,10 @@ async function installApiFixtures(
       // 商店再经 `displayTitleOf` 把它变成 `displayTitle`），所以只改顶层 `title`
       // 是改不动的。顶层那两个字段一并写上，让回执在两种读法下都自洽。
       item.projections = { ...(item.projections ?? {}), values: { ...(item.projections?.values ?? {}), title } }
+      // 序号也要抬：投影存储按序号取新，而控制流基线常常比这份回执先到（#158 实测共享实例
+      // 上基线 162ms、这份回执 538ms），那一刻真标题已经以网关那个序号落进存储，只换值不换
+      // 序号会被原样忽略（F-45 的同类问题记在 #154）。抬大之后这份回执就是更新的那一份。
+      item.projections.asOfSeq = Math.max(item.projections.asOfSeq ?? 0, 0) + 1_000_000
       item.title = title
       // 空白会话会被渲染成「新会话」兜底文案（`displayTitle` 那一条），夹具这几条要看得见标题，
       // 所以一并翻成非空白。这只改夹具覆盖到的几条，不动任何界面判定口径。
@@ -231,15 +269,26 @@ async function installApiFixtures(
 }
 
 /**
- * 装流侧夹具：把 `workspace/follow` 的基线帧换成三棵**合成**工作区（标题受控、成员是页面上
- * 挑出来的真会话），其余工作区帧一律丢掉——否则真工作区会从增量里回来，成员归属就不确定了。
- * 与 F-21 的 `installWorkspaceFixture` 同一套做法（那边也是三棵，这边标题与成员受控）。
+ * 装流侧夹具（一个 mux handler 管两条流，避免两条 `routeWebSocket` 抢同一条连接）：
+ *
+ * - `workspace/follow`：基线帧换成三棵**合成**工作区（标题受控、成员是页面上挑出来的真会话），
+ *   其余工作区帧一律丢掉——否则真工作区会从增量里回来，成员归属就不确定了。与 F-21 的
+ *   `installWorkspaceFixture` 同一套做法（那边也是三棵，这边标题与成员受控）。
+ * - `session/control`：基线帧里那三条靶子的 `title` 一并换成受控文案（其余会话原样）。
+ *   为什么非补不可：控制流基线是**不看序号**的那一路（`replaceControlBaseline` 对基线里的
+ *   每条会话 `truncate` + `seed`，把整块投影换掉）——#158 实测：只补 `session/list` 时，
+ *   基线后到就把抬过序号的值照样换回真标题（A/B 现场：把扣住的基线放行，那一行立刻从夹具
+ *   文案变回网关的真标题，而基线里没有的第三条不受影响）。**基线块的 `asOfSeq` 不动**：
+ *   基线里其余投影键（goal / tokenUsage / contextPressure…）不是夹具该碰的，抬序号会把它们
+ *   一起钉死；`truncate` + `seed` 本来就不看序号，只换值就够。
  */
-async function installWorkspaceFixture(
+async function installMuxFixtures(
   page: OpenedPage['page'],
-  members: { readonly hit: string; readonly miss: string; readonly boundary: string },
+  targets: { readonly hit: string; readonly miss: string; readonly boundary: string },
+  titles: FixtureTitles,
   stats: FixtureStats,
 ): Promise<void> {
+  const members = targets
   await page.routeWebSocket(/remote\.mux/, (socket) => {
     const upstream = socket.connectToServer()
     const endpoints = new Map<string, string>()
@@ -257,7 +306,18 @@ async function installWorkspaceFixture(
     upstream.onMessage((message) => {
       const text = String(message)
       let frame:
-        | { streamId?: string; type?: string; value?: { type?: string; value?: { items?: unknown[]; archivedSessionIds?: unknown } } }
+        | {
+            streamId?: string
+            type?: string
+            value?: {
+              type?: string
+              value?: {
+                items?: unknown[]
+                archivedSessionIds?: unknown
+                projections?: Record<string, { values?: Record<string, unknown> }>
+              }
+            }
+          }
         | undefined
       try {
         frame = JSON.parse(text) as typeof frame
@@ -265,6 +325,31 @@ async function installWorkspaceFixture(
         frame = undefined
       }
       const endpoint = frame?.streamId === undefined ? undefined : endpoints.get(frame.streamId)
+      if (endpoint === 'session/control') {
+        const payload = frame?.value
+        if (frame?.type !== 'item' || payload?.type !== 'baseline') {
+          // 增量帧（projection / jobs / queues）照原样转发：那几条路按序号取新，夹具抬过
+          // 序号的那份仍是最新的那一份。
+          socket.send(message)
+          return
+        }
+        stats.controlFrames += 1
+        let patched = 0
+        for (const [sessionId, block] of Object.entries(payload.value?.projections ?? {})) {
+          const title = titles[sessionId]
+          if (title === undefined) continue
+          block.values = { ...(block.values ?? {}), title }
+          patched += 1
+        }
+        if (patched === 0) {
+          // 基线里一条靶子都没有（空闲/全新实例上就是这样）：原样转发，一个字节都不动。
+          socket.send(message)
+          return
+        }
+        stats.controlTitles += patched
+        socket.send(JSON.stringify(frame))
+        return
+      }
       if (endpoint !== 'workspace/follow') {
         socket.send(message)
         return
@@ -450,7 +535,7 @@ export const SEARCH_HIT_HIGHLIGHT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '搜索命中高亮（#166）：关键词在标题 / 工作区名 / 命中片段三处**每一处都标**出来（SEARCH-HIT-HIGHLIGHT 套件）',
   expect:
-    '真装配页（真网关**只读** + 假宿主 + 页内夹具造受控命中）上，搜索命中的三处高亮成立：① **三处各自把每一处命中都标出来（#166）**——一条命中行的标题（4 处）、工作区名（2 处）、片段（2 处）里的命中词**一处不漏**地包成 `<mark>`，标记文字就是原文里那一段（原文大小写照旧，不被查询串的大小写覆盖），顺序与出现顺序一致，整行的标记数与三处之和相等，三处的容器文字一字不差（高亮只加标记、不改文字），标题的子节点按「文本 / 标记」切开后与预期逐段相等（相邻那两处之间没有夹缝、其余文字一字不丢）；② **大小写不敏感**——查询串大小写写乱也照样命中（三处文案里那个词的原始大小写各不相同，标出来的是各自原文那一段）；③ **重叠与相邻这条边界**——换一个自己和自己重叠的查询词（`aba`）再搜一遍：`ababa` 里那两处互相压着的只算**第一处**（从命中那一段的末尾继续往后找），`abaaba` 里紧挨着的那两处**都标**，整条标题恰好 3 处且最后两处之间一个未标字符都没有（切分逐段相等），同一行里不含这个查询词的工作区名与片段一处都不标；④ **非命中行一处 `<mark>` 都没有**——宿主内容搜索带回来的另一条行（标题 / 工作区名 / 片段都不含查询串）整行零标记，搜索态之外的树行同样零标记；⑤ **标记是 `<mark>` 语义标签**、带自有类名，样式是**加粗 + 变色 + 无底色**（底色透明、字重 600），颜色解析值 = 官方 token `--dsw-alias-state-business-primary` 的解析值且与容器文字色不同，而**容器本身没被染色**（片段仍是官方那枚次要文字色）；⑥ **三档宽度（260/340/500）下不溢出、截断照旧**——行不横向溢出、不越出列表区右缘、页面无横向滚动，片段仍是 `nowrap + ellipsis` 并在窄档下**真的被截断**，高亮不把它撑破。全程零 pageerror。',
+    '真装配页（真网关**只读** + 假宿主 + 页内夹具造受控命中——标题那一路**两条路都补**：`session/list` 回执与 `session/control` 基线帧，因为后者不看序号、只补前者在有使用者的实例上必输（#158））上，搜索命中的三处高亮成立：① **三处各自把每一处命中都标出来（#166）**——一条命中行的标题（4 处）、工作区名（2 处）、片段（2 处）里的命中词**一处不漏**地包成 `<mark>`，标记文字就是原文里那一段（原文大小写照旧，不被查询串的大小写覆盖），顺序与出现顺序一致，整行的标记数与三处之和相等，三处的容器文字一字不差（高亮只加标记、不改文字），标题的子节点按「文本 / 标记」切开后与预期逐段相等（相邻那两处之间没有夹缝、其余文字一字不丢）；② **大小写不敏感**——查询串大小写写乱也照样命中（三处文案里那个词的原始大小写各不相同，标出来的是各自原文那一段）；③ **重叠与相邻这条边界**——换一个自己和自己重叠的查询词（`aba`）再搜一遍：`ababa` 里那两处互相压着的只算**第一处**（从命中那一段的末尾继续往后找），`abaaba` 里紧挨着的那两处**都标**，整条标题恰好 3 处且最后两处之间一个未标字符都没有（切分逐段相等），同一行里不含这个查询词的工作区名与片段一处都不标；④ **非命中行一处 `<mark>` 都没有**——宿主内容搜索带回来的另一条行（标题 / 工作区名 / 片段都不含查询串）整行零标记，搜索态之外的树行同样零标记；⑤ **标记是 `<mark>` 语义标签**、带自有类名，样式是**加粗 + 变色 + 无底色**（底色透明、字重 600），颜色解析值 = 官方 token `--dsw-alias-state-business-primary` 的解析值且与容器文字色不同，而**容器本身没被染色**（片段仍是官方那枚次要文字色）；⑥ **三档宽度（260/340/500）下不溢出、截断照旧**——行不横向溢出、不越出列表区右缘、页面无横向滚动，片段仍是 `nowrap + ellipsis` 并在窄档下**真的被截断**，高亮不把它撑破。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -485,19 +570,18 @@ export const SEARCH_HIT_HIGHLIGHT_SUITE: LabSuite = {
       const missId = candidates[1] ?? ''
       const boundaryId = candidates[2] ?? ''
 
-      const stats: FixtureStats = { searchCalls: 0, listCalls: 0, titled: 0, workspaceFrames: 0 }
-      await installApiFixtures(
-        page,
-        { [hitId]: HIT_TITLE, [missId]: MISS_TITLE, [boundaryId]: BOUNDARY_TITLE },
-        { hit: hitId, miss: missId, boundary: boundaryId },
-        stats,
-      )
-      await installWorkspaceFixture(page, { hit: hitId, miss: missId, boundary: boundaryId }, stats)
+      const stats: FixtureStats = { searchCalls: 0, listCalls: 0, titled: 0, workspaceFrames: 0, controlFrames: 0, controlTitles: 0 }
+      const fixtureTitles = { [hitId]: HIT_TITLE, [missId]: MISS_TITLE, [boundaryId]: BOUNDARY_TITLE }
+      const targets = { hit: hitId, miss: missId, boundary: boundaryId }
+      await installApiFixtures(page, fixtureTitles, targets, stats)
+      await installMuxFixtures(page, targets, fixtureTitles, stats)
       await page.reload({ waitUntil: 'domcontentloaded' })
       await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
       await page.waitForTimeout(2_500)
       check.fact(
-        `夹具：session/list 回执 ${String(stats.listCalls)} 次、换掉标题 ${String(stats.titled)} 条；workspace/follow 基线帧换掉 ${String(stats.workspaceFrames)} 次`,
+        `夹具：session/list 回执 ${String(stats.listCalls)} 次、换掉标题 ${String(stats.titled)} 条；` +
+          `session/control 基线帧 ${String(stats.controlFrames)} 次、其中换掉标题 ${String(stats.controlTitles)} 条（这一路不看序号，基线里带着的靶子只有它也补得上）；` +
+          `workspace/follow 基线帧换掉 ${String(stats.workspaceFrames)} 次`,
       )
       check.ok('标题夹具接上了（三条靶子会话都换成了受控文案）', stats.titled >= 3, String(stats.titled))
       check.ok('工作区夹具接上了（基线帧被换成三棵合成工作区）', stats.workspaceFrames > 0, String(stats.workspaceFrames))
