@@ -12,19 +12,28 @@
  *
  * 官方客户端对这条失败**没有界面**：`api-session/error` 只落到会话对象的 `lastAgentError`
  * 上（0.1.6-alpha.1 全仓只有写入方、没有读取方），用户当场看不到任何东西，要到发消息时
- * 才在输入条上弹一条原始吐司。侧栏树是用户点击的地方，所以 #145 让它在收到这条事件时
+ * 才在输入条上弹一条原始吐司。侧栏树是用户点击的地方，所以 #145 让它在**打开失败**时
  * 飘一条能行动的提示（`workspaceTree/sessionOwnedNotice.ts` + `workspaceTreePlugin.ts`
  * 里那段订阅）。
+ *
+ * ## 触发点（#183 改道）
+ *
+ * 提示的判据是**打开过的那条会话**在官方快照上的失败字段（`lastAgentError`，官方公开契约里
+ * `SessionSnapshot` 的一项），由插件在「树上打开一条会话」时订阅那一条会话的快照。#183 之前
+ * 是插件自己订阅官方内部事件名 `api-session/error`，所以那个版本的夹具投一帧就够；现在
+ * **必须先真的打开那条会话**（列表里没被打开过的会话，插件的快照订阅没建起来，投帧不会有
+ * 提示——这是改道的预期边界，不是回归）。
  *
  * ## 怎么**确定性地**造出这一态
  *
  * 真造它要两个 dsh 进程抢同一个 `$DSH_HOME` 里的同一条会话——那是**写类**操作，而且要求
  * 本机跑着第二个实例，实验室里不能这么干（实验室是「真网关只读」，见 README 的 R-06 与
  * 前置条件）。所以这里走**帧注入**：官方客户端是从一条 `$events` 逻辑流上收转发事件
- * （`dsh-api-session-controller` 的客户端半自己就是 `ctx.remote.$on('api-session/error', …)`），
- * 夹具在页面与网关之间那条 mux WebSocket 上做一层代理，就绪后**自己投一帧**
- * `{type:'emit', event:'api-session/error', args:[sessionId, message]}`——这是官方那条链路的
- * 真实输入，走的是官方代码，不是我们另造的一套状态（同一套夹具 F-43 已经在用）。
+ * （`dsh-api-session-controller` 的客户端半自己就是 `ctx.remote.$on('api-session/error', …)`，
+ * 收下之后写进会话快照的 `lastAgentError`——我们的判据读的就是这处，所以注入的仍然是官方
+ * 那条真实链路），夹具在页面与网关之间那条 mux WebSocket 上做一层代理，就绪后**自己投一帧**
+ * `{type:'emit', event:'api-session/error', args:[sessionId, message]}`，走的是官方代码，
+ * 不是我们另造的一套状态（同一套夹具 F-43 已经在用）。
  *
  * 投的那条 message **逐字取官方原文**（`dsh-session-persistence` 的
  * `SessionAlreadyOwnedError` 拼出来的那句，实测回执见 issue #145）；判定在插件里只认官方
@@ -36,7 +45,8 @@
  * 就会自己飘一次提示——那是**真事件**。所以这一套的判据一律不假设「树上没有提示 / 树上
  * 只有一条会话 / 某条会话没被占用」：
  *
- * - **先等基线静下来**（没有任何提示在飘），再动手；基线飘过几次只记成观测。
+ * - **先等基线静下来**（没有任何提示在飘），再动手；基线飘过几次只记成观测。① 里那次
+ *   「打开」也按同一口径处置：它可能真撞上占用、自己飘一条，同样等它收掉再注入。
  * - **注入的阳性面**认「现在飘着的那条提示的文案 = 插件词典那一句」；文案随页面语言
  *   （日常实例 zh、空的隔离网关 en），两种取值都从词典里读。注入前若已有提示在飘，先等它
  *   收掉——否则「新提示」和「旧提示」在 DOM 上是同一个元素，分不出来。
@@ -45,15 +55,16 @@
  *   事件时也不会误判）。
  * - **④ 点击回归走「宿主说开着 + 点当前会话行」这条路**（= 进就地改名，#115/#121 的语义），
  *   官方这条路**一个网关调用都不发**（F-28 的 ② 已钉住「零打开请求」），所以点击在结构上
- *   不可能触发 `api-session/error`、也就不可能产生新提示——判据是「点击前后提示计数不变、
- *   且改名输入框真的出来了」。不去点「第一条非当前会话行」：那条会真的去打开会话，在这台
+ *   不可能产生新提示——判据是「点击前后提示计数不变、且改名输入框真的出来了」。不去改用
+ *   「点第一条非当前会话行」当回归：那条会真的去打开会话（① 已经走了那一步，见上），在这台
  *   机器上可能正好点到一条被别人占着的会话（那是**功能正常**的表现，不是回归），判据会跟着
  *   环境红。
  * - **提示计数**用页面侧一个 MutationObserver 数（`flash.ts` 的宿主节点从「没有」变成
  *   「在」算一次；同一个元素上换文案不算新的一次），配合「先等静」来用。
  *
- * 本套件**不写网关**：注入的帧网关不知道、页面也不回执；④ 那一次点击走的是零网关调用的
- * 改名路（Esc 取消，不提交）。
+ * 本套件**不写网关**：注入的帧网关不知道、页面也不回执；① 与 ④ 那两次点击都是官方自己的
+ * 打开/改名路径（① 会真的打开会话，那是官方 `sessions.open` 的正常语义）；④ 走的是零网关
+ * 调用的改名路（Esc 取消，不提交）。
  */
 import * as path from 'node:path'
 import type { ElementHandle, Page } from 'playwright'
@@ -168,10 +179,12 @@ export const SESSION_OWNED_SUITE: LabSuite = {
   phase: 'new-feature',
   name: 'SESSION-OWNED-ELSEWHERE',
   expect:
-    '会话被另一个 dsh 进程占着写句柄时（官方 `api-session/error` 上那句 `SessionAlreadyOwnedError`），' +
+    '在树上打开一条被另一个 dsh 进程占着写句柄的会话时（官方客户端把那条失败写进该会话快照的 `lastAgentError`，' +
+    '原文 `resume failed for session …: SessionAlreadyOwnedError: …`），' +
     '侧栏树飘一条能行动的提示（文案 = 插件词典里的 `session.ownedElsewhere`，停留明显长于动作回执的 2.2 秒，且到点自己收掉）；' +
-    '同一条通道上别的会话错误不触发它；点击当前会话行走的是零网关调用的改名路，点击前后提示计数不变、改名输入框照旧出现。' +
-    '夹具只往页面的 `$events` 流投帧，不写网关；这台机器上真有别的进程占着会话时页面会自己飘一次（真事件），判据先等基线静下来再看增量，不依赖「环境是干净的」',
+    '同一条链路上下来的别的会话错误不触发它；点击当前会话行走的是零网关调用的改名路，点击前后提示计数不变、改名输入框照旧出现。' +
+    '夹具先把那一行打开（#183 起订阅是跟着打开动作建的），再往页面的 `$events` 流投一帧官方的 `api-session/error`，不写网关；' +
+    '这台机器上真有别的进程占着会话时页面会自己飘一次（真事件），判据先等基线静下来再看增量，不依赖「环境是干净的」',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { settleMs: 2_500 })
@@ -201,7 +214,22 @@ export const SESSION_OWNED_SUITE: LabSuite = {
     }
     check.ok('注入之前页面会静下来（基线干净，后面的增量判据才有意义）', await waitForQuiet(opened.page, 14_000))
 
-    // ① 官方那条「会话已被活跃写句柄占用」的事件一到，树上出提示。
+    // ① 树上**打开**这条会话，再让官方那条「会话已被活跃写句柄占用」的失败落到它身上 → 树上出提示。
+    //
+    // #183 起判据是**打开过的那条会话**在官方快照上的失败字段（`lastAgentError`，见
+    // `workspaceTreePlugin.ts` 里那节说明），所以夹具必须先做「打开」这一步——先前那版是插件
+    // 自己订阅官方内部事件名 `api-session/error`，投一帧就够，不需要先打开任何东西。
+    // 点行之前先让假宿主说「面板里没开着」，这一下才是「点行 = 打开」那条分支（#121）。
+    await setHostPanelSession(opened.page, false)
+    const targetRow = opened.page
+      .locator(`[data-dshone-tree-row="session"][data-dshone-tree-session="${target}"]`)
+      .first()
+    check.ok('① 目标会话在树上有行（夹具点的就是这一行）', (await targetRow.count()) > 0)
+    await targetRow.click()
+    // 这一下是**真的打开**：这台机器上若正好有进程占着它，提示会自己飘一次（功能正常，不是夹具）。
+    // 等它收掉再注入，后面的增量判据才分得清「这一次是新起的」。
+    check.ok('① 点完之后树上会静下来（真打开自己撞上占用时飘的那一条收掉了）', await waitForQuiet(opened.page, 14_000))
+
     const message = ownedMessage(target)
     const beforeInject = await flashCount(opened.page)
     injector.push(emit('api-session/error', [target, message]))

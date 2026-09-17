@@ -128,16 +128,19 @@ export const IDENTIFIERS = [
     file: 'lib/client.js',
     pattern: /\bid:\s*"cordis-panel"/,
     why: '我们往同一个 list 槽追加底部入口，排位是相对它算的（官方改 id 后「谁在前谁在后」的假设静默失效）',
-    where: 'packages/dsh-workspace-tree/src/workspaceTreePlugin.ts:611-618',
+    where: 'packages/dsh-workspace-tree/src/workspaceTreePlugin.ts:675-683（`ctx.slots.register({ name: "sidebar.footer.action", id: "dsh-one-recycle-bin" })`）',
   },
   {
-    id: 'event.api-session/error',
-    what: '官方 remote 服务的内部事件名（会话写句柄被占用）',
+    id: 'snapshot-field.lastAgentError',
+    what: '官方会话快照里的失败字段（"会话被另一个 dsh 占着写句柄"那条提示的判据）',
     pkg: '@deepseek-ai/dsh-api-session-controller',
     file: 'lib/client.js',
-    pattern: /api-session\/error/,
-    why: '我们订阅它弹「会话已被写句柄占用」的提示；它不是服务目录里的公开面，官方换名后那条提示静默消失（主流程不受影响）',
-    where: 'packages/dsh-workspace-tree/src/workspaceTreePlugin.ts:294-304',
+    pattern: /lastAgentError/,
+    why:
+      '我们读它判「这次打开失败在被占用的写句柄上」并飘提示（#183 起不再订阅内部事件名 api-session/error）；' +
+      '它是官方 SessionSnapshot 契约里的一项、官方自己写进去，官方改字段名后那条提示静默消失（主流程不受影响）',
+    where:
+      'packages/dsh-workspace-tree/src/workspaceTreePlugin.ts（`SessionSnapshotFace.lastAgentError` 与 `watchOpenFailure` 里那次判据）',
   },
 ]
 

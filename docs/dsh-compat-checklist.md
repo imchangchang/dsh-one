@@ -68,7 +68,7 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 | `entry-id.appearance`（`settings.general.item` 的条目 id） | `@deepseek-ai/dsh-client-ui-theme/lib/client.js` |
 | `entry-id.open-document`（`settings.action` 的条目 id） | `@deepseek-ai/dsh-client-ui-settings-general/lib/client.js` |
 | `entry-id.cordis-panel`（`sidebar.footer.action` 的条目 id） | `@deepseek-ai/dsh-client-ui-cordis/lib/client.js` |
-| `event.api-session/error`（remote 服务的内部事件名） | `@deepseek-ai/dsh-api-session-controller/lib/client.js` |
+| `snapshot-field.lastAgentError`（会话快照的失败字段，「会话被另一个 dsh 占着」那条提示的判据，#183 起不再订阅内部事件名 `api-session/error`） | `@deepseek-ai/dsh-api-session-controller/lib/client.js` |
 
 为什么单列这一族：它们坏了都**不报错、只是不生效**（提示不弹、官方件悄悄冒回界面、遮蔽目标对不上），日常使用看不出来，探针是发布前唯一能发现它们的手段。新增一条 = 在 `officialIdentifiers.mjs` 的 `IDENTIFIERS` 里加一行（出处文件 + 形状 + 我方使用点）；理由（`why`）与使用点（`where`）写在表里供人读，并由 `test/upstreamOfficialIdentifiers.test.ts` 保证「`where` 指向的文件确实存在」与「删掉一条就报红」。
 

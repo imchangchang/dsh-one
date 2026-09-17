@@ -741,9 +741,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
   // 会话行菜单的「选择多个」（本体在「菜单补全」那条）都调它，选择态只有这一个入口。
   useEffect(() => selectionEntrySignal.subscribe(() => enterSelection()), [])
 
-  // #145：会话被另一个 dsh 进程占着写句柄时给一条能行动的提示（订阅装在插件 apply 里，
-  // 见 `workspaceTreePlugin.ts` 那一节；这里只负责显示）。停留时长比动作回执长：这是一句
-  // 要人行动的完整话，2.2 秒读不完。
+  // #145：会话被另一个 dsh 进程占着写句柄时给一条能行动的提示（判据与订阅装在插件 apply 里，
+  // 见 `workspaceTreePlugin.ts` 的 `watchOpenFailure`；这里只负责显示）。停留时长比动作回执长：
+  // 这是一句要人行动的完整话，2.2 秒读不完。
   useEffect(() => onSessionOwnedElsewhere(() => flashTip(tr('session.ownedElsewhere'), 6000)), [tr])
 
   const errorText = (reason: unknown): string => (reason instanceof Error ? reason.message : String(reason))
