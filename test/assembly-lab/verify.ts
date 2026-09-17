@@ -587,6 +587,9 @@ async function main(): Promise<number> {
       gateway,
       ...(token === undefined ? {} : { token }),
       ...(version === undefined ? {} : { version }),
+      // 套件要看得见「这一轮连的是外部实例还是自起的隔离实例」：有些判据只有外部实例
+      // （装了第三方插件的用户实例）才跑得出来，得由这一层把事实传进去（#193）。
+      external: args.gateway !== undefined,
       log,
       pluginsDir,
       port: args.port,

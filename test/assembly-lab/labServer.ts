@@ -132,6 +132,15 @@ export interface LabServerOptions {
    * 于侧栏本身，会污染并排截图与首屏几何。所以允许调用方把它知道的版本直接传进来。
    */
   version?: string
+  /**
+   * 这次连的是**外部实例**（`--gateway`，不是实验室自己起的那台隔离实例）。
+   *
+   * 为什么套件要看得见它：有几条判据只有外部实例（例如用户日常那台装了第三方可视化插件）
+   * 才跑得出来——它们在默认跑法的隔离实例上一条断言都出不来。把这些判据「只在外部实例
+   * 模式生效」写进套件时需要一个显式的事实源，不然套件只能靠「数据在不在」猜，那正是
+   * 静默跳过的来源（#193）。所以由起实验室的那一层把事实传进来（`verify.ts` 知道）。
+   */
+  external?: boolean
 }
 
 export interface LabServer {
@@ -154,6 +163,12 @@ export interface LabServer {
   readonly token: string
   /** 网关 dsh 版本（来自 dsh-owned.json，取不到 undefined）。 */
   readonly dshVersion?: string
+  /**
+   * 这次连的是**外部实例**（`--gateway`）还是实验室自起的隔离实例（默认跑法）。
+   * 见 {@link LabServerOptions.external}：套件用它把「只有外部实例才跑得出来的判据」
+   * 显式地限定在外部实例模式，而不是靠数据在不在去猜（#193）。
+   */
+  readonly external: boolean
   readonly trees: ReadonlyArray<LabTreeRoute>
   /**
    * 当天网关下发的官方 wire 里的插件 id 集合——**实验室各页面的装配来源**
@@ -418,6 +433,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     pluginsDir: options.pluginsDir,
     token,
     ...(dshVersion === undefined ? {} : { dshVersion }),
+    external: options.external === true,
     trees: LAB_TREES,
     gatewayPluginIds,
     gatewayWire,
