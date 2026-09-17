@@ -12,6 +12,11 @@
  * - 文案取插件自己的 zh 词典（`toolbar.collapseAll` / `toolbar.expandAll`）。
  *
  * 全程只读真网关：本套件不写任何状态，只点那枚按钮（它只改本地视图态）与搜索框。
+ *
+ * 本套件管的是「**是不是那两条路径、态映射与提示对不对、点击语义有没有变**」，量的是
+ * svg 的 `width` / `height` 与按钮盒；画出来的东西**有多大**（与同一排官方图标比视觉重量）
+ * 是 #141 的另一件事，判据在 `collapseAllIconWeightSuites.ts`（F-40）——那里量的是每条
+ * `path` 的屏幕矩形，`width` 同为 16 是看不出来的。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
