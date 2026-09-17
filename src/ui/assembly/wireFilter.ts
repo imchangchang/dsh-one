@@ -321,18 +321,26 @@ export function extractFrontendAssets(html: string): GatewayAssets {
 
 /**
  * 过滤 wire：按 blockList 剔除条目（默认 chat 树）；application 批 combo URL
- * 改指 mirror 的 /plugins-local（mirror 伺服剥掉 blocked 段的官方原 combo，
- * rev 沿用原值)；追加自有 shell entry 与共用插件（默认追加主题跟随插件，
- * 三棵树都装），并入 application 批；bootstrap 批原样不动。
+ * 改指 mirror 的 /plugins-local（mirror 伺服剥掉 blocked 段的官方原 combo)；
+ * 追加自有 shell entry 与共用插件（默认追加主题跟随插件，三棵树都装），并入
+ * application 批；bootstrap 批原样不动。
  *
- * 官方下发的 application 批可能不止一个（combo URL 有长度上限，官方按图里
- * 的顺序切段，见 filterWire 内的注释）：这里跨全部批过滤，再把它们合回一个批。
+ * combo URL 的 rev 是我们拼的缓存键：官方那半（网关算出来的 `appBatches[0].rev`）
+ * 加本地那半（`localRev`，见 comboRev 的推导）。官方下发的 application 批可能不止
+ * 一个（combo URL 有长度上限，官方按图里的顺序切段，见 filterWire 内的注释）：
+ * 这里跨全部批过滤，再把它们合回一个批。
  */
 export function filterWire(
   wire: BootWire,
   blockList: ReadonlyArray<BlockedPlugin> = CHAT_BLOCK_LIST,
   shellPluginId: string = SHELL_PLUGIN_ID,
   extraPluginIds: readonly string[] = [THEME_FOLLOW_PLUGIN_ID],
+  /**
+   * 本地那份插件产物（`dist/assembly/plugins`）的内容版本，由宿主现算
+   * （`server/localBundleRev.ts`）。进 combo URL 的缓存键，是 #173 的修复点：
+   * 少了它，重建自己的 bundle 不改 URL、webview 就吃满 24h immutable 缓存。
+   */
+  localRev: string,
   /** 诊断回调（block list 与实际清单对不上时报告，不阻断）——宿主传 logger。 */
   onWarn?: (line: string) => void,
 ): BootWire {
@@ -389,8 +397,20 @@ export function filterWire(
   // 都不改行为（#165 干净 profile 上 chat / sidebar 树打不开的第二个原因）。
   const localIds = [shellPluginId, ...extraPluginIds].filter((id) => !entries.some((e) => e.id === id))
   const appRev = appBatches[0].rev
+  // combo URL 的 rev 就是 webview 的缓存键（镜像按 URL 原样回 24h `immutable`），
+  // 它必须同时代表这份整包的两半内容：
+  //   - 官方那半 = appRev（网关按内容校验算出的版本，官方自己就把它挂在原 combo URL 上）；
+  //   - 本地那半 = localRev（dist/assembly/plugins 的内容哈希，宿主每次装配现算）。
+  // 只带 appRev 时，我们重建自己的 bundle 不改 URL、也不改镜像的 ETag，webview 吃满
+  // 24h immutable 缓存（连条件请求都不发）→ 改了样式 reload 也看不到，扩展升级后用户
+  // 也可能停在旧界面（#173）。两半都在里面之后：本地 bundle 一变缓存键就变（浏览器按
+  // 新 URL 重取），两边都没变时 URL 一字不变、长缓存照旧（#71 的初衷：跨 tab 命中
+  // HTTP 缓存、整包网络字节≈0）。官方那半也照旧：官方没发新版、本地没变 → URL 不变。
+  // 本地一件都不进 URL 时（用户把自有包装进了 profile，id 全由网关整包提供）不加这一
+  // 半——那份内容本来就是官方的，本地 dist 变不该让用户重下整个整包。
+  const comboRev = localIds.length > 0 ? `${appRev}-${localRev}` : appRev
   for (const id of localIds) {
-    entries.push({ id, url: `/plugins-local/??${id}/client.js&rev=${appRev}`, rev: appRev })
+    entries.push({ id, url: `/plugins-local/??${id}/client.js&rev=${comboRev}`, rev: comboRev })
   }
   const comboIds = [...keptIds, ...localIds]
   return {
@@ -403,9 +423,9 @@ export function filterWire(
         // 官方有几个 application 批，这里就合回一个（客户端只按批取它要的那个 bundle，
         // 合批不改变装载顺序与时机；官方分批的唯一理由是 combo URL 的长度上限）。
         // mirror 的 /plugins-local：combo 含 kept + 本地插件；mirror 拉官方原
-        // combo 剥 blocked 段、拼上本地 bundle 后伺服；rev 沿用网关原值（缓存键)。
-        url: `/plugins-local/??${comboIds.map((id) => `${id}/client.js`).join(',')}&rev=${appRev}`,
-        rev: appRev,
+        // combo 剥 blocked 段、拼上本地 bundle 后伺服；rev 是上面那份双半缓存键。
+        url: `/plugins-local/??${comboIds.map((id) => `${id}/client.js`).join(',')}&rev=${comboRev}`,
+        rev: comboRev,
         entries: comboIds,
       },
     ],

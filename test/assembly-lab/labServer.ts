@@ -30,6 +30,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { assemblyPageHtml } from '../../src/ui/assembly/pageHtml.ts'
 import { cookieHeader, exchangeToken, startAssemblyMirror, type AssemblyMirror } from '../../src/server/assemblyMirror.ts'
+import { localBundleRev } from '../../src/server/localBundleRev.ts'
 import { registerVersion } from '../../src/server/serverAuth.ts'
 import { defaultOwnedPath, readOwnedRecord } from '../../src/server/ownedRecord.ts'
 import { extractBootWire, extractFrontendAssets, filterWire, WORKSPACE_TREE_PLUGIN_ID, type BootWire } from '../../src/ui/assembly/wireFilter.ts'
@@ -137,6 +138,20 @@ export interface LabServer {
   readonly origin: string
   readonly mirrorOrigin: string
   readonly gateway: string
+  /**
+   * 自有插件 bundle 目录（mirror 读它、`localBundleRev` 也按它算内容版本）。
+   * 套件要用同一个目录算 combo 缓存键里本地那一半（F-57），所以这里露出来——
+   * 别让套件自己拼 `dist/assembly/plugins`，`LAB_PLUGINS` 换过目录时会对不上。
+   */
+  readonly pluginsDir: string
+  /**
+   * 这个实验室服务器连网关用的 launch token。露出来的理由只有一条：套件要拿**同一台
+   * 网关**再起一个姊妹实验室服务器时（#173 的 F-57 要把 pluginsDir 换成一份临时产物
+   * 拷贝，才能模拟「重建自己的 bundle」而不碰仓库里那份产物），它得用同一个 token 换票
+   * ——外面那台是手工起的实例、token 只存在于 `LAB_TOKEN` 里时，套件自己去读
+   * `~/.dsh/dsh-owned.json` 是读不到的。别把它写进报告或日志。
+   */
+  readonly token: string
   /** 网关 dsh 版本（来自 dsh-owned.json，取不到 undefined）。 */
   readonly dshVersion?: string
   readonly trees: ReadonlyArray<LabTreeRoute>
@@ -231,8 +246,15 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
   /** 装配页 HTML：真实模块 + 该树的过滤清单 + 首帧主题。 */
   const pageFor = async (route: LabTreeRoute, query: URLSearchParams): Promise<string> => {
     const html = await gatewayIndex()
-    const wire = filterWire(extractBootWire(html), route.tree.blockList, route.tree.shellPluginId, route.tree.extraPluginIds, (line) =>
-      log.warn(line),
+    // localRev 每次装配现算（与宿主同口径）：改了本地产物再重载页面，页面拿到的
+    // combo URL 就该变——F-57 正是拿这一点当判据（#173）。
+    const wire = filterWire(
+      extractBootWire(html),
+      route.tree.blockList,
+      route.tree.shellPluginId,
+      route.tree.extraPluginIds,
+      await localBundleRev(options.pluginsDir),
+      (line) => log.warn(line),
     )
     const assets = extractFrontendAssets(html)
     const theme = query.get('theme') === 'light' ? 'light' : 'dark'
@@ -358,6 +380,8 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     origin: origin(),
     mirrorOrigin: mirror.origin,
     gateway,
+    pluginsDir: options.pluginsDir,
+    token,
     ...(dshVersion === undefined ? {} : { dshVersion }),
     trees: LAB_TREES,
     gatewayPluginIds,

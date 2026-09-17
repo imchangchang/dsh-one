@@ -118,6 +118,40 @@ npm run build      # 打出 dist/ 与 packages/*/lib/
 4. 降级分支（可选，验「不静默空白」）：把 dsh 服务停掉（命令 `dsh-one: Stop Service`）后再 Reload Window——面板 tab 应当还在，里面是「dsh 服务没在运行 / 启动服务」的状态页，点「Start the dsh service」应把面板装起来；
 5. 会话已经删掉的情况：把某个会话归档/删掉，再 Reload Window——面板应弹一句「这个对话面板原来打开的会话已经不在了」，并且**不带那个会话**打开（不是一片空白）。
 
+## 人工验收：改了自己的插件重建之后，Reload Window 就能看到新界面（#173）
+
+**这条为什么必须人验**：整包（`/plugins-local/??…`）的 URL 就是 webview 的缓存键，缓存头是
+`max-age=86400, immutable`（源稳定时跨 tab 命中 HTTP 缓存，见 `src/server/assemblyMirror.ts`）。
+改之前这个键只含**网关**那个版本号，我们自己重建 `dist/assembly/plugins/<id>/client.js` 时
+URL 一字不变 → webview 连条件请求都不发，改了样式 reload 也看不到（用户 2026-09-17 实测，
+issue #173）。现在 rev 是 `<网关版本>-<本地产物内容哈希>`（`wireFilter` 的 comboRev +
+`src/server/localBundleRev.ts`），本地产物一变缓存键就变。
+
+跑法（人开真窗口）：
+
+1. 先 `npm run build`，起 dev host（`scripts/dev-ui-test.sh`，或 VS Code 里按 F5），确认侧栏（或对话面板）装起来了；
+2. 随便改**一行侧栏样式**：例如 `src/ui/assembly/shell/workspaceTree/styles.ts` 里标准档的
+   `rowRadius: '8px'` 改成 `'12px'`（工作区行 / 会话行的圆角，肉眼可辨）；
+3. `npm run build`；
+4. 在 dev host 窗口跑命令面板的 **Developer: Reload Window**（等窗口起来）；
+5. **期望**：侧栏的行圆角立刻是新值。**不需要**重启 dsh 服务（`dsh-one: Restart Service`），
+   也不需要等缓存过期——改之前这两步是唯一的出路，这正是本条要守的事。
+6. 想留证据的话看 webview 的 devtools（命令面板 `Developer: Open Webview Developer Tools`，
+   控制台里执行下面这段），重建前后两次读到的 rev **前一段相同、后一段不同**：
+
+   ```js
+   performance.getEntriesByType('resource')
+     .map((entry) => entry.name)
+     .filter((name) => name.includes('/plugins-local/'))
+     .map((name) => new URL(name).searchParams.get('rev'))
+   ```
+
+**边界（要人知道的）**：这条只保证「**Reload Window** 之后看到新的」（扩展升级后 VS Code 也是
+整窗重载，所以用户侧同样覆盖）。窗口没重载、只把 webview 自己刷新一下（Developer: Reload
+Webviews）时，页面拿到的还是**旧的那份 HTML 与旧 URL**，浏览器按旧 URL 命中 immutable 缓存，
+看到的仍是旧界面——那种情况下仍需 Reload Window。把这一层也做成自动跟着变需要另想办法
+（例如每次装配多一次往返换掉长缓存），不在本条范围内。
+
 ## 发版流程
 
 发布门禁：`scripts/release-gate.sh`（默认 dry-run 只输出计划与只读校验，`--apply` 才执行）。两段式：

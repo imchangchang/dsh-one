@@ -275,8 +275,12 @@ async function serveCombo(
     res.writeHead(200, {
       'content-type': 'text/javascript; charset=utf-8',
       'access-control-allow-origin': '*',
-      // rev = 网关内容校验哈希：同 rev 内容恒定，长缓存（#71——共享 mirror
-      // 源稳定后跨 tab 命中 HTTP 缓存，整包网络字节≈0）。
+      // rev = 这份整包的内容版本（页面侧拼的缓存键）：官方那半 = 网关内容校验哈希，
+      // 本地那半 = dist/assembly/plugins 的内容哈希（见 wireFilter 的 comboRev）。同
+      // URL 内容恒定 → 长缓存（#71——共享 mirror 源稳定后跨 tab 命中 HTTP 缓存，整包
+      // 网络字节≈0）。**两份内容都进键**才不会有 #173 那个洞：只按网关版本做键时，
+      // 我们重建自己的 bundle 不改 URL、也不改这里的 ETag，webview 吃满 24h immutable
+      // 缓存（连条件请求都不发），改了样式 reload 也看不到。
       'cache-control': 'max-age=86400, immutable',
       etag: `"dsh-combo-${rev}-${shellId}"`,
     })
@@ -310,7 +314,16 @@ function proxyHeaders(req: IncomingMessage, target: string): Record<string, stri
   return headers
 }
 
-/** 网关资产带内容哈希文件名（index-XXXX.js）——immutable 长缓存（#71）。 */
+/**
+ * 网关资产带内容哈希文件名（index-XXXX.js）——immutable 长缓存（#71）。
+ *
+ * #173 顺带核过这条是不是同类隐患：不是。网关前端资产（`dsh-web-frontend/dist/assets`）
+ * 里每个文件的**名字里就带着内容哈希**（实测 0.1.6-alpha.1：`index-C04Zg7TP.js`、
+ * `vendor-CCJJTK99.js`、`fonts/KaTeX_AMS-Regular-BQhdFMY1.woff2`、`langs/c-BIGW1oBm.js`，
+ * 86 个文件全是这个形态），内容一变名字就变、HTML/JS 里引用的也是新名字——同名不同内容
+ * 不会出现，所以这里钉 7 天是安全的。combo 那条不一样：它的 URL 是固定路径
+ * （`/plugins-local/??…`）加查询串，名字不含内容信息，才必须把内容版本放进 rev（#173）。
+ */
 function withAssetCache(out: Record<string, string | string[]>, pathname: string): void {
   if (pathname.startsWith('/assets/')) out['cache-control'] = 'max-age=604800, immutable'
 }

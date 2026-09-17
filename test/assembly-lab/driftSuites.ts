@@ -23,6 +23,7 @@ import {
   waitForFiberQuiet,
 } from './harness.ts'
 import { LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
+import { localBundleRev } from '../../src/server/localBundleRev.ts'
 import { ASSEMBLY_TREES, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
 import { filterWire, type BootWire, type BootWireBatch } from '../../src/ui/assembly/wireFilter.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里，
@@ -200,6 +201,9 @@ export const WIRE_LIVENESS_SUITE: LabSuite = {
     '两部分。**第一部分（存活性）**：拿**当天网关下发的官方 wire**（实验室各页面的装配来源，`lab.gatewayPluginIds()`）逐棵树核 block list：`chat` / `sidebar` / `settings` 三棵树引用的每个官方插件 id 都必须能在 wire 的 entries 里找到，一条都不能缺。红了就是清单与现实漂移了——官方把某个被 block 的插件**改名或并进别的插件**时，新 id 不会被剥掉，官方件会静默混进树里（`filterWire` 只会打一条 warn，不阻断装配），而这正是最难排查的那种「看着正常、其实多了个不该在的官方件」。失败信息带上「哪棵树 + 哪个 id + 当天 wire 里含同名词的邻近 id（可能改成了谁）」。红了怎么办：按官方 release notes 或官方源码确认它的新装载方式，把这条 block 改成新 id（内容搬进别的插件时通常是**摘除**这条，因为那个 id 已经不存在了），摘除要照 CHAT_FLOW / SETTINGS_PAGES 的写法写明为什么。三棵树都查（`sidebar-official` 对照档与 `sidebar` 同一份 block list，去重后不重复报）。**第二部分（分批口径，#165）**：官方按 combo URL 的长度上限把 application 阶段切成若干批，被 block 的条目可能落在**第二批**——拿当天真实 wire 合成那个形状（把某棵树 block 的某个条目摘出来单独放尾批）后跑过滤，三棵树都必须照旧把它剥掉（entries、批、combo URL 三处都不能留），而不是抛「清单对不上」；同时钉住判据没被放宽：某个被 block 的 id 在 wire 里、却不在**任何** application 批里时仍然硬抛（过滤管道够不着它），报错文案点名是哪一种情形。',
   run: async (ctx, check) => {
     const wireIds = await ctx.lab.gatewayPluginIds()
+    // 本地产物的内容版本（combo 缓存键里我们自己那一半）：与实验室装配页现算的
+    // 是同一个目录、同一个函数，所以这里算出来的 rev 就是页面该拿到的那一个（#173）。
+    const localRev = await localBundleRev(ctx.lab.pluginsDir)
     check.fact(
       `当天网关 ${ctx.lab.gateway}（dsh ${ctx.lab.dshVersion ?? '（未知）'}）的官方 wire：${String(wireIds.size)} 个条目；被检查的树 ${AUDITED_TREES.map((entry) => entry.label).join(' / ')}`,
     )
@@ -237,7 +241,9 @@ export const WIRE_LIVENESS_SUITE: LabSuite = {
       let filtered: BootWire | undefined
       let thrown = ''
       try {
-        filtered = filterWire(split, tree.blockList, tree.shellPluginId, tree.extraPluginIds, (line) => warnings.push(line))
+        filtered = filterWire(split, tree.blockList, tree.shellPluginId, tree.extraPluginIds, localRev, (line) =>
+          warnings.push(line),
+        )
       } catch (err) {
         thrown = err instanceof Error ? err.message : String(err)
       }
@@ -269,7 +275,13 @@ export const WIRE_LIVENESS_SUITE: LabSuite = {
     if (moved !== '') {
       let message = ''
       try {
-        filterWire(withoutApplicationBatch(wire, moved), unfilterable.tree.blockList, unfilterable.tree.shellPluginId, unfilterable.tree.extraPluginIds)
+        filterWire(
+          withoutApplicationBatch(wire, moved),
+          unfilterable.tree.blockList,
+          unfilterable.tree.shellPluginId,
+          unfilterable.tree.extraPluginIds,
+          localRev,
+        )
       } catch (err) {
         message = err instanceof Error ? err.message : String(err)
       }

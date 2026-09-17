@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import { sanitize, type Logger } from '../log.ts'
 import { startAssemblyMirror, type AssemblyMirror } from '../server/assemblyMirror.ts'
+import { localBundleRev } from '../server/localBundleRev.ts'
 import { cookieHeader, dshVersion } from '../server/serverAuth.ts'
 import { parse as parseSemver, compare as compareSemver } from '../pure/semver.ts'
 import { assemblyPageHtml } from './assembly/pageHtml.ts'
@@ -101,8 +102,26 @@ interface GatewayAssembly {
 const PREREQ_MIN = '0.1.2-rc.1'
 const PREREQ_MAX = '0.2.0'
 
-/** 用 serverAuth 的 cookie GET 网关 /，提取 wire 并按该树 block list 过滤。 */
-async function loadGatewayAssembly(gateway: string, tree: AssemblyTree, logger: Logger): Promise<GatewayAssembly> {
+/**
+ * 自有插件产物目录（`dist/assembly/plugins`，构建期落盘）：mirror 读本地 bundle 的
+ * 就是它，`localBundleRev` 也按它算本地产物的内容版本。
+ */
+function localPluginsDir(context: vscode.ExtensionContext): string {
+  return path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins')
+}
+
+/**
+ * 用 serverAuth 的 cookie GET 网关 /，提取 wire 并按该树 block list 过滤。
+ *
+ * localRev（本地产物的内容版本）在这里现算：它是 combo URL 缓存键里我们自己那一半，
+ * 每次装配都从磁盘重算，重建过 bundle 之后打开的面板/重载的窗口才会取到新界面（#173）。
+ */
+async function loadGatewayAssembly(
+  context: vscode.ExtensionContext,
+  gateway: string,
+  tree: AssemblyTree,
+  logger: Logger,
+): Promise<GatewayAssembly> {
   const cookie = cookieHeader(gateway)
   const res = await fetch(`${gateway}/`, {
     headers: cookie !== undefined ? { cookie } : {},
@@ -112,8 +131,13 @@ async function loadGatewayAssembly(gateway: string, tree: AssemblyTree, logger: 
   const html = await res.text()
   return {
     // block list 里缺失的官方插件条目只报告不阻断（官方合并/下线插件是正常演进）
-    wire: filterWire(extractBootWire(html), tree.blockList, tree.shellPluginId, tree.extraPluginIds, (line) =>
-      logger.warn(line),
+    wire: filterWire(
+      extractBootWire(html),
+      tree.blockList,
+      tree.shellPluginId,
+      tree.extraPluginIds,
+      await localBundleRev(localPluginsDir(context)),
+      (line) => logger.warn(line),
     ),
     assets: extractFrontendAssets(html),
   }
@@ -398,7 +422,7 @@ async function prepareChatPanel(
   }
   let assembly: GatewayAssembly
   try {
-    assembly = await loadGatewayAssembly(status.url, CHAT_TREE, logger)
+    assembly = await loadGatewayAssembly(context, status.url, CHAT_TREE, logger)
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
     void vscode.window.showErrorMessage(
@@ -790,7 +814,7 @@ async function acquireSharedMirror(
     () => manager.getStatus().url,
     logger,
     {
-      pluginsDir: path.join(context.extensionUri.fsPath, 'dist', 'assembly', 'plugins'),
+      pluginsDir: localPluginsDir(context),
       treeCombos: ASSEMBLY_TREES.map((tree) => ({ shellPluginId: tree.shellPluginId, blockList: tree.blockList })),
     },
   )
@@ -1000,7 +1024,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
         return
       }
       try {
-        const assembly = await loadGatewayAssembly(decision.url, SIDEBAR_TREE, this.logger)
+        const assembly = await loadGatewayAssembly(this.context, decision.url, SIDEBAR_TREE, this.logger)
         // 重试路径：先释放旧 mirror（插件集可能已变）。
         if (this.mirror !== undefined) releaseSharedMirror(this.mirror)
         this.mirror = await acquireSharedMirror(this.context, this.manager, this.logger)
@@ -1085,7 +1109,7 @@ export function registerAssembledSettings(
     }
     let assembly: GatewayAssembly
     try {
-      assembly = await loadGatewayAssembly(status.url, SETTINGS_TREE, logger)
+      assembly = await loadGatewayAssembly(context, status.url, SETTINGS_TREE, logger)
     } catch (err) {
       void vscode.window.showErrorMessage(
         vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),

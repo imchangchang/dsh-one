@@ -21,6 +21,7 @@ import {
   type AssemblyMirror,
 } from '../../../../src/server/assemblyMirror.ts'
 import { registerVersion } from '../../../../src/server/serverAuth.ts'
+import { localBundleRev } from '../../../../src/server/localBundleRev.ts'
 import { defaultOwnedPath, readOwnedRecord } from '../../../../src/server/ownedRecord.ts'
 import { extractBootWire, extractFrontendAssets, filterWire } from '../../../../src/ui/assembly/wireFilter.ts'
 import { compare as compareSemver, parse as parseSemver } from '../../../../src/pure/semver.ts'
@@ -91,6 +92,7 @@ export async function startProtoServer(options: ProtoServerOptions): Promise<Pro
       route.tree.blockList,
       route.tree.shellPluginId,
       route.tree.extraPluginIds,
+      await localBundleRev(options.pluginsDir),
       (line) => log.warn(line),
     )
     const assets = extractFrontendAssets(html)

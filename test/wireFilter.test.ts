@@ -16,6 +16,13 @@ import {
   type BootWire,
 } from '../src/ui/assembly/wireFilter.ts'
 
+/**
+ * 本地产物的内容版本（combo 缓存键里我们自己那一半，#173）：这里给常量，因为
+ * 「内容变了 rev 就变」由 `test/comboCacheRev.test.ts` 用真文件系统钉，本文件
+ * 只管「rev 怎么拼进 URL」。
+ */
+const LOCAL_REV = 'lrev-fixture'
+
 /** 迷你网关 HTML 夹具：2 个 blocked + 2 个保留 + 完整四全局注入形态。 */
 const FIXTURE_HTML = `<!doctype html>
 <html><head><base href="/"><script>(()=>{ /* queue facade */ })()</script>
@@ -54,22 +61,32 @@ test('无 __DSH_BOOT__ 注入的 HTML 明确抛错', () => {
 test('filterWire：剥 blocklist、application 批重指 /plugins-local、追加 shell、bootstrap 不动', () => {
   const wire = extractBootWire(FIXTURE_HTML)
   // 夹具是小网关（5 插件）；语义用显式最小清单验证，完整树清单另测内容。
-  const filtered = filterWire(wire, [
-    { id: '@deepseek-ai/dsh-client-ui-layout', reason: 'fixture' },
-    { id: '@deepseek-ai/dsh-client-ui-sidebar', reason: 'fixture' },
-  ])
+  const filtered = filterWire(
+    wire,
+    [
+      { id: '@deepseek-ai/dsh-client-ui-layout', reason: 'fixture' },
+      { id: '@deepseek-ai/dsh-client-ui-sidebar', reason: 'fixture' },
+    ],
+    undefined,
+    undefined,
+    LOCAL_REV,
+  )
   const ids = filtered.entries.map((e) => e.id)
   assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-layout'), 'ui-layout 应被剔除')
   assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-sidebar'), 'ui-sidebar 应被剔除')
-  // shell 恰好一个，url 指 /plugins-local。
+  // shell 恰好一个，url 指 /plugins-local，rev = 官方那半 + 本地那半（#173）。
   const shell = filtered.entries.filter((e) => e.id === SHELL_PLUGIN_ID)
   assert.equal(shell.length, 1)
-  assert.match(shell[0].url, new RegExp(`^/plugins-local/\\?\\?${SHELL_PLUGIN_ID.replaceAll('/', '\\/')}/client\\.js&rev=rev-app$`))
-  // 批：bootstrap 原样（引用相等即原对象）；application 重拼、rev 沿用、含 shell。
+  assert.match(
+    shell[0].url,
+    new RegExp(`^/plugins-local/\\?\\?${SHELL_PLUGIN_ID.replaceAll('/', '\\/')}/client\\.js&rev=rev-app-${LOCAL_REV}$`),
+  )
+  assert.equal(shell[0].rev, `rev-app-${LOCAL_REV}`)
+  // 批：bootstrap 原样（引用相等即原对象）；application 重拼、rev 是双半缓存键、含 shell。
   assert.equal(filtered.batches[0], wire.batches[0])
   const app = filtered.batches[1]
   assert.equal(app.phase, 'application')
-  assert.equal(app.rev, 'rev-app')
+  assert.equal(app.rev, `rev-app-${LOCAL_REV}`)
   assert.deepEqual(app.entries, [
     '@deepseek-ai/dsh-typert-registry',
     '@deepseek-ai/dsh-client-ui-chat',
@@ -77,10 +94,13 @@ test('filterWire：剥 blocklist、application 批重指 /plugins-local、追加
     SHELL_PLUGIN_ID,
     THEME_FOLLOW_PLUGIN_ID,
   ])
-  assert.match(
-    app.url,
-    /^\/plugins-local\/\?\?@deepseek-ai\/dsh-typert-registry\/client\.js,@deepseek-ai\/dsh-client-ui-chat\/client\.js,@deepseek-ai\/dsh-client-ui-workspace\/client\.js,@dsh-one\/vscode-shell\/client\.js,@dsh-one\/vscode-theme-follow\/client\.js&rev=rev-app$/,
+  assert.ok(
+    app.url.startsWith(
+      '/plugins-local/??@deepseek-ai/dsh-typert-registry/client.js,@deepseek-ai/dsh-client-ui-chat/client.js,@deepseek-ai/dsh-client-ui-workspace/client.js,@dsh-one/vscode-shell/client.js,@dsh-one/vscode-theme-follow/client.js',
+    ),
+    `application combo 的 id 列表：${app.url}`,
   )
+  assert.ok(app.url.endsWith(`&rev=rev-app-${LOCAL_REV}`), `application combo 的缓存键：${app.url}`)
   assert.ok(!app.url.includes('ui-layout') && !app.url.includes('ui-sidebar'), 'application combo 不得含 blocked id')
 })
 
@@ -89,7 +109,7 @@ test('filterWire：网关清单缺 blocklist 项时**不阻断**、只报告（�
   wire.entries = wire.entries.filter((e) => e.id !== '@deepseek-ai/dsh-client-ui-sidebar')
   wire.batches[1].entries = wire.batches[1].entries.filter((id) => id !== '@deepseek-ai/dsh-client-ui-sidebar')
   const warnings: string[] = []
-  const filtered = filterWire(wire, undefined, undefined, undefined, (line) => warnings.push(line))
+  const filtered = filterWire(wire, undefined, undefined, undefined, LOCAL_REV, (line) => warnings.push(line))
   // 不抛错、正常出清单；缺失的那条只在 warn 里报告
   assert.equal(warnings.length, 1)
   assert.match(warnings[0], /ui-sidebar/)
@@ -100,10 +120,16 @@ test('filterWire：网关清单缺 blocklist 项时**不阻断**、只报告（�
 
 test('filterWire（sidebar 树）：外框+对话流+设置子页剥除，官方侧栏/工作区树保留（#70/#71）', () => {
   const wire = extractBootWire(FIXTURE_HTML)
-  const filtered = filterWire(wire, [
-    { id: '@deepseek-ai/dsh-client-ui-layout', reason: 'fixture' },
-    { id: '@deepseek-ai/dsh-client-ui-chat', reason: 'fixture' },
-  ], SIDEBAR_SHELL_PLUGIN_ID)
+  const filtered = filterWire(
+    wire,
+    [
+      { id: '@deepseek-ai/dsh-client-ui-layout', reason: 'fixture' },
+      { id: '@deepseek-ai/dsh-client-ui-chat', reason: 'fixture' },
+    ],
+    SIDEBAR_SHELL_PLUGIN_ID,
+    undefined,
+    LOCAL_REV,
+  )
   const ids = filtered.entries.map((e) => e.id)
   assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-layout'), 'ui-layout 应被剔除')
   assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-chat'), 'chat 流应被剔除')
@@ -129,7 +155,9 @@ test('filterWire（sidebar 树）：外框+对话流+设置子页剥除，官方
   assert.equal(shell.length, 1)
   assert.match(
     shell[0].url,
-    new RegExp(`^/plugins-local/\\?\\?${SIDEBAR_SHELL_PLUGIN_ID.replaceAll('/', '\\/')}/client\\.js&rev=rev-app$`),
+    new RegExp(
+      `^/plugins-local/\\?\\?${SIDEBAR_SHELL_PLUGIN_ID.replaceAll('/', '\\/')}/client\\.js&rev=rev-app-${LOCAL_REV}$`,
+    ),
   )
   const app = filtered.batches[1]
   assert.deepEqual(app.entries, [
@@ -145,11 +173,17 @@ test('filterWire（sidebar 树）：外框+对话流+设置子页剥除，官方
 
 test('filterWire（settings 树）：外框+官方侧栏+对话流剥除，frame 换 settings-shell（#70/#71）', () => {
   const wire = extractBootWire(FIXTURE_HTML)
-  const filtered = filterWire(wire, [
-    { id: '@deepseek-ai/dsh-client-ui-layout', reason: 'fixture' },
-    { id: '@deepseek-ai/dsh-client-ui-sidebar', reason: 'fixture' },
-    { id: '@deepseek-ai/dsh-client-ui-chat', reason: 'fixture' },
-  ], SETTINGS_SHELL_PLUGIN_ID)
+  const filtered = filterWire(
+    wire,
+    [
+      { id: '@deepseek-ai/dsh-client-ui-layout', reason: 'fixture' },
+      { id: '@deepseek-ai/dsh-client-ui-sidebar', reason: 'fixture' },
+      { id: '@deepseek-ai/dsh-client-ui-chat', reason: 'fixture' },
+    ],
+    SETTINGS_SHELL_PLUGIN_ID,
+    undefined,
+    LOCAL_REV,
+  )
   const ids = filtered.entries.map((e) => e.id)
   assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-layout'))
   assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-sidebar'), 'settings 树官方侧栏壳不进页')
@@ -214,7 +248,7 @@ test('filterWire：block 项落在第二个 application 批里也照常剥掉（
     ],
   })
   const warnings: string[] = []
-  const filtered = filterWire(wire, BLOCK_DIR_PICKER, SHELL_PLUGIN_ID, [THEME_FOLLOW_PLUGIN_ID], (line) =>
+  const filtered = filterWire(wire, BLOCK_DIR_PICKER, SHELL_PLUGIN_ID, [THEME_FOLLOW_PLUGIN_ID], LOCAL_REV, (line) =>
     warnings.push(line),
   )
   // 修复前这里抛 application batch blocklist entries inconsistent with wire entries
@@ -224,7 +258,7 @@ test('filterWire：block 项落在第二个 application 批里也照常剥掉（
   assert.equal(filtered.batches.length, 2)
   const app = filtered.batches[1]
   assert.equal(app.phase, 'application')
-  assert.equal(app.rev, 'rev-batch-1', 'rev 沿用第一个 application 批')
+  assert.equal(app.rev, `rev-batch-1-${LOCAL_REV}`, '官方那半沿用第一个 application 批的 rev，本地那半拼在后面')
   assert.deepEqual(app.entries, ['@deepseek-ai/dsh-client-ui-chat', SHELL_PLUGIN_ID, THEME_FOLLOW_PLUGIN_ID])
   assert.equal(app.url.includes('directory-picker-native'), false, 'combo URL 不得含被 block 的段')
 })
@@ -241,7 +275,7 @@ test('filterWire：#165 的两条硬判据没放宽——够不着与自相矛�
   })
   inBootstrap.batches[1].entries = ['@deepseek-ai/dsh-client-modules']
   assert.throws(
-    () => filterWire(inBootstrap, BLOCK_DIR_PICKER),
+    () => filterWire(inBootstrap, BLOCK_DIR_PICKER, undefined, undefined, LOCAL_REV),
     /in no application batch, so the filter cannot strip them: @deepseek-ai\/dsh-client-ui-directory-picker-native/,
   )
   // ② 在批里、却不在 wire.entries：清单与批次自相矛盾（旧口径也抛，别放宽掉）
@@ -253,7 +287,7 @@ test('filterWire：#165 的两条硬判据没放宽——够不着与自相矛�
     ],
   })
   assert.throws(
-    () => filterWire(phantom, BLOCK_DIR_PICKER),
+    () => filterWire(phantom, BLOCK_DIR_PICKER, undefined, undefined, LOCAL_REV),
     /in an application batch but absent from the gateway wire entries: @deepseek-ai\/dsh-client-ui-directory-picker-native/,
   )
 })
@@ -268,7 +302,7 @@ test('filterWire：网关清单已含同 id 的自有插件时不重复叠加本
       { phase: 'application', entries: ['@deepseek-ai/dsh-client-modules', GIT_CARD_PLUGIN_ID] },
     ],
   })
-  const filtered = filterWire(wire, [], SHELL_PLUGIN_ID, [GIT_CARD_PLUGIN_ID, THEME_FOLLOW_PLUGIN_ID])
+  const filtered = filterWire(wire, [], SHELL_PLUGIN_ID, [GIT_CARD_PLUGIN_ID, THEME_FOLLOW_PLUGIN_ID], LOCAL_REV)
   const gitCards = filtered.entries.filter((e) => e.id === GIT_CARD_PLUGIN_ID)
   assert.equal(gitCards.length, 1, '同 id 只能有一条 entry')
   assert.match(gitCards[0].url, /^\/plugins\//, '网关已提供时用网关那份，不再指 /plugins-local')
@@ -278,4 +312,19 @@ test('filterWire：网关清单已含同 id 的自有插件时不重复叠加本
   assert.equal(themeFollow.length, 1)
   assert.match(themeFollow[0].url, /^\/plugins-local\//)
   assert.match(filtered.batches[1].url, /@dsh-one\/vscode-theme-follow\/client\.js/)
+})
+
+test('filterWire：本地一件都不进 URL 时 rev 只有官方那一半（用户把自有包装进了 profile，#173）', () => {
+  // 自有插件的 id 全由网关整包提供时，这份 combo 的内容全是官方的：本地 dist 变不该
+  // 让用户重下整个整包，所以缓存键里不拼本地那一半（localRev 原样传进去、不进 URL）。
+  const wire = wireOf({
+    entries: ['@deepseek-ai/dsh-client-modules', GIT_CARD_PLUGIN_ID],
+    batches: [
+      { phase: 'bootstrap', entries: ['@deepseek-ai/dsh-client-modules'] },
+      { phase: 'application', entries: ['@deepseek-ai/dsh-client-modules', GIT_CARD_PLUGIN_ID] },
+    ],
+  })
+  const filtered = filterWire(wire, [], GIT_CARD_PLUGIN_ID, [], LOCAL_REV)
+  assert.equal(filtered.batches[1].rev, 'rev-batch-1', '没有本地件时 rev 只有官方那半（长缓存照旧）')
+  assert.ok(filtered.batches[1].url.endsWith('&rev=rev-batch-1'), filtered.batches[1].url)
 })
