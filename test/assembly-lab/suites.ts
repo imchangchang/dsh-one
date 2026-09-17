@@ -36,6 +36,7 @@ import { TOPBAR_RHYTHM_SUITE } from './topbarRhythmSuites.ts'
 import { RENAME_OPEN_SYNC_SUITE } from './renameOpenSyncSuites.ts'
 import { SELECTION_BAR_SUITE } from './selectionBarSuites.ts'
 import { SELECT_MODE_INDENT_SUITE } from './selectModeIndentSuites.ts'
+import { SUBMENU_INDENT_SUITE } from './submenuIndentSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -5808,4 +5809,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #124 进入多选后会话与工作区的缩进关系（F-31：F-30 已被 #123 的标题字号套件占用；套件本体在
   // selectModeIndentSuites.ts，同上为独立文件）。
   SELECT_MODE_INDENT_SUITE,
+  // #126 二级菜单的缩进（F-32：F-30 归 #123、F-31 归 #124；套件本体在 submenuIndentSuites.ts，
+  // 同为独立文件，少一处合入热点）。
+  SUBMENU_INDENT_SUITE,
 ]
