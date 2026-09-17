@@ -218,7 +218,7 @@ export const BOOT_FAIL_RE = /did not activate|waiting for service/
  *
  * 现在为空（#74 修完）：唯一那条「设置树 agent-preset 在非活跃上下文读 sessions」
  * 的真因是**我方 settings frame 少声明了官方 root 子槽 `main`**（根因与修法见
- * src/ui/assembly/shell/settingsFramePlugin.ts 的 root 注册注释），不是官方件噪音。
+ * src/ui/assembly/shell/settingsLayoutPlugin.ts 的 root 注册注释），不是官方件噪音。
  * 留空机制不删：将来真要放行，仍按上面的规矩逐条带理由与 issue 进来。
  */
 export const KNOWN_NOISE: ReadonlyArray<{ pattern: RegExp; reason: string }> = []

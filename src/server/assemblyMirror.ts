@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { LogSink } from '../log.ts'
 import { cookieHeader } from './serverAuth.ts'
-import { blockedIdsOf, extractBootWire, CHAT_BLOCK_LIST, SHELL_PLUGIN_ID, type BlockedPlugin } from '../ui/assembly/wireFilter.ts'
+import { blockedIdsOf, extractBootWire, CHAT_BLOCK_LIST, CHAT_FRAME_PLUGIN_ID, type BlockedPlugin } from '../ui/assembly/wireFilter.ts'
 
 // serverAuth 的 per-origin 状态是模块级 Map：harness/测试若另起 bundle 实例
 // 会读写不到同一份（probe 时踩过)。统一从这里再导出，保证消费方与 mirror
@@ -15,7 +15,7 @@ export { cookieHeader, registerAuth, exchangeToken, probeToken, dshVersion } fro
 /**
  * cordis 装配 mirror（#64，blocklist 模式)：loopback 反向代理，仅绑
  * 127.0.0.1 随机端口，随面板关闭。路由全解析：
- * - /plugins-local/??ids：本地 combo。shell 插件（@dsh-one/vscode-shell)
+ * - /plugins-local/??ids：本地 combo。外框插件（@dsh-one/vscode-chat-ui-layout)
  *   直接读盘；**含官方 id 时** = 过滤版 application 批——拉网关原 combo
  *   （探针证实 rev 是内容校验：重拼/错 rev 一律 404，只能拉原 combo；官方按
  *   URL 长度把 application 切成几批时逐批拉），按 `window.__ModuleLoader__.load({`
@@ -37,24 +37,24 @@ export interface AssemblyMirror {
   dispose(): void
 }
 
-/** 一棵树 = 自有 shell 插件 id + 该树 block list（过滤版整包的缓存键）。 */
+/** 一棵树 = 自有外框插件 id + 该树 block list（过滤版整包的缓存键）。 */
 export interface AssemblyTreeCombo {
-  /** 该树自有 frame 插件 id（请求 combo 的 id 列表里带着它——路由与缓存键都靠它）。 */
-  shellPluginId: string
+  /** 该树自有外框插件 id（请求 combo 的 id 列表里带着它——路由与缓存键都靠它）。 */
+  framePluginId: string
   /** 该树 block list（决定从官方整包剥哪些段）。 */
   blockList: ReadonlyArray<BlockedPlugin>
 }
 
 export interface AssemblyMirrorOptions {
   /**
-   * 本地插件根目录：`<pluginsDir>/@dsh-one/vscode-shell/client.js`（自有 shell
+   * 本地插件根目录：`<pluginsDir>/@dsh-one/vscode-chat-ui-layout/client.js`（自有外框插件
    * bundle，构建期落盘)。官方插件不再落盘——全部经 /plugins 代理直引网关。
    */
   pluginsDir: string
   /**
    * 本 mirror 伺服哪几棵树：共享 mirror（#71 性能——同窗口同网关地址一个
    * loopback 端口，webview 源稳定，跨 tab HTTP 缓存生效）同时伺服 chat/
-   * sidebar/settings 三树。每棵树一份过滤版 combo，按 shellPluginId 分别
+   * sidebar/settings 三树。每棵树一份过滤版 combo，按 framePluginId 分别
    * 缓存（各树 block list 不同，缓存键互异）。缺省 = 只伺服 chat 树
    * （CHAT_BLOCK_LIST 兼容行为）。
    */
@@ -68,23 +68,23 @@ export function startAssemblyMirror(
   logger: LogSink,
   options: AssemblyMirrorOptions,
 ): Promise<AssemblyMirror> {
-  // 过滤版官方 combo 缓存：按树缓存（key = 该树 shellPluginId，#71 共享
+  // 过滤版官方 combo 缓存：按树缓存（key = 该树 framePluginId，#71 共享
   // mirror 多树伺服）。mirror 生命周期内网关插件集不变；失败不缓存（重试）。
   const treeCombos = new Map<string, readonly string[]>(
-    (options.treeCombos ?? [{ shellPluginId: SHELL_PLUGIN_ID, blockList: CHAT_BLOCK_LIST }]).map((tree) => [
-      tree.shellPluginId,
+    (options.treeCombos ?? [{ framePluginId: CHAT_FRAME_PLUGIN_ID, blockList: CHAT_BLOCK_LIST }]).map((tree) => [
+      tree.framePluginId,
       blockedIdsOf(tree.blockList),
     ]),
   )
   const treeCombosKeys = new Set(treeCombos.keys())
   const comboCache = new Map<string, Promise<{ text: string; ids: ReadonlySet<string> }>>()
-  const filteredGatewayCombo = (shellPluginId: string): Promise<{ text: string; ids: ReadonlySet<string> }> => {
-    let pending = comboCache.get(shellPluginId)
+  const filteredGatewayCombo = (framePluginId: string): Promise<{ text: string; ids: ReadonlySet<string> }> => {
+    let pending = comboCache.get(framePluginId)
     if (pending === undefined) {
-      pending = fetchFilteredGatewayCombo(target, treeCombos.get(shellPluginId) ?? [], logger)
-      comboCache.set(shellPluginId, pending)
+      pending = fetchFilteredGatewayCombo(target, treeCombos.get(framePluginId) ?? [], logger)
+      comboCache.set(framePluginId, pending)
       pending.catch(() => {
-        if (comboCache.get(shellPluginId) === pending) comboCache.delete(shellPluginId)
+        if (comboCache.get(framePluginId) === pending) comboCache.delete(framePluginId)
       })
     }
     return pending
@@ -231,7 +231,7 @@ async function serveCombo(
   res: ServerResponse,
   url: URL,
   options: AssemblyMirrorOptions,
-  filteredGatewayCombo: (shellPluginId: string) => Promise<{ text: string; ids: ReadonlySet<string> }>,
+  filteredGatewayCombo: (framePluginId: string) => Promise<{ text: string; ids: ReadonlySet<string> }>,
   treeComboKeys: ReadonlySet<string>,
   logger: LogSink,
 ): Promise<void> {
@@ -251,13 +251,13 @@ async function serveCombo(
     return
   }
   const ids = items.map((item) => item.slice(0, -CLIENT_SUFFIX.length))
-  // 树路由 + 缓存键：请求 combo 里的自有 shell id 决定用哪份过滤整包。
-  const shellId = ids.find((id) => treeComboKeys.has(id)) ?? ''
+  // 树路由 + 缓存键：请求 combo 里的自有外框插件 id 决定用哪份过滤整包。
+  const frameId = ids.find((id) => treeComboKeys.has(id)) ?? ''
   const rev = url.searchParams.get('rev') ?? 'noversion'
   try {
     // 分类按**来源**而不是名字前缀（见 fetchFilteredGatewayCombo 的说明）：
     // 官方整包里存在的 id → 由过滤版整包覆盖；不存在的 → 读本地插件目录。
-    const official = await filteredGatewayCombo(shellId)
+    const official = await filteredGatewayCombo(frameId)
     const gatewayIds = ids.filter((id) => official.ids.has(id))
     const localIds = ids.filter((id) => !official.ids.has(id))
     if (localIds.some((id) => !LOCAL_PLUGIN_RE.test(id))) {
@@ -282,7 +282,7 @@ async function serveCombo(
       // 我们重建自己的 bundle 不改 URL、也不改这里的 ETag，webview 吃满 24h immutable
       // 缓存（连条件请求都不发），改了样式 reload 也看不到。
       'cache-control': 'max-age=86400, immutable',
-      etag: `"dsh-combo-${rev}-${shellId}"`,
+      etag: `"dsh-combo-${rev}-${frameId}"`,
     })
     res.end(Buffer.concat(parts))
   } catch (err) {

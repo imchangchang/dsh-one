@@ -58,25 +58,25 @@ export const SLOT_DEPENDENCIES = [
     names: ['main', 'conversation'],
     why: '会话面板座：0.1.2 线是 single `conversation`，0.1.6 线是 keyed `main`（key = `conversation`）',
     where:
-      'src/ui/assembly/shell/shellPlugin.ts（root children + conversationSeat 镜像 + renderSlot）、settingsFramePlugin.ts（root children 只声明不渲染——官方 ui-conversation 的子树注册挂在这个名字上，#74）',
+      'src/ui/assembly/shell/chatLayoutPlugin.ts（root children + conversationSeat 镜像 + renderSlot）、settingsLayoutPlugin.ts（root children 只声明不渲染——官方 ui-conversation 的子树注册挂在这个名字上，#74）',
     expect: 'packages/client/ui-layout/src/client/index.ts:66 / ui-conversation/src/client/contract/slots.ts',
   },
   {
     names: ['rightbar', 'details'],
     why: '右列座：0.1.2 线是 single `details`，0.1.6 起官方换成 single `rightbar`（#77 右栏接入要声明的也是它）',
-    where: 'src/ui/assembly/shell/shellPlugin.ts:271（details 声明）/ frameShared.ts:107',
+    where: 'src/ui/assembly/shell/chatLayoutPlugin.ts:271（details 声明）/ frameShared.ts:107',
     expect: 'packages/client/ui-layout/src/client/index.ts:80 / ui-conversation/src/client/contract/slots.ts:120',
   },
   {
     names: ['sidebar'],
     why: '侧栏位：官方 ui-sidebar 的贡献注册进这个 root 子槽，我们的侧栏 frame 声明并渲染它',
-    where: 'src/ui/assembly/shell/sidebarFramePlugin.ts:196',
+    where: 'src/ui/assembly/shell/sidebarLayoutPlugin.ts:196',
     expect: 'packages/client/ui-layout/src/client/index.ts:61',
   },
   {
     names: ['shell.overlay'],
     why: '全宽悬浮层：右键菜单与 git 卡片渲染在这里（自有 frame 声明 + 两个插件注入）',
-    where: 'src/ui/assembly/shell/shellPlugin.ts:272、contextMenuPlugin.ts:308、gitCardPlugin.ts:601',
+    where: 'src/ui/assembly/shell/chatLayoutPlugin.ts:272、contextMenuPlugin.ts:308、gitCardPlugin.ts:601',
     expect: 'packages/client/ui-layout/src/client/index.ts:91',
   },
   {
@@ -94,7 +94,7 @@ export const SLOT_DEPENDENCIES = [
   {
     names: ['sidebar.brand.mark', 'sidebar.brand.name'],
     why: '侧栏品牌位的两个注入点（自有侧栏 frame 提供品牌位内容）',
-    where: 'src/ui/assembly/shell/sidebarFramePlugin.ts:209-212',
+    where: 'src/ui/assembly/shell/sidebarLayoutPlugin.ts:209-212',
     expect: 'packages/client/ui-sidebar/src/client/contract/slots.ts:22,27',
   },
   {
@@ -106,19 +106,19 @@ export const SLOT_DEPENDENCIES = [
   {
     names: ['settings.section'],
     why: '设置页每节一个 entry：自有设置 frame 的导航行与内容区都按它推导（entries/getVersion/subscribe/renderSlot）',
-    where: 'src/ui/assembly/shell/settingsFramePlugin.ts:104-180',
+    where: 'src/ui/assembly/shell/settingsLayoutPlugin.ts:104-180',
     expect: 'packages/client/ui-settings/src/client/contract/slots.ts:54',
   },
   {
     names: ['settings.header'],
     why: '设置页标题区（官方设置项注册在这里，由自有设置 frame 渲染）',
-    where: 'src/ui/assembly/shell/settingsFramePlugin.ts:159',
+    where: 'src/ui/assembly/shell/settingsLayoutPlugin.ts:159',
     expect: 'packages/client/ui-settings/src/client/contract/slots.ts:30',
   },
   {
     names: ['settings.action'],
     why: '设置页动作区（官方动作注册在这里，由自有设置 frame 渲染 + 自有导出动作注入）',
-    where: 'src/ui/assembly/shell/settingsFramePlugin.ts:178,287',
+    where: 'src/ui/assembly/shell/settingsLayoutPlugin.ts:178,287',
     expect: 'packages/client/ui-settings/src/client/contract/slots.ts:36',
   },
   {
@@ -136,7 +136,7 @@ export const SLOT_DEPENDENCIES = [
   {
     names: ['root'],
     why: '渲染器的根槽：自有 frame 同名单独注册（更低优先号）接管整页组合',
-    where: 'src/ui/assembly/shell/shellPlugin.ts:263-272',
+    where: 'src/ui/assembly/shell/chatLayoutPlugin.ts:263-272',
     expect: 'packages/client/ui-renderer/src/client/registry.ts:43',
   },
 ]
@@ -152,7 +152,7 @@ export const ROOT_HOOK_DEPENDENCIES = [
     prop: 'usePanelInfo',
     field: 'activePanelId',
     why: '当前主面板 id：官方树组件与官方右侧栏都读它，缺了抛 `usePanelInfo is not a function`（#76 现场）',
-    where: 'src/ui/assembly/shell/frameShared.ts:175（PANEL_INFO_SOURCE 提供）+ shellPlugin/sidebarFrame/settingsFrame 消费',
+    where: 'src/ui/assembly/shell/frameShared.ts:175（PANEL_INFO_SOURCE 提供）+ chatLayoutPlugin/sidebarLayoutPlugin/settingsLayoutPlugin 消费',
     expect: 'packages/client/ui-layout/src/client/index.ts（provideRoot 下发点）',
   },
   {
@@ -223,13 +223,13 @@ export const IDENTIFIER_DEPENDENCIES = [
   {
     names: ['activePanelId'],
     why: 'panelInfo hook 的快照字段（我们渲染 keyed `main` 时取它当 entryKey）',
-    where: 'src/ui/assembly/shell/shellPlugin.ts:174,221',
+    where: 'src/ui/assembly/shell/chatLayoutPlugin.ts:174,221',
   },
   {
     names: ['entryKey'],
     scope: ['@deepseek-ai/dsh-client-ui-renderer', '@deepseek-ai/dsh-client-ui-layout'],
     why: 'keyed slot 的 renderSlot 选项名（keyed `main` 靠它选键）',
-    where: 'src/ui/assembly/shell/shellPlugin.ts:58,221',
+    where: 'src/ui/assembly/shell/chatLayoutPlugin.ts:58,221',
   },
   {
     names: ['archivedSessionIds'],

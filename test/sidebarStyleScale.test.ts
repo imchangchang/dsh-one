@@ -8,7 +8,7 @@
  * ① 扫 `styles.ts` 导出的 CSS 里每条规则的圆角/高度/字号/图标位（含文字行高），每个字面量
  *    都必须在档位表里**按属性对得上那一组量**（圆角对 *Radius 的量、高度对 *Height/*Size 的
  *    量、字号对 *FontSize、宽度对 *Width/*Size）——以后新控件随手写个 6px 圆角就会在这里红；
- * ② 密度表（sidebarFramePlugin.ts 的 `DENSITY_PROFILE`）的 vscode 列逐项落进它该落的档，
+ * ② 密度表（sidebarLayoutPlugin.ts 的 `DENSITY_PROFILE`）的 vscode 列逐项落进它该落的档，
  *    按 #134 的两句话分三类判——**行家族取官方标准档**（行高 / 行圆角 / 行内边距 / 搜索结果行
  *    最小高 / 溢出按钮行高 / 标题文字那两项：每一项按「= 标准档里那一项**同名量**」判，不是
  *    「值在标准档里出现过」）、**纵向留白取官方原值**（#119：消费点全在 `margin` 上的那几项
@@ -23,7 +23,7 @@
  * 哪一项量——写成集合判据（「值在标准档里出现过」）会把 `row-height = 32px` 这种「拿会话行高
  * 当工作区行高」的错放过去，所以第三条自检专门喂了这种假表。
  *
- * 为什么密度表要扫源码文本而不是 import：sidebarFramePlugin.ts 依赖 react 与官方私有包
+ * 为什么密度表要扫源码文本而不是 import：sidebarLayoutPlugin.ts 依赖 react 与官方私有包
  * （单测里 import 不进来），这与 assemblyShellContract.test.ts 的处理一致。styles.ts 没有
  * 任何 import，直接读它的实体最稳。
  */
@@ -37,7 +37,7 @@ const SHELL_DIR = path.join(import.meta.dirname, '..', 'src', 'ui', 'assembly', 
 
 /** shell 侧密度表（源码文本解析，理由见文件头）。 */
 function densityProfile(): Map<string, { official: string; vscode: string }> {
-  const shell = fs.readFileSync(path.join(SHELL_DIR, 'sidebarFramePlugin.ts'), 'utf8')
+  const shell = fs.readFileSync(path.join(SHELL_DIR, 'sidebarLayoutPlugin.ts'), 'utf8')
   const entries = [...shell.matchAll(/'([a-z-]+)':\s*\{\s*official:\s*'([^']+)',\s*vscode:\s*'([^']+)'\s*\}/g)]
   assert.ok(entries.length >= 20, `密度表至少要有 20 项（实际 ${String(entries.length)}）`)
   return new Map(entries.map((m) => [m[1] ?? '', { official: m[2] ?? '', vscode: m[3] ?? '' }]))

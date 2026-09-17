@@ -32,7 +32,7 @@ const TREE_SOURCE = ((): string => {
 })()
 
 /** 三棵树的 frame 插件（官方 ui-layout 的角色承担者）。 */
-const SHELLS = ['shellPlugin.ts', 'sidebarFramePlugin.ts', 'settingsFramePlugin.ts']
+const SHELLS = ['chatLayoutPlugin.ts', 'sidebarLayoutPlugin.ts', 'settingsLayoutPlugin.ts']
 
 test('三棵树的 frame 插件都提供官方 root 槽位钩子 panelInfo（#76 现场缺陷）', () => {
   for (const file of SHELLS) {
@@ -77,7 +77,7 @@ test('layout 服务面覆盖官方 ILayout 全成员（官方 service.d.ts 清�
 })
 
 test('chat 树：会话面板两版槽位都声明（0.1.2 的 single conversation / 0.1.6 的 keyed main）', () => {
-  const text = read('shellPlugin.ts')
+  const text = read('chatLayoutPlugin.ts')
   assert.match(text, /conversation:\s*\{\s*kind:\s*'single',\s*scope:\s*'session-maybe'\s*\}/, '0.1.2 线的 single conversation 槽位要保留')
   assert.match(text, /main:\s*\{\s*kind:\s*'keyed',\s*scope:\s*'root'\s*\}/, '0.1.6 线的 keyed main 槽位要声明')
   // 渲染取键方式与官方 AppFrame 的 MainPanel 一致：activePanelId ?? 'conversation'
@@ -94,7 +94,7 @@ test('chat 树：会话面板两版槽位都声明（0.1.2 的 single conversati
 // #95：这个座位同时成了设置页自己的座位——设置页是 `main` 上一条 key =
 // `dshOne.settings` 的 keyed 条目（此前是自造槽位 `dshOne.settings.page`）。
 test('settings 树：设置页 = 官方 keyed main 上 key `dshOne.settings` 的条目（#74 声明 + #95 座位）', () => {
-  const text = read('settingsFramePlugin.ts')
+  const text = read('settingsLayoutPlugin.ts')
   assert.match(text, /main:\s*\{\s*kind:\s*'keyed',\s*scope:\s*'root'\s*\}/, 'keyed main 槽位要声明（官方 ui-conversation 的子树注册等它）')
   assert.match(text, /const SETTINGS_MAIN_KEY = 'dshOne\.settings'/, '设置页的面板 key 要显式声明成常量')
   assert.match(
@@ -113,7 +113,7 @@ test('settings 树：设置页 = 官方 keyed main 上 key `dshOne.settings` 的
 // 两边是两份源码，键集与官方原值靠这条测试对齐——shell 加的键没人消费、树消费的
 // 键 shell 没设、兜底值抄错（覆盖了官方档）都会在这里挂。
 test('密度偏好：shell 设的键集 = 树插件消费的键集，且树兜底逐项等于官方原值', () => {
-  const shell = read('sidebarFramePlugin.ts')
+  const shell = read('sidebarLayoutPlugin.ts')
   const profile = new Map(
     [...shell.matchAll(/'([a-z-]+)':\s*\{\s*official:\s*'([^']+)',\s*vscode:\s*'([^']+)'\s*\}/g)].map((m) => [
       m[1],
@@ -154,7 +154,7 @@ test('密度偏好：shell 设的键集 = 树插件消费的键集，且树兜�
 // ② 每项 VS Code 档**严格**小于官方原值（两边同值 = 这一项其实没紧凑）。
 test('密度档扩散（#104）：四区新键各挂各的规则，且每项 VS Code 档严格更紧', () => {
   const tree = TREE_SOURCE
-  const shell = read('sidebarFramePlugin.ts')
+  const shell = read('sidebarLayoutPlugin.ts')
   const profile = new Map(
     [...shell.matchAll(/'([a-z-]+)':\s*\{\s*official:\s*'([^']+)',\s*vscode:\s*'([^']+)'\s*\}/g)].map((m) => [
       m[1],
@@ -223,17 +223,17 @@ test('悬停卡：官方卡几何常数取自官方实现，且 shell 不再用 
     2,
     '会话行与工作区行都必须按 hoverCard 闸门决定渲不渲染浮层',
   )
-  const shell = read('sidebarFramePlugin.ts')
+  const shell = read('sidebarLayoutPlugin.ts')
   assert.ok(!/_card_/.test(shell), 'shell 不得再用 CSS 钉住官方悬停卡（遮挡的成因）')
 })
 
 // #85 追加项（用户验收拍板去掉顶部「新会话」胶囊）：官方把 New Session 画在侧栏壳
 // （ui-sidebar 的 SidebarRoot）自己身上——不是槽位贡献（官方 0.1.6-alpha.1 的
-// slots.d.ts 里没有它的槽，举证写在 sidebarFramePlugin.ts 的 CSS 上方），只能按
+// slots.d.ts 里没有它的槽，举证写在 sidebarLayoutPlugin.ts 的 CSS 上方），只能按
 // 机制层 4 用 CSS 摘。这条测试守住边界：规则在 shell 且作用域限官方侧栏壳，树插件
 // 不掺和——官方 web 形态（无我们的 shell）胶囊照旧，dsh-* 树插件保持可移植。
 test('官方「新会话」胶囊：只在 shell 的 CSS 里摘，树插件不掺和（可移植边界）', () => {
-  const shell = read('sidebarFramePlugin.ts')
+  const shell = read('sidebarLayoutPlugin.ts')
   assert.match(
     shell,
     /\.dshOneSidebarShell_side>div>\[class\*="root"\]>\[class\*="newSession"\]\{display:none\}/,
@@ -250,7 +250,7 @@ test('官方「新会话」胶囊：只在 shell 的 CSS 里摘，树插件不�
  * 三个官方插件才有地方注册。三件事都是官方契约，任一处漂移都要在这里先红。
  */
 test('chat 树：rightbar 座位声明 + 按官方 props 契约渲染（#79 决策 B）', () => {
-  const text = read('shellPlugin.ts')
+  const text = read('chatLayoutPlugin.ts')
   assert.match(text, /rightbar:\s*\{\s*kind:\s*'single',\s*scope:\s*'root'\s*\}/, 'chat 树要声明官方 rightbar 座位（官方 ui-sidebar-right 经 slots.inject 等它）')
   // 官方 AppFrame 的 RightbarColumn 传的三个字段（官方 client.js 的 renderSlot("rightbar", …)）。
   assert.match(text, /renderSlot\(\s*'rightbar',\s*\{[\s\S]{0,200}?width:[\s\S]{0,80}?viewportWidth:[\s\S]{0,80}?canShow:/, 'rightbar 座位要按官方 props 契约传 width / viewportWidth / canShow')

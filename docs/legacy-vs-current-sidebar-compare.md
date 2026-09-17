@@ -6,7 +6,7 @@
 
 - **两侧正本**（都用当次工作区里的代码）：
   - 旧侧栏（vanilla，迁移参照物，只读勿改）：`src/ui/sessionsView.ts`（宿主侧 view provider + 消息处理 + 全部 CSS 的 `SESSIONS_STYLE`）、`src/ui/sessionsWebview.ts`（前端 HTML / CSS / 逻辑）、`src/ui/sessionsStore.ts`（数据与状态）、`src/pure/sessionTree.ts`（分组 / 排序 / 过滤）、`src/pure/sessionTags.ts`（标签色与内置组）。
-  - 现装配侧栏：`src/ui/assembly/shell/workspaceTree/*.ts`（15 个文件）、`src/ui/assembly/shell/sidebarFramePlugin.ts`（密度档与侧栏外框）、`src/ui/assembly/shell/workspaceTreePlugin.ts`、`src/pure/{workspaceTreeView,workspaceTreePrefs,treeGroups,sessionMarks,sessionEligibility,sessionTags,sessionTagGroups,recycleActions,recycleBinState}.ts`、`packages/dsh-workspace-tree/`。
+  - 现装配侧栏：`src/ui/assembly/shell/workspaceTree/*.ts`（15 个文件）、`src/ui/assembly/shell/sidebarLayoutPlugin.ts`（密度档与侧栏外框）、`src/ui/assembly/shell/workspaceTreePlugin.ts`、`src/pure/{workspaceTreeView,workspaceTreePrefs,treeGroups,sessionMarks,sessionEligibility,sessionTags,sessionTagGroups,recycleActions,recycleBinState}.ts`、`packages/dsh-workspace-tree/`。
 - **判断只取四个值**：**一致** / **缺**（现在没有）/ **不同**（都有但不一致）/ **现在更好**。
 - **证据**：每条都写 `文件:行`。只写文件名的那几种（`rows.ts` / `tree.ts` / `styles.ts` / `selection.ts` / `tagGroups.ts` / `modals.ts` / `toolbar.ts` / `groupFilterBar.ts` / `recycleDrawer.ts` / `recycleEntry.ts` / `hoverCard.ts` / `format.ts` / `search.ts` / `locale.ts`）都在 `src/ui/assembly/shell/workspaceTree/` 下；`sessionsView.ts` / `sessionsWebview.ts` / `sessionsStore.ts` 在 `src/ui/` 下；`pure/xxx.ts` 在 `src/pure/` 下。读不出来的写「未核实」，不臆断。
 - 语言按仓库铁律：官方机制名词用英文原词（`slot` / `shadow` / `seam` / `combo`），不造词。
@@ -230,7 +230,7 @@
 | --- | --- | --- | --- |
 | 悬停提示 | 自实现（webview 里原生 `title` 不显示）：`sessionsWebview.ts:352-414`、`sessionsView.ts:698-706` | 官方 `Tooltip` 组件 + 部分原生 `title`：`toolbar.ts:206-221`、`rows.ts:596` | 不同（机制） |
 | 顶栏设置齿轮 | 无 | `toolbar.ts:309-326`（宿主有独立设置页时才渲染） | 现在更好（新增） |
-| 主题与颜色 | 全用 VS Code 变量（`--vscode-*`）：`sessionsView.ts:34-37`、`441-444` | 全用官方 token（`--dsw-alias-*`）+ 主题映射（`sidebarFramePlugin.ts:374-384`）；标签色是 6 色字面值（`tagGroups.ts:58-65`，因为官方 token 里没有这一类） | 不同（来源切换） |
+| 主题与颜色 | 全用 VS Code 变量（`--vscode-*`）：`sessionsView.ts:34-37`、`441-444` | 全用官方 token（`--dsw-alias-*`）+ 主题映射（`sidebarLayoutPlugin.ts:374-384`）；标签色是 6 色字面值（`tagGroups.ts:58-65`，因为官方 token 里没有这一类） | 不同（来源切换） |
 | 界面文案词典 | 扩展自带 l10n bundle 注入 webview：`sessionsWebview.ts:40` | 官方 locale 词典（键名沿用官方）：`workspaceTree/locale.ts` 全篇 | 不同（机制） |
 | 读屏语义 | 行是普通 `div`，没有角色 | `role="treeitem"` + `aria-selected` / `aria-checked` / `aria-expanded` 等：`rows.ts:1140-1154`、`590` | 现在更好 |
 | 浮层与模态 | 自实现 popover + 面板内 modal：`sessionsWebview.ts:262-350`、`155-205` | 官方 `Menu`（portal）与官方 `Modal` | 不同（机制） |
@@ -239,32 +239,32 @@
 
 # B. 样式对照表
 
-**现值一律给出档位表出处**：`workspaceTree/styles.ts` 的档位表（`SCALE_TIERS`，`styles.ts:112-192`；规则表头的说明在 `styles.ts:31-102`）与密度表（`sidebarFramePlugin.ts` 的 `DENSITY_PROFILE`，`sidebarFramePlugin.ts:120-195`，两列 `official` / `vscode`）。
+**现值一律给出档位表出处**：`workspaceTree/styles.ts` 的档位表（`SCALE_TIERS`，`styles.ts:112-192`；规则表头的说明在 `styles.ts:31-102`）与密度表（`sidebarLayoutPlugin.ts` 的 `DENSITY_PROFILE`，`sidebarLayoutPlugin.ts:120-195`，两列 `official` / `vscode`）。
 
 表里「现值」一栏的写法：`密度键：official 值 / vscode 值`，后面跟消费它的 CSS 规则位置。
 
 | 项 | 旧值（`文件:行`） | 现值（档位表键 / `文件:行`） | 差异 |
 | --- | --- | --- | --- |
-| 工作区行高 | 32px（`sessionsView.ts:390-394`） | `row-height`：34px / 34px（`sidebarFramePlugin.ts` 的密度表；消费点 `styles.ts` 的 `.dshOneTree_projectRow`） | 不同（30px→34px：行家族取官方侧栏原值，#134） |
+| 工作区行高 | 32px（`sessionsView.ts:390-394`） | `row-height`：34px / 34px（`sidebarLayoutPlugin.ts` 的密度表；消费点 `styles.ts` 的 `.dshOneTree_projectRow`） | 不同（30px→34px：行家族取官方侧栏原值，#134） |
 | 会话行高 | 32px（`sessionsView.ts:433-437`） | `session-row-height`：32px / 32px（同上；消费点 `.dshOneTree_sessionRow`、`.dshOneTree_drawerRow`） | 一致（同为 32px 量级，#134 起这一项两边同值） |
 | 行字号 | 12px（`sessionsView.ts:393`、`436`） | 标题 `title-font-size`：14px / 14px；元信息 `meta-font-size`：12px / 12px（消费点 `styles.ts` 的 `.dshOneTree_title` / `.dshOneTree_time`） | 不同（标题比旧值大一号：#123 起标题取官方标题档） |
 | 文字行高 | 未显式声明（随 `--vscode-font-size`，约 1.4 倍） | 标题 `title-line-height`：20px / 20px；元信息 `meta-line-height`：20px / 18px（消费点同上） | 不同（现在显式取官方行高；元信息比官方原值紧一档） |
 | 行圆角 | 会话行 4px（`sessionsView.ts:436`）；工作区行没有圆角（`390-394`） | `row-radius`：8px / 8px（消费点 `styles.ts` 的两条行规则与溢出按钮 / 搜索结果行 / 入口行主区 / 抽屉块头） | 不同（两个行种统一取官方原值；这也是唯一进密度表的圆角） |
 | 行内边距 | 会话行 `0 6px 0 20px` + 外边距 `0 4px`（`sessionsView.ts:434`）；工作区行 `0 10px`（`391`） | `row-padding-inline`：8px / 8px（消费点 `styles.ts` 的行规则，同时是骨架件与行形件对齐的「行内容基准」）；行通栏出血，左内边距不再承担层级缩进 | 不同（行从「左右各留 4px + 左缩进 20px」改成通栏 + 官方 8px 内边距） |
-| 行间距 | 列表容器 `padding: 2px 0`，行之间无间距（`sessionsView.ts:81`） | `row-gap`：2px / 2px（`sidebarFramePlugin.ts:129`；消费点 `styles.ts:256`） | 一致（同为 2px 量级，#119 起这一项两边同值） |
-| 组间距 | 标签组块 `margin: 4px 0 2px`（`sessionsView.ts:581`） | `group-gap`：4px / 4px（`sidebarFramePlugin.ts:134`；消费点 `styles.ts:258`、`347`、`441`） | 一致（#119 定「纵向取官方节奏」） |
-| 分节头下边距 | 顶栏 / 分组栏 / 选择条的 1px 分隔线（`sessionsView.ts:44-47`、`92-95`、`84-87`） | `section-header-gap`：4px / 4px（`sidebarFramePlugin.ts:142`；消费点 `styles.ts:236`）；没有分隔线 | 不同（分隔线换成留白） |
+| 行间距 | 列表容器 `padding: 2px 0`，行之间无间距（`sessionsView.ts:81`） | `row-gap`：2px / 2px（`sidebarLayoutPlugin.ts:129`；消费点 `styles.ts:256`） | 一致（同为 2px 量级，#119 起这一项两边同值） |
+| 组间距 | 标签组块 `margin: 4px 0 2px`（`sessionsView.ts:581`） | `group-gap`：4px / 4px（`sidebarLayoutPlugin.ts:134`；消费点 `styles.ts:258`、`347`、`441`） | 一致（#119 定「纵向取官方节奏」） |
+| 分节头下边距 | 顶栏 / 分组栏 / 选择条的 1px 分隔线（`sessionsView.ts:44-47`、`92-95`、`84-87`） | `section-header-gap`：4px / 4px（`sidebarLayoutPlugin.ts:142`；消费点 `styles.ts:236`）；没有分隔线 | 不同（分隔线换成留白） |
 | 行内图标位 | 工作区文件夹 / 折叠三角 16×16（`sessionsView.ts:397-401`）；图钉 14×14（`447-452`） | `.dshOneTree_slot` 16×20（`styles.ts:298`，档位表记名 `styles.ts:145-146`）；图钉 14px（`styles.ts:417`） | 一致（都是官方 16 档图标位 + 14px 图钉） |
 | 行内动作按钮 | 20×20、圆角 3px（`sessionsView.ts:496-500`） | `.dshOneTree_rowIconButton` 16×16、圆角 4px（`styles.ts:318`；档位表记名 `styles.ts:147-148`） | 不同（按钮变小 4px） |
 | 状态点尺寸 | 绿 / 黄点 6px（`sessionsView.ts:464-466`）；运行中自绘 10px 像素环（`sessionsView.ts:453-461`；画法由共享模块承担，见 `sessionsWebview.ts:476-482`） | 官方 `StateDot`，默认 10px（出处 `docs/dsh-web-workflow-run-card-research.md:76`；`rows.ts:211` 未传 size） | 不同（6px → 10px） |
-| 分组过滤胶囊尺寸 | 高约 23px（`padding: 3px 9px 3px 8px` + 12px 字，无显式行高）：`sessionsView.ts:96-103`；计数角标 11px / 16px 行高 / 圆角 999px（`116-120`） | `pill-height`：28px / 26px、`pill-font-size`：13px / 12px、`pill-padding-start`：8px / 7px、`pill-padding-end`：4px / 2px（`sidebarFramePlugin.ts:176-179`；消费点 `styles.ts:353`）；圆角 999px 取容器档（`styles.ts:188`） | 不同（高度显式化，两侧都比旧值高） |
+| 分组过滤胶囊尺寸 | 高约 23px（`padding: 3px 9px 3px 8px` + 12px 字，无显式行高）：`sessionsView.ts:96-103`；计数角标 11px / 16px 行高 / 圆角 999px（`116-120`） | `pill-height`：28px / 26px、`pill-font-size`：13px / 12px、`pill-padding-start`：8px / 7px、`pill-padding-end`：4px / 2px（`sidebarLayoutPlugin.ts:176-179`；消费点 `styles.ts:353`）；圆角 999px 取容器档（`styles.ts:188`） | 不同（高度显式化，两侧都比旧值高） |
 | 工作区行「宿主」小胶囊 | 10px 字、`padding: 0 7px`、圆角 999px（`sessionsView.ts:422-427`） | `.dshOneTree_workspaceBadge` 16px 高 / 圆角 10px / 11px 字 / 内边距 `0 4px`（`styles.ts` 的规则上方逐项写了取的哪一档：高取标准档行内图标按钮的 16px、圆角取容器档小胶囊、字号取标准档小胶囊、内边距取标准档胶囊触发器；#138 从 20px 高收紧一档） | 不同（旧是自定值，现取官方同形件的档） |
 | 抽屉尺寸 | 默认 50%、上拉 90%（`sessionsWebview.ts:2612-2613`）；提手 16px 高、把手 36×4 / 圆角 2px（`sessionsView.ts:314-322`） | 默认 50% / 90%（`recycleDrawer.ts:42-43`、`238`）；提手 12px、把手 32×3 / 圆角 2px（`styles.ts:462-464`）；过渡时长与缓动取官方 token（`styles.ts:453`） | 不同（提手与把手都缩小一档） |
-| 回收站入口行 | 行高由 `padding: 7px 4px 7px 14px` + 12px 字撑出（`sessionsView.ts:334-339`）；行内图标按钮 26×26（`341`）；行盒吃满宽度、标签吃满余量（`344`） | **#137 起整套按旧侧栏规格取定值**（不再走密度档）：行盒吃满宽度、右侧 8px，主区 `7px 4px 7px <行内容基准>`，计数胶囊 10px/16px 行高/圆角 8px/内边距 `0 5px`，动作按钮 26×26（`styles.ts:394-418`）；行高由内边距 + 标题档行高撑出 34px；`footer-row-height` 密度键随本条退场（`sidebarFramePlugin.ts:200-205`） | 基本一致（两处刻意不同：左内边距走 #125 的行内容基准、按钮形状仍是官方圆形） |
+| 回收站入口行 | 行高由 `padding: 7px 4px 7px 14px` + 12px 字撑出（`sessionsView.ts:334-339`）；行内图标按钮 26×26（`341`）；行盒吃满宽度、标签吃满余量（`344`） | **#137 起整套按旧侧栏规格取定值**（不再走密度档）：行盒吃满宽度、右侧 8px，主区 `7px 4px 7px <行内容基准>`，计数胶囊 10px/16px 行高/圆角 8px/内边距 `0 5px`，动作按钮 26×26（`styles.ts:394-418`）；行高由内边距 + 标题档行高撑出 34px；`footer-row-height` 密度键随本条退场（`sidebarLayoutPlugin.ts:200-205`） | 基本一致（两处刻意不同：左内边距走 #125 的行内容基准、按钮形状仍是官方圆形） |
 | 空态字号与内边距 | 主行 12px、次要行 11px、内边距 `20px 12px`（`sessionsView.ts:503-508`） | `.dshOneTree_empty` 13px、内边距 `16px 12px`（`styles.ts:261`，取官方 `empty` 那一条的同值） | 不同 |
 | 菜单项几何 | 最小高 30px、圆角 8px、内边距 `4px 10px`、行内间隙 8px、字号 12px、图标位 14×14（`sessionsView.ts:654-670`）；弹层 `min-width: 180px`、圆角 12px、内边距 4px（`644-653`） | 官方 `Menu` 的 **compact 档**：项高 26px / 圆角 5px / 间隙 6px / 内边距 `3px 7px` / 字号 12px / 行高 18px / 图标位 14×14；列表 `min-width: 164px` / 圆角 7px / 内边距 2px（`styles.ts:114-132`）。所有菜单都传 `compact: true`（如 `rows.ts:1285`、`toolbar.ts:80`、`tagGroups.ts:390`） | 不同（整套收紧：30→26px、8→5px、10→7px） |
 | 选择态动作条 | `padding: 6px 8px` + 1px 下边线；按钮 `padding: 3px 10px` / 12px 字（`sessionsView.ts:84-88`） | 通栏横带：上下 .5px 发丝线 + 官方悬停底色，纵向走 `group-gap`（4px）、横向走 `row-padding-inline`（`styles.ts:441-446`）；按钮是官方 `Button` 的 `sm` 档 28px（`selection.ts:119-143`，档位表记名 `styles.ts:93-98`） | 不同（无描边框，改成横带 + 官方按钮） |
-| 骨架窗口件（顶栏图标按钮 / 搜索框） | 图标按钮 24×24、圆角 4px（`sessionsView.ts:70-74`）；搜索框 `padding: 3px 22px 3px 6px`、圆角 4px、12px 字（`53-57`） | `icon-button-size`：28px / 26px；`search-height`：28px / 26px（折叠态那枚圆放大镜）；`search-expanded-height`：30px / 26px；搜索圆角 10px、字号 13px（`sidebarFramePlugin.ts:153-158`；消费点 `styles.ts:234`、`243-250`） | 不同（整套换成官方那套两态的几何） |
+| 骨架窗口件（顶栏图标按钮 / 搜索框） | 图标按钮 24×24、圆角 4px（`sessionsView.ts:70-74`）；搜索框 `padding: 3px 22px 3px 6px`、圆角 4px、12px 字（`53-57`） | `icon-button-size`：28px / 26px；`search-height`：28px / 26px（折叠态那枚圆放大镜）；`search-expanded-height`：30px / 26px；搜索圆角 10px、字号 13px（`sidebarLayoutPlugin.ts:153-158`；消费点 `styles.ts:234`、`243-250`） | 不同（整套换成官方那套两态的几何） |
 | 标签组（pill / 竖线 / 组内缩进） | pill 高 16px、圆角 4px、10px 粗体字；组头高 22px；竖线 `left: 16px; top: 19px; bottom: 2px; width: 2px`；组内行缩进 24px（`sessionsView.ts:584-627`） | 同一组值逐字沿用（`styles.ts:507-538`），并在档位表里登记为例外（`styles.ts:202-208`，理由：官方没有「标签组」这个形态，量不出档） | 一致（#122 已把竖线与缩进改回旧规格） |
 | 颜色 token 的取法 | 全用 VS Code 变量（`--vscode-foreground` / `--vscode-list-hoverBackground` / `--vscode-charts-*` 等）：`sessionsView.ts:34-37`、`441-444`、`594-599` | 全用官方 token（`--dsw-alias-*`）：`styles.ts` 全篇；标签色是 6 个色值字面量（`tagGroups.ts:58-65`，官方 token 里没有标签色板这一类） | 不同（颜色来源从 VS Code 主题换成官方 token，随两端一致） |
 | 字体族与基准字号 | `var(--vscode-font-family)` / `var(--vscode-font-size)`（`sessionsView.ts:34-37`） | 树不声明字形（`styles.ts` 无 `font-family`），继承官方侧栏壳给的字体 | 不同（**未核实**官方壳给的具体字体族与基准字号：官方 css 不在本仓库） |

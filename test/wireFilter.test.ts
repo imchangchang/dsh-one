@@ -2,13 +2,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CHAT_BLOCKED_IDS,
+  CHAT_FRAME_PLUGIN_ID,
   GIT_CARD_PLUGIN_ID,
   SETTINGS_BLOCKED_IDS,
-  SETTINGS_SHELL_PLUGIN_ID,
-  SHELL_PLUGIN_ID,
+  SETTINGS_FRAME_PLUGIN_ID,
   SIDEBAR_BLOCKED_IDS,
   SIDEBAR_BLOCK_LIST,
-  SIDEBAR_SHELL_PLUGIN_ID,
+  SIDEBAR_FRAME_PLUGIN_ID,
   THEME_FOLLOW_PLUGIN_ID,
   extractBootWire,
   extractFrontendAssets,
@@ -75,11 +75,11 @@ test('filterWire：剥 blocklist、application 批重指 /plugins-local、追加
   assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-layout'), 'ui-layout 应被剔除')
   assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-sidebar'), 'ui-sidebar 应被剔除')
   // shell 恰好一个，url 指 /plugins-local，rev = 官方那半 + 本地那半（#173）。
-  const shell = filtered.entries.filter((e) => e.id === SHELL_PLUGIN_ID)
+  const shell = filtered.entries.filter((e) => e.id === CHAT_FRAME_PLUGIN_ID)
   assert.equal(shell.length, 1)
   assert.match(
     shell[0].url,
-    new RegExp(`^/plugins-local/\\?\\?${SHELL_PLUGIN_ID.replaceAll('/', '\\/')}/client\\.js&rev=rev-app-${LOCAL_REV}$`),
+    new RegExp(`^/plugins-local/\\?\\?${CHAT_FRAME_PLUGIN_ID.replaceAll('/', '\\/')}/client\\.js&rev=rev-app-${LOCAL_REV}$`),
   )
   assert.equal(shell[0].rev, `rev-app-${LOCAL_REV}`)
   // 批：bootstrap 原样（引用相等即原对象）；application 重拼、rev 是双半缓存键、含 shell。
@@ -91,17 +91,22 @@ test('filterWire：剥 blocklist、application 批重指 /plugins-local、追加
     '@deepseek-ai/dsh-typert-registry',
     '@deepseek-ai/dsh-client-ui-chat',
     '@deepseek-ai/dsh-client-ui-workspace',
-    SHELL_PLUGIN_ID,
+    CHAT_FRAME_PLUGIN_ID,
     THEME_FOLLOW_PLUGIN_ID,
   ])
   assert.ok(
     app.url.startsWith(
-      '/plugins-local/??@deepseek-ai/dsh-typert-registry/client.js,@deepseek-ai/dsh-client-ui-chat/client.js,@deepseek-ai/dsh-client-ui-workspace/client.js,@dsh-one/vscode-shell/client.js,@dsh-one/vscode-theme-follow/client.js',
+      '/plugins-local/??@deepseek-ai/dsh-typert-registry/client.js,@deepseek-ai/dsh-client-ui-chat/client.js,@deepseek-ai/dsh-client-ui-workspace/client.js,@dsh-one/vscode-chat-ui-layout/client.js,@dsh-one/vscode-theme-follow/client.js',
     ),
     `application combo 的 id 列表：${app.url}`,
   )
   assert.ok(app.url.endsWith(`&rev=rev-app-${LOCAL_REV}`), `application combo 的缓存键：${app.url}`)
-  assert.ok(!app.url.includes('ui-layout') && !app.url.includes('ui-sidebar'), 'application combo 不得含 blocked id')
+  // 判据用**官方 id 全名**：本树自己的 id 里也带 `ui-layout` 字样（#97 起叫
+  // @dsh-one/vscode-chat-ui-layout），按子串判会把自有插件误当成官方外框。
+  assert.ok(
+    CHAT_BLOCKED_IDS.every((id) => !app.url.includes(`${id}/client.js`)),
+    'application combo 不得含 blocked id',
+  )
 })
 
 test('filterWire：网关清单缺 blocklist 项时**不阻断**、只报告（官方插件合并/下线是正常演进）', () => {
@@ -126,7 +131,7 @@ test('filterWire（sidebar 树）：外框+对话流+设置子页剥除，官方
       { id: '@deepseek-ai/dsh-client-ui-layout', reason: 'fixture' },
       { id: '@deepseek-ai/dsh-client-ui-chat', reason: 'fixture' },
     ],
-    SIDEBAR_SHELL_PLUGIN_ID,
+    SIDEBAR_FRAME_PLUGIN_ID,
     undefined,
     LOCAL_REV,
   )
@@ -151,12 +156,12 @@ test('filterWire（sidebar 树）：外框+对话流+设置子页剥除，官方
   assert.ok(!SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-permission-presets'), 'ui-permission-presets 在侧栏树上必须放行（#164）')
   assert.ok(!SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-model-selection'), 'ui-model-selection 不在侧栏树 block list 里')
   // sidebar frame 插件替换 shell 位。
-  const shell = filtered.entries.filter((e) => e.id === SIDEBAR_SHELL_PLUGIN_ID)
+  const shell = filtered.entries.filter((e) => e.id === SIDEBAR_FRAME_PLUGIN_ID)
   assert.equal(shell.length, 1)
   assert.match(
     shell[0].url,
     new RegExp(
-      `^/plugins-local/\\?\\?${SIDEBAR_SHELL_PLUGIN_ID.replaceAll('/', '\\/')}/client\\.js&rev=rev-app-${LOCAL_REV}$`,
+      `^/plugins-local/\\?\\?${SIDEBAR_FRAME_PLUGIN_ID.replaceAll('/', '\\/')}/client\\.js&rev=rev-app-${LOCAL_REV}$`,
     ),
   )
   const app = filtered.batches[1]
@@ -164,11 +169,15 @@ test('filterWire（sidebar 树）：外框+对话流+设置子页剥除，官方
     '@deepseek-ai/dsh-typert-registry',
     '@deepseek-ai/dsh-client-ui-sidebar',
     '@deepseek-ai/dsh-client-ui-workspace',
-    SIDEBAR_SHELL_PLUGIN_ID,
+    SIDEBAR_FRAME_PLUGIN_ID,
     THEME_FOLLOW_PLUGIN_ID,
   ])
-  assert.ok(!app.url.includes('ui-layout') && !app.url.includes('ui-chat'), 'application combo 不得含 blocked id')
-  assert.ok(app.url.includes('ui-sidebar'), 'sidebar 树 combo 必须含官方侧栏段')
+  // 同上按官方 id 全名判：自有 id（@dsh-one/vscode-sidebar-ui-layout）里带 ui-sidebar。
+  assert.ok(
+    SIDEBAR_BLOCKED_IDS.every((id) => !app.url.includes(`${id}/client.js`)),
+    'application combo 不得含 blocked id',
+  )
+  assert.ok(app.url.includes('@deepseek-ai/dsh-client-ui-sidebar/client.js'), 'sidebar 树 combo 必须含官方侧栏段')
 })
 
 test('filterWire（settings 树）：外框+官方侧栏+对话流剥除，frame 换 settings-shell（#70/#71）', () => {
@@ -180,7 +189,7 @@ test('filterWire（settings 树）：外框+官方侧栏+对话流剥除，frame
       { id: '@deepseek-ai/dsh-client-ui-sidebar', reason: 'fixture' },
       { id: '@deepseek-ai/dsh-client-ui-chat', reason: 'fixture' },
     ],
-    SETTINGS_SHELL_PLUGIN_ID,
+    SETTINGS_FRAME_PLUGIN_ID,
     undefined,
     LOCAL_REV,
   )
@@ -188,7 +197,7 @@ test('filterWire（settings 树）：外框+官方侧栏+对话流剥除，frame
   assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-layout'))
   assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-sidebar'), 'settings 树官方侧栏壳不进页')
   assert.ok(!ids.includes('@deepseek-ai/dsh-client-ui-chat'), 'settings 树对话流不进页')
-  assert.ok(ids.includes(SETTINGS_SHELL_PLUGIN_ID))
+  assert.ok(ids.includes(SETTINGS_FRAME_PLUGIN_ID))
   assert.ok(ids.includes(THEME_FOLLOW_PLUGIN_ID))
   // 树清单内容：settings 树 = layout+sidebar+对话流组（chat/conversation 保留——
   // 「对话显示」设置行是 ui-chat 贡献，Enter 行为行是 ui-conversation 贡献）。
@@ -200,7 +209,7 @@ test('filterWire（settings 树）：外框+官方侧栏+对话流剥除，frame
   assert.deepEqual(app.entries, [
     '@deepseek-ai/dsh-typert-registry',
     '@deepseek-ai/dsh-client-ui-workspace',
-    SETTINGS_SHELL_PLUGIN_ID,
+    SETTINGS_FRAME_PLUGIN_ID,
     THEME_FOLLOW_PLUGIN_ID,
   ])
 })
@@ -248,7 +257,7 @@ test('filterWire：block 项落在第二个 application 批里也照常剥掉（
     ],
   })
   const warnings: string[] = []
-  const filtered = filterWire(wire, BLOCK_DIR_PICKER, SHELL_PLUGIN_ID, [THEME_FOLLOW_PLUGIN_ID], LOCAL_REV, (line) =>
+  const filtered = filterWire(wire, BLOCK_DIR_PICKER, CHAT_FRAME_PLUGIN_ID, [THEME_FOLLOW_PLUGIN_ID], LOCAL_REV, (line) =>
     warnings.push(line),
   )
   // 修复前这里抛 application batch blocklist entries inconsistent with wire entries
@@ -259,7 +268,7 @@ test('filterWire：block 项落在第二个 application 批里也照常剥掉（
   const app = filtered.batches[1]
   assert.equal(app.phase, 'application')
   assert.equal(app.rev, `rev-batch-1-${LOCAL_REV}`, '官方那半沿用第一个 application 批的 rev，本地那半拼在后面')
-  assert.deepEqual(app.entries, ['@deepseek-ai/dsh-client-ui-chat', SHELL_PLUGIN_ID, THEME_FOLLOW_PLUGIN_ID])
+  assert.deepEqual(app.entries, ['@deepseek-ai/dsh-client-ui-chat', CHAT_FRAME_PLUGIN_ID, THEME_FOLLOW_PLUGIN_ID])
   assert.equal(app.url.includes('directory-picker-native'), false, 'combo URL 不得含被 block 的段')
 })
 
@@ -302,7 +311,7 @@ test('filterWire：网关清单已含同 id 的自有插件时不重复叠加本
       { phase: 'application', entries: ['@deepseek-ai/dsh-client-modules', GIT_CARD_PLUGIN_ID] },
     ],
   })
-  const filtered = filterWire(wire, [], SHELL_PLUGIN_ID, [GIT_CARD_PLUGIN_ID, THEME_FOLLOW_PLUGIN_ID], LOCAL_REV)
+  const filtered = filterWire(wire, [], CHAT_FRAME_PLUGIN_ID, [GIT_CARD_PLUGIN_ID, THEME_FOLLOW_PLUGIN_ID], LOCAL_REV)
   const gitCards = filtered.entries.filter((e) => e.id === GIT_CARD_PLUGIN_ID)
   assert.equal(gitCards.length, 1, '同 id 只能有一条 entry')
   assert.match(gitCards[0].url, /^\/plugins\//, '网关已提供时用网关那份，不再指 /plugins-local')

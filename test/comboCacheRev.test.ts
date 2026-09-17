@@ -20,7 +20,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { localBundleRev } from '../src/server/localBundleRev.ts'
 import { startAssemblyMirror } from '../src/server/assemblyMirror.ts'
-import { CHAT_BLOCK_LIST, SHELL_PLUGIN_ID, filterWire, extractBootWire } from '../src/ui/assembly/wireFilter.ts'
+import { CHAT_BLOCK_LIST, CHAT_FRAME_PLUGIN_ID, filterWire, extractBootWire } from '../src/ui/assembly/wireFilter.ts'
 
 /** 迷你网关的注入 HTML（与 test/wireFilter.test.ts 同形）。 */
 const GATEWAY_HTML = `<!doctype html><html><head>
@@ -40,15 +40,15 @@ const KEPT_OFFICIAL_ID = '@deepseek-ai/dsh-typert-registry'
 /** 建一个临时 pluginsDir，写入 `<id>/client.js` 的内容（内容可指定）。 */
 async function pluginsDirWith(content: string): Promise<string> {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'dsh-one-bundle-'))
-  await fsp.mkdir(path.join(dir, SHELL_PLUGIN_ID), { recursive: true })
-  await fsp.writeFile(path.join(dir, SHELL_PLUGIN_ID, 'client.js'), content)
+  await fsp.mkdir(path.join(dir, CHAT_FRAME_PLUGIN_ID), { recursive: true })
+  await fsp.writeFile(path.join(dir, CHAT_FRAME_PLUGIN_ID, 'client.js'), content)
   return dir
 }
 
 /** 这份本地产物下的 combo URL（走真实 filterWire，localRev 现算）。 */
 async function comboUrlOf(pluginsDir: string): Promise<{ url: string; rev: string; localRev: string }> {
   const localRev = await localBundleRev(pluginsDir)
-  const wire = filterWire(extractBootWire(GATEWAY_HTML), CHAT_BLOCK_LIST, SHELL_PLUGIN_ID, [], localRev)
+  const wire = filterWire(extractBootWire(GATEWAY_HTML), CHAT_BLOCK_LIST, CHAT_FRAME_PLUGIN_ID, [], localRev)
   const app = wire.batches[1]
   return { url: app.url, rev: app.rev, localRev }
 }
@@ -61,7 +61,7 @@ test('localBundleRev：内容变了版本就变，没变就一样；增删文件
     assert.equal(await localBundleRev(dir), first, '内容没变时同一个版本（长缓存才不会被无谓打破）')
 
     // ① 改一个字节（用户现场就是「改一行 CSS 重建」）
-    await fsp.writeFile(path.join(dir, SHELL_PLUGIN_ID, 'client.js'), 'window.__ModuleLoader__.load({ id: "y" })')
+    await fsp.writeFile(path.join(dir, CHAT_FRAME_PLUGIN_ID, 'client.js'), 'window.__ModuleLoader__.load({ id: "y" })')
     const edited = await localBundleRev(dir)
     assert.notEqual(edited, first, '改了内容，版本必须变')
 
@@ -76,7 +76,7 @@ test('localBundleRev：内容变了版本就变，没变就一样；增删文件
     assert.equal(await localBundleRev(dir), edited, '内容回到原样，版本也该回到原值')
 
     // ④ 改名也算变（同样两条路径不同：这是「相对路径也进哈希」的证据）
-    await fsp.rename(path.join(dir, SHELL_PLUGIN_ID), path.join(dir, '@dsh-one/renamed'))
+    await fsp.rename(path.join(dir, CHAT_FRAME_PLUGIN_ID), path.join(dir, '@dsh-one/renamed'))
     assert.notEqual(await localBundleRev(dir), edited, '换路径，版本必须变')
   } finally {
     await fsp.rm(dir, { recursive: true, force: true })
@@ -104,7 +104,7 @@ test('本地产物一变，combo URL 的 rev 就跟着变（#173 的核心判据
     // 没变的这一遍：内容一字不动 → URL 一字不动（长缓存靠的就是这个）
     assert.deepEqual(await comboUrlOf(dir), before, '本地产物没变时缓存键必须一字不变')
 
-    await fsp.writeFile(path.join(dir, SHELL_PLUGIN_ID, 'client.js'), 'b')
+    await fsp.writeFile(path.join(dir, CHAT_FRAME_PLUGIN_ID, 'client.js'), 'b')
     const after = await comboUrlOf(dir)
     assert.notEqual(after.rev, before.rev, '本地产物变了，缓存键必须变（否则 webview 吃满 immutable 缓存）')
     assert.notEqual(after.url, before.url, 'URL 就是缓存键：变的是它，不是响应头')
@@ -142,7 +142,7 @@ test('镜像：combo 仍回 immutable 长缓存，且 ETag 里带着本地那一
   const mirror = await startAssemblyMirror(
     () => gateway.origin,
     logger,
-    { pluginsDir: dir, treeCombos: [{ shellPluginId: SHELL_PLUGIN_ID, blockList: CHAT_BLOCK_LIST }] },
+    { pluginsDir: dir, treeCombos: [{ framePluginId: CHAT_FRAME_PLUGIN_ID, blockList: CHAT_BLOCK_LIST }] },
   )
   try {
     const { url, rev } = await comboUrlOf(dir)
@@ -153,19 +153,19 @@ test('镜像：combo 仍回 immutable 长缓存，且 ETag 里带着本地那一
       'max-age=86400, immutable',
       '#71 的长缓存没被砍：本地没变时整包网络字节≈0 这条照旧',
     )
-    assert.equal(res.headers.get('etag'), `"dsh-combo-${rev}-${SHELL_PLUGIN_ID}"`, 'ETag 的 rev 里含本地那半')
+    assert.equal(res.headers.get('etag'), `"dsh-combo-${rev}-${CHAT_FRAME_PLUGIN_ID}"`, 'ETag 的 rev 里含本地那半')
     const body = await res.text()
     assert.ok(body.includes(KEPT_OFFICIAL_ID), '官方那半由镜像剥段后拼进来')
     assert.ok(!body.includes('@deepseek-ai/dsh-client-ui-layout'), '被 block 的官方段被镜像剥掉')
     assert.ok(body.includes('local-bundle-bytes'), '本地那半读的是 pluginsDir 下那份产物')
 
     // 本地重建之后：URL（缓存键）与 ETag 一起变，浏览器按新条目重取新内容。
-    await fsp.writeFile(path.join(dir, SHELL_PLUGIN_ID, 'client.js'), 'rebuilt-bytes')
+    await fsp.writeFile(path.join(dir, CHAT_FRAME_PLUGIN_ID, 'client.js'), 'rebuilt-bytes')
     const rebuilt = await comboUrlOf(dir)
     assert.notEqual(rebuilt.url, url, '重建后页面拿到的是另一个 combo URL')
     const res2 = await fetch(`${mirror.origin}${rebuilt.url}`)
     assert.equal(res2.status, 200)
-    assert.equal(res2.headers.get('etag'), `"dsh-combo-${rebuilt.rev}-${SHELL_PLUGIN_ID}"`)
+    assert.equal(res2.headers.get('etag'), `"dsh-combo-${rebuilt.rev}-${CHAT_FRAME_PLUGIN_ID}"`)
     assert.ok((await res2.text()).includes('rebuilt-bytes'), '新 URL 取到的是新产物')
   } finally {
     mirror.dispose()

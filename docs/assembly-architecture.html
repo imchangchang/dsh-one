@@ -139,10 +139,10 @@
   <tr><td><code>src/ui/assembly/pageHtml.ts</code></td><td>宿主（生成页面）</td><td>装配页的 HTML：四个全局、安全策略、传输桥、探针</td></tr>
   <tr><td><code>src/ui/assembly/wireFilter.ts</code></td><td>宿主</td><td>清单过滤，纯函数，有单测</td></tr>
   <tr><td><code>src/ui/assembly/probe.ts</code></td><td>页面</td><td>诊断探针，只在 VS Code 环境激活</td></tr>
-  <tr><td><code>src/ui/assembly/shell/shellPlugin.ts</code></td><td>页面（我们的插件）</td><td>骨架（根外框）、layout 服务替代品、主题着色</td></tr>
-  <tr><td><code>src/server/assemblyMirror.ts</code></td><td>代理</td><td>本地转发服务器：接口转发、数据流转发、插件整包过滤、伺服 shell 插件</td></tr>
+  <tr><td><code>src/ui/assembly/shell/chatLayoutPlugin.ts</code></td><td>页面（我们的插件）</td><td>骨架（根外框）、layout 服务替代品、主题着色</td></tr>
+  <tr><td><code>src/server/assemblyMirror.ts</code></td><td>代理</td><td>本地转发服务器：接口转发、数据流转发、插件整包过滤、伺服自有外框插件</td></tr>
   <tr><td><code>src/server/serverAuth.ts</code></td><td>宿主</td><td>token 换登录 cookie</td></tr>
-  <tr><td><code>dist/assembly/plugins/@dsh-one/vscode-shell/</code></td><td>构建产物</td><td>shell 插件打包后的样子（约 4KB）</td></tr>
+  <tr><td><code>dist/assembly/plugins/@dsh-one/vscode-chat-ui-layout/</code></td><td>构建产物</td><td>对话区外框插件打包后的样子（约 4KB）</td></tr>
 </table>
 
 <h2>5. 审阅要点：六个关键决策，以及当初为什么没有选别的</h2>

@@ -1,5 +1,5 @@
 /**
- * @dsh-one/vscode-shell——自有 root 外框插件（#64 方案 A′）：顶替下线的官方
+ * @dsh-one/vscode-chat-ui-layout——自有 root 外框插件（#64 方案 A′）：顶替下线的官方
  * ui-layout（root 槽注册 + layout 服务 + ThemePresenter + panelInfo 槽位钩子），
  * 只装配对话区，无官方侧栏。接手官方框架插件 ui-layout 的契约清单、版本核对办法，
  * 以及「为什么不能改成加载官方 ui-layout + 只遮蔽它的 root slot」（#77 实测结论）
@@ -134,10 +134,10 @@ const FULL_CSS = () => CSS + CSS_DOCK_STATS
 // 无子元素指针事件豁免）——官方 CSS 没有 `>*{pointer-events:auto}`；加豁免会让
 // 任何渲染了尺寸内容的 overlay 贡献（portal 进该层的全屏容器）吃掉全页输入。
 // 需要交互的 overlay 贡献应自行声明 pointer-events（与官方一致）。
-const CSS_TAG_ID = '@dsh-one/vscode-shell/ShellFrame.css'
+const CSS_TAG_ID = '@dsh-one/vscode-chat-ui-layout/ShellFrame.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
-  tag.dataset.plugin = '@dsh-one/vscode-shell'
+  tag.dataset.plugin = '@dsh-one/vscode-chat-ui-layout'
   tag.dataset.pluginCss = CSS_TAG_ID
   tag.textContent = FULL_CSS()
   document.head.appendChild(tag)

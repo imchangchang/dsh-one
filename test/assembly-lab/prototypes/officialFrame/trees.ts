@@ -15,7 +15,7 @@ import {
   CHAT_BLOCK_LIST,
   SETTINGS_BLOCK_LIST,
   SIDEBAR_BLOCK_LIST,
-  SHELL_PLUGIN_ID,
+  CHAT_FRAME_PLUGIN_ID,
   type BlockedPlugin,
 } from '../../../../src/ui/assembly/wireFilter.ts'
 import { CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, type AssemblyTree } from '../../../../src/ui/assembly/trees.ts'
@@ -46,32 +46,32 @@ function withoutFramePlugin(list: ReadonlyArray<BlockedPlugin>): BlockedPlugin[]
 
 export const CHAT_PROTO_TREE: AssemblyTree = {
   blockList: withoutFramePlugin(CHAT_BLOCK_LIST),
-  shellPluginId: PROTO_CHAT_PLUGIN_ID,
+  framePluginId: PROTO_CHAT_PLUGIN_ID,
   extraPluginIds: [...CHAT_TREE.extraPluginIds, PROTO_THEME_PROBE_PLUGIN_ID],
 }
 
 /**
  * 控制组（#89 A/B 实验）：**同一棵 chat 树**，只差「谁渲染 root」——
  * block list 与生产 chat 树完全一致（照样 block 官方 ui-layout、用自有
- * `@dsh-one/vscode-shell`），只多挂一个形态插件（形态插件在自有 frame 上不命中任何
+ * `@dsh-one/vscode-chat-ui-layout`），只多挂一个形态插件（形态插件在自有 frame 上不命中任何
  * 选择器，等于空转）。它用来把「官方 AppFrame 在场」造成的差异从别的变量里摘出来
  * ——实测到的第一处差异就是收尾主题（见 run.ts 的 P-11）。
  */
 export const CHAT_CONTROL_TREE: AssemblyTree = {
   blockList: CHAT_BLOCK_LIST,
-  shellPluginId: SHELL_PLUGIN_ID,
+  framePluginId: CHAT_FRAME_PLUGIN_ID,
   extraPluginIds: [...CHAT_TREE.extraPluginIds, PROTO_THEME_PROBE_PLUGIN_ID, PROTO_CHAT_PLUGIN_ID],
 }
 
 export const SIDEBAR_PROTO_TREE: AssemblyTree = {
   blockList: withoutFramePlugin(SIDEBAR_BLOCK_LIST),
-  shellPluginId: PROTO_SIDEBAR_PLUGIN_ID,
+  framePluginId: PROTO_SIDEBAR_PLUGIN_ID,
   extraPluginIds: SIDEBAR_TREE.extraPluginIds,
 }
 
 export const SETTINGS_PROTO_TREE: AssemblyTree = {
   blockList: withoutFramePlugin(SETTINGS_BLOCK_LIST),
-  shellPluginId: PROTO_SETTINGS_PLUGIN_ID,
+  framePluginId: PROTO_SETTINGS_PLUGIN_ID,
   extraPluginIds: SETTINGS_TREE.extraPluginIds,
 }
 
@@ -105,7 +105,7 @@ export const PROTO_ROUTES: ReadonlyArray<ProtoTreeRoute> = [
     title: '控制组 × chat 树（自有 frame，其余与原型一致）',
     tree: CHAT_CONTROL_TREE,
     readySelector: '[data-slot="conversation.composer.bar"]',
-    note: 'A/B 实验的控制组：block list 与追加插件和原型 chat 树一致，只是 root 由自有 @dsh-one/vscode-shell 渲染——用来把差异归因到「官方 AppFrame 在场」这一个变量。',
+    note: 'A/B 实验的控制组：block list 与追加插件和原型 chat 树一致，只是 root 由自有 @dsh-one/vscode-chat-ui-layout 渲染——用来把差异归因到「官方 AppFrame 在场」这一个变量。',
   },
   {
     route: 'proto-sidebar',

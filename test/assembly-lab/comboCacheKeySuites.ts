@@ -57,7 +57,7 @@ async function shot(ctx: { shots: string }, page: OpenedPage['page'], name: stri
 /** 侧栏树（本套件只开这一棵：它的自有 frame 插件就是我们要改的那份产物）。 */
 const SIDEBAR_TREE = route('sidebar')
 /** 被改的那份本地 bundle（侧栏树的 frame 插件，mirror 从 pluginsDir 读它）。 */
-const MUTATED_ID = SIDEBAR_TREE.tree.shellPluginId
+const MUTATED_ID = SIDEBAR_TREE.tree.framePluginId
 /**
  * 追加进 bundle 的探针：它跑在整包的**顶层**（段末尾），所以只要浏览器真的执行了这份新
  * 产物，页面上就看得见它——比「URL 变了」更硬的那一跳（URL 变了但内容还是旧的也能过前者）。

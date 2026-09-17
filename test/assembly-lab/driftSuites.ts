@@ -75,8 +75,8 @@ export const FIBER_SUITE: LabSuite = {
           `attached=${String(facts.attached)}`,
         )
         check.ok(
-          `${name}：探针登记到该树的自有 frame 插件 ${tree.tree.shellPluginId}（确认探针装在这棵树上）`,
-          facts.plugins.includes(tree.tree.shellPluginId),
+          `${name}：探针登记到该树的自有 frame 插件 ${tree.tree.framePluginId}（确认探针装在这棵树上）`,
+          facts.plugins.includes(tree.tree.framePluginId),
           `登记到的自有插件=${facts.plugins.filter((id) => id.startsWith('@dsh-one/')).join(',')}`,
         )
         check.ok(
@@ -105,14 +105,14 @@ export const FIBER_SUITE: LabSuite = {
 /**
  * 被检查的树 = 三棵生产树；标签取实验室的路由名（chat / sidebar / settings）。
  * 第四棵树 `sidebar-official` 是侧栏树的对照档（同一份 block list，只是不装自有
- * 树插件），按 `shellPluginId` 去重掉，避免同一条 block list 被报两遍。
+ * 树插件），按 `framePluginId` 去重掉，避免同一条 block list 被报两遍。
  */
 const AUDITED_TREES: ReadonlyArray<{ label: string; tree: AssemblyTree }> = ((): Array<{ label: string; tree: AssemblyTree }> => {
   const seen = new Set<string>()
   const audited: Array<{ label: string; tree: AssemblyTree }> = []
   for (const entry of LAB_TREES) {
-    if (seen.has(entry.tree.shellPluginId)) continue
-    seen.add(entry.tree.shellPluginId)
+    if (seen.has(entry.tree.framePluginId)) continue
+    seen.add(entry.tree.framePluginId)
     audited.push({ label: entry.route, tree: entry.tree })
   }
   return audited
@@ -241,7 +241,7 @@ export const WIRE_LIVENESS_SUITE: LabSuite = {
       let filtered: BootWire | undefined
       let thrown = ''
       try {
-        filtered = filterWire(split, tree.blockList, tree.shellPluginId, tree.extraPluginIds, localRev, (line) =>
+        filtered = filterWire(split, tree.blockList, tree.framePluginId, tree.extraPluginIds, localRev, (line) =>
           warnings.push(line),
         )
       } catch (err) {
@@ -278,7 +278,7 @@ export const WIRE_LIVENESS_SUITE: LabSuite = {
         filterWire(
           withoutApplicationBatch(wire, moved),
           unfilterable.tree.blockList,
-          unfilterable.tree.shellPluginId,
+          unfilterable.tree.framePluginId,
           unfilterable.tree.extraPluginIds,
           localRev,
         )

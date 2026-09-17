@@ -69,7 +69,7 @@
 
 **能移植的必须移植（用户铁律，2026-09-16）**：不允许「技术上做得到却留着专属」。凡可移植的插件，必须按改造路径落地为 `dsh-*`——两条通用改造路径：① 需要宿主能力（跑 git、落盘、对话框等）的 → 交由**宿主半插件**提供，前端插件只走抽象口；② 依赖我们自有 frame 挂载点（如 `[data-shell="dsh-one"]`）做事件委托的 → 改为**官方稳定容器/官方语义属性**派生的挂载点，使其不依赖任何自有 frame。只有**存在意义本身就是适配 VS Code 容器**的插件（渲染外框、宿主主题跟随、宿主中转与注入、把设置开成编辑器页等）才允许保持 `vscode-*`，且必须在文件头写明「为何不可移植」。
 
-**自有插件命名（用户铁律）**：dsh-one 自有 cordis 插件一律命名在 **`@dsh-one` 作用域**下，形式为 **`@dsh-one/xxxxx`**（如 `@dsh-one/vscode-shell`）——模块 id、bundle 目录名、清单 entry id、注释与文档引用全部一致；新增插件照此办理，不得使用其它作用域或裸名。
+**自有插件命名（用户铁律）**：dsh-one 自有 cordis 插件一律命名在 **`@dsh-one` 作用域**下，形式为 **`@dsh-one/xxxxx`**（如 `@dsh-one/vscode-chat-ui-layout`）——模块 id、bundle 目录名、清单 entry id、注释与文档引用全部一致；新增插件照此办理，不得使用其它作用域或裸名。
 
 **可移植件必须是官方格式的 npm 包（用户铁律，2026-09-16，#73）**：可移植（`dsh-*`）的自有插件**必须**在 `packages/<名>/` 下有自己的包——包清单声明 `dsh.bundle.patch` + `dsh.client`（`platform: "web"` + `inject` + `external`）、`exports["./client"]` 指 `lib/client.js`，`cordis.patch.yml` 只 insert 自己一行；**包名 = 装配清单里的插件 id**（两处由 `test/pluginPackages.test.ts` 交叉核对）。`vscode-*` 那几件（渲染我们外框、调 VS Code 宿主、把设置开成编辑器页）不进 `packages/`，但文件头要写明为何不可移植。装包链路、字段作用与真机实测跑法见 `docs/plugin-packages.md`。新增可移植插件**必须**跑一次 `npm run verify:plugins-official`（官方页面真机），只跑装配实验室不算数——实验室验的是我们的装配页，不是官方页面。
 
@@ -83,7 +83,7 @@
 | --- | --- | --- |
 | **shell** | **官方原词** | 官方注释原话「拥有不同物理传输的 shell 在此提供实现」——指**提供页面运行时与传输的那一层宿主环境**。我们的底座就是我们的 shell 实现。**不要**用它指代官方的框架插件（此前误用过） |
 | **框架插件** | 我们工程词（指代对象是官方的） | 官方负责「把插件装起来、给出槽位与契约」的那几件：WebBoot 运行时、`ui-renderer`、`ui-layout`、`ui-sidebar`、传输层（`connection`/`api-gateway` 等）。此前误称「官方 shell」 |
-| **外框插件（frame plugin）** | 我们工程词（对应官方 `AppFrame`） | 我们渲染页面外框的插件（现 id `@dsh-one/vscode-shell`，该 id 为历史遗留）；在新铁律下它的角色收敛为「遮蔽 root 槽位 + VS Code 渲染适配」。此前误称「shell 插件」 |
+| **外框插件（frame plugin）** | 我们工程词（对应官方 `AppFrame`） | 我们渲染页面外框的插件，三个 id 按官方 `@deepseek-ai/dsh-client-ui-layout` 的命名方式取：`@dsh-one/vscode-chat-ui-layout`（对话区）/ `@dsh-one/vscode-sidebar-ui-layout`（侧栏位）/ `@dsh-one/vscode-settings-ui-layout`（设置独立成页）（#97）；在新铁律下它的角色收敛为「遮蔽 root 槽位 + VS Code 渲染适配」。此前误称「shell 插件」（原 id `@dsh-one/vscode-shell` 等已按 #97 改名） |
 | **宿主半（host half）** | **官方概念**（官方既有「插件有宿主半」的形态） | 跑在网关侧（dsh 宿主）的插件半，经官方 RPC 暴露能力与持久状态；官方格式包 + `cordis.patch.yml` 注册。作用：让前端插件不依赖 VS Code 宿主（可移植的前提） |
 | **宿主能力口（host capability port）** | 我们工程词 | 前端插件请求宿主能力的**唯一入口**（SDK，`src/ui/assembly/shell/hostCapabilities.ts`）：VS Code 侧由扩展宿主实现（既有 hostBridge），官方侧由宿主半实现——**插件代码两端不改**。此前我自造的「能力桥」为非标准词，不再使用 |
 | **slot**（槽位） | **官方原词** | 官方槽位系统的命名单元（如 `conversation.chat.node`）；注册条目按 priority 竞争上位。**标准写法用官方英文原词 `slot`**，中文「槽位」仅作解释；此前我自造的「座位」为非标准词，不再使用 |
@@ -92,7 +92,7 @@
 | **宿主调用通道（hostCall/hostResult）** | 我们工程词 | 页面插件向扩展宿主请求能力（跑 git、读写文件、弹对话框等）的请求-应答通道，消息类型即 `hostCall`/`hostResult`；官方 web 侧由宿主半提供同类能力。此前我自造的「能力桥」为非标准词，不再使用 |
 | **combo**（插件整包） | **官方原词** | 网关把全部前端插件的代码拼成一个大文件、一个网址一次性下发；网校对文件内容做校验，改名单重新申请会 404。**标准写法用 `combo`**，中文「插件整包」仅作解释 |
 | **装配** | 我们工程词 | 用官方 dsh web 前端组件在我们的 shell 里组装出 VS Code 前端（代码在 `src/ui/assembly/`、`src/server/assemblyMirror.ts`） |
-| **密度档（density profile）** | 我们工程词 | 界面几何/间距（行高、行间空隙、内边距、字号、按钮尺寸）的一整套取值。**官方档** = 官方 css-module 的原始值，是无人给偏好时的兜底；**VS Code 档** = 我们的 VS Code 侧栏外框（`@dsh-one/vscode-sidebar-shell`）在容器上下发的紧凑取值。下发方式 = CSS 变量 `--dsh-one-density-*`（挂在 frame 容器上，靠继承到容器内所有内容），消费方写成 `var(--dsh-one-density-<项>, <官方原值>)`——观感语言（图标/颜色/圆角/字体族/动效）不属于密度档。 |
+| **密度档（density profile）** | 我们工程词 | 界面几何/间距（行高、行间空隙、内边距、字号、按钮尺寸）的一整套取值。**官方档** = 官方 css-module 的原始值，是无人给偏好时的兜底；**VS Code 档** = 我们的 VS Code 侧栏外框（`@dsh-one/vscode-sidebar-ui-layout`）在容器上下发的紧凑取值。下发方式 = CSS 变量 `--dsh-one-density-*`（挂在 frame 容器上，靠继承到容器内所有内容），消费方写成 `var(--dsh-one-density-<项>, <官方原值>)`——观感语言（图标/颜色/圆角/字体族/动效）不属于密度档。 |
 | **局域网访问（LAN access）** | 我们工程词 | 让同一局域网内的其它设备用带 token 的链接打开本机 dsh 网页的能力。dsh 出于安全只监听 127.0.0.1（上游明拒 `--host 0.0.0.0`），可达性由局域网转发器提供，并在 spawn 时用官方 `--trusted-host` 让网关的 Host 信任栏放行。 |
 | **局域网转发器（lan forwarder）** | 我们工程词 | 扩展在 `<局域网地址>:<端口>` 上起的纯 TCP 透传（`src/server/lanForwarder.ts`），把局域网连接原样转给 `127.0.0.1:<同端口>` 的 dsh 网关。多窗口共用同一个地址与端口，先到者持有监听，后到者探测到有人监听即按「对端在转发」处理。 |
 | **loopback 代理** | 我们工程词 | 扩展在 127.0.0.1 起的转发服务器，替 webview 把请求转给 dsh 网关并附带登录 cookie（鉴权在代理侧完成，页面不接触 cookie） |
