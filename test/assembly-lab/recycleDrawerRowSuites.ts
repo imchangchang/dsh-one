@@ -96,6 +96,8 @@ interface SideReading {
   headerCount: Box | null
   headerCountText: string
   headerCountFontSize: number
+  /** 块头所在那一块里的会话行数（计数那一枚的关系量：计数 = 本块行数）。 */
+  headerRows: number
   /** 抽屉会话行 + 它的标题与行尾动作。 */
   drawerRow: Box | null
   drawerRowScrollWidth: number
@@ -238,6 +240,7 @@ async function readSide(page: OpenedPage['page']): Promise<SideReading> {
         headerCount: box(headerCount),
         headerCountText: (headerCount?.textContent ?? '').trim(),
         headerCountFontSize: headerCountStyle === null ? -1 : num(headerCountStyle.fontSize),
+        headerRows: header?.parentElement?.querySelectorAll('[data-dshone-recycle-row]').length ?? -1,
         drawerRow: box(row),
         drawerRowScrollWidth: row?.scrollWidth ?? -1,
         drawerRowClientWidth: row?.clientWidth ?? -1,
@@ -296,6 +299,54 @@ async function hostBin(page: OpenedPage['page']): Promise<{ ids: string[]; write
   })
 }
 
+/**
+ * 夹具给注入的那几条会话盖上的**长标题**（#144）。
+ *
+ * 为什么必须有它：本套件要判「窄宽度下标题被省略号截断、让位给行尾那两枚动作」，而「当天
+ * 网关上的标题有多长」是**当天数据**——标题恰好短到装得下时那条断言就红（#116 记的就是
+ * 这一类抖动）。夹具把这几条会话的标题换成一份**必然装不下**的固定长文案，判据因此不依赖
+ * 当天数据。文案里点明用途，报告截图上一眼能看出这是夹具给的。
+ */
+const LONG_TITLE = '这是一条刻意写得很长的会话标题：用来把抽屉行里标题与行尾两枚动作的让位关系量准（#144 夹具）'
+
+/**
+ * 把 `session/list` 回执里**指定会话**换成「非空白 + 长标题」（页内夹具）。
+ *
+ * 为什么用夹具：见 {@link LONG_TITLE}。夹具只改**页面收到的回执**、请求不落网关（与 F-39
+ * 的 `running` 夹具、F-18 的 `schedule` 夹具同一处置）。会话清单是页面挂载时取的，所以
+ * 装完要**重载页面**才生效；树行与抽屉行读的是同一份清单（官方 store 的 `displayTitle`
+ * 就来自回执项的 `title`），所以两处都显示这份长标题——套件随后断言抽屉行真的显示了它
+ * （夹具没接上就当场红，不会静默变成「标题本来就短」）。
+ * `blank` 一并翻成 false：`displayTitle` 对空白会话会退回「新会话」兜底文案，长标题会被
+ * 它盖掉（这条只是把夹具那几条钉成非空白，不改任何界面的判定口径）。
+ */
+async function installLongTitleFixture(
+  page: OpenedPage['page'],
+  sessionIds: readonly string[],
+): Promise<{ calls: number; touched: number }> {
+  const stats = { calls: 0, touched: 0 }
+  await page.route('**/api/**', async (requestRoute) => {
+    const request = requestRoute.request()
+    const method = decodeURIComponent(request.url()).split('/api/')[1] ?? ''
+    const response = await requestRoute.fetch()
+    const body = await response.text()
+    if (!method.startsWith('session/list')) {
+      await requestRoute.fulfill({ response, body })
+      return
+    }
+    stats.calls += 1
+    const parsed = JSON.parse(body) as { result?: { value?: { items?: { sessionId?: string; title?: string; blank?: boolean }[] } } }
+    for (const item of parsed.result?.value?.items ?? []) {
+      if (item.sessionId === undefined || !sessionIds.includes(item.sessionId)) continue
+      item.title = LONG_TITLE
+      item.blank = false
+      stats.touched += 1
+    }
+    await requestRoute.fulfill({ response, body: JSON.stringify(parsed) })
+  })
+  return stats
+}
+
 /** 一行里那一组动作的短写（报告用）。 */
 const showButtons = (reading: SideReading): string =>
   reading.drawerButtons
@@ -313,7 +364,7 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '回收站抽屉的块头与行尾动作（#144，RECYCLE-DRAWER-ROW 套件）：块头与侧栏工作区行并排对齐、行尾直接列出还原 / 归档两枚动作',
   expect:
-    '真装配页（真网关**只读** + 假宿主 + 夹具注入**真实会话 id** 的 `recycle-bin`）上的两件事（几何期望值全部从 `workspaceTree/styles.ts` 的档位表读、文案从插件 zh 词典读，不硬编码）：**A 块头与侧栏工作区行并排量**——把鼠标悬到主树的工作区行上（箭头那一格与行尾动作按钮都是悬停才显形）再与抽屉块头逐项比：① **关系量逐条对齐（±1px）**——块头行高 = 工作区行行高（= 标准档 `projectRowHeight` 34px）、圆角与左右内边距取行族那一档（`rowRadius` / `rowPaddingInline`）、**箭头那一格**宽与工作区行折叠箭头同宽（标准档 `slotWidth` 16px）且左缘同一条竖线、**名字那一列**与工作区行名字同一条左缘、名字字号与颜色一致（`titleFontSize` 14px、行文字色）、hover 底色与工作区行是同一枚 token（解析值逐字相同），箭头是**同一枚图标**（`path@d` 逐字相同）且都挂着同一套展开标记 `dshOneTree_arrowOpen`；块头的计数按行内元信息档（`metaFontSize` 12px）读；② **块头不补文件夹图标**（并排读数下来它恒显箭头 = 工作区行的悬停形态，再补一枚会把名字列推右 22px）：块头子树里只有一枚 svg、工作区行有文件夹与箭头两枚，这一条按事实记并钉住；③ **折叠语义一字未改**——点块头收起（标记 `true`、`aria-expanded=false`、该块的行不再渲染、折叠键落 `dsh.workspaceTree.view`、箭头不再挂 `arrowOpen`），重载后仍收起，再点一下展开回来。**B 行尾两枚动作**——④ **恰好两枚**：每行行尾是「还原」+「永久归档」（`data-dshone-recycle-restore` / `-archive`，顺序固定），各带 `aria-label`（词典 `recycle.restore.aria` / `recycle.archive.aria` 代入会话名）与官方 Tooltip（悬停读 `role="tooltip"` 的文案 = 词典 `recycle.restore` / `menu.archiveForever`）；**页面上不再有 ⋯ 二级菜单**（`[data-dshone-recycle-menu]` 计数为 0）；⑤ **几何取侧栏行尾动作按钮同一档**：两枚各自 16×16、圆角 4px（标准档 `rowIconButtonSize` / `rowIconButtonRadius`）、行内图标 16×16，**与同一页里主树工作区行的行尾动作按钮逐项相等**（±0.5px——那一枚是悬停显形的参照物），两枚之间的间距 = 官方行尾动作组那一格 12px（容器 `column-gap` 与实际盒子间隙两处都量）；⑥ **归档按错误色**（终点动作）：解析值 = 同一枚官方 token `--dsw-alias-state-error-primary` 的解析值，且与「还原」不同色；⑦ **三档宽度（260/340/500）不溢出**：抽屉行与页面都 `scrollWidth ≤ clientWidth + 1`、两枚动作整个落在行内、最右一枚的右缘 = 行的内容右缘（±1px）、标题走省略号那条路；压到 140px 时标题**真的**被截断（文字让位、两枚动作位置与尺寸一分不动、标题右缘不超过动作组左缘）；⑧ **点动作不顺带打开会话**（两枚都 `stopPropagation`）：点任一枚都没有任何 `session.*` 宿主调用；⑨ **归档 = 先确认**：点归档开的是既有的归档确认弹窗，取消后弹窗关掉、回收站状态一条不少、**期间零 `/api/` 请求**（本套件从不点确认——那会写真实网关）；⑩ **还原 = 一条本地请求**：busy（有动作在飞，夹具把宿主对 `recycle-bin` 的写入按住）期间两枚动作都禁用且都降透明度，放行后假宿主状态里那条会话被移出回收站（恰好一条 `state.write`，不落网关）、那一行从抽屉消失、会话回到树里。收尾另核全程**没有任何写类 `/api/` 方法**、零 pageerror。',
+    '真装配页（真网关**只读** + 假宿主 + 夹具注入**真实会话 id** 的 `recycle-bin` 与**一份长标题**）上的两件事（几何期望值全部从 `workspaceTree/styles.ts` 的档位表读、文案从插件 zh 词典读，不硬编码）：**A 块头与侧栏工作区行并排量**——把鼠标悬到主树的工作区行上（箭头那一格与行尾动作按钮都是悬停才显形）再与抽屉块头逐项比：① **关系量逐条对齐（±1px）**——块头行高 = 工作区行行高（= 标准档 `projectRowHeight` 34px）、圆角与左右内边距取行族那一档（`rowRadius` / `rowPaddingInline`）、**箭头那一格**宽与工作区行折叠箭头同宽（标准档 `slotWidth` 16px）且左缘同一条竖线、**名字那一列**与工作区行名字同一条左缘、名字字号与颜色一致（`titleFontSize` 14px、行文字色）、hover 底色与工作区行是同一枚 token（解析值逐字相同），箭头是**同一枚图标**（`path@d` 逐字相同）且都挂着同一套展开标记 `dshOneTree_arrowOpen`；块头的计数按行内元信息档（`metaFontSize` 12px）读、并按**关系量**判（计数 = 它这一块里的行数，不写死条数）；② **块头不补文件夹图标**（并排读数下来它恒显箭头 = 工作区行的悬停形态，再补一枚会把名字列推右 22px）：块头子树里只有一枚 svg、工作区行有文件夹与箭头两枚，这一条按事实记并钉住；③ **折叠语义一字未改**——点块头收起（标记 `true`、`aria-expanded=false`、该块的行不再渲染、折叠键落 `dsh.workspaceTree.view`、箭头不再挂 `arrowOpen`），重载后仍收起，再点一下展开回来。**B 行尾两枚动作**——④ **恰好两枚**：每行行尾是「还原」+「永久归档」（`data-dshone-recycle-restore` / `-archive`，顺序固定），各带 `aria-label`（词典 `recycle.restore.aria` / `recycle.archive.aria` 代入会话名）与官方 Tooltip（悬停读 `role="tooltip"` 的文案 = 词典 `recycle.restore` / `menu.archiveForever`）；**页面上不再有 ⋯ 二级菜单**（`[data-dshone-recycle-menu]` 计数为 0）；⑤ **几何取侧栏行尾动作按钮同一档**：两枚各自 16×16、圆角 4px（标准档 `rowIconButtonSize` / `rowIconButtonRadius`）、行内图标 16×16，**与同一页里主树工作区行的行尾动作按钮逐项相等**（±0.5px——那一枚是悬停显形的参照物），两枚之间的间距 = 官方行尾动作组那一格 12px（容器 `column-gap` 与实际盒子间隙两处都量）；⑥ **归档按错误色**（终点动作）：解析值 = 同一枚官方 token `--dsw-alias-state-error-primary` 的解析值，且与「还原」不同色；⑦ **三档宽度（260/340/500）不溢出**：抽屉行与页面都 `scrollWidth ≤ clientWidth + 1`、两枚动作整个落在行内、最右一枚的右缘 = 行的内容右缘（±1px）、标题走省略号那条路；压到 140px 时标题**真的**被截断（文字让位、两枚动作位置与尺寸一分不动、标题右缘不超过动作组左缘——标题由夹具换成一份**必然装不下**的长文案，这条判据因此不跟当天数据走）；⑧ **点动作不顺带打开会话**（两枚都 `stopPropagation`）：点任一枚都没有任何 `session.*` 宿主调用；⑨ **归档 = 先确认**：点归档开的是既有的归档确认弹窗，取消后弹窗关掉、回收站状态一条不少、**期间零 `/api/` 请求**（本套件从不点确认——那会写真实网关）；⑩ **还原 = 一条本地请求**：busy（有动作在飞，夹具把宿主对 `recycle-bin` 的写入按住）期间两枚动作都禁用且都降透明度，放行后假宿主状态里那条会话被移出回收站（恰好一条 `state.write`，不落网关）、那一行从抽屉消失、会话回到树里。收尾另核全程**没有任何写类 `/api/` 方法**、零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const shot = async (page: OpenedPage['page'], name: string): Promise<string> => {
@@ -332,23 +383,34 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
     })
     try {
       await page.waitForSelector(route('sidebar').readySelector)
-      // ---- 夹具：把树上两条**真实会话 id** 注入假宿主的 recycle-bin（旧侧栏那份形状）----
+      // ---- 夹具：把树上**真实会话 id** 注入假宿主的 recycle-bin（旧侧栏那份形状）----
+      // 取两条（树上只剩一条时用一条）：本套件不按「恰好两条」判任何事，行数、块内的计数、
+      // 还原后的剩余集合全部**按注入的这份算**，所以当天网关上有多少会话都不改判据。
       const ids = await page.evaluate(() =>
         Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
           .slice(0, 2)
-          .map((row) => row.getAttribute('data-dshone-tree-session') ?? ''),
+          .map((row) => row.getAttribute('data-dshone-tree-session') ?? '')
+          .filter((id) => id !== ''),
       )
-      check.ok('树里至少有两行会话可供夹具使用', ids.length === 2 && ids.every((id) => id !== ''), JSON.stringify(ids))
-      if (ids.length !== 2 || ids.some((id) => id === '')) return screenshots
+      check.ok('树里至少有 1 条会话可供夹具使用（抽屉要有行才量得到）', ids.length >= 1, JSON.stringify(ids))
+      if (ids.length === 0) return screenshots
       await page.addInitScript({
         content: `(() => { globalThis.__LAB_HOST__.stateStore['recycle-bin'] = ${JSON.stringify({ version: 1, sessionIds: ids })} })()`,
       })
+      // 标题夹具（见 LONG_TITLE / installLongTitleFixture）：必须在 reload 之前装好。
+      const titleFixture = await installLongTitleFixture(page, ids)
       await page.reload({ waitUntil: 'domcontentloaded' })
       await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
       await page.waitForTimeout(2_500)
+      check.fact(`标题夹具：session/list 被改 ${String(titleFixture.calls)} 次、命中目标会话 ${String(titleFixture.touched)} 次`)
       await page.click('[data-dshone-tree-action="recycle-toggle"]')
       await page.waitForTimeout(400)
-      check.eq('夹具生效：抽屉开着且有两行（回收站里有内容）', await page.locator(DRAWER_ROW).count(), 2)
+      check.eq('夹具生效：抽屉开着且行数 = 注入的条数（回收站里有内容）', await page.locator(DRAWER_ROW).count(), ids.length)
+      check.ok(
+        '标题夹具接上了：抽屉里的行显示的就是夹具那份长标题（没接上会当场红，不会静默退化成「标题本来就短」）',
+        titleFixture.touched >= ids.length,
+        `命中 ${String(titleFixture.touched)} / 注入 ${String(ids.length)}`,
+      )
 
       // =====================================================================
       // ① 块头 vs 侧栏工作区行：先量抽屉（不用悬停），再把指针移到主树行上量另一侧
@@ -366,6 +428,7 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
           `（scrollWidth ${String(beforeHover.drawerTitleScrollWidth)} / clientWidth ${String(beforeHover.drawerTitleClientWidth)}）` +
           ` 动作组=${JSON.stringify(beforeHover.drawerActions)} 间距=${String(beforeHover.drawerActionsGap)} ${showButtons(beforeHover)}`,
       )
+      check.eq('夹具生效：抽屉行显示的就是夹具那份长标题（标题长度由本套件控制，不跟当天数据走）', beforeHover.drawerTitleText, LONG_TITLE)
       check.eq('块头行高 = 标准档 projectRowHeight（与侧栏工作区行同高）', beforeHover.header?.height, px(SCALE_TIERS.standard.projectRowHeight))
       check.eq('块头圆角 = 标准档 rowRadius', beforeHover.headerRadius, px(SCALE_TIERS.standard.rowRadius))
       check.eq('块头左内边距 = 标准档 rowPaddingInline（行内容基准）', beforeHover.headerPaddingLeft, px(SCALE_TIERS.standard.rowPaddingInline))
@@ -375,7 +438,14 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
       check.eq('块头名字字号 = 标准档 titleFontSize（行标题档）', beforeHover.headerNameFontSize, px(SCALE_TIERS.standard.titleFontSize))
       check.eq('块头名字行高 = 标准档 titleLineHeight', beforeHover.headerNameLineHeight, px(SCALE_TIERS.standard.titleLineHeight))
       check.eq('块头计数（本组几条）字号 = 标准档 metaFontSize（行内元信息档）', beforeHover.headerCountFontSize, px(SCALE_TIERS.standard.metaFontSize))
-      check.eq('块头计数就是这一块的行数', beforeHover.headerCountText, '2')
+      // 计数那一枚是**关系量**：它必须等于自己这一块里的行数（不写死条数——当天网关上有
+      // 几条会话、两条夹具会话落在同一个工作区块里还是两个块里，都不该改判据）。
+      check.eq(
+        '块头计数 = 它这一块里的行数（关系量，不写死条数）',
+        beforeHover.headerCountText,
+        String(beforeHover.headerRows),
+      )
+      check.fact(`抽屉结构：块头所在块里的行数=${String(beforeHover.headerRows)}，页面上共 ${String(await page.locator('[data-dshone-recycle-group]').count())} 块 / ${String(await page.locator(DRAWER_ROW).count())} 行`)
       check.eq('块头未悬停时底色透明（底色只在悬停时来）', beforeHover.headerBackground, 'rgba(0, 0, 0, 0)')
 
       // 悬停块头 → 读底色；再把指针移到主树工作区行 → 读另一侧（含悬停底色）。
@@ -591,19 +661,21 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
           ['ellipsis', 'nowrap'],
         )
       }
-      // 140px：标题真被截断（文字让位），两枚动作的位置与尺寸一分不动。
-      // 为什么压到 140 而不是 200：行里的固定件（时间 + 两枚动作 + 间隙）加起来约 100px，
-      // 200px 下标题那一格还有 100px 出头、够装标题，量不到截断（这一条曾经就是这么软掉的）。
+      // 140px：标题**真的**被省略号截断（文字让位），两枚动作的位置与尺寸一分不动。
+      // 两件事保证这条判据不依赖当天数据：① 压到 140px（行里的固定件——时间 + 两枚动作 +
+      // 间隙——加起来约 100px，200px 下标题那一格还有 100px 出头、够装标题，量不到截断，
+      // 这一条曾经就是这么软掉的）；② 标题是 {@link LONG_TITLE} 那份夹具给的长文案
+      //（装不下是设计出来的，不是碰运气），前面已经断言抽屉行显示的就是它。
       await page.setViewportSize({ width: 140, height: 900 })
       await page.waitForTimeout(300)
       const narrow = await readSide(page)
       check.fact(
-        `@140：行=[${String(narrow.drawerRow?.left)},${String(narrow.drawerRow?.right)}] 标题 scrollWidth ${String(narrow.drawerTitleScrollWidth)} / clientWidth ${String(narrow.drawerTitleClientWidth)} 动作组=${JSON.stringify(narrow.drawerActions)} ${showButtons(narrow)}`,
+        `@140：行=[${String(narrow.drawerRow?.left)},${String(narrow.drawerRow?.right)}] 标题「${narrow.drawerTitleText}」scrollWidth ${String(narrow.drawerTitleScrollWidth)} / clientWidth ${String(narrow.drawerTitleClientWidth)} 动作组=${JSON.stringify(narrow.drawerActions)} ${showButtons(narrow)}`,
       )
       check.ok(
-        '@140 标题真被省略号截断（文字让位给行尾那两枚动作）',
-        narrow.drawerTitleScrollWidth > narrow.drawerTitleClientWidth,
-        `scrollWidth ${String(narrow.drawerTitleScrollWidth)} / clientWidth ${String(narrow.drawerTitleClientWidth)}`,
+        '@140 标题真被省略号截断（文字让位给行尾那两枚动作；标题是夹具给的长文案，必然装不下）',
+        narrow.drawerTitleScrollWidth > narrow.drawerTitleClientWidth && narrow.drawerTitleText === LONG_TITLE,
+        `scrollWidth ${String(narrow.drawerTitleScrollWidth)} / clientWidth ${String(narrow.drawerTitleClientWidth)} 标题「${narrow.drawerTitleText.slice(0, 12)}…」`,
       )
       check.ok(
         '@140 两枚动作仍在行里、宽度没被挤小',
@@ -663,57 +735,8 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
       }
 
       // =====================================================================
-      // ⑤ 还原：busy（有动作在飞）时两枚都禁用 → 一条本地请求（不落网关）
-      // =====================================================================
-      // 抽屉里块内按移入顺序**倒序**，所以第一行是夹具里后注入的那条——要认准**点的是哪一行**，
-      // 别按 ids[0] 猜（这一条曾经就是这么错的：点了 ids[1] 的还原、却去数 ids[0] 的行）。
-      const target = await page.getAttribute(RESTORE, 'data-dshone-recycle-restore')
-      check.ok('取到要点还原的那一行（行尾按钮带它的会话 id）', (target ?? '') !== '', String(target))
-      if (target === null || target === '') return screenshots
-      const writesBefore = (await hostBin(page)).writes
-      // 「有动作在飞」不是瞬间：把假宿主对 `recycle-bin` 的写入按住不放行（#144 的注入点），
-      // busy 态因此可以被稳定读出来——不按的话这一拍短得读不到（实测点下去那一刻已经回执了）。
-      await page.evaluate(() => {
-        const host = (globalThis as unknown as { __LAB_HOST__: { holdStateWrite: string | null } }).__LAB_HOST__
-        host.holdStateWrite = 'recycle-bin'
-      })
-      await page.click(RESTORE)
-      await page.waitForTimeout(400)
-      const busyProbe = await page.evaluate(([restoreSelector, archiveSelector]) => {
-        const read = (selector: string): { disabled: boolean; opacity: string } | null => {
-          const element = document.querySelector(selector) as HTMLButtonElement | null
-          return element === null ? null : { disabled: element.disabled, opacity: getComputedStyle(element).opacity }
-        }
-        return { restore: read(restoreSelector), archive: read(archiveSelector) }
-      }, [RESTORE, ARCHIVE] as const)
-      check.fact(`按住写入期间的 busy 读数：${JSON.stringify(busyProbe)}`)
-      check.eq('busy（有动作在飞）时两枚动作都禁用', [busyProbe.restore?.disabled, busyProbe.archive?.disabled], [true, true])
-      check.ok(
-        'busy 时两枚都有灰态（`opacity` 降到 1 以下）',
-        px(busyProbe.restore?.opacity ?? '1') < 1 && px(busyProbe.archive?.opacity ?? '1') < 1,
-        JSON.stringify(busyProbe),
-      )
-      screenshots.push(await shot(page, 'recycle-drawer-row-busy'))
-      // 放行：写入落定，回执回来，busy 结束。
-      await page.evaluate(() => {
-        const host = (globalThis as unknown as { __LAB_HOST__: { holdStateWrite: string | null; releaseHeld(): void } }).__LAB_HOST__
-        host.holdStateWrite = null
-        host.releaseHeld()
-      })
-      await page.waitForTimeout(900)
-      const binAfterRestore = await hostBin(page)
-      check.eq('还原只把点的那一条移出本地集合（另一条还在）', binAfterRestore.ids, ids.filter((id) => id !== target))
-      check.eq('还原落一条本地状态写入（state.write 的 recycle-bin，不落网关）', binAfterRestore.writes - writesBefore, 1)
-      check.eq('还原后那一行从抽屉里消失', await page.locator(`${DRAWER_ROW}[data-dshone-recycle-row="${target}"]`).count(), 0)
-      check.eq('还原这一趟同样零 /api/ 请求', apiCalls.slice(apiBefore), [])
-      await page.click('[data-dshone-tree-action="recycle-close"]')
-      await page.waitForTimeout(400)
-      check.eq('还原后会话回到树里', await page.locator(`[data-dshone-tree-session="${target}"]`).count(), 1)
-      await page.click('[data-dshone-tree-action="recycle-toggle"]')
-      await page.waitForTimeout(400)
-
-      // =====================================================================
-      // ⑥ 折叠语义一字未改：点击开合、折叠态持久化、aria-expanded 跟着翻
+      // ⑤ 折叠语义一字未改：点击开合、折叠态持久化、aria-expanded 跟着翻（放在还原之前——
+      // 还原会把夹具那几条会话移出回收站，块空了之后这一段的「点块头开合」就没有对象了）
       // =====================================================================
       const blockKey = await page.getAttribute(GROUP_HEADER, 'data-dshone-recycle-group-toggle')
       check.ok('块头带块键标记（折叠态落客户端存储要用它）', (blockKey ?? '') !== '', String(blockKey))
@@ -756,6 +779,63 @@ export const RECYCLE_DRAWER_ROW_SUITE: LabSuite = {
         }
       }, blockKey ?? '')
       check.eq('再点一下展开回来（标记 false / aria-expanded=true / 行回来）', [expanded.flag, expanded.aria, expanded.rows > 0], ['false', 'true', true])
+
+      // =====================================================================
+      // ⑥ 还原：busy（有动作在飞）时两枚都禁用 → 一条本地请求（不落网关）
+      // =====================================================================
+      // 抽屉里块内按移入顺序**倒序**，所以第一行是夹具里后注入的那条——要认准**点的是哪一行**，
+      // 别按 ids[0] 猜（这一条曾经就是这么错的：点了 ids[1] 的还原、却去数 ids[0] 的行）。
+      const target = await page.getAttribute(RESTORE, 'data-dshone-recycle-restore')
+      check.ok('取到要点还原的那一行（行尾按钮带它的会话 id）', (target ?? '') !== '', String(target))
+      if (target === null || target === '') return screenshots
+      const writesBefore = (await hostBin(page)).writes
+      // 「有动作在飞」不是瞬间：把假宿主对 `recycle-bin` 的写入按住不放行（#144 的注入点），
+      // busy 态因此可以被稳定读出来——不按的话这一拍短得读不到（实测点下去那一刻已经回执了）。
+      await page.evaluate(() => {
+        const host = (globalThis as unknown as { __LAB_HOST__: { holdStateWrite: string | null } }).__LAB_HOST__
+        host.holdStateWrite = 'recycle-bin'
+      })
+      await page.click(RESTORE)
+      await page.waitForTimeout(400)
+      const busyProbe = await page.evaluate(([restoreSelector, archiveSelector]) => {
+        const read = (selector: string): { disabled: boolean; opacity: string } | null => {
+          const element = document.querySelector(selector) as HTMLButtonElement | null
+          return element === null ? null : { disabled: element.disabled, opacity: getComputedStyle(element).opacity }
+        }
+        return { restore: read(restoreSelector), archive: read(archiveSelector) }
+      }, [RESTORE, ARCHIVE] as const)
+      check.fact(`按住写入期间的 busy 读数：${JSON.stringify(busyProbe)}`)
+      check.eq('busy（有动作在飞）时两枚动作都禁用', [busyProbe.restore?.disabled, busyProbe.archive?.disabled], [true, true])
+      check.ok(
+        'busy 时两枚都有灰态（`opacity` 降到 1 以下）',
+        px(busyProbe.restore?.opacity ?? '1') < 1 && px(busyProbe.archive?.opacity ?? '1') < 1,
+        JSON.stringify(busyProbe),
+      )
+      screenshots.push(await shot(page, 'recycle-drawer-row-busy'))
+      // 放行：写入落定，回执回来，busy 结束。
+      await page.evaluate(() => {
+        const host = (globalThis as unknown as { __LAB_HOST__: { holdStateWrite: string | null; releaseHeld(): void } }).__LAB_HOST__
+        host.holdStateWrite = null
+        host.releaseHeld()
+      })
+      await page.waitForTimeout(900)
+      const binAfterRestore = await hostBin(page)
+      check.eq('还原只把点的那一条移出本地集合（其余条目原样）', binAfterRestore.ids, ids.filter((id) => id !== target))
+      check.eq('还原落一条本地状态写入（state.write 的 recycle-bin，不落网关）', binAfterRestore.writes - writesBefore, 1)
+      check.eq('还原后那一行从抽屉里消失', await page.locator(`${DRAWER_ROW}[data-dshone-recycle-row="${target}"]`).count(), 0)
+      check.eq('还原这一趟同样零 /api/ 请求', apiCalls.slice(apiBefore), [])
+      await page.click('[data-dshone-tree-action="recycle-close"]')
+      await page.waitForTimeout(400)
+      // 「回到树里」不能直接数行：那一条会话所在的工作区分组可能是收起的（展开态是视图偏好，
+      // 与当天数据无关但与本套件无关）——先把整棵树展开再数，判据才只看「会话在不在树里」。
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if ((await page.getAttribute('[data-dshone-tree-action="collapse-all"]', 'data-dshone-tree-collapsed')) === 'false') break
+        await page.click('[data-dshone-tree-action="collapse-all"]')
+        await page.waitForTimeout(300)
+      }
+      check.eq('还原后会话回到树里（先把树展开，免得量到的是「那一组恰好收起」）', await page.locator(`[data-dshone-tree-session="${target}"]`).count(), 1)
+      await page.click('[data-dshone-tree-action="recycle-toggle"]')
+      await page.waitForTimeout(400)
 
       check.eq(
         '全程只读网关：没有任何写类 /api/ 方法',
