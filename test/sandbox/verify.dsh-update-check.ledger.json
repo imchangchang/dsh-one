@@ -1,7 +1,7 @@
 {
   "title": "DSH One 任务验收报告：状态栏 dsh 更新检查 / 升级（#86）+ 点击开动作面板（#90）",
   "branch": "agent/dsh-update-check",
-  "commit": "0f2b1dc",
+  "commit": "e083d7a1（代码修复提交；done/dsh-update-check 指向其后一条文档提交）",
   "environment": {
     "mode": "自动化证据（node --test 单测 + 真实 npm registry 网络查询 + 本机真实 npm dry-run）",
     "dsh": "0.1.6-alpha.1（本机 nvm 全局安装）",
@@ -10,7 +10,7 @@
     "platform": "darwin/arm64",
     "date": "2026-09-16T00:00:00Z"
   },
-  "coverageNote": "本报告覆盖：检查更新的网络与判定链路、升级命令的拼装与被真实 npm 接受、动作清单（面板与气泡同源）、气泡一行一个与窄宽口径、tooltip 文案渲染、既有行为回归。**悬停气泡的实际观感已由用户开窗实测确认**（#90 的一行一个：截图见 F-09）。仍未覆盖（需人工开窗 dev-ui-test.sh 或沙盒实测）：点击状态栏后弹出的QuickPick 面板逐项交互、系统通知文案、集成终端里真正执行安装；本机 docker/OrbStack 守护进程未运行，code-server 沙盒起不来。真模型输出与 Windows/Linux 平台专项同样不在本报告范围。",
+  "coverageNote": "本报告覆盖：更新检查的网络与判定链路、升级命令的拼装与被真实 npm 接受、动作清单（面板与气泡同源）、气泡一行一个与窄宽口径、局域网转发器行为、tooltip 文案渲染、既有行为回归，以及**独立 agent 对抗性 review 的四条重要发现与其修复**。不在范围内（需人工开窗 dev-ui-test.sh 或第二台设备）：真实局域网端到端（另一台设备打开带 token 链接 / WebSocket / 权限）、Windows 平台（`&` + 引号、同端口不同地址共存）、`broadcast`/`shield` 两个 codicon 的实际渲染（只有字体字形证据）、以及低于 0.1.5-rc.1 各版本栅栏语义的逐版比对。真模型输出不在本报告范围。",
   "items": [
     {
       "id": "F-01",
@@ -104,6 +104,33 @@
       "result": "pass",
       "screenshots": [],
       "notes": "逐条核对：① 新增单测「气泡宽度：每段可见文字 ≤ 48 字符」覆盖 9 种状态 × 3 种更新判定（无判定 / update / ahead），全部通过 ✓；② 长说明已改写：复用实例 = This dsh was started in another window. + Stop / restart asks for confirmation.；外部实例 = External dsh instance (token connected). + 同上一句；认证防护态标题 = Port {0} is taken by another dsh，说明拆成三句短句；启动中 = The first start may take a while. + It prepares profiles and dependencies. ✓；③ 标题行与版本行、更新提示行各自成段（旧实现用单个 \\n，实测不换行）✓；④ 被替换的 4 个长句键已从两份 bundle 删除，确认无其他调用点（sessionsWebview 仍在用的「首次启动可能较慢」长句键保留）✓；⑤ 估算宽度：最长段 44 字符 ≈ 240px，相对改动前的约 500px 明显收窄——实际观感待用户再次开窗确认（本次未覆盖）。"
+    },
+    {
+      "id": "F-11",
+      "phase": "new-feature",
+      "name": "独立对抗性 review 的四条重要发现已修",
+      "expect": "review 指出的四处都要有对应修复与证据：①版本门槛过保守（把本来支持 LAN 的版本挡住）；②日志恢复路径会抹掉记录里的局域网标志；③多窗口抢同一地址端口被误报为「LAN 不可用」，且先到者退出后 LAN 静默失效；④能力判定只看记录、不看运行中的进程（陈旧记录会给出必然 403 的链接）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条修复与证据：①门槛从 0.1.6-alpha.1 下调到 **0.1.5-rc.1**——我自己从 npm 拉 tarball 复核：`dsh-web-app` 的 `lib/startup.js` 在 0.1.3-alpha.2 / 0.1.5-rc.1 / 0.1.5-rc.2 都有 `--trusted-host`，`cordis.patch.yml` 都有 `trustedHosts` 接线；并逐字读 0.1.5-rc.1 的栅栏 `isTrustedAuthority`（`dsh-client-connection/lib/index.js:188-194`）确认「不带端口的条目按主机名匹配任意端口」与 0.1.6-alpha.1 一致（这正是端口回退兜底的依据）；新门槛两侧都有单测（0.1.5-rc.1 ✓ / 0.1.5-alpha.2 ✗）②「从日志恢复 token」的自愈路径改为写回 `lanIp`，并加注释点明 `writeOwned` 是整对象覆盖 ③绑定撞 `EADDRINUSE` 时先探测 `<ip>:<port>`：有人在听 → 记为「对端窗口在转发」（`lanAddress` 照常给地址、不报警告）、并起 10 秒×最多 30 次的重试，对端退出后本窗口接管；只有探测也失败才警告 ④新增 `verifyLanIp()`：读运行进程命令行，必须看到 `--trusted-host <该IP>` 才认这个标志（读到命令行但没有旗标 → 判陈记录、按关闭处理并给重启入口；命令行完全读不到 → 沿用记录并记日志）。"
+    },
+    {
+      "id": "F-12",
+      "phase": "new-feature",
+      "name": "同步 develop/cordis-chat：10 个提交移植完成，历史无冲突标记",
+      "expect": "把这次 10 个提交从原基线移植到 `develop/cordis-chat`（该线比共同祖先领先 507 个提交）：逐文件冲突面很小（`statusbar.ts`/`manager.ts`/`ownedRecord.ts`/`statusTooltip.ts` 两侧完全相同），只需处理 `extension.ts`（导入区与安装引导冲突）、`package.json`、l10n 与三份 markdown；移植后全历史不得残留冲突标记。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "过程与结论：①`git rebase --onto develop/cordis-chat b42317be` 逐提交解冲突——`extension.ts` 保留目标线的安装引导实现（`openInstallGuide`）并并入我们的导入与命令注册，README/CHANGELOG 保留目标线更新的措辞、把我们新增的行并进去 ②中途我的脚本化解冲突在两个提交里留下了半截标记（并被提交进中间提交），已用 `filter-branch --tree-filter` 把三份 markdown 在全部中间提交里统一回目标线版本，再把正确的文档内容集中成一个 `docs(statusbar): 本次改动的 CHANGELOG 与 README 条目（#86/#90/#136/#149）` 提交 ③验证：对 11 个提交逐个 `git show <c>:<file>` 扫描，零 `<<<<<<<` ④顺带修掉中途解冲突时把注释与 `openSessions` 注册挤成一行（导致该注册被注释掉）的缺陷。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "同步后全量门禁 + i18n",
+      "expect": "移植到 develop/cordis-chat 之后：`npx tsc --noEmit` 无错、`npm test` 全绿、`npm run build` 成功、`scripts/check-i18n.sh` 通过（新增键中英齐全）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实测：tsc 无输出 exit 0；npm test tests 912 / pass 912 / fail 0（相对同步前的 667 项，差额来自目标线自带的用例集）；build 完成（assembled shell plugin 与 host half 均产出）；i18n 检查 OK。"
     },
     {
       "id": "R-01",
