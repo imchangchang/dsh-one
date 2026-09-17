@@ -179,11 +179,13 @@ import {
   type TagGroupsFile,
 } from '../../../pure/sessionTagGroups.ts'
 import type { GroupFile } from '../../../pure/dshStateFile.ts'
+import { isSessionAlreadyOwnedError } from '../../../pure/sessionOwnership.ts'
 import type { SessionListLike } from '../../../pure/workspaceTreeView.ts'
 import { hostCapabilities, type CapabilityContext } from './hostCapabilities.ts'
 import { EN, LOCALE_NS, ZH } from './workspaceTree/locale.ts'
 import { configureRecycleBin } from './workspaceTree/recycleBinStore.ts'
 import { RecycleEntry } from './workspaceTree/recycleEntry.ts'
+import { reportSessionOwnedElsewhere } from './workspaceTree/sessionOwnedNotice.ts'
 import { WorkspaceTree } from './workspaceTree/tree.ts'
 import type { SearchPage, WorkspaceSnapshotLike } from './workspaceTree/types.ts'
 
@@ -261,6 +263,35 @@ export function apply(ctx: TreeContext): void {
    */
   const uiWorkspace = (): UiWorkspaceService | undefined =>
     ctx.get('uiWorkspace') as UiWorkspaceService | undefined
+
+  /**
+   * #145：会话被**另一个 dsh 进程**占着写句柄时（官方会话日志是单写者，见
+   * `pure/sessionOwnership.ts`），用户在树上点它当场什么都看不到——官方把这条失败只
+   * 落进会话对象的 `lastAgentError`（客户端没有界面读它），要到用户发消息时才在输入条
+   * 上弹一条原始吐司（`resume failed for session …: SessionAlreadyOwnedError …`）。
+   * 侧栏树是用户点击的地方，所以在这条失败到达时给一条能行动的提示。
+   *
+   * 机制层 2（官方服务 API）：官方客户端服务 `remote` 的转发事件通道 `$on`——官方
+   * `dsh-api-session-controller` 的客户端半自己就是
+   * `ctx.remote.$on('api-session/error', (sessionId, message) => …)`（出处：
+   * `lib/types/client/index.js` 的 apply），我们只是同一个事件的另一个订阅方。
+   * 取法是官方的可选取法 `ctx.get('remote')`（与上面 `uiWorkspace` 同一处置）：官方
+   * web 与 VS Code 两侧都装了这个服务，但它不是本插件成立的前提，缺席就不订阅
+   *（本插件其余行为一字不变）。
+   */
+  ctx.effect(() => {
+    const remote = ctx.get('remote') as
+      | { $on?: (event: string, listener: (...args: unknown[]) => void) => (() => void) | void }
+      | undefined
+    const off = remote?.$on?.('api-session/error', (sessionId, message) => {
+      if (typeof sessionId !== 'string' || sessionId === '') return
+      if (!isSessionAlreadyOwnedError(message)) return
+      reportSessionOwnedElsewhere(sessionId)
+    })
+    return () => {
+      off?.()
+    }
+  }, 'dsh-one workspace tree: session write-handle conflicts')
 
   /**
    * #103：回收站（本地集合）与归档动作接进模块级 store——树主组件与底部入口行是
