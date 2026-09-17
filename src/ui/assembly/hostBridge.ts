@@ -45,6 +45,7 @@ import {
   parseOpenFolderArgs,
   parseOpenTerminalArgs,
   parseSessionInPanelArgs,
+  parseSessionNewInWorkspaceArgs,
   parseSessionOpenPanelArgs,
   parseSessionTabArgs,
   resolveQueryDir,
@@ -77,8 +78,9 @@ export const HOST_CALLS = {
   'session.inPanel': 'Whether one session is currently shown by this host\'s chat panel (the sidebar row\'s rename-vs-open decision, #121).',
   'session.panelSessions': 'Which sessions this host\'s chat panels are currently showing (the sidebar\'s "finished but not opened" status dot, #147).',
   'session.openPanel': 'Show one session in this host\'s chat panel (create / reveal / switch in place; #121).',
+  'session.newInWorkspace': 'Create a new session in one workspace and open it (the sidebar + menu after adding a workspace, #176).',
   'vscode.openSettings': 'Open (or focus) the dsh-one settings editor page (the sidebar toolbar gear, #99).',
-  'vscode.workspaceCreate': 'Create a workspace directory (~/.dsh/workspaces/<name>) and register it (the sidebar + menu, #99).',
+  'vscode.workspaceCreate': 'Create a workspace directory (~/.dsh/workspaces/<name>) and register it (the sidebar + menu, #99; returns the registered workspace id, #176).',
   'vscode.workspaceFolders': 'List the folders this VS Code window has open (the sidebar tree\'s current-workspace badge and pinning, #112).',
   'vscode.openFolder': 'Open one workspace folder in the editor window (the sidebar workspace row, #109; optionally in a new window).',
   'vscode.openTerminal': 'Open an integrated terminal at one workspace folder (the sidebar workspace row, #109).',
@@ -178,8 +180,19 @@ export interface HostBridgeDeps {
    * 建一个新工作区目录并注册（#99 顶栏 ＋ 菜单第二项）。装配视图提供实现
    * （转发到既有 `dshOne.workspace.create` 命令，宿主原生输入框 + 建目录 + 注册）；
    * 缺省无实现 = `unsupported`。
+   *
+   * **返回值就是那条命令的返回值**（`WorkspaceView`；#176 起不再丢掉）：调用方
+   * 从这里取新工作区的 id 与名字，`undefined` = 用户取消（不是失败，命令自己会
+   * 在失败时弹错误提示）。
    */
   createWorkspaceDirectory?: () => Promise<unknown>
+  /**
+   * 在这个工作区里新建一条会话并打开（#176：侧栏 ＋ 菜单添加/创建完工作区之后）。
+   * 装配视图提供实现（转发到既有 `dshOne.session.new` 命令——原来的 `workspace.add` /
+   * `workspace.create` 语义不动，老侧栏「只添加不建会话」的行为照旧）；缺省无实现
+   * = `unsupported`，而能力口在官方 web 侧如实上报「没有这条」，那一端就不开会话。
+   */
+  newSessionInWorkspace?: (workspaceId: string) => void
   /**
    * 在编辑器窗口里打开一个工作区文件夹（#109 工作区行：hover 的「在 VS Code 打开」
    * 用 `newWindow: false`，右键的「在新窗口打开文件夹」用 `true`）。装配视图提供
@@ -305,6 +318,7 @@ export async function runHostCall(
   | { paths: readonly string[] }
   | { sessionIds: readonly string[] }
   | { open: boolean }
+  | { workspaceId: string | null; title?: string }
   | null
   | HostCapabilityError
 > {
@@ -380,7 +394,20 @@ export async function runHostCall(
     if (deps.createWorkspaceDirectory === undefined) {
       return { code: 'unsupported', message: 'this host cannot create a workspace directory' }
     }
-    await deps.createWorkspaceDirectory()
+    // #176：命令的返回值（新注册的 workspace）从此**原样带给页面**——页面要靠它
+    // 打开该工作区的新会话、并在被分组过滤挡住时点名提示。原来那一版把它丢了。
+    return newWorkspaceOf(await deps.createWorkspaceDirectory())
+  }
+  // #176：添加/创建工作区之后，在这个工作区里开一条新会话并打开它。走的是既有的
+  // `dshOne.session.new` 命令（建会话 + 开对话页），不动 `workspace.add/create` 的
+  // 语义——老侧栏「只添加、不建会话」的既有行为一字未改。
+  if (call === 'session.newInWorkspace') {
+    const parsed = parseSessionNewInWorkspaceArgs(args)
+    if (isHostCallError(parsed)) return parsed
+    if (deps.newSessionInWorkspace === undefined) {
+      return { code: 'unsupported', message: 'this host cannot start a session in a workspace' }
+    }
+    deps.newSessionInWorkspace(parsed.workspaceId)
     return null
   }
   // #112：VS Code 当前打开的文件夹路径表——侧栏树的「当前工作区」（蓝色徽标 + 置顶）
@@ -419,6 +446,21 @@ export async function runHostCall(
   // 只剩 vscode.openExternal 一项（url 已在上面校核过协议）
   await vscode.env.openExternal(vscode.Uri.parse(url))
   return null
+}
+
+/**
+ * 从「建目录并注册」那条命令的返回值里取新工作区（#176）。
+ *
+ * 命令给的是 `WorkspaceView`（`ensureWorkspace` 的产物，`dshRpc.ts`），所以这里
+ * 读 `workspaceId` 与 `title`；`workspaceId` 取不到（用户取消、或将来形状变了）
+ * 就回 `{ workspaceId: null }`——调用方按「这次没有新工作区」处置，不报错。
+ */
+function newWorkspaceOf(value: unknown): { workspaceId: string | null; title?: string } {
+  const record = asRecord(value)
+  const workspaceId = record?.workspaceId
+  if (typeof workspaceId !== 'string' || workspaceId === '') return { workspaceId: null }
+  const title = record?.title
+  return typeof title === 'string' && title !== '' ? { workspaceId, title } : { workspaceId }
 }
 
 /**

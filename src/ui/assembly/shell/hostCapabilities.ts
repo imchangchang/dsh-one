@@ -19,7 +19,8 @@
  * | `isSessionInPanel` / `openSessionPanel`（#121） | 扩展宿主按面板↔会话的跟踪如实回答 + 把面板亮到该会话 | **false / 静默空操作**——官方 web 没有「宿主面板」这个概念，那一端的「打开会话」就是官方 `sessions.open` |
  * | `onPanelSessions`（#147） | 扩展宿主先回一条快照（`session.panelSessions`），此后每次面板↔会话映射变化都广播 `dshOne.panelSessions` | **永不推送**（订阅返回一个退订函数、立刻回空集）——官方 web 那一端没有「宿主面板」这件事实，集合恒为空 = 不抑制任何提醒 |
  * | `openSettings`（+ `settingsPage`） | 扩展宿主开/聚焦设置页（设置独立成编辑器页，#70） | **无**——官方 web 的设置是官方底部那一行，没有独立设置页；能力恒缺席，侧栏齿轮在那一端不渲染 |
- * | `createWorkspaceDirectory`（+ `workspaceCreate`） | 扩展宿主建目录并注册（`dshOne.workspace.create` 命令：`~/.dsh/workspaces/<名>`） | **无**——官方 web 的「新建目录」归官方 directory-flow 占用者（见 #99 的说明），能力恒缺席 |
+ * | `createWorkspaceDirectory`（+ `workspaceCreate`） | 扩展宿主建目录并注册（`dshOne.workspace.create` 命令：`~/.dsh/workspaces/<名>`），#176 起把新工作区的 id 与名字带回页面 | **无**——官方 web 的「新建目录」归官方 directory-flow 占用者（见 #99 的说明），能力恒缺席 |
+ * | `newSessionInWorkspace`（+ `sessionNewInWorkspace`， #176） | 扩展宿主跑既有 `dshOne.session.new(<工作区 id>)` 命令（建会话 + 开对话页） | **无**——官方 web 添加工作区后建不建会话归官方自己的 directory-flow，页面在那一端只添加、不开会话（能力恒缺席） |
  * | `openWorkspaceFolder`（+ `workspaceOpen`） | 扩展宿主 `dshOne.workspace.openFolder` 命令（`vscode.openFolder`，可要求新窗口） | **无**——官方 web 是浏览器里的一页，没有「编辑器窗口」可以放这个文件夹，能力恒缺席 |
  * | `openWorkspaceTerminal`（+ `workspaceTerminal`） | 扩展宿主 `dshOne.workspace.openTerminal` 命令（VS Code 集成终端，cwd = 该文件夹） | **无**——同上，浏览器页里没有集成终端 |
  * | `currentWorkspaceFolders`（+ `loadCurrentFolders`） | 扩展宿主能力桥（`vscode.workspaceFolders` = `vscode.workspace.workspaceFolders` 的 fsPath 列表） | **空表**——浏览器里那一页根本没有「VS Code 打开的文件夹」这个概念（侧栏树的「当前工作区」判定读它，空表 = 没有当前工作区） |
@@ -97,6 +98,19 @@ interface ConnectionRpc {
 export interface DownloadResult {
   /** 宿主写盘后的绝对路径；浏览器原生下载时为 null（文件在用户的下载目录）。 */
   path: string | null
+}
+
+/**
+ * 「添加/创建工作区」这一步的结果（#176）：`workspaceId` 为 null = **这次没有新
+ * 工作区**（用户取消了原生输入框或选目录对话框）——取消不是失败，调用方静默即可。
+ */
+export interface NewWorkspaceResult {
+  workspaceId: string | null
+  /**
+   * 新工作区的名字（宿主顺手带回的那一份）。宿主给不出时可以缺省——界面会从工作区
+   * 快照里再找一次（名字的唯一权威仍是 dsh 的工作区注册表）。
+   */
+  title?: string
 }
 
 /** 能力口（插件拿到的对象）。 */
@@ -186,8 +200,30 @@ export interface HostCapabilities {
    * 建目录归官方 directory-flow 占用者，能力恒缺席（那一项就不出现）。
    */
   readonly workspaceCreate: boolean
-  /** 建一个新工作区目录并注册（VS Code 侧 = `dshOne.workspace.create` 命令）。 */
-  createWorkspaceDirectory(): Promise<void>
+  /**
+   * 建一个新工作区目录并注册（VS Code 侧 = `dshOne.workspace.create` 命令）。
+   *
+   * #176 起**带回新工作区**：调用方（侧栏树）要用这个 id 去开它的新会话、并在被
+   * 分组过滤挡住时点名提示。`workspaceId` 为 null = 这次没有新工作区（用户取消了
+   * 输入框 / 选目录对话框）——那是取消不是失败，调用方静默即可；真失败由宿主自己
+   * 弹错误提示，并且这里会以失败码抛出来。
+   */
+  createWorkspaceDirectory(): Promise<NewWorkspaceResult>
+  /**
+   * 这套宿主能不能「在一个工作区里新建会话并打开它」（#176 侧栏 ＋ 菜单添加/创建
+   * 工作区之后的下一步）：**同步判定**，消费方按它决定「添加完要不要接着开会话」。
+   *
+   * VS Code 侧有（跑既有 `dshOne.session.new` 命令：建会话 + 开我们装配的对话页）；
+   * 官方 web 侧恒无——**不是漏配**：那一端「添加工作区之后建不建会话」是官方
+   * directory-flow 自己那件事，我们不该替它做主，所以那一端只添加、不开会话，且
+   * 页面必须能分辨这两条路（缺席时一声不响地少做一步，而不是报错）。
+   */
+  readonly sessionNewInWorkspace: boolean
+  /**
+   * 在这个工作区里新建一条会话并打开它。宿主没有这条能力时以 `unavailable` 拒绝
+   * ——消费方按 {@link sessionNewInWorkspace} 决定要不要调，正常路径不会走到这里。
+   */
+  newSessionInWorkspace(workspaceId: string): Promise<void>
   /**
    * 这套宿主有没有「编辑器窗口」可以放一个工作区文件夹（#109 工作区行的 hover
    * 「在 VS Code 打开」与右键「在新窗口打开文件夹」）：**同步判定**，消费方按它决定
@@ -462,10 +498,24 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
     },
     async createWorkspaceDirectory() {
       if (viaBridge()) {
-        await bridgeCall('vscode.workspaceCreate', {})
-        return
+        const data = await bridgeCall('vscode.workspaceCreate', {})
+        const workspaceId = typeof data.workspaceId === 'string' && data.workspaceId !== '' ? data.workspaceId : null
+        const title = typeof data.title === 'string' && data.title !== '' ? data.title : undefined
+        return title === undefined ? { workspaceId } : { workspaceId, title }
       }
       throw fail('unavailable', 'this shell cannot create a workspace directory; the official directory flow owns creation here')
+    },
+    // #176：添加/创建工作区之后「在该工作区里开新会话」这一条（+ 它在不在场）。
+    // 与 workspaceCreate 同一形态：两侧语义不同，没有的那一端少的就是这一步本身。
+    get sessionNewInWorkspace() {
+      return viaBridge()
+    },
+    async newSessionInWorkspace(workspaceId) {
+      if (viaBridge()) {
+        await bridgeCall('session.newInWorkspace', { workspaceId })
+        return
+      }
+      throw fail('unavailable', 'this shell does not start a session after adding a workspace; the official directory flow owns that here')
     },
     // #109：工作区行的两个宿主动作（在编辑器里打开文件夹 / 开集成终端）。与
     // editorTabs 同一形态——两侧语义不同，没有的那一端少的就是入口本身。

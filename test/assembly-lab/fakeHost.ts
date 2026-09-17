@@ -88,6 +88,15 @@ export function fakeHostScript(
     panelsOpened: [],
     settingsOpened: [],
     workspaceCreateCalls: [],
+    // #176：vscode.workspaceCreate 的回执（真宿主在这儿回**新注册的 workspace**：
+    // dshOne.workspace.create 命令的返回值）。null = 用户取消（命令什么都没回，
+    // 真宿主也是这个回执）；套件设成 {workspaceId, title} 就是「建成了」那一路——
+    // 页面据此开新会话、并在被分组过滤挡住时点名提示。
+    createdWorkspace: null,
+    // #176：添加/创建工作区之后的「在该工作区开新会话」调用（真宿主跑既有
+    // dshOne.session.new 命令：建会话 + 打开装配对话页）。假宿主只记录「为哪个
+    // 工作区开」——会话与对话页都在真宿主里。
+    newSessionsInWorkspace: [],
     openedFolders: [],
     terminalsOpened: []
   }
@@ -281,8 +290,22 @@ export function fakeHostScript(
     }
     if (message.call === "vscode.workspaceCreate") {
       // #99 ＋ 菜单「创建新工作区目录」：真宿主跑 dshOne.workspace.create（原生输入框
-      // + 建目录 + 注册）；假宿主只计数，不去碰用户真实目录。
+      // + 建目录 + 注册）；假宿主不去碰用户真实目录，#176 起把**新工作区**按
+      // host.createdWorkspace 回出去（缺省 null = 没建成/用户取消）。
       host.workspaceCreateCalls.push(true)
+      result(message.id, true, host.createdWorkspace === null ? { workspaceId: null } : host.createdWorkspace)
+      return
+    }
+    if (message.call === "session.newInWorkspace") {
+      // #176：添加/创建工作区之后「在这个工作区里开一条新会话」。真宿主在这里跑既有
+      // dshOne.session.new（工作区 id）命令（建会话 + 打开装配对话页）；假宿主只
+      // 记录「请为哪个工作区开」——本套件验的是页面→宿主这条链路的身份与次数。
+      var newWorkspaceId = message.args && typeof message.args.workspaceId === "string" ? message.args.workspaceId : ""
+      if (newWorkspaceId === "") {
+        result(message.id, false, { code: "invalid-args", message: "lab host: empty workspace id" })
+        return
+      }
+      host.newSessionsInWorkspace.push(newWorkspaceId)
       result(message.id, true, null)
       return
     }

@@ -946,6 +946,21 @@ export const CSS =
   '.dshOneTree_selectionActions{flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-left:auto;display:flex}' +
   '.dshOneTree_selectionActions button{flex:none;white-space:nowrap}' +
   '.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 var(--dsh-one-density-row-padding-inline,8px) var(--dsh-one-density-section-gap,4px)}' +
+  // #176：「刚添加的工作区被分组过滤挡住」那一条页面内提示。与选择态动作条同一族（列表
+  // 之上的一条通栏横带），所以形态也照它：**通栏**（左右各自带行内容基准的横向留白，
+  // 与行内容左缘对齐）、上下两条发丝线、不带圆角；纵向留白与条内横向留白都用密度档
+  // （`group-gap` / `row-padding-inline` / `section-gap`），没有自造数值。
+  //
+  // 文案这一格与其余留白规则同一取舍：`flex:1` + 允许换行（侧栏窄，宁可多占一行也不
+  // 横向溢出），两枚按钮 `flex:none` 不收缩。
+  '.dshOneTree_addNotice{align-items:center;flex-wrap:wrap;gap:var(--dsh-one-density-section-gap,4px);background:var(--dsw-alias-interactive-bg-hover);border-top:.5px solid var(--dsw-alias-border-l3);border-bottom:.5px solid var(--dsw-alias-border-l3);margin:0 0 var(--dsh-one-density-group-gap,4px);padding:var(--dsh-one-density-section-gap,4px) var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
+  '.dshOneTree_addNoticeText{flex:1;min-width:0;color:var(--dsw-alias-label-secondary);font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}' +
+  // 「全部工作区」这枚动作与空态入口按钮同一档（紧凑档 26px / 圆角 5px / 12px，见上面
+  // `.dshOneTree_emptyAction` 那条的理由），不另造一个按钮尺寸。
+  '.dshOneTree_addNoticeAction{cursor:pointer;flex:none;white-space:nowrap;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:5px;align-items:center;padding:0 10px;font-family:inherit;font-size:12px;display:inline-flex}' +
+  '.dshOneTree_addNoticeAction:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}' +
+  '.dshOneTree_addNoticeClose{cursor:pointer;flex:none;width:26px;height:26px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:5px;justify-content:center;align-items:center;padding:0;font-family:inherit;display:inline-flex}' +
+  '.dshOneTree_addNoticeClose:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}' +
   // 回收站抽屉（#103）：从底部半高滑出（高度由组件按档位给，默认 50%、上拉到 90%）。
   // 滑入与滑出共用这一条过渡（同一个 `transform`，开态只是把它还原成 none），所以两边
   // 天然对称（#117）。时长与缓动都取官方 token，不写自造数字：官方 ui-theme 的 base.css

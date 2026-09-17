@@ -1,6 +1,6 @@
 /** 树主组件（官方 WorkspaceBrowser 的同构复刻）：组合上面各件 + 状态与订阅。 */
 import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
-import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseFill14, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, withoutPanelOpenCompleted, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
 import { formatFileMention } from '../../../../pure/fileReference.ts'
 import { formatSessionMention } from '../../../../pure/sessionMention.ts'
@@ -94,7 +94,7 @@ import {
   ungroupDropZone,
 } from './tagGroups.ts'
 import { TopBar } from './toolbar.ts'
-import type { TreeProps } from './types.ts'
+import type { AddedWorkspace, TreeProps } from './types.ts'
 
 // ---------------------------------------------------------------------------
 // 主组件（官方 `WorkspaceBrowser` 的同构复刻）
@@ -113,6 +113,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
     deleteWorkspace,
     pickWorkspaceFolder,
     createWorkspaceFolder,
+    newSessionInWorkspace,
     openSettings,
     searchSessions,
     searchResultLimit,
@@ -218,6 +219,12 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const [tagRename, setTagRename] = useState<{ groupKey: string; id: string; name: string } | null>(null)
   const [tagDelete, setTagDelete] = useState<{ groupKey: string; id: string; name: string } | null>(null)
   const [tagNewSession, setTagNewSession] = useState<{ groupKey: string; tagId: string } | null>(null)
+  /**
+   * #176：刚添加/创建成功的工作区（只记 id 与名字，**不写任何持久状态**）。它只服务
+   * 一件事——当分组过滤把那一行挡住时，在树里给一条能行动的提示（见下面的 `addNoticeFor`）。
+   * 用户点「全部工作区」、点关闭、或下一次添加就重新赋值/清掉。
+   */
+  const [addNotice, setAddNotice] = useState<{ workspaceId: string; title?: string } | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const hoverCard = useHoverCardRoom(rootRef)
   // #168：列表给滚动条留的那一格**按当页实测**写回变量（浮层滚动条下是 0，实占时是滚动条
@@ -735,6 +742,34 @@ export function WorkspaceTree(props: TreeProps): unknown {
   /** 分叉一行：成功后插件自己会打开子会话，这里只管失败的可见反馈。 */
   const forkRow = (sessionId: string): void => {
     void forkSession(sessionId).catch((reason: unknown) => reportFailure('fork.failed', reason))
+  }
+
+  /**
+   * #176：添加/创建工作区（＋ 菜单两项）在树这一层的收尾——两条入口共用这一份，
+   * 所以「添加成功之后要发生什么」只有一个地方写着。
+   *
+   * 三件事：
+   * 1. **开这个工作区的新会话**（用户拍板的新行为）。走宿主能力口
+   *    `newSessionInWorkspace`；`undefined` = 这个宿主没有这一步（官方 web 侧，
+   *    那一端「添加完之后建不建会话」归官方自己的 directory-flow）——那就只添加、
+   *    不开会话，**一声不响也不报错**（这正是不注入它的含义）。
+   * 2. **记下刚加的是哪一个**：分组过滤把那一行挡住时树里要有一条能行动的提示
+   *    （提示本身在渲染那一步按当前过滤态决定出不出，见 `addNoticeFor`）。
+   * 3. **失败要说出来**（#110 的规矩）：`.catch(() => {})` 那种静默是这次要清掉的东西
+   *    ——用户点完「选择已有文件夹…」什么都没发生，连失败都看不见（#176 的现场）。
+   *    取消（`null`）不算失败：用户自己关掉的原生对话框，静默即可。
+   */
+  const addWorkspace = (run: () => Promise<AddedWorkspace | null>): void => {
+    setAddNotice(null)
+    void run().then(
+      (added) => {
+        if (added === null) return
+        setAddNotice({ workspaceId: added.workspaceId, ...(added.title === undefined ? {} : { title: added.title }) })
+        if (newSessionInWorkspace === undefined) return
+        void newSessionInWorkspace(added.workspaceId).catch((reason: unknown) => reportFailure('workspace.newSessionFailed', reason))
+      },
+      (reason: unknown) => reportFailure('workspace.addFailed', reason),
+    )
   }
   /** 「在新标签页打开」一行；宿主没有这条能力时整个动作不注入（菜单项也不出现）。 */
   const openRowInNewTab =
@@ -1259,6 +1294,29 @@ export function WorkspaceTree(props: TreeProps): unknown {
   )
 
   /**
+   * #176：刚添加的工作区**被分组过滤挡住**时要在树里给的那条提示（用户原话：
+   * 「可能后面找不到这个工作区也不太好，最好是创建的时候就提示」）。
+   *
+   * 为什么在渲染这一步判、而不是在添加成功那一刻判：挡不挡得住是**当前过滤态**的事
+   * ——用户在提示里点「查看全部」（`activeGroupId` 归 null）或自己切到别的分组之后，
+   * 这条提示该自己消失；把它钉在「添加那一刻的过滤态」上就会留下一条已经过期的提示。
+   * 所以这里只由 `addNotice`（加了哪个）+ 现成的过滤判据（`filterActive` 与
+   * `workspaceMatchesGroup`，与树体过滤同一份纯函数）算出来，**不写任何持久状态**。
+   *
+   * 名字的取法：添加时带回的名字优先，其次从工作区快照里找（名字的权威是 dsh 的
+   * 工作区注册表），最后退回 id——文案里永远有东西可指。
+   */
+  const addNoticeFor = ((): { workspaceId: string; name: string } | null => {
+    if (addNotice === null || !filterActive || activeGroupId === null) return null
+    if (workspaceMatchesGroup(groupsFile, addNotice.workspaceId, activeGroupId)) return null
+    const name =
+      addNotice.title ??
+      workspaces.find((workspace) => workspace.workspaceId === addNotice.workspaceId)?.title ??
+      addNotice.workspaceId
+    return { workspaceId: addNotice.workspaceId, name }
+  })()
+
+  /**
    * #115 行内改名：这一行在编辑态时要多吃的 props（不在编辑态就一个都不给）。
    *
    * 编辑态是**一行的事**（`sessionEdit.id`），所以按 id 判；会话行那一侧只有这一个
@@ -1487,8 +1545,10 @@ export function WorkspaceTree(props: TreeProps): unknown {
       onQueryClear: () => setSearchText(''),
       allCollapsed,
       onToggleCollapseAll: toggleCollapseAll,
-      onPickWorkspaceFolder: pickWorkspaceFolder,
-      ...(createWorkspaceFolder === undefined ? {} : { onCreateWorkspaceFolder: createWorkspaceFolder }),
+      onPickWorkspaceFolder: () => addWorkspace(pickWorkspaceFolder),
+      ...(createWorkspaceFolder === undefined
+        ? {}
+        : { onCreateWorkspaceFolder: () => addWorkspace(createWorkspaceFolder) }),
       ...(openSettings === undefined ? {} : { onOpenSettings: openSettings }),
       selectMode,
       onToggleSelectMode: () => (selectMode ? exitSelection() : selectionEntrySignal.enter()),
@@ -1521,6 +1581,45 @@ export function WorkspaceTree(props: TreeProps): unknown {
             onExit: exitSelection,
           })
         : null,
+      // #176：刚添加的工作区被分组过滤挡住时的页面内提示（只在「挡着」的那一刻渲染，
+      // 判据见上面 `addNoticeFor`）。它与宿主通知无关——能力口里根本没有「弹通知」
+      // 这条，而且官方 web 那一端也要有同样的表现，所以提示落在页面里。
+      addNoticeFor === null
+        ? null
+        : h(
+            'div',
+            {
+              className: 'dshOneTree_addNotice',
+              role: 'status',
+              'data-dshone-tree': 'add-notice',
+              'data-dshone-tree-added-workspace': addNoticeFor.workspaceId,
+            },
+            h('span', { className: 'dshOneTree_addNoticeText' }, tr('addNotice.filtered', { name: addNoticeFor.name })),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dshOneTree_addNoticeAction',
+                'data-dshone-tree-action': 'show-all-workspaces',
+                onClick: () => {
+                  setPrefs((prev) => ({ ...prev, activeGroupId: null }))
+                  setAddNotice(null)
+                },
+              },
+              tr('group.allWorkspaces'),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dshOneTree_addNoticeClose',
+                'aria-label': tr('addNotice.dismiss'),
+                'data-dshone-tree-action': 'dismiss-add-notice',
+                onClick: () => setAddNotice(null),
+              },
+              h(IconCloseFill14, {}),
+            ),
+          ),
       h(
         'div',
         { className: 'dshOneTree_list' },

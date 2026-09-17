@@ -230,7 +230,15 @@ function hostBridgeDeps(
    * 面板不给 = 那两枚入口在它们的页面里不出现（能力口按 `viaBridge` 如实上报，
    * 但页面侧另有 `settingsPage` / `workspaceCreate` 判定，见 hostCapabilities）。
    */
-  panelActions?: { openSettings?: () => void; createWorkspaceDirectory?: () => Promise<unknown> },
+  panelActions?: {
+    openSettings?: () => void
+    createWorkspaceDirectory?: () => Promise<unknown>
+    /**
+     * #176：在某个工作区里新建会话并打开（转发既有 `dshOne.session.new` 命令）。
+     * 与上面两条一样是**该面板专属**的能力——只有侧栏那棵树需要它。
+     */
+    newSessionInWorkspace?: (workspaceId: string) => void
+  },
 ): HostBridgeDeps {
   let roots = gatewayRootsByManager.get(manager)
   if (roots === undefined) {
@@ -278,6 +286,9 @@ function hostBridgeDeps(
     ...(panelActions?.createWorkspaceDirectory === undefined
       ? {}
       : { createWorkspaceDirectory: panelActions.createWorkspaceDirectory }),
+    ...(panelActions?.newSessionInWorkspace === undefined
+      ? {}
+      : { newSessionInWorkspace: panelActions.newSessionInWorkspace }),
   }
 }
 
@@ -958,12 +969,17 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
       view.webview,
       this.logger,
       hostBridgeDeps(this.manager, this.logger, () => this.mirror?.origin, {
-        // #99：顶栏齿轮走能力口（不再要求页面自己 postMessage）；两条都复用既有动作
+        // #99：顶栏齿轮走能力口（不再要求页面自己 postMessage）；三条都复用既有动作
         // ——设置页的注册/聚焦在马甲这一层（onOpenSettings），建目录复用
-        // `dshOne.workspace.create` 命令（宿主原生输入框 + 建目录 + 注册 + 刷新）。
+        // `dshOne.workspace.create` 命令（宿主原生输入框 + 建目录 + 注册 + 刷新），
+        // #176 的「添加完接着开新会话」复用 `dshOne.session.new` 命令（建会话 + 开
+        // 装配对话页），页面只看得到能力口。
         openSettings: () => this.onOpenSettings?.(),
-        createWorkspaceDirectory: async () => {
-          await vscode.commands.executeCommand('dshOne.workspace.create')
+        // 返回值要**原样透出**：命令给的是新注册的 `WorkspaceView`，页面靠它的 id
+        // 去开新会话、并在被分组过滤挡住时点名提示（#176 之前这里把它丢掉了）。
+        createWorkspaceDirectory: async () => await vscode.commands.executeCommand('dshOne.workspace.create'),
+        newSessionInWorkspace: (workspaceId: string) => {
+          void vscode.commands.executeCommand('dshOne.session.new', workspaceId)
         },
       }),
     )

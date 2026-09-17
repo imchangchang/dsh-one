@@ -18,6 +18,7 @@ import {
   parseOpenFolderArgs,
   parseOpenTerminalArgs,
   parseSessionInPanelArgs,
+  parseSessionNewInWorkspaceArgs,
   parseSessionOpenPanelArgs,
   parseSessionTabArgs,
   parseWorkspacePath,
@@ -202,5 +203,29 @@ test('#112 parseNoArgs：无参调用只接受「没有参数」或空对象，�
     assert.equal(isHostCallError(result), true, `should reject ${JSON.stringify(bad)}`)
     assert.equal((result as { code: string }).code, 'invalid-args')
     assert.match((result as { message: string }).message, /takes no arguments/)
+  }
+})
+
+/* ------------------------------------------------------------------ *
+ * #176：添加/创建工作区之后的「在该工作区开新会话」——只校工作区 id 的形状
+ * （与 session id 同一档标识符校核）。查它是否在册是宿主那一侧的事：命令拿它
+ * 去问网关，问了不存在的工作区会在命令里如实报错。
+ * ------------------------------------------------------------------ */
+
+test('#176 parseSessionNewInWorkspaceArgs：收标识符形状的工作区 id，其余一律结构化拒掉', () => {
+  // 合法：网关生成的 uuid 形态（与真读到的 `workspaceId` 同形）
+  assert.deepEqual(parseSessionNewInWorkspaceArgs({ workspaceId: '6eaa6d37-5cd4-4e27-874a-fe93291d26d3' }), {
+    workspaceId: '6eaa6d37-5cd4-4e27-874a-fe93291d26d3',
+  })
+  assert.deepEqual(parseSessionNewInWorkspaceArgs({ workspaceId: 'ws-1' }), { workspaceId: 'ws-1' })
+  for (const bad of [undefined, null, 'ws-1', [], {}, { workspaceId: 7 }, { workspaceId: '' }]) {
+    const result = parseSessionNewInWorkspaceArgs(bad)
+    assert.equal(isHostCallError(result), true, `should reject ${JSON.stringify(bad)}`)
+    assert.equal((result as { code: string }).code, 'invalid-args')
+    assert.match((result as { message: string }).message, /expects an object argument|expects a plain workspace id string/)
+  }
+  // 路径/空白/控制字符/超长一律拒（这个 id 会进命令、日志与页面）
+  for (const bad of ['../etc/passwd', 'ws 1', 'ws\n1', 'ws/', 'a'.repeat(129), '-leading']) {
+    assert.equal(isHostCallError(parseSessionNewInWorkspaceArgs({ workspaceId: bad })), true, `should reject ${bad}`)
   }
 })

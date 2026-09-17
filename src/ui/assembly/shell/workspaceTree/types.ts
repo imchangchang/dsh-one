@@ -21,6 +21,19 @@ export interface WorkspaceViewLike {
   readonly createdAt: string
 }
 
+/**
+ * 「刚刚添加/创建成功的工作区」（#176）：id 必给，名字尽力给。
+ *
+ * 名字为什么可以缺省：两条添加路径的来源不同——官方 `workspaces.create` 与扩展的
+ * `dshOne.workspace.create` 命令都给 `WorkspaceView`（带 title），但页面不该把
+ * 「名字」当成硬前提：拿不到时界面退回到工作区快照里找（名字的权威本来就是 dsh 的
+ * 工作区注册表）。id 缺省则意味着「认不出刚加的是哪一个」，那一刻不动任何后续动作。
+ */
+export interface AddedWorkspace {
+  readonly workspaceId: string
+  readonly title?: string
+}
+
 /** 等待态快照：官方 UiSession 暴露的 Map（会话 id → {kind}）。 */
 export type PendingMap = ReadonlyMap<string, { readonly kind?: string }>
 
@@ -68,13 +81,24 @@ export interface TreeProps {
    * 它自己的 children 里声明，官方渲染器只允许声明者渲染（`boundRenderSlot` 对
    * `entry.children?.[key] === undefined` 抛 SlotOwnershipError），我们这条 shadow
    * entry 声明不了同名槽——举证与结论见 workspaceTreePlugin 的注入面注释。
+   *
+   * #176：**返回刚注册的工作区**（原来返回 void，于是「选完目录界面什么都不发生」）；
+   * 失败以 Promise 拒绝的形式交回（模板同 #110 那一批：插件不吞失败，界面给一行可见
+   * 反馈）。`null` = 用户取消了选择，不是失败。
    */
-  pickWorkspaceFolder: () => void
+  pickWorkspaceFolder: () => Promise<AddedWorkspace | null>
   /**
    * ＋ 菜单第二项「创建新工作区目录…」：宿主能力口来的动作。**undefined = 这个宿主
    * 没有这条能力**（官方 web 侧建目录归官方目录流占用者），那一项就不出现。
+   * 返回值与 {@link pickWorkspaceFolder} 同口径（#176：带回新工作区、取消给 null）。
    */
-  createWorkspaceFolder?: (() => void) | undefined
+  createWorkspaceFolder?: (() => Promise<AddedWorkspace | null>) | undefined
+  /**
+   * #176：在一个工作区里新建会话并打开它（宿主能力口 `newSessionInWorkspace` 的封装）。
+   * **undefined = 这个宿主没有这一步**（官方 web 侧「添加工作区之后建不建会话」归官方
+   * 自己的 directory-flow）——那一刻页面只添加、不开会话，一声不响也不报错。
+   */
+  newSessionInWorkspace?: ((workspaceId: string) => Promise<unknown>) | undefined
   /**
    * 顶栏设置齿轮：宿主能力口来的动作。**undefined = 这个宿主没有独立设置页**
    * （官方 web 侧设置是官方侧栏底部那一行），齿轮就不渲染。

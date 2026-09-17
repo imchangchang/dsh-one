@@ -189,7 +189,7 @@ import { setPanelOpenSessions } from './workspaceTree/panelSessionsStore.ts'
 import { RecycleEntry } from './workspaceTree/recycleEntry.ts'
 import { reportSessionOwnedElsewhere } from './workspaceTree/sessionOwnedNotice.ts'
 import { WorkspaceTree } from './workspaceTree/tree.ts'
-import type { SearchPage, WorkspaceSnapshotLike } from './workspaceTree/types.ts'
+import type { SearchPage, AddedWorkspace, WorkspaceSnapshotLike, WorkspaceViewLike } from './workspaceTree/types.ts'
 
 // ---------------------------------------------------------------------------
 // cordis 插件面
@@ -211,6 +211,22 @@ interface SessionsService {
 
 interface WorkspacesService {
   readonly list: { getSnapshot(): WorkspaceSnapshotLike }
+  /**
+   * 按路径注册一个已有目录（官方 `workspaces` 客户端服务的 `create`）。
+   *
+   * **返回形状是核过的，不是猜的**（0.1.6-alpha.1 的 combo 原文，出处
+   * `@deepseek-ai/dsh-client-ui-workspace` 的 client bundle）：
+   * ```js
+   * async create(input) {
+   *   const result = await this.model.create(input);
+   *   if (!result.ok) throw new WorkspaceCreateError(result.error);
+   *   return result.value.workspace;   // ← WorkspaceView（含 workspaceId / title）
+   * }
+   * ```
+   * 也就是说它**返回刚注册的那个工作区**、失败时**抛出**。本插件 #176 之前把返回值
+   * 丢掉了（还写成 `as unknown as` 的硬转），于是「选完目录，界面什么都不发生」。
+   */
+  create(input: { path: string }): Promise<WorkspaceViewLike>
   rename(workspaceId: string, title: string): Promise<unknown>
   delete(workspaceId: string): Promise<void>
   archiveSession(sessionId: string): Promise<void>
@@ -310,8 +326,7 @@ export function apply(ctx: TreeContext): void {
     },
   })
 
-  /** 工作区里「复用空白会话，否则新建」再打开（官方 connectWorkspace + open 的语义）。 */
-  const startSessionIn = async (workspaceId: string): Promise<string> => {
+  /** 工作区里「复用空白会话，否则新建」再打开（官方 connectWorkspace + open 的语义）。 */  const startSessionIn = async (workspaceId: string): Promise<string> => {
     const snapshot = workspaces.list.getSnapshot()
     const workspace = snapshot.items.find((item) => item.workspaceId === workspaceId)
     if (workspace === undefined) throw new Error(`workspace tree: unknown workspace ${workspaceId}`)
@@ -331,6 +346,23 @@ export function apply(ctx: TreeContext): void {
     return await sessions.create({ workspaceId })
   }
 
+  /**
+   * 把「刚注册好的工作区」认成页面上要的那一份（#176）。
+   *
+   * 两侧的来源不同、形状同源：官方 `workspaces.create` 回 `WorkspaceView`，
+   * 扩展的 `dshOne.workspace.create` 命令回的也是它（`ensureWorkspace` 的产物）。
+   * 认不出（形状变了）就回 null——调用方按「添加成功但认不出是哪一个」处置：一切
+   * 照旧，只是不接着开新会话、也不给过滤提示（而不是抛错或猜一个 id 出来）。
+   */
+  const addedWorkspaceOf = (value: unknown): AddedWorkspace | null => {
+    if (typeof value !== 'object' || value === null) return null
+    const record = value as { workspaceId?: unknown; title?: unknown }
+    if (typeof record.workspaceId !== 'string' || record.workspaceId === '') return null
+    return typeof record.title === 'string' && record.title !== ''
+      ? { workspaceId: record.workspaceId, title: record.title }
+      : { workspaceId: record.workspaceId }
+  }
+
   const buildInjected = (): Record<string, unknown> => {
     return {
       // 「在新标签页打开」（#72 多开通道）：走宿主能力口（抽象口，插件不碰宿主 API）。
@@ -344,13 +376,28 @@ export function apply(ctx: TreeContext): void {
         : {}),
       // #99 顶栏 ＋ 菜单第二项「创建新工作区目录…」：宿主能力口，宿主没有这条能力
       // （官方 web 形态）时不注入 = 那一项不出现。
+      //
+      // #176：**返回值（新工作区）交回树组件**，不再在这里丢掉、也不再在这里吞掉
+      // 失败（原来 `.catch` 只写一行 console.warn，用户看不见）。取消（用户没输名字）
+      // 走 null，不是失败。开新会话是下一步，由树组件按 `newSessionInWorkspace` 决定。
       ...(caps.workspaceCreate
         ? {
-            createWorkspaceFolder: (): void => {
-              caps.createWorkspaceDirectory().catch((reason: unknown) => {
-                console.warn('[dsh-one] create workspace directory failed:', reason)
-              })
-            },
+            createWorkspaceFolder: (): Promise<AddedWorkspace | null> =>
+              caps.createWorkspaceDirectory().then((created) =>
+                created.workspaceId === null
+                  ? null
+                  : created.title === undefined
+                    ? { workspaceId: created.workspaceId }
+                    : { workspaceId: created.workspaceId, title: created.title },
+              ),
+          }
+        : {}),
+      // #176：添加/创建工作区之后「在该工作区里开一条新会话并打开它」。宿主没有这条
+      // 能力（官方 web 形态：添加完建不建会话归官方自己的 directory-flow）就不注入
+      // = 树组件只添加、不开会话，一声不响也不报错（判据写在树组件那一侧）。
+      ...(caps.sessionNewInWorkspace
+        ? {
+            newSessionInWorkspace: (workspaceId: string): Promise<void> => caps.newSessionInWorkspace(workspaceId),
           }
         : {}),
       // #99 顶栏最右的设置齿轮：宿主能力口，宿主没有独立设置页（官方 web 形态）时
@@ -444,13 +491,16 @@ export function apply(ctx: TreeContext): void {
       // picker）也只在 ui-conversation 在场时才注册（它把 sidebar 那半嵌在 hero 那半的
       // inject 里）。走官方服务是第 2 层机制、语义一致（同一个宿主原生选择器），
       // 且不接手任何隐式契约。
-      pickWorkspaceFolder: (): void => {
+      //
+      // #176：**返回值交回树组件**（原来被丢掉，且 `.catch(() => {})` 把失败也吞了
+      // ——#110 立的规矩是失败要有一行看得见的反馈）。取消（用户关掉原生对话框）
+      // 走 null，那是取消不是失败。
+      pickWorkspaceFolder: async (): Promise<AddedWorkspace | null> => {
         const service = uiWorkspace()
-        if (service === undefined) return
-        void service
-          .pickDirectory()
-          .then((path) => (path === null ? undefined : (workspaces as unknown as { create(input: { path: string }): Promise<unknown> }).create({ path })))
-          .catch(() => {})
+        if (service === undefined) throw new Error('the workspace directory picker is unavailable in this page')
+        const path = await service.pickDirectory()
+        if (path === null) return null
+        return addedWorkspaceOf(await workspaces.create({ path }))
       },
       searchSessions: async (
         query: string,

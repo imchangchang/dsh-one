@@ -66,6 +66,7 @@ import { RECYCLE_DRAWER_COMPLETE_SUITE } from './recycleDrawerCompleteSuites.ts'
 import { FRESH_PROFILE_BOOT_SUITE } from './freshProfileSuites.ts'
 import { SIDEBAR_NO_HSCROLL_SUITE } from './sidebarHScrollSuites.ts'
 import { COMBO_CACHE_KEY_SUITE } from './comboCacheKeySuites.ts'
+import { ADD_WORKSPACE_SUITE } from './addWorkspaceSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6415,4 +6416,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #173 combo 缓存键带本地产物版本（F-57：F-01…F-56 与 R-06 已占，按「从未占用的继续」
   // 顺延；套件本体在 comboCacheKeySuites.ts，同为独立文件，少一处合入热点）。
   COMBO_CACHE_KEY_SUITE,
+  // #176 顶栏 ＋ 菜单添加/创建工作区之后的收尾（F-58：F-01…F-57 与 R-06 已占，按
+  // 「从未占用的继续」顺延；套件本体在 addWorkspaceSuites.ts，同为独立文件）。
+  ADD_WORKSPACE_SUITE,
 ]

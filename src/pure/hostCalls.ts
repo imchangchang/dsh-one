@@ -122,6 +122,31 @@ export function parseSessionOpenPanelArgs(args: unknown): SessionArgs | HostCall
   return parseSessionIdArgs('session.openPanel', args)
 }
 
+/**
+ * 工作区 id 的形状（#176）：与 {@link SESSION_ID_ARG_RE} 同一档「标识符」校核
+ * ——两者都是 gateway 生成的 uuid，落进同一个字符集里。这里只判形状，不查它
+ * 是否在册：查表是宿主那一侧的事（命令拿它去问网关）。
+ */
+export const WORKSPACE_ID_ARG_RE = SESSION_ID_ARG_RE
+
+/** `session.newInWorkspace` 的参数（#176：在这个工作区里新建一条会话并打开它）。 */
+export interface WorkspaceIdArgs {
+  workspaceId: string
+}
+
+/** 校核 `session.newInWorkspace` 的参数。 */
+export function parseSessionNewInWorkspaceArgs(args: unknown): WorkspaceIdArgs | HostCallError {
+  const record = asRecord(args)
+  if (record === undefined) {
+    return { code: 'invalid-args', message: 'session.newInWorkspace expects an object argument' }
+  }
+  const workspaceId = record.workspaceId
+  if (typeof workspaceId !== 'string' || !WORKSPACE_ID_ARG_RE.test(workspaceId)) {
+    return { code: 'invalid-args', message: 'session.newInWorkspace expects a plain workspace id string' }
+  }
+  return { workspaceId }
+}
+
 /** git.show 的参数（hash 必填且形状严格；cwd 可选）。 */
 export interface GitShowArgs {
   hash: string
