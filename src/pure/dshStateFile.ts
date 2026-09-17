@@ -342,10 +342,6 @@ export function serializeGroupFile(value: GroupFile): string {
   return JSON.stringify(value)
 }
 
-export function serializeTagFile(value: TagFile): string {
-  return JSON.stringify(value)
-}
-
 export function serializeDraftsFile(value: DraftsFile): string {
   return JSON.stringify(value)
 }
