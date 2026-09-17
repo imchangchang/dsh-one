@@ -29,6 +29,7 @@ import {
   hasTreeGroup,
   parseTreeGroups,
   renameTreeGroup,
+  reorderTreeGroups,
   serializeTreeGroups,
   setWorkspacesGroupMembership,
   toggleWorkspaceGroup,
@@ -128,6 +129,38 @@ test('分组增删改：建组/重命名/删组（含归属清理）都返回新
   const removed = deleteTreeGroup(created.file, 'g-1')
   assert.deepEqual(removed?.groups, [])
   assert.equal(deleteTreeGroup(created.file, 'g-nope'), null)
+})
+
+// #155：管理框拖组行换序那条路的纯层入口（界面只交出完整顺序）。无变化必须回 null——
+// 「拖回原位 = 零写入」这条断言靠它成立。
+test('重排分组：交给树层的完整顺序装回文件，顺序没变/请求无效回 null', () => {
+  let file = emptyTreeGroups()
+  for (const [id, name] of [
+    ['g-1', '工作'],
+    ['g-2', '开发'],
+    ['g-3', '演示'],
+  ] as const) {
+    const created = createTreeGroup(file, name, id)
+    if (!created.ok) throw new Error('unreachable')
+    file = created.file
+  }
+  const reordered = reorderTreeGroups(file, ['g-3', 'g-1', 'g-2'])
+  assert.deepEqual(reordered?.groups, [
+    { id: 'g-3', name: '演示' },
+    { id: 'g-1', name: '工作' },
+    { id: 'g-2', name: '开发' },
+  ])
+  // 归属一点不动（换序只动定义数组的顺序）。
+  assert.deepEqual(reordered?.membership, file.membership)
+  // 与现序一致 / 缺项 / 未知 id：都不该长出一条写入。
+  assert.equal(reorderTreeGroups(file, ['g-1', 'g-2', 'g-3']), null)
+  assert.equal(reorderTreeGroups(file, ['g-2', 'g-1']), null)
+  assert.equal(reorderTreeGroups(file, ['g-2', 'g-1', 'g-nope']), null)
+  assert.equal(reorderTreeGroups(file, []), null)
+  // 只有一个组时，任何请求都是原序。
+  const one = createTreeGroup(emptyTreeGroups(), '唯一', 'g-1')
+  if (!one.ok) throw new Error('unreachable')
+  assert.equal(reorderTreeGroups(one.file, ['g-1']), null)
 })
 
 test('删组连带清掉归属：残留指向不存在组的归属只会变成脏数据', () => {

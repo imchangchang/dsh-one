@@ -750,7 +750,9 @@ export function ManageGroupsModal({
           setDropAt(null)
         },
       },
-      h('svg', { width: 9, height: 14, viewBox: '0 0 9 14', fill: 'currentColor', 'aria-hidden': true },
+      h(
+        'svg',
+        { width: 9, height: 14, viewBox: '0 0 9 14', fill: 'currentColor', 'aria-hidden': true },
         HANDLE_DOTS.map((dot) => h('circle', { key: `${String(dot.cx)}-${String(dot.cy)}`, cx: dot.cx, cy: dot.cy, r: 1.4 })),
       ),
     )
