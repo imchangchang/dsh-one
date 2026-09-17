@@ -49,6 +49,7 @@ import { GROUP_MEMBERS_SUITE } from './groupMembersSuites.ts'
 import { TOOLBAR_SINGLE_ROW_SUITE } from './toolbarSingleRowSuites.ts'
 import { PENDING_DOT_SUITE } from './pendingDotSuites.ts'
 import { TOPBAR_RIGHT_INSET_SUITE } from './topbarRightInsetSuites.ts'
+import { STATUS_DOT_SUITE } from './statusDotSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6081,4 +6082,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 取当时最小的未占用号；套件本体在 topbarRightInsetSuites.ts，同为独立文件，
   // 少一处合入热点）。
   TOPBAR_RIGHT_INSET_SUITE,
+  // #146 会话行状态点逐案审计（F-46：F-44 归 #142、F-45 归 #144，按「从未占用的继续」顺延；
+  // 套件本体在 statusDotSuites.ts，同上为独立文件，少一处合入热点）。
+  STATUS_DOT_SUITE,
 ]
