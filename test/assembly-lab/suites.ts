@@ -57,6 +57,7 @@ import { SEARCH_HIT_HIGHLIGHT_SUITE } from './searchHitHighlightSuites.ts'
 import { DRAG_PARITY_SUITE } from './dragParitySuites.ts'
 import { EXPAND_DEFAULTS_SUITE } from './expandDefaultsSuites.ts'
 import { UNREAD_COUNT_SUITE } from './unreadCountSuites.ts'
+import { LIVENESS_SUITE } from './livenessSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6129,4 +6130,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #153 工作区行尾角标补回「未读」一项（F-52：F-49 归 #152、F-50 归 #155、F-51 归 #151，
   // 按「从未占用的继续」顺延；套件本体在 unreadCountSuites.ts，同为独立文件）。
   UNREAD_COUNT_SUITE,
+  // #156 交互活性探针（F-54：F-49…#158 前占、F-53 归 #154，按「从未占用的继续」顺延；
+  // 套件本体在 livenessSuites.ts，同为独立文件，少一处合入热点）。
+  LIVENESS_SUITE,
 ]
