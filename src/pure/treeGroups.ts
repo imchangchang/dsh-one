@@ -90,6 +90,34 @@ export function toggleWorkspaceGroup(file: GroupFile, workspaceId: string, group
 }
 
 /**
+ * 批量设置归属（#139 成员清单里的「全选 / 清空」）：对给定的一批工作区逐个折叠
+ * {@link toggleWorkspaceGroup} 这**同一个纯函数**，返回最终状态（无变化回 null）。
+ *
+ * 为什么要有它：逐项调 {@link toggleWorkspaceGroup} 要每步拿上一步的结果，而界面的
+ * 状态更新是异步的（连续调用会各自基于同一份旧状态算，最终只剩最后一次生效）。这一层
+ * 把折叠做完再交回调用方落盘一次，于是「界面上一次动作 = 一次落盘」，而**成员判定与
+ * 增删语义仍然只有一份**（判定用过滤 / 计数同款的 {@link workspaceMatchesGroup}，
+ * 增删仍走 `toggleWorkspaceGroup`）。
+ */
+export function setWorkspacesGroupMembership(
+  file: GroupFile,
+  workspaceIds: readonly string[],
+  groupId: string,
+  member: boolean,
+): GroupFile | null {
+  let next = file
+  let changed = false
+  for (const workspaceId of workspaceIds) {
+    if (workspaceMatchesGroup(next, workspaceId, groupId) === member) continue
+    const updated = toggleWorkspaceGroup(next, workspaceId, groupId)
+    if (updated === null) continue
+    next = updated
+    changed = true
+  }
+  return changed ? next : null
+}
+
+/**
  * 过滤用的判定：当前选中的分组下，某个工作区是否可见。
  *
  * 语义（与旧侧栏的「选中分组即过滤」一致）：`activeGroupId` 为 null 时全部可见；

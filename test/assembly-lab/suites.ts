@@ -45,6 +45,7 @@ import { ROW_TIER_SUITE } from './rowTierSuites.ts'
 import { RECYCLE_ENTRY_ALIGN_SUITE } from './recycleEntryAlignSuites.ts'
 import { ROW_ACTIVITY_SUITE } from './rowActivitySuites.ts'
 import { COLLAPSE_ALL_ICON_WEIGHT_SUITE } from './collapseAllIconWeightSuites.ts'
+import { GROUP_MEMBERS_SUITE } from './groupMembersSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6044,4 +6045,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 按「从未占用的继续」取当时最小的未占用号；套件本体在 collapseAllIconWeightSuites.ts，
   // 同为独立文件，少一处合入热点）。
   COLLAPSE_ALL_ICON_WEIGHT_SUITE,
+  // #139 管理分组里的成员清单（F-41：F-01…F-40 与 R-06 已占，按「从未占用的继续」顺延；
+  // 套件本体在 groupMembersSuites.ts，同为独立文件，少一处合入热点）。
+  GROUP_MEMBERS_SUITE,
 ]
