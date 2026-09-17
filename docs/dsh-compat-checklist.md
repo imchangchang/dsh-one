@@ -2,16 +2,16 @@
 
 dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游每个 release 都可能动 wire 协议与前端插件契约。本清单是对上游新版本的完整测试项，分两层：
 
-- **自动化探针**（`.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑 `scripts/dsh-upstream-watch/probe.mjs`，覆盖 wire 面与客户端契约面，结果见 `upstream-watch` label 的 issue 与 README 徽章）。安装途径：版本已上 npm 走 `npm install`（快）；**GitHub-only 版本走源码构建**（codeload 源码包 → `pnpm install --frozen-lockfile` → `pnpm run build` → `node --import tsx/esm apps/cli/src/bin.ts`，上游 README 的 Run from source 路径），保证发 npm 前就能提前测。
+- **自动化探针**（`.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑 `scripts/dsh-upstream-watch/probe.mjs`，覆盖 wire 面、网关前端产物与客户端契约面，结果见 `upstream-watch` label 的 issue 与 README 徽章）。安装途径：版本已上 npm 走 `npm install`（快）；**GitHub-only 版本走源码构建**（codeload 源码包 → `pnpm install --frozen-lockfile` → `pnpm run build` → `node --import tsx/esm apps/cli/src/bin.ts`，上游 README 的 Run from source 路径），保证发 npm 前就能提前测。
 - **人工/补充项**（探针覆盖不到的模型行为与端到端，由认领该版本测试 issue 的人执行）
 
-## 自动化探针项（probe.mjs，18 项）
+## 自动化探针项（probe.mjs，21 项）
 
-探针分两类：**伺服面**（wire——网关对外的 HTTP/WS 接口，上游改了交互方式在这一面现形）与**客户端契约面**（combo——装配线直引官方前端插件代码，官方的 slot 名、hook 名、字段名就是我们的 ABI）。两类都由 `.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑。
+探针分两类：**伺服面**（wire——网关对外的 HTTP/WS 接口。含装配形态直引的那两样网关前端产物：`/` 的 HTML 与 `/plugins/??` 的 combo——上游改了交互方式或改了产物写法，都在这一面现形）与**客户端契约面**（combo——装配线直引官方前端插件代码，官方的 slot 名、hook 名、字段名就是我们的 ABI）。两类都由 `.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑。
 
 两者的分工：探针只查「名字还在不在」，不查「装起来崩不崩」——后者归 `npm run verify:lab`：F-01 CONTRACT 套件（四棵树零崩溃、零缺失契约），外加 #91 加的两条漂移断言 **F-10 FIBER**（四棵树零 cordis scope 进 FAILED——fiber 失败不进控制台，只能运行期看）与 **F-11 WIRE-LIVENESS**（三棵树 block list 的每个 id 都要在当天 wire 里找得到——官方改名会让过滤静默失效）。
 
-### 伺服面（14 项）
+### 伺服面（17 项）
 
 | id | 检查内容 | dsh-one 依赖点 |
 |---|---|---|
@@ -29,6 +29,11 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 | ws-mux-connect | WS `/api/remote.mux` 带 cookie 建连 | `src/server/remoteMux.ts` |
 | ws-session-follow | `session/follow` snapshot 帧（cursor/records/hasMore/projections；detail 记录 header 键与 version、是否有 chunkRows——0.1.3 起 header 与 records 形状变化在这里现形） | `src/server/modernStreams.ts`、`src/pure/chunkRows.ts` |
 | ws-session-control | `session/control` baseline 帧 | `src/server/modernStreams.ts` |
+| boot-html-contract | 带 cookie GET 网关 `/`：HTML 含 `__ModuleLoader__`、`__DSH_BOOT__`、`const preference`，且 `__DSH_BOOT__` 能解析出 entries ≥ 40（实测 0.1.6-alpha.1 = 56、0.1.2-rc.1 = 46） | `src/ui/assembly/pageHtml.ts`（`__ModuleLoader__` 门面 + 主题预置脚本 + 内联 `__DSH_BOOT__`）、`src/server/assemblyMirror.ts`（原样反代 `/`） |
+| combo-endpoint | 从 `__DSH_BOOT__` 取首个 batch 的 combo URL（`/plugins/??…&rev=`）请求：HTTP 200 且 body > 10 KB（实测 0.1.6-alpha.1 = 20.4 KB、0.1.2-rc.1 = 18.2 KB） | `src/server/assemblyMirror.ts`（拉网关原 combo 后按插件段过滤）、`src/ui/assembly/wireFilter.ts` |
+| origin-fence | 带 cookie POST `session/list` 两次：`Origin: http://127.0.0.1:1` → 403、`Origin` = 网关权威 → 200 | `src/server/assemblyMirror.ts` 的 `proxyHeaders`（Origin/Referer 改写为网关权威） |
+
+后三项是装配形态的上游伺服面检查（#67 的 N1–N3，对应依赖总表 §4 的 F1–F6），它们与依赖总表 §6.2 原设计有一处出入：**N3 判据里的方法用 `session/list`，不用原写的 `host.describe`**——实测两个已支持版本（0.1.2-rc.1 / 0.1.6-alpha.1）的认证网关对 `/api/host.describe` 的任何 payload 都回 404 `not found`（栅栏判定先于路由，403 那一半拿它照样成立，但「权威 Origin → 200」判不出来）。`host.describe` 现在只剩「无凭证 → 401 指纹」那一条用途（见上表 `auth-401-fingerprint`）。
 
 ### 客户端契约面（4 项，`scripts/dsh-upstream-watch/clientContract.mjs`）
 
@@ -67,7 +72,7 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 
 | 跑什么 | 命令 | 覆盖什么 | 前置 |
 |---|---|---|---|
-| 上游探针 | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <版本>`（CI 里由 dsh-upstream-watch 每日自动跑） | 伺服面（wire）+ 客户端契约面（combo 里的 slot/hook/字段名） | 本机有 dsh；探针自起临时 `DSH_HOME` 实例，只读 |
+| 上游探针 | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <版本>`（CI 里由 dsh-upstream-watch 每日自动跑） | 伺服面（wire + 网关前端产物：`/` 的启动契约、combo 端点、Origin 栅栏）+ 客户端契约面（combo 里的 slot/hook/字段名） | 本机有 dsh；探针自起临时 `DSH_HOME` 实例，只读 |
 | 浏览器验证 | `npm run verify:lab` | 四棵树在真网关上装得起来、槽位有内容、零崩溃零缺失契约（F-01 CONTRACT） | `npm run build` 过 + 本机有一个在跑的 dsh 网关 |
 | 宿主半验证 | `npm run verify:host-half` | 网关侧插件半（`packages/dsh-host-capabilities`）与官方 dsh 的兼容 | 见 `scripts/verify-host-half-official.mjs` |
 
