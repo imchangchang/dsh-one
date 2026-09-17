@@ -82,7 +82,7 @@ export async function startProtoServer(options: ProtoServerOptions): Promise<Pro
 
   const mirror: AssemblyMirror = await startAssemblyMirror(() => gateway, log, {
     pluginsDir: options.pluginsDir,
-    treeCombos: PROTO_ROUTES.map((route) => ({ shellPluginId: route.tree.shellPluginId, blockList: route.tree.blockList })),
+    treeCombos: PROTO_ROUTES.map((route) => ({ framePluginId: route.tree.framePluginId, blockList: route.tree.blockList })),
   })
 
   const pageFor = async (route: ProtoTreeRoute, query: URLSearchParams): Promise<string> => {
@@ -90,7 +90,7 @@ export async function startProtoServer(options: ProtoServerOptions): Promise<Pro
     const wire = filterWire(
       extractBootWire(html),
       route.tree.blockList,
-      route.tree.shellPluginId,
+      route.tree.framePluginId,
       route.tree.extraPluginIds,
       await localBundleRev(options.pluginsDir),
       (line) => log.warn(line),

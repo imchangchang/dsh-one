@@ -14,7 +14,7 @@
  * 时返回 null）、页面标题交给官方 `DocumentTitle`。**内容侧一行 CSS 都不需要**。
  *
  * 页面本体（分节导航 + 单节渲染 + 官方 SettingsPanel 观感）是从生产件
- * `src/ui/assembly/shell/settingsFramePlugin.ts` 逐字复制的精简版（去掉「打开配置文件」
+ * `src/ui/assembly/shell/settingsLayoutPlugin.ts` 逐字复制的精简版（去掉「打开配置文件」
  * 自有行动）——原型不动生产代码，所以这份是拷贝而不是引用。
  *
  * 形态侧只需要一条 CSS：把侧栏列去掉（与 chat 树同一手段；该树右栏轨恒为 0，所以

@@ -316,7 +316,7 @@ async function readOfficial(page: OpenedPage['page']): Promise<OfficialReading> 
       return {
         sidebarRight,
         // 官方页没有我们那棵树的 `.dshOneTree_root`，容器内容右缘按官方侧栏根元素算
-        //（`.dshOneSidebarShell_side>div>[class*="root"]`，见 sidebarFramePlugin 的 CSS）。
+        //（`.dshOneSidebarShell_side>div>[class*="root"]`，见 sidebarLayoutPlugin 的 CSS）。
         rootContentRight:
           root === null || rootStyle === null
             ? null

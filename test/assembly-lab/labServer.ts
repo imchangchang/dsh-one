@@ -251,7 +251,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
 
   const mirror: AssemblyMirror = await startAssemblyMirror(() => gateway, log, {
     pluginsDir: options.pluginsDir,
-    treeCombos: ASSEMBLY_TREES.map((tree) => ({ shellPluginId: tree.shellPluginId, blockList: tree.blockList })),
+    treeCombos: ASSEMBLY_TREES.map((tree) => ({ framePluginId: tree.framePluginId, blockList: tree.blockList })),
   })
 
   /** 装配页 HTML：真实模块 + 该树的过滤清单 + 首帧主题。 */
@@ -262,7 +262,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     const wire = filterWire(
       extractBootWire(html),
       route.tree.blockList,
-      route.tree.shellPluginId,
+      route.tree.framePluginId,
       route.tree.extraPluginIds,
       await localBundleRev(options.pluginsDir),
       (line) => log.warn(line),

@@ -160,8 +160,8 @@ export const CONTRACT_SUITE: LabSuite = {
         // 这条挡住「插件没进清单但页面看着正常」的静默退化（例如 block list
         // 把自有 id 也剥掉的误配）。
         const combos = await combosRequested(page)
-        const comboUrl = combos.find((url) => url.includes(`${tree.tree.shellPluginId}/client.js`))
-        const missingPlugins = [tree.tree.shellPluginId, ...tree.tree.extraPluginIds].filter(
+        const comboUrl = combos.find((url) => url.includes(`${tree.tree.framePluginId}/client.js`))
+        const missingPlugins = [tree.tree.framePluginId, ...tree.tree.extraPluginIds].filter(
           (id) => comboUrl === undefined || !comboUrl.includes(`${id}/client.js`),
         )
         check.ok(`${entry.route}：该树全部自有插件进了 combo 请求`, missingPlugins.length === 0, missingPlugins.join(','))
@@ -170,8 +170,8 @@ export const CONTRACT_SUITE: LabSuite = {
           Array.from(document.querySelectorAll('style[data-plugin]')).map((el) => el.getAttribute('data-plugin') ?? ''),
         )
         check.ok(
-          `${entry.route}：frame 插件 ${tree.tree.shellPluginId} 已在页面上执行（CSS 标记）`,
-          cssTags.includes(tree.tree.shellPluginId),
+          `${entry.route}：frame 插件 ${tree.tree.framePluginId} 已在页面上执行（CSS 标记）`,
+          cssTags.includes(tree.tree.framePluginId),
           cssTags.filter((tag) => tag.startsWith('@dsh-one/')).join(','),
         )
         // chat 树的官方右栏座位（#79 决策 B）：座位声明在我们这里、贡献来自官方
@@ -2245,7 +2245,7 @@ export const SKELETON_SUITE: LabSuite = {
       // 官方 ui-cordis 仍在这棵树的 combo 里（它照常注册那个 list 条目），我们也只是
       // 往同一个 list 槽再注册一条自有 id 的条目。
       const combos = await combosRequested(page)
-      const sidebarCombo = combos.find((url) => url.includes('@dsh-one/vscode-sidebar-shell/client.js'))
+      const sidebarCombo = combos.find((url) => url.includes('@dsh-one/vscode-sidebar-ui-layout/client.js'))
       check.ok(
         '座位里与官方条目并存（官方 ui-cordis 仍在这棵树的清单里，我们只往 list 槽加了一条自有 id 的条目）',
         sidebarCombo !== undefined && sidebarCombo.includes('@deepseek-ai/dsh-client-ui-cordis/client.js'),
@@ -2307,7 +2307,7 @@ const DENSITY_REGIONS: ReadonlyArray<{
 
 /**
  * #134 起「行家族取官方标准档」落到这四区里的**测量点**：这些属性两个档同值（回标准档了），
- * 不能再按「紧凑档严格更小」判。名单是按**密度键**推出来的（见 sidebarFramePlugin.ts 的密度表）：
+ * 不能再按「紧凑档严格更小」判。名单是按**密度键**推出来的（见 sidebarLayoutPlugin.ts 的密度表）：
  * - `抽屉会话行`：行高吃 `session-row-height`、左右内边距吃 `row-padding-inline`——两个键都是
  *   行家族键，#134 起两边同值（32px / 8px）；
  * - `抽屉分块块头` / `抽屉头` 的左内边距与 `回收站入口主区` 的左右内边距：吃的是**行内容基准**
