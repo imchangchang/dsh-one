@@ -1,8 +1,17 @@
-/** 对话框（分组新建/重命名/删除、工作区与会话重命名、删除工作区、标签组新建/删除）。 */
+/**
+ * 对话框（分组新建/重命名/删除、工作区与会话重命名、删除工作区、标签组新建/删除）。
+ *
+ * #127：七个弹窗整套取**紧凑档**，与侧栏同一密度（档位表与每处的取值出处写在
+ * `styles.ts` 的 `.dshOneTree_modal` 那一节）。为此官方 `Modal` 走它的 `headless`
+ * prop——官方件在这一版**没有尺寸变体**（举证见 styles.ts 那一段），`headless` 是它
+ * 给的官方口子：mask / Esc / portal / `role="dialog"` 仍由官方代码提供，标题行、
+ * 说明行与底部按钮行由本件按紧凑档拼（`modalHead` / `modalDesc` / `modalActions`）。
+ */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import {
   Button,
   IconCheckOutline16,
+  IconCloseFill14,
   IconEditOutline16,
   IconTrashOutline16,
   Modal,
@@ -13,6 +22,29 @@ import { TAG_COLORS, type TagColor } from '../../../../pure/sessionTags.ts'
 import { displayTitle } from './format.ts'
 import { TAG_COLOR_CSS, TAG_COLOR_LABEL } from './tagGroups.ts'
 import type { Translate } from './types.ts'
+
+/** 弹窗容器的自有类名（挂在官方 Modal 的 dialog 元素上，几何见 styles.ts 那一节）。 */
+const MODAL_CLASS = 'dshOneTree_modal'
+
+/** 头行：标题 + 关闭钮。官方 Modal 在 `headless` 下不再渲染这两件，由这里按紧凑档拼。 */
+function modalHead(title: string, closeLabel: string, onClose: () => void): unknown {
+  return h(
+    'div',
+    { className: 'dshOneTree_modalHead' },
+    h('h2', { className: 'dshOneTree_modalTitle' }, title),
+    h(
+      'button',
+      { type: 'button', className: 'dshOneTree_modalClose', 'aria-label': closeLabel, onClick: onClose },
+      h(IconCloseFill14, {}),
+    ),
+  )
+}
+
+/** 说明行（原来走官方 Modal 的 `description`）。 */
+const modalDesc = (text: string): unknown => h('div', { className: 'dshOneTree_modalDesc' }, text)
+
+/** 底部按钮行（原来走官方 Modal 的 `footer`）；按钮一律取官方 Button 的 `sm` 档。 */
+const modalActions = (...children: unknown[]): unknown => h('div', { className: 'dshOneTree_modalActions' }, ...children)
 
 /**
  * 分组对话框（新建 / 重命名 / 删除确认）——官方 Modal + Button + 圆形输入框，
@@ -64,50 +96,46 @@ export function GroupModal({
     return h(Modal, {
       open,
       onClose,
-      closeLabel: tr('close'),
       title: tr('group.delete'),
-      ...(dialog === null || dialog.kind === 'create' ? {} : { description: tr('group.delete.desc', { name: dialog.name }) }),
-      footer: h(
-        'div',
-        { style: { display: 'flex', gap: '8px' } },
-        h(Button, { variant: 'outline', disabled: busy, onClick: onClose }, tr('cancel')),
-        h(
-          Button,
-          {
-            variant: 'outline',
-            disabled: busy,
-            className: 'dshOneTree_deleteAction',
-            onClick: () => {
-              setBusy(true)
-              onSubmit('')
+      className: MODAL_CLASS,
+      headless: true,
+      children: [
+        modalHead(tr('group.delete'), tr('close'), onClose),
+        ...(dialog === null || dialog.kind === 'create' ? [] : [modalDesc(tr('group.delete.desc', { name: dialog.name }))]),
+        ...(error === null ? [] : [h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error)]),
+        modalActions(
+          h(Button, { size: 'sm', variant: 'outline', disabled: busy, onClick: onClose }, tr('cancel')),
+          h(
+            Button,
+            {
+              size: 'sm',
+              variant: 'outline',
+              disabled: busy,
+              className: 'dshOneTree_deleteAction',
+              onClick: () => {
+                setBusy(true)
+                onSubmit('')
+              },
             },
-          },
-          tr('group.delete'),
+            tr('group.delete'),
+          ),
         ),
-      ),
-      children: error === null ? null : h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error),
+      ],
     })
   }
+  const title = kind === 'create' ? tr('group.new') : tr('group.rename')
   return h(Modal, {
     open,
     onClose,
-    closeLabel: tr('close'),
-    title: kind === 'create' ? tr('group.new') : tr('group.rename'),
-    footer: h(
-      'div',
-      { style: { display: 'flex', gap: '8px' } },
-      h(Button, { variant: 'outline', disabled: busy, onClick: onClose }, tr('cancel')),
-      h(
-        Button,
-        { variant: 'primary', disabled: busy || nameError !== null, onClick: submit },
-        kind === 'create' ? tr('group.new') : tr('rename'),
-      ),
-    ),
+    title,
+    className: MODAL_CLASS,
+    headless: true,
     children: [
+      modalHead(title, tr('close'), onClose),
       h('input', {
         className: 'dshOneTree_renameInput',
         value: draft,
-        'aria-label': kind === 'create' ? tr('group.new') : tr('group.rename'),
+        'aria-label': title,
         autoFocus: true,
         disabled: busy,
         onChange: (event: { target: { value: string } }) => setDraft(event.target.value),
@@ -117,9 +145,17 @@ export function GroupModal({
           if (nameError === null) submit()
         },
       }),
-      nameError === null && error === null
-        ? null
-        : h('div', { className: 'dshOneTree_renameError', role: 'alert' }, nameError ?? error),
+      ...(nameError === null && error === null
+        ? []
+        : [h('div', { className: 'dshOneTree_renameError', role: 'alert' }, nameError ?? error)]),
+      modalActions(
+        h(Button, { size: 'sm', variant: 'outline', disabled: busy, onClick: onClose }, tr('cancel')),
+        h(
+          Button,
+          { size: 'sm', variant: 'primary', disabled: busy || nameError !== null, onClick: submit },
+          kind === 'create' ? tr('group.new') : tr('rename'),
+        ),
+      ),
     ],
   })
 }
@@ -161,31 +197,21 @@ export function ArchiveSessionsModal({
   return h(Modal, {
     open: target !== null,
     onClose,
-    closeLabel: tr('close'),
     title,
-    description: tr('archive.desc'),
-    footer: h(
-      'div',
-      { style: { display: 'flex', gap: '8px' } },
-      h(Button, { variant: 'outline', disabled: busy, onClick: onClose }, tr('cancel')),
-      h(
-        Button,
-        {
-          variant: 'outline',
-          disabled: busy,
-          className: 'dshOneTree_deleteAction',
-          onClick: onConfirm,
-          // 验证套件按这个标记认「确认归档」这一枚（官方按钮类名是哈希）。
-          'data-dshone-tree-action': 'archive-confirm',
-        },
-        busy ? tr('archive.pending') : tr('archive.confirm'),
-      ),
-    ),
+    className: MODAL_CLASS,
+    headless: true,
     children: [
-      target === null || target.skipped === 0
-        ? null
-        : h('div', { className: 'dshOneTree_deleteStatus', 'data-dshone-archive-skipped': target.skipped },
-            tr('archive.skipped', { n: target.skipped })),
+      modalHead(title, tr('close'), onClose),
+      modalDesc(tr('archive.desc')),
+      ...(target === null || target.skipped === 0
+        ? []
+        : [
+            h(
+              'div',
+              { className: 'dshOneTree_deleteStatus', 'data-dshone-archive-skipped': target.skipped },
+              tr('archive.skipped', { n: target.skipped }),
+            ),
+          ]),
       h(
         'div',
         { className: 'dshOneTree_modalBlocks', 'data-dshone-archive-blocks': total },
@@ -210,7 +236,23 @@ export function ArchiveSessionsModal({
               ),
             ),
       ),
-      error === null ? null : h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error),
+      ...(error === null ? [] : [h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error)]),
+      modalActions(
+        h(Button, { size: 'sm', variant: 'outline', disabled: busy, onClick: onClose }, tr('cancel')),
+        h(
+          Button,
+          {
+            size: 'sm',
+            variant: 'outline',
+            disabled: busy,
+            className: 'dshOneTree_deleteAction',
+            onClick: onConfirm,
+            // 验证套件按这个标记认「确认归档」这一枚（官方按钮类名是哈希）。
+            'data-dshone-tree-action': 'archive-confirm',
+          },
+          busy ? tr('archive.pending') : tr('archive.confirm'),
+        ),
+      ),
     ],
   })
 }
@@ -269,24 +311,11 @@ export function TagGroupCreateModal({
   return h(Modal, {
     open,
     onClose,
-    closeLabel: tr('close'),
     title: tr('tag.new'),
-    footer: h(
-      'div',
-      { style: { display: 'flex', gap: '8px' } },
-      h(Button, { variant: 'outline', onClick: onClose }, tr('cancel')),
-      h(
-        Button,
-        {
-          variant: 'primary',
-          disabled: blocked,
-          onClick: submit,
-          'data-dshone-tree-action': 'tag-create-confirm',
-        },
-        tr('tag.new'),
-      ),
-    ),
+    className: MODAL_CLASS,
+    headless: true,
     children: [
+      modalHead(tr('tag.new'), tr('close'), onClose),
       h('input', {
         className: 'dshOneTree_renameInput',
         'data-dshone-tree': 'tag-name-input',
@@ -327,13 +356,29 @@ export function TagGroupCreateModal({
           ),
         ),
       ),
-      idle || nameError === null
-        ? null
-        : h(
-            'div',
-            { className: 'dshOneTree_renameError', role: 'alert' },
-            nameError === 'empty' ? tr('tag.name.empty') : tr('tag.name.duplicate'),
-          ),
+      ...(idle || nameError === null
+        ? []
+        : [
+            h(
+              'div',
+              { className: 'dshOneTree_renameError', role: 'alert' },
+              nameError === 'empty' ? tr('tag.name.empty') : tr('tag.name.duplicate'),
+            ),
+          ]),
+      modalActions(
+        h(Button, { size: 'sm', variant: 'outline', onClick: onClose }, tr('cancel')),
+        h(
+          Button,
+          {
+            size: 'sm',
+            variant: 'primary',
+            disabled: blocked,
+            onClick: submit,
+            'data-dshone-tree-action': 'tag-create-confirm',
+          },
+          tr('tag.new'),
+        ),
+      ),
     ],
   })
 }
@@ -353,27 +398,29 @@ export function TagGroupDeleteModal({
   return h(Modal, {
     open: target !== null,
     onClose,
-    closeLabel: tr('close'),
     title: tr('tag.delete'),
-    ...(target === null ? {} : { description: tr('tag.delete.desc', { name: target.name }) }),
-    footer: h(
-      'div',
-      { style: { display: 'flex', gap: '8px' } },
-      h(Button, { variant: 'outline', onClick: onClose }, tr('cancel')),
-      h(
-        Button,
-        {
-          variant: 'outline',
-          className: 'dshOneTree_deleteAction',
-          'data-dshone-tree-action': 'tag-delete-confirm',
-          onClick: () => {
-            if (target !== null) onSubmit(target.id)
+    className: MODAL_CLASS,
+    headless: true,
+    children: [
+      modalHead(tr('tag.delete'), tr('close'), onClose),
+      ...(target === null ? [] : [modalDesc(tr('tag.delete.desc', { name: target.name }))]),
+      modalActions(
+        h(Button, { size: 'sm', variant: 'outline', onClick: onClose }, tr('cancel')),
+        h(
+          Button,
+          {
+            size: 'sm',
+            variant: 'outline',
+            className: 'dshOneTree_deleteAction',
+            'data-dshone-tree-action': 'tag-delete-confirm',
+            onClick: () => {
+              if (target !== null) onSubmit(target.id)
+            },
           },
-        },
-        tr('tag.delete'),
+          tr('tag.delete'),
+        ),
       ),
-    ),
-    children: null,
+    ],
   })
 }
 
@@ -424,15 +471,11 @@ export function RenameModal({
   return h(Modal, {
     open,
     onClose,
-    closeLabel: tr('close'),
     title: tr(titleKey),
-    footer: h(
-      'div',
-      { style: { display: 'flex', gap: '8px' } },
-      h(Button, { variant: 'outline', disabled: busy, onClick: onClose }, tr('cancel')),
-      h(Button, { variant: 'primary', disabled: busy || draft.trim() === '', onClick: commit }, tr('rename')),
-    ),
+    className: MODAL_CLASS,
+    headless: true,
     children: [
+      modalHead(tr(titleKey), tr('close'), onClose),
       h('input', {
         className: 'dshOneTree_renameInput',
         value: draft,
@@ -450,7 +493,15 @@ export function RenameModal({
           }
         },
       }),
-      error === null ? null : h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error),
+      ...(error === null ? [] : [h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error)]),
+      modalActions(
+        h(Button, { size: 'sm', variant: 'outline', disabled: busy, onClick: onClose }, tr('cancel')),
+        h(
+          Button,
+          { size: 'sm', variant: 'primary', disabled: busy || draft.trim() === '', onClick: commit },
+          tr('rename'),
+        ),
+      ),
     ],
   })
 }
@@ -486,18 +537,22 @@ export function DeleteWorkspaceModal({
   return h(Modal, {
     open: target !== null,
     onClose,
-    closeLabel: tr('close'),
     title: tr('delete.workspace'),
-    ...(target === null ? {} : { description: tr('delete.desc', { name: target.title }) }),
-    footer: h(
-      'div',
-      { style: { display: 'flex', gap: '8px' } },
-      h(Button, { variant: 'outline', disabled: busy, onClick: onClose }, tr('cancel')),
-      h(Button, { variant: 'outline', disabled: busy, onClick: commit, className: 'dshOneTree_deleteAction' }, tr('delete.workspace')),
-    ),
+    className: MODAL_CLASS,
+    headless: true,
     children: [
-      busy ? h('div', { className: 'dshOneTree_deleteStatus', role: 'status' }, tr('delete.pending')) : null,
-      error === null ? null : h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error),
+      modalHead(tr('delete.workspace'), tr('close'), onClose),
+      ...(target === null ? [] : [modalDesc(tr('delete.desc', { name: target.title }))]),
+      ...(busy ? [h('div', { className: 'dshOneTree_deleteStatus', role: 'status' }, tr('delete.pending'))] : []),
+      ...(error === null ? [] : [h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error)]),
+      modalActions(
+        h(Button, { size: 'sm', variant: 'outline', disabled: busy, onClick: onClose }, tr('cancel')),
+        h(
+          Button,
+          { size: 'sm', variant: 'outline', disabled: busy, onClick: commit, className: 'dshOneTree_deleteAction' },
+          tr('delete.workspace'),
+        ),
+      ),
     ],
   })
 }
@@ -567,14 +622,11 @@ export function ManageGroupsModal({
   return h(Modal, {
     open,
     onClose,
-    closeLabel: tr('close'),
     title: tr('group.manage.title'),
-    footer: h(
-      'div',
-      { style: { display: 'flex', gap: '8px' } },
-      h(Button, { variant: 'outline', onClick: onClose }, tr('close')),
-    ),
+    className: MODAL_CLASS,
+    headless: true,
     children: [
+      modalHead(tr('group.manage.title'), tr('close'), onClose),
       h(
         'div',
         { className: 'dshOneTree_manageList', 'data-dshone-tree': 'group-manage-list' },
@@ -610,9 +662,10 @@ export function ManageGroupsModal({
             submit()
           },
         }),
-        h(Button, { variant: 'primary', disabled: draft.trim() === '', onClick: submit }, tr('group.new')),
+        h(Button, { size: 'sm', variant: 'primary', disabled: draft.trim() === '', onClick: submit }, tr('group.new')),
       ),
-      error === null ? null : h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error),
+      ...(error === null ? [] : [h('div', { className: 'dshOneTree_renameError', role: 'alert' }, error)]),
+      modalActions(h(Button, { size: 'sm', variant: 'outline', onClick: onClose }, tr('close'))),
     ],
   })
 }
