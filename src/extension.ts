@@ -5,7 +5,7 @@ import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
-import { browserUrl } from './server/serverAuth.ts'
+import { browserUrl, getAuth } from './server/serverAuth.ts'
 import { archiveSession, createSession, ensureWorkspace, forkSession, renameSession } from './server/dshRpc.ts'
 import { formatSessionMention } from './pure/sessionMention.ts'
 import {
@@ -25,6 +25,7 @@ import { DshUpdate } from './server/dshUpdate.ts'
 import { locateDsh, type LocatedDsh } from './server/locateDsh.ts'
 import { decideUpdate } from './pure/dshUpdate.ts'
 import { statusActions, statusSummary } from './pure/statusActions.ts'
+import { lanOrigin, tokenizedUrl } from './pure/lanAccess.ts'
 import { TagBridge } from './server/tagBridge.ts'
 
 /**
@@ -587,9 +588,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       )
       if (picked) await vscode.commands.executeCommand(picked.action.command)
     }),
+    // 复制带 token 的访问链接（backlog statusbar-lan-access）：本机链接 =
+    // browserUrl（token 从认证态取）；局域网链接 = 转发器在监听的 <ip>:<port>
+    // + 同一个 token。token 是敏感值：只进剪贴板，不进日志（serverAuth 的约定）。
+    vscode.commands.registerCommand('dshOne.copyLink', async () => {
+      const status = manager.getStatus()
+      if (status.state !== 'running' || !status.url) {
+        void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to copy a link for.'))
+        return
+      }
+      await vscode.env.clipboard.writeText(browserUrl(status.url))
+      void vscode.window.showInformationMessage(vscode.l10n.t('Local access link copied (with token).'))
+    }),
+    vscode.commands.registerCommand('dshOne.copyLanLink', async () => {
+      const status = manager.getStatus()
+      const ip = manager.lanAddress
+      const token = status.url ? getAuth(status.url)?.token : undefined
+      if (status.state !== 'running' || !ip || !token) {
+        void vscode.window.showWarningMessage(vscode.l10n.t('LAN access is not enabled for this instance.'))
+        return
+      }
+      await vscode.env.clipboard.writeText(tokenizedUrl(lanOrigin(ip, status.port ?? 0), token))
+      void vscode.window.showInformationMessage(vscode.l10n.t('LAN access link copied (with token).'))
+    }),
+    // 局域网开关：改设置 + 重启（能力来自 spawn 时的 --trusted-host，必须重启才生效）。
+    // 开 = 把服务暴露给局域网，安全影响必须先讲清（拿到链接的人都能用）。
+    vscode.commands.registerCommand('dshOne.restartLan', async () => {
+      if (manager.getStatus().state !== 'running') {
+        void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to copy a link for.'))
+        return
+      }
+      const proceed = vscode.l10n.t('Restart for LAN access')
+      const answer = await vscode.window.showWarningMessage(
+        vscode.l10n.t(
+          'Expose dsh to the local network? Anyone on the network with the link (which carries the token) can use it. dsh restarts to enable LAN access.',
+        ),
+        { modal: true },
+        proceed,
+      )
+      if (answer !== proceed) return
+      await vscode.workspace.getConfiguration('dshOne').update('lanAccess', true, vscode.ConfigurationTarget.Global)
+      await manager.restart()
+    }),
+    vscode.commands.registerCommand('dshOne.restartLocal', async () => {
+      await vscode.workspace.getConfiguration('dshOne').update('lanAccess', false, vscode.ConfigurationTarget.Global)
+      await manager.restart()
+    }),
     // 未安装 dsh 时状态栏「Install dsh」链接的落点：聚焦侧栏面板，那里是
     // 「未安装」状态页（`reason === 'dshNotFound'`），页面上的「查看安装指南」
-    // 再开上面的引导 tab。侧栏本身就是窄条，不在这里直接塞引导内容。    vscode.commands.registerCommand('dshOne.openSessions', async () => {
+    // 再开上面的引导 tab。侧栏本身就是窄条，不在这里直接塞引导内容。
+    vscode.commands.registerCommand('dshOne.openSessions', async () => {
       await vscode.commands.executeCommand('dshOne.chat.focus')
     }),
     // Title-area "+": register a picked folder as a new dsh workspace.

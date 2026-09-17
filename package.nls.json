@@ -13,6 +13,10 @@
   "dshOne.external.stop.title": "Stop External Instance",
   "dshOne.external.restart.title": "Restart External Instance",
   "dshOne.showLogs.title": "Show Logs",
+  "dshOne.copyLink.title": "Copy Local Access Link",
+  "dshOne.copyLanLink.title": "Copy LAN Access Link",
+  "dshOne.restartLan.title": "Restart dsh for LAN Access",
+  "dshOne.restartLocal.title": "Restart dsh for Local-only Access",
   "dshOne.checkUpdate.title": "Check for dsh Updates",
   "dshOne.upgrade.title": "Upgrade dsh",
   "dshOne.session.new.title": "New Session",
@@ -21,5 +25,6 @@
   "dshOne.openInstallPage.title": "View dsh Installation Guide",
   "dshOne.dshPath.description": "Path to the dsh executable. Leave empty to look it up from PATH.",
   "dshOne.autoStart.description": "Automatically start (or reuse) the dsh web service when the extension activates.",
-  "dshOne.port.description": "Port for the dsh web service. 0 lets the OS pick one; a non-zero value first probes whether a dsh instance is already running on that port and reuses it. Note that 0 breaks session restore in the dsh UI (localStorage is isolated per origin)."
+  "dshOne.port.description": "Port for the dsh web service. 0 lets the OS pick one; a non-zero value first probes whether a dsh instance is already running on that port and reuses it. Note that 0 breaks session restore in the dsh UI (localStorage is isolated per origin).",
+  "dshOne.lanAccess.description": "Expose the dsh web service to the local network. dsh itself always listens on 127.0.0.1; when enabled, dsh One starts a forwarder on your LAN address and launches dsh with --trusted-host so LAN devices can open the tokenized link. Anyone on the network with the link can use dsh."
 }

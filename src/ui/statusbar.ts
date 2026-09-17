@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import type { ServerManager, ServerStatus } from '../server/manager.ts'
 import type { DshUpdate } from '../server/dshUpdate.ts'
-import { tooltipMarkdown } from '../pure/statusTooltip.ts'
+import { tooltipMarkdown, type TooltipStatus } from '../pure/statusTooltip.ts'
 import { decideUpdate } from '../pure/dshUpdate.ts'
 
 /**
@@ -73,7 +73,7 @@ export class StatusBar implements vscode.Disposable {
   private readonly updateSub: vscode.Disposable
 
   constructor(
-    manager: ServerManager,
+    private readonly manager: ServerManager,
     private readonly updateChecker: DshUpdate,
   ) {
     // 点击 = 打开动作面板（#90）。面板按当前状态给动作，所以所有状态都指向同一个命令
@@ -89,7 +89,9 @@ export class StatusBar implements vscode.Disposable {
 
   private render(status: ServerStatus): void {
     this.item.text = text(status)
-    this.item.tooltip = tooltip(status, this.updateChecker)
+    // lanAddress = 转发器正在监听的局域网地址（ undefined = 局域网不可达/未知）。
+    const tooltipStatus: TooltipStatus = { ...status, lanIp: this.manager.lanAddress }
+    this.item.tooltip = tooltip(tooltipStatus, this.updateChecker)
     this.item.color = color(status)
   }
 

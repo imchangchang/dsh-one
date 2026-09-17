@@ -19,6 +19,8 @@ import {
   writeOwnedRecord,
 } from './ownedRecord.ts'
 import { findListenerPid, processCommandLine, isDshCommandLine, stopExternalPid, drainPort, pidAlive, probeDshVersionFromCommandLine } from './externalDsh.ts'
+import { LanForwarder } from './lanForwarder.ts'
+import { pickLanIPv4, supportsTrustedHost } from '../pure/lanAccess.ts'
 import type { OwnedRecord } from './ownedRecord.ts'
 import type { Logger } from '../log.ts'
 
@@ -85,11 +87,37 @@ export class ServerManager implements vscode.Disposable {
   private readonly onDidChangeStateEmitter = new vscode.EventEmitter<ServerStatus>()
   readonly onDidChangeState = this.onDidChangeStateEmitter.event
 
+  /** 局域网转发器（懒建：字段初始化时 logger 还没被参数属性赋值）。 */
+  private lan: LanForwarder | null = null
+  /**
+   * 当前实例的局域网能力：spawn 时带了 `--trusted-host <ip>`（或 re-own 的记录里
+   * 有）才有值。它只代表「网关认这个局域网地址」，转发器没在跑时局域网依然不通。
+   */
+  private currentLanIp?: string
+  private lanBindFailureNotified = false
+
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly logger: Logger,
   ) {
     this.ownerId = context.globalStorageUri.fsPath
+  }
+
+  /**
+   * 局域网访问地址：转发器正在监听的 `<ip>`（此时局域网链接才真的可达）。
+   * undefined = 局域网访问不可用（没开、能力缺失或转发器没起来）。
+   */
+  get lanAddress(): string | undefined {
+    return this.lanForwarder.boundIp
+  }
+
+  private get lanForwarder(): LanForwarder {
+    this.lan ??= new LanForwarder(this.logger)
+    return this.lan
+  }
+
+  private lanSettingOn(): boolean {
+    return vscode.workspace.getConfiguration('dshOne').get<boolean>('lanAccess', false)
   }
 
   getStatus(): ServerStatus {
@@ -102,6 +130,30 @@ export class ServerManager implements vscode.Disposable {
     if (next.state === 'running' && next.url && next.version) registerVersion(next.url, next.version)
     this.status = next
     this.onDidChangeStateEmitter.fire(next)
+    this.syncLanForwarder(next)
+  }
+
+  /**
+   * 局域网转发器随实例状态走：running + 已具备能力（spawn 时带过 trusted-host）
+   * + 设置开启 → 确保在监听；其余状态一律停掉。能力缺失（设置开了但这次 spawn
+   * 没带旗标）时**不**起转发器——网关不认局域网 Host，起了也连不上，重启按钮
+   * 才是正确的开启方式。
+   */
+  private syncLanForwarder(next: ServerStatus): void {
+    if (next.state !== 'running' || !this.currentLanIp || !this.lanSettingOn() || !next.port) {
+      this.lanForwarder.stop()
+      return
+    }
+    void this.lanForwarder.start(this.currentLanIp, next.port).catch((err: unknown) => {
+      const detail = err instanceof Error ? err.message : String(err)
+      this.logger.warn(`lan forwarder failed to bind ${this.currentLanIp}:${next.port}: ${detail}`)
+      if (!this.lanBindFailureNotified) {
+        this.lanBindFailureNotified = true
+        void vscode.window.showWarningMessage(
+          vscode.l10n.t('LAN access is unavailable: {0}', detail),
+        )
+      }
+    })
   }
 
   /** Singleton start: concurrent callers share one in-flight promise. */
@@ -248,6 +300,8 @@ export class ServerManager implements vscode.Disposable {
     // 启动的 dsh 占用时，stop 会误杀复用 pid 的进程组——host.describe 不含
     // pid，无法更严格地验证。
     const owned = await readOwnedRecord(defaultOwnedPath(), this.logger)
+    // 局域网能力跟记录走：spawn 窗口写下的 lanIp，re-own/第二窗口读回沿用。
+    this.currentLanIp = owned?.lanIp
     if (owned) {
       if (isExternalRecord(owned) && owned.token) {
         // 外部实例重启后 token 必失效（token 只被生成它的进程换出 303），
@@ -337,7 +391,7 @@ export class ServerManager implements vscode.Disposable {
                 const auth = await probeToken(ownedUrl, recovered, this.logger)
                 if (auth !== null) {
                   const livePid = (await findListenerPid(ownedPort, this.logger)) ?? owned.pid
-                  await this.writeOwned({ pid: livePid, port: ownedPort, token: recovered, version: owned.version })
+                  await this.writeOwned({ pid: livePid, port: ownedPort, token: recovered, version: owned.version, lanIp: owned.lanIp })
                   if (ownership === 'own') {
                     this.logger.info(
                       `re-owning authenticated dsh at ${ownedUrl} (token recovered from log; pid=${owned.pid})`,
@@ -470,6 +524,38 @@ export class ServerManager implements vscode.Disposable {
       args.push('--no-open')
     }
 
+    // 局域网访问（backlog statusbar-lan-access）：dsh 永远只听 127.0.0.1（上游
+    // 明拒 0.0.0.0，见 pure/lanAccess.ts 头注）；这里只追加官方的 --trusted-host，
+    // 让网关的 Host 信任栏放行局域网地址，真正的监听由 LanForwarder 提供。
+    // variadic 旗标一次给两种形态（host-only + host:port），端口回退（findFreePort）
+    // 换了实际端口时 host-only 那条仍兜底。能力记入共享记录，re-own/第二窗口沿用。
+    let lanIp: string | undefined
+    if (this.lanSettingOn()) {
+      if (!supportsTrustedHost(dsh.version)) {
+        this.logger.warn(
+          `lan access requested but dsh ${dsh.version} lacks --trusted-host (needs ${'0.1.6-alpha.1'}+); staying local-only`,
+        )
+        void vscode.window.showWarningMessage(
+          vscode.l10n.t(
+            'LAN access needs dsh {0} or newer; this dsh is {1}, staying local-only.',
+            '0.1.6-alpha.1',
+            dsh.version,
+          ),
+        )
+      } else {
+        lanIp = pickLanIPv4(os.networkInterfaces()) ?? undefined
+        if (lanIp) {
+          args.push('--trusted-host', lanIp, `${lanIp}:${spawnPort}`)
+        } else {
+          this.logger.warn('lan access requested but no LAN IPv4 address was detected')
+          void vscode.window.showWarningMessage(
+            vscode.l10n.t('No LAN IPv4 address was detected; staying local-only.'),
+          )
+        }
+      }
+    }
+    this.currentLanIp = lanIp
+
     this.logger.info(`spawning: ${dsh.command} ${args.join(' ')} (cwd=${workspaceRoot})`)
 
     // 父死子存：单层 detached+unref 不够——实测 VS Code 在 reload 后会对扩展
@@ -483,17 +569,17 @@ export class ServerManager implements vscode.Disposable {
     const dshPid = await this.spawnViaLauncher(launcher, dsh.command, args, env, workspaceRoot)
     this.ownedPid = dshPid
     this.logger.info(`dsh logs to ${this.logFile()}`)
-    await this.writeOwned({ pid: dshPid, port: spawnPort, version: dsh.version })
+    await this.writeOwned({ pid: dshPid, port: spawnPort, version: dsh.version, ...(lanIp ? { lanIp } : {}) })
 
     const ready = await this.waitReady(dshPid, spawnPort)
     const actualPort = ready.port
     if (ready.token !== undefined) {
       // 0.1.2：token 已随就绪行拿到并完成换票（auth 注册在 exchangeToken 内）。
       // 持久化 token 供下次 re-own（stdout 届时已丢）。
-      await this.writeOwned({ pid: dshPid, port: actualPort, token: ready.token, version: dsh.version })
+      await this.writeOwned({ pid: dshPid, port: actualPort, token: ready.token, version: dsh.version, ...(lanIp ? { lanIp } : {}) })
     } else if (actualPort !== spawnPort) {
       // port=0 时启动后才知道实际端口，回填 pidfile 供下次 re-own。
-      await this.writeOwned({ pid: dshPid, port: actualPort, version: dsh.version })
+      await this.writeOwned({ pid: dshPid, port: actualPort, version: dsh.version, ...(lanIp ? { lanIp } : {}) })
     }
     this.setStatus({ state: 'running', url: ready.url, adopted: false, port: actualPort, version: dsh.version })
     this.startHealthCheck(actualPort)
@@ -776,6 +862,7 @@ export class ServerManager implements vscode.Disposable {
    */
   dispose(): void {
     this.stopHealthCheck()
+    this.lanForwarder.stop()
     this.onDidChangeStateEmitter.dispose()
   }
 }

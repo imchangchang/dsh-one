@@ -18,6 +18,8 @@ test('running（自管实例）：打开浏览器 → 检查更新 → 重启 �
     [
       ['openExternal', 'dshOne.openExternal'],
       ['checkUpdate', 'dshOne.checkUpdate'],
+      ['copyLink', 'dshOne.copyLink'],
+      ['restartLan', 'dshOne.restartLan'],
       ['restart', 'dshOne.restart'],
       ['stop', 'dshOne.stop'],
       ['showLogs', 'dshOne.showLogs'],
@@ -29,9 +31,40 @@ test('running（自管实例）：打开浏览器 → 检查更新 → 重启 �
 
 test('running：有新版本时「检查更新」换成「升级到 vX」', () => {
   const actions = run({}, { state: 'update', installed: '0.1.5-rc.1', latest: '0.1.5-rc.2' })
-  assert.deepEqual(actions.map((a) => a.id), ['openExternal', 'upgrade', 'restart', 'stop', 'showLogs'])
+  assert.deepEqual(actions.map((a) => a.id), [
+    'openExternal',
+    'upgrade',
+    'copyLink',
+    'restartLan',
+    'restart',
+    'stop',
+    'showLogs',
+  ])
   assert.equal(actions[1].label, 'Upgrade to v0.1.5-rc.2')
   assert.equal(actions[1].command, 'dshOne.upgrade')
+})
+
+test('running：局域网开着时给「复制局域网链接」与「重启回仅本机」', () => {
+  const status: TooltipStatus = {
+    state: 'running',
+    url: 'http://127.0.0.1:3080',
+    version: '0.1.5-rc.1',
+    lanIp: '192.168.1.23',
+  }
+  const actions = statusActions(status, t)
+  assert.deepEqual(actions.map((a) => a.id), [
+    'openExternal',
+    'checkUpdate',
+    'copyLink',
+    'copyLanLink',
+    'restart',
+    'stop',
+    'restartLocal',
+    'showLogs',
+  ])
+  assert.equal(actions.find((a) => a.id === 'copyLanLink')?.command, 'dshOne.copyLanLink')
+  assert.equal(actions.find((a) => a.id === 'restartLocal')?.command, 'dshOne.restartLocal')
+  assert.ok(!actions.some((a) => a.id === 'restartLan'), '已开局域网就不该再有「重启为局域网」')
 })
 
 test('running：current / ahead / unknown 都保留「检查更新」（不冒充升级入口）', () => {
@@ -52,10 +85,12 @@ test('running：复用（adopted）/外部实例的管理动作走 external.*', 
     const actions = run(flag)
     assert.deepEqual(
       actions.map((a) => a.id),
-      ['openExternal', 'checkUpdate', 'external.restart', 'external.stop', 'showLogs'],
+      ['openExternal', 'checkUpdate', 'copyLink', 'external.restart', 'external.stop', 'showLogs'],
     )
     assert.ok(!actions.some((a) => a.command === 'dshOne.restart'))
     assert.ok(!actions.some((a) => a.command === 'dshOne.stop'))
+    // 局域网能力只对自管实例可判定：复用/外部不给局域网动作（显示上也不猜）。
+    assert.ok(!actions.some((a) => a.id === 'restartLan' || a.id === 'copyLanLink'))
   }
 })
 
@@ -126,7 +161,14 @@ test('动作清单与悬停气泡同源：每个动作都能渲染成一条 comm
 test('statusSummary：状态 + 地址 + 版本，复用/外部实例有标注，有新版本补一句', () => {
   assert.equal(
     statusSummary({ state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1' }, t),
-    'Running — http://127.0.0.1:3080 · dsh v0.1.5-rc.1',
+    'Running — http://127.0.0.1:3080 · dsh v0.1.5-rc.1 · LAN access is off',
+  )
+  assert.equal(
+    statusSummary(
+      { state: 'running', url: 'http://127.0.0.1:3080', version: '0.1.5-rc.1', lanIp: '192.168.1.23' },
+      t,
+    ),
+    'Running — http://127.0.0.1:3080 · dsh v0.1.5-rc.1 · LAN access is on: 192.168.1.23',
   )
   assert.equal(
     statusSummary(
@@ -146,7 +188,7 @@ test('statusSummary：状态 + 地址 + 版本，复用/外部实例有标注，
   // 版本解析失败（unknown）不把「dsh vunknown」写进摘要。
   assert.equal(
     statusSummary({ state: 'running', url: 'http://127.0.0.1:3080', version: 'unknown' }, t),
-    'Running — http://127.0.0.1:3080',
+    'Running — http://127.0.0.1:3080 · LAN access is off',
   )
   assert.equal(statusSummary({ state: 'stopped' }, t), 'Service Stopped')
   assert.equal(statusSummary({ state: 'starting' }, t), 'Service is starting…')

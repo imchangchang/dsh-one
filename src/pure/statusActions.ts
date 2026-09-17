@@ -58,6 +58,11 @@ export function statusActions(
               command: 'dshOne.checkUpdate',
             },
       )
+      // 复制带 token 的访问链接：本机链接对任何实例都有（token 在记录/认证里）；
+      // 局域网链接只在转发器真正在监听时给。
+      actions.push(
+        { id: 'copyLink', label: t('Copy local access link (with token)'), icon: 'link', command: 'dshOne.copyLink' },
+      )
       if (status.external || status.adopted) {
         // 外部启动 / 另一窗口 spawn 的实例：动作走 external.* （确认弹窗在命令层）。
         actions.push(
@@ -75,10 +80,37 @@ export function statusActions(
           },
         )
       } else {
+        // 局域网开关只对自管实例有意义：关 → 重启成局域网可达；开 → 复制局域网
+        // 链接 + 可重启回仅本机（能力来自 spawn 时的 --trusted-host，见 status.lanIp）。
+        actions.push(
+          status.lanIp
+            ? {
+                id: 'copyLanLink',
+                label: t('Copy LAN access link (with token)'),
+                icon: 'broadcast',
+                command: 'dshOne.copyLanLink',
+              }
+            : {
+                id: 'restartLan',
+                label: t('Restart for LAN access'),
+                icon: 'broadcast',
+                command: 'dshOne.restartLan',
+              },
+        )
         actions.push(
           { id: 'restart', label: t('Restart Service'), icon: 'refresh', command: 'dshOne.restart' },
           { id: 'stop', label: t('Stop Service'), icon: 'debug-stop', command: 'dshOne.stop' },
         )
+        if (status.lanIp) {
+          actions.push(
+            {
+              id: 'restartLocal',
+              label: t('Restart for local-only access'),
+              icon: 'shield',
+              command: 'dshOne.restartLocal',
+            },
+          )
+        }
       }
       actions.push(showLogs)
       return actions
@@ -159,6 +191,8 @@ export function statusSummary(
       if (status.version && status.version !== 'unknown') parts.push(`dsh v${status.version}`)
       if (status.adopted) parts.push(t('Reused from another window'))
       if (status.external) parts.push(t('External instance'))
+      if (status.lanIp) parts.push(t('LAN access is on: {0}', status.lanIp))
+      else if (!status.adopted && !status.external) parts.push(t('LAN access is off'))
       break
     case 'starting':
       parts.push(t('Service is starting…'))

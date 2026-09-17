@@ -17,6 +17,11 @@ export interface TooltipStatus {
   reason?: 'dshNotFound' | 'authDshNoToken'
   /** `dsh --version` 的结果；'unknown' = 版本解析失败，不显示。 */
   version?: string
+  /**
+   * 局域网访问地址（manager.lanAddress：转发器正在监听的 IP）。有值 = 局域网
+   * 可达；无值 = 不可达或未知（复用/外部实例探测不到，不显示任何局域网行）。
+   */
+  lanIp?: string
 }
 
 /** 注入的本地化函数（production 传 vscode.l10n.t；测试用恒等函数）。 */
@@ -71,10 +76,18 @@ export function tooltipMarkdown(
         : status.adopted
           ? paragraphs([t('This dsh was started in another window.'), t('Stop / restart asks for confirmation.')])
           : undefined
+      // 局域网状态一行（#… statusbar-lan-access）：只在自管实例上给「关」——
+      // 复用/外部实例探测不到能力，显示了反而是瞎猜。
+      const lanLine = status.lanIp
+        ? t('LAN access is on: {0}', status.lanIp)
+        : !status.adopted && !status.external
+          ? t('LAN access is off (local only).')
+          : undefined
       return paragraphs([
         `**DSH One** — ${status.url}`,
         version,
         upgradeTo ? t('A newer dsh is available: v{0}', upgradeTo) : undefined,
+        lanLine,
         description,
         actionRows(status, t, update),
       ])

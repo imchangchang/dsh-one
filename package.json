@@ -104,6 +104,26 @@
         "category": "DSH One"
       },
       {
+        "command": "dshOne.copyLink",
+        "title": "%dshOne.copyLink.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.copyLanLink",
+        "title": "%dshOne.copyLanLink.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.restartLan",
+        "title": "%dshOne.restartLan.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.restartLocal",
+        "title": "%dshOne.restartLocal.title%",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.checkUpdate",
         "title": "%dshOne.checkUpdate.title%",
         "category": "DSH One"
@@ -172,6 +192,11 @@
           "default": 3080,
           "minimum": 0,
           "description": "%dshOne.port.description%"
+        },
+        "dshOne.lanAccess": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dshOne.lanAccess.description%"
         }
       }
     }

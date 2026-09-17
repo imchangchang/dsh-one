@@ -41,6 +41,12 @@ export interface OwnedRecord {
    * （owned:false）不被任何窗口自动 kill——A 档管理走显式确认。
    */
   owned?: boolean
+  /**
+   * 局域网能力：spawn 时带了 `--trusted-host <该地址>` 才有值（见 pure/lanAccess.ts
+   * 的上游约束说明）。re-own / 第二窗口据此知道这个实例局域网可达、并能把
+   * 转发器再拉起来（转发器绑定失败时静默降级，不影响 dsh 本身）。
+   */
+  lanIp?: string
 }
 
 /** 外部粘贴 token 连接的记录（B 档）判据。 */
@@ -74,6 +80,7 @@ export async function readOwnedRecord(filePath: string, logger: LogSink): Promis
       ...(typeof parsed.owner === 'string' ? { owner: parsed.owner } : {}),
       ...(parsed.source === 'spawn' || parsed.source === 'external' ? { source: parsed.source } : {}),
       ...(typeof parsed.owned === 'boolean' ? { owned: parsed.owned } : {}),
+      ...(typeof parsed.lanIp === 'string' ? { lanIp: parsed.lanIp } : {}),
     }
   } catch {
     return null

@@ -13,8 +13,11 @@ test('running: version line after the title (dsh 0.1.2-rc.1)', () => {
     tooltipMarkdown(status, t),
     '**DSH One** — http://127.0.0.1:3080\n\n' +
       'dsh v0.1.2-rc.1\n\n' +
+      'LAN access is off (local only).\n\n' +
       '[$(globe) Open in Browser](command:dshOne.openExternal)\n\n' +
       '[$(cloud-download) Check for Updates](command:dshOne.checkUpdate)\n\n' +
+      '[$(link) Copy local access link (with token)](command:dshOne.copyLink)\n\n' +
+      '[$(broadcast) Restart for LAN access](command:dshOne.restartLan)\n\n' +
       '[$(refresh) Restart Service](command:dshOne.restart)\n\n' +
       '[$(debug-stop) Stop Service](command:dshOne.stop)\n\n' +
       '[$(output) Show Logs](command:dshOne.showLogs)',
@@ -50,6 +53,8 @@ test('动作布局：动作行的数量与顺序 == statusActions 的清单', ()
   assert.deepEqual(commands, [
     'dshOne.openExternal',
     'dshOne.checkUpdate',
+    'dshOne.copyLink',
+    'dshOne.restartLan',
     'dshOne.restart',
     'dshOne.stop',
     'dshOne.showLogs',
@@ -259,4 +264,20 @@ test('气泡宽度：每段可见文字 ≤ 48 字符（防长句撑宽）', () 
       }
     }
   }
+})
+
+test('气泡：局域网开着时显示地址行，动作给复制局域网链接', () => {
+  const md = tooltipMarkdown(
+    {
+      state: 'running',
+      url: 'http://127.0.0.1:3080',
+      version: '0.1.5-rc.1',
+      lanIp: '192.168.1.23',
+    },
+    t,
+  )
+  assert.ok(md.includes('LAN access is on: 192.168.1.23'))
+  assert.ok(!md.includes('LAN access is off'))
+  assert.ok(md.includes('[$(broadcast) Copy LAN access link (with token)](command:dshOne.copyLanLink)'))
+  assert.ok(!md.includes('Restart for LAN access'))
 })
