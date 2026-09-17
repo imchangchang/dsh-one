@@ -17,11 +17,10 @@
  */
 import {
   Check,
-  fiberFacts,
+  describeFiberFailure,
+  fiberStateCounts,
   openTreePage,
-  type FiberProbeFacts,
-  type FiberScopeFact,
-  type OpenedPage,
+  waitForFiberQuiet,
 } from './harness.ts'
 import { LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
 import { ASSEMBLY_TREES, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
@@ -45,56 +44,6 @@ const FIBER_VIEWPORT: Readonly<Record<string, { width: number; height: number }>
   'sidebar-official': { width: 380, height: 900 },
 }
 
-/**
- * 等 fiber 状态**静下来**再下结论。
- *
- * 为什么不能只睡一个固定时长：失败发生在会话级 scope 创建那一刻（#74 那条就是），
- * 而那一刻取决于会话数据什么时候到——睡短了会漏，睡长了每棵树白等。这里改成看
- * `internal/status` 事件的增长：连续 `quietMs` 没有新事件就当这棵树装完了，
- * 上限 `maxMs` 兜底（跑着的会话会持续推流，不能无限等）。
- */
-async function waitForFiberQuiet(
-  page: OpenedPage['page'],
-  check: Check,
-  label: string,
-  options: { quietMs?: number; maxMs?: number } = {},
-): Promise<FiberProbeFacts> {
-  const quietMs = options.quietMs ?? 1500
-  const maxMs = options.maxMs ?? 15_000
-  const started = Date.now()
-  let facts = await fiberFacts(page)
-  let lastEvents = facts?.events ?? -1
-  let quietSince = Date.now()
-  while (Date.now() - started < maxMs) {
-    await page.waitForTimeout(250)
-    const next = await fiberFacts(page)
-    if (next === null) break
-    facts = next
-    if (next.events !== lastEvents) {
-      lastEvents = next.events
-      quietSince = Date.now()
-      continue
-    }
-    if (Date.now() - quietSince >= quietMs) break
-  }
-  check.fact(`${label}：fiber 探针等待 ${String(Date.now() - started)}ms 后静下来（事件数 ${String(facts?.events ?? -1)}）`)
-  if (facts === null) throw new Error(`${label}: fiber 探针没装上（页面里没有 __LAB_FIBER__）`)
-  return facts
-}
-
-/** 一条失败 scope 的人话描述（失败信息里直接点名插件、状态与原因）。 */
-function describeFailure(fact: FiberScopeFact): string {
-  const who = fact.plugin ?? `无主 scope（uid=${String(fact.uid)}${fact.name === '' ? '' : `, name=${fact.name}`}）`
-  return `${who}: ${fact.error === '' ? `状态 ${fact.prev} → ${fact.state}` : fact.error}`
-}
-
-/** 各状态的 scope 数（报告里的观测行用）。 */
-function stateCounts(facts: FiberProbeFacts): Record<string, number> {
-  const counts: Record<string, number> = {}
-  for (const scope of facts.scopes) counts[scope.state] = (counts[scope.state] ?? 0) + 1
-  return counts
-}
-
 export const FIBER_SUITE: LabSuite = {
   id: 'F-10',
   phase: 'new-feature',
@@ -116,7 +65,7 @@ export const FIBER_SUITE: LabSuite = {
       try {
         const facts = await waitForFiberQuiet(opened.page, check, name)
         check.fact(
-          `${name}：探针登记插件=${String(facts.plugins.length)} 事件总线=${String(facts.attached)} 状态事件=${String(facts.events)} scope=${String(facts.scopes.length)} 状态分布=${JSON.stringify(stateCounts(facts))}`,
+          `${name}：探针登记插件=${String(facts.plugins.length)} 事件总线=${String(facts.attached)} 状态事件=${String(facts.events)} scope=${String(facts.scopes.length)} 状态分布=${JSON.stringify(fiberStateCounts(facts))}`,
         )
         check.ok(
           `${name}：fiber 探针接上了 cordis 事件总线（0 = 这条断言的证据链断了）`,
@@ -136,7 +85,7 @@ export const FIBER_SUITE: LabSuite = {
         check.eq(`${name}：fiber 探针自身零异常`, facts.errors, [])
         check.eq(
           `${name}：零 scope 进 FAILED`,
-          facts.failed.map(describeFailure),
+          facts.failed.map(describeFiberFailure),
           [],
         )
       } finally {
@@ -177,9 +126,16 @@ function distinctiveWords(id: string): string[] {
  * 「这个 id 去哪了」的线索：在当天 wire 里找共享词的 id。
  *
  * 为什么值得猜：官方把插件**改名**或**并进别的插件**是这条断言最常见的两种红法
- * （今天的两条死条目正是后者：ui-settings-models 并进了 ui-settings、
- * ui-model-selection 并进了 ui-conversation），猜出来的邻居能让读报告的人立刻
- * 知道去哪里看，而不是对着一个不存在的 id 发呆。猜空就如实说猜空。
+ * （2026-09-16 那轮的两条红就是这样读的：ui-settings-models 与 ui-model-selection
+ * 当天不在 wire 里），猜出来的邻居能让读报告的人立刻知道去哪里看，而不是对着一个
+ * 不存在的 id 发呆。猜空就如实说猜空。
+ *
+ * **#164 更正那两条红的原因**：它们不是「官方并进别的插件」，而是**这台机器的
+ * 日常 profile 自己干掉了它们**——`@dsh-one/dsh-llm-provider`（另一仓）的 bundle
+ * patch 里 `disabled: true` 禁掉了 `ui-model-selection` 与 `ui-settings-models`。
+ * 换句话说这条断言的红有第三种原因：**wire 被我们自己的补丁改过**，而「官方改名」
+ * 与「被自己补丁关掉」在 wire 上长得一样。要区分它们只能看**全新 `DSH_HOME`** 的
+ * wire：那边才是官方的原样清单（F-55 走的就是这条）。
  */
 function renameHint(id: string, wireIds: ReadonlySet<string>): string {
   const words = distinctiveWords(id)

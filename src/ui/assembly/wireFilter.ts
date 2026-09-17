@@ -95,11 +95,17 @@ const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-goal', reason: 'goal cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-plan', reason: 'plan cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-message-feedback', reason: 'message feedback; no conversation area in the sidebar/settings trees' },
-  // ui-model-selection 曾在这条清单里（composer 里的模型选择面）。2026-09-16 摘除：
-  // dsh 0.1.6-alpha.1 的 wire 里已经没有这个条目（官方把它并进了 ui-conversation），
-  // 留着是一条永远不会命中的过滤，而「永远不命中」和「官方改名导致过滤失效」在
-  // 日志里长得一样——那正是 #91 要用断言区分开的两种情形。清单与实际 wire 对齐由
-  // 浏览器验证的 F-11 WIRE-LIVENESS 套件常驻把关。
+  // ui-model-selection 曾在这条清单里（composer 里的模型选择面）。2026-09-16 摘除，
+  // 当时的理由写的是「0.1.6-alpha.1 的 wire 里已经没有这个条目」——**那条观察是错的**
+  //（#164 更正）：它看到的 wire 来自日常 profile，而那台机器装了另一仓的
+  // `@dsh-one/dsh-llm-provider`，它的 bundle patch 里 `disabled: true` 把
+  // `ui-model-selection` 与 `ui-settings-models` 两行禁掉了；全新 `DSH_HOME` 上
+  // 这两条一直在官方 wire 里（0.1.6-alpha.1 实测，见 F-55）。
+  // 教训：**「官方有没有这个插件」只能看全新 `DSH_HOME` 的 wire**，被自己的补丁
+  // 改过的 profile 拿来做这个判断一定得出反的结论。
+  // 摘除这个动作本身是对的（清单一长就与 wire 对不上），保持现状：它只在
+  // `conversation.input.model` 座位渲染，而侧栏 / 设置两棵树不声明对话区座位，
+  // 所以放着不渲染任何东西。
   { id: '@deepseek-ai/dsh-client-ui-skill', reason: 'skill cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-client-ui-reference', reason: 'reference cards; no conversation area in the sidebar/settings trees' },
   { id: '@deepseek-ai/dsh-session-log-export', reason: 'session-log export (routed through the host save-dialog action, #71)' },
@@ -116,9 +122,10 @@ const CHAT_FLOW: ReadonlyArray<BlockedPlugin> = [
 /** 设置子页组（#71 瘦身）：设置独立成页后 chat/sidebar 树不再载设置子页。 */
 const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-settings-general', reason: 'General section (owns SettingsRoot/modal); only the settings tree needs it after settings became a page' },
-  // ui-settings-models 曾在这条清单里（Models 设置节）。2026-09-16 摘除：dsh
-  // 0.1.6-alpha.1 的 wire 里已经没有这个条目（Models 节并进了 ui-settings），
-  // 理由同 CHAT_FLOW 里 ui-model-selection 那一段注释。
+  // ui-settings-models 曾在这条清单里（Models 设置节）。2026-09-16 摘除，当时的理由
+  // 与 CHAT_FLOW 里 ui-model-selection 那一段同一份错误观察（日常 profile 被另一仓的
+  // `@dsh-one/dsh-llm-provider` 补丁改过），更正与教训见那一段。
+  // 它留在清单外是对的：本树不声明设置区座位，放着不渲染任何东西。
   { id: '@deepseek-ai/dsh-client-ui-settings-plugins', reason: 'Plugins section; only the settings tree needs it after settings became a page' },
   { id: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory', reason: 'plugin-inventory section; only the settings tree needs it after settings became a page' },
 ]
@@ -126,16 +133,30 @@ const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
 /**
  * sidebar 树 block list（#70，#71 瘦身）：官方外框 + 对话流卡片组 + 设置
  * 子页组。保留闭包：ui-settings（settingsScope 服务提供方，theme 依赖）、
- * ui-input-trigger（ui-cordis 的 inputTriggers 依赖）、ui-cordis（底部动作条）。
+ * ui-input-trigger（ui-cordis 的 inputTriggers 依赖）、ui-cordis（底部动作条）、
+ * ui-commands（commandUi 服务，#164）。
  */
-// 侧栏树专属追加：permission-presets 依赖 ui-commands 的 commandUi 服务
-//（boot 门「pending (waiting for service: commandUi)」实锤），agent-preset
-// 的会话级 seat 挂在对话区——两棵对话树才需要。
+// 侧栏树专属追加：真正的对话区组件（卡片宿主 ui-conversation、卡片组 ui-chat、
+// 会话级 seat agent-preset）——侧栏这棵树没有对话区。
+//
+// ui-commands 与 ui-permission-presets 曾在这条清单里（#164 更正）。当时挡
+// ui-commands 的理由是「slash-command 面板只有对话区用得上」，但官方
+// ui-model-selection（模型选择面）**按服务名依赖它**：boot 门报
+// `@deepseek-ai/dsh-client-ui-model-selection: pending (waiting for service:
+// commandUi)`，而 boot 的规矩是**一个条目没激活就整页抛错**——于是侧栏树整个
+// 挂不上（页面上连 `.dshOneTree_root` 都不出现）。ui-model-selection 留在清单外
+// （它只在 conversation.input.model 座位渲染，本树不声明那个座位），就必须把
+// ui-commands 一起放回来；ui-permission-presets 当初被挡的直接理由就是「依赖
+// ui-commands 的 commandUi」，commandUi 回来之后它没有别的冲突点（它的座位
+// `conversation.input.permission` 本树同样不声明，放着不渲染任何东西），一并放回。
+//
+// 为什么日常实例上看不出来：这台机器的日常 profile 装了 `@dsh-one/dsh-llm-provider`，
+// 它的 bundle patch 关掉了官方模型管理那几件，ui-model-selection 压根不在 wire 里，
+// 也就没人去等 commandUi。#164 立的门禁（F-55，在**自起的全新 `DSH_HOME`** 上跑）
+// 就是为了让这一类「只有干净 profile 才暴露」的缺口在实验室先红。
 const SIDEBAR_ONLY: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-chat', reason: 'chat flow cards (large segment); the settings tree needs its Conversation-display settings row; the sidebar tree does not' },
   { id: '@deepseek-ai/dsh-client-ui-conversation', reason: 'conversation card host; the settings tree needs its composer settings rows (Conversation display / Enter behavior); the sidebar tree does not' },
-  { id: '@deepseek-ai/dsh-client-ui-commands', reason: 'slash-command panel; the settings tree needs its commandUi service (permission-presets depends on it); the sidebar tree does not' },
-  { id: '@deepseek-ai/dsh-client-ui-permission-presets', reason: 'depends on commandUi (ui-commands service); no conversation area in the sidebar tree; the composer permission picker stays with the chat tree' },
   { id: '@deepseek-ai/dsh-client-ui-agent-preset', reason: 'session-scoped seat mounted in the conversation hero; nowhere to render in the sidebar tree' },
 ]
 
