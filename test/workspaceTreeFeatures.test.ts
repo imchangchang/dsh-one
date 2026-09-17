@@ -38,9 +38,13 @@ import {
 } from '../src/pure/treeGroups.ts'
 import {
   TREE_VIEW_PREF_KEY,
+  autoExpandGroup,
   defaultTreeViewPrefs,
+  expandedGroupKeys,
   parseTreeViewPrefs,
   readTreeViewPrefs,
+  setGroupExpansion,
+  toggleGroupExpansion,
   writeTreeViewPrefs,
   type StorageLike,
 } from '../src/pure/workspaceTreePrefs.ts'
@@ -354,11 +358,11 @@ test('视图态：键名沿用官方惯例 dsh.<区>.<名>', () => {
   assert.equal(TREE_VIEW_PREF_KEY, 'dsh.workspaceTree.view')
 })
 
-test('视图态：写出去能读回来（当前分组/展开集合/抽屉与标签组的收起集合）', () => {
+test('视图态：写出去能读回来（当前分组/展开记录/抽屉与标签组的收起集合）', () => {
   const storage = memoryStorage()
   const prefs = {
     activeGroupId: 'g-1',
-    expandedGroups: ['w1', ''],
+    groupExpansion: { w1: true, '': true, w2: false },
     recycleCollapsed: ['w2'],
     tagCollapsed: ['w1\u0000t-1'],
   }
@@ -373,8 +377,8 @@ test('视图态：无键/坏 JSON/未知取值一律回落默认（坏值不该�
   assert.deepEqual(readTreeViewPrefs(memoryStorage({ [TREE_VIEW_PREF_KEY]: '"workspace"' })), defaultTreeViewPrefs())
   assert.deepEqual(readTreeViewPrefs(undefined), defaultTreeViewPrefs())
   assert.deepEqual(
-    parseTreeViewPrefs({ activeGroupId: '', expandedGroups: ['a', 'a', 7] }),
-    { activeGroupId: null, expandedGroups: ['a'], recycleCollapsed: [], tagCollapsed: [] },
+    parseTreeViewPrefs({ activeGroupId: '', groupExpansion: { a: true, b: false, c: 'yes', d: 1, e: null } }),
+    { activeGroupId: null, groupExpansion: { a: true, b: false }, recycleCollapsed: [], tagCollapsed: [] },
   )
   // 旧版本的偏好里没有 recycleCollapsed / tagCollapsed：缺字段按空集合
   // （旧数据不该让抽屉、标签组乱收）
@@ -382,20 +386,74 @@ test('视图态：无键/坏 JSON/未知取值一律回落默认（坏值不该�
   assert.deepEqual(parseTreeViewPrefs({ expandedGroups: ['w1'], tagCollapsed: 'nope' }).tagCollapsed, [])
 })
 
+test('视图态：#151 之前那份「展开过的键」数组还能读（旧记录迁成展开态，收起过的追不回来）', () => {
+  // 旧记录只记「展开过的键」：迁过来就是一个个 true；旧记录里没有的键按「从没碰过」处理
+  //（旧形状根本记不下用户收起过，这不是这次改动能补回的信息）。
+  assert.deepEqual(
+    parseTreeViewPrefs({ activeGroupId: 'g-1', expandedGroups: ['w1', 'w1', '', 7] }),
+    { activeGroupId: 'g-1', groupExpansion: { w1: true, '': true }, recycleCollapsed: [], tagCollapsed: [] },
+  )
+  // 新形状优先：两个字段同时在场时按 groupExpansion 读（迁移只发生一次，写回后旧键就没了）
+  assert.deepEqual(parseTreeViewPrefs({ expandedGroups: ['old'], groupExpansion: { new: false } }).groupExpansion, {
+    new: false,
+  })
+  const storage = memoryStorage({
+    [TREE_VIEW_PREF_KEY]: JSON.stringify({ activeGroupId: null, expandedGroups: ['w1'] }),
+  })
+  const readBack = readTreeViewPrefs(storage)
+  assert.deepEqual(readBack, { activeGroupId: null, groupExpansion: { w1: true }, recycleCollapsed: [], tagCollapsed: [] })
+  writeTreeViewPrefs(storage, readBack)
+  assert.deepEqual(Object.keys(JSON.parse(storage.data[TREE_VIEW_PREF_KEY] as string) as object).sort(), [
+    'activeGroupId',
+    'groupExpansion',
+    'recycleCollapsed',
+    'tagCollapsed',
+  ])
+})
+
+test('#151 首开只展开「从没被显式收/展过」的那一组（官方 WorkspaceBrowser 同规则）', () => {
+  const empty = defaultTreeViewPrefs()
+  // 空记录：没碰过 → 自动展开、记下 true
+  const opened = autoExpandGroup(empty, 'w1')
+  assert.deepEqual(opened.groupExpansion, { w1: true })
+  assert.notEqual(opened, empty)
+  // 记录里已有这个键（无论是展开还是**用户手动收起**）→ 一个字节都不改（同一个对象）
+  const expanded = { ...empty, groupExpansion: { w1: true } }
+  assert.equal(autoExpandGroup(expanded, 'w1'), expanded)
+  const collapsed = { ...empty, groupExpansion: { w1: false } }
+  assert.equal(autoExpandGroup(collapsed, 'w1'), collapsed)
+  // 只有这个键在场时也不影响别的分组：换一组照样自动展开
+  assert.deepEqual(autoExpandGroup(collapsed, 'w2').groupExpansion, { w1: false, w2: true })
+})
+
+test('#151 展开态读写：展开集合从记录派生，翻转与批量写都留在记录里', () => {
+  const base = { ...defaultTreeViewPrefs(), groupExpansion: { w1: true, w2: false } }
+  assert.deepEqual(expandedGroupKeys(base), ['w1'])
+  // 翻转：没记录 = 收起着 → 展开；已展开 → 收起（显式 false，不是删键）
+  assert.deepEqual(toggleGroupExpansion(base, 'w3').groupExpansion, { w1: true, w2: false, w3: true })
+  assert.deepEqual(toggleGroupExpansion(base, 'w1').groupExpansion, { w1: false, w2: false })
+  assert.deepEqual(expandedGroupKeys(toggleGroupExpansion(base, 'w1')), [])
+  // 批量写（「折叠全部 / 展开全部」走它）：只覆盖写进去的键，别的分组一动不动
+  assert.deepEqual(setGroupExpansion(base, { w2: true }).groupExpansion, { w1: true, w2: true })
+  assert.deepEqual(setGroupExpansion(base, { w1: false, w2: false }).groupExpansion, { w1: false, w2: false })
+})
+
 test('视图态：#131 退役的 groupBy / orderBy 从旧记录里读出来也不认（解析只产出仍在用的字段）', () => {
   // 用户在旧版本里选过「单列表 / 最近更新」，那条记录还在 localStorage 里：解析结果里
   // 不该再有这两个字段（写回时顺手把它们从记录里抹掉），其余视图态照原样读回。
   assert.deepEqual(
-    parseTreeViewPrefs({ groupBy: 'flat', orderBy: 'updated', activeGroupId: 'g-1', expandedGroups: ['a'] }),
-    { activeGroupId: 'g-1', expandedGroups: ['a'], recycleCollapsed: [], tagCollapsed: [] },
+    parseTreeViewPrefs({ groupBy: 'flat', orderBy: 'updated', activeGroupId: 'g-1', groupExpansion: { a: true } }),
+    { activeGroupId: 'g-1', groupExpansion: { a: true }, recycleCollapsed: [], tagCollapsed: [] },
   )
-  const storage = memoryStorage({ [TREE_VIEW_PREF_KEY]: JSON.stringify({ groupBy: 'flat', orderBy: 'updated', expandedGroups: ['w1'] }) })
+  const storage = memoryStorage({
+    [TREE_VIEW_PREF_KEY]: JSON.stringify({ groupBy: 'flat', orderBy: 'updated', expandedGroups: ['w1'] }),
+  })
   const readBack = readTreeViewPrefs(storage)
-  assert.deepEqual(readBack, { activeGroupId: null, expandedGroups: ['w1'], recycleCollapsed: [], tagCollapsed: [] })
+  assert.deepEqual(readBack, { activeGroupId: null, groupExpansion: { w1: true }, recycleCollapsed: [], tagCollapsed: [] })
   writeTreeViewPrefs(storage, readBack)
   assert.deepEqual(Object.keys(JSON.parse(storage.data[TREE_VIEW_PREF_KEY] as string) as object).sort(), [
     'activeGroupId',
-    'expandedGroups',
+    'groupExpansion',
     'recycleCollapsed',
     'tagCollapsed',
   ])

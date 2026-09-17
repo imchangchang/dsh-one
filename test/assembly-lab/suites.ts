@@ -55,6 +55,7 @@ import { SESSION_OWNED_SUITE } from './sessionOwnedSuites.ts'
 import { EXTERNAL_LINK_SUITE } from './externalLinkSuites.ts'
 import { SEARCH_HIT_HIGHLIGHT_SUITE } from './searchHitHighlightSuites.ts'
 import { DRAG_PARITY_SUITE } from './dragParitySuites.ts'
+import { EXPAND_DEFAULTS_SUITE } from './expandDefaultsSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6116,4 +6117,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // F-49 归并行开发中的 #153（`unreadCountSuites.ts`），按「从未占用的继续」取 F-50；
   // 套件本体在 dragParitySuites.ts，同为独立文件）。
   DRAG_PARITY_SUITE,
+  // #151 展开态的默认值与空工作区（F-51：F-49 归 #152、F-50 归 #155，
+  // 按「从未占用的继续」顺延；套件本体在 expandDefaultsSuites.ts，同为独立文件）。
+  EXPAND_DEFAULTS_SUITE,
 ]

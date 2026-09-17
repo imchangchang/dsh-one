@@ -1762,10 +1762,24 @@ var TREE_VIEW_PREF_KEY = "dsh.workspaceTree.view";
 function defaultTreeViewPrefs() {
   return {
     activeGroupId: null,
-    expandedGroups: [],
+    groupExpansion: {},
     recycleCollapsed: [],
     tagCollapsed: []
   };
+}
+function parseGroupExpansion(record) {
+  const value = record.groupExpansion;
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return Object.fromEntries(
+      Object.entries(value).filter(
+        (entry) => typeof entry[1] === "boolean"
+      )
+    );
+  }
+  if (!Array.isArray(record.expandedGroups)) return {};
+  return Object.fromEntries(
+    [...new Set(record.expandedGroups.filter((key) => typeof key === "string"))].map((key) => [key, true])
+  );
 }
 function parseTreeViewPrefs(raw) {
   const defaults = defaultTreeViewPrefs();
@@ -1774,10 +1788,23 @@ function parseTreeViewPrefs(raw) {
   const keyList = (value) => Array.isArray(value) ? [...new Set(value.filter((key) => typeof key === "string"))] : [];
   return {
     activeGroupId: typeof record.activeGroupId === "string" && record.activeGroupId !== "" ? record.activeGroupId : null,
-    expandedGroups: keyList(record.expandedGroups),
+    groupExpansion: parseGroupExpansion(record),
     recycleCollapsed: keyList(record.recycleCollapsed),
     tagCollapsed: keyList(record.tagCollapsed)
   };
+}
+function expandedGroupKeys(prefs) {
+  return Object.entries(prefs.groupExpansion).filter(([, expanded]) => expanded).map(([key]) => key);
+}
+function autoExpandGroup(prefs, key) {
+  if (Object.hasOwn(prefs.groupExpansion, key)) return prefs;
+  return { ...prefs, groupExpansion: { ...prefs.groupExpansion, [key]: true } };
+}
+function setGroupExpansion(prefs, entries) {
+  return { ...prefs, groupExpansion: { ...prefs.groupExpansion, ...entries } };
+}
+function toggleGroupExpansion(prefs, key) {
+  return setGroupExpansion(prefs, { [key]: prefs.groupExpansion[key] !== true });
 }
 function readTreeViewPrefs(storage) {
   if (storage === void 0) return defaultTreeViewPrefs();
@@ -4746,7 +4773,7 @@ function WorkspaceTree(props) {
   const pending = useSessionPendingInteraction((state) => state);
   const [prefs, setPrefs] = (0, import_react13.useState)(readTreeViewPrefs(pageStorage()));
   const activeGroupId = prefs.activeGroupId;
-  const groupExpansion = prefs.expandedGroups;
+  const groupExpansion = expandedGroupKeys(prefs);
   const [searchText, setSearchText] = (0, import_react13.useState)("");
   const [content, setContent] = (0, import_react13.useState)(EMPTY_SEARCH);
   const [renameTarget, setRenameTarget] = (0, import_react13.useState)(null);
@@ -4933,9 +4960,7 @@ function WorkspaceTree(props) {
   (0, import_react13.useEffect)(() => {
     if (list.current === void 0 || workspacePhase !== "ready") return;
     const key = owningGroupKey(workspaces, list.current);
-    setPrefs(
-      (prev) => prev.expandedGroups.includes(key) ? prev : { ...prev, expandedGroups: [...prev.expandedGroups, key] }
-    );
+    setPrefs((prev) => autoExpandGroup(prev, key));
   }, [list.current, workspaces, workspacePhase]);
   (0, import_react13.useEffect)(() => {
     const known = new Set(list.ids.filter((id) => !archived.has(id)));
@@ -5010,10 +5035,17 @@ function WorkspaceTree(props) {
   const sessionsOfGroup = (key) => groupMembers.get(key) ?? [];
   const allCollapsed = trimmedQuery === "" && expandableKeys.length > 0 && expandableKeys.every((key) => !groupExpansion.includes(key));
   const toggleCollapseAll = () => {
-    setPrefs((prev) => ({
-      ...prev,
-      expandedGroups: allCollapsed ? [.../* @__PURE__ */ new Set([...prev.expandedGroups, ...expandableKeys])] : []
-    }));
+    setPrefs(
+      (prev) => allCollapsed ? (
+        // 展开全部：有会话的分组一并展开；用户自己展开过的空分组照旧留在展开态
+        //（旧写法的 `[...expandedGroups, ...expandableKeys]` 就是这个意思）。
+        setGroupExpansion(prev, Object.fromEntries(expandableKeys.map((key) => [key, true])))
+      ) : (
+        // 收起全部：整棵树的每一个分组都写成「显式收起」——不留旧记录（已消失的分组下次
+        // 回来不该自己展开），也不给首开规则留把当前会话那一组重新展开的余地。
+        { ...prev, groupExpansion: Object.fromEntries(flatGroups.map((group) => [group.key, false])) }
+      )
+    );
   };
   const groupDefs = treeGroupDefs(groupsFile);
   const groupCounts = new Map(
@@ -5525,10 +5557,7 @@ function WorkspaceTree(props) {
           onToggleSelect: check.onToggleSelect,
           shellName,
           canArchiveAll: hasArchivable(group.key),
-          onToggle: () => setPrefs((prev) => ({
-            ...prev,
-            expandedGroups: prev.expandedGroups.includes(group.key) ? prev.expandedGroups.filter((key) => key !== group.key) : [...prev.expandedGroups, group.key]
-          })),
+          onToggle: () => setPrefs((prev) => toggleGroupExpansion(prev, group.key)),
           onCreate: () => startSession(group.workspaceId),
           // #109 工作区行的三个宿主动作（能力口缺哪条哪枚按钮/菜单项就不出现）。
           onOpenTerminal: openWorkspaceTerminal === void 0 ? void 0 : () => openWorkspaceInTerminal(group),

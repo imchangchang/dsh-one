@@ -26,7 +26,16 @@ import {
   workspaceGroupIds,
   workspaceMatchesGroup,
 } from '../../../../pure/treeGroups.ts'
-import { pageStorage, readTreeViewPrefs, writeTreeViewPrefs, type TreeViewPrefs } from '../../../../pure/workspaceTreePrefs.ts'
+import {
+  autoExpandGroup,
+  expandedGroupKeys,
+  pageStorage,
+  readTreeViewPrefs,
+  setGroupExpansion,
+  toggleGroupExpansion,
+  writeTreeViewPrefs,
+  type TreeViewPrefs,
+} from '../../../../pure/workspaceTreePrefs.ts'
 import { emptySessionMarks, pinnedFirst, toggleMarkId, type SessionMarksState } from '../../../../pure/sessionMarks.ts'
 import {
   createTagGroup,
@@ -134,7 +143,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
   // `pure/workspaceTreePrefs.ts` 的文件头。
   const [prefs, setPrefs] = useState<TreeViewPrefs>(readTreeViewPrefs(pageStorage()))
   const activeGroupId = prefs.activeGroupId
-  const groupExpansion = prefs.expandedGroups
+  // 展开集合从官方那份记录里派生（官方同此：`SessionTree` 里 `Object.entries(groupExpansion)`
+  // 过滤出 true 的键，再喂给 `deriveGroups`）。
+  const groupExpansion = expandedGroupKeys(prefs)
   const [searchText, setSearchText] = useState('')
   const [content, setContent] = useState<SearchState>(EMPTY_SEARCH)
   const [renameTarget, setRenameTarget] = useState<{ workspaceId: string; title: string } | null>(null)
@@ -445,13 +456,12 @@ export function WorkspaceTree(props: TreeProps): unknown {
     if (!list.ids.includes(sessionEdit.id)) setSessionEdit(null)
   }, [sessionEdit, list.ids])
 
-  // 当前会话所在分组默认展开（官方同款：只在一条分组从未被显式收/展过时自动展开）。
+  // 当前会话所在分组默认展开（官方同款：只在一条分组从未被显式收/展过时自动展开——用户
+  // 手动收起过它就不动，规则与出处见 `pure/workspaceTreePrefs.ts` 的 `autoExpandGroup`）。
   useEffect(() => {
     if (list.current === undefined || workspacePhase !== 'ready') return
     const key = owningGroupKey(workspaces, list.current)
-    setPrefs((prev) =>
-      prev.expandedGroups.includes(key) ? prev : { ...prev, expandedGroups: [...prev.expandedGroups, key] },
-    )
+    setPrefs((prev) => autoExpandGroup(prev, key))
   }, [list.current, workspaces, workspacePhase])
 
   // 回收站清账（#103）：会话在 dsh 侧被归档/删掉之后，本地集合里那条就是垃圾数据。
@@ -577,10 +587,15 @@ export function WorkspaceTree(props: TreeProps): unknown {
     trimmedQuery === '' && expandableKeys.length > 0 && expandableKeys.every((key) => !groupExpansion.includes(key))
   /** 已全收起 → 展开全部；否则收起全部（图标与提示在顶栏里随 `allCollapsed` 翻转）。 */
   const toggleCollapseAll = (): void => {
-    setPrefs((prev) => ({
-      ...prev,
-      expandedGroups: allCollapsed ? [...new Set([...prev.expandedGroups, ...expandableKeys])] : [],
-    }))
+    setPrefs((prev) =>
+      allCollapsed
+        ? // 展开全部：有会话的分组一并展开；用户自己展开过的空分组照旧留在展开态
+          //（旧写法的 `[...expandedGroups, ...expandableKeys]` 就是这个意思）。
+          setGroupExpansion(prev, Object.fromEntries(expandableKeys.map((key) => [key, true])))
+        : // 收起全部：整棵树的每一个分组都写成「显式收起」——不留旧记录（已消失的分组下次
+          // 回来不该自己展开），也不给首开规则留把当前会话那一组重新展开的余地。
+          { ...prev, groupExpansion: Object.fromEntries(flatGroups.map((group) => [group.key, false])) },
+    )
   }
 
   // #99 单胶囊的计数口径 = **成员工作区数**（旧侧栏同款）：全部 = 工作区总数；
@@ -1353,13 +1368,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
                   onToggleSelect: check.onToggleSelect,
                   shellName,
                   canArchiveAll: hasArchivable(group.key),
-                  onToggle: () =>
-                    setPrefs((prev) => ({
-                      ...prev,
-                      expandedGroups: prev.expandedGroups.includes(group.key)
-                        ? prev.expandedGroups.filter((key) => key !== group.key)
-                        : [...prev.expandedGroups, group.key],
-                    })),
+                  onToggle: () => setPrefs((prev) => toggleGroupExpansion(prev, group.key)),
                   onCreate: () => startSession(group.workspaceId),
                   // #109 工作区行的三个宿主动作（能力口缺哪条哪枚按钮/菜单项就不出现）。
                   onOpenTerminal: openWorkspaceTerminal === undefined ? undefined : () => openWorkspaceInTerminal(group),
