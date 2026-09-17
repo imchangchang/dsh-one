@@ -91,7 +91,15 @@ async function dialogProbes(page: OpenedPage['page']): Promise<ProbeReading[]> {
 async function auditModal(page: OpenedPage['page'], check: Check, name: string): Promise<void> {
   const probes = await dialogProbes(page)
   check.ok(`${name}：弹窗开出来了（能读到探针）`, probes.length >= 3, `读到 ${String(probes.length)} 组探针`)
-  // 逐个控件把量到的读数写进报告（人工审查要看的「改了之后的量值」就是这一行）。
+  // 逐个控件把量到的读数写进报告（人工审查要看的「改了之后的量值」就是这一行），外加对话框
+  // 自己的整体尺寸（用户感知最直接的那个数：同一个弹窗改前改后差多少）。
+  const box = await page.evaluate(() => {
+    const element = document.querySelector('[role="dialog"]')
+    if (element === null) return null
+    const rect = element.getBoundingClientRect()
+    return { width: Math.round(rect.width), height: Math.round(rect.height) }
+  })
+  check.fact(`${name} 对话框整体尺寸：${JSON.stringify(box)}`)
   check.fact(
     `${name} 量到的几何：${probes
       .map((probe) => `${probe.label}=${JSON.stringify(probe.readings[0] ?? {})}`)
